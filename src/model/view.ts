@@ -4,6 +4,7 @@
  * player from (snapshot ≤ t) + record replay — the reducer is the single
  * source of truth for both, which guarantees snapshot/replay equivalence.
  */
+import { hasFeature, linkPlanFor, physicalId } from './caps'
 import type { FrameDesc } from './frames'
 import type { MacStateName, TLRecord } from './records'
 import type { Scenario } from './scenario'
@@ -26,6 +27,12 @@ export interface NodeStats {
   collisions: number
 }
 
+export interface AcView {
+  backoff: number | null
+  cw: number
+  queueLen: number
+}
+
 export interface NodeView {
   state: MacStateName
   ccaBusy: boolean
@@ -34,11 +41,15 @@ export interface NodeView {
   ssrc: number
   slrc: number
   navUntilNs: Ns
-  ifs: { kind: 'DIFS' | 'EIFS' | 'SIFS'; untilNs: Ns } | null
+  ifs: { kind: 'DIFS' | 'EIFS' | 'SIFS' | 'AIFS'; untilNs: Ns; ac?: number } | null
   queue: QueuedMsduView[]
   currentTx: FrameDesc | null
   currentRx: { frame: FrameDesc; from: string } | null
   stats: NodeStats
+  /** Per-AC contention detail (EDCA nodes). Index 0..3 = BK,BE,VI,VO. */
+  acs: AcView[] | null
+  txopUntilNs: Ns
+  txopAc: number
 }
 
 export interface FlightView {
@@ -61,14 +72,25 @@ export interface Snapshot {
 
 export function initViewState(sc: Scenario): ViewState {
   const nodes: Record<string, NodeView> = {}
-  for (const n of sc.nodes) {
-    nodes[n.id] = {
+  const plan = linkPlanFor(sc.nodes)
+  for (const vid of plan.virtualIds) {
+    const cfg = sc.nodes.find((n) => n.id === physicalId(vid))!
+    const edca = hasFeature(cfg, 'edca')
+    nodes[vid] = {
       state: 'idle', ccaBusy: false, backoff: null, cw: 15, ssrc: 0, slrc: 0,
       navUntilNs: 0, ifs: null, queue: [], currentTx: null, currentRx: null,
       stats: { txOk: 0, txFail: 0, retries: 0, drops: 0, bytesDelivered: 0, airtimeNs: 0, collisions: 0 },
+      acs: edca ? [0, 1, 2, 3].map(() => ({ backoff: null, cw: 15, queueLen: 0 })) : null,
+      txopUntilNs: 0, txopAc: -1,
     }
   }
   return { t: 0, nodes, inFlight: [] }
+}
+
+/** The sibling virtual node (other MLO link) sharing a physical queue, if present. */
+function siblingId(vs: ViewState, vid: string): string | null {
+  const other = vid.includes('#6g') ? physicalId(vid) : `${vid}#6g`
+  return other in vs.nodes ? other : null
 }
 
 export function cloneView(vs: ViewState): ViewState {
@@ -80,13 +102,28 @@ export function applyRecord(vs: ViewState, r: TLRecord): void {
   switch (r.type) {
     case 'ARRIVAL':
       break
-    case 'ENQUEUE':
-      vs.nodes[r.node].queue.push({ id: r.msduId, bytes: r.bytes, dst: r.dst, bornNs: r.t })
+    case 'ENQUEUE': {
+      const n = vs.nodes[r.node]
+      n.queue.push({ id: r.msduId, bytes: r.bytes, dst: r.dst, bornNs: r.t })
+      if (r.ac !== undefined && n.acs) n.acs[r.ac].queueLen = r.depth
       break
+    }
     case 'DEQUEUE': {
-      const q = vs.nodes[r.node].queue
-      const i = q.findIndex((m) => m.id === r.msduId)
+      // MLO: the claiming link may differ from the enqueuing (primary) link.
+      let q = vs.nodes[r.node].queue
+      let i = q.findIndex((m) => m.id === r.msduId)
+      if (i < 0) {
+        const sib = siblingId(vs, r.node)
+        if (sib) {
+          q = vs.nodes[sib].queue
+          i = q.findIndex((m) => m.id === r.msduId)
+        }
+      }
       if (i >= 0) q.splice(i, 1)
+      if (r.ac !== undefined) {
+        const acs = vs.nodes[r.node].acs
+        if (acs) acs[r.ac].queueLen = r.depth
+      }
       break
     }
     case 'CCA_BUSY':
@@ -96,7 +133,7 @@ export function applyRecord(vs: ViewState, r: TLRecord): void {
       vs.nodes[r.node].ccaBusy = false
       break
     case 'IFS_START':
-      vs.nodes[r.node].ifs = { kind: r.kind, untilNs: r.untilNs }
+      vs.nodes[r.node].ifs = { kind: r.kind, untilNs: r.untilNs, ac: r.ac }
       break
     case 'IFS_END':
       vs.nodes[r.node].ifs = null
@@ -104,8 +141,24 @@ export function applyRecord(vs: ViewState, r: TLRecord): void {
     case 'BACKOFF_DRAW':
     case 'BACKOFF_DEC':
     case 'BACKOFF_FREEZE':
-    case 'BACKOFF_RESUME':
-      vs.nodes[r.node].backoff = r.value
+    case 'BACKOFF_RESUME': {
+      const n = vs.nodes[r.node]
+      n.backoff = r.value
+      if (r.ac !== undefined && n.acs) {
+        n.acs[r.ac].backoff = r.value
+        if (r.type === 'BACKOFF_DRAW') n.acs[r.ac].cw = r.cw
+      }
+      break
+    }
+    case 'INTERNAL_COLLISION':
+      break
+    case 'TXOP_START':
+      vs.nodes[r.node].txopUntilNs = r.untilNs
+      vs.nodes[r.node].txopAc = r.ac
+      break
+    case 'TXOP_END':
+      vs.nodes[r.node].txopUntilNs = 0
+      vs.nodes[r.node].txopAc = -1
       break
     case 'TX_START':
       vs.nodes[r.node].currentTx = r.frame
@@ -128,11 +181,19 @@ export function applyRecord(vs: ViewState, r: TLRecord): void {
     case 'RX_OK': {
       const n = vs.nodes[r.node]
       n.currentRx = null
-      if (r.frame.kind === 'data' && r.frame.dst === r.node) {
-        n.stats.bytesDelivered += Math.max(0, r.frame.bytes - 28)
-        // sender's success accounting
-        const sender = vs.nodes[r.from]
-        if (sender) sender.stats.txOk += 1
+      const phys = physicalId(r.node)
+      if (r.frame.kind === 'data') {
+        const myPart = r.frame.muParts?.find((p) => p.dst === phys)
+        if (r.frame.dst === phys) {
+          const overhead = r.frame.ampdu ? 34 * r.frame.ampdu.mpduCount : 28
+          n.stats.bytesDelivered += Math.max(0, r.frame.bytes - overhead)
+          const sender = vs.nodes[r.from]
+          if (sender) sender.stats.txOk += r.frame.ampdu?.mpduCount ?? 1
+        } else if (myPart) {
+          n.stats.bytesDelivered += Math.max(0, myPart.bytes - 34 * myPart.mpduCount)
+          const sender = vs.nodes[r.from]
+          if (sender) sender.stats.txOk += myPart.mpduCount
+        }
       }
       break
     }
@@ -145,9 +206,12 @@ export function applyRecord(vs: ViewState, r: TLRecord): void {
     case 'NAV_CLEAR':
       vs.nodes[r.node].navUntilNs = 0
       break
-    case 'CW_CHANGE':
-      vs.nodes[r.node].cw = r.cw
+    case 'CW_CHANGE': {
+      const n = vs.nodes[r.node]
+      n.cw = r.cw
+      if (r.ac !== undefined && n.acs) n.acs[r.ac].cw = r.cw
       break
+    }
     case 'RETRY': {
       const n = vs.nodes[r.node]
       n.stats.retries += 1

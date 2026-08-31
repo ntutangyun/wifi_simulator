@@ -16,6 +16,9 @@ export function frameColor(frame: FrameDesc, apId: string): number {
   switch (frame.kind) {
     case 'data': return frame.src === apId ? 0x3b82f6 : 0x22c55e
     case 'ack': return 0xffffff
+    case 'ba':
+    case 'mba': return 0xd8b4fe
+    case 'trigger': return 0xfacc15
     case 'rts':
     case 'cts': return 0xf97316
   }

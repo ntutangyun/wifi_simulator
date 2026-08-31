@@ -12,6 +12,9 @@ export interface MuPart {
   mbps: number
   msduIds: number[]
   mpduCount: number
+  /** Trigger frames: access category and target TB-PPDU duration for this user. */
+  ac?: number
+  durNs?: Ns
 }
 
 export interface FrameDesc {
