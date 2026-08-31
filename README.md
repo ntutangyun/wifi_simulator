@@ -15,6 +15,7 @@ npm run build    # static production build in dist/
 
 ## Using it
 
+0. **📚 Course mode** — a built-in, bilingual 13-lesson course on the Wi-Fi MAC (DCF foundations → EDCA/A-MPDU/TXOP → OFDMA/MLO). Each lesson loads a purpose-built deterministic scenario next to the text, with jump-to buttons that seek the playhead straight to the teachable moment (first collision, first Trigger frame, …), observation checklists, experiments and self-check quizzes. Progress is saved locally.
 1. **✎ Edit mode** — draw rooms (▭), punch doors/windows into walls, set wall materials (drywall/brick/glass), drag the AP and STAs around, assign per-station traffic profiles (video, backup, browsing, IoT, saturated), or 🎲 spawn random stations. Scenarios persist to localStorage and import/export as JSON.
 2. **▶ Simulate mode** — the engine (in a Web Worker) simulates ahead and records *every* observable micro-event. The UI is a player over that recording:
    - **Transport bar**: play/pause, slowdown from ×10 to ×10 000, and stepping **±1 µs, ±1 slot (9 µs), ±1 event, ±1 frame exchange — forward and backward**.

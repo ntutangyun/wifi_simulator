@@ -103,6 +103,15 @@ export class Player {
     if (t !== null) this.seek(t)
   }
 
+  /** Pause and seek to the first buffered record matching pred. False if none yet. */
+  seekFirst(pred: Parameters<TimelineStore['findFirstTime']>[0]): boolean {
+    const t = this.store.findFirstTime(pred)
+    if (t === null) return false
+    this.pause()
+    this.seek(t)
+    return true
+  }
+
   stepExchange(dir: 1 | -1): void {
     this.pause()
     const t = dir > 0 ? this.store.nextExchangeTime(this.playheadNs) : this.store.prevExchangeTime(this.playheadNs)
