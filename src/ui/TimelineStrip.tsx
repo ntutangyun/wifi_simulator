@@ -35,6 +35,8 @@ export function TimelineStrip() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [spanNs, setSpanNs] = useState(5_000_000) // 5 ms window
   const [tip, setTip] = useState<Tip | null>(null)
+  /** Bumped by the ResizeObserver so the canvas is re-measured when the column resizes. */
+  const [sizeTick, setSizeTick] = useState(0)
   const playheadNs = useUi((s) => s.playheadNs)
   const scenario = useUi((s) => s.scenario)
   const L = useStrings()
@@ -51,6 +53,14 @@ export function TimelineStrip() {
     if (plan.links.length < 2) return name
     return `${name} · ${vid.includes('#6g') ? '6G' : '5G'}`
   }
+
+  useEffect(() => {
+    const parent = canvasRef.current?.parentElement
+    if (!parent) return
+    const ro = new ResizeObserver(() => setSizeTick((t) => t + 1))
+    ro.observe(parent)
+    return () => ro.disconnect()
+  }, [])
 
   useEffect(() => {
     const canvas = canvasRef.current!
@@ -164,7 +174,7 @@ export function TimelineStrip() {
       ctx.fillStyle = 'rgba(0,0,0,0.45)'
       ctx.fillRect(fx, AXIS_H, W - fx, H - AXIS_H)
     }
-  }, [playheadNs, spanNs, scenario])
+  }, [playheadNs, spanNs, scenario, sizeTick])
 
   const tFromEvent = (e: React.PointerEvent): number => {
     const r = canvasRef.current!.getBoundingClientRect()

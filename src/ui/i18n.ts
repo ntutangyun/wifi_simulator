@@ -14,6 +14,10 @@ export interface LegendItem {
 export interface Strings {
   header: { subtitle: string; edit: string; simulate: string; course: string }
   panel: { inspector: string; log: string; guide: string }
+  guideWindow: {
+    title: string; terms: string; overview: string; search: string
+    empty: string; close: string; dragHint: string
+  }
   course: {
     title: string
     progressOf: (done: number, total: number) => string
@@ -96,6 +100,11 @@ export const STRINGS: Record<Lang, Strings> = {
   en: {
     header: { subtitle: 'IEEE 802.11 DCF/EDCA · µs timescale', edit: '✎ Edit', simulate: '▶ Simulate', course: '📚 Course' },
     panel: { inspector: '🔍 Inspector', log: '📜 Log', guide: '📖 Guide' },
+    guideWindow: {
+      title: '📖 Wi-Fi reference', terms: 'Terms', overview: 'Overview',
+      search: 'search terms…', empty: 'no term matches',
+      close: 'close (Esc)', dragHint: 'drag to move',
+    },
     course: {
       title: 'Wi-Fi MAC — a hands-on course',
       progressOf: (d, t) => `${d}/${t} lessons completed`,
@@ -154,7 +163,7 @@ export const STRINGS: Record<Lang, Strings> = {
       scenario: 'Scenario', save: '💾 Save', load: '📂 Load', export_: '⬇ Export', import_: '⬆ Import',
       spawn: '🎲 Spawn STAs', rts: 'RTS', rtsHint: 'dot11RTSThreshold: frames larger than this use RTS/CTS protection',
       seed: 'Seed', seedHint: 'random seed — identical seed reproduces the exact same run',
-      objects: '🗂 OBJECTS', properties: '⚙ PROPERTIES', guide: '📖 GUIDE',
+      objects: '🗂 OBJECTS', properties: '⚙ PROPERTIES', guide: '📖 EDITOR REFERENCE',
       nodesHeader: 'Nodes (order = timeline lanes)', rooms: 'Rooms', walls: 'Walls', noRooms: 'none — draw one with ▭',
       node: 'Node', name: 'Name', wifi: 'Wi-Fi', link: 'Link', linkHint: 'operating band for non-MLO Wi-Fi 6/7 devices',
       traffic: 'Traffic', txPower: 'Tx power', height: 'Height',
@@ -228,6 +237,11 @@ export const STRINGS: Record<Lang, Strings> = {
   zh: {
     header: { subtitle: 'IEEE 802.11 DCF/EDCA · 微秒时间尺度', edit: '✎ 编辑', simulate: '▶ 仿真', course: '📚 课程' },
     panel: { inspector: '🔍 检视器', log: '📜 事件日志', guide: '📖 学习指南' },
+    guideWindow: {
+      title: '📖 Wi-Fi 速查手册', terms: '术语', overview: '概览',
+      search: '搜索术语…', empty: '没有匹配的术语',
+      close: '关闭（Esc）', dragHint: '可拖动',
+    },
     course: {
       title: 'Wi-Fi MAC 实战课程',
       progressOf: (d, t) => `已完成 ${d}/${t} 课`,
@@ -286,7 +300,7 @@ export const STRINGS: Record<Lang, Strings> = {
       scenario: '场景', save: '💾 保存', load: '📂 载入', export_: '⬇ 导出', import_: '⬆ 导入',
       spawn: '🎲 随机生成终端', rts: 'RTS', rtsHint: 'dot11RTSThreshold：大于该门限的帧启用 RTS/CTS 保护',
       seed: '种子', seedHint: '随机种子 — 相同种子可完全复现同一次仿真',
-      objects: '🗂 对象列表', properties: '⚙ 属性', guide: '📖 学习指南',
+      objects: '🗂 对象列表', properties: '⚙ 属性', guide: '📖 编辑器说明',
       nodesHeader: '节点（顺序 = 时间轴泳道）', rooms: '房间', walls: '墙体', noRooms: '暂无 — 用 ▭ 绘制一个',
       node: '节点', name: '名称', wifi: 'Wi-Fi', link: '频段', linkHint: '非 MLO 的 Wi-Fi 6/7 设备的工作频段',
       traffic: '业务', txPower: '发射功率', height: '高度',

@@ -4,9 +4,9 @@ import { GEN_FEATURES, type FeatureFlag } from '../model/caps'
 import type { Material, NodeCfg, ProfileId, Scenario } from '../model/scenario'
 import { nonht } from '../model/scenario'
 import type { Generation } from '../model/types'
-import { Guide } from '../ui/Guide'
 import { useStrings } from '../ui/i18n'
 import { useUi } from '../ui/store'
+import { EditorGuide } from './EditorGuide'
 import {
   addOpening, alongWall, hitTestNode, hitTestWall, roomsToWalls,
   scenarioFromJson, scenarioToJson, snap, spawnRandomStas,
@@ -532,7 +532,7 @@ export function FloorPlanEditor() {
         {/* guide column */}
         <div style={{ borderLeft: '1px solid var(--border)', background: 'var(--panel)', overflowY: 'auto', minHeight: 0 }}>
           <div style={{ padding: '6px 12px 0', fontSize: 11, color: 'var(--dim)', letterSpacing: 0.5 }}>{E.guide}</div>
-          <Guide />
+          <EditorGuide />
         </div>
       </div>
     </div>

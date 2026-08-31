@@ -8,7 +8,7 @@ export function Transport() {
 
   return (
     <div style={{
-      display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px',
+      display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '6px 10px',
       background: 'var(--panel)', borderTop: '1px solid var(--border)',
     }}>
       <button title="previous frame exchange" onClick={() => player.stepExchange(-1)}>{L.transport.prevExch}</button>

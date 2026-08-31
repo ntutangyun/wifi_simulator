@@ -164,7 +164,7 @@ export const LESSONS: Lesson[] = [
     observe: [
       { en: 'Each blue block’s length equals its real duration — hover to read bytes, MCS, µs.', zh: '每个蓝色块的长度就是真实时长——悬停可读出字节数、MCS 与微秒数。' },
       { en: 'The ACK follows exactly 16 µs (one SIFS) after the data block ends.', zh: 'ACK 恰好在数据块结束后 16 µs（一个 SIFS）出现。' },
-      { en: 'Between exchanges the channel is idle — video at this rate barely uses the medium.', zh: '两次交换之间信道是空闲的——这个码率的视频几乎用不满介质。' },
+      { en: 'Between exchanges the channel is idle — video at this rate barely uses the medium.', zh: '两次帧交换（数据帧 + 紧随其后的 ACK）之间信道是空闲的——这个码率的视频几乎用不满介质。' },
     ],
     tryThis: [
       { en: 'Open the scenario in the editor, set the TV to 802.11a (legacy), and compare frame durations.', zh: '在编辑器中打开场景，把电视改成 802.11a（传统模式），比较帧时长的变化。' },
@@ -231,12 +231,12 @@ export const LESSONS: Lesson[] = [
       {
         q: { en: 'Why is SIFS shorter than DIFS?', zh: '为什么 SIFS 比 DIFS 短？' },
         options: [
-          { en: 'To give responses absolute priority: nobody contending (waiting DIFS) can cut into an ongoing exchange', zh: '让响应帧拥有绝对优先权：等待 DIFS 的竞争者不可能插入正在进行的交换' },
+          { en: 'To give responses absolute priority: nobody contending (waiting DIFS) can cut into an ongoing exchange', zh: '让响应帧拥有绝对优先权：等待 DIFS 的竞争者不可能插入正在进行的帧交换' },
           { en: 'Because ACK frames are physically shorter', zh: '因为 ACK 帧本身更短' },
           { en: 'It is a historical accident', zh: '这只是历史遗留' },
         ],
         answer: 0,
-        explain: { en: 'The gap hierarchy IS the priority mechanism: SIFS < DIFS guarantees the exchange completes before anyone else may start.', zh: '间隔的长短就是优先级机制本身：SIFS < DIFS 保证交换先完成，别人才可能开始。' },
+        explain: { en: 'The gap hierarchy IS the priority mechanism: SIFS < DIFS guarantees the exchange completes before anyone else may start.', zh: '间隔的长短就是优先级机制本身：SIFS < DIFS 保证帧交换先完成，别人才可能开始。' },
       },
       {
         q: { en: 'A station overhears a corrupted frame. Before contending it must wait…', zh: '终端听到一个损坏的帧，再次竞争前它必须等待……' },
@@ -318,7 +318,7 @@ export const LESSONS: Lesson[] = [
     body: [
       { text: {
         en: 'Physical carrier sense only tells you the channel is busy *now*. But an exchange is longer than one frame: after the data comes SIFS, then the ACK. The Duration field in every MAC header announces how much longer the exchange needs, and every overhearer loads it into a countdown timer — the NAV. While NAV > 0 the station treats the medium as busy even in perfect silence. That is virtual carrier sense: the SIFS gap is protected not by energy, but by a promise everyone heard.',
-        zh: '物理载波侦听只能告诉你“此刻”信道忙。但一次交换比一个帧长：数据之后还有 SIFS 和 ACK。每个 MAC 头里的 Duration 字段都会预告本次交换还需要多久，每个侦听到的终端把它装入一个倒数计时器——NAV。只要 NAV > 0，即使空口一片寂静，终端也视介质为忙。这就是虚拟载波侦听：SIFS 间隙靠的不是能量，而是所有人都听到的一句承诺。',
+        zh: '物理载波侦听只能告诉你“此刻”信道忙。但一次帧交换比一个帧长：数据之后还有 SIFS 和 ACK。每个 MAC 头里的 Duration 字段都会预告本次帧交换还需要多久，每个侦听到的终端把它装入一个倒数计时器——NAV。只要 NAV > 0，即使空口一片寂静，终端也视介质为忙。这就是虚拟载波侦听：SIFS 间隙靠的不是能量，而是所有人都听到的一句承诺。',
       } },
     ],
     scenario: () => sc(oneRoom(), [
@@ -578,7 +578,7 @@ export const LESSONS: Lesson[] = [
     body: [
       { text: {
         en: 'An EDCA win grants not one exchange but a transmit opportunity: a bounded interval (4.096 ms for video, 2.528 ms for best-effort) in which the winner may chain multiple exchanges separated only by SIFS. No re-contention between them — and the standard requires every PPDU plus its acknowledgement to fit inside the limit. TXOP turns the lottery into a lease.',
-        zh: 'EDCA 赢一次拿到的不是一次交换，而是一个传输机会（TXOP）：一段有上限的时间（视频 4.096 ms、尽力而为 2.528 ms），获胜者可以在其中用仅隔 SIFS 的方式串联多次交换，中间无需再竞争——而且标准要求每个 PPDU 连同它的确认都必须装进上限之内。TXOP 把“抽签”变成了“短租”。',
+        zh: 'EDCA 赢一次拿到的不是一次交换，而是一个传输机会（TXOP）：一段有上限的时间（视频 4.096 ms、尽力而为 2.528 ms），获胜者可以在其中用仅隔 SIFS 的方式串联多次帧交换，中间无需再竞争——而且标准要求每个 PPDU 连同它的确认都必须装进上限之内。TXOP 把“抽签”变成了“短租”。',
       } },
     ],
     scenario: () => sc(oneRoom(), [
@@ -595,11 +595,11 @@ export const LESSONS: Lesson[] = [
       { en: 'The inspector shows “TXOP: AC_VI, n µs left” while the burst runs.', zh: '突发进行中，检视器显示“TXOP：AC_VI，剩余 n µs”。' },
     ],
     tryThis: [
-      { en: 'Turn TXOP off on the AP and compare: every exchange now pays AIFS + backoff again.', zh: '关闭 AP 的 TXOP 功能再比较：每次交换都得重新付出 AIFS + 退避。' },
+      { en: 'Turn TXOP off on the AP and compare: every exchange now pays AIFS + backoff again.', zh: '关闭 AP 的 TXOP 功能再比较：每次帧交换都得重新付出 AIFS + 退避。' },
     ],
     quiz: [
       {
-        q: { en: 'What separates two exchanges inside one TXOP?', zh: '同一个 TXOP 内两次交换之间隔着什么？' },
+        q: { en: 'What separates two exchanges inside one TXOP?', zh: '同一个 TXOP 内两次帧交换之间隔着什么？' },
         options: [
           { en: 'AIFS + a fresh backoff', zh: 'AIFS + 新的退避' },
           { en: 'Exactly one SIFS', zh: '恰好一个 SIFS' },
