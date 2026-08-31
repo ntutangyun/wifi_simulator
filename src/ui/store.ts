@@ -45,7 +45,7 @@ function initialLang(): Lang {
   } catch {
     // default below
   }
-  return 'en'
+  return 'zh'
 }
 
 export const useUi = create<UiState>((set, get) => ({
