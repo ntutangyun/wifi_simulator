@@ -1,3 +1,4 @@
+import { FloorPlanEditor } from '../editor/FloorPlanEditor'
 import { useUi } from './store'
 import { Transport } from './Transport'
 
@@ -20,9 +21,13 @@ export function App() {
 
       <main style={{ position: 'relative', overflow: 'hidden' }}>
         {simError && (
-          <pre style={{ color: '#f87171', padding: 16, whiteSpace: 'pre-wrap' }}>Simulation error: {simError}</pre>
+          <pre style={{ color: '#f87171', padding: 16, whiteSpace: 'pre-wrap', position: 'absolute', zIndex: 5 }}>
+            Simulation error: {simError}
+          </pre>
         )}
-        <div id="center-stage" style={{ position: 'absolute', inset: 0 }} />
+        <div style={{ position: 'absolute', inset: 0 }}>
+          {mode === 'edit' ? <FloorPlanEditor /> : <div id="viewport-slot" style={{ height: '100%' }} />}
+        </div>
       </main>
 
       <div id="timeline-slot" />

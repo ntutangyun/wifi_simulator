@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { Player } from '../player/player'
-import { defaultScenario, type Scenario } from '../model/scenario'
+import { ScenarioSchema, defaultScenario, type Scenario } from '../model/scenario'
 import type { Ns } from '../model/types'
 import type { ViewState } from '../model/view'
 
@@ -24,9 +24,19 @@ export const player = new Player((t, vs, buffering) => {
   useUi.setState({ playheadNs: t, view: vs, buffering, playing: player.playing })
 })
 
+function initialScenario(): Scenario {
+  try {
+    const s = typeof localStorage !== 'undefined' ? localStorage.getItem('wifi-sim.scenario') : null
+    if (s) return ScenarioSchema.parse(JSON.parse(s)) as Scenario
+  } catch {
+    // fall through to default
+  }
+  return defaultScenario()
+}
+
 export const useUi = create<UiState>((set, get) => ({
   mode: 'edit',
-  scenario: defaultScenario(),
+  scenario: initialScenario(),
   playheadNs: 0,
   playing: false,
   buffering: false,
