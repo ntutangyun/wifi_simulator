@@ -20,7 +20,7 @@ export function EventLog() {
     .slice(-160)
 
   return (
-    <div style={{ overflowY: 'auto', fontSize: 11.5, fontFamily: 'Consolas, monospace', padding: '4px 0' }}>
+    <div style={{ overflow: 'auto', fontSize: 11.5, fontFamily: 'Consolas, monospace', padding: '4px 0' }}>
       {records.length === 0 && <div style={{ color: 'var(--dim)', padding: 8 }}>no events in window</div>}
       {records.map((r) => {
         const past = r.t <= playheadNs
