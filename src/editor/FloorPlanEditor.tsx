@@ -12,7 +12,6 @@ import {
 } from './planOps'
 
 type Tool = 'select' | 'room' | 'door' | 'window' | 'sta'
-type Tab = 'props' | 'objects' | 'guide'
 type Sel =
   | { kind: 'node'; id: string }
   | { kind: 'wall'; index: number }
@@ -42,7 +41,6 @@ function fitView(sc: Scenario, wPx: number, hPx: number): ViewT {
 export function FloorPlanEditor() {
   const { scenario, setScenario } = useUi()
   const [tool, setTool] = useState<Tool>('select')
-  const [tab, setTab] = useState<Tab>('props')
   const [sel, setSel] = useState<Sel>(null)
   const [dragRect, setDragRect] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null)
   const [dragNode, setDragNode] = useState<string | null>(null)
@@ -66,7 +64,15 @@ export function FloorPlanEditor() {
     setView(fitView(scenario, r.width, r.height))
   }
 
-  if (!view) return <div ref={hostRef} style={{ height: '100%' }} />
+  if (!view) {
+    // placeholder must occupy the same grid cell as the real canvas so the
+    // measured width matches the final layout
+    return (
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 280px 300px', height: '100%' }}>
+        <div ref={hostRef} />
+      </div>
+    )
+  }
 
   const rect = () => hostRef.current!.getBoundingClientRect()
   const vw = () => rect().width / view.scale
@@ -86,7 +92,6 @@ export function FloorPlanEditor() {
 
   const selectAndShow = (s: Sel) => {
     setSel(s)
-    if (s) setTab('props')
   }
 
   const onPointerDown = (e: React.PointerEvent) => {
@@ -232,7 +237,7 @@ export function FloorPlanEditor() {
   const scaleBarM = view.scale > 40 ? 1 : 5
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 260px', height: '100%' }}>
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 280px 300px', height: '100%' }}>
       <div ref={hostRef} style={{ position: 'relative', overflow: 'hidden' }}>
         <div style={{ position: 'absolute', top: 8, left: 8, zIndex: 2, display: 'flex', gap: 4, flexWrap: 'wrap' }}>
           {(['select', 'room', 'door', 'window', 'sta'] as Tool[]).map((t) => (
@@ -315,20 +320,11 @@ export function FloorPlanEditor() {
         </svg>
       </div>
 
-      {/* side panel */}
-      <div style={{ borderLeft: '1px solid var(--border)', background: 'var(--panel)', display: 'grid', gridTemplateRows: 'auto 1fr', minHeight: 0 }}>
-        <div style={{ display: 'flex', gap: 4, padding: 6, borderBottom: '1px solid var(--border)' }}>
-          {(['props', 'objects', 'guide'] as Tab[]).map((tb) => (
-            <button key={tb} className={tab === tb ? 'active' : ''} onClick={() => setTab(tb)}>
-              {{ props: '⚙ Props', objects: '🗂 Objects', guide: '📖 Guide' }[tb]}
-            </button>
-          ))}
-        </div>
-
-        <div style={{ overflowY: 'auto', minHeight: 0 }}>
-          {tab === 'guide' && <Guide />}
-
-          {tab === 'objects' && (
+      {/* left panel column: objects above, properties below */}
+      <div style={{ borderLeft: '1px solid var(--border)', background: 'var(--panel)', display: 'grid', gridTemplateRows: 'minmax(120px, 42%) 1fr', minHeight: 0 }}>
+        <div style={{ overflowY: 'auto', minHeight: 0, borderBottom: '1px solid var(--border)' }}>
+          <div style={{ padding: '6px 10px 2px', fontSize: 11, color: 'var(--dim)', letterSpacing: 0.5 }}>🗂 OBJECTS</div>
+          {(
             <div style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 10, fontSize: 12 }}>
               <div>
                 <div style={{ color: 'var(--dim)', marginBottom: 4 }}>Nodes (order = timeline lanes)</div>
@@ -383,8 +379,10 @@ export function FloorPlanEditor() {
               </div>
             </div>
           )}
-
-          {tab === 'props' && (
+        </div>
+        <div style={{ overflowY: 'auto', minHeight: 0 }}>
+          <div style={{ padding: '6px 10px 2px', fontSize: 11, color: 'var(--dim)', letterSpacing: 0.5 }}>⚙ PROPERTIES</div>
+          {(
             <div style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 10 }}>
               <div>
                 <div style={{ color: 'var(--dim)', marginBottom: 4 }}>Scenario</div>
@@ -543,6 +541,12 @@ export function FloorPlanEditor() {
             </div>
           )}
         </div>
+      </div>
+
+      {/* guide column */}
+      <div style={{ borderLeft: '1px solid var(--border)', background: 'var(--panel)', overflowY: 'auto', minHeight: 0 }}>
+        <div style={{ padding: '6px 12px 0', fontSize: 11, color: 'var(--dim)', letterSpacing: 0.5 }}>📖 GUIDE</div>
+        <Guide />
       </div>
     </div>
   )
