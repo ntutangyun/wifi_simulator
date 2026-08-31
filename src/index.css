@@ -1,0 +1,20 @@
+:root {
+  color-scheme: dark;
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  --bg: #111318;
+  --panel: #1a1e26;
+  --panel2: #22262f;
+  --border: #333a46;
+  --text: #d5dae3;
+  --dim: #8a93a3;
+  --accent: #3b82f6;
+}
+* { box-sizing: border-box; }
+html, body, #root { margin: 0; height: 100%; }
+body { background: var(--bg); color: var(--text); font-size: 13px; overflow: hidden; }
+button, select, input {
+  background: var(--panel2); color: var(--text); border: 1px solid var(--border);
+  border-radius: 4px; padding: 3px 8px; font: inherit; cursor: pointer;
+}
+button:hover { border-color: var(--accent); }
+button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
