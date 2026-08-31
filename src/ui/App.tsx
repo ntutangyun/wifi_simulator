@@ -1,6 +1,7 @@
 import { FloorPlanEditor } from '../editor/FloorPlanEditor'
 import { Viewport } from '../scene/viewport'
 import { useUi } from './store'
+import { TimelineStrip } from './TimelineStrip'
 import { Transport } from './Transport'
 
 export function App() {
@@ -31,7 +32,7 @@ export function App() {
         </div>
       </main>
 
-      <div id="timeline-slot" />
+      {mode === 'simulate' && <TimelineStrip />}
       {mode === 'simulate' && <Transport />}
     </div>
   )
