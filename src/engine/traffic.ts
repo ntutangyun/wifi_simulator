@@ -23,6 +23,19 @@ export function resetMsduIds(): void {
   nextMsduId = 1
 }
 
+/** EDCA access category for a traffic profile (§10.2.4.2 UP→AC mapping spirit). */
+export function acForProfile(profile: ProfileId): number {
+  switch (profile) {
+    case 'voice': return 3 // AC_VO
+    case 'video': return 2 // AC_VI
+    case 'browsing':
+    case 'saturated': return 1 // AC_BE
+    case 'backup':
+    case 'iot':
+    case 'idle': return 0 // AC_BK
+  }
+}
+
 const MS = 1_000_000
 const US = 1_000
 
@@ -42,6 +55,9 @@ export class TrafficSource {
     switch (this.profile) {
       case 'video':
         this.scheduleVideo(0)
+        break
+      case 'voice':
+        this.scheduleVoice()
         break
       case 'backup':
         this.q.schedule(Math.floor(this.rng.next() * 60 * MS), () => this.backupBurst())
@@ -82,6 +98,16 @@ export class TrafficSource {
     this.q.schedule(next, () => {
       this.emitDl(1400)
       this.scheduleVideo(next)
+    })
+  }
+
+  /** Bidirectional 200 B every 20 ms (VoIP-like). */
+  private scheduleVoice(): void {
+    const at = this.now() + 20 * MS + Math.floor(this.rng.next() * 2 * MS)
+    this.q.schedule(at, () => {
+      this.emitUl(200)
+      this.emitDl(200)
+      this.scheduleVoice()
     })
   }
 

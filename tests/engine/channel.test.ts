@@ -117,3 +117,31 @@ describe('Channel', () => {
     expect(calls.b.some((s) => s.startsWith('rxok:data:a'))).toBe(false)
   })
 })
+
+describe('orthogonal groups (OFDMA RUs)', () => {
+  const otf = (src: string, group: string): FrameDesc => ({
+    kind: 'data', src, dst: 'c', bytes: 1428, mbps: 54,
+    durationFieldNs: 0, txTimeNs: txTimeNs(1428, 54), orthogonalGroup: group,
+  })
+
+  it('same-group frames do not interfere and both decode at a multi-locking receiver', () => {
+    const { ch, calls, records, runUntil, at } = setup({
+      'a>c': -60, 'b>c': -61, 'a>b': -95, 'b>a': -95, 'c>a': -60, 'c>b': -61,
+    })
+    at(1000, () => ch.startTx('a', otf('a', 'g1')))
+    at(1000, () => ch.startTx('b', otf('b', 'g1')))
+    runUntil(1_000_000)
+    expect(calls.c.filter((s) => s.startsWith('rxok')).length).toBe(2)
+    expect(records.some((r) => r.type === 'COLLISION')).toBe(false)
+  })
+
+  it('different groups still collide', () => {
+    const { ch, calls, runUntil, at } = setup({
+      'a>c': -60, 'b>c': -61, 'a>b': -95, 'b>a': -95, 'c>a': -60, 'c>b': -61,
+    })
+    at(1000, () => ch.startTx('a', otf('a', 'g1')))
+    at(1000, () => ch.startTx('b', otf('b', 'g2')))
+    runUntil(1_000_000)
+    expect(calls.c.some((s) => s.startsWith('corrupt'))).toBe(true)
+  })
+})

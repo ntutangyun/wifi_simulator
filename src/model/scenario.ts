@@ -26,7 +26,7 @@ export interface Room {
   name: string
 }
 
-export type ProfileId = 'video' | 'backup' | 'browsing' | 'iot' | 'saturated' | 'idle'
+export type ProfileId = 'video' | 'voice' | 'backup' | 'browsing' | 'iot' | 'saturated' | 'idle'
 
 export interface NodeCfg {
   id: string
@@ -36,6 +36,8 @@ export interface NodeCfg {
   txPowerDbm: number
   profile: ProfileId
   caps: CapabilityProfile
+  /** Operating link for non-MLO HE/EHT nodes ('5g' default). */
+  linkId?: '5g' | '6g'
 }
 
 export interface Scenario {
@@ -75,11 +77,12 @@ const NodeCfgSchema = z.object({
   name: z.string(),
   pos: Vec3Schema,
   txPowerDbm: z.number(),
-  profile: z.enum(['video', 'backup', 'browsing', 'iot', 'saturated', 'idle']),
+  profile: z.enum(['video', 'voice', 'backup', 'browsing', 'iot', 'saturated', 'idle']),
   caps: z.object({
     generation: z.enum(['nonht', 'vht', 'he', 'eht']),
     features: z.record(z.boolean()),
   }),
+  linkId: z.enum(['5g', '6g']).optional(),
 })
 
 export const ScenarioSchema: z.ZodType<Scenario> = z
@@ -132,15 +135,18 @@ export function defaultScenario(): Scenario {
     nodes: [
       {
         id: 'ap', kind: 'ap', name: 'AP', pos: { x: 2, y: 4, z: 2.0 },
-        txPowerDbm: 20, profile: 'idle', caps: nonht,
+        txPowerDbm: 20, profile: 'idle',
+        caps: { generation: 'eht', features: { edca: true, ampdu: true, txop: true, ofdma: true, mlo: true, qam4k: true } },
       },
       {
         id: 'sta-1', kind: 'sta', name: 'STA-1 (TV)', pos: { x: 4.5, y: 6.5, z: 1.0 },
-        txPowerDbm: 15, profile: 'video', caps: nonht,
+        txPowerDbm: 15, profile: 'video',
+        caps: { generation: 'he', features: { edca: true, ampdu: true, txop: true, ofdma: true } },
       },
       {
         id: 'sta-2', kind: 'sta', name: 'STA-2 (Laptop)', pos: { x: 8.5, y: 2.0, z: 1.0 },
-        txPowerDbm: 15, profile: 'backup', caps: nonht,
+        txPowerDbm: 15, profile: 'backup',
+        caps: { generation: 'vht', features: { edca: true, ampdu: true, txop: true } },
       },
     ],
     seed: 42,

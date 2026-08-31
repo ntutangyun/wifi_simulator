@@ -1,6 +1,6 @@
 # Wi-Fi Airtime Simulator
 
-A browser-based, microsecond-resolution simulator of **IEEE 802.11 DCF (CSMA/CA)** channel access inside a 3D house you design yourself. Draw rooms, place an access point and stations, assign traffic, then watch — and scrub through — every backoff slot, DIFS wait, NAV reservation, collision and retransmission.
+A browser-based, microsecond-resolution simulator of **IEEE 802.11 (CSMA/CA)** channel access inside a 3D house you design yourself — and a learning tool for how Wi-Fi actually works. Draw rooms, place an access point and stations, pick each device's Wi-Fi generation (802.11a legacy / Wi-Fi 5 / 6 / 7) and toggle its features, then watch — and scrub through — every backoff slot, AIFS wait, NAV reservation, A-MPDU burst, OFDMA trigger exchange, collision and retransmission. Hover any block in the timeline for an explanation of what it is and why it happens; the 📖 Guide tab walks through the protocol from carrier sense to MLO.
 
 Built as a static SPA (Vite + TypeScript + React + Three.js). No backend; deployable on GitHub Pages.
 
@@ -37,18 +37,21 @@ npm run build    # static production build in dist/
 | OFDM PHY airtime (6–54 Mbps) | §17.4.3, Eq. 17-29 | exact preamble/symbol timing |
 | Receiver sensitivity per rate | Table 17-21 | drives RSSI→MCS selection |
 | CCA −82 dBm preamble / −62 dBm energy | §17.3.10.6 | asymmetric carrier-sense ranges → hidden/exposed nodes |
+| EDCA: 4 ACs, AIFS/CW/TXOP defaults | §10.23, Table 9-194 | per-device toggle (Wi-Fi 5+); internal-collision arbitration |
+| TXOP limits per AC | §10.23.2.8 | SIFS-chained bursts; PPDU must fit the TXOP |
+| A-MPDU + compressed BlockAck | §10.24 model | ≤64 MPDUs, 4 ms cap, delimiter+padding sizing |
+| VHT/HE/EHT PHY rates (20 MHz, Nss 1) | clauses 21/27, 802.11be | MCS0–13 incl. 4096-QAM, real preamble/symbol timing |
+| OFDMA DL/UL MU | HE model | RU = 1/n rate scaling, Trigger + Multi-STA BlockAck |
+| MLO (STR, 5+6 GHz) | 802.11be model | per-link MACs over shared MLD queues |
 
 RF model: log-distance path loss (n = 3.0, 5 GHz) + per-wall attenuation (drywall 5 dB, brick 12 dB, glass 3 dB; openings exempt) + SINR-based capture.
 
-### Known simplifications (v1)
+### Known simplifications
 
-- Non-QoS DCF only (no EDCA/TXOP/aggregation yet); no beacons or association — the BSS is pre-associated.
-- Single 20 MHz channel; one BSS; no power save; receivers lock the first decodable preamble (no capture switch to a later, stronger frame).
-- Wall openings are full-height gaps in the RF model.
-
-## Roadmap
-
-Per-device capability profiles are already in the data model (`generation`, feature flags) so Wi-Fi 5/6/7 mechanisms — EDCA, A-MPDU/BlockAck, MU-EDCA, OFDMA trigger-based access, MLO — can be added as toggleable MAC/PHY plugins, including mixed-generation networks.
+- No beacons/association (pre-associated BSS), no power save, no MU-EDCA/BSR (the OFDMA scheduler reads STA queues directly as a BSR stand-in).
+- 20 MHz channels only; PPDU decode is all-or-nothing per receiver (per-MU-part thresholds for OFDMA); receivers lock the first decodable preamble.
+- OFDMA RUs modeled as 1/n rate scaling; MLO is STR with a simplified 6 GHz path-loss offset; wall openings are full-height gaps.
+- TXOP NAV covers one exchange at a time rather than the full TXOP remainder.
 
 ## Architecture
 

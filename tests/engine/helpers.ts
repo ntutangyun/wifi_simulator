@@ -1,7 +1,7 @@
 import { Channel } from '../../src/engine/channel'
 import { EventQueue } from '../../src/engine/events'
 import { DcfMac } from '../../src/engine/mac'
-import { dataRateFor } from '../../src/engine/phy'
+import { RATES, dataRateFor } from '../../src/engine/phy'
 import { Rng } from '../../src/engine/rng'
 import type { Msdu } from '../../src/engine/traffic'
 import { makeEmitter, type TLRecord } from '../../src/model/records'
@@ -46,7 +46,14 @@ export function makeBss(nodeIds: string[], links: Record<string, number>, opts: 
       id, q, () => now, ch, root.fork(i + 10), emit,
       {
         rtsThresholdBytes: opts.rtsThresholdBytes ?? 3000,
-        rateForPeer: (peer) => dataRateFor(table.get(peer)!.get(id) ?? -200),
+        edca: false, txop: false, isAp: id === 'ap',
+        modeForPeer: () => 'nonht',
+        mcsForPeer: (peer) => {
+          const mbps = dataRateFor(table.get(peer)!.get(id) ?? -200)
+          return RATES.findIndex((r) => r.mbps === mbps)
+        },
+        ampduWith: () => false,
+        ofdmaWith: () => false,
       },
       { onMsduDelivered: (msduId, t) => delivered.push({ at: id, msduId, t }) },
     )

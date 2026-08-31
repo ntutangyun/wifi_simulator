@@ -60,8 +60,18 @@ describe('Simulation', () => {
     expect(ok1 / total).toBeGreaterThan(0.35)
     expect(ok1 / total).toBeLessThan(0.65)
     expect(v.nodes['sta-1'].stats.collisions + v.nodes['sta-2'].stats.collisions).toBeGreaterThan(0)
-    // delivered throughput plausible for DCF at 54 Mbps with 1500 B frames
+    // modern nodes (HE/VHT with A-MPDU + TXOP) push well past legacy DCF rates
     const mbps = (v.nodes['ap'].stats.bytesDelivered * 8) / 0.3 / 1e6
+    expect(mbps).toBeGreaterThan(40)
+    expect(mbps).toBeLessThan(160)
+  })
+
+  it('legacy-only nodes stay in the classic DCF throughput envelope', () => {
+    const sc = saturatedPair()
+    for (const n of sc.nodes) n.caps = { generation: 'nonht', features: {} }
+    const sim = new Simulation(sc)
+    sim.runUntil(300 * MS)
+    const mbps = (sim.view.nodes['ap'].stats.bytesDelivered * 8) / 0.3 / 1e6
     expect(mbps).toBeGreaterThan(15)
     expect(mbps).toBeLessThan(40)
   })
