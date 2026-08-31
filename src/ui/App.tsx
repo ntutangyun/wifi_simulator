@@ -1,4 +1,5 @@
 import { FloorPlanEditor } from '../editor/FloorPlanEditor'
+import { Viewport } from '../scene/viewport'
 import { useUi } from './store'
 import { Transport } from './Transport'
 
@@ -26,7 +27,7 @@ export function App() {
           </pre>
         )}
         <div style={{ position: 'absolute', inset: 0 }}>
-          {mode === 'edit' ? <FloorPlanEditor /> : <div id="viewport-slot" style={{ height: '100%' }} />}
+          {mode === 'edit' ? <FloorPlanEditor /> : <Viewport key="vp" />}
         </div>
       </main>
 
