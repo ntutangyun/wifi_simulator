@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { player, useUi } from './store'
 import { recordsToSpans, spanTooltip, xForT, type LaneSpan } from './laneLayout'
 import { fmtNs } from './format'
+import { useStrings } from './i18n'
 import { linkPlanFor, physicalId } from '../model/caps'
 
 const GUTTER = 96
@@ -23,19 +24,6 @@ function txColor(s: LaneSpan, apId: string): string {
   return '#f97316' // rts/cts
 }
 
-const LEGEND: { color: string; label: string; hint: string }[] = [
-  { color: '#3b82f6', label: 'DL data', hint: 'Data PPDU from the AP (downlink). Length = real airtime.' },
-  { color: '#22c55e', label: 'UL data', hint: 'Data PPDU from a station (uplink).' },
-  { color: '#e5e7eb', label: 'ACK', hint: 'Acknowledgement, sent one SIFS (16 µs) after a received frame.' },
-  { color: '#d8b4fe', label: 'BA', hint: 'BlockAck: one frame acknowledging a whole A-MPDU aggregate.' },
-  { color: '#facc15', label: 'Trigger', hint: 'Wi-Fi 6 Trigger frame: the AP schedules simultaneous uplink OFDMA transmissions.' },
-  { color: '#f97316', label: 'RTS/CTS', hint: 'Medium reservation handshake used above the RTS threshold (hidden-node protection).' },
-  { color: '#f59e0b', label: 'backoff', hint: 'Random backoff countdown: −1 per idle 9 µs slot; frozen while the medium is busy.' },
-  { color: '#6d5a1b', label: 'defer', hint: 'Waiting for DIFS/AIFS/EIFS quiet time, or for the medium to go idle.' },
-  { color: '#9333ea', label: 'NAV', hint: 'Virtual carrier sense: reserved by an overheard Duration field.' },
-  { color: '#8b5cf6', label: 'RX', hint: 'Receiving a frame.' },
-  { color: '#ef4444', label: 'collision', hint: 'Two or more overlapping transmissions corrupted a reception.' },
-]
 
 interface Tip {
   x: number
@@ -49,6 +37,7 @@ export function TimelineStrip() {
   const [tip, setTip] = useState<Tip | null>(null)
   const playheadNs = useUi((s) => s.playheadNs)
   const scenario = useUi((s) => s.scenario)
+  const L = useStrings()
   const dragging = useRef(false)
   const drawn = useRef<{ spans: LaneSpan[]; a: number; b: number; laneW: number; laneH: number; nodeIds: string[] }>({
     spans: [], a: 0, b: 1, laneW: 1, laneH: 1, nodeIds: [],
@@ -199,7 +188,7 @@ export function TimelineStrip() {
     if (!cands.length) return null
     const order: Record<string, number> = { tx: 0, rx: 1, nav: 3, backoff: 2, defer: 2, sifs: 2 }
     cands.sort((p, q) => order[p.kind] - order[q.kind])
-    return { x: e.clientX - rect.left + 12, y: e.clientY - rect.top - 8, lines: spanTooltip(cands[0]) }
+    return { x: e.clientX - rect.left + 12, y: e.clientY - rect.top - 8, lines: spanTooltip(cands[0], L.tooltips) }
   }
 
   return (
@@ -240,7 +229,7 @@ export function TimelineStrip() {
           </div>
         )}
         <div style={{ position: 'absolute', right: 8, top: 2, color: 'var(--dim)', fontSize: 10 }}>
-          window {fmtNs(spanNs)} s · wheel zoom · drag scrub · hover blocks for details
+          {fmtNs(spanNs)} s · {L.strip.windowHint}
         </div>
       </div>
       <div style={{
@@ -248,7 +237,7 @@ export function TimelineStrip() {
         background: 'var(--panel)', borderTop: '1px solid var(--border)', fontSize: 10.5, color: 'var(--dim)',
         overflowX: 'auto', whiteSpace: 'nowrap',
       }}>
-        {LEGEND.map((l) => (
+        {L.legend.map((l) => (
           <span key={l.label} title={l.hint} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'help' }}>
             <span style={{ width: 10, height: 10, background: l.color, borderRadius: 2, display: 'inline-block' }} />
             {l.label}

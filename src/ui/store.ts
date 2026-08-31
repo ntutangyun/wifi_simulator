@@ -4,8 +4,12 @@ import { ScenarioSchema, defaultScenario, type Scenario } from '../model/scenari
 import type { Ns } from '../model/types'
 import type { ViewState } from '../model/view'
 
+export type Lang = 'en' | 'zh'
+
 export interface UiState {
   mode: 'edit' | 'simulate'
+  lang: Lang
+  setLang(l: Lang): void
   scenario: Scenario
   playheadNs: Ns
   playing: boolean
@@ -34,8 +38,27 @@ function initialScenario(): Scenario {
   return defaultScenario()
 }
 
+function initialLang(): Lang {
+  try {
+    const l = typeof localStorage !== 'undefined' ? localStorage.getItem('wifi-sim.lang') : null
+    if (l === 'zh' || l === 'en') return l
+  } catch {
+    // default below
+  }
+  return 'en'
+}
+
 export const useUi = create<UiState>((set, get) => ({
   mode: 'edit',
+  lang: initialLang(),
+  setLang(l) {
+    try {
+      localStorage.setItem('wifi-sim.lang', l)
+    } catch {
+      // storage unavailable — keep in-memory only
+    }
+    set({ lang: l })
+  },
   scenario: initialScenario(),
   playheadNs: 0,
   playing: false,

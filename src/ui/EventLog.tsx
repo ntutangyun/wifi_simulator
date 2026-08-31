@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { player, useUi } from './store'
 import { decodeFrame, fmtNs, fmtRecord } from './format'
+import { useStrings } from './i18n'
 import type { TLRecord } from '../model/records'
 
 const WINDOW_BEFORE = 3_000_000 // 3 ms back
@@ -13,6 +14,7 @@ function frameOf(r: TLRecord) {
 export function EventLog() {
   const playheadNs = useUi((s) => s.playheadNs)
   const [expanded, setExpanded] = useState<number | null>(null)
+  const L = useStrings()
 
   const records = player.store
     .recordsIn(Math.max(player.store.windowStartNs, playheadNs - WINDOW_BEFORE), playheadNs + WINDOW_AFTER)
@@ -21,7 +23,7 @@ export function EventLog() {
 
   return (
     <div style={{ overflow: 'auto', fontSize: 11.5, fontFamily: 'Consolas, monospace', padding: '4px 0' }}>
-      {records.length === 0 && <div style={{ color: 'var(--dim)', padding: 8 }}>no events in window</div>}
+      {records.length === 0 && <div style={{ color: 'var(--dim)', padding: 8 }}>{L.log.empty}</div>}
       {records.map((r) => {
         const past = r.t <= playheadNs
         const f = frameOf(r)

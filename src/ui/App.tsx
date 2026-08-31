@@ -3,6 +3,7 @@ import { FloorPlanEditor } from '../editor/FloorPlanEditor'
 import { Viewport } from '../scene/viewport'
 import { EventLog } from './EventLog'
 import { Guide } from './Guide'
+import { useStrings } from './i18n'
 import { Inspector } from './Inspector'
 import { useUi } from './store'
 import { TimelineStrip } from './TimelineStrip'
@@ -10,12 +11,13 @@ import { Transport } from './Transport'
 
 function SidePanel() {
   const [tab, setTab] = useState<'inspector' | 'log' | 'guide'>('inspector')
+  const L = useStrings()
   return (
     <div style={{ borderLeft: '1px solid var(--border)', background: 'var(--panel)', display: 'grid', gridTemplateRows: 'auto 1fr', minHeight: 0 }}>
       <div style={{ display: 'flex', gap: 4, padding: 6, borderBottom: '1px solid var(--border)' }}>
-        <button className={tab === 'inspector' ? 'active' : ''} onClick={() => setTab('inspector')}>🔍 Inspector</button>
-        <button className={tab === 'log' ? 'active' : ''} onClick={() => setTab('log')}>📜 Log</button>
-        <button className={tab === 'guide' ? 'active' : ''} onClick={() => setTab('guide')}>📖 Guide</button>
+        <button className={tab === 'inspector' ? 'active' : ''} onClick={() => setTab('inspector')}>{L.panel.inspector}</button>
+        <button className={tab === 'log' ? 'active' : ''} onClick={() => setTab('log')}>{L.panel.log}</button>
+        <button className={tab === 'guide' ? 'active' : ''} onClick={() => setTab('guide')}>{L.panel.guide}</button>
       </div>
       <div style={{ overflow: 'hidden', display: 'grid', minHeight: 0 }}>
         {tab === 'inspector' ? <Inspector /> : tab === 'log' ? <EventLog /> : <div style={{ overflowY: 'auto' }}><Guide /></div>}
@@ -25,7 +27,8 @@ function SidePanel() {
 }
 
 export function App() {
-  const { mode, setMode, simError } = useUi()
+  const { mode, setMode, simError, lang, setLang } = useUi()
+  const L = useStrings()
 
   return (
     <div style={{ display: 'grid', gridTemplateRows: 'auto 1fr auto auto', height: '100%' }}>
@@ -34,10 +37,13 @@ export function App() {
         background: 'var(--panel)', borderBottom: '1px solid var(--border)',
       }}>
         <strong>Wi-Fi Airtime Simulator</strong>
-        <span style={{ color: 'var(--dim)', fontSize: 12 }}>IEEE 802.11 DCF · µs timescale</span>
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
-          <button className={mode === 'edit' ? 'active' : ''} onClick={() => setMode('edit')}>✎ Edit</button>
-          <button className={mode === 'simulate' ? 'active' : ''} onClick={() => setMode('simulate')}>▶ Simulate</button>
+        <span style={{ color: 'var(--dim)', fontSize: 12 }}>{L.header.subtitle}</span>
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 4, alignItems: 'center' }}>
+          <button className={mode === 'edit' ? 'active' : ''} onClick={() => setMode('edit')}>{L.header.edit}</button>
+          <button className={mode === 'simulate' ? 'active' : ''} onClick={() => setMode('simulate')}>{L.header.simulate}</button>
+          <span style={{ width: 1, height: 18, background: 'var(--border)', margin: '0 4px' }} />
+          <button className={lang === 'en' ? 'active' : ''} style={{ padding: '3px 6px' }} onClick={() => setLang('en')}>EN</button>
+          <button className={lang === 'zh' ? 'active' : ''} style={{ padding: '3px 6px' }} onClick={() => setLang('zh')}>中文</button>
         </div>
       </header>
 

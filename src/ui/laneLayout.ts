@@ -2,6 +2,7 @@
 import type { FrameDesc, FrameKind } from '../model/frames'
 import type { TLRecord } from '../model/records'
 import type { Ns } from '../model/types'
+import type { Strings } from './i18n'
 
 export type SpanKind = 'tx' | 'rx' | 'backoff' | 'defer' | 'nav' | 'sifs'
 
@@ -116,52 +117,43 @@ export function xForT(t: Ns, a: Ns, b: Ns, widthPx: number): number {
 const AC_NAME = ['BK', 'BE', 'VI', 'VO']
 
 /** Tooltip lines for a span: what it is + what it teaches. */
-export function spanTooltip(s: LaneSpan): string[] {
+export function spanTooltip(s: LaneSpan, T: Strings['tooltips']): string[] {
   const dur = `${((s.endNs - s.startNs) / 1000).toFixed(1)} µs`
   const ac = s.ac !== undefined ? ` · AC_${AC_NAME[s.ac]}` : ''
   switch (s.kind) {
     case 'tx': {
       const f = s.frame
-      if (!f) return [`transmitting · ${dur}`]
+      if (!f) return [`${T.transmitting} · ${dur}`]
       const what =
-        f.kind === 'data' && f.muParts ? `DL MU PPDU → ${f.muParts.length} stations (OFDMA)` :
-        f.kind === 'data' && f.ampdu ? `A-MPDU (${f.ampdu.mpduCount} MPDUs) → ${f.dst}` :
-        f.kind === 'data' ? `Data frame → ${f.dst}` :
-        f.kind === 'ack' ? `ACK → ${f.dst}` :
-        f.kind === 'ba' ? `BlockAck → ${f.dst}` :
-        f.kind === 'mba' ? `Multi-STA BlockAck (OFDMA)` :
-        f.kind === 'trigger' ? `Trigger frame — schedules UL OFDMA` :
-        f.kind === 'rts' ? `RTS → ${f.dst} (reserves the medium)` : `CTS → ${f.dst}`
-      const rate = f.mcs !== undefined ? `${f.mode?.toUpperCase()} MCS${f.mcs} · ${f.mbps} Mbps` : `${f.mbps} Mbps (non-HT)`
+        f.kind === 'data' && f.muParts ? T.dlMu(f.muParts.length) :
+        f.kind === 'data' && f.ampdu ? T.ampdu(f.ampdu.mpduCount, f.dst) :
+        f.kind === 'data' ? T.data(f.dst) :
+        f.kind === 'ack' ? T.ack(f.dst) :
+        f.kind === 'ba' ? T.ba(f.dst) :
+        f.kind === 'mba' ? T.mba :
+        f.kind === 'trigger' ? T.trigger :
+        f.kind === 'rts' ? T.rts(f.dst) : T.cts(f.dst)
+      const rate = f.mcs !== undefined ? `${f.mode?.toUpperCase()} MCS${f.mcs} · ${f.mbps} Mbps` : `${f.mbps} Mbps (${T.nonHt})`
       const lines = [`${what}${ac}`, `${f.bytes} B · ${rate} · ${dur}`]
       if (f.kind === 'ack' || f.kind === 'ba' || f.kind === 'cts' || f.kind === 'mba') {
-        lines.push('sent a SIFS (16 µs) after the frame — responses never contend')
+        lines.push(T.sifsNote)
       }
-      if (f.retryFlag) lines.push('retransmission (Retry bit set)')
-      if (f.orthogonalGroup) lines.push('RU-orthogonal: simultaneous with other same-group frames')
+      if (f.retryFlag) lines.push(T.retryNote)
+      if (f.orthogonalGroup) lines.push(T.ruNote)
       return lines
     }
     case 'rx':
-      return [`receiving ${s.frameKind?.toUpperCase() ?? ''} from ${s.frameSrc}${ac}`, dur]
+      return [`${T.receiving(s.frameKind?.toUpperCase() ?? '', s.frameSrc ?? '')}${ac}`, dur]
     case 'backoff':
-      return [
-        `random backoff countdown${ac} · ${dur}`,
-        'counter −1 per idle 9 µs slot; frozen while the medium is busy (§10.3.3)',
-        'transmits when it reaches 0 — this is how stations avoid colliding',
-      ]
+      return [`${T.backoffTitle}${ac} · ${dur}`, T.backoffL1, T.backoffL2]
     case 'defer':
       return [
-        `deferring${s.ifsKind ? ` (${s.ifsKind})` : ''}${ac} · ${dur}`,
-        s.ifsKind === 'EIFS'
-          ? 'EIFS: extra-long wait after a corrupted reception (§10.3.2.3.7)'
-          : 'waiting for the medium to stay idle for one IFS before backoff can run',
+        `${T.deferTitle(s.ifsKind ?? '')}${ac} · ${dur}`,
+        s.ifsKind === 'EIFS' ? T.eifsNote : T.deferNote,
       ]
     case 'nav':
-      return [
-        `NAV set · ${dur}`,
-        'virtual carrier sense: an overheard Duration field reserved the medium (§10.3.2.4)',
-      ]
+      return [`${T.navTitle} · ${dur}`, T.navNote]
     case 'sifs':
-      return [`in-exchange wait (SIFS turnaround / response pending) · ${dur}`]
+      return [`${T.sifsWait} · ${dur}`]
   }
 }
