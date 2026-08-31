@@ -1,8 +1,26 @@
+import { useState } from 'react'
 import { FloorPlanEditor } from '../editor/FloorPlanEditor'
 import { Viewport } from '../scene/viewport'
+import { EventLog } from './EventLog'
+import { Inspector } from './Inspector'
 import { useUi } from './store'
 import { TimelineStrip } from './TimelineStrip'
 import { Transport } from './Transport'
+
+function SidePanel() {
+  const [tab, setTab] = useState<'inspector' | 'log'>('inspector')
+  return (
+    <div style={{ borderLeft: '1px solid var(--border)', background: 'var(--panel)', display: 'grid', gridTemplateRows: 'auto 1fr', minHeight: 0 }}>
+      <div style={{ display: 'flex', gap: 4, padding: 6, borderBottom: '1px solid var(--border)' }}>
+        <button className={tab === 'inspector' ? 'active' : ''} onClick={() => setTab('inspector')}>🔍 Inspector</button>
+        <button className={tab === 'log' ? 'active' : ''} onClick={() => setTab('log')}>📜 Event log</button>
+      </div>
+      <div style={{ overflow: 'hidden', display: 'grid', minHeight: 0 }}>
+        {tab === 'inspector' ? <Inspector /> : <EventLog />}
+      </div>
+    </div>
+  )
+}
 
 export function App() {
   const { mode, setMode, simError } = useUi()
@@ -21,15 +39,18 @@ export function App() {
         </div>
       </header>
 
-      <main style={{ position: 'relative', overflow: 'hidden' }}>
-        {simError && (
-          <pre style={{ color: '#f87171', padding: 16, whiteSpace: 'pre-wrap', position: 'absolute', zIndex: 5 }}>
-            Simulation error: {simError}
-          </pre>
-        )}
-        <div style={{ position: 'absolute', inset: 0 }}>
-          {mode === 'edit' ? <FloorPlanEditor /> : <Viewport key="vp" />}
+      <main style={{ position: 'relative', overflow: 'hidden', display: 'grid', gridTemplateColumns: mode === 'simulate' ? '1fr 300px' : '1fr' }}>
+        <div style={{ position: 'relative' }}>
+          {simError && (
+            <pre style={{ color: '#f87171', padding: 16, whiteSpace: 'pre-wrap', position: 'absolute', zIndex: 5 }}>
+              Simulation error: {simError}
+            </pre>
+          )}
+          <div style={{ position: 'absolute', inset: 0 }}>
+            {mode === 'edit' ? <FloorPlanEditor /> : <Viewport key="vp" />}
+          </div>
         </div>
+        {mode === 'simulate' && <SidePanel />}
       </main>
 
       {mode === 'simulate' && <TimelineStrip />}
