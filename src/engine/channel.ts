@@ -12,6 +12,8 @@ import { CCA_ED_DBM, CCA_PD_DBM, NOISE_DBM, sinrThreshDb } from './phy'
 export interface PhyListener {
   onCcaBusy(t: Ns): void
   onCcaIdle(t: Ns): void
+  /** PHY-RXSTART.indication: receiver locked a preamble (§10.3.2.9 timeout semantics). */
+  onRxStart(t: Ns, frame: FrameDesc, from: string): void
   onRxOk(t: Ns, frame: FrameDesc, from: string): void
   /** Energy that looked like a frame ended without being decodable → EIFS at the MAC. */
   onRxCorrupt(t: Ns): void
@@ -91,9 +93,16 @@ export class Channel {
     this.active.push(tx)
     this.emit({ t, type: 'TX_START', node: nodeId, frame })
 
+    // Propagation effects land in phase 1: a MAC deciding at this same instant
+    // cannot yet sense this transmission (CCA detect time, §17.3.10.6).
+    this.q.schedule(t, () => this.applyTxEffects(t, tx), 1)
+    this.q.schedule(tx.endNs, () => this.endTx(tx), 1)
+  }
+
+  private applyTxEffects(t: Ns, tx: ActiveTx): void {
     for (const [rid, r] of this.radios) {
-      if (rid === nodeId) continue
-      const p = this.linkDbm(nodeId, rid)
+      if (rid === tx.txId) continue
+      const p = this.linkDbm(tx.txId, rid)
       if (r.lock) {
         // New signal is interference for the existing lock.
         if (p >= OVERLAP_MIN_DBM) r.lock.overlapped = true
@@ -101,14 +110,14 @@ export class Channel {
       } else if (!r.transmitting && p >= CCA_PD_DBM) {
         // Receiver acquires the preamble.
         r.lock = {
-          from: nodeId, frame, rxDbm: p,
-          maxInterfMw: this.interferenceMw(rid, nodeId),
-          overlapped: this.hasOverlap(rid, nodeId),
+          from: tx.txId, frame: tx.frame, rxDbm: p,
+          maxInterfMw: this.interferenceMw(rid, tx.txId),
+          overlapped: this.hasOverlap(rid, tx.txId),
         }
-        this.emit({ t, type: 'RX_START', node: rid, from: nodeId, frame })
+        this.emit({ t, type: 'RX_START', node: rid, from: tx.txId, frame: tx.frame })
+        r.listener.onRxStart(t, tx.frame, tx.txId)
       }
     }
-    this.q.schedule(tx.endNs, () => this.endTx(tx))
     this.updateAllCca(t)
   }
 

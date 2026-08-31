@@ -22,6 +22,7 @@ function setup(links: Record<string, number>) {
   const listener = (id: string): PhyListener => ({
     onCcaBusy: (t) => calls[id].push(`busy@${t}`),
     onCcaIdle: (t) => calls[id].push(`idle@${t}`),
+    onRxStart: () => {},
     onRxOk: (t, f, from) => calls[id].push(`rxok:${f.kind}:${from}@${t}`),
     onRxCorrupt: (t) => calls[id].push(`corrupt@${t}`),
   })

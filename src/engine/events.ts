@@ -4,14 +4,23 @@ export type EventFn = () => void
 
 interface HeapItem {
   t: Ns
+  phase: number
   seq: number
   handle: number
   fn: EventFn
 }
 
 /**
- * Deterministic cancellable event queue: binary min-heap ordered by (t, seq)
- * where seq is insertion order — equal-time events fire in scheduling order.
+ * Deterministic cancellable event queue: binary min-heap ordered by
+ * (t, phase, seq); seq is insertion order.
+ *
+ * Phases model carrier-sense detection delay at equal timestamps:
+ *   0 = MAC decisions (slot ticks, IFS expiry, timeouts, SIFS responses)
+ *   1 = channel propagation effects (CCA updates, preamble locks, rx outcomes)
+ *   2 = post-propagation MAC bookkeeping (own-TX-end handling)
+ * A MAC deciding at instant t cannot see a transmission that also starts at t
+ * (§17.3.10.6 CCA detect time) — phase ordering makes same-instant transmit
+ * decisions genuinely collide.
  */
 export class EventQueue {
   private heap: HeapItem[] = []
@@ -19,9 +28,9 @@ export class EventQueue {
   private nextHandle = 1
   private dead = new Set<number>()
 
-  schedule(t: Ns, fn: EventFn): number {
+  schedule(t: Ns, fn: EventFn, phase = 0): number {
     const handle = this.nextHandle++
-    this.push({ t, seq: this.seq++, handle, fn })
+    this.push({ t, phase, seq: this.seq++, handle, fn })
     return handle
   }
 
@@ -89,6 +98,8 @@ export class EventQueue {
   }
 
   private less(a: HeapItem, b: HeapItem): boolean {
-    return a.t < b.t || (a.t === b.t && a.seq < b.seq)
+    if (a.t !== b.t) return a.t < b.t
+    if (a.phase !== b.phase) return a.phase < b.phase
+    return a.seq < b.seq
   }
 }
