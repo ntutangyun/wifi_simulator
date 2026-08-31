@@ -61,7 +61,6 @@ export class DcfMac implements PhyListener {
   private pendingDataAfterCts = false
   private lastRxStartNs: Ns = NEVER
   private lastSeqFrom = new Map<string, number>()
-  private currentTxFrame: FrameDesc | null = null
 
   constructor(
     private nodeId: string,
@@ -194,7 +193,6 @@ export class DcfMac implements PhyListener {
   private transmitFrame(frame: FrameDesc, awaitWhat: 'ack' | 'cts' | null): void {
     this.cancel('ifs', 'tick')
     this.setState('tx')
-    this.currentTxFrame = frame
     this.ch.startTx(this.nodeId, frame)
     const end = this.now() + frame.txTimeNs
     // Phase 2: run after the channel has resolved receptions/CCA at the same instant.
@@ -203,7 +201,6 @@ export class DcfMac implements PhyListener {
 
   private onOwnTxEnd(awaitWhat: 'ack' | 'cts' | null): void {
     const t = this.now()
-    this.currentTxFrame = null
     if (awaitWhat === 'ack') {
       this.awaiting = 'ack'
       this.setState('waitAck')

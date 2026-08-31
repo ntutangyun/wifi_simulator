@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { FrameDesc } from '../../src/model/frames'
-import { makeEmitter, type TLRecord } from '../../src/model/records'
+import { makeEmitter, type EmitFn, type TLRecord } from '../../src/model/records'
 import { applyRecord, cloneView, initViewState } from '../../src/model/view'
 import { defaultScenario } from '../../src/model/scenario'
 
@@ -9,7 +9,7 @@ const frame: FrameDesc = {
   durationFieldNs: 60_000, txTimeNs: 232_000, seqNo: 0, msduId: 5,
 }
 
-function seq(recs: Omit<TLRecord, 'seq'>[]): TLRecord[] {
+function seq(recs: Parameters<EmitFn>[0][]): TLRecord[] {
   const out: TLRecord[] = []
   const emit = makeEmitter((r) => out.push(r))
   recs.forEach(emit)

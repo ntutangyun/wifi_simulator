@@ -33,7 +33,8 @@ export type TLRecord = { t: Ns; seq: number } & (
   | { type: 'COLLISION'; nodes: string[] }
 )
 
-export type EmitFn = (r: Omit<TLRecord, 'seq'>) => void
+type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never
+export type EmitFn = (r: DistributiveOmit<TLRecord, 'seq'>) => void
 
 /** Emitter stamping monotonic seq numbers; sink receives finished records. */
 export function makeEmitter(sink: (r: TLRecord) => void): EmitFn {

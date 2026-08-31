@@ -27,7 +27,6 @@ const MS = 1_000_000
 const US = 1_000
 
 export class TrafficSource {
-  private saturatedDepth = 0
 
   constructor(
     private q: EventQueue,
@@ -56,7 +55,6 @@ export class TrafficSource {
       case 'saturated':
         this.q.schedule(0, () => {
           for (let i = 0; i < 20; i++) this.emitUl(1500)
-          this.saturatedDepth = 20
         })
         break
       case 'idle':

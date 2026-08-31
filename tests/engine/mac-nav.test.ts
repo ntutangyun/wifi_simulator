@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  CTS_BYTES, DIFS_NS, EIFS_NS, RTS_BYTES, SIFS_NS, SLOT_NS, txTimeNs,
+  CTS_BYTES, DIFS_NS, RTS_BYTES, SIFS_NS, SLOT_NS, txTimeNs,
 } from '../../src/engine/phy'
 import { makeBss, msdu } from './helpers'
 
