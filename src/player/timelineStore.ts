@@ -67,6 +67,14 @@ export class TimelineStore {
     return out
   }
 
+  /** Time of the first buffered record matching pred (course jump-to targets). */
+  findFirstTime(pred: (r: TLRecord) => boolean): Ns | null {
+    for (const r of this.records) {
+      if (pred(r)) return r.t
+    }
+    return null
+  }
+
   nextRecordTime(t: Ns): Ns | null {
     let lo = lowerBoundByTime(this.records, t)
     while (lo < this.records.length && this.records[lo].t <= t) lo++

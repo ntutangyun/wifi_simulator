@@ -12,8 +12,33 @@ export interface LegendItem {
 }
 
 export interface Strings {
-  header: { subtitle: string; edit: string; simulate: string }
+  header: { subtitle: string; edit: string; simulate: string; course: string }
   panel: { inspector: string; log: string; guide: string }
+  course: {
+    title: string
+    progressOf: (done: number, total: number) => string
+    module: string
+    minutes: (n: number) => string
+    selectPrompt: string
+    load: string
+    reload: string
+    variants: string
+    jumps: string
+    notFound: string
+    observe: string
+    tryThis: string
+    quiz: string
+    check: string
+    correct: string
+    incorrect: string
+    markDone: string
+    done: string
+    next: string
+    prev: string
+    back: string
+    openInEditor: string
+    loadHint: string
+  }
   transport: {
     play: string; pause: string; speed: string; simulating: string
     prevExch: string; nextExch: string; prevEv: string; nextEv: string
@@ -69,8 +94,33 @@ export interface Strings {
 
 export const STRINGS: Record<Lang, Strings> = {
   en: {
-    header: { subtitle: 'IEEE 802.11 DCF/EDCA · µs timescale', edit: '✎ Edit', simulate: '▶ Simulate' },
+    header: { subtitle: 'IEEE 802.11 DCF/EDCA · µs timescale', edit: '✎ Edit', simulate: '▶ Simulate', course: '📚 Course' },
     panel: { inspector: '🔍 Inspector', log: '📜 Log', guide: '📖 Guide' },
+    course: {
+      title: 'Wi-Fi MAC — a hands-on course',
+      progressOf: (d, t) => `${d}/${t} lessons completed`,
+      module: 'Module',
+      minutes: (n) => `~${n} min`,
+      selectPrompt: 'Pick a lesson on the left, load its simulation, and follow the text against the live timeline.',
+      load: "▶ Load this lesson's simulation",
+      reload: '↻ Restart simulation',
+      variants: 'Scenario variants',
+      jumps: 'Jump to',
+      notFound: 'not in the simulated window yet — let it play a bit longer',
+      observe: '👀 Observe',
+      tryThis: '🧪 Experiments',
+      quiz: '✅ Self-check',
+      check: 'Check',
+      correct: 'Correct!',
+      incorrect: 'Not quite —',
+      markDone: 'Mark lesson as done',
+      done: 'Done ✓',
+      next: 'Next lesson →',
+      prev: '← Previous',
+      back: '☰ All lessons',
+      openInEditor: '✎ Open this scenario in the editor',
+      loadHint: 'Loads a preset scenario (replaces the current one; your own is restored when you leave the course).',
+    },
     transport: {
       play: '▶ play', pause: '❚❚ pause', speed: 'speed', simulating: '⏳ simulating…',
       prevExch: '⏮ exch', nextExch: 'exch ⏭', prevEv: '← ev', nextEv: 'ev →',
@@ -176,8 +226,33 @@ export const STRINGS: Record<Lang, Strings> = {
     },
   },
   zh: {
-    header: { subtitle: 'IEEE 802.11 DCF/EDCA · 微秒时间尺度', edit: '✎ 编辑', simulate: '▶ 仿真' },
+    header: { subtitle: 'IEEE 802.11 DCF/EDCA · 微秒时间尺度', edit: '✎ 编辑', simulate: '▶ 仿真', course: '📚 课程' },
     panel: { inspector: '🔍 检视器', log: '📜 事件日志', guide: '📖 学习指南' },
+    course: {
+      title: 'Wi-Fi MAC 实战课程',
+      progressOf: (d, t) => `已完成 ${d}/${t} 课`,
+      module: '模块',
+      minutes: (n) => `约 ${n} 分钟`,
+      selectPrompt: '在左侧选择一课，载入其仿真场景，对照课文观察实时时间轴。',
+      load: '▶ 载入本课仿真',
+      reload: '↻ 重新开始仿真',
+      variants: '场景变体',
+      jumps: '跳转到',
+      notFound: '当前仿真窗口内尚未出现——让仿真再运行一会儿',
+      observe: '👀 观察要点',
+      tryThis: '🧪 动手实验',
+      quiz: '✅ 自测',
+      check: '提交',
+      correct: '回答正确！',
+      incorrect: '不对——',
+      markDone: '标记本课完成',
+      done: '已完成 ✓',
+      next: '下一课 →',
+      prev: '← 上一课',
+      back: '☰ 课程目录',
+      openInEditor: '✎ 在编辑器中打开本课场景',
+      loadHint: '载入预设场景（会替换当前场景；离开课程模式时会恢复你自己的场景）。',
+    },
     transport: {
       play: '▶ 播放', pause: '❚❚ 暂停', speed: '速度', simulating: '⏳ 仿真中…',
       prevExch: '⏮ 帧交换', nextExch: '帧交换 ⏭', prevEv: '← 事件', nextEv: '事件 →',

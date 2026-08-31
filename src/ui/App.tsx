@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { CoursePanel } from '../course/CoursePanel'
 import { FloorPlanEditor } from '../editor/FloorPlanEditor'
 import { Viewport } from '../scene/viewport'
 import { EventLog } from './EventLog'
@@ -27,8 +28,9 @@ function SidePanel() {
 }
 
 export function App() {
-  const { mode, setMode, simError, lang, setLang } = useUi()
+  const { mode, setMode, simError, lang, setLang, courseLoaded, simSession } = useUi()
   const L = useStrings()
+  const simActive = mode === 'simulate' || (mode === 'course' && courseLoaded)
 
   return (
     <div style={{ display: 'grid', gridTemplateRows: 'auto 1fr auto auto', height: '100%' }}>
@@ -41,28 +43,47 @@ export function App() {
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 4, alignItems: 'center' }}>
           <button className={mode === 'edit' ? 'active' : ''} onClick={() => setMode('edit')}>{L.header.edit}</button>
           <button className={mode === 'simulate' ? 'active' : ''} onClick={() => setMode('simulate')}>{L.header.simulate}</button>
+          <button className={mode === 'course' ? 'active' : ''} onClick={() => setMode('course')}>{L.header.course}</button>
           <span style={{ width: 1, height: 18, background: 'var(--border)', margin: '0 4px' }} />
           <button className={lang === 'en' ? 'active' : ''} style={{ padding: '3px 6px' }} onClick={() => setLang('en')}>EN</button>
           <button className={lang === 'zh' ? 'active' : ''} style={{ padding: '3px 6px' }} onClick={() => setLang('zh')}>中文</button>
         </div>
       </header>
 
-      <main style={{ position: 'relative', overflow: 'hidden', display: 'grid', gridTemplateColumns: mode === 'simulate' ? '1fr 300px' : '1fr' }}>
-        <div style={{ position: 'relative' }}>
+      <main style={{
+        position: 'relative', overflow: 'hidden', display: 'grid', minHeight: 0,
+        gridTemplateColumns:
+          mode === 'simulate' ? '1fr 300px' :
+          mode === 'course' ? '360px 1fr 300px' : '1fr',
+      }}>
+        {mode === 'course' && (
+          <div style={{ borderRight: '1px solid var(--border)', background: 'var(--panel)', overflow: 'hidden', display: 'grid', minHeight: 0 }}>
+            <CoursePanel />
+          </div>
+        )}
+        <div style={{ position: 'relative', minHeight: 0 }}>
           {simError && (
             <pre style={{ color: '#f87171', padding: 16, whiteSpace: 'pre-wrap', position: 'absolute', zIndex: 5 }}>
               Simulation error: {simError}
             </pre>
           )}
           <div style={{ position: 'absolute', inset: 0 }}>
-            {mode === 'edit' ? <FloorPlanEditor /> : <Viewport key="vp" />}
+            {mode === 'edit' ? (
+              <FloorPlanEditor />
+            ) : simActive ? (
+              <Viewport key={`vp-${mode}-${simSession}`} />
+            ) : (
+              <div style={{ display: 'grid', placeItems: 'center', height: '100%', color: 'var(--dim)', padding: 24, textAlign: 'center' }}>
+                {L.course.selectPrompt}
+              </div>
+            )}
           </div>
         </div>
-        {mode === 'simulate' && <SidePanel />}
+        {mode !== 'edit' && <SidePanel />}
       </main>
 
-      {mode === 'simulate' && <TimelineStrip />}
-      {mode === 'simulate' && <Transport />}
+      {simActive && <TimelineStrip />}
+      {simActive && <Transport />}
     </div>
   )
 }
