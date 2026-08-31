@@ -1,6 +1,6 @@
 # Wi-Fi Airtime Simulator
 
-A browser-based, microsecond-resolution simulator of **IEEE 802.11 (CSMA/CA)** channel access inside a 3D house you design yourself — and a learning tool for how Wi-Fi actually works. Draw rooms, place an access point and stations, pick each device's Wi-Fi generation (802.11a legacy / Wi-Fi 5 / 6 / 7) and toggle its features, then watch — and scrub through — every backoff slot, AIFS wait, NAV reservation, A-MPDU burst, OFDMA trigger exchange, collision and retransmission. Hover any block in the timeline for an explanation of what it is and why it happens; the 📖 Guide tab walks through the protocol from carrier sense to MLO.
+A browser-based, microsecond-resolution simulator of **IEEE 802.11 (CSMA/CA)** channel access inside a 3D house you design yourself — and a learning tool for how Wi-Fi actually works. Draw rooms, place an access point and stations, pick each device's Wi-Fi generation (802.11a legacy / Wi-Fi 5 / 6 / 7) and toggle its features, with a bilingual UI (EN/中文 toggle), then watch — and scrub through — every backoff slot, AIFS wait, NAV reservation, A-MPDU burst, OFDMA trigger exchange, collision and retransmission. Hover any block in the timeline for an explanation of what it is and why it happens; the 📖 Guide tab walks through the protocol from carrier sense to MLO.
 
 Built as a static SPA (Vite + TypeScript + React + Three.js). No backend; deployable on GitHub Pages.
 
