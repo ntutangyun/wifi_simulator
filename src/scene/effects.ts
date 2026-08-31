@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { physicalId } from '../model/caps'
 import type { FrameDesc } from '../model/frames'
 import type { Scenario } from '../model/scenario'
 import type { Ns } from '../model/types'
@@ -57,6 +58,7 @@ export class EffectsLayer {
       alive.add(key)
       let mesh = this.waves.get(key)
       if (!mesh) {
+        const is6g = f.from.includes('#6g')
         mesh = new THREE.Mesh(
           new THREE.SphereGeometry(1, 24, 16),
           new THREE.MeshBasicMaterial({
@@ -65,9 +67,10 @@ export class EffectsLayer {
             opacity: 0.22,
             depthWrite: false,
             side: THREE.DoubleSide,
+            wireframe: is6g, // 6 GHz link waves render as wireframe
           }),
         )
-        const p = this.positions.get(f.from)
+        const p = this.positions.get(physicalId(f.from))
         if (p) mesh.position.set(p.x, p.y, p.z)
         this.waves.set(key, mesh)
         this.group.add(mesh)

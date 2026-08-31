@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { player, useUi } from './store'
-import { recordsToSpans, xForT, type LaneSpan } from './laneLayout'
+import { recordsToSpans, spanTooltip, xForT, type LaneSpan } from './laneLayout'
 import { fmtNs } from './format'
+import { linkPlanFor, physicalId } from '../model/caps'
 
-const GUTTER = 90
+const GUTTER = 96
 const AXIS_H = 18
+const LEGEND_H = 22
 const MIN_SPAN = 100_000 // 100 µs visible
 const MAX_SPAN = 1_000_000_000 // 1 s visible
 const MARGIN = 50_000_000 // fetch 50 ms of records before the window
@@ -16,15 +18,50 @@ const SPAN_COLORS: Record<LaneSpan['kind'], string> = {
 function txColor(s: LaneSpan, apId: string): string {
   if (s.frameKind === 'data') return s.frameSrc === apId ? '#3b82f6' : '#22c55e'
   if (s.frameKind === 'ack') return '#e5e7eb'
+  if (s.frameKind === 'ba' || s.frameKind === 'mba') return '#d8b4fe'
+  if (s.frameKind === 'trigger') return '#facc15'
   return '#f97316' // rts/cts
+}
+
+const LEGEND: { color: string; label: string; hint: string }[] = [
+  { color: '#3b82f6', label: 'DL data', hint: 'Data PPDU from the AP (downlink). Length = real airtime.' },
+  { color: '#22c55e', label: 'UL data', hint: 'Data PPDU from a station (uplink).' },
+  { color: '#e5e7eb', label: 'ACK', hint: 'Acknowledgement, sent one SIFS (16 µs) after a received frame.' },
+  { color: '#d8b4fe', label: 'BA', hint: 'BlockAck: one frame acknowledging a whole A-MPDU aggregate.' },
+  { color: '#facc15', label: 'Trigger', hint: 'Wi-Fi 6 Trigger frame: the AP schedules simultaneous uplink OFDMA transmissions.' },
+  { color: '#f97316', label: 'RTS/CTS', hint: 'Medium reservation handshake used above the RTS threshold (hidden-node protection).' },
+  { color: '#f59e0b', label: 'backoff', hint: 'Random backoff countdown: −1 per idle 9 µs slot; frozen while the medium is busy.' },
+  { color: '#6d5a1b', label: 'defer', hint: 'Waiting for DIFS/AIFS/EIFS quiet time, or for the medium to go idle.' },
+  { color: '#9333ea', label: 'NAV', hint: 'Virtual carrier sense: reserved by an overheard Duration field.' },
+  { color: '#8b5cf6', label: 'RX', hint: 'Receiving a frame.' },
+  { color: '#ef4444', label: 'collision', hint: 'Two or more overlapping transmissions corrupted a reception.' },
+]
+
+interface Tip {
+  x: number
+  y: number
+  lines: string[]
 }
 
 export function TimelineStrip() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [spanNs, setSpanNs] = useState(5_000_000) // 5 ms window
+  const [tip, setTip] = useState<Tip | null>(null)
   const playheadNs = useUi((s) => s.playheadNs)
   const scenario = useUi((s) => s.scenario)
   const dragging = useRef(false)
+  const drawn = useRef<{ spans: LaneSpan[]; a: number; b: number; laneW: number; laneH: number; nodeIds: string[] }>({
+    spans: [], a: 0, b: 1, laneW: 1, laneH: 1, nodeIds: [],
+  })
+
+  const plan = linkPlanFor(scenario.nodes)
+  const nodeIds = plan.virtualIds
+  const laneLabel = (vid: string): string => {
+    const cfg = scenario.nodes.find((n) => n.id === physicalId(vid))
+    const name = cfg?.name ?? vid
+    if (plan.links.length < 2) return name
+    return `${name} · ${vid.includes('#6g') ? '6G' : '5G'}`
+  }
 
   useEffect(() => {
     const canvas = canvasRef.current!
@@ -32,8 +69,8 @@ export function TimelineStrip() {
     const parent = canvas.parentElement!
     const dpr = window.devicePixelRatio || 1
     const W = parent.clientWidth
-    const H = parent.clientHeight
-    if (canvas.width !== W * dpr) {
+    const H = parent.clientHeight - LEGEND_H
+    if (canvas.width !== W * dpr || canvas.height !== H * dpr) {
       canvas.width = W * dpr
       canvas.height = H * dpr
       canvas.style.width = `${W}px`
@@ -43,7 +80,6 @@ export function TimelineStrip() {
 
     const a = playheadNs - spanNs * 0.7
     const b = playheadNs + spanNs * 0.3
-    const nodeIds = scenario.nodes.map((n) => n.id)
     const apId = scenario.nodes.find((n) => n.kind === 'ap')?.id ?? 'ap'
     const laneW = W - GUTTER
     const laneH = (H - AXIS_H) / Math.max(1, nodeIds.length)
@@ -52,20 +88,21 @@ export function TimelineStrip() {
     ctx.fillRect(0, 0, W, H)
 
     // lanes + labels
-    nodeIds.forEach((_id, i) => {
+    nodeIds.forEach((vid, i) => {
       const y = AXIS_H + i * laneH
       ctx.fillStyle = i % 2 ? '#171a21' : '#14161c'
       ctx.fillRect(GUTTER, y, laneW, laneH)
       ctx.fillStyle = '#8a93a3'
       ctx.font = '11px "Segoe UI"'
       ctx.textBaseline = 'middle'
-      const name = scenario.nodes[i].name
-      ctx.fillText(name.length > 12 ? name.slice(0, 12) + '…' : name, 6, y + laneH / 2)
+      const name = laneLabel(vid)
+      ctx.fillText(name.length > 14 ? name.slice(0, 14) + '…' : name, 6, y + laneH / 2)
     })
 
     // spans
     const records = player.store.recordsIn(Math.max(player.store.windowStartNs, a - MARGIN), b)
     const spans = recordsToSpans(records, nodeIds, a, b)
+    drawn.current = { spans, a, b, laneW, laneH, nodeIds }
     for (const s of spans) {
       const i = nodeIds.indexOf(s.nodeId)
       if (i < 0) continue
@@ -76,6 +113,11 @@ export function TimelineStrip() {
       if (s.kind === 'tx') {
         ctx.fillStyle = txColor(s, apId)
         ctx.fillRect(x0, y + laneH * 0.15, w, laneH * 0.55)
+        if (s.frame?.ampdu && w > 20) {
+          ctx.fillStyle = 'rgba(0,0,0,0.35)'
+          ctx.font = '9px Consolas'
+          ctx.fillText(`×${s.frame.ampdu.mpduCount}`, x0 + 3, y + laneH * 0.42)
+        }
       } else if (s.kind === 'rx') {
         ctx.fillStyle = SPAN_COLORS.rx
         ctx.globalAlpha = 0.5
@@ -135,36 +177,83 @@ export function TimelineStrip() {
     }
   }, [playheadNs, spanNs, scenario])
 
-  const tFromEvent = (e: React.PointerEvent | React.WheelEvent): number => {
+  const tFromEvent = (e: React.PointerEvent): number => {
     const r = canvasRef.current!.getBoundingClientRect()
-    const a = playheadNs - spanNs * 0.7
-    const b = playheadNs + spanNs * 0.3
+    const { a, b } = drawn.current
     const frac = (e.clientX - r.left - GUTTER) / (r.width - GUTTER)
     return a + Math.max(0, Math.min(1, frac)) * (b - a)
   }
 
+  const hitTest = (e: React.PointerEvent): Tip | null => {
+    const rect = canvasRef.current!.getBoundingClientRect()
+    const { spans, a, b, laneW, laneH, nodeIds: ids } = drawn.current
+    const x = e.clientX - rect.left
+    const y = e.clientY - rect.top
+    if (x < GUTTER || y < AXIS_H) return null
+    const lane = Math.floor((y - AXIS_H) / laneH)
+    if (lane < 0 || lane >= ids.length) return null
+    const t = a + ((x - GUTTER) / laneW) * (b - a)
+    const nodeId = ids[lane]
+    // topmost matching span: tx > rx > others
+    const cands = spans.filter((s) => s.nodeId === nodeId && t >= s.startNs && t <= s.endNs)
+    if (!cands.length) return null
+    const order: Record<string, number> = { tx: 0, rx: 1, nav: 3, backoff: 2, defer: 2, sifs: 2 }
+    cands.sort((p, q) => order[p.kind] - order[q.kind])
+    return { x: e.clientX - rect.left + 12, y: e.clientY - rect.top - 8, lines: spanTooltip(cands[0]) }
+  }
+
   return (
-    <div style={{ height: 170, borderTop: '1px solid var(--border)', position: 'relative', cursor: 'crosshair' }}
-      onWheel={(e) => {
-        const f = e.deltaY > 0 ? 1.4 : 1 / 1.4
-        setSpanNs((s) => Math.round(Math.max(MIN_SPAN, Math.min(MAX_SPAN, s * f))))
-      }}
-      onPointerDown={(e) => {
-        dragging.current = true
-        ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
-        player.pause()
-        player.seek(tFromEvent(e))
-      }}
-      onPointerMove={(e) => {
-        if (dragging.current) player.seek(tFromEvent(e))
-      }}
-      onPointerUp={() => {
-        dragging.current = false
-      }}
-    >
-      <canvas ref={canvasRef} style={{ display: 'block' }} />
-      <div style={{ position: 'absolute', right: 8, top: 2, color: 'var(--dim)', fontSize: 10 }}>
-        window {fmtNs(spanNs)} s · wheel to zoom · drag to scrub
+    <div style={{ height: 190, borderTop: '1px solid var(--border)', position: 'relative' }}>
+      <div style={{ position: 'relative', height: `calc(100% - ${LEGEND_H}px)`, cursor: 'crosshair' }}
+        onWheel={(e) => {
+          const f = e.deltaY > 0 ? 1.4 : 1 / 1.4
+          setSpanNs((s) => Math.round(Math.max(MIN_SPAN, Math.min(MAX_SPAN, s * f))))
+        }}
+        onPointerDown={(e) => {
+          dragging.current = true
+          ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
+          player.pause()
+          player.seek(tFromEvent(e))
+          setTip(null)
+        }}
+        onPointerMove={(e) => {
+          if (dragging.current) player.seek(tFromEvent(e))
+          else setTip(hitTest(e))
+        }}
+        onPointerUp={() => {
+          dragging.current = false
+        }}
+        onPointerLeave={() => setTip(null)}
+      >
+        <canvas ref={canvasRef} style={{ display: 'block' }} />
+        {tip && (
+          <div style={{
+            position: 'absolute', left: Math.min(tip.x, (canvasRef.current?.clientWidth ?? 600) - 300), top: Math.max(2, tip.y - 14 * tip.lines.length),
+            background: '#0b0d12', border: '1px solid var(--border)', borderRadius: 4,
+            padding: '5px 8px', fontSize: 11, maxWidth: 320, pointerEvents: 'none', zIndex: 10,
+            boxShadow: '0 2px 8px rgba(0,0,0,0.5)',
+          }}>
+            <div style={{ fontWeight: 600 }}>{tip.lines[0]}</div>
+            {tip.lines.slice(1).map((l, i) => (
+              <div key={i} style={{ color: 'var(--dim)', marginTop: 1 }}>{l}</div>
+            ))}
+          </div>
+        )}
+        <div style={{ position: 'absolute', right: 8, top: 2, color: 'var(--dim)', fontSize: 10 }}>
+          window {fmtNs(spanNs)} s · wheel zoom · drag scrub · hover blocks for details
+        </div>
+      </div>
+      <div style={{
+        height: LEGEND_H, display: 'flex', alignItems: 'center', gap: 10, padding: '0 10px',
+        background: 'var(--panel)', borderTop: '1px solid var(--border)', fontSize: 10.5, color: 'var(--dim)',
+        overflowX: 'auto', whiteSpace: 'nowrap',
+      }}>
+        {LEGEND.map((l) => (
+          <span key={l.label} title={l.hint} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'help' }}>
+            <span style={{ width: 10, height: 10, background: l.color, borderRadius: 2, display: 'inline-block' }} />
+            {l.label}
+          </span>
+        ))}
       </div>
     </div>
   )

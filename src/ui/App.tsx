@@ -2,21 +2,23 @@ import { useState } from 'react'
 import { FloorPlanEditor } from '../editor/FloorPlanEditor'
 import { Viewport } from '../scene/viewport'
 import { EventLog } from './EventLog'
+import { Guide } from './Guide'
 import { Inspector } from './Inspector'
 import { useUi } from './store'
 import { TimelineStrip } from './TimelineStrip'
 import { Transport } from './Transport'
 
 function SidePanel() {
-  const [tab, setTab] = useState<'inspector' | 'log'>('inspector')
+  const [tab, setTab] = useState<'inspector' | 'log' | 'guide'>('inspector')
   return (
     <div style={{ borderLeft: '1px solid var(--border)', background: 'var(--panel)', display: 'grid', gridTemplateRows: 'auto 1fr', minHeight: 0 }}>
       <div style={{ display: 'flex', gap: 4, padding: 6, borderBottom: '1px solid var(--border)' }}>
         <button className={tab === 'inspector' ? 'active' : ''} onClick={() => setTab('inspector')}>🔍 Inspector</button>
-        <button className={tab === 'log' ? 'active' : ''} onClick={() => setTab('log')}>📜 Event log</button>
+        <button className={tab === 'log' ? 'active' : ''} onClick={() => setTab('log')}>📜 Log</button>
+        <button className={tab === 'guide' ? 'active' : ''} onClick={() => setTab('guide')}>📖 Guide</button>
       </div>
       <div style={{ overflow: 'hidden', display: 'grid', minHeight: 0 }}>
-        {tab === 'inspector' ? <Inspector /> : <EventLog />}
+        {tab === 'inspector' ? <Inspector /> : tab === 'log' ? <EventLog /> : <div style={{ overflowY: 'auto' }}><Guide /></div>}
       </div>
     </div>
   )
