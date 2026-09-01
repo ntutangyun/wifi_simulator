@@ -401,6 +401,10 @@ export const LESSONS: Lesson[] = [
         en: 'Carrier sense assumes everyone can hear everyone. Put enough brick between two stations and that breaks: here A and B sit in opposite rooms, their signals crossing two walls of a hallway — arriving below the −82 dBm detection threshold, pure noise to each other. Each senses an idle channel while the other is mid-frame, and their transmissions meet — and die — at the AP in the hallway, which hears both. This is the hidden-node problem, and no amount of backoff fixes it, because the contenders never see each other contend.',
         zh: '载波侦听默认所有人都能互相听见。在两台终端之间隔上足够多的砖墙，这个假设就碎了：本场景中 A 和 B 分处两端的房间，信号要穿过走廊的两堵墙——到达对方时已低于 −82 dBm 的检测门限，彼此听来只是噪声。于是一方正在发帧，另一方却侦听到“空闲”，两股信号在走廊里的 AP 处相遇、同归于尽——AP 两边都听得到。这就是隐藏节点问题——多少退避都治不了它，因为竞争双方根本看不见彼此在竞争。',
       } },
+      { heading: { en: 'B freezes for the receipt, not the payload', zh: 'B 为回执停步，却听不见正文' }, text: {
+        en: 'Around t ≈ 2.4 ms you can watch the asymmetry directly. A’s 1528 B data frame (≈ 2.11–2.38 ms) is behind two walls: B counts down straight through it — 97, 96, … 66 — as if the channel were empty. Then the AP’s ACK (2399–2427 µs) is only one wall away: B hears it and politely freezes at 64, sits out the 28 µs of ACK plus a 34 µs DIFS, and resumes at 64. Of A’s entire exchange, the only fragment B ever perceives is the 28 µs receipt at the end. And that freeze protects nothing: a final ACK carries Duration = 0, so it sets no NAV — moments later A starts its next frame and B, deaf again, counts right through it. This is exactly the gap the CTS closes: it too comes from the AP, audible to B, but it carries a nonzero Duration covering the whole upcoming data frame — turning B’s 28 µs twitch into a reservation that lasts the entire exchange.',
+        zh: '在 t ≈ 2.4 ms 附近可以直接看到这种不对称。A 的 1528 B 数据帧（约 2.11–2.38 ms）隔着两堵墙：B 的倒数径直穿过它——97、96、……66——仿佛信道空无一物。而 AP 的 ACK（2399–2427 µs）只隔一堵墙：B 听到了，规规矩矩地冻结在 64，等完 28 µs 的 ACK 加上 34 µs 的 DIFS，再从 64 继续。A 的整场交换里，B 能感知到的唯一片段，就是结尾这张 28 µs 的回执。而且这次冻结保护不了任何东西：收尾 ACK 的 Duration = 0，不设任何 NAV——片刻之后 A 的下一帧开始，重新“失聪”的 B 又径直数了过去。这正是 CTS 补上的缺口：CTS 同样来自 AP、B 也听得见，但它带着覆盖整个后续数据帧的非零 Duration——把 B 那 28 µs 的一哆嗦，变成一场贯穿整次交换的预约。',
+      } },
       { text: {
         en: 'The cure is to make the *AP* announce the reservation: a short RTS asks, the AP answers CTS, and the CTS — audible to both rooms — sets everyone’s NAV. Now only a tiny RTS can ever collide, not a long data frame. Compare the two variants below.',
         zh: '解法是让 AP 来宣布预约：终端先发一个很短的 RTS，AP 回一个 CTS——两个房间都听得到 CTS，于是所有人的 NAV 都被设置。这样可能碰撞的只剩小小的 RTS，而不是长长的数据帧。对比下面两个场景变体。',
@@ -428,6 +432,7 @@ export const LESSONS: Lesson[] = [
     observe: [
       { en: 'Base scenario: stations transmit straight through each other’s frames — the red collision ticks pile up.', zh: '基础场景：两台终端径直在对方的帧中间开始发送——红色碰撞刻度不断累积。' },
       { en: 'Neither hidden station ever freezes its backoff for the other: they cannot hear each other at all.', zh: '两台隐藏终端的退避从不因对方而冻结：它们完全听不到彼此。' },
+      { en: 'Each station does freeze for the AP’s ACKs — the only audible fragment of the other’s exchange.', zh: '但每台终端都会为 AP 的 ACK 冻结——那是对方整场交换中它唯一听得见的片段。' },
       { en: 'RTS variant: after a CTS, the other room’s station shows NAV and waits — data frames stop colliding.', zh: 'RTS 变体：CTS 之后另一个房间的终端出现 NAV 并等待——数据帧不再碰撞。' },
     ],
     tryThis: [
