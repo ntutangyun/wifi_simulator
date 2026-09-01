@@ -73,6 +73,28 @@ describe('jump targets occur in their lesson simulations', () => {
     expect(rts.some((r) => r.type === 'TX_START' && r.frame.kind === 'rts')).toBe(true)
   })
 
+  it('hidden: the stations are genuinely hidden from each other', () => {
+    const lesson = LESSONS.find((l) => l.id === 'hidden')!
+    const base = recordsFor(lesson.scenario(), 300)
+    // Neither station ever detects the other's transmissions (the lesson's premise)…
+    const hears = (rx: string, tx: string) =>
+      base.some((r) => r.type === 'RX_START' && r.node === rx && r.from === tx)
+    expect(hears('sta-1', 'sta-2'), 'A must not hear B').toBe(false)
+    expect(hears('sta-2', 'sta-1'), 'B must not hear A').toBe(false)
+    // …so at least one collision is a true hidden-node collision: one station
+    // starts while the other is already mid-frame (not a same-slot start).
+    const txs = base.filter((r): r is Extract<TLRecord, { type: 'TX_START' }> =>
+      r.type === 'TX_START' && r.frame.kind === 'data' && r.node !== 'ap')
+    const ends = base.filter((r): r is Extract<TLRecord, { type: 'TX_END' }> =>
+      r.type === 'TX_END' && r.node !== 'ap')
+    const midFrame = txs.some((t2) => txs.some((t1) => {
+      if (t1.node === t2.node) return false
+      const end = ends.find((e) => e.node === t1.node && e.t > t1.t)
+      return end !== undefined && t2.t > t1.t && t2.t < end.t
+    }))
+    expect(midFrame, 'a mid-frame (hidden-node) collision must occur').toBe(true)
+  })
+
   it('edca: VO access appears; internal collision may occur (soft check)', () => {
     const lesson = LESSONS.find((l) => l.id === 'edca')!
     const records = recordsFor(lesson.scenario(), 300)

@@ -71,6 +71,25 @@ function oneRoom(): { rooms: Room[]; walls: Wall[] } {
   }
 }
 
+/**
+ * Room A | brick hallway (AP) | Room B. The stations' ray crosses TWO brick
+ * walls (~24 dB) at ~8.4 m, landing below the −82 dBm preamble threshold —
+ * genuinely hidden — while each station reaches the AP through one wall.
+ */
+function hallwayHouse(): { rooms: Room[]; walls: Wall[] } {
+  return {
+    rooms: [
+      { x: 0, y: 0, w: 4, h: 8, name: 'Room A' },
+      { x: 4, y: 0, w: 2, h: 8, name: 'Hallway' },
+      { x: 6, y: 0, w: 4, h: 8, name: 'Room B' },
+    ],
+    walls: [
+      brick(0, 0, 10, 0), brick(10, 0, 10, 8), brick(10, 8, 0, 8), brick(0, 8, 0, 0),
+      brick(4, 0, 4, 8), brick(6, 0, 6, 8),
+    ],
+  }
+}
+
 /** Two rooms; solid brick divider (hidden-node) or drywall with a door. */
 function twoRooms(solidDivider: boolean): { rooms: Room[]; walls: Wall[] } {
   const divider = solidDivider ? brick(5, 0, 5, 8) : drywallDoor(5, 0, 5, 8, 3.5)
@@ -379,26 +398,26 @@ export const LESSONS: Lesson[] = [
     title: { en: '5 · Hidden nodes & RTS/CTS', zh: '5 · 隐藏节点与 RTS/CTS' },
     body: [
       { text: {
-        en: 'Carrier sense assumes everyone can hear everyone. Put a thick wall between two stations and that breaks: each senses an idle channel while the other is mid-frame, and their transmissions meet — and die — at the AP. This is the hidden-node problem, and no amount of backoff fixes it, because the contenders never see each other contend.',
-        zh: '载波侦听默认所有人都能互相听见。在两台终端之间放一堵厚墙，这个假设就碎了：一方正在发帧，另一方却侦听到“空闲”，两股信号在 AP 处相遇、同归于尽。这就是隐藏节点问题——多少退避都治不了它，因为竞争双方根本看不见彼此在竞争。',
+        en: 'Carrier sense assumes everyone can hear everyone. Put enough brick between two stations and that breaks: here A and B sit in opposite rooms, their signals crossing two walls of a hallway — arriving below the −82 dBm detection threshold, pure noise to each other. Each senses an idle channel while the other is mid-frame, and their transmissions meet — and die — at the AP in the hallway, which hears both. This is the hidden-node problem, and no amount of backoff fixes it, because the contenders never see each other contend.',
+        zh: '载波侦听默认所有人都能互相听见。在两台终端之间隔上足够多的砖墙，这个假设就碎了：本场景中 A 和 B 分处两端的房间，信号要穿过走廊的两堵墙——到达对方时已低于 −82 dBm 的检测门限，彼此听来只是噪声。于是一方正在发帧，另一方却侦听到“空闲”，两股信号在走廊里的 AP 处相遇、同归于尽——AP 两边都听得到。这就是隐藏节点问题——多少退避都治不了它，因为竞争双方根本看不见彼此在竞争。',
       } },
       { text: {
         en: 'The cure is to make the *AP* announce the reservation: a short RTS asks, the AP answers CTS, and the CTS — audible to both rooms — sets everyone’s NAV. Now only a tiny RTS can ever collide, not a long data frame. Compare the two variants below.',
         zh: '解法是让 AP 来宣布预约：终端先发一个很短的 RTS，AP 回一个 CTS——两个房间都听得到 CTS，于是所有人的 NAV 都被设置。这样可能碰撞的只剩小小的 RTS，而不是长长的数据帧。对比下面两个场景变体。',
       } },
     ],
-    scenario: () => sc(twoRooms(true), [
-      node('ap', 'AP', 'ap', 5, 1.2, 'eht', 'idle'),
-      node('sta-1', 'Hidden A', 'sta', 1.5, 6, 'nonht', 'saturated'),
-      node('sta-2', 'Hidden B', 'sta', 8.5, 6, 'nonht', 'saturated'),
+    scenario: () => sc(hallwayHouse(), [
+      node('ap', 'AP', 'ap', 5, 4, 'eht', 'idle'),
+      node('sta-1', 'Hidden A', 'sta', 0.8, 7.2, 'nonht', 'saturated'),
+      node('sta-2', 'Hidden B', 'sta', 9.2, 7.2, 'nonht', 'saturated'),
     ]),
     variants: [
       {
         label: { en: 'RTS/CTS ON (threshold 500 B)', zh: '开启 RTS/CTS（门限 500 B）' },
-        scenario: () => sc(twoRooms(true), [
-          node('ap', 'AP', 'ap', 5, 1.2, 'eht', 'idle'),
-          node('sta-1', 'Hidden A', 'sta', 1.5, 6, 'nonht', 'saturated'),
-          node('sta-2', 'Hidden B', 'sta', 8.5, 6, 'nonht', 'saturated'),
+        scenario: () => sc(hallwayHouse(), [
+          node('ap', 'AP', 'ap', 5, 4, 'eht', 'idle'),
+          node('sta-1', 'Hidden A', 'sta', 0.8, 7.2, 'nonht', 'saturated'),
+          node('sta-2', 'Hidden B', 'sta', 9.2, 7.2, 'nonht', 'saturated'),
         ], { rtsThresholdBytes: 500 }),
       },
     ],
@@ -413,7 +432,7 @@ export const LESSONS: Lesson[] = [
     ],
     tryThis: [
       { en: 'Count COLLISION ticks per 100 ms in both variants (inspector → BSS totals).', zh: '分别统计两个变体每 100 ms 的碰撞数（检视器 → BSS 总览）。' },
-      { en: 'In the editor, punch a door in the divider — the stations partially hear each other again.', zh: '在编辑器里给隔墙开一扇门——两台终端又能部分听到彼此了。' },
+      { en: 'In the editor, punch a door in one of the hallway walls — a single wall no longer isolates the stations, and they start hearing each other again.', zh: '在编辑器里给走廊的一堵墙开一扇门——只剩一堵墙就不够隔离了，两台终端又能听到彼此。' },
     ],
     quiz: [
       {
