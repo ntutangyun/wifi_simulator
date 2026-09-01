@@ -90,15 +90,23 @@ function hallwayHouse(): { rooms: Room[]; walls: Wall[] } {
   }
 }
 
-/** Two rooms; solid brick divider (hidden-node) or drywall with a door. */
-function twoRooms(solidDivider: boolean): { rooms: Room[]; walls: Wall[] } {
-  const divider = solidDivider ? brick(5, 0, 5, 8) : drywallDoor(5, 0, 5, 8, 3.5)
+/**
+ * Long 16×8 apartment: a study (0–6) and a far living room (6–16) split by
+ * brick. Wide enough that the far station is genuinely far — ~11.5 m plus one
+ * wall lands it at ~−75 dBm (12 Mb/s), 40 dB under the near station, so the
+ * near frame's capture clears its 30 dB decode threshold by ~10 dB instead of
+ * sitting on the edge of it.
+ */
+function longApartment(): { rooms: Room[]; walls: Wall[] } {
   return {
     rooms: [
-      { x: 0, y: 0, w: 5, h: 8, name: 'Room A' },
-      { x: 5, y: 0, w: 5, h: 8, name: 'Room B' },
+      { x: 0, y: 0, w: 6, h: 8, name: 'Study' },
+      { x: 6, y: 0, w: 10, h: 8, name: 'Living room' },
     ],
-    walls: [brick(0, 0, 10, 0), brick(10, 0, 10, 8), brick(10, 8, 0, 8), brick(0, 8, 0, 0), divider],
+    walls: [
+      brick(0, 0, 16, 0), brick(16, 0, 16, 8), brick(16, 8, 0, 8), brick(0, 8, 0, 0),
+      brick(6, 0, 6, 8),
+    ],
   }
 }
 
@@ -473,11 +481,15 @@ export const LESSONS: Lesson[] = [
         en: 'DCF is fair in transmission opportunities: on average every saturated station wins the channel equally often. But a win is measured in frames, not microseconds. A distant station that only decodes a low MCS holds the medium many times longer per frame — so “fair” wins translate into wildly unfair airtime, and the slow station drags down everyone’s throughput. This is the famous performance anomaly of 802.11.',
         zh: 'DCF 的公平是“传输机会公平”：平均而言每台饱和终端赢得信道的次数相同。但赢一次的单位是“帧”，不是“微秒”。远处的终端只能用低 MCS，每一帧都要占用长得多的空口时间——于是“公平的次数”换来的是极不公平的空口占用，慢终端拖垮了所有人的吞吐量。这就是 802.11 著名的性能异常。',
       } },
+      { heading: { en: 'The near station also wins every collision (capture effect)', zh: '近端终端还赢下了每一次碰撞（捕获效应）' }, text: {
+        en: 'Watch the very first microsecond. Both stations end DIFS together, both have counted down to zero, and both transmit at t = 0 — a textbook collision. Yet the AP decodes the near station’s frame perfectly and acknowledges it, while the far station gets nothing. That is the capture effect. Measured at the AP, the near station arrives at −35 dBm and the far one at −75 dBm: a 40 dB gap opened by 11 m of apartment and one brick wall. A receiver locks a preamble and treats everything arriving afterwards as noise — and while it is still acquiring, a signal markedly stronger than the one it holds makes it abandon that reception and re-sync to the newcomer, so a simultaneous start is won by the stronger signal, never by the earlier one. Here the near frame is decoded against an interferer 40 dB beneath it, comfortably above the 30 dB that 54 Mb/s demands. The ACK that follows is just as safe: it reaches the near station at −30 dBm with the far station still rumbling on underneath at −74 dBm, 44 dB of margin where 21 dB would do. The far station’s 1044 µs frame, meanwhile, is destroyed in full, and it learns nothing until its ACK timeout at 1089 µs, after which it retries with a doubled contention window. Nothing on the timeline is drawn as a collision, because from the AP’s point of view no reception failed — the only visible trace is that unexplained retry on the far lane. Over 200 ms the near station suffers zero ACK timeouts and the far station twelve. So the anomaly cuts deeper than airtime: the distant station pays twice, holding the medium far longer per frame and losing every simultaneous start it takes part in.',
+        zh: '看第一个微秒。两台终端同时结束 DIFS，同时把退避数到零，于是都在 t = 0 开始发送——一次教科书式的碰撞。可是 AP 完好地解出了近端终端的帧并回了 ACK，远端终端却颗粒无收。这就是捕获效应。在 AP 处测得，近端终端的接收电平是 −35 dBm，远端是 −75 dBm：11 m 的房长加一道砖墙，拉开了 40 dB。接收机锁定一个前导后，把此后到达的一切都当作噪声——但在它还处于前导捕获阶段时，一个明显强于当前信号的新前导会让它丢弃手头的接收、改而同步到新来者；所以同时起跑的胜负取决于信号强弱，而不是谁先开口。这里近端的帧是在一个比它低 40 dB 的干扰上被解出的，轻松超过 54 Mb/s 所需的 30 dB。紧跟着的 ACK 同样安稳：它以 −30 dBm 到达近端终端，而远端终端仍在下面以 −74 dBm 轰鸣——余量 44 dB，而需要的只是 21 dB。另一边，远端终端那 1044 µs 的帧被整帧毁掉；它要等到 1089 µs 的 ACK 超时才知情，然后带着翻倍的竞争窗口重传。时间轴上不会画出任何碰撞标记，因为在 AP 看来没有任何一次接收失败——唯一可见的痕迹，是远端泳道上那次没有来由的重传。200 ms 里，近端终端的 ACK 超时是 0 次，远端是 12 次。所以性能异常比“空口时间”更深一层：远端终端要付两遍代价——每帧占用长得多的空口，还输掉它参与的每一次同时起跑。',
+      } },
     ],
-    scenario: () => sc(twoRooms(true), [
-      node('ap', 'AP', 'ap', 4.5, 4, 'eht', 'idle'),
-      node('sta-1', 'Near & fast', 'sta', 3.5, 4.5, 'nonht', 'saturated'),
-      node('sta-2', 'Far & slow', 'sta', 9.5, 7.5, 'nonht', 'saturated'),
+    scenario: () => sc(longApartment(), [
+      node('ap', 'AP', 'ap', 4, 4, 'eht', 'idle'),
+      node('sta-1', 'Near & fast', 'sta', 4.8, 4.3, 'nonht', 'saturated'),
+      node('sta-2', 'Far & slow', 'sta', 15, 7, 'nonht', 'saturated'),
     ]),
     jumps: [
       J('first data frame', '第一个数据帧', firstData),
@@ -486,6 +498,7 @@ export const LESSONS: Lesson[] = [
       { en: 'The far station’s green blocks are much longer than the near one’s — same bytes, lower MCS.', zh: '远端终端的绿色块比近端的长得多——字节数相同，MCS 更低。' },
       { en: 'Inspector: both have similar “frames delivered”, but wildly different airtime share.', zh: '检视器：两者“成功交付帧数”相近，但空口占比天差地别。' },
       { en: 'The near station’s throughput is far below what it would get alone.', zh: '近端终端的吞吐量远低于它独占信道时的水平。' },
+      { en: 'At t = 0 both stations transmit at once, yet only the near one is acknowledged — capture. The far lane’s only clue is an ACK timeout at 1089 µs.', zh: 't = 0 两台终端同时开始发送，却只有近端收到 ACK——这就是捕获。远端泳道上唯一的线索，是 1089 µs 处的 ACK 超时。' },
     ],
     tryThis: [
       { en: 'Delete the far station in the editor and reload: watch the near one’s throughput jump.', zh: '在编辑器中删除远端终端后重新载入：看近端吞吐量飙升。' },

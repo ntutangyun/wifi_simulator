@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest'
 import { LESSONS, MODULES } from '../../src/course/lessons'
 import { ScenarioSchema } from '../../src/model/scenario'
 import { Simulation } from '../../src/engine/simulation'
+import { buildLinkTable } from '../../src/engine/propagation'
+import { sinrThreshDb } from '../../src/engine/phy'
 import type { TLRecord } from '../../src/model/records'
 
 const MS = 1_000_000
@@ -93,6 +95,35 @@ describe('jump targets occur in their lesson simulations', () => {
       return end !== undefined && t2.t > t1.t && t2.t < end.t
     }))
     expect(midFrame, 'a mid-frame (hidden-node) collision must occur').toBe(true)
+  })
+
+  it('anomaly: the near station captures the t=0 collision', () => {
+    const lesson = LESSONS.find((l) => l.id === 'anomaly')!
+    const recs = recordsFor(lesson.scenario(), 200)
+    // Both stations reach zero backoff together and transmit at once.
+    const starts = recs.filter(
+      (r): r is Extract<TLRecord, { type: 'TX_START' }> => r.type === 'TX_START' && r.t === 0,
+    )
+    expect(starts.map((r) => r.node).sort()).toEqual(['sta-1', 'sta-2'])
+    // The AP captures the near (30 dB stronger) station and never locks the far one:
+    // the lesson text quotes SINR 30.4 dB against a 30 dB threshold, so guard the margin.
+    const atAp = recs.filter((r) => r.t < 600_000 && 'node' in r && r.node === 'ap')
+    expect(atAp.some((r) => r.type === 'RX_OK' && r.from === 'sta-1'), 'near frame captured').toBe(true)
+    expect(atAp.some((r) => 'from' in r && r.from === 'sta-2'), 'far frame never locked').toBe(false)
+    // The far station alone pays for the collision — and keeps paying.
+    const timeouts = (n: string) =>
+      recs.filter((r) => r.type === 'ACK_TIMEOUT' && r.node === n).length
+    expect(timeouts('sta-1'), 'near station never times out').toBe(0)
+    expect(timeouts('sta-2'), 'far station loses simultaneous starts').toBeGreaterThan(0)
+  })
+
+  it('anomaly: the capture margin is not knife-edge', () => {
+    // The lesson text quotes a comfortable margin; geometry edits must not
+    // quietly walk it back to the edge of the decode threshold.
+    const sc = LESSONS.find((l) => l.id === 'anomaly')!.scenario()
+    const links = buildLinkTable(sc.nodes, sc.walls)
+    const gapDb = links.get('sta-1')!.get('ap')! - links.get('sta-2')!.get('ap')!
+    expect(gapDb).toBeGreaterThan(sinrThreshDb(54) + 8)
   })
 
   it('edca: VO access appears; internal collision may occur (soft check)', () => {
