@@ -91,6 +91,64 @@ describe('Channel', () => {
     expect(calls.c.some((s) => s.startsWith('rxok:data:a'))).toBe(true)
   })
 
+  it('re-syncs to a much stronger preamble arriving mid-acquisition', () => {
+    const { ch, calls, records, runUntil, at } = setup({
+      'a>c': -40, 'b>c': -75, 'a>b': -95, 'b>a': -95, 'c>a': -40, 'c>b': -75,
+    })
+    const fa = frame('data', 'a', 'c', 1428, 54)
+    const fb = frame('data', 'b', 'c', 1428, 54)
+    at(1000, () => ch.startTx('b', fb)) // weak one starts first…
+    at(3000, () => ch.startTx('a', fa)) // …strong one 2 µs later, inside the 20 µs preamble
+    runUntil(1_000_000)
+    expect(calls.c.some((x) => x.startsWith('rxok:data:a'))).toBe(true)
+    const dropped = records.find((r) => r.type === 'RX_FAIL' && r.reason === 'capture')
+    expect(dropped).toBeDefined()
+    expect((dropped as Extract<TLRecord, { type: 'RX_FAIL' }>).from).toBe('b')
+    // A superseded reception never reaches PHY-RXEND, so it must not arm EIFS.
+    expect(calls.c.some((x) => x.startsWith('corrupt'))).toBe(false)
+  })
+
+  it('resolves a simultaneous start by signal strength, not by transmitter order', () => {
+    const links = { 'a>c': -40, 'b>c': -75, 'a>b': -95, 'b>a': -95, 'c>a': -40, 'c>b': -75 }
+    const winners: string[] = []
+    for (const order of [['a', 'b'], ['b', 'a']]) {
+      const { ch, calls, runUntil, at } = setup(links)
+      const f: Record<string, FrameDesc> = {
+        a: frame('data', 'a', 'c', 1428, 54),
+        b: frame('data', 'b', 'c', 1428, 54),
+      }
+      at(1000, () => { for (const id of order) ch.startTx(id, f[id]) })
+      runUntil(1_000_000)
+      winners.push(calls.c.filter((x) => x.startsWith('rxok')).join(',') || 'none')
+    }
+    expect(winners[0]).toContain('rxok:data:a')
+    expect(winners[0]).toEqual(winners[1]) // order must not change the outcome
+  })
+
+  it('does not capture on a margin below 5 dB', () => {
+    const { ch, calls, records, runUntil, at } = setup({
+      'a>c': -60, 'b>c': -57, 'a>b': -95, 'b>a': -95, 'c>a': -60, 'c>b': -57,
+    })
+    at(1000, () => ch.startTx('a', frame('data', 'a', 'c', 1428, 54)))
+    at(3000, () => ch.startTx('b', frame('data', 'b', 'c', 1428, 54)))
+    runUntil(1_000_000)
+    expect(records.some((r) => r.type === 'RX_FAIL' && r.reason === 'capture')).toBe(false)
+    expect(calls.c.some((x) => x.startsWith('rxok'))).toBe(false)
+    expect(calls.c.some((x) => x.startsWith('corrupt'))).toBe(true)
+  })
+
+  it('does not capture once the receiver is past the preamble', () => {
+    const { ch, calls, records, runUntil, at } = setup({
+      'a>c': -40, 'b>c': -75, 'a>b': -95, 'b>a': -95, 'c>a': -40, 'c>b': -75,
+    })
+    at(1000, () => ch.startTx('b', frame('data', 'b', 'c', 1428, 54)))
+    at(26_000, () => ch.startTx('a', frame('data', 'a', 'c', 1428, 54))) // 25 µs in: committed
+    runUntil(1_000_000)
+    expect(records.some((r) => r.type === 'RX_FAIL' && r.reason === 'capture')).toBe(false)
+    expect(calls.c.some((x) => x.startsWith('rxok'))).toBe(false)
+    expect(calls.c.some((x) => x.startsWith('corrupt'))).toBe(true)
+  })
+
   it('reports energy-only busy without corrupt when nothing is decodable', () => {
     const { ch, calls, records, runUntil, at } = setup({
       'a>c': -63, 'b>c': -63, 'a>b': -95, 'b>a': -95, 'c>a': -63, 'c>b': -63,

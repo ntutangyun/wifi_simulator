@@ -24,7 +24,7 @@ export type TLRecord = { t: Ns; seq: number } & (
   | { type: 'TX_END'; node: string; frame: FrameDesc }
   | { type: 'RX_START'; node: string; from: string; frame: FrameDesc }
   | { type: 'RX_OK'; node: string; from: string; frame: FrameDesc }
-  | { type: 'RX_FAIL'; node: string; from: string | null; reason: 'collision' | 'lowSinr' | 'txDuringRx' }
+  | { type: 'RX_FAIL'; node: string; from: string | null; reason: 'collision' | 'lowSinr' | 'txDuringRx' | 'capture' }
   | { type: 'NAV_SET'; node: string; untilNs: Ns; source: string }
   | { type: 'NAV_CLEAR'; node: string }
   | { type: 'CW_CHANGE'; node: string; cw: number; ac?: number }

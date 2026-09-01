@@ -12,7 +12,7 @@ import type { FrameDesc } from '../model/frames'
 import type { EmitFn } from '../model/records'
 import type { Ns } from '../model/types'
 import { EventQueue } from './events'
-import { CCA_ED_DBM, CCA_PD_DBM, NOISE_DBM, sinrThreshDb, sinrThreshModeDb } from './phy'
+import { CCA_ED_DBM, CCA_PD_DBM, NOISE_DBM, PHY_MODES, sinrThreshDb, sinrThreshModeDb } from './phy'
 
 export interface PhyListener {
   onCcaBusy(t: Ns): void
@@ -34,6 +34,8 @@ interface Lock {
   from: string
   frame: FrameDesc
   rxDbm: number
+  /** When the preamble was acquired — bounds the capture window. */
+  startNs: Ns
   /** Worst-case (max) interference+noise in mW seen during the lock. */
   maxInterfMw: number
   /** True if any meaningful foreign signal overlapped the locked frame. */
@@ -53,6 +55,19 @@ const dbm = (mwv: number): number => 10 * Math.log10(mwv)
 const NOISE_MW = mw(NOISE_DBM)
 /** Interferers at/above this level count as "overlap" for collision labeling. */
 const OVERLAP_MIN_DBM = -92
+/**
+ * Frame capture (message-in-message). How much stronger a second preamble must
+ * be before the receiver abandons the reception in progress and re-syncs to it.
+ * ns-3's SimpleFrameCaptureModel default; typical of real chipsets' restart mode.
+ */
+const CAPTURE_MARGIN_DB = 5
+
+/**
+ * How long a reception stays re-syncable: its preamble, during which the radio
+ * is still doing AGC and timing acquisition. Once into the payload it is
+ * committed, and a stronger signal can only corrupt it.
+ */
+const captureWindowNs = (frame: FrameDesc): Ns => PHY_MODES[frame.mode ?? 'nonht'].preambleNs
 
 const sameGroup = (a: FrameDesc, b: FrameDesc): boolean =>
   a.orthogonalGroup !== undefined && a.orthogonalGroup === b.orthogonalGroup
@@ -128,22 +143,25 @@ export class Channel {
       const p = this.linkDbm(tx.txId, rid)
       const canCoexist = r.locks.every((l) => sameGroup(l.frame, tx.frame))
       if (r.locks.length > 0 && !canCoexist) {
-        // New signal is interference for the existing lock(s).
-        for (const lock of r.locks) {
-          if (p >= OVERLAP_MIN_DBM) lock.overlapped = true
-          lock.maxInterfMw = Math.max(lock.maxInterfMw, this.interferenceMw(rid, lock))
+        if (!r.transmitting && p >= CCA_PD_DBM && this.canCapture(t, r, p)) {
+          // Capture: abandon the weak reception and re-sync to this preamble.
+          // The dropped frame never reaches PHY-RXEND, so no error is indicated
+          // and no EIFS is armed — the new lock's outcome decides the deferral.
+          for (const lost of r.locks) {
+            this.emit({ t, type: 'RX_FAIL', node: rid, from: lost.from, reason: 'capture' })
+          }
+          r.locks = []
+          this.acquireLock(t, rid, r, tx, p)
+        } else {
+          // New signal is interference for the existing lock(s).
+          for (const lock of r.locks) {
+            if (p >= OVERLAP_MIN_DBM) lock.overlapped = true
+            lock.maxInterfMw = Math.max(lock.maxInterfMw, this.interferenceMw(rid, lock))
+          }
         }
       } else if (!r.transmitting && p >= CCA_PD_DBM) {
         // Receiver acquires the preamble (possibly alongside RU-orthogonal peers).
-        const lock: Lock = {
-          from: tx.txId, frame: tx.frame, rxDbm: p,
-          maxInterfMw: 0, overlapped: false,
-        }
-        r.locks.push(lock)
-        lock.maxInterfMw = this.interferenceMw(rid, lock)
-        lock.overlapped = this.hasOverlap(rid, lock)
-        this.emit({ t, type: 'RX_START', node: rid, from: tx.txId, frame: tx.frame })
-        r.listener.onRxStart(t, tx.frame, tx.txId)
+        this.acquireLock(t, rid, r, tx, p)
       } else if (r.locks.length > 0 && canCoexist && p >= OVERLAP_MIN_DBM && !sameGroup(r.locks[0].frame, tx.frame)) {
         for (const lock of r.locks) {
           lock.overlapped = true
@@ -152,6 +170,32 @@ export class Channel {
       }
     }
     this.updateAllCca(t)
+  }
+
+  /**
+   * Message-in-message capture. 802.11 leaves receiver behaviour on a second
+   * preamble undefined (§17.3.10.6 specifies only detection), but real radios
+   * abandon a weak reception and re-sync to a markedly stronger preamble that
+   * arrives while they are still acquiring. Modelling it keeps the outcome of a
+   * simultaneous start a function of signal strength rather than of the order
+   * the transmitters happen to be evaluated in.
+   */
+  private canCapture(t: Ns, r: RadioState, p: number): boolean {
+    return r.locks.every(
+      (l) => p >= l.rxDbm + CAPTURE_MARGIN_DB && t - l.startNs < captureWindowNs(l.frame),
+    )
+  }
+
+  private acquireLock(t: Ns, rid: string, r: RadioState, tx: ActiveTx, p: number): void {
+    const lock: Lock = {
+      from: tx.txId, frame: tx.frame, rxDbm: p, startNs: t,
+      maxInterfMw: 0, overlapped: false,
+    }
+    r.locks.push(lock)
+    lock.maxInterfMw = this.interferenceMw(rid, lock)
+    lock.overlapped = this.hasOverlap(rid, lock)
+    this.emit({ t, type: 'RX_START', node: rid, from: tx.txId, frame: tx.frame })
+    r.listener.onRxStart(t, tx.frame, tx.txId)
   }
 
   private endTx(tx: ActiveTx): void {
