@@ -204,7 +204,7 @@ export function TimelineStrip() {
     }
   }, [playheadNs, spanNs, scenario, sizeTick, selectedFrame])
 
-  const hitSpan = (e: React.PointerEvent): LaneSpan | null => {
+  const hitSpan = (e: React.PointerEvent): { span: LaneSpan; t: number } | null => {
     const rect = canvasRef.current!.getBoundingClientRect()
     const { spans, a, b, laneW, laneH, nodeIds: ids } = drawn.current
     const x = e.clientX - rect.left
@@ -213,21 +213,25 @@ export function TimelineStrip() {
     const lane = Math.floor((y - AXIS_H) / laneH)
     if (lane < 0 || lane >= ids.length) return null
     const t = a + ((x - GUTTER) / laneW) * (b - a)
-    return topSpanAt(spans, ids[lane], t)
+    const span = topSpanAt(spans, ids[lane], t)
+    return span ? { span, t } : null
   }
 
   const tipFor = (e: React.PointerEvent): Tip | null => {
-    const s = hitSpan(e)
-    if (!s) return null
+    const hit = hitSpan(e)
+    if (!hit) return null
     const rect = canvasRef.current!.getBoundingClientRect()
-    return { x: e.clientX - rect.left + 12, y: e.clientY - rect.top - 8, lines: spanTooltip(s, L.tooltips) }
+    return {
+      x: e.clientX - rect.left + 12, y: e.clientY - rect.top - 8,
+      lines: spanTooltip(hit.span, L.tooltips, hit.t),
+    }
   }
 
   return (
     <div style={{ height: 190, borderTop: '1px solid var(--border)', position: 'relative' }}>
       <div ref={wheelRef} style={{ position: 'relative', height: `calc(100% - ${LEGEND_H}px)`, cursor: 'crosshair' }}
         onPointerDown={(e) => {
-          const s = hitSpan(e)
+          const s = hitSpan(e)?.span ?? null
           const sel = useUi.getState().selectFrame
           if (s?.frame && (s.kind === 'tx' || s.kind === 'rx')) {
             sel({ frame: s.frame, nodeId: s.nodeId, side: s.kind, startNs: s.fullStartNs, endNs: s.fullEndNs })

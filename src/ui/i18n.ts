@@ -120,6 +120,7 @@ export interface Strings {
     receiving: (kind: string, from: string) => string
     backoffTitle: string; backoffL1: string; backoffL2: string
     deferTitle: (ifs: string) => string; eifsNote: string; deferNote: string
+    ifsChain: (kinds: string) => string
     navTitle: string; navNote: string; sifsWait: string
   }
 }
@@ -308,6 +309,7 @@ export const STRINGS: Record<Lang, Strings> = {
       backoffL1: 'counter −1 per idle 9 µs slot; frozen while the medium is busy (§10.3.3)',
       backoffL2: 'transmits when it reaches 0 — this is how stations avoid colliding',
       deferTitle: (ifs) => `deferring${ifs ? ` (${ifs})` : ''}`,
+      ifsChain: (kinds) => `this block: ${kinds}`,
       eifsNote: 'EIFS: extra-long wait after a corrupted reception (§10.3.2.3.7)',
       deferNote: 'waiting for the medium to stay idle for one IFS before backoff can run',
       navTitle: 'NAV set',
@@ -498,6 +500,7 @@ export const STRINGS: Record<Lang, Strings> = {
       backoffL1: '每个空闲 9 µs 时隙减 1；介质忙时冻结（§10.3.3）',
       backoffL2: '计数到 0 即发送 — 这就是站点避免碰撞的方式',
       deferTitle: (ifs) => `等待中${ifs ? `（${ifs}）` : ''}`,
+      ifsChain: (kinds) => `本块依次经过：${kinds}`,
       eifsNote: 'EIFS：收到损坏帧后的加长等待（§10.3.2.3.7）',
       deferNote: '等待介质保持一个 IFS 的空闲，之后退避才能继续',
       navTitle: 'NAV 已设置',

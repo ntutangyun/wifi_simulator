@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { recordsToSpans, spanTooltip, topSpanAt, xForT, type LaneSpan } from '../../src/ui/laneLayout'
+import { ifsAt, recordsToSpans, spanTooltip, topSpanAt, xForT, type LaneSpan } from '../../src/ui/laneLayout'
 import { STRINGS } from '../../src/ui/i18n'
 import { makeEmitter, type EmitFn, type TLRecord } from '../../src/model/records'
 import type { FrameDesc } from '../../src/model/frames'
@@ -46,6 +46,42 @@ describe('recordsToSpans', () => {
     expect(spanTooltip(defer, STRINGS.en.tooltips)[0]).toContain('400.0 µs')
   })
 
+  it('keeps every IFS in a defer block and labels the one under the cursor', () => {
+    // Lesson 6, sta-2: it fails to decode sta-1's frame (EIFS at 1425), then
+    // receives the AP's ACK correctly, which truncates the EIFS into a plain
+    // DIFS at 1469 (§10.3.2.3.7). One defer block, two different answers.
+    const spans = recordsToSpans(recs([
+      { t: 1_177_000, type: 'MAC_STATE', node: 'sta-2', state: 'defer' },
+      { t: 1_425_000, type: 'IFS_START', node: 'sta-2', kind: 'EIFS', untilNs: 1_519_000 },
+      { t: 1_469_000, type: 'IFS_START', node: 'sta-2', kind: 'DIFS', untilNs: 1_503_000 },
+      { t: 1_503_000, type: 'MAC_STATE', node: 'sta-2', state: 'backoff' },
+    ]), ['sta-2'], 0, 2_000_000)
+    const defer = spans.find((s) => s.kind === 'defer')!
+    expect(defer.ifs.map((x) => x.kind)).toEqual(['EIFS', 'DIFS'])
+    expect(ifsAt(defer, 1_200_000)).toBeNull() // before either IFS is armed
+    expect(ifsAt(defer, 1_426_000)?.kind).toBe('EIFS')
+    expect(ifsAt(defer, 1_480_000)?.kind).toBe('DIFS')
+    // …and the tooltip must agree with the 3D view at each instant.
+    expect(spanTooltip(defer, STRINGS.en.tooltips, 1_426_000)[0]).toContain('EIFS')
+    expect(spanTooltip(defer, STRINGS.en.tooltips, 1_480_000)[0]).toContain('DIFS')
+    expect(spanTooltip(defer, STRINGS.en.tooltips, 1_426_000)).toContainEqual(
+      expect.stringContaining('EIFS → DIFS'),
+    )
+  })
+
+  it('captures the IFS that opens a block, emitted just before the state record', () => {
+    // idle→defer emits IFS_START first, so it arrives with no span open yet.
+    const spans = recordsToSpans(recs([
+      { t: 1_089_000, type: 'MAC_STATE', node: 'sta-2', state: 'idle' },
+      { t: 1_089_000, type: 'IFS_START', node: 'sta-2', kind: 'DIFS', untilNs: 1_123_000 },
+      { t: 1_089_000, type: 'MAC_STATE', node: 'sta-2', state: 'defer' },
+      { t: 1_123_000, type: 'MAC_STATE', node: 'sta-2', state: 'backoff' },
+    ]), ['sta-2'], 0, 2_000_000)
+    const defer = spans.find((s) => s.kind === 'defer')!
+    expect(defer.ifs.map((x) => x.kind)).toEqual(['DIFS'])
+    expect(spanTooltip(defer, STRINGS.en.tooltips, 1_100_000)[0]).toContain('DIFS')
+  })
+
   it('tracks NAV as an independent overlay span', () => {
     const spans = recordsToSpans(recs([
       { t: 100, type: 'NAV_SET', node: 'sta-2', untilNs: 800, source: 'data:sta-1' },
@@ -62,8 +98,8 @@ describe('recordsToSpans', () => {
 })
 
 describe('topSpanAt', () => {
-  const sp = (s: Omit<LaneSpan, 'fullStartNs' | 'fullEndNs'>): LaneSpan =>
-    ({ ...s, fullStartNs: s.startNs, fullEndNs: s.endNs })
+  const sp = (s: Omit<LaneSpan, 'fullStartNs' | 'fullEndNs' | 'ifs'> & { ifs?: LaneSpan['ifs'] }): LaneSpan =>
+    ({ ifs: [], ...s, fullStartNs: s.startNs, fullEndNs: s.endNs })
   const spans: LaneSpan[] = [
     sp({ nodeId: 'sta-1', kind: 'backoff', startNs: 0, endNs: 1000 }),
     sp({ nodeId: 'sta-1', kind: 'tx', frameKind: 'data', frame, startNs: 200, endNs: 400 }),
