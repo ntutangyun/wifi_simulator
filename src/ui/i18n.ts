@@ -1,5 +1,6 @@
 /** Minimal i18n: typed string tables + a lang field in the UI store. */
 import type { FeatureFlag } from '../model/caps'
+import type { FrameKind } from '../model/frames'
 import type { Generation } from '../model/types'
 import type { ProfileId } from '../model/scenario'
 
@@ -84,6 +85,33 @@ export interface Strings {
   profiles: Record<ProfileId, string>
   generations: Record<Generation, string>
   features: Record<FeatureFlag, string>
+  frameDetail: {
+    title: string
+    close: string
+    /** Shown when the user clicked the receiver's lane rather than the sender's. */
+    clickedRx: (lane: string) => string
+    kindName: Record<FrameKind, string>
+    /** Beginner-level "what is this frame and why does it exist". */
+    whatIs: Record<FrameKind, string>
+    /** Beginner-level "what happens right after this frame". */
+    next: Record<FrameKind, string>
+    nextTitle: string
+    from: string; to: string; everyone: string
+    when: string; whenHint: string
+    airtime: string; airtimeHint: string
+    size: string; sizeHint: string
+    rate: string; rateHintMcs: string; rateHintLegacy: string
+    ac: string; acNames: string[]; acHint: string
+    duration: string; durationHint: string
+    seq: string; seqHint: string
+    retry: string; retryHint: string
+    ampduTitle: (n: number) => string
+    ampduHint: string
+    muTitle: (n: number) => string
+    muHint: string
+    muTo: string; muSize: string; muRate: string
+    ruNote: string
+  }
   tooltips: {
     transmitting: string; dlMu: (n: number) => string; ampdu: (n: number, dst: string) => string
     data: (dst: string) => string; ack: (dst: string) => string; ba: (dst: string) => string
@@ -144,7 +172,7 @@ export const STRINGS: Record<Lang, Strings> = {
         { us: 1_000_000, label: 'real time' },
       ],
     },
-    strip: { windowHint: 'wheel zoom · drag scrub · hover blocks for details', legendCollision: 'collision' },
+    strip: { windowHint: 'wheel = move time · Ctrl+wheel = zoom · click a frame for details', legendCollision: 'collision' },
     legend: [
       { color: '#3b82f6', label: 'DL data', hint: 'Data PPDU from the AP (downlink). Length = real airtime.' },
       { color: '#22c55e', label: 'UL data', hint: 'Data PPDU from a station (uplink).' },
@@ -206,6 +234,59 @@ export const STRINGS: Record<Lang, Strings> = {
     features: {
       edca: 'EDCA (QoS access categories)', ampdu: 'A-MPDU aggregation + BlockAck', txop: 'TXOP bursting',
       ofdma: 'OFDMA (MU scheduling)', mlo: 'Multi-Link Operation', qam4k: '4096-QAM (MCS 12/13)',
+    },
+    frameDetail: {
+      title: '📨 Frame details',
+      close: 'back to node view',
+      clickedRx: (lane) => `You clicked the receiving side — lane “${lane}” is hearing this frame while the sender transmits it.`,
+      kindName: {
+        data: 'Data frame', ack: 'ACK — acknowledgement', rts: 'RTS — request to send',
+        cts: 'CTS — clear to send', ba: 'BlockAck — block acknowledgement',
+        trigger: 'Trigger frame', mba: 'Multi-STA BlockAck',
+      },
+      whatIs: {
+        data: 'The payload carrier — the frame that actually moves your bytes (video, web page, backup…) through the air. Everything else on this timeline exists to get frames like this one through safely.',
+        ack: 'A tiny receipt. A Wi-Fi radio cannot listen while it transmits, so it never knows by itself whether a frame survived — the receiver must confirm every delivery with this short “got it, intact”. No ACK back means the sender assumes a loss and retries.',
+        rts: 'A short “may I speak?” sent before a long data frame. If it collides, only these few bytes are lost instead of the whole data frame — and its Duration field silences even stations too far away to hear the data sender (hidden nodes).',
+        cts: '“Yes, go ahead” — the answer to an RTS. It repeats the reservation from the receiver’s side, so stations near the receiver also learn to stay quiet.',
+        ba: 'One receipt for a whole batch: instead of ACKing every frame of an A-MPDU aggregate separately, the receiver returns a bitmap saying which sub-frames arrived. Only the missing ones get re-sent.',
+        trigger: 'The AP acting as a conductor (Wi-Fi 6 OFDMA): it splits the channel into frequency slices (resource units) and invites several stations to transmit at the same moment, each in its own slice.',
+        mba: 'One receipt for several stations at once: after a simultaneous OFDMA uplink, the AP confirms everyone’s data in this single Multi-STA BlockAck.',
+      },
+      next: {
+        data: 'If it arrives intact, the receiver answers after exactly one SIFS (16 µs — the shortest gap in Wi-Fi, too short for anyone else to butt in) with an ACK or BlockAck. If nothing comes back, the sender times out, doubles its contention window and retries.',
+        ack: 'The exchange is complete. Stations silenced by the Duration field release their NAV timers, wait one DIFS/AIFS of quiet, and resume their backoff countdowns — the race for the channel restarts.',
+        rts: 'The addressed station replies with a CTS one SIFS later. If no CTS arrives, only this short frame was wasted and the sender retries cheaply.',
+        cts: 'The data frame follows one SIFS later, transmitted inside the quiet window the RTS/CTS pair just reserved.',
+        ba: 'The sender re-queues whatever the bitmap marked missing; everything confirmed is done. Then normal contention resumes.',
+        trigger: 'One SIFS later every invited station transmits simultaneously, each in its resource unit, for exactly the duration it was granted; the AP then confirms all of them with a Multi-STA BlockAck.',
+        mba: 'The uplink OFDMA round is closed; each station re-queues anything unconfirmed, and normal contention resumes.',
+      },
+      nextTitle: 'What happens next',
+      from: 'from', to: 'to', everyone: 'several stations (multi-user)',
+      when: 'starts at', whenHint: 'simulation time when the first bit hits the air',
+      airtime: 'airtime',
+      airtimeHint: 'how long the frame occupies the channel: a fixed PHY preamble first (radios sync on it), then bytes ÷ data rate. While it lasts, no one else can be heard.',
+      size: 'size',
+      sizeHint: 'octets on the air: MAC header + payload + a 4-byte FCS checksum the receiver uses to detect corruption',
+      rate: 'data rate',
+      rateHintMcs: 'MCS = modulation & coding scheme, the “gear” the link runs in. A higher MCS packs more bits into each symbol but needs a cleaner signal.',
+      rateHintLegacy: 'control and legacy frames use a low, robust rate that every station — even the oldest — can decode.',
+      ac: 'priority (AC)',
+      acNames: ['background (AC_BK)', 'best effort (AC_BE)', 'video (AC_VI)', 'voice (AC_VO)'],
+      acHint: 'EDCA access category: higher-priority traffic waits shorter gaps and draws smaller backoffs, so voice usually beats a backup to the channel.',
+      duration: 'Duration field',
+      durationHint: 'the header announces how much longer this whole exchange will take; every station that overhears it sets its NAV timer and stays silent that long — a reservation made by announcement.',
+      seq: 'sequence number',
+      seqHint: 'a per-destination counter, so if an ACK is lost and the frame arrives twice, the receiver can spot the duplicate.',
+      retry: 'retransmission',
+      retryHint: 'the Retry bit is set: an earlier attempt of this very frame got no acknowledgement (collision or noise), so it is being sent again.',
+      ampduTitle: (n) => `A-MPDU aggregate — ${n} frames in one burst`,
+      ampduHint: 'many data frames glued into a single transmission: the preamble and the contention wait are paid once instead of once per frame. The whole batch is confirmed by one BlockAck.',
+      muTitle: (n) => `multi-user payload — ${n} stations at once`,
+      muHint: 'OFDMA splits the channel into smaller frequency slices (resource units); each row below is one station’s slice, all transmitted simultaneously.',
+      muTo: 'station', muSize: 'bytes', muRate: 'rate',
+      ruNote: 'RU-orthogonal: sent at the same time as the other frames of its group without interfering — they occupy different frequency slices.',
     },
     tooltips: {
       transmitting: 'transmitting',
@@ -281,7 +362,7 @@ export const STRINGS: Record<Lang, Strings> = {
         { us: 1_000_000, label: '实时' },
       ],
     },
-    strip: { windowHint: '滚轮缩放 · 拖动定位 · 悬停色块查看详情', legendCollision: '碰撞' },
+    strip: { windowHint: '滚轮移动时间 · Ctrl+滚轮缩放 · 点击帧查看详情', legendCollision: '碰撞' },
     legend: [
       { color: '#3b82f6', label: '下行数据', hint: 'AP 发出的数据 PPDU（下行）。长度即真实占用空口时间。' },
       { color: '#22c55e', label: '上行数据', hint: '终端（STA）发出的数据 PPDU（上行）。' },
@@ -343,6 +424,59 @@ export const STRINGS: Record<Lang, Strings> = {
     features: {
       edca: 'EDCA（QoS 接入类别）', ampdu: 'A-MPDU 聚合 + BlockAck', txop: 'TXOP 突发',
       ofdma: 'OFDMA（多用户调度）', mlo: '多链路操作 (MLO)', qam4k: '4096-QAM (MCS 12/13)',
+    },
+    frameDetail: {
+      title: '📨 帧详情',
+      close: '返回节点视图',
+      clickedRx: (lane) => `你点击的是接收方——泳道「${lane}」正在收听这帧，同一时刻发送方正在发出它。`,
+      kindName: {
+        data: '数据帧', ack: 'ACK — 确认帧', rts: 'RTS — 请求发送',
+        cts: 'CTS — 允许发送', ba: 'BlockAck — 块确认',
+        trigger: 'Trigger — 触发帧', mba: '多站点 BlockAck',
+      },
+      whatIs: {
+        data: '真正运载数据的帧——你的视频、网页、备份等字节就装在里面通过空口传输。时间轴上的其它一切，都是为了让这样的帧安全送达。',
+        ack: '一张小小的回执。Wi-Fi 电台发送时无法同时收听，自己永远不知道帧有没有送到——必须由接收方用这条简短的「收到，完好」来确认。收不到 ACK，发送方就认定丢失并重传。',
+        rts: '在长数据帧之前先发的一句「我能讲话吗？」。它很短，即使碰撞也只损失这几个字节；而且它的 Duration 字段能让离数据发送方太远、听不到它的站点（隐藏节点）也保持安静。',
+        cts: '「可以，请讲」——对 RTS 的回答。它从接收方一侧把预约再广播一遍，让接收方附近的站点也知道要保持安静。',
+        ba: '整批数据的一张回执：接收方不再逐帧回 ACK，而是返回一张位图，标明 A-MPDU 聚合中哪些子帧收到了。只有缺失的子帧才需要重发。',
+        trigger: 'AP 扮演指挥家（Wi-Fi 6 OFDMA）：把信道切成若干频率子块（资源单元 RU），邀请多个终端在同一时刻各自在自己的子块里发送。',
+        mba: '发给多个站点的一张合并回执：一轮同时进行的 OFDMA 上行结束后，AP 用这一帧统一确认所有终端的数据。',
+      },
+      next: {
+        data: '若完好到达，接收方会在恰好一个 SIFS（16 µs——Wi-Fi 里最短的间隔，短到没人能插队）之后回 ACK 或 BlockAck。若无回音，发送方超时后把竞争窗口翻倍并重传。',
+        ack: '这次帧交换到此完成。被 Duration 字段压制的站点解除 NAV 计时器，等待一个 DIFS/AIFS 的安静期后继续退避倒数——信道争夺重新开始。',
+        rts: '被叫站点会在一个 SIFS 后回复 CTS。若 CTS 没来，损失的只是这短短一帧，发送方可以低成本重试。',
+        cts: '数据帧将在一个 SIFS 后发出，在 RTS/CTS 刚刚预约好的安静窗口内传输。',
+        ba: '位图中标记缺失的子帧被发送方重新入队；确认过的就算送达。之后信道竞争恢复。',
+        trigger: '一个 SIFS 之后，所有被邀请的终端同时发送，各自在自己的 RU 内、严格按分配的时长进行；随后 AP 用多站点 BlockAck 统一确认。',
+        mba: '这轮上行 OFDMA 到此结束；各终端把未被确认的数据重新入队，正常竞争恢复。',
+      },
+      nextTitle: '接下来会发生什么',
+      from: '发送方', to: '接收方', everyone: '多个终端（多用户）',
+      when: '开始时刻', whenHint: '第一个比特进入空口的仿真时刻',
+      airtime: '空口时间',
+      airtimeHint: '这帧占用信道的时长：先是固定的 PHY 前导码（供各电台同步），然后是 字节数 ÷ 速率。在此期间其他任何人的信号都无法被正确接收。',
+      size: '大小',
+      sizeHint: '空口上的总字节数：MAC 头 + 载荷 + 4 字节 FCS 校验和（接收方用它检测损坏）',
+      rate: '速率',
+      rateHintMcs: 'MCS = 调制编码方案，相当于链路的「档位」。MCS 越高，每个符号装的比特越多，但要求信号越干净。',
+      rateHintLegacy: '控制帧和传统帧使用低速、稳健的速率，保证任何站点——哪怕最老的——都能解码。',
+      ac: '优先级（AC）',
+      acNames: ['后台 (AC_BK)', '尽力而为 (AC_BE)', '视频 (AC_VI)', '语音 (AC_VO)'],
+      acHint: 'EDCA 接入类别：优先级越高，等待的间隔越短、抽取的退避越小，所以语音通常抢得过云备份。',
+      duration: 'Duration 字段',
+      durationHint: '帧头里预告了整个交换还要持续多久；所有侦听到它的站点会据此设置 NAV 计时器并在这段时间内保持安静——一种「广播即预约」的机制。',
+      seq: '序列号',
+      seqHint: '按目的地递增的计数器：若 ACK 丢失导致同一帧被发两次，接收方靠它识别重复。',
+      retry: '重传',
+      retryHint: 'Retry 位已置 1：这一帧之前发过一次但没有收到确认（碰撞或噪声），现在正在重发。',
+      ampduTitle: (n) => `A-MPDU 聚合 — 一次突发携带 ${n} 帧`,
+      ampduHint: '把许多数据帧拼进同一次发送：前导码和竞争等待只需付一次，而不是每帧一次。整批数据由一个 BlockAck 统一确认。',
+      muTitle: (n) => `多用户载荷 — ${n} 个终端同时`,
+      muHint: 'OFDMA 把信道切成更小的频率子块（资源单元 RU）；下表每一行是一个终端的子块，全部同时传输。',
+      muTo: '终端', muSize: '字节', muRate: '速率',
+      ruNote: 'RU 正交：与同组其它帧同时发送而互不干扰——它们占用不同的频率子块。',
     },
     tooltips: {
       transmitting: '发送中',

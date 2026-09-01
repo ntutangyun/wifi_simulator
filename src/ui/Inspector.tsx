@@ -1,5 +1,6 @@
 import { useUi } from './store'
 import { fmtNs } from './format'
+import { FrameDetail } from './FrameDetail'
 import { useStrings, type Strings } from './i18n'
 import type { NodeView } from '../model/view'
 
@@ -115,8 +116,9 @@ function NodeSection({ vid, nv, t, L }: { vid: string; nv: NodeView; t: number; 
 }
 
 export function Inspector() {
-  const { view, playheadNs, selectedNodeId, scenario } = useUi()
+  const { view, playheadNs, selectedNodeId, selectedFrame, scenario } = useUi()
   const L = useStrings().inspector
+  if (selectedFrame) return <FrameDetail sel={selectedFrame} />
   if (!view) return <div style={{ padding: 10, color: 'var(--dim)' }}>{L.waiting}</div>
 
   const t = playheadNs

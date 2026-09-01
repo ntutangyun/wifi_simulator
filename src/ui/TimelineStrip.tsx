@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { player, useUi } from './store'
-import { recordsToSpans, spanTooltip, xForT, type LaneSpan } from './laneLayout'
+import { recordsToSpans, spanTooltip, topSpanAt, xForT, type LaneSpan } from './laneLayout'
 import { fmtNs } from './format'
 import { useStrings } from './i18n'
 import { linkPlanFor, physicalId } from '../model/caps'
@@ -33,14 +33,15 @@ interface Tip {
 
 export function TimelineStrip() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const wheelRef = useRef<HTMLDivElement>(null)
   const [spanNs, setSpanNs] = useState(5_000_000) // 5 ms window
   const [tip, setTip] = useState<Tip | null>(null)
   /** Bumped by the ResizeObserver so the canvas is re-measured when the column resizes. */
   const [sizeTick, setSizeTick] = useState(0)
   const playheadNs = useUi((s) => s.playheadNs)
   const scenario = useUi((s) => s.scenario)
+  const selectedFrame = useUi((s) => s.selectedFrame)
   const L = useStrings()
-  const dragging = useRef(false)
   const drawn = useRef<{ spans: LaneSpan[]; a: number; b: number; laneW: number; laneH: number; nodeIds: string[] }>({
     spans: [], a: 0, b: 1, laneW: 1, laneH: 1, nodeIds: [],
   })
@@ -61,6 +62,27 @@ export function TimelineStrip() {
     ro.observe(parent)
     return () => ro.disconnect()
   }, [])
+
+  // Wheel moves the playhead; Ctrl+wheel zooms. Native non-passive listener so
+  // preventDefault can stop page scroll / browser zoom (React's onWheel is passive).
+  useEffect(() => {
+    const el = wheelRef.current
+    if (!el) return
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault()
+      if (e.ctrlKey || e.metaKey) {
+        const f = e.deltaY > 0 ? 1.4 : 1 / 1.4
+        setSpanNs((s) => Math.round(Math.max(MIN_SPAN, Math.min(MAX_SPAN, s * f))))
+      } else {
+        let d = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY
+        if (e.deltaMode === 1) d *= 33 // line-scroll browsers report ~3 lines per notch
+        player.pause()
+        player.seek(player.playheadNs + (d / 100) * spanNs * 0.1)
+      }
+    }
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return () => el.removeEventListener('wheel', onWheel)
+  }, [spanNs])
 
   useEffect(() => {
     const canvas = canvasRef.current!
@@ -131,6 +153,12 @@ export function TimelineStrip() {
         ctx.fillRect(x0, y + laneH * 0.35, w, laneH * 0.3)
         ctx.globalAlpha = 1
       }
+      if (selectedFrame && s.frame === selectedFrame.frame && (s.kind === 'tx' || s.kind === 'rx')) {
+        ctx.strokeStyle = '#f8fafc'
+        ctx.lineWidth = 1.5
+        ctx.strokeRect(x0 - 1, y + laneH * 0.1, w + 2, laneH * 0.66)
+        ctx.lineWidth = 1
+      }
     }
 
     // collision ticks
@@ -174,16 +202,9 @@ export function TimelineStrip() {
       ctx.fillStyle = 'rgba(0,0,0,0.45)'
       ctx.fillRect(fx, AXIS_H, W - fx, H - AXIS_H)
     }
-  }, [playheadNs, spanNs, scenario, sizeTick])
+  }, [playheadNs, spanNs, scenario, sizeTick, selectedFrame])
 
-  const tFromEvent = (e: React.PointerEvent): number => {
-    const r = canvasRef.current!.getBoundingClientRect()
-    const { a, b } = drawn.current
-    const frac = (e.clientX - r.left - GUTTER) / (r.width - GUTTER)
-    return a + Math.max(0, Math.min(1, frac)) * (b - a)
-  }
-
-  const hitTest = (e: React.PointerEvent): Tip | null => {
+  const hitSpan = (e: React.PointerEvent): LaneSpan | null => {
     const rect = canvasRef.current!.getBoundingClientRect()
     const { spans, a, b, laneW, laneH, nodeIds: ids } = drawn.current
     const x = e.clientX - rect.left
@@ -192,39 +213,35 @@ export function TimelineStrip() {
     const lane = Math.floor((y - AXIS_H) / laneH)
     if (lane < 0 || lane >= ids.length) return null
     const t = a + ((x - GUTTER) / laneW) * (b - a)
-    const nodeId = ids[lane]
-    // topmost matching span: tx > rx > others
-    const cands = spans.filter((s) => s.nodeId === nodeId && t >= s.startNs && t <= s.endNs)
-    if (!cands.length) return null
-    const order: Record<string, number> = { tx: 0, rx: 1, nav: 3, backoff: 2, defer: 2, sifs: 2 }
-    cands.sort((p, q) => order[p.kind] - order[q.kind])
-    return { x: e.clientX - rect.left + 12, y: e.clientY - rect.top - 8, lines: spanTooltip(cands[0], L.tooltips) }
+    return topSpanAt(spans, ids[lane], t)
+  }
+
+  const tipFor = (e: React.PointerEvent): Tip | null => {
+    const s = hitSpan(e)
+    if (!s) return null
+    const rect = canvasRef.current!.getBoundingClientRect()
+    return { x: e.clientX - rect.left + 12, y: e.clientY - rect.top - 8, lines: spanTooltip(s, L.tooltips) }
   }
 
   return (
     <div style={{ height: 190, borderTop: '1px solid var(--border)', position: 'relative' }}>
-      <div style={{ position: 'relative', height: `calc(100% - ${LEGEND_H}px)`, cursor: 'crosshair' }}
-        onWheel={(e) => {
-          const f = e.deltaY > 0 ? 1.4 : 1 / 1.4
-          setSpanNs((s) => Math.round(Math.max(MIN_SPAN, Math.min(MAX_SPAN, s * f))))
-        }}
+      <div ref={wheelRef} style={{ position: 'relative', height: `calc(100% - ${LEGEND_H}px)`, cursor: 'crosshair' }}
         onPointerDown={(e) => {
-          dragging.current = true
-          ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
-          player.pause()
-          player.seek(tFromEvent(e))
-          setTip(null)
+          const s = hitSpan(e)
+          const sel = useUi.getState().selectFrame
+          if (s?.frame && (s.kind === 'tx' || s.kind === 'rx')) {
+            sel({ frame: s.frame, nodeId: s.nodeId, side: s.kind, startNs: s.startNs, endNs: s.endNs })
+          } else {
+            sel(null)
+          }
         }}
-        onPointerMove={(e) => {
-          if (dragging.current) player.seek(tFromEvent(e))
-          else setTip(hitTest(e))
-        }}
-        onPointerUp={() => {
-          dragging.current = false
-        }}
+        onPointerMove={(e) => setTip(tipFor(e))}
         onPointerLeave={() => setTip(null)}
       >
-        <canvas ref={canvasRef} style={{ display: 'block' }} />
+        {/* Absolute so the canvas's own inline width can't prop its column open —
+            in-flow it would block ancestors from ever shrinking (e.g. on browser zoom-in),
+            and the ResizeObserver would never fire. */}
+        <canvas ref={canvasRef} style={{ display: 'block', position: 'absolute', left: 0, top: 0 }} />
         {tip && (
           <div style={{
             position: 'absolute', left: Math.min(tip.x, (canvasRef.current?.clientWidth ?? 600) - 300), top: Math.max(2, tip.y - 14 * tip.lines.length),

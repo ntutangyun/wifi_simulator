@@ -114,6 +114,18 @@ export function xForT(t: Ns, a: Ns, b: Ns, widthPx: number): number {
   return ((t - a) / (b - a)) * widthPx
 }
 
+const HIT_ORDER: Record<SpanKind, number> = { tx: 0, rx: 1, backoff: 2, defer: 2, sifs: 2, nav: 3 }
+
+/** Topmost span (tx > rx > states > nav) covering time t on a lane, or null. */
+export function topSpanAt(spans: LaneSpan[], nodeId: string, t: Ns): LaneSpan | null {
+  let best: LaneSpan | null = null
+  for (const s of spans) {
+    if (s.nodeId !== nodeId || t < s.startNs || t > s.endNs) continue
+    if (!best || HIT_ORDER[s.kind] < HIT_ORDER[best.kind]) best = s
+  }
+  return best
+}
+
 const AC_NAME = ['BK', 'BE', 'VI', 'VO']
 
 /** Tooltip lines for a span: what it is + what it teaches. */

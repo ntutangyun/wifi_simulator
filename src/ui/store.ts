@@ -1,10 +1,22 @@
 import { create } from 'zustand'
 import { Player } from '../player/player'
+import type { FrameDesc } from '../model/frames'
 import { ScenarioSchema, defaultScenario, type Scenario } from '../model/scenario'
 import type { Ns } from '../model/types'
 import type { ViewState } from '../model/view'
 
 export type Lang = 'en' | 'zh'
+
+/** A frame block the user clicked on the timeline. */
+export interface FrameSelection {
+  frame: FrameDesc
+  /** Lane (virtual node id) that was clicked. */
+  nodeId: string
+  /** Whether the clicked lane was transmitting or receiving this frame. */
+  side: 'tx' | 'rx'
+  startNs: Ns
+  endNs: Ns
+}
 
 export interface UiState {
   mode: 'edit' | 'simulate' | 'course'
@@ -17,6 +29,7 @@ export interface UiState {
   speedUsPerSec: number
   view: ViewState | null
   selectedNodeId: string | null
+  selectedFrame: FrameSelection | null
   simError: string | null
   setMode(m: 'edit' | 'simulate' | 'course'): void
   /** Course: currently selected lesson + whether its sim is loaded. */
@@ -29,6 +42,7 @@ export interface UiState {
   adoptCourseScenario(sc: Scenario): void
   setScenario(sc: Scenario): void
   select(id: string | null): void
+  selectFrame(f: FrameSelection | null): void
   setSpeed(usPerSec: number): void
 }
 
@@ -76,6 +90,7 @@ export const useUi = create<UiState>((set, get) => ({
   speedUsPerSec: 1000,
   view: null,
   selectedNodeId: null,
+  selectedFrame: null,
   simError: null,
   setMode(m) {
     const prev = get().mode
@@ -87,17 +102,17 @@ export const useUi = create<UiState>((set, get) => ({
     }
     if (m === 'simulate') {
       player.dispose()
-      set({ simError: null, playheadNs: 0, view: null })
+      set({ simError: null, playheadNs: 0, view: null, selectedFrame: null })
       player.speedUsPerSec = get().speedUsPerSec
       player.load(get().scenario)
       set({ mode: m, simSession: get().simSession + 1 })
     } else if (m === 'course') {
       courseStash = get().scenario
       player.dispose()
-      set({ mode: m, playing: false, view: null, playheadNs: 0, courseLoaded: false, simError: null })
+      set({ mode: m, playing: false, view: null, playheadNs: 0, courseLoaded: false, simError: null, selectedFrame: null })
     } else {
       player.dispose()
-      set({ mode: m, playing: false, view: null, playheadNs: 0, courseLoaded: false })
+      set({ mode: m, playing: false, view: null, playheadNs: 0, courseLoaded: false, selectedFrame: null })
     }
   },
   courseLessonId: null,
@@ -108,7 +123,7 @@ export const useUi = create<UiState>((set, get) => ({
   },
   loadCourseScenario(sc) {
     player.dispose()
-    set({ scenario: sc, simError: null, playheadNs: 0, view: null, courseLoaded: true, selectedNodeId: null, simSession: get().simSession + 1 })
+    set({ scenario: sc, simError: null, playheadNs: 0, view: null, courseLoaded: true, selectedNodeId: null, selectedFrame: null, simSession: get().simSession + 1 })
     player.speedUsPerSec = get().speedUsPerSec
     player.load(sc)
   },
@@ -116,13 +131,16 @@ export const useUi = create<UiState>((set, get) => ({
     // user wants the lesson scenario in the editor: don't restore the stash
     courseStash = null
     player.dispose()
-    set({ mode: 'edit', scenario: sc, playing: false, view: null, playheadNs: 0, courseLoaded: false })
+    set({ mode: 'edit', scenario: sc, playing: false, view: null, playheadNs: 0, courseLoaded: false, selectedFrame: null })
   },
   setScenario(sc) {
     set({ scenario: sc })
   },
   select(id) {
     set({ selectedNodeId: get().selectedNodeId === id ? null : id })
+  },
+  selectFrame(f) {
+    set({ selectedFrame: f })
   },
   setSpeed(usPerSec) {
     player.speedUsPerSec = usPerSec

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { recordsToSpans, xForT } from '../../src/ui/laneLayout'
+import { recordsToSpans, topSpanAt, xForT, type LaneSpan } from '../../src/ui/laneLayout'
 import { makeEmitter, type EmitFn, type TLRecord } from '../../src/model/records'
 import type { FrameDesc } from '../../src/model/frames'
 
@@ -45,5 +45,31 @@ describe('recordsToSpans', () => {
     expect(xForT(50, 0, 100, 200)).toBe(100)
     expect(xForT(0, 0, 100, 200)).toBe(0)
     expect(xForT(100, 0, 100, 200)).toBe(200)
+  })
+})
+
+describe('topSpanAt', () => {
+  const spans: LaneSpan[] = [
+    { nodeId: 'sta-1', kind: 'backoff', startNs: 0, endNs: 1000 },
+    { nodeId: 'sta-1', kind: 'tx', frameKind: 'data', frame, startNs: 200, endNs: 400 },
+    { nodeId: 'sta-2', kind: 'nav', startNs: 200, endNs: 400 },
+    { nodeId: 'sta-2', kind: 'rx', frameKind: 'data', frame, startNs: 200, endNs: 400 },
+  ]
+
+  it('prefers tx over an underlying state span', () => {
+    expect(topSpanAt(spans, 'sta-1', 300)?.kind).toBe('tx')
+  })
+
+  it('falls back to the state span outside the tx interval', () => {
+    expect(topSpanAt(spans, 'sta-1', 100)?.kind).toBe('backoff')
+  })
+
+  it('prefers rx over the nav overlay', () => {
+    expect(topSpanAt(spans, 'sta-2', 300)?.kind).toBe('rx')
+  })
+
+  it('returns null off-lane or outside every span', () => {
+    expect(topSpanAt(spans, 'sta-2', 100)).toBeNull()
+    expect(topSpanAt(spans, 'nope', 300)).toBeNull()
   })
 })
