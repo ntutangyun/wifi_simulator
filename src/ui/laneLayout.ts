@@ -14,8 +14,12 @@ export interface LaneSpan {
   frame?: FrameDesc
   ac?: number
   ifsKind?: string
+  /** Clipped to the visible window — use for drawing. */
   startNs: Ns
   endNs: Ns
+  /** Unclipped — use for durations shown to the user. */
+  fullStartNs: Ns
+  fullEndNs: Ns
 }
 
 const STATE_SPAN: Record<string, SpanKind | null> = {
@@ -53,6 +57,7 @@ export function recordsToSpans(records: TLRecord[], nodeIds: string[], a: Ns, b:
       nodeId, kind: o.kind, frameKind: o.frameKind, frameSrc: o.frameSrc, frame: o.frame,
       ac: o.ac, ifsKind: o.ifsKind,
       startNs: Math.max(a, o.start), endNs: Math.min(b, end),
+      fullStartNs: o.start, fullEndNs: end,
     })
   }
 
@@ -130,7 +135,7 @@ const AC_NAME = ['BK', 'BE', 'VI', 'VO']
 
 /** Tooltip lines for a span: what it is + what it teaches. */
 export function spanTooltip(s: LaneSpan, T: Strings['tooltips']): string[] {
-  const dur = `${((s.endNs - s.startNs) / 1000).toFixed(1)} µs`
+  const dur = `${((s.fullEndNs - s.fullStartNs) / 1000).toFixed(1)} µs`
   const ac = s.ac !== undefined ? ` · AC_${AC_NAME[s.ac]}` : ''
   switch (s.kind) {
     case 'tx': {

@@ -230,7 +230,7 @@ export function TimelineStrip() {
           const s = hitSpan(e)
           const sel = useUi.getState().selectFrame
           if (s?.frame && (s.kind === 'tx' || s.kind === 'rx')) {
-            sel({ frame: s.frame, nodeId: s.nodeId, side: s.kind, startNs: s.startNs, endNs: s.endNs })
+            sel({ frame: s.frame, nodeId: s.nodeId, side: s.kind, startNs: s.fullStartNs, endNs: s.fullEndNs })
           } else {
             sel(null)
           }

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { recordsToSpans, topSpanAt, xForT, type LaneSpan } from '../../src/ui/laneLayout'
+import { recordsToSpans, spanTooltip, topSpanAt, xForT, type LaneSpan } from '../../src/ui/laneLayout'
+import { STRINGS } from '../../src/ui/i18n'
 import { makeEmitter, type EmitFn, type TLRecord } from '../../src/model/records'
 import type { FrameDesc } from '../../src/model/frames'
 
@@ -33,6 +34,18 @@ describe('recordsToSpans', () => {
     expect(spans).toEqual([expect.objectContaining({ kind: 'defer', startNs: 200, endNs: 1000 })])
   })
 
+  it('keeps unclipped times so tooltips report the true duration', () => {
+    const spans = recordsToSpans(recs([
+      { t: 100_000, type: 'MAC_STATE', node: 'sta-1', state: 'defer' },
+      { t: 500_000, type: 'MAC_STATE', node: 'sta-1', state: 'backoff' },
+    ]), ['sta-1'], 200_000, 1_000_000)
+    const defer = spans.find((s) => s.kind === 'defer')!
+    expect(defer.startNs).toBe(200_000) // drawn from the window edge…
+    expect(defer.fullStartNs).toBe(100_000) // …but the real span is known
+    // tooltip duration = 500-100 = 400 µs, not the visible 300 µs
+    expect(spanTooltip(defer, STRINGS.en.tooltips)[0]).toContain('400.0 µs')
+  })
+
   it('tracks NAV as an independent overlay span', () => {
     const spans = recordsToSpans(recs([
       { t: 100, type: 'NAV_SET', node: 'sta-2', untilNs: 800, source: 'data:sta-1' },
@@ -49,11 +62,13 @@ describe('recordsToSpans', () => {
 })
 
 describe('topSpanAt', () => {
+  const sp = (s: Omit<LaneSpan, 'fullStartNs' | 'fullEndNs'>): LaneSpan =>
+    ({ ...s, fullStartNs: s.startNs, fullEndNs: s.endNs })
   const spans: LaneSpan[] = [
-    { nodeId: 'sta-1', kind: 'backoff', startNs: 0, endNs: 1000 },
-    { nodeId: 'sta-1', kind: 'tx', frameKind: 'data', frame, startNs: 200, endNs: 400 },
-    { nodeId: 'sta-2', kind: 'nav', startNs: 200, endNs: 400 },
-    { nodeId: 'sta-2', kind: 'rx', frameKind: 'data', frame, startNs: 200, endNs: 400 },
+    sp({ nodeId: 'sta-1', kind: 'backoff', startNs: 0, endNs: 1000 }),
+    sp({ nodeId: 'sta-1', kind: 'tx', frameKind: 'data', frame, startNs: 200, endNs: 400 }),
+    sp({ nodeId: 'sta-2', kind: 'nav', startNs: 200, endNs: 400 }),
+    sp({ nodeId: 'sta-2', kind: 'rx', frameKind: 'data', frame, startNs: 200, endNs: 400 }),
   ]
 
   it('prefers tx over an underlying state span', () => {
