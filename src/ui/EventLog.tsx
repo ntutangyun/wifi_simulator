@@ -20,6 +20,9 @@ export function EventLog() {
     .recordsIn(Math.max(player.store.windowStartNs, playheadNs - WINDOW_BEFORE), playheadNs + WINDOW_AFTER)
     .filter((r) => r.type !== 'MAC_STATE')
     .slice(-160)
+  // Mark the most recent record at or before the playhead — exact equality
+  // almost never holds after an analog (wheel) seek.
+  const markerSeq = records.reduce<number | null>((m, r) => (r.t <= playheadNs ? r.seq : m), null)
 
   return (
     <div style={{ overflow: 'auto', fontSize: 11.5, fontFamily: 'Consolas, monospace', padding: '4px 0' }}>
@@ -40,7 +43,7 @@ export function EventLog() {
                 display: 'flex', gap: 8, padding: '1px 8px', cursor: 'pointer',
                 opacity: past ? 1 : 0.45,
                 background: r.type === 'COLLISION' ? 'rgba(239,68,68,0.15)' : undefined,
-                borderLeft: r.t === playheadNs ? '2px solid #f8fafc' : '2px solid transparent',
+                borderLeft: r.seq === markerSeq ? '2px solid #f8fafc' : '2px solid transparent',
               }}
             >
               <span style={{ color: 'var(--dim)', whiteSpace: 'nowrap' }}>{fmtNs(r.t)}</span>

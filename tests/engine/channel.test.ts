@@ -5,8 +5,8 @@ import { txTimeNs } from '../../src/engine/phy'
 import type { FrameDesc } from '../../src/model/frames'
 import { makeEmitter, type TLRecord } from '../../src/model/records'
 
-/** Test harness: 3 nodes a,b,c with an explicit dBm link matrix. */
-function setup(links: Record<string, number>) {
+/** Test harness: nodes (default a,b,c) with an explicit dBm link matrix. */
+function setup(links: Record<string, number>, ids: string[] = ['a', 'b', 'c']) {
   const q = new EventQueue()
   let now = 0
   const table = new Map<string, Map<string, number>>()
@@ -26,7 +26,7 @@ function setup(links: Record<string, number>) {
     onRxOk: (t, f, from) => calls[id].push(`rxok:${f.kind}:${from}@${t}`),
     onRxCorrupt: (t) => calls[id].push(`corrupt@${t}`),
   })
-  for (const id of ['a', 'b', 'c']) {
+  for (const id of ids) {
     calls[id] = []
     ch.register(id, listener(id))
   }
@@ -123,6 +123,44 @@ describe('Channel', () => {
     }
     expect(winners[0]).toContain('rxok:data:a')
     expect(winners[0]).toEqual(winners[1]) // order must not change the outcome
+  })
+
+  it('resolves a 3-way pileup with straddling margins identically in any order', () => {
+    // a beats b by 4 dB (< capture margin), b beats c by 5 dB (≥ margin),
+    // a beats c by 9 dB. Evaluated weakest-first, c would lock, b would
+    // capture c, and a (only +4 over b) would be stuck as interference —
+    // the lock holder used to depend on evaluation order.
+    const links = {
+      'a>d': -40, 'b>d': -44, 'c>d': -49,
+      'a>b': -95, 'a>c': -95, 'b>a': -95, 'b>c': -95, 'c>a': -95, 'c>b': -95,
+      'd>a': -40, 'd>b': -44, 'd>c': -49,
+    }
+    const runs: string[] = []
+    for (const order of [['a', 'b', 'c'], ['c', 'b', 'a']]) {
+      const { ch, records, runUntil, at } = setup(links, ['a', 'b', 'c', 'd'])
+      at(1000, () => { for (const id of order) ch.startTx(id, frame('data', id, 'd', 1428, 54)) })
+      runUntil(1_000_000)
+      runs.push(
+        records
+          .filter((r) => (r.type === 'RX_START' || r.type === 'RX_FAIL' || r.type === 'RX_OK') && r.node === 'd')
+          .map((r) => `${r.type}:${'from' in r ? r.from : ''}`)
+          .join(' '),
+      )
+    }
+    expect(runs[0]).toContain('RX_START:a') // the strongest holds the lock
+    expect(runs[0]).toEqual(runs[1]) // and the record stream is order-invariant
+  })
+
+  it('names an interferer in the COLLISION record even if it ended earlier', () => {
+    const { ch, records, runUntil, at } = setup({
+      'a>c': -70, 'b>c': -60, 'a>b': -95, 'b>a': -95, 'c>a': -70, 'c>b': -60,
+    })
+    at(1000, () => ch.startTx('a', frame('data', 'a', 'c', 1428, 6))) // long, weak — c locks it
+    at(31_000, () => ch.startTx('b', frame('data', 'b', 'c', 100, 54))) // short, strong, past a's preamble
+    runUntil(3_000_000)
+    const col = records.find((r) => r.type === 'COLLISION')
+    expect(col).toBeDefined()
+    expect((col as Extract<TLRecord, { type: 'COLLISION' }>).nodes).toContain('b')
   })
 
   it('does not capture on a margin below 5 dB', () => {

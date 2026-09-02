@@ -293,8 +293,8 @@ export const LESSONS: Lesson[] = [
         zh: '发送方听不到碰撞——发送时自己的信号会盖过一切，所以失败的唯一证据是沉默：ACK 迟迟不来。但“沉默”需要一个期限，而 45 µs 并非随意规定，它是三段有物理含义的时间之和：SIFS（16 µs——接收方在开始回 ACK 前理应等待的间隔）+ 1 个时隙（9 µs 的余量）+ 接收启动时延 RxPHYStartDelay（20 µs——电台检测到一个前导码已经开始所需的时间）。如果 ACK 真的在路上，它的前导码一定会在发送结束后 16 + 9 + 20 = 45 µs 之内被检测到。过了这个期限仍是沉默，就等于宣告帧已阵亡——终端随即把 CW 翻倍并重新抽取。注意：新一轮倒数之前并没有额外的 DIFS。规则要求的是“介质空闲满一个 DIFS”，而这段空闲从介质安静下来的那一刻——也就是碰撞传输结束时——就开始计了。45 µs 的沉默本身已经包含了所需的 34 µs 空闲期，所以超时一到，倒数立即开始。',
       } },
       { heading: { en: 'And the AP? It waits even longer — EIFS', zh: '那 AP 呢？它等得更久——EIFS' }, text: {
-        en: 'One contrast worth noticing in the same scene: the AP behaves differently. It was not transmitting — it actually received the garbled overlap, and a station that hears a corrupted frame must stay quiet for the much longer EIFS (94 µs = SIFS + DIFS + the time an ACK takes at the lowest rate) instead of a DIFS. The logic: that broken frame may have been meant for someone else who is about to answer it with an ACK the AP cannot anticipate — having failed to decode the frame, the AP also missed its Duration field, so it holds back long enough not to trample the reply. That is the darker, longer “defer” block on the AP’s lane right after the collision.',
-        zh: '同一场景里还有一个值得注意的对比：AP 的行为不一样。它当时并没有发送，而是实实在在收到了那段互相重叠的乱码——凡是收到损坏帧的站点，必须保持安静更长的 EIFS（94 µs = SIFS + DIFS + 以最低速率发完一个 ACK 所需的时间），而不是一个 DIFS。道理在于：那帧损坏的数据也许本来是发给别人的，对方马上就要回 ACK；AP 既然没解出这帧，也就错过了它的 Duration 字段，所以多等这一段，才不会踩到那个自己“预料不到”的 ACK。这就是碰撞之后 AP 泳道上那段颜色更深、更长的“等待”色块。',
+        en: 'One contrast worth knowing about: the AP experienced this collision differently. It was not transmitting — it actually received the garbled overlap, and a station that hears a corrupted frame must stay quiet for the much longer EIFS (94 µs = SIFS + DIFS + the time an ACK takes at the lowest rate) instead of a DIFS before its next access. The logic: that broken frame may have been meant for someone else who is about to answer it with an ACK — having failed to decode the frame, the listener also missed its Duration field, so it holds back long enough not to trample a reply it cannot anticipate. You will not see an EIFS block on the AP’s lane here, though: a defer block is drawn only when a station is waiting *in order to send*, and this AP is idle with nothing to transmit, so the rule never has to show itself. A real, visible EIFS appears in lesson 6 — the far station fails to decode a frame, arms EIFS, and hovering its defer block even shows the EIFS being cut short into a DIFS the moment a healthy frame arrives (§10.3.2.3.7).',
+        zh: '还有一个值得了解的对比：AP 经历这场碰撞的方式不一样。它当时并没有发送，而是实实在在收到了那段互相重叠的乱码——凡是收到损坏帧的站点，下一次接入前必须保持安静更长的 EIFS（94 µs = SIFS + DIFS + 以最低速率发完一个 ACK 所需的时间），而不是一个 DIFS。道理在于：那帧损坏的数据也许本来是发给别人的，对方马上就要回 ACK；侦听者既然没解出这帧，也就错过了它的 Duration 字段，所以多等这一段，才不会踩到那个自己“预料不到”的 ACK。不过在本场景里，你不会在 AP 的泳道上看到 EIFS 色块：只有当站点是“为了发送”而等待时才会画出等待色块，而这台 AP 空闲、无东西可发，这条规则便无从显形。想看真实可见的 EIFS，请到第 6 课——远处的终端解不出一帧数据、进入 EIFS，悬停它的等待色块还能看到 EIFS 在一帧健康的帧到来时被截短成 DIFS（§10.3.2.3.7）。',
       } },
       { text: {
         en: 'This scenario saturates two legacy stations. Use “first collision”: the red tick marks two overlapping transmissions. Step backwards from it and watch both backoff counters reach zero in the same slot — the collision was fully determined a moment earlier.',
@@ -414,8 +414,8 @@ export const LESSONS: Lesson[] = [
         zh: '在 t ≈ 2.4 ms 附近可以直接看到这种不对称。A 的 1528 B 数据帧（约 2.11–2.38 ms）隔着两堵墙：B 的倒数径直穿过它——97、96、……66——仿佛信道空无一物。而 AP 的 ACK（2399–2427 µs）只隔一堵墙：B 听到了，规规矩矩地冻结在 64，等完 28 µs 的 ACK 加上 34 µs 的 DIFS，再从 64 继续。A 的整场交换里，B 能感知到的唯一片段，就是结尾这张 28 µs 的回执。而且这次冻结保护不了任何东西：收尾 ACK 的 Duration = 0，不设任何 NAV——片刻之后 A 的下一帧开始，重新“失聪”的 B 又径直数了过去。这正是 CTS 补上的缺口：CTS 同样来自 AP、B 也听得见，但它带着覆盖整个后续数据帧的非零 Duration——把 B 那 28 µs 的一哆嗦，变成一场贯穿整次交换的预约。',
       } },
       { text: {
-        en: 'The cure is to make the *AP* announce the reservation: a short RTS asks, the AP answers CTS, and the CTS — audible to both rooms — sets everyone’s NAV. Now only a tiny RTS can ever collide, not a long data frame. Compare the two variants below.',
-        zh: '解法是让 AP 来宣布预约：终端先发一个很短的 RTS，AP 回一个 CTS——两个房间都听得到 CTS，于是所有人的 NAV 都被设置。这样可能碰撞的只剩小小的 RTS，而不是长长的数据帧。对比下面两个场景变体。',
+        en: 'The cure is to make the *AP* announce the reservation: a short RTS asks, the AP answers CTS, and the CTS — audible to both rooms — sets everyone’s NAV. Now it is almost always the tiny RTS that collides instead of a long data frame (in this scene, data collisions drop by about 97% — a few stragglers remain where a data frame meets an AP response). Compare the two variants below.',
+        zh: '解法是让 AP 来宣布预约：终端先发一个很短的 RTS，AP 回一个 CTS——两个房间都听得到 CTS，于是所有人的 NAV 都被设置。此后碰撞的几乎总是小小的 RTS，而不再是长长的数据帧（本场景中数据帧碰撞减少约 97%，剩下的零星几次是数据帧撞上 AP 的响应帧）。对比下面两个场景变体。',
       } },
     ],
     scenario: () => sc(hallwayHouse(), [
@@ -441,11 +441,11 @@ export const LESSONS: Lesson[] = [
       { en: 'Base scenario: stations transmit straight through each other’s frames — the red collision ticks pile up.', zh: '基础场景：两台终端径直在对方的帧中间开始发送——红色碰撞刻度不断累积。' },
       { en: 'Neither hidden station ever freezes its backoff for the other: they cannot hear each other at all.', zh: '两台隐藏终端的退避从不因对方而冻结：它们完全听不到彼此。' },
       { en: 'Each station does freeze for the AP’s ACKs — the only audible fragment of the other’s exchange.', zh: '但每台终端都会为 AP 的 ACK 冻结——那是对方整场交换中它唯一听得见的片段。' },
-      { en: 'RTS variant: after a CTS, the other room’s station shows NAV and waits — data frames stop colliding.', zh: 'RTS 变体：CTS 之后另一个房间的终端出现 NAV 并等待——数据帧不再碰撞。' },
+      { en: 'RTS variant: after a CTS, the other room’s station shows NAV and waits — data-frame collisions all but vanish.', zh: 'RTS 变体：CTS 之后另一个房间的终端出现 NAV 并等待——数据帧碰撞几乎绝迹。' },
     ],
     tryThis: [
       { en: 'Count COLLISION ticks per 100 ms in both variants (inspector → BSS totals).', zh: '分别统计两个变体每 100 ms 的碰撞数（检视器 → BSS 总览）。' },
-      { en: 'In the editor, punch a door in one of the hallway walls — a single wall no longer isolates the stations, and they start hearing each other again.', zh: '在编辑器里给走廊的一堵墙开一扇门——只剩一堵墙就不够隔离了，两台终端又能听到彼此。' },
+      { en: 'In the editor, punch a door near the top of a hallway wall, on the stations’ line of sight (y ≈ 7.2) — the ray between them now crosses only one wall, and they start hearing each other again. A door elsewhere changes nothing: RF “holes” only matter if the straight path passes through them.', zh: '在编辑器里给走廊的一堵墙靠上端、也就是两台终端连线经过处（y ≈ 7.2）开一扇门——它们之间的射线只剩一堵墙，于是又能听到彼此。门开在别处则毫无作用：射频“孔洞”只有在直线路径恰好穿过时才起作用。' },
     ],
     quiz: [
       {
@@ -608,10 +608,10 @@ export const LESSONS: Lesson[] = [
     observe: [
       { en: 'Aggregated blocks carry ×n badges; hover to see the MPDU count and total bytes.', zh: '聚合块带有 ×n 角标；悬停可见 MPDU 数量与总字节数。' },
       { en: 'One lilac BlockAck replaces what would have been n separate ACKs.', zh: '一个淡紫色 BlockAck 取代了原本 n 个独立的 ACK。' },
-      { en: 'Compare BSS throughput between the two variants — same PHY rate, several × the goodput.', zh: '比较两个变体的 BSS 吞吐量——物理速率相同，有效吞吐却相差数倍。' },
+      { en: 'Compare BSS throughput between the two variants — same PHY rate, ~1.5× the goodput here. (The gap is “only” 1.5× because the no-aggregation variant still has TXOP, so it too pays contention once per burst — take the comparison as aggregation’s share alone.)', zh: '比较两个变体的 BSS 吞吐量——物理速率相同，有效吞吐约为 1.5 倍。（差距“只有”1.5 倍，是因为不聚合的变体仍开着 TXOP，同样只在每次突发时付一次竞争——这组对比反映的仅是聚合本身的贡献。）' },
     ],
     tryThis: [
-      { en: 'Watch the queue in the inspector drain 20 frames per channel win instead of 1.', zh: '在检视器里观察队列每赢一次信道就清掉 20 帧，而不是 1 帧。' },
+      { en: 'Watch the queue in the inspector drain 15 frames per channel win instead of 1 (15 is what fits under the AC_BE TXOP limit here, not the 64-MPDU A-MPDU ceiling).', zh: '在检视器里观察队列每赢一次信道就清掉 15 帧，而不是 1 帧（15 是 AC_BE 的 TXOP 限值所容纳的数量，并非 A-MPDU 的 64 帧上限）。' },
     ],
     quiz: [
       {
@@ -648,7 +648,7 @@ export const LESSONS: Lesson[] = [
       J('first BlockAck', '第一个 BlockAck', firstBa),
     ],
     observe: [
-      { en: 'Inside a TXOP the AP sends to TV 1, gets its BA, then after one SIFS sends to TV 2 — no backoff in between.', zh: '在一个 TXOP 内，AP 发给电视 1、收到 BA 后仅隔一个 SIFS 就发给电视 2——中间没有退避。' },
+      { en: 'Inside a TXOP the AP sends to TV 1, gets its BA, then after one SIFS sends to TV 2 — no backoff in between. Not every TXOP chains, though: the “first TXOP start” jump lands on a single-exchange one, so step forward a few — the first two-receiver burst is at ≈ 1.65 ms.', zh: '在一个 TXOP 内，AP 发给电视 1、收到 BA 后仅隔一个 SIFS 就发给电视 2——中间没有退避。但并非每个 TXOP 都会串联多次交换：“第一次 TXOP 开始”跳转落在只有一次交换的 TXOP 上，往后步进几个——第一个发往两台接收机的突发在 ≈ 1.65 ms 处。' },
       { en: 'The inspector shows “TXOP: AC_VI, n µs left” while the burst runs.', zh: '突发进行中，检视器显示“TXOP：AC_VI，剩余 n µs”。' },
     ],
     tryThis: [

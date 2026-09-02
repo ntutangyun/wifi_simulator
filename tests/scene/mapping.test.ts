@@ -40,7 +40,7 @@ describe('scene mappings', () => {
   it('statusText prioritizes backoff then IFS then NAV', () => {
     const base: NodeView = {
       state: 'backoff', ccaBusy: false, backoff: 5, cw: 15, ssrc: 0, slrc: 0,
-      navUntilNs: 0, ifs: null, queue: [], currentTx: null, currentRx: null,
+      navUntilNs: 0, ifs: null, queue: [], currentTx: null, currentRx: null, rxSeq: {},
       stats: { txOk: 0, txFail: 0, retries: 0, drops: 0, bytesDelivered: 0, airtimeNs: 0, collisions: 0 },
       acs: null, txopUntilNs: 0, txopAc: -1,
     }

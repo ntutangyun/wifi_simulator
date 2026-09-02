@@ -71,7 +71,15 @@ function NodeSection({ vid, nv, t, L }: { vid: string; nv: NodeView; t: number; 
       </div>
       <div style={row}>
         <Lbl hint={L.ifsHint}>{L.ifs}</Lbl>
-        <span>{nv.ifs ? `${nv.ifs.kind}${nv.ifs.ac !== undefined ? `/${AC_NAME[nv.ifs.ac]}` : ''}, ${(Math.max(0, nv.ifs.untilNs - t) / 1000).toFixed(1)} µs ${L.left}` : '—'}</span>
+        <span>
+          {nv.acs
+            ? nv.acs
+                .flatMap((a, i) => a.ifs ? [`${a.ifs.kind}/${AC_NAME[i]} ${(Math.max(0, a.ifs.untilNs - t) / 1000).toFixed(1)} µs`] : [])
+                .join(' · ') || '—'
+            : nv.ifs
+              ? `${nv.ifs.kind}, ${(Math.max(0, nv.ifs.untilNs - t) / 1000).toFixed(1)} µs ${L.left}`
+              : '—'}
+        </span>
       </div>
       <div style={row}><Lbl hint={L.ccaHint}>{L.cca}</Lbl><span>{nv.ccaBusy ? L.busy : L.idle}</span></div>
       {nv.txopUntilNs > t && (

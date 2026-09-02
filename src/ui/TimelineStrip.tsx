@@ -4,6 +4,7 @@ import { recordsToSpans, spanTooltip, topSpanAt, xForT, type LaneSpan } from './
 import { fmtNs } from './format'
 import { useStrings } from './i18n'
 import { linkPlanFor, physicalId } from '../model/caps'
+import type { ViewState } from '../model/view'
 
 const GUTTER = 96
 const AXIS_H = 18
@@ -11,6 +12,7 @@ const LEGEND_H = 22
 const MIN_SPAN = 100_000 // 100 µs visible
 const MAX_SPAN = 1_000_000_000 // 1 s visible
 const MARGIN = 50_000_000 // fetch 50 ms of records before the window
+const SEED_QUANT = 10_000_000 // seed-snapshot boundary (matches snapshotIntervalMs)
 
 const SPAN_COLORS: Record<LaneSpan['kind'], string> = {
   tx: '#3b82f6', rx: '#8b5cf6', backoff: '#f59e0b', defer: '#6d5a1b', nav: '#9333ea', sifs: '#06b6d4',
@@ -45,6 +47,8 @@ export function TimelineStrip() {
   const drawn = useRef<{ spans: LaneSpan[]; a: number; b: number; laneW: number; laneH: number; nodeIds: string[] }>({
     spans: [], a: 0, b: 1, laneW: 1, laneH: 1, nodeIds: [],
   })
+  /** Cached seed snapshot for span reconstruction (invalidated per store/boundary). */
+  const seedRef = useRef<{ store: unknown; t: number; view: ViewState | null }>({ store: null, t: -1, view: null })
 
   const plan = linkPlanFor(scenario.nodes)
   const nodeIds = plan.virtualIds
@@ -120,9 +124,19 @@ export function TimelineStrip() {
       ctx.fillText(name.length > 14 ? name.slice(0, 14) + '…' : name, 6, y + laneH / 2)
     })
 
-    // spans
-    const records = player.store.recordsIn(Math.max(player.store.windowStartNs, a - MARGIN), b)
-    const spans = recordsToSpans(records, nodeIds, a, b)
+    // spans — fetch past both window edges so blocks crossing them keep their
+    // true extents; the horizon caps at the frontier so genuinely unfinished
+    // spans are flagged in-progress rather than given a fake end. A snapshot at
+    // the fetch start seeds states older than the margin (quantized + cached so
+    // viewAt runs once per boundary, not per animation frame).
+    const horizon = Math.min(b + MARGIN, player.store.frontierNs)
+    const fetchStart = Math.max(player.store.windowStartNs, Math.floor((a - MARGIN) / SEED_QUANT) * SEED_QUANT)
+    if (seedRef.current.store !== player.store || seedRef.current.t !== fetchStart) {
+      seedRef.current = { store: player.store, t: fetchStart, view: player.store.viewAt(fetchStart) }
+    }
+    const seedView = seedRef.current.view
+    const records = player.store.recordsIn(fetchStart, horizon)
+    const spans = recordsToSpans(records, nodeIds, a, b, horizon, seedView ? { view: seedView, t: fetchStart } : undefined)
     drawn.current = { spans, a, b, laneW, laneH, nodeIds }
     for (const s of spans) {
       const i = nodeIds.indexOf(s.nodeId)

@@ -40,6 +40,12 @@ interface Lock {
   maxInterfMw: number
   /** True if any meaningful foreign signal overlapped the locked frame. */
   overlapped: boolean
+  /**
+   * Every transmitter that meaningfully overlapped this lock, accumulated as
+   * they appear — the COLLISION record must name interferers even when they
+   * ended before the locked frame did.
+   */
+  contributors: Set<string>
 }
 
 interface RadioState {
@@ -90,6 +96,8 @@ export class Channel {
   private radios = new Map<string, RadioState>()
   private active: ActiveTx[] = []
   private emittedCollisions = new Set<string>()
+  /** Same-instant TX starts, applied as one batch so power decides, not order. */
+  private pendingStarts: ActiveTx[] = []
 
   constructor(
     private q: EventQueue,
@@ -132,44 +140,56 @@ export class Channel {
     this.emit({ t, type: 'TX_START', node: nodeId, frame })
 
     // Propagation effects land in phase 1: a MAC deciding at this same instant
-    // cannot yet sense this transmission (CCA detect time, §17.3.10.6).
-    this.q.schedule(t, () => this.applyTxEffects(t, tx), 1)
+    // cannot yet sense this transmission (CCA detect time, §17.3.10.6). Starts
+    // sharing the instant are buffered and applied as ONE batch, strongest
+    // signal first per receiver — otherwise which doomed frame held a lock in a
+    // 3-way pileup would depend on the order transmitters were evaluated in.
+    if (this.pendingStarts.length === 0) {
+      this.q.schedule(t, () => this.applyPendingStarts(t), 1)
+    }
+    this.pendingStarts.push(tx)
     this.q.schedule(tx.endNs, () => this.endTx(tx), 1)
   }
 
-  private applyTxEffects(t: Ns, tx: ActiveTx): void {
+  private applyPendingStarts(t: Ns): void {
+    const starts = this.pendingStarts
+    this.pendingStarts = []
     for (const [rid, r] of this.radios) {
-      if (rid === tx.txId) continue
-      const p = this.linkDbm(tx.txId, rid)
-      const canCoexist = r.locks.every((l) => sameGroup(l.frame, tx.frame))
-      if (r.locks.length > 0 && !canCoexist) {
-        if (!r.transmitting && p >= CCA_PD_DBM && this.canCapture(t, r, p)) {
-          // Capture: abandon the weak reception and re-sync to this preamble.
-          // The dropped frame never reaches PHY-RXEND, so no error is indicated
-          // and no EIFS is armed — the new lock's outcome decides the deferral.
-          for (const lost of r.locks) {
-            this.emit({ t, type: 'RX_FAIL', node: rid, from: lost.from, reason: 'capture' })
-          }
-          r.locks = []
-          this.acquireLock(t, rid, r, tx, p)
-        } else {
-          // New signal is interference for the existing lock(s).
-          for (const lock of r.locks) {
-            if (p >= OVERLAP_MIN_DBM) lock.overlapped = true
-            lock.maxInterfMw = Math.max(lock.maxInterfMw, this.interferenceMw(rid, lock))
-          }
+      const arrivals = starts
+        .filter((tx) => tx.txId !== rid)
+        .map((tx) => ({ tx, p: this.linkDbm(tx.txId, rid) }))
+        .sort((x, y) => y.p - x.p || x.tx.txId.localeCompare(y.tx.txId))
+      for (const { tx, p } of arrivals) this.applyOneTx(t, rid, r, tx, p)
+    }
+    this.updateAllCca(t)
+  }
+
+  private applyOneTx(t: Ns, rid: string, r: RadioState, tx: ActiveTx, p: number): void {
+    const canCoexist = r.locks.every((l) => sameGroup(l.frame, tx.frame))
+    if (r.locks.length > 0 && !canCoexist) {
+      if (!r.transmitting && p >= CCA_PD_DBM && this.canCapture(t, r, p)) {
+        // Capture: abandon the weak reception and re-sync to this preamble.
+        // The dropped frame never reaches PHY-RXEND, so no error is indicated
+        // and no EIFS is armed — the new lock's outcome decides the deferral.
+        for (const lost of r.locks) {
+          this.emit({ t, type: 'RX_FAIL', node: rid, from: lost.from, reason: 'capture' })
         }
-      } else if (!r.transmitting && p >= CCA_PD_DBM) {
-        // Receiver acquires the preamble (possibly alongside RU-orthogonal peers).
+        r.locks = []
         this.acquireLock(t, rid, r, tx, p)
-      } else if (r.locks.length > 0 && canCoexist && p >= OVERLAP_MIN_DBM && !sameGroup(r.locks[0].frame, tx.frame)) {
+      } else {
+        // New signal is interference for the existing lock(s).
         for (const lock of r.locks) {
-          lock.overlapped = true
+          if (p >= OVERLAP_MIN_DBM) {
+            lock.overlapped = true
+            lock.contributors.add(tx.txId)
+          }
           lock.maxInterfMw = Math.max(lock.maxInterfMw, this.interferenceMw(rid, lock))
         }
       }
+    } else if (!r.transmitting && p >= CCA_PD_DBM) {
+      // Receiver acquires the preamble (possibly alongside RU-orthogonal peers).
+      this.acquireLock(t, rid, r, tx, p)
     }
-    this.updateAllCca(t)
   }
 
   /**
@@ -189,11 +209,12 @@ export class Channel {
   private acquireLock(t: Ns, rid: string, r: RadioState, tx: ActiveTx, p: number): void {
     const lock: Lock = {
       from: tx.txId, frame: tx.frame, rxDbm: p, startNs: t,
-      maxInterfMw: 0, overlapped: false,
+      maxInterfMw: 0, overlapped: false, contributors: new Set(),
     }
     r.locks.push(lock)
     lock.maxInterfMw = this.interferenceMw(rid, lock)
-    lock.overlapped = this.hasOverlap(rid, lock)
+    for (const id of this.overlappersOf(rid, lock)) lock.contributors.add(id)
+    lock.overlapped = lock.contributors.size > 0
     this.emit({ t, type: 'RX_START', node: rid, from: tx.txId, frame: tx.frame })
     r.listener.onRxStart(t, tx.frame, tx.txId)
   }
@@ -217,29 +238,21 @@ export class Channel {
       } else {
         const reason = lock.overlapped ? 'collision' : 'lowSinr'
         this.emit({ t, type: 'RX_FAIL', node: rid, from: tx.txId, reason })
-        if (reason === 'collision') this.emitCollision(t, tx.txId, rid)
+        if (reason === 'collision') this.emitCollision(t, tx.txId, lock)
         r.listener.onRxCorrupt(t)
       }
     }
     this.updateAllCca(t)
   }
 
-  private emitCollision(t: Ns, failedTxId: string, rxId: string): void {
-    const failedFrame = this.activeOrEndedFrame(failedTxId)
-    const others = this.active
-      .filter((a) => a.txId !== failedTxId && this.linkDbm(a.txId, rxId) >= OVERLAP_MIN_DBM)
-      .filter((a) => !(failedFrame && sameGroup(a.frame, failedFrame)))
-      .map((a) => a.txId)
-    const nodes = [failedTxId, ...others].sort()
+  private emitCollision(t: Ns, failedTxId: string, lock: Lock): void {
+    // The lock accumulated its overlappers as they appeared — an interferer
+    // that already ended still belongs in the record.
+    const nodes = [failedTxId, ...lock.contributors].sort()
     const key = `${nodes.join(',')}@${t}`
     if (this.emittedCollisions.has(key)) return
     this.emittedCollisions.add(key)
     this.emit({ t, type: 'COLLISION', nodes })
-  }
-
-  private activeOrEndedFrame(txId: string): FrameDesc | null {
-    const a = this.active.find((x) => x.txId === txId)
-    return a ? a.frame : null
   }
 
   /** Interference+noise in mW at rid for a given lock (excludes its own tx and RU-orthogonal peers). */
@@ -253,13 +266,16 @@ export class Channel {
     return sum
   }
 
-  private hasOverlap(rid: string, lock: Lock): boolean {
-    return this.active.some(
-      (a) =>
-        a.txId !== rid && a.txId !== lock.from &&
-        !sameGroup(a.frame, lock.frame) &&
-        this.linkDbm(a.txId, rid) >= OVERLAP_MIN_DBM,
-    )
+  /** Transmitters currently overlapping a lock meaningfully (≥ OVERLAP_MIN). */
+  private overlappersOf(rid: string, lock: Lock): string[] {
+    return this.active
+      .filter(
+        (a) =>
+          a.txId !== rid && a.txId !== lock.from &&
+          !sameGroup(a.frame, lock.frame) &&
+          this.linkDbm(a.txId, rid) >= OVERLAP_MIN_DBM,
+      )
+      .map((a) => a.txId)
   }
 
   private updateAllCca(t: Ns): void {

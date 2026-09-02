@@ -217,6 +217,10 @@ export class WifiMac implements PhyListener {
     // §10.23.2.2: after a corrupted frame, EIFS − DIFS + AIFS[AC]
     const dur = this.corruptLast ? EIFS_NS - DIFS_NS + aifs : aifs
     const kind = this.corruptLast ? 'EIFS' : this.cfg.edca ? 'AIFS' : 'DIFS'
+    // Idle time already elapsed counts toward the IFS. lastBusyEndNs starts at
+    // NEVER, so a node that has never heard the medium busy gets a zero-length
+    // first IFS and transmits immediately — intended: "idle since forever"
+    // satisfies the idle-≥-IFS condition (this is why lesson traces start at t=0).
     const end = Math.max(t, this.lastBusyEndNs + dur)
     this.emit({ t, type: 'IFS_START', node: this.nodeId, kind, untilNs: end, ac: this.acTag(e) })
     this.cancelEf(e, 'ifs')
@@ -686,6 +690,9 @@ export class WifiMac implements PhyListener {
         this.cancelEf(e, 'tick')
         this.emit({ t: this.now(), type: 'BACKOFF_FREEZE', node: this.nodeId, value: e.backoff!, ac: this.acTag(e) })
       }
+      // §10.3.4.2: interrupting a running IFS is a deferral — the
+      // no-backoff basic-access path is no longer allowed for this attempt.
+      if (e.ifsHandle && e.backoff === null) e.needDraw = true
       this.cancelEf(e, 'ifs')
     }
     this.readyAcs.clear()
@@ -915,6 +922,8 @@ export class WifiMac implements PhyListener {
         this.cancelEf(e, 'tick')
         this.emit({ t, type: 'BACKOFF_FREEZE', node: this.nodeId, value: e.backoff!, ac: this.acTag(e) })
       }
+      // Same as onCcaBusy: a NAV set mid-IFS is a deferral (§10.3.4.2).
+      if (e.ifsHandle && e.backoff === null) e.needDraw = true
       this.cancelEf(e, 'ifs')
     }
     this.refreshState()

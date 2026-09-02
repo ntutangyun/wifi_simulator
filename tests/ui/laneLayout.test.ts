@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest'
 import { ifsAt, recordsToSpans, spanTooltip, topSpanAt, xForT, type LaneSpan } from '../../src/ui/laneLayout'
 import { STRINGS } from '../../src/ui/i18n'
 import { makeEmitter, type EmitFn, type TLRecord } from '../../src/model/records'
+import { initViewState } from '../../src/model/view'
+import { defaultScenario } from '../../src/model/scenario'
 import type { FrameDesc } from '../../src/model/frames'
 
 const frame: FrameDesc = {
@@ -82,6 +84,70 @@ describe('recordsToSpans', () => {
     expect(spanTooltip(defer, STRINGS.en.tooltips, 1_100_000)[0]).toContain('DIFS')
   })
 
+  it('reports the true duration when a span crosses the right window edge', () => {
+    const spans = recordsToSpans(recs([
+      { t: 100_000, type: 'MAC_STATE', node: 'sta-1', state: 'defer' },
+      { t: 500_000, type: 'MAC_STATE', node: 'sta-1', state: 'backoff' },
+    ]), ['sta-1'], 0, 300_000, 600_000) // closing record beyond b but within the horizon
+    const defer = spans.find((s) => s.kind === 'defer')!
+    expect(defer.endNs).toBe(300_000) // drawn to the window edge…
+    expect(defer.fullEndNs).toBe(500_000) // …but the real end is known
+    expect(defer.openEnded).toBe(false)
+    expect(spanTooltip(defer, STRINGS.en.tooltips)[0]).toContain('400.0 µs')
+  })
+
+  it('seeds spans whose opening record predates the fetched records', () => {
+    // A state that has run for longer than the fetch margin has no opening
+    // record in view — the seed snapshot at the fetch start supplies it.
+    const view = initViewState(defaultScenario())
+    view.nodes['sta-1'].state = 'defer'
+    const spans = recordsToSpans(recs([
+      { t: 900_000, type: 'MAC_STATE', node: 'sta-1', state: 'backoff' },
+    ]), ['sta-1'], 800_000, 1_000_000, 1_000_000, { view, t: 700_000 })
+    const defer = spans.find((s) => s.kind === 'defer')!
+    expect(defer.startNs).toBe(800_000)
+    expect(defer.fullStartNs).toBe(700_000)
+    expect(defer.fullEndNs).toBe(900_000)
+    expect(defer.openStart).toBe(true) // real start unknown — only "at least"
+    expect(spanTooltip(defer, STRINGS.en.tooltips)[0]).toContain('≥')
+  })
+
+  it('marks spans still open at the horizon as in progress', () => {
+    const spans = recordsToSpans(recs([
+      { t: 100_000, type: 'MAC_STATE', node: 'sta-1', state: 'defer' },
+    ]), ['sta-1'], 0, 300_000, 600_000)
+    const defer = spans.find((s) => s.kind === 'defer')!
+    expect(defer.openEnded).toBe(true)
+    expect(spanTooltip(defer, STRINGS.en.tooltips)[0]).toContain('≥')
+  })
+
+  it('drops the span-wide AC tag when several ACs shared the block', () => {
+    const spans = recordsToSpans(recs([
+      { t: 0, type: 'MAC_STATE', node: 'sta-1', state: 'defer' },
+      { t: 0, type: 'IFS_START', node: 'sta-1', kind: 'AIFS', untilNs: 43_000, ac: 3 },
+      { t: 10_000, type: 'IFS_START', node: 'sta-1', kind: 'AIFS', untilNs: 79_000, ac: 1 },
+      { t: 79_000, type: 'MAC_STATE', node: 'sta-1', state: 'backoff' },
+    ]), ['sta-1'], 0, 100_000)
+    const defer = spans.find((s) => s.kind === 'defer')!
+    expect(defer.ac).toBeUndefined() // no single AC owns this block
+    // …but each instant still knows its own AC via the segment under the cursor.
+    expect(spanTooltip(defer, STRINGS.en.tooltips, 5_000)[0]).toContain('AC_VO')
+    expect(spanTooltip(defer, STRINGS.en.tooltips, 50_000)[0]).toContain('AC_BE')
+  })
+
+  it('tracks simultaneous receptions separately (UL OFDMA at the AP)', () => {
+    const f1: FrameDesc = { ...frame, src: 'sta-1' }
+    const f2: FrameDesc = { ...frame, src: 'sta-2' }
+    const spans = recordsToSpans(recs([
+      { t: 100, type: 'RX_START', node: 'ap', from: 'sta-1', frame: f1 },
+      { t: 100, type: 'RX_START', node: 'ap', from: 'sta-2', frame: f2 },
+      { t: 900, type: 'RX_OK', node: 'ap', from: 'sta-1', frame: f1 },
+      { t: 900, type: 'RX_OK', node: 'ap', from: 'sta-2', frame: f2 },
+    ]), ['ap'], 0, 1000)
+    const rx = spans.filter((s) => s.kind === 'rx')
+    expect(rx.map((s) => s.frameSrc).sort()).toEqual(['sta-1', 'sta-2'])
+  })
+
   it('tracks NAV as an independent overlay span', () => {
     const spans = recordsToSpans(recs([
       { t: 100, type: 'NAV_SET', node: 'sta-2', untilNs: 800, source: 'data:sta-1' },
@@ -98,8 +164,8 @@ describe('recordsToSpans', () => {
 })
 
 describe('topSpanAt', () => {
-  const sp = (s: Omit<LaneSpan, 'fullStartNs' | 'fullEndNs' | 'ifs'> & { ifs?: LaneSpan['ifs'] }): LaneSpan =>
-    ({ ifs: [], ...s, fullStartNs: s.startNs, fullEndNs: s.endNs })
+  const sp = (s: Omit<LaneSpan, 'fullStartNs' | 'fullEndNs' | 'ifs' | 'openStart' | 'openEnded'> & { ifs?: LaneSpan['ifs'] }): LaneSpan =>
+    ({ ifs: [], openStart: false, openEnded: false, ...s, fullStartNs: s.startNs, fullEndNs: s.endNs })
   const spans: LaneSpan[] = [
     sp({ nodeId: 'sta-1', kind: 'backoff', startNs: 0, endNs: 1000 }),
     sp({ nodeId: 'sta-1', kind: 'tx', frameKind: 'data', frame, startNs: 200, endNs: 400 }),

@@ -31,6 +31,8 @@ export interface AcView {
   backoff: number | null
   cw: number
   queueLen: number
+  /** This AC's own interframe wait — several ACs can be mid-IFS at once. */
+  ifs: { kind: 'DIFS' | 'EIFS' | 'SIFS' | 'AIFS'; untilNs: Ns } | null
 }
 
 export interface NodeView {
@@ -45,6 +47,11 @@ export interface NodeView {
   queue: QueuedMsduView[]
   currentTx: FrameDesc | null
   currentRx: { frame: FrameDesc; from: string } | null
+  /**
+   * Last accepted data seqNo per sender (duplicate detection, §10.3.2.11): a
+   * retransmission after a lost ACK arrives twice and must be counted once.
+   */
+  rxSeq: Record<string, number>
   stats: NodeStats
   /** Per-AC contention detail (EDCA nodes). Index 0..3 = BK,BE,VI,VO. */
   acs: AcView[] | null
@@ -78,13 +85,27 @@ export function initViewState(sc: Scenario): ViewState {
     const edca = hasFeature(cfg, 'edca')
     nodes[vid] = {
       state: 'idle', ccaBusy: false, backoff: null, cw: 15, ssrc: 0, slrc: 0,
-      navUntilNs: 0, ifs: null, queue: [], currentTx: null, currentRx: null,
+      navUntilNs: 0, ifs: null, queue: [], currentTx: null, currentRx: null, rxSeq: {},
       stats: { txOk: 0, txFail: 0, retries: 0, drops: 0, bytesDelivered: 0, airtimeNs: 0, collisions: 0 },
-      acs: edca ? [0, 1, 2, 3].map(() => ({ backoff: null, cw: 15, queueLen: 0 })) : null,
+      acs: edca ? [0, 1, 2, 3].map(() => ({ backoff: null, cw: 15, queueLen: 0, ifs: null })) : null,
       txopUntilNs: 0, txopAc: -1,
     }
   }
   return { t: 0, nodes, inFlight: [] }
+}
+
+/**
+ * Node-level IFS summary for EDCA nodes: the earliest-expiring of the ACs'
+ * concurrent IFS periods. Each AC keeps its own in AcView — a single slot here
+ * would be last-write-wins and lie whenever two ACs contend at once.
+ */
+function summarizeIfs(n: NodeView): void {
+  if (!n.acs) return
+  let best: NodeView['ifs'] = null
+  n.acs.forEach((a, i) => {
+    if (a.ifs && (!best || a.ifs.untilNs < best.untilNs)) best = { ...a.ifs, ac: i }
+  })
+  n.ifs = best
 }
 
 /** The sibling virtual node (other MLO link) sharing a physical queue, if present. */
@@ -132,12 +153,26 @@ export function applyRecord(vs: ViewState, r: TLRecord): void {
     case 'CCA_IDLE':
       vs.nodes[r.node].ccaBusy = false
       break
-    case 'IFS_START':
-      vs.nodes[r.node].ifs = { kind: r.kind, untilNs: r.untilNs, ac: r.ac }
+    case 'IFS_START': {
+      const n = vs.nodes[r.node]
+      if (r.ac !== undefined && n.acs) {
+        n.acs[r.ac].ifs = { kind: r.kind, untilNs: r.untilNs }
+        summarizeIfs(n)
+      } else {
+        n.ifs = { kind: r.kind, untilNs: r.untilNs, ac: r.ac }
+      }
       break
-    case 'IFS_END':
-      vs.nodes[r.node].ifs = null
+    }
+    case 'IFS_END': {
+      const n = vs.nodes[r.node]
+      if (r.ac !== undefined && n.acs) {
+        n.acs[r.ac].ifs = null
+        summarizeIfs(n)
+      } else {
+        n.ifs = null
+      }
       break
+    }
     case 'BACKOFF_DRAW':
     case 'BACKOFF_DEC':
     case 'BACKOFF_FREEZE':
@@ -163,8 +198,11 @@ export function applyRecord(vs: ViewState, r: TLRecord): void {
     case 'TX_START':
       vs.nodes[r.node].currentTx = r.frame
       if (r.node === r.frame.src && (r.frame.kind === 'data' || r.frame.kind === 'rts')) {
-        // clear consumed backoff display
-        vs.nodes[r.node].backoff = null
+        // clear consumed backoff display — the per-AC row too, or the EDCA
+        // table keeps showing a stale bo:0 for the whole transmission
+        const n = vs.nodes[r.node]
+        n.backoff = null
+        if (r.frame.ac !== undefined && n.acs) n.acs[r.frame.ac].backoff = null
       }
       vs.inFlight.push({ from: r.node, frame: r.frame, startNs: r.t, endNs: r.t + r.frame.txTimeNs })
       break
@@ -185,6 +223,12 @@ export function applyRecord(vs: ViewState, r: TLRecord): void {
       if (r.frame.kind === 'data') {
         const myPart = r.frame.muParts?.find((p) => p.dst === phys)
         if (r.frame.dst === phys) {
+          // Duplicate detection: same seqNo from the same sender means the ACK
+          // was lost and this is the retransmission of an already-counted frame.
+          if (r.frame.seqNo !== undefined) {
+            if (n.rxSeq[r.from] === r.frame.seqNo) break
+            n.rxSeq[r.from] = r.frame.seqNo
+          }
           const overhead = r.frame.ampdu ? 34 * r.frame.ampdu.mpduCount : 28
           n.stats.bytesDelivered += Math.max(0, r.frame.bytes - overhead)
           const sender = vs.nodes[r.from]

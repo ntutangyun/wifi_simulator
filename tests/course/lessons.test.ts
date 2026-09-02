@@ -3,7 +3,7 @@ import { LESSONS, MODULES } from '../../src/course/lessons'
 import { ScenarioSchema } from '../../src/model/scenario'
 import { Simulation } from '../../src/engine/simulation'
 import { buildLinkTable } from '../../src/engine/propagation'
-import { sinrThreshDb } from '../../src/engine/phy'
+import { CCA_PD_DBM, sinrThreshDb } from '../../src/engine/phy'
 import type { TLRecord } from '../../src/model/records'
 
 const MS = 1_000_000
@@ -95,6 +95,16 @@ describe('jump targets occur in their lesson simulations', () => {
       return end !== undefined && t2.t > t1.t && t2.t < end.t
     }))
     expect(midFrame, 'a mid-frame (hidden-node) collision must occur').toBe(true)
+  })
+
+  it('hidden: the hiddenness margin is not knife-edge', () => {
+    // The station-to-station link must sit clearly below the preamble-detect
+    // threshold, not ride the edge (the geometry caps the margin at ~2.6 dB;
+    // currently it is 1.4 dB — pin a 1 dB floor so edits cannot erode it).
+    const sc = LESSONS.find((l) => l.id === 'hidden')!.scenario()
+    const links = buildLinkTable(sc.nodes, sc.walls)
+    expect(links.get('sta-1')!.get('sta-2')!).toBeLessThan(CCA_PD_DBM - 1)
+    expect(links.get('sta-2')!.get('sta-1')!).toBeLessThan(CCA_PD_DBM - 1)
   })
 
   it('anomaly: the near station captures the t=0 collision', () => {
