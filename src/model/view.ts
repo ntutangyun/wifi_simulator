@@ -108,6 +108,18 @@ function summarizeIfs(n: NodeView): void {
   n.ifs = best
 }
 
+/**
+ * Drop every pending IFS on a node. The MAC cancels its IFS timers when CCA
+ * goes busy or a NAV is set (§10.3.4.2: the wait becomes a deferral) and emits
+ * no IFS_END for a cancelled wait — only a completed one — so the view must
+ * mirror the cancel itself, or the label keeps showing an expired "AIFS 0 µs"
+ * while the node is in fact held by CCA or NAV.
+ */
+function cancelIfs(n: NodeView): void {
+  if (n.acs) for (const a of n.acs) a.ifs = null
+  n.ifs = null
+}
+
 /** The sibling virtual node (other MLO link) sharing a physical queue, if present. */
 function siblingId(vs: ViewState, vid: string): string | null {
   const other = vid.includes('#6g') ? physicalId(vid) : `${vid}#6g`
@@ -149,6 +161,7 @@ export function applyRecord(vs: ViewState, r: TLRecord): void {
     }
     case 'CCA_BUSY':
       vs.nodes[r.node].ccaBusy = true
+      cancelIfs(vs.nodes[r.node])
       break
     case 'CCA_IDLE':
       vs.nodes[r.node].ccaBusy = false
@@ -246,6 +259,7 @@ export function applyRecord(vs: ViewState, r: TLRecord): void {
       break
     case 'NAV_SET':
       vs.nodes[r.node].navUntilNs = r.untilNs
+      cancelIfs(vs.nodes[r.node])
       break
     case 'NAV_CLEAR':
       vs.nodes[r.node].navUntilNs = 0

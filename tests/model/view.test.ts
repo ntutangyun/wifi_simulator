@@ -3,6 +3,8 @@ import type { FrameDesc } from '../../src/model/frames'
 import { makeEmitter, type EmitFn, type TLRecord } from '../../src/model/records'
 import { applyRecord, cloneView, initViewState } from '../../src/model/view'
 import { defaultScenario } from '../../src/model/scenario'
+import { LESSONS } from '../../src/course/lessons'
+import { Simulation } from '../../src/engine/simulation'
 
 const frame: FrameDesc = {
   kind: 'data', src: 'sta-1', dst: 'ap', bytes: 1428, mbps: 54,
@@ -105,5 +107,49 @@ describe('view reducer', () => {
     const c = cloneView(vs)
     c.nodes['sta-1'].cw = 1023
     expect(vs.nodes['sta-1'].cw).toBe(15)
+  })
+})
+
+describe('an interrupted IFS is not shown as still running', () => {
+  // The MAC cancels every pending IFS when CCA goes busy or a NAV is set
+  // (§10.3.4.2: the wait is a deferral, not a completion), and emits no
+  // IFS_END for it. The view must drop the IFS on those records, or the 3D
+  // label and inspector keep showing "AIFS 0 µs" while the node is in fact
+  // held by NAV.
+  it('CCA_BUSY clears a legacy node’s pending IFS', () => {
+    const vs = initViewState(defaultScenario())
+    for (const r of seq([
+      { t: 0, type: 'IFS_START', node: 'sta-1', kind: 'DIFS', untilNs: 34_000 },
+      { t: 10_000, type: 'CCA_BUSY', node: 'sta-1', cause: 'preamble' },
+    ])) applyRecord(vs, r)
+    expect(vs.nodes['sta-1'].ifs).toBeNull()
+  })
+
+  it('NAV_SET clears every access category’s pending IFS', () => {
+    const vs = initViewState(defaultScenario())
+    for (const r of seq([
+      { t: 0, type: 'IFS_START', node: 'sta-1', kind: 'AIFS', untilNs: 35_000, ac: 3 },
+      { t: 0, type: 'IFS_START', node: 'sta-1', kind: 'AIFS', untilNs: 80_000, ac: 0 },
+      { t: 10_000, type: 'NAV_SET', node: 'sta-1', untilNs: 300_000, source: 'data:sta-2' },
+    ])) applyRecord(vs, r)
+    const n = vs.nodes['sta-1']
+    expect(n.acs![3].ifs).toBeNull()
+    expect(n.acs![0].ifs).toBeNull()
+    expect(n.ifs).toBeNull()
+    expect(n.navUntilNs).toBe(300_000)
+  })
+
+  it('lesson 7 @ 51 750 635 ns: the Backup station is under NAV, not in an expired AIFS', () => {
+    const lesson = LESSONS.find((l) => l.id === 'edca')!
+    const sim = new Simulation(lesson.scenario())
+    const T = 51_750_635
+    const vs = initViewState(lesson.scenario())
+    for (const r of sim.runUntil(60_000_000).records) {
+      if (r.t > T) break
+      applyRecord(vs, r)
+    }
+    const bk = vs.nodes['sta-3']
+    expect(bk.navUntilNs).toBeGreaterThan(T)
+    if (bk.ifs) expect(bk.ifs.untilNs).toBeGreaterThan(T)
   })
 })
