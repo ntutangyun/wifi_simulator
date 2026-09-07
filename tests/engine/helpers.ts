@@ -85,4 +85,4 @@ export function makeBss(nodeIds: string[], links: Record<string, number>, opts: 
 }
 
 let mid = 1000
-export const msdu = (src: string, dst: string, bytes = 1400): Msdu => ({ id: mid++, bytes, src, dst, bornNs: 0 })
+export const msdu = (src: string, dst: string, bytes = 1400, ac = 1): Msdu => ({ id: mid++, bytes, src, dst, bornNs: 0, ac })

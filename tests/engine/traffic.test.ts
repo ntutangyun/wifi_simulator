@@ -55,3 +55,13 @@ describe('traffic profiles', () => {
     expect(a).toEqual(b)
   })
 })
+
+describe('each MSDU carries the access category of the stream that made it', () => {
+  it('voice → AC_VO on both directions, backup → AC_BK', () => {
+    const voice = collect('voice', 100_000_000)
+    expect(voice.length).toBeGreaterThan(0)
+    expect(voice.every((o) => o.msdu.ac === 3)).toBe(true)
+    const backup = collect('backup', 100_000_000)
+    expect(backup.every((o) => o.msdu.ac === 0)).toBe(true)
+  })
+})

@@ -27,6 +27,16 @@ export interface Room {
 }
 
 export type ProfileId = 'video' | 'voice' | 'backup' | 'browsing' | 'iot' | 'saturated' | 'idle'
+export const PROFILE_IDS: ProfileId[] = ['video', 'voice', 'backup', 'browsing', 'iot', 'saturated', 'idle']
+
+/**
+ * Canonical form of a node's stream list: no duplicates, 'idle' only when it
+ * stands alone (an empty list means idle too).
+ */
+export function normalizeProfiles(list: readonly ProfileId[]): ProfileId[] {
+  const out = [...new Set(list)].filter((p) => p !== 'idle')
+  return out.length ? out : ['idle']
+}
 
 export interface NodeCfg {
   id: string
@@ -34,7 +44,12 @@ export interface NodeCfg {
   name: string
   pos: Vec3
   txPowerDbm: number
-  profile: ProfileId
+  /**
+   * Traffic streams this node generates (STAs only; the AP carries whatever
+   * the downlink legs produce). Several may run at once — a voice call next to
+   * a cloud backup — and each keeps its own EDCA access category.
+   */
+  profiles: ProfileId[]
   caps: CapabilityProfile
   /** Operating link for non-MLO HE/EHT nodes ('5g' default). */
   linkId?: '5g' | '6g'
@@ -71,21 +86,35 @@ const RoomSchema = z.object({
 
 const Vec3Schema = z.object({ x: z.number(), y: z.number(), z: z.number() })
 
-const NodeCfgSchema = z.object({
-  id: z.string().min(1),
-  kind: z.enum(['ap', 'sta']),
-  name: z.string(),
-  pos: Vec3Schema,
-  txPowerDbm: z.number(),
-  profile: z.enum(['video', 'voice', 'backup', 'browsing', 'iot', 'saturated', 'idle']),
-  caps: z.object({
-    generation: z.enum(['nonht', 'vht', 'he', 'eht']),
-    features: z.record(z.boolean()),
-  }),
-  linkId: z.enum(['5g', '6g']).optional(),
-})
+const ProfileSchema = z.enum(['video', 'voice', 'backup', 'browsing', 'iot', 'saturated', 'idle'])
 
-export const ScenarioSchema: z.ZodType<Scenario> = z
+/** Scenarios saved before multi-stream support carry a single `profile`. */
+function migrateLegacyProfile(raw: unknown): unknown {
+  if (raw && typeof raw === 'object' && !('profiles' in raw) && 'profile' in raw) {
+    const { profile, ...rest } = raw as Record<string, unknown>
+    return { ...rest, profiles: [profile] }
+  }
+  return raw
+}
+
+const NodeCfgSchema = z.preprocess(
+  migrateLegacyProfile,
+  z.object({
+    id: z.string().min(1),
+    kind: z.enum(['ap', 'sta']),
+    name: z.string(),
+    pos: Vec3Schema,
+    txPowerDbm: z.number(),
+    profiles: z.array(ProfileSchema).transform(normalizeProfiles),
+    caps: z.object({
+      generation: z.enum(['nonht', 'vht', 'he', 'eht']),
+      features: z.record(z.boolean()),
+    }),
+    linkId: z.enum(['5g', '6g']).optional(),
+  }),
+)
+
+export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
   .object({
     rooms: z.array(RoomSchema),
     walls: z.array(WallSchema),
@@ -135,17 +164,17 @@ export function defaultScenario(): Scenario {
     nodes: [
       {
         id: 'ap', kind: 'ap', name: 'AP', pos: { x: 2, y: 4, z: 2.0 },
-        txPowerDbm: 20, profile: 'idle',
+        txPowerDbm: 20, profiles: ['idle'],
         caps: { generation: 'eht', features: { edca: true, ampdu: true, txop: true, ofdma: true, mlo: true, qam4k: true } },
       },
       {
         id: 'sta-1', kind: 'sta', name: 'STA-1 (TV)', pos: { x: 4.5, y: 6.5, z: 1.0 },
-        txPowerDbm: 15, profile: 'video',
+        txPowerDbm: 15, profiles: ['video'],
         caps: { generation: 'he', features: { edca: true, ampdu: true, txop: true, ofdma: true } },
       },
       {
         id: 'sta-2', kind: 'sta', name: 'STA-2 (Laptop)', pos: { x: 8.5, y: 2.0, z: 1.0 },
-        txPowerDbm: 15, profile: 'backup',
+        txPowerDbm: 15, profiles: ['backup'],
         caps: { generation: 'vht', features: { edca: true, ampdu: true, txop: true } },
       },
     ],

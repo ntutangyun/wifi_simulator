@@ -21,7 +21,7 @@ import { mcsForRssi } from './phy'
 import { buildLinkTable } from './propagation'
 import { AcQueues } from './queues'
 import { Rng } from './rng'
-import { TrafficSource, acForProfile, resetMsduIds, type Msdu } from './traffic'
+import { TrafficSource, resetMsduIds, type Msdu } from './traffic'
 
 export interface Batch {
   records: TLRecord[]
@@ -67,7 +67,8 @@ export class Simulation {
     const queuesOf = new Map<string, AcQueues>()
     for (const n of sc.nodes) queuesOf.set(n.id, new AcQueues())
 
-    const sources = new Map<string, TrafficSource>()
+    /** Traffic sources per station — one per stream it runs. */
+    const sources = new Map<string, TrafficSource[]>()
     const apMacs: WifiMac[] = [] // one per link the AP is on
 
     // ---- per-link channels + MACs ----
@@ -118,7 +119,8 @@ export class Simulation {
                   .filter((id) => id !== ap.id && negotiated(byId.get(id)!, ap, 'ofdma'))
                   .map((id) => {
                     const stq = queuesOf.get(id)!
-                    const ac = acForProfile(byId.get(id)!.profile)
+                    // A station may hold several streams: trigger it for its highest-priority backlog.
+                    const ac = stq.all().reduce((m, x) => Math.max(m, x.ac), 0)
                     return { peer: id, ac, bytes: stq.all().reduce((s, x) => s + x.msdu.bytes, 0) }
                   })
                   .filter((u) => u.bytes > 0)
@@ -127,7 +129,7 @@ export class Simulation {
           {
             onDequeue: (msduId) => {
               void msduId
-              sources.get(n.id)?.refill()
+              for (const s of sources.get(n.id) ?? []) s.refill()
             },
           },
           queuesOf.get(n.id),
@@ -146,7 +148,7 @@ export class Simulation {
     const enqueue = (atNode: string, msdu: Msdu) => {
       const staId = atNode === ap.id ? msdu.dst : atNode
       const sta = byId.get(staId)
-      const ac = sta ? acForProfile(sta.profile) : 1
+      const ac = msdu.ac
       baseEmit({ t: this.nowNs, type: 'ARRIVAL', node: virtualId(atNode, plan.members['5g'].includes(atNode) ? '5g' : '6g'), msduId: msdu.id, bytes: msdu.bytes, dst: msdu.dst })
       primaryMac(atNode).enqueue(msdu, ac)
       // MLO: wake the sibling link's MAC; OFDMA: poke the AP scheduler.
@@ -158,10 +160,18 @@ export class Simulation {
       }
     }
     for (const [i, n] of sc.nodes.entries()) {
-      if (n.kind !== 'sta' || n.profile === 'idle') continue
-      const src = new TrafficSource(this.q, () => this.nowNs, root.fork(1000 + i), n.id, ap.id, n.profile, enqueue)
-      sources.set(n.id, src)
-      src.start()
+      if (n.kind !== 'sta') continue
+      const list: TrafficSource[] = []
+      n.profiles.forEach((profile, j) => {
+        if (profile === 'idle') return
+        // The first stream keeps the historical fork (1000 + i) so single-stream
+        // scenarios replay bit-for-bit; extra streams get their own independent streams.
+        const rng = root.fork(j === 0 ? 1000 + i : 100_000 + i * 16 + j)
+        const src = new TrafficSource(this.q, () => this.nowNs, rng, n.id, ap.id, profile, enqueue)
+        list.push(src)
+        src.start()
+      })
+      sources.set(n.id, list)
     }
 
     // ---- snapshots ----

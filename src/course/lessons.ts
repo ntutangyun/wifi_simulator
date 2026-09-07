@@ -128,12 +128,12 @@ function longApartment(): { rooms: Room[]; walls: Wall[] } {
 
 function node(
   id: string, name: string, kind: 'ap' | 'sta', x: number, y: number,
-  gen: Generation, profile: ProfileId,
+  gen: Generation, profile: ProfileId | ProfileId[],
   features?: Record<string, boolean>, z?: number,
 ): NodeCfg {
   return {
     id, kind, name, pos: { x, y, z: z ?? (kind === 'ap' ? 2.0 : 1.0) },
-    txPowerDbm: kind === 'ap' ? 20 : 15, profile,
+    txPowerDbm: kind === 'ap' ? 20 : 15, profiles: Array.isArray(profile) ? profile : [profile],
     caps: { generation: gen, features: features ?? defaultFeatures(gen) },
   }
 }

@@ -8,8 +8,8 @@ const MS = 1_000_000
 
 function saturated(): Scenario {
   const sc = defaultScenario()
-  sc.nodes[1].profile = 'saturated'
-  sc.nodes[2].profile = 'saturated'
+  sc.nodes[1].profiles = ['saturated']
+  sc.nodes[2].profiles = ['saturated']
   return sc
 }
 

@@ -128,8 +128,10 @@ function EditorGuideEn() {
         6 GHz carries +1.2 dB extra path loss here.
       </D>
       <D t="Traffic">
-        STAs only (the AP sends whatever the downlink profiles generate). The profile fixes both the
-        load <i>and</i> the EDCA access category:
+        STAs only (the AP sends whatever the downlink legs generate). Tick any number of streams —
+        a station can run a voice call and a cloud backup at once. Each stream keeps its own load
+        <i>and</i> its own EDCA access category, so the two contend as separate queues inside the
+        device; nothing ticked means idle. The streams:
       </D>
       <div style={{ ...dl, paddingLeft: 8 }}>
         · <b style={term}>video streaming</b> — DL 1400 B every 747–947 µs (≈13 Mbps) · AC_VI<br />
@@ -275,8 +277,9 @@ function EditorGuideZh() {
         不同链路上的设备互相听不到、也不竞争；本模型中 6 GHz 额外增加 1.2 dB 路径损耗。
       </D>
       <D t="业务">
-        仅终端可设（AP 发送的是各下行业务产生的流量）。业务类型同时决定<i>负载</i>与
-        EDCA 接入类别：
+        仅终端可设（AP 发送的是各下行业务产生的流量）。可以同时勾选多种业务——
+        一台终端可以一边通话一边做云备份。每种业务保留各自的<i>负载</i>与 EDCA 接入类别，
+        因此它们在设备内部作为独立队列竞争；一个都不勾即为空闲。各业务如下：
       </D>
       <div style={{ ...dl, paddingLeft: 8 }}>
         · <b style={term}>视频流</b>——下行 1400 B，每 747–947 µs 一个（≈13 Mbps）· AC_VI<br />

@@ -7,8 +7,8 @@ const MS = 1_000_000
 
 function saturatedPair(): Scenario {
   const sc = defaultScenario()
-  sc.nodes[1].profile = 'saturated'
-  sc.nodes[2].profile = 'saturated'
+  sc.nodes[1].profiles = ['saturated']
+  sc.nodes[2].profiles = ['saturated']
   // both close to the AP, same room
   sc.nodes[2].pos = { x: 3.5, y: 4.5, z: 1 }
   return sc
@@ -78,8 +78,8 @@ describe('Simulation', () => {
 
   it('rate anomaly: a far station behind brick uses a lower MCS and more airtime per frame', () => {
     const sc = defaultScenario()
-    sc.nodes[1].profile = 'saturated'
-    sc.nodes[2].profile = 'saturated'
+    sc.nodes[1].profiles = ['saturated']
+    sc.nodes[2].profiles = ['saturated']
     sc.nodes[2].pos = { x: 9.5, y: 7.5, z: 1 }
     sc.walls[4] = { ...sc.walls[4], material: 'brick', openings: [] } // solid brick divider
     const sim = new Simulation(sc)

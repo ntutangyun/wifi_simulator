@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Rng } from '../engine/rng'
 import { GEN_FEATURES, type FeatureFlag } from '../model/caps'
-import type { Material, NodeCfg, ProfileId, Scenario } from '../model/scenario'
+import { normalizeProfiles, PROFILE_IDS, type Material, type NodeCfg, type ProfileId, type Scenario } from '../model/scenario'
 import { nonht } from '../model/scenario'
 import type { Generation } from '../model/types'
 import { useStrings } from '../ui/i18n'
@@ -21,7 +21,8 @@ type Sel =
 
 const LS_KEY = 'wifi-sim.scenario'
 const MATERIAL_COLORS: Record<Material, string> = { drywall: '#c8c2b6', brick: '#a05b48', glass: '#7fb8e0' }
-const PROFILES: ProfileId[] = ['video', 'voice', 'backup', 'browsing', 'iot', 'saturated', 'idle']
+/** Streams a station can run; any combination may be ticked (none = idle). */
+const STREAMS: ProfileId[] = PROFILE_IDS.filter((p) => p !== 'idle')
 
 interface ViewT {
   cx: number
@@ -122,7 +123,7 @@ export function FloorPlanEditor() {
       while (used.has(id)) id = `sta-${++k}`
       const node: NodeCfg = {
         id, kind: 'sta', name: id.toUpperCase(), pos: { x: snap(p.x), y: snap(p.y), z: 1.0 },
-        txPowerDbm: 15, profile: 'browsing', caps: { ...nonht },
+        txPowerDbm: 15, profiles: ['browsing'], caps: { ...nonht },
       }
       commit({ ...scenario, nodes: [...scenario.nodes, node] })
       setTool('select')
@@ -462,12 +463,29 @@ export function FloorPlanEditor() {
                     </label>
                   )}
                   {selNode.kind === 'sta' && (
-                    <label style={{ display: 'block', marginBottom: 4 }}>
-                      {E.traffic}{' '}
-                      <select value={selNode.profile} onChange={(e) => updateNode(selNode.id, { profile: e.target.value as ProfileId })}>
-                        {PROFILES.map((p) => <option key={p} value={p}>{L.profiles[p]}</option>)}
-                      </select>
-                    </label>
+                    <div style={{ marginBottom: 4 }}>
+                      {E.traffic}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginTop: 2, paddingLeft: 8 }}>
+                        {STREAMS.map((p) => (
+                          <label key={p} style={{ display: 'flex', gap: 6, alignItems: 'center', cursor: 'pointer' }}>
+                            <input
+                              type="checkbox"
+                              checked={selNode.profiles.includes(p)}
+                              onChange={(e) => {
+                                const next = e.target.checked
+                                  ? [...selNode.profiles, p]
+                                  : selNode.profiles.filter((x) => x !== p)
+                                updateNode(selNode.id, { profiles: normalizeProfiles(next) })
+                              }}
+                            />
+                            {L.profiles[p]}
+                          </label>
+                        ))}
+                        {selNode.profiles[0] === 'idle' && (
+                          <span style={{ color: 'var(--dim)', fontSize: 11 }}>{L.profiles.idle}</span>
+                        )}
+                      </div>
+                    </div>
                   )}
                   <label style={{ display: 'block', marginBottom: 4 }}>
                     {E.txPower}{' '}

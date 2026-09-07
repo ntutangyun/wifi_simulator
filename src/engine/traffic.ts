@@ -13,6 +13,8 @@ export interface Msdu {
   src: string
   dst: string
   bornNs: Ns
+  /** EDCA access category of the stream that produced this MSDU. */
+  ac: number
 }
 
 export type EnqueueFn = (atNode: string, msdu: Msdu) => void
@@ -47,9 +49,14 @@ export class TrafficSource {
     private rng: Rng,
     private staId: string,
     private apId: string,
-    private profile: ProfileId,
+    readonly profile: ProfileId,
     private enqueue: EnqueueFn,
   ) {}
+
+  /** Access category every MSDU of this stream is queued in. */
+  get ac(): number {
+    return acForProfile(this.profile)
+  }
 
   start(): void {
     switch (this.profile) {
@@ -85,11 +92,11 @@ export class TrafficSource {
   }
 
   private emitUl(bytes: number): void {
-    this.enqueue(this.staId, { id: nextMsduId++, bytes, src: this.staId, dst: this.apId, bornNs: this.now() })
+    this.enqueue(this.staId, { id: nextMsduId++, bytes, src: this.staId, dst: this.apId, bornNs: this.now(), ac: this.ac })
   }
 
   private emitDl(bytes: number): void {
-    this.enqueue(this.apId, { id: nextMsduId++, bytes, src: this.apId, dst: this.staId, bornNs: this.now() })
+    this.enqueue(this.apId, { id: nextMsduId++, bytes, src: this.apId, dst: this.staId, bornNs: this.now(), ac: this.ac })
   }
 
   /** ~15 Mbps DL: 1400 B every 747 µs + uniform jitter [0, 200] µs. */

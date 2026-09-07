@@ -13,7 +13,7 @@ function mkScenario(stas: { gen: Generation; profile: ProfileId; features?: Reco
     { ...sc.nodes[0], caps: { generation: apGen, features: defaultFeatures(apGen) } },
     ...stas.map((s, i): NodeCfg => ({
       id: `sta-${i + 1}`, kind: 'sta', name: `STA-${i + 1}`,
-      pos: { x: 3 + i * 0.7, y: 4.5, z: 1 }, txPowerDbm: 15, profile: s.profile,
+      pos: { x: 3 + i * 0.7, y: 4.5, z: 1 }, txPowerDbm: 15, profiles: [s.profile],
       caps: { generation: s.gen, features: s.features ?? defaultFeatures(s.gen) },
     })),
   ]

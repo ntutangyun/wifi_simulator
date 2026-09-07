@@ -166,7 +166,7 @@ export function spawnRandomStas(sc: Scenario, n: number, rng: () => number): Sce
     const profile = SPAWN_PROFILES[Math.floor(rng() * SPAWN_PROFILES.length)]
     nodes.push({
       id, kind: 'sta', name: `STA-${next}`, pos: { x, y, z: 1.0 },
-      txPowerDbm: 15, profile, caps: nonht,
+      txPowerDbm: 15, profiles: [profile], caps: nonht,
     })
     next++
   }
