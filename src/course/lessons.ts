@@ -927,10 +927,9 @@ export const LESSONS: Lesson[] = [
     ]),
     jumps: [
       J('first TXOP start', '第一次 TXOP 开始', firstTxop),
-      J('first BlockAck', '第一个 BlockAck', firstBa),
     ],
     observe: [
-      { en: 'Inside a TXOP the AP sends to TV 1, gets its BA, then after one SIFS sends to TV 2 — no backoff in between. Not every TXOP chains, though: the “first TXOP start” jump lands on a single-exchange one, so step forward a few — the first two-receiver burst is at ≈ 1.65 ms.', zh: '在一个 TXOP 内，AP 发给电视 1、收到 BA 后仅隔一个 SIFS 就发给电视 2——中间没有退避。但并非每个 TXOP 都会串联多次交换：“第一次 TXOP 开始”跳转落在只有一次交换的 TXOP 上，往后步进几个——第一个发往两台接收机的突发在 ≈ 1.65 ms 处。' },
+      { en: 'The “first TXOP start” jump (≈ 0.88 ms) lands on a two-receiver burst: inside one TXOP the AP sends to TV 2, gets its ACK, then after one SIFS sends to TV 1 — no AIFS, no backoff in between. Later TXOPs often hold a single exchange: with only two 15 Mbps streams the AP rarely has frames for both TVs waiting at once.', zh: '“第一次 TXOP 开始”跳转（≈ 0.88 ms）落在一个发往两台接收机的突发上：在同一个 TXOP 内，AP 发给电视 2、收到 ACK 后仅隔一个 SIFS 就发给电视 1——中间没有 AIFS、没有退避。之后的 TXOP 常常只有一次交换：只有两路 15 Mbps 的视频流时，AP 很少同时攒下发给两台电视的帧。' },
       { en: 'The inspector shows “TXOP: AC_VI, n µs left” while the burst runs.', zh: '突发进行中，检视器显示“TXOP：AC_VI，剩余 n µs”。' },
     ],
     tryThis: [

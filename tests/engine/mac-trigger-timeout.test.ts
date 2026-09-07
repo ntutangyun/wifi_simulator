@@ -17,20 +17,29 @@ describe('a trigger nobody answers times out after 45 µs', () => {
   const lesson = LESSONS.find((l) => l.id === 'edca')!
   const recs: TLRecord[] = new Simulation(lesson.scenario()).runUntil(30_000_000).records
   const ap = (r: TLRecord): r is TLRecord & { node: string } => 'node' in r && r.node === 'ap'
+  type Rec<K extends TLRecord['type']> = Extract<TLRecord, { type: K }>
 
-  it('lesson 7 @ 23 169.6 µs: the collided trigger fails at trigger end + 45 µs', () => {
-    const trigEnd = recs.find((r) => r.type === 'TX_END' && r.node === 'ap' && r.frame.kind === 'trigger' && r.t >= 23_000_000)!
-    expect(trigEnd.t).toBe(23_169_600)
-    const deadline = trigEnd.t + ACK_TIMEOUT_NS
-    // sanity: no reception began at the AP inside the response window
-    expect(recs.some((r) => r.type === 'RX_START' && r.node === 'ap' && r.t > trigEnd.t && r.t <= deadline)).toBe(false)
-    const timeout = recs.find((r) => r.type === 'ACK_TIMEOUT' && r.node === 'ap' && r.t > trigEnd.t)
-    expect(timeout?.t).toBe(deadline)
-    const cw = recs.find((r) => r.type === 'CW_CHANGE' && r.node === 'ap' && r.t === deadline)
-    expect(cw, 'the failed trigger must double the AC’s CW').toBeDefined()
-    const next = recs.find((r): r is Extract<TLRecord, { type: 'MAC_STATE' }> => r.type === 'MAC_STATE' && r.node === 'ap' && r.t > trigEnd.t)!
-    expect(next.t).toBeLessThanOrEqual(deadline)
-    expect(next.state).not.toBe('waitAck')
+  it('every trigger with no triggered PPDU inside 45 µs fails at exactly trigger end + 45 µs', () => {
+    const ends = recs.filter((r): r is Rec<'TX_END'> => r.type === 'TX_END' && r.node === 'ap' && r.frame.kind === 'trigger')
+    expect(ends.length).toBeGreaterThan(0)
+    let unanswered = 0
+    for (const te of ends) {
+      const deadline = te.t + ACK_TIMEOUT_NS
+      const started = recs.some((r) => r.type === 'RX_START' && r.node === 'ap' && r.t > te.t && r.t <= deadline)
+      const timeout = recs.find((r) => r.type === 'ACK_TIMEOUT' && r.node === 'ap' && r.t > te.t && r.t <= deadline + 1)
+      if (started) {
+        expect(timeout, `trigger @ ${te.t}: a response started, no timeout may fire`).toBeUndefined()
+        continue
+      }
+      unanswered++
+      expect(timeout?.t, `trigger @ ${te.t} got no response`).toBe(deadline)
+      expect(recs.some((r) => r.type === 'CW_CHANGE' && r.node === 'ap' && r.t === deadline), 'the failed trigger doubles the AC’s CW').toBe(true)
+      const next = recs.find((r): r is Rec<'MAC_STATE'> => r.type === 'MAC_STATE' && r.node === 'ap' && r.t > te.t)!
+      expect(next.t).toBeLessThanOrEqual(deadline)
+      expect(next.state).not.toBe('waitAck')
+    }
+    // the lesson must actually exercise the unanswered case (a trigger that collided with a VO frame)
+    expect(unanswered).toBeGreaterThan(0)
   })
 
   it('the AP never waits for a response longer than the timeout without a reception starting', () => {

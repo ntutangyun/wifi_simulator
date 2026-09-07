@@ -16,19 +16,29 @@ export class AcQueues {
     return this.q[ac].length
   }
 
+  /** Number of queued MSDUs in an AC whose destination satisfies pred. */
+  depthFor(ac: number, pred: (dst: string) => boolean): number {
+    let n = 0
+    for (const m of this.q[ac]) if (pred(m.dst)) n++
+    return n
+  }
+
   depthAll(): number {
     return this.q.reduce((s, x) => s + x.length, 0)
   }
 
-  head(ac: number): Msdu | undefined {
-    return this.q[ac][0]
+  /** First queued MSDU of an AC — the first whose destination satisfies pred, when given. */
+  head(ac: number, pred?: (dst: string) => boolean): Msdu | undefined {
+    if (!pred) return this.q[ac][0]
+    return this.q[ac].find((m) => pred(m.dst))
   }
 
   /** Distinct destinations present in an AC's queue, in order of first appearance. */
-  dsts(ac: number): string[] {
+  dsts(ac: number, pred?: (dst: string) => boolean): string[] {
     const seen = new Set<string>()
     const out: string[] = []
     for (const m of this.q[ac]) {
+      if (pred && !pred(m.dst)) continue
       if (!seen.has(m.dst)) {
         seen.add(m.dst)
         out.push(m.dst)

@@ -74,6 +74,7 @@ export class Simulation {
     // ---- per-link channels + MACs ----
     for (const link of plan.links) {
       const memberIds = plan.members[link]
+      const memberSet = new Set(memberIds)
       const members = memberIds.map((id) => byId.get(id)!)
       const table = buildLinkTable(members, sc.walls)
       const extra = LINK_EXTRA_LOSS_DB[link]
@@ -112,6 +113,7 @@ export class Simulation {
               const cap = mode === 'eht' && !negotiated(n, peerCfg, 'qam4k') ? 11 : undefined
               return mcsForRssi(mode, rssi, cap)
             },
+            reachable: (peer) => memberSet.has(peer),
             ampduWith: (peer) => negotiated(n, other(n, peer), 'ampdu'),
             ofdmaWith: (peer) => negotiated(n, other(n, peer), 'ofdma'),
             ulBacklog: n.kind === 'ap'

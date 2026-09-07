@@ -45,6 +45,12 @@ export interface WifiMacCfg {
   ofdmaWith(peer: string): boolean
   /** AP only: stand-in for BSR — UL backlog of OFDMA-capable STAs. */
   ulBacklog?(): { peer: string; ac: number; bytes: number }[]
+  /**
+   * Is this peer on the link this MAC serves? MLO devices share one MLD queue
+   * between links, but a frame may only leave on a link its receiver is on.
+   * Absent = every peer is reachable (single-link device).
+   */
+  reachable?(peer: string): boolean
 }
 
 const NEVER = -10_000_000
@@ -191,9 +197,12 @@ export class WifiMac implements PhyListener {
       this.pendingResp !== null || this.respHandle !== 0 || this.ch.isTransmitting(this.nodeId)
   }
 
+  /** Destination filter for the shared queue: only peers on this MAC's link. */
+  private readonly reach = (dst: string): boolean => this.cfg.reachable?.(dst) ?? true
+
   private hasWork(e: Edcaf): boolean {
     const idx = this.edcafs.indexOf(e)
-    return this.queues.depth(idx) > 0 || e.needDraw || e.backoff !== null ||
+    return this.queues.depthFor(idx, this.reach) > 0 || e.needDraw || e.backoff !== null ||
       (this.wantTrigger && idx === this.efIndex(1))
   }
 
@@ -307,12 +316,12 @@ export class WifiMac implements PhyListener {
 
     // AP OFDMA: DL MU when ≥2 eligible peers queued; UL Trigger when wanted.
     if (this.cfg.isAp) {
-      const muDsts = this.queues.dsts(ei).filter((d) => this.cfg.ofdmaWith(d))
+      const muDsts = this.queues.dsts(ei, this.reach).filter((d) => this.cfg.ofdmaWith(d))
       if (muDsts.length >= 2) {
         this.transmitDlMu(e, muDsts.slice(0, 4), inTxopBurst)
         return
       }
-      if (this.queues.depth(ei) === 0 && this.wantTrigger && this.cfg.ulBacklog) {
+      if (this.queues.depthFor(ei, this.reach) === 0 && this.wantTrigger && this.cfg.ulBacklog) {
         const users = this.cfg.ulBacklog().filter((u) => this.cfg.ofdmaWith(u.peer))
         if (users.length >= 2) {
           this.transmitTrigger(e, users.slice(0, 4))
@@ -322,7 +331,7 @@ export class WifiMac implements PhyListener {
       }
     }
 
-    const head = this.queues.head(ei)
+    const head = this.queues.head(ei, this.reach)
     if (!head) {
       // Post-transmission backoff completed with nothing queued.
       this.endTxop()
@@ -691,8 +700,8 @@ export class WifiMac implements PhyListener {
   private continueOrRelease(e: Edcaf): void {
     const t = this.now()
     const ei = this.edcafs.indexOf(e)
-    if (this.txopEndNs > 0 && this.txopAc === ei && this.queues.depth(ei) > 0) {
-      const head = this.queues.head(ei)!
+    if (this.txopEndNs > 0 && this.txopAc === ei && this.queues.depthFor(ei, this.reach) > 0) {
+      const head = this.queues.head(ei, this.reach)!
       const mode = this.cfg.modeForPeer(head.dst)
       const mcs = this.cfg.mcsForPeer(head.dst)
       const oneFrame = txTimeModeNs(mode, dataPsduBytes(head.bytes), mcs)

@@ -107,8 +107,11 @@ describe('TXOP bursting', () => {
 })
 
 describe('OFDMA (Wi-Fi 6+)', () => {
-  it('DL MU: one PPDU serves two STAs, acked by simultaneous BAs', () => {
+  it('DL MU: one PPDU serves several STAs, acked by simultaneous BAs', () => {
+    // Three 15 Mbps streams: enough for two destinations to be queued at once
+    // (two alone never build a backlog on a healthy AP).
     const sc = mkScenario([
+      { gen: 'he', profile: 'video' },
       { gen: 'he', profile: 'video' },
       { gen: 'he', profile: 'video' },
     ])
