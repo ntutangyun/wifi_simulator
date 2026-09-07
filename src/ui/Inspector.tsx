@@ -149,7 +149,14 @@ export function Inspector() {
           <tbody>
             {nodes.map(([id, n]) => (
               <tr key={id}>
-                <td>{(scenario.nodes.find((x) => x.id === id.replace('#6g', ''))?.name ?? id) + (id.includes('#6g') ? ' ·6G' : '')}</td>
+                <td>
+                  {(scenario.nodes.find((x) => x.id === id.replace('#6g', ''))?.name ?? id) + (id.includes('#6g') ? ' ·6G' : '')}
+                  {n.txopUntilNs > t && (
+                    <span style={{ color: '#22d3ee', marginLeft: 6 }} title={L.txopHint}>
+                      {L.txop} AC_{AC_NAME[n.txopAc] ?? '?'} · {((n.txopUntilNs - t) / 1000).toFixed(0)} µs
+                    </span>
+                  )}
+                </td>
                 <td>{n.stats.txOk}</td>
                 <td>{n.stats.retries}</td>
                 <td>{((n.stats.airtimeNs / Math.max(1, t)) * 100).toFixed(1)}%</td>

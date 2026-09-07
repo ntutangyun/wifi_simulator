@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { flightProgress, frameColor } from '../../src/scene/effects'
-import { haloColor, statusText } from '../../src/scene/nodes'
+import { haloColor, labelText, statusText, txopText } from '../../src/scene/nodes'
 import { wallSolidSpans } from '../../src/scene/house'
 import type { FrameDesc } from '../../src/model/frames'
 import type { NodeView } from '../../src/model/view'
@@ -48,4 +48,31 @@ describe('scene mappings', () => {
     expect(statusText({ ...base, state: 'defer', backoff: null, ifs: { kind: 'DIFS', untilNs: 34_000 } }, 0)).toBe('DIFS 34µs')
     expect(statusText({ ...base, state: 'defer', backoff: null, navUntilNs: 90_000 }, 0)).toBe('NAV 90µs')
   })
+})
+
+describe('TXOP holder annotation', () => {
+  const base = { state: 'waitAck', ccaBusy: false, backoff: null, cw: 15, ssrc: 0, slrc: 0, navUntilNs: 0, ifs: null,
+    queue: [], currentTx: null, currentRx: null, rxSeq: {}, stats: { bytesDelivered: 0, txOk: 0, retries: 0, drops: 0, collisions: 0, airtimeNs: 0 },
+    acs: null, txopUntilNs: 0, txopAc: -1 } as unknown as Parameters<typeof txopText>[0]
+
+  it('names the AC and counts the TXOP down while it is held', () => {
+    expect(txopText({ ...base, txopUntilNs: 2_500_000, txopAc: 2 }, 1_000_000)).toBe('TXOP VI 1500µs')
+    expect(txopText({ ...base, txopUntilNs: 2_500_000, txopAc: 1 }, 2_499_400)).toBe('TXOP BE 1µs')
+  })
+
+  it('is empty once the TXOP has ended or was never held', () => {
+    expect(txopText({ ...base, txopUntilNs: 2_500_000, txopAc: 2 }, 2_500_000)).toBe('')
+    expect(txopText(base, 5)).toBe('')
+  })
+
+  it('the 3D label stacks the TXOP line under the state', () => {
+    expect(labelText({ ...base, txopUntilNs: 2_500_000, txopAc: 2 }, 1_000_000)).toBe('wait ACK\nTXOP VI 1500µs')
+    expect(labelText({ ...base, state: 'idle' }, 1_000_000)).toBe('')
+  })
+})
+
+it('a TXOP with no state text still lands on line two', () => {
+  const nv = { state: 'tx', ccaBusy: true, backoff: null, cw: 15, ssrc: 0, slrc: 0, navUntilNs: 0, ifs: null, queue: [], currentTx: null, currentRx: null,
+    rxSeq: {}, stats: { bytesDelivered: 0, txOk: 0, retries: 0, drops: 0, collisions: 0, airtimeNs: 0 }, acs: null, txopUntilNs: 2_000_000, txopAc: 2 } as unknown as Parameters<typeof labelText>[0]
+  expect(labelText(nv, 1_000_000)).toBe('\nTXOP VI 1000µs')
 })

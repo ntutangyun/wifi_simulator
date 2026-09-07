@@ -33,6 +33,13 @@ export function makeTextSprite(text: string, color = '#e5e9f0', px = 48): THREE.
   return sprite
 }
 
+/** Colour of the second label line (the TXOP countdown). */
+const TXOP_COLOR = '#22d3ee'
+
+/**
+ * Redraw the status sprite. A newline splits the text into two stacked lines:
+ * the MAC state on top, the TXOP countdown (in TXOP_COLOR) underneath.
+ */
 function updateSpriteText(sprite: THREE.Sprite, text: string, color = '#e5e9f0'): void {
   if (sprite.userData.text === text) return
   sprite.userData.text = text
@@ -40,10 +47,20 @@ function updateSpriteText(sprite: THREE.Sprite, text: string, color = '#e5e9f0')
   const canvas = tex.image as HTMLCanvasElement
   const ctx = canvas.getContext('2d')!
   ctx.clearRect(0, 0, canvas.width, canvas.height)
-  ctx.font = `48px 'Segoe UI', sans-serif`
   ctx.textAlign = 'center'
-  ctx.fillStyle = color
-  ctx.fillText(text, 256, 80)
+  const lines = text.split('\n')
+  if (lines.length === 1) {
+    ctx.font = `48px 'Segoe UI', sans-serif`
+    ctx.fillStyle = color
+    ctx.fillText(lines[0], 256, 80)
+  } else {
+    ctx.font = `44px 'Segoe UI', sans-serif`
+    ctx.fillStyle = color
+    ctx.fillText(lines[0], 256, 50)
+    ctx.font = `38px 'Segoe UI', sans-serif`
+    ctx.fillStyle = TXOP_COLOR
+    ctx.fillText(lines[1], 256, 108)
+  }
   tex.needsUpdate = true
 }
 
@@ -115,10 +132,25 @@ export function statusText(nv: NodeView, tNs: number): string {
   return ''
 }
 
+const AC_SHORT = ['BK', 'BE', 'VI', 'VO']
+
+/** "TXOP VI 1500µs" while the node holds a transmit opportunity, else ''. */
+export function txopText(nv: NodeView, tNs: number): string {
+  if (nv.txopUntilNs <= tNs) return ''
+  return `TXOP ${AC_SHORT[nv.txopAc] ?? '?'} ${((nv.txopUntilNs - tNs) / 1000).toFixed(0)}µs`
+}
+
+/** Full label above a node: MAC state on line one, TXOP countdown on line two. */
+export function labelText(nv: NodeView, tNs: number): string {
+  const txop = txopText(nv, tNs)
+  // the TXOP line always sits on line two so it keeps its own colour even when line one is empty
+  return txop ? statusText(nv, tNs) + '\n' + txop : statusText(nv, tNs)
+}
+
 export function updateNodeVisual(g: THREE.Group, nv: NodeView, tNs: number): void {
   const halo = g.getObjectByName('halo') as THREE.Mesh
   const navActive = nv.navUntilNs > tNs
   ;(halo.material as THREE.MeshBasicMaterial).color.setHex(haloColor(nv.state, navActive))
   const status = g.getObjectByName('status') as THREE.Sprite
-  updateSpriteText(status, statusText(nv, tNs), '#fbbf24')
+  updateSpriteText(status, labelText(nv, tNs), '#fbbf24')
 }
