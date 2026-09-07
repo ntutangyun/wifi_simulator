@@ -32,7 +32,7 @@ export function FrameDetail({ sel }: { sel: FrameSelection }) {
   const f = sel.frame
 
   const nameOf = (id: string): string => {
-    if (id === '*mu') return F.everyone
+    if (id === '*mu' || id === '*') return F.everyone
     const cfg = scenario.nodes.find((n) => n.id === physicalId(id))
     const name = cfg?.name ?? id
     return id.includes('#6g') ? `${name} · 6G` : name

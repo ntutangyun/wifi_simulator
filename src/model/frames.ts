@@ -1,7 +1,7 @@
 import { AMPDU_DELIMITER_BYTES, FCS_BYTES, MAC_HDR_BYTES, QOS_HDR_BYTES, type PhyMode } from '../engine/phy'
 import type { Ns } from './types'
 
-export type FrameKind = 'data' | 'ack' | 'rts' | 'cts' | 'ba' | 'trigger' | 'mba'
+export type FrameKind = 'data' | 'ack' | 'rts' | 'cts' | 'ba' | 'trigger' | 'mba' | 'cfend'
 
 /** One user's share of a DL/UL MU (OFDMA) PPDU. */
 export interface MuPart {

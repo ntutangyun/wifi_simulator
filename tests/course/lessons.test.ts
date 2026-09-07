@@ -52,6 +52,7 @@ describe('jump targets occur in their lesson simulations', () => {
     { id: 'anomaly', ms: 200 },
     { id: 'ampdu', ms: 200 },
     { id: 'txop', ms: 300 },
+    { id: 'txop-protect', ms: 300 },
     { id: 'ofdma-dl', ms: 300 },
     { id: 'ofdma-ul', ms: 300 },
     { id: 'mlo', ms: 300 },
@@ -73,6 +74,22 @@ describe('jump targets occur in their lesson simulations', () => {
     expect(base.some((r) => r.type === 'COLLISION')).toBe(true)
     const rts = recordsFor(lesson.variants![0].scenario(), 300)
     expect(rts.some((r) => r.type === 'TX_START' && r.frame.kind === 'rts')).toBe(true)
+  })
+
+  it('txop-protect: boundary protection cuts collisions and drops versus the single-protection variant', () => {
+    const lesson = LESSONS.find((l) => l.id === 'txop-protect')!
+    const prot = recordsFor(lesson.scenario(), 300)
+    const single = recordsFor(lesson.variants![0].scenario(), 300)
+    const count = (recs: TLRecord[], type: TLRecord['type']) => recs.filter((r) => r.type === type).length
+    expect(count(single, 'COLLISION')).toBeGreaterThan(3 * count(prot, 'COLLISION'))
+    expect(count(prot, 'DROP')).toBe(0)
+    expect(count(single, 'DROP')).toBeGreaterThan(0)
+    // the AP relays every CF-End a station sends
+    const cf = prot.filter((r): r is Extract<TLRecord, { type: 'TX_START' }> => r.type === 'TX_START' && r.frame.kind === 'cfend')
+    expect(cf.filter((r) => r.node === 'ap').length).toBe(cf.filter((r) => r.node !== 'ap').length)
+    // the multiple-protection variant puts the TXOP remainder on data frames
+    const multi = recordsFor(lesson.variants![1].scenario(), 100)
+    expect(multi.some((r) => r.type === 'TX_START' && r.frame.kind === 'data' && r.frame.durationFieldNs > 500_000)).toBe(true)
   })
 
   it('hidden: the stations are genuinely hidden from each other', () => {

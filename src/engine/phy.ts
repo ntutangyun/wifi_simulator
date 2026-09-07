@@ -32,6 +32,7 @@ export const FCS_BYTES = 4
 export const ACK_BYTES = 14
 export const RTS_BYTES = 20
 export const CTS_BYTES = 14
+export const CF_END_BYTES = 20 // FC + Duration + RA + BSSID + FCS
 
 const PREAMBLE_NS: Ns = 16_000
 const SIGNAL_NS: Ns = 4_000

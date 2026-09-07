@@ -20,6 +20,7 @@ export function frameColor(frame: FrameDesc, apId: string): number {
     case 'ba':
     case 'mba': return 0xd8b4fe
     case 'trigger': return 0xfacc15
+    case 'cfend': return 0xfb7185
     case 'rts':
     case 'cts': return 0xf97316
   }

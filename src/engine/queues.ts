@@ -27,6 +27,11 @@ export class AcQueues {
     return this.q.reduce((s, x) => s + x.length, 0)
   }
 
+  /** Read-only view of an AC's queue in order (for burst planning). */
+  peek(ac: number): readonly Msdu[] {
+    return this.q[ac]
+  }
+
   /** First queued MSDU of an AC — the first whose destination satisfies pred, when given. */
   head(ac: number, pred?: (dst: string) => boolean): Msdu | undefined {
     if (!pred) return this.q[ac][0]

@@ -127,6 +127,15 @@ function EditorGuideEn() {
         separate channels — devices on different links never hear or contend with each other, and
         6 GHz carries +1.2 dB extra path loss here.
       </D>
+      <D t="TXOP protection">
+        Shown when TXOP is on. How the node announces a burst of several exchanges it holds.
+        <i>single</i> — each frame's Duration covers only its own response (default). The burst is
+        still safe from anyone who hears the holder, because SIFS beats every AIFS. <i>boundary</i> —
+        an RTS/CTS opens the burst and reserves the medium to the end of the TXOP, so stations hidden
+        from the holder but near the receiver stay quiet too; a burst that ends early is truncated
+        with CF-End, which the AP repeats. <i>multiple</i> — as boundary, and every data frame also
+        carries the TXOP remainder (§9.2.5.2). Lesson 10 compares them.
+      </D>
       <D t="Traffic">
         STAs only (the AP sends whatever the downlink legs generate). Tick any number of streams —
         a station can run a voice call and a cloud backup at once. Each stream keeps its own load
@@ -275,6 +284,13 @@ function EditorGuideZh() {
       <D t="频段">
         仅对非 MLO 的 Wi-Fi 6/7 设备显示：该设备工作在哪个频段。两个频段是彼此独立的信道——
         不同链路上的设备互相听不到、也不竞争；本模型中 6 GHz 额外增加 1.2 dB 路径损耗。
+      </D>
+      <D t="TXOP 保护">
+        开启 TXOP 时显示。节点持有多次交换的突发时如何预告。<i>单次</i>——每个帧的 Duration
+        只覆盖自己的响应（默认）；能听到持有者的站点本来就插不进来，因为 SIFS 比任何 AIFS 都短。
+        <i>边界</i>——用一次 RTS/CTS 开启突发，把介质预约到 TXOP 结束，于是离持有者远、离接收方近的
+        隐藏站点也会保持安静；突发提前结束时用 CF-End 截断，AP 会重复一遍。<i>多重</i>——在边界的
+        基础上，每个数据帧也携带 TXOP 剩余时间（§9.2.5.2）。第 10 课对比了三者。
       </D>
       <D t="业务">
         仅终端可设（AP 发送的是各下行业务产生的流量）。可以同时勾选多种业务——

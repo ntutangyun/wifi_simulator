@@ -23,6 +23,7 @@ function txColor(s: LaneSpan, apId: string): string {
   if (s.frameKind === 'ack') return '#e5e7eb'
   if (s.frameKind === 'ba' || s.frameKind === 'mba') return '#d8b4fe'
   if (s.frameKind === 'trigger') return '#facc15'
+  if (s.frameKind === 'cfend') return '#fb7185'
   return '#f97316' // rts/cts
 }
 

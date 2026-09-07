@@ -60,6 +60,8 @@ export interface Strings {
     nodesHeader: string; rooms: string; walls: string; noRooms: string
     node: string; name: string; wifi: string; link: string; linkHint: string
     traffic: string; txPower: string; height: string
+    txopProt: string; txopProtHint: string
+    txopProtNames: Record<'single' | 'boundary' | 'multiple', string>
     deleteNode: string; deleteRoom: string; apNoDelete: string; delete_: string
     wall: string; material: string; materialHint: string; removeOpenings: string
     room: string; openings: string
@@ -115,7 +117,7 @@ export interface Strings {
   tooltips: {
     transmitting: string; dlMu: (n: number) => string; ampdu: (n: number, dst: string) => string
     data: (dst: string) => string; ack: (dst: string) => string; ba: (dst: string) => string
-    mba: string; trigger: string; rts: (dst: string) => string; cts: (dst: string) => string
+    mba: string; trigger: string; rts: (dst: string) => string; cts: (dst: string) => string; cfend: string
     nonHt: string; sifsNote: string; retryNote: string; ruNote: string
     receiving: (kind: string, from: string) => string
     backoffTitle: string; backoffL1: string; backoffL2: string
@@ -181,6 +183,7 @@ export const STRINGS: Record<Lang, Strings> = {
       { color: '#d8b4fe', label: 'BA', hint: 'BlockAck: one frame acknowledging a whole A-MPDU aggregate.' },
       { color: '#facc15', label: 'Trigger', hint: 'Wi-Fi 6 Trigger frame: the AP schedules simultaneous uplink OFDMA transmissions.' },
       { color: '#f97316', label: 'RTS/CTS', hint: 'Medium reservation handshake used above the RTS threshold (hidden-node protection).' },
+      { color: '#fb7185', label: 'CF-End', hint: 'TXOP truncation: the holder releases a reservation it no longer needs; the AP repeats a station’s CF-End.' },
       { color: '#f59e0b', label: 'backoff', hint: 'Random backoff countdown: −1 per idle 9 µs slot; frozen while the medium is busy.' },
       { color: '#6d5a1b', label: 'defer', hint: 'Waiting for DIFS/AIFS/EIFS quiet time, or for the medium to go idle.' },
       { color: '#06b6d4', label: 'exchange wait', hint: 'Mid-exchange pause: a SIFS turnaround or waiting for the response (ACK/CTS) — not contending.' },
@@ -197,6 +200,9 @@ export const STRINGS: Record<Lang, Strings> = {
       nodesHeader: 'Nodes (order = timeline lanes)', rooms: 'Rooms', walls: 'Walls', noRooms: 'none — draw one with ▭',
       node: 'Node', name: 'Name', wifi: 'Wi-Fi', link: 'Link', linkHint: 'operating band for non-MLO Wi-Fi 6/7 devices',
       traffic: 'Traffic', txPower: 'Tx power', height: 'Height',
+      txopProt: 'TXOP protection',
+      txopProtHint: 'How this node announces a burst of several exchanges it holds: per-exchange Duration (single); an RTS/CTS reserving the medium to the end of the TXOP, given back early with CF-End (boundary); or that plus every data frame carrying the TXOP remainder (multiple).',
+      txopProtNames: { single: 'single (per exchange)', boundary: 'boundary (RTS/CTS for the burst + CF-End)', multiple: 'multiple (every frame carries the remainder)' },
       deleteNode: '🗑 Delete node', deleteRoom: '🗑 Delete room', apNoDelete: 'the AP cannot be deleted', delete_: 'delete',
       wall: 'Wall', material: 'Material', materialHint: 'RF attenuation: drywall 5 dB · brick 12 dB · glass 3 dB per crossing',
       removeOpenings: 'Remove openings', room: 'Room', openings: 'opening(s)',
@@ -244,9 +250,10 @@ export const STRINGS: Record<Lang, Strings> = {
       kindName: {
         data: 'Data frame', ack: 'ACK — acknowledgement', rts: 'RTS — request to send',
         cts: 'CTS — clear to send', ba: 'BlockAck — block acknowledgement',
-        trigger: 'Trigger frame', mba: 'Multi-STA BlockAck',
+        trigger: 'Trigger frame', mba: 'Multi-STA BlockAck', cfend: 'CF-End — contention-free end',
       },
       whatIs: {
+        cfend: 'A TXOP holder giving time back. Its RTS/CTS had reserved the channel until the end of the TXOP; the burst finished early, so this frame tells everyone who decodes it to drop that reservation now. When a station sent it, the AP repeats it one SIFS later so the far side of the cell hears the release too.',
         data: 'The payload carrier — the frame that actually moves your bytes (video, web page, backup…) through the air. Everything else on this timeline exists to get frames like this one through safely.',
         ack: 'A tiny receipt. A Wi-Fi radio cannot listen while it transmits, so it never knows by itself whether a frame survived — the receiver must confirm every delivery with this short “got it, intact”. No ACK back means the sender assumes a loss and retries.',
         rts: 'A short “may I speak?” sent before a long data frame. If it collides, only these few bytes are lost instead of the whole data frame — and its Duration field silences even stations too far away to hear the data sender (hidden nodes).',
@@ -256,6 +263,7 @@ export const STRINGS: Record<Lang, Strings> = {
         mba: 'One receipt for several stations at once: after a simultaneous OFDMA uplink, the AP confirms everyone’s data in this single Multi-STA BlockAck.',
       },
       next: {
+        cfend: 'Every station that decodes it resets its NAV and, after one DIFS/AIFS of quiet, may contend again. Stations that could not hear it keep waiting until the reservation they heard runs out.',
         data: 'If it arrives intact, the receiver answers after exactly one SIFS (16 µs — the shortest gap in Wi-Fi, too short for anyone else to butt in) with an ACK or BlockAck. If nothing comes back, the sender times out, doubles its contention window and retries.',
         ack: 'The exchange is complete. Stations silenced by the Duration field release their NAV timers, wait one DIFS/AIFS of quiet, and resume their backoff countdowns — the race for the channel restarts.',
         rts: 'The addressed station replies with a CTS one SIFS later. If no CTS arrives, only this short frame was wasted and the sender retries cheaply.',
@@ -301,6 +309,7 @@ export const STRINGS: Record<Lang, Strings> = {
       trigger: 'Trigger frame — schedules UL OFDMA',
       rts: (dst) => `RTS → ${dst} (reserves the medium)`,
       cts: (dst) => `CTS → ${dst}`,
+      cfend: 'CF-End (releases the TXOP reservation)',
       nonHt: 'non-HT',
       sifsNote: 'sent a SIFS (16 µs) after the frame — responses never contend',
       retryNote: 'retransmission (Retry bit set)',
@@ -373,6 +382,7 @@ export const STRINGS: Record<Lang, Strings> = {
       { color: '#d8b4fe', label: 'BA', hint: 'BlockAck 块确认：一帧确认整个 A-MPDU 聚合。' },
       { color: '#facc15', label: 'Trigger', hint: 'Wi-Fi 6 触发帧：AP 调度多个终端同时进行上行 OFDMA 传输。' },
       { color: '#f97316', label: 'RTS/CTS', hint: '超过 RTS 门限时使用的介质预约握手（防隐藏节点）。' },
+      { color: '#fb7185', label: 'CF-End', hint: 'TXOP 截断：持有者释放不再需要的预约；终端发出的 CF-End 由 AP 重复一遍。' },
       { color: '#f59e0b', label: '退避', hint: '随机退避倒数：每个空闲 9 µs 时隙减 1；介质忙时冻结。' },
       { color: '#6d5a1b', label: '等待', hint: '等待 DIFS/AIFS/EIFS 静默期，或等待介质变为空闲。' },
       { color: '#06b6d4', label: '交换等待', hint: '帧交换过程中的停顿：SIFS 周转或等待响应（ACK/CTS）——并非在竞争信道。' },
@@ -389,6 +399,9 @@ export const STRINGS: Record<Lang, Strings> = {
       nodesHeader: '节点（顺序 = 时间轴泳道）', rooms: '房间', walls: '墙体', noRooms: '暂无 — 用 ▭ 绘制一个',
       node: '节点', name: '名称', wifi: 'Wi-Fi', link: '频段', linkHint: '非 MLO 的 Wi-Fi 6/7 设备的工作频段',
       traffic: '业务', txPower: '发射功率', height: '高度',
+      txopProt: 'TXOP 保护',
+      txopProtHint: '本节点持有多次交换的突发时如何预告：逐次交换的 Duration（单次）；用 RTS/CTS 把介质预约到 TXOP 结束、提前结束时以 CF-End 归还（边界）；或在此基础上让每个数据帧也携带 TXOP 剩余时间（多重）。',
+      txopProtNames: { single: '单次（逐次交换）', boundary: '边界（RTS/CTS 预约整个突发 + CF-End）', multiple: '多重（每帧携带剩余时间）' },
       deleteNode: '🗑 删除节点', deleteRoom: '🗑 删除房间', apNoDelete: 'AP 不能删除', delete_: '删除',
       wall: '墙体', material: '材质', materialHint: '射频衰减：石膏板 5 dB · 砖墙 12 dB · 玻璃 3 dB（每次穿越）',
       removeOpenings: '移除门窗开口', room: '房间', openings: '个开口',
@@ -436,9 +449,10 @@ export const STRINGS: Record<Lang, Strings> = {
       kindName: {
         data: '数据帧', ack: 'ACK — 确认帧', rts: 'RTS — 请求发送',
         cts: 'CTS — 允许发送', ba: 'BlockAck — 块确认',
-        trigger: 'Trigger — 触发帧', mba: '多站点 BlockAck',
+        trigger: 'Trigger — 触发帧', mba: '多站点 BlockAck', cfend: 'CF-End — 提前结束',
       },
       whatIs: {
+        cfend: 'TXOP 持有者把时间还回去。它的 RTS/CTS 已把信道预约到 TXOP 结束，但突发提前发完了，于是用这一帧告诉所有解出它的站点：现在就可以撤销那段预约。若发送者是终端，AP 会在一个 SIFS 后重复一遍，让小区另一侧也听到释放。',
         data: '真正运载数据的帧——你的视频、网页、备份等字节就装在里面通过空口传输。时间轴上的其它一切，都是为了让这样的帧安全送达。',
         ack: '一张小小的回执。Wi-Fi 电台发送时无法同时收听，自己永远不知道帧有没有送到——必须由接收方用这条简短的「收到，完好」来确认。收不到 ACK，发送方就认定丢失并重传。',
         rts: '在长数据帧之前先发的一句「我能讲话吗？」。它很短，即使碰撞也只损失这几个字节；而且它的 Duration 字段能让离数据发送方太远、听不到它的站点（隐藏节点）也保持安静。',
@@ -448,6 +462,7 @@ export const STRINGS: Record<Lang, Strings> = {
         mba: '发给多个站点的一张合并回执：一轮同时进行的 OFDMA 上行结束后，AP 用这一帧统一确认所有终端的数据。',
       },
       next: {
+        cfend: '所有解出它的站点都会清零 NAV，安静一个 DIFS/AIFS 后即可重新竞争。听不到它的站点则要一直等到自己听到的那段预约自然结束。',
         data: '若完好到达，接收方会在恰好一个 SIFS（16 µs——Wi-Fi 里最短的间隔，短到没人能插队）之后回 ACK 或 BlockAck。若无回音，发送方超时后把竞争窗口翻倍并重传。',
         ack: '这次帧交换到此完成。被 Duration 字段压制的站点解除 NAV 计时器，等待一个 DIFS/AIFS 的安静期后继续退避倒数——信道争夺重新开始。',
         rts: '被叫站点会在一个 SIFS 后回复 CTS。若 CTS 没来，损失的只是这短短一帧，发送方可以低成本重试。',
@@ -493,6 +508,7 @@ export const STRINGS: Record<Lang, Strings> = {
       trigger: '触发帧 — 调度上行 OFDMA',
       rts: (dst) => `RTS → ${dst}（预约介质）`,
       cts: (dst) => `CTS → ${dst}`,
+      cfend: 'CF-End（提前释放 TXOP 预约）',
       nonHt: '非 HT',
       sifsNote: '在帧结束后一个 SIFS（16 µs）发出 — 响应帧从不参与竞争',
       retryNote: '重传（Retry 位已置 1）',

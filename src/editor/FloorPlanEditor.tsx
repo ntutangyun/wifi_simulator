@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Rng } from '../engine/rng'
 import { GEN_FEATURES, type FeatureFlag } from '../model/caps'
-import { normalizeProfiles, PROFILE_IDS, type Material, type NodeCfg, type ProfileId, type Scenario } from '../model/scenario'
+import { normalizeProfiles, PROFILE_IDS, TXOP_PROTECTIONS, type Material, type NodeCfg, type ProfileId, type Scenario, type TxopProtection } from '../model/scenario'
 import { nonht } from '../model/scenario'
 import type { Generation } from '../model/types'
 import { useStrings } from '../ui/i18n'
@@ -452,6 +452,17 @@ export function FloorPlanEditor() {
                         </label>
                       ))}
                     </div>
+                  )}
+                  {GEN_FEATURES[selNode.caps.generation].includes('txop') && selNode.caps.features.txop === true && (
+                    <label style={{ display: 'block', marginBottom: 4 }} title={E.txopProtHint}>
+                      {E.txopProt}{' '}
+                      <select
+                        value={selNode.txopProtection ?? 'single'}
+                        onChange={(e) => updateNode(selNode.id, { txopProtection: e.target.value as TxopProtection })}
+                      >
+                        {TXOP_PROTECTIONS.map((p) => <option key={p} value={p}>{E.txopProtNames[p]}</option>)}
+                      </select>
+                    </label>
                   )}
                   {(selNode.caps.generation === 'he' || selNode.caps.generation === 'eht') && selNode.caps.features.mlo !== true && (
                     <label style={{ display: 'block', marginBottom: 4 }} title={E.linkHint}>

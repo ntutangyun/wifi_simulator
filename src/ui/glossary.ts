@@ -232,6 +232,22 @@ export const GLOSSARY: GlossaryGroup[] = [
         },
       },
       {
+        term: 'TXOP protection',
+        alt: { en: 'single / multiple protection, §9.2.5.2', zh: '单次 / 多重保护，§9.2.5.2' },
+        def: {
+          en: 'How a TXOP holder announces its burst. Single: each frame\'s Duration covers its own response. Multiple: an RTS/CTS at the TXOP boundary reserves the medium to the end of the TXOP (optionally every data frame carries the remainder), and CF-End gives unused time back.',
+          zh: 'TXOP 持有者如何预告自己的突发。单次：每个帧的 Duration 只覆盖自己的响应。多重：TXOP 起始处的 RTS/CTS 把介质预约到 TXOP 结束（可选地每个数据帧也携带剩余时间），CF-End 归还没用完的时间。',
+        },
+      },
+      {
+        term: 'CF-End',
+        alt: { en: 'contention-free end, 20 bytes', zh: 'TXOP 截断帧，20 字节' },
+        def: {
+          en: 'Sent by a TXOP holder whose burst ended before its announced reservation. Every station that decodes it resets its NAV; the AP repeats a station\'s CF-End so the far side of the cell hears the release (§10.23.2.9).',
+          zh: 'TXOP 持有者的突发早于预约结束时发出。所有解出它的站点清零 NAV；终端发出的 CF-End 由 AP 重复一遍，让小区另一侧也听到释放（§10.23.2.9）。',
+        },
+      },
+      {
         term: 'RTS threshold',
         alt: { en: 'dot11RTSThreshold, in octets', zh: 'RTS 门限 dot11RTSThreshold（字节）' },
         def: {

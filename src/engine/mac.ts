@@ -15,10 +15,11 @@ import type { FrameDesc, MuPart } from '../model/frames'
 import { ampduPsduBytes, dataPsduBytes } from '../model/frames'
 import type { EmitFn, MacStateName } from '../model/records'
 import type { Ns } from '../model/types'
+import type { TxopProtection } from '../model/scenario'
 import type { Channel, PhyListener } from './channel'
 import { EventQueue } from './events'
 import {
-  ACK_BYTES, ACK_TIMEOUT_NS, BA_BYTES, CTS_BYTES, CTS_TIMEOUT_NS, DCF_PARAMS, DIFS_NS,
+  ACK_BYTES, ACK_TIMEOUT_NS, BA_BYTES, CF_END_BYTES, CTS_BYTES, CTS_TIMEOUT_NS, DCF_PARAMS, DIFS_NS,
   EDCA_PARAMS, EIFS_NS, LONG_RETRY_LIMIT, MAX_AMPDU_MPDUS, MAX_PPDU_NS, PHY_MODES,
   QOS_HDR_BYTES, FCS_BYTES, RTS_BYTES, SHORT_RETRY_LIMIT, SIFS_NS, SLOT_NS,
   aifsNs, ctrlRespRateFor, mcsRateMbps, multiStaBaBytes, triggerBytes, txTimeModeNs, txTimeNs,
@@ -51,6 +52,8 @@ export interface WifiMacCfg {
    * Absent = every peer is reachable (single-link device).
    */
   reachable?(peer: string): boolean
+  /** Burst protection policy when holding a TXOP (see TxopProtection). Default 'single'. */
+  txopProtection?: TxopProtection
 }
 
 const NEVER = -10_000_000
@@ -133,6 +136,12 @@ export class WifiMac implements PhyListener {
   private readyAcs = new Set<number>()
   private arbitratePending = false
   private muState: MuDlState | MuUlState | null = null
+  /**
+   * End of the reservation a boundary RTS/CTS announced for the current burst
+   * (absolute time), 0 when the burst is not protected this way. A burst that
+   * ends before it is truncated with CF-End (§10.23.2.9).
+   */
+  private announcedEndNs: Ns = 0
   private staMuAwait: StaMuAwait | null = null
   private wantTrigger = false
   private muGidCounter = 0
@@ -370,18 +379,35 @@ export class WifiMac implements PhyListener {
         : dataPsduBytes(msdus[0].bytes)
     const respTime = txTimeNs(aggregate ? BA_BYTES : ACK_BYTES, ctrlRespRateFor(mbps))
 
-    if (psdu > this.cfg.rtsThresholdBytes && !inTxopBurst) {
+    const prot = this.cfg.txopProtection ?? 'single'
+    const txopCapable = this.cfg.txop && this.cfg.edca && e.params.txopLimitNs > 0
+    // Boundary / multiple protection: when the queue holds a multi-exchange
+    // burst, open the TXOP with an RTS/CTS whose Duration reaches the end of
+    // the TXOP (§9.2.5.2, "time remaining in the TXOP"); a burst that finishes
+    // early gives the rest back with CF-End (§10.23.2.9).
+    const dataTime = txTimeModeNs(mode, psdu, mcs)
+    const rtsRate = ctrlRespRateFor(mbps)
+    const ctsTime = txTimeNs(CTS_BYTES, ctrlRespRateFor(rtsRate))
+    const rtsTime = txTimeNs(RTS_BYTES, rtsRate)
+    let burstRestNs = 0
+    if (!inTxopBurst && prot !== 'single' && txopCapable) {
+      const txopEnd = t + e.params.txopLimitNs
+      const firstEnd = t + rtsTime + 3 * SIFS_NS + ctsTime + dataTime + respTime
+      burstRestNs = this.planBurstNs(ei, firstEnd, txopEnd)
+    }
+    const protectBurst = burstRestNs > 0
+
+    if ((psdu > this.cfg.rtsThresholdBytes || protectBurst) && !inTxopBurst) {
       // RTS/CTS protection first (§10.3.2.9).
-      const rtsRate = ctrlRespRateFor(mbps)
-      const ctsTime = txTimeNs(CTS_BYTES, ctrlRespRateFor(rtsRate))
-      const dataTime = txTimeModeNs(mode, psdu, mcs)
+      const announcedEnd = protectBurst ? t + e.params.txopLimitNs : 0
       const rts: FrameDesc = {
         kind: 'rts', src: this.nodeId, dst: peer, bytes: RTS_BYTES, mbps: rtsRate,
-        durationFieldNs: 3 * SIFS_NS + ctsTime + dataTime + respTime,
-        txTimeNs: txTimeNs(RTS_BYTES, rtsRate), ac: this.acTag(e),
+        durationFieldNs: protectBurst ? announcedEnd - (t + rtsTime) : 3 * SIFS_NS + ctsTime + dataTime + respTime,
+        txTimeNs: rtsTime, ac: this.acTag(e),
       }
       this.awaiting = { kind: 'cts', ac: ei, peer, msdus, wasRts: true, aggBytes: psdu }
       this.beginTxop(e, t)
+      this.announcedEndNs = announcedEnd
       this.transmitFrame(rts, true)
       return
     }
@@ -392,16 +418,61 @@ export class WifiMac implements PhyListener {
     this.transmitFrame(frame, true)
   }
 
+  /**
+   * How long the exchanges after the first one will take if this TXOP chains
+   * everything now queued for this AC (reachable peers, consecutive frames to
+   * one peer aggregated), stopping at the TXOP limit exactly like
+   * continueOrRelease will. Returns 0 when nothing more would be chained.
+   */
+  private planBurstNs(ei: number, fromNs: Ns, txopEndNs: Ns): Ns {
+    const e = this.edcafs[ei]
+    const queue = this.queues.peek(ei).filter((m) => this.reach(m.dst))
+    let t = fromNs
+    let i = 0
+    while (i < queue.length) {
+      const peer = queue[i].dst
+      const mode = this.cfg.modeForPeer(peer)
+      const mcs = this.cfg.mcsForPeer(peer)
+      // continueOrRelease's fit check: one plain frame + its BA must fit
+      const oneFrame = txTimeModeNs(mode, dataPsduBytes(queue[i].bytes), mcs)
+      if (t + SIFS_NS + oneFrame + SIFS_NS + txTimeNs(BA_BYTES, 24) > txopEndNs) break
+      const useAmpdu = this.cfg.ampduWith(peer) && mode !== 'nonht'
+      const budgetNs = Math.min(MAX_PPDU_NS, Math.max(200_000, txopEndNs - (t + SIFS_NS) - SIFS_NS - 60_000))
+      const bytes: number[] = []
+      let j = i
+      while (j < queue.length && queue[j].dst === peer && bytes.length < (useAmpdu ? MAX_AMPDU_MPDUS : 1)) {
+        const trial = ampduPsduBytes([...bytes, queue[j].bytes])
+        if (bytes.length > 0 && txTimeModeNs(mode, trial, mcs) > budgetNs) break
+        bytes.push(queue[j].bytes)
+        j++
+      }
+      const aggregate = useAmpdu && bytes.length > 1
+      const psdu = aggregate ? ampduPsduBytes(bytes) : this.cfg.edca ? QOS_HDR_BYTES + bytes[0] + FCS_BYTES : dataPsduBytes(bytes[0])
+      const mbps = mcsRateMbps(mode, mcs)
+      const resp = txTimeNs(aggregate ? BA_BYTES : ACK_BYTES, ctrlRespRateFor(mbps))
+      t += SIFS_NS + txTimeModeNs(mode, psdu, mcs) + SIFS_NS + resp
+      i = j
+      void e
+    }
+    return Math.max(0, t - fromNs)
+  }
+
   private buildDataFrame(
     e: Edcaf, peer: string, msdus: Msdu[], psdu: number,
     mode: PhyMode, mcs: number, mbps: number, aggregate: boolean, respTime: Ns,
   ): FrameDesc {
     const seqNo = e.seqCounter
     e.seqCounter += msdus.length
+    const txTime = txTimeModeNs(mode, psdu, mcs)
+    // §9.2.5.2 multiple protection: the data frame carries the TXOP remainder.
+    const remainder = this.announcedEndNs - (this.now() + txTime)
+    const duration = this.cfg.txopProtection === 'multiple' && remainder > SIFS_NS + respTime
+      ? remainder
+      : SIFS_NS + respTime
     return {
       kind: 'data', src: this.nodeId, dst: peer, bytes: psdu, mbps,
-      durationFieldNs: SIFS_NS + respTime,
-      txTimeNs: txTimeModeNs(mode, psdu, mcs),
+      durationFieldNs: duration,
+      txTimeNs: txTime,
       seqNo, retryFlag: e.src + e.lrc > 0, msduId: msdus[0].id,
       mode, mcs, ac: this.acTag(e),
       ampdu: aggregate ? { mpduCount: msdus.length, msduIds: msdus.map((m) => m.id) } : undefined,
@@ -417,6 +488,7 @@ export class WifiMac implements PhyListener {
   }
 
   private endTxop(): void {
+    this.announcedEndNs = 0
     if (this.txopEndNs > 0) {
       this.emit({ t: this.now(), type: 'TXOP_END', node: this.nodeId })
       this.txopEndNs = 0
@@ -715,11 +787,47 @@ export class WifiMac implements PhyListener {
         return
       }
     }
+    this.releaseTxop(e)
+  }
+
+  /**
+   * Give the channel back after a burst. If a boundary RTS/CTS announced more
+   * time than we used, truncate the reservation with a CF-End (§10.23.2.9) so
+   * everyone who decodes it can drop their NAV now.
+   */
+  private releaseTxop(e: Edcaf): void {
+    const t = this.now()
+    const announced = this.announcedEndNs
     this.endTxop()
     e.backoff = null
     e.needDraw = true // post-transmission backoff, §10.3.4.3
+    const cfTime = txTimeNs(CF_END_BYTES, 24)
+    if (announced > t + SIFS_NS + cfTime + SLOT_NS) {
+      this.scheduleResponse(t, this.cfEndFrame())
+      return
+    }
     this.setState('idle')
     this.resumeAll()
+  }
+
+  private cfEndFrame(): FrameDesc {
+    return {
+      kind: 'cfend', src: this.nodeId, dst: '*', bytes: CF_END_BYTES, mbps: 24,
+      durationFieldNs: 0, txTimeNs: txTimeNs(CF_END_BYTES, 24),
+    }
+  }
+
+  /** §10.23.2.9: a decoded CF-End resets the NAV; the AP repeats a non-AP holder's CF-End. */
+  private onCfEnd(t: Ns, from: string): void {
+    if (this.navUntil > t) {
+      this.navUntil = 0
+      this.navFromRtsAt = null
+      this.cancel('nav')
+      this.emit({ t, type: 'NAV_CLEAR', node: this.nodeId })
+    }
+    if (this.cfg.isAp && from !== this.nodeId && !this.inExchange()) {
+      this.scheduleResponse(t, this.cfEndFrame())
+    }
   }
 
   private resumeAll(): void {
@@ -765,6 +873,10 @@ export class WifiMac implements PhyListener {
   onRxOk(t: Ns, frame: FrameDesc, from: string): void {
     this.corruptLast = false
     const myPart = frame.muParts?.find((p) => p.dst === this.nodeId)
+    if (frame.kind === 'cfend') {
+      this.onCfEnd(t, from)
+      return
+    }
     if (frame.dst === this.nodeId || myPart) {
       this.handleOwnFrame(t, frame, from, myPart)
     } else {

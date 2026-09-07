@@ -27,6 +27,17 @@ export interface Room {
 }
 
 export type ProfileId = 'video' | 'voice' | 'backup' | 'browsing' | 'iot' | 'saturated' | 'idle'
+
+/**
+ * How a TXOP holder announces its burst (§9.2.5.2 / §10.23.2.8):
+ *  - single:   every frame's Duration covers only its own response (default).
+ *  - boundary: an RTS/CTS opens a multi-exchange burst and its Duration covers
+ *              the whole planned burst; data frames inside keep single protection.
+ *  - multiple: as boundary, and every data frame also carries the TXOP remainder.
+ * A burst that ends early is truncated with CF-End (§10.23.2.9).
+ */
+export type TxopProtection = 'single' | 'boundary' | 'multiple'
+export const TXOP_PROTECTIONS: TxopProtection[] = ['single', 'boundary', 'multiple']
 export const PROFILE_IDS: ProfileId[] = ['video', 'voice', 'backup', 'browsing', 'iot', 'saturated', 'idle']
 
 /**
@@ -53,6 +64,8 @@ export interface NodeCfg {
   caps: CapabilityProfile
   /** Operating link for non-MLO HE/EHT nodes ('5g' default). */
   linkId?: '5g' | '6g'
+  /** Burst protection policy when this node holds a TXOP ('single' default). */
+  txopProtection?: TxopProtection
 }
 
 export interface Scenario {
@@ -111,6 +124,7 @@ const NodeCfgSchema = z.preprocess(
       features: z.record(z.boolean()),
     }),
     linkId: z.enum(['5g', '6g']).optional(),
+    txopProtection: z.enum(['single', 'boundary', 'multiple']).optional(),
   }),
 )
 

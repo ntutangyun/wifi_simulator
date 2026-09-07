@@ -114,6 +114,7 @@ export class Simulation {
               return mcsForRssi(mode, rssi, cap)
             },
             reachable: (peer) => memberSet.has(peer),
+            txopProtection: n.txopProtection ?? 'single',
             ampduWith: (peer) => negotiated(n, other(n, peer), 'ampdu'),
             ofdmaWith: (peer) => negotiated(n, other(n, peer), 'ofdma'),
             ulBacklog: n.kind === 'ap'

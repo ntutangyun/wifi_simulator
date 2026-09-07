@@ -253,10 +253,11 @@ export function spanTooltip(s: LaneSpan, T: Strings['tooltips'], t?: Ns): string
         f.kind === 'ba' ? T.ba(f.dst) :
         f.kind === 'mba' ? T.mba :
         f.kind === 'trigger' ? T.trigger :
-        f.kind === 'rts' ? T.rts(f.dst) : T.cts(f.dst)
+        f.kind === 'rts' ? T.rts(f.dst) :
+        f.kind === 'cfend' ? T.cfend : T.cts(f.dst)
       const rate = f.mcs !== undefined ? `${f.mode?.toUpperCase()} MCS${f.mcs} · ${f.mbps} Mbps` : `${f.mbps} Mbps (${T.nonHt})`
       const lines = [`${what}${ac}`, `${f.bytes} B · ${rate} · ${dur}`]
-      if (f.kind === 'ack' || f.kind === 'ba' || f.kind === 'cts' || f.kind === 'mba') {
+      if (f.kind === 'ack' || f.kind === 'ba' || f.kind === 'cts' || f.kind === 'mba' || f.kind === 'cfend') {
         lines.push(T.sifsNote)
       }
       if (f.retryFlag) lines.push(T.retryNote)
