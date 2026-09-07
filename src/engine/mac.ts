@@ -86,6 +86,8 @@ interface MuUlState {
   users: string[]
   received: Map<string, FrameDesc>
   mbaHandle: number
+  /** §10.3.2.9 response timeout: fires if no triggered PPDU has started by trigger end + 45 µs. */
+  rxTimeoutHandle: number
 }
 
 interface StaMuAwait {
@@ -527,16 +529,49 @@ export class WifiMac implements PhyListener {
       txTimeNs: txTimeNs(tb, 24), muParts: parts, orthogonalGroup: gid, ac: this.acTag(e),
     }
     this.wantTrigger = false
-    const mu: MuUlState = { kind: 'ul', gid, ac: this.edcafs.indexOf(e), users: users.map((u) => u.peer), received: new Map(), mbaHandle: 0 }
+    const mu: MuUlState = { kind: 'ul', gid, ac: this.edcafs.indexOf(e), users: users.map((u) => u.peer), received: new Map(), mbaHandle: 0, rxTimeoutHandle: 0 }
     this.muState = mu
     this.transmitFrame(trigger, false)
     mu.mbaHandle = this.q.schedule(t + trigger.txTimeNs + SIFS_NS + ulDur + SIFS_NS, () => this.sendMba())
+    // §10.3.2.9: a Trigger expects a response like any other frame. If no
+    // triggered PPDU has started within SIFS + slot + RxPHYStartDelay of the
+    // trigger's end, the round failed — do not sit out the whole 2 ms window.
+    mu.rxTimeoutHandle = this.q.schedule(t + trigger.txTimeNs + ACK_TIMEOUT_NS, () => this.onTriggerRespTimeout(mu))
+  }
+
+  private onTriggerRespTimeout(mu: MuUlState): void {
+    mu.rxTimeoutHandle = 0
+    if (this.muState !== mu || mu.received.size > 0) return
+    const t = this.now()
+    this.q.cancel(mu.mbaHandle)
+    mu.mbaHandle = 0
+    this.muState = null
+    this.emit({ t, type: 'ACK_TIMEOUT', node: this.nodeId })
+    // Retry accounting for the trigger itself (a short frame). It carries no
+    // MSDUs of ours, so there is nothing to drop at the retry limit — only the
+    // §10.3.3 reset of the counter and CW.
+    const e = this.edcafs[mu.ac]
+    e.src++
+    this.ssrc++
+    if (e.src >= SHORT_RETRY_LIMIT) {
+      e.src = 0
+      e.cw = e.params.cwMin
+    } else {
+      e.cw = Math.min(2 * e.cw + 1, e.params.cwMax)
+    }
+    this.emit({ t, type: 'CW_CHANGE', node: this.nodeId, cw: e.cw, ac: this.acTag(e) })
+    this.endTxop()
+    e.backoff = null
+    e.needDraw = true
+    this.setState('idle')
+    this.resumeAll()
   }
 
   private sendMba(): void {
     const mu = this.muState
     if (!mu || mu.kind !== 'ul') return
     const acked = [...mu.received.keys()]
+    if (mu.rxTimeoutHandle) this.q.cancel(mu.rxTimeoutHandle)
     this.muState = null
     if (acked.length === 0) {
       this.setState('idle')
@@ -704,11 +739,17 @@ export class WifiMac implements PhyListener {
     if (this.now() >= this.navUntil && !this.inExchange()) this.resumeAll()
   }
 
-  onRxStart(t: Ns, _frame: FrameDesc, _from: string): void {
+  onRxStart(t: Ns, frame: FrameDesc, _from: string): void {
     this.lastRxStartNs = t
     if (this.awaiting !== null) {
       // §10.3.2.9: PHY-RXSTART before AckTimeout → wait for the RXEND outcome.
       this.cancel('timeout')
+    }
+    const mu = this.muState
+    if (mu?.kind === 'ul' && mu.rxTimeoutHandle && frame.orthogonalGroup === mu.gid) {
+      // A triggered PPDU has started: the response window is honoured.
+      this.q.cancel(mu.rxTimeoutHandle)
+      mu.rxTimeoutHandle = 0
     }
   }
 

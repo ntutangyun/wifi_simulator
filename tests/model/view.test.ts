@@ -139,17 +139,22 @@ describe('an interrupted IFS is not shown as still running', () => {
     expect(n.navUntilNs).toBe(300_000)
   })
 
-  it('lesson 7 @ 51 750 635 ns: the Backup station is under NAV, not in an expired AIFS', () => {
+  it('lesson 7: the view never holds an IFS whose deadline has already passed', () => {
+    // Regression for the Backup station reading "AIFS 0 µs" while under NAV:
+    // an IFS the MAC cancelled (CCA busy / NAV set) must not linger in the
+    // view past its own deadline. Checked at every record over 60 ms.
     const lesson = LESSONS.find((l) => l.id === 'edca')!
     const sim = new Simulation(lesson.scenario())
-    const T = 51_750_635
     const vs = initViewState(lesson.scenario())
+    let stale = 0
     for (const r of sim.runUntil(60_000_000).records) {
-      if (r.t > T) break
       applyRecord(vs, r)
+      for (const [id, n] of Object.entries(vs.nodes)) {
+        if (n.ifs && n.ifs.untilNs < r.t) stale++
+        for (const a of n.acs ?? []) if (a.ifs && a.ifs.untilNs < r.t) stale++
+        if (stale) throw new Error(`${id} holds an expired IFS at t=${r.t}`)
+      }
     }
-    const bk = vs.nodes['sta-3']
-    expect(bk.navUntilNs).toBeGreaterThan(T)
-    if (bk.ifs) expect(bk.ifs.untilNs).toBeGreaterThan(T)
+    expect(stale).toBe(0)
   })
 })
