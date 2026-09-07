@@ -17,6 +17,9 @@ export interface L10n {
   zh: string
 }
 
+/** A language-neutral cell (numbers, symbols, protocol names). */
+const N = (s: string): L10n => ({ en: s, zh: s })
+
 export interface Quiz {
   q: L10n
   options: L10n[]
@@ -34,12 +37,25 @@ export interface LessonVariant {
   scenario: () => Scenario
 }
 
+/** A block of lesson prose. Every string is bilingual. */
+export type Block =
+  /** A short paragraph (default kind). */
+  | { kind?: 'p'; heading?: L10n; text: L10n }
+  /** One monospace formula line, optionally followed by a short note. */
+  | { kind: 'formula'; heading?: L10n; text: L10n; note?: L10n }
+  /** A small comparison table; every row has head.length cells. */
+  | { kind: 'table'; heading?: L10n; head: L10n[]; rows: L10n[][] }
+  /** Parallel points. */
+  | { kind: 'list'; heading?: L10n; items: L10n[] }
+  /** Ordered steps. */
+  | { kind: 'steps'; heading?: L10n; items: L10n[] }
+
 export interface Lesson {
   id: string
   module: number
   minutes: number
   title: L10n
-  body: { heading?: L10n; text: L10n }[]
+  body: Block[]
   scenario: () => Scenario
   variants?: LessonVariant[]
   jumps: JumpTarget[]
@@ -172,13 +188,25 @@ export const LESSONS: Lesson[] = [
     title: { en: '1 · Frames cost airtime', zh: '1 · 帧要花“空口时间”' },
     body: [
       { text: {
-        en: 'The MAC manages one shared, half-duplex medium. Its currency is airtime: while any frame is in the air, nobody else in range can use the channel. A frame’s airtime = a fixed preamble + payload symbols, so it grows with size and shrinks with data rate (MCS). Everything the MAC does — waiting, backing off, aggregating, scheduling — exists to spend this airtime well.',
-        zh: 'MAC 管理的是一条共享的半双工介质，它的“货币”就是空口时间：只要有帧在空中，范围内的其他设备都用不了信道。一个帧的空口时间 = 固定的前导 + 数据符号，因此帧越大耗时越长、速率（MCS）越高耗时越短。MAC 做的一切——等待、退避、聚合、调度——都是为了把空口时间花得值。',
+        en: 'The MAC manages one shared, half-duplex medium. Its currency is airtime: while any frame is in the air, nobody else in range can use the channel.',
+        zh: 'MAC 管理的是一条共享的半双工介质，它的“货币”就是空口时间：只要有帧在空中，范围内的其他设备都用不了信道。',
+      } },
+      { kind: 'formula', text: {
+        en: 'airtime = fixed preamble + payload symbols (bytes ÷ data rate)',
+        zh: '空口时间 = 固定前导 + 数据符号（字节数 ÷ 速率）',
+      }, note: {
+        en: 'A bigger frame costs more; a higher MCS costs less.',
+        zh: '帧越大耗时越长，MCS 越高耗时越短。',
       } },
       { text: {
-        en: 'Load the simulation: one AP streams video to one station. Hover a blue block in the timeline: you can read its size, MCS and exact duration. Note how the white ACK is tiny but never optional — the sender cannot hear collisions, so only the ACK proves delivery.',
-        zh: '载入仿真：一个 AP 向一台终端推送视频流。将鼠标悬停在时间轴的蓝色块上，可以看到帧大小、MCS 与精确时长。注意白色的 ACK 很小却必不可少——发送方听不到碰撞，只有 ACK 能证明帧已送达。',
+        en: 'Everything the MAC does — waiting, backing off, aggregating, scheduling — exists to spend this airtime well.',
+        zh: 'MAC 做的一切——等待、退避、聚合、调度——都是为了把空口时间花得值。',
       } },
+      { kind: 'list', heading: { en: 'In the simulation', zh: '在仿真里看' }, items: [
+        { en: 'One AP streams video to one station.', zh: '一个 AP 向一台终端推送视频流。' },
+        { en: 'Hover a blue block in the timeline: you can read its size, MCS and exact duration.', zh: '将鼠标悬停在时间轴的蓝色块上，可以看到帧大小、MCS 与精确时长。' },
+        { en: 'The white ACK is tiny but never optional — the sender cannot hear collisions, so only the ACK proves delivery.', zh: '白色的 ACK 很小却必不可少——发送方听不到碰撞，只有 ACK 能证明帧已送达。' },
+      ] },
     ],
     scenario: () => sc(oneRoom(), [
       node('ap', 'AP', 'ap', 5, 4, 'eht', 'idle'),
@@ -228,13 +256,20 @@ export const LESSONS: Lesson[] = [
     title: { en: '2 · SIFS, DIFS and the ACK dance', zh: '2 · SIFS、DIFS 与 ACK 之舞' },
     body: [
       { text: {
-        en: 'Wi-Fi encodes priority as silence lengths. SIFS (16 µs) is the shortest gap — only the ongoing exchange may continue after it, which is why an ACK can never be beaten to the channel. DIFS (34 µs = SIFS + 2 slots) is what a new contender must observe. EIFS (94 µs) punishes anyone who heard a corrupted frame: they must assume an ACK they could not decode may be in flight.',
-        zh: 'Wi-Fi 用“沉默的长短”来编码优先级。SIFS（16 µs）最短——只有正在进行的帧交换才能在它之后继续，所以 ACK 永远不会被抢先。DIFS（34 µs = SIFS + 2 个时隙）是新竞争者必须观察到的静默。EIFS（94 µs）则是对听到损坏帧者的“惩罚”：它必须假设有一个自己没解出的 ACK 正在空中。',
+        en: 'Wi-Fi encodes priority as silence lengths: the shorter the gap you are allowed to wait, the earlier you may speak.',
+        zh: 'Wi-Fi 用“沉默的长短”来编码优先级：允许你等的间隙越短，你就能越早开口。',
       } },
-      { text: {
-        en: 'Load the simulation and pause on any exchange, then step with −µs/+µs through the gap between DATA and ACK: nothing moves for exactly 16 µs. Then find the gap before a new data frame: at least DIFS, often followed by amber backoff slots.',
-        zh: '载入仿真后在任意一次帧交换处暂停，用 −µs/+µs 步进穿过 DATA 与 ACK 之间的间隙：整整 16 µs 内空口纹丝不动。再看新数据帧之前的间隙：至少一个 DIFS，之后往往还跟着琥珀色的退避时隙。',
-      } },
+      { kind: 'table', head: [
+        { en: 'Gap', zh: '间隙' }, { en: 'Length', zh: '时长' }, { en: 'Who may transmit after it', zh: '之后谁可以发送' },
+      ], rows: [
+        [N('SIFS'), N('16 µs'), { en: 'Only the ongoing exchange (ACK, CTS) — an ACK can never be beaten to the channel.', zh: '只有正在进行的帧交换（ACK、CTS）——所以 ACK 永远不会被抢先。' }],
+        [N('DIFS'), { en: '34 µs = SIFS + 2 slots', zh: '34 µs = SIFS + 2 个时隙' }, { en: 'A new contender.', zh: '新的竞争者。' }],
+        [N('EIFS'), N('94 µs'), { en: 'Anyone who heard a corrupted frame — it must assume an ACK it could not decode may be in flight.', zh: '听到损坏帧的站点——它必须假设有一个自己没解出的 ACK 正在空中。' }],
+      ] },
+      { kind: 'steps', heading: { en: 'In the simulation', zh: '在仿真里看' }, items: [
+        { en: 'Pause on any exchange and step with −µs/+µs through the gap between DATA and ACK: nothing moves for exactly 16 µs.', zh: '在任意一次帧交换处暂停，用 −µs/+µs 步进穿过 DATA 与 ACK 之间的间隙：整整 16 µs 内空口纹丝不动。' },
+        { en: 'Find the gap before a new data frame: at least DIFS, often followed by amber backoff slots.', zh: '再看新数据帧之前的间隙：至少一个 DIFS，之后往往还跟着琥珀色的退避时隙。' },
+      ] },
     ],
     scenario: () => sc(oneRoom(), [
       node('ap', 'AP', 'ap', 5, 4, 'eht', 'idle'),
@@ -285,16 +320,53 @@ export const LESSONS: Lesson[] = [
     title: { en: '3 · Random backoff & collisions', zh: '3 · 随机退避与碰撞' },
     body: [
       { text: {
-        en: 'When two stations both want the channel, silence alone cannot break the tie — both would finish DIFS at the same instant. So each draws a random count from [0, CW] and decrements once per idle 9 µs slot; the lower draw wins. Equal draws mean both hit zero in the same slot and transmit on top of each other: a collision. Neither notices until the 45 µs ACK timeout expires; then each doubles its CW (15→31→…→1023) and redraws — collisions get rapidly less likely.',
-        zh: '当两台终端都想要信道时，仅靠静默无法决出胜负——它们会在同一瞬间等完 DIFS。因此每台都从 [0, CW] 抽一个随机数，介质每空闲一个 9 µs 时隙就减一，抽得小的先发。若抽到相同值，双方会在同一时隙同时清零、同时发送：碰撞。双方都要等到 45 µs 的 ACK 超时才察觉，然后各自把 CW 翻倍（15→31→…→1023）并重抽——碰撞概率随之骤降。',
+        en: 'When two stations both want the channel, silence alone cannot break the tie — both would finish DIFS at the same instant. So each one plays a lottery:',
+        zh: '当两台终端都想要信道时，仅靠静默无法决出胜负——它们会在同一瞬间等完 DIFS。于是每台终端都要抽一次签：',
       } },
+      { kind: 'steps', items: [
+        { en: 'Draw a random integer from [0, CW].', zh: '从 [0, CW] 里抽一个随机整数。' },
+        { en: 'Decrement it once per idle 9 µs slot; the lower draw transmits first.', zh: '介质每空闲一个 9 µs 时隙就减一，抽得小的先发。' },
+        { en: 'Equal draws hit zero in the same slot and transmit on top of each other: a collision.', zh: '若抽到相同值，双方在同一时隙同时清零、同时发送：碰撞。' },
+        { en: 'Neither notices until the 45 µs ACK timeout expires; then each doubles its CW (15→31→…→1023) and redraws — collisions get rapidly less likely.', zh: '双方都要等到 45 µs 的 ACK 超时才察觉，然后各自把 CW 翻倍（15→31→…→1023）并重抽——碰撞概率随之骤降。' },
+      ] },
       { heading: { en: 'Why exactly 45 µs?', zh: '为什么恰好是 45 µs？' }, text: {
-        en: 'A transmitter cannot hear a collision — while sending, its own signal drowns out everything else, so the only evidence of failure is silence: the ACK never arrives. But silence needs a deadline, and 45 µs is not arbitrary. It is the sum of three physically-motivated pieces: SIFS (16 µs — the gap the receiver legitimately takes before starting its ACK) + one slot (9 µs of margin) + RxPHYStartDelay (20 µs — the time a radio needs to detect that an incoming preamble has started). If an ACK were really on its way, its preamble would have been detected within those 16 + 9 + 20 = 45 µs after the transmission ended. Silence past that point is proof of death — the station doubles its CW and redraws. And notice: no extra DIFS appears before the new countdown. The rule is “medium idle for a DIFS”, measured from the moment the medium went quiet — the end of the collided transmission. The 45 µs of silence already contains the required 34 µs of idle time, so the countdown may begin the instant the timeout expires.',
-        zh: '发送方听不到碰撞——发送时自己的信号会盖过一切，所以失败的唯一证据是沉默：ACK 迟迟不来。但“沉默”需要一个期限，而 45 µs 并非随意规定，它是三段有物理含义的时间之和：SIFS（16 µs——接收方在开始回 ACK 前理应等待的间隔）+ 1 个时隙（9 µs 的余量）+ 接收启动时延 RxPHYStartDelay（20 µs——电台检测到一个前导码已经开始所需的时间）。如果 ACK 真的在路上，它的前导码一定会在发送结束后 16 + 9 + 20 = 45 µs 之内被检测到。过了这个期限仍是沉默，就等于宣告帧已阵亡——终端随即把 CW 翻倍并重新抽取。注意：新一轮倒数之前并没有额外的 DIFS。规则要求的是“介质空闲满一个 DIFS”，而这段空闲从介质安静下来的那一刻——也就是碰撞传输结束时——就开始计了。45 µs 的沉默本身已经包含了所需的 34 µs 空闲期，所以超时一到，倒数立即开始。',
+        en: 'A transmitter cannot hear a collision — while sending, its own signal drowns out everything else, so the only evidence of failure is silence: the ACK never arrives. But silence needs a deadline, and 45 µs is the sum of three physically motivated pieces:',
+        zh: '发送方听不到碰撞——发送时自己的信号会盖过一切，所以失败的唯一证据是沉默：ACK 迟迟不来。但“沉默”需要一个期限，而 45 µs 是三段有物理含义的时间之和：',
+      } },
+      { kind: 'table', head: [
+        { en: 'Piece', zh: '组成' }, N('µs'), { en: 'Meaning', zh: '含义' },
+      ], rows: [
+        [N('SIFS'), N('16'), { en: 'The gap the receiver legitimately takes before starting its ACK.', zh: '接收方在开始回 ACK 前理应等待的间隔。' }],
+        [{ en: '1 slot', zh: '1 个时隙' }, N('9'), { en: 'Margin.', zh: '余量。' }],
+        [N('RxPHYStartDelay'), N('20'), { en: 'The time a radio needs to detect that an incoming preamble has started.', zh: '电台检测到一个前导码已经开始所需的时间。' }],
+      ] },
+      { kind: 'formula', text: {
+        en: 'ACK timeout = 16 + 9 + 20 = 45 µs',
+        zh: 'ACK 超时 = 16 + 9 + 20 = 45 µs',
+      } },
+      { text: {
+        en: 'If an ACK were really on its way, its preamble would have been detected within those 45 µs. Silence past that point is proof of death — the station doubles its CW and redraws.',
+        zh: '如果 ACK 真的在路上，它的前导码一定会在这 45 µs 之内被检测到。过了这个期限仍是沉默，就等于宣告帧已阵亡——终端随即把 CW 翻倍并重新抽取。',
+      } },
+      { text: {
+        en: 'Notice: no extra DIFS appears before the new countdown. The rule is “medium idle for a DIFS”, measured from the moment the medium went quiet — the end of the collided transmission. The 45 µs of silence already contains the required 34 µs, so the countdown may begin the instant the timeout expires.',
+        zh: '注意：新一轮倒数之前并没有额外的 DIFS。规则要求的是“介质空闲满一个 DIFS”，而这段空闲从介质安静下来的那一刻——碰撞传输结束时——就开始计了。45 µs 的沉默本身已经包含了所需的 34 µs，所以超时一到，倒数立即开始。',
       } },
       { heading: { en: 'And the AP? It waits even longer — EIFS', zh: '那 AP 呢？它等得更久——EIFS' }, text: {
-        en: 'One contrast worth knowing about: the AP experienced this collision differently. It was not transmitting — it actually received the garbled overlap, and a station that hears a corrupted frame must stay quiet for the much longer EIFS (94 µs = SIFS + DIFS + the time an ACK takes at the lowest rate) instead of a DIFS before its next access. The logic: that broken frame may have been meant for someone else who is about to answer it with an ACK — having failed to decode the frame, the listener also missed its Duration field, so it holds back long enough not to trample a reply it cannot anticipate. You will not see an EIFS block on the AP’s lane here, though: a defer block is drawn only when a station is waiting *in order to send*, and this AP is idle with nothing to transmit, so the rule never has to show itself. A real, visible EIFS appears in lesson 6 — the far station fails to decode a frame, arms EIFS, and hovering its defer block even shows the EIFS being cut short into a DIFS the moment a healthy frame arrives (§10.3.2.3.7).',
-        zh: '还有一个值得了解的对比：AP 经历这场碰撞的方式不一样。它当时并没有发送，而是实实在在收到了那段互相重叠的乱码——凡是收到损坏帧的站点，下一次接入前必须保持安静更长的 EIFS（94 µs = SIFS + DIFS + 以最低速率发完一个 ACK 所需的时间），而不是一个 DIFS。道理在于：那帧损坏的数据也许本来是发给别人的，对方马上就要回 ACK；侦听者既然没解出这帧，也就错过了它的 Duration 字段，所以多等这一段，才不会踩到那个自己“预料不到”的 ACK。不过在本场景里，你不会在 AP 的泳道上看到 EIFS 色块：只有当站点是“为了发送”而等待时才会画出等待色块，而这台 AP 空闲、无东西可发，这条规则便无从显形。想看真实可见的 EIFS，请到第 6 课——远处的终端解不出一帧数据、进入 EIFS，悬停它的等待色块还能看到 EIFS 在一帧健康的帧到来时被截短成 DIFS（§10.3.2.3.7）。',
+        en: 'The AP experienced this collision differently. It was not transmitting — it actually received the garbled overlap, and a station that hears a corrupted frame must stay quiet for EIFS instead of DIFS before its next access.',
+        zh: 'AP 经历这场碰撞的方式不一样。它当时并没有发送，而是实实在在收到了那段互相重叠的乱码——凡是收到损坏帧的站点，下一次接入前必须保持安静一个 EIFS，而不是一个 DIFS。',
+      } },
+      { kind: 'formula', text: {
+        en: 'EIFS = SIFS + ACK at the lowest rate + DIFS = 16 + 44 + 34 = 94 µs',
+        zh: 'EIFS = SIFS + 以最低速率发完一个 ACK + DIFS = 16 + 44 + 34 = 94 µs',
+      } },
+      { text: {
+        en: 'The logic: that broken frame may have been meant for someone else who is about to answer it with an ACK. Having failed to decode the frame, the listener also missed its Duration field, so it holds back long enough not to trample a reply it cannot anticipate.',
+        zh: '道理在于：那帧损坏的数据也许本来是发给别人的，对方马上就要回 ACK。侦听者既然没解出这帧，也就错过了它的 Duration 字段，所以多等这一段，才不会踩到那个自己“预料不到”的 ACK。',
+      } },
+      { text: {
+        en: 'You will not see an EIFS block on the AP’s lane here: a defer block is drawn only when a station is waiting in order to send, and this AP has nothing to transmit. A real, visible EIFS appears in lesson 6 — hovering the far station’s defer block even shows the EIFS being cut short into a DIFS the moment a healthy frame arrives (§10.3.2.3.7).',
+        zh: '不过在本场景里，你不会在 AP 的泳道上看到 EIFS 色块：只有当站点是“为了发送”而等待时才会画出等待色块，而这台 AP 无东西可发。想看真实可见的 EIFS，请到第 6 课——悬停远处终端的等待色块，还能看到 EIFS 在一帧健康的帧到来时被截短成 DIFS（§10.3.2.3.7）。',
       } },
       { text: {
         en: 'This scenario saturates two legacy stations. Use “first collision”: the red tick marks two overlapping transmissions. Step backwards from it and watch both backoff counters reach zero in the same slot — the collision was fully determined a moment earlier.',
@@ -352,20 +424,60 @@ export const LESSONS: Lesson[] = [
     title: { en: '4 · NAV — reserving with a promise', zh: '4 · NAV——用“预告”预约信道' },
     body: [
       { text: {
-        en: 'Physical carrier sense only tells you the channel is busy *now*. But an exchange is longer than one frame: after the data comes SIFS, then the ACK. The Duration field in every MAC header announces how much longer the exchange needs, and every overhearer loads it into a countdown timer — the NAV. While NAV > 0 the station treats the medium as busy even in perfect silence. That is virtual carrier sense: the SIFS gap is protected not by energy, but by a promise everyone heard.',
-        zh: '物理载波侦听只能告诉你“此刻”信道忙。但一次帧交换比一个帧长：数据之后还有 SIFS 和 ACK。每个 MAC 头里的 Duration 字段都会预告本次帧交换还需要多久，每个侦听到的终端把它装入一个倒数计时器——NAV。只要 NAV > 0，即使空口一片寂静，终端也视介质为忙。这就是虚拟载波侦听：SIFS 间隙靠的不是能量，而是所有人都听到的一句承诺。',
+        en: 'Physical carrier sense only tells you the channel is busy *now*. But an exchange is longer than one frame: after the data comes SIFS, then the ACK.',
+        zh: '物理载波侦听只能告诉你“此刻”信道忙。但一次帧交换比一个帧长：数据之后还有 SIFS 和 ACK。',
+      } },
+      { text: {
+        en: 'The Duration field in every MAC header announces how much longer the exchange needs, and every overhearer loads it into a countdown timer — the NAV. While NAV > 0 the station treats the medium as busy even in perfect silence. That is virtual carrier sense: the SIFS gap is protected not by energy, but by a promise everyone heard.',
+        zh: '每个 MAC 头里的 Duration 字段都会预告本次帧交换还需要多久，每个侦听到的终端把它装入一个倒数计时器——NAV。只要 NAV > 0，即使空口一片寂静，终端也视介质为忙。这就是虚拟载波侦听：SIFS 间隙靠的不是能量，而是所有人都听到的一句承诺。',
       } },
       { heading: { en: 'Why NAV at all, when CCA already works?', zh: '有了 CCA，为什么还要 NAV？' }, text: {
-        en: 'Duration is measured from the instant the current frame ends, and covers only the remainder of the exchange — the frame itself needs no announcement, because while it is in the air everyone’s physical carrier sense already reports busy. A data frame expecting an ACK announces SIFS + ACK time; an RTS announces the whole planned conversation, and each following frame repeats the shrinking remainder. The announcement matters for two reasons. First, the gaps are silent: SIFS is 16 µs of genuine silence, and a countdown timer is the only thing standing between that silence and an eager contender. Second — and more important — the response comes from the *other* end. The ACK is transmitted by the receiver, which may be far away: a station can be close enough to hear the data yet too far to hear the ACK. For that station the ACK is invisible to CCA — the channel measures idle while a frame is actually on the air — and only its NAV keeps it quiet through a transmission it physically cannot sense. One sentence to keep: CCA protects the frame; Duration/NAV protects everything after it.',
-        zh: 'Duration 从当前帧结束的那一瞬间起算，只覆盖交换的剩余部分——帧本身不需要预告，因为它还在空中时，所有人的物理载波侦听本来就报告“忙”。期待 ACK 的数据帧预告 SIFS + ACK 时长；RTS 则预告整场对话，后续每一帧再重复不断缩短的剩余量。这个预告之所以重要，有两个原因。其一，间隙是安静的：SIFS 是 16 µs 的真正寂静，能挡住急切竞争者的只有一个倒计时。其二（更关键），响应来自“另一端”：ACK 由接收方发出，而接收方可能离你很远——你听得到数据帧，却未必听得到 ACK。对这样的终端来说，ACK 在 CCA 眼里是隐形的：空口上明明有帧，信道却测得“空闲”，全靠 NAV 让它在一段自己根本感知不到的传输中保持安静。记住一句话：CCA 保护帧本身；Duration/NAV 保护帧之后的一切。',
+        en: 'Duration is measured from the instant the current frame ends, and covers only the remainder of the exchange. The frame itself needs no announcement: while it is in the air, everyone’s physical carrier sense already reports busy.',
+        zh: 'Duration 从当前帧结束的那一瞬间起算，只覆盖交换的剩余部分。帧本身不需要预告：它还在空中时，所有人的物理载波侦听本来就报告“忙”。',
+      } },
+      { kind: 'table', head: [
+        { en: 'Frame', zh: '帧' }, { en: 'Its Duration announces', zh: '它的 Duration 预告' },
+      ], rows: [
+        [{ en: 'Data expecting an ACK', zh: '期待 ACK 的数据帧' }, N('SIFS + ACK')],
+        [N('RTS'), { en: 'The whole planned exchange: CTS + data + ACK', zh: '整场对话：CTS + 数据 + ACK' }],
+        [{ en: 'CTS and each following frame', zh: 'CTS 及后续每一帧' }, { en: 'The shrinking remainder', zh: '不断缩短的剩余量' }],
+      ] },
+      { kind: 'list', heading: { en: 'The announcement matters for two reasons', zh: '这个预告之所以重要，有两个原因' }, items: [
+        { en: 'The gaps are silent: SIFS is 16 µs of genuine silence, and a countdown timer is the only thing standing between that silence and an eager contender.', zh: '间隙是安静的：SIFS 是 16 µs 的真正寂静，能挡住急切竞争者的只有一个倒计时。' },
+        { en: 'The response comes from the *other* end. The ACK is sent by the receiver, which may be far away: a station close enough to hear the data may be too far to hear the ACK. For it the ACK is invisible to CCA — the channel measures idle while a frame is actually on the air — and only its NAV keeps it quiet.', zh: '响应来自“另一端”：ACK 由接收方发出，而接收方可能离你很远——你听得到数据帧，却未必听得到 ACK。对这样的终端来说，ACK 在 CCA 眼里是隐形的：空口上明明有帧，信道却测得“空闲”，全靠 NAV 让它保持安静。' },
+      ] },
+      { text: {
+        en: 'One sentence to keep: CCA protects the frame; Duration/NAV protects everything after it.',
+        zh: '记住一句话：CCA 保护帧本身；Duration/NAV 保护帧之后的一切。',
       } },
       { heading: { en: 'Reading the long “waiting (DIFS)” block', zh: '读懂那段长长的“等待（DIFS）”' }, text: {
-        en: 'Around t ≈ 464–790 µs you can watch all of this inside a single block. Talker A is mid-countdown (backoff at 3) when Talker B’s frame starts: A freezes, and its lane shows one long “waiting (DIFS)” block. That block is not a DIFS — it is everything A must sit through before its countdown may resume: the rest of B’s data frame (248 µs of CCA-busy), then the NAV it loaded from B’s Duration field (44 µs = SIFS + the ACK), then one real DIFS (34 µs of idle). The label names only the final ingredient — the thing A is waiting *for* — while the length is the whole wait. When it ends, A resumes counting at 3, exactly where it froze.',
-        zh: '在 t ≈ 464–790 µs 附近，这一切可以在同一个色块里看完。Talker B 的帧开始时，Talker A 正数到退避 3：A 冻结，泳道上出现一段长长的“等待（DIFS）”色块。这段并不是一个 DIFS——它是 A 在倒数恢复之前必须熬过的全部时间：B 数据帧的剩余部分（248 µs 的 CCA 忙）+ 从 B 的 Duration 字段装入的 NAV（44 µs = SIFS + ACK）+ 一个货真价实的 DIFS（34 µs 空闲）。标签只写了最后一味原料——那是 A 正在“等”的东西——而长度是整段等待。结束时，A 从退避 3 继续倒数，正是它冻结时的数值。',
+        en: 'Around t ≈ 464–790 µs you can watch all of this inside a single block. Talker A is mid-countdown (backoff at 3) when Talker B’s frame starts: A freezes, and its lane shows one long “waiting (DIFS)” block. That block is not a DIFS — it is everything A must sit through before its countdown may resume:',
+        zh: '在 t ≈ 464–790 µs 附近，这一切可以在同一个色块里看完。Talker B 的帧开始时，Talker A 正数到退避 3：A 冻结，泳道上出现一段长长的“等待（DIFS）”色块。这段并不是一个 DIFS——它是 A 在倒数恢复之前必须熬过的全部时间：',
       } },
-      { heading: { en: 'When does A learn how long the wait is?', zh: 'A 什么时候才知道要等多久？' }, text: {
-        en: 'Not at the start. At 464 µs, A knows only “busy *now*” — it freezes at 3, end of knowledge. About 20 µs in, the PHY header reveals the frame’s length: now A knows this frame ends at 712, plus something unknown after it. Only at 712, when the frame completes and its checksum passes, can the Duration field be trusted: NAV until 756, then a 34 µs DIFS, resume at 790. So the earliest moment the total — 326 µs — becomes computable is 712, by which point 248 µs of the wait, about three quarters, has already passed. A spends most of the wait not knowing how long the wait is. And even then the figure is conditional: had another preamble appeared during the DIFS, the wait would simply have grown. A station never holds a schedule — only one constantly-revised belief, “the earliest I might resume is ___”, re-derived at every event, with a single number carried through the fog: the frozen counter.',
-        zh: '并不是一开始就知道。464 µs 时，A 只知道“此刻忙”——冻结在 3，认知到此为止。约 20 µs 后，PHY 头揭示了帧长：A 这才知道这帧将在 712 结束，之后还有一段未知。直到 712，帧完整收下、校验通过，Duration 字段才可信：NAV 到 756，再一个 34 µs 的 DIFS，790 恢复。所以最早能算出总共要等 326 µs 的时刻是 712——那时等待本身已经过去了 248 µs，约四分之三。A 在这段等待的大部分时间里，并不知道自己要等多久。而且这个数字仍是有条件的：若 DIFS 期间又冒出一个前导码，等待只会继续变长。终端手里从来没有一张时刻表，只有一个不断修正的信念——“我最早可能在 ___ 恢复”——每来一个事件就重算一次；穿过这团迷雾时，它随身携带的只有一个数字：冻结的退避计数。',
+      { kind: 'table', head: [
+        { en: 'Ingredient', zh: '组成' }, N('µs'), { en: 'What A is waiting through', zh: 'A 在熬什么' },
+      ], rows: [
+        [{ en: 'Rest of B’s data frame', zh: 'B 数据帧的剩余部分' }, N('248'), { en: 'CCA busy', zh: 'CCA 忙' }],
+        [{ en: 'NAV loaded from B’s Duration', zh: '从 B 的 Duration 装入的 NAV' }, N('44'), N('SIFS + ACK')],
+        [{ en: 'One real DIFS', zh: '一个货真价实的 DIFS' }, N('34'), { en: 'Idle', zh: '空闲' }],
+        [{ en: 'Total', zh: '合计' }, N('326'), { en: 'Then A resumes at 3', zh: '之后 A 从 3 继续' }],
+      ] },
+      { text: {
+        en: 'The label names only the final ingredient — the thing A is waiting *for* — while the length is the whole wait. When it ends, A resumes counting at 3, exactly where it froze.',
+        zh: '标签只写了最后一味原料——那是 A 正在“等”的东西——而长度是整段等待。结束时，A 从退避 3 继续倒数，正是它冻结时的数值。',
+      } },
+      { kind: 'steps', heading: { en: 'When does A learn how long the wait is?', zh: 'A 什么时候才知道要等多久？' }, items: [
+        { en: '464 µs: A knows only “busy *now*”. It freezes at 3 — end of knowledge.', zh: '464 µs：A 只知道“此刻忙”，冻结在 3——认知到此为止。' },
+        { en: '≈ 484 µs: the PHY header reveals the frame’s length. Now A knows this frame ends at 712, plus something unknown after it.', zh: '约 484 µs：PHY 头揭示了帧长。A 这才知道这帧将在 712 结束，之后还有一段未知。' },
+        { en: '712 µs: the frame completes and its checksum passes, so the Duration field can be trusted: NAV until 756, then a 34 µs DIFS, resume at 790.', zh: '712 µs：帧完整收下、校验通过，Duration 字段才可信：NAV 到 756，再一个 34 µs 的 DIFS，790 恢复。' },
+      ] },
+      { text: {
+        en: 'So the total of 326 µs first becomes computable at 712, by which point 248 µs — about three quarters of the wait — has already passed. A spends most of the wait not knowing how long the wait is. And even then the figure is conditional: another preamble during the DIFS would simply extend it.',
+        zh: '所以最早能算出总共要等 326 µs 的时刻是 712——那时等待本身已经过去了 248 µs，约四分之三。A 在这段等待的大部分时间里，并不知道自己要等多久。而且这个数字仍是有条件的：若 DIFS 期间又冒出一个前导码，等待只会继续变长。',
+      } },
+      { text: {
+        en: 'A station never holds a schedule — only one constantly revised belief, “the earliest I might resume is ___”, re-derived at every event, with a single number carried through the fog: the frozen counter.',
+        zh: '终端手里从来没有一张时刻表，只有一个不断修正的信念——“我最早可能在 ___ 恢复”——每来一个事件就重算一次；穿过这团迷雾时，它随身携带的只有一个数字：冻结的退避计数。',
       } },
     ],
     scenario: () => sc(oneRoom(), [
@@ -406,16 +518,35 @@ export const LESSONS: Lesson[] = [
     title: { en: '5 · Hidden nodes & RTS/CTS', zh: '5 · 隐藏节点与 RTS/CTS' },
     body: [
       { text: {
-        en: 'Carrier sense assumes everyone can hear everyone. Put enough brick between two stations and that breaks: here A and B sit in opposite rooms, their signals crossing two walls of a hallway — arriving below the −82 dBm detection threshold, pure noise to each other. Each senses an idle channel while the other is mid-frame, and their transmissions meet — and die — at the AP in the hallway, which hears both. This is the hidden-node problem, and no amount of backoff fixes it, because the contenders never see each other contend.',
-        zh: '载波侦听默认所有人都能互相听见。在两台终端之间隔上足够多的砖墙，这个假设就碎了：本场景中 A 和 B 分处两端的房间，信号要穿过走廊的两堵墙——到达对方时已低于 −82 dBm 的检测门限，彼此听来只是噪声。于是一方正在发帧，另一方却侦听到“空闲”，两股信号在走廊里的 AP 处相遇、同归于尽——AP 两边都听得到。这就是隐藏节点问题——多少退避都治不了它，因为竞争双方根本看不见彼此在竞争。',
-      } },
-      { heading: { en: 'B freezes for the receipt, not the payload', zh: 'B 为回执停步，却听不见正文' }, text: {
-        en: 'Around t ≈ 2.4 ms you can watch the asymmetry directly. A’s 1528 B data frame (≈ 2.11–2.38 ms) is behind two walls: B counts down straight through it — 97, 96, … 66 — as if the channel were empty. Then the AP’s ACK (2399–2427 µs) is only one wall away: B hears it and politely freezes at 64, sits out the 28 µs of ACK plus a 34 µs DIFS, and resumes at 64. Of A’s entire exchange, the only fragment B ever perceives is the 28 µs receipt at the end. And that freeze protects nothing: a final ACK carries Duration = 0, so it sets no NAV — moments later A starts its next frame and B, deaf again, counts right through it. This is exactly the gap the CTS closes: it too comes from the AP, audible to B, but it carries a nonzero Duration covering the whole upcoming data frame — turning B’s 28 µs twitch into a reservation that lasts the entire exchange.',
-        zh: '在 t ≈ 2.4 ms 附近可以直接看到这种不对称。A 的 1528 B 数据帧（约 2.11–2.38 ms）隔着两堵墙：B 的倒数径直穿过它——97、96、……66——仿佛信道空无一物。而 AP 的 ACK（2399–2427 µs）只隔一堵墙：B 听到了，规规矩矩地冻结在 64，等完 28 µs 的 ACK 加上 34 µs 的 DIFS，再从 64 继续。A 的整场交换里，B 能感知到的唯一片段，就是结尾这张 28 µs 的回执。而且这次冻结保护不了任何东西：收尾 ACK 的 Duration = 0，不设任何 NAV——片刻之后 A 的下一帧开始，重新“失聪”的 B 又径直数了过去。这正是 CTS 补上的缺口：CTS 同样来自 AP、B 也听得见，但它带着覆盖整个后续数据帧的非零 Duration——把 B 那 28 µs 的一哆嗦，变成一场贯穿整次交换的预约。',
+        en: 'Carrier sense assumes everyone can hear everyone. Put enough brick between two stations and that breaks: here A and B sit in opposite rooms, their signals crossing two walls of a hallway and arriving below the −82 dBm detection threshold — pure noise to each other.',
+        zh: '载波侦听默认所有人都能互相听见。在两台终端之间隔上足够多的砖墙，这个假设就碎了：本场景中 A 和 B 分处两端的房间，信号要穿过走廊的两堵墙，到达对方时已低于 −82 dBm 的检测门限——彼此听来只是噪声。',
       } },
       { text: {
-        en: 'The cure is to make the *AP* announce the reservation: a short RTS asks, the AP answers CTS, and the CTS — audible to both rooms — sets everyone’s NAV. Now it is almost always the tiny RTS that collides instead of a long data frame (in this scene, data collisions drop by about 97% — a few stragglers remain where a data frame meets an AP response). Compare the two variants below.',
-        zh: '解法是让 AP 来宣布预约：终端先发一个很短的 RTS，AP 回一个 CTS——两个房间都听得到 CTS，于是所有人的 NAV 都被设置。此后碰撞的几乎总是小小的 RTS，而不再是长长的数据帧（本场景中数据帧碰撞减少约 97%，剩下的零星几次是数据帧撞上 AP 的响应帧）。对比下面两个场景变体。',
+        en: 'Each senses an idle channel while the other is mid-frame, and their transmissions meet — and die — at the AP in the hallway, which hears both. This is the hidden-node problem, and no amount of backoff fixes it, because the contenders never see each other contend.',
+        zh: '于是一方正在发帧，另一方却侦听到“空闲”，两股信号在走廊里的 AP 处相遇、同归于尽——AP 两边都听得到。这就是隐藏节点问题——多少退避都治不了它，因为竞争双方根本看不见彼此在竞争。',
+      } },
+      { heading: { en: 'B freezes for the receipt, not the payload', zh: 'B 为回执停步，却听不见正文' }, text: {
+        en: 'Around t ≈ 2.4 ms you can watch the asymmetry directly. Of A’s entire exchange, the only fragment B ever perceives is the 28 µs receipt at the end:',
+        zh: '在 t ≈ 2.4 ms 附近可以直接看到这种不对称。A 的整场交换里，B 能感知到的唯一片段，就是结尾这张 28 µs 的回执：',
+      } },
+      { kind: 'table', head: [
+        { en: 'Frame', zh: '帧' }, { en: 'Time', zh: '时间' }, { en: 'Walls from B', zh: '与 B 之间的墙' }, { en: 'What B does', zh: 'B 的反应' },
+      ], rows: [
+        [{ en: 'A’s 1528 B data', zh: 'A 的 1528 B 数据帧' }, N('≈ 2.11–2.38 ms'), { en: 'Two', zh: '两堵' }, { en: 'Counts straight through it — 97, 96, … 66 — as if the channel were empty.', zh: '倒数径直穿过它——97、96、……66——仿佛信道空无一物。' }],
+        [{ en: 'AP’s ACK', zh: 'AP 的 ACK' }, N('2399–2427 µs'), { en: 'One', zh: '一堵' }, { en: 'Freezes at 64, sits out the 28 µs ACK plus a 34 µs DIFS, resumes at 64.', zh: '冻结在 64，等完 28 µs 的 ACK 加 34 µs 的 DIFS，再从 64 继续。' }],
+      ] },
+      { text: {
+        en: 'And that freeze protects nothing: a final ACK carries Duration = 0, so it sets no NAV — moments later A starts its next frame and B, deaf again, counts right through it. This is exactly the gap the CTS closes: it too comes from the AP, audible to B, but it carries a nonzero Duration covering the whole upcoming data frame — turning B’s 28 µs twitch into a reservation that lasts the entire exchange.',
+        zh: '而且这次冻结保护不了任何东西：收尾 ACK 的 Duration = 0，不设任何 NAV——片刻之后 A 的下一帧开始，重新“失聪”的 B 又径直数了过去。这正是 CTS 补上的缺口：CTS 同样来自 AP、B 也听得见，但它带着覆盖整个后续数据帧的非零 Duration——把 B 那 28 µs 的一哆嗦，变成一场贯穿整次交换的预约。',
+      } },
+      { kind: 'steps', heading: { en: 'The cure: let the AP announce the reservation', zh: '解法：让 AP 来宣布预约' }, items: [
+        { en: 'The station sends a short RTS.', zh: '终端先发一个很短的 RTS。' },
+        { en: 'The AP answers CTS — audible to both rooms — and the CTS sets everyone’s NAV.', zh: 'AP 回一个 CTS——两个房间都听得到——于是所有人的 NAV 都被设置。' },
+        { en: 'Now it is almost always the tiny RTS that collides instead of a long data frame. In this scene data collisions drop by about 97%; a few stragglers remain where a data frame meets an AP response.', zh: '此后碰撞的几乎总是小小的 RTS，而不再是长长的数据帧。本场景中数据帧碰撞减少约 97%，剩下的零星几次是数据帧撞上 AP 的响应帧。' },
+      ] },
+      { text: {
+        en: 'Compare the two variants below.',
+        zh: '对比下面两个场景变体。',
       } },
     ],
     scenario: () => sc(hallwayHouse(), [
@@ -478,12 +609,40 @@ export const LESSONS: Lesson[] = [
     title: { en: '6 · Rate anomaly — fairness gone wrong', zh: '6 · 速率异常——“公平”的反面' },
     body: [
       { text: {
-        en: 'DCF is fair in transmission opportunities: on average every saturated station wins the channel equally often. But a win is measured in frames, not microseconds. A distant station that only decodes a low MCS holds the medium many times longer per frame — so “fair” wins translate into wildly unfair airtime, and the slow station drags down everyone’s throughput. This is the famous performance anomaly of 802.11.',
-        zh: 'DCF 的公平是“传输机会公平”：平均而言每台饱和终端赢得信道的次数相同。但赢一次的单位是“帧”，不是“微秒”。远处的终端只能用低 MCS，每一帧都要占用长得多的空口时间——于是“公平的次数”换来的是极不公平的空口占用，慢终端拖垮了所有人的吞吐量。这就是 802.11 著名的性能异常。',
+        en: 'DCF is fair in transmission opportunities: on average every saturated station wins the channel equally often. But a win is measured in frames, not microseconds.',
+        zh: 'DCF 的公平是“传输机会公平”：平均而言每台饱和终端赢得信道的次数相同。但赢一次的单位是“帧”，不是“微秒”。',
+      } },
+      { text: {
+        en: 'A distant station that only decodes a low MCS holds the medium many times longer per frame — so “fair” wins translate into wildly unfair airtime, and the slow station drags down everyone’s throughput. This is the famous performance anomaly of 802.11.',
+        zh: '远处的终端只能用低 MCS，每一帧都要占用长得多的空口时间——于是“公平的次数”换来的是极不公平的空口占用，慢终端拖垮了所有人的吞吐量。这就是 802.11 著名的性能异常。',
       } },
       { heading: { en: 'The near station also wins every collision (capture effect)', zh: '近端终端还赢下了每一次碰撞（捕获效应）' }, text: {
-        en: 'Watch the very first microsecond. Both stations end DIFS together, both have counted down to zero, and both transmit at t = 0 — a textbook collision. Yet the AP decodes the near station’s frame perfectly and acknowledges it, while the far station gets nothing. That is the capture effect. Measured at the AP, the near station arrives at −35 dBm and the far one at −75 dBm: a 40 dB gap opened by 11 m of apartment and one brick wall. A receiver locks a preamble and treats everything arriving afterwards as noise — and while it is still acquiring, a signal markedly stronger than the one it holds makes it abandon that reception and re-sync to the newcomer, so a simultaneous start is won by the stronger signal, never by the earlier one. Here the near frame is decoded against an interferer 40 dB beneath it, comfortably above the 30 dB that 54 Mb/s demands. The ACK that follows is just as safe: it reaches the near station at −30 dBm with the far station still rumbling on underneath at −74 dBm, 44 dB of margin where 21 dB would do. The far station’s 1044 µs frame, meanwhile, is destroyed in full, and it learns nothing until its ACK timeout at 1089 µs, after which it retries with a doubled contention window. Nothing on the timeline is drawn as a collision, because from the AP’s point of view no reception failed — the only visible trace is that unexplained retry on the far lane. Over 200 ms the near station suffers zero ACK timeouts and the far station twelve. So the anomaly cuts deeper than airtime: the distant station pays twice, holding the medium far longer per frame and losing every simultaneous start it takes part in.',
-        zh: '看第一个微秒。两台终端同时结束 DIFS，同时把退避数到零，于是都在 t = 0 开始发送——一次教科书式的碰撞。可是 AP 完好地解出了近端终端的帧并回了 ACK，远端终端却颗粒无收。这就是捕获效应。在 AP 处测得，近端终端的接收电平是 −35 dBm，远端是 −75 dBm：11 m 的房长加一道砖墙，拉开了 40 dB。接收机锁定一个前导后，把此后到达的一切都当作噪声——但在它还处于前导捕获阶段时，一个明显强于当前信号的新前导会让它丢弃手头的接收、改而同步到新来者；所以同时起跑的胜负取决于信号强弱，而不是谁先开口。这里近端的帧是在一个比它低 40 dB 的干扰上被解出的，轻松超过 54 Mb/s 所需的 30 dB。紧跟着的 ACK 同样安稳：它以 −30 dBm 到达近端终端，而远端终端仍在下面以 −74 dBm 轰鸣——余量 44 dB，而需要的只是 21 dB。另一边，远端终端那 1044 µs 的帧被整帧毁掉；它要等到 1089 µs 的 ACK 超时才知情，然后带着翻倍的竞争窗口重传。时间轴上不会画出任何碰撞标记，因为在 AP 看来没有任何一次接收失败——唯一可见的痕迹，是远端泳道上那次没有来由的重传。200 ms 里，近端终端的 ACK 超时是 0 次，远端是 12 次。所以性能异常比“空口时间”更深一层：远端终端要付两遍代价——每帧占用长得多的空口，还输掉它参与的每一次同时起跑。',
+        en: 'Watch the very first microsecond. Both stations end DIFS together, both have counted down to zero, and both transmit at t = 0 — a textbook collision. Yet the AP decodes the near station’s frame perfectly and acknowledges it, while the far station gets nothing. That is the capture effect.',
+        zh: '看第一个微秒。两台终端同时结束 DIFS，同时把退避数到零，于是都在 t = 0 开始发送——一次教科书式的碰撞。可是 AP 完好地解出了近端终端的帧并回了 ACK，远端终端却颗粒无收。这就是捕获效应。',
+      } },
+      { kind: 'table', head: [
+        { en: 'Reception', zh: '接收' }, { en: 'Wanted signal', zh: '目标信号' }, { en: 'Interferer', zh: '干扰' }, { en: 'Margin', zh: '余量' }, { en: 'Needed', zh: '所需' },
+      ], rows: [
+        [{ en: 'Near data at the AP', zh: 'AP 收近端数据' }, N('−35 dBm'), { en: 'far station, −75 dBm', zh: '远端终端，−75 dBm' }, N('40 dB'), { en: '30 dB for 54 Mb/s', zh: '54 Mb/s 需 30 dB' }],
+        [{ en: 'ACK at the near station', zh: '近端收 ACK' }, N('−30 dBm'), { en: 'far station still on air, −74 dBm', zh: '远端仍在发，−74 dBm' }, N('44 dB'), N('21 dB')],
+      ] },
+      { text: {
+        en: 'The 40 dB gap is opened by 11 m of apartment and one brick wall. A receiver locks a preamble and treats everything arriving afterwards as noise — and while it is still acquiring, a signal markedly stronger than the one it holds makes it abandon that reception and re-sync to the newcomer. A simultaneous start is won by the stronger signal, never by the earlier one.',
+        zh: '这 40 dB 是 11 m 的房长加一道砖墙拉开的。接收机锁定一个前导后，把此后到达的一切都当作噪声——但在它还处于前导捕获阶段时，一个明显强于当前信号的新前导会让它丢弃手头的接收、改而同步到新来者。所以同时起跑的胜负取决于信号强弱，而不是谁先开口。',
+      } },
+      { text: {
+        en: 'The far station’s 1044 µs frame is destroyed in full. It learns nothing until its ACK timeout at 1089 µs, then retries with a doubled contention window. Nothing on the timeline is drawn as a collision, because from the AP’s point of view no reception failed — the only visible trace is that unexplained retry on the far lane.',
+        zh: '远端终端那 1044 µs 的帧被整帧毁掉。它要等到 1089 µs 的 ACK 超时才知情，然后带着翻倍的竞争窗口重传。时间轴上不会画出任何碰撞标记，因为在 AP 看来没有任何一次接收失败——唯一可见的痕迹，是远端泳道上那次没有来由的重传。',
+      } },
+      { kind: 'table', head: [
+        { en: 'Station', zh: '终端' }, { en: 'ACK timeouts in 200 ms', zh: '200 ms 内的 ACK 超时次数' },
+      ], rows: [
+        [{ en: 'Near', zh: '近端' }, N('0')],
+        [{ en: 'Far', zh: '远端' }, N('12')],
+      ] },
+      { text: {
+        en: 'So the anomaly cuts deeper than airtime: the distant station pays twice, holding the medium far longer per frame and losing every simultaneous start it takes part in.',
+        zh: '所以性能异常比“空口时间”更深一层：远端终端要付两遍代价——每帧占用长得多的空口，还输掉它参与的每一次同时起跑。',
       } },
     ],
     scenario: () => sc(longApartment(), [
@@ -526,20 +685,105 @@ export const LESSONS: Lesson[] = [
     title: { en: '7 · EDCA — four queues, four personalities', zh: '7 · EDCA——四条队列，四种性格' },
     body: [
       { text: {
-        en: 'DCF treats a voice packet and a bulk upload identically. EDCA (802.11e, in every device since Wi-Fi 5) splits traffic into four access categories, each running its own backoff engine with its own parameters (Table 9-194): VO waits AIFSN 2 with CW between 3 and 7; BK waits AIFSN 7 with CW between 15 and 1023. Shorter waits + smaller draws = statistically earlier transmission. Priority in Wi-Fi is not a scheduler’s decree — it is a rigged lottery.',
-        zh: 'DCF 对语音包和大文件上传一视同仁。EDCA（802.11e，Wi-Fi 5 起人人都有）把流量分进四个接入类别，每个类别都有一台独立的退避引擎和自己的参数（Table 9-194）：VO 只等 AIFSN 2、CW 只在 3–7 之间；BK 要等 AIFSN 7、CW 在 15–1023 之间。等得更短 + 抽值更小 = 统计上总能更早发送。Wi-Fi 里的优先级不是调度器的命令，而是一场被做了手脚的抽签。',
+        en: 'DCF treats a voice packet and a bulk upload identically. EDCA (802.11e, in every device since Wi-Fi 5) splits traffic into four access categories (ACs), each running its own backoff engine with its own parameters (Table 9-194):',
+        zh: 'DCF 对语音包和大文件上传一视同仁。EDCA（802.11e，Wi-Fi 5 起人人都有）把流量分进四个接入类别（AC），每个类别都有一台独立的退避引擎和自己的参数（Table 9-194）：',
+      } },
+      { kind: 'table', head: [
+        N('AC'), N('AIFSN'), N('AIFS'), N('CWmin'), N('CWmax'),
+      ], rows: [
+        [{ en: 'VO (voice)', zh: 'VO（语音）' }, N('2'), N('34 µs'), N('3'), N('7')],
+        [{ en: 'VI (video)', zh: 'VI（视频）' }, N('2'), N('34 µs'), N('7'), N('15')],
+        [{ en: 'BE (best effort)', zh: 'BE（尽力而为）' }, N('3'), N('43 µs'), N('15'), N('1023')],
+        [{ en: 'BK (background)', zh: 'BK（后台）' }, N('7'), N('79 µs'), N('15'), N('1023')],
+      ] },
+      { text: {
+        en: 'Shorter waits + smaller draws = statistically earlier transmission. Priority in Wi-Fi is not a scheduler’s decree — it is a rigged lottery with two knobs: AIFS and CW.',
+        zh: '等得更短 + 抽值更小 = 统计上总能更早发送。Wi-Fi 里的优先级不是调度器的命令，而是一场被做了手脚的抽签，手脚就做在两个旋钮上：AIFS 和 CW。',
       } },
       { heading: { en: 'AIFS — when the waiting itself became the knob', zh: 'AIFS——当“等待”本身成为旋钮' }, text: {
-        en: 'AIFS is the Arbitration Interframe Space: the quiet time an access category must observe before its backoff may count, computed as AIFS[AC] = SIFS + AIFSN × slot = 16 + n × 9 µs. VO and VI use AIFSN 2 (34 µs), BE uses 3 (43 µs), BK uses 7 (79 µs). Why was it invented? Because DCF’s DIFS was one-size-fits-all: every station waited exactly the same 34 µs, so the waiting stage was priority-blind and only the random draw decided. 802.11e needed priority without adding a scheduler — so it made the fixed wait programmable per class. Unlike the CW lottery, which is only a statistical bias, a shorter AIFS is a deterministic head start paid in every single contention round: while BK is still sitting out its 79 µs of mandatory silence, VO has already been counting down for 45 µs — and in those slots BK cannot even begin.',
-        zh: 'AIFS 是仲裁帧间间隔（Arbitration Interframe Space）：一个接入类别在退避计数开始之前必须观察到的静默时长，计算式为 AIFS[AC] = SIFS + AIFSN × 时隙 = 16 + n × 9 µs。VO 与 VI 用 AIFSN 2（34 µs），BE 用 3（43 µs），BK 用 7（79 µs）。为什么要发明它？因为 DCF 的 DIFS 是“一刀切”：所有站点等待完全相同的 34 µs，等待阶段对优先级视而不见，胜负全靠随机抽取。802.11e 要在不引入调度器的前提下实现优先级——于是把这段固定的等待改成了按类别可调的参数。与 CW 抽签只提供统计上的偏向不同，更短的 AIFS 是每一轮竞争都要兑现的确定性抢跑：当 BK 还在熬它那 79 µs 的强制静默时，VO 已经倒数了 45 µs——而在这些时隙里，BK 连开始的资格都没有。',
+        en: 'AIFS is the Arbitration Interframe Space: the quiet time an access category must observe before its backoff may count.',
+        zh: 'AIFS 是仲裁帧间间隔（Arbitration Interframe Space）：一个接入类别在退避计数开始之前必须观察到的静默时长。',
+      } },
+      { kind: 'formula', text: {
+        en: 'AIFS[AC] = SIFS + AIFSN × slot = 16 + n × 9 µs',
+        zh: 'AIFS[AC] = SIFS + AIFSN × 时隙 = 16 + n × 9 µs',
+      }, note: {
+        en: 'n = 2 → 34 µs (VO, VI); n = 3 → 43 µs (BE); n = 7 → 79 µs (BK).',
+        zh: 'n = 2 → 34 µs（VO、VI）；n = 3 → 43 µs（BE）；n = 7 → 79 µs（BK）。',
+      } },
+      { text: {
+        en: 'Why was it invented? Because DCF’s DIFS was one-size-fits-all: every station waited exactly the same 34 µs, so the waiting stage was priority-blind and only the random draw decided. 802.11e needed priority without adding a scheduler — so it made the fixed wait programmable per class.',
+        zh: '为什么要发明它？因为 DCF 的 DIFS 是“一刀切”：所有站点等待完全相同的 34 µs，等待阶段对优先级视而不见，胜负全靠随机抽取。802.11e 要在不引入调度器的前提下实现优先级——于是把这段固定的等待改成了按类别可调的参数。',
+      } },
+      { text: {
+        en: 'Unlike the CW lottery, which is only a statistical bias, a shorter AIFS is a deterministic head start paid in every single contention round: while BK is still sitting out its 79 µs of mandatory silence, VO has already been counting down for 45 µs — and in those slots BK cannot even begin.',
+        zh: '与 CW 抽签只提供统计上的偏向不同，更短的 AIFS 是每一轮竞争都要兑现的确定性抢跑：当 BK 还在熬它那 79 µs 的强制静默时，VO 已经倒数了 45 µs——而在这些时隙里，BK 连开始的资格都没有。',
       } },
       { heading: { en: 'The xIFS family — one ladder, not rivals', zh: 'xIFS 家族——一把梯子，而非对手' }, text: {
-        en: 'Every interframe space is built from the same recipe, SIFS + n slots, and the family is best read as one ladder. SIFS (16 µs, n = 0) is the glue inside an exchange — the gap before an ACK or CTS; it is not a contention wait at all. PIFS (25 µs, n = 1) is reserved in the standard for the AP’s scheduled, contention-free access (not modeled in this simulator). DIFS (34 µs, n = 2) is DCF’s fixed contention wait — and in hindsight it is simply AIFS with AIFSN = 2; this simulator literally models a legacy station as a single pseudo-AC with AIFSN 2. AIFS (n = 2, 3, 7…) is DIFS made per-class. EIFS (94 µs) is not a rung but a penalty overlay after a corrupted reception. So: do they work together or exclude each other? Together — the ladder only creates priority because everyone is counting against the same silence at once. A responder waiting SIFS always beats every contender waiting AIFS ≥ 34 µs: the ACK is protected by arithmetic, not by luck. Within one device, all four ACs run their AIFS timers in parallel — the inspector’s IFS row shows them side by side. And EIFS does not replace AIFS, it adds to it: after a corrupted frame the wait becomes EIFS − DIFS + AIFS[AC] (§10.23.2.2), so a BK queue that just heard garbage waits 94 − 34 + 79 = 139 µs — penalty and class-wait, composed.',
-        zh: '每一种帧间间隔都出自同一条配方：SIFS + n 个时隙，整个家族最好读成一把梯子。SIFS（16 µs，n = 0）是交换内部的黏合剂——ACK、CTS 之前的间隙，根本不是竞争等待。PIFS（25 µs，n = 1）在标准中留给 AP 的免竞争调度接入（本仿真器未建模）。DIFS（34 µs，n = 2）是 DCF 的固定竞争等待——事后看，它不过是 AIFSN = 2 的 AIFS；本仿真器就是把传统站点建模为一个 AIFSN 为 2 的伪接入类别。AIFS（n = 2、3、7……）则是把 DIFS 变成按类别可调。EIFS（94 µs）不是梯子上的一级，而是收到损坏帧之后叠加的惩罚。那么它们是协同工作还是互斥？协同——这把梯子之所以能产生优先级，正是因为所有人同时对着同一段静默计时。等 SIFS 的响应方永远赢过任何等 AIFS ≥ 34 µs 的竞争者：ACK 受算术保护，而不是靠运气。在同一台设备内，四个 AC 的 AIFS 计时器并行运转——检视器的 IFS 一行会把它们并排列出。EIFS 也不是替换 AIFS，而是与它相加：收到损坏帧后，等待变成 EIFS − DIFS + AIFS[AC]（§10.23.2.2），刚听到一段乱码的 BK 队列要等 94 − 34 + 79 = 139 µs——惩罚与类别等待，叠加而成。',
+        en: 'Every interframe space is built from the same recipe, and the family is best read as one ladder:',
+        zh: '每一种帧间间隔都出自同一条配方，整个家族最好读成一把梯子：',
+      } },
+      { kind: 'formula', text: {
+        en: 'xIFS = SIFS + n × slot = 16 + n × 9 µs',
+        zh: 'xIFS = SIFS + n × 时隙 = 16 + n × 9 µs',
+      } },
+      { kind: 'table', head: [
+        { en: 'Space', zh: '间隔' }, N('n'), { en: 'Length', zh: '时长' }, { en: 'Role', zh: '角色' },
+      ], rows: [
+        [N('SIFS'), N('0'), N('16 µs'), { en: 'Glue inside an exchange (before an ACK or CTS); not a contention wait at all.', zh: '交换内部的黏合剂（ACK、CTS 之前的间隙）；根本不是竞争等待。' }],
+        [N('PIFS'), N('1'), N('25 µs'), { en: 'Reserved for the AP’s scheduled, contention-free access (not modeled here).', zh: '留给 AP 的免竞争调度接入（本仿真器未建模）。' }],
+        [N('DIFS'), N('2'), N('34 µs'), { en: 'DCF’s fixed contention wait — in hindsight simply AIFS with AIFSN 2; this simulator models a legacy station as one pseudo-AC with AIFSN 2.', zh: 'DCF 的固定竞争等待——事后看，它不过是 AIFSN = 2 的 AIFS；本仿真器就是把传统站点建模为一个 AIFSN 为 2 的伪接入类别。' }],
+        [N('AIFS'), N('2, 3, 7'), N('34–79 µs'), { en: 'DIFS made per-class.', zh: '把 DIFS 变成按类别可调。' }],
+        [N('EIFS'), N('—'), N('94 µs'), { en: 'Not a rung: a penalty overlay after a corrupted reception.', zh: '不是梯子上的一级：收到损坏帧之后叠加的惩罚。' }],
+      ] },
+      { kind: 'list', heading: { en: 'Do they work together or exclude each other? Together.', zh: '它们是协同工作还是互斥？协同。' }, items: [
+        { en: 'The ladder only creates priority because everyone is counting against the same silence at once.', zh: '这把梯子之所以能产生优先级，正是因为所有人同时对着同一段静默计时。' },
+        { en: 'A responder waiting SIFS always beats every contender waiting AIFS ≥ 34 µs: the ACK is protected by arithmetic, not by luck.', zh: '等 SIFS 的响应方永远赢过任何等 AIFS ≥ 34 µs 的竞争者：ACK 受算术保护，而不是靠运气。' },
+        { en: 'Within one device, all four ACs run their AIFS timers in parallel — the inspector’s IFS row shows them side by side.', zh: '在同一台设备内，四个 AC 的 AIFS 计时器并行运转——检视器的 IFS 一行会把它们并排列出。' },
+        { en: 'EIFS does not replace AIFS, it adds to it (§10.23.2.2):', zh: 'EIFS 也不是替换 AIFS，而是与它相加（§10.23.2.2）：' },
+      ] },
+      { kind: 'formula', text: {
+        en: 'wait after a corrupted frame = EIFS − DIFS + AIFS[AC]\nBK: 94 − 34 + 79 = 139 µs',
+        zh: '收到损坏帧后的等待 = EIFS − DIFS + AIFS[AC]\nBK：94 − 34 + 79 = 139 µs',
+      }, note: {
+        en: 'Penalty and class-wait, composed.',
+        zh: '惩罚与类别等待，叠加而成。',
       } },
       { heading: { en: 'CW — how big the lottery is, and how it doubles', zh: 'CW——抽签区间有多大，碰撞后怎么翻倍' }, text: {
-        en: '“CW 3–7” does not mean “draw a number between 3 and 7”. CW is the upper bound of the draw: the backoff counter is a uniform random integer from 0 to CW (§10.3.3), and 3 and 7 are CWmin and CWmax — the smallest and largest that bound is ever allowed to be. So VO’s first attempt draws from 0–3. After one collision the interval jumps straight to 0–7, not 0–4, because the standard never adds one to CW: it takes the next value in the series 2ⁿ − 1 (3, 7, 15, 31, 63, 127, 255, 511, 1023). CWmin 3 is n = 2; one collision makes n = 3, so CW = 2³ − 1 = 7. The equivalent arithmetic is new CW = 2 × old CW + 1 = 2 × 3 + 1 = 7. Count the candidates and the name “binary exponential backoff” explains itself: CW 3 offers 4 values, CW 7 offers 8, CW 15 offers 16 — every collision doubles the set. A collision means there are too many contenders; doubling the interval sharply raises the chance they spread out, whereas adding one value would change almost nothing. Voice’s full journey: first attempt, CW 3, draw 0–3. Collision: CW 7, draw 0–7. Another collision: the series says 15, but VO’s CWmax is 7, so it is capped and still draws 0–7 — and stays there no matter how many more collisions follow. Success, or a drop at the retry limit: CW resets to 3. VO has only two rungs, 0–3 and 0–7, and that is deliberate — voice needs low delay and is never allowed to back off for hundreds of slots. Compare BK: it starts at 15 and may climb through 31, 63, 127, 255 and 511 to 1023 — seven rungs.',
-        zh: '“CW 3–7”不是“从 3 到 7 里抽一个数”。CW 是抽取区间的上限：退避计数器是 0 到 CW 之间均匀分布的随机整数（§10.3.3），而 3 和 7 是 CWmin 与 CWmax——这个上限所允许的最小值和最大值。所以 VO 第一次发送是从 0~3 里抽。碰撞一次后，抽取区间从 0~3 一下跳到 0~7，不是 0~4，因为标准不是“CW 加一”，而是“CW 取序列中的下一个值”，这个序列是 2ⁿ − 1：3、7、15、31、63、127、255、511、1023。VO 的 CWmin = 3，也就是 n = 2；碰撞一次，n 变成 3，CW = 2³ − 1 = 7。另一种等价算法是新 CW = 2 × 旧 CW + 1：2 × 3 + 1 = 7。两种算法结果一样，本质都是“区间大小翻倍”。看区间里有多少个可选值就明白为什么是翻倍而不是加一：CW = 3 可以抽 0、1、2、3，共 4 个值；CW = 7 可以抽 0~7，共 8 个值；CW = 15 共 16 个值。每碰撞一次，可选值的数量翻一倍——这就是“二进制指数退避”名字的由来：碰撞说明竞争者太多，把区间加倍能让大家散开的概率大幅提高，加一的话只多一个值，几乎没用。语音流量的完整过程：第一次发，CW = 3，从 0~3 抽；碰撞了，CW = 7，从 0~7 抽；又碰撞了，按序列该到 15，但 VO 的 CWmax = 7，被封顶，还是从 0~7 抽，之后不管碰撞多少次都停在 7；发成功了，或者重试次数用尽被丢包，CW 重置回 3。所以对 VO 来说只有两档：0~3 和 0~7。这是故意设计的，语音要求低延迟，不允许它退避到几百个时隙那么久。对比 BK：从 15 起步，可以一路翻到 1023，中间要经过 31、63、127、255、511，共有七档。',
+        en: '“CW 3–7” does not mean “draw a number between 3 and 7”. CW is the upper bound of the draw, and 3 and 7 are CWmin and CWmax — the smallest and largest that bound is ever allowed to be (§10.3.3).',
+        zh: '“CW 3–7”不是“从 3 到 7 里抽一个数”。CW 是抽取区间的上限，而 3 和 7 是 CWmin 与 CWmax——这个上限所允许的最小值和最大值（§10.3.3）。',
+      } },
+      { kind: 'formula', text: {
+        en: 'backoff = uniform random integer in [0, CW]',
+        zh: '退避计数 = [0, CW] 上均匀分布的随机整数',
+      } },
+      { text: {
+        en: 'After a collision the standard never adds one to CW: it takes the next value in the series 2ⁿ − 1. Equivalently, new CW = 2 × old CW + 1. Both say the same thing — the number of candidates doubles:',
+        zh: '碰撞之后，标准不是“CW 加一”，而是“CW 取序列中的下一个值”，这个序列是 2ⁿ − 1。等价的算法是新 CW = 2 × 旧 CW + 1。两种说法本质相同——可选值的个数翻倍：',
+      } },
+      { kind: 'table', head: [
+        N('n'), N('CW = 2ⁿ − 1'), { en: 'Draw from', zh: '抽取区间' }, { en: 'Candidates', zh: '可选值个数' },
+      ], rows: [
+        [N('2'), N('3'), N('0–3'), N('4')],
+        [N('3'), N('7'), N('0–7'), N('8')],
+        [N('4'), N('15'), N('0–15'), N('16')],
+        [N('5'), N('31'), N('0–31'), N('32')],
+        [N('…'), N('…'), N('…'), N('…')],
+        [N('10'), N('1023'), N('0–1023'), N('1024')],
+      ] },
+      { text: {
+        en: 'Why doubling and not +1? A collision means there are too many contenders. Doubling the interval sharply raises the chance they spread out, whereas adding one value would change almost nothing. That is what “binary exponential backoff” means.',
+        zh: '为什么是翻倍而不是加一？碰撞说明竞争者太多。把区间加倍能让大家散开的概率大幅提高，加一的话只多一个值，几乎没用。这就是“二进制指数退避”名字的由来。',
+      } },
+      { kind: 'steps', heading: { en: 'Voice’s full journey', zh: '语音流量的完整过程' }, items: [
+        { en: 'First attempt: CW = 3, draw from 0–3.', zh: '第一次发：CW = 3，从 0~3 抽。' },
+        { en: 'Collision: CW = 7, draw from 0–7 — not 0–4.', zh: '碰撞了：CW = 7，从 0~7 抽——不是 0~4。' },
+        { en: 'Another collision: the series says 15, but VO’s CWmax is 7, so it is capped and still draws 0–7 — however many collisions follow.', zh: '又碰撞了：按序列该到 15，但 VO 的 CWmax = 7，被封顶，还是从 0~7 抽——之后不管碰撞多少次都停在 7。' },
+        { en: 'Success, or a drop at the retry limit: CW resets to 3.', zh: '发成功了，或者重试次数用尽被丢包：CW 重置回 3。' },
+      ] },
+      { text: {
+        en: 'VO has only two rungs, 0–3 and 0–7, and that is deliberate — voice needs low delay and is never allowed to back off for hundreds of slots. Compare BK: it starts at 15 and may climb through 31, 63, 127, 255 and 511 to 1023 — seven rungs.',
+        zh: '所以对 VO 来说只有两档：0~3 和 0~7。这是故意设计的，语音要求低延迟，不允许它退避到几百个时隙那么久。对比 BK：从 15 起步，可以一路翻到 1023，中间要经过 31、63、127、255、511，共有七档。',
       } },
       { text: {
         en: 'The four categories contend even inside one device: when two hit zero together, the higher AC transmits and the lower one doubles its CW as if it had collided (internal collision).',
@@ -596,9 +840,24 @@ export const LESSONS: Lesson[] = [
     title: { en: '8 · A-MPDU — pay contention once', zh: '8 · A-MPDU——竞争一次，发一批' },
     body: [
       { text: {
-        en: 'Every channel win costs the same overhead — IFS, backoff, preamble, ACK — whether you send 100 bytes or 60 000. As PHY rates grew, that fixed cost began to dwarf the payload: a 1500-byte frame at high MCS spends more time on ceremony than on data. Aggregation fixes the ratio: pack up to 64 MPDUs into one PPDU, and answer them with a single 32-byte BlockAck whose bitmap acknowledges each subframe individually.',
-        zh: '每赢一次信道，代价都一样——IFS、退避、前导、ACK——不管你发 100 字节还是 60000 字节。物理层速率越来越快之后，这笔固定开销开始盖过数据本身：高 MCS 下发一个 1500 字节的帧，“仪式”花的时间比数据还多。聚合改变了这个比例：把最多 64 个 MPDU 打包进一个 PPDU，再用一个 32 字节的 BlockAck 用位图逐个确认。',
+        en: 'Every channel win costs the same overhead whether you send 100 bytes or 60 000:',
+        zh: '每赢一次信道，代价都一样——不管你发 100 字节还是 60000 字节：',
       } },
+      { kind: 'formula', text: {
+        en: 'one win = IFS + backoff + preamble + payload + SIFS + ACK',
+        zh: '赢一次 = IFS + 退避 + 前导 + 数据 + SIFS + ACK',
+      }, note: {
+        en: 'Only the payload term grows with what you send.',
+        zh: '只有“数据”这一项随发送量增长。',
+      } },
+      { text: {
+        en: 'As PHY rates grew, that fixed cost began to dwarf the payload: a 1500-byte frame at high MCS spends more time on ceremony than on data.',
+        zh: '物理层速率越来越快之后，这笔固定开销开始盖过数据本身：高 MCS 下发一个 1500 字节的帧，“仪式”花的时间比数据还多。',
+      } },
+      { kind: 'list', heading: { en: 'Aggregation fixes the ratio', zh: '聚合改变了这个比例' }, items: [
+        { en: 'Pack up to 64 MPDUs into one PPDU.', zh: '把最多 64 个 MPDU 打包进一个 PPDU。' },
+        { en: 'Answer them with a single 32-byte BlockAck whose bitmap acknowledges each subframe individually.', zh: '再用一个 32 字节的 BlockAck，用位图逐个确认每个子帧。' },
+      ] },
     ],
     scenario: () => sc(oneRoom(), [
       node('ap', 'AP', 'ap', 5, 4, 'eht', 'idle'),
@@ -646,8 +905,19 @@ export const LESSONS: Lesson[] = [
     title: { en: '9 · TXOP — own the channel, briefly', zh: '9 · TXOP——短暂地拥有信道' },
     body: [
       { text: {
-        en: 'An EDCA win grants not one exchange but a transmit opportunity: a bounded interval (4.096 ms for video, 2.528 ms for best-effort) in which the winner may chain multiple exchanges separated only by SIFS. No re-contention between them — and the standard requires every PPDU plus its acknowledgement to fit inside the limit. TXOP turns the lottery into a lease.',
-        zh: 'EDCA 赢一次拿到的不是一次交换，而是一个传输机会（TXOP）：一段有上限的时间（视频 4.096 ms、尽力而为 2.528 ms），获胜者可以在其中用仅隔 SIFS 的方式串联多次帧交换，中间无需再竞争——而且标准要求每个 PPDU 连同它的确认都必须装进上限之内。TXOP 把“抽签”变成了“短租”。',
+        en: 'An EDCA win grants not one exchange but a transmit opportunity (TXOP): a bounded interval in which the winner may chain multiple exchanges separated only by SIFS, with no re-contention between them.',
+        zh: 'EDCA 赢一次拿到的不是一次交换，而是一个传输机会（TXOP）：一段有上限的时间，获胜者可以在其中用仅隔 SIFS 的方式串联多次帧交换，中间无需再竞争。',
+      } },
+      { kind: 'table', head: [
+        N('AC'), { en: 'TXOP limit', zh: 'TXOP 上限' },
+      ], rows: [
+        [{ en: 'VO (voice)', zh: 'VO（语音）' }, N('2.080 ms')],
+        [{ en: 'VI (video)', zh: 'VI（视频）' }, N('4.096 ms')],
+        [N('BE / BK'), N('2.528 ms')],
+      ] },
+      { text: {
+        en: 'The standard requires every PPDU plus its acknowledgement to fit inside the limit. TXOP turns the lottery into a lease.',
+        zh: '标准要求每个 PPDU 连同它的确认都必须装进上限之内。TXOP 把“抽签”变成了“短租”。',
       } },
     ],
     scenario: () => sc(oneRoom(), [
@@ -688,8 +958,17 @@ export const LESSONS: Lesson[] = [
     title: { en: '10 · OFDMA downlink — one PPDU, many stations', zh: '10 · OFDMA 下行——一个 PPDU，多个终端' },
     body: [
       { text: {
-        en: 'Until Wi-Fi 6, one transmission served one receiver — small frames for many stations meant many contentions. OFDMA lets the AP split the channel into resource units (RUs) and address several stations inside a single MU PPDU: each decodes only its own RU. The acknowledgements come back simultaneously too, on the same RU split. Contention happens once per group, and the MAC starts to look like a scheduler.',
-        zh: '在 Wi-Fi 6 之前，一次传输只服务一个接收者——要给许多终端发小帧，就要竞争许多次。OFDMA 让 AP 把信道切成资源单元（RU），在一个 MU PPDU 里同时向多台终端发送：每台只解调自己的 RU。确认帧也在同样的 RU 划分上同时返回。整组只需竞争一次，MAC 开始有了“调度器”的样子。',
+        en: 'Until Wi-Fi 6, one transmission served one receiver — small frames for many stations meant many contentions.',
+        zh: '在 Wi-Fi 6 之前，一次传输只服务一个接收者——要给许多终端发小帧，就要竞争许多次。',
+      } },
+      { kind: 'list', heading: { en: 'OFDMA downlink', zh: 'OFDMA 下行' }, items: [
+        { en: 'The AP splits the channel into resource units (RUs) and addresses several stations inside a single MU PPDU.', zh: 'AP 把信道切成资源单元（RU），在一个 MU PPDU 里同时向多台终端发送。' },
+        { en: 'Each station decodes only its own RU.', zh: '每台终端只解调自己的 RU。' },
+        { en: 'The acknowledgements come back simultaneously too, on the same RU split.', zh: '确认帧也在同样的 RU 划分上同时返回。' },
+      ] },
+      { text: {
+        en: 'Contention happens once per group, and the MAC starts to look like a scheduler.',
+        zh: '整组只需竞争一次，MAC 开始有了“调度器”的样子。',
       } },
     ],
     scenario: () => sc(oneRoom(), [
@@ -731,8 +1010,17 @@ export const LESSONS: Lesson[] = [
     title: { en: '11 · Trigger frames — the AP conducts the uplink', zh: '11 · 触发帧——AP 指挥上行' },
     body: [
       { text: {
-        en: 'Uplink OFDMA is stranger: multiple stations must start transmitting at the same microsecond, at coordinated power, for the same duration. Only the AP can arrange that. It sends a Trigger frame naming the participants and their RUs; one SIFS later they all fire simultaneously (padded to equal length), and the AP answers everything with a single Multi-STA BlockAck. The stations surrender contention to a conductor — inside these bubbles, Wi-Fi is no longer CSMA at all.',
-        zh: '上行 OFDMA 更奇妙：多台终端必须在同一微秒、以协调的功率、发送同样长的时间。只有 AP 能安排这一切。它先发一个触发帧（Trigger），点名参与者及其 RU；一个 SIFS 之后所有人同时开火（填充到等长），AP 再用一个多站点 BlockAck 一次性确认。终端把竞争权交给了指挥家——在这些“泡泡”里，Wi-Fi 已经不再是 CSMA。',
+        en: 'Uplink OFDMA is stranger: multiple stations must start transmitting at the same microsecond, at coordinated power, for the same duration. Only the AP can arrange that.',
+        zh: '上行 OFDMA 更奇妙：多台终端必须在同一微秒、以协调的功率、发送同样长的时间。只有 AP 能安排这一切。',
+      } },
+      { kind: 'steps', items: [
+        { en: 'The AP sends a Trigger frame naming the participants and their RUs.', zh: 'AP 先发一个触发帧（Trigger），点名参与者及其 RU。' },
+        { en: 'One SIFS later they all fire simultaneously, padded to equal length.', zh: '一个 SIFS 之后所有人同时开火，填充到等长。' },
+        { en: 'The AP answers everything with a single Multi-STA BlockAck.', zh: 'AP 再用一个多站点 BlockAck 一次性确认。' },
+      ] },
+      { text: {
+        en: 'The stations surrender contention to a conductor — inside these bubbles, Wi-Fi is no longer CSMA at all.',
+        zh: '终端把竞争权交给了指挥家——在这些“泡泡”里，Wi-Fi 已经不再是 CSMA。',
       } },
     ],
     scenario: () => sc(oneRoom(), [
@@ -773,8 +1061,17 @@ export const LESSONS: Lesson[] = [
     title: { en: '12 · MLO — one queue, two radios', zh: '12 · MLO——一条队列，两台电台' },
     body: [
       { text: {
-        en: 'Wi-Fi 7’s Multi-Link Operation runs complete, independent MACs on two bands at once (here 5 and 6 GHz). The trick is above them: a single MLD-level queue feeds both links. Each link contends on its own channel with its own backoff; whichever wins airtime first claims the next frames from the shared queue. If a set fails on one link, the other may retry it. Congestion on one band simply shifts traffic to the other — latency stops depending on any single channel’s luck.',
-        zh: 'Wi-Fi 7 的多链路操作（MLO）在两个频段上同时运行两套完整独立的 MAC（这里是 5 GHz 和 6 GHz）。妙处在它们之上：一条 MLD 级共享队列同时喂给两条链路。每条链路在自己的信道上独立退避、独立竞争；谁先赢得空口，谁就从共享队列领走下一批帧。一条链路上失败的帧，另一条可以代为重传。某个频段拥塞，流量会自然流向另一个——时延不再取决于任何单一信道的运气。',
+        en: 'Wi-Fi 7’s Multi-Link Operation runs complete, independent MACs on two bands at once (here 5 and 6 GHz). The trick is above them: a single MLD-level queue feeds both links.',
+        zh: 'Wi-Fi 7 的多链路操作（MLO）在两个频段上同时运行两套完整独立的 MAC（这里是 5 GHz 和 6 GHz）。妙处在它们之上：一条 MLD 级共享队列同时喂给两条链路。',
+      } },
+      { kind: 'list', items: [
+        { en: 'Each link contends on its own channel with its own backoff.', zh: '每条链路在自己的信道上独立退避、独立竞争。' },
+        { en: 'Whichever wins airtime first claims the next frames from the shared queue.', zh: '谁先赢得空口，谁就从共享队列领走下一批帧。' },
+        { en: 'If a set fails on one link, the other may retry it.', zh: '一条链路上失败的帧，另一条可以代为重传。' },
+      ] },
+      { text: {
+        en: 'Congestion on one band simply shifts traffic to the other — latency stops depending on any single channel’s luck.',
+        zh: '某个频段拥塞，流量会自然流向另一个——时延不再取决于任何单一信道的运气。',
       } },
     ],
     scenario: () => sc(oneRoom(), [
@@ -815,9 +1112,26 @@ export const LESSONS: Lesson[] = [
     title: { en: '13 · Capstone — the busy household', zh: '13 · 结业课——热闹的一家人' },
     body: [
       { text: {
-        en: 'Everything at once: a Wi-Fi 7 MLO laptop backing up, a Wi-Fi 6 TV and projector both streaming, a phone on a voice call, a Wi-Fi 5 tablet browsing, and a legacy IoT sensor — across three rooms with real walls. Your task is analysis, not reading: use the tools you now know. Who wins airtime and why? Where do EDCA priorities visibly act? When does the AP choose MU transmission over TXOP bursts? Which device is the whole network’s bottleneck?',
-        zh: '一次上齐所有元素：一台 Wi-Fi 7 MLO 笔记本在备份、一台 Wi-Fi 6 电视和一台投影仪都在推流、一部手机在通话、一台 Wi-Fi 5 平板在上网、还有一个传统 IoT 传感器——分布在三个房间、隔着真实的墙。这一课的任务是分析而不是阅读：用你已掌握的工具回答——谁赢得了空口，为什么？EDCA 的优先级在哪里清晰可见？AP 什么时候选择 MU 传输而不是 TXOP 突发？哪台设备是整个网络的瓶颈？',
+        en: 'Everything at once, across three rooms with real walls:',
+        zh: '一次上齐所有元素，分布在三个房间、隔着真实的墙：',
       } },
+      { kind: 'list', items: [
+        { en: 'A Wi-Fi 7 MLO laptop backing up.', zh: '一台 Wi-Fi 7 MLO 笔记本在备份。' },
+        { en: 'A Wi-Fi 6 TV and a projector, both streaming.', zh: '一台 Wi-Fi 6 电视和一台投影仪都在推流。' },
+        { en: 'A phone on a voice call.', zh: '一部手机在通话。' },
+        { en: 'A Wi-Fi 5 tablet browsing.', zh: '一台 Wi-Fi 5 平板在上网。' },
+        { en: 'A legacy IoT sensor.', zh: '一个传统 IoT 传感器。' },
+      ] },
+      { text: {
+        en: 'Your task is analysis, not reading — use the tools you now know:',
+        zh: '这一课的任务是分析而不是阅读——用你已掌握的工具回答：',
+      } },
+      { kind: 'list', items: [
+        { en: 'Who wins airtime and why?', zh: '谁赢得了空口，为什么？' },
+        { en: 'Where do EDCA priorities visibly act?', zh: 'EDCA 的优先级在哪里清晰可见？' },
+        { en: 'When does the AP choose MU transmission over TXOP bursts?', zh: 'AP 什么时候选择 MU 传输而不是 TXOP 突发？' },
+        { en: 'Which device is the whole network’s bottleneck?', zh: '哪台设备是整个网络的瓶颈？' },
+      ] },
     ],
     scenario: () => sc({
       rooms: [

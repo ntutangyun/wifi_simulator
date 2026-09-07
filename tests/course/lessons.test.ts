@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { LESSONS, MODULES } from '../../src/course/lessons'
+import { LESSONS, MODULES, type L10n } from '../../src/course/lessons'
 import { ScenarioSchema } from '../../src/model/scenario'
 import { Simulation } from '../../src/engine/simulation'
 import { buildLinkTable } from '../../src/engine/propagation'
@@ -148,5 +148,55 @@ describe('jump targets occur in their lesson simulations', () => {
     const find = (en: string) => lesson.jumps.find((j) => j.label.en === en)!
     expect(records.some(find('first MU PPDU').find)).toBe(true)
     expect(records.some(find('first 6 GHz data').find)).toBe(true)
+  })
+})
+
+describe('lesson body blocks', () => {
+  const bilingual = (l: { en: string; zh: string } | undefined, where: string) => {
+    expect(l, where).toBeDefined()
+    expect(l!.en.trim().length, `${where} en`).toBeGreaterThan(0)
+    expect(l!.zh.trim().length, `${where} zh`).toBeGreaterThan(0)
+  }
+
+  it('every block is bilingual and well-formed for its kind', () => {
+    for (const l of LESSONS) {
+      l.body.forEach((b, i) => {
+        const where = `${l.id} body[${i}]`
+        if (b.heading) bilingual(b.heading, `${where} heading`)
+        switch (b.kind ?? 'p') {
+          case 'p':
+          case 'formula':
+            bilingual((b as { text: L10n }).text, `${where} text`)
+            if ('note' in b && b.note) bilingual(b.note, `${where} note`)
+            break
+          case 'table': {
+            const t = b as { head: L10n[]; rows: L10n[][] }
+            expect(t.head.length, `${where} head`).toBeGreaterThan(1)
+            expect(t.rows.length, `${where} rows`).toBeGreaterThan(0)
+            t.head.forEach((c, j) => bilingual(c, `${where} head[${j}]`))
+            t.rows.forEach((r, ri) => {
+              expect(r.length, `${where} row ${ri} width`).toBe(t.head.length)
+              r.forEach((c, j) => bilingual(c, `${where} row ${ri}[${j}]`))
+            })
+            break
+          }
+          case 'list':
+          case 'steps': {
+            const items = (b as { items: L10n[] }).items
+            expect(items.length, `${where} items`).toBeGreaterThan(1)
+            items.forEach((c, j) => bilingual(c, `${where} item[${j}]`))
+            break
+          }
+          default:
+            throw new Error(`${where}: unknown block kind ${String((b as { kind: unknown }).kind)}`)
+        }
+      })
+    }
+  })
+
+  it('lesson 7 presents EDCA parameters as a table and AIFS as a formula', () => {
+    const edca = LESSONS.find((l) => l.id === 'edca')!
+    expect(edca.body.some((b) => b.kind === 'table')).toBe(true)
+    expect(edca.body.some((b) => b.kind === 'formula')).toBe(true)
   })
 })

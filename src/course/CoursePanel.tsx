@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useStrings } from '../ui/i18n'
 import { player, useUi } from '../ui/store'
-import { LESSONS, MODULES, lessonIndex, type Lesson } from './lessons'
+import { LESSONS, MODULES, lessonIndex, type Block, type L10n, type Lesson } from './lessons'
 
 type Progress = Record<string, { done?: boolean; obs?: number[] }>
 
@@ -19,6 +19,81 @@ function loadProgress(): Progress {
 
 const h4: React.CSSProperties = { margin: '12px 0 4px', fontSize: 12, color: '#d5dae3' }
 const dim: React.CSSProperties = { color: 'var(--dim)' }
+const prose: React.CSSProperties = { margin: '4px 0', color: '#c3c9d4' }
+const formulaBox: React.CSSProperties = {
+  margin: '6px 0',
+  padding: '6px 8px',
+  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+  fontSize: 12,
+  color: '#e6eaf2',
+  background: 'rgba(255,255,255,0.05)',
+  border: '1px solid rgba(255,255,255,0.08)',
+  borderRadius: 4,
+  whiteSpace: 'pre-wrap',
+  overflowX: 'auto',
+}
+const tableWrap: React.CSSProperties = { margin: '6px 0', overflowX: 'auto' }
+const tableStyle: React.CSSProperties = { borderCollapse: 'collapse', fontSize: 11.5, minWidth: '100%' }
+const th: React.CSSProperties = {
+  textAlign: 'left',
+  padding: '3px 8px',
+  color: '#d5dae3',
+  borderBottom: '1px solid rgba(255,255,255,0.18)',
+  whiteSpace: 'nowrap',
+}
+const td: React.CSSProperties = {
+  padding: '3px 8px',
+  color: '#c3c9d4',
+  borderBottom: '1px solid rgba(255,255,255,0.06)',
+  verticalAlign: 'top',
+}
+const listStyle: React.CSSProperties = { margin: '4px 0', paddingLeft: 20, color: '#c3c9d4' }
+
+/** Render one lesson body block in the current language. */
+function BlockView({ b, t }: { b: Block; t: (l: L10n) => string }) {
+  switch (b.kind ?? 'p') {
+    case 'formula': {
+      const f = b as Extract<Block, { kind: 'formula' }>
+      return (
+        <>
+          <div style={formulaBox}>{t(f.text)}</div>
+          {f.note && <p style={{ ...prose, ...dim, fontSize: 11.5 }}>{t(f.note)}</p>}
+        </>
+      )
+    }
+    case 'table': {
+      const tb = b as Extract<Block, { kind: 'table' }>
+      return (
+        <div style={tableWrap}>
+          <table style={tableStyle}>
+            <thead>
+              <tr>{tb.head.map((c, i) => <th key={i} style={th}>{t(c)}</th>)}</tr>
+            </thead>
+            <tbody>
+              {tb.rows.map((r, ri) => (
+                <tr key={ri}>{r.map((c, ci) => {
+                  const s = t(c)
+                  // short cells (numbers, "34 µs") stay on one line in the narrow panel
+                  return <td key={ci} style={s.length <= 14 ? { ...td, whiteSpace: 'nowrap' } : td}>{s}</td>
+                })}</tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )
+    }
+    case 'list': {
+      const l = b as Extract<Block, { kind: 'list' }>
+      return <ul style={listStyle}>{l.items.map((it, i) => <li key={i}>{t(it)}</li>)}</ul>
+    }
+    case 'steps': {
+      const l = b as Extract<Block, { kind: 'steps' }>
+      return <ol style={listStyle}>{l.items.map((it, i) => <li key={i}>{t(it)}</li>)}</ol>
+    }
+    default:
+      return <p style={prose}>{t((b as Extract<Block, { kind?: 'p' }>).text)}</p>
+  }
+}
 
 export function CoursePanel() {
   const { lang, courseLessonId, selectLesson, loadCourseScenario, adoptCourseScenario, courseLoaded } = useUi()
@@ -110,7 +185,7 @@ export function CoursePanel() {
       {lesson.body.map((b, i) => (
         <div key={i}>
           {b.heading && <h4 style={h4}>{t(b.heading)}</h4>}
-          <p style={{ margin: '4px 0', color: '#c3c9d4' }}>{t(b.text)}</p>
+          <BlockView b={b} t={t} />
         </div>
       ))}
 
