@@ -106,7 +106,7 @@ function NodeSection({ vid, nv, t, L }: { vid: string; nv: NodeView; t: number; 
       <div style={{ maxHeight: 90, overflowY: 'auto', fontSize: 12 }}>
         {nv.queue.slice(0, 10).map((m) => (
           <div key={m.id} style={row}>
-            <span>#{m.id} → {m.dst}</span>
+            <span>#{m.id} → {m.dst}{m.inFlight && <span style={{ color: '#22d3ee', marginLeft: 6 }}>· {L.inFlight}</span>}</span>
             <span>{m.bytes} B · {((t - m.bornNs) / 1e6).toFixed(1)} ms {L.old}</span>
           </div>
         ))}

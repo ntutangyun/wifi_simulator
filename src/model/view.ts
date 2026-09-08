@@ -15,6 +15,14 @@ export interface QueuedMsduView {
   bytes: number
   dst: string
   bornNs: Ns
+  /** EDCA access category it was queued in (undefined on legacy DCF nodes). */
+  ac?: number
+  /**
+   * Handed to the PHY and not yet acknowledged. The MAC takes an MSDU off its
+   * AC queue at TX start and gives it back on failure (§10.23.2.2 retry), so
+   * the frame still belongs to the queue until the ACK/BA removes it.
+   */
+  inFlight: boolean
 }
 
 export interface NodeStats {
@@ -126,6 +134,40 @@ function siblingId(vs: ViewState, vid: string): string | null {
   return other in vs.nodes ? other : null
 }
 
+/**
+ * The node whose `queue` list holds a virtual node's MSDUs: itself, or — for
+ * the MLO link that only claims from the shared MLD queue — its sibling.
+ */
+function queueHolder(vs: ViewState, vid: string): NodeView {
+  const n = vs.nodes[vid]
+  if (n.queue.length > 0) return n
+  const sib = siblingId(vs, vid)
+  return sib && vs.nodes[sib].queue.length > 0 ? vs.nodes[sib] : n
+}
+
+/**
+ * Per-AC counts are derived from the queue list, never from the engine's
+ * `depth` field: the engine's depth omits a claimed (in-flight) MSDU while the
+ * list keeps it until DEQUEUE, and the two must agree on screen. Both MLO
+ * links mirror the shared list.
+ */
+function syncQueueLen(vs: ViewState, vid: string): void {
+  const holder = queueHolder(vs, vid)
+  const counts = [0, 0, 0, 0]
+  for (const m of holder.queue) if (m.ac !== undefined) counts[m.ac]++
+  for (const id of [vid, siblingId(vs, vid)]) {
+    const acs = id ? vs.nodes[id].acs : null
+    if (acs) acs.forEach((a, i) => { a.queueLen = counts[i] })
+  }
+}
+
+/** MSDU ids a data PPDU carries (single MPDU, A-MPDU, or every MU part). */
+function carriedMsduIds(frame: FrameDesc): number[] {
+  if (frame.muParts) return frame.muParts.flatMap((p) => p.msduIds)
+  if (frame.ampdu) return frame.ampdu.msduIds
+  return frame.msduId !== undefined ? [frame.msduId] : []
+}
+
 export function cloneView(vs: ViewState): ViewState {
   return structuredClone(vs)
 }
@@ -137,8 +179,8 @@ export function applyRecord(vs: ViewState, r: TLRecord): void {
       break
     case 'ENQUEUE': {
       const n = vs.nodes[r.node]
-      n.queue.push({ id: r.msduId, bytes: r.bytes, dst: r.dst, bornNs: r.t })
-      if (r.ac !== undefined && n.acs) n.acs[r.ac].queueLen = r.depth
+      n.queue.push({ id: r.msduId, bytes: r.bytes, dst: r.dst, bornNs: r.t, ac: r.ac, inFlight: false })
+      syncQueueLen(vs, r.node)
       break
     }
     case 'DEQUEUE': {
@@ -153,10 +195,7 @@ export function applyRecord(vs: ViewState, r: TLRecord): void {
         }
       }
       if (i >= 0) q.splice(i, 1)
-      if (r.ac !== undefined) {
-        const acs = vs.nodes[r.node].acs
-        if (acs) acs[r.ac].queueLen = r.depth
-      }
+      syncQueueLen(vs, r.node)
       break
     }
     case 'CCA_BUSY':
@@ -217,6 +256,10 @@ export function applyRecord(vs: ViewState, r: TLRecord): void {
         n.backoff = null
         if (r.frame.ac !== undefined && n.acs) n.acs[r.frame.ac].backoff = null
       }
+      if (r.node === r.frame.src && r.frame.kind === 'data') {
+        const ids = new Set(carriedMsduIds(r.frame))
+        for (const m of queueHolder(vs, r.node).queue) if (ids.has(m.id)) m.inFlight = true
+      }
       vs.inFlight.push({ from: r.node, frame: r.frame, startNs: r.t, endNs: r.t + r.frame.txTimeNs })
       break
     case 'TX_END': {
@@ -276,6 +319,8 @@ export function applyRecord(vs: ViewState, r: TLRecord): void {
       n.stats.txFail += 1
       n.ssrc = r.ssrc
       n.slrc = r.slrc
+      // the failed set went back to the front of its queue (AcQueues.restore)
+      for (const m of queueHolder(vs, r.node).queue) m.inFlight = false
       break
     }
     case 'DROP':

@@ -158,3 +158,67 @@ describe('an interrupted IFS is not shown as still running', () => {
     expect(stale).toBe(0)
   })
 })
+
+describe('queue view: the AC table and the queue list agree', () => {
+  const vi: FrameDesc = {
+    kind: 'data', src: 'ap', dst: 'sta-1', bytes: 1430, mbps: 78,
+    durationFieldNs: 44_000, txTimeNs: 188_000, seqNo: 0, msduId: 1, ac: 2,
+  }
+
+  it('counts a frame in flight as queued until it is acknowledged, and marks it', () => {
+    const vs = initViewState(defaultScenario())
+    // engine depth excludes the claimed frame: both ENQUEUEs say depth 1
+    const records = seq([
+      { t: 0, type: 'ENQUEUE', node: 'ap', msduId: 1, bytes: 1400, dst: 'sta-1', depth: 1, ac: 2 },
+      { t: 0, type: 'TX_START', node: 'ap', frame: vi },
+      { t: 50_000, type: 'ENQUEUE', node: 'ap', msduId: 2, bytes: 1400, dst: 'sta-2', depth: 1, ac: 2 },
+    ])
+    for (const r of records) applyRecord(vs, r)
+    const ap = vs.nodes['ap']
+    expect(ap.queue).toHaveLength(2)
+    expect(ap.acs![2].queueLen).toBe(2)
+    expect(ap.queue[0].inFlight).toBe(true)
+    expect(ap.queue[1].inFlight).toBe(false)
+
+    // a failed attempt puts it back: no longer in flight, still queued
+    applyRecord(vs, seq([{ t: 250_000, type: 'RETRY', node: 'ap', msduId: 1, src: 1, lrc: 0, ssrc: 1, slrc: 0, ac: 2 }])[0])
+    expect(ap.queue[0].inFlight).toBe(false)
+    expect(ap.acs![2].queueLen).toBe(2)
+
+    // delivery removes it from both
+    applyRecord(vs, seq([{ t: 500_000, type: 'DEQUEUE', node: 'ap', msduId: 1, depth: 1, ac: 2 }])[0])
+    expect(ap.queue).toHaveLength(1)
+    expect(ap.acs![2].queueLen).toBe(1)
+  })
+
+  it('lesson 9 AP at t = 943 111 ns: AC_VI count equals the listed queue', () => {
+    const l = LESSONS.find((x) => x.id === 'txop')!
+    const sc = l.scenario()
+    const vs = initViewState(sc)
+    for (const r of new Simulation(sc).runUntil(1_000_000).records) {
+      if (r.t > 943_111) break
+      applyRecord(vs, r)
+    }
+    const ap = vs.nodes['ap']
+    expect(ap.queue).toHaveLength(2)
+    expect(ap.acs![2].queueLen).toBe(2)
+    expect(ap.queue.filter((m) => m.inFlight).map((m) => m.dst)).toEqual(['sta-2'])
+  })
+
+  it('every EDCA node, at every record: per-AC counts sum to the listed queue (lessons 9, 13)', () => {
+    for (const id of ['txop', 'mlo']) {
+      const sc = LESSONS.find((x) => x.id === id)!.scenario()
+      const vs = initViewState(sc)
+      for (const r of new Simulation(sc).runUntil(150_000_000).records) {
+        applyRecord(vs, r)
+        for (const [vid, n] of Object.entries(vs.nodes)) {
+          if (!n.acs) continue
+          // MLO: the list lives on the primary link's node; both links' tables mirror it
+          const holder = vid.includes('#6g') && vs.nodes[vid.replace('#6g', '')] ? vs.nodes[vid.replace('#6g', '')] : n
+          const sum = n.acs.reduce((s, a) => s + a.queueLen, 0)
+          expect(sum, `${id} ${vid} @${r.t}`).toBe(holder.queue.length)
+        }
+      }
+    }
+  })
+})

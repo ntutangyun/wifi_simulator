@@ -79,7 +79,7 @@ export interface Strings {
     nav: string; navHint: string; navIdle: string; left: string
     ifs: string; ifsHint: string; cca: string; ccaHint: string; busy: string; idle: string
     txop: string; txopHint: string
-    transmitting: string; receiving: string; queue: string; old: string; more: string
+    transmitting: string; receiving: string; queue: string; old: string; more: string; inFlight: string
     stats: string; framesDelivered: string; retriesDrops: string; collisionsL: string
     airtimeShare: string; rxThroughput: string
   }
@@ -218,7 +218,7 @@ export const STRINGS: Record<Lang, Strings> = {
       acHeader: { ac: 'AC', bo: 'bo', cw: 'CW', queue: 'queue' },
       acHint: 'EDCA access category (BK=background, BE=best effort, VI=video, VO=voice)',
       boHint: 'current backoff slot counter', cwHint: 'contention window: backoff drawn uniform from [0, CW]',
-      queueHint: "frames waiting in this AC's queue",
+      queueHint: "frames in this AC's queue — a frame being sent still counts until its ACK removes it",
       backoffCounter: 'backoff counter', cw: 'CW', ssrcSlrc: 'SSRC / SLRC',
       ssrcHint: 'station short/long retry counts (§10.3.3)',
       nav: 'NAV', navHint: 'Network Allocation Vector: virtual carrier sense from overheard Duration fields',
@@ -228,6 +228,7 @@ export const STRINGS: Record<Lang, Strings> = {
       busy: 'busy', idle: 'idle',
       txop: 'TXOP', txopHint: "transmit opportunity: SIFS-chained exchanges without re-contending, up to the AC's limit",
       transmitting: 'transmitting', receiving: 'receiving', queue: 'queue', old: 'old', more: 'more',
+      inFlight: 'in flight',
       stats: 'stats', framesDelivered: 'frames delivered', retriesDrops: 'retries / drops', collisionsL: 'collisions',
       airtimeShare: 'airtime share', rxThroughput: 'rx throughput',
     },
@@ -417,7 +418,7 @@ export const STRINGS: Record<Lang, Strings> = {
       acHeader: { ac: 'AC', bo: '退避', cw: 'CW', queue: '队列' },
       acHint: 'EDCA 接入类别（BK=后台，BE=尽力而为，VI=视频，VO=语音）',
       boHint: '当前退避时隙计数', cwHint: '竞争窗口：退避值从 [0, CW] 均匀抽取',
-      queueHint: '该接入类别队列中等待的帧数',
+      queueHint: '该接入类别队列中的帧数——正在发送的帧在收到 ACK 之前仍计入队列',
       backoffCounter: '退避计数器', cw: 'CW', ssrcSlrc: 'SSRC / SLRC',
       ssrcHint: '站点短/长重传计数（§10.3.3）',
       nav: 'NAV', navHint: '网络分配矢量：来自侦听到的 Duration 字段的虚拟载波侦听',
@@ -427,6 +428,7 @@ export const STRINGS: Record<Lang, Strings> = {
       busy: '忙', idle: '空闲',
       txop: 'TXOP', txopHint: '传输机会：无需重新竞争、以 SIFS 相连的连续帧交换，上限为该 AC 的 TXOP 限值',
       transmitting: '发送中', receiving: '接收中', queue: '队列', old: '前', more: '更多',
+      inFlight: '已发出',
       stats: '统计', framesDelivered: '成功交付帧数', retriesDrops: '重传 / 丢弃', collisionsL: '碰撞',
       airtimeShare: '空口占比', rxThroughput: '接收吞吐量',
     },
