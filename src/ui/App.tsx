@@ -10,34 +10,43 @@ import { useUi } from './store'
 import { TimelineStrip } from './TimelineStrip'
 import { Transport } from './Transport'
 
-const colCaption: React.CSSProperties = {
-  padding: '5px 10px 4px', fontSize: 11, color: 'var(--dim)', letterSpacing: 0.5,
-  borderBottom: '1px solid var(--border)',
+const tabBar: React.CSSProperties = {
+  display: 'flex', gap: 2, padding: '4px 6px 0', borderBottom: '1px solid var(--border)',
 }
 
-/** Inspector and log stacked in their own scroll column. */
-function PanelColumn({ caption, children, divider }: { caption: string; children: React.ReactNode; divider?: boolean }) {
-  return (
-    <div style={{
-      display: 'grid', gridTemplateRows: 'auto 1fr', minHeight: 0, minWidth: 0,
-      borderRight: divider ? '1px solid var(--border)' : undefined,
-    }}>
-      <div style={colCaption}>{caption}</div>
-      <div style={{ overflow: 'hidden', display: 'grid', minHeight: 0, minWidth: 0 }}>{children}</div>
-    </div>
-  )
-}
+const tabBtn = (active: boolean): React.CSSProperties => ({
+  fontSize: 11, letterSpacing: 0.5, padding: '4px 10px', border: 'none', borderRadius: '4px 4px 0 0',
+  background: active ? 'var(--panel2)' : 'transparent', color: active ? 'var(--text)' : 'var(--dim)',
+  borderBottom: active ? '1px solid var(--panel2)' : '1px solid transparent', marginBottom: -1,
+  cursor: 'pointer',
+})
 
-/** Inspector and event log side by side; the guide lives in the floating window. */
+type SideTab = 'inspector' | 'log'
+
+/**
+ * One right-hand column with the inspector and the event log behind tabs.
+ * The inspector is the default: the log is a debugging aid that is seldom
+ * needed, and giving it its own column halved the inspector's width.
+ */
 function SidePanel() {
   const L = useStrings()
+  const [tab, setTab] = useState<SideTab>('inspector')
+  const tabs: [SideTab, string][] = [['inspector', L.panel.inspector], ['log', L.panel.log]]
   return (
     <div style={{
       borderLeft: '1px solid var(--border)', background: 'var(--panel)',
-      display: 'grid', gridTemplateColumns: '1fr 1fr', minHeight: 0, minWidth: 0,
+      display: 'grid', gridTemplateRows: 'auto 1fr', minHeight: 0, minWidth: 0,
     }}>
-      <PanelColumn caption={L.panel.inspector} divider><Inspector /></PanelColumn>
-      <PanelColumn caption={L.panel.log}><EventLog /></PanelColumn>
+      <div style={tabBar} role="tablist">
+        {tabs.map(([id, label]) => (
+          <button key={id} role="tab" aria-selected={tab === id} style={tabBtn(tab === id)} onClick={() => setTab(id)}>
+            {label}
+          </button>
+        ))}
+      </div>
+      <div style={{ overflow: 'hidden', display: 'grid', minHeight: 0, minWidth: 0 }}>
+        {tab === 'inspector' ? <Inspector /> : <EventLog />}
+      </div>
     </div>
   )
 }
@@ -75,8 +84,8 @@ export function App() {
       <main style={{
         position: 'relative', overflow: 'hidden', display: 'grid', minHeight: 0,
         gridTemplateColumns:
-          mode === 'simulate' ? 'minmax(0, 1fr) minmax(420px, 560px)' :
-          mode === 'course' ? '340px minmax(0, 1fr) minmax(360px, 460px)' : '1fr',
+          mode === 'simulate' ? 'minmax(0, 1fr) minmax(320px, 400px)' :
+          mode === 'course' ? '340px minmax(0, 1fr) minmax(300px, 360px)' : '1fr',
       }}>
         {mode === 'course' && (
           <div style={{ borderRight: '1px solid var(--border)', background: 'var(--panel)', overflow: 'hidden', display: 'grid', minHeight: 0 }}>
