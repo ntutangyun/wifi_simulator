@@ -644,7 +644,6 @@ export class WifiMac implements PhyListener {
     this.endTxop()
     e.backoff = null
     e.needDraw = true
-    this.setState('idle')
     this.resumeAll()
   }
 
@@ -655,7 +654,6 @@ export class WifiMac implements PhyListener {
     if (mu.rxTimeoutHandle) this.q.cancel(mu.rxTimeoutHandle)
     this.muState = null
     if (acked.length === 0) {
-      this.setState('idle')
       this.resumeAll()
       return
     }
@@ -694,7 +692,6 @@ export class WifiMac implements PhyListener {
       this.setState('waitAck')
     } else {
       // Finished a response frame (ACK/CTS/BA/M-BA) — resume our own access.
-      this.setState('idle')
       this.resumeAll()
     }
   }
@@ -745,7 +742,6 @@ export class WifiMac implements PhyListener {
     this.endTxop()
     e.backoff = null
     e.needDraw = true
-    this.setState('idle')
     this.resumeAll()
   }
 
@@ -806,7 +802,6 @@ export class WifiMac implements PhyListener {
       this.scheduleResponse(t, this.cfEndFrame())
       return
     }
-    this.setState('idle')
     this.resumeAll()
   }
 
@@ -832,6 +827,9 @@ export class WifiMac implements PhyListener {
 
   private resumeAll(): void {
     for (const e of this.edcafs) this.startAccessAc(e)
+    // Callers often setState('idle') first; if an IFS was just armed the
+    // aggregate state is 'defer' (the label and the wait track read it).
+    this.refreshState()
   }
 
   // ---------- PhyListener ----------
@@ -958,7 +956,6 @@ export class WifiMac implements PhyListener {
             this.emit({ t, type: 'DEQUEUE', node: this.nodeId, msduId: m.id, depth: this.queues.depth(st.ac), ac: this.acTag(e) })
             this.hooks.onDequeue?.(m.id)
           }
-          this.setState('idle')
           this.resumeAll()
         } else {
           this.queues.restore(st.ac, st.msdus)
@@ -1030,7 +1027,6 @@ export class WifiMac implements PhyListener {
       const msdus = this.queues.claim(ac, null, MAX_AMPDU_MPDUS, (m, claimed) =>
         ampduPsduBytes([...claimed.map((x) => x.bytes), m.bytes]) <= budget)
       if (!msdus.length) {
-        this.setState('idle')
         this.resumeAll()
         return
       }
