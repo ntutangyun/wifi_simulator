@@ -380,6 +380,14 @@ export const GLOSSARY: GlossaryGroup[] = [
         },
       },
       {
+        term: 'TB PPDU',
+        alt: { en: 'trigger-based PPDU', zh: '基于触发的 PPDU' },
+        def: {
+          en: 'The uplink PPDU a station may send only in answer to a Trigger. The Trigger fixes its RU, MCS, length (padded so every station ends together), transmit power and start time; the sender chooses none of them.',
+          zh: '终端只能在应答触发帧时发送的上行 PPDU。触发帧规定了它的 RU、MCS、长度（填充到所有终端同时结束）、发射功率与开始时刻；发送者自己什么都不决定。',
+        },
+      },
+      {
         term: 'Multi-STA BlockAck',
         alt: { en: 'one BA for many senders', zh: '多站点块确认' },
         def: {

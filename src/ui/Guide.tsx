@@ -81,7 +81,8 @@ function GuideEn() {
         <i>simultaneously</i>: one wide MU PPDU downlink (answered by simultaneous BlockAcks), or a{' '}
         {chip('#facc15')}<b>Trigger</b> frame that schedules multiple stations to transmit uplink at
         the same instant, answered by one Multi-STA BlockAck. Contention happens once, for the whole
-        group.
+        group. What each station sends back is a <b>TB PPDU</b> (trigger-based): the Trigger fixes its
+        RU, MCS, length and power, and every station pads to the same length so all of them end together.
       </p>
 
       <h4 style={h}>8 · MLO (Wi-Fi 7)</h4>
@@ -177,7 +178,9 @@ function GuideZh() {
         AP 可以把信道切分成资源单元（RU），<i>同时</i>服务多个终端：
         一个下行宽 MU PPDU（由各终端同时发出的 BlockAck 确认），或者一个
         {chip('#facc15')}<b>触发帧（Trigger）</b>调度多个终端在同一瞬间上行发送，
-        再由一个多站点 BlockAck 统一确认。整组传输只需竞争一次。
+        再由一个多站点 BlockAck 统一确认。整组传输只需竞争一次。每个终端回应的是
+        <b>TB PPDU</b>（trigger-based，基于触发）：其 RU、MCS、长度与功率都由触发帧规定，
+        各终端填充到同一长度，因此全部同时结束。
       </p>
 
       <h4 style={h}>8 · MLO 多链路操作（Wi-Fi 7）</h4>

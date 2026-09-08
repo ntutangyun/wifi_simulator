@@ -217,3 +217,28 @@ describe('lesson body blocks', () => {
     expect(edca.body.some((b) => b.kind === 'formula')).toBe(true)
   })
 })
+
+describe('lesson 12 claims about TB PPDUs', () => {
+  it('every triggered round: all TB PPDUs share the length the Trigger named, and start SIFS after it', () => {
+    const l = LESSONS.find((x) => x.id === 'ofdma-ul')!
+    const recs = recordsFor(l.scenario(), 100)
+    let rounds = 0
+    for (let i = 0; i < recs.length; i++) {
+      const r = recs[i]
+      if (r.type !== 'TX_END' || r.frame.kind !== 'trigger') continue
+      const gid = r.frame.orthogonalGroup
+      const named = new Set(r.frame.muParts!.map((p) => p.durNs))
+      expect(named.size, `trigger @${r.t} names one duration for all users`).toBe(1)
+      const dur = [...named][0]!
+      const tb = recs.filter((x): x is Extract<TLRecord, { type: 'TX_START' }> =>
+        x.type === 'TX_START' && x.frame.kind === 'data' && x.frame.orthogonalGroup === gid)
+      if (tb.length === 0) continue // a trigger nobody answered (it times out, see mac-trigger-timeout)
+      rounds++
+      for (const x of tb) {
+        expect(x.t, `TB PPDU starts SIFS after trigger @${r.t}`).toBe(r.t + 16_000)
+        expect(x.frame.txTimeNs, `TB PPDU padded to the named length @${r.t}`).toBe(dur)
+      }
+    }
+    expect(rounds).toBeGreaterThanOrEqual(3)
+  })
+})

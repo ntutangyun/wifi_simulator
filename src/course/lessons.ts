@@ -1128,6 +1128,17 @@ export const LESSONS: Lesson[] = [
         { en: 'The AP answers everything with a single Multi-STA BlockAck.', zh: 'AP 再用一个多站点 BlockAck 一次性确认。' },
       ] },
       { text: {
+        en: 'What the stations send back is a TB PPDU — TB for trigger-based. It is the one PPDU format a station may only transmit in answer to a Trigger, because the station decides nothing about it. The Trigger dictates:',
+        zh: '终端回应的那一帧叫 TB PPDU——TB 即 trigger-based（基于触发）。这是终端只能在应答触发帧时才允许发送的 PPDU 格式，因为关于这一帧的一切都不由终端自己决定。触发帧规定了：',
+      } },
+      { kind: 'list', heading: { en: 'TB PPDU — set by the Trigger, not the sender', zh: 'TB PPDU——由触发帧而非发送者决定' }, items: [
+        { en: 'Which RU to transmit on, so several stations’ PPDUs sit side by side in one channel.', zh: '在哪个 RU 上发送，使多个终端的 PPDU 在同一信道里并排。' },
+        { en: 'The MCS and number of spatial streams.', zh: 'MCS 与空间流数。' },
+        { en: 'The length: every station pads to the duration the Trigger names, so all TB PPDUs end at the same instant and one Multi-STA BlockAck can answer them after one SIFS.', zh: '长度：每个终端都填充到触发帧指定的时长，所有 TB PPDU 同一瞬间结束，一个 SIFS 后一个多站点 BlockAck 就能统一确认。' },
+        { en: 'The transmit power, corrected per station so signals from near and far arrive at the AP at similar levels — the AP has to decode them together.', zh: '发射功率：按终端逐个校正，让远近终端的信号到达 AP 时强度相近——AP 要把它们一起解码。' },
+        { en: 'The start: SIFS after the Trigger, aligned in time and frequency to the AP.', zh: '开始时刻：触发帧之后一个 SIFS，在时间与频率上都对齐到 AP。' },
+      ] },
+      { text: {
         en: 'The stations surrender contention to a conductor — inside these bubbles, Wi-Fi is no longer CSMA at all.',
         zh: '终端把竞争权交给了指挥家——在这些“泡泡”里，Wi-Fi 已经不再是 CSMA。',
       } },
@@ -1143,7 +1154,7 @@ export const LESSONS: Lesson[] = [
     ],
     observe: [
       { en: 'The yellow Trigger comes from the AP; one SIFS later both uploaders’ green blocks start at the same instant.', zh: '黄色触发帧来自 AP；一个 SIFS 后两台上传终端的绿色块在同一瞬间开始。' },
-      { en: 'Both TB PPDUs end together (padding) and one Multi-STA BA answers both.', zh: '两个 TB PPDU 同时结束（填充对齐），一个多站点 BA 同时确认两者。' },
+      { en: 'Both TB PPDUs (trigger-based PPDUs) end together — padded to the length the Trigger named — and one Multi-STA BA answers both. Hover a green block: its duration equals the other’s even though their queues differ.', zh: '两个 TB PPDU（基于触发的 PPDU）同时结束——都填充到触发帧指定的长度——一个多站点 BA 同时确认两者。悬停绿色块：两者时长相同，尽管它们的队列并不一样。' },
       { en: 'Between triggered bursts the stations still contend normally via EDCA.', zh: '在两次触发之间，终端仍照常通过 EDCA 竞争。' },
     ],
     tryThis: [
