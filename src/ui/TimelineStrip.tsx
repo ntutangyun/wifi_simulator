@@ -4,6 +4,7 @@ import { fitLaneLabel, recordsToSpans, spanTooltip, topSpanAt, xForT, type LaneS
 import { fmtNs } from './format'
 import { useStrings } from './i18n'
 import { linkPlanFor, physicalId } from '../model/caps'
+import { nodeDisplayName } from './names'
 import type { ViewState } from '../model/view'
 
 const GUTTER = 118
@@ -263,7 +264,7 @@ export function TimelineStrip() {
     return {
       x: e.clientX - rect.left + 12, y: e.clientY - rect.top - 8,
       lines: [
-        ...spanTooltip(hit.span, L.tooltips, hit.t),
+        ...spanTooltip(hit.span, L.tooltips, hit.t, (id) => nodeDisplayName(scenario.nodes, id, L.frameDetail.everyone)),
         ...(bandTag(hit.span.nodeId) ? [hit.span.nodeId.includes('#6g') ? L.inspector.link6 : L.inspector.link5] : []),
       ],
     }

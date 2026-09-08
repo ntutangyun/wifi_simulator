@@ -237,24 +237,27 @@ const AC_NAME = ['BK', 'BE', 'VI', 'VO']
  * Tooltip lines for a span: what it is + what it teaches. `t` is the time under
  * the cursor — a defer block can hold several IFS periods, and the label must
  * name the one actually armed there, matching what the 3D view reports.
+ * `nameOf` turns a node id into the name the learner sees (“sta-1” →
+ * “Laptop (MLO)”); the default shows ids unchanged.
  */
-export function spanTooltip(s: LaneSpan, T: Strings['tooltips'], t?: Ns): string[] {
+export function spanTooltip(s: LaneSpan, T: Strings['tooltips'], t?: Ns, nameOf: (id: string) => string = (id) => id): string[] {
   const dur = `${s.openStart || s.openEnded ? '≥ ' : ''}${((s.fullEndNs - s.fullStartNs) / 1000).toFixed(1)} µs`
   const ac = s.ac !== undefined ? ` · AC_${AC_NAME[s.ac]}` : ''
   switch (s.kind) {
     case 'tx': {
       const f = s.frame
       if (!f) return [`${T.transmitting} · ${dur}`]
+      const dst = nameOf(f.dst)
       const what =
         f.kind === 'data' && f.muParts ? T.dlMu(f.muParts.length) :
-        f.kind === 'data' && f.ampdu ? T.ampdu(f.ampdu.mpduCount, f.dst) :
-        f.kind === 'data' ? T.data(f.dst) :
-        f.kind === 'ack' ? T.ack(f.dst) :
-        f.kind === 'ba' ? T.ba(f.dst) :
+        f.kind === 'data' && f.ampdu ? T.ampdu(f.ampdu.mpduCount, dst) :
+        f.kind === 'data' ? T.data(dst) :
+        f.kind === 'ack' ? T.ack(dst) :
+        f.kind === 'ba' ? T.ba(dst) :
         f.kind === 'mba' ? T.mba :
         f.kind === 'trigger' ? T.trigger :
-        f.kind === 'rts' ? T.rts(f.dst) :
-        f.kind === 'cfend' ? T.cfend : T.cts(f.dst)
+        f.kind === 'rts' ? T.rts(dst) :
+        f.kind === 'cfend' ? T.cfend : T.cts(dst)
       const rate = f.mcs !== undefined ? `${f.mode?.toUpperCase()} MCS${f.mcs} · ${f.mbps} Mbps` : `${f.mbps} Mbps (${T.nonHt})`
       const lines = [`${what}${ac}`, `${f.bytes} B · ${rate} · ${dur}`]
       if (f.kind === 'ack' || f.kind === 'ba' || f.kind === 'cts' || f.kind === 'mba' || f.kind === 'cfend') {
@@ -265,7 +268,7 @@ export function spanTooltip(s: LaneSpan, T: Strings['tooltips'], t?: Ns): string
       return lines
     }
     case 'rx':
-      return [`${T.receiving(s.frameKind?.toUpperCase() ?? '', s.frameSrc ?? '')}${ac}`, dur]
+      return [`${T.receiving(s.frameKind?.toUpperCase() ?? '', s.frameSrc ? nameOf(s.frameSrc) : '')}${ac}`, dur]
     case 'backoff':
       return [`${T.backoffTitle}${ac} · ${dur}`, T.backoffL1, T.backoffL2]
     case 'defer': {

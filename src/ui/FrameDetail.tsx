@@ -3,7 +3,7 @@
  * who sent it, every field it carries, and what happens next. Replaces the node
  * view in the inspector column while a frame is selected.
  */
-import { physicalId } from '../model/caps'
+import { nodeDisplayName } from './names'
 import { fmtNs } from './format'
 import { useStrings } from './i18n'
 import { useUi, type FrameSelection } from './store'
@@ -31,12 +31,7 @@ export function FrameDetail({ sel }: { sel: FrameSelection }) {
   const { scenario, selectFrame } = useUi()
   const f = sel.frame
 
-  const nameOf = (id: string): string => {
-    if (id === '*mu' || id === '*') return F.everyone
-    const cfg = scenario.nodes.find((n) => n.id === physicalId(id))
-    const name = cfg?.name ?? id
-    return id.includes('#6g') ? `${name} · 6G` : name
-  }
+  const nameOf = (id: string): string => nodeDisplayName(scenario.nodes, id, F.everyone)
 
   const rate = f.mcs !== undefined
     ? `${L.generations[f.mode ?? 'nonht']} · MCS ${f.mcs} · ${f.mbps} Mbps`
