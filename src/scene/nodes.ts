@@ -1,7 +1,20 @@
 import * as THREE from 'three'
 import type { MacStateName } from '../model/records'
-import type { NodeCfg, Scenario } from '../model/scenario'
+import type { NodeCfg, ProfileId, Scenario } from '../model/scenario'
 import type { NodeView } from '../model/view'
+import { STRINGS, type Lang } from '../ui/i18n'
+
+/** Icon per app for the label line under a station's name. */
+const APP_ICON: Record<ProfileId, string> = {
+  video: '📺', voice: '📞', gaming: '🎮', backup: '💾', browsing: '🌐', iot: '📡', saturated: '⬆', idle: '',
+}
+
+/** "🎮 game · 📺 video" for a station; empty for the AP and idle stations. */
+export function appLine(n: NodeCfg, lang: Lang): string {
+  if (n.kind !== 'sta') return ''
+  const names = STRINGS[lang].appShort
+  return n.profiles.filter((p) => p !== 'idle').map((p) => `${APP_ICON[p]} ${names[p]}`).join(' · ')
+}
 
 /** MAC state → halo ring color. NAV override wins. */
 export function haloColor(state: MacStateName, navActive: boolean): number {
@@ -18,15 +31,27 @@ export function haloColor(state: MacStateName, navActive: boolean): number {
   }
 }
 
-export function makeTextSprite(text: string, color = '#e5e9f0', px = 48): THREE.Sprite {
+/**
+ * A one- or two-line text sprite. `sub` is drawn smaller and dimmer under the
+ * main text (the station's apps under its name).
+ */
+export function makeTextSprite(text: string, color = '#e5e9f0', px = 48, sub = ''): THREE.Sprite {
   const canvas = document.createElement('canvas')
   canvas.width = 512
   canvas.height = 128
   const ctx = canvas.getContext('2d')!
-  ctx.font = `${px}px 'Segoe UI', sans-serif`
   ctx.textAlign = 'center'
   ctx.fillStyle = color
-  ctx.fillText(text, 256, 80)
+  if (sub) {
+    ctx.font = `${Math.round(px * 0.9)}px 'Segoe UI', sans-serif`
+    ctx.fillText(text, 256, 62)
+    ctx.font = `${Math.round(px * 0.62)}px 'Segoe UI', sans-serif`
+    ctx.fillStyle = '#a5aebc'
+    ctx.fillText(sub, 256, 110)
+  } else {
+    ctx.font = `${px}px 'Segoe UI', sans-serif`
+    ctx.fillText(text, 256, 80)
+  }
   const tex = new THREE.CanvasTexture(canvas)
   const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }))
   sprite.scale.set(2.4, 0.6, 1)
@@ -64,7 +89,7 @@ function updateSpriteText(sprite: THREE.Sprite, text: string, color = '#e5e9f0')
   tex.needsUpdate = true
 }
 
-export function buildNodeGroup(n: NodeCfg): THREE.Group {
+export function buildNodeGroup(n: NodeCfg, lang: Lang = 'en'): THREE.Group {
   const g = new THREE.Group()
   g.name = `node:${n.id}`
   g.position.set(n.pos.x, n.pos.z, n.pos.y)
@@ -102,7 +127,7 @@ export function buildNodeGroup(n: NodeCfg): THREE.Group {
   halo.position.y = -n.pos.z + 0.02 // ring sits on the floor
   g.add(halo)
 
-  const label = makeTextSprite(n.name)
+  const label = makeTextSprite(n.name, '#e5e9f0', 48, appLine(n, lang))
   label.name = 'label'
   label.position.set(0, 0.55, 0)
   g.add(label)
@@ -115,9 +140,9 @@ export function buildNodeGroup(n: NodeCfg): THREE.Group {
   return g
 }
 
-export function buildNodeMeshes(sc: Scenario): Map<string, THREE.Group> {
+export function buildNodeMeshes(sc: Scenario, lang: Lang = 'en'): Map<string, THREE.Group> {
   const map = new Map<string, THREE.Group>()
-  for (const n of sc.nodes) map.set(n.id, buildNodeGroup(n))
+  for (const n of sc.nodes) map.set(n.id, buildNodeGroup(n, lang))
   return map
 }
 

@@ -28,7 +28,7 @@ export function Viewport() {
     // static scene content for the current scenario
     const sc = useUi.getState().scenario
     scene.add(buildHouse(sc))
-    const nodeMeshes = buildNodeMeshes(sc)
+    const nodeMeshes = buildNodeMeshes(sc, useUi.getState().lang)
     for (const g of nodeMeshes.values()) scene.add(g)
     const effects = new EffectsLayer(sc)
     scene.add(effects.group)

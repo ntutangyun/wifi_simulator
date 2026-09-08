@@ -2,7 +2,8 @@
  * Pure floor-plan operations: rooms → deduplicated walls, hit testing,
  * openings, random STA spawning, scenario (de)serialization.
  */
-import { ScenarioSchema, nonht, type NodeCfg, type Opening, type Room, type Scenario, type Wall } from '../model/scenario'
+import { ScenarioSchema, type NodeCfg, type Opening, type Room, type Scenario, type Wall } from '../model/scenario'
+import { STATION_PRESETS, presetNode } from '../model/presets'
 
 const SNAP = 0.1
 export const snap = (v: number): number => Math.round(v / SNAP) * SNAP
@@ -148,8 +149,6 @@ export function addOpening(w: Wall, atM: number, widthM: number): Wall {
   return { ...w, openings }
 }
 
-const SPAWN_PROFILES = ['video', 'backup', 'browsing', 'iot', 'saturated'] as const
-
 export function spawnRandomStas(sc: Scenario, n: number, rng: () => number): Scenario {
   if (!sc.rooms.length) return sc
   const nodes = [...sc.nodes]
@@ -163,11 +162,16 @@ export function spawnRandomStas(sc: Scenario, n: number, rng: () => number): Sce
     const margin = 0.5
     const x = snap(room.x + margin + rng() * Math.max(0.1, room.w - 2 * margin))
     const y = snap(room.y + margin + rng() * Math.max(0.1, room.h - 2 * margin))
-    const profile = SPAWN_PROFILES[Math.floor(rng() * SPAWN_PROFILES.length)]
-    nodes.push({
-      id, kind: 'sta', name: `STA-${next}`, pos: { x, y, z: 1.0 },
-      txPowerDbm: 15, profiles: [profile], caps: nonht,
-    })
+    // A random phone from the presets; a repeated model gets a numbered name.
+    const preset = STATION_PRESETS[Math.floor(rng() * STATION_PRESETS.length)]
+    const node = presetNode(preset, id, { x, y, z: 1.0 })
+    const taken = new Set(nodes.map((n) => n.name))
+    if (taken.has(node.name)) {
+      let k = 2
+      while (taken.has(`${preset.model} (${k})`)) k++
+      node.name = `${preset.model} (${k})`
+    }
+    nodes.push(node)
     next++
   }
   return { ...sc, nodes }

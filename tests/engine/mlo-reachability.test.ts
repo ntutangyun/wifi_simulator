@@ -34,7 +34,7 @@ describe('a link only transmits to peers that are on it', () => {
     const sc: Scenario = {
       rooms: [{ x: 0, y: 0, w: 10, h: 8, name: 'room' }], walls: [],
       nodes: [mk('ap', 'AP', 'ap', 5, 'eht', ['idle']), mk('sta-1', 'MLO', 'sta', 3, 'eht', ['video']), mk('sta-2', 'Legacy', 'sta', 7, 'vht', ['video'])],
-      seed: 7, rtsThresholdBytes: 3000, snapshotIntervalMs: 50,
+      servers: [], seed: 7, rtsThresholdBytes: 3000, snapshotIntervalMs: 50,
     }
     const recs = new Simulation(sc).runUntil(300 * MS).records
     const on6 = recs.filter(isTx).filter((r) => r.node === 'ap#6g' && r.frame.kind === 'data')

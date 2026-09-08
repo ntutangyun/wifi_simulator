@@ -59,6 +59,11 @@ export interface Strings {
     objects: string; properties: string; guide: string
     nodesHeader: string; rooms: string; walls: string; noRooms: string
     node: string; name: string; wifi: string; link: string; linkHint: string
+    preset: string; presetPick: string; presetHint: string; brands: Record<'huawei' | 'xiaomi' | 'honor' | 'apple', string>; mloCapableNote: string
+    servers: string; addServer: string; serverName: string; serverKind: string; serverRtt: string; serverRttHint: string; deleteServer: string
+    streamServer: string; households: string; householdsPick: string
+    gameAccel: string; gameAccelHint: string
+    serverJitter: string; serverJitterHint: string; serverProcess: string; serverProcessHint: string
     traffic: string; txPower: string; height: string
     txopProt: string; txopProtHint: string
     txopProtNames: Record<'single' | 'boundary' | 'multiple', string>
@@ -71,7 +76,7 @@ export interface Strings {
   }
   inspector: {
     waiting: string; bssTotals: string; throughput: string; delivered: string
-    collisions: string; retries: string; node: string; ok: string; rty: string; airtime: string
+    collisions: string; retries: string; node: string; ok: string; rty: string; airtime: string; lat: string; latHint: string
     link5: string; link6: string
     acHeader: { ac: string; bo: string; cw: string; queue: string }
     acHint: string; boHint: string; cwHint: string; queueHint: string
@@ -82,9 +87,14 @@ export interface Strings {
     transmitting: string; receiving: string; queue: string; old: string; more: string; inFlight: string
     stats: string; framesDelivered: string; retriesDrops: string; collisionsL: string
     airtimeShare: string; rxThroughput: string
+    txLatency: string; txLatencyHint: string; rxLatency: string; rxLatencyHint: string
+    appRtt: string; appRttHint: string; servers: string; serverCols: { server: string; kind: string; rtt: string; up: string; down: string }
   }
   log: { empty: string }
   profiles: Record<ProfileId, string>
+  /** One-word app names for the 3D label under a station's name. */
+  appShort: Record<ProfileId, string>
+  serverKinds: Record<'video' | 'web' | 'call' | 'game', string>
   generations: Record<Generation, string>
   features: Record<FeatureFlag, string>
   frameDetail: {
@@ -199,6 +209,15 @@ export const STRINGS: Record<Lang, Strings> = {
       objects: '🗂 OBJECTS', properties: '⚙ PROPERTIES', guide: '📖 EDITOR REFERENCE',
       nodesHeader: 'Nodes (order = timeline lanes)', rooms: 'Rooms', walls: 'Walls', noRooms: 'none — draw one with ▭',
       node: 'Node', name: 'Name', wifi: 'Wi-Fi', link: 'Link', linkHint: 'operating band for non-MLO Wi-Fi 6/7 devices',
+      preset: 'Phone', presetPick: 'pick a model…', presetHint: 'Real phones, China-market configuration: sets name, Wi-Fi generation, features and typical traffic. Everything stays editable.',
+      brands: { huawei: 'Huawei', xiaomi: 'Xiaomi / Redmi', honor: 'Honor', apple: 'Apple' },
+      mloCapableNote: 'China unit: 6 GHz off, so no MLO. Tick MLO above to model the global variant.',
+      servers: 'Cloud servers', addServer: '+ server', serverName: 'Name', serverKind: 'Kind', serverRtt: 'WAN RTT',
+      serverRttHint: 'round trip between the AP and this server across the internet; each direction takes half',
+      deleteServer: '🗑 Delete server', streamServer: 'server', households: '🏠 Households', householdsPick: 'load a household…',
+      serverJitter: 'WAN jitter', serverJitterHint: 'each packet’s round trip is drawn between RTT and RTT + jitter (half of it per direction)',
+      serverProcess: 'Processing', serverProcessHint: 'time the server takes to answer a request or echo a ping',
+      gameAccel: '🎮 Game acceleration', gameAccelHint: 'Router gaming mode: game flows are marked into AC_VI. Off, game packets carry no DSCP mark and contend as best effort (AC_BE) like everything else.',
       traffic: 'Traffic', txPower: 'Tx power', height: 'Height',
       txopProt: 'TXOP protection',
       txopProtHint: 'How this node announces a burst of several exchanges it holds: per-exchange Duration (single); an RTS/CTS reserving the medium to the end of the TXOP, given back early with CF-End (boundary); or that plus every data frame carrying the TXOP remainder (multiple).',
@@ -214,6 +233,7 @@ export const STRINGS: Record<Lang, Strings> = {
       waiting: 'waiting for simulation…', bssTotals: 'BSS totals — click a node or lane for detail',
       throughput: 'throughput', delivered: 'delivered', collisions: 'collision events', retries: 'retries',
       node: 'node', ok: 'ok', rty: 'rty', airtime: 'airtime',
+      lat: 'latency', latHint: 'mean delivery latency of the frames this node sends: queue arrival → acknowledged',
       link5: '5 GHz link', link6: '6 GHz link',
       acHeader: { ac: 'AC', bo: 'bo', cw: 'CW', queue: 'queue' },
       acHint: 'EDCA access category (BK=background, BE=best effort, VI=video, VO=voice)',
@@ -231,12 +251,18 @@ export const STRINGS: Record<Lang, Strings> = {
       inFlight: 'in flight',
       stats: 'stats', framesDelivered: 'frames delivered', retriesDrops: 'retries / drops', collisionsL: 'collisions',
       airtimeShare: 'airtime share', rxThroughput: 'rx throughput',
+      txLatency: 'tx latency', txLatencyHint: 'mean / max time from a frame entering this node’s queue to its ACK or BlockAck — queueing, AIFS, backoff and every retry included; dropped frames are not timed',
+      rxLatency: 'rx latency', rxLatencyHint: 'mean / max delivery latency of the frames sent to this node, timed at the sender’s queue',
+      appRtt: 'RTT (ping)', appRttHint: 'mean / max round trip of this station’s pings to its cloud server, sent four times a second on the stream’s access category and echoed at once: Wi-Fi up, WAN, Wi-Fi down — what a game’s ping counter shows',
+      servers: 'cloud servers', serverCols: { server: 'server', kind: 'kind', rtt: 'WAN RTT (+jitter, +proc)', up: 'up', down: 'down' },
     },
     log: { empty: 'no events in window' },
     profiles: {
-      video: 'video streaming (DL, AC_VI)', voice: 'voice call (2-way, AC_VO)', backup: 'cloud backup (UL, AC_BK)',
+      video: 'video streaming (DL, AC_VI)', voice: 'voice call (2-way, AC_VO)', gaming: 'online gaming (2-way 60 Hz, AC_VI)', backup: 'cloud backup (UL, AC_BK)',
       browsing: 'web browsing (AC_BE)', iot: 'IoT sensor (AC_BK)', saturated: 'saturated upload (AC_BE)', idle: 'idle',
     },
+    appShort: { video: 'video', voice: 'call', gaming: 'game', backup: 'backup', browsing: 'web', iot: 'sensor', saturated: 'upload', idle: '' },
+    serverKinds: { video: 'video (streaming)', web: 'web / cloud', call: 'call', game: 'game' },
     generations: {
       nonht: '802.11a (legacy)', vht: 'Wi-Fi 5 (VHT)', he: 'Wi-Fi 6 (HE)', eht: 'Wi-Fi 7 (EHT)',
     },
@@ -399,6 +425,15 @@ export const STRINGS: Record<Lang, Strings> = {
       objects: '🗂 对象列表', properties: '⚙ 属性', guide: '📖 编辑器说明',
       nodesHeader: '节点（顺序 = 时间轴泳道）', rooms: '房间', walls: '墙体', noRooms: '暂无 — 用 ▭ 绘制一个',
       node: '节点', name: '名称', wifi: 'Wi-Fi', link: '频段', linkHint: '非 MLO 的 Wi-Fi 6/7 设备的工作频段',
+      preset: '手机', presetPick: '选择机型…', presetHint: '真实机型（国行配置）：设置名称、Wi-Fi 代际、功能与典型业务，之后仍可随意修改。',
+      brands: { huawei: '华为', xiaomi: '小米 / Redmi', honor: '荣耀', apple: '苹果' },
+      mloCapableNote: '国行：6 GHz 关闭，因此无 MLO。勾选上方 MLO 可模拟国际版。',
+      servers: '云服务器', addServer: '+ 服务器', serverName: '名称', serverKind: '类型', serverRtt: '广域网 RTT',
+      serverRttHint: 'AP 与该服务器之间经互联网的往返时延；每个方向各占一半',
+      deleteServer: '🗑 删除服务器', streamServer: '服务器', households: '🏠 家庭场景', householdsPick: '载入一个家庭场景…',
+      serverJitter: '广域网抖动', serverJitterHint: '每个报文的往返时延在 RTT 与 RTT + 抖动之间随机（每个方向各一半）',
+      serverProcess: '处理时间', serverProcessHint: '服务器响应请求或回显 ping 所需的时间',
+      gameAccel: '🎮 游戏加速', gameAccelHint: '路由器游戏模式：把游戏流量标记进 AC_VI。关闭时游戏报文没有 DSCP 标记，和其他流量一样按尽力而为（AC_BE）竞争。',
       traffic: '业务', txPower: '发射功率', height: '高度',
       txopProt: 'TXOP 保护',
       txopProtHint: '本节点持有多次交换的突发时如何预告：逐次交换的 Duration（单次）；用 RTS/CTS 把介质预约到 TXOP 结束、提前结束时以 CF-End 归还（边界）；或在此基础上让每个数据帧也携带 TXOP 剩余时间（多重）。',
@@ -414,6 +449,7 @@ export const STRINGS: Record<Lang, Strings> = {
       waiting: '等待仿真…', bssTotals: 'BSS 总览 — 点击节点或泳道查看详情',
       throughput: '吞吐量', delivered: '已交付', collisions: '碰撞次数', retries: '重传次数',
       node: '节点', ok: '成功', rty: '重传', airtime: '空口占比',
+      lat: '时延', latHint: '该节点所发帧的平均交付时延：进入队列 → 被确认',
       link5: '5 GHz 链路', link6: '6 GHz 链路',
       acHeader: { ac: 'AC', bo: '退避', cw: 'CW', queue: '队列' },
       acHint: 'EDCA 接入类别（BK=后台，BE=尽力而为，VI=视频，VO=语音）',
@@ -431,12 +467,18 @@ export const STRINGS: Record<Lang, Strings> = {
       inFlight: '已发出',
       stats: '统计', framesDelivered: '成功交付帧数', retriesDrops: '重传 / 丢弃', collisionsL: '碰撞',
       airtimeShare: '空口占比', rxThroughput: '接收吞吐量',
+      txLatency: '发送时延', txLatencyHint: '帧进入本节点队列到收到 ACK/BlockAck 的平均 / 最大时间——包含排队、AIFS、退避与全部重传；被丢弃的帧不计',
+      rxLatency: '接收时延', rxLatencyHint: '发往本节点的帧的平均 / 最大交付时延，从发送方的队列开始计时',
+      appRtt: 'RTT（ping）', appRttHint: '本终端向云服务器发送的 ping 的平均 / 最大往返时延：每秒 4 次、走该业务的接入类别、服务器即时回显——Wi-Fi 上行、广域网、Wi-Fi 下行，即游戏里显示的 ping 值',
+      servers: '云服务器', serverCols: { server: '服务器', kind: '类型', rtt: '广域网 RTT（+抖动，+处理）', up: '上行', down: '下行' },
     },
     log: { empty: '窗口内无事件' },
     profiles: {
-      video: '视频流（下行，AC_VI）', voice: '语音通话（双向，AC_VO）', backup: '云备份（上行，AC_BK）',
+      video: '视频流（下行，AC_VI）', voice: '语音通话（双向，AC_VO）', gaming: '在线游戏（双向 60 Hz，AC_VI）', backup: '云备份（上行，AC_BK）',
       browsing: '网页浏览（AC_BE）', iot: '物联网传感器（AC_BK）', saturated: '饱和上传（AC_BE）', idle: '空闲',
     },
+    appShort: { video: '视频', voice: '通话', gaming: '游戏', backup: '备份', browsing: '网页', iot: '传感', saturated: '上传', idle: '' },
+    serverKinds: { video: '视频（流媒体）', web: '网页 / 云', call: '通话', game: '游戏' },
     generations: {
       nonht: '802.11a（传统）', vht: 'Wi-Fi 5 (VHT)', he: 'Wi-Fi 6 (HE)', eht: 'Wi-Fi 7 (EHT)',
     },

@@ -11,7 +11,7 @@ import {
   hasFeature, linkPlanFor, minGen, negotiated, virtualId, type LinkId,
 } from '../model/caps'
 import { makeEmitter, type EmitFn, type TLRecord } from '../model/records'
-import { ScenarioSchema, type NodeCfg, type Scenario } from '../model/scenario'
+import { ScenarioSchema, serverFor, type NodeCfg, type Scenario } from '../model/scenario'
 import type { Ns } from '../model/types'
 import { applyRecord, cloneView, initViewState, type Snapshot, type ViewState } from '../model/view'
 import { Channel } from './channel'
@@ -131,8 +131,10 @@ export class Simulation {
           },
           {
             onDequeue: (msduId) => {
-              void msduId
-              for (const s of sources.get(n.id) ?? []) s.refill()
+              for (const s of sources.get(n.id) ?? []) {
+                s.refill()
+                s.onUplinkDelivered(msduId, this.nowNs) // reaches its cloud server one WAN delay later
+              }
             },
           },
           queuesOf.get(n.id),
@@ -170,7 +172,11 @@ export class Simulation {
         // The first stream keeps the historical fork (1000 + i) so single-stream
         // scenarios replay bit-for-bit; extra streams get their own independent streams.
         const rng = root.fork(j === 0 ? 1000 + i : 100_000 + i * 16 + j)
-        const src = new TrafficSource(this.q, () => this.nowNs, rng, n.id, ap.id, profile, enqueue)
+        const server = serverFor(sc, n, profile)
+        const link = server
+          ? { id: server.id, wanNs: Math.round(server.rttMs * 500_000), jitterNs: Math.round(server.jitterMs * 1_000_000), processNs: Math.round(server.processMs * 1_000_000) }
+          : null
+        const src = new TrafficSource(this.q, () => this.nowNs, rng, n.id, ap.id, profile, enqueue, { server: link, emit: baseEmit, gameAccel: ap.gameAccel === true })
         list.push(src)
         src.start()
       })

@@ -179,6 +179,7 @@ export class WifiMac implements PhyListener {
     this.emit({
       t: this.now(), type: 'ENQUEUE', node: this.nodeId, msduId: msdu.id, bytes: msdu.bytes,
       dst: msdu.dst, depth: this.queues.depth(ei), ac: this.cfg.edca ? ei : undefined,
+      server: msdu.server, rttFromNs: msdu.rttFromNs,
     })
     this.startAccessAc(this.edcafs[ei])
   }
@@ -294,14 +295,33 @@ export class WifiMac implements PhyListener {
     }
   }
 
+  /** Something for this EDCAF to start a TXOP with: a queued MSDU, or (AP) a wanted Trigger. */
+  private hasFrame(idx: number): boolean {
+    return this.queues.depthFor(idx, this.reach) > 0 || (this.wantTrigger && idx === this.efIndex(1))
+  }
+
   private arbitrate(): void {
     this.arbitratePending = false
     const ready = [...this.readyAcs].sort((a, b) => b - a) // highest AC first
     this.readyAcs.clear()
     if (!ready.length || this.inExchange()) return
     const t = this.now()
-    const winner = this.edcafs[ready[0]]
-    for (const i of ready.slice(1)) {
+    // §10.23.2.4: an EDCAF whose post-backoff ended with nothing to send starts
+    // no TXOP — it neither wins nor loses an internal collision.
+    const contending = ready.filter((i) => this.hasFrame(i))
+    for (const i of ready) {
+      if (contending.includes(i)) continue
+      this.edcafs[i].backoff = null
+      this.edcafs[i].needDraw = false
+    }
+    if (!contending.length) {
+      this.endTxop()
+      this.refreshState()
+      this.resumeAll()
+      return
+    }
+    const winner = this.edcafs[contending[0]]
+    for (const i of contending.slice(1)) {
       // Internal collision (§10.23.2.2): behave as an external collision,
       // retry counters unchanged.
       const loser = this.edcafs[i]
@@ -310,7 +330,9 @@ export class WifiMac implements PhyListener {
       this.emit({ t, type: 'CW_CHANGE', node: this.nodeId, cw: loser.cw, ac: this.acTag(loser) })
       loser.backoff = this.rng.int(loser.cw)
       this.emit({ t, type: 'BACKOFF_DRAW', node: this.nodeId, value: loser.backoff, cw: loser.cw, ac: this.acTag(loser) })
-      this.scheduleTick(loser)
+      // A redraw of 0 is ready at the next slot boundary after the winner's
+      // exchange (the resume path marks it ready); ticking it would go negative.
+      if (loser.backoff > 0) this.scheduleTick(loser)
     }
     winner.backoff = null
     winner.needDraw = false
@@ -871,6 +893,12 @@ export class WifiMac implements PhyListener {
   onRxOk(t: Ns, frame: FrameDesc, from: string): void {
     this.corruptLast = false
     const myPart = frame.muParts?.find((p) => p.dst === this.nodeId)
+    // §10.3.2.9: onRxStart held the ACK/CTS timeout for this reception. If
+    // what arrived is anything but the awaited response — another station's
+    // RTS or data to us, a frame for someone else — the attempt has failed,
+    // and it must be closed *before* we answer the newcomer, or the pending
+    // attempt would block our own access indefinitely.
+    if (this.awaiting !== null && !this.isAwaitedResponse(frame)) this.failAttempt()
     if (frame.kind === 'cfend') {
       this.onCfEnd(t, from)
       return
@@ -879,8 +907,12 @@ export class WifiMac implements PhyListener {
       this.handleOwnFrame(t, frame, from, myPart)
     } else {
       this.updateNav(t, frame, from)
-      if (this.awaiting !== null) this.failAttempt()
     }
+  }
+
+  private isAwaitedResponse(frame: FrameDesc): boolean {
+    if (!this.awaiting || frame.dst !== this.nodeId) return false
+    return this.awaiting.kind === 'cts' ? frame.kind === 'cts' : frame.kind === 'ack' || frame.kind === 'ba'
   }
 
   onRxCorrupt(_t: Ns): void {

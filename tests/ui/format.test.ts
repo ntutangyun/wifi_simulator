@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { decodeFrame, fmtNs, fmtRecord } from '../../src/ui/format'
+import { decodeFrame, fmtLatency, fmtNs, fmtRecord } from '../../src/ui/format'
 import type { FrameDesc } from '../../src/model/frames'
 
 describe('fmtNs', () => {
@@ -37,5 +37,13 @@ describe('decodeFrame', () => {
     expect(get('Sequence number')).toBe('42')
     expect(get('Retry flag')).toBe('1')
     expect(get('TXTIME')).toBe('232.0 µs')
+  })
+})
+
+describe('fmtLatency', () => {
+  it('shows mean / max in ms, or a dash when nothing has been delivered', () => {
+    expect(fmtLatency({ n: 0, sumNs: 0, maxNs: 0 })).toBe('—')
+    expect(fmtLatency({ n: 2, sumNs: 1_000_000, maxNs: 700_000 })).toBe('0.50 / 0.70 ms')
+    expect(fmtLatency({ n: 4, sumNs: 50_000_000, maxNs: 31_250_000 })).toBe('12.5 / 31.3 ms')
   })
 })

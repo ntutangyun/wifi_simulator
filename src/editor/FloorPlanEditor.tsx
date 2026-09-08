@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { Rng } from '../engine/rng'
 import { GEN_FEATURES, type FeatureFlag } from '../model/caps'
-import { normalizeProfiles, PROFILE_IDS, TXOP_PROTECTIONS, type Material, type NodeCfg, type ProfileId, type Scenario, type TxopProtection } from '../model/scenario'
+import { normalizeProfiles, PROFILE_IDS, SERVER_KINDS, TXOP_PROTECTIONS, serverFor, serverKindFor, type Material, type NodeCfg, type ProfileId, type Scenario, type ServerCfg, type ServerKind, type TxopProtection } from '../model/scenario'
+import { HOUSEHOLDS } from '../model/households'
 import { nonht } from '../model/scenario'
+import { BRANDS, STATION_PRESETS, applyPreset } from '../model/presets'
 import type { Generation } from '../model/types'
 import { useStrings } from '../ui/i18n'
 import { useUi } from '../ui/store'
@@ -17,6 +19,7 @@ type Sel =
   | { kind: 'node'; id: string }
   | { kind: 'wall'; index: number }
   | { kind: 'room'; index: number }
+  | { kind: 'server'; id: string }
   | null
 
 const LS_KEY = 'wifi-sim.scenario'
@@ -46,6 +49,7 @@ export function FloorPlanEditor() {
   const { scenario, setScenario } = useUi()
   const L = useStrings()
   const E = L.editor
+  const lang = useUi((s) => s.lang)
   const [tool, setTool] = useState<Tool>('select')
   const [sel, setSel] = useState<Sel>(null)
   const [dragRect, setDragRect] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null)
@@ -227,6 +231,27 @@ export function FloorPlanEditor() {
   }
 
   const selNode = sel?.kind === 'node' ? scenario.nodes.find((n) => n.id === sel.id) : undefined
+  const selServer = sel?.kind === 'server' ? scenario.servers.find((s) => s.id === sel.id) : undefined
+  const updateServer = (id: string, patch: Partial<ServerCfg>) => {
+    commit({ ...scenario, servers: scenario.servers.map((s) => (s.id === id ? { ...s, ...patch } : s)) })
+  }
+  const addServer = () => {
+    let k = scenario.servers.length + 1
+    while (scenario.servers.some((s) => s.id === `srv-${k}`)) k++
+    const id = `srv-${k}`
+    commit({ ...scenario, servers: [...scenario.servers, { id, kind: 'game', name: `Server ${k}`, rttMs: 30, jitterMs: 3, processMs: 2 }] })
+    setSel({ kind: 'server', id })
+  }
+  const deleteServer = (id: string) => {
+    // drop the server and every stream binding that pointed at it
+    const nodes = scenario.nodes.map((n) => {
+      if (!n.servers) return n
+      const servers = Object.fromEntries(Object.entries(n.servers).filter(([, sid]) => sid !== id)) as NodeCfg['servers']
+      return { ...n, servers: servers && Object.keys(servers).length ? servers : undefined }
+    })
+    commit({ ...scenario, nodes, servers: scenario.servers.filter((s) => s.id !== id) })
+    if (sel?.kind === 'server' && sel.id === id) setSel(null)
+  }
   const selWall = sel?.kind === 'wall' ? scenario.walls[sel.index] : undefined
   const scaleBarM = view && view.scale > 40 ? 1 : 5
 
@@ -272,6 +297,17 @@ export function FloorPlanEditor() {
           const rng = new Rng((Math.random() * 2 ** 31) >>> 0)
           commit(spawnRandomStas(scenario, spawnN, () => rng.next()))
         }}>{E.spawn}</button>
+        <span style={menuDivider} />
+        <select value="" title={E.households} onChange={(e) => {
+          const h = HOUSEHOLDS.find((x) => x.id === e.target.value)
+          if (!h) return
+          commit(h.scenario())
+          setSel(null)
+          setIoMsg(E.loaded)
+        }}>
+          <option value="">{E.households}</option>
+          {HOUSEHOLDS.map((h) => <option key={h.id} value={h.id}>{h.title[lang]}</option>)}
+        </select>
         <span style={menuDivider} />
         <label style={{ display: 'flex', gap: 4, alignItems: 'center' }} title={E.rtsHint}>
           {E.rts}
@@ -390,6 +426,26 @@ export function FloorPlanEditor() {
                 ))}
               </div>
               <div>
+                <div style={{ color: 'var(--dim)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {E.servers}
+                  <button style={{ padding: '0 6px', marginLeft: 'auto' }} onClick={addServer}>{E.addServer}</button>
+                </div>
+                {scenario.servers.map((s) => (
+                  <div key={s.id}
+                    onClick={() => setSel({ kind: 'server', id: s.id })}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 4, padding: '2px 4px', cursor: 'pointer',
+                      background: sel?.kind === 'server' && sel.id === s.id ? '#2a3550' : undefined, borderRadius: 3,
+                    }}>
+                    <span>☁</span>
+                    <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {s.name} <span style={{ color: 'var(--dim)' }}>{L.serverKinds[s.kind]} · {s.rttMs}{s.jitterMs ? `+${s.jitterMs}` : ''} ms</span>
+                    </span>
+                    <button style={{ padding: '0 4px' }} title={E.deleteServer} onClick={(e) => { e.stopPropagation(); deleteServer(s.id) }}>🗑</button>
+                  </div>
+                ))}
+              </div>
+              <div>
                 <div style={{ color: 'var(--dim)', marginBottom: 4 }}>{E.rooms}</div>
                 {scenario.rooms.map((r, i) => (
                   <div key={i}
@@ -426,12 +482,60 @@ export function FloorPlanEditor() {
           <div style={{ overflowY: 'auto', minHeight: 0 }}>
             <div style={{ padding: '6px 10px 2px', fontSize: 11, color: 'var(--dim)', letterSpacing: 0.5 }}>{E.properties}</div>
             <div style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {selServer && (
+                <div>
+                  <div style={{ color: 'var(--dim)', marginBottom: 4 }}>☁ {selServer.name}</div>
+                  <label style={{ display: 'block', marginBottom: 4 }}>
+                    {E.serverName} <input value={selServer.name} onChange={(e) => updateServer(selServer.id, { name: e.target.value })} style={{ width: 130 }} />
+                  </label>
+                  <label style={{ display: 'block', marginBottom: 4 }}>
+                    {E.serverKind}{' '}
+                    <select value={selServer.kind} onChange={(e) => updateServer(selServer.id, { kind: e.target.value as ServerKind })}>
+                      {SERVER_KINDS.map((k) => <option key={k} value={k}>{L.serverKinds[k]}</option>)}
+                    </select>
+                  </label>
+                  <label style={{ display: 'block', marginBottom: 4 }} title={E.serverRttHint}>
+                    {E.serverRtt}{' '}
+                    <input type="number" min={0} step={5} value={selServer.rttMs} style={{ width: 56 }}
+                      onChange={(e) => updateServer(selServer.id, { rttMs: Math.max(0, Number(e.target.value)) })} /> ms
+                  </label>
+                  <label style={{ display: 'block', marginBottom: 4 }} title={E.serverJitterHint}>
+                    {E.serverJitter}{' '}
+                    <input type="number" min={0} step={1} value={selServer.jitterMs} style={{ width: 56 }}
+                      onChange={(e) => updateServer(selServer.id, { jitterMs: Math.max(0, Number(e.target.value)) })} /> ms
+                  </label>
+                  <label style={{ display: 'block', marginBottom: 4 }} title={E.serverProcessHint}>
+                    {E.serverProcess}{' '}
+                    <input type="number" min={0} step={1} value={selServer.processMs} style={{ width: 56 }}
+                      onChange={(e) => updateServer(selServer.id, { processMs: Math.max(0, Number(e.target.value)) })} /> ms
+                  </label>
+                  <button onClick={() => deleteServer(selServer.id)}>{E.deleteServer}</button>
+                </div>
+              )}
               {selNode && (
                 <div>
                   <div style={{ color: 'var(--dim)', marginBottom: 4 }}>{E.node}: {selNode.name}</div>
                   <label style={{ display: 'block', marginBottom: 4 }}>
                     {E.name} <input value={selNode.name} onChange={(e) => updateNode(selNode.id, { name: e.target.value })} style={{ width: 130 }} />
                   </label>
+                  {selNode.kind === 'sta' && (
+                    <label style={{ display: 'block', marginBottom: 4 }} title={E.presetHint}>
+                      {E.preset}{' '}
+                      <select value="" onChange={(e) => {
+                        const p = STATION_PRESETS.find((x) => x.id === e.target.value)
+                        if (p) commit({ ...scenario, nodes: scenario.nodes.map((n) => (n.id === selNode.id ? applyPreset(n, p) : n)) })
+                      }}>
+                        <option value="">{E.presetPick}</option>
+                        {BRANDS.map((b) => (
+                          <optgroup key={b} label={E.brands[b]}>
+                            {STATION_PRESETS.filter((p) => p.brand === b).map((p) => (
+                              <option key={p.id} value={p.id}>{p.model} · {p.released} · {genShort(p.generation)}</option>
+                            ))}
+                          </optgroup>
+                        ))}
+                      </select>
+                    </label>
+                  )}
                   <label style={{ display: 'block', marginBottom: 4 }}>
                     {E.wifi}{' '}
                     <select value={selNode.caps.generation} onChange={(e) => setGeneration(selNode, e.target.value as Generation)}>
@@ -451,6 +555,12 @@ export function FloorPlanEditor() {
                           {L.features[f]}
                         </label>
                       ))}
+                      {(() => {
+                        const p = STATION_PRESETS.find((x) => x.model === selNode.name)
+                        return p?.mloCapable && selNode.caps.features.mlo !== true
+                          ? <div style={{ fontSize: 11, color: 'var(--dim)', marginTop: 2 }}>{E.mloCapableNote}</div>
+                          : null
+                      })()}
                     </div>
                   )}
                   {GEN_FEATURES[selNode.caps.generation].includes('txop') && selNode.caps.features.txop === true && (
@@ -473,6 +583,13 @@ export function FloorPlanEditor() {
                       </select>
                     </label>
                   )}
+                  {selNode.kind === 'ap' && (
+                    <label style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 6, cursor: 'pointer' }} title={E.gameAccelHint}>
+                      <input type="checkbox" checked={selNode.gameAccel === true}
+                        onChange={(e) => updateNode(selNode.id, { gameAccel: e.target.checked || undefined })} />
+                      {E.gameAccel}
+                    </label>
+                  )}
                   {selNode.kind === 'sta' && (
                     <div style={{ marginBottom: 4 }}>
                       {E.traffic}
@@ -489,7 +606,19 @@ export function FloorPlanEditor() {
                                 updateNode(selNode.id, { profiles: normalizeProfiles(next) })
                               }}
                             />
-                            {L.profiles[p]}
+                            <span style={{ flex: 1, minWidth: 0 }}>{L.profiles[p]}</span>
+                            {selNode.profiles.includes(p) && serverKindFor(p) && (() => {
+                              const kind = serverKindFor(p)!
+                              const choices = scenario.servers.filter((s) => s.kind === kind)
+                              const current = serverFor(scenario, selNode, p)?.id ?? ''
+                              return choices.length ? (
+                                <select value={current} title={E.streamServer} style={{ flexShrink: 0, maxWidth: 104, fontSize: 11 }}
+                                  onClick={(e) => e.stopPropagation()}
+                                  onChange={(e) => updateNode(selNode.id, { servers: { ...selNode.servers, [p]: e.target.value } })}>
+                                  {choices.map((s) => <option key={s.id} value={s.id}>☁ {s.name}</option>)}
+                                </select>
+                              ) : null
+                            })()}
                           </label>
                         ))}
                         {selNode.profiles[0] === 'idle' && (

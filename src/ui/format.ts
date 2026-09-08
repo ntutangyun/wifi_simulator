@@ -1,6 +1,7 @@
 import type { FrameDesc } from '../model/frames'
 import type { TLRecord } from '../model/records'
 import type { Ns } from '../model/types'
+import type { LatencyStats } from '../model/view'
 
 /** "12.345 678 901" — seconds.milli micro nano. */
 export function fmtNs(ns: Ns): string {
@@ -15,6 +16,16 @@ export function fmtUs(ns: Ns): string {
   return `${(ns / 1000).toFixed(1)} µs`
 }
 
+/** "mean / max ms" of a delivery-latency accumulator; a dash before the first delivery. */
+export function fmtLatency(l: LatencyStats): string {
+  if (l.n === 0) return '—'
+  const ms = (ns: Ns) => {
+    const v = ns / 1e6
+    return v >= 10 ? v.toFixed(1) : v.toFixed(2)
+  }
+  return `${ms(l.sumNs / l.n)} / ${ms(l.maxNs)} ms`
+}
+
 const AC_NAME = ['BK', 'BE', 'VI', 'VO']
 const acSuffix = (ac?: number) => (ac === undefined ? '' : ` [AC_${AC_NAME[ac]}]`)
 
@@ -26,6 +37,8 @@ export function fmtRecord(r: TLRecord): string {
     case 'ARRIVAL': return `${r.node} ← app data ${r.bytes} B for ${r.dst}`
     case 'ENQUEUE': return `${r.node} enqueue #${r.msduId} (${r.bytes} B → ${r.dst}), depth ${r.depth}`
     case 'DEQUEUE': return `${r.node} dequeue #${r.msduId}, depth ${r.depth}`
+    case 'WAN_TX': return `cloud ${r.server} -> ${r.to} #${r.msduId} (${r.bytes} B), at AP ${fmtNs(r.arriveNs)}`
+    case 'WAN_RX': return `cloud ${r.server} <- ${r.from} #${r.msduId} (${r.bytes} B) after WAN`
     case 'CCA_BUSY': return `${r.node} CCA busy (${r.cause})`
     case 'CCA_IDLE': return `${r.node} CCA idle`
     case 'IFS_START': return `${r.node} ${r.kind} wait until ${fmtNs(r.untilNs)}${acSuffix(r.ac)}`

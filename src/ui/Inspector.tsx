@@ -1,8 +1,9 @@
 import { useUi } from './store'
-import { fmtNs } from './format'
+import { fmtLatency, fmtNs } from './format'
 import { FrameDetail } from './FrameDetail'
 import { useStrings, type Strings } from './i18n'
 import type { NodeView } from '../model/view'
+import { nodeDisplayName } from './names'
 
 const row: React.CSSProperties = { display: 'flex', justifyContent: 'space-between', padding: '1px 0' }
 const dim: React.CSSProperties = { color: 'var(--dim)' }
@@ -27,7 +28,7 @@ function Lbl({ children, hint }: { children: React.ReactNode; hint: string }) {
   return <span style={{ ...dim, cursor: 'help', borderBottom: '1px dotted #444' }} title={hint}>{children}</span>
 }
 
-function NodeSection({ vid, nv, t, L }: { vid: string; nv: NodeView; t: number; L: Strings['inspector'] }) {
+function NodeSection({ vid, nv, t, L, nameOf, serverName }: { vid: string; nv: NodeView; t: number; L: Strings['inspector']; nameOf: (id: string) => string; serverName: (id: string | undefined) => string }) {
   const secs = Math.max(1e-9, t / 1e9)
   return (
     <div>
@@ -94,19 +95,19 @@ function NodeSection({ vid, nv, t, L }: { vid: string; nv: NodeView; t: number; 
             {nv.currentTx.kind.toUpperCase()}
             {nv.currentTx.ampdu ? `×${nv.currentTx.ampdu.mpduCount}` : ''}
             {nv.currentTx.muParts ? ` MU×${nv.currentTx.muParts.length}` : ''}
-            {' → '}{nv.currentTx.dst} @{nv.currentTx.mbps}M
+            {' → '}{nameOf(nv.currentTx.dst)} @{nv.currentTx.mbps}M
           </span></div>
       )}
       {nv.currentRx && (
         <div style={row}><span style={dim}>{L.receiving}</span>
-          <span>{nv.currentRx.frame.kind.toUpperCase()} from {nv.currentRx.from}</span></div>
+          <span>{nv.currentRx.frame.kind.toUpperCase()} from {nameOf(nv.currentRx.from)}</span></div>
       )}
 
       <div style={{ ...dim, marginTop: 6 }}>{L.queue} ({nv.queue.length})</div>
       <div style={{ maxHeight: 90, overflowY: 'auto', fontSize: 12 }}>
         {nv.queue.slice(0, 10).map((m) => (
           <div key={m.id} style={row}>
-            <span>#{m.id} → {m.dst}{m.inFlight && <span style={{ color: '#22d3ee', marginLeft: 6 }}>· {L.inFlight}</span>}</span>
+            <span>#{m.id} → {nameOf(m.dst)}{m.inFlight && <span style={{ color: '#22d3ee', marginLeft: 6 }}>· {L.inFlight}</span>}</span>
             <span>{m.bytes} B · {((t - m.bornNs) / 1e6).toFixed(1)} ms {L.old}</span>
           </div>
         ))}
@@ -119,13 +120,21 @@ function NodeSection({ vid, nv, t, L }: { vid: string; nv: NodeView; t: number; 
       <div style={row}><span style={dim}>{L.collisionsL}</span><span>{nv.stats.collisions}</span></div>
       <div style={row}><span style={dim}>{L.airtimeShare}</span><span>{((nv.stats.airtimeNs / Math.max(1, t)) * 100).toFixed(1)}%</span></div>
       <div style={row}><span style={dim}>{L.rxThroughput}</span><span>{((nv.stats.bytesDelivered * 8) / secs / 1e6).toFixed(2)} Mbps</span></div>
+      <div style={row}><Lbl hint={L.txLatencyHint}>{L.txLatency}</Lbl><span>{fmtLatency(nv.stats.txLatency)}</span></div>
+      <div style={row}><Lbl hint={L.rxLatencyHint}>{L.rxLatency}</Lbl><span>{fmtLatency(nv.stats.rxLatency)}</span></div>
+      {nv.stats.appRtt.n > 0 && (
+        <div style={row}><Lbl hint={L.appRttHint}>{L.appRtt}</Lbl><span>{fmtLatency(nv.stats.appRtt)} <span style={dim}>· {serverName(nv.stats.appRttServer)}</span></span></div>
+      )}
     </div>
   )
 }
 
 export function Inspector() {
   const { view, playheadNs, selectedNodeId, selectedFrame, scenario } = useUi()
-  const L = useStrings().inspector
+  const S = useStrings()
+  const L = S.inspector
+  const nameOf = (id: string): string => nodeDisplayName(scenario.nodes, id, S.frameDetail.everyone)
+  const serverName = (id: string | undefined): string => scenario.servers.find((s) => s.id === id)?.name ?? id ?? ''
   if (selectedFrame) return <FrameDetail sel={selectedFrame} />
   if (!view) return <div style={{ padding: 10, color: 'var(--dim)' }}>{L.waiting}</div>
 
@@ -145,12 +154,12 @@ export function Inspector() {
         <div style={row}><span style={dim}>{L.collisions}</span><span>{collisions}</span></div>
         <div style={row}><span style={dim}>{L.retries}</span><span>{retries}</span></div>
         <table style={{ width: '100%', marginTop: 8, fontSize: 12, borderCollapse: 'collapse' }}>
-          <thead><tr style={dim}><td>{L.node}</td><td>{L.ok}</td><td>{L.rty}</td><td>{L.airtime}</td></tr></thead>
+          <thead><tr style={dim}><td>{L.node}</td><td>{L.ok}</td><td>{L.rty}</td><td>{L.airtime}</td><td title={L.latHint} style={{ cursor: 'help' }}>{L.lat}</td><td title={L.appRttHint} style={{ cursor: 'help' }}>{L.appRtt}</td></tr></thead>
           <tbody>
             {nodes.map(([id, n]) => (
               <tr key={id}>
                 <td>
-                  {(scenario.nodes.find((x) => x.id === id.replace('#6g', ''))?.name ?? id) + (id.includes('#6g') ? ' ·6G' : '')}
+                  {nameOf(id)}
                   {n.txopUntilNs > t && (
                     <span style={{ color: '#22d3ee', marginLeft: 6 }} title={L.txopHint}>
                       {L.txop} AC_{AC_NAME[n.txopAc] ?? '?'} · {((n.txopUntilNs - t) / 1000).toFixed(0)} µs
@@ -160,10 +169,34 @@ export function Inspector() {
                 <td>{n.stats.txOk}</td>
                 <td>{n.stats.retries}</td>
                 <td>{((n.stats.airtimeNs / Math.max(1, t)) * 100).toFixed(1)}%</td>
+                <td>{n.stats.txLatency.n ? `${(n.stats.txLatency.sumNs / n.stats.txLatency.n / 1e6).toFixed(1)} ms` : '—'}</td>
+                <td>{n.stats.appRtt.n ? `${(n.stats.appRtt.sumNs / n.stats.appRtt.n / 1e6).toFixed(1)} ms` : '—'}</td>
               </tr>
             ))}
           </tbody>
         </table>
+        {scenario.servers.length > 0 && (
+          <>
+            <div style={{ ...dim, marginTop: 10 }}>{L.servers}</div>
+            <table style={{ width: '100%', marginTop: 4, fontSize: 12, borderCollapse: 'collapse' }}>
+              <thead><tr style={dim}><td>{L.serverCols.server}</td><td>{L.serverCols.kind}</td><td>{L.serverCols.rtt}</td><td>{L.serverCols.up}</td><td>{L.serverCols.down}</td></tr></thead>
+              <tbody>
+                {scenario.servers.map((s) => {
+                  const v = view.servers[s.id]
+                  return (
+                    <tr key={s.id}>
+                      <td>☁ {s.name}</td>
+                      <td>{S.serverKinds[s.kind]}</td>
+                      <td>{s.rttMs}{s.jitterMs ? `+${s.jitterMs}` : ''}{s.processMs ? ` +${s.processMs}` : ''} ms</td>
+                      <td>{v ? `${(v.bytesUp / 1024).toFixed(1)} KiB` : '—'}</td>
+                      <td>{v ? `${(v.bytesDown / 1024).toFixed(1)} KiB` : '—'}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </>
+        )}
       </div>
     )
   }
@@ -175,9 +208,9 @@ export function Inspector() {
   return (
     <div style={{ padding: 10, overflowY: 'auto' }}>
       <strong>{cfg?.name ?? phys}</strong>
-      <NodeSection vid={primary} nv={view.nodes[primary]} t={t} L={L} />
+      <NodeSection vid={primary} nv={view.nodes[primary]} t={t} L={L} nameOf={nameOf} serverName={serverName} />
       {sibling && <div style={{ borderTop: '1px solid var(--border)', marginTop: 8 }}>
-        <NodeSection vid={sibling} nv={view.nodes[sibling]} t={t} L={L} />
+        <NodeSection vid={sibling} nv={view.nodes[sibling]} t={t} L={L} nameOf={nameOf} serverName={serverName} />
       </div>}
       <div style={{ ...dim, marginTop: 8, fontSize: 11 }}>t = {fmtNs(t)} s</div>
     </div>

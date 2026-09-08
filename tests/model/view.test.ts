@@ -222,3 +222,47 @@ describe('queue view: the AC table and the queue list agree', () => {
     }
   })
 })
+
+describe('delivery latency: queue arrival to acknowledgement', () => {
+  it('credits the sender’s tx side and the receiver’s rx side with the same delay', () => {
+    const vs = initViewState(defaultScenario())
+    const records = seq([
+      { t: 10_000, type: 'ENQUEUE', node: 'sta-1', msduId: 5, bytes: 1400, dst: 'ap', depth: 1 },
+      { t: 10_000, type: 'ENQUEUE', node: 'sta-1', msduId: 6, bytes: 1400, dst: 'ap', depth: 2 },
+      { t: 61_000, type: 'TX_START', node: 'sta-1', frame },
+      { t: 293_000, type: 'TX_END', node: 'sta-1', frame },
+      { t: 293_000, type: 'RX_OK', node: 'ap', from: 'sta-1', frame },
+      { t: 310_000, type: 'DEQUEUE', node: 'sta-1', msduId: 5, depth: 1 },
+      { t: 710_000, type: 'DEQUEUE', node: 'sta-1', msduId: 6, depth: 0 },
+      { t: 720_000, type: 'DROP', node: 'sta-1', msduId: 7, reason: 'retryLimit' },
+    ])
+    for (const r of records) applyRecord(vs, r)
+    // #5: 300 µs, #6: 700 µs — the drop counts for nothing
+    expect(vs.nodes['sta-1'].stats.txLatency).toEqual({ n: 2, sumNs: 1_000_000, maxNs: 700_000 })
+    expect(vs.nodes['ap'].stats.rxLatency).toEqual({ n: 2, sumNs: 1_000_000, maxNs: 700_000 })
+    expect(vs.nodes['ap'].stats.txLatency).toEqual({ n: 0, sumNs: 0, maxNs: 0 })
+    expect(vs.nodes['sta-1'].stats.rxLatency).toEqual({ n: 0, sumNs: 0, maxNs: 0 })
+  })
+
+  it('lessons 9 and 14: every DEQUEUE is timed, drops are not, mean never exceeds max', () => {
+    for (const id of ['edca', 'capstone']) {
+      const l = LESSONS.find((x) => x.id === id)!
+      const sc = l.scenario()
+      const vs = initViewState(sc)
+      const recs = new Simulation(sc).runUntil(100_000_000).records
+      const dequeues: Record<string, number> = {}
+      for (const r of recs) {
+        applyRecord(vs, r)
+        if (r.type === 'DEQUEUE') dequeues[r.node] = (dequeues[r.node] ?? 0) + 1
+      }
+      let timed = 0
+      for (const [vid, n] of Object.entries(vs.nodes)) {
+        const tx = n.stats.txLatency
+        expect(tx.n, `${id} ${vid} tx count`).toBe(dequeues[vid] ?? 0)
+        if (tx.n) expect(tx.sumNs / tx.n, `${id} ${vid} mean ≤ max`).toBeLessThanOrEqual(tx.maxNs)
+        timed += n.stats.rxLatency.n
+      }
+      expect(timed, `${id} rx side counts every delivery`).toBe(Object.values(dequeues).reduce((s, x) => s + x, 0))
+    }
+  }, 20_000)
+})

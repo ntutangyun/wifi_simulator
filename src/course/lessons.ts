@@ -141,6 +141,9 @@ function node(
 function sc(house: { rooms: Room[]; walls: Wall[] }, nodes: NodeCfg[], extra: Partial<Scenario> = {}): Scenario {
   return {
     ...house, nodes,
+    // Lessons are about the Wi-Fi MAC: no cloud servers, so no WAN delay and
+    // every quoted timestamp stays where it is.
+    servers: [],
     seed: 7, rtsThresholdBytes: 3000, snapshotIntervalMs: 10,
     ...extra,
   }

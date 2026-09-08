@@ -17,12 +17,26 @@ export interface QueuedMsduView {
   bornNs: Ns
   /** EDCA access category it was queued in (undefined on legacy DCF nodes). */
   ac?: number
+  /** Cloud server this frame belongs to, and (replies only) the request it answers. */
+  server?: string
+  rttFromNs?: Ns
   /**
    * Handed to the PHY and not yet acknowledged. The MAC takes an MSDU off its
    * AC queue at TX start and gives it back on failure (§10.23.2.2 retry), so
    * the frame still belongs to the queue until the ACK/BA removes it.
    */
   inFlight: boolean
+}
+
+/**
+ * Delivery latency accumulator: queue arrival (ENQUEUE) to the acknowledgement
+ * that removes the MSDU (DEQUEUE). Covers queueing, AIFS, backoff and every
+ * retry; dropped frames are not timed. Mean = sumNs / n.
+ */
+export interface LatencyStats {
+  n: number
+  sumNs: Ns
+  maxNs: Ns
 }
 
 export interface NodeStats {
@@ -33,6 +47,23 @@ export interface NodeStats {
   bytesDelivered: number
   airtimeNs: Ns
   collisions: number
+  /** Frames this node queued and got acknowledged (a station's uplink; the AP's downlink as a whole). */
+  txLatency: LatencyStats
+  /** Frames delivered to this node (a station's downlink). */
+  rxLatency: LatencyStats
+  /**
+   * Application round trip seen by this station: an uplink request's birth to
+   * the delivery of the server's reply (Wi-Fi up, WAN, server, WAN, Wi-Fi down).
+   */
+  appRtt: LatencyStats
+  /** Server the app RTT was measured against (the last reply's). */
+  appRttServer?: string
+}
+
+function addLatency(l: LatencyStats, dtNs: Ns): void {
+  l.n += 1
+  l.sumNs += dtNs
+  if (dtNs > l.maxNs) l.maxNs = dtNs
 }
 
 export interface AcView {
@@ -74,10 +105,28 @@ export interface FlightView {
   endNs: Ns
 }
 
+/** A frame crossing the WAN between the AP and a cloud server. */
+export interface WanFlight {
+  server: string
+  dir: 'up' | 'down'
+  /** The station the frame is from (up) or for (down). */
+  peer: string
+  startNs: Ns
+  endNs: Ns
+}
+
+export interface ServerView {
+  bytesUp: number
+  bytesDown: number
+}
+
 export interface ViewState {
   t: Ns
   nodes: Record<string, NodeView>
   inFlight: FlightView[]
+  /** Frames currently crossing the WAN (pruned as time passes their arrival). */
+  wan: WanFlight[]
+  servers: Record<string, ServerView>
 }
 
 export interface Snapshot {
@@ -94,12 +143,18 @@ export function initViewState(sc: Scenario): ViewState {
     nodes[vid] = {
       state: 'idle', ccaBusy: false, backoff: null, cw: 15, ssrc: 0, slrc: 0,
       navUntilNs: 0, ifs: null, queue: [], currentTx: null, currentRx: null, rxSeq: {},
-      stats: { txOk: 0, txFail: 0, retries: 0, drops: 0, bytesDelivered: 0, airtimeNs: 0, collisions: 0 },
+      stats: {
+        txOk: 0, txFail: 0, retries: 0, drops: 0, bytesDelivered: 0, airtimeNs: 0, collisions: 0,
+        txLatency: { n: 0, sumNs: 0, maxNs: 0 }, rxLatency: { n: 0, sumNs: 0, maxNs: 0 },
+        appRtt: { n: 0, sumNs: 0, maxNs: 0 },
+      },
       acs: edca ? [0, 1, 2, 3].map(() => ({ backoff: null, cw: 15, queueLen: 0, ifs: null })) : null,
       txopUntilNs: 0, txopAc: -1,
     }
   }
-  return { t: 0, nodes, inFlight: [] }
+  const servers: Record<string, ServerView> = {}
+  for (const s of sc.servers) servers[s.id] = { bytesUp: 0, bytesDown: 0 }
+  return { t: 0, nodes, inFlight: [], wan: [], servers }
 }
 
 /**
@@ -174,12 +229,25 @@ export function cloneView(vs: ViewState): ViewState {
 
 export function applyRecord(vs: ViewState, r: TLRecord): void {
   vs.t = r.t
+  if (vs.wan.length && vs.wan[0].endNs <= r.t) vs.wan = vs.wan.filter((f) => f.endNs > r.t)
   switch (r.type) {
     case 'ARRIVAL':
       break
+    case 'WAN_TX': {
+      vs.wan.push({ server: r.server, dir: 'down', peer: r.to, startNs: r.t, endNs: r.arriveNs })
+      const s = vs.servers[r.server]
+      if (s) s.bytesDown += r.bytes
+      break
+    }
+    case 'WAN_RX': {
+      vs.wan.push({ server: r.server, dir: 'up', peer: r.from, startNs: r.sentNs, endNs: r.t })
+      const s = vs.servers[r.server]
+      if (s) s.bytesUp += r.bytes
+      break
+    }
     case 'ENQUEUE': {
       const n = vs.nodes[r.node]
-      n.queue.push({ id: r.msduId, bytes: r.bytes, dst: r.dst, bornNs: r.t, ac: r.ac, inFlight: false })
+      n.queue.push({ id: r.msduId, bytes: r.bytes, dst: r.dst, bornNs: r.t, ac: r.ac, inFlight: false, server: r.server, rttFromNs: r.rttFromNs })
       syncQueueLen(vs, r.node)
       break
     }
@@ -194,7 +262,20 @@ export function applyRecord(vs: ViewState, r: TLRecord): void {
           i = q.findIndex((m) => m.id === r.msduId)
         }
       }
-      if (i >= 0) q.splice(i, 1)
+      if (i >= 0) {
+        const [m] = q.splice(i, 1)
+        // MLO credits the delivering link, as txOk does; the receiver is the
+        // physical destination (its primary link holds the stats).
+        addLatency(vs.nodes[r.node].stats.txLatency, r.t - m.bornNs)
+        const rx = vs.nodes[m.dst]
+        if (rx) {
+          addLatency(rx.stats.rxLatency, r.t - m.bornNs)
+          if (m.rttFromNs !== undefined) {
+            addLatency(rx.stats.appRtt, r.t - m.rttFromNs)
+            rx.stats.appRttServer = m.server
+          }
+        }
+      }
       syncQueueLen(vs, r.node)
       break
     }

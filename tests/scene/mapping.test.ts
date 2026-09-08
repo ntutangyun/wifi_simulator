@@ -41,7 +41,11 @@ describe('scene mappings', () => {
     const base: NodeView = {
       state: 'backoff', ccaBusy: false, backoff: 5, cw: 15, ssrc: 0, slrc: 0,
       navUntilNs: 0, ifs: null, queue: [], currentTx: null, currentRx: null, rxSeq: {},
-      stats: { txOk: 0, txFail: 0, retries: 0, drops: 0, bytesDelivered: 0, airtimeNs: 0, collisions: 0 },
+      stats: {
+        txOk: 0, txFail: 0, retries: 0, drops: 0, bytesDelivered: 0, airtimeNs: 0, collisions: 0,
+        txLatency: { n: 0, sumNs: 0, maxNs: 0 }, rxLatency: { n: 0, sumNs: 0, maxNs: 0 },
+        appRtt: { n: 0, sumNs: 0, maxNs: 0 },
+      },
       acs: null, txopUntilNs: 0, txopAc: -1,
     }
     expect(statusText(base, 0)).toBe('bo:5')
@@ -75,4 +79,15 @@ it('a TXOP with no state text still lands on line two', () => {
   const nv = { state: 'tx', ccaBusy: true, backoff: null, cw: 15, ssrc: 0, slrc: 0, navUntilNs: 0, ifs: null, queue: [], currentTx: null, currentRx: null,
     rxSeq: {}, stats: { bytesDelivered: 0, txOk: 0, retries: 0, drops: 0, collisions: 0, airtimeNs: 0 }, acs: null, txopUntilNs: 2_000_000, txopAc: 2 } as unknown as Parameters<typeof labelText>[0]
   expect(labelText(nv, 1_000_000)).toBe('\nTXOP VI 1000µs')
+})
+
+describe('appLine: the apps shown under a station’s name in the 3D view', () => {
+  it('lists each stream with an icon in the chosen language; AP and idle stations show nothing', async () => {
+    const { appLine } = await import('../../src/scene/nodes')
+    const sta = { id: 's', kind: 'sta', name: 'P', pos: { x: 0, y: 0, z: 1 }, txPowerDbm: 15, profiles: ['gaming', 'video'], caps: { generation: 'he', features: {} } } as const
+    expect(appLine({ ...sta, profiles: ['gaming', 'video'] }, 'en')).toBe('🎮 game · 📺 video')
+    expect(appLine({ ...sta, profiles: ['gaming', 'video'] }, 'zh')).toBe('🎮 游戏 · 📺 视频')
+    expect(appLine({ ...sta, profiles: ['idle'] }, 'en')).toBe('')
+    expect(appLine({ ...sta, kind: 'ap', profiles: ['idle'] }, 'en')).toBe('')
+  })
 })

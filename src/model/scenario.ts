@@ -26,7 +26,7 @@ export interface Room {
   name: string
 }
 
-export type ProfileId = 'video' | 'voice' | 'backup' | 'browsing' | 'iot' | 'saturated' | 'idle'
+export type ProfileId = 'video' | 'voice' | 'gaming' | 'backup' | 'browsing' | 'iot' | 'saturated' | 'idle'
 
 /**
  * How a TXOP holder announces its burst (§9.2.5.2 / §10.23.2.8):
@@ -38,7 +38,7 @@ export type ProfileId = 'video' | 'voice' | 'backup' | 'browsing' | 'iot' | 'sat
  */
 export type TxopProtection = 'single' | 'boundary' | 'multiple'
 export const TXOP_PROTECTIONS: TxopProtection[] = ['single', 'boundary', 'multiple']
-export const PROFILE_IDS: ProfileId[] = ['video', 'voice', 'backup', 'browsing', 'iot', 'saturated', 'idle']
+export const PROFILE_IDS: ProfileId[] = ['video', 'voice', 'gaming', 'backup', 'browsing', 'iot', 'saturated', 'idle']
 
 /**
  * Canonical form of a node's stream list: no duplicates, 'idle' only when it
@@ -66,12 +66,72 @@ export interface NodeCfg {
   linkId?: '5g' | '6g'
   /** Burst protection policy when this node holds a TXOP ('single' default). */
   txopProtection?: TxopProtection
+  /** Per-stream server binding (server id); unset streams use the first server of their kind. */
+  servers?: Partial<Record<ProfileId, string>>
+  /**
+   * AP only: the router's "game acceleration" mode. Off (default) leaves game
+   * packets unmarked, so they contend as best effort (AC_BE); on, the router
+   * marks game flows into AC_VI, as the gaming modes of home routers do.
+   */
+  gameAccel?: boolean
+}
+
+/** What kind of endpoint a stream talks to beyond the AP. */
+export type ServerKind = 'video' | 'web' | 'call' | 'game'
+export const SERVER_KINDS: ServerKind[] = ['video', 'web', 'call', 'game']
+
+/**
+ * A cloud endpoint: an application server reached through the AP's WAN link,
+ * modelled as a fixed one-way delay of rttMs/2 in each direction.
+ */
+export interface ServerCfg {
+  id: string
+  kind: ServerKind
+  name: string
+  /** Base WAN round trip AP ↔ server. */
+  rttMs: number
+  /** WAN jitter: each packet's RTT is drawn uniformly in [rttMs, rttMs + jitterMs] (half per direction). */
+  jitterMs: number
+  /** Server processing time before it answers a request or echoes a ping. */
+  processMs: number
+}
+
+export const DEFAULT_SERVERS: ServerCfg[] = [
+  { id: 'srv-video', kind: 'video', name: 'YouTube', rttMs: 20, jitterMs: 2, processMs: 1 },
+  { id: 'srv-web', kind: 'web', name: 'Google', rttMs: 12, jitterMs: 2, processMs: 5 },
+  { id: 'srv-call', kind: 'call', name: 'Call server', rttMs: 40, jitterMs: 5, processMs: 1 },
+  { id: 'srv-game', kind: 'game', name: 'Game server', rttMs: 25, jitterMs: 3, processMs: 2 },
+]
+
+/** Server kind a traffic profile talks to; null for pure-Wi-Fi stress profiles. */
+export function serverKindFor(profile: ProfileId): ServerKind | null {
+  switch (profile) {
+    case 'video': return 'video'
+    case 'browsing':
+    case 'backup':
+    case 'iot': return 'web'
+    case 'voice': return 'call'
+    case 'gaming': return 'game'
+    case 'saturated':
+    case 'idle': return null
+  }
+}
+
+/** The server a station's stream uses: its explicit binding, else the first of the kind, else none. */
+export function serverFor(sc: Pick<Scenario, 'servers'>, n: NodeCfg, profile: ProfileId): ServerCfg | null {
+  const bound = n.servers?.[profile]
+  if (bound) return sc.servers.find((s) => s.id === bound) ?? null
+  const kind = serverKindFor(profile)
+  if (!kind) return null
+  return sc.servers.find((s) => s.kind === kind) ?? null
 }
 
 export interface Scenario {
   rooms: Room[]
   walls: Wall[]
   nodes: NodeCfg[]
+  /** Cloud endpoints; empty means every stream is purely local (no WAN delay, no app RTT). */
+  servers: ServerCfg[]
   seed: number
   /** dot11RTSThreshold in PSDU octets. */
   rtsThresholdBytes: number
@@ -99,7 +159,7 @@ const RoomSchema = z.object({
 
 const Vec3Schema = z.object({ x: z.number(), y: z.number(), z: z.number() })
 
-const ProfileSchema = z.enum(['video', 'voice', 'backup', 'browsing', 'iot', 'saturated', 'idle'])
+const ProfileSchema = z.enum(['video', 'voice', 'gaming', 'backup', 'browsing', 'iot', 'saturated', 'idle'])
 
 /** Scenarios saved before multi-stream support carry a single `profile`. */
 function migrateLegacyProfile(raw: unknown): unknown {
@@ -125,14 +185,27 @@ const NodeCfgSchema = z.preprocess(
     }),
     linkId: z.enum(['5g', '6g']).optional(),
     txopProtection: z.enum(['single', 'boundary', 'multiple']).optional(),
+    servers: z.record(ProfileSchema, z.string()).optional(),
+    gameAccel: z.boolean().optional(),
   }),
 )
+
+const ServerSchema = z.object({
+  id: z.string().min(1),
+  kind: z.enum(['video', 'web', 'call', 'game']),
+  name: z.string(),
+  rttMs: z.number().min(0),
+  jitterMs: z.number().min(0).default(0),
+  processMs: z.number().min(0).default(0),
+})
 
 export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
   .object({
     rooms: z.array(RoomSchema),
     walls: z.array(WallSchema),
     nodes: z.array(NodeCfgSchema),
+    /** Scenarios saved before cloud servers existed get the defaults. */
+    servers: z.array(ServerSchema).default(() => DEFAULT_SERVERS.map((s) => ({ ...s }))),
     seed: z.number().int(),
     rtsThresholdBytes: z.number().int().min(0),
     snapshotIntervalMs: z.number().int().positive(),
@@ -148,6 +221,16 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
         ctx.addIssue({ code: z.ZodIssueCode.custom, message: `duplicate node id "${n.id}"` })
       }
       ids.add(n.id)
+    }
+    const serverIds = new Set<string>()
+    for (const s of sc.servers) {
+      if (serverIds.has(s.id)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `duplicate server id "${s.id}"` })
+      serverIds.add(s.id)
+    }
+    for (const n of sc.nodes) {
+      for (const [profile, sid] of Object.entries(n.servers ?? {})) {
+        if (!serverIds.has(sid)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `node "${n.id}" binds ${profile} to unknown server "${sid}"` })
+      }
     }
   })
 
@@ -192,6 +275,7 @@ export function defaultScenario(): Scenario {
         caps: { generation: 'vht', features: { edca: true, ampdu: true, txop: true } },
       },
     ],
+    servers: DEFAULT_SERVERS.map((s) => ({ ...s })),
     seed: 42,
     rtsThresholdBytes: 3000,
     snapshotIntervalMs: 10,
