@@ -287,3 +287,17 @@ export function spanTooltip(s: LaneSpan, T: Strings['tooltips'], t?: Ns): string
       return [`${T.sifsWait} · ${dur}`]
   }
 }
+
+/**
+ * Fit a lane label into `maxPx` using the caller's text measure. The suffix
+ * (the MLO band tag " · 6G") is never cut: it is what tells the two lanes of one
+ * device apart, so the name is what gets shortened, with an ellipsis.
+ */
+export function fitLaneLabel(name: string, suffix: string, maxPx: number, measure: (s: string) => number): string {
+  if (measure(name + suffix) <= maxPx) return name + suffix
+  for (let n = name.length - 1; n > 0; n--) {
+    const cut = name.slice(0, n).trimEnd() + '…'
+    if (measure(cut + suffix) <= maxPx) return cut + suffix
+  }
+  return '…' + suffix
+}

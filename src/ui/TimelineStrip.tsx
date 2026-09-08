@@ -1,17 +1,36 @@
 import { useEffect, useRef, useState } from 'react'
 import { player, useUi } from './store'
-import { recordsToSpans, spanTooltip, topSpanAt, xForT, type LaneSpan } from './laneLayout'
+import { fitLaneLabel, recordsToSpans, spanTooltip, topSpanAt, xForT, type LaneSpan } from './laneLayout'
 import { fmtNs } from './format'
 import { useStrings } from './i18n'
 import { linkPlanFor, physicalId } from '../model/caps'
 import type { ViewState } from '../model/view'
 
-const GUTTER = 96
+const GUTTER = 118
+const LABEL_PAD = 6
 const AXIS_H = 18
 const LEGEND_H = 22
 const MIN_SPAN = 100_000 // 100 µs visible
 const MAX_SPAN = 1_000_000_000 // 1 s visible
 const MARGIN = 50_000_000 // fetch 50 ms of records before the window
+/** Narrowest block that still gets a '5G'/'6G' tag drawn inside it. */
+const BAND_TAG_MIN_W = 30
+
+/**
+ * Stamp the band inside a block, right-aligned, so a frame can be told apart
+ * from its MLO twin without reading the lane label. Skipped on single-band
+ * scenarios (empty tag) and on blocks too narrow to hold it.
+ */
+function drawBandTag(ctx: CanvasRenderingContext2D, tag: string, xRight: number, yMid: number, w: number, color: string): void {
+  if (!tag || w < BAND_TAG_MIN_W) return
+  ctx.save()
+  ctx.font = 'bold 9px "Segoe UI"'
+  ctx.textAlign = 'right'
+  ctx.textBaseline = 'middle'
+  ctx.fillStyle = color
+  ctx.fillText(tag, xRight - 3, yMid)
+  ctx.restore()
+}
 const SEED_QUANT = 10_000_000 // seed-snapshot boundary (matches snapshotIntervalMs)
 
 const SPAN_COLORS: Record<LaneSpan['kind'], string> = {
@@ -53,11 +72,14 @@ export function TimelineStrip() {
 
   const plan = linkPlanFor(scenario.nodes)
   const nodeIds = plan.virtualIds
-  const laneLabel = (vid: string): string => {
+  /** '5G' / '6G' when the scenario has two links, else '' (single-band: nothing to tell apart). */
+  const bandTag = (vid: string): string => plan.links.length < 2 ? '' : vid.includes('#6g') ? '6G' : '5G'
+  /** [name, band suffix] — the suffix must survive truncation (see fitLaneLabel). */
+  const laneLabel = (vid: string): [string, string] => {
     const cfg = scenario.nodes.find((n) => n.id === physicalId(vid))
     const name = cfg?.name ?? vid
-    if (plan.links.length < 2) return name
-    return `${name} · ${vid.includes('#6g') ? '6G' : '5G'}`
+    if (plan.links.length < 2) return [name, '']
+    return [name, ` · ${vid.includes('#6g') ? '6G' : '5G'}`]
   }
 
   useEffect(() => {
@@ -121,8 +143,8 @@ export function TimelineStrip() {
       ctx.fillStyle = '#8a93a3'
       ctx.font = '11px "Segoe UI"'
       ctx.textBaseline = 'middle'
-      const name = laneLabel(vid)
-      ctx.fillText(name.length > 14 ? name.slice(0, 14) + '…' : name, 6, y + laneH / 2)
+      const [name, suffix] = laneLabel(vid)
+      ctx.fillText(fitLaneLabel(name, suffix, GUTTER - 2 * LABEL_PAD, (t) => ctx.measureText(t).width), LABEL_PAD, y + laneH / 2)
     })
 
     // spans — fetch past both window edges so blocks crossing them keep their
@@ -154,11 +176,13 @@ export function TimelineStrip() {
           ctx.font = '9px Consolas'
           ctx.fillText(`×${s.frame.ampdu.mpduCount}`, x0 + 3, y + laneH * 0.42)
         }
+        drawBandTag(ctx, bandTag(s.nodeId), x1, y + laneH * 0.42, w, 'rgba(0,0,0,0.45)')
       } else if (s.kind === 'rx') {
         ctx.fillStyle = SPAN_COLORS.rx
         ctx.globalAlpha = 0.5
         ctx.fillRect(x0, y + laneH * 0.3, w, laneH * 0.4)
         ctx.globalAlpha = 1
+        drawBandTag(ctx, bandTag(s.nodeId), x1, y + laneH * 0.5, w, 'rgba(255,255,255,0.55)')
       } else if (s.kind === 'nav') {
         ctx.fillStyle = SPAN_COLORS.nav
         ctx.fillRect(x0, y + laneH * 0.82, w, laneH * 0.1)
@@ -238,7 +262,10 @@ export function TimelineStrip() {
     const rect = canvasRef.current!.getBoundingClientRect()
     return {
       x: e.clientX - rect.left + 12, y: e.clientY - rect.top - 8,
-      lines: spanTooltip(hit.span, L.tooltips, hit.t),
+      lines: [
+        ...spanTooltip(hit.span, L.tooltips, hit.t),
+        ...(bandTag(hit.span.nodeId) ? [hit.span.nodeId.includes('#6g') ? L.inspector.link6 : L.inspector.link5] : []),
+      ],
     }
   }
 
