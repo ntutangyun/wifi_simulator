@@ -24,6 +24,10 @@ export interface Msdu {
    * trip: Wi-Fi up, WAN, server, WAN, Wi-Fi down.
    */
   rttFromNs?: Ns
+  /** Phone-to-phone: the station this uplink frame is ultimately for; the AP forwards it there. */
+  finalDst?: string
+  /** Forwarded phone-to-phone frame: birth time at the originating station. */
+  relayFromNs?: Ns
 }
 
 /** The stream's cloud endpoint, as one-way figures: base WAN delay, jitter span, processing time. */
@@ -42,6 +46,8 @@ export interface TrafficOpts {
   emit?: EmitFn | null
   /** The router's game acceleration: game flows marked AC_VI instead of unmarked AC_BE. */
   gameAccel?: boolean
+  /** p2pvideo: the station the video is for. */
+  p2pTarget?: string
 }
 
 /** 64 B ping to the stream's server every 250 ms (±25 ms): what a game's ping counter measures. */
@@ -61,6 +67,7 @@ export function acForProfile(profile: ProfileId): number {
   switch (profile) {
     case 'voice': return 3 // AC_VO
     case 'video':
+    case 'p2pvideo':
     case 'gaming': return 2 // AC_VI (where WMM-aware routers and consoles put game traffic)
     case 'browsing':
     case 'saturated': return 1 // AC_BE
@@ -89,7 +96,10 @@ export class TrafficSource {
     this.server = opts.server ?? null
     this.emit = opts.emit ?? null
     this.gameAccel = opts.gameAccel ?? false
+    this.p2pTarget = opts.p2pTarget ?? null
   }
+
+  private readonly p2pTarget: string | null
 
   private readonly server: ServerLink | null
   private readonly emit: EmitFn | null
@@ -115,6 +125,9 @@ export class TrafficSource {
       case 'gaming':
         this.scheduleGaming()
         if (this.server) this.scheduleGameServer()
+        break
+      case 'p2pvideo':
+        if (this.p2pTarget) this.scheduleP2pVideo(0)
         break
       case 'backup':
         this.q.schedule(Math.floor(this.rng.next() * 60 * MS), () => this.backupBurst())
@@ -240,6 +253,16 @@ export class TrafficSource {
       this.emitUl(200)
       if (!this.server) this.emitDl(200)
       this.scheduleVoice()
+    })
+  }
+
+  /** ~8 Mb/s phone-to-phone video (720p share): 1400 B every 1.4 ms + jitter, uplink, for the target phone. */
+  private scheduleP2pVideo(t: Ns): void {
+    const next = t + 1_400 * US + Math.floor(this.rng.next() * 300 * US)
+    this.q.schedule(next, () => {
+      const id = nextMsduId++
+      this.enqueue(this.staId, { id, bytes: 1400, src: this.staId, dst: this.apId, bornNs: this.now(), ac: this.ac, finalDst: this.p2pTarget! })
+      this.scheduleP2pVideo(next)
     })
   }
 

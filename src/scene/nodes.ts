@@ -6,7 +6,7 @@ import { STRINGS, type Lang } from '../ui/i18n'
 
 /** Icon per app for the label line under a station's name. */
 const APP_ICON: Record<ProfileId, string> = {
-  video: '📺', voice: '📞', gaming: '🎮', backup: '💾', browsing: '🌐', iot: '📡', saturated: '⬆', idle: '',
+  video: '📺', voice: '📞', gaming: '🎮', p2pvideo: '📲', backup: '💾', browsing: '🌐', iot: '📡', saturated: '⬆', idle: '',
 }
 
 /** "🎮 game · 📺 video" for a station; empty for the AP and idle stations. */

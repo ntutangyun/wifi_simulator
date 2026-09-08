@@ -63,6 +63,8 @@ export interface Strings {
     servers: string; addServer: string; serverName: string; serverKind: string; serverRtt: string; serverRttHint: string; deleteServer: string
     streamServer: string; households: string; householdsPick: string
     gameAccel: string; gameAccelHint: string
+    p2pTarget: string; p2pTargetHint: string;
+    tamper: string; tamperHint: string; tamperKinds: Record<'none' | 'custom' | 'escalate' | 'aifs' | 'cw' | 'noDouble' | 'txopHog' | 'navInflate' | 'greedy', string>
     serverJitter: string; serverJitterHint: string; serverProcess: string; serverProcessHint: string
     traffic: string; txPower: string; height: string
     txopProt: string; txopProtHint: string
@@ -88,7 +90,7 @@ export interface Strings {
     stats: string; framesDelivered: string; retriesDrops: string; collisionsL: string
     airtimeShare: string; rxThroughput: string
     txLatency: string; txLatencyHint: string; rxLatency: string; rxLatencyHint: string
-    appRtt: string; appRttHint: string; servers: string; serverCols: { server: string; kind: string; rtt: string; up: string; down: string }
+    appRtt: string; appRttHint: string; relayLatency: string; relayLatencyHint: string; servers: string; serverCols: { server: string; kind: string; rtt: string; up: string; down: string }
   }
   log: { empty: string }
   profiles: Record<ProfileId, string>
@@ -217,6 +219,18 @@ export const STRINGS: Record<Lang, Strings> = {
       deleteServer: '🗑 Delete server', streamServer: 'server', households: '🏠 Households', householdsPick: 'load a household…',
       serverJitter: 'WAN jitter', serverJitterHint: 'each packet’s round trip is drawn between RTT and RTT + jitter (half of it per direction)',
       serverProcess: 'Processing', serverProcessHint: 'time the server takes to answer a request or echo a ping',
+      p2pTarget: 'to', p2pTargetHint: 'the phone this video is for; the AP forwards every frame it receives',
+      tamper: '⚠ Tampered driver', tamperHint: 'This station ignores the EDCA parameters the AP broadcast. Pick a cheat to see what it buys the cheater and costs everyone else.',
+      tamperKinds: {
+        none: 'compliant', custom: 'custom',
+        escalate: 'priority escalation — every frame sent as AC_VO',
+        aifs: 'AIFS floor — AIFSN 1 for every class',
+        cw: 'CW collapse — no random backoff (CW 0)',
+        noDouble: 'no doubling — CW never grows after a collision',
+        txopHog: 'TXOP hog — holds the medium 8 ms per access',
+        navInflate: 'NAV inflation — Duration field padded by 3 ms',
+        greedy: 'greedy — all of the above (the classic cheat)',
+      },
       gameAccel: '🎮 Game acceleration', gameAccelHint: 'Router gaming mode: game flows are marked into AC_VI. Off, game packets carry no DSCP mark and contend as best effort (AC_BE) like everything else.',
       traffic: 'Traffic', txPower: 'Tx power', height: 'Height',
       txopProt: 'TXOP protection',
@@ -254,14 +268,15 @@ export const STRINGS: Record<Lang, Strings> = {
       txLatency: 'tx latency', txLatencyHint: 'mean / max time from a frame entering this node’s queue to its ACK or BlockAck — queueing, AIFS, backoff and every retry included; dropped frames are not timed',
       rxLatency: 'rx latency', rxLatencyHint: 'mean / max delivery latency of the frames sent to this node, timed at the sender’s queue',
       appRtt: 'RTT (ping)', appRttHint: 'mean / max round trip of this station’s pings to its cloud server, sent four times a second on the stream’s access category and echoed at once: Wi-Fi up, WAN, Wi-Fi down — what a game’s ping counter shows',
-      servers: 'cloud servers', serverCols: { server: 'server', kind: 'kind', rtt: 'WAN RTT (+jitter, +proc)', up: 'up', down: 'down' },
+      relayLatency: 'phone-to-phone', relayLatencyHint: 'mean / max latency of video frames another phone sends to this one: sender’s queue → AP → this phone, two Wi-Fi hops plus AP forwarding',
+      servers: 'cloud servers', serverCols: { server: 'server', kind: 'kind', rtt: 'WAN RTT', up: 'up', down: 'down' },
     },
     log: { empty: 'no events in window' },
     profiles: {
-      video: 'video streaming (DL, AC_VI)', voice: 'voice call (2-way, AC_VO)', gaming: 'online gaming (2-way 60 Hz, AC_VI)', backup: 'cloud backup (UL, AC_BK)',
+      video: 'video streaming (DL, AC_VI)', voice: 'voice call (2-way, AC_VO)', gaming: 'online gaming (2-way 60 Hz, AC_VI)', p2pvideo: 'video to another phone (via the AP, AC_VI)', backup: 'cloud backup (UL, AC_BK)',
       browsing: 'web browsing (AC_BE)', iot: 'IoT sensor (AC_BK)', saturated: 'saturated upload (AC_BE)', idle: 'idle',
     },
-    appShort: { video: 'video', voice: 'call', gaming: 'game', backup: 'backup', browsing: 'web', iot: 'sensor', saturated: 'upload', idle: '' },
+    appShort: { video: 'video', voice: 'call', gaming: 'game', p2pvideo: 'share', backup: 'backup', browsing: 'web', iot: 'sensor', saturated: 'upload', idle: '' },
     serverKinds: { video: 'video (streaming)', web: 'web / cloud', call: 'call', game: 'game' },
     generations: {
       nonht: '802.11a (legacy)', vht: 'Wi-Fi 5 (VHT)', he: 'Wi-Fi 6 (HE)', eht: 'Wi-Fi 7 (EHT)',
@@ -433,6 +448,18 @@ export const STRINGS: Record<Lang, Strings> = {
       deleteServer: '🗑 删除服务器', streamServer: '服务器', households: '🏠 家庭场景', householdsPick: '载入一个家庭场景…',
       serverJitter: '广域网抖动', serverJitterHint: '每个报文的往返时延在 RTT 与 RTT + 抖动之间随机（每个方向各一半）',
       serverProcess: '处理时间', serverProcessHint: '服务器响应请求或回显 ping 所需的时间',
+      p2pTarget: '发给', p2pTargetHint: '接收这路视频的手机；AP 收到每一帧后转发给它',
+      tamper: '⚠ 篡改驱动', tamperHint: '该终端无视 AP 广播的 EDCA 参数。选择一种作弊方式，看看它给作弊者带来什么、让其他人付出什么。',
+      tamperKinds: {
+        none: '合规', custom: '自定义',
+        escalate: '优先级提升——所有帧都按 AC_VO 发送',
+        aifs: 'AIFS 压底——所有类别 AIFSN 取 1',
+        cw: '竞争窗口坍缩——不做随机退避（CW 0）',
+        noDouble: '不加倍——碰撞后 CW 从不增大',
+        txopHog: 'TXOP 霸占——每次接入占用信道 8 ms',
+        navInflate: 'NAV 虚报——Duration 字段多报 3 ms',
+        greedy: '贪婪——以上全部（经典作弊）',
+      },
       gameAccel: '🎮 游戏加速', gameAccelHint: '路由器游戏模式：把游戏流量标记进 AC_VI。关闭时游戏报文没有 DSCP 标记，和其他流量一样按尽力而为（AC_BE）竞争。',
       traffic: '业务', txPower: '发射功率', height: '高度',
       txopProt: 'TXOP 保护',
@@ -470,14 +497,15 @@ export const STRINGS: Record<Lang, Strings> = {
       txLatency: '发送时延', txLatencyHint: '帧进入本节点队列到收到 ACK/BlockAck 的平均 / 最大时间——包含排队、AIFS、退避与全部重传；被丢弃的帧不计',
       rxLatency: '接收时延', rxLatencyHint: '发往本节点的帧的平均 / 最大交付时延，从发送方的队列开始计时',
       appRtt: 'RTT（ping）', appRttHint: '本终端向云服务器发送的 ping 的平均 / 最大往返时延：每秒 4 次、走该业务的接入类别、服务器即时回显——Wi-Fi 上行、广域网、Wi-Fi 下行，即游戏里显示的 ping 值',
-      servers: '云服务器', serverCols: { server: '服务器', kind: '类型', rtt: '广域网 RTT（+抖动，+处理）', up: '上行', down: '下行' },
+      relayLatency: '手机互传', relayLatencyHint: '另一部手机发给本机的视频帧的平均 / 最大时延：发送方队列 → AP → 本机，两跳 Wi-Fi 加 AP 转发',
+      servers: '云服务器', serverCols: { server: '服务器', kind: '类型', rtt: '广域网 RTT', up: '上行', down: '下行' },
     },
     log: { empty: '窗口内无事件' },
     profiles: {
-      video: '视频流（下行，AC_VI）', voice: '语音通话（双向，AC_VO）', gaming: '在线游戏（双向 60 Hz，AC_VI）', backup: '云备份（上行，AC_BK）',
+      video: '视频流（下行，AC_VI）', voice: '语音通话（双向，AC_VO）', gaming: '在线游戏（双向 60 Hz，AC_VI）', p2pvideo: '向另一部手机传视频（经 AP，AC_VI）', backup: '云备份（上行，AC_BK）',
       browsing: '网页浏览（AC_BE）', iot: '物联网传感器（AC_BK）', saturated: '饱和上传（AC_BE）', idle: '空闲',
     },
-    appShort: { video: '视频', voice: '通话', gaming: '游戏', backup: '备份', browsing: '网页', iot: '传感', saturated: '上传', idle: '' },
+    appShort: { video: '视频', voice: '通话', gaming: '游戏', p2pvideo: '投送', backup: '备份', browsing: '网页', iot: '传感', saturated: '上传', idle: '' },
     serverKinds: { video: '视频（流媒体）', web: '网页 / 云', call: '通话', game: '游戏' },
     generations: {
       nonht: '802.11a（传统）', vht: 'Wi-Fi 5 (VHT)', he: 'Wi-Fi 6 (HE)', eht: 'Wi-Fi 7 (EHT)',

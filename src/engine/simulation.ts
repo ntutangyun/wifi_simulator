@@ -115,6 +115,7 @@ export class Simulation {
             },
             reachable: (peer) => memberSet.has(peer),
             txopProtection: n.txopProtection ?? 'single',
+            tamper: n.kind === 'sta' ? n.tamper : undefined,
             ampduWith: (peer) => negotiated(n, other(n, peer), 'ampdu'),
             ofdmaWith: (peer) => negotiated(n, other(n, peer), 'ofdma'),
             ulBacklog: n.kind === 'ap'
@@ -135,6 +136,13 @@ export class Simulation {
                 s.refill()
                 s.onUplinkDelivered(msduId, this.nowNs) // reaches its cloud server one WAN delay later
               }
+              const relay = relayPending.get(msduId)
+              if (relay && n.kind === 'sta') {
+                // phone-to-phone: the AP forwards the acknowledged frame to its final station
+                relayPending.delete(msduId)
+                const at = this.nowNs + RELAY_FWD_NS
+                this.q.schedule(at, () => enqueue(ap.id, { id: msduId, bytes: relay.bytes, src: ap.id, dst: relay.finalDst!, bornNs: at, ac: relay.ac, relayFromNs: relay.bornNs }))
+              }
             },
           },
           queuesOf.get(n.id),
@@ -150,10 +158,15 @@ export class Simulation {
       const links = plan.members['5g'].includes(id) ? '5g' : '6g'
       return this.macs.get(virtualId(id, links))!
     }
+    /** Uplink MSDUs bound for another station, by id: forwarded by the AP once acknowledged. */
+    const relayPending = new Map<number, Msdu>()
+    const RELAY_FWD_NS = 50_000 // AP forwarding latency
     const enqueue = (atNode: string, msdu: Msdu) => {
+      if (msdu.finalDst) relayPending.set(msdu.id, msdu)
       const staId = atNode === ap.id ? msdu.dst : atNode
       const sta = byId.get(staId)
-      const ac = msdu.ac
+      // a tampered driver may re-mark its own (uplink) frames; it cannot touch the AP's
+      const ac = atNode !== ap.id && sta?.tamper?.allAsAc !== undefined ? sta.tamper.allAsAc : msdu.ac
       baseEmit({ t: this.nowNs, type: 'ARRIVAL', node: virtualId(atNode, plan.members['5g'].includes(atNode) ? '5g' : '6g'), msduId: msdu.id, bytes: msdu.bytes, dst: msdu.dst })
       primaryMac(atNode).enqueue(msdu, ac)
       // MLO: wake the sibling link's MAC; OFDMA: poke the AP scheduler.
@@ -176,7 +189,7 @@ export class Simulation {
         const link = server
           ? { id: server.id, wanNs: Math.round(server.rttMs * 500_000), jitterNs: Math.round(server.jitterMs * 1_000_000), processNs: Math.round(server.processMs * 1_000_000) }
           : null
-        const src = new TrafficSource(this.q, () => this.nowNs, rng, n.id, ap.id, profile, enqueue, { server: link, emit: baseEmit, gameAccel: ap.gameAccel === true })
+        const src = new TrafficSource(this.q, () => this.nowNs, rng, n.id, ap.id, profile, enqueue, { server: link, emit: baseEmit, gameAccel: ap.gameAccel === true, p2pTarget: n.p2pTarget })
         list.push(src)
         src.start()
       })

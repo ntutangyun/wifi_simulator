@@ -165,6 +165,21 @@ export const HOUSEHOLDS: Household[] = [
     ]),
   },
   {
+    id: 'video-share',
+    title: { en: 'Phone-to-phone video', zh: '手机互传视频' },
+    blurb: {
+      en: 'A Xiaomi 17 Ultra casts 8 Mb/s of video to an Honor Magic8 Pro across the flat: every frame goes up to the AP and back down. Meanwhile the TV streams and someone is on a call. Watch the receiver’s phone-to-phone latency.',
+      zh: '小米 17 Ultra 向另一房间的荣耀 Magic8 Pro 投送 8 Mb/s 视频：每一帧先上行到 AP 再下行。同时电视在播视频，有人在通话。观察接收方的"手机互传"时延。',
+    },
+    scenario: () => sc(threeRooms(), [
+      ap(4, 4),
+      { ...phone('xiaomi-17-ultra', 'sta-1', 1.5, 2, ['p2pvideo']), p2pTarget: 'sta-2' },
+      phone('honor-magic8-pro', 'sta-2', 10.5, 6, ['idle']),
+      device('sta-3', 'TV (Wi-Fi 6)', 5, 7, 'he', ['video']),
+      phone('apple-iphone-17-pro', 'sta-4', 7.5, 2, ['voice']),
+    ]),
+  },
+  {
     id: 'full-house',
     title: { en: 'Full house', zh: '满屋子人' },
     blurb: {

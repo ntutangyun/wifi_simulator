@@ -20,6 +20,8 @@ export interface QueuedMsduView {
   /** Cloud server this frame belongs to, and (replies only) the request it answers. */
   server?: string
   rttFromNs?: Ns
+  /** Forwarded phone-to-phone frame: birth time at the originating station. */
+  relayFromNs?: Ns
   /**
    * Handed to the PHY and not yet acknowledged. The MAC takes an MSDU off its
    * AC queue at TX start and gives it back on failure (§10.23.2.2 retry), so
@@ -58,6 +60,8 @@ export interface NodeStats {
   appRtt: LatencyStats
   /** Server the app RTT was measured against (the last reply's). */
   appRttServer?: string
+  /** Phone-to-phone video delivered to this station: birth at the sender → delivery here (two Wi-Fi hops). */
+  relayLatency: LatencyStats
 }
 
 function addLatency(l: LatencyStats, dtNs: Ns): void {
@@ -146,7 +150,7 @@ export function initViewState(sc: Scenario): ViewState {
       stats: {
         txOk: 0, txFail: 0, retries: 0, drops: 0, bytesDelivered: 0, airtimeNs: 0, collisions: 0,
         txLatency: { n: 0, sumNs: 0, maxNs: 0 }, rxLatency: { n: 0, sumNs: 0, maxNs: 0 },
-        appRtt: { n: 0, sumNs: 0, maxNs: 0 },
+        appRtt: { n: 0, sumNs: 0, maxNs: 0 }, relayLatency: { n: 0, sumNs: 0, maxNs: 0 },
       },
       acs: edca ? [0, 1, 2, 3].map(() => ({ backoff: null, cw: 15, queueLen: 0, ifs: null })) : null,
       txopUntilNs: 0, txopAc: -1,
@@ -247,7 +251,7 @@ export function applyRecord(vs: ViewState, r: TLRecord): void {
     }
     case 'ENQUEUE': {
       const n = vs.nodes[r.node]
-      n.queue.push({ id: r.msduId, bytes: r.bytes, dst: r.dst, bornNs: r.t, ac: r.ac, inFlight: false, server: r.server, rttFromNs: r.rttFromNs })
+      n.queue.push({ id: r.msduId, bytes: r.bytes, dst: r.dst, bornNs: r.t, ac: r.ac, inFlight: false, server: r.server, rttFromNs: r.rttFromNs, relayFromNs: r.relayFromNs })
       syncQueueLen(vs, r.node)
       break
     }
@@ -274,6 +278,7 @@ export function applyRecord(vs: ViewState, r: TLRecord): void {
             addLatency(rx.stats.appRtt, r.t - m.rttFromNs)
             rx.stats.appRttServer = m.server
           }
+          if (m.relayFromNs !== undefined) addLatency(rx.stats.relayLatency, r.t - m.relayFromNs)
         }
       }
       syncQueueLen(vs, r.node)

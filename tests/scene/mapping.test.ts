@@ -44,7 +44,7 @@ describe('scene mappings', () => {
       stats: {
         txOk: 0, txFail: 0, retries: 0, drops: 0, bytesDelivered: 0, airtimeNs: 0, collisions: 0,
         txLatency: { n: 0, sumNs: 0, maxNs: 0 }, rxLatency: { n: 0, sumNs: 0, maxNs: 0 },
-        appRtt: { n: 0, sumNs: 0, maxNs: 0 },
+        appRtt: { n: 0, sumNs: 0, maxNs: 0 }, relayLatency: { n: 0, sumNs: 0, maxNs: 0 },
       },
       acs: null, txopUntilNs: 0, txopAc: -1,
     }

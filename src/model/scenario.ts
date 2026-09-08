@@ -26,7 +26,7 @@ export interface Room {
   name: string
 }
 
-export type ProfileId = 'video' | 'voice' | 'gaming' | 'backup' | 'browsing' | 'iot' | 'saturated' | 'idle'
+export type ProfileId = 'video' | 'voice' | 'gaming' | 'p2pvideo' | 'backup' | 'browsing' | 'iot' | 'saturated' | 'idle'
 
 /**
  * How a TXOP holder announces its burst (§9.2.5.2 / §10.23.2.8):
@@ -38,7 +38,7 @@ export type ProfileId = 'video' | 'voice' | 'gaming' | 'backup' | 'browsing' | '
  */
 export type TxopProtection = 'single' | 'boundary' | 'multiple'
 export const TXOP_PROTECTIONS: TxopProtection[] = ['single', 'boundary', 'multiple']
-export const PROFILE_IDS: ProfileId[] = ['video', 'voice', 'gaming', 'backup', 'browsing', 'iot', 'saturated', 'idle']
+export const PROFILE_IDS: ProfileId[] = ['video', 'voice', 'gaming', 'p2pvideo', 'backup', 'browsing', 'iot', 'saturated', 'idle']
 
 /**
  * Canonical form of a node's stream list: no duplicates, 'idle' only when it
@@ -47,6 +47,48 @@ export const PROFILE_IDS: ProfileId[] = ['video', 'voice', 'gaming', 'backup', '
 export function normalizeProfiles(list: readonly ProfileId[]): ProfileId[] {
   const out = [...new Set(list)].filter((p) => p !== 'idle')
   return out.length ? out : ['idle']
+}
+
+/**
+ * A tampered driver: how a station deviates from the EDCA parameters the AP
+ * broadcast. Every field is optional; unset means "obeys the standard".
+ */
+export interface TamperCfg {
+  /** Send every frame in this access category regardless of the stream's real class (3 = AC_VO). */
+  allAsAc?: number
+  /** Use this AIFSN for every category (the standard floor for a station is 2; 1 is reserved for the AP). */
+  aifsn?: number
+  /** Contention window bounds for every category (0/0 = no random backoff at all). */
+  cwMin?: number
+  cwMax?: number
+  /** Never double the window after a collision or a lost ACK (cwMax pinned to cwMin). */
+  noDoubling?: boolean
+  /** Hold the medium this long per TXOP, whatever the category's limit. */
+  txopLimitUs?: number
+  /** Add this to the Duration field of its own frames so neighbours set a longer NAV. */
+  navInflateUs?: number
+}
+
+export type TamperKind = 'escalate' | 'aifs' | 'cw' | 'noDouble' | 'txopHog' | 'navInflate' | 'greedy'
+export const TAMPER_KINDS: TamperKind[] = ['escalate', 'aifs', 'cw', 'noDouble', 'txopHog', 'navInflate', 'greedy']
+
+/** Named cheats, from the subtle to the brazen. `greedy` is the patent draft's violator. */
+export const TAMPER_PRESETS: Record<TamperKind, TamperCfg> = {
+  escalate: { allAsAc: 3 },
+  aifs: { aifsn: 1 },
+  cw: { cwMin: 0, cwMax: 0 },
+  noDouble: { noDoubling: true },
+  txopHog: { txopLimitUs: 8000 },
+  navInflate: { navInflateUs: 3000 },
+  greedy: { allAsAc: 3, aifsn: 1, cwMin: 0, cwMax: 0, txopLimitUs: 8000 },
+}
+
+/** Which named cheat a config is, if it equals one exactly. */
+export function tamperKindOf(t: TamperCfg | undefined): TamperKind | 'custom' | 'none' {
+  if (!t) return 'none'
+  const key = JSON.stringify(t)
+  for (const k of TAMPER_KINDS) if (JSON.stringify(TAMPER_PRESETS[k]) === key) return k
+  return 'custom'
 }
 
 export interface NodeCfg {
@@ -74,6 +116,10 @@ export interface NodeCfg {
    * marks game flows into AC_VI, as the gaming modes of home routers do.
    */
   gameAccel?: boolean
+  /** Station only: a tampered driver that ignores the broadcast EDCA parameters. */
+  tamper?: TamperCfg
+  /** Station only, with the p2pvideo stream: the station this phone streams to (via the AP). */
+  p2pTarget?: string
 }
 
 /** What kind of endpoint a stream talks to beyond the AP. */
@@ -112,6 +158,7 @@ export function serverKindFor(profile: ProfileId): ServerKind | null {
     case 'iot': return 'web'
     case 'voice': return 'call'
     case 'gaming': return 'game'
+    case 'p2pvideo': // stays inside the BSS: no cloud server
     case 'saturated':
     case 'idle': return null
   }
@@ -159,7 +206,7 @@ const RoomSchema = z.object({
 
 const Vec3Schema = z.object({ x: z.number(), y: z.number(), z: z.number() })
 
-const ProfileSchema = z.enum(['video', 'voice', 'gaming', 'backup', 'browsing', 'iot', 'saturated', 'idle'])
+const ProfileSchema = z.enum(['video', 'voice', 'gaming', 'p2pvideo', 'backup', 'browsing', 'iot', 'saturated', 'idle'])
 
 /** Scenarios saved before multi-stream support carry a single `profile`. */
 function migrateLegacyProfile(raw: unknown): unknown {
@@ -187,6 +234,16 @@ const NodeCfgSchema = z.preprocess(
     txopProtection: z.enum(['single', 'boundary', 'multiple']).optional(),
     servers: z.record(ProfileSchema, z.string()).optional(),
     gameAccel: z.boolean().optional(),
+    p2pTarget: z.string().min(1).optional(),
+    tamper: z.object({
+      allAsAc: z.number().int().min(0).max(3).optional(),
+      aifsn: z.number().int().min(0).optional(),
+      cwMin: z.number().int().min(0).optional(),
+      cwMax: z.number().int().min(0).optional(),
+      noDoubling: z.boolean().optional(),
+      txopLimitUs: z.number().min(0).optional(),
+      navInflateUs: z.number().min(0).optional(),
+    }).optional(),
   }),
 )
 
@@ -228,6 +285,10 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
       serverIds.add(s.id)
     }
     for (const n of sc.nodes) {
+      if (n.p2pTarget !== undefined) {
+        if (n.p2pTarget === n.id) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `node "${n.id}" cannot stream video to itself` })
+        else if (!sc.nodes.some((m) => m.id === n.p2pTarget && m.kind === 'sta')) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `node "${n.id}" streams to unknown station "${n.p2pTarget}"` })
+      }
       for (const [profile, sid] of Object.entries(n.servers ?? {})) {
         if (!serverIds.has(sid)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `node "${n.id}" binds ${profile} to unknown server "${sid}"` })
       }

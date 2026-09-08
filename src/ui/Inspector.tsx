@@ -122,6 +122,9 @@ function NodeSection({ vid, nv, t, L, nameOf, serverName }: { vid: string; nv: N
       <div style={row}><span style={dim}>{L.rxThroughput}</span><span>{((nv.stats.bytesDelivered * 8) / secs / 1e6).toFixed(2)} Mbps</span></div>
       <div style={row}><Lbl hint={L.txLatencyHint}>{L.txLatency}</Lbl><span>{fmtLatency(nv.stats.txLatency)}</span></div>
       <div style={row}><Lbl hint={L.rxLatencyHint}>{L.rxLatency}</Lbl><span>{fmtLatency(nv.stats.rxLatency)}</span></div>
+      {nv.stats.relayLatency.n > 0 && (
+        <div style={row}><Lbl hint={L.relayLatencyHint}>{L.relayLatency}</Lbl><span>{fmtLatency(nv.stats.relayLatency)}</span></div>
+      )}
       {nv.stats.appRtt.n > 0 && (
         <div style={row}><Lbl hint={L.appRttHint}>{L.appRtt}</Lbl><span>{fmtLatency(nv.stats.appRtt)} <span style={dim}>· {serverName(nv.stats.appRttServer)}</span></span></div>
       )}

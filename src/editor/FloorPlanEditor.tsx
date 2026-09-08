@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Rng } from '../engine/rng'
 import { GEN_FEATURES, type FeatureFlag } from '../model/caps'
-import { normalizeProfiles, PROFILE_IDS, SERVER_KINDS, TXOP_PROTECTIONS, serverFor, serverKindFor, type Material, type NodeCfg, type ProfileId, type Scenario, type ServerCfg, type ServerKind, type TxopProtection } from '../model/scenario'
+import { normalizeProfiles, PROFILE_IDS, SERVER_KINDS, TAMPER_KINDS, TAMPER_PRESETS, TXOP_PROTECTIONS, serverFor, serverKindFor, tamperKindOf, type Material, type NodeCfg, type ProfileId, type Scenario, type ServerCfg, type ServerKind, type TamperKind, type TxopProtection } from '../model/scenario'
 import { HOUSEHOLDS } from '../model/households'
 import { nonht } from '../model/scenario'
 import { BRANDS, STATION_PRESETS, applyPreset } from '../model/presets'
@@ -416,7 +416,7 @@ export function FloorPlanEditor() {
                     }}>
                     <span style={{ width: 8, height: 8, borderRadius: 4, background: n.kind === 'ap' ? '#3b82f6' : '#22c55e' }} />
                     <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {n.name} <span style={{ color: 'var(--dim)' }}>{genShort(n.caps.generation)}</span>
+                      {n.tamper ? '⚠ ' : ''}{n.name} <span style={{ color: 'var(--dim)' }}>{genShort(n.caps.generation)}</span>
                     </span>
                     <button style={{ padding: '0 4px' }} disabled={i === 0} onClick={(e) => { e.stopPropagation(); moveNode(n.id, -1) }}>▲</button>
                     <button style={{ padding: '0 4px' }} disabled={i === scenario.nodes.length - 1} onClick={(e) => { e.stopPropagation(); moveNode(n.id, 1) }}>▼</button>
@@ -591,6 +591,20 @@ export function FloorPlanEditor() {
                     </label>
                   )}
                   {selNode.kind === 'sta' && (
+                    <label style={{ display: 'block', marginBottom: 6 }} title={E.tamperHint}>
+                      {E.tamper}{' '}
+                      <select value={tamperKindOf(selNode.tamper)} style={{ maxWidth: 200 }}
+                        onChange={(e) => {
+                          const k = e.target.value
+                          updateNode(selNode.id, { tamper: k === 'none' || k === 'custom' ? undefined : { ...TAMPER_PRESETS[k as TamperKind] } })
+                        }}>
+                        <option value="none">{E.tamperKinds.none}</option>
+                        {TAMPER_KINDS.map((k) => <option key={k} value={k}>{E.tamperKinds[k]}</option>)}
+                        {tamperKindOf(selNode.tamper) === 'custom' && <option value="custom">{E.tamperKinds.custom}</option>}
+                      </select>
+                    </label>
+                  )}
+                  {selNode.kind === 'sta' && (
                     <div style={{ marginBottom: 4 }}>
                       {E.traffic}
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginTop: 2, paddingLeft: 8 }}>
@@ -607,6 +621,14 @@ export function FloorPlanEditor() {
                               }}
                             />
                             <span style={{ flex: 1, minWidth: 0 }}>{L.profiles[p]}</span>
+                            {p === 'p2pvideo' && selNode.profiles.includes(p) && (
+                              <select value={selNode.p2pTarget ?? ''} title={E.p2pTargetHint} style={{ flexShrink: 0, maxWidth: 120, fontSize: 11 }}
+                                onClick={(e) => e.stopPropagation()}
+                                onChange={(e) => updateNode(selNode.id, { p2pTarget: e.target.value || undefined })}>
+                                <option value="">{E.p2pTarget}…</option>
+                                {scenario.nodes.filter((n) => n.kind === 'sta' && n.id !== selNode.id).map((n) => <option key={n.id} value={n.id}>{n.name}</option>)}
+                              </select>
+                            )}
                             {selNode.profiles.includes(p) && serverKindFor(p) && (() => {
                               const kind = serverKindFor(p)!
                               const choices = scenario.servers.filter((s) => s.kind === kind)

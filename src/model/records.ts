@@ -7,7 +7,7 @@ export type MacStateName =
 /** One observable micro-event. The timeline is the append-only sequence of these. */
 export type TLRecord = { t: Ns; seq: number } & (
   | { type: 'ARRIVAL'; node: string; msduId: number; bytes: number; dst: string }
-  | { type: 'ENQUEUE'; node: string; msduId: number; bytes: number; dst: string; depth: number; ac?: number; server?: string; rttFromNs?: Ns }
+  | { type: 'ENQUEUE'; node: string; msduId: number; bytes: number; dst: string; depth: number; ac?: number; server?: string; rttFromNs?: Ns; relayFromNs?: Ns }
   /** A cloud server sent a frame; it enters the AP's queue at arriveNs. */
   | { type: 'WAN_TX'; server: string; msduId: number; bytes: number; to: string; arriveNs: Ns }
   /** A station's uplink frame, acknowledged at sentNs, has reached its cloud server. */

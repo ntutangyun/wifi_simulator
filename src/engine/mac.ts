@@ -14,6 +14,7 @@
 import type { FrameDesc, MuPart } from '../model/frames'
 import { ampduPsduBytes, dataPsduBytes } from '../model/frames'
 import type { EmitFn, MacStateName } from '../model/records'
+import type { TamperCfg } from '../model/scenario'
 import type { Ns } from '../model/types'
 import type { TxopProtection } from '../model/scenario'
 import type { Channel, PhyListener } from './channel'
@@ -54,6 +55,23 @@ export interface WifiMacCfg {
   reachable?(peer: string): boolean
   /** Burst protection policy when holding a TXOP (see TxopProtection). Default 'single'. */
   txopProtection?: TxopProtection
+  /** A tampered driver: deviations from the broadcast EDCA parameters (see TamperCfg). */
+  tamper?: TamperCfg
+}
+
+/** The parameter set a (possibly tampered) station actually contends with. */
+export function effectiveParams(base: AcParams[], t: TamperCfg | undefined): AcParams[] {
+  if (!t) return base
+  return base.map((p) => {
+    const cwMin = t.cwMin ?? p.cwMin
+    const cwMax = t.noDoubling ? cwMin : Math.max(cwMin, t.cwMax ?? p.cwMax)
+    return {
+      ...p,
+      aifsn: t.aifsn ?? p.aifsn,
+      cwMin, cwMax,
+      txopLimitNs: t.txopLimitUs !== undefined ? t.txopLimitUs * 1000 : p.txopLimitNs,
+    }
+  })
 }
 
 const NEVER = -10_000_000
@@ -158,7 +176,7 @@ export class WifiMac implements PhyListener {
     sharedQueues?: AcQueues,
   ) {
     this.queues = sharedQueues ?? new AcQueues()
-    this.edcafs = (cfg.edca ? EDCA_PARAMS : [DCF_PARAMS]).map((params) => ({
+    this.edcafs = effectiveParams(cfg.edca ? EDCA_PARAMS : [DCF_PARAMS], cfg.tamper).map((params) => ({
       params, cw: params.cwMin, backoff: null, needDraw: false,
       src: 0, lrc: 0, seqCounter: 0, ifsHandle: 0, tickHandle: 0,
     }))
@@ -179,7 +197,7 @@ export class WifiMac implements PhyListener {
     this.emit({
       t: this.now(), type: 'ENQUEUE', node: this.nodeId, msduId: msdu.id, bytes: msdu.bytes,
       dst: msdu.dst, depth: this.queues.depth(ei), ac: this.cfg.edca ? ei : undefined,
-      server: msdu.server, rttFromNs: msdu.rttFromNs,
+      server: msdu.server, rttFromNs: msdu.rttFromNs, relayFromNs: msdu.relayFromNs,
     })
     this.startAccessAc(this.edcafs[ei])
   }
@@ -424,7 +442,7 @@ export class WifiMac implements PhyListener {
       const announcedEnd = protectBurst ? t + e.params.txopLimitNs : 0
       const rts: FrameDesc = {
         kind: 'rts', src: this.nodeId, dst: peer, bytes: RTS_BYTES, mbps: rtsRate,
-        durationFieldNs: protectBurst ? announcedEnd - (t + rtsTime) : 3 * SIFS_NS + ctsTime + dataTime + respTime,
+        durationFieldNs: this.inflate(protectBurst ? announcedEnd - (t + rtsTime) : 3 * SIFS_NS + ctsTime + dataTime + respTime),
         txTimeNs: rtsTime, ac: this.acTag(e),
       }
       this.awaiting = { kind: 'cts', ac: ei, peer, msdus, wasRts: true, aggBytes: psdu }
@@ -493,12 +511,17 @@ export class WifiMac implements PhyListener {
       : SIFS_NS + respTime
     return {
       kind: 'data', src: this.nodeId, dst: peer, bytes: psdu, mbps,
-      durationFieldNs: duration,
+      durationFieldNs: this.inflate(duration),
       txTimeNs: txTime,
       seqNo, retryFlag: e.src + e.lrc > 0, msduId: msdus[0].id,
       mode, mcs, ac: this.acTag(e),
       ampdu: aggregate ? { mpduCount: msdus.length, msduIds: msdus.map((m) => m.id) } : undefined,
     }
+  }
+
+  /** A NAV-inflating driver pads every Duration it announces. */
+  private inflate(durationNs: Ns): Ns {
+    return durationNs + (this.cfg.tamper?.navInflateUs ?? 0) * 1000
   }
 
   private beginTxop(e: Edcaf, t: Ns): void {
