@@ -33,6 +33,8 @@ export interface FrameDesc {
   // v2
   mode?: PhyMode // PPDU format (default nonht)
   mcs?: number
+  /** Operating channel width in MHz this PPDU was sent at (default 20). */
+  widthMhz?: number
   ac?: number // 0..3 EDCA access category of the exchange
   /** A-MPDU aggregation info (single-user). */
   ampdu?: { mpduCount: number; msduIds: number[] }

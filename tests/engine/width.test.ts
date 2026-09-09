@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { PHY_MODES, toneRatio, txTimeModeNs } from '../../src/engine/phy'
+import { PHY_MODES, toneRatio, txTimeModeNs, mcsForRssi, sinrThreshModeDb, widthPenaltyDb } from '../../src/engine/phy'
 
 describe('channel width multiplies the bits carried per symbol', () => {
   it('uses the standard data-subcarrier counts for HE and EHT', () => {
@@ -48,5 +48,30 @@ describe('channel width multiplies the bits carried per symbol', () => {
 
   it('defaults leave every existing call unchanged', () => {
     expect(txTimeModeNs('eht', 1530, 7, { widthMhz: 20, nss: 1 })).toBe(txTimeModeNs('eht', 1530, 7))
+  })
+})
+
+describe('a wider channel admits more noise, so every rate needs more signal', () => {
+  it('costs 3 dB per doubling of width', () => {
+    expect(widthPenaltyDb(20)).toBeCloseTo(0, 2)
+    expect(widthPenaltyDb(40)).toBeCloseTo(3.01, 2)
+    expect(widthPenaltyDb(80)).toBeCloseTo(6.02, 2)
+    expect(widthPenaltyDb(160)).toBeCloseTo(9.03, 2)
+    expect(widthPenaltyDb(320)).toBeCloseTo(12.04, 2)
+  })
+
+  it('raises the decode threshold by the same amount', () => {
+    const narrow = sinrThreshModeDb('eht', 5)
+    const wide = sinrThreshModeDb('eht', 5, 160)
+    expect(wide - narrow).toBeCloseTo(9.03, 2)
+  })
+
+  it('a far station reaches a higher modulation on a narrow channel than a wide one', () => {
+    const rssi = -70
+    expect(mcsForRssi('eht', rssi, undefined, 20)).toBeGreaterThan(mcsForRssi('eht', rssi, undefined, 160))
+  })
+
+  it('defaults to 20 MHz so existing callers are unchanged', () => {
+    expect(mcsForRssi('eht', -60)).toBe(mcsForRssi('eht', -60, undefined, 20))
   })
 })

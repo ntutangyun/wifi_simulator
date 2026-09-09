@@ -165,6 +165,11 @@ export function toneRatio(mode: PhyMode, widthMhz: number): number {
   return tones / table[20]
 }
 
+/** Noise bandwidth grows with the channel: 10·log10(W/20) dB, i.e. 3 dB per doubling. */
+export function widthPenaltyDb(widthMhz: number): number {
+  return 10 * Math.log10(widthMhz / 20)
+}
+
 export interface TxTimeOpts {
   mu?: boolean
   /** RU fraction of the operating channel (1 = full, 0.5 ≈ half RU …). */
@@ -185,13 +190,14 @@ export function txTimeModeNs(mode: PhyMode, lengthBytes: number, mcs: number, op
   return m.preambleNs + (opts.mu ? m.muExtraPreambleNs : 0) + m.symNs * nsym
 }
 
-/** Best MCS index whose sensitivity + 3 dB margin is met (floor: 0). */
-export function mcsForRssi(mode: PhyMode, rssiDbm: number, maxMcs?: number): number {
+/** Best MCS index whose sensitivity + 3 dB margin is met at this width (floor: 0). */
+export function mcsForRssi(mode: PhyMode, rssiDbm: number, maxMcs?: number, widthMhz = 20): number {
   const m = PHY_MODES[mode]
+  const pen = widthPenaltyDb(widthMhz)
   const cap = maxMcs !== undefined ? Math.min(maxMcs, m.sensDbm.length - 1) : m.sensDbm.length - 1
   let best = 0
   for (let i = 0; i <= cap; i++) {
-    if (rssiDbm >= m.sensDbm[i] + 3) best = i
+    if (rssiDbm >= m.sensDbm[i] + pen + 3) best = i
   }
   return best
 }
@@ -200,8 +206,8 @@ export function mcsRateMbps(mode: PhyMode, mcs: number): number {
   return PHY_MODES[mode].mbps[mcs]
 }
 
-export function sinrThreshModeDb(mode: PhyMode, mcs: number): number {
-  return PHY_MODES[mode].sensDbm[mcs] - NOISE_DBM
+export function sinrThreshModeDb(mode: PhyMode, mcs: number, widthMhz = 20): number {
+  return PHY_MODES[mode].sensDbm[mcs] - NOISE_DBM + widthPenaltyDb(widthMhz)
 }
 
 // EDCA defaults — 802.11-2024 Table 9-194, clause-17/19/21/27 PHY column.

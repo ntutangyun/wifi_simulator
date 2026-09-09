@@ -84,10 +84,10 @@ function decodeThreshDb(frame: FrameDesc, rid: string): number {
     const part = frame.muParts.find((p) => p.dst === rid)
     const mode = frame.mode ?? 'he'
     // addressed: own part's MCS; overhearers only need the (robust) preamble/header
-    return sinrThreshModeDb(mode, part ? part.mcs : 0)
+    return sinrThreshModeDb(mode, part ? part.mcs : 0, frame.widthMhz ?? 20)
   }
   if (frame.mode && frame.mode !== 'nonht' && frame.mcs !== undefined) {
-    return sinrThreshModeDb(frame.mode, frame.mcs)
+    return sinrThreshModeDb(frame.mode, frame.mcs, frame.widthMhz ?? 20)
   }
   return sinrThreshDb(frame.mbps)
 }
