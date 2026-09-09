@@ -1420,3 +1420,65 @@ git commit -m "docs(report): re-baseline the tamper experiment on the real Wi-Fi
 - The course has 18 lessons in 4 modules, and lessons 1 to 14 produce the same airtime they did before this plan started.
 - A household phone transmits at 160 MHz with two streams; the access point has four.
 - The Chinese report is regenerated and its prose matches its data.
+
+---
+
+## Execution status — paused 2026-09-10
+
+Branch `feat/phy-realism`, branched from `main` at `d4ccf9d`. Suite green at
+279 passing, `tsc` clean. Lessons 1 to 14 verified unchanged throughout
+(`npx vitest run tests/course` is 25/25 at every step).
+
+| Task | State | Commits |
+|---|---|---|
+| 1 · Capability fields and negotiation | complete, review clean | `115549e` |
+| 2 · Airtime scales with width and streams | complete, review clean | `92e3e67` |
+| 3 · Width-dependent sensitivity | complete, review clean after 1 fix round | `616ba2a`, `8610c45` |
+| 4 · Wire through the MAC, real household radios | complete, review clean after 1 fix round | `c56db2d`, `fab4403` |
+| 5 · Rate adaptation | NOT STARTED — resume here | — |
+| 6 · MU-MIMO | not started | — |
+| 7 · Lessons 15 and 16 | not started | — |
+| 8 · Lessons 17 and 18 | not started | — |
+| 9 · Report re-baseline | not started | — |
+
+### Decisions taken during execution that amend this plan
+
+1. **Task 2's datasheet test was replaced.** As written it measured a 125 kB
+   frame, whose fixed 48 µs preamble drags the computed rate to about
+   4450 Mb/s, so its assertion of 5600–5800 could never pass. The datasheet
+   figure is a PHY rate, not a frame throughput. The test now asserts the
+   asymptotic rate directly — scaled bits per symbol over the symbol
+   duration — which computes to 5764.7 Mb/s against the claimed 5.8 Gb/s.
+
+2. **Task 3's far-station test was re-anchored from −70 dBm to −55 dBm.** At
+   −70 dBm the 160 MHz side returned 0 because nothing decoded at all, not
+   because MCS 0 worked, so the assertion conflated decode failure with the
+   function's floor value and would have passed even with the width penalty
+   applied to the wrong term. At −55 dBm both sides are real: MCS 8 at
+   20 MHz against MCS 4 at 160 MHz.
+
+3. **Task 4's frame-width test moved from `three-gamers` to `video-share`.**
+   In `three-gamers` the only data frames over 1000 B are access point to
+   TV, and the TV is a generic appliance, so that link correctly negotiates
+   down to the narrower end. Asserting 160 MHz there would have been
+   asserting a bug. The test now runs where two real phone presets exchange
+   large frames.
+
+4. **Generic household appliances carry generation-typical radios**, assigned
+   in the `device()` helper in `src/model/households.ts` only, never
+   globally: non-HT 20 MHz and one stream, Wi-Fi 5 and Wi-Fi 6 at 80 MHz and
+   two streams, Wi-Fi 7 at 160 MHz and two streams. This was not in the
+   original plan. It matters beyond realism because `scripts/tamper-report.ts`
+   builds its two uploading laptops by cloning the TV node, so leaving the TV
+   at 20 MHz would have silently capped the saturation scenario at the heart
+   of that report.
+
+### Note for whoever resumes
+
+Task 5 creates `src/engine/rate.ts`. Do not pre-create it — the task is
+test-first and the test must fail on the missing module before the file
+exists. Task 5's integration test provokes losses by moving a station to a
+far corner; the air is now much faster than when this plan was written, so
+that scenario may need strengthening (more distance, more walls, lower
+transmit power, or competing traffic). Adjust the scenario, never the
+assertion.
