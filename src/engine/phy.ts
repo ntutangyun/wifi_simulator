@@ -148,17 +148,39 @@ export const PHY_MODES: Record<PhyMode, PhyModeInfo> = {
   },
 }
 
-export interface TxTimeOpts {
-  mu?: boolean
-  /** RU fraction of the 20 MHz channel (1 = full, 0.5 ≈ half RU …). */
-  ruFraction?: number
+/**
+ * Data subcarriers per channel width, from the standard. Airtime scales with
+ * these, not with the width in MHz: 80 MHz carries slightly more than four
+ * times a 20 MHz channel because the guard bands are not repeated.
+ */
+const TONES_HE: Record<number, number> = { 20: 234, 40: 468, 80: 980, 160: 1960, 320: 3920 }
+const TONES_VHT: Record<number, number> = { 20: 52, 40: 108, 80: 234, 160: 468 }
+
+/** Bits-per-symbol multiplier for a width, relative to that mode at 20 MHz. */
+export function toneRatio(mode: PhyMode, widthMhz: number): number {
+  if (mode === 'nonht') return 1
+  const table = mode === 'vht' ? TONES_VHT : TONES_HE
+  const tones = table[widthMhz]
+  if (!tones) return 1
+  return tones / table[20]
 }
 
-/** PPDU airtime for any PHY mode/MCS; symbol count uses RU-scaled N_DBPS. */
+export interface TxTimeOpts {
+  mu?: boolean
+  /** RU fraction of the operating channel (1 = full, 0.5 ≈ half RU …). */
+  ruFraction?: number
+  /** Operating channel width in MHz (default 20). */
+  widthMhz?: number
+  /** Spatial streams (default 1). */
+  nss?: number
+}
+
+/** PPDU airtime for any PHY mode/MCS; symbol count uses width-, stream- and RU-scaled N_DBPS. */
 export function txTimeModeNs(mode: PhyMode, lengthBytes: number, mcs: number, opts: TxTimeOpts = {}): Ns {
   const m = PHY_MODES[mode]
-  const ndbps = m.ndbps[mcs] * (opts.ruFraction ?? 1)
-  if (!ndbps) throw new Error(`invalid MCS ${mcs} for ${mode}`)
+  const base = m.ndbps[mcs]
+  if (!base) throw new Error(`invalid MCS ${mcs} for ${mode}`)
+  const ndbps = base * toneRatio(mode, opts.widthMhz ?? 20) * (opts.nss ?? 1) * (opts.ruFraction ?? 1)
   const nsym = Math.ceil((16 + 8 * lengthBytes + 6) / ndbps)
   return m.preambleNs + (opts.mu ? m.muExtraPreambleNs : 0) + m.symNs * nsym
 }

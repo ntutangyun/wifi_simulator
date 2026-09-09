@@ -23,7 +23,7 @@ import {
   ACK_BYTES, ACK_TIMEOUT_NS, BA_BYTES, CF_END_BYTES, CTS_BYTES, CTS_TIMEOUT_NS, DCF_PARAMS, DIFS_NS,
   EDCA_PARAMS, EIFS_NS, LONG_RETRY_LIMIT, MAX_AMPDU_MPDUS, MAX_PPDU_NS, PHY_MODES,
   QOS_HDR_BYTES, FCS_BYTES, RTS_BYTES, SHORT_RETRY_LIMIT, SIFS_NS, SLOT_NS,
-  aifsNs, ctrlRespRateFor, mcsRateMbps, multiStaBaBytes, triggerBytes, txTimeModeNs, txTimeNs,
+  aifsNs, ctrlRespRateFor, mcsRateMbps, multiStaBaBytes, triggerBytes, toneRatio, txTimeModeNs, txTimeNs,
   type AcParams, type PhyMode,
 } from './phy'
 import { Rng } from './rng'
@@ -124,10 +124,12 @@ interface StaMuAwait {
 }
 
 /** Max PSDU bytes that fit a target duration at mode/mcs/RU fraction. */
-export function maxPsduBytesFor(mode: PhyMode, mcs: number, ruFraction: number, durNs: Ns): number {
+export function maxPsduBytesFor(
+  mode: PhyMode, mcs: number, ruFraction: number, durNs: Ns, widthMhz = 20, nss = 1,
+): number {
   const m = PHY_MODES[mode]
   const nsym = Math.floor((durNs - m.preambleNs) / m.symNs)
-  const bits = nsym * m.ndbps[mcs] * ruFraction
+  const bits = nsym * m.ndbps[mcs] * toneRatio(mode, widthMhz) * nss * ruFraction
   return Math.max(0, Math.floor((bits - 22) / 8))
 }
 
