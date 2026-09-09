@@ -34,7 +34,7 @@ describe('a station gaming against a cloud server', () => {
 
   it('state updates enter the AP half an RTT after the server sends them', () => {
     const tx = recs.filter((r) => r.type === 'WAN_TX' && r.arriveNs <= 600 * MS) // later ones are still in the air
-    expect(tx.length).toBeGreaterThan(20)
+    expect(tx.length).toBeGreaterThan(8) // 65 ms state ticks plus 250 ms pings in 600 ms
     for (const r of tx) {
       if (r.type !== 'WAN_TX') continue
       const enq = recs.find((x) => x.type === 'ENQUEUE' && x.node === 'ap' && x.msduId === r.msduId)

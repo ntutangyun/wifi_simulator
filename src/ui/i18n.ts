@@ -273,7 +273,7 @@ export const STRINGS: Record<Lang, Strings> = {
     },
     log: { empty: 'no events in window' },
     profiles: {
-      video: 'video streaming (DL, AC_VI)', voice: 'voice call (2-way, AC_VO)', gaming: 'online gaming (2-way 60 Hz, AC_VI)', p2pvideo: 'video to another phone (via the AP, AC_VI)', backup: 'cloud backup (UL, AC_BK)',
+      video: 'video streaming (DL, AC_VI)', voice: 'voice call (2-way, AC_VO)', gaming: 'online gaming (王者荣耀 as measured: ~33 fps up, 15 Hz down)', p2pvideo: 'video to another phone (via the AP, AC_VI)', backup: 'cloud backup (UL, AC_BK)',
       browsing: 'web browsing (AC_BE)', iot: 'IoT sensor (AC_BK)', saturated: 'saturated upload (AC_BE)', idle: 'idle',
     },
     appShort: { video: 'video', voice: 'call', gaming: 'game', p2pvideo: 'share', backup: 'backup', browsing: 'web', iot: 'sensor', saturated: 'upload', idle: '' },
@@ -502,7 +502,7 @@ export const STRINGS: Record<Lang, Strings> = {
     },
     log: { empty: '窗口内无事件' },
     profiles: {
-      video: '视频流（下行，AC_VI）', voice: '语音通话（双向，AC_VO）', gaming: '在线游戏（双向 60 Hz，AC_VI）', p2pvideo: '向另一部手机传视频（经 AP，AC_VI）', backup: '云备份（上行，AC_BK）',
+      video: '视频流（下行，AC_VI）', voice: '语音通话（双向，AC_VO）', gaming: '在线游戏（实测王者荣耀：上行约 33 帧/s，下行 15 Hz）', p2pvideo: '向另一部手机传视频（经 AP，AC_VI）', backup: '云备份（上行，AC_BK）',
       browsing: '网页浏览（AC_BE）', iot: '物联网传感器（AC_BK）', saturated: '饱和上传（AC_BE）', idle: '空闲',
     },
     appShort: { video: '视频', voice: '通话', gaming: '游戏', p2pvideo: '投送', backup: '备份', browsing: '网页', iot: '传感', saturated: '上传', idle: '' },

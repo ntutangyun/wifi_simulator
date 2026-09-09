@@ -81,6 +81,37 @@ const MS = 1_000_000
 const US = 1_000
 const S = 1_000_000_000
 
+/**
+ * 王者荣耀 as measured from a Huawei phone through the USB packet mirror
+ * (2026-09-09, ten minutes in a match; see memory wzry-phone-capture). Sizes are
+ * MSDU bytes: UDP payload + 28 B of IPv4/UDP header. The Tencent server sat at
+ * 49 ms median RTT with ~20 ms of spread — between the domestic and overseas
+ * server presets, so those are left as they are.
+ */
+/** Uplink inter-frame gap, ms: [share, lo, hi). A 60 Hz client-tick mode at 10–20 ms, a second mode at 60–70 ms, 16 % back-to-back pairs, 1 % lulls. Mean 30 ms → ~33 fps. */
+const WZRY_UL_GAPS: [number, [number, number]][] = [
+  [0.16, [0, 10]], [0.39, [10, 20]], [0.12, [20, 30]], [0.11, [30, 40]], [0.05, [40, 50]],
+  [0.03, [50, 60]], [0.11, [60, 70]], [0.02, [70, 200]], [0.01, [200, 320]],
+]
+/** Uplink frame size mix: [share, bytes]. Payloads 61 / 63 / 72 / 103 B. */
+const WZRY_UL_SIZES: [number, number][] = [[0.55, 89], [0.30, 91], [0.12, 100], [0.03, 131]]
+/** Downlink: the server's state tick and the update it carries (payload 105–175 B). */
+const WZRY_DL_TICK_MS = 65
+const WZRY_DL_UPDATE: [number, number] = [133, 203]
+/** Small downlink packet (payload 24–48 B) riding inside about one tick in five. */
+const WZRY_DL_SMALL: [number, number] = [52, 76]
+const WZRY_DL_SMALL_SHARE = 0.18
+
+/** Draw from a [share, value] table; shares sum to 1. */
+function pickWeighted<T>(rng: Rng, table: [number, T][]): T {
+  let u = rng.next()
+  for (const [share, v] of table) {
+    u -= share
+    if (u < 0) return v
+  }
+  return table[table.length - 1][1]
+}
+
 export class TrafficSource {
 
   constructor(
@@ -124,7 +155,7 @@ export class TrafficSource {
         break
       case 'gaming':
         this.scheduleGaming()
-        if (this.server) this.scheduleGameServer()
+        this.scheduleGameServer()
         break
       case 'p2pvideo':
         if (this.p2pTarget) this.scheduleP2pVideo(0)
@@ -266,21 +297,34 @@ export class TrafficSource {
     })
   }
 
-  /** Online game: 60 Hz client tick, 100 B UL state + 300 B DL world update, ±1.5 ms jitter. */
+  /**
+   * Online game, shaped after a measured 王者荣耀 match (Huawei phone, USB
+   * packet mirror, 2026-09-09, ten minutes in play). Uplink: the gap to the
+   * next frame is drawn from the measured histogram (WZRY_UL_GAPS), ~33 frames
+   * per second; the size from the measured size mix (WZRY_UL_SIZES).
+   */
   private scheduleGaming(): void {
-    const at = this.now() + Math.floor((16_667 - 1_500 + this.rng.next() * 3_000) * US)
+    const [lo, hi] = pickWeighted(this.rng, WZRY_UL_GAPS)
+    const at = this.now() + Math.floor((lo + (hi - lo) * this.rng.next()) * MS)
     this.q.schedule(at, () => {
-      this.emitUl(100)
-      if (!this.server) this.emitDl(300)
+      this.emitUl(pickWeighted(this.rng, WZRY_UL_SIZES))
       this.scheduleGaming()
     })
   }
 
-  /** Game server: 60 Hz world-state updates on its own clock. */
+  /**
+   * Game server: the measured 65 ms (±3 ms) state tick of 133–203 B on its own
+   * clock; about one tick in five also carries a small 52–76 B packet. Runs
+   * locally too (no server) so the shape is the same either way.
+   */
   private scheduleGameServer(): void {
-    const at = this.now() + Math.floor((16_667 - 1_500 + this.rng.next() * 3_000) * US)
+    const at = this.now() + Math.floor((WZRY_DL_TICK_MS - 3 + 6 * this.rng.next()) * MS)
     this.q.schedule(at, () => {
-      this.emitDl(300)
+      this.emitDl(WZRY_DL_UPDATE[0] + Math.floor(this.rng.next() * (WZRY_DL_UPDATE[1] - WZRY_DL_UPDATE[0] + 1)))
+      if (this.rng.next() < WZRY_DL_SMALL_SHARE) {
+        const off = Math.floor(this.rng.next() * (WZRY_DL_TICK_MS - 5) * MS)
+        this.q.schedule(this.now() + off, () => this.emitDl(WZRY_DL_SMALL[0] + Math.floor(this.rng.next() * (WZRY_DL_SMALL[1] - WZRY_DL_SMALL[0] + 1))))
+      }
       this.scheduleGameServer()
     })
   }

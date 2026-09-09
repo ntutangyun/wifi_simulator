@@ -93,27 +93,56 @@ describe('the think-time profiles are paced in seconds, not milliseconds', () =>
   })
 })
 
-describe('gaming: a 60 Hz two-way stream of small frames in AC_VI', () => {
-  it('sends ~60 uplink 100 B and ~60 downlink 300 B frames per second', () => {
-    const out = collect('gaming', 1_000_000_000)
-    const ul = out.filter((o) => o.node === 'sta-1')
-    const dl = out.filter((o) => o.node === 'ap')
-    expect(ul.length).toBeGreaterThanOrEqual(55)
-    expect(ul.length).toBeLessThanOrEqual(65)
-    expect(dl.length).toBeGreaterThanOrEqual(55)
-    expect(dl.length).toBeLessThanOrEqual(65)
-    expect(ul.every((o) => o.msdu.bytes === 100 && o.msdu.dst === 'ap')).toBe(true)
-    expect(dl.every((o) => o.msdu.bytes === 300 && o.msdu.dst === 'sta-1')).toBe(true)
+/** The measured 王者荣耀 match (Huawei phone over USB mirror, 2026-09-09): sizes on the wire. */
+const WZRY_UL_SIZES = [89, 91, 100, 131]
+
+describe('gaming: the measured 王者荣耀 match shape (no server: both directions generated locally)', () => {
+  const S = 1_000_000_000
+  const out = collect('gaming', 10 * S)
+  const ul = out.filter((o) => o.node === 'sta-1')
+  const dl = out.filter((o) => o.node === 'ap')
+  const updates = dl.filter((o) => o.msdu.bytes >= 133)
+  const small = dl.filter((o) => o.msdu.bytes <= 76)
+
+  it('uplink: ~33 frames per second, every one a measured size, all to the AP', () => {
+    expect(ul.length).toBeGreaterThanOrEqual(280)
+    expect(ul.length).toBeLessThanOrEqual(400)
+    expect(ul.every((o) => WZRY_UL_SIZES.includes(o.msdu.bytes) && o.msdu.dst === 'ap')).toBe(true)
+    expect(new Set(ul.map((o) => o.msdu.bytes)).size).toBeGreaterThanOrEqual(3)
+  })
+
+  it('uplink is bursty but never silent: a 10–20 ms mode, gaps up to a few hundred ms', () => {
+    const t = ul.map((o) => o.msdu.bornNs)
+    const gaps = t.slice(1).map((x, i) => (x - t[i]) / 1_000_000)
+    expect(Math.max(...gaps)).toBeLessThanOrEqual(400)
+    const mode = gaps.filter((g) => g >= 10 && g < 20).length / gaps.length
+    expect(mode).toBeGreaterThanOrEqual(0.3)
+    expect(mode).toBeLessThanOrEqual(0.5)
+    expect(gaps.filter((g) => g >= 60).length / gaps.length).toBeGreaterThanOrEqual(0.08)
+  })
+
+  it('downlink: a state update every 65 ms of 133–203 B, to the station', () => {
+    expect(updates.length).toBeGreaterThanOrEqual(148)
+    expect(updates.length).toBeLessThanOrEqual(160)
+    expect(updates.every((o) => o.msdu.bytes <= 203 && o.msdu.dst === 'sta-1')).toBe(true)
+    const t = updates.map((o) => o.msdu.bornNs)
+    for (let i = 1; i < t.length; i++) {
+      const gap = (t[i] - t[i - 1]) / 1_000_000
+      expect(gap).toBeGreaterThanOrEqual(62)
+      expect(gap).toBeLessThanOrEqual(68)
+    }
+  })
+
+  it('downlink also carries an occasional 52–76 B packet (about one tick in five)', () => {
+    expect(small.length).toBeGreaterThanOrEqual(12)
+    expect(small.length).toBeLessThanOrEqual(45)
+    expect(small.every((o) => o.msdu.bytes >= 52)).toBe(true)
+    expect(updates.length + small.length).toBe(dl.length) // nothing in between
   })
 
   it('is unmarked best effort (AC_BE) unless the router’s game acceleration marks it AC_VI', () => {
     expect(collect('gaming', 200_000_000).every((o) => o.msdu.ac === 1)).toBe(true)
     expect(collect('gaming', 200_000_000, 1, true).every((o) => o.msdu.ac === 2)).toBe(true)
-  })
-
-  it('never goes quiet: no gap between ticks longer than 25 ms', () => {
-    const ticks = collect('gaming', 1_000_000_000).filter((o) => o.node === 'sta-1').map((o) => o.msdu.bornNs)
-    for (let i = 1; i < ticks.length; i++) expect(ticks[i] - ticks[i - 1]).toBeLessThanOrEqual(25_000_000)
   })
 })
 
@@ -193,11 +222,11 @@ describe('streams that talk to a cloud server', () => {
 
   it('gaming: the server ticks on its own clock and its state updates never carry an RTT stamp', () => {
     withServer('gaming', 0, (src, run, out) => {
-      run(100_000_000)
-      const ticks = out.filter((o) => o.node === 'sta-1' && o.msdu.bytes === 100)
+      run(500_000_000)
+      const ticks = out.filter((o) => o.node === 'sta-1' && WZRY_UL_SIZES.includes(o.msdu.bytes))
       const dl = out.filter((o) => o.node === 'ap')
-      expect(ticks.length).toBeGreaterThanOrEqual(5)
-      expect(dl.length).toBeGreaterThanOrEqual(4) // state updates flow without any input
+      expect(ticks.length).toBeGreaterThanOrEqual(10)
+      expect(dl.length).toBeGreaterThanOrEqual(6) // state updates flow without any input
       expect(dl.every((o) => o.msdu.rttFromNs === undefined)).toBe(true)
       src.onUplinkDelivered(ticks[2].msdu.id, ticks[2].msdu.bornNs + 1_000_000)
       run(200_000_000)
