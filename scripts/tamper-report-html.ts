@@ -33,7 +33,7 @@ const CHEATS: Record<TamperKind, CheatDoc> = {
     name: '优先级抬升',
     params: `所有帧标为 AC_VO（AIFSN ${AC[3].aifsn}，CW ${AC[3].cwMin}–${AC[3].cwMax}）`,
     how: '驱动把每个上行 MSDU 都放进语音队列：等待最短的 AIFS、抽最小的退避，而流量本身是游戏、备份或网页。',
-    detect: 'AP 转发上行帧时能同时看到帧头的 TID/UP 和 IP 头的 DSCP、协议与端口：标成 VO 的帧承载着 DSCP 为尽力而为的游戏或备份流量，与 AP 下发的 QoS Map 不符，这是逐帧可判的硬证据。流量形态是补充线索：VO 队列里出现 1500 B 大包、长 A-MPDU 或持续 Mb/s 级速率；但本报告里作弊者的游戏包只有 100 B、每 16.7 ms 一个，比语音还小还稀，单靠包长/速率抓不到它。',
+    detect: 'AP 转发上行帧时能同时看到帧头的 TID/UP 和 IP 头的 DSCP、协议与端口：标成 VO 的帧承载着 DSCP 为尽力而为的游戏或备份流量，与 AP 下发的 QoS Map 不符，这是逐帧可判的硬证据。流量形态是补充线索：VO 队列里出现 1500 B 大包、长 A-MPDU 或持续 Mb/s 级速率；但本报告里作弊者的游戏上行包只有 89–131 B、平均每 30 ms 一个（实测王者荣耀），比语音还小还稀，单靠包长/速率抓不到它。',
     apAlone: '足够',
     why: 'AP 是每个上行帧的接收方和转发者，TID 与 DSCP/端口都在它手里，不需要旁证。',
   },
@@ -346,9 +346,9 @@ function findings(): string {
   const navWorks = navRun.navSets > 0.5 * navRun.dataTx
   const fuB = S('full-upload', 'baseline'), fuHog = S('full-upload', 'txopHog'), fuNav = S('full-upload', 'navInflate')
   const fuNavRun = get('full-upload', 'navInflate').cheater
-  const hogText = `游戏包 100 B、每 16.7 ms 一个，没有可以霸占的突发：在只打游戏的三个场景里，TXOP 霸占下作弊者的平均 ping 与基线的偏差不超过 ${hogDev.toFixed(1)} ms（轨迹完全相同）。`
+  const hogText = `游戏上行包 89–131 B、平均每 30 ms 一个（实测王者荣耀），没有可以霸占的突发：在只打游戏的三个场景里，TXOP 霸占下作弊者的平均 ping 与基线的偏差不超过 ${hogDev.toFixed(1)} ms${hogDev < 0.05 ? '（轨迹完全相同）' : ''}。`
   const navText = navWorks
-    ? `NAV 膨胀则不同：重负载场景 8 s 里作弊者发出 ${navRun.dataTx.toFixed(0)} 个数据帧，其他终端合计解码 ${navRun.dataDecodedByStas.toFixed(0)} 次（一帧可被多台终端解码）、设置了 ${navRun.navSets.toFixed(0)} 次比实际需要长 3 ms 的 NAV——能解码它的邻居每 16.7 ms 就被压住 3 ms。结果作弊者 ${ms(bgB.cheater)} → ${ms(bgNav.cheater)}，合规玩家 ${ms(bgB.gamers)} → ${ms(bgNav.gamers)}：被压住的主要是两台饱和上传的笔记本，所有玩家都因此受益。这一效果取决于谁能解码作弊者的帧：本引擎按每个 MCS 的 SINR 门限判定解码，与帧长无关，作弊者到 AP 的距离决定它用的 MCS，邻居能否解码常常只差零点几 dB——位置一变就可能一帧都解不出来。`
+    ? `NAV 膨胀则不同：重负载场景 8 s 里作弊者发出 ${navRun.dataTx.toFixed(0)} 个数据帧，其他终端合计解码 ${navRun.dataDecodedByStas.toFixed(0)} 次（一帧可被多台终端解码）、设置了 ${navRun.navSets.toFixed(0)} 次比实际需要长 3 ms 的 NAV——能解码它的邻居每收到它一帧就被压住 3 ms（平均每 30 ms 一帧）。结果作弊者 ${ms(bgB.cheater)} → ${ms(bgNav.cheater)}，合规玩家 ${ms(bgB.gamers)} → ${ms(bgNav.gamers)}：被压住的主要是两台饱和上传的笔记本，所有玩家都因此受益。这一效果取决于谁能解码作弊者的帧：本引擎按每个 MCS 的 SINR 门限判定解码，与帧长无关，作弊者到 AP 的距离决定它用的 MCS，邻居能否解码常常只差零点几 dB——位置一变就可能一帧都解不出来。`
     : `NAV 膨胀也没有作用，原因是物理的：重负载场景 8 s 里作弊者发出 ${navRun.dataTx.toFixed(0)} 个数据帧，其他终端合计只解码了 ${navRun.dataDecodedByStas.toFixed(0)} 次、触发 ${navRun.navSets.toFixed(0)} 次 NAV 设置——作弊者离 AP 近、用的 MCS 高，邻居的 SINR 达不到那个 MCS 的解码门限（与帧长无关），读不到 Duration 就不会被骗。`
   out.push(`<li><b>TXOP 霸占对只打游戏的作弊者无用；NAV 膨胀${navWorks ? '有效与否取决于邻居能否解码它的帧' : '同样无用'}。</b>${hogText}${navText}作弊者自己也在云备份时，它的 1500 B A-MPDU 超过 RTS 门限，每个突发都以 24 Mb/s 的 RTS 开头——RTS 的 Duration 同样被膨胀，而且所有邻居都能解码它：该场景 8 s 里 ${fuNavRun.navSetsRts.toFixed(0)} 次 NAV 设置来自作弊者的 RTS，${fuNavRun.navSets.toFixed(0)} 次来自其数据帧。TXOP 霸占让合规玩家 ${ms(fuB.gamers)} → ${ms(fuHog.gamers)}，NAV 膨胀让合规玩家 ${ms(fuB.gamers)} → ${ms(fuNav.gamers)}、其他终端 ${ms(fuB.others)} → ${ms(fuNav.others)}，而作弊者自己的 ping 分别为 ${ms(fuHog.cheater)} 与 ${ms(fuNav.cheater)}（基线 ${ms(fuB.cheater)}）。</li>`)
 
@@ -430,7 +430,7 @@ const html = `<!doctype html>
 ${findings()}
 
 <h2>2 · 实验设置</h2>
-<p>作弊者固定为节点 <code>${CHEATER}</code>——三人开黑场景中的 <b>${cheaterName}</b>、满屋子场景中的 <b>${cheaterNameFull}</b>——在四个场景里都是一名手游玩家（满屋子里它同时在看视频）。手游业务：60 Hz，上行 100 B / 下行 300 B，AC_BE（路由器未开游戏加速）。ping 的定义与游戏内显示的一致：每秒 4 次 64 B 探测，Wi-Fi 上行 + WAN（游戏服务器基准 25 ms，抖动 3 ms，处理 2 ms）+ Wi-Fi 下行。每个配置运行 ${SEEDS.length} 个随机种子（${SEEDS.join('、')}）× ${RUN_MS / 1000} s，合并为每个终端约 ${nPings} 个游戏 ping 样本；表中给出平均值、P95 与最大值。同时看视频的终端，其视频服务器的往返单独统计，不混入游戏 ping。</p>
+<p>作弊者固定为节点 <code>${CHEATER}</code>——三人开黑场景中的 <b>${cheaterName}</b>、满屋子场景中的 <b>${cheaterNameFull}</b>——在四个场景里都是一名手游玩家（满屋子里它同时在看视频）。手游业务按 2026-09-09 实测的王者荣耀对局建模（华为手机经 USB 网络报文镜像抓取，10 分钟对局）：上行约 33 帧/s、89–131 B（IP 包长），帧间隔取自实测直方图（10–20 ms 主峰、60–70 ms 次峰、16% 背靠背、1% 为 200–320 ms 停顿）；下行为服务器每 65 ms（±3 ms）一个 133–203 B 状态更新，约五分之一的周期另附一个 52–76 B 小包；双向合计约 35 kb/s。AC_BE（路由器未开游戏加速）。实测腾讯服务器往返中位 49 ms、离散约 20 ms，本报告仍用 25 ms 国内服务器预设。ping 的定义与游戏内显示的一致：每秒 4 次 64 B 探测，Wi-Fi 上行 + WAN（游戏服务器基准 25 ms，抖动 3 ms，处理 2 ms）+ Wi-Fi 下行。每个配置运行 ${SEEDS.length} 个随机种子（${SEEDS.join('、')}）× ${RUN_MS / 1000} s，合并为每个终端约 ${nPings} 个游戏 ping 样本；表中给出平均值、P95 与最大值。同时看视频的终端，其视频服务器的往返单独统计，不混入游戏 ping。</p>
 <div class="wrap">${scenarioSetupTable()}</div>
 <p class="small muted">"合规玩家"为除作弊者外所有运行手游业务的终端，取其游戏 ping；"其他合规终端"为除作弊者外所有有非游戏服务器往返测量的终端（视频、通话、网页、传感器），其 RTT 是各自应用的往返。碰撞事件按次计（一次两帧相撞记 1 次，不按卷入的节点数累加）。空口占用为所有节点发送时间之和占仿真时长的比例，饱和上传场景下因帧重叠可超过 100%。</p>
 
