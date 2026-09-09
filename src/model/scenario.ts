@@ -229,6 +229,8 @@ const NodeCfgSchema = z.preprocess(
     caps: z.object({
       generation: z.enum(['nonht', 'vht', 'he', 'eht']),
       features: z.record(z.boolean()),
+      widthMhz: z.union([z.literal(20), z.literal(40), z.literal(80), z.literal(160), z.literal(320)]).optional(),
+      nss: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]).optional(),
     }),
     linkId: z.enum(['5g', '6g']).optional(),
     txopProtection: z.enum(['single', 'boundary', 'multiple']).optional(),

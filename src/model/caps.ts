@@ -7,6 +7,35 @@ import type { NodeCfg } from './scenario'
 
 export type FeatureFlag = 'edca' | 'ampdu' | 'txop' | 'ofdma' | 'mlo' | 'qam4k'
 export type LinkId = '5g' | '6g'
+export type ChannelWidth = 20 | 40 | 80 | 160 | 320
+export type Nss = 1 | 2 | 3 | 4
+
+/** Widest channel each generation can operate. Non-HT is 20 MHz only. */
+export const MAX_WIDTH: Record<Generation, ChannelWidth> = {
+  nonht: 20, vht: 160, he: 160, eht: 320,
+}
+
+/** Operating width, defaulted to 20 MHz and clamped to the generation's maximum. */
+export function widthOf(n: NodeCfg): ChannelWidth {
+  const want = n.caps.widthMhz ?? 20
+  const max = MAX_WIDTH[n.caps.generation]
+  return (want > max ? max : want) as ChannelWidth
+}
+
+/** Spatial streams, defaulted to 1. */
+export function nssOf(n: NodeCfg): Nss {
+  return (n.caps.nss ?? 1) as Nss
+}
+
+/** A link runs at the narrower of the two ends. */
+export function negotiatedWidth(a: NodeCfg, b: NodeCfg): ChannelWidth {
+  return Math.min(widthOf(a), widthOf(b)) as ChannelWidth
+}
+
+/** A link runs at the smaller stream count of the two ends. */
+export function negotiatedNss(a: NodeCfg, b: NodeCfg): Nss {
+  return Math.min(nssOf(a), nssOf(b)) as Nss
+}
 
 export const GEN_RANK: Record<Generation, number> = { nonht: 0, vht: 1, he: 2, eht: 3 }
 
