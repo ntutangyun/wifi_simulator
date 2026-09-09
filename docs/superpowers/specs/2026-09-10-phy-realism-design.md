@@ -56,7 +56,8 @@ Households build stations through `presetNode`, so `capsFor` in
 
 A width is legal only if the generation allows it: non-HT is 20 MHz only,
 VHT reaches 160, HE reaches 160, EHT reaches 320. A capability declaring
-more fails scenario validation rather than being silently clamped.
+more is clamped to the generation's maximum inside `widthOf`, which is the
+single place every consumer reads the value, so no caller can bypass it.
 
 Negotiation, in `src/model/caps.ts` beside the existing `negotiated`:
 
@@ -208,7 +209,7 @@ Unit, in `tests/engine/phy.test.ts`:
 - tone ratios per mode and width against the table above
 - EHT MCS 13 at 320 MHz and two streams is between 5.7 and 5.8 Gb/s
 - sensitivity rises 3.01 dB per doubling of width
-- a width above the generation's maximum fails scenario validation
+- a width above the generation's maximum is clamped to that maximum
 
 Negotiation, in `tests/model/caps.test.ts`: a four-stream 320 MHz access
 point and a two-stream 160 MHz phone negotiate two streams at 160 MHz.
