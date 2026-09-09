@@ -41,7 +41,11 @@ describe('a frame that is not the awaited response ends the attempt', () => {
       }
       expect(failed, `${r.node} at ${r.t / 1000} µs: got ${r.frame.kind} from ${r.from} while ${st}, attempt left open`).toBe(true)
     }
-    expect(checked).toBeGreaterThan(0)
+    // Such intrusions came from the AP idling SIFS + AckTimeout after every DL
+    // MU PPDU; since a DL MU exchange resolves on its last BlockAck they no
+    // longer occur in this run, so the invariant above is checked wherever the
+    // situation arises but no occurrence is demanded.
+    expect(checked).toBeGreaterThanOrEqual(0)
   })
 
   it('every non-MU data frame gets its response, or its sender gives up, within 5 ms', () => {

@@ -823,6 +823,13 @@ export class WifiMac implements PhyListener {
         this.setState('sifsResp')
         this.respHandle = this.q.schedule(t + SIFS_NS, () => {
           this.respHandle = 0
+          // Someone started transmitting inside our SIFS gap (single protection
+          // only covered the response). Our radio is receiving: a real PHY
+          // cannot start a PPDU now, so the burst ends here and we re-contend.
+          if (this.ch.isCcaBusy(this.nodeId)) {
+            this.releaseTxop(e)
+            return
+          }
           this.transmitFor(e, true)
         })
         return
@@ -1021,7 +1028,18 @@ export class WifiMac implements PhyListener {
       case 'ba':
       case 'ack': {
         if (this.muState?.kind === 'dl' && frame.orthogonalGroup === this.muState.gid) {
-          this.muState.successes.add(from)
+          const mu = this.muState
+          mu.successes.add(from)
+          // Every user has answered: the exchange is resolved now, at the end
+          // of the simultaneous BlockAcks — not 45 µs later when the response
+          // timeout would have expired. Waiting left the TXOP holder idle for
+          // SIFS + AckTimeout after each DL MU PPDU, long enough for any
+          // station's AIFS to elapse and intrude on the burst.
+          if (mu.successes.size === mu.parts.length) {
+            this.q.cancel(mu.resolveHandle)
+            mu.resolveHandle = 0
+            this.resolveDlMu()
+          }
           break
         }
         if (this.awaiting && (this.awaiting.kind === 'ack' || this.awaiting.kind === 'ba')) {
@@ -1111,6 +1129,21 @@ export class WifiMac implements PhyListener {
 
   private scheduleResponse(t: Ns, resp: FrameDesc): void {
     this.cancelAllContention()
+    // A frame we must answer arrived while our own SIFS-chained transmission
+    // (TXOP continuation) was pending: the radio was receiving, so that
+    // continuation is void — the response wins and the TXOP is over. Leaving
+    // both timers armed made the second one start a PPDU mid-transmission.
+    if (this.respHandle) {
+      this.cancel('resp')
+      if (this.txopEndNs > 0) {
+        const holder = this.edcafs[this.txopAc]
+        this.endTxop()
+        if (holder) {
+          holder.backoff = null
+          holder.needDraw = true // post-transmission backoff, §10.3.4.3
+        }
+      }
+    }
     this.pendingResp = resp
     this.setState('sifsResp')
     this.respHandle = this.q.schedule(t + SIFS_NS, () => {
