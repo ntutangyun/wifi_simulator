@@ -79,6 +79,7 @@ export interface Strings {
   inspector: {
     waiting: string; bssTotals: string; throughput: string; delivered: string
     collisions: string; retries: string; node: string; ok: string; rty: string; airtime: string; lat: string; latHint: string
+    width: string; nss: string
     link5: string; link6: string
     acHeader: { ac: string; bo: string; cw: string; queue: string }
     acHint: string; boHint: string; cwHint: string; queueHint: string
@@ -248,6 +249,7 @@ export const STRINGS: Record<Lang, Strings> = {
       throughput: 'throughput', delivered: 'delivered', collisions: 'collision events', retries: 'retries',
       node: 'node', ok: 'ok', rty: 'rty', airtime: 'airtime',
       lat: 'latency', latHint: 'mean delivery latency of the frames this node sends: queue arrival → acknowledged',
+      width: 'Channel width', nss: 'Spatial streams',
       link5: '5 GHz link', link6: '6 GHz link',
       acHeader: { ac: 'AC', bo: 'bo', cw: 'CW', queue: 'queue' },
       acHint: 'EDCA access category (BK=background, BE=best effort, VI=video, VO=voice)',
@@ -477,6 +479,7 @@ export const STRINGS: Record<Lang, Strings> = {
       throughput: '吞吐量', delivered: '已交付', collisions: '碰撞次数', retries: '重传次数',
       node: '节点', ok: '成功', rty: '重传', airtime: '空口占比',
       lat: '时延', latHint: '该节点所发帧的平均交付时延：进入队列 → 被确认',
+      width: '信道带宽', nss: '空间流',
       link5: '5 GHz 链路', link6: '6 GHz 链路',
       acHeader: { ac: 'AC', bo: '退避', cw: 'CW', queue: '队列' },
       acHint: 'EDCA 接入类别（BK=后台，BE=尽力而为，VI=视频，VO=语音）',

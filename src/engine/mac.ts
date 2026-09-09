@@ -43,6 +43,10 @@ export interface WifiMacCfg {
   isAp: boolean
   modeForPeer(peer: string): PhyMode
   mcsForPeer(peer: string): number
+  /** Negotiated operating width with this peer, in MHz. */
+  widthForPeer(peer: string): number
+  /** Negotiated spatial streams with this peer. */
+  nssForPeer(peer: string): number
   ampduWith(peer: string): boolean
   ofdmaWith(peer: string): boolean
   /** AP only: stand-in for BSR — UL backlog of OFDMA-capable STAs. */
@@ -394,6 +398,8 @@ export class WifiMac implements PhyListener {
     const peer = head.dst
     const mode = this.cfg.modeForPeer(peer)
     const mcs = this.cfg.mcsForPeer(peer)
+    const width = this.cfg.widthForPeer(peer)
+    const nss = this.cfg.nssForPeer(peer)
     const mbps = mcsRateMbps(mode, mcs)
     const useAmpdu = this.cfg.ampduWith(peer) && mode !== 'nonht'
     // A PPDU (+SIFS+BA) must fit inside the TXOP (§10.23.2.8).
@@ -405,7 +411,7 @@ export class WifiMac implements PhyListener {
     const budgetNs = Math.min(MAX_PPDU_NS, txopCap)
     const msdus = this.queues.claim(ei, peer, useAmpdu ? MAX_AMPDU_MPDUS : 1, (m, claimed) => {
       const trial = ampduPsduBytes([...claimed.map((x) => x.bytes), m.bytes])
-      return txTimeModeNs(mode, trial, mcs) <= budgetNs
+      return txTimeModeNs(mode, trial, mcs, { widthMhz: width, nss }) <= budgetNs
     })
     if (!msdus.length) {
       this.endTxop()
@@ -427,7 +433,7 @@ export class WifiMac implements PhyListener {
     // burst, open the TXOP with an RTS/CTS whose Duration reaches the end of
     // the TXOP (§9.2.5.2, "time remaining in the TXOP"); a burst that finishes
     // early gives the rest back with CF-End (§10.23.2.9).
-    const dataTime = txTimeModeNs(mode, psdu, mcs)
+    const dataTime = txTimeModeNs(mode, psdu, mcs, { widthMhz: width, nss })
     const rtsRate = ctrlRespRateFor(mbps)
     const ctsTime = txTimeNs(CTS_BYTES, ctrlRespRateFor(rtsRate))
     const rtsTime = txTimeNs(RTS_BYTES, rtsRate)
@@ -454,7 +460,7 @@ export class WifiMac implements PhyListener {
       return
     }
 
-    const frame = this.buildDataFrame(e, peer, msdus, psdu, mode, mcs, mbps, aggregate, respTime)
+    const frame = this.buildDataFrame(e, peer, msdus, psdu, mode, mcs, mbps, aggregate, respTime, width, nss)
     this.awaiting = { kind: aggregate ? 'ba' : 'ack', ac: ei, peer, msdus, wasRts: false, aggBytes: psdu }
     if (!inTxopBurst) this.beginTxop(e, t)
     this.transmitFrame(frame, true)
@@ -475,8 +481,10 @@ export class WifiMac implements PhyListener {
       const peer = queue[i].dst
       const mode = this.cfg.modeForPeer(peer)
       const mcs = this.cfg.mcsForPeer(peer)
+      const width = this.cfg.widthForPeer(peer)
+      const nss = this.cfg.nssForPeer(peer)
       // continueOrRelease's fit check: one plain frame + its BA must fit
-      const oneFrame = txTimeModeNs(mode, dataPsduBytes(queue[i].bytes), mcs)
+      const oneFrame = txTimeModeNs(mode, dataPsduBytes(queue[i].bytes), mcs, { widthMhz: width, nss })
       if (t + SIFS_NS + oneFrame + SIFS_NS + txTimeNs(BA_BYTES, 24) > txopEndNs) break
       const useAmpdu = this.cfg.ampduWith(peer) && mode !== 'nonht'
       const budgetNs = Math.min(MAX_PPDU_NS, Math.max(200_000, txopEndNs - (t + SIFS_NS) - SIFS_NS - 60_000))
@@ -484,7 +492,7 @@ export class WifiMac implements PhyListener {
       let j = i
       while (j < queue.length && queue[j].dst === peer && bytes.length < (useAmpdu ? MAX_AMPDU_MPDUS : 1)) {
         const trial = ampduPsduBytes([...bytes, queue[j].bytes])
-        if (bytes.length > 0 && txTimeModeNs(mode, trial, mcs) > budgetNs) break
+        if (bytes.length > 0 && txTimeModeNs(mode, trial, mcs, { widthMhz: width, nss }) > budgetNs) break
         bytes.push(queue[j].bytes)
         j++
       }
@@ -492,7 +500,7 @@ export class WifiMac implements PhyListener {
       const psdu = aggregate ? ampduPsduBytes(bytes) : this.cfg.edca ? QOS_HDR_BYTES + bytes[0] + FCS_BYTES : dataPsduBytes(bytes[0])
       const mbps = mcsRateMbps(mode, mcs)
       const resp = txTimeNs(aggregate ? BA_BYTES : ACK_BYTES, ctrlRespRateFor(mbps))
-      t += SIFS_NS + txTimeModeNs(mode, psdu, mcs) + SIFS_NS + resp
+      t += SIFS_NS + txTimeModeNs(mode, psdu, mcs, { widthMhz: width, nss }) + SIFS_NS + resp
       i = j
       void e
     }
@@ -502,10 +510,11 @@ export class WifiMac implements PhyListener {
   private buildDataFrame(
     e: Edcaf, peer: string, msdus: Msdu[], psdu: number,
     mode: PhyMode, mcs: number, mbps: number, aggregate: boolean, respTime: Ns,
+    widthMhz: number, nss: number,
   ): FrameDesc {
     const seqNo = e.seqCounter
     e.seqCounter += msdus.length
-    const txTime = txTimeModeNs(mode, psdu, mcs)
+    const txTime = txTimeModeNs(mode, psdu, mcs, { widthMhz, nss })
     // §9.2.5.2 multiple protection: the data frame carries the TXOP remainder.
     const remainder = this.announcedEndNs - (this.now() + txTime)
     const duration = this.cfg.txopProtection === 'multiple' && remainder > SIFS_NS + respTime
@@ -516,7 +525,7 @@ export class WifiMac implements PhyListener {
       durationFieldNs: this.inflate(duration),
       txTimeNs: txTime,
       seqNo, retryFlag: e.src + e.lrc > 0, msduId: msdus[0].id,
-      mode, mcs, ac: this.acTag(e),
+      mode, mcs, widthMhz, ac: this.acTag(e),
       ampdu: aggregate ? { mpduCount: msdus.length, msduIds: msdus.map((m) => m.id) } : undefined,
     }
   }
@@ -554,11 +563,16 @@ export class WifiMac implements PhyListener {
     const claims: { peer: string; msdus: Msdu[] }[] = []
     let ppduDur = 0
     let modeAll: PhyMode = 'eht'
+    // The DL MU PPDU spans the whole operating channel: it runs at the
+    // narrowest width any member negotiated. Stream count stays per member —
+    // each user's RU carries its own Nss.
+    const muWidth = Math.min(...dsts.map((d) => this.cfg.widthForPeer(d)))
     for (const peer of dsts) {
       const mode = this.cfg.modeForPeer(peer)
       if (mode !== 'eht') modeAll = 'he'
       const mcs = this.cfg.mcsForPeer(peer)
-      const budget = maxPsduBytesFor(mode, mcs, frac, MAX_PPDU_NS)
+      const nss = this.cfg.nssForPeer(peer)
+      const budget = maxPsduBytesFor(mode, mcs, frac, MAX_PPDU_NS, muWidth, nss)
       const msdus = this.queues.claim(ei, peer, MAX_AMPDU_MPDUS, (m, claimed) =>
         ampduPsduBytes([...claimed.map((x) => x.bytes), m.bytes]) <= budget)
       if (!msdus.length) continue
@@ -568,7 +582,7 @@ export class WifiMac implements PhyListener {
         msduIds: msdus.map((m) => m.id), mpduCount: msdus.length, ac: e.params.ac,
       })
       claims.push({ peer, msdus })
-      ppduDur = Math.max(ppduDur, txTimeModeNs(mode, bytes, mcs, { mu: true, ruFraction: frac }))
+      ppduDur = Math.max(ppduDur, txTimeModeNs(mode, bytes, mcs, { mu: true, ruFraction: frac, widthMhz: muWidth, nss }))
     }
     if (parts.length < 2) {
       for (const c of claims) this.queues.restore(ei, c.msdus)
@@ -579,7 +593,7 @@ export class WifiMac implements PhyListener {
     const frame: FrameDesc = {
       kind: 'data', src: this.nodeId, dst: '*mu', bytes: parts.reduce((s, p) => s + p.bytes, 0),
       mbps: parts[0].mbps, durationFieldNs: SIFS_NS + baTime,
-      txTimeNs: ppduDur, mode: modeAll, mcs: parts[0].mcs, ac: this.acTag(e),
+      txTimeNs: ppduDur, mode: modeAll, mcs: parts[0].mcs, widthMhz: muWidth, ac: this.acTag(e),
       muParts: parts, orthogonalGroup: gid,
     }
     if (!inTxopBurst) this.beginTxop(e, t)
@@ -633,14 +647,18 @@ export class WifiMac implements PhyListener {
     const gid = `mu${this.nodeId}:${this.muGidCounter++}`
     const frac = 1 / users.length
     let ulDur = 0
+    // Same as the DL MU PPDU: the trigger schedules the TB PPDUs at the
+    // narrowest width any invited user negotiated; Nss stays per user.
+    const ulWidth = Math.min(...users.map((u) => this.cfg.widthForPeer(u.peer)))
     const parts: MuPart[] = users.map((u) => {
       const mode = this.cfg.modeForPeer(u.peer)
       const mcs = this.cfg.mcsForPeer(u.peer)
+      const nss = this.cfg.nssForPeer(u.peer)
       const need = txTimeModeNs(
         mode,
-        Math.max(64, Math.min(u.bytes + 64, maxPsduBytesFor(mode, mcs, frac, 2_000_000))),
+        Math.max(64, Math.min(u.bytes + 64, maxPsduBytesFor(mode, mcs, frac, 2_000_000, ulWidth, nss))),
         mcs,
-        { ruFraction: frac },
+        { ruFraction: frac, widthMhz: ulWidth, nss },
       )
       ulDur = Math.max(ulDur, Math.min(need, 2_000_000))
       return {
@@ -819,7 +837,9 @@ export class WifiMac implements PhyListener {
       const head = this.queues.head(ei, this.reach)!
       const mode = this.cfg.modeForPeer(head.dst)
       const mcs = this.cfg.mcsForPeer(head.dst)
-      const oneFrame = txTimeModeNs(mode, dataPsduBytes(head.bytes), mcs)
+      const width = this.cfg.widthForPeer(head.dst)
+      const nss = this.cfg.nssForPeer(head.dst)
+      const oneFrame = txTimeModeNs(mode, dataPsduBytes(head.bytes), mcs, { widthMhz: width, nss })
       const need = SIFS_NS + oneFrame + SIFS_NS + txTimeNs(BA_BYTES, 24)
       if (t + need <= this.txopEndNs) {
         this.setState('sifsResp')
@@ -1073,10 +1093,12 @@ export class WifiMac implements PhyListener {
             const e = this.edcafs[aw.ac]
             const mode = this.cfg.modeForPeer(aw.peer)
             const mcs = this.cfg.mcsForPeer(aw.peer)
+            const width = this.cfg.widthForPeer(aw.peer)
+            const nss = this.cfg.nssForPeer(aw.peer)
             const mbps = mcsRateMbps(mode, mcs)
             const aggregate = aw.msdus.length > 1
             const respTime = txTimeNs(aggregate ? BA_BYTES : ACK_BYTES, ctrlRespRateFor(mbps))
-            const frame2 = this.buildDataFrame(e, aw.peer, aw.msdus, aw.aggBytes, mode, mcs, mbps, aggregate, respTime)
+            const frame2 = this.buildDataFrame(e, aw.peer, aw.msdus, aw.aggBytes, mode, mcs, mbps, aggregate, respTime, width, nss)
             this.awaiting = { ...aw, kind: aggregate ? 'ba' : 'ack', wasRts: false }
             this.transmitFrame(frame2, true)
           })
@@ -1098,7 +1120,9 @@ export class WifiMac implements PhyListener {
       const frac = 1 / n
       const mode = this.cfg.modeForPeer(trigger.src)
       const mcs = part.mcs
-      const budget = maxPsduBytesFor(mode, mcs, frac, dur)
+      const width = this.cfg.widthForPeer(trigger.src)
+      const nss = this.cfg.nssForPeer(trigger.src)
+      const budget = maxPsduBytesFor(mode, mcs, frac, dur, width, nss)
       const msdus = this.queues.claim(ac, null, MAX_AMPDU_MPDUS, (m, claimed) =>
         ampduPsduBytes([...claimed.map((x) => x.bytes), m.bytes]) <= budget)
       if (!msdus.length) {
@@ -1109,7 +1133,7 @@ export class WifiMac implements PhyListener {
       const frame: FrameDesc = {
         kind: 'data', src: this.nodeId, dst: trigger.src, bytes, mbps: mcsRateMbps(mode, mcs),
         durationFieldNs: 0, txTimeNs: dur, // padded to the trigger's target duration
-        seqNo: e.seqCounter, mode, mcs, ac: this.acTag(e),
+        seqNo: e.seqCounter, mode, mcs, widthMhz: width, ac: this.acTag(e),
         ampdu: { mpduCount: msdus.length, msduIds: msdus.map((m) => m.id) },
         orthogonalGroup: trigger.orthogonalGroup,
       }

@@ -56,7 +56,7 @@ function threeRooms(): { rooms: Room[]; walls: Wall[] } {
 function ap(x: number, y: number): NodeCfg {
   return {
     id: 'ap', kind: 'ap', name: 'AP (Wi-Fi 7)', pos: { x, y, z: 2.0 }, txPowerDbm: 20, profiles: ['idle'],
-    caps: { generation: 'eht', features: defaultFeatures('eht') as Record<string, boolean> },
+    caps: { generation: 'eht', features: defaultFeatures('eht') as Record<string, boolean>, widthMhz: 160, nss: 4 },
   }
 }
 

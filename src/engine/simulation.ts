@@ -8,7 +8,7 @@
  * shows one lane per node per link; frame src/dst stay physical.
  */
 import {
-  hasFeature, linkPlanFor, minGen, negotiated, virtualId, type LinkId,
+  hasFeature, linkPlanFor, minGen, negotiated, negotiatedNss, negotiatedWidth, virtualId, type LinkId,
 } from '../model/caps'
 import { makeEmitter, type EmitFn, type TLRecord } from '../model/records'
 import { ScenarioSchema, serverFor, type NodeCfg, type Scenario } from '../model/scenario'
@@ -111,8 +111,10 @@ export class Simulation {
               const mode = modeFor(n, peer)
               const peerCfg = other(n, peer)
               const cap = mode === 'eht' && !negotiated(n, peerCfg, 'qam4k') ? 11 : undefined
-              return mcsForRssi(mode, rssi, cap)
+              return mcsForRssi(mode, rssi, cap, negotiatedWidth(n, peerCfg))
             },
+            widthForPeer: (peer) => negotiatedWidth(n, other(n, peer)),
+            nssForPeer: (peer) => negotiatedNss(n, other(n, peer)),
             reachable: (peer) => memberSet.has(peer),
             txopProtection: n.txopProtection ?? 'single',
             tamper: n.kind === 'sta' ? n.tamper : undefined,

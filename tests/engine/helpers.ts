@@ -52,6 +52,8 @@ export function makeBss(nodeIds: string[], links: Record<string, number>, opts: 
           const mbps = dataRateFor(table.get(peer)!.get(id) ?? -200)
           return RATES.findIndex((r) => r.mbps === mbps)
         },
+        widthForPeer: () => 20,
+        nssForPeer: () => 1,
         ampduWith: () => false,
         ofdmaWith: () => false,
       },

@@ -9,6 +9,7 @@
  * global variant does MLO; ticking MLO in the editor models that variant.
  */
 import { defaultFeatures } from './caps'
+import type { ChannelWidth, Nss } from './caps'
 import type { NodeCfg, ProfileId } from './scenario'
 import type { Generation, Vec3 } from './types'
 
@@ -24,6 +25,10 @@ export interface StationPreset {
   generation: Generation
   /** The global variant supports 6 GHz + MLO (never on by default: see file header). */
   mloCapable: boolean
+  /** Operating channel width the device supports, in MHz. */
+  widthMhz: ChannelWidth
+  /** Spatial streams. Every phone on this list is 2×2. */
+  nss: Nss
   /** Default traffic mix — what this kind of phone usually does at home. */
   profiles: ProfileId[]
   note: { en: string; zh: string }
@@ -32,7 +37,8 @@ export interface StationPreset {
 const P = (
   id: string, brand: Brand, model: string, released: string, generation: Generation,
   mloCapable: boolean, profiles: ProfileId[], en: string, zh: string,
-): StationPreset => ({ id, brand, model, released, generation, mloCapable, profiles, note: { en, zh } })
+  widthMhz: ChannelWidth = 160, nss: Nss = 2,
+): StationPreset => ({ id, brand, model, released, generation, mloCapable, widthMhz, nss, profiles, note: { en, zh } })
 
 export const STATION_PRESETS: StationPreset[] = [
   // Huawei — Kirin Wi-Fi 7, 2×2; dual-band on the Chinese market
@@ -77,7 +83,7 @@ const PHONE_TX_POWER_DBM = 15
 function capsFor(p: StationPreset): NodeCfg['caps'] {
   const features = defaultFeatures(p.generation) as Record<string, boolean>
   if (p.generation === 'eht') features.mlo = false // Chinese market: no 6 GHz
-  return { generation: p.generation, features }
+  return { generation: p.generation, features, widthMhz: p.widthMhz, nss: p.nss }
 }
 
 /** Overwrite a node's identity and radio with a preset; id, position and height stay. */

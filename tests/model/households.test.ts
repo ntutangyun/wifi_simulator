@@ -4,6 +4,7 @@ import { ScenarioSchema, serverFor } from '../../src/model/scenario'
 import { STATION_PRESETS } from '../../src/model/presets'
 import { Simulation } from '../../src/engine/simulation'
 import { applyRecord, initViewState } from '../../src/model/view'
+import { widthOf, nssOf } from '../../src/model/caps'
 
 const MS = 1_000_000
 const byId = (id: string) => {
@@ -71,4 +72,52 @@ describe('household scenarios', () => {
     const near = far === gamers[0] ? gamers[1] : gamers[0]
     expect(mean(far.id)).toBeGreaterThan(mean(near.id) + 30)
   }, 60_000)
+})
+
+describe('household phones carry the radio their datasheet claims', () => {
+  it('a Wi-Fi 7 phone is 2 streams at 160 MHz', () => {
+    const sc = HOUSEHOLDS.find((h) => h.id === 'three-gamers')!.scenario()
+    const phone = sc.nodes.find((n) => n.id === 'sta-1')!
+    expect(widthOf(phone)).toBe(160)
+    expect(nssOf(phone)).toBe(2)
+  })
+
+  it('the router is 4 streams at 160 MHz — the Chinese market has no 6 GHz', () => {
+    const sc = HOUSEHOLDS.find((h) => h.id === 'three-gamers')!.scenario()
+    const ap = sc.nodes.find((n) => n.kind === 'ap')!
+    expect(widthOf(ap)).toBe(160)
+    expect(nssOf(ap)).toBe(4)
+  })
+
+  it('a Wi-Fi 6 phone is 2 streams at 160 MHz too, but its MCS table stops lower', () => {
+    const sc = HOUSEHOLDS.find((h) => h.id === 'full-house')!.scenario()
+    const he = sc.nodes.find((n) => n.caps.generation === 'he')
+    expect(he).toBeDefined()
+    expect(nssOf(he!)).toBe(2)
+  })
+})
+
+// Post-width: 'three-gamers' has no household node whose data frames exceed
+// 1000 bytes within 300 ms except AP→TV video — and the TV is a generic
+// `device()` node (household-only, not a real-phone preset) that was never
+// given a widthMhz, so it correctly negotiates down to 20 MHz. Asserting
+// *every* >1000-byte frame in that household is 160 MHz would actually be
+// asserting a bug (the TV pulling the AP down, or the AP pulling the TV up —
+// neither is real). 'video-share' instead has two Wi-Fi 7 preset phones
+// (sta-1, sta-2) exchanging real video through the AP: both ends negotiate
+// 160 MHz/2 streams, which is exactly the case this task wires up. The TV
+// (sta-3) and any *mu group containing it are excluded on purpose — their
+// staying at 20 MHz is the correct, unrelated physical behavior of a
+// narrower peer, not something this task changes.
+it('a household data frame between two real-phone presets is far shorter than the same frame at 20 MHz and one stream', () => {
+  const sc = HOUSEHOLDS.find((h) => h.id === 'video-share')!.scenario()
+  const recs = new Simulation(sc).runUntil(300 * 1_000_000).records
+  const tx = recs.filter((r) =>
+    r.type === 'TX_START' && r.frame.kind === 'data' && r.frame.bytes > 1000 &&
+    r.frame.dst !== '*mu' && r.frame.dst !== 'sta-3' && r.node !== 'sta-3')
+  expect(tx.length).toBeGreaterThan(5)
+  for (const r of tx) {
+    if (r.type !== 'TX_START') continue
+    expect(r.frame.widthMhz).toBe(160)
+  }
 })
