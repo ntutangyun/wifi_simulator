@@ -67,8 +67,13 @@ describe('a wider channel admits more noise, so every rate needs more signal', (
   })
 
   it('a far station reaches a higher modulation on a narrow channel than a wide one', () => {
-    const rssi = -70
-    expect(mcsForRssi('eht', rssi, undefined, 20)).toBeGreaterThan(mcsForRssi('eht', rssi, undefined, 160))
+    // -55 dBm keeps both sides off the floor, so this compares two real
+    // modulations rather than "decodes nothing" against "reaches MCS 0".
+    const narrow = mcsForRssi('eht', -55, undefined, 20)
+    const wide = mcsForRssi('eht', -55, undefined, 160)
+    expect(narrow).toBe(8)
+    expect(wide).toBe(4)
+    expect(wide).toBeGreaterThan(0)
   })
 
   it('defaults to 20 MHz so existing callers are unchanged', () => {
