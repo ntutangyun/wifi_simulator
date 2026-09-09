@@ -4,6 +4,7 @@
  * factory so the editor always gets a fresh, unshared object.
  */
 import { defaultFeatures } from './caps'
+import type { ChannelWidth, Nss } from './caps'
 import { STATION_PRESETS, presetNode } from './presets'
 import { DEFAULT_SERVERS, type NodeCfg, type ProfileId, type Room, type Scenario, type ServerCfg, type Wall } from './scenario'
 import type { Generation } from './types'
@@ -60,10 +61,28 @@ function ap(x: number, y: number): NodeCfg {
   }
 }
 
+/**
+ * Generic household appliances (TV, NAS, laptop, IoT sensors) are not
+ * real-phone presets, so they get a generation-typical radio instead of a
+ * datasheet-sourced one:
+ *  - nonht: 20 MHz / 1 stream — accurate for legacy IoT sensors, and non-HT
+ *    tops out at 20 MHz regardless.
+ *  - vht: 80 MHz / 2 streams — a Wi-Fi 5 NAS.
+ *  - he: 80 MHz / 2 streams — a Wi-Fi 6 TV; 160 MHz is uncommon on TVs.
+ *  - eht: 160 MHz / 2 streams — a Wi-Fi 7 laptop; no 6 GHz on the Chinese market.
+ */
+const DEVICE_RADIO: Record<Generation, { widthMhz: ChannelWidth; nss: Nss }> = {
+  nonht: { widthMhz: 20, nss: 1 },
+  vht: { widthMhz: 80, nss: 2 },
+  he: { widthMhz: 80, nss: 2 },
+  eht: { widthMhz: 160, nss: 2 },
+}
+
 function device(id: string, name: string, x: number, y: number, gen: Generation, profiles: ProfileId[], z = 1.0): NodeCfg {
+  const radio = DEVICE_RADIO[gen]
   return {
     id, kind: 'sta', name, pos: { x, y, z }, txPowerDbm: 15, profiles,
-    caps: { generation: gen, features: defaultFeatures(gen) as Record<string, boolean> },
+    caps: { generation: gen, features: defaultFeatures(gen) as Record<string, boolean>, widthMhz: radio.widthMhz, nss: radio.nss },
   }
 }
 

@@ -99,16 +99,18 @@ describe('household phones carry the radio their datasheet claims', () => {
 
 // Post-width: 'three-gamers' has no household node whose data frames exceed
 // 1000 bytes within 300 ms except AP→TV video — and the TV is a generic
-// `device()` node (household-only, not a real-phone preset) that was never
-// given a widthMhz, so it correctly negotiates down to 20 MHz. Asserting
-// *every* >1000-byte frame in that household is 160 MHz would actually be
-// asserting a bug (the TV pulling the AP down, or the AP pulling the TV up —
-// neither is real). 'video-share' instead has two Wi-Fi 7 preset phones
-// (sta-1, sta-2) exchanging real video through the AP: both ends negotiate
-// 160 MHz/2 streams, which is exactly the case this task wires up. The TV
-// (sta-3) and any *mu group containing it are excluded on purpose — their
-// staying at 20 MHz is the correct, unrelated physical behavior of a
-// narrower peer, not something this task changes.
+// `device()` node (household-only, not a real-phone preset), which now
+// carries a generation-typical radio (80 MHz/2 streams for its Wi-Fi 6 'he'
+// generation — see DEVICE_RADIO in households.ts), narrower than the AP's
+// 160 MHz/4 streams. Asserting *every* >1000-byte frame in that household is
+// 160 MHz would still be asserting a bug (the TV negotiating wider than its
+// own radio). 'video-share' instead has two Wi-Fi 7 preset phones (sta-1,
+// sta-2) exchanging real video through the AP: both ends negotiate 160
+// MHz/2 streams, which is exactly the case this task wires up. The TV
+// (sta-3, still narrower than the AP even at 80 MHz) and any *mu group
+// containing it are excluded on purpose — its negotiating down to 80 MHz
+// is the correct, unrelated physical behavior of a narrower peer, not
+// something this task changes.
 it('a household data frame between two real-phone presets is far shorter than the same frame at 20 MHz and one stream', () => {
   const sc = HOUSEHOLDS.find((h) => h.id === 'video-share')!.scenario()
   const recs = new Simulation(sc).runUntil(300 * 1_000_000).records
