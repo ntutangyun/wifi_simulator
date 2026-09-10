@@ -182,3 +182,71 @@ it('lesson 15’s second experiment position really inverts 40 → 80 MHz, with 
   // "it still delivers everything, 224.8 µs a frame" (the lesson opens at 160 MHz)
   expect(w160.acks).toBeGreaterThan(500)
 })
+
+/**
+ * Lesson 17's table and its "the MU-MIMO group is never three" paragraph
+ * quote one clean OFDMA PPDU (all three members carrying the same 4,308 B) and
+ * one clean MU-MIMO PPDU (both survivors carrying the same 4,308 B), plus the
+ * structural claim that MU-MIMO here never groups more than two.
+ */
+it('lesson 17 quotes the OFDMA and MU-MIMO PPDUs its own variants produce', () => {
+  const l = LESSONS.find((x) => x.id === 'mumimo')!
+  type MuTx = Extract<TLRecord, { type: 'TX_START' }> & { frame: { muParts: NonNullable<Extract<TLRecord, { type: 'TX_START' }>['frame']['muParts']> } }
+  const muRecords = (v: NonNullable<(typeof l)['variants']>[number]): MuTx[] => {
+    const recs = [...new Simulation(v.scenario()).runUntil(500_000_000).records]
+    return recs.filter((r): r is MuTx => r.type === 'TX_START' && r.frame.kind === 'data' && r.frame.muParts !== undefined)
+  }
+
+  const ofdma = muRecords(l.variants![0])
+  const mumimo = muRecords(l.variants![1])
+
+  // "the MU-MIMO group is never three" — every MU-MIMO PPDU in this house has
+  // exactly two members; OFDMA reaches three.
+  expect(new Set(mumimo.map((r) => r.frame.muParts.length))).toEqual(new Set([2]))
+  expect(new Set(ofdma.map((r) => r.frame.muParts.length)).has(3)).toBe(true)
+
+  // "92.8 µs … 12,924 B" — the first equal-payload 3-member OFDMA PPDU.
+  const ofdmaClean = ofdma.find((r) => r.frame.muParts.length === 3 && new Set(r.frame.muParts.map((p) => p.bytes)).size === 1)!
+  expect(ofdmaClean.t).toBe(5_638_200)
+  expect(ofdmaClean.frame.txTimeNs).toBe(92_800)
+  expect(ofdmaClean.frame.bytes).toBe(12_924)
+  expect(ofdmaClean.frame.muParts.every((p) => p.bytes === 4_308)).toBe(true)
+
+  // "65.6 µs … 8,616 B" — the first equal-payload 2-member MU-MIMO PPDU.
+  const mumimoClean = mumimo.find((r) => new Set(r.frame.muParts.map((p) => p.bytes)).size === 1 && r.frame.muParts[0].bytes === 4_308)!
+  expect(mumimoClean.t).toBe(5_591_800)
+  expect(mumimoClean.frame.txTimeNs).toBe(65_600)
+  expect(mumimoClean.frame.bytes).toBe(8_616)
+})
+
+/**
+ * Lesson 18's body and observe list quote the far station's per-MCS airtime
+ * and the shape of its MCS-0 excursions over a 3 s run. Pinned here so a PHY
+ * or traffic drift breaks this test, not a reader's trust in the prose.
+ */
+it('lesson 18 quotes the far station’s airtimes and its MCS-0 excursion lengths', () => {
+  const l = LESSONS.find((x) => x.id === 'rate')!
+  const recs = [...new Simulation(l.scenario()).runUntil(3_000_000_000).records]
+  const far = recs.filter((r): r is Extract<TLRecord, { type: 'TX_START' }> =>
+    r.type === 'TX_START' && r.node === 'sta-2' && r.frame.kind === 'data')
+
+  // "768.8 µs at MCS 1 and 1,476.0 µs at MCS 0"
+  const atMcs = (mcs: number): number => far.find((r) => r.frame.mcs === mcs)!.frame.txTimeNs
+  expect(atMcs(1)).toBe(768_800)
+  expect(atMcs(0)).toBe(1_476_000)
+
+  // "thirteen times … more than half … exactly ten frames … up to 41"
+  const mcss = far.map((r) => r.frame.mcs)
+  const runs: number[] = []
+  let cur = mcss[0]
+  let len = 0
+  for (const m of mcss) {
+    if (m === cur) len++
+    else { runs.push(cur === 0 ? len : -1); cur = m; len = 1 }
+  }
+  runs.push(cur === 0 ? len : -1)
+  const zeroRuns = runs.filter((n) => n >= 0)
+  expect(zeroRuns.length).toBe(13)
+  expect(zeroRuns.filter((n) => n === 10).length).toBeGreaterThan(zeroRuns.length / 2)
+  expect(Math.max(...zeroRuns)).toBe(41)
+})

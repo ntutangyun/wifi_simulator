@@ -289,3 +289,35 @@ describe('module 4 lessons', () => {
     }
   })
 })
+
+describe('lessons 17 and 18', () => {
+  it('lesson 17 contrasts OFDMA with MU-MIMO as two variants of the same house', () => {
+    const l = LESSONS.find((x) => x.id === 'mumimo')!
+    expect(l.module).toBe(3)
+    expect(l.variants?.length).toBe(2)
+    expect(l.variants!.map((v) => v.label.en)).toEqual(['OFDMA (split by frequency)', 'MU-MIMO (split by space)'])
+  })
+
+  it('lesson 17 actually produces a MU-MIMO PPDU in its second variant', () => {
+    const l = LESSONS.find((x) => x.id === 'mumimo')!
+    const recs = new Simulation(l.variants![1].scenario()).runUntil(500 * 1_000_000).records
+    const mu = recs.filter((r) => r.type === 'TX_START' && r.frame.muKind === 'mumimo')
+    expect(mu.length).toBeGreaterThan(0)
+  })
+
+  it('lesson 18 shows the modulation moving', () => {
+    const l = LESSONS.find((x) => x.id === 'rate')!
+    expect(l.module).toBe(3)
+    const recs = new Simulation(l.scenario()).runUntil(3_000 * 1_000_000).records
+    const mcss = recs
+      .filter((r) => r.type === 'TX_START' && r.node === 'sta-2' && r.frame.kind === 'data')
+      .map((r) => (r.type === 'TX_START' ? r.frame.mcs : 0))
+    expect(mcss.length).toBeGreaterThan(10)
+    expect(new Set(mcss).size).toBeGreaterThan(1)
+  })
+
+  it('the course now runs to eighteen lessons with no duplicate ids', () => {
+    expect(LESSONS.length).toBe(18)
+    expect(new Set(LESSONS.map((l) => l.id)).size).toBe(18)
+  })
+})
