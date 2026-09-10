@@ -18,9 +18,23 @@
  * recovers is reachable again after exactly the ordinary ten-success climb.
  *
  * The loop this closes is the point: a collision costs an attempt, two lost
- * attempts lower the rate, a lower rate makes every frame longer, and longer
- * frames collide more often. Lesson 6's rate anomaly is this loop's steady
- * state.
+ * attempts lower the rate, and a lower rate makes every frame longer — so the
+ * station holds the channel longer for the same payload, delivers less in the
+ * same time, and everyone queued behind it waits longer. That airtime tax is
+ * the cost, and lesson 6's rate anomaly is what it looks like.
+ *
+ * What a lower rate does NOT do here is make collisions more likely. Backoff
+ * is suspended while the medium is busy (IEEE 802.11-2024 §10.23.2.4; see
+ * `onCcaBusy` in mac.ts, which cancels the tick and re-arms at the same
+ * value), so a longer frame gives no other station's counter extra time to
+ * expire — it gives them none. Per-attempt collision probability follows the
+ * contention window an attempt was drawn from, not the airtime of the frame
+ * that follows; measured over lesson 18's scenario, the far station's long
+ * MCS-0 frames collide slightly *less* often per attempt than its MCS-1 ones.
+ *
+ * Note also that only single-user exchanges call `onSuccess`/`onFailure` (see
+ * the two `onTxOutcome` call sites in mac.ts). A downlink MU PPDU reports no
+ * outcome, so a rate used only inside multi-user PPDUs never adapts.
  */
 const FAILURES_TO_STEP_DOWN = 2
 const SUCCESSES_TO_STEP_UP = 10

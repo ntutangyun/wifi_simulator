@@ -1,6 +1,7 @@
 import { it, expect } from 'vitest'
 import { LESSONS } from '../../src/course/lessons'
 import { Simulation } from '../../src/engine/simulation'
+import { RateControl } from '../../src/engine/rate'
 import type { TLRecord } from '../../src/model/records'
 import { nssOf } from '../../src/model/caps'
 
@@ -236,22 +237,66 @@ it('lesson 17 quotes the OFDMA and MU-MIMO PPDUs its own variants produce', () =
   // "only about 1.4×, not 3×" end to end.
   expect(Math.round((ofdmaClean.frame.txTimeNs / mumimoClean.frame.txTimeNs) * 100) / 100).toBe(1.41)
 
-  // "most often (about two-thirds of the time, measured)" — the trimmed
-  // member's own single-user PPDU immediately follows its MU-MIMO PPDU.
+  // "125 times (68%) … 45 times (24%) … and neither of those 14 times (8%)" — where the
+  // trimmed member actually turns up next. The lesson used to present this as a two-way
+  // split; it is not exhaustive, and the third case is what this pins (fix round 2, I5).
   const allApData = [...new Simulation(l.variants![1].scenario()).runUntil(500_000_000).records]
     .filter((r): r is Extract<TLRecord, { type: 'TX_START' }> => r.type === 'TX_START' && r.node === 'ap' && r.frame.kind === 'data')
   const twoMember = allApData.filter((r) => r.frame.muParts?.length === 2)
-  let followedByTrimmedSu = 0
+  let followedByTrimmedSu = 0, sweptIntoNextMu = 0, neither = 0
   for (const mu of twoMember) {
     const members = new Set(mu.frame.muParts!.map((p) => p.dst))
     const trimmed = ['sta-1', 'sta-2', 'sta-3'].find((s) => !members.has(s))!
-    const next = allApData[allApData.indexOf(mu) + 1]
-    if (next && next.frame.muParts === undefined && next.frame.dst === trimmed) followedByTrimmedSu++
+    const i = allApData.indexOf(mu)
+    const next = allApData[i + 1]
+    if (next && next.frame.muParts === undefined && next.frame.dst === trimmed) { followedByTrimmedSu++; continue }
+    // "swept up into whichever MU-MIMO pairing forms next": the next MU PPDU, whenever it comes
+    const nextMu = allApData.slice(i + 1).find((r) => r.frame.muParts !== undefined)
+    if (nextMu && nextMu.frame.muParts!.some((p) => p.dst === trimmed)) sweptIntoNextMu++
+    else neither++
   }
-  const share = followedByTrimmedSu / twoMember.length
   expect(twoMember.length).toBe(184)
   expect(followedByTrimmedSu).toBe(125)
-  expect(Math.round(share * 1000) / 1000).toBe(0.679)
+  expect(sweptIntoNextMu).toBe(45)
+  expect(neither).toBe(14)
+  // the three cases are exhaustive, and the quoted percentages round to 68 / 24 / 8
+  expect(followedByTrimmedSu + sweptIntoNextMu + neither).toBe(twoMember.length)
+  const share3 = [followedByTrimmedSu, sweptIntoNextMu, neither].map((n) => Math.round((n / twoMember.length) * 100))
+  expect(share3).toEqual([68, 24, 8])
+})
+
+/**
+ * Lesson 17's "try this" tells the reader to add a fourth and a fifth phone. The engine caps a
+ * multi-user group at four members (`muDsts.slice(0, 4)` in mac.ts), so OFDMA does NOT keep
+ * absorbing them with ever-thinner slices: the group stops at four and no slice goes below a
+ * quarter, while MU-MIMO stays at two however many phones there are (fix round 2, I1).
+ */
+it('lesson 17’s added-phones experiment caps the OFDMA group at four and MU-MIMO at two', () => {
+  const l = LESSONS.find((x) => x.id === 'mumimo')!
+  const withPhones = (variant: number, extra: number) => {
+    const base = l.variants![variant].scenario()
+    const sc = { ...base, nodes: [...base.nodes] }
+    const tpl = sc.nodes.find((n) => n.id === 'sta-1')!
+    const spots = [[4, 5.5], [6, 5.5]]
+    for (let i = 0; i < extra; i++) {
+      const c = JSON.parse(JSON.stringify(tpl)) as typeof tpl
+      c.id = `sta-extra-${i}`
+      c.name = `Phone ${4 + i}`
+      c.pos = { x: spots[i][0], y: spots[i][1], z: 1 }
+      sc.nodes.push(c)
+    }
+    const recs = [...new Simulation(sc).runUntil(500_000_000).records]
+    const mu = recs.filter((r): r is Extract<TLRecord, { type: 'TX_START' }> =>
+      r.type === 'TX_START' && r.frame.kind === 'data' && r.frame.muParts !== undefined)
+    expect(mu.length, `variant ${variant} + ${extra}: some MU PPDUs`).toBeGreaterThan(50)
+    return Math.max(...mu.map((r) => r.frame.muParts!.length))
+  }
+  // OFDMA: three phones reach three, a fourth reaches four — and a fifth still only four.
+  expect(withPhones(0, 0)).toBe(3)
+  expect(withPhones(0, 1)).toBe(4)
+  expect(withPhones(0, 2)).toBe(4)
+  // MU-MIMO: two, whatever you add.
+  for (const extra of [0, 1, 2]) expect(withPhones(1, extra), `MU-MIMO + ${extra}`).toBe(2)
 })
 
 /**
@@ -301,4 +346,138 @@ it('lesson 18 quotes the far station’s airtimes/excursions and the near statio
   expect(near.length).toBe(2_513)
   expect(atCeiling).toBe(2_210)
   expect(Math.round((atCeiling / near.length) * 1000) / 1000).toBe(0.879)
+
+  // "17.2 Mb/s becomes 8.6 Mb/s" — the rate line for the same 1,530 octets.
+  const rateLine = (mcs: number): number => far.find((r) => r.frame.mcs === mcs)!.frame.mbps!
+  expect(rateLine(1)).toBe(17.2)
+  expect(rateLine(0)).toBe(8.6)
+})
+
+/**
+ * Lesson 18 used to teach a collision death spiral — a lower rate makes frames longer, longer
+ * frames are exposed to collision for longer, so the rate spirals down. Backoff freezes while
+ * the medium is busy (IEEE 802.11-2024 §10.23.2.4, `onCcaBusy` in mac.ts), so a longer frame
+ * gives no other station's counter extra time to expire, and the measurement says the opposite
+ * of the spiral: the long MCS-0 frames collide slightly LESS often per attempt. The corrected
+ * lesson quotes these numbers, so they are pinned here (fix round 2, B1/B2).
+ */
+it('lesson 18’s per-attempt collision rates, the backoff freeze and the airtime tax', () => {
+  const l = LESSONS.find((x) => x.id === 'rate')!
+  const recs = [...new Simulation(l.scenario()).runUntil(3_000_000_000).records]
+  type Tx = Extract<TLRecord, { type: 'TX_START' }>
+  const far = recs.filter((r): r is Tx => r.type === 'TX_START' && r.node === 'sta-2' && r.frame.kind === 'data')
+  const collisions = recs.filter((r): r is Extract<TLRecord, { type: 'COLLISION' }> =>
+    r.type === 'COLLISION' && r.nodes.includes('sta-2'))
+  const collided = (t: Tx): boolean => collisions.some((c) => c.t >= t.t && c.t <= t.t + t.frame.txTimeNs)
+
+  // "2,276 attempts at MCS 1, of which 259 collide — 11.4% — and 222 attempts at MCS 0, of
+  // which 19 collide: 8.6%". Every collision event involving the far station is attributed to
+  // exactly one of its attempts, so the two counts must add up to the event total.
+  const perMcs = (mcs: number) => {
+    const xs = far.filter((r) => r.frame.mcs === mcs)
+    const c = xs.filter(collided).length
+    return { n: xs.length, c, pct: Math.round((c / xs.length) * 1000) / 10 }
+  }
+  const m0 = perMcs(0), m1 = perMcs(1)
+  expect(m1).toEqual({ n: 2_276, c: 259, pct: 11.4 })
+  expect(m0).toEqual({ n: 222, c: 19, pct: 8.6 })
+  expect(m0.c + m1.c).toBe(collisions.length) // 278: the attribution is exhaustive
+  // the death-spiral direction is simply not in the data
+  expect(m0.pct).toBeLessThan(m1.pct)
+
+  // "attempts drawn from CW 15 collide 11.8% of the time (261 of 2,217), attempts drawn from
+  // the doubled CW 31 only 5.7% (15 of 264)" — the per-attempt rate follows the contention
+  // window, not the airtime of the frame that follows.
+  const seq = recs.filter((r) => (r.type === 'BACKOFF_DRAW' && r.node === 'sta-2')
+    || (r.type === 'TX_START' && r.node === 'sta-2' && r.frame.kind === 'data'))
+  const byCw = new Map<number, { n: number; c: number }>()
+  let lastCw: number | null = null
+  for (const e of seq) {
+    if (e.type === 'BACKOFF_DRAW') { lastCw = e.cw; continue }
+    if (lastCw === null) continue // the very first attempt: both stations fire at t = 0
+    const b = byCw.get(lastCw) ?? { n: 0, c: 0 }
+    b.n++
+    if (collided(e as Tx)) b.c++
+    byCw.set(lastCw, b)
+  }
+  const cw15 = byCw.get(15)!, cw31 = byCw.get(31)!
+  expect(cw15).toEqual({ n: 2_217, c: 261 })
+  expect(cw31).toEqual({ n: 264, c: 15 })
+  expect(Math.round((cw15.c / cw15.n) * 1000) / 10).toBe(11.8)
+  expect(Math.round((cw31.c / cw31.n) * 1000) / 10).toBe(5.7)
+
+  // "all 2,218 of the near station's freezes in this run come back at the value they went in
+  // at" — the freeze rule itself, and the reason a longer frame widens nobody's window.
+  type Bo = Extract<TLRecord, { type: 'BACKOFF_FREEZE' | 'BACKOFF_RESUME' }>
+  const evs = recs.filter((r): r is Bo =>
+    (r.type === 'BACKOFF_FREEZE' || r.type === 'BACKOFF_RESUME') && r.node === 'sta-1')
+  const holds: { t: number; dur: number; same: boolean }[] = []
+  for (let i = 0; i + 1 < evs.length; i++) {
+    if (evs[i].type === 'BACKOFF_FREEZE' && evs[i + 1].type === 'BACKOFF_RESUME')
+      holds.push({ t: evs[i].t, dur: evs[i + 1].t - evs[i].t, same: evs[i].value === evs[i + 1].value })
+  }
+  expect(holds.length).toBe(2_218)
+  expect(holds.every((h) => h.same)).toBe(true)
+
+  // "held for 859.8 µs behind an MCS-1 frame and 1,579.0 µs behind an MCS-0 one … 719.2 µs
+  // longer" — the airtime the neighbour pays for each step down.
+  const holdBehind = (mcs: number): number => {
+    const spans = far.filter((r) => r.frame.mcs === mcs).map((r) => [r.t, r.t + r.frame.txTimeNs] as const)
+    const hs = holds.filter((h) => spans.some(([a, b]) => h.t >= a && h.t <= b))
+    expect(hs.length, `holds behind MCS ${mcs}`).toBeGreaterThan(100)
+    expect(new Set(hs.map((h) => h.dur)).size, `one hold length behind MCS ${mcs}`).toBe(1)
+    return hs[0].dur
+  }
+  expect(holdBehind(1)).toBe(859_800)
+  expect(holdBehind(0)).toBe(1_579_000)
+  expect(holdBehind(0) - holdBehind(1)).toBe(719_200)
+
+  // "8.9% of the frames it sends but 15.8% of the air … 327.7 ms, where the same 222 frames at
+  // MCS 1 would have taken 170.7 ms … 157.0 ms of extra channel time … 5.2% of all the air"
+  const air = (xs: Tx[]) => xs.reduce((a, r) => a + r.frame.txTimeNs, 0)
+  const f0 = far.filter((r) => r.frame.mcs === 0)
+  const RUN_NS = 3_000_000_000
+  expect(Math.round((f0.length / far.length) * 1000) / 10).toBe(8.9)
+  expect(Math.round((air(f0) / air(far)) * 1000) / 10).toBe(15.8)
+  expect(Math.round(air(f0) / 100_000) / 10).toBe(327.7)
+  const wouldBe = f0.length * 768_800
+  expect(Math.round(wouldBe / 100_000) / 10).toBe(170.7)
+  expect(Math.round((air(f0) - wouldBe) / 100_000) / 10).toBe(157.0)
+  expect(Math.round(((air(f0) - wouldBe) / RUN_NS) * 1000) / 10).toBe(5.2)
+})
+
+/**
+ * Lesson 18's rule block notes that only single-user exchanges report an outcome, so a
+ * multi-user downlink never adapts (`onTxOutcome` is called from exactly two places in mac.ts,
+ * both on the single-user path). Measured by counting what the rate controller is actually
+ * told during lesson 17's OFDMA run (fix round 2, I6).
+ */
+it('lesson 18’s claim that multi-user PPDUs report no outcome to the rate controller', () => {
+  const l = LESSONS.find((x) => x.id === 'mumimo')!
+  const PHONES = new Set(['sta-1', 'sta-2', 'sta-3'])
+  const reports: string[] = []
+  const okOrig = RateControl.prototype.onSuccess, failOrig = RateControl.prototype.onFailure
+  RateControl.prototype.onSuccess = function (peer: string) { reports.push(peer); return okOrig.call(this, peer) }
+  RateControl.prototype.onFailure = function (peer: string) { reports.push(peer); return failOrig.call(this, peer) }
+  try {
+    const recs = [...new Simulation(l.variants![0].scenario()).runUntil(500_000_000).records]
+    const apData = recs.filter((r): r is Extract<TLRecord, { type: 'TX_START' }> =>
+      r.type === 'TX_START' && r.node === 'ap' && r.frame.kind === 'data')
+    const su = apData.filter((r) => r.frame.muParts === undefined && PHONES.has(r.frame.dst!))
+    const muPpdus = apData.filter((r) => r.frame.muParts !== undefined)
+    const muParts = muPpdus.flatMap((r) => r.frame.muParts!).filter((p) => PHONES.has(p.dst))
+    const forPhones = reports.filter((p) => PHONES.has(p))
+
+    // "176 multi-user PPDUs carrying 514 parts addressed to phones … all 132 of its outcome
+    // reports for those phones come from ordinary single-user frames"
+    expect(muPpdus.length).toBe(176)
+    expect(muParts.length).toBe(514)
+    expect(su.length).toBe(132)
+    expect(forPhones.length).toBe(132)
+    // one report per single-user frame, none from the 514 multi-user parts
+    expect(forPhones.length - su.length).toBe(0)
+  } finally {
+    RateControl.prototype.onSuccess = okOrig
+    RateControl.prototype.onFailure = failOrig
+  }
 })

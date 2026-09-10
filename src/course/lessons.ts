@@ -1553,8 +1553,8 @@ export const LESSONS: Lesson[] = [
         zh: 'OFDMA 切分的是信道：每个成员只分到一部分子载波，成员越多，每个人的速率就越低。换回来的是竞争和前导码只需要为整组付一次，而不是每个成员各付一次。它最适合服务许多小帧。',
       } },
       { text: {
-        en: 'MU-MIMO divides the antennas: each member gets the whole channel and its own spatial streams, so nobody’s rate falls — but the group can only be as large as the router’s own stream count allows. It is at its best serving a few large frames.',
-        zh: 'MU-MIMO 切分的是天线：每个成员都拿到整段信道和自己的空间流，谁的速率都不会下降——但这个组能有多大，上限是路由器自己的流数。它最适合服务少数几个大帧。',
+        en: 'MU-MIMO divides the antennas: each member gets the whole channel and its own spatial streams, so nobody’s rate falls — but the group can only be as large as the router’s own stream count allows. It is at its best serving a few large frames. (That “nobody’s rate falls” is this simulator’s idealisation: a real MU-MIMO transmitter splits its power across the group and never nulls the other members perfectly, so each member’s signal quality, and with it its rate, does fall somewhat.)',
+        zh: 'MU-MIMO 切分的是天线：每个成员都拿到整段信道和自己的空间流，谁的速率都不会下降——但这个组能有多大，上限是路由器自己的流数。它最适合服务少数几个大帧。（“谁的速率都不会下降”是本仿真器的理想化：真实的 MU-MIMO 发射机要把功率分给组内各成员，对其他成员的置零也不可能完美，所以每个成员的信号质量、连带它的速率，实际上都会有所下降。）',
       } },
       { kind: 'table', heading: { en: 'One MU PPDU, real numbers from this house', zh: '一个 MU PPDU，来自这栋房子的真实数据' }, head: [
         { en: 'Variant', zh: '变体' }, { en: 'Members', zh: '成员数' },
@@ -1568,8 +1568,8 @@ export const LESSONS: Lesson[] = [
         zh: '两边每个成员的负载都一样，都是 4,308 字节——路由器给那部手机攒下的三个已聚合视频帧，所以 OFDMA 那三个成员在同一个 PPDU 里合计交付 12,924 字节，MU-MIMO 两个成员合计 8,616 字节。只看数据部分，两个变体天差地别：OFDMA 分到三分之一子载波，要整整 3 个数据符号（40.8 µs）才能载完；MU-MIMO 独享全部子载波，只要 1 个（13.6 µs）——干净利落的三倍增益，正好是 MU-MIMO 放弃的那个组的大小。但每个 PPDU 还要付一段固定的 52 µs 前导码（48 µs 的 EHT 前导码加 4 µs 的多用户 SIG 开销），它不会随数据一起缩短，所以整帧算下来是 92.8 µs 对 65.6 µs——只有约 1.4 倍，不是 3 倍。这正是第 15 课“前导码摊薄”那个道理换了个轴再讲一遍：无论子载波还是天线买来的好处，都会被这笔固定成本摊薄，帧越小摊薄得越狠。',
       } },
       { heading: { en: 'Three candidates, but the MU-MIMO group is never three', zh: '三个候选人，但 MU-MIMO 分组从来不是三个' }, text: {
-        en: 'The router has four streams; each phone negotiates two. Two phones already use all four — a third would need six. So whenever MU-MIMO is possible at all, this AP trims the group down to two candidates and serves the third separately — most often (about two-thirds of the time, measured) in its own single-user PPDU right after, the rest of the time swept up into whichever MU-MIMO pairing forms next instead. OFDMA has no such ceiling here: the same three phones fit together in one PPDU, each on its own slice of tones. Frequency divides among everyone who shows up; space is capped by how many antennas paid for it.',
-        zh: '路由器有四条流；每部手机协商到两条。两部手机就已经用满四条——第三部还需要再要六条。所以只要 MU-MIMO 可行，这台 AP 就会把组裁到两个候选人，第三个另外单独服务——大多数时候（实测约三分之二）紧接着用一个单用户 PPDU 服务它，其余时候则被卷进下一次组成的 MU-MIMO 配对里。OFDMA 在这里没有这个天花板：同样这三部手机能挤进同一个 PPDU，每人占一片子载波。频率是分给所有到场的人；空间的上限则是有多少天线为它买了单。',
+        en: 'The router has four streams; each phone negotiates two. Two phones already use all four — a third would need six. So whenever MU-MIMO is possible at all, this AP trims the group down to two candidates and serves the third separately. Where the trimmed phone turns up next is worth measuring rather than guessing: over the 184 two-member PPDUs in this run it gets its own single-user PPDU immediately after 125 times (68%), turns up in whichever MU-MIMO pairing forms next 45 times (24%), and neither of those 14 times (8%) — the router simply reached the other two again first and the trimmed phone waited another round. OFDMA has no such ceiling here: the same three phones fit together in one PPDU, each on its own slice of tones. Frequency divides among everyone who shows up; space is capped by how many antennas paid for it.',
+        zh: '路由器有四条流；每部手机协商到两条。两部手机就已经用满四条——第三部还需要再要六条。所以只要 MU-MIMO 可行，这台 AP 就会把组裁到两个候选人，第三个另外单独服务。被裁掉的那部手机接下来会在哪里出现，值得实测而不是猜：这段仿真里 184 个两成员 PPDU 中，125 次（68%）它紧接着拿到一个属于自己的单用户 PPDU，45 次（24%）出现在下一次组成的 MU-MIMO 配对里，还有 14 次（8%）两样都不是——路由器又先轮到了另外那两部，被裁的手机只好再等一轮。OFDMA 在这里没有这个天花板：同样这三部手机能挤进同一个 PPDU，每人占一片子载波。频率是分给所有到场的人；空间的上限则是有多少天线为它买了单。',
       } },
       { kind: 'steps', heading: { en: 'The simulator’s rule for choosing between them', zh: '仿真器在两者之间做选择的规则' }, items: [
         { en: 'OFDMA capability has to be negotiated between the router and a phone before either multi-user path can fire at all — this is why both variants below keep it on. Without it every phone is served one at a time, no matter how full the queue gets.', zh: '路由器与手机之间必须先协商好 OFDMA 能力，两条多用户路径才有可能触发——所以下面两个变体都开着它。没有它，无论队列多满，每部手机都只能一个一个被服务。' },
@@ -1597,12 +1597,12 @@ export const LESSONS: Lesson[] = [
     ],
     observe: [
       { en: 'OFDMA variant: hover the wide blue block — three parts inside, one per phone, each at a fraction of the router’s full rate.', zh: 'OFDMA 变体：悬停那个宽的蓝色块——里面有三份，每部手机一份，各自只拿到路由器满速的一小部分。' },
-      { en: 'MU-MIMO variant: the same block now carries only two parts, each at the phone’s full negotiated rate. Most often (about two-thirds of the time, measured) a third, separate block follows immediately for the phone that got trimmed; the rest of the time it simply turns up in the next MU-MIMO pairing instead.', zh: 'MU-MIMO 变体：同一个块现在只装两份，各自都是那部手机协商到的满速率。大多数时候（实测约三分之二）被裁掉的那部手机紧接着有一个独立的块；其余时候它直接出现在下一次的 MU-MIMO 配对里。' },
+      { en: 'MU-MIMO variant: the same block now carries only two parts, each at the phone’s full negotiated rate. Follow the phone that got trimmed: 68% of the time a third, separate block follows immediately for it; 24% of the time it turns up in the next MU-MIMO pairing instead; and 8% of the time neither happens — the other two are paired again first, and it waits another round.', zh: 'MU-MIMO 变体：同一个块现在只装两份，各自都是那部手机协商到的满速率。盯住被裁掉的那部手机：68% 的情况下它紧接着有一个独立的块；24% 的情况下它出现在下一次的 MU-MIMO 配对里；还有 8% 两样都不是——另外两部又先被配到了一起，它得再等一轮。' },
       { en: 'Both variants end every member’s part at the same instant, and one BlockAck (or one round of simultaneous BAs) settles the whole group a SIFS later.', zh: '两个变体里，所有成员的那一份都在同一瞬间结束，一个 SIFS 之后一轮 BlockAck（或几个同时发出的 BA）就了结了整组。' },
       { en: 'Which phone gets trimmed from the MU-MIMO group is not fixed — it depends on which two happened to be queued together when the router last had a chance to transmit.', zh: '哪部手机会被裁出 MU-MIMO 组并不固定——取决于路由器上次有机会发送时，恰好是哪两部手机的数据排在了一起。' },
     ],
     tryThis: [
-      { en: 'Add a fourth and a fifth phone in the editor. OFDMA keeps absorbing them, each slice thinner than the last. MU-MIMO never grows past two: the router’s four streams are already spoken for.', zh: '在编辑器里再加一部、两部手机。OFDMA 会继续把它们吸收进来，每一片都比上一片更薄。MU-MIMO 永远长不过两个：路由器的四条流早就被占满了。' },
+      { en: 'Add a fourth phone in the editor: OFDMA absorbs it, and the groups become four-member ones on quarter-width slices. Add a fifth and the group stops growing — this engine caps a multi-user group at four members, so the fifth phone waits for a later PPDU and no slice is ever thinner than a quarter of the channel. MU-MIMO never grows past two however many you add: the router’s four streams are already spoken for.', zh: '在编辑器里加上第四部手机：OFDMA 会把它吸收进来，分组变成四个成员，每人四分之一的子载波。再加第五部，分组就不再长大了——本引擎把一个多用户分组的成员数封顶在四个，所以第五部手机只能等后面的 PPDU，任何一片都不会比四分之一条信道更薄。而无论你加多少部，MU-MIMO 都长不过两个：路由器的四条流早就被占满了。' },
       { en: 'Turn the laptop’s backup traffic off and reload. The router now drains each phone’s video packet before the next one lands, and multi-user PPDUs — of either kind — become rare: there is nothing to group.', zh: '关掉笔记本的备份流量再重新加载。路由器现在能在下一个视频包到达之前就送完当前这部手机的包，无论哪一种多用户 PPDU 都变得罕见——因为根本没什么可分组的。' },
     ],
     quiz: [
@@ -1620,7 +1620,7 @@ export const LESSONS: Lesson[] = [
         q: { en: 'Why can a four-stream router not serve three two-stream phones with MU-MIMO at once?', zh: '为什么一台四流路由器不能用 MU-MIMO 同时服务三部两流手机？' },
         options: [
           { en: 'Three streams would collide with each other in the air', zh: '三条流会在空口中互相碰撞' },
-          { en: 'Their streams would sum to six, twice what the router has', zh: '它们的流数加起来是六条，是路由器拥有的两倍' },
+          { en: 'Their streams would sum to six, one and a half times what the router has', zh: '它们的流数加起来是六条，是路由器拥有的一倍半' },
           { en: 'MU-MIMO groups are always limited to two members', zh: 'MU-MIMO 分组永远只能有两个成员' },
         ],
         answer: 1,
@@ -1639,27 +1639,47 @@ export const LESSONS: Lesson[] = [
         en: 'Two stations upload flat out to the same AP: one on the desk beside it, one in the far corner of the flat behind a brick wall. Signal strength sets a ceiling on how dense the far station’s modulation can be — here MCS 1, decided purely by distance and the wall. Everything below that ceiling is a choice, and the driver makes it from what actually happened to its own frames, not from the signal it measures.',
         zh: '两台终端都在向同一个 AP 满速上传：一台在它旁边的桌上，一台在公寓另一头、隔着一堵砖墙的角落里。信号强度给远端终端的调制密度定了一个上限——这里是 MCS 1，纯粹由距离和那堵墙决定。低于这个上限的一切都是“选择”，而驱动程序做这个选择靠的是自己的帧究竟发生了什么，而不是它测到的信号强度。',
       } },
-      { kind: 'steps', heading: { en: 'The exact rule', zh: '确切的规则' }, items: [
+      { kind: 'steps', heading: { en: 'The simulator’s rule', zh: '仿真器的规则' }, items: [
         { en: 'Start at the ceiling.', zh: '从上限开始。' },
         { en: 'Two failed attempts in a row step the working rate down one MCS.', zh: '连续两次尝试失败，就把当前速率降一档 MCS。' },
         { en: 'Ten successful attempts in a row step it back up one MCS.', zh: '连续十次尝试成功，就把它升回一档 MCS。' },
         { en: 'It is never allowed above the ceiling, however long the success streak.', zh: '无论连续成功多少次，都不允许超过上限。' },
       ] },
       { text: {
-        en: 'Alone, the far station would sit at MCS 1 forever: nothing ever fails, so it never has a reason to drop, and the ceiling gives it nowhere higher to climb. What actually happens on this timeline is a station that shares the channel with another saturated uploader, and that is where the loop becomes visible: a collision costs an attempt, two lost attempts lower the rate, a lower rate makes every frame longer, and a longer frame is exposed to the next collision for longer. This is feedback that pushes down — easy to enter, and it only leaves on an unbroken run of ten.',
-        zh: '如果只有它自己，远端终端会永远停在 MCS 1：从没有失败过，也就没有理由降速，而上限又让它没有更高的地方可爬。这条时间轴上真正发生的，是一台和另一台饱和上传终端共享信道的终端——回路正是在这里变得看得见：一次碰撞耗掉一次尝试，连续丢两次尝试就降一档速率，速率越低帧越长，帧越长就要在空口上多暴露一段时间，等着撞上下一次碰撞。这是一个把你往下推的反馈——很容易掉进去，而离开它只有一条路：不间断地连成十次成功。',
+        en: 'That two-down/ten-up ladder is Auto Rate Fallback — the textbook algorithm, chosen here because every step it takes is legible on the timeline. Production drivers do not run it. They estimate a packet error rate over a moving window of recent attempts and pick the rate with the best expected throughput, which lets them jump several indices at once instead of climbing one rung per ten successes. Read the four rules as this simulator’s rule, not as what your laptop is doing.',
+        zh: '“两次降一档、十次升一档”这个阶梯是自动速率回退（ARF）——教科书上的算法，这里选它是因为它走的每一步都能在时间轴上看清楚。真实的产品驱动并不跑它：它们在最近若干次尝试的滑动窗口上估计丢包率，再挑期望吞吐最高的那一档，因此可以一次跳好几档，而不必十次成功爬一级。请把上面四条读作本仿真器的规则，而不是你笔记本正在做的事。',
       } },
       { text: {
-        en: 'On this run the far station’s frames take 768.8 µs at MCS 1 and 1,476.0 µs at MCS 0 — the same 1,530 octets, almost exactly double the airtime one step down, because MCS 0 carries half the bits per symbol that MCS 1 does. Every fall is expensive twice over: once in the failed attempts that caused it, and again in every frame afterwards until it climbs back.',
-        zh: '在这段仿真里，远端终端的帧在 MCS 1 上要 768.8 µs，掉到 MCS 0 就要 1,476.0 µs——同样的 1,530 字节，降一档空口时间几乎正好翻倍，因为 MCS 0 每符号能装的比特数只有 MCS 1 的一半。每一次跌落都要付两遍代价：一遍是导致它的那些失败尝试本身，另一遍是此后每一帧，直到它爬回来为止。',
+        en: 'Note also what the four rules do not say. Only single-user exchanges report an outcome at all: an ACK arrives or its timeout does, and that is what moves the rate. A multi-user downlink reports nothing. Over lesson 17’s OFDMA run the router sends 176 multi-user PPDUs carrying 514 parts addressed to phones, and the rate controller is told about none of them — all 132 of its outcome reports for those phones come from ordinary single-user frames. A rate that is only ever used inside multi-user PPDUs therefore never adapts; it simply carries whatever the single-user traffic last established.',
+        zh: '还要注意这四条规则没说的部分。只有单用户交换才会上报结果：ACK 回来了，或者它的超时到了——推动速率的就是这个。多用户下行什么都不上报。在第 17 课的 OFDMA 那段仿真里，路由器发出 176 个多用户 PPDU、其中有 514 份是发给手机的，而速率控制器一份都不知道——它为这些手机记下的 132 次结果上报，全部来自普通的单用户帧。所以一档只在多用户 PPDU 里用到的速率永远不会自适应，它只是沿用单用户流量最后确定下来的那个值。',
+      } },
+      { text: {
+        en: 'Alone, the far station would sit at MCS 1 forever: nothing ever fails, so it never has a reason to drop, and the ceiling gives it nowhere higher to climb. What actually happens on this timeline is a station that shares the channel with another saturated uploader, and that is where the loop becomes visible: a collision costs an attempt, two lost attempts in a row lower the rate, and only an unbroken run of ten successes wins the step back. The loop is real and asymmetric — two draws of bad luck to fall, ten of good luck to recover — which is why the far station spends whole stretches of this run below a ceiling it could have been using.',
+        zh: '如果只有它自己，远端终端会永远停在 MCS 1：从没有失败过，也就没有理由降速，而上限又让它没有更高的地方可爬。这条时间轴上真正发生的，是一台和另一台饱和上传终端共享信道的终端——回路正是在这里变得看得见：一次碰撞耗掉一次尝试，连续丢两次尝试就降一档速率，而想升回去只有一条路：不间断地连成十次成功。这个回路是真实存在的，而且不对称——两次坏运气就掉下去，要十次好运气才爬得回来——所以远端终端在这段仿真里会有整段整段的时间跑在它本可以用的上限之下。',
+      } },
+      { text: {
+        en: 'On this run the far station’s frames take 768.8 µs at MCS 1 and 1,476.0 µs at MCS 0 — the same 1,530 octets, almost exactly double the airtime one step down, because MCS 0 carries half the bits per symbol that MCS 1 does. The rate line says the same thing: 17.2 Mb/s becomes 8.6 Mb/s. Every fall is expensive twice over: once in the failed attempts that caused it, and again in every frame afterwards until it climbs back.',
+        zh: '在这段仿真里，远端终端的帧在 MCS 1 上要 768.8 µs，掉到 MCS 0 就要 1,476.0 µs——同样的 1,530 字节，降一档空口时间几乎正好翻倍，因为 MCS 0 每符号能装的比特数只有 MCS 1 的一半。速率一行说的是同一件事：17.2 Mb/s 变成 8.6 Mb/s。每一次跌落都要付两遍代价：一遍是导致它的那些失败尝试本身，另一遍是此后每一帧，直到它爬回来为止。',
+      } },
+      { heading: { en: 'What a lower rate actually costs: airtime', zh: '低速率真正的代价：空口时间' }, text: {
+        en: 'Airtime is the scarce thing in a room, and a lower rate spends more of it for the same payload. Over these three seconds the far station’s 222 MCS-0 frames are only 8.9% of the frames it sends but 15.8% of the air it occupies: 327.7 ms, where the same 222 frames at MCS 1 would have taken 170.7 ms. The excursions cost 157.0 ms of extra channel time — 5.2% of the whole three seconds, spent carrying nothing extra. The bill does not stop at the far station either. Every one of those frames pins its neighbour: the near station’s backoff is held for 859.8 µs behind an MCS-1 frame and 1,579.0 µs behind an MCS-0 one, so each drop makes the station on the desk wait 719.2 µs longer, per frame, for a turn it has already earned. That is the real penalty of a lower rate, and it is exactly lesson 6’s rate anomaly: one slow station taxing everybody through airtime.',
+        zh: '房间里稀缺的东西是空口时间，而速率越低，同样的负载就要花掉越多的空口时间。这三秒里，远端终端的 222 个 MCS 0 帧只占它发出帧数的 8.9%，却占了它空口时间的 15.8%：327.7 ms——而同样这 222 帧若跑在 MCS 1 上只需 170.7 ms。也就是说，这些跌落多花掉了 157.0 ms 的信道时间——相当于整整三秒里的 5.2%，而且没有多送出一个比特。账单还不止落在远端终端头上。它的每一帧都把邻居钉住：近端终端的退避在一个 MCS 1 帧后面被冻结 859.8 µs，在一个 MCS 0 帧后面则是 1,579.0 µs——每掉一档，桌上那台终端每帧就要为自己早就挣到的那次机会多等 719.2 µs。这才是低速率真正的代价，而它正是第 6 课的速率异常：一台慢终端用空口时间向所有人收税。',
+      } },
+      { heading: { en: 'The intuition that is wrong here', zh: '在这里说不通的那个直觉' }, text: {
+        en: 'It is tempting to close the loop the other way and make it a death spiral: a longer frame sits on the air longer, so surely it is more exposed, so the slow station collides more, so it gets slower still. Measure it and the spiral is not there. Over these three seconds the far station makes 2,276 attempts at MCS 1, of which 259 collide — 11.4% — and 222 attempts at MCS 0, of which 19 collide: 8.6%. Nineteen collisions is a thin sample and the honest reading of 8.6% against 11.4% is “no increase” rather than “a decrease”, but the direction the spiral needs is simply not in the data.',
+        zh: '很容易把这个回路反过来接成一个死亡螺旋：帧越长，在空口上待得越久，那想必更容易被撞上，于是慢的终端碰撞更多，于是更慢。可一测就会发现，这个螺旋并不存在。这三秒里，远端终端在 MCS 1 上尝试了 2,276 次，其中 259 次碰撞——11.4%；在 MCS 0 上尝试了 222 次，其中 19 次碰撞——8.6%。19 次碰撞样本很薄，把 8.6% 对 11.4% 老实地读作“没有升高”而不是“下降了”更稳妥，但螺旋所需要的那个方向，数据里根本没有。',
+      } },
+      { text: {
+        en: 'The reason is a rule from lesson 3. A backoff counter does not tick down during someone else’s frame. The moment the medium goes busy every counter freezes where it stands, and it resumes at exactly the same value when the medium clears (IEEE 802.11-2024 §10.23.2.4) — all 2,218 of the near station’s freezes in this run come back at the value they went in at. So a longer frame does not give anyone else’s counter more time to reach zero; it gives them no time at all. What sets the chance an attempt collides is the contention window that attempt was drawn from — how many slots the two stations are choosing between — not the airtime of the frame that follows. Split the same attempts that way and the effect is sharp: attempts drawn from CW 15 collide 11.8% of the time (261 of 2,217), attempts drawn from the doubled CW 31 only 5.7% (15 of 264). MCS-0 frames are the ones that follow failures, so they are drawn from the widened windows — which is why, if anything, the slow frames collide less.',
+        zh: '原因是第 3 课里的一条规则：退避计数器在别人发帧期间是不倒数的。介质一转为忙，每个计数器就原地冻结，等介质空下来再从同一个数值继续（IEEE 802.11-2024 §10.23.2.4）——这段仿真里近端终端的 2,218 次冻结，无一例外都是以进去时的那个值出来的。所以更长的帧并不会给别人的计数器更多时间走到零，而是根本不给时间。真正决定一次尝试会不会碰撞的，是这次尝试是从多大的竞争窗口里抽出来的——两台终端是在多少个时隙之间做选择——而不是随后那一帧要占多久空口。把同一批尝试按这个口径拆开，效果非常清楚：从 CW 15 抽出的尝试有 11.8% 碰撞（2,217 次里的 261 次），从翻倍后的 CW 31 抽出的只有 5.7%（264 次里的 15 次）。而 MCS 0 的帧恰恰是跟在失败后面的那些，抽签用的正是被撑大的窗口——这就是为什么慢帧真要说的话，反而撞得更少。',
       } },
       { heading: { en: 'Back to lesson 3: where the failures come from', zh: '回到第 3 课：失败从何而来' }, text: {
         en: 'Every one of those lost attempts is lesson 3’s collision, replayed on a saturated pair of uploaders: two backoff counters reach zero in the same slot, both frames are destroyed, and each sender learns only from the 45 µs ACK timeout it never gets. Lesson 3 stopped there — the contention window doubles and the station redraws. This lesson is what happens once enough of those redraws land badly in a row: the failures no longer cost just one retry each, they start moving the working MCS.',
         zh: '这里丢掉的每一次尝试，都是第 3 课那种碰撞，只是发生在一对饱和上传的终端之间：两个退避计数器在同一个时隙同时清零，两个帧同归于尽，双方都只能从那个等不到的 45 µs ACK 超时里知情。第 3 课讲到这里就停了——竞争窗口翻倍，终端重新抽签。这一课接着讲：当足够多次重抽连续不走运时会发生什么——这些失败不再只是各自赔上一次重传，它们开始推着当前速率走。',
       } },
       { heading: { en: 'Back to lesson 6', zh: '回到第 6 课' }, text: {
-        en: 'Lesson 6’s rate anomaly assumed a station simply parked at a low, fixed rate by distance. This loop is where that low rate can come from even when distance alone would allow better: a run of bad luck at contention drags the working rate down, and the resulting longer frames make the next round of bad luck more likely — a station stuck slow, holding the channel while it transmits, exactly as lesson 6 described, except now the slowness is a state the driver can also climb back out of.',
-        zh: '第 6 课的速率异常假设的是一台因为距离而被钉死在低速、固定速率上的终端。而这个回路展示了：即便距离本身还允许更高的速率，低速也可能是这样来的——竞争中一连串的坏运气把速率拖了下去，而变长的帧又让下一轮坏运气更容易发生——一台卡在低速的终端，发送时占着信道不放，和第 6 课描述的一模一样，只不过现在这份“慢”是一个驱动程序也能爬出来的状态。',
+        en: 'Lesson 6’s rate anomaly assumed a station simply parked at a low, fixed rate by distance. This loop is where that low rate can come from even when distance alone would allow better: a run of bad luck at contention drags the working rate down, and until ten successes in a row buy it back, every frame it sends occupies the channel for twice as long — a station stuck slow, holding the air while it transmits, exactly as lesson 6 described. Two things are different here. The slowness is now a state the driver can climb back out of, rather than a fixed property of the distance. And the harm travels the same way it did in lesson 6 — through airtime, one station making everyone else wait — not through any extra collisions of its own.',
+        zh: '第 6 课的速率异常假设的是一台因为距离而被钉死在低速、固定速率上的终端。而这个回路展示了：即便距离本身还允许更高的速率，低速也可能是这样来的——竞争中一连串的坏运气把速率拖了下去，而在连成十次成功把它买回来之前，它发的每一帧都要占用两倍长的信道时间——一台卡在低速的终端，发送时占着空口不放，和第 6 课描述的一模一样。这里有两点不同：一是这份“慢”现在是一个驱动程序能爬出来的状态，而不是距离带来的固定属性；二是危害传递的路径和第 6 课完全相同——通过空口时间，一台终端让所有人都多等——而不是靠它自己多制造了什么碰撞。',
       } },
     ],
     scenario: () => rateScenario(),
@@ -1688,14 +1708,14 @@ export const LESSONS: Lesson[] = [
         explain: { en: 'Two consecutive failures step the rate down one; the signal-based ceiling never moves on its own. Two steps down means two pairs of failures, four in total.', zh: '连续两次失败会让速率降一档；基于信号的上限本身不会自己变动。降两档意味着两对失败，一共四次。' },
       },
       {
-        q: { en: 'Why does a lower rate make collisions more likely rather than less?', zh: '为什么更低的速率反而会让碰撞更容易发生，而不是更不容易？' },
+        q: { en: 'The far station’s MCS 0 frames last almost twice as long as its MCS 1 frames. Which of the two collides more often per attempt?', zh: '远端终端的 MCS 0 帧几乎是 MCS 1 帧的两倍长。这两种帧里，哪一种每次尝试的碰撞率更高？' },
         options: [
-          { en: 'Lower rates use weaker preambles that other stations struggle to detect', zh: '低速率用的前导码更弱，其他终端难以检测到' },
-          { en: 'Frames occupy the channel for longer, widening the window in which another station’s backoff can expire and collide', zh: '帧占用信道的时间更长，扩大了另一台终端的退避恰好清零、发生碰撞的时间窗口' },
-          { en: 'It does not — collision probability depends only on the number of stations, not the rate', zh: '不会——碰撞概率只取决于终端数量，与速率无关' },
+          { en: 'The MCS 0 frames — they sit on the air longer, so more backoff counters have time to reach zero while they do', zh: 'MCS 0 的帧——它们在空口上待得更久，其间有更多退避计数器有时间走到零' },
+          { en: 'The MCS 1 frames, if anything: 11.4% against 8.6% here. Frame length is not what sets the per-attempt collision rate', zh: 'MCS 1 的帧，真要说的话：这里是 11.4% 对 8.6%。决定每次尝试碰撞率的不是帧长' },
+          { en: 'Exactly the same rate for both — collisions depend only on how many stations there are', zh: '两者完全一样——碰撞只取决于有多少台终端' },
         ],
         answer: 1,
-        explain: { en: 'Backoff counters tick down during any frame, including someone else’s. A longer frame gives more of them more time to reach zero — none can transmit until it ends, but more will be primed to the instant it does.', zh: '退避计数器在任何帧发送期间都会倒数，包括别人的帧。帧越长，就有更多终端的计数器有更多时间走到零——虽然谁都不能在它结束前发送，但会有更多终端在它结束的那一刻已经蓄势待发。' },
+        explain: { en: 'A backoff counter does not tick down during someone else’s frame: it freezes when the medium goes busy and resumes at the same value (IEEE 802.11-2024 §10.23.2.4, and all 2,218 of the near station’s freezes in this run do exactly that). So a longer frame gives no one else’s counter extra time to expire — it gives them none. What sets the per-attempt rate is the contention window the attempt was drawn from: here attempts drawn from CW 15 collide 11.8% of the time, attempts drawn from the doubled CW 31 only 5.7%. MCS 0 frames follow failures, so they are drawn from the widened windows — which is why they do not collide more. The third answer has the right instinct but overshoots: the two rates are not identical, and the number of stations is not the only thing that matters.', zh: '退避计数器在别人发帧期间是不倒数的：介质转忙时它冻结，之后从同一数值继续（IEEE 802.11-2024 §10.23.2.4——这段仿真里近端终端的 2,218 次冻结全都如此）。所以更长的帧不会给别人的计数器多出任何时间走到零，而是根本不给。决定每次尝试碰撞率的是这次尝试抽签时的竞争窗口：这里从 CW 15 抽出的尝试有 11.8% 碰撞，从翻倍后的 CW 31 抽出的只有 5.7%。MCS 0 的帧跟在失败后面，抽的正是被撑大的窗口——这就是它们不会撞得更多的原因。第三个选项方向是对的，但说过头了：两者的碰撞率并不相同，终端数量也不是唯一起作用的因素。' },
       },
     ],
   },
