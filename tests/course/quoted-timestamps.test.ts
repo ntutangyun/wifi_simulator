@@ -521,18 +521,18 @@ it('lesson 18’s try-this really needs two metres, and a third uploader really 
 })
 
 /**
- * Lesson 18's rule block notes that only single-user exchanges report an outcome, so a
- * multi-user downlink never adapts (`onTxOutcome` is called from exactly two places in mac.ts,
- * both on the single-user path). Measured by counting what the rate controller is actually
- * told during lesson 17's OFDMA run (fix round 2, I6).
+ * Lesson 18's rule block now notes that every exchange reports an outcome, single-user or
+ * multi-user (`onTxOutcome` is called from `resolveDlMu`'s per-member loop in mac.ts, in
+ * addition to the two single-user call sites). Measured by counting what the rate controller
+ * is actually told during lesson 17's OFDMA run (followups: symmetric MU downlink reporting).
  */
-it('lesson 18’s claim that multi-user PPDUs report no outcome to the rate controller', () => {
+it('lesson 18’s claim that multi-user PPDUs report an outcome to the rate controller', () => {
   const l = LESSONS.find((x) => x.id === 'mumimo')!
   const PHONES = new Set(['sta-1', 'sta-2', 'sta-3'])
-  const reports: string[] = []
+  const reports: { peer: string; ok: boolean }[] = []
   const okOrig = RateControl.prototype.onSuccess, failOrig = RateControl.prototype.onFailure
-  RateControl.prototype.onSuccess = function (peer: string) { reports.push(peer); return okOrig.call(this, peer) }
-  RateControl.prototype.onFailure = function (peer: string) { reports.push(peer); return failOrig.call(this, peer) }
+  RateControl.prototype.onSuccess = function (peer: string) { reports.push({ peer, ok: true }); return okOrig.call(this, peer) }
+  RateControl.prototype.onFailure = function (peer: string) { reports.push({ peer, ok: false }); return failOrig.call(this, peer) }
   try {
     const recs = [...new Simulation(l.variants![0].scenario()).runUntil(500_000_000).records]
     const apData = recs.filter((r): r is Extract<TLRecord, { type: 'TX_START' }> =>
@@ -540,16 +540,21 @@ it('lesson 18’s claim that multi-user PPDUs report no outcome to the rate cont
     const su = apData.filter((r) => r.frame.muParts === undefined && PHONES.has(r.frame.dst!))
     const muPpdus = apData.filter((r) => r.frame.muParts !== undefined)
     const muParts = muPpdus.flatMap((r) => r.frame.muParts!).filter((p) => PHONES.has(p.dst))
-    const forPhones = reports.filter((p) => PHONES.has(p))
+    const forPhones = reports.filter((p) => PHONES.has(p.peer))
 
-    // "176 multi-user PPDUs carrying 514 parts addressed to phones … all 132 of its outcome
-    // reports for those phones come from ordinary single-user frames"
-    expect(muPpdus.length).toBe(176)
-    expect(muParts.length).toBe(514)
-    expect(su.length).toBe(132)
-    expect(forPhones.length).toBe(132)
-    // one report per single-user frame, none from the 514 multi-user parts
-    expect(forPhones.length - su.length).toBe(0)
+    // "172 multi-user PPDUs carrying 507 parts addressed to phones … 637 outcome reports for
+    // those phones in total, 130 from ordinary single-user frames and 507 from multi-user
+    // parts (577 successes, 60 failures)"
+    expect(muPpdus.length).toBe(172)
+    expect(muParts.length).toBe(507)
+    expect(su.length).toBe(130)
+    expect(forPhones.length).toBe(637)
+    // one report per single-user frame, and one per multi-user part addressed to a phone —
+    // success or failure, symmetrically, which is what lets a rate used only inside
+    // multi-user PPDUs adapt at all.
+    expect(forPhones.length - su.length).toBe(muParts.length)
+    expect(forPhones.filter((p) => p.ok).length).toBe(577)
+    expect(forPhones.filter((p) => !p.ok).length).toBe(60)
   } finally {
     RateControl.prototype.onSuccess = okOrig
     RateControl.prototype.onFailure = failOrig

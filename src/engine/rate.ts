@@ -32,9 +32,12 @@
  * that follows; measured over lesson 18's scenario, the far station's long
  * MCS-0 frames collide slightly *less* often per attempt than its MCS-1 ones.
  *
- * Note also that only single-user exchanges call `onSuccess`/`onFailure` (see
- * the two `onTxOutcome` call sites in mac.ts). A downlink MU PPDU reports no
- * outcome, so a rate used only inside multi-user PPDUs never adapts.
+ * Note also that every exchange calls `onSuccess`/`onFailure`, not just
+ * single-user ones: a downlink MU PPDU reports one outcome per member (see
+ * `resolveDlMu`'s per-member loop in mac.ts, in addition to the two
+ * single-user `onTxOutcome` call sites), success or failure, symmetrically —
+ * so a rate used only inside multi-user PPDUs adapts too. Uplink MU (Trigger
+ * + TB PPDUs) reports neither; that path is unchanged.
  */
 const FAILURES_TO_STEP_DOWN = 2
 const SUCCESSES_TO_STEP_UP = 10
