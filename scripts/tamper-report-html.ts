@@ -137,6 +137,36 @@ function summarize(r: PooledResult): Summary {
 }
 
 /**
+ * Across-config spread of the cheater's own game ping in one scenario (max − min over baseline
+ * + all 7 cheats), for the mean and for the P95. Below this floor, a scenario's per-cheat
+ * differences cannot be told apart from run-to-run variation and must not be ranked or narrated
+ * as if one cheat were measurably worse than another. The floor (1.0 ms AND 2% of baseline, both
+ * required) was picked to separate a scenario that is still contention-bound (bg-upload clears it
+ * roughly fivefold) from one that no longer is (full/full-upload miss it by an order of magnitude);
+ * a same-baseline ratio test does not discriminate the two, magnitude does.
+ */
+const NOISE_FLOOR_MS = 1.0
+const NOISE_FLOOR_PCT = 2
+function cheaterSpread(exp: string): {
+  meanSpread: number; meanPct: number; meanNoise: boolean
+  p95Spread: number; p95Pct: number; p95Noise: boolean
+} {
+  const rows = CONFIGS.map((c) => summarize(get(exp, c)))
+  const means = rows.map((s) => s.cheater).filter((v): v is number => v !== null)
+  const p95s = rows.map((s) => s.cheaterP95).filter((v): v is number => v !== null)
+  const meanBase = summarize(get(exp, 'baseline')).cheater!
+  const p95Base = summarize(get(exp, 'baseline')).cheaterP95!
+  const meanSpread = Math.max(...means) - Math.min(...means)
+  const p95Spread = Math.max(...p95s) - Math.min(...p95s)
+  const meanPct = (meanSpread / meanBase) * 100
+  const p95Pct = (p95Spread / p95Base) * 100
+  return {
+    meanSpread, meanPct, meanNoise: meanSpread < NOISE_FLOOR_MS && meanPct < NOISE_FLOOR_PCT,
+    p95Spread, p95Pct, p95Noise: p95Spread < NOISE_FLOOR_MS && p95Pct < NOISE_FLOOR_PCT,
+  }
+}
+
+/**
  * How many seeds agree with the pooled direction of a change in the compliant
  * gamers' (or the cheater's) mean ping. A pooled delta that only one seed
  * produces is an outlier, not a finding.
@@ -352,17 +382,23 @@ function findings(): string {
     : `NAV 膨胀也没有作用，原因是物理的：重负载场景 8 s 里作弊者发出 ${navRun.dataTx.toFixed(0)} 个数据帧，其他终端合计只解码了 ${navRun.dataDecodedByStas.toFixed(0)} 次、触发 ${navRun.navSets.toFixed(0)} 次 NAV 设置——作弊者离 AP 近、用的 MCS 高，邻居的 SINR 达不到那个 MCS 的解码门限（与帧长无关），读不到 Duration 就不会被骗。`
   out.push(`<li><b>TXOP 霸占对只打游戏的作弊者无用；NAV 膨胀${navWorks ? '有效与否取决于邻居能否解码它的帧' : '同样无用'}。</b>${hogText}${navText}作弊者自己也在云备份时，它的 1500 B A-MPDU 超过 RTS 门限，每个突发都以 24 Mb/s 的 RTS 开头——RTS 的 Duration 同样被膨胀，而且所有邻居都能解码它：该场景 8 s 里 ${fuNavRun.navSetsRts.toFixed(0)} 次 NAV 设置来自作弊者的 RTS，${fuNavRun.navSets.toFixed(0)} 次来自其数据帧。TXOP 霸占让合规玩家 ${ms(fuB.gamers)} → ${ms(fuHog.gamers)}，NAV 膨胀让合规玩家 ${ms(fuB.gamers)} → ${ms(fuNav.gamers)}、其他终端 ${ms(fuB.others)} → ${ms(fuNav.others)}，而作弊者自己的 ping 分别为 ${ms(fuHog.cheater)} 与 ${ms(fuNav.cheater)}（基线 ${ms(fuB.cheater)}）。</li>`)
 
-  // 5. the cheater that also uploads: mean barely moves, the tail does
-  const fuRanked = cheats.map((c) => ({ c, s: S('full-upload', c) })).sort((a, b) => (a.s.cheaterP95 ?? 1e9) - (b.s.cheaterP95 ?? 1e9))
-  const fuBest = fuRanked[0]
-  const lo = Math.min(...cheats.map((c) => S('full-upload', c).cheater ?? 0)), hi = Math.max(...cheats.map((c) => S('full-upload', c).cheater ?? 0))
-  const tails = cheats.map((c) => `${CONFIG_LABEL[c]} ${fmt(S('full-upload', c).cheaterP95, 0)}`).join('、')
-  const better = cheats.filter((c) => (S('full-upload', c).cheaterP95 ?? 0) < (fuB.cheaterP95 ?? 0)).length
-  const head5 = better === 0 ? '平均与尾部都没有收益' : better < cheats.length / 2 ? '平均 ping 变化不大，只有个别作弊改善了尾部' : '平均 ping 变化不大，尾部才是看点'
-  const tail5 = better === 0
-    ? `P95 在七种作弊下全都不低于基线（${tails} ms），最接近的是"${CONFIG_LABEL[fuBest.c]}"：${fmt(fuB.cheaterP95, 0)} → ${fmt(fuBest.s.cheaterP95, 0)} ms，最大 ${fmt(fuB.cheaterMax, 0)} → ${fmt(fuBest.s.cheaterMax, 0)} ms。作弊者自己的备份突发占着它的电台：每次 A-MPDU 突发的两三毫秒里，它的游戏包只能等自己发完，作弊改变不了自己的电台忙。`
-    : `P95 在 ${better}/${cheats.length} 种作弊下低于基线（${tails} ms），最低的是"${CONFIG_LABEL[fuBest.c]}"：${fmt(fuB.cheaterP95, 0)} → ${fmt(fuBest.s.cheaterP95, 0)} ms，最大 ${fmt(fuB.cheaterMax, 0)} → ${fmt(fuBest.s.cheaterMax, 0)} ms。手游玩家感知到的"卡一下"正是这个尾部。`
-  out.push(`<li><b>满屋子 + 作弊者云备份：${head5}。</b>该场景空口 ${fuB.busy.toFixed(0)}%，作弊者基线平均 ${ms(fuB.cheater)}（P95 ${fmt(fuB.cheaterP95, 0)}，最大 ${fmt(fuB.cheaterMax, 0)} ms），七种作弊的平均值都在 ${fmt(lo)}–${fmt(hi)} ms 之间。${tail5}</li>`)
+  // 5. the cheater that also uploads: is there anything here beyond run-to-run noise?
+  const fuSpread = cheaterSpread('full-upload')
+  const bgSpread = cheaterSpread('bg-upload')
+  if (fuSpread.meanNoise && fuSpread.p95Noise) {
+    out.push(`<li><b>满屋子 + 作弊者云备份：七种作弊都没有跑出运行间的噪声。</b>该场景空口只剩 ${fuB.busy.toFixed(0)}%，已不再受空口约束（见第 6 节）；作弊者基线平均 ${ms(fuB.cheater)}（P95 ${fmt(fuB.cheaterP95, 0)}，最大 ${fmt(fuB.cheaterMax, 0)} ms）。七种作弊之间，平均 ping 的跨配置差异只有 ${fuSpread.meanSpread.toFixed(2)} ms（基线的 ${fuSpread.meanPct.toFixed(1)}%），P95 的差异只有 ${fuSpread.p95Spread.toFixed(2)} ms（${fuSpread.p95Pct.toFixed(1)}%）——都够不上本报告用来判断"能否分辨"的门槛：跨配置差异须同时超过 1.0 ms 与基线的 2%，仍然饱和的场景 2 在这项检验上是 ${bgSpread.meanSpread.toFixed(1)} ms、基线的 ${bgSpread.meanPct.toFixed(0)}%，超出该门槛五倍以上，这里却差了一个数量级。这一负载强度下哪种作弊更狠、尾部有没有被压住，仿真的运行间噪声本身就盖过了七种作弊之间的差异，因此不逐一排名、不点名"最低"或"最接近"——第 6 节有完整说明。</li>`)
+  } else {
+    const fuRanked = cheats.map((c) => ({ c, s: S('full-upload', c) })).sort((a, b) => (a.s.cheaterP95 ?? 1e9) - (b.s.cheaterP95 ?? 1e9))
+    const fuBest = fuRanked[0]
+    const lo = Math.min(...cheats.map((c) => S('full-upload', c).cheater ?? 0)), hi = Math.max(...cheats.map((c) => S('full-upload', c).cheater ?? 0))
+    const tails = cheats.map((c) => `${CONFIG_LABEL[c]} ${fmt(S('full-upload', c).cheaterP95, 0)}`).join('、')
+    const better = cheats.filter((c) => (S('full-upload', c).cheaterP95 ?? 0) < (fuB.cheaterP95 ?? 0)).length
+    const head5 = better === 0 ? '平均与尾部都没有收益' : better < cheats.length / 2 ? '平均 ping 变化不大，只有个别作弊改善了尾部' : '平均 ping 变化不大，尾部才是看点'
+    const tail5 = better === 0
+      ? `P95 在七种作弊下全都不低于基线（${tails} ms），最接近的是"${CONFIG_LABEL[fuBest.c]}"：${fmt(fuB.cheaterP95, 0)} → ${fmt(fuBest.s.cheaterP95, 0)} ms，最大 ${fmt(fuB.cheaterMax, 0)} → ${fmt(fuBest.s.cheaterMax, 0)} ms。作弊者自己的备份突发占着它的电台：每次 A-MPDU 突发的两三毫秒里，它的游戏包只能等自己发完，作弊改变不了自己的电台忙。`
+      : `P95 在 ${better}/${cheats.length} 种作弊下低于基线（${tails} ms），最低的是"${CONFIG_LABEL[fuBest.c]}"：${fmt(fuB.cheaterP95, 0)} → ${fmt(fuBest.s.cheaterP95, 0)} ms，最大 ${fmt(fuB.cheaterMax, 0)} → ${fmt(fuBest.s.cheaterMax, 0)} ms。手游玩家感知到的"卡一下"正是这个尾部。`
+    out.push(`<li><b>满屋子 + 作弊者云备份：${head5}。</b>该场景空口 ${fuB.busy.toFixed(0)}%，作弊者基线平均 ${ms(fuB.cheater)}（P95 ${fmt(fuB.cheaterP95, 0)}，最大 ${fmt(fuB.cheaterMax, 0)} ms），七种作弊的平均值都在 ${fmt(lo)}–${fmt(hi)} ms 之间。${tail5}</li>`)
+  }
 
   // 6. who can detect what (static)
   out.push(`<li><b>检测责任分工。</b>优先级抬升、TXOP 霸占、NAV 膨胀和贪婪都留下 AP 单独可测的硬证据（TID、TXOP 时长、Duration 字段）；AIFS 地板与 CW 坍缩只在<em>发送时刻分布</em>上留痕，AP 的介质视角与作弊者不同，需要统计样本，合规终端的旁证有帮助但不是必需；不加倍要靠重传帧前的等待，而碰撞事件本身 AP 看不见，把碰撞归因到作弊者需要合规终端报告的重传率。详见第 3 节。</li>`)
