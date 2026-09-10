@@ -1054,6 +1054,7 @@ export class WifiMac implements PhyListener {
           this.scheduleResponse(t, {
             kind: 'ba', src: this.nodeId, dst: from, bytes: BA_BYTES, mbps: 24,
             durationFieldNs: 0, txTimeNs: txTimeNs(BA_BYTES, 24), orthogonalGroup: frame.orthogonalGroup,
+            muKind: frame.muKind,
           })
           break
         }
