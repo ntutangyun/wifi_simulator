@@ -1558,19 +1558,18 @@ export const LESSONS: Lesson[] = [
       } },
       { kind: 'table', heading: { en: 'One MU PPDU, real numbers from this house', zh: '一个 MU PPDU，来自这栋房子的真实数据' }, head: [
         { en: 'Variant', zh: '变体' }, { en: 'Members', zh: '成员数' },
-        { en: 'PPDU duration', zh: 'PPDU 时长' }, { en: 'Bytes delivered', zh: '交付字节数' },
-        { en: 'Per-member rate', zh: '单成员速率' },
+        { en: 'Duration', zh: '时长' }, { en: 'Rate/member', zh: '单成员速率' },
       ], rows: [
-        [N('OFDMA'), N('3'), N('92.8 µs'), N('12,924 B'), N('371.4 Mb/s')],
-        [N('MU-MIMO'), N('2'), N('65.6 µs'), N('8,616 B'), N('525.4 Mb/s')],
+        [N('OFDMA'), N('3'), N('92.8 µs'), N('371.4 Mb/s')],
+        [N('MU-MIMO'), N('2'), N('65.6 µs'), N('525.4 Mb/s')],
       ] },
       { text: {
-        en: 'Same 4,308-byte payload per member either way — three A-MPDU’d video frames the router had backed up for that phone. Split three ways across the tones, it takes 92.8 µs. Given the whole channel to itself, it takes 65.6 µs: MU-MIMO’s per-member rate is the OFDMA one’s, times the group size it gave up.',
-        zh: '两边每个成员的负载都一样，都是 4,308 字节——路由器给那部手机攒下的三个已聚合视频帧。把子载波切成三份分给它，要 92.8 µs；把整条信道都给它一个人，只要 65.6 µs：MU-MIMO 单成员的速率，正好是 OFDMA 单成员速率乘上它放弃的那个组的大小。',
+        en: 'Same 4,308-byte payload per member either way — three A-MPDU’d video frames the router had backed up for that phone, so OFDMA’s three members deliver 12,924 B combined in that one PPDU against MU-MIMO’s 8,616 B from two. On the data alone the two variants are worlds apart: OFDMA’s one-third share of the tones needs exactly 3 data symbols (40.8 µs) to carry it; MU-MIMO’s full share needs exactly 1 (13.6 µs) — a clean threefold gain, precisely the group size MU-MIMO gave up. But every PPDU also pays a fixed 52 µs preamble (48 µs of EHT preamble plus 4 µs of multi-user SIG overhead) that does not shrink with the data, so end to end it is 92.8 µs against 65.6 µs — only about 1.4×, not 3×. This is lesson 15’s preamble-amortisation point again, on the other axis: the fixed cost dilutes whatever the tones or the antennas buy you, and it dilutes it hardest on the smallest frames.',
+        zh: '两边每个成员的负载都一样，都是 4,308 字节——路由器给那部手机攒下的三个已聚合视频帧，所以 OFDMA 那三个成员在同一个 PPDU 里合计交付 12,924 字节，MU-MIMO 两个成员合计 8,616 字节。只看数据部分，两个变体天差地别：OFDMA 分到三分之一子载波，要整整 3 个数据符号（40.8 µs）才能载完；MU-MIMO 独享全部子载波，只要 1 个（13.6 µs）——干净利落的三倍增益，正好是 MU-MIMO 放弃的那个组的大小。但每个 PPDU 还要付一段固定的 52 µs 前导码（48 µs 的 EHT 前导码加 4 µs 的多用户 SIG 开销），它不会随数据一起缩短，所以整帧算下来是 92.8 µs 对 65.6 µs——只有约 1.4 倍，不是 3 倍。这正是第 15 课“前导码摊薄”那个道理换了个轴再讲一遍：无论子载波还是天线买来的好处，都会被这笔固定成本摊薄，帧越小摊薄得越狠。',
       } },
       { heading: { en: 'Three candidates, but the MU-MIMO group is never three', zh: '三个候选人，但 MU-MIMO 分组从来不是三个' }, text: {
-        en: 'The router has four streams; each phone negotiates two. Two phones already use all four — a third would need six. So whenever MU-MIMO is possible at all, this AP trims the group down to two candidates and serves the third separately, in its own single-user PPDU straight after. OFDMA has no such ceiling here: the same three phones fit together in one PPDU, each on its own slice of tones. Frequency divides among everyone who shows up; space is capped by how many antennas paid for it.',
-        zh: '路由器有四条流；每部手机协商到两条。两部手机就已经用满四条——第三部还需要再要六条。所以只要 MU-MIMO 可行，这台 AP 就会把组裁到两个候选人，第三个另外用一个单用户 PPDU 紧接着单独服务。OFDMA 在这里没有这个天花板：同样这三部手机能挤进同一个 PPDU，每人占一片子载波。频率是分给所有到场的人；空间的上限则是有多少天线为它买了单。',
+        en: 'The router has four streams; each phone negotiates two. Two phones already use all four — a third would need six. So whenever MU-MIMO is possible at all, this AP trims the group down to two candidates and serves the third separately — most often (about two-thirds of the time, measured) in its own single-user PPDU right after, the rest of the time swept up into whichever MU-MIMO pairing forms next instead. OFDMA has no such ceiling here: the same three phones fit together in one PPDU, each on its own slice of tones. Frequency divides among everyone who shows up; space is capped by how many antennas paid for it.',
+        zh: '路由器有四条流；每部手机协商到两条。两部手机就已经用满四条——第三部还需要再要六条。所以只要 MU-MIMO 可行，这台 AP 就会把组裁到两个候选人，第三个另外单独服务——大多数时候（实测约三分之二）紧接着用一个单用户 PPDU 服务它，其余时候则被卷进下一次组成的 MU-MIMO 配对里。OFDMA 在这里没有这个天花板：同样这三部手机能挤进同一个 PPDU，每人占一片子载波。频率是分给所有到场的人；空间的上限则是有多少天线为它买了单。',
       } },
       { kind: 'steps', heading: { en: 'The simulator’s rule for choosing between them', zh: '仿真器在两者之间做选择的规则' }, items: [
         { en: 'OFDMA capability has to be negotiated between the router and a phone before either multi-user path can fire at all — this is why both variants below keep it on. Without it every phone is served one at a time, no matter how full the queue gets.', zh: '路由器与手机之间必须先协商好 OFDMA 能力，两条多用户路径才有可能触发——所以下面两个变体都开着它。没有它，无论队列多满，每部手机都只能一个一个被服务。' },
@@ -1598,12 +1597,12 @@ export const LESSONS: Lesson[] = [
     ],
     observe: [
       { en: 'OFDMA variant: hover the wide blue block — three parts inside, one per phone, each at a fraction of the router’s full rate.', zh: 'OFDMA 变体：悬停那个宽的蓝色块——里面有三份，每部手机一份，各自只拿到路由器满速的一小部分。' },
-      { en: 'MU-MIMO variant: the same block now carries only two parts, each at the phone’s full negotiated rate — and a third, separate block for the phone that got trimmed.', zh: 'MU-MIMO 变体：同一个块现在只装两份，各自都是那部手机协商到的满速率——被裁掉的那部手机另有一个独立的块。' },
+      { en: 'MU-MIMO variant: the same block now carries only two parts, each at the phone’s full negotiated rate. Most often (about two-thirds of the time, measured) a third, separate block follows immediately for the phone that got trimmed; the rest of the time it simply turns up in the next MU-MIMO pairing instead.', zh: 'MU-MIMO 变体：同一个块现在只装两份，各自都是那部手机协商到的满速率。大多数时候（实测约三分之二）被裁掉的那部手机紧接着有一个独立的块；其余时候它直接出现在下一次的 MU-MIMO 配对里。' },
       { en: 'Both variants end every member’s part at the same instant, and one BlockAck (or one round of simultaneous BAs) settles the whole group a SIFS later.', zh: '两个变体里，所有成员的那一份都在同一瞬间结束，一个 SIFS 之后一轮 BlockAck（或几个同时发出的 BA）就了结了整组。' },
       { en: 'Which phone gets trimmed from the MU-MIMO group is not fixed — it depends on which two happened to be queued together when the router last had a chance to transmit.', zh: '哪部手机会被裁出 MU-MIMO 组并不固定——取决于路由器上次有机会发送时，恰好是哪两部手机的数据排在了一起。' },
     ],
     tryThis: [
-      { en: 'Add a fourth and a fifth phone in the editor. OFDMA keeps absorbing them — up to four at a time in one PPDU, each slice thinner than the last. MU-MIMO never grows past two: the router’s four streams are already spoken for.', zh: '在编辑器里再加一部、两部手机。OFDMA 会继续把它们吸收进来——一个 PPDU 最多四个，但每一片都比上一片更薄。MU-MIMO 永远长不过两个：路由器的四条流早就被占满了。' },
+      { en: 'Add a fourth and a fifth phone in the editor. OFDMA keeps absorbing them, each slice thinner than the last. MU-MIMO never grows past two: the router’s four streams are already spoken for.', zh: '在编辑器里再加一部、两部手机。OFDMA 会继续把它们吸收进来，每一片都比上一片更薄。MU-MIMO 永远长不过两个：路由器的四条流早就被占满了。' },
       { en: 'Turn the laptop’s backup traffic off and reload. The router now drains each phone’s video packet before the next one lands, and multi-user PPDUs — of either kind — become rare: there is nothing to group.', zh: '关掉笔记本的备份流量再重新加载。路由器现在能在下一个视频包到达之前就送完当前这部手机的包，无论哪一种多用户 PPDU 都变得罕见——因为根本没什么可分组的。' },
     ],
     quiz: [
@@ -1654,6 +1653,10 @@ export const LESSONS: Lesson[] = [
         en: 'On this run the far station’s frames take 768.8 µs at MCS 1 and 1,476.0 µs at MCS 0 — the same 1,530 octets, almost exactly double the airtime one step down, because MCS 0 carries half the bits per symbol that MCS 1 does. Every fall is expensive twice over: once in the failed attempts that caused it, and again in every frame afterwards until it climbs back.',
         zh: '在这段仿真里，远端终端的帧在 MCS 1 上要 768.8 µs，掉到 MCS 0 就要 1,476.0 µs——同样的 1,530 字节，降一档空口时间几乎正好翻倍，因为 MCS 0 每符号能装的比特数只有 MCS 1 的一半。每一次跌落都要付两遍代价：一遍是导致它的那些失败尝试本身，另一遍是此后每一帧，直到它爬回来为止。',
       } },
+      { heading: { en: 'Back to lesson 3: where the failures come from', zh: '回到第 3 课：失败从何而来' }, text: {
+        en: 'Every one of those lost attempts is lesson 3’s collision, replayed on a saturated pair of uploaders: two backoff counters reach zero in the same slot, both frames are destroyed, and each sender learns only from the 45 µs ACK timeout it never gets. Lesson 3 stopped there — the contention window doubles and the station redraws. This lesson is what happens once enough of those redraws land badly in a row: the failures no longer cost just one retry each, they start moving the working MCS.',
+        zh: '这里丢掉的每一次尝试，都是第 3 课那种碰撞，只是发生在一对饱和上传的终端之间：两个退避计数器在同一个时隙同时清零，两个帧同归于尽，双方都只能从那个等不到的 45 µs ACK 超时里知情。第 3 课讲到这里就停了——竞争窗口翻倍，终端重新抽签。这一课接着讲：当足够多次重抽连续不走运时会发生什么——这些失败不再只是各自赔上一次重传，它们开始推着当前速率走。',
+      } },
       { heading: { en: 'Back to lesson 6', zh: '回到第 6 课' }, text: {
         en: 'Lesson 6’s rate anomaly assumed a station simply parked at a low, fixed rate by distance. This loop is where that low rate can come from even when distance alone would allow better: a run of bad luck at contention drags the working rate down, and the resulting longer frames make the next round of bad luck more likely — a station stuck slow, holding the channel while it transmits, exactly as lesson 6 described, except now the slowness is a state the driver can also climb back out of.',
         zh: '第 6 课的速率异常假设的是一台因为距离而被钉死在低速、固定速率上的终端。而这个回路展示了：即便距离本身还允许更高的速率，低速也可能是这样来的——竞争中一连串的坏运气把速率拖了下去，而变长的帧又让下一轮坏运气更容易发生——一台卡在低速的终端，发送时占着信道不放，和第 6 课描述的一模一样，只不过现在这份“慢”是一个驱动程序也能爬出来的状态。',
@@ -1668,7 +1671,7 @@ export const LESSONS: Lesson[] = [
     observe: [
       { en: 'The far station’s green blocks change length over the run: short ones at MCS 1, roughly twice as long at MCS 0 — the rate is visibly moving, not fixed.', zh: '远端终端的绿色块在整个过程里长度会变：MCS 1 上是短的，MCS 0 上大约长一倍——速率明显在变化，不是固定的。' },
       { en: 'Thirteen times in this run the far station falls to MCS 0. More than half of those last exactly ten frames — the fastest possible climb back — but a few last up to 41, because a fresh collision reset the success count partway through the climb.', zh: '这段仿真里远端终端一共跌到 MCS 0 十三次。其中过半恰好持续十帧——这是能爬回去的最短时间——但也有几次拖到长达 41 帧，因为爬升途中又撞上了一次碰撞，把成功计数清零重来。' },
-      { en: 'The near station, one metre from the AP, spends almost the whole run at its ceiling — it fails often enough from the far station’s collisions to dip occasionally, but never for long.', zh: '离 AP 只有一米的近端终端几乎全程都停在它的上限上——远端终端引发的碰撞也会让它偶尔失败几次，但从不会掉太久。' },
+      { en: 'The near station, one metre from the AP, ranges over MCS 9–11 but spends almost the whole run (about 88% of its frames) at the ceiling, MCS 11 — it fails often enough from the far station’s collisions to dip occasionally, but never for long.', zh: '离 AP 只有一米的近端终端在 MCS 9–11 之间波动，但几乎全程（约 88% 的帧）都停在它的上限 MCS 11 上——远端终端引发的碰撞也会让它偶尔失败几次，但从不会掉太久。' },
     ],
     tryThis: [
       { en: 'Move the far station one metre closer in the editor: the ceiling itself rises, and the whole loop now oscillates around a higher rate. Put it back, then add a third saturated uploader and watch the far station spend longer stretches at MCS 0.', zh: '在编辑器里把远端终端挪近一米：上限本身就会抬高，整个回路会围绕一个更高的速率来回摆动。挪回去，再加一台饱和上传终端，看远端终端在 MCS 0 上停留的时间明显变长。' },

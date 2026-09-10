@@ -187,7 +187,10 @@ it('lesson 15’s second experiment position really inverts 40 → 80 MHz, with 
  * Lesson 17's table and its "the MU-MIMO group is never three" paragraph
  * quote one clean OFDMA PPDU (all three members carrying the same 4,308 B) and
  * one clean MU-MIMO PPDU (both survivors carrying the same 4,308 B), plus the
- * structural claim that MU-MIMO here never groups more than two.
+ * structural claim that MU-MIMO here never groups more than two, the derived
+ * per-member rates, the 3-data-symbol / 1-data-symbol split behind the 92.8 vs
+ * 65.6 µs figures (fix round 1, F2), and the measured share of trimmed members
+ * that get their own single-user PPDU immediately after (fix round 1, F1).
  */
 it('lesson 17 quotes the OFDMA and MU-MIMO PPDUs its own variants produce', () => {
   const l = LESSONS.find((x) => x.id === 'mumimo')!
@@ -217,14 +220,48 @@ it('lesson 17 quotes the OFDMA and MU-MIMO PPDUs its own variants produce', () =
   expect(mumimoClean.t).toBe(5_591_800)
   expect(mumimoClean.frame.txTimeNs).toBe(65_600)
   expect(mumimoClean.frame.bytes).toBe(8_616)
+
+  // "371.4 Mb/s … 525.4 Mb/s" — per-member rate = bytes×8 / PPDU duration.
+  const ofdmaRate = (ofdmaClean.frame.muParts[0].bytes * 8) / (ofdmaClean.frame.txTimeNs / 1000)
+  const mumimoRate = (mumimoClean.frame.muParts[0].bytes * 8) / (mumimoClean.frame.txTimeNs / 1000)
+  expect(Math.round(ofdmaRate * 10) / 10).toBe(371.4)
+  expect(Math.round(mumimoRate * 10) / 10).toBe(525.4)
+
+  // "exactly 3 data symbols (40.8 µs) … exactly 1 (13.6 µs)" — the fixed 52 µs
+  // preamble (48 µs EHT + 4 µs multi-user SIG) does not scale with the data.
+  const MU_PREAMBLE_NS = 52_000
+  const EHT_SYM_NS = 13_600
+  expect((ofdmaClean.frame.txTimeNs - MU_PREAMBLE_NS) / EHT_SYM_NS).toBe(3)
+  expect((mumimoClean.frame.txTimeNs - MU_PREAMBLE_NS) / EHT_SYM_NS).toBe(1)
+  // "only about 1.4×, not 3×" end to end.
+  expect(Math.round((ofdmaClean.frame.txTimeNs / mumimoClean.frame.txTimeNs) * 100) / 100).toBe(1.41)
+
+  // "most often (about two-thirds of the time, measured)" — the trimmed
+  // member's own single-user PPDU immediately follows its MU-MIMO PPDU.
+  const allApData = [...new Simulation(l.variants![1].scenario()).runUntil(500_000_000).records]
+    .filter((r): r is Extract<TLRecord, { type: 'TX_START' }> => r.type === 'TX_START' && r.node === 'ap' && r.frame.kind === 'data')
+  const twoMember = allApData.filter((r) => r.frame.muParts?.length === 2)
+  let followedByTrimmedSu = 0
+  for (const mu of twoMember) {
+    const members = new Set(mu.frame.muParts!.map((p) => p.dst))
+    const trimmed = ['sta-1', 'sta-2', 'sta-3'].find((s) => !members.has(s))!
+    const next = allApData[allApData.indexOf(mu) + 1]
+    if (next && next.frame.muParts === undefined && next.frame.dst === trimmed) followedByTrimmedSu++
+  }
+  const share = followedByTrimmedSu / twoMember.length
+  expect(twoMember.length).toBe(184)
+  expect(followedByTrimmedSu).toBe(125)
+  expect(Math.round(share * 1000) / 1000).toBe(0.679)
 })
 
 /**
- * Lesson 18's body and observe list quote the far station's per-MCS airtime
- * and the shape of its MCS-0 excursions over a 3 s run. Pinned here so a PHY
- * or traffic drift breaks this test, not a reader's trust in the prose.
+ * Lesson 18's body and observe list quote the far station's per-MCS airtime,
+ * its MCS 1 ceiling, the shape of its MCS-0 excursions over a 3 s run, and
+ * the near station's distinct MCS set and its share of frames at the ceiling
+ * (fix round 1, F3). Pinned here so a PHY or traffic drift breaks this test,
+ * not a reader's trust in the prose.
  */
-it('lesson 18 quotes the far station’s airtimes and its MCS-0 excursion lengths', () => {
+it('lesson 18 quotes the far station’s airtimes/excursions and the near station’s ceiling share', () => {
   const l = LESSONS.find((x) => x.id === 'rate')!
   const recs = [...new Simulation(l.scenario()).runUntil(3_000_000_000).records]
   const far = recs.filter((r): r is Extract<TLRecord, { type: 'TX_START' }> =>
@@ -234,6 +271,10 @@ it('lesson 18 quotes the far station’s airtimes and its MCS-0 excursion length
   const atMcs = (mcs: number): number => far.find((r) => r.frame.mcs === mcs)!.frame.txTimeNs
   expect(atMcs(1)).toBe(768_800)
   expect(atMcs(0)).toBe(1_476_000)
+
+  // "here MCS 1, decided purely by distance and the wall" — the far
+  // station's signal-strength ceiling: it never exceeds MCS 1 under contention.
+  expect(Math.max(...far.map((r) => r.frame.mcs!))).toBe(1)
 
   // "thirteen times … more than half … exactly ten frames … up to 41"
   const mcss = far.map((r) => r.frame.mcs)
@@ -249,4 +290,15 @@ it('lesson 18 quotes the far station’s airtimes and its MCS-0 excursion length
   expect(zeroRuns.length).toBe(13)
   expect(zeroRuns.filter((n) => n === 10).length).toBeGreaterThan(zeroRuns.length / 2)
   expect(Math.max(...zeroRuns)).toBe(41)
+
+  // "distinct MCS {9, 10, 11}" and "spends almost the whole run at its
+  // ceiling" (~88%) — the near station.
+  const near = recs.filter((r): r is Extract<TLRecord, { type: 'TX_START' }> =>
+    r.type === 'TX_START' && r.node === 'sta-1' && r.frame.kind === 'data')
+  const nearMcss = near.map((r) => r.frame.mcs)
+  expect(new Set(nearMcss)).toEqual(new Set([9, 10, 11]))
+  const atCeiling = nearMcss.filter((m) => m === 11).length
+  expect(near.length).toBe(2_513)
+  expect(atCeiling).toBe(2_210)
+  expect(Math.round((atCeiling / near.length) * 1000) / 1000).toBe(0.879)
 })
