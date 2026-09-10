@@ -84,8 +84,13 @@ describe('jump targets occur in their lesson simulations', () => {
     expect(count(single, 'COLLISION')).toBeGreaterThan(3 * count(prot, 'COLLISION'))
     expect(count(prot, 'DROP')).toBe(0)
     expect(count(single, 'DROP')).toBeGreaterThan(0)
-    // the AP relays every CF-End a station sends
-    const cf = prot.filter((r): r is Extract<TLRecord, { type: 'TX_START' }> => r.type === 'TX_START' && r.frame.kind === 'cfend')
+    // the AP relays every CF-End a station sends. A CF-End near the tail of
+    // the 300 ms window has its AP relay land microseconds after the cutoff
+    // (frame lengths now vary slightly with rate adaptation), so this specific
+    // check runs a hair longer to avoid counting a truncated last relay as a
+    // dropped one.
+    const protForCf = recordsFor(lesson.scenario(), 350)
+    const cf = protForCf.filter((r): r is Extract<TLRecord, { type: 'TX_START' }> => r.type === 'TX_START' && r.frame.kind === 'cfend')
     expect(cf.filter((r) => r.node === 'ap').length).toBe(cf.filter((r) => r.node !== 'ap').length)
     // the multiple-protection variant puts the TXOP remainder on data frames
     const multi = recordsFor(lesson.variants![1].scenario(), 100)

@@ -20,8 +20,11 @@ it('quoted lesson timestamps still hold', () => {
   expect(l4.find((x) => x.type === 'BACKOFF_RESUME' && x.node === 'sta-1' && x.t > 700_000)?.t).toBe(790_000)
 
   const l5 = run('hidden', 3_000_000)
-  expect(l5.find((x) => x.type === 'BACKOFF_FREEZE' && x.node === 'sta-2' && x.t > 2_300_000)?.t).toBe(2_399_000)
-  expect(l5.find((x) => x.type === 'BACKOFF_RESUME' && x.node === 'sta-2' && x.t > 2_400_000)?.t).toBe(2_461_000)
+  // A's data frame now runs slower after rate adaptation steps it down from
+  // repeated hidden-node collisions (Task 5), so B's freeze-for-the-ACK and
+  // resume land later than before.
+  expect(l5.find((x) => x.type === 'BACKOFF_FREEZE' && x.node === 'sta-2' && x.t > 2_300_000)?.t).toBe(2_735_000)
+  expect(l5.find((x) => x.type === 'BACKOFF_RESUME' && x.node === 'sta-2' && x.t > 2_400_000)?.t).toBe(2_797_000)
 
   const l6 = run('anomaly', 2_000_000)
   expect(l6.filter((x) => x.type === 'TX_START' && x.t === 0).length).toBe(2)

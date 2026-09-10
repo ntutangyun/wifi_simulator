@@ -531,14 +531,14 @@ export const LESSONS: Lesson[] = [
         zh: '于是一方正在发帧，另一方却侦听到“空闲”，两股信号在走廊里的 AP 处相遇、同归于尽——AP 两边都听得到。这就是隐藏节点问题——多少退避都治不了它，因为竞争双方根本看不见彼此在竞争。',
       } },
       { heading: { en: 'B freezes for the receipt, not the payload', zh: 'B 为回执停步，却听不见正文' }, text: {
-        en: 'Around t ≈ 2.4 ms you can watch the asymmetry directly. Of A’s entire exchange, the only fragment B ever perceives is the 28 µs receipt at the end:',
-        zh: '在 t ≈ 2.4 ms 附近可以直接看到这种不对称。A 的整场交换里，B 能感知到的唯一片段，就是结尾这张 28 µs 的回执：',
+        en: 'Around t ≈ 2.7 ms you can watch the asymmetry directly. Of A’s entire exchange, the only fragment B ever perceives is the 28 µs receipt at the end:',
+        zh: '在 t ≈ 2.7 ms 附近可以直接看到这种不对称。A 的整场交换里，B 能感知到的唯一片段，就是结尾这张 28 µs 的回执：',
       } },
       { kind: 'table', head: [
         { en: 'Frame', zh: '帧' }, { en: 'Time', zh: '时间' }, { en: 'Walls from B', zh: '与 B 之间的墙' }, { en: 'What B does', zh: 'B 的反应' },
       ], rows: [
-        [{ en: 'A’s 1528 B data', zh: 'A 的 1528 B 数据帧' }, N('≈ 2.11–2.38 ms'), { en: 'Two', zh: '两堵' }, { en: 'Counts straight through it — 97, 96, … 66 — as if the channel were empty.', zh: '倒数径直穿过它——97、96、……66——仿佛信道空无一物。' }],
-        [{ en: 'AP’s ACK', zh: 'AP 的 ACK' }, N('2399–2427 µs'), { en: 'One', zh: '一堵' }, { en: 'Freezes at 64, sits out the 28 µs ACK plus a 34 µs DIFS, resumes at 64.', zh: '冻结在 64，等完 28 µs 的 ACK 加 34 µs 的 DIFS，再从 64 继续。' }],
+        [{ en: 'A’s 1528 B data', zh: 'A 的 1528 B 数据帧' }, N('≈ 2.19–2.72 ms'), { en: 'Two', zh: '两堵' }, { en: 'Counts straight through it — 106, 105, … 47 — as if the channel were empty.', zh: '倒数径直穿过它——106、105、……47——仿佛信道空无一物。' }],
+        [{ en: 'AP’s ACK', zh: 'AP 的 ACK' }, N('2735–2763 µs'), { en: 'One', zh: '一堵' }, { en: 'Freezes at 46, sits out the 28 µs ACK plus a 34 µs DIFS, resumes at 46.', zh: '冻结在 46，等完 28 µs 的 ACK 加 34 µs 的 DIFS，再从 46 继续。' }],
       ] },
       { text: {
         en: 'And that freeze protects nothing: a final ACK carries Duration = 0, so it sets no NAV — moments later A starts its next frame and B, deaf again, counts right through it. This is exactly the gap the CTS closes: it too comes from the AP, audible to B, but it carries a nonzero Duration covering the whole upcoming data frame — turning B’s 28 µs twitch into a reservation that lasts the entire exchange.',

@@ -57,6 +57,8 @@ export interface WifiMacCfg {
    * Absent = every peer is reachable (single-link device).
    */
   reachable?(peer: string): boolean
+  /** Report an attempt's outcome so rate adaptation can react. */
+  onTxOutcome?(peer: string, ok: boolean): void
   /** Burst protection policy when holding a TXOP (see TxopProtection). Default 'single'. */
   txopProtection?: TxopProtection
   /** A tampered driver: deviations from the broadcast EDCA parameters (see TamperCfg). */
@@ -125,6 +127,8 @@ interface StaMuAwait {
   ac: number
   msdus: Msdu[]
   timeoutHandle: number
+  /** The AP that triggered this UL MU round — the one peer this exchange knows. */
+  peer: string
 }
 
 /** Max PSDU bytes that fit a target duration at mode/mcs/RU fraction. */
@@ -776,6 +780,7 @@ export class WifiMac implements PhyListener {
     const e = this.edcafs[aw.ac]
     this.queues.restore(aw.ac, aw.msdus)
     const isShort = aw.wasRts || aw.aggBytes <= this.cfg.rtsThresholdBytes
+    this.cfg.onTxOutcome?.(aw.peer, false)
     this.failAttemptCore(e, isShort, aw.msdus[0]?.id ?? 0, aw.msdus.length > 1)
   }
 
@@ -1043,6 +1048,7 @@ export class WifiMac implements PhyListener {
           this.resumeAll()
         } else {
           this.queues.restore(st.ac, st.msdus)
+          this.cfg.onTxOutcome?.(st.peer, false)
           this.failAttemptCore(e, false, st.msdus[0]?.id ?? 0, false)
         }
         break
@@ -1065,6 +1071,10 @@ export class WifiMac implements PhyListener {
           break
         }
         if (this.awaiting && (this.awaiting.kind === 'ack' || this.awaiting.kind === 'ba')) {
+          // Whole-PPDU decode model: reaching here means everything in this
+          // exchange was acknowledged (no per-subframe bitmap to partially
+          // fail on), so a single-user ack/ba is always a full success.
+          this.cfg.onTxOutcome?.(this.awaiting.peer, true)
           this.succeedAttempt()
         }
         break
@@ -1140,12 +1150,13 @@ export class WifiMac implements PhyListener {
       e.seqCounter += msdus.length
       const mbaTime = txTimeNs(multiStaBaBytes(n), 24)
       this.staMuAwait = {
-        ac, msdus,
+        ac, msdus, peer: trigger.src,
         timeoutHandle: this.q.schedule(t + SIFS_NS + dur + SIFS_NS + mbaTime + ACK_TIMEOUT_NS, () => {
           const st = this.staMuAwait
           if (!st) return
           this.staMuAwait = null
           this.queues.restore(st.ac, st.msdus)
+          this.cfg.onTxOutcome?.(st.peer, false)
           this.failAttemptCore(this.edcafs[st.ac], false, st.msdus[0]?.id ?? 0, false)
         }),
       }

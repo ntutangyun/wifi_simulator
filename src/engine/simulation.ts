@@ -20,6 +20,7 @@ import { WifiMac } from './mac'
 import { mcsForRssi } from './phy'
 import { buildLinkTable } from './propagation'
 import { AcQueues } from './queues'
+import { RateControl } from './rate'
 import { Rng } from './rng'
 import { TrafficSource, resetMsduIds, type Msdu } from './traffic'
 
@@ -97,6 +98,7 @@ export class Simulation {
       for (const n of members) {
         const vid = vname(n.id)
         const edca = hasFeature(n, 'edca') && hasFeature(ap, 'edca')
+        const rate = new RateControl()
         const mac = new WifiMac(
           n.id, this.q, () => this.nowNs, ch,
           root.fork(hashStr(vid)), linkEmit,
@@ -111,11 +113,13 @@ export class Simulation {
               const mode = modeFor(n, peer)
               const peerCfg = other(n, peer)
               const cap = mode === 'eht' && !negotiated(n, peerCfg, 'qam4k') ? 11 : undefined
-              return mcsForRssi(mode, rssi, cap, negotiatedWidth(n, peerCfg))
+              const ceiling = mcsForRssi(mode, rssi, cap, negotiatedWidth(n, peerCfg))
+              return rate.mcsFor(peer, ceiling)
             },
             widthForPeer: (peer) => negotiatedWidth(n, other(n, peer)),
             nssForPeer: (peer) => negotiatedNss(n, other(n, peer)),
             reachable: (peer) => memberSet.has(peer),
+            onTxOutcome: (peer, ok) => { if (ok) rate.onSuccess(peer); else rate.onFailure(peer) },
             txopProtection: n.txopProtection ?? 'single',
             tamper: n.kind === 'sta' ? n.tamper : undefined,
             ampduWith: (peer) => negotiated(n, other(n, peer), 'ampdu'),
