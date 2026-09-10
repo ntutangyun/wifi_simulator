@@ -36,6 +36,25 @@ describe('station presets', () => {
     expect(presetNode(byId('apple-iphone-16e'), 'sta-3', { x: 1, y: 1, z: 1 }).caps.generation).toBe('he')
   })
 
+  it('Wi-Fi 6 phones are modelled at 80 MHz, Wi-Fi 7 phones stay at 160 MHz', () => {
+    // Apple's own deployment docs (support.apple.com "Wi-Fi and Ethernet
+    // specifications for Apple devices") give Wi-Fi 6 iPhones as
+    // ax@5 GHz | 1200 Mbps | 80 MHz | 2/MIMO and Wi-Fi 7 iPhones as
+    // be@5 GHz | 2400 Mbps | 160 MHz | 2/MIMO.
+    const he = ['huawei-mate-60-pro', 'xiaomi-redmi-note-15-pro-plus', 'honor-x9d', 'apple-iphone-16e']
+    for (const id of he) {
+      expect(byId(id).generation, id).toBe('he')
+      expect(byId(id).widthMhz, id).toBe(80)
+    }
+    const eht = ['huawei-mate-80-pro', 'huawei-pura-80-ultra', 'xiaomi-17-ultra', 'xiaomi-17-pro-max',
+      'xiaomi-redmi-k90-pro-max', 'honor-magic8-pro', 'honor-magic-v6', 'honor-500',
+      'apple-iphone-17-pro', 'apple-iphone-air', 'apple-iphone-17']
+    for (const id of eht) {
+      expect(byId(id).generation, id).toBe('eht')
+      expect(byId(id).widthMhz, id).toBe(160)
+    }
+  })
+
   it('applyPreset keeps the node’s id and position and replaces name, caps and streams', () => {
     const n = presetNode(byId('honor-x9d'), 'sta-9', { x: 3, y: 4, z: 1 })
     const m = applyPreset(n, byId('apple-iphone-17-pro'))

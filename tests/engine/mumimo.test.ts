@@ -56,8 +56,14 @@ describe('MU-MIMO: one PPDU, several stations, split by space', () => {
   })
 
   it('the PPDU lasts as long as its slowest member', () => {
+    // Skip a PPDU that starts so close to the collection horizon (1000 ms)
+    // that its TX_END falls after it: the event is real, just not collected
+    // yet, and that is a property of where we stopped observing, not of the
+    // PPDU's duration.
+    const HORIZON = 1000 * MS
     for (const r of mu) {
       if (r.type !== 'TX_START') continue
+      if (r.t + r.frame.txTimeNs > HORIZON) continue
       const parts = r.frame.muParts ?? []
       const expected = Math.max(...parts.map((p) =>
         txTimeModeNs(modeOf(p.dst), p.bytes, p.mcs, { mu: true, widthMhz: r.frame.widthMhz, nss: p.nss })))

@@ -32,6 +32,37 @@ describe('channel width multiplies the bits carried per symbol', () => {
     expect(mbps).toBeLessThan(5800)
   })
 
+  it('reproduces Apple’s published Wi-Fi 6 figure: ~1200 Mb/s at 80 MHz, two streams, HE MCS 11', () => {
+    // support.apple.com "Wi-Fi and Ethernet specifications for Apple devices":
+    // Wi-Fi 6 iPhones are ax@5 GHz | 1200 Mbps | 80 MHz | 2/MIMO. HE tops out
+    // at MCS 11 (no 4096-QAM), so this is the top rate an HE80 2x2 link reaches.
+    const m = PHY_MODES.he
+    const bitsPerSymbol = m.ndbps[11] * toneRatio('he', 80) * 2
+    const mbps = bitsPerSymbol / (m.symNs / 1000)
+    expect(mbps).toBeGreaterThan(1150)
+    expect(mbps).toBeLessThan(1250)
+  })
+
+  it('computes the EHT160 two-stream top rate — and it runs above Apple’s published 2400 Mb/s', () => {
+    // Apple's Wi-Fi 7 figure is be@5 GHz | 2400 Mbps | 160 MHz | 2/MIMO. The
+    // engine's top EHT MCS (13, 4096-QAM) at 160 MHz / 2 streams computes to
+    // ~2882 Mb/s — about 20% above Apple's figure. MCS 11 (1024-QAM, the top
+    // HE shares with EHT) computes to ~2402 Mb/s, which matches Apple's 2400
+    // almost exactly. The mismatch at MCS 13 versus the close match at MCS 11
+    // suggests Apple's published number assumes 1024-QAM rather than the
+    // 4096-QAM this engine's top-of-range EHT MCS allows; see the report.
+    const m = PHY_MODES.eht
+    const top = m.ndbps[13] * toneRatio('eht', 160) * 2
+    const topMbps = top / (m.symNs / 1000)
+    expect(topMbps).toBeGreaterThan(2800)
+    expect(topMbps).toBeLessThan(2950)
+
+    const mcs11 = m.ndbps[11] * toneRatio('eht', 160) * 2
+    const mcs11Mbps = mcs11 / (m.symNs / 1000)
+    expect(mcs11Mbps).toBeGreaterThan(2350)
+    expect(mcs11Mbps).toBeLessThan(2450)
+  })
+
   it('a fixed preamble means a single frame shrinks less than its data symbols do', () => {
     const narrow = txTimeModeNs('eht', 1530, 7)
     const wide = txTimeModeNs('eht', 1530, 7, { widthMhz: 160, nss: 2 })
