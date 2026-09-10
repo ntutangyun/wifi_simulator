@@ -3,6 +3,7 @@ import { LESSONS, MODULES, type L10n } from '../../src/course/lessons'
 import { ScenarioSchema } from '../../src/model/scenario'
 import { Simulation } from '../../src/engine/simulation'
 import { buildLinkTable } from '../../src/engine/propagation'
+import { widthOf } from '../../src/model/caps'
 import { CCA_PD_DBM, sinrThreshDb } from '../../src/engine/phy'
 import type { TLRecord } from '../../src/model/records'
 
@@ -245,5 +246,46 @@ describe('lesson 12 claims about TB PPDUs', () => {
       }
     }
     expect(rounds).toBeGreaterThanOrEqual(3)
+  })
+})
+
+describe('module 4 lessons', () => {
+  it('adds a fourth module', () => {
+    expect(MODULES.length).toBe(4)
+    expect(MODULES[3].en).toBe('How fast is fast')
+    expect(MODULES[3].zh.length).toBeGreaterThan(0)
+  })
+
+  it('lesson 15 is about channel width and offers one variant per width', () => {
+    const l = LESSONS.find((x) => x.id === 'width')!
+    expect(l.module).toBe(3) // zero-based module index
+    expect(l.variants?.length).toBe(4)
+    const widths = l.variants!.map((v) => widthOf(v.scenario().nodes.find((n) => n.id === 'sta-1')!))
+    expect(widths).toEqual([20, 40, 80, 160])
+  })
+
+  it('lesson 15 shows the same frame taking less air as the channel widens', () => {
+    const l = LESSONS.find((x) => x.id === 'width')!
+    const dur = l.variants!.map((v) => {
+      const recs = new Simulation(v.scenario()).runUntil(200 * 1_000_000).records
+      const tx = recs.find((r) => r.type === 'TX_START' && r.frame.kind === 'data' && r.frame.bytes > 1000)
+      return tx && tx.type === 'TX_START' ? tx.frame.txTimeNs : 0
+    })
+    for (let i = 1; i < dur.length; i++) expect(dur[i]).toBeLessThan(dur[i - 1])
+  })
+
+  it('lesson 16 is about spatial streams and its link runs at the smaller end', () => {
+    const l = LESSONS.find((x) => x.id === 'streams')!
+    expect(l.module).toBe(3)
+    expect(l.variants!.length).toBeGreaterThanOrEqual(3)
+  })
+
+  it('every lesson still has a quiz, observations and things to try', () => {
+    for (const l of LESSONS) {
+      expect(l.quiz.length).toBeGreaterThan(0)
+      expect(l.observe.length).toBeGreaterThan(0)
+      expect(l.tryThis.length).toBeGreaterThan(0)
+      expect(l.title.zh.length).toBeGreaterThan(0)
+    }
   })
 })
