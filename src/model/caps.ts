@@ -5,7 +5,7 @@
 import type { Generation } from './types'
 import type { NodeCfg } from './scenario'
 
-export type FeatureFlag = 'edca' | 'ampdu' | 'txop' | 'ofdma' | 'mlo' | 'qam4k'
+export type FeatureFlag = 'edca' | 'ampdu' | 'txop' | 'ofdma' | 'mumimo' | 'mlo' | 'qam4k'
 export type LinkId = '5g' | '6g'
 export type ChannelWidth = 20 | 40 | 80 | 160 | 320
 export type Nss = 1 | 2 | 3 | 4
@@ -50,8 +50,8 @@ export const GEN_LABEL: Record<Generation, string> = {
 export const GEN_FEATURES: Record<Generation, FeatureFlag[]> = {
   nonht: [],
   vht: ['edca', 'ampdu', 'txop'],
-  he: ['edca', 'ampdu', 'txop', 'ofdma'],
-  eht: ['edca', 'ampdu', 'txop', 'ofdma', 'mlo', 'qam4k'],
+  he: ['edca', 'ampdu', 'txop', 'ofdma', 'mumimo'],
+  eht: ['edca', 'ampdu', 'txop', 'ofdma', 'mumimo', 'mlo', 'qam4k'],
 }
 
 export const FEATURE_LABEL: Record<FeatureFlag, string> = {
@@ -59,6 +59,7 @@ export const FEATURE_LABEL: Record<FeatureFlag, string> = {
   ampdu: 'A-MPDU aggregation + BlockAck',
   txop: 'TXOP bursting',
   ofdma: 'OFDMA (MU scheduling)',
+  mumimo: 'MU-MIMO (multi-user by space)',
   mlo: 'Multi-Link Operation',
   qam4k: '4096-QAM (MCS 12/13)',
 }

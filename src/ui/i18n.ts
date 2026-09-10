@@ -285,7 +285,7 @@ export const STRINGS: Record<Lang, Strings> = {
     },
     features: {
       edca: 'EDCA (QoS access categories)', ampdu: 'A-MPDU aggregation + BlockAck', txop: 'TXOP bursting',
-      ofdma: 'OFDMA (MU scheduling)', mlo: 'Multi-Link Operation', qam4k: '4096-QAM (MCS 12/13)',
+      ofdma: 'OFDMA (MU scheduling)', mumimo: 'MU-MIMO (multi-user by space)', mlo: 'Multi-Link Operation', qam4k: '4096-QAM (MCS 12/13)',
     },
     frameDetail: {
       title: '📨 Frame details',
@@ -515,7 +515,7 @@ export const STRINGS: Record<Lang, Strings> = {
     },
     features: {
       edca: 'EDCA（QoS 接入类别）', ampdu: 'A-MPDU 聚合 + BlockAck', txop: 'TXOP 突发',
-      ofdma: 'OFDMA（多用户调度）', mlo: '多链路操作 (MLO)', qam4k: '4096-QAM (MCS 12/13)',
+      ofdma: 'OFDMA（多用户调度）', mumimo: 'MU-MIMO（空分多用户）', mlo: '多链路操作 (MLO)', qam4k: '4096-QAM (MCS 12/13)',
     },
     frameDetail: {
       title: '📨 帧详情',

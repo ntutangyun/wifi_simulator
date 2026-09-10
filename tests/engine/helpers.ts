@@ -56,6 +56,8 @@ export function makeBss(nodeIds: string[], links: Record<string, number>, opts: 
         nssForPeer: () => 1,
         ampduWith: () => false,
         ofdmaWith: () => false,
+        mumimoWith: () => false,
+        ownNss: () => 1,
       },
       { onMsduDelivered: (msduId, t) => delivered.push({ at: id, msduId, t }) },
     )

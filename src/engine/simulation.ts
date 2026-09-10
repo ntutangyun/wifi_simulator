@@ -8,7 +8,7 @@
  * shows one lane per node per link; frame src/dst stay physical.
  */
 import {
-  hasFeature, linkPlanFor, minGen, negotiated, negotiatedNss, negotiatedWidth, virtualId, type LinkId,
+  hasFeature, linkPlanFor, minGen, negotiated, negotiatedNss, negotiatedWidth, nssOf, virtualId, type LinkId,
 } from '../model/caps'
 import { makeEmitter, type EmitFn, type TLRecord } from '../model/records'
 import { ScenarioSchema, serverFor, type NodeCfg, type Scenario } from '../model/scenario'
@@ -124,6 +124,8 @@ export class Simulation {
             tamper: n.kind === 'sta' ? n.tamper : undefined,
             ampduWith: (peer) => negotiated(n, other(n, peer), 'ampdu'),
             ofdmaWith: (peer) => negotiated(n, other(n, peer), 'ofdma'),
+            mumimoWith: (peer) => negotiated(n, other(n, peer), 'mumimo'),
+            ownNss: () => nssOf(n),
             ulBacklog: n.kind === 'ap'
               ? () => memberIds
                   .filter((id) => id !== ap.id && negotiated(byId.get(id)!, ap, 'ofdma'))

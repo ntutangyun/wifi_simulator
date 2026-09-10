@@ -49,6 +49,10 @@ export interface WifiMacCfg {
   nssForPeer(peer: string): number
   ampduWith(peer: string): boolean
   ofdmaWith(peer: string): boolean
+  /** Can this peer be a member of a MU-MIMO group? */
+  mumimoWith(peer: string): boolean
+  /** This AP's own spatial stream count (for fitting MU-MIMO group streams). */
+  ownNss(): number
   /** AP only: stand-in for BSR — UL backlog of OFDMA-capable STAs. */
   ulBacklog?(): { peer: string; ac: number; bytes: number }[]
   /**
@@ -556,10 +560,53 @@ export class WifiMac implements PhyListener {
 
   // ---------- OFDMA (AP side) ----------
 
+  /** Sum of negotiated spatial streams a MU-MIMO group would need vs. this AP's own antenna count. */
+  private fitsStreams(dsts: string[]): boolean {
+    const streams = dsts.reduce((s, d) => s + this.cfg.nssForPeer(d), 0)
+    return streams <= this.cfg.ownNss()
+  }
+
   private transmitDlMu(e: Edcaf, dsts: string[], inTxopBurst: boolean): void {
     const t = this.now()
     const ei = this.edcafs.indexOf(e)
     const gid = `mu${this.nodeId}:${this.muGidCounter++}`
+
+    // Space multiplies the rate, which pays only when there are data symbols to
+    // multiply; frequency divides the preamble, which pays when there are not.
+    const MUMIMO_MIN_BYTES = 1000
+    const canMumimo = dsts.every((d) => this.cfg.mumimoWith(d))
+      && dsts.every((d) => (this.queues.headBytes(ei, d) ?? 0) >= MUMIMO_MIN_BYTES)
+    let mumimoGroup = dsts
+    if (canMumimo) {
+      while (mumimoGroup.length >= 2 && !this.fitsStreams(mumimoGroup)) mumimoGroup = mumimoGroup.slice(0, -1)
+    }
+    const useMumimo = canMumimo && mumimoGroup.length >= 2 && this.fitsStreams(mumimoGroup)
+
+    const built = useMumimo ? this.buildMumimoParts(e, ei, mumimoGroup) : this.buildOfdmaParts(e, ei, dsts)
+    const { parts, claims, ppduDur, modeAll, width } = built
+    if (parts.length < 2) {
+      for (const c of claims) this.queues.restore(ei, c.msdus)
+      this.transmitSuFallback(e, inTxopBurst)
+      return
+    }
+    const baTime = txTimeNs(BA_BYTES, 24)
+    const frame: FrameDesc = {
+      kind: 'data', src: this.nodeId, dst: '*mu', bytes: parts.reduce((s, p) => s + p.bytes, 0),
+      mbps: parts[0].mbps, durationFieldNs: SIFS_NS + baTime,
+      txTimeNs: ppduDur, mode: modeAll, mcs: parts[0].mcs, widthMhz: width, ac: this.acTag(e),
+      muParts: parts, orthogonalGroup: gid, muKind: useMumimo ? 'mumimo' : 'ofdma',
+    }
+    if (!inTxopBurst) this.beginTxop(e, t)
+    const mu: MuDlState = { kind: 'dl', gid, ac: ei, parts: claims, successes: new Set(), resolveHandle: 0 }
+    this.muState = mu
+    this.transmitFrame(frame, false)
+    mu.resolveHandle = this.q.schedule(t + ppduDur + SIFS_NS + baTime + ACK_TIMEOUT_NS, () => this.resolveDlMu())
+  }
+
+  /** DL MU (OFDMA): members share the channel — each gets a fraction of it, at 1 stream's worth of Nss headroom each. */
+  private buildOfdmaParts(e: Edcaf, ei: number, dsts: string[]): {
+    parts: MuPart[]; claims: { peer: string; msdus: Msdu[] }[]; ppduDur: Ns; modeAll: PhyMode; width: number
+  } {
     const frac = 1 / dsts.length
     const parts: MuPart[] = []
     const claims: { peer: string; msdus: Msdu[] }[] = []
@@ -581,28 +628,41 @@ export class WifiMac implements PhyListener {
       const bytes = ampduPsduBytes(msdus.map((m) => m.bytes))
       parts.push({
         dst: peer, src: this.nodeId, bytes, mcs, mbps: mcsRateMbps(mode, mcs),
-        msduIds: msdus.map((m) => m.id), mpduCount: msdus.length, ac: e.params.ac,
+        msduIds: msdus.map((m) => m.id), mpduCount: msdus.length, ac: e.params.ac, ruFraction: frac,
       })
       claims.push({ peer, msdus })
       ppduDur = Math.max(ppduDur, txTimeModeNs(mode, bytes, mcs, { mu: true, ruFraction: frac, widthMhz: muWidth, nss }))
     }
-    if (parts.length < 2) {
-      for (const c of claims) this.queues.restore(ei, c.msdus)
-      this.transmitSuFallback(e, inTxopBurst)
-      return
+    return { parts, claims, ppduDur, modeAll, width: muWidth }
+  }
+
+  /** DL MU-MIMO: members share nothing but time — each gets the full width at its own stream count. */
+  private buildMumimoParts(e: Edcaf, ei: number, dsts: string[]): {
+    parts: MuPart[]; claims: { peer: string; msdus: Msdu[] }[]; ppduDur: Ns; modeAll: PhyMode; width: number
+  } {
+    const parts: MuPart[] = []
+    const claims: { peer: string; msdus: Msdu[] }[] = []
+    let ppduDur = 0
+    let modeAll: PhyMode = 'eht'
+    const muWidth = Math.min(...dsts.map((d) => this.cfg.widthForPeer(d)))
+    for (const peer of dsts) {
+      const mode = this.cfg.modeForPeer(peer)
+      if (mode !== 'eht') modeAll = 'he'
+      const mcs = this.cfg.mcsForPeer(peer)
+      const nssPeer = this.cfg.nssForPeer(peer)
+      const budget = maxPsduBytesFor(mode, mcs, 1, MAX_PPDU_NS, muWidth, nssPeer)
+      const msdus = this.queues.claim(ei, peer, MAX_AMPDU_MPDUS, (m, claimed) =>
+        ampduPsduBytes([...claimed.map((x) => x.bytes), m.bytes]) <= budget)
+      if (!msdus.length) continue
+      const bytes = ampduPsduBytes(msdus.map((m) => m.bytes))
+      parts.push({
+        dst: peer, src: this.nodeId, bytes, mcs, mbps: mcsRateMbps(mode, mcs),
+        msduIds: msdus.map((m) => m.id), mpduCount: msdus.length, ac: e.params.ac, nss: nssPeer,
+      })
+      claims.push({ peer, msdus })
+      ppduDur = Math.max(ppduDur, txTimeModeNs(mode, bytes, mcs, { mu: true, widthMhz: muWidth, nss: nssPeer }))
     }
-    const baTime = txTimeNs(BA_BYTES, 24)
-    const frame: FrameDesc = {
-      kind: 'data', src: this.nodeId, dst: '*mu', bytes: parts.reduce((s, p) => s + p.bytes, 0),
-      mbps: parts[0].mbps, durationFieldNs: SIFS_NS + baTime,
-      txTimeNs: ppduDur, mode: modeAll, mcs: parts[0].mcs, widthMhz: muWidth, ac: this.acTag(e),
-      muParts: parts, orthogonalGroup: gid,
-    }
-    if (!inTxopBurst) this.beginTxop(e, t)
-    const mu: MuDlState = { kind: 'dl', gid, ac: ei, parts: claims, successes: new Set(), resolveHandle: 0 }
-    this.muState = mu
-    this.transmitFrame(frame, false)
-    mu.resolveHandle = this.q.schedule(t + ppduDur + SIFS_NS + baTime + ACK_TIMEOUT_NS, () => this.resolveDlMu())
+    return { parts, claims, ppduDur, modeAll, width: muWidth }
   }
 
   private transmitSuFallback(e: Edcaf, inTxopBurst: boolean): void {

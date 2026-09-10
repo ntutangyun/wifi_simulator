@@ -15,6 +15,10 @@ export interface MuPart {
   /** Trigger frames: access category and target TB-PPDU duration for this user. */
   ac?: number
   durNs?: Ns
+  /** Spatial streams this member is sent with (MU-MIMO); absent means 1. */
+  nss?: number
+  /** Share of the channel this member occupies (OFDMA); absent means the whole width. */
+  ruFraction?: number
 }
 
 export interface FrameDesc {
@@ -42,6 +46,8 @@ export interface FrameDesc {
   muParts?: MuPart[]
   /** Frames sharing a group are RU-orthogonal: no mutual interference. */
   orthogonalGroup?: string
+  /** How a multi-user PPDU is split: by frequency (OFDMA) or by space (MU-MIMO). */
+  muKind?: 'ofdma' | 'mumimo'
 }
 
 export function dataPsduBytes(msduBytes: number): number {

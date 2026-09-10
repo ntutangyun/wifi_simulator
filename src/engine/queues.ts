@@ -38,6 +38,11 @@ export class AcQueues {
     return this.q[ac].find((m) => pred(m.dst))
   }
 
+  /** Byte count of the first queued MSDU for `dst` in an AC, or undefined when none is queued. */
+  headBytes(ac: number, dst: string): number | undefined {
+    return this.q[ac].find((m) => m.dst === dst)?.bytes
+  }
+
   /** Distinct destinations present in an AC's queue, in order of first appearance. */
   dsts(ac: number, pred?: (dst: string) => boolean): string[] {
     const seen = new Set<string>()
