@@ -74,6 +74,22 @@ describe('rate adaptation: signal strength sets the ceiling, losses push below i
     for (let i = 0; i < 40; i++) r.onFailure('ap')
     expect(r.mcsFor('ap', 1)).toBe(0)
   })
+
+  it('recovers one notch per ten successes after a deep failure run, with no lingering debt', () => {
+    const r = new RateControl()
+    r.mcsFor('ap', 1)
+    // A long failure run at a low ceiling must not leave the working rate
+    // owing more than MCS 0 can pay: an unclamped "how far below the
+    // ceiling" offset would accumulate here and later swallow many more than
+    // ten successes before the rate ever moved again.
+    for (let i = 0; i < 40; i++) r.onFailure('ap')
+    expect(r.mcsFor('ap', 1)).toBe(0)
+    // The signal recovers to a much higher ceiling. Exactly ten successes —
+    // the ordinary climb rate — must move it exactly one notch, not zero
+    // (stuck paying off phantom debt) and not straight back to the ceiling.
+    for (let i = 0; i < 10; i++) r.onSuccess('ap')
+    expect(r.mcsFor('ap', 9)).toBe(1)
+  })
 })
 
 it('a lossy link drops below the modulation its signal strength alone would allow', () => {

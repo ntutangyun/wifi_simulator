@@ -127,8 +127,6 @@ interface StaMuAwait {
   ac: number
   msdus: Msdu[]
   timeoutHandle: number
-  /** The AP that triggered this UL MU round — the one peer this exchange knows. */
-  peer: string
 }
 
 /** Max PSDU bytes that fit a target duration at mode/mcs/RU fraction. */
@@ -1048,7 +1046,6 @@ export class WifiMac implements PhyListener {
           this.resumeAll()
         } else {
           this.queues.restore(st.ac, st.msdus)
-          this.cfg.onTxOutcome?.(st.peer, false)
           this.failAttemptCore(e, false, st.msdus[0]?.id ?? 0, false)
         }
         break
@@ -1150,13 +1147,12 @@ export class WifiMac implements PhyListener {
       e.seqCounter += msdus.length
       const mbaTime = txTimeNs(multiStaBaBytes(n), 24)
       this.staMuAwait = {
-        ac, msdus, peer: trigger.src,
+        ac, msdus,
         timeoutHandle: this.q.schedule(t + SIFS_NS + dur + SIFS_NS + mbaTime + ACK_TIMEOUT_NS, () => {
           const st = this.staMuAwait
           if (!st) return
           this.staMuAwait = null
           this.queues.restore(st.ac, st.msdus)
-          this.cfg.onTxOutcome?.(st.peer, false)
           this.failAttemptCore(this.edcafs[st.ac], false, st.msdus[0]?.id ?? 0, false)
         }),
       }

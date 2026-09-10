@@ -547,7 +547,7 @@ export const LESSONS: Lesson[] = [
       { kind: 'steps', heading: { en: 'The cure: let the AP announce the reservation', zh: '解法：让 AP 来宣布预约' }, items: [
         { en: 'The station sends a short RTS.', zh: '终端先发一个很短的 RTS。' },
         { en: 'The AP answers CTS — audible to both rooms — and the CTS sets everyone’s NAV.', zh: 'AP 回一个 CTS——两个房间都听得到——于是所有人的 NAV 都被设置。' },
-        { en: 'Now it is almost always the tiny RTS that collides instead of a long data frame. In this scene data collisions drop by about 97%; a few stragglers remain where a data frame meets an AP response.', zh: '此后碰撞的几乎总是小小的 RTS，而不再是长长的数据帧。本场景中数据帧碰撞减少约 97%，剩下的零星几次是数据帧撞上 AP 的响应帧。' },
+        { en: 'Now it is almost always the tiny RTS that collides instead of a long data frame. In this scene data collisions drop by about 95%; a few stragglers remain where a data frame meets an RTS.', zh: '此后碰撞的几乎总是小小的 RTS，而不再是长长的数据帧。本场景中数据帧碰撞减少约 95%，剩下的零星几次是数据帧撞上 RTS。' },
       ] },
       { text: {
         en: 'Compare the two variants below.',
@@ -986,14 +986,14 @@ export const LESSONS: Lesson[] = [
       { kind: 'table', heading: { en: 'This scenario, 300 ms', zh: '本场景，300 ms' }, head: [
         { en: 'Metric', zh: '指标' }, { en: 'single', zh: '单次' }, { en: 'boundary', zh: '边界' },
       ], rows: [
-        [{ en: 'collisions', zh: '碰撞' }, N('164'), N('15')],
-        [{ en: 'frames delivered', zh: '送达帧数' }, N('428'), N('631')],
-        [{ en: 'retries', zh: '重传' }, N('297'), N('31')],
-        [{ en: 'frames dropped', zh: '丢弃帧数' }, N('21'), N('0')],
+        [{ en: 'collisions', zh: '碰撞' }, N('99'), N('8')],
+        [{ en: 'frames delivered', zh: '送达帧数' }, N('31'), N('610')],
+        [{ en: 'retries', zh: '重传' }, N('184'), N('19')],
+        [{ en: 'frames dropped', zh: '丢弃帧数' }, N('18'), N('0')],
       ] },
       { text: {
-        en: 'The 15 collisions that remain are RTS meeting RTS: two hidden stations can still start in the same slot, but now each loses 20 bytes instead of a burst of 1500-byte frames. That is lesson 5’s bargain, extended from one frame to a whole TXOP.',
-        zh: '剩下的 15 次碰撞都是 RTS 撞 RTS：两台隐藏站点仍可能在同一时隙起跑，但现在各自只损失 20 字节，而不是一整串 1500 字节的帧。这正是第 5 课的那笔交易，从一帧扩展到了整个 TXOP。',
+        en: 'Of the 8 collisions that remain, 6 are RTS meeting RTS — two hidden stations still starting in the same slot, but now each loses 20 bytes instead of a burst of 1500-byte frames — and 2 catch a data frame already under way. That is lesson 5’s bargain, extended from one frame to a whole TXOP.',
+        zh: '剩下的 8 次碰撞里，6 次是 RTS 撞 RTS——两台隐藏站点仍可能在同一时隙起跑，但现在各自只损失 20 字节，而不是一整串 1500 字节的帧——另外 2 次撞上了正在进行中的数据帧。这正是第 5 课的那笔交易，从一帧扩展到了整个 TXOP。',
       } },
       { text: {
         en: 'The price is airtime: an RTS/CTS per burst, a CF-End (twice, with the relay), and anyone who misses the CF-End waits until the announced end. Real Wi-Fi 6/7 gear pays it this way: data frames keep single protection, and the RTS/CTS — or its multi-user form, MU-RTS — at the TXOP boundary carries the burst.',
