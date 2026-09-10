@@ -127,3 +127,58 @@ it('lesson 15’s far-corner experiment breaks the wide channels and only the wi
     expect(far(i).drops).toBeGreaterThan(0)
   }
 })
+
+/**
+ * Lesson 15's "When wider is slower" paragraph and the first half of its second
+ * experiment quote a second laptop position: seven and a half squares right of
+ * the router and two down, (10.5, 6), just inside the living room. That claim is
+ * far more fragile than the desk one — the RSSI band in which 80 MHz is genuinely
+ * slower than 40 MHz while both still decode is only about 1 dB wide (-70.98 to
+ * -69.98 dBm), and this position sits at -70.51, near its centre with ~0.5 dB to
+ * either edge. A silent drift of half a decibel would turn the paragraph into a
+ * lie, so the whole ladder is pinned, MCS included.
+ */
+it('lesson 15’s second experiment position really inverts 40 → 80 MHz, with every frame delivered', () => {
+  const l = LESSONS.find((x) => x.id === 'width')!
+  const walk = (i: number) => {
+    const sc = l.variants![i].scenario()
+    sc.nodes.find((n) => n.id === 'sta-1')!.pos = { x: 10.5, y: 6, z: 1 }
+    const recs = [...new Simulation(sc).runUntil(200_000_000).records]
+    const data = recs.filter((r): r is Extract<TLRecord, { type: 'TX_START' }> =>
+      r.type === 'TX_START' && r.frame.kind === 'data' && r.frame.bytes > 1000)
+    const airtimes = new Set(data.map((r) => r.frame.txTimeNs))
+    const mcss = new Set(data.map((r) => r.frame.mcs))
+    expect(airtimes.size, `variant ${i}: one airtime`).toBe(1)
+    expect(mcss.size, `variant ${i}: one MCS`).toBe(1)
+    return {
+      airtimeNs: [...airtimes][0]!,
+      mcs: [...mcss][0]!,
+      acks: recs.filter((r) => r.type === 'TX_START' && r.frame.kind === 'ack').length,
+      retries: recs.filter((r) => r.type === 'RETRY').length,
+      drops: recs.filter((r) => r.type === 'DROP').length,
+    }
+  }
+  const [w20, w40, w80, w160] = [0, 1, 2, 3].map(walk)
+
+  // "415.2 µs at 20 MHz, 292.8 at 40, and then back up to 401.6 at 80 … 224.8 µs"
+  expect(w20.airtimeNs).toBe(415_200)
+  expect(w40.airtimeNs).toBe(292_800)
+  expect(w80.airtimeNs).toBe(401_600)
+  expect(w160.airtimeNs).toBe(224_800)
+  // the inversion itself, stated as the property rather than as four constants
+  expect(w80.airtimeNs).toBeGreaterThan(w40.airtimeNs)
+
+  // "two modulation steps at that spot, MCS 2 down to MCS 0" — the 2 dB rungs
+  // in EHT_SENS (-79 → -77) let a single 3 dB width penalty skip two indices.
+  expect([w20.mcs, w40.mcs, w80.mcs, w160.mcs]).toEqual([3, 2, 0, 0])
+
+  // "every width still delivers — no retries, no drops": this is what separates
+  // this experiment from the far-corner one, where the wide channels go silent.
+  for (const [name, r] of [['20', w20], ['40', w40], ['80', w80], ['160', w160]] as const) {
+    expect(r.acks, `${name} MHz must be acknowledged`).toBeGreaterThan(300)
+    expect(r.retries, `${name} MHz must not retry`).toBe(0)
+    expect(r.drops, `${name} MHz must not drop`).toBe(0)
+  }
+  // "it still delivers everything, 224.8 µs a frame" (the lesson opens at 160 MHz)
+  expect(w160.acks).toBeGreaterThan(500)
+})

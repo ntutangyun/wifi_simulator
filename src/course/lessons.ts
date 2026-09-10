@@ -1334,8 +1334,8 @@ export const LESSONS: Lesson[] = [
     title: { en: '15 · Channel width — twice the tones, half the time', zh: '15 · 信道带宽——子载波翻倍，时间减半' },
     body: [
       { text: {
-        en: 'Every lesson so far has been about sharing the air. This module is about how much one frame gets out of it. A 20 MHz channel is not one carrier: it is 234 narrow data subcarriers, each holding a few bits per symbol. Double the channel and you slightly more than double them — 234 tones at 20 MHz, 468 at 40, 980 at 80, 1960 at 160, 3920 at 320 — because the guard band at the channel edges is paid once, not once per 20 MHz. More tones, more bits in every symbol, fewer symbols for the same frame.',
-        zh: '到目前为止的每一课讲的都是如何分享空口。这一模块讲的是一帧能从空口里拿到多少。20 MHz 的信道并不是一根载波，而是 234 根很窄的数据子载波，每根在每个符号里装几个比特。带宽翻一倍，子载波比翻倍还多一点——20 MHz 是 234 根，40 MHz 468 根，80 MHz 980 根，160 MHz 1960 根，320 MHz 3920 根——因为信道两端的保护带只付一次，不是每 20 MHz 付一次。子载波越多，每个符号装的比特越多，同一帧需要的符号就越少。',
+        en: 'Every lesson so far has been about sharing the air. This module is about how much one frame gets out of it. A 20 MHz channel is not one carrier: it is 234 narrow data subcarriers, each holding a few bits per symbol. Double the channel and you get at least double the tones — 234 at 20 MHz, 468 at 40, 980 at 80, 1960 at 160, 3920 at 320. The step to 80 MHz gives a little more than double, because the guard band at the channel edges is paid once, not once per 20 MHz. More tones, more bits in every symbol, fewer symbols for the same frame.',
+        zh: '到目前为止的每一课讲的都是如何分享空口。这一模块讲的是一帧能从空口里拿到多少。20 MHz 的信道并不是一根载波，而是 234 根很窄的数据子载波，每根在每个符号里装几个比特。带宽翻一倍，子载波至少也翻一倍——20 MHz 是 234 根，40 MHz 468 根，80 MHz 980 根，160 MHz 1960 根，320 MHz 3920 根。其中到 80 MHz 那一步还多给了一点，因为信道两端的保护带只付一次，不是每 20 MHz 付一次。子载波越多，每个符号装的比特越多，同一帧需要的符号就越少。',
       } },
       { kind: 'formula', text: {
         en: 'symbols = ⌈(16 + 8·bytes + 6) / (N_DBPS × tone ratio × streams)⌉',
@@ -1348,17 +1348,21 @@ export const LESSONS: Lesson[] = [
         en: 'One 1500-byte frame (1530 octets on the air), Wi-Fi 7, one stream',
         zh: '同一个 1500 字节的帧（空口上 1530 字节），Wi-Fi 7，单流',
       }, head: [
-        { en: 'Width', zh: '带宽' }, { en: 'Data tones', zh: '数据子载波' }, { en: 'vs 20 MHz', zh: '相对 20 MHz' },
-        { en: 'MCS here', zh: '本链路 MCS' }, { en: 'Symbols', zh: '符号数' }, { en: 'Airtime', zh: '空口时间' },
+        { en: 'Width', zh: '带宽' }, { en: 'Data tones', zh: '数据子载波' },
+        { en: 'MCS', zh: 'MCS' }, { en: 'Airtime', zh: '空口时间' },
       ], rows: [
-        [N('20 MHz'), N('234'), N('×1'), N('13'), N('6'), N('129.6 µs')],
-        [N('40 MHz'), N('468'), N('×2'), N('13'), N('3'), N('88.8 µs')],
-        [N('80 MHz'), N('980'), N('×4.19'), N('13'), N('2'), N('75.2 µs')],
-        [N('160 MHz'), N('1960'), N('×8.38'), N('12'), N('1'), N('61.6 µs')],
+        [N('20 MHz'), N('234'), N('13'), N('129.6 µs')],
+        [N('40 MHz'), N('468'), N('13'), N('88.8 µs')],
+        [N('80 MHz'), N('980'), N('13'), N('75.2 µs')],
+        [N('160 MHz'), N('1960'), N('12'), N('61.6 µs')],
       ] },
       { heading: { en: 'What width costs', zh: '带宽的代价' }, text: {
         en: 'A wider channel is a wider door, and noise comes through it too. Each doubling takes in twice the noise power — 3 dB — so every modulation needs 3 dB more signal to survive at 40 MHz than at 20 MHz, 6 dB at 80, about 9 dB at 160. The last row of the table is that bill arriving: the same laptop, on the same desk, drops from MCS 13 to MCS 12 the moment the channel goes to 160 MHz. Beside the router that is small change. In the far corner of the flat it is the whole link.',
         zh: '信道越宽，门开得越大，噪声也一起进来。带宽每翻一倍，收进来的噪声功率也翻一倍——3 dB——所以同一种调制在 40 MHz 上要比 20 MHz 多 3 dB 信号才活得下来，80 MHz 多 6 dB，160 MHz 多约 9 dB。表格最后一行就是这张账单：同一台笔记本、同一个桌面位置，信道一换成 160 MHz，MCS 就从 13 掉到 12。在路由器旁边，这点代价不值一提；在房子另一头的角落里，它就是整条链路。',
+      } },
+      { heading: { en: 'When wider is slower', zh: '更宽反而更慢的时候' }, text: {
+        en: 'That bill can grow larger than the goods. Move the same laptop just under eight metres out, into the living room, and every width still delivers — no retries, no drops — but the airtimes read 415.2 µs at 20 MHz, 292.8 at 40, and then back up to 401.6 at 80. The 6 dB an 80 MHz channel asks for costs two modulation steps at that spot, MCS 2 down to MCS 0, because the sensitivity ladder has 2 dB rungs in it; two steps is more than four times the tones can pay back. At 160 MHz the modulation cannot fall any further — MCS 0 is the bottom — so its extra tones are all profit: 224.8 µs.',
+        zh: '这张账单有时会大过货品本身。把同一台笔记本挪到将近八米之外的客厅里，四种带宽仍然都送得到——没有重传，也没有丢帧——但空口时间是这样的：20 MHz 415.2 µs，40 MHz 292.8 µs，到 80 MHz 反而涨回 401.6 µs。80 MHz 要多付的 6 dB，在那个位置要用两级调制去换：MCS 2 直接掉到 MCS 0——因为灵敏度阶梯上有 2 dB 一档的窄阶——而两级的损失，四倍的子载波补不回来。到了 160 MHz，调制已经掉无可掉（MCS 0 就是底），多出来的子载波便全是净赚：224.8 µs。',
       } },
       { kind: 'list', heading: { en: 'In the simulation', zh: '在仿真里看' }, items: [
         { en: 'Load opens the widest case, 160 MHz. The four width buttons step it down and back up; the laptop and the router never move.', zh: '“载入”打开的是最宽的一档，160 MHz。上面四个按钮逐档切换带宽，笔记本和路由器始终不动。' },
@@ -1378,13 +1382,13 @@ export const LESSONS: Lesson[] = [
       J('first ACK', '第一个 ACK', firstAck),
     ],
     observe: [
-      { en: 'Step 20 → 40 → 80 → 160 MHz and watch one data block: 129.6 µs, 88.8, 75.2, 61.6. It halves, then nearly halves, then barely moves.', zh: '按 20 → 40 → 80 → 160 MHz 逐档切换，盯住一个数据块：129.6 µs、88.8、75.2、61.6。先是减半，再是接近减半，最后几乎不动了。' },
+      { en: 'Step 20 → 40 → 80 → 160 MHz and watch one data block: 129.6 µs, 88.8, 75.2, 61.6. Doubling the width never halves the frame — the 48 µs preamble inside every one of them scales with nothing.', zh: '按 20 → 40 → 80 → 160 MHz 逐档切换，盯住一个数据块：129.6 µs、88.8、75.2、61.6。带宽翻倍从来不会让整帧减半——每一帧里那 48 µs 的前导码不随任何东西缩短。' },
       { en: 'Subtract the fixed 48 µs preamble from each and you get 81.6, 40.8, 27.2 and 13.6 µs of data — 6, 3, 2 and 1 symbols. That is the whole mechanism.', zh: '每个数字都减掉固定的 48 µs 前导码，剩下 81.6、40.8、27.2、13.6 µs 的数据——正好是 6、3、2、1 个符号。机制就这么简单。' },
       { en: 'At 160 MHz the preamble is 48 µs of the 61.6: more than three quarters of the frame is now the part that never got shorter.', zh: '在 160 MHz 上，61.6 µs 里有 48 µs 是前导码：整帧四分之三以上，是那段从来没有变短的部分。' },
       { en: 'The white ACK is identical in all four variants — control frames go out at a low, robust rate, and width buys them nothing.', zh: '四个变体里白色的 ACK 完全一样——控制帧用低速稳健的速率发送，带宽对它毫无帮助。' },
     ],
     tryThis: [
-      { en: 'Open in editor (the lesson opens at 160 MHz) and drag the laptop into the far corner of the living room, through the brick wall. Not one ACK comes back: at 160 MHz that corner is below what the radio can decode, so every frame becomes a retry and then a drop.', zh: '点“在编辑器中打开”（这一课打开的是 160 MHz），把笔记本拖到客厅最远的角落，隔着那堵砖墙。一个 ACK 也回不来：在 160 MHz 下那个角落已经低于电台能解出的门限，于是每一帧都变成重传，最后被丢弃。' },
+      { en: 'Open in editor — the lesson opens at 160 MHz — and walk the laptop out of the study. Seven and a half squares right of the router and two down, just inside the living room, it still delivers everything, 224.8 µs a frame; the paragraph above is what that same spot costs at the narrower widths. Keep going into the far corner and not one ACK comes back: 160 MHz needs about 9 dB more than 20 MHz, and that corner does not have it, so every frame becomes a retry and then a drop.', zh: '点“在编辑器中打开”——这一课打开的是 160 MHz——然后把笔记本一步步挪出书房。挪到路由器右边七格半、下面两格的位置，刚进客厅，它仍然一帧不落地送达，每帧 224.8 µs；上面那段讲的就是同一个位置在更窄带宽下的代价。继续挪到最远的角落，就一个 ACK 也回不来了：160 MHz 比 20 MHz 多要约 9 dB，那个角落给不起，于是每一帧都变成重传，最后被丢弃。' },
       { en: 'With the laptop still in that corner, switch it to 802.11a (legacy) in the editor. A legacy radio has no wide mode, so the link falls back to 20 MHz — and the ACKs come back, at over a millisecond per frame.', zh: '让笔记本留在那个角落，在编辑器里把它改成 802.11a（传统模式）。传统电台没有宽信道模式，链路只能退回 20 MHz——ACK 就回来了，代价是每帧超过一毫秒。' },
     ],
     quiz: [
@@ -1406,7 +1410,7 @@ export const LESSONS: Lesson[] = [
           { en: 'No difference — width does not affect range', zh: '没区别——带宽不影响覆盖' },
         ],
         answer: 1,
-        explain: { en: 'Two doublings of width cost 6 dB. Drag this lesson’s laptop into the far corner and the 80 and 160 MHz channels deliver nothing at all, while 40 MHz still gets frames through.', zh: '带宽翻两倍要付 6 dB。把这一课的笔记本拖到最远的角落：80 MHz 和 160 MHz 一帧也送不到，而 40 MHz 依然能把帧送出去。' },
+        explain: { en: 'Two doublings of width cost 6 dB. From the far corner of this lesson’s flat the 80 and 160 MHz variants deliver nothing at all, while 20 and 40 MHz still get frames through.', zh: '带宽翻两倍要付 6 dB。在这一课户型的最远角落，80 MHz 和 160 MHz 一帧也送不到，而 20 MHz 和 40 MHz 依然能把帧送出去。' },
       },
     ],
   },
@@ -1441,8 +1445,8 @@ export const LESSONS: Lesson[] = [
         zh: '链路按两端里较小的流数运行。四流的路由器对上两流的手机，就是一条两流链路：“路由器 4 · 手机 2”这个变体正是这种搭配，结果落在 88.8 µs——两流的时间，而不是四流的 75.2 µs。不过路由器多出来的两条流并没有浪费：它可以在同一瞬间把这两条流指向另一部手机。这就是 MU-MIMO，也就是第 17 课。',
       } },
       { heading: { en: 'Where the multipliers stop', zh: '倍数到头的地方' }, text: {
-        en: 'A multiplier only helps while something is left to divide. The 160 MHz · 4 streams variant runs the widest channel and the most streams together, and it takes 61.6 µs — exactly what 160 MHz alone took in lesson 15. That frame was already down to a single symbol, and one symbol is the floor.',
-        zh: '倍数只在还有东西可分的时候才有用。“160 MHz · 4 条流”这个变体把最宽的信道和最多的流一起用上，结果是 61.6 µs——和第 15 课里单靠 160 MHz 得到的完全一样。那一帧当时就已经只剩一个符号了，而一个符号就是地板。',
+        en: 'A multiplier only helps while something is left to divide. The 160 MHz · 4 streams variant runs the widest channel and the most streams together, and it takes 61.6 µs — exactly what 160 MHz alone took in lesson 15. That frame was already down to a single symbol, and one symbol is the floor. The four streams buy nothing there, while the wide channel still charges its 9 dB: that variant runs at MCS 12, the step down lesson 15 showed.',
+        zh: '倍数只在还有东西可分的时候才有用。“160 MHz · 4 条流”这个变体把最宽的信道和最多的流一起用上，结果是 61.6 µs——和第 15 课里单靠 160 MHz 得到的完全一样。那一帧当时就已经只剩一个符号了，而一个符号就是地板。在那里四条流什么也没买到，而宽信道该收的 9 dB 一分不少：这个变体跑在 MCS 12——正是第 15 课里掉的那一档。',
       } },
     ],
     scenario: () => widthScenario(20, 1),
@@ -1459,7 +1463,7 @@ export const LESSONS: Lesson[] = [
     ],
     observe: [
       { en: 'One stream to two: the data part halves exactly, 81.6 µs to 40.8 µs. Two to four would halve it again to 20.4 µs, but frames are sent in whole symbols, so it stops at 27.2 µs.', zh: '从 1 条流到 2 条流：数据部分正好减半，81.6 µs 变成 40.8 µs。从 2 条到 4 条本该再减半到 20.4 µs，但帧只能按整数个符号发送，所以停在 27.2 µs。' },
-      { en: 'The rate line reads MCS 13 in every variant. In lesson 15 the same laptop lost a step at 160 MHz — that is the difference between paying for bandwidth and paying for antennas.', zh: '每个变体里“速率”一行都是 MCS 13。第 15 课中同一台笔记本在 160 MHz 上掉了一档——这就是“花钱买带宽”和“花钱买天线”的差别。' },
+      { en: 'The rate line reads MCS 13 in all four 20 MHz variants: one stream or four, the modulation never moves. Only the 160 MHz variant drops to MCS 12 — and that is the width doing it, not the streams.', zh: '四个 20 MHz 变体里“速率”一行都是 MCS 13：一条流也好四条流也好，调制一档都不动。只有 160 MHz 那个变体掉到 MCS 12——那是带宽干的，不是空间流干的。' },
       { en: 'Router 4 · Phone 2 is indistinguishable from 2 streams: the same 88.8 µs, the same blocks in the same places.', zh: '“路由器 4 · 手机 2”和“2 条流”看不出区别：同样是 88.8 µs，同样的块出现在同样的位置。' },
     ],
     tryThis: [
@@ -1473,7 +1477,7 @@ export const LESSONS: Lesson[] = [
         options: [
           { en: 'Streams are transmitted at higher power', zh: '空间流的发射功率更高' },
           { en: 'The channel is still the same width, so the receiver takes in the same noise — the streams are separated by space, not by frequency', zh: '信道宽度没变，接收方收进的噪声也没变——两条流靠空间区分，不靠频率' },
-          { en: 'It does cost sensitivity; this simulator ignores it', zh: '其实也要付，只是这个仿真器没算' },
+          { en: 'The extra streams are sent on a second channel', zh: '多出来的那些流是在另一条信道上发的' },
         ],
         answer: 1,
         explain: { en: 'Noise power follows bandwidth. Doubling the width doubles it (3 dB); a second stream reuses the same subcarriers, so the noise floor and the MCS thresholds do not move at all.', zh: '噪声功率跟着带宽走。带宽翻倍，噪声也翻倍（3 dB）；而第二条流复用的是同一批子载波，噪声底和各档 MCS 门限完全不动。' },
