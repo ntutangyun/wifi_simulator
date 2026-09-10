@@ -8,11 +8,13 @@
  * 6 GHz so 320 MHz is unreachable anyway. Wi-Fi 6 presets run at 80 MHz: 160
  * MHz is optional for Wi-Fi 6 clients under 802.11ax, 80 MHz is the common
  * client configuration, and it matches Apple's published Wi-Fi 6 figure (see
- * the `apple-iphone-16e` note). Every
- * Wi-Fi 7 preset ships with MLO off: China reserves the whole 6 GHz band for
- * cellular, so China-market phones have 6 GHz disabled and the simulator's
- * MLO (a 5 GHz + 6 GHz pair) cannot form. `mloCapable` marks phones whose
- * global variant does MLO; ticking MLO in the editor models that variant.
+ * the `apple-iphone-16e` note).
+ *
+ * Every Wi-Fi 7 preset ships with MLO off: China reserves the whole 6 GHz
+ * band for cellular, so China-market phones have 6 GHz disabled and the
+ * simulator's MLO (a 5 GHz + 6 GHz pair) cannot form. `mloCapable` marks
+ * phones whose global variant does MLO; ticking MLO in the editor models
+ * that variant.
  */
 import { defaultFeatures } from './caps'
 import type { ChannelWidth, Nss } from './caps'
@@ -96,12 +98,13 @@ const PHONE_TX_POWER_DBM = 15
 function capsFor(p: StationPreset): NodeCfg['caps'] {
   const features = defaultFeatures(p.generation) as Record<string, boolean>
   if (p.generation === 'eht') features.mlo = false // Chinese market: no 6 GHz
-  // Apple's N1 radio does not implement 4096-QAM (see the Apple eht presets'
-  // notes): Apple's own published Wi-Fi 7 figure, 2400 Mbps at 160 MHz / 2
-  // streams, is the 1024-QAM (MCS 11) rate, not the 2882 Mbps MCS 13 would
-  // allow. Non-Apple eht presets keep qam4k on — Qualcomm/MediaTek flagship
-  // Wi-Fi 7 radios do implement it, and those vendors publish no figure that
-  // contradicts it.
+  // Modelled without 4096-QAM (see the Apple eht presets' notes): Apple's
+  // own published Wi-Fi 7 figure, 2400 Mbps at 160 MHz / 2 streams, is the
+  // 1024-QAM (MCS 11) rate, not the 2882 Mbps MCS 13 would allow. Apple
+  // doesn't document why; the inference is ours, from that figure alone —
+  // not a claim about the N1 radio's actual silicon. Non-Apple eht presets
+  // keep qam4k on — Qualcomm/MediaTek flagship Wi-Fi 7 radios do implement
+  // it, and those vendors publish no figure that contradicts it.
   if (p.generation === 'eht' && p.brand === 'apple') features.qam4k = false
   return { generation: p.generation, features, widthMhz: p.widthMhz, nss: p.nss }
 }

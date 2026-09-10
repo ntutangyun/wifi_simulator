@@ -11,28 +11,37 @@ import { makeEmitter, type TLRecord } from '../../src/model/records'
 const MS = 1_000_000
 
 /**
- * A purpose-built 1-AP/2-STA BSS, modelled on the stream-fitting harness in
- * mumimo.test.ts: full control over the per-link RSSI table, plus a third
- * "jammer" radio that exists only to interfere. `sta-1` sits at -25 dBm from
- * the AP with nothing overlapping it — it decodes every DL MU PPDU. `sta-2`
- * sits at -55 dBm from the AP (a real ceiling of MCS 4 at 160 MHz, signal
- * strength alone would allow real throughput) but a jammer sits at -60 dBm
- * from `sta-2` only (negligible everywhere else), continuously transmitting
- * unrelated frames — enough interference that `sta-2`'s SINR (~5 dB) never
- * clears even MCS 0's decode threshold (~22 dB at this width). So `sta-2`
- * never returns a BlockAck: every DL MU round that includes it is a real,
- * physically-caused failure for its part, exactly the shape lesson 18
- * describes for a single-user link — reproduced here inside a multi-user
- * PPDU to isolate `resolveDlMu`'s per-member `onTxOutcome` reporting
- * (mac.ts, the loop over `mu.parts`) from everything else that could move a
- * rate.
+ * A purpose-built 1-AP/3-STA BSS, modelled on the stream-fitting harness in
+ * mumimo.test.ts: full control over the per-link RSSI table, plus two
+ * "jammer" radios that exist only to interfere. `sta-1` sits at -25 dBm from
+ * the AP with nothing overlapping it — it decodes every DL MU PPDU, and
+ * since it never fails it never needs an `onSuccess` call to stay at its
+ * ceiling (`RateControl.mcsFor` clamps to the ceiling regardless of
+ * history). `sta-2` and `sta-3` both sit at -55 dBm from the AP (a real
+ * ceiling of MCS 4 at 160 MHz — signal strength alone would allow real
+ * throughput), each shadowed by its own jammer at -60 dBm (negligible
+ * everywhere else): `jammer` interferes with `sta-2` for the whole run, so
+ * its SINR (~5 dB) never clears even MCS 0's decode threshold (~22 dB at
+ * this width) — it never returns a BlockAck, so every round it's part of is
+ * a real, physically-caused failure. `jammer2` interferes with `sta-3` only
+ * for the first 3 ms of simulated time (a table mutation turns it negligible
+ * after that) — so `sta-3` fails early, steps down below its ceiling, and
+ * then must recover through ordinary successes once the interference clears.
  *
- * Both stations are always MU-MIMO-eligible at 2 streams each (the AP has
- * 4), so they group together on every DL MU round for as long as both have
- * backlog.
+ * `sta-2`'s never-recovers shape and `sta-3`'s drop-then-recover shape
+ * together isolate `resolveDlMu`'s per-member `onTxOutcome` reporting
+ * (mac.ts, the loop over `mu.parts`) on both branches: report only failures
+ * and a peer that drops can never climb back (the historical asymmetry that
+ * ratchets a rate to zero); report only successes and a healthy peer merely
+ * looks fine by accident, because it never needed telling. Only `sta-3`'s
+ * recovery actually requires the success call to be wired up.
+ *
+ * All three stations are always MU-MIMO-eligible at 2 streams each (the AP
+ * has 6), so they group together on every DL MU round for as long as they
+ * have backlog.
  */
 function run(): { recs: TLRecord[] } {
-  const ids = ['ap', 'sta-1', 'sta-2']
+  const ids = ['ap', 'sta-1', 'sta-2', 'sta-3']
   const q = new EventQueue()
   let now = 0
   const table = new Map<string, Map<string, number>>()
@@ -42,10 +51,18 @@ function run(): { recs: TLRecord[] } {
   }
   setLink('ap', 'sta-1', -25); setLink('sta-1', 'ap', -25)
   setLink('ap', 'sta-2', -55); setLink('sta-2', 'ap', -55)
+  setLink('ap', 'sta-3', -55); setLink('sta-3', 'ap', -55)
   setLink('sta-1', 'sta-2', -200); setLink('sta-2', 'sta-1', -200)
+  setLink('sta-1', 'sta-3', -200); setLink('sta-3', 'sta-1', -200)
+  setLink('sta-2', 'sta-3', -200); setLink('sta-3', 'sta-2', -200)
   setLink('jammer', 'sta-2', -60)
   setLink('jammer', 'sta-1', -200)
+  setLink('jammer', 'sta-3', -200)
   setLink('jammer', 'ap', -200)
+  setLink('jammer2', 'sta-3', -60)
+  setLink('jammer2', 'sta-1', -200)
+  setLink('jammer2', 'sta-2', -200)
+  setLink('jammer2', 'ap', -200)
 
   const records: TLRecord[] = []
   const emit = makeEmitter((r) => records.push(r))
@@ -64,7 +81,7 @@ function run(): { recs: TLRecord[] } {
     ampduWith: () => true,
     ofdmaWith: () => true,
     mumimoWith: () => true,
-    ownNss: () => 4,
+    ownNss: () => 6,
     onTxOutcome: (peer: string, ok: boolean) => { if (ok) rate.onSuccess(peer); else rate.onFailure(peer) },
   }
   const staCfg = {
@@ -86,27 +103,40 @@ function run(): { recs: TLRecord[] } {
     if (id === 'ap') apMac = mac
   })
 
-  // The jammer is a transmit-only radio: it never receives, so its listener
-  // callbacks are no-ops. It fires continuous back-to-back bursts so that
-  // every AP transmission is guaranteed to overlap one.
+  // Both jammers are transmit-only radios: they never receive, so their
+  // listener callbacks are no-ops. Each fires continuous back-to-back bursts
+  // so that every AP transmission to its target is guaranteed to overlap one.
   const jammerListener: PhyListener = { onCcaBusy: () => {}, onCcaIdle: () => {}, onRxStart: () => {}, onRxOk: () => {}, onRxCorrupt: () => {} }
   ch.register('jammer', jammerListener)
+  ch.register('jammer2', jammerListener)
   const JAM_NS = 30_000
-  const jam = (): void => {
-    ch.startTx('jammer', { kind: 'data', src: 'jammer', dst: 'nobody', bytes: 100, mbps: 6, txTimeNs: JAM_NS, durationFieldNs: 0 })
-    q.schedule(now + JAM_NS, jam, 2) // phase 2: after this burst's own endTx (phase 1) frees the radio
+  const mkJam = (id: string) => {
+    const fire = (): void => {
+      ch.startTx(id, { kind: 'data', src: id, dst: 'nobody', bytes: 100, mbps: 6, txTimeNs: JAM_NS, durationFieldNs: 0 })
+      q.schedule(now + JAM_NS, fire, 2) // phase 2: after this burst's own endTx (phase 1) frees the radio
+    }
+    return fire
   }
-  jam()
+  mkJam('jammer')()
+  mkJam('jammer2')()
+  // jammer2 stops interfering with sta-3 after 3 ms: a plain mutation of the
+  // link table, read fresh by the channel on every future transmission — the
+  // simplest way to model "the interference clears" without a second radio
+  // mechanism. jammer (on sta-2) is never touched, so sta-2 never recovers.
+  const JAM2_STOP_NS = 3 * MS
+  q.schedule(JAM2_STOP_NS, () => { table.get('jammer2')!.set('sta-3', -200) })
 
   let mid = 1
   const msdu = (dst: string): Msdu => ({ id: mid++, bytes: 1400, src: 'ap', dst, bornNs: 0, ac: 1 })
-  // sta-1 never fails, so it needs a real supply — and every DL MU round can
-  // aggregate up to 64 MSDUs per member, so a handful of rounds can drain a
-  // small supply fast. sta-2 never succeeds either, so its whole backlog
-  // (plus whatever collateral drops the shared AC's retry-limit reset costs
-  // sta-1) needs the same generous margin.
-  for (let i = 0; i < 5000; i++) apMac!.enqueue(msdu('sta-1'), 1)
+  // sta-1 and sta-3 both eventually succeed every round, so they need a real
+  // supply — and every DL MU round can aggregate up to 64 MSDUs per member,
+  // so a handful of rounds can drain a small supply fast. sta-2 never
+  // succeeds, so its whole backlog (plus whatever collateral drops the
+  // shared AC's retry-limit reset costs the others) needs the same
+  // generous margin.
+  for (let i = 0; i < 6000; i++) apMac!.enqueue(msdu('sta-1'), 1)
   for (let i = 0; i < 2000; i++) apMac!.enqueue(msdu('sta-2'), 1)
+  for (let i = 0; i < 6000; i++) apMac!.enqueue(msdu('sta-3'), 1)
 
   const horizon = 200 * MS
   for (;;) {
@@ -150,5 +180,29 @@ describe('a multi-user downlink reports each member’s outcome, so its rate ada
     // And it actually steps, rather than falling straight to the floor on
     // the very first pair of failures.
     expect(new Set(weak)).toEqual(new Set([4, 3, 2, 1, 0]))
+  })
+
+  it('a member that fails and then recovers climbs back to its ceiling — the success half of the fix', () => {
+    // sta-1 and sta-2 alone don't catch a regression that reports only
+    // failures and never successes: sta-1 never fails, so it never needs an
+    // onSuccess call to hold its ceiling (RateControl.mcsFor clamps to the
+    // ceiling on the very first call, regardless of history), and sta-2
+    // never recovers either way. sta-3 is the case that actually requires
+    // the success call: jammer2 forces it to fail and step down below its
+    // ceiling for the first 3 ms, then goes quiet, so recovery is only
+    // possible if onSuccess is wired up too.
+    const { recs } = run()
+    const mu = recs.filter((r) => r.type === 'TX_START' && r.node === 'ap' && r.frame.muParts !== undefined)
+    const mcsSeqFor = (dst: string): number[] =>
+      mu.flatMap((r) => (r.type === 'TX_START' ? (r.frame.muParts ?? []).filter((p) => p.dst === dst).map((p) => p.mcs) : []))
+    const recovering = mcsSeqFor('sta-3')
+    expect(recovering.length).toBeGreaterThan(20)
+
+    expect(recovering[0]).toBe(4) // starts at its ceiling, same as sta-1 and sta-2 do
+    expect(Math.min(...recovering)).toBeLessThan(4) // the early jamming visibly steps it down
+    expect(recovering[recovering.length - 1]).toBe(4) // and it is back at its ceiling by the end
+    // Once it starts climbing it never falls again (jammer2 stays quiet after 3 ms).
+    const troughAt = recovering.indexOf(Math.min(...recovering))
+    for (let i = troughAt + 1; i < recovering.length; i++) expect(recovering[i]).toBeGreaterThanOrEqual(recovering[i - 1])
   })
 })
