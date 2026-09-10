@@ -348,21 +348,44 @@ function findings(): string {
   const lightSpread = Math.max(...cheats.map((c) => abs((S('light', c).cheater ?? 0) - (lb.cheater ?? 0))))
   out.push(`<li><b>轻载家庭里作弊没有任何收益。</b>三人开黑场景空口只用了 ${lb.busy.toFixed(0)}%，七种作弊下作弊者的平均 ping 与基线 ${ms(lb.cheater)} 的最大偏差只有 ${lightSpread.toFixed(1)} ms：没有竞争可赢，WAN 的 25 ms 决定一切。</li>`)
 
-  // 2. heavy contention: the biggest gain, and what it did to the compliant gamers
+  // 2. heavy contention: the biggest gain all three seeds reproduce, and what it did to the
+  // compliant gamers. Section 6 promises that section 1 only draws conclusions from changes every
+  // seed agrees on, so the headline is the best cheat that clears that bar — not the best pooled
+  // mean. A larger pooled effect that only some seeds reproduce is reported below it, as an
+  // outlier, exactly the way finding 3 reports one.
   const bb = S('bg-upload', 'baseline')
-  const ranked = cheats.map((c) => ({ c, s: S('bg-upload', c) })).sort((a, b) => (a.s.cheater ?? 1e9) - (b.s.cheater ?? 1e9))
-  const best = ranked[0]
-  const agC = seedAgreement('bg-upload', best.c, 'cheater'), agG = seedAgreement('bg-upload', best.c, 'gamers')
-  // the best cheat's own effect on the cheater is real (bg-upload clears the floor ~5x overall);
-  // its side-effect on compliant gamers, specifically, may not — check before claiming a direction
+  const ranked = cheats.map((c) => ({ c, s: S('bg-upload', c), ag: seedAgreement('bg-upload', c, 'cheater') }))
+    .sort((a, b) => (a.s.cheater ?? 1e9) - (b.s.cheater ?? 1e9))
+  // a headline needs an actual gain for the cheater (a *lower* ping, by more than the floor)
+  // that every seed reproduces; ranked is ascending, so gains[0] is the largest pooled gain
+  const gains = ranked.filter((r) => (delta(bb.cheater, r.s.cheater) ?? 0) < 0
+    && clearsNoiseFloor(delta(bb.cheater, r.s.cheater) ?? 0, pct(bb.cheater, r.s.cheater) ?? 0))
+  const headline = gains.find((r) => r.ag.agree === r.ag.total)
+  const best = headline ?? gains[0] ?? ranked[0]
+  const bestOutlier = headline && gains[0] && gains[0].c !== headline.c ? gains[0] : null
+  const agC = best.ag, agG = seedAgreement('bg-upload', best.c, 'gamers')
+  // the headline cheat's own effect on the cheater is real and seed-robust; its side-effect on
+  // compliant gamers, specifically, may be neither — check both before claiming a direction
   const gDeltaMs = delta(bb.gamers, best.s.gamers) ?? 0
   const gDeltaPct = pct(bb.gamers, best.s.gamers) ?? 0
   const gamersClears = clearsNoiseFloor(gDeltaMs, gDeltaPct)
   const gamersDir = gDeltaMs < 0 ? '的 ping 也随之下降' : '的 ping 随之上升'
-  const gamersClause = gamersClears
-    ? `合规玩家${gamersDir}（${ms(bb.gamers)} → ${ms(best.s.gamers)}；${agG.agree}/${agG.total} 个种子同向）。${gDeltaMs < 0 ? `合规玩家为何也受益${agG.agree < agG.total ? '（且并非每个种子都如此）' : ''}，本报告的计数器没有分离出机制——他们自己的碰撞与重传次数几乎不变（见第 5 节），只能说重负载下一个抢先的终端并没有把玩家挤得更惨。` : ''}`
-    : `合规玩家的 ping 几乎不变（${ms(bb.gamers)} → ${ms(best.s.gamers)}，${gDeltaMs >= 0 ? '+' : ''}${gDeltaMs.toFixed(2)} ms / ${gDeltaPct >= 0 ? '+' : ''}${gDeltaPct.toFixed(2)}%，够不上本报告的可分辨门槛；${agG.agree}/${agG.total} 个种子同向）——这一种作弊的收益全在作弊者自己身上，没有测出对旁观者的影响。`
-  out.push(`<li><b>重负载下，抢竞争的作弊立竿见影。</b>两台笔记本饱和上传把空口占满（${bb.busy.toFixed(0)}%，每秒 ${bb.collisions.toFixed(0)} 次碰撞事件），基线 ping 涨到 ${ms(bb.cheater)}。作弊者收益最大的是"${CONFIG_LABEL[best.c]}"：${ms(bb.cheater)} → ${ms(best.s.cheater)}（${pct(bb.cheater, best.s.cheater)!.toFixed(0)}%；${agC.agree}/${agC.total} 个种子同向，各种子 ${agC.perSeed}），${gamersClause}其次是 ${ranked.slice(1, 3).map((r) => `${CONFIG_LABEL[r.c]}（${ms(r.s.cheater)}）`).join('、')}。</li>`)
+  const gamersClause = !gamersClears
+    ? `合规玩家的 ping 几乎不变（${ms(bb.gamers)} → ${ms(best.s.gamers)}，${gDeltaMs >= 0 ? '+' : ''}${gDeltaMs.toFixed(2)} ms / ${gDeltaPct >= 0 ? '+' : ''}${gDeltaPct.toFixed(2)}%，够不上本报告的可分辨门槛；${agG.agree}/${agG.total} 个种子同向）——这一种作弊的收益全在作弊者自己身上，没有测出对旁观者的影响。`
+    : agG.agree < agG.total
+      ? `对合规玩家的影响则不作结论：合并均值看是 ${ms(bb.gamers)} → ${ms(best.s.gamers)}（${gDeltaMs >= 0 ? '+' : ''}${gDeltaMs.toFixed(1)} ms），但只有 ${agG.agree}/${agG.total} 个种子同向（各种子 ${agG.perSeed}），按本报告的标准（见第 6 节）不足以判定方向。他们自己的碰撞与重传次数几乎不变（见第 5 节）。`
+      : `合规玩家${gamersDir}（${ms(bb.gamers)} → ${ms(best.s.gamers)}；${agG.agree}/${agG.total} 个种子同向）。${gDeltaMs < 0 ? '合规玩家为何也受益，本报告的计数器没有分离出机制——他们自己的碰撞与重传次数几乎不变（见第 5 节），只能说重负载下一个抢先的终端并没有把玩家挤得更惨。' : ''}`
+  const otherAgree = gains.filter((r) => r.c !== best.c && r.ag.agree === r.ag.total)
+  const outlierClause = bestOutlier
+    ? `按合并均值看，"${CONFIG_LABEL[bestOutlier.c]}"更大（${ms(bb.cheater)} → ${ms(bestOutlier.s.cheater)}，${pct(bb.cheater, bestOutlier.s.cheater)!.toFixed(0)}%），但只有 ${bestOutlier.ag.agree}/${bestOutlier.ag.total} 个种子同向（各种子 ${bestOutlier.ag.perSeed}）——它被其中一个种子的离群值拉出来，因此不作为结论。`
+    : ''
+  const otherClause = otherAgree.length
+    ? `本场景中另有 ${otherAgree.map((r) => `"${CONFIG_LABEL[r.c]}"（${ms(r.s.cheater)}）`).join('、')} 同样被全部种子重现。`
+    : `本场景中没有第二种作弊的收益能被全部 ${agC.total} 个种子重现。`
+  const headClause = headline
+    ? `作弊者收益最大、且每个种子都重现的是"${CONFIG_LABEL[best.c]}"：${ms(bb.cheater)} → ${ms(best.s.cheater)}（${pct(bb.cheater, best.s.cheater)!.toFixed(0)}%；${agC.agree}/${agC.total} 个种子同向，各种子 ${agC.perSeed}）。`
+    : `作弊者收益最大的是"${CONFIG_LABEL[best.c]}"：${ms(bb.cheater)} → ${ms(best.s.cheater)}（${pct(bb.cheater, best.s.cheater)!.toFixed(0)}%），但只有 ${agC.agree}/${agC.total} 个种子同向（各种子 ${agC.perSeed}）——本场景中没有任何一种作弊的收益被全部种子重现，因此这里不点名"最有效"的作弊。`
+  out.push(`<li><b>重负载下，抢竞争的作弊立竿见影。</b>两台笔记本饱和上传把空口占满（${bb.busy.toFixed(0)}%，每秒 ${bb.collisions.toFixed(0)} 次碰撞事件），基线 ping 涨到 ${ms(bb.cheater)}。${headClause}${gamersClause}${outlierClause}${headline ? otherClause : ''}</li>`)
 
   // 3. the worst cost to compliant gamers across every scenario × cheat
   const costs = EXPERIMENTS.flatMap((e) => cheats.map((c) => ({ e, c, b: S(e.id, 'baseline'), s: S(e.id, c), ag: seedAgreement(e.id, c, 'gamers') })))
@@ -400,11 +423,17 @@ function findings(): string {
   const navWorks = navRun.navSets > 0.5 * navRun.dataTx
   const fuB = S('full-upload', 'baseline'), fuHog = S('full-upload', 'txopHog'), fuNav = S('full-upload', 'navInflate')
   const fuNavRun = get('full-upload', 'navInflate').cheater
-  const hogText = `游戏上行包 89–131 B、平均每 30 ms 一个（实测王者荣耀），没有可以霸占的突发：在只打游戏的三个场景里，TXOP 霸占下作弊者的平均 ping 与基线的偏差不超过 ${hogDev.toFixed(1)} ms${hogDev < 0.05 ? '（轨迹完全相同）' : ''}。`
+  // seed annotations, like the ones every cell in section 3 carries: this finding leans on a
+  // bg-upload result that only some seeds reproduce, and it must say so.
+  const agBgNavC = seedAgreement('bg-upload', 'navInflate', 'cheater'), agBgNavG = seedAgreement('bg-upload', 'navInflate', 'gamers')
+  const agFuHogG = seedAgreement('full-upload', 'txopHog', 'gamers'), agFuNavG = seedAgreement('full-upload', 'navInflate', 'gamers')
+  const seedTag = (a: { agree: number; total: number; perSeed: string }) =>
+    `${a.agree}/${a.total} 个种子同向${a.agree < a.total ? `，各种子 ${a.perSeed}` : ''}`
+  const hogText = `游戏上行包 89–131 B、平均每 30 ms 一个（实测王者荣耀），没有可以霸占的突发：在只打游戏的三个场景里，TXOP 霸占下作弊者的平均 ping 与基线的偏差不超过 ${hogDev.toFixed(1)} ms${hogDev < 0.05 ? '（轨迹完全相同，三个种子逐一相同）' : ''}。`
   const navText = navWorks
-    ? `NAV 膨胀则不同：重负载场景 8 s 里作弊者发出 ${navRun.dataTx.toFixed(0)} 个数据帧，其他终端合计解码 ${navRun.dataDecodedByStas.toFixed(0)} 次（一帧可被多台终端解码）、设置了 ${navRun.navSets.toFixed(0)} 次比实际需要长 3 ms 的 NAV——能解码它的邻居每收到它一帧就被压住 3 ms（平均每 30 ms 一帧）。结果作弊者 ${ms(bgB.cheater)} → ${ms(bgNav.cheater)}，合规玩家 ${ms(bgB.gamers)} → ${ms(bgNav.gamers)}：被压住的主要是两台饱和上传的笔记本，所有玩家都因此受益。这一效果取决于谁能解码作弊者的帧：本引擎按每个 MCS 的 SINR 门限判定解码，与帧长无关，作弊者到 AP 的距离决定它用的 MCS，邻居能否解码常常只差零点几 dB——位置一变就可能一帧都解不出来。`
+    ? `NAV 膨胀则不同：重负载场景 8 s 里作弊者发出 ${navRun.dataTx.toFixed(0)} 个数据帧，其他终端合计解码 ${navRun.dataDecodedByStas.toFixed(0)} 次（一帧可被多台终端解码）、设置了 ${navRun.navSets.toFixed(0)} 次比实际需要长 3 ms 的 NAV——能解码它的邻居每收到它一帧就被压住 3 ms（平均每 30 ms 一帧）。结果作弊者 ${ms(bgB.cheater)} → ${ms(bgNav.cheater)}（${seedTag(agBgNavC)}），合规玩家 ${ms(bgB.gamers)} → ${ms(bgNav.gamers)}（${seedTag(agBgNavG)}）：被压住的主要是两台饱和上传的笔记本，所有玩家看上去都因此受益${agBgNavC.agree < agBgNavC.total || agBgNavG.agree < agBgNavG.total ? '——但这两个方向都不是每个种子都重现，按第 6 节的标准只能当作机制说明，不作为定量结论' : ''}。这一效果取决于谁能解码作弊者的帧：本引擎按每个 MCS 的 SINR 门限判定解码，与帧长无关，作弊者到 AP 的距离决定它用的 MCS，邻居能否解码常常只差零点几 dB——位置一变就可能一帧都解不出来。`
     : `NAV 膨胀也没有作用，原因是物理的：重负载场景 8 s 里作弊者发出 ${navRun.dataTx.toFixed(0)} 个数据帧，其他终端合计只解码了 ${navRun.dataDecodedByStas.toFixed(0)} 次、触发 ${navRun.navSets.toFixed(0)} 次 NAV 设置——作弊者离 AP 近、用的 MCS 高，邻居的 SINR 达不到那个 MCS 的解码门限（与帧长无关），读不到 Duration 就不会被骗。`
-  out.push(`<li><b>TXOP 霸占对只打游戏的作弊者无用；NAV 膨胀${navWorks ? '有效与否取决于邻居能否解码它的帧' : '同样无用'}。</b>${hogText}${navText}作弊者自己也在云备份时，它的 1500 B A-MPDU 超过 RTS 门限，每个突发都以 24 Mb/s 的 RTS 开头——RTS 的 Duration 同样被膨胀，而且所有邻居都能解码它：该场景 8 s 里 ${fuNavRun.navSetsRts.toFixed(0)} 次 NAV 设置来自作弊者的 RTS，${fuNavRun.navSets.toFixed(0)} 次来自其数据帧。TXOP 霸占让合规玩家 ${ms(fuB.gamers)} → ${ms(fuHog.gamers)}，NAV 膨胀让合规玩家 ${ms(fuB.gamers)} → ${ms(fuNav.gamers)}、其他终端 ${ms(fuB.others)} → ${ms(fuNav.others)}，而作弊者自己的 ping 分别为 ${ms(fuHog.cheater)} 与 ${ms(fuNav.cheater)}（基线 ${ms(fuB.cheater)}）。</li>`)
+  out.push(`<li><b>TXOP 霸占对只打游戏的作弊者无用；NAV 膨胀${navWorks ? '有效与否取决于邻居能否解码它的帧' : '同样无用'}。</b>${hogText}${navText}作弊者自己也在云备份时，它的 1500 B A-MPDU 超过 RTS 门限，每个突发都以 24 Mb/s 的 RTS 开头——RTS 的 Duration 同样被膨胀，而且所有邻居都能解码它：该场景 8 s 里 ${fuNavRun.navSetsRts.toFixed(0)} 次 NAV 设置来自作弊者的 RTS，${fuNavRun.navSets.toFixed(0)} 次来自其数据帧。TXOP 霸占让合规玩家 ${ms(fuB.gamers)} → ${ms(fuHog.gamers)}（${seedTag(agFuHogG)}），NAV 膨胀让合规玩家 ${ms(fuB.gamers)} → ${ms(fuNav.gamers)}（${seedTag(agFuNavG)}）、其他终端 ${ms(fuB.others)} → ${ms(fuNav.others)}，而作弊者自己的 ping 分别为 ${ms(fuHog.cheater)} 与 ${ms(fuNav.cheater)}（基线 ${ms(fuB.cheater)}）——这个场景已不再受空口约束（见第 6 节），这几项差异本身都在噪声量级。</li>`)
 
   // 5. the cheater that also uploads: is there anything here beyond run-to-run noise?
   const fuSpread = cheaterSpread('full-upload')
