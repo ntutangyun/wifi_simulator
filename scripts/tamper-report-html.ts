@@ -137,16 +137,23 @@ function summarize(r: PooledResult): Summary {
 }
 
 /**
- * Across-config spread of the cheater's own game ping in one scenario (max − min over baseline
- * + all 7 cheats), for the mean and for the P95. Below this floor, a scenario's per-cheat
- * differences cannot be told apart from run-to-run variation and must not be ranked or narrated
- * as if one cheat were measurably worse than another. The floor (1.0 ms AND 2% of baseline, both
- * required) was picked to separate a scenario that is still contention-bound (bg-upload clears it
- * roughly fivefold) from one that no longer is (full/full-upload miss it by an order of magnitude);
- * a same-baseline ratio test does not discriminate the two, magnitude does.
+ * The report's one detection floor, used everywhere a finding would otherwise rank, name a
+ * "best"/"worst"/"largest"/"lowest", or claim a direction for a difference. A difference clears
+ * it once it is at least 1.0 ms OR at least 2% of its own baseline (either is enough to call it
+ * real); short of both, it cannot be told apart from run-to-run seed variation and must be
+ * narrated as "no measurable difference", not ranked. The floor was picked to separate a scenario
+ * that is still contention-bound (bg-upload's cheater-ping spread clears it roughly fivefold) from
+ * one that no longer is (full/full-upload's spreads miss it by an order of magnitude); a
+ * same-baseline ratio test does not discriminate the two, magnitude does.
  */
 const NOISE_FLOOR_MS = 1.0
 const NOISE_FLOOR_PCT = 2
+function clearsNoiseFloor(deltaMs: number, deltaPct: number): boolean {
+  return Math.abs(deltaMs) >= NOISE_FLOOR_MS || Math.abs(deltaPct) >= NOISE_FLOOR_PCT
+}
+
+/** Across-config spread of the cheater's own game ping in one scenario (max − min over baseline
+ * + all 7 cheats), for the mean and for the P95, checked against the floor above. */
 function cheaterSpread(exp: string): {
   meanSpread: number; meanPct: number; meanNoise: boolean
   p95Spread: number; p95Pct: number; p95Noise: boolean
@@ -161,8 +168,8 @@ function cheaterSpread(exp: string): {
   const meanPct = (meanSpread / meanBase) * 100
   const p95Pct = (p95Spread / p95Base) * 100
   return {
-    meanSpread, meanPct, meanNoise: meanSpread < NOISE_FLOOR_MS && meanPct < NOISE_FLOOR_PCT,
-    p95Spread, p95Pct, p95Noise: p95Spread < NOISE_FLOOR_MS && p95Pct < NOISE_FLOOR_PCT,
+    meanSpread, meanPct, meanNoise: !clearsNoiseFloor(meanSpread, meanPct),
+    p95Spread, p95Pct, p95Noise: !clearsNoiseFloor(p95Spread, p95Pct),
   }
 }
 
@@ -345,17 +352,22 @@ function findings(): string {
   const bb = S('bg-upload', 'baseline')
   const ranked = cheats.map((c) => ({ c, s: S('bg-upload', c) })).sort((a, b) => (a.s.cheater ?? 1e9) - (b.s.cheater ?? 1e9))
   const best = ranked[0]
-  const gamersDir = (best.s.gamers ?? 0) < (bb.gamers ?? 0) ? '的 ping 也随之下降' : '的 ping 随之上升'
   const agC = seedAgreement('bg-upload', best.c, 'cheater'), agG = seedAgreement('bg-upload', best.c, 'gamers')
-  out.push(`<li><b>重负载下，抢竞争的作弊立竿见影。</b>两台笔记本饱和上传把空口占满（${bb.busy.toFixed(0)}%，每秒 ${bb.collisions.toFixed(0)} 次碰撞事件），基线 ping 涨到 ${ms(bb.cheater)}。作弊者收益最大的是"${CONFIG_LABEL[best.c]}"：${ms(bb.cheater)} → ${ms(best.s.cheater)}（${pct(bb.cheater, best.s.cheater)!.toFixed(0)}%；${agC.agree}/${agC.total} 个种子同向，各种子 ${agC.perSeed}），合规玩家${gamersDir}（${ms(bb.gamers)} → ${ms(best.s.gamers)}；${agG.agree}/${agG.total} 个种子同向）。${(best.s.gamers ?? 0) < (bb.gamers ?? 0) ? `合规玩家为何也受益${agG.agree < agG.total ? '（且并非每个种子都如此）' : ''}，本报告的计数器没有分离出机制——他们自己的碰撞与重传次数几乎不变（见第 5 节），只能说重负载下一个抢先的终端并没有把玩家挤得更惨。` : ''}其次是 ${ranked.slice(1, 3).map((r) => `${CONFIG_LABEL[r.c]}（${ms(r.s.cheater)}）`).join('、')}。</li>`)
+  // the best cheat's own effect on the cheater is real (bg-upload clears the floor ~5x overall);
+  // its side-effect on compliant gamers, specifically, may not — check before claiming a direction
+  const gDeltaMs = delta(bb.gamers, best.s.gamers) ?? 0
+  const gDeltaPct = pct(bb.gamers, best.s.gamers) ?? 0
+  const gamersClears = clearsNoiseFloor(gDeltaMs, gDeltaPct)
+  const gamersDir = gDeltaMs < 0 ? '的 ping 也随之下降' : '的 ping 随之上升'
+  const gamersClause = gamersClears
+    ? `合规玩家${gamersDir}（${ms(bb.gamers)} → ${ms(best.s.gamers)}；${agG.agree}/${agG.total} 个种子同向）。${gDeltaMs < 0 ? `合规玩家为何也受益${agG.agree < agG.total ? '（且并非每个种子都如此）' : ''}，本报告的计数器没有分离出机制——他们自己的碰撞与重传次数几乎不变（见第 5 节），只能说重负载下一个抢先的终端并没有把玩家挤得更惨。` : ''}`
+    : `合规玩家的 ping 几乎不变（${ms(bb.gamers)} → ${ms(best.s.gamers)}，${gDeltaMs >= 0 ? '+' : ''}${gDeltaMs.toFixed(2)} ms / ${gDeltaPct >= 0 ? '+' : ''}${gDeltaPct.toFixed(2)}%，够不上本报告的可分辨门槛；${agG.agree}/${agG.total} 个种子同向）——这一种作弊的收益全在作弊者自己身上，没有测出对旁观者的影响。`
+  out.push(`<li><b>重负载下，抢竞争的作弊立竿见影。</b>两台笔记本饱和上传把空口占满（${bb.busy.toFixed(0)}%，每秒 ${bb.collisions.toFixed(0)} 次碰撞事件），基线 ping 涨到 ${ms(bb.cheater)}。作弊者收益最大的是"${CONFIG_LABEL[best.c]}"：${ms(bb.cheater)} → ${ms(best.s.cheater)}（${pct(bb.cheater, best.s.cheater)!.toFixed(0)}%；${agC.agree}/${agC.total} 个种子同向，各种子 ${agC.perSeed}），${gamersClause}其次是 ${ranked.slice(1, 3).map((r) => `${CONFIG_LABEL[r.c]}（${ms(r.s.cheater)}）`).join('、')}。</li>`)
 
   // 3. the worst cost to compliant gamers across every scenario × cheat
   const costs = EXPERIMENTS.flatMap((e) => cheats.map((c) => ({ e, c, b: S(e.id, 'baseline'), s: S(e.id, c), ag: seedAgreement(e.id, c, 'gamers') })))
     .filter((x) => x.b.gamers !== null && x.s.gamers !== null)
     .sort((a, b) => (b.s.gamers! - b.b.gamers!) - (a.s.gamers! - a.b.gamers!))
-  // the largest pooled increase that every seed reproduces; a one-seed outlier is reported as such
-  const worst = costs.find((x) => x.ag.agree === x.ag.total) ?? costs[0]
-  const outlier = costs[0] !== worst ? costs[0] : null
   const HARM: Record<TamperKind, string> = {
     escalate: '把所有帧标成语音后，作弊者在每一次竞争里都先于 AC_BE 的玩家进入倒数，输的是那些按规矩等 AIFS 的人。',
     aifs: '作弊者比所有人早一到六个时隙进入竞争，合规玩家的退避在它面前总是慢半拍。',
@@ -365,8 +377,20 @@ function findings(): string {
     navInflate: '能解码作弊者帧的终端每次都把 NAV 多设 3 ms，在作弊者早已沉默时仍不敢竞争。',
     greedy: '最短等待、不退避、抢到就霸占——合规玩家在每一个环节都排在后面。',
   }
-  const worstPct = pct(worst.b.gamers, worst.s.gamers)!
-  out.push(`<li><b>合规玩家付出的最大代价来自"${CONFIG_LABEL[worst.c]}"（${worst.e.title}）。</b>他们的平均游戏 ping 从 ${ms(worst.b.gamers)} 升到 ${ms(worst.s.gamers)}（${worstPct >= 0 ? '+' : ''}${worstPct.toFixed(0)}%），P95 ${fmt(worst.b.gamersP95, 0)} → ${fmt(worst.s.gamersP95, 0)} ms；同一配置下作弊者自己 ${ms(worst.b.cheater)} → ${ms(worst.s.cheater)}。${HARM[worst.c]}（${worst.ag.agree}/${worst.ag.total} 个种子同向：${worst.ag.perSeed}）${worstPct < 5 ? '这一代价在本组场景里并不大：作弊者的收益主要来自把自己的等待压到最短，而不是把别人挤出去。' : ''}${outlier ? `按合并均值看，"${CONFIG_LABEL[outlier.c]}"（${outlier.e.title}）的 ${ms(outlier.b.gamers)} → ${ms(outlier.s.gamers)} 更大，但只有 ${outlier.ag.agree}/${outlier.ag.total} 个种子同向（${outlier.ag.perSeed}），是单个种子的离群值，不作为结论。` : ''}</li>`)
+  // the largest pooled increase anywhere, before any seed-agreement filtering: if even this fails
+  // the floor, nothing ranked below it can pass either, and there is no "worst cheat" to name
+  const top = costs[0]
+  const topDeltaMs = delta(top.b.gamers, top.s.gamers)!
+  const topDeltaPct = pct(top.b.gamers, top.s.gamers)!
+  if (!clearsNoiseFloor(topDeltaMs, topDeltaPct)) {
+    out.push(`<li><b>合规玩家在任何一种场景 × 作弊组合下都没有付出可分辨的代价——这本身就是这次重跑的结果。</b>把全部四个场景、全部七种作弊放在一起比较，对合规玩家游戏 ping 影响最大的一项出现在"${top.e.title}"，也只有 ${topDeltaMs >= 0 ? '+' : ''}${topDeltaMs.toFixed(2)} ms（基线的 ${topDeltaPct >= 0 ? '+' : ''}${topDeltaPct.toFixed(2)}%），够不上本报告的可分辨门槛（须至少达到 1.0 ms 或基线的 2%），所以不点名是哪种作弊——这个差异本身就分不清是作弊还是运行间的噪声。本报告更早版本用 20 MHz、单流电台时，合规玩家付出的最大代价约为 +15%（贪婪，三人开黑 + 两台笔记本饱和上传）；换上真实的 Wi-Fi 7 电台后，这个代价在所有场景、所有作弊下都跌到 2% 以下、跌进了检测不到的范围。这不是没有测出结果，而是结果本身：一种在慢链路上明显伤害旁观者的作弊，链路快到这个程度之后，就不再测得出它还在伤害谁——伤害没有消失（作弊者仍在抢占介质，见第 2 节的场景设置），只是旁观者的排队时间已经小到被 WAN 时延和抽样噪声淹没。</li>`)
+  } else {
+    // the largest pooled increase that every seed reproduces; a one-seed outlier is reported as such
+    const worst = costs.find((x) => x.ag.agree === x.ag.total) ?? costs[0]
+    const outlier = costs[0] !== worst ? costs[0] : null
+    const worstPct = pct(worst.b.gamers, worst.s.gamers)!
+    out.push(`<li><b>合规玩家付出的最大代价来自"${CONFIG_LABEL[worst.c]}"（${worst.e.title}）。</b>他们的平均游戏 ping 从 ${ms(worst.b.gamers)} 升到 ${ms(worst.s.gamers)}（${worstPct >= 0 ? '+' : ''}${worstPct.toFixed(0)}%），P95 ${fmt(worst.b.gamersP95, 0)} → ${fmt(worst.s.gamersP95, 0)} ms；同一配置下作弊者自己 ${ms(worst.b.cheater)} → ${ms(worst.s.cheater)}。${HARM[worst.c]}（${worst.ag.agree}/${worst.ag.total} 个种子同向：${worst.ag.perSeed}）${worstPct < 5 ? '这一代价在本组场景里并不大：作弊者的收益主要来自把自己的等待压到最短，而不是把别人挤出去。' : ''}${outlier ? `按合并均值看，"${CONFIG_LABEL[outlier.c]}"（${outlier.e.title}）的 ${ms(outlier.b.gamers)} → ${ms(outlier.s.gamers)} 更大，但只有 ${outlier.ag.agree}/${outlier.ag.total} 个种子同向（${outlier.ag.perSeed}），是单个种子的离群值，不作为结论。` : ''}</li>`)
+  }
 
   // 4. TXOP hog & NAV inflation need something to burst with
   const gamingOnly = ['light', 'bg-upload', 'full']
@@ -386,7 +410,7 @@ function findings(): string {
   const fuSpread = cheaterSpread('full-upload')
   const bgSpread = cheaterSpread('bg-upload')
   if (fuSpread.meanNoise && fuSpread.p95Noise) {
-    out.push(`<li><b>满屋子 + 作弊者云备份：七种作弊都没有跑出运行间的噪声。</b>该场景空口只剩 ${fuB.busy.toFixed(0)}%，已不再受空口约束（见第 6 节）；作弊者基线平均 ${ms(fuB.cheater)}（P95 ${fmt(fuB.cheaterP95, 0)}，最大 ${fmt(fuB.cheaterMax, 0)} ms）。七种作弊之间，平均 ping 的跨配置差异只有 ${fuSpread.meanSpread.toFixed(2)} ms（基线的 ${fuSpread.meanPct.toFixed(1)}%），P95 的差异只有 ${fuSpread.p95Spread.toFixed(2)} ms（${fuSpread.p95Pct.toFixed(1)}%）——都够不上本报告用来判断"能否分辨"的门槛：跨配置差异须同时超过 1.0 ms 与基线的 2%，仍然饱和的场景 2 在这项检验上是 ${bgSpread.meanSpread.toFixed(1)} ms、基线的 ${bgSpread.meanPct.toFixed(0)}%，超出该门槛五倍以上，这里却差了一个数量级。这一负载强度下哪种作弊更狠、尾部有没有被压住，仿真的运行间噪声本身就盖过了七种作弊之间的差异，因此不逐一排名、不点名"最低"或"最接近"——第 6 节有完整说明。</li>`)
+    out.push(`<li><b>满屋子 + 作弊者云备份：七种作弊都没有跑出运行间的噪声。</b>该场景空口只剩 ${fuB.busy.toFixed(0)}%，已不再受空口约束（见第 6 节）；作弊者基线平均 ${ms(fuB.cheater)}（P95 ${fmt(fuB.cheaterP95, 0)}，最大 ${fmt(fuB.cheaterMax, 0)} ms）。七种作弊之间，平均 ping 的跨配置差异只有 ${fuSpread.meanSpread.toFixed(2)} ms（基线的 ${fuSpread.meanPct.toFixed(1)}%），P95 的差异只有 ${fuSpread.p95Spread.toFixed(2)} ms（${fuSpread.p95Pct.toFixed(1)}%）——都够不上本报告用来判断"能否分辨"的门槛：跨配置差异要么达到 1.0 ms、要么达到基线的 2%（任一即可算作可分辨），仍然饱和的场景 2 在这项检验上是 ${bgSpread.meanSpread.toFixed(1)} ms、基线的 ${bgSpread.meanPct.toFixed(0)}%，超出该门槛五倍以上，这里却一项都够不到。这一负载强度下哪种作弊更狠、尾部有没有被压住，仿真的运行间噪声本身就盖过了七种作弊之间的差异，因此不逐一排名、不点名"最低"或"最接近"——第 6 节有完整说明。</li>`)
   } else {
     const fuRanked = cheats.map((c) => ({ c, s: S('full-upload', c) })).sort((a, b) => (a.s.cheaterP95 ?? 1e9) - (b.s.cheaterP95 ?? 1e9))
     const fuBest = fuRanked[0]
