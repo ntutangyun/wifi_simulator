@@ -1423,11 +1423,11 @@ git commit -m "docs(report): re-baseline the tamper experiment on the real Wi-Fi
 
 ---
 
-## Execution status — paused 2026-09-10
+## Execution status — paused 2026-09-10 (second session)
 
 Branch `feat/phy-realism`, branched from `main` at `d4ccf9d`. Suite green at
-279 passing, `tsc` clean. Lessons 1 to 14 verified unchanged throughout
-(`npx vitest run tests/course` is 25/25 at every step).
+**306 passing across 45 files**, `tsc --noEmit` clean, working tree clean.
+Lessons 1 to 14 verified unaffected throughout.
 
 | Task | State | Commits |
 |---|---|---|
@@ -1435,50 +1435,118 @@ Branch `feat/phy-realism`, branched from `main` at `d4ccf9d`. Suite green at
 | 2 · Airtime scales with width and streams | complete, review clean | `92e3e67` |
 | 3 · Width-dependent sensitivity | complete, review clean after 1 fix round | `616ba2a`, `8610c45` |
 | 4 · Wire through the MAC, real household radios | complete, review clean after 1 fix round | `c56db2d`, `fab4403` |
-| 5 · Rate adaptation | NOT STARTED — resume here | — |
-| 6 · MU-MIMO | not started | — |
-| 7 · Lessons 15 and 16 | not started | — |
-| 8 · Lessons 17 and 18 | not started | — |
+| 5 · Rate adaptation | complete, review clean after 1 fix round | `077a73d`, `b05ea01` |
+| 6 · MU-MIMO | complete, review clean after 2 fix rounds | `821b407`, `0eab1bb`, `3c95724` |
+| 7 · Lessons 15 and 16 | complete, review clean after 2 fix rounds | `e2403ba`, `dbd1bb2`, `764bcd9` |
+| 8 · Lessons 17 and 18 | **NOT STARTED — resume here.** Dispatched once, stopped before it edited anything. | — |
 | 9 · Report re-baseline | not started | — |
 
-### Decisions taken during execution that amend this plan
+### Rulings taken during this session
 
-1. **Task 2's datasheet test was replaced.** As written it measured a 125 kB
-   frame, whose fixed 48 µs preamble drags the computed rate to about
-   4450 Mb/s, so its assertion of 5600–5800 could never pass. The datasheet
-   figure is a PHY rate, not a frame throughput. The test now asserts the
-   asymptotic rate directly — scaled bits per symbol over the symbol
-   duration — which computes to 5764.7 Mb/s against the claimed 5.8 Gb/s.
+Each amends the plan. The spec (`docs/superpowers/specs/2026-09-10-phy-realism-design.md`)
+was treated as the binding authority and the plan as its argument.
 
-2. **Task 3's far-station test was re-anchored from −70 dBm to −55 dBm.** At
-   −70 dBm the 160 MHz side returned 0 because nothing decoded at all, not
-   because MCS 0 worked, so the assertion conflated decode failure with the
-   function's floor value and would have passed even with the width penalty
-   applied to the wrong term. At −55 dBm both sides are real: MCS 8 at
-   20 MHz against MCS 4 at 160 MHz.
-
-3. **Task 4's frame-width test moved from `three-gamers` to `video-share`.**
-   In `three-gamers` the only data frames over 1000 B are access point to
-   TV, and the TV is a generic appliance, so that link correctly negotiates
-   down to the narrower end. Asserting 160 MHz there would have been
-   asserting a bug. The test now runs where two real phone presets exchange
-   large frames.
-
-4. **Generic household appliances carry generation-typical radios**, assigned
-   in the `device()` helper in `src/model/households.ts` only, never
-   globally: non-HT 20 MHz and one stream, Wi-Fi 5 and Wi-Fi 6 at 80 MHz and
-   two streams, Wi-Fi 7 at 160 MHz and two streams. This was not in the
-   original plan. It matters beyond realism because `scripts/tamper-report.ts`
-   builds its two uploading laptops by cloning the TV node, so leaving the TV
-   at 20 MHz would have silently capped the saturation scenario at the heart
-   of that report.
+1. **Rate-adaptation outcomes are reported for single-user attempts only.** The
+   plan said to notify failure at the top of `failAttemptCore`, but that
+   function is also reached from the multi-user downlink path, while success is
+   reported only on the single-user branch — a one-way ratchet to MCS 0. The MU
+   path now reports neither. MU downlinks therefore transmit at the
+   signal-strength ceiling rather than an adapted rate; adding per-member
+   reporting in the MU BlockAck handler is a clean follow-up.
+2. **Rate adaptation is global engine physics.** Lessons 5 and 10 are
+   collision-heavy by design and legitimately shifted; their pinned numbers and
+   prose were updated to measured values. The Global Constraint that actually
+   binds — no `widthMhz`/`nss` in `lessons.ts` — holds. The "Done when" clause
+   about identical airtime is read as scoped to Tasks 1-4.
+3. **The spec's clamped-MCS pseudocode beats the plan's sample code.** The
+   sample stored an unbounded `drop` clamped only at read time, so recovery
+   after a long failure run needed `10 x (drop - ceiling + 1)` successes.
+   Measured effect: 178 of 216 `hidden` data frames pinned at MCS 0, including
+   the RTS/CTS variant that is supposed to cure the problem. Now an absolute
+   MCS clamped at 0, per the spec.
+4. Minor finding 5 (a stale percentage in the same lesson file) was fixed in the
+   same round rather than deferred.
+5. **The UI must name MU-MIMO PPDUs correctly** even though it sat outside Task
+   6's file list. Stock households became 100% MU-MIMO on DL MU PPDUs while the
+   timeline and inspector still called them OFDMA and described frequency
+   slices, in both languages. The spec already required this: frames gain
+   `muKind` "so the timeline and inspector can name what they are showing".
+6. **A plan-mandated test that asserts nothing was replaced.** Task 6's
+   "the PPDU lasts as long as its slowest member" asserted only that a later
+   `TX_END` existed — it passed under `Math.min`, a constant, or the wrong mode.
+7. The untested stream-fitting drop rule was covered in the same round.
+8. **Lesson 16 ships at 20 MHz, not the brief's 160 MHz.** At 160 MHz a
+   1530-octet frame is already one OFDM symbol, so 1, 2 and 4 streams all give
+   61.6 us and the intended halving does not exist. The spec mandates no width
+   for this lesson. 160 MHz ships as a fifth variant.
+9. **AMENDED MID-SESSION — this one was wrong first time.** I accepted that this
+   engine can never make a frame longer as width grows. It can: `EHT_SENS` has
+   2 dB rungs, so a 3.01 dB width penalty can skip two MCS steps. Measured at
+   (10.5, 6), rssi -70.507: 40 MHz 292.8 us, 80 MHz 401.6 us, zero retries and
+   zero drops. Lesson 15 now teaches the inversion, pinned by a test whose
+   failure mode was verified on about a metre of drift.
+10. **The frame inspector's rate line is carried into Task 8.** It prints every
+    frame's MCS at its 20 MHz single-stream rate, so a 160 MHz frame shows a
+    LOWER number (154.9) than a 20 MHz one (172.1). Lesson 18 is read off that
+    line. See the trap in the resume note.
+11. **PARKED FOR THE HUMAN PARTNER — width and streams are absent from the UI
+    entirely.** The `inspector.width`/`nss` strings exist in both languages and
+    are referenced nowhere; there is no control to set width or streams; and
+    `FloorPlanEditor.setGeneration` silently discards both fields. The whole
+    Task 1 capability is unreachable and uneditable from the app. Building that
+    control is new scope this plan never contemplated. The shipped lessons do
+    not instruct impossible actions.
+12. Two minor prose fixes and a quiz distractor were bundled into a round.
+13. **The width inversion ships as a body block, not a "things to try".**
+    Variant buttons rebuild the scenario from its factory function, so a
+    reader's drag is discarded, and there is no width control — an instruction
+    nobody can follow. When the parked control of Ruling 11 lands, this can
+    become one.
 
 ### Note for whoever resumes
 
-Task 5 creates `src/engine/rate.ts`. Do not pre-create it — the task is
-test-first and the test must fail on the missing module before the file
-exists. Task 5's integration test provokes losses by moving a station to a
-far corner; the air is now much faster than when this plan was written, so
-that scenario may need strengthening (more distance, more walls, lower
-transmit power, or competing traffic). Adjust the scenario, never the
-assertion.
+**Task 8 is next, and it carries two items beyond its brief:** the glossary and
+Guide never mention MU-MIMO (`src/ui/glossary.ts:348-395` has no MU-MIMO entry
+and defines "DL MU" without space division; `src/ui/Guide.tsx:78-85,176-182`
+files DL MU under "§7 OFDMA"), and the inspector rate line of Ruling 10.
+
+**TRAP on the rate line — read twice.** `FrameDesc.mbps` is NOT a display
+field: `src/engine/channel.ts:92` does `sinrThreshDb(frame.mbps)`, so it feeds
+the decode threshold. Changing what `mbps` holds silently changes the physics of
+every link in every lesson and household. The fix must be display-only — a
+separate named field, or computed in the UI. Note `FrameDesc` carries
+`widthMhz?` but NOT `nss` (`MuPart` has it), so a single-user frame's stream
+count is not on the frame yet. Prove the physics did not move by comparing
+record streams before and after, not merely by a green suite. Lesson 15's prose
+currently explains what the rate line really shows; that becomes stale once the
+line is truthful.
+
+**Do the visual pass.** The course panel's content box is 300 px. In Task 7 a
+six-column table pushed the Airtime column — the point of the lesson — off
+screen behind a scrollbar, and no test caught it. Check both new lessons in both
+languages.
+
+**The failure pattern to watch in lesson prose.** Two separate Task 7 findings
+were sentences that mixed baselines and were true under neither reading. Lesson
+17 compares OFDMA against MU-MIMO and lesson 18 compares before against after a
+rate step — both that exact shape. Name the baseline every figure belongs to.
+
+**Task 9 note.** The committed tamper report figures are stale (last regenerated
+at `dd7a46a`, before this branch) and `full-house` DL MU is now 100% MU-MIMO
+with shorter PPDUs. Task 9 exists for exactly this and must run last.
+
+**Deferred minors** are recorded in the SDD ledger at
+`.superpowers/sdd/2026-09-10-phy-realism/progress.md`. That directory is
+git-ignored, so it does NOT travel between machines — this section is the
+durable record. Hand the final whole-branch review the ledger if it still
+exists, and this section if it does not.
+
+### Open question for the human partner
+
+Lesson 10's unprotected variant now delivers **31 frames in 300 ms against 610**
+for the protected one (it was 428 vs 631). The cause is real and correct — that
+station is pinned near MCS 0 by unmitigated hidden-node collisions, genuine
+minstrel-style rate blindness, while the protected variant sits at MCS 4 for 212
+of 230 frames — and the lesson's table honestly reports it. But a 20x delivery
+gap is a much starker lesson than the one originally written. Worth a decision
+before merge.
