@@ -684,12 +684,14 @@ export class WifiMac implements PhyListener {
     let anyFail = false
     for (const c of mu.parts) {
       if (mu.successes.has(c.peer)) {
+        this.cfg.onTxOutcome?.(c.peer, true)
         for (const m of c.msdus) {
           this.emit({ t, type: 'DEQUEUE', node: this.nodeId, msduId: m.id, depth: this.queues.depth(mu.ac), ac: this.acTag(e) })
           this.hooks.onDequeue?.(m.id)
         }
       } else {
         anyFail = true
+        this.cfg.onTxOutcome?.(c.peer, false)
         this.queues.restore(mu.ac, c.msdus)
       }
     }
