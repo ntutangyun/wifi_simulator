@@ -43,24 +43,35 @@ describe('channel width multiplies the bits carried per symbol', () => {
     expect(mbps).toBeLessThan(1250)
   })
 
-  it('computes the EHT160 two-stream top rate — and it runs above Apple’s published 2400 Mb/s', () => {
-    // Apple's Wi-Fi 7 figure is be@5 GHz | 2400 Mbps | 160 MHz | 2/MIMO. The
-    // engine's top EHT MCS (13, 4096-QAM) at 160 MHz / 2 streams computes to
-    // ~2882 Mb/s — about 20% above Apple's figure. MCS 11 (1024-QAM, the top
-    // HE shares with EHT) computes to ~2402 Mb/s, which matches Apple's 2400
-    // almost exactly. The mismatch at MCS 13 versus the close match at MCS 11
-    // suggests Apple's published number assumes 1024-QAM rather than the
-    // 4096-QAM this engine's top-of-range EHT MCS allows; see the report.
+  it('pins the standard’s real EHT160/2SS/MCS13 rate: 2882.4 Mb/s, unrestricted', () => {
+    // 4096-QAM (MCS 13) at 160 MHz / 2 streams, uncapped. This is the
+    // standard's real number — not an engine bug. It runs ~20% above
+    // Apple's published 2400 Mb/s for Wi-Fi 7 at 160 MHz / 2 streams because
+    // Apple's N1 radio does not implement 4096-QAM (see the next test and
+    // src/model/presets.ts's qam4k handling).
     const m = PHY_MODES.eht
     const top = m.ndbps[13] * toneRatio('eht', 160) * 2
     const topMbps = top / (m.symNs / 1000)
     expect(topMbps).toBeGreaterThan(2800)
     expect(topMbps).toBeLessThan(2950)
+    expect(Math.round(topMbps * 10) / 10).toBe(2882.4)
+  })
 
-    const mcs11 = m.ndbps[11] * toneRatio('eht', 160) * 2
-    const mcs11Mbps = mcs11 / (m.symNs / 1000)
-    expect(mcs11Mbps).toBeGreaterThan(2350)
-    expect(mcs11Mbps).toBeLessThan(2450)
+  it('an Apple-style eht link (qam4k off) caps at MCS 11 — ~2402 Mb/s, matching Apple’s published 2400', () => {
+    // Mirrors the exact capping logic in src/engine/simulation.ts's
+    // mcsForPeer: `cap = mode === 'eht' && !negotiated(n, peer, 'qam4k') ?
+    // 11 : undefined`. A signal strong enough to reach MCS 13 uncapped
+    // reaches only MCS 11 once qam4k is off.
+    const strongRssi = -20
+    expect(mcsForRssi('eht', strongRssi, undefined, 160)).toBe(13)
+    const capped = mcsForRssi('eht', strongRssi, 11, 160)
+    expect(capped).toBe(11)
+
+    const m = PHY_MODES.eht
+    const mbps = (m.ndbps[capped] * toneRatio('eht', 160) * 2) / (m.symNs / 1000)
+    expect(mbps).toBeGreaterThan(2350)
+    expect(mbps).toBeLessThan(2450)
+    expect(Math.round(mbps * 10) / 10).toBe(2402)
   })
 
   it('a fixed preamble means a single frame shrinks less than its data symbols do', () => {

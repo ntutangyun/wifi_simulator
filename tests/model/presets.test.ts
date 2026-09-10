@@ -55,6 +55,29 @@ describe('station presets', () => {
     }
   })
 
+  it('Apple’s eht phones run without 4096-QAM; non-Apple eht phones and Apple’s he phone are unaffected', () => {
+    // Apple publishes 2400 Mbps for Wi-Fi 7 at 160 MHz / 2 streams — the
+    // 1024-QAM (MCS 11) rate, not the 2882 Mbps 4096-QAM (MCS 13) would
+    // allow (see tests/engine/width.test.ts). Modelled by turning qam4k off
+    // for Apple's eht presets only.
+    const apple = ['apple-iphone-17-pro', 'apple-iphone-air', 'apple-iphone-17']
+    for (const id of apple) {
+      const n = presetNode(byId(id), 'sta-1', { x: 1, y: 1, z: 1 })
+      expect(n.caps.generation, id).toBe('eht')
+      expect(hasFeature(n, 'qam4k'), id).toBe(false)
+    }
+    const nonAppleEht = ['huawei-mate-80-pro', 'huawei-pura-80-ultra', 'xiaomi-17-ultra', 'xiaomi-17-pro-max',
+      'xiaomi-redmi-k90-pro-max', 'honor-magic8-pro', 'honor-magic-v6', 'honor-500']
+    for (const id of nonAppleEht) {
+      const n = presetNode(byId(id), 'sta-1', { x: 1, y: 1, z: 1 })
+      expect(hasFeature(n, 'qam4k'), id).toBe(true)
+    }
+    // apple-iphone-16e is he, which does not have qam4k in its feature set at
+    // all (GEN_FEATURES.he excludes it) — nothing to turn off.
+    const iphone16e = presetNode(byId('apple-iphone-16e'), 'sta-1', { x: 1, y: 1, z: 1 })
+    expect(hasFeature(iphone16e, 'qam4k')).toBe(false)
+  })
+
   it('applyPreset keeps the node’s id and position and replaces name, caps and streams', () => {
     const n = presetNode(byId('honor-x9d'), 'sta-9', { x: 3, y: 4, z: 1 })
     const m = applyPreset(n, byId('apple-iphone-17-pro'))

@@ -77,11 +77,14 @@ export const STATION_PRESETS: StationPreset[] = [
     'Wi-Fi 6（802.11ax），双频；耐用中端机。仿真按 80 MHz 建模：没有这款机型的官方带宽数据，但 160 MHz 对 802.11ax 的 Wi-Fi 6 终端只是可选特性，80 MHz 才是常见配置，也与苹果公布的 Wi-Fi 6 带宽一致。', 80),
   // Apple — N1 chip: Wi-Fi 7 at 160 MHz (no 320 MHz), 2×2, MLO on non-China units
   P('apple-iphone-17-pro', 'apple', 'iPhone 17 Pro', '2025-09', 'eht', true, ['video', 'voice'],
-    'Apple N1: Wi-Fi 7, 2×2, 160 MHz max; China unit (A3524) without 6 GHz.', '苹果 N1：Wi-Fi 7，2×2，最大 160 MHz；国行（A3524）无 6 GHz。'),
+    'Apple N1: Wi-Fi 7, 2×2, 160 MHz max; China unit (A3524) without 6 GHz. Modelled without 4096-QAM: Apple publishes 2400 Mbps for Wi-Fi 7 at 160 MHz / 2 streams — the 1024-QAM (MCS 11) rate, not the 2882 Mbps 4096-QAM (MCS 13) would allow.',
+    '苹果 N1：Wi-Fi 7，2×2，最大 160 MHz；国行（A3524）无 6 GHz。仿真不建模 4096-QAM：苹果公布的 Wi-Fi 7、160 MHz、2 流速率是 2400 Mbps——对应 1024-QAM（MCS 11），而不是 4096-QAM（MCS 13）能达到的 2882 Mbps。'),
   P('apple-iphone-air', 'apple', 'iPhone Air', '2025-09', 'eht', true, ['browsing'],
-    'Apple N1: Wi-Fi 7, 2×2, 160 MHz max.', '苹果 N1：Wi-Fi 7，2×2，最大 160 MHz。'),
+    'Apple N1: Wi-Fi 7, 2×2, 160 MHz max. Modelled without 4096-QAM: Apple publishes 2400 Mbps for Wi-Fi 7 at 160 MHz / 2 streams — the 1024-QAM (MCS 11) rate, not the 2882 Mbps 4096-QAM (MCS 13) would allow.',
+    '苹果 N1：Wi-Fi 7，2×2，最大 160 MHz。仿真不建模 4096-QAM：苹果公布的 Wi-Fi 7、160 MHz、2 流速率是 2400 Mbps——对应 1024-QAM（MCS 11），而不是 4096-QAM（MCS 13）能达到的 2882 Mbps。'),
   P('apple-iphone-17', 'apple', 'iPhone 17', '2025-09', 'eht', true, ['gaming'],
-    'Apple N1: Wi-Fi 7, 2×2, 160 MHz max.', '苹果 N1：Wi-Fi 7，2×2，最大 160 MHz。'),
+    'Apple N1: Wi-Fi 7, 2×2, 160 MHz max. Modelled without 4096-QAM: Apple publishes 2400 Mbps for Wi-Fi 7 at 160 MHz / 2 streams — the 1024-QAM (MCS 11) rate, not the 2882 Mbps 4096-QAM (MCS 13) would allow.',
+    '苹果 N1：Wi-Fi 7，2×2，最大 160 MHz。仿真不建模 4096-QAM：苹果公布的 Wi-Fi 7、160 MHz、2 流速率是 2400 Mbps——对应 1024-QAM（MCS 11），而不是 4096-QAM（MCS 13）能达到的 2882 Mbps。'),
   P('apple-iphone-16e', 'apple', 'iPhone 16e', '2025-02', 'he', false, ['voice'],
     'Apple support.apple.com spec: ax@5 GHz, 1200 Mbps, 80 MHz, 2×2 — Wi-Fi 6 iPhones ship at 80 MHz, not 160 MHz.',
     '苹果 support.apple.com 规格：ax@5 GHz、1200 Mbps、80 MHz、2×2——Wi-Fi 6 版 iPhone 出厂就是 80 MHz，不是 160 MHz。', 80),
@@ -93,6 +96,13 @@ const PHONE_TX_POWER_DBM = 15
 function capsFor(p: StationPreset): NodeCfg['caps'] {
   const features = defaultFeatures(p.generation) as Record<string, boolean>
   if (p.generation === 'eht') features.mlo = false // Chinese market: no 6 GHz
+  // Apple's N1 radio does not implement 4096-QAM (see the Apple eht presets'
+  // notes): Apple's own published Wi-Fi 7 figure, 2400 Mbps at 160 MHz / 2
+  // streams, is the 1024-QAM (MCS 11) rate, not the 2882 Mbps MCS 13 would
+  // allow. Non-Apple eht presets keep qam4k on — Qualcomm/MediaTek flagship
+  // Wi-Fi 7 radios do implement it, and those vendors publish no figure that
+  // contradicts it.
+  if (p.generation === 'eht' && p.brand === 'apple') features.qam4k = false
   return { generation: p.generation, features, widthMhz: p.widthMhz, nss: p.nss }
 }
 
