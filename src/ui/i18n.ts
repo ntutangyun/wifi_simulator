@@ -1,10 +1,13 @@
 /** Minimal i18n: typed string tables + a lang field in the UI store. */
 import type { FeatureFlag } from '../model/caps'
-import type { FrameKind } from '../model/frames'
+import type { FrameDesc, FrameKind } from '../model/frames'
 import type { Generation } from '../model/types'
 import type { ProfileId } from '../model/scenario'
 
 export type Lang = 'en' | 'zh'
+
+/** How a multi-user PPDU is split — absent for frames that are always OFDMA-flavored (triggers, UL TB, M-BA). */
+export type MuKind = FrameDesc['muKind']
 
 export interface LegendItem {
   color: string
@@ -123,15 +126,15 @@ export interface Strings {
     ampduTitle: (n: number) => string
     ampduHint: string
     muTitle: (n: number) => string
-    muHint: string
+    muHint: (kind: MuKind) => string
     muTo: string; muSize: string; muRate: string
-    ruNote: string
+    ruNote: (kind: MuKind) => string
   }
   tooltips: {
-    transmitting: string; dlMu: (n: number) => string; ampdu: (n: number, dst: string) => string
+    transmitting: string; dlMu: (n: number, kind: MuKind) => string; ampdu: (n: number, dst: string) => string
     data: (dst: string) => string; ack: (dst: string) => string; ba: (dst: string) => string
     mba: string; trigger: string; rts: (dst: string) => string; cts: (dst: string) => string; cfend: string
-    nonHt: string; sifsNote: string; retryNote: string; ruNote: string
+    nonHt: string; sifsNote: string; retryNote: string; ruNote: (kind: MuKind) => string
     receiving: (kind: string, from: string) => string
     backoffTitle: string; backoffL1: string; backoffL2: string
     deferTitle: (ifs: string) => string; eifsNote: string; deferNote: string
@@ -338,13 +341,19 @@ export const STRINGS: Record<Lang, Strings> = {
       ampduTitle: (n) => `A-MPDU aggregate — ${n} frames in one burst`,
       ampduHint: 'many data frames glued into a single transmission: the preamble and the contention wait are paid once instead of once per frame. The whole batch is confirmed by one BlockAck.',
       muTitle: (n) => `multi-user payload — ${n} stations at once`,
-      muHint: 'OFDMA splits the channel into smaller frequency slices (resource units); each row below is one station’s slice, all transmitted simultaneously.',
+      muHint: (kind) => kind === 'mumimo'
+        ? 'MU-MIMO sends every station at the same time on the same frequency, at full width; each row below is one station’s spatial stream, separated by space rather than by frequency slice.'
+        : 'OFDMA splits the channel into smaller frequency slices (resource units); each row below is one station’s slice, all transmitted simultaneously.',
       muTo: 'station', muSize: 'bytes', muRate: 'rate',
-      ruNote: 'RU-orthogonal: sent at the same time as the other frames of its group without interfering — they occupy different frequency slices.',
+      ruNote: (kind) => kind === 'mumimo'
+        ? 'Spatially multiplexed: sent at the same time, same frequency and full width as the other frames of its group without interfering — they occupy different spatial streams.'
+        : 'RU-orthogonal: sent at the same time as the other frames of its group without interfering — they occupy different frequency slices.',
     },
     tooltips: {
       transmitting: 'transmitting',
-      dlMu: (n) => `DL MU PPDU → ${n} stations (OFDMA)`,
+      dlMu: (n, kind) => kind === 'mumimo'
+        ? `DL MU-MIMO PPDU → ${n} stations (same frequency, split by space)`
+        : `DL MU PPDU → ${n} stations (OFDMA)`,
       ampdu: (n, dst) => `A-MPDU (${n} MPDUs) → ${dst}`,
       data: (dst) => `Data frame → ${dst}`,
       ack: (dst) => `ACK → ${dst}`,
@@ -357,7 +366,9 @@ export const STRINGS: Record<Lang, Strings> = {
       nonHt: 'non-HT',
       sifsNote: 'sent a SIFS (16 µs) after the frame — responses never contend',
       retryNote: 'retransmission (Retry bit set)',
-      ruNote: 'RU-orthogonal: simultaneous with other same-group frames',
+      ruNote: (kind) => kind === 'mumimo'
+        ? 'MU-MIMO: simultaneous, same frequency, different spatial streams'
+        : 'RU-orthogonal: simultaneous with other same-group frames',
       receiving: (kind, from) => `receiving ${kind} from ${from}`,
       backoffTitle: 'random backoff countdown',
       backoffL1: 'counter −1 per idle 9 µs slot; frozen while the medium is busy (§10.3.3)',
@@ -568,13 +579,19 @@ export const STRINGS: Record<Lang, Strings> = {
       ampduTitle: (n) => `A-MPDU 聚合 — 一次突发携带 ${n} 帧`,
       ampduHint: '把许多数据帧拼进同一次发送：前导码和竞争等待只需付一次，而不是每帧一次。整批数据由一个 BlockAck 统一确认。',
       muTitle: (n) => `多用户载荷 — ${n} 个终端同时`,
-      muHint: 'OFDMA 把信道切成更小的频率子块（资源单元 RU）；下表每一行是一个终端的子块，全部同时传输。',
+      muHint: (kind) => kind === 'mumimo'
+        ? 'MU-MIMO 让所有终端在同一时刻、相同频率、以完整带宽发送；下表每一行是一个终端的空间流——靠空间而不是频率子块来区分。'
+        : 'OFDMA 把信道切成更小的频率子块（资源单元 RU）；下表每一行是一个终端的子块，全部同时传输。',
       muTo: '终端', muSize: '字节', muRate: '速率',
-      ruNote: 'RU 正交：与同组其它帧同时发送而互不干扰——它们占用不同的频率子块。',
+      ruNote: (kind) => kind === 'mumimo'
+        ? '空分复用：与同组其它帧在同一时刻、相同频率、以完整带宽发送而互不干扰——它们占用不同的空间流。'
+        : 'RU 正交：与同组其它帧同时发送而互不干扰——它们占用不同的频率子块。',
     },
     tooltips: {
       transmitting: '发送中',
-      dlMu: (n) => `下行 MU PPDU → ${n} 个终端（OFDMA）`,
+      dlMu: (n, kind) => kind === 'mumimo'
+        ? `下行 MU-MIMO PPDU → ${n} 个终端（同频率，空间分割）`
+        : `下行 MU PPDU → ${n} 个终端（OFDMA）`,
       ampdu: (n, dst) => `A-MPDU 聚合（${n} 个 MPDU）→ ${dst}`,
       data: (dst) => `数据帧 → ${dst}`,
       ack: (dst) => `ACK 确认 → ${dst}`,
@@ -587,7 +604,9 @@ export const STRINGS: Record<Lang, Strings> = {
       nonHt: '非 HT',
       sifsNote: '在帧结束后一个 SIFS（16 µs）发出 — 响应帧从不参与竞争',
       retryNote: '重传（Retry 位已置 1）',
-      ruNote: 'RU 正交：与同组的其他帧同时传输',
+      ruNote: (kind) => kind === 'mumimo'
+        ? 'MU-MIMO：与同组同时传输，相同频率，不同空间流'
+        : 'RU 正交：与同组的其他帧同时传输',
       receiving: (kind, from) => `正在接收来自 ${from} 的 ${kind}`,
       backoffTitle: '随机退避倒数',
       backoffL1: '每个空闲 9 µs 时隙减 1；介质忙时冻结（§10.3.3）',

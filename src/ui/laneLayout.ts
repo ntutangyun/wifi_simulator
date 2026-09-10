@@ -249,7 +249,7 @@ export function spanTooltip(s: LaneSpan, T: Strings['tooltips'], t?: Ns, nameOf:
       if (!f) return [`${T.transmitting} · ${dur}`]
       const dst = nameOf(f.dst)
       const what =
-        f.kind === 'data' && f.muParts ? T.dlMu(f.muParts.length) :
+        f.kind === 'data' && f.muParts ? T.dlMu(f.muParts.length, f.muKind) :
         f.kind === 'data' && f.ampdu ? T.ampdu(f.ampdu.mpduCount, dst) :
         f.kind === 'data' ? T.data(dst) :
         f.kind === 'ack' ? T.ack(dst) :
@@ -264,7 +264,7 @@ export function spanTooltip(s: LaneSpan, T: Strings['tooltips'], t?: Ns, nameOf:
         lines.push(T.sifsNote)
       }
       if (f.retryFlag) lines.push(T.retryNote)
-      if (f.orthogonalGroup) lines.push(T.ruNote)
+      if (f.orthogonalGroup) lines.push(T.ruNote(f.muKind))
       return lines
     }
     case 'rx':

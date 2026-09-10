@@ -71,7 +71,7 @@ export function FrameDetail({ sel }: { sel: FrameSelection }) {
         <>
           <div style={{ borderTop: '1px solid var(--border)', margin: '6px 0' }} />
           <div style={{ fontWeight: 600, fontSize: 11.5 }}>{F.muTitle(f.muParts.length)}</div>
-          <div style={hintStyle}>{F.muHint}</div>
+          <div style={hintStyle}>{F.muHint(f.muKind)}</div>
           <table style={{ width: '100%', fontSize: 11.5, borderCollapse: 'collapse', marginBottom: 6 }}>
             <thead>
               <tr style={dim}><td>{F.muTo}</td><td style={{ textAlign: 'right' }}>{F.muSize}</td><td style={{ textAlign: 'right' }}>{F.muRate}</td></tr>
@@ -89,7 +89,7 @@ export function FrameDetail({ sel }: { sel: FrameSelection }) {
         </>
       )}
 
-      {f.orthogonalGroup && <div style={hintStyle}>{F.ruNote}</div>}
+      {f.orthogonalGroup && <div style={hintStyle}>{F.ruNote(f.muKind)}</div>}
 
       <div style={{ borderTop: '1px solid var(--border)', margin: '6px 0' }} />
       <div style={{ fontWeight: 600, fontSize: 11.5 }}>{F.nextTitle}</div>
