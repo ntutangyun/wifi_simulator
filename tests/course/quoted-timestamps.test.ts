@@ -447,6 +447,80 @@ it('lesson 18’s per-attempt collision rates, the backoff freeze and the airtim
 })
 
 /**
+ * Lesson 18's "try this" used to say moving the far station one metre closer raises its ceiling.
+ * It does not: a metre does not cross a modulation threshold and the run is frame-for-frame
+ * identical, so a reader who ran the experiment saw nothing move. Two metres is the smallest move
+ * that does anything. Both halves of the bullet are pinned here (fix round 2, residual).
+ */
+it('lesson 18’s try-this really needs two metres, and a third uploader really floors the rate', () => {
+  const l = LESSONS.find((x) => x.id === 'rate')!
+  const RUN = 3_000_000_000
+  type Tx = Extract<TLRecord, { type: 'TX_START' }>
+  const base = l.scenario()
+  const ap = base.nodes.find((n) => n.id === 'ap')!.pos
+  const far0 = base.nodes.find((n) => n.id === 'sta-2')!.pos
+  const dx = ap.x - far0.x, dy = ap.y - far0.y, len = Math.hypot(dx, dy)
+
+  /** The far station's frames after moving it `d` metres straight toward the AP. */
+  const closer = (d: number) => {
+    const sc = l.scenario()
+    const n = sc.nodes.find((x) => x.id === 'sta-2')!
+    n.pos = { x: far0.x + (dx / len) * d, y: far0.y + (dy / len) * d, z: n.pos.z }
+    const recs = [...new Simulation(sc).runUntil(RUN).records]
+    const far = recs.filter((r): r is Tx => r.type === 'TX_START' && r.node === 'sta-2' && r.frame.kind === 'data')
+    const mcss = far.map((r) => r.frame.mcs!)
+    const zero = mcss.filter((m) => m === 0).length
+    return {
+      frames: far.length, ceiling: Math.max(...mcss), zero,
+      zeroPct: Math.round((zero / far.length) * 1000) / 10,
+      trace: JSON.stringify(recs.map((r) => (r.type === 'TX_START' ? [r.t, r.node, r.frame.mcs, r.frame.txTimeNs] : null)).filter(Boolean)),
+    }
+  }
+  const d0 = closer(0), d1 = closer(1), d2 = closer(2), d4 = closer(4)
+
+  // "One metre does nothing at all … the run comes back frame for frame identical."
+  expect(d1.trace).toBe(d0.trace)
+  expect([d1.frames, d1.ceiling, d1.zero]).toEqual([d0.frames, d0.ceiling, d0.zero])
+
+  // "the ceiling rises from MCS 1 to MCS 2, the bottom rung falls from 8.9% of its frames to
+  // 3.4%, and it delivers 3,226 frames in the three seconds instead of 2,498"
+  expect(d0.ceiling).toBe(1)
+  expect(d2.ceiling).toBe(2)
+  expect(d0.frames).toBe(2_498)
+  expect(d2.frames).toBe(3_226)
+  expect(d0.zeroPct).toBe(8.9)
+  expect(d2.zeroPct).toBe(3.4)
+
+  // "At four metres MCS 0 never occurs at all."
+  expect(d4.ceiling).toBe(3)
+  expect(d4.zero).toBe(0)
+
+  // "51.4% of its frames with the newcomer beside the near station, and 43–56% at every other
+  // spot tried" — a third saturated uploader, cloned from the near one.
+  const withThird = (x: number, y: number) => {
+    const sc = l.scenario()
+    const tpl = sc.nodes.find((n) => n.id === 'sta-1')!
+    const c = JSON.parse(JSON.stringify(tpl)) as typeof tpl
+    c.id = 'sta-3'
+    c.name = 'Third uploader'
+    c.pos = { x, y, z: 1 }
+    sc.nodes.push(c)
+    const far = [...new Simulation(sc).runUntil(RUN).records]
+      .filter((r): r is Tx => r.type === 'TX_START' && r.node === 'sta-2' && r.frame.kind === 'data')
+    const zero = far.filter((r) => r.frame.mcs === 0).length
+    return Math.round((zero / far.length) * 1000) / 10
+  }
+  expect(withThird(5.5, 4.3)).toBe(51.4) // beside the near station
+  const others = [withThird(9, 5), withThird(14, 6.5), withThird(3, 5)]
+  for (const p of others) {
+    expect(p, `third uploader: ${p}% at MCS 0`).toBeGreaterThanOrEqual(43)
+    expect(p, `third uploader: ${p}% at MCS 0`).toBeLessThanOrEqual(56)
+  }
+  // and every one of them is far worse than the two-station baseline
+  for (const p of [51.4, ...others]) expect(p).toBeGreaterThan(d0.zeroPct * 4)
+})
+
+/**
  * Lesson 18's rule block notes that only single-user exchanges report an outcome, so a
  * multi-user downlink never adapts (`onTxOutcome` is called from exactly two places in mac.ts,
  * both on the single-user path). Measured by counting what the rate controller is actually

@@ -1694,7 +1694,7 @@ export const LESSONS: Lesson[] = [
       { en: 'The near station, one metre from the AP, ranges over MCS 9–11 but spends almost the whole run (about 88% of its frames) at the ceiling, MCS 11 — it fails often enough from the far station’s collisions to dip occasionally, but never for long.', zh: '离 AP 只有一米的近端终端在 MCS 9–11 之间波动，但几乎全程（约 88% 的帧）都停在它的上限 MCS 11 上——远端终端引发的碰撞也会让它偶尔失败几次，但从不会掉太久。' },
     ],
     tryThis: [
-      { en: 'Move the far station one metre closer in the editor: the ceiling itself rises, and the whole loop now oscillates around a higher rate. Put it back, then add a third saturated uploader and watch the far station spend longer stretches at MCS 0.', zh: '在编辑器里把远端终端挪近一米：上限本身就会抬高，整个回路会围绕一个更高的速率来回摆动。挪回去，再加一台饱和上传终端，看远端终端在 MCS 0 上停留的时间明显变长。' },
+      { en: 'Move the far station two metres closer to the AP in the editor. One metre does nothing at all — a metre does not cross a modulation threshold, and the run comes back frame for frame identical. Two metres does: the ceiling rises from MCS 1 to MCS 2, the bottom rung falls from 8.9% of its frames to 3.4%, and it delivers 3,226 frames in the three seconds instead of 2,498. At four metres MCS 0 never occurs at all. Put it back, then add a third saturated uploader and watch the far station sink onto the bottom rung far more often: 51.4% of its frames with the newcomer beside the near station, and 43–56% at every other spot tried.', zh: '在编辑器里把远端终端朝 AP 挪近两米。挪一米什么也不会发生——一米跨不过任何一档调制门限，整段仿真会一帧不差地重现。两米才管用：上限从 MCS 1 抬到 MCS 2，最底下那一档从占它 8.9% 的帧降到 3.4%，三秒里交付的帧数也从 2,498 涨到 3,226。挪到四米，MCS 0 干脆一次都不出现。再把它挪回原处，加一台饱和上传终端，看远端终端落到最底一档的频率大幅升高：把新终端放在近端终端旁边时占它 51.4% 的帧，换到试过的其他位置也都在 43%–56% 之间。' },
     ],
     quiz: [
       {
