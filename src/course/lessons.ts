@@ -417,8 +417,8 @@ export const LESSONS: Lesson[] = [
         zh: '如果 ACK 真的在路上，它的前导码一定会在这 45 µs 之内被检测到。过了这个期限仍是沉默，就等于宣告帧已阵亡——终端随即把 CW 翻倍并重新抽取。',
       } },
       { text: {
-        en: 'Notice: no extra DIFS appears before the new countdown. The rule is “medium idle for a DIFS”, measured from the moment the medium went quiet — the end of the collided transmission. The 45 µs of silence already contains the required 34 µs, so the countdown may begin the instant the timeout expires.',
-        zh: '注意：新一轮倒数之前并没有额外的 DIFS。规则要求的是“介质空闲满一个 DIFS”，而这段空闲从介质安静下来的那一刻——碰撞传输结束时——就开始计了。45 µs 的沉默本身已经包含了所需的 34 µs，所以超时一到，倒数立即开始。',
+        en: 'Notice where the new countdown starts. The collided transmissions end at 248 µs, but the stations cannot count that silence as idle time yet: until the timeout expires, each is still waiting for its response. So the retry’s DIFS is counted from the end of the timeout — 293 µs — and the fresh backoff is drawn only at 327 µs, a full 34 µs later.',
+        zh: '注意新一轮倒数从哪里开始。碰撞的传输在 248 µs 就结束了，但终端还不能把这段安静算作空闲时间：超时到来之前，它们仍在等待自己的响应。所以重传前的 DIFS 要从超时结束的那一刻——293 µs——开始计，新的退避要到 327 µs 才抽取，整整晚了 34 µs。',
       } },
       { heading: { en: 'And the AP? It waits even longer — EIFS', zh: '那 AP 呢？它等得更久——EIFS' }, text: {
         en: 'The AP experienced this collision differently. It was not transmitting — it actually received the garbled overlap, and a station that hears a corrupted frame must stay quiet for EIFS instead of DIFS before its next access.',
@@ -437,8 +437,8 @@ export const LESSONS: Lesson[] = [
         zh: '不过在本场景里，你不会在 AP 的泳道上看到 EIFS 色块：只有当站点是“为了发送”而等待时才会画出等待色块，而这台 AP 无东西可发。想看真实可见的 EIFS，请到第 6 课——悬停远处终端的等待色块，还能看到 EIFS 在一帧健康的帧到来时被截短成 DIFS（§10.3.2.3.7）。',
       } },
       { text: {
-        en: 'This scenario saturates two legacy stations. Use “first collision”: the red tick marks two overlapping transmissions. Step backwards from it and watch both backoff counters reach zero in the same slot — the collision was fully determined a moment earlier.',
-        zh: '本场景让两台传统终端处于饱和状态。点“第一次碰撞”：红色刻度处两次传输重叠。从那里往回步进，会看到两个退避计数器在同一时隙同时清零——碰撞在片刻之前就已注定。',
+        en: 'This scenario saturates two legacy stations. Use “first collision”: the red tick marks two overlapping transmissions. That first one happens at the very start — both stations find the medium already idle at t = 0 and transmit at once, with no backoff at all. The next one, at about 8.1 ms, is the classic kind: step backwards from it and watch both backoff counters reach zero in the same slot — the collision was fully determined a moment earlier.',
+        zh: '本场景让两台传统终端处于饱和状态。点“第一次碰撞”：红色刻度处两次传输重叠。这第一次发生在一开始——t = 0 时两台终端都发现介质早已空闲，于是不做任何退避、同时发送。下一次碰撞（约 8.1 ms）才是经典情形：从那里往回步进，会看到两个退避计数器在同一时隙同时清零——碰撞在片刻之前就已注定。',
       } },
     ],
     scenario: () => sc(oneRoom(), [
