@@ -43,11 +43,12 @@ export type Block =
   | { kind: 'list'; heading?: L10n; items: L10n[] }
   /** Ordered steps. */
   | { kind: 'steps'; heading?: L10n; items: L10n[] }
+  /** An interactive view computed from the engine's own functions; params preset its controls. */
+  | { kind: 'widget'; heading?: L10n; widget: 'linkBudget' | 'mcsLadder'; params?: Record<string, number | string>; caption?: L10n }
 
 export interface Lesson {
   id: string
   module: number
-  minutes: number
   title: L10n
   body: Block[]
   scenario: () => Scenario

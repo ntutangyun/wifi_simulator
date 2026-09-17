@@ -11,16 +11,12 @@ import type { ChannelWidth, Nss } from '../model/caps'
 import type { Scenario } from '../model/scenario'
 import {
   N, brick, drywallDoor, oneRoom, hallwayHouse, longApartment, node, sc, txOf, firstData, firstAck, firstBa, firstRts, firstAmpdu, firstMuDl, firstTrigger, firstMba, firstCfEnd, firstCfEndRelay, first6g, firstCollision, firstRetry, firstNav, firstBackoffDraw, firstFreeze, firstTxop, firstInternal, firstVo, J,
-  type L10n, type Lesson,
+  type Lesson,
 } from './lessonKit'
+import { orderLessons } from './curriculum'
 export type { Block, JumpTarget, L10n, Lesson, LessonVariant, Quiz } from './lessonKit'
 
-export const MODULES: L10n[] = [
-  { en: 'Channel-access foundations (DCF)', zh: '信道接入基础（DCF）' },
-  { en: 'QoS & efficiency (Wi-Fi 5 era)', zh: 'QoS 与效率（Wi-Fi 5 时代）' },
-  { en: 'Scheduled Wi-Fi (Wi-Fi 6/7)', zh: '被调度的 Wi-Fi（Wi-Fi 6/7）' },
-  { en: 'How fast is fast', zh: '快是怎么来的' },
-]
+export { MODULES, TIERS } from './curriculum'
 
 /**
  * A router and one laptop on the same desk in the study of a long flat, both
@@ -86,13 +82,12 @@ function rateScenario(): Scenario {
 // lessons
 // ---------------------------------------------------------------------------
 
-export const LESSONS: Lesson[] = [
+const AUTHORED: Lesson[] = [
   // ======================= MODULE 1 =======================
   {
     id: 'airtime',
     module: 0,
-    minutes: 10,
-    title: { en: '1 · Frames cost airtime', zh: '1 · 帧要花“空口时间”' },
+    title: { en: 'Frames cost airtime', zh: '帧要花“空口时间”' },
     body: [
       { text: {
         en: 'The MAC manages one shared, half-duplex medium. Its currency is airtime: while any frame is in the air, nobody else in range can use the channel.',
@@ -158,9 +153,8 @@ export const LESSONS: Lesson[] = [
 
   {
     id: 'ifs',
-    module: 0,
-    minutes: 12,
-    title: { en: '2 · SIFS, DIFS and the ACK dance', zh: '2 · SIFS、DIFS 与 ACK 之舞' },
+    module: 1,
+    title: { en: 'SIFS, DIFS and the ACK dance', zh: 'SIFS、DIFS 与 ACK 之舞' },
     body: [
       { text: {
         en: 'Wi-Fi encodes priority as silence lengths: the shorter the gap you are allowed to wait, the earlier you may speak.',
@@ -222,9 +216,8 @@ export const LESSONS: Lesson[] = [
 
   {
     id: 'backoff',
-    module: 0,
-    minutes: 15,
-    title: { en: '3 · Random backoff & collisions', zh: '3 · 随机退避与碰撞' },
+    module: 1,
+    title: { en: 'Random backoff & collisions', zh: '随机退避与碰撞' },
     body: [
       { text: {
         en: 'When two stations both want the channel, silence alone cannot break the tie — both would finish DIFS at the same instant. So each one plays a lottery:',
@@ -327,9 +320,8 @@ export const LESSONS: Lesson[] = [
 
   {
     id: 'nav',
-    module: 0,
-    minutes: 10,
-    title: { en: '4 · NAV — reserving with a promise', zh: '4 · NAV——用“预告”预约信道' },
+    module: 1,
+    title: { en: 'NAV — reserving with a promise', zh: 'NAV——用“预告”预约信道' },
     body: [
       { text: {
         en: 'Physical carrier sense only tells you the channel is busy *now*. But an exchange is longer than one frame: after the data comes SIFS, then the ACK.',
@@ -421,9 +413,8 @@ export const LESSONS: Lesson[] = [
 
   {
     id: 'hidden',
-    module: 0,
-    minutes: 15,
-    title: { en: '5 · Hidden nodes & RTS/CTS', zh: '5 · 隐藏节点与 RTS/CTS' },
+    module: 1,
+    title: { en: 'Hidden nodes & RTS/CTS', zh: '隐藏节点与 RTS/CTS' },
     body: [
       { text: {
         en: 'Carrier sense assumes everyone can hear everyone. Put enough brick between two stations and that breaks: here A and B sit in opposite rooms, their signals crossing two walls of a hallway and arriving below the −82 dBm detection threshold — pure noise to each other.',
@@ -512,9 +503,8 @@ export const LESSONS: Lesson[] = [
 
   {
     id: 'anomaly',
-    module: 0,
-    minutes: 10,
-    title: { en: '6 · Rate anomaly — fairness gone wrong', zh: '6 · 速率异常——“公平”的反面' },
+    module: 1,
+    title: { en: 'Rate anomaly — fairness gone wrong', zh: '速率异常——“公平”的反面' },
     body: [
       { text: {
         en: 'DCF is fair in transmission opportunities: on average every saturated station wins the channel equally often. But a win is measured in frames, not microseconds.',
@@ -588,9 +578,8 @@ export const LESSONS: Lesson[] = [
   // ======================= MODULE 2 =======================
   {
     id: 'edca',
-    module: 1,
-    minutes: 15,
-    title: { en: '7 · EDCA — four queues, four personalities', zh: '7 · EDCA——四条队列，四种性格' },
+    module: 2,
+    title: { en: 'EDCA — four queues, four personalities', zh: 'EDCA——四条队列，四种性格' },
     body: [
       { text: {
         en: 'DCF treats a voice packet and a bulk upload identically. EDCA (802.11e, in every device since Wi-Fi 5) splits traffic into four access categories (ACs), each running its own backoff engine with its own parameters (Table 9-194):',
@@ -743,9 +732,8 @@ export const LESSONS: Lesson[] = [
 
   {
     id: 'ampdu',
-    module: 1,
-    minutes: 12,
-    title: { en: '8 · A-MPDU — pay contention once', zh: '8 · A-MPDU——竞争一次，发一批' },
+    module: 2,
+    title: { en: 'A-MPDU — pay contention once', zh: 'A-MPDU——竞争一次，发一批' },
     body: [
       { text: {
         en: 'Every channel win costs the same overhead whether you send 100 bytes or 60 000:',
@@ -808,9 +796,8 @@ export const LESSONS: Lesson[] = [
 
   {
     id: 'txop',
-    module: 1,
-    minutes: 10,
-    title: { en: '9 · TXOP — own the channel, briefly', zh: '9 · TXOP——短暂地拥有信道' },
+    module: 2,
+    title: { en: 'TXOP — own the channel, briefly', zh: 'TXOP——短暂地拥有信道' },
     body: [
       { text: {
         en: 'An EDCA win grants not one exchange but a transmit opportunity (TXOP): a bounded interval in which the winner may chain multiple exchanges separated only by SIFS, with no re-contention between them.',
@@ -859,9 +846,8 @@ export const LESSONS: Lesson[] = [
 
   {
     id: 'txop-protect',
-    module: 1,
-    minutes: 12,
-    title: { en: '10 · Protecting the burst — one CTS for the whole TXOP', zh: '10 · 保护整个突发——一个 CTS 预约整个 TXOP' },
+    module: 2,
+    title: { en: 'Protecting the burst — one CTS for the whole TXOP', zh: '保护整个突发——一个 CTS 预约整个 TXOP' },
     body: [
       { text: {
         en: 'Lesson 9 showed a holder chaining exchanges one SIFS apart. Anyone who can hear the holder cannot break in: SIFS is shorter than every AIFS. But lesson 5’s hidden station hears only the receiver. Under single protection each frame’s Duration covers just its own ACK, so a hidden station freezes for the ACK, then counts straight into the next frame of the burst.',
@@ -968,9 +954,8 @@ export const LESSONS: Lesson[] = [
   // ======================= MODULE 3 =======================
   {
     id: 'ofdma-dl',
-    module: 2,
-    minutes: 15,
-    title: { en: '11 · OFDMA downlink — one PPDU, many stations', zh: '11 · OFDMA 下行——一个 PPDU，多个终端' },
+    module: 6,
+    title: { en: 'OFDMA downlink — one PPDU, many stations', zh: 'OFDMA 下行——一个 PPDU，多个终端' },
     body: [
       { text: {
         en: 'Wi-Fi 5 (802.11ac) could already reach several receivers at once on the downlink with MU-MIMO, splitting them by space. Wi-Fi 6 adds OFDMA, which splits the channel by frequency, and extends multi-user transmission to the uplink — so small frames for many stations no longer each cost a contention. This simulator models multi-user transmission for Wi-Fi 6 and 7 only.',
@@ -1020,9 +1005,8 @@ export const LESSONS: Lesson[] = [
 
   {
     id: 'ofdma-ul',
-    module: 2,
-    minutes: 15,
-    title: { en: '12 · Trigger frames — the AP conducts the uplink', zh: '12 · 触发帧——AP 指挥上行' },
+    module: 6,
+    title: { en: 'Trigger frames — the AP conducts the uplink', zh: '触发帧——AP 指挥上行' },
     body: [
       { text: {
         en: 'Uplink OFDMA is stranger: multiple stations must start transmitting at the same microsecond, at coordinated power, for the same duration. Only the AP can arrange that.',
@@ -1082,9 +1066,8 @@ export const LESSONS: Lesson[] = [
 
   {
     id: 'mlo',
-    module: 2,
-    minutes: 12,
-    title: { en: '13 · MLO — one queue, two radios', zh: '13 · MLO——一条队列，两台电台' },
+    module: 6,
+    title: { en: 'MLO — one queue, two radios', zh: 'MLO——一条队列，两台电台' },
     body: [
       { text: {
         en: 'Wi-Fi 7’s Multi-Link Operation can run complete, independent MACs on two bands at once — here 5 and 6 GHz, the simultaneous two-radio form this simulator models. (MLO also comes as single-radio EMLSR, common in phones, which listens on several links but transmits on one at a time, and it can pair other bands such as 2.4 + 5 GHz.) The trick is above the links: a single MLD-level queue feeds both.',
@@ -1133,9 +1116,8 @@ export const LESSONS: Lesson[] = [
 
   {
     id: 'capstone',
-    module: 2,
-    minutes: 20,
-    title: { en: '14 · Capstone — the busy household', zh: '14 · 结业课——热闹的一家人' },
+    module: 7,
+    title: { en: 'Capstone — the busy household', zh: '结业课——热闹的一家人' },
     body: [
       { text: {
         en: 'Everything at once, across three rooms with real walls:',
@@ -1213,8 +1195,7 @@ export const LESSONS: Lesson[] = [
   {
     id: 'width',
     module: 3,
-    minutes: 6,
-    title: { en: '15 · Channel width — twice the tones, half the time', zh: '15 · 信道带宽——子载波翻倍，时间减半' },
+    title: { en: 'Channel width — twice the tones, half the time', zh: '信道带宽——子载波翻倍，时间减半' },
     body: [
       { text: {
         en: 'Every lesson so far has been about sharing the air. This module is about how much one frame gets out of it. A 20 MHz channel is not one carrier: it is 234 narrow data subcarriers, each holding a few bits per symbol. Double the channel and you get at least double the tones — 234 at 20 MHz, 468 at 40, 980 at 80, 1960 at 160, 3920 at 320. The step to 80 MHz gives a little more than double, because the guard band at the channel edges is paid once, not once per 20 MHz. More tones, more bits in every symbol, fewer symbols for the same frame.',
@@ -1301,8 +1282,7 @@ export const LESSONS: Lesson[] = [
   {
     id: 'streams',
     module: 3,
-    minutes: 5,
-    title: { en: '16 · Spatial streams — several conversations in the same air', zh: '16 · 空间流——同一片空气里的多路对话' },
+    title: { en: 'Spatial streams — several conversations in the same air', zh: '空间流——同一片空气里的多路对话' },
     body: [
       { text: {
         en: 'Width buys more tones. Streams buy the same tones twice. With two antennas at each end, the radio sends two different signals on the same subcarriers in the same instant, and the receiver pulls them apart by the different paths they took through the room. Each stream multiplies the bits per symbol exactly as more tones do.',
@@ -1380,9 +1360,8 @@ export const LESSONS: Lesson[] = [
 
   {
     id: 'mumimo',
-    module: 3,
-    minutes: 7,
-    title: { en: '17 · MU-MIMO — splitting by space instead of frequency', zh: '17 · MU-MIMO——按空间而不是按频率划分' },
+    module: 6,
+    title: { en: 'MU-MIMO — splitting by space instead of frequency', zh: 'MU-MIMO——按空间而不是按频率划分' },
     body: [
       { text: {
         en: 'Both variants below are the same house: one router, three phones each pulling video, one laptop backing up files to keep the channel honestly busy. Both are one PPDU carrying data for several phones at once, and both end together, which is why one BlockAck round settles the whole group. The difference is what gets divided to fit them all in.',
@@ -1472,8 +1451,7 @@ export const LESSONS: Lesson[] = [
   {
     id: 'rate',
     module: 3,
-    minutes: 7,
-    title: { en: '18 · Rate adaptation — the loop that picks the speed', zh: '18 · 速率自适应——选择速率的那个回路' },
+    title: { en: 'Rate adaptation — the loop that picks the speed', zh: '速率自适应——选择速率的那个回路' },
     body: [
       { text: {
         en: 'Two stations upload flat out to the same AP: one on the desk beside it, one in the far corner of the flat behind a brick wall. Signal strength sets a ceiling on how dense the far station’s modulation can be — here MCS 1, decided purely by distance and the wall. Everything below that ceiling is a choice, and the driver makes it from what actually happened to its own frames, not from the signal it measures.',
@@ -1560,6 +1538,9 @@ export const LESSONS: Lesson[] = [
     ],
   },
 ]
+
+/** Every course lesson, in reading order (see curriculum.ts). */
+export const LESSONS: Lesson[] = orderLessons(AUTHORED)
 
 export function lessonIndex(id: string): number {
   return LESSONS.findIndex((l) => l.id === id)
