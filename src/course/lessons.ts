@@ -686,8 +686,8 @@ export const LESSONS: Lesson[] = [
         zh: '远处的终端只能用低 MCS，每一帧都要占用长得多的空口时间——于是“公平的次数”换来的是极不公平的空口占用，慢终端拖垮了所有人的吞吐量。这就是 802.11 著名的性能异常。',
       } },
       { heading: { en: 'The near station also wins every collision (capture effect)', zh: '近端终端还赢下了每一次碰撞（捕获效应）' }, text: {
-        en: 'Watch the very first microsecond. Both stations end DIFS together, both have counted down to zero, and both transmit at t = 0 — a textbook collision. Yet the AP decodes the near station’s frame perfectly and acknowledges it, while the far station gets nothing. That is the capture effect.',
-        zh: '看第一个微秒。两台终端同时结束 DIFS，同时把退避数到零，于是都在 t = 0 开始发送——一次教科书式的碰撞。可是 AP 完好地解出了近端终端的帧并回了 ACK，远端终端却颗粒无收。这就是捕获效应。',
+        en: 'Watch the very first microsecond. Both stations find the medium idle from the start, so neither needs a backoff, and both transmit at t = 0 — a textbook collision. Yet the AP decodes the near station’s frame perfectly and acknowledges it, while the far station gets nothing. That is the capture effect.',
+        zh: '看第一个微秒。两台终端一开始就发现介质空闲，都无需退避，于是都在 t = 0 开始发送——一次教科书式的碰撞。可是 AP 完好地解出了近端终端的帧并回了 ACK，远端终端却颗粒无收。这就是捕获效应。',
       } },
       { kind: 'table', head: [
         { en: 'Reception', zh: '接收' }, { en: 'Wanted signal', zh: '目标信号' }, { en: 'Interferer', zh: '干扰' }, { en: 'Margin', zh: '余量' }, { en: 'Needed', zh: '所需' },
@@ -707,7 +707,7 @@ export const LESSONS: Lesson[] = [
         { en: 'Station', zh: '终端' }, { en: 'ACK timeouts in 200 ms', zh: '200 ms 内的 ACK 超时次数' },
       ], rows: [
         [{ en: 'Near', zh: '近端' }, N('0')],
-        [{ en: 'Far', zh: '远端' }, N('12')],
+        [{ en: 'Far', zh: '远端' }, N('11')],
       ] },
       { text: {
         en: 'So the anomaly cuts deeper than airtime: the distant station pays twice, holding the medium far longer per frame and losing every simultaneous start it takes part in.',
@@ -724,7 +724,7 @@ export const LESSONS: Lesson[] = [
     ],
     observe: [
       { en: 'The far station’s green blocks are much longer than the near one’s — same bytes, lower MCS.', zh: '远端终端的绿色块比近端的长得多——字节数相同，MCS 更低。' },
-      { en: 'Inspector: both have similar “frames delivered”, but wildly different airtime share.', zh: '检视器：两者“成功交付帧数”相近，但空口占比天差地别。' },
+      { en: 'Inspector: both deliver a comparable number of frames (140 and 105 in the first 200 ms), yet the far station holds four times the airtime.', zh: '检视器：两者“成功交付帧数”相当（前 200 ms 里分别是 140 和 105），远端终端占用的空口时间却是近端的四倍。' },
       { en: 'The near station’s throughput is far below what it would get alone.', zh: '近端终端的吞吐量远低于它独占信道时的水平。' },
       { en: 'At t = 0 both stations transmit at once, yet only the near one is acknowledged — capture. The far lane’s only clue is an ACK timeout at 1089 µs.', zh: 't = 0 两台终端同时开始发送，却只有近端收到 ACK——这就是捕获。远端泳道上唯一的线索，是 1089 µs 处的 ACK 超时。' },
     ],
