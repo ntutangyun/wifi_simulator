@@ -370,22 +370,32 @@ export class WifiMac implements PhyListener {
       return
     }
     const winner = this.edcafs[contending[0]]
-    for (const i of contending.slice(1)) {
-      // Internal collision (§10.23.2.2): behave as an external collision,
-      // retry counters unchanged.
-      const loser = this.edcafs[i]
-      this.emit({ t, type: 'INTERNAL_COLLISION', node: this.nodeId, winnerAc: winner.params.ac, loserAc: loser.params.ac })
-      loser.cw = Math.min(2 * loser.cw + 1, loser.params.cwMax)
-      this.emit({ t, type: 'CW_CHANGE', node: this.nodeId, cw: loser.cw, ac: this.acTag(loser) })
-      loser.backoff = this.rng.int(loser.cw)
-      this.emit({ t, type: 'BACKOFF_DRAW', node: this.nodeId, value: loser.backoff, cw: loser.cw, ac: this.acTag(loser) })
-      // A redraw of 0 is ready at the next slot boundary after the winner's
-      // exchange (the resume path marks it ready); ticking it would go negative.
-      if (loser.backoff > 0) this.scheduleTick(loser)
-    }
     winner.backoff = null
     winner.needDraw = false
     this.transmitFor(winner, false)
+    // Losers are penalised only if the winner really started an exchange.
+    const winnerSent = this.inExchange()
+    for (const i of contending.slice(1)) {
+      const loser = this.edcafs[i]
+      if (!winnerSent) {
+        this.startAccessAc(loser)
+        continue
+      }
+      this.emit({ t, type: 'INTERNAL_COLLISION', node: this.nodeId, winnerAc: winner.params.ac, loserAc: loser.params.ac })
+      // 802.11-2020 §10.23.2.12.1: an internal collision is a failed attempt
+      // for the lower AC — its frame counts a retry, QSRC and CW move as for
+      // an external collision, and a new backoff is drawn.
+      const head = this.queues.head(i, this.reach)
+      const lost = head ? this.queues.claim(i, head.dst, 1, () => true) : []
+      if (lost.length) {
+        this.emitRetry(loser, lost)
+        this.failMsdus(loser, i, lost)
+      }
+      this.bumpQsrc(loser)
+      loser.backoff = this.rng.int(loser.cw)
+      this.emit({ t, type: 'BACKOFF_DRAW', node: this.nodeId, value: loser.backoff, cw: loser.cw, ac: this.acTag(loser) })
+      // no tick: the winner's exchange holds the medium; the loser resumes after it
+    }
   }
 
   // ---------- transmission paths ----------
