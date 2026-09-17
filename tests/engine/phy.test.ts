@@ -32,9 +32,9 @@ describe('clause 17 PHY', () => {
     expect(ctrlRespRateFor(12)).toBe(12)
   })
 
-  it('SINR thresholds are sensitivity above noise floor', () => {
-    expect(sinrThreshDb(6)).toBe(13)
-    expect(sinrThreshDb(54)).toBe(30)
+  it('required SINR is the minimum sensitivity with the standard’s kTB + 10 dB NF removed', () => {
+    expect(sinrThreshDb(6)).toBeCloseTo(8.99, 2) // −82 dBm
+    expect(sinrThreshDb(54)).toBeCloseTo(25.99, 2) // −65 dBm
   })
 
   it('computes data PSDU size', () => {

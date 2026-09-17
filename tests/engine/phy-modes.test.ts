@@ -43,7 +43,7 @@ describe('PHY modes', () => {
     expect(mcsForRssi('eht', -40)).toBe(13)
     expect(mcsForRssi('eht', -40, 11)).toBe(11) // qam4k off → cap
     expect(mcsForRssi('he', -90)).toBe(0)
-    expect(sinrThreshModeDb('he', 11)).toBe(43)
+    expect(sinrThreshModeDb('he', 11)).toBeCloseTo(38.99, 2)
   })
 })
 

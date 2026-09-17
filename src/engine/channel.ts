@@ -12,7 +12,7 @@ import type { FrameDesc } from '../model/frames'
 import type { EmitFn } from '../model/records'
 import type { Ns } from '../model/types'
 import { EventQueue } from './events'
-import { CCA_ED_DBM, CCA_PD_DBM, NOISE_DBM, PHY_MODES, sinrThreshDb, sinrThreshModeDb } from './phy'
+import { CCA_ED_DBM, CCA_PD_DBM, PHY_MODES, noiseDbm, reqSinrDb, sinrThreshDb } from './phy'
 
 export interface PhyListener {
   onCcaBusy(t: Ns): void
@@ -58,7 +58,6 @@ interface RadioState {
 
 const mw = (dbm: number): number => Math.pow(10, dbm / 10)
 const dbm = (mwv: number): number => 10 * Math.log10(mwv)
-const NOISE_MW = mw(NOISE_DBM)
 /** Interferers at/above this level count as "overlap" for collision labeling. */
 const OVERLAP_MIN_DBM = -92
 /**
@@ -84,10 +83,10 @@ function decodeThreshDb(frame: FrameDesc, rid: string): number {
     const part = frame.muParts.find((p) => p.dst === rid)
     const mode = frame.mode ?? 'he'
     // addressed: own part's MCS; overhearers only need the (robust) preamble/header
-    return sinrThreshModeDb(mode, part ? part.mcs : 0, frame.widthMhz ?? 20)
+    return reqSinrDb(mode, part ? part.mcs : 0)
   }
   if (frame.mode && frame.mode !== 'nonht' && frame.mcs !== undefined) {
-    return sinrThreshModeDb(frame.mode, frame.mcs, frame.widthMhz ?? 20)
+    return reqSinrDb(frame.mode, frame.mcs)
   }
   return sinrThreshDb(frame.mbps)
 }
@@ -257,7 +256,8 @@ export class Channel {
 
   /** Interference+noise in mW at rid for a given lock (excludes its own tx and RU-orthogonal peers). */
   private interferenceMw(rid: string, lock: Lock): number {
-    let sum = NOISE_MW
+    // thermal noise in the width of the PPDU being received
+    let sum = mw(noiseDbm(lock.frame.widthMhz ?? 20))
     for (const a of this.active) {
       if (a.txId === rid || a.txId === lock.from) continue
       if (sameGroup(a.frame, lock.frame)) continue

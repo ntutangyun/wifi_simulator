@@ -25,7 +25,25 @@ export const SHORT_RETRY_LIMIT = 7 // dot11ShortRetryLimit
 
 export const CCA_ED_DBM = -62
 export const CCA_PD_DBM = -82
-export const NOISE_DBM = -95
+
+/**
+ * Receiver noise figure. The standard's minimum-sensitivity tables assume a
+ * 10 dB noise figure plus a 5 dB implementation margin (§17.3.10.2 and the
+ * clause 21/27/36 counterparts); a modern radio does better. 7 dB is ns-3's
+ * WifiPhy RxNoiseFigure default.
+ */
+export const NOISE_FIGURE_DB = 7
+/** Noise figure the standard's sensitivity tables are derived with. */
+const STANDARD_NF_DB = 10
+const KTB_DBM_PER_HZ = -174
+
+/** Thermal noise in the received PPDU's bandwidth plus the receiver noise figure. */
+export function noiseDbm(widthMhz = 20, nfDb = NOISE_FIGURE_DB): number {
+  return KTB_DBM_PER_HZ + 10 * Math.log10(widthMhz * 1e6) + nfDb
+}
+
+/** The noise floor of a 20 MHz reception: −93.99 dBm. */
+export const NOISE_DBM = noiseDbm(20)
 
 export const MAC_HDR_BYTES = 24
 export const FCS_BYTES = 4
@@ -92,9 +110,14 @@ export function ctrlRespRateFor(dataMbps: number): number {
   return best
 }
 
-/** Self-consistent SINR decode threshold: sensitivity referred to the −95 dBm noise floor. */
+/**
+ * SINR a receiver needs to decode a clause-17 rate: the minimum sensitivity
+ * with the standard's own noise assumption removed. What remains is the SNR
+ * requirement plus the 5 dB implementation margin, which — being a receiver
+ * impairment — applies to interference as much as to noise.
+ */
 export function sinrThreshDb(mbps: number): number {
-  return rateInfo(mbps).sensDbm - NOISE_DBM
+  return rateInfo(mbps).sensDbm - noiseDbm(20, STANDARD_NF_DB)
 }
 
 // ---------------------------------------------------------------------------
@@ -165,7 +188,7 @@ export function toneRatio(mode: PhyMode, widthMhz: number): number {
   return tones / table[20]
 }
 
-/** Noise bandwidth grows with the channel: 10·log10(W/20) dB, i.e. 3 dB per doubling. */
+/** Noise bandwidth grows with the channel: 10·log10(W/20) dB, i.e. 3 dB per doubling (now carried by noiseDbm). */
 export function widthPenaltyDb(widthMhz: number): number {
   return 10 * Math.log10(widthMhz / 20)
 }
@@ -190,14 +213,17 @@ export function txTimeModeNs(mode: PhyMode, lengthBytes: number, mcs: number, op
   return m.preambleNs + (opts.mu ? m.muExtraPreambleNs : 0) + m.symNs * nsym
 }
 
-/** Best MCS index whose sensitivity + 3 dB margin is met at this width (floor: 0). */
+/** Link margin a rate ceiling keeps above the required SINR. */
+export const RATE_MARGIN_DB = 3
+
+/** Best MCS whose required SINR + margin fits the SNR at this width (floor: 0). */
 export function mcsForRssi(mode: PhyMode, rssiDbm: number, maxMcs?: number, widthMhz = 20): number {
   const m = PHY_MODES[mode]
-  const pen = widthPenaltyDb(widthMhz)
+  const snr = rssiDbm - noiseDbm(widthMhz)
   const cap = maxMcs !== undefined ? Math.min(maxMcs, m.sensDbm.length - 1) : m.sensDbm.length - 1
   let best = 0
   for (let i = 0; i <= cap; i++) {
-    if (rssiDbm >= m.sensDbm[i] + pen + 3) best = i
+    if (snr >= reqSinrDb(mode, i) + RATE_MARGIN_DB) best = i
   }
   return best
 }
@@ -212,8 +238,18 @@ export function mcsRateMbps(mode: PhyMode, mcs: number): number {
   return modeEntry(PHY_MODES[mode].mbps, mode, mcs)
 }
 
-export function sinrThreshModeDb(mode: PhyMode, mcs: number, widthMhz = 20): number {
-  return modeEntry(PHY_MODES[mode].sensDbm, mode, mcs) - NOISE_DBM + widthPenaltyDb(widthMhz)
+/**
+ * SINR required to decode mode/MCS, independent of channel width: a wider
+ * channel costs range through noiseDbm(W), never extra margin over an
+ * interferer. Minimum sensitivity (20 MHz) − kTB(20 MHz) − the standard's 10 dB NF.
+ */
+export function reqSinrDb(mode: PhyMode, mcs: number): number {
+  return modeEntry(PHY_MODES[mode].sensDbm, mode, mcs) - noiseDbm(20, STANDARD_NF_DB)
+}
+
+/** @deprecated width no longer changes the requirement; kept for callers that pass it. */
+export function sinrThreshModeDb(mode: PhyMode, mcs: number, _widthMhz = 20): number {
+  return reqSinrDb(mode, mcs)
 }
 
 /**

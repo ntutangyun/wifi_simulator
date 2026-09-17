@@ -149,6 +149,9 @@ function run(): { recs: TLRecord[] } {
   return { recs: records }
 }
 
+/** Ceiling of the two −55 dBm members at 160 MHz (RSSI − noise(160) against required SINR + 3 dB). */
+const WEAK_CEILING = mcsForRssi('eht', -55, undefined, 160)
+
 describe('a multi-user downlink reports each member’s outcome, so its rate adapts', () => {
   it('a lossy member’s modulation steps down; a healthy member holds its ceiling', () => {
     const { recs } = run()
@@ -168,18 +171,19 @@ describe('a multi-user downlink reports each member’s outcome, so its rate ada
     expect(new Set(strong).size).toBe(1)
     expect(strong[0]).toBe(13)
 
-    // The lossy member's ceiling is MCS 4 (signal strength alone would allow
+    // The lossy member's ceiling is WEAK_CEILING (signal strength alone would allow
     // real throughput), but the jammer means it never actually decodes at
     // any MCS. Two failures in a row step it down one MCS (src/engine/rate.ts),
     // so a member whose multi-user outcomes are now reported must visibly
     // descend from its ceiling and — given this many rounds — bottom out.
-    expect(weak[0]).toBe(4)
+    expect(WEAK_CEILING).toBe(6)
+    expect(weak[0]).toBe(WEAK_CEILING)
     expect(weak[weak.length - 1]).toBe(0)
     // Monotonically non-increasing: it never climbs back, because it never succeeds.
     for (let i = 1; i < weak.length; i++) expect(weak[i]).toBeLessThanOrEqual(weak[i - 1])
     // And it actually steps, rather than falling straight to the floor on
     // the very first pair of failures.
-    expect(new Set(weak)).toEqual(new Set([4, 3, 2, 1, 0]))
+    expect(new Set(weak)).toEqual(new Set(Array.from({ length: WEAK_CEILING + 1 }, (_, i) => i)))
   })
 
   it('a member that fails and then recovers climbs back to its ceiling — the success half of the fix', () => {
@@ -198,9 +202,9 @@ describe('a multi-user downlink reports each member’s outcome, so its rate ada
     const recovering = mcsSeqFor('sta-3')
     expect(recovering.length).toBeGreaterThan(20)
 
-    expect(recovering[0]).toBe(4) // starts at its ceiling, same as sta-1 and sta-2 do
-    expect(Math.min(...recovering)).toBeLessThan(4) // the early jamming visibly steps it down
-    expect(recovering[recovering.length - 1]).toBe(4) // and it is back at its ceiling by the end
+    expect(recovering[0]).toBe(WEAK_CEILING) // starts at its ceiling, same as sta-1 and sta-2 do
+    expect(Math.min(...recovering)).toBeLessThan(WEAK_CEILING) // the early jamming visibly steps it down
+    expect(recovering[recovering.length - 1]).toBe(WEAK_CEILING) // and it is back at its ceiling by the end
     // Once it starts climbing it never falls again (jammer2 stays quiet after 3 ms).
     const troughAt = recovering.indexOf(Math.min(...recovering))
     for (let i = troughAt + 1; i < recovering.length; i++) expect(recovering[i]).toBeGreaterThanOrEqual(recovering[i - 1])
