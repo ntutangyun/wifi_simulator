@@ -149,6 +149,8 @@ export class WifiMac implements PhyListener {
   private edcafs: Edcaf[]
   private navUntil: Ns = 0
   private navClearHandle = 0
+  /** Who set the current NAV (a Trigger from that same AP may be answered through it). */
+  private navSetBy: string | null = null
   private navFromRtsAt: Ns | null = null
   private lastBusyEndNs: Ns = NEVER
   private corruptLast = false
@@ -998,6 +1000,7 @@ export class WifiMac implements PhyListener {
   private onCfEnd(t: Ns, from: string): void {
     if (this.navUntil > t) {
       this.navUntil = 0
+      this.navSetBy = null
       this.navFromRtsAt = null
       this.cancel('nav')
       this.emit({ t, type: 'NAV_CLEAR', node: this.nodeId })
@@ -1128,9 +1131,9 @@ export class WifiMac implements PhyListener {
       }
       case 'trigger': {
         if (!myPart) break
-        // Scheduled by the AP: the trigger's NAV must not block our response.
-        this.navUntil = 0
-        this.cancel('nav')
+        // CS Required: answer only if the NAV is idle — a NAV set by the
+        // triggering AP itself does not count. A third party's NAV stays.
+        if (this.now() < this.navUntil && this.navSetBy !== from) break
         this.respondToTrigger(t, frame, myPart)
         break
       }
@@ -1140,17 +1143,7 @@ export class WifiMac implements PhyListener {
         const st = this.staMuAwait
         this.staMuAwait = null
         this.q.cancel(st.timeoutHandle)
-        const e = this.edcafs[st.ac]
-        if (listed) {
-          this.resetQsrc(e)
-          for (const m of st.msdus) {
-            this.emit({ t, type: 'DEQUEUE', node: this.nodeId, msduId: m.id, depth: this.queues.depth(st.ac), ac: this.acTag(e) })
-            this.hooks.onDequeue?.(m.id)
-          }
-          this.resumeAll()
-        } else {
-          this.failAttemptCore(e, st.ac, st.msdus)
-        }
+        this.closeTbPpdu(st, listed)
         break
       }
       case 'ba':
@@ -1254,11 +1247,31 @@ export class WifiMac implements PhyListener {
           const st = this.staMuAwait
           if (!st) return
           this.staMuAwait = null
-          this.failAttemptCore(this.edcafs[st.ac], st.ac, st.msdus)
+          this.closeTbPpdu(st, false)
         }),
       }
       this.transmitFrame(frame, false)
     })
+  }
+
+  /**
+   * After a TB PPDU: acknowledged MSDUs leave the queue, the others count a
+   * retry. 802.11ax §26.5.2.3: the EDCAF then resumes its backoff without
+   * changing CW or the backoff counter, acknowledged or not.
+   */
+  private closeTbPpdu(st: StaMuAwait, acked: boolean): void {
+    const t = this.now()
+    const e = this.edcafs[st.ac]
+    if (acked) {
+      for (const m of st.msdus) {
+        this.emit({ t, type: 'DEQUEUE', node: this.nodeId, msduId: m.id, depth: this.queues.depth(st.ac), ac: this.acTag(e) })
+        this.hooks.onDequeue?.(m.id)
+      }
+    } else {
+      this.emitRetry(e, st.msdus, e.qsrc)
+      this.failMsdus(e, st.ac, st.msdus)
+    }
+    this.resumeAll()
   }
 
   private scheduleResponse(t: Ns, resp: FrameDesc): void {
@@ -1294,6 +1307,7 @@ export class WifiMac implements PhyListener {
     const until = t + frame.durationFieldNs
     if (until <= this.navUntil || frame.durationFieldNs <= 0) return
     this.navUntil = until
+    this.navSetBy = from
     this.emit({ t, type: 'NAV_SET', node: this.nodeId, untilNs: until, source: `${frame.kind}:${from}` })
     this.cancel('nav')
     this.navClearHandle = this.q.schedule(until, () => this.onNavClear())
@@ -1315,6 +1329,7 @@ export class WifiMac implements PhyListener {
       this.q.schedule(t + 2 * SIFS_NS + ctsTime + 2 * SLOT_NS, () => {
         if (this.navFromRtsAt === setAt && this.lastRxStartNs <= setAt && this.navUntil > this.now()) {
           this.navUntil = 0
+          this.navSetBy = null
           this.emit({ t: this.now(), type: 'NAV_CLEAR', node: this.nodeId })
           this.cancel('nav')
           this.navFromRtsAt = null
@@ -1332,6 +1347,7 @@ export class WifiMac implements PhyListener {
   private onNavClear(): void {
     const t = this.now()
     this.navUntil = 0
+    this.navSetBy = null
     this.navFromRtsAt = null
     this.emit({ t, type: 'NAV_CLEAR', node: this.nodeId })
     if (!this.ch.isCcaBusy(this.nodeId) && !this.inExchange()) {
