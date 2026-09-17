@@ -402,3 +402,71 @@ describe('lesson 9 · TXOP', () => {
     expect(single).toBeLessThan(0.6)
   })
 })
+
+describe('lesson 10 · protecting the burst', () => {
+  const boundary = recs('txop-protect', 300 * MS)
+  const single = recs('txop-protect', 300 * MS, 0)
+
+  it('the 300 ms table: single vs boundary', () => {
+    // table "This scenario, 300 ms": collisions 94 / 18, frames delivered 33 / 532,
+    // retries 180 / 46, frames dropped 16 / 0
+    const row = (rs: TLRecord[]) => [
+      ofType(rs, 'COLLISION').length,
+      ofType(rs, 'RX_OK').filter((r) => r.node === 'ap' && r.frame.kind === 'data').length,
+      ofType(rs, 'RETRY').length,
+      ofType(rs, 'DROP').length,
+    ]
+    expect(row(single)).toEqual([94, 33, 180, 16])
+    expect(row(boundary)).toEqual([18, 532, 46, 0])
+  })
+
+  it('of the 18 remaining collisions, 13 are RTS meeting RTS and 5 catch a data frame', () => {
+    // "Of the 18 collisions that remain, 13 are RTS meeting RTS — two hidden stations starting within
+    // one 28 µs RTS of each other … — and 5 catch a data frame already under way."
+    const cs = ofType(boundary, 'COLLISION').map((c) => collisionFrames(boundary, c))
+    const rtsRts = cs.filter(({ locked }) => locked.frame.kind === 'rts')
+    const data = cs.filter(({ locked }) => locked.frame.kind === 'data')
+    expect([rtsRts.length, data.length]).toEqual([13, 5])
+    for (const { locked, others } of rtsRts) {
+      const o = others.find((f) => f.frame.kind === 'rts')!
+      expect(o).toBeDefined()
+      expect(Math.abs(o.t - locked.t)).toBeLessThan(28_000)
+    }
+    // "“first collision” (28 µs) is an RTS meeting an RTS"
+    expect(ofType(boundary, 'COLLISION')[0].t).toBe(28_000)
+    expect(cs[0].locked.frame.kind).toBe('rts')
+  })
+
+  it('the observe list’s RTS, CTS, NAV and CF-End timings', () => {
+    // "A and B both open with an RTS at t = 0"
+    expect(txs(boundary, (r) => r.t === 0).map((r) => `${r.node}:${r.frame.kind}`).sort()).toEqual(['sta-1:rts', 'sta-2:rts'])
+    // "A’s third try at 0.736 ms gets through: hover its RTS (Duration 2500 µs …)"
+    const aRts = txs(boundary, (r) => r.node === 'sta-1' && r.frame.kind === 'rts')
+    expect(aRts[2].t).toBe(736_000)
+    expect(aRts[2].frame.durationFieldNs).toBe(2_500_000)
+    const top = ofType(boundary, 'TXOP_START').find((r) => r.node === 'sta-1' && r.t === 736_000)!
+    expect(top.untilNs - top.t).toBe(2_528_000)
+    // "and the AP’s CTS at 0.780 ms (2456 µs …)"
+    const cts = txs(boundary, (r) => r.frame.kind === 'cts')[0]
+    expect([cts.t, cts.frame.durationFieldNs]).toEqual([780_000, 2_456_000])
+    // "Hidden B’s lane turns NAV-purple until 3.264 ms"
+    const nav = ofType(boundary, 'NAV_SET').find((r) => r.node === 'sta-2')!
+    expect(nav.untilNs).toBe(3_264_000)
+    // "“first CF-End” (≈ 3.11 ms): after four exchanges 168 µs of A’s reservation remain"
+    const cf = txs(boundary, (r) => r.frame.kind === 'cfend')
+    expect(cf[0].node).toBe('sta-1')
+    expect(Math.round(cf[0].t / 10_000) / 100).toBe(3.11)
+    const burst = txs(boundary, (r) => r.node === 'sta-1' && r.frame.kind === 'data' && r.t > cts.t && r.t < cf[0].t)
+    expect(burst.length).toBe(4)
+    const lastAck = txs(boundary, (r) => r.frame.kind === 'ack' && r.t < cf[0].t).pop()!
+    const lastAckEnd = lastAck.t + lastAck.frame.txTimeNs
+    expect(top.untilNs - lastAckEnd).toBe(168_000)
+    expect(cf[0].t).toBe(lastAckEnd + 16_000)
+    // "too little for another 1500-byte frame and its ACK"
+    expect(16_000 + burst[0].frame.txTimeNs + 16_000 + lastAck.frame.txTimeNs).toBeGreaterThan(168_000)
+    // "the AP repeats it one SIFS later, and B’s NAV ends at 3.184 ms instead of 3.264 ms"
+    expect(cf[1].node).toBe('ap')
+    expect(cf[1].t).toBe(cf[0].t + cf[0].frame.txTimeNs + 16_000)
+    expect(ofType(boundary, 'NAV_CLEAR').find((r) => r.node === 'sta-2')!.t).toBe(3_184_000)
+  })
+})

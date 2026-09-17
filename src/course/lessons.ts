@@ -1050,14 +1050,14 @@ export const LESSONS: Lesson[] = [
       { kind: 'table', heading: { en: 'This scenario, 300 ms', zh: '本场景，300 ms' }, head: [
         { en: 'Metric', zh: '指标' }, { en: 'single', zh: '单次' }, { en: 'boundary', zh: '边界' },
       ], rows: [
-        [{ en: 'collisions', zh: '碰撞' }, N('99'), N('8')],
-        [{ en: 'frames delivered', zh: '送达帧数' }, N('31'), N('610')],
-        [{ en: 'retries', zh: '重传' }, N('184'), N('19')],
-        [{ en: 'frames dropped', zh: '丢弃帧数' }, N('18'), N('0')],
+        [{ en: 'collisions', zh: '碰撞' }, N('94'), N('18')],
+        [{ en: 'frames delivered', zh: '送达帧数' }, N('33'), N('532')],
+        [{ en: 'retries', zh: '重传' }, N('180'), N('46')],
+        [{ en: 'frames dropped', zh: '丢弃帧数' }, N('16'), N('0')],
       ] },
       { text: {
-        en: 'Of the 8 collisions that remain, 6 are RTS meeting RTS — two hidden stations still starting in the same slot, but now each loses 20 bytes instead of a burst of 1500-byte frames — and 2 catch a data frame already under way. That is lesson 5’s bargain, extended from one frame to a whole TXOP.',
-        zh: '剩下的 8 次碰撞里，6 次是 RTS 撞 RTS——两台隐藏站点仍可能在同一时隙起跑，但现在各自只损失 20 字节，而不是一整串 1500 字节的帧——另外 2 次撞上了正在进行中的数据帧。这正是第 5 课的那笔交易，从一帧扩展到了整个 TXOP。',
+        en: 'Of the 18 collisions that remain, 13 are RTS meeting RTS — two hidden stations starting within one 28 µs RTS of each other, but now each loses 20 bytes instead of a burst of 1500-byte frames — and 5 catch a data frame already under way. That is lesson 5’s bargain, extended from one frame to a whole TXOP.',
+        zh: '剩下的 18 次碰撞里，13 次是 RTS 撞 RTS——两台隐藏站点的起跑时刻相差不到一个 28 µs 的 RTS，但现在各自只损失 20 字节，而不是一整串 1500 字节的帧——另外 5 次撞上了正在进行中的数据帧。这正是第 5 课的那笔交易，从一帧扩展到了整个 TXOP。',
       } },
       { text: {
         en: 'The price is airtime: an RTS/CTS per burst, a CF-End (twice, with the relay), and anyone who misses the CF-End waits until the announced end. Real Wi-Fi 6/7 gear pays it this way: data frames keep single protection, and the RTS/CTS — or its multi-user form, MU-RTS — at the TXOP boundary carries the burst.',
@@ -1094,8 +1094,8 @@ export const LESSONS: Lesson[] = [
       J('first collision', '第一次碰撞', firstCollision),
     ],
     observe: [
-      { en: '“first RTS”: A and B both open with an RTS at t = 0 — and collide, 20 bytes each. A’s third try at 0.65 ms gets through: hover its RTS (Duration 2500 µs, reaching the end of its 2.528 ms TXOP) and the AP’s CTS at 0.694 ms (2456 µs — the same minus one SIFS and the CTS itself). Hidden B’s lane turns NAV-purple until 3.178 ms, although B never hears A.', zh: '“第一个 RTS”：A 和 B 都在 t = 0 以 RTS 开场——然后撞在一起，各损失 20 字节。A 在 0.65 ms 的第三次尝试成功了：悬停它的 RTS（Duration 2500 µs，直达它 2.528 ms TXOP 的末尾）和 AP 在 0.694 ms 的 CTS（2456 µs——相同数值减去一个 SIFS 和 CTS 自身）。隐藏站 B 的泳道一直到 3.178 ms 都是 NAV 紫色，尽管 B 从来听不到 A。' },
-      { en: '“first CF-End” (≈ 2.82 ms): after five exchanges 376 µs of A’s reservation remain — too little for another 1500-byte frame and its ACK. A sends CF-End, the AP repeats it one SIFS later, and B’s NAV ends at 2.890 ms instead of 3.178 ms.', zh: '“第一个 CF-End”（≈ 2.82 ms）：五次交换之后，A 的预约还剩 376 µs——不够再发一个 1500 字节的帧加 ACK。A 发出 CF-End，AP 在一个 SIFS 后重复一遍，B 的 NAV 在 2.890 ms 结束，而不是 3.178 ms。' },
+      { en: '“first RTS”: A and B both open with an RTS at t = 0 — and collide, 20 bytes each. A’s third try at 0.736 ms gets through: hover its RTS (Duration 2500 µs, reaching the end of its 2.528 ms TXOP) and the AP’s CTS at 0.780 ms (2456 µs — the same minus one SIFS and the CTS itself). Hidden B’s lane turns NAV-purple until 3.264 ms, although B never hears A.', zh: '“第一个 RTS”：A 和 B 都在 t = 0 以 RTS 开场——然后撞在一起，各损失 20 字节。A 在 0.736 ms 的第三次尝试成功了：悬停它的 RTS（Duration 2500 µs，直达它 2.528 ms TXOP 的末尾）和 AP 在 0.780 ms 的 CTS（2456 µs——相同数值减去一个 SIFS 和 CTS 自身）。隐藏站 B 的泳道一直到 3.264 ms 都是 NAV 紫色，尽管 B 从来听不到 A。' },
+      { en: '“first CF-End” (≈ 3.11 ms): after four exchanges 168 µs of A’s reservation remain — too little for another 1500-byte frame and its ACK. A sends CF-End, the AP repeats it one SIFS later, and B’s NAV ends at 3.184 ms instead of 3.264 ms.', zh: '“第一个 CF-End”（≈ 3.11 ms）：四次交换之后，A 的预约还剩 168 µs——不够再发一个 1500 字节的帧加 ACK。A 发出 CF-End，AP 在一个 SIFS 后重复一遍，B 的 NAV 在 3.184 ms 结束，而不是 3.264 ms。' },
       { en: '“first collision” (28 µs) is an RTS meeting an RTS — 20 bytes lost each, not a burst. Then load the “single protection” variant: B freezes only for each ACK and collides into A’s next frame, and the red ticks pile up as in lesson 5.', zh: '“第一次碰撞”（28 µs）是 RTS 撞 RTS——各损失 20 字节，而不是一整个突发。再载入“单次保护”变体：B 只为每个 ACK 停一下，随即撞进 A 的下一帧，红色刻度像第 5 课那样堆积起来。' },
     ],
     tryThis: [
