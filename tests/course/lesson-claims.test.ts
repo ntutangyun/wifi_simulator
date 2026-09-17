@@ -310,3 +310,95 @@ describe('lesson 6 · rate anomaly', () => {
     expect(cut.length).toBeGreaterThan(10)
   })
 })
+
+describe('lesson 7 · EDCA', () => {
+  const rs = recs('edca', 300 * MS)
+
+  it('VO draws from a tiny window; BK from 15 up with a longer AIFS; BK’s EIFS wait is 139 µs', () => {
+    // "the caller’s show AC_VO with tiny CW; the backup’s show AC_BK with CW 15+ and a longer AIFS"
+    const draws = (n: string) => ofType(rs, 'BACKOFF_DRAW').filter((r) => r.node === n)
+    expect(draws('sta-1').length).toBeGreaterThan(0)
+    for (const d of draws('sta-1')) {
+      expect(d.ac).toBe(3)
+      expect([3, 7]).toContain(d.cw)
+    }
+    expect(draws('sta-3').length).toBeGreaterThan(0)
+    for (const d of draws('sta-3')) {
+      expect(d.ac).toBe(0)
+      expect(d.cw).toBeGreaterThanOrEqual(15)
+    }
+    const ifsLens = (n: string, kind: string) => new Set(ofType(rs, 'IFS_START')
+      .filter((r) => r.node === n && r.kind === kind).map((r) => r.untilNs - r.t))
+    expect(ifsLens('sta-1', 'AIFS')).toEqual(new Set([34_000]))
+    expect(ifsLens('sta-3', 'AIFS')).toEqual(new Set([79_000]))
+    // "BK: 94 − 34 + 79 = 139 µs"
+    expect(ifsLens('sta-3', 'EIFS')).toEqual(new Set([139_000]))
+  })
+
+  it('voice gets through with lower delay than the saturated uploader', () => {
+    // "Voice frames get through with low delay even while the uploader saturates the channel."
+    const meanDelay = (n: string) => {
+      const enq = new Map<number, number>()
+      const ds: number[] = []
+      for (const r of rs) {
+        if (r.type === 'ENQUEUE' && r.node === n) enq.set(r.msduId, r.t)
+        if (r.type === 'DEQUEUE' && r.node === n && enq.has(r.msduId)) ds.push(r.t - enq.get(r.msduId)!)
+      }
+      expect(ds.length).toBeGreaterThan(5)
+      return ds.reduce((a, b) => a + b, 0) / ds.length
+    }
+    expect(meanDelay('sta-1')).toBeLessThan(meanDelay('sta-2'))
+    expect(meanDelay('sta-1')).toBeLessThan(meanDelay('sta-3'))
+  })
+})
+
+describe('lesson 8 · A-MPDU', () => {
+  it('14 MPDUs per win, behind an RTS/CTS, and about 1.5× the goodput', () => {
+    const agg = recs('ampdu', 200 * MS)
+    const plain = recs('ampdu', 200 * MS, 0)
+    // "Watch the queue in the inspector drain 14 frames per channel win instead of 1"
+    const ampdus = txs(agg, (r) => r.frame.kind === 'data')
+    expect(ampdus.length).toBeGreaterThan(50)
+    for (const a of ampdus) expect(a.frame.ampdu?.mpduCount).toBe(14)
+    // "once the RTS/CTS that opens it and the BlockAck are counted"
+    expect(txs(agg, (r) => r.t < ampdus[0].t).map((r) => r.frame.kind)).toEqual(['rts', 'cts'])
+    expect(txs(agg, (r) => r.frame.kind === 'ba').length).toBeGreaterThan(50)
+    expect(txs(plain, (r) => r.frame.kind === 'data').every((r) => r.frame.ampdu === undefined)).toBe(true)
+    // "same PHY rate, ~1.5× the goodput here"
+    const delivered = (rs: TLRecord[]) => ofType(rs, 'DEQUEUE').filter((r) => r.node === 'sta-1').length
+    expect(Math.round((delivered(agg) / delivered(plain)) * 10) / 10).toBe(1.5)
+    expect(new Set([...ampdus, ...txs(plain, (r) => r.frame.kind === 'data')].map((r) => r.frame.mcs))).toEqual(new Set([8]))
+  })
+})
+
+describe('lesson 9 · TXOP', () => {
+  const rs = recs('txop', 300 * MS)
+
+  it('the first TXOP (≈ 0.88 ms) serves TV 2 then, one SIFS after its ACK, TV 1', () => {
+    // "The “first TXOP start” jump (≈ 0.88 ms) lands on a two-receiver burst: inside one TXOP the AP
+    // sends to TV 2, gets its ACK, then after one SIFS sends to TV 1 — no AIFS, no backoff in between."
+    const t0 = ofType(rs, 'TXOP_START')[0]
+    expect(t0.node).toBe('ap')
+    expect(t0.ac).toBe(2) // "TXOP: AC_VI"
+    expect(Math.round(t0.t / 10_000) / 100).toBe(0.88)
+    const end = ofType(rs, 'TXOP_END').find((r) => r.node === 'ap' && r.t > t0.t)!
+    const inside = txs(rs, (r) => r.t >= t0.t && r.t < end.t)
+    expect(inside.map((r) => `${r.frame.kind}:${r.frame.dst}`)).toEqual(['data:sta-2', 'ack:ap', 'data:sta-1', 'ack:ap'])
+    expect(inside[2].t).toBe(inside[1].t + inside[1].frame.txTimeNs + 16_000)
+    expect(rs.some((r) => (r.type === 'BACKOFF_DRAW' || r.type === 'IFS_START') && r.node === 'ap' && r.t > t0.t && r.t < end.t)).toBe(false)
+  })
+
+  it('later TXOPs hold one exchange about as often as two', () => {
+    // "Later TXOPs hold a single exchange about as often as two: … only about half the time."
+    const perTxop: number[] = []
+    let cur = -1
+    for (const r of rs) {
+      if (r.type === 'TXOP_START' && r.node === 'ap') { if (cur >= 0) perTxop.push(cur); cur = 0 }
+      if (r.type === 'TX_START' && r.node === 'ap' && r.frame.kind === 'data' && cur >= 0) cur++
+    }
+    expect(new Set(perTxop)).toEqual(new Set([1, 2]))
+    const single = perTxop.filter((n) => n === 1).length / perTxop.length
+    expect(single).toBeGreaterThan(0.4)
+    expect(single).toBeLessThan(0.6)
+  })
+})

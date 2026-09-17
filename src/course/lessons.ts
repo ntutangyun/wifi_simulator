@@ -925,7 +925,7 @@ export const LESSONS: Lesson[] = [
       } },
       { kind: 'list', heading: { en: 'Aggregation fixes the ratio', zh: '聚合改变了这个比例' }, items: [
         { en: 'Pack up to 64 MPDUs into one PPDU.', zh: '把最多 64 个 MPDU 打包进一个 PPDU。' },
-        { en: 'Answer them with a single 32-byte BlockAck whose bitmap acknowledges each subframe individually.', zh: '再用一个 32 字节的 BlockAck，用位图逐个确认每个子帧。' },
+        { en: 'Answer them with a single 32-byte BlockAck whose bitmap can acknowledge each subframe individually. (This simulator currently treats the aggregate as a whole: a collision anywhere in it loses all of it.)', zh: '再用一个 32 字节的 BlockAck，其位图可以逐个确认每个子帧。（本仿真器目前把整个聚合帧当作一个整体：其中任何位置发生碰撞，整批都会丢失。）' },
       ] },
     ],
     scenario: () => sc(oneRoom(), [
@@ -951,7 +951,7 @@ export const LESSONS: Lesson[] = [
       { en: 'Compare BSS throughput between the two variants — same PHY rate, ~1.5× the goodput here. (The gap is “only” 1.5× because the no-aggregation variant still has TXOP, so it too pays contention once per burst — take the comparison as aggregation’s share alone.)', zh: '比较两个变体的 BSS 吞吐量——物理速率相同，有效吞吐约为 1.5 倍。（差距“只有”1.5 倍，是因为不聚合的变体仍开着 TXOP，同样只在每次突发时付一次竞争——这组对比反映的仅是聚合本身的贡献。）' },
     ],
     tryThis: [
-      { en: 'Watch the queue in the inspector drain 15 frames per channel win instead of 1 (15 is what fits under the AC_BE TXOP limit here, not the 64-MPDU A-MPDU ceiling).', zh: '在检视器里观察队列每赢一次信道就清掉 15 帧，而不是 1 帧（15 是 AC_BE 的 TXOP 限值所容纳的数量，并非 A-MPDU 的 64 帧上限）。' },
+      { en: 'Watch the queue in the inspector drain 14 frames per channel win instead of 1 (14 is what fits under the AC_BE TXOP limit here once the RTS/CTS that opens it and the BlockAck are counted, not the 64-MPDU A-MPDU ceiling).', zh: '在检视器里观察队列每赢一次信道就清掉 14 帧，而不是 1 帧（14 是算上开场的 RTS/CTS 和 BlockAck 之后，AC_BE 的 TXOP 限值所容纳的数量，并非 A-MPDU 的 64 帧上限）。' },
     ],
     quiz: [
       {
@@ -998,7 +998,7 @@ export const LESSONS: Lesson[] = [
       J('first TXOP start', '第一次 TXOP 开始', firstTxop),
     ],
     observe: [
-      { en: 'The “first TXOP start” jump (≈ 0.88 ms) lands on a two-receiver burst: inside one TXOP the AP sends to TV 2, gets its ACK, then after one SIFS sends to TV 1 — no AIFS, no backoff in between. Later TXOPs often hold a single exchange: with only two 15 Mbps streams the AP rarely has frames for both TVs waiting at once.', zh: '“第一次 TXOP 开始”跳转（≈ 0.88 ms）落在一个发往两台接收机的突发上：在同一个 TXOP 内，AP 发给电视 2、收到 ACK 后仅隔一个 SIFS 就发给电视 1——中间没有 AIFS、没有退避。之后的 TXOP 常常只有一次交换：只有两路 15 Mbps 的视频流时，AP 很少同时攒下发给两台电视的帧。' },
+      { en: 'The “first TXOP start” jump (≈ 0.88 ms) lands on a two-receiver burst: inside one TXOP the AP sends to TV 2, gets its ACK, then after one SIFS sends to TV 1 — no AIFS, no backoff in between. Later TXOPs hold a single exchange about as often as two: with only two 15 Mbps streams the AP has frames for both TVs waiting at once only about half the time.', zh: '“第一次 TXOP 开始”跳转（≈ 0.88 ms）落在一个发往两台接收机的突发上：在同一个 TXOP 内，AP 发给电视 2、收到 ACK 后仅隔一个 SIFS 就发给电视 1——中间没有 AIFS、没有退避。之后的 TXOP 只含一次交换和含两次交换的情况差不多一样多：只有两路 15 Mbps 的视频流时，AP 大约只有一半的时候会同时攒下发给两台电视的帧。' },
       { en: 'The inspector shows “TXOP: AC_VI, n µs left” while the burst runs.', zh: '突发进行中，检视器显示“TXOP：AC_VI，剩余 n µs”。' },
     ],
     tryThis: [
