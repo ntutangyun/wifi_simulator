@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import { useStrings } from '../ui/i18n'
 import { player, useUi } from '../ui/store'
 import { LESSONS, MODULES, lessonIndex, type Block, type L10n, type Lesson } from './lessons'
+import { LinkBudget } from './widgets/LinkBudget'
+import { McsLadder } from './widgets/McsLadder'
 
 type Progress = Record<string, { done?: boolean; obs?: number[] }>
 
@@ -89,6 +91,17 @@ function BlockView({ b, t }: { b: Block; t: (l: L10n) => string }) {
     case 'steps': {
       const l = b as Extract<Block, { kind: 'steps' }>
       return <ol style={listStyle}>{l.items.map((it, i) => <li key={i}>{t(it)}</li>)}</ol>
+    }
+    case 'widget': {
+      const w = b as Extract<Block, { kind: 'widget' }>
+      return (
+        <>
+          {w.widget === 'linkBudget'
+            ? <LinkBudget key={JSON.stringify(w.params ?? {})} params={w.params} />
+            : <McsLadder key={JSON.stringify(w.params ?? {})} params={w.params} />}
+          {w.caption && <p style={{ ...prose, ...dim, fontSize: 11.5 }}>{t(w.caption)}</p>}
+        </>
+      )
     }
     default:
       return <p style={prose}>{t((b as Extract<Block, { kind?: 'p' }>).text)}</p>
@@ -183,7 +196,7 @@ export function CoursePanel() {
       <h3 style={{ margin: '4px 0 8px', fontSize: 14 }}>{t(lesson.title)}</h3>
 
       {lesson.body.map((b, i) => (
-        <div key={i}>
+        <div key={`${lesson.id}:${i}`}>
           {b.heading && <h4 style={h4}>{t(b.heading)}</h4>}
           <BlockView b={b} t={t} />
         </div>
