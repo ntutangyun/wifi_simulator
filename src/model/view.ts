@@ -83,8 +83,8 @@ export interface NodeView {
   ccaBusy: boolean
   backoff: number | null
   cw: number
-  ssrc: number
-  slrc: number
+  /** QSRC of the access category that last failed (802.11-2020 retry model). */
+  qsrc: number
   navUntilNs: Ns
   ifs: { kind: 'DIFS' | 'EIFS' | 'SIFS' | 'AIFS'; untilNs: Ns; ac?: number } | null
   queue: QueuedMsduView[]
@@ -145,7 +145,7 @@ export function initViewState(sc: Scenario): ViewState {
     const cfg = sc.nodes.find((n) => n.id === physicalId(vid))!
     const edca = hasFeature(cfg, 'edca')
     nodes[vid] = {
-      state: 'idle', ccaBusy: false, backoff: null, cw: 15, ssrc: 0, slrc: 0,
+      state: 'idle', ccaBusy: false, backoff: null, cw: 15, qsrc: 0,
       navUntilNs: 0, ifs: null, queue: [], currentTx: null, currentRx: null, rxSeq: {},
       stats: {
         txOk: 0, txFail: 0, retries: 0, drops: 0, bytesDelivered: 0, airtimeNs: 0, collisions: 0,
@@ -403,8 +403,7 @@ export function applyRecord(vs: ViewState, r: TLRecord): void {
       const n = vs.nodes[r.node]
       n.stats.retries += 1
       n.stats.txFail += 1
-      n.ssrc = r.ssrc
-      n.slrc = r.slrc
+      n.qsrc = r.qsrc
       // the failed set went back to the front of its queue (AcQueues.restore)
       for (const m of queueHolder(vs, r.node).queue) m.inFlight = false
       break

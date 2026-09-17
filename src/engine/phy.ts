@@ -20,8 +20,8 @@ export const CTS_TIMEOUT_NS: Ns = ACK_TIMEOUT_NS
 
 export const CW_MIN = 15
 export const CW_MAX = 1023
+/** 802.11-2020 removed dot11LongRetryLimit: one per-MSDU retry limit applies to every frame. */
 export const SHORT_RETRY_LIMIT = 7 // dot11ShortRetryLimit
-export const LONG_RETRY_LIMIT = 4 // dot11LongRetryLimit
 
 export const CCA_ED_DBM = -62
 export const CCA_PD_DBM = -82

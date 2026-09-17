@@ -174,3 +174,17 @@ describe('MLO (Wi-Fi 7)', () => {
     expect(a.timelineHash()).toBe(b.timelineHash())
   })
 })
+
+describe('retry-limit drop is by identity (A3)', () => {
+  it('a failed A-MPDU drops only MSDUs that were actually transmitted', () => {
+    const sc = mkScenario([{ gen: 'he', profile: 'saturated', features: { edca: true, ampdu: true, txop: false } }])
+    sc.nodes[1].pos = { x: 60, y: 60, z: 1 } // out of range: every attempt fails
+    sc.rtsThresholdBytes = 1_000_000 // no RTS, so every attempt is a data PPDU listing its MSDUs
+    const { records } = run(sc, 400)
+    const drops = records.filter((r) => r.type === 'DROP' && r.node === 'sta-1')
+    const sent = new Set(records.flatMap((r) => r.type === 'TX_START' && r.node === 'sta-1' && r.frame.kind === 'data'
+      ? (r.frame.ampdu?.msduIds ?? [r.frame.msduId!]) : []))
+    expect(drops.length).toBeGreaterThan(0)
+    for (const d of drops) if (d.type === 'DROP') expect(sent.has(d.msduId)).toBe(true)
+  })
+})

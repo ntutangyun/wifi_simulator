@@ -65,7 +65,7 @@ function NodeSection({ vid, nv, t, L, nameOf, serverName }: { vid: string; nv: N
         </>
       )}
 
-      <div style={row}><Lbl hint={L.ssrcHint}>{L.ssrcSlrc}</Lbl><span>{nv.ssrc} / {nv.slrc}</span></div>
+      <div style={row}><Lbl hint={L.ssrcHint}>{L.ssrcSlrc}</Lbl><span>{nv.qsrc}</span></div>
       <div style={row}>
         <Lbl hint={L.navHint}>{L.nav}</Lbl>
         <span>{nv.navUntilNs > t ? `${((nv.navUntilNs - t) / 1000).toFixed(1)} µs ${L.left}` : L.navIdle}</span>

@@ -61,7 +61,7 @@ export function fmtRecord(r: TLRecord): string {
     case 'NAV_SET': return `${r.node} NAV set until ${fmtNs(r.untilNs)} (${r.source})`
     case 'NAV_CLEAR': return `${r.node} NAV clear`
     case 'CW_CHANGE': return `${r.node} CW → ${r.cw}${acSuffix(r.ac)}`
-    case 'RETRY': return `${r.node} retry #${r.msduId} (SRC=${r.src} LRC=${r.lrc} SSRC=${r.ssrc} SLRC=${r.slrc})`
+    case 'RETRY': return `${r.node} retry #${r.msduId} (retries=${r.retries} QSRC=${r.qsrc})`
     case 'DROP': return `${r.node} DROP #${r.msduId} (${r.reason})`
     case 'ACK_TIMEOUT': return `${r.node} ACK timeout`
     case 'CTS_TIMEOUT': return `${r.node} CTS timeout`

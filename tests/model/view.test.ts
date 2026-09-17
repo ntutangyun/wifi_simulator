@@ -181,7 +181,7 @@ describe('queue view: the AC table and the queue list agree', () => {
     expect(ap.queue[1].inFlight).toBe(false)
 
     // a failed attempt puts it back: no longer in flight, still queued
-    applyRecord(vs, seq([{ t: 250_000, type: 'RETRY', node: 'ap', msduId: 1, src: 1, lrc: 0, ssrc: 1, slrc: 0, ac: 2 }])[0])
+    applyRecord(vs, seq([{ t: 250_000, type: 'RETRY', node: 'ap', msduId: 1, retries: 1, qsrc: 1, ac: 2 }])[0])
     expect(ap.queue[0].inFlight).toBe(false)
     expect(ap.acs![2].queueLen).toBe(2)
 

@@ -16,6 +16,10 @@ export interface Msdu {
   bornNs: Ns
   /** EDCA access category of the stream that produced this MSDU. */
   ac: number
+  /** 802.11 sequence number, assigned on the first transmission and kept on retries (§10.3.2.14). */
+  seqNo?: number
+  /** Retry count of this MSDU (802.11-2020: one counter per MSDU, limit dot11ShortRetryLimit). */
+  retries?: number
   /** Cloud server this MSDU came from / goes to (unset for purely local streams). */
   server?: string
   /**

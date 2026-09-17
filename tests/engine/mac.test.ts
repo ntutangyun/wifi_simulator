@@ -70,7 +70,7 @@ describe('DCF MAC — basic access', () => {
     const cw1 = b.recs('CW_CHANGE', 'sta-1').map((r) => r.cw)
     expect(cw1[0]).toBe(31) // doubled after first failure
     const retries = b.recs('RETRY', 'sta-1')
-    expect(retries[0]).toMatchObject({ src: 1, ssrc: 1 })
+    expect(retries[0]).toMatchObject({ retries: 1, qsrc: 1 })
     expect(b.delivered).toHaveLength(2) // both eventually get through
     const retriedTx = b.recs('TX_START', 'sta-1').find((r) => r.frame.retryFlag)
     expect(retriedTx).toBeDefined()
@@ -84,10 +84,10 @@ describe('DCF MAC — basic access', () => {
     expect(b.recs('TX_START', 'sta-1').filter((r) => r.frame.kind === 'data')).toHaveLength(7)
     const retries = b.recs('RETRY', 'sta-1')
     expect(retries).toHaveLength(7)
-    expect(retries.map((r) => r.src)).toEqual([1, 2, 3, 4, 5, 6, 7])
+    expect(retries.map((r) => r.retries)).toEqual([1, 2, 3, 4, 5, 6, 7])
     expect(b.recs('DROP', 'sta-1')).toHaveLength(1)
     const cws = b.recs('CW_CHANGE', 'sta-1').map((r) => r.cw)
-    expect(cws).toEqual([31, 63, 127, 255, 511, 1023, 1023, 15]) // ladder capped at aCWmax, reset on drop
+    expect(cws).toEqual([31, 63, 127, 255, 511, 1023, 15]) // ladder capped at aCWmax; the 7th failure (QSRC at the limit) resets CW
   })
 
   it('performs post-transmission backoff between queued frames (§10.3.4.3)', () => {

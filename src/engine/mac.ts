@@ -1,7 +1,7 @@
 /**
  * Wi-Fi MAC per IEEE Std 802.11-2024, feature-configurable per node:
  *  - DCF (§10.3): CS + NAV, DIFS/EIFS, binary-exponential backoff,
- *    freeze/resume, post-TX backoff, SRC/LRC + SSRC/SLRC, ACK, RTS/CTS.
+ *    freeze/resume, post-TX backoff, 802.11-2020 retries (per-MSDU count + QSRC), ACK, RTS/CTS.
  *  - EDCA (§10.23): four EDCAFs with AIFS/CWmin/CWmax per Table 9-194,
  *    internal-collision arbitration (higher AC wins, losers double CW).
  *  - TXOP bursting: SIFS-separated exchanges until the AC's TXOP limit.
@@ -21,7 +21,7 @@ import type { Channel, PhyListener } from './channel'
 import { EventQueue } from './events'
 import {
   ACK_BYTES, ACK_TIMEOUT_NS, BA_BYTES, CF_END_BYTES, CTS_BYTES, CTS_TIMEOUT_NS, DCF_PARAMS, DIFS_NS,
-  EDCA_PARAMS, EIFS_NS, LONG_RETRY_LIMIT, MAX_AMPDU_MPDUS, MAX_PPDU_NS, PHY_MODES,
+  EDCA_PARAMS, EIFS_NS, MAX_AMPDU_MPDUS, MAX_PPDU_NS, PHY_MODES,
   QOS_HDR_BYTES, FCS_BYTES, RTS_BYTES, SHORT_RETRY_LIMIT, SIFS_NS, SLOT_NS,
   aifsNs, ctrlRespRateFor, ctrlRespRateForMode, mcsRateMbps, multiStaBaBytes, triggerBytes, toneRatio, txTimeModeNs, txTimeNs,
   type AcParams, type PhyMode,
@@ -91,8 +91,8 @@ interface Edcaf {
   cw: number
   backoff: number | null
   needDraw: boolean
-  src: number
-  lrc: number
+  /** QSRC[AC]: consecutive failed attempts of this EDCAF; drives CW (802.11-2020 §10.23.2.2). */
+  qsrc: number
   seqCounter: number
   ifsHandle: number
   tickHandle: number
@@ -147,8 +147,6 @@ export class WifiMac implements PhyListener {
   private state: MacStateName = 'idle'
   readonly queues: AcQueues
   private edcafs: Edcaf[]
-  private ssrc = 0
-  private slrc = 0
   private navUntil: Ns = 0
   private navClearHandle = 0
   private navFromRtsAt: Ns | null = null
@@ -190,7 +188,7 @@ export class WifiMac implements PhyListener {
     this.queues = sharedQueues ?? new AcQueues()
     this.edcafs = effectiveParams(cfg.edca ? EDCA_PARAMS : [DCF_PARAMS], cfg.tamper).map((params) => ({
       params, cw: params.cwMin, backoff: null, needDraw: false,
-      src: 0, lrc: 0, seqCounter: 0, ifsHandle: 0, tickHandle: 0,
+      qsrc: 0, seqCounter: 0, ifsHandle: 0, tickHandle: 0,
     }))
   }
 
@@ -518,8 +516,8 @@ export class WifiMac implements PhyListener {
     mode: PhyMode, mcs: number, mbps: number, aggregate: boolean, respTime: Ns,
     widthMhz: number, nss: number,
   ): FrameDesc {
-    const seqNo = e.seqCounter
-    e.seqCounter += msdus.length
+    this.assignSeq(e, msdus)
+    const seqNo = msdus[0].seqNo!
     const txTime = txTimeModeNs(mode, psdu, mcs, { widthMhz, nss })
     // §9.2.5.2 multiple protection: the data frame carries the TXOP remainder.
     const remainder = this.announcedEndNs - (this.now() + txTime)
@@ -530,7 +528,7 @@ export class WifiMac implements PhyListener {
       kind: 'data', src: this.nodeId, dst: peer, bytes: psdu, mbps,
       durationFieldNs: this.inflate(duration),
       txTimeNs: txTime,
-      seqNo, retryFlag: e.src + e.lrc > 0, msduId: msdus[0].id,
+      seqNo, retryFlag: msdus.some((m) => (m.retries ?? 0) > 0), msduId: msdus[0].id,
       mode, mcs, widthMhz, ac: this.acTag(e),
       ampdu: aggregate ? { mpduCount: msdus.length, msduIds: msdus.map((m) => m.id) } : undefined,
     }
@@ -692,16 +690,13 @@ export class WifiMac implements PhyListener {
       } else {
         anyFail = true
         this.cfg.onTxOutcome?.(c.peer, false)
-        this.queues.restore(mu.ac, c.msdus)
+        this.queues.restore(mu.ac, c.msdus) // interim: per-MSDU accounting arrives with the MU outcome fix
       }
     }
     if (anyFail) {
-      this.failAttemptCore(e, false, mu.parts[0]?.msdus[0]?.id ?? 0, true)
+      this.failAttemptCore(e, mu.ac, [])
     } else {
-      e.src = 0
-      e.lrc = 0
-      e.cw = e.params.cwMin
-      this.emit({ t, type: 'CW_CHANGE', node: this.nodeId, cw: e.cw, ac: this.acTag(e) })
+      this.resetQsrc(e)
       this.continueOrRelease(e)
     }
   }
@@ -757,19 +752,10 @@ export class WifiMac implements PhyListener {
     mu.mbaHandle = 0
     this.muState = null
     this.emit({ t, type: 'ACK_TIMEOUT', node: this.nodeId })
-    // Retry accounting for the trigger itself (a short frame). It carries no
-    // MSDUs of ours, so there is nothing to drop at the retry limit — only the
-    // §10.3.3 reset of the counter and CW.
+    // Retry accounting for the trigger itself. It carries no MSDUs of ours, so
+    // only QSRC and CW move.
     const e = this.edcafs[mu.ac]
-    e.src++
-    this.ssrc++
-    if (e.src >= SHORT_RETRY_LIMIT) {
-      e.src = 0
-      e.cw = e.params.cwMin
-    } else {
-      e.cw = Math.min(2 * e.cw + 1, e.params.cwMax)
-    }
-    this.emit({ t, type: 'CW_CHANGE', node: this.nodeId, cw: e.cw, ac: this.acTag(e) })
+    this.bumpQsrc(e)
     this.endTxop()
     e.backoff = null
     e.needDraw = true
@@ -837,38 +823,71 @@ export class WifiMac implements PhyListener {
     if (!aw) return
     this.cancel('timeout')
     this.awaiting = null
-    const e = this.edcafs[aw.ac]
-    this.queues.restore(aw.ac, aw.msdus)
-    const isShort = aw.wasRts || aw.aggBytes <= this.cfg.rtsThresholdBytes
     this.cfg.onTxOutcome?.(aw.peer, false)
-    this.failAttemptCore(e, isShort, aw.msdus[0]?.id ?? 0, aw.msdus.length > 1)
+    this.failAttemptCore(this.edcafs[aw.ac], aw.ac, aw.msdus)
   }
 
-  private failAttemptCore(e: Edcaf, isShort: boolean, msduId: number, dropWholeSet: boolean): void {
-    const t = this.now()
-    if (isShort) {
-      e.src++
-      this.ssrc++
+  /** §10.23.2.2: one failed attempt — QSRC++ and CW doubles; at the retry limit CW resets. */
+  private bumpQsrc(e: Edcaf): void {
+    e.qsrc++
+    if (e.qsrc >= SHORT_RETRY_LIMIT) {
+      e.qsrc = 0
+      e.cw = e.params.cwMin
     } else {
-      e.lrc++
-      this.slrc++
+      e.cw = Math.min(2 * e.cw + 1, e.params.cwMax)
     }
-    this.emit({ t, type: 'RETRY', node: this.nodeId, msduId, src: e.src, lrc: e.lrc, ssrc: this.ssrc, slrc: this.slrc, ac: this.acTag(e) })
-    e.cw = Math.min(2 * e.cw + 1, e.params.cwMax)
-    this.emit({ t, type: 'CW_CHANGE', node: this.nodeId, cw: e.cw, ac: this.acTag(e) })
-    if (e.src >= SHORT_RETRY_LIMIT || e.lrc >= LONG_RETRY_LIMIT) {
-      const ei = this.edcafs.indexOf(e)
-      const victims = this.queues.claim(ei, null, dropWholeSet ? MAX_AMPDU_MPDUS : 1, () => true)
-      for (const m of victims) {
+    this.emit({ t: this.now(), type: 'CW_CHANGE', node: this.nodeId, cw: e.cw, ac: this.acTag(e) })
+  }
+
+  private resetQsrc(e: Edcaf): void {
+    e.qsrc = 0
+    e.cw = e.params.cwMin
+    this.emit({ t: this.now(), type: 'CW_CHANGE', node: this.nodeId, cw: e.cw, ac: this.acTag(e) })
+  }
+
+  /** §10.3.2.14: an MSDU gets its sequence number on its first transmission and keeps it on every retry. */
+  private assignSeq(e: Edcaf, msdus: Msdu[]): void {
+    for (const m of msdus) {
+      if (m.seqNo !== undefined) continue
+      m.seqNo = e.seqCounter
+      e.seqCounter = (e.seqCounter + 1) % 4096
+    }
+  }
+
+  /**
+   * 802.11-2020: every MSDU of a failed attempt counts one retry; those that
+   * reach dot11ShortRetryLimit are discarded, the rest go back to the queue head.
+   * Only these MSDUs are touched — never frames that were not in the attempt.
+   */
+  private failMsdus(e: Edcaf, ei: number, msdus: Msdu[]): void {
+    const t = this.now()
+    const keep: Msdu[] = []
+    for (const m of msdus) {
+      m.retries = (m.retries ?? 0) + 1
+      if (m.retries >= SHORT_RETRY_LIMIT) {
         this.emit({ t, type: 'DROP', node: this.nodeId, msduId: m.id, reason: 'retryLimit', ac: this.acTag(e) })
         this.emit({ t, type: 'DEQUEUE', node: this.nodeId, msduId: m.id, depth: this.queues.depth(ei), ac: this.acTag(e) })
         this.hooks.onDequeue?.(m.id)
+      } else {
+        keep.push(m)
       }
-      e.src = 0
-      e.lrc = 0
-      e.cw = e.params.cwMin // §10.3.3 CW reset at retry limit
-      this.emit({ t, type: 'CW_CHANGE', node: this.nodeId, cw: e.cw, ac: this.acTag(e) })
     }
+    if (keep.length) this.queues.restore(ei, keep)
+  }
+
+  private emitRetry(e: Edcaf, msdus: Msdu[]): void {
+    this.emit({
+      t: this.now(), type: 'RETRY', node: this.nodeId, msduId: msdus[0]?.id ?? 0,
+      retries: msdus.reduce((mx, m) => Math.max(mx, (m.retries ?? 0) + 1), 0),
+      qsrc: e.qsrc + 1, ac: this.acTag(e),
+    })
+  }
+
+  /** Close a failed attempt: RETRY record, per-MSDU accounting, QSRC/CW, end TXOP, new backoff. */
+  private failAttemptCore(e: Edcaf, ei: number, msdus: Msdu[]): void {
+    this.emitRetry(e, msdus)
+    this.failMsdus(e, ei, msdus)
+    this.bumpQsrc(e)
     this.endTxop()
     e.backoff = null
     e.needDraw = true
@@ -881,12 +900,7 @@ export class WifiMac implements PhyListener {
     this.awaiting = null
     const t = this.now()
     const e = this.edcafs[aw.ac]
-    if (aw.aggBytes <= this.cfg.rtsThresholdBytes) this.ssrc = 0
-    else this.slrc = 0
-    e.src = 0
-    e.lrc = 0
-    e.cw = e.params.cwMin
-    this.emit({ t, type: 'CW_CHANGE', node: this.nodeId, cw: e.cw, ac: this.acTag(e) })
+    this.resetQsrc(e)
     for (const m of aw.msdus) {
       this.emit({ t, type: 'DEQUEUE', node: this.nodeId, msduId: m.id, depth: this.queues.depth(aw.ac), ac: this.acTag(e) })
       this.hooks.onDequeue?.(m.id)
@@ -1098,18 +1112,14 @@ export class WifiMac implements PhyListener {
         this.q.cancel(st.timeoutHandle)
         const e = this.edcafs[st.ac]
         if (listed) {
-          e.src = 0
-          e.lrc = 0
-          e.cw = e.params.cwMin
-          this.emit({ t, type: 'CW_CHANGE', node: this.nodeId, cw: e.cw, ac: this.acTag(e) })
+          this.resetQsrc(e)
           for (const m of st.msdus) {
             this.emit({ t, type: 'DEQUEUE', node: this.nodeId, msduId: m.id, depth: this.queues.depth(st.ac), ac: this.acTag(e) })
             this.hooks.onDequeue?.(m.id)
           }
           this.resumeAll()
         } else {
-          this.queues.restore(st.ac, st.msdus)
-          this.failAttemptCore(e, false, st.msdus[0]?.id ?? 0, false)
+          this.failAttemptCore(e, st.ac, st.msdus)
         }
         break
       }
@@ -1155,8 +1165,7 @@ export class WifiMac implements PhyListener {
         if (this.awaiting?.kind === 'cts') {
           this.cancel('timeout')
           const aw = this.awaiting
-          this.ssrc = 0 // §10.3.3: SSRC reset on CTS received in response to RTS
-          this.edcafs[aw.ac].src = 0
+          this.edcafs[aw.ac].qsrc = 0 // CTS received: QSRC resets; the MSDUs keep their retry counts
           this.setState('sifsResp')
           this.respHandle = this.q.schedule(t + SIFS_NS, () => {
             this.respHandle = 0
@@ -1203,11 +1212,10 @@ export class WifiMac implements PhyListener {
       const frame: FrameDesc = {
         kind: 'data', src: this.nodeId, dst: trigger.src, bytes, mbps: mcsRateMbps(mode, mcs),
         durationFieldNs: 0, txTimeNs: dur, // padded to the trigger's target duration
-        seqNo: e.seqCounter, mode, mcs, widthMhz: width, ac: this.acTag(e),
+        seqNo: (this.assignSeq(e, msdus), msdus[0].seqNo), mode, mcs, widthMhz: width, ac: this.acTag(e),
         ampdu: { mpduCount: msdus.length, msduIds: msdus.map((m) => m.id) },
         orthogonalGroup: trigger.orthogonalGroup,
       }
-      e.seqCounter += msdus.length
       const mbaTime = txTimeNs(multiStaBaBytes(n), 24)
       this.staMuAwait = {
         ac, msdus,
@@ -1215,8 +1223,7 @@ export class WifiMac implements PhyListener {
           const st = this.staMuAwait
           if (!st) return
           this.staMuAwait = null
-          this.queues.restore(st.ac, st.msdus)
-          this.failAttemptCore(this.edcafs[st.ac], false, st.msdus[0]?.id ?? 0, false)
+          this.failAttemptCore(this.edcafs[st.ac], st.ac, st.msdus)
         }),
       }
       this.transmitFrame(frame, false)

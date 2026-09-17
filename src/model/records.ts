@@ -34,7 +34,7 @@ export type TLRecord = { t: Ns; seq: number } & (
   | { type: 'NAV_SET'; node: string; untilNs: Ns; source: string }
   | { type: 'NAV_CLEAR'; node: string }
   | { type: 'CW_CHANGE'; node: string; cw: number; ac?: number }
-  | { type: 'RETRY'; node: string; msduId: number; src: number; lrc: number; ssrc: number; slrc: number; ac?: number }
+  | { type: 'RETRY'; node: string; msduId: number; retries: number; qsrc: number; ac?: number }
   | { type: 'DROP'; node: string; msduId: number; reason: 'retryLimit'; ac?: number }
   | { type: 'ACK_TIMEOUT'; node: string }
   | { type: 'CTS_TIMEOUT'; node: string }
