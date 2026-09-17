@@ -13,7 +13,7 @@ import { Simulation } from '../../src/engine/simulation'
 import type { Scenario } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 import { buildLinkTable } from '../../src/engine/propagation'
-import { sinrThreshDb } from '../../src/engine/phy'
+import { CCA_PD_DBM, sinrThreshDb } from '../../src/engine/phy'
 
 type Tx = Extract<TLRecord, { type: 'TX_START' }>
 const MS = 1_000_000
@@ -468,5 +468,112 @@ describe('lesson 10 · protecting the burst', () => {
     expect(cf[1].node).toBe('ap')
     expect(cf[1].t).toBe(cf[0].t + cf[0].frame.txTimeNs + 16_000)
     expect(ofType(boundary, 'NAV_CLEAR').find((r) => r.node === 'sta-2')!.t).toBe(3_184_000)
+  })
+})
+
+describe('lesson 11 · OFDMA downlink', () => {
+  it('every DL MU PPDU serves two TVs, and their BlockAcks start together one SIFS after it', () => {
+    // "After one SIFS, several BA blocks start at the *same instant* on different lanes"
+    // "here one PPDU carries frames for two TVs at once and their BlockAcks come back together"
+    const rs = recs('ofdma-dl', 300 * MS)
+    const mu = txs(rs, (r) => r.frame.muParts !== undefined)
+    expect(mu.length).toBeGreaterThan(20)
+    for (const m of mu) {
+      expect(m.frame.muParts!.length).toBe(2)
+      const bas = txs(rs, (r) => r.frame.kind === 'ba' && r.t === m.t + m.frame.txTimeNs + 16_000)
+      expect(bas.map((r) => r.node).sort()).toEqual(m.frame.muParts!.map((p) => p.dst).sort())
+    }
+  })
+})
+
+describe('lesson 12 · Trigger frames', () => {
+  it('between triggered bursts the stations still contend via EDCA', () => {
+    // "Between triggered bursts the stations still contend normally via EDCA."
+    const rs = recs('ofdma-ul', 100 * MS)
+    for (const n of ['sta-1', 'sta-2']) {
+      expect(ofType(rs, 'BACKOFF_DRAW').some((r) => r.node === n)).toBe(true)
+      expect(txs(rs, (r) => r.node === n && r.frame.kind === 'data' && r.frame.orthogonalGroup === undefined).length).toBeGreaterThan(0)
+    }
+    expect(txs(rs, (r) => r.frame.kind === 'trigger').length).toBeGreaterThan(0)
+  })
+})
+
+describe('lesson 13 · MLO', () => {
+  it('the laptop uses both links and its traffic leans toward 6 GHz', () => {
+    // "The laptop has two lanes (·6G marked); both carry data blocks drawn from one queue."
+    // "The 5 GHz-only neighbor congests that band — watch the laptop’s traffic lean toward 6 GHz."
+    const rs = recs('mlo', 300 * MS)
+    const laptop = txs(rs, (r) => r.frame.kind === 'data' && r.frame.src === 'sta-1')
+    const on6 = laptop.filter((r) => r.node.includes('#6g')), on5 = laptop.filter((r) => !r.node.includes('#6g'))
+    expect(on5.length).toBeGreaterThan(0)
+    const bytes = (xs: Tx[]) => xs.reduce((a, r) => a + r.frame.bytes, 0)
+    expect(bytes(on6)).toBeGreaterThan(2 * bytes(on5))
+  })
+})
+
+describe('lesson 15 · channel width', () => {
+  it('in the far corner an 802.11a laptop falls back to 20 MHz and gets ACKs, at over a millisecond a frame', () => {
+    // "switch it to 802.11a (legacy) in the editor … the link falls back to 20 MHz — and the ACKs
+    // come back, at over a millisecond per frame."
+    const sc = lesson('width').scenario()
+    const sta = sc.nodes.find((n) => n.id === 'sta-1')!
+    sta.pos = { x: 15, y: 7, z: 1 }
+    sta.caps.generation = 'nonht'
+    const rs = runSc(sc, 200 * MS)
+    const data = txs(rs, (r) => r.node === 'sta-1' && r.frame.kind === 'data')
+    expect(txs(rs, (r) => r.frame.kind === 'ack').length).toBeGreaterThan(50)
+    for (const d of data) {
+      expect(d.frame.widthMhz).toBe(20)
+      expect(d.frame.txTimeNs).toBeGreaterThan(1_000_000)
+    }
+  })
+})
+
+describe('lesson 16 · spatial streams', () => {
+  it('Router 4 · Phone 2 is frame-for-frame identical to 2 streams', () => {
+    // "Router 4 · Phone 2 is indistinguishable from 2 streams: the same 88.8 µs, the same blocks in the same places."
+    const trace = (v: number) => txs(recs('streams', 200 * MS, v)).map((r) => [r.t, r.node, r.frame.kind, r.frame.txTimeNs])
+    expect(trace(3)).toEqual(trace(1))
+  })
+})
+
+describe('lesson 17 · MU-MIMO', () => {
+  it('without the laptop’s backup, multi-user PPDUs of either kind become rare', () => {
+    // "Turn the laptop’s backup traffic off and reload. … multi-user PPDUs — of either kind — become rare"
+    for (const v of [0, 1]) {
+      const share = (rs: TLRecord[]) => {
+        const ap = txs(rs, (r) => r.node === 'ap' && r.frame.kind === 'data')
+        return ap.filter((r) => r.frame.muParts !== undefined).length / ap.length
+      }
+      const sc = lesson('mumimo').variants![v].scenario()
+      sc.nodes.find((n) => n.id === 'sta-4')!.profiles = []
+      expect(share(runSc(sc, 500 * MS))).toBeLessThan(0.05)
+      expect(share(recs('mumimo', 500 * MS, v))).toBeGreaterThan(0.3)
+    }
+  })
+})
+
+describe('lesson 5 and 7 · experiments', () => {
+  it('lesson 5: a door on the stations’ line of sight un-hides them; a door elsewhere does not', () => {
+    // "punch a door near the top of a hallway wall, on the stations’ line of sight (y ≈ 7.2) — …
+    // they start hearing each other again. A door elsewhere changes nothing"
+    const link = (from: number | null) => {
+      const sc = lesson('hidden').scenario()
+      if (from !== null) sc.walls.find((w) => w.x1 === 4 && w.x2 === 4)!.openings = [{ from, to: from + 0.9 }]
+      return buildLinkTable(sc.nodes, sc.walls).get('sta-1')!.get('sta-2')!
+    }
+    expect(link(null)).toBeLessThan(CCA_PD_DBM)
+    expect(link(6.8)).toBeGreaterThan(CCA_PD_DBM)
+    expect(link(1)).toBe(link(null))
+    expect(link(3.5)).toBe(link(null))
+  })
+
+  it('lesson 7: two VO queues collide more often than VO beside a BE uploader', () => {
+    // "Change the uploader’s traffic to voice too — watch two VO queues collide more often."
+    const rate = (rs: TLRecord[]) => ofType(rs, 'COLLISION').filter((c) => c.nodes.includes('sta-1')).length
+      / txs(rs, (r) => r.node === 'sta-1' && r.frame.kind === 'data').length
+    const sc = lesson('edca').scenario()
+    sc.nodes.find((n) => n.id === 'sta-2')!.profiles = ['voice']
+    expect(rate(runSc(sc, 1_000 * MS))).toBeGreaterThan(1.3 * rate(recs('edca', 1_000 * MS)))
   })
 })

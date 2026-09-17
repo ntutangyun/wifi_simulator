@@ -1160,7 +1160,7 @@ export const LESSONS: Lesson[] = [
     observe: [
       { en: 'Hover the wide blue block: “DL MU PPDU → n stations”, with per-user parts inside.', zh: '悬停宽蓝块：“下行 MU PPDU → n 个终端”，内部含每用户的分片。' },
       { en: 'After one SIFS, several BA blocks start at the *same instant* on different lanes — RU-orthogonal, no collision.', zh: '一个 SIFS 之后，多个 BA 块在不同泳道的同一瞬间开始——RU 正交，互不碰撞。' },
-      { en: 'Compare with lesson 9: the same three flows needed three separate contentions there.', zh: '对比第 9 课：同样的三路流量在那里需要三次独立竞争。' },
+      { en: 'Compare with lesson 9: there every frame to a TV was its own exchange with its own ACK, one after another; here one PPDU carries frames for two TVs at once and their BlockAcks come back together.', zh: '对比第 9 课：那里发给电视的每一帧都是一次独立的交换、各回各的 ACK、一个接一个；这里一个 PPDU 同时装着发给两台电视的帧，它们的 BlockAck 也一起返回。' },
     ],
     tryThis: [
       { en: 'Turn OFDMA off on one TV: it drops out of MU groups and is served separately.', zh: '关闭其中一台电视的 OFDMA：它会退出 MU 分组，被单独服务。' },
