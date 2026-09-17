@@ -6,6 +6,7 @@ import { describe, it, expect } from 'vitest'
 import {
   rolesStack, rolesStackScenario, firstUplinkData, firstDownlinkData, firstRelayHop1, firstRelayHop2,
 } from '../../src/course/tier1/roles-stack'
+import { lessonMinutes, lessonWords } from '../../src/course/curriculum'
 import type { Block, L10n } from '../../src/course/lessonKit'
 import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
 import { Simulation } from '../../src/engine/simulation'
@@ -27,7 +28,7 @@ const ids = (r: Tx): number[] => r.frame.ampdu?.msduIds ?? (r.frame.msduId !== u
 const dataTx = (rs: TLRecord[]): Tx[] => rs.filter((r): r is Tx => r.type === 'TX_START' && r.frame.kind === 'data')
 
 function words(s: string): number {
-  return s.split(/\s+/).filter((w) => /[\p{L}\p{N}]/u.test(w)).length
+  return s.split(/\s+/).filter(Boolean).length
 }
 function blockTexts(b: Block): L10n[] {
   const out: L10n[] = b.heading ? [b.heading] : []
@@ -36,6 +37,7 @@ function blockTexts(b: Block): L10n[] {
     case 'list':
     case 'steps': return [...out, ...b.items]
     case 'formula': return [...out, b.text, ...(b.note ? [b.note] : [])]
+    case 'widget': return [...out, ...(b.caption ? [b.caption] : [])]
     default: return [...out, b.text]
   }
 }
@@ -48,16 +50,20 @@ describe('roles-stack · structure', () => {
     expect(rolesStack.tryThis.length).toBe(2)
   })
 
-  it('minutes = round-to-5 of EN words / 150 + 5 per observe + 5 per try-this', () => {
+  it('study time follows the curriculum formula and stays inside the target band', () => {
+    // lessonWords walks the bilingual strings; this is an independent count of
+    // the same EN prose, so a structural change in either is caught here.
     const texts: L10n[] = [
-      rolesStack.title,
       ...rolesStack.body.flatMap(blockTexts),
       ...rolesStack.observe, ...rolesStack.tryThis,
       ...rolesStack.quiz.flatMap((q) => [q.q, ...q.options, q.explain]),
     ]
     const n = texts.reduce((s, t) => s + words(t.en), 0)
+    expect(lessonWords(rolesStack)).toBe(n)
     const raw = n / 150 + 5 * rolesStack.observe.length + 5 * rolesStack.tryThis.length
-    expect(rolesStack.minutes).toBe(Math.round(raw / 5) * 5)
+    expect(lessonMinutes(rolesStack)).toBe(Math.max(5, Math.round(raw / 5) * 5))
+    expect(lessonMinutes(rolesStack)).toBeGreaterThanOrEqual(15)
+    expect(lessonMinutes(rolesStack)).toBeLessThanOrEqual(30)
   })
 })
 
