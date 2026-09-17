@@ -202,12 +202,30 @@ export function mcsForRssi(mode: PhyMode, rssiDbm: number, maxMcs?: number, widt
   return best
 }
 
+function modeEntry(arr: number[], mode: PhyMode, mcs: number): number {
+  const v = arr[mcs]
+  if (v === undefined) throw new Error(`invalid MCS ${mcs} for ${mode}`)
+  return v
+}
+
 export function mcsRateMbps(mode: PhyMode, mcs: number): number {
-  return PHY_MODES[mode].mbps[mcs]
+  return modeEntry(PHY_MODES[mode].mbps, mode, mcs)
 }
 
 export function sinrThreshModeDb(mode: PhyMode, mcs: number, widthMhz = 20): number {
-  return PHY_MODES[mode].sensDbm[mcs] - NOISE_DBM + widthPenaltyDb(widthMhz)
+  return modeEntry(PHY_MODES[mode].sensDbm, mode, mcs) - NOISE_DBM + widthPenaltyDb(widthMhz)
+}
+
+/**
+ * Non-HT reference rate per VHT/HE/EHT MCS: the clause-17 rate with the same
+ * constellation and code rate; 64-QAM 5/6 and every denser constellation map
+ * to 54 Mbps. Same mapping as ns-3's Ht/Vht/HePhy::CalculateNonHtReferenceRate.
+ */
+export const NONHT_REF_MBPS = [6, 12, 18, 24, 36, 48, 54, 54, 54, 54, 54, 54, 54, 54]
+
+/** Control response rate: highest mandatory rate ≤ the eliciting PPDU's non-HT reference rate. */
+export function ctrlRespRateForMode(mode: PhyMode, mcs: number, mbps: number): number {
+  return ctrlRespRateFor(mode === 'nonht' ? mbps : modeEntry(NONHT_REF_MBPS, mode, mcs))
 }
 
 // EDCA defaults — 802.11-2024 Table 9-194, clause-17/19/21/27 PHY column.
@@ -244,4 +262,4 @@ export function multiStaBaBytes(nUsers: number): number {
 export const AMPDU_DELIMITER_BYTES = 4
 export const QOS_HDR_BYTES = 26
 export const MAX_AMPDU_MPDUS = 64
-export const MAX_PPDU_NS = 4_000_000 // aggregation duration cap (≈ aPPDUMaxTime)
+export const MAX_PPDU_NS = 5_484_000 // aPPDUMaxTime (HT-MF/VHT/HE/EHT)

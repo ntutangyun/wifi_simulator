@@ -23,7 +23,7 @@ import {
   ACK_BYTES, ACK_TIMEOUT_NS, BA_BYTES, CF_END_BYTES, CTS_BYTES, CTS_TIMEOUT_NS, DCF_PARAMS, DIFS_NS,
   EDCA_PARAMS, EIFS_NS, LONG_RETRY_LIMIT, MAX_AMPDU_MPDUS, MAX_PPDU_NS, PHY_MODES,
   QOS_HDR_BYTES, FCS_BYTES, RTS_BYTES, SHORT_RETRY_LIMIT, SIFS_NS, SLOT_NS,
-  aifsNs, ctrlRespRateFor, mcsRateMbps, multiStaBaBytes, triggerBytes, toneRatio, txTimeModeNs, txTimeNs,
+  aifsNs, ctrlRespRateFor, ctrlRespRateForMode, mcsRateMbps, multiStaBaBytes, triggerBytes, toneRatio, txTimeModeNs, txTimeNs,
   type AcParams, type PhyMode,
 } from './phy'
 import { Rng } from './rng'
@@ -431,7 +431,7 @@ export class WifiMac implements PhyListener {
       : this.cfg.edca
         ? QOS_HDR_BYTES + msdus[0].bytes + FCS_BYTES
         : dataPsduBytes(msdus[0].bytes)
-    const respTime = txTimeNs(aggregate ? BA_BYTES : ACK_BYTES, ctrlRespRateFor(mbps))
+    const respTime = txTimeNs(aggregate ? BA_BYTES : ACK_BYTES, ctrlRespRateForMode(mode, mcs, mbps))
 
     const prot = this.cfg.txopProtection ?? 'single'
     const txopCapable = this.cfg.txop && this.cfg.edca && e.params.txopLimitNs > 0
@@ -440,7 +440,7 @@ export class WifiMac implements PhyListener {
     // the TXOP (§9.2.5.2, "time remaining in the TXOP"); a burst that finishes
     // early gives the rest back with CF-End (§10.23.2.9).
     const dataTime = txTimeModeNs(mode, psdu, mcs, { widthMhz: width, nss })
-    const rtsRate = ctrlRespRateFor(mbps)
+    const rtsRate = ctrlRespRateForMode(mode, mcs, mbps)
     const ctsTime = txTimeNs(CTS_BYTES, ctrlRespRateFor(rtsRate))
     const rtsTime = txTimeNs(RTS_BYTES, rtsRate)
     let burstRestNs = 0
@@ -505,7 +505,7 @@ export class WifiMac implements PhyListener {
       const aggregate = useAmpdu && bytes.length > 1
       const psdu = aggregate ? ampduPsduBytes(bytes) : this.cfg.edca ? QOS_HDR_BYTES + bytes[0] + FCS_BYTES : dataPsduBytes(bytes[0])
       const mbps = mcsRateMbps(mode, mcs)
-      const resp = txTimeNs(aggregate ? BA_BYTES : ACK_BYTES, ctrlRespRateFor(mbps))
+      const resp = txTimeNs(aggregate ? BA_BYTES : ACK_BYTES, ctrlRespRateForMode(mode, mcs, mbps))
       t += SIFS_NS + txTimeModeNs(mode, psdu, mcs, { widthMhz: width, nss }) + SIFS_NS + resp
       i = j
       void e
@@ -1074,7 +1074,7 @@ export class WifiMac implements PhyListener {
           if (this.noteDelivered(id)) this.hooks.onMsduDelivered?.(id, t)
         }
         const isBa = frame.ampdu !== undefined
-        const rate = ctrlRespRateFor(frame.mbps)
+        const rate = ctrlRespRateForMode(frame.mode ?? 'nonht', frame.mcs ?? 0, frame.mbps)
         const respBytes = isBa ? BA_BYTES : ACK_BYTES
         this.scheduleResponse(t, {
           kind: isBa ? 'ba' : 'ack', src: this.nodeId, dst: from, bytes: respBytes,
@@ -1167,7 +1167,7 @@ export class WifiMac implements PhyListener {
             const nss = this.cfg.nssForPeer(aw.peer)
             const mbps = mcsRateMbps(mode, mcs)
             const aggregate = aw.msdus.length > 1
-            const respTime = txTimeNs(aggregate ? BA_BYTES : ACK_BYTES, ctrlRespRateFor(mbps))
+            const respTime = txTimeNs(aggregate ? BA_BYTES : ACK_BYTES, ctrlRespRateForMode(mode, mcs, mbps))
             const frame2 = this.buildDataFrame(e, aw.peer, aw.msdus, aw.aggBytes, mode, mcs, mbps, aggregate, respTime, width, nss)
             this.awaiting = { ...aw, kind: aggregate ? 'ba' : 'ack', wasRts: false }
             this.transmitFrame(frame2, true)

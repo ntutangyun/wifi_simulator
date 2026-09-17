@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { PHY_MODES, mcsForRssi, mcsRateMbps, txTimeModeNs, sinrThreshModeDb, EDCA_PARAMS, aifsNs } from '../../src/engine/phy'
+import { PHY_MODES, MAX_PPDU_NS, ctrlRespRateForMode, mcsForRssi, mcsRateMbps, txTimeModeNs, sinrThreshModeDb, EDCA_PARAMS, aifsNs } from '../../src/engine/phy'
 import { ampduPsduBytes, ampduSubframeBytes } from '../../src/model/frames'
 import { defaultFeatures, hasFeature, linkPlanFor, minGen, negotiated, virtualId } from '../../src/model/caps'
 import { defaultScenario } from '../../src/model/scenario'
@@ -92,5 +92,23 @@ describe('capabilities', () => {
     const laptop = { ...sc.nodes[2], caps: { generation: 'vht' as const, features: { ofdma: true } } }
     expect(hasFeature(laptop, 'ofdma')).toBe(false) // vht cannot ofdma
     expect(virtualId('ap', '6g')).toBe('ap#6g')
+  })
+})
+
+describe('standard alignment A — PHY', () => {
+  it('aPPDUMaxTime is 5.484 ms for HT/VHT/HE/EHT', () => {
+    expect(MAX_PPDU_NS).toBe(5_484_000)
+  })
+  it('control responses use the non-HT reference rate of the eliciting MCS', () => {
+    // MCS 2 is QPSK 3/4 → reference 18 Mbps → highest mandatory ≤ 18 is 12
+    expect(ctrlRespRateForMode('he', 2, mcsRateMbps('he', 2))).toBe(12)
+    expect(ctrlRespRateForMode('vht', 3, mcsRateMbps('vht', 3))).toBe(24)
+    expect(ctrlRespRateForMode('eht', 13, mcsRateMbps('eht', 13))).toBe(24)
+    expect(ctrlRespRateForMode('he', 0, mcsRateMbps('he', 0))).toBe(6)
+    expect(ctrlRespRateForMode('nonht', 7, 54)).toBe(24)
+  })
+  it('an MCS the mode does not define throws instead of yielding NaN', () => {
+    expect(() => sinrThreshModeDb('he', 12)).toThrow(/invalid MCS 12 for he/)
+    expect(() => mcsRateMbps('vht', 9)).toThrow(/invalid MCS 9 for vht/)
   })
 })
