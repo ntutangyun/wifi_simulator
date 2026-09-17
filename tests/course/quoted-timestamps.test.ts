@@ -30,7 +30,7 @@ it('quoted lesson timestamps still hold', () => {
 
   const l6 = run('anomaly', 2_000_000)
   expect(l6.filter((x) => x.type === 'TX_START' && x.t === 0).length).toBe(2)
-  expect(l6.find((x) => x.type === 'ACK_TIMEOUT' && x.node === 'sta-2')?.t).toBe(1_089_000)
+  expect(l6.find((x) => x.type === 'ACK_TIMEOUT' && x.node === 'sta-2')?.t).toBe(749_000)
 })
 
 /**
@@ -80,8 +80,9 @@ it('lesson 15 quotes the airtimes, symbol counts and MCS its own variants produc
     { label: '20 MHz', widthMhz: 20, mcs: 13, mbps: 172.1, airtimeNs: 129_600, symbols: 6 },
     { label: '40 MHz', widthMhz: 40, mcs: 13, mbps: 172.1, airtimeNs: 88_800, symbols: 3 },
     { label: '80 MHz', widthMhz: 80, mcs: 13, mbps: 172.1, airtimeNs: 75_200, symbols: 2 },
-    // the 9 dB a 160 MHz channel costs, arriving: MCS 13 → 12 at the same desk
-    { label: '160 MHz', widthMhz: 160, mcs: 12, mbps: 154.9, airtimeNs: 61_600, symbols: 1 },
+    // the 9 dB of extra noise a 160 MHz channel takes in is still affordable on this desk:
+    // 48.8 dB of SNR against the 48.0 MCS 13 asks for, so the modulation holds
+    { label: '160 MHz', widthMhz: 160, mcs: 13, mbps: 172.1, airtimeNs: 61_600, symbols: 1 },
   ]
   l.variants!.forEach((v, i) => checkVariant(v.scenario(), quotes[i]))
   // "Load opens the widest case, 160 MHz" — and Open in editor hands over that one.
@@ -97,7 +98,7 @@ it('lesson 16 quotes the airtimes its own variants produce, and negotiates down'
     // a four-stream router and a two-stream phone make a two-stream link
     { label: 'Router 4 · Phone 2', widthMhz: 20, mcs: 13, mbps: 172.1, airtimeNs: 88_800, symbols: 3 },
     // widest channel + most streams: still one symbol, so still lesson 15's 61.6 µs
-    { label: '160 MHz · 4 streams', widthMhz: 160, mcs: 12, mbps: 154.9, airtimeNs: 61_600, symbols: 1 },
+    { label: '160 MHz · 4 streams', widthMhz: 160, mcs: 13, mbps: 172.1, airtimeNs: 61_600, symbols: 1 },
   ]
   l.variants!.forEach((v, i) => checkVariant(v.scenario(), quotes[i]))
   checkVariant(l.scenario(), quotes[0])
@@ -107,7 +108,7 @@ it('lesson 16 quotes the airtimes its own variants produce, and negotiates down'
   expect(nssOf(mixed.nodes.find((n) => n.id === 'sta-1')!)).toBe(2)
 })
 
-it('lesson 15’s far-corner experiment breaks the wide channels and only the wide channels', () => {
+it('lesson 15’s far-corner experiment breaks the widest channel and only the widest', () => {
   const l = LESSONS.find((x) => x.id === 'width')!
   // "drag the laptop into the far corner of the living room, through the brick wall"
   const far = (i: number) => {
@@ -119,27 +120,36 @@ it('lesson 15’s far-corner experiment breaks the wide channels and only the wi
       drops: recs.filter((r) => r.type === 'DROP').length,
     }
   }
-  // 20 and 40 MHz still deliver from that corner…
-  expect(far(0).acks).toBeGreaterThan(50)
-  expect(far(1).acks).toBeGreaterThan(50)
-  // …80 and 160 MHz deliver nothing at all: "not one ACK comes back".
-  for (const i of [2, 3]) {
-    expect(far(i).acks, `variant ${l.variants![i].label.en} must be dead in the corner`).toBe(0)
-    expect(far(i).drops).toBeGreaterThan(0)
+  // 20, 40 and 80 MHz still deliver from that corner…
+  for (const i of [0, 1, 2]) expect(far(i).acks, `variant ${l.variants![i].label.en}`).toBeGreaterThan(50)
+  // …160 MHz delivers nothing at all: "not one ACK comes back".
+  expect(far(3).acks, `variant ${l.variants![3].label.en} must be dead in the corner`).toBe(0)
+  expect(far(3).drops).toBeGreaterThan(0)
+  // "80 MHz delivers at 401.6 µs a frame, 20 MHz at 524.0, and 40 MHz … 768.8"
+  const airtime = (i: number) => {
+    const sc = l.variants![i].scenario()
+    sc.nodes.find((n) => n.id === 'sta-1')!.pos = { x: 15, y: 7, z: 1 }
+    const recs = [...new Simulation(sc).runUntil(200_000_000).records]
+    const data = recs.filter((r): r is Extract<TLRecord, { type: 'TX_START' }> =>
+      r.type === 'TX_START' && r.frame.kind === 'data' && r.frame.bytes > 1000)
+    return new Set(data.map((r) => r.frame.txTimeNs))
   }
+  expect([...airtime(0)]).toEqual([524_000])
+  expect([...airtime(1)]).toEqual([768_800])
+  expect([...airtime(2)]).toEqual([401_600])
 })
 
 /**
  * Lesson 15's "When wider is slower" paragraph and the first half of its second
  * experiment quote a second laptop position: seven and a half squares right of
  * the router and two down, (10.5, 6), just inside the living room. That claim is
- * far more fragile than the desk one — the RSSI band in which 80 MHz is genuinely
- * slower than 40 MHz while both still decode is only about 1 dB wide (-70.98 to
- * -69.98 dBm), and this position sits at -70.51, near its centre with ~0.5 dB to
+ * far more fragile than the desk one — the RSSI band in which 160 MHz is genuinely
+ * slower than 80 MHz while both still decode is only about 1 dB wide (-70.98 to
+ * -69.97 dBm), and this position sits at -70.51, near its centre with ~0.5 dB to
  * either edge. A silent drift of half a decibel would turn the paragraph into a
  * lie, so the whole ladder is pinned, MCS included.
  */
-it('lesson 15’s second experiment position really inverts 40 → 80 MHz, with every frame delivered', () => {
+it('lesson 15’s second experiment position really inverts 80 → 160 MHz, with every frame delivered', () => {
   const l = LESSONS.find((x) => x.id === 'width')!
   const walk = (i: number) => {
     const sc = l.variants![i].scenario()
@@ -161,17 +171,19 @@ it('lesson 15’s second experiment position really inverts 40 → 80 MHz, with 
   }
   const [w20, w40, w80, w160] = [0, 1, 2, 3].map(walk)
 
-  // "415.2 µs at 20 MHz, 292.8 at 40, and then back up to 401.6 at 80 … 224.8 µs"
+  // "415.2 µs at 20 MHz, 238.4 at 40, 170.4 at 80, and then back up to 224.8 at 160"
   expect(w20.airtimeNs).toBe(415_200)
-  expect(w40.airtimeNs).toBe(292_800)
-  expect(w80.airtimeNs).toBe(401_600)
+  expect(w40.airtimeNs).toBe(238_400)
+  expect(w80.airtimeNs).toBe(170_400)
   expect(w160.airtimeNs).toBe(224_800)
   // the inversion itself, stated as the property rather than as four constants
-  expect(w80.airtimeNs).toBeGreaterThan(w40.airtimeNs)
+  expect(w160.airtimeNs).toBeGreaterThan(w80.airtimeNs)
+  // "Against 40 MHz the widest channel still wins, just barely"
+  expect(w160.airtimeNs).toBeLessThan(w40.airtimeNs)
 
   // "two modulation steps at that spot, MCS 2 down to MCS 0" — the 2 dB rungs
-  // in EHT_SENS (-79 → -77) let a single 3 dB width penalty skip two indices.
-  expect([w20.mcs, w40.mcs, w80.mcs, w160.mcs]).toEqual([3, 2, 0, 0])
+  // in EHT_SENS let a single 3 dB width penalty skip straight over MCS 1.
+  expect([w20.mcs, w40.mcs, w80.mcs, w160.mcs]).toEqual([3, 3, 2, 0])
 
   // "every width still delivers — no retries, no drops": this is what separates
   // this experiment from the far-corner one, where the wide channels go silent.
@@ -211,14 +223,14 @@ it('lesson 17 quotes the OFDMA and MU-MIMO PPDUs its own variants produce', () =
 
   // "92.8 µs … 12,918 B" — the first equal-payload 3-member OFDMA PPDU.
   const ofdmaClean = ofdma.find((r) => r.frame.muParts.length === 3 && new Set(r.frame.muParts.map((p) => p.bytes)).size === 1)!
-  expect(ofdmaClean.t).toBe(5_674_200)
+  expect(ofdmaClean.t).toBe(2_767_400)
   expect(ofdmaClean.frame.txTimeNs).toBe(92_800)
   expect(ofdmaClean.frame.bytes).toBe(12_918)
   expect(ofdmaClean.frame.muParts.every((p) => p.bytes === 4_306)).toBe(true)
 
   // "65.6 µs … 8,612 B" — the first equal-payload 2-member MU-MIMO PPDU.
   const mumimoClean = mumimo.find((r) => new Set(r.frame.muParts.map((p) => p.bytes)).size === 1 && r.frame.muParts[0].bytes === 4_306)!
-  expect(mumimoClean.t).toBe(5_636_800)
+  expect(mumimoClean.t).toBe(2_740_200)
   expect(mumimoClean.frame.txTimeNs).toBe(65_600)
   expect(mumimoClean.frame.bytes).toBe(8_612)
 
@@ -255,14 +267,14 @@ it('lesson 17 quotes the OFDMA and MU-MIMO PPDUs its own variants produce', () =
     if (nextMu && nextMu.frame.muParts!.some((p) => p.dst === trimmed)) sweptIntoNextMu++
     else neither++
   }
-  expect(twoMember.length).toBe(214)
-  expect(followedByTrimmedSu).toBe(124)
-  expect(sweptIntoNextMu).toBe(72)
-  expect(neither).toBe(18)
-  // the three cases are exhaustive, and the quoted percentages round to 58 / 34 / 8
+  expect(twoMember.length).toBe(196)
+  expect(followedByTrimmedSu).toBe(122)
+  expect(sweptIntoNextMu).toBe(65)
+  expect(neither).toBe(9)
+  // the three cases are exhaustive, and the quoted percentages round to 62 / 33 / 5
   expect(followedByTrimmedSu + sweptIntoNextMu + neither).toBe(twoMember.length)
   const share3 = [followedByTrimmedSu, sweptIntoNextMu, neither].map((n) => Math.round((n / twoMember.length) * 100))
-  expect(share3).toEqual([58, 34, 8])
+  expect(share3).toEqual([62, 33, 5])
 })
 
 /**
@@ -556,19 +568,19 @@ it('lesson 18’s claim that multi-user PPDUs report an outcome to the rate cont
     const muParts = muPpdus.flatMap((r) => r.frame.muParts!).filter((p) => PHONES.has(p.dst))
     const forPhones = reports.filter((p) => PHONES.has(p.peer))
 
-    // "172 multi-user PPDUs carrying 507 parts addressed to phones … 637 outcome reports for
-    // those phones in total, 130 from ordinary single-user frames and 507 from multi-user
-    // parts (577 successes, 60 failures)"
-    expect(muPpdus.length).toBe(165)
-    expect(muParts.length).toBe(487)
-    expect(su.length).toBe(136)
-    expect(forPhones.length).toBe(623)
+    // "169 multi-user PPDUs carrying 492 parts addressed to phones … 620 outcome reports for
+    // those phones in total, 128 from ordinary single-user frames and 492 from multi-user
+    // parts (597 successes, 23 failures)"
+    expect(muPpdus.length).toBe(169)
+    expect(muParts.length).toBe(492)
+    expect(su.length).toBe(128)
+    expect(forPhones.length).toBe(620)
     // one report per single-user frame, and one per multi-user part addressed to a phone —
     // success or failure, symmetrically, which is what lets a rate used only inside
     // multi-user PPDUs adapt at all.
     expect(forPhones.length - su.length).toBe(muParts.length)
-    expect(forPhones.filter((p) => p.ok).length).toBe(593)
-    expect(forPhones.filter((p) => !p.ok).length).toBe(30)
+    expect(forPhones.filter((p) => p.ok).length).toBe(597)
+    expect(forPhones.filter((p) => !p.ok).length).toBe(23)
   } finally {
     RateControl.prototype.onSuccess = okOrig
     RateControl.prototype.onFailure = failOrig

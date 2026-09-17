@@ -595,9 +595,9 @@ describe('lesson 13 · MLO', () => {
 })
 
 describe('lesson 15 · channel width', () => {
-  it('in the far corner an 802.11a laptop falls back to 20 MHz and gets ACKs, at over a millisecond a frame', () => {
+  it('in the far corner an 802.11a laptop falls back to 20 MHz and gets ACKs, at 704 µs a frame', () => {
     // "switch it to 802.11a (legacy) in the editor … the link falls back to 20 MHz — and the ACKs
-    // come back, at over a millisecond per frame."
+    // come back, at 704 µs a frame: 18 Mb/s"
     const sc = lesson('width').scenario()
     const sta = sc.nodes.find((n) => n.id === 'sta-1')!
     sta.pos = { x: 15, y: 7, z: 1 }
@@ -607,8 +607,11 @@ describe('lesson 15 · channel width', () => {
     expect(txs(rs, (r) => r.frame.kind === 'ack').length).toBeGreaterThan(50)
     for (const d of data) {
       expect(d.frame.widthMhz).toBe(20)
-      expect(d.frame.txTimeNs).toBeGreaterThan(1_000_000)
+      expect(d.frame.txTimeNs).toBe(704_000)
+      expect(d.frame.mbps).toBe(18)
     }
+    // "five and a half times the airtime the same frame took on the desk" (129.6 µs at 20 MHz)
+    expect(Math.round((704_000 / 129_600) * 2) / 2).toBe(5.5)
   })
 })
 
@@ -686,9 +689,9 @@ describe('lesson 14 · capstone', () => {
     expect(mean(sensorMoved.v['sta-4'].stats.rxLatency)).toBe(mean(base.v['sta-4'].stats.rxLatency))
   })
 
-  it('with the backup stopped “the tablet’s page latency falls from about 58 ms to under a millisecond, and even the voice call’s halves”', () => {
-    expect(mean(base.v['sta-4'].stats.rxLatency)).toBeGreaterThan(50)
-    expect(mean(base.v['sta-4'].stats.rxLatency)).toBeLessThan(65)
+  it('with the backup stopped “the tablet’s page latency falls from about 39 ms to half a millisecond, and even the voice call’s halves”', () => {
+    expect(mean(base.v['sta-4'].stats.rxLatency)).toBeGreaterThan(35)
+    expect(mean(base.v['sta-4'].stats.rxLatency)).toBeLessThan(45)
     expect(mean(noBackup.v['sta-4'].stats.rxLatency)).toBeLessThan(1)
     expect(mean(noBackup.v['sta-3'].stats.txLatency)).toBeLessThan(mean(base.v['sta-3'].stats.txLatency) / 2)
     for (const id of ['sta-2', 'sta-3', 'sta-4', 'sta-6']) {
@@ -697,10 +700,10 @@ describe('lesson 14 · capstone', () => {
     }
   })
 
-  it('“turn it off and the tablet waits about 100 ms” — almost twice as long', () => {
+  it('“turn it off and the tablet waits about 110 ms” — nearly three times as long', () => {
     const t = mean(noMlo.v['sta-4'].stats.rxLatency)
-    expect(t).toBeGreaterThan(90)
-    expect(t).toBeLessThan(110)
-    expect(t / mean(base.v['sta-4'].stats.rxLatency)).toBeGreaterThan(1.5)
+    expect(t).toBeGreaterThan(100)
+    expect(t).toBeLessThan(120)
+    expect(t / mean(base.v['sta-4'].stats.rxLatency)).toBeGreaterThan(2.5)
   })
 })
