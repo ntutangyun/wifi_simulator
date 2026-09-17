@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { PHY_MODES, MAX_PPDU_NS, ctrlRespRateForMode, mcsForRssi, mcsRateMbps, txTimeModeNs, sinrThreshModeDb, EDCA_PARAMS, aifsNs } from '../../src/engine/phy'
+import { PHY_MODES, MAX_PPDU_NS, ctrlRespRateForMode, mcsForRssi, mcsRateMbps, txTimeModeNs, reqSinrDb, EDCA_PARAMS, aifsNs } from '../../src/engine/phy'
 import { ampduPsduBytes, ampduSubframeBytes } from '../../src/model/frames'
 import { defaultFeatures, hasFeature, linkPlanFor, minGen, negotiated, virtualId } from '../../src/model/caps'
 import { defaultScenario } from '../../src/model/scenario'
@@ -43,7 +43,7 @@ describe('PHY modes', () => {
     expect(mcsForRssi('eht', -40)).toBe(13)
     expect(mcsForRssi('eht', -40, 11)).toBe(11) // qam4k off → cap
     expect(mcsForRssi('he', -90)).toBe(0)
-    expect(sinrThreshModeDb('he', 11)).toBeCloseTo(38.99, 2)
+    expect(reqSinrDb('he', 11)).toBeCloseTo(38.99, 2)
   })
 })
 
@@ -108,7 +108,7 @@ describe('standard alignment A — PHY', () => {
     expect(ctrlRespRateForMode('nonht', 7, 54)).toBe(24)
   })
   it('an MCS the mode does not define throws instead of yielding NaN', () => {
-    expect(() => sinrThreshModeDb('he', 12)).toThrow(/invalid MCS 12 for he/)
+    expect(() => reqSinrDb('he', 12)).toThrow(/invalid MCS 12 for he/)
     expect(() => mcsRateMbps('vht', 9)).toThrow(/invalid MCS 9 for vht/)
   })
 })

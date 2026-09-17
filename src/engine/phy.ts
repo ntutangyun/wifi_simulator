@@ -188,10 +188,6 @@ export function toneRatio(mode: PhyMode, widthMhz: number): number {
   return tones / table[20]
 }
 
-/** Noise bandwidth grows with the channel: 10·log10(W/20) dB, i.e. 3 dB per doubling (now carried by noiseDbm). */
-export function widthPenaltyDb(widthMhz: number): number {
-  return 10 * Math.log10(widthMhz / 20)
-}
 
 export interface TxTimeOpts {
   mu?: boolean
@@ -247,10 +243,6 @@ export function reqSinrDb(mode: PhyMode, mcs: number): number {
   return modeEntry(PHY_MODES[mode].sensDbm, mode, mcs) - noiseDbm(20, STANDARD_NF_DB)
 }
 
-/** @deprecated width no longer changes the requirement; kept for callers that pass it. */
-export function sinrThreshModeDb(mode: PhyMode, mcs: number, _widthMhz = 20): number {
-  return reqSinrDb(mode, mcs)
-}
 
 /**
  * Non-HT reference rate per VHT/HE/EHT MCS: the clause-17 rate with the same

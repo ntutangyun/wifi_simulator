@@ -34,8 +34,9 @@ export const MODULES: CourseModule[] = [
 ]
 
 /**
- * Reading order by lesson id. A lesson not listed here is not part of the
- * course yet; LESSONS contains exactly the listed lessons, in this order.
+ * Reading order by lesson id. LESSONS is the authored lessons sorted by this
+ * list; an id listed here with no authored lesson is simply skipped, and an
+ * authored lesson missing from the list is an error (see orderLessons).
  */
 export const COURSE_ORDER: string[] = [
   // Tier 1 — M1 the network and the frame

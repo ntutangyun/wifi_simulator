@@ -255,7 +255,7 @@ function decodeData(f: FrameDesc, ctx: DecodeCtx): UserPsdu[] {
     return f.muParts.map((p) => {
       const sizes = p.msduBytes ?? []
       const mpdus = sizes.map((b, i) => dataMpdu({
-        src: f.src, dst: p.dst, durationNs: f.durationFieldNs, retry: false, qos: true, ac: p.ac ?? f.ac,
+        src: f.src, dst: p.dst, durationNs: f.durationFieldNs, retry: !!p.retryFlag, qos: true, ac: p.ac ?? f.ac,
         inAmpdu: true, seqNo: undefined, payloadBytes: b, msduId: p.msduIds[i],
       }, ctx.apId))
       return userPsdu(p.dst, aggregate(mpdus), true)

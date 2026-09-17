@@ -70,7 +70,8 @@ export interface WifiMacCfg {
   txopProtection?: TxopProtection
   /** A tampered driver: deviations from the broadcast EDCA parameters (see TamperCfg). */
   tamper?: TamperCfg
-  /** MSDUs per access-category queue (default 500) — used when this MAC creates its own queues. */
+  /** MSDUs per access-category queue (default 500), for a MAC that builds its own queues.
+   * Simulation always passes shared MLD queues, so this is a test-only knob; scenarios set `queue.limit`. */
   queueLimit?: number
   /** MSDU lifetime in the transmit queue (default 500 ms). */
   msduLifetimeNs?: Ns
@@ -100,7 +101,6 @@ interface Edcaf {
   needDraw: boolean
   /** QSRC[AC]: consecutive failed attempts of this EDCAF; drives CW (802.11-2020 §10.23.2.2). */
   qsrc: number
-  seqCounter: number
   ifsHandle: number
   tickHandle: number
 }
@@ -197,7 +197,7 @@ export class WifiMac implements PhyListener {
     this.queues = sharedQueues ?? new AcQueues(cfg.queueLimit)
     this.edcafs = effectiveParams(cfg.edca ? EDCA_PARAMS : [DCF_PARAMS], cfg.tamper).map((params) => ({
       params, cw: params.cwMin, backoff: null, needDraw: false,
-      qsrc: 0, seqCounter: 0, ifsHandle: 0, tickHandle: 0,
+      qsrc: 0, ifsHandle: 0, tickHandle: 0,
     }))
   }
 
@@ -592,7 +592,7 @@ export class WifiMac implements PhyListener {
     mode: PhyMode, mcs: number, mbps: number, aggregate: boolean, respTime: Ns,
     widthMhz: number, nss: number,
   ): FrameDesc {
-    this.assignSeq(e, msdus)
+    this.assignSeq(peer, this.edcafs.indexOf(e), msdus)
     const seqNo = msdus[0].seqNo!
     const txTime = txTimeModeNs(mode, psdu, mcs, { widthMhz, nss })
     // §9.2.4.1.6: Retry marks a retransmission of this MPDU. A failed RTS
@@ -679,6 +679,9 @@ export class WifiMac implements PhyListener {
       muParts: parts, orthogonalGroup: gid, muKind: useMumimo ? 'mumimo' : 'ofdma',
     }
     if (!inTxopBurst) this.beginTxop(e, t)
+    // Only now, with the PPDU going out, have these MSDUs been on the air; a
+    // group that fell apart above restored its claims untouched.
+    for (const c of claims) for (const m of c.msdus) m.sent = true
     const mu: MuDlState = { kind: 'dl', gid, ac: ei, parts: claims, successes: new Set(), resolveHandle: 0 }
     this.muState = mu
     this.transmitFrame(frame, false)
@@ -725,6 +728,7 @@ export class WifiMac implements PhyListener {
       parts.push({
         dst: peer, src: this.nodeId, bytes, mcs, mbps: mcsRateMbps(modeAll, mcs),
         msduIds: msdus.map((m) => m.id), msduBytes: msdus.map((m) => m.bytes), mpduCount: msdus.length, ac,
+        retryFlag: msdus.some((m) => m.sent),
         ...(mumimo ? { nss } : { ruFraction: frac }),
       })
       claims.push({ peer, msdus })
@@ -811,9 +815,9 @@ export class WifiMac implements PhyListener {
       kind: 'trigger', src: this.nodeId, dst: '*mu', bytes: tb, mbps: 24,
       durationFieldNs: SIFS_NS + ulDur + SIFS_NS + mbaTime,
       txTimeNs: txTimeNs(tb, 24), muParts: parts, orthogonalGroup: gid, ac: this.acTag(e),
-      // The Trigger goes out as a non-HT frame; this is the format it dictates
-      // for the TB PPDUs it solicits.
-      ulMode: mode,
+      // The Trigger goes out as a non-HT frame; these are the format and the
+      // bandwidth it dictates for the TB PPDUs it solicits (§9.3.1.22.1).
+      ulMode: mode, ulWidthMhz: ulWidth,
     }
     this.wantTrigger = false
     const mu: MuUlState = { kind: 'ul', gid, ac: this.edcafs.indexOf(e), users: users.map((u) => u.peer), received: new Map(), mbaHandle: 0, rxTimeoutHandle: 0 }
@@ -931,11 +935,9 @@ export class WifiMac implements PhyListener {
   }
 
   /** §10.3.2.14: an MSDU gets its sequence number on its first transmission and keeps it on every retry. */
-  private assignSeq(e: Edcaf, msdus: Msdu[]): void {
+  private assignSeq(peer: string, ei: number, msdus: Msdu[]): void {
     for (const m of msdus) {
-      if (m.seqNo !== undefined) continue
-      m.seqNo = e.seqCounter
-      e.seqCounter = (e.seqCounter + 1) % 4096
+      if (m.seqNo === undefined) m.seqNo = this.queues.nextSeq(peer, ei)
     }
   }
 
@@ -1238,7 +1240,10 @@ export class WifiMac implements PhyListener {
         if (this.awaiting?.kind === 'cts') {
           this.cancel('timeout')
           const aw = this.awaiting
-          this.edcafs[aw.ac].qsrc = 0 // CTS received: QSRC resets; the MSDUs keep their retry counts
+          // CTS received: QSRC resets (the MSDUs keep their retry counts). CW is
+          // unchanged, but the record carries the counter the inspector shows.
+          this.edcafs[aw.ac].qsrc = 0
+          this.emit({ t, type: 'CW_CHANGE', node: this.nodeId, cw: this.edcafs[aw.ac].cw, qsrc: 0, ac: this.acTag(this.edcafs[aw.ac]) })
           this.setState('sifsResp')
           this.respHandle = this.q.schedule(t + SIFS_NS, () => {
             this.respHandle = 0
@@ -1274,7 +1279,8 @@ export class WifiMac implements PhyListener {
       // The Trigger dictates the TB PPDU's format, not the station's own capability.
       const mode = trigger.ulMode ?? this.cfg.modeForPeer(trigger.src)
       const mcs = part.mcs
-      const width = this.cfg.widthForPeer(trigger.src)
+      // UL BW comes from the Trigger's Common Info, not from this station's own link.
+      const width = trigger.ulWidthMhz ?? this.cfg.widthForPeer(trigger.src)
       const nss = this.cfg.nssForPeer(trigger.src)
       const budget = maxPsduBytesFor(mode, mcs, frac, dur, width, nss)
       const msdus = this.queues.claim(ac, null, MAX_AMPDU_MPDUS, (m, claimed) =>
@@ -1287,11 +1293,13 @@ export class WifiMac implements PhyListener {
       const frame: FrameDesc = {
         kind: 'data', src: this.nodeId, dst: trigger.src, bytes, mbps: mcsRateMbps(mode, mcs),
         durationFieldNs: 0, txTimeNs: dur, // padded to the trigger's target duration
-        seqNo: (this.assignSeq(e, msdus), msdus[0].seqNo), mode, mcs, widthMhz: width, ac: this.acTag(e),
+        seqNo: (this.assignSeq(trigger.src, ac, msdus), msdus[0].seqNo), mode, mcs, widthMhz: width, ac: this.acTag(e),
+        retryFlag: msdus.some((m) => m.sent),
         msduBytes: msdus.map((m) => m.bytes),
         ampdu: { mpduCount: msdus.length, msduIds: msdus.map((m) => m.id) },
         orthogonalGroup: trigger.orthogonalGroup,
       }
+      for (const m of msdus) m.sent = true
       const mbaTime = txTimeNs(multiStaBaBytes(n), 24)
       this.staMuAwait = {
         ac, msdus,

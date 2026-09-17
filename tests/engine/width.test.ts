@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { PHY_MODES, noiseDbm, toneRatio, txTimeModeNs, mcsForRssi, sinrThreshModeDb, widthPenaltyDb } from '../../src/engine/phy'
+import { PHY_MODES, noiseDbm, toneRatio, txTimeModeNs, mcsForRssi, reqSinrDb } from '../../src/engine/phy'
 
 describe('channel width multiplies the bits carried per symbol', () => {
   it('uses the standard data-subcarrier counts for HE and EHT', () => {
@@ -95,16 +95,16 @@ describe('channel width multiplies the bits carried per symbol', () => {
 
 describe('a wider channel admits more noise, so every rate needs more signal', () => {
   it('costs 3 dB per doubling of width', () => {
-    expect(widthPenaltyDb(20)).toBeCloseTo(0, 2)
-    expect(widthPenaltyDb(40)).toBeCloseTo(3.01, 2)
-    expect(widthPenaltyDb(80)).toBeCloseTo(6.02, 2)
-    expect(widthPenaltyDb(160)).toBeCloseTo(9.03, 2)
-    expect(widthPenaltyDb(320)).toBeCloseTo(12.04, 2)
+    const base = noiseDbm(20)
+    expect(noiseDbm(40) - base).toBeCloseTo(3.01, 2)
+    expect(noiseDbm(80) - base).toBeCloseTo(6.02, 2)
+    expect(noiseDbm(160) - base).toBeCloseTo(9.03, 2)
+    expect(noiseDbm(320) - base).toBeCloseTo(12.04, 2)
   })
 
   it('raises the noise floor by that amount — the SINR a rate needs does not change', () => {
     expect(noiseDbm(160) - noiseDbm(20)).toBeCloseTo(9.03, 2)
-    expect(sinrThreshModeDb('eht', 5, 160)).toBe(sinrThreshModeDb('eht', 5))
+    expect(reqSinrDb('eht', 5)).toBe(reqSinrDb('eht', 5))
   })
 
   it('a far station reaches a higher modulation on a narrow channel than a wide one', () => {

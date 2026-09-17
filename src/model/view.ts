@@ -429,9 +429,13 @@ export function applyRecord(vs: ViewState, r: TLRecord): void {
     }
     case 'DROP':
       vs.nodes[r.node].stats.drops += 1
-      // The DEQUEUE that follows a discard must not be timed as a delivery.
-      vs.nodes[r.node].droppedIds.push(r.msduId)
-      if (vs.nodes[r.node].droppedIds.length > 256) vs.nodes[r.node].droppedIds.shift()
+      // The DEQUEUE that follows a discard must not be timed as a delivery. A
+      // queueFull drop never reaches a queue, so it never gets a DEQUEUE and
+      // must not be remembered here.
+      if (r.reason !== 'queueFull') {
+        vs.nodes[r.node].droppedIds.push(r.msduId)
+        if (vs.nodes[r.node].droppedIds.length > 256) vs.nodes[r.node].droppedIds.shift()
+      }
       break
     case 'ACK_TIMEOUT':
     case 'CTS_TIMEOUT':

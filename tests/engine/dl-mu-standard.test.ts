@@ -90,12 +90,17 @@ describe('a triggered uplink round has one PPDU format', () => {
       // the Trigger itself is a non-HT frame; ulMode is the format it dictates
       expect(r.frame.mode, `trigger @${r.t}`).toBeUndefined()
       expect(r.frame.ulMode, `trigger @${r.t}`).toBeDefined()
+      expect(r.frame.ulWidthMhz, `trigger @${r.t}`).toBeDefined()
       if (r.frame.ulMode === 'he') for (const p of r.frame.muParts!) expect(p.mcs).toBeLessThanOrEqual(11)
     }
     const tb = recs.filter((r): r is Rec<'TX_START'> => r.type === 'TX_START' && r.node !== 'ap' && !!r.frame.orthogonalGroup && r.frame.kind === 'data')
     for (const r of tb) {
       const trig = [...triggers].reverse().find((x) => x.frame.orthogonalGroup === r.frame.orthogonalGroup)
-      if (trig) expect(r.frame.mode, `TB PPDU @${r.t}`).toBe(trig.frame.ulMode)
+      if (trig) {
+        expect(r.frame.mode, `TB PPDU @${r.t}`).toBe(trig.frame.ulMode)
+        // §9.3.1.22.1: UL BW comes from the Trigger, not from the station's own link
+        expect(r.frame.widthMhz, `TB PPDU @${r.t}`).toBe(trig.frame.ulWidthMhz)
+      }
     }
   })
 })

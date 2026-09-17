@@ -13,6 +13,12 @@ export const DEFAULT_MSDU_LIFETIME_NS: Ns = 500_000_000
 
 export class AcQueues {
   private q: Msdu[][] = [[], [], [], []]
+  /**
+   * Sequence-number space per (receiver, access category), §10.3.2.14. It lives
+   * with the queues so an MLO device's links share one counter per peer: two
+   * links of the same MLD must never hand the same number to different MSDUs.
+   */
+  private seq = new Map<string, number>()
 
   constructor(readonly limit = DEFAULT_QUEUE_LIMIT) {}
 
@@ -21,6 +27,14 @@ export class AcQueues {
     if (this.q[ac].length >= this.limit) return false
     this.q[ac].push(msdu)
     return true
+  }
+
+  /** Next sequence number for this receiver and access category, modulo 4096. */
+  nextSeq(dst: string, ac: number): number {
+    const key = `${dst}|${ac}`
+    const n = this.seq.get(key) ?? 0
+    this.seq.set(key, (n + 1) % 4096)
+    return n
   }
 
   /** Remove and return every MSDU of an access category queued longer than lifetimeNs. */

@@ -190,7 +190,9 @@ export class Channel {
           this.emit({ t, type: 'RX_FAIL', node: rid, from: lost.from, reason: 'capture' })
         }
         r.locks = []
-        this.acquireLock(t, rid, r, tx, p)
+        // The captured-to preamble still has to be detected: ns-3 restarts the
+        // detection period after a capture (phy-entity.cc CaptureNewFrame).
+        this.detectOrMiss(t, rid, r, tx, p)
       } else {
         // New signal is interference for the existing lock(s).
         for (const lock of r.locks) {
@@ -205,15 +207,7 @@ export class Channel {
       // Preamble detection needs SINR ≥ 4 dB against everything else on the
       // air; a preamble buried in interference is never detected — no
       // PHY-RXSTART, no reception to fail, no EIFS.
-      const others = this.othersMw(rid, tx)
-      const sinr = p - dbm(mw(noiseDbm(tx.frame.widthMhz ?? 20)) + others.mw)
-      if (sinr >= PREAMBLE_DETECT_SINR_DB) {
-        // Receiver acquires the preamble (possibly alongside RU-orthogonal peers).
-        this.acquireLock(t, rid, r, tx, p)
-      } else {
-        this.emit({ t, type: 'RX_MISS', node: rid, from: tx.txId, reason: 'preambleSinr', frame: tx.frame })
-        r.misses.push({ from: tx.txId, startNs: t, contributors: others.overlappers })
-      }
+      this.detectOrMiss(t, rid, r, tx, p)
     }
   }
 
@@ -288,6 +282,23 @@ export class Channel {
     if (this.emittedCollisions.has(key)) return
     this.emittedCollisions.add(key)
     this.emit({ t, type: 'COLLISION', nodes })
+  }
+
+  /**
+   * Preamble detection: a PPDU at or above −82 dBm is acquired only if its
+   * SINR against everything else on the air is at least 4 dB; otherwise it is
+   * recorded as missed — no reception, so no EIFS.
+   */
+  private detectOrMiss(t: Ns, rid: string, r: RadioState, tx: ActiveTx, p: number): void {
+    const others = this.othersMw(rid, tx)
+    const sinr = p - dbm(mw(noiseDbm(tx.frame.widthMhz ?? 20)) + others.mw)
+    if (sinr >= PREAMBLE_DETECT_SINR_DB) {
+      // Receiver acquires the preamble (possibly alongside RU-orthogonal peers).
+      this.acquireLock(t, rid, r, tx, p)
+      return
+    }
+    this.emit({ t, type: 'RX_MISS', node: rid, from: tx.txId, reason: 'preambleSinr', frame: tx.frame })
+    r.misses.push({ from: tx.txId, startNs: t, contributors: others.overlappers })
   }
 
   /** Sum of every other active signal at rid (excluding tx and its RU-orthogonal peers), and who overlaps meaningfully. */

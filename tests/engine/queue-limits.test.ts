@@ -87,3 +87,45 @@ describe('the view does not time discarded frames as deliveries', () => {
     expect(near.view.nodes['ap'].stats.txLatency.n).toBeGreaterThan(0)
   })
 })
+
+describe('the view reflects every QSRC change, and queue-full drops do not accumulate', () => {
+  it('a QSRC reset on a received CTS reaches the view', async () => {
+    const { LESSONS } = await import('../../src/course/lessons')
+    const { initViewState, applyRecord } = await import('../../src/model/view')
+    const { Simulation } = await import('../../src/engine/simulation')
+    const sc = LESSONS.find((l) => l.id === 'hidden')!.variants![0].scenario() // RTS/CTS on
+    const recs = new Simulation(sc).runUntil(300_000_000).records
+    // every CW_CHANGE carries the counter, so the view never shows a stale QSRC
+    const cw = recs.filter((r) => r.type === 'CW_CHANGE')
+    expect(cw.length).toBeGreaterThan(10)
+    for (const r of cw) if (r.type === 'CW_CHANGE') expect(r.qsrc, `CW_CHANGE @${r.t}`).toBeDefined()
+    // and a CTS that resets it emits one
+    // a station that receives its CTS emits the reset in the same instant, and
+    // replaying the records leaves the view showing it
+    const vs = initViewState(sc)
+    let sawReset = false
+    for (const r of recs) {
+      applyRecord(vs, r)
+      // only the station the CTS answers resets its counter; bystanders just overhear it
+      if (r.type !== 'RX_OK' || r.frame.kind !== 'cts' || r.frame.dst !== r.node || !vs.nodes[r.node]) continue
+      const reset = recs.find((x) => x.type === 'CW_CHANGE' && x.node === r.node && x.t === r.t && x.qsrc === 0)
+      expect(reset, `CTS @${r.t} resets QSRC visibly`).toBeDefined()
+      sawReset = true
+    }
+    expect(sawReset).toBe(true)
+  })
+
+  it('queue-full drops never enter the discarded-id list (they are never dequeued)', async () => {
+    const { initViewState, applyRecord } = await import('../../src/model/view')
+    const { Simulation } = await import('../../src/engine/simulation')
+    const sc = defaultScenario()
+    sc.queue = { limit: 4, lifetimeMs: 500 }
+    sc.nodes[1].profiles = ['saturated']
+    sc.nodes[1].pos = { x: 40, y: 40, z: 1 }
+    const recs = new Simulation(sc).runUntil(1_000_000_000).records
+    expect(recs.filter((r) => r.type === 'DROP' && r.reason === 'queueFull').length).toBeGreaterThan(5)
+    const vs = initViewState(sc)
+    for (const r of recs) applyRecord(vs, r)
+    for (const n of Object.values(vs.nodes)) expect(n.droppedIds.length).toBeLessThan(10)
+  })
+})

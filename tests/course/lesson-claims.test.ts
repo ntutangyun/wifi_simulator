@@ -13,7 +13,7 @@ import { Simulation } from '../../src/engine/simulation'
 import type { Scenario } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 import { buildLinkTable } from '../../src/engine/propagation'
-import { CCA_PD_DBM, RATE_MARGIN_DB, noiseDbm, reqSinrDb, sinrThreshDb, sinrThreshModeDb } from '../../src/engine/phy'
+import { CCA_PD_DBM, RATE_MARGIN_DB, noiseDbm, reqSinrDb, sinrThreshDb } from '../../src/engine/phy'
 import { PREAMBLE_DETECT_SINR_DB } from '../../src/engine/channel'
 
 type Tx = Extract<TLRecord, { type: 'TX_START' }>
@@ -605,7 +605,8 @@ describe('lesson 15 · channel width', () => {
     expect(Math.round(snr * 10) / 10).toBe(48.7)
     expect(Math.round((reqSinrDb('eht', 13) + RATE_MARGIN_DB) * 10) / 10).toBe(48)
     expect(snr).toBeGreaterThan(reqSinrDb('eht', 13) + RATE_MARGIN_DB)
-    for (const w of [20, 40, 80, 160]) expect(reqSinrDb('eht', 13)).toBe(sinrThreshModeDb('eht', 13, w))
+    // the requirement is width-independent; only the noise floor moves with width
+    for (const w of [40, 80, 160]) expect(noiseDbm(w)).toBeGreaterThan(noiseDbm(20))
     // "each doubling takes in twice the noise power — 3 dB"
     expect(Math.round((noiseDbm(160) - noiseDbm(20)) * 10) / 10).toBe(9)
   })

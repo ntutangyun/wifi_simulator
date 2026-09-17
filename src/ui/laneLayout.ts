@@ -58,8 +58,10 @@ export interface LaneSpan {
  * abandoned for a stronger preamble or the radio's own transmission — and stays
  * in the receive tone, only hatched, so it does not drown the lesson's point.
  */
-export function rxFailTone(reason: RxFailReason): 'collision' | 'weak' {
-  return reason === 'collision' || reason === 'undetected' ? 'collision' : 'weak'
+export function rxFailTone(reason: RxFailReason, interferers: string[] = []): 'collision' | 'weak' {
+  // An undetected preamble is only a collision when something buried it; the
+  // same rule can fire on noise alone, which is not the lesson's alarm.
+  return reason === 'collision' || (reason === 'undetected' && interferers.length > 0) ? 'collision' : 'weak'
 }
 
 const STATE_SPAN: Record<string, SpanKind | null> = {

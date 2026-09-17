@@ -200,7 +200,7 @@ export function TimelineStrip() {
         drawBandTag(ctx, bandTag(s.nodeId), x1, y + laneH * 0.42, w, 'rgba(0,0,0,0.45)')
       } else if (s.kind === 'rx') {
         const ry = y + laneH * 0.3, rh = laneH * 0.4
-        ctx.fillStyle = s.rxFail && rxFailTone(s.rxFail.reason) === 'collision' ? RX_FAIL_COLOR : SPAN_COLORS.rx
+        ctx.fillStyle = s.rxFail && rxFailTone(s.rxFail.reason, s.rxFail.interferers) === 'collision' ? RX_FAIL_COLOR : SPAN_COLORS.rx
         ctx.globalAlpha = 0.5
         ctx.fillRect(x0, ry, w, rh)
         ctx.globalAlpha = 1

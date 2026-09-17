@@ -21,6 +21,8 @@ export interface MuPart {
   ruFraction?: number
   /** Payload octets of each MSDU carried, in msduIds order. */
   msduBytes?: number[]
+  /** This member's MPDUs are a retransmission (§9.2.4.1.6). */
+  retryFlag?: boolean
 }
 
 export interface FrameDesc {
@@ -54,6 +56,8 @@ export interface FrameDesc {
   orthogonalGroup?: string
   /** Trigger frames only: the PPDU format the solicited TB PPDUs must use (the Trigger itself is non-HT). */
   ulMode?: PhyMode
+  /** Trigger frames only: the channel width the solicited TB PPDUs must use (Common Info UL BW, §9.3.1.22.1). */
+  ulWidthMhz?: number
   /** How a multi-user PPDU is split: by frequency (OFDMA) or by space (MU-MIMO). */
   muKind?: 'ofdma' | 'mumimo'
 }

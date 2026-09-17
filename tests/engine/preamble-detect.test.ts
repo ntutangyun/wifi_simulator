@@ -65,3 +65,42 @@ describe('preamble detection needs SINR ≥ 4 dB (ns-3 ThresholdPreambleDetectio
     expect(recs.some((r) => r.type === 'RX_START' && r.node === 'rx' && r.from === 'a')).toBe(true)
   })
 })
+
+describe('capture must still detect the preamble it re-syncs to', () => {
+  /** rx locks weak W, then N arrives 6 dB above W but buried by strong S. */
+  function capture(sDbm: number) {
+    const q = new EventQueue()
+    let now = 0
+    const table = new Map<string, Map<string, number>>([
+      ['w', new Map([['rx', -70]])],
+      ['n', new Map([['rx', -64]])], // 6 dB over w: a capture candidate
+      ['s', new Map([['rx', sDbm]])], // under w + 5 dB, so it never captures: pure interference
+      ['rx', new Map()],
+    ])
+    const recs: TLRecord[] = []
+    const ch = new Channel(q, () => now, table, makeEmitter((r) => recs.push(r)))
+    const quiet: PhyListener = { onCcaBusy() {}, onCcaIdle() {}, onRxStart() {}, onRxOk() {}, onRxCorrupt() {} }
+    for (const id of ['w', 'n', 's', 'rx']) ch.register(id, quiet)
+    const f = (src: string, dur: number): FrameDesc => ({
+      kind: 'data', src, dst: 'rx', bytes: 1500, mbps: 54, durationFieldNs: 0, txTimeNs: dur,
+    })
+    q.schedule(0, () => ch.startTx('w', f('w', 3_000_000))) // rx locks this one
+    q.schedule(5_000, () => ch.startTx('s', f('s', 2_000_000)))
+    q.schedule(10_000, () => ch.startTx('n', f('n', 1_000_000))) // inside w's 20 µs preamble
+    for (;;) { const pt = q.peekTime(); if (pt === null) break; const e = q.pop()!; now = e.t; e.fn() }
+    return recs
+  }
+
+  it('a stronger preamble buried by a third signal is missed, not locked (no EIFS)', () => {
+    const recs = capture(-66) // with s on the air, n clears only ~0.3 dB
+    expect(recs.some((r) => r.type === 'RX_MISS' && r.node === 'rx' && r.from === 'n')).toBe(true)
+    expect(recs.some((r) => r.type === 'RX_START' && r.node === 'rx' && r.from === 'n')).toBe(false)
+    expect(recs.some((r) => r.type === 'RX_FAIL' && r.node === 'rx' && r.from === 'n')).toBe(false)
+  })
+
+  it('with the third signal weak, the capture goes through as before', () => {
+    const recs = capture(-120) // s negligible: n clears 4 dB comfortably
+    expect(recs.some((r) => r.type === 'RX_START' && r.node === 'rx' && r.from === 'n')).toBe(true)
+    expect(recs.some((r) => r.type === 'RX_FAIL' && r.node === 'rx' && r.from === 'w' && r.reason === 'capture')).toBe(true)
+  })
+})
