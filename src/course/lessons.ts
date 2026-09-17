@@ -1134,13 +1134,13 @@ export const LESSONS: Lesson[] = [
     title: { en: '11 · OFDMA downlink — one PPDU, many stations', zh: '11 · OFDMA 下行——一个 PPDU，多个终端' },
     body: [
       { text: {
-        en: 'Until Wi-Fi 6, one transmission served one receiver — small frames for many stations meant many contentions.',
-        zh: '在 Wi-Fi 6 之前，一次传输只服务一个接收者——要给许多终端发小帧，就要竞争许多次。',
+        en: 'Wi-Fi 5 (802.11ac) could already reach several receivers at once on the downlink with MU-MIMO, splitting them by space. Wi-Fi 6 adds OFDMA, which splits the channel by frequency, and extends multi-user transmission to the uplink — so small frames for many stations no longer each cost a contention. This simulator models multi-user transmission for Wi-Fi 6 and 7 only.',
+        zh: 'Wi-Fi 5（802.11ac）已经能用 MU-MIMO 在下行同时发给多个接收者（按空间区分）。Wi-Fi 6 又加入了 OFDMA（按频率切分信道），并把多用户传输扩展到上行——给许多终端的小帧不必再各自竞争一次。本模拟器只对 Wi-Fi 6 和 7 模拟多用户传输。',
       } },
       { kind: 'list', heading: { en: 'OFDMA downlink', zh: 'OFDMA 下行' }, items: [
         { en: 'The AP splits the channel into resource units (RUs) and addresses several stations inside a single MU PPDU.', zh: 'AP 把信道切成资源单元（RU），在一个 MU PPDU 里同时向多台终端发送。' },
         { en: 'Each station decodes only its own RU.', zh: '每台终端只解调自己的 RU。' },
-        { en: 'The acknowledgements come back simultaneously too, on the same RU split.', zh: '确认帧也在同样的 RU 划分上同时返回。' },
+        { en: 'The acknowledgements can come back simultaneously too. In the standard the AP solicits them (with a Trigger, or the TRS field in each station’s part) and they return as trigger-based PPDUs; the simulator draws them as BlockAcks on each station’s share.', zh: '确认帧也可以同时返回。标准里由 AP 发起征询（Trigger 帧，或各终端数据里的 TRS 字段），终端以基于触发的 PPDU 返回；模拟器把它们画成各终端所占份额上的 BlockAck。' },
       ] },
       { text: {
         en: 'Contention happens once per group, and the MAC starts to look like a scheduler.',
@@ -1206,8 +1206,8 @@ export const LESSONS: Lesson[] = [
         { en: 'The start: SIFS after the Trigger, aligned in time and frequency to the AP.', zh: '开始时刻：触发帧之后一个 SIFS，在时间与频率上都对齐到 AP。' },
       ] },
       { text: {
-        en: 'The stations surrender contention to a conductor — inside these bubbles, Wi-Fi is no longer CSMA at all.',
-        zh: '终端把竞争权交给了指挥家——在这些“泡泡”里，Wi-Fi 已经不再是 CSMA。',
+        en: 'The stations surrender contention to a conductor — inside these bubbles nobody runs a backoff. Carrier sense is not gone, though: when the Trigger requires it, a station still checks the medium and its NAV before it answers, and stays silent if another BSS has reserved the air.',
+        zh: '终端把竞争权交给了指挥家——在这些“泡泡”里没有人做退避。但载波侦听并没有消失：只要 Trigger 要求，终端在回应前仍会检查介质和自己的 NAV，如果别的 BSS 已预约了空口，它就保持沉默。',
       } },
     ],
     scenario: () => sc(oneRoom(), [
@@ -1248,8 +1248,8 @@ export const LESSONS: Lesson[] = [
     title: { en: '13 · MLO — one queue, two radios', zh: '13 · MLO——一条队列，两台电台' },
     body: [
       { text: {
-        en: 'Wi-Fi 7’s Multi-Link Operation runs complete, independent MACs on two bands at once (here 5 and 6 GHz). The trick is above them: a single MLD-level queue feeds both links.',
-        zh: 'Wi-Fi 7 的多链路操作（MLO）在两个频段上同时运行两套完整独立的 MAC（这里是 5 GHz 和 6 GHz）。妙处在它们之上：一条 MLD 级共享队列同时喂给两条链路。',
+        en: 'Wi-Fi 7’s Multi-Link Operation can run complete, independent MACs on two bands at once — here 5 and 6 GHz, the simultaneous two-radio form this simulator models. (MLO also comes as single-radio EMLSR, common in phones, which listens on several links but transmits on one at a time, and it can pair other bands such as 2.4 + 5 GHz.) The trick is above the links: a single MLD-level queue feeds both.',
+        zh: 'Wi-Fi 7 的多链路操作（MLO）可以在两个频段上同时运行两套完整独立的 MAC——这里是 5 GHz 和 6 GHz，也就是本模拟器所模拟的双射频同时收发形态。（MLO 还有手机上常见的单射频 EMLSR 形态：在多条链路上监听，但同一时刻只在一条上发送；也可以组合 2.4 + 5 GHz 等其他频段。）妙处在链路之上：一条 MLD 级共享队列同时喂给两条链路。',
       } },
       { kind: 'list', items: [
         { en: 'Each link contends on its own channel with its own backoff.', zh: '每条链路在自己的信道上独立退避、独立竞争。' },

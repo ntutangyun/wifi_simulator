@@ -51,7 +51,7 @@ const P = (
 export const STATION_PRESETS: StationPreset[] = [
   // Huawei — Kirin Wi-Fi 7, 2×2; dual-band on the Chinese market
   P('huawei-mate-80-pro', 'huawei', 'Huawei Mate 80 Pro', '2025-11', 'eht', false, ['browsing', 'voice'],
-    'Wi-Fi 7, 2×2, dual-band (2.4/5 GHz); Kirin 9030.', 'Wi-Fi 7，2×2，双频（2.4/5 GHz）；麒麟 9030。'),
+    'Wi-Fi 7, 2×2, dual-band (2.4/5 GHz; the simulator models 5 GHz only); Kirin 9030.', 'Wi-Fi 7，2×2，双频（2.4/5 GHz；模拟器仅模拟 5 GHz）；麒麟 9030。'),
   P('huawei-pura-80-ultra', 'huawei', 'Huawei Pura 80 Ultra', '2025-06', 'eht', false, ['video', 'browsing'],
     'Wi-Fi 7, 2×2, 160 MHz (EHT160), 8-stream sounding MU-MIMO.', 'Wi-Fi 7，2×2，160 MHz（EHT160），8 流探测 MU-MIMO。'),
   P('huawei-mate-60-pro', 'huawei', 'Huawei Mate 60 Pro', '2023-09', 'he', false, ['browsing'],

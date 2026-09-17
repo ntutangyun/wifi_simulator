@@ -333,3 +333,17 @@ describe('what the AP lane shows for a simultaneous RTS (lesson 13)', () => {
     expect(rx[0]).toMatchObject({ frameSrc: 'sta-1', frameKind: 'rts', rxFail: { reason: 'collision', interferers: ['sta-2'] } })
   })
 })
+
+describe('claims checked against the standard (standard alignment A)', () => {
+  const all = JSON.stringify(LESSONS)
+  it('Wi-Fi 5 already had DL MU-MIMO, so multi-user transmission did not start with Wi-Fi 6', () => {
+    expect(all).not.toMatch(/Until Wi-Fi 6, one transmission served one receiver/)
+    expect(all).toMatch(/Wi-Fi 5 \(802\.11ac\)/)
+  })
+  it('triggered uplink still uses carrier sense when the Trigger requires it', () => {
+    expect(all).not.toMatch(/no longer CSMA at all/)
+  })
+  it('MLO is not described as only the two-radio form', () => {
+    expect(all).toMatch(/EMLSR/)
+  })
+})
