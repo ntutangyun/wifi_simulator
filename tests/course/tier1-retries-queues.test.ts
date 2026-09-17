@@ -10,7 +10,7 @@ import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
 import { CW_MAX, CW_MIN, SHORT_RETRY_LIMIT } from '../../src/engine/phy'
 import { DEFAULT_MSDU_LIFETIME_NS, DEFAULT_QUEUE_LIMIT } from '../../src/engine/queues'
 import type { TLRecord } from '../../src/model/records'
-import type { L10n } from '../../src/course/lessonKit'
+import { lessonMinutes, lessonWords } from '../../src/course/curriculum'
 import { decodeFrame, fmtRecord } from '../../src/ui/format'
 
 const MS = 1_000_000
@@ -65,21 +65,12 @@ describe('retries-queues · lesson shape', () => {
     for (const v of retriesQueues.variants!) expect(() => ScenarioSchema.parse(v.scenario())).not.toThrow()
   })
 
-  it('minutes = round-to-5 of (EN words / 150 + 5 per observe + 5 per try-this)', () => {
-    const words: string[] = []
-    const push = (x?: L10n) => { if (x) words.push(...x.en.trim().split(/\s+/).filter(Boolean)) }
-    for (const b of retriesQueues.body) {
-      push(b.heading)
-      if ('text' in b) push(b.text)
-      if (b.kind === 'formula') push(b.note)
-      if (b.kind === 'table') { b.head.forEach(push); b.rows.forEach((row) => row.forEach(push)) }
-      if (b.kind === 'list' || b.kind === 'steps') b.items.forEach(push)
-    }
-    retriesQueues.observe.forEach(push)
-    retriesQueues.tryThis.forEach(push)
-    for (const q of retriesQueues.quiz) { push(q.q); q.options.forEach(push); push(q.explain) }
-    const raw = words.length / 150 + 5 * retriesQueues.observe.length + 5 * retriesQueues.tryThis.length
-    expect(retriesQueues.minutes).toBe(Math.round(raw / 5) * 5)
+  it('the computed study time follows the formula and stays inside the 15–25 minute target', () => {
+    const raw = lessonWords(retriesQueues) / 150
+      + 5 * retriesQueues.observe.length + 5 * retriesQueues.tryThis.length
+    expect(lessonMinutes(retriesQueues)).toBe(Math.max(5, Math.round(raw / 5) * 5))
+    expect(lessonMinutes(retriesQueues)).toBeGreaterThanOrEqual(15)
+    expect(lessonMinutes(retriesQueues)).toBeLessThanOrEqual(25)
   })
 
   it('every jump target occurs in the base run', () => {
