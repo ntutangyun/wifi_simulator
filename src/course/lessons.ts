@@ -259,9 +259,13 @@ export const LESSONS: Lesson[] = [
         en: 'Notice where the new countdown starts. The collided transmissions end at 248 µs, but the stations cannot count that silence as idle time yet: until the timeout expires, each is still waiting for its response. So the retry’s DIFS is counted from the end of the timeout — 293 µs — and the fresh backoff is drawn only at 327 µs, a full 34 µs later.',
         zh: '注意新一轮倒数从哪里开始。碰撞的传输在 248 µs 就结束了，但终端还不能把这段安静算作空闲时间：超时到来之前，它们仍在等待自己的响应。所以重传前的 DIFS 要从超时结束的那一刻——293 µs——开始计，新的退避要到 327 µs 才抽取，整整晚了 34 µs。',
       } },
-      { heading: { en: 'And the AP? It waits even longer — EIFS', zh: '那 AP 呢？它等得更久——EIFS' }, text: {
-        en: 'The AP experienced this collision differently. It was not transmitting — it actually received the garbled overlap, and a station that hears a corrupted frame must stay quiet for EIFS instead of DIFS before its next access.',
-        zh: 'AP 经历这场碰撞的方式不一样。它当时并没有发送，而是实实在在收到了那段互相重叠的乱码——凡是收到损坏帧的站点，下一次接入前必须保持安静一个 EIFS，而不是一个 DIFS。',
+      { heading: { en: 'And the AP? It detects neither frame', zh: '那 AP 呢？它哪一帧都没检测到' }, text: {
+        en: 'The AP experienced this collision differently. It was not transmitting, but it did not receive a garbled frame either. A radio locks onto a frame only if its preamble stands at least 4 dB above everything else on the air. Here both preambles arrive in the same instant at about the same strength, so each buries the other: the AP detects neither, starts no reception, and hears only energy on the channel.',
+        zh: 'AP 经历这场碰撞的方式不一样。它当时并没有发送，但也没有收到一帧乱码。电台只有在一个前导码比空中其他一切信号至少高出 4 dB 时，才会锁定这一帧。这里两个前导码在同一瞬间、以差不多的强度到达，彼此淹没：AP 哪个都没检测到，没有开始任何接收，只感到信道上有能量。',
+      } },
+      { heading: { en: 'EIFS — the wait after a frame that was received but broken', zh: 'EIFS——收到了、却是坏帧之后的等待' }, text: {
+        en: 'That matters, because the longer penalty wait, EIFS, is armed only by a reception that actually started and then failed its check. A station that locked onto a preamble but could not decode the frame must stay quiet for EIFS instead of DIFS before its next access. A frame whose preamble was never detected leaves nothing to fail, so it arms no EIFS.',
+        zh: '这一点很关键，因为更长的惩罚等待 EIFS，只有在一次真正开始了的接收最终校验失败时才会启动。站点锁定了前导码、却没能解出这一帧，那么下一次接入前必须保持安静一个 EIFS，而不是一个 DIFS。前导码根本没被检测到的帧，没有留下任何可以失败的接收，所以不会启动 EIFS。',
       } },
       { kind: 'formula', text: {
         en: 'EIFS = SIFS + ACK at the lowest rate + DIFS = 16 + 44 + 34 = 94 µs',
@@ -272,8 +276,8 @@ export const LESSONS: Lesson[] = [
         zh: '道理在于：那帧损坏的数据也许本来是发给别人的，对方马上就要回 ACK。侦听者既然没解出这帧，也就错过了它的 Duration 字段，所以多等这一段，才不会踩到那个自己“预料不到”的 ACK。',
       } },
       { text: {
-        en: 'You will not see an EIFS block on the AP’s lane here: a defer block is drawn only when a station is waiting in order to send, and this AP has nothing to transmit. A real, visible EIFS appears in lesson 6 — hovering the far station’s defer block even shows the EIFS being cut short into a DIFS the moment a healthy frame arrives (§10.3.2.3.7).',
-        zh: '不过在本场景里，你不会在 AP 的泳道上看到 EIFS 色块：只有当站点是“为了发送”而等待时才会画出等待色块，而这台 AP 无东西可发。想看真实可见的 EIFS，请到第 6 课——悬停远处终端的等待色块，还能看到 EIFS 在一帧健康的帧到来时被截短成 DIFS（§10.3.2.3.7）。',
+        en: 'You will not see an EIFS block on the AP’s lane here. At the same-slot collisions nothing was received, so there is no EIFS at all. And even after a broken reception, a defer block is drawn only when a station is waiting in order to send, and this AP has nothing to transmit. A real, visible EIFS appears in lesson 6 — hovering the far station’s defer block even shows the EIFS being cut short into a DIFS the moment a healthy frame arrives (§10.3.2.3.7).',
+        zh: '在本场景里，你不会在 AP 的泳道上看到 EIFS 色块。同一时隙的碰撞里 AP 什么都没收到，所以根本没有 EIFS；而且即使在收到坏帧之后，也只有当站点是“为了发送”而等待时才会画出等待色块，而这台 AP 无东西可发。想看真实可见的 EIFS，请到第 6 课——悬停远处终端的等待色块，还能看到 EIFS 在一帧健康的帧到来时被截短成 DIFS（§10.3.2.3.7）。',
       } },
       { text: {
         en: 'This scenario saturates two legacy stations. Use “first collision”: the red tick marks two overlapping transmissions. That first one happens at the very start — both stations find the medium already idle at t = 0 and transmit at once, with no backoff at all. The next one, at about 8.1 ms, is the classic kind: step backwards from it and watch both backoff counters reach zero in the same slot — the collision was fully determined a moment earlier.',
@@ -293,7 +297,7 @@ export const LESSONS: Lesson[] = [
     ],
     observe: [
       { en: 'Backoff counters (bo:n) decrement only while the medium is idle; they freeze when the other station transmits and resume at the same value.', zh: '退避计数（bo:n）只在介质空闲时递减；对方发送时冻结，之后从同一数值继续。' },
-      { en: 'At the red tick the AP’s lane shows one reception, hatched red: a receiver locks onto a single preamble, so the overlap arrives as one garbled frame — hover it to see who else was on the air.', zh: '红色刻度处 AP 泳道只显示一次接收，且打着红色斜线：接收机只会锁定一个前导码，重叠的两帧到它这里就是一帧损坏的接收——悬停可见另一位发送者。' },
+      { en: 'At the red tick the AP’s lane shows the overlap hatched red and marked “not detected”: the two preambles started together at similar strength and buried each other, so the AP never locked onto either frame. Hover it to see who else was on the air.', zh: '红色刻度处 AP 泳道上的重叠部分打着红色斜线，并标着“未检测到”：两个前导码同时开始、强度相近，彼此淹没，AP 一帧也没有锁定。悬停可见另一位发送者。' },
       { en: 'After a collision, both stations show CW → 31 in the inspector, and the retry frame carries the Retry flag.', zh: '碰撞后检视器里双方的 CW 都变成 31，重传帧带有 Retry 标志。' },
       { en: 'Retries draw from the doubled window: gaps before retransmissions are visibly longer on average.', zh: '重传从翻倍后的窗口抽取：重传前的等待间隙平均明显更长。' },
     ],
@@ -434,14 +438,14 @@ export const LESSONS: Lesson[] = [
         zh: '于是一方正在发帧，另一方却侦听到“空闲”，两股信号在走廊里的 AP 处相遇、同归于尽——AP 两边都听得到。这就是隐藏节点问题——多少退避都治不了它，因为竞争双方根本看不见彼此在竞争。',
       } },
       { heading: { en: 'B freezes for the receipt, not the payload', zh: 'B 为回执停步，却听不见正文' }, text: {
-        en: 'Around t ≈ 2.8 ms you can watch the asymmetry directly. Of A’s entire exchange, the only fragment B ever perceives is the 28 µs receipt at the end:',
-        zh: '在 t ≈ 2.8 ms 附近可以直接看到这种不对称。A 的整场交换里，B 能感知到的唯一片段，就是结尾这张 28 µs 的回执：',
+        en: 'Around t ≈ 2.3 ms you can watch the asymmetry directly. Of A’s entire exchange, the only fragment B ever perceives is the 28 µs receipt at the end:',
+        zh: '在 t ≈ 2.3 ms 附近可以直接看到这种不对称。A 的整场交换里，B 能感知到的唯一片段，就是结尾这张 28 µs 的回执：',
       } },
       { kind: 'table', head: [
         { en: 'Frame', zh: '帧' }, { en: 'Time', zh: '时间' }, { en: 'Walls from B', zh: '与 B 之间的墙' }, { en: 'What B does', zh: 'B 的反应' },
       ], rows: [
-        [{ en: 'A’s 1528 B data', zh: 'A 的 1528 B 数据帧' }, N('≈ 2.29–2.82 ms'), { en: 'Two', zh: '两堵' }, { en: 'Counts straight through it — 106, 105, … 47 — as if the channel were empty.', zh: '倒数径直穿过它——106、105、……47——仿佛信道空无一物。' }],
-        [{ en: 'AP’s ACK', zh: 'AP 的 ACK' }, N('2837–2865 µs'), { en: 'One', zh: '一堵' }, { en: 'Freezes at 46, sits out the 28 µs ACK plus a 34 µs DIFS, resumes at 46.', zh: '冻结在 46，等完 28 µs 的 ACK 加 34 µs 的 DIFS，再从 46 继续。' }],
+        [{ en: 'A’s 1528 B data', zh: 'A 的 1528 B 数据帧' }, N('≈ 1.95–2.31 ms'), { en: 'Two', zh: '两堵' }, { en: 'Counts straight through it — 106, 105, … 66 — as if the channel were empty, and on through the SIFS gap after it.', zh: '倒数径直穿过它——106、105、……66——仿佛信道空无一物，并且接着数过它之后的 SIFS 间隙。' }],
+        [{ en: 'AP’s ACK', zh: 'AP 的 ACK' }, N('2325–2353 µs'), { en: 'One', zh: '一堵' }, { en: 'Freezes at 64, sits out the 28 µs ACK plus a 34 µs DIFS, resumes at 64.', zh: '冻结在 64，等完 28 µs 的 ACK 加 34 µs 的 DIFS，再从 64 继续。' }],
       ] },
       { text: {
         en: 'And that freeze protects nothing: a final ACK carries Duration = 0, so it sets no NAV — moments later A starts its next frame and B, deaf again, counts right through it. This is exactly the gap the CTS closes: it too comes from the AP, audible to B, but it carries a nonzero Duration covering the whole upcoming data frame — turning B’s 28 µs twitch into a reservation that lasts the entire exchange.',
@@ -531,22 +535,22 @@ export const LESSONS: Lesson[] = [
       { kind: 'table', head: [
         { en: 'Reception', zh: '接收' }, { en: 'Wanted signal', zh: '目标信号' }, { en: 'Interferer', zh: '干扰' }, { en: 'Margin', zh: '余量' }, { en: 'Needed', zh: '所需' },
       ], rows: [
-        [{ en: 'Near data at the AP', zh: 'AP 收近端数据' }, N('−35 dBm'), { en: 'far station, −75 dBm', zh: '远端终端，−75 dBm' }, N('40 dB'), { en: '30 dB for 54 Mb/s', zh: '54 Mb/s 需 30 dB' }],
-        [{ en: 'ACK at the near station', zh: '近端收 ACK' }, N('−30 dBm'), { en: 'far station still on air, −74 dBm', zh: '远端仍在发，−74 dBm' }, N('44 dB'), N('21 dB')],
+        [{ en: 'Near data at the AP', zh: 'AP 收近端数据' }, N('−35 dBm'), { en: 'far station, −75 dBm', zh: '远端终端，−75 dBm' }, N('40 dB'), { en: '26 dB for 54 Mb/s', zh: '54 Mb/s 需 26 dB' }],
+        [{ en: 'ACK at the near station', zh: '近端收 ACK' }, N('−30 dBm'), { en: 'far station still on air, −74 dBm', zh: '远端仍在发，−74 dBm' }, N('44 dB'), { en: '17 dB for the 24 Mb/s ACK', zh: '24 Mb/s 的 ACK 需 17 dB' }],
       ] },
       { text: {
-        en: 'The 40 dB gap is opened by 11 m of apartment and one brick wall. A receiver locks a preamble and treats everything arriving afterwards as noise — and while it is still acquiring, a signal markedly stronger than the one it holds makes it abandon that reception and re-sync to the newcomer. A simultaneous start is won by the stronger signal, never by the earlier one.',
-        zh: '这 40 dB 是 11 m 的房长加一道砖墙拉开的。接收机锁定一个前导后，把此后到达的一切都当作噪声——但在它还处于前导捕获阶段时，一个明显强于当前信号的新前导会让它丢弃手头的接收、改而同步到新来者。所以同时起跑的胜负取决于信号强弱，而不是谁先开口。',
+        en: 'The 40 dB gap is opened by 11 m of apartment and one brick wall. Before a receiver can decode anything it must detect the preamble, and a preamble is detected only if it stands at least 4 dB above everything else on the air. The near preamble clears that with 40 dB to spare, so the AP locks onto it; the far one sits 40 dB under it, is never detected, and only adds interference to the reception in progress. A locked receiver treats everything arriving afterwards as noise — and while it is still acquiring, a preamble markedly stronger than the one it holds makes it abandon that reception and re-sync to the newcomer. A simultaneous start is won by the stronger signal, never by the earlier one.',
+        zh: '这 40 dB 是 11 m 的房长加一道砖墙拉开的。接收机要解出任何东西，先得检测到前导码，而前导码只有比空中其他一切信号至少高出 4 dB 才会被检测到。近端的前导码以 40 dB 的富余越过了这道门槛，于是 AP 锁定了它；远端的前导码比它低 40 dB，根本没被检测到，只是给正在进行的接收添了一份干扰。接收机锁定一个前导后，把此后到达的一切都当作噪声——但在它还处于前导捕获阶段时，一个明显强于当前信号的新前导会让它丢弃手头的接收、改而同步到新来者。所以同时起跑的胜负取决于信号强弱，而不是谁先开口。',
       } },
       { text: {
-        en: 'The far station’s 1044 µs frame is destroyed in full. It learns nothing until its ACK timeout at 1089 µs, then retries with a doubled contention window. Nothing on the timeline is drawn as a collision, because from the AP’s point of view no reception failed — the only visible trace is that unexplained retry on the far lane.',
-        zh: '远端终端那 1044 µs 的帧被整帧毁掉。它要等到 1089 µs 的 ACK 超时才知情，然后带着翻倍的竞争窗口重传。时间轴上不会画出任何碰撞标记，因为在 AP 看来没有任何一次接收失败——唯一可见的痕迹，是远端泳道上那次没有来由的重传。',
+        en: 'The far station’s 704 µs frame is destroyed in full. It learns nothing until its ACK timeout at 749 µs, then retries with a doubled contention window. Nothing on the timeline is drawn as a collision, because from the AP’s point of view no reception failed — the only visible trace is that unexplained retry on the far lane.',
+        zh: '远端终端那 704 µs 的帧被整帧毁掉。它要等到 749 µs 的 ACK 超时才知情，然后带着翻倍的竞争窗口重传。时间轴上不会画出任何碰撞标记，因为在 AP 看来没有任何一次接收失败——唯一可见的痕迹，是远端泳道上那次没有来由的重传。',
       } },
       { kind: 'table', head: [
         { en: 'Station', zh: '终端' }, { en: 'ACK timeouts in 200 ms', zh: '200 ms 内的 ACK 超时次数' },
       ], rows: [
         [{ en: 'Near', zh: '近端' }, N('0')],
-        [{ en: 'Far', zh: '远端' }, N('11')],
+        [{ en: 'Far', zh: '远端' }, N('15')],
       ] },
       { text: {
         en: 'So the anomaly cuts deeper than airtime: the distant station pays twice, holding the medium far longer per frame and losing every simultaneous start it takes part in.',
@@ -563,9 +567,9 @@ export const LESSONS: Lesson[] = [
     ],
     observe: [
       { en: 'The far station’s green blocks are much longer than the near one’s — same bytes, lower MCS.', zh: '远端终端的绿色块比近端的长得多——字节数相同，MCS 更低。' },
-      { en: 'Inspector: both deliver a comparable number of frames (140 and 105 in the first 200 ms), yet the far station holds four times the airtime.', zh: '检视器：两者“成功交付帧数”相当（前 200 ms 里分别是 140 和 105），远端终端占用的空口时间却是近端的四倍。' },
-      { en: 'The near station’s throughput is far below what it would get alone.', zh: '近端终端的吞吐量远低于它独占信道时的水平。' },
-      { en: 'At t = 0 both stations transmit at once, yet only the near one is acknowledged — capture. The far lane’s only clue is an ACK timeout at 1089 µs.', zh: 't = 0 两台终端同时开始发送，却只有近端收到 ACK——这就是捕获。远端泳道上唯一的线索，是 1089 µs 处的 ACK 超时。' },
+      { en: 'Inspector: both deliver a comparable number of frames (209 and 135 in the first 200 ms), yet the far station holds more than twice the airtime.', zh: '检视器：两者“成功交付帧数”相当（前 200 ms 里分别是 209 和 135），远端终端占用的空口时间却是近端的两倍多。' },
+      { en: 'The near station’s throughput is far below what it would get alone: 209 frames in 200 ms here, 510 with the far station gone.', zh: '近端终端的吞吐量远低于它独占信道时的水平：这里 200 ms 送出 209 帧，去掉远端终端后是 510 帧。' },
+      { en: 'At t = 0 both stations transmit at once, yet only the near one is acknowledged — capture. The far lane’s only clue is an ACK timeout at 749 µs.', zh: 't = 0 两台终端同时开始发送，却只有近端收到 ACK——这就是捕获。远端泳道上唯一的线索，是 749 µs 处的 ACK 超时。' },
     ],
     tryThis: [
       { en: 'Delete the far station in the editor and reload: watch the near one’s throughput jump.', zh: '在编辑器中删除远端终端后重新载入：看近端吞吐量飙升。' },
@@ -651,11 +655,11 @@ export const LESSONS: Lesson[] = [
         { en: 'EIFS does not replace AIFS, it adds to it (§10.23.2.2):', zh: 'EIFS 也不是替换 AIFS，而是与它相加（§10.23.2.2）：' },
       ] },
       { kind: 'formula', text: {
-        en: 'wait after a corrupted frame = EIFS − DIFS + AIFS[AC]\nBK: 94 − 34 + 79 = 139 µs',
-        zh: '收到损坏帧后的等待 = EIFS − DIFS + AIFS[AC]\nBK：94 − 34 + 79 = 139 µs',
+        en: 'wait after a corrupted frame = EIFS − DIFS + AIFS[AC]\nBE: 94 − 34 + 43 = 103 µs\nBK: 94 − 34 + 79 = 139 µs',
+        zh: '收到损坏帧后的等待 = EIFS − DIFS + AIFS[AC]\nBE：94 − 34 + 43 = 103 µs\nBK：94 − 34 + 79 = 139 µs',
       }, note: {
-        en: 'Penalty and class-wait, composed.',
-        zh: '惩罚与类别等待，叠加而成。',
+        en: 'Penalty and class-wait, composed. The uploader’s BE queue is the one that shows it here — hover its 103 µs defer blocks. The backup never gets one: a corrupted reception needs a preamble the radio actually locked onto, and the collisions in this scene bury both preambles at once.',
+        zh: '惩罚与类别等待，叠加而成。本场景里能看到它的是上传终端的 BE 队列——悬停它那些 103 µs 的等待色块。备份终端一次也没有：要有“损坏的接收”，先得有一个真正被锁定的前导码，而这个场景里的碰撞往往把两个前导码同时淹没。',
       } },
       { heading: { en: 'CW — how big the lottery is, and how it doubles', zh: 'CW——抽签区间有多大，碰撞后怎么翻倍' }, text: {
         en: '“CW 3–7” does not mean “draw a number between 3 and 7”. CW is the upper bound of the draw, and 3 and 7 are CWmin and CWmax — the smallest and largest that bound is ever allowed to be (§10.3.3).',
