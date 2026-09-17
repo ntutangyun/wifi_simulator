@@ -73,6 +73,8 @@ function run(): { recs: TLRecord[] } {
   const WIDTH = 160
   const apCfg = {
     rtsThresholdBytes: 3000,
+    // the test pre-loads 14 000 MSDUs into one access category: lift the 500-MSDU default
+    queueLimit: 20_000,
     edca: false, txop: false, isAp: true,
     modeForPeer: () => 'eht' as const,
     mcsForPeer: (peer: string) => rate.mcsFor(peer, mcsForRssi('eht', table.get('ap')!.get(peer)!, undefined, WIDTH)),
