@@ -4,6 +4,7 @@ import type { FrameDesc, FrameKind } from '../model/frames'
 import type { Generation } from '../model/types'
 import type { ProfileId } from '../model/scenario'
 import type { RxFailReason } from '../model/records'
+import type { AddrRole, FcBitKey, FieldKey, PpduSegmentKey } from '../model/frameFields'
 
 export type Lang = 'en' | 'zh'
 
@@ -130,6 +131,29 @@ export interface Strings {
     muHint: (kind: MuKind) => string
     muTo: string; muSize: string; muRate: string
     ruNote: (kind: MuKind) => string
+    fields: {
+      title: string; hint: string
+      mpdu: (typeName: 'Control' | 'Data', subtype: string, bytes: number) => string
+      forUser: (dst: string) => string
+      subframes: (n: number) => string
+      firstShown: string
+      subframeRow: (i: number, delim: number, mpdu: number, pad: number) => string
+      name: Record<FieldKey, string>
+      bit: Record<FcBitKey, string>
+      role: Record<AddrRole, string>
+      broadcast: string
+      ppdu: string; ppduHint: string
+      segment: Record<PpduSegmentKey, string>
+      symbols: (n: number, symUs: number) => string
+    }
+  }
+  widgets: {
+    txPower: string; distance: string; walls: string; width: string; mode: string
+    wallName: Record<'drywall' | 'brick' | 'glass', string>
+    pathLoss: string; wallLoss: string; rssi: string; noise: string; snr: string
+    bestMcs: string; required: string; margin: (db: number) => string
+    ladderSnr: string; mcs: string; rate: string; reqSinr: string; sens: string
+    usable: (n: number) => string
   }
   tooltips: {
     transmitting: string; dlMu: (n: number, kind: MuKind) => string; ampdu: (n: number, dst: string) => string
@@ -351,6 +375,40 @@ export const STRINGS: Record<Lang, Strings> = {
       ruNote: (kind) => kind === 'mumimo'
         ? 'Spatially multiplexed: sent at the same time, same frequency and full width as the other frames of its group without interfering — they occupy different spatial streams.'
         : 'RU-orthogonal: sent at the same time as the other frames of its group without interfering — they occupy different frequency slices.',
+      fields: {
+        title: 'Fields on the air', hint: 'the MAC header field by field, and how the PPDU spends its airtime',
+        mpdu: (ty, sub, b) => `${sub} (${ty}) · ${b} B`,
+        forUser: (dst) => `PSDU for ${dst}`,
+        subframes: (n) => `A-MPDU: ${n} subframes`,
+        firstShown: 'fields of the first MPDU:',
+        subframeRow: (i, d, m, p) => `#${i + 1}: delimiter ${d} + MPDU ${m}${p ? ` + pad ${p}` : ''} B`,
+        name: {
+          fc: 'Frame Control', duration: 'Duration', addr1: 'Address 1', addr2: 'Address 2', addr3: 'Address 3',
+          seqCtl: 'Sequence Control', qos: 'QoS Control', body: 'Frame Body (MSDU)', baControl: 'BA Control',
+          baInfo: 'BA Information', commonInfo: 'Common Info', userInfo: 'User Info List', fcs: 'FCS',
+        },
+        bit: {
+          protocolVersion: 'Protocol Version', type: 'Type', subtype: 'Subtype', toDs: 'To DS', fromDs: 'From DS',
+          moreFrag: 'More Fragments', retry: 'Retry', pwrMgt: 'Power Management', moreData: 'More Data',
+          protected: 'Protected Frame', htc: '+HTC',
+        },
+        role: { RA: 'receiver', TA: 'transmitter', DA: 'destination', SA: 'source', BSSID: 'BSSID' },
+        broadcast: 'broadcast',
+        ppdu: 'PPDU layout', ppduHint: 'preamble and PHY header first, then the data symbols carrying the PSDU',
+        segment: {
+          legacyPreamble: 'STF + LTF', signal: 'SIGNAL', preamble: 'preamble', muSig: 'SIG-B / EHT-SIG',
+          data: 'data', padding: 'padding / PE',
+        },
+        symbols: (n, u) => `${n} symbols × ${u} µs`,
+      },
+    },
+    widgets: {
+      txPower: 'TX power', distance: 'distance', walls: 'walls in the way', width: 'channel width', mode: 'PHY',
+      wallName: { drywall: 'drywall', brick: 'brick', glass: 'glass' },
+      pathLoss: 'path loss', wallLoss: 'walls', rssi: 'received (RSSI)', noise: 'noise floor', snr: 'SNR',
+      bestMcs: 'highest usable MCS', required: 'needs', margin: (db) => `required SINR + ${db} dB margin`,
+      ladderSnr: 'your SNR', mcs: 'MCS', rate: 'Mbps (20 MHz, 1 SS)', reqSinr: 'required SINR', sens: 'sensitivity',
+      usable: (n) => `${n} MCS usable (with the rate margin)`,
     },
     tooltips: {
       transmitting: 'transmitting',
@@ -595,6 +653,40 @@ export const STRINGS: Record<Lang, Strings> = {
       ruNote: (kind) => kind === 'mumimo'
         ? '空分复用：与同组其它帧在同一时刻、相同频率、以完整带宽发送而互不干扰——它们占用不同的空间流。'
         : 'RU 正交：与同组其它帧同时发送而互不干扰——它们占用不同的频率子块。',
+      fields: {
+        title: '空口字段', hint: '逐字段的 MAC 头，以及 PPDU 如何分配它的空口时间',
+        mpdu: (ty, sub, b) => `${sub}（${ty === 'Data' ? '数据帧' : '控制帧'}）· ${b} B`,
+        forUser: (dst) => `发往 ${dst} 的 PSDU`,
+        subframes: (n) => `A-MPDU：${n} 个子帧`,
+        firstShown: '第一个 MPDU 的字段：',
+        subframeRow: (i, d, m, p) => `#${i + 1}：定界符 ${d} + MPDU ${m}${p ? ` + 填充 ${p}` : ''} B`,
+        name: {
+          fc: '帧控制（Frame Control）', duration: '持续时间（Duration）', addr1: '地址 1', addr2: '地址 2', addr3: '地址 3',
+          seqCtl: '序列控制', qos: 'QoS 控制', body: '帧体（MSDU）', baControl: 'BA 控制',
+          baInfo: 'BA 信息', commonInfo: '公共信息', userInfo: '用户信息列表', fcs: 'FCS 校验',
+        },
+        bit: {
+          protocolVersion: '协议版本', type: '类型', subtype: '子类型', toDs: 'To DS', fromDs: 'From DS',
+          moreFrag: '更多分片', retry: '重传', pwrMgt: '电源管理', moreData: '更多数据',
+          protected: '加密', htc: '+HTC',
+        },
+        role: { RA: '接收端', TA: '发送端', DA: '目的地址', SA: '源地址', BSSID: 'BSSID' },
+        broadcast: '广播',
+        ppdu: 'PPDU 结构', ppduHint: '先是前导码和 PHY 头，然后是承载 PSDU 的数据符号',
+        segment: {
+          legacyPreamble: 'STF + LTF', signal: 'SIGNAL', preamble: '前导码', muSig: 'SIG-B / EHT-SIG',
+          data: '数据', padding: '填充 / PE',
+        },
+        symbols: (n, u) => `${n} 个符号 × ${u} µs`,
+      },
+    },
+    widgets: {
+      txPower: '发射功率', distance: '距离', walls: '中间的墙', width: '信道带宽', mode: 'PHY',
+      wallName: { drywall: '石膏板', brick: '砖墙', glass: '玻璃' },
+      pathLoss: '路径损耗', wallLoss: '穿墙损耗', rssi: '接收功率（RSSI）', noise: '底噪', snr: '信噪比 SNR',
+      bestMcs: '可用的最高 MCS', required: '需要', margin: (db) => `所需 SINR + ${db} dB 余量`,
+      ladderSnr: '你的 SNR', mcs: 'MCS', rate: 'Mbps（20 MHz，单流）', reqSinr: '所需 SINR', sens: '灵敏度',
+      usable: (n) => `可用 ${n} 个 MCS（含速率余量）`,
     },
     tooltips: {
       transmitting: '发送中',
