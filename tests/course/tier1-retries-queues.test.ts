@@ -10,7 +10,7 @@ import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
 import { CW_MAX, CW_MIN, SHORT_RETRY_LIMIT } from '../../src/engine/phy'
 import { DEFAULT_MSDU_LIFETIME_NS, DEFAULT_QUEUE_LIMIT } from '../../src/engine/queues'
 import type { TLRecord } from '../../src/model/records'
-import { lessonMinutes, lessonWords } from '../../src/course/curriculum'
+import { OBSERVE_MINUTES, TRY_MINUTES, lessonMinutes, lessonWords } from '../../src/course/curriculum'
 import { decodeFrame, fmtRecord } from '../../src/ui/format'
 
 const MS = 1_000_000
@@ -67,7 +67,7 @@ describe('retries-queues · lesson shape', () => {
 
   it('the computed study time follows the formula and stays inside the 15–25 minute target', () => {
     const raw = lessonWords(retriesQueues) / 150
-      + 5 * retriesQueues.observe.length + 5 * retriesQueues.tryThis.length
+      + OBSERVE_MINUTES * retriesQueues.observe.length + TRY_MINUTES * retriesQueues.tryThis.length
     expect(lessonMinutes(retriesQueues)).toBe(Math.max(5, Math.round(raw / 5) * 5))
     expect(lessonMinutes(retriesQueues)).toBeGreaterThanOrEqual(15)
     expect(lessonMinutes(retriesQueues)).toBeLessThanOrEqual(25)

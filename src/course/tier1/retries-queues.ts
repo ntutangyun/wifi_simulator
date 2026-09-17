@@ -48,7 +48,9 @@ export const retriesQueues: Lesson = {
       [N('1'), N('0 µs'), N('48 Mb/s'), N('0'), N('321 µs'), N('31')],
       [N('2'), N('526 µs'), N('48 Mb/s'), N('1'), N('847 µs'), N('63')],
       [N('3'), N('1683 µs'), N('36 Mb/s'), N('1'), N('2092 µs'), N('127')],
-      [N('…'), N('…'), N('…'), N('1'), N('…'), N('255 · 511 · 1023')],
+      [N('4'), N('4544 µs'), N('36 Mb/s'), N('1'), N('4953 µs'), N('255')],
+      [N('5'), N('6999 µs'), N('24 Mb/s'), N('1'), N('7576 µs'), N('511')],
+      [N('6'), N('13 632 µs'), N('24 Mb/s'), N('1'), N('14 209 µs'), N('1023')],
       [N('7'), N('26 940 µs'), N('18 Mb/s'), N('1'), { en: '27 689 µs — DROP retryLimit', zh: '27 689 µs——DROP retryLimit' }, N('15')],
     ] },
     { text: {
@@ -133,7 +135,8 @@ export const retriesQueues: Lesson = {
     J('first lifetime drop at the AP', 'AP 第一次因生存期丢帧', dropOf('lifetime', 'ap')),
   ],
   observe: [
-    { en: 'At the first retry-limit drop (27 689 µs) Hidden B logs retries=7 QSRC=7, DROP (retryLimit) and CW → 15 together, and its next frame shows sequence number 1, Retry flag 0. At its first lifetime drop: three DROP (lifetime) lines at one instant, then RETRY records reading retries=1 QSRC=6, retries=2 QSRC=7, retries=3 QSRC=1.', zh: '第一次因重传上限丢帧（27 689 µs）处，Hidden B 同时记下 retries=7 QSRC=7、DROP (retryLimit) 和 CW → 15，其下一帧序列号为 1、Retry flag 为 0。第一次因生存期丢帧处：同一瞬间三条 DROP (lifetime)，随后的 RETRY 记录是 retries=1 QSRC=6、retries=2 QSRC=7、retries=3 QSRC=1。' },
+    { en: 'At the first retry-limit drop (27 689 µs) Hidden B logs retries=7 QSRC=7, DROP (retryLimit) and CW → 15 together, and its next frame shows sequence number 1 with Retry flag 0.', zh: '第一次因重传上限丢帧（27 689 µs）处，Hidden B 同时记下 retries=7 QSRC=7、DROP (retryLimit) 和 CW → 15；它的下一帧序列号为 1、Retry flag 为 0。' },
+    { en: 'Jump to Hidden B’s first lifetime drop and step forward: three DROP (lifetime) lines at one instant, then RETRY records reading retries=1 QSRC=6, retries=2 QSRC=7, retries=3 QSRC=1 — the per-MSDU counter and QSRC apart.', zh: '跳到 Hidden B 第一次因生存期丢帧并往后步进：同一瞬间三条 DROP (lifetime)，随后的 RETRY 记录依次是 retries=1 QSRC=6、retries=2 QSRC=7、retries=3 QSRC=1——每帧计数与 QSRC 就此分道扬镳。' },
     { en: 'Select the AP and play: the queue count climbs, the head frame’s age approaches 500 ms, and after the first queue-full drop at 1 963 852 µs both drop reasons alternate.', zh: '选中 AP 并播放：队列计数不断上涨，队头帧的等待时间逼近 500 ms；1 963 852 µs 第一次队列满丢帧之后，两种丢帧原因交替出现。' },
   ],
   tryThis: [
