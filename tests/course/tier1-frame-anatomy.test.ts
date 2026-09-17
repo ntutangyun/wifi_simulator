@@ -9,7 +9,7 @@ import {
   frameAnatomy, frameAnatomyScenario, firstLegacyData, firstQosSingle, firstRtsFrame,
   firstAmpduFrame, firstBlockAck, firstLegacyRetry,
 } from '../../src/course/tier1/frame-anatomy'
-import type { Block, L10n } from '../../src/course/lessonKit'
+import { OBSERVE_MINUTES, TRY_MINUTES, lessonMinutes, lessonWords } from '../../src/course/curriculum'
 import { Simulation } from '../../src/engine/simulation'
 import { decodeFrame, ppduLayout, TID_FOR_AC, type Mpdu } from '../../src/model/frameFields'
 import { hasFeature } from '../../src/model/caps'
@@ -61,22 +61,14 @@ describe('lesson shape', () => {
     ])
   })
 
-  it('minutes = round-to-5 of EN words ÷ 150 + 5 per observe + 5 per try-this', () => {
-    const texts: string[] = [frameAnatomy.title.en]
-    const push = (x?: L10n) => { if (x) texts.push(x.en) }
-    for (const b of frameAnatomy.body as Block[]) {
-      push(b.heading)
-      if (b.kind === 'table') { for (const h of b.head) push(h); for (const row of b.rows) for (const c of row) push(c) }
-      else if (b.kind === 'list' || b.kind === 'steps') for (const i of b.items) push(i)
-      else if (b.kind === 'widget') push(b.caption)
-      else { push(b.text); if (b.kind === 'formula') push(b.note) }
-    }
-    for (const o of frameAnatomy.observe) push(o)
-    for (const t of frameAnatomy.tryThis) push(t)
-    for (const q of frameAnatomy.quiz) { push(q.q); for (const o of q.options) push(o); push(q.explain) }
-    const words = texts.join(' ').split(/\s+/).filter((w) => /[A-Za-z0-9]/.test(w)).length
-    const raw = words / 150 + 5 * frameAnatomy.observe.length + 5 * frameAnatomy.tryThis.length
-    expect(frameAnatomy.minutes).toBe(Math.round(raw / 5) * 5)
+  it('the computed study time follows the formula and lands in the 15–25 minute band', () => {
+    const raw = lessonWords(frameAnatomy) / 150
+      + OBSERVE_MINUTES * frameAnatomy.observe.length + TRY_MINUTES * frameAnatomy.tryThis.length
+    expect(lessonMinutes(frameAnatomy)).toBe(Math.max(5, Math.round(raw / 5) * 5))
+    expect(frameAnatomy.observe.length).toBe(3)
+    expect(frameAnatomy.tryThis.length).toBe(2)
+    expect(lessonMinutes(frameAnatomy)).toBeGreaterThanOrEqual(15)
+    expect(lessonMinutes(frameAnatomy)).toBeLessThanOrEqual(25)
   })
 
   it('no management frame is transmitted — the lesson says so', () => {

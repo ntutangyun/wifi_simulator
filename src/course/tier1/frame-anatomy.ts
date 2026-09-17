@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Tier 1 · M1 · lesson 3: frame anatomy. What one PPDU carries, field by field:
  * the PHY preamble and header, the MAC header (Frame Control bits, Duration,
  * the four address roles, Sequence Control, QoS Control), the FCS, the tiny
@@ -36,7 +36,6 @@ export const firstLegacyRetry = (r: TLRecord): boolean =>
 export const frameAnatomy: Lesson = {
   id: 'frame-anatomy',
   module: 0,
-  minutes: 35,
   title: { en: 'Frame anatomy — what is actually on the air', zh: '帧的解剖——空中到底传了什么' },
   body: [
     { text: {
