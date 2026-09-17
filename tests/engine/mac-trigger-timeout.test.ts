@@ -12,11 +12,11 @@ import type { TLRecord } from '../../src/model/records'
  * (SIFS + up to 2 ms + SIFS) and sat in "wait ACK" for the whole window
  * after a trigger that collided and was heard by nobody — originally seen in
  * lesson 9 where the Caller's VO frame started in the same slot. Lesson 12
- * (trigger-based uplink) collides a trigger within its first 30 ms.
+ * (trigger-based uplink) collides a trigger within its first 100 ms.
  */
 describe('a trigger nobody answers times out after 45 µs', () => {
   const lesson = LESSONS.find((l) => l.id === 'ofdma-ul')!
-  const recs: TLRecord[] = new Simulation(lesson.scenario()).runUntil(30_000_000).records
+  const recs: TLRecord[] = new Simulation(lesson.scenario()).runUntil(100_000_000).records
   const ap = (r: TLRecord): r is TLRecord & { node: string } => 'node' in r && r.node === 'ap'
   type Rec<K extends TLRecord['type']> = Extract<TLRecord, { type: K }>
 

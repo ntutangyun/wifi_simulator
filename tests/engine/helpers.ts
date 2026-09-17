@@ -22,7 +22,7 @@ export interface Bss {
  * Build a BSS with nodes and an explicit dBm link matrix `links['a>b']`.
  * Missing entries default to −200 (out of range).
  */
-export function makeBss(nodeIds: string[], links: Record<string, number>, opts: { rtsThresholdBytes?: number; seed?: number } = {}): Bss {
+export function makeBss(nodeIds: string[], links: Record<string, number>, opts: { rtsThresholdBytes?: number; seed?: number; edca?: boolean } = {}): Bss {
   const q = new EventQueue()
   let now = 0
   const table = new Map<string, Map<string, number>>()
@@ -46,7 +46,7 @@ export function makeBss(nodeIds: string[], links: Record<string, number>, opts: 
       id, q, () => now, ch, root.fork(i + 10), emit,
       {
         rtsThresholdBytes: opts.rtsThresholdBytes ?? 3000,
-        edca: false, txop: false, isAp: id === 'ap',
+        edca: opts.edca ?? false, txop: false, isAp: id === 'ap',
         modeForPeer: () => 'nonht',
         mcsForPeer: (peer) => {
           const mbps = dataRateFor(table.get(peer)!.get(id) ?? -200)
@@ -80,7 +80,7 @@ export function makeBss(nodeIds: string[], links: Record<string, number>, opts: 
       q.schedule(t, fn)
     },
     enqueue(t: number, node: string, msdu: Msdu) {
-      q.schedule(t, () => macs[node].enqueue(msdu))
+      q.schedule(t, () => macs[node].enqueue(msdu, msdu.ac))
     },
     recs(type, node) {
       return records.filter((r) => r.type === type && (node === undefined || (r as { node?: string }).node === node)) as never

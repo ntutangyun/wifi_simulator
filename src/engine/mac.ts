@@ -294,8 +294,20 @@ export class WifiMac implements PhyListener {
     } else {
       this.emit({ t, type: 'BACKOFF_RESUME', node: this.nodeId, value: e.backoff, ac: this.acTag(e) })
     }
-    if (e.backoff === 0) this.markReady(e)
-    else this.scheduleTick(e)
+    if (e.backoff === 0) {
+      this.markReady(e)
+      return
+    }
+    // §10.23.2.4: for EDCA the end of AIFS is itself a slot boundary at which
+    // the counter decrements (reaching 0 there still waits for the next
+    // boundary to transmit). DCF decrements only at the end of each idle slot.
+    if (this.cfg.edca) this.decrement(e)
+    this.scheduleTick(e)
+  }
+
+  private decrement(e: Edcaf): void {
+    e.backoff = e.backoff! - 1
+    this.emit({ t: this.now(), type: 'BACKOFF_DEC', node: this.nodeId, value: e.backoff, ac: this.acTag(e) })
   }
 
   private scheduleTick(e: Edcaf): void {
@@ -308,8 +320,17 @@ export class WifiMac implements PhyListener {
   }
 
   private onSlotTick(e: Edcaf): void {
-    e.backoff = e.backoff! - 1
-    this.emit({ t: this.now(), type: 'BACKOFF_DEC', node: this.nodeId, value: e.backoff, ac: this.acTag(e) })
+    if (this.cfg.edca) {
+      // a boundary with the counter already at 0 is the one to transmit on
+      if (e.backoff === 0) {
+        this.markReady(e)
+        return
+      }
+      this.decrement(e)
+      this.scheduleTick(e)
+      return
+    }
+    this.decrement(e)
     if (e.backoff === 0) this.markReady(e)
     else this.scheduleTick(e)
   }

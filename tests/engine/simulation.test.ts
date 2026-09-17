@@ -55,10 +55,13 @@ describe('Simulation', () => {
     const v = sim.view
     const ok1 = v.nodes['sta-1'].stats.txOk
     const ok2 = v.nodes['sta-2'].stats.txOk
-    const total = ok1 + ok2
-    expect(total).toBeGreaterThan(200) // sanity: the medium is actually being used
-    expect(ok1 / total).toBeGreaterThan(0.35)
-    expect(ok1 / total).toBeLessThan(0.65)
+    expect(ok1 + ok2).toBeGreaterThan(200) // sanity: the medium is actually being used
+    // EDCA shares transmit opportunities, i.e. airtime; delivered-frame counts
+    // also depend on each station's MCS, so they are not the fairness measure.
+    const air1 = v.nodes['sta-1'].stats.airtimeNs
+    const air2 = v.nodes['sta-2'].stats.airtimeNs
+    expect(air1 / (air1 + air2)).toBeGreaterThan(0.35)
+    expect(air1 / (air1 + air2)).toBeLessThan(0.65)
     expect(v.nodes['sta-1'].stats.collisions + v.nodes['sta-2'].stats.collisions).toBeGreaterThan(0)
     // modern nodes (HE/VHT with A-MPDU + TXOP) push well past legacy DCF rates
     const mbps = (v.nodes['ap'].stats.bytesDelivered * 8) / 0.3 / 1e6
