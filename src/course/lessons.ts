@@ -287,7 +287,7 @@ export const LESSONS: Lesson[] = [
     observe: [
       { en: 'Each blue block’s length equals its real duration — hover to read bytes, MCS, µs.', zh: '每个蓝色块的长度就是真实时长——悬停可读出字节数、MCS 与微秒数。' },
       { en: 'The ACK follows exactly 16 µs (one SIFS) after the data block ends.', zh: 'ACK 恰好在数据块结束后 16 µs（一个 SIFS）出现。' },
-      { en: 'Between exchanges the channel is idle — video at this rate barely uses the medium.', zh: '两次帧交换（数据帧 + 紧随其后的 ACK）之间信道是空闲的——这个码率的视频几乎用不满介质。' },
+      { en: 'Between exchanges the channel is idle — video at this rate uses under a fifth of the airtime.', zh: '两次帧交换（数据帧 + 紧随其后的 ACK）之间信道是空闲的——这个码率的视频占用的空口时间不到五分之一。' },
     ],
     tryThis: [
       { en: 'Open the scenario in the editor, set the TV to 802.11a (legacy), and compare frame durations.', zh: '在编辑器中打开场景，把电视改成 802.11a（传统模式），比较帧时长的变化。' },
