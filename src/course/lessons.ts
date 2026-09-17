@@ -19,6 +19,8 @@ import { decodeThresholds } from './tier1/decode-thresholds'
 import { rolesStack } from './tier1/roles-stack'
 import { frameAnatomy } from './tier1/frame-anatomy'
 import { retriesQueues } from './tier1/retries-queues'
+import { bianchi } from './tier1/bianchi'
+import { bianchiVsSim } from './tier1/bianchi-vs-sim'
 export type { Block, JumpTarget, L10n, Lesson, LessonVariant, Quiz } from './lessonKit'
 
 export { MODULES, TIERS } from './curriculum'
@@ -93,6 +95,8 @@ const AUTHORED: Lesson[] = [
   rolesStack,
   frameAnatomy,
   retriesQueues,
+  bianchi,
+  bianchiVsSim,
   // ======================= MODULE 1 =======================
   {
     id: 'airtime',
