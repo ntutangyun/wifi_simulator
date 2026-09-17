@@ -73,20 +73,23 @@ describe('A-MPDU + BlockAck (Wi-Fi 5+)', () => {
 })
 
 describe('TXOP bursting', () => {
-  it('every PPDU (+SIFS+BA) fits inside its TXOP (§10.23.2.8)', () => {
-    const { records } = run(mkScenario([{ gen: 'vht', profile: 'saturated' }]), 100)
-    const txops = records.filter((r) => r.type === 'TXOP_START')
-    expect(txops.length).toBeGreaterThan(0)
-    let checked = 0
-    for (const ts of txops) {
-      if (ts.type !== 'TXOP_START') continue
-      const data = records.find((r) => r.type === 'TX_START' && r.t >= ts.t && r.frame.kind === 'data' && r.node === ts.node)
-      if (!data || data.type !== 'TX_START') continue
-      expect(data.t + data.frame.txTimeNs).toBeLessThanOrEqual(ts.untilNs)
-      checked++
-    }
-    expect(checked).toBeGreaterThan(0)
-  })
+  for (const rts of [65_535, 500]) {
+    it(`every exchange, including its RTS/CTS and BA, ends inside its TXOP (RTS threshold ${rts})`, () => {
+      const sc = mkScenario([{ gen: 'vht', profile: 'saturated' }])
+      sc.rtsThresholdBytes = rts
+      const { records } = run(sc, 150)
+      let checked = 0
+      for (const ts of records) {
+        if (ts.type !== 'TXOP_START') continue
+        const close = records.find((r) => r.type === 'TXOP_END' && r.node === ts.node && r.t >= ts.t)
+        const ends = records.filter((r) => r.type === 'TX_END' && r.t > ts.t && (!close || r.t <= close.t) &&
+          (r.node === ts.node || r.frame.dst === ts.node) && (r.node === ts.node ? true : r.frame.kind !== 'data'))
+        for (const e of ends) expect(e.t, `TXOP @${ts.t} (${e.type === 'TX_END' ? e.frame.kind : ''})`).toBeLessThanOrEqual(ts.untilNs)
+        checked++
+      }
+      expect(checked).toBeGreaterThan(10)
+    })
+  }
 
   it('chains SIFS-separated exchanges when the queue holds frames for a second receiver', () => {
     // two DL video flows (AC_VI, TXOP 4.096 ms): the AP bursts to both STAs in one TXOP

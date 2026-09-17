@@ -120,7 +120,7 @@ describe('NAV / EIFS / RTS-CTS', () => {
     expect(nav).toBeDefined()
     const clear = b.recs('NAV_CLEAR', 'ap')[0]
     const ctsTime = txTimeNs(CTS_BYTES, 6)
-    expect(clear.t).toBe(rtsEnd + 2 * SIFS_NS + ctsTime + 2 * SLOT_NS)
+    expect(clear.t).toBe(rtsEnd + 2 * SIFS_NS + ctsTime + 20_000 /* aRxPHYStartDelay */ + 2 * SLOT_NS)
     expect(clear.t).toBeLessThan(nav.untilNs) // released early
     expect(b.recs('CTS_TIMEOUT', 'sta-1').length).toBeGreaterThanOrEqual(1)
   })

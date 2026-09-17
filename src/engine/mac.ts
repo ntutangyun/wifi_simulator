@@ -22,7 +22,7 @@ import { EventQueue } from './events'
 import {
   ACK_BYTES, ACK_TIMEOUT_NS, BA_BYTES, CF_END_BYTES, CTS_BYTES, CTS_TIMEOUT_NS, DCF_PARAMS, DIFS_NS,
   EDCA_PARAMS, EIFS_NS, MAX_AMPDU_MPDUS, MAX_PPDU_NS, PHY_MODES,
-  QOS_HDR_BYTES, FCS_BYTES, RTS_BYTES, SHORT_RETRY_LIMIT, SIFS_NS, SLOT_NS,
+  QOS_HDR_BYTES, FCS_BYTES, RTS_BYTES, RX_START_DELAY_NS, SHORT_RETRY_LIMIT, SIFS_NS, SLOT_NS,
   aifsNs, ctrlRespRateFor, ctrlRespRateForMode, mcsRateMbps, multiStaBaBytes, triggerBytes, toneRatio, txTimeModeNs, txTimeNs,
   type AcParams, type PhyMode,
 } from './phy'
@@ -439,16 +439,17 @@ export class WifiMac implements PhyListener {
     const nss = this.cfg.nssForPeer(peer)
     const mbps = mcsRateMbps(mode, mcs)
     const useAmpdu = this.cfg.ampduWith(peer) && mode !== 'nonht'
-    // A PPDU (+SIFS+BA) must fit inside the TXOP (§10.23.2.8).
-    const txopCap = inTxopBurst && this.txopEndNs > 0
-      ? Math.max(200_000, this.txopEndNs - t - SIFS_NS - 60_000)
-      : this.cfg.txop && this.cfg.edca && e.params.txopLimitNs > 0
-        ? Math.max(200_000, e.params.txopLimitNs - SIFS_NS - 60_000)
-        : MAX_PPDU_NS
-    const budgetNs = Math.min(MAX_PPDU_NS, txopCap)
+    // The whole exchange — RTS/CTS if the first PPDU needs it, the PPDU, SIFS
+    // and its ACK/BlockAck — must end inside the TXOP (§10.23.2.9). The head
+    // MSDU alone may always start a TXOP (AcQueues.claim).
+    const txopEnd = inTxopBurst && this.txopEndNs > 0
+      ? this.txopEndNs
+      : this.cfg.txop && this.cfg.edca && e.params.txopLimitNs > 0 ? t + e.params.txopLimitNs : Infinity
+    const burstProtection = !inTxopBurst && (this.cfg.txopProtection ?? 'single') !== 'single' &&
+      this.cfg.txop && this.cfg.edca && e.params.txopLimitNs > 0
     const msdus = this.queues.claim(ei, peer, useAmpdu ? MAX_AMPDU_MPDUS : 1, (m, claimed) => {
-      const trial = ampduPsduBytes([...claimed.map((x) => x.bytes), m.bytes])
-      return txTimeModeNs(mode, trial, mcs, { widthMhz: width, nss }) <= budgetNs
+      const x = this.exchangeNs(peer, [...claimed.map((c) => c.bytes), m.bytes], !inTxopBurst, burstProtection)
+      return x.dataNs <= MAX_PPDU_NS && t + x.totalNs <= txopEnd
     })
     if (!msdus.length) {
       this.endTxop()
@@ -510,38 +511,49 @@ export class WifiMac implements PhyListener {
    * continueOrRelease will. Returns 0 when nothing more would be chained.
    */
   private planBurstNs(ei: number, fromNs: Ns, txopEndNs: Ns): Ns {
-    const e = this.edcafs[ei]
     const queue = this.queues.peek(ei).filter((m) => this.reach(m.dst))
     let t = fromNs
     let i = 0
     while (i < queue.length) {
       const peer = queue[i].dst
-      const mode = this.cfg.modeForPeer(peer)
-      const mcs = this.cfg.mcsForPeer(peer)
-      const width = this.cfg.widthForPeer(peer)
-      const nss = this.cfg.nssForPeer(peer)
-      // continueOrRelease's fit check: one plain frame + its BA must fit
-      const oneFrame = txTimeModeNs(mode, dataPsduBytes(queue[i].bytes), mcs, { widthMhz: width, nss })
-      if (t + SIFS_NS + oneFrame + SIFS_NS + txTimeNs(BA_BYTES, 24) > txopEndNs) break
-      const useAmpdu = this.cfg.ampduWith(peer) && mode !== 'nonht'
-      const budgetNs = Math.min(MAX_PPDU_NS, Math.max(200_000, txopEndNs - (t + SIFS_NS) - SIFS_NS - 60_000))
-      const bytes: number[] = []
-      let j = i
-      while (j < queue.length && queue[j].dst === peer && bytes.length < (useAmpdu ? MAX_AMPDU_MPDUS : 1)) {
-        const trial = ampduPsduBytes([...bytes, queue[j].bytes])
-        if (bytes.length > 0 && txTimeModeNs(mode, trial, mcs, { widthMhz: width, nss }) > budgetNs) break
+      // continueOrRelease's fit check: the next exchange must end inside the TXOP
+      if (t + SIFS_NS + this.exchangeNs(peer, [queue[i].bytes], false).totalNs > txopEndNs) break
+      const useAmpdu = this.cfg.ampduWith(peer) && this.cfg.modeForPeer(peer) !== 'nonht'
+      const bytes: number[] = [queue[i].bytes]
+      let j = i + 1
+      while (useAmpdu && j < queue.length && queue[j].dst === peer && bytes.length < MAX_AMPDU_MPDUS) {
+        const x = this.exchangeNs(peer, [...bytes, queue[j].bytes], false)
+        if (x.dataNs > MAX_PPDU_NS || t + SIFS_NS + x.totalNs > txopEndNs) break
         bytes.push(queue[j].bytes)
         j++
       }
-      const aggregate = useAmpdu && bytes.length > 1
-      const psdu = aggregate ? ampduPsduBytes(bytes) : this.cfg.edca ? QOS_HDR_BYTES + bytes[0] + FCS_BYTES : dataPsduBytes(bytes[0])
-      const mbps = mcsRateMbps(mode, mcs)
-      const resp = txTimeNs(aggregate ? BA_BYTES : ACK_BYTES, ctrlRespRateForMode(mode, mcs, mbps))
-      t += SIFS_NS + txTimeModeNs(mode, psdu, mcs, { widthMhz: width, nss }) + SIFS_NS + resp
+      t += SIFS_NS + this.exchangeNs(peer, bytes, false).totalNs
       i = j
-      void e
     }
     return Math.max(0, t - fromNs)
+  }
+
+  /**
+   * Airtime of one exchange with a peer carrying these MSDUs: [RTS + SIFS +
+   * CTS + SIFS when protected] + PPDU + SIFS + ACK or BlockAck. Protection
+   * applies to a TXOP's first PPDU above the RTS threshold, or always when the
+   * burst is protected at its boundary.
+   */
+  private exchangeNs(peer: string, msduBytes: number[], firstInTxop: boolean, burstProtection = false): { dataNs: Ns; totalNs: Ns } {
+    const mode = this.cfg.modeForPeer(peer)
+    const mcs = this.cfg.mcsForPeer(peer)
+    const mbps = mcsRateMbps(mode, mcs)
+    const aggregate = this.cfg.ampduWith(peer) && mode !== 'nonht' && msduBytes.length > 1
+    const psdu = aggregate
+      ? ampduPsduBytes(msduBytes)
+      : this.cfg.edca ? QOS_HDR_BYTES + msduBytes[0] + FCS_BYTES : dataPsduBytes(msduBytes[0])
+    const dataNs = txTimeModeNs(mode, psdu, mcs, { widthMhz: this.cfg.widthForPeer(peer), nss: this.cfg.nssForPeer(peer) })
+    const respRate = ctrlRespRateForMode(mode, mcs, mbps)
+    let totalNs = dataNs + SIFS_NS + txTimeNs(aggregate ? BA_BYTES : ACK_BYTES, respRate)
+    if (firstInTxop && (burstProtection || psdu > this.cfg.rtsThresholdBytes)) {
+      totalNs += txTimeNs(RTS_BYTES, respRate) + SIFS_NS + txTimeNs(CTS_BYTES, ctrlRespRateFor(respRate)) + SIFS_NS
+    }
+    return { dataNs, totalNs }
   }
 
   private buildDataFrame(
@@ -945,12 +957,7 @@ export class WifiMac implements PhyListener {
     const ei = this.edcafs.indexOf(e)
     if (this.txopEndNs > 0 && this.txopAc === ei && this.queues.depthFor(ei, this.reach) > 0) {
       const head = this.queues.head(ei, this.reach)!
-      const mode = this.cfg.modeForPeer(head.dst)
-      const mcs = this.cfg.mcsForPeer(head.dst)
-      const width = this.cfg.widthForPeer(head.dst)
-      const nss = this.cfg.nssForPeer(head.dst)
-      const oneFrame = txTimeModeNs(mode, dataPsduBytes(head.bytes), mcs, { widthMhz: width, nss })
-      const need = SIFS_NS + oneFrame + SIFS_NS + txTimeNs(BA_BYTES, 24)
+      const need = SIFS_NS + this.exchangeNs(head.dst, [head.bytes], false).totalNs
       if (t + need <= this.txopEndNs) {
         this.setState('sifsResp')
         this.respHandle = this.q.schedule(t + SIFS_NS, () => {
@@ -1326,7 +1333,7 @@ export class WifiMac implements PhyListener {
       const setAt = t
       this.navFromRtsAt = setAt
       const ctsTime = txTimeNs(CTS_BYTES, ctrlRespRateFor(frame.mbps))
-      this.q.schedule(t + 2 * SIFS_NS + ctsTime + 2 * SLOT_NS, () => {
+      this.q.schedule(t + 2 * SIFS_NS + ctsTime + RX_START_DELAY_NS + 2 * SLOT_NS, () => {
         if (this.navFromRtsAt === setAt && this.lastRxStartNs <= setAt && this.navUntil > this.now()) {
           this.navUntil = 0
           this.navSetBy = null
