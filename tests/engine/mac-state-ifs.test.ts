@@ -9,15 +9,15 @@ import { applyRecord, initViewState } from '../../src/model/view'
  * IFS makes the wait vanish and the following backoff appear from nowhere.
  */
 describe('MAC state while an IFS is armed', () => {
-  it('lesson 12: the AP is deferring during its AIFS after the BlockAck at 7780.2 µs', () => {
+  it('lesson 12: the AP is deferring during its AIFS after the BlockAck at 7814.2 µs', () => {
     const sc = LESSONS.find((x) => x.id === 'ofdma-ul')!.scenario()
     const vs = initViewState(sc)
     for (const r of new Simulation(sc).runUntil(8_000_000).records) {
-      if (r.t > 7_800_000) break
+      if (r.t > 7_830_000) break
       applyRecord(vs, r)
     }
     const ap = vs.nodes['ap']
-    expect(ap.acs![1].ifs).toMatchObject({ kind: 'AIFS', untilNs: 7_823_200 })
+    expect(ap.acs![1].ifs).toMatchObject({ kind: 'AIFS', untilNs: 7_857_200 })
     expect(ap.state).toBe('defer')
   })
 

@@ -370,11 +370,20 @@ function findings(): string {
   const gDeltaPct = pct(bb.gamers, best.s.gamers) ?? 0
   const gamersClears = clearsNoiseFloor(gDeltaMs, gDeltaPct)
   const gamersDir = gDeltaMs < 0 ? '的 ping 也随之下降' : '的 ping 随之上升'
+  // the compliant gamers' own collision and retry counts (per-seed averages, whole run), so the
+  // text says what they did instead of assuming they stayed put
+  const gamerSum = (cfg: Config, k: 'collisions' | 'retries') =>
+    get('bg-upload', cfg).nodes.filter((n) => isGamer(n) && n.id !== CHEATER).reduce((a, n) => a + n[k], 0)
+  const cB = gamerSum('baseline', 'collisions'), cC = gamerSum(best.c, 'collisions')
+  const rB = gamerSum('baseline', 'retries'), rC = gamerSum(best.c, 'retries')
+  const countsFlat = Math.abs(pct(cB, cC) ?? 0) < 15 && Math.abs(pct(rB, rC) ?? 0) < 15
+  const countsTrend = countsFlat ? '几乎不变' : (rC - rB) + (cC - cB) > 0 ? '明显增加' : '明显减少'
+  const countsClause = `他们自己的碰撞与重传次数${countsTrend}（${RUN_MS / 1000} s 内合计碰撞 ${cB.toFixed(0)} → ${cC.toFixed(0)} 次、重传 ${rB.toFixed(0)} → ${rC.toFixed(0)} 次，种子平均；见第 5 节）`
   const gamersClause = !gamersClears
     ? `合规玩家的 ping 几乎不变（${ms(bb.gamers)} → ${ms(best.s.gamers)}，${gDeltaMs >= 0 ? '+' : ''}${gDeltaMs.toFixed(2)} ms / ${gDeltaPct >= 0 ? '+' : ''}${gDeltaPct.toFixed(2)}%，够不上本报告的可分辨门槛；${agG.agree}/${agG.total} 个种子同向）——这一种作弊的收益全在作弊者自己身上，没有测出对旁观者的影响。`
     : agG.agree < agG.total
-      ? `对合规玩家的影响则不作结论：合并均值看是 ${ms(bb.gamers)} → ${ms(best.s.gamers)}（${gDeltaMs >= 0 ? '+' : ''}${gDeltaMs.toFixed(1)} ms），但只有 ${agG.agree}/${agG.total} 个种子同向（各种子 ${agG.perSeed}），按本报告的标准（见第 6 节）不足以判定方向。他们自己的碰撞与重传次数几乎不变（见第 5 节）。`
-      : `合规玩家${gamersDir}（${ms(bb.gamers)} → ${ms(best.s.gamers)}；${agG.agree}/${agG.total} 个种子同向）。${gDeltaMs < 0 ? '合规玩家为何也受益，本报告的计数器没有分离出机制——他们自己的碰撞与重传次数几乎不变（见第 5 节），只能说重负载下一个抢先的终端并没有把玩家挤得更惨。' : ''}`
+      ? `对合规玩家的影响则不作结论：合并均值看是 ${ms(bb.gamers)} → ${ms(best.s.gamers)}（${gDeltaMs >= 0 ? '+' : ''}${gDeltaMs.toFixed(1)} ms），但只有 ${agG.agree}/${agG.total} 个种子同向（各种子 ${agG.perSeed}），按本报告的标准（见第 6 节）不足以判定方向。${countsClause}。`
+      : `合规玩家${gamersDir}（${ms(bb.gamers)} → ${ms(best.s.gamers)}；${agG.agree}/${agG.total} 个种子同向）。${gDeltaMs < 0 ? `合规玩家为何也受益，本报告的计数器没有分离出机制——${countsClause}，只能说重负载下一个抢先的终端并没有把玩家挤得更惨。` : ''}`
   const otherAgree = gains.filter((r) => r.c !== best.c && r.ag.agree === r.ag.total)
   const outlierClause = bestOutlier
     ? `按合并均值看，"${CONFIG_LABEL[bestOutlier.c]}"更大（${ms(bb.cheater)} → ${ms(bestOutlier.s.cheater)}，${pct(bb.cheater, bestOutlier.s.cheater)!.toFixed(0)}%），但只有 ${bestOutlier.ag.agree}/${bestOutlier.ag.total} 个种子同向（各种子 ${bestOutlier.ag.perSeed}）——它被其中一个种子的离群值拉出来，因此不作为结论。`
@@ -427,11 +436,19 @@ function findings(): string {
   // bg-upload result that only some seeds reproduce, and it must say so.
   const agBgNavC = seedAgreement('bg-upload', 'navInflate', 'cheater'), agBgNavG = seedAgreement('bg-upload', 'navInflate', 'gamers')
   const agFuHogG = seedAgreement('full-upload', 'txopHog', 'gamers'), agFuNavG = seedAgreement('full-upload', 'navInflate', 'gamers')
+  const laptops = (cfg: Config) => get('bg-upload', cfg).nodes.filter((n) => n.profiles.includes('saturated'))
+  const lapAir = laptops('baseline').map((n, i) => `${n.name} ${n.airtimePct.toFixed(1)}% → ${laptops('navInflate')[i].airtimePct.toFixed(1)}%`).join('、')
+  const cheaterGain = (bgNav.cheater ?? 0) < (bgB.cheater ?? 0), gamersGain = (bgNav.gamers ?? 0) < (bgB.gamers ?? 0)
+  const whoGains = cheaterGain && gamersGain ? '所有玩家看上去都因此受益'
+    : cheaterGain ? '作弊者看上去因此受益，合规玩家却没有跟着受益'
+    : gamersGain ? '合规玩家看上去因此受益，作弊者自己却没有'
+    : '玩家们并没有因此受益'
+  const navGap = (RUN_MS / navRun.dataTx).toFixed(0)
   const seedTag = (a: { agree: number; total: number; perSeed: string }) =>
     `${a.agree}/${a.total} 个种子同向${a.agree < a.total ? `，各种子 ${a.perSeed}` : ''}`
   const hogText = `游戏上行包 89–131 B、平均每 30 ms 一个（实测王者荣耀），没有可以霸占的突发：在只打游戏的三个场景里，TXOP 霸占下作弊者的平均 ping 与基线的偏差不超过 ${hogDev.toFixed(1)} ms${hogDev < 0.05 ? '（轨迹完全相同，三个种子逐一相同）' : ''}。`
   const navText = navWorks
-    ? `NAV 膨胀则不同：重负载场景 8 s 里作弊者发出 ${navRun.dataTx.toFixed(0)} 个数据帧，其他终端合计解码 ${navRun.dataDecodedByStas.toFixed(0)} 次（一帧可被多台终端解码）、设置了 ${navRun.navSets.toFixed(0)} 次比实际需要长 3 ms 的 NAV——能解码它的邻居每收到它一帧就被压住 3 ms（平均每 30 ms 一帧）。结果作弊者 ${ms(bgB.cheater)} → ${ms(bgNav.cheater)}（${seedTag(agBgNavC)}），合规玩家 ${ms(bgB.gamers)} → ${ms(bgNav.gamers)}（${seedTag(agBgNavG)}）：被压住的主要是两台饱和上传的笔记本，所有玩家看上去都因此受益${agBgNavC.agree < agBgNavC.total || agBgNavG.agree < agBgNavG.total ? '——但这两个方向都不是每个种子都重现，按第 6 节的标准只能当作机制说明，不作为定量结论' : ''}。这一效果取决于谁能解码作弊者的帧：本引擎按每个 MCS 的 SINR 门限判定解码，与帧长无关，作弊者到 AP 的距离决定它用的 MCS，邻居能否解码常常只差零点几 dB——位置一变就可能一帧都解不出来。`
+    ? `NAV 膨胀则不同：重负载场景 8 s 里作弊者发出 ${navRun.dataTx.toFixed(0)} 个数据帧，其他终端合计解码 ${navRun.dataDecodedByStas.toFixed(0)} 次（一帧可被多台终端解码）、设置了 ${navRun.navSets.toFixed(0)} 次比实际需要长 3 ms 的 NAV——能解码它的邻居每收到它一帧就被压住 3 ms（平均每 ${navGap} ms 一帧）。结果作弊者 ${ms(bgB.cheater)} → ${ms(bgNav.cheater)}（${seedTag(agBgNavC)}），合规玩家 ${ms(bgB.gamers)} → ${ms(bgNav.gamers)}（${seedTag(agBgNavG)}）。两台饱和上传笔记本的空口占比为 ${lapAir}，${whoGains}${agBgNavC.agree < agBgNavC.total || agBgNavG.agree < agBgNavG.total ? '——但这两个方向都不是每个种子都重现，按第 6 节的标准只能当作机制说明，不作为定量结论' : ''}。这一效果取决于谁能解码作弊者的帧：本引擎按每个 MCS 的 SINR 门限判定解码，与帧长无关，作弊者到 AP 的距离决定它用的 MCS，邻居能否解码常常只差零点几 dB——位置一变就可能一帧都解不出来。`
     : `NAV 膨胀也没有作用，原因是物理的：重负载场景 8 s 里作弊者发出 ${navRun.dataTx.toFixed(0)} 个数据帧，其他终端合计只解码了 ${navRun.dataDecodedByStas.toFixed(0)} 次、触发 ${navRun.navSets.toFixed(0)} 次 NAV 设置——作弊者离 AP 近、用的 MCS 高，邻居的 SINR 达不到那个 MCS 的解码门限（与帧长无关），读不到 Duration 就不会被骗。`
   out.push(`<li><b>TXOP 霸占对只打游戏的作弊者无用；NAV 膨胀${navWorks ? '有效与否取决于邻居能否解码它的帧' : '同样无用'}。</b>${hogText}${navText}作弊者自己也在云备份时，它的 1500 B A-MPDU 超过 RTS 门限，每个突发都以 24 Mb/s 的 RTS 开头——RTS 的 Duration 同样被膨胀，而且所有邻居都能解码它：该场景 8 s 里 ${fuNavRun.navSetsRts.toFixed(0)} 次 NAV 设置来自作弊者的 RTS，${fuNavRun.navSets.toFixed(0)} 次来自其数据帧。TXOP 霸占让合规玩家 ${ms(fuB.gamers)} → ${ms(fuHog.gamers)}（${seedTag(agFuHogG)}），NAV 膨胀让合规玩家 ${ms(fuB.gamers)} → ${ms(fuNav.gamers)}（${seedTag(agFuNavG)}）、其他终端 ${ms(fuB.others)} → ${ms(fuNav.others)}，而作弊者自己的 ping 分别为 ${ms(fuHog.cheater)} 与 ${ms(fuNav.cheater)}（基线 ${ms(fuB.cheater)}）——这个场景已不再受空口约束（见第 6 节），这几项差异本身都在噪声量级。</li>`)
 
@@ -550,7 +567,7 @@ ${EXPERIMENTS.map((e) => `<h3>${e.title}</h3><div class="wrap">${detailTable(e.i
   <li><b>作弊者只有一个。</b>报告回答"一台越权终端能得到什么、让别人付出什么"；多台作弊者互相竞争是另一个问题。</li>
   <li><b>NAV 膨胀的效果取决于解码，而本引擎的解码模型偏保守。</b>引擎按每个 MCS 的 SINR 门限判定一帧能否解码，解不出就不读 Duration（只得到 EIFS）；数据帧的 MCS 由作弊者到 AP 的链路决定，邻居能否解码常在零点几 dB 之间，因此同一作弊在不同位置的效果可以从"完全无效"到"压住全屋"。第 1 节给出了本次运行的解码与 NAV 计数。真实的 Wi-Fi 6/7 终端即使解不出载荷，也会按 HE/EHT 前导中的 TXOP_DURATION 更新 NAV（IEEE 802.11-2024 §26.2.4），本引擎未建模这一点，所以对"解不出就骗不到"的结论应打折扣。</li>
   <li><b>样本量与离群值。</b>ping 每秒 4 次，单个 3 s 运行只有 11 个样本，一次 300 ms 的异常值就能把均值抬高 25 ms；因此改为 ${SEEDS.length} 个种子 × ${RUN_MS / 1000} s 并合并样本。即便如此，一个种子里的一次长时延仍能左右合并均值，所以第 3 节每个变化都标注了"n/${SEEDS.length} 种子同向"（悬停可见各种子的值），第 1 节的结论只采用所有种子同向的变化；P95 与最大值是单点统计，解读时注意。</li>
-  <li><b>"满屋子人"与"满屋子人 + 作弊者同时云备份"在新电台下已不再受空口约束，第 3、5 节里这两个场景的作弊间差异多数落在噪声量级。</b>这两个场景没有持续饱和的上行流，只是六部手机、一台电视和一个传感器的日常混合使用；旧的 20 MHz、单流电台把这份真实业务量发送得慢，空口因此顶到 60–70%，产生的是电台慢造成的伪竞争。换成按机型真实建模的电台后——六部手机里四部是 Wi-Fi 7、160 MHz，另两部（Honor X9d、Huawei Mate 60 Pro）与电视一样是 Wi-Fi 6、80 MHz，传感器仍是 20 MHz、单流——同样的业务量占用的空口骤降到 ${get('full', 'baseline').busyPct.toFixed(0)}%（满屋子人）与 ${get('full-upload', 'baseline').busyPct.toFixed(0)}%（+ 云备份），七种作弊之间的平均 ping 差异随之缩到亚毫秒级——如第 1 节所见，这不是作弊失效，而是这一负载强度下电台本身已经快到不再产生可观测的排队延迟。本报告里对"抢竞争类作弊有实效"的实证证据，主要来自仍然饱和的场景 2（两台笔记本饱和上传，八种配置下空口占用都在 98%–107% 之间，基线 ${get('bg-upload', 'baseline').busyPct.toFixed(0)}%）；读者不应把场景 3、5 里的"没有差异"当成"这种作弊在真实家庭网络里普遍无效"的证据，它只对这两个具体场景、这一具体负载强度成立。</li>
+  <li><b>"满屋子人"与"满屋子人 + 作弊者同时云备份"在新电台下已不再受空口约束，第 3、5 节里这两个场景的作弊间差异多数落在噪声量级。</b>这两个场景没有持续饱和的上行流，只是六部手机、一台电视和一个传感器的日常混合使用；旧的 20 MHz、单流电台把这份真实业务量发送得慢，空口因此顶到 60–70%，产生的是电台慢造成的伪竞争。换成按机型真实建模的电台后——六部手机里四部是 Wi-Fi 7、160 MHz，另两部（Honor X9d、Huawei Mate 60 Pro）与电视一样是 Wi-Fi 6、80 MHz，传感器仍是 20 MHz、单流——同样的业务量占用的空口骤降到 ${get('full', 'baseline').busyPct.toFixed(0)}%（满屋子人）与 ${get('full-upload', 'baseline').busyPct.toFixed(0)}%（+ 云备份），七种作弊之间的平均 ping 差异随之缩到亚毫秒级——如第 1 节所见，这不是作弊失效，而是这一负载强度下电台本身已经快到不再产生可观测的排队延迟。本报告里对"抢竞争类作弊有实效"的实证证据，主要来自仍然饱和的场景 2（两台笔记本饱和上传，八种配置下空口占用都在 ${Math.min(...byExp('bg-upload').map((r) => r.busyPct)).toFixed(0)}%–${Math.max(...byExp('bg-upload').map((r) => r.busyPct)).toFixed(0)}% 之间，基线 ${get('bg-upload', 'baseline').busyPct.toFixed(0)}%）；读者不应把场景 3、5 里的"没有差异"当成"这种作弊在真实家庭网络里普遍无效"的证据，它只对这两个具体场景、这一具体负载强度成立。</li>
   <li><b>本实验暴露并修复的两个引擎缺陷。</b>（1）AP 发完一个下行 MU PPDU、收齐所有 BlockAck 后，原引擎还要再等 45 µs 的应答超时才结算这次交换、再等 SIFS 才续发——TXOP 持有者每次 MU 后空等 61 µs，比任何类别的 AIFS 都长，任何终端都可以合法地插进来。现在收齐最后一个 BlockAck 就立即结算。（2）被插入一个必须应答的帧（作弊者的 RTS）时，原引擎同时保留"续发"与"应答"两个定时器，第二个在自己发送中途触发 <code>startTx while transmitting</code>；现在收到必须应答的帧会取消续发并结束 TXOP，续发定时器触发时若 CCA 忙也会放弃。按 §10.3.2.9，被 RTS 点名的终端只要 NAV 空闲就应答 CTS，持有者自己的帧不设置自己的 NAV，所以应答是合规的；而在单次保护下持有者的 TXNAV 在 BlockAck 结束时已经到期，放弃 TXOP 也合规。</li>
 </ul>
 <h3>复现</h3>

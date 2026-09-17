@@ -17,16 +17,16 @@ it('quoted lesson timestamps still hold', () => {
   expect(l3.find((x) => x.type === 'ACK_TIMEOUT')?.t).toBe(293_000)
 
   const l4 = run('nav', 1_000_000)
-  expect(l4.find((x) => x.type === 'BACKOFF_FREEZE' && x.node === 'sta-1' && x.t > 400_000)?.t).toBe(464_000)
-  expect((l4.find((x) => x.type === 'NAV_SET' && x.node === 'sta-1' && x.t > 400_000) as { untilNs?: number })?.untilNs).toBe(756_000)
-  expect(l4.find((x) => x.type === 'BACKOFF_RESUME' && x.node === 'sta-1' && x.t > 700_000)?.t).toBe(790_000)
+  expect(l4.find((x) => x.type === 'BACKOFF_FREEZE' && x.node === 'sta-1' && x.t > 400_000)?.t).toBe(498_000)
+  expect((l4.find((x) => x.type === 'NAV_SET' && x.node === 'sta-1' && x.t > 400_000) as { untilNs?: number })?.untilNs).toBe(790_000)
+  expect(l4.find((x) => x.type === 'BACKOFF_RESUME' && x.node === 'sta-1' && x.t > 700_000)?.t).toBe(824_000)
 
   const l5 = run('hidden', 3_000_000)
   // A's data frame now runs slower after rate adaptation steps it down from
   // repeated hidden-node collisions (Task 5), so B's freeze-for-the-ACK and
   // resume land later than before.
-  expect(l5.find((x) => x.type === 'BACKOFF_FREEZE' && x.node === 'sta-2' && x.t > 2_300_000)?.t).toBe(2_735_000)
-  expect(l5.find((x) => x.type === 'BACKOFF_RESUME' && x.node === 'sta-2' && x.t > 2_400_000)?.t).toBe(2_797_000)
+  expect(l5.find((x) => x.type === 'BACKOFF_FREEZE' && x.node === 'sta-2' && x.t > 2_300_000)?.t).toBe(2_837_000)
+  expect(l5.find((x) => x.type === 'BACKOFF_RESUME' && x.node === 'sta-2' && x.t > 2_400_000)?.t).toBe(2_899_000)
 
   const l6 = run('anomaly', 2_000_000)
   expect(l6.filter((x) => x.type === 'TX_START' && x.t === 0).length).toBe(2)
@@ -186,8 +186,8 @@ it('lesson 15’s second experiment position really inverts 40 → 80 MHz, with 
 
 /**
  * Lesson 17's table and its "the MU-MIMO group is never three" paragraph
- * quote one clean OFDMA PPDU (all three members carrying the same 4,308 B) and
- * one clean MU-MIMO PPDU (both survivors carrying the same 4,308 B), plus the
+ * quote one clean OFDMA PPDU (all three members carrying the same 4,306 B) and
+ * one clean MU-MIMO PPDU (both survivors carrying the same 4,306 B), plus the
  * structural claim that MU-MIMO here never groups more than two, the derived
  * per-member rates, the 3-data-symbol / 1-data-symbol split behind the 92.8 vs
  * 65.6 µs figures (fix round 1, F2), and the measured share of trimmed members
@@ -209,24 +209,24 @@ it('lesson 17 quotes the OFDMA and MU-MIMO PPDUs its own variants produce', () =
   expect(new Set(mumimo.map((r) => r.frame.muParts.length))).toEqual(new Set([2]))
   expect(new Set(ofdma.map((r) => r.frame.muParts.length)).has(3)).toBe(true)
 
-  // "92.8 µs … 12,924 B" — the first equal-payload 3-member OFDMA PPDU.
+  // "92.8 µs … 12,918 B" — the first equal-payload 3-member OFDMA PPDU.
   const ofdmaClean = ofdma.find((r) => r.frame.muParts.length === 3 && new Set(r.frame.muParts.map((p) => p.bytes)).size === 1)!
-  expect(ofdmaClean.t).toBe(5_638_200)
+  expect(ofdmaClean.t).toBe(5_674_200)
   expect(ofdmaClean.frame.txTimeNs).toBe(92_800)
-  expect(ofdmaClean.frame.bytes).toBe(12_924)
-  expect(ofdmaClean.frame.muParts.every((p) => p.bytes === 4_308)).toBe(true)
+  expect(ofdmaClean.frame.bytes).toBe(12_918)
+  expect(ofdmaClean.frame.muParts.every((p) => p.bytes === 4_306)).toBe(true)
 
-  // "65.6 µs … 8,616 B" — the first equal-payload 2-member MU-MIMO PPDU.
-  const mumimoClean = mumimo.find((r) => new Set(r.frame.muParts.map((p) => p.bytes)).size === 1 && r.frame.muParts[0].bytes === 4_308)!
-  expect(mumimoClean.t).toBe(5_591_800)
+  // "65.6 µs … 8,612 B" — the first equal-payload 2-member MU-MIMO PPDU.
+  const mumimoClean = mumimo.find((r) => new Set(r.frame.muParts.map((p) => p.bytes)).size === 1 && r.frame.muParts[0].bytes === 4_306)!
+  expect(mumimoClean.t).toBe(5_636_800)
   expect(mumimoClean.frame.txTimeNs).toBe(65_600)
-  expect(mumimoClean.frame.bytes).toBe(8_616)
+  expect(mumimoClean.frame.bytes).toBe(8_612)
 
-  // "371.4 Mb/s … 525.4 Mb/s" — per-member rate = bytes×8 / PPDU duration.
+  // "371.2 Mb/s … 525.1 Mb/s" — per-member rate = bytes×8 / PPDU duration.
   const ofdmaRate = (ofdmaClean.frame.muParts[0].bytes * 8) / (ofdmaClean.frame.txTimeNs / 1000)
   const mumimoRate = (mumimoClean.frame.muParts[0].bytes * 8) / (mumimoClean.frame.txTimeNs / 1000)
-  expect(Math.round(ofdmaRate * 10) / 10).toBe(371.4)
-  expect(Math.round(mumimoRate * 10) / 10).toBe(525.4)
+  expect(Math.round(ofdmaRate * 10) / 10).toBe(371.2)
+  expect(Math.round(mumimoRate * 10) / 10).toBe(525.1)
 
   // "exactly 3 data symbols (40.8 µs) … exactly 1 (13.6 µs)" — the fixed 52 µs
   // preamble (48 µs EHT + 4 µs multi-user SIG) does not scale with the data.
@@ -237,7 +237,7 @@ it('lesson 17 quotes the OFDMA and MU-MIMO PPDUs its own variants produce', () =
   // "only about 1.4×, not 3×" end to end.
   expect(Math.round((ofdmaClean.frame.txTimeNs / mumimoClean.frame.txTimeNs) * 100) / 100).toBe(1.41)
 
-  // "125 times (68%) … 45 times (24%) … and neither of those 14 times (8%)" — where the
+  // "124 times (58%) … 72 times (34%) … and neither of those 18 times (8%)" — where the
   // trimmed member actually turns up next. The lesson used to present this as a two-way
   // split; it is not exhaustive, and the third case is what this pins (fix round 2, I5).
   const allApData = [...new Simulation(l.variants![1].scenario()).runUntil(500_000_000).records]
@@ -255,14 +255,14 @@ it('lesson 17 quotes the OFDMA and MU-MIMO PPDUs its own variants produce', () =
     if (nextMu && nextMu.frame.muParts!.some((p) => p.dst === trimmed)) sweptIntoNextMu++
     else neither++
   }
-  expect(twoMember.length).toBe(184)
-  expect(followedByTrimmedSu).toBe(125)
-  expect(sweptIntoNextMu).toBe(45)
-  expect(neither).toBe(14)
-  // the three cases are exhaustive, and the quoted percentages round to 68 / 24 / 8
+  expect(twoMember.length).toBe(214)
+  expect(followedByTrimmedSu).toBe(124)
+  expect(sweptIntoNextMu).toBe(72)
+  expect(neither).toBe(18)
+  // the three cases are exhaustive, and the quoted percentages round to 58 / 34 / 8
   expect(followedByTrimmedSu + sweptIntoNextMu + neither).toBe(twoMember.length)
   const share3 = [followedByTrimmedSu, sweptIntoNextMu, neither].map((n) => Math.round((n / twoMember.length) * 100))
-  expect(share3).toEqual([68, 24, 8])
+  expect(share3).toEqual([58, 34, 8])
 })
 
 /**
@@ -321,7 +321,8 @@ it('lesson 18 quotes the far station’s airtimes/excursions and the near statio
   // station's signal-strength ceiling: it never exceeds MCS 1 under contention.
   expect(Math.max(...far.map((r) => r.frame.mcs!))).toBe(1)
 
-  // "thirteen times … more than half … exactly ten frames … up to 41"
+  // "Seventeen times … only one of the seventeen manages [ten] … most last between 12 and 30
+  // frames, and one lasts 73"
   const mcss = far.map((r) => r.frame.mcs)
   const runs: number[] = []
   let cur = mcss[0]
@@ -332,20 +333,22 @@ it('lesson 18 quotes the far station’s airtimes/excursions and the near statio
   }
   runs.push(cur === 0 ? len : -1)
   const zeroRuns = runs.filter((n) => n >= 0)
-  expect(zeroRuns.length).toBe(13)
-  expect(zeroRuns.filter((n) => n === 10).length).toBeGreaterThan(zeroRuns.length / 2)
-  expect(Math.max(...zeroRuns)).toBe(41)
+  expect(zeroRuns.length).toBe(17)
+  expect(Math.min(...zeroRuns)).toBe(10) // ten is the fastest possible climb back
+  expect(zeroRuns.filter((n) => n === 10).length).toBe(1)
+  expect(zeroRuns.filter((n) => n >= 12 && n <= 30).length).toBeGreaterThan(zeroRuns.length / 2)
+  expect(Math.max(...zeroRuns)).toBe(73)
 
   // "distinct MCS {9, 10, 11}" and "spends almost the whole run at its
-  // ceiling" (~88%) — the near station.
+  // ceiling" (~91%) — the near station.
   const near = recs.filter((r): r is Extract<TLRecord, { type: 'TX_START' }> =>
     r.type === 'TX_START' && r.node === 'sta-1' && r.frame.kind === 'data')
   const nearMcss = near.map((r) => r.frame.mcs)
   expect(new Set(nearMcss)).toEqual(new Set([9, 10, 11]))
   const atCeiling = nearMcss.filter((m) => m === 11).length
-  expect(near.length).toBe(2_513)
-  expect(atCeiling).toBe(2_210)
-  expect(Math.round((atCeiling / near.length) * 1000) / 1000).toBe(0.879)
+  expect(near.length).toBe(2_468)
+  expect(atCeiling).toBe(2_246)
+  expect(Math.round((atCeiling / near.length) * 1000) / 1000).toBe(0.91)
 
   // "17.2 Mb/s becomes 8.6 Mb/s" — the rate line for the same 1,530 octets.
   const rateLine = (mcs: number): number => far.find((r) => r.frame.mcs === mcs)!.frame.mbps!
@@ -370,8 +373,8 @@ it('lesson 18’s per-attempt collision rates, the backoff freeze and the airtim
     r.type === 'COLLISION' && r.nodes.includes('sta-2'))
   const collided = (t: Tx): boolean => collisions.some((c) => c.t >= t.t && c.t <= t.t + t.frame.txTimeNs)
 
-  // "2,276 attempts at MCS 1, of which 259 collide — 11.4% — and 222 attempts at MCS 0, of
-  // which 19 collide: 8.6%". Every collision event involving the far station is attributed to
+  // "1,875 attempts at MCS 1, of which 221 collide — 11.8% — and 461 attempts at MCS 0, of
+  // which 52 collide: 11.3%". Every collision event involving the far station is attributed to
   // exactly one of its attempts, so the two counts must add up to the event total.
   const perMcs = (mcs: number) => {
     const xs = far.filter((r) => r.frame.mcs === mcs)
@@ -379,18 +382,19 @@ it('lesson 18’s per-attempt collision rates, the backoff freeze and the airtim
     return { n: xs.length, c, pct: Math.round((c / xs.length) * 1000) / 10 }
   }
   const m0 = perMcs(0), m1 = perMcs(1)
-  expect(m1).toEqual({ n: 2_276, c: 259, pct: 11.4 })
-  expect(m0).toEqual({ n: 222, c: 19, pct: 8.6 })
-  expect(m0.c + m1.c).toBe(collisions.length) // 278: the attribution is exhaustive
+  expect(m1).toEqual({ n: 1_875, c: 221, pct: 11.8 })
+  expect(m0).toEqual({ n: 461, c: 52, pct: 11.3 })
+  expect(m0.c + m1.c).toBe(collisions.length) // 273: the attribution is exhaustive
   // the death-spiral direction is simply not in the data
   expect(m0.pct).toBeLessThan(m1.pct)
 
-  // "attempts drawn from CW 15 collide 11.8% of the time (261 of 2,217), attempts drawn from
-  // the doubled CW 31 only 5.7% (15 of 264)" — the per-attempt rate follows the contention
+  // "attempts drawn from CW 15 collide 12.3% of the time (253 of 2,061), attempts drawn from
+  // the doubled CW 31 only 7.1% (18 of 255) … 15% of MCS-0 attempts against 11% of MCS-1 ones" — the per-attempt rate follows the contention
   // window, not the airtime of the frame that follows.
   const seq = recs.filter((r) => (r.type === 'BACKOFF_DRAW' && r.node === 'sta-2')
     || (r.type === 'TX_START' && r.node === 'sta-2' && r.frame.kind === 'data'))
   const byCw = new Map<number, { n: number; c: number }>()
+  const widened = new Map<number, { n: number; w: number }>() // per MCS: attempts, of which drawn from CW > 15
   let lastCw: number | null = null
   for (const e of seq) {
     if (e.type === 'BACKOFF_DRAW') { lastCw = e.cw; continue }
@@ -399,14 +403,23 @@ it('lesson 18’s per-attempt collision rates, the backoff freeze and the airtim
     b.n++
     if (collided(e as Tx)) b.c++
     byCw.set(lastCw, b)
+    const mcs = (e as Tx).frame.mcs!
+    const w = widened.get(mcs) ?? { n: 0, w: 0 }
+    w.n++
+    if (lastCw > 15) w.w++
+    widened.set(mcs, w)
   }
   const cw15 = byCw.get(15)!, cw31 = byCw.get(31)!
-  expect(cw15).toEqual({ n: 2_217, c: 261 })
-  expect(cw31).toEqual({ n: 264, c: 15 })
-  expect(Math.round((cw15.c / cw15.n) * 1000) / 10).toBe(11.8)
-  expect(Math.round((cw31.c / cw31.n) * 1000) / 10).toBe(5.7)
+  expect(cw15).toEqual({ n: 2_061, c: 253 })
+  expect(cw31).toEqual({ n: 255, c: 18 })
+  expect(Math.round((cw15.c / cw15.n) * 1000) / 10).toBe(12.3)
+  expect(Math.round((cw31.c / cw31.n) * 1000) / 10).toBe(7.1)
+  // MCS-0 attempts come from a widened window more often than MCS-1 ones do
+  const share = (mcs: number) => Math.round((widened.get(mcs)!.w / widened.get(mcs)!.n) * 100)
+  expect(share(0)).toBe(15)
+  expect(share(1)).toBe(11)
 
-  // "all 2,218 of the near station's freezes in this run come back at the value they went in
+  // "all 2,061 of the near station's freezes in this run come back at the value they went in
   // at" — the freeze rule itself, and the reason a longer frame widens nobody's window.
   type Bo = Extract<TLRecord, { type: 'BACKOFF_FREEZE' | 'BACKOFF_RESUME' }>
   const evs = recs.filter((r): r is Bo =>
@@ -416,7 +429,7 @@ it('lesson 18’s per-attempt collision rates, the backoff freeze and the airtim
     if (evs[i].type === 'BACKOFF_FREEZE' && evs[i + 1].type === 'BACKOFF_RESUME')
       holds.push({ t: evs[i].t, dur: evs[i + 1].t - evs[i].t, same: evs[i].value === evs[i + 1].value })
   }
-  expect(holds.length).toBe(2_218)
+  expect(holds.length).toBe(2_061)
   expect(holds.every((h) => h.same)).toBe(true)
 
   // "held for 859.8 µs behind an MCS-1 frame and 1,579.0 µs behind an MCS-0 one … 719.2 µs
@@ -432,18 +445,19 @@ it('lesson 18’s per-attempt collision rates, the backoff freeze and the airtim
   expect(holdBehind(0)).toBe(1_579_000)
   expect(holdBehind(0) - holdBehind(1)).toBe(719_200)
 
-  // "8.9% of the frames it sends but 15.8% of the air … 327.7 ms, where the same 222 frames at
-  // MCS 1 would have taken 170.7 ms … 157.0 ms of extra channel time … 5.2% of all the air"
+  // "19.7% of the frames it sends but 32.1% of the air … 680.4 ms, where the same 461 frames at
+  // MCS 1 would have taken 354.4 ms … 326.0 ms of extra channel time … 10.9% of all the air"
   const air = (xs: Tx[]) => xs.reduce((a, r) => a + r.frame.txTimeNs, 0)
   const f0 = far.filter((r) => r.frame.mcs === 0)
   const RUN_NS = 3_000_000_000
-  expect(Math.round((f0.length / far.length) * 1000) / 10).toBe(8.9)
-  expect(Math.round((air(f0) / air(far)) * 1000) / 10).toBe(15.8)
-  expect(Math.round(air(f0) / 100_000) / 10).toBe(327.7)
+  expect(f0.length).toBe(461)
+  expect(Math.round((f0.length / far.length) * 1000) / 10).toBe(19.7)
+  expect(Math.round((air(f0) / air(far)) * 1000) / 10).toBe(32.1)
+  expect(Math.round(air(f0) / 100_000) / 10).toBe(680.4)
   const wouldBe = f0.length * 768_800
-  expect(Math.round(wouldBe / 100_000) / 10).toBe(170.7)
-  expect(Math.round((air(f0) - wouldBe) / 100_000) / 10).toBe(157.0)
-  expect(Math.round(((air(f0) - wouldBe) / RUN_NS) * 1000) / 10).toBe(5.2)
+  expect(Math.round(wouldBe / 100_000) / 10).toBe(354.4)
+  expect(Math.round((air(f0) - wouldBe) / 100_000) / 10).toBe(326.0)
+  expect(Math.round(((air(f0) - wouldBe) / RUN_NS) * 1000) / 10).toBe(10.9)
 })
 
 /**
@@ -482,20 +496,20 @@ it('lesson 18’s try-this really needs two metres, and a third uploader really 
   expect(d1.trace).toBe(d0.trace)
   expect([d1.frames, d1.ceiling, d1.zero]).toEqual([d0.frames, d0.ceiling, d0.zero])
 
-  // "the ceiling rises from MCS 1 to MCS 2, the bottom rung falls from 8.9% of its frames to
-  // 3.4%, and it delivers 3,226 frames in the three seconds instead of 2,498"
+  // "the ceiling rises from MCS 1 to MCS 2, the bottom rung falls from 19.7% of its frames to
+  // 1.6%, and it delivers 3,133 frames in the three seconds instead of 2,336"
   expect(d0.ceiling).toBe(1)
   expect(d2.ceiling).toBe(2)
-  expect(d0.frames).toBe(2_498)
-  expect(d2.frames).toBe(3_226)
-  expect(d0.zeroPct).toBe(8.9)
-  expect(d2.zeroPct).toBe(3.4)
+  expect(d0.frames).toBe(2_336)
+  expect(d2.frames).toBe(3_133)
+  expect(d0.zeroPct).toBe(19.7)
+  expect(d2.zeroPct).toBe(1.6)
 
   // "At four metres MCS 0 never occurs at all."
   expect(d4.ceiling).toBe(3)
   expect(d4.zero).toBe(0)
 
-  // "51.4% of its frames with the newcomer beside the near station, and 43–56% at every other
+  // "58.7% of its frames with the newcomer beside the near station, and 52–63% at every other
   // spot tried" — a third saturated uploader, cloned from the near one.
   const withThird = (x: number, y: number) => {
     const sc = l.scenario()
@@ -510,14 +524,14 @@ it('lesson 18’s try-this really needs two metres, and a third uploader really 
     const zero = far.filter((r) => r.frame.mcs === 0).length
     return Math.round((zero / far.length) * 1000) / 10
   }
-  expect(withThird(5.5, 4.3)).toBe(51.4) // beside the near station
+  expect(withThird(5.5, 4.3)).toBe(58.7) // beside the near station
   const others = [withThird(9, 5), withThird(14, 6.5), withThird(3, 5)]
   for (const p of others) {
-    expect(p, `third uploader: ${p}% at MCS 0`).toBeGreaterThanOrEqual(43)
-    expect(p, `third uploader: ${p}% at MCS 0`).toBeLessThanOrEqual(56)
+    expect(p, `third uploader: ${p}% at MCS 0`).toBeGreaterThanOrEqual(52)
+    expect(p, `third uploader: ${p}% at MCS 0`).toBeLessThanOrEqual(63.4)
   }
-  // and every one of them is far worse than the two-station baseline
-  for (const p of [51.4, ...others]) expect(p).toBeGreaterThan(d0.zeroPct * 4)
+  // and every one of them is far worse than the two-station baseline (at least two and a half times)
+  for (const p of [58.7, ...others]) expect(p).toBeGreaterThan(d0.zeroPct * 2.5)
 })
 
 /**
@@ -545,16 +559,16 @@ it('lesson 18’s claim that multi-user PPDUs report an outcome to the rate cont
     // "172 multi-user PPDUs carrying 507 parts addressed to phones … 637 outcome reports for
     // those phones in total, 130 from ordinary single-user frames and 507 from multi-user
     // parts (577 successes, 60 failures)"
-    expect(muPpdus.length).toBe(172)
-    expect(muParts.length).toBe(507)
-    expect(su.length).toBe(130)
-    expect(forPhones.length).toBe(637)
+    expect(muPpdus.length).toBe(165)
+    expect(muParts.length).toBe(487)
+    expect(su.length).toBe(136)
+    expect(forPhones.length).toBe(623)
     // one report per single-user frame, and one per multi-user part addressed to a phone —
     // success or failure, symmetrically, which is what lets a rate used only inside
     // multi-user PPDUs adapt at all.
     expect(forPhones.length - su.length).toBe(muParts.length)
-    expect(forPhones.filter((p) => p.ok).length).toBe(577)
-    expect(forPhones.filter((p) => !p.ok).length).toBe(60)
+    expect(forPhones.filter((p) => p.ok).length).toBe(593)
+    expect(forPhones.filter((p) => !p.ok).length).toBe(30)
   } finally {
     RateControl.prototype.onSuccess = okOrig
     RateControl.prototype.onFailure = failOrig
