@@ -77,12 +77,17 @@ export function lessonWords(l: Lesson): number {
   return strings.join(' ').split(/\s+/).filter(Boolean).length
 }
 
+/** Minutes budgeted for one thing to observe in the running simulation. */
+export const OBSERVE_MINUTES = 2
+/** Minutes budgeted for one experiment the learner runs themselves. */
+export const TRY_MINUTES = 4
+
 /**
- * Estimated study time: reading at 150 words a minute, plus 5 minutes for
- * each thing to observe in the simulation and each experiment to try,
- * rounded to the nearest 5 minutes (at least 5).
+ * Estimated study time: reading at 150 words a minute, plus time at the
+ * simulator for each thing to observe and each experiment, rounded to the
+ * nearest 5 minutes (at least 5).
  */
 export function lessonMinutes(l: Lesson): number {
-  const raw = lessonWords(l) / 150 + 5 * l.observe.length + 5 * l.tryThis.length
+  const raw = lessonWords(l) / 150 + OBSERVE_MINUTES * l.observe.length + TRY_MINUTES * l.tryThis.length
   return Math.max(5, Math.round(raw / 5) * 5)
 }
