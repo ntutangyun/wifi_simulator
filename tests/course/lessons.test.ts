@@ -84,9 +84,15 @@ describe('jump targets occur in their lesson simulations', () => {
     const prot = recordsFor(lesson.scenario(), 300)
     const single = recordsFor(lesson.variants![0].scenario(), 300)
     const count = (recs: TLRecord[], type: TLRecord['type']) => recs.filter((r) => r.type === type).length
-    expect(count(single, 'COLLISION')).toBeGreaterThan(3 * count(prot, 'COLLISION'))
-    expect(count(prot, 'DROP')).toBe(0)
+    // Both variants protect the first exchange (the lesson's RTS threshold is 500 B, below the
+    // 1500-byte frames), so what boundary protection adds is reach, not the RTS itself: it
+    // roughly halves the collisions and trebles the deliveries.
+    expect(count(single, 'COLLISION')).toBeGreaterThan(2 * count(prot, 'COLLISION'))
+    expect(count(prot, 'DROP')).toBeLessThan(count(single, 'DROP'))
     expect(count(single, 'DROP')).toBeGreaterThan(0)
+    const delivered = (recs: TLRecord[]) =>
+      recs.filter((r) => r.type === 'RX_OK' && r.node === 'ap' && r.frame.kind === 'data').length
+    expect(delivered(prot)).toBeGreaterThan(2.5 * delivered(single))
     // the AP relays every CF-End a station sends. A CF-End near the tail of
     // the 300 ms window has its AP relay land microseconds after the cutoff
     // (frame lengths now vary slightly with rate adaptation), so this specific

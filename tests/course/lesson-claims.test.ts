@@ -13,7 +13,8 @@ import { Simulation } from '../../src/engine/simulation'
 import type { Scenario } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 import { buildLinkTable } from '../../src/engine/propagation'
-import { CCA_PD_DBM, sinrThreshDb } from '../../src/engine/phy'
+import { CCA_PD_DBM, RATE_MARGIN_DB, noiseDbm, reqSinrDb, sinrThreshDb, sinrThreshModeDb } from '../../src/engine/phy'
+import { PREAMBLE_DETECT_SINR_DB } from '../../src/engine/channel'
 
 type Tx = Extract<TLRecord, { type: 'TX_START' }>
 const MS = 1_000_000
@@ -124,6 +125,22 @@ describe('lesson 3 · random backoff & collisions', () => {
     }
   })
 
+  it('at every same-slot collision the AP detects neither preamble, so it arms no EIFS', () => {
+    // "both preambles arrive in the same instant at about the same strength, so each buries the
+    // other: the AP detects neither, starts no reception" … "so it arms no EIFS"
+    const cols = ofType(rs, 'COLLISION')
+    expect(cols.length).toBeGreaterThan(20)
+    for (const c of cols) {
+      const starts = txs(rs, (r) => both.includes(r.node) && r.frame.kind === 'data' && r.t < c.t && r.t + r.frame.txTimeNs >= c.t)
+      expect(starts.length).toBe(2)
+      expect(starts[0].t).toBe(starts[1].t)
+      expect(ofType(rs, 'RX_MISS').filter((r) => r.node === 'ap' && r.t === starts[0].t).map((r) => r.from).sort()).toEqual(both)
+    }
+    expect(ofType(rs, 'RX_START').some((r) => r.node === 'ap' && both.includes(r.from) && cols.some((c) => r.t < c.t && r.t + r.frame.txTimeNs >= c.t))).toBe(false)
+    expect(ofType(rs, 'RX_FAIL').some((r) => r.node === 'ap')).toBe(false)
+    expect(ofType(rs, 'IFS_START').some((r) => r.kind === 'EIFS')).toBe(false)
+  })
+
   it('idle slots between DIFS end and TX start equal the drawn value', () => {
     // "Count the idle slots between DIFS end and TX start — it always equals the drawn backoff value."
     const last = new Map<string, { t: number; v: number; frozen: boolean }>()
@@ -216,22 +233,24 @@ describe('lesson 5 · hidden nodes & RTS/CTS', () => {
   const rs = recs('hidden', 3.3 * MS)
 
   it('B counts straight through A’s data frame and freezes only for the AP’s ACK', () => {
-    // table: "A’s 1528 B data ≈ 2.29–2.82 ms … Counts straight through it — 106, 105, … 47"
-    const a = txs(rs, (r) => r.node === 'sta-1' && r.frame.kind === 'data' && r.t > 2_200_000)[0]
+    // table: "A’s 1528 B data ≈ 1.95–2.31 ms … Counts straight through it — 106, 105, … 66"
+    const a = txs(rs, (r) => r.node === 'sta-1' && r.frame.kind === 'data' && r.t > 1_900_000)[0]
     expect(a.frame.bytes).toBe(1528)
-    expect(Math.round(a.t / 10_000) / 100).toBe(2.29)
-    expect(Math.round((a.t + a.frame.txTimeNs) / 10_000) / 100).toBe(2.82)
+    expect(Math.round(a.t / 10_000) / 100).toBe(1.95)
+    expect(Math.round((a.t + a.frame.txTimeNs) / 10_000) / 100).toBe(2.31)
     const decs = ofType(rs, 'BACKOFF_DEC').filter((r) => r.node === 'sta-2' && r.t >= a.t && r.t <= a.t + a.frame.txTimeNs)
     expect(decs[0].value).toBe(106)
-    expect(decs[decs.length - 1].value).toBe(47)
+    expect(decs[decs.length - 1].value).toBe(66)
     expect(ofType(rs, 'BACKOFF_FREEZE').some((r) => r.node === 'sta-2' && r.t >= a.t && r.t < a.t + a.frame.txTimeNs)).toBe(false)
-    // "AP’s ACK 2837–2865 µs … Freezes at 46, sits out the 28 µs ACK plus a 34 µs DIFS, resumes at 46."
+    // "AP’s ACK 2325–2353 µs … Freezes at 64, sits out the 28 µs ACK plus a 34 µs DIFS, resumes at 64."
+    // "… and on through the SIFS gap after it": B keeps counting between A’s data end and the ACK
     const ack = txs(rs, (r) => r.node === 'ap' && r.frame.kind === 'ack' && r.t > a.t)[0]
-    expect([ack.t, ack.t + ack.frame.txTimeNs]).toEqual([2_837_000, 2_865_000])
-    expect(ofType(rs, 'BACKOFF_FREEZE').find((r) => r.node === 'sta-2' && r.t === ack.t)?.value).toBe(46)
-    const ifs = ofType(rs, 'IFS_START').find((r) => r.node === 'sta-2' && r.t === 2_865_000)!
+    expect([ack.t, ack.t + ack.frame.txTimeNs]).toEqual([2_325_000, 2_353_000])
+    expect(ofType(rs, 'BACKOFF_DEC').filter((r) => r.node === 'sta-2' && r.t > a.t + a.frame.txTimeNs && r.t < ack.t).length).toBeGreaterThan(0)
+    expect(ofType(rs, 'BACKOFF_FREEZE').find((r) => r.node === 'sta-2' && r.t === ack.t)?.value).toBe(64)
+    const ifs = ofType(rs, 'IFS_START').find((r) => r.node === 'sta-2' && r.t === 2_353_000)!
     expect(ifs.untilNs - ifs.t).toBe(34_000)
-    expect(ofType(rs, 'BACKOFF_RESUME').find((r) => r.node === 'sta-2' && r.t === ifs.untilNs)?.value).toBe(46)
+    expect(ofType(rs, 'BACKOFF_RESUME').find((r) => r.node === 'sta-2' && r.t === ifs.untilNs)?.value).toBe(64)
     // "a final ACK carries Duration = 0, so it sets no NAV — moments later A starts its next
     // frame and B, deaf again, counts right through it"
     expect(ack.frame.durationFieldNs).toBe(0)
@@ -261,13 +280,17 @@ describe('lesson 5 · hidden nodes & RTS/CTS', () => {
 describe('lesson 6 · rate anomaly', () => {
   const rs = recs('anomaly', 200 * MS)
 
-  it('the far station’s 1044 µs frame, its 11 timeouts, and no collision mark', () => {
-    // "The far station’s 1044 µs frame is destroyed in full."
-    expect(txs(rs, (r) => r.t === 0 && r.node === 'sta-2')[0].frame.txTimeNs).toBe(1_044_000)
-    // "Nothing on the timeline is drawn as a collision"
-    expect(ofType(rs, 'COLLISION').some((r) => r.t <= 1_089_000)).toBe(false)
-    // table: "ACK timeouts in 200 ms … Far 11"
-    expect(ofType(rs, 'ACK_TIMEOUT').filter((r) => r.node === 'sta-2').length).toBe(11)
+  it('the far station’s 704 µs frame, its 15 timeouts, and no collision mark', () => {
+    // "The far station’s 704 µs frame is destroyed in full." … "its ACK timeout at 749 µs"
+    expect(txs(rs, (r) => r.t === 0 && r.node === 'sta-2')[0].frame.txTimeNs).toBe(704_000)
+    expect(ofType(rs, 'ACK_TIMEOUT').filter((r) => r.node === 'sta-2')[0].t).toBe(749_000)
+    // "Nothing on the timeline is drawn as a collision": the far preamble is never detected,
+    // so no reception fails and no COLLISION record is written at all.
+    expect(ofType(rs, 'COLLISION').length).toBe(0)
+    // "the AP locks onto [the near preamble]; the far one … is never detected"
+    expect(ofType(rs, 'RX_START').filter((r) => r.node === 'ap' && r.t === 0).map((r) => r.from)).toEqual(['sta-1'])
+    // table: "ACK timeouts in 200 ms … Far 15"
+    expect(ofType(rs, 'ACK_TIMEOUT').filter((r) => r.node === 'sta-2').length).toBe(15)
     // "Both stations find the medium idle from the start, so neither needs a backoff"
     expect(ofType(rs, 'BACKOFF_DRAW').some((r) => r.t === 0)).toBe(false)
   })
@@ -277,27 +300,32 @@ describe('lesson 6 · rate anomaly', () => {
     const lt = buildLinkTable(sc.nodes, sc.walls)
     const near = lt.get('sta-1')!.get('ap')!, far = lt.get('sta-2')!.get('ap')!
     const apAtNear = lt.get('ap')!.get('sta-1')!, farAtNear = lt.get('sta-2')!.get('sta-1')!
-    // "Near data at the AP: −35 dBm, far station −75 dBm, 40 dB, 30 dB for 54 Mb/s"
+    // "Near data at the AP: −35 dBm, far station −75 dBm, 40 dB, 26 dB for 54 Mb/s"
     expect([Math.round(near), Math.round(far), Math.round(near - far)]).toEqual([-35, -75, 40])
-    expect(sinrThreshDb(54)).toBe(30)
-    // "ACK at the near station: −30 dBm, far station still on air −74 dBm, 44 dB, 21 dB"
+    expect(Math.round(sinrThreshDb(54))).toBe(26)
+    // "ACK at the near station: −30 dBm, far station still on air −74 dBm, 44 dB, 17 dB for the 24 Mb/s ACK"
     expect([Math.round(apAtNear), Math.round(farAtNear), Math.round(apAtNear - farAtNear)]).toEqual([-30, -74, 44])
     const ack = txs(rs, (r) => r.frame.kind === 'ack' && r.frame.dst === 'sta-1')[0]
-    expect(sinrThreshDb(ack.frame.mbps!)).toBe(21)
+    expect(ack.frame.mbps).toBe(24)
+    expect(Math.round(sinrThreshDb(ack.frame.mbps!))).toBe(17)
+    // "a preamble is detected only if it stands at least 4 dB above everything else on the air"
+    expect(PREAMBLE_DETECT_SINR_DB).toBe(4)
+    expect(near - far).toBeGreaterThan(PREAMBLE_DETECT_SINR_DB)
   })
 
-  it('comparable frame counts, four times the airtime, and a much faster near station alone', () => {
-    // "both deliver a comparable number of frames (140 and 105 in the first 200 ms), yet the far
-    // station holds four times the airtime."
+  it('comparable frame counts, twice the airtime, and a much faster near station alone', () => {
+    // "both deliver a comparable number of frames (209 and 135 in the first 200 ms), yet the far
+    // station holds more than twice the airtime."
     const acksTo = (rs2: TLRecord[], n: string) => txs(rs2, (r) => r.frame.kind === 'ack' && r.frame.dst === n).length
-    expect(acksTo(rs, 'sta-1')).toBe(140)
-    expect(acksTo(rs, 'sta-2')).toBe(105)
+    expect(acksTo(rs, 'sta-1')).toBe(209)
+    expect(acksTo(rs, 'sta-2')).toBe(135)
     const air = (n: string) => txs(rs, (r) => r.node === n).reduce((a, r) => a + r.frame.txTimeNs, 0)
-    expect(Math.round(air('sta-2') / air('sta-1'))).toBe(4)
-    // "The near station’s throughput is far below what it would get alone."
+    expect(air('sta-2') / air('sta-1')).toBeGreaterThan(2)
+    expect(air('sta-2') / air('sta-1')).toBeLessThan(3)
+    // "209 frames in 200 ms here, 510 with the far station gone"
     const sc = lesson('anomaly').scenario()
     sc.nodes = sc.nodes.filter((n) => n.id !== 'sta-2')
-    expect(acksTo(runSc(sc, 200 * MS), 'sta-1')).toBeGreaterThan(3 * 140)
+    expect(acksTo(runSc(sc, 200 * MS), 'sta-1')).toBe(510)
   })
 
   it('the far station’s EIFS is cut short into a DIFS when a healthy frame arrives', () => {
@@ -314,7 +342,7 @@ describe('lesson 6 · rate anomaly', () => {
 describe('lesson 7 · EDCA', () => {
   const rs = recs('edca', 300 * MS)
 
-  it('VO draws from a tiny window; BK from 15 up with a longer AIFS; BK’s EIFS wait is 139 µs', () => {
+  it('VO draws from a tiny window; BK from 15 up with a longer AIFS; BE’s EIFS wait is 103 µs', () => {
     // "the caller’s show AC_VO with tiny CW; the backup’s show AC_BK with CW 15+ and a longer AIFS"
     const draws = (n: string) => ofType(rs, 'BACKOFF_DRAW').filter((r) => r.node === n)
     expect(draws('sta-1').length).toBeGreaterThan(0)
@@ -331,8 +359,10 @@ describe('lesson 7 · EDCA', () => {
       .filter((r) => r.node === n && r.kind === kind).map((r) => r.untilNs - r.t))
     expect(ifsLens('sta-1', 'AIFS')).toEqual(new Set([34_000]))
     expect(ifsLens('sta-3', 'AIFS')).toEqual(new Set([79_000]))
-    // "BK: 94 − 34 + 79 = 139 µs"
-    expect(ifsLens('sta-3', 'EIFS')).toEqual(new Set([139_000]))
+    // "BE: 94 − 34 + 43 = 103 µs" — "the uploader’s BE queue is the one that shows it here"
+    expect(ifsLens('sta-2', 'EIFS')).toEqual(new Set([103_000]))
+    // "The backup never gets one": no reception of its own ever fails after a detected preamble
+    expect(ifsLens('sta-3', 'EIFS')).toEqual(new Set())
   })
 
   it('voice gets through with lower delay than the saturated uploader', () => {
@@ -403,30 +433,83 @@ describe('lesson 9 · TXOP', () => {
   })
 })
 
+/** Was this data frame the first exchange of its sender's TXOP? */
+function firstOfTxop(rs: TLRecord[], tx: Tx): boolean {
+  const start = rs.filter((r) => r.type === 'TXOP_START' && r.node === tx.node && r.t <= tx.t).pop()
+  if (!start) return false
+  return !txs(rs, (r) => r.node === tx.node && r.frame.kind === 'data' && r.t >= start.t && r.t < tx.t).length
+}
+
 describe('lesson 10 · protecting the burst', () => {
   const boundary = recs('txop-protect', 300 * MS)
   const single = recs('txop-protect', 300 * MS, 0)
 
   it('the 300 ms table: single vs boundary', () => {
-    // table "This scenario, 300 ms": collisions 94 / 18, frames delivered 33 / 532,
-    // retries 180 / 46, frames dropped 16 / 0
+    // table "This scenario, 300 ms": collisions 46 / 21, frames delivered 212 / 614,
+    // retries 112 / 47, frames dropped 6 / 1
     const row = (rs: TLRecord[]) => [
       ofType(rs, 'COLLISION').length,
       ofType(rs, 'RX_OK').filter((r) => r.node === 'ap' && r.frame.kind === 'data').length,
       ofType(rs, 'RETRY').length,
       ofType(rs, 'DROP').length,
     ]
-    expect(row(single)).toEqual([94, 33, 180, 16])
-    expect(row(boundary)).toEqual([18, 532, 46, 0])
+    expect(row(single)).toEqual([46, 212, 112, 6])
+    expect(row(boundary)).toEqual([21, 614, 47, 1])
   })
 
-  it('of the 18 remaining collisions, 13 are RTS meeting RTS and 5 catch a data frame', () => {
-    // "Of the 18 collisions that remain, 13 are RTS meeting RTS — two hidden stations starting within
-    // one 28 µs RTS of each other … — and 5 catch a data frame already under way."
+  it('with the threshold at 500 B both variants open every TXOP with an RTS; only the reach differs', () => {
+    // "every TXOP — in both variants — opens with an RTS/CTS the hidden station can hear.
+    // The only difference left is how far that reservation reaches."
+    for (const rs of [single, boundary]) {
+      const firstInTxop = new Set<number>()
+      let open = false
+      for (const r of rs) {
+        if (r.type === 'TXOP_START') { open = true; continue }
+        if (r.type === 'TX_START' && open) { firstInTxop.add(r.t); open = false }
+      }
+      const opening = txs(rs, (r) => firstInTxop.has(r.t) && (r.node === 'sta-1' || r.node === 'sta-2'))
+      expect(opening.length).toBeGreaterThan(50)
+      expect(new Set(opening.map((r) => r.frame.kind))).toEqual(new Set(['rts']))
+    }
+    // single's RTS reserves one exchange, boundary's the whole TXOP: compare each RTS's
+    // announced end against the end of the TXOP it opened.
+    const reach = (rs: TLRecord[]) => txs(rs, (r) => r.frame.kind === 'rts').map((r) => {
+      const txop = ofType(rs, 'TXOP_START').filter((s) => s.node === r.node && s.t <= r.t).pop()!
+      return txop.untilNs - (r.t + r.frame.txTimeNs + r.frame.durationFieldNs)
+    })
+    // 148 of boundary's 163 RTS reach the TXOP end exactly; the other 15 open a TXOP that
+    // planned a single exchange, where the RTS comes from the threshold alone and reserves
+    // just that exchange — "boundary protection sends nothing" for those.
+    const bReach = reach(boundary)
+    expect([bReach.filter((s) => s === 0).length, bReach.length]).toEqual([148, 163])
+    expect(reach(single).every((slack) => slack > 0)).toBe(true)
+    // "24 of its 29 data-frame collisions are not the first exchange of a TXOP"
+    const dataCols = ofType(single, 'COLLISION').map((c) => collisionFrames(single, c))
+      .filter(({ locked }) => locked.frame.kind === 'data')
+    expect(dataCols.length).toBe(29)
+    expect(dataCols.filter(({ locked }) => !firstOfTxop(single, locked)).length).toBe(24)
+  })
+
+  it('a TXOP that plans only one exchange gets no boundary RTS — only the threshold protects it', () => {
+    // "when the rate falls far enough that a single 1500-byte frame fills the TXOP on its own,
+    // boundary protection sends nothing" — raise the threshold above the frame and those TXOPs
+    // go out bare: "collisions rise from 21 to 80 and deliveries fall from 614 to 344".
+    const bare = runSc({ ...lesson('txop-protect').scenario(), rtsThresholdBytes: 3000 }, 300 * MS)
+    expect(ofType(bare, 'COLLISION').length).toBe(80)
+    expect(ofType(bare, 'RX_OK').filter((r) => r.node === 'ap' && r.frame.kind === 'data').length).toBe(344)
+    // the unprotected first-in-TXOP data frames are the slow ones that fill the TXOP alone
+    const bareData = txs(bare, (r) => r.frame.kind === 'data' && firstOfTxop(bare, r))
+    expect(bareData.length).toBeGreaterThan(50)
+    expect(Math.max(...bareData.filter((r) => r.frame.mcs === 0).map((r) => r.frame.txTimeNs))).toBeGreaterThan(1_900_000)
+  })
+
+  it('of the 21 remaining collisions, 18 are RTS meeting RTS and 3 catch a data frame', () => {
+    // "Of the 21 collisions that remain, 18 are RTS meeting RTS — two hidden stations starting within
+    // one 28 µs RTS of each other … — and 3 catch a data frame already under way."
     const cs = ofType(boundary, 'COLLISION').map((c) => collisionFrames(boundary, c))
     const rtsRts = cs.filter(({ locked }) => locked.frame.kind === 'rts')
     const data = cs.filter(({ locked }) => locked.frame.kind === 'data')
-    expect([rtsRts.length, data.length]).toEqual([13, 5])
+    expect([rtsRts.length, data.length]).toEqual([18, 3])
     for (const { locked, others } of rtsRts) {
       const o = others.find((f) => f.frame.kind === 'rts')!
       expect(o).toBeDefined()
@@ -452,22 +535,22 @@ describe('lesson 10 · protecting the burst', () => {
     // "Hidden B’s lane turns NAV-purple until 3.264 ms"
     const nav = ofType(boundary, 'NAV_SET').find((r) => r.node === 'sta-2')!
     expect(nav.untilNs).toBe(3_264_000)
-    // "“first CF-End” (≈ 3.11 ms): after four exchanges 168 µs of A’s reservation remain"
+    // "“first CF-End” (≈ 2.90 ms): after five exchanges 376 µs of A’s reservation remain"
     const cf = txs(boundary, (r) => r.frame.kind === 'cfend')
     expect(cf[0].node).toBe('sta-1')
-    expect(Math.round(cf[0].t / 10_000) / 100).toBe(3.11)
+    expect(Math.round(cf[0].t / 10_000) / 100).toBe(2.9)
     const burst = txs(boundary, (r) => r.node === 'sta-1' && r.frame.kind === 'data' && r.t > cts.t && r.t < cf[0].t)
-    expect(burst.length).toBe(4)
+    expect(burst.length).toBe(5)
     const lastAck = txs(boundary, (r) => r.frame.kind === 'ack' && r.t < cf[0].t).pop()!
     const lastAckEnd = lastAck.t + lastAck.frame.txTimeNs
-    expect(top.untilNs - lastAckEnd).toBe(168_000)
+    expect(top.untilNs - lastAckEnd).toBe(376_000)
     expect(cf[0].t).toBe(lastAckEnd + 16_000)
     // "too little for another 1500-byte frame and its ACK"
-    expect(16_000 + burst[0].frame.txTimeNs + 16_000 + lastAck.frame.txTimeNs).toBeGreaterThan(168_000)
-    // "the AP repeats it one SIFS later, and B’s NAV ends at 3.184 ms instead of 3.264 ms"
+    expect(16_000 + burst[0].frame.txTimeNs + 16_000 + lastAck.frame.txTimeNs).toBeGreaterThan(376_000)
+    // "the AP repeats it one SIFS later, and B’s NAV ends at 2.976 ms instead of 3.264 ms"
     expect(cf[1].node).toBe('ap')
     expect(cf[1].t).toBe(cf[0].t + cf[0].frame.txTimeNs + 16_000)
-    expect(ofType(boundary, 'NAV_CLEAR').find((r) => r.node === 'sta-2')!.t).toBe(3_184_000)
+    expect(ofType(boundary, 'NAV_CLEAR').find((r) => r.node === 'sta-2')!.t).toBe(2_976_000)
   })
 })
 
@@ -512,9 +595,24 @@ describe('lesson 13 · MLO', () => {
 })
 
 describe('lesson 15 · channel width', () => {
-  it('in the far corner an 802.11a laptop falls back to 20 MHz and gets ACKs, at over a millisecond a frame', () => {
+  it('on the desk a 160 MHz link holds MCS 13 with 48.7 dB against the 48.0 it needs', () => {
+    // "at 160 MHz the laptop still holds MCS 13, but only just, with 48.7 dB of signal against
+    // noise where the top modulation asks for 48.0" — and the requirement itself is
+    // width-independent: "the SINR a modulation needs … does not change with width at all".
+    const sc = lesson('width').scenario() // the lesson opens at 160 MHz
+    const lt = buildLinkTable(sc.nodes, sc.walls)
+    const snr = lt.get('sta-1')!.get('ap')! - noiseDbm(160)
+    expect(Math.round(snr * 10) / 10).toBe(48.7)
+    expect(Math.round((reqSinrDb('eht', 13) + RATE_MARGIN_DB) * 10) / 10).toBe(48)
+    expect(snr).toBeGreaterThan(reqSinrDb('eht', 13) + RATE_MARGIN_DB)
+    for (const w of [20, 40, 80, 160]) expect(reqSinrDb('eht', 13)).toBe(sinrThreshModeDb('eht', 13, w))
+    // "each doubling takes in twice the noise power — 3 dB"
+    expect(Math.round((noiseDbm(160) - noiseDbm(20)) * 10) / 10).toBe(9)
+  })
+
+  it('in the far corner an 802.11a laptop falls back to 20 MHz and gets ACKs, at 704 µs a frame', () => {
     // "switch it to 802.11a (legacy) in the editor … the link falls back to 20 MHz — and the ACKs
-    // come back, at over a millisecond per frame."
+    // come back, at 704 µs a frame: 18 Mb/s"
     const sc = lesson('width').scenario()
     const sta = sc.nodes.find((n) => n.id === 'sta-1')!
     sta.pos = { x: 15, y: 7, z: 1 }
@@ -524,8 +622,11 @@ describe('lesson 15 · channel width', () => {
     expect(txs(rs, (r) => r.frame.kind === 'ack').length).toBeGreaterThan(50)
     for (const d of data) {
       expect(d.frame.widthMhz).toBe(20)
-      expect(d.frame.txTimeNs).toBeGreaterThan(1_000_000)
+      expect(d.frame.txTimeNs).toBe(704_000)
+      expect(d.frame.mbps).toBe(18)
     }
+    // "five and a half times the airtime the same frame took on the desk" (129.6 µs at 20 MHz)
+    expect(Math.round((704_000 / 129_600) * 2) / 2).toBe(5.5)
   })
 })
 
@@ -603,9 +704,9 @@ describe('lesson 14 · capstone', () => {
     expect(mean(sensorMoved.v['sta-4'].stats.rxLatency)).toBe(mean(base.v['sta-4'].stats.rxLatency))
   })
 
-  it('with the backup stopped “the tablet’s page latency falls from about 58 ms to under a millisecond, and even the voice call’s halves”', () => {
-    expect(mean(base.v['sta-4'].stats.rxLatency)).toBeGreaterThan(50)
-    expect(mean(base.v['sta-4'].stats.rxLatency)).toBeLessThan(65)
+  it('with the backup stopped “the tablet’s page latency falls from about 39 ms to half a millisecond, and even the voice call’s halves”', () => {
+    expect(mean(base.v['sta-4'].stats.rxLatency)).toBeGreaterThan(35)
+    expect(mean(base.v['sta-4'].stats.rxLatency)).toBeLessThan(45)
     expect(mean(noBackup.v['sta-4'].stats.rxLatency)).toBeLessThan(1)
     expect(mean(noBackup.v['sta-3'].stats.txLatency)).toBeLessThan(mean(base.v['sta-3'].stats.txLatency) / 2)
     for (const id of ['sta-2', 'sta-3', 'sta-4', 'sta-6']) {
@@ -614,10 +715,10 @@ describe('lesson 14 · capstone', () => {
     }
   })
 
-  it('“turn it off and the tablet waits about 100 ms” — almost twice as long', () => {
+  it('“turn it off and the tablet waits about 110 ms” — nearly three times as long', () => {
     const t = mean(noMlo.v['sta-4'].stats.rxLatency)
-    expect(t).toBeGreaterThan(90)
-    expect(t).toBeLessThan(110)
-    expect(t / mean(base.v['sta-4'].stats.rxLatency)).toBeGreaterThan(1.5)
+    expect(t).toBeGreaterThan(100)
+    expect(t).toBeLessThan(120)
+    expect(t / mean(base.v['sta-4'].stats.rxLatency)).toBeGreaterThan(2.5)
   })
 })

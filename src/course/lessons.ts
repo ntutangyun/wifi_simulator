@@ -266,9 +266,13 @@ const AUTHORED: Lesson[] = [
         en: 'Notice where the new countdown starts. The collided transmissions end at 248 µs, but the stations cannot count that silence as idle time yet: until the timeout expires, each is still waiting for its response. So the retry’s DIFS is counted from the end of the timeout — 293 µs — and the fresh backoff is drawn only at 327 µs, a full 34 µs later.',
         zh: '注意新一轮倒数从哪里开始。碰撞的传输在 248 µs 就结束了，但终端还不能把这段安静算作空闲时间：超时到来之前，它们仍在等待自己的响应。所以重传前的 DIFS 要从超时结束的那一刻——293 µs——开始计，新的退避要到 327 µs 才抽取，整整晚了 34 µs。',
       } },
-      { heading: { en: 'And the AP? It waits even longer — EIFS', zh: '那 AP 呢？它等得更久——EIFS' }, text: {
-        en: 'The AP experienced this collision differently. It was not transmitting — it actually received the garbled overlap, and a station that hears a corrupted frame must stay quiet for EIFS instead of DIFS before its next access.',
-        zh: 'AP 经历这场碰撞的方式不一样。它当时并没有发送，而是实实在在收到了那段互相重叠的乱码——凡是收到损坏帧的站点，下一次接入前必须保持安静一个 EIFS，而不是一个 DIFS。',
+      { heading: { en: 'And the AP? It detects neither frame', zh: '那 AP 呢？它哪一帧都没检测到' }, text: {
+        en: 'The AP experienced this collision differently. It was not transmitting, but it did not receive a garbled frame either. A radio locks onto a frame only if its preamble stands at least 4 dB above everything else on the air. Here both preambles arrive in the same instant at about the same strength, so each buries the other: the AP detects neither, starts no reception, and hears only energy on the channel.',
+        zh: 'AP 经历这场碰撞的方式不一样。它当时并没有发送，但也没有收到一帧乱码。电台只有在一个前导码比空中其他一切信号至少高出 4 dB 时，才会锁定这一帧。这里两个前导码在同一瞬间、以差不多的强度到达，彼此淹没：AP 哪个都没检测到，没有开始任何接收，只感到信道上有能量。',
+      } },
+      { heading: { en: 'EIFS — the wait after a frame that was received but broken', zh: 'EIFS——收到了、却是坏帧之后的等待' }, text: {
+        en: 'That matters, because the longer penalty wait, EIFS, is armed only by a reception that actually started and then failed its check. A station that locked onto a preamble but could not decode the frame must stay quiet for EIFS instead of DIFS before its next access. A frame whose preamble was never detected leaves nothing to fail, so it arms no EIFS.',
+        zh: '这一点很关键，因为更长的惩罚等待 EIFS，只有在一次真正开始了的接收最终校验失败时才会启动。站点锁定了前导码、却没能解出这一帧，那么下一次接入前必须保持安静一个 EIFS，而不是一个 DIFS。前导码根本没被检测到的帧，没有留下任何可以失败的接收，所以不会启动 EIFS。',
       } },
       { kind: 'formula', text: {
         en: 'EIFS = SIFS + ACK at the lowest rate + DIFS = 16 + 44 + 34 = 94 µs',
@@ -279,8 +283,8 @@ const AUTHORED: Lesson[] = [
         zh: '道理在于：那帧损坏的数据也许本来是发给别人的，对方马上就要回 ACK。侦听者既然没解出这帧，也就错过了它的 Duration 字段，所以多等这一段，才不会踩到那个自己“预料不到”的 ACK。',
       } },
       { text: {
-        en: 'You will not see an EIFS block on the AP’s lane here: a defer block is drawn only when a station is waiting in order to send, and this AP has nothing to transmit. A real, visible EIFS appears in lesson 6 — hovering the far station’s defer block even shows the EIFS being cut short into a DIFS the moment a healthy frame arrives (§10.3.2.3.7).',
-        zh: '不过在本场景里，你不会在 AP 的泳道上看到 EIFS 色块：只有当站点是“为了发送”而等待时才会画出等待色块，而这台 AP 无东西可发。想看真实可见的 EIFS，请到第 6 课——悬停远处终端的等待色块，还能看到 EIFS 在一帧健康的帧到来时被截短成 DIFS（§10.3.2.3.7）。',
+        en: 'You will not see an EIFS block on the AP’s lane here. At the same-slot collisions nothing was received, so there is no EIFS at all. And even after a broken reception, a defer block is drawn only when a station is waiting in order to send, and this AP has nothing to transmit. A real, visible EIFS appears in lesson 6 — hovering the far station’s defer block even shows the EIFS being cut short into a DIFS the moment a healthy frame arrives (§10.3.2.3.7).',
+        zh: '在本场景里，你不会在 AP 的泳道上看到 EIFS 色块。同一时隙的碰撞里 AP 什么都没收到，所以根本没有 EIFS；而且即使在收到坏帧之后，也只有当站点是“为了发送”而等待时才会画出等待色块，而这台 AP 无东西可发。想看真实可见的 EIFS，请到第 6 课——悬停远处终端的等待色块，还能看到 EIFS 在一帧健康的帧到来时被截短成 DIFS（§10.3.2.3.7）。',
       } },
       { text: {
         en: 'This scenario saturates two legacy stations. Use “first collision”: the red tick marks two overlapping transmissions. That first one happens at the very start — both stations find the medium already idle at t = 0 and transmit at once, with no backoff at all. The next one, at about 8.1 ms, is the classic kind: step backwards from it and watch both backoff counters reach zero in the same slot — the collision was fully determined a moment earlier.',
@@ -300,7 +304,7 @@ const AUTHORED: Lesson[] = [
     ],
     observe: [
       { en: 'Backoff counters (bo:n) decrement only while the medium is idle; they freeze when the other station transmits and resume at the same value.', zh: '退避计数（bo:n）只在介质空闲时递减；对方发送时冻结，之后从同一数值继续。' },
-      { en: 'At the red tick the AP’s lane shows one reception, hatched red: a receiver locks onto a single preamble, so the overlap arrives as one garbled frame — hover it to see who else was on the air.', zh: '红色刻度处 AP 泳道只显示一次接收，且打着红色斜线：接收机只会锁定一个前导码，重叠的两帧到它这里就是一帧损坏的接收——悬停可见另一位发送者。' },
+      { en: 'At the red tick the AP’s lane shows the overlap hatched red and marked “not detected”: the two preambles started together at similar strength and buried each other, so the AP never locked onto either frame. Hover it to see who else was on the air.', zh: '红色刻度处 AP 泳道上的重叠部分打着红色斜线，并标着“未检测到”：两个前导码同时开始、强度相近，彼此淹没，AP 一帧也没有锁定。悬停可见另一位发送者。' },
       { en: 'After a collision, both stations show CW → 31 in the inspector, and the retry frame carries the Retry flag.', zh: '碰撞后检视器里双方的 CW 都变成 31，重传帧带有 Retry 标志。' },
       { en: 'Retries draw from the doubled window: gaps before retransmissions are visibly longer on average.', zh: '重传从翻倍后的窗口抽取：重传前的等待间隙平均明显更长。' },
     ],
@@ -439,14 +443,14 @@ const AUTHORED: Lesson[] = [
         zh: '于是一方正在发帧，另一方却侦听到“空闲”，两股信号在走廊里的 AP 处相遇、同归于尽——AP 两边都听得到。这就是隐藏节点问题——多少退避都治不了它，因为竞争双方根本看不见彼此在竞争。',
       } },
       { heading: { en: 'B freezes for the receipt, not the payload', zh: 'B 为回执停步，却听不见正文' }, text: {
-        en: 'Around t ≈ 2.8 ms you can watch the asymmetry directly. Of A’s entire exchange, the only fragment B ever perceives is the 28 µs receipt at the end:',
-        zh: '在 t ≈ 2.8 ms 附近可以直接看到这种不对称。A 的整场交换里，B 能感知到的唯一片段，就是结尾这张 28 µs 的回执：',
+        en: 'Around t ≈ 2.3 ms you can watch the asymmetry directly. Of A’s entire exchange, the only fragment B ever perceives is the 28 µs receipt at the end:',
+        zh: '在 t ≈ 2.3 ms 附近可以直接看到这种不对称。A 的整场交换里，B 能感知到的唯一片段，就是结尾这张 28 µs 的回执：',
       } },
       { kind: 'table', head: [
         { en: 'Frame', zh: '帧' }, { en: 'Time', zh: '时间' }, { en: 'Walls from B', zh: '与 B 之间的墙' }, { en: 'What B does', zh: 'B 的反应' },
       ], rows: [
-        [{ en: 'A’s 1528 B data', zh: 'A 的 1528 B 数据帧' }, N('≈ 2.29–2.82 ms'), { en: 'Two', zh: '两堵' }, { en: 'Counts straight through it — 106, 105, … 47 — as if the channel were empty.', zh: '倒数径直穿过它——106、105、……47——仿佛信道空无一物。' }],
-        [{ en: 'AP’s ACK', zh: 'AP 的 ACK' }, N('2837–2865 µs'), { en: 'One', zh: '一堵' }, { en: 'Freezes at 46, sits out the 28 µs ACK plus a 34 µs DIFS, resumes at 46.', zh: '冻结在 46，等完 28 µs 的 ACK 加 34 µs 的 DIFS，再从 46 继续。' }],
+        [{ en: 'A’s 1528 B data', zh: 'A 的 1528 B 数据帧' }, N('≈ 1.95–2.31 ms'), { en: 'Two', zh: '两堵' }, { en: 'Counts straight through it — 106, 105, … 66 — as if the channel were empty, and on through the SIFS gap after it.', zh: '倒数径直穿过它——106、105、……66——仿佛信道空无一物，并且接着数过它之后的 SIFS 间隙。' }],
+        [{ en: 'AP’s ACK', zh: 'AP 的 ACK' }, N('2325–2353 µs'), { en: 'One', zh: '一堵' }, { en: 'Freezes at 64, sits out the 28 µs ACK plus a 34 µs DIFS, resumes at 64.', zh: '冻结在 64，等完 28 µs 的 ACK 加 34 µs 的 DIFS，再从 64 继续。' }],
       ] },
       { text: {
         en: 'And that freeze protects nothing: a final ACK carries Duration = 0, so it sets no NAV — moments later A starts its next frame and B, deaf again, counts right through it. This is exactly the gap the CTS closes: it too comes from the AP, audible to B, but it carries a nonzero Duration covering the whole upcoming data frame — turning B’s 28 µs twitch into a reservation that lasts the entire exchange.',
@@ -535,22 +539,22 @@ const AUTHORED: Lesson[] = [
       { kind: 'table', head: [
         { en: 'Reception', zh: '接收' }, { en: 'Wanted signal', zh: '目标信号' }, { en: 'Interferer', zh: '干扰' }, { en: 'Margin', zh: '余量' }, { en: 'Needed', zh: '所需' },
       ], rows: [
-        [{ en: 'Near data at the AP', zh: 'AP 收近端数据' }, N('−35 dBm'), { en: 'far station, −75 dBm', zh: '远端终端，−75 dBm' }, N('40 dB'), { en: '30 dB for 54 Mb/s', zh: '54 Mb/s 需 30 dB' }],
-        [{ en: 'ACK at the near station', zh: '近端收 ACK' }, N('−30 dBm'), { en: 'far station still on air, −74 dBm', zh: '远端仍在发，−74 dBm' }, N('44 dB'), N('21 dB')],
+        [{ en: 'Near data at the AP', zh: 'AP 收近端数据' }, N('−35 dBm'), { en: 'far station, −75 dBm', zh: '远端终端，−75 dBm' }, N('40 dB'), { en: '26 dB for 54 Mb/s', zh: '54 Mb/s 需 26 dB' }],
+        [{ en: 'ACK at the near station', zh: '近端收 ACK' }, N('−30 dBm'), { en: 'far station still on air, −74 dBm', zh: '远端仍在发，−74 dBm' }, N('44 dB'), { en: '17 dB for the 24 Mb/s ACK', zh: '24 Mb/s 的 ACK 需 17 dB' }],
       ] },
       { text: {
-        en: 'The 40 dB gap is opened by 11 m of apartment and one brick wall. A receiver locks a preamble and treats everything arriving afterwards as noise — and while it is still acquiring, a signal markedly stronger than the one it holds makes it abandon that reception and re-sync to the newcomer. A simultaneous start is won by the stronger signal, never by the earlier one.',
-        zh: '这 40 dB 是 11 m 的房长加一道砖墙拉开的。接收机锁定一个前导后，把此后到达的一切都当作噪声——但在它还处于前导捕获阶段时，一个明显强于当前信号的新前导会让它丢弃手头的接收、改而同步到新来者。所以同时起跑的胜负取决于信号强弱，而不是谁先开口。',
+        en: 'The 40 dB gap is opened by 11 m of apartment and one brick wall. Before a receiver can decode anything it must detect the preamble, and a preamble is detected only if it stands at least 4 dB above everything else on the air. The near preamble clears that with 40 dB to spare, so the AP locks onto it; the far one sits 40 dB under it, is never detected, and only adds interference to the reception in progress. A locked receiver treats everything arriving afterwards as noise — and while it is still acquiring, a preamble markedly stronger than the one it holds makes it abandon that reception and re-sync to the newcomer. A simultaneous start is won by the stronger signal, never by the earlier one.',
+        zh: '这 40 dB 是 11 m 的房长加一道砖墙拉开的。接收机要解出任何东西，先得检测到前导码，而前导码只有比空中其他一切信号至少高出 4 dB 才会被检测到。近端的前导码以 40 dB 的富余越过了这道门槛，于是 AP 锁定了它；远端的前导码比它低 40 dB，根本没被检测到，只是给正在进行的接收添了一份干扰。接收机锁定一个前导后，把此后到达的一切都当作噪声——但在它还处于前导捕获阶段时，一个明显强于当前信号的新前导会让它丢弃手头的接收、改而同步到新来者。所以同时起跑的胜负取决于信号强弱，而不是谁先开口。',
       } },
       { text: {
-        en: 'The far station’s 1044 µs frame is destroyed in full. It learns nothing until its ACK timeout at 1089 µs, then retries with a doubled contention window. Nothing on the timeline is drawn as a collision, because from the AP’s point of view no reception failed — the only visible trace is that unexplained retry on the far lane.',
-        zh: '远端终端那 1044 µs 的帧被整帧毁掉。它要等到 1089 µs 的 ACK 超时才知情，然后带着翻倍的竞争窗口重传。时间轴上不会画出任何碰撞标记，因为在 AP 看来没有任何一次接收失败——唯一可见的痕迹，是远端泳道上那次没有来由的重传。',
+        en: 'The far station’s 704 µs frame is destroyed in full. It learns nothing until its ACK timeout at 749 µs, then retries with a doubled contention window. Nothing on the timeline is drawn as a collision, because from the AP’s point of view no reception failed — the only visible trace is that unexplained retry on the far lane.',
+        zh: '远端终端那 704 µs 的帧被整帧毁掉。它要等到 749 µs 的 ACK 超时才知情，然后带着翻倍的竞争窗口重传。时间轴上不会画出任何碰撞标记，因为在 AP 看来没有任何一次接收失败——唯一可见的痕迹，是远端泳道上那次没有来由的重传。',
       } },
       { kind: 'table', head: [
         { en: 'Station', zh: '终端' }, { en: 'ACK timeouts in 200 ms', zh: '200 ms 内的 ACK 超时次数' },
       ], rows: [
         [{ en: 'Near', zh: '近端' }, N('0')],
-        [{ en: 'Far', zh: '远端' }, N('11')],
+        [{ en: 'Far', zh: '远端' }, N('15')],
       ] },
       { text: {
         en: 'So the anomaly cuts deeper than airtime: the distant station pays twice, holding the medium far longer per frame and losing every simultaneous start it takes part in.',
@@ -567,9 +571,9 @@ const AUTHORED: Lesson[] = [
     ],
     observe: [
       { en: 'The far station’s green blocks are much longer than the near one’s — same bytes, lower MCS.', zh: '远端终端的绿色块比近端的长得多——字节数相同，MCS 更低。' },
-      { en: 'Inspector: both deliver a comparable number of frames (140 and 105 in the first 200 ms), yet the far station holds four times the airtime.', zh: '检视器：两者“成功交付帧数”相当（前 200 ms 里分别是 140 和 105），远端终端占用的空口时间却是近端的四倍。' },
-      { en: 'The near station’s throughput is far below what it would get alone.', zh: '近端终端的吞吐量远低于它独占信道时的水平。' },
-      { en: 'At t = 0 both stations transmit at once, yet only the near one is acknowledged — capture. The far lane’s only clue is an ACK timeout at 1089 µs.', zh: 't = 0 两台终端同时开始发送，却只有近端收到 ACK——这就是捕获。远端泳道上唯一的线索，是 1089 µs 处的 ACK 超时。' },
+      { en: 'Inspector: both deliver a comparable number of frames (209 and 135 in the first 200 ms), yet the far station holds more than twice the airtime.', zh: '检视器：两者“成功交付帧数”相当（前 200 ms 里分别是 209 和 135），远端终端占用的空口时间却是近端的两倍多。' },
+      { en: 'The near station’s throughput is far below what it would get alone: 209 frames in 200 ms here, 510 with the far station gone.', zh: '近端终端的吞吐量远低于它独占信道时的水平：这里 200 ms 送出 209 帧，去掉远端终端后是 510 帧。' },
+      { en: 'At t = 0 both stations transmit at once, yet only the near one is acknowledged — capture. The far lane’s only clue is an ACK timeout at 749 µs.', zh: 't = 0 两台终端同时开始发送，却只有近端收到 ACK——这就是捕获。远端泳道上唯一的线索，是 749 µs 处的 ACK 超时。' },
     ],
     tryThis: [
       { en: 'Delete the far station in the editor and reload: watch the near one’s throughput jump.', zh: '在编辑器中删除远端终端后重新载入：看近端吞吐量飙升。' },
@@ -654,11 +658,11 @@ const AUTHORED: Lesson[] = [
         { en: 'EIFS does not replace AIFS, it adds to it (§10.23.2.2):', zh: 'EIFS 也不是替换 AIFS，而是与它相加（§10.23.2.2）：' },
       ] },
       { kind: 'formula', text: {
-        en: 'wait after a corrupted frame = EIFS − DIFS + AIFS[AC]\nBK: 94 − 34 + 79 = 139 µs',
-        zh: '收到损坏帧后的等待 = EIFS − DIFS + AIFS[AC]\nBK：94 − 34 + 79 = 139 µs',
+        en: 'wait after a corrupted frame = EIFS − DIFS + AIFS[AC]\nBE: 94 − 34 + 43 = 103 µs\nBK: 94 − 34 + 79 = 139 µs',
+        zh: '收到损坏帧后的等待 = EIFS − DIFS + AIFS[AC]\nBE：94 − 34 + 43 = 103 µs\nBK：94 − 34 + 79 = 139 µs',
       }, note: {
-        en: 'Penalty and class-wait, composed.',
-        zh: '惩罚与类别等待，叠加而成。',
+        en: 'Penalty and class-wait, composed. The uploader’s BE queue is the one that shows it here — hover its 103 µs defer blocks. The backup never gets one: a corrupted reception needs a preamble the radio actually locked onto, and the collisions in this scene bury both preambles at once.',
+        zh: '惩罚与类别等待，叠加而成。本场景里能看到它的是上传终端的 BE 队列——悬停它那些 103 µs 的等待色块。备份终端一次也没有：要有“损坏的接收”，先得有一个真正被锁定的前导码，而这个场景里的碰撞往往把两个前导码同时淹没。',
       } },
       { heading: { en: 'CW — how big the lottery is, and how it doubles', zh: 'CW——抽签区间有多大，碰撞后怎么翻倍' }, text: {
         en: '“CW 3–7” does not mean “draw a number between 3 and 7”. CW is the upper bound of the draw, and 3 and 7 are CWmin and CWmax — the smallest and largest that bound is ever allowed to be (§10.3.3).',
@@ -864,8 +868,8 @@ const AUTHORED: Lesson[] = [
     title: { en: 'Protecting the burst — one CTS for the whole TXOP', zh: '保护整个突发——一个 CTS 预约整个 TXOP' },
     body: [
       { text: {
-        en: 'Lesson 9 showed a holder chaining exchanges one SIFS apart. Anyone who can hear the holder cannot break in: SIFS is shorter than every AIFS. But lesson 5’s hidden station hears only the receiver. Under single protection each frame’s Duration covers just its own ACK, so a hidden station freezes for the ACK, then counts straight into the next frame of the burst.',
-        zh: '第 9 课里，持有者以一个 SIFS 的间隔串联多次交换。听得到持有者的站点插不进来：SIFS 比任何 AIFS 都短。但第 5 课那种隐藏站点只听得到接收方。在单次保护下，每个帧的 Duration 只覆盖自己的 ACK，于是隐藏站点为 ACK 停一下，随后就径直数进了突发的下一帧。',
+        en: 'Lesson 9 showed a holder chaining exchanges one SIFS apart. Anyone who can hear the holder cannot break in: SIFS is shorter than every AIFS. But lesson 5’s hidden station hears only the receiver. This scene is lesson 5’s hallway with TXOP bursts and an RTS threshold of 500 B, so every TXOP — in both variants — opens with an RTS/CTS the hidden station can hear. The only difference left is how far that reservation reaches. Under single protection it covers one exchange: the hidden station stays quiet for the first frame and its ACK, then counts straight into the second frame of the burst.',
+        zh: '第 9 课里，持有者以一个 SIFS 的间隔串联多次交换。听得到持有者的站点插不进来：SIFS 比任何 AIFS 都短。但第 5 课那种隐藏站点只听得到接收方。本场景就是第 5 课的走廊，加上 TXOP 突发，并把 RTS 门限设成 500 B——于是两个变体里的每一个 TXOP 都以隐藏站点听得见的 RTS/CTS 开场。剩下的唯一区别，是这段预约能覆盖多远。单次保护下它只覆盖一次交换：隐藏站点为第一帧和它的 ACK 保持安静，随后就径直数进了突发的第二帧。',
       } },
       { kind: 'table', heading: { en: 'Three ways to announce a burst (§9.2.5.2)', zh: '预告突发的三种方式（§9.2.5.2）' }, head: [
         { en: 'Policy', zh: '策略' }, { en: 'Opens the burst with', zh: '突发以什么开头' }, { en: 'Data frames carry', zh: '数据帧携带' }, { en: 'Ends early with', zh: '提前结束时' },
@@ -889,25 +893,29 @@ const AUTHORED: Lesson[] = [
       { kind: 'table', heading: { en: 'This scenario, 300 ms', zh: '本场景，300 ms' }, head: [
         { en: 'Metric', zh: '指标' }, { en: 'single', zh: '单次' }, { en: 'boundary', zh: '边界' },
       ], rows: [
-        [{ en: 'collisions', zh: '碰撞' }, N('94'), N('18')],
-        [{ en: 'frames delivered', zh: '送达帧数' }, N('33'), N('532')],
-        [{ en: 'retries', zh: '重传' }, N('180'), N('46')],
-        [{ en: 'frames dropped', zh: '丢弃帧数' }, N('16'), N('0')],
+        [{ en: 'collisions', zh: '碰撞' }, N('46'), N('21')],
+        [{ en: 'frames delivered', zh: '送达帧数' }, N('212'), N('614')],
+        [{ en: 'retries', zh: '重传' }, N('112'), N('47')],
+        [{ en: 'frames dropped', zh: '丢弃帧数' }, N('6'), N('1')],
       ] },
       { text: {
-        en: 'Of the 18 collisions that remain, 13 are RTS meeting RTS — two hidden stations starting within one 28 µs RTS of each other, but now each loses 20 bytes instead of a burst of 1500-byte frames — and 5 catch a data frame already under way. That is lesson 5’s bargain, extended from one frame to a whole TXOP.',
-        zh: '剩下的 18 次碰撞里，13 次是 RTS 撞 RTS——两台隐藏站点的起跑时刻相差不到一个 28 µs 的 RTS，但现在各自只损失 20 字节，而不是一整串 1500 字节的帧——另外 5 次撞上了正在进行中的数据帧。这正是第 5 课的那笔交易，从一帧扩展到了整个 TXOP。',
+        en: 'Of the 21 collisions that remain, 18 are RTS meeting RTS — two hidden stations starting within one 28 µs RTS of each other, but now each loses 20 bytes instead of a burst of 1500-byte frames — and 3 catch a data frame already under way. That is lesson 5’s bargain, extended from one frame to a whole TXOP.',
+        zh: '剩下的 21 次碰撞里，18 次是 RTS 撞 RTS——两台隐藏站点的起跑时刻相差不到一个 28 µs 的 RTS，但现在各自只损失 20 字节，而不是一整串 1500 字节的帧——另外 3 次撞上了正在进行中的数据帧。这正是第 5 课的那笔交易，从一帧扩展到了整个 TXOP。',
       } },
       { text: {
         en: 'The price is airtime: an RTS/CTS per burst, a CF-End (twice, with the relay), and anyone who misses the CF-End waits until the announced end. Real Wi-Fi 6/7 gear pays it this way: data frames keep single protection, and the RTS/CTS — or its multi-user form, MU-RTS — at the TXOP boundary carries the burst.',
         zh: '代价是空口时间：每个突发一次 RTS/CTS、一次 CF-End（加上 AP 的重复是两次），而错过 CF-End 的站点要等到预告的末尾。真实的 Wi-Fi 6/7 设备正是这样付账的：数据帧保持单次保护，由 TXOP 边界处的 RTS/CTS——或其多用户形式 MU-RTS——来承载整个突发的预约。',
+      } },
+      { text: {
+        en: 'And note what boundary protection is not: a blanket rule that every TXOP opens with an RTS. The holder sends that boundary RTS only when more than one exchange is actually planned for this TXOP — there is no burst to protect otherwise. So when the rate falls far enough that a single 1500-byte frame fills the TXOP on its own, boundary protection sends nothing, and that lone exchange is protected only if the frame is above the RTS threshold. That is why this scene sets the threshold to 500 B: without it, the TXOPs that hold one long low-rate frame would go out bare, and they are exactly the ones a hidden station has the most time to walk into.',
+        zh: '也要看清边界保护不是什么：它不是“每个 TXOP 都先发一个 RTS”的一刀切规则。只有当这个 TXOP 确实计划了不止一次交换时，持有者才会发出这个边界 RTS——否则根本没有突发需要保护。于是当速率低到一个 1500 字节的帧就能把整个 TXOP 填满时，边界保护什么也不会发，那次孤零零的交换只能靠 RTS 门限来保护。这正是本场景把门限设为 500 B 的原因：否则那些只装得下一个长慢帧的 TXOP 会裸奔上阵——而恰恰是它们，给了隐藏站点最长的时间撞进来。',
       } },
     ],
     scenario: () => sc(hallwayHouse(), [
       node('ap', 'AP', 'ap', 5, 4, 'eht', 'idle'),
       { ...node('sta-1', 'Hidden A', 'sta', 0.8, 7.2, 'vht', 'saturated', { edca: true, txop: true }), txopProtection: 'boundary' },
       { ...node('sta-2', 'Hidden B', 'sta', 9.2, 7.2, 'vht', 'saturated', { edca: true, txop: true }), txopProtection: 'boundary' },
-    ]),
+    ], { rtsThresholdBytes: 500 }),
     variants: [
       {
         label: { en: 'single protection (per exchange)', zh: '单次保护（逐次交换）' },
@@ -915,7 +923,7 @@ const AUTHORED: Lesson[] = [
           node('ap', 'AP', 'ap', 5, 4, 'eht', 'idle'),
           node('sta-1', 'Hidden A', 'sta', 0.8, 7.2, 'vht', 'saturated', { edca: true, txop: true }),
           node('sta-2', 'Hidden B', 'sta', 9.2, 7.2, 'vht', 'saturated', { edca: true, txop: true }),
-        ]),
+        ], { rtsThresholdBytes: 500 }),
       },
       {
         label: { en: 'multiple protection (data frames carry the remainder)', zh: '多重保护（数据帧携带剩余时间）' },
@@ -923,7 +931,7 @@ const AUTHORED: Lesson[] = [
           node('ap', 'AP', 'ap', 5, 4, 'eht', 'idle'),
           { ...node('sta-1', 'Hidden A', 'sta', 0.8, 7.2, 'vht', 'saturated', { edca: true, txop: true }), txopProtection: 'multiple' },
           { ...node('sta-2', 'Hidden B', 'sta', 9.2, 7.2, 'vht', 'saturated', { edca: true, txop: true }), txopProtection: 'multiple' },
-        ]),
+        ], { rtsThresholdBytes: 500 }),
       },
     ],
     jumps: [
@@ -934,12 +942,13 @@ const AUTHORED: Lesson[] = [
     ],
     observe: [
       { en: '“first RTS”: A and B both open with an RTS at t = 0 — and collide, 20 bytes each. A’s third try at 0.736 ms gets through: hover its RTS (Duration 2500 µs, reaching the end of its 2.528 ms TXOP) and the AP’s CTS at 0.780 ms (2456 µs — the same minus one SIFS and the CTS itself). Hidden B’s lane turns NAV-purple until 3.264 ms, although B never hears A.', zh: '“第一个 RTS”：A 和 B 都在 t = 0 以 RTS 开场——然后撞在一起，各损失 20 字节。A 在 0.736 ms 的第三次尝试成功了：悬停它的 RTS（Duration 2500 µs，直达它 2.528 ms TXOP 的末尾）和 AP 在 0.780 ms 的 CTS（2456 µs——相同数值减去一个 SIFS 和 CTS 自身）。隐藏站 B 的泳道一直到 3.264 ms 都是 NAV 紫色，尽管 B 从来听不到 A。' },
-      { en: '“first CF-End” (≈ 3.11 ms): after four exchanges 168 µs of A’s reservation remain — too little for another 1500-byte frame and its ACK. A sends CF-End, the AP repeats it one SIFS later, and B’s NAV ends at 3.184 ms instead of 3.264 ms.', zh: '“第一个 CF-End”（≈ 3.11 ms）：四次交换之后，A 的预约还剩 168 µs——不够再发一个 1500 字节的帧加 ACK。A 发出 CF-End，AP 在一个 SIFS 后重复一遍，B 的 NAV 在 3.184 ms 结束，而不是 3.264 ms。' },
-      { en: '“first collision” (28 µs) is an RTS meeting an RTS — 20 bytes lost each, not a burst. Then load the “single protection” variant: B freezes only for each ACK and collides into A’s next frame, and the red ticks pile up as in lesson 5.', zh: '“第一次碰撞”（28 µs）是 RTS 撞 RTS——各损失 20 字节，而不是一整个突发。再载入“单次保护”变体：B 只为每个 ACK 停一下，随即撞进 A 的下一帧，红色刻度像第 5 课那样堆积起来。' },
+      { en: '“first CF-End” (≈ 2.90 ms): after five exchanges 376 µs of A’s reservation remain — too little for another 1500-byte frame and its ACK. A sends CF-End, the AP repeats it one SIFS later, and B’s NAV ends at 2.976 ms instead of 3.264 ms.', zh: '“第一个 CF-End”（≈ 2.90 ms）：五次交换之后，A 的预约还剩 376 µs——不够再发一个 1500 字节的帧加 ACK。A 发出 CF-End，AP 在一个 SIFS 后重复一遍，B 的 NAV 在 2.976 ms 结束，而不是 3.264 ms。' },
+      { en: '“first collision” (28 µs) is an RTS meeting an RTS — 20 bytes lost each, not a burst. Then load the “single protection” variant: B’s NAV covers only the first exchange, so it wakes up inside the burst and collides into A’s second, third or fourth frame — 24 of its 29 data-frame collisions are not the first exchange of a TXOP — and the red ticks pile up as in lesson 5.', zh: '“第一次碰撞”（28 µs）是 RTS 撞 RTS——各损失 20 字节，而不是一整个突发。再载入“单次保护”变体：B 的 NAV 只覆盖第一次交换，于是它在突发中途醒来，撞进 A 的第二、第三或第四帧——它那 29 次数据帧碰撞里有 24 次都不是 TXOP 的第一次交换——红色刻度像第 5 课那样堆积起来。' },
     ],
     tryThis: [
       { en: 'Load the “multiple protection” variant and hover a data frame inside a burst: its Duration now reaches the end of the TXOP, so even a station that missed the CTS learns the reservation from the data itself.', zh: '载入“多重保护”变体，悬停突发内部的一个数据帧：它的 Duration 现在直达 TXOP 末尾，于是错过 CTS 的站点也能从数据帧本身得知预约。' },
       { en: 'Open the scenario in the editor, turn TXOP off on both stations and compare: every frame contends again, and there is no burst left to protect.', zh: '在编辑器中打开本场景，关闭两台终端的 TXOP 再比较：每一帧都要重新竞争，也就没有突发可保护了。' },
+      { en: 'Raise the RTS threshold back to the usual 3000 B, above the 1500-byte frames, and reload. Boundary protection still covers the multi-exchange bursts, but every TXOP that turned out to hold a single frame now opens bare: collisions rise from 21 to 80 and deliveries fall from 614 to 344. The frames that go unprotected are the slow ones — one MCS-0 frame is 1.9 ms and fills the 2.528 ms TXOP by itself.', zh: '把 RTS 门限调回常见的 3000 B（高于 1500 字节的帧）再重新载入。边界保护仍然覆盖多次交换的突发，但凡是最后只装了一帧的 TXOP 都变成裸奔：碰撞从 21 次升到 80 次，送达帧数从 614 降到 344。裸奔的恰恰是那些慢帧——一个 MCS 0 的帧要 1.9 ms，光它自己就填满了 2.528 ms 的 TXOP。' },
     ],
     quiz: [
       {
@@ -1187,7 +1196,7 @@ const AUTHORED: Lesson[] = [
       { en: 'The legacy sensor is the slowest radio in the house, yet it sends two short frames in five seconds. Before blaming the slowest device (lesson 6), check who actually holds the air: the MLO laptop’s backup takes well over half of 5 GHz and most of 6 GHz.', zh: '传统传感器是屋里最慢的无线电，但五秒里只发了两个短帧。在把问题归咎于最慢的设备（第 6 课）之前，先看看究竟是谁占着空口：MLO 笔记本的备份占了 5 GHz 的一半以上、6 GHz 的大部分。' },
     ],
     tryThis: [
-      { en: 'Turn MLO off on the laptop and reload. The backup now lives entirely on 5 GHz, and the Wi-Fi 5 tablet — which has no 6 GHz to escape to — waits almost twice as long for its pages. Then stop the backup altogether and watch every other device’s latency collapse to under a millisecond.', zh: '关闭笔记本的 MLO 后重新加载。备份流量全部挤到 5 GHz，没有 6 GHz 可躲的 Wi-Fi 5 平板等网页的时间几乎翻倍。再把备份整个停掉，看其他所有设备的时延都降到一毫秒以下。' },
+      { en: 'Turn MLO off on the laptop and reload. The backup now lives entirely on 5 GHz, and the Wi-Fi 5 tablet — which has no 6 GHz to escape to — waits nearly three times as long for its pages. Then stop the backup altogether and watch every other device’s latency collapse to under a millisecond.', zh: '关闭笔记本的 MLO 后重新加载。备份流量全部挤到 5 GHz，没有 6 GHz 可躲的 Wi-Fi 5 平板等网页的时间变成了将近三倍。再把备份整个停掉，看其他所有设备的时延都降到一毫秒以下。' },
       { en: 'Upgrade the tablet to Wi-Fi 6 with OFDMA — does the AP start grouping it with the TV?', zh: '把平板升级为支持 OFDMA 的 Wi-Fi 6——AP 会开始把它和电视编成 MU 组吗？' },
       { en: 'Design your own house in the editor and predict, before simulating, where collisions will occur.', zh: '在编辑器里设计你自己的房子，并在仿真之前预测碰撞会发生在哪里。' },
     ],
@@ -1200,7 +1209,7 @@ const AUTHORED: Lesson[] = [
           { en: 'Taming the laptop’s saturated backup — scheduling or rate-limiting it, or keeping it on 6 GHz', zh: '管住笔记本的饱和备份——错峰、限速，或者让它只走 6 GHz' },
         ],
         answer: 2,
-        explain: { en: 'Airtime, not bytes or radio age, is the shared resource — so find who holds it. The sensor is the slowest radio but sends two short frames in five seconds; moving it changes nothing. The backup holds most of the air: with it stopped, the tablet’s page latency falls from about 58 ms to under a millisecond, and even the voice call’s halves. MLO already helps by moving part of the backup to 6 GHz — turn it off and the tablet waits about 100 ms.', zh: '共享的资源是空口时间，不是字节，也不是设备新旧——所以要找出谁占着它。传感器是最慢的无线电，但五秒里只发两个短帧，挪动它毫无变化。备份占了大部分空口：把它停掉，平板的网页时延从约 58 ms 降到一毫秒以下，连语音通话的时延也减半。MLO 已经在帮忙，把部分备份挪到了 6 GHz——关掉 MLO，平板要等约 100 ms。' },
+        explain: { en: 'Airtime, not bytes or radio age, is the shared resource — so find who holds it. The sensor is the slowest radio but sends two short frames in five seconds; moving it changes nothing. The backup holds most of the air: with it stopped, the tablet’s page latency falls from about 39 ms to half a millisecond, and even the voice call’s halves. MLO already helps by moving part of the backup to 6 GHz — turn it off and the tablet waits about 110 ms.', zh: '共享的资源是空口时间，不是字节，也不是设备新旧——所以要找出谁占着它。传感器是最慢的无线电，但五秒里只发两个短帧，挪动它毫无变化。备份占了大部分空口：把它停掉，平板的网页时延从约 39 ms 降到半毫秒，连语音通话的时延也减半。MLO 已经在帮忙，把部分备份挪到了 6 GHz——关掉 MLO，平板要等约 110 ms。' },
       },
     ],
   },
@@ -1232,20 +1241,20 @@ const AUTHORED: Lesson[] = [
         [N('20 MHz'), N('234'), N('13'), N('129.6 µs')],
         [N('40 MHz'), N('468'), N('13'), N('88.8 µs')],
         [N('80 MHz'), N('980'), N('13'), N('75.2 µs')],
-        [N('160 MHz'), N('1960'), N('12'), N('61.6 µs')],
+        [N('160 MHz'), N('1960'), N('13'), N('61.6 µs')],
       ] },
       { heading: { en: 'What width costs', zh: '带宽的代价' }, text: {
-        en: 'A wider channel is a wider door, and noise comes through it too. Each doubling takes in twice the noise power — 3 dB — so every modulation needs 3 dB more signal to survive at 40 MHz than at 20 MHz, 6 dB at 80, about 9 dB at 160. The last row of the table is that bill arriving: the same laptop, on the same desk, drops from MCS 13 to MCS 12 the moment the channel goes to 160 MHz. Beside the router that is small change. In the far corner of the flat it is the whole link.',
-        zh: '信道越宽，门开得越大，噪声也一起进来。带宽每翻一倍，收进来的噪声功率也翻一倍——3 dB——所以同一种调制在 40 MHz 上要比 20 MHz 多 3 dB 信号才活得下来，80 MHz 多 6 dB，160 MHz 多约 9 dB。表格最后一行就是这张账单：同一台笔记本、同一个桌面位置，信道一换成 160 MHz，MCS 就从 13 掉到 12。在路由器旁边，这点代价不值一提；在房子另一头的角落里，它就是整条链路。',
+        en: 'A wider channel is a wider door, and noise comes through it too. Each doubling takes in twice the noise power — 3 dB — so every modulation needs 3 dB more signal to survive at 40 MHz than at 20 MHz, 6 dB at 80, about 9 dB at 160. Note what that bill is and is not: it is noise, and only noise. The SINR a modulation needs against another station’s transmission does not change with width at all — a wide channel costs range, never margin against an interferer. On this desk the noise bill is affordable: at 160 MHz the laptop still holds MCS 13, but only just, with 48.7 dB of signal against noise where the top modulation asks for 48.0. Beside the router that is small change. In the far corner of the flat it is the whole link.',
+        zh: '信道越宽，门开得越大，噪声也一起进来。带宽每翻一倍，收进来的噪声功率也翻一倍——3 dB——所以同一种调制在 40 MHz 上要比 20 MHz 多 3 dB 信号才活得下来，80 MHz 多 6 dB，160 MHz 多约 9 dB。但要看清这笔账是什么、不是什么：它付的是噪声，而且只是噪声。面对另一台终端的干扰时，一种调制所需的 SINR 并不随带宽变化——宽信道损失的是覆盖，而不是对抗干扰的余量。在这张桌子上，噪声这笔账还付得起：160 MHz 下笔记本仍然用着 MCS 13，但已经很勉强——信噪比 48.7 dB，而最高那一档调制要 48.0 dB。在路由器旁边，这点代价不值一提；在房子另一头的角落里，它就是整条链路。',
       } },
       { heading: { en: 'When wider is slower', zh: '更宽反而更慢的时候' }, text: {
-        en: 'That bill can grow larger than the goods. Move the same laptop just under eight metres out, into the living room, and every width still delivers — no retries, no drops — but the airtimes read 415.2 µs at 20 MHz, 292.8 at 40, and then back up to 401.6 at 80. The extra 3 dB an 80 MHz channel asks for over a 40 MHz one costs two modulation steps at that spot — MCS 2 down to MCS 0, because the sensitivity ladder has a 2 dB rung in it — and a little over double the tones cannot pay back a threefold cut in bits per symbol. Against 20 MHz the wider channel still wins, just barely: 401.6 µs against 415.2. It is 40 MHz it cannot beat. At 160 MHz the modulation cannot fall any further — MCS 0 is the bottom — so its extra tones are all profit: 224.8 µs.',
-        zh: '这张账单有时会大过货品本身。把同一台笔记本挪到将近八米之外的客厅里，四种带宽仍然都送得到——没有重传，也没有丢帧——但空口时间是这样的：20 MHz 415.2 µs，40 MHz 292.8 µs，到 80 MHz 反而涨回 401.6 µs。80 MHz 相对 40 MHz 要多付的那 3 dB，在那个位置要用两级调制去换：MCS 2 直接掉到 MCS 0——因为灵敏度阶梯上有一档只有 2 dB 的窄阶——而每符号比特数掉到三分之一，子载波那一倍出头的增益补不回来。跟 20 MHz 比，更宽的信道仍然险胜：401.6 µs 对 415.2 µs。它赢不了的是 40 MHz。到了 160 MHz，调制已经掉无可掉（MCS 0 就是底），多出来的子载波便全是净赚：224.8 µs。',
+        en: 'That bill can grow larger than the goods. Move the same laptop just under eight metres out, into the living room, and every width still delivers — no retries, no drops — but the airtimes read 415.2 µs at 20 MHz, 238.4 at 40, 170.4 at 80, and then back up to 224.8 at 160. The extra 3 dB a 160 MHz channel asks for over an 80 MHz one costs two modulation steps at that spot — MCS 2 down to MCS 0, because the sensitivity ladder has a 2 dB rung in it, so a 3 dB step skips straight over MCS 1 — and exactly double the tones cannot pay back a threefold cut in bits per symbol. Against 40 MHz the widest channel still wins, just barely: 224.8 µs against 238.4. It is 80 MHz it cannot beat. And it is a close-run thing in both directions: the window in which this inversion happens at all is about one decibel wide, and this spot sits near the middle of it.',
+        zh: '这张账单有时会大过货品本身。把同一台笔记本挪到将近八米之外的客厅里，四种带宽仍然都送得到——没有重传，也没有丢帧——但空口时间是这样的：20 MHz 415.2 µs，40 MHz 238.4 µs，80 MHz 170.4 µs，到 160 MHz 反而涨回 224.8 µs。160 MHz 相对 80 MHz 要多付的那 3 dB，在那个位置要用两级调制去换：MCS 2 直接掉到 MCS 0——因为灵敏度阶梯上有一档只有 2 dB 的窄阶，3 dB 的一步就把 MCS 1 整档跳过去了——而每符号比特数掉到三分之一，子载波恰好翻倍的增益补不回来。跟 40 MHz 比，最宽的信道仍然险胜：224.8 µs 对 238.4 µs。它赢不了的是 80 MHz。而且两边都十分惊险：能出现这种倒挂的信号区间只有约一分贝宽，而这个位置恰好落在它的中间附近。',
       } },
       { kind: 'list', heading: { en: 'In the simulation', zh: '在仿真里看' }, items: [
         { en: 'Load opens the widest case, 160 MHz. The four width buttons step it down and back up; the laptop and the router never move.', zh: '“载入”打开的是最宽的一档，160 MHz。上面四个按钮逐档切换带宽，笔记本和路由器始终不动。' },
         { en: 'Click a blue data block: the airtime line in the frame inspector is where the width shows up.', zh: '点开一个蓝色数据块：带宽的效果体现在帧检视器的“空口时间”一行。' },
-        { en: 'The rate line is not. It names the MCS and what that MCS carries on one 20 MHz stream, so it reads 172.1 Mbps at 20, 40 and 80 MHz and 154.9 Mbps at 160 MHz — it goes down as the channel widens, while the frame is getting shorter.', zh: '“速率”一行则不是。它给出的是 MCS 以及该 MCS 在单条 20 MHz 流上的速率，所以 20/40/80 MHz 都显示 172.1 Mbps，160 MHz 显示 154.9 Mbps——信道越宽这个数字反而越小，而帧本身正在变短。' },
+        { en: 'The rate line is not. It names the MCS and what that MCS carries on one 20 MHz stream, so on this desk it reads 172.1 Mbps at all four widths while the frame halves in length — the width is in the airtime, never in the rate line. Move the laptop out until a width costs it a modulation step and the rate line moves too.', zh: '“速率”一行则不是。它给出的是 MCS 以及该 MCS 在单条 20 MHz 流上的速率，所以在这张桌子上四种带宽都显示 172.1 Mbps，而帧长却在成倍缩短——带宽体现在空口时间里，从不体现在速率那一行。把笔记本挪远到带宽真的让它掉一档调制时，速率一行才会跟着动。' },
       ] },
     ],
     scenario: () => widthScenario(160, 1),
@@ -1266,8 +1275,8 @@ const AUTHORED: Lesson[] = [
       { en: 'The white ACK is identical in all four variants — control frames go out at a low, robust rate, and width buys them nothing.', zh: '四个变体里白色的 ACK 完全一样——控制帧用低速稳健的速率发送，带宽对它毫无帮助。' },
     ],
     tryThis: [
-      { en: 'Open in editor — the lesson opens at 160 MHz — and walk the laptop out of the study. Seven and a half squares right of the router and two down, half way into the living room, it still delivers everything, 224.8 µs a frame; the paragraph above is what that same spot costs at the narrower widths. Keep going into the far corner and not one ACK comes back: 160 MHz needs about 9 dB more than 20 MHz, and that corner does not have it, so every frame becomes a retry and then a drop.', zh: '点“在编辑器中打开”——这一课打开的是 160 MHz——然后把笔记本一步步挪出书房。挪到路由器右边七格半、下面两格的位置，大约在客厅正中，它仍然一帧不落地送达，每帧 224.8 µs；上面那段讲的就是同一个位置在更窄带宽下的代价。继续挪到最远的角落，就一个 ACK 也回不来了：160 MHz 比 20 MHz 多要约 9 dB，那个角落给不起，于是每一帧都变成重传，最后被丢弃。' },
-      { en: 'With the laptop still in that corner, switch it to 802.11a (legacy) in the editor. A legacy radio has no wide mode, so the link falls back to 20 MHz — and the ACKs come back, at over a millisecond per frame.', zh: '让笔记本留在那个角落，在编辑器里把它改成 802.11a（传统模式）。传统电台没有宽信道模式，链路只能退回 20 MHz——ACK 就回来了，代价是每帧超过一毫秒。' },
+      { en: 'Open in editor — the lesson opens at 160 MHz — and walk the laptop out of the study. Seven and a half squares right of the router and two down, half way into the living room, it still delivers everything, 224.8 µs a frame; the paragraph above is what that same spot costs at the narrower widths. Keep going into the far corner and not one ACK comes back: 160 MHz needs about 9 dB more than 20 MHz, and that corner does not have it, so every frame becomes a retry and then a drop. Step the width down there and the link comes back — 80 MHz delivers at 401.6 µs a frame, 20 MHz at 524.0, and 40 MHz, stuck one rung lower on the modulation ladder, is the slowest of the three at 768.8.', zh: '点“在编辑器中打开”——这一课打开的是 160 MHz——然后把笔记本一步步挪出书房。挪到路由器右边七格半、下面两格的位置，大约在客厅正中，它仍然一帧不落地送达，每帧 224.8 µs；上面那段讲的就是同一个位置在更窄带宽下的代价。继续挪到最远的角落，就一个 ACK 也回不来了：160 MHz 比 20 MHz 多要约 9 dB，那个角落给不起，于是每一帧都变成重传，最后被丢弃。在那里把带宽逐档调窄，链路就回来了——80 MHz 每帧 401.6 µs，20 MHz 524.0 µs，而 40 MHz 恰好卡在调制阶梯低一档上，成了三者中最慢的 768.8 µs。' },
+      { en: 'With the laptop still in that corner, switch it to 802.11a (legacy) in the editor. A legacy radio has no wide mode, so the link falls back to 20 MHz — and the ACKs come back, at 704 µs a frame: 18 Mb/s, five and a half times the airtime the same frame took on the desk.', zh: '让笔记本留在那个角落，在编辑器里把它改成 802.11a（传统模式）。传统电台没有宽信道模式，链路只能退回 20 MHz——ACK 就回来了，每帧 704 µs：18 Mb/s，是同一个帧在桌上所用空口时间的五倍半。' },
     ],
     quiz: [
       {
@@ -1288,7 +1297,7 @@ const AUTHORED: Lesson[] = [
           { en: 'No difference — width does not affect range', zh: '没区别——带宽不影响覆盖' },
         ],
         answer: 1,
-        explain: { en: 'Two doublings of width cost 6 dB. From the far corner of this lesson’s flat the 80 and 160 MHz variants deliver nothing at all, while 20 and 40 MHz still get frames through.', zh: '带宽翻两倍要付 6 dB。在这一课户型的最远角落，80 MHz 和 160 MHz 一帧也送不到，而 20 MHz 和 40 MHz 依然能把帧送出去。' },
+        explain: { en: 'Two doublings of width cost 6 dB of noise. From the far corner of this lesson’s flat the 160 MHz variant delivers nothing at all — every frame retries and is dropped — while 20, 40 and 80 MHz still get frames through. Which of those three is quickest there is a second question: 80 MHz at 401.6 µs, 20 at 524.0, 40 at 768.8.', zh: '带宽翻两倍要多付 6 dB 的噪声。在这一课户型的最远角落，160 MHz 一帧也送不到——每帧都重传到被丢弃——而 20、40、80 MHz 依然能把帧送出去。这三者里谁更快是另一个问题：80 MHz 401.6 µs，20 MHz 524.0 µs，40 MHz 768.8 µs。' },
       },
     ],
   },
@@ -1322,8 +1331,8 @@ const AUTHORED: Lesson[] = [
         zh: '链路按两端里较小的流数运行。四流的路由器对上两流的手机，就是一条两流链路：“路由器 4 · 手机 2”这个变体正是这种搭配，结果落在 88.8 µs——两流的时间，而不是四流的 75.2 µs。不过路由器多出来的两条流并没有浪费：它可以在同一瞬间把这两条流指向另一部手机。这就是 MU-MIMO，也就是第 17 课。',
       } },
       { heading: { en: 'Where the multipliers stop', zh: '倍数到头的地方' }, text: {
-        en: 'A multiplier only helps while something is left to divide. The 160 MHz · 4 streams variant runs the widest channel and the most streams together, and it takes 61.6 µs — exactly what 160 MHz alone took in lesson 15. That frame was already down to a single symbol, and one symbol is the floor. The four streams buy nothing there, while the wide channel still charges its 9 dB: that variant runs at MCS 12, the step down lesson 15 showed.',
-        zh: '倍数只在还有东西可分的时候才有用。“160 MHz · 4 条流”这个变体把最宽的信道和最多的流一起用上，结果是 61.6 µs——和第 15 课里单靠 160 MHz 得到的完全一样。那一帧当时就已经只剩一个符号了，而一个符号就是地板。在那里四条流什么也没买到，而宽信道该收的 9 dB 一分不少：这个变体跑在 MCS 12——正是第 15 课里掉的那一档。',
+        en: 'A multiplier only helps while something is left to divide. The 160 MHz · 4 streams variant runs the widest channel and the most streams together, and it takes 61.6 µs — exactly what 160 MHz alone took in lesson 15. That frame was already down to a single symbol, and one symbol is the floor. The four streams buy nothing there, while the wide channel still takes in its 9 dB of extra noise. On this desk that bill is payable — the variant still runs at MCS 13, with well under a decibel of margin — but it is paid for nothing: the frame was already one symbol long.',
+        zh: '倍数只在还有东西可分的时候才有用。“160 MHz · 4 条流”这个变体把最宽的信道和最多的流一起用上，结果是 61.6 µs——和第 15 课里单靠 160 MHz 得到的完全一样。那一帧当时就已经只剩一个符号了，而一个符号就是地板。在那里四条流什么也没买到，而宽信道多收进来的那 9 dB 噪声一分不少。在这张桌子上这笔账还付得起——变体仍然跑在 MCS 13，只是余量不到一分贝——但这笔钱花得没意义：那一帧本来就只剩一个符号了。',
       } },
     ],
     scenario: () => widthScenario(20, 1),
@@ -1340,7 +1349,7 @@ const AUTHORED: Lesson[] = [
     ],
     observe: [
       { en: 'One stream to two: the data part halves exactly, 81.6 µs to 40.8 µs. Two to four would halve it again to 20.4 µs, but frames are sent in whole symbols, so it stops at 27.2 µs.', zh: '从 1 条流到 2 条流：数据部分正好减半，81.6 µs 变成 40.8 µs。从 2 条到 4 条本该再减半到 20.4 µs，但帧只能按整数个符号发送，所以停在 27.2 µs。' },
-      { en: 'The rate line reads MCS 13 in all four 20 MHz variants: one stream or four, the modulation never moves. Only the 160 MHz variant drops to MCS 12 — and that is the width doing it, not the streams.', zh: '四个 20 MHz 变体里“速率”一行都是 MCS 13：一条流也好四条流也好，调制一档都不动。只有 160 MHz 那个变体掉到 MCS 12——那是带宽干的，不是空间流干的。' },
+      { en: 'The rate line reads MCS 13 in every variant, one stream or four, 20 MHz or 160: on this desk not even the widest channel’s extra noise takes a modulation step away. Streams never could — they reuse the same subcarriers — and the width only would further out, where lesson 15’s experiment shows it costing one step, then two.', zh: '每个变体的“速率”一行都是 MCS 13：一条流也好四条流也好，20 MHz 也好 160 MHz 也好——在这张桌子上，连最宽信道多收的那份噪声也没能拿走一档调制。空间流本来就拿不走——它复用的是同一批子载波；带宽则要再挪远一些才会拿走，第 15 课的实验里它先拿走一档，再拿走两档。' },
       { en: 'Router 4 · Phone 2 is indistinguishable from 2 streams: the same 88.8 µs, the same blocks in the same places.', zh: '“路由器 4 · 手机 2”和“2 条流”看不出区别：同样是 88.8 µs，同样的块出现在同样的位置。' },
     ],
     tryThis: [
@@ -1401,8 +1410,8 @@ const AUTHORED: Lesson[] = [
         zh: '两边每个成员的负载都一样，都是 4,306 字节——路由器给那部手机攒下的三个已聚合视频帧，所以 OFDMA 那三个成员在同一个 PPDU 里合计交付 12,918 字节，MU-MIMO 两个成员合计 8,612 字节。只看数据部分，两个变体天差地别：OFDMA 分到三分之一子载波，要整整 3 个数据符号（40.8 µs）才能载完；MU-MIMO 独享全部子载波，只要 1 个（13.6 µs）——干净利落的三倍增益，正好是 MU-MIMO 放弃的那个组的大小。但每个 PPDU 还要付一段固定的 52 µs 前导码（48 µs 的 EHT 前导码加 4 µs 的多用户 SIG 开销），它不会随数据一起缩短，所以整帧算下来是 92.8 µs 对 65.6 µs——只有约 1.4 倍，不是 3 倍。这正是第 15 课“前导码摊薄”那个道理换了个轴再讲一遍：无论子载波还是天线买来的好处，都会被这笔固定成本摊薄，帧越小摊薄得越狠。',
       } },
       { heading: { en: 'Three candidates, but the MU-MIMO group is never three', zh: '三个候选人，但 MU-MIMO 分组从来不是三个' }, text: {
-        en: 'The router has four streams; each phone negotiates two. Two phones already use all four — a third would need six. So whenever MU-MIMO is possible at all, this AP trims the group down to two candidates and serves the third separately. Where the trimmed phone turns up next is worth measuring rather than guessing: over the 214 two-member PPDUs in this run it gets its own single-user PPDU immediately after 124 times (58%), turns up in whichever MU-MIMO pairing forms next 72 times (34%), and neither of those 18 times (8%) — the router simply reached the other two again first and the trimmed phone waited another round. OFDMA has no such ceiling here: the same three phones fit together in one PPDU, each on its own slice of tones. Frequency divides among everyone who shows up; space is capped by how many antennas paid for it.',
-        zh: '路由器有四条流；每部手机协商到两条。两部手机就已经用满四条——第三部还需要再要六条。所以只要 MU-MIMO 可行，这台 AP 就会把组裁到两个候选人，第三个另外单独服务。被裁掉的那部手机接下来会在哪里出现，值得实测而不是猜：这段仿真里 214 个两成员 PPDU 中，124 次（58%）它紧接着拿到一个属于自己的单用户 PPDU，72 次（34%）出现在下一次组成的 MU-MIMO 配对里，还有 18 次（8%）两样都不是——路由器又先轮到了另外那两部，被裁的手机只好再等一轮。OFDMA 在这里没有这个天花板：同样这三部手机能挤进同一个 PPDU，每人占一片子载波。频率是分给所有到场的人；空间的上限则是有多少天线为它买了单。',
+        en: 'The router has four streams; each phone negotiates two. Two phones already use all four — a third would need six. So whenever MU-MIMO is possible at all, this AP trims the group down to two candidates and serves the third separately. Where the trimmed phone turns up next is worth measuring rather than guessing: over the 196 two-member PPDUs in this run it gets its own single-user PPDU immediately after 122 times (62%), turns up in whichever MU-MIMO pairing forms next 65 times (33%), and neither of those 9 times (5%) — the router simply reached the other two again first and the trimmed phone waited another round. OFDMA has no such ceiling here: the same three phones fit together in one PPDU, each on its own slice of tones. Frequency divides among everyone who shows up; space is capped by how many antennas paid for it.',
+        zh: '路由器有四条流；每部手机协商到两条。两部手机就已经用满四条——第三部还需要再要六条。所以只要 MU-MIMO 可行，这台 AP 就会把组裁到两个候选人，第三个另外单独服务。被裁掉的那部手机接下来会在哪里出现，值得实测而不是猜：这段仿真里 196 个两成员 PPDU 中，122 次（62%）它紧接着拿到一个属于自己的单用户 PPDU，65 次（33%）出现在下一次组成的 MU-MIMO 配对里，还有 9 次（5%）两样都不是——路由器又先轮到了另外那两部，被裁的手机只好再等一轮。OFDMA 在这里没有这个天花板：同样这三部手机能挤进同一个 PPDU，每人占一片子载波。频率是分给所有到场的人；空间的上限则是有多少天线为它买了单。',
       } },
       { kind: 'steps', heading: { en: 'The simulator’s rule for choosing between them', zh: '仿真器在两者之间做选择的规则' }, items: [
         { en: 'OFDMA capability has to be negotiated between the router and a phone before either multi-user path can fire at all — this is why both variants below keep it on. Without it every phone is served one at a time, no matter how full the queue gets.', zh: '路由器与手机之间必须先协商好 OFDMA 能力，两条多用户路径才有可能触发——所以下面两个变体都开着它。没有它，无论队列多满，每部手机都只能一个一个被服务。' },
@@ -1430,7 +1439,7 @@ const AUTHORED: Lesson[] = [
     ],
     observe: [
       { en: 'OFDMA variant: hover the wide blue block — three parts inside, one per phone, each at a fraction of the router’s full rate.', zh: 'OFDMA 变体：悬停那个宽的蓝色块——里面有三份，每部手机一份，各自只拿到路由器满速的一小部分。' },
-      { en: 'MU-MIMO variant: the same block now carries only two parts, each at the phone’s full negotiated rate. Follow the phone that got trimmed: 58% of the time a third, separate block follows immediately for it; 34% of the time it turns up in the next MU-MIMO pairing instead; and 8% of the time neither happens — the other two are paired again first, and it waits another round.', zh: 'MU-MIMO 变体：同一个块现在只装两份，各自都是那部手机协商到的满速率。盯住被裁掉的那部手机：58% 的情况下它紧接着有一个独立的块；34% 的情况下它出现在下一次的 MU-MIMO 配对里；还有 8% 两样都不是——另外两部又先被配到了一起，它得再等一轮。' },
+      { en: 'MU-MIMO variant: the same block now carries only two parts, each at the phone’s full negotiated rate. Follow the phone that got trimmed: 62% of the time a third, separate block follows immediately for it; 33% of the time it turns up in the next MU-MIMO pairing instead; and 5% of the time neither happens — the other two are paired again first, and it waits another round.', zh: 'MU-MIMO 变体：同一个块现在只装两份，各自都是那部手机协商到的满速率。盯住被裁掉的那部手机：62% 的情况下它紧接着有一个独立的块；33% 的情况下它出现在下一次的 MU-MIMO 配对里；还有 5% 两样都不是——另外两部又先被配到了一起，它得再等一轮。' },
       { en: 'Both variants end every member’s part at the same instant, and one BlockAck (or one round of simultaneous BAs) settles the whole group a SIFS later.', zh: '两个变体里，所有成员的那一份都在同一瞬间结束，一个 SIFS 之后一轮 BlockAck（或几个同时发出的 BA）就了结了整组。' },
       { en: 'Which phone gets trimmed from the MU-MIMO group is not fixed — it depends on which two happened to be queued together when the router last had a chance to transmit.', zh: '哪部手机会被裁出 MU-MIMO 组并不固定——取决于路由器上次有机会发送时，恰好是哪两部手机的数据排在了一起。' },
     ],
@@ -1468,8 +1477,8 @@ const AUTHORED: Lesson[] = [
     title: { en: 'Rate adaptation — the loop that picks the speed', zh: '速率自适应——选择速率的那个回路' },
     body: [
       { text: {
-        en: 'Two stations upload flat out to the same AP: one on the desk beside it, one in the far corner of the flat behind a brick wall. Signal strength sets a ceiling on how dense the far station’s modulation can be — here MCS 1, decided purely by distance and the wall. Everything below that ceiling is a choice, and the driver makes it from what actually happened to its own frames, not from the signal it measures.',
-        zh: '两台终端都在向同一个 AP 满速上传：一台在它旁边的桌上，一台在公寓另一头、隔着一堵砖墙的角落里。信号强度给远端终端的调制密度定了一个上限——这里是 MCS 1，纯粹由距离和那堵墙决定。低于这个上限的一切都是“选择”，而驱动程序做这个选择靠的是自己的帧究竟发生了什么，而不是它测到的信号强度。',
+        en: 'Two stations upload flat out to the same AP: one on the desk beside it, one in the far corner of the flat behind a brick wall. Signal strength sets a ceiling on how dense the far station’s modulation can be — here MCS 2, decided purely by distance and the wall. Everything below that ceiling is a choice, and the driver makes it from what actually happened to its own frames, not from the signal it measures.',
+        zh: '两台终端都在向同一个 AP 满速上传：一台在它旁边的桌上，一台在公寓另一头、隔着一堵砖墙的角落里。信号强度给远端终端的调制密度定了一个上限——这里是 MCS 2，纯粹由距离和那堵墙决定。低于这个上限的一切都是“选择”，而驱动程序做这个选择靠的是自己的帧究竟发生了什么，而不是它测到的信号强度。',
       } },
       { kind: 'steps', heading: { en: 'The simulator’s rule', zh: '仿真器的规则' }, items: [
         { en: 'Start at the ceiling.', zh: '从上限开始。' },
@@ -1482,51 +1491,51 @@ const AUTHORED: Lesson[] = [
         zh: '“两次降一档、十次升一档”这个阶梯是自动速率回退（ARF）——教科书上的算法，这里选它是因为它走的每一步都能在时间轴上看清楚。真实的产品驱动并不跑它：它们在最近若干次尝试的滑动窗口上估计丢包率，再挑期望吞吐最高的那一档，因此可以一次跳好几档，而不必十次成功爬一级。请把上面四条读作本仿真器的规则，而不是你笔记本正在做的事。',
       } },
       { text: {
-        en: 'Note also that these four rules now cover every exchange, not just single-user ones. An ACK or BlockAck arrives, or its timeout does, and either way that moves the rate — a downlink MU PPDU reports one outcome per member, success or failure, exactly as a single-user frame would. Over lesson 17’s OFDMA run the router sends 165 multi-user PPDUs carrying 487 parts addressed to phones, and the rate controller hears about every one: 623 outcome reports for those phones in total, 136 from ordinary single-user frames and 487 from multi-user parts (593 successes, 30 failures). A rate used only inside multi-user PPDUs therefore adapts too, exactly as a single-user one would.',
-        zh: '还要注意，这四条规则现在覆盖的是每一次交换，不只是单用户交换。ACK 或 BlockAck 回来了，或者它的超时到了，两种情况都会推动速率——多用户下行 PPDU 里，每个成员都会各自上报一次成功或失败，跟单用户帧一模一样。在第 17 课的 OFDMA 那段仿真里，路由器发出 165 个多用户 PPDU、其中有 487 份是发给手机的，速率控制器对每一份都收到了上报：这些手机总共产生 623 次结果上报——136 次来自普通单用户帧，487 次来自多用户部分（593 次成功、30 次失败）。所以一档只在多用户 PPDU 里用到的速率，现在也会像单用户速率一样自适应。',
+        en: 'Note also that these four rules now cover every exchange, not just single-user ones. An ACK or BlockAck arrives, or its timeout does, and either way that moves the rate — a downlink MU PPDU reports one outcome per member, success or failure, exactly as a single-user frame would. Over lesson 17’s OFDMA run the router sends 169 multi-user PPDUs carrying 492 parts addressed to phones, and the rate controller hears about every one: 620 outcome reports for those phones in total, 128 from ordinary single-user frames and 492 from multi-user parts (597 successes, 23 failures). A rate used only inside multi-user PPDUs therefore adapts too, exactly as a single-user one would.',
+        zh: '还要注意，这四条规则现在覆盖的是每一次交换，不只是单用户交换。ACK 或 BlockAck 回来了，或者它的超时到了，两种情况都会推动速率——多用户下行 PPDU 里，每个成员都会各自上报一次成功或失败，跟单用户帧一模一样。在第 17 课的 OFDMA 那段仿真里，路由器发出 169 个多用户 PPDU、其中有 492 份是发给手机的，速率控制器对每一份都收到了上报：这些手机总共产生 620 次结果上报——128 次来自普通单用户帧，492 次来自多用户部分（597 次成功、23 次失败）。所以一档只在多用户 PPDU 里用到的速率，现在也会像单用户速率一样自适应。',
       } },
       { text: {
-        en: 'Alone, the far station would sit at MCS 1 forever: nothing ever fails, so it never has a reason to drop, and the ceiling gives it nowhere higher to climb. What actually happens on this timeline is a station that shares the channel with another saturated uploader, and that is where the loop becomes visible: a collision costs an attempt, two lost attempts in a row lower the rate, and only an unbroken run of ten successes wins the step back. The loop is real and asymmetric — two draws of bad luck to fall, ten of good luck to recover — which is why the far station spends whole stretches of this run below a ceiling it could have been using.',
-        zh: '如果只有它自己，远端终端会永远停在 MCS 1：从没有失败过，也就没有理由降速，而上限又让它没有更高的地方可爬。这条时间轴上真正发生的，是一台和另一台饱和上传终端共享信道的终端——回路正是在这里变得看得见：一次碰撞耗掉一次尝试，连续丢两次尝试就降一档速率，而想升回去只有一条路：不间断地连成十次成功。这个回路是真实存在的，而且不对称——两次坏运气就掉下去，要十次好运气才爬得回来——所以远端终端在这段仿真里会有整段整段的时间跑在它本可以用的上限之下。',
+        en: 'Alone, the far station would sit at MCS 2 forever: nothing ever fails, so it never has a reason to drop, and the ceiling gives it nowhere higher to climb. What actually happens on this timeline is a station that shares the channel with another saturated uploader, and that is where the loop becomes visible: a lost frame costs an attempt, two lost attempts in a row lower the rate, and only an unbroken run of ten successes wins the step back. The loop is real and asymmetric — two draws of bad luck to fall, ten of good luck to recover — which is why the far station spends whole stretches of this run below a ceiling it could have been using: 25 excursions below MCS 2 in three seconds, six of which reach the bottom rung and last 10, 10, 10, 13, 19 and 28 frames.',
+        zh: '如果只有它自己，远端终端会永远停在 MCS 2：从没有失败过，也就没有理由降速，而上限又让它没有更高的地方可爬。这条时间轴上真正发生的，是一台和另一台饱和上传终端共享信道的终端——回路正是在这里变得看得见：丢掉一帧就耗掉一次尝试，连续丢两次尝试就降一档速率，而想升回去只有一条路：不间断地连成十次成功。这个回路是真实存在的，而且不对称——两次坏运气就掉下去，要十次好运气才爬得回来——所以远端终端在这段仿真里会有整段整段的时间跑在它本可以用的上限之下：三秒里共有 25 次跌到 MCS 2 以下，其中六次一直跌到最底一档，分别持续了 10、10、10、13、19 和 28 帧。',
       } },
       { text: {
-        en: 'On this run the far station’s frames take 768.8 µs at MCS 1 and 1,476.0 µs at MCS 0 — the same 1,530 octets, almost exactly double the airtime one step down, because MCS 0 carries half the bits per symbol that MCS 1 does. The rate line says the same thing: 17.2 Mb/s becomes 8.6 Mb/s. Every fall is expensive twice over: once in the failed attempts that caused it, and again in every frame afterwards until it climbs back.',
-        zh: '在这段仿真里，远端终端的帧在 MCS 1 上要 768.8 µs，掉到 MCS 0 就要 1,476.0 µs——同样的 1,530 字节，降一档空口时间几乎正好翻倍，因为 MCS 0 每符号能装的比特数只有 MCS 1 的一半。速率一行说的是同一件事：17.2 Mb/s 变成 8.6 Mb/s。每一次跌落都要付两遍代价：一遍是导致它的那些失败尝试本身，另一遍是此后每一帧，直到它爬回来为止。',
+        en: 'On this run the far station’s frames take 524.0 µs at its MCS 2 ceiling, 768.8 µs one step down at MCS 1 and 1,476.0 µs at MCS 0 — the same 1,530 octets, almost three times the airtime at the bottom rung, because each step down halves or nearly halves the bits carried per symbol. The rate line says the same thing: 25.8 Mb/s becomes 17.2, then 8.6. Every fall is expensive twice over: once in the failed attempts that caused it, and again in every frame afterwards until it climbs back.',
+        zh: '在这段仿真里，远端终端的帧在上限 MCS 2 上要 524.0 µs，降一档到 MCS 1 要 768.8 µs，掉到 MCS 0 则要 1,476.0 µs——同样的 1,530 字节，到了最底一档空口时间已经是将近三倍，因为每降一档，每符号能装的比特数就减半或接近减半。速率一行说的是同一件事：25.8 Mb/s 变成 17.2，再变成 8.6。每一次跌落都要付两遍代价：一遍是导致它的那些失败尝试本身，另一遍是此后每一帧，直到它爬回来为止。',
       } },
       { heading: { en: 'What a lower rate actually costs: airtime', zh: '低速率真正的代价：空口时间' }, text: {
-        en: 'Airtime is the scarce thing in a room, and a lower rate spends more of it for the same payload. Over these three seconds the far station’s 461 MCS-0 frames are only 19.7% of the frames it sends but 32.1% of the air it occupies: 680.4 ms, where the same 461 frames at MCS 1 would have taken 354.4 ms. The excursions cost 326.0 ms of extra channel time — 10.9% of the whole three seconds, spent carrying nothing extra. The bill does not stop at the far station either. Every one of those frames pins its neighbour: the near station’s backoff is held for 859.8 µs behind an MCS-1 frame and 1,579.0 µs behind an MCS-0 one, so each drop makes the station on the desk wait 719.2 µs longer, per frame, for a turn it has already earned. That is the real penalty of a lower rate, and it is exactly lesson 6’s rate anomaly: one slow station taxing everybody through airtime.',
-        zh: '房间里稀缺的东西是空口时间，而速率越低，同样的负载就要花掉越多的空口时间。这三秒里，远端终端的 461 个 MCS 0 帧只占它发出帧数的 19.7%，却占了它空口时间的 32.1%：680.4 ms——而同样这 461 帧若跑在 MCS 1 上只需 354.4 ms。也就是说，这些跌落多花掉了 326.0 ms 的信道时间——相当于整整三秒里的 10.9%，而且没有多送出一个比特。账单还不止落在远端终端头上。它的每一帧都把邻居钉住：近端终端的退避在一个 MCS 1 帧后面被冻结 859.8 µs，在一个 MCS 0 帧后面则是 1,579.0 µs——每掉一档，桌上那台终端每帧就要为自己早就挣到的那次机会多等 719.2 µs。这才是低速率真正的代价，而它正是第 6 课的速率异常：一台慢终端用空口时间向所有人收税。',
+        en: 'Airtime is the scarce thing in a room, and a lower rate spends more of it for the same payload. Over these three seconds the far station’s 607 below-ceiling frames — 517 at MCS 1 and 90 at MCS 0 — are only 20.2% of the frames it sends but 29.7% of the air it occupies: 530.3 ms, where the same 607 frames at MCS 2 would have taken 318.1 ms. The excursions cost 212.2 ms of extra channel time — 7.1% of the whole three seconds, spent carrying nothing extra. The bill does not stop at the far station either. Every one of those frames pins its neighbour: the near station’s backoff is held for 615.0 µs behind a ceiling frame, 859.8 µs behind an MCS-1 one and 1,579.0 µs behind an MCS-0 one, so a fall to the bottom rung makes the station on the desk wait 964.0 µs longer, per frame, for a turn it has already earned. That is the real penalty of a lower rate, and it is exactly lesson 6’s rate anomaly: one slow station taxing everybody through airtime.',
+        zh: '房间里稀缺的东西是空口时间，而速率越低，同样的负载就要花掉越多的空口时间。这三秒里，远端终端跑在上限以下的 607 个帧（MCS 1 上 517 个，MCS 0 上 90 个）只占它发出帧数的 20.2%，却占了它空口时间的 29.7%：530.3 ms——而同样这 607 帧若跑在 MCS 2 上只需 318.1 ms。也就是说，这些跌落多花掉了 212.2 ms 的信道时间——相当于整整三秒里的 7.1%，而且没有多送出一个比特。账单还不止落在远端终端头上。它的每一帧都把邻居钉住：近端终端的退避在一个上限帧后面被冻结 615.0 µs，在一个 MCS 1 帧后面是 859.8 µs，在一个 MCS 0 帧后面则是 1,579.0 µs——一旦跌到最底一档，桌上那台终端每帧就要为自己早就挣到的那次机会多等 964.0 µs。这才是低速率真正的代价，而它正是第 6 课的速率异常：一台慢终端用空口时间向所有人收税。',
       } },
       { heading: { en: 'The intuition that is wrong here', zh: '在这里说不通的那个直觉' }, text: {
-        en: 'It is tempting to close the loop the other way and make it a death spiral: a longer frame sits on the air longer, so surely it is more exposed, so the slow station collides more, so it gets slower still. Measure it and the spiral is not there. Over these three seconds the far station makes 1,875 attempts at MCS 1, of which 221 collide — 11.8% — and 461 attempts at MCS 0, of which 52 collide: 11.3%. Half a point is well inside the noise, so the honest reading of 11.3% against 11.8% is “no increase” rather than “a decrease”, but the direction the spiral needs is simply not in the data.',
-        zh: '很容易把这个回路反过来接成一个死亡螺旋：帧越长，在空口上待得越久，那想必更容易被撞上，于是慢的终端碰撞更多，于是更慢。可一测就会发现，这个螺旋并不存在。这三秒里，远端终端在 MCS 1 上尝试了 1,875 次，其中 221 次碰撞——11.8%；在 MCS 0 上尝试了 461 次，其中 52 次碰撞——11.3%。相差半个百分点，完全在噪声之内，把 11.3% 对 11.8% 老实地读作“没有升高”而不是“下降了”更稳妥，但螺旋所需要的那个方向，数据里根本没有。',
+        en: 'It is tempting to close the loop the other way and make it a death spiral: a longer frame sits on the air longer, so surely it is more exposed, so the slow station loses more frames, so it gets slower still. Measure it and the spiral is not there. Over these three seconds the far station makes 2,396 attempts at its MCS 2 ceiling, of which 209 are lost — 8.7% — 517 attempts at MCS 1, of which 39 are lost (7.5%), and 90 at MCS 0, of which 6 are lost (6.7%). The ninety MCS-0 attempts are far too few to read a trend into, but the direction the spiral needs is simply not in the data: the longest frames are, if anything, the least often lost.',
+        zh: '很容易把这个回路反过来接成一个死亡螺旋：帧越长，在空口上待得越久，那想必更容易被撞上，于是慢的终端丢得更多，于是更慢。可一测就会发现，这个螺旋并不存在。这三秒里，远端终端在上限 MCS 2 上尝试了 2,396 次，丢了 209 次——8.7%；在 MCS 1 上尝试 517 次，丢了 39 次（7.5%）；在 MCS 0 上尝试 90 次，丢了 6 次（6.7%）。MCS 0 上那 90 次尝试太少，读不出什么趋势，但螺旋所需要的那个方向，数据里根本没有：真要说的话，最长的帧反而丢得最少。',
       } },
       { text: {
-        en: 'The reason is a rule from lesson 3. A backoff counter does not tick down during someone else’s frame. The moment the medium goes busy every counter freezes where it stands, and it resumes at exactly the same value when the medium clears (IEEE 802.11-2024 §10.23.2.4) — all 2,061 of the near station’s freezes in this run come back at the value they went in at. So a longer frame does not give anyone else’s counter more time to reach zero; it gives them no time at all. What sets the chance an attempt collides is the contention window that attempt was drawn from — how many slots the two stations are choosing between — not the airtime of the frame that follows. Split the same attempts that way and the effect is sharp: attempts drawn from CW 15 collide 12.3% of the time (253 of 2,061), attempts drawn from the doubled CW 31 only 7.1% (18 of 255). MCS-0 frames are the ones that follow failures, so more of them are drawn from a widened window — 15% of MCS-0 attempts against 11% of MCS-1 ones — which is why, if anything, the slow frames collide slightly less.',
-        zh: '原因是第 3 课里的一条规则：退避计数器在别人发帧期间是不倒数的。介质一转为忙，每个计数器就原地冻结，等介质空下来再从同一个数值继续（IEEE 802.11-2024 §10.23.2.4）——这段仿真里近端终端的 2,061 次冻结，无一例外都是以进去时的那个值出来的。所以更长的帧并不会给别人的计数器更多时间走到零，而是根本不给时间。真正决定一次尝试会不会碰撞的，是这次尝试是从多大的竞争窗口里抽出来的——两台终端是在多少个时隙之间做选择——而不是随后那一帧要占多久空口。把同一批尝试按这个口径拆开，效果非常清楚：从 CW 15 抽出的尝试有 12.3% 碰撞（2,061 次里的 253 次），从翻倍后的 CW 31 抽出的只有 7.1%（255 次里的 18 次）。而 MCS 0 的帧恰恰是跟在失败后面的那些，所以其中有更多是从被撑大的窗口里抽签的——MCS 0 的尝试里占 15%，MCS 1 的只占 11%——这就是为什么慢帧真要说的话，反而撞得略少一点。',
+        en: 'The reason is a rule from lesson 3. A backoff counter does not tick down during someone else’s frame. The moment the medium goes busy every counter freezes where it stands, and it resumes at exactly the same value when the medium clears (IEEE 802.11-2024 §10.23.2.4) — all 2,666 of the near station’s freezes in this run come back at the value they went in at. So a longer frame does not give the other station’s counter more time to reach zero; it gives it no time at all. What decides whether an attempt is lost here is whether the two counters hit zero in the same slot, and that is settled before either frame is sent — the airtime of the frame that follows plays no part in it. (One exception proves the rule, and it is in the engine rather than the standard: when they do start together, the near station never detects the far preamble, because its own transmitter was busy at that instant. It therefore counts straight through the far station’s frame and starts a second one inside it. But that far frame was already lost the moment the two started together, so nothing is added to the loss.)',
+        zh: '原因是第 3 课里的一条规则：退避计数器在别人发帧期间是不倒数的。介质一转为忙，每个计数器就原地冻结，等介质空下来再从同一个数值继续（IEEE 802.11-2024 §10.23.2.4）——这段仿真里近端终端的 2,666 次冻结，无一例外都是以进去时的那个值出来的。所以更长的帧并不会给对方的计数器更多时间走到零，而是根本不给时间。在这里决定一次尝试会不会丢失的，是两个计数器会不会在同一个时隙清零，而这在两帧发出之前就已经定下了——随后那一帧要占多久空口，在这件事里不起任何作用。（有一个例外恰好印证了这条规则，它来自引擎而非标准：两帧真的同时开始时，近端终端根本没有检测到远端的前导码——那一瞬间它自己的发射机正忙着。于是它的计数器会笔直地数过远端那一帧，甚至在它中间发出第二帧。但那一帧在两者同时起跑的那一刻就已经没了，所以并没有多丢什么。）',
       } },
       { heading: { en: 'Back to lesson 3: where the failures come from', zh: '回到第 3 课：失败从何而来' }, text: {
-        en: 'Every one of those lost attempts is lesson 3’s collision, replayed on a saturated pair of uploaders: two backoff counters reach zero in the same slot, both frames are destroyed, and each sender learns only from the 45 µs ACK timeout it never gets. Lesson 3 stopped there — the contention window doubles and the station redraws. This lesson is what happens once enough of those redraws land badly in a row: the failures no longer cost just one retry each, they start moving the working MCS.',
-        zh: '这里丢掉的每一次尝试，都是第 3 课那种碰撞，只是发生在一对饱和上传的终端之间：两个退避计数器在同一个时隙同时清零，两个帧同归于尽，双方都只能从那个等不到的 45 µs ACK 超时里知情。第 3 课讲到这里就停了——竞争窗口翻倍，终端重新抽签。这一课接着讲：当足够多次重抽连续不走运时会发生什么——这些失败不再只是各自赔上一次重传，它们开始推着当前速率走。',
+        en: 'Every one of those lost attempts begins as lesson 3’s tie: two backoff counters reach zero in the same slot and both stations transmit at once — 246 of the far station’s 254 losses in this run start in the very same instant as a near-station frame. But it ends as lesson 6’s capture. At the AP the near station’s signal is 40 dB the stronger, so its preamble is detected with room to spare, its frame is decoded and acknowledged, and only the far station’s frame dies. That is why nothing on this timeline is drawn as a collision — no reception at the AP ever failed — and why the near station, in three seconds of contending, never loses a frame at all. The far station learns the only way it can: from the 45 µs ACK timeout it never gets. Lesson 3 stopped there — the contention window doubles and the station redraws. This lesson is what happens once enough of those losses land in a row: they no longer cost just one retry each, they start moving the working MCS.',
+        zh: '这里丢掉的每一次尝试，开头都是第 3 课那种“撞车”：两个退避计数器在同一个时隙清零，两台终端同时发送——这段仿真里远端终端的 254 次丢失中，有 246 次就是与近端某一帧在同一瞬间起跑的。但结局是第 6 课的捕获效应：在 AP 处近端的信号要强出 40 dB，它的前导码绰绰有余地被检测到，帧被解出并得到 ACK，只有远端那一帧阵亡。这就是为什么这条时间轴上一个碰撞标记也看不到——AP 从来没有一次接收失败——也是为什么近端终端竞争了整整三秒，一帧也没丢。远端终端只能用唯一的方式知情：那个等不到的 45 µs ACK 超时。第 3 课讲到这里就停了——竞争窗口翻倍，终端重新抽签。这一课接着讲：当足够多次丢失连着发生时会怎样——它们不再只是各自赔上一次重传，而是开始推着当前速率走。',
       } },
       { heading: { en: 'Back to lesson 6', zh: '回到第 6 课' }, text: {
-        en: 'Lesson 6’s rate anomaly assumed a station simply parked at a low, fixed rate by distance. This loop is where that low rate can come from even when distance alone would allow better: a run of bad luck at contention drags the working rate down, and until ten successes in a row buy it back, every frame it sends occupies the channel for twice as long — a station stuck slow, holding the air while it transmits, exactly as lesson 6 described. Two things are different here. The slowness is now a state the driver can climb back out of, rather than a fixed property of the distance. And the harm travels the same way it did in lesson 6 — through airtime, one station making everyone else wait — not through any extra collisions of its own.',
-        zh: '第 6 课的速率异常假设的是一台因为距离而被钉死在低速、固定速率上的终端。而这个回路展示了：即便距离本身还允许更高的速率，低速也可能是这样来的——竞争中一连串的坏运气把速率拖了下去，而在连成十次成功把它买回来之前，它发的每一帧都要占用两倍长的信道时间——一台卡在低速的终端，发送时占着空口不放，和第 6 课描述的一模一样。这里有两点不同：一是这份“慢”现在是一个驱动程序能爬出来的状态，而不是距离带来的固定属性；二是危害传递的路径和第 6 课完全相同——通过空口时间，一台终端让所有人都多等——而不是靠它自己多制造了什么碰撞。',
+        en: 'Lesson 6’s rate anomaly assumed a station simply parked at a low, fixed rate by distance. This loop is where that low rate can come from even when distance alone would allow better: a run of bad luck at contention drags the working rate down, and until ten successes in a row buy it back, every frame it sends occupies the channel for up to three times as long — a station stuck slow, holding the air while it transmits, exactly as lesson 6 described. Two things are different here. The slowness is now a state the driver can climb back out of, rather than a fixed property of the distance. And the harm travels the same way it did in lesson 6 — through airtime, one station making everyone else wait — not through any extra losses of its own.',
+        zh: '第 6 课的速率异常假设的是一台因为距离而被钉死在低速、固定速率上的终端。而这个回路展示了：即便距离本身还允许更高的速率，低速也可能是这样来的——竞争中一连串的坏运气把速率拖了下去，而在连成十次成功把它买回来之前，它发的每一帧最多要占用三倍长的信道时间——一台卡在低速的终端，发送时占着空口不放，和第 6 课描述的一模一样。这里有两点不同：一是这份“慢”现在是一个驱动程序能爬出来的状态，而不是距离带来的固定属性；二是危害传递的路径和第 6 课完全相同——通过空口时间，一台终端让所有人都多等——而不是靠它自己多丢了什么帧。',
       } },
     ],
     scenario: () => rateScenario(),
     jumps: [
       J('first data frame', '第一个数据帧', firstData),
-      J('first collision', '第一次碰撞', firstCollision),
+      J('first ACK timeout', '第一次 ACK 超时', (r) => r.type === 'ACK_TIMEOUT'),
       J('first retry', '第一次重传', firstRetry),
     ],
     observe: [
-      { en: 'The far station’s green blocks change length over the run: short ones at MCS 1, roughly twice as long at MCS 0 — the rate is visibly moving, not fixed.', zh: '远端终端的绿色块在整个过程里长度会变：MCS 1 上是短的，MCS 0 上大约长一倍——速率明显在变化，不是固定的。' },
-      { en: 'Seventeen times in this run the far station falls to MCS 0. Ten frames is the fastest possible climb back, but only one of the seventeen manages it: most last between 12 and 30 frames, and one lasts 73, because a fresh collision reset the success count partway through the climb.', zh: '这段仿真里远端终端一共跌到 MCS 0 十七次。十帧是能爬回去的最短时间，可十七次里只有一次做到：多数持续 12 到 30 帧，最长的一次拖到 73 帧，因为爬升途中又撞上了一次碰撞，把成功计数清零重来。' },
-      { en: 'The near station, one metre from the AP, ranges over MCS 9–11 but spends almost the whole run (about 91% of its frames) at the ceiling, MCS 11 — it fails often enough from the far station’s collisions to dip occasionally, but never for long.', zh: '离 AP 只有一米的近端终端在 MCS 9–11 之间波动，但几乎全程（约 91% 的帧）都停在它的上限 MCS 11 上——远端终端引发的碰撞也会让它偶尔失败几次，但从不会掉太久。' },
+      { en: 'The far station’s green blocks change length over the run: 524.0 µs at its MCS 2 ceiling, 768.8 one step down, 1,476.0 at MCS 0 — the rate is visibly moving, not fixed.', zh: '远端终端的绿色块在整个过程里长度会变：上限 MCS 2 上是 524.0 µs，降一档是 768.8 µs，MCS 0 上是 1,476.0 µs——速率明显在变化，不是固定的。' },
+      { en: 'Six times in this run the far station falls all the way to MCS 0. Ten frames is the fastest possible climb back and three of the six manage it; the others last 13, 19 and 28 frames, because a fresh loss reset the success count partway through the climb.', zh: '这段仿真里远端终端一共跌到最底的 MCS 0 六次。十帧是能爬回去的最短时间，六次里有三次做到了；其余三次分别持续 13、19 和 28 帧，因为爬升途中又丢了一帧，把成功计数清零重来。' },
+      { en: 'The near station, one metre from the AP, never moves at all: 4,010 frames in three seconds, every one of them at its MCS 11 ceiling. It wins every simultaneous start it takes part in, so the rate loop has nothing to react to — the whole cost of the contention lands on the far station.', zh: '离 AP 只有一米的近端终端则纹丝不动：三秒里 4,010 帧，全部跑在它的上限 MCS 11 上。它赢下了自己参与的每一次同时起跑，速率回路根本无事可做——竞争的代价全落在了远端终端身上。' },
     ],
     tryThis: [
-      { en: 'Move the far station two metres closer to the AP in the editor. One metre does nothing at all — a metre does not cross a modulation threshold, and the run comes back frame for frame identical. Two metres does: the ceiling rises from MCS 1 to MCS 2, the bottom rung falls from 19.7% of its frames to 1.6%, and it delivers 3,133 frames in the three seconds instead of 2,336. At four metres MCS 0 never occurs at all. Put it back, then add a third saturated uploader and watch the far station sink onto the bottom rung far more often: 58.7% of its frames with the newcomer beside the near station, and 52–63% at every other spot tried.', zh: '在编辑器里把远端终端朝 AP 挪近两米。挪一米什么也不会发生——一米跨不过任何一档调制门限，整段仿真会一帧不差地重现。两米才管用：上限从 MCS 1 抬到 MCS 2，最底下那一档从占它 19.7% 的帧降到 1.6%，三秒里交付的帧数也从 2,336 涨到 3,133。挪到四米，MCS 0 干脆一次都不出现。再把它挪回原处，加一台饱和上传终端，看远端终端落到最底一档的频率大幅升高：把新终端放在近端终端旁边时占它 58.7% 的帧，换到试过的其他位置也都在 52%–63% 之间。' },
+      { en: 'Move the far station two metres closer to the AP in the editor. Half a metre does nothing at all — it crosses no modulation threshold, and the run comes back frame for frame identical. Two metres does: the ceiling rises from MCS 2 to MCS 3, the bottom rung falls from 3.0% of its frames to 0.3%, and it delivers 3,712 frames in the three seconds instead of 3,003. At five metres MCS 0 never occurs at all. Put it back, then add a third saturated uploader and watch the far station sink onto the bottom rung far more often: 26.3% of its frames with the newcomer beside the near station, and 36–42% at every other spot tried — ten times the 3.0% it spends there with one neighbour.', zh: '在编辑器里把远端终端朝 AP 挪近两米。挪半米什么也不会发生——它跨不过任何一档调制门限，整段仿真会一帧不差地重现。两米才管用：上限从 MCS 2 抬到 MCS 3，最底下那一档从占它 3.0% 的帧降到 0.3%，三秒里交付的帧数也从 3,003 涨到 3,712。挪到五米，MCS 0 干脆一次都不出现。再把它挪回原处，加一台饱和上传终端，看远端终端落到最底一档的频率大幅升高：把新终端放在近端终端旁边时占它 26.3% 的帧，换到试过的其他位置则在 36%–42% 之间——是只有一个邻居时那 3.0% 的十倍。' },
     ],
     quiz: [
       {
@@ -1540,14 +1549,14 @@ const AUTHORED: Lesson[] = [
         explain: { en: 'Two consecutive failures step the rate down one; the signal-based ceiling never moves on its own. Two steps down means two pairs of failures, four in total.', zh: '连续两次失败会让速率降一档；基于信号的上限本身不会自己变动。降两档意味着两对失败，一共四次。' },
       },
       {
-        q: { en: 'The far station’s MCS 0 frames last almost twice as long as its MCS 1 frames. Which of the two collides more often per attempt?', zh: '远端终端的 MCS 0 帧几乎是 MCS 1 帧的两倍长。这两种帧里，哪一种每次尝试的碰撞率更高？' },
+        q: { en: 'The far station’s MCS 0 frames last almost twice as long as its MCS 1 frames. Which of the two is lost more often per attempt?', zh: '远端终端的 MCS 0 帧几乎是 MCS 1 帧的两倍长。这两种帧里，哪一种每次尝试的丢失率更高？' },
         options: [
           { en: 'The MCS 0 frames — they sit on the air longer, so more backoff counters have time to reach zero while they do', zh: 'MCS 0 的帧——它们在空口上待得更久，其间有更多退避计数器有时间走到零' },
-          { en: 'The MCS 1 frames, if anything: 11.8% against 11.3% here. Frame length is not what sets the per-attempt collision rate', zh: 'MCS 1 的帧，真要说的话：这里是 11.8% 对 11.3%。决定每次尝试碰撞率的不是帧长' },
-          { en: 'Exactly the same rate for both — collisions depend only on how many stations there are', zh: '两者完全一样——碰撞只取决于有多少台终端' },
+          { en: 'The MCS 1 frames, if anything: 7.5% against 6.7% here. Frame length is not what sets the per-attempt loss rate', zh: 'MCS 1 的帧，真要说的话：这里是 7.5% 对 6.7%。决定每次尝试丢失率的不是帧长' },
+          { en: 'Exactly the same rate for both — losses depend only on how many stations there are', zh: '两者完全一样——丢失只取决于有多少台终端' },
         ],
         answer: 1,
-        explain: { en: 'A backoff counter does not tick down during someone else’s frame: it freezes when the medium goes busy and resumes at the same value (IEEE 802.11-2024 §10.23.2.4, and all 2,061 of the near station’s freezes in this run do exactly that). So a longer frame gives no one else’s counter extra time to expire — it gives them none. What sets the per-attempt rate is the contention window the attempt was drawn from: here attempts drawn from CW 15 collide 12.3% of the time, attempts drawn from the doubled CW 31 only 7.1%. MCS 0 frames follow failures, so more of them are drawn from the widened windows — which is why they do not collide more. The third answer has the right instinct but overshoots: the two rates are not identical, and the number of stations is not the only thing that matters.', zh: '退避计数器在别人发帧期间是不倒数的：介质转忙时它冻结，之后从同一数值继续（IEEE 802.11-2024 §10.23.2.4——这段仿真里近端终端的 2,061 次冻结全都如此）。所以更长的帧不会给别人的计数器多出任何时间走到零，而是根本不给。决定每次尝试碰撞率的是这次尝试抽签时的竞争窗口：这里从 CW 15 抽出的尝试有 12.3% 碰撞，从翻倍后的 CW 31 抽出的只有 7.1%。MCS 0 的帧跟在失败后面，其中更多是从被撑大的窗口里抽签的——这就是它们不会撞得更多的原因。第三个选项方向是对的，但说过头了：两者的碰撞率并不相同，终端数量也不是唯一起作用的因素。' },
+        explain: { en: 'A backoff counter does not tick down during someone else’s frame: it freezes when the medium goes busy and resumes at the same value (IEEE 802.11-2024 §10.23.2.4, and all 2,666 of the near station’s freezes in this run do exactly that). So a longer frame gives the other station’s counter no extra time to expire — it gives it none. A frame here is lost when the two counters reach zero in the same slot and the AP keeps the stronger of the two signals, and that is decided before either frame goes out, whatever length it then turns out to have. Measured over three seconds: 8.7% of the ceiling attempts are lost, 7.5% of the MCS-1 ones and 6.7% of the MCS-0 ones. The third answer has the right instinct but overshoots: the rates are not identical, and the number of stations is not the only thing that matters.', zh: '退避计数器在别人发帧期间是不倒数的：介质转忙时它冻结，之后从同一数值继续（IEEE 802.11-2024 §10.23.2.4——这段仿真里近端终端的 2,666 次冻结全都如此）。所以更长的帧不会给对方的计数器多出任何时间走到零，而是根本不给。在这里，一帧之所以丢失，是因为两个计数器在同一时隙清零、而 AP 只保住了两个信号中更强的那个——这在两帧发出之前就已定下，与帧最后有多长无关。三秒的实测：上限上的尝试丢了 8.7%，MCS 1 上丢了 7.5%，MCS 0 上丢了 6.7%。第三个选项方向是对的，但说过头了：两者的丢失率并不相同，终端数量也不是唯一起作用的因素。' },
       },
     ],
   },
