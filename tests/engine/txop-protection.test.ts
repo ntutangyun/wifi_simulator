@@ -87,6 +87,9 @@ describe('TXOP protection at the burst boundary', () => {
     for (const cur of dataList) {
       const openingRts = [...rtsList].reverse().find((r) => r.t <= cur.t)
       if (!openingRts) continue // no burst-opening RTS on record yet (run's very first attempt) — nothing to check
+      // A failed RTS ends its TXOP and reservation: a data frame after that
+      // opens a new access and is not part of that RTS's burst.
+      if (multi.some((r) => r.type === 'TXOP_END' && r.node === 'sta-1' && r.t > openingRts.t && r.t <= cur.t)) continue
       const announcedEnd = openingRts.t + openingRts.frame.txTimeNs + openingRts.frame.durationFieldNs
       const respBytes = cur.frame.ampdu !== undefined ? BA_BYTES : ACK_BYTES
       const respTime = txTimeNs(respBytes, ctrlRespRateFor(cur.frame.mbps))

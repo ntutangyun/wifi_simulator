@@ -753,6 +753,7 @@ export class WifiMac implements PhyListener {
     mu.mbaHandle = 0
     this.muState = null
     this.emit({ t, type: 'ACK_TIMEOUT', node: this.nodeId })
+    this.lastBusyEndNs = Math.max(this.lastBusyEndNs, t)
     // Retry accounting for the trigger itself. It carries no MSDUs of ours, so
     // only QSRC and CW move.
     const e = this.edcafs[mu.ac]
@@ -785,6 +786,7 @@ export class WifiMac implements PhyListener {
   // ---------- exchange mechanics ----------
 
   private transmitFrame(frame: FrameDesc, expectResponse: boolean): void {
+    this.corruptLast = false // EIFS ends when the station itself transmits
     this.cancelAllContention()
     this.setState('tx')
     this.ch.startTx(this.nodeId, frame)
@@ -816,6 +818,7 @@ export class WifiMac implements PhyListener {
     const t = this.now()
     if (!this.awaiting) return
     this.emit({ t, type: this.awaiting.kind === 'cts' ? 'CTS_TIMEOUT' : 'ACK_TIMEOUT', node: this.nodeId })
+    this.lastBusyEndNs = Math.max(this.lastBusyEndNs, t) // the retry's IFS counts from the timeout's end
     this.failAttempt()
   }
 
@@ -1010,6 +1013,7 @@ export class WifiMac implements PhyListener {
 
   onRxStart(t: Ns, frame: FrameDesc, _from: string): void {
     this.lastRxStartNs = t
+    this.corruptLast = false // a new reception decides afresh whether EIFS applies
     if (this.awaiting !== null) {
       // §10.3.2.9: PHY-RXSTART before AckTimeout → wait for the RXEND outcome.
       this.cancel('timeout')

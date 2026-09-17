@@ -41,6 +41,32 @@ describe('NAV / EIFS / RTS-CTS', () => {
     expect(apIfs.some((r) => r.kind === 'DIFS')).toBe(true)
   })
 
+  it('EIFS ends at the station’s own transmission (§10.3.2.3.7)', () => {
+    // sta-1 overhears the AP's 54 Mbps frame to sta-2 just above preamble detect
+    // (−81 dBm) but far below its decode SINR → a corrupt reception; it hears
+    // nothing else (sta-2's ACK and the AP never reach it correctly).
+    const b = makeBss(NODES, { ...STRONG, 'ap>sta-1': -81, 'sta-2>sta-1': -200, 'sta-1>ap': -90 })
+    b.enqueue(1_000_000, 'ap', msdu('ap', 'sta-2'))
+    b.enqueue(5_000_000, 'sta-1', msdu('sta-1', 'ap'))
+    b.runUntil(60_000_000)
+    expect(b.recs('RX_FAIL', 'sta-1').length).toBeGreaterThan(0)
+    const firstTx = b.recs('TX_START', 'sta-1')[0]
+    const before = b.recs('IFS_START', 'sta-1').filter((r) => r.t <= firstTx.t)
+    expect(before[0].kind).toBe('EIFS')
+    const after = b.recs('IFS_START', 'sta-1').filter((r) => r.t > firstTx.t)
+    expect(after.length).toBeGreaterThan(0)
+    expect(after.map((r) => r.kind)).not.toContain('EIFS')
+  })
+
+  it('a retry counts its IFS from the end of the ACK timeout', () => {
+    const b = makeBss(NODES, { ...STRONG, 'sta-1>ap': -90 })
+    b.enqueue(1_000_000, 'sta-1', msdu('sta-1', 'ap'))
+    b.runUntil(20_000_000)
+    const to = b.recs('ACK_TIMEOUT', 'sta-1')[0]
+    const ifs = b.recs('IFS_START', 'sta-1').find((r) => r.t >= to.t)!
+    expect(ifs.untilNs).toBe(to.t + DIFS_NS)
+  })
+
   it('runs the exact RTS–CTS–DATA–ACK sequence when PSDU exceeds the threshold (§10.3.2.9)', () => {
     const b = makeBss(NODES, STRONG, { rtsThresholdBytes: 500 })
     b.enqueue(1_000_000, 'sta-1', msdu('sta-1', 'ap'))
