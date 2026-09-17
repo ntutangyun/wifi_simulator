@@ -152,10 +152,10 @@ export function CoursePanel() {
           return (
           <div key={ti} style={{ marginBottom: 14 }}>
             <div style={{ fontSize: 12, fontWeight: 600, color: '#d5dae3', marginBottom: 6 }}>{t(tier)}</div>
-        {mods.map(({ m, mi }) => (
+        {mods.map(({ m, mi }, mNo) => (
           <div key={mi} style={{ marginBottom: 12 }}>
             <div style={{ fontSize: 11, color: 'var(--dim)', letterSpacing: 0.5, marginBottom: 4 }}>
-              {L.module} {mi + 1} · {t(m.title)}
+              {L.module} {mNo + 1} · {t(m.title)}
             </div>
             {LESSONS.filter((l) => l.module === mi).map((l) => (
               <div
@@ -206,7 +206,7 @@ export function CoursePanel() {
       </div>
 
       <div style={{ ...dim, fontSize: 11 }}>
-        {t(TIERS[MODULES[lesson.module].tier])} · {L.module} {lesson.module + 1} · {L.minutes(lessonMinutes(lesson))}
+        {t(TIERS[MODULES[lesson.module].tier])} · {t(MODULES[lesson.module].title)} · {L.minutes(lessonMinutes(lesson))}
       </div>
       <h3 style={{ margin: '4px 0 8px', fontSize: 14 }}>{idx + 1} · {t(lesson.title)}</h3>
 
