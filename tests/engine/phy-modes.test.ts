@@ -60,7 +60,7 @@ describe('A-MPDU sizing', () => {
   it('pads subframes to 4 octets with delimiter', () => {
     // 1400 B msdu → mpdu 26+1400+4=1430 → pad 1432 + 4 delim = 1436
     expect(ampduSubframeBytes(1400)).toBe(1436)
-    expect(ampduPsduBytes([1400, 1400])).toBe(2872)
+    expect(ampduPsduBytes([1400, 1400])).toBe(1436 + 1434) // the last subframe carries no padding
   })
 })
 

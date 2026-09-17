@@ -19,6 +19,8 @@ export interface MuPart {
   nss?: number
   /** Share of the channel this member occupies (OFDMA); absent means the whole width. */
   ruFraction?: number
+  /** Payload octets of each MSDU carried, in msduIds order. */
+  msduBytes?: number[]
 }
 
 export interface FrameDesc {
@@ -34,6 +36,8 @@ export interface FrameDesc {
   seqNo?: number
   retryFlag?: boolean
   msduId?: number
+  /** Payload octets of each MSDU carried, in the order of ampdu.msduIds (or [msduId]). */
+  msduBytes?: number[]
   // v2
   mode?: PhyMode // PPDU format (default nonht)
   mcs?: number
@@ -60,6 +64,9 @@ export function ampduSubframeBytes(msduBytes: number): number {
   return AMPDU_DELIMITER_BYTES + Math.ceil(mpdu / 4) * 4
 }
 
+/** A-MPDU PSDU: every subframe but the last is padded to a 4-octet boundary. */
 export function ampduPsduBytes(msduBytesList: number[]): number {
-  return msduBytesList.reduce((s, b) => s + ampduSubframeBytes(b), 0)
+  return msduBytesList.reduce((s, b, i) => i === msduBytesList.length - 1
+    ? s + AMPDU_DELIMITER_BYTES + QOS_HDR_BYTES + b + FCS_BYTES
+    : s + ampduSubframeBytes(b), 0)
 }

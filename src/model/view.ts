@@ -94,7 +94,8 @@ export interface NodeView {
    * Last accepted data seqNo per sender (duplicate detection, §10.3.2.11): a
    * retransmission after a lost ACK arrives twice and must be counted once.
    */
-  rxSeq: Record<string, number>
+  /** Per sender, the most recent MSDU ids received (duplicate detection, §10.3.2.14). */
+  rxSeen: Record<string, number[]>
   stats: NodeStats
   /** Per-AC contention detail (EDCA nodes). Index 0..3 = BK,BE,VI,VO. */
   acs: AcView[] | null
@@ -146,7 +147,7 @@ export function initViewState(sc: Scenario): ViewState {
     const edca = hasFeature(cfg, 'edca')
     nodes[vid] = {
       state: 'idle', ccaBusy: false, backoff: null, cw: 15, qsrc: 0,
-      navUntilNs: 0, ifs: null, queue: [], currentTx: null, currentRx: null, rxSeq: {},
+      navUntilNs: 0, ifs: null, queue: [], currentTx: null, currentRx: null, rxSeen: {},
       stats: {
         txOk: 0, txFail: 0, retries: 0, drops: 0, bytesDelivered: 0, airtimeNs: 0, collisions: 0,
         txLatency: { n: 0, sumNs: 0, maxNs: 0 }, rxLatency: { n: 0, sumNs: 0, maxNs: 0 },
@@ -364,22 +365,31 @@ export function applyRecord(vs: ViewState, r: TLRecord): void {
       const phys = physicalId(r.node)
       if (r.frame.kind === 'data') {
         const myPart = r.frame.muParts?.find((p) => p.dst === phys)
+        let ids: number[] = []
+        let sizes: number[] | undefined
+        let fallback = 0
         if (r.frame.dst === phys) {
-          // Duplicate detection: same seqNo from the same sender means the ACK
-          // was lost and this is the retransmission of an already-counted frame.
-          if (r.frame.seqNo !== undefined) {
-            if (n.rxSeq[r.from] === r.frame.seqNo) break
-            n.rxSeq[r.from] = r.frame.seqNo
-          }
-          const overhead = r.frame.ampdu ? 34 * r.frame.ampdu.mpduCount : 28
-          n.stats.bytesDelivered += Math.max(0, r.frame.bytes - overhead)
-          const sender = vs.nodes[r.from]
-          if (sender) sender.stats.txOk += r.frame.ampdu?.mpduCount ?? 1
+          ids = r.frame.ampdu?.msduIds ?? (r.frame.msduId !== undefined ? [r.frame.msduId] : [])
+          sizes = r.frame.msduBytes
+          fallback = r.frame.ampdu ? r.frame.bytes / r.frame.ampdu.mpduCount - 34 : r.frame.bytes - 28
         } else if (myPart) {
-          n.stats.bytesDelivered += Math.max(0, myPart.bytes - 34 * myPart.mpduCount)
-          const sender = vs.nodes[r.from]
-          if (sender) sender.stats.txOk += myPart.mpduCount
+          ids = myPart.msduIds
+          sizes = myPart.msduBytes
+          fallback = myPart.bytes / Math.max(1, myPart.mpduCount) - 34
         }
+        // Duplicate detection per MSDU: a frame seen before from this sender is
+        // the retransmission after a lost acknowledgement — count it once.
+        const seen = (n.rxSeen[r.from] ??= [])
+        let fresh = 0
+        ids.forEach((id, i) => {
+          if (seen.includes(id)) return
+          seen.push(id)
+          if (seen.length > 512) seen.shift()
+          fresh++
+          n.stats.bytesDelivered += Math.max(0, sizes?.[i] ?? fallback)
+        })
+        const sender = vs.nodes[r.from]
+        if (sender) sender.stats.txOk += fresh
       }
       break
     }

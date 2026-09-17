@@ -530,6 +530,7 @@ export class WifiMac implements PhyListener {
       txTimeNs: txTime,
       seqNo, retryFlag: msdus.some((m) => (m.retries ?? 0) > 0), msduId: msdus[0].id,
       mode, mcs, widthMhz, ac: this.acTag(e),
+      msduBytes: msdus.map((m) => m.bytes),
       ampdu: aggregate ? { mpduCount: msdus.length, msduIds: msdus.map((m) => m.id) } : undefined,
     }
   }
@@ -626,7 +627,7 @@ export class WifiMac implements PhyListener {
       const bytes = ampduPsduBytes(msdus.map((m) => m.bytes))
       parts.push({
         dst: peer, src: this.nodeId, bytes, mcs, mbps: mcsRateMbps(mode, mcs),
-        msduIds: msdus.map((m) => m.id), mpduCount: msdus.length, ac: e.params.ac, ruFraction: frac,
+        msduIds: msdus.map((m) => m.id), msduBytes: msdus.map((m) => m.bytes), mpduCount: msdus.length, ac: e.params.ac, ruFraction: frac,
       })
       claims.push({ peer, msdus })
       ppduDur = Math.max(ppduDur, txTimeModeNs(mode, bytes, mcs, { mu: true, ruFraction: frac, widthMhz: muWidth, nss }))
@@ -655,7 +656,7 @@ export class WifiMac implements PhyListener {
       const bytes = ampduPsduBytes(msdus.map((m) => m.bytes))
       parts.push({
         dst: peer, src: this.nodeId, bytes, mcs, mbps: mcsRateMbps(mode, mcs),
-        msduIds: msdus.map((m) => m.id), mpduCount: msdus.length, ac: e.params.ac, nss: nssPeer,
+        msduIds: msdus.map((m) => m.id), msduBytes: msdus.map((m) => m.bytes), mpduCount: msdus.length, ac: e.params.ac, nss: nssPeer,
       })
       claims.push({ peer, msdus })
       ppduDur = Math.max(ppduDur, txTimeModeNs(mode, bytes, mcs, { mu: true, widthMhz: muWidth, nss: nssPeer }))
@@ -1213,6 +1214,7 @@ export class WifiMac implements PhyListener {
         kind: 'data', src: this.nodeId, dst: trigger.src, bytes, mbps: mcsRateMbps(mode, mcs),
         durationFieldNs: 0, txTimeNs: dur, // padded to the trigger's target duration
         seqNo: (this.assignSeq(e, msdus), msdus[0].seqNo), mode, mcs, widthMhz: width, ac: this.acTag(e),
+        msduBytes: msdus.map((m) => m.bytes),
         ampdu: { mpduCount: msdus.length, msduIds: msdus.map((m) => m.id) },
         orthogonalGroup: trigger.orthogonalGroup,
       }

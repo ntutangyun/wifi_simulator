@@ -265,4 +265,28 @@ describe('delivery latency: queue arrival to acknowledgement', () => {
       expect(timed, `${id} rx side counts every delivery`).toBe(Object.values(dequeues).reduce((s, x) => s + x, 0))
     }
   }, 20_000)
+
+  it('counts a retransmitted MSDU once and delivers exact MSDU payload bytes (A2, A17)', () => {
+    const vs = initViewState(defaultScenario())
+    const f: FrameDesc = { ...frame, msduId: 77, seqNo: 9, bytes: 1430, msduBytes: [1400] }
+    const recs = seq([
+      { t: 100, type: 'RX_OK', node: 'ap', from: 'sta-1', frame: f },
+      { t: 200, type: 'RX_OK', node: 'ap', from: 'sta-1', frame: { ...f, retryFlag: true } },
+    ])
+    for (const r of recs) applyRecord(vs, r)
+    expect(vs.nodes['ap'].stats.bytesDelivered).toBe(1400)
+    expect(vs.nodes['sta-1'].stats.txOk).toBe(1)
+  })
+
+  it('a retried A-MPDU that also carries new MSDUs counts only the new ones', () => {
+    const vs = initViewState(defaultScenario())
+    const a: FrameDesc = { ...frame, msduId: 1, bytes: 2870, ampdu: { mpduCount: 2, msduIds: [1, 2] }, msduBytes: [1400, 1400] }
+    const b: FrameDesc = { ...frame, msduId: 1, bytes: 4306, ampdu: { mpduCount: 3, msduIds: [1, 2, 3] }, msduBytes: [1400, 1400, 1000] }
+    for (const r of seq([
+      { t: 100, type: 'RX_OK', node: 'ap', from: 'sta-1', frame: a },
+      { t: 200, type: 'RX_OK', node: 'ap', from: 'sta-1', frame: b },
+    ])) applyRecord(vs, r)
+    expect(vs.nodes['ap'].stats.bytesDelivered).toBe(3800)
+    expect(vs.nodes['sta-1'].stats.txOk).toBe(3)
+  })
 })
