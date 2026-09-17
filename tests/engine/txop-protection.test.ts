@@ -23,7 +23,11 @@ function hallway(prot: TxopProtection, seed = 7): Scenario {
     n.caps = { generation: 'vht', features: { ...defaultFeatures('vht'), ampdu: false } }
     n.txopProtection = prot
   }
-  return { ...sc, seed }
+  // RTS threshold below the frame size (lesson 10's setting), so the first exchange of every
+  // TXOP is protected under all three policies and only the reach of the reservation differs.
+  // Without it, a TXOP whose rate has fallen far enough to hold a single frame plans no burst,
+  // so boundary protection sends no RTS at all and that lone exchange goes out unprotected.
+  return { ...sc, seed, rtsThresholdBytes: 500 }
 }
 
 describe('TXOP protection at the burst boundary', () => {
@@ -116,6 +120,12 @@ describe('TXOP protection at the burst boundary', () => {
     const baseCollisions = base.filter((r) => r.type === 'COLLISION').length
     const protCollisions = recs.filter((r) => r.type === 'COLLISION').length
     expect(baseCollisions).toBeGreaterThan(5)
-    expect(protCollisions).toBeLessThan(baseCollisions / 3)
+    // Per-exchange protection covers the first frame of each TXOP; the collisions it leaves are
+    // the ones inside the burst, where the hidden station's NAV has already expired. Protecting
+    // the burst boundary removes more than half of them and trebles what reaches the AP.
+    expect(protCollisions).toBeLessThan(baseCollisions / 2)
+    const delivered = (recs: readonly TLRecord[]) =>
+      recs.filter((r) => r.type === 'RX_OK' && r.node === 'ap' && r.frame.kind === 'data').length
+    expect(delivered(recs)).toBeGreaterThan(2.5 * delivered(base))
   })
 })
