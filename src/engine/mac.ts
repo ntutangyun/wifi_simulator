@@ -600,6 +600,7 @@ export class WifiMac implements PhyListener {
     const t = this.now()
     const ei = this.edcafs.indexOf(e)
     const gid = `mu${this.nodeId}:${this.muGidCounter++}`
+    const durCap = this.muDurCap(e, inTxopBurst)
 
     // Space multiplies the rate, which pays only when there are data symbols to
     // multiply; frequency divides the preamble, which pays when there are not.
@@ -612,7 +613,7 @@ export class WifiMac implements PhyListener {
     }
     const useMumimo = canMumimo && mumimoGroup.length >= 2 && this.fitsStreams(mumimoGroup)
 
-    const built = useMumimo ? this.buildMumimoParts(e, ei, mumimoGroup) : this.buildOfdmaParts(e, ei, dsts)
+    const built = this.buildMuParts(ei, useMumimo ? mumimoGroup : dsts, useMumimo, durCap, e.params.ac)
     const { parts, claims, ppduDur, modeAll, width } = built
     if (parts.length < 2) {
       for (const c of claims) this.queues.restore(ei, c.msdus)
@@ -633,64 +634,50 @@ export class WifiMac implements PhyListener {
     mu.resolveHandle = this.q.schedule(t + ppduDur + SIFS_NS + baTime + ACK_TIMEOUT_NS, () => this.resolveDlMu())
   }
 
-  /** DL MU (OFDMA): members share the channel — each gets a fraction of it, at 1 stream's worth of Nss headroom each. */
-  private buildOfdmaParts(e: Edcaf, ei: number, dsts: string[]): {
-    parts: MuPart[]; claims: { peer: string; msdus: Msdu[] }[]; ppduDur: Ns; modeAll: PhyMode; width: number
-  } {
-    const frac = 1 / dsts.length
-    const parts: MuPart[] = []
-    const claims: { peer: string; msdus: Msdu[] }[] = []
-    let ppduDur = 0
-    let modeAll: PhyMode = 'eht'
-    // The DL MU PPDU spans the whole operating channel: it runs at the
-    // narrowest width any member negotiated. Stream count stays per member —
-    // each user's RU carries its own Nss.
-    const muWidth = Math.min(...dsts.map((d) => this.cfg.widthForPeer(d)))
-    for (const peer of dsts) {
-      const mode = this.cfg.modeForPeer(peer)
-      if (mode !== 'eht') modeAll = 'he'
-      const mcs = this.cfg.mcsForPeer(peer)
-      const nss = this.cfg.nssForPeer(peer)
-      const budget = maxPsduBytesFor(mode, mcs, frac, MAX_PPDU_NS, muWidth, nss)
-      const msdus = this.queues.claim(ei, peer, MAX_AMPDU_MPDUS, (m, claimed) =>
-        ampduPsduBytes([...claimed.map((x) => x.bytes), m.bytes]) <= budget)
-      if (!msdus.length) continue
-      const bytes = ampduPsduBytes(msdus.map((m) => m.bytes))
-      parts.push({
-        dst: peer, src: this.nodeId, bytes, mcs, mbps: mcsRateMbps(mode, mcs),
-        msduIds: msdus.map((m) => m.id), msduBytes: msdus.map((m) => m.bytes), mpduCount: msdus.length, ac: e.params.ac, ruFraction: frac,
-      })
-      claims.push({ peer, msdus })
-      ppduDur = Math.max(ppduDur, txTimeModeNs(mode, bytes, mcs, { mu: true, ruFraction: frac, widthMhz: muWidth, nss }))
-    }
-    return { parts, claims, ppduDur, modeAll, width: muWidth }
+  /** Longest DL MU PPDU allowed now: aPPDUMaxTime, and inside the TXOP with room for SIFS + the BlockAcks. */
+  private muDurCap(e: Edcaf, inTxopBurst: boolean): Ns {
+    const t = this.now()
+    const end = inTxopBurst && this.txopEndNs > 0
+      ? this.txopEndNs
+      : this.cfg.txop && this.cfg.edca && e.params.txopLimitNs > 0 ? t + e.params.txopLimitNs : Infinity
+    return Math.min(MAX_PPDU_NS, end - t - SIFS_NS - txTimeNs(BA_BYTES, 24))
   }
 
-  /** DL MU-MIMO: members share nothing but time — each gets the full width at its own stream count. */
-  private buildMumimoParts(e: Edcaf, ei: number, dsts: string[]): {
+  /**
+   * Build the members of a DL MU PPDU. OFDMA: each member gets 1/n of the
+   * channel. MU-MIMO: each gets the full width at its own stream count.
+   * 802.11be: the PPDU is EHT only if every member is EHT; otherwise it is an
+   * HE MU PPDU, where EHT members are served at HE-MCS (≤ 11) — 4096-QAM does
+   * not exist in HE. Members are filled up to the duration cap.
+   */
+  private buildMuParts(ei: number, dsts: string[], mumimo: boolean, durCap: Ns, ac: number): {
     parts: MuPart[]; claims: { peer: string; msdus: Msdu[] }[]; ppduDur: Ns; modeAll: PhyMode; width: number
   } {
     const parts: MuPart[] = []
     const claims: { peer: string; msdus: Msdu[] }[] = []
-    let ppduDur = 0
-    let modeAll: PhyMode = 'eht'
+    const frac = mumimo ? 1 : 1 / dsts.length
+    const modeAll: PhyMode = dsts.every((d) => this.cfg.modeForPeer(d) === 'eht') ? 'eht' : 'he'
+    // The DL MU PPDU spans the whole operating channel: it runs at the
+    // narrowest width any member negotiated. Stream count stays per member.
     const muWidth = Math.min(...dsts.map((d) => this.cfg.widthForPeer(d)))
+    let ppduDur = 0
     for (const peer of dsts) {
-      const mode = this.cfg.modeForPeer(peer)
-      if (mode !== 'eht') modeAll = 'he'
-      const mcs = this.cfg.mcsForPeer(peer)
-      const nssPeer = this.cfg.nssForPeer(peer)
-      const budget = maxPsduBytesFor(mode, mcs, 1, MAX_PPDU_NS, muWidth, nssPeer)
+      const mcs = modeAll === 'he' ? Math.min(11, this.cfg.mcsForPeer(peer)) : this.cfg.mcsForPeer(peer)
+      const nss = this.cfg.nssForPeer(peer)
+      const opts = mumimo ? { mu: true, widthMhz: muWidth, nss } : { mu: true, ruFraction: frac, widthMhz: muWidth, nss }
+      const airtime = (bytes: number[]) => txTimeModeNs(modeAll, ampduPsduBytes(bytes), mcs, opts)
+      if (airtime([this.queues.headBytes(ei, peer) ?? 0]) > durCap) continue
       const msdus = this.queues.claim(ei, peer, MAX_AMPDU_MPDUS, (m, claimed) =>
-        ampduPsduBytes([...claimed.map((x) => x.bytes), m.bytes]) <= budget)
+        airtime([...claimed.map((x) => x.bytes), m.bytes]) <= durCap)
       if (!msdus.length) continue
       const bytes = ampduPsduBytes(msdus.map((m) => m.bytes))
       parts.push({
-        dst: peer, src: this.nodeId, bytes, mcs, mbps: mcsRateMbps(mode, mcs),
-        msduIds: msdus.map((m) => m.id), msduBytes: msdus.map((m) => m.bytes), mpduCount: msdus.length, ac: e.params.ac, nss: nssPeer,
+        dst: peer, src: this.nodeId, bytes, mcs, mbps: mcsRateMbps(modeAll, mcs),
+        msduIds: msdus.map((m) => m.id), msduBytes: msdus.map((m) => m.bytes), mpduCount: msdus.length, ac,
+        ...(mumimo ? { nss } : { ruFraction: frac }),
       })
       claims.push({ peer, msdus })
-      ppduDur = Math.max(ppduDur, txTimeModeNs(mode, bytes, mcs, { mu: true, widthMhz: muWidth, nss: nssPeer }))
+      ppduDur = Math.max(ppduDur, airtime(msdus.map((m) => m.bytes)))
     }
     return { parts, claims, ppduDur, modeAll, width: muWidth }
   }
@@ -711,26 +698,32 @@ export class WifiMac implements PhyListener {
     this.muState = null
     const e = this.edcafs[mu.ac]
     const t = this.now()
-    let anyFail = false
+    const failed: Msdu[] = []
     for (const c of mu.parts) {
-      if (mu.successes.has(c.peer)) {
-        this.cfg.onTxOutcome?.(c.peer, true)
-        for (const m of c.msdus) {
-          this.emit({ t, type: 'DEQUEUE', node: this.nodeId, msduId: m.id, depth: this.queues.depth(mu.ac), ac: this.acTag(e) })
-          this.hooks.onDequeue?.(m.id)
-        }
-      } else {
-        anyFail = true
-        this.cfg.onTxOutcome?.(c.peer, false)
-        this.queues.restore(mu.ac, c.msdus) // interim: per-MSDU accounting arrives with the MU outcome fix
+      const ok = mu.successes.has(c.peer)
+      this.cfg.onTxOutcome?.(c.peer, ok)
+      if (!ok) {
+        failed.push(...c.msdus)
+        continue
+      }
+      for (const m of c.msdus) {
+        this.emit({ t, type: 'DEQUEUE', node: this.nodeId, msduId: m.id, depth: this.queues.depth(mu.ac), ac: this.acTag(e) })
+        this.hooks.onDequeue?.(m.id)
       }
     }
-    if (anyFail) {
-      this.failAttemptCore(e, mu.ac, [])
-    } else {
-      this.resetQsrc(e)
-      this.continueOrRelease(e)
+    if (mu.successes.size === 0) {
+      this.failAttemptCore(e, mu.ac, failed)
+      return
     }
+    // 802.11ax: the DL MU exchange succeeded if any user acknowledged. The
+    // others' MPDUs count a retry and are sent again; the EDCAF is not
+    // penalised and the TXOP may continue.
+    if (failed.length) {
+      this.emitRetry(e, failed, 0)
+      this.failMsdus(e, mu.ac, failed)
+    }
+    this.resetQsrc(e)
+    this.continueOrRelease(e)
   }
 
   private transmitTrigger(e: Edcaf, users: { peer: string; ac: number; bytes: number }[]): void {
@@ -910,11 +903,12 @@ export class WifiMac implements PhyListener {
     if (keep.length) this.queues.restore(ei, keep)
   }
 
-  private emitRetry(e: Edcaf, msdus: Msdu[]): void {
+  /** RETRY record for a failed attempt; qsrc defaults to the value the attempt's failure brings QSRC to. */
+  private emitRetry(e: Edcaf, msdus: Msdu[], qsrc = e.qsrc + 1): void {
     this.emit({
       t: this.now(), type: 'RETRY', node: this.nodeId, msduId: msdus[0]?.id ?? 0,
       retries: msdus.reduce((mx, m) => Math.max(mx, (m.retries ?? 0) + 1), 0),
-      qsrc: e.qsrc + 1, ac: this.acTag(e),
+      qsrc, ac: this.acTag(e),
     })
   }
 

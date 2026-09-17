@@ -1,11 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import { Simulation } from '../../src/engine/simulation'
 import { HOUSEHOLDS } from '../../src/model/households'
-import { minGen } from '../../src/model/caps'
 import { Channel } from '../../src/engine/channel'
 import { EventQueue } from '../../src/engine/events'
 import { DcfMac } from '../../src/engine/mac'
-import { txTimeModeNs, type PhyMode } from '../../src/engine/phy'
+import { txTimeModeNs } from '../../src/engine/phy'
 import { Rng } from '../../src/engine/rng'
 import type { Msdu } from '../../src/engine/traffic'
 import { makeEmitter, type TLRecord } from '../../src/model/records'
@@ -23,14 +22,6 @@ function scenario() {
 
 describe('MU-MIMO: one PPDU, several stations, split by space', () => {
   const sc = scenario()
-  // Every member's actual PHY mode is the generation minimum with the (always
-  // 'eht') AP — the same rule modeForPeer uses in simulation.ts. HE and EHT
-  // share MCS 0-11's rate table (only EHT adds MCS 12/13), so recovering mode
-  // from (mcs, mbps) alone is ambiguous; look it up from the node's own
-  // negotiated generation instead.
-  const genOf = new Map(sc.nodes.map((n) => [n.id, n.caps.generation]))
-  const modeOf = (dst: string): PhyMode => minGen('eht', genOf.get(dst)!) as PhyMode
-
   const recs: TLRecord[] = []
   const sim = new Simulation(sc)
   for (let t = 50 * MS; t <= 1000 * MS; t += 50 * MS) recs.push(...sim.runUntil(t).records)
@@ -66,7 +57,8 @@ describe('MU-MIMO: one PPDU, several stations, split by space', () => {
       if (r.t + r.frame.txTimeNs > HORIZON) continue
       const parts = r.frame.muParts ?? []
       const expected = Math.max(...parts.map((p) =>
-        txTimeModeNs(modeOf(p.dst), p.bytes, p.mcs, { mu: true, widthMhz: r.frame.widthMhz, nss: p.nss })))
+        // one PPDU, one format: a mixed HE/EHT group is an HE MU PPDU for every member
+        txTimeModeNs(r.frame.mode!, p.bytes, p.mcs, { mu: true, widthMhz: r.frame.widthMhz, nss: p.nss })))
       expect(r.frame.txTimeNs).toBe(expected)
       const end = recs.find((x) => x.type === 'TX_END' && x.node === 'ap' && x.t === r.t + r.frame.txTimeNs)
       expect(end).toBeDefined()
