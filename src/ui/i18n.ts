@@ -375,6 +375,7 @@ export const STRINGS: Record<Lang, Strings> = {
       receiving: (kind, from) => `receiving ${kind} from ${from}`,
       rxCorrupted: (reason, interferers) =>
         reason === 'collision' ? `corrupted — collided with ${interferers}` :
+        reason === 'undetected' ? `not detected — preamble buried under ${interferers || 'interference'} (SINR below 4 dB)` :
         reason === 'capture' ? 'abandoned — re-synced to a stronger preamble' :
         reason === 'txDuringRx' ? 'abandoned — this radio started transmitting' :
         'corrupted — signal too weak against noise/interference',
@@ -619,6 +620,7 @@ export const STRINGS: Record<Lang, Strings> = {
       receiving: (kind, from) => `正在接收来自 ${from} 的 ${kind}`,
       rxCorrupted: (reason, interferers) =>
         reason === 'collision' ? `已损坏——与 ${interferers} 发生碰撞` :
+        reason === 'undetected' ? `未检测到——前导码被 ${interferers || '干扰'} 淹没（SINR 低于 4 dB）` :
         reason === 'capture' ? '已放弃——重新同步到更强的前导码' :
         reason === 'txDuringRx' ? '已放弃——本机开始发送' :
         '已损坏——信号相对噪声/干扰太弱',

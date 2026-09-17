@@ -324,13 +324,14 @@ describe('lessons 17 and 18', () => {
 })
 
 describe('what the AP lane shows for a simultaneous RTS (lesson 13)', () => {
-  it('is one reception from the laptop, marked failed by collision with the neighbor', () => {
+  it('shows the laptop’s RTS as a collision with the neighbor — equal-time starts bury each other’s preambles, so it is undetected', () => {
     const l = LESSONS.find((x) => x.id === 'mlo')!
     const records = new Simulation(l.scenario()).runUntil(1 * MS).records
     const both = records.flatMap((r) => (r.type === 'TX_START' && r.t === 0 && r.frame.kind === 'rts' ? [r.node] : []))
     expect(both.sort()).toEqual(['sta-1', 'sta-2'])
     const rx = recordsToSpans(records, ['ap'], 0, 1 * MS).filter((s) => s.kind === 'rx')
-    expect(rx[0]).toMatchObject({ frameSrc: 'sta-1', frameKind: 'rts', rxFail: { reason: 'collision', interferers: ['sta-2'] } })
+    const laptop = rx.find((s) => s.frameSrc === 'sta-1')
+    expect(laptop).toMatchObject({ frameKind: 'rts', rxFail: { reason: 'undetected', interferers: ['sta-2'] } })
   })
 })
 

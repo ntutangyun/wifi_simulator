@@ -5,7 +5,8 @@ export type MacStateName =
   | 'idle' | 'defer' | 'backoff' | 'tx' | 'waitAck' | 'waitCts' | 'sifsResp' | 'rx'
 
 /** One observable micro-event. The timeline is the append-only sequence of these. */
-export type RxFailReason = 'collision' | 'lowSinr' | 'txDuringRx' | 'capture'
+/** 'undetected' marks a preamble missed under interference (RX_MISS); it never appears on RX_FAIL. */
+export type RxFailReason = 'collision' | 'lowSinr' | 'txDuringRx' | 'capture' | 'undetected'
 
 export type TLRecord = { t: Ns; seq: number } & (
   | { type: 'ARRIVAL'; node: string; msduId: number; bytes: number; dst: string }
@@ -31,6 +32,8 @@ export type TLRecord = { t: Ns; seq: number } & (
   | { type: 'RX_START'; node: string; from: string; frame: FrameDesc }
   | { type: 'RX_OK'; node: string; from: string; frame: FrameDesc }
   | { type: 'RX_FAIL'; node: string; from: string | null; reason: RxFailReason }
+  /** A preamble at or above −82 dBm that could not be detected (SINR below 4 dB): no reception, no EIFS. */
+  | { type: 'RX_MISS'; node: string; from: string; reason: 'preambleSinr'; frame: FrameDesc }
   | { type: 'NAV_SET'; node: string; untilNs: Ns; source: string }
   | { type: 'NAV_CLEAR'; node: string }
   | { type: 'CW_CHANGE'; node: string; cw: number; ac?: number }

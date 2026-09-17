@@ -59,7 +59,7 @@ export interface LaneSpan {
  * in the receive tone, only hatched, so it does not drown the lesson's point.
  */
 export function rxFailTone(reason: RxFailReason): 'collision' | 'weak' {
-  return reason === 'collision' ? 'collision' : 'weak'
+  return reason === 'collision' || reason === 'undetected' ? 'collision' : 'weak'
 }
 
 const STATE_SPAN: Record<string, SpanKind | null> = {
@@ -230,6 +230,15 @@ export function recordsToSpans(
             emit(id, o, r.t, false)
           }
         }
+        break
+      }
+      case 'RX_MISS': {
+        // A preamble buried under another transmission: no reception ever
+        // starts, but the air the frame occupied is still a collision to show.
+        const end = r.t + r.frame.txTimeNs
+        const o: OpenSpan = { kind: 'rx', start: r.t, frameKind: r.frame.kind, frameSrc: r.from, frame: r.frame, ifs: [] }
+        o.rxFail = { reason: 'undetected', interferers: interferersOf(end, r.from) }
+        emit(id, o, end, end > horizon)
         break
       }
       case 'NAV_SET':

@@ -23,9 +23,14 @@ describe('STA side of a triggered uplink', () => {
       const nextOwn = recs.find((r) => r.type === 'TX_START' && r.node === sta && r.t > tbEnd)
       const end = Math.min(tbEnd + 200_000, nextOwn ? nextOwn.t - 1 : Infinity)
       windows++
-      const touched = recs.filter((r) => 'node' in r && r.node === sta && r.t > trig.t && r.t <= end &&
-        (r.type === 'CW_CHANGE' || r.type === 'BACKOFF_DRAW'))
-      expect(touched, `${sta} TB PPDU @${tx.t}`).toHaveLength(0)
+      // CW must not change; a backoff drawn in the window may only be one that was
+      // already pending (e.g. after an earlier failed RTS), at the CW in force before the Trigger.
+      const cwBefore = [...recs].reverse().find((r) => r.type === 'CW_CHANGE' && r.node === sta && r.t <= trig.t)
+      const inWindow = recs.filter((r) => 'node' in r && r.node === sta && r.t > trig.t && r.t <= end)
+      expect(inWindow.filter((r) => r.type === 'CW_CHANGE'), `${sta} TB PPDU @${tx.t}`).toHaveLength(0)
+      for (const d of inWindow) {
+        if (d.type === 'BACKOFF_DRAW' && cwBefore?.type === 'CW_CHANGE') expect(d.cw, `${sta} draw @${d.t}`).toBe(cwBefore.cw)
+      }
     }
     expect(windows).toBeGreaterThan(5)
   })

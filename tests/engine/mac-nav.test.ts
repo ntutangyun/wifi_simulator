@@ -26,12 +26,13 @@ describe('NAV / EIFS / RTS-CTS', () => {
   })
 
   it('uses EIFS after a corrupted reception, DIFS after a subsequent correct one (§10.3.2.3.7)', () => {
-    const b = makeBss(NODES, STRONG)
-    // sta-1 and sta-2 transmit at the same instant → ap (and each other? both are tx'ing) —
-    // third party is the AP here; give sta-2's frame to 'ap' as well. The AP locks one frame,
-    // fails on SINR → corrupt → its next access IFS is EIFS.
+    // sta-1 and sta-2 cannot hear each other. The AP locks sta-1's frame; sta-2's,
+    // starting 50 µs later at almost the same power, corrupts it → EIFS at the AP.
+    // (Frames starting at the very same instant would bury each other's preambles:
+    // nothing detected, so no corrupted reception and no EIFS.)
+    const b = makeBss(NODES, { ...STRONG, 'sta-1>sta-2': -200, 'sta-2>sta-1': -200 })
     b.enqueue(1_000_000, 'sta-1', msdu('sta-1', 'ap'))
-    b.enqueue(1_000_000, 'sta-2', msdu('sta-2', 'ap'))
+    b.enqueue(1_050_000, 'sta-2', msdu('sta-2', 'ap'))
     b.enqueue(1_100_000, 'ap', msdu('ap', 'sta-1')) // AP has its own downlink frame to contend for
     b.runUntil(60_000_000)
     const apIfs = b.recs('IFS_START', 'ap')

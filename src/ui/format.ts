@@ -57,6 +57,7 @@ export function fmtRecord(r: TLRecord): string {
     case 'TX_END': return `${r.node} ${r.frame.kind.toUpperCase()} tx end`
     case 'RX_START': return `${r.node} ⇠ preamble from ${r.from} (${r.frame.kind.toUpperCase()})`
     case 'RX_OK': return `${r.node} ⇠ ${r.frame.kind.toUpperCase()} from ${r.from} OK`
+    case 'RX_MISS': return `${r.node} missed preamble from ${r.from} (SINR < 4 dB)`
     case 'RX_FAIL': return `${r.node} rx FAILED (${r.reason})${r.from ? ` from ${r.from}` : ''}`
     case 'NAV_SET': return `${r.node} NAV set until ${fmtNs(r.untilNs)} (${r.source})`
     case 'NAV_CLEAR': return `${r.node} NAV clear`

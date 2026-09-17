@@ -126,14 +126,14 @@ describe('Channel', () => {
   })
 
   it('resolves a 3-way pileup with straddling margins identically in any order', () => {
-    // a beats b by 4 dB (< capture margin), b beats c by 5 dB (≥ margin),
-    // a beats c by 9 dB. Evaluated weakest-first, c would lock, b would
-    // capture c, and a (only +4 over b) would be stuck as interference —
-    // the lock holder used to depend on evaluation order.
+    // Three simultaneous starts. a clears preamble detection against b and c
+    // together (−40 vs −46 ⊕ −51 ≈ −44.8 dBm: 4.8 dB ≥ 4 dB); b and c do not.
+    // Whatever order the transmitters are evaluated in, the strongest must
+    // hold the lock and the record stream must be identical.
     const links = {
-      'a>d': -40, 'b>d': -44, 'c>d': -49,
+      'a>d': -40, 'b>d': -46, 'c>d': -51,
       'a>b': -95, 'a>c': -95, 'b>a': -95, 'b>c': -95, 'c>a': -95, 'c>b': -95,
-      'd>a': -40, 'd>b': -44, 'd>c': -49,
+      'd>a': -40, 'd>b': -46, 'd>c': -51,
     }
     const runs: string[] = []
     for (const order of [['a', 'b', 'c'], ['c', 'b', 'a']]) {
@@ -235,8 +235,9 @@ describe('orthogonal groups (OFDMA RUs)', () => {
     const { ch, calls, runUntil, at } = setup({
       'a>c': -60, 'b>c': -61, 'a>b': -95, 'b>a': -95, 'c>a': -60, 'c>b': -61,
     })
+    // c locks a first; b, in a different group, then corrupts that reception
     at(1000, () => ch.startTx('a', otf('a', 'g1')))
-    at(1000, () => ch.startTx('b', otf('b', 'g2')))
+    at(20_000, () => ch.startTx('b', otf('b', 'g2')))
     runUntil(1_000_000)
     expect(calls.c.some((s) => s.startsWith('corrupt'))).toBe(true)
   })

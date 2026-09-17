@@ -54,7 +54,18 @@ interface RadioState {
   /** Receptions in progress. >1 only for RU-orthogonal (same orthogonalGroup) frames. */
   locks: Lock[]
   transmitting: boolean
+  /**
+   * Transmissions whose preamble arrived while this radio was listening. A
+   * signal that started while the radio was transmitting was never seen as a
+   * PPDU, so it can only hold CCA busy through energy detection (§17.3.10.6).
+   */
+  observed: Set<string>
+  /** Preambles this radio could not detect because of interference, resolved as collisions when they end. */
+  misses: { from: string; startNs: Ns; contributors: Set<string> }[]
 }
+
+/** Minimum SINR at which a preamble is detected (ns-3 ThresholdPreambleDetectionModel default). */
+export const PREAMBLE_DETECT_SINR_DB = 4
 
 const mw = (dbm: number): number => Math.pow(10, dbm / 10)
 const dbm = (mwv: number): number => 10 * Math.log10(mwv)
@@ -106,7 +117,7 @@ export class Channel {
   ) {}
 
   register(nodeId: string, listener: PhyListener): void {
-    this.radios.set(nodeId, { listener, ccaBusy: false, locks: [], transmitting: false })
+    this.radios.set(nodeId, { listener, ccaBusy: false, locks: [], transmitting: false, observed: new Set(), misses: [] })
   }
 
   isCcaBusy(nodeId: string): boolean {
@@ -158,7 +169,10 @@ export class Channel {
         .filter((tx) => tx.txId !== rid)
         .map((tx) => ({ tx, p: this.linkDbm(tx.txId, rid) }))
         .sort((x, y) => y.p - x.p || x.tx.txId.localeCompare(y.tx.txId))
-      for (const { tx, p } of arrivals) this.applyOneTx(t, rid, r, tx, p)
+      for (const { tx, p } of arrivals) {
+        if (!r.transmitting) r.observed.add(tx.txId)
+        this.applyOneTx(t, rid, r, tx, p)
+      }
     }
     this.updateAllCca(t)
   }
@@ -186,8 +200,18 @@ export class Channel {
         }
       }
     } else if (!r.transmitting && p >= CCA_PD_DBM) {
-      // Receiver acquires the preamble (possibly alongside RU-orthogonal peers).
-      this.acquireLock(t, rid, r, tx, p)
+      // Preamble detection needs SINR ≥ 4 dB against everything else on the
+      // air; a preamble buried in interference is never detected — no
+      // PHY-RXSTART, no reception to fail, no EIFS.
+      const others = this.othersMw(rid, tx)
+      const sinr = p - dbm(mw(noiseDbm(tx.frame.widthMhz ?? 20)) + others.mw)
+      if (sinr >= PREAMBLE_DETECT_SINR_DB) {
+        // Receiver acquires the preamble (possibly alongside RU-orthogonal peers).
+        this.acquireLock(t, rid, r, tx, p)
+      } else {
+        this.emit({ t, type: 'RX_MISS', node: rid, from: tx.txId, reason: 'preambleSinr', frame: tx.frame })
+        r.misses.push({ from: tx.txId, startNs: t, contributors: others.overlappers })
+      }
     }
   }
 
@@ -226,6 +250,16 @@ export class Channel {
 
     // Resolve receptions locked onto this frame.
     for (const [rid, r] of this.radios) {
+      r.observed.delete(tx.txId)
+      const missIdx = r.misses.findIndex((m) => m.from === tx.txId)
+      if (missIdx >= 0) {
+        // An undetected preamble leaves no reception, but when it was buried
+        // by another transmission that is still a collision to draw.
+        const miss = r.misses.splice(missIdx, 1)[0]
+        // Frames that buried each other's preambles at one instant are one
+        // collision, keyed on that instant rather than on each frame's end.
+        if (miss.contributors.size > 0) this.emitCollision(t, tx.txId, miss.contributors, -miss.startNs - 1)
+      }
       const lockIdx = r.locks.findIndex((l) => l.from === tx.txId)
       if (lockIdx < 0) continue
       const lock = r.locks[lockIdx]
@@ -237,21 +271,34 @@ export class Channel {
       } else {
         const reason = lock.overlapped ? 'collision' : 'lowSinr'
         this.emit({ t, type: 'RX_FAIL', node: rid, from: tx.txId, reason })
-        if (reason === 'collision') this.emitCollision(t, tx.txId, lock)
+        if (reason === 'collision') this.emitCollision(t, tx.txId, lock.contributors)
         r.listener.onRxCorrupt(t)
       }
     }
     this.updateAllCca(t)
   }
 
-  private emitCollision(t: Ns, failedTxId: string, lock: Lock): void {
+  private emitCollision(t: Ns, failedTxId: string, contributors: Set<string>, keyNs: Ns = t): void {
     // The lock accumulated its overlappers as they appeared — an interferer
     // that already ended still belongs in the record.
-    const nodes = [failedTxId, ...lock.contributors].sort()
-    const key = `${nodes.join(',')}@${t}`
+    const nodes = [failedTxId, ...contributors].sort()
+    const key = `${nodes.join(',')}@${keyNs}`
     if (this.emittedCollisions.has(key)) return
     this.emittedCollisions.add(key)
     this.emit({ t, type: 'COLLISION', nodes })
+  }
+
+  /** Sum of every other active signal at rid (excluding tx and its RU-orthogonal peers), and who overlaps meaningfully. */
+  private othersMw(rid: string, tx: ActiveTx): { mw: number; overlappers: Set<string> } {
+    let sum = 0
+    const overlappers = new Set<string>()
+    for (const a of this.active) {
+      if (a.txId === rid || a === tx || sameGroup(a.frame, tx.frame)) continue
+      const p = this.linkDbm(a.txId, rid)
+      sum += mw(p)
+      if (p >= OVERLAP_MIN_DBM) overlappers.add(a.txId)
+    }
+    return { mw: sum, overlappers }
   }
 
   /** Interference+noise in mW at rid for a given lock (excludes its own tx and RU-orthogonal peers). */
@@ -291,7 +338,9 @@ export class Channel {
           if (a.txId === rid) continue
           const p = this.linkDbm(a.txId, rid)
           sum += mw(p)
-          if (p >= CCA_PD_DBM) anyPd = true
+          // −82 dBm applies to a PPDU whose preamble this radio could see;
+          // one that began during our own transmission counts only as energy.
+          if (p >= CCA_PD_DBM && r.observed.has(a.txId)) anyPd = true
         }
         busy = anyPd || sum >= mw(CCA_ED_DBM) || r.locks.length > 0
         cause = anyPd || r.locks.length > 0 ? 'preamble' : 'energy'
