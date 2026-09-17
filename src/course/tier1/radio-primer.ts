@@ -97,6 +97,7 @@ export const radioPrimer: Lesson = {
   observe: [
     { en: 'Jump to the first data frame in each variant and read its rate: 172.1, 129.0, 34.4 and 17.2 Mbps. Type the same four geometries into the widget — 1 m, 5 m, 9 m + one brick, 14 m + one brick, all at 15 dBm — and it names exactly those rates. The link budget is the whole explanation.', zh: '在每个变体里跳到第一个数据帧，读出速率：172.1、129.0、34.4、17.2 Mbps。把同样四种几何位置输入小部件——1 m、5 m、9 m + 一堵砖墙、14 m + 一堵砖墙，都是 15 dBm——它给出的正是这四个速率。链路预算就是全部解释。' },
     { en: 'In the first 100 ms the router acknowledges 353 frames from the desk but only 107 from the far wall, fewer than a third as many. The MAC is identical in both; 46 dB of path loss and brick is the entire difference.', zh: '前 100 ms 里，路由器确认了书桌位置的 353 帧，远端墙边却只有 107 帧，不到三分之一。两边的 MAC 完全一样，差别全在那 46 dB 的路径与砖墙损耗上。' },
+    { en: 'The white ACK barely notices the link budget. It goes out at 24 Mbps and 28 µs in the first three variants and only at the far wall drops to 12 Mbps and 32 µs: control frames use a low, mandatory rate, so they change in coarse steps while the data blocks stretch fivefold.', zh: '白色的 ACK 几乎不受链路预算影响：前三个变体里都是 24 Mbps、28 µs，只有到了远端墙边才降到 12 Mbps、32 µs。控制帧使用低速的强制速率，只会粗粒度地变化，而数据块的时长已经拉长到五倍。' },
   ],
   tryThis: [
     { en: 'In the widget, walk the distance slider 4.5 → 9 → 18 m with one brick wall: the RSSI reads −63.3, −72.3 and −81.4 dBm. Each doubling costs 9.0 dB, exactly as the exponent-3 model says.', zh: '在小部件里把距离滑杆依次调到 4.5 → 9 → 18 m（保留一堵砖墙）：RSSI 依次是 −63.3、−72.3、−81.4 dBm。每翻一倍距离要付 9.0 dB，与指数 3 的模型完全一致。' },

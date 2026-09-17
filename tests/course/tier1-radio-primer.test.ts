@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { radioPrimer } from '../../src/course/tier1/radio-primer'
 import { primerScenario } from '../../src/course/tier1/radioLink'
-import { lessonMinutes, lessonWords, COURSE_ORDER } from '../../src/course/curriculum'
+import { COURSE_ORDER, OBSERVE_MINUTES, TRY_MINUTES, lessonMinutes, lessonWords } from '../../src/course/curriculum'
 import type { Block, Lesson } from '../../src/course/lessonKit'
 import { linkBudget, BAND_EXTRA_LOSS_DB } from '../../src/course/widgetModel'
 import { NOISE_FIGURE_DB, noiseDbm } from '../../src/engine/phy'
@@ -42,13 +42,15 @@ describe('radio primer: lesson shape', () => {
     expect(l.module).toBe(0)
     expect(l.title.en).not.toMatch(/\d/)
     expect('minutes' in l).toBe(false)
+    expect(l.observe).toHaveLength(3)
+    expect(l.tryThis).toHaveLength(2)
     for (const q of l.quiz) expect(q.answer).toBeLessThan(q.options.length)
     ScenarioSchema.parse(l.scenario())
     for (const v of l.variants!) ScenarioSchema.parse(v.scenario())
   })
 
   it('computed study time is 15–25 minutes and follows the curriculum formula', () => {
-    const raw = lessonWords(radioPrimer) / 150 + 5 * radioPrimer.observe.length + 5 * radioPrimer.tryThis.length
+    const raw = lessonWords(radioPrimer) / 150 + OBSERVE_MINUTES * radioPrimer.observe.length + TRY_MINUTES * radioPrimer.tryThis.length
     expect(lessonMinutes(radioPrimer)).toBe(Math.round(raw / 5) * 5)
     expect(lessonMinutes(radioPrimer)).toBeGreaterThanOrEqual(15)
     expect(lessonMinutes(radioPrimer)).toBeLessThanOrEqual(25)
@@ -151,6 +153,12 @@ describe('radio primer: widget and simulation agree', () => {
       expect(data[0].frame.bytes).toBe(1530)
     })
     expect((Number(EXPECTED[0].rssi) - Number(EXPECTED[3].rssi)).toFixed(0)).toBe('46')
+  })
+
+  it('the router’s ACK: 24 Mbps / 28 µs in the first three variants, 12 Mbps / 32 µs at the far wall', () => {
+    const acks = radioPrimer.variants!.map((v) => txs(records(v.scenario(), 50), 'ap', 'ack')[0].frame)
+    expect(acks.map((f) => f.mbps)).toEqual([24, 24, 24, 12])
+    expect(acks.map((f) => f.txTimeNs)).toEqual([28_000, 28_000, 28_000, 32_000])
   })
 
   it('ACKs in the first 100 ms: 353 at the desk, 107 at the far wall (under a third)', () => {

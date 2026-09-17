@@ -39,6 +39,16 @@ export const decodeThresholds: Lesson = {
       en: 'MCS 0 at −82 dBm needs 8.99 dB. The 5 dB margin stays inside the requirement, because an impairment hurts against interference exactly as against noise. The requirement never depends on channel width: a wider channel costs range only through its noise floor.',
       zh: 'MCS 0 灵敏度 −82 dBm，所需 8.99 dB。5 dB 实现余量留在要求之内，因为接收机损伤面对干扰和面对噪声时同样起作用。这个要求与信道带宽无关：更宽的信道只通过更高的噪声底来缩短覆盖。',
     } },
+    { kind: 'table', heading: { en: 'Six of the fourteen EHT rungs, 20 MHz, one stream', zh: 'EHT 十四级中的六级，20 MHz、单流' }, head: [
+      N('MCS'), { en: 'Modulation', zh: '调制' }, { en: 'Bits per data tone', zh: '每数据子载波比特' }, N('Mbps'), { en: 'Sensitivity', zh: '灵敏度' }, { en: 'Required SINR', zh: '所需 SINR' },
+    ], rows: [
+      [N('0'), N('BPSK 1/2'), N('0.5'), N('8.6'), N('−82 dBm'), N('8.99 dB')],
+      [N('1'), N('QPSK 1/2'), N('1'), N('17.2'), N('−79 dBm'), N('11.99 dB')],
+      [N('3'), N('16-QAM 1/2'), N('2'), N('34.4'), N('−74 dBm'), N('16.99 dB')],
+      [N('7'), N('64-QAM 5/6'), N('5'), N('86.0'), N('−64 dBm'), N('26.99 dB')],
+      [N('10'), N('1024-QAM 3/4'), N('7.5'), N('129.0'), N('−54 dBm'), N('36.99 dB')],
+      [N('13'), N('4096-QAM 5/6'), N('10'), N('172.1'), N('−46 dBm'), N('44.99 dB')],
+    ] },
     { kind: 'widget', widget: 'mcsLadder', params: { mode: 'eht', snrDb: 21.5 },
       caption: {
         en: 'The 14 EHT rungs, 20 MHz, one stream. The marker sits at the living-room laptop’s SNR rounded down to 21.5 dB: MCS 0–3 are usable (MCS 3 needs 16.99 + 3 = 19.99 dB), MCS 4 would need 23.99 dB. MCS 0 carries half a bit per data tone, MCS 13 carries ten — for 36 dB more.',
@@ -50,12 +60,12 @@ export const decodeThresholds: Lesson = {
       zh: '阶梯每上一级，每个符号承载的比特更多，同一帧需要的符号更少、空口时间更短；同时所需 SINR 也更高。仿真器据此给出速率上限：所需 SINR 加 3 dB 余量仍不超过链路 SNR 的最高 MCS。在 20 MHz 上这套算术可以口算：7 dB 的噪声系数比标准假设好 3 dB，3 dB 余量又原样还回去，于是上限就是 RSSI 达到其灵敏度的最高 MCS。',
     } },
     { kind: 'table', heading: { en: 'One 1530-octet frame from the laptop, by position', zh: '笔记本发出的同一个 1530 字节帧，按位置' }, head: [
-      { en: 'Position', zh: '位置' }, N('RSSI'), N('MCS'), { en: 'Required + 3 dB', zh: '所需 + 3 dB' }, { en: 'Airtime', zh: '空口时间' },
+      { en: 'Position', zh: '位置' }, N('RSSI'), N('SNR'), N('MCS'), { en: 'Required + 3 dB', zh: '所需 + 3 dB' }, { en: 'Airtime', zh: '空口时间' },
     ], rows: [
-      [{ en: 'Desk, 1 m', zh: '书桌，1 m' }, N('−31.7 dBm'), N('13'), N('47.99 dB'), N('129.6 µs')],
-      [{ en: 'Study, 5 m', zh: '书房，5 m' }, N('−52.7 dBm'), N('10'), N('39.99 dB'), N('143.2 µs')],
-      [{ en: 'Living room, 9 m + brick', zh: '客厅，9 m + 砖墙' }, N('−72.3 dBm'), N('3'), N('19.99 dB'), N('415.2 µs')],
-      [{ en: 'Far wall, 14 m + brick', zh: '远端墙边，14 m + 砖墙' }, N('−78.1 dBm'), N('1'), N('14.99 dB'), N('768.8 µs')],
+      [{ en: 'Desk, 1 m', zh: '书桌，1 m' }, N('−31.7 dBm'), N('62.3 dB'), N('13'), N('47.99 dB'), N('129.6 µs')],
+      [{ en: 'Study, 5 m', zh: '书房，5 m' }, N('−52.7 dBm'), N('41.3 dB'), N('10'), N('39.99 dB'), N('143.2 µs')],
+      [{ en: 'Living room, 9 m + brick', zh: '客厅，9 m + 砖墙' }, N('−72.3 dBm'), N('21.7 dB'), N('3'), N('19.99 dB'), N('415.2 µs')],
+      [{ en: 'Far wall, 14 m + brick', zh: '远端墙边，14 m + 砖墙' }, N('−78.1 dBm'), N('15.9 dB'), N('1'), N('14.99 dB'), N('768.8 µs')],
     ] },
     { text: {
       en: 'The margin only picks the rung; decoding compares the SINR with the bare requirement. Put the far-wall laptop on 80 MHz: the noise floor rises to −87.97 dBm and the SNR falls to 9.89 dB — under MCS 0’s 11.99 dB with the margin, over its 8.99 dB requirement — and every frame is still acknowledged. At 160 MHz the SNR is 6.87 dB: the preamble is still detected, but nothing decodes, so every reception ends in RX_FAIL and every transmission in an ACK timeout. A link can be perfectly audible and completely useless. Following a moving SINR up and down this ladder is rate adaptation, later in the course.',
@@ -77,6 +87,7 @@ export const decodeThresholds: Lesson = {
   observe: [
     { en: 'Read the MCS of the first data frame in each variant: 13, 10, 3 and 1 — the rungs the ladder widget marks for SNRs of 62.3, 41.3, 21.7 and 15.9 dB. The airtime follows: 129.6, 143.2, 415.2 and 768.8 µs. Twelve rungs down costs six times the airtime.', zh: '读出每个变体第一个数据帧的 MCS：13、10、3、1——正是阶梯小部件在 62.3、41.3、21.7、15.9 dB 上标出的那几级。一个 1530 字节帧的空口时间随之而来：129.6、143.2、415.2、768.8 µs。从最高级往下走十二级，空口时间变成六倍。' },
     { en: 'No variant produces a retry, an ACK timeout or a failed reception. A lone link at its ceiling keeps 3 dB in hand, and against a deterministic threshold that is enough to never lose a frame.', zh: '所有变体都没有重传、没有 ACK 超时、也没有接收失败。单独一条链路停在上限时至少还留着 3 dB，而在确定性门限下这就足以一帧不丢——本课程的第一次碰撞，要等第二台终端出现才会到来。' },
+    { en: 'Every run starts its first data frame at t = 0 and never changes MCS afterwards. Nothing pushes the station off its ceiling here: the rate controller steps down only after losses, and with no second radio on the air there are none.', zh: '每次运行的第一个数据帧都从 t = 0 开始，此后 MCS 再不变化。这里没有任何东西能把终端推离上限：速率控制器只在失败之后才降级，而空中没有第二台设备，也就没有失败。' },
   ],
   tryThis: [
     { en: 'Open the far-wall variant in the editor and lower the laptop’s Tx power from 15 to 12 dBm. The RSSI falls to −81.1 dBm, below MCS 1’s −79 dBm but above MCS 0’s −82 dBm: the frames drop a rung and stretch from 768.8 to 1476.0 µs. Three decibels nearly doubled the airtime.', zh: '在编辑器里打开远端墙边变体，把笔记本的发射功率从 15 dBm 调到 12 dBm。RSSI 降到 −81.1 dBm：低于 MCS 1 的 −79 dBm，但仍高于 MCS 0 的 −82 dBm，于是帧下降一级到 MCS 0，时长从 768.8 µs 拉长到 1476.0 µs。3 dB 让空口时间几乎翻倍。' },

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { decodeThresholds } from '../../src/course/tier1/decode-thresholds'
 import { primerScenario } from '../../src/course/tier1/radioLink'
-import { COURSE_ORDER, lessonMinutes, lessonWords } from '../../src/course/curriculum'
+import { COURSE_ORDER, OBSERVE_MINUTES, TRY_MINUTES, lessonMinutes, lessonWords } from '../../src/course/curriculum'
 import type { Block, Lesson } from '../../src/course/lessonKit'
 import { linkBudget, mcsLadder } from '../../src/course/widgetModel'
 import { Channel, PREAMBLE_DETECT_SINR_DB, type PhyListener } from '../../src/engine/channel'
@@ -51,6 +51,8 @@ describe('decode thresholds: lesson shape', () => {
     expect(l.module).toBe(0)
     expect(l.title.en).not.toMatch(/\d/)
     expect('minutes' in l).toBe(false)
+    expect(l.observe).toHaveLength(3)
+    expect(l.tryThis).toHaveLength(2)
     expect(l.quiz).toHaveLength(2)
     for (const q of l.quiz) expect(q.answer).toBeLessThan(q.options.length)
     ScenarioSchema.parse(l.scenario())
@@ -58,7 +60,7 @@ describe('decode thresholds: lesson shape', () => {
   })
 
   it('computed study time is 15–25 minutes and follows the curriculum formula', () => {
-    const raw = lessonWords(decodeThresholds) / 150 + 5 * decodeThresholds.observe.length + 5 * decodeThresholds.tryThis.length
+    const raw = lessonWords(decodeThresholds) / 150 + OBSERVE_MINUTES * decodeThresholds.observe.length + TRY_MINUTES * decodeThresholds.tryThis.length
     expect(lessonMinutes(decodeThresholds)).toBe(Math.round(raw / 5) * 5)
     expect(lessonMinutes(decodeThresholds)).toBeGreaterThanOrEqual(15)
     expect(lessonMinutes(decodeThresholds)).toBeLessThanOrEqual(25)
@@ -121,6 +123,18 @@ describe('decode thresholds: required SINR and the ladder', () => {
     expect((rows[13].reqSinrDb - rows[0].reqSinrDb).toFixed(0)).toBe('36')
     expect(mcsLadder('he')).toHaveLength(12)
 
+    // the six rows the lesson prints: MCS, bits per data tone, Mbps, sensitivity, required SINR
+    const printed: [number, number, number, number, string][] = [
+      [0, 0.5, 8.6, -82, '8.99'], [1, 1, 17.2, -79, '11.99'], [3, 2, 34.4, -74, '16.99'],
+      [7, 5, 86.0, -64, '26.99'], [10, 7.5, 129.0, -54, '36.99'], [13, 10, 172.1, -46, '44.99'],
+    ]
+    for (const [mcs, bits, mbps, sens, req] of printed) {
+      expect(PHY_MODES.eht.ndbps[mcs] / 234, `bits/tone MCS ${mcs}`).toBe(bits)
+      expect(rows[mcs].mbps).toBe(mbps)
+      expect(rows[mcs].sensDbm).toBe(sens)
+      expect(rows[mcs].reqSinrDb.toFixed(2)).toBe(req)
+    }
+
     const w = decodeThresholds.body.find((b): b is Extract<Block, { kind: 'widget' }> => b.kind === 'widget')!
     expect(w.widget).toBe('mcsLadder')
     expect(w.params!.mode).toBe('eht')
@@ -163,6 +177,7 @@ describe('decode thresholds: the simulation matches the ladder', () => {
       expect(lb.rssiDbm.toFixed(1)).toBe(e.rssi)
       expect(lb.snrDb.toFixed(1)).toBe(e.snr)
       expect(lb.mcs).toBe(e.mcs)
+      expect(txs(variantRecs[i], 'sta-1', 'data')[0].t).toBe(0)
       expect((reqSinrDb('eht', e.mcs) + RATE_MARGIN_DB).toFixed(2)).toBe(e.reqPlus)
       const data = txs(variantRecs[i], 'sta-1', 'data')
       expect(data.length).toBeGreaterThan(0)
