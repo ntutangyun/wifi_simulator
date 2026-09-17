@@ -52,6 +52,8 @@ export interface FrameDesc {
   muParts?: MuPart[]
   /** Frames sharing a group are RU-orthogonal: no mutual interference. */
   orthogonalGroup?: string
+  /** Trigger frames only: the PPDU format the solicited TB PPDUs must use (the Trigger itself is non-HT). */
+  ulMode?: PhyMode
   /** How a multi-user PPDU is split: by frequency (OFDMA) or by space (MU-MIMO). */
   muKind?: 'ofdma' | 'mumimo'
 }

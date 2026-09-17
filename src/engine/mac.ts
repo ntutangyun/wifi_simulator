@@ -811,8 +811,9 @@ export class WifiMac implements PhyListener {
       kind: 'trigger', src: this.nodeId, dst: '*mu', bytes: tb, mbps: 24,
       durationFieldNs: SIFS_NS + ulDur + SIFS_NS + mbaTime,
       txTimeNs: txTimeNs(tb, 24), muParts: parts, orthogonalGroup: gid, ac: this.acTag(e),
-      // the format the solicited TB PPDUs must use
-      mode, mcs: parts[0].mcs, widthMhz: ulWidth,
+      // The Trigger goes out as a non-HT frame; this is the format it dictates
+      // for the TB PPDUs it solicits.
+      ulMode: mode,
     }
     this.wantTrigger = false
     const mu: MuUlState = { kind: 'ul', gid, ac: this.edcafs.indexOf(e), users: users.map((u) => u.peer), received: new Map(), mbaHandle: 0, rxTimeoutHandle: 0 }
@@ -1271,7 +1272,7 @@ export class WifiMac implements PhyListener {
       const n = trigger.muParts!.length
       const frac = 1 / n
       // The Trigger dictates the TB PPDU's format, not the station's own capability.
-      const mode = trigger.mode ?? this.cfg.modeForPeer(trigger.src)
+      const mode = trigger.ulMode ?? this.cfg.modeForPeer(trigger.src)
       const mcs = part.mcs
       const width = this.cfg.widthForPeer(trigger.src)
       const nss = this.cfg.nssForPeer(trigger.src)

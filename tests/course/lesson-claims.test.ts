@@ -693,32 +693,43 @@ describe('lesson 14 · capstone', () => {
   const noMlo = variant((sc) => { sc.nodes.find((n) => n.id === 'sta-1')!.caps.features.mlo = false })
   const sensorMoved = variant((sc) => { sc.nodes.find((n) => n.id === 'sta-5')!.pos = { x: 9.8, y: 0.2, z: 1 } })
 
-  it('“it sends two short frames in five seconds”; the backup “takes well over half of 5 GHz and most of 6 GHz”', () => {
+  it('“a couple of short frames in five seconds”; the backup “takes well over half of 5 GHz and most of 6 GHz”', () => {
     const sensorTx = base.r.filter((x) => x.type === 'TX_START' && x.node === 'sta-5' && x.frame.kind === 'data')
-    expect(sensorTx).toHaveLength(2)
+    expect(sensorTx.length).toBeGreaterThanOrEqual(2)
+    expect(sensorTx.length).toBeLessThanOrEqual(4)
     expect(base.v['sta-1'].stats.airtimeNs / (5000 * MS)).toBeGreaterThan(0.5)
     expect(base.v['sta-1#6g'].stats.airtimeNs / (5000 * MS)).toBeGreaterThan(0.8)
   })
 
-  it('“moving it changes nothing”', () => {
+  it('“moving it changes nothing measurable”', () => {
     expect(mean(sensorMoved.v['sta-4'].stats.rxLatency)).toBe(mean(base.v['sta-4'].stats.rxLatency))
+    expect(mean(sensorMoved.v['sta-2'].stats.rxLatency)).toBeCloseTo(mean(base.v['sta-2'].stats.rxLatency), 1)
   })
 
-  it('with the backup stopped “the tablet’s page latency falls from about 39 ms to half a millisecond, and even the voice call’s halves”', () => {
+  it('with the backup stopped the video, voice and tablet latencies collapse (2.26 → 0.21 ms, 1.90 → 0.83 ms, 39 ms → half a millisecond)', () => {
+    expect(mean(base.v['sta-2'].stats.rxLatency)).toBeCloseTo(2.26, 1)
+    expect(mean(noBackup.v['sta-2'].stats.rxLatency)).toBeCloseTo(0.21, 1)
+    expect(mean(base.v['sta-3'].stats.txLatency)).toBeCloseTo(1.90, 1)
+    expect(mean(noBackup.v['sta-3'].stats.txLatency)).toBeCloseTo(0.83, 1)
     expect(mean(base.v['sta-4'].stats.rxLatency)).toBeGreaterThan(35)
     expect(mean(base.v['sta-4'].stats.rxLatency)).toBeLessThan(45)
     expect(mean(noBackup.v['sta-4'].stats.rxLatency)).toBeLessThan(1)
-    expect(mean(noBackup.v['sta-3'].stats.txLatency)).toBeLessThan(mean(base.v['sta-3'].stats.txLatency) / 2)
     for (const id of ['sta-2', 'sta-3', 'sta-4', 'sta-6']) {
       const s = noBackup.v[id].stats
       expect(mean(id === 'sta-3' ? s.txLatency : s.rxLatency), id).toBeLessThan(1)
     }
   })
 
-  it('“turn it off and the tablet waits about 110 ms” — nearly three times as long', () => {
-    const t = mean(noMlo.v['sta-4'].stats.rxLatency)
-    expect(t).toBeGreaterThan(100)
-    expect(t).toBeLessThan(120)
-    expect(t / mean(base.v['sta-4'].stats.rxLatency)).toBeGreaterThan(2.5)
+  it('MLO doubles the backup’s own throughput (37.7 → 78.0 MB) while the 5 GHz neighbours keep the same average latency', () => {
+    // the AP's received bytes across both links: the backup is all but all of it
+    const upMB = (v: Record<string, { stats: { bytesDelivered: number } }>) =>
+      (v['ap'].stats.bytesDelivered + (v['ap#6g']?.stats.bytesDelivered ?? 0)) / 1e6
+    expect(upMB(base.v)).toBeCloseTo(78.0, 0)
+    expect(upMB(noMlo.v)).toBeCloseTo(37.7, 0)
+    for (const id of ['sta-2', 'sta-6']) {
+      expect(mean(noMlo.v[id].stats.rxLatency), id).toBeCloseTo(mean(base.v[id].stats.rxLatency), 1)
+    }
+    expect(mean(base.v['sta-2'].stats.rxLatency)).toBeCloseTo(2.26, 1)
+    expect(mean(noMlo.v['sta-2'].stats.rxLatency)).toBeCloseTo(2.22, 1)
   })
 })

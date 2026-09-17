@@ -90,7 +90,9 @@ const sameGroup = (a: FrameDesc, b: FrameDesc): boolean =>
 
 /** Decode SINR threshold for a frame as seen by receiver rid. */
 function decodeThreshDb(frame: FrameDesc, rid: string): number {
-  if (frame.muParts) {
+  // Only a multi-user data PPDU is decoded per user; a Trigger or M-BA carries
+  // per-user scheduling information but is itself one non-HT frame.
+  if (frame.muParts && frame.kind === 'data') {
     const part = frame.muParts.find((p) => p.dst === rid)
     const mode = frame.mode ?? 'he'
     // addressed: own part's MCS; overhearers only need the (robust) preamble/header
