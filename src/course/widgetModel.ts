@@ -3,6 +3,7 @@
  * same engine functions the simulation uses (propagation, noise per width,
  * required SINR, rate ceiling), so a widget and a simulated link never disagree.
  */
+import { LINK_EXTRA_LOSS_DB } from '../engine/simulation'
 import { MAX_WIDTH, type ChannelWidth } from '../model/caps'
 import type { Material } from '../model/scenario'
 import {
@@ -10,12 +11,8 @@ import {
 } from '../engine/phy'
 import { WALL_LOSS_DB, pathLossDb } from '../engine/propagation'
 
-/**
- * Extra path loss on the 6 GHz link. Mirrors the private LINK_EXTRA_LOSS_DB in
- * src/engine/simulation.ts; tests/course/widgetModel.test.ts pins it against a
- * simulated multi-link scenario.
- */
-export const BAND_EXTRA_LOSS_DB: Record<'5g' | '6g', number> = { '5g': 0, '6g': 1.2 }
+/** Extra path loss per band — the engine's own value. */
+export const BAND_EXTRA_LOSS_DB = LINK_EXTRA_LOSS_DB
 
 export interface LinkBudgetInput {
   txDbm: number

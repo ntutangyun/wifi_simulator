@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { LESSONS, MODULES, type L10n } from '../../src/course/lessons'
+import { COURSE_ORDER, TIERS, lessonMinutes, lessonWords } from '../../src/course/curriculum'
 import { ScenarioSchema } from '../../src/model/scenario'
 import { Simulation } from '../../src/engine/simulation'
 import { buildLinkTable } from '../../src/engine/propagation'
@@ -252,9 +253,9 @@ describe('lesson 12 claims about TB PPDUs', () => {
 
 describe('module 4 lessons', () => {
   it('adds a fourth module', () => {
-    expect(MODULES.length).toBe(4)
-    expect(MODULES[3].en).toBe('How fast is fast')
-    expect(MODULES[3].zh.length).toBeGreaterThan(0)
+    expect(TIERS).toHaveLength(4)
+    expect(MODULES.map((m) => m.tier)).toEqual([0, 0, 1, 1, 1, 1, 1, 1, 2, 3])
+    for (const m of MODULES) expect(m.title.zh.length).toBeGreaterThan(0)
   })
 
   it('lesson 15 is about channel width and offers one variant per width', () => {
@@ -348,3 +349,32 @@ describe('claims checked against the standard (standard alignment A)', () => {
     expect(all).toMatch(/EMLSR/)
   })
 })
+
+describe('course structure (tiers, order, study time)', () => {
+  it('lessons follow COURSE_ORDER and every lesson is listed there', () => {
+    const ids = LESSONS.map((l) => l.id)
+    expect(ids).toEqual(COURSE_ORDER.filter((id) => ids.includes(id)))
+  })
+
+  it('no title carries a hard-coded lesson number — the panel numbers lessons by position', () => {
+    for (const l of LESSONS) {
+      expect(l.title.en, l.id).not.toMatch(/^\d+\s*·/)
+      expect(l.title.zh, l.id).not.toMatch(/^\d+\s*·/)
+    }
+  })
+
+  it('study time is words ÷ 150 + 5 min per observe item and per experiment, rounded to 5', () => {
+    for (const l of LESSONS) {
+      const raw = lessonWords(l) / 150 + 5 * l.observe.length + 5 * l.tryThis.length
+      expect(lessonMinutes(l), l.id).toBe(Math.max(5, Math.round(raw / 5) * 5))
+      expect(lessonMinutes(l) % 5, l.id).toBe(0)
+    }
+  })
+
+  it('Tier 1 opens with the network-and-frame module, and the channel-access lessons sit in Tier 1', () => {
+    const tierOf = (id: string) => MODULES[LESSONS.find((l) => l.id === id)!.module].tier
+    for (const id of ['airtime', 'ifs', 'backoff', 'nav', 'hidden', 'anomaly']) expect(tierOf(id), id).toBe(0)
+    for (const id of ['edca', 'ampdu', 'width', 'rate', 'ofdma-dl', 'mlo', 'capstone']) expect(tierOf(id), id).toBe(1)
+  })
+})
+
