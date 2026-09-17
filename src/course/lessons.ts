@@ -1349,10 +1349,10 @@ export const LESSONS: Lesson[] = [
     observe: [
       { en: 'Rank all devices by airtime share (inspector) — does the ranking match throughput?', zh: '按空口占比给所有设备排序（检视器）——排名和吞吐量一致吗？' },
       { en: 'Find one moment where the phone’s VO access beats a longer-waiting BE queue.', zh: '找到一个手机 VO 接入抢在等得更久的 BE 队列前面的时刻。' },
-      { en: 'The legacy sensor rarely transmits, yet look at the airtime of each of its frames.', zh: '传统传感器很少发送，但看看它每一帧的空口时间。' },
+      { en: 'The legacy sensor is the slowest radio in the house, yet it sends two short frames in five seconds. Before blaming the slowest device (lesson 6), check who actually holds the air: the MLO laptop’s backup takes well over half of 5 GHz and most of 6 GHz.', zh: '传统传感器是屋里最慢的无线电，但五秒里只发了两个短帧。在把问题归咎于最慢的设备（第 6 课）之前，先看看究竟是谁占着空口：MLO 笔记本的备份占了 5 GHz 的一半以上、6 GHz 的大部分。' },
     ],
     tryThis: [
-      { en: 'Move the sensor behind two brick walls and measure the damage to everyone else.', zh: '把传感器移到两堵砖墙之后，测量它对其他所有设备的拖累。' },
+      { en: 'Turn MLO off on the laptop and reload. The backup now lives entirely on 5 GHz, and the Wi-Fi 5 tablet — which has no 6 GHz to escape to — waits almost twice as long for its pages. Then stop the backup altogether and watch every other device’s latency collapse to under a millisecond.', zh: '关闭笔记本的 MLO 后重新加载。备份流量全部挤到 5 GHz，没有 6 GHz 可躲的 Wi-Fi 5 平板等网页的时间几乎翻倍。再把备份整个停掉，看其他所有设备的时延都降到一毫秒以下。' },
       { en: 'Upgrade the tablet to Wi-Fi 6 with OFDMA — does the AP start grouping it with the TV?', zh: '把平板升级为支持 OFDMA 的 Wi-Fi 6——AP 会开始把它和电视编成 MU 组吗？' },
       { en: 'Design your own house in the editor and predict, before simulating, where collisions will occur.', zh: '在编辑器里设计你自己的房子，并在仿真之前预测碰撞会发生在哪里。' },
     ],
@@ -1361,11 +1361,11 @@ export const LESSONS: Lesson[] = [
         q: { en: 'The single highest-leverage upgrade for this network would be…', zh: '对这个网络而言，收益最大的单项升级是……' },
         options: [
           { en: 'Raising the AP transmit power', zh: '提高 AP 的发射功率' },
-          { en: 'Replacing/isolating the slowest legacy device — it consumes airtime far out of proportion to its traffic', zh: '替换或隔离最慢的传统设备——它消耗的空口时间远超其流量应得的份额' },
-          { en: 'Adding a second saturated uploader', zh: '再加一台饱和上传的终端' },
+          { en: 'Replacing the slow legacy sensor', zh: '替换慢速的传统传感器' },
+          { en: 'Taming the laptop’s saturated backup — scheduling or rate-limiting it, or keeping it on 6 GHz', zh: '管住笔记本的饱和备份——错峰、限速，或者让它只走 6 GHz' },
         ],
-        answer: 1,
-        explain: { en: 'Lesson 6 in the wild: airtime, not bytes, is the shared resource.', zh: '这正是第 6 课的现实版：共享的资源是空口时间，不是字节。' },
+        answer: 2,
+        explain: { en: 'Airtime, not bytes or radio age, is the shared resource — so find who holds it. The sensor is the slowest radio but sends two short frames in five seconds; moving it changes nothing. The backup holds most of the air: with it stopped, the tablet’s page latency falls from about 58 ms to under a millisecond, and even the voice call’s halves. MLO already helps by moving part of the backup to 6 GHz — turn it off and the tablet waits about 100 ms.', zh: '共享的资源是空口时间，不是字节，也不是设备新旧——所以要找出谁占着它。传感器是最慢的无线电，但五秒里只发两个短帧，挪动它毫无变化。备份占了大部分空口：把它停掉，平板的网页时延从约 58 ms 降到一毫秒以下，连语音通话的时延也减半。MLO 已经在帮忙，把部分备份挪到了 6 GHz——关掉 MLO，平板要等约 100 ms。' },
       },
     ],
   },

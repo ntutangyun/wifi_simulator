@@ -577,3 +577,47 @@ describe('lesson 5 and 7 · experiments', () => {
     expect(rate(runSc(sc, 1_000 * MS))).toBeGreaterThan(1.3 * rate(recs('edca', 1_000 * MS)))
   })
 })
+
+describe('lesson 14 · capstone', () => {
+  const variant = (mod: (sc: Scenario) => void) => {
+    const sc = lesson('capstone').scenario()
+    mod(sc)
+    const sim = new Simulation(sc)
+    const r = [...sim.runUntil(5000 * MS).records]
+    return { v: sim.view.nodes, r }
+  }
+  const mean = (x: { n: number; sumNs: number }) => x.sumNs / x.n / MS
+  const base = variant(() => {})
+  const noBackup = variant((sc) => { sc.nodes.find((n) => n.id === 'sta-1')!.profiles = ['idle'] })
+  const noMlo = variant((sc) => { sc.nodes.find((n) => n.id === 'sta-1')!.caps.features.mlo = false })
+  const sensorMoved = variant((sc) => { sc.nodes.find((n) => n.id === 'sta-5')!.pos = { x: 9.8, y: 0.2, z: 1 } })
+
+  it('“it sends two short frames in five seconds”; the backup “takes well over half of 5 GHz and most of 6 GHz”', () => {
+    const sensorTx = base.r.filter((x) => x.type === 'TX_START' && x.node === 'sta-5' && x.frame.kind === 'data')
+    expect(sensorTx).toHaveLength(2)
+    expect(base.v['sta-1'].stats.airtimeNs / (5000 * MS)).toBeGreaterThan(0.5)
+    expect(base.v['sta-1#6g'].stats.airtimeNs / (5000 * MS)).toBeGreaterThan(0.8)
+  })
+
+  it('“moving it changes nothing”', () => {
+    expect(mean(sensorMoved.v['sta-4'].stats.rxLatency)).toBe(mean(base.v['sta-4'].stats.rxLatency))
+  })
+
+  it('with the backup stopped “the tablet’s page latency falls from about 58 ms to under a millisecond, and even the voice call’s halves”', () => {
+    expect(mean(base.v['sta-4'].stats.rxLatency)).toBeGreaterThan(50)
+    expect(mean(base.v['sta-4'].stats.rxLatency)).toBeLessThan(65)
+    expect(mean(noBackup.v['sta-4'].stats.rxLatency)).toBeLessThan(1)
+    expect(mean(noBackup.v['sta-3'].stats.txLatency)).toBeLessThan(mean(base.v['sta-3'].stats.txLatency) / 2)
+    for (const id of ['sta-2', 'sta-3', 'sta-4', 'sta-6']) {
+      const s = noBackup.v[id].stats
+      expect(mean(id === 'sta-3' ? s.txLatency : s.rxLatency), id).toBeLessThan(1)
+    }
+  })
+
+  it('“turn it off and the tablet waits about 100 ms” — almost twice as long', () => {
+    const t = mean(noMlo.v['sta-4'].stats.rxLatency)
+    expect(t).toBeGreaterThan(90)
+    expect(t).toBeLessThan(110)
+    expect(t / mean(base.v['sta-4'].stats.rxLatency)).toBeGreaterThan(1.5)
+  })
+})
