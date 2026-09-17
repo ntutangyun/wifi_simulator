@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { LESSONS, MODULES, type L10n } from '../../src/course/lessons'
-import { COURSE_ORDER, TIERS, lessonMinutes, lessonWords } from '../../src/course/curriculum'
+import { COURSE_ORDER, OBSERVE_MINUTES, TIERS, TRY_MINUTES, lessonMinutes, lessonWords } from '../../src/course/curriculum'
 import { ScenarioSchema } from '../../src/model/scenario'
 import { Simulation } from '../../src/engine/simulation'
 import { buildLinkTable } from '../../src/engine/propagation'
@@ -363,9 +363,9 @@ describe('course structure (tiers, order, study time)', () => {
     }
   })
 
-  it('study time is words ÷ 150 + 5 min per observe item and per experiment, rounded to 5', () => {
+  it('study time is reading time plus time at the simulator, rounded to 5 minutes', () => {
     for (const l of LESSONS) {
-      const raw = lessonWords(l) / 150 + 5 * l.observe.length + 5 * l.tryThis.length
+      const raw = lessonWords(l) / 150 + OBSERVE_MINUTES * l.observe.length + TRY_MINUTES * l.tryThis.length
       expect(lessonMinutes(l), l.id).toBe(Math.max(5, Math.round(raw / 5) * 5))
       expect(lessonMinutes(l) % 5, l.id).toBe(0)
     }
