@@ -13,7 +13,7 @@ import { Simulation } from '../../src/engine/simulation'
 import type { Scenario } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 import { buildLinkTable } from '../../src/engine/propagation'
-import { CCA_PD_DBM, sinrThreshDb } from '../../src/engine/phy'
+import { CCA_PD_DBM, RATE_MARGIN_DB, noiseDbm, reqSinrDb, sinrThreshDb, sinrThreshModeDb } from '../../src/engine/phy'
 import { PREAMBLE_DETECT_SINR_DB } from '../../src/engine/channel'
 
 type Tx = Extract<TLRecord, { type: 'TX_START' }>
@@ -595,6 +595,21 @@ describe('lesson 13 · MLO', () => {
 })
 
 describe('lesson 15 · channel width', () => {
+  it('on the desk a 160 MHz link holds MCS 13 with 48.7 dB against the 48.0 it needs', () => {
+    // "at 160 MHz the laptop still holds MCS 13, but only just, with 48.7 dB of signal against
+    // noise where the top modulation asks for 48.0" — and the requirement itself is
+    // width-independent: "the SINR a modulation needs … does not change with width at all".
+    const sc = lesson('width').scenario() // the lesson opens at 160 MHz
+    const lt = buildLinkTable(sc.nodes, sc.walls)
+    const snr = lt.get('sta-1')!.get('ap')! - noiseDbm(160)
+    expect(Math.round(snr * 10) / 10).toBe(48.7)
+    expect(Math.round((reqSinrDb('eht', 13) + RATE_MARGIN_DB) * 10) / 10).toBe(48)
+    expect(snr).toBeGreaterThan(reqSinrDb('eht', 13) + RATE_MARGIN_DB)
+    for (const w of [20, 40, 80, 160]) expect(reqSinrDb('eht', 13)).toBe(sinrThreshModeDb('eht', 13, w))
+    // "each doubling takes in twice the noise power — 3 dB"
+    expect(Math.round((noiseDbm(160) - noiseDbm(20)) * 10) / 10).toBe(9)
+  })
+
   it('in the far corner an 802.11a laptop falls back to 20 MHz and gets ACKs, at 704 µs a frame', () => {
     // "switch it to 802.11a (legacy) in the editor … the link falls back to 20 MHz — and the ACKs
     // come back, at 704 µs a frame: 18 Mb/s"
