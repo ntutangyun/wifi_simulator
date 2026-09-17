@@ -36,7 +36,7 @@ export type TLRecord = { t: Ns; seq: number } & (
   | { type: 'RX_MISS'; node: string; from: string; reason: 'preambleSinr'; frame: FrameDesc }
   | { type: 'NAV_SET'; node: string; untilNs: Ns; source: string }
   | { type: 'NAV_CLEAR'; node: string }
-  | { type: 'CW_CHANGE'; node: string; cw: number; ac?: number }
+  | { type: 'CW_CHANGE'; node: string; cw: number; ac?: number; qsrc?: number }
   | { type: 'RETRY'; node: string; msduId: number; retries: number; qsrc: number; ac?: number }
   | { type: 'DROP'; node: string; msduId: number; reason: 'retryLimit' | 'queueFull' | 'lifetime'; ac?: number }
   | { type: 'ACK_TIMEOUT'; node: string }

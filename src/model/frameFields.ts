@@ -270,10 +270,11 @@ function decodeData(f: FrameDesc, ctx: DecodeCtx): UserPsdu[] {
     }, ctx.apId))
     return [userPsdu(f.dst, aggregate(mpdus), true)]
   }
-  const hdr = ctx.isEdca ? QOS_HDR_BYTES : MAC_HDR_BYTES
+  const qosFrame = f.qos ?? ctx.isEdca
+  const hdr = qosFrame ? QOS_HDR_BYTES : MAC_HDR_BYTES
   const payload = f.msduBytes?.[0] ?? f.bytes - hdr - FCS_BYTES
   const mpdu = dataMpdu({
-    src: f.src, dst: f.dst, durationNs: f.durationFieldNs, retry: !!f.retryFlag, qos: ctx.isEdca, ac: f.ac,
+    src: f.src, dst: f.dst, durationNs: f.durationFieldNs, retry: !!f.retryFlag, qos: qosFrame, ac: f.ac,
     inAmpdu: false, seqNo: f.seqNo, payloadBytes: payload, msduId: ids[0],
   }, ctx.apId)
   return [userPsdu(f.dst, [{ delimiterBytes: 0, mpdu, padBytes: 0 }], false)]

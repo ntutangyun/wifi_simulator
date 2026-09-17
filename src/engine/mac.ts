@@ -48,6 +48,8 @@ export interface WifiMacCfg {
   widthForPeer(peer: string): number
   /** Negotiated spatial streams with this peer. */
   nssForPeer(peer: string): number
+  /** Is this peer a QoS station? Only then does a data frame to it carry a QoS Control field. Default: this MAC's own EDCA setting. */
+  qosWith?(peer: string): boolean
   ampduWith(peer: string): boolean
   ofdmaWith(peer: string): boolean
   /** Can this peer be a member of a MU-MIMO group? */
@@ -201,6 +203,11 @@ export class WifiMac implements PhyListener {
 
   get queueDepth(): number {
     return this.queues.depthAll()
+  }
+
+  /** A QoS Control field needs a QoS station at both ends (§9.2.4.5). */
+  private qosWith(peer: string): boolean {
+    return this.cfg.qosWith?.(peer) ?? this.cfg.edca
   }
 
   /** AC → EDCAF index (legacy has one EDCAF for everything). */
@@ -481,9 +488,10 @@ export class WifiMac implements PhyListener {
     }
 
     const aggregate = useAmpdu && msdus.length > 1
+    const qos = this.qosWith(peer)
     const psdu = aggregate
       ? ampduPsduBytes(msdus.map((m) => m.bytes))
-      : this.cfg.edca
+      : qos
         ? QOS_HDR_BYTES + msdus[0].bytes + FCS_BYTES
         : dataPsduBytes(msdus[0].bytes)
     const respTime = txTimeNs(aggregate ? BA_BYTES : ACK_BYTES, ctrlRespRateForMode(mode, mcs, mbps))
@@ -569,7 +577,7 @@ export class WifiMac implements PhyListener {
     const aggregate = this.cfg.ampduWith(peer) && mode !== 'nonht' && msduBytes.length > 1
     const psdu = aggregate
       ? ampduPsduBytes(msduBytes)
-      : this.cfg.edca ? QOS_HDR_BYTES + msduBytes[0] + FCS_BYTES : dataPsduBytes(msduBytes[0])
+      : this.qosWith(peer) ? QOS_HDR_BYTES + msduBytes[0] + FCS_BYTES : dataPsduBytes(msduBytes[0])
     const dataNs = txTimeModeNs(mode, psdu, mcs, { widthMhz: this.cfg.widthForPeer(peer), nss: this.cfg.nssForPeer(peer) })
     const respRate = ctrlRespRateForMode(mode, mcs, mbps)
     let totalNs = dataNs + SIFS_NS + txTimeNs(aggregate ? BA_BYTES : ACK_BYTES, respRate)
@@ -587,6 +595,11 @@ export class WifiMac implements PhyListener {
     this.assignSeq(e, msdus)
     const seqNo = msdus[0].seqNo!
     const txTime = txTimeModeNs(mode, psdu, mcs, { widthMhz, nss })
+    // §9.2.4.1.6: Retry marks a retransmission of this MPDU. A failed RTS
+    // counts a retry for the MSDU but never put it on the air, so the flag
+    // follows "has been transmitted", not the retry counter.
+    const retryFlag = msdus.some((m) => m.sent)
+    for (const m of msdus) m.sent = true
     // §9.2.5.2 multiple protection: the data frame carries the TXOP remainder.
     const remainder = this.announcedEndNs - (this.now() + txTime)
     const duration = this.cfg.txopProtection === 'multiple' && remainder > SIFS_NS + respTime
@@ -596,7 +609,8 @@ export class WifiMac implements PhyListener {
       kind: 'data', src: this.nodeId, dst: peer, bytes: psdu, mbps,
       durationFieldNs: this.inflate(duration),
       txTimeNs: txTime,
-      seqNo, retryFlag: msdus.some((m) => (m.retries ?? 0) > 0), msduId: msdus[0].id,
+      seqNo, retryFlag, msduId: msdus[0].id,
+      qos: aggregate || this.qosWith(peer),
       mode, mcs, widthMhz, ac: this.acTag(e),
       msduBytes: msdus.map((m) => m.bytes),
       ampdu: aggregate ? { mpduCount: msdus.length, msduIds: msdus.map((m) => m.id) } : undefined,
@@ -901,13 +915,13 @@ export class WifiMac implements PhyListener {
     } else {
       e.cw = Math.min(2 * e.cw + 1, e.params.cwMax)
     }
-    this.emit({ t: this.now(), type: 'CW_CHANGE', node: this.nodeId, cw: e.cw, ac: this.acTag(e) })
+    this.emit({ t: this.now(), type: 'CW_CHANGE', node: this.nodeId, cw: e.cw, qsrc: e.qsrc, ac: this.acTag(e) })
   }
 
   private resetQsrc(e: Edcaf): void {
     e.qsrc = 0
     e.cw = e.params.cwMin
-    this.emit({ t: this.now(), type: 'CW_CHANGE', node: this.nodeId, cw: e.cw, ac: this.acTag(e) })
+    this.emit({ t: this.now(), type: 'CW_CHANGE', node: this.nodeId, cw: e.cw, qsrc: e.qsrc, ac: this.acTag(e) })
   }
 
   /** §10.3.2.14: an MSDU gets its sequence number on its first transmission and keeps it on every retry. */

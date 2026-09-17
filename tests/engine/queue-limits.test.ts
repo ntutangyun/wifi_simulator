@@ -66,3 +66,24 @@ describe('a discarded uplink frame never reaches its cloud server', () => {
     expect(recs.filter((r) => r.type === 'WAN_RX' && r.from === sta.id)).toHaveLength(0)
   })
 })
+
+describe('the view does not time discarded frames as deliveries', () => {
+  it('a retry-limit drop adds no latency sample, and QSRC returns to 0 on success', async () => {
+    const { Simulation } = await import('../../src/engine/simulation')
+    const sc = defaultScenario()
+    const far = sc.nodes.find((n) => n.kind === 'sta')!
+    far.profiles = ['saturated']
+    far.pos = { x: 80, y: 80, z: 1 } // every attempt fails: drops, no deliveries
+    const sim = new Simulation(sc)
+    sim.runUntil(2_000_000_000)
+    const v = sim.view.nodes[far.id]
+    expect(v.stats.drops).toBeGreaterThan(0)
+    expect(v.stats.txLatency.n, 'no delivery was timed').toBe(0)
+
+    const near = new Simulation(defaultScenario())
+    near.runUntil(200_000_000)
+    // the AP delivers to a close station, so its QSRC is back at 0 after each success
+    expect(near.view.nodes['ap'].qsrc).toBe(0)
+    expect(near.view.nodes['ap'].stats.txLatency.n).toBeGreaterThan(0)
+  })
+})

@@ -39,7 +39,7 @@ describe('scene mappings', () => {
 
   it('statusText prioritizes backoff then IFS then NAV', () => {
     const base: NodeView = {
-      state: 'backoff', ccaBusy: false, backoff: 5, cw: 15, qsrc: 0,
+      state: 'backoff', ccaBusy: false, backoff: 5, cw: 15, qsrc: 0, droppedIds: [],
       navUntilNs: 0, ifs: null, queue: [], currentTx: null, currentRx: null, rxSeen: {},
       stats: {
         txOk: 0, txFail: 0, retries: 0, drops: 0, bytesDelivered: 0, airtimeNs: 0, collisions: 0,
@@ -55,7 +55,7 @@ describe('scene mappings', () => {
 })
 
 describe('TXOP holder annotation', () => {
-  const base = { state: 'waitAck', ccaBusy: false, backoff: null, cw: 15, qsrc: 0, navUntilNs: 0, ifs: null,
+  const base = { state: 'waitAck', ccaBusy: false, backoff: null, cw: 15, qsrc: 0, droppedIds: [], navUntilNs: 0, ifs: null,
     queue: [], currentTx: null, currentRx: null, rxSeen: {}, stats: { bytesDelivered: 0, txOk: 0, retries: 0, drops: 0, collisions: 0, airtimeNs: 0 },
     acs: null, txopUntilNs: 0, txopAc: -1 } as unknown as Parameters<typeof txopText>[0]
 
@@ -76,7 +76,7 @@ describe('TXOP holder annotation', () => {
 })
 
 it('a TXOP with no state text still lands on line two', () => {
-  const nv = { state: 'tx', ccaBusy: true, backoff: null, cw: 15, qsrc: 0, navUntilNs: 0, ifs: null, queue: [], currentTx: null, currentRx: null,
+  const nv = { state: 'tx', ccaBusy: true, backoff: null, cw: 15, qsrc: 0, droppedIds: [], navUntilNs: 0, ifs: null, queue: [], currentTx: null, currentRx: null,
     rxSeen: {}, stats: { bytesDelivered: 0, txOk: 0, retries: 0, drops: 0, collisions: 0, airtimeNs: 0 }, acs: null, txopUntilNs: 2_000_000, txopAc: 2 } as unknown as Parameters<typeof labelText>[0]
   expect(labelText(nv, 1_000_000)).toBe('\nTXOP VI 1000µs')
 })

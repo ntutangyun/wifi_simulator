@@ -83,8 +83,10 @@ export interface NodeView {
   ccaBusy: boolean
   backoff: number | null
   cw: number
-  /** QSRC of the access category that last failed (802.11-2020 retry model). */
+  /** Live QSRC: consecutive failed attempts of the access category that last changed its contention window. */
   qsrc: number
+  /** MSDUs discarded but not yet dequeued — their DEQUEUE is a discard, not a delivery. */
+  droppedIds: number[]
   navUntilNs: Ns
   ifs: { kind: 'DIFS' | 'EIFS' | 'SIFS' | 'AIFS'; untilNs: Ns; ac?: number } | null
   queue: QueuedMsduView[]
@@ -146,7 +148,7 @@ export function initViewState(sc: Scenario): ViewState {
     const cfg = sc.nodes.find((n) => n.id === physicalId(vid))!
     const edca = hasFeature(cfg, 'edca')
     nodes[vid] = {
-      state: 'idle', ccaBusy: false, backoff: null, cw: 15, qsrc: 0,
+      state: 'idle', ccaBusy: false, backoff: null, cw: 15, qsrc: 0, droppedIds: [],
       navUntilNs: 0, ifs: null, queue: [], currentTx: null, currentRx: null, rxSeen: {},
       stats: {
         txOk: 0, txFail: 0, retries: 0, drops: 0, bytesDelivered: 0, airtimeNs: 0, collisions: 0,
@@ -269,6 +271,13 @@ export function applyRecord(vs: ViewState, r: TLRecord): void {
       }
       if (i >= 0) {
         const [m] = q.splice(i, 1)
+        const dropped = vs.nodes[r.node].droppedIds.indexOf(r.msduId)
+        if (dropped >= 0) {
+          // discarded (retry limit or lifetime), not delivered: no latency sample
+          vs.nodes[r.node].droppedIds.splice(dropped, 1)
+          syncQueueLen(vs, r.node)
+          break
+        }
         // MLO credits the delivering link, as txOk does; the receiver is the
         // physical destination (its primary link holds the stats).
         addLatency(vs.nodes[r.node].stats.txLatency, r.t - m.bornNs)
@@ -406,6 +415,7 @@ export function applyRecord(vs: ViewState, r: TLRecord): void {
     case 'CW_CHANGE': {
       const n = vs.nodes[r.node]
       n.cw = r.cw
+      if (r.qsrc !== undefined) n.qsrc = r.qsrc
       if (r.ac !== undefined && n.acs) n.acs[r.ac].cw = r.cw
       break
     }
@@ -413,13 +423,15 @@ export function applyRecord(vs: ViewState, r: TLRecord): void {
       const n = vs.nodes[r.node]
       n.stats.retries += 1
       n.stats.txFail += 1
-      n.qsrc = r.qsrc
       // the failed set went back to the front of its queue (AcQueues.restore)
       for (const m of queueHolder(vs, r.node).queue) m.inFlight = false
       break
     }
     case 'DROP':
       vs.nodes[r.node].stats.drops += 1
+      // The DEQUEUE that follows a discard must not be timed as a delivery.
+      vs.nodes[r.node].droppedIds.push(r.msduId)
+      if (vs.nodes[r.node].droppedIds.length > 256) vs.nodes[r.node].droppedIds.shift()
       break
     case 'ACK_TIMEOUT':
     case 'CTS_TIMEOUT':

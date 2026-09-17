@@ -22,6 +22,8 @@ export interface Msdu {
   retries?: number
   /** When the MAC accepted it into a transmit queue; its lifetime counts from here. */
   enqueuedNs?: Ns
+  /** Has this MSDU been on the air at least once? Only then may a frame carrying it set Retry (§9.2.4.1.6). */
+  sent?: boolean
   /** Cloud server this MSDU came from / goes to (unset for purely local streams). */
   server?: string
   /**

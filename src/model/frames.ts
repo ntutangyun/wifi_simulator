@@ -35,6 +35,8 @@ export interface FrameDesc {
   txTimeNs: Ns
   seqNo?: number
   retryFlag?: boolean
+  /** Data frames: QoS Data (26-byte header) rather than plain Data — both ends must be QoS stations. */
+  qos?: boolean
   msduId?: number
   /** Payload octets of each MSDU carried, in the order of ampdu.msduIds (or [msduId]). */
   msduBytes?: number[]

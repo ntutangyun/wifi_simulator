@@ -12,8 +12,10 @@ describe('internal collision (§10.23.2.12.1)', () => {
     const retry = b.recs('RETRY', 'sta-1')
     expect(retry).toHaveLength(1)
     expect(retry[0]).toMatchObject({ ac: 0, retries: 1, qsrc: 1 })
+    // The frame counted a retry but was never on the air, so it does not carry
+    // the Retry bit when it is finally transmitted (§9.2.4.1.6).
     const bkData = b.recs('TX_START', 'sta-1').find((r) => r.frame.kind === 'data' && r.frame.ac === 0)!
-    expect(bkData.frame.retryFlag).toBe(true)
+    expect(bkData.frame.retryFlag ?? false).toBe(false)
     expect(b.delivered).toHaveLength(2)
   })
 })

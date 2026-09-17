@@ -123,6 +123,7 @@ export class Simulation {
             onTxOutcome: (peer, ok) => { if (ok) rate.onSuccess(peer); else rate.onFailure(peer) },
             txopProtection: n.txopProtection ?? 'single',
             tamper: n.kind === 'sta' ? n.tamper : undefined,
+            qosWith: (peer) => hasFeature(n, 'edca') && hasFeature(other(n, peer), 'edca'),
             ampduWith: (peer) => negotiated(n, other(n, peer), 'ampdu'),
             ofdmaWith: (peer) => negotiated(n, other(n, peer), 'ofdma'),
             mumimoWith: (peer) => negotiated(n, other(n, peer), 'mumimo'),
