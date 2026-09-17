@@ -3,9 +3,12 @@
  * who sent it, every field it carries, and what happens next. Replaces the node
  * view in the inspector column while a frame is selected.
  */
+import { useState } from 'react'
+import { hasFeature } from '../model/caps'
+import { decodeFrame, type DecodedFrame, type FrameField, type PpduSegmentKey } from '../model/frameFields'
 import { nodeDisplayName } from './names'
 import { fmtNs } from './format'
-import { useStrings } from './i18n'
+import { useStrings, type Strings } from './i18n'
 import { useUi, type FrameSelection } from './store'
 
 const dim: React.CSSProperties = { color: 'var(--dim)' }
@@ -91,9 +94,122 @@ export function FrameDetail({ sel }: { sel: FrameSelection }) {
 
       {f.orthogonalGroup && <div style={hintStyle}>{F.ruNote(f.muKind)}</div>}
 
+      <FieldsSection sel={sel} nameOf={nameOf} />
+
       <div style={{ borderTop: '1px solid var(--border)', margin: '6px 0' }} />
       <div style={{ fontWeight: 600, fontSize: 11.5 }}>{F.nextTitle}</div>
       <p style={para}>{F.next[f.kind]}</p>
+    </div>
+  )
+}
+
+const mono: React.CSSProperties = { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', fontSize: 11 }
+const cell: React.CSSProperties = { padding: '2px 4px', borderBottom: '1px solid rgba(255,255,255,0.06)', verticalAlign: 'top' }
+const SEG_COLOR: Record<PpduSegmentKey, string> = {
+  legacyPreamble: '#a78bfa', signal: '#f472b6', preamble: '#a78bfa', muSig: '#f472b6', data: '#38bdf8', padding: '#64748b',
+}
+
+/** Collapsible field-by-field decode of the selected frame: MAC header of the first MPDU, subframes, PPDU layout. */
+function FieldsSection({ sel, nameOf }: { sel: FrameSelection; nameOf: (id: string) => string }) {
+  const S = useStrings().frameDetail.fields
+  const { scenario } = useUi()
+  const [open, setOpen] = useState(false)
+  const f = sel.frame
+  const ap = scenario.nodes.find((n) => n.kind === 'ap')
+  let decoded: DecodedFrame | null = null
+  if (open && ap) {
+    const src = scenario.nodes.find((n) => n.id === f.src) ?? ap
+    try {
+      decoded = decodeFrame(f, { apId: ap.id, isEdca: hasFeature(src, 'edca') && hasFeature(ap, 'edca') })
+    } catch {
+      decoded = null // a frame the decoder cannot account for: show nothing rather than wrong sizes
+    }
+  }
+  return (
+    <>
+      <div style={{ borderTop: '1px solid var(--border)', margin: '6px 0' }} />
+      <div style={{ fontWeight: 600, fontSize: 11.5, cursor: 'pointer', userSelect: 'none' }} onClick={() => setOpen(!open)}>
+        {open ? '▾' : '▸'} {S.title}
+      </div>
+      {!open && <div style={hintStyle}>{S.hint}</div>}
+      {decoded && <DecodedView d={decoded} S={S} nameOf={nameOf} />}
+    </>
+  )
+}
+
+function DecodedView({ d, S, nameOf }: {
+  d: DecodedFrame
+  S: Strings['frameDetail']['fields']
+  nameOf: (id: string) => string
+}) {
+  const first = d.users[0]?.subframes[0]?.mpdu
+  const total = d.ppdu.reduce((s, p) => s + p.durNs, 0) || 1
+  const several = d.users.length > 1 || (d.users[0]?.subframes.length ?? 0) > 1
+  const fieldValue = (x: FrameField): React.ReactNode => {
+    if (x.node === undefined) return x.value ?? ''
+    const who = x.node === '*' ? S.broadcast : nameOf(x.node)
+    return <>{who} <span style={dim}>({(x.roles ?? []).map((r) => S.role[r]).join(' = ')})</span></>
+  }
+  return (
+    <div style={{ margin: '4px 0 6px' }}>
+      {first && (
+        <>
+          <div style={{ fontSize: 11.5, margin: '2px 0' }}>{S.mpdu(first.typeName, first.subtypeName, first.bytes)}</div>
+          {d.users.map((u, ui) => (u.aggregated || d.users.length > 1) && (
+            <div key={ui} style={{ margin: '2px 0 4px', fontSize: 11 }}>
+              {d.users.length > 1 && <div>{S.forUser(nameOf(u.dst))} · {u.bytes} B</div>}
+              {u.aggregated && (
+                <details>
+                  <summary style={{ cursor: 'pointer', ...dim }}>{S.subframes(u.subframes.length)}</summary>
+                  <div style={{ ...mono, ...dim, maxHeight: 120, overflowY: 'auto' }}>
+                    {u.subframes.map((sf, i) => (
+                      <div key={i}>{S.subframeRow(i, sf.delimiterBytes, sf.mpdu.bytes, sf.padBytes)}</div>
+                    ))}
+                  </div>
+                </details>
+              )}
+            </div>
+          ))}
+          {several && <div style={{ ...dim, fontSize: 11 }}>{S.firstShown}</div>}
+          <table style={{ width: '100%', fontSize: 11, borderCollapse: 'collapse', marginBottom: 6 }}>
+            <tbody>
+              {first.fields.map((x, i) => (
+                <tr key={i}>
+                  <td style={{ ...cell, ...dim, whiteSpace: 'nowrap' }}>{S.name[x.key]}</td>
+                  <td style={{ ...cell, ...mono, textAlign: 'right', whiteSpace: 'nowrap' }}>{x.bytes} B</td>
+                  <td style={{ ...cell, textAlign: 'right' }}>
+                    {x.bits
+                      ? x.bits.map((b) => (
+                        <div key={b.key}><span style={dim}>{S.bit[b.key]}</span> <span style={mono}>{b.value}</span></div>
+                      ))
+                      : fieldValue(x)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
+      <div style={{ fontWeight: 600, fontSize: 11.5 }}>{S.ppdu}</div>
+      <div style={hintStyle}>{S.ppduHint}</div>
+      <div style={{ display: 'flex', height: 12, borderRadius: 3, overflow: 'hidden', margin: '2px 0 4px', background: 'var(--panel2)' }}>
+        {d.ppdu.map((p, i) => (
+          <div
+            key={i}
+            title={`${S.segment[p.key]} · ${(p.durNs / 1000).toFixed(1)} µs`}
+            style={{ width: `${(100 * p.durNs) / total}%`, minWidth: p.durNs > 0 ? 2 : 0, background: SEG_COLOR[p.key], opacity: 0.85 }}
+          />
+        ))}
+      </div>
+      {d.ppdu.map((p, i) => (
+        <div key={i} style={{ ...valueRow, fontSize: 11 }}>
+          <span><span style={{ color: SEG_COLOR[p.key] }}>■</span> {S.segment[p.key]}</span>
+          <span style={dim}>
+            {p.symbols !== undefined && p.symNs !== undefined ? `${S.symbols(p.symbols, p.symNs / 1000)} = ` : ''}
+            {(p.durNs / 1000).toFixed(1)} µs
+          </span>
+        </div>
+      ))}
     </div>
   )
 }
