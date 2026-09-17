@@ -66,7 +66,7 @@ export class Simulation {
 
     // ---- shared MLD queues (per physical node) ----
     const queuesOf = new Map<string, AcQueues>()
-    for (const n of sc.nodes) queuesOf.set(n.id, new AcQueues())
+    for (const n of sc.nodes) queuesOf.set(n.id, new AcQueues(sc.queue?.limit))
 
     /** Traffic sources per station — one per stream it runs. */
     const sources = new Map<string, TrafficSource[]>()
@@ -104,6 +104,7 @@ export class Simulation {
           root.fork(hashStr(vid)), linkEmit,
           {
             rtsThresholdBytes: sc.rtsThresholdBytes,
+            msduLifetimeNs: sc.queue ? sc.queue.lifetimeMs * 1_000_000 : undefined,
             edca,
             txop: edca && hasFeature(n, 'txop') && hasFeature(ap, 'txop'),
             isAp: n.kind === 'ap',
@@ -139,13 +140,15 @@ export class Simulation {
               : undefined,
           },
           {
-            onDequeue: (msduId) => {
+            onDequeue: (msduId, acked) => {
               for (const s of sources.get(n.id) ?? []) {
                 s.refill()
-                s.onUplinkDelivered(msduId, this.nowNs) // reaches its cloud server one WAN delay later
+                // only an acknowledged frame reaches its cloud server (one WAN delay later)
+                if (acked) s.onUplinkDelivered(msduId, this.nowNs)
               }
               const relay = relayPending.get(msduId)
-              if (relay && n.kind === 'sta') {
+              if (!acked) relayPending.delete(msduId)
+              if (acked && relay && n.kind === 'sta') {
                 // phone-to-phone: the AP forwards the acknowledged frame to its final station
                 relayPending.delete(msduId)
                 const at = this.nowNs + RELAY_FWD_NS

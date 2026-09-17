@@ -3,13 +3,33 @@
  * the MACs of all links (MLD-level queues): an MSDU claimed by one link is
  * unavailable to the other; failed sets are restored and either link may retry.
  */
+import type { Ns } from '../model/types'
 import type { Msdu } from './traffic'
+
+/** ns-3 WifiMacQueue MaxSize default: 500 packets per access category. */
+export const DEFAULT_QUEUE_LIMIT = 500
+/** ns-3 WifiMacQueue MaxDelay default (dot11EDCATableMSDULifetime role): 500 ms. */
+export const DEFAULT_MSDU_LIFETIME_NS: Ns = 500_000_000
 
 export class AcQueues {
   private q: Msdu[][] = [[], [], [], []]
 
-  enqueue(ac: number, msdu: Msdu): void {
+  constructor(readonly limit = DEFAULT_QUEUE_LIMIT) {}
+
+  /** Append an MSDU; false when the access category's queue is full (the arrival is dropped — DROP_NEWEST). */
+  enqueue(ac: number, msdu: Msdu): boolean {
+    if (this.q[ac].length >= this.limit) return false
     this.q[ac].push(msdu)
+    return true
+  }
+
+  /** Remove and return every MSDU of an access category queued longer than lifetimeNs. */
+  purgeExpired(ac: number, nowNs: Ns, lifetimeNs: Ns): Msdu[] {
+    const queue = this.q[ac]
+    const age = (m: Msdu): Ns => nowNs - (m.enqueuedNs ?? m.bornNs)
+    const expired = queue.filter((m) => age(m) > lifetimeNs)
+    if (expired.length) this.q[ac] = queue.filter((m) => age(m) <= lifetimeNs)
+    return expired
   }
 
   depth(ac: number): number {

@@ -20,6 +20,8 @@ export interface Msdu {
   seqNo?: number
   /** Retry count of this MSDU (802.11-2020: one counter per MSDU, limit dot11ShortRetryLimit). */
   retries?: number
+  /** When the MAC accepted it into a transmit queue; its lifetime counts from here. */
+  enqueuedNs?: Ns
   /** Cloud server this MSDU came from / goes to (unset for purely local streams). */
   server?: string
   /**

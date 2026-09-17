@@ -183,6 +183,8 @@ export interface Scenario {
   /** dot11RTSThreshold in PSDU octets. */
   rtsThresholdBytes: number
   snapshotIntervalMs: number
+  /** MAC transmit queues: MSDUs per access category and MSDU lifetime. Absent = 500 MSDUs, 500 ms. */
+  queue?: { limit: number; lifetimeMs: number }
 }
 
 const OpeningSchema = z.object({ from: z.number().min(0), to: z.number().min(0) })
@@ -268,6 +270,7 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
     seed: z.number().int(),
     rtsThresholdBytes: z.number().int().min(0),
     snapshotIntervalMs: z.number().int().positive(),
+    queue: z.object({ limit: z.number().int().positive(), lifetimeMs: z.number().positive() }).optional(),
   })
   .superRefine((sc, ctx) => {
     const aps = sc.nodes.filter((n) => n.kind === 'ap')

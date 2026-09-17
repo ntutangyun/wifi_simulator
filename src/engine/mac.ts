@@ -27,12 +27,13 @@ import {
   type AcParams, type PhyMode,
 } from './phy'
 import { Rng } from './rng'
-import { AcQueues } from './queues'
+import { AcQueues, DEFAULT_MSDU_LIFETIME_NS } from './queues'
 import type { Msdu } from './traffic'
 
 export interface MacHooks {
   onMsduDelivered?(msduId: number, at: Ns): void
-  onDequeue?(msduId: number): void
+  /** An MSDU left the transmit queue: acknowledged (acked) or discarded (retry limit, lifetime). */
+  onDequeue?(msduId: number, acked: boolean): void
 }
 
 export interface WifiMacCfg {
@@ -67,6 +68,10 @@ export interface WifiMacCfg {
   txopProtection?: TxopProtection
   /** A tampered driver: deviations from the broadcast EDCA parameters (see TamperCfg). */
   tamper?: TamperCfg
+  /** MSDUs per access-category queue (default 500) — used when this MAC creates its own queues. */
+  queueLimit?: number
+  /** MSDU lifetime in the transmit queue (default 500 ms). */
+  msduLifetimeNs?: Ns
 }
 
 /** The parameter set a (possibly tampered) station actually contends with. */
@@ -187,7 +192,7 @@ export class WifiMac implements PhyListener {
     private hooks: MacHooks = {},
     sharedQueues?: AcQueues,
   ) {
-    this.queues = sharedQueues ?? new AcQueues()
+    this.queues = sharedQueues ?? new AcQueues(cfg.queueLimit)
     this.edcafs = effectiveParams(cfg.edca ? EDCA_PARAMS : [DCF_PARAMS], cfg.tamper).map((params) => ({
       params, cw: params.cwMin, backoff: null, needDraw: false,
       qsrc: 0, seqCounter: 0, ifsHandle: 0, tickHandle: 0,
@@ -205,7 +210,14 @@ export class WifiMac implements PhyListener {
 
   enqueue(msdu: Msdu, ac = 1): void {
     const ei = this.efIndex(ac)
-    this.queues.enqueue(ei, msdu)
+    msdu.enqueuedNs = this.now()
+    if (!this.queues.enqueue(ei, msdu)) {
+      // queue full: the arrival is dropped, never queued (ns-3 DROP_NEWEST)
+      // Never queued, so no DEQUEUE and no onDequeue: a saturated source refilling
+      // on every drop into a full queue would never stop.
+      this.emit({ t: this.now(), type: 'DROP', node: this.nodeId, msduId: msdu.id, reason: 'queueFull', ac: this.cfg.edca ? ei : undefined })
+      return
+    }
     this.emit({
       t: this.now(), type: 'ENQUEUE', node: this.nodeId, msduId: msdu.id, bytes: msdu.bytes,
       dst: msdu.dst, depth: this.queues.depth(ei), ac: this.cfg.edca ? ei : undefined,
@@ -402,9 +414,20 @@ export class WifiMac implements PhyListener {
 
   // ---------- transmission paths ----------
 
+  /** Discard MSDUs that outlived dot11EDCATableMSDULifetime before building a transmission from this queue. */
+  private purgeExpired(e: Edcaf, ei: number): void {
+    const t = this.now()
+    for (const m of this.queues.purgeExpired(ei, t, this.cfg.msduLifetimeNs ?? DEFAULT_MSDU_LIFETIME_NS)) {
+      this.emit({ t, type: 'DROP', node: this.nodeId, msduId: m.id, reason: 'lifetime', ac: this.acTag(e) })
+      this.emit({ t, type: 'DEQUEUE', node: this.nodeId, msduId: m.id, depth: this.queues.depth(ei), ac: this.acTag(e) })
+      this.hooks.onDequeue?.(m.id, false)
+    }
+  }
+
   private transmitFor(e: Edcaf, inTxopBurst: boolean): void {
     const ei = this.edcafs.indexOf(e)
     const t = this.now()
+    this.purgeExpired(e, ei)
 
     // AP OFDMA: DL MU when ≥2 eligible peers queued; UL Trigger when wanted.
     if (this.cfg.isAp) {
@@ -722,7 +745,7 @@ export class WifiMac implements PhyListener {
       }
       for (const m of c.msdus) {
         this.emit({ t, type: 'DEQUEUE', node: this.nodeId, msduId: m.id, depth: this.queues.depth(mu.ac), ac: this.acTag(e) })
-        this.hooks.onDequeue?.(m.id)
+        this.hooks.onDequeue?.(m.id, true)
       }
     }
     if (mu.successes.size === 0) {
@@ -909,7 +932,7 @@ export class WifiMac implements PhyListener {
       if (m.retries >= SHORT_RETRY_LIMIT) {
         this.emit({ t, type: 'DROP', node: this.nodeId, msduId: m.id, reason: 'retryLimit', ac: this.acTag(e) })
         this.emit({ t, type: 'DEQUEUE', node: this.nodeId, msduId: m.id, depth: this.queues.depth(ei), ac: this.acTag(e) })
-        this.hooks.onDequeue?.(m.id)
+        this.hooks.onDequeue?.(m.id, false)
       } else {
         keep.push(m)
       }
@@ -946,7 +969,7 @@ export class WifiMac implements PhyListener {
     this.resetQsrc(e)
     for (const m of aw.msdus) {
       this.emit({ t, type: 'DEQUEUE', node: this.nodeId, msduId: m.id, depth: this.queues.depth(aw.ac), ac: this.acTag(e) })
-      this.hooks.onDequeue?.(m.id)
+      this.hooks.onDequeue?.(m.id, true)
     }
     this.continueOrRelease(e)
   }
@@ -1225,6 +1248,7 @@ export class WifiMac implements PhyListener {
     this.setState('sifsResp')
     this.respHandle = this.q.schedule(t + SIFS_NS, () => {
       this.respHandle = 0
+      this.purgeExpired(e, ac)
       const n = trigger.muParts!.length
       const frac = 1 / n
       const mode = this.cfg.modeForPeer(trigger.src)
@@ -1272,7 +1296,7 @@ export class WifiMac implements PhyListener {
     if (acked) {
       for (const m of st.msdus) {
         this.emit({ t, type: 'DEQUEUE', node: this.nodeId, msduId: m.id, depth: this.queues.depth(st.ac), ac: this.acTag(e) })
-        this.hooks.onDequeue?.(m.id)
+        this.hooks.onDequeue?.(m.id, true)
       }
     } else {
       this.emitRetry(e, st.msdus, e.qsrc)
