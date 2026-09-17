@@ -31,7 +31,7 @@ export interface Batch {
 }
 
 /** Extra path loss on the 6 GHz link (higher frequency). */
-const LINK_EXTRA_LOSS_DB: Record<LinkId, number> = { '5g': 0, '6g': 1.2 }
+export const LINK_EXTRA_LOSS_DB: Record<LinkId, number> = { '5g': 0, '6g': 1.2 }
 
 export class Simulation {
   private q = new EventQueue()
