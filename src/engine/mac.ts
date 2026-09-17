@@ -785,9 +785,12 @@ export class WifiMac implements PhyListener {
     // Same as the DL MU PPDU: the trigger schedules the TB PPDUs at the
     // narrowest width any invited user negotiated; Nss stays per user.
     const ulWidth = Math.min(...users.map((u) => this.cfg.widthForPeer(u.peer)))
+    // One PPDU format for the whole triggered round, exactly as for a DL MU
+    // PPDU: EHT only if every invited user is EHT, otherwise HE with each
+    // user's MCS capped at 11 (HE has no 4096-QAM).
+    const mode: PhyMode = users.every((u) => this.cfg.modeForPeer(u.peer) === 'eht') ? 'eht' : 'he'
     const parts: MuPart[] = users.map((u) => {
-      const mode = this.cfg.modeForPeer(u.peer)
-      const mcs = this.cfg.mcsForPeer(u.peer)
+      const mcs = mode === 'he' ? Math.min(11, this.cfg.mcsForPeer(u.peer)) : this.cfg.mcsForPeer(u.peer)
       const nss = this.cfg.nssForPeer(u.peer)
       const need = txTimeModeNs(
         mode,
@@ -808,6 +811,8 @@ export class WifiMac implements PhyListener {
       kind: 'trigger', src: this.nodeId, dst: '*mu', bytes: tb, mbps: 24,
       durationFieldNs: SIFS_NS + ulDur + SIFS_NS + mbaTime,
       txTimeNs: txTimeNs(tb, 24), muParts: parts, orthogonalGroup: gid, ac: this.acTag(e),
+      // the format the solicited TB PPDUs must use
+      mode, mcs: parts[0].mcs, widthMhz: ulWidth,
     }
     this.wantTrigger = false
     const mu: MuUlState = { kind: 'ul', gid, ac: this.edcafs.indexOf(e), users: users.map((u) => u.peer), received: new Map(), mbaHandle: 0, rxTimeoutHandle: 0 }
@@ -1265,7 +1270,8 @@ export class WifiMac implements PhyListener {
       this.purgeExpired(e, ac)
       const n = trigger.muParts!.length
       const frac = 1 / n
-      const mode = this.cfg.modeForPeer(trigger.src)
+      // The Trigger dictates the TB PPDU's format, not the station's own capability.
+      const mode = trigger.mode ?? this.cfg.modeForPeer(trigger.src)
       const mcs = part.mcs
       const width = this.cfg.widthForPeer(trigger.src)
       const nss = this.cfg.nssForPeer(trigger.src)

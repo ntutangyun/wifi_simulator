@@ -76,3 +76,24 @@ describe('DL MU outcome', () => {
     expect(partial).toBeGreaterThan(0)
   })
 })
+
+describe('a triggered uplink round has one PPDU format', () => {
+  it('a mixed HE/EHT group is triggered as HE with every MCS capped at 11', () => {
+    const sc = HOUSEHOLDS.find((h) => h.id === 'three-gamers')!.scenario()
+    const sim = new Simulation({ ...sc, seed: 23 })
+    const recs: TLRecord[] = []
+    // the crash this guards against was an EHT MCS 12 inside a trigger with no mode
+    for (let t = 200 * MS; t <= 3000 * MS; t += 200 * MS) recs.push(...sim.runUntil(t).records)
+    const triggers = recs.filter((r): r is Rec<'TX_START'> => r.type === 'TX_START' && r.frame.kind === 'trigger')
+    expect(triggers.length).toBeGreaterThan(0)
+    for (const r of triggers) {
+      expect(r.frame.mode, `trigger @${r.t}`).toBeDefined()
+      if (r.frame.mode === 'he') for (const p of r.frame.muParts!) expect(p.mcs).toBeLessThanOrEqual(11)
+    }
+    const tb = recs.filter((r): r is Rec<'TX_START'> => r.type === 'TX_START' && r.node !== 'ap' && !!r.frame.orthogonalGroup && r.frame.kind === 'data')
+    for (const r of tb) {
+      const trig = [...triggers].reverse().find((x) => x.frame.orthogonalGroup === r.frame.orthogonalGroup)
+      if (trig) expect(r.frame.mode, `TB PPDU @${r.t}`).toBe(trig.frame.mode)
+    }
+  })
+})
