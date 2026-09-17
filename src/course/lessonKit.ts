@@ -49,7 +49,6 @@ export type Block =
 export interface Lesson {
   id: string
   module: number
-  minutes: number
   title: L10n
   body: Block[]
   scenario: () => Scenario

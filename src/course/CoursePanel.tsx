@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useStrings } from '../ui/i18n'
 import { player, useUi } from '../ui/store'
-import { LESSONS, MODULES, lessonIndex, type Block, type L10n, type Lesson } from './lessons'
+import { LESSONS, lessonIndex, type Block, type L10n, type Lesson } from './lessons'
+import { MODULES, TIERS, lessonMinutes } from './curriculum'
 import { LinkBudget } from './widgets/LinkBudget'
 import { McsLadder } from './widgets/McsLadder'
 
@@ -144,10 +145,17 @@ export function CoursePanel() {
         <h3 style={{ margin: '2px 0 2px', fontSize: 14 }}>{L.title}</h3>
         <div style={{ ...dim, marginBottom: 10 }}>{L.progressOf(doneCount, LESSONS.length)}</div>
         <div style={{ ...dim, marginBottom: 12, lineHeight: 1.5 }}>{L.selectPrompt}</div>
-        {MODULES.map((m, mi) => (
+        {TIERS.map((tier, ti) => {
+          // modules and tiers with no lesson yet are not shown
+          const mods = MODULES.map((m, mi) => ({ m, mi })).filter(({ m, mi }) => m.tier === ti && LESSONS.some((l) => l.module === mi))
+          if (!mods.length) return null
+          return (
+          <div key={ti} style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: '#d5dae3', marginBottom: 6 }}>{t(tier)}</div>
+        {mods.map(({ m, mi }) => (
           <div key={mi} style={{ marginBottom: 12 }}>
             <div style={{ fontSize: 11, color: 'var(--dim)', letterSpacing: 0.5, marginBottom: 4 }}>
-              {L.module} {mi + 1} · {t(m)}
+              {L.module} {mi + 1} · {t(m.title)}
             </div>
             {LESSONS.filter((l) => l.module === mi).map((l) => (
               <div
@@ -161,12 +169,16 @@ export function CoursePanel() {
                 <span style={{ width: 14, textAlign: 'center', color: progress[l.id]?.done ? '#22c55e' : 'var(--dim)' }}>
                   {progress[l.id]?.done ? '✓' : '○'}
                 </span>
+                <span style={{ ...dim, width: 18, textAlign: 'right' }}>{lessonIndex(l.id) + 1}</span>
                 <span style={{ flex: 1 }}>{t(l.title)}</span>
-                <span style={{ ...dim, fontSize: 10.5 }}>{L.minutes(l.minutes)}</span>
+                <span style={{ ...dim, fontSize: 10.5 }}>{L.minutes(lessonMinutes(l))}</span>
               </div>
             ))}
           </div>
         ))}
+          </div>
+          )
+        })}
       </div>
     )
   }
@@ -193,7 +205,10 @@ export function CoursePanel() {
         <button disabled={idx >= LESSONS.length - 1} onClick={() => selectLesson(LESSONS[idx + 1].id)}>{L.next}</button>
       </div>
 
-      <h3 style={{ margin: '4px 0 8px', fontSize: 14 }}>{t(lesson.title)}</h3>
+      <div style={{ ...dim, fontSize: 11 }}>
+        {t(TIERS[MODULES[lesson.module].tier])} · {L.module} {lesson.module + 1} · {L.minutes(lessonMinutes(lesson))}
+      </div>
+      <h3 style={{ margin: '4px 0 8px', fontSize: 14 }}>{idx + 1} · {t(lesson.title)}</h3>
 
       {lesson.body.map((b, i) => (
         <div key={`${lesson.id}:${i}`}>
