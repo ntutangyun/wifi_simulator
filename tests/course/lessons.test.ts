@@ -205,6 +205,12 @@ describe('lesson body blocks', () => {
             })
             break
           }
+          case 'widget': {
+            const w = b as { widget: string; params?: Record<string, number | string>; caption?: L10n }
+            expect(['linkBudget', 'mcsLadder'], `${where} widget`).toContain(w.widget)
+            if (w.caption) bilingual(w.caption, `${where} caption`)
+            break
+          }
           case 'list':
           case 'steps': {
             const items = (b as { items: L10n[] }).items
@@ -293,9 +299,9 @@ describe('module 4 lessons', () => {
 })
 
 describe('lessons 17 and 18', () => {
-  it('lesson 17 contrasts OFDMA with MU-MIMO as two variants of the same house', () => {
+  it('the MU-MIMO lesson contrasts OFDMA with MU-MIMO as two variants of the same house', () => {
     const l = LESSONS.find((x) => x.id === 'mumimo')!
-    expect(l.module).toBe(3)
+    expect(MODULES[l.module].title.en).toBe('Scheduled Wi-Fi 6/7')
     expect(l.variants?.length).toBe(2)
     expect(l.variants!.map((v) => v.label.en)).toEqual(['OFDMA (split by frequency)', 'MU-MIMO (split by space)'])
   })
@@ -318,9 +324,9 @@ describe('lessons 17 and 18', () => {
     expect(new Set(mcss).size).toBeGreaterThan(1)
   })
 
-  it('the course now runs to eighteen lessons with no duplicate ids', () => {
-    expect(LESSONS.length).toBe(18)
-    expect(new Set(LESSONS.map((l) => l.id)).size).toBe(18)
+  it('every lesson id is unique and listed in the reading order', () => {
+    expect(new Set(LESSONS.map((l) => l.id)).size).toBe(LESSONS.length)
+    for (const l of LESSONS) expect(COURSE_ORDER, l.id).toContain(l.id)
   })
 })
 

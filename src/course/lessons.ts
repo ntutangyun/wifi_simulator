@@ -14,6 +14,11 @@ import {
   type Lesson,
 } from './lessonKit'
 import { orderLessons } from './curriculum'
+import { radioPrimer } from './tier1/radio-primer'
+import { decodeThresholds } from './tier1/decode-thresholds'
+import { rolesStack } from './tier1/roles-stack'
+import { frameAnatomy } from './tier1/frame-anatomy'
+import { retriesQueues } from './tier1/retries-queues'
 export type { Block, JumpTarget, L10n, Lesson, LessonVariant, Quiz } from './lessonKit'
 
 export { MODULES, TIERS } from './curriculum'
@@ -83,6 +88,11 @@ function rateScenario(): Scenario {
 // ---------------------------------------------------------------------------
 
 const AUTHORED: Lesson[] = [
+  radioPrimer,
+  decodeThresholds,
+  rolesStack,
+  frameAnatomy,
+  retriesQueues,
   // ======================= MODULE 1 =======================
   {
     id: 'airtime',
