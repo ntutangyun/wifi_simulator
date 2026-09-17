@@ -5,6 +5,8 @@ export type MacStateName =
   | 'idle' | 'defer' | 'backoff' | 'tx' | 'waitAck' | 'waitCts' | 'sifsResp' | 'rx'
 
 /** One observable micro-event. The timeline is the append-only sequence of these. */
+export type RxFailReason = 'collision' | 'lowSinr' | 'txDuringRx' | 'capture'
+
 export type TLRecord = { t: Ns; seq: number } & (
   | { type: 'ARRIVAL'; node: string; msduId: number; bytes: number; dst: string }
   | { type: 'ENQUEUE'; node: string; msduId: number; bytes: number; dst: string; depth: number; ac?: number; server?: string; rttFromNs?: Ns; relayFromNs?: Ns }
@@ -28,7 +30,7 @@ export type TLRecord = { t: Ns; seq: number } & (
   | { type: 'TX_END'; node: string; frame: FrameDesc }
   | { type: 'RX_START'; node: string; from: string; frame: FrameDesc }
   | { type: 'RX_OK'; node: string; from: string; frame: FrameDesc }
-  | { type: 'RX_FAIL'; node: string; from: string | null; reason: 'collision' | 'lowSinr' | 'txDuringRx' | 'capture' }
+  | { type: 'RX_FAIL'; node: string; from: string | null; reason: RxFailReason }
   | { type: 'NAV_SET'; node: string; untilNs: Ns; source: string }
   | { type: 'NAV_CLEAR'; node: string }
   | { type: 'CW_CHANGE'; node: string; cw: number; ac?: number }

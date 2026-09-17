@@ -1,11 +1,17 @@
 /** Pure helpers turning timeline records into per-node lane spans. */
 import type { FrameDesc, FrameKind } from '../model/frames'
-import type { TLRecord } from '../model/records'
+import type { RxFailReason, TLRecord } from '../model/records'
 import type { Ns } from '../model/types'
 import type { ViewState } from '../model/view'
 import type { Strings } from './i18n'
 
 export type SpanKind = 'tx' | 'rx' | 'backoff' | 'defer' | 'nav' | 'sifs'
+
+/** Why a reception failed, and who was on the air over it (from the COLLISION record). */
+export interface RxFail {
+  reason: RxFailReason
+  interferers: string[]
+}
 
 export interface IfsSegment {
   kind: string
@@ -20,6 +26,12 @@ export interface LaneSpan {
   frameSrc?: string
   frame?: FrameDesc
   ac?: number
+  /**
+   * Set on an rx span whose frame did not decode. A receiver locks onto one
+   * preamble, so a collision shows as ONE reception that failed — this is
+   * where the lane says so, and names the other transmitter(s).
+   */
+  rxFail?: RxFail
   /**
    * Every IFS armed during this span, in order. A single defer block can hold
    * more than one: an EIFS is cut short and replaced by a DIFS as soon as a
@@ -39,6 +51,17 @@ export interface LaneSpan {
   fullEndNs: Ns
 }
 
+/**
+ * How loudly a failed reception should be drawn. A collision is the event the
+ * course teaches, so it gets the alarm colour of the collision tick. The rest
+ * is routine — a bystander overhearing a fast frame it cannot decode, or a lock
+ * abandoned for a stronger preamble or the radio's own transmission — and stays
+ * in the receive tone, only hatched, so it does not drown the lesson's point.
+ */
+export function rxFailTone(reason: RxFailReason): 'collision' | 'weak' {
+  return reason === 'collision' ? 'collision' : 'weak'
+}
+
 const STATE_SPAN: Record<string, SpanKind | null> = {
   idle: null, tx: null, rx: null,
   defer: 'defer', backoff: 'backoff',
@@ -55,6 +78,7 @@ interface OpenSpan {
   /** Set when records of more than one AC touched this span — no single AC owns it. */
   acMixed?: boolean
   openStart?: boolean
+  rxFail?: RxFail
   ifs: IfsSegment[]
 }
 
@@ -104,11 +128,27 @@ export function recordsToSpans(
     }
   }
 
+  // COLLISION records name every transmitter in a pile-up, but they are
+  // emitted after the RX_FAIL they explain — index them up front.
+  const collisionsAt = new Map<Ns, string[][]>()
+  for (const r of records) {
+    if (r.type !== 'COLLISION') continue
+    const list = collisionsAt.get(r.t)
+    if (list) list.push(r.nodes)
+    else collisionsAt.set(r.t, [r.nodes])
+  }
+  const interferersOf = (t: Ns, from: string | null): string[] => {
+    if (from === null) return []
+    const hit = collisionsAt.get(t)?.find((nodes) => nodes.includes(from))
+    return hit ? hit.filter((n) => n !== from) : []
+  }
+
   const emit = (nodeId: string, o: OpenSpan, end: Ns, openEnded: boolean) => {
     if (end <= a || o.start >= b) return
     out.push({
       nodeId, kind: o.kind, frameKind: o.frameKind, frameSrc: o.frameSrc, frame: o.frame,
       ac: o.acMixed ? undefined : o.ac, ifs: o.ifs, openStart: o.openStart ?? false, openEnded,
+      ...(o.rxFail ? { rxFail: o.rxFail } : {}),
       startNs: Math.max(a, o.start), endNs: Math.min(b, end),
       fullStartNs: o.start, fullEndNs: end,
     })
@@ -184,6 +224,9 @@ export function recordsToSpans(
           const o = openRx[id].get(from)
           if (o) {
             openRx[id].delete(from)
+            if (r.type === 'RX_FAIL') {
+              o.rxFail = { reason: r.reason, interferers: r.reason === 'collision' ? interferersOf(r.t, from) : [] }
+            }
             emit(id, o, r.t, false)
           }
         }
@@ -267,8 +310,11 @@ export function spanTooltip(s: LaneSpan, T: Strings['tooltips'], t?: Ns, nameOf:
       if (f.orthogonalGroup) lines.push(T.ruNote(f.muKind))
       return lines
     }
-    case 'rx':
-      return [`${T.receiving(s.frameKind?.toUpperCase() ?? '', s.frameSrc ? nameOf(s.frameSrc) : '')}${ac}`, dur]
+    case 'rx': {
+      const lines = [`${T.receiving(s.frameKind?.toUpperCase() ?? '', s.frameSrc ? nameOf(s.frameSrc) : '')}${ac}`, dur]
+      if (s.rxFail) lines.push(T.rxCorrupted(s.rxFail.reason, s.rxFail.interferers.map(nameOf).join(', ')))
+      return lines
+    }
     case 'backoff':
       return [`${T.backoffTitle}${ac} · ${dur}`, T.backoffL1, T.backoffL2]
     case 'defer': {

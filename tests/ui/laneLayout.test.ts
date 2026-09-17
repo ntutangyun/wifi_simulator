@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { ifsAt, recordsToSpans, spanTooltip, topSpanAt, xForT, type LaneSpan } from '../../src/ui/laneLayout'
+import { ifsAt, recordsToSpans, rxFailTone, spanTooltip, topSpanAt, xForT, type LaneSpan } from '../../src/ui/laneLayout'
 import { STRINGS } from '../../src/ui/i18n'
 import { makeEmitter, type EmitFn, type TLRecord } from '../../src/model/records'
 import { initViewState } from '../../src/model/view'
@@ -146,6 +146,65 @@ describe('recordsToSpans', () => {
     ]), ['ap'], 0, 1000)
     const rx = spans.filter((s) => s.kind === 'rx')
     expect(rx.map((s) => s.frameSrc).sort()).toEqual(['sta-1', 'sta-2'])
+  })
+
+  it('records the outcome of a reception that failed, naming the interferers', () => {
+    const rts: FrameDesc = { ...frame, kind: 'rts', bytes: 20, txTimeNs: 28_000 }
+    const spans = recordsToSpans(recs([
+      { t: 0, type: 'RX_START', node: 'ap', from: 'sta-1', frame: rts },
+      { t: 28_000, type: 'RX_FAIL', node: 'ap', from: 'sta-1', reason: 'collision' },
+      { t: 28_000, type: 'COLLISION', nodes: ['sta-1', 'sta-2'] },
+    ]), ['ap'], 0, 100_000)
+    const rx = spans.find((s) => s.kind === 'rx')!
+    expect(rx.rxFail).toEqual({ reason: 'collision', interferers: ['sta-2'] })
+  })
+
+  it('leaves a successful reception without a failure mark', () => {
+    const spans = recordsToSpans(recs([
+      { t: 0, type: 'RX_START', node: 'ap', from: 'sta-1', frame },
+      { t: 232_000, type: 'RX_OK', node: 'ap', from: 'sta-1', frame },
+    ]), ['ap'], 0, 300_000)
+    expect(spans.find((s) => s.kind === 'rx')!.rxFail).toBeUndefined()
+  })
+
+  it('records a non-collision failure with its reason and no interferers', () => {
+    const spans = recordsToSpans(recs([
+      { t: 0, type: 'RX_START', node: 'ap', from: 'sta-1', frame },
+      { t: 232_000, type: 'RX_FAIL', node: 'ap', from: 'sta-1', reason: 'lowSinr' },
+    ]), ['ap'], 0, 300_000)
+    expect(spans.find((s) => s.kind === 'rx')!.rxFail).toEqual({ reason: 'lowSinr', interferers: [] })
+  })
+
+  it('tooltip of a collided reception says it was corrupted and names the interferer', () => {
+    const rts: FrameDesc = { ...frame, kind: 'rts', bytes: 20, txTimeNs: 28_000 }
+    const spans = recordsToSpans(recs([
+      { t: 0, type: 'RX_START', node: 'ap', from: 'sta-1', frame: rts },
+      { t: 28_000, type: 'RX_FAIL', node: 'ap', from: 'sta-1', reason: 'collision' },
+      { t: 28_000, type: 'COLLISION', nodes: ['sta-1', 'sta-2'] },
+    ]), ['ap'], 0, 100_000)
+    const rx = spans.find((s) => s.kind === 'rx')!
+    const names: Record<string, string> = { 'sta-1': 'Laptop', 'sta-2': 'Neighbor' }
+    const lines = spanTooltip(rx, STRINGS.en.tooltips, undefined, (id) => names[id] ?? id)
+    expect(lines[0]).toContain('receiving RTS from Laptop')
+    expect(lines.some((l) => /corrupted/i.test(l) && l.includes('Neighbor'))).toBe(true)
+    const zh = spanTooltip(rx, STRINGS.zh.tooltips, undefined, (id) => names[id] ?? id)
+    expect(zh.some((l) => l.includes('Neighbor'))).toBe(true)
+  })
+
+  it('tooltip of a successful reception has no corruption line', () => {
+    const spans = recordsToSpans(recs([
+      { t: 0, type: 'RX_START', node: 'ap', from: 'sta-1', frame },
+      { t: 232_000, type: 'RX_OK', node: 'ap', from: 'sta-1', frame },
+    ]), ['ap'], 0, 300_000)
+    const lines = spanTooltip(spans.find((s) => s.kind === 'rx')!, STRINGS.en.tooltips)
+    expect(lines.some((l) => /corrupted/i.test(l))).toBe(false)
+  })
+
+  it('only a collision earns the alarm tone; other failures stay in the receive tone', () => {
+    expect(rxFailTone('collision')).toBe('collision')
+    expect(rxFailTone('lowSinr')).toBe('weak')
+    expect(rxFailTone('capture')).toBe('weak')
+    expect(rxFailTone('txDuringRx')).toBe('weak')
   })
 
   it('tracks NAV as an independent overlay span', () => {

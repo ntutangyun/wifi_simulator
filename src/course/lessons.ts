@@ -454,6 +454,7 @@ export const LESSONS: Lesson[] = [
     ],
     observe: [
       { en: 'Backoff counters (bo:n) decrement only while the medium is idle; they freeze when the other station transmits and resume at the same value.', zh: '退避计数（bo:n）只在介质空闲时递减；对方发送时冻结，之后从同一数值继续。' },
+      { en: 'At the red tick the AP’s lane shows one reception, hatched red: a receiver locks onto a single preamble, so the overlap arrives as one garbled frame — hover it to see who else was on the air.', zh: '红色刻度处 AP 泳道只显示一次接收，且打着红色斜线：接收机只会锁定一个前导码，重叠的两帧到它这里就是一帧损坏的接收——悬停可见另一位发送者。' },
       { en: 'After a collision, both stations show CW → 31 in the inspector, and the retry frame carries the Retry flag.', zh: '碰撞后检视器里双方的 CW 都变成 31，重传帧带有 Retry 标志。' },
       { en: 'Retries draw from the doubled window: gaps before retransmissions are visibly longer on average.', zh: '重传从翻倍后的窗口抽取：重传前的等待间隙平均明显更长。' },
     ],

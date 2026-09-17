@@ -3,6 +3,7 @@ import type { FeatureFlag } from '../model/caps'
 import type { FrameDesc, FrameKind } from '../model/frames'
 import type { Generation } from '../model/types'
 import type { ProfileId } from '../model/scenario'
+import type { RxFailReason } from '../model/records'
 
 export type Lang = 'en' | 'zh'
 
@@ -136,6 +137,7 @@ export interface Strings {
     mba: string; trigger: string; rts: (dst: string) => string; cts: (dst: string) => string; cfend: string
     nonHt: string; sifsNote: string; retryNote: string; ruNote: (kind: MuKind) => string
     receiving: (kind: string, from: string) => string
+    rxCorrupted: (reason: RxFailReason, interferers: string) => string
     backoffTitle: string; backoffL1: string; backoffL2: string
     deferTitle: (ifs: string) => string; eifsNote: string; deferNote: string
     ifsChain: (kinds: string) => string
@@ -205,6 +207,7 @@ export const STRINGS: Record<Lang, Strings> = {
       { color: '#06b6d4', label: 'exchange wait', hint: 'Mid-exchange pause: a SIFS turnaround or waiting for the response (ACK/CTS) — not contending.' },
       { color: '#9333ea', label: 'NAV', hint: 'Virtual carrier sense: reserved by an overheard Duration field.' },
       { color: '#8b5cf6', label: 'RX', hint: 'Receiving a frame.' },
+      { color: '#ef4444', label: 'RX failed', hint: 'Hatched: a reception that did not decode, which costs the receiver an EIFS. Red when a collision garbled it — a receiver locks onto one preamble, so overlapping frames show as one failed reception. Purple when the signal was simply too weak, typically a bystander overhearing a fast frame.' },
       { color: '#ef4444', label: 'collision', hint: 'Two or more overlapping transmissions corrupted a reception.' },
     ],
     editor: {
@@ -370,6 +373,11 @@ export const STRINGS: Record<Lang, Strings> = {
         ? 'MU-MIMO: simultaneous, same frequency, different spatial streams'
         : 'RU-orthogonal: simultaneous with other same-group frames',
       receiving: (kind, from) => `receiving ${kind} from ${from}`,
+      rxCorrupted: (reason, interferers) =>
+        reason === 'collision' ? `corrupted — collided with ${interferers}` :
+        reason === 'capture' ? 'abandoned — re-synced to a stronger preamble' :
+        reason === 'txDuringRx' ? 'abandoned — this radio started transmitting' :
+        'corrupted — signal too weak against noise/interference',
       backoffTitle: 'random backoff countdown',
       backoffL1: 'counter −1 per idle 9 µs slot; frozen while the medium is busy (§10.3.3)',
       backoffL2: 'transmits when it reaches 0 — this is how stations avoid colliding',
@@ -443,6 +451,7 @@ export const STRINGS: Record<Lang, Strings> = {
       { color: '#06b6d4', label: '交换等待', hint: '帧交换过程中的停顿：SIFS 周转或等待响应（ACK/CTS）——并非在竞争信道。' },
       { color: '#9333ea', label: 'NAV', hint: '虚拟载波侦听：被侦听到的 Duration 字段预约了介质。' },
       { color: '#8b5cf6', label: '接收', hint: '正在接收帧。' },
+      { color: '#ef4444', label: '接收失败', hint: '打斜线：未能解码的接收，之后接收方要等一个 EIFS。红色表示被碰撞损坏——接收机只会锁定一个前导码，重叠的帧表现为一次失败的接收；紫色表示信号本身太弱，通常是旁听者听不懂一个高速率的帧。' },
       { color: '#ef4444', label: '碰撞', hint: '两个以上的传输重叠，导致接收失败。' },
     ],
     editor: {
@@ -608,6 +617,11 @@ export const STRINGS: Record<Lang, Strings> = {
         ? 'MU-MIMO：与同组同时传输，相同频率，不同空间流'
         : 'RU 正交：与同组的其他帧同时传输',
       receiving: (kind, from) => `正在接收来自 ${from} 的 ${kind}`,
+      rxCorrupted: (reason, interferers) =>
+        reason === 'collision' ? `已损坏——与 ${interferers} 发生碰撞` :
+        reason === 'capture' ? '已放弃——重新同步到更强的前导码' :
+        reason === 'txDuringRx' ? '已放弃——本机开始发送' :
+        '已损坏——信号相对噪声/干扰太弱',
       backoffTitle: '随机退避倒数',
       backoffL1: '每个空闲 9 µs 时隙减 1；介质忙时冻结（§10.3.3）',
       backoffL2: '计数到 0 即发送 — 这就是站点避免碰撞的方式',

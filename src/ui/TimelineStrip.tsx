@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { player, useUi } from './store'
-import { fitLaneLabel, recordsToSpans, spanTooltip, topSpanAt, xForT, type LaneSpan } from './laneLayout'
+import { fitLaneLabel, recordsToSpans, spanTooltip, topSpanAt, xForT, type LaneSpan, rxFailTone } from './laneLayout'
 import { fmtNs } from './format'
 import { useStrings } from './i18n'
 import { linkPlanFor, physicalId } from '../model/caps'
@@ -33,6 +33,26 @@ function drawBandTag(ctx: CanvasRenderingContext2D, tag: string, xRight: number,
   ctx.restore()
 }
 const SEED_QUANT = 10_000_000 // seed-snapshot boundary (matches snapshotIntervalMs)
+
+/** A reception garbled by a collision — the same red as the collision tick it ends at. */
+const RX_FAIL_COLOR = '#ef4444'
+
+/** Diagonal strike-through so any failed reception reads as “not decoded” at a glance. */
+function drawHatch(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number): void {
+  ctx.save()
+  ctx.beginPath()
+  ctx.rect(x, y, w, h)
+  ctx.clip()
+  ctx.strokeStyle = 'rgba(255,255,255,0.7)'
+  ctx.lineWidth = 1
+  ctx.beginPath()
+  for (let sx = x - h; sx < x + w; sx += 4) {
+    ctx.moveTo(sx, y + h)
+    ctx.lineTo(sx + h, y)
+  }
+  ctx.stroke()
+  ctx.restore()
+}
 
 const SPAN_COLORS: Record<LaneSpan['kind'], string> = {
   tx: '#3b82f6', rx: '#8b5cf6', backoff: '#f59e0b', defer: '#6d5a1b', nav: '#9333ea', sifs: '#06b6d4',
@@ -179,10 +199,12 @@ export function TimelineStrip() {
         }
         drawBandTag(ctx, bandTag(s.nodeId), x1, y + laneH * 0.42, w, 'rgba(0,0,0,0.45)')
       } else if (s.kind === 'rx') {
-        ctx.fillStyle = SPAN_COLORS.rx
+        const ry = y + laneH * 0.3, rh = laneH * 0.4
+        ctx.fillStyle = s.rxFail && rxFailTone(s.rxFail.reason) === 'collision' ? RX_FAIL_COLOR : SPAN_COLORS.rx
         ctx.globalAlpha = 0.5
-        ctx.fillRect(x0, y + laneH * 0.3, w, laneH * 0.4)
+        ctx.fillRect(x0, ry, w, rh)
         ctx.globalAlpha = 1
+        if (s.rxFail) drawHatch(ctx, x0, ry, w, rh)
         drawBandTag(ctx, bandTag(s.nodeId), x1, y + laneH * 0.5, w, 'rgba(255,255,255,0.55)')
       } else if (s.kind === 'nav') {
         ctx.fillStyle = SPAN_COLORS.nav

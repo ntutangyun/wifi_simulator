@@ -6,6 +6,7 @@ import { buildLinkTable } from '../../src/engine/propagation'
 import { widthOf } from '../../src/model/caps'
 import { CCA_PD_DBM, sinrThreshDb } from '../../src/engine/phy'
 import type { TLRecord } from '../../src/model/records'
+import { recordsToSpans } from '../../src/ui/laneLayout'
 
 const MS = 1_000_000
 
@@ -319,5 +320,16 @@ describe('lessons 17 and 18', () => {
   it('the course now runs to eighteen lessons with no duplicate ids', () => {
     expect(LESSONS.length).toBe(18)
     expect(new Set(LESSONS.map((l) => l.id)).size).toBe(18)
+  })
+})
+
+describe('what the AP lane shows for a simultaneous RTS (lesson 13)', () => {
+  it('is one reception from the laptop, marked failed by collision with the neighbor', () => {
+    const l = LESSONS.find((x) => x.id === 'mlo')!
+    const records = new Simulation(l.scenario()).runUntil(1 * MS).records
+    const both = records.flatMap((r) => (r.type === 'TX_START' && r.t === 0 && r.frame.kind === 'rts' ? [r.node] : []))
+    expect(both.sort()).toEqual(['sta-1', 'sta-2'])
+    const rx = recordsToSpans(records, ['ap'], 0, 1 * MS).filter((s) => s.kind === 'rx')
+    expect(rx[0]).toMatchObject({ frameSrc: 'sta-1', frameKind: 'rts', rxFail: { reason: 'collision', interferers: ['sta-2'] } })
   })
 })
