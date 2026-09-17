@@ -37,6 +37,11 @@ export const rolesStack: Lesson = {
   module: 0,
   title: { en: 'Roles and the stack — STA, AP, BSS and where the MAC sits', zh: '角色与协议栈——STA、AP、BSS，以及 MAC 在哪一层' },
   body: [
+    { text: {
+      en: 'The primer treated the link as a black box: SINR in, a decode outcome and an airtime out. This lesson names who sits at each end, whom they may talk to, and which layer makes each decision you see on the timeline.',
+      zh: '上一课把链路当作黑盒：输入 SINR，输出能否解码与占用多少空口时间。这一课说清楚：链路两端是谁、可以和谁通信，以及时间轴上的每个决定由哪一层做出。',
+    } },
+
     { heading: { en: 'Two roles of one MAC', zh: '同一个 MAC 的两种角色' }, text: {
       en: 'A station (STA) is a singly addressable instance of an 802.11 MAC and PHY interface to the wireless medium (Clause 3); anything that is not an AP is a non-AP STA, “the client”. An access point (AP) is not another kind of radio: it contains one STA and also gives its associated STAs access to the distribution services. Both run the same frame formats (Clause 9) and channel-access rules (Clause 10): the role adds responsibility — beacons, associations, forwarding — not the right to transmit.',
       zh: '站点（STA）是通往无线介质、可被单独寻址的一个 802.11 MAC 与 PHY 接口实例（第 3 章）；不是 AP 的都是非 AP STA，即“终端”。接入点（AP）不是另一种无线电：它包含一个 STA，并为关联的 STA 提供分发服务接入。两者用同样的帧格式（第 9 章）与信道接入规则（第 10 章）：角色多出来的是职责——信标、关联、转发——而不是发送的权利。',
@@ -53,13 +58,13 @@ export const rolesStack: Lesson = {
     ] },
 
     { heading: { en: 'Everything goes through the AP', zh: '一切都要经过 AP' }, text: {
-      en: 'In an infrastructure BSS a non-AP STA sends every data frame to the AP, even when the destination is the STA beside it — the AP is the only peer it talks to. The AP passes the MSDU to the distribution system, which returns it to this same AP, and the AP sends it again. (An independent BSS, or IBSS, is the AP-less ad hoc case; a TDLS direct link is the negotiated exception.)',
-      zh: '在基础结构 BSS 中，非 AP STA 的每个数据帧都发给 AP，哪怕目的地就在旁边——AP 是它唯一的通信对端。AP 把 MSDU 交给分发系统，分发系统把它送回同一台 AP，AP 再发送一次。（没有 AP 的自组网是独立 BSS，即 IBSS；经协商建立的 TDLS 直连链路是例外。）',
+      en: 'In an infrastructure BSS a non-AP STA sends every data frame to the AP, even when the destination is the STA beside it — the AP is the only peer it talks to. The AP passes the MSDU to the distribution system, which returns it to this same AP, and the AP sends it again. (An independent BSS, or IBSS, is the AP-less ad hoc case; a TDLS direct link is the negotiated exception.) The header keeps the radio receiver’s address apart from the final source and destination — fields the next lesson opens.',
+      zh: '在基础结构 BSS 中，非 AP STA 的每个数据帧都发给 AP，哪怕目的地就在旁边——AP 是它唯一的通信对端。AP 把 MSDU 交给分发系统，分发系统把它送回同一台 AP，AP 再发送一次。（没有 AP 的自组网是独立 BSS，即 IBSS；经协商建立的 TDLS 直连链路是例外。）帧头把无线接收方地址与最终的源、目的地址分开存放——这些字段下一课再拆。',
     } },
 
     { heading: { en: 'The stack', zh: '协议栈' }, text: {
-      en: 'Above sits IEEE 802.2 LLC: for IP, the MAC’s payload opens with an 8-octet LLC/SNAP header naming the protocol that follows — to 802.11, just payload. The MAC sublayer (Clauses 9–11) does channel access, framing, acknowledgement, retransmission, aggregation and management. The PHY (Clause 8; the Wi-Fi 6 HE PHY in Clause 27) wraps what it is handed into a PPDU — preamble, PHY header, payload — and modulates it.',
-      zh: '上面是 IEEE 802.2 LLC：对 IP 而言，MAC 载荷以 8 个八位组的 LLC/SNAP 头开头，指明后面是哪种协议——对 802.11 来说它只是载荷。MAC 子层（第 9–11 章）负责信道接入、成帧、确认、重传、聚合与管理。PHY（第 8 章；本课的 Wi-Fi 6 HE PHY 见第 27 章）把交下来的内容封装成 PPDU——前导码、PHY 头、载荷——并调制发出。',
+      en: 'Above sits IEEE 802.2 LLC: for IP, the MAC’s payload opens with an 8-octet LLC/SNAP header naming the protocol that follows — to 802.11, just payload. The MAC sublayer (Clauses 9–11) does channel access, framing, acknowledgement, retransmission, aggregation and management. The PHY (Clause 8; the Wi-Fi 6 HE PHY in Clause 27) wraps what it is handed into a PPDU — preamble, PHY header, payload — and modulates it; on receive it detects preambles and reports whether the channel is busy.',
+      zh: '上面是 IEEE 802.2 LLC：对 IP 而言，MAC 载荷以 8 个八位组的 LLC/SNAP 头开头，指明后面是哪种协议——对 802.11 来说它只是载荷。MAC 子层（第 9–11 章）负责信道接入、成帧、确认、重传、聚合与管理。PHY（第 8 章；本课的 Wi-Fi 6 HE PHY 见第 27 章）把交下来的内容封装成 PPDU——前导码、PHY 头、载荷——并调制发出；接收时检测前导码并报告信道是否忙。',
     } },
     { kind: 'table', heading: { en: 'The MAC–PHY service boundary you can see (§8.3)', zh: '看得见的 MAC–PHY 服务边界（§8.3）' }, head: [
       { en: 'Primitive', zh: '原语' }, { en: 'Timeline record', zh: '时间轴记录' },
@@ -73,17 +78,17 @@ export const rolesStack: Lesson = {
       zh: '其余一切——ARRIVAL、ENQUEUE（MAC 数据服务，§5.2）、IFS、退避、NAV、RETRY、DROP、DEQUEUE——都是 MAC 在这些原语之间做出的决定。',
     } },
 
-    { kind: 'table', heading: { en: 'Four names for the same data', zh: '同一份数据的四个名字' }, head: [
-      { en: 'Unit', zh: '单元' }, { en: 'Made of', zh: '组成' }, { en: 'Here', zh: '本课示例' },
+    { kind: 'table', heading: { en: 'Four names at four boundaries', zh: '四个边界上的四个名字' }, head: [
+      { en: 'Unit', zh: '单元' }, { en: 'Boundary', zh: '边界' }, { en: 'Made of', zh: '组成' }, { en: 'Here', zh: '本课示例' },
     ], rows: [
-      [N('MSDU'), { en: 'The payload the MAC must deliver (LLC ↔ MAC)', zh: 'MAC 需要交付的载荷（LLC ↔ MAC）' }, { en: '1400 octets of video', zh: '1400 个八位组的视频' }],
-      [N('MPDU'), { en: 'MAC header + body + FCS', zh: 'MAC 头 + 帧体 + FCS' }, N('26 + 1400 + 4 = 1430')],
-      [N('PSDU'), { en: 'One MPDU, or an A-MPDU of several (MAC ↔ PHY)', zh: '一个 MPDU，或多个组成的 A-MPDU（MAC ↔ PHY）' }, { en: 'Here 1430; the laptop’s holds 50 MPDUs', zh: '这里是 1430；笔记本的装了 50 个 MPDU' }],
-      [N('PPDU'), { en: 'Preamble + PHY header + PSDU, on the air', zh: '前导码 + PHY 头 + PSDU，在空口上' }, { en: '125.6 µs at HE MCS 11, 20 MHz', zh: 'HE MCS 11、20 MHz 下 125.6 µs' }],
+      [N('MSDU'), { en: 'LLC ↔ MAC', zh: 'LLC ↔ MAC' }, { en: 'The payload the MAC must deliver', zh: 'MAC 需要交付的载荷' }, { en: '1400 octets of video', zh: '1400 个八位组的视频' }],
+      [N('MPDU'), { en: 'Inside the MAC', zh: 'MAC 内部' }, { en: 'MAC header + body + FCS', zh: 'MAC 头 + 帧体 + FCS' }, N('26 + 1400 + 4 = 1430')],
+      [N('PSDU'), { en: 'MAC ↔ PHY', zh: 'MAC ↔ PHY' }, { en: 'One MPDU, or an A-MPDU of several', zh: '一个 MPDU，或多个组成的 A-MPDU' }, { en: 'Here 1430; the laptop’s holds 50 MPDUs', zh: '这里是 1430；笔记本的装了 50 个 MPDU' }],
+      [N('PPDU'), { en: 'On the air', zh: '空口上' }, { en: 'Preamble + PHY header + PSDU', zh: '前导码 + PHY 头 + PSDU' }, { en: '125.6 µs at HE MCS 11, 20 MHz', zh: 'HE MCS 11、20 MHz 下 125.6 µs' }],
     ] },
     { text: {
-      en: 'Data frames carry MSDUs; control frames — ACK, RTS, CTS, Block Ack, Trigger — help deliver them; management frames build the BSS: beacons, authentication, association. The simulator sends no management frames yet: every STA starts associated.',
-      zh: '数据帧承载 MSDU；控制帧——ACK、RTS、CTS、Block Ack、Trigger——协助交付；管理帧用于建立 BSS（信标、认证、关联）。仿真器暂不发送管理帧：所有 STA 一开始就已关联。',
+      en: 'Data frames carry MSDUs (the blue blocks); control frames — ACK, RTS, CTS, Block Ack, Trigger — help deliver them; management frames build the BSS: beacons, authentication, association. The simulator sends no management frames yet: every STA starts associated.',
+      zh: '数据帧承载 MSDU（蓝色块）；控制帧——ACK、RTS、CTS、Block Ack、Trigger——协助交付；管理帧用于建立 BSS（信标、认证、关联）。仿真器暂不发送管理帧：所有 STA 一开始就已关联。',
     } },
 
     { heading: { en: 'The demo', zh: '本课场景' }, text: {
@@ -93,7 +98,8 @@ export const rolesStack: Lesson = {
     { kind: 'steps', heading: { en: 'The first relayed MSDU', zh: '第一个被中继的 MSDU' }, items: [
       { en: '1.4157 ms: it arrives at Phone B, which finds the medium idle and sends a 125.6 µs data frame to the AP.', zh: '1.4157 ms：它到达手机 B；介质空闲，手机 B 发出一个 125.6 µs、发往 AP 的数据帧。' },
       { en: '1.5413 ms: the AP decodes it and, one SIFS (16 µs) later, sends a 28 µs ACK. Hop 1 ends at 1.5853 ms — 169.6 µs.', zh: '1.5413 ms：AP 解码成功，一个 SIFS（16 µs）后发出 28 µs 的 ACK。第一跳在 1.5853 ms 结束——169.6 µs。' },
-      { en: '1.6353 ms: 50 µs of forwarding later, the MSDU enters the AP’s queue for Phone A and goes out at once; Phone A’s ACK arrives at 1.8049 ms. Hop 2 also took 169.6 µs, the trip 389.2 µs.', zh: '1.6353 ms：经过 50 µs 转发，该 MSDU 进入 AP 发往手机 A 的队列并立即发出；手机 A 的 ACK 在 1.8049 ms 到达。第二跳同样 169.6 µs，全程 389.2 µs。' },
+      { en: '1.6353 ms: 50 µs of forwarding later, the MSDU enters the AP’s queue for Phone A and goes out at once.', zh: '1.6353 ms：经过 50 µs 转发，该 MSDU 进入 AP 发往手机 A 的队列并立即发出。' },
+      { en: '1.8049 ms: Phone A’s ACK arrives. Hop 2 also took 169.6 µs; the whole trip cost 389.2 µs.', zh: '1.8049 ms：手机 A 的 ACK 到达。第二跳同样 169.6 µs；全程 389.2 µs。' },
     ] },
     { text: {
       en: 'That MSDU met an idle channel twice; the average one is less lucky. Over the first second, phone to phone takes about 1.3 ms against about 0.7 ms for the TV’s single-hop downlink — close to double, because the relay queues, contends and pays airtime twice. Phone A could not even decode that first frame from Phone B (RX_FAIL, SINR too low for MCS 11): the AP is the one place every STA reaches.',
@@ -113,8 +119,8 @@ export const rolesStack: Lesson = {
   ],
   observe: [
     { en: 'Hover the data blocks at hop 1 and hop 2: the same MSDU id, first addressed to the AP, then sent by the AP to Phone A. No data frame here goes STA to STA.', zh: '悬停第一跳与第二跳的数据块：MSDU 编号相同，先发往 AP，再由 AP 发往手机 A。本场景没有数据帧在两个 STA 之间直接传送。' },
-    { en: 'At the first uplink frame the Laptop sends an RTS before its 50-MPDU aggregate. The TV’s lane carries no data frame — only ACKs, Block Acks and CTSs.', zh: '第一个上行帧处，笔记本在 50 个 MPDU 的聚合帧之前先发 RTS。电视的泳道上完全没有数据帧——只有 ACK、Block Ack 和 CTS。' },
-    { en: 'Select Phone A after a second: phone-to-phone about 1.3 ms, the TV’s rx latency about 0.7 ms.', zh: '运行一秒后选中手机 A：“手机互传”时延约 1.3 ms，电视的“接收时延”约 0.7 ms。' },
+    { en: 'At the first uplink frame the Laptop sends an RTS before its 50-MPDU aggregate. The TV’s lane carries no data frame — only ACKs, Block Acks and the occasional CTS — a downlink-only STA transmits just to answer the AP.', zh: '第一个上行帧处，笔记本在 50 个 MPDU 的聚合帧之前先发 RTS。电视的泳道上完全没有数据帧——只有 ACK、Block Ack 和偶尔的 CTS——只收下行的 STA 发送，仅仅是为了回应 AP。' },
+    { en: 'After a second, select Phone A and compare its phone-to-phone latency (about 1.3 ms) with the TV’s rx latency (about 0.7 ms): the relay costs close to double.', zh: '运行一秒后选中手机 A，把它的“手机互传”时延（约 1.3 ms）与电视的“接收时延”（约 0.7 ms）对比：中继的代价接近两倍。' },
   ],
   tryThis: [
     { en: 'Drag Phone B next to Phone A: every MSDU still goes through the AP, still about 1.3 ms. The path follows the architecture, not the distance.', zh: '把手机 B 拖到手机 A 旁边：每个 MSDU 仍经过 AP，仍约 1.3 ms。路径取决于体系结构，而不是距离。' },
@@ -126,7 +132,7 @@ export const rolesStack: Lesson = {
       options: [
         { en: 'Once, directly — they are in the same BSS', zh: '一次，直接发送——它们在同一个 BSS' },
         { en: 'Twice: Phone A → AP, then AP → Phone B', zh: '两次：手机 A → AP，再 AP → 手机 B' },
-        { en: 'Three times, counting the distribution system', zh: '三次，把分发系统也算上' },
+        { en: 'Three times: Phone A → AP → distribution system → Phone B', zh: '三次：手机 A → AP → 分发系统 → 手机 B' },
       ],
       answer: 1,
       explain: { en: 'The AP passes the MSDU to the distribution system, which returns it to the same AP: the DS is not a radio hop, so there are two frames on the air, each with its own ACK.', zh: 'AP 把 MSDU 交给分发系统，分发系统再交回同一台 AP。DS 不是一跳无线传输，所以空口上是两帧，各带一个 ACK。' },

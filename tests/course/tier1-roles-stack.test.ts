@@ -6,7 +6,7 @@ import { describe, it, expect } from 'vitest'
 import {
   rolesStack, rolesStackScenario, firstUplinkData, firstDownlinkData, firstRelayHop1, firstRelayHop2,
 } from '../../src/course/tier1/roles-stack'
-import { lessonMinutes, lessonWords } from '../../src/course/curriculum'
+import { OBSERVE_MINUTES, TRY_MINUTES, lessonMinutes, lessonWords } from '../../src/course/curriculum'
 import type { Block, L10n } from '../../src/course/lessonKit'
 import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
 import { Simulation } from '../../src/engine/simulation'
@@ -60,10 +60,12 @@ describe('roles-stack · structure', () => {
     ]
     const n = texts.reduce((s, t) => s + words(t.en), 0)
     expect(lessonWords(rolesStack)).toBe(n)
-    const raw = n / 150 + 5 * rolesStack.observe.length + 5 * rolesStack.tryThis.length
+    const raw = n / 150
+      + OBSERVE_MINUTES * rolesStack.observe.length
+      + TRY_MINUTES * rolesStack.tryThis.length
     expect(lessonMinutes(rolesStack)).toBe(Math.max(5, Math.round(raw / 5) * 5))
     expect(lessonMinutes(rolesStack)).toBeGreaterThanOrEqual(15)
-    expect(lessonMinutes(rolesStack)).toBeLessThanOrEqual(30)
+    expect(lessonMinutes(rolesStack)).toBeLessThanOrEqual(25)
   })
 })
 
