@@ -30,12 +30,13 @@ import { rangeSigmaM, solvePosition, type AnchorPos } from './position'
 import { dsTwr, fomFor, rctuToMetres, ssTwrCorrected, ssTwrRaw } from './ranging'
 import type { RoundPlan, SlotAction } from './session'
 
+/** Per-device settings. The TWR method is NOT here: a round's `RoundPlan` is the
+ * one truth about how that round is measured, and the device reads it from there. */
 export interface UwbDeviceCfg {
   role: 'anchor' | 'tag'
   pos: Vec3
   tsNoisePs: number
   cfoNoisePpm: number
-  method: 'ss' | 'ds'
 }
 
 export interface UwbGeometry {
@@ -52,8 +53,6 @@ interface Expectation {
   slot: number
   from: string
   kind: UwbFrameKind
-  /** The armed deadline in the event queue. */
-  handle: number
 }
 
 /** What a tag remembers about one anchor inside the round in progress. */
@@ -84,15 +83,15 @@ interface RoundState {
   rxPollCounter: number | null
   txRespCounter: number | null
   rxFinalCounter: number | null
-  pollCoffs: number
-  pollFom: number
+  /** The Final listed this anchor, i.e. the tag did receive its Response. */
+  finalListedMe: boolean
 }
 
 function freshRound(block: number, round: number, plan: RoundPlan, tagId: string, anchors: string[]): RoundState {
   return {
     block, round, plan, tagId, anchors: [...anchors],
     txPollCounter: null, txFinalCounter: null, peers: new Map(), ranges: [],
-    rxPollCounter: null, txRespCounter: null, rxFinalCounter: null, pollCoffs: 0, pollFom: 0,
+    rxPollCounter: null, txRespCounter: null, rxFinalCounter: null, finalListedMe: false,
   }
 }
 
@@ -100,6 +99,8 @@ export class UwbDevice implements UwbRadio {
   state: UwbDeviceState = 'idle'
   private round: RoundState | null = null
   private expect: Expectation | null = null
+  /** Monotonic id of the transmission in progress; its end timer carries a copy. */
+  private txSeq = 0
 
   constructor(
     readonly id: string,
@@ -149,7 +150,7 @@ export class UwbDevice implements UwbRadio {
       ? action.kind === 'uwbResp' || action.kind === 'uwbReport'
       : action.kind === 'uwbPoll' || action.kind === 'uwbFinal'
     if (!mine) return
-    this.listenFor(slot, txId, action.kind, slotEndNs)
+    this.listenFor(slot, txId, action.kind)
   }
 
   /** Tag: solve this round's fix. Both roles: drop the round's working state. */
@@ -221,9 +222,10 @@ export class UwbDevice implements UwbRadio {
 
     switch (kind) {
       case 'uwbPoll':
+        // An anchor keeps only the counter: DS-TWR cancels the clock offset by
+        // construction, so it never needs `coffs`, and its range is scored by
+        // the Final's first-path quality (the last frame of the exchange).
         r.rxPollCounter = counter
-        r.pollCoffs = coffs
-        r.pollFom = fom
         break
       case 'uwbResp':
         this.onResponse(r, from, frame, counter, coffs, fom)
@@ -240,30 +242,33 @@ export class UwbDevice implements UwbRadio {
   // ---- slot handling --------------------------------------------------------
 
   /**
-   * Close the slot that just ended. The deadline is a queued event at the slot
-   * boundary, but the next slot's start lands on the very same instant and was
-   * queued first (the whole block is laid out in advance), so whichever of the
-   * two runs first closes the slot and the other finds nothing to do.
+   * Close the slot that just ended: a slot whose expected frame never arrived
+   * reports a UWB_TIMEOUT, and the receiver goes back to sleep.
+   *
+   * This is the whole deadline mechanism, and it needs no timer. A slot's
+   * deadline is its end, and its end is the next slot's start — at which the
+   * network calls `onSlot` on every participant of the round, whether or not
+   * that participant has anything to do in the new slot. The round's last slot
+   * ends in `endRound`, called on every participant too. So every armed slot is
+   * closed at exactly the right instant by the schedule itself (the invariant
+   * is recorded in network.ts, which is what guarantees it).
    */
   private closeSlot(): void {
     const exp = this.expect
     if (!exp) return
     this.expect = null
-    this.q.cancel(exp.handle)
     this.emit({ t: this.now(), type: 'UWB_TIMEOUT', node: this.id, slot: exp.slot, peer: exp.from, expected: exp.kind })
     this.setState('idle')
   }
 
+  /** The expected frame arrived: drop the expectation without reporting a miss. */
   private cancelDeadline(): void {
-    if (!this.expect) return
-    this.q.cancel(this.expect.handle)
     this.expect = null
   }
 
-  private listenFor(slot: number, from: string, kind: UwbFrameKind, slotEndNs: Ns): void {
+  private listenFor(slot: number, from: string, kind: UwbFrameKind): void {
     this.setState('uwbWait')
-    const handle = this.q.schedule(slotEndNs, () => this.closeSlot(), 0)
-    this.expect = { slot, from, kind, handle }
+    this.expect = { slot, from, kind }
   }
 
   private transmitFor(action: SlotAction, slot: number, r: RoundState, peers: { tag: string; anchors: string[] }): void {
@@ -297,6 +302,11 @@ export class UwbDevice implements UwbRadio {
         break
       }
       case 'uwbReport': {
+        // Only an anchor the Final actually listed reports. If the tag never
+        // received this anchor's Response — an asymmetric link, or a capture
+        // loss at the tag — there is no half-exchange to complete, so the
+        // anchor stays silent rather than putting a useless PPDU on the air.
+        if (!r.finalListedMe) return
         if (r.rxPollCounter === null || r.txRespCounter === null || r.rxFinalCounter === null) return
         const treply1 = counterDiff(r.txRespCounter, r.rxPollCounter)
         const tround2 = counterDiff(r.rxFinalCounter, r.txRespCounter)
@@ -315,8 +325,11 @@ export class UwbDevice implements UwbRadio {
       frameKind: frame.kind as UwbFrameKind, counter: txCounter,
     })
     this.ch.transmit(this.id, frame)
+    // The timer belongs to *this* transmission: comparing the id keeps a stale
+    // one (a PPDU that somehow outlived its slot) from idling the next.
+    const txId = ++this.txSeq
     this.q.schedule(t + frame.txTimeNs, () => {
-      if (this.state === 'tx') this.setState('idle')
+      if (this.state === 'tx' && this.txSeq === txId) this.setState('idle')
     }, 2)
   }
 
@@ -338,9 +351,12 @@ export class UwbDevice implements UwbRadio {
   /** Anchor, on the tag's Final: it now holds all four times of the double-sided exchange. */
   private onFinal(r: RoundState, from: string, frame: FrameDesc, counter: number, fom: number): void {
     r.rxFinalCounter = counter
-    if (r.rxPollCounter === null || r.txRespCounter === null) return
     const entry = frame.uwb?.finalTimes?.find((e) => e.id === this.id)
+    // Whether the Final listed this anchor decides both its own range and
+    // whether it may report at all (see transmitFor's uwbReport case).
+    r.finalListedMe = entry !== undefined
     if (!entry) return // the tag never heard this anchor's Response
+    if (r.rxPollCounter === null || r.txRespCounter === null) return
     const treply1 = counterDiff(r.txRespCounter, r.rxPollCounter)
     const tround2 = counterDiff(counter, r.txRespCounter)
     this.reportRange(r, from, 'ds', dsTwr(entry.tround1, treply1, tround2, entry.treply2), undefined, fom)

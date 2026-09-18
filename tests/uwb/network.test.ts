@@ -1,21 +1,24 @@
 import { describe, it, expect } from 'vitest'
+import { EventQueue } from '../../src/engine/events'
+import { Rng } from '../../src/engine/rng'
 import { Simulation } from '../../src/engine/simulation'
-import type { TLRecord } from '../../src/model/records'
+import { makeEmitter, type TLRecord } from '../../src/model/records'
 import {
   DEFAULT_UWB_SESSION, defaultScenario, type NodeCfg, type Scenario, type UwbSessionCfg, type Wall,
 } from '../../src/model/scenario'
+import { UwbNetwork } from '../../src/uwb/network'
 import { C_M_PER_NS, UWB_TX_POWER_DBM } from '../../src/uwb/phy'
 import { rangeSigmaM } from '../../src/uwb/position'
 import { rctuToMetres } from '../../src/uwb/ranging'
 
 const MS = 1_000_000
 
-interface Place { x: number; y: number; z: number; ppm?: number }
+interface Place { x: number; y: number; z: number; ppm?: number; txPowerDbm?: number }
 
 function uwbNode(id: string, p: Place, role: 'anchor' | 'tag'): NodeCfg {
   return {
     id, kind: 'uwb', name: id, pos: { x: p.x, y: p.y, z: p.z },
-    txPowerDbm: UWB_TX_POWER_DBM, profiles: ['idle'],
+    txPowerDbm: p.txPowerDbm ?? UWB_TX_POWER_DBM, profiles: ['idle'],
     caps: { generation: 'nonht', features: {} },
     uwb: { role, ...(p.ppm !== undefined ? { ppm: p.ppm } : {}) },
   }
@@ -201,6 +204,47 @@ describe('UwbNetwork — an anchor out of range', () => {
     expect(fixes).toHaveLength(1)
     expect(fixes[0].anchors).toEqual(['anc-1', 'anc-2', 'anc-3'])
     expect(Math.hypot(fixes[0].x, fixes[0].y)).toBeLessThan(0.3)
+  })
+})
+
+describe('UwbNetwork — an anchor the tag cannot hear back', () => {
+  // The link is asymmetric because path loss is computed from the *transmitter's*
+  // power: anc-4 hears the tag's Poll and Final at −78 dBm, but its own Response
+  // reaches the tag at −105 dBm, well under the −93 dBm sensitivity.
+  const deaf = ring(0)
+  deaf[3] = { x: 0, y: -5, z: 1, ppm: 0, txPowerDbm: -40 }
+  const sc = uwbScenario(deaf, [{ x: 0, y: 0, z: 1, ppm: 0 }], { nlos: false })
+  const rs = run(sc, 30 * MS)
+  const txOf = (id: string, kind: string): boolean =>
+    of(rs, 'TX_START').some((r) => r.frame.src === id && r.frame.kind === kind)
+
+  it('answers the Poll but is left out of the Final', () => {
+    expect(txOf('anc-4', 'uwbResp')).toBe(true)
+    expect(of(rs, 'UWB_TIMEOUT', 'anc-4')).toHaveLength(0) // it heard both tag frames
+    const final = of(rs, 'TX_START').find((r) => r.frame.kind === 'uwbFinal')!
+    expect(final.frame.uwb?.finalTimes?.map((e) => e.id)).toEqual(['anc-1', 'anc-2', 'anc-3'])
+  })
+
+  it('stays silent in its Report slot, so no half-measured range reaches the timeline', () => {
+    expect(txOf('anc-4', 'uwbReport')).toBe(false)
+    expect(of(rs, 'UWB_RANGE').some((r) => r.node === 'anc-4' || r.peer === 'anc-4')).toBe(false)
+    expect(of(rs, 'UWB_TIMEOUT', 'tag-1').map((r) => [r.slot, r.expected])).toEqual([
+      [4, 'uwbResp'], [9, 'uwbReport'],
+    ])
+    expect(of(rs, 'UWB_POSITION')[0].anchors).toEqual(['anc-1', 'anc-2', 'anc-3'])
+  })
+})
+
+describe('UwbNetwork — the block must hold every tag', () => {
+  it('refuses more tags than the block has rounds', () => {
+    const nodes = [
+      uwbNode('anc-1', { x: 0, y: 0, z: 1 }, 'anchor'), uwbNode('anc-2', { x: 5, y: 0, z: 1 }, 'anchor'),
+      uwbNode('tag-1', { x: 1, y: 1, z: 1 }, 'tag'), uwbNode('tag-2', { x: 2, y: 2, z: 1 }, 'tag'),
+    ]
+    // 2 anchors, DS: 6 slots of 2 ms = a 12 ms round; a 20 ms block holds one.
+    const cfg: UwbSessionCfg = { ...DEFAULT_UWB_SESSION, blockRstu: 24_000 }
+    expect(() => new UwbNetwork(new EventQueue(), () => 0, nodes, [], cfg, new Rng(1), makeEmitter(() => {})))
+      .toThrow(/holds 1 rounds/)
   })
 })
 

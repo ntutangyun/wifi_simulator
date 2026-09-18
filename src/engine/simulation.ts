@@ -20,6 +20,7 @@ import { AMP_TAG_DL_SENS_DBM, ampId16 } from './amp'
 import { AmpStaMac } from './ampSta'
 import { Channel } from './channel'
 import { EventQueue } from './events'
+import { hashStr } from './hash'
 import { WifiMac } from './mac'
 import { ERP_2G, mcsForRssi, OFDM_5G, type PhyTiming } from './phy'
 import { buildLinkTable } from './propagation'
@@ -27,6 +28,9 @@ import { AcQueues } from './queues'
 import { RateControl } from './rate'
 import { Rng } from './rng'
 import { TrafficSource, resetMsduIds, type Msdu } from './traffic'
+
+/** Re-exported for the callers that grew up importing it from here. */
+export { hashStr } from './hash'
 
 export interface Batch {
   records: TLRecord[]
@@ -317,12 +321,3 @@ export class Simulation {
   }
 }
 
-/** FNV-1a over a string: the per-node RNG stream ids are derived from it. */
-export function hashStr(s: string): number {
-  let h = 0x811c9dc5
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i)
-    h = Math.imul(h, 0x01000193)
-  }
-  return h >>> 0
-}

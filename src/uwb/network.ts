@@ -11,7 +11,7 @@
  * Tag k owns round k of every block. Anchors serve every round.
  */
 import type { EventQueue } from '../engine/events'
-import { hashStr } from '../engine/simulation'
+import { hashStr } from '../engine/hash'
 import type { Rng } from '../engine/rng'
 import type { EmitFn } from '../model/records'
 import type { NodeCfg, UwbSessionCfg, Wall } from '../model/scenario'
@@ -38,6 +38,15 @@ export class UwbNetwork {
     const anchors = nodes.filter((n) => n.uwb?.role === 'anchor').map((n) => n.id)
     const tags = nodes.filter((n) => n.uwb?.role === 'tag').map((n) => n.id)
     this.plan = roundPlan(cfg, anchors.length)
+    // The scenario schema checks the same thing in RSTU, before rstuNs rounds;
+    // this is the check in the units the scheduler actually uses, so the two
+    // definitions of "how many tags fit in a block" cannot drift apart unnoticed.
+    if (tags.length > this.plan.roundsPerBlock) {
+      throw new Error(
+        `UwbNetwork: ${tags.length} tags need ${tags.length} rounds, but a ${this.plan.blockNs} ns block `
+        + `holds ${this.plan.roundsPerBlock} rounds of ${this.plan.roundNs} ns`,
+      )
+    }
 
     // The receiver's clock-offset estimate needs the transmitter's crystal, so
     // the channel reads it back out of the devices it is about to carry.
@@ -65,16 +74,22 @@ export class UwbNetwork {
       const clock = UwbClock.fromRng(rng, n.uwb?.ppm)
       const dev = new UwbDevice(
         n.id,
-        {
-          role: n.uwb?.role ?? 'anchor', pos: n.pos,
-          tsNoisePs: cfg.tsNoisePs, cfoNoisePpm: cfg.cfoNoisePpm, method: cfg.method,
-        },
+        { role: n.uwb?.role ?? 'anchor', pos: n.pos, tsNoisePs: cfg.tsNoisePs, cfoNoisePpm: cfg.cfoNoisePpm },
         clock, rng, q, now, ch, emit, geometry,
       )
       this.devices.set(n.id, dev)
       ch.register(n.id, dev)
     }
 
+    /**
+     * Lay out one block. The invariant the devices' slot deadlines rest on:
+     * **every slot of a round is followed, at the instant it ends, by another
+     * `onSlot` on the same crowd or by that round's `endRound`** — the last slot
+     * by `endRound`, every other slot by the next slot's start. Both are queued
+     * here, in order, before any of them runs, so they precede anything a device
+     * queues from inside a slot. Keep that true, and a slot with no answer is
+     * always reported exactly once, at exactly the slot boundary.
+     */
     const startBlock = (block: number): void => {
       tags.forEach((tagId, k) => {
         const crowd = [tagId, ...anchors].map((id) => this.devices.get(id)!)
