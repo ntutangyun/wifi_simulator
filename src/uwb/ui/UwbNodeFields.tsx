@@ -7,7 +7,6 @@
  */
 import { clampField } from '../../editor/planOps'
 import type { NodeCfg } from '../../model/scenario'
-import { UWB_PPM_MAX } from '../phy'
 import { useStrings } from '../../ui/i18n'
 
 const label: React.CSSProperties = { display: 'block', marginBottom: 4 }
@@ -32,10 +31,11 @@ export function UwbNodeFields({ node, onChange }: { node: NodeCfg; onChange: (pa
         {E.uwbPpm}{' '}
         <input type="number" min={-100} max={100} step={1} value={ppm ?? ''} style={{ width: 56 }}
           onChange={(e) => onChange({
-            uwb: { role, ppm: e.target.value.trim() === '' ? undefined : clampField(e.target.value, -100, 100) },
+            // merge, so a field added to UwbNodeCfg later is not dropped by a ppm edit
+            uwb: { ...node.uwb, role, ppm: e.target.value.trim() === '' ? undefined : clampField(e.target.value, -100, 100) },
           })} /> ppm
         <span style={{ color: 'var(--dim)', fontSize: 11, marginLeft: 6 }}>
-          {ppm === undefined ? E.uwbPpmDrawn : `±${UWB_PPM_MAX} ppm`}
+          {ppm === undefined ? E.uwbPpmDrawn : E.uwbPpmRange}
         </span>
       </label>
       <label style={label}>

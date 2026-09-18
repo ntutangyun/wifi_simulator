@@ -55,9 +55,15 @@ function EditorGuideEn() {
         click on a wall to punch a 0.9 m / 1.2 m opening there. An opening is an RF hole — a ray
         crossing it pays no wall loss (modeled as a full-height gap).
       </D>
+      <D t="📡 AP">
+        click to drop the plan&rsquo;s access point: 20 dBm, 2.0 m high, Wi-Fi 7 with every feature
+        on. Wi-Fi allows exactly one, so the tool is greyed out while the plan already has an AP —
+        and it is the way back after deleting one to build a UWB-only plan.
+      </D>
       <D t="📱 STA">
         click to drop a station: 15 dBm, 1.0 m high, <i>browsing</i> traffic, 802.11a legacy.
-        Set its real properties afterwards.
+        Set its real properties afterwards. This tool, 🏷 AMP tag and 🎲 Spawn STAs are greyed out
+        while the plan has no AP, because a Wi-Fi device without one is a scenario that cannot run.
       </D>
       <D t="🏷 AMP tag">
         click to drop an IEEE P802.11bp ambient-power tag: a battery-free device that only replies
@@ -279,9 +285,15 @@ function EditorGuideZh() {
         在墙上点击，即可在该处开出 0.9 米 / 1.2 米的开口。开口是射频的“孔洞”——
         穿过开口的射线不计入墙体损耗（模型中视为通高开口）。
       </D>
+      <D t="📡 AP">
+        点击放置场景的接入点：20 dBm、高 2.0 米、Wi-Fi 7 且各项特性全开。
+        Wi-Fi 有且仅允许一个 AP，因此场景中已有 AP 时该工具为灰；
+        而删掉 AP 做纯 UWB 场景之后，也正是靠它把 AP 放回来。
+      </D>
       <D t="📱 终端">
         点击放置一个终端：15 dBm、高 1.0 米、<i>网页浏览</i>业务、802.11a 传统制式，
-        放置后再按需修改属性。
+        放置后再按需修改属性。场景中没有 AP 时，本工具、🏷 AMP 标签 与 🎲 随机生成终端 都是灰的——
+        没有 AP 的 Wi-Fi 设备构成的场景根本无法运行。
       </D>
       <D t="🏷 AMP 标签">
         点击放置一个 IEEE P802.11bp 环境功率（ambient-power）标签：这是一种无电池设备，

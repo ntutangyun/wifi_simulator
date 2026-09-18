@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { canDeleteNode, newAnchor, newUwbTag, removeNode, uwbSessionIssue } from '../../src/editor/planOps'
+import { canDeleteNode, hasAp, newAnchor, newAp, newUwbTag, removeNode, uwbSessionIssue } from '../../src/editor/planOps'
+import { GEN_FEATURES } from '../../src/model/caps'
 import { DEFAULT_UWB_SESSION, ScenarioSchema, defaultScenario, type Scenario, type UwbSessionCfg } from '../../src/model/scenario'
 import { UWB_TX_POWER_DBM } from '../../src/uwb/phy'
 
@@ -94,6 +95,47 @@ describe('uwbSessionIssue', () => {
     const noAp: Scenario = { ...sc, nodes: sc.nodes.filter((n) => n.kind !== 'ap') }
     expect(ScenarioSchema.safeParse(noAp).success).toBe(false) // the stations lost their AP
     expect(uwbSessionIssue(noAp)).toBeNull()
+  })
+})
+
+describe('newAp / hasAp', () => {
+  /** A UWB-only plan: every Wi-Fi node deleted, ranging devices left. */
+  function uwbOnly(): Scenario {
+    let sc = withUwb(2)
+    for (const n of sc.nodes.filter((x) => x.kind === 'sta' || x.kind === 'amp')) sc = removeNode(sc, n.id)
+    return removeNode(sc, 'ap')
+  }
+
+  it('puts a Wi-Fi 7 AP back into a plan that lost it', () => {
+    const before = uwbOnly()
+    expect(hasAp(before)).toBe(false)
+    const { sc, id } = newAp(before, { x: 2.04, y: 3.96 })
+    expect(id).toBe('ap')
+    expect(hasAp(sc)).toBe(true)
+    const ap = sc.nodes.find((n) => n.id === id)!
+    expect(ap).toMatchObject({ kind: 'ap', name: 'AP', txPowerDbm: 20, profiles: ['idle'] })
+    expect(ap.pos.z).toBe(2.0)
+    expect(ap.pos.x).toBeCloseTo(2.0, 9)
+    expect(ap.pos.y).toBeCloseTo(4.0, 9)
+    expect(ap.caps.generation).toBe('eht')
+    for (const f of GEN_FEATURES.eht) expect(ap.caps.features[f]).toBe(true)
+    expect(ScenarioSchema.safeParse(sc).success).toBe(true)
+    // the ranging session it was placed next to is untouched
+    expect(sc.uwb).toEqual(DEFAULT_UWB_SESSION)
+  })
+
+  it('refuses a second AP', () => {
+    const sc = defaultScenario()
+    expect(hasAp(sc)).toBe(true)
+    const { sc: same, id } = newAp(sc, { x: 9, y: 1 })
+    expect(same).toBe(sc)
+    expect(id).toBe('ap')
+  })
+
+  it('an AP the plan gets back can be deleted again', () => {
+    const sc = newAp(uwbOnly(), { x: 1, y: 1 }).sc
+    expect(canDeleteNode(sc, 'ap')).toBe(true)
+    expect(hasAp(removeNode(sc, 'ap'))).toBe(false)
   })
 })
 

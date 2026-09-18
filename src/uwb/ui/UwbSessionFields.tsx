@@ -5,6 +5,7 @@
  * decide the whole schedule — the section prints the resulting round plan, and
  * the schema's own complaint when the numbers do not add up.
  */
+import { useState } from 'react'
 import { clampField } from '../../editor/planOps'
 import type { UwbSessionCfg } from '../../model/scenario'
 import { roundPlan } from '../session'
@@ -12,16 +13,27 @@ import { rstuNs } from '../phy'
 import { useStrings } from '../../ui/i18n'
 
 const label: React.CSSProperties = { display: 'block', marginBottom: 4 }
+const suffix: React.CSSProperties = { color: 'var(--dim)', fontSize: 11, marginLeft: 4 }
 
 const ms = (rstu: number): string => (rstuNs(rstu) / 1e6).toFixed(rstu < 3000 ? 3 : 1)
 
-/** `issue` is what `uwbSessionIssue` says about the scenario this session belongs to. */
+/**
+ * `issue` is what `uwbSessionIssue` says about the scenario this session belongs
+ * to, and `onRemove` drops the session — offered because an imported file may
+ * carry one no device takes part in, and only then is removing it legal.
+ */
 export function UwbSessionFields(
-  { session, anchors, tags, issue, onChange }:
-  { session: UwbSessionCfg; anchors: number; tags: number; issue: string | null; onChange: (patch: Partial<UwbSessionCfg>) => void },
+  { session, anchors, tags, issue, onChange, onRemove }:
+  {
+    session: UwbSessionCfg; anchors: number; tags: number; issue: string | null
+    onChange: (patch: Partial<UwbSessionCfg>) => void; onRemove: () => void
+  },
 ) {
   const E = useStrings().editor
-  const plan = roundPlan(session, Math.max(1, anchors))
+  // With no anchor there is no round to plan; printing one built from a made-up
+  // anchor would contradict the issue line right beside it.
+  const plan = anchors > 0 ? roundPlan(session, anchors) : null
+  const orphan = anchors === 0 && tags === 0
   return (
     <div>
       <div style={{ color: 'var(--dim)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -37,15 +49,13 @@ export function UwbSessionFields(
       </label>
       <label style={label} title={E.uwbBlockHint}>
         {E.uwbBlock}{' '}
-        <input type="number" min={3} step={3} value={session.blockRstu} style={{ width: 74 }}
-          onChange={(e) => onChange({ blockRstu: to3(clampField(e.target.value, 3, 6_000_000, true)) })} />
-        <span style={{ color: 'var(--dim)', fontSize: 11, marginLeft: 4 }}>RSTU · {ms(session.blockRstu)} ms</span>
+        <RstuInput value={session.blockRstu} lo={3} hi={6_000_000} onCommit={(blockRstu) => onChange({ blockRstu })} />
+        <span style={suffix}>RSTU · {ms(session.blockRstu)} ms</span>
       </label>
       <label style={label} title={E.uwbSlotHint}>
         {E.uwbSlot}{' '}
-        <input type="number" min={300} step={3} value={session.slotRstu} style={{ width: 74 }}
-          onChange={(e) => onChange({ slotRstu: to3(clampField(e.target.value, 300, 60_000, true)) })} />
-        <span style={{ color: 'var(--dim)', fontSize: 11, marginLeft: 4 }}>RSTU · {ms(session.slotRstu)} ms</span>
+        <RstuInput value={session.slotRstu} lo={300} hi={60_000} onCommit={(slotRstu) => onChange({ slotRstu })} />
+        <span style={suffix}>RSTU · {ms(session.slotRstu)} ms</span>
       </label>
       <label style={label} title={E.uwbChannelHint}>
         {E.uwbChannel}{' '}
@@ -68,9 +78,32 @@ export function UwbSessionFields(
         <input type="checkbox" checked={session.nlos} onChange={(e) => onChange({ nlos: e.target.checked })} />
         {E.uwbNlos}
       </label>
-      <div style={{ color: 'var(--dim)', fontSize: 11 }}>{E.uwbPlan(plan.slots, plan.roundsPerBlock)}</div>
+      {plan && <div style={{ color: 'var(--dim)', fontSize: 11 }}>{E.uwbPlan(plan.slots, plan.roundsPerBlock)}</div>}
+      {orphan && <div style={{ color: 'var(--dim)', fontSize: 11 }}>{E.uwbNoNodes}</div>}
       {issue && <div style={{ color: '#f87171', fontSize: 11, marginTop: 3, lineHeight: 1.45 }}>{issue}</div>}
+      <button style={{ marginTop: 5 }} disabled={!orphan} title={orphan ? E.uwbRemoveSessionHint : E.uwbSessionInUse}
+        onClick={onRemove}>{E.uwbRemoveSession}</button>
     </div>
+  )
+}
+
+/**
+ * A ranging-time field in RSTU. It holds the typed text while the field has
+ * focus and only clamps on blur or Enter: clamping per keystroke turns clearing
+ * a six-digit block into an immediate commit of the lower bound, and every
+ * further digit is then re-rounded to a multiple of 3 under the cursor.
+ */
+function RstuInput({ value, lo, hi, onCommit }: { value: number; lo: number; hi: number; onCommit: (v: number) => void }) {
+  const [draft, setDraft] = useState<string | null>(null)
+  return (
+    <input type="number" min={lo} max={hi} step={3} style={{ width: 74 }}
+      value={draft ?? value}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={() => {
+        if (draft !== null) onCommit(to3(clampField(draft, lo, hi, true)))
+        setDraft(null)
+      }}
+      onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }} />
   )
 }
 

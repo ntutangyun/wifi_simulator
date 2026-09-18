@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Rng } from '../engine/rng'
-import { GEN_FEATURES, type LinkId } from '../model/caps'
+import { GEN_FEATURES, physicalId, type LinkId } from '../model/caps'
 import { DEFAULT_AMP_AP, normalizeProfiles, PROFILE_IDS, SERVER_KINDS, TAMPER_KINDS, TAMPER_PRESETS, TXOP_PROTECTIONS, serverFor, serverKindFor, tamperKindOf, type AmpApCfg, type Material, type NodeCfg, type ProfileId, type Scenario, type ServerCfg, type ServerKind, type TamperKind, type TxopProtection, type UwbSessionCfg } from '../model/scenario'
 import { HOUSEHOLDS } from '../model/households'
 import { nonht } from '../model/scenario'
@@ -12,12 +12,15 @@ import { EditorGuide } from './EditorGuide'
 import { UwbNodeFields } from '../uwb/ui/UwbNodeFields'
 import { UwbSessionFields } from '../uwb/ui/UwbSessionFields'
 import {
-  addOpening, alongWall, canDeleteNode, clampField, generationPatch, hitTestNode, hitTestWall, newAnchor, newTag,
-  newUwbTag, removeNode, roomsToWalls, scenarioFromJson, scenarioToJson, snap, spawnRandomStas, uwbSessionIssue,
+  addOpening, alongWall, canDeleteNode, clampField, generationPatch, hasAp, hitTestNode, hitTestWall, newAnchor,
+  newAp, newTag, newUwbTag, removeNode, roomsToWalls, scenarioFromJson, scenarioToJson, snap, spawnRandomStas,
+  uwbSessionIssue,
 } from './planOps'
 
-type Tool = 'select' | 'room' | 'door' | 'window' | 'sta' | 'tag' | 'anchor' | 'uwbTag'
-const TOOLS: Tool[] = ['select', 'room', 'door', 'window', 'sta', 'tag', 'anchor', 'uwbTag']
+type Tool = 'select' | 'room' | 'door' | 'window' | 'ap' | 'sta' | 'tag' | 'anchor' | 'uwbTag'
+const TOOLS: Tool[] = ['select', 'room', 'door', 'window', 'ap', 'sta', 'tag', 'anchor', 'uwbTag']
+/** Tools that place a Wi-Fi device, which the schema only accepts beside an AP. */
+const WIFI_TOOLS: Tool[] = ['sta', 'tag']
 
 type Sel =
   | { kind: 'node'; id: string }
@@ -50,7 +53,7 @@ function fitView(sc: Scenario, wPx: number, hPx: number): ViewT {
 const menuDivider: React.CSSProperties = { width: 1, height: 18, background: 'var(--border)', margin: '0 2px' }
 
 export function FloorPlanEditor() {
-  const { scenario, setScenario } = useUi()
+  const { scenario, setScenario, selectedNodeId, select } = useUi()
   const L = useStrings()
   const E = L.editor
   const lang = useUi((s) => s.lang)
@@ -124,7 +127,14 @@ export function FloorPlanEditor() {
         walls[wi] = addOpening(walls[wi], alongWall(walls[wi], p), tool === 'door' ? 0.9 : 1.2)
         commit({ ...scenario, walls })
       }
+    } else if (tool === 'ap') {
+      if (hasAp(scenario)) return
+      const { sc, id } = newAp(scenario, p)
+      commit(sc)
+      setTool('select')
+      setSel({ kind: 'node', id })
     } else if (tool === 'sta') {
+      if (!hasAp(scenario)) return
       const used = new Set(scenario.nodes.map((x) => x.id))
       let k = scenario.nodes.length
       let id = `sta-${k}`
@@ -137,6 +147,7 @@ export function FloorPlanEditor() {
       setTool('select')
       setSel({ kind: 'node', id })
     } else if (tool === 'tag' || tool === 'anchor' || tool === 'uwbTag') {
+      if (tool === 'tag' && !hasAp(scenario)) return
       const make = tool === 'tag' ? newTag : tool === 'anchor' ? newAnchor : newUwbTag
       const { sc, id } = make(scenario, p)
       commit(sc)
@@ -200,6 +211,9 @@ export function FloorPlanEditor() {
     if (!canDeleteNode(scenario, id)) return
     commit(removeNode(scenario, id))
     setSel(null)
+    // the inspector's selection is kept in the store and would otherwise go on
+    // naming a node that no longer exists — reachable for the AP since it may go
+    if (selectedNodeId && physicalId(selectedNodeId) === id) select(null)
   }
 
   const moveNode = (id: string, dir: -1 | 1) => {
@@ -223,6 +237,16 @@ export function FloorPlanEditor() {
   const updateUwbSession = (patch: Partial<UwbSessionCfg>) => {
     if (scenario.uwb) commit({ ...scenario, uwb: { ...scenario.uwb, ...patch } })
   }
+  // a full schema parse, so it may not run on every pointer-move frame of a drag
+  const sessionIssue = useMemo(() => uwbSessionIssue(scenario), [scenario])
+  const apPresent = hasAp(scenario)
+  const toolDisabled = (t: Tool): string | null =>
+    t === 'ap' && apPresent ? E.apExists : WIFI_TOOLS.includes(t) && !apPresent ? E.needApFirst : null
+
+  // placing the AP (or deleting it) can disable the tool that is currently held
+  useEffect(() => {
+    if (tool === 'ap' ? apPresent : WIFI_TOOLS.includes(tool) && !apPresent) setTool('select')
+  }, [tool, apPresent])
 
   const gridLines = () => {
     if (!view) return null
@@ -274,11 +298,15 @@ export function FloorPlanEditor() {
         display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', padding: '5px 10px',
         background: 'var(--panel)', borderBottom: '1px solid var(--border)', fontSize: 12,
       }}>
-        {TOOLS.map((t) => (
-          <button key={t} className={tool === t ? 'active' : ''} onClick={() => setTool(t)}>
-            {E.tools[t]}
-          </button>
-        ))}
+        {TOOLS.map((t) => {
+          const why = toolDisabled(t)
+          return (
+            <button key={t} className={tool === t ? 'active' : ''} disabled={why !== null}
+              title={why ?? undefined} onClick={() => setTool(t)}>
+              {E.tools[t]}
+            </button>
+          )
+        })}
         <button onClick={resetView}>{E.tools.fit}</button>
         <span style={menuDivider} />
         <span style={{ color: 'var(--dim)' }}>{E.scenario}</span>
@@ -305,7 +333,7 @@ export function FloorPlanEditor() {
         <span style={menuDivider} />
         <input type="number" min={1} max={20} value={spawnN} style={{ width: 44 }}
           onChange={(e) => setSpawnN(Number(e.target.value))} />
-        <button onClick={() => {
+        <button disabled={!apPresent} title={apPresent ? undefined : E.needApFirst} onClick={() => {
           const rng = new Rng((Math.random() * 2 ** 31) >>> 0)
           commit(spawnRandomStas(scenario, spawnN, () => rng.next()))
         }}>{E.spawn}</button>
@@ -447,13 +475,15 @@ export function FloorPlanEditor() {
                   </div>
                 ))}
               </div>
-              {uwbNodes.length > 0 && scenario.uwb && (
+              {/* on sc.uwb alone, so an imported session no device uses is visible and removable */}
+              {scenario.uwb && (
                 <UwbSessionFields
                   session={scenario.uwb}
                   anchors={uwbNodes.filter((n) => n.uwb?.role === 'anchor').length}
                   tags={uwbNodes.filter((n) => n.uwb?.role === 'tag').length}
-                  issue={uwbSessionIssue(scenario)}
+                  issue={sessionIssue}
                   onChange={updateUwbSession}
+                  onRemove={() => commit({ ...scenario, uwb: undefined })}
                 />
               )}
               <div>

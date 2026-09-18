@@ -3,7 +3,7 @@
  * openings, random STA spawning, scenario (de)serialization.
  */
 import { DEFAULT_UWB_SESSION, ScenarioSchema, type NodeCfg, type Opening, type Room, type Scenario, type UwbNodeCfg, type Wall } from '../model/scenario'
-import { GEN_FEATURES, type FeatureFlag } from '../model/caps'
+import { GEN_FEATURES, defaultFeatures, type FeatureFlag } from '../model/caps'
 import type { Generation } from '../model/types'
 import { STATION_PRESETS, presetNode } from '../model/presets'
 import { UWB_TX_POWER_DBM } from '../uwb/phy'
@@ -190,6 +190,34 @@ export function newTag(sc: Scenario, pos: { x: number; y: number }): { sc: Scena
     id, kind: 'amp', name: `Tag ${k}`, pos: { x: snap(pos.x), y: snap(pos.y), z: 1.0 },
     txPowerDbm: 0, profiles: ['idle'], caps: { generation: 'nonht', features: {} },
     linkId: '2g', ampTag: {},
+  }
+  return { sc: { ...sc, nodes: [...sc.nodes, node] }, id }
+}
+
+/** Does the plan have its AP? A station or an AMP tag without one is a scenario the schema rejects. */
+export function hasAp(sc: Scenario): boolean {
+  return sc.nodes.some((n) => n.kind === 'ap')
+}
+
+/**
+ * Place the plan's one AP at `pos`: a Wi-Fi 7 router with everything its
+ * generation allows turned on. A UWB-only plan is allowed to have no AP, so
+ * deleting the AP has to be undoable without throwing away the rooms, walls and
+ * devices already drawn — this is the way back. A second AP is refused, because
+ * the schema allows exactly one.
+ */
+export function newAp(sc: Scenario, pos: { x: number; y: number }): { sc: Scenario; id: string } {
+  const existing = sc.nodes.find((n) => n.kind === 'ap')
+  if (existing) return { sc, id: existing.id }
+  const used = new Set(sc.nodes.map((n) => n.id))
+  let k = 1
+  let id = 'ap'
+  while (used.has(id)) id = `ap-${++k}`
+  const features: Record<string, boolean> = {}
+  for (const [flag, on] of Object.entries(defaultFeatures('eht'))) features[flag] = on === true
+  const node: NodeCfg = {
+    id, kind: 'ap', name: 'AP', pos: { x: snap(pos.x), y: snap(pos.y), z: 2.0 },
+    txPowerDbm: 20, profiles: ['idle'], caps: { generation: 'eht', features },
   }
   return { sc: { ...sc, nodes: [...sc.nodes, node] }, id }
 }
