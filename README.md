@@ -44,6 +44,7 @@ npm run build    # static production build in dist/
 | VHT/HE/EHT PHY rates (20 MHz, Nss 1) | clauses 21/27, 802.11be | MCS0–13 incl. 4096-QAM, real preamble/symbol timing |
 | OFDMA DL/UL MU | HE model | RU = 1/n rate scaling, Trigger + Multi-STA BlockAck |
 | MLO (STR, 5+6 GHz) | 802.11be model | per-link MACs over shared MLD queues |
+| 2.4 GHz ERP-OFDM timing | §18.4.4, Table 18-5, §10.3.8 | SIFS 10 µs, short slot 9 µs, DIFS 28 µs, AckTimeout 39 µs, 6 µs signal extension in every PPDU; 2.4 GHz path loss 6.5 dB below 5 GHz |
 
 RF model: log-distance path loss (n = 3.0, 5 GHz) + per-wall attenuation (drywall 5 dB, brick 12 dB, glass 3 dB; openings exempt) + SINR-based capture.
 
