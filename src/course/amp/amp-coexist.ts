@@ -56,8 +56,12 @@ export const ampCoexist: Lesson = {
       en: 'The router sits in the study at (3, 4) with two radios. Two tags — a window sensor at (2, 2) and a plant sensor at (4, 6) — answer its poll every 100 ms on the 2.4 GHz link the tags, the camera and the router’s second radio all share. A camera at (6, 4) uploads on 2.4 GHz as hard as the channel will let it, on AC_BE, and a phone in the living room streams video on 5 GHz. Every number below is measured over the first two seconds.',
       zh: '路由器在书房的 (3, 4)，带两套射频。两个标签——(2, 2) 的窗磁和 (4, 6) 的植物传感器——每 100 ms 回应一次轮询，用的是 2.4 GHz 这条链路：标签、摄像头和路由器的第二套射频都挤在上面。(6, 4) 有一台摄像头，在 2.4 GHz 上以 AC_BE 拼命上传；客厅里还有一部手机，在 5 GHz 上看视频。下文每个数字都是在头两秒里量出来的。',
     } },
+    { text: {
+      en: 'The camera is a stress load: it always has the next frame ready, so the round’s cost shows up as lost throughput. A lighter camera would pay the same microseconds in latency.',
+      zh: '这台摄像头是一个压力负载：它手里永远有下一帧待发，所以轮的代价会直接表现为吞吐损失。换成一台负载轻的摄像头，同样这些微秒就会变成时延。',
+    } },
     { heading: { en: 'AC_BK: the round queues behind the camera', zh: 'AC_BK：轮排在摄像头后面' }, text: {
-      en: 'An AMP round is one frame exchange sequence, and the AP obtains it the way it obtains any other: through an EDCA function. The PAR puts AMP communication in 2.4 GHz on AC_BK, the lowest of the four access categories — the one for traffic that should yield to everything else. The camera’s upload sits on AC_BE, one category above it.',
+      en: 'An AMP round is one frame exchange sequence, and the AP wins it through an EDCA function like anything else it sends. The PAR puts AMP in 2.4 GHz on AC_BK, the lowest access category — the one for traffic that should yield to everything else. The camera’s upload sits on AC_BE, one above it.',
       zh: 'AMP 的一个轮就是一次帧交换序列，AP 获得它的方式和获得任何别的发送机会一样：走 EDCA 功能。PAR 把 2.4 GHz 里的 AMP 通信放在 AC_BK 上——四个接入类别里最低的那个，专门留给“应该给别人让路”的流量。摄像头的上传在 AC_BE，比它高一级。',
     } },
     { kind: 'formula', text: {
@@ -68,15 +72,15 @@ export const ampCoexist: Lesson = {
       zh: '2.4 GHz 下时隙是 9 µs，SIFS 是 10 µs，于是轮所在的 AC_BK 要等 10 + 7 × 9 = 73 µs 才有资格开始倒数，而摄像头的 AC_BE 只等 10 + 3 × 9 = 37 µs。每一段空闲都是一场赛跑，而这个轮起跑就落后 36 µs。',
     } },
     { text: {
-      en: 'Twenty rounds are due in the two seconds and twenty go out, but the poll clock is not a schedule: the CTS-to-self leaves on average 5.17 ms after the round fell due, and once 12.86 ms after. Only the first round is on time, and only because at t = 0 nothing has a backoff yet: the router’s CTS-to-self and the camera’s RTS both start at 0 µs. What AC_BK buys instead is the promise that the tags will never be why a video call stutters.',
-      zh: '两秒里该发二十个轮，也确实发出了二十个，但轮询间隔不是时间表：CTS-to-self 平均比“到点”晚 5.17 ms 才出去，最晚的一次晚了 12.86 ms。只有第一个轮准时，而且只是因为 t = 0 时谁都还没有退避值：路由器的 CTS-to-self 和摄像头的 RTS 都在 0 µs 开始发送。AC_BK 换来的是另一种保证：标签永远不会是视频通话卡顿的原因。',
+      en: 'Twenty rounds are due in the two seconds and twenty go out, but the poll clock is not a schedule: the CTS-to-self leaves on average 5.17 ms after the round fell due, and once 12.86 ms after. Only twice in the twenty does it leave on the tick — the first round, because at t = 0 nothing has a backoff yet and the router’s CTS-to-self and the camera’s RTS both start at 0 µs, and one round at 1.8 s that finds the channel free with its backoff already spent. What AC_BK buys instead is the promise that the tags will never be why a video call stutters.',
+      zh: '两秒里该发二十个轮，也确实发出了二十个，但轮询间隔不是时间表：CTS-to-self 平均比“到点”晚 5.17 ms 才出去，最晚的一次晚了 12.86 ms。二十个轮里只有两个正好卡在点上：第一个轮，因为 t = 0 时谁都还没有退避值，路由器的 CTS-to-self 和摄像头的 RTS 都在 0 µs 开始发送；还有 1.8 s 那个轮，恰好赶上信道空闲、退避也已经数完。AC_BK 换来的是另一种保证：标签永远不会是视频通话卡顿的原因。',
     } },
     { heading: { en: 'CTS-to-self is an announcement, not a fence', zh: 'CTS-to-self 是一份公告，不是一道围墙' }, text: {
       en: 'A tag’s uplink is OOK at 250 kb/s. No Wi-Fi station can decode it, and a station that cannot decode a PPDU has no Duration field to take a NAV from — it sees energy, and only while the energy lasts. A tag transmits at 0 dBm, so from the camera’s corner of the study the plant tag arrives at −65.7 dBm and the window tag at −71.7 dBm, both under the −62 dBm energy-detection threshold. The camera’s carrier sense does not see the slot at all.',
       zh: '标签的上行是 250 kb/s 的 OOK。没有任何 Wi-Fi 终端能解出它，而解不出 PPDU 就拿不到 Duration 字段，也就无从设置 NAV——它只能看见能量，而且只在能量持续的那段时间里看见。标签的发射功率是 0 dBm，于是在书房另一头的摄像头那里，植物标签只有 −65.7 dBm，窗磁只有 −71.7 dBm，都低于 −62 dBm 的能量检测门限。摄像头的载波侦听根本看不见这些时隙。',
     } },
     { text: {
-      en: 'So before each round the router sends itself a CTS: 14 octets at 6 Mb/s, 50 µs on the air, in a rate every station in the BSS can read. The round itself has not changed since lesson 1 — 50 + 10 + 618 + 4 × (10 + 528 + 10 + 330) = 4190 µs — of which the CTS-to-self’s Duration field covers the 4140 µs that follow it. The camera decodes 17 of the 20 and sets its NAV for the 4140 µs the Duration field asks for.',
+      en: 'So before each round the router sends itself a CTS: 14 octets at 6 Mb/s, 50 µs on the air. The round itself has not changed since lesson 1 — 50 + 10 + 618 + 4 × (10 + 528 + 10 + 330) = 4190 µs — of which the CTS-to-self’s Duration field covers the 4140 µs that follow it. The camera decodes 17 of the 20 and sets its NAV for the 4140 µs the Duration field asks for.',
       zh: '所以每个轮开始之前，路由器先给自己发一帧 CTS：14 个字节、6 Mb/s、占空口 50 µs，用的是 BSS 里人人都读得懂的速率。轮本身和第一课一样——50 + 10 + 618 + 4 × (10 + 528 + 10 + 330) = 4190 µs——其中 CTS-to-self 的 Duration 字段覆盖了它之后的 4140 µs。摄像头解出了二十帧里的十七帧，并按 Duration 的要求把 NAV 设了 4140 µs。',
     } },
     { text: {
@@ -84,8 +88,8 @@ export const ampCoexist: Lesson = {
       zh: '有意思的是漏掉的那三帧。这三次，摄像头自己的 RTS 都和 CTS-to-self 在同一纳秒开始发送：半双工的射频在说话时就聋了，而从未听见 Duration 的终端自然不会设 NAV。802.11 的保护机制向来是尽力而为——保护帧和别的帧一样要参与竞争，而它想让其安静的那个终端，很可能正好也在发。',
     } },
     { text: {
-      en: 'Nine camera frames start inside an uplink slot in the whole run — every one of them an RTS, every one of them in a round the camera never heard announced. The router answers none of them: it is running a round, and a round is not interruptible. That is eight CTS timeouts at the camera in the two seconds, and it doubles its contention window at each one.',
-      zh: '整个运行里只有九帧摄像头的帧落进了上行时隙——无一例外都是 RTS，无一例外都发生在它没听见公告的那三个轮里。路由器一帧也没回应：它正在跑一个轮，而轮是不可打断的。于是两秒里摄像头记下了八次 CTS 超时，每一次都把自己的竞争窗口翻一倍。',
+      en: 'Nine camera frames start inside an uplink slot in the whole run — every one of them an RTS, every one of them in a round the camera never heard announced. The router answers none of them: it is running a round, and a round is not interruptible. Eight of the nine end in a CTS timeout; the ninth ends earlier, when an AMP Ack arrives inside the timeout window and the camera gives the attempt up on the spot. Either way it doubles its contention window.',
+      zh: '整个运行里只有九帧摄像头的帧落进了上行时隙——无一例外都是 RTS，无一例外都发生在它没听见公告的那三个轮里。路由器一帧也没回应：它正在跑一个轮，而轮是不可打断的。九次里有八次以 CTS 超时收场；第九次结束得更早：一帧 AMP Ack 落在超时窗口之内，摄像头当场就把这次尝试判了死刑。两种结局一样，都要把竞争窗口翻一倍。',
     } },
     { kind: 'table', heading: { en: 'Two seconds, four runs', zh: '两秒，四种跑法' }, head: [
       { en: 'Run', zh: '跑法' }, { en: 'Readings acked', zh: '读数被确认' },
@@ -102,38 +106,35 @@ export const ampCoexist: Lesson = {
       zh: '标签一共送出 40 帧回应，29 帧拿到了确认——72.5 %。丢掉的十一帧里，八帧是两个标签抽到了同一个时隙，二十轮里发生了四次；另外三帧输给了摄像头，而且三次都落在它没听见公告的那几个轮里。两个标签分四个时隙，大部分时隙是空的：80 个时隙里 44 个安静无声，32 个装着一帧回应，4 个装着两帧。',
     } },
     { heading: { en: 'What the round costs', zh: '这个轮要花多少' }, text: {
-      en: 'Each round reserves 4190 µs of every 100 ms — 4.19 % — but only 3044 µs of that is ever modulated: 30 440 µs a second, 3.044 % of the channel. The difference is the empty slots, reserved and paid for like the full ones.',
+      en: 'Each round reserves 4190 µs of every 100 ms — 4.19 % — but only 3044 µs of that is ever modulated: 30 440 µs a second, 3.044 % of the channel. The difference is the empty slots.',
       zh: '每个轮都要在每 100 ms 里预留 4190 µs——4.19 %——但其中真正被调制到空口上的只有 3044 µs：每秒 30 440 µs，占信道的 3.044 %。差额就是那些空时隙：一样被预留、一样要付钱。',
     } },
     { kind: 'formula', text: {
       en: 'per round: 50 (CTS) + 618 (trigger) + 4 × 330 (Acks) = 1988 µs, + 2 × 528 (two responses) = 3044 µs',
       zh: '每轮：50（CTS）+ 618（触发帧）+ 4 × 330（Ack）= 1988 µs，再加 2 × 528（两帧回应）= 3044 µs',
-    }, note: {
-      en: 'The reservation is fixed by the slot plan; the air is what the tags actually use.',
-      zh: '预留量由时隙规划决定，空口时间则取决于标签实际用了多少。',
     } },
     { text: {
       en: 'The camera gets 99.89 Mb/s through with the polling running and 105.29 Mb/s in the same flat with the tags taken away: it pays 5.13 % of its throughput for a round that spends 3.044 % of the air. The extra is the reservation, which silences the camera through the empty slots as well as the full ones, and the three rounds it walked into.',
-      zh: '轮询开着时摄像头能送出 99.89 Mb/s，把标签从同一间屋子里拿掉后是 105.29 Mb/s：为了一个只占 3.044 % 空口时间的轮，它付出了 5.13 % 的吞吐。多出来的部分，一半来自预留——空时隙和满时隙一样让摄像头闭嘴——一半来自它一头撞进去的那三个轮。',
+      zh: '轮询开着时摄像头能送出 99.89 Mb/s，把标签从同一间屋子里拿掉后是 105.29 Mb/s：为了一个只占 3.044 % 空口时间的轮，它付出了 5.13 % 的吞吐。多出来的那部分来自两处：一是预留——空时隙和满时隙一样让摄像头闭嘴——二是它一头撞进去的那三个轮。',
     } },
     { heading: { en: 'Take the protection away', zh: '把保护拿掉' }, text: {
       en: 'Take the CTS-to-self away and the camera never hears about the round at all: no NAV in the whole run, and 79 camera frames start inside an uplink slot instead of nine. Seven of the 40 responses survive — 17.5 %, against 72.5 % with the CTS-to-self — and the router records 25 receptions that failed with reason collision, against 3.',
       zh: '把 CTS-to-self 拿掉，摄像头就彻底不知道轮的存在了：整个运行里一次 NAV 都没设，落进上行时隙的摄像头帧从九帧涨到 79 帧。40 帧回应只活下来 7 帧——17.5 %，而有 CTS-to-self 时是 72.5 %——路由器记下了 25 次原因为 collision 的接收失败，而此前只有 3 次。',
     } },
     { text: {
-      en: 'The camera does not win what the tags lose. Its RTS goes unanswered 78 times instead of 8, and its own throughput falls to 94.08 Mb/s — below the 99.89 Mb/s it managed while it was being kept out. Every RTS that lands in a slot buys the camera nothing and costs it a doubled contention window; the protection frame it resents was also keeping it from wasting its own airtime.',
-      zh: '标签丢掉的，摄像头并没有赚到。它的 RTS 从八次无人应答变成 78 次，自己的吞吐反而跌到 94.08 Mb/s——比被“挡在门外”时的 99.89 Mb/s 还低。每一帧落进时隙的 RTS 都换不来任何东西，却要付出竞争窗口翻倍的代价；那帧看似碍事的保护帧，其实也在替它省下白白浪费的空口时间。',
+      en: 'The camera does not win what the tags lose. Its RTS goes unanswered 78 times instead of 8, and its own throughput falls to 94.08 Mb/s — below the 99.89 Mb/s it managed while it was being kept out.',
+      zh: '标签丢掉的，摄像头并没有赚到。它的 RTS 从八次无人应答变成 78 次，自己的吞吐反而跌到 94.08 Mb/s——比被“挡在门外”时的 99.89 Mb/s 还低。',
     } },
-    { heading: { en: 'Polling five times as often', zh: '把轮询频率提高五倍' }, text: {
+    { heading: { en: 'Polling five times as often', zh: '把轮询频率提高到五倍' }, text: {
       en: 'At 20 ms the same 4190 µs round reserves 20.95 % of the channel and its 3044 µs of PPDU become 152 200 µs a second, 15.22 %. The camera drops to 77.41 Mb/s — 26.49 % below the 105.29 Mb/s of the Wi-Fi-only run — while the tags do slightly worse per round than before: 139 of 200 responses acknowledged, 69.5 %. Five times the readings cost five times the airtime and rather more than five times the throughput.',
-      zh: '轮询间隔改成 20 ms，同样 4190 µs 的轮就要预留信道的 20.95 %，其中 3044 µs 的 PPDU 变成每秒 152 200 µs，占 15.22 %。摄像头跌到 77.41 Mb/s——比只有 Wi-Fi 时的 105.29 Mb/s 低 26.49 %——而标签每轮的成绩还略有下滑：200 帧回应里确认了 139 帧，69.5 %。读数多五倍，空口时间就多五倍，吞吐损失还不止五倍。',
+      zh: '轮询间隔改成 20 ms，同样 4190 µs 的轮就要预留信道的 20.95 %，其中 3044 µs 的 PPDU 变成每秒 152 200 µs，占 15.22 %。摄像头跌到 77.41 Mb/s——比只有 Wi-Fi 时的 105.29 Mb/s 低 26.49 %——而标签每轮的成绩还略有下滑：200 帧回应里确认了 139 帧，69.5 %。读数变成五倍，空口时间就变成五倍，吞吐损失还不止五倍。',
     } },
     { heading: { en: 'The other band never notices', zh: '另一个频段毫无察觉' }, text: {
       en: 'The phone is on the router’s 5 GHz radio, and it delivers exactly 2365 video frames — 13.24 Mb/s — in the base run, with no protection, at a 20 ms poll clock and with no AMP at all. Not one frame of difference: the two links share a router, not a channel, and the AP contends separately on each radio.',
       zh: '手机挂在路由器的 5 GHz 射频上。基础场景、无保护、20 ms 轮询、完全没有 AMP——四种跑法下它送达的视频帧都是 2365 帧，13.24 Mb/s，一帧不差。两条链路共享的是一台路由器，不是一条信道，AP 在每套射频上分别竞争。',
     } },
     { kind: 'list', heading: { en: 'Where to read it', zh: '在哪里看' }, items: [
-      { en: 'The lanes: ap#2g and ap are the router’s two radios; cam#2g and the tags sit under the first, phone under the second.', zh: '泳道：ap#2g 和 ap 是路由器的两套射频；cam#2g 和两个标签在第一条下面，phone 在第二条下面。' },
+      { en: 'The lanes: ap#2g and ap are the router’s two radios; the camera and the tags sit under the first, the phone under the second.', zh: '泳道：ap#2g 和 ap 是路由器的两套射频；摄像头和两个标签在第一条下面，手机在第二条下面。' },
       { en: 'The log: “AIFS wait until … [AC_BK]” before every round, “NAV set until … (cts:ap)” at the camera, “CTS timeout” when it walks into one.', zh: '日志里：每个轮之前的“AIFS wait until … [AC_BK]”，摄像头上的“NAV set until …（cts:ap）”，以及它撞进轮里时的“CTS timeout”。' },
       { en: 'The CTS-to-self: open it and read the Duration field — 4140 µs, exactly the round that follows.', zh: 'CTS-to-self：点开它读 Duration 字段——4140 µs，正好是后面那个轮。' },
     ] },
@@ -154,12 +155,12 @@ export const ampCoexist: Lesson = {
     J('first 5 GHz video frame', '第一帧 5 GHz 视频', txOf((r) => r.node === 'ap' && r.frame.kind === 'data')),
   ],
   observe: [
-    { en: 'Jump to the first CTS-to-self at 0 µs and look at the camera’s lane: its RTS starts at the same instant, so it never decodes the announcement. Then jump to the camera’s first NAV, at 111.914 ms — the CTS-to-self of the second round — and watch it sit out the whole 4140 µs.', zh: '跳到 0 µs 的第一帧 CTS-to-self，看摄像头那条泳道：它的 RTS 在同一瞬间开始，所以这份公告它压根没解出来。再跳到摄像头第一次设 NAV 的时刻，111.914 ms——那是第二个轮的 CTS-to-self——看它老老实实地空等完整整 4140 µs。' },
-    { en: 'Load the no-protection variant and jump to the first camera RTS the router never answers. Its RTS starts at 817 µs, inside slot 1 while a tag is answering; the router records an RX_FAIL with reason collision and the closing Ack names the router itself. Step forward: this now happens in nearly every slot of the run.', zh: '载入“不加保护”变体，跳到第一帧路由器没有回应的摄像头 RTS。它在 817 µs 开始发送，正落在时隙 1 里，而那时标签正在回应；路由器记下一条原因为 collision 的 RX_FAIL，收尾的 Ack 点名的是路由器自己。继续单步：整个运行里几乎每个时隙都在重演这一幕。' },
-    { en: 'Select the phone and switch between the four runs. Its lane is byte-for-byte identical every time — 2365 frames, the first at 883.111 µs. The AP’s 2.4 GHz and 5 GHz radios contend separately, and the AMP round is invisible to anything not listening on 2.4 GHz.', zh: '选中手机，在四种跑法之间来回切换。它那条泳道每次都一模一样——2365 帧，第一帧在 883.111 µs。AP 的 2.4 GHz 与 5 GHz 射频各自独立竞争，AMP 的轮对不在 2.4 GHz 上收听的设备完全不可见。' },
+    { en: 'Jump to the first CTS-to-self at 0 µs: the camera’s RTS starts at the same instant, so it never decodes the announcement. Then jump to the camera’s first NAV, at 111.914 ms — the second round’s — and watch it sit out the whole 4140 µs.', zh: '跳到 0 µs 的第一帧 CTS-to-self：摄像头的 RTS 在同一瞬间开始，所以这份公告它压根没解出来。再跳到摄像头第一次设 NAV 的时刻，111.914 ms——那是第二个轮的——看它老老实实地空等完整整 4140 µs。' },
+    { en: 'Load the no-protection variant and jump to the first camera RTS the router never answers, at 73 µs: it started at 0 µs, with the trigger, and the router was transmitting. Step to the next timeout, at 890 µs — its RTS started at 817 µs, inside slot 1 over a tag’s response, so the router logs an RX_FAIL with reason collision at 1156 µs and the closing Ack names itself.', zh: '载入“不加保护”变体，跳到第一帧路由器没有回应的摄像头 RTS，时间是 73 µs：它在 0 µs 开始，和触发帧同一瞬间，而路由器当时正在发送。再走到下一次超时，890 µs——它的 RTS 从 817 µs 开始，正落在时隙 1 里、压在标签的回应上，于是路由器在 1156 µs 记下一条原因为 collision 的 RX_FAIL，收尾的 Ack 点名的是路由器自己。' },
+    { en: 'Select the phone and switch between the four runs. Its lane is byte-for-byte identical every time — 2365 frames, the first at 883.111 µs. The two radios contend separately, and the round is invisible to anything not listening on 2.4 GHz.', zh: '选中手机，在四种跑法之间来回切换。它那条泳道每次都一模一样——2365 帧，第一帧在 883.111 µs。两套射频各自独立竞争，这个轮对不在 2.4 GHz 上收听的设备完全不可见。' },
   ],
   tryThis: [
-    { en: 'Set protection to “none” in the editor’s AMP polling section, or load the no-protection variant, and compare the two runs. The acknowledged share falls from 72.5 % to 17.5 % and the camera frames landing inside a slot go from 9 to 79 — but look at the camera too: 78 unanswered RTS instead of 8, and 94.08 Mb/s instead of 99.89. Then work out why protecting the round made the unprotected station faster.', zh: '在编辑器的 AMP 轮询设置里把 protection 改成 “none”，或者直接载入“不加保护”变体，然后对比两次运行。确认率从 72.5 % 掉到 17.5 %，落进时隙的摄像头帧从 9 帧涨到 79 帧——但也别忘了看摄像头自己：无人应答的 RTS 从 8 次变成 78 次，吞吐从 99.89 Mb/s 掉到 94.08 Mb/s。然后想一想：为什么保护这个轮，反而让没被保护的那个终端更快了？' },
+    { en: 'Set protection to “none” in the editor’s AMP polling section and compare the two runs. The acknowledged share falls from 72.5 % to 17.5 % and the camera frames landing inside a slot go from 9 to 79 — but look at the camera too: 78 unanswered RTS instead of 8, and 94.08 Mb/s instead of 99.89. Then work out why protecting the round made the unprotected station faster.', zh: '在编辑器的 AMP 轮询设置里把 protection 改成 “none”，或者直接载入“不加保护”变体，然后对比两次运行。确认率从 72.5 % 掉到 17.5 %，落进时隙的摄像头帧从 9 帧涨到 79 帧——但也别忘了看摄像头自己：无人应答的 RTS 从 8 次变成 78 次，吞吐从 99.89 Mb/s 掉到 94.08 Mb/s。然后想一想：为什么保护这个轮，反而让没被保护的那个终端更快了？' },
     { en: 'Drag the camera to (4, 5.6), 40 cm from the plant tag, and reload the no-protection variant: the camera now hears the tag’s own signal well above −62 dBm, defers on it, and the router records not one collision instead of 25. 26 readings are acknowledged where 7 were. The price is five rounds in which a tag, deafened by the camera beside it, never answers at all — carrier sense protects the slot only for whoever can hear it.', zh: '把摄像头拖到 (4, 5.6)，离植物标签只有 40 cm，再载入“不加保护”变体：摄像头现在能听见标签的信号，而且远高于 −62 dBm，于是乖乖退避，路由器记下的碰撞从 25 次变成一次也没有，被确认的读数从 7 个涨到 26 个。代价是有五个轮里，某个标签被身旁的摄像头吵聋，干脆一声不吭——载波侦听只能保护那些听得见的人。' },
   ],
   quiz: [
@@ -171,7 +172,7 @@ export const ampCoexist: Lesson = {
         { en: 'The AP delays it deliberately so the tags have time to harvest energy', zh: 'AP 故意推迟，好让标签有时间收集能量' },
       ],
       answer: 1,
-      explain: { en: 'AC_BK waits 10 + 7 × 9 = 73 µs where AC_BE waits 37 µs, so on a busy channel the camera reaches zero first again and again. The poll interval is a wish, not a schedule.', zh: '这个轮就是 EDCA 功能争到的一次帧交换序列。AC_BK 要等 10 + 7 × 9 = 73 µs，AC_BE 只等 37 µs，信道一忙，摄像头就一次次先把退避数到零。轮询间隔是愿望，不是时间表。' },
+      explain: { en: 'AC_BK waits 10 + 7 × 9 = 73 µs where AC_BE waits 37 µs, so on a busy channel the camera reaches zero first again and again. The poll interval is a wish, not a schedule.', zh: 'AC_BK 要等 10 + 7 × 9 = 73 µs，AC_BE 只等 37 µs，信道一忙，摄像头就一次次先把退避数到零。轮询间隔是愿望，不是时间表。' },
     },
     {
       q: { en: 'The CTS-to-self goes out before all 20 rounds, yet the camera sets a NAV for only 17. Why?', zh: '二十个轮前面都发了 CTS-to-self，摄像头却只设了十七次 NAV。为什么？' },

@@ -68,8 +68,20 @@ function delivered(rs: TLRecord[], node: string): number {
   const dropped = new Set(ofType(rs, 'DROP').map((r) => r.msduId))
   return ofType(rs, 'DEQUEUE').filter((r) => r.node === node && !dropped.has(r.msduId)).length
 }
-/** Uplink goodput in Mb/s over the measured window, from 1500-byte MSDUs. */
-const camMbps = (rs: TLRecord[]) => (delivered(rs, CAM) * 1500 * 8) / (RUN_NS / 1e9) / 1e6
+/**
+ * Goodput in Mb/s over the measured window. MSDU sizes are taken from the
+ * engine's own ENQUEUE records, never from a size re-typed in this file.
+ */
+function mbps(rs: TLRecord[], node: string): number {
+  const dropped = new Set(ofType(rs, 'DROP').map((r) => r.msduId))
+  const bytes = new Map(ofType(rs, 'ENQUEUE').filter((r) => r.node === node).map((r) => [r.msduId, r.bytes]))
+  let bits = 0
+  for (const r of ofType(rs, 'DEQUEUE')) {
+    if (r.node === node && !dropped.has(r.msduId)) bits += 8 * (bytes.get(r.msduId) ?? 0)
+  }
+  return bits / (RUN_NS / 1e9) / 1e6
+}
+const camMbps = (rs: TLRecord[]) => mbps(rs, CAM)
 const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length
 /** How late each round's CTS-to-self went out, against the poll clock's k × pollIntervalMs. */
 const lateUs = (rs: TLRecord[], pollMs: number) =>
@@ -109,6 +121,8 @@ describe('amp-coexist · lesson shape', () => {
     const s = ampCoexist.scenario()
     expect(s.nodes.map((n) => n.id)).toEqual(['ap', 'cam', 'phone', 'tag-1', 'tag-2'])
     expect(s.nodes.map((n) => n.kind)).toEqual(['ap', 'sta', 'sta', 'amp', 'amp'])
+    // the coordinates the prose quotes: (3, 4), (6, 4), (12, 4), (2, 2), (4, 6)
+    expect(s.nodes.map((n) => [n.pos.x, n.pos.y])).toEqual([[3, 4], [6, 4], [12, 4], [2, 2], [4, 6]])
     // the AP declares no link of its own: it joins every link something else uses
     expect(s.nodes.map((n) => n.linkId)).toEqual([undefined, '2g', undefined, '2g', '2g'])
     expect(s.nodes[1].profiles).toEqual(['saturated'])
@@ -203,11 +217,18 @@ describe('amp-coexist · the round contends for the channel', () => {
     expect(Math.min(...late)).toBe(0)
   })
 
-  it('the first round is the one that is not late: both EDCAFs fire at t = 0', () => {
-    // "Only the first round is on time, and only because at t = 0 nothing has a backoff yet: the router's
-    //  CTS-to-self and the camera's RTS both start at 0 µs."
+  it('exactly two rounds leave on the tick: the one at t = 0 and the one at 1.8 s', () => {
+    // "Only twice in the twenty does it leave on the tick — the first round, because at t = 0 nothing has
+    //  a backoff yet and the router's CTS-to-self and the camera's RTS both start at 0 µs, and one round
+    //  at 1.8 s that finds the channel free with its backoff already spent."
+    const late = lateUs(rs, 100)
+    const onTime = late.map((x, i) => [i, x] as const).filter(([, x]) => x === 0)
+    expect(onTime.map(([i]) => i)).toEqual([0, 18])
     expect(roundCts(rs)[0].t).toBe(0)
+    expect(roundCts(rs)[18].t).toBe(1800 * MS)
+    // at t = 0 both EDCAFs fire together: nothing has drawn a backoff yet
     expect(txs(rs).filter((r) => r.node === CAM && r.t === 0).map((r) => r.frame.kind)).toEqual(['rts'])
+    expect(ofType(rs, 'BACKOFF_DRAW').filter((r) => r.t <= 0).length).toBe(0)
   })
 })
 
@@ -254,14 +275,25 @@ describe('amp-coexist · CTS-to-self is an announcement, not a fence', () => {
         && c.t > r.t && c.t < r.t + 100 * US)
       expect(answer, `RTS at ${r.t}`).toBeUndefined()
     }
-    // "That is eight CTS timeouts at the camera in the two seconds, and it doubles its contention window
-    //  at each one."
+    // "Eight of the nine end in a CTS timeout; the ninth ends earlier, when an AMP Ack arrives inside the
+    //  timeout window and the camera gives the attempt up on the spot. Either way it doubles its
+    //  contention window."
     const timeouts = ofType(rs, 'CTS_TIMEOUT').filter((r) => r.node === CAM)
     expect(timeouts.length).toBe(8)
-    for (const t of timeouts) {
-      const before = ofType(rs, 'CW_CHANGE').filter((c) => c.node === CAM && c.ac === 1 && c.t < t.t).pop()!
-      const after = ofType(rs, 'CW_CHANGE').find((c) => c.node === CAM && c.ac === 1 && c.t === t.t)!
-      expect(after.cw, `CTS timeout at ${t.t}`).toBe(2 * before.cw + 1)
+    const timedOut = inside.filter((r) => timeouts.some((t) => t.t === r.t + r.frame.txTimeNs + ERP_2G.ackTimeoutNs))
+    expect(timedOut.length).toBe(8)
+    // the ninth: an AMP Ack decoded at the camera ends the attempt before the timeout could fire
+    const [odd] = inside.filter((r) => !timedOut.includes(r))
+    const end = odd.t + odd.frame.txTimeNs
+    const amp = ofType(rs, 'RX_OK').find((r) => r.node === CAM && r.t > end && r.frame.kind.startsWith('amp'))!
+    const retry = ofType(rs, 'RETRY').find((r) => r.node === CAM && r.t === amp.t)
+    expect(retry, `attempt after the RTS at ${odd.t}`).toBeDefined()
+    expect(timeouts.some((t) => t.t > end && t.t <= amp.t)).toBe(false)
+    // every one of the nine doubles the camera's contention window at the instant it gives up
+    for (const at of [...timeouts.map((t) => t.t), amp.t]) {
+      const before = ofType(rs, 'CW_CHANGE').filter((c) => c.node === CAM && c.ac === 1 && c.t < at).pop()!
+      const after = ofType(rs, 'CW_CHANGE').find((c) => c.node === CAM && c.ac === 1 && c.t === at)!
+      expect(after.cw, `attempt failed at ${at}`).toBe(2 * before.cw + 1)
     }
   })
 
@@ -394,7 +426,9 @@ describe('amp-coexist · the other band never notices', () => {
     //  of difference: the two links share a router, not a channel."
     const counts = [recs(), recs(NONE), recs(POLL20), recs(WIFI_ONLY)].map((rs) => delivered(rs, 'ap'))
     expect(counts).toEqual([2365, 2365, 2365, 2365])
-    expect(((2365 * 1400 * 8) / 2 / 1e6).toFixed(2)).toBe('13.24')
+    for (const rs of [recs(), recs(NONE), recs(POLL20), recs(WIFI_ONLY)]) {
+      expect(mbps(rs, 'ap').toFixed(2)).toBe('13.24')
+    }
     // and the phone's own lane really is the 5 GHz one, untouched by 2.4 GHz records
     const phoneRx = ofType(recs(), 'RX_OK').filter((r) => r.node === 'phone' && r.frame.kind === 'data')
     expect(phoneRx.length).toBe(2365)
@@ -404,26 +438,49 @@ describe('amp-coexist · the other band never notices', () => {
 
 describe('amp-coexist · observe', () => {
   it('the camera’s first NAV is the second round’s, at 111.914 ms', () => {
-    // "Then jump to the camera's first NAV, at 111.914 ms — the CTS-to-self of the second round"
+    // "Then jump to the camera's first NAV, at 111.914 ms — the second round's — and watch it sit out
+    //  the whole 4140 µs."
     const nav = camNav(recs())
     expect((nav[0].t / MS).toFixed(3)).toBe('111.914')
     const cts = roundCts(recs())
     expect(nav[0].t).toBe(cts[1].t + cts[1].frame.txTimeNs)
   })
 
-  it('in the no-protection run the camera’s first RTS starts at 817 µs, inside slot 1, over a tag', () => {
-    // "Its RTS starts at 817 µs, inside slot 1 while a tag is answering; the router records an RX_FAIL
-    //  with reason collision and the closing Ack names the router itself."
+  it('the jump the observe step uses really lands on the record the sentence describes', () => {
+    // "jump to the first camera RTS the router never answers, at 73 µs: it started at 0 µs, with the
+    //  trigger, and the router was transmitting."
     const rs = recs(NONE)
+    const jump = ampCoexist.jumps.find((j) => j.label.en === 'first camera RTS the router never answers')!
+    const first = rs.find(jump.find)!
+    expect(first.type).toBe('CTS_TIMEOUT')
+    expect(first.t).toBe(73 * US)
+    const itsRts = txs(rs).filter((r) => r.node === CAM && r.frame.kind === 'rts' && r.t < first.t).pop()!
+    expect(itsRts.t).toBe(0)
+    const trigger = txs(rs).find((r) => r.frame.kind === 'ampTrigger')!
+    expect(trigger.t).toBe(0)
+    expect(first.t).toBe(itsRts.t + itsRts.frame.txTimeNs + ERP_2G.ackTimeoutNs)
+    // and slot 1 has not even opened yet at that point
+    expect(slots(rs)[0].t).toBe(628 * US)
+  })
+
+  it('the second timeout, at 890 µs, is the in-slot one: RX_FAIL at 1156 µs, Ack naming the router', () => {
+    // "Step to the next timeout, at 890 µs — its RTS started at 817 µs, inside slot 1 over a tag's
+    //  response, so the router logs an RX_FAIL with reason collision at 1156 µs and the closing Ack
+    //  names itself."
+    const rs = recs(NONE)
+    const second = ofType(rs, 'CTS_TIMEOUT').filter((r) => r.node === CAM)[1]
+    expect(second.t).toBe(890 * US)
     const rts = camInSlot(rs)[0]
     expect(rts.t).toBe(817 * US)
     expect(rts.frame.kind).toBe('rts')
+    expect(second.t).toBe(rts.t + rts.frame.txTimeNs + ERP_2G.ackTimeoutNs)
     const slot = slots(rs).find((s) => rts.t >= s.t && rts.t < s.untilNs)!
     expect(slot.slot).toBe(1)
     const resp = txs(rs).filter((r) => r.frame.kind === 'ampResp' && r.t >= slot.t && r.t < slot.untilNs)
     expect(resp.length).toBe(1)
     const fail = ofType(rs, 'RX_FAIL').find((r) => r.node === AP && r.t >= slot.t && r.t <= slot.untilNs)!
     expect(fail.reason).toBe('collision')
+    expect(fail.t).toBe(1156 * US)
     const ack = txs(rs).find((r) => r.frame.kind === 'ampAck' && r.t >= slot.untilNs)!
     expect(ack.frame.amp!.ackFor).toBe(1)
     expect(ack.frame.dst).toBe(ack.frame.src)

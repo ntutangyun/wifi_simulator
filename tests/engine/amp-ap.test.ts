@@ -101,11 +101,38 @@ describe('the AP’s AMP round', () => {
     // often enough that the station would stall for good within a second.
     const cam: NodeCfg = { id: 'cam', kind: 'sta', name: 'Camera', pos: { x: 5, y: 2, z: 1 }, txPowerDbm: 15, profiles: ['saturated'], caps: { generation: 'he', features: { edca: true, ampdu: true, txop: true } }, linkId: '2g' }
     const sc = scenario({ protection: 'none' }, [cam])
-    sc.nodes[0].caps.features.ampdu = true // so the camera's uplink aggregates past the RTS threshold
-    const rs = new Simulation(sc).runUntil(3000 * MS).records
-    // the premise: the camera really does lose an RTS into a round
-    expect(ofType(rs, 'CTS_TIMEOUT', 'cam#2g').length).toBeGreaterThan(0)
-    // and it is still transmitting in the last tenth of the run
+    // the AP needs Block Ack too, or the camera's uplink never aggregates past the RTS threshold
+    sc.nodes[0].caps.features.ampdu = true
+    const rs = [...new Simulation(sc).runUntil(3000 * MS).records]
+    const camRts = ofType(rs, 'TX_END', 'cam#2g').filter((r) => r.frame.kind === 'rts')
+    const timeouts = ofType(rs, 'CTS_TIMEOUT', 'cam#2g')
+    expect(camRts.length).toBeGreaterThan(0)
+
+    // The mechanism: an RTS whose CTS window is covered by an AMP downlink PPDU.
+    // Find the first such attempt — an AMP RX_OK at the camera after its RTS
+    // ended, with no CTS to it and no timeout in between.
+    const camRx = ofType(rs, 'RX_OK', 'cam#2g')
+    let hit: { rts: (typeof camRts)[number]; amp: (typeof camRx)[number] } | undefined
+    for (const r of camRts) {
+      const next = camRx.find((x) => x.t > r.t)
+      const to = timeouts.find((x) => x.t > r.t)
+      if (next && next.frame.kind.startsWith('amp') && (!to || to.t > next.t)) { hit = { rts: r, amp: next }; break }
+    }
+    expect(hit, 'an RTS whose CTS window an AMP PPDU covers').toBeDefined()
+
+    // RXEND of that AMP PPDU must fail the attempt then and there: a retry, a
+    // doubled contention window, and no CTS_TIMEOUT record for this attempt.
+    const at = hit!.amp.t
+    expect(ofType(rs, 'RETRY', 'cam#2g').filter((r) => r.t === at).length).toBe(1)
+    const cw = ofType(rs, 'CW_CHANGE', 'cam#2g').filter((r) => r.t === at)
+    expect(cw.length).toBe(1)
+    expect(timeouts.filter((r) => r.t > hit!.rts.t && r.t <= at).length).toBe(0)
+
+    // …and nothing is left in waitCts: the camera leaves that state at `at` and
+    // is still transmitting in the last tenth of the run.
+    const states = ofType(rs, 'MAC_STATE', 'cam#2g')
+    expect(states.filter((r) => r.t > hit!.rts.t && r.t <= at).pop()!.state).not.toBe('waitCts')
+    expect(states.filter((r) => r.state === 'waitCts' && r.t > 2700 * MS).length).toBeGreaterThan(0)
     const camTx = ofType(rs, 'TX_START', 'cam#2g')
     expect(camTx.filter((r) => r.t > 2700 * MS).length).toBeGreaterThan(0.05 * camTx.length)
   })
