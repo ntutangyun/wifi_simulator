@@ -4,20 +4,12 @@ import type { Ns } from '../model/types'
 import type { LatencyStats } from '../model/view'
 import { fmtUwbRecord } from '../uwb/format'
 import { uwbFrameFields } from '../uwb/frameFields'
+import { fmtNs, fmtUs } from './fmtTime'
 import { STRINGS, type Strings } from './i18n'
 
-/** "12.345 678 901" — seconds.milli micro nano. */
-export function fmtNs(ns: Ns): string {
-  const neg = ns < 0
-  const v = Math.abs(Math.round(ns))
-  const s = Math.floor(v / 1e9)
-  const frac = String(v % 1e9).padStart(9, '0')
-  return `${neg ? '-' : ''}${s}.${frac.slice(0, 3)} ${frac.slice(3, 6)} ${frac.slice(6, 9)}`
-}
-
-export function fmtUs(ns: Ns): string {
-  return `${(ns / 1000).toFixed(1)} µs`
-}
+// The two time formatters live in ./fmtTime (a leaf); they stay part of this module's
+// surface, because every UI component asks ui/format.ts for them.
+export { fmtNs, fmtUs }
 
 /** "mean / max ms" of a delivery-latency accumulator; a dash before the first delivery. */
 export function fmtLatency(l: LatencyStats): string {

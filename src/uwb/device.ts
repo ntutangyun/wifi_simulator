@@ -102,6 +102,8 @@ export class UwbDevice implements UwbRadio {
   private expect: Expectation | null = null
   /** Monotonic id of the transmission in progress; its end timer carries a copy. */
   private txSeq = 0
+  /** The MHR's Sequence Number: one 8-bit counter per device, wrapping at 256. */
+  private seqNo = 0
 
   constructor(
     readonly id: string,
@@ -326,8 +328,12 @@ export class UwbDevice implements UwbRadio {
   }
 
   /** Radiate one PPDU: half-duplex for its whole airtime, RMARKER stamped before it leaves. */
-  private send(frame: FrameDesc, txCounter: number): void {
+  private send(desc: FrameDesc, txCounter: number): void {
     const t = this.now()
+    // The MHR's Sequence Number is a real per-device counter, as in any 802.15.4
+    // device, so the decoder has a number to show instead of the schedule tuple.
+    const frame: FrameDesc = { ...desc, seqNo: this.seqNo }
+    this.seqNo = (this.seqNo + 1) % 256
     this.setState('tx')
     this.emit({
       t, type: 'UWB_TS', node: this.id, dir: 'tx', peer: frame.dst,

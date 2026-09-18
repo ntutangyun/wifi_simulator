@@ -78,21 +78,23 @@ function ies(u: UwbInfo): Ie[] {
         out.push({ key: 'ieRrmc', bytes: RRMC_IE_BYTES, value: `slot ${u.slot} · ${method}` })
         break
       case 'RRTI': {
-        // A Response carries one reply time; a Final carries one per anchor.
-        const n = u.finalTimes?.length ?? 0
-        out.push({
-          key: 'ieRrti', bytes: u.replyRctu !== undefined ? RRTI_IE_BYTES : n * RRTI_IE_BYTES,
-          value: u.replyRctu !== undefined
-            ? `reply time ${rctuText(u.replyRctu)}`
-            : `${n} reply times (treply2), one per anchor`,
-        })
+        // One RRTI IE holds one reply time (standard §10.29.8.1), so a Response carries one
+        // and a Final carries N — N rows of 6 octets, not one row of 6N.
+        if (u.replyRctu !== undefined) {
+          out.push({ key: 'ieRrti', bytes: RRTI_IE_BYTES, value: `reply time ${rctuText(u.replyRctu)}` })
+          break
+        }
+        for (const t of u.finalTimes ?? []) {
+          out.push({ key: 'ieRrti', bytes: RRTI_IE_BYTES, value: `${t.id}: treply2 ${rctuDur(t.treply2)}` })
+        }
         break
       }
       case 'RMI':
         out.push(u.finalTimes
           ? {
             key: 'ieRmi', bytes: rmiFinalIeBytes(u.finalTimes.length),
-            value: `${u.finalTimes.length} anchors: ${u.finalTimes.map((t) => `${t.id} tround1 ${rctuDur(t.tround1)}, treply2 ${rctuDur(t.treply2)}`).join(' · ')}`,
+            // The RMI IE's entry is address + round-trip time; each treply2 rides in its own RRTI IE.
+            value: `${u.finalTimes.length} anchors: ${u.finalTimes.map((t) => `${t.id} tround1 ${rctuDur(t.tround1)}`).join(' · ')}`,
           }
           : {
             key: 'ieRmi', bytes: RMI_REPORT_IE_BYTES,

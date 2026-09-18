@@ -17,6 +17,7 @@
  * instant never sees energy that only starts at that instant.
  */
 import { EventQueue } from '../engine/events'
+import { byCodeUnit } from '../engine/hash'
 import { wallLossDb, wallsCrossed } from '../engine/propagation'
 import type { FrameDesc } from '../model/frames'
 import type { EmitFn, RxFailReason } from '../model/records'
@@ -30,6 +31,8 @@ export interface UwbRxInfo {
   propNs: number
   /** Excess delay the receiver measures on this path (0 when nlos is off or no wall). */
   nlosNs: number
+  /** The direct path crosses at least one wall — geometry only, and what the FoM reports.
+   * Independent of the session's `nlos` switch, which only idealises the excess delay. */
   nlos: boolean
   /** When the PPDU started at the transmitter (event-clock ns). */
   txStartNs: Ns
@@ -44,7 +47,8 @@ export interface UwbRadio {
   onRxFail(from: string, reason: RxFailReason): void
 }
 
-export interface UwbChannelCfg {
+/** Internal to this module: the two session knobs the medium itself reads. */
+interface UwbChannelCfg {
   channel: UwbChannelNo
   nlos: boolean
 }
@@ -133,6 +137,16 @@ export class UwbChannel {
   }
 
   /**
+   * Whether the direct path crosses anything, which is what the receiver's Figure of
+   * Merit reports. It is geometry, not a setting: the `nlos` switch idealises the excess
+   * delay (an ideal-timestamp lab), and idealising the FoM with it would have a path
+   * through a brick wall claim the line-of-sight byte "97 % within 0.5 ns".
+   */
+  obstructed(from: string, to: string): boolean {
+    return wallsCrossed(this.posOf(from), this.posOf(to), this.walls).length > 0
+  }
+
+  /**
    * Radiate a PPDU: TX_START now, TX_END one PPDU later (phase 2), and one
    * delivery per other radio at now + ceil(d / c) (phase 1).
    */
@@ -151,7 +165,10 @@ export class UwbChannel {
       const rssiDbm = this.rssiDbm(from, rxId)
       const arrival: Arrival = {
         rxId, from, frame, rssiDbm,
-        info: { rssiDbm, propNs, nlosNs, nlos: nlosNs > 0, txStartNs: t, txPpm: this.ppmOf(from) },
+        info: {
+          rssiDbm, propNs, nlosNs, nlos: this.obstructed(from, rxId),
+          txStartNs: t, txPpm: this.ppmOf(from),
+        },
       }
       const batch = this.pending.get(at)
       if (batch) batch.push(arrival)
@@ -171,7 +188,7 @@ export class UwbChannel {
     const batch = this.pending.get(at) ?? []
     this.pending.delete(at)
     const ordered = [...batch].sort((x, y) =>
-      x.rxId.localeCompare(y.rxId) || y.rssiDbm - x.rssiDbm || x.from.localeCompare(y.from))
+      byCodeUnit(x.rxId, y.rxId) || y.rssiDbm - x.rssiDbm || byCodeUnit(x.from, y.from))
     for (const a of ordered) this.startRx(at, a)
   }
 

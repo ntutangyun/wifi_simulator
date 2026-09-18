@@ -374,18 +374,24 @@ describe('uwb-dstwr · ten slots and the frames that fill them', () => {
     expect(Math.ceil(496 / RS_BLOCK_BITS)).toBe(2)
   })
 
-  it('the Final’s two IE rows are an RMI of 27 and one RRTI of 24, as the inspector renders them', () => {
-    // "Open the Final in the frame inspector: 62 octets in two IE rows — an RMI IE of 27 listing
-    //  four anchors and one RRTI IE of 24 holding the four Treply2 values, 6 each."
+  it('the Final’s five IE rows are an RMI of 27 and four RRTIs of 6, as the inspector renders them', () => {
+    // "Open the Final in the frame inspector: 62 octets in five IE rows — an RMI IE of 27 listing
+    //  four anchors and four RRTI IEs of 6 octets each, one Treply2 apiece."
     const final = finalFrame(recs())
     expect(final.bytes).toBe(62)
     const fields = uwbFrameFields(final).users[0].subframes[0].mpdu.fields
     const ies = fields.filter((f) => f.key.startsWith('ie')).map((f) => ({ key: f.key, bytes: f.bytes }))
-    expect(ies).toEqual([{ key: 'ieRmi', bytes: 27 }, { key: 'ieRrti', bytes: 24 }])
+    expect(ies).toEqual([
+      { key: 'ieRmi', bytes: 27 },
+      ...Array.from({ length: ANCHORS }, () => ({ key: 'ieRrti', bytes: RRTI_IE_BYTES })),
+    ])
     expect(ies[0].bytes).toBe(rmiFinalIeBytes(ANCHORS))
-    expect(ies[1].bytes).toBe(ANCHORS * RRTI_IE_BYTES)
-    expect(fields.find((f) => f.key === 'ieRrti')!.value).toContain('4 reply times (treply2), one per anchor')
-    expect(UWB_MHR_BYTES + 27 + 24 + UWB_FCS_BYTES).toBe(62)
+    expect(ies.filter((x) => x.key === 'ieRrti')).toHaveLength(ANCHORS)
+    // one reply time per row, named for the anchor it belongs to
+    fields.filter((f) => f.key === 'ieRrti').forEach((f, i) => {
+      expect(f.value).toContain(`anchor-${i + 1}: treply2`)
+    })
+    expect(UWB_MHR_BYTES + 27 + ANCHORS * RRTI_IE_BYTES + UWB_FCS_BYTES).toBe(62)
     // "Then a report: 24 octets, a single 13-octet RMI IE with Treply1 and Tround2."
     const report = ofType(recs(), 'TX_START').find((r) => r.frame.kind === 'uwbReport')!.frame
     expect(report.bytes).toBe(UWB_REPORT_BYTES)
@@ -400,8 +406,8 @@ describe('uwb-dstwr · ten slots and the frames that fill them', () => {
   })
 
   it('the Final carries each anchor’s Tround1 and Treply2 — the phone’s own two measurements', () => {
-    // "One Final for all four anchors, carrying each anchor’s Tround1 in one RMI IE and all four
-    //  Treply2 = txFinal − rxResp in one RRTI IE — all the phone’s own."
+    // "One Final for all four anchors, carrying each anchor’s Tround1 in one RMI IE and each
+    //  Treply2 = txFinal − rxResp in an RRTI IE of its own — all the phone’s own."
     const u = finalFrame(recs()).uwb!
     expect(u.ies).toEqual(['RMI', 'RRTI'])
     expect(u.finalTimes).toHaveLength(ANCHORS)

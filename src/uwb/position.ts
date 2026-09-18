@@ -20,7 +20,6 @@ export interface Fix {
   gdop: number
   ellipse: Ellipse
   residualM: number
-  iterations: number
 }
 
 /** c · σ_ts / √2: a TWR range carries two noisy receive counters (rxResp at the initiator,
@@ -113,10 +112,7 @@ export function solvePosition(
   x /= usable.length
   y /= usable.length
 
-  let iterations = 0
-
   for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
-    iterations = iter + 1
     const { jtjXX, jtjXY, jtjYY, jtrX, jtrY } = accumulateNormal(usable, x, y, zTag)
 
     // Solve the 2x2 normal equations (JtJ) * delta = -Jtr
@@ -168,6 +164,5 @@ export function solvePosition(
     gdop,
     ellipse: { a, b, thetaRad },
     residualM,
-    iterations,
   }
 }

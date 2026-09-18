@@ -58,8 +58,8 @@ export const uwbDstwr: Lesson = {
         zh: '时隙 0，0 ms。手机广播 Poll，给它离开的时刻打戳 txPoll。四个锚点给它到达的时刻打戳 rxPoll，各用各自的计数器。' },
       { en: 'Slots 1 to 4, at 2 to 8 ms. Anchor i answers in slot i, stamps txResp and holds Treply1 = txResp − rxPoll, wholly on its own clock. The phone stamps rxResp and holds Tround1 = rxResp − txPoll, wholly on its own.',
         zh: '时隙 1 到 4，2 ms 到 8 ms。第 i 个锚点在第 i 个时隙作答，打戳 txResp，手里有 Treply1 = txResp − rxPoll，完全用自己的时钟量出。手机打戳 rxResp，手里有 Tround1 = rxResp − txPoll，也完全用自己的时钟。' },
-      { en: 'Slot 5, at 10 ms. One Final for all four anchors, carrying each anchor’s Tround1 in one RMI IE and all four Treply2 = txFinal − rxResp in one RRTI IE — all the phone’s own. Each anchor stamps rxFinal and holds Tround2 = rxFinal − txResp.',
-        zh: '时隙 5，10 ms。一帧 Final 发给全部四个锚点：一个 RMI IE 装着每个锚点的 Tround1，一个 RRTI IE 装着四个 Treply2 = txFinal − rxResp——全是手机自己测的。每个锚点打戳 rxFinal，手里有 Tround2 = rxFinal − txResp。' },
+      { en: 'Slot 5, at 10 ms. One Final for all four anchors, carrying each anchor’s Tround1 in one RMI IE and each Treply2 = txFinal − rxResp in an RRTI IE of its own — all the phone’s own. Each anchor stamps rxFinal and holds Tround2 = rxFinal − txResp.',
+        zh: '时隙 5，10 ms。一帧 Final 发给全部四个锚点：一个 RMI IE 装着每个锚点的 Tround1，四个 RRTI IE 各装一个 Treply2 = txFinal − rxResp——全是手机自己测的。每个锚点打戳 rxFinal，手里有 Tround2 = rxFinal − txResp。' },
       { en: 'Slots 6 to 9, at 12 to 18 ms. Anchor i reports its Treply1 and Tround2 in an RMI IE. Four intervals, two at each end, each a difference of two readings of one counter — nothing converted into anyone else’s units.',
         zh: '时隙 6 到 9，12 ms 到 18 ms。第 i 个锚点用一个 RMI IE 报出自己的 Treply1 与 Tround2。四段间隔，两端各两段，每段都是同一个计数器上两次读数之差——没有任何一个数被换算到别人的单位上。' },
     ] },
@@ -137,8 +137,8 @@ export const uwbDstwr: Lesson = {
   tryThis: [
     { en: 'Load “Worst-case crystals, ±20 ppm”, which doubles both offsets and changes nothing else. The halves blow up: anchor 1 now reads 15.51 m and −44.47 m where it read 9.51 and −20.49. The DS ranges become 3.52, 3.49, 3.54 and 3.45 m — each within 3 mm of the base run — and the fix is still 2 cm out.',
       zh: '载入“最差晶振，±20 ppm”：两端偏差翻倍，别的什么都不改。两个半场随即失控：锚点 1 现在读到 15.51 m 与 −44.47 m，原先是 9.51 与 −20.49。DS 距离变成 3.52、3.49、3.54 与 3.45 m——每一个都在基准运行的 3 mm 之内——定位偏差依然是 2 cm。' },
-    { en: 'Open the Final in the frame inspector: 62 octets in two IE rows — an RMI IE of 27 listing four anchors and one RRTI IE of 24 holding the four Treply2 values, 6 each. Then a report: 24 octets, a single 13-octet RMI IE with Treply1 and Tround2. A fifth anchor would add 12 octets to the Final and two slots — 4 ms — to the round.',
-      zh: '在帧检视器里打开 Final：62 字节，分两行 IE：一个 27 字节的 RMI IE 列出四个锚点，一个 24 字节的 RRTI IE 装着四个 Treply2，每个 6 字节。再打开一份报告：24 字节，一个 13 字节的 RMI IE，装着 Treply1 与 Tround2。多一个锚点，Final 会多 12 字节，整轮会多两个时隙、即 4 ms。' },
+    { en: 'Open the Final in the frame inspector: 62 octets in five IE rows — an RMI IE of 27 listing four anchors and four RRTI IEs of 6 octets each, one Treply2 apiece. Then a report: 24 octets, a single 13-octet RMI IE with Treply1 and Tround2. A fifth anchor would add 12 octets to the Final and two slots — 4 ms — to the round.',
+      zh: '在帧检视器里打开 Final：62 字节，分五行 IE：一个 27 字节的 RMI IE 列出四个锚点，另有四个 6 字节的 RRTI IE，每个装一个 Treply2。再打开一份报告：24 字节，一个 13 字节的 RMI IE，装着 Treply1 与 Tround2。多一个锚点，Final 会多 12 字节，整轮会多两个时隙、即 4 ms。' },
   ],
   quiz: [
     {

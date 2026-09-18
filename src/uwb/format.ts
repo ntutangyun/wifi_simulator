@@ -5,7 +5,7 @@
  * fmtRecord simply delegates the seven UWB types here.
  */
 import type { TLRecord } from '../model/records'
-import { fmtNs, fmtUs } from '../ui/format'
+import { fmtNs, fmtUs } from '../ui/fmtTime'
 import type { UwbFrameKind } from './frames'
 import { fomText } from './phy'
 import { rctuToMetres } from './ranging'

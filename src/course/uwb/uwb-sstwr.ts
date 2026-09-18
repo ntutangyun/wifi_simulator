@@ -104,8 +104,8 @@ export const uwbSstwr: Lesson = {
       zh: '修正并没有让应答时延变成免费的，只是让它变得便宜——20 ppm 的原始偏差变成 0.2 ppm 的残差。但残差依然随锚点等待的时长而增长，而且在本课里只剩它这一项会这样。这正是下一课要讲的双边交换的理由：在那里应答时延被双向测量并直接抵消，而不是靠估计把它消掉。',
     } },
     { heading: { en: 'The byte that says how much to trust it', zh: '用来说明“这有多可信”的那个字节' }, text: {
-      en: 'Every UWB_TS line for a received frame ends in “(97 % within 0.5 ns)”. That is the Figure of Merit byte, 0x16 here, decoded through three tables in §10.29.1.7: three bits of confidence level (6 → 97 %), two bits of interval (2 → 1 ns) and two bits of scale (0 → ×0.5) — 97 % of the timestamp error within half a nanosecond, 15 cm of one-way flight. It travels with the measurement so a position solver can weight a confident range above a doubtful one. It says nothing about the crystal offset: a timestamp of exactly this confidence produced the 27.42 m reading above.',
-      zh: '每一条描述接收帧的 UWB_TS 行末尾都跟着 “(97 % within 0.5 ns)”。那是品质因数字节，此处为 0x16，按 §10.29.1.7 的三张表解码：3 位置信水平（6 → 97 %）、2 位区间（2 → 1 ns）、2 位比例因子（0 → ×0.5）——即 97 % 的时间戳误差落在半纳秒之内，相当于 15 cm 的单向飞行距离。它随测量结果一起传递，好让定位解算器给可信的距离更高的权重。它对晶振偏差只字未提：上面那个 27.42 m 的读数，正出自一个置信度恰好如此的时间戳。',
+      en: 'Every UWB_TS line for a received frame ends in “(97 % within 0.5 ns)”. That is the Figure of Merit byte, 0x16 here, decoded through three tables in §10.29.1.7: three bits of confidence level (6 → 97 %), two bits of interval (2 → 1 ns) and two bits of scale (0 → ×0.5) — 97 % of the timestamp error inside a half-nanosecond window, which is ±0.25 ns, about 7.5 cm of one-way flight. It travels with the measurement so a position solver can weight a confident range above a doubtful one. It says nothing about the crystal offset: a timestamp of exactly this confidence produced the 27.42 m reading above.',
+      zh: '每一条描述接收帧的 UWB_TS 行末尾都跟着 “(97 % within 0.5 ns)”。那是品质因数字节，此处为 0x16，按 §10.29.1.7 的三张表解码：3 位置信水平（6 → 97 %）、2 位区间（2 → 1 ns）、2 位比例因子（0 → ×0.5）——即 97 % 的时间戳误差落在一个半纳秒宽的区间内，也就是 ±0.25 ns，约合 7.5 cm 的单向飞行距离。它随测量结果一起传递，好让定位解算器给可信的距离更高的权重。它对晶振偏差只字未提：上面那个 27.42 m 的读数，正出自一个置信度恰好如此的时间戳。',
     } },
   ],
   scenario: () => uwbSstwrScenario({ tag: 10, anchors: -10 }),

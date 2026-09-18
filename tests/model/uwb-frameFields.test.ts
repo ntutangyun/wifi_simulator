@@ -54,7 +54,9 @@ describe('uwbFrameFields', () => {
     expect(fields(POLL).filter((x) => x.key.startsWith('ie')).map((x) => x.key)).toEqual(['ieArc', 'ieRdm', 'ieRrmc'])
     expect(fields(RESP).filter((x) => x.key.startsWith('ie')).map((x) => x.key)).toEqual(['ieRrmc', 'ieRrti'])
     expect(fields(RESP_DS).filter((x) => x.key.startsWith('ie')).map((x) => x.key)).toEqual(['ieRrmc'])
-    expect(fields(FINAL).filter((x) => x.key.startsWith('ie')).map((x) => x.key)).toEqual(['ieRmi', 'ieRrti'])
+    // one RRTI IE per anchor, each holding that anchor's reply time (standard §10.29.8.1)
+    expect(fields(FINAL).filter((x) => x.key.startsWith('ie')).map((x) => x.key))
+      .toEqual(['ieRmi', 'ieRrti', 'ieRrti', 'ieRrti', 'ieRrti'])
     expect(fields(REPORT).filter((x) => x.key.startsWith('ie')).map((x) => x.key)).toEqual(['ieRmi'])
   })
 
@@ -65,9 +67,12 @@ describe('uwbFrameFields', () => {
     expect(keyed(RESP, 'ieRrmc')!.bytes).toBe(RRMC_IE_BYTES)
     expect(keyed(RESP, 'ieRrti')!.bytes).toBe(RRTI_IE_BYTES)
     expect(keyed(RESP_DS, 'ieRrmc')!.bytes).toBe(RRMC_IE_BYTES)
-    // The Final carries one reply time per anchor: MHR 9 + (3 + 6N) + 6N + FCS 2 = 14 + 12N.
+    // The Final carries one reply time per anchor: MHR 9 + (3 + 6N) + N × 6 + FCS 2 = 14 + 12N.
     expect(keyed(FINAL, 'ieRmi')!.bytes).toBe(rmiFinalIeBytes(4))
-    expect(keyed(FINAL, 'ieRrti')!.bytes).toBe(4 * RRTI_IE_BYTES)
+    const rrti = fields(FINAL).filter((x) => x.key === 'ieRrti')
+    expect(rrti).toHaveLength(4)
+    expect(rrti.every((x) => x.bytes === RRTI_IE_BYTES)).toBe(true)
+    expect(rrti.reduce((s, x) => s + x.bytes, 0)).toBe(4 * RRTI_IE_BYTES)
     expect(keyed(REPORT, 'ieRmi')!.bytes).toBe(RMI_REPORT_IE_BYTES)
   })
 
@@ -80,6 +85,8 @@ describe('uwbFrameFields', () => {
     expect(keyed(POLL, 'ieRdm')!.value).toBe('4 devices: a1 slot 1, a2 slot 2, a3 slot 3, a4 slot 4')
     expect(keyed(REPORT, 'ieRmi')!.value).toContain('treply1')
     expect(keyed(FINAL, 'ieRmi')!.value).toContain('a1')
+    expect(keyed(FINAL, 'ieRmi')!.value).not.toContain('treply2') // that is the RRTI IEs' job
+    expect(fields(FINAL).filter((x) => x.key === 'ieRrti').map((x) => x.value!.split(':')[0])).toEqual(['a1', 'a2', 'a3', 'a4'])
   })
 
   it('is what decodeFrame returns for a UWB frame', () => {

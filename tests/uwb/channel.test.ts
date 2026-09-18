@@ -143,15 +143,18 @@ describe('UwbChannel walls and NLOS excess delay', () => {
     expect(info.nlos).toBe(true)
   })
 
-  it('reports no excess delay when the session has NLOS modelling off', () => {
+  it('with NLOS modelling off the delay goes, but the path is still obstructed', () => {
+    // The switch is the ideal-timestamp lab: no excess delay. It is not a claim that the
+    // wall is gone, so the FoM still reports the path as obstructed (review finding 9).
     const h = harness(nodes, walls, { channel: 9, nlos: false })
     expect(h.ch.nlosNs('t', 'a')).toBe(0)
+    expect(h.ch.obstructed('t', 'a')).toBe(true)
     const f = poll()
     h.ch.transmit('t', f)
     h.runUntil(f.txTimeNs * 2)
     const info = h.of('a').oks[0].info
     expect(info.nlosNs).toBe(0)
-    expect(info.nlos).toBe(false)
+    expect(info.nlos).toBe(true)
   })
 
   it('reports no excess delay on a clear path', () => {
@@ -161,6 +164,7 @@ describe('UwbChannel walls and NLOS excess delay', () => {
     h.runUntil(f.txTimeNs * 2)
     expect(h.of('a').oks[0].info.nlosNs).toBe(0)
     expect(h.of('a').oks[0].info.nlos).toBe(false)
+    expect(h.ch.obstructed('t', 'a')).toBe(false)
   })
 })
 

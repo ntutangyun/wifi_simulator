@@ -402,7 +402,8 @@ describe('uwb-sstwr · what the clock-offset correction puts back', () => {
   it('the Figure of Merit byte on every received timestamp decodes to 97 % within 0.5 ns', () => {
     // "Every UWB_TS line for a received frame ends in “(97 % within 0.5 ns)”. That is the Figure of
     //  Merit byte, 0x16 here … three bits of confidence level (6 → 97 %), two bits of interval
-    //  (2 → 1 ns) and two bits of scale (0 → ×0.5) … 15 cm of one-way flight."
+    //  (2 → 1 ns) and two bits of scale (0 → ×0.5) … a half-nanosecond window, which is ±0.25 ns,
+    //  about 7.5 cm of one-way flight." A confidence interval is the whole window (§10.29.1.7).
     expect(FOM_LOS).toBe(0x16)
     expect(FOM_LOS & 0x7).toBe(6)
     expect((FOM_LOS >> 3) & 0x3).toBe(2)
@@ -414,7 +415,8 @@ describe('uwb-sstwr · what the clock-offset correction puts back', () => {
     expect(fomDecode((FOM_LOS & 0x1f) | (1 << 5)).intervalNs).toBe(1)
     expect(fomDecode(FOM_LOS).intervalNs).toBe(0.5 * fomDecode((FOM_LOS & 0x1f) | (1 << 5)).intervalNs)
     expect(fomText(FOM_LOS)).toBe('97 % within 0.5 ns')
-    expect(Math.round(0.5 * C_M_PER_NS * 100)).toBe(15)
+    expect((0.5 / 2).toFixed(2)).toBe('0.25')
+    expect(((fomDecode(FOM_LOS).intervalNs / 2) * C_M_PER_NS * 100).toFixed(1)).toBe('7.5')
     const rxTs = ofType(recs(), 'UWB_TS').filter((r) => r.dir === 'rx')
     expect(rxTs).toHaveLength(8)
     for (const r of rxTs) expect(fmtRecord(r), r.node).toContain('(97 % within 0.5 ns)')

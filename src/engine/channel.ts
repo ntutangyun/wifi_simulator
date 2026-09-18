@@ -12,6 +12,7 @@ import type { FrameDesc } from '../model/frames'
 import type { EmitFn } from '../model/records'
 import type { Ns } from '../model/types'
 import { EventQueue } from './events'
+import { byCodeUnit } from './hash'
 import { CCA_ED_DBM, CCA_PD_DBM, PHY_MODES, noiseDbm, reqSinrDb, sinrThreshDb } from './phy'
 import {
   AMP_DL_REQ_SINR_DB,
@@ -223,7 +224,7 @@ export class Channel {
       const arrivals = starts
         .filter((tx) => tx.txId !== rid)
         .map((tx) => ({ tx, p: this.linkDbm(tx.txId, rid) }))
-        .sort((x, y) => y.p - x.p || x.tx.txId.localeCompare(y.tx.txId))
+        .sort((x, y) => y.p - x.p || byCodeUnit(x.tx.txId, y.tx.txId))
       for (const { tx, p } of arrivals) {
         if (!r.transmitting) r.observed.add(tx.txId)
         this.applyOneTx(t, rid, r, tx, p)
