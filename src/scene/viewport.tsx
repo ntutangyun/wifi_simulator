@@ -35,7 +35,7 @@ export function Viewport() {
     const effects = new EffectsLayer(sc)
     scene.add(effects.group)
     // Range rings, fix and error ellipse: only a scenario that ranges gets them.
-    const uwb = sc.nodes.some((n) => n.kind === 'uwb') ? new UwbOverlay(sc) : null
+    const uwb = sc.uwb && sc.nodes.some((n) => n.kind === 'uwb') ? new UwbOverlay(sc) : null
     if (uwb) scene.add(uwb.group)
 
     // frame the house
