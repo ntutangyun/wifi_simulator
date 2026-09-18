@@ -26,6 +26,8 @@ export interface UwbPositionView {
   trueY: number
   gdop: number
   ellipse: { a: number; b: number; thetaRad: number }
+  /** Ranging block this fix was solved in: what the scene overlay ages the cross and ellipse by. */
+  block: number
   n: number
 }
 
@@ -89,7 +91,7 @@ export function applyUwbRecord(vs: ViewState, r: TLRecord): boolean {
       if (u) {
         u.position = {
           x: r.x, y: r.y, trueX: r.trueX, trueY: r.trueY, gdop: r.gdop,
-          ellipse: { ...r.ellipse }, n: (u.position?.n ?? 0) + 1,
+          ellipse: { ...r.ellipse }, block: r.block, n: (u.position?.n ?? 0) + 1,
         }
       }
       return true

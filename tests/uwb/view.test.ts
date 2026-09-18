@@ -74,7 +74,7 @@ describe('the UWB view reducer', () => {
     expect(u.ranges['anc-1'].distM).toBeCloseTo(5.71, 6)
     expect(u.ranges['anc-1'].trueDistM).toBeCloseTo(5.66, 6)
     expect(u.ranges['anc-1'].method).toBe('ds')
-    expect(u.position).toEqual({ x: 4.1, y: 3.9, trueX: 4, trueY: 4, gdop: 1.8, ellipse, n: 1 })
+    expect(u.position).toEqual({ x: 4.1, y: 3.9, trueX: 4, trueY: 4, gdop: 1.8, ellipse, block: 3, n: 1 })
   })
 
   it('the tag’s slot ticks while the round runs and only UWB_ROUND_END clears it', () => {

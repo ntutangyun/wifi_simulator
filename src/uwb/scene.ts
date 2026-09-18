@@ -7,10 +7,12 @@
  * exactly that — one ring per (tag, anchor) pair, the solved position as a
  * small cross, and the 1-σ confidence ellipse of the solver around it.
  *
- * Rings fade with age rather than blinking out: a ring is at full strength when
- * its round ends and has faded to nothing one ranging block later, so the eye
- * sees the measurement's freshness. A ring more than one block behind the tag's
- * current block is not drawn at all — it is history, not an estimate.
+ * Everything fades with age rather than blinking out: a drawing is at full
+ * strength when its round ends and has faded to nothing one ranging block later,
+ * so the eye sees the measurement's freshness. A ring, cross or ellipse more
+ * than one block behind the tag's current block is not drawn at all — it is
+ * history, not an estimate. The cross and the ellipse age by the block their fix
+ * was solved in, exactly as a ring ages by the block it was measured in.
  *
  * Scene axes follow src/scene/effects.ts: three.x = pos.x, three.y = pos.z (up),
  * three.z = pos.y, and floor drawings sit just above the floor plane so they do
@@ -18,7 +20,7 @@
  */
 import * as THREE from 'three'
 import { physicalId } from '../model/caps'
-import { DEFAULT_UWB_SESSION, type Scenario } from '../model/scenario'
+import type { Scenario } from '../model/scenario'
 import type { Ns } from '../model/types'
 import type { ViewState } from '../model/view'
 import { roundPlan } from './session'
@@ -39,6 +41,8 @@ export const ELLIPSE_DRAW_SCALE = 10
 const FLOOR_Y = 0.01
 const RING_SEGMENTS = 64
 const RING_MAX_OPACITY = 0.45
+const FIX_MAX_OPACITY = 1
+const ELLIPSE_MAX_OPACITY = 0.8
 /** The fix cross is two lines of this length, crossed at the estimate. */
 const CROSS_LEN_M = 0.3
 
@@ -71,7 +75,7 @@ export class UwbOverlay {
   private positions = new Map<string, { x: number; z: number }>()
   private blockNs: Ns
   private roundNs: Ns
-  /** Live objects, keyed 'tag:anchor' (ring), 'tag:fix' (cross) and 'tag:ellipse'. */
+  /** Live objects, keyed by their own name: 'ring:<tag>:<anchor>', 'fix:<tag>', 'ellipse:<tag>'. */
   private objects = new Map<string, THREE.Line>()
 
   constructor(sc: Scenario) {
@@ -79,23 +83,39 @@ export class UwbOverlay {
     for (const n of sc.nodes) {
       if (n.kind === 'uwb') this.positions.set(n.id, { x: n.pos.x, z: n.pos.y })
     }
+    // An overlay is only ever built for a scenario that ranges, and the schema
+    // makes a session mandatory as soon as one UWB node exists: without it there
+    // is no block to age a drawing by, and a substituted one would fade at a rate
+    // the engine is not running.
+    if (!sc.uwb) throw new Error('UwbOverlay: a scenario with UWB nodes has no ranging session (scenario.uwb)')
     const anchors = sc.nodes.filter((n) => n.kind === 'uwb' && n.uwb?.role === 'anchor').length
-    const plan = roundPlan(sc.uwb ?? DEFAULT_UWB_SESSION, anchors)
+    const plan = roundPlan(sc.uwb, anchors)
     this.blockNs = plan.blockNs
     this.roundNs = plan.roundNs
   }
 
-  /** The instant the tag's round of this block was over: when a ring is freshest. */
+  /** The instant the tag's round of this block was over: when a drawing is freshest. */
   private roundEndNs(block: number, round: number): Ns {
     return block * this.blockNs + (round + 1) * this.roundNs
   }
 
-  private ensure(key: string, name: string, make: () => THREE.Line): THREE.Line {
-    let obj = this.objects.get(key)
+  /**
+   * How much of a drawing's strength is left: 1 from the measurement until its
+   * round ends, then down to 0 one ranging block later. Clamped at both ends —
+   * a range lands in its report slot, before the round is over, so the age is
+   * briefly negative and would otherwise draw the ring stronger than intended.
+   */
+  private fade(vs: ViewState, block: number, round: number): number {
+    const age = (vs.t - this.roundEndNs(block, round)) / this.blockNs
+    return Math.max(0, Math.min(1, 1 - age))
+  }
+
+  private ensure(name: string, make: () => THREE.Line): THREE.Line {
+    let obj = this.objects.get(name)
     if (!obj) {
       obj = make()
       obj.name = name
-      this.objects.set(key, obj)
+      this.objects.set(name, obj)
       this.group.add(obj)
     }
     return obj
@@ -110,40 +130,48 @@ export class UwbOverlay {
       // through physicalId all the same, so the names never grow a lane suffix.
       const tag = physicalId(vid)
 
-      for (const [peer, r] of Object.entries(u.ranges)) {
+      for (const [id, r] of Object.entries(u.ranges)) {
+        const peer = physicalId(id)
         const anchor = this.positions.get(peer)
         if (!anchor || r.block < u.block - 1) continue
-        const age = (vs.t - this.roundEndNs(r.block, u.round)) / this.blockNs
-        const opacity = RING_MAX_OPACITY * Math.max(0, 1 - age)
-        const key = `${tag}:${peer}`
+        const key = `ring:${tag}:${peer}`
         alive.add(key)
-        const ring = this.ensure(key, `ring:${tag}:${peer}`, () => new THREE.LineLoop(
+        const ring = this.ensure(key, () => new THREE.LineLoop(
           circleGeometry(),
           new THREE.LineBasicMaterial({ color: UWB_RING_COLOR, transparent: true, opacity: RING_MAX_OPACITY }),
         ))
         ring.position.set(anchor.x, FLOOR_Y, anchor.z)
         ring.scale.set(r.distM, 1, r.distM)
-        ;(ring.material as THREE.LineBasicMaterial).opacity = opacity
+        ;(ring.material as THREE.LineBasicMaterial).opacity = RING_MAX_OPACITY * this.fade(vs, r.block, u.round)
       }
 
+      // The fix ages on the ring rule: a position is never cleared by the
+      // reducer, so without this a tag whose rounds start timing out would keep
+      // an opaque cross and a crisp ellipse on the floor long after the rings
+      // that produced them had faded — the scene asserting a confidence the
+      // engine no longer has.
       const fix = u.position
-      if (!fix) continue
-      const cross = this.ensure(`${tag}:fix`, `fix:${tag}`, () => new THREE.LineSegments(
-        crossGeometry(), new THREE.LineBasicMaterial({ color: UWB_FIX_COLOR }),
+      if (!fix || fix.block < u.block - 1) continue
+      const fade = this.fade(vs, fix.block, u.round)
+
+      const cross = this.ensure(`fix:${tag}`, () => new THREE.LineSegments(
+        crossGeometry(), new THREE.LineBasicMaterial({ color: UWB_FIX_COLOR, transparent: true, opacity: FIX_MAX_OPACITY }),
       ))
       cross.position.set(fix.x, FLOOR_Y, fix.y)
-      alive.add(`${tag}:fix`)
+      ;(cross.material as THREE.LineBasicMaterial).opacity = FIX_MAX_OPACITY * fade
+      alive.add(`fix:${tag}`)
 
-      const ell = this.ensure(`${tag}:ellipse`, `ellipse:${tag}`, () => new THREE.LineLoop(
+      const ell = this.ensure(`ellipse:${tag}`, () => new THREE.LineLoop(
         circleGeometry(),
-        new THREE.LineBasicMaterial({ color: UWB_ELLIPSE_COLOR, transparent: true, opacity: 0.8 }),
+        new THREE.LineBasicMaterial({ color: UWB_ELLIPSE_COLOR, transparent: true, opacity: ELLIPSE_MAX_OPACITY }),
       ))
       ell.position.set(fix.x, FLOOR_Y, fix.y)
+      ;(ell.material as THREE.LineBasicMaterial).opacity = ELLIPSE_MAX_OPACITY * fade
       ell.scale.set(fix.ellipse.a * ELLIPSE_DRAW_SCALE, 1, fix.ellipse.b * ELLIPSE_DRAW_SCALE)
       // The solver's θ turns the major axis in the model's (x, y) plane; scene y
       // is up, so the same turn is a negative rotation about it.
       ell.rotation.y = -fix.ellipse.thetaRad
-      alive.add(`${tag}:ellipse`)
+      alive.add(`ellipse:${tag}`)
     }
 
     for (const [key, obj] of this.objects) {

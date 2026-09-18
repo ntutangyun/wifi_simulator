@@ -95,6 +95,38 @@ describe('UwbOverlay', () => {
     overlay.dispose()
   })
 
+  it('never draws a ring stronger than 0.45, however early in its round it is read', () => {
+    const view = viewAt(25)
+    const u = view.nodes['tag-1'].uwb!
+    const roundEnd = u.ranges['anchor-1'].block * plan.blockNs + (u.round + 1) * plan.roundNs
+    const overlay = new UwbOverlay(sc)
+    // A range lands in its report slot, before the round is over: the age is
+    // negative there, and an unclamped 0.45 · (1 - age) would overshoot.
+    overlay.update(at(view, roundEnd - plan.roundNs))
+    expect(opacityOf(overlay.group.getObjectByName('ring:tag-1:anchor-1')!)).toBeCloseTo(0.45, 9)
+    overlay.dispose()
+  })
+
+  it('fades the fix and its ellipse on the ring rule, by the block the fix was solved in', () => {
+    const view = viewAt(25)
+    const u = view.nodes['tag-1'].uwb!
+    const roundEnd = u.position!.block * plan.blockNs + (u.round + 1) * plan.roundNs
+    const overlay = new UwbOverlay(sc)
+
+    overlay.update(at(view, roundEnd))
+    expect(opacityOf(overlay.group.getObjectByName('fix:tag-1')!)).toBeCloseTo(1, 9)
+    expect(opacityOf(overlay.group.getObjectByName('ellipse:tag-1')!)).toBeCloseTo(0.8, 9)
+
+    overlay.update(at(view, roundEnd + plan.blockNs / 2))
+    expect(opacityOf(overlay.group.getObjectByName('fix:tag-1')!)).toBeCloseTo(0.5, 9)
+    expect(opacityOf(overlay.group.getObjectByName('ellipse:tag-1')!)).toBeCloseTo(0.4, 9)
+
+    overlay.update(at(view, roundEnd + plan.blockNs))
+    expect(opacityOf(overlay.group.getObjectByName('fix:tag-1')!)).toBeCloseTo(0, 9)
+    expect(opacityOf(overlay.group.getObjectByName('ellipse:tag-1')!)).toBeCloseTo(0, 9)
+    overlay.dispose()
+  })
+
   it('draws nothing before the first range lands', () => {
     const overlay = new UwbOverlay(sc)
     overlay.update(viewAt(5))
@@ -144,16 +176,34 @@ describe('UwbOverlay', () => {
     overlay.dispose()
   })
 
-  it('drops a ring whose block has fallen two blocks behind', () => {
+  it('drops a ring whose block has fallen two blocks behind, keeping a current fix', () => {
     const view = viewAt(25)
     const overlay = new UwbOverlay(sc)
     overlay.update(view)
     const stale = cloneView(view)
     const u = stale.nodes['tag-1'].uwb!
-    u.block = u.ranges['anchor-1'].block + 2
+    u.block = u.position!.block
+    for (const r of Object.values(u.ranges)) r.block = u.block - 2
     overlay.update(stale)
-    expect(overlay.group.children).toHaveLength(2) // the fix and its ellipse only
+    expect(names(overlay.group)).toEqual(['ellipse:tag-1', 'fix:tag-1'])
     overlay.dispose()
+  })
+
+  it('drops a fix two blocks behind, keeping the current rings', () => {
+    const view = viewAt(25)
+    const overlay = new UwbOverlay(sc)
+    overlay.update(view)
+    const stale = cloneView(view)
+    const u = stale.nodes['tag-1'].uwb!
+    u.block = u.ranges['anchor-1'].block
+    u.position!.block = u.block - 2
+    overlay.update(stale)
+    expect(names(overlay.group)).toEqual(ANCHORS.map((a) => `ring:tag-1:${a}`))
+    overlay.dispose()
+  })
+
+  it('refuses to draw for a scenario with no ranging session', () => {
+    expect(() => new UwbOverlay({ ...sc, uwb: undefined })).toThrow(/ranging session/)
   })
 
   it('reuses the same objects across updates and empties the group on dispose', () => {

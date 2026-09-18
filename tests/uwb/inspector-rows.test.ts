@@ -13,7 +13,7 @@ const tag: UwbNodeView = {
   },
   position: {
     x: 0.03, y: -0.04, trueX: 0, trueY: 0, gdop: 1.41,
-    ellipse: { a: 0.062, b: 0.041, thetaRad: 0.5 }, n: 7,
+    ellipse: { a: 0.062, b: 0.041, thetaRad: 0.5 }, block: 3, n: 7,
   },
 }
 
