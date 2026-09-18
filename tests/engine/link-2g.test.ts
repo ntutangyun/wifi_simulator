@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { ERP_2G, OFDM_5G, aifsNs, txTimeNs, ACK_BYTES } from '../../src/engine/phy'
+import { makeBss, msdu } from './helpers'
 
 describe('per-link PHY timing (802.11-2024 Table 17-21 / Table 18-5, §10.3.8)', () => {
   it('5 GHz OFDM keeps the clause 17 values', () => {
@@ -13,5 +14,61 @@ describe('per-link PHY timing (802.11-2024 Table 17-21 / Table 18-5, §10.3.8)',
   it('AIFS follows the link timing', () => {
     expect(aifsNs(3)).toBe(16_000 + 3 * 9_000)
     expect(aifsNs(3, ERP_2G)).toBe(10_000 + 3 * 9_000)
+  })
+})
+
+describe('a MAC on the 2.4 GHz link', () => {
+  const links = { 'sta-1>ap': -50, 'ap>sta-1': -50, 'sta-2>ap': -50, 'ap>sta-2': -50, 'sta-1>sta-2': -50, 'sta-2>sta-1': -50 }
+
+  it('waits DIFS = 28 µs, and its data PPDU carries the 6 µs signal extension', () => {
+    const bss = makeBss(['ap', 'sta-1', 'sta-2'], links, { timing: ERP_2G })
+    // Make the medium "seen busy" once so the first IFS is a real DIFS from t = 0.
+    bss.enqueue(0, 'ap', msdu('ap', 'sta-2', 100))
+    bss.runUntil(5_000_000)
+    const ifs = bss.recs('IFS_START', 'ap')[0]
+    expect(ifs.kind).toBe('DIFS')
+    bss.enqueue(6_000_000, 'sta-1', msdu('sta-1', 'ap', 1400))
+    bss.runUntil(8_000_000)
+    const tx = bss.recs('TX_START', 'sta-1').find((r) => r.frame.kind === 'data')!
+    // 1428-octet PSDU at 54 Mb/s: 20 µs preamble + ceil((16+8·1428+6)/216)=53 symbols × 4 µs = 232 µs, + 6 µs extension
+    expect(tx.frame.txTimeNs).toBe(232_000 + 6_000)
+    const ifs2 = bss.recs('IFS_START', 'sta-1').find((r) => r.t >= 6_000_000)!
+    expect(ifs2.untilNs - ifs2.t).toBeLessThanOrEqual(28_000)
+  })
+
+  it('the ACK follows one 10 µs SIFS after the data PPDU (including its extension)', () => {
+    const bss = makeBss(['ap', 'sta-1'], { 'sta-1>ap': -50, 'ap>sta-1': -50 }, { timing: ERP_2G })
+    bss.enqueue(0, 'sta-1', msdu('sta-1', 'ap', 500))
+    bss.runUntil(2_000_000)
+    const data = bss.recs('TX_END', 'sta-1').find((r) => r.frame.kind === 'data')!
+    const ack = bss.recs('TX_START', 'ap').find((r) => r.frame.kind === 'ack')!
+    expect(ack.t - data.t).toBe(10_000)
+    // §10.6 control response: highest mandatory rate ≤ the data frame's rate. At
+    // −50 dBm the data frame goes at 54 Mb/s, so the ACK answers at 24 Mb/s
+    // (28 µs) — not the 6 Mb/s ACK_TX_TIME_6M_NS used only for the EIFS formula.
+    expect(ack.frame.txTimeNs).toBe(28_000 + 6_000) // ACK at 24 Mb/s carries the extension too
+  })
+
+  it('a lost ACK times out after 39 µs and a corrupted frame costs EIFS 88 µs', () => {
+    // sta-1 → ap fails: the AP cannot hear sta-1 (−200), so sta-1's frame is never acknowledged.
+    const bss = makeBss(['ap', 'sta-1'], { 'ap>sta-1': -50 }, { timing: ERP_2G })
+    bss.enqueue(0, 'sta-1', msdu('sta-1', 'ap', 500))
+    bss.runUntil(2_000_000)
+    const end = bss.recs('TX_END', 'sta-1')[0]
+    const to = bss.recs('ACK_TIMEOUT', 'sta-1')[0]
+    expect(to.t - end.t).toBe(39_000)
+  })
+
+  it('after a reception that failed to decode, the next IFS is EIFS − DIFS + AIFS with the 2.4 GHz values', () => {
+    // sta-2 hears sta-1 at −80 dBm (locks) while the AP's simultaneous ACK-less traffic… keep it simple:
+    // a frame at 54 Mb/s received at −80 dBm needs 25 dB SINR over a −94 dBm floor → 14 dB: it fails as lowSinr.
+    const bss = makeBss(['ap', 'sta-1', 'sta-2'], { 'sta-1>ap': -50, 'ap>sta-1': -50, 'sta-1>sta-2': -80, 'ap>sta-2': -50, 'sta-2>ap': -50 }, { timing: ERP_2G, edca: false })
+    bss.enqueue(0, 'sta-1', msdu('sta-1', 'ap', 1400))
+    bss.enqueue(0, 'sta-2', msdu('sta-2', 'ap', 100))
+    bss.runUntil(3_000_000)
+    const fail = bss.recs('RX_FAIL', 'sta-2')[0]
+    expect(fail).toBeDefined()
+    const eifs = bss.recs('IFS_START', 'sta-2').find((r) => r.kind === 'EIFS' && r.t >= fail.t)!
+    expect(eifs.untilNs - Math.max(eifs.t, fail.t)).toBe(88_000)
   })
 })

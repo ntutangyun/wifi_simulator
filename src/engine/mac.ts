@@ -20,11 +20,11 @@ import type { TxopProtection } from '../model/scenario'
 import type { Channel, PhyListener } from './channel'
 import { EventQueue } from './events'
 import {
-  ACK_BYTES, ACK_TIMEOUT_NS, BA_BYTES, CF_END_BYTES, CTS_BYTES, CTS_TIMEOUT_NS, DCF_PARAMS, DIFS_NS,
-  EDCA_PARAMS, EIFS_NS, MAX_AMPDU_MPDUS, MAX_PPDU_NS, PHY_MODES,
-  QOS_HDR_BYTES, FCS_BYTES, RTS_BYTES, RX_START_DELAY_NS, SHORT_RETRY_LIMIT, SIFS_NS, SLOT_NS,
+  ACK_BYTES, BA_BYTES, CF_END_BYTES, CTS_BYTES, DCF_PARAMS,
+  EDCA_PARAMS, MAX_AMPDU_MPDUS, MAX_PPDU_NS, OFDM_5G, PHY_MODES,
+  QOS_HDR_BYTES, FCS_BYTES, RTS_BYTES, SHORT_RETRY_LIMIT,
   aifsNs, ctrlRespRateFor, ctrlRespRateForMode, mcsRateMbps, multiStaBaBytes, triggerBytes, toneRatio, txTimeModeNs, txTimeNs,
-  type AcParams, type PhyMode,
+  type AcParams, type PhyMode, type PhyTiming, type TxTimeOpts,
 } from './phy'
 import { Rng } from './rng'
 import { AcQueues, DEFAULT_MSDU_LIFETIME_NS } from './queues'
@@ -75,6 +75,8 @@ export interface WifiMacCfg {
   queueLimit?: number
   /** MSDU lifetime in the transmit queue (default 500 ms). */
   msduLifetimeNs?: Ns
+  /** Interframe timing of the link this MAC serves (default: 5 GHz OFDM). */
+  timing?: PhyTiming
 }
 
 /** The parameter set a (possibly tampered) station actually contends with. */
@@ -182,6 +184,7 @@ export class WifiMac implements PhyListener {
   private staMuAwait: StaMuAwait | null = null
   private wantTrigger = false
   private muGidCounter = 0
+  private readonly T: PhyTiming
 
   constructor(
     private nodeId: string,
@@ -194,6 +197,7 @@ export class WifiMac implements PhyListener {
     private hooks: MacHooks = {},
     sharedQueues?: AcQueues,
   ) {
+    this.T = cfg.timing ?? OFDM_5G
     this.queues = sharedQueues ?? new AcQueues(cfg.queueLimit)
     this.edcafs = effectiveParams(cfg.edca ? EDCA_PARAMS : [DCF_PARAMS], cfg.tamper).map((params) => ({
       params, cw: params.cwMin, backoff: null, needDraw: false,
@@ -283,9 +287,9 @@ export class WifiMac implements PhyListener {
 
   private beginIfsAc(e: Edcaf): void {
     const t = this.now()
-    const aifs = this.cfg.edca ? aifsNs(e.params.aifsn) : DIFS_NS
+    const aifs = this.cfg.edca ? aifsNs(e.params.aifsn, this.T) : this.T.difsNs
     // §10.23.2.2: after a corrupted frame, EIFS − DIFS + AIFS[AC]
-    const dur = this.corruptLast ? EIFS_NS - DIFS_NS + aifs : aifs
+    const dur = this.corruptLast ? this.T.eifsNs - this.T.difsNs + aifs : aifs
     const kind = this.corruptLast ? 'EIFS' : this.cfg.edca ? 'AIFS' : 'DIFS'
     // Idle time already elapsed counts toward the IFS. lastBusyEndNs starts at
     // NEVER, so a node that has never heard the medium busy gets a zero-length
@@ -333,7 +337,7 @@ export class WifiMac implements PhyListener {
 
   private scheduleTick(e: Edcaf): void {
     this.cancelEf(e, 'tick')
-    e.tickHandle = this.q.schedule(this.now() + SLOT_NS, () => {
+    e.tickHandle = this.q.schedule(this.now() + this.T.slotNs, () => {
       e.tickHandle = 0
       this.onSlotTick(e)
     })
@@ -494,7 +498,7 @@ export class WifiMac implements PhyListener {
       : qos
         ? QOS_HDR_BYTES + msdus[0].bytes + FCS_BYTES
         : dataPsduBytes(msdus[0].bytes)
-    const respTime = txTimeNs(aggregate ? BA_BYTES : ACK_BYTES, ctrlRespRateForMode(mode, mcs, mbps))
+    const respTime = this.airNs(aggregate ? BA_BYTES : ACK_BYTES, ctrlRespRateForMode(mode, mcs, mbps))
 
     const prot = this.cfg.txopProtection ?? 'single'
     const txopCapable = this.cfg.txop && this.cfg.edca && e.params.txopLimitNs > 0
@@ -502,14 +506,14 @@ export class WifiMac implements PhyListener {
     // burst, open the TXOP with an RTS/CTS whose Duration reaches the end of
     // the TXOP (§9.2.5.2, "time remaining in the TXOP"); a burst that finishes
     // early gives the rest back with CF-End (§10.23.2.9).
-    const dataTime = txTimeModeNs(mode, psdu, mcs, { widthMhz: width, nss })
+    const dataTime = this.airModeNs(mode, psdu, mcs, { widthMhz: width, nss })
     const rtsRate = ctrlRespRateForMode(mode, mcs, mbps)
-    const ctsTime = txTimeNs(CTS_BYTES, ctrlRespRateFor(rtsRate))
-    const rtsTime = txTimeNs(RTS_BYTES, rtsRate)
+    const ctsTime = this.airNs(CTS_BYTES, ctrlRespRateFor(rtsRate))
+    const rtsTime = this.airNs(RTS_BYTES, rtsRate)
     let burstRestNs = 0
     if (!inTxopBurst && prot !== 'single' && txopCapable) {
       const txopEnd = t + e.params.txopLimitNs
-      const firstEnd = t + rtsTime + 3 * SIFS_NS + ctsTime + dataTime + respTime
+      const firstEnd = t + rtsTime + 3 * this.T.sifsNs + ctsTime + dataTime + respTime
       burstRestNs = this.planBurstNs(ei, firstEnd, txopEnd)
     }
     const protectBurst = burstRestNs > 0
@@ -519,7 +523,7 @@ export class WifiMac implements PhyListener {
       const announcedEnd = protectBurst ? t + e.params.txopLimitNs : 0
       const rts: FrameDesc = {
         kind: 'rts', src: this.nodeId, dst: peer, bytes: RTS_BYTES, mbps: rtsRate,
-        durationFieldNs: this.inflate(protectBurst ? announcedEnd - (t + rtsTime) : 3 * SIFS_NS + ctsTime + dataTime + respTime),
+        durationFieldNs: this.inflate(protectBurst ? announcedEnd - (t + rtsTime) : 3 * this.T.sifsNs + ctsTime + dataTime + respTime),
         txTimeNs: rtsTime, ac: this.acTag(e),
       }
       this.awaiting = { kind: 'cts', ac: ei, peer, msdus, wasRts: true, aggBytes: psdu }
@@ -548,20 +552,30 @@ export class WifiMac implements PhyListener {
     while (i < queue.length) {
       const peer = queue[i].dst
       // continueOrRelease's fit check: the next exchange must end inside the TXOP
-      if (t + SIFS_NS + this.exchangeNs(peer, [queue[i].bytes], false).totalNs > txopEndNs) break
+      if (t + this.T.sifsNs + this.exchangeNs(peer, [queue[i].bytes], false).totalNs > txopEndNs) break
       const useAmpdu = this.cfg.ampduWith(peer) && this.cfg.modeForPeer(peer) !== 'nonht'
       const bytes: number[] = [queue[i].bytes]
       let j = i + 1
       while (useAmpdu && j < queue.length && queue[j].dst === peer && bytes.length < MAX_AMPDU_MPDUS) {
         const x = this.exchangeNs(peer, [...bytes, queue[j].bytes], false)
-        if (x.dataNs > MAX_PPDU_NS || t + SIFS_NS + x.totalNs > txopEndNs) break
+        if (x.dataNs > MAX_PPDU_NS || t + this.T.sifsNs + x.totalNs > txopEndNs) break
         bytes.push(queue[j].bytes)
         j++
       }
-      t += SIFS_NS + this.exchangeNs(peer, bytes, false).totalNs
+      t += this.T.sifsNs + this.exchangeNs(peer, bytes, false).totalNs
       i = j
     }
     return Math.max(0, t - fromNs)
+  }
+
+  /** TXTIME of a non-HT PPDU on this link, including the signal extension (§10.3.8). */
+  private airNs(bytes: number, mbps: number): Ns {
+    return txTimeNs(bytes, mbps) + this.T.signalExtNs
+  }
+
+  /** TXTIME of a VHT/HE/EHT (or non-HT) PPDU on this link, including the signal extension. */
+  private airModeNs(mode: PhyMode, bytes: number, mcs: number, opts: TxTimeOpts = {}): Ns {
+    return txTimeModeNs(mode, bytes, mcs, opts) + this.T.signalExtNs
   }
 
   /**
@@ -578,11 +592,11 @@ export class WifiMac implements PhyListener {
     const psdu = aggregate
       ? ampduPsduBytes(msduBytes)
       : this.qosWith(peer) ? QOS_HDR_BYTES + msduBytes[0] + FCS_BYTES : dataPsduBytes(msduBytes[0])
-    const dataNs = txTimeModeNs(mode, psdu, mcs, { widthMhz: this.cfg.widthForPeer(peer), nss: this.cfg.nssForPeer(peer) })
+    const dataNs = this.airModeNs(mode, psdu, mcs, { widthMhz: this.cfg.widthForPeer(peer), nss: this.cfg.nssForPeer(peer) })
     const respRate = ctrlRespRateForMode(mode, mcs, mbps)
-    let totalNs = dataNs + SIFS_NS + txTimeNs(aggregate ? BA_BYTES : ACK_BYTES, respRate)
+    let totalNs = dataNs + this.T.sifsNs + this.airNs(aggregate ? BA_BYTES : ACK_BYTES, respRate)
     if (firstInTxop && (burstProtection || psdu > this.cfg.rtsThresholdBytes)) {
-      totalNs += txTimeNs(RTS_BYTES, respRate) + SIFS_NS + txTimeNs(CTS_BYTES, ctrlRespRateFor(respRate)) + SIFS_NS
+      totalNs += this.airNs(RTS_BYTES, respRate) + this.T.sifsNs + this.airNs(CTS_BYTES, ctrlRespRateFor(respRate)) + this.T.sifsNs
     }
     return { dataNs, totalNs }
   }
@@ -594,7 +608,7 @@ export class WifiMac implements PhyListener {
   ): FrameDesc {
     this.assignSeq(peer, this.edcafs.indexOf(e), msdus)
     const seqNo = msdus[0].seqNo!
-    const txTime = txTimeModeNs(mode, psdu, mcs, { widthMhz, nss })
+    const txTime = this.airModeNs(mode, psdu, mcs, { widthMhz, nss })
     // §9.2.4.1.6: Retry marks a retransmission of this MPDU. A failed RTS
     // counts a retry for the MSDU but never put it on the air, so the flag
     // follows "has been transmitted", not the retry counter.
@@ -602,9 +616,9 @@ export class WifiMac implements PhyListener {
     for (const m of msdus) m.sent = true
     // §9.2.5.2 multiple protection: the data frame carries the TXOP remainder.
     const remainder = this.announcedEndNs - (this.now() + txTime)
-    const duration = this.cfg.txopProtection === 'multiple' && remainder > SIFS_NS + respTime
+    const duration = this.cfg.txopProtection === 'multiple' && remainder > this.T.sifsNs + respTime
       ? remainder
-      : SIFS_NS + respTime
+      : this.T.sifsNs + respTime
     return {
       kind: 'data', src: this.nodeId, dst: peer, bytes: psdu, mbps,
       durationFieldNs: this.inflate(duration),
@@ -671,10 +685,10 @@ export class WifiMac implements PhyListener {
       this.transmitSuFallback(e, inTxopBurst)
       return
     }
-    const baTime = txTimeNs(BA_BYTES, 24)
+    const baTime = this.airNs(BA_BYTES, 24)
     const frame: FrameDesc = {
       kind: 'data', src: this.nodeId, dst: '*mu', bytes: parts.reduce((s, p) => s + p.bytes, 0),
-      mbps: parts[0].mbps, durationFieldNs: SIFS_NS + baTime,
+      mbps: parts[0].mbps, durationFieldNs: this.T.sifsNs + baTime,
       txTimeNs: ppduDur, mode: modeAll, mcs: parts[0].mcs, widthMhz: width, ac: this.acTag(e),
       muParts: parts, orthogonalGroup: gid, muKind: useMumimo ? 'mumimo' : 'ofdma',
     }
@@ -685,7 +699,7 @@ export class WifiMac implements PhyListener {
     const mu: MuDlState = { kind: 'dl', gid, ac: ei, parts: claims, successes: new Set(), resolveHandle: 0 }
     this.muState = mu
     this.transmitFrame(frame, false)
-    mu.resolveHandle = this.q.schedule(t + ppduDur + SIFS_NS + baTime + ACK_TIMEOUT_NS, () => this.resolveDlMu())
+    mu.resolveHandle = this.q.schedule(t + ppduDur + this.T.sifsNs + baTime + this.T.ackTimeoutNs, () => this.resolveDlMu())
   }
 
   /** Longest DL MU PPDU allowed now: aPPDUMaxTime, and inside the TXOP with room for SIFS + the BlockAcks. */
@@ -694,7 +708,7 @@ export class WifiMac implements PhyListener {
     const end = inTxopBurst && this.txopEndNs > 0
       ? this.txopEndNs
       : this.cfg.txop && this.cfg.edca && e.params.txopLimitNs > 0 ? t + e.params.txopLimitNs : Infinity
-    return Math.min(MAX_PPDU_NS, end - t - SIFS_NS - txTimeNs(BA_BYTES, 24))
+    return Math.min(MAX_PPDU_NS, end - t - this.T.sifsNs - this.airNs(BA_BYTES, 24))
   }
 
   /**
@@ -719,7 +733,7 @@ export class WifiMac implements PhyListener {
       const mcs = modeAll === 'he' ? Math.min(11, this.cfg.mcsForPeer(peer)) : this.cfg.mcsForPeer(peer)
       const nss = this.cfg.nssForPeer(peer)
       const opts = mumimo ? { mu: true, widthMhz: muWidth, nss } : { mu: true, ruFraction: frac, widthMhz: muWidth, nss }
-      const airtime = (bytes: number[]) => txTimeModeNs(modeAll, ampduPsduBytes(bytes), mcs, opts)
+      const airtime = (bytes: number[]) => this.airModeNs(modeAll, ampduPsduBytes(bytes), mcs, opts)
       if (airtime([this.queues.headBytes(ei, peer) ?? 0]) > durCap) continue
       const msdus = this.queues.claim(ei, peer, MAX_AMPDU_MPDUS, (m, claimed) =>
         airtime([...claimed.map((x) => x.bytes), m.bytes]) <= durCap)
@@ -796,9 +810,9 @@ export class WifiMac implements PhyListener {
     const parts: MuPart[] = users.map((u) => {
       const mcs = mode === 'he' ? Math.min(11, this.cfg.mcsForPeer(u.peer)) : this.cfg.mcsForPeer(u.peer)
       const nss = this.cfg.nssForPeer(u.peer)
-      const need = txTimeModeNs(
+      const need = this.airModeNs(
         mode,
-        Math.max(64, Math.min(u.bytes + 64, maxPsduBytesFor(mode, mcs, frac, 2_000_000, ulWidth, nss))),
+        Math.max(64, Math.min(u.bytes + 64, maxPsduBytesFor(mode, mcs, frac, 2_000_000 - this.T.signalExtNs, ulWidth, nss))),
         mcs,
         { ruFraction: frac, widthMhz: ulWidth, nss },
       )
@@ -809,12 +823,12 @@ export class WifiMac implements PhyListener {
       }
     })
     for (const p of parts) p.durNs = ulDur
-    const mbaTime = txTimeNs(multiStaBaBytes(users.length), 24)
+    const mbaTime = this.airNs(multiStaBaBytes(users.length), 24)
     const tb = triggerBytes(users.length)
     const trigger: FrameDesc = {
       kind: 'trigger', src: this.nodeId, dst: '*mu', bytes: tb, mbps: 24,
-      durationFieldNs: SIFS_NS + ulDur + SIFS_NS + mbaTime,
-      txTimeNs: txTimeNs(tb, 24), muParts: parts, orthogonalGroup: gid, ac: this.acTag(e),
+      durationFieldNs: this.T.sifsNs + ulDur + this.T.sifsNs + mbaTime,
+      txTimeNs: this.airNs(tb, 24), muParts: parts, orthogonalGroup: gid, ac: this.acTag(e),
       // The Trigger goes out as a non-HT frame; these are the format and the
       // bandwidth it dictates for the TB PPDUs it solicits (§9.3.1.22.1).
       ulMode: mode, ulWidthMhz: ulWidth,
@@ -823,11 +837,11 @@ export class WifiMac implements PhyListener {
     const mu: MuUlState = { kind: 'ul', gid, ac: this.edcafs.indexOf(e), users: users.map((u) => u.peer), received: new Map(), mbaHandle: 0, rxTimeoutHandle: 0 }
     this.muState = mu
     this.transmitFrame(trigger, false)
-    mu.mbaHandle = this.q.schedule(t + trigger.txTimeNs + SIFS_NS + ulDur + SIFS_NS, () => this.sendMba())
+    mu.mbaHandle = this.q.schedule(t + trigger.txTimeNs + this.T.sifsNs + ulDur + this.T.sifsNs, () => this.sendMba())
     // §10.3.2.9: a Trigger expects a response like any other frame. If no
     // triggered PPDU has started within SIFS + slot + RxPHYStartDelay of the
     // trigger's end, the round failed — do not sit out the whole 2 ms window.
-    mu.rxTimeoutHandle = this.q.schedule(t + trigger.txTimeNs + ACK_TIMEOUT_NS, () => this.onTriggerRespTimeout(mu))
+    mu.rxTimeoutHandle = this.q.schedule(t + trigger.txTimeNs + this.T.ackTimeoutNs, () => this.onTriggerRespTimeout(mu))
   }
 
   private onTriggerRespTimeout(mu: MuUlState): void {
@@ -862,7 +876,7 @@ export class WifiMac implements PhyListener {
     const bytes = multiStaBaBytes(acked.length)
     const mba: FrameDesc = {
       kind: 'mba', src: this.nodeId, dst: '*mu', bytes, mbps: 24,
-      durationFieldNs: 0, txTimeNs: txTimeNs(bytes, 24),
+      durationFieldNs: 0, txTimeNs: this.airNs(bytes, 24),
       muParts: acked.map((peer) => ({ dst: peer, src: this.nodeId, bytes: 0, mcs: 0, mbps: 24, msduIds: [], mpduCount: 0 })),
     }
     this.transmitFrame(mba, false)
@@ -889,7 +903,7 @@ export class WifiMac implements PhyListener {
     if (expectResponse && this.awaiting) {
       this.setState(this.awaiting.kind === 'cts' ? 'waitCts' : 'waitAck')
       this.lastRxStartNs = NEVER
-      const to = this.awaiting.kind === 'cts' ? CTS_TIMEOUT_NS : ACK_TIMEOUT_NS
+      const to = this.T.ackTimeoutNs
       this.timeoutHandle = this.q.schedule(t + to, () => this.onRespTimeout())
     } else if (this.staMuAwait) {
       this.setState('waitAck')
@@ -1002,10 +1016,10 @@ export class WifiMac implements PhyListener {
     const ei = this.edcafs.indexOf(e)
     if (this.txopEndNs > 0 && this.txopAc === ei && this.queues.depthFor(ei, this.reach) > 0) {
       const head = this.queues.head(ei, this.reach)!
-      const need = SIFS_NS + this.exchangeNs(head.dst, [head.bytes], false).totalNs
+      const need = this.T.sifsNs + this.exchangeNs(head.dst, [head.bytes], false).totalNs
       if (t + need <= this.txopEndNs) {
         this.setState('sifsResp')
-        this.respHandle = this.q.schedule(t + SIFS_NS, () => {
+        this.respHandle = this.q.schedule(t + this.T.sifsNs, () => {
           this.respHandle = 0
           // Someone started transmitting inside our SIFS gap (single protection
           // only covered the response). Our radio is receiving: a real PHY
@@ -1033,8 +1047,8 @@ export class WifiMac implements PhyListener {
     this.endTxop()
     e.backoff = null
     e.needDraw = true // post-transmission backoff, §10.3.4.3
-    const cfTime = txTimeNs(CF_END_BYTES, 24)
-    if (announced > t + SIFS_NS + cfTime + SLOT_NS) {
+    const cfTime = this.airNs(CF_END_BYTES, 24)
+    if (announced > t + this.T.sifsNs + cfTime + this.T.slotNs) {
       this.scheduleResponse(t, this.cfEndFrame())
       return
     }
@@ -1044,7 +1058,7 @@ export class WifiMac implements PhyListener {
   private cfEndFrame(): FrameDesc {
     return {
       kind: 'cfend', src: this.nodeId, dst: '*', bytes: CF_END_BYTES, mbps: 24,
-      durationFieldNs: 0, txTimeNs: txTimeNs(CF_END_BYTES, 24),
+      durationFieldNs: 0, txTimeNs: this.airNs(CF_END_BYTES, 24),
     }
   }
 
@@ -1154,7 +1168,7 @@ export class WifiMac implements PhyListener {
           }
           this.scheduleResponse(t, {
             kind: 'ba', src: this.nodeId, dst: from, bytes: BA_BYTES, mbps: 24,
-            durationFieldNs: 0, txTimeNs: txTimeNs(BA_BYTES, 24), orthogonalGroup: frame.orthogonalGroup,
+            durationFieldNs: 0, txTimeNs: this.airNs(BA_BYTES, 24), orthogonalGroup: frame.orthogonalGroup,
             muKind: frame.muKind,
           })
           break
@@ -1177,7 +1191,7 @@ export class WifiMac implements PhyListener {
         const respBytes = isBa ? BA_BYTES : ACK_BYTES
         this.scheduleResponse(t, {
           kind: isBa ? 'ba' : 'ack', src: this.nodeId, dst: from, bytes: respBytes,
-          mbps: rate, durationFieldNs: 0, txTimeNs: txTimeNs(respBytes, rate),
+          mbps: rate, durationFieldNs: 0, txTimeNs: this.airNs(respBytes, rate),
         })
         break
       }
@@ -1228,10 +1242,10 @@ export class WifiMac implements PhyListener {
         // §10.3.2.9: respond with CTS only if NAV indicates idle.
         if (this.now() < this.navUntil) break
         const ctsRate = ctrlRespRateFor(frame.mbps)
-        const ctsTime = txTimeNs(CTS_BYTES, ctsRate)
+        const ctsTime = this.airNs(CTS_BYTES, ctsRate)
         this.scheduleResponse(t, {
           kind: 'cts', src: this.nodeId, dst: from, bytes: CTS_BYTES, mbps: ctsRate,
-          durationFieldNs: Math.max(0, frame.durationFieldNs - SIFS_NS - ctsTime),
+          durationFieldNs: Math.max(0, frame.durationFieldNs - this.T.sifsNs - ctsTime),
           txTimeNs: ctsTime,
         })
         break
@@ -1245,7 +1259,7 @@ export class WifiMac implements PhyListener {
           this.edcafs[aw.ac].qsrc = 0
           this.emit({ t, type: 'CW_CHANGE', node: this.nodeId, cw: this.edcafs[aw.ac].cw, qsrc: 0, ac: this.acTag(this.edcafs[aw.ac]) })
           this.setState('sifsResp')
-          this.respHandle = this.q.schedule(t + SIFS_NS, () => {
+          this.respHandle = this.q.schedule(t + this.T.sifsNs, () => {
             this.respHandle = 0
             const e = this.edcafs[aw.ac]
             const mode = this.cfg.modeForPeer(aw.peer)
@@ -1254,7 +1268,7 @@ export class WifiMac implements PhyListener {
             const nss = this.cfg.nssForPeer(aw.peer)
             const mbps = mcsRateMbps(mode, mcs)
             const aggregate = aw.msdus.length > 1
-            const respTime = txTimeNs(aggregate ? BA_BYTES : ACK_BYTES, ctrlRespRateForMode(mode, mcs, mbps))
+            const respTime = this.airNs(aggregate ? BA_BYTES : ACK_BYTES, ctrlRespRateForMode(mode, mcs, mbps))
             const frame2 = this.buildDataFrame(e, aw.peer, aw.msdus, aw.aggBytes, mode, mcs, mbps, aggregate, respTime, width, nss)
             this.awaiting = { ...aw, kind: aggregate ? 'ba' : 'ack', wasRts: false }
             this.transmitFrame(frame2, true)
@@ -1271,7 +1285,7 @@ export class WifiMac implements PhyListener {
     const dur = part.durNs ?? 1_000_000
     this.cancelAllContention()
     this.setState('sifsResp')
-    this.respHandle = this.q.schedule(t + SIFS_NS, () => {
+    this.respHandle = this.q.schedule(t + this.T.sifsNs, () => {
       this.respHandle = 0
       this.purgeExpired(e, ac)
       const n = trigger.muParts!.length
@@ -1282,7 +1296,7 @@ export class WifiMac implements PhyListener {
       // UL BW comes from the Trigger's Common Info, not from this station's own link.
       const width = trigger.ulWidthMhz ?? this.cfg.widthForPeer(trigger.src)
       const nss = this.cfg.nssForPeer(trigger.src)
-      const budget = maxPsduBytesFor(mode, mcs, frac, dur, width, nss)
+      const budget = maxPsduBytesFor(mode, mcs, frac, dur - this.T.signalExtNs, width, nss)
       const msdus = this.queues.claim(ac, null, MAX_AMPDU_MPDUS, (m, claimed) =>
         ampduPsduBytes([...claimed.map((x) => x.bytes), m.bytes]) <= budget)
       if (!msdus.length) {
@@ -1300,10 +1314,10 @@ export class WifiMac implements PhyListener {
         orthogonalGroup: trigger.orthogonalGroup,
       }
       for (const m of msdus) m.sent = true
-      const mbaTime = txTimeNs(multiStaBaBytes(n), 24)
+      const mbaTime = this.airNs(multiStaBaBytes(n), 24)
       this.staMuAwait = {
         ac, msdus,
-        timeoutHandle: this.q.schedule(t + SIFS_NS + dur + SIFS_NS + mbaTime + ACK_TIMEOUT_NS, () => {
+        timeoutHandle: this.q.schedule(t + this.T.sifsNs + dur + this.T.sifsNs + mbaTime + this.T.ackTimeoutNs, () => {
           const st = this.staMuAwait
           if (!st) return
           this.staMuAwait = null
@@ -1353,7 +1367,7 @@ export class WifiMac implements PhyListener {
     }
     this.pendingResp = resp
     this.setState('sifsResp')
-    this.respHandle = this.q.schedule(t + SIFS_NS, () => {
+    this.respHandle = this.q.schedule(t + this.T.sifsNs, () => {
       this.respHandle = 0
       const f = this.pendingResp!
       this.pendingResp = null
@@ -1385,8 +1399,8 @@ export class WifiMac implements PhyListener {
       // §10.3.2.4 RTS-NAV early release.
       const setAt = t
       this.navFromRtsAt = setAt
-      const ctsTime = txTimeNs(CTS_BYTES, ctrlRespRateFor(frame.mbps))
-      this.q.schedule(t + 2 * SIFS_NS + ctsTime + RX_START_DELAY_NS + 2 * SLOT_NS, () => {
+      const ctsTime = this.airNs(CTS_BYTES, ctrlRespRateFor(frame.mbps))
+      this.q.schedule(t + 2 * this.T.sifsNs + ctsTime + this.T.rxStartDelayNs + 2 * this.T.slotNs, () => {
         if (this.navFromRtsAt === setAt && this.lastRxStartNs <= setAt && this.navUntil > this.now()) {
           this.navUntil = 0
           this.navSetBy = null

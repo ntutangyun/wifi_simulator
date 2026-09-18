@@ -1,7 +1,7 @@
 import { Channel } from '../../src/engine/channel'
 import { EventQueue } from '../../src/engine/events'
 import { DcfMac } from '../../src/engine/mac'
-import { RATES, dataRateFor } from '../../src/engine/phy'
+import { RATES, dataRateFor, type PhyTiming } from '../../src/engine/phy'
 import { Rng } from '../../src/engine/rng'
 import type { Msdu } from '../../src/engine/traffic'
 import { makeEmitter, type TLRecord } from '../../src/model/records'
@@ -22,7 +22,7 @@ export interface Bss {
  * Build a BSS with nodes and an explicit dBm link matrix `links['a>b']`.
  * Missing entries default to −200 (out of range).
  */
-export function makeBss(nodeIds: string[], links: Record<string, number>, opts: { rtsThresholdBytes?: number; seed?: number; edca?: boolean; queueLimit?: number; msduLifetimeNs?: number } = {}): Bss {
+export function makeBss(nodeIds: string[], links: Record<string, number>, opts: { rtsThresholdBytes?: number; seed?: number; edca?: boolean; queueLimit?: number; msduLifetimeNs?: number; timing?: PhyTiming } = {}): Bss {
   const q = new EventQueue()
   let now = 0
   const table = new Map<string, Map<string, number>>()
@@ -47,6 +47,7 @@ export function makeBss(nodeIds: string[], links: Record<string, number>, opts: 
       {
         rtsThresholdBytes: opts.rtsThresholdBytes ?? 3000,
         edca: opts.edca ?? false, txop: false, queueLimit: opts.queueLimit, msduLifetimeNs: opts.msduLifetimeNs, isAp: id === 'ap',
+        timing: opts.timing,
         modeForPeer: () => 'nonht',
         mcsForPeer: (peer) => {
           const mbps = dataRateFor(table.get(peer)!.get(id) ?? -200)
