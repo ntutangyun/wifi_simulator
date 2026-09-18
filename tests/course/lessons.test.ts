@@ -266,7 +266,7 @@ describe('lesson 12 claims about TB PPDUs', () => {
 describe('module 4 lessons', () => {
   it('adds a fourth module', () => {
     expect(TIERS).toHaveLength(4)
-    expect(MODULES.map((m) => m.tier)).toEqual([0, 0, 1, 1, 1, 1, 1, 1, 2, 3])
+    expect(MODULES.map((m) => m.tier)).toEqual([0, 0, 1, 1, 1, 1, 1, 1, 1, 2, 3])
     for (const m of MODULES) expect(m.title.zh.length).toBeGreaterThan(0)
   })
 

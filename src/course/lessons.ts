@@ -1142,7 +1142,7 @@ const AUTHORED: Lesson[] = [
 
   {
     id: 'capstone',
-    module: 7,
+    module: 8,
     title: { en: 'Capstone — the busy household', zh: '结业课——热闹的一家人' },
     body: [
       { text: {

@@ -4,7 +4,8 @@
  * here, never from lessons.ts, so modules that define lessons do not form a cycle.
  */
 import { defaultFeatures, linkOfVirtual } from '../model/caps'
-import type { NodeCfg, ProfileId, Room, Scenario, Wall } from '../model/scenario'
+import type { AmpApCfg, NodeCfg, ProfileId, Room, Scenario, Wall } from '../model/scenario'
+import { DEFAULT_AMP_AP } from '../model/scenario'
 import type { TLRecord } from '../model/records'
 import type { Generation } from '../model/types'
 
@@ -144,6 +145,15 @@ export function sc(house: { rooms: Room[]; walls: Wall[] }, nodes: NodeCfg[], ex
   }
 }
 
+export function tag(id: string, name: string, x: number, y: number, dlSensDbm?: number): NodeCfg {
+  return { id, kind: 'amp', name, pos: { x, y, z: 1 }, txPowerDbm: 0, profiles: ['idle'], caps: { generation: 'nonht', features: {} }, linkId: '2g', ampTag: dlSensDbm === undefined ? {} : { dlSensDbm } }
+}
+
+export function ampAp(id: string, name: string, x: number, y: number, amp: Partial<AmpApCfg> = {}, features?: Record<string, boolean>): NodeCfg {
+  const n = node(id, name, 'ap', x, y, 'eht', 'idle', features ?? { edca: true, txop: true, ampdu: true })
+  return { ...n, ampAp: { ...DEFAULT_AMP_AP, ...amp } }
+}
+
 // ---------------------------------------------------------------------------
 // jump-target predicates
 // ---------------------------------------------------------------------------
@@ -174,4 +184,12 @@ export const firstVo = (r: TLRecord): boolean =>
 
 export const J = (en: string, zh: string, find: (r: TLRecord) => boolean): JumpTarget =>
   ({ label: { en, zh }, find })
+
+export const firstAmpTrigger = txOf((r) => r.frame.kind === 'ampTrigger')
+export const firstAmpResp = txOf((r) => r.frame.kind === 'ampResp')
+export const firstAmpAck = txOf((r) => r.frame.kind === 'ampAck')
+export const firstAmpAckToTag = txOf((r) => r.frame.kind === 'ampAck' && r.frame.dst !== r.frame.src)
+export const firstAmpSatOut = (r: TLRecord): boolean => r.type === 'AMP_ABOC' && r.slot === null
+export const firstAmpLost = (r: TLRecord): boolean => r.type === 'AMP_RESULT' && r.sent && !r.acked
+export const firstScheduledTrigger = txOf((r) => r.frame.kind === 'ampTrigger' && r.frame.amp?.phase === 'scheduled')
 

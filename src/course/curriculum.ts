@@ -28,6 +28,7 @@ export const MODULES: CourseModule[] = [
   { tier: 1, title: { en: 'Link lifecycle, security and power', zh: '链路生命周期、安全与节能' } },
   { tier: 1, title: { en: 'Neighbours and spatial reuse', zh: '邻居网络与空间复用' } },
   { tier: 1, title: { en: 'Scheduled Wi-Fi 6/7', zh: '被调度的 Wi-Fi 6/7' } },
+  { tier: 1, title: { en: 'Ambient power IoT (802.11bp)', zh: '环境能量物联网（802.11bp）' } },
   { tier: 1, title: { en: 'Real applications', zh: '真实应用' } },
   { tier: 2, title: { en: 'Signals, modulation and coding', zh: '信号、调制与编码' } },
   { tier: 3, title: { en: 'Wi-Fi 8 and research craft', zh: 'Wi-Fi 8 与研究方法' } },
@@ -49,7 +50,9 @@ export const COURSE_ORDER: string[] = [
   'width', 'streams', 'rate',
   // Tier 2 — M7 scheduled Wi-Fi 6/7
   'ofdma-dl', 'ofdma-ul', 'mumimo', 'mlo',
-  // Tier 2 — M8 real applications
+  // Tier 2 — M8 ambient power IoT
+  'amp-intro', 'amp-slots', 'amp-coexist',
+  // Tier 2 — M9 real applications
   'capstone',
 ]
 
