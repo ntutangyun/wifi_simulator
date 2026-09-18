@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import type { FrameDesc } from '../../src/model/frames'
 import { makeEmitter, type EmitFn, type TLRecord } from '../../src/model/records'
 import { applyRecord, cloneView, initViewState } from '../../src/model/view'
-import { defaultScenario, type Scenario } from '../../src/model/scenario'
+import { DEFAULT_AMP_AP, defaultScenario, type Scenario } from '../../src/model/scenario'
 import { physicalId } from '../../src/model/caps'
 import { LESSONS } from '../../src/course/lessons'
 import { Simulation } from '../../src/engine/simulation'
@@ -343,5 +343,31 @@ describe('a station on the 2.4 GHz link, through the live view', () => {
     expect(apTxLatency).toBeGreaterThan(0)
     expect(vs.nodes['sta-1#2g'].stats.rxLatency.n).toBeGreaterThan(0)
     expect(vs.nodes['sta-1#2g'].stats.txOk).toBeGreaterThan(0)
+  })
+})
+
+describe('AMP records in the view', () => {
+  it('tracks a tag through draw, slot, result and the AP through its round', () => {
+    const sc = defaultScenario()
+    sc.nodes[0].caps = { generation: 'eht', features: { edca: true } }
+    sc.nodes[0].ampAp = { ...DEFAULT_AMP_AP }
+    sc.nodes.push({ id: 'tag-1', kind: 'amp', name: 'Tag', pos: { x: 3, y: 3, z: 1 }, txPowerDbm: 0, profiles: ['idle'], caps: { generation: 'nonht', features: {} } })
+    const vs = initViewState(sc)
+    expect(vs.nodes['tag-1#2g'].amp).toEqual({ aboc: null, acw: 0, slot: null, sent: 0, acked: 0, lost: 0, roundsHeard: 0, roundsSatOut: 0 })
+    expect(vs.nodes['ap#2g'].ampRound).toBeNull()
+    let seq = 0
+    const rec = (r: Parameters<EmitFn>[0]) => applyRecord(vs, { ...r, seq: seq++ } as TLRecord)
+    rec({ t: 0, type: 'AMP_ROUND', node: 'ap#2g', phase: 'random', slots: 4, slotNs: 272_000, acwe: 2, dlKbps: 250, ulKbps: 250, untilNs: 3_000_000 })
+    expect(vs.nodes['ap#2g'].ampRound).toEqual({ phase: 'random', slot: 0, slots: 4, untilNs: 3_000_000, received: [] })
+    rec({ t: 618_000, type: 'AMP_ABOC', node: 'tag-1#2g', aboc: 1, acw: 3, slot: 2 })
+    expect(vs.nodes['tag-1#2g'].amp).toMatchObject({ aboc: 1, acw: 3, slot: 2, roundsHeard: 1 })
+    rec({ t: 628_000, type: 'AMP_SLOT', node: 'ap#2g', slot: 1, untilNs: 900_000 })
+    expect(vs.nodes['ap#2g'].ampRound!.slot).toBe(1)
+    rec({ t: 1_300_000, type: 'AMP_RESULT', node: 'tag-1#2g', slot: 2, sent: true, acked: true })
+    expect(vs.nodes['tag-1#2g'].amp).toMatchObject({ aboc: null, slot: null, sent: 1, acked: 1, lost: 0 })
+    rec({ t: 2_000_000, type: 'AMP_ABOC', node: 'tag-1#2g', aboc: 5, acw: 7, slot: null })
+    expect(vs.nodes['tag-1#2g'].amp!.roundsSatOut).toBe(1)
+    rec({ t: 2_500_000, type: 'AMP_RESULT', node: 'tag-1#2g', slot: 3, sent: true, acked: false })
+    expect(vs.nodes['tag-1#2g'].amp!.lost).toBe(1)
   })
 })

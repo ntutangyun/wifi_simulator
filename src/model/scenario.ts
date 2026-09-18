@@ -121,6 +121,35 @@ export interface NodeCfg {
   tamper?: TamperCfg
   /** Station only, with the p2pvideo stream: the station this phone streams to (via the AP). */
   p2pTarget?: string
+  /** AP only, Wi-Fi 7 (eht) generation only: ambient-power (AMP) polling on the 2.4 GHz link. */
+  ampAp?: AmpApCfg
+  /** `kind: 'amp'` only: an ambient-power tag's identity and downlink sensitivity. */
+  ampTag?: AmpTagCfg
+}
+
+/**
+ * AP-side ambient-power (AMP) polling configuration (IEEE P802.11bp). The AP
+ * announces a round with an AMP Trigger PPDU; tags reply in their access
+ * phase (random contention, then scheduled slots for tags heard in it).
+ */
+export interface AmpApCfg {
+  pollIntervalMs: number
+  slots: number
+  acwe: number
+  dlKbps: 250 | 1000
+  ulKbps: 250 | 1000 | 4000
+  protection: 'ctsSelf' | 'none'
+  readMode: 'inline' | 'twoPhase'
+}
+
+export const DEFAULT_AMP_AP: AmpApCfg = {
+  pollIntervalMs: 100, slots: 4, acwe: 2, dlKbps: 250, ulKbps: 250, protection: 'ctsSelf', readMode: 'inline',
+}
+
+/** An ambient-power tag's per-node configuration. */
+export interface AmpTagCfg {
+  id16?: number
+  dlSensDbm?: number
 }
 
 /** What kind of endpoint a stream talks to beyond the AP. */
@@ -224,7 +253,7 @@ const NodeCfgSchema = z.preprocess(
   migrateLegacyProfile,
   z.object({
     id: z.string().min(1),
-    kind: z.enum(['ap', 'sta']),
+    kind: z.enum(['ap', 'sta', 'amp']),
     name: z.string(),
     pos: Vec3Schema,
     txPowerDbm: z.number(),
@@ -249,12 +278,31 @@ const NodeCfgSchema = z.preprocess(
       txopLimitUs: z.number().min(0).optional(),
       navInflateUs: z.number().min(0).optional(),
     }).optional(),
+    ampAp: z.object({
+      pollIntervalMs: z.number().min(10).max(10_000),
+      slots: z.number().int().min(1).max(16),
+      acwe: z.number().int().min(0).max(4),
+      dlKbps: z.union([z.literal(250), z.literal(1000)]),
+      ulKbps: z.union([z.literal(250), z.literal(1000), z.literal(4000)]),
+      protection: z.enum(['ctsSelf', 'none']),
+      readMode: z.enum(['inline', 'twoPhase']),
+    }).optional(),
+    ampTag: z.object({
+      id16: z.number().int().min(1).max(0xfffe).optional(),
+      dlSensDbm: z.number().optional(),
+    }).optional(),
   }).superRefine((n, ctx) => {
     if (n.linkId === '2g' && n.caps.generation === 'vht') {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Wi-Fi 5 (VHT) has no 2.4 GHz mode; pick 802.11g, Wi-Fi 6 or Wi-Fi 7 for the 2.4 GHz link' })
     }
     if (n.linkId === '6g' && (n.caps.generation === 'nonht' || n.caps.generation === 'vht')) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: '6 GHz needs Wi-Fi 6 or Wi-Fi 7; 802.11a and Wi-Fi 5 (VHT) have no 6 GHz mode' })
+    }
+    if (n.kind === 'amp' && n.linkId !== undefined && n.linkId !== '2g') {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'AMP tags live on the 2.4 GHz link' })
+    }
+    if (n.ampAp && !(n.kind === 'ap' && n.caps.generation === 'eht')) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'AMP polling needs a Wi-Fi 7 AP (the AMP DL PPDU carries U-SIG)' })
     }
   }),
 )

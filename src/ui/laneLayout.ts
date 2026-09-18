@@ -68,6 +68,8 @@ const STATE_SPAN: Record<string, SpanKind | null> = {
   idle: null, tx: null, rx: null,
   defer: 'defer', backoff: 'backoff',
   waitAck: 'sifs', waitCts: 'sifs', sifsResp: 'sifs',
+  // TODO(Task 6): ampWait gets its own SpanKind ('slot'); for now it draws as a SIFS-style wait.
+  ampWait: 'sifs',
 }
 
 interface OpenSpan {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { ScenarioSchema, defaultScenario, nonht } from '../../src/model/scenario'
+import { DEFAULT_AMP_AP, ScenarioSchema, defaultScenario, nonht } from '../../src/model/scenario'
 
 describe('scenario schema', () => {
   it('accepts the default scenario', () => {
@@ -79,5 +79,20 @@ describe('linkId 2g in the schema', () => {
       sc.nodes[1].caps.generation = gen
       expect(() => ScenarioSchema.parse(sc)).toThrow(/6 GHz/)
     }
+  })
+})
+
+describe('AMP nodes in the schema', () => {
+  it('a tag is kind amp on 2.4 GHz; AMP polling needs a Wi-Fi 7 AP', () => {
+    const sc = defaultScenario()
+    sc.nodes[0].caps = { generation: 'eht', features: { edca: true } }
+    sc.nodes[0].ampAp = { ...DEFAULT_AMP_AP }
+    sc.nodes.push({ id: 'tag-1', kind: 'amp', name: 'Tag', pos: { x: 3, y: 3, z: 1 }, txPowerDbm: 0, profiles: ['idle'], caps: { generation: 'nonht', features: {} }, ampTag: { dlSensDbm: -70 } })
+    expect(() => ScenarioSchema.parse(sc)).not.toThrow()
+    sc.nodes[3].linkId = '5g'
+    expect(() => ScenarioSchema.parse(sc)).toThrow(/2\.4 GHz/)
+    sc.nodes[3].linkId = '2g'
+    sc.nodes[0].caps.generation = 'he'
+    expect(() => ScenarioSchema.parse(sc)).toThrow(/Wi-Fi 7/)
   })
 })

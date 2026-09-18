@@ -7,7 +7,7 @@ export interface Vec3 {
   z: number
 }
 
-export type NodeKind = 'ap' | 'sta'
+export type NodeKind = 'ap' | 'sta' | 'amp'
 
 /** Extensibility seam: PHY/MAC generation of a device (v1 implements 'nonht' only). */
 export type Generation = 'nonht' | 'vht' | 'he' | 'eht'

@@ -68,6 +68,10 @@ export function fmtRecord(r: TLRecord): string {
     case 'CTS_TIMEOUT': return `${r.node} CTS timeout`
     case 'MAC_STATE': return `${r.node} → ${r.state}`
     case 'COLLISION': return `COLLISION: ${r.nodes.join(' × ')}`
+    case 'AMP_ROUND': return `${r.node} AMP round (${r.phase}, ${r.slots} slots) until ${fmtNs(r.untilNs)}`
+    case 'AMP_SLOT': return `${r.node} AMP slot ${r.slot} until ${fmtNs(r.untilNs)}`
+    case 'AMP_ABOC': return `${r.node} AMP ABOC ${r.aboc} (ACW=${r.acw})${r.slot === null ? ' sat out' : `, slot ${r.slot}`}`
+    case 'AMP_RESULT': return `${r.node} AMP result slot ${r.slot}: ${r.sent ? (r.acked ? 'acked' : 'lost') : 'no tx'}`
   }
 }
 

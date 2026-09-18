@@ -89,6 +89,7 @@ export function minGen(a: Generation, b: Generation): Generation {
 
 /** Links a node operates on. The AP's links are decided by linkPlanFor (every link a station uses). */
 export function nodeLinks(n: NodeCfg, apMlo: boolean): LinkId[] {
+  if (n.kind === 'amp') return ['2g']
   if (hasFeature(n, 'mlo') && (n.kind === 'ap' || apMlo)) return ['5g', '6g']
   const g = n.caps.generation
   if (n.kind !== 'ap' && n.linkId === '2g' && g !== 'vht') return ['2g']
@@ -124,11 +125,12 @@ export function linkPlanFor(nodes: NodeCfg[]): LinkPlan {
   const apMlo = ap ? hasFeature(ap, 'mlo') : false
   const staLinks = new Map<string, LinkId[]>()
   // "The AP is a member of every link that has at least one other member": the
-  // set of links comes from the stations (plus 6 GHz for an MLO AP, which runs
-  // both of its links), never from an unconditional 5 GHz seed — an all-2.4 GHz
-  // scenario must not build a phantom, empty 5 GHz link.
+  // set of links comes from the stations (plus 5 + 6 GHz for an MLO AP, which
+  // always runs both of its radios, even with no station on one of them),
+  // never from an unconditional 5 GHz seed — an all-2.4 GHz scenario must not
+  // build a phantom, empty 5 GHz link.
   const used = new Set<LinkId>()
-  if (apMlo) used.add('6g')
+  if (apMlo) { used.add('5g'); used.add('6g') }
   for (const n of nodes) {
     if (n.kind === 'ap') continue
     const ls = nodeLinks(n, apMlo)

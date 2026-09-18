@@ -70,6 +70,30 @@ function addLatency(l: LatencyStats, dtNs: Ns): void {
   if (dtNs > l.maxNs) l.maxNs = dtNs
 }
 
+/** A tag's live AMP state: its drawn backoff and this round's tally. */
+export interface AmpTagView {
+  aboc: number | null
+  acw: number
+  slot: number | null
+  sent: number
+  acked: number
+  lost: number
+  /** Rounds this tag heard the AP's Trigger for (an AMP_ABOC record arrived). */
+  roundsHeard: number
+  /** Rounds where the tag sat out (no slot: it deferred or lost random contention). */
+  roundsSatOut: number
+}
+
+/** The AP lane's live AMP round: the poll's shape and which tags have replied so far. */
+export interface AmpRoundView {
+  phase: 'random' | 'scheduled'
+  slot: number
+  slots: number
+  untilNs: Ns
+  /** Tag ids (physical) whose AMP response has been received this round. */
+  received: string[]
+}
+
 export interface AcView {
   backoff: number | null
   cw: number
@@ -103,6 +127,10 @@ export interface NodeView {
   acs: AcView[] | null
   txopUntilNs: Ns
   txopAc: number
+  /** AMP tag lanes only: this tag's live poll state. */
+  amp?: AmpTagView
+  /** AMP AP lanes only: the round in progress, or null between rounds. */
+  ampRound?: AmpRoundView | null
 }
 
 export interface FlightView {
@@ -157,6 +185,12 @@ export function initViewState(sc: Scenario): ViewState {
       },
       acs: edca ? [0, 1, 2, 3].map(() => ({ backoff: null, cw: 15, queueLen: 0, ifs: null })) : null,
       txopUntilNs: 0, txopAc: -1,
+    }
+    if (cfg.kind === 'amp') {
+      nodes[vid].amp = { aboc: null, acw: 0, slot: null, sent: 0, acked: 0, lost: 0, roundsHeard: 0, roundsSatOut: 0 }
+    }
+    if (cfg.kind === 'ap') {
+      nodes[vid].ampRound = null
     }
   }
   const servers: Record<string, ServerView> = {}
@@ -421,6 +455,9 @@ export function applyRecord(vs: ViewState, r: TLRecord): void {
         const sender = primaryLaneOf(vs, r.from)
         if (sender) sender.stats.txOk += fresh
       }
+      if (r.frame.kind === 'ampResp' && n.ampRound) {
+        n.ampRound.received.push(r.from)
+      }
       break
     }
     case 'RX_FAIL':
@@ -461,14 +498,50 @@ export function applyRecord(vs: ViewState, r: TLRecord): void {
     case 'ACK_TIMEOUT':
     case 'CTS_TIMEOUT':
       break
-    case 'MAC_STATE':
-      vs.nodes[r.node].state = r.state
+    case 'MAC_STATE': {
+      const n = vs.nodes[r.node]
+      n.state = r.state
+      // The reducer does not know the AP's read mode, so it keeps the round
+      // alive through the AP's own tx/waitAck (trigger, ack) and clears it on
+      // any other state — the next round starts a fresh one either way.
+      if (r.state !== 'tx' && r.state !== 'waitAck') n.ampRound = null
       break
+    }
     case 'COLLISION':
       for (const id of r.nodes) {
         const n = vs.nodes[id]
         if (n) n.stats.collisions += 1
       }
       break
+    case 'AMP_ROUND': {
+      const n = vs.nodes[r.node]
+      n.ampRound = { phase: r.phase, slot: 0, slots: r.slots, untilNs: r.untilNs, received: [] }
+      break
+    }
+    case 'AMP_SLOT': {
+      const n = vs.nodes[r.node]
+      if (n.ampRound) n.ampRound.slot = r.slot
+      break
+    }
+    case 'AMP_ABOC': {
+      const a = vs.nodes[r.node].amp
+      if (!a) break
+      a.aboc = r.aboc
+      a.acw = r.acw
+      a.slot = r.slot
+      a.roundsHeard++
+      if (r.slot === null) a.roundsSatOut++
+      break
+    }
+    case 'AMP_RESULT': {
+      const a = vs.nodes[r.node].amp
+      if (!a) break
+      if (r.sent) a.sent++
+      if (r.acked) a.acked++
+      else a.lost++
+      a.aboc = null
+      a.slot = null
+      break
+    }
   }
 }

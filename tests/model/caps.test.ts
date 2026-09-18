@@ -90,6 +90,12 @@ describe('the 2.4 GHz link', () => {
     expect(plan.virtualIds).toEqual(['ap', 'ap#6g', 'a'])
   })
 
+  it('an MLO AP keeps both radios even when only a 2.4 GHz station is present', () => {
+    const ap = mk('ap', 'ap', 'eht', { caps: { generation: 'eht', features: { mlo: true } } })
+    const plan = linkPlanFor([ap, mk('a', 'sta', 'he', { linkId: '2g' })])
+    expect(plan.links).toEqual(['5g', '6g', '2g'])
+  })
+
   it('width is clamped to 40 MHz on 2.4 GHz', () => {
     const n = mk('s', 'sta', 'eht', { caps: { generation: 'eht', features: {}, widthMhz: 160 }, linkId: '2g' })
     expect(widthOf(n)).toBe(160)
