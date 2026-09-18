@@ -8,10 +8,11 @@
  * Every number quoted below is pinned in tests/course/uwb-dstwr.test.ts.
  *
  * CAUTION — word budget: `lessonMinutes` rounds to 25 minutes anywhere between
- * 975 and 1725 English words across body + observe + tryThis + quiz (4 observe
- * items and 2 experiments already account for 16 of those minutes). The prose
- * below totals 1710 words, so there is room for fifteen more and no more:
- * adding a sentence means deleting one, or the study-time test fails.
+ * 975 and 1724 English words across body + observe + tryThis + quiz (4 observe
+ * items and 2 experiments already account for 16 of those minutes). At 1725 the
+ * rounding tips to 30, and the study-time test pins that ceiling. The prose
+ * below totals 1707 words, so there is room for seventeen more and no more:
+ * adding a sentence means deleting one.
  */
 import type { Scenario } from '../../model/scenario'
 import {
@@ -57,8 +58,8 @@ export const uwbDstwr: Lesson = {
         zh: '时隙 0，0 ms。手机广播 Poll，给它离开的时刻打戳 txPoll。四个锚点给它到达的时刻打戳 rxPoll，各用各自的计数器。' },
       { en: 'Slots 1 to 4, at 2 to 8 ms. Anchor i answers in slot i, stamps txResp and holds Treply1 = txResp − rxPoll, wholly on its own clock. The phone stamps rxResp and holds Tround1 = rxResp − txPoll, wholly on its own.',
         zh: '时隙 1 到 4，2 ms 到 8 ms。第 i 个锚点在第 i 个时隙作答，打戳 txResp，手里有 Treply1 = txResp − rxPoll，完全用自己的时钟量出。手机打戳 rxResp，手里有 Tround1 = rxResp − txPoll，也完全用自己的时钟。' },
-      { en: 'Slot 5, at 10 ms. One Final for all four anchors, carrying per anchor its Tround1 in the RMI IE and Treply2 = txFinal − rxResp in an RRTI IE — both the phone’s own. Each anchor stamps rxFinal and holds Tround2 = rxFinal − txResp.',
-        zh: '时隙 5，10 ms。一帧 Final 发给全部四个锚点，按锚点分别携带各自的 Tround1（RMI IE）与 Treply2 = txFinal − rxResp（RRTI IE）——两个都是手机自己的测量值。每个锚点打戳 rxFinal，手里有 Tround2 = rxFinal − txResp。' },
+      { en: 'Slot 5, at 10 ms. One Final for all four anchors, carrying each anchor’s Tround1 in one RMI IE and all four Treply2 = txFinal − rxResp in one RRTI IE — all the phone’s own. Each anchor stamps rxFinal and holds Tround2 = rxFinal − txResp.',
+        zh: '时隙 5，10 ms。一帧 Final 发给全部四个锚点：一个 RMI IE 装着每个锚点的 Tround1，一个 RRTI IE 装着四个 Treply2 = txFinal − rxResp——全是手机自己测的。每个锚点打戳 rxFinal，手里有 Tround2 = rxFinal − txResp。' },
       { en: 'Slots 6 to 9, at 12 to 18 ms. Anchor i reports its Treply1 and Tround2 in an RMI IE. Four intervals, two at each end, each a difference of two readings of one counter — nothing converted into anyone else’s units.',
         zh: '时隙 6 到 9，12 ms 到 18 ms。第 i 个锚点用一个 RMI IE 报出自己的 Treply1 与 Tround2。四段间隔，两端各两段，每段都是同一个计数器上两次读数之差——没有任何一个数被换算到别人的单位上。' },
     ] },
@@ -70,8 +71,8 @@ export const uwbDstwr: Lesson = {
       zh: '设手机的晶振快 (1 + eA)，锚点的快 (1 + eB)。Tround1 与 Treply2 由手机测得，Treply1 与 Tround2 由锚点测得，于是分子里的两个乘积各带每只时钟的一个因子，分子按 (1 + eA)(1 + eB) 缩放——无论应答时延是多少。分母根本不是什么应答时延，它是整场交换：手机从 Poll 到 Final 计得的 10 ms，加上锚点计得的 10 ms，约合 1 277 952 000 RCTU，因此按 1 + (eA + eB)/2 缩放。活下来的是 Tprop·(eA + eB)/2——被 ppm 缩放的是飞行时间，不是应答时延。取标准允许的最坏一对，两只晶振同向偏 20 ppm，它是 0.23 ps，即 0.07 mm。',
     } },
     { heading: { en: 'Two wrong halves', zh: '两个都错的半场' }, text: {
-      en: 'The exchange contains two single-sided round trips; compute them before believing the formula. (Tround1 − Treply1)/2 is exactly lesson 2’s raw SS-TWR estimate, wrong by the same ramp of 6 m per slot of waiting. (Tround2 − Treply2)/2 is its mirror image: the phone waits now, and it is the fast clock, so that half comes out negative.',
-      zh: '这场交换里装着两次单边往返，在相信公式之前不妨把它们算出来。(Tround1 − Treply1)/2 正是第 2 课里那个未修正的 SS-TWR 估计，错法也一样：每多等一个时隙就多出 6 m。(Tround2 − Treply2)/2 则是它的镜像：这一次轮到手机等待，而手机是那只快时钟，于是这半场算出来是负的。',
+      en: 'The exchange contains two single-sided round trips; compute them first. (Tround1 − Treply1)/2 is exactly lesson 2’s raw SS-TWR estimate, wrong by the same ramp of 6 m per slot of waiting. (Tround2 − Treply2)/2 is its mirror image: the phone waits now, and it is the fast clock, so that half comes out negative.',
+      zh: '这场交换里装着两次单边往返，不妨先把它们算出来。(Tround1 − Treply1)/2 正是第 2 课里那个未修正的 SS-TWR 估计，错法也一样：每多等一个时隙就多出 6 m。(Tround2 − Treply2)/2 则是它的镜像：这一次轮到手机等待，而手机是那只快时钟，于是这半场算出来是负的。',
     } },
     { kind: 'table', head: [
       { en: 'Anchor', zh: '锚点' }, { en: 'Treply1', zh: 'Treply1' }, { en: 'First half', zh: '前半场' },
@@ -87,8 +88,8 @@ export const uwbDstwr: Lesson = {
       zh: '这场交换的任何一个半场都不是距离，而公式既没有挑选也没有求平均——把锚点 1 的两个半场平均一下得到的是 −5.49 m。请注意这里根本没有的那种对称性：锚点 4 在作答前等了 8 ms，而手机在发 Final 前只等了 2 ms，与锚点 1 恰好相反，两者却都落在 6 cm 以内。',
     } },
     { heading: { en: 'The price is slots, not airtime', zh: '代价是时隙，不是空口时间' }, text: {
-      en: 'A DS round is 2N + 2 slots where the single-sided round was N + 1: ten slots of 2 ms for four anchors, 20 ms instead of 10. The frames stay small.',
-      zh: '一个 DS 轮是 2N + 2 个时隙，而单边轮只有 N + 1 个：四个锚点要十个 2 ms 的时隙，20 ms 而不是 10 ms。帧本身依然很小。',
+      en: 'A DS round is 2N + 2 slots where the single-sided round was N + 1: ten slots of 2 ms for four anchors, 20 ms instead of 10, and the frames stay small.',
+      zh: '一个 DS 轮是 2N + 2 个时隙，而单边轮只有 N + 1 个：四个锚点要十个 2 ms 的时隙，20 ms 而不是 10 ms；帧本身则依然很小。',
     } },
     { kind: 'table', head: [
       { en: 'Frame', zh: '帧' }, { en: 'Count', zh: '数量' }, { en: 'Octets', zh: '字节' }, { en: 'Airtime each', zh: '单帧空口时间' },
@@ -100,16 +101,16 @@ export const uwbDstwr: Lesson = {
       [{ en: 'Round total', zh: '整轮合计' }, N('10'), N('253'), N('1 934.23 µs')],
     ] },
     { text: {
-      en: '1 934.23 µs of radiation inside a 20 000 µs round is 9.67 %, against 9.56 % for lesson 2’s single-sided round: the duty cycle barely moves, and what doubles is the round’s length and the wake-ups. The Final is the largest frame and the only one that grows with the anchor count: 14 + 12N octets, an RMI entry and an RRTI entry per anchor — 62 here, 496 bits, two Reed–Solomon blocks.',
-      zh: '在一个 20 000 µs 的轮里辐射 1 934.23 µs，占 9.67 %，而第 2 课的单边轮是 9.56 %：占空比几乎没动，翻倍的是这一轮的长度与醒来的次数。Final 是全轮最大的帧，也是唯一随锚点数增长的帧：14 + 12N 字节，每个锚点一个 RMI 表项加一个 RRTI 表项——此处 62 字节、496 位、两个 Reed–Solomon 码块。',
+      en: '1 934.23 µs of radiation inside a 20 000 µs round is 9.67 %, against 9.56 % for lesson 2’s single-sided round: the duty cycle barely moves; what doubles is the round’s length and the wake-ups. The Final is the largest frame, and the one that grows fastest with the anchor count: 14 + 12N octets against the Poll’s 27 + 3N — 62 here, 496 bits, two Reed–Solomon blocks.',
+      zh: '在一个 20 000 µs 的轮里辐射 1 934.23 µs，占 9.67 %，而第 2 课的单边轮是 9.56 %：占空比几乎没动，翻倍的是这一轮的长度与醒来的次数。Final 是全轮最大的帧，也是随锚点数增长最快的帧：14 + 12N 字节，而 Poll 是 27 + 3N——此处 62 字节、496 位、两个 Reed–Solomon 码块。',
     } },
     { heading: { en: 'The same number, computed twice', zh: '同一个数，算了两遍' }, text: {
-      en: 'Two devices hold all four times, and both do the arithmetic. An anchor finishes when the Final arrives, at 10 236 615 ns; the phone waits for that anchor’s report — 12 191 486 ns for anchor 1, almost two milliseconds later. Both lanes carry the same distance, identical to the last digit of tofRctu: the same four counters through the same function. That is what the reports are for — the anchor already knows the range, and the phone is the one that needs a position. At the round’s end the four ranges become a fix at (5.01, 3.98) m against a true (5.00, 4.00): 2 cm out, GDOP 1.00 for this symmetric ring.',
+      en: 'Two devices hold all four times, and both do the arithmetic. An anchor finishes when the Final arrives, at 10 236 615 ns; the phone waits for that anchor’s report — 12 191 486 ns for anchor 1, almost two milliseconds later. Both lanes carry the same distance, identical to the last digit of tofRctu: the same four counters through the same function. That is what the reports are for: the anchor already knows the range; the phone needs a position. At the round’s end the four ranges become a fix at (5.01, 3.98) m against a true (5.00, 4.00): 2 cm out, GDOP 1.00 for this symmetric ring.',
       zh: '有两台设备各自握齐了四个时间，而且都把算式算了一遍。锚点在 Final 到达时就算完了，时刻是 10 236 615 ns；手机则要等该锚点的报告——锚点 1 是 12 191 486 ns，晚了将近两毫秒。两条泳道上的距离完全相同，连 tofRctu 的最后一位都一样：同样四个计数值，经过同一个函数。报告帧的用途正在于此——锚点早就知道这个距离，而需要定位的是手机。本轮结束时，四个距离解算出 (5.01, 3.98) m 的定位，真值 (5.00, 4.00)：偏差 2 cm，这个对称圆环的 GDOP 为 1.00。',
     } },
     { heading: { en: 'What it does not fix', zh: '它修不好的那些' }, text: {
-      en: 'All of this removes one error term only: the crystals. The 100 ps of noise on every received timestamp is untouched, and it is now what the error is made of. Three noisy receive stamps enter each result — the anchor’s of the Poll, the phone’s of the Response, the anchor’s of the Final — weighted by the reply times: 1.9 cm of 1-σ in slots 1 and 4, 1.8 cm in slots 2 and 3. Unlike lesson 2’s residual it does not ramp; anchor 4 waited four times as long and gets the same figure. The four errors here are +1.4, −0.9, +3.7 and −5.2 cm. Nor does any of it touch a wall: an obstructed first path delays both round trips alike, so that bias passes through intact — where the positioning lesson that closes this track begins.',
-      zh: '以上这一切只拿掉了一项误差：晶振。每个接收时间戳上的 100 ps 噪声毫发无损，而现在误差正是由它构成的。每个结果里进来三个带噪声的接收时间戳——锚点收 Poll 的、手机收 Response 的、锚点收 Final 的——按应答时延加权之后：时隙 1 与 4 是 1.9 cm 的 1σ，时隙 2 与 3 是 1.8 cm。与第 2 课的残差不同，它不会随时隙爬升；锚点 4 等了四倍的时长，拿到的数值分毫不差。本次运行的四个误差是 +1.4、−0.9、+3.7 与 −5.2 cm。它同样拿墙没有办法：被遮挡的首径会把两次往返同等地推迟，于是这项偏差原封不动地穿过去了——而这正是收尾本条主线的定位课的起点。',
+      en: 'All of this removes one error term only: the crystals. The 100 ps of noise on every received timestamp is untouched, and it is now what the error is made of. Three noisy receive stamps enter each result — the anchor’s of the Poll, the phone’s of the Response, the anchor’s of the Final — weighted by the reply times: 1.9 cm of 1-σ in slots 1 and 4, 1.8 cm in slots 2 and 3. Unlike lesson 2’s residual it does not ramp; anchor 4 waited four times as long and gets the same figure. The four errors here are +1.4, −0.9, +3.7 and −5.2 cm. Nor does it touch a wall: an obstructed first path delays all three stamps, and the formula adds that delay straight to the range — where the positioning lesson that closes this track begins.',
+      zh: '以上这一切只拿掉了一项误差：晶振。每个接收时间戳上的 100 ps 噪声毫发无损，而现在误差正是由它构成的。每个结果里进来三个带噪声的接收时间戳——锚点收 Poll 的、手机收 Response 的、锚点收 Final 的——按应答时延加权之后：时隙 1 与 4 是 1.9 cm 的 1σ，时隙 2 与 3 是 1.8 cm。与第 2 课的残差不同，它不会随时隙爬升；锚点 4 等了四倍的时长，拿到的数值分毫不差。本次运行的四个误差是 +1.4、−0.9、+3.7 与 −5.2 cm。它同样拿墙没有办法：被遮挡的首径会把这三个时间戳一起推迟，而公式会把这段延迟直接加到距离上——而这正是收尾本条主线的定位课的起点。',
     } },
   ],
   scenario: () => uwbDstwrScenario({ tag: 10, anchors: -10 }),
@@ -136,8 +137,8 @@ export const uwbDstwr: Lesson = {
   tryThis: [
     { en: 'Load “Worst-case crystals, ±20 ppm”, which doubles both offsets and changes nothing else. The halves blow up: anchor 1 now reads 15.51 m and −44.47 m where it read 9.51 and −20.49. The DS ranges become 3.52, 3.49, 3.54 and 3.45 m — each within 3 mm of the base run — and the fix is still 2 cm out.',
       zh: '载入“最差晶振，±20 ppm”：两端偏差翻倍，别的什么都不改。两个半场随即失控：锚点 1 现在读到 15.51 m 与 −44.47 m，原先是 9.51 与 −20.49。DS 距离变成 3.52、3.49、3.54 与 3.45 m——每一个都在基准运行的 3 mm 之内——定位偏差依然是 2 cm。' },
-    { en: 'Open the Final in the frame inspector: 62 octets, one RMI IE of 27 holding four Tround1 values, four RRTI IEs of 6 holding the four Treply2 values. Then a report: 24 octets, a single 13-octet RMI IE with Treply1 and Tround2. A fifth anchor would add 12 octets to the Final and two slots — 4 ms — to the round.',
-      zh: '在帧检视器里打开 Final：62 字节，一个 27 字节的 RMI IE 装着四个 Tround1，四个 6 字节的 RRTI IE 装着四个 Treply2。再打开一份报告：24 字节，一个 13 字节的 RMI IE，装着 Treply1 与 Tround2。多一个锚点，Final 会多 12 字节，整轮会多两个时隙、即 4 ms。' },
+    { en: 'Open the Final in the frame inspector: 62 octets in two IE rows — an RMI IE of 27 listing four anchors and one RRTI IE of 24 holding the four Treply2 values, 6 each. Then a report: 24 octets, a single 13-octet RMI IE with Treply1 and Tround2. A fifth anchor would add 12 octets to the Final and two slots — 4 ms — to the round.',
+      zh: '在帧检视器里打开 Final：62 字节，分两行 IE：一个 27 字节的 RMI IE 列出四个锚点，一个 24 字节的 RRTI IE 装着四个 Treply2，每个 6 字节。再打开一份报告：24 字节，一个 13 字节的 RMI IE，装着 Treply1 与 Tround2。多一个锚点，Final 会多 12 字节，整轮会多两个时隙、即 4 ms。' },
   ],
   quiz: [
     {
