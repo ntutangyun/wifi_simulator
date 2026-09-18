@@ -17,7 +17,7 @@
  * adding a sentence means deleting one.
  */
 import type { Scenario } from '../../model/scenario'
-import { ELLIPSE_DRAW_SCALE } from '../../uwb/scene'
+import { ELLIPSE_DRAW_SCALE } from '../../uwb/view'
 import {
   J, N, anchor, brick, firstUwbPoll, firstUwbPosition, firstUwbRange, firstUwbRoundEnd, oneRoom,
   uwbSc, uwbTag, type Lesson,

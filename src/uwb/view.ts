@@ -114,3 +114,12 @@ export function applyUwbRecord(vs: ViewState, r: TLRecord): boolean {
       return false
   }
 }
+
+/**
+ * The 1-σ ellipse of a good fix is a couple of centimetres across — invisible
+ * beside a 3.5 m ring — so the scene draws it at 10×; the inspector shows the
+ * true axes. Every tooltip that quotes the ellipse must quote this factor with
+ * it. It lives here, not in scene.ts, so lessons and the Guide can import it
+ * without pulling three.js in.
+ */
+export const ELLIPSE_DRAW_SCALE = 10

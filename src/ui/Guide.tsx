@@ -1,5 +1,5 @@
 /** Compact learning guide tying real 802.11 mechanisms to what the sim shows. */
-import { ELLIPSE_DRAW_SCALE } from '../uwb/scene'
+import { ELLIPSE_DRAW_SCALE } from '../uwb/view'
 import { useUi } from './store'
 
 const h: React.CSSProperties = { margin: '10px 0 3px', fontSize: 12.5, color: '#d5dae3' }
