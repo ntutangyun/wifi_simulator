@@ -19,6 +19,7 @@ import type { Ns } from '../model/types'
 import { UwbChannel } from './channel'
 import { UwbClock } from './clock'
 import { UwbDevice, type UwbGeometry } from './device'
+import { UWB_MAX_ANCHORS, uwbSlotFitNs } from './phy'
 import { roundPlan, slotAction, slotStartNs, type RoundPlan } from './session'
 
 export class UwbNetwork {
@@ -46,6 +47,18 @@ export class UwbNetwork {
         `UwbNetwork: ${tags.length} tags need ${tags.length} rounds, but a ${this.plan.blockNs} ns block `
         + `holds ${this.plan.roundsPerBlock} rounds of ${this.plan.roundNs} ns`,
       )
+    }
+    // The same pair of guards, in the units the scheduler runs in: a frame that outlives its
+    // slot would be lost to the receiver's deadline with no diagnostic at all.
+    const needNs = uwbSlotFitNs(anchors.length)
+    if (this.plan.slotNs < needNs) {
+      throw new Error(
+        `UwbNetwork: a ${this.plan.slotNs} ns ranging slot cannot carry a round of ${anchors.length} `
+        + `anchors, whose longest frame plus flight needs ${needNs} ns`,
+      )
+    }
+    if (anchors.length > UWB_MAX_ANCHORS) {
+      throw new Error(`UwbNetwork: ${anchors.length} anchors exceed the ${UWB_MAX_ANCHORS} a Final can list`)
     }
 
     // The receiver's clock-offset estimate needs the transmitter's crystal, so

@@ -1,4 +1,7 @@
 import { z } from 'zod'
+// src/uwb/phy.ts is a leaf (it imports nothing at run time), so the schema can measure a
+// ranging slot with the very functions the ranging engine uses, without a cycle.
+import { rstuNs, UWB_MAX_ANCHORS, uwbSlotFitNs, uwbSlotsPerTag } from '../uwb/phy'
 import type { LinkId } from './caps'
 import type { CapabilityProfile, NodeKind, Vec3 } from './types'
 
@@ -186,11 +189,6 @@ export interface UwbSessionCfg {
 
 export const DEFAULT_UWB_SESSION: UwbSessionCfg = {
   method: 'ds', blockRstu: 240_000, slotRstu: 2400, channel: 9, tsNoisePs: 100, cfoNoisePpm: 0.2, nlos: true,
-}
-
-/** Ranging slots one tag needs per round: poll + one response each (SS), plus final + one report each (DS). */
-export function uwbSlotsPerTag(method: 'ss' | 'ds', anchors: number): number {
-  return method === 'ss' ? anchors + 1 : 2 * anchors + 2
 }
 
 /** What kind of endpoint a stream talks to beyond the AP. */
@@ -419,6 +417,26 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
             ctx.addIssue({
               code: z.ZodIssueCode.custom,
               message: `the UWB block fits ${fits} tags at ${slots} slots each (found ${tags}); lengthen blockRstu or shorten slotRstu`,
+            })
+          }
+          // …and every frame of the round has to fit its slot. A frame that outlives its
+          // slot is not an error at run time: the receiver's deadline fires first, the late
+          // PPDU is ignored, and the round silently loses every anchor. So it is caught here.
+          const slotNs = rstuNs(sc.uwb.slotRstu)
+          const needNs = uwbSlotFitNs(anchors)
+          if (slotNs < needNs) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: `a ${sc.uwb.slotRstu} RSTU ranging slot is ${(slotNs / 1000).toFixed(1)} µs, but a round with `
+                + `${anchors} anchors needs ${(needNs / 1000).toFixed(1)} µs for its longest frame plus flight; `
+                + 'lengthen slotRstu or use fewer anchors',
+            })
+          }
+          if (anchors > UWB_MAX_ANCHORS) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: `a ranging round takes at most ${UWB_MAX_ANCHORS} anchors (found ${anchors}): `
+                + 'the Final grows by 12 octets per anchor and must stay inside the 127-octet PSDU limit',
             })
           }
         }

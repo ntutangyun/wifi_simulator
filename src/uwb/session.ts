@@ -16,7 +16,9 @@
  */
 import type { UwbSessionCfg } from '../model/scenario'
 import type { Ns } from '../model/types'
-import { RSTU_CHIPS } from './phy'
+import { rstuNs, uwbSlotsPerTag } from './phy'
+
+export { rstuNs }
 
 export interface RoundPlan {
   method: 'ss' | 'ds'
@@ -28,14 +30,9 @@ export interface RoundPlan {
   roundsPerBlock: number
 }
 
-/** Ranging slot/block time units to nanoseconds: 1 RSTU = 416 chips at 499.2 Mchip/s (standard §10.29.1.5). */
-export function rstuNs(rstu: number): Ns {
-  return Math.round((rstu * RSTU_CHIPS * 1000) / 499.2)
-}
-
 /** The fixed shape of one round, and how many of them fit in a block. */
 export function roundPlan(cfg: UwbSessionCfg, anchors: number): RoundPlan {
-  const slots = cfg.method === 'ss' ? anchors + 1 : 2 * anchors + 2
+  const slots = uwbSlotsPerTag(cfg.method, anchors)
   const slotNs = rstuNs(cfg.slotRstu)
   const roundNs = slots * slotNs
   const blockNs = rstuNs(cfg.blockRstu)

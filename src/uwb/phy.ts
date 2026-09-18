@@ -106,6 +106,36 @@ export function uwbFinalBytes(anchors: number): number {
 
 export const UWB_REPORT_BYTES = 24
 
+/** Anchors one ranging round can carry. The Final is the round's longest frame and grows by
+ * 12 octets per anchor; at 9 anchors it is 122 octets and at 10 it is 134, past the 127-octet
+ * PSDU the PHR's frame-length field can express (standard §16.2.7). */
+export const UWB_MAX_ANCHORS = 9
+
+// --- Ranging schedule units ----------------------------------------------------
+
+/** Ranging slot/block time units to nanoseconds: 1 RSTU = 416 chips at 499.2 Mchip/s
+ * (standard §10.29.1.5, Table 10-145). Lives here, with the chip, so that the scenario
+ * schema and the session scheduler measure a slot with one and the same function. */
+export function rstuNs(rstu: number): Ns {
+  return Math.round((rstu * RSTU_CHIPS * 1000) / 499.2)
+}
+
+/** Ranging slots one tag needs per round: poll + one response each (SS), plus final + one
+ * report each (DS). The schema's block-fit rule and `roundPlan` share this one definition. */
+export function uwbSlotsPerTag(method: 'ss' | 'ds', anchors: number): number {
+  return method === 'ss' ? anchors + 1 : 2 * anchors + 2
+}
+
+/** Guard between the end of a slot's PPDU and the slot boundary: 200 ns is 60 m of flight (model). */
+export const UWB_SLOT_GUARD_NS = 200
+
+/** The shortest ranging slot a round with N anchors fits in: the round's longest PPDU (the
+ * DS-TWR Final) plus the flight guard. In a shorter slot the receiver's deadline fires before
+ * the frame lands, and the round loses every anchor to UWB_TIMEOUT with nothing to say why. */
+export function uwbSlotFitNs(anchors: number): Ns {
+  return uwbPpduNs(uwbFinalBytes(anchors)) + UWB_SLOT_GUARD_NS
+}
+
 // --- Figure of Merit -----------------------------------------------------------
 
 export const FOM_LOS = 0x16 // model: 97 % within 1 ns × 0.5

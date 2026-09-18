@@ -4,6 +4,11 @@ import {
   type NodeCfg, type Scenario, type UwbSessionCfg,
 } from '../../src/model/scenario'
 import { LESSONS } from '../../src/course/lessons'
+import { EventQueue } from '../../src/engine/events'
+import { Rng } from '../../src/engine/rng'
+import { makeEmitter } from '../../src/model/records'
+import { UwbNetwork } from '../../src/uwb/network'
+import { rstuNs, UWB_MAX_ANCHORS, uwbFinalBytes, uwbSlotFitNs } from '../../src/uwb/phy'
 
 function uwbNode(id: string, role: 'anchor' | 'tag', x: number, y: number): NodeCfg {
   return {
@@ -30,6 +35,12 @@ function uwbScenario(nodes: NodeCfg[], uwb: UwbSessionCfg = DEFAULT_UWB_SESSION)
     snapshotIntervalMs: 10,
     uwb,
   }
+}
+
+/** The ranging engine on its own, which re-checks the schema's two slot rules in nanoseconds. */
+function network(nodes: NodeCfg[], uwb: UwbSessionCfg = DEFAULT_UWB_SESSION): UwbNetwork {
+  const q = new EventQueue()
+  return new UwbNetwork(q, () => 0, nodes, [], uwb, new Rng(7), makeEmitter(() => {}))
 }
 
 const twoAnchorsOneTag = (): NodeCfg[] => [
@@ -87,6 +98,33 @@ describe('UWB nodes and sessions in the schema', () => {
     const tags = (n: number) => Array.from({ length: n }, (_, i) => uwbNode(`tag-${i}`, 'tag', i, 4))
     expect(() => ScenarioSchema.parse(uwbScenario([...anchors, ...tags(10)]))).not.toThrow()
     expect(() => ScenarioSchema.parse(uwbScenario([...anchors, ...tags(11)]))).toThrow(/fits 10 tags/)
+  })
+
+  it('every frame must fit its slot: 300 RSTU carries five anchors, not six', () => {
+    // The Final is the round's longest frame: 14 + 12N octets, 248.910 µs at five anchors and
+    // 267.372 µs at six, plus 200 ns of flight guard, against a 300 RSTU slot of 250 µs.
+    expect(uwbSlotFitNs(5)).toBe(249_110)
+    expect(uwbSlotFitNs(6)).toBe(267_572)
+    expect(rstuNs(300)).toBe(250_000)
+    const shortSlot = { ...DEFAULT_UWB_SESSION, slotRstu: 300 }
+    const anchors = (n: number) => Array.from({ length: n }, (_, i) => uwbNode(`anc-${i}`, 'anchor', i * 2, 0))
+    const tag = uwbNode('tag-1', 'tag', 4, 4)
+    expect(() => ScenarioSchema.parse(uwbScenario([...anchors(5), tag], shortSlot))).not.toThrow()
+    expect(() => ScenarioSchema.parse(uwbScenario([...anchors(6), tag], shortSlot)))
+      .toThrow(/300 RSTU ranging slot is 250.0 µs.*needs 267.6 µs/)
+    // and the engine refuses the same round in nanoseconds, so the two cannot drift apart
+    expect(() => network([...anchors(6), tag], shortSlot)).toThrow(/cannot carry a round of 6 anchors/)
+    expect(rstuNs(DEFAULT_UWB_SESSION.slotRstu)).toBeGreaterThan(uwbSlotFitNs(UWB_MAX_ANCHORS))
+  })
+
+  it('a round takes at most nine anchors: the Final has to stay under 127 octets', () => {
+    expect(uwbFinalBytes(UWB_MAX_ANCHORS)).toBe(122)
+    expect(uwbFinalBytes(UWB_MAX_ANCHORS + 1)).toBe(134)
+    const anchors = (n: number) => Array.from({ length: n }, (_, i) => uwbNode(`anc-${i}`, 'anchor', i * 2, 0))
+    const tag = uwbNode('tag-1', 'tag', 4, 4)
+    expect(() => ScenarioSchema.parse(uwbScenario([...anchors(9), tag]))).not.toThrow()
+    expect(() => ScenarioSchema.parse(uwbScenario([...anchors(10), tag]))).toThrow(/at most 9 anchors \(found 10\)/)
+    expect(() => network([...anchors(10), tag])).toThrow(/10 anchors exceed the 9/)
   })
 
   it('every lesson scenario still parses', () => {
