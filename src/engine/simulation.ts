@@ -30,8 +30,8 @@ export interface Batch {
   frontierNs: Ns
 }
 
-/** Extra path loss on the 6 GHz link (higher frequency). */
-export const LINK_EXTRA_LOSS_DB: Record<LinkId, number> = { '5g': 0, '6g': 1.2 }
+/** Extra path loss on the 6 GHz link (higher frequency). TODO(Task 5): real 2.4 GHz figure. */
+export const LINK_EXTRA_LOSS_DB: Record<LinkId, number> = { '5g': 0, '6g': 1.2, '2g': 0 }
 
 export class Simulation {
   private q = new EventQueue()

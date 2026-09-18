@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import type { LinkId } from './caps'
 import type { CapabilityProfile, NodeKind, Vec3 } from './types'
 
 export type Material = 'drywall' | 'brick' | 'glass'
@@ -104,8 +105,8 @@ export interface NodeCfg {
    */
   profiles: ProfileId[]
   caps: CapabilityProfile
-  /** Operating link for non-MLO HE/EHT nodes ('5g' default). */
-  linkId?: '5g' | '6g'
+  /** Operating link for non-MLO devices: '2g' (802.11g / Wi-Fi 6/7 on 2.4 GHz), '5g' default, '6g' (Wi-Fi 6E/7). */
+  linkId?: LinkId
   /** Burst protection policy when this node holds a TXOP ('single' default). */
   txopProtection?: TxopProtection
   /** Per-stream server binding (server id); unset streams use the first server of their kind. */
@@ -234,7 +235,7 @@ const NodeCfgSchema = z.preprocess(
       widthMhz: z.union([z.literal(20), z.literal(40), z.literal(80), z.literal(160), z.literal(320)]).optional(),
       nss: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]).optional(),
     }),
-    linkId: z.enum(['5g', '6g']).optional(),
+    linkId: z.enum(['2g', '5g', '6g']).optional(),
     txopProtection: z.enum(['single', 'boundary', 'multiple']).optional(),
     servers: z.record(ProfileSchema, z.string()).optional(),
     gameAccel: z.boolean().optional(),
@@ -248,6 +249,10 @@ const NodeCfgSchema = z.preprocess(
       txopLimitUs: z.number().min(0).optional(),
       navInflateUs: z.number().min(0).optional(),
     }).optional(),
+  }).superRefine((n, ctx) => {
+    if (n.linkId === '2g' && n.caps.generation === 'vht') {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Wi-Fi 5 (VHT) has no 2.4 GHz mode; pick 802.11g, Wi-Fi 6 or Wi-Fi 7 for the 2.4 GHz link' })
+    }
   }),
 )
 

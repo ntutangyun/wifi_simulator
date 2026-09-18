@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { MAX_WIDTH, negotiatedNss, negotiatedWidth, nssOf, widthOf } from '../../src/model/caps'
+import { BAND_LABEL, LINK_ORDER, linkOfVirtual, linkPlanFor, nodeLinks, virtualId } from '../../src/model/caps'
 import type { NodeCfg } from '../../src/model/scenario'
 import type { Generation } from '../../src/model/types'
 
@@ -26,5 +27,49 @@ describe('channel width and spatial streams', () => {
   it('a declared width is clamped to what the generation can do', () => {
     expect(widthOf(node('he', 320))).toBe(MAX_WIDTH.he)
     expect(widthOf(node('nonht', 80))).toBe(20)
+  })
+})
+
+const mk = (id: string, kind: 'ap' | 'sta', generation: 'nonht' | 'vht' | 'he' | 'eht', extra: Partial<NodeCfg> = {}): NodeCfg => ({
+  id, kind, name: id, pos: { x: 0, y: 0, z: 1 }, txPowerDbm: 15, profiles: ['idle'],
+  caps: { generation, features: {} }, ...extra,
+})
+
+describe('the 2.4 GHz link', () => {
+  it('virtual ids and band labels', () => {
+    expect(virtualId('sta-1', '2g')).toBe('sta-1#2g')
+    expect(virtualId('sta-1', '5g')).toBe('sta-1')
+    expect(linkOfVirtual('sta-1#2g')).toBe('2g')
+    expect(linkOfVirtual('sta-1#6g')).toBe('6g')
+    expect(linkOfVirtual('sta-1')).toBe('5g')
+    expect(BAND_LABEL).toEqual({ '2g': '2.4G', '5g': '5G', '6g': '6G' })
+    expect(LINK_ORDER).toEqual(['5g', '6g', '2g'])
+  })
+
+  it('a station with linkId 2g is on the 2.4 GHz link unless it is VHT', () => {
+    expect(nodeLinks(mk('s', 'sta', 'nonht', { linkId: '2g' }), false)).toEqual(['2g'])
+    expect(nodeLinks(mk('s', 'sta', 'he', { linkId: '2g' }), false)).toEqual(['2g'])
+    expect(nodeLinks(mk('s', 'sta', 'eht', { linkId: '2g' }), false)).toEqual(['2g'])
+    expect(nodeLinks(mk('s', 'sta', 'vht', { linkId: '2g' }), false)).toEqual(['5g'])
+    expect(nodeLinks(mk('s', 'sta', 'he', { linkId: '6g' }), false)).toEqual(['6g'])
+    expect(nodeLinks(mk('s', 'sta', 'he'), false)).toEqual(['5g'])
+  })
+
+  it('the AP joins every link a station uses; 5 GHz-only scenarios are unchanged', () => {
+    const ap = mk('ap', 'ap', 'eht')
+    const old = linkPlanFor([ap, mk('a', 'sta', 'he'), mk('b', 'sta', 'nonht')])
+    expect(old.links).toEqual(['5g'])
+    expect(old.virtualIds).toEqual(['ap', 'a', 'b'])
+    const mixed = linkPlanFor([ap, mk('a', 'sta', 'he', { linkId: '2g' }), mk('b', 'sta', 'nonht')])
+    expect(mixed.links).toEqual(['5g', '2g'])
+    expect(mixed.members['2g']).toEqual(['ap', 'a'])
+    expect(mixed.members['5g']).toEqual(['ap', 'b'])
+    expect(mixed.virtualIds).toEqual(['ap', 'ap#2g', 'a#2g', 'b'])
+  })
+
+  it('width is clamped to 40 MHz on 2.4 GHz', () => {
+    const n = mk('s', 'sta', 'eht', { caps: { generation: 'eht', features: {}, widthMhz: 160 }, linkId: '2g' })
+    expect(widthOf(n)).toBe(160)
+    expect(widthOf(n, '2g')).toBe(40)
   })
 })

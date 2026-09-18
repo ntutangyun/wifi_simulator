@@ -6,7 +6,10 @@ import type { Generation } from './types'
 import type { NodeCfg } from './scenario'
 
 export type FeatureFlag = 'edca' | 'ampdu' | 'txop' | 'ofdma' | 'mumimo' | 'mlo' | 'qam4k'
-export type LinkId = '5g' | '6g'
+export type LinkId = '2g' | '5g' | '6g'
+/** Lane order: 5 and 6 GHz first so scenarios that predate the 2.4 GHz link keep their lanes. */
+export const LINK_ORDER: LinkId[] = ['5g', '6g', '2g']
+export const BAND_LABEL: Record<LinkId, string> = { '2g': '2.4G', '5g': '5G', '6g': '6G' }
 export type ChannelWidth = 20 | 40 | 80 | 160 | 320
 export type Nss = 1 | 2 | 3 | 4
 
@@ -15,10 +18,10 @@ export const MAX_WIDTH: Record<Generation, ChannelWidth> = {
   nonht: 20, vht: 160, he: 160, eht: 320,
 }
 
-/** Operating width, defaulted to 20 MHz and clamped to the generation's maximum. */
-export function widthOf(n: NodeCfg): ChannelWidth {
+/** Operating width, defaulted to 20 MHz and clamped to the generation's maximum; 2.4 GHz caps everything at 40 MHz. */
+export function widthOf(n: NodeCfg, link?: LinkId): ChannelWidth {
   const want = n.caps.widthMhz ?? 20
-  const max = MAX_WIDTH[n.caps.generation]
+  const max = Math.min(MAX_WIDTH[n.caps.generation], link === '2g' ? 40 : 320)
   return (want > max ? max : want) as ChannelWidth
 }
 
@@ -28,8 +31,8 @@ export function nssOf(n: NodeCfg): Nss {
 }
 
 /** A link runs at the narrower of the two ends. */
-export function negotiatedWidth(a: NodeCfg, b: NodeCfg): ChannelWidth {
-  return Math.min(widthOf(a), widthOf(b)) as ChannelWidth
+export function negotiatedWidth(a: NodeCfg, b: NodeCfg, link?: LinkId): ChannelWidth {
+  return Math.min(widthOf(a, link), widthOf(b, link)) as ChannelWidth
 }
 
 /** A link runs at the smaller stream count of the two ends. */
@@ -84,17 +87,18 @@ export function minGen(a: Generation, b: Generation): Generation {
   return GEN_RANK[a] <= GEN_RANK[b] ? a : b
 }
 
-/** Links a node operates on. MLO (both ends checked at Simulation level) → both. */
+/** Links a node operates on. The AP's links are decided by linkPlanFor (every link a station uses). */
 export function nodeLinks(n: NodeCfg, apMlo: boolean): LinkId[] {
   if (hasFeature(n, 'mlo') && (n.kind === 'ap' || apMlo)) return ['5g', '6g']
   const g = n.caps.generation
+  if (n.kind !== 'ap' && n.linkId === '2g' && g !== 'vht') return ['2g']
   if ((g === 'he' || g === 'eht') && n.linkId === '6g') return ['6g']
   return ['5g']
 }
 
 /** Virtual node id for a node's MAC instance on a link (primary link keeps the plain id). */
 export function virtualId(nodeId: string, link: LinkId): string {
-  return link === '5g' ? nodeId : `${nodeId}#6g`
+  return link === '5g' ? nodeId : `${nodeId}#${link}`
 }
 
 export function physicalId(vid: string): string {
@@ -103,29 +107,39 @@ export function physicalId(vid: string): string {
 }
 
 export function linkOfVirtual(vid: string): LinkId {
-  return vid.includes('#6g') ? '6g' : '5g'
+  const i = vid.indexOf('#')
+  return i < 0 ? '5g' : (vid.slice(i + 1) as LinkId)
 }
 
 export interface LinkPlan {
   links: LinkId[]
   /** per link: member node ids (physical). */
   members: Record<LinkId, string[]>
-  /** all virtual ids in lane order (scenario node order, 5g row before 6g row). */
+  /** all virtual ids in lane order (scenario node order, 5g row before 6g/2g rows). */
   virtualIds: string[]
 }
 
 export function linkPlanFor(nodes: NodeCfg[]): LinkPlan {
   const ap = nodes.find((n) => n.kind === 'ap')
   const apMlo = ap ? hasFeature(ap, 'mlo') : false
-  const members: Record<LinkId, string[]> = { '5g': [], '6g': [] }
+  const staLinks = new Map<string, LinkId[]>()
+  const used = new Set<LinkId>(['5g'])
+  if (apMlo) used.add('6g')
+  for (const n of nodes) {
+    if (n.kind === 'ap') continue
+    const ls = nodeLinks(n, apMlo)
+    staLinks.set(n.id, ls)
+    for (const l of ls) used.add(l)
+  }
+  const apLinks = LINK_ORDER.filter((l) => used.has(l))
+  const members: Record<LinkId, string[]> = { '2g': [], '5g': [], '6g': [] }
   const virtualIds: string[] = []
   for (const n of nodes) {
-    const links = nodeLinks(n, apMlo)
-    for (const l of links) {
+    for (const l of n.kind === 'ap' ? apLinks : staLinks.get(n.id)!) {
       members[l].push(n.id)
       virtualIds.push(virtualId(n.id, l))
     }
   }
-  const links: LinkId[] = members['6g'].length > 0 ? ['5g', '6g'] : ['5g']
+  const links = LINK_ORDER.filter((l) => members[l].length > 0)
   return { links, members, virtualIds }
 }

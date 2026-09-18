@@ -57,3 +57,14 @@ describe('traffic profiles per node', () => {
     expect(parsed.nodes[2].profiles).toEqual(['idle'])
   })
 })
+
+describe('linkId 2g in the schema', () => {
+  it('accepts 2g on non-VHT stations and rejects it on VHT', () => {
+    const sc = defaultScenario()
+    sc.nodes[1].linkId = '2g'
+    sc.nodes[1].caps.generation = 'he'
+    expect(() => ScenarioSchema.parse(sc)).not.toThrow()
+    sc.nodes[1].caps.generation = 'vht'
+    expect(() => ScenarioSchema.parse(sc)).toThrow(/2\.4 GHz/)
+  })
+})
