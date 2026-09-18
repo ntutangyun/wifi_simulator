@@ -107,7 +107,7 @@ field lists of §10.29.8 and §10.32.9 and are constants in `phy.ts`:
 | `uwbPoll` — RCM and ranging initiation message merged (Figure 10-225, "RCM & I1") | MHR 9 + ARC IE 10 (control 2, block 2, round 2, slot 2) + RDM IE 3 + 3N (count 1; address 2 + slot 1 per device) + RRMC IE 3 + FCS 2 | 27 + 3N |
 | `uwbResp` — ranging response | SS-TWR: MHR 9 + RRMC IE 3 + RRTI IE 6 (reply time 4) + FCS 2. DS-TWR: without the RRTI IE | 20 (SS) / 14 (DS) |
 | `uwbFinal` — ranging final (DS-TWR only) | MHR 9 + RMI IE 3 + 6N (address 2 + round-trip time 4 per responder) + N × RRTI IE 6 + FCS 2 | 14 + 12N |
-| `uwbReport` — measurement report (DS-TWR only, responder → initiator) | MHR 9 + RMI IE 13 (address 2, reply time 4, round-trip time 4) + FCS 2 | 24 |
+| `uwbReport` — measurement report (DS-TWR only, responder → initiator) | MHR 9 + RMI IE 13 (control 1, address 2, reply time 4, round-trip time 4) + FCS 2 | 24 |
 
 `durationFieldNs` is 0 (a 15.4 RFRAME sets no NAV), `mbps` 6.81, `mode` undefined. `FrameDesc.uwb` carries the SP
 configuration, the block/round/slot the frame was sent in, the IE names present, and the numbers the IEs carry
@@ -162,21 +162,23 @@ With A the initiator and B the responder, times in RCTU:
 - **SS-TWR corrected** with the measured offset: `tof = (Tround − Treply·(1 − coffs)) / 2`, where coffs is B's clock
   rate relative to A's as A's receiver estimated it (derivation: `Treply·(1 − coffs)` is B's reply time expressed in
   A's units). The residual is `½·Treply·σ_cfo` ≈ 0.2 ns for the defaults.
-- **DS-TWR, three messages** (§10.29.1.2.3, Figure 10-199): A measures `Tround1 = rxResp_A − txPoll_A` and
+- **DS-TWR, three messages** (§10.29.1.2.4, Figure 10-199): A measures `Tround1 = rxResp_A − txPoll_A` and
   `Treply2 = txFinal_A − rxResp_A`; B measures `Treply1 = txResp_B − rxPoll_B` and `Tround2 = rxFinal_B − txResp_B`;
   `tof = (Tround1·Tround2 − Treply1·Treply2) / (Tround1 + Tround2 + Treply1 + Treply2)`. Symmetric reply times are not
   required; the clock error is in the low picoseconds ("IEEE 802.15.8-2017 Annex D").
 - Every difference is taken mod 2⁴⁰. `metres(tofRctu) = tof · RCTU_NS · c`.
 - **FoM** (§10.29.1.7, Figure 10-200, Tables 10-146…148) is encoded per receive counter: line-of-sight path → confidence
   level 97 %, interval 1 ns, scaling 0.5 (byte 0x16: "97 % within 0.5 ns"); a path through any wall → 75 %, 3 ns,
-  scaling 4.0 (0x7B: "75 % within 12 ns"). Model mapping; reported, not used in the solver.
+  scaling 4.0 (0x7B: "75 % within 12 ns"). The wall test is by path geometry and independent of the `nlos` switch
+(which only controls the excess delay). Model mapping; reported, not used in the solver. A confidence interval is
+the whole window (§10.29.1.7), so "within 0.5 ns" means ±0.25 ns.
 
 ### Position (`src/uwb/position.ts`, pure functions, model)
 
 `solvePosition(anchors: {id, x, y, z}[], ranges: {id, distM}[], zTag)` — Gauss–Newton on (x, y) with the tag's z
 known, residual `r_i = ‖p − a_i‖ − d_i`, start at the anchors' centroid, 20 iterations or a step under 1 mm; needs ≥ 3
 ranges. Returns the estimate, `gdop = √trace((JᵀJ)⁻¹)` (horizontal), and the 1-σ error ellipse from
-`Σ = σ_r²·(JᵀJ)⁻¹` with `σ_r = √2·c·tsNoisePs` (two noisy receive counters per range): semi-axes `√λ₁, √λ₂` and the
+`Σ = σ_r²·(JᵀJ)⁻¹` with `σ_r = c·tsNoisePs / √2` (two noisy receive counters per range, summed then halved by the TWR formula; the DS-TWR figure is slightly smaller, 0.62–0.65·c·σ_ts, and the SS value is the documented conservative model): semi-axes `√λ₁, √λ₂` and the
 major axis angle. The lesson quotes the closed forms for a square of anchors (at the centre, in the plane: JᵀJ = 2I,
 GDOP 1.0, a circular ellipse of radius σ_r / √2); the test computes them from the same function.
 
@@ -202,8 +204,10 @@ interface UwbSessionCfg {
 }
 ```
 
-Schema rules: ≥ 1 anchor and ≥ 1 tag; every tag needs a round: `tags ≤ floor(blockRstu / (slots·slotRstu))`; ranges
-are reported for every anchor, positions only when ≥ 3 anchors answered in the round.
+Schema rules: ≥ 1 anchor and ≥ 1 tag; every tag needs a round: `tags ≤ floor(blockRstu / (slots·slotRstu))`; every
+frame must fit its slot: `rstuNs(slotRstu) ≥ uwbPpduNs(uwbFinalBytes(anchors)) + 200 ns` (the longest frame plus
+60 m of flight) and `anchors ≤ 9` (the Final stays under the 127-octet PHR limit); ranges are reported for every
+anchor, positions only when ≥ 3 anchors answered in the round.
 
 ### Roles and schedule (§10.32.2, time-scheduled)
 
@@ -245,6 +249,8 @@ a lost Final → no report from that anchor → the tag times out on the report 
 - `UWB_RANGE { node, peer, method, tofRctu, tofRawRctu?, distM, trueDistM, fom, block, round }`.
 - `UWB_POSITION { node: tag, x, y, trueX, trueY, gdop, ellipse: { a, b, thetaRad }, anchors: string[], block }`.
 - `UWB_TIMEOUT { node, slot, peer, expected: FrameKind }`.
+- `UWB_ROUND_END { node: tag, block, round }` at the end of the tag's round (after any `UWB_POSITION`): the view
+  returns `slot` to null; anchors take their `block`/`round` from their own `UWB_RANGE`.
 - `MAC_STATE` with the new `MacStateName` `'uwbWait'`; the existing `idle`, `rx`, `tx` otherwise.
 - The core `TX_START / TX_END / RX_START / RX_OK / RX_FAIL` carry the UWB frames as they carry Wi-Fi ones.
 
@@ -262,7 +268,8 @@ interface UwbNodeView {
 }
 ```
 
-The reducer applies the six records; snapshot/replay equivalence covers them.
+The reducer applies the seven records, dispatched by an exhaustive switch on the record type; snapshot/replay
+equivalence covers them.
 
 ## Part C — UI
 
@@ -294,19 +301,19 @@ A new track. `TIERS[4] = { track: 'uwb', en: 'UWB Tier 1 · Ranging foundations'
 positioning' / '测距会话与定位' }` (index 12). `COURSE_ORDER` appends the five ids after `capstone`. Lesson kit
 gains `anchor()`, `uwbTag()`, `uwbSc()` builders and `firstUwb*` jump predicates.
 
-1. **`uwb-intro` — Timestamps, not throughput** / 时间戳，而非吞吐量. One anchor and one tag 5.00 m apart, SS-TWR,
+1. **`uwb-intro` — Timestamps, not throughput** / 重要的是时间戳，而非吞吐量. One anchor and one tag 5.00 m apart, SS-TWR,
    both crystals set to 0 ppm so the raw formula is exact, NLOS off. Concept: a chip of 2 ns, a counter unit of
    15.65 ps, the SP1 frame anatomy and the RMARKER, why a 5 m link shows RX_START 17 ns after TX_START (the
    Wi-Fi engine never showed a delay), the SS-TWR formula. Variant: 20 m apart. Pinned: the constants table, the
    PPDU field durations and the 30-octet poll airtime, the RMARKER offset, the 17 ns / 67 ns arrival delays, the
-   measured distance within 3σ_r of the truth (σ_r = √2·c·100 ps = 4.2 cm), and the formula recomputed from the
+   measured distance within 3σ_r of the truth (σ_r = c·100 ps / √2 = 2.1 cm), and the formula recomputed from the
    `UWB_TS` records.
-2. **`uwb-sstwr` — The clock inside the reply time** / 回复时间里藏着的时钟. Four anchors in slots 1–4, one tag; tag
+2. **`uwb-sstwr` — The clock inside the reply time** / 应答时间里藏着的那只时钟. Four anchors in slots 1–4, one tag; tag
    crystal +10 ppm, anchors −10 ppm; SS-TWR. Concept: Treply is measured by the other side's clock, the error
    `½·Treply·(eA − eB)`, why it grows with the slot index, the tracking offset and the corrected formula. Variants:
    0 ppm; ±1 ppm (a TCXO). Pinned: raw errors of 6.0 / 12.0 / 18.0 / 24.0 m (± noise) for anchors 1–4, corrected
    errors within 3σ, the 0 ppm variant's raw error within noise.
-3. **`uwb-dstwr` — Two round trips cancel the clock** / 两次往返，抵消时钟. Same scene, DS-TWR. Concept: the
+3. **`uwb-dstwr` — Two round trips cancel the clock** / 两次往返，把时钟消掉. Same scene, DS-TWR. Concept: the
    three-message exchange, the Final's RMI and RRTI IEs, the formula and why the asymmetry does not matter, the cost
    (2N + 2 = 10 slots, 20 ms, versus 5 slots). Pinned: every anchor's error within 3σ at ±10 ppm, the round's slot
    count and duration, the Final's 62 octets and 236.6 µs, the four airtimes of a DS round.
@@ -337,8 +344,9 @@ timeline-hash fixture.
   at the centre of a square; the three-anchor case; fewer than three ranges → null.
 - `tests/uwb/channel.test.ts`: RX_START at ceil(d / c); sensitivity cut-off at −93 dBm; wall loss and NLOS bias;
   capture at 6 dB else collision; a non-listening node hears nothing.
-- `tests/uwb/session.test.ts`: slot times for block / round / slot; SS and DS round layouts; who emits `UWB_RANGE`;
-  timeouts when an anchor is out of range; three tags in three rounds; the tag's idle time.
+- `tests/uwb/session.test.ts`: slot times for block / round / slot; SS and DS round layouts (pure schedule maths).
+  The behavioural cases (who emits `UWB_RANGE`, timeouts when an anchor is out of range, three tags in three rounds,
+  the tag's idle time) live in `network.test.ts`.
 - `tests/uwb/network.test.ts`: end-to-end SS and DS ranges within tolerance; positions; two scenarios with the same
   seed replay identically; a Wi-Fi + UWB scenario runs both engines and the Wi-Fi records are unchanged.
 - Model: schema rules; view reducer snapshot/replay equivalence with UWB records; `uwbFrameFields` and
