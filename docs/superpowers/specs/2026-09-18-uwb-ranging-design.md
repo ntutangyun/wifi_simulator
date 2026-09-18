@@ -89,9 +89,9 @@ Every RFRAME in this slice is BPRF set 3 of Table 16-31: SYNC 64 symbols, SFD 8 
 | PSDU: (8·N + 48 RS parity + 2 tail) symbols × 64 | 64·(8N + 50) | 128.21 ns per symbol |
 
 `uwbPpduChips(octets) = 80 096 + 64·(8·octets + 50)` and `uwbPpduNs(octets)` is its rounding. The Reed-Solomon
-(63,55) code adds 48 parity bits per block of up to 330 bits (§16.3.3.2); no frame here exceeds one block, and the
-function adds 48 per started block anyway. Worked values, pinned by tests: 14 octets 181.218 µs, 20 octets 187.372 µs,
-24 octets 191.474 µs, 30 octets 197.628 µs, 39 octets 206.859 µs, 60 octets 228.397 µs.
+(63,55) code adds 48 parity bits per block of up to 330 bits (§16.3.3.2); only the 60-octet Final (480 bits) spans two blocks; the
+function adds 48 per started block. Worked values, pinned by tests: 14 octets 181.218 µs, 20 octets 187.372 µs,
+24 octets 191.474 µs, 30 octets 197.628 µs, 39 octets 206.859 µs, 60 octets 234.551 µs (two RS blocks).
 
 **RMARKER** (§10.29.1.1): the time the first chip after the SFD is at the antenna, i.e. 36 576 chips = 73.269 µs after
 the PPDU start (`UWB_RMARKER_CHIPS`). Every ranging counter value refers to it.
@@ -309,7 +309,7 @@ gains `anchor()`, `uwbTag()`, `uwbSc()` builders and `firstUwb*` jump predicates
 3. **`uwb-dstwr` — Two round trips cancel the clock** / 两次往返，抵消时钟. Same scene, DS-TWR. Concept: the
    three-message exchange, the Final's RMI and RRTI IEs, the formula and why the asymmetry does not matter, the cost
    (2N + 2 = 10 slots, 20 ms, versus 5 slots). Pinned: every anchor's error within 3σ at ±10 ppm, the round's slot
-   count and duration, the Final's 60 octets and 228.4 µs, the four airtimes of a DS round.
+   count and duration, the Final's 60 octets and 234.6 µs, the four airtimes of a DS round.
 4. **`uwb-blocks` — Blocks, rounds and slots** / 块、轮与时隙. Three tags, four anchors, block 200 ms, DS-TWR.
    Concept: the FiRa block, tag k owns round k, the ARC / RDM IEs, transmission at the slot boundary, and the radio-on
    time: a tag's radio is on for its own round only. Variant: 600 RSTU slots (a 5 ms round). Pinned: round k start
