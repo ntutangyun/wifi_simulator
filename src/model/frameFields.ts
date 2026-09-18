@@ -11,6 +11,11 @@
  * §9.7 (A-MPDU subframe format).
  */
 import {
+  AMP_ACK_BYTES, AMP_DL_SIG_BYTES, AMP_DL_SYNC_NS, AMP_FCS_BYTES, AMP_LEGACY_PREAMBLE_NS, AMP_PADDING_NS,
+  AMP_READING_BYTES, AMP_STA_ID_BYTES, AMP_TRIGGER_BODY_BYTES, AMP_UL_CHIP_NS, AMP_UL_SYNC_CHIPS,
+  ampBitsNs, ampId16, type AmpUlKbps,
+} from '../engine/amp'
+import {
   ACK_BYTES, AMPDU_DELIMITER_BYTES, BA_BYTES, CF_END_BYTES, CTS_BYTES, FCS_BYTES, MAC_HDR_BYTES,
   PHY_MODES, QOS_HDR_BYTES, RTS_BYTES, multiStaBaBytes, triggerBytes,
 } from '../engine/phy'
@@ -26,6 +31,7 @@ export type FcBitKey =
 export type FieldKey =
   | 'fc' | 'duration' | 'addr1' | 'addr2' | 'addr3' | 'seqCtl' | 'qos'
   | 'body' | 'baControl' | 'baInfo' | 'commonInfo' | 'userInfo' | 'fcs'
+  | 'ampId' | 'ampTdc' | 'ampStaList'
 
 export interface FrameField {
   key: FieldKey
@@ -69,7 +75,9 @@ export interface UserPsdu {
   bytes: number
 }
 
-export type PpduSegmentKey = 'legacyPreamble' | 'signal' | 'preamble' | 'muSig' | 'data' | 'padding'
+export type PpduSegmentKey =
+  | 'legacyPreamble' | 'signal' | 'preamble' | 'muSig' | 'data' | 'padding'
+  | 'usig' | 'ampSync' | 'ampSig' | 'ampData' | 'signalExt'
 
 export interface PpduSegment {
   key: PpduSegmentKey
@@ -103,7 +111,6 @@ const SUBTYPE: Record<Exclude<FrameKind, 'data'>, string> = {
 const SUBTYPE_BITS: Record<string, string> = {
   Ack: '1101', CTS: '1100', RTS: '1011', 'Block Ack': '1001', 'Block Ack (Multi-STA)': '1001',
   Trigger: '0010', 'CF-End': '1110', Data: '0000', 'QoS Data': '1000',
-  'AMP Trigger': '—', 'AMP Ack': '—', 'AMP Response': '—',
 }
 
 /** Frame Control + Duration + RA + TA. */
@@ -243,12 +250,40 @@ function controlMpdu(f: FrameDesc, apId: string): Mpdu {
       checkSize(fields, total)
       break
     }
-    case 'ampTrigger':
-    case 'ampAck':
-    case 'ampResp':
-      // Placeholder decode; the real AMP frame layout is added in Task 7.
-      fields = [{ key: 'body', bytes: f.bytes, value: 'AMP' }]
+    case 'ampTrigger': {
+      const a = f.amp!
+      const ids = a.phase === 'scheduled' ? a.staIds ?? [] : []
+      fields = [
+        { key: 'fc', bytes: 1, bits: [{ key: 'type', value: 'AMP Trigger' }, { key: 'protected', value: '0' }] },
+        { key: 'ampId', bytes: 2, value: `AP ${ampId16(f.src).toString(16).padStart(4, '0')} (broadcast trigger)` },
+        { key: 'ampTdc', bytes: 2, value: `${a.phase} · UL ${a.ulKbps ?? a.kbps} kb/s · seed 0` },
+        { key: 'body', bytes: AMP_TRIGGER_BODY_BYTES, value: `Session ${a.sessionId} · ACWE ${a.acwe} (ACW ${2 ** (a.acwe ?? 0) - 1}) · ${a.slots} slots × ${usOf(a.slotNs ?? 0)} · ${a.reading ? 'reading' : 'id only'}` },
+      ]
+      if (ids.length) fields.push({ key: 'ampStaList', bytes: AMP_STA_ID_BYTES * ids.length, value: ids.map((id) => ampId16(id).toString(16).padStart(4, '0')).join(' ') })
+      fields.push({ key: 'fcs', bytes: AMP_FCS_BYTES, value: 'CRC-16' })
+      checkSize(fields, f.bytes)
       break
+    }
+    case 'ampAck':
+      fields = [
+        { key: 'fc', bytes: 1, bits: [{ key: 'type', value: 'AMP Ack' }, { key: 'protected', value: '0' }] },
+        { key: 'ampId', bytes: 2, node: f.dst, value: f.dst === f.src ? 'AP id (nothing received)' : ampId16(f.dst).toString(16).padStart(4, '0') },
+        { key: 'fcs', bytes: 1, value: 'CRC-8' },
+      ]
+      checkSize(fields, AMP_ACK_BYTES)
+      break
+    case 'ampResp': {
+      const a = f.amp!
+      fields = [
+        { key: 'fc', bytes: 1, bits: [{ key: 'type', value: 'AMP Response' }, { key: 'protected', value: '0' }] },
+        { key: 'ampId', bytes: 2, node: f.src, value: ampId16(f.src).toString(16).padStart(4, '0') },
+        { key: 'ampTdc', bytes: 2, value: `slot ${a.slot}${a.aboc !== undefined ? ` · ABOC ${a.aboc}` : ''}` },
+      ]
+      if (a.reading) fields.push({ key: 'body', bytes: AMP_READING_BYTES, value: 'reading' })
+      fields.push({ key: 'fcs', bytes: AMP_FCS_BYTES, value: 'CRC-16' })
+      checkSize(fields, f.bytes)
+      break
+    }
   }
   return mpduOf(kind, 'Control', sub, fields)
 }
@@ -288,8 +323,28 @@ function decodeData(f: FrameDesc, ctx: DecodeCtx): UserPsdu[] {
   return [userPsdu(f.dst, [{ delimiterBytes: 0, mpdu, padBytes: 0 }], false)]
 }
 
+/** P802.11bp AMP PPDU: legacy preamble + U-SIG then AMP-Sync/SIG/Data (DL), or AMP-Sync/Data only (UL, no legacy preamble). */
+function ampPpduLayout(f: FrameDesc): PpduSegment[] {
+  const a = f.amp!
+  if (a.dir === 'ul') {
+    const sync = AMP_UL_SYNC_CHIPS * AMP_UL_CHIP_NS[a.kbps as AmpUlKbps]
+    return [{ key: 'ampSync', durNs: sync }, { key: 'ampData', durNs: f.txTimeNs - sync }]
+  }
+  const sig = ampBitsNs(AMP_DL_SIG_BYTES * 8, a.kbps)
+  const data = ampBitsNs(f.bytes * 8, a.kbps)
+  const pad = a.padNs ?? AMP_PADDING_NS
+  const ext = f.txTimeNs - (AMP_LEGACY_PREAMBLE_NS + AMP_DL_SYNC_NS + sig + data + pad)
+  const segs: PpduSegment[] = [
+    { key: 'legacyPreamble', durNs: 16_000 }, { key: 'signal', durNs: 4_000 }, { key: 'usig', durNs: 12_000 },
+    { key: 'ampSync', durNs: AMP_DL_SYNC_NS }, { key: 'ampSig', durNs: sig }, { key: 'ampData', durNs: data }, { key: 'padding', durNs: pad },
+  ]
+  if (ext > 0) segs.push({ key: 'signalExt', durNs: ext })
+  return segs
+}
+
 /** Preamble, PHY header and data symbols of the PPDU; durations sum to frame.txTimeNs. */
 export function ppduLayout(f: FrameDesc): PpduSegment[] {
+  if (f.amp) return ampPpduLayout(f)
   const mode = f.mode ?? 'nonht'
   const m = PHY_MODES[mode]
   const segs: PpduSegment[] = []

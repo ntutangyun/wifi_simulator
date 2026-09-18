@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { LESSONS } from '../../src/course/lessons'
+import { ampAckFrame, ampRespFrame, ampTriggerFrame } from '../../src/engine/amp'
 import { Simulation } from '../../src/engine/simulation'
 import { hasFeature } from '../../src/model/caps'
 import { decodeFrame, type DecodeCtx, type DecodedFrame, type FrameField } from '../../src/model/frameFields'
@@ -140,5 +141,29 @@ describe('decodeFrame over recorded frames', () => {
     const s = samples.find((x) => x.frame.kind === 'data' && x.frame.retryFlag && !x.frame.muParts)
     if (!s) return
     expect(fcBit(decodeFrame(s.frame, s.ctx), 'retry')).toBe('1')
+  })
+})
+
+describe('AMP frames decode to their P802.11bp fields and PPDU layout', () => {
+  const ctx = { apId: 'ap', isEdca: true }
+  it('trigger: FC 1, ID 2, TDC 2, body 6, FCS 2 = 13 octets; PPDU segments sum to TXTIME', () => {
+    const f = ampTriggerFrame({ src: 'ap', dlKbps: 250, ulKbps: 250, phase: 'random', slots: 4, slotNs: 272_000, acwe: 2, sessionId: 1, staIds: [], reading: false, roundNs: 0, signalExtNs: 6_000 })
+    const d = decodeFrame(f, ctx)
+    const fields = d.users[0].subframes[0].mpdu.fields
+    expect(fields.map((x) => [x.key, x.bytes])).toEqual([['fc', 1], ['ampId', 2], ['ampTdc', 2], ['body', 6], ['fcs', 2]])
+    expect(d.bytes).toBe(13)
+    expect(d.ppdu.map((s) => s.key)).toEqual(['legacyPreamble', 'signal', 'usig', 'ampSync', 'ampSig', 'ampData', 'padding', 'signalExt'])
+    expect(d.ppdu.reduce((s, x) => s + x.durNs, 0)).toBe(f.txTimeNs)
+    expect(d.ppdu.find((s) => s.key === 'ampSig')!.durNs).toBe(64_000)
+  })
+  it('scheduled trigger lists STA ids; Ack is 4 octets with an 8-bit CRC; response carries its reading', () => {
+    const t = ampTriggerFrame({ src: 'ap', dlKbps: 1000, ulKbps: 1000, phase: 'scheduled', slots: 2, slotNs: 132_000, acwe: 0, sessionId: 1, staIds: ['tag-1', 'tag-2'], reading: true, roundNs: 0, signalExtNs: 6_000 })
+    expect(decodeFrame(t, ctx).users[0].subframes[0].mpdu.fields.find((x) => x.key === 'ampStaList')).toMatchObject({ bytes: 4 })
+    const a = decodeFrame(ampAckFrame('ap', 'tag-1', 250, 2, 6_000), ctx)
+    expect(a.users[0].subframes[0].mpdu.fields.map((x) => [x.key, x.bytes])).toEqual([['fc', 1], ['ampId', 2], ['fcs', 1]])
+    const r = decodeFrame(ampRespFrame('tag-1', 'ap', 250, 2, 1, true), ctx)
+    expect(r.users[0].subframes[0].mpdu.fields.map((x) => [x.key, x.bytes])).toEqual([['fc', 1], ['ampId', 2], ['ampTdc', 2], ['body', 8], ['fcs', 2]])
+    expect(r.ppdu.map((s) => s.key)).toEqual(['ampSync', 'ampData'])
+    expect(r.ppdu[0].durNs).toBe(48_000)
   })
 })

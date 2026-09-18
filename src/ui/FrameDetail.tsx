@@ -107,6 +107,7 @@ const mono: React.CSSProperties = { fontFamily: 'ui-monospace, SFMono-Regular, M
 const cell: React.CSSProperties = { padding: '2px 4px', borderBottom: '1px solid rgba(255,255,255,0.06)', verticalAlign: 'top' }
 const SEG_COLOR: Record<PpduSegmentKey, string> = {
   legacyPreamble: '#a78bfa', signal: '#f472b6', preamble: '#a78bfa', muSig: '#f472b6', data: '#38bdf8', padding: '#64748b',
+  usig: '#f472b6', ampSync: '#a78bfa', ampSig: '#f472b6', ampData: '#38bdf8', signalExt: '#64748b',
 }
 
 /** Collapsible field-by-field decode of the selected frame: MAC header of the first MPDU, subframes, PPDU layout. */
@@ -148,7 +149,10 @@ function DecodedView({ d, S, nameOf }: {
   const fieldValue = (x: FrameField): React.ReactNode => {
     if (x.node === undefined) return x.value ?? ''
     const who = x.node === '*' ? S.broadcast : nameOf(x.node)
-    return <>{who} <span style={dim}>({(x.roles ?? []).map((r) => S.role[r]).join(' = ')})</span></>
+    // Address fields (802.11 RA/TA/DA/SA/BSSID) carry roles and no separate value; AMP id
+    // fields carry a node (for the display name) alongside a value (the raw on-air id text).
+    const detail = x.roles ? x.roles.map((r) => S.role[r]).join(' = ') : x.value
+    return <>{who}{detail ? <span style={dim}> ({detail})</span> : null}</>
   }
   return (
     <div style={{ margin: '4px 0 6px' }}>
