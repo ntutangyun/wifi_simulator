@@ -30,6 +30,7 @@ import { uwbIntro } from './uwb/uwb-intro'
 import { uwbSstwr } from './uwb/uwb-sstwr'
 import { uwbDstwr } from './uwb/uwb-dstwr'
 import { uwbBlocks } from './uwb/uwb-blocks'
+import { uwbPosition } from './uwb/uwb-position'
 export type { Block, JumpTarget, L10n, Lesson, LessonVariant, Quiz } from './lessonKit'
 
 export { MODULES, TIERS } from './curriculum'
@@ -114,6 +115,7 @@ const AUTHORED: Lesson[] = [
   uwbSstwr,
   uwbDstwr,
   uwbBlocks,
+  uwbPosition,
   // ======================= MODULE 1 =======================
   {
     id: 'airtime',
