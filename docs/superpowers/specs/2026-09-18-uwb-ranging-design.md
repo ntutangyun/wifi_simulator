@@ -287,8 +287,9 @@ equivalence covers them.
   its 1-σ ellipse drawn on the floor. Range rings are the picture of trilateration; the ellipse is the picture of GDOP.
 - **Editor**: node kinds **UWB anchor** and **UWB tag** (place, drag, name, z, crystal ppm, tx power); a **UWB
   session** section (method, block, slot, channel, timestamp noise, clock-estimate noise, NLOS) shown when the plan has
-  UWB nodes; the spawn tool can add both; a scenario may have no AP if it has no station and no AMP tag (the AP row's
-  delete button follows that rule). Editor guide text for the new objects.
+  UWB nodes; the random spawn tool keeps adding stations only (UWB nodes are placed one at a time with their tools); a
+  scenario may have no AP if it has no station and no AMP tag (the AP row's delete button follows that rule, and an AP
+  tool puts one back). Editor guide text for the new objects.
 - **Guide** tab: section "11 · UWB ranging" (EN/ZH). **Glossary** group `uwb`: UWB, HRP UWB PHY, RMARKER, ranging
   counter / RCTU, RSTU, STS, SP1, SS-TWR, DS-TWR, ranging block / round / slot, controller / controlee, initiator /
   responder, RRTI / RMI / ARC / RDM IE, FoM, NLOS, GDOP, error ellipse.
