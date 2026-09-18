@@ -182,7 +182,7 @@ export const GLOSSARY: GlossaryGroup[] = [
         alt: { en: 'SIFS + slot + RxStartDelay = 45 µs', zh: 'ACK 超时 = SIFS + 时隙 + 接收启动时延 = 45 µs' },
         def: {
           en: 'How long a sender waits for the ACK before declaring the attempt failed. CtsTimeout is identical. This delay is why collisions are detected late.',
-          zh: '发送方在判定本次尝试失败前等待 ACK 的时长，CTS 超时与之相同。正因为有这段时延，碰撞总是被”事后”发现。',
+          zh: '发送方在判定本次尝试失败前等待 ACK 的时长，CTS 超时与之相同。正因为有这段时延，碰撞总是被“事后”发现。',
         },
       },
       {
@@ -205,8 +205,8 @@ export const GLOSSARY: GlossaryGroup[] = [
         term: 'ERP',
         alt: { en: 'extended rate PHY (802.11g)', zh: '扩展速率 PHY（802.11g）' },
         def: {
-          en: 'The 2.4 GHz OFDM PHY of 802.11g: the same 6–54 Mb/s rates as 802.11a, with 802.11b compatibility rules (signal extension, 10 µs SIFS). The simulator\'s “802.11a (legacy)” generation runs as ERP-OFDM when its link is 2.4 GHz.',
-          zh: '802.11g 的 2.4 GHz OFDM PHY：与 802.11a 相同的 6–54 Mb/s 速率，外加 802.11b 兼容规则（信号扩展、10 µs SIFS）。模拟器的”802.11a（传统）”一代在链路为 2.4 GHz 时即按 ERP-OFDM 运行。',
+          en: 'The 2.4 GHz OFDM PHY of 802.11g: the same 6–54 Mb/s rates as 802.11a, with 802.11b compatibility rules (signal extension, 10 µs SIFS). The simulator’s “802.11a (legacy)” generation runs as ERP-OFDM when its link is 2.4 GHz.',
+          zh: '802.11g 的 2.4 GHz OFDM PHY：与 802.11a 相同的 6–54 Mb/s 速率，外加 802.11b 兼容规则（信号扩展、10 µs SIFS）。模拟器的“802.11a（传统）”一代在链路为 2.4 GHz 时即按 ERP-OFDM 运行。',
         },
       },
     ],
