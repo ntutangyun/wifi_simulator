@@ -47,13 +47,13 @@ function rctuDur(rctu: number): string {
 
 interface Ie {
   key: FieldKey
-  /** Size from the engine's own IE sizing; the last IE instead takes the payload remainder. */
+  /** Width from the engine's own IE sizing (uwb/phy.ts); they tile the payload exactly. */
   bytes: number
   value: string
 }
 
 /** The payload IEs of one frame, in the order `uwb.ies` lists them. */
-function ies(f: FrameDesc, u: UwbInfo): Ie[] {
+function ies(u: UwbInfo): Ie[] {
   const method = `${u.method.toUpperCase()}-TWR`
   const out: Ie[] = []
   for (const ie of u.ies) {
@@ -75,14 +75,17 @@ function ies(f: FrameDesc, u: UwbInfo): Ie[] {
       case 'RRMC':
         out.push({ key: 'ieRrmc', bytes: RRMC_IE_BYTES, value: `slot ${u.slot} · ${method}` })
         break
-      case 'RRTI':
+      case 'RRTI': {
+        // A Response carries one reply time; a Final carries one per anchor.
+        const n = u.finalTimes?.length ?? 0
         out.push({
-          key: 'ieRrti', bytes: RRTI_IE_BYTES,
+          key: 'ieRrti', bytes: u.replyRctu !== undefined ? RRTI_IE_BYTES : n * RRTI_IE_BYTES,
           value: u.replyRctu !== undefined
             ? `reply time ${rctuText(u.replyRctu)}`
-            : `${u.finalTimes?.length ?? 0} reply times (treply2), one per anchor`,
+            : `${n} reply times (treply2), one per anchor`,
         })
         break
+      }
       case 'RMI':
         out.push(u.finalTimes
           ? {
@@ -95,40 +98,41 @@ function ies(f: FrameDesc, u: UwbInfo): Ie[] {
           })
         break
       default:
-        out.push({ key: 'ieRrmc', bytes: 0, value: ie })
+        throw new Error(`uwbFrameFields: unknown ranging IE ${ie}`)
     }
-  }
-  // The engine sizes each frame as a whole (uwb/phy.ts); the closing IE takes
-  // whatever of the payload the ones before it did not, so the rows always
-  // add up to frame.bytes exactly.
-  const payload = f.bytes - UWB_MHR_BYTES - UWB_FCS_BYTES
-  if (out.length) {
-    const before = out.slice(0, -1).reduce((s, x) => s + x.bytes, 0)
-    out[out.length - 1].bytes = payload - before
   }
   return out
 }
+
+/** Frame Control 2 + Sequence Number 1 + Destination PAN 2 + two short addresses 2 each. */
+const MHR_FIELD_BYTES = [2, 1, 2, 2, 2] as const
 
 /** MHR + payload IEs + FCS of one ranging frame. */
 export function uwbFrameFields(f: FrameDesc): DecodedFrame {
   const u = f.uwb!
   const kind = f.kind as UwbFrameKind
   const broadcast = f.dst === '*' || f.dst.startsWith('*')
+  const [fcB, seqB, panB, dstB, srcB] = MHR_FIELD_BYTES
   const fields: FrameField[] = [
     {
-      key: 'fc', bytes: 2,
+      key: 'fc', bytes: fcB,
       value: `Data frame · SP${u.sp} ranging · PAN ID compression · short (16-bit) addressing`,
     },
-    { key: 'seqNo', bytes: 1, value: f.seqNo !== undefined ? String(f.seqNo) : `round ${u.round}, slot ${u.slot}` },
-    { key: 'dstPan', bytes: 2, value: hex16(UWB_PAN_ID) },
+    { key: 'seqNo', bytes: seqB, value: f.seqNo !== undefined ? String(f.seqNo) : `round ${u.round}, slot ${u.slot}` },
+    { key: 'dstPan', bytes: panB, value: hex16(UWB_PAN_ID) },
     {
-      key: 'dstAddr16', bytes: 2, node: broadcast ? '*' : f.dst, roles: ['DA'],
+      key: 'dstAddr16', bytes: dstB, node: broadcast ? '*' : f.dst, roles: ['DA'],
       ...(broadcast ? { value: hex16(BROADCAST_ADDR16) } : {}),
     },
-    { key: 'srcAddr16', bytes: 2, node: f.src, roles: ['SA'] },
-    ...ies(f, u).map((x): FrameField => ({ key: x.key, bytes: x.bytes, value: x.value })),
+    { key: 'srcAddr16', bytes: srcB, node: f.src, roles: ['SA'] },
+    ...ies(u).map((x): FrameField => ({ key: x.key, bytes: x.bytes, value: x.value })),
     { key: 'fcs', bytes: UWB_FCS_BYTES, value: 'CRC-16' },
   ]
+  // The header and IE widths are the engine's own (uwb/phy.ts) and tile the
+  // frame with nothing left over; a mismatch means the two have drifted apart,
+  // and showing wrong sizes would be worse than showing none.
+  const mhr = MHR_FIELD_BYTES.reduce((s, x) => s + x, 0)
+  if (mhr !== UWB_MHR_BYTES) throw new Error(`uwbFrameFields: MHR ${mhr} B, engine header ${UWB_MHR_BYTES} B`)
   const bytes = fields.reduce((s, x) => s + x.bytes, 0)
   if (bytes !== f.bytes) throw new Error(`uwbFrameFields: ${bytes} B decoded, engine size ${f.bytes} B`)
   return {

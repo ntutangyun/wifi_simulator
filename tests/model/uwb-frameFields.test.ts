@@ -3,7 +3,10 @@ import { decodeFrame, ppduLayout, type DecodedFrame } from '../../src/model/fram
 import type { FrameDesc } from '../../src/model/frames'
 import { uwbFrameFields, uwbPpduLayout } from '../../src/uwb/frameFields'
 import { makeFinal, makePoll, makeReport, makeResp } from '../../src/uwb/frames'
-import { chipsToNs, PHR_SYMBOLS, PHR_SYMBOL_CHIPS, PSYM_CHIPS, SFD_SYMBOLS, STS_ACTIVE_CHIPS, STS_GAP_CHIPS, SYNC_SYMBOLS } from '../../src/uwb/phy'
+import {
+  ARC_IE_BYTES, chipsToNs, PHR_SYMBOLS, PHR_SYMBOL_CHIPS, PSYM_CHIPS, rdmIeBytes, rmiFinalIeBytes,
+  RMI_REPORT_IE_BYTES, RRMC_IE_BYTES, RRTI_IE_BYTES, SFD_SYMBOLS, STS_ACTIVE_CHIPS, STS_GAP_CHIPS, SYNC_SYMBOLS,
+} from '../../src/uwb/phy'
 
 const FINAL_TIMES = [
   { id: 'a1', tround1: 1_278_030, treply2: 1_277_900 },
@@ -55,6 +58,23 @@ describe('uwbFrameFields', () => {
     expect(fields(REPORT).filter((x) => x.key.startsWith('ie')).map((x) => x.key)).toEqual(['ieRmi'])
   })
 
+  it('sizes every IE at the width the engine states, with nothing absorbed as a remainder', () => {
+    expect(keyed(POLL, 'ieArc')!.bytes).toBe(ARC_IE_BYTES)
+    expect(keyed(POLL, 'ieRdm')!.bytes).toBe(rdmIeBytes(4))
+    expect(keyed(POLL, 'ieRrmc')!.bytes).toBe(RRMC_IE_BYTES)
+    expect(keyed(RESP, 'ieRrmc')!.bytes).toBe(RRMC_IE_BYTES)
+    expect(keyed(RESP, 'ieRrti')!.bytes).toBe(RRTI_IE_BYTES)
+    expect(keyed(RESP_DS, 'ieRrmc')!.bytes).toBe(RRMC_IE_BYTES)
+    // The Final carries one reply time per anchor: MHR 9 + (3 + 6N) + 6N + FCS 2 = 14 + 12N.
+    expect(keyed(FINAL, 'ieRmi')!.bytes).toBe(rmiFinalIeBytes(4))
+    expect(keyed(FINAL, 'ieRrti')!.bytes).toBe(4 * RRTI_IE_BYTES)
+    expect(keyed(REPORT, 'ieRmi')!.bytes).toBe(RMI_REPORT_IE_BYTES)
+  })
+
+  it('refuses to decode a frame whose engine size the fields cannot account for', () => {
+    expect(() => uwbFrameFields({ ...FINAL, bytes: 60 })).toThrow(/62 B decoded, engine size 60 B/)
+  })
+
   it('spells the IE contents out in words', () => {
     expect(keyed(RESP, 'ieRrti')!.value).toBe('reply time 127 803 RCTU = 2.000 µs')
     expect(keyed(POLL, 'ieRdm')!.value).toBe('4 devices: a1 slot 1, a2 slot 2, a3 slot 3, a4 slot 4')
@@ -88,12 +108,12 @@ describe('uwbPpduLayout', () => {
     }
   })
 
-  it('the 60-octet Final spends 234 551 ns, all but the SHR, STS and PHR of it on the PSDU', () => {
-    expect(FINAL.bytes).toBe(60)
-    expect(FINAL.txTimeNs).toBe(234_551)
+  it('the 62-octet Final spends 236 603 ns, all but the SHR, STS and PHR of it on the PSDU', () => {
+    expect(FINAL.bytes).toBe(62)
+    expect(FINAL.txTimeNs).toBe(236_603)
     const psdu = uwbPpduLayout(FINAL).find((s) => s.key === 'psdu')!
     // SHR 73 269 + STS (2 × 1 026 + 65 641) + PHR 19 487; each segment rounds to the nearest ns on its own.
-    expect(psdu.durNs).toBe(234_551 - 73_269 - 67_693 - 19_487)
+    expect(psdu.durNs).toBe(236_603 - 73_269 - 67_693 - 19_487)
   })
 
   it('marks where the RMARKER falls: the first chip after the SFD', () => {

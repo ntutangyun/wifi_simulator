@@ -172,12 +172,12 @@ describe('UwbNetwork — DS-TWR with ±10 ppm crystals', () => {
     expect(of(rs, 'UWB_POSITION')[0].t).toBe(20 * MS)
   })
 
-  it('sends a 60-octet Final in slot 5, 234 551 ns of air', () => {
+  it('sends a 62-octet Final in slot 5, 236 603 ns of air', () => {
     const final = of(rs, 'TX_START').find((r) => r.frame.kind === 'uwbFinal')!
     expect(final.t).toBe(10 * MS)
     expect(final.frame.uwb?.slot).toBe(5)
-    expect(final.frame.bytes).toBe(60)
-    expect(final.frame.txTimeNs).toBe(234_551)
+    expect(final.frame.bytes).toBe(62)
+    expect(final.frame.txTimeNs).toBe(236_603)
     expect(final.frame.uwb?.finalTimes).toHaveLength(4)
   })
 })

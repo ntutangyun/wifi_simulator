@@ -25,9 +25,10 @@ describe('uwb phy · SP1 BPRF PPDU', () => {
     expect(P.chipsToNs(P.UWB_PHR_CHIPS)).toBe(19_487)
   })
   it.each([
-    // NOTE: brief's original row was [60, 228_397]; corrected to 234_551 — see task-1-report.md
-    // ("Deviations" section) for why 228_397 is inconsistent with the RS block-count formula.
-    [14, 181_218], [20, 187_372], [24, 191_474], [30, 197_628], [39, 206_859], [60, 234_551],
+    // NOTE: the brief's original row was [60, 228_397]. 228_397 is inconsistent with the RS
+    // block-count formula (task-1-report.md, "Deviations"), and 60 octets was itself wrong:
+    // a Final is 14 + 12N, so four anchors make 62 (task-7 fix round 1).
+    [14, 181_218], [20, 187_372], [24, 191_474], [30, 197_628], [39, 206_859], [62, 236_603],
   ])('%i octets → %i ns', (octets, ns) => {
     expect(P.uwbPpduNs(octets)).toBe(ns)
   })
@@ -38,10 +39,10 @@ describe('uwb phy · SP1 BPRF PPDU', () => {
 })
 
 describe('uwb phy · frames and links', () => {
-  it('poll 27 + 3N, response 20 (SS) / 14 (DS), final 12 + 12N, report 24', () => {
+  it('poll 27 + 3N, response 20 (SS) / 14 (DS), final 14 + 12N, report 24', () => {
     expect(P.uwbPollBytes(1)).toBe(30); expect(P.uwbPollBytes(4)).toBe(39)
     expect(P.uwbRespBytes('ss')).toBe(20); expect(P.uwbRespBytes('ds')).toBe(14)
-    expect(P.uwbFinalBytes(4)).toBe(60); expect(P.UWB_REPORT_BYTES).toBe(24)
+    expect(P.uwbFinalBytes(4)).toBe(62); expect(P.UWB_REPORT_BYTES).toBe(24)
   })
   it('free-space loss at 1 m is 48.7 dB on channel 5 and 50.5 dB on channel 9', () => {
     expect(P.uwbPl0Db(5)).toBeCloseTo(48.69, 1)

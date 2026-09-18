@@ -99,8 +99,9 @@ export function uwbRespBytes(method: 'ss' | 'ds'): number {
   return method === 'ss' ? 20 : 14
 }
 
+/** MHR 9 + RMI IE (3 + 6N) + N × RRTI IE 6 + FCS 2 = 14 + 12N. */
 export function uwbFinalBytes(anchors: number): number {
-  return 12 + 12 * anchors
+  return 14 + 12 * anchors
 }
 
 export const UWB_REPORT_BYTES = 24
