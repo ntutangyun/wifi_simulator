@@ -16,6 +16,7 @@ import {
 } from '../../src/engine/amp'
 import { CTS_BYTES, ERP_2G, txTimeNs } from '../../src/engine/phy'
 import { buildLinkTable } from '../../src/engine/propagation'
+import { rssiOn } from './rssi'
 import { decodeFrame } from '../../src/model/frameFields'
 import { fmtRecord } from '../../src/ui/format'
 import type { TLRecord } from '../../src/model/records'
@@ -113,15 +114,16 @@ describe('amp-slots · lesson shape', () => {
     const s = ampSlots.scenario()
     expect(s.nodes.map((n) => n.kind)).toEqual(['ap', ...TAGS.map(() => 'amp')])
     expect(s.nodes[0].ampAp).toMatchObject({ pollIntervalMs: 20, slots: 4, acwe: 2, dlKbps: 250, ulKbps: 250, protection: 'ctsSelf', readMode: 'inline' })
-    // "The geometry is deliberate: every one hears the router at −37.2 dBm and reaches it at −57.2 dBm —
-    //  34.8 dB of downlink margin, 36.8 dB up — with under a hundredth of a decibel between them."
+    // "The geometry is deliberate: every one hears the router at −30.7 dBm and reaches it at −50.7 dBm —
+    //  41.3 dB of downlink margin, 43.3 dB up — with under a hundredth of a decibel between them."
     const links = buildLinkTable(s.nodes, s.walls)
-    const dl = s.nodes.slice(1).map((n) => links.get('ap')!.get(n.id)!)
-    const ul = s.nodes.slice(1).map((n) => links.get(n.id)!.get('ap')!)
-    for (const v of dl) expect(v.toFixed(1)).toBe('-37.2')
-    for (const v of ul) expect(v.toFixed(1)).toBe('-57.2')
-    expect((dl[0] - AMP_TAG_DL_SENS_DBM).toFixed(1)).toBe('34.8')
-    expect((ul[0] - ampUlSensDbm(250)).toFixed(1)).toBe('36.8')
+    // on the 2.4 GHz link, where the lesson runs: rssiOn applies the band offset the engine applies
+    const dl = s.nodes.slice(1).map((n) => rssiOn('2g', links, 'ap', n.id))
+    const ul = s.nodes.slice(1).map((n) => rssiOn('2g', links, n.id, 'ap'))
+    for (const v of dl) expect(v.toFixed(1)).toBe('-30.7')
+    for (const v of ul) expect(v.toFixed(1)).toBe('-50.7')
+    expect((dl[0] - AMP_TAG_DL_SENS_DBM).toFixed(1)).toBe('41.3')
+    expect((ul[0] - ampUlSensDbm(250)).toFixed(1)).toBe('43.3')
     expect(Math.max(...ul) - Math.min(...ul)).toBeLessThan(0.01)
     expect(Math.max(...dl) - Math.min(...dl)).toBeLessThan(0.01)
     // the three variants: ACWE 1, ACWE 3, and two-phase at ACWE 2

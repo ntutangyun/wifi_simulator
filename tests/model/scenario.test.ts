@@ -95,4 +95,13 @@ describe('AMP nodes in the schema', () => {
     sc.nodes[0].caps.generation = 'he'
     expect(() => ScenarioSchema.parse(sc)).toThrow(/Wi-Fi 7/)
   })
+
+  it('AMP tag settings belong to an AMP tag node, not to a station or an AP', () => {
+    const sc = defaultScenario()
+    sc.nodes[1].ampTag = { dlSensDbm: -70 }
+    expect(() => ScenarioSchema.parse(sc)).toThrow(/AMP tag/)
+    delete sc.nodes[1].ampTag
+    sc.nodes[0].ampTag = { id16: 7 }
+    expect(() => ScenarioSchema.parse(sc)).toThrow(/AMP tag/)
+  })
 })

@@ -3,6 +3,8 @@
  * openings, random STA spawning, scenario (de)serialization.
  */
 import { ScenarioSchema, type NodeCfg, type Opening, type Room, type Scenario, type Wall } from '../model/scenario'
+import { GEN_FEATURES, type FeatureFlag } from '../model/caps'
+import type { Generation } from '../model/types'
 import { STATION_PRESETS, presetNode } from '../model/presets'
 
 const SNAP = 0.1
@@ -189,6 +191,36 @@ export function newTag(sc: Scenario, pos: { x: number; y: number }): { sc: Scena
     linkId: '2g', ampTag: {},
   }
   return { sc: { ...sc, nodes: [...sc.nodes, node] }, id }
+}
+
+/**
+ * Clamp a number-input value to the schema's bounds. A `<input type="number">`
+ * hands back `''` while it is being retyped and `Number('')` is 0, so without
+ * this an emptied AMP field would commit a scenario the schema rejects.
+ */
+export function clampField(raw: string, lo: number, hi: number, int = false): number {
+  const n = int ? Math.round(Number(raw)) : Number(raw)
+  if (!Number.isFinite(n) || raw.trim() === '') return lo
+  return Math.min(hi, Math.max(lo, n))
+}
+
+/**
+ * The node patch that switching `n` to Wi-Fi generation `gen` produces.
+ *
+ * Besides the capability flags, this drops whatever the new generation cannot
+ * carry, so the editor can never build a node the schema rejects on run or on
+ * reload: the link (VHT is 5 GHz only, 802.11a/g has no 6 GHz) and the AMP
+ * polling config (an AMP DL PPDU carries U-SIG, so only an EHT AP may poll).
+ */
+export function generationPatch(n: NodeCfg, gen: Generation): Partial<NodeCfg> {
+  const features: Partial<Record<FeatureFlag, boolean>> = {}
+  for (const f of GEN_FEATURES[gen]) features[f] = n.caps.features[f] ?? true
+  const keepsLink = gen !== 'vht' && !(gen === 'nonht' && n.linkId === '6g')
+  return {
+    caps: { generation: gen, features: features as Record<string, boolean> },
+    linkId: keepsLink ? n.linkId : undefined,
+    ampAp: gen === 'eht' ? n.ampAp : undefined,
+  }
 }
 
 export function scenarioToJson(sc: Scenario): string {

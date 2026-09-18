@@ -94,10 +94,13 @@ export class AmpStaMac implements PhyListener {
     const ackFor = frame.amp!.ackFor ?? 0
     if (!r.sent) {
       r.acksSeen++
-      if (r.acksSeen === r.slot - 1) {
-        r.txHandle = this.q.schedule(t + AMP_SIFS_NS, () => this.transmitResponse())
-      } else if (ackFor >= r.slot) {
+      // The slot this tag was due in has already been closed: it missed its cue (an Ack it
+      // never decoded), so it must stay silent — arming here would put it on the air after
+      // the round's last Ack, on top of whatever comes next.
+      if (ackFor >= r.slot) {
         this.giveUp()
+      } else if (r.acksSeen === r.slot - 1) {
+        r.txHandle = this.q.schedule(t + AMP_SIFS_NS, () => this.transmitResponse())
       }
       return
     }

@@ -63,6 +63,7 @@ RF model: log-distance path loss (n = 3.0, 5 GHz) + per-wall attenuation (drywal
 - AMP models only the Active Tx non-AP AMP STA; backscatter (mono-/bistatic), the energizer, wireless power transfer and energy harvesting are not implemented yet.
 - AMP is a draft (P802.11bp D0.5/D1.0): the tag's −72 dBm downlink sensitivity and the OOK SINR thresholds (decoding requirements the draft does not publish) are model choices, not standard values.
 - A tag finds its slot by counting AMP Acks in arrival order rather than reading a slot number off them; the draft leaves ABOC retransmission behaviour TBD, so a lost response draws a fresh ABOC next round.
+- A Wi-Fi radio receives a downlink AMP PPDU as an ordinary legacy-preamble reception: it defers for the L-SIG length and then uses AIFS, not EIFS. The coexistence numbers (lesson 3) rest on this — a real 802.11 receiver's behaviour on an OOK payload under a legacy preamble is not something the draft pins down.
 
 ## Architecture
 

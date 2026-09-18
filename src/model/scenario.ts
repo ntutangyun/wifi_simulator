@@ -304,6 +304,9 @@ const NodeCfgSchema = z.preprocess(
     if (n.ampAp && !(n.kind === 'ap' && n.caps.generation === 'eht')) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'AMP polling needs a Wi-Fi 7 AP (the AMP DL PPDU carries U-SIG)' })
     }
+    if (n.ampTag && n.kind !== 'amp') {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'only an AMP tag node carries AMP tag settings' })
+    }
   }),
 )
 

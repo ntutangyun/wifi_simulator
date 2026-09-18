@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Rng } from '../engine/rng'
-import { GEN_FEATURES, type FeatureFlag, type LinkId } from '../model/caps'
+import { GEN_FEATURES, type LinkId } from '../model/caps'
 import { DEFAULT_AMP_AP, normalizeProfiles, PROFILE_IDS, SERVER_KINDS, TAMPER_KINDS, TAMPER_PRESETS, TXOP_PROTECTIONS, serverFor, serverKindFor, tamperKindOf, type AmpApCfg, type Material, type NodeCfg, type ProfileId, type Scenario, type ServerCfg, type ServerKind, type TamperKind, type TxopProtection } from '../model/scenario'
 import { HOUSEHOLDS } from '../model/households'
 import { nonht } from '../model/scenario'
@@ -10,7 +10,7 @@ import { useStrings } from '../ui/i18n'
 import { useUi } from '../ui/store'
 import { EditorGuide } from './EditorGuide'
 import {
-  addOpening, alongWall, hitTestNode, hitTestWall, newTag, roomsToWalls,
+  addOpening, alongWall, clampField, generationPatch, hitTestNode, hitTestWall, newTag, roomsToWalls,
   scenarioFromJson, scenarioToJson, snap, spawnRandomStas,
 } from './planOps'
 
@@ -212,11 +212,7 @@ export function FloorPlanEditor() {
   }
 
   const setGeneration = (n: NodeCfg, gen: Generation) => {
-    const features: Partial<Record<FeatureFlag, boolean>> = {}
-    for (const f of GEN_FEATURES[gen]) features[f] = n.caps.features[f] ?? true
-    // Drop a link the new generation cannot use: VHT is 5 GHz only, and 802.11a/g has no 6 GHz.
-    const keepsLink = gen !== 'vht' && !(gen === 'nonht' && n.linkId === '6g')
-    updateNode(n.id, { caps: { generation: gen, features: features as Record<string, boolean> }, linkId: keepsLink ? n.linkId : undefined })
+    updateNode(n.id, generationPatch(n, gen))
   }
 
   const gridLines = () => {
@@ -695,17 +691,17 @@ export function FloorPlanEditor() {
                               <label style={{ display: 'block', marginBottom: 4 }} title={E.ampIntervalHint}>
                                 {E.ampInterval}{' '}
                                 <input type="number" min={10} max={10_000} value={selNode.ampAp.pollIntervalMs} style={{ width: 62 }}
-                                  onChange={(e) => updateNode(selNode.id, { ampAp: { ...selNode.ampAp!, pollIntervalMs: Number(e.target.value) } })} /> ms
+                                  onChange={(e) => updateNode(selNode.id, { ampAp: { ...selNode.ampAp!, pollIntervalMs: clampField(e.target.value, 10, 10_000) } })} /> ms
                               </label>
                               <label style={{ display: 'block', marginBottom: 4 }} title={E.ampSlotsHint}>
                                 {E.ampSlots}{' '}
                                 <input type="number" min={1} max={16} value={selNode.ampAp.slots} style={{ width: 56 }}
-                                  onChange={(e) => updateNode(selNode.id, { ampAp: { ...selNode.ampAp!, slots: Number(e.target.value) } })} />
+                                  onChange={(e) => updateNode(selNode.id, { ampAp: { ...selNode.ampAp!, slots: clampField(e.target.value, 1, 16, true) } })} />
                               </label>
                               <label style={{ display: 'block', marginBottom: 4 }} title={E.ampAcweHint}>
                                 {E.ampAcwe}{' '}
                                 <input type="number" min={0} max={4} value={selNode.ampAp.acwe} style={{ width: 56 }}
-                                  onChange={(e) => updateNode(selNode.id, { ampAp: { ...selNode.ampAp!, acwe: Number(e.target.value) } })} />
+                                  onChange={(e) => updateNode(selNode.id, { ampAp: { ...selNode.ampAp!, acwe: clampField(e.target.value, 0, 4, true) } })} />
                               </label>
                               <label style={{ display: 'block', marginBottom: 4 }} title={E.ampDlHint}>
                                 {E.ampDl}{' '}

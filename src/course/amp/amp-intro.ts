@@ -5,6 +5,11 @@
  * 2.4 GHz: CTS-to-self, AMP Trigger, four uplink slots, one AMP Ack per slot.
  * No Wi-Fi traffic, so the round stands alone and every microsecond of it is
  * visible. Every number quoted below is pinned in tests/course/amp-intro.test.ts.
+ *
+ * CAUTION — word budget: the English prose sits within ~10 words of the ceiling at
+ * which `lessonMinutes` rounds up from 25 to 30 minutes (2025 English words across
+ * body + observe + tryThis + quiz). Adding a sentence here means removing one
+ * elsewhere, or the lesson's own study-time test fails.
  */
 import type { Scenario } from '../../model/scenario'
 import {

@@ -106,6 +106,7 @@ export interface Strings {
     appRtt: string; appRttHint: string; relayLatency: string; relayLatencyHint: string; servers: string; serverCols: { server: string; kind: string; rtt: string; up: string; down: string }
     ampTag: string; aboc: string; abocHint: string; slot: string; slotHint: string
     ampCounts: string; ampCountsHint: string; ampRound: string; ampRoundHint: string; satOut: string
+    ampPhase: Record<'random' | 'scheduled', string>
   }
   log: { empty: string }
   profiles: Record<ProfileId, string>
@@ -334,6 +335,7 @@ export const STRINGS: Record<Lang, Strings> = {
       ampCounts: 'sent / acked / lost',
       ampCountsHint: 'responses transmitted, acknowledged by the following AMP Ack, and lost (collision, weak signal or a missed cue)',
       ampRound: 'AMP round', ampRoundHint: 'the polling round in progress on this link and who has answered so far',
+      ampPhase: { random: 'random access', scheduled: 'scheduled' },
       satOut: 'sat out / heard',
     },
     log: { empty: 'no events in window' },
@@ -370,8 +372,8 @@ export const STRINGS: Record<Lang, Strings> = {
         trigger: 'The AP acting as a conductor (Wi-Fi 6 OFDMA): it splits the channel into frequency slices (resource units) and invites several stations to transmit at the same moment, each in its own slice.',
         mba: 'One receipt for several stations at once: after a simultaneous OFDMA uplink, the AP confirms everyone’s data in this single Multi-STA BlockAck.',
         ampTrigger: 'The AP’s P802.11bp draft trigger for an ambient-power round: a slow on-off-keyed PPDU that opens N uplink slots and states how tags pick one — at random or in a scheduled order. Battery-free tags have no ordinary Wi-Fi receiver, so this trigger is what lets a round begin at all.',
-        ampAck: 'The AP’s Ack for one AMP uplink slot: a normal, AP-powered OOK PPDU, unlike the harvested-power backscatter reply it closes. Under the P802.11bp draft, tags with no clock of their own count these Acks to know when their slot has opened, so each one also cues the next.',
-        ampResp: 'A backscatter tag’s answer in its AMP uplink slot, sent with power harvested from the AP’s own carrier rather than a battery. The P802.11bp draft keeps it minimal — an id and, when the trigger asked for one, a sensor reading — so the harvested energy is enough to finish the transmission.',
+        ampAck: 'The AP’s Ack for one AMP uplink slot: a normal, AP-powered OOK PPDU, unlike the tag’s own transmission on harvested power that it closes. Under the P802.11bp draft, tags with no clock of their own count these Acks to know when their slot has opened, so each one also cues the next.',
+        ampResp: 'An Active Tx tag’s answer in its AMP uplink slot, sent on a carrier the tag makes itself, on power harvested from the AP’s signal rather than from a battery. The P802.11bp draft keeps it minimal — an id and, when the trigger asked for one, a sensor reading — so the harvested energy is enough to finish the transmission.',
       },
       next: {
         cfend: 'Every station that decodes it resets its NAV and, after one DIFS/AIFS of quiet, may contend again. Stations that could not hear it keep waiting until the reservation they heard runs out.',
@@ -652,6 +654,7 @@ export const STRINGS: Record<Lang, Strings> = {
       ampCounts: '发送 / 已确认 / 丢失',
       ampCountsHint: '已发送的应答数、被随后的 AMP Ack 确认的数量，以及丢失的数量（碰撞、信号弱或错过时机）',
       ampRound: 'AMP 轮次', ampRoundHint: '该链路上正在进行的轮询轮次，以及目前已应答的标签',
+      ampPhase: { random: '随机接入', scheduled: '调度' },
       satOut: '弃权 / 已听到',
     },
     log: { empty: '窗口内无事件' },
@@ -688,7 +691,7 @@ export const STRINGS: Record<Lang, Strings> = {
         trigger: 'AP 扮演指挥家（Wi-Fi 6 OFDMA）：把信道切成若干频率子块（资源单元 RU），邀请多个终端在同一时刻各自在自己的子块里发送。',
         mba: '发给多个站点的一张合并回执：一轮同时进行的 OFDMA 上行结束后，AP 用这一帧统一确认所有终端的数据。',
         ampTrigger: 'AP 按 P802.11bp 草案发送的环境能量触发帧：以慢速通断键控（OOK）PPDU 划出 N 个上行时隙，并规定标签如何从中选定一个——随机竞争还是按预定顺序。无电池的标签没有普通 Wi-Fi 接收机，正是这一帧才让一轮能够开始。',
-        ampAck: 'AP 对某个 AMP 上行时隙的确认帧：同样由 AP 正常供电发出的 OOK PPDU，用来关闭它所确认的、由标签以反向散射能量作答的那个时隙。按照 P802.11bp 草案，没有自己时钟的标签靠数这些确认帧来判断时隙何时打开，因此每一帧同时也在提示下一个时隙。',
+        ampAck: 'AP 对某个 AMP 上行时隙的确认帧：同样由 AP 正常供电发出的 OOK PPDU，用来关闭它所确认的、由标签以收集到的能量主动发射作答的那个时隙。按照 P802.11bp 草案，没有自己时钟的标签靠数这些确认帧来判断时隙何时打开，因此每一帧同时也在提示下一个时隙。',
         ampResp: '标签在自己 AMP 上行时隙里的应答，用从 AP 载波上收集到的能量发送，而不是电池供电。按照 P802.11bp 草案，这一帧尽量精简——只有 ID，以及触发帧要求时才附带的一次传感器读数——这样收集到的能量刚好够发完。',
       },
       next: {

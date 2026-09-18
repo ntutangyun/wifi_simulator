@@ -17,6 +17,7 @@ import {
 import { ACK_TX_TIME_6M_NS, CCA_PD_DBM, CTS_BYTES, ERP_2G, SLOT_NS, txTimeNs } from '../../src/engine/phy'
 import { LINK_EXTRA_LOSS_DB } from '../../src/engine/simulation'
 import { buildLinkTable } from '../../src/engine/propagation'
+import { rssiOn } from './rssi'
 import { decodeFrame, ppduLayout } from '../../src/model/frameFields'
 import { applyRecord, initViewState } from '../../src/model/view'
 import { fmtRecord } from '../../src/ui/format'
@@ -414,10 +415,9 @@ describe('amp-intro · a second of polling', () => {
     const s = ampIntro.scenario()
     const links = buildLinkTable(s.nodes, s.walls)
     // the engine gives 2.4 GHz 6.5 dB less path loss than the band-neutral table
-    const band = LINK_EXTRA_LOSS_DB['2g']
-    expect(band).toBe(-6.5)
-    const dl = links.get('ap')!.get('tag-2')! - band
-    const ul = links.get('tag-2')!.get('ap')! - band
+    expect(LINK_EXTRA_LOSS_DB['2g']).toBe(-6.5)
+    const dl = rssiOn('2g', links, 'ap', 'tag-2')
+    const ul = rssiOn('2g', links, 'tag-2', 'ap')
     expect(dl.toFixed(1)).toBe('-37.4')
     expect(ul.toFixed(1)).toBe('-57.4')
     expect((dl - AMP_TAG_DL_SENS_DBM).toFixed(1)).toBe('34.6')

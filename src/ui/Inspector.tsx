@@ -75,7 +75,7 @@ function NodeSection({ vid, nv, t, L, nameOf, serverName }: { vid: string; nv: N
       )}
 
       {nv.ampRound && (
-        <div style={row}><Lbl hint={L.ampRoundHint}>{L.ampRound}</Lbl><span>{nv.ampRound.phase} · slot {nv.ampRound.slot}/{nv.ampRound.slots} · {nv.ampRound.received.map(nameOf).join(', ') || '—'}</span></div>
+        <div style={row}><Lbl hint={L.ampRoundHint}>{L.ampRound}</Lbl><span>{L.ampPhase[nv.ampRound.phase]} · {L.slot} {nv.ampRound.slot}/{nv.ampRound.slots} · {nv.ampRound.received.map(nameOf).join(', ') || '—'}</span></div>
       )}
 
       {!nv.amp && <>

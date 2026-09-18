@@ -30,6 +30,19 @@ function bench(tagIds: string[], seed = 7, links: Record<string, number> = {}) {
   return { q, ch, records, apHeard, tags, run, at, send, trig, ack, recs }
 }
 
+/**
+ * Seeds pinned by a one-off scan (`bench(['t1'], seed)` under a 4-slot ACWE-2
+ * trigger): the slot the single tag draws is a pure function of the seed, so
+ * each test states the slot it needs as a precondition and reads it back.
+ */
+const SEED_SLOT1 = 1
+const SEED_SLOT2 = 3
+const SEED_SLOT3 = 10
+const SEED_SLOT4 = 2
+
+/** One slot period of the trigger the bench sends: response + AMP SIFS + Ack + AMP SIFS. */
+const SLOT_PERIOD_NS = 272_000 + AMP_SIFS_NS + 330_000 + AMP_SIFS_NS
+
 describe('AmpStaMac (PDT 39.4 UL channel access)', () => {
   it('draws ABOC in [0, ACW], transmits in slot ABOC+1 or sits out', () => {
     const b = bench(['t1', 't2', 't3', 't4', 't5', 't6'])
@@ -64,11 +77,10 @@ describe('AmpStaMac (PDT 39.4 UL channel access)', () => {
     for (const d of draws) if (d.slot === null) expect(d.aboc).toBeGreaterThanOrEqual(1)
   })
   it('slot k ≥ 2 is keyed to the Ack that closes slot k−1: AMP SIFS after its end', () => {
-    // seed chosen so t1 draws slot 2: scan seeds until it does (documented in the test).
-    let b = bench(['t1'], 1)
-    let seed = 1
-    for (; seed < 200; seed++) { b = bench(['t1'], seed); b.send(0, b.trig(4, 2)); b.run(700_000); if (b.recs('AMP_ABOC')[0].slot === 2) break }
-    expect(b.recs('AMP_ABOC')[0].slot).toBe(2)
+    const b = bench(['t1'], SEED_SLOT2)
+    b.send(0, b.trig(4, 2))
+    b.run(700_000)
+    expect(b.recs('AMP_ABOC')[0].slot).toBe(2) // the precondition the rest of the test needs
     const trigEnd = b.recs('TX_END', 'ap')[0].t
     expect(b.recs('MAC_STATE', 't1').some((r) => r.state === 'ampWait')).toBe(true)
     // the AP closes slot 1 (nobody was there) with an Ack addressed to itself
@@ -89,8 +101,10 @@ describe('AmpStaMac (PDT 39.4 UL channel access)', () => {
     expect(b.recs('MAC_STATE', 't1').filter((r) => r.state === 'rx').length).toBe(1)
   })
   it('an Ack for its slot addressed to someone else means the response was lost', () => {
-    let b = bench(['t1'], 1)
-    for (let seed = 1; seed < 200; seed++) { b = bench(['t1'], seed); b.send(0, b.trig(4, 2)); b.run(700_000); if (b.recs('AMP_ABOC')[0].slot === 1) break }
+    const b = bench(['t1'], SEED_SLOT1)
+    b.send(0, b.trig(4, 2))
+    b.run(700_000)
+    expect(b.recs('AMP_ABOC')[0].slot).toBe(1)
     const tx = b.recs('TX_START', 't1')[0]
     const ack1 = tx.t + 272_000 + AMP_SIFS_NS
     b.send(ack1, b.ack('ap', 1))
@@ -114,9 +128,10 @@ describe('AmpStaMac (PDT 39.4 UL channel access)', () => {
     expect(b.recs('TX_START', 't3').length).toBe(0)
   })
   it('a tag that cannot decode the Ack it keys on loses the round', () => {
-    let b = bench(['t1'], 1, { 'ap>t1': -50 })
-    let seed = 1
-    for (; seed < 200; seed++) { b = bench(['t1'], seed); b.send(0, b.trig(4, 2)); b.run(700_000); if (b.recs('AMP_ABOC')[0].slot === 3) break }
+    const b = bench(['t1'], SEED_SLOT3)
+    b.send(0, b.trig(4, 2))
+    b.run(700_000)
+    expect(b.recs('AMP_ABOC')[0].slot).toBe(3)
     const trigEnd = b.recs('TX_END', 'ap')[0].t
     const ack1 = trigEnd + AMP_SIFS_NS + 272_000 + AMP_SIFS_NS
     b.send(ack1, b.ack('ap', 1))
@@ -134,9 +149,9 @@ describe('AmpStaMac (PDT 39.4 UL channel access)', () => {
     expect(b.recs('TX_START', 't1').length).toBe(0)
   })
   it('a corrupted reception while a round is open (not yet sent) gives up and cancels its pending transmission', () => {
-    // seed 1 draws t1 slot 1 (ACWE 2, 4 slots): its response is scheduled at
+    // SEED_SLOT1 draws t1 slot 1 (ACWE 2, 4 slots): its response is scheduled at
     // trigEnd + SIFS = 628_000, but never gets there — stop the clock first.
-    const b = bench(['t1'], 1)
+    const b = bench(['t1'], SEED_SLOT1)
     b.send(0, b.trig(4, 2))
     b.run(620_000)
     expect(b.recs('AMP_ABOC')[0].slot).toBe(1)
@@ -151,10 +166,45 @@ describe('AmpStaMac (PDT 39.4 UL channel access)', () => {
     expect(b.recs('TX_START', 't1').length).toBe(0)
     expect(b.recs('AMP_RESULT', 't1').length).toBe(1)
   })
+  it('a corrupted reception while a tag waits for a later slot gives the round up on the spot', () => {
+    // The armed-and-waiting path: no transmission is scheduled yet (slot 3), the
+    // tag is simply counting Acks, and the one it keys on does not decode.
+    const b = bench(['t1'], SEED_SLOT3)
+    b.send(0, b.trig(4, 2))
+    b.run(700_000)
+    expect(b.recs('AMP_ABOC')[0].slot).toBe(3)
+    expect(b.recs('MAC_STATE', 't1').pop()!.state).toBe('ampWait')
+    b.tags[0].onRxCorrupt(700_000)
+    expect(b.recs('AMP_RESULT', 't1')).toHaveLength(1)
+    expect(b.recs('AMP_RESULT', 't1')[0]).toMatchObject({ slot: 3, sent: false, acked: false })
+    expect(b.recs('MAC_STATE', 't1').pop()!.state).toBe('idle')
+    // and nothing is left to fire: no transmission, no second result from the end timer
+    b.run(4_000_000)
+    expect(b.recs('TX_START', 't1').length).toBe(0)
+    expect(b.recs('AMP_RESULT', 't1')).toHaveLength(1)
+  })
+  it('a tag that missed its own cue stays silent when the Ack that closes its slot arrives', () => {
+    // t1 is due in slot 4 but never decodes Ack 1, so by Ack 4 it has seen three
+    // Acks — slot − 1. That must not arm it: Ack 4 closes the slot it was due in,
+    // and transmitting after it would land on top of whatever the AP does next.
+    const b = bench(['t1'], SEED_SLOT4)
+    b.send(0, b.trig(4, 2))
+    b.run(700_000)
+    expect(b.recs('AMP_ABOC')[0].slot).toBe(4)
+    const trigEnd = b.recs('TX_END', 'ap')[0].t
+    const ackStart = (k: number) => trigEnd + AMP_SIFS_NS + (k - 1) * SLOT_PERIOD_NS + 272_000 + AMP_SIFS_NS
+    for (const k of [2, 3, 4]) b.send(ackStart(k), b.ack('ap', k)) // Ack 1 is the one it misses
+    b.run(ackStart(4) + 330_000 + 200_000)
+    expect(b.recs('TX_START', 't1').length).toBe(0)
+    expect(b.recs('AMP_RESULT', 't1')).toHaveLength(1)
+    expect(b.recs('AMP_RESULT', 't1')[0]).toMatchObject({ slot: 4, sent: false, acked: false })
+    // closed by Ack 4 itself, not by the round's end timer (trigEnd + 2_538_000)
+    expect(b.recs('AMP_RESULT', 't1')[0].t).toBe(ackStart(4) + 330_000)
+  })
   it('a new Trigger cancels a still-open round: no stray result from the abandoned timer', () => {
-    // seed 3 draws t1 slot 2 (ACWE 2, 4 slots): with no Ack ever sent for
+    // SEED_SLOT2 draws t1 slot 2 (ACWE 2, 4 slots): with no Ack ever sent for
     // slot 1, the round just sits in ampWait on its (far-future) end timer.
-    const b = bench(['t1'], 3)
+    const b = bench(['t1'], SEED_SLOT2)
     b.send(0, b.trig(4, 2))
     b.send(620_000, b.trig(4, 2)) // well before the first round's own end timer (t=3_156_000)
     b.run(4_000_000)

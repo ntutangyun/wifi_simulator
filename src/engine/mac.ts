@@ -1186,11 +1186,9 @@ export class WifiMac implements PhyListener {
         // A tag's slotted response: only the round cares, and it never answers
         // one frame at a time (the slot's Ack closes it).
         this.ampRound?.onRxOk(frame, from)
-      } else {
-        // A Wi-Fi station overhearing an AMP DL PPDU: nothing to answer, and no
-        // Duration to take a NAV from.
-        this.corruptLast = false
       }
+      // A Wi-Fi station overhearing an AMP DL PPDU has nothing to answer and no
+      // Duration to take a NAV from; `corruptLast` was already cleared above.
       return
     }
     const myPart = frame.muParts?.find((p) => p.dst === this.nodeId)
@@ -1217,7 +1215,6 @@ export class WifiMac implements PhyListener {
   }
 
   onRxCorrupt(_t: Ns): void {
-    this.ampRound?.onRxFail()
     // An empty or collided AMP slot is not a reason to arm EIFS: the AP owns
     // the medium until the round's last Ack and answers on AMP SIFS.
     if (!this.ampRound?.active) this.corruptLast = true

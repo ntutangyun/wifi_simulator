@@ -510,7 +510,9 @@ export function applyRecord(vs: ViewState, r: TLRecord): void {
       // The reducer does not know the AP's read mode, so it keeps the round
       // alive through the AP's own tx/waitAck (trigger, ack) and clears it on
       // any other state — the next round starts a fresh one either way.
-      if (r.state !== 'tx' && r.state !== 'waitAck') n.ampRound = null
+      // Only a lane that can hold a round (an AP's) is cleared; a STA or tag
+      // lane keeps `ampRound` undefined rather than acquiring a null field.
+      if (n.ampRound !== undefined && r.state !== 'tx' && r.state !== 'waitAck') n.ampRound = null
       break
     }
     case 'COLLISION':

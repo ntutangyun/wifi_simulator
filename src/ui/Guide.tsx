@@ -119,8 +119,8 @@ function GuideEn() {
       </p>
       <p style={p}>
         On the timeline: teal blocks are the AP's downlink AMP PPDUs (Trigger, Ack), violet blocks are a{' '}
-        {chip('#a78bfa')}tag's uplink response, and the AP's lane shows a tick per slot with a labelled
-        span while a tag is armed and waiting for its turn.
+        {chip('#a78bfa')}tag's uplink response. The AP's lane carries a thin tick at every slot boundary;
+        each tag's own lane carries the labelled span it spends armed and waiting for its turn.
       </p>
       <p style={p}>
         P802.11bp is an unratified draft (D0.5 May 2026, D1.0 letter ballot September 2026) — this
@@ -243,8 +243,8 @@ function GuideZh() {
       </p>
       <p style={p}>
         在时间轴上：青色块是 AP 的下行 AMP PPDU（触发帧、Ack），紫色块是
-        {chip('#a78bfa')}标签的上行应答；AP 的泳道上每个时隙都有一个刻度，
-        标签等待时隙时会显示一段标注了时隙号的等待区间。
+        {chip('#a78bfa')}标签的上行应答；AP 的泳道上每个时隙边界都有一道细刻度，
+        而标签自己的泳道上会显示一段带标注的等待区间，即它待命等待自己时隙的那段时间。
       </p>
       <p style={p}>
         P802.11bp 目前仍是未获批准的草案（D0.5 于 2026 年 5 月发布，D1.0 将于 2026 年 9 月进入

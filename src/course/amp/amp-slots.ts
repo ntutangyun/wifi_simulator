@@ -42,8 +42,8 @@ export const ampSlots: Lesson = {
       zh: 'IEEE P802.11bp 仍是草案：D0.5 于 2026 年 5 月发布，D1.0 将于 2026 年 9 月进入 letter ballot。本课拆解的上行接入来自提案草案文本 11-26/1889r4 第 39.4 节，触发过程见 11-26/1519r5。第一课里每个标签都有自己的时隙，根本不必问“时隙该给谁”。这一课要问的是更难的问题：当想要时隙的标签比时隙还多时，会发生什么？',
     } },
     { heading: { en: 'The scene: six tags, four slots', zh: '场景：六个标签，四个时隙' }, text: {
-      en: 'Six tags sit on a ring 2 m from the router. The geometry is deliberate: every one hears the router at −37.2 dBm and reaches it at −57.2 dBm — 34.8 dB of downlink margin, 36.8 dB up — with under a hundredth of a decibel between them. Capture needs one signal 5 dB above the rest, inside the 48 µs of AMP-Sync that is an uplink response’s whole preamble. Nothing here has it, so a collision is always a collision.',
-      zh: '六个标签均匀分布在距路由器 2 m 的圆环上。这个几何布置是刻意的：每个标签收到路由器的下行都是 −37.2 dBm，到达 AP 的上行都是 −57.2 dBm——下行余量 34.8 dB，上行余量 36.8 dB——六者之间的差异不到百分之一分贝。捕获要求某一路信号比其他路高出 5 dB，而且必须落在上行回应仅有的那 48 µs AMP-Sync 之内。这里谁都没有这个余量，所以碰撞永远就是碰撞。',
+      en: 'Six tags sit on a ring 2 m from the router. The geometry is deliberate: every one hears the router at −30.7 dBm and reaches it at −50.7 dBm — 41.3 dB of downlink margin, 43.3 dB up — with under a hundredth of a decibel between them. Capture needs one signal 5 dB above the rest, inside the 48 µs of AMP-Sync that is an uplink response’s whole preamble. Nothing here has it, so a collision is always a collision.',
+      zh: '六个标签均匀分布在距路由器 2 m 的圆环上。这个几何布置是刻意的：每个标签收到路由器的下行都是 −30.7 dBm，到达 AP 的上行都是 −50.7 dBm——下行余量 41.3 dB，上行余量 43.3 dB——六者之间的差异不到百分之一分贝。捕获要求某一路信号比其他路高出 5 dB，而且必须落在上行回应仅有的那 48 µs AMP-Sync 之内。这里谁都没有这个余量，所以碰撞永远就是碰撞。',
     } },
     { text: {
       en: 'The router polls every 20 ms, so thirty rounds fit into 600 ms — the window every number below is measured over. The round itself is unchanged from lesson 1: 50 + 10 + 618 + 4 × (10 + 528 + 10 + 330) = 4190 µs. Its price is not: 20.95 % of every 20 ms instead of 4.19 % of every 100 ms.',

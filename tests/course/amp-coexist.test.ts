@@ -13,6 +13,7 @@ import { AMP_SIFS_NS, ampDlPpduNs, ampTriggerBytes, ampUlPpduNs, ampRespBytes, A
 import { CCA_ED_DBM, CTS_BYTES, EDCA_PARAMS, ERP_2G, aifsNs, txTimeNs } from '../../src/engine/phy'
 import { LINK_EXTRA_LOSS_DB } from '../../src/engine/simulation'
 import { buildLinkTable } from '../../src/engine/propagation'
+import { rssiOn } from './rssi'
 import { decodeFrame } from '../../src/model/frameFields'
 import { fmtRecord } from '../../src/ui/format'
 import type { TLRecord } from '../../src/model/records'
@@ -190,14 +191,14 @@ describe('amp-coexist · standard constants', () => {
     expect(LINK_EXTRA_LOSS_DB['2g']).toBe(-6.5)
     expect(LINK_EXTRA_LOSS_DB['5g']).toBe(0)
     const links = buildLinkTable(s.nodes, s.walls)
-    const atCam = (from: string) => links.get(from)!.get('cam')! - LINK_EXTRA_LOSS_DB['2g']
+    const atCam = (from: string) => rssiOn('2g', links, from, 'cam')
     expect(atCam('tag-2').toFixed(1)).toBe('-65.7')
     expect(atCam('tag-1').toFixed(1)).toBe('-71.7')
     expect(CCA_ED_DBM).toBe(-62)
     for (const t of ['tag-1', 'tag-2']) expect(atCam(t)).toBeLessThan(CCA_ED_DBM)
     // and beside the plant tag it is well above it — the second "try this"
     const moved = ampCoexistScenario({ protection: 'none', cam: { x: 4, y: 5.6 } })
-    const near = buildLinkTable(moved.nodes, moved.walls).get('tag-2')!.get('cam')! - LINK_EXTRA_LOSS_DB['2g']
+    const near = rssiOn('2g', buildLinkTable(moved.nodes, moved.walls), 'tag-2', 'cam')
     expect(near).toBeGreaterThan(CCA_ED_DBM)
   })
 })
@@ -520,9 +521,9 @@ describe('amp-coexist · try this', () => {
     expect(ofType(rs, 'RX_FAIL').filter((r) => r.node === AP && r.reason === 'collision').length).toBe(0)
     expect(acked(rs)).toBe(26)
     expect(acked(recs(NONE))).toBe(7)
-    // "the price is five rounds in which a tag, deafened by the camera beside it, never answers at all"
-    expect(results(rs).length).toBe(35)
-    expect(2 * ROUNDS - 35).toBe(5)
+    // "the price is seven rounds in which a tag, deafened by the camera beside it, never answers at all"
+    expect(results(rs).length).toBe(33)
+    expect(2 * ROUNDS - 33).toBe(7)
   })
 
   it('the no-protection variant also costs the camera: 78 unanswered RTS and 94.08 Mb/s', () => {

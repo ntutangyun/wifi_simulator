@@ -35,11 +35,6 @@ export interface AmpApDeps {
 type Phase = 'random' | 'scheduled'
 
 export class AmpApRound {
-  readonly stats = {
-    rounds: 0, responses: 0, failedSlots: 0, readings: 0,
-    discovered: new Set<string>(),
-  }
-
   private running = false
   private sessionId = 0
   /** The slot the round is in right now (0 outside a slot). */
@@ -132,7 +127,6 @@ export class AmpApRound {
       t, type: 'AMP_ROUND', node: this.deps.nodeId, phase, slots, slotNs, acwe: this.cfg.acwe,
       dlKbps: this.cfg.dlKbps, ulKbps: this.cfg.ulKbps, untilNs: t + frame.txTimeNs + airNs,
     })
-    if (phase === 'random') this.stats.rounds++
     this.deps.transmit(frame)
     this.deps.q.schedule(t + frame.txTimeNs + AMP_SIFS_NS, () => this.slotStart(1))
   }
@@ -174,13 +168,5 @@ export class AmpApRound {
     if (!a || a.slot !== this.current || this.current === 0 || this.received.has(this.current)) return
     this.received.set(this.current, from)
     if (this.phase === 'random') this.heard.push(from)
-    this.stats.responses++
-    this.stats.discovered.add(from)
-    if (a.reading) this.stats.readings++
-  }
-
-  /** A slot's energy did not decode: a collision, a weak tag, or a Wi-Fi station talking over it. */
-  onRxFail(): void {
-    if (this.running && this.current > 0) this.stats.failedSlots++
   }
 }

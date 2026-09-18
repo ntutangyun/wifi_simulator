@@ -8,6 +8,11 @@
  * the three rounds it fails to), what the round costs in airtime and in the
  * camera's throughput, and why the 5 GHz lane never notices. Every number
  * quoted below is pinned in tests/course/amp-coexist.test.ts.
+ *
+ * CAUTION — word budget: the English prose sits within ~45 words of the ceiling at
+ * which `lessonMinutes` rounds up from 25 to 30 minutes (2025 English words across
+ * body + observe + tryThis + quiz). Adding a sentence here means removing one
+ * elsewhere, or the lesson's own study-time test fails.
  */
 import type { NodeCfg, Scenario } from '../../model/scenario'
 import {
@@ -161,7 +166,7 @@ export const ampCoexist: Lesson = {
   ],
   tryThis: [
     { en: 'Set protection to “none” in the editor’s AMP polling section and compare the two runs. The acknowledged share falls from 72.5 % to 17.5 % and the camera frames landing inside a slot go from 9 to 79 — but look at the camera too: 78 unanswered RTS instead of 8, and 94.08 Mb/s instead of 99.89. Then work out why protecting the round made the unprotected station faster.', zh: '在编辑器的 AMP 轮询设置里把 protection 改成 “none”，或者直接载入“不加保护”变体，然后对比两次运行。确认率从 72.5 % 掉到 17.5 %，落进时隙的摄像头帧从 9 帧涨到 79 帧——但也别忘了看摄像头自己：无人应答的 RTS 从 8 次变成 78 次，吞吐从 99.89 Mb/s 掉到 94.08 Mb/s。然后想一想：为什么保护这个轮，反而让没被保护的那个终端更快了？' },
-    { en: 'Drag the camera to (4, 5.6), 40 cm from the plant tag, and reload the no-protection variant: the camera now hears the tag’s own signal well above −62 dBm, defers on it, and the router records not one collision instead of 25. 26 readings are acknowledged where 7 were. The price is five rounds in which a tag, deafened by the camera beside it, never answers at all — carrier sense protects the slot only for whoever can hear it.', zh: '把摄像头拖到 (4, 5.6)，离植物标签只有 40 cm，再载入“不加保护”变体：摄像头现在能听见标签的信号，而且远高于 −62 dBm，于是乖乖退避，路由器记下的碰撞从 25 次变成一次也没有，被确认的读数从 7 个涨到 26 个。代价是有五个轮里，某个标签被身旁的摄像头吵聋，干脆一声不吭——载波侦听只能保护那些听得见的人。' },
+    { en: 'Drag the camera to (4, 5.6), 40 cm from the plant tag, and reload the no-protection variant: the camera now hears the tag’s own signal well above −62 dBm, defers on it, and the router records not one collision instead of 25. 26 readings are acknowledged where 7 were. The price is seven rounds in which a tag, deafened by the camera beside it, never answers at all — carrier sense protects the slot only for whoever can hear it.', zh: '把摄像头拖到 (4, 5.6)，离植物标签只有 40 cm，再载入“不加保护”变体：摄像头现在能听见标签的信号，而且远高于 −62 dBm，于是乖乖退避，路由器记下的碰撞从 25 次变成一次也没有，被确认的读数从 7 个涨到 26 个。代价是有七个轮里，某个标签被身旁的摄像头吵聋，干脆一声不吭——载波侦听只能保护那些听得见的人。' },
   ],
   quiz: [
     {

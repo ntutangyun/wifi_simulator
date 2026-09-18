@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import {
-  addOpening, hitTestNode, hitTestWall, newTag, roomsToWalls, scenarioFromJson, scenarioToJson, spawnRandomStas,
+  addOpening, clampField, generationPatch, hitTestNode, hitTestWall, newTag, roomsToWalls,
+  scenarioFromJson, scenarioToJson, spawnRandomStas,
 } from '../../src/editor/planOps'
-import { defaultScenario, ScenarioSchema, type Room, type Wall } from '../../src/model/scenario'
+import { DEFAULT_AMP_AP, defaultScenario, ScenarioSchema, type Room, type Wall } from '../../src/model/scenario'
 import { Rng } from '../../src/engine/rng'
 
 const rooms: Room[] = [
@@ -92,6 +93,69 @@ describe('newTag', () => {
     expect(() => ScenarioSchema.parse(sc)).not.toThrow()
     const again = newTag(sc, { x: 4, y: 4 })
     expect(again.id).not.toBe(id)
+  })
+})
+
+describe('generationPatch', () => {
+  /** The AMP lab the editor can build by hand: a Wi-Fi 7 AP that polls, plus one tag. */
+  const ampLab = () => {
+    const base = defaultScenario()
+    base.nodes[0].caps = { generation: 'eht', features: { edca: true } }
+    base.nodes[0].ampAp = { ...DEFAULT_AMP_AP }
+    return newTag(base, { x: 3, y: 3 }).sc
+  }
+
+  it('an AMP lab round-trips through JSON unchanged', () => {
+    const sc = ampLab()
+    expect(() => ScenarioSchema.parse(sc)).not.toThrow()
+    expect(scenarioFromJson(scenarioToJson(sc))).toEqual(sc)
+  })
+
+  it('switching the polling AP off Wi-Fi 7 drops ampAp, so the scenario stays loadable', () => {
+    const sc = ampLab()
+    const ap = { ...sc.nodes[0], ...generationPatch(sc.nodes[0], 'he') }
+    expect(ap.ampAp).toBeUndefined()
+    expect(ap.caps.generation).toBe('he')
+    const next = { ...sc, nodes: [ap, ...sc.nodes.slice(1)] }
+    expect(() => ScenarioSchema.parse(next)).not.toThrow()
+    expect(scenarioFromJson(scenarioToJson(next)).nodes[0].ampAp).toBeUndefined()
+    // and it comes back when the AP is Wi-Fi 7 again — but only if it still has one
+    expect(generationPatch(ap, 'eht').ampAp).toBeUndefined()
+    expect(generationPatch(sc.nodes[0], 'eht').ampAp).toEqual(DEFAULT_AMP_AP)
+  })
+
+  it('drops a link the new generation cannot use, and keeps the flags it can', () => {
+    const sc = defaultScenario()
+    const sta = { ...sc.nodes[1], linkId: '6g' as const, caps: { generation: 'eht' as const, features: { edca: true } } }
+    expect(generationPatch(sta, 'nonht').linkId).toBeUndefined()
+    expect(generationPatch(sta, 'vht').linkId).toBeUndefined()
+    expect(generationPatch(sta, 'he').linkId).toBe('6g')
+    expect(generationPatch(sta, 'he').caps!.features.edca).toBe(true)
+  })
+})
+
+describe('clampField', () => {
+  it('holds the AMP number inputs inside the schema bounds, empty field included', () => {
+    expect(clampField('', 10, 10_000)).toBe(10)
+    expect(clampField('  ', 10, 10_000)).toBe(10)
+    expect(clampField('abc', 1, 16, true)).toBe(1)
+    expect(clampField('99999', 10, 10_000)).toBe(10_000)
+    expect(clampField('0', 1, 16, true)).toBe(1)
+    expect(clampField('2.6', 1, 16, true)).toBe(3)
+    expect(clampField('7', 0, 4, true)).toBe(4)
+    expect(clampField('20', 10, 10_000)).toBe(20)
+  })
+
+  it('a clamped AMP config still parses', () => {
+    const sc = defaultScenario()
+    sc.nodes[0].caps = { generation: 'eht', features: { edca: true } }
+    sc.nodes[0].ampAp = {
+      ...DEFAULT_AMP_AP,
+      pollIntervalMs: clampField('', 10, 10_000),
+      slots: clampField('', 1, 16, true),
+      acwe: clampField('', 0, 4, true),
+    }
+    expect(() => ScenarioSchema.parse(sc)).not.toThrow()
   })
 })
 
