@@ -11,26 +11,14 @@
  * CAUTION — word budget: `lessonMinutes` rounds to 25 minutes anywhere between
  * 975 and 1725 English words across body + observe + tryThis + quiz (4 observe
  * items and 2 experiments already account for 16 of those minutes). The prose
- * below is around 1680 words, so there is room for perhaps forty more; adding
- * a paragraph means removing one, or the lesson's own study-time test fails.
+ * below totals 1694 words, so there is room for thirty more and no more: adding
+ * a sentence means deleting one, or the lesson's own study-time test fails.
  */
 import type { Scenario } from '../../model/scenario'
 import {
-  J, N, anchor, brick, firstUwbPoll, firstUwbRange, firstUwbResp, firstUwbRxTs, uwbSc, uwbTag,
+  J, N, anchor, firstUwbPoll, firstUwbRange, firstUwbResp, firstUwbRxTs, rangingLab, uwbSc, uwbTag,
   type Lesson,
 } from '../lessonKit'
-
-/**
- * A 22 × 8 m hall: long enough that the phone is still indoors, and on the
- * anchor's side of every wall, at both 5 m and 20 m. Nothing is in the way, so
- * the flight time is exactly the separation divided by c.
- */
-function rangingLab(): Parameters<typeof uwbSc>[0] {
-  return {
-    rooms: [{ x: 0, y: 0, w: 22, h: 8, name: 'Hall' }],
-    walls: [brick(0, 0, 22, 0), brick(22, 0, 22, 8), brick(22, 8, 0, 8), brick(0, 8, 0, 0)],
-  }
-}
 
 /** The lab: one anchor, one phone, exactly dM metres apart at the same height. */
 export function uwbIntroScenario(dM: 5 | 20): Scenario {
@@ -50,8 +38,8 @@ export const uwbIntro: Lesson = {
       zh: 'IEEE Std 802.15.4-2024 是已经发布的标准，不是草案。第 16 章的 HRP UWB PHY、§10.29 的测距计数器与 RMARKER、§10.32 的 SP1 分组配置都是标准正文；下面每一个码片数、符号数和字段时长都由它们推导而来。有两个数字不属于标准：2 ms 的测距时隙和 200 ms 的测距块来自 FiRa 的 UWB 配置文件。其余都是仿真器自己的模型取值，这里列出来方便你质疑：−14 dBm 发射功率、−93 dBm 接收灵敏度、每个接收时间戳上 100 ps 的 1σ 噪声、时钟偏差估计中残留的 0.2 ppm 误差，以及墙体给遮挡路径额外增加的时延。',
     } },
     { heading: { en: 'A radio that measures time', zh: '一台测量时间的射频' }, text: {
-      en: 'This course has so far been about moving bits: a frame occupies the channel, and the MAC decides who may start. Ultra-wideband ranging inverts that. The poll here carries 30 octets and spends 197.628 µs on the air — an eternity, by Wi-Fi standards, for so little payload. The payload is not the point. The instant the frame began is.',
-      zh: '本课程此前讲的都是在搬运比特：一帧占用信道，MAC 决定谁可以开始发送。超宽带测距把这件事反了过来。本课里的 Poll 帧只装 30 个字节，却要占用 197.628 µs 的空口时间——按 Wi-Fi 的标准，这么点净荷花这么久简直是天荒地老。但净荷不是重点，这一帧开始的那个瞬间才是。',
+      en: 'This course has so far been about moving bits: a frame occupies the channel, and the MAC decides who may start. Ultra-wideband ranging inverts that. The poll here carries 30 octets and spends 197.628 µs on the air — an eternity, by Wi-Fi standards. The payload is not the point. The instant the frame began is.',
+      zh: '本课程此前讲的都是在搬运比特：一帧占用信道，MAC 决定谁可以开始发送。超宽带测距把这件事反了过来。本课里的 Poll 帧只装 30 个字节，却要占用 197.628 µs 的空口时间——按 Wi-Fi 的标准简直是天荒地老。但净荷不是重点，这一帧开始的那个瞬间才是。',
     } },
     { text: {
       en: 'The HRP UWB PHY sends its pulses at 499.2 MHz, so one chip lasts 2.003 ns. The ranging counter runs 128 times finer: one ranging counter time unit (RCTU) is 2⁻⁷ of a chip, 15.650 ps. That is the resolution of every number in this lesson. Light covers one metre in 3.3356 ns, which is 213.1 RCTU, so one tick of the counter is 4.7 mm of flight — and because two-way ranging halves a round trip, one tick of timing error is 2.3 mm of distance error.',
@@ -70,7 +58,7 @@ export const uwbIntro: Lesson = {
       [{ en: 'STS, 64 × 512 chips', zh: 'STS，64 × 512 个码片' }, N('65.641 µs'), { en: 'unforgeable timing sequence', zh: '无法伪造的定时序列' }],
       [{ en: 'STS gap', zh: 'STS 间隔' }, N('1.026 µs'), { en: '512 more chips', zh: '再来 512 个码片' }],
       [{ en: 'PHR, 19 symbols', zh: 'PHR，19 个符号' }, N('19.487 µs'), { en: 'length and data rate', zh: '长度与数据速率' }],
-      [{ en: 'PSDU, 30 octets', zh: 'PSDU，30 个字节' }, N('37.179 µs'), { en: 'the poll, at 6.81 Mb/s', zh: 'Poll 帧，速率 6.81 Mb/s' }],
+      [{ en: 'PSDU, 30 octets', zh: 'PSDU，30 个字节' }, N('37.179 µs'), { en: 'the poll at 6.81 Mb/s: 240 data bits, 48 parity bits, a 2-symbol tail', zh: 'Poll 帧，速率 6.81 Mb/s：240 个数据比特、48 个校验比特，外加 2 个符号的尾' }],
       [{ en: 'The whole poll', zh: '整帧 Poll' }, N('197.628 µs'), { en: '160.449 µs structure, 37.179 µs message', zh: '结构 160.449 µs，消息 37.179 µs' }],
     ] },
     { text: {
@@ -134,7 +122,7 @@ export const uwbIntro: Lesson = {
     { en: 'Jump to the poll and zoom the timeline down to nanoseconds. TX_START on the phone’s lane is at 0 ns and RX_START on the anchor’s is at 17 ns — five metres of air, drawn to scale for once.', zh: '跳到 Poll 帧，把时间线一直放大到纳秒级。手机泳道上的 TX_START 在 0 ns，锚点泳道上的 RX_START 在 17 ns——五米空气，这一次是按真实比例画出来的。' },
     { en: 'Read the four UWB_TS lines in the log, in order: the phone’s TX RMARKER, the anchor’s RX RMARKER, the anchor’s TX RMARKER, the phone’s RX RMARKER. Two are stamped on one crystal, two on the other; nothing else in the round is measured.', zh: '按顺序读日志里的四条 UWB_TS：手机的 TX RMARKER、锚点的 RX RMARKER、锚点的 TX RMARKER、手机的 RX RMARKER。两条读自一个晶振，两条读自另一个；这一轮里再没有别的东西被测量。' },
     { en: 'Find the UWB_RANGE line at 2 187 389 ns. It reports 4.95 m against a true 5.00 m, with the raw 5.02 m beside it — a few centimetres out, from timestamp noise and a clock correction that had nothing to correct.', zh: '找到 2 187 389 ns 处的 UWB_RANGE。它报出 4.95 m，真值 5.00 m，旁边还附着 raw 的 5.02 m——差了几厘米，来自时间戳噪声，以及一次本来无事可修的时钟修正。' },
-    { en: 'Look at the phone’s lane as a whole: the round is two slots of 2 ms, the poll in slot 0 and the response in slot 1, which starts at exactly 2 000 000 ns. Of those 4 ms, 385 µs carries a frame; the rest is schedule.', zh: '再整体看手机这条泳道：一轮由两个 2 ms 的时隙组成，Poll 在时隙 0，Response 在时隙 1，而时隙 1 恰好从 2 000 000 ns 开始。这 4 ms 里只有 385 µs 真的在传帧，其余全是日程表。' },
+    { en: 'Look at the phone’s lane as a whole: the round is two slots of 2 ms, the poll in slot 0 and the response in slot 1, which starts at exactly 2 000 000 ns. Of those 4 ms, only 385 µs carries a frame.', zh: '再整体看手机这条泳道：一轮由两个 2 ms 的时隙组成，Poll 在时隙 0，Response 在时隙 1，而时隙 1 恰好从 2 000 000 ns 开始。这 4 ms 里只有 385 µs 真的在传帧。' },
   ],
   tryThis: [
     { en: 'Load the 20 m variant. The arrival gap grows from 17 ns to 67 ns: four times the distance is four times the flight, 16.678 ns becoming 66.713 ns, each rounded up onto the grid. The range line now reads 19.95 m against a true 20.00 m. Note what did not grow: the error is still about 5 cm, because timestamp noise does not care how far the frame flew.', zh: '载入 20 m 变体。到达间隔从 17 ns 变成 67 ns：距离四倍，飞行时间也四倍——16.678 ns 变成 66.713 ns，各自向上取整到网格上。测距行现在报 19.95 m，真值 20.00 m。留意什么没有跟着变大：误差依然是 5 cm 上下，因为时间戳噪声并不在乎这一帧飞了多远。' },

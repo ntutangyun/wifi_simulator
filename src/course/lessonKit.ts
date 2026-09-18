@@ -8,6 +8,7 @@ import type { AmpApCfg, NodeCfg, ProfileId, Room, Scenario, UwbSessionCfg, Wall 
 import { DEFAULT_AMP_AP, DEFAULT_UWB_SESSION } from '../model/scenario'
 import type { TLRecord } from '../model/records'
 import type { Generation } from '../model/types'
+import { UWB_TX_POWER_DBM } from '../uwb/phy'
 
 export interface L10n {
   en: string
@@ -157,12 +158,13 @@ export function ampAp(id: string, name: string, x: number, y: number, amp: Parti
 /**
  * A UWB node: no Wi-Fi profile to run and no Wi-Fi capabilities to speak of,
  * so it idles on the Wi-Fi side and does all its work in the ranging session.
- * −14 dBm is the model's default UWB transmit power (−41.3 dBm/MHz over the
- * 499.2 MHz channel).
+ * The transmit power is the engine's own UWB default (−41.3 dBm/MHz mean EIRP
+ * over the 499.2 MHz channel), taken from phy.ts rather than re-typed here, so a
+ * lesson's link budget cannot drift away from the engine's.
  */
 function uwbNode(id: string, name: string, role: 'anchor' | 'tag', x: number, y: number, z: number, ppm?: number): NodeCfg {
   return {
-    id, kind: 'uwb', name, pos: { x, y, z }, txPowerDbm: -14,
+    id, kind: 'uwb', name, pos: { x, y, z }, txPowerDbm: UWB_TX_POWER_DBM,
     profiles: ['idle'], caps: { generation: 'nonht', features: {} },
     uwb: { role, ...(ppm === undefined ? {} : { ppm }) },
   }
@@ -178,12 +180,30 @@ export function uwbTag(id: string, name: string, x: number, y: number, z = 1.0, 
   return uwbNode(id, name, 'tag', x, y, z, ppm)
 }
 
-/** sc() with a ranging session attached: a UWB scenario needs one as soon as it holds a UWB node. */
+/**
+ * sc() with a ranging session attached: a UWB scenario needs one as soon as it
+ * holds a UWB node. `extra` is spread BEFORE the session, so an `extra.uwb`
+ * cannot silently replace the DEFAULT_UWB_SESSION merge `session` refines —
+ * pass session overrides in `session`, which is the only argument that merges.
+ */
 export function uwbSc(
   house: { rooms: Room[]; walls: Wall[] }, nodes: NodeCfg[],
   session: Partial<UwbSessionCfg> = {}, extra: Partial<Scenario> = {},
 ): Scenario {
-  return sc(house, nodes, { uwb: { ...DEFAULT_UWB_SESSION, ...session }, ...extra })
+  return sc(house, nodes, { ...extra, uwb: { ...DEFAULT_UWB_SESSION, ...session } })
+}
+
+/**
+ * The UWB hall: a 22 × 8 m room inside one brick shell. Long enough that a tag
+ * 20 m from an anchor on the same line is still indoors and still on the
+ * anchor's side of every wall, so the flight time is exactly the separation
+ * divided by c. oneRoom()'s 10 × 8 m cannot hold that span.
+ */
+export function rangingLab(): { rooms: Room[]; walls: Wall[] } {
+  return {
+    rooms: [{ x: 0, y: 0, w: 22, h: 8, name: 'Hall' }],
+    walls: [brick(0, 0, 22, 0), brick(22, 0, 22, 8), brick(22, 8, 0, 8), brick(0, 8, 0, 0)],
+  }
 }
 
 // ---------------------------------------------------------------------------
