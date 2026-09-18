@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  buildLinkTable, pathLossDb, rxPowerDbm, segIntersectT, wallLossDb,
+  buildLinkTable, pathLossDb, rxPowerDbm, segIntersectT, wallLossDb, wallsCrossed,
 } from '../../src/engine/propagation'
 import type { Wall } from '../../src/model/scenario'
 import { defaultScenario } from '../../src/model/scenario'
@@ -32,6 +32,26 @@ describe('wallLossDb', () => {
     // crossing at 1 m from wall start; door spans 0.8–1.6 m
     expect(wallLossDb(a, b, [wall(2, 0, 2, 4, 'brick', [{ from: 0.8, to: 1.6 }])])).toBe(0)
     expect(wallLossDb(a, b, [wall(2, 0, 2, 4, 'brick', [{ from: 2.0, to: 2.9 }])])).toBe(12)
+  })
+})
+
+describe('wallsCrossed', () => {
+  const a = { x: 0, y: 1, z: 1 }
+  const b = { x: 4, y: 1, z: 1 }
+  it('lists the materials in wall order', () => {
+    expect(wallsCrossed(a, b, [wall(2, 0, 2, 4, 'drywall'), wall(3, 0, 3, 4, 'glass')])).toEqual(['drywall', 'glass'])
+  })
+  it('skips missed walls and openings, agreeing with wallLossDb', () => {
+    const walls = [
+      wall(2, 0, 2, 4, 'brick', [{ from: 0.8, to: 1.6 }]),
+      wall(3, 0, 3, 4, 'brick'),
+      wall(0, 10, 4, 10, 'glass'),
+    ]
+    expect(wallsCrossed(a, b, walls)).toEqual(['brick'])
+    expect(wallLossDb(a, b, walls)).toBe(12)
+  })
+  it('is empty with no walls', () => {
+    expect(wallsCrossed(a, b, [])).toEqual([])
   })
 })
 

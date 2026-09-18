@@ -35,16 +35,27 @@ export function segIntersectT(
   return u
 }
 
-export function wallLossDb(a: Vec3, b: Vec3, walls: Wall[]): number {
-  let loss = 0
+/**
+ * Materials of the walls the direct ray a→b actually goes through, in wall
+ * order; a crossing that falls inside a door or window is not a crossing.
+ * Loss sums them; the UWB channel sums their excess delay instead.
+ */
+export function wallsCrossed(a: Vec3, b: Vec3, walls: Wall[]): Material[] {
+  const crossed: Material[] = []
   for (const w of walls) {
     const u = segIntersectT(a.x, a.y, b.x, b.y, w.x1, w.y1, w.x2, w.y2)
     if (u === null) continue
     const wallLen = Math.hypot(w.x2 - w.x1, w.y2 - w.y1)
     const atM = u * wallLen
     const throughOpening = w.openings.some((o) => atM >= o.from && atM <= o.to)
-    if (!throughOpening) loss += WALL_LOSS_DB[w.material]
+    if (!throughOpening) crossed.push(w.material)
   }
+  return crossed
+}
+
+export function wallLossDb(a: Vec3, b: Vec3, walls: Wall[]): number {
+  let loss = 0
+  for (const m of wallsCrossed(a, b, walls)) loss += WALL_LOSS_DB[m]
   return loss
 }
 
