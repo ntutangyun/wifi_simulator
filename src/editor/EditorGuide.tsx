@@ -64,6 +64,16 @@ function EditorGuideEn() {
         when the AP polls it. Tags live on the 2.4 GHz link, and the AP needs to be Wi-Fi 7 (EHT)
         with its own <b>AMP polling (802.11bp)</b> section turned on before any tag responds.
       </D>
+      <D t="📍 UWB anchor">
+        click to drop an IEEE 802.15.4z ranging anchor: a fixed device at a known place, 2.2 m
+        high, that answers a tag&rsquo;s poll in its own ranging slot. A fix needs three anchors the
+        tag can hear, and they must not sit in a straight line.
+      </D>
+      <D t="📱 UWB tag">
+        click to drop a ranging tag: it polls every anchor once per ranging block and solves its
+        own position from the ranges. The first anchor or tag opens the <b>UWB session</b> below
+        the node list; deleting the last one closes it again.
+      </D>
       <D t="⌂ fit">
         recenter and refit the plan. Wheel zooms, middle/right-drag pans.
       </D>
@@ -172,6 +182,48 @@ function EditorGuideEn() {
         the z coordinate in meters (AP 2.0, STA 1.0). It counts in the 3D distance; walls are tested
         in 2D, so height changes range only.
       </D>
+      <D t="🗑 Delete node">
+        removes the node. The AP is the one exception: it may only go once no station and no AMP
+        tag is left, because Wi-Fi needs exactly one AP — a plan of nothing but UWB devices has no
+        BSS at all and runs happily without one.
+      </D>
+
+      <h4 style={h}>UWB session</h4>
+      <p style={p}>
+        One section under the node list, shared by every ranging device; it appears with the first
+        anchor or tag. A session is <i>scheduled</i>, so its whole shape is fixed before it starts —
+        nothing ever contends for the medium.
+      </p>
+      <D t="Method">
+        <b>SS-TWR</b> is one poll and one response per anchor; the clock offset between the two
+        devices leaks straight into the range. <b>DS-TWR</b> adds a final and a report per anchor,
+        which cancels that offset at twice the frames.
+      </D>
+      <D t="Block / Slot">
+        the block repeats forever and every tag owns one round inside it, so the block sets the
+        position update rate. A round is one slot per frame: <code>A+1</code> slots under SS-TWR,{' '}
+        <code>2A+2</code> under DS-TWR for <code>A</code> anchors. The section prints the resulting{' '}
+        <i>slots per round</i> and <i>rounds per block</i>.
+      </D>
+      <D t="Channel">
+        5 (6489.6 MHz) or 9 (7987.2 MHz). Both are 499.2 MHz wide — that bandwidth, not the carrier,
+        is what buys centimetre ranging.
+      </D>
+      <D t="Timestamp / clock-estimate noise">
+        the two error sources of a range: the one-sigma jitter of a receive timestamp (100 ps is
+        3 cm) and what is left of the carrier-frequency-offset estimate. The second one is exactly
+        what SS-TWR cannot cancel.
+      </D>
+      <D t="NLOS wall delay">
+        charges every wall the ray crosses its extra delay (drywall 0.5 ns, brick 2 ns, glass
+        0.2 ns). A wall makes a range read long, never short, so the fix is pulled away from the
+        blocked anchor.
+      </D>
+      <p style={p}>
+        A number the schedule cannot hold — a slot too short for the round&rsquo;s longest frame,
+        more tags than the block fits, more than nine anchors — is reported in red under the
+        section instead of failing on run.
+      </p>
 
       <h4 style={h}>Wall properties</h4>
       <D t="Material">
@@ -194,8 +246,8 @@ function EditorGuideEn() {
       <h4 style={h}>Object list order</h4>
       <p style={p}>
         The ▲▼ buttons in 🗂 Objects reorder nodes, and that order is the lane order in the timeline
-        strip. An MLO device contributes two lanes (5 GHz first, then 6 GHz). The AP is always
-        present and cannot be deleted.
+        strip. An MLO device contributes two lanes (5 GHz first, then 6 GHz). The AP stays until
+        the last station and AMP tag is gone; only then may it be deleted too.
       </p>
     </div>
   )
@@ -235,6 +287,16 @@ function EditorGuideZh() {
         点击放置一个 IEEE P802.11bp 环境功率（ambient-power）标签：这是一种无电池设备，
         只有被 AP 轮询时才会应答。标签工作在 2.4 GHz 链路上，且 AP 必须是 Wi-Fi 7 (EHT)
         并打开其 <b>AMP 轮询（802.11bp）</b> 一节，标签才会有任何应答。
+      </D>
+      <D t="📍 UWB 锚点">
+        点击放置一个 IEEE 802.15.4z 测距锚点：位置已知的固定设备，默认高 2.2 米，
+        在自己的测距时隙内应答标签的轮询。要解算出位置，标签至少要听到三个锚点，
+        且这些锚点不能排成一条直线。
+      </D>
+      <D t="📱 UWB 标签">
+        点击放置一个测距标签：它在每个测距块内轮询所有锚点各一次，并据此解算自身位置。
+        放下第一个锚点或标签时，节点列表下方会出现 <b>UWB 测距会话</b> 一节；删掉最后一个
+        UWB 设备时该节随之消失。
       </D>
       <D t="⌂ 复位">
         重新居中并适配视图。滚轮缩放，中键/右键拖动平移。
@@ -333,6 +395,42 @@ function EditorGuideZh() {
         z 坐标，单位米（AP 2.0，终端 1.0）。它计入三维距离；墙体判定是二维的，
         因此高度只影响距离。
       </D>
+      <D t="🗑 删除节点">
+        删除该节点。AP 是唯一的例外：只有当场景里不再有终端、也不再有 AMP 标签时才能删除它，
+        因为 Wi-Fi 要求有且仅有一个 AP——而纯 UWB 场景根本没有 BSS，没有 AP 也能正常仿真。
+      </D>
+
+      <h4 style={h}>UWB 测距会话</h4>
+      <p style={p}>
+        节点列表下方的一节，为所有测距设备共用；放下第一个锚点或标签时出现。测距会话是
+        <i>调度式</i>的，其全部结构在开始之前就已确定——没有任何设备需要竞争信道。
+      </p>
+      <D t="测距方式">
+        <b>SS-TWR</b>（单边双向）对每个锚点只有一次轮询和一次响应，两台设备之间的时钟偏差
+        会原样进入测距结果；<b>DS-TWR</b>（双边双向）为每个锚点再加一帧终结帧和一帧报告帧，
+        用两倍的帧数把这个偏差抵消掉。
+      </D>
+      <D t="测距块 / 测距时隙">
+        测距块循环往复，每个标签在块内独占一个轮次，因此块长决定了位置刷新率。
+        一个轮次里一帧占一个时隙：<code>A</code> 个锚点时，SS-TWR 需 <code>A+1</code> 个时隙，
+        DS-TWR 需 <code>2A+2</code> 个。本节会显示由此算出的<i>每轮时隙数</i>与<i>每块轮次数</i>。
+      </D>
+      <D t="信道">
+        信道 5（6489.6 MHz）或信道 9（7987.2 MHz）。两者带宽都是 499.2 MHz——
+        换来厘米级测距精度的正是这个带宽，而不是载波频率。
+      </D>
+      <D t="时间戳噪声 / 时钟估计噪声">
+        测距误差的两个来源：接收时间戳抖动的 1-σ 值（100 ps 折合 3 cm），
+        以及载波频偏估计之后残留的误差。后者正是 SS-TWR 无法抵消的那一部分。
+      </D>
+      <D t="NLOS 穿墙时延">
+        把射线穿过的每一堵墙的附加时延计入（石膏板 0.5 ns、砖墙 2 ns、玻璃 0.2 ns）。
+        墙只会让测距结果偏大、不会偏小，于是解算出的位置会被推离被遮挡的那个锚点。
+      </D>
+      <p style={p}>
+        若某个参数排不进这个时间表——时隙装不下该轮次最长的一帧、标签数超过一个块能容纳的轮次数、
+        或锚点超过九个——本节下方会用红字给出提示，而不是等到开始仿真时才报错。
+      </p>
 
       <h4 style={h}>墙体属性</h4>
       <D t="材质">
@@ -353,7 +451,8 @@ function EditorGuideZh() {
       <h4 style={h}>对象列表顺序</h4>
       <p style={p}>
         🗂 对象列表中的 ▲▼ 用于调整节点顺序，该顺序就是时间轴泳道的排列顺序。
-        MLO 设备会占用两条泳道（先 5 GHz，后 6 GHz）。AP 始终存在且不可删除。
+        MLO 设备会占用两条泳道（先 5 GHz，后 6 GHz）。AP 会一直留到最后一个终端和 AMP 标签被删掉为止，
+        此后它本身也可以删除。
       </p>
     </div>
   )

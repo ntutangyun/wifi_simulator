@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Rng } from '../engine/rng'
 import { GEN_FEATURES, type LinkId } from '../model/caps'
-import { DEFAULT_AMP_AP, normalizeProfiles, PROFILE_IDS, SERVER_KINDS, TAMPER_KINDS, TAMPER_PRESETS, TXOP_PROTECTIONS, serverFor, serverKindFor, tamperKindOf, type AmpApCfg, type Material, type NodeCfg, type ProfileId, type Scenario, type ServerCfg, type ServerKind, type TamperKind, type TxopProtection } from '../model/scenario'
+import { DEFAULT_AMP_AP, normalizeProfiles, PROFILE_IDS, SERVER_KINDS, TAMPER_KINDS, TAMPER_PRESETS, TXOP_PROTECTIONS, serverFor, serverKindFor, tamperKindOf, type AmpApCfg, type Material, type NodeCfg, type ProfileId, type Scenario, type ServerCfg, type ServerKind, type TamperKind, type TxopProtection, type UwbSessionCfg } from '../model/scenario'
 import { HOUSEHOLDS } from '../model/households'
 import { nonht } from '../model/scenario'
 import { BRANDS, STATION_PRESETS, applyPreset } from '../model/presets'
@@ -9,12 +9,16 @@ import type { Generation } from '../model/types'
 import { useStrings } from '../ui/i18n'
 import { useUi } from '../ui/store'
 import { EditorGuide } from './EditorGuide'
+import { UwbNodeFields } from '../uwb/ui/UwbNodeFields'
+import { UwbSessionFields } from '../uwb/ui/UwbSessionFields'
 import {
-  addOpening, alongWall, clampField, generationPatch, hitTestNode, hitTestWall, newTag, roomsToWalls,
-  scenarioFromJson, scenarioToJson, snap, spawnRandomStas,
+  addOpening, alongWall, canDeleteNode, clampField, generationPatch, hitTestNode, hitTestWall, newAnchor, newTag,
+  newUwbTag, removeNode, roomsToWalls, scenarioFromJson, scenarioToJson, snap, spawnRandomStas, uwbSessionIssue,
 } from './planOps'
 
-type Tool = 'select' | 'room' | 'door' | 'window' | 'sta' | 'tag'
+type Tool = 'select' | 'room' | 'door' | 'window' | 'sta' | 'tag' | 'anchor' | 'uwbTag'
+const TOOLS: Tool[] = ['select', 'room', 'door', 'window', 'sta', 'tag', 'anchor', 'uwbTag']
+
 type Sel =
   | { kind: 'node'; id: string }
   | { kind: 'wall'; index: number }
@@ -132,8 +136,9 @@ export function FloorPlanEditor() {
       commit({ ...scenario, nodes: [...scenario.nodes, node] })
       setTool('select')
       setSel({ kind: 'node', id })
-    } else if (tool === 'tag') {
-      const { sc, id } = newTag(scenario, p)
+    } else if (tool === 'tag' || tool === 'anchor' || tool === 'uwbTag') {
+      const make = tool === 'tag' ? newTag : tool === 'anchor' ? newAnchor : newUwbTag
+      const { sc, id } = make(scenario, p)
       commit(sc)
       setTool('select')
       setSel({ kind: 'node', id })
@@ -192,9 +197,8 @@ export function FloorPlanEditor() {
   }
 
   const deleteNode = (id: string) => {
-    const n = scenario.nodes.find((x) => x.id === id)
-    if (!n || n.kind === 'ap') return
-    commit({ ...scenario, nodes: scenario.nodes.filter((x) => x.id !== id) })
+    if (!canDeleteNode(scenario, id)) return
+    commit(removeNode(scenario, id))
     setSel(null)
   }
 
@@ -213,6 +217,11 @@ export function FloorPlanEditor() {
 
   const setGeneration = (n: NodeCfg, gen: Generation) => {
     updateNode(n.id, generationPatch(n, gen))
+  }
+
+  const uwbNodes = scenario.nodes.filter((n) => n.kind === 'uwb')
+  const updateUwbSession = (patch: Partial<UwbSessionCfg>) => {
+    if (scenario.uwb) commit({ ...scenario, uwb: { ...scenario.uwb, ...patch } })
   }
 
   const gridLines = () => {
@@ -265,7 +274,7 @@ export function FloorPlanEditor() {
         display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', padding: '5px 10px',
         background: 'var(--panel)', borderBottom: '1px solid var(--border)', fontSize: 12,
       }}>
-        {(['select', 'room', 'door', 'window', 'sta', 'tag'] as Tool[]).map((t) => (
+        {TOOLS.map((t) => (
           <button key={t} className={tool === t ? 'active' : ''} onClick={() => setTool(t)}>
             {E.tools[t]}
           </button>
@@ -388,16 +397,26 @@ export function FloorPlanEditor() {
                     width={Math.abs(dragRect.x1 - dragRect.x0)} height={Math.abs(dragRect.y1 - dragRect.y0)}
                     fill="rgba(59,130,246,0.15)" stroke="#3b82f6" strokeWidth={0.05} strokeDasharray="0.2 0.1" />
                 )}
-                {scenario.nodes.map((n) => (
-                  <g key={n.id} style={{ cursor: 'pointer' }}>
-                    <circle cx={n.pos.x} cy={n.pos.y} r={n.kind === 'ap' ? 0.35 : n.kind === 'amp' ? 0.2 : 0.28}
-                      fill={n.kind === 'ap' ? '#3b82f6' : n.kind === 'amp' ? '#2dd4bf' : '#22c55e'}
-                      stroke={sel?.kind === 'node' && sel.id === n.id ? '#fff' : 'none'} strokeWidth={0.06} />
-                    <text x={n.pos.x + 0.4} y={n.pos.y + 0.12} fontSize={0.36} fill="#d5dae3">
-                      {n.name} <tspan fill="#8a93a3" fontSize={0.28}>{n.kind === 'amp' ? 'AMP' : genShort(n.caps.generation)}</tspan>
-                    </text>
-                  </g>
-                ))}
+                {scenario.nodes.map((n) => {
+                  const selHere = sel?.kind === 'node' && sel.id === n.id
+                  const anchor = n.kind === 'uwb' && n.uwb?.role === 'anchor'
+                  return (
+                    <g key={n.id} style={{ cursor: 'pointer' }}>
+                      {/* an anchor is bolted to the building, so it is drawn as a square */}
+                      {anchor ? (
+                        <rect x={n.pos.x - 0.3} y={n.pos.y - 0.3} width={0.6} height={0.6} rx={0.06}
+                          fill={nodeColor(n)} stroke={selHere ? '#fff' : 'none'} strokeWidth={0.06} />
+                      ) : (
+                        <circle cx={n.pos.x} cy={n.pos.y}
+                          r={n.kind === 'ap' ? 0.35 : n.kind === 'amp' ? 0.2 : n.kind === 'uwb' ? 0.22 : 0.28}
+                          fill={nodeColor(n)} stroke={selHere ? '#fff' : 'none'} strokeWidth={0.06} />
+                      )}
+                      <text x={n.pos.x + 0.4} y={n.pos.y + 0.12} fontSize={0.36} fill="#d5dae3">
+                        {n.name} <tspan fill="#8a93a3" fontSize={0.28}>{nodeBadge(n)}</tspan>
+                      </text>
+                    </g>
+                  )
+                })}
               </svg>
             </>
           )}
@@ -417,17 +436,26 @@ export function FloorPlanEditor() {
                       display: 'flex', alignItems: 'center', gap: 4, padding: '2px 4px', cursor: 'pointer',
                       background: sel?.kind === 'node' && sel.id === n.id ? '#2a3550' : undefined, borderRadius: 3,
                     }}>
-                    <span style={{ width: 8, height: 8, borderRadius: 4, background: n.kind === 'ap' ? '#3b82f6' : n.kind === 'amp' ? '#2dd4bf' : '#22c55e' }} />
+                    <span style={{ width: 8, height: 8, borderRadius: n.kind === 'uwb' && n.uwb?.role === 'anchor' ? 1 : 4, background: nodeColor(n) }} />
                     <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {n.tamper ? '⚠ ' : ''}{n.name} <span style={{ color: 'var(--dim)' }}>{n.kind === 'amp' ? 'AMP' : genShort(n.caps.generation)}</span>
+                      {n.tamper ? '⚠ ' : ''}{n.name} <span style={{ color: 'var(--dim)' }}>{nodeBadge(n)}</span>
                     </span>
                     <button style={{ padding: '0 4px' }} disabled={i === 0} onClick={(e) => { e.stopPropagation(); moveNode(n.id, -1) }}>▲</button>
                     <button style={{ padding: '0 4px' }} disabled={i === scenario.nodes.length - 1} onClick={(e) => { e.stopPropagation(); moveNode(n.id, 1) }}>▼</button>
-                    <button style={{ padding: '0 4px' }} disabled={n.kind === 'ap'} title={n.kind === 'ap' ? E.apNoDelete : E.delete_}
+                    <button style={{ padding: '0 4px' }} disabled={!canDeleteNode(scenario, n.id)} title={canDeleteNode(scenario, n.id) ? E.delete_ : E.apNoDelete}
                       onClick={(e) => { e.stopPropagation(); deleteNode(n.id) }}>🗑</button>
                   </div>
                 ))}
               </div>
+              {uwbNodes.length > 0 && scenario.uwb && (
+                <UwbSessionFields
+                  session={scenario.uwb}
+                  anchors={uwbNodes.filter((n) => n.uwb?.role === 'anchor').length}
+                  tags={uwbNodes.filter((n) => n.uwb?.role === 'tag').length}
+                  issue={uwbSessionIssue(scenario)}
+                  onChange={updateUwbSession}
+                />
+              )}
               <div>
                 <div style={{ color: 'var(--dim)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
                   {E.servers}
@@ -539,7 +567,7 @@ export function FloorPlanEditor() {
                       </select>
                     </label>
                   )}
-                  {selNode.kind !== 'amp' && (
+                  {selNode.kind !== 'amp' && selNode.kind !== 'uwb' && (
                     <>
                       <label style={{ display: 'block', marginBottom: 4 }}>
                         {E.wifi}{' '}
@@ -657,11 +685,16 @@ export function FloorPlanEditor() {
                       )}
                     </>
                   )}
-                  <label style={{ display: 'block', marginBottom: 4 }}>
-                    {E.txPower}{' '}
-                    <input type="number" value={selNode.txPowerDbm} style={{ width: 56 }}
-                      onChange={(e) => updateNode(selNode.id, { txPowerDbm: Number(e.target.value) })} /> dBm
-                  </label>
+                  {selNode.kind === 'uwb' && (
+                    <UwbNodeFields node={selNode} onChange={(patch) => updateNode(selNode.id, patch)} />
+                  )}
+                  {selNode.kind !== 'uwb' && (
+                    <label style={{ display: 'block', marginBottom: 4 }}>
+                      {E.txPower}{' '}
+                      <input type="number" value={selNode.txPowerDbm} style={{ width: 56 }}
+                        onChange={(e) => updateNode(selNode.id, { txPowerDbm: Number(e.target.value) })} /> dBm
+                    </label>
+                  )}
                   {selNode.kind === 'amp' && (
                     <label style={{ display: 'block', marginBottom: 4 }} title={E.ampSensHint}>
                       {E.ampSens}{' '}
@@ -669,11 +702,13 @@ export function FloorPlanEditor() {
                         onChange={(e) => updateNode(selNode.id, { ampTag: { ...selNode.ampTag, dlSensDbm: Number(e.target.value) } })} /> dBm
                     </label>
                   )}
-                  <label style={{ display: 'block', marginBottom: 4 }}>
-                    {E.height}{' '}
-                    <input type="number" step={0.1} value={selNode.pos.z} style={{ width: 56 }}
-                      onChange={(e) => updateNode(selNode.id, { pos: { ...selNode.pos, z: Number(e.target.value) } })} /> m
-                  </label>
+                  {selNode.kind !== 'uwb' && (
+                    <label style={{ display: 'block', marginBottom: 4 }}>
+                      {E.height}{' '}
+                      <input type="number" step={0.1} value={selNode.pos.z} style={{ width: 56 }}
+                        onChange={(e) => updateNode(selNode.id, { pos: { ...selNode.pos, z: Number(e.target.value) } })} /> m
+                    </label>
+                  )}
                   {selNode.kind === 'ap' && (
                     <div style={{ marginTop: 8, paddingTop: 6, borderTop: '1px solid var(--border)' }}>
                       <div style={{ color: 'var(--dim)', marginBottom: 4 }}>{E.amp}</div>
@@ -742,7 +777,7 @@ export function FloorPlanEditor() {
                       )}
                     </div>
                   )}
-                  {selNode.kind !== 'ap' && <button onClick={() => deleteNode(selNode.id)}>{E.deleteNode}</button>}
+                  {canDeleteNode(scenario, selNode.id) && <button onClick={() => deleteNode(selNode.id)}>{E.deleteNode}</button>}
                 </div>
               )}
 
@@ -804,4 +839,19 @@ export function FloorPlanEditor() {
 
 function genShort(g: Generation): string {
   return { nonht: '11a', vht: 'WF5', he: 'WF6', eht: 'WF7' }[g]
+}
+
+/** Node colour by kind, shared by the canvas and the object list. */
+function nodeColor(n: NodeCfg): string {
+  if (n.kind === 'ap') return '#3b82f6'
+  if (n.kind === 'amp') return '#2dd4bf'
+  if (n.kind === 'uwb') return n.uwb?.role === 'anchor' ? '#f59e0b' : '#fbbf24'
+  return '#22c55e'
+}
+
+/** The short badge after a node's name in the canvas label and the object list. */
+function nodeBadge(n: NodeCfg): string {
+  if (n.kind === 'amp') return 'AMP'
+  if (n.kind === 'uwb') return n.uwb?.role === 'anchor' ? 'UWB ⚓' : 'UWB 🏷'
+  return genShort(n.caps.generation)
 }

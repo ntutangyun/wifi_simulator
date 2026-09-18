@@ -58,7 +58,7 @@ export interface Strings {
   strip: { windowHint: string; legendCollision: string }
   legend: LegendItem[]
   editor: {
-    tools: { select: string; room: string; door: string; window: string; sta: string; tag: string; fit: string }
+    tools: { select: string; room: string; door: string; window: string; sta: string; tag: string; anchor: string; uwbTag: string; fit: string }
     scenario: string; save: string; load: string; export_: string; import_: string
     spawn: string; rts: string; rtsHint: string; seed: string; seedHint: string
     objects: string; properties: string; guide: string
@@ -87,6 +87,18 @@ export interface Strings {
     ampRead: Record<'inline' | 'twoPhase', string>; ampReadLabel: string
     ampNeedsEht: string
     ampSens: string; ampSensHint: string
+    /** UWB ranging: the per-node fields (uwb/ui/UwbNodeFields.tsx). */
+    uwbNode: string; uwbRole: string; uwbRoles: Record<'anchor' | 'tag', string>
+    uwbPpm: string; uwbPpmHint: string; uwbPpmDrawn: string
+    /** UWB ranging: the session section (uwb/ui/UwbSessionFields.tsx). */
+    uwbSession: string; uwbCounts: (anchors: number, tags: number) => string
+    uwbMethod: string; uwbMethodHint: string; uwbMethods: Record<'ss' | 'ds', string>
+    uwbBlock: string; uwbBlockHint: string; uwbSlot: string; uwbSlotHint: string
+    uwbChannel: string; uwbChannelHint: string
+    uwbTsNoise: string; uwbTsNoiseHint: string; uwbCfoNoise: string; uwbCfoNoiseHint: string
+    uwbNlos: string; uwbNlosHint: string
+    /** "slots per round N · rounds per block M" under the session fields. */
+    uwbPlan: (slots: number, rounds: number) => string
   }
   inspector: {
     waiting: string; bssTotals: string; throughput: string; delivered: string
@@ -268,7 +280,7 @@ export const STRINGS: Record<Lang, Strings> = {
       { color: '#fbbf24', label: 'UWB anchor', hint: 'An anchor’s answer in its ranging slot: the Response, and under DS-TWR the measurement report.' },
     ],
     editor: {
-      tools: { select: '☝ select', room: '▭ room', door: '🚪 door', window: '🪟 window', sta: '📱 STA', tag: '🏷 AMP tag', fit: '⌂ fit' },
+      tools: { select: '☝ select', room: '▭ room', door: '🚪 door', window: '🪟 window', sta: '📱 STA', tag: '🏷 AMP tag', anchor: '📍 UWB anchor', uwbTag: '📱 UWB tag', fit: '⌂ fit' },
       scenario: 'Scenario', save: '💾 Save', load: '📂 Load', export_: '⬇ Export', import_: '⬆ Import',
       spawn: '🎲 Spawn STAs', rts: 'RTS', rtsHint: 'dot11RTSThreshold: frames larger than this use RTS/CTS protection',
       seed: 'Seed', seedHint: 'random seed — identical seed reproduces the exact same run',
@@ -302,7 +314,8 @@ export const STRINGS: Record<Lang, Strings> = {
       txopProt: 'TXOP protection',
       txopProtHint: 'How this node announces a burst of several exchanges it holds: per-exchange Duration (single); an RTS/CTS reserving the medium to the end of the TXOP, given back early with CF-End (boundary); or that plus every data frame carrying the TXOP remainder (multiple).',
       txopProtNames: { single: 'single (per exchange)', boundary: 'boundary (RTS/CTS for the burst + CF-End)', multiple: 'multiple (every frame carries the remainder)' },
-      deleteNode: '🗑 Delete node', deleteRoom: '🗑 Delete room', apNoDelete: 'the AP cannot be deleted', delete_: 'delete',
+      deleteNode: '🗑 Delete node', deleteRoom: '🗑 Delete room', delete_: 'delete',
+      apNoDelete: 'the AP can only be deleted once no station and no AMP tag is left — a plan of nothing but UWB devices needs no BSS',
       wall: 'Wall', material: 'Material', materialHint: 'RF attenuation: drywall 5 dB · brick 12 dB · glass 3 dB per crossing',
       removeOpenings: 'Remove openings', room: 'Room', openings: 'opening(s)',
       emptyHint: 'Nothing selected. Click a node, wall or room on the canvas (or in Objects above) to edit its properties here. Scenario save/load and settings live in the menu bar at the top of the canvas.',
@@ -318,6 +331,19 @@ export const STRINGS: Record<Lang, Strings> = {
       ampRead: { inline: 'reading in the random-access response', twoPhase: 'id first, then a scheduled read' }, ampReadLabel: 'read mode',
       ampNeedsEht: 'AMP polling needs a Wi-Fi 7 AP (the AMP DL PPDU carries U-SIG)',
       ampSens: 'DL sensitivity', ampSensHint: 'weakest AMP DL PPDU this tag’s envelope detector can decode (model default −72 dBm)',
+      uwbNode: 'UWB ranging (802.15.4z)', uwbRole: 'Role', uwbRoles: { anchor: 'anchor (fixed, answers)', tag: 'tag (ranges and solves its position)' },
+      uwbPpm: 'Crystal offset', uwbPpmHint: 'error of this device’s ranging clock in parts per million; the standard allows ±20 ppm. Leave it blank to have the run draw one from the seed.',
+      uwbPpmDrawn: 'drawn from the seed',
+      uwbSession: 'UWB session', uwbCounts: (a, t) => `${a} anchor${a === 1 ? '' : 's'} · ${t} tag${t === 1 ? '' : 's'}`,
+      uwbMethod: 'Method', uwbMethodHint: 'SS-TWR: one poll and one response per anchor — half the frames, but the clock offset between the two devices leaks straight into the range. DS-TWR adds a final and a report, which cancels it.',
+      uwbMethods: { ss: 'SS-TWR (single-sided)', ds: 'DS-TWR (double-sided)' },
+      uwbBlock: 'Block', uwbBlockHint: 'the ranging block repeats forever; every tag owns one round inside it, so the block sets how often a tag gets a fresh position',
+      uwbSlot: 'Slot', uwbSlotHint: 'one ranging slot holds one frame; it has to be long enough for the round’s longest frame (the DS-TWR Final, which grows with the anchor count) plus its flight time',
+      uwbChannel: 'Channel', uwbChannelHint: 'channel 5 is 6489.6 MHz, channel 9 is 7987.2 MHz — the higher channel loses about 1.8 dB more per decade of range',
+      uwbTsNoise: 'Timestamp noise', uwbTsNoiseHint: 'one-sigma error of a receive timestamp; 100 ps of timing is 3 cm of range',
+      uwbCfoNoise: 'Clock-estimate noise', uwbCfoNoiseHint: 'one-sigma error left over after the receiver estimates the carrier frequency offset; it is what SS-TWR cannot cancel',
+      uwbNlos: 'NLOS wall delay', uwbNlosHint: 'add the extra delay of every wall a ray crosses (drywall 0.5 ns, brick 2 ns, glass 0.2 ns). A wall makes a range read long, never short.',
+      uwbPlan: (slots, rounds) => `slots per round ${slots} · rounds per block ${rounds}`,
     },
     inspector: {
       waiting: 'waiting for simulation…', bssTotals: 'BSS totals — click a node or lane for detail',
@@ -623,7 +649,7 @@ export const STRINGS: Record<Lang, Strings> = {
       { color: '#fbbf24', label: 'UWB 锚点', hint: '锚点在自己测距时隙内的回答：响应帧，以及 DS-TWR 下的测量报告帧。' },
     ],
     editor: {
-      tools: { select: '☝ 选择', room: '▭ 房间', door: '🚪 门', window: '🪟 窗', sta: '📱 终端', tag: '🏷 AMP 标签', fit: '⌂ 复位' },
+      tools: { select: '☝ 选择', room: '▭ 房间', door: '🚪 门', window: '🪟 窗', sta: '📱 终端', tag: '🏷 AMP 标签', anchor: '📍 UWB 锚点', uwbTag: '📱 UWB 标签', fit: '⌂ 复位' },
       scenario: '场景', save: '💾 保存', load: '📂 载入', export_: '⬇ 导出', import_: '⬆ 导入',
       spawn: '🎲 随机生成终端', rts: 'RTS', rtsHint: 'dot11RTSThreshold：大于该门限的帧启用 RTS/CTS 保护',
       seed: '种子', seedHint: '随机种子 — 相同种子可完全复现同一次仿真',
@@ -657,7 +683,8 @@ export const STRINGS: Record<Lang, Strings> = {
       txopProt: 'TXOP 保护',
       txopProtHint: '本节点持有多次交换的突发时如何预告：逐次交换的 Duration（单次）；用 RTS/CTS 把介质预约到 TXOP 结束、提前结束时以 CF-End 归还（边界）；或在此基础上让每个数据帧也携带 TXOP 剩余时间（多重）。',
       txopProtNames: { single: '单次（逐次交换）', boundary: '边界（RTS/CTS 预约整个突发 + CF-End）', multiple: '多重（每帧携带剩余时间）' },
-      deleteNode: '🗑 删除节点', deleteRoom: '🗑 删除房间', apNoDelete: 'AP 不能删除', delete_: '删除',
+      deleteNode: '🗑 删除节点', deleteRoom: '🗑 删除房间', delete_: '删除',
+      apNoDelete: '只有当场景中不再有终端和 AMP 标签时才能删除 AP——纯 UWB 场景不需要 BSS',
       wall: '墙体', material: '材质', materialHint: '射频衰减：石膏板 5 dB · 砖墙 12 dB · 玻璃 3 dB（每次穿越）',
       removeOpenings: '移除门窗开口', room: '房间', openings: '个开口',
       emptyHint: '未选中任何对象。点击画布上（或上方对象列表中）的节点、墙体或房间即可在此编辑其属性。场景的保存/载入与设置位于画布顶部的菜单栏。',
@@ -673,6 +700,19 @@ export const STRINGS: Record<Lang, Strings> = {
       ampRead: { inline: '在随机接入应答中直接读取', twoPhase: '先读 id，再做一次预约读取' }, ampReadLabel: '读取方式',
       ampNeedsEht: 'AMP 轮询需要 Wi-Fi 7 的 AP（AMP 下行 PPDU 携带 U-SIG）',
       ampSens: '下行灵敏度', ampSensHint: '该标签包络检波器能解出的最弱 AMP 下行 PPDU（模型默认 −72 dBm）',
+      uwbNode: 'UWB 测距（802.15.4z）', uwbRole: '角色', uwbRoles: { anchor: '锚点（位置固定，负责应答）', tag: '标签（测距并解算自身位置）' },
+      uwbPpm: '晶振偏差', uwbPpmHint: '该设备测距时钟的频率偏差，单位 ppm；标准允许 ±20 ppm。留空则由本次仿真按随机种子抽取。',
+      uwbPpmDrawn: '由种子抽取',
+      uwbSession: 'UWB 测距会话', uwbCounts: (a, t) => `${a} 个锚点 · ${t} 个标签`,
+      uwbMethod: '测距方式', uwbMethodHint: 'SS-TWR（单边双向测距）：每个锚点只需一次轮询与一次响应，帧数减半，但两台设备之间的时钟偏差会原样进入测距结果。DS-TWR 增加终结帧与报告帧，可将其抵消。',
+      uwbMethods: { ss: 'SS-TWR（单边双向）', ds: 'DS-TWR（双边双向）' },
+      uwbBlock: '测距块', uwbBlockHint: '测距块循环往复；每个标签在块内独占一个轮次，因此块长决定了标签多久刷新一次位置',
+      uwbSlot: '测距时隙', uwbSlotHint: '一个测距时隙只装一帧；它必须容得下该轮次中最长的一帧（DS-TWR 的终结帧，长度随锚点数增长）以及其飞行时间',
+      uwbChannel: '信道', uwbChannelHint: '信道 5 为 6489.6 MHz，信道 9 为 7987.2 MHz——频率越高，同样距离下的自由空间损耗约多 1.8 dB',
+      uwbTsNoise: '时间戳噪声', uwbTsNoiseHint: '接收时间戳误差的 1-σ 值；100 ps 的计时误差折合 3 cm 的测距误差',
+      uwbCfoNoise: '时钟估计噪声', uwbCfoNoiseHint: '接收机估计载波频偏后残留误差的 1-σ 值；这正是 SS-TWR 无法抵消的那一部分',
+      uwbNlos: 'NLOS 穿墙时延', uwbNlosHint: '把射线穿过的每一堵墙的附加时延计入飞行时间（石膏板 0.5 ns、砖墙 2 ns、玻璃 0.2 ns）。墙只会让测距结果偏大，不会偏小。',
+      uwbPlan: (slots, rounds) => `每轮 ${slots} 个时隙 · 每块 ${rounds} 轮`,
     },
     inspector: {
       waiting: '等待仿真…', bssTotals: 'BSS 总览 — 点击节点或泳道查看详情',

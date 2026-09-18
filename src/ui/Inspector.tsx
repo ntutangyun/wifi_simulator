@@ -176,7 +176,9 @@ export function Inspector() {
   const secs = Math.max(1e-9, t / 1e9)
 
   if (!selectedNodeId || !view.nodes[selectedNodeId]) {
-    const nodes = Object.entries(view.nodes)
+    // BSS totals are about the Wi-Fi cell; a ranging lane carries no BSS traffic
+    // and would only pad the table with zeroes. Click a UWB node for its ranges.
+    const nodes = Object.entries(view.nodes).filter(([, n]) => !n.uwb)
     const delivered = nodes.reduce((s, [, n]) => s + n.stats.bytesDelivered, 0)
     const collisions = nodes.reduce((s, [, n]) => s + n.stats.collisions, 0)
     const retries = nodes.reduce((s, [, n]) => s + n.stats.retries, 0)

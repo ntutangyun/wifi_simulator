@@ -2,10 +2,11 @@
  * Pure floor-plan operations: rooms → deduplicated walls, hit testing,
  * openings, random STA spawning, scenario (de)serialization.
  */
-import { ScenarioSchema, type NodeCfg, type Opening, type Room, type Scenario, type Wall } from '../model/scenario'
+import { DEFAULT_UWB_SESSION, ScenarioSchema, type NodeCfg, type Opening, type Room, type Scenario, type UwbNodeCfg, type Wall } from '../model/scenario'
 import { GEN_FEATURES, type FeatureFlag } from '../model/caps'
 import type { Generation } from '../model/types'
 import { STATION_PRESETS, presetNode } from '../model/presets'
+import { UWB_TX_POWER_DBM } from '../uwb/phy'
 
 const SNAP = 0.1
 export const snap = (v: number): number => Math.round(v / SNAP) * SNAP
@@ -191,6 +192,82 @@ export function newTag(sc: Scenario, pos: { x: number; y: number }): { sc: Scena
     linkId: '2g', ampTag: {},
   }
   return { sc: { ...sc, nodes: [...sc.nodes, node] }, id }
+}
+
+/**
+ * Append a UWB ranging device at `pos`, opening the scenario's ranging session
+ * if this is the first one. Anchors and tags are numbered inside their own
+ * role — "Anchor 1" next to "UWB tag 1" — because that is how a deployment is
+ * described; the loop afterwards is what actually keeps the id unique.
+ */
+function newUwbNode(sc: Scenario, pos: { x: number; y: number }, role: UwbNodeCfg['role']): { sc: Scenario; id: string } {
+  const used = new Set(sc.nodes.map((n) => n.id))
+  const prefix = role === 'anchor' ? 'anchor' : 'uwb'
+  let k = sc.nodes.filter((n) => n.uwb?.role === role).length + 1
+  let id = `${prefix}-${k}`
+  while (used.has(id)) id = `${prefix}-${++k}`
+  const node: NodeCfg = {
+    id,
+    kind: 'uwb',
+    name: role === 'anchor' ? `Anchor ${k}` : `UWB tag ${k}`,
+    // An anchor is screwed to the wall near the ceiling, a tag is carried.
+    pos: { x: snap(pos.x), y: snap(pos.y), z: role === 'anchor' ? 2.2 : 1.0 },
+    txPowerDbm: UWB_TX_POWER_DBM,
+    profiles: ['idle'],
+    caps: { generation: 'nonht', features: {} },
+    uwb: { role },
+  }
+  return { sc: { ...sc, nodes: [...sc.nodes, node], uwb: sc.uwb ?? { ...DEFAULT_UWB_SESSION } }, id }
+}
+
+/** Append a UWB anchor (a device at a known place that answers polls). */
+export function newAnchor(sc: Scenario, pos: { x: number; y: number }): { sc: Scenario; id: string } {
+  return newUwbNode(sc, pos, 'anchor')
+}
+
+/** Append a UWB tag (the device that ranges to every anchor and solves its own position). */
+export function newUwbTag(sc: Scenario, pos: { x: number; y: number }): { sc: Scenario; id: string } {
+  return newUwbNode(sc, pos, 'tag')
+}
+
+/**
+ * May this node be deleted? Everything but the AP always may. The AP may go
+ * only once nothing needs a BSS: a plan that is nothing but UWB devices has no
+ * Wi-Fi at all, and forcing an unused AP on it would only add a beaconing
+ * radio the ranging never hears.
+ */
+export function canDeleteNode(sc: Scenario, id: string): boolean {
+  const n = sc.nodes.find((x) => x.id === id)
+  if (!n) return false
+  if (n.kind !== 'ap') return true
+  return !sc.nodes.some((x) => x.kind === 'sta' || x.kind === 'amp')
+}
+
+/**
+ * Remove a node, closing the ranging session with the last UWB device so the
+ * scenario never carries a session nothing takes part in. Refused (scenario
+ * returned untouched) when `canDeleteNode` says no.
+ */
+export function removeNode(sc: Scenario, id: string): Scenario {
+  if (!canDeleteNode(sc, id)) return sc
+  const nodes = sc.nodes.filter((n) => n.id !== id)
+  return { ...sc, nodes, uwb: nodes.some((n) => n.kind === 'uwb') ? sc.uwb : undefined }
+}
+
+/**
+ * The first thing the schema objects to about the ranging session — a slot too
+ * short for the round's longest frame, more tags than the block holds, more
+ * anchors than a round can carry — or null when it is happy. The rules live in
+ * the schema alone; this only runs it and picks the issue that belongs to UWB,
+ * so the editor can show it under the session section instead of failing on run.
+ */
+export function uwbSessionIssue(sc: Scenario): string | null {
+  const parsed = ScenarioSchema.safeParse(sc)
+  if (parsed.success) return null
+  for (const issue of parsed.error.issues) {
+    if (issue.path.includes('uwb') || /\bUWB\b|ranging/i.test(issue.message)) return issue.message
+  }
+  return null
 }
 
 /**
