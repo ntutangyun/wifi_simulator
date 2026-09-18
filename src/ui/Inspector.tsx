@@ -5,6 +5,7 @@ import { useStrings, type Strings } from './i18n'
 import type { NodeView } from '../model/view'
 import { nodeDisplayName } from './names'
 import { linkOfVirtual, physicalId } from '../model/caps'
+import { UwbInspector } from '../uwb/ui/UwbInspector'
 
 const row: React.CSSProperties = { display: 'flex', justifyContent: 'space-between', padding: '1px 0' }
 const dim: React.CSSProperties = { color: 'var(--dim)' }
@@ -16,7 +17,7 @@ function StateBadge({ nv, t }: { nv: NodeView; t: number }) {
   const colors: Record<string, string> = {
     idle: '#555', defer: '#eab308', backoff: '#f59e0b', tx: '#3b82f6',
     rx: '#8b5cf6', waitAck: '#06b6d4', waitCts: '#06b6d4', sifsResp: '#06b6d4',
-    ampWait: '#0d9488',
+    ampWait: '#0d9488', uwbWait: '#d97706',
   }
   return (
     <span style={{
@@ -30,8 +31,21 @@ function Lbl({ children, hint }: { children: React.ReactNode; hint: string }) {
   return <span style={{ ...dim, cursor: 'help', borderBottom: '1px dotted #444' }} title={hint}>{children}</span>
 }
 
-function NodeSection({ vid, nv, t, L, nameOf, serverName }: { vid: string; nv: NodeView; t: number; L: Strings['inspector']; nameOf: (id: string) => string; serverName: (id: string | undefined) => string }) {
+function NodeSection({ vid, nv, t, L, U, nameOf, serverName }: { vid: string; nv: NodeView; t: number; L: Strings['inspector']; U: Strings['uwb']; nameOf: (id: string) => string; serverName: (id: string | undefined) => string }) {
   const secs = Math.max(1e-9, t / 1e9)
+  // A ranging device runs no Wi-Fi link, so it gets none of the rows below —
+  // no band heading, no contention state, no queue, no throughput.
+  if (nv.uwb) {
+    return (
+      <div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '6px 0' }}>
+          <strong>{nv.uwb.role === 'anchor' ? U.anchor : U.tag}</strong>
+          <StateBadge nv={nv} t={t} />
+        </div>
+        <UwbInspector nv={nv} nameOf={nameOf} />
+      </div>
+    )
+  }
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '6px 0' }}>
@@ -229,7 +243,7 @@ export function Inspector() {
       <strong>{cfg?.name ?? phys}</strong>
       {lanes.map((vid, i) => (
         <div key={vid} style={i > 0 ? { borderTop: '1px solid var(--border)', marginTop: 8 } : undefined}>
-          <NodeSection vid={vid} nv={view.nodes[vid]} t={t} L={L} nameOf={nameOf} serverName={serverName} />
+          <NodeSection vid={vid} nv={view.nodes[vid]} t={t} L={L} U={S.uwb} nameOf={nameOf} serverName={serverName} />
         </div>
       ))}
       <div style={{ ...dim, marginTop: 8, fontSize: 11 }}>t = {fmtNs(t)} s</div>

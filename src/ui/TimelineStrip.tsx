@@ -4,6 +4,7 @@ import { fitLaneLabel, recordsToSpans, spanTooltip, topSpanAt, xForT, type LaneS
 import { fmtNs } from './format'
 import { useStrings } from './i18n'
 import { BAND_LABEL, linkOfVirtual, linkPlanFor, physicalId } from '../model/caps'
+import { laneIds } from '../model/lanes'
 import { nodeDisplayName } from './names'
 import type { ViewState } from '../model/view'
 
@@ -57,6 +58,11 @@ function drawHatch(ctx: CanvasRenderingContext2D, x: number, y: number, w: numbe
 const SPAN_COLORS: Record<LaneSpan['kind'], string> = {
   tx: '#3b82f6', rx: '#8b5cf6', backoff: '#f59e0b', defer: '#6d5a1b', nav: '#9333ea', sifs: '#06b6d4', slot: '#115e59',
 }
+/** A ranging slot, in the amber of the UWB frames rather than the AMP teal. */
+const UWB_SLOT_COLOR = '#78350f'
+/** Slot boundary ticks: AMP teal on the AP's lane, UWB amber on a ranging lane. */
+const AMP_TICK_COLOR = '#2dd4bf'
+const UWB_TICK_COLOR = '#f59e0b'
 
 function txColor(s: LaneSpan, apId: string): string {
   if (s.frameKind === 'data') return s.frameSrc === apId ? '#3b82f6' : '#22c55e'
@@ -66,6 +72,9 @@ function txColor(s: LaneSpan, apId: string): string {
   if (s.frameKind === 'cfend') return '#fb7185'
   if (s.frameKind === 'ampTrigger' || s.frameKind === 'ampAck') return '#2dd4bf'
   if (s.frameKind === 'ampResp') return '#a78bfa'
+  // Two shades of amber, as in the 3-D view: the tag's frames, then the anchors'.
+  if (s.frameKind === 'uwbPoll' || s.frameKind === 'uwbFinal') return '#f59e0b'
+  if (s.frameKind === 'uwbResp' || s.frameKind === 'uwbReport') return '#fbbf24'
   return '#f97316' // rts/cts
 }
 
@@ -94,14 +103,17 @@ export function TimelineStrip() {
   const seedRef = useRef<{ store: unknown; t: number; view: ViewState | null }>({ store: null, t: -1, view: null })
 
   const plan = linkPlanFor(scenario.nodes)
-  const nodeIds = plan.virtualIds
+  /** One lane per radio: the Wi-Fi link plan, then one row per UWB device. */
+  const nodeIds = laneIds(scenario.nodes)
+  /** UWB lanes are keyed by the plain node id and belong to no Wi-Fi band. */
+  const uwbIds = new Set(scenario.nodes.filter((n) => n.kind === 'uwb').map((n) => n.id))
   /** Band label when the scenario has two or more links, else '' (single-band: nothing to tell apart). */
-  const bandTag = (vid: string): string => plan.links.length < 2 ? '' : BAND_LABEL[linkOfVirtual(vid)]
+  const bandTag = (vid: string): string => plan.links.length < 2 || uwbIds.has(vid) ? '' : BAND_LABEL[linkOfVirtual(vid)]
   /** [name, band suffix] — the suffix must survive truncation (see fitLaneLabel). */
   const laneLabel = (vid: string): [string, string] => {
     const cfg = scenario.nodes.find((n) => n.id === physicalId(vid))
     const name = cfg?.name ?? vid
-    return plan.links.length < 2 ? [name, ''] : [name, ` · ${BAND_LABEL[linkOfVirtual(vid)]}`]
+    return plan.links.length < 2 || uwbIds.has(vid) ? [name, ''] : [name, ` · ${BAND_LABEL[linkOfVirtual(vid)]}`]
   }
 
   useEffect(() => {
@@ -150,7 +162,9 @@ export function TimelineStrip() {
 
     const a = playheadNs - spanNs * 0.7
     const b = playheadNs + spanNs * 0.3
-    const apId = scenario.nodes.find((n) => n.kind === 'ap')?.id ?? 'ap'
+    // '' in a scenario with no AP: no frame's source can match it, so nothing
+    // is coloured as downlink — which is exactly right when there is no BSS.
+    const apId = scenario.nodes.find((n) => n.kind === 'ap')?.id ?? ''
     const laneW = W - GUTTER
     const laneH = (H - AXIS_H) / Math.max(1, nodeIds.length)
 
@@ -211,7 +225,7 @@ export function TimelineStrip() {
         ctx.fillStyle = SPAN_COLORS.nav
         ctx.fillRect(x0, y + laneH * 0.82, w, laneH * 0.1)
       } else {
-        ctx.fillStyle = SPAN_COLORS[s.kind]
+        ctx.fillStyle = s.kind === 'slot' && s.state === 'uwbWait' ? UWB_SLOT_COLOR : SPAN_COLORS[s.kind]
         ctx.globalAlpha = s.kind === 'defer' ? 0.6 : 0.9
         ctx.fillRect(x0, y + laneH * 0.35, w, laneH * 0.3)
         ctx.globalAlpha = 1
@@ -237,14 +251,15 @@ export function TimelineStrip() {
       ctx.lineWidth = 1
     }
 
-    // AMP slot ticks — a thin marker on the AP's lane at each slot boundary
+    // Slot ticks — a thin marker at each slot boundary, on the lane of the node
+    // that owns the schedule: the AP for an AMP round, the tag for a UWB one.
     for (const r of records) {
-      if (r.type !== 'AMP_SLOT' || r.t < a || r.t > b) continue
+      if ((r.type !== 'AMP_SLOT' && r.type !== 'UWB_SLOT') || r.t < a || r.t > b) continue
       const i = nodeIds.indexOf(r.node)
       if (i < 0) continue
       const x = GUTTER + xForT(r.t, a, b, laneW)
       const y = AXIS_H + i * laneH
-      ctx.strokeStyle = '#2dd4bf'
+      ctx.strokeStyle = r.type === 'UWB_SLOT' ? UWB_TICK_COLOR : AMP_TICK_COLOR
       ctx.globalAlpha = 0.6
       ctx.lineWidth = 1
       ctx.beginPath()

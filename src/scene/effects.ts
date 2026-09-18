@@ -39,10 +39,11 @@ export function frameColor(frame: FrameDesc, apId: string): number {
     case 'ampTrigger':
     case 'ampAck': return 0x2dd4bf
     case 'ampResp': return 0xa78bfa
+    // Two shades of amber: the tag's own frames against the anchors' answers.
     case 'uwbPoll':
+    case 'uwbFinal': return 0xf59e0b
     case 'uwbResp':
-    case 'uwbFinal':
-    case 'uwbReport': return 0xf472b6
+    case 'uwbReport': return 0xfbbf24
   }
 }
 
@@ -52,6 +53,7 @@ const wanKey = (f: WanFlight): string => `${f.server}:${f.dir}:${f.peer}:${f.sta
 export class EffectsLayer {
   group = new THREE.Group()
   private waves = new Map<string, THREE.Mesh>()
+  /** '' in a scenario with no AP (a UWB-only floor): nothing is associated to anything. */
   private apId: string
   private positions = new Map<string, { x: number; y: number; z: number }>()
   /** Cloud anchor per server id (scene coordinates) and the WAN dots in flight. */
@@ -60,13 +62,15 @@ export class EffectsLayer {
 
   constructor(sc: Scenario) {
     this.group.name = 'effects'
-    this.apId = sc.nodes.find((n) => n.kind === 'ap')!.id
+    this.apId = sc.nodes.find((n) => n.kind === 'ap')?.id ?? ''
     for (const n of sc.nodes) this.positions.set(n.id, { x: n.pos.x, y: n.pos.z, z: n.pos.y })
 
-    // faint association lines AP ↔ STA / AMP tag (dashed, teal, for tags)
-    const ap = this.positions.get(this.apId)!
+    // faint association lines AP ↔ STA / AMP tag (dashed, teal, for tags).
+    // A UWB-only scenario has no AP and draws none; UWB devices associate with
+    // nothing in any case — they range against each other, not through a BSS.
+    const ap = this.positions.get(this.apId)
     for (const n of sc.nodes) {
-      if (n.kind === 'ap') continue
+      if (!ap || n.kind === 'ap' || n.kind === 'uwb') continue
       const p = this.positions.get(n.id)!
       const geo = new THREE.BufferGeometry().setFromPoints([
         new THREE.Vector3(ap.x, ap.y, ap.z),
@@ -80,7 +84,7 @@ export class EffectsLayer {
     }
 
     // cloud servers on a strip beyond the north wall, each tied to the AP
-    if (sc.servers.length) {
+    if (sc.servers.length && ap) {
       const xs = sc.rooms.flatMap((r) => [r.x, r.x + r.w])
       const ys = sc.rooms.flatMap((r) => [r.y, r.y + r.h])
       const minX = xs.length ? Math.min(...xs) : 0
@@ -116,7 +120,8 @@ export class EffectsLayer {
   /** One small sphere per frame crossing the WAN, sliding along the AP–cloud line. */
   private updateWan(vs: ViewState): void {
     const alive = new Set<string>()
-    const ap = this.positions.get(this.apId)!
+    const ap = this.positions.get(this.apId)
+    if (!ap) return // no AP, no cloud strip and no WAN dots to slide along it
     const apV = new THREE.Vector3(ap.x, ap.y, ap.z)
     for (const f of vs.wan) {
       const cloud = this.clouds.get(f.server)

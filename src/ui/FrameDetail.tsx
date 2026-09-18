@@ -108,6 +108,9 @@ const cell: React.CSSProperties = { padding: '2px 4px', borderBottom: '1px solid
 const SEG_COLOR: Record<PpduSegmentKey, string> = {
   legacyPreamble: '#a78bfa', signal: '#f472b6', preamble: '#a78bfa', muSig: '#f472b6', data: '#38bdf8', padding: '#64748b',
   usig: '#f472b6', ampSync: '#a78bfa', ampSig: '#f472b6', ampData: '#38bdf8', signalExt: '#64748b',
+  // UWB SP1 PPDU: preamble violet, the STS its own teal (it is what a ranging
+  // receiver actually times on), payload the same blue as any other data.
+  sync: '#a78bfa', sfd: '#f472b6', stsGap: '#334155', sts: '#2dd4bf', phr: '#f59e0b', psdu: '#38bdf8',
 }
 
 /** Collapsible field-by-field decode of the selected frame: MAC header of the first MPDU, subframes, PPDU layout. */
@@ -116,12 +119,15 @@ function FieldsSection({ sel, nameOf }: { sel: FrameSelection; nameOf: (id: stri
   const { scenario } = useUi()
   const [open, setOpen] = useState(false)
   const f = sel.frame
+  // A scenario need not hold an AP at all (a UWB-only floor): the To DS / From
+  // DS rules simply have no BSSID to name, and nothing else in the decode does.
   const ap = scenario.nodes.find((n) => n.kind === 'ap')
   let decoded: DecodedFrame | null = null
-  if (open && ap) {
-    const src = scenario.nodes.find((n) => n.id === f.src) ?? ap
+  if (open) {
+    const src = scenario.nodes.find((n) => n.id === f.src)
+    const isEdca = !!ap && !!src && hasFeature(src, 'edca') && hasFeature(ap, 'edca')
     try {
-      decoded = decodeFrame(f, { apId: ap.id, isEdca: hasFeature(src, 'edca') && hasFeature(ap, 'edca') })
+      decoded = decodeFrame(f, { apId: ap?.id ?? '', isEdca })
     } catch {
       decoded = null // a frame the decoder cannot account for: show nothing rather than wrong sizes
     }
@@ -206,12 +212,15 @@ function DecodedView({ d, S, nameOf }: {
         ))}
       </div>
       {d.ppdu.map((p, i) => (
-        <div key={i} style={{ ...valueRow, fontSize: 11 }}>
-          <span><span style={{ color: SEG_COLOR[p.key] }}>■</span> {S.segment[p.key]}</span>
-          <span style={dim}>
-            {p.symbols !== undefined && p.symNs !== undefined ? `${S.symbols(p.symbols, p.symNs / 1000)} = ` : ''}
-            {(p.durNs / 1000).toFixed(1)} µs
-          </span>
+        <div key={i}>
+          <div style={{ ...valueRow, fontSize: 11 }}>
+            <span><span style={{ color: SEG_COLOR[p.key] }}>■</span> {S.segment[p.key]}</span>
+            <span style={dim}>
+              {p.symbols !== undefined && p.symNs !== undefined ? `${S.symbols(p.symbols, p.symNs / 1000)} = ` : ''}
+              {(p.durNs / 1000).toFixed(1)} µs
+            </span>
+          </div>
+          {p.rmarkerNs !== undefined && <div style={hintStyle}>{S.rmarker((p.rmarkerNs / 1000).toFixed(3))}</div>}
         </div>
       ))}
     </div>

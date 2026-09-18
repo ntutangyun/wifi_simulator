@@ -1,6 +1,6 @@
 /** Pure helpers turning timeline records into per-node lane spans. */
 import type { FrameDesc, FrameKind } from '../model/frames'
-import type { RxFailReason, TLRecord } from '../model/records'
+import type { MacStateName, RxFailReason, TLRecord } from '../model/records'
 import type { Ns } from '../model/types'
 import type { ViewState } from '../model/view'
 import type { Strings } from './i18n'
@@ -22,6 +22,13 @@ export interface IfsSegment {
 export interface LaneSpan {
   nodeId: string
   kind: SpanKind
+  /**
+   * The MAC state this span was opened by, when it came from one. A 'slot'
+   * span is drawn the same for both technologies but means two different
+   * things — an AMP tag counting Acks, a UWB device holding a ranging slot —
+   * and the tooltip has to be able to tell them apart.
+   */
+  state?: MacStateName
   frameKind?: FrameKind
   frameSrc?: string
   frame?: FrameDesc
@@ -68,11 +75,12 @@ const STATE_SPAN: Record<string, SpanKind | null> = {
   idle: null, tx: null, rx: null,
   defer: 'defer', backoff: 'backoff',
   waitAck: 'sifs', waitCts: 'sifs', sifsResp: 'sifs',
-  ampWait: 'slot',
+  ampWait: 'slot', uwbWait: 'slot',
 }
 
 interface OpenSpan {
   kind: SpanKind
+  state?: MacStateName
   start: Ns
   frameKind?: FrameKind
   frameSrc?: string
@@ -113,7 +121,7 @@ export function recordsToSpans(
       const nv = seed.view.nodes[id]
       if (!nv) continue
       const kind = STATE_SPAN[nv.state]
-      if (kind) open[id].state = { kind, start: seed.t, ifs: [], openStart: true }
+      if (kind) open[id].state = { kind, state: nv.state, start: seed.t, ifs: [], openStart: true }
       if (nv.navUntilNs > seed.t) open[id].nav = { kind: 'nav', start: seed.t, ifs: [], openStart: true }
       if (nv.currentTx) {
         const inF = seed.view.inFlight.find((f) => f.from === id)
@@ -149,7 +157,7 @@ export function recordsToSpans(
   const emit = (nodeId: string, o: OpenSpan, end: Ns, openEnded: boolean) => {
     if (end <= a || o.start >= b) return
     out.push({
-      nodeId, kind: o.kind, frameKind: o.frameKind, frameSrc: o.frameSrc, frame: o.frame,
+      nodeId, kind: o.kind, ...(o.state ? { state: o.state } : {}), frameKind: o.frameKind, frameSrc: o.frameSrc, frame: o.frame,
       ac: o.acMixed ? undefined : o.ac, ifs: o.ifs, openStart: o.openStart ?? false, openEnded,
       ...(o.rxFail ? { rxFail: o.rxFail } : {}),
       startNs: Math.max(a, o.start), endNs: Math.min(b, end),
@@ -180,7 +188,7 @@ export function recordsToSpans(
         close(id, 'state', r.t)
         const kind = STATE_SPAN[r.state]
         if (kind) {
-          const span: OpenSpan = { kind, start: r.t, ifs: [] }
+          const span: OpenSpan = { kind, state: r.state, start: r.t, ifs: [] }
           // An idle→defer transition emits IFS_START just *before* the state
           // record, so the IFS that opens the block arrives with nothing open.
           const p = pendingIfs[id]
@@ -314,9 +322,15 @@ export function spanTooltip(s: LaneSpan, T: Strings['tooltips'], t?: Ns, nameOf:
         f.kind === 'ampTrigger' ? T.ampTrigger :
         f.kind === 'ampAck' ? T.ampAck(dst) :
         f.kind === 'ampResp' ? T.ampResp(f.amp?.slot ?? 0) :
+        f.kind === 'uwbPoll' ? T.uwbPoll(f.uwb?.schedule?.length ?? 0) :
+        f.kind === 'uwbResp' ? T.uwbResp(f.uwb?.slot ?? 0) :
+        f.kind === 'uwbFinal' ? T.uwbFinal :
+        f.kind === 'uwbReport' ? T.uwbReport(dst) :
         f.kind === 'rts' ? T.rts(dst) :
         f.kind === 'cfend' ? T.cfend : T.cts(dst)
-      const rate = f.amp ? `${f.amp.kbps} kb/s OOK` : f.mcs !== undefined ? `${f.mode?.toUpperCase()} MCS${f.mcs} · ${f.mbps} Mbps` : `${f.mbps} Mbps (${T.nonHt})`
+      const rate = f.amp ? `${f.amp.kbps} kb/s OOK`
+        : f.uwb ? T.uwbRate(f.mbps)
+        : f.mcs !== undefined ? `${f.mode?.toUpperCase()} MCS${f.mcs} · ${f.mbps} Mbps` : `${f.mbps} Mbps (${T.nonHt})`
       const lines = [`${what}${ac}`, `${f.bytes} B · ${rate} · ${dur}`]
       if (f.kind === 'ack' || f.kind === 'ba' || f.kind === 'cts' || f.kind === 'mba' || f.kind === 'cfend') {
         lines.push(T.sifsNote)
@@ -350,7 +364,9 @@ export function spanTooltip(s: LaneSpan, T: Strings['tooltips'], t?: Ns, nameOf:
     case 'sifs':
       return [`${T.sifsWait} · ${dur}`]
     case 'slot':
-      return [`${T.ampWait} · ${dur}`, T.ampWaitNote]
+      return s.state === 'uwbWait'
+        ? [`${T.uwbWait} · ${dur}`, T.uwbWaitNote]
+        : [`${T.ampWait} · ${dur}`, T.ampWaitNote]
   }
 }
 

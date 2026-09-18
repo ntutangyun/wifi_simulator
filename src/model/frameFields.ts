@@ -19,7 +19,7 @@ import {
   ACK_BYTES, AMPDU_DELIMITER_BYTES, BA_BYTES, CF_END_BYTES, CTS_BYTES, FCS_BYTES, MAC_HDR_BYTES,
   PHY_MODES, QOS_HDR_BYTES, RTS_BYTES, multiStaBaBytes, triggerBytes,
 } from '../engine/phy'
-import { UWB_FCS_BYTES, UWB_MHR_BYTES } from '../uwb/phy'
+import { uwbFrameFields, uwbPpduLayout } from '../uwb/frameFields'
 import type { FrameDesc, FrameKind } from './frames'
 import type { Ns } from './types'
 
@@ -33,7 +33,9 @@ export type FieldKey =
   | 'fc' | 'duration' | 'addr1' | 'addr2' | 'addr3' | 'seqCtl' | 'qos'
   | 'body' | 'baControl' | 'baInfo' | 'commonInfo' | 'userInfo' | 'fcs'
   | 'ampId' | 'ampTdc' | 'ampStaList'
-  | 'mhr' | 'psdu'
+  // 802.15.4 ranging frames (uwb/frameFields.ts): MHR fields then one key per payload IE.
+  | 'seqNo' | 'dstPan' | 'dstAddr16' | 'srcAddr16'
+  | 'ieArc' | 'ieRdm' | 'ieRrmc' | 'ieRrti' | 'ieRmi'
 
 export interface FrameField {
   key: FieldKey
@@ -51,8 +53,8 @@ export interface FrameField {
 /** One MAC frame (MPDU). */
 export interface Mpdu {
   kind: FrameKind
-  /** Table 9-1 type and subtype names. */
-  typeName: 'Control' | 'Data'
+  /** Table 9-1 type and subtype names; 'Ranging' for the 802.15.4 frames, which are neither. */
+  typeName: 'Control' | 'Data' | 'Ranging'
   subtypeName: string
   fields: FrameField[]
   /** Sum of the field sizes. */
@@ -80,6 +82,7 @@ export interface UserPsdu {
 export type PpduSegmentKey =
   | 'legacyPreamble' | 'signal' | 'preamble' | 'muSig' | 'data' | 'padding'
   | 'usig' | 'ampSync' | 'ampSig' | 'ampData' | 'signalExt'
+  | 'sync' | 'sfd' | 'stsGap' | 'sts' | 'phr' | 'psdu'
 
 export interface PpduSegment {
   key: PpduSegmentKey
@@ -87,6 +90,8 @@ export interface PpduSegment {
   /** Data segment: OFDM symbols and the duration of one. */
   symbols?: number
   symNs?: Ns
+  /** UWB: this segment begins at the RMARKER — its offset from the start of the PPDU. */
+  rmarkerNs?: Ns
 }
 
 export interface DecodedFrame {
@@ -147,7 +152,7 @@ function addr(key: 'addr1' | 'addr2' | 'addr3', node: string, roles: AddrRole[])
   return { key, bytes: 6, node, roles }
 }
 
-function mpduOf(kind: FrameKind, typeName: 'Control' | 'Data', subtypeName: string, fields: FrameField[], msduId?: number): Mpdu {
+function mpduOf(kind: FrameKind, typeName: Mpdu['typeName'], subtypeName: string, fields: FrameField[], msduId?: number): Mpdu {
   return { kind, typeName, subtypeName, fields, bytes: sum(fields.map((f) => f.bytes)), msduId }
 }
 
@@ -279,15 +284,9 @@ function controlMpdu(f: FrameDesc, apId: string): Mpdu {
     case 'uwbResp':
     case 'uwbFinal':
     case 'uwbReport':
-      // Placeholder decode until the UWB frame view (task 7) breaks the IEs out
-      // field by field: MHR, the payload IEs as one block, FCS.
-      fields = [
-        { key: 'mhr', bytes: UWB_MHR_BYTES, value: `${f.src} → ${dst === '*' ? 'broadcast' : dst}` },
-        { key: 'psdu', bytes: f.bytes - UWB_MHR_BYTES - UWB_FCS_BYTES, value: f.uwb?.ies.join(' + ') ?? 'ranging IEs' },
-        { key: 'fcs', bytes: UWB_FCS_BYTES, value: 'CRC-16' },
-      ]
-      checkSize(fields, f.bytes)
-      break
+      // Never reached: decodeFrame sends UWB frames to uwb/frameFields.ts, which
+      // decodes an 802.15.4 MHR + ranging IEs rather than an 802.11 MAC header.
+      return uwbFrameFields(f).users[0].subframes[0].mpdu
     case 'ampResp': {
       const a = f.amp!
       fields = [
@@ -361,8 +360,7 @@ function ampPpduLayout(f: FrameDesc): PpduSegment[] {
 /** Preamble, PHY header and data symbols of the PPDU; durations sum to frame.txTimeNs. */
 export function ppduLayout(f: FrameDesc): PpduSegment[] {
   if (f.amp) return ampPpduLayout(f)
-  // Placeholder until task 7 splits the SP1 PPDU into SHR / STS / PHR / PSDU.
-  if (f.uwb) return [{ key: 'data', durNs: f.txTimeNs }]
+  if (f.uwb) return uwbPpduLayout(f)
   const mode = f.mode ?? 'nonht'
   const m = PHY_MODES[mode]
   const segs: PpduSegment[] = []
@@ -388,6 +386,7 @@ export function ppduLayout(f: FrameDesc): PpduSegment[] {
 }
 
 export function decodeFrame(f: FrameDesc, ctx: DecodeCtx): DecodedFrame {
+  if (f.uwb) return uwbFrameFields(f)
   const users = f.kind === 'data'
     ? decodeData(f, ctx)
     : [userPsdu(f.dst, [{ delimiterBytes: 0, mpdu: controlMpdu(f, ctx.apId), padBytes: 0 }], false)]

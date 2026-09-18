@@ -29,7 +29,7 @@ export function haloColor(state: MacStateName, navActive: boolean): number {
     case 'waitCts':
     case 'sifsResp': return 0x06b6d4
     case 'ampWait': return 0x0d9488
-    case 'uwbWait': return 0xf472b6
+    case 'uwbWait': return 0xd97706
   }
 }
 
@@ -115,6 +115,18 @@ export function buildNodeGroup(n: NodeCfg, lang: Lang = 'en'): THREE.Group {
       new THREE.CylinderGeometry(0.12, 0.12, 0.02, 16),
       new THREE.MeshStandardMaterial({ color: 0x2dd4bf, roughness: 0.5 }),
     )
+  } else if (n.kind === 'uwb') {
+    // An anchor is a fixed box bolted to the wall or ceiling at its own height;
+    // a tag is the flat slab a person carries. Two shades of amber, as on the lane.
+    body = n.uwb?.role === 'tag'
+      ? new THREE.Mesh(
+        new THREE.BoxGeometry(0.16, 0.08, 0.02),
+        new THREE.MeshStandardMaterial({ color: 0xfbbf24, roughness: 0.5 }),
+      )
+      : new THREE.Mesh(
+        new THREE.BoxGeometry(0.25, 0.25, 0.25),
+        new THREE.MeshStandardMaterial({ color: 0xf59e0b, roughness: 0.45 }),
+      )
   } else {
     body = new THREE.Mesh(
       new THREE.BoxGeometry(0.16, 0.32, 0.08),
@@ -153,8 +165,11 @@ export function buildNodeMeshes(sc: Scenario, lang: Lang = 'en'): Map<string, TH
   return map
 }
 
-/** Short live annotation above a node: backoff count, IFS kind, NAV. */
+/** Short live annotation above a node: ranging slot, backoff count, IFS kind, NAV. */
 export function statusText(nv: NodeView, tNs: number): string {
+  // A UWB device has no backoff, no IFS and no NAV: what it is doing is the
+  // ranging slot it holds, or nothing at all between rounds.
+  if (nv.uwb) return nv.uwb.slot !== null ? `slot ${nv.uwb.slot}` : ''
   if (nv.state === 'backoff' && nv.backoff !== null) return `bo:${nv.backoff}`
   if (nv.ifs) return `${nv.ifs.kind} ${(Math.max(0, nv.ifs.untilNs - tNs) / 1000).toFixed(0)}µs`
   if (nv.navUntilNs > tNs) return `NAV ${((nv.navUntilNs - tNs) / 1000).toFixed(0)}µs`
