@@ -14,9 +14,10 @@
 import type { FrameDesc, MuPart } from '../model/frames'
 import { ampduPsduBytes, dataPsduBytes } from '../model/frames'
 import type { EmitFn, MacStateName } from '../model/records'
-import type { TamperCfg } from '../model/scenario'
+import type { AmpApCfg, TamperCfg } from '../model/scenario'
 import type { Ns } from '../model/types'
 import type { TxopProtection } from '../model/scenario'
+import { AmpApRound } from './ampAp'
 import type { Channel, PhyListener } from './channel'
 import { EventQueue } from './events'
 import {
@@ -77,6 +78,8 @@ export interface WifiMacCfg {
   msduLifetimeNs?: Ns
   /** Interframe timing of the link this MAC serves (default: 5 GHz OFDM). */
   timing?: PhyTiming
+  /** AP only: ambient-power (AMP) polling of P802.11bp tags on this link. */
+  ampAp?: AmpApCfg
 }
 
 /** The parameter set a (possibly tampered) station actually contends with. */
@@ -184,6 +187,9 @@ export class WifiMac implements PhyListener {
   private staMuAwait: StaMuAwait | null = null
   private wantTrigger = false
   private muGidCounter = 0
+  /** AP with AMP tags: the polling round, and whether the next AC_BK TXOP is one. */
+  readonly ampRound: AmpApRound | null
+  private ampPending = false
   private readonly T: PhyTiming
 
   constructor(
@@ -203,6 +209,33 @@ export class WifiMac implements PhyListener {
       params, cw: params.cwMin, backoff: null, needDraw: false,
       qsrc: 0, ifsHandle: 0, tickHandle: 0,
     }))
+    this.ampRound = cfg.ampAp
+      ? new AmpApRound(cfg.ampAp, {
+          nodeId, q, now, emit, timing: this.T,
+          transmit: (f) => this.transmitFrame(f, false),
+          done: () => this.onAmpDone(),
+        })
+      : null
+    if (this.ampRound) this.scheduleAmpPoll(0)
+  }
+
+  /** The AMP poll clock: every pollIntervalMs the AP wants one AC_BK TXOP for a round. */
+  private scheduleAmpPoll(at: Ns): void {
+    const cfg = this.cfg.ampAp!
+    this.q.schedule(at, () => {
+      this.ampPending = true
+      this.startAccessAc(this.edcafs[this.efIndex(0)])
+      this.scheduleAmpPoll(at + cfg.pollIntervalMs * 1_000_000)
+    })
+  }
+
+  /** The round is over: close the TXOP and take a post-transmission backoff (§10.23.2.2). */
+  private onAmpDone(): void {
+    const e = this.edcafs[this.efIndex(0)]
+    this.endTxop()
+    e.backoff = null
+    e.needDraw = true
+    this.resumeAll()
   }
 
   get queueDepth(): number {
@@ -257,7 +290,8 @@ export class WifiMac implements PhyListener {
 
   private inExchange(): boolean {
     return this.awaiting !== null || this.muState !== null || this.staMuAwait !== null ||
-      this.pendingResp !== null || this.respHandle !== 0 || this.ch.isTransmitting(this.nodeId)
+      this.pendingResp !== null || this.respHandle !== 0 || this.ch.isTransmitting(this.nodeId) ||
+      (this.ampRound?.active ?? false)
   }
 
   /** Destination filter for the shared queue: only peers on this MAC's link. */
@@ -266,7 +300,7 @@ export class WifiMac implements PhyListener {
   private hasWork(e: Edcaf): boolean {
     const idx = this.edcafs.indexOf(e)
     return this.queues.depthFor(idx, this.reach) > 0 || e.needDraw || e.backoff !== null ||
-      (this.wantTrigger && idx === this.efIndex(1))
+      (this.wantTrigger && idx === this.efIndex(1)) || (this.ampPending && idx === this.efIndex(0))
   }
 
   private startAccessAc(e: Edcaf): void {
@@ -371,7 +405,8 @@ export class WifiMac implements PhyListener {
 
   /** Something for this EDCAF to start a TXOP with: a queued MSDU, or (AP) a wanted Trigger. */
   private hasFrame(idx: number): boolean {
-    return this.queues.depthFor(idx, this.reach) > 0 || (this.wantTrigger && idx === this.efIndex(1))
+    return this.queues.depthFor(idx, this.reach) > 0 || (this.wantTrigger && idx === this.efIndex(1)) ||
+      (this.ampPending && idx === this.efIndex(0))
   }
 
   private arbitrate(): void {
@@ -439,6 +474,14 @@ export class WifiMac implements PhyListener {
     const ei = this.edcafs.indexOf(e)
     const t = this.now()
     this.purgeExpired(e, ei)
+
+    // AMP: this AC_BK TXOP is a polling round, not a queued frame. It is one
+    // exchange the round itself times out, exempt from the AC's TXOP limit.
+    if (this.cfg.isAp && this.ampRound && this.ampPending && ei === this.efIndex(0) && !inTxopBurst) {
+      this.ampPending = false
+      this.ampRound.start()
+      return
+    }
 
     // AP OFDMA: DL MU when ≥2 eligible peers queued; UL Trigger when wanted.
     if (this.cfg.isAp) {
@@ -900,6 +943,12 @@ export class WifiMac implements PhyListener {
       this.setState('waitAck') // MU exchanges resolve on their own timers
       return
     }
+    if (this.ampRound?.active) {
+      // An AMP round runs on its own timers too; the AP holds the medium
+      // between its trigger, the tags' slots and each slot's Ack.
+      this.setState('waitAck')
+      return
+    }
     if (expectResponse && this.awaiting) {
       this.setState(this.awaiting.kind === 'cts' ? 'waitCts' : 'waitAck')
       this.lastRxStartNs = NEVER
@@ -1122,6 +1171,18 @@ export class WifiMac implements PhyListener {
 
   onRxOk(t: Ns, frame: FrameDesc, from: string): void {
     this.corruptLast = false
+    if (frame.kind === 'ampResp') {
+      // A tag's slotted response: only the round cares, and it never answers
+      // one frame at a time (the slot's Ack closes it).
+      this.ampRound?.onRxOk(frame, from)
+      return
+    }
+    if (frame.kind === 'ampTrigger' || frame.kind === 'ampAck') {
+      // A Wi-Fi station overhearing an AMP DL PPDU: nothing to answer, and no
+      // Duration to take a NAV from.
+      this.corruptLast = false
+      return
+    }
     const myPart = frame.muParts?.find((p) => p.dst === this.nodeId)
     // §10.3.2.9: onRxStart held the ACK/CTS timeout for this reception. If
     // what arrived is anything but the awaited response — another station's
@@ -1146,7 +1207,10 @@ export class WifiMac implements PhyListener {
   }
 
   onRxCorrupt(_t: Ns): void {
-    this.corruptLast = true
+    this.ampRound?.onRxFail()
+    // An empty or collided AMP slot is not a reason to arm EIFS: the AP owns
+    // the medium until the round's last Ack and answers on AMP SIFS.
+    if (!this.ampRound?.active) this.corruptLast = true
     if (this.awaiting !== null) this.failAttempt()
   }
 
@@ -1349,6 +1413,10 @@ export class WifiMac implements PhyListener {
   }
 
   private scheduleResponse(t: Ns, resp: FrameDesc): void {
+    // Inside an AMP round the AP owns the medium and its radio is committed to
+    // the round's own SIFS schedule (the next slot's Ack): a Wi-Fi frame that
+    // talked over a slot gets no response and is retried by its sender.
+    if (this.ampRound?.active) return
     this.cancelAllContention()
     // A frame we must answer arrived while our own SIFS-chained transmission
     // (TXOP continuation) was pending: the radio was receiving, so that
@@ -1437,7 +1505,7 @@ export class WifiMac implements PhyListener {
     let s: MacStateName
     if (this.ch.isTransmitting(this.nodeId)) s = 'tx'
     else if (this.awaiting?.kind === 'cts') s = 'waitCts'
-    else if (this.awaiting || this.staMuAwait || this.muState) s = 'waitAck'
+    else if (this.awaiting || this.staMuAwait || this.muState || this.ampRound?.active) s = 'waitAck'
     else if (this.pendingResp || this.respHandle) s = 'sifsResp'
     else if (this.edcafs.some((e) => e.tickHandle)) s = 'backoff'
     else if (this.edcafs.some((e) => e.ifsHandle) || this.edcafs.some((e) => this.hasWork(e))) s = 'defer'

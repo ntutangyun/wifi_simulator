@@ -15,6 +15,8 @@ import { makeEmitter, type EmitFn, type TLRecord } from '../model/records'
 import { ScenarioSchema, serverFor, type NodeCfg, type Scenario } from '../model/scenario'
 import type { Ns } from '../model/types'
 import { applyRecord, cloneView, initViewState, type Snapshot, type ViewState } from '../model/view'
+import { AMP_TAG_DL_SENS_DBM, ampId16 } from './amp'
+import { AmpStaMac } from './ampSta'
 import { Channel } from './channel'
 import { EventQueue } from './events'
 import { WifiMac } from './mac'
@@ -48,6 +50,8 @@ export class Simulation {
   private hash = 0x811c9dc5
   /** MACs keyed by virtual id. */
   readonly macs = new Map<string, WifiMac>()
+  /** AMP tag MACs keyed by virtual id (tags are not Wi-Fi stations: they never appear in `macs`). */
+  readonly tags = new Map<string, AmpStaMac>()
 
   constructor(sc: Scenario) {
     ScenarioSchema.parse(sc)
@@ -72,7 +76,10 @@ export class Simulation {
 
     // ---- shared MLD queues (per physical node) ----
     const queuesOf = new Map<string, AcQueues>()
-    for (const n of sc.nodes) queuesOf.set(n.id, new AcQueues(sc.queue?.limit))
+    for (const n of sc.nodes) {
+      if (n.kind === 'amp') continue // a tag has no transmit queue: it answers triggers
+      queuesOf.set(n.id, new AcQueues(sc.queue?.limit))
+    }
 
     /** Traffic sources per station — one per stream it runs. */
     const sources = new Map<string, TrafficSource[]>()
@@ -103,6 +110,17 @@ export class Simulation {
 
       for (const n of members) {
         const vid = vname(n.id)
+        if (n.kind === 'amp') {
+          // An ambient-power tag: no carrier sense, no NAV, a radio that only
+          // ever decodes the AP's downlink AMP PPDUs.
+          const tagMac = new AmpStaMac(
+            n.id, this.q, () => this.nowNs, ch, root.fork(hashStr(vid)), linkEmit,
+            { apId: ap.id, id16: n.ampTag?.id16 ?? ampId16(n.id) },
+          )
+          ch.register(n.id, tagMac, { kind: 'tag', cca: false, floorDbm: n.ampTag?.dlSensDbm ?? AMP_TAG_DL_SENS_DBM })
+          this.tags.set(vid, tagMac)
+          continue
+        }
         const edca = hasFeature(n, 'edca') && hasFeature(ap, 'edca')
         const rate = new RateControl()
         const mac = new WifiMac(
@@ -115,6 +133,7 @@ export class Simulation {
             txop: edca && hasFeature(n, 'txop') && hasFeature(ap, 'txop'),
             isAp: n.kind === 'ap',
             timing: timingFor(link),
+            ampAp: n.kind === 'ap' && link === '2g' && members.some((m) => m.kind === 'amp') ? n.ampAp : undefined,
             modeForPeer: (peer) => modeFor(n, peer),
             mcsForPeer: (peer) => {
               const rssi = table.get(n.id)?.get(peer) ?? -200
@@ -126,7 +145,7 @@ export class Simulation {
             },
             widthForPeer: (peer) => negotiatedWidth(n, other(n, peer), link),
             nssForPeer: (peer) => negotiatedNss(n, other(n, peer)),
-            reachable: (peer) => memberSet.has(peer),
+            reachable: (peer) => memberSet.has(peer) && byId.get(peer)?.kind !== 'amp',
             onTxOutcome: (peer, ok) => { if (ok) rate.onSuccess(peer); else rate.onFailure(peer) },
             txopProtection: n.txopProtection ?? 'single',
             tamper: n.kind === 'sta' ? n.tamper : undefined,
@@ -137,7 +156,7 @@ export class Simulation {
             ownNss: () => nssOf(n),
             ulBacklog: n.kind === 'ap'
               ? () => memberIds
-                  .filter((id) => id !== ap.id && negotiated(byId.get(id)!, ap, 'ofdma'))
+                  .filter((id) => id !== ap.id && byId.get(id)!.kind === 'sta' && negotiated(byId.get(id)!, ap, 'ofdma'))
                   .map((id) => {
                     const stq = queuesOf.get(id)!
                     // A station may hold several streams: trigger it for its highest-priority backlog.
@@ -167,7 +186,7 @@ export class Simulation {
           queuesOf.get(n.id),
         )
         this.macs.set(vid, mac)
-        ch.register(n.id, mac)
+        ch.register(n.id, mac, { ampCapable: n.kind === 'ap' && link === '2g' && !!n.ampAp })
         if (n.kind === 'ap') apMacs.push(mac)
       }
     }
