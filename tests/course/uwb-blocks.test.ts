@@ -15,6 +15,7 @@ import { uwbTag, type Block, type L10n } from '../../src/course/lessonKit'
 import { OBSERVE_MINUTES, TRY_MINUTES, lessonMinutes, lessonWords } from '../../src/course/curriculum'
 import { clampField } from '../../src/editor/planOps'
 import { fmtRecord } from '../../src/ui/format'
+import { STRINGS } from '../../src/ui/i18n'
 import { uwbFrameFields } from '../../src/uwb/frameFields'
 import { roundPlan } from '../../src/uwb/session'
 import {
@@ -371,8 +372,8 @@ describe('uwb-blocks · what the radio costs', () => {
   })
 
   it('the two shares differ tenfold and more: 10.3× on the tag, 24.5× on the anchor', () => {
-    // "Two different shares of the block both get called a duty cycle, and here they differ
-    //  tenfold and more." — "and more" is the anchor's row, which is the larger ratio of the two
+    // "Two different shares of the block are easy to confuse, and here they differ tenfold and
+    //  more." — "and more" is the anchor's row, which is the larger ratio of the two
     const tagRatio = PLAN.roundNs / radioOnNs(recs(), 'uwb-1', PLAN.blockNs)
     const ancRatio = TAGS.length * PLAN.roundNs / radioOnNs(recs(), 'anchor-1', PLAN.blockNs)
     expect(tagRatio.toFixed(1)).toBe('10.3')
@@ -381,7 +382,7 @@ describe('uwb-blocks · what the radio costs', () => {
     expect(ancRatio).toBeGreaterThan(tagRatio)
   })
 
-  it('the radio share of the block is 0.97 % for the tag and 1.22 % for the anchor', () => {
+  it('the radio-on share of the block is 0.97 % for the tag and 1.22 % for the anchor', () => {
     // the radio table: uwb-1, 1 of 10 rounds, 10 of 10 slots, 1 934 334 ns, 0.97 %;
     //                  anchor-1, 3 of 10 rounds, 4 of 10 slots × 3, 2 448 546 ns, 1.22 %
     const tag = radioOnNs(recs(), 'uwb-1', PLAN.blockNs)
@@ -554,6 +555,20 @@ describe('uwb-blocks · the 0.5 ms variant', () => {
     expect(three.roundNs).toBe(16 * MS)
     expect(three.roundsPerBlock).toBe(12)
     expect(uwbFinalBytes(ANCHORS) - uwbFinalBytes(ANCHORS - 1)).toBe(12)
+  })
+
+  it('each language quotes the plan line its own editor prints, word for word', () => {
+    // The sentence tells the learner to read the session section, so it has to quote what that
+    // section renders — `E.uwbPlan(slots, rounds)` — in the language they are reading it in.
+    // A Chinese learner never sees the English string, and a relabel must break this test.
+    const three = roundPlan(SESSION, ANCHORS - 1)
+    const quoted = (s: string): string => `“${s}”`
+    expect(uwbBlocks.tryThis[1].en)
+      .toContain(quoted(STRINGS.en.editor.uwbPlan(three.slots, three.roundsPerBlock)))
+    expect(uwbBlocks.tryThis[1].zh)
+      .toContain(quoted(STRINGS.zh.editor.uwbPlan(three.slots, three.roundsPerBlock)))
+    // and the base scene's own plan is what the lesson quotes elsewhere
+    expect(prose()).toContain(`${PLAN.slots} slots × 2000.0 µs`)
   })
 
   it('typing 285 into the editor’s slot field really does snap to 300', () => {

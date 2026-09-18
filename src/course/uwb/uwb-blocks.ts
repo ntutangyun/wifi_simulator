@@ -14,7 +14,7 @@
  * 975 and 1724 English words across body + observe + tryThis + quiz (4 observe
  * items and 2 experiments already account for 16 of those minutes). At 1725 the
  * rounding tips to 30, and the study-time test pins that ceiling. The prose
- * below totals 1714 words, so there is room for ten more and no more:
+ * below totals 1712 words, so there is room for twelve more and no more:
  * adding a sentence means deleting one.
  */
 import type { Scenario } from '../../model/scenario'
@@ -81,8 +81,8 @@ export const uwbBlocks: Lesson = {
       zh: '而且每一帧都在自己时隙的起点离开。标准允许在时隙内设置发送偏移；本模型取零偏移，于是 TX_START 的时间戳精确到纳秒就是它那个时隙的起点——第 0 个块的三帧 Poll 分别在 0、20 000 000 与 40 000 000 ns。这里没有谁需要等待信道空闲。',
     } },
     { heading: { en: 'What the radio actually costs', zh: '射频真正的开销' }, text: {
-      en: 'Two different shares of the block both get called a duty cycle, and here they differ tenfold and more. The schedule share is what the grid hands a device: a tag owns one round of ten, 20 ms of 200 ms, 10 %, and the anchors serve every round that has a tag — three of them, 60 ms, 30 %. The radio share is what the MAC_STATE lane shows: uwbWait, rx and tx, and nothing else.',
-      zh: '有两种很不一样的“占块比例”都被叫作占空比，而在这里它们相差十倍以上。调度占比是网格分给一台设备的份额：标签占十轮中的一轮，200 ms 里的 20 ms，10 %；锚点则要服务每一个有标签的轮次——一共三轮，60 ms，30 %。射频占比则是 MAC_STATE 泳道上真正显示的东西：uwbWait、rx 与 tx，别的都不算。',
+      en: 'Two different shares of the block are easy to confuse, and here they differ tenfold and more. The schedule share is what the grid hands a device: a tag owns one round of ten, 20 ms of 200 ms, 10 %, and the anchors serve every round that has a tag — three of them, 60 ms, 30 %. The radio-on share is what the MAC_STATE lane shows: uwbWait, rx and tx, and nothing else.',
+      zh: '有两种很不一样的“占块比例”极易混为一谈，而在这里它们相差十倍以上。调度占比是网格分给一台设备的份额：标签占十轮中的一轮，200 ms 里的 20 ms，10 %；锚点则要服务每一个有标签的轮次——一共三轮，60 ms，30 %。射频开启占比则是 MAC_STATE 泳道上真正显示的东西：uwbWait、rx 与 tx，别的都不算。',
     } },
     { kind: 'table', head: [
       { en: 'Device', zh: '设备' }, { en: 'Its rounds', zh: '参与的轮次' }, { en: 'Slots it wakes in', zh: '醒来的时隙' },
@@ -140,7 +140,7 @@ export const uwbBlocks: Lesson = {
     { en: 'Load “0.5 ms slots” and watch the block empty out: the three rounds finish by 15 ms, the fixes land at 5, 10 and 15 ms, and the editor’s session section plans 40 rounds per block instead of 10. Compare the lanes with the base run — the same ten frames, four times closer together, and each tag’s radio-on still 1 934 334 ns.',
       zh: '载入“0.5 ms 时隙”，看这个块如何空了下来：三个轮次到 15 ms 就做完，定位落在 5、10、15 ms，编辑器里会话那一栏现在规划出每块 40 轮而不是 10 轮。再把泳道与基准运行对照——还是那十帧，只是紧凑了四倍，而每个标签的射频开启时长依旧是 1 934 334 ns。' },
     { en: 'Open the scenario editor, delete anchor-4 and read the UWB session section: “slots per round 8 · rounds per block 12”, because a DS round is 2N + 2 slots — a 16 ms round, and a Final 12 octets shorter. Then type 285 into the slot field and leave it: it snaps to 300, the floor under every slot.',
-      zh: '打开场景编辑器，删掉 anchor-4，再看 UWB 会话那一栏：“slots per round 8 · rounds per block 12”，因为一个 DS 轮是 2N + 2 个时隙——一轮 16 ms，Final 也短了 12 字节。然后在时隙那一栏里输入 285 再移开焦点：它会跳到 300，也就是每个时隙的那条下限。' },
+      zh: '打开场景编辑器，删掉 anchor-4，再看 UWB 会话那一栏：“每轮 8 个时隙 · 每块 12 轮”，因为一个 DS 轮是 2N + 2 个时隙——一轮 16 ms，Final 也短了 12 字节。然后在时隙那一栏里输入 285 再移开焦点：它会跳到 300，也就是每个时隙的那条下限。' },
   ],
   quiz: [
     {

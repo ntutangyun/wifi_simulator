@@ -11,7 +11,7 @@
  * 975 and 1724 English words across body + observe + tryThis + quiz (4 observe
  * items and 2 experiments already account for 16 of those minutes). At 1725 the
  * rounding tips to 30, and the study-time test pins that ceiling. The prose
- * below totals 1707 words, so there is room for seventeen more and no more:
+ * below totals 1705 words, so there is room for nineteen more and no more:
  * adding a sentence means deleting one.
  */
 import type { Scenario } from '../../model/scenario'
@@ -101,8 +101,8 @@ export const uwbDstwr: Lesson = {
       [{ en: 'Round total', zh: '整轮合计' }, N('10'), N('253'), N('1 934.23 µs')],
     ] },
     { text: {
-      en: '1 934.23 µs of radiation inside a 20 000 µs round is 9.67 %, against 9.56 % for lesson 2’s single-sided round: the duty cycle barely moves; what doubles is the round’s length and the wake-ups. The Final is the largest frame, and the one that grows fastest with the anchor count: 14 + 12N octets against the Poll’s 27 + 3N — 62 here, 496 bits, two Reed–Solomon blocks.',
-      zh: '在一个 20 000 µs 的轮里辐射 1 934.23 µs，占 9.67 %，而第 2 课的单边轮是 9.56 %：占空比几乎没动，翻倍的是这一轮的长度与醒来的次数。Final 是全轮最大的帧，也是随锚点数增长最快的帧：14 + 12N 字节，而 Poll 是 27 + 3N——此处 62 字节、496 位、两个 Reed–Solomon 码块。',
+      en: '1 934.23 µs of radiation inside a 20 000 µs round is 9.67 %, against 9.56 % for lesson 2’s single-sided round: channel occupancy barely moves; what doubles is the round’s length and the wake-ups. The Final is the largest frame, and the one that grows fastest with the anchor count: 14 + 12N octets against the Poll’s 27 + 3N — 62 here, 496 bits, two Reed–Solomon blocks.',
+      zh: '在一个 20 000 µs 的轮里辐射 1 934.23 µs，占 9.67 %，而第 2 课的单边轮是 9.56 %：信道占用率几乎没动，翻倍的是这一轮的长度与醒来的次数。Final 是全轮最大的帧，也是随锚点数增长最快的帧：14 + 12N 字节，而 Poll 是 27 + 3N——此处 62 字节、496 位、两个 Reed–Solomon 码块。',
     } },
     { heading: { en: 'The same number, computed twice', zh: '同一个数，算了两遍' }, text: {
       en: 'Two devices hold all four times, and both do the arithmetic. An anchor finishes when the Final arrives, at 10 236 615 ns; the phone waits for that anchor’s report — 12 191 486 ns for anchor 1, almost two milliseconds later. Both lanes carry the same distance, identical to the last digit of tofRctu: the same four counters through the same function. That is what the reports are for: the anchor already knows the range; the phone needs a position. At the round’s end the four ranges become a fix at (5.01, 3.98) m against a true (5.00, 4.00): 2 cm out, GDOP 1.00 for this symmetric ring.',
@@ -169,7 +169,7 @@ export const uwbDstwr: Lesson = {
         { en: 'Four times the airtime, since the Final and reports are the largest frames', zh: '四倍的空口时间，因为 Final 与报告是最大的帧' },
       ],
       answer: 1,
-      explain: { en: 'The duty cycle barely moves (9.67 % against 9.56 %), so airtime is not the price; latency and energy are, and both roughly double. The crystal term drops to picoseconds, but the 100 ps of receive noise is what the 1.9 cm of 1-σ is made of.', zh: '占空比几乎没变（9.67 % 对 9.56 %），代价不在空口时间，而在时延与功耗，二者大约翻倍。晶振项被压到皮秒量级，但 1.9 cm 的 1σ 正是由那 100 ps 的接收噪声构成的。' },
+      explain: { en: 'Channel occupancy barely moves (9.67 % against 9.56 %), so airtime is not the price; latency and energy are, and both roughly double. The crystal term drops to picoseconds, but the 100 ps of receive noise is what the 1.9 cm of 1-σ is made of.', zh: '信道占用率几乎没变（9.67 % 对 9.56 %），代价不在空口时间，而在时延与功耗，二者大约翻倍。晶振项被压到皮秒量级，但 1.9 cm 的 1σ 正是由那 100 ps 的接收噪声构成的。' },
     },
   ],
 }

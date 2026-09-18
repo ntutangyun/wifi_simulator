@@ -13,10 +13,11 @@
  * 975 and 1724 English words across body + observe + tryThis + quiz (4 observe
  * items and 2 experiments already account for 16 of those minutes). At 1725 the
  * rounding tips to 30, and the study-time test pins that ceiling. The prose
- * below totals 1718 words, so there is room for six more and no more:
+ * below totals 1720 words, so there is room for four more and no more:
  * adding a sentence means deleting one.
  */
 import type { Scenario } from '../../model/scenario'
+import { ELLIPSE_DRAW_SCALE } from '../../uwb/scene'
 import {
   J, N, anchor, brick, firstUwbPoll, firstUwbPosition, firstUwbRange, firstUwbRoundEnd, oneRoom,
   uwbSc, uwbTag, type Lesson,
@@ -90,8 +91,8 @@ export const uwbPosition: Lesson = {
       zh: '有两件事把本场景抬到了 1.05。锚点在 2.20 m 而标签在 1.00 m，于是雅可比的每一行都是斜向单位向量的水平投影，长度只有 0.968 到 0.985。此外四个锚点张成的是 9 × 7 m 的长方形而非正方形，因此房间里没有任何一点能看到四个直角：从标签看过去，方位角间隔是 64.6°、89.4°、95.2° 与 110.8°，而房间正中还要更差一点，1.0544 对 1.0488。两者的代价都不大：这间 10 × 8 m 房间里任何位置，GDOP 印出来都在 1.03 与 1.26 之间。',
     } },
     { heading: { en: 'The ellipse around the cross', zh: '十字上的那个椭圆' }, text: {
-      en: '(JᵀJ)⁻¹ times the variance of one range is the covariance of the fix, Σ = σ_r²(JᵀJ)⁻¹. Lesson 2 fixed σ_r at c·σ_ts/√2, 2.12 cm at 100 ps — the SS-TWR figure, the model’s conservative stand-in for DS, which lesson 3 measured at 1.8–1.9 cm. Σ’s eigenvectors are the ellipse drawn around the amber cross: 1.7 × 1.4 cm, long axis nearly north–south at −86.8°. Too small to see beside a 4.76 m ring, so the scene draws it ten times over — 17 cm — while the inspector prints the true 1.7 × 1.4 cm. Seven blocks put the fix 0.5 cm to 3.3 cm from the truth, every one inside 4σ_r·GDOP = 8.9 cm.',
-      zh: '把 (JᵀJ)⁻¹ 乘上单次测距的方差，得到的就是定位结果的协方差：Σ = σ_r²(JᵀJ)⁻¹。第 2 课已经定下 σ_r = c·σ_ts/√2，在 100 ps 的时间戳噪声下即 2.12 cm——这是单边测距（SS-TWR）的取值，模型把它作为双边测距偏保守的替代值沿用，而第 3 课实测双边为 1.8 到 1.9 cm。Σ 的特征向量就是场景围着琥珀色十字画出的那个椭圆：1.7 × 1.4 cm，长轴几乎南北向，与 +x 轴成 −86.8°。按真实尺寸，它在 4.76 m 的圆环旁不过一小团污迹，所以场景把它放大十倍来画——长半轴 17 cm——而检视面板在一旁老实印出 1.7 × 1.4 cm。七个块里，定位与真值相差 0.5 cm 到 3.3 cm，每一次都落在 4σ_r·GDOP = 8.9 cm 以内。',
+      en: `(JᵀJ)⁻¹ times the variance of one range is the covariance of the fix, Σ = σ_r²(JᵀJ)⁻¹. Lesson 1’s 2.1 cm of σ_r is c·σ_ts/√2, 2.12 cm at 100 ps — the SS-TWR figure, the model’s conservative stand-in for DS, which lesson 3 measured at 1.8–1.9 cm. Σ’s eigenvectors are the ellipse drawn around the amber cross: 1.7 × 1.4 cm, long axis nearly north–south at −86.8°. Too small to see beside a 4.76 m ring, so the scene draws it ${ELLIPSE_DRAW_SCALE} times over — 17 cm — while the inspector prints the true 1.7 × 1.4 cm. Seven blocks put the fix 0.5 cm to 3.3 cm from the truth, every one inside 4σ_r·GDOP = 8.9 cm.`,
+      zh: `把 (JᵀJ)⁻¹ 乘上单次测距的方差，得到的就是定位结果的协方差：Σ = σ_r²(JᵀJ)⁻¹。第 1 课引用的 2.1 cm 测距噪声，其来历正是 σ_r = c·σ_ts/√2，在 100 ps 的时间戳噪声下即 2.12 cm——这是单边测距（SS-TWR）的取值，模型把它作为双边测距偏保守的替代值沿用，而第 3 课实测双边为 1.8 到 1.9 cm。Σ 的特征向量就是场景围着琥珀色十字画出的那个椭圆：1.7 × 1.4 cm，长轴几乎南北向，与 +x 轴成 −86.8°。按真实尺寸，它在 4.76 m 的圆环旁不过一小团污迹，所以场景把它放大 ${ELLIPSE_DRAW_SCALE} 倍来画——长半轴 17 cm——而检视面板在一旁老实印出 1.7 × 1.4 cm。七个块里，定位与真值相差 0.5 cm 到 3.3 cm，每一次都落在 4σ_r·GDOP = 8.9 cm 以内。`,
     } },
     { kind: 'table', head: [
       { en: 'Scene', zh: '场景' }, { en: 'GDOP', zh: 'GDOP' }, { en: '1-σ ellipse', zh: '1σ 椭圆' },
@@ -141,8 +142,8 @@ export const uwbPosition: Lesson = {
   observe: [
     { en: 'One fix per block, at the end of the tag’s round: seven in 1.3 s. Block 0 reads “uwb-1 position (3.99, 3.50) m, true (4.00, 3.50), error 0.01 m, GDOP 1.05, 4 anchors”, and across the seven the error runs 0.5 cm to 3.3 cm.',
       zh: '每个块一次定位，落在标签那一轮的末尾：1.3 s 里共七次。第 0 个块写着 “uwb-1 position (3.99, 3.50) m, true (4.00, 3.50), error 0.01 m, GDOP 1.05, 4 anchors”，七次的误差在 0.5 cm 到 3.3 cm 之间。' },
-    { en: 'In the scene: four amber rings at the measured ranges, a cross at the fix, the ellipse around it, all fading over one block. The ellipse is drawn ten times life size — 17 cm for a 1.7 cm semi-axis — while the inspector prints GDOP 1.05 and “error ellipse (1-σ) 1.7 × 1.4 cm”.',
-      zh: '场景里：四圈琥珀色的环，半径是刚测出的距离；定位处一个十字；十字周围是那个椭圆——三者都在一个块内淡出。椭圆按真实尺寸的十倍绘制——1.7 cm 的半轴画成 17 cm——而检视面板印出的是 GDOP 1.05 与“误差椭圆（1-σ）1.7 × 1.4 cm”。' },
+    { en: `In the scene: four amber rings at the measured ranges, a cross at the fix, the ellipse around it, all fading over one block. The ellipse is drawn ${ELLIPSE_DRAW_SCALE} times life size — 17 cm for a 1.7 cm semi-axis — while the inspector prints GDOP 1.05 and “error ellipse (1-σ) 1.7 × 1.4 cm”.`,
+      zh: `场景里：四圈琥珀色的环，半径是刚测出的距离；定位处一个十字；十字周围是那个椭圆——三者都在一个块内淡出。椭圆按真实尺寸的 ${ELLIPSE_DRAW_SCALE} 倍绘制——1.7 cm 的半轴画成 17 cm——而检视面板印出的是 GDOP 1.05 与“误差椭圆（1-σ）1.7 × 1.4 cm”。` },
     { en: 'Load “A brick wall in one path”. The anchor-1 row reads 5.33 m against a true 4.76 m, error 57.1 cm, “75 % within 12 ns”; the other three are within 1.4 cm at “97 % within 0.5 ns”. The fix: “uwb-1 position (4.18, 3.75) m, true (4.00, 3.50), error 0.31 m, GDOP 1.05, 4 anchors” — 30.9 cm moved, GDOP and ellipse unmoved.',
       zh: '载入“一堵砖墙挡住一条路径”。anchor-1 那一行写着 5.33 m，真值 4.76 m，误差 57.1 cm，“75 % 的误差落在 12 ns 内”；另外三行误差都在 1.4 cm 以内，写着“97 % 的误差落在 0.5 ns 内”。定位那一行是 “uwb-1 position (4.18, 3.75) m, true (4.00, 3.50), error 0.31 m, GDOP 1.05, 4 anchors”——位置挪了 30.9 cm，GDOP 与椭圆纹丝未动。' },
     { en: 'Load “Three anchors”. The line ends in “3 anchors”: “uwb-1 position (3.98, 3.48) m, true (4.00, 3.50), error 0.03 m, GDOP 1.26, 3 anchors”, and the ellipse is 2.2 × 1.5 cm. Three rings, still one point: barely less accurate, a fifth less certain.',
@@ -168,7 +169,7 @@ export const uwbPosition: Lesson = {
     {
       q: { en: 'The fix is 31 cm out in the walled scene, yet GDOP reads 1.05 and the ellipse 1.7 × 1.4 cm. Why?', zh: '有墙的场景里定位偏了 31 cm，可 GDOP 仍是 1.05，椭圆仍是 1.7 × 1.4 cm。为什么？' },
       options: [
-        { en: 'They do grow, but the 10× draw scale hides it', zh: '其实变大了，只是十倍的绘制缩放把它藏了起来' },
+        { en: `They do grow, but the ${ELLIPSE_DRAW_SCALE}× draw scale hides it`, zh: `其实变大了，只是 ${ELLIPSE_DRAW_SCALE} 倍的绘制缩放把它藏了起来` },
         { en: 'Both come from JᵀJ and an assumed σ_r: they predict the scatter of honest ranges, not a biased one', zh: '两者都出自 JᵀJ 与一个假定的 σ_r：它们预测的是诚实距离的散布，而非带偏差的距离' },
         { en: '31 cm is still inside the 8.9 cm envelope', zh: '31 cm 仍落在 8.9 cm 的包络之内' },
       ],

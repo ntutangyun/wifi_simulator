@@ -9,10 +9,12 @@
  */
 import { describe, it, expect } from 'vitest'
 import { uwbPosition, uwbPositionScenario } from '../../src/course/uwb/uwb-position'
+import { uwbIntro } from '../../src/course/uwb/uwb-intro'
+import { uwbSstwr } from '../../src/course/uwb/uwb-sstwr'
 import { Simulation } from '../../src/engine/simulation'
 import { DEFAULT_UWB_SESSION, ScenarioSchema, type Scenario } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
-import type { Block, L10n } from '../../src/course/lessonKit'
+import type { Block, L10n, Lesson } from '../../src/course/lessonKit'
 import { OBSERVE_MINUTES, TRY_MINUTES, lessonMinutes, lessonWords } from '../../src/course/curriculum'
 import { fmtRecord } from '../../src/ui/format'
 import { wallsCrossed } from '../../src/engine/propagation'
@@ -62,8 +64,8 @@ const cell = (n: number, row: number, col: number): string => table(n).rows[row]
 const formulas = (): Extract<Block, { kind: 'formula' }>[] =>
   uwbPosition.body.filter((b): b is Extract<Block, { kind: 'formula' }> => b.kind === 'formula')
 
-/** Everything the learner reads, joined — for "is this number actually printed?" checks. */
-const prose = (): string => {
+/** Everything a learner reads of one lesson, joined — for "is this number actually printed?" checks. */
+const lessonProse = (l: Lesson): string => {
   const out: string[] = []
   const walk = (x: unknown): void => {
     if (x == null || typeof x === 'function') return
@@ -73,9 +75,12 @@ const prose = (): string => {
     if (typeof o.en === 'string') { out.push(o.en); return }
     for (const [k, v] of Object.entries(o)) if (k !== 'scenario' && k !== 'find') walk(v)
   }
-  walk({ body: uwbPosition.body, observe: uwbPosition.observe, tryThis: uwbPosition.tryThis, quiz: uwbPosition.quiz })
+  walk({ body: l.body, observe: l.observe, tryThis: l.tryThis, quiz: l.quiz })
   return out.join('\n')
 }
+
+/** …and this lesson's own, which is what nearly every check here reads. */
+const prose = (): string => lessonProse(uwbPosition)
 
 /** The solver run on exact geometry: what GDOP and the ellipse are before any noise. */
 function exactFix(px: number, py: number, drop?: string): Fix {
@@ -219,10 +224,12 @@ describe('uwb-position · lesson shape', () => {
     // "2.0 ns for brick, 0.5 ns for drywall and 0.2 ns for glass" — the engine's own table
     expect(en).toContain('2.0 ns for brick, 0.5 ns for drywall and 0.2 ns for glass')
     expect(UWB_NLOS_NS).toEqual({ brick: 2.0, drywall: 0.5, glass: 0.2 })
-    // "the scene draws it ten times over — a 17 cm semi-axis" / "drawn ten times life size"
-    expect(prose()).toContain('the scene draws it ten times over')
-    expect(prose()).toContain('drawn ten times life size')
+    // "the scene draws it N times over — a 17 cm semi-axis" / "drawn N times life size":
+    // the factor is interpolated from the scene's own constant, never retyped
     expect(ELLIPSE_DRAW_SCALE).toBe(10)
+    expect(prose()).toContain(`the scene draws it ${ELLIPSE_DRAW_SCALE} times over`)
+    expect(prose()).toContain(`drawn ${ELLIPSE_DRAW_SCALE} times life size`)
+    expect(prose()).toContain(`${ELLIPSE_DRAW_SCALE}× draw scale`)
   })
 })
 
@@ -315,6 +322,12 @@ describe('uwb-position · the solver, GDOP and the ellipse', () => {
     // "the SS-TWR figure, the model’s conservative stand-in for DS, which lesson 3 measured at
     //  1.8–1.9 cm": rangeSigmaM documents c·σ_ts/√2 as exact for SS and 0.62–0.65·c·σ_ts for
     //  DS, so the printed σ_r is the larger, conservative one — 1/√2 = 0.707 against 0.65
+    // "Lesson 1’s 2.1 cm of σ_r is c·σ_ts/√2": the formula is first written here, so the
+    // credit to lesson 1 is only for the figure — which lesson 1 does print, in those words.
+    const sigmaCm = `${(SIGMA_R * 100).toFixed(1)} cm`
+    expect(prose()).toContain(`Lesson 1’s ${sigmaCm} of σ_r is c·σ_ts/√2`)
+    expect(lessonProse(uwbIntro)).toContain(`${sigmaCm} of range-noise sigma`)
+    expect(lessonProse(uwbSstwr)).not.toContain('c·σ_ts/√2')
     expect(prose()).toContain('the SS-TWR figure, the model’s conservative stand-in for DS')
     expect(prose()).toContain('lesson 3 measured at 1.8–1.9 cm')
     expect(SIGMA_R / (C_M_PER_NS * 0.1)).toBeCloseTo(1 / Math.SQRT2, 12)
