@@ -697,7 +697,7 @@ export function FloorPlanEditor() {
                                 <input type="number" min={10} max={10_000} value={selNode.ampAp.pollIntervalMs} style={{ width: 62 }}
                                   onChange={(e) => updateNode(selNode.id, { ampAp: { ...selNode.ampAp!, pollIntervalMs: Number(e.target.value) } })} /> ms
                               </label>
-                              <label style={{ display: 'block', marginBottom: 4 }}>
+                              <label style={{ display: 'block', marginBottom: 4 }} title={E.ampSlotsHint}>
                                 {E.ampSlots}{' '}
                                 <input type="number" min={1} max={16} value={selNode.ampAp.slots} style={{ width: 56 }}
                                   onChange={(e) => updateNode(selNode.id, { ampAp: { ...selNode.ampAp!, slots: Number(e.target.value) } })} />
@@ -707,7 +707,7 @@ export function FloorPlanEditor() {
                                 <input type="number" min={0} max={4} value={selNode.ampAp.acwe} style={{ width: 56 }}
                                   onChange={(e) => updateNode(selNode.id, { ampAp: { ...selNode.ampAp!, acwe: Number(e.target.value) } })} />
                               </label>
-                              <label style={{ display: 'block', marginBottom: 4 }}>
+                              <label style={{ display: 'block', marginBottom: 4 }} title={E.ampDlHint}>
                                 {E.ampDl}{' '}
                                 <select value={selNode.ampAp.dlKbps}
                                   onChange={(e) => updateNode(selNode.id, { ampAp: { ...selNode.ampAp!, dlKbps: Number(e.target.value) as AmpApCfg['dlKbps'] } })}>
@@ -715,7 +715,7 @@ export function FloorPlanEditor() {
                                   <option value={1000}>1000 kbps</option>
                                 </select>
                               </label>
-                              <label style={{ display: 'block', marginBottom: 4 }}>
+                              <label style={{ display: 'block', marginBottom: 4 }} title={E.ampUlHint}>
                                 {E.ampUl}{' '}
                                 <select value={selNode.ampAp.ulKbps}
                                   onChange={(e) => updateNode(selNode.id, { ampAp: { ...selNode.ampAp!, ulKbps: Number(e.target.value) as AmpApCfg['ulKbps'] } })}>
@@ -725,6 +725,7 @@ export function FloorPlanEditor() {
                                 </select>
                               </label>
                               <label style={{ display: 'block', marginBottom: 4 }}>
+                                {E.ampProtLabel}{' '}
                                 <select value={selNode.ampAp.protection}
                                   onChange={(e) => updateNode(selNode.id, { ampAp: { ...selNode.ampAp!, protection: e.target.value as AmpApCfg['protection'] } })}>
                                   <option value="ctsSelf">{E.ampProt.ctsSelf}</option>
@@ -732,6 +733,7 @@ export function FloorPlanEditor() {
                                 </select>
                               </label>
                               <label style={{ display: 'block', marginBottom: 4 }}>
+                                {E.ampReadLabel}{' '}
                                 <select value={selNode.ampAp.readMode}
                                   onChange={(e) => updateNode(selNode.id, { ampAp: { ...selNode.ampAp!, readMode: e.target.value as AmpApCfg['readMode'] } })}>
                                   <option value="inline">{E.ampRead.inline}</option>

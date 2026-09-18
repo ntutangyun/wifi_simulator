@@ -100,6 +100,34 @@ function GuideEn() {
         needs a very clean signal: ≥ −46 dBm.
       </p>
 
+      <h4 style={h}>7 · Ambient power (802.11bp)</h4>
+      <p style={p}>
+        An AMP tag is a battery-free station: it never runs carrier sense and never contends. It only
+        transmits inside a slot that an <b>AMP AP</b>'s trigger has just opened for it — scheduling has
+        moved entirely into the AP.
+      </p>
+      <p style={p}>
+        A round is one frame exchange: a CTS-to-self reserves the medium, then a{' '}
+        {chip('#2dd4bf')}<b>Trigger</b> opens N uplink slots. Each slot is followed one AMP SIFS later by
+        an {chip('#2dd4bf')}<b>AMP Ack</b>: tags have no clock of their own, so counting these Acks is how
+        each one finds its own slot and knows when the round has moved on.
+      </p>
+      <p style={p}>
+        Which slot a tag uses is decided by <b>ABOC/ACW</b>: a tag draws a counter uniformly from
+        [0, ACW] on the trigger and answers in slot ABOC + 1 if that falls within the N slots on offer,
+        otherwise it sits the round out.
+      </p>
+      <p style={p}>
+        On the timeline: teal blocks are the AP's downlink AMP PPDUs (Trigger, Ack), violet blocks are a{' '}
+        {chip('#a78bfa')}tag's uplink response, and the AP's lane shows a tick per slot with a labelled
+        span while a tag is armed and waiting for its turn.
+      </p>
+      <p style={p}>
+        P802.11bp is an unratified draft (D0.5 May 2026, D1.0 letter ballot September 2026) — this
+        simulator follows 11-24/1613r20, 11-26/1519r5 and 11-26/1889r4, and marks every value the draft
+        leaves TBD as a model choice.
+      </p>
+
       <h4 style={h}>Things to try</h4>
       <p style={p}>
         · Two saturated stations, then make them mutually hidden with a brick wall — watch collisions
@@ -196,6 +224,32 @@ function GuideZh() {
         帧因此更长——而 CSMA/CA 公平分享的是<i>传输次数</i>而非<i>时间</i>，
         所以一个慢终端会拖累所有人的吞吐量（速率异常）。4096-QAM（Wi-Fi 7 的
         MCS 13）需要非常干净的信号：≥ −46 dBm。
+      </p>
+
+      <h4 style={h}>7 · 环境能量（802.11bp）</h4>
+      <p style={p}>
+        AMP 标签是无电池的终端：它从不进行载波侦听，也从不参与竞争。它只在
+        <b>AMP AP</b> 的触发帧刚为它打开的那个时隙内发送——调度权整体搬到了 AP 一侧。
+      </p>
+      <p style={p}>
+        一轮轮询是一次帧交换：先用 CTS-to-self 预约信道，再由
+        {chip('#2dd4bf')}<b>触发帧（Trigger）</b>打开 N 个上行时隙。每个时隙结束一个 AMP SIFS 之后，
+        AP 都会发出一帧{chip('#2dd4bf')}<b>AMP 确认（Ack）</b>：标签没有自己的时钟，
+        只能靠数这些 Ack 来找到自己的时隙、知道轮询已经推进到哪一步。
+      </p>
+      <p style={p}>
+        标签用哪个时隙由 <b>ABOC/ACW</b> 决定：收到触发帧后，标签从 [0, ACW] 中均匀抽取一个计数值，
+        若 ABOC + 1 落在这 N 个时隙之内，就在该时隙应答，否则本轮空转。
+      </p>
+      <p style={p}>
+        在时间轴上：青色块是 AP 的下行 AMP PPDU（触发帧、Ack），紫色块是
+        {chip('#a78bfa')}标签的上行应答；AP 的泳道上每个时隙都有一个刻度，
+        标签待发时会显示一段带标签的等待区间。
+      </p>
+      <p style={p}>
+        P802.11bp 目前仍是未获批准的草案（D0.5 于 2026 年 5 月发布，D1.0 将于 2026 年 9 月进入
+        letter ballot）——本仿真器依据 11-24/1613r20、11-26/1519r5 与 11-26/1889r4 三份文件建模，
+        草案中标为 TBD 的每个数值都标注为模型取值。
       </p>
 
       <h4 style={h}>动手试试</h4>

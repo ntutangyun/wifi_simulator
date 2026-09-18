@@ -243,7 +243,7 @@ describe('amp-intro · the shape of one round', () => {
   })
 
   it('the first round runs to the timeline table, slot by slot and Ack by Ack', () => {
-    // every "From"/"To" cell of "The first round on the AP’s 2.4 GHz lane", and
+    // every "From"/"To" cell of "The first round on the AP’s lane", and
     // "AMP Trigger, 4 slots × 528 µs"
     const slots = ofType(rs, 'AMP_SLOT').filter((r) => r.t < 5 * MS)
     expect(slots.map((r) => r.slot)).toEqual([1, 2, 3, 4])
@@ -408,8 +408,8 @@ describe('amp-intro · a second of polling', () => {
   })
 
   it('the link budget leaves both tags far above the thresholds that matter', () => {
-    // "The router reaches the Door tag at −43.9 dBm, 28.1 dB above the −72 dBm a tag needs here … its
-    //  reply still arrives at −63.9 dBm, 30.1 dB above the AP’s −94 dBm floor … −94 dBm is about 12 dB
+    // "The router reaches the Door tag at −37.4 dBm, 34.6 dB above the −72 dBm a tag needs here … its
+    //  reply still arrives at −57.4 dBm, 36.6 dB above the AP’s −94 dBm floor … −94 dBm is about 12 dB
     //  below the −82 dBm preamble-detect gate an OFDM frame has to clear to be received at all."
     const s = ampIntro.scenario()
     const links = buildLinkTable(s.nodes, s.walls)

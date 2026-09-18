@@ -27,7 +27,7 @@ export const ampIntro: Lesson = {
   title: { en: 'A station that never contends', zh: '一种从不竞争信道的“终端”' },
   body: [
     { text: {
-      en: 'P802.11bp is a draft: D0.5 in May 2026, D1.0 to letter ballot in September 2026. It follows the TGbp Specification Framework 11-24/1613r20 (frozen July 2026) plus two proposed-draft-text contributions, 11-26/1519r5 (triggering) and 11-26/1889r4 (uplink channel access). Where the draft leaves a value TBD the simulator picks one and says so: the tag’s −72 dBm downlink sensitivity, the OOK SINR thresholds (8 dB down, 10 dB up at 250 kb/s) and several AMP field widths are model choices, not standard values.',
+      en: 'P802.11bp is a draft: D0.5 in May 2026, D1.0 to letter ballot in September 2026. This module is modelled on the TGbp Specification Framework 11-24/1613r20 (frozen July 2026) plus two proposed-draft-text contributions, 11-26/1519r5 (triggering) and 11-26/1889r4 (uplink channel access). Where the draft leaves a value TBD the simulator picks one and says so: the tag’s −72 dBm downlink sensitivity, the OOK SINR thresholds (8 dB down, 10 dB up at 250 kb/s) and several AMP field widths are model choices, not standard values.',
       zh: 'IEEE P802.11bp 目前还是草案，不是标准：D0.5 于 2026 年 5 月发布，D1.0 将在 2026 年 9 月进入 letter ballot。本模块依据三份文件建模——2026 年 7 月定稿的 TGbp 规范框架 11-24/1613r20，以及两份提案草案文本：11-26/1519r5（触发过程）与 11-26/1889r4（上行信道接入）。草案里仍标 TBD 的数值由仿真器自行选定并标注：标签 −72 dBm 的下行灵敏度、OOK 的 SINR 门限（下行 8 dB，250 kb/s 上行 10 dB）以及若干 AMP 字段宽度，都是模型取值，而非标准值。',
     } },
     { heading: { en: 'Why a battery-free radio cannot run CSMA', zh: '为什么无电池的射频跑不了 CSMA' }, text: {
@@ -51,8 +51,8 @@ export const ampIntro: Lesson = {
       zh: '其中 416 µs 是触发帧 13 个字节在 250 kb/s 下的时长，20 µs 是填充。同一帧在 1 Mb/s 下是 258 µs：只有 OOK 部分变短；前导、同步、填充与信号扩展那 32 + 80 + 20 + 6 = 138 µs 一动不动。',
     } },
     { text: {
-      en: 'Why padding? The tag must demodulate, check, decide whether the round concerns it and start its transmitter, all within one AMP SIFS. The padding buys that time where it costs only airtime: 20 µs unprotected, 36 µs protected (11-26/1519r5 §39.3.2.2). Every AMP frame in this slice is unprotected, so every one pads 20 µs.',
-      zh: '为什么要填充？标签必须解调、校验、判断这一轮是否与自己有关，还要启动发射机——而这一切都得在一个 AMP SIFS 之内完成。填充把这段时间加在代价只有空口时间的地方：非保护帧 20 µs，保护帧 36 µs（11-26/1519r5 §39.3.2.2）。本切片里的 AMP 帧全部是非保护帧，因此每一帧都填 20 µs。',
+      en: 'Why padding? The tag must demodulate, check, decide whether the round concerns it and start its transmitter, all within one AMP SIFS. The padding buys that time where it costs only airtime: 20 µs unprotected, 36 µs protected (11-26/1519r5 §39.3.2.2). Every downlink AMP frame in this slice is unprotected, so every one pads 20 µs.',
+      zh: '为什么要填充？标签必须解调、校验、判断这一轮是否与自己有关，还要启动发射机——而这一切都得在一个 AMP SIFS 之内完成。填充把这段时间加在代价只有空口时间的地方：非保护帧 20 µs，保护帧 36 µs（11-26/1519r5 §39.3.2.2）。本切片里的下行 AMP 帧全部是非保护帧，因此每一帧都填 20 µs。',
     } },
     { text: {
       en: 'The uplink is the mirror image: no legacy preamble at all, and therefore no signal extension either — just 48 chips of AMP-Sync (48 µs at 250 kb/s, 12 µs at 1 Mb/s) and then the octets. That is also why a Wi-Fi station can only energy-detect a tag.',

@@ -81,10 +81,10 @@ export interface Strings {
     saved: string; loaded: string; imported: string; nothingSaved: string
     scaleBarHint: string
     amp: string; ampEnable: string; ampInterval: string; ampIntervalHint: string
-    ampSlots: string; ampAcwe: string; ampAcweHint: string
-    ampDl: string; ampUl: string
-    ampProt: Record<'ctsSelf' | 'none', string>
-    ampRead: Record<'inline' | 'twoPhase', string>
+    ampSlots: string; ampSlotsHint: string; ampAcwe: string; ampAcweHint: string
+    ampDl: string; ampDlHint: string; ampUl: string; ampUlHint: string
+    ampProt: Record<'ctsSelf' | 'none', string>; ampProtLabel: string
+    ampRead: Record<'inline' | 'twoPhase', string>; ampReadLabel: string
     ampNeedsEht: string
     ampSens: string; ampSensHint: string
   }
@@ -291,10 +291,12 @@ export const STRINGS: Record<Lang, Strings> = {
       scaleBarHint: 'grid 1 m (bold 5 m) · wheel zoom · middle/right-drag pan',
       amp: 'AMP polling (802.11bp)', ampEnable: 'poll ambient-power tags',
       ampInterval: 'poll every', ampIntervalHint: 'how often the AP contends (AC_BK) for an AMP round',
-      ampSlots: 'slots (N)', ampAcwe: 'ACWE', ampAcweHint: 'ACW = 2^ACWE − 1: the range a tag draws its slot counter from',
-      ampDl: 'DL rate', ampUl: 'UL rate',
-      ampProt: { ctsSelf: 'CTS-to-self before the round', none: 'no protection' },
-      ampRead: { inline: 'reading in the random-access response', twoPhase: 'id first, then a scheduled read' },
+      ampSlots: 'slots (N)', ampSlotsHint: 'how many uplink slots the trigger opens each round',
+      ampAcwe: 'ACWE', ampAcweHint: 'ACW = 2^ACWE − 1: the range a tag draws its slot counter from',
+      ampDl: 'DL rate', ampDlHint: 'data rate of the AMP Trigger and AMP Ack PPDUs',
+      ampUl: 'UL rate', ampUlHint: 'data rate the trigger dictates for a tag\'s uplink response',
+      ampProt: { ctsSelf: 'CTS-to-self before the round', none: 'no protection' }, ampProtLabel: 'protection',
+      ampRead: { inline: 'reading in the random-access response', twoPhase: 'id first, then a scheduled read' }, ampReadLabel: 'read mode',
       ampNeedsEht: 'AMP polling needs a Wi-Fi 7 AP (the AMP DL PPDU carries U-SIG)',
       ampSens: 'DL sensitivity', ampSensHint: 'weakest AMP DL PPDU this tag’s envelope detector can decode (model default −72 dBm)',
     },
@@ -607,10 +609,12 @@ export const STRINGS: Record<Lang, Strings> = {
       scaleBarHint: '网格 1 米（粗线 5 米）· 滚轮缩放 · 中键/右键拖动平移',
       amp: 'AMP 轮询（802.11bp）', ampEnable: '轮询环境功率标签',
       ampInterval: '轮询间隔', ampIntervalHint: 'AP 为一轮 AMP 竞争（AC_BK）信道的频度',
-      ampSlots: '时隙数 (N)', ampAcwe: 'ACWE', ampAcweHint: 'ACW = 2^ACWE − 1：标签抽取时隙计数器的取值范围',
-      ampDl: '下行速率', ampUl: '上行速率',
-      ampProt: { ctsSelf: '轮询前先发 CTS-to-self', none: '不做保护' },
-      ampRead: { inline: '在随机接入应答中直接读取', twoPhase: '先读 id，再做一次预约读取' },
+      ampSlots: '时隙数 (N)', ampSlotsHint: '触发帧每轮打开的上行时隙数量',
+      ampAcwe: 'ACWE', ampAcweHint: 'ACW = 2^ACWE − 1：标签抽取时隙计数器的取值范围',
+      ampDl: '下行速率', ampDlHint: 'AMP 触发帧与 AMP 确认帧使用的数据速率',
+      ampUl: '上行速率', ampUlHint: '触发帧为标签的上行应答指定的数据速率',
+      ampProt: { ctsSelf: '轮询前先发 CTS-to-self', none: '不做保护' }, ampProtLabel: '保护',
+      ampRead: { inline: '在随机接入应答中直接读取', twoPhase: '先读 id，再做一次预约读取' }, ampReadLabel: '读取方式',
       ampNeedsEht: 'AMP 轮询需要 Wi-Fi 7 的 AP（AMP 下行 PPDU 携带 U-SIG）',
       ampSens: '下行灵敏度', ampSensHint: '该标签包络检波器能解出的最弱 AMP 下行 PPDU（模型默认 −72 dBm）',
     },

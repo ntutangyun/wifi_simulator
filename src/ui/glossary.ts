@@ -483,4 +483,106 @@ export const GLOSSARY: GlossaryGroup[] = [
       },
     ],
   },
+  {
+    id: 'amp',
+    title: { en: 'Ambient power (802.11bp)', zh: '环境能量（802.11bp）' },
+    items: [
+      {
+        term: 'AMP',
+        alt: { en: 'ambient power (IEEE P802.11bp, a draft)', zh: '环境能量（IEEE P802.11bp，草案中）' },
+        def: {
+          en: 'A battery-free class of 802.11 station: no carrier sense, no contention — it transmits only inside a slot an AP\'s trigger has just opened. This simulator models the Active Tx variant, which makes its own carrier; backscatter tags are a later slice.',
+          zh: '一类无电池的 802.11 终端：没有载波侦听，不参与竞争——只在 AP 触发帧刚打开的时隙内发送。本仿真器建模的是 Active Tx（主动发射）变体，标签自己产生载波；反向散射标签留待后续切片。',
+        },
+      },
+      {
+        term: 'AMP AP',
+        alt: { en: 'AP running the AMP polling function', zh: '运行 AMP 轮询功能的 AP' },
+        def: {
+          en: 'An ordinary AP that also polls AMP tags, using its AC_BK contention entity. The simulator requires a Wi-Fi 7 (EHT) AP, because the AMP downlink PPDU carries a U-SIG field.',
+          zh: '同时轮询 AMP 标签的普通 AP，使用它的 AC_BK 竞争实体。仿真器要求它是 Wi-Fi 7（EHT）AP，因为 AMP 下行 PPDU 携带 U-SIG 字段。',
+        },
+      },
+      {
+        term: 'Active Tx non-AP AMP STA',
+        alt: { en: 'the tag', zh: '标签' },
+        def: {
+          en: 'The tag this slice models (SFD AM-2): no carrier sense, no NAV, a 16-bit AMP identifier, and a transmitter of its own that answers only inside the slot a trigger assigns it. Downlink sensitivity defaults to −72 dBm (model).',
+          zh: '本切片建模的标签（SFD AM-2）：没有载波侦听，没有 NAV，拥有一个 16 位 AMP 标识符和自己的发射机——只在触发帧分配的时隙内应答。下行灵敏度默认 −72 dBm（模型取值）。',
+        },
+      },
+      {
+        term: 'AMP Trigger',
+        alt: { en: 'downlink triggering frame', zh: '下行触发帧' },
+        def: {
+          en: 'The AP\'s poll: opens N uplink slots (default 4), states the ACWE tags draw from, the slot duration and the UL rate — either for random access, or a scheduled list of tag IDs.',
+          zh: 'AP 的轮询帧：打开 N 个上行时隙（默认 4 个），规定标签抽取所用的 ACWE、时隙时长与上行速率——可用于随机接入，也可携带一份预定的标签 ID 列表。',
+        },
+      },
+      {
+        term: 'AMP Ack',
+        alt: { en: 'downlink slot acknowledgment', zh: '下行时隙确认帧' },
+        def: {
+          en: 'Sent by the AP one AMP SIFS after every slot, naming the tag it heard or the AP\'s own id when the slot was empty or collided. Tags have no clock of their own, so counting these Acks is how each finds its slot.',
+          zh: 'AP 在每个时隙结束后一个 AMP SIFS 发出，点名该时隙收到的标签；若时隙为空或发生碰撞，则填 AP 自己的标识。标签没有自己的时钟，靠数这些 Ack 来找到自己的时隙。',
+        },
+      },
+      {
+        term: 'ABOC',
+        alt: { en: 'AMP backoff counter', zh: 'AMP 退避计数器' },
+        def: {
+          en: 'Drawn uniformly from [0, ACW] on every random-access trigger a tag decodes. ABOC < N picks slot ABOC + 1; otherwise the tag sits that round out.',
+          zh: '标签每次解出随机接入触发帧时，从 [0, ACW] 均匀抽取。ABOC < N 时选中第 ABOC + 1 个时隙；否则本轮空转。',
+        },
+      },
+      {
+        term: 'ACW',
+        alt: { en: 'AMP contention window = 2^ACWE − 1', zh: 'AMP 竞争窗口 = 2^ACWE − 1' },
+        def: {
+          en: 'The range ABOC is drawn from. Default ACWE 2 gives ACW 3 (four possible draws), matching the default 4 slots, so no tag sits a round out.',
+          zh: 'ABOC 抽取的取值范围。默认 ACWE 为 2，得到 ACW = 3（共四种取值），与默认 4 个时隙相配，因此不会有标签空转。',
+        },
+      },
+      {
+        term: 'AMP SIFS',
+        alt: { en: '10 µs', zh: '10 µs' },
+        def: {
+          en: 'The gap between every step of a round — trigger to slot 1, Ack to the next slot. Equal to the 2.4 GHz aSIFSTime (SFD PM-96), so every gap in an AMP round is the same length.',
+          zh: '一轮之中每一步之间的间隔——触发帧到时隙 1、Ack 到下一个时隙皆是如此。等于 2.4 GHz 的 aSIFSTime（SFD PM-96），因此一轮里所有间隔长度相同。',
+        },
+      },
+      {
+        term: 'AMP-Sync / AMP-SIG',
+        alt: { en: 'PHY sync + signalling fields', zh: 'PHY 同步与信令字段' },
+        def: {
+          en: 'AMP-Sync: an 80 µs chip sequence (32 + 8 chips at 2 µs) letting a tag\'s envelope detector find chip boundaries. AMP-SIG: the 2-octet field after it, Manchester-OOK at the DL rate — 64 µs at 250 kb/s, 16 µs at 1 Mb/s.',
+          zh: 'AMP-Sync：80 µs 的码片序列（32+8 个码片，每片 2 µs），供标签的包络检波器定位码片边界。AMP-SIG：紧随其后的 2 字节字段，以曼彻斯特 OOK 按下行速率发送——250 kb/s 时 64 µs，1 Mb/s 时 16 µs。',
+        },
+      },
+      {
+        term: 'Manchester OOK',
+        alt: { en: 'on-off keying, DL 250/1000 kb/s, UL adds 4000 kb/s', zh: '通断键控，下行 250/1000 kb/s，上行另加 4000 kb/s' },
+        def: {
+          en: 'The AMP data modulation. Uplink chip durations: 1 µs at 250 kb/s, 0.25 µs at 1 Mb/s, 0.125 µs at 4 Mb/s (its 48-chip AMP-Sync is 48/12/6 µs). Downlink runs at 250 or 1000 kb/s only.',
+          zh: 'AMP 数据调制方式。上行码片时长：250 kb/s 时 1 µs，1 Mb/s 时 0.25 µs，4 Mb/s 时 0.125 µs（48 码片的 AMP-Sync 相应为 48/12/6 µs）。下行仅有 250 与 1000 kb/s 两档。',
+        },
+      },
+      {
+        term: 'Backscatter',
+        alt: { en: 'future slice — mono-/bistatic', zh: '未来切片——单站式/双站式' },
+        def: {
+          en: 'A tag that answers by reflecting an illuminator\'s carrier instead of generating its own — mono-static from the AP itself, bistatic from a separate energizer. Not modeled in this slice.',
+          zh: '标签不产生自己的载波，而是反射照射源的载波来应答——单站式由 AP 自身照射，双站式由独立的 Energizer 照射。本切片尚未建模。',
+        },
+      },
+      {
+        term: 'Energizer',
+        alt: { en: 'future slice — RF power source', zh: '未来切片——射频供能源' },
+        def: {
+          en: 'A dedicated transmitter that illuminates tags for bistatic backscatter and wireless power transfer. Not modeled in this slice.',
+          zh: '专为标签提供双站式反向散射照射与无线能量传输的独立发射装置。本切片尚未建模。',
+        },
+      },
+    ],
+  },
 ]
