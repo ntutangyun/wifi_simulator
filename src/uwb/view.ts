@@ -13,6 +13,8 @@ export interface UwbRangeView {
   trueDistM: number
   method: 'ss' | 'ds'
   fom: number
+  /** Ranging block this measurement came from: what the scene overlay ages its ring by. */
+  block: number
   n: number
 }
 
@@ -70,7 +72,7 @@ export function applyUwbRecord(vs: ViewState, r: TLRecord): boolean {
       if (u) {
         const prev = u.ranges[r.peer]
         u.ranges[r.peer] = {
-          distM: r.distM, trueDistM: r.trueDistM, method: r.method, fom: r.fom, n: (prev?.n ?? 0) + 1,
+          distM: r.distM, trueDistM: r.trueDistM, method: r.method, fom: r.fom, block: r.block, n: (prev?.n ?? 0) + 1,
         }
         // An anchor never sees UWB_ROUND / UWB_SLOT (those are the tag's own records),
         // so its block and round come from the ranges it computes. A tag takes them

@@ -5,6 +5,7 @@ import { useUi } from '../ui/store'
 import { buildHouse } from './house'
 import { buildNodeMeshes, updateNodeVisual } from './nodes'
 import { EffectsLayer } from './effects'
+import { UwbOverlay } from '../uwb/scene'
 import { primaryLaneOf } from '../model/view'
 
 export function Viewport() {
@@ -33,6 +34,9 @@ export function Viewport() {
     for (const g of nodeMeshes.values()) scene.add(g)
     const effects = new EffectsLayer(sc)
     scene.add(effects.group)
+    // Range rings, fix and error ellipse: only a scenario that ranges gets them.
+    const uwb = sc.nodes.some((n) => n.kind === 'uwb') ? new UwbOverlay(sc) : null
+    if (uwb) scene.add(uwb.group)
 
     // frame the house
     const cx = sc.rooms.length ? sc.rooms.reduce((s, r) => s + r.x + r.w / 2, 0) / sc.rooms.length : 5
@@ -79,6 +83,7 @@ export function Viewport() {
           halo.scale.setScalar(id === selectedNodeId ? 1.35 : 1)
         }
         effects.update(view)
+        uwb?.update(view)
       }
       controls.update()
       renderer.render(scene, camera)
@@ -90,6 +95,7 @@ export function Viewport() {
       cancelAnimationFrame(raf)
       ro.disconnect()
       renderer.domElement.removeEventListener('click', onClick)
+      uwb?.dispose()
       controls.dispose()
       renderer.dispose()
       host.removeChild(renderer.domElement)
