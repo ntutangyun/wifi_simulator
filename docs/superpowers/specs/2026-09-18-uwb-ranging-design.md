@@ -89,9 +89,9 @@ Every RFRAME in this slice is BPRF set 3 of Table 16-31: SYNC 64 symbols, SFD 8 
 | PSDU: (8·N + 48 RS parity + 2 tail) symbols × 64 | 64·(8N + 50) | 128.21 ns per symbol |
 
 `uwbPpduChips(octets) = 80 096 + 64·(8·octets + 50)` and `uwbPpduNs(octets)` is its rounding. The Reed-Solomon
-(63,55) code adds 48 parity bits per block of up to 330 bits (§16.3.3.2); only the 60-octet Final (480 bits) spans two blocks; the
+(63,55) code adds 48 parity bits per block of up to 330 bits (§16.3.3.2); only the 62-octet four-anchor Final (496 bits) spans two blocks; the
 function adds 48 per started block. Worked values, pinned by tests: 14 octets 181.218 µs, 20 octets 187.372 µs,
-24 octets 191.474 µs, 30 octets 197.628 µs, 39 octets 206.859 µs, 60 octets 234.551 µs (two RS blocks).
+24 octets 191.474 µs, 30 octets 197.628 µs, 39 octets 206.859 µs, 62 octets 236.603 µs (two RS blocks).
 
 **RMARKER** (§10.29.1.1): the time the first chip after the SFD is at the antenna, i.e. 36 576 chips = 73.269 µs after
 the PPDU start (`UWB_RMARKER_CHIPS`). Every ranging counter value refers to it.
@@ -106,7 +106,7 @@ field lists of §10.29.8 and §10.32.9 and are constants in `phy.ts`:
 |---|---|---|
 | `uwbPoll` — RCM and ranging initiation message merged (Figure 10-225, "RCM & I1") | MHR 9 + ARC IE 10 (control 2, block 2, round 2, slot 2) + RDM IE 3 + 3N (count 1; address 2 + slot 1 per device) + RRMC IE 3 + FCS 2 | 27 + 3N |
 | `uwbResp` — ranging response | SS-TWR: MHR 9 + RRMC IE 3 + RRTI IE 6 (reply time 4) + FCS 2. DS-TWR: without the RRTI IE | 20 (SS) / 14 (DS) |
-| `uwbFinal` — ranging final (DS-TWR only) | MHR 9 + RMI IE 3 + 6N (address 2 + round-trip time 4 per responder) + N × RRTI IE 6 + FCS 2 | 12 + 12N |
+| `uwbFinal` — ranging final (DS-TWR only) | MHR 9 + RMI IE 3 + 6N (address 2 + round-trip time 4 per responder) + N × RRTI IE 6 + FCS 2 | 14 + 12N |
 | `uwbReport` — measurement report (DS-TWR only, responder → initiator) | MHR 9 + RMI IE 13 (address 2, reply time 4, round-trip time 4) + FCS 2 | 24 |
 
 `durationFieldNs` is 0 (a 15.4 RFRAME sets no NAV), `mbps` 6.81, `mode` undefined. `FrameDesc.uwb` carries the SP
@@ -309,7 +309,7 @@ gains `anchor()`, `uwbTag()`, `uwbSc()` builders and `firstUwb*` jump predicates
 3. **`uwb-dstwr` — Two round trips cancel the clock** / 两次往返，抵消时钟. Same scene, DS-TWR. Concept: the
    three-message exchange, the Final's RMI and RRTI IEs, the formula and why the asymmetry does not matter, the cost
    (2N + 2 = 10 slots, 20 ms, versus 5 slots). Pinned: every anchor's error within 3σ at ±10 ppm, the round's slot
-   count and duration, the Final's 60 octets and 234.6 µs, the four airtimes of a DS round.
+   count and duration, the Final's 62 octets and 236.6 µs, the four airtimes of a DS round.
 4. **`uwb-blocks` — Blocks, rounds and slots** / 块、轮与时隙. Three tags, four anchors, block 200 ms, DS-TWR.
    Concept: the FiRa block, tag k owns round k, the ARC / RDM IEs, transmission at the slot boundary, and the radio-on
    time: a tag's radio is on for its own round only. Variant: 600 RSTU slots (a 5 ms round). Pinned: round k start
