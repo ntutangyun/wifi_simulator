@@ -250,6 +250,7 @@ export const firstUwbResp = txOf((r) => r.frame.kind === 'uwbResp')
 export const firstUwbFinal = txOf((r) => r.frame.kind === 'uwbFinal')
 export const firstUwbReport = txOf((r) => r.frame.kind === 'uwbReport')
 export const firstUwbRange = (r: TLRecord): boolean => r.type === 'UWB_RANGE'
+export const firstUwbRoundEnd = (r: TLRecord): boolean => r.type === 'UWB_ROUND_END'
 export const firstUwbPosition = (r: TLRecord): boolean => r.type === 'UWB_POSITION'
 export const firstUwbTimeout = (r: TLRecord): boolean => r.type === 'UWB_TIMEOUT'
 export const firstUwbRxTs = (r: TLRecord): boolean => r.type === 'UWB_TS' && r.dir === 'rx'
