@@ -30,8 +30,10 @@ import { UWB_MBPS } from '../../src/uwb/frames'
 const MS = 1_000_000
 const US = 1_000
 const RUN_NS = 30 * MS
-/** 1-σ of one SS-TWR range at the session's 100 ps timestamp noise: 42.4 mm. */
+/** 1-σ of one SS-TWR range at the session's 100 ps timestamp noise: 21.2 mm. */
 const SIGMA_R = rangeSigmaM(100)
+/** 1-σ of the corrected SS-TWR reading's clock-correction residual: ½·Treply·σ_cfo, 6.0 cm at a 2 ms reply. */
+const CFO_RESIDUAL_M = ((2 * MS * 0.2e-6) / 2) * C_M_PER_NS
 
 const memo = new Map<string, TLRecord[]>()
 /** Records of the base scenario (variant undefined) or a variant, memoised. */
@@ -436,8 +438,10 @@ describe('uwb-intro · the range the log reports', () => {
     // "a few centimetres out, from timestamp noise and a clock correction that had nothing to correct"
     // — raw and corrected differ even at 0 ppm, so neither is pinned to equality.
     const r = ofType(recs(), 'UWB_RANGE')[0]
-    expect(SIGMA_R.toFixed(3)).toBe('0.042')
-    expect(Math.abs(rctuToMetres(r.tofRctu) - 5)).toBeLessThan(3 * SIGMA_R)
+    expect(SIGMA_R.toFixed(3)).toBe('0.021')
+    // the raw reading carries the timestamp noise alone; the corrected one also carries the
+    // CFO estimator's residual (½·Treply·σ_cfo = 6.0 cm at a 2 ms reply), so its envelope is the two combined.
+    expect(Math.abs(rctuToMetres(r.tofRctu) - 5)).toBeLessThan(3 * Math.hypot(SIGMA_R, CFO_RESIDUAL_M))
     expect(Math.abs(rctuToMetres(r.tofRawRctu!) - 5)).toBeLessThan(3 * SIGMA_R)
     expect(rctuToMetres(r.tofRctu)).toBeCloseTo(r.distM, 9)
   })
@@ -445,14 +449,14 @@ describe('uwb-intro · the range the log reports', () => {
   it('the correction moves a perfect-crystal answer by 7 cm, the 0.2 ppm the estimator cannot see past', () => {
     // "it moves the answer by 7 cm, because the estimator itself is noisy to 0.2 ppm, and 0.2 ppm of a
     //  2 ms reply is 0.4 ns" / "Both errors are small: the raw reading is 2 cm long, the corrected one
-    //  5 cm short, against 4.2 cm of range-noise sigma"
+    //  5 cm short, against 2.1 cm of range-noise sigma"
     const r = ofType(recs(), 'UWB_RANGE')[0]
     const raw = rctuToMetres(r.tofRawRctu!)
     const corrected = rctuToMetres(r.tofRctu)
     expect(Math.round((raw - corrected) * 100)).toBe(7)
     expect(Math.round((raw - 5) * 100)).toBe(2)
     expect(Math.round((corrected - 5) * 100)).toBe(-5)
-    expect((SIGMA_R * 100).toFixed(1)).toBe('4.2')
+    expect((SIGMA_R * 100).toFixed(1)).toBe('2.1')
     // one sigma of the correction itself: 2 ms × 0.2 ppm, halved, in metres
     const cfoNoisePpm = uwbIntro.scenario().uwb!.cfoNoisePpm
     expect(cfoNoisePpm).toBe(0.2)
@@ -467,7 +471,7 @@ describe('uwb-intro · the range the log reports', () => {
     expect(r.trueDistM).toBe(20)
     expect(r.distM.toFixed(2)).toBe('19.95')
     expect(Math.round((r.distM - 20) * 100)).toBe(-5)
-    expect(Math.abs(r.distM - 20)).toBeLessThan(3 * SIGMA_R)
+    expect(Math.abs(r.distM - 20)).toBeLessThan(3 * Math.hypot(SIGMA_R, CFO_RESIDUAL_M))
     expect(Math.abs(rctuToMetres(r.tofRawRctu!) - 20)).toBeLessThan(3 * SIGMA_R)
   })
 })

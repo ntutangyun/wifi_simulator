@@ -23,10 +23,14 @@ export interface Fix {
   iterations: number
 }
 
-/** √2 · c · σ_ts: two noisy receive counters per range. tsNoisePs → metres. */
+/** c · σ_ts / √2: a TWR range carries two noisy receive counters (rxResp at the initiator,
+ * rxPoll at the responder), which add in quadrature (σ_ts·√2) and are then halved by the
+ * `tof = (Tround − Treply)/2` form — so σ_tof = σ_ts/√2. Exact for SS-TWR; the DS-TWR figure
+ * is slightly smaller (0.62–0.65·c·σ_ts), and the SS value is the documented conservative
+ * model for the error ellipse. tsNoisePs → metres. */
 export function rangeSigmaM(tsNoisePs: number): number {
   const sigmaTsNs = tsNoisePs / 1000
-  return Math.SQRT2 * C_M_PER_NS * sigmaTsNs
+  return (C_M_PER_NS * sigmaTsNs) / Math.SQRT2
 }
 
 const MAX_ITERATIONS = 20

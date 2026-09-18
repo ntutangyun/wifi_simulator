@@ -104,8 +104,8 @@ export const uwbIntro: Lesson = {
       zh: '日志里的测距行写着 “tag-1 range → anchor-1 (SS): 4.95 m (true 5.00 m, raw 5.02 m)”。raw 就是上面那个 1070。4.95 m 则是同一次测量经过时钟偏差修正之后的结果——修正的做法是用接收端从载波上估计出的相对频率误差去缩放 Treply。这里两个晶振都是完美的，所以修正本该等于零，可它却把答案挪动了 7 cm：因为估计器自身带有 0.2 ppm 的噪声，而 2 ms 应答时延的 0.2 ppm 就是 0.4 ns。这正是藏在一个完美场景里的那一课：SS-TWR 的误差随应答时长而增长。',
     } },
     { text: {
-      en: 'Both errors are small: the raw reading is 2 cm long, the corrected one 5 cm short, against 4.2 cm of range-noise sigma. Do not mistake that for accuracy you can rely on. Both crystals are pinned to 0 ppm here, which no real pair ever is: the standard allows ±20 ppm (§16.4.9). At 20 ppm of relative offset the anchor’s 2 ms reply is mismeasured by 40 ns, half of which lands straight on the range — 20 ns, six metres, on a five-metre distance. The next lesson takes the mercy away.',
-      zh: '两个误差都不大：raw 读数长了 2 cm，修正后的读数短了 5 cm，而测距噪声的标准差是 4.2 cm。但不要把这当成可以依赖的精度。本场景把两个晶振都钉死在 0 ppm，而现实中没有哪一对设备是这样的：标准允许 ±20 ppm（§16.4.9）。当相对偏差为 20 ppm 时，锚点那 2 ms 的应答会被测错 40 ns，其中一半直接落到距离上——20 ns，六米，加在一个五米的距离上。下一课就会撤掉这份宽容。',
+      en: 'Both errors are small: the raw reading is 2 cm long, the corrected one 5 cm short, against 2.1 cm of range-noise sigma. Do not mistake that for accuracy you can rely on. Both crystals are pinned to 0 ppm here, which no real pair ever is: the standard allows ±20 ppm (§16.4.9). At 20 ppm of relative offset the anchor’s 2 ms reply is mismeasured by 40 ns, half of which lands straight on the range — 20 ns, six metres, on a five-metre distance. The next lesson takes the mercy away.',
+      zh: '两个误差都不大：raw 读数长了 2 cm，修正后的读数短了 5 cm，而测距噪声的标准差是 2.1 cm。但不要把这当成可以依赖的精度。本场景把两个晶振都钉死在 0 ppm，而现实中没有哪一对设备是这样的：标准允许 ±20 ppm（§16.4.9）。当相对偏差为 20 ppm 时，锚点那 2 ms 的应答会被测错 40 ns，其中一半直接落到距离上——20 ns，六米，加在一个五米的距离上。下一课就会撤掉这份宽容。',
     } },
   ],
   scenario: () => uwbIntroScenario(5),

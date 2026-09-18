@@ -38,7 +38,7 @@ const PERFECT_PPM = ppmOf(0)
 const TCXO_PPM = ppmOf(1)
 /** The session's noise model, likewise read back rather than re-typed. */
 const SESSION = uwbSstwr.scenario().uwb!
-/** 1-σ of one SS-TWR range at the session's 100 ps timestamp noise: 42.4 mm. */
+/** 1-σ of one SS-TWR range at the session's 100 ps timestamp noise: 21.2 mm. */
 const SIGMA_R = rangeSigmaM(SESSION.tsNoisePs)
 /** 1-σ of what the correction leaves behind for an anchor answering in slot i: ½·Treply·σ_cfo. */
 const residualSigmaM = (slot: number): number =>
@@ -425,14 +425,15 @@ describe('uwb-sstwr · what the clock-offset correction puts back', () => {
 describe('uwb-sstwr · the two variants', () => {
   it('"Perfect crystals": the ramp disappears and only timestamp noise is left', () => {
     // "The raw errors collapse to 1.9, −1.9, 0.7 and −6.1 cm — no ramp at all, because eA − eB is
-    //  zero. What remains is timestamp noise, whose 1-σ is 4.2 cm"
+    //  zero. What remains is timestamp noise, whose 1-σ is 2.1 cm"
     const rs = ranges(0)
     expect(rs).toHaveLength(4)
     expect(rs.map((r) => (rawErr(r) * 100).toFixed(1))).toEqual(['1.9', '-1.9', '0.7', '-6.1'])
     for (const r of rs) expect(Math.abs(rawErr(r)), r.peer).toBeLessThan(0.15)
-    expect((SIGMA_R * 100).toFixed(1)).toBe('4.2')
-    // nothing about the raw error now depends on the slot
-    for (const r of rs) expect(Math.abs(rawErr(r))).toBeLessThan(2 * SIGMA_R)
+    expect((SIGMA_R * 100).toFixed(1)).toBe('2.1')
+    // nothing about the raw error now depends on the slot: every one is inside the timestamp-noise
+    // envelope (4 σ, so that the −6.1 cm draw at anchor 4 — 2.9 σ — is not one sample from flapping)
+    for (const r of rs) expect(Math.abs(rawErr(r)), r.peer).toBeLessThan(4 * SIGMA_R)
   })
 
   it('"TCXOs, ±1 ppm" is a TENTH of the base offset, and gives a tenth of the ramp', () => {

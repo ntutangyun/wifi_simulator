@@ -50,7 +50,10 @@ const ring = (ppm: number): Place[] => [
   { x: 5, y: 0, z: 1, ppm }, { x: 0, y: 5, z: 1, ppm }, { x: -5, y: 0, z: 1, ppm }, { x: 0, y: -5, z: 1, ppm },
 ]
 
-const SIGMA_R = rangeSigmaM(100) // 1-σ of one range at 100 ps timestamp noise: 42.4 mm
+const SIGMA_R = rangeSigmaM(100) // 1-σ of one range at 100 ps timestamp noise: 21.2 mm
+/** 1-σ of the corrected SS reading's clock-correction residual: ½·Treply·σ_cfo, 6.0 cm at a 2 ms reply.
+ * A corrected SS range carries it on top of SIGMA_R; a DS range does not. */
+const SS_CORRECTED_SIGMA_M = Math.hypot(SIGMA_R, ((2 * MS * DEFAULT_UWB_SESSION.cfoNoisePpm * 1e-6) / 2) * C_M_PER_NS)
 
 describe('UwbNetwork — SS-TWR, one anchor, perfect crystals', () => {
   const sc = uwbScenario([{ x: 0, y: 0, z: 1, ppm: 0 }], [{ x: 5, y: 0, z: 1, ppm: 0 }], { method: 'ss', nlos: false })
@@ -63,7 +66,7 @@ describe('UwbNetwork — SS-TWR, one anchor, perfect crystals', () => {
     expect(ranges[0].peer).toBe('anc-1')
     expect(ranges[0].method).toBe('ss')
     expect(ranges[0].trueDistM).toBeCloseTo(5, 9)
-    expect(Math.abs(ranges[0].distM - 5)).toBeLessThan(3 * SIGMA_R)
+    expect(Math.abs(ranges[0].distM - 5)).toBeLessThan(3 * SS_CORRECTED_SIGMA_M)
   })
 
   it('agrees raw with corrected when neither crystal is off', () => {

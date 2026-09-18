@@ -32,8 +32,9 @@ describe('solvePosition', () => {
     const r = [...rangesTo(square, 5, 5, 1), { id: 'ghost', distM: 1 }]
     expect(solvePosition(square, r, 1, 0.042)!.x).toBeCloseTo(5, 5)
   })
-  it('rangeSigmaM(100) is 4.24 cm', () => {
-    expect(rangeSigmaM(100)).toBeCloseTo(0.0424, 4)
+  it('rangeSigmaM(100) is 2.12 cm: c · σ_ts / √2, not √2 · c · σ_ts', () => {
+    expect(rangeSigmaM(100)).toBeCloseTo(0.0212, 4)
+    expect(rangeSigmaM(100)).toBeCloseTo((0.299792458 * 0.1) / Math.SQRT2, 12)
   })
   it('collinear anchors cannot fix a point: null', () => {
     const collinear: AnchorPos[] = [
