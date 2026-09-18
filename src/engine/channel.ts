@@ -13,6 +13,18 @@ import type { EmitFn } from '../model/records'
 import type { Ns } from '../model/types'
 import { EventQueue } from './events'
 import { CCA_ED_DBM, CCA_PD_DBM, PHY_MODES, noiseDbm, reqSinrDb, sinrThreshDb } from './phy'
+import {
+  AMP_DL_REQ_SINR_DB,
+  AMP_DL_SYNC_NS,
+  AMP_LEGACY_PREAMBLE_NS,
+  AMP_TAG_DL_SENS_DBM,
+  AMP_UL_BW_MHZ,
+  AMP_UL_CHIP_NS,
+  AMP_UL_REQ_SINR_DB,
+  AMP_UL_SYNC_CHIPS,
+  ampUlSensDbm,
+  type AmpUlKbps,
+} from './amp'
 
 export interface PhyListener {
   onCcaBusy(t: Ns): void
@@ -62,6 +74,25 @@ interface RadioState {
   observed: Set<string>
   /** Preambles this radio could not detect because of interference, resolved as collisions when they end. */
   misses: { from: string; startNs: Ns; contributors: Set<string> }[]
+  /** 'wifi' (default) decodes 802.11 PPDUs and DL AMP PPDUs' legacy preamble; 'tag' decodes only DL AMP PPDUs. */
+  kind: 'wifi' | 'tag'
+  /** Wi-Fi radio that can also decode UL AMP PPDUs (the AMP AP). */
+  ampCapable: boolean
+  /** Tags: minimum RSSI to detect a DL AMP PPDU. */
+  floorDbm: number
+  /** false: never emit CCA records nor call onCcaBusy/onCcaIdle (tags have no carrier sense). */
+  cca: boolean
+}
+
+export interface RadioOpts {
+  /** 'wifi' (default) decodes 802.11 PPDUs and DL AMP PPDUs' legacy preamble; 'tag' decodes only DL AMP PPDUs. */
+  kind?: 'wifi' | 'tag'
+  /** Wi-Fi radio that can also decode UL AMP PPDUs (the AMP AP). */
+  ampCapable?: boolean
+  /** Tags: minimum RSSI to detect a DL AMP PPDU (default AMP_TAG_DL_SENS_DBM). */
+  floorDbm?: number
+  /** false: never emit CCA records nor call onCcaBusy/onCcaIdle (tags have no carrier sense). */
+  cca?: boolean
 }
 
 /** Minimum SINR at which a preamble is detected (ns-3 ThresholdPreambleDetectionModel default). */
@@ -83,13 +114,31 @@ const CAPTURE_MARGIN_DB = 5
  * is still doing AGC and timing acquisition. Once into the payload it is
  * committed, and a stronger signal can only corrupt it.
  */
-const captureWindowNs = (frame: FrameDesc): Ns => PHY_MODES[frame.mode ?? 'nonht'].preambleNs
+const captureWindowNs = (frame: FrameDesc): Ns => {
+  if (frame.amp?.dir === 'dl') return AMP_LEGACY_PREAMBLE_NS + AMP_DL_SYNC_NS
+  if (frame.amp?.dir === 'ul') return AMP_UL_SYNC_CHIPS * AMP_UL_CHIP_NS[frame.amp.kbps as AmpUlKbps]
+  return PHY_MODES[frame.mode ?? 'nonht'].preambleNs
+}
 
 const sameGroup = (a: FrameDesc, b: FrameDesc): boolean =>
   a.orthogonalGroup !== undefined && a.orthogonalGroup === b.orthogonalGroup
 
+/** Noise bandwidth for a PPDU: an AMP UL PPDU uses its OOK-rate-dependent width; everything else the PPDU's width. */
+function ampNoiseBwMhz(frame: FrameDesc): number {
+  return frame.amp?.dir === 'ul' ? AMP_UL_BW_MHZ[frame.amp.kbps as AmpUlKbps] : frame.widthMhz ?? 20
+}
+
+/** Lowest RSSI at which this radio can acquire this PPDU, or null when it cannot see it as a PPDU at all. */
+function detectFloorDbm(r: RadioState, frame: FrameDesc): number | null {
+  if (frame.amp?.dir === 'ul') return r.ampCapable ? ampUlSensDbm(frame.amp.kbps as AmpUlKbps) : null
+  if (frame.amp?.dir === 'dl') return r.kind === 'tag' ? r.floorDbm : CCA_PD_DBM
+  return r.kind === 'tag' ? null : CCA_PD_DBM
+}
+
 /** Decode SINR threshold for a frame as seen by receiver rid. */
-function decodeThreshDb(frame: FrameDesc, rid: string): number {
+function decodeThreshDb(frame: FrameDesc, rid: string, r: RadioState): number {
+  if (frame.amp?.dir === 'ul') return AMP_UL_REQ_SINR_DB[frame.amp.kbps as AmpUlKbps]
+  if (frame.amp?.dir === 'dl') return r.kind === 'tag' ? AMP_DL_REQ_SINR_DB : sinrThreshDb(6)
   // Only a multi-user data PPDU is decoded per user; a Trigger or M-BA carries
   // per-user scheduling information but is itself one non-HT frame.
   if (frame.muParts && frame.kind === 'data') {
@@ -118,8 +167,12 @@ export class Channel {
     private emit: EmitFn,
   ) {}
 
-  register(nodeId: string, listener: PhyListener): void {
-    this.radios.set(nodeId, { listener, ccaBusy: false, locks: [], transmitting: false, observed: new Set(), misses: [] })
+  register(nodeId: string, listener: PhyListener, opts: RadioOpts = {}): void {
+    this.radios.set(nodeId, {
+      listener, ccaBusy: false, locks: [], transmitting: false, observed: new Set(), misses: [],
+      kind: opts.kind ?? 'wifi', ampCapable: opts.ampCapable ?? false,
+      floorDbm: opts.floorDbm ?? AMP_TAG_DL_SENS_DBM, cca: opts.cca ?? true,
+    })
   }
 
   isCcaBusy(nodeId: string): boolean {
@@ -180,9 +233,10 @@ export class Channel {
   }
 
   private applyOneTx(t: Ns, rid: string, r: RadioState, tx: ActiveTx, p: number): void {
+    const floor = detectFloorDbm(r, tx.frame)
     const canCoexist = r.locks.every((l) => sameGroup(l.frame, tx.frame))
     if (r.locks.length > 0 && !canCoexist) {
-      if (!r.transmitting && p >= CCA_PD_DBM && this.canCapture(t, r, p)) {
+      if (!r.transmitting && floor !== null && p >= floor && this.canCapture(t, r, p)) {
         // Capture: abandon the weak reception and re-sync to this preamble.
         // The dropped frame never reaches PHY-RXEND, so no error is indicated
         // and no EIFS is armed — the new lock's outcome decides the deferral.
@@ -203,7 +257,7 @@ export class Channel {
           lock.maxInterfMw = Math.max(lock.maxInterfMw, this.interferenceMw(rid, lock))
         }
       }
-    } else if (!r.transmitting && p >= CCA_PD_DBM) {
+    } else if (!r.transmitting && floor !== null && p >= floor) {
       // Preamble detection needs SINR ≥ 4 dB against everything else on the
       // air; a preamble buried in interference is never detected — no
       // PHY-RXSTART, no reception to fail, no EIFS.
@@ -261,7 +315,7 @@ export class Channel {
       const lock = r.locks[lockIdx]
       r.locks.splice(lockIdx, 1)
       const sinrDb = lock.rxDbm - dbm(lock.maxInterfMw)
-      if (sinrDb >= decodeThreshDb(lock.frame, rid)) {
+      if (sinrDb >= decodeThreshDb(lock.frame, rid, r)) {
         this.emit({ t, type: 'RX_OK', node: rid, from: tx.txId, frame: lock.frame })
         r.listener.onRxOk(t, lock.frame, tx.txId)
       } else {
@@ -291,7 +345,7 @@ export class Channel {
    */
   private detectOrMiss(t: Ns, rid: string, r: RadioState, tx: ActiveTx, p: number): void {
     const others = this.othersMw(rid, tx)
-    const sinr = p - dbm(mw(noiseDbm(tx.frame.widthMhz ?? 20)) + others.mw)
+    const sinr = p - dbm(mw(noiseDbm(ampNoiseBwMhz(tx.frame))) + others.mw)
     if (sinr >= PREAMBLE_DETECT_SINR_DB) {
       // Receiver acquires the preamble (possibly alongside RU-orthogonal peers).
       this.acquireLock(t, rid, r, tx, p)
@@ -317,7 +371,7 @@ export class Channel {
   /** Interference+noise in mW at rid for a given lock (excludes its own tx and RU-orthogonal peers). */
   private interferenceMw(rid: string, lock: Lock): number {
     // thermal noise in the width of the PPDU being received
-    let sum = mw(noiseDbm(lock.frame.widthMhz ?? 20))
+    let sum = mw(noiseDbm(ampNoiseBwMhz(lock.frame)))
     for (const a of this.active) {
       if (a.txId === rid || a.txId === lock.from) continue
       if (sameGroup(a.frame, lock.frame)) continue
@@ -340,6 +394,7 @@ export class Channel {
 
   private updateAllCca(t: Ns): void {
     for (const [rid, r] of this.radios) {
+      if (!r.cca) continue
       let busy: boolean
       let cause: 'energy' | 'preamble' = 'energy'
       if (r.transmitting) {
@@ -353,7 +408,9 @@ export class Channel {
           sum += mw(p)
           // −82 dBm applies to a PPDU whose preamble this radio could see;
           // one that began during our own transmission counts only as energy.
-          if (p >= CCA_PD_DBM && r.observed.has(a.txId)) anyPd = true
+          // An AMP UL PPDU is below Wi-Fi's preamble-detect floor, so it can
+          // only ever hold CCA busy through raw energy, never as 'preamble'.
+          if (p >= CCA_PD_DBM && r.observed.has(a.txId) && a.frame.amp?.dir !== 'ul') anyPd = true
         }
         busy = anyPd || sum >= mw(CCA_ED_DBM) || r.locks.length > 0
         cause = anyPd || r.locks.length > 0 ? 'preamble' : 'energy'
