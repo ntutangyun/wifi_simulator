@@ -8,11 +8,24 @@
  */
 import type { L10n, Lesson } from './lessonKit'
 
-export const TIERS: L10n[] = [
-  { en: 'Tier 1 · MAC foundations', zh: '第一阶段 · MAC 基础' },
-  { en: 'Tier 2 · MAC practitioner', zh: '第二阶段 · MAC 实战' },
-  { en: 'Tier 3 · The PHY underneath', zh: '第三阶段 · 底层 PHY' },
-  { en: 'Tier 4 · Researcher', zh: '第四阶段 · 研究' },
+/** The radio the tier teaches. Tracks are listed in this order, Wi-Fi first. */
+export type Track = 'wifi' | 'uwb'
+
+export const TRACKS: Record<Track, L10n> = {
+  wifi: { en: 'Wi-Fi', zh: 'Wi-Fi' },
+  uwb: { en: 'UWB ranging', zh: 'UWB 测距' },
+}
+
+export interface Tier extends L10n {
+  track: Track
+}
+
+export const TIERS: Tier[] = [
+  { track: 'wifi', en: 'Tier 1 · MAC foundations', zh: '第一阶段 · MAC 基础' },
+  { track: 'wifi', en: 'Tier 2 · MAC practitioner', zh: '第二阶段 · MAC 实战' },
+  { track: 'wifi', en: 'Tier 3 · The PHY underneath', zh: '第三阶段 · 底层 PHY' },
+  { track: 'wifi', en: 'Tier 4 · Researcher', zh: '第四阶段 · 研究' },
+  { track: 'uwb', en: 'UWB Tier 1 · Ranging foundations', zh: 'UWB 第一阶段 · 测距基础' },
 ]
 
 export interface CourseModule {
@@ -32,6 +45,8 @@ export const MODULES: CourseModule[] = [
   { tier: 1, title: { en: 'Real applications', zh: '真实应用' } },
   { tier: 2, title: { en: 'Signals, modulation and coding', zh: '信号、调制与编码' } },
   { tier: 3, title: { en: 'Wi-Fi 8 and research craft', zh: 'Wi-Fi 8 与研究方法' } },
+  { tier: 4, title: { en: 'Time of flight', zh: '飞行时间' } },
+  { tier: 4, title: { en: 'Ranging sessions and positioning', zh: '测距会话与定位' } },
 ]
 
 /**
@@ -54,6 +69,10 @@ export const COURSE_ORDER: string[] = [
   'amp-intro', 'amp-slots', 'amp-coexist',
   // Tier 2 — M9 real applications
   'capstone',
+  // UWB Tier 1 — M11 time of flight
+  'uwb-intro', 'uwb-sstwr', 'uwb-dstwr',
+  // UWB Tier 1 — M12 sessions and positioning
+  'uwb-blocks', 'uwb-position',
 ]
 
 /** Lessons in reading order; ids in COURSE_ORDER without an authored lesson are skipped. */

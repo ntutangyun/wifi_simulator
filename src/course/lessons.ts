@@ -26,6 +26,7 @@ import { tier1Project } from './tier1/tier1-project'
 import { ampIntro } from './amp/amp-intro'
 import { ampSlots } from './amp/amp-slots'
 import { ampCoexist } from './amp/amp-coexist'
+import { uwbIntro } from './uwb/uwb-intro'
 export type { Block, JumpTarget, L10n, Lesson, LessonVariant, Quiz } from './lessonKit'
 
 export { MODULES, TIERS } from './curriculum'
@@ -106,6 +107,7 @@ const AUTHORED: Lesson[] = [
   ampIntro,
   ampSlots,
   ampCoexist,
+  uwbIntro,
   // ======================= MODULE 1 =======================
   {
     id: 'airtime',

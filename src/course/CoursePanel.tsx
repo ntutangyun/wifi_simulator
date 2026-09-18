@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useStrings } from '../ui/i18n'
 import { player, useUi } from '../ui/store'
 import { LESSONS, lessonIndex, type Block, type L10n, type Lesson } from './lessons'
-import { MODULES, TIERS, lessonMinutes } from './curriculum'
+import { MODULES, TIERS, TRACKS, lessonMinutes } from './curriculum'
 import { LinkBudget } from './widgets/LinkBudget'
 import { McsLadder } from './widgets/McsLadder'
 
@@ -145,12 +145,23 @@ export function CoursePanel() {
         <h3 style={{ margin: '2px 0 2px', fontSize: 14 }}>{L.title}</h3>
         <div style={{ ...dim, marginBottom: 10 }}>{L.progressOf(doneCount, LESSONS.length)}</div>
         <div style={{ ...dim, marginBottom: 12, lineHeight: 1.5 }}>{L.selectPrompt}</div>
-        {TIERS.map((tier, ti) => {
+        {TIERS
           // modules and tiers with no lesson yet are not shown
-          const mods = MODULES.map((m, mi) => ({ m, mi })).filter(({ m, mi }) => m.tier === ti && LESSONS.some((l) => l.module === mi))
-          if (!mods.length) return null
+          .map((tier, ti) => ({
+            tier, ti,
+            mods: MODULES.map((m, mi) => ({ m, mi })).filter(({ m, mi }) => m.tier === ti && LESSONS.some((l) => l.module === mi)),
+          }))
+          .filter(({ mods }) => mods.length > 0)
+          .map(({ tier, ti, mods }, shown, shownTiers) => {
+          // a track heading opens each run of tiers that teach the same radio
+          const newTrack = shown === 0 || shownTiers[shown - 1].tier.track !== tier.track
           return (
           <div key={ti} style={{ marginBottom: 14 }}>
+            {newTrack && (
+              <div style={{ fontSize: 13.5, fontWeight: 600, color: '#e6eaf2', margin: shown === 0 ? '0 0 8px' : '18px 0 8px' }}>
+                {t(TRACKS[tier.track])}
+              </div>
+            )}
             <div style={{ fontSize: 12, fontWeight: 600, color: '#d5dae3', marginBottom: 6 }}>{t(tier)}</div>
         {mods.map(({ m, mi }, mNo) => (
           <div key={mi} style={{ marginBottom: 12 }}>

@@ -265,8 +265,10 @@ describe('lesson 12 claims about TB PPDUs', () => {
 
 describe('module 4 lessons', () => {
   it('adds a fourth module', () => {
-    expect(TIERS).toHaveLength(4)
-    expect(MODULES.map((m) => m.tier)).toEqual([0, 0, 1, 1, 1, 1, 1, 1, 1, 2, 3])
+    // four Wi-Fi tiers, then the UWB track's first tier
+    expect(TIERS).toHaveLength(5)
+    expect(TIERS.map((t) => t.track)).toEqual(['wifi', 'wifi', 'wifi', 'wifi', 'uwb'])
+    expect(MODULES.map((m) => m.tier)).toEqual([0, 0, 1, 1, 1, 1, 1, 1, 1, 2, 3, 4, 4])
     for (const m of MODULES) expect(m.title.zh.length).toBeGreaterThan(0)
   })
 

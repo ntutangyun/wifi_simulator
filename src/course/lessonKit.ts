@@ -4,8 +4,8 @@
  * here, never from lessons.ts, so modules that define lessons do not form a cycle.
  */
 import { defaultFeatures, linkOfVirtual } from '../model/caps'
-import type { AmpApCfg, NodeCfg, ProfileId, Room, Scenario, Wall } from '../model/scenario'
-import { DEFAULT_AMP_AP } from '../model/scenario'
+import type { AmpApCfg, NodeCfg, ProfileId, Room, Scenario, UwbSessionCfg, Wall } from '../model/scenario'
+import { DEFAULT_AMP_AP, DEFAULT_UWB_SESSION } from '../model/scenario'
 import type { TLRecord } from '../model/records'
 import type { Generation } from '../model/types'
 
@@ -154,6 +154,38 @@ export function ampAp(id: string, name: string, x: number, y: number, amp: Parti
   return { ...n, ampAp: { ...DEFAULT_AMP_AP, ...amp } }
 }
 
+/**
+ * A UWB node: no Wi-Fi profile to run and no Wi-Fi capabilities to speak of,
+ * so it idles on the Wi-Fi side and does all its work in the ranging session.
+ * −14 dBm is the model's default UWB transmit power (−41.3 dBm/MHz over the
+ * 499.2 MHz channel).
+ */
+function uwbNode(id: string, name: string, role: 'anchor' | 'tag', x: number, y: number, z: number, ppm?: number): NodeCfg {
+  return {
+    id, kind: 'uwb', name, pos: { x, y, z }, txPowerDbm: -14,
+    profiles: ['idle'], caps: { generation: 'nonht', features: {} },
+    uwb: { role, ...(ppm === undefined ? {} : { ppm }) },
+  }
+}
+
+/** A UWB anchor: a fixed device at a known place that answers a tag's Poll. */
+export function anchor(id: string, name: string, x: number, y: number, z = 2.2, ppm?: number): NodeCfg {
+  return uwbNode(id, name, 'anchor', x, y, z, ppm)
+}
+
+/** A UWB tag: the device that ranges to every anchor and solves its own position. */
+export function uwbTag(id: string, name: string, x: number, y: number, z = 1.0, ppm?: number): NodeCfg {
+  return uwbNode(id, name, 'tag', x, y, z, ppm)
+}
+
+/** sc() with a ranging session attached: a UWB scenario needs one as soon as it holds a UWB node. */
+export function uwbSc(
+  house: { rooms: Room[]; walls: Wall[] }, nodes: NodeCfg[],
+  session: Partial<UwbSessionCfg> = {}, extra: Partial<Scenario> = {},
+): Scenario {
+  return sc(house, nodes, { uwb: { ...DEFAULT_UWB_SESSION, ...session }, ...extra })
+}
+
 // ---------------------------------------------------------------------------
 // jump-target predicates
 // ---------------------------------------------------------------------------
@@ -192,4 +224,13 @@ export const firstAmpAckToTag = txOf((r) => r.frame.kind === 'ampAck' && r.frame
 export const firstAmpSatOut = (r: TLRecord): boolean => r.type === 'AMP_ABOC' && r.slot === null
 export const firstAmpLost = (r: TLRecord): boolean => r.type === 'AMP_RESULT' && r.sent && !r.acked
 export const firstScheduledTrigger = txOf((r) => r.frame.kind === 'ampTrigger' && r.frame.amp?.phase === 'scheduled')
+
+export const firstUwbPoll = txOf((r) => r.frame.kind === 'uwbPoll')
+export const firstUwbResp = txOf((r) => r.frame.kind === 'uwbResp')
+export const firstUwbFinal = txOf((r) => r.frame.kind === 'uwbFinal')
+export const firstUwbReport = txOf((r) => r.frame.kind === 'uwbReport')
+export const firstUwbRange = (r: TLRecord): boolean => r.type === 'UWB_RANGE'
+export const firstUwbPosition = (r: TLRecord): boolean => r.type === 'UWB_POSITION'
+export const firstUwbTimeout = (r: TLRecord): boolean => r.type === 'UWB_TIMEOUT'
+export const firstUwbRxTs = (r: TLRecord): boolean => r.type === 'UWB_TS' && r.dir === 'rx'
 
