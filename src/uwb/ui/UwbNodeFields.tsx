@@ -5,9 +5,9 @@
  * ranging engine reads: where the device is, how far its clock drifts, and
  * how loudly it transmits.
  */
-import { clampField } from '../../editor/planOps'
 import type { NodeCfg } from '../../model/scenario'
 import { useStrings } from '../../ui/i18n'
+import { clampField } from '../../ui/inputs'
 
 const label: React.CSSProperties = { display: 'block', marginBottom: 4 }
 const dim: React.CSSProperties = { color: 'var(--dim)', marginBottom: 4 }

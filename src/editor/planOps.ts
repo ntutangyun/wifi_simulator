@@ -288,26 +288,31 @@ export function removeNode(sc: Scenario, id: string): Scenario {
  * anchors than a round can carry — or null when it is happy. The rules live in
  * the schema alone; this only runs it and picks the issue that belongs to UWB,
  * so the editor can show it under the session section instead of failing on run.
+ *
+ * An issue is claimed by its `path`, never by its wording: everything the schema
+ * says about the session is rooted at `uwb` (the field and the superRefine rules
+ * alike), and a field issue on a ranging device is rooted at that node. A rule
+ * that merely mentions UWB on some other path — a coexistence rule on a Wi-Fi
+ * link, say — belongs to whatever the editor shows there, not to this section.
  */
 export function uwbSessionIssue(sc: Scenario): string | null {
   const parsed = ScenarioSchema.safeParse(sc)
   if (parsed.success) return null
   for (const issue of parsed.error.issues) {
-    if (issue.path.includes('uwb') || /\bUWB\b|ranging/i.test(issue.message)) return issue.message
+    if (issue.path[0] === 'uwb') return issue.message
+    const i = issue.path[1]
+    if (issue.path[0] === 'nodes' && typeof i === 'number' && sc.nodes[i]?.kind === 'uwb') return issue.message
   }
   return null
 }
 
 /**
- * Clamp a number-input value to the schema's bounds. A `<input type="number">`
- * hands back `''` while it is being retyped and `Number('')` is 0, so without
- * this an emptied AMP field would commit a scenario the schema rejects.
+ * Clamping a number field lives in the leaf `src/ui/inputs.ts` so the technology
+ * panels under `src/uwb/ui/` can reach it without importing the core editor;
+ * it is re-exported here because the editor's own fields have always used it
+ * from this module.
  */
-export function clampField(raw: string, lo: number, hi: number, int = false): number {
-  const n = int ? Math.round(Number(raw)) : Number(raw)
-  if (!Number.isFinite(n) || raw.trim() === '') return lo
-  return Math.min(hi, Math.max(lo, n))
-}
+export { clampField } from '../ui/inputs'
 
 /**
  * The node patch that switching `n` to Wi-Fi generation `gen` produces.

@@ -399,15 +399,18 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
     if ((wifi.length > 0 || aps.length > 1) && aps.length !== 1) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: `scenario must have exactly one AP (found ${aps.length})` })
     }
+    // Every ranging rule is tagged `path: ['uwb']` so the editor can tell a
+    // session issue from any other by its path rather than by reading its
+    // wording (src/editor/planOps.ts · uwbSessionIssue).
     const uwbNodes = sc.nodes.filter((n) => n.kind === 'uwb')
     if (uwbNodes.length > 0) {
       if (!sc.uwb) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'a scenario with UWB nodes needs a UWB session (scenario.uwb)' })
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['uwb'], message: 'a scenario with UWB nodes needs a UWB session (scenario.uwb)' })
       } else {
         const anchors = uwbNodes.filter((n) => n.uwb?.role === 'anchor').length
         const tags = uwbNodes.filter((n) => n.uwb?.role === 'tag').length
         if (anchors < 1 || tags < 1) {
-          ctx.addIssue({ code: z.ZodIssueCode.custom, message: `a UWB session needs at least one anchor and one tag (found ${anchors} and ${tags})` })
+          ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['uwb'], message: `a UWB session needs at least one anchor and one tag (found ${anchors} and ${tags})` })
         } else {
           // Every tag gets its own slots inside the block; the block cannot be
           // oversubscribed or two tags would range in the same slot.
@@ -416,6 +419,7 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
           if (tags > fits) {
             ctx.addIssue({
               code: z.ZodIssueCode.custom,
+              path: ['uwb'],
               message: `the UWB block fits ${fits} tags at ${slots} slots each (found ${tags}); lengthen blockRstu or shorten slotRstu`,
             })
           }
@@ -427,6 +431,7 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
           if (slotNs < needNs) {
             ctx.addIssue({
               code: z.ZodIssueCode.custom,
+              path: ['uwb'],
               message: `a ${sc.uwb.slotRstu} RSTU ranging slot is ${(slotNs / 1000).toFixed(1)} µs, but a round with `
                 + `${anchors} anchors needs ${(needNs / 1000).toFixed(1)} µs for its longest frame plus flight; `
                 + 'lengthen slotRstu or use fewer anchors',
@@ -435,6 +440,7 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
           if (anchors > UWB_MAX_ANCHORS) {
             ctx.addIssue({
               code: z.ZodIssueCode.custom,
+              path: ['uwb'],
               message: `a ranging round takes at most ${UWB_MAX_ANCHORS} anchors (found ${anchors}): `
                 + 'the Final grows by 12 octets per anchor and must stay inside the 127-octet PSDU limit',
             })
@@ -464,6 +470,17 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
       }
     }
   })
+
+/**
+ * What went wrong with a scenario, as a learner should read it. A ZodError's
+ * own `message` is the raw JSON of every issue — `[{ "code": "custom", … }]` —
+ * while the issue messages are the sentences the editor already shows beside
+ * the offending section, so the banner and the editor say the same thing.
+ */
+export function scenarioErrorText(e: unknown): string {
+  if (e instanceof z.ZodError) return e.issues.map((i) => i.message).join('; ')
+  return e instanceof Error ? e.message : String(e)
+}
 
 export const nonht: CapabilityProfile = { generation: 'nonht', features: {} }
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { DEFAULT_AMP_AP, ScenarioSchema, defaultScenario, nonht } from '../../src/model/scenario'
+import { DEFAULT_AMP_AP, ScenarioSchema, defaultScenario, nonht, scenarioErrorText } from '../../src/model/scenario'
 
 describe('scenario schema', () => {
   it('accepts the default scenario', () => {
@@ -103,5 +103,25 @@ describe('AMP nodes in the schema', () => {
     delete sc.nodes[1].ampTag
     sc.nodes[0].ampTag = { id16: 7 }
     expect(() => ScenarioSchema.parse(sc)).toThrow(/AMP tag/)
+  })
+})
+
+describe('scenarioErrorText', () => {
+  it('is the issue sentences, not the ZodError JSON the banner used to print', () => {
+    const sc = defaultScenario()
+    sc.nodes = sc.nodes.filter((n) => n.kind !== 'ap')
+    try {
+      ScenarioSchema.parse(sc)
+      expect.unreachable('the schema should have rejected an AP-less plan with stations')
+    } catch (e) {
+      const text = scenarioErrorText(e)
+      expect(text).toBe('scenario must have exactly one AP (found 0)')
+      expect(text).not.toContain('"code"')
+    }
+  })
+
+  it('passes an ordinary Error through unchanged', () => {
+    expect(scenarioErrorText(new Error('boom'))).toBe('boom')
+    expect(scenarioErrorText('boom')).toBe('boom')
   })
 })

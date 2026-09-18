@@ -6,11 +6,11 @@
  * the schema's own complaint when the numbers do not add up.
  */
 import { useState } from 'react'
-import { clampField } from '../../editor/planOps'
 import type { UwbSessionCfg } from '../../model/scenario'
 import { roundPlan } from '../session'
 import { rstuNs } from '../phy'
 import { useStrings } from '../../ui/i18n'
+import { clampField } from '../../ui/inputs'
 
 const label: React.CSSProperties = { display: 'block', marginBottom: 4 }
 const suffix: React.CSSProperties = { color: 'var(--dim)', fontSize: 11, marginLeft: 4 }

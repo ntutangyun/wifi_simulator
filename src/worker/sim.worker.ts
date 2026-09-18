@@ -1,5 +1,6 @@
 /// <reference lib="webworker" />
 import { Simulation } from '../engine/simulation'
+import { scenarioErrorText } from '../model/scenario'
 import type { FromWorker, ToWorker } from './protocol'
 
 const CHUNK_NS = 50_000_000 // simulate in 50 ms sim-time chunks
@@ -45,7 +46,9 @@ self.onmessage = (ev: MessageEvent<ToWorker>) => {
         simulatedTo = 0
         targetNs = 0
       } catch (e) {
-        post({ type: 'error', message: e instanceof Error ? e.message : String(e) })
+        // A rejected scenario arrives as a ZodError whose own message is raw JSON;
+        // the banner shows the issue sentences the editor shows.
+        post({ type: 'error', message: scenarioErrorText(e) })
       }
       break
     case 'run':

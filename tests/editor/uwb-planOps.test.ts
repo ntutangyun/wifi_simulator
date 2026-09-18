@@ -96,6 +96,40 @@ describe('uwbSessionIssue', () => {
     expect(ScenarioSchema.safeParse(noAp).success).toBe(false) // the stations lost their AP
     expect(uwbSessionIssue(noAp)).toBeNull()
   })
+
+  it('claims a bound on a session field, whose message never says UWB', () => {
+    const msg = uwbSessionIssue(withUwb(4, { slotRstu: 3 }))
+    expect(msg).toContain('300') // path ['uwb', 'slotRstu']
+    expect(msg).not.toMatch(/UWB|ranging/i)
+  })
+
+  it('claims a field issue on a ranging device', () => {
+    const sc = withUwb(2)
+    const bad: Scenario = {
+      ...sc,
+      nodes: sc.nodes.map((n) => (n.kind === 'uwb' ? { ...n, txPowerDbm: 'loud' as unknown as number } : n)),
+    }
+    expect(uwbSessionIssue(bad)).toBeTruthy()
+  })
+
+  it('is what the schema paths say, not what the messages word: every session rule is rooted at uwb', () => {
+    // The match is by path, so each rule has to carry one; a coexistence rule that merely
+    // mentions UWB on a Wi-Fi path must not be dragged under the session section.
+    const cases: Scenario[] = [
+      withUwb(10), // more anchors than a round carries
+      withUwb(6, { slotRstu: 300 }), // slot too short for the Final
+      { ...withUwb(4), nodes: withUwb(4).nodes.filter((n) => n.uwb?.role !== 'tag') }, // no tag
+      { ...withUwb(2), uwb: undefined }, // nodes without a session
+    ]
+    for (const sc of cases) {
+      const parsed = ScenarioSchema.safeParse(sc)
+      expect(parsed.success).toBe(false)
+      if (parsed.success) continue
+      const worded = parsed.error.issues.filter((i) => /\bUWB\b|ranging/i.test(i.message))
+      expect(worded.length).toBeGreaterThan(0)
+      for (const i of worded) expect(i.path[0], i.message).toBe('uwb')
+    }
+  })
 })
 
 describe('newAp / hasAp', () => {

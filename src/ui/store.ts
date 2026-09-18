@@ -111,8 +111,11 @@ export const useUi = create<UiState>((set, get) => ({
       player.dispose()
       set({ mode: m, playing: false, view: null, playheadNs: 0, courseLoaded: false, simError: null, selectedFrame: null })
     } else {
+      // The banner belongs to the run that raised it: leaving it up over the
+      // editor would show the learner a complaint about a plan they are in the
+      // middle of fixing, beside the live one the session section already draws.
       player.dispose()
-      set({ mode: m, playing: false, view: null, playheadNs: 0, courseLoaded: false, selectedFrame: null })
+      set({ mode: m, playing: false, view: null, playheadNs: 0, courseLoaded: false, simError: null, selectedFrame: null })
     }
   },
   courseLessonId: null,
