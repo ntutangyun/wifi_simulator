@@ -16,12 +16,13 @@ npm run build    # static production build in dist/
 ## Using it
 
 0. **📚 Course mode** — a built-in, bilingual course on the Wi-Fi MAC (DCF foundations → EDCA/A-MPDU/TXOP → OFDMA/MLO → ambient power IoT). Each lesson loads a purpose-built deterministic scenario next to the text, with jump-to buttons that seek the playhead straight to the teachable moment (first collision, first Trigger frame, …), observation checklists, experiments and self-check quizzes. Progress is saved locally.
-1. **✎ Edit mode** — draw rooms (▭), punch doors/windows into walls, set wall materials (drywall/brick/glass), drag the AP and STAs around, assign per-station traffic profiles (video, backup, browsing, IoT, saturated), place battery-free **AMP tags** on a Wi-Fi 7 AP's 2.4 GHz link and configure its polling (slots, ACWE, DL/UL rate, protection), or 🎲 spawn random stations. Scenarios persist to localStorage and import/export as JSON.
+1. **✎ Edit mode** — draw rooms (▭), punch doors/windows into walls, set wall materials (drywall/brick/glass), drag the AP and STAs around, assign per-station traffic profiles (video, backup, browsing, IoT, saturated), place battery-free **AMP tags** on a Wi-Fi 7 AP's 2.4 GHz link and configure its polling (slots, ACWE, DL/UL rate, protection), place **UWB anchors and tags** and set the ranging session (SS-/DS-TWR, block and slot length, channel, timestamp noise), or 🎲 spawn random stations. Scenarios persist to localStorage and import/export as JSON.
 2. **▶ Simulate mode** — the engine (in a Web Worker) simulates ahead and records *every* observable micro-event. The UI is a player over that recording:
    - **Transport bar**: play/pause, slowdown from ×10 to ×10 000, and stepping **±1 µs, ±1 slot (9 µs), ±1 event, ±1 frame exchange — forward and backward**.
    - **3D viewport**: expanding wavefronts per transmission (blue = AP data, green = STA data, white = ACK, orange = RTS/CTS), node state halos, live backoff counters.
    - **Timeline strip**: logic-analyzer-style per-node lanes (TX/RX/backoff/defer/NAV) with wheel-zoom down to single-slot scale; red ticks mark collisions; drag to scrub. AMP tags get their own lane: trigger/Ack reception, an armed "slot k" wait span, and their uplink response.
    - **Inspector**: full MAC state at the playhead — backoff, CW, SSRC/SLRC, NAV, IFS, queue contents, per-node stats (or, for a tag, ABOC/ACW and sent/acked/lost counts).
+   - **UWB ranging**: a second radio measuring distance rather than carrying traffic. Each tag gets a lane showing its ranging round slot by slot; the floor of the 3D scene carries one range ring per (tag, anchor) pair, the solved position as a cross and its 1-σ error ellipse (drawn at 10× — the inspector quotes the true axes), all fading out over one ranging block.
    - **Event log**: chronological micro-events; click a TX row to decode the frame.
 
 ## 802.11 conformance (IEEE Std 802.11-2024)
@@ -53,6 +54,32 @@ npm run build    # static production build in dist/
 
 RF model: log-distance path loss (n = 3.0, 5 GHz) + per-wall attenuation (drywall 5 dB, brick 12 dB, glass 3 dB; openings exempt) + SINR-based capture.
 
+## 802.15.4-2024 HRP UWB ranging
+
+The UWB side is a separate radio with its own PHY, its own schedule and its own units. Every constant below is tagged with where it comes from: a clause of IEEE Std 802.15.4-2024, a FiRa UCI default, or a model choice this simulator made.
+
+| Mechanism | Source | Notes |
+|---|---|---|
+| Chip rate / peak PRF | standard §16.2.4 | 499.2 Mchip/s, Tc = 2.003205 ns |
+| Ranging counter, RCTU | standard §10.29.1.4 | Tc / 128 = 15.650 ps (4.7 mm of flight); 40-bit counter, differences mod 2⁴⁰ |
+| Ranging scheduling unit, RSTU | standard §10.29.1.5, Table 10-145 | 416 chips = 833.333 ns; slots and blocks are configured in RSTU |
+| RMARKER | standard §10.29.1.1 | first chip after the SFD, 36 576 chips = 73.269 µs into the PPDU; every timestamp is an RMARKER reading |
+| SP1 BPRF PPDU | standard §16.2, Table 16-31 set 3 | SYNC 64 + SFD 8 symbols, one STS segment (512 + 64 × 512 + 512 chips), PHR 850 kb/s, PSDU 6.8 Mb/s |
+| SS-TWR | standard §10.29.1.2.2 | tof = (Tround − Treply)/2, with the CFO-corrected form (Tround − Treply·(1 − coffs))/2 |
+| DS-TWR, three messages | standard §10.29.1.2.4, Figure 10-199 | Poll / Response / Final; clock rate errors divide out. The default method |
+| Figure of merit | standard §10.29.1.7, Tables 10-146…148 | LOS 0x16 = 97 % within 0.5 ns; through any wall 0x7B = 75 % within 12 ns; 0x00 = not available |
+| Ranging blocks / rounds / slots | standard §10.32.2, time-scheduled | one round per tag per block; SS-TWR takes N + 1 slots, DS-TWR 2N + 2; slot 0 is the Poll |
+| Ranging IEs: ARC, RDM, RRTI, RMI, RRMC | standard §10.29.8, §10.32.9 | field lists from the clauses; each IE's width is written out from the fields it stands for |
+| Crystal tolerance ±20 ppm | standard §16.4.9 | per-device ppm, drawn uniformly unless the scenario pins it |
+| Ranging block 200 ms, ranging slot 2 ms | FiRa UCI defaults | 240 000 and 2 400 RSTU; a slot must hold the round's longest frame + 200 ns of flight guard |
+| DS-TWR deferred as the default method | FiRa | matches FiRa's default ranging round usage |
+| Tx −14 dBm, sensitivity −93 dBm, capture 6 dB | model | −14 dBm ≈ the −41.3 dBm/MHz mean EIRP mask over 499.2 MHz |
+| Path-loss exponent 2.0, free-space PL₀ | model | indoor LOS; PL₀ from the channel's centre frequency (Table 11-9) |
+| Timestamp noise 100 ps 1-σ, residual CFO 0.2 ppm | model | σ_range = c·σ_ts/√2 ≈ 2.1 cm (the conservative SS-TWR form; DS-TWR is 0.62–0.65·c·σ_ts) |
+| NLOS excess delay 0.2 / 0.5 / 2.0 ns | model | glass / drywall / brick per wall crossed = 0.06 / 0.15 / 0.60 m of bias |
+| 2-D position: Gauss–Newton, GDOP, 1-σ ellipse | model | residual ‖p − aᵢ‖ − dᵢ with the tag's z known; Σ = σ_r²·(JᵀJ)⁻¹; needs ≥ 3 ranges |
+| ≤ 9 anchors per round | standard §16.2.7 (consequence) | the DS-TWR Final is 14 + 12N octets and must stay under the 127-octet PSDU limit |
+
 ### Known simplifications
 
 - No beacons/association (pre-associated BSS), no power save, no MU-EDCA/BSR (the OFDMA scheduler reads STA queues directly as a BSR stand-in).
@@ -63,6 +90,11 @@ RF model: log-distance path loss (n = 3.0, 5 GHz) + per-wall attenuation (drywal
 - AMP models only the Active Tx non-AP AMP STA; backscatter (mono-/bistatic), the energizer, wireless power transfer and energy harvesting are not implemented yet.
 - AMP is a draft (P802.11bp D0.5/D1.0): the tag's −72 dBm downlink sensitivity and the OOK SINR thresholds (decoding requirements the draft does not publish) are model choices, not standard values.
 - A tag finds its slot by counting AMP Acks in arrival order rather than reading a slot number off them; the draft leaves ABOC retransmission behaviour TBD, so a lost response draws a fresh ABOC next round.
+- UWB ranging is time-scheduled only: there is **no CCA**, no backoff, no NAV and no contention-based ranging round — every slot is assigned before the session starts, so two UWB devices never collide.
+- UWB reception is sensitivity-only: a frame is received when it clears −93 dBm, and interference is a 6 dB capture margin. There is no UWB SINR curve, no multipath channel model and no Wi-Fi 6E / UWB channel-5 coexistence.
+- Positions are solved in 2-D with the tag's z taken from the scenario; there is no AoA (no antenna array, no PDoA), no TDoA and no downlink-TDoA mode — only two-way ranging.
+- NLOS is one excess delay per wall crossed, not a delay spread: no first-path/strongest-path split, no leading-edge detection and no ranging bias calibration. The FoM is a two-valued model mapping (LOS / through-a-wall) and is reported, never used by the solver.
+- STS key management (§10.29.6), contention-based rounds, round hopping, LRP UWB and multi-node round scheduling beyond one round per tag are out of scope.
 - A Wi-Fi radio receives a downlink AMP PPDU as an ordinary legacy-preamble reception: it defers for the L-SIG length and then uses AIFS, not EIFS. The coexistence numbers (lesson 3) rest on this — a real 802.11 receiver's behaviour on an OOK payload under a legacy preamble is not something the draft pins down.
 
 ## Architecture

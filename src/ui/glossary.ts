@@ -585,4 +585,202 @@ export const GLOSSARY: GlossaryGroup[] = [
       },
     ],
   },
+  {
+    id: 'uwb',
+    title: { en: 'UWB ranging (802.15.4-2024)', zh: 'UWB 测距（802.15.4-2024）' },
+    items: [
+      {
+        term: 'UWB',
+        alt: { en: 'ultra-wideband', zh: '超宽带' },
+        def: {
+          en: 'A second radio beside Wi-Fi whose job is distance, not throughput: half a gigahertz of bandwidth makes a pulse edge sharp enough to time to picoseconds, and 1 ps is 0.3 mm of flight. Channel 5 (6489.6 MHz) or channel 9 (7987.2 MHz, the default).',
+          zh: 'Wi-Fi 之外的第二套射频，任务是测距而不是传数据：将近半个 GHz 的带宽让脉冲前沿足够陡峭，可以把到达时刻标定到皮秒量级，而 1 ps 只对应 0.3 mm 的飞行距离。可用信道 5（6489.6 MHz）或信道 9（7987.2 MHz，默认）。',
+        },
+      },
+      {
+        term: 'HRP UWB PHY',
+        alt: { en: 'high rate pulse repetition frequency PHY, 499.2 Mchip/s', zh: '高重复频率脉冲物理层，499.2 Mchip/s' },
+        def: {
+          en: 'The 802.15.4 PHY this simulator models (clause 16): chip 2.003205 ns, BPRF set 3 — SYNC 64 symbols, SFD 8 symbols, PHR at 850 kb/s, PSDU at 6.8 Mb/s. LRP UWB is out of scope.',
+          zh: '本仿真器建模的 802.15.4 物理层（第 16 章）：码片 2.003205 ns，采用 BPRF 第 3 组配置——SYNC 64 个符号、SFD 8 个符号、PHR 850 kb/s、PSDU 6.8 Mb/s。LRP UWB 不在范围内。',
+        },
+      },
+      {
+        term: 'RMARKER',
+        alt: { en: 'ranging marker — 73.269 µs into the PPDU', zh: '测距标记点——位于 PPDU 起点后 73.269 µs' },
+        def: {
+          en: 'The instant a ranging measurement refers to: the first chip after the SFD, at the antenna (§10.29.1.1). 36 576 chips into the PPDU. Every timestamp the engine records is an RMARKER reading, transmitted or received.',
+          zh: '一次测距所指的时刻：SFD 之后第一个码片出现在天线口的瞬间（§10.29.1.1），即 PPDU 起点之后 36 576 个码片。引擎记录的每个时间戳，都是一次发送或接收的 RMARKER 读数。',
+        },
+      },
+      {
+        term: 'Ranging counter / RCTU',
+        alt: { en: 'ranging counter time unit = 15.650 ps', zh: '测距计数时间单位 = 15.650 ps' },
+        def: {
+          en: 'The free-running clock every ranging device timestamps with, counting in units of one 128th of a chip (§10.29.1.4). 40 bits wide here, so every difference is taken modulo 2⁴⁰. One RCTU is 4.7 mm of flight.',
+          zh: '每台测距设备用于打时间戳的自由运行时钟，计数单位为 1/128 个码片（§10.29.1.4）。本仿真中为 40 位，因此所有差值都按 2⁴⁰ 取模。1 个 RCTU 相当于 4.7 mm 的飞行距离。',
+        },
+      },
+      {
+        term: 'RSTU',
+        alt: { en: 'ranging scheduling time unit = 416 chips = 833.333 ns', zh: '测距调度时间单位 = 416 码片 = 833.333 ns' },
+        def: {
+          en: 'The unit the schedule is written in (§10.29.1.5, Table 10-145) — slots and blocks are configured in RSTU, not in nanoseconds. The defaults are slot 2 400 RSTU (2 ms) and block 240 000 RSTU (200 ms).',
+          zh: '编写调度时所用的单位（§10.29.1.5，表 10-145）——时隙与块都以 RSTU 配置，而不是纳秒。默认时隙 2 400 RSTU（2 ms），默认块 240 000 RSTU（200 ms）。',
+        },
+      },
+      {
+        term: 'STS',
+        alt: { en: 'scrambled timestamp sequence', zh: '加扰时间戳序列' },
+        def: {
+          en: 'A pseudo-random chip sequence inside the PPDU that only the two ranging peers can predict, so an attacker cannot manufacture an earlier leading edge. Here one BPRF segment: 512-chip gap + 64 × 512 active chips + 512-chip gap = 33 792 chips (67.692 µs). Key management is out of scope.',
+          zh: 'PPDU 中一段只有测距双方能预知的伪随机码片序列，攻击者因此无法伪造更早的前沿。本仿真取 BPRF 的一个 STS 段：512 码片间隔 + 64 × 512 有效码片 + 512 码片间隔 = 33 792 码片（67.692 µs）。密钥管理不在范围内。',
+        },
+      },
+      {
+        term: 'SP1',
+        alt: { en: 'STS packet configuration 1', zh: 'STS 分组配置 1' },
+        def: {
+          en: 'The PPDU layout used throughout: SYNC, SFD, STS, PHR, PSDU (Figure 16-3, configuration 1) — the STS sits between the SFD and the PHR, so the frame still carries data as well as a protected timestamp.',
+          zh: '本仿真通篇使用的 PPDU 结构：SYNC、SFD、STS、PHR、PSDU（图 16-3 的配置 1）——STS 位于 SFD 与 PHR 之间，因此该帧既能受保护地打时间戳，也照样能承载数据。',
+        },
+      },
+      {
+        term: 'SS-TWR',
+        alt: { en: 'single-sided two-way ranging', zh: '单边双向测距' },
+        def: {
+          en: 'One round trip (§10.29.1.2.2): tof = (Tround − Treply)/2, from the tag\'s Poll and the anchor\'s Response (the reply time travels in an RRTI IE). Cheap, but a 20 ppm clock difference over a 2 ms reply is 20 ns ≈ 6 m unless the measured carrier-frequency offset corrects it.',
+          zh: '只有一次往返（§10.29.1.2.2）：tof =（Tround − Treply）/2，由标签的 Poll 与锚点的 Response 得出（回复时间由 RRTI IE 携带）。开销小，但两端时钟相差 20 ppm、回复时间 2 ms 时误差达 20 ns ≈ 6 m，除非用测得的载波频偏加以修正。',
+        },
+      },
+      {
+        term: 'DS-TWR',
+        alt: { en: 'double-sided two-way ranging, three messages', zh: '双边双向测距（三消息式）' },
+        def: {
+          en: 'Poll, Response, Final (§10.29.1.2.4): tof = (Tround1·Tround2 − Treply1·Treply2) / (Tround1 + Tround2 + Treply1 + Treply2). Each clock appears in both a round-trip and a reply time, so the rate errors divide out — picoseconds of clock error, for twice the airtime. The default method.',
+          zh: 'Poll、Response、Final 三帧（§10.29.1.2.4）：tof =（Tround1·Tround2 − Treply1·Treply2）/（Tround1 + Tround2 + Treply1 + Treply2）。每个时钟都同时出现在一个往返时间和一个回复时间中，频率误差因而相消——时钟误差降到皮秒级，代价是一倍空口时间。本仿真的默认方式。',
+        },
+      },
+      {
+        term: 'Ranging block',
+        alt: { en: '200 ms (240 000 RSTU), FiRa default', zh: '200 ms（240 000 RSTU），FiRa 默认值' },
+        def: {
+          en: 'The repeating period of a session (§10.32.2). Every tag gets one round inside each block and its radio is off for the rest — the block is the duty cycle, and therefore the battery life.',
+          zh: '一次测距会话的重复周期（§10.32.2）。每个标签在每个块内分到一轮，其余时间射频关闭——块长即占空比，也就决定了电池寿命。',
+        },
+      },
+      {
+        term: 'Ranging round',
+        alt: { en: 'one tag\'s exchange with every anchor', zh: '一个标签与全部锚点的一次交互' },
+        def: {
+          en: 'A block is cut into rounds, one per tag (round index = tag index here; round hopping is out of scope). SS-TWR takes N + 1 slots for N anchors, DS-TWR takes 2N + 2.',
+          zh: '一个块被切成若干轮，每个标签占一轮（本仿真中轮序号 = 标签序号；跳轮不在范围内）。N 个锚点时，SS-TWR 占 N + 1 个时隙，DS-TWR 占 2N + 2 个。',
+        },
+      },
+      {
+        term: 'Ranging slot',
+        alt: { en: '2 ms (2 400 RSTU), FiRa default', zh: '2 ms（2 400 RSTU），FiRa 默认值' },
+        def: {
+          en: 'The smallest unit of the schedule: exactly one device transmits in it, starting at the slot boundary. It must hold the round\'s longest frame plus 200 ns of flight guard (60 m), which the scenario schema checks.',
+          zh: '调度的最小单位：一个时隙内只有一台设备发送，且在时隙边界起发。时隙必须容得下本轮最长的那一帧加上 200 ns 的飞行保护（60 m），场景校验会检查这一点。',
+        },
+      },
+      {
+        term: 'Controller / controlee',
+        alt: { en: 'who owns the schedule', zh: '谁掌握调度' },
+        def: {
+          en: 'The controller defines the block, round and slot structure and hands it out; controlees follow it. Here the tag is controller and the anchors are controlees — the phone-and-anchors deployment.',
+          zh: '控制方（controller）定义块、轮、时隙的结构并下发，受控方（controlee）照此执行。本仿真中标签是控制方，锚点是受控方——即“手机 + 固定锚点”的部署方式。',
+        },
+      },
+      {
+        term: 'Initiator / responder',
+        alt: { en: 'who starts the exchange', zh: '谁发起交互' },
+        def: {
+          en: 'The initiator sends the Poll that opens a round; responders answer in the slots they were given. A separate axis from controller/controlee — here the tag happens to be both controller and initiator.',
+          zh: '发起方（initiator）发出开启一轮的 Poll，响应方（responder）在分配到的时隙中应答。这一对角色与控制/受控是两个独立维度——本仿真中标签恰好既是控制方又是发起方。',
+        },
+      },
+      {
+        term: 'ARC IE',
+        alt: { en: 'advanced ranging control IE, 10 octets', zh: '高级测距控制信元，10 字节' },
+        def: {
+          en: 'Rides in the Poll and carries the schedule the round is running under (§10.32.9.1): control, block index, round index, slot index. It is how a device that just joined learns where in the block it is.',
+          zh: '随 Poll 发送，携带本轮所依据的调度信息（§10.32.9.1）：控制字段、块序号、轮序号、时隙序号。刚加入的设备正是靠它得知自己处在块中的哪个位置。',
+        },
+      },
+      {
+        term: 'RDM IE',
+        alt: { en: 'ranging device management IE, 3 + 3N octets', zh: '测距设备管理信元，3 + 3N 字节' },
+        def: {
+          en: 'Also in the Poll (§10.32.9.8): one entry per anchor — its short address and the slot it is to answer in. This is the assignment that makes the round contention-free.',
+          zh: '同样位于 Poll 中（§10.32.9.8）：每个锚点一条表项，给出其短地址以及应当应答的时隙。正是这份分配让整轮交互无需竞争。',
+        },
+      },
+      {
+        term: 'RRTI IE',
+        alt: { en: 'ranging reply time instantaneous IE, 6 octets', zh: '瞬时测距回复时间信元，6 字节' },
+        def: {
+          en: 'Carries one reply time, 4 octets, in RCTU (§10.29.8.1). In SS-TWR the anchor puts its Treply here so the tag can finish the arithmetic; in DS-TWR the tag\'s Final carries one per anchor.',
+          zh: '携带一个以 RCTU 为单位、4 字节长的回复时间（§10.29.8.1）。SS-TWR 中锚点把自己的 Treply 放在这里，供标签完成计算；DS-TWR 中标签的 Final 为每个锚点各带一个。',
+        },
+      },
+      {
+        term: 'RMI IE',
+        alt: { en: 'ranging measurement information IE', zh: '测距测量信息信元' },
+        def: {
+          en: 'The measurement report (§10.29.8.4). In the tag\'s Final it lists each anchor\'s round-trip time (3 + 6N octets); in an anchor\'s measurement report it is the 13-octet form carrying Treply1 and Tround2 back to the tag.',
+          zh: '测量报告信元（§10.29.8.4）。在标签的 Final 中，它逐个列出各锚点的往返时间（3 + 6N 字节）；在锚点的测量报告帧中，它是 13 字节的形式，把 Treply1 与 Tround2 回传给标签。',
+        },
+      },
+      {
+        term: 'FoM',
+        alt: { en: 'figure of merit — 0x16 LOS, 0x7B NLOS', zh: '质量因子——视距 0x16，非视距 0x7B' },
+        def: {
+          en: 'One byte per receive timestamp saying how much to trust it (§10.29.1.7): confidence level, interval and scaling. Line of sight reports 0x16 = "97 % within 0.5 ns"; a path through any wall reports 0x7B = "75 % within 12 ns". An all-zero byte means "not available". Reported, not used by the solver.',
+          zh: '每个接收时间戳附带的一个字节，说明它有多可信（§10.29.1.7）：置信水平、区间与比例因子。视距路径报 0x16 =“97 % 落在 0.5 ns 内”；穿墙路径报 0x7B =“75 % 落在 12 ns 内”。全零字节表示“不可用”。它只上报，不参与解算。',
+        },
+      },
+      {
+        term: 'NLOS',
+        alt: { en: 'non-line-of-sight — 0.2 / 0.5 / 2.0 ns per wall', zh: '非视距——每面墙 0.2 / 0.5 / 2.0 ns' },
+        def: {
+          en: 'A blocked direct path arrives late, so the range reads long. Model excess delay per wall crossed: glass 0.2 ns, drywall 0.5 ns, brick 2.0 ns (0.06 / 0.15 / 0.60 m). It is a bias, not noise — averaging never removes it, which is why a blocked anchor drags the whole fix.',
+          zh: '直射路径被遮挡时信号到得更晚，测出的距离因而偏大。模型取每穿一面墙的附加时延：玻璃 0.2 ns、石膏板 0.5 ns、砖 2.0 ns（分别为 0.06 / 0.15 / 0.60 m）。这是偏差而非噪声——再多次平均也消不掉，所以一个被遮挡的锚点会把整个定位结果拉偏。',
+        },
+      },
+      {
+        term: 'GDOP',
+        alt: { en: 'geometric dilution of precision = √trace((JᵀJ)⁻¹)', zh: '几何精度因子 = √trace((JᵀJ)⁻¹)' },
+        def: {
+          en: 'How much the anchor geometry multiplies range error into position error. A tag at the centre of a square of anchors has GDOP 1.0; anchors that nearly line up push it up without any measurement getting worse.',
+          zh: '锚点几何把测距误差放大成定位误差的倍数。标签位于正方形锚点阵中心时 GDOP 为 1.0；锚点接近共线时，即使每次测距都没变差，GDOP 也会显著上升。',
+        },
+      },
+      {
+        term: 'Error ellipse',
+        alt: { en: '1-σ, from Σ = σ_r²·(JᵀJ)⁻¹, drawn at 10×', zh: '1-σ 误差椭圆，由 Σ = σ_r²·(JᵀJ)⁻¹ 得出，按 10× 绘制' },
+        def: {
+          en: 'The solver\'s confidence region: semi-axes √λ₁, √λ₂ of the covariance and the major-axis angle. Its shape is the anchor geometry, its size is σ_r = c·σ_ts/√2 ≈ 2.1 cm at 100 ps. Too small to see beside a 3.5 m ring, so the scene draws it at 10× — the inspector shows the true axes.',
+          zh: '解算器给出的置信区域：协方差矩阵特征值的平方根 √λ₁、√λ₂ 为两个半轴，另有长轴方向角。形状由锚点几何决定，大小由 σ_r = c·σ_ts/√2 决定，100 ps 时约 2.1 cm。它在 3.5 m 的圆环旁小得看不见，所以场景中按 10× 放大绘制——检视面板显示的才是真实半轴。',
+        },
+      },
+      {
+        term: 'Range ring',
+        alt: { en: 'one measured distance, on the floor', zh: '地面上的一个测距圆环' },
+        def: {
+          en: 'A range has no direction, so the honest picture of one is a circle of that radius around the anchor that measured it. Rings that cross in one place are what a fix is made of; each fades out over one ranging block, so only fresh measurements are drawn.',
+          zh: '测距只有距离没有方向，所以如实的画法是以测出它的锚点为圆心、以该距离为半径的圆。多个圆环交于一点，就构成一次定位；每个圆环在一个测距块的时间内渐隐，因此画面上只有新鲜的测量结果。',
+        },
+      },
+      {
+        term: 'Anchor / tag',
+        alt: { en: 'known position / unknown position', zh: '位置已知 / 位置待求' },
+        def: {
+          en: 'Anchors are fixed, their coordinates known to every tag out of band; tags are what is being located. Up to 9 anchors per round (beyond that the Final would exceed the 127-octet PSDU limit), and a 2-D fix needs at least 3 answering.',
+          zh: '锚点固定不动，其坐标通过带外方式为所有标签所知；标签才是待定位的对象。每轮最多 9 个锚点（再多，Final 帧就会超过 127 字节的 PSDU 上限），而解算一个二维位置至少需要 3 个锚点应答。',
+        },
+      },
+    ],
+  },
 ]

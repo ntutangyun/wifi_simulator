@@ -12,7 +12,7 @@ export function Guide() {
   return lang === 'zh' ? <GuideZh /> : <GuideEn />
 }
 
-function GuideEn() {
+export function GuideEn() {
   return (
     <div style={{ padding: '4px 12px 16px', overflowY: 'auto', fontSize: 12 }}>
       <h3 style={{ ...h, fontSize: 13 }}>How Wi-Fi shares the air</h3>
@@ -128,6 +128,55 @@ function GuideEn() {
         leaves TBD as a model choice.
       </p>
 
+      <h4 style={h}>11 · UWB ranging (802.15.4-2024 HRP)</h4>
+      <p style={p}>
+        UWB does not share the Wi-Fi air at all — it is a second radio (channel 5 at 6489.6 MHz or
+        channel 9 at 7987.2 MHz, 499.2 Mchip/s) whose job is to measure <i>distance</i>, not to carry
+        traffic. Half a gigahertz of bandwidth makes a pulse's leading edge sharp enough to time to
+        picoseconds, and one picosecond is 0.3 mm of flight.
+      </p>
+      <p style={p}>
+        <b>The ranging counter</b> is a free-running clock counting in <b>RCTU</b> of 15.650 ps —
+        one 128th of a chip (§10.29.1.4). Every frame's <b>RMARKER</b> — the first chip after the SFD,
+        73.269 µs into the PPDU (§10.29.1.1) — is stamped with the counter reading at the antenna, and
+        a range is nothing but arithmetic on four such stamps. Frames are SP1 BPRF PPDUs: SYNC, SFD,
+        then the scrambled timestamp sequence (STS) before the PHR (§16.2), which is what makes the
+        timestamp itself hard to forge.
+      </p>
+      <p style={p}>
+        <b>SS-TWR</b> (§10.29.1.2.2) is one round trip — Poll out, Response back,
+        tof = (T<sub>round</sub> − T<sub>reply</sub>)/2 — so two crystals 20 ppm apart over a 2 ms reply
+        cost 20 ns ≈ 6 m unless the carrier-frequency offset the receiver measured is used to correct it.
+        <b> DS-TWR</b> (§10.29.1.2.4) adds a third message, the Final, so each clock appears in both a
+        round-trip and a reply time and the rate errors divide out — picoseconds instead of nanoseconds,
+        for twice the airtime.
+      </p>
+      <p style={p}>
+        <b>Blocks, rounds, slots</b> (§10.32.2): a session is a train of ranging <b>blocks</b> (200 ms,
+        FiRa's default), each block is cut into <b>rounds</b> — one per tag — and each round into
+        <b> slots</b> of 2 ms, every slot owned by exactly one device. Nothing contends: no CCA, no
+        backoff, no NAV, and every reply time is known in advance. A DS round with N anchors takes
+        2N + 2 slots (Poll, N Responses, Final, N Reports); between its round and the next block the
+        tag's radio is off, which is what lets a coin cell last.
+      </p>
+      <p style={p}>
+        In the scene: {chip('#fbbf24')}each ring is one measured range — every point that far from the
+        anchor that measured it — and where the rings cross is the fix, drawn as a small{' '}
+        {chip('#f59e0b')}cross. Rings, cross and ellipse fade out over one ranging block, so what you
+        see is what was just measured. The ellipse around the cross is the solver's 1-σ confidence: a
+        good fix is a couple of centimetres across, invisible beside a 3.5 m ring, so it is drawn at{' '}
+        <b>10×</b> — the inspector shows the true axes. Its shape is geometry, not noise: anchors that
+        nearly line up give a long thin ellipse and a large <b>GDOP</b>.
+      </p>
+      <p style={p}>
+        Model numbers: −14 dBm transmit, −93 dBm sensitivity, 6 dB capture, path-loss exponent 2,
+        100 ps of 1-σ timestamp noise (σ<sub>range</sub> = c·σ<sub>ts</sub>/√2 ≈ 2.1 cm), 0.2 ppm of
+        residual clock-offset error, and a wall's excess delay of 0.2 ns (glass) / 0.5 ns (drywall) /
+        2.0 ns (brick). That NLOS delay is a bias, not noise — averaging never removes it — and a path
+        through any wall is reported with the worse FoM, 75 % within 12 ns instead of 97 % within
+        0.5 ns (§10.29.1.7).
+      </p>
+
       <h4 style={h}>Things to try</h4>
       <p style={p}>
         · Two saturated stations, then make them mutually hidden with a brick wall — watch collisions
@@ -140,7 +189,7 @@ function GuideEn() {
   )
 }
 
-function GuideZh() {
+export function GuideZh() {
   return (
     <div style={{ padding: '4px 12px 16px', overflowY: 'auto', fontSize: 12 }}>
       <h3 style={{ ...h, fontSize: 13 }}>Wi-Fi 如何共享空口</h3>
@@ -250,6 +299,49 @@ function GuideZh() {
         P802.11bp 目前仍是未获批准的草案（D0.5 于 2026 年 5 月发布，D1.0 将于 2026 年 9 月进入
         letter ballot）——本仿真器依据 11-24/1613r20、11-26/1519r5 与 11-26/1889r4 三份文件建模，
         草案中标为 TBD 的每个数值都标注为模型取值。
+      </p>
+
+      <h4 style={h}>11 · UWB 测距（802.15.4-2024 HRP）</h4>
+      <p style={p}>
+        UWB 与 Wi-Fi 根本不共用空口——它是另一套射频（信道 5 为 6489.6 MHz，信道 9 为 7987.2 MHz，
+        码片速率 499.2 Mchip/s），任务是测<i>距离</i>而不是传数据。将近半个 GHz 的带宽让脉冲前沿足够陡峭，
+        可以把到达时刻标定到皮秒量级，而 1 ps 对应 0.3 mm 的飞行距离。
+      </p>
+      <p style={p}>
+        <b>测距计数器</b>是一个自由运行的时钟，计数单位 <b>RCTU</b> 为 15.650 ps，即 1/128 个码片
+        （§10.29.1.4）。每一帧的 <b>RMARKER</b>——SFD 之后的第一个码片，位于 PPDU 起点之后 73.269 µs
+        处（§10.29.1.1）——在天线口被打上计数器读数，而一次测距无非是对四个这样的读数做算术。
+        本仿真中的帧都是 SP1 的 BPRF PPDU：SYNC、SFD，随后是插在 PHR 之前的加扰时间戳序列（STS，§16.2），
+        正是它让时间戳本身难以伪造。
+      </p>
+      <p style={p}>
+        <b>SS-TWR</b>（单边双向测距，§10.29.1.2.2）只有一次往返——发 Poll、收 Response，
+        tof =（T<sub>round</sub> − T<sub>reply</sub>）/2——因此两端晶振相差 20 ppm、回复时间 2 ms 时，
+        误差就有 20 ns ≈ 6 m，除非用接收机测得的载波频偏加以修正。
+        <b>DS-TWR</b>（双边双向测距，§10.29.1.2.4）多发一帧 Final，使每个时钟都同时出现在一个往返时间和
+        一个回复时间里，频率误差因而相消——代价是一倍的空口时间，收益是从纳秒级降到皮秒级。
+      </p>
+      <p style={p}>
+        <b>块、轮、时隙</b>（§10.32.2）：一次测距会话是一列测距<b>块</b>（默认 200 ms，取自 FiRa），
+        每个块切成若干<b>轮</b>——每个标签一轮——每轮再切成 2 ms 的<b>时隙</b>，每个时隙只属于一台设备。
+        这里没有任何竞争：不做 CCA、没有退避、没有 NAV，每个回复时间都是事先约定好的。
+        N 个锚点的 DS 轮占 2N + 2 个时隙（Poll、N 个 Response、Final、N 个 Report）；
+        在本轮结束到下一个块之间，标签的射频是关闭的——这正是一颗纽扣电池能用很久的原因。
+      </p>
+      <p style={p}>
+        场景里：{chip('#fbbf24')}每个圆环是一次测得的距离——到测出它的那个锚点距离相同的所有点；
+        圆环交汇处就是解算出的位置，画成一个小{chip('#f59e0b')}十字。圆环、十字与误差椭圆都会在一个测距块的
+        时间内渐隐，因此你看到的永远是刚刚测出的结果。十字周围的椭圆是解算器给出的 1-σ 置信范围：
+        一次好的定位只有几厘米大，在 3.5 m 的圆环旁边根本看不见，所以按 <b>10×</b> 放大绘制——
+        检视面板（Inspector）显示的才是真实半轴长度。椭圆的形状由几何而非噪声决定：
+        锚点接近共线时椭圆又长又扁，<b>GDOP</b> 也随之变大。
+      </p>
+      <p style={p}>
+        模型取值：发射 −14 dBm、灵敏度 −93 dBm、捕获门限 6 dB、路径损耗指数 2、
+        时间戳 1-σ 噪声 100 ps（σ<sub>range</sub> = c·σ<sub>ts</sub>/√2 ≈ 2.1 cm）、
+        残余时钟偏差 0.2 ppm，以及穿墙附加时延 0.2 ns（玻璃）/ 0.5 ns（石膏板）/ 2.0 ns（砖）。
+        这个 NLOS 时延是偏差而非噪声——再多次平均也消不掉——凡是穿墙的路径都会报出更差的 FoM：
+        75 % 落在 12 ns 之内，而不是视距时的 97 % 落在 0.5 ns 之内（§10.29.1.7）。
       </p>
 
       <h4 style={h}>动手试试</h4>
