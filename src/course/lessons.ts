@@ -24,6 +24,7 @@ import { bianchi } from './tier1/bianchi'
 import { bianchiVsSim } from './tier1/bianchi-vs-sim'
 import { tier1Project } from './tier1/tier1-project'
 import { ampIntro } from './amp/amp-intro'
+import { ampSlots } from './amp/amp-slots'
 export type { Block, JumpTarget, L10n, Lesson, LessonVariant, Quiz } from './lessonKit'
 
 export { MODULES, TIERS } from './curriculum'
@@ -102,6 +103,7 @@ const AUTHORED: Lesson[] = [
   bianchiVsSim,
   tier1Project,
   ampIntro,
+  ampSlots,
   // ======================= MODULE 1 =======================
   {
     id: 'airtime',
