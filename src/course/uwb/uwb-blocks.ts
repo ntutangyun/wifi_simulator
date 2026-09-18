@@ -14,7 +14,7 @@
  * 975 and 1724 English words across body + observe + tryThis + quiz (4 observe
  * items and 2 experiments already account for 16 of those minutes). At 1725 the
  * rounding tips to 30, and the study-time test pins that ceiling. The prose
- * below totals 1708 words, so there is room for sixteen more and no more:
+ * below totals 1714 words, so there is room for ten more and no more:
  * adding a sentence means deleting one.
  */
 import type { Scenario } from '../../model/scenario'
@@ -73,16 +73,16 @@ export const uwbBlocks: Lesson = {
       zh: '一个块里装得下十轮，而本场景有三个标签，于是第 0、1、2 轮分别属于 uwb-1、uwb-2、uwb-3，第 3 到 9 轮——每个块里的 140 ms——空着。因此每部手机每个块恰好得到一次定位，每秒五次，另外两部在做什么都不影响。再加一个标签，代价不过是第 3 轮；要到第十一个标签，这个块才装不下。',
     } },
     { heading: { en: 'The schedule travels in the Poll', zh: '调度表随 Poll 一起飞' }, text: {
-      en: 'The grid is not something the anchors were born knowing: it rides in the tag’s Poll, 39 octets, in two information elements. The ARC IE, 10 octets, says where in the session the frame sits — “SP1 · DS-TWR · block 0 · round 0 · 4 responders”. The RDM IE, 15 octets, is the seating plan — “4 devices: anchor-1 slot 1, anchor-2 slot 2, anchor-3 slot 3, anchor-4 slot 4” — three octets per device, a short address and a slot index. One Poll tells an anchor which slot to answer in, and which seven to sleep through.',
-      zh: '这张网格并不是锚点与生俱来的配置，它随标签的 Poll 一起飞过来：39 字节，两个信息元素。10 字节的 ARC IE 说明本帧落在会话的什么位置——“SP1 · DS-TWR · block 0 · round 0 · 4 responders”。15 字节的 RDM IE 则是座位表——“4 devices: anchor-1 slot 1, anchor-2 slot 2, anchor-3 slot 3, anchor-4 slot 4”——每台设备三个字节：一个短地址加一个时隙序号。一帧 Poll 就告诉了锚点该在哪个时隙作答，以及可以安睡过哪七个时隙。',
+      en: 'The grid is not something the anchors were born knowing: it rides in the tag’s Poll, 39 octets, in two information elements. The ARC IE, 10 octets, says where in the session the frame sits — “SP1 · DS-TWR · block 0 · round 0 · 4 responders”. The RDM IE, 15 octets, is the seating plan — “4 devices: anchor-1 slot 1, anchor-2 slot 2, anchor-3 slot 3, anchor-4 slot 4” — three octets per device, a short address and a slot index. One Poll tells an anchor which slots to answer in, and which six to sleep through.',
+      zh: '这张网格并不是锚点与生俱来的配置，它随标签的 Poll 一起飞过来：39 字节，两个信息元素。10 字节的 ARC IE 说明本帧落在会话的什么位置——“SP1 · DS-TWR · block 0 · round 0 · 4 responders”。15 字节的 RDM IE 则是座位表——“4 devices: anchor-1 slot 1, anchor-2 slot 2, anchor-3 slot 3, anchor-4 slot 4”——每台设备三个字节：一个短地址加一个时隙序号。一帧 Poll 就告诉了锚点该在哪几个时隙作答，以及可以安睡过哪六个时隙。',
     } },
     { text: {
       en: 'And every frame leaves at the top of its slot. The standard allows a transmission offset inside the slot; this model uses none, so a TX_START timestamp is its slot’s start to the nanosecond — the three Polls of block 0 at 0, 20 000 000 and 40 000 000 ns. Nothing here waits for an idle medium.',
       zh: '而且每一帧都在自己时隙的起点离开。标准允许在时隙内设置发送偏移；本模型取零偏移，于是 TX_START 的时间戳精确到纳秒就是它那个时隙的起点——第 0 个块的三帧 Poll 分别在 0、20 000 000 与 40 000 000 ns。这里没有谁需要等待信道空闲。',
     } },
     { heading: { en: 'What the radio actually costs', zh: '射频真正的开销' }, text: {
-      en: 'Two different shares of the block both get called a duty cycle, and here they differ tenfold. The schedule share is what the grid hands a device: a tag owns one round of ten, 20 ms of 200 ms, 10 %, and the anchors serve every round that has a tag — three of them, 60 ms, 30 %. The radio share is what the MAC_STATE lane shows: uwbWait, rx and tx, and nothing else.',
-      zh: '有两种很不一样的“占块比例”都被叫作占空比，而在这里它们相差十倍。调度占比是网格分给一台设备的份额：标签占十轮中的一轮，200 ms 里的 20 ms，10 %；锚点则要服务每一个有标签的轮次——一共三轮，60 ms，30 %。射频占比则是 MAC_STATE 泳道上真正显示的东西：uwbWait、rx 与 tx，别的都不算。',
+      en: 'Two different shares of the block both get called a duty cycle, and here they differ tenfold and more. The schedule share is what the grid hands a device: a tag owns one round of ten, 20 ms of 200 ms, 10 %, and the anchors serve every round that has a tag — three of them, 60 ms, 30 %. The radio share is what the MAC_STATE lane shows: uwbWait, rx and tx, and nothing else.',
+      zh: '有两种很不一样的“占块比例”都被叫作占空比，而在这里它们相差十倍以上。调度占比是网格分给一台设备的份额：标签占十轮中的一轮，200 ms 里的 20 ms，10 %；锚点则要服务每一个有标签的轮次——一共三轮，60 ms，30 %。射频占比则是 MAC_STATE 泳道上真正显示的东西：uwbWait、rx 与 tx，别的都不算。',
     } },
     { kind: 'table', head: [
       { en: 'Device', zh: '设备' }, { en: 'Its rounds', zh: '参与的轮次' }, { en: 'Slots it wakes in', zh: '醒来的时隙' },
@@ -92,8 +92,8 @@ export const uwbBlocks: Lesson = {
       [N('anchor-1'), N('3 of 10'), N('4 of 10 × 3'), N('2 448 546 ns'), N('1.22 %')],
     ] },
     { text: {
-      en: 'The receiver is armed at the start of a slot the device expects a frame in and switched off the moment that frame lands, so a slot costs its frame’s airtime and nothing else. The tag takes part in all ten slots of its round, and its 1 934 334 ns is exactly the round’s airtime, 1 934 230 ns, plus 13 ns of flight for each of the eight frames it receives. The anchor is cheaper still: it hears the Poll, sends its Response, hears the Final, sends its Report — four wake-ups in ten slots, 816 180 ns — and is deaf through the other anchors’ slots. Three rounds of that make 2 448 546 ns.',
-      zh: '设备只在“预期有帧到来”的时隙起点打开接收机，并在该帧落地的那一刻关掉它，因此一个时隙的代价就是那一帧的空口时间，别无其他。标签参与自己那一轮的全部十个时隙，它的 1 934 334 ns 恰好就是这一轮的空口时间 1 934 230 ns，再加上它所接收的八帧、每帧 13 ns 的飞行时间。锚点还要更省：它听 Poll、发 Response、听 Final、发 Report——十个时隙里醒来四次，816 180 ns——而在其他锚点的时隙里是聋的。三轮下来便是 2 448 546 ns。',
+      en: 'The receiver is armed at the start of a slot the device expects a frame in and switched off the moment that frame lands, so a slot costs its frame’s airtime and nothing else. The tag takes part in all ten slots of its round, and its 1 934 334 ns is exactly the round’s airtime, 1 934 230 ns, plus 13 ns of flight for each of the eight frames it receives. The anchor is cheaper still: it hears the Poll, sends its Response, hears the Final, sends its Report — four wake-ups in ten slots, 816 180 ns in the first — and is deaf through the other anchors’ slots. Three rounds, differing by nanoseconds of flight, make 2 448 546 ns.',
+      zh: '设备只在“预期有帧到来”的时隙起点打开接收机，并在该帧落地的那一刻关掉它，因此一个时隙的代价就是那一帧的空口时间，别无其他。标签参与自己那一轮的全部十个时隙，它的 1 934 334 ns 恰好就是这一轮的空口时间 1 934 230 ns，再加上它所接收的八帧、每帧 13 ns 的飞行时间。锚点还要更省：它听 Poll、发 Response、听 Final、发 Report——十个时隙里醒来四次，第一轮 816 180 ns——而在其他锚点的时隙里是聋的。三轮之间因飞行时间差着几纳秒，合计 2 448 546 ns。',
     } },
     { heading: { en: 'Why a 2 ms slot for a 237 µs frame', zh: '为什么 237 µs 的帧要配 2 ms 的时隙' }, text: {
       en: 'A slot has to hold the round’s longest frame plus its flight. In a DS round that is the Final — 62 octets for four anchors, 236 603 ns on the air — and the model adds a 200 ns guard, which is 60 m of flight.',
@@ -107,12 +107,12 @@ export const uwbBlocks: Lesson = {
       zh: '这就是 schema 的时隙容量规则；不过真正拦住你缩短本场景时隙的并不是它。schema 还给每个时隙设了 300 RSTU 的下限：282 RSTU（235.0 µs）会被拒绝两次，一次因为下限，一次因为容量规则；而 285 RSTU（237.5 µs）比容量规则还宽出 697 ns，却仍然过不了下限。本场景能接受的最短时隙是 300 RSTU，250.0 µs。只有当 Final 变长，容量规则才真正起作用：六个锚点时它要 267 572 ns，即 324 RSTU，已经越过下限。时隙太短必须在运行之前就被拦下，因为到了运行时它根本不是谁能报出来的错误——截止时刻先于帧的到达触发，而日志只会说“没人应答”。',
     } },
     { text: {
-      en: 'So 2 ms is not a computed minimum but a profile number, and it leaves the Final on 11.8 % of its own slot. The margin pays for what this model does not simulate: the leading-edge search a receiver runs before it can call an RMARKER, an anchor’s turnaround from receive to transmit, and the drift between devices whose clocks last agreed a block ago — 20 ppm across 200 ms is 4 µs each way.',
-      zh: '所以 2 ms 并不是算出来的下限，而是一个规范档案里的取值，它让 Final 只占掉自己时隙的 11.8 %。这份余量买的是本模型并不仿真的那些东西：接收机在判定 RMARKER 之前要做的首径搜索、锚点从收到发的转换时间，以及两台设备之间的漂移——它们的时钟上一次对齐还是在一个块之前，20 ppm 跨 200 ms 是每边 4 µs。',
+      en: 'So 2 ms is not a computed minimum but a profile number, and it leaves the Final on 11.8 % of its own slot. The margin pays for what this model leaves out: the leading-edge search a receiver runs before it can call an RMARKER, an anchor’s turnaround from receive to transmit, and schedule drift — here a slot boundary is exact, but 20 ppm across 200 ms is 4 µs each way.',
+      zh: '所以 2 ms 并不是算出来的下限，而是一个规范档案里的取值，它让 Final 只占掉自己时隙的 11.8 %。这份余量买的是本模型略去的那些东西：接收机在判定 RMARKER 之前要做的首径搜索、锚点从收到发的转换时间，以及调度本身的漂移——这里的时隙边界是精确的，但 20 ppm 跨 200 ms 是每边 4 µs。',
     } },
     { heading: { en: 'Shorter slots', zh: '把时隙缩短' }, text: {
       en: 'Load “0.5 ms slots”. At 600 RSTU the round falls to 5.0 ms, all three tags are finished 15 ms into a 200 ms block, and 40 rounds fit where 10 did. The fixes arrive at 5, 10 and 15 ms instead of 20, 40 and 60 — the same ten frames, closer together. The radio-on total does not move — 1 934 334 ns, 0.97 % of the block, to the nanosecond — because no frame changed length. Shortening a slot buys latency and room for more tags, not battery.',
-      zh: '载入“0.5 ms 时隙”。600 RSTU 让一轮缩到 5.0 ms，三个标签在 200 ms 的块里 15 ms 就全部做完，原本只装得下 10 轮的地方现在能装 40 轮。定位结果落在 5、10、15 ms，而不再是 20、40、60 ms，而且还是同样的定位：同样十帧，只是挨得更紧。射频开启时长纹丝不动——1 934 334 ns，占块的 0.97 %，一纳秒都不差——因为没有任何一帧的长度发生变化。缩短时隙买到的是时延和更多标签的容纳空间，不是电池。',
+      zh: '载入“0.5 ms 时隙”。600 RSTU 让一轮缩到 5.0 ms，三个标签在 200 ms 的块里 15 ms 就全部做完，原本只装得下 10 轮的地方现在能装 40 轮。定位结果落在 5、10、15 ms，而不再是 20、40、60 ms——同样十帧，只是挨得更紧。射频开启时长纹丝不动——1 934 334 ns，占块的 0.97 %，一纳秒都不差——因为没有任何一帧的长度发生变化。缩短时隙买到的是时延和更多标签的容纳空间，不是电池。',
     } },
   ],
   scenario: () => uwbBlocksScenario(2400),
@@ -137,8 +137,8 @@ export const uwbBlocks: Lesson = {
       zh: '每个标签的泳道上只在自己轮次的末尾有一次定位，中间什么也没有：uwb-1 在 20 ms 给出 (5.01, 3.99) m、GDOP 1.06；uwb-2 在 40 ms 给出 (3.01, 2.52) m、1.08；uwb-3 在 60 ms 给出 (7.50, 6.01) m、1.06。每部手机的误差都在 2 cm 以内，每块一次。' },
   ],
   tryThis: [
-    { en: 'Load “0.5 ms slots” and watch the block empty out: the three rounds finish by 15 ms, the fixes land at 5, 10 and 15 ms, and the session section plans 40 rounds per block instead of 10. Compare the lanes with the base run — the same ten frames, four times closer together, and each tag’s radio-on still 1 934 334 ns.',
-      zh: '载入“0.5 ms 时隙”，看这个块如何空了下来：三个轮次到 15 ms 就做完，定位落在 5、10、15 ms，会话那一栏现在规划出每块 40 轮而不是 10 轮。再把泳道与基准运行对照——还是那十帧，只是紧凑了四倍，而每个标签的射频开启时长依旧是 1 934 334 ns。' },
+    { en: 'Load “0.5 ms slots” and watch the block empty out: the three rounds finish by 15 ms, the fixes land at 5, 10 and 15 ms, and the editor’s session section plans 40 rounds per block instead of 10. Compare the lanes with the base run — the same ten frames, four times closer together, and each tag’s radio-on still 1 934 334 ns.',
+      zh: '载入“0.5 ms 时隙”，看这个块如何空了下来：三个轮次到 15 ms 就做完，定位落在 5、10、15 ms，编辑器里会话那一栏现在规划出每块 40 轮而不是 10 轮。再把泳道与基准运行对照——还是那十帧，只是紧凑了四倍，而每个标签的射频开启时长依旧是 1 934 334 ns。' },
     { en: 'Open the scenario editor, delete anchor-4 and read the UWB session section: “slots per round 8 · rounds per block 12”, because a DS round is 2N + 2 slots — a 16 ms round, and a Final 12 octets shorter. Then type 285 into the slot field and leave it: it snaps to 300, the floor under every slot.',
       zh: '打开场景编辑器，删掉 anchor-4，再看 UWB 会话那一栏：“slots per round 8 · rounds per block 12”，因为一个 DS 轮是 2N + 2 个时隙——一轮 16 ms，Final 也短了 12 字节。然后在时隙那一栏里输入 285 再移开焦点：它会跳到 300，也就是每个时隙的那条下限。' },
   ],

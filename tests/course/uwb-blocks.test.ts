@@ -11,8 +11,9 @@ import { uwbBlocks, uwbBlocksScenario } from '../../src/course/uwb/uwb-blocks'
 import { Simulation } from '../../src/engine/simulation'
 import { DEFAULT_UWB_SESSION, ScenarioSchema, type Scenario } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
-import type { Block, L10n } from '../../src/course/lessonKit'
+import { uwbTag, type Block, type L10n } from '../../src/course/lessonKit'
 import { OBSERVE_MINUTES, TRY_MINUTES, lessonMinutes, lessonWords } from '../../src/course/curriculum'
+import { clampField } from '../../src/editor/planOps'
 import { fmtRecord } from '../../src/ui/format'
 import { uwbFrameFields } from '../../src/uwb/frameFields'
 import { roundPlan } from '../../src/uwb/session'
@@ -45,16 +46,18 @@ const ofType = <K extends TLRecord['type']>(rs: TLRecord[], type: K) =>
   rs.filter((r): r is Extract<TLRecord, { type: K }> => r.type === type)
 
 /**
- * Nanoseconds a node's radio spends out of `idle` inside [0, untilNs) — the
+ * Nanoseconds a node's radio spends out of `idle` inside [fromNs, untilNs) — the
  * uwbWait + rx + tx of the MAC_STATE lane, which is what the lesson calls the
- * radio share. Every device starts a run idle.
+ * radio share. Every device starts a run idle, and every round of this scene
+ * both starts and ends with its participants idle, so a window that begins on a
+ * round boundary needs no carried-in state.
  */
-function radioOnNs(rs: TLRecord[], node: string, untilNs: number): number {
+function radioOnNs(rs: TLRecord[], node: string, untilNs: number, fromNs = 0): number {
   let state: string = 'idle'
-  let since = 0
+  let since = fromNs
   let on = 0
   for (const r of ofType(rs, 'MAC_STATE')) {
-    if (r.node !== node || r.t >= untilNs) continue
+    if (r.node !== node || r.t >= untilNs || r.t < fromNs) continue
     if (state !== 'idle') on += r.t - since
     state = r.state
     since = r.t
@@ -83,9 +86,14 @@ const prose = (): string => {
   return out.join('\n')
 }
 
-/** What the scenario schema says about a slot length, in this scene's geometry. */
-function schemaIssues(slotRstu: number): string[] {
-  const parsed = ScenarioSchema.safeParse(uwbBlocksScenario(slotRstu))
+/** What the scenario schema says about this scene, optionally with extra tags in it. */
+function schemaIssues(slotRstu: number, extraTags = 0): string[] {
+  const base = uwbBlocksScenario(slotRstu)
+  const nodes = [
+    ...base.nodes,
+    ...Array.from({ length: extraTags }, (_, i) => uwbTag(`uwb-${TAGS.length + i + 1}`, `Phone ${TAGS.length + i + 1}`, 5, 4, 1.0)),
+  ]
+  const parsed = ScenarioSchema.safeParse({ ...base, nodes })
   return parsed.success ? [] : parsed.error.issues.map((i) => i.message)
 }
 
@@ -165,7 +173,7 @@ describe('uwb-blocks · lesson shape', () => {
       expect(en, s).toContain(s)
     }
     for (const s of ['2 ms slot', '200 ms block', 'FiRa']) expect(en, s).toContain(s)
-    // "the RSTU itself at 416 chips, which is 833.333 ns at 499.2 Mchip/s"
+    // "fix the RSTU at 416 chips, which is 833.333 ns at 499.2 Mchip/s"
     expect(en).toContain('416 chips, which is 833.333 ns at 499.2 Mchip/s')
     expect(RSTU_CHIPS).toBe(416)
     expect((RSTU_CHIPS * 1000 / 499.2).toFixed(3)).toBe('833.333')
@@ -247,9 +255,9 @@ describe('uwb-blocks · the grid', () => {
   })
 
   it('ten rounds fit the block, three are used, and rounds 3 to 9 never open', () => {
-    // "Ten rounds fit inside the block, and this scene holds three tags, so rounds 0, 1 and 2
+    // "Ten rounds fit inside the block and this scene holds three tags, so rounds 0, 1 and 2
     //  belong to uwb-1, uwb-2 and uwb-3 while rounds 3 to 9 — 140 ms of every block — stay
-    //  empty." / "Rounds 3 to 9 never open at all."
+    //  empty." / "Rounds 3 to 9 never open."
     expect(PLAN.roundsPerBlock).toBe(10)
     expect(TAGS.length).toBe(3)
     expect((PLAN.roundsPerBlock - TAGS.length) * PLAN.roundNs).toBe(140 * MS)
@@ -259,7 +267,7 @@ describe('uwb-blocks · the grid', () => {
     expect(rounds.filter((r) => r.block === 1).map((r) => `${r.node}/r${r.round}@${r.t / MS}`))
       .toEqual(['uwb-1/r0@200', 'uwb-2/r1@220', 'uwb-3/r2@240'])
     expect(new Set(rounds.map((r) => r.round))).toEqual(new Set([0, 1, 2]))
-    // "uwb-1 again at 200 ms, uwb-2 at 220, uwb-3 at 240"
+    // "then the block repeats: uwb-1 at 200 ms, uwb-2 at 220, uwb-3 at 240"
     expect(rounds.map((r) => r.t).slice(0, 6)).toEqual([0, 20, 40, 200, 220, 240].map((ms) => ms * MS))
     // "The round line reads “uwb-1 UWB round 0 of block 0 (DS-TWR): 10 slots × 2000.0 µs”"
     expect(fmtRecord(rounds[0])).toBe('uwb-1 UWB round 0 of block 0 (DS-TWR): 10 slots × 2000.0 µs')
@@ -269,13 +277,32 @@ describe('uwb-blocks · the grid', () => {
     expect(ofType(recs(), 'UWB_TIMEOUT')).toHaveLength(0)
   })
 
+  it('a fourth tag costs nothing but round 3, and the block breaks at the eleventh', () => {
+    // "A fourth tag would cost nothing but round 3; the block breaks only at the eleventh."
+    // The schema is the oracle, as it is for the slot lengths further down.
+    expect(schemaIssues(2400, 1)).toEqual([])
+    expect(schemaIssues(2400, PLAN.roundsPerBlock - TAGS.length)).toEqual([])
+    expect(schemaIssues(2400, PLAN.roundsPerBlock - TAGS.length + 1))
+      .toEqual([`the UWB block fits ${PLAN.roundsPerBlock} tags at ${PLAN.slots} slots each (found 11); `
+        + 'lengthen blockRstu or shorten slotRstu'])
+    // ten tags is the ceiling and it is the round count, not the anchor count, that sets it
+    expect(TAGS.length + (PLAN.roundsPerBlock - TAGS.length)).toBe(10)
+  })
+
   it('each phone gets one fix per block — five a second — and each is 2 cm out or better', () => {
-    // "Each phone therefore gets exactly one fix per block, five a second" /
-    // "uwb-1 at (5.01, 3.99) m at 20 ms with a GDOP of 1.06, uwb-2 at (3.01, 2.52) m at 40 ms
-    //  with 1.08, uwb-3 at (7.50, 6.01) m at 60 ms with 1.06"
+    // "Each phone gets exactly one fix per block, five a second, whatever the other two do." /
+    // "uwb-1 at (5.01, 3.99) m at 20 ms, GDOP 1.06; uwb-2 at (3.01, 2.52) m at 40 ms, 1.08;
+    //  uwb-3 at (7.50, 6.01) m at 60 ms, 1.06"
     expect(1000 / (PLAN.blockNs / MS)).toBe(5)
     const fixes = ofType(recs(), 'UWB_POSITION')
-    for (const tag of TAGS) expect(fixes.filter((f) => f.node === tag && f.block === 0)).toHaveLength(1)
+    // "once per block": every block the run covers, not only the first
+    for (const block of [0, 1]) {
+      for (const tag of TAGS) {
+        expect(fixes.filter((f) => f.node === tag && f.block === block), `${tag} b${block}`).toHaveLength(1)
+      }
+    }
+    expect(fixes.filter((f) => f.block === 1).map((f) => `${f.node}@${f.t / MS}`))
+      .toEqual(['uwb-1@220', 'uwb-2@240', 'uwb-3@260'])
     expect(fixes.filter((f) => f.block === 0).map((f) => `${f.node}@${f.t / MS}`))
       .toEqual(['uwb-1@20', 'uwb-2@40', 'uwb-3@60'])
     expect(fixes.filter((f) => f.block === 0).map((f) => fmtRecord(f))).toEqual([
@@ -336,11 +363,22 @@ describe('uwb-blocks · the grid', () => {
 
 describe('uwb-blocks · what the radio costs', () => {
   it('the schedule share is 10 % for a tag and 30 % for an anchor', () => {
-    // "a tag owns one round of ten, 20 ms of 200 ms, 10 %, while the anchors serve every round
-    //  that has a tag in it — three of them, 60 ms, 30 %"
+    // "a tag owns one round of ten, 20 ms of 200 ms, 10 %, and the anchors serve every round
+    //  that has a tag — three of them, 60 ms, 30 %"
     expect((PLAN.roundNs / PLAN.blockNs * 100).toFixed(0)).toBe('10')
     expect(TAGS.length * PLAN.roundNs).toBe(60 * MS)
     expect((TAGS.length * PLAN.roundNs / PLAN.blockNs * 100).toFixed(0)).toBe('30')
+  })
+
+  it('the two shares differ tenfold and more: 10.3× on the tag, 24.5× on the anchor', () => {
+    // "Two different shares of the block both get called a duty cycle, and here they differ
+    //  tenfold and more." — "and more" is the anchor's row, which is the larger ratio of the two
+    const tagRatio = PLAN.roundNs / radioOnNs(recs(), 'uwb-1', PLAN.blockNs)
+    const ancRatio = TAGS.length * PLAN.roundNs / radioOnNs(recs(), 'anchor-1', PLAN.blockNs)
+    expect(tagRatio.toFixed(1)).toBe('10.3')
+    expect(ancRatio.toFixed(1)).toBe('24.5')
+    for (const r of [tagRatio, ancRatio]) expect(r).toBeGreaterThanOrEqual(10)
+    expect(ancRatio).toBeGreaterThan(tagRatio)
   })
 
   it('the radio share of the block is 0.97 % for the tag and 1.22 % for the anchor', () => {
@@ -378,10 +416,10 @@ describe('uwb-blocks · what the radio costs', () => {
     expect(radioOnNs(recs(), 'uwb-1', PLAN.blockNs)).toBe(airtime + 8 * 13)
   })
 
-  it('the anchor wakes four times in a ten-slot round: 816 180 ns, three rounds over', () => {
-    // "it hears the Poll, transmits its Response, hears the Final, transmits its Report — four
-    //  wake-ups in ten slots, 816 180 ns — and is deaf through the other anchors’ slots
-    //  entirely. Three rounds of that make 2 448 546 ns."
+  it('the anchor wakes four times in a ten-slot round: 816 180 ns in the first, 2 448 546 over three', () => {
+    // "it hears the Poll, sends its Response, hears the Final, sends its Report — four wake-ups
+    //  in ten slots, 816 180 ns in the first — and is deaf through the other anchors’ slots.
+    //  Three rounds, differing by nanoseconds of flight, make 2 448 546 ns."
     expect(radioOnNs(recs(), 'anchor-1', PLAN.roundNs)).toBe(816_180)
     // four wake-ups: each is an idle → (uwbWait | tx) transition inside the round
     const states = ofType(recs(), 'MAC_STATE').filter((r) => r.node === 'anchor-1' && r.t < PLAN.roundNs)
@@ -394,9 +432,16 @@ describe('uwb-blocks · what the radio costs', () => {
     // deaf in slots 1–4 except its own, and in slots 6–9 except its own: it never leaves idle there
     expect(states.filter((r) => r.state !== 'idle').map((r) => Math.floor(r.t / PLAN.slotNs)))
       .toEqual([0, 0, 1, 5, 5, 6])
+    // the three rounds are not equal: the flight to each tag rounds differently, so the total is
+    // the measured sum and not three times the first round. The prose says exactly that.
+    const perRound = [0, 1, 2].map((k) =>
+      radioOnNs(recs(), 'anchor-1', (k + 1) * PLAN.roundNs, k * PLAN.roundNs))
+    expect(perRound).toEqual([816_180, 816_194, 816_172])
+    expect(perRound.reduce((a, b) => a + b, 0)).toBe(2_448_546)
     expect(radioOnNs(recs(), 'anchor-1', PLAN.blockNs)).toBe(2_448_546)
-    expect(3 * 816_180).toBeLessThan(2_448_546)
-    expect(2_448_546 - 3 * 816_180).toBeLessThan(200)
+    // "differing by nanoseconds of flight": tens of ns apart, never microseconds
+    expect(Math.max(...perRound) - Math.min(...perRound)).toBeLessThan(100)
+    expect(perRound.some((v) => v !== perRound[0])).toBe(true)
   })
 })
 
@@ -418,9 +463,9 @@ describe('uwb-blocks · the slot-fit rule', () => {
   })
 
   it('the schema refuses 282 twice, refuses 285 on the floor alone, and takes 300', () => {
-    // "282 RSTU (235.0 µs) is refused twice over, once by the floor and once by the fit rule,
-    //  while 285 RSTU (237.5 µs) clears the fit rule by 697 ns and is still refused by the
-    //  floor. The shortest slot this scene accepts is 300 RSTU, 250.0 µs."
+    // "282 RSTU (235.0 µs) is refused twice, by the floor and by the fit rule, while 285 RSTU
+    //  (237.5 µs) clears the fit rule by 697 ns and is still refused by the floor. The shortest
+    //  slot this scene accepts is 300 RSTU, 250.0 µs."
     const floor = 'Number must be greater than or equal to 300'
     expect(rstuNs(282)).toBe(235_000)
     expect(rstuNs(285)).toBe(237_500)
@@ -438,8 +483,8 @@ describe('uwb-blocks · the slot-fit rule', () => {
     expect(285 % 3).toBe(0)
     expect(285 / 3).toBe(95)
     expect(282 % 3).toBe(0)
-    // "The fit rule only becomes the binding one once the Final grows: at six anchors it asks
-    //  for 267 572 ns, which is 324 RSTU and past the floor."
+    // "The fit rule only binds once the Final grows: at six anchors it asks 267 572 ns, which is
+    //  324 RSTU, past the floor."
     expect(uwbSlotFitNs(6)).toBe(267_572)
     expect(rstuNs(324)).toBeGreaterThanOrEqual(uwbSlotFitNs(6))
     expect(rstuNs(321)).toBeLessThan(uwbSlotFitNs(6))
@@ -448,10 +493,13 @@ describe('uwb-blocks · the slot-fit rule', () => {
   })
 
   it('a 2 ms slot leaves the Final on 11.8 % of it, and 20 ppm over a block is 4 µs', () => {
-    // "it leaves the Final occupying 11.8 % of its own slot" / "20 ppm across 200 ms is 4 µs
-    //  each way"
+    // "it leaves the Final on 11.8 % of its own slot" / "schedule drift — here a slot boundary
+    //  is exact, but 20 ppm across 200 ms is 4 µs each way"
     expect((uwbPpduNs(uwbFinalBytes(ANCHORS)) / PLAN.slotNs * 100).toFixed(1)).toBe('11.8')
     expect((PLAN.blockNs * 20e-6 / 1000).toFixed(0)).toBe('4')
+    // "here a slot boundary is exact": the schedule is laid out in true time, so a slot start
+    // never drifts, whatever each device's own crystal does (which the model does draw)
+    for (const r of ofType(recs(), 'TX_START')) expect(r.t % PLAN.slotNs, `${r.node}@${r.t}`).toBe(0)
   })
 })
 
@@ -472,18 +520,22 @@ describe('uwb-blocks · the 0.5 ms variant', () => {
     expect(ofType(recs(0), 'UWB_TIMEOUT')).toHaveLength(0)
     expect(fmtRecord(ofType(recs(0), 'UWB_ROUND')[0]))
       .toBe('uwb-1 UWB round 0 of block 0 (DS-TWR): 10 slots × 500.0 µs')
-    // "the coloured spans are the same ten frames four times closer together"
+    // "the same ten frames, closer together" / "the same ten frames, four times closer together"
     expect(ofType(recs(0), 'TX_START').filter((r) => r.t < vplan.roundNs).map((r) => `${r.node}/${r.frame.kind}`))
       .toEqual(ofType(recs(), 'TX_START').filter((r) => r.t < PLAN.roundNs).map((r) => `${r.node}/${r.frame.kind}`))
     expect(PLAN.slotNs / vplan.slotNs).toBe(4)
   })
 
-  it('the radio-on total does not move at all: 1 934 334 ns, 0.97 %, on both scenes', () => {
-    // "The radio-on total does not move at all — 1 934 334 ns, 0.97 % of the block, to the
-    //  nanosecond — because no frame changed length." / "each tag’s radio-on is still 1 934 334 ns"
+  it('the radio-on total does not move: 1 934 334 ns, 0.97 %, on both scenes', () => {
+    // "The radio-on total does not move — 1 934 334 ns, 0.97 % of the block, to the nanosecond —
+    //  because no frame changed length." / "each tag’s radio-on still 1 934 334 ns"
     expect(radioOnNs(recs(0), 'uwb-1', PLAN.blockNs)).toBe(1_934_334)
-    expect(radioOnNs(recs(0), 'uwb-1', PLAN.blockNs)).toBe(radioOnNs(recs(), 'uwb-1', PLAN.blockNs))
     expect((radioOnNs(recs(0), 'uwb-1', PLAN.blockNs) / PLAN.blockNs * 100).toFixed(2)).toBe('0.97')
+    // "each tag's": all three, and each identical to its own figure in the base run
+    for (const t of TAGS) {
+      expect(radioOnNs(recs(0), t, PLAN.blockNs), t).toBe(radioOnNs(recs(), t, PLAN.blockNs))
+      expect(Math.abs(radioOnNs(recs(0), t, PLAN.blockNs) - 1_934_334), t).toBeLessThan(100)
+    }
     // the round's own share of the block is what moved: 10 % to 2.5 %
     const vplan = roundPlan(scenarioOf(0).uwb!, ANCHORS)
     expect((vplan.roundNs / vplan.blockNs * 100).toFixed(1)).toBe('2.5')
@@ -502,5 +554,17 @@ describe('uwb-blocks · the 0.5 ms variant', () => {
     expect(three.roundNs).toBe(16 * MS)
     expect(three.roundsPerBlock).toBe(12)
     expect(uwbFinalBytes(ANCHORS) - uwbFinalBytes(ANCHORS - 1)).toBe(12)
+  })
+
+  it('typing 285 into the editor’s slot field really does snap to 300', () => {
+    // "Then type 285 into the slot field and leave it: it snaps to 300, the floor under every
+    //  slot." The field is an RstuInput with lo = 300 that clamps on blur and rounds to a whole
+    //  3-RSTU unit (src/uwb/ui/UwbSessionFields.tsx), so this is that pair of steps.
+    const to3 = (rstu: number): number => Math.max(3, Math.round(rstu / 3) * 3)
+    expect(to3(clampField('285', 300, 60_000, true))).toBe(300)
+    expect(to3(clampField('282', 300, 60_000, true))).toBe(300)
+    // and 300 is exactly the floor the schema refuses to go under
+    expect(schemaIssues(300)).toEqual([])
+    expect(schemaIssues(297)).toContain('Number must be greater than or equal to 300')
   })
 })
