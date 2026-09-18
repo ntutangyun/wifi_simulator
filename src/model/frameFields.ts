@@ -19,6 +19,7 @@ import {
   ACK_BYTES, AMPDU_DELIMITER_BYTES, BA_BYTES, CF_END_BYTES, CTS_BYTES, FCS_BYTES, MAC_HDR_BYTES,
   PHY_MODES, QOS_HDR_BYTES, RTS_BYTES, multiStaBaBytes, triggerBytes,
 } from '../engine/phy'
+import { UWB_FCS_BYTES, UWB_MHR_BYTES } from '../uwb/phy'
 import type { FrameDesc, FrameKind } from './frames'
 import type { Ns } from './types'
 
@@ -32,6 +33,7 @@ export type FieldKey =
   | 'fc' | 'duration' | 'addr1' | 'addr2' | 'addr3' | 'seqCtl' | 'qos'
   | 'body' | 'baControl' | 'baInfo' | 'commonInfo' | 'userInfo' | 'fcs'
   | 'ampId' | 'ampTdc' | 'ampStaList'
+  | 'mhr' | 'psdu'
 
 export interface FrameField {
   key: FieldKey
@@ -107,6 +109,7 @@ const SUBTYPE: Record<Exclude<FrameKind, 'data'>, string> = {
   ack: 'Ack', cts: 'CTS', rts: 'RTS', ba: 'Block Ack', mba: 'Block Ack (Multi-STA)',
   trigger: 'Trigger', cfend: 'CF-End',
   ampTrigger: 'AMP Trigger', ampAck: 'AMP Ack', ampResp: 'AMP Response',
+  uwbPoll: 'UWB Poll', uwbResp: 'UWB Response', uwbFinal: 'UWB Final', uwbReport: 'UWB Report',
 }
 const SUBTYPE_BITS: Record<string, string> = {
   Ack: '1101', CTS: '1100', RTS: '1011', 'Block Ack': '1001', 'Block Ack (Multi-STA)': '1001',
@@ -272,6 +275,19 @@ function controlMpdu(f: FrameDesc, apId: string): Mpdu {
       ]
       checkSize(fields, AMP_ACK_BYTES)
       break
+    case 'uwbPoll':
+    case 'uwbResp':
+    case 'uwbFinal':
+    case 'uwbReport':
+      // Placeholder decode until the UWB frame view (task 7) breaks the IEs out
+      // field by field: MHR, the payload IEs as one block, FCS.
+      fields = [
+        { key: 'mhr', bytes: UWB_MHR_BYTES, value: `${f.src} → ${dst === '*' ? 'broadcast' : dst}` },
+        { key: 'psdu', bytes: f.bytes - UWB_MHR_BYTES - UWB_FCS_BYTES, value: f.uwb?.ies.join(' + ') ?? 'ranging IEs' },
+        { key: 'fcs', bytes: UWB_FCS_BYTES, value: 'CRC-16' },
+      ]
+      checkSize(fields, f.bytes)
+      break
     case 'ampResp': {
       const a = f.amp!
       fields = [
@@ -345,6 +361,8 @@ function ampPpduLayout(f: FrameDesc): PpduSegment[] {
 /** Preamble, PHY header and data symbols of the PPDU; durations sum to frame.txTimeNs. */
 export function ppduLayout(f: FrameDesc): PpduSegment[] {
   if (f.amp) return ampPpduLayout(f)
+  // Placeholder until task 7 splits the SP1 PPDU into SHR / STS / PHR / PSDU.
+  if (f.uwb) return [{ key: 'data', durNs: f.txTimeNs }]
   const mode = f.mode ?? 'nonht'
   const m = PHY_MODES[mode]
   const segs: PpduSegment[] = []

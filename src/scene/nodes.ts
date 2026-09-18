@@ -29,6 +29,7 @@ export function haloColor(state: MacStateName, navActive: boolean): number {
     case 'waitCts':
     case 'sifsResp': return 0x06b6d4
     case 'ampWait': return 0x0d9488
+    case 'uwbWait': return 0xf472b6
   }
 }
 

@@ -39,6 +39,10 @@ export function frameColor(frame: FrameDesc, apId: string): number {
     case 'ampTrigger':
     case 'ampAck': return 0x2dd4bf
     case 'ampResp': return 0xa78bfa
+    case 'uwbPoll':
+    case 'uwbResp':
+    case 'uwbFinal':
+    case 'uwbReport': return 0xf472b6
   }
 }
 

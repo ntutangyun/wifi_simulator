@@ -125,6 +125,8 @@ export interface NodeCfg {
   ampAp?: AmpApCfg
   /** `kind: 'amp'` only: an ambient-power tag's identity and downlink sensitivity. */
   ampTag?: AmpTagCfg
+  /** `kind: 'uwb'` only: the ranging role this device plays and its clock error. */
+  uwb?: UwbNodeCfg
 }
 
 /**
@@ -150,6 +152,45 @@ export const DEFAULT_AMP_AP: AmpApCfg = {
 export interface AmpTagCfg {
   id16?: number
   dlSensDbm?: number
+}
+
+/**
+ * A UWB device's role in a ranging session: an anchor sits at a known place
+ * and answers, a tag ranges to every anchor and solves its own position.
+ */
+export interface UwbNodeCfg {
+  role: 'anchor' | 'tag'
+  /** Crystal offset of this device's ranging clock, in ppm (standard §16.4.9 allows ±20). */
+  ppm?: number
+}
+
+/**
+ * One ranging session (standard §6.9.7): the block/slot structure every tag
+ * shares, the TWR method, the channel, and the two noise knobs the engine
+ * draws its timestamp and clock errors from.
+ */
+export interface UwbSessionCfg {
+  method: 'ss' | 'ds'
+  /** Ranging block duration in RSTU (standard §6.9.7.1). */
+  blockRstu: number
+  /** Ranging slot duration in RSTU; a whole number of 3-RSTU units (standard §6.9.7.2). */
+  slotRstu: number
+  channel: 5 | 9
+  /** 1-σ receive-timestamp noise in picoseconds. */
+  tsNoisePs: number
+  /** 1-σ residual carrier-frequency-offset error in ppm. */
+  cfoNoisePpm: number
+  /** Add the extra NLOS delay of each wall crossed to the time of flight. */
+  nlos: boolean
+}
+
+export const DEFAULT_UWB_SESSION: UwbSessionCfg = {
+  method: 'ds', blockRstu: 240_000, slotRstu: 2400, channel: 9, tsNoisePs: 100, cfoNoisePpm: 0.2, nlos: true,
+}
+
+/** Ranging slots one tag needs per round: poll + one response each (SS), plus final + one report each (DS). */
+export function uwbSlotsPerTag(method: 'ss' | 'ds', anchors: number): number {
+  return method === 'ss' ? anchors + 1 : 2 * anchors + 2
 }
 
 /** What kind of endpoint a stream talks to beyond the AP. */
@@ -215,6 +256,8 @@ export interface Scenario {
   snapshotIntervalMs: number
   /** MAC transmit queues: MSDUs per access category and MSDU lifetime. Absent = 500 MSDUs, 500 ms. */
   queue?: { limit: number; lifetimeMs: number }
+  /** UWB ranging session; required as soon as the scenario holds a `uwb` node. */
+  uwb?: UwbSessionCfg
 }
 
 const OpeningSchema = z.object({ from: z.number().min(0), to: z.number().min(0) })
@@ -253,7 +296,7 @@ const NodeCfgSchema = z.preprocess(
   migrateLegacyProfile,
   z.object({
     id: z.string().min(1),
-    kind: z.enum(['ap', 'sta', 'amp']),
+    kind: z.enum(['ap', 'sta', 'amp', 'uwb']),
     name: z.string(),
     pos: Vec3Schema,
     txPowerDbm: z.number(),
@@ -291,6 +334,10 @@ const NodeCfgSchema = z.preprocess(
       id16: z.number().int().min(1).max(0xfffe).optional(),
       dlSensDbm: z.number().optional(),
     }).optional(),
+    uwb: z.object({
+      role: z.enum(['anchor', 'tag']),
+      ppm: z.number().min(-100).max(100).optional(),
+    }).optional(),
   }).superRefine((n, ctx) => {
     if (n.linkId === '2g' && n.caps.generation === 'vht') {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Wi-Fi 5 (VHT) has no 2.4 GHz mode; pick 802.11g, Wi-Fi 6 or Wi-Fi 7 for the 2.4 GHz link' })
@@ -306,6 +353,12 @@ const NodeCfgSchema = z.preprocess(
     }
     if (n.ampTag && n.kind !== 'amp') {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'only an AMP tag node carries AMP tag settings' })
+    }
+    if (n.kind === 'uwb' && !n.uwb) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'a UWB node needs UWB settings (role anchor or tag)' })
+    }
+    if (n.uwb && n.kind !== 'uwb') {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'only a UWB node carries UWB settings' })
     }
   }),
 )
@@ -330,11 +383,46 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
     rtsThresholdBytes: z.number().int().min(0),
     snapshotIntervalMs: z.number().int().positive(),
     queue: z.object({ limit: z.number().int().positive(), lifetimeMs: z.number().positive() }).optional(),
+    uwb: z.object({
+      method: z.enum(['ss', 'ds']),
+      blockRstu: z.number().int().positive().refine((v) => v % 3 === 0, 'block must be a multiple of 3 RSTU'),
+      slotRstu: z.number().int().min(300).refine((v) => v % 3 === 0, 'slot must be a multiple of 3 RSTU'),
+      channel: z.union([z.literal(5), z.literal(9)]),
+      tsNoisePs: z.number().min(0),
+      cfoNoisePpm: z.number().min(0),
+      nlos: z.boolean(),
+    }).optional(),
   })
   .superRefine((sc, ctx) => {
+    // Wi-Fi needs its one AP; a scenario that is nothing but UWB nodes has no
+    // BSS at all and must not be forced to invent one.
     const aps = sc.nodes.filter((n) => n.kind === 'ap')
-    if (aps.length !== 1) {
+    const wifi = sc.nodes.filter((n) => n.kind === 'sta' || n.kind === 'amp')
+    if ((wifi.length > 0 || aps.length > 1) && aps.length !== 1) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: `scenario must have exactly one AP (found ${aps.length})` })
+    }
+    const uwbNodes = sc.nodes.filter((n) => n.kind === 'uwb')
+    if (uwbNodes.length > 0) {
+      if (!sc.uwb) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'a scenario with UWB nodes needs a UWB session (scenario.uwb)' })
+      } else {
+        const anchors = uwbNodes.filter((n) => n.uwb?.role === 'anchor').length
+        const tags = uwbNodes.filter((n) => n.uwb?.role === 'tag').length
+        if (anchors < 1 || tags < 1) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, message: `a UWB session needs at least one anchor and one tag (found ${anchors} and ${tags})` })
+        } else {
+          // Every tag gets its own slots inside the block; the block cannot be
+          // oversubscribed or two tags would range in the same slot.
+          const slots = uwbSlotsPerTag(sc.uwb.method, anchors)
+          const fits = Math.floor(sc.uwb.blockRstu / (slots * sc.uwb.slotRstu))
+          if (tags > fits) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: `the UWB block fits ${fits} tags at ${slots} slots each (found ${tags}); lengthen blockRstu or shorten slotRstu`,
+            })
+          }
+        }
+      }
     }
     const ids = new Set<string>()
     for (const n of sc.nodes) {

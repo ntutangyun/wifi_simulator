@@ -4,8 +4,10 @@
  * player from (snapshot ≤ t) + record replay — the reducer is the single
  * source of truth for both, which guarantees snapshot/replay equivalence.
  */
-import { hasFeature, linkPlanFor, physicalId, virtualId, LINK_ORDER } from './caps'
+import { initUwbNodeView, applyUwbRecord, type UwbNodeView } from '../uwb/view'
+import { hasFeature, physicalId, virtualId, LINK_ORDER } from './caps'
 import type { FrameDesc } from './frames'
+import { laneIds } from './lanes'
 import type { MacStateName, TLRecord } from './records'
 import type { Scenario } from './scenario'
 import type { Ns } from './types'
@@ -131,6 +133,8 @@ export interface NodeView {
   amp?: AmpTagView
   /** AMP AP lanes only: the round in progress, or null between rounds. */
   ampRound?: AmpRoundView | null
+  /** UWB lanes only: this anchor's or tag's live ranging state. */
+  uwb?: UwbNodeView
 }
 
 export interface FlightView {
@@ -171,10 +175,9 @@ export interface Snapshot {
 
 export function initViewState(sc: Scenario): ViewState {
   const nodes: Record<string, NodeView> = {}
-  const plan = linkPlanFor(sc.nodes)
-  for (const vid of plan.virtualIds) {
+  for (const vid of laneIds(sc.nodes)) {
     const cfg = sc.nodes.find((n) => n.id === physicalId(vid))!
-    const edca = hasFeature(cfg, 'edca')
+    const edca = cfg.kind !== 'uwb' && hasFeature(cfg, 'edca')
     nodes[vid] = {
       state: 'idle', ccaBusy: false, backoff: null, cw: 15, qsrc: 0, droppedIds: [],
       navUntilNs: 0, ifs: null, queue: [], currentTx: null, currentRx: null, rxSeen: {},
@@ -191,6 +194,9 @@ export function initViewState(sc: Scenario): ViewState {
     }
     if (cfg.kind === 'ap') {
       nodes[vid].ampRound = null
+    }
+    if (cfg.kind === 'uwb') {
+      nodes[vid].uwb = initUwbNodeView(cfg.uwb!)
     }
   }
   const servers: Record<string, ServerView> = {}
@@ -291,6 +297,11 @@ export function cloneView(vs: ViewState): ViewState {
 export function applyRecord(vs: ViewState, r: TLRecord): void {
   vs.t = r.t
   if (vs.wan.length && vs.wan[0].endNs <= r.t) vs.wan = vs.wan.filter((f) => f.endNs > r.t)
+  // The UWB records belong to the ranging reducer; nothing below knows them.
+  if (r.type.startsWith('UWB_')) {
+    applyUwbRecord(vs, r)
+    return
+  }
   switch (r.type) {
     case 'ARRIVAL':
       break

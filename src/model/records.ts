@@ -1,8 +1,9 @@
+import type { UwbRecord } from '../uwb/records'
 import type { FrameDesc } from './frames'
 import type { Ns } from './types'
 
 export type MacStateName =
-  | 'idle' | 'defer' | 'backoff' | 'tx' | 'waitAck' | 'waitCts' | 'sifsResp' | 'rx' | 'ampWait'
+  | 'idle' | 'defer' | 'backoff' | 'tx' | 'waitAck' | 'waitCts' | 'sifsResp' | 'rx' | 'ampWait' | 'uwbWait'
 
 /** One observable micro-event. The timeline is the append-only sequence of these. */
 /** 'undetected' marks a preamble missed under interference (RX_MISS); it never appears on RX_FAIL. */
@@ -51,6 +52,8 @@ export type TLRecord = { t: Ns; seq: number } & (
   | { type: 'AMP_ABOC'; node: string; aboc: number; acw: number; slot: number | null }
   /** A tag's attempt in its chosen slot resolved. */
   | { type: 'AMP_RESULT'; node: string; slot: number; sent: boolean; acked: boolean }
+  /** UWB ranging (src/uwb/records.ts): rounds, slots, timestamps, ranges, fixes, timeouts. */
+  | UwbRecord
 )
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never

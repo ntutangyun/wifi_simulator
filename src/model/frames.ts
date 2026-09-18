@@ -1,7 +1,11 @@
 import { AMPDU_DELIMITER_BYTES, FCS_BYTES, MAC_HDR_BYTES, QOS_HDR_BYTES, type PhyMode } from '../engine/phy'
+import type { UwbInfo } from '../uwb/frames'
 import type { Ns } from './types'
 
-export type FrameKind = 'data' | 'ack' | 'rts' | 'cts' | 'ba' | 'trigger' | 'mba' | 'cfend' | 'ampTrigger' | 'ampAck' | 'ampResp'
+export type FrameKind =
+  | 'data' | 'ack' | 'rts' | 'cts' | 'ba' | 'trigger' | 'mba' | 'cfend'
+  | 'ampTrigger' | 'ampAck' | 'ampResp'
+  | 'uwbPoll' | 'uwbResp' | 'uwbFinal' | 'uwbReport'
 
 /** P802.11bp fields of an AMP frame; present on the three AMP kinds only. */
 export interface AmpInfo {
@@ -89,6 +93,8 @@ export interface FrameDesc {
   muKind?: 'ofdma' | 'mumimo'
   /** P802.11bp Ambient Power fields; present on the three AMP frame kinds only. */
   amp?: AmpInfo
+  /** HRP UWB ranging fields; present on the four UWB frame kinds only. */
+  uwb?: UwbInfo
 }
 
 export function dataPsduBytes(msduBytes: number): number {

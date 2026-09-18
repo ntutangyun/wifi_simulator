@@ -72,6 +72,12 @@ export function fmtRecord(r: TLRecord): string {
     case 'AMP_SLOT': return `${r.node} AMP slot ${r.slot} until ${fmtNs(r.untilNs)}`
     case 'AMP_ABOC': return `${r.node} ABOC ${r.aboc} of [0, ${r.acw}] → ${r.slot === null ? 'sits out' : `slot ${r.slot}`}`
     case 'AMP_RESULT': return `${r.node} slot ${r.slot}: ${!r.sent ? 'missed its cue' : r.acked ? 'acknowledged' : 'not acknowledged'}`
+    case 'UWB_ROUND': return `${r.node} UWB block ${r.block} round ${r.round} (${r.method.toUpperCase()}-TWR): ${r.slots} slots × ${fmtUs(r.slotNs)} until ${fmtNs(r.untilNs)}`
+    case 'UWB_SLOT': return `${r.node} UWB slot ${r.slot} until ${fmtNs(r.untilNs)}`
+    case 'UWB_TS': return `${r.node} ${r.dir === 'tx' ? '→' : '⇠'} ${r.peer} ${r.frameKind} RMARKER @ ${r.counter} RCTU`
+    case 'UWB_RANGE': return `${r.node} ↔ ${r.peer}: ${r.distM.toFixed(2)} m (true ${r.trueDistM.toFixed(2)} m, ${r.tofRctu} RCTU, ${r.method.toUpperCase()}-TWR)`
+    case 'UWB_POSITION': return `${r.node} fix (${r.x.toFixed(2)}, ${r.y.toFixed(2)}) m from ${r.anchors.length} anchors, GDOP ${r.gdop.toFixed(2)} (true ${r.trueX.toFixed(2)}, ${r.trueY.toFixed(2)})`
+    case 'UWB_TIMEOUT': return `${r.node} UWB slot ${r.slot}: no ${r.expected} from ${r.peer}`
   }
 }
 

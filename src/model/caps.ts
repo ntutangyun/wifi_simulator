@@ -89,6 +89,9 @@ export function minGen(a: Generation, b: Generation): Generation {
 
 /** Links a node operates on. The AP's links are decided by linkPlanFor (every link a station uses). */
 export function nodeLinks(n: NodeCfg, apMlo: boolean): LinkId[] {
+  // A UWB node has no Wi-Fi radio at all: it holds a timeline lane of its own
+  // (see model/lanes.ts) and never appears on a Wi-Fi link.
+  if (n.kind === 'uwb') return []
   if (n.kind === 'amp') return ['2g']
   if (hasFeature(n, 'mlo') && (n.kind === 'ap' || apMlo)) return ['5g', '6g']
   const g = n.caps.generation
@@ -120,6 +123,11 @@ export interface LinkPlan {
   virtualIds: string[]
 }
 
+/**
+ * The Wi-Fi side of a scenario. UWB nodes are ignored everywhere, so a
+ * UWB-only scenario yields an empty plan (no AP, no links, no lanes) rather
+ * than a phantom 5 GHz link or a throw.
+ */
 export function linkPlanFor(nodes: NodeCfg[]): LinkPlan {
   const ap = nodes.find((n) => n.kind === 'ap')
   const apMlo = ap ? hasFeature(ap, 'mlo') : false
@@ -132,7 +140,7 @@ export function linkPlanFor(nodes: NodeCfg[]): LinkPlan {
   const used = new Set<LinkId>()
   if (apMlo) { used.add('5g'); used.add('6g') }
   for (const n of nodes) {
-    if (n.kind === 'ap') continue
+    if (n.kind === 'ap' || n.kind === 'uwb') continue
     const ls = nodeLinks(n, apMlo)
     staLinks.set(n.id, ls)
     for (const l of ls) used.add(l)
@@ -142,6 +150,7 @@ export function linkPlanFor(nodes: NodeCfg[]): LinkPlan {
   const members: Record<LinkId, string[]> = { '2g': [], '5g': [], '6g': [] }
   const virtualIds: string[] = []
   for (const n of nodes) {
+    if (n.kind === 'uwb') continue
     for (const l of n.kind === 'ap' ? apLinks : staLinks.get(n.id)!) {
       members[l].push(n.id)
       virtualIds.push(virtualId(n.id, l))
