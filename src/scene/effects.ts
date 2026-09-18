@@ -59,16 +59,19 @@ export class EffectsLayer {
     this.apId = sc.nodes.find((n) => n.kind === 'ap')!.id
     for (const n of sc.nodes) this.positions.set(n.id, { x: n.pos.x, y: n.pos.z, z: n.pos.y })
 
-    // faint association lines AP ↔ STA
+    // faint association lines AP ↔ STA / AMP tag (dashed, teal, for tags)
     const ap = this.positions.get(this.apId)!
     for (const n of sc.nodes) {
-      if (n.kind !== 'sta') continue
+      if (n.kind === 'ap') continue
       const p = this.positions.get(n.id)!
       const geo = new THREE.BufferGeometry().setFromPoints([
         new THREE.Vector3(ap.x, ap.y, ap.z),
         new THREE.Vector3(p.x, p.y, p.z),
       ])
-      const line = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0x64748b, transparent: true, opacity: 0.18 }))
+      const line = new THREE.Line(geo, n.kind === 'amp'
+        ? new THREE.LineDashedMaterial({ color: 0x2dd4bf, transparent: true, opacity: 0.12, dashSize: 0.15, gapSize: 0.1 })
+        : new THREE.LineBasicMaterial({ color: 0x64748b, transparent: true, opacity: 0.18 }))
+      if (n.kind === 'amp') line.computeLineDistances()
       this.group.add(line)
     }
 

@@ -55,7 +55,7 @@ function drawHatch(ctx: CanvasRenderingContext2D, x: number, y: number, w: numbe
 }
 
 const SPAN_COLORS: Record<LaneSpan['kind'], string> = {
-  tx: '#3b82f6', rx: '#8b5cf6', backoff: '#f59e0b', defer: '#6d5a1b', nav: '#9333ea', sifs: '#06b6d4',
+  tx: '#3b82f6', rx: '#8b5cf6', backoff: '#f59e0b', defer: '#6d5a1b', nav: '#9333ea', sifs: '#06b6d4', slot: '#115e59',
 }
 
 function txColor(s: LaneSpan, apId: string): string {
@@ -64,6 +64,8 @@ function txColor(s: LaneSpan, apId: string): string {
   if (s.frameKind === 'ba' || s.frameKind === 'mba') return '#d8b4fe'
   if (s.frameKind === 'trigger') return '#facc15'
   if (s.frameKind === 'cfend') return '#fb7185'
+  if (s.frameKind === 'ampTrigger' || s.frameKind === 'ampAck') return '#2dd4bf'
+  if (s.frameKind === 'ampResp') return '#a78bfa'
   return '#f97316' // rts/cts
 }
 
@@ -233,6 +235,23 @@ export function TimelineStrip() {
       ctx.lineTo(x, H)
       ctx.stroke()
       ctx.lineWidth = 1
+    }
+
+    // AMP slot ticks — a thin marker on the AP's lane at each slot boundary
+    for (const r of records) {
+      if (r.type !== 'AMP_SLOT' || r.t < a || r.t > b) continue
+      const i = nodeIds.indexOf(r.node)
+      if (i < 0) continue
+      const x = GUTTER + xForT(r.t, a, b, laneW)
+      const y = AXIS_H + i * laneH
+      ctx.strokeStyle = '#2dd4bf'
+      ctx.globalAlpha = 0.6
+      ctx.lineWidth = 1
+      ctx.beginPath()
+      ctx.moveTo(x, y)
+      ctx.lineTo(x, y + laneH)
+      ctx.stroke()
+      ctx.globalAlpha = 1
     }
 
     // time axis

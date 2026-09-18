@@ -109,6 +109,11 @@ export function buildNodeGroup(n: NodeCfg, lang: Lang = 'en'): THREE.Group {
       ant.position.set(dx, 0.2, 0)
       g.add(ant)
     }
+  } else if (n.kind === 'amp') {
+    body = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.12, 0.12, 0.02, 16),
+      new THREE.MeshStandardMaterial({ color: 0x2dd4bf, roughness: 0.5 }),
+    )
   } else {
     body = new THREE.Mesh(
       new THREE.BoxGeometry(0.16, 0.32, 0.08),

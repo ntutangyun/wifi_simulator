@@ -16,6 +16,7 @@ function StateBadge({ nv, t }: { nv: NodeView; t: number }) {
   const colors: Record<string, string> = {
     idle: '#555', defer: '#eab308', backoff: '#f59e0b', tx: '#3b82f6',
     rx: '#8b5cf6', waitAck: '#06b6d4', waitCts: '#06b6d4', sifsResp: '#06b6d4',
+    ampWait: '#0d9488',
   }
   return (
     <span style={{
@@ -38,7 +39,14 @@ function NodeSection({ vid, nv, t, L, nameOf, serverName }: { vid: string; nv: N
         <StateBadge nv={nv} t={t} />
       </div>
 
-      {nv.acs ? (
+      {nv.amp ? (
+        <>
+          <div style={row}><Lbl hint={L.abocHint}>{L.aboc}</Lbl><span>{nv.amp.aboc ?? '—'} / [0, {nv.amp.acw}]</span></div>
+          <div style={row}><Lbl hint={L.slotHint}>{L.slot}</Lbl><span>{nv.amp.slot ?? '—'}</span></div>
+          <div style={row}><Lbl hint={L.ampCountsHint}>{L.ampCounts}</Lbl><span>{nv.amp.sent} / {nv.amp.acked} / {nv.amp.lost}</span></div>
+          <div style={row}><span style={dim}>{L.satOut}</span><span>{nv.amp.roundsSatOut} / {nv.amp.roundsHeard}</span></div>
+        </>
+      ) : nv.acs ? (
         <table style={{ width: '100%', fontSize: 11.5, borderCollapse: 'collapse', marginBottom: 4 }}>
           <thead>
             <tr style={dim}>
@@ -66,6 +74,11 @@ function NodeSection({ vid, nv, t, L, nameOf, serverName }: { vid: string; nv: N
         </>
       )}
 
+      {nv.ampRound && (
+        <div style={row}><Lbl hint={L.ampRoundHint}>{L.ampRound}</Lbl><span>{nv.ampRound.phase} · slot {nv.ampRound.slot}/{nv.ampRound.slots} · {nv.ampRound.received.map(nameOf).join(', ') || '—'}</span></div>
+      )}
+
+      {!nv.amp && <>
       <div style={row}><Lbl hint={L.ssrcHint}>{L.ssrcSlrc}</Lbl><span>{nv.qsrc}</span></div>
       <div style={row}>
         <Lbl hint={L.navHint}>{L.nav}</Lbl>
@@ -84,6 +97,7 @@ function NodeSection({ vid, nv, t, L, nameOf, serverName }: { vid: string; nv: N
         </span>
       </div>
       <div style={row}><Lbl hint={L.ccaHint}>{L.cca}</Lbl><span>{nv.ccaBusy ? L.busy : L.idle}</span></div>
+      </>}
       {nv.txopUntilNs > t && (
         <div style={row}>
           <Lbl hint={L.txopHint}>{L.txop}</Lbl>
@@ -104,6 +118,7 @@ function NodeSection({ vid, nv, t, L, nameOf, serverName }: { vid: string; nv: N
           <span>{nv.currentRx.frame.kind.toUpperCase()} from {nameOf(nv.currentRx.from)}</span></div>
       )}
 
+      {!nv.amp && <>
       <div style={{ ...dim, marginTop: 6 }}>{L.queue} ({nv.queue.length})</div>
       <div style={{ maxHeight: 90, overflowY: 'auto', fontSize: 12 }}>
         {nv.queue.slice(0, 10).map((m) => (
@@ -114,6 +129,7 @@ function NodeSection({ vid, nv, t, L, nameOf, serverName }: { vid: string; nv: N
         ))}
         {nv.queue.length > 10 && <div style={dim}>… {nv.queue.length - 10} {L.more}</div>}
       </div>
+      </>}
 
       <div style={{ ...dim, marginTop: 6 }}>{L.stats}</div>
       <div style={row}><span style={dim}>{L.framesDelivered}</span><span>{nv.stats.txOk}</span></div>

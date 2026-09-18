@@ -248,4 +248,15 @@ describe('topSpanAt', () => {
     expect(topSpanAt(spans, 'sta-2', 100)).toBeNull()
     expect(topSpanAt(spans, 'nope', 300)).toBeNull()
   })
+
+  it('an ampWait state opens a slot span and AMP frames get their tooltip names', () => {
+    const recs: TLRecord[] = [
+      { t: 0, seq: 0, type: 'MAC_STATE', node: 'tag-1#2g', state: 'ampWait' },
+      { t: 100_000, seq: 1, type: 'MAC_STATE', node: 'tag-1#2g', state: 'tx' },
+    ]
+    const spans = recordsToSpans(recs, ['tag-1#2g'], 0, 200_000)
+    expect(spans[0]).toMatchObject({ kind: 'slot', startNs: 0, endNs: 100_000 })
+    const lines = spanTooltip(spans[0], STRINGS.en.tooltips)
+    expect(lines[0]).toContain(STRINGS.en.tooltips.ampWait)
+  })
 })

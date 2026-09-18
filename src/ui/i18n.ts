@@ -97,6 +97,8 @@ export interface Strings {
     airtimeShare: string; rxThroughput: string
     txLatency: string; txLatencyHint: string; rxLatency: string; rxLatencyHint: string
     appRtt: string; appRttHint: string; relayLatency: string; relayLatencyHint: string; servers: string; serverCols: { server: string; kind: string; rtt: string; up: string; down: string }
+    ampTag: string; aboc: string; abocHint: string; slot: string; slotHint: string
+    ampCounts: string; ampCountsHint: string; ampRound: string; ampRoundHint: string; satOut: string
   }
   log: { empty: string }
   profiles: Record<ProfileId, string>
@@ -166,6 +168,8 @@ export interface Strings {
     deferTitle: (ifs: string) => string; eifsNote: string; deferNote: string
     ifsChain: (kinds: string) => string
     navTitle: string; navNote: string; sifsWait: string
+    ampTrigger: string; ampAck: (dst: string) => string; ampResp: (slot: number) => string
+    ampWait: string; ampWaitNote: string
   }
 }
 
@@ -233,6 +237,9 @@ export const STRINGS: Record<Lang, Strings> = {
       { color: '#8b5cf6', label: 'RX', hint: 'Receiving a frame.' },
       { color: '#ef4444', label: 'RX failed', hint: 'Hatched: a reception that did not decode, which costs the receiver an EIFS. Red when a collision garbled it — a receiver locks onto one preamble, so overlapping frames show as one failed reception. Purple when the signal was simply too weak, typically a bystander overhearing a fast frame.' },
       { color: '#ef4444', label: 'collision', hint: 'Two or more overlapping transmissions corrupted a reception.' },
+      { color: '#2dd4bf', label: 'AMP DL', hint: 'AMP Trigger or AMP Ack: a 2.4 GHz OOK PPDU behind a legacy preamble, addressed to ambient-power tags.' },
+      { color: '#a78bfa', label: 'AMP UL', hint: 'A tag’s OOK response inside the slot it drew; no preamble Wi-Fi radios can see.' },
+      { color: '#115e59', label: 'slot wait', hint: 'A tag armed for a later slot, counting the AP’s Acks.' },
     ],
     editor: {
       tools: { select: '☝ select', room: '▭ room', door: '🚪 door', window: '🪟 window', sta: '📱 STA', fit: '⌂ fit' },
@@ -304,6 +311,13 @@ export const STRINGS: Record<Lang, Strings> = {
       appRtt: 'RTT (ping)', appRttHint: 'mean / max round trip of this station’s pings to its cloud server, sent four times a second on the stream’s access category and echoed at once: Wi-Fi up, WAN, Wi-Fi down — what a game’s ping counter shows',
       relayLatency: 'phone-to-phone', relayLatencyHint: 'mean / max latency of video frames another phone sends to this one: sender’s queue → AP → this phone, two Wi-Fi hops plus AP forwarding',
       servers: 'cloud servers', serverCols: { server: 'server', kind: 'kind', rtt: 'WAN RTT', up: 'up', down: 'down' },
+      ampTag: 'AMP tag', aboc: 'ABOC',
+      abocHint: 'AMP backoff counter drawn uniformly in [0, ACW] on each random-access trigger; ABOC < N picks slot ABOC + 1',
+      slot: 'slot', slotHint: 'the uplink slot this tag will use in the current round',
+      ampCounts: 'sent / acked / lost',
+      ampCountsHint: 'responses transmitted, acknowledged by the following AMP Ack, and lost (collision, weak signal or a missed cue)',
+      ampRound: 'AMP round', ampRoundHint: 'the polling round in progress on this link and who has answered so far',
+      satOut: 'sat out / heard',
     },
     log: { empty: 'no events in window' },
     profiles: {
@@ -458,6 +472,11 @@ export const STRINGS: Record<Lang, Strings> = {
       navTitle: 'NAV set',
       navNote: 'virtual carrier sense: an overheard Duration field reserved the medium (§10.3.2.4)',
       sifsWait: 'in-exchange wait (SIFS turnaround / response pending)',
+      ampTrigger: 'AMP Trigger — the AP opens uplink slots for ambient-power tags',
+      ampAck: (dst) => `AMP Ack → ${dst} — closes a slot and cues the next one`,
+      ampResp: (slot) => `AMP response in slot ${slot}`,
+      ampWait: 'waiting for its slot',
+      ampWaitNote: 'A tag has no carrier sense: it counts the AP’s Acks and transmits one AMP SIFS (10 µs) after the Ack that opens its slot.',
     },
   },
   zh: {
@@ -523,6 +542,9 @@ export const STRINGS: Record<Lang, Strings> = {
       { color: '#8b5cf6', label: '接收', hint: '正在接收帧。' },
       { color: '#ef4444', label: '接收失败', hint: '打斜线：未能解码的接收，之后接收方要等一个 EIFS。红色表示被碰撞损坏——接收机只会锁定一个前导码，重叠的帧表现为一次失败的接收；紫色表示信号本身太弱，通常是旁听者听不懂一个高速率的帧。' },
       { color: '#ef4444', label: '碰撞', hint: '两个以上的传输重叠，导致接收失败。' },
+      { color: '#2dd4bf', label: 'AMP 下行', hint: 'AMP 触发帧或 AMP 确认帧：2.4 GHz 上带传统前导码的 OOK PPDU，发给环境能量标签。' },
+      { color: '#a78bfa', label: 'AMP 上行', hint: '标签在其抽中的时隙内发出的 OOK 应答；没有 Wi-Fi 电台能看到的前导码。' },
+      { color: '#115e59', label: '等候时隙', hint: '一枚标签正等待稍后的时隙，数着 AP 发出的 Ack。' },
     ],
     editor: {
       tools: { select: '☝ 选择', room: '▭ 房间', door: '🚪 门', window: '🪟 窗', sta: '📱 终端', fit: '⌂ 复位' },
@@ -594,6 +616,13 @@ export const STRINGS: Record<Lang, Strings> = {
       appRtt: 'RTT（ping）', appRttHint: '本终端向云服务器发送的 ping 的平均 / 最大往返时延：每秒 4 次、走该业务的接入类别、服务器即时回显——Wi-Fi 上行、广域网、Wi-Fi 下行，即游戏里显示的 ping 值',
       relayLatency: '手机互传', relayLatencyHint: '另一部手机发给本机的视频帧的平均 / 最大时延：发送方队列 → AP → 本机，两跳 Wi-Fi 加 AP 转发',
       servers: '云服务器', serverCols: { server: '服务器', kind: '类型', rtt: '广域网 RTT', up: '上行', down: '下行' },
+      ampTag: 'AMP 标签', aboc: 'ABOC',
+      abocHint: 'AMP 退避计数器：每次随机接入触发时从 [0, ACW] 均匀抽取；ABOC < N 则选中时隙 ABOC + 1',
+      slot: '时隙', slotHint: '该标签在本轮将使用的上行时隙',
+      ampCounts: '发送 / 已确认 / 丢失',
+      ampCountsHint: '已发送的应答数、被随后的 AMP Ack 确认的数量，以及丢失的数量（碰撞、信号弱或错过时机）',
+      ampRound: 'AMP 轮次', ampRoundHint: '该链路上正在进行的轮询轮次，以及目前已应答的标签',
+      satOut: '弃权 / 已听到',
     },
     log: { empty: '窗口内无事件' },
     profiles: {
@@ -748,6 +777,11 @@ export const STRINGS: Record<Lang, Strings> = {
       navTitle: 'NAV 已设置',
       navNote: '虚拟载波侦听：侦听到的 Duration 字段预约了介质（§10.3.2.4）',
       sifsWait: '交换过程中的等待（SIFS 周转 / 等待响应）',
+      ampTrigger: 'AMP 触发帧 — AP 为环境能量标签开放上行时隙',
+      ampAck: (dst) => `AMP 确认 → ${dst} — 关闭一个时隙并开启下一个`,
+      ampResp: (slot) => `时隙 ${slot} 内的 AMP 应答`,
+      ampWait: '等待自己的时隙',
+      ampWaitNote: '标签没有载波侦听：它靠数 AP 发出的 Ack 来计时，并在打开自己时隙的那个 Ack 之后一个 AMP SIFS（10 µs）发送。',
     },
   },
 }

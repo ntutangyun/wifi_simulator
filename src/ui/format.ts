@@ -68,10 +68,10 @@ export function fmtRecord(r: TLRecord): string {
     case 'CTS_TIMEOUT': return `${r.node} CTS timeout`
     case 'MAC_STATE': return `${r.node} → ${r.state}`
     case 'COLLISION': return `COLLISION: ${r.nodes.join(' × ')}`
-    case 'AMP_ROUND': return `${r.node} AMP round (${r.phase}, ${r.slots} slots) until ${fmtNs(r.untilNs)}`
+    case 'AMP_ROUND': return `${r.node} AMP round (${r.phase}): ${r.slots} slots × ${fmtUs(r.slotNs)}, ACW ${2 ** r.acwe - 1}, DL ${r.dlKbps} kb/s, UL ${r.ulKbps} kb/s`
     case 'AMP_SLOT': return `${r.node} AMP slot ${r.slot} until ${fmtNs(r.untilNs)}`
-    case 'AMP_ABOC': return `${r.node} AMP ABOC ${r.aboc} (ACW=${r.acw})${r.slot === null ? ' sat out' : `, slot ${r.slot}`}`
-    case 'AMP_RESULT': return `${r.node} AMP result slot ${r.slot}: ${r.sent ? (r.acked ? 'acked' : 'lost') : 'no tx'}`
+    case 'AMP_ABOC': return `${r.node} ABOC ${r.aboc} of [0, ${r.acw}] → ${r.slot === null ? 'sits out' : `slot ${r.slot}`}`
+    case 'AMP_RESULT': return `${r.node} slot ${r.slot}: ${!r.sent ? 'missed its cue' : r.acked ? 'acknowledged' : 'not acknowledged'}`
   }
 }
 
@@ -87,5 +87,19 @@ export function decodeFrame(f: FrameDesc): { field: string; value: string }[] {
   ]
   if (f.seqNo !== undefined) rows.push({ field: 'Sequence number', value: String(f.seqNo) })
   rows.push({ field: 'Retry flag', value: f.retryFlag ? '1' : '0' })
+  if (f.amp) {
+    rows.push({ field: 'AMP rate', value: `${f.amp.kbps} kb/s (Manchester OOK)` })
+    if (f.kind === 'ampTrigger') {
+      rows.push({ field: 'Slots', value: String(f.amp.slots) })
+      rows.push({ field: 'Slot duration', value: fmtUs(f.amp.slotNs ?? 0) })
+      rows.push({ field: 'ACWE', value: String(f.amp.acwe) })
+      rows.push({ field: 'Phase', value: String(f.amp.phase) })
+    } else if (f.kind === 'ampAck') {
+      rows.push({ field: 'Acknowledges slot', value: String(f.amp.ackFor) })
+    } else if (f.kind === 'ampResp') {
+      rows.push({ field: 'Slot', value: String(f.amp.slot) })
+      rows.push({ field: 'ABOC', value: String(f.amp.aboc) })
+    }
+  }
   return rows
 }

@@ -5,7 +5,7 @@ import type { Ns } from '../model/types'
 import type { ViewState } from '../model/view'
 import type { Strings } from './i18n'
 
-export type SpanKind = 'tx' | 'rx' | 'backoff' | 'defer' | 'nav' | 'sifs'
+export type SpanKind = 'tx' | 'rx' | 'backoff' | 'defer' | 'nav' | 'sifs' | 'slot'
 
 /** Why a reception failed, and who was on the air over it (from the COLLISION record). */
 export interface RxFail {
@@ -68,8 +68,7 @@ const STATE_SPAN: Record<string, SpanKind | null> = {
   idle: null, tx: null, rx: null,
   defer: 'defer', backoff: 'backoff',
   waitAck: 'sifs', waitCts: 'sifs', sifsResp: 'sifs',
-  // TODO(Task 6): ampWait gets its own SpanKind ('slot'); for now it draws as a SIFS-style wait.
-  ampWait: 'sifs',
+  ampWait: 'slot',
 }
 
 interface OpenSpan {
@@ -266,7 +265,7 @@ export function xForT(t: Ns, a: Ns, b: Ns, widthPx: number): number {
   return ((t - a) / (b - a)) * widthPx
 }
 
-const HIT_ORDER: Record<SpanKind, number> = { tx: 0, rx: 1, backoff: 2, defer: 2, sifs: 2, nav: 3 }
+const HIT_ORDER: Record<SpanKind, number> = { tx: 0, rx: 1, backoff: 2, defer: 2, sifs: 2, slot: 2, nav: 3 }
 
 /** Topmost span (tx > rx > states > nav) covering time t on a lane, or null. */
 export function topSpanAt(spans: LaneSpan[], nodeId: string, t: Ns): LaneSpan | null {
@@ -312,9 +311,12 @@ export function spanTooltip(s: LaneSpan, T: Strings['tooltips'], t?: Ns, nameOf:
         f.kind === 'ba' ? T.ba(dst) :
         f.kind === 'mba' ? T.mba :
         f.kind === 'trigger' ? T.trigger :
+        f.kind === 'ampTrigger' ? T.ampTrigger :
+        f.kind === 'ampAck' ? T.ampAck(dst) :
+        f.kind === 'ampResp' ? T.ampResp(f.amp?.slot ?? 0) :
         f.kind === 'rts' ? T.rts(dst) :
         f.kind === 'cfend' ? T.cfend : T.cts(dst)
-      const rate = f.mcs !== undefined ? `${f.mode?.toUpperCase()} MCS${f.mcs} · ${f.mbps} Mbps` : `${f.mbps} Mbps (${T.nonHt})`
+      const rate = f.amp ? `${f.amp.kbps} kb/s OOK` : f.mcs !== undefined ? `${f.mode?.toUpperCase()} MCS${f.mcs} · ${f.mbps} Mbps` : `${f.mbps} Mbps (${T.nonHt})`
       const lines = [`${what}${ac}`, `${f.bytes} B · ${rate} · ${dur}`]
       if (f.kind === 'ack' || f.kind === 'ba' || f.kind === 'cts' || f.kind === 'mba' || f.kind === 'cfend') {
         lines.push(T.sifsNote)
@@ -347,6 +349,8 @@ export function spanTooltip(s: LaneSpan, T: Strings['tooltips'], t?: Ns, nameOf:
       return [`${T.navTitle} · ${dur}`, T.navNote]
     case 'sifs':
       return [`${T.sifsWait} · ${dur}`]
+    case 'slot':
+      return [`${T.ampWait} · ${dur}`, T.ampWaitNote]
   }
 }
 
