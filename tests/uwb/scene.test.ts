@@ -102,7 +102,7 @@ describe('UwbOverlay', () => {
     overlay.dispose()
   })
 
-  it('draws the fix as a cross and the ellipse at 3× its semi-axes, in amber', () => {
+  it('draws the fix as a cross and the ellipse at 10× its semi-axes, in amber', () => {
     const view = viewAt(25)
     const overlay = new UwbOverlay(sc)
     overlay.update(view)
@@ -121,7 +121,7 @@ describe('UwbOverlay', () => {
     expect(Math.max(...zs) - Math.min(...zs)).toBeCloseTo(0.3, 6)
 
     const ell = overlay.group.getObjectByName('ellipse:tag-1') as THREE.Line
-    expect(ELLIPSE_DRAW_SCALE).toBe(3)
+    expect(ELLIPSE_DRAW_SCALE).toBe(10)
     expect(ell.scale.x).toBeCloseTo(fix.ellipse.a * ELLIPSE_DRAW_SCALE, 9)
     expect(ell.scale.z).toBeCloseTo(fix.ellipse.b * ELLIPSE_DRAW_SCALE, 9)
     expect(ell.rotation.y).toBeCloseTo(-fix.ellipse.thetaRad, 9)

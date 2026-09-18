@@ -29,10 +29,11 @@ export const UWB_ELLIPSE_COLOR = 0xf59e0b
 
 /**
  * The 1-σ ellipse of a good fix is a couple of centimetres across — invisible
- * beside a 3.5 m ring — so it is drawn this many times larger than life. Every
- * tooltip that quotes the ellipse must quote this factor with it.
+ * beside a 3.5 m ring — so it is drawn at 10× so it is visible; the inspector
+ * shows the true axes. Every tooltip that quotes the ellipse must quote this
+ * factor with it.
  */
-export const ELLIPSE_DRAW_SCALE = 3
+export const ELLIPSE_DRAW_SCALE = 10
 
 /** Height of every floor drawing, as in the effects layer. */
 const FLOOR_Y = 0.01
