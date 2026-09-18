@@ -113,6 +113,9 @@ export interface Strings {
     anchor: string; tag: string; role: string
     blockRound: string; slot: string; timeouts: string
     ranges: string; peer: string; measured: string; trueDist: string; error: string; fom: string; rounds: string
+    /** The Figure of Merit byte as a phrase: "97 % within 0.5 ns" (standard §10.29.1.7). */
+    fomWithin: (pct: number, intervalNs: number) => string
+    noFom: string
     position: string; estimate: string; gdop: string; ellipse: string; noPosition: string
   }
   log: { empty: string }
@@ -358,6 +361,7 @@ export const STRINGS: Record<Lang, Strings> = {
       blockRound: 'block / round', slot: 'ranging slot', timeouts: 'silent slots',
       ranges: 'ranges measured', peer: 'peer', measured: 'measured', trueDist: 'true', error: 'error',
       fom: 'confidence', rounds: 'rounds',
+      fomWithin: (pct, ns) => `${pct} % within ${ns} ns`, noFom: 'no FoM',
       position: 'position', estimate: 'estimate', gdop: 'GDOP', ellipse: 'error ellipse (1-σ)',
       noPosition: 'no fix yet — a tag needs ranges to three anchors in one block',
     },
@@ -712,6 +716,7 @@ export const STRINGS: Record<Lang, Strings> = {
       blockRound: '测距块 / 轮次', slot: '测距时隙', timeouts: '超时时隙',
       ranges: '测距结果', peer: '对端', measured: '实测', trueDist: '真值', error: '误差',
       fom: '置信度', rounds: '轮次',
+      fomWithin: (pct, ns) => `${pct} % 的误差落在 ${ns} ns 内`, noFom: '无 FoM',
       position: '位置解算', estimate: '估计值', gdop: '几何精度因子 GDOP', ellipse: '误差椭圆（1-σ）',
       noPosition: '尚无定位结果——标签需要在同一测距块内拿到三个锚点的距离',
     },

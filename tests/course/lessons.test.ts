@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { LESSONS, MODULES, type L10n } from '../../src/course/lessons'
-import { COURSE_ORDER, OBSERVE_MINUTES, TIERS, TRY_MINUTES, lessonMinutes, lessonWords } from '../../src/course/curriculum'
+import { COURSE_ORDER, OBSERVE_MINUTES, TIERS, TRY_MINUTES, lessonMinutes, lessonWords, trackHeadings } from '../../src/course/curriculum'
 import { ScenarioSchema } from '../../src/model/scenario'
 import { Simulation } from '../../src/engine/simulation'
 import { buildLinkTable } from '../../src/engine/propagation'
@@ -270,6 +270,18 @@ describe('module 4 lessons', () => {
     expect(TIERS.map((t) => t.track)).toEqual(['wifi', 'wifi', 'wifi', 'wifi', 'uwb'])
     expect(MODULES.map((m) => m.tier)).toEqual([0, 0, 1, 1, 1, 1, 1, 1, 1, 2, 3, 4, 4])
     for (const m of MODULES) expect(m.title.zh.length).toBeGreaterThan(0)
+  })
+
+  it('a track heading opens the first tier and every change of radio', () => {
+    // what the course panel prints above a tier: one heading per run of same-radio tiers
+    expect(trackHeadings(TIERS)).toEqual([true, false, false, false, true])
+    expect(trackHeadings([])).toEqual([])
+    expect(trackHeadings(TIERS.slice(4))).toEqual([true])
+    const alternating = [TIERS[0], TIERS[4], TIERS[1], TIERS[4]]
+    expect(trackHeadings(alternating)).toEqual([true, true, true, true])
+    // it is a decision about the list it is given: a tier with no lesson is dropped first,
+    // so dropping the Wi-Fi tiers must move the heading to the UWB tier, not lose it
+    expect(trackHeadings(TIERS.filter((t) => t.track === 'wifi'))).toEqual([true, false, false, false])
   })
 
   it('lesson 15 is about channel width and offers one variant per width', () => {

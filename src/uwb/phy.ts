@@ -74,37 +74,63 @@ export const UWB_PPM_MAX = 20 // standard §16.4.9: ±20 ppm
 
 // --- Frame sizes --------------------------------------------------------------
 
-export const UWB_MHR_BYTES = 9 // standard frame format; short addressing (model)
-export const UWB_FCS_BYTES = 2 // standard frame format; short addressing (model)
-export const UWB_IE_HDR_BYTES = 2 // standard frame format; short addressing (model)
-export const ARC_IE_BYTES = 10 // model sizing from the IE field lists
-export const RRMC_IE_BYTES = 3 // model sizing from the IE field lists
-export const RRTI_IE_BYTES = 6 // model sizing from the IE field lists
-export const RMI_FINAL_ENTRY_BYTES = 6 // model
-export const RMI_REPORT_IE_BYTES = 13 // model
+// The MHR and the FCS are the standard's frame format; every IE's content width is a model
+// choice made from the field lists of §10.29.8 and §10.32.9, so each one is written out as the
+// sum of the fields it stands for, and the frame helpers below add those constants up rather
+// than restating the arithmetic.
 
+/** Frame Control 2 + Sequence Number 1 + destination PAN 2 + destination short address 2
+ * + source short address 2. Short (16-bit) addressing throughout is the model's choice. */
+export const UWB_MHR_BYTES = 9
+/** The CRC-16 that closes every 802.15.4 frame. */
+export const UWB_FCS_BYTES = 2
+/** Element ID and length, in front of each payload IE. */
+export const UWB_IE_HDR_BYTES = 2
+
+/** ARC IE (§10.32.9.1): header + control 2 + block index 2 + round index 2 + slot index 2. */
+export const ARC_IE_BYTES = UWB_IE_HDR_BYTES + 8
+/** RRMC IE (§10.29.8.3): header + one control octet (what the round asks the responder for). */
+export const RRMC_IE_BYTES = UWB_IE_HDR_BYTES + 1
+/** RRTI IE (§10.29.8.1): header + one reply time of 4 octets. One IE holds one reply time. */
+export const RRTI_IE_BYTES = UWB_IE_HDR_BYTES + 4
+/** RDM IE (§10.32.9.8), fixed part: header + the device count. */
+export const RDM_IE_FIXED_BYTES = UWB_IE_HDR_BYTES + 1
+/** One RDM entry: the device's short address 2 + the slot index it is given 1. */
+export const RDM_ENTRY_BYTES = 3
+/** RMI IE (§10.29.8.4) in a Final, fixed part: header + the responder count. */
+export const RMI_FINAL_FIXED_BYTES = UWB_IE_HDR_BYTES + 1
+/** One RMI entry in a Final: the responder's short address 2 + its round-trip time 4. */
+export const RMI_FINAL_ENTRY_BYTES = 6
+/** RMI IE in a measurement report: header + control 1 + address 2 + reply time 4 + round-trip time 4. */
+export const RMI_REPORT_IE_BYTES = UWB_IE_HDR_BYTES + 11
+
+/** The Poll's RDM IE: one entry per anchor, 3 + 3N octets. */
 export function rdmIeBytes(anchors: number): number {
-  return 3 + 3 * anchors
+  return RDM_IE_FIXED_BYTES + RDM_ENTRY_BYTES * anchors
 }
 
+/** The Final's RMI IE: one entry per responder, 3 + 6N octets. */
 export function rmiFinalIeBytes(anchors: number): number {
-  return 3 + 6 * anchors
+  return RMI_FINAL_FIXED_BYTES + RMI_FINAL_ENTRY_BYTES * anchors
 }
 
+/** MHR + ARC IE + RDM IE (3 + 3N) + RRMC IE + FCS = 27 + 3N. */
 export function uwbPollBytes(anchors: number): number {
-  return 27 + 3 * anchors
+  return UWB_MHR_BYTES + ARC_IE_BYTES + rdmIeBytes(anchors) + RRMC_IE_BYTES + UWB_FCS_BYTES
 }
 
+/** MHR + RRMC IE + FCS, plus the RRTI IE that carries the reply time in SS-TWR: 20 (SS) / 14 (DS). */
 export function uwbRespBytes(method: 'ss' | 'ds'): number {
-  return method === 'ss' ? 20 : 14
+  return UWB_MHR_BYTES + RRMC_IE_BYTES + (method === 'ss' ? RRTI_IE_BYTES : 0) + UWB_FCS_BYTES
 }
 
-/** MHR 9 + RMI IE (3 + 6N) + N × RRTI IE 6 + FCS 2 = 14 + 12N. */
+/** MHR + RMI IE (3 + 6N) + N × RRTI IE 6 + FCS = 14 + 12N. */
 export function uwbFinalBytes(anchors: number): number {
-  return 14 + 12 * anchors
+  return UWB_MHR_BYTES + rmiFinalIeBytes(anchors) + anchors * RRTI_IE_BYTES + UWB_FCS_BYTES
 }
 
-export const UWB_REPORT_BYTES = 24
+/** MHR + the report's RMI IE 13 + FCS. */
+export const UWB_REPORT_BYTES = UWB_MHR_BYTES + RMI_REPORT_IE_BYTES + UWB_FCS_BYTES
 
 /** Anchors one ranging round can carry. The Final is the round's longest frame and grows by
  * 12 octets per anchor; at 9 anchors it is 122 octets and at 10 it is 134, past the 127-octet

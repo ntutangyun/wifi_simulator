@@ -20,6 +20,15 @@ export interface Tier extends L10n {
   track: Track
 }
 
+/**
+ * Which of the tiers shown opens a track heading: the first one, and every one that teaches a
+ * different radio from the tier above it. Pure, index-aligned with the list it is given — which
+ * is the list the course panel actually shows, tiers with no lesson yet having been dropped.
+ */
+export function trackHeadings(tiers: Tier[]): boolean[] {
+  return tiers.map((tier, i) => i === 0 || tiers[i - 1].track !== tier.track)
+}
+
 export const TIERS: Tier[] = [
   { track: 'wifi', en: 'Tier 1 · MAC foundations', zh: '第一阶段 · MAC 基础' },
   { track: 'wifi', en: 'Tier 2 · MAC practitioner', zh: '第二阶段 · MAC 实战' },

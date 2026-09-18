@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { player, useUi } from './store'
-import { decodeFrame, fmtNs, fmtRecord } from './format'
-import { useStrings } from './i18n'
+import { decodeFrame, fmtNs, fmtRecord, type FieldRow } from './format'
+import { useStrings, type Strings } from './i18n'
+import type { FrameDesc } from '../model/frames'
 import type { TLRecord } from '../model/records'
 
 const WINDOW_BEFORE = 3_000_000 // 3 ms back
@@ -9,6 +10,16 @@ const WINDOW_AFTER = 500_000 // 0.5 ms ahead
 
 function frameOf(r: TLRecord) {
   return 'frame' in r ? r.frame : null
+}
+
+/** The frame's field rows, or null when the decoder cannot account for the frame's size:
+ * the log then shows nothing rather than wrong sizes, exactly as FrameDetail does. */
+function fieldRowsOf(f: FrameDesc, S: Strings['frameDetail']['fields']): FieldRow[] | null {
+  try {
+    return decodeFrame(f, S)
+  } catch {
+    return null
+  }
 }
 
 export function EventLog() {
@@ -31,6 +42,7 @@ export function EventLog() {
         const past = r.t <= playheadNs
         const f = frameOf(r)
         const key = r.seq
+        const rows = f && expanded === key ? fieldRowsOf(f, L.frameDetail.fields) : null
         return (
           <div key={key}>
             <div
@@ -49,10 +61,10 @@ export function EventLog() {
               <span style={{ color: 'var(--dim)', whiteSpace: 'nowrap' }}>{fmtNs(r.t)}</span>
               <span style={{ whiteSpace: 'nowrap' }}>{fmtRecord(r)}{f ? ' ▸' : ''}</span>
             </div>
-            {f && expanded === key && (
+            {rows && (
               <table style={{ margin: '2px 24px 6px', fontSize: 11, borderCollapse: 'collapse' }}>
                 <tbody>
-                  {decodeFrame(f, L.frameDetail.fields).map((row) => (
+                  {rows.map((row) => (
                     <tr key={row.field}>
                       <td style={{ color: 'var(--dim)', paddingRight: 10 }}>{row.field}</td>
                       <td>{row.value}</td>

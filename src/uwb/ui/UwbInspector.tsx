@@ -18,7 +18,7 @@ export function UwbInspector({ nv, nameOf }: { nv: NodeView; nameOf: (id: string
   const U = useStrings().uwb
   const u = nv.uwb
   if (!u) return null
-  const ranges = uwbRangeRows(u)
+  const ranges = uwbRangeRows(u, U)
   const fix = u.position ? uwbFixRow(u.position) : null
 
   return (

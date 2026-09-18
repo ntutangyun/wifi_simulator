@@ -228,7 +228,7 @@ export class UwbDevice implements UwbRadio {
     // the sender's crystal runs than mine, with the estimator's residual error.
     const coffs = (info.txPpm - this.clock.ppm) * 1e-6 + gaussian(this.rng) * this.cfg.cfoNoisePpm * 1e-6
 
-    this.cancelDeadline()
+    this.clearExpectation()
     this.setState('idle')
 
     switch (kind) {
@@ -273,7 +273,7 @@ export class UwbDevice implements UwbRadio {
   }
 
   /** The expected frame arrived: drop the expectation without reporting a miss. */
-  private cancelDeadline(): void {
+  private clearExpectation(): void {
     this.expect = null
   }
 

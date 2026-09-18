@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useStrings } from '../ui/i18n'
 import { player, useUi } from '../ui/store'
 import { LESSONS, lessonIndex, type Block, type L10n, type Lesson } from './lessons'
-import { MODULES, TIERS, TRACKS, lessonMinutes } from './curriculum'
+import { MODULES, TIERS, TRACKS, lessonMinutes, trackHeadings } from './curriculum'
 import { LinkBudget } from './widgets/LinkBudget'
 import { McsLadder } from './widgets/McsLadder'
 
@@ -139,22 +139,26 @@ export function CoursePanel() {
 
   const doneCount = LESSONS.filter((l) => progress[l.id]?.done).length
 
+  // The tiers the panel lists: modules and tiers with no lesson yet are not shown,
+  // and the surviving list decides where the track headings fall.
+  const shownTiers = TIERS
+    .map((tier, ti) => ({
+      tier, ti,
+      mods: MODULES.map((m, mi) => ({ m, mi })).filter(({ m, mi }) => m.tier === ti && LESSONS.some((l) => l.module === mi)),
+    }))
+    .filter(({ mods }) => mods.length > 0)
+  const opensTrack = trackHeadings(shownTiers.map((x) => x.tier))
+
   if (!lesson) {
     return (
       <div style={{ padding: 12, overflowY: 'auto', fontSize: 12.5 }}>
         <h3 style={{ margin: '2px 0 2px', fontSize: 14 }}>{L.title}</h3>
         <div style={{ ...dim, marginBottom: 10 }}>{L.progressOf(doneCount, LESSONS.length)}</div>
         <div style={{ ...dim, marginBottom: 12, lineHeight: 1.5 }}>{L.selectPrompt}</div>
-        {TIERS
-          // modules and tiers with no lesson yet are not shown
-          .map((tier, ti) => ({
-            tier, ti,
-            mods: MODULES.map((m, mi) => ({ m, mi })).filter(({ m, mi }) => m.tier === ti && LESSONS.some((l) => l.module === mi)),
-          }))
-          .filter(({ mods }) => mods.length > 0)
-          .map(({ tier, ti, mods }, shown, shownTiers) => {
+        {shownTiers
+          .map(({ tier, ti, mods }, shown) => {
           // a track heading opens each run of tiers that teach the same radio
-          const newTrack = shown === 0 || shownTiers[shown - 1].tier.track !== tier.track
+          const newTrack = opensTrack[shown]
           return (
           <div key={ti} style={{ marginBottom: 14 }}>
             {newTrack && (

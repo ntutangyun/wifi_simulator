@@ -3,8 +3,24 @@
  * React so the panel's contents can be asserted directly: every row a learner
  * reads is a value this module produced from the view state.
  */
-import { fomText } from '../phy'
+import { fomDecode } from '../phy'
 import type { UwbNodeView, UwbPositionView } from '../view'
+
+/** The two phrases the confidence column needs, as the i18n table (Strings['uwb']) supplies them.
+ * The event log keeps the engine's English `fomText`, like every other log line; the inspector
+ * is chrome and follows the reader's language. */
+export interface UwbFomStrings {
+  fomWithin: (pct: number, intervalNs: number) => string
+  noFom: string
+}
+
+/** The Figure of Merit byte as a phrase in the reader's language. An all-zero byte is the
+ * standard's "not available" (standard §10.29.1.7), not 0 % within 0.05 ns. */
+export function uwbFomText(fom: number, S: UwbFomStrings): string {
+  if (fom === 0) return S.noFom
+  const { levelPct, intervalNs } = fomDecode(fom)
+  return S.fomWithin(levelPct, intervalNs)
+}
 
 const m = (v: number) => `${v.toFixed(2)} m`
 const cm = (v: number) => `${(v * 100).toFixed(1)} cm`
@@ -23,13 +39,13 @@ export interface UwbRangeRow {
   method: string
 }
 
-export function uwbRangeRows(u: UwbNodeView): UwbRangeRow[] {
+export function uwbRangeRows(u: UwbNodeView, S: UwbFomStrings): UwbRangeRow[] {
   return Object.entries(u.ranges).map(([peer, r]) => ({
     peer,
     measured: m(r.distM),
     trueDist: m(r.trueDistM),
     error: cm(r.distM - r.trueDistM),
-    fom: fomText(r.fom),
+    fom: uwbFomText(r.fom, S),
     rounds: String(r.n),
     method: `${r.method.toUpperCase()}-TWR`,
   }))

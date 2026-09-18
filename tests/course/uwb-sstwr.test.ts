@@ -370,9 +370,11 @@ describe('uwb-sstwr · what the clock-offset correction puts back', () => {
   it('observe 2’s span holds: the corrected column stays between 3.41 and 3.51 m', () => {
     // "The corrected figures stay between 3.41 and 3.51 m" — anchor 4 is 3.51 m, not "about 3.4 m",
     // and quiz 3 turns on exactly that: it is the most accurate of the four at +0.5 cm.
-    const shown = ranges().map((r) => r.distM.toFixed(2))
-    const lo = shown.reduce((a, b) => (a < b ? a : b))
-    const hi = shown.reduce((a, b) => (a > b ? a : b))
+    // by number, then formatted: comparing the fixed(2) strings happens to agree here, but
+    // would order "10.00" below "9.00" the moment a scene put an anchor past ten metres.
+    const shown = ranges().map((r) => r.distM)
+    const lo = Math.min(...shown).toFixed(2)
+    const hi = Math.max(...shown).toFixed(2)
     expect([lo, hi]).toEqual(['3.41', '3.51'])
     expect(uwbSstwr.observe[1].en).toContain(`between ${lo} and ${hi} m`)
     expect(uwbSstwr.observe[1].zh).toContain(`${lo} 与 ${hi} m`)
@@ -409,11 +411,14 @@ describe('uwb-sstwr · what the clock-offset correction puts back', () => {
     expect((FOM_LOS >> 3) & 0x3).toBe(2)
     expect((FOM_LOS >> 5) & 0x3).toBe(0)
     expect(fomDecode(FOM_LOS)).toEqual({ levelPct: 97, intervalNs: 0.5 })
-    // the two parenthetical lookups separately: interval index 2 is 1 ns (read with the identity
-    // scale index 1), and scale index 0 halves it. The tables themselves are module-private, so
-    // this is the finest grain the exported fomDecode allows.
-    expect(fomDecode((FOM_LOS & 0x1f) | (1 << 5)).intervalNs).toBe(1)
-    expect(fomDecode(FOM_LOS).intervalNs).toBe(0.5 * fomDecode((FOM_LOS & 0x1f) | (1 << 5)).intervalNs)
+    // the two parenthetical lookups separately, decoded rather than assumed: the four scale
+    // indices are a fixed ladder, and whichever of them is the identity is the one whose decode
+    // equals the byte's own interval read at scale 2 — so nothing here presumes index 1 is ×1.
+    const atScale = (i: number) => fomDecode((FOM_LOS & 0x1f) | (i << 5)).intervalNs
+    expect([0, 1, 2, 3].map(atScale)).toEqual([0.5, 1, 2, 4])
+    const identity = [0, 1, 2, 3].findIndex((i) => atScale(i) === atScale(2) / 2)
+    expect(atScale(identity)).toBe(1) // interval index 2 is 1 ns, read at the identity scale
+    expect(fomDecode(FOM_LOS).intervalNs).toBe(0.5 * atScale(identity))
     expect(fomText(FOM_LOS)).toBe('97 % within 0.5 ns')
     expect((0.5 / 2).toFixed(2)).toBe('0.25')
     expect(((fomDecode(FOM_LOS).intervalNs / 2) * C_M_PER_NS * 100).toFixed(1)).toBe('7.5')
