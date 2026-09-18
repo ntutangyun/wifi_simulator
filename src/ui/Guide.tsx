@@ -139,7 +139,8 @@ export function GuideEn() {
         <b>The ranging counter</b> is a free-running clock counting in <b>RCTU</b> of 15.650 ps —
         one 128th of a chip (§10.29.1.4). Every frame's <b>RMARKER</b> — the first chip after the SFD,
         73.269 µs into the PPDU (§10.29.1.1) — is stamped with the counter reading at the antenna, and
-        a range is nothing but arithmetic on four such stamps. Frames are SP1 BPRF PPDUs: SYNC, SFD,
+        a range is nothing but arithmetic on such stamps: four of them in SS-TWR (two frames), six in
+        DS-TWR (three frames, each stamped at both ends). Frames are SP1 BPRF PPDUs: SYNC, SFD,
         then the scrambled timestamp sequence (STS) before the PHR (§16.2), which is what makes the
         timestamp itself hard to forge.
       </p>
@@ -152,9 +153,10 @@ export function GuideEn() {
         for twice the airtime.
       </p>
       <p style={p}>
-        <b>Blocks, rounds, slots</b> (§10.32.2): a session is a train of ranging <b>blocks</b> (200 ms,
-        FiRa's default), each block is cut into <b>rounds</b> — one per tag — and each round into
-        <b> slots</b> of 2 ms, every slot owned by exactly one device. Nothing contends: no CCA, no
+        <b>Blocks, rounds, slots</b> (§10.32.2): a session is a train of ranging <b>blocks</b>, each
+        block is cut into <b>rounds</b> — one per tag — and each round into <b>slots</b>, every slot
+        owned by exactly one device. The block is 200 ms and the slot 2 ms — both FiRa's defaults, not
+        the standard's, which fixes only the RSTU they are counted in. Nothing contends: no CCA, no
         backoff, no NAV, and every reply time is known in advance. A DS round with N anchors takes
         2N + 2 slots (Poll, N Responses, Final, N Reports); between its round and the next block the
         tag's radio is off, which is what lets a coin cell last.
@@ -310,7 +312,8 @@ export function GuideZh() {
       <p style={p}>
         <b>测距计数器</b>是一个自由运行的时钟，计数单位 <b>RCTU</b> 为 15.650 ps，即 1/128 个码片
         （§10.29.1.4）。每一帧的 <b>RMARKER</b>——SFD 之后的第一个码片，位于 PPDU 起点之后 73.269 µs
-        处（§10.29.1.1）——在天线口被打上计数器读数，而一次测距无非是对四个这样的读数做算术。
+        处（§10.29.1.1）——在天线口被打上计数器读数，而一次测距无非是对这些读数做算术：
+        SS-TWR 用到 4 个（两帧），DS-TWR 用到 6 个（三帧，每帧在收发两端各打一次）。
         本仿真中的帧都是 SP1 的 BPRF PPDU：SYNC、SFD，随后是插在 PHR 之前的加扰时间戳序列（STS，§16.2），
         正是它让时间戳本身难以伪造。
       </p>
@@ -322,8 +325,9 @@ export function GuideZh() {
         一个回复时间里，频率误差因而相消——代价是一倍的空口时间，收益是从纳秒级降到皮秒级。
       </p>
       <p style={p}>
-        <b>块、轮、时隙</b>（§10.32.2）：一次测距会话是一列测距<b>块</b>（默认 200 ms，取自 FiRa），
-        每个块切成若干<b>轮</b>——每个标签一轮——每轮再切成 2 ms 的<b>时隙</b>，每个时隙只属于一台设备。
+        <b>块、轮、时隙</b>（§10.32.2）：一次测距会话是一列测距<b>块</b>，每个块切成若干<b>轮</b>
+        ——每个标签一轮——每轮再切成若干<b>时隙</b>，每个时隙只属于一台设备。
+        块长 200 ms、时隙 2 ms，这两个值都取自 FiRa 的默认配置而非标准本身；标准只规定了计量它们的 RSTU。
         这里没有任何竞争：不做 CCA、没有退避、没有 NAV，每个回复时间都是事先约定好的。
         N 个锚点的 DS 轮占 2N + 2 个时隙（Poll、N 个 Response、Final、N 个 Report）；
         在本轮结束到下一个块之间，标签的射频是关闭的——这正是一颗纽扣电池能用很久的原因。

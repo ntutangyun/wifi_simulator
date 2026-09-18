@@ -61,11 +61,13 @@ The UWB side is a separate radio with its own PHY, its own schedule and its own 
 | Mechanism | Source | Notes |
 |---|---|---|
 | Chip rate / peak PRF | standard §16.2.4 | 499.2 Mchip/s, Tc = 2.003205 ns |
-| Ranging counter, RCTU | standard §10.29.1.4 | Tc / 128 = 15.650 ps (4.7 mm of flight); 40-bit counter, differences mod 2⁴⁰ |
+| Ranging counter, RCTU | standard §10.29.1.4 | Tc / 128 = 15.650 ps — 4.7 mm of flight |
+| Ranging counter width 40 bits | model | the standard says "at minimum 32-bit"; 40 bits, wrapping every 17.2 s, is our choice — every counter difference is taken mod 2⁴⁰ |
 | Ranging scheduling unit, RSTU | standard §10.29.1.5, Table 10-145 | 416 chips = 833.333 ns; slots and blocks are configured in RSTU |
 | RMARKER | standard §10.29.1.1 | first chip after the SFD, 36 576 chips = 73.269 µs into the PPDU; every timestamp is an RMARKER reading |
 | SP1 BPRF PPDU | standard §16.2, Table 16-31 set 3 | SYNC 64 + SFD 8 symbols, one STS segment (512 + 64 × 512 + 512 chips), PHR 850 kb/s, PSDU 6.8 Mb/s |
 | SS-TWR | standard §10.29.1.2.2 | tof = (Tround − Treply)/2, with the CFO-corrected form (Tround − Treply·(1 − coffs))/2 |
+| Clock-offset (CFO) tracking for the SS-TWR correction | standard §10.29.1.6, collapsed to one number | the standard's ranging tracking offset / tracking interval pair is modelled as a single measured `coffs`, with 0.2 ppm of residual error |
 | DS-TWR, three messages | standard §10.29.1.2.4, Figure 10-199 | Poll / Response / Final; clock rate errors divide out. The default method |
 | Figure of merit | standard §10.29.1.7, Tables 10-146…148 | LOS 0x16 = 97 % within 0.5 ns; through any wall 0x7B = 75 % within 12 ns; 0x00 = not available |
 | Ranging blocks / rounds / slots | standard §10.32.2, time-scheduled | one round per tag per block; SS-TWR takes N + 1 slots, DS-TWR 2N + 2; slot 0 is the Poll |
@@ -94,7 +96,7 @@ The UWB side is a separate radio with its own PHY, its own schedule and its own 
 - UWB reception is sensitivity-only: a frame is received when it clears −93 dBm, and interference is a 6 dB capture margin. There is no UWB SINR curve, no multipath channel model and no Wi-Fi 6E / UWB channel-5 coexistence.
 - Positions are solved in 2-D with the tag's z taken from the scenario; there is no AoA (no antenna array, no PDoA), no TDoA and no downlink-TDoA mode — only two-way ranging.
 - NLOS is one excess delay per wall crossed, not a delay spread: no first-path/strongest-path split, no leading-edge detection and no ranging bias calibration. The FoM is a two-valued model mapping (LOS / through-a-wall) and is reported, never used by the solver.
-- STS key management (§10.29.6), contention-based rounds, round hopping, LRP UWB and multi-node round scheduling beyond one round per tag are out of scope.
+- STS key management, contention-based rounds, round hopping, LRP UWB and multi-node round scheduling beyond one round per tag are out of scope.
 - A Wi-Fi radio receives a downlink AMP PPDU as an ordinary legacy-preamble reception: it defers for the L-SIG length and then uses AIFS, not EIFS. The coexistence numbers (lesson 3) rest on this — a real 802.11 receiver's behaviour on an OOK payload under a legacy preamble is not something the draft pins down.
 
 ## Architecture

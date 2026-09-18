@@ -8,10 +8,25 @@ import { readFileSync } from 'node:fs'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, it, expect } from 'vitest'
+import { DEFAULT_UWB_SESSION } from '../../src/model/scenario'
 import { GuideEn, GuideZh } from '../../src/ui/Guide'
 import { GLOSSARY } from '../../src/ui/glossary'
+import {
+  COUNTER_MOD, FOM_LOS, FOM_NLOS, RCTU_NS, UWB_MAX_ANCHORS, UWB_RX_SENS_DBM, UWB_TX_POWER_DBM,
+  fomDecode, fomText, rstuNs, uwbFinalBytes, uwbSlotsPerTag,
+} from '../../src/uwb/phy'
+import { rangeSigmaM } from '../../src/uwb/position'
+import { ELLIPSE_DRAW_SCALE } from '../../src/uwb/scene'
 
 const README = readFileSync(new URL('../../README.md', import.meta.url), 'utf8')
+
+/** The prose writes a Unicode minus, not an ASCII hyphen. */
+const dbm = (v: number): string => `${v} dBm`.replace('-', '−')
+/** A schedule figure as the prose states it: `rstuNs` is the one definition of an RSTU. */
+const ms = (rstu: number): string => `${rstuNs(rstu) / 1e6} ms`
+
+const SIGMA_CM = `${(rangeSigmaM(DEFAULT_UWB_SESSION.tsNoisePs) * 100).toFixed(1)} cm`
+const COUNTER_WRAP_S = `${((COUNTER_MOD * RCTU_NS) / 1e9).toFixed(1)} s`
 
 /** zustand's SSR snapshot is the store's *initial* state, so a server render cannot be
  * steered by `setLang`: render the two language bodies the `Guide` switch chooses between. */
@@ -78,15 +93,77 @@ describe('Guide section 11', () => {
 
   it('states the ellipse draw factor and that the inspector shows the true axes', () => {
     const en = renderGuide('en')
-    expect(en).toContain('10×')
+    expect(en).toContain(`${ELLIPSE_DRAW_SCALE}×`)
     expect(en.toLowerCase()).toContain('inspector')
-    expect(renderGuide('zh')).toContain('10×')
+    expect(renderGuide('zh')).toContain(`${ELLIPSE_DRAW_SCALE}×`)
+  })
+})
+
+/**
+ * Prose drifts silently when a constant moves, so every figure the text quotes that the engine
+ * also computes is asserted against the engine rather than against a literal: change the constant
+ * and the doc test fails instead of the text quietly becoming false.
+ */
+describe('figures pinned to the engine', () => {
+  const en = renderGuide('en')
+  const zh = renderGuide('zh')
+  const all = [en, zh, README]
+
+  it('quotes the session defaults from DEFAULT_UWB_SESSION', () => {
+    for (const text of all) {
+      expect(text).toContain(ms(DEFAULT_UWB_SESSION.blockRstu)) // 200 ms
+      expect(text).toContain(ms(DEFAULT_UWB_SESSION.slotRstu)) // 2 ms
+      expect(text).toContain(`${DEFAULT_UWB_SESSION.tsNoisePs} ps`)
+      expect(text).toContain(`${DEFAULT_UWB_SESSION.cfoNoisePpm} ppm`)
+    }
   })
 
-  it('quotes the session defaults the engine runs', () => {
-    const en = renderGuide('en')
-    expect(en).toContain('200 ms')
-    expect(en).toContain('2 ms')
+  it('quotes the link budget from the PHY constants', () => {
+    for (const text of all) {
+      expect(text).toContain(dbm(UWB_TX_POWER_DBM)) // −14 dBm
+      expect(text).toContain(dbm(UWB_RX_SENS_DBM)) // −93 dBm
+    }
+  })
+
+  it('quotes the range sigma the solver is given', () => {
+    for (const text of all) expect(text).toContain(SIGMA_CM) // 2.1 cm
+  })
+
+  it('quotes the FoM texts the engine decodes', () => {
+    // English prose quotes fomText verbatim; the Chinese translates the sentence, so there only
+    // the two decoded numbers — the parts that rot when a table entry moves — are pinned.
+    expect(fomText(FOM_LOS)).toBe('97 % within 0.5 ns')
+    expect(fomText(FOM_NLOS)).toBe('75 % within 12 ns')
+    for (const text of [en, README]) {
+      expect(text).toContain(fomText(FOM_LOS))
+      expect(text).toContain(fomText(FOM_NLOS))
+    }
+    for (const fom of [FOM_LOS, FOM_NLOS]) {
+      const { levelPct, intervalNs } = fomDecode(fom)
+      expect(zh).toContain(`${levelPct} %`)
+      expect(zh).toContain(`${intervalNs} ns`)
+    }
+  })
+
+  it('states the round shape the scheduler builds', () => {
+    // The Guide and the README both write the DS round as "2N + 2" slots.
+    expect(uwbSlotsPerTag('ds', 4)).toBe(2 * 4 + 2)
+    expect(uwbSlotsPerTag('ss', 4)).toBe(4 + 1)
+    for (const text of all) expect(text).toContain('2N + 2')
+    expect(README).toContain('N + 1')
+  })
+
+  it('states the Final size and the anchor limit the frame builder imposes', () => {
+    // The README writes the Final as "14 + 12N" octets; that is uwbFinalBytes.
+    for (const n of [1, 4, UWB_MAX_ANCHORS]) expect(uwbFinalBytes(n)).toBe(14 + 12 * n)
+    expect(README).toContain('14 + 12N')
+    expect(README).toContain(`≤ ${UWB_MAX_ANCHORS} anchors`)
+  })
+
+  it('states the counter width as a model choice, with its wrap', () => {
+    expect(README).toContain(COUNTER_WRAP_S) // 17.2 s
+    const row = README.split('\n').find((l) => l.includes(COUNTER_WRAP_S)) ?? ''
+    expect(row, 'the counter-width row must be tagged model, not a clause').toContain('| model |')
   })
 })
 
