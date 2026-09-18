@@ -31,11 +31,60 @@ export function rangeSigmaM(tsNoisePs: number): number {
 
 const MAX_ITERATIONS = 20
 const STEP_TOL_M = 1e-3
+// Below this, JtJ (rows are unit vectors, so O(1)-scaled) is treated as singular:
+// collinear/degenerate anchor geometry cannot fix a 2-D point.
+const MIN_DET = 1e-9
+
+interface NormalEquations {
+  jtjXX: number
+  jtjXY: number
+  jtjYY: number
+  jtrX: number
+  jtrY: number
+  sumSq: number
+}
+
+/** Accumulate JtJ, Jtr and the sum of squared residuals at (x, y) for the horizontal
+ * Gauss–Newton normal equations. Residual r_i = ‖p − a_i‖ − d_i (3-D distance, tag z fixed);
+ * J rows are the horizontal (x, y) components of the 3-D unit vector (p − a_i)/‖p − a_i‖. */
+function accumulateNormal(
+  usable: { anchor: AnchorPos; distM: number }[],
+  x: number,
+  y: number,
+  zTag: number,
+): NormalEquations {
+  let jtjXX = 0
+  let jtjXY = 0
+  let jtjYY = 0
+  let jtrX = 0
+  let jtrY = 0
+  let sumSq = 0
+
+  for (const { anchor, distM } of usable) {
+    const dx = x - anchor.x
+    const dy = y - anchor.y
+    const dz = zTag - anchor.z
+    const dist3 = Math.hypot(dx, dy, dz)
+    const ux = dist3 > 0 ? dx / dist3 : 0
+    const uy = dist3 > 0 ? dy / dist3 : 0
+    const resid = dist3 - distM
+
+    jtjXX += ux * ux
+    jtjXY += ux * uy
+    jtjYY += uy * uy
+    jtrX += ux * resid
+    jtrY += uy * resid
+    sumSq += resid * resid
+  }
+
+  return { jtjXX, jtjXY, jtjYY, jtrX, jtrY, sumSq }
+}
 
 /**
  * Gauss–Newton on (x, y) with the tag's z known. Residual r_i = ‖p − a_i‖ − d_i.
  * Start at the anchors' centroid; stop after 20 iterations or a step under 1 mm.
- * null when fewer than 3 ranges match an anchor.
+ * null when fewer than 3 ranges match an anchor, or when JtJ is singular/near-singular
+ * (collinear/degenerate anchor geometry) at any iteration or at the final covariance step.
  */
 export function solvePosition(
   anchors: AnchorPos[],
@@ -64,31 +113,11 @@ export function solvePosition(
 
   for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
     iterations = iter + 1
-    let jtjXX = 0
-    let jtjXY = 0
-    let jtjYY = 0
-    let jtrX = 0
-    let jtrY = 0
-
-    for (const { anchor, distM } of usable) {
-      const dx = x - anchor.x
-      const dy = y - anchor.y
-      const dz = zTag - anchor.z
-      const dist3 = Math.hypot(dx, dy, dz)
-      const ux = dist3 > 0 ? dx / dist3 : 0
-      const uy = dist3 > 0 ? dy / dist3 : 0
-      const resid = dist3 - distM
-
-      jtjXX += ux * ux
-      jtjXY += ux * uy
-      jtjYY += uy * uy
-      jtrX += ux * resid
-      jtrY += uy * resid
-    }
+    const { jtjXX, jtjXY, jtjYY, jtrX, jtrY } = accumulateNormal(usable, x, y, zTag)
 
     // Solve the 2x2 normal equations (JtJ) * delta = -Jtr
     const det = jtjXX * jtjYY - jtjXY * jtjXY
-    if (Math.abs(det) < 1e-15) break
+    if (Math.abs(det) < MIN_DET) return null
 
     const deltaX = -(jtjYY * jtrX - jtjXY * jtrY) / det
     const deltaY = -(-jtjXY * jtrX + jtjXX * jtrY) / det
@@ -101,26 +130,12 @@ export function solvePosition(
   }
 
   // Final JtJ at the converged point (recompute to be exact at the solution).
-  let jtjXX = 0
-  let jtjXY = 0
-  let jtjYY = 0
-  let sumSq = 0
-  for (const { anchor, distM } of usable) {
-    const dx = x - anchor.x
-    const dy = y - anchor.y
-    const dz = zTag - anchor.z
-    const dist3 = Math.hypot(dx, dy, dz)
-    const ux = dist3 > 0 ? dx / dist3 : 0
-    const uy = dist3 > 0 ? dy / dist3 : 0
-    const resid = dist3 - distM
-    sumSq += resid * resid
-    jtjXX += ux * ux
-    jtjXY += ux * uy
-    jtjYY += uy * uy
-  }
+  const { jtjXX, jtjXY, jtjYY, sumSq } = accumulateNormal(usable, x, y, zTag)
   const residualM = Math.sqrt(sumSq / usable.length)
 
   const det = jtjXX * jtjYY - jtjXY * jtjXY
+  if (Math.abs(det) < MIN_DET) return null
+
   // Inverse of JtJ (2x2): [[jtjYY, -jtjXY], [-jtjXY, jtjXX]] / det
   const invXX = jtjYY / det
   const invXY = -jtjXY / det

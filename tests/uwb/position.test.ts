@@ -35,4 +35,10 @@ describe('solvePosition', () => {
   it('rangeSigmaM(100) is 4.24 cm', () => {
     expect(rangeSigmaM(100)).toBeCloseTo(0.0424, 4)
   })
+  it('collinear anchors cannot fix a point: null', () => {
+    const collinear: AnchorPos[] = [
+      { id: 'a1', x: 0, y: 0, z: 1 }, { id: 'a2', x: 5, y: 0, z: 1 }, { id: 'a3', x: 10, y: 0, z: 1 },
+    ]
+    expect(solvePosition(collinear, rangesTo(collinear, 3, 0, 1), 1, 0.042)).toBeNull()
+  })
 })
