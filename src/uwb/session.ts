@@ -1,5 +1,6 @@
 /**
- * The ranging session schedule (standard §6.9.7): a session is a train of
+ * The ranging session schedule (standard §10.32.2, time-scheduled mode of
+ * §10.32.3): a session is a train of
  * ranging blocks, each block is split into ranging rounds, each round into
  * ranging slots, and every slot belongs to exactly one device.
  *

@@ -6,8 +6,10 @@
  * Pure, and derived only from the FrameDesc the engine recorded: the field
  * sizes add up to `frame.bytes` and the segment durations to `frame.txTimeNs`.
  *
- * References: IEEE 802.15.4z-2020 §7.2 (MAC frame format), §7.4.4.x (ranging
- * IEs: ARC, RDM, RRMC, RRTI, RMI), §15.3 (HRP UWB PPDU), §16.2 (SP1 STS).
+ * References: IEEE Std 802.15.4-2024 §7.2 (MAC frame format), §7.4.4 (the generic
+ * Nested IE format) and the ranging IEs themselves: §10.29.8.1 RRTI, §10.29.8.3 RRMC,
+ * §10.29.8.4 RMI, §10.32.9.1 ARC, §10.32.9.8 RDM; §16.2 is the HRP UWB PPDU and its
+ * SP1 STS configuration.
  */
 import type { DecodedFrame, FieldKey, FrameField, PpduSegment } from '../model/frameFields'
 import type { FrameDesc } from '../model/frames'

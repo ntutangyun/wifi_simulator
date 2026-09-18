@@ -165,15 +165,15 @@ export interface UwbNodeCfg {
 }
 
 /**
- * One ranging session (standard §6.9.7): the block/slot structure every tag
+ * One ranging session (standard §10.32.2, the modes of §10.32.3): the block/slot structure every tag
  * shares, the TWR method, the channel, and the two noise knobs the engine
  * draws its timestamp and clock errors from.
  */
 export interface UwbSessionCfg {
   method: 'ss' | 'ds'
-  /** Ranging block duration in RSTU (standard §6.9.7.1). */
+  /** Ranging block duration in RSTU (standard §10.32.2). */
   blockRstu: number
-  /** Ranging slot duration in RSTU; a whole number of 3-RSTU units (standard §6.9.7.2). */
+  /** Ranging slot duration in RSTU; a whole number of 3-RSTU units (standard §10.32.2). */
   slotRstu: number
   channel: 5 | 9
   /** 1-σ receive-timestamp noise in picoseconds. */

@@ -211,7 +211,7 @@ describe('uwb-dstwr · lesson shape', () => {
     const first = uwbDstwr.body[0]
     expect(first.kind ?? 'p').toBe('p')
     const en = (first as Extract<Block, { kind?: 'p' }>).text.en
-    for (const s of ['IEEE Std 802.15.4-2024', '§10.29.1.2.3', 'Figure 10-199', '§10.32.5', '§16.4.9']) {
+    for (const s of ['IEEE Std 802.15.4-2024', '§10.29.1.2.4', 'Figure 10-199', '§10.32.5', '§16.4.9']) {
       expect(en, s).toContain(s)
     }
     for (const s of ['100 ps', '2 ms ranging slot', 'FiRa']) expect(en, s).toContain(s)

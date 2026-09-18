@@ -1,5 +1,6 @@
 /**
- * HRP UWB ranging frames (standard §6.9.1 SP1 PPDUs carrying ranging IEs).
+ * HRP UWB ranging frames: SP1 PPDUs (standard §16.2, Table 16-1 and Figure 16-3)
+ * carrying the ranging IEs of §10.29.8 and §10.32.9.
  * They travel through the same FrameDesc the Wi-Fi engine uses, so the
  * timeline, the frame inspector and the 3-D scene need no second frame type.
  */
