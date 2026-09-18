@@ -93,6 +93,22 @@ describe('the AP’s AMP round', () => {
     const prot = new Simulation(scenario({ protection: 'ctsSelf' }, [cam])).runUntil(300 * MS).records
     expect(ofType(prot, 'NAV_SET', 'cam#2g').filter((r) => r.source.startsWith('cts')).length).toBeGreaterThan(0)
   })
+  it('an AMP PPDU arriving while a station awaits a CTS fails the attempt instead of wedging it', () => {
+    // §10.3.2.9: PHY-RXSTART holds the CTS/ACK timeout until RXEND. An AMP
+    // downlink PPDU is never the awaited response, so RXEND must fail the
+    // attempt — otherwise the station sits in waitCts with no timer left and
+    // never transmits again. With protection 'none' an RTS ends inside a slot
+    // often enough that the station would stall for good within a second.
+    const cam: NodeCfg = { id: 'cam', kind: 'sta', name: 'Camera', pos: { x: 5, y: 2, z: 1 }, txPowerDbm: 15, profiles: ['saturated'], caps: { generation: 'he', features: { edca: true, ampdu: true, txop: true } }, linkId: '2g' }
+    const sc = scenario({ protection: 'none' }, [cam])
+    sc.nodes[0].caps.features.ampdu = true // so the camera's uplink aggregates past the RTS threshold
+    const rs = new Simulation(sc).runUntil(3000 * MS).records
+    // the premise: the camera really does lose an RTS into a round
+    expect(ofType(rs, 'CTS_TIMEOUT', 'cam#2g').length).toBeGreaterThan(0)
+    // and it is still transmitting in the last tenth of the run
+    const camTx = ofType(rs, 'TX_START', 'cam#2g')
+    expect(camTx.filter((r) => r.t > 2700 * MS).length).toBeGreaterThan(0.05 * camTx.length)
+  })
   it('a finished round resets AC_BK’s contention window, even against higher-AC traffic', () => {
     // Downlink video (AC_VI) at the AP: every internal collision the AMP round
     // loses bumps AC_BK's CW, and only a successful round brings it back.

@@ -1176,16 +1176,21 @@ export class WifiMac implements PhyListener {
 
   onRxOk(t: Ns, frame: FrameDesc, from: string): void {
     this.corruptLast = false
-    if (frame.kind === 'ampResp') {
-      // A tag's slotted response: only the round cares, and it never answers
-      // one frame at a time (the slot's Ack closes it).
-      this.ampRound?.onRxOk(frame, from)
-      return
-    }
-    if (frame.kind === 'ampTrigger' || frame.kind === 'ampAck') {
-      // A Wi-Fi station overhearing an AMP DL PPDU: nothing to answer, and no
-      // Duration to take a NAV from.
-      this.corruptLast = false
+    // onRxStart held our ACK/CTS timeout for this reception (§10.3.2.9). An AMP
+    // frame is never the response we awaited, so the attempt must be failed
+    // here — before the AMP-only branches return — or the MAC would sit in
+    // waitCts/waitAck forever with no timer left to wake it.
+    if (frame.kind === 'ampResp' || frame.kind === 'ampTrigger' || frame.kind === 'ampAck') {
+      if (this.awaiting !== null) this.failAttempt()
+      if (frame.kind === 'ampResp') {
+        // A tag's slotted response: only the round cares, and it never answers
+        // one frame at a time (the slot's Ack closes it).
+        this.ampRound?.onRxOk(frame, from)
+      } else {
+        // A Wi-Fi station overhearing an AMP DL PPDU: nothing to answer, and no
+        // Duration to take a NAV from.
+        this.corruptLast = false
+      }
       return
     }
     const myPart = frame.muParts?.find((p) => p.dst === this.nodeId)
