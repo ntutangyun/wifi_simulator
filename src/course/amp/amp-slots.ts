@@ -6,6 +6,11 @@
  * every 20 ms. ABOC, ACW, sit-outs, collisions, and a small analytic model of
  * the slot checked against thirty measured rounds. Every number quoted below is
  * pinned in tests/course/amp-slots.test.ts.
+ *
+ * CAUTION — word budget: the English prose sits within ~25 words of the ceiling at
+ * which `lessonMinutes` rounds up from 25 to 30 minutes (2025 English words across
+ * body + observe + tryThis + quiz). Adding a sentence here means removing one
+ * elsewhere, or the lesson's own study-time test fails.
  */
 import type { Scenario } from '../../model/scenario'
 import {
@@ -33,7 +38,7 @@ export const ampSlots: Lesson = {
   title: { en: 'Slotted random access: ABOC, ACW and collisions', zh: '时隙化随机接入：ABOC、ACW 与碰撞' },
   body: [
     { text: {
-      en: 'IEEE P802.11bp is still a draft: D0.5 in May 2026, D1.0 to letter ballot in September 2026. The uplink access taken apart here is proposed draft text 11-26/1889r4 §39.4, the triggering procedure 11-26/1519r5. Lesson 1 gave each tag a slot of its own. This lesson asks what happens when more tags want a slot than there are slots.',
+      en: 'IEEE P802.11bp is still a draft: D0.5 in May 2026, D1.0 to letter ballot in September 2026. The uplink access taken apart here is proposed draft text 11-26/1889r4 §39.4, the triggering procedure 11-26/1519r5. Lesson 1 gave each tag a slot of its own; this lesson asks what happens when more tags want a slot than there are slots.',
       zh: 'IEEE P802.11bp 仍是草案：D0.5 于 2026 年 5 月发布，D1.0 将于 2026 年 9 月进入 letter ballot。本课拆解的上行接入来自提案草案文本 11-26/1889r4 第 39.4 节，触发过程见 11-26/1519r5。第一课里每个标签都有自己的时隙，根本不必问“时隙该给谁”。这一课要问的是更难的问题：当想要时隙的标签比时隙还多时，会发生什么？',
     } },
     { heading: { en: 'The scene: six tags, four slots', zh: '场景：六个标签，四个时隙' }, text: {
@@ -95,24 +100,24 @@ export const ampSlots: Lesson = {
       [N('3 (ACW 7)'), N('4 of 4'), N('44.9 % / 42.5 %'), N('38.5 % / 43.3 %'), N('16.7 % / 14.2 %')],
     ] },
     { text: {
-      en: 'Over only 120 slots a row, no measured fraction is further than 0.05 — five percentage points — from the formula; the largest gap is 4.9 points, on success at ACWE 3. The sit-out rate matches too: 1 − p predicts half the draws sit out at ACWE 3, and 91 of the 180 do, 50.6 %. At ACWE 1 and 2, p = 1 and no tag sits out once.',
-      zh: '每行只有 120 个时隙，实测比例与公式的偏差却都不超过 0.05，也就是五个百分点；全表最大的一处偏差是 ACWE 3 的“成功”一列，4.9 个百分点。空转率也对得上：1 − p 预言 ACWE 3 下有一半抽取会空转，实测 180 次中空转 91 次，50.6 %。ACWE 1 与 2 下公式给出 p = 1，实测也确实一次空转都没有。',
+      en: 'Over only 120 slots a row, no measured fraction is further than 0.05 — five percentage points — from the formula; the largest gap is 4.87 points — 4.8 between the rounded cells — on success at ACWE 3. The sit-out rate matches too: 1 − p predicts half the draws sit out at ACWE 3, and 91 of the 180 do, 50.6 %. At ACWE 1 and 2, p = 1 and no tag sits out once.',
+      zh: '每行只有 120 个时隙，实测比例与公式的偏差却都不超过 0.05，也就是五个百分点；全表最大的一处偏差是 ACWE 3 的“成功”一列，4.87 个百分点（四舍五入后的表格单元格相差 4.8）。空转率也对得上：1 − p 预言 ACWE 3 下有一半抽取会空转，实测 180 次中空转 91 次，50.6 %。ACWE 1 与 2 下公式给出 p = 1，实测也确实一次空转都没有。',
     } },
     { heading: { en: 'Choosing ACW', zh: '怎么选 ACW' }, text: {
-      en: 'A small ACW crowds the tags together; a large one scatters them past the end of the slot list. ACWE 1 is the pathological end: ACW + 1 = 2 is smaller than the four slots on offer, so slots 3 and 4 are unreachable by construction. All 60 of them are empty, and the 1756 µs they cost — 41.9 % of the round — is paid for nothing. Of the reachable slots 88.3 % end in a collision, only 7 readings arrive in the 600 ms (0.23 a round), and two of the six tags are never acknowledged once.',
+      en: 'A small ACW crowds the tags together; a large one scatters them past the slot list. ACWE 1 is the pathological end: ACW + 1 = 2 is smaller than the four slots on offer, so slots 3 and 4 are unreachable by construction. All 60 of them are empty, and the 1756 µs they cost — 41.9 % of the round — is paid for nothing. Of the reachable slots 88.3 % end in a collision, only 7 readings arrive in the 600 ms (0.23 a round), and two of the six tags are never acknowledged once.',
       zh: 'ACW 太小，标签挤成一团；ACW 太大，它们被撒到时隙列表之外。ACWE 1 是病态的那一端：ACW + 1 = 2 小于本轮提供的四个时隙，于是时隙 3、4 从构造上就不可达。60 个这样的时隙全是空的，它们占用的 1756 µs——整轮的 41.9 %——每轮都白白付出。可达时隙里 88.3 % 以碰撞收场，整整 600 ms 只送达 7 个读数（每轮 0.23 个），六个标签里有两个一次都没被确认过。',
     } },
     { text: {
-      en: 'ACWE 3 is the other end and much kinder: half the draws sit out, only 17 collisions in thirty rounds, and 52 readings — 1.73 a round. Sitting out is not waste the way a collision is; a silent tag costs no airtime and loses only its own turn. ACWE 2 lands between them at 46 readings, 1.53 a round, its thinnest tag getting 4 through against 6 at ACWE 3. With six tags and four slots the AP should raise ACWE — which is why the value rides in the trigger, re-announced every round.',
+      en: 'ACWE 3 is the other end and much kinder: half the draws sit out, only 17 collisions in thirty rounds, and 52 readings — 1.73 a round. Sitting out is not waste the way a collision is: a silent tag costs no airtime and loses only its turn. ACWE 2 lands between them at 46 readings, 1.53 a round, its thinnest tag getting 4 through against 6 at ACWE 3. With six tags and four slots the AP should raise ACWE — which is why the value rides in the trigger, re-announced every round.',
       zh: 'ACWE 3 是另一端，友善得多：一半的抽取选择空转，三十轮里只有 17 次碰撞，送达 52 个读数——每轮 1.73 个。空转和碰撞不是一回事：沉默的标签不占空口时间，损失的只是自己这一轮。ACWE 2 落在中间，46 个读数、每轮 1.53 个，最吃亏的标签送出 4 个，而 ACWE 3 下是 6 个。六个标签抢四个时隙时，AP 应该把 ACWE 调高——这正是这个值为什么写在触发帧里、每轮重新广播，而不是固化在标签里。',
     } },
     { heading: { en: 'Why the Ack is the tag’s clock', zh: '为什么 Ack 就是标签的时钟' }, text: {
-      en: 'The AMP Ack carries no slot index a tag can key on (SFD MM-46, PDT 39.4): the tag counts Acks and transmits once it has seen slot − 1 of them. A missed Ack is therefore a lost round — the tag counts one short, transmits a slot late, and the AP, which accepts a response only in the slot it is running, ignores it. Here that never happens: all 180 responses go out in the slot their draw armed. It is the price of keying slots to Acks rather than to a clock the tag does not have.',
-      zh: 'AMP Ack 并不携带标签可以依赖的时隙序号（SFD MM-46、PDT 39.4）：标签按到达顺序数 Ack，数到第 slot − 1 帧就开始发送。于是“漏掉一帧 Ack”不只是漏掉一帧 Ack，而是丢掉一整轮——标签少数一帧，晚一个时隙才发送，而 AP 只接收当前时隙里的回应，直接忽略它。本场景里这从未发生：余量高达几十分贝，180 次回应全部落在抽取所指定的时隙里。这就是“把时隙锚在 Ack 上、而不是锚在标签根本没有的时钟上”所要付的代价。',
+      en: 'The AMP Ack carries no slot index a tag can key on (SFD 11-24/1613r20 MM-46, PDT 39.4): the tag counts Acks and transmits once it has seen slot − 1 of them. A missed Ack is therefore a lost round — the tag counts one short, transmits a slot late, and the AP, which accepts a response only in the slot it is running, ignores it. Here that never happens: all 180 responses go out in the slot their draw armed. That is the price of keying slots to Acks rather than to a clock the tag lacks.',
+      zh: 'AMP Ack 并不携带标签可以依赖的时隙序号（SFD 11-24/1613r20 MM-46、PDT 39.4）：标签按到达顺序数 Ack，数到第 slot − 1 帧就开始发送。于是“漏掉一帧 Ack”不只是漏掉一帧 Ack，而是丢掉一整轮——标签少数一帧，晚一个时隙才发送，而 AP 只接收当前时隙里的回应，直接忽略它。本场景里这从未发生：余量高达几十分贝，180 次回应全部落在抽取所指定的时隙里。这就是“把时隙锚在 Ack 上、而不是锚在标签根本没有的时钟上”所要付的代价。',
     } },
     { heading: { en: 'Two phases: contend cheap, read expensive', zh: '两阶段：竞争用便宜的，读数用贵的' }, text: {
-      en: 'The two-phase variant splits the two jobs. Its random phase asks only for identity: the response is 7 octets instead of 15, the slot 272 µs instead of 528 µs. Whoever is heard there is named in a second, scheduled trigger and answers with the reading in a slot fixed by list position — no draw, no collision. In the first round the random phase hears Tag 2, Tag 1 and Tag 4, and the scheduled trigger lists them in that order: 19 octets and 810 µs, because each listed tag costs a 2-octet ID.',
-      zh: '两阶段变体把这两件事分开做。随机阶段只问身份，回应是 7 个字节而不是 15 个，时隙是 272 µs 而不是 528 µs。被听到的标签随后由第二帧“调度型”触发帧点名，并在名单位置决定的时隙里送出读数——不抽签，也就不可能碰撞。第一轮里随机阶段听到了 Tag 2、Tag 1 和 Tag 4，调度触发帧按这个顺序列出它们：19 个字节、810 µs，比广播触发帧长六个字节，因为名单里每个标签都要占 2 个字节的 ID。',
+      en: 'The two-phase variant splits the two jobs. Its random phase asks only for identity: the response is 7 octets instead of 15, the slot 272 µs instead of 528 µs. Whoever is heard is named in a second, scheduled trigger and answers with the reading in a slot fixed by list position — no draw, no collision. In the first round the random phase hears Tag 2, Tag 1 and Tag 4, and the scheduled trigger lists them in that order: 19 octets and 810 µs, six octets longer than the broadcast one, because each listed tag costs a 2-octet ID (that width and the 6-octet trigger body are model choices, not draft values).',
+      zh: '两阶段变体把这两件事分开做。随机阶段只问身份，回应是 7 个字节而不是 15 个，时隙是 272 µs 而不是 528 µs。被听到的标签随后由第二帧“调度型”触发帧点名，并在名单位置决定的时隙里送出读数——不抽签，也就不可能碰撞。第一轮里随机阶段听到了 Tag 2、Tag 1 和 Tag 4，调度触发帧按这个顺序列出它们：19 个字节、810 µs，比广播触发帧长六个字节，因为名单里每个标签都要占 2 个字节的 ID（这个宽度和 6 字节的触发帧帧体都是模型取值，而非草案值）。',
     } },
     { kind: 'formula', text: {
       en: 'random phase  = 50 + 10 + 618 + 4 × (10 + 272 + 10 + 330) = 3166 µs\nscheduled phase =      10 + 810 + 3 × (10 + 528 + 10 + 330) = 3454 µs   →  6620 µs',
@@ -122,12 +127,12 @@ export const ampSlots: Lesson = {
       zh: '内联模式下同样的三个读数只花了 4190 µs，两阶段多花 2430 µs。它的 CTS-to-self 要预留 7512 µs——按“四个标签全被听到”的最坏情况计算；三十轮里有 4 轮一个标签也没听到，也就没有调度阶段。',
     } },
     { text: {
-      en: 'Both modes deliver the same 46 readings: inline spends 154 730 µs of PPDU, two-phase 167 130 µs, 8.0 % more. Cheap contention slots do save, but a second trigger and a second Ack per tag cost more at these frame sizes. Two-phase earns its keep when the reading is long compared with an identity.',
-      zh: '三十轮下来两种模式送达的读数一样多，都是 46 个：内联花了 154 730 µs 的 PPDU，两阶段花了 167 130 µs，多 8.0 %。便宜的竞争时隙确实省钱，但在这样的帧长下，多出来的一帧触发帧和每个标签多出来的一帧 Ack 更贵。两阶段划算的场合，是读数比身份长得多，或者 AP 需要一份可供调度的发现名单。',
+      en: 'Both modes deliver the same 46 readings: inline spends 154 730 µs of PPDU, two-phase 167 130 µs, 8.0 % more. Cheap contention slots do save, but a second trigger and a second Ack per tag cost more at these frame sizes; two-phase earns its keep when readings are long.',
+      zh: '三十轮下来两种模式送达的读数一样多，都是 46 个：内联花了 154 730 µs 的 PPDU，两阶段花了 167 130 µs，多 8.0 %。便宜的竞争时隙确实省钱，但在这样的帧长下，多出来的一帧触发帧和每个标签多出来的一帧 Ack 更贵。两阶段划算的场合，是读数本身很长的时候。',
     } },
     { kind: 'list', heading: { en: 'Where to read it', zh: '在哪里看' }, items: [
       { en: 'The log: “ABOC 1 of [0, 3] → slot 2”, “ABOC 5 of [0, 7] → sits out”, “slot 3: not acknowledged”.', zh: '日志里：“ABOC 1 of [0, 3] → slot 2”、“ABOC 5 of [0, 7] → sits out”、“slot 3: not acknowledged”。' },
-      { en: 'The trigger body: “Session 1 · ACWE 2 (ACW 3) · 4 slots × 528 µs · reading”; in two-phase “… 4 slots × 272 µs · id only”.', zh: '触发帧 6 个字节的帧体：“Session 1 · ACWE 2 (ACW 3) · 4 slots × 528 µs · reading”，两阶段下则是“…… 4 slots × 272 µs · id only”。' },
+      { en: 'The trigger’s 6-octet body: “Session 1 · ACWE 2 (ACW 3) · 4 slots × 528 µs · reading”; in two-phase “… 4 slots × 272 µs · id only”.', zh: '触发帧 6 个字节的帧体：“Session 1 · ACWE 2 (ACW 3) · 4 slots × 528 µs · reading”，两阶段下则是“…… 4 slots × 272 µs · id only”。' },
     ] },
   ],
   scenario: () => ampSlotsScenario({ acwe: 2, readMode: 'inline' }),
@@ -145,12 +150,12 @@ export const ampSlots: Lesson = {
   ],
   observe: [
     { en: 'Jump to the first collision in a slot: three responses start at 2444 µs and end at 2972 µs, where the COLLISION sits. Open the Ack at 2982 µs — its ID field carries the router. Then look at the AP’s records: three RX_MISS and no RX_FAIL, because with equal power no preamble was acquired to fail.', zh: '跳到时隙里的第一次碰撞：三帧回应在 2444 µs 一起开始、在 2972 µs 结束，COLLISION 就落在那里。打开 2982 µs 那帧 Ack——它的 ID 字段装的是路由器。再看 AP 记下了什么：三条 RX_MISS，一条 RX_FAIL 也没有，因为功率相等时根本没有前导被捕获。' },
-    { en: 'Select Tag 3 and step through five rounds. Its ABOC changes with no memory of what just happened, and over thirty rounds it draws all four values — nothing in a tag’s state is a window that grows after a collision.', zh: '选中 Tag 3，单步走过五轮。它的 ABOC 每轮都在变，完全不记得上一轮发生了什么；三十轮里四个取值它都抽到过。标签状态里没有“碰撞后会翻倍的竞争窗口”：取值范围来自触发帧，每轮一模一样。' },
+    { en: 'Select Tag 3 and step through five rounds. Its ABOC changes with no memory of what just happened, and over thirty rounds it draws all four values — no window grows after a collision.', zh: '选中 Tag 3，单步走过五轮。它的 ABOC 每轮都在变，完全不记得上一轮发生了什么；三十轮里四个取值它都抽到过。标签状态里没有“碰撞后会翻倍的竞争窗口”：取值范围来自触发帧，每轮一模一样。' },
     { en: 'Load the ACWE 3 variant and jump to the first sit-out at 678 µs: Tag 3 draws 5 of [0, 7] and stays silent all round. 42.5 % of the slots are empty — that is what buys the collision rate down to 14.2 %.', zh: '载入 ACWE 3 变体，跳到 678 µs 的第一次空转：Tag 3 从 [0, 7] 抽到 5，整轮一声不吭。42.5 % 的时隙是空的——碰撞率降到 14.2 %，买单的正是这些空时隙。' },
   ],
   tryThis: [
     { en: 'Load the ACWE 1 and ACWE 3 variants in turn, or set ACWE in the editor’s AMP polling section, and watch the readings that get through: 0.23 a round at ACWE 1, 1.53 at ACWE 2, 1.73 at ACWE 3. At ACWE 1 slots 3 and 4 carry nothing. Then work out from the formula which ACWE you would pick for two tags.', zh: '依次载入 ACWE 1 与 ACWE 3 两个变体，或在编辑器的 AMP 轮询设置里自己改 ACWE，看送达的读数如何变化：ACWE 1 每轮 0.23 个，ACWE 2 每轮 1.53 个，ACWE 3 每轮 1.73 个。ACWE 1 下时隙 3 和 4 里永远什么都没有。然后用公式推一推：如果只有两个标签而不是六个，你会选哪个 ACWE？' },
-    { en: 'Add a seventh tag at the same 2 m range with the editor and reload. Delivery falls from 1.53 readings a round to 1.03 while the collided share of the slots climbs from 45.0 % to 59.2 % — the model predicts 55.5 %. Six tags into four slots was already past the knee.', zh: '用编辑器在同样 2 m 的距离上再加第七个标签，然后重新载入。送达率从每轮 1.53 个读数掉到 1.03 个，碰撞时隙占比从 45.0 % 升到 59.2 %——模型预测 55.5 %。六个标签抢四个时隙已经越过拐点。' },
+    { en: 'Add a seventh tag at the same 2 m range with the editor and reload. Delivery falls from 1.53 readings a round to 1.03 while the collided share of the slots climbs from 45.0 % to 59.2 % — the model predicts 55.5 %.', zh: '用编辑器在同样 2 m 的距离上再加第七个标签，然后重新载入。送达率从每轮 1.53 个读数掉到 1.03 个，碰撞时隙占比从 45.0 % 升到 59.2 %——模型预测 55.5 %。' },
   ],
   quiz: [
     {
@@ -171,7 +176,7 @@ export const ampSlots: Lesson = {
         { en: 'The first response, with the other two discarded as duplicates', zh: '收下第一帧回应，另外两帧当作重复丢弃' },
       ],
       answer: 0,
-      explain: { en: 'Capture needs one signal 5 dB above the others, inside the 48 µs of AMP-Sync. On a ring of equal radius nothing has that margin, so no preamble is acquired at all.', zh: '捕获要求某一路比其他路高出 5 dB，而且要落在上行回应仅有的那 48 µs AMP-Sync 之内。等半径圆环上谁都没有这个余量，于是没有前导被捕获，整个运行里也不会出现原因为 capture 的 RX_FAIL。' },
+      explain: { en: 'Capture needs one signal 5 dB above the others, inside the 48 µs of AMP-Sync. On an equal-radius ring nothing has that margin, so no preamble is acquired.', zh: '捕获要求某一路比其他路高出 5 dB，而且要落在上行回应仅有的那 48 µs AMP-Sync 之内。等半径圆环上谁都没有这个余量，于是没有前导被捕获，整个运行里也不会出现原因为 capture 的 RX_FAIL。' },
     },
     {
       q: { en: 'Bianchi’s DCF model must be solved self-consistently for τ. Why can the AMP slot model be compared with a measurement directly?', zh: 'Bianchi 的 DCF 模型必须自洽求解 τ。为什么 AMP 的时隙模型可以直接拿去和实测比对？' },
@@ -181,7 +186,7 @@ export const ampSlots: Lesson = {
         { en: 'Because the AP retransmits on the tag’s behalf after a collision', zh: '因为碰撞之后 AP 会代替标签重传' },
       ],
       answer: 1,
-      explain: { en: 'Bianchi must solve for τ because a station’s window doubles with its collisions. An AMP tag has none of that: ACW is re-announced every round, so the transmission probability is an input, not an unknown.', zh: 'Bianchi 必须求解 τ，因为终端的窗口会随碰撞次数翻倍。AMP 标签没有窗口翻倍、没有冻结、没有历史：触发帧每轮都重新广播 ACW，于是发送概率是已知输入，而不是待解的未知数。' },
+      explain: { en: 'Bianchi must solve for τ because a station’s window doubles with its collisions. An AMP tag has none of that: ACW is re-announced every round, so the probability is an input, not an unknown.', zh: 'Bianchi 必须求解 τ，因为终端的窗口会随碰撞次数翻倍。AMP 标签没有窗口翻倍、没有冻结、没有历史：触发帧每轮都重新广播 ACW，于是发送概率是已知输入，而不是待解的未知数。' },
     },
   ],
 }
