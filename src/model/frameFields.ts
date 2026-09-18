@@ -20,6 +20,7 @@ import {
   PHY_MODES, QOS_HDR_BYTES, RTS_BYTES, multiStaBaBytes, triggerBytes,
 } from '../engine/phy'
 import { uwbFrameFields, uwbPpduLayout } from '../uwb/frameFields'
+import type { UwbFrameKind } from '../uwb/frames'
 import type { FrameDesc, FrameKind } from './frames'
 import type { Ns } from './types'
 
@@ -110,11 +111,12 @@ export interface DecodeCtx {
 /** Table 10-1: AC index (0 BK, 1 BE, 2 VI, 3 VO) → TID of its lowest user priority used here. */
 export const TID_FOR_AC = [1, 0, 5, 6] as const
 
-const SUBTYPE: Record<Exclude<FrameKind, 'data'>, string> = {
+/** 802.11 subtype names. The UWB kinds are absent on purpose: they never reach
+ * this decoder, and uwb/frameFields.ts owns the one table that names them. */
+const SUBTYPE: Record<Exclude<FrameKind, 'data' | UwbFrameKind>, string> = {
   ack: 'Ack', cts: 'CTS', rts: 'RTS', ba: 'Block Ack', mba: 'Block Ack (Multi-STA)',
   trigger: 'Trigger', cfend: 'CF-End',
   ampTrigger: 'AMP Trigger', ampAck: 'AMP Ack', ampResp: 'AMP Response',
-  uwbPoll: 'UWB Poll', uwbResp: 'UWB Response', uwbFinal: 'UWB Final', uwbReport: 'UWB Report',
 }
 const SUBTYPE_BITS: Record<string, string> = {
   Ack: '1101', CTS: '1100', RTS: '1011', 'Block Ack': '1001', 'Block Ack (Multi-STA)': '1001',
@@ -209,7 +211,8 @@ function userPsdu(dst: string, subframes: Subframe[], aggregated: boolean): User
 }
 
 function controlMpdu(f: FrameDesc, apId: string): Mpdu {
-  const kind = f.kind as Exclude<FrameKind, 'data'>
+  if (f.uwb) throw new Error('unreachable: UWB frames are decoded by uwb/frameFields.ts')
+  const kind = f.kind as Exclude<FrameKind, 'data' | UwbFrameKind>
   const sub = SUBTYPE[kind]
   const head = (fields: FrameField[]) => [fcField('Control', sub, false, false, false), { key: 'duration' as const, bytes: 2, value: usOf(f.durationFieldNs) }, ...fields]
   const dst = f.dst.startsWith('*') ? '*' : f.dst
@@ -280,13 +283,6 @@ function controlMpdu(f: FrameDesc, apId: string): Mpdu {
       ]
       checkSize(fields, AMP_ACK_BYTES)
       break
-    case 'uwbPoll':
-    case 'uwbResp':
-    case 'uwbFinal':
-    case 'uwbReport':
-      // Never reached: decodeFrame sends UWB frames to uwb/frameFields.ts, which
-      // decodes an 802.15.4 MHR + ranging IEs rather than an 802.11 MAC header.
-      return uwbFrameFields(f).users[0].subframes[0].mpdu
     case 'ampResp': {
       const a = f.amp!
       fields = [

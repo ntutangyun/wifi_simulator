@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { laneIds } from '../../src/model/lanes'
 import { makeEmitter, type EmitFn, type TLRecord } from '../../src/model/records'
-import type { NodeCfg } from '../../src/model/scenario'
+import { DEFAULT_UWB_SESSION, type NodeCfg, type Scenario } from '../../src/model/scenario'
 import type { FrameDesc } from '../../src/model/frames'
 import { recordsToSpans, spanTooltip, type LaneSpan } from '../../src/ui/laneLayout'
 import { STRINGS } from '../../src/ui/i18n'
@@ -9,7 +9,7 @@ import { nodeDisplayName } from '../../src/ui/names'
 import { frameColor } from '../../src/scene/effects'
 import { haloColor, statusText } from '../../src/scene/nodes'
 import { makePoll, makeResp } from '../../src/uwb/frames'
-import type { NodeView } from '../../src/model/view'
+import { initViewState, type NodeView } from '../../src/model/view'
 
 const uwbNode = (id: string, role: 'anchor' | 'tag'): NodeCfg => ({
   id, kind: 'uwb', name: role === 'tag' ? 'Badge' : `Anchor ${id}`, pos: { x: 0, y: 0, z: 1 },
@@ -100,15 +100,20 @@ describe('UWB frames on a lane', () => {
 })
 
 describe('a UWB node in the 3-D scene', () => {
-  const nv = (slot: number | null): NodeView => ({
-    state: 'uwbWait', backoff: null, cw: 15, qsrc: 0, navUntilNs: 0, ccaBusy: false, txopUntilNs: 0, txopAc: 1,
-    queue: [], stats: {
-      txOk: 0, retries: 0, drops: 0, collisions: 0, airtimeNs: 0, bytesDelivered: 0,
-      txLatency: { n: 0, sumNs: 0, maxNs: 0 }, rxLatency: { n: 0, sumNs: 0, maxNs: 0 },
-      relayLatency: { n: 0, sumNs: 0, maxNs: 0 }, appRtt: { n: 0, sumNs: 0, maxNs: 0 },
-    },
-    uwb: { role: 'tag', block: 1, round: 0, slot, rounds: 1, timeouts: 0, ranges: {}, position: null },
-  } as unknown as NodeView)
+  const scenario: Scenario = {
+    rooms: [{ x: 0, y: 0, w: 12, h: 10, name: 'lab' }],
+    walls: [],
+    nodes: [uwbNode('anc-1', 'anchor'), uwbNode('tag-1', 'tag')],
+    servers: [], seed: 1, rtsThresholdBytes: 3000, snapshotIntervalMs: 10,
+    uwb: DEFAULT_UWB_SESSION,
+  }
+  /** The real reducer's node view, so the fixture cannot drift from what the app holds. */
+  const nv = (slot: number | null): NodeView => {
+    const v = initViewState(scenario).nodes['tag-1']
+    v.state = 'uwbWait'
+    v.uwb!.slot = slot
+    return v
+  }
 
   it('halos a ranging slot in amber', () => {
     expect(haloColor('uwbWait', false)).toBe(0xd97706)

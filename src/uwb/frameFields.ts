@@ -111,7 +111,8 @@ const MHR_FIELD_BYTES = [2, 1, 2, 2, 2] as const
 export function uwbFrameFields(f: FrameDesc): DecodedFrame {
   const u = f.uwb!
   const kind = f.kind as UwbFrameKind
-  const broadcast = f.dst === '*' || f.dst.startsWith('*')
+  // '*' and the '*mu'-style wildcards the engine uses for a broadcast destination.
+  const broadcast = f.dst.startsWith('*')
   const [fcB, seqB, panB, dstB, srcB] = MHR_FIELD_BYTES
   const fields: FrameField[] = [
     {

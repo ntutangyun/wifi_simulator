@@ -123,6 +123,9 @@ export function fomDecode(fom: number): { levelPct: number; intervalNs: number }
 }
 
 export function fomText(fom: number): string {
+  // An all-zero FoM byte is the standard's "not available" (standard §10.29.1.6),
+  // not a claim that 0 % of the error lies within 0.05 ns.
+  if (fom === 0) return 'no FoM'
   const { levelPct, intervalNs } = fomDecode(fom)
   return `${levelPct} % within ${intervalNs} ns`
 }

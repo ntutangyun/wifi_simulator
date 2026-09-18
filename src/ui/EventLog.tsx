@@ -52,7 +52,7 @@ export function EventLog() {
             {f && expanded === key && (
               <table style={{ margin: '2px 24px 6px', fontSize: 11, borderCollapse: 'collapse' }}>
                 <tbody>
-                  {decodeFrame(f).map((row) => (
+                  {decodeFrame(f, L.frameDetail.fields).map((row) => (
                     <tr key={row.field}>
                       <td style={{ color: 'var(--dim)', paddingRight: 10 }}>{row.field}</td>
                       <td>{row.value}</td>

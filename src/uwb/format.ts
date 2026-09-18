@@ -25,7 +25,7 @@ export function fmtUwbRecord(r: UwbTLRecord): string {
     case 'UWB_SLOT':
       return `${r.node} UWB slot ${r.slot} until ${fmtNs(r.untilNs)}`
     case 'UWB_TS':
-      return `${r.node} ${r.dir.toUpperCase()} RMARKER ${r.dir === 'tx' ? '→' : '←'} ${r.peer} ${KIND_SHORT[r.frameKind]}: counter ${r.counter}${r.fom ? ` (${fomText(r.fom)})` : ''}`
+      return `${r.node} ${r.dir.toUpperCase()} RMARKER ${r.dir === 'tx' ? '→' : '←'} ${r.peer} ${KIND_SHORT[r.frameKind]}: counter ${r.counter}${r.fom !== undefined ? ` (${fomText(r.fom)})` : ''}`
     case 'UWB_RANGE':
       return `${r.node} range → ${r.peer} (${r.method.toUpperCase()}): ${r.distM.toFixed(2)} m (true ${r.trueDistM.toFixed(2)} m${r.tofRawRctu !== undefined ? `, raw ${rctuToMetres(r.tofRawRctu).toFixed(2)} m` : ''})`
     case 'UWB_POSITION': {

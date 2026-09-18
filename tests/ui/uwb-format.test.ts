@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { fmtRecord } from '../../src/ui/format'
+import { decodeFrame, fmtRecord } from '../../src/ui/format'
+import { STRINGS } from '../../src/ui/i18n'
+import { makePoll } from '../../src/uwb/frames'
+import type { FrameDesc } from '../../src/model/frames'
 import { fmtUwbRecord, type UwbTLRecord } from '../../src/uwb/format'
 import { FOM_LOS } from '../../src/uwb/phy'
 import { rctuToMetres } from '../../src/uwb/ranging'
@@ -63,5 +66,29 @@ describe('fmtUwbRecord', () => {
 describe('fmtRecord delegates every UWB record', () => {
   it.each([ROUND, SLOT, TS_TX, TS_RX, RANGE, RANGE_NO_RAW, POSITION, TIMEOUT])('$type', (r) => {
     expect(fmtRecord(r)).toBe(fmtUwbRecord(r))
+  })
+})
+
+describe('the event log expands a UWB frame in 802.15.4 vocabulary', () => {
+  const poll = makePoll('tag-1', ['anc-1', 'anc-2'], 'ds', 1, 0)
+  /** Concepts an 802.15.4 ranging frame simply does not have. */
+  const WIFI_ONLY = ['RA / Address 1', 'TA / Address 2', 'Retry flag', 'Duration/ID']
+
+  it.each(['en', 'zh'] as const)('%s names the MHR fields and the ranging IEs', (lang) => {
+    const S = STRINGS[lang].frameDetail.fields
+    const rows = decodeFrame(poll, S)
+    const labels = rows.map((r) => r.field)
+    expect(labels).toContain(S.name.srcAddr16)
+    expect(labels).toContain(S.name.dstAddr16)
+    expect(labels).toContain(S.name.ieArc)
+    expect(labels).toContain(S.name.ieRdm)
+    for (const wrong of WIFI_ONLY) expect(labels).not.toContain(wrong)
+    expect(rows.find((r) => r.field === S.name.ieRdm)!.value).toContain('anc-1 slot 1')
+    expect(rows.find((r) => r.field === S.name.dstAddr16)!.value).toContain(S.broadcast)
+  })
+
+  it('leaves a Wi-Fi frame on the 802.11 rows it has always had', () => {
+    const data: FrameDesc = { kind: 'data', src: 'ap', dst: 'sta-1', bytes: 1428, mbps: 54, durationFieldNs: 60_000, txTimeNs: 232_000 }
+    expect(decodeFrame(data).map((r) => r.field)).toContain('RA / Address 1')
   })
 })

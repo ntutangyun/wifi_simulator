@@ -3,6 +3,8 @@ import type { TLRecord } from '../model/records'
 import type { Ns } from '../model/types'
 import type { LatencyStats } from '../model/view'
 import { fmtUwbRecord } from '../uwb/format'
+import { uwbFrameFields } from '../uwb/frameFields'
+import { STRINGS, type Strings } from './i18n'
 
 /** "12.345 678 901" — seconds.milli micro nano. */
 export function fmtNs(ns: Ns): string {
@@ -83,8 +85,22 @@ export function fmtRecord(r: TLRecord): string {
   }
 }
 
-export function decodeFrame(f: FrameDesc): { field: string; value: string }[] {
-  const rows = [
+export interface FieldRow {
+  field: string
+  value: string
+}
+
+/**
+ * The little table the event log expands under a frame. `S` names the fields of
+ * a ranging frame in the reader's language; it defaults to English for the call
+ * sites that only ever pass Wi-Fi frames, whose labels are not translated.
+ */
+export function decodeFrame(f: FrameDesc, S: Strings['frameDetail']['fields'] = STRINGS.en.frameDetail.fields): FieldRow[] {
+  // An 802.15.4 ranging frame has no RA/TA, no Duration and no Retry bit; naming
+  // those here would contradict the frame inspector two panels away. Reuse the
+  // one UWB decode instead, so the log shows the MHR and the ranging IEs.
+  if (f.uwb) return uwbFieldRows(f, S)
+  const rows: FieldRow[] = [
     { field: 'Type', value: f.kind.toUpperCase() },
     { field: 'RA / Address 1', value: f.dst },
     { field: 'TA / Address 2', value: f.src },
@@ -109,5 +125,19 @@ export function decodeFrame(f: FrameDesc): { field: string; value: string }[] {
       rows.push({ field: 'ABOC', value: String(f.amp.aboc) })
     }
   }
+  return rows
+}
+
+function uwbFieldRows(f: FrameDesc, S: Strings['frameDetail']['fields']): FieldRow[] {
+  const mpdu = uwbFrameFields(f).users[0].subframes[0].mpdu
+  const rows: FieldRow[] = [
+    { field: S.title, value: S.mpdu(mpdu.typeName, mpdu.subtypeName, mpdu.bytes) },
+  ]
+  for (const x of mpdu.fields) {
+    const who = x.node === undefined ? undefined : x.node.startsWith('*') ? S.broadcast : x.node
+    const detail = who !== undefined ? `${who}${x.value ? ` (${x.value})` : ''}` : x.value ?? ''
+    rows.push({ field: S.name[x.key], value: `${x.bytes} B · ${detail}` })
+  }
+  rows.push({ field: S.ppdu, value: `${fmtUs(f.txTimeNs)} · ${f.mbps} Mbps BPRF` })
   return rows
 }
