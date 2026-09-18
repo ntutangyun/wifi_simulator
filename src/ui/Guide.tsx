@@ -100,7 +100,7 @@ function GuideEn() {
         needs a very clean signal: ≥ −46 dBm.
       </p>
 
-      <h4 style={h}>7 · Ambient power (802.11bp)</h4>
+      <h4 style={h}>10 · Ambient power (802.11bp)</h4>
       <p style={p}>
         An AMP tag is a battery-free station: it never runs carrier sense and never contends. It only
         transmits inside a slot that an <b>AMP AP</b>'s trigger has just opened for it — scheduling has
@@ -226,7 +226,7 @@ function GuideZh() {
         MCS 13）需要非常干净的信号：≥ −46 dBm。
       </p>
 
-      <h4 style={h}>7 · 环境能量（802.11bp）</h4>
+      <h4 style={h}>10 · 环境能量（802.11bp）</h4>
       <p style={p}>
         AMP 标签是无电池的终端：它从不进行载波侦听，也从不参与竞争。它只在
         <b>AMP AP</b> 的触发帧刚为它打开的那个时隙内发送——调度权整体搬到了 AP 一侧。
@@ -244,7 +244,7 @@ function GuideZh() {
       <p style={p}>
         在时间轴上：青色块是 AP 的下行 AMP PPDU（触发帧、Ack），紫色块是
         {chip('#a78bfa')}标签的上行应答；AP 的泳道上每个时隙都有一个刻度，
-        标签待发时会显示一段带标签的等待区间。
+        标签等待时隙时会显示一段标注了时隙号的等待区间。
       </p>
       <p style={p}>
         P802.11bp 目前仍是未获批准的草案（D0.5 于 2026 年 5 月发布，D1.0 将于 2026 年 9 月进入

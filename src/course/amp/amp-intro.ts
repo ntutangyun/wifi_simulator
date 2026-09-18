@@ -73,7 +73,7 @@ export const ampIntro: Lesson = {
       en: 'The scene is one router and two battery-free tags, with no Wi-Fi traffic at all, so the round stands alone. The AP wins the channel with its AC_BK access function and owns everything that follows. It sends a non-HT CTS-to-self first — 44 µs at 6 Mb/s plus the band’s 6 µs signal extension, 50 µs in all — whose Duration reserves the rest of the round for every Wi-Fi node that hears it (§10.23.2.8). One SIFS later the trigger goes out. In 2.4 GHz that SIFS is 10 µs, exactly the AMP SIFS the draft specifies (SFD PM-96), so every gap in the round is the same length.',
       zh: '场景只有一台路由器和两个无电池标签，完全没有 Wi-Fi 业务，因此这一轮是孤立的。AP 用它的 AC_BK 接入函数拿下信道，之后的一切都归它掌控。它先发一帧非 HT 的 CTS-to-self——6 Mb/s 下 44 µs，加上本频段的 6 µs 信号扩展，合计 50 µs——其 Duration 为所有能听见它的 Wi-Fi 节点预留出这一轮的剩余时间（§10.23.2.8）。一个 SIFS 之后触发帧发出。2.4 GHz 的 SIFS 正是 10 µs，与草案规定的 AMP SIFS 完全相同（SFD PM-96），因此这一轮里每个间隔都一样长。',
     } },
-    { kind: 'table', heading: { en: 'The first round on the AP’s lane', zh: 'AP 的 2.4G 泳道上的第一轮' }, head: [
+    { kind: 'table', heading: { en: 'The first round on the AP’s lane', zh: 'AP 泳道上的第一轮' }, head: [
       { en: 'What', zh: '内容' }, { en: 'From', zh: '起' }, { en: 'To', zh: '止' },
     ], rows: [
       [{ en: 'CTS-to-self, Duration 4140 µs', zh: 'CTS-to-self，Duration 4140 µs' }, N('0 µs'), N('50 µs')],
