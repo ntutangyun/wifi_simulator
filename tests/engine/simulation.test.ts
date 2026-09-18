@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { Simulation, type Batch } from '../../src/engine/simulation'
-import { defaultScenario, type Scenario } from '../../src/model/scenario'
+import { DEFAULT_UWB_SESSION, defaultScenario, type Scenario } from '../../src/model/scenario'
 import { applyRecord, cloneView } from '../../src/model/view'
 
 const MS = 1_000_000
@@ -103,5 +103,31 @@ describe('Simulation', () => {
     for (let i = 1; i < seqs.length; i++) expect(seqs[i]).toBeGreaterThan(seqs[i - 1])
     const snapTimes = [...b1.snapshots, ...b2.snapshots].map((s) => s.t)
     expect(snapTimes.slice(0, 4)).toEqual([0, 10 * MS, 20 * MS, 30 * MS])
+  })
+
+  it('runs a scenario that has no AP at all: pure UWB ranging', () => {
+    const uwbNode = (id: string, x: number, y: number, role: 'anchor' | 'tag'): Scenario['nodes'][number] => ({
+      id, kind: 'uwb', name: id, pos: { x, y, z: 1 }, txPowerDbm: -14, profiles: ['idle'],
+      caps: { generation: 'nonht', features: {} }, uwb: { role, ppm: 0 },
+    })
+    const sc: Scenario = {
+      rooms: [{ x: 0, y: 0, w: 12, h: 10, name: 'lab' }],
+      walls: [],
+      nodes: [
+        uwbNode('anc-1', 5, 0, 'anchor'), uwbNode('anc-2', 0, 5, 'anchor'), uwbNode('anc-3', -5, 0, 'anchor'),
+        uwbNode('tag-1', 0, 0, 'tag'),
+      ],
+      servers: [],
+      seed: 7,
+      rtsThresholdBytes: 3000,
+      snapshotIntervalMs: 10,
+      uwb: { ...DEFAULT_UWB_SESSION, nlos: false },
+    }
+    const sim = new Simulation(sc)
+    const batch = sim.runUntil(10 * MS)
+    expect(sim.macs.size).toBe(0)
+    expect(batch.records.some((r) => r.type === 'UWB_ROUND')).toBe(true)
+    expect(batch.snapshots.map((s) => s.t)).toEqual([0, 10 * MS])
+    expect(sim.view.nodes['tag-1'].uwb?.rounds).toBe(1)
   })
 })

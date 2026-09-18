@@ -15,6 +15,7 @@ import { makeEmitter, type EmitFn, type TLRecord } from '../model/records'
 import { ScenarioSchema, serverFor, type NodeCfg, type Scenario } from '../model/scenario'
 import type { Ns } from '../model/types'
 import { applyRecord, cloneView, initViewState, type Snapshot, type ViewState } from '../model/view'
+import { UwbNetwork } from '../uwb/network'
 import { AMP_TAG_DL_SENS_DBM, ampId16 } from './amp'
 import { AmpStaMac } from './ampSta'
 import { Channel } from './channel'
@@ -52,6 +53,8 @@ export class Simulation {
   readonly macs = new Map<string, WifiMac>()
   /** AMP tag MACs keyed by virtual id (tags are not Wi-Fi stations: they never appear in `macs`). */
   readonly tags = new Map<string, AmpStaMac>()
+  /** The UWB ranging engine, when the scenario holds UWB nodes and a session. */
+  readonly uwb?: UwbNetwork
 
   constructor(sc: Scenario) {
     ScenarioSchema.parse(sc)
@@ -65,181 +68,202 @@ export class Simulation {
     }
     const baseEmit = makeEmitter((r) => emit(r as never))
 
-    const ap = sc.nodes.find((n) => n.kind === 'ap')!
-    const plan = linkPlanFor(sc.nodes)
     const root = new Rng(sc.seed)
-    const byId = new Map(sc.nodes.map((n) => [n.id, n]))
+    // Every Wi-Fi structure hangs off the one AP, and a scenario may legitimately
+    // have none: a pure UWB ranging session is a complete scenario with no BSS at
+    // all. Without an AP there is no link plan, no channel, no MAC and no traffic.
+    const ap = sc.nodes.find((n) => n.kind === 'ap')
+    if (ap) {
+      const plan = linkPlanFor(sc.nodes)
+      const byId = new Map(sc.nodes.map((n) => [n.id, n]))
 
-    // ---- negotiation helpers (physical ids) ----
-    const other = (a: NodeCfg, peerId: string): NodeCfg => (a.kind === 'ap' ? byId.get(peerId) ?? a : ap)
-    const modeFor = (me: NodeCfg, peerId: string) => minGen(me.caps.generation, other(me, peerId).caps.generation)
+      // ---- negotiation helpers (physical ids) ----
+      const other = (a: NodeCfg, peerId: string): NodeCfg => (a.kind === 'ap' ? byId.get(peerId) ?? a : ap)
+      const modeFor = (me: NodeCfg, peerId: string) => minGen(me.caps.generation, other(me, peerId).caps.generation)
 
-    // ---- shared MLD queues (per physical node) ----
-    const queuesOf = new Map<string, AcQueues>()
-    for (const n of sc.nodes) {
-      if (n.kind === 'amp') continue // a tag has no transmit queue: it answers triggers
-      queuesOf.set(n.id, new AcQueues(sc.queue?.limit))
-    }
+      // ---- shared MLD queues (per physical node) ----
+      const queuesOf = new Map<string, AcQueues>()
+      for (const n of sc.nodes) {
+        // an AMP tag has no transmit queue (it answers triggers); a UWB node is
+        // not a Wi-Fi station at all
+        if (n.kind === 'amp' || n.kind === 'uwb') continue
+        queuesOf.set(n.id, new AcQueues(sc.queue?.limit))
+      }
 
-    /** Traffic sources per station — one per stream it runs. */
-    const sources = new Map<string, TrafficSource[]>()
-    const apMacs: WifiMac[] = [] // one per link the AP is on
+      /** Traffic sources per station — one per stream it runs. */
+      const sources = new Map<string, TrafficSource[]>()
+      const apMacs: WifiMac[] = [] // one per link the AP is on
 
-    // ---- per-link channels + MACs ----
-    for (const link of plan.links) {
-      const memberIds = plan.members[link]
-      const memberSet = new Set(memberIds)
-      const members = memberIds.map((id) => byId.get(id)!)
-      const table = buildLinkTable(members, sc.walls)
-      const extra = LINK_EXTRA_LOSS_DB[link]
-      if (extra) {
-        for (const row of table.values()) {
-          for (const [k, v] of row) row.set(k, v - extra)
+      // ---- per-link channels + MACs ----
+      for (const link of plan.links) {
+        const memberIds = plan.members[link]
+        const memberSet = new Set(memberIds)
+        const members = memberIds.map((id) => byId.get(id)!)
+        const table = buildLinkTable(members, sc.walls)
+        const extra = LINK_EXTRA_LOSS_DB[link]
+        if (extra) {
+          for (const row of table.values()) {
+            for (const [k, v] of row) row.set(k, v - extra)
+          }
         }
-      }
-      // Virtualize node ids in this link's records.
-      const vname = (id: string) => virtualId(id, link)
-      const linkEmit: EmitFn = (r) => {
-        const rec = r as Record<string, unknown>
-        const out = { ...rec }
-        if (typeof out.node === 'string') out.node = vname(out.node as string)
-        if (Array.isArray(out.nodes)) out.nodes = (out.nodes as string[]).map(vname)
-        baseEmit(out as never)
-      }
-      const ch = new Channel(this.q, () => this.nowNs, table, linkEmit)
+        // Virtualize node ids in this link's records.
+        const vname = (id: string) => virtualId(id, link)
+        const linkEmit: EmitFn = (r) => {
+          const rec = r as Record<string, unknown>
+          const out = { ...rec }
+          if (typeof out.node === 'string') out.node = vname(out.node as string)
+          if (Array.isArray(out.nodes)) out.nodes = (out.nodes as string[]).map(vname)
+          baseEmit(out as never)
+        }
+        const ch = new Channel(this.q, () => this.nowNs, table, linkEmit)
 
-      for (const n of members) {
-        const vid = vname(n.id)
-        if (n.kind === 'amp') {
-          // An ambient-power tag: no carrier sense, no NAV, a radio that only
-          // ever decodes the AP's downlink AMP PPDUs.
-          const tagMac = new AmpStaMac(
-            n.id, this.q, () => this.nowNs, ch, root.fork(hashStr(vid)), linkEmit,
-            { apId: ap.id, id16: n.ampTag?.id16 ?? ampId16(n.id) },
+        for (const n of members) {
+          const vid = vname(n.id)
+          if (n.kind === 'amp') {
+            // An ambient-power tag: no carrier sense, no NAV, a radio that only
+            // ever decodes the AP's downlink AMP PPDUs.
+            const tagMac = new AmpStaMac(
+              n.id, this.q, () => this.nowNs, ch, root.fork(hashStr(vid)), linkEmit,
+              { apId: ap.id, id16: n.ampTag?.id16 ?? ampId16(n.id) },
+            )
+            ch.register(n.id, tagMac, { kind: 'tag', cca: false, floorDbm: n.ampTag?.dlSensDbm ?? AMP_TAG_DL_SENS_DBM })
+            this.tags.set(vid, tagMac)
+            continue
+          }
+          const edca = hasFeature(n, 'edca') && hasFeature(ap, 'edca')
+          // This MAC runs AMP polling: the AP, on the 2.4 GHz link, configured
+          // for it, with at least one tag to poll. Its radio decodes the tags'
+          // uplink for exactly as long as it polls them.
+          const polls = n.kind === 'ap' && link === '2g' && !!n.ampAp && members.some((m) => m.kind === 'amp')
+          const rate = new RateControl()
+          const mac = new WifiMac(
+            n.id, this.q, () => this.nowNs, ch,
+            root.fork(hashStr(vid)), linkEmit,
+            {
+              rtsThresholdBytes: sc.rtsThresholdBytes,
+              msduLifetimeNs: sc.queue ? sc.queue.lifetimeMs * 1_000_000 : undefined,
+              edca,
+              txop: edca && hasFeature(n, 'txop') && hasFeature(ap, 'txop'),
+              isAp: n.kind === 'ap',
+              timing: timingFor(link),
+              ampAp: polls ? n.ampAp : undefined,
+              modeForPeer: (peer) => modeFor(n, peer),
+              mcsForPeer: (peer) => {
+                const rssi = table.get(n.id)?.get(peer) ?? -200
+                const mode = modeFor(n, peer)
+                const peerCfg = other(n, peer)
+                const cap = mode === 'eht' && !negotiated(n, peerCfg, 'qam4k') ? 11 : undefined
+                const ceiling = mcsForRssi(mode, rssi, cap, negotiatedWidth(n, peerCfg, link))
+                return rate.mcsFor(peer, ceiling)
+              },
+              widthForPeer: (peer) => negotiatedWidth(n, other(n, peer), link),
+              nssForPeer: (peer) => negotiatedNss(n, other(n, peer)),
+              reachable: (peer) => memberSet.has(peer) && byId.get(peer)?.kind !== 'amp',
+              onTxOutcome: (peer, ok) => { if (ok) rate.onSuccess(peer); else rate.onFailure(peer) },
+              txopProtection: n.txopProtection ?? 'single',
+              tamper: n.kind === 'sta' ? n.tamper : undefined,
+              qosWith: (peer) => hasFeature(n, 'edca') && hasFeature(other(n, peer), 'edca'),
+              ampduWith: (peer) => negotiated(n, other(n, peer), 'ampdu'),
+              ofdmaWith: (peer) => negotiated(n, other(n, peer), 'ofdma'),
+              mumimoWith: (peer) => negotiated(n, other(n, peer), 'mumimo'),
+              ownNss: () => nssOf(n),
+              ulBacklog: n.kind === 'ap'
+                ? () => memberIds
+                    .filter((id) => id !== ap.id && byId.get(id)!.kind === 'sta' && negotiated(byId.get(id)!, ap, 'ofdma'))
+                    .map((id) => {
+                      const stq = queuesOf.get(id)!
+                      // A station may hold several streams: trigger it for its highest-priority backlog.
+                      const ac = stq.all().reduce((m, x) => Math.max(m, x.ac), 0)
+                      return { peer: id, ac, bytes: stq.all().reduce((s, x) => s + x.msdu.bytes, 0) }
+                    })
+                    .filter((u) => u.bytes > 0)
+                : undefined,
+            },
+            {
+              onDequeue: (msduId, acked) => {
+                for (const s of sources.get(n.id) ?? []) {
+                  s.refill()
+                  // only an acknowledged frame reaches its cloud server (one WAN delay later)
+                  if (acked) s.onUplinkDelivered(msduId, this.nowNs)
+                }
+                const relay = relayPending.get(msduId)
+                if (!acked) relayPending.delete(msduId)
+                if (acked && relay && n.kind === 'sta') {
+                  // phone-to-phone: the AP forwards the acknowledged frame to its final station
+                  relayPending.delete(msduId)
+                  const at = this.nowNs + RELAY_FWD_NS
+                  this.q.schedule(at, () => enqueue(ap.id, { id: msduId, bytes: relay.bytes, src: ap.id, dst: relay.finalDst!, bornNs: at, ac: relay.ac, relayFromNs: relay.bornNs }))
+                }
+              },
+            },
+            queuesOf.get(n.id),
           )
-          ch.register(n.id, tagMac, { kind: 'tag', cca: false, floorDbm: n.ampTag?.dlSensDbm ?? AMP_TAG_DL_SENS_DBM })
-          this.tags.set(vid, tagMac)
-          continue
+          this.macs.set(vid, mac)
+          ch.register(n.id, mac, { ampCapable: polls })
+          if (n.kind === 'ap') apMacs.push(mac)
         }
-        const edca = hasFeature(n, 'edca') && hasFeature(ap, 'edca')
-        // This MAC runs AMP polling: the AP, on the 2.4 GHz link, configured
-        // for it, with at least one tag to poll. Its radio decodes the tags'
-        // uplink for exactly as long as it polls them.
-        const polls = n.kind === 'ap' && link === '2g' && !!n.ampAp && members.some((m) => m.kind === 'amp')
-        const rate = new RateControl()
-        const mac = new WifiMac(
-          n.id, this.q, () => this.nowNs, ch,
-          root.fork(hashStr(vid)), linkEmit,
-          {
-            rtsThresholdBytes: sc.rtsThresholdBytes,
-            msduLifetimeNs: sc.queue ? sc.queue.lifetimeMs * 1_000_000 : undefined,
-            edca,
-            txop: edca && hasFeature(n, 'txop') && hasFeature(ap, 'txop'),
-            isAp: n.kind === 'ap',
-            timing: timingFor(link),
-            ampAp: polls ? n.ampAp : undefined,
-            modeForPeer: (peer) => modeFor(n, peer),
-            mcsForPeer: (peer) => {
-              const rssi = table.get(n.id)?.get(peer) ?? -200
-              const mode = modeFor(n, peer)
-              const peerCfg = other(n, peer)
-              const cap = mode === 'eht' && !negotiated(n, peerCfg, 'qam4k') ? 11 : undefined
-              const ceiling = mcsForRssi(mode, rssi, cap, negotiatedWidth(n, peerCfg, link))
-              return rate.mcsFor(peer, ceiling)
-            },
-            widthForPeer: (peer) => negotiatedWidth(n, other(n, peer), link),
-            nssForPeer: (peer) => negotiatedNss(n, other(n, peer)),
-            reachable: (peer) => memberSet.has(peer) && byId.get(peer)?.kind !== 'amp',
-            onTxOutcome: (peer, ok) => { if (ok) rate.onSuccess(peer); else rate.onFailure(peer) },
-            txopProtection: n.txopProtection ?? 'single',
-            tamper: n.kind === 'sta' ? n.tamper : undefined,
-            qosWith: (peer) => hasFeature(n, 'edca') && hasFeature(other(n, peer), 'edca'),
-            ampduWith: (peer) => negotiated(n, other(n, peer), 'ampdu'),
-            ofdmaWith: (peer) => negotiated(n, other(n, peer), 'ofdma'),
-            mumimoWith: (peer) => negotiated(n, other(n, peer), 'mumimo'),
-            ownNss: () => nssOf(n),
-            ulBacklog: n.kind === 'ap'
-              ? () => memberIds
-                  .filter((id) => id !== ap.id && byId.get(id)!.kind === 'sta' && negotiated(byId.get(id)!, ap, 'ofdma'))
-                  .map((id) => {
-                    const stq = queuesOf.get(id)!
-                    // A station may hold several streams: trigger it for its highest-priority backlog.
-                    const ac = stq.all().reduce((m, x) => Math.max(m, x.ac), 0)
-                    return { peer: id, ac, bytes: stq.all().reduce((s, x) => s + x.msdu.bytes, 0) }
-                  })
-                  .filter((u) => u.bytes > 0)
-              : undefined,
-          },
-          {
-            onDequeue: (msduId, acked) => {
-              for (const s of sources.get(n.id) ?? []) {
-                s.refill()
-                // only an acknowledged frame reaches its cloud server (one WAN delay later)
-                if (acked) s.onUplinkDelivered(msduId, this.nowNs)
-              }
-              const relay = relayPending.get(msduId)
-              if (!acked) relayPending.delete(msduId)
-              if (acked && relay && n.kind === 'sta') {
-                // phone-to-phone: the AP forwards the acknowledged frame to its final station
-                relayPending.delete(msduId)
-                const at = this.nowNs + RELAY_FWD_NS
-                this.q.schedule(at, () => enqueue(ap.id, { id: msduId, bytes: relay.bytes, src: ap.id, dst: relay.finalDst!, bornNs: at, ac: relay.ac, relayFromNs: relay.bornNs }))
-              }
-            },
-          },
-          queuesOf.get(n.id),
-        )
-        this.macs.set(vid, mac)
-        ch.register(n.id, mac, { ampCapable: polls })
-        if (n.kind === 'ap') apMacs.push(mac)
+      }
+
+      // ---- traffic → primary-link MAC (shared queues make it MLD-wide) ----
+      /** The virtual id of each node's primary MAC: its first lane in the plan (5g before 6g before 2g). */
+      const primaryVids = new Map<string, string>()
+      for (const v of plan.virtualIds) {
+        const p = physicalId(v)
+        if (!primaryVids.has(p)) primaryVids.set(p, v)
+      }
+      const primaryVid = (id: string): string => primaryVids.get(id)!
+      const primaryMac = (id: string): WifiMac => this.macs.get(primaryVid(id))!
+      /** Uplink MSDUs bound for another station, by id: forwarded by the AP once acknowledged. */
+      const relayPending = new Map<number, Msdu>()
+      const RELAY_FWD_NS = 50_000 // AP forwarding latency
+      const enqueue = (atNode: string, msdu: Msdu) => {
+        if (msdu.finalDst) relayPending.set(msdu.id, msdu)
+        const staId = atNode === ap.id ? msdu.dst : atNode
+        const sta = byId.get(staId)
+        // a tampered driver may re-mark its own (uplink) frames; it cannot touch the AP's
+        const ac = atNode !== ap.id && sta?.tamper?.allAsAc !== undefined ? sta.tamper.allAsAc : msdu.ac
+        baseEmit({ t: this.nowNs, type: 'ARRIVAL', node: primaryVid(atNode), msduId: msdu.id, bytes: msdu.bytes, dst: msdu.dst })
+        primaryMac(atNode).enqueue(msdu, ac)
+        // MLO: wake the sibling link's MAC; OFDMA: poke the AP scheduler.
+        for (const [vid, mac] of this.macs) {
+          if (vid !== primaryVid(atNode) && physicalId(vid) === atNode) mac.pokeAccess()
+        }
+        if (atNode !== ap.id && sta && negotiated(sta, ap, 'ofdma')) {
+          for (const m of apMacs) m.notifyUlBacklog()
+        }
+      }
+      // `i` is the index in sc.nodes, including any non-station node, because
+      // the traffic streams are seeded from it and every saved scenario must
+      // replay bit-for-bit. Lesson scenarios therefore list their UWB nodes
+      // last: appending one must not renumber a station's stream.
+      for (const [i, n] of sc.nodes.entries()) {
+        if (n.kind !== 'sta') continue
+        const list: TrafficSource[] = []
+        n.profiles.forEach((profile, j) => {
+          if (profile === 'idle') return
+          // The first stream keeps the historical fork (1000 + i) so single-stream
+          // scenarios replay bit-for-bit; extra streams get their own independent streams.
+          const rng = root.fork(j === 0 ? 1000 + i : 100_000 + i * 16 + j)
+          const server = serverFor(sc, n, profile)
+          const link = server
+            ? { id: server.id, wanNs: Math.round(server.rttMs * 500_000), jitterNs: Math.round(server.jitterMs * 1_000_000), processNs: Math.round(server.processMs * 1_000_000) }
+            : null
+          const src = new TrafficSource(this.q, () => this.nowNs, rng, n.id, ap.id, profile, enqueue, { server: link, emit: baseEmit, gameAccel: ap.gameAccel === true, p2pTarget: n.p2pTarget })
+          list.push(src)
+          src.start()
+        })
+        sources.set(n.id, list)
       }
     }
 
-    // ---- traffic → primary-link MAC (shared queues make it MLD-wide) ----
-    /** The virtual id of each node's primary MAC: its first lane in the plan (5g before 6g before 2g). */
-    const primaryVids = new Map<string, string>()
-    for (const v of plan.virtualIds) {
-      const p = physicalId(v)
-      if (!primaryVids.has(p)) primaryVids.set(p, v)
-    }
-    const primaryVid = (id: string): string => primaryVids.get(id)!
-    const primaryMac = (id: string): WifiMac => this.macs.get(primaryVid(id))!
-    /** Uplink MSDUs bound for another station, by id: forwarded by the AP once acknowledged. */
-    const relayPending = new Map<number, Msdu>()
-    const RELAY_FWD_NS = 50_000 // AP forwarding latency
-    const enqueue = (atNode: string, msdu: Msdu) => {
-      if (msdu.finalDst) relayPending.set(msdu.id, msdu)
-      const staId = atNode === ap.id ? msdu.dst : atNode
-      const sta = byId.get(staId)
-      // a tampered driver may re-mark its own (uplink) frames; it cannot touch the AP's
-      const ac = atNode !== ap.id && sta?.tamper?.allAsAc !== undefined ? sta.tamper.allAsAc : msdu.ac
-      baseEmit({ t: this.nowNs, type: 'ARRIVAL', node: primaryVid(atNode), msduId: msdu.id, bytes: msdu.bytes, dst: msdu.dst })
-      primaryMac(atNode).enqueue(msdu, ac)
-      // MLO: wake the sibling link's MAC; OFDMA: poke the AP scheduler.
-      for (const [vid, mac] of this.macs) {
-        if (vid !== primaryVid(atNode) && physicalId(vid) === atNode) mac.pokeAccess()
-      }
-      if (atNode !== ap.id && sta && negotiated(sta, ap, 'ofdma')) {
-        for (const m of apMacs) m.notifyUlBacklog()
-      }
-    }
-    for (const [i, n] of sc.nodes.entries()) {
-      if (n.kind !== 'sta') continue
-      const list: TrafficSource[] = []
-      n.profiles.forEach((profile, j) => {
-        if (profile === 'idle') return
-        // The first stream keeps the historical fork (1000 + i) so single-stream
-        // scenarios replay bit-for-bit; extra streams get their own independent streams.
-        const rng = root.fork(j === 0 ? 1000 + i : 100_000 + i * 16 + j)
-        const server = serverFor(sc, n, profile)
-        const link = server
-          ? { id: server.id, wanNs: Math.round(server.rttMs * 500_000), jitterNs: Math.round(server.jitterMs * 1_000_000), processNs: Math.round(server.processMs * 1_000_000) }
-          : null
-        const src = new TrafficSource(this.q, () => this.nowNs, rng, n.id, ap.id, profile, enqueue, { server: link, emit: baseEmit, gameAccel: ap.gameAccel === true, p2pTarget: n.p2pTarget })
-        list.push(src)
-        src.start()
-      })
-      sources.set(n.id, list)
+    // ---- UWB ranging session ----
+    // A scheduled session runs beside the BSS without touching it: its own
+    // medium, its own devices, its own event stream. Forking from `root` does
+    // not advance it, so adding UWB nodes to a scenario leaves the Wi-Fi
+    // timeline bit-for-bit identical.
+    const uwbNodes = sc.nodes.filter((n) => n.kind === 'uwb')
+    if (uwbNodes.length && sc.uwb) {
+      this.uwb = new UwbNetwork(this.q, () => this.nowNs, uwbNodes, sc.walls, sc.uwb, root, baseEmit)
     }
 
     // ---- snapshots ----
@@ -293,7 +317,8 @@ export class Simulation {
   }
 }
 
-function hashStr(s: string): number {
+/** FNV-1a over a string: the per-node RNG stream ids are derived from it. */
+export function hashStr(s: string): number {
   let h = 0x811c9dc5
   for (let i = 0; i < s.length; i++) {
     h ^= s.charCodeAt(i)

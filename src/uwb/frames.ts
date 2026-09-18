@@ -52,7 +52,9 @@ export function makeResp(
   return uwbFrame('uwbResp', anchor, tag, uwbRespBytes(method), {
     sp: 1, method, block, round, slot,
     ies: method === 'ss' ? ['RRMC', 'RRTI'] : ['RRMC'],
-    replyRctu,
+    // DS-TWR carries no reply time: the key is absent, not undefined, so a
+    // DS FrameDesc compares equal to a hand-built one.
+    ...(replyRctu !== undefined ? { replyRctu } : {}),
   })
 }
 

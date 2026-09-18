@@ -298,10 +298,7 @@ export function applyRecord(vs: ViewState, r: TLRecord): void {
   vs.t = r.t
   if (vs.wan.length && vs.wan[0].endNs <= r.t) vs.wan = vs.wan.filter((f) => f.endNs > r.t)
   // The UWB records belong to the ranging reducer; nothing below knows them.
-  if (r.type.startsWith('UWB_')) {
-    applyUwbRecord(vs, r)
-    return
-  }
+  if (applyUwbRecord(vs, r)) return
   switch (r.type) {
     case 'ARRIVAL':
       break
