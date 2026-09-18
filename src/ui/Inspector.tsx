@@ -4,6 +4,7 @@ import { FrameDetail } from './FrameDetail'
 import { useStrings, type Strings } from './i18n'
 import type { NodeView } from '../model/view'
 import { nodeDisplayName } from './names'
+import { linkOfVirtual, physicalId } from '../model/caps'
 
 const row: React.CSSProperties = { display: 'flex', justifyContent: 'space-between', padding: '1px 0' }
 const dim: React.CSSProperties = { color: 'var(--dim)' }
@@ -33,7 +34,7 @@ function NodeSection({ vid, nv, t, L, nameOf, serverName }: { vid: string; nv: N
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '6px 0' }}>
-        <strong>{vid.includes('#6g') ? L.link6 : L.link5}</strong>
+        <strong>{L.linkName[linkOfVirtual(vid)]}</strong>
         <StateBadge nv={nv} t={t} />
       </div>
 
@@ -204,17 +205,17 @@ export function Inspector() {
     )
   }
 
-  const phys = selectedNodeId.replace('#6g', '')
+  const phys = physicalId(selectedNodeId)
   const cfg = scenario.nodes.find((n) => n.id === phys)
-  const primary = view.nodes[phys] ? phys : selectedNodeId
-  const sibling = view.nodes[`${phys}#6g`] && primary === phys ? `${phys}#6g` : null
+  const lanes = Object.keys(view.nodes).filter((vid) => physicalId(vid) === phys)
   return (
     <div style={{ padding: 10, overflowY: 'auto' }}>
       <strong>{cfg?.name ?? phys}</strong>
-      <NodeSection vid={primary} nv={view.nodes[primary]} t={t} L={L} nameOf={nameOf} serverName={serverName} />
-      {sibling && <div style={{ borderTop: '1px solid var(--border)', marginTop: 8 }}>
-        <NodeSection vid={sibling} nv={view.nodes[sibling]} t={t} L={L} nameOf={nameOf} serverName={serverName} />
-      </div>}
+      {lanes.map((vid, i) => (
+        <div key={vid} style={i > 0 ? { borderTop: '1px solid var(--border)', marginTop: 8 } : undefined}>
+          <NodeSection vid={vid} nv={view.nodes[vid]} t={t} L={L} nameOf={nameOf} serverName={serverName} />
+        </div>
+      ))}
       <div style={{ ...dim, marginTop: 8, fontSize: 11 }}>t = {fmtNs(t)} s</div>
     </div>
   )

@@ -1,5 +1,5 @@
 /** Minimal i18n: typed string tables + a lang field in the UI store. */
-import type { FeatureFlag } from '../model/caps'
+import type { FeatureFlag, LinkId } from '../model/caps'
 import type { FrameDesc, FrameKind } from '../model/frames'
 import type { Generation } from '../model/types'
 import type { ProfileId } from '../model/scenario'
@@ -63,7 +63,7 @@ export interface Strings {
     spawn: string; rts: string; rtsHint: string; seed: string; seedHint: string
     objects: string; properties: string; guide: string
     nodesHeader: string; rooms: string; walls: string; noRooms: string
-    node: string; name: string; wifi: string; link: string; linkHint: string
+    node: string; name: string; wifi: string; link: string; linkHint: string; bands: Record<LinkId, string>
     preset: string; presetPick: string; presetHint: string; brands: Record<'huawei' | 'xiaomi' | 'honor' | 'apple', string>; mloCapableNote: string
     servers: string; addServer: string; serverName: string; serverKind: string; serverRtt: string; serverRttHint: string; deleteServer: string
     streamServer: string; households: string; householdsPick: string
@@ -85,7 +85,7 @@ export interface Strings {
     waiting: string; bssTotals: string; throughput: string; delivered: string
     collisions: string; retries: string; node: string; ok: string; rty: string; airtime: string; lat: string; latHint: string
     width: string; nss: string
-    link5: string; link6: string
+    linkName: Record<LinkId, string>
     acHeader: { ac: string; bo: string; cw: string; queue: string }
     acHint: string; boHint: string; cwHint: string; queueHint: string
     backoffCounter: string; cw: string; ssrcSlrc: string; ssrcHint: string
@@ -241,7 +241,9 @@ export const STRINGS: Record<Lang, Strings> = {
       seed: 'Seed', seedHint: 'random seed — identical seed reproduces the exact same run',
       objects: '🗂 OBJECTS', properties: '⚙ PROPERTIES', guide: '📖 EDITOR REFERENCE',
       nodesHeader: 'Nodes (order = timeline lanes)', rooms: 'Rooms', walls: 'Walls', noRooms: 'none — draw one with ▭',
-      node: 'Node', name: 'Name', wifi: 'Wi-Fi', link: 'Link', linkHint: 'operating band for non-MLO Wi-Fi 6/7 devices',
+      node: 'Node', name: 'Name', wifi: 'Wi-Fi', link: 'Link',
+      linkHint: 'operating band; 802.11g and Wi-Fi 6/7 can use 2.4 GHz, Wi-Fi 6E/7 can use 6 GHz (MLO devices use 5 + 6 GHz)',
+      bands: { '2g': '2.4 GHz', '5g': '5 GHz', '6g': '6 GHz' },
       preset: 'Phone', presetPick: 'pick a model…', presetHint: 'Real phones, China-market configuration: sets name, Wi-Fi generation, features and typical traffic. Everything stays editable.',
       brands: { huawei: 'Huawei', xiaomi: 'Xiaomi / Redmi', honor: 'Honor', apple: 'Apple' },
       mloCapableNote: 'China unit: 6 GHz is off, and this simulator only models MLO across 5 + 6 GHz. Tick MLO above to model the global variant.',
@@ -280,7 +282,7 @@ export const STRINGS: Record<Lang, Strings> = {
       node: 'node', ok: 'ok', rty: 'rty', airtime: 'airtime',
       lat: 'latency', latHint: 'mean delivery latency of the frames this node sends: queue arrival → acknowledged',
       width: 'Channel width', nss: 'Spatial streams',
-      link5: '5 GHz link', link6: '6 GHz link',
+      linkName: { '2g': '2.4 GHz link', '5g': '5 GHz link', '6g': '6 GHz link' },
       acHeader: { ac: 'AC', bo: 'bo', cw: 'CW', queue: 'queue' },
       acHint: 'EDCA access category (BK=background, BE=best effort, VI=video, VO=voice)',
       boHint: 'current backoff slot counter', cwHint: 'contention window: backoff drawn uniform from [0, CW]',
@@ -522,7 +524,9 @@ export const STRINGS: Record<Lang, Strings> = {
       seed: '种子', seedHint: '随机种子 — 相同种子可完全复现同一次仿真',
       objects: '🗂 对象列表', properties: '⚙ 属性', guide: '📖 编辑器说明',
       nodesHeader: '节点（顺序 = 时间轴泳道）', rooms: '房间', walls: '墙体', noRooms: '暂无 — 用 ▭ 绘制一个',
-      node: '节点', name: '名称', wifi: 'Wi-Fi', link: '频段', linkHint: '非 MLO 的 Wi-Fi 6/7 设备的工作频段',
+      node: '节点', name: '名称', wifi: 'Wi-Fi', link: '频段',
+      linkHint: '工作频段；802.11g 与 Wi-Fi 6/7 可用 2.4 GHz，Wi-Fi 6E/7 可用 6 GHz（MLO 设备使用 5 + 6 GHz）',
+      bands: { '2g': '2.4 GHz', '5g': '5 GHz', '6g': '6 GHz' },
       preset: '手机', presetPick: '选择机型…', presetHint: '真实机型（国行配置）：设置名称、Wi-Fi 代际、功能与典型业务，之后仍可随意修改。',
       brands: { huawei: '华为', xiaomi: '小米 / Redmi', honor: '荣耀', apple: '苹果' },
       mloCapableNote: '国行：6 GHz 关闭，而本模拟器只模拟 5 + 6 GHz 的 MLO。勾选上方 MLO 可模拟国际版。',
@@ -561,7 +565,7 @@ export const STRINGS: Record<Lang, Strings> = {
       node: '节点', ok: '成功', rty: '重传', airtime: '空口占比',
       lat: '时延', latHint: '该节点所发帧的平均交付时延：进入队列 → 被确认',
       width: '信道带宽', nss: '空间流',
-      link5: '5 GHz 链路', link6: '6 GHz 链路',
+      linkName: { '2g': '2.4 GHz 链路', '5g': '5 GHz 链路', '6g': '6 GHz 链路' },
       acHeader: { ac: 'AC', bo: '退避', cw: 'CW', queue: '队列' },
       acHint: 'EDCA 接入类别（BK=后台，BE=尽力而为，VI=视频，VO=语音）',
       boHint: '当前退避时隙计数', cwHint: '竞争窗口：退避值从 [0, CW] 均匀抽取',

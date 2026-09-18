@@ -11,6 +11,7 @@ describe('nodeDisplayName', () => {
   it('maps engine ids to the scenario names a learner knows', () => {
     expect(nodeDisplayName(nodes, 'sta-1', 'everyone')).toBe('Laptop (MLO)')
     expect(nodeDisplayName(nodes, 'sta-1#6g', 'everyone')).toBe('Laptop (MLO) · 6G')
+    expect(nodeDisplayName(nodes, 'sta-1#2g', 'everyone')).toBe('Laptop (MLO) · 2.4G')
     expect(nodeDisplayName(nodes, '*mu', 'everyone')).toBe('everyone')
     expect(nodeDisplayName(nodes, '*', 'everyone')).toBe('everyone')
     expect(nodeDisplayName(nodes, 'ghost', 'everyone')).toBe('ghost')

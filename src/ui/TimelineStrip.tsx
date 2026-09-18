@@ -3,7 +3,7 @@ import { player, useUi } from './store'
 import { fitLaneLabel, recordsToSpans, spanTooltip, topSpanAt, xForT, type LaneSpan, rxFailTone } from './laneLayout'
 import { fmtNs } from './format'
 import { useStrings } from './i18n'
-import { linkPlanFor, physicalId } from '../model/caps'
+import { BAND_LABEL, linkOfVirtual, linkPlanFor, physicalId } from '../model/caps'
 import { nodeDisplayName } from './names'
 import type { ViewState } from '../model/view'
 
@@ -93,14 +93,13 @@ export function TimelineStrip() {
 
   const plan = linkPlanFor(scenario.nodes)
   const nodeIds = plan.virtualIds
-  /** '5G' / '6G' when the scenario has two links, else '' (single-band: nothing to tell apart). */
-  const bandTag = (vid: string): string => plan.links.length < 2 ? '' : vid.includes('#6g') ? '6G' : '5G'
+  /** Band label when the scenario has two or more links, else '' (single-band: nothing to tell apart). */
+  const bandTag = (vid: string): string => plan.links.length < 2 ? '' : BAND_LABEL[linkOfVirtual(vid)]
   /** [name, band suffix] — the suffix must survive truncation (see fitLaneLabel). */
   const laneLabel = (vid: string): [string, string] => {
     const cfg = scenario.nodes.find((n) => n.id === physicalId(vid))
     const name = cfg?.name ?? vid
-    if (plan.links.length < 2) return [name, '']
-    return [name, ` · ${vid.includes('#6g') ? '6G' : '5G'}`]
+    return plan.links.length < 2 ? [name, ''] : [name, ` · ${BAND_LABEL[linkOfVirtual(vid)]}`]
   }
 
   useEffect(() => {
@@ -287,7 +286,7 @@ export function TimelineStrip() {
       x: e.clientX - rect.left + 12, y: e.clientY - rect.top - 8,
       lines: [
         ...spanTooltip(hit.span, L.tooltips, hit.t, (id) => nodeDisplayName(scenario.nodes, id, L.frameDetail.everyone)),
-        ...(bandTag(hit.span.nodeId) ? [hit.span.nodeId.includes('#6g') ? L.inspector.link6 : L.inspector.link5] : []),
+        ...(bandTag(hit.span.nodeId) ? [L.inspector.linkName[linkOfVirtual(hit.span.nodeId)]] : []),
       ],
     }
   }

@@ -15,3 +15,12 @@ describe('frameDetail strings', () => {
     }
   })
 })
+
+describe('band strings', () => {
+  it.each(LANGS)('%s names every link in the editor and the inspector', (lang) => {
+    for (const l of ['2g', '5g', '6g'] as const) {
+      expect(STRINGS[lang].editor.bands[l]).toBeTruthy()
+      expect(STRINGS[lang].inspector.linkName[l]).toBeTruthy()
+    }
+  })
+})

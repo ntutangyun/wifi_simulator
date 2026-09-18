@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Rng } from '../engine/rng'
-import { GEN_FEATURES, type FeatureFlag } from '../model/caps'
+import { GEN_FEATURES, type FeatureFlag, type LinkId } from '../model/caps'
 import { normalizeProfiles, PROFILE_IDS, SERVER_KINDS, TAMPER_KINDS, TAMPER_PRESETS, TXOP_PROTECTIONS, serverFor, serverKindFor, tamperKindOf, type Material, type NodeCfg, type ProfileId, type Scenario, type ServerCfg, type ServerKind, type TamperKind, type TxopProtection } from '../model/scenario'
 import { HOUSEHOLDS } from '../model/households'
 import { nonht } from '../model/scenario'
@@ -209,7 +209,7 @@ export function FloorPlanEditor() {
   const setGeneration = (n: NodeCfg, gen: Generation) => {
     const features: Partial<Record<FeatureFlag, boolean>> = {}
     for (const f of GEN_FEATURES[gen]) features[f] = n.caps.features[f] ?? true
-    updateNode(n.id, { caps: { generation: gen, features: features as Record<string, boolean> }, linkId: gen === 'he' || gen === 'eht' ? n.linkId : undefined })
+    updateNode(n.id, { caps: { generation: gen, features: features as Record<string, boolean> }, linkId: gen === 'vht' ? undefined : n.linkId })
   }
 
   const gridLines = () => {
@@ -574,12 +574,13 @@ export function FloorPlanEditor() {
                       </select>
                     </label>
                   )}
-                  {(selNode.caps.generation === 'he' || selNode.caps.generation === 'eht') && selNode.caps.features.mlo !== true && (
+                  {selNode.caps.generation !== 'vht' && selNode.caps.features.mlo !== true && (
                     <label style={{ display: 'block', marginBottom: 4 }} title={E.linkHint}>
                       {E.link}{' '}
-                      <select value={selNode.linkId ?? '5g'} onChange={(e) => updateNode(selNode.id, { linkId: e.target.value as '5g' | '6g' })}>
-                        <option value="5g">5 GHz</option>
-                        <option value="6g">6 GHz</option>
+                      <select value={selNode.linkId ?? '5g'} onChange={(e) => updateNode(selNode.id, { linkId: e.target.value as LinkId })}>
+                        {(['2g', '5g', '6g'] as LinkId[])
+                          .filter((l) => l !== '6g' || selNode.caps.generation === 'he' || selNode.caps.generation === 'eht')
+                          .map((l) => <option key={l} value={l}>{E.bands[l]}</option>)}
                       </select>
                     </label>
                   )}
