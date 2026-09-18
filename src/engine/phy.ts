@@ -18,6 +18,23 @@ export const RX_START_DELAY_NS: Ns = 20_000
 export const ACK_TIMEOUT_NS: Ns = SIFS_NS + SLOT_NS + RX_START_DELAY_NS // 45_000
 export const CTS_TIMEOUT_NS: Ns = ACK_TIMEOUT_NS
 
+/**
+ * Interframe timing of one link's PHY. 5/6 GHz run the clause 17 OFDM values
+ * (the module constants above); 2.4 GHz runs clause 18 ERP-OFDM (Table 18-5):
+ * aSIFSTime 10 µs, short slot 9 µs, and a 6 µs signal extension appended to
+ * every PPDU (§10.3.8) so that clause 16 stations compute the NAV correctly.
+ */
+export interface PhyTiming {
+  sifsNs: Ns
+  slotNs: Ns
+  difsNs: Ns
+  rxStartDelayNs: Ns
+  ackTimeoutNs: Ns
+  /** aSignalExtension: no-transmission period counted in every PPDU's TXTIME (0 on 5/6 GHz). */
+  signalExtNs: Ns
+  eifsNs: Ns
+}
+
 export const CW_MIN = 15
 export const CW_MAX = 1023
 /** 802.11-2020 removed dot11LongRetryLimit: one per-MSDU retry limit applies to every frame. */
@@ -91,6 +108,21 @@ export function txTimeNs(lengthBytes: number, mbps: number): Ns {
 
 export const ACK_TX_TIME_6M_NS: Ns = txTimeNs(ACK_BYTES, 6) // 44_000
 export const EIFS_NS: Ns = SIFS_NS + DIFS_NS + ACK_TX_TIME_6M_NS // 94_000
+
+export const OFDM_5G: PhyTiming = {
+  sifsNs: SIFS_NS, slotNs: SLOT_NS, difsNs: DIFS_NS, rxStartDelayNs: RX_START_DELAY_NS,
+  ackTimeoutNs: ACK_TIMEOUT_NS, signalExtNs: 0, eifsNs: EIFS_NS,
+}
+
+const ERP_SIFS_NS: Ns = 10_000
+const ERP_SIGNAL_EXT_NS: Ns = 6_000
+export const ERP_2G: PhyTiming = {
+  sifsNs: ERP_SIFS_NS, slotNs: SLOT_NS, difsNs: ERP_SIFS_NS + 2 * SLOT_NS,
+  rxStartDelayNs: RX_START_DELAY_NS,
+  ackTimeoutNs: ERP_SIFS_NS + SLOT_NS + RX_START_DELAY_NS,
+  signalExtNs: ERP_SIGNAL_EXT_NS,
+  eifsNs: ERP_SIFS_NS + (ERP_SIFS_NS + 2 * SLOT_NS) + ACK_TX_TIME_6M_NS + ERP_SIGNAL_EXT_NS,
+}
 
 /** Highest rate whose Table 17-21 sensitivity + 3 dB margin is met; floor 6 Mbps. */
 export function dataRateFor(rssiDbm: number): number {
@@ -275,8 +307,8 @@ export const EDCA_PARAMS: AcParams[] = [
 /** Legacy DCF modeled as a single pseudo-AC (AIFSN 2 ⇒ DIFS, no TXOP). */
 export const DCF_PARAMS: AcParams = { ac: 1, name: 'BE', aifsn: 2, cwMin: CW_MIN, cwMax: CW_MAX, txopLimitNs: 0 }
 
-export function aifsNs(aifsn: number): Ns {
-  return SIFS_NS + aifsn * SLOT_NS
+export function aifsNs(aifsn: number, T: PhyTiming = OFDM_5G): Ns {
+  return T.sifsNs + aifsn * T.slotNs
 }
 
 // Control/management frame sizes for v2 exchanges
