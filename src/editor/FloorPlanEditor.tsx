@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Rng } from '../engine/rng'
 import { GEN_FEATURES, type FeatureFlag, type LinkId } from '../model/caps'
-import { normalizeProfiles, PROFILE_IDS, SERVER_KINDS, TAMPER_KINDS, TAMPER_PRESETS, TXOP_PROTECTIONS, serverFor, serverKindFor, tamperKindOf, type Material, type NodeCfg, type ProfileId, type Scenario, type ServerCfg, type ServerKind, type TamperKind, type TxopProtection } from '../model/scenario'
+import { DEFAULT_AMP_AP, normalizeProfiles, PROFILE_IDS, SERVER_KINDS, TAMPER_KINDS, TAMPER_PRESETS, TXOP_PROTECTIONS, serverFor, serverKindFor, tamperKindOf, type AmpApCfg, type Material, type NodeCfg, type ProfileId, type Scenario, type ServerCfg, type ServerKind, type TamperKind, type TxopProtection } from '../model/scenario'
 import { HOUSEHOLDS } from '../model/households'
 import { nonht } from '../model/scenario'
 import { BRANDS, STATION_PRESETS, applyPreset } from '../model/presets'
@@ -10,11 +10,11 @@ import { useStrings } from '../ui/i18n'
 import { useUi } from '../ui/store'
 import { EditorGuide } from './EditorGuide'
 import {
-  addOpening, alongWall, hitTestNode, hitTestWall, roomsToWalls,
+  addOpening, alongWall, hitTestNode, hitTestWall, newTag, roomsToWalls,
   scenarioFromJson, scenarioToJson, snap, spawnRandomStas,
 } from './planOps'
 
-type Tool = 'select' | 'room' | 'door' | 'window' | 'sta'
+type Tool = 'select' | 'room' | 'door' | 'window' | 'sta' | 'tag'
 type Sel =
   | { kind: 'node'; id: string }
   | { kind: 'wall'; index: number }
@@ -130,6 +130,11 @@ export function FloorPlanEditor() {
         txPowerDbm: 15, profiles: ['browsing'], caps: { ...nonht },
       }
       commit({ ...scenario, nodes: [...scenario.nodes, node] })
+      setTool('select')
+      setSel({ kind: 'node', id })
+    } else if (tool === 'tag') {
+      const { sc, id } = newTag(scenario, p)
+      commit(sc)
       setTool('select')
       setSel({ kind: 'node', id })
     }
@@ -264,7 +269,7 @@ export function FloorPlanEditor() {
         display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', padding: '5px 10px',
         background: 'var(--panel)', borderBottom: '1px solid var(--border)', fontSize: 12,
       }}>
-        {(['select', 'room', 'door', 'window', 'sta'] as Tool[]).map((t) => (
+        {(['select', 'room', 'door', 'window', 'sta', 'tag'] as Tool[]).map((t) => (
           <button key={t} className={tool === t ? 'active' : ''} onClick={() => setTool(t)}>
             {E.tools[t]}
           </button>
@@ -389,11 +394,11 @@ export function FloorPlanEditor() {
                 )}
                 {scenario.nodes.map((n) => (
                   <g key={n.id} style={{ cursor: 'pointer' }}>
-                    <circle cx={n.pos.x} cy={n.pos.y} r={n.kind === 'ap' ? 0.35 : 0.28}
-                      fill={n.kind === 'ap' ? '#3b82f6' : '#22c55e'}
+                    <circle cx={n.pos.x} cy={n.pos.y} r={n.kind === 'ap' ? 0.35 : n.kind === 'amp' ? 0.2 : 0.28}
+                      fill={n.kind === 'ap' ? '#3b82f6' : n.kind === 'amp' ? '#2dd4bf' : '#22c55e'}
                       stroke={sel?.kind === 'node' && sel.id === n.id ? '#fff' : 'none'} strokeWidth={0.06} />
                     <text x={n.pos.x + 0.4} y={n.pos.y + 0.12} fontSize={0.36} fill="#d5dae3">
-                      {n.name} <tspan fill="#8a93a3" fontSize={0.28}>{genShort(n.caps.generation)}</tspan>
+                      {n.name} <tspan fill="#8a93a3" fontSize={0.28}>{n.kind === 'amp' ? 'AMP' : genShort(n.caps.generation)}</tspan>
                     </text>
                   </g>
                 ))}
@@ -416,9 +421,9 @@ export function FloorPlanEditor() {
                       display: 'flex', alignItems: 'center', gap: 4, padding: '2px 4px', cursor: 'pointer',
                       background: sel?.kind === 'node' && sel.id === n.id ? '#2a3550' : undefined, borderRadius: 3,
                     }}>
-                    <span style={{ width: 8, height: 8, borderRadius: 4, background: n.kind === 'ap' ? '#3b82f6' : '#22c55e' }} />
+                    <span style={{ width: 8, height: 8, borderRadius: 4, background: n.kind === 'ap' ? '#3b82f6' : n.kind === 'amp' ? '#2dd4bf' : '#22c55e' }} />
                     <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {n.tamper ? '⚠ ' : ''}{n.name} <span style={{ color: 'var(--dim)' }}>{genShort(n.caps.generation)}</span>
+                      {n.tamper ? '⚠ ' : ''}{n.name} <span style={{ color: 'var(--dim)' }}>{n.kind === 'amp' ? 'AMP' : genShort(n.caps.generation)}</span>
                     </span>
                     <button style={{ padding: '0 4px' }} disabled={i === 0} onClick={(e) => { e.stopPropagation(); moveNode(n.id, -1) }}>▲</button>
                     <button style={{ padding: '0 4px' }} disabled={i === scenario.nodes.length - 1} onClick={(e) => { e.stopPropagation(); moveNode(n.id, 1) }}>▼</button>
@@ -538,131 +543,208 @@ export function FloorPlanEditor() {
                       </select>
                     </label>
                   )}
-                  <label style={{ display: 'block', marginBottom: 4 }}>
-                    {E.wifi}{' '}
-                    <select value={selNode.caps.generation} onChange={(e) => setGeneration(selNode, e.target.value as Generation)}>
-                      {(Object.keys(L.generations) as Generation[]).map((g) => (
-                        <option key={g} value={g}>{L.generations[g]}</option>
-                      ))}
-                    </select>
-                  </label>
-                  {GEN_FEATURES[selNode.caps.generation].length > 0 && (
-                    <div style={{ margin: '4px 0 6px', paddingLeft: 4, display: 'flex', flexDirection: 'column', gap: 2 }}>
-                      {GEN_FEATURES[selNode.caps.generation].map((f) => (
-                        <label key={f} style={{ fontSize: 11.5, display: 'flex', gap: 5, alignItems: 'center' }} title={L.features[f]}>
-                          <input type="checkbox" checked={selNode.caps.features[f] === true}
-                            onChange={(e) => updateNode(selNode.id, {
-                              caps: { ...selNode.caps, features: { ...selNode.caps.features, [f]: e.target.checked } },
-                            })} />
-                          {L.features[f]}
+                  {selNode.kind !== 'amp' && (
+                    <>
+                      <label style={{ display: 'block', marginBottom: 4 }}>
+                        {E.wifi}{' '}
+                        <select value={selNode.caps.generation} onChange={(e) => setGeneration(selNode, e.target.value as Generation)}>
+                          {(Object.keys(L.generations) as Generation[]).map((g) => (
+                            <option key={g} value={g}>{L.generations[g]}</option>
+                          ))}
+                        </select>
+                      </label>
+                      {GEN_FEATURES[selNode.caps.generation].length > 0 && (
+                        <div style={{ margin: '4px 0 6px', paddingLeft: 4, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                          {GEN_FEATURES[selNode.caps.generation].map((f) => (
+                            <label key={f} style={{ fontSize: 11.5, display: 'flex', gap: 5, alignItems: 'center' }} title={L.features[f]}>
+                              <input type="checkbox" checked={selNode.caps.features[f] === true}
+                                onChange={(e) => updateNode(selNode.id, {
+                                  caps: { ...selNode.caps, features: { ...selNode.caps.features, [f]: e.target.checked } },
+                                })} />
+                              {L.features[f]}
+                            </label>
+                          ))}
+                          {(() => {
+                            const p = STATION_PRESETS.find((x) => x.model === selNode.name)
+                            return p?.mloCapable && selNode.caps.features.mlo !== true
+                              ? <div style={{ fontSize: 11, color: 'var(--dim)', marginTop: 2 }}>{E.mloCapableNote}</div>
+                              : null
+                          })()}
+                        </div>
+                      )}
+                      {GEN_FEATURES[selNode.caps.generation].includes('txop') && selNode.caps.features.txop === true && (
+                        <label style={{ display: 'block', marginBottom: 4 }} title={E.txopProtHint}>
+                          {E.txopProt}{' '}
+                          <select
+                            value={selNode.txopProtection ?? 'single'}
+                            onChange={(e) => updateNode(selNode.id, { txopProtection: e.target.value as TxopProtection })}
+                          >
+                            {TXOP_PROTECTIONS.map((p) => <option key={p} value={p}>{E.txopProtNames[p]}</option>)}
+                          </select>
                         </label>
-                      ))}
-                      {(() => {
-                        const p = STATION_PRESETS.find((x) => x.model === selNode.name)
-                        return p?.mloCapable && selNode.caps.features.mlo !== true
-                          ? <div style={{ fontSize: 11, color: 'var(--dim)', marginTop: 2 }}>{E.mloCapableNote}</div>
-                          : null
-                      })()}
-                    </div>
-                  )}
-                  {GEN_FEATURES[selNode.caps.generation].includes('txop') && selNode.caps.features.txop === true && (
-                    <label style={{ display: 'block', marginBottom: 4 }} title={E.txopProtHint}>
-                      {E.txopProt}{' '}
-                      <select
-                        value={selNode.txopProtection ?? 'single'}
-                        onChange={(e) => updateNode(selNode.id, { txopProtection: e.target.value as TxopProtection })}
-                      >
-                        {TXOP_PROTECTIONS.map((p) => <option key={p} value={p}>{E.txopProtNames[p]}</option>)}
-                      </select>
-                    </label>
-                  )}
-                  {selNode.kind === 'sta' && selNode.caps.generation !== 'vht' && selNode.caps.features.mlo !== true && (
-                    <label style={{ display: 'block', marginBottom: 4 }} title={E.linkHint}>
-                      {E.link}{' '}
-                      <select value={selNode.linkId ?? '5g'} onChange={(e) => updateNode(selNode.id, { linkId: e.target.value as LinkId })}>
-                        {(['2g', '5g', '6g'] as LinkId[])
-                          .filter((l) => l !== '6g' || selNode.caps.generation === 'he' || selNode.caps.generation === 'eht')
-                          .map((l) => <option key={l} value={l}>{E.bands[l]}</option>)}
-                      </select>
-                    </label>
-                  )}
-                  {selNode.kind === 'ap' && (
-                    <label style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 6, cursor: 'pointer' }} title={E.gameAccelHint}>
-                      <input type="checkbox" checked={selNode.gameAccel === true}
-                        onChange={(e) => updateNode(selNode.id, { gameAccel: e.target.checked || undefined })} />
-                      {E.gameAccel}
-                    </label>
-                  )}
-                  {selNode.kind === 'sta' && (
-                    <label style={{ display: 'block', marginBottom: 6 }} title={E.tamperHint}>
-                      {E.tamper}{' '}
-                      <select value={tamperKindOf(selNode.tamper)} style={{ maxWidth: 200 }}
-                        onChange={(e) => {
-                          const k = e.target.value
-                          updateNode(selNode.id, { tamper: k === 'none' || k === 'custom' ? undefined : { ...TAMPER_PRESETS[k as TamperKind] } })
-                        }}>
-                        <option value="none">{E.tamperKinds.none}</option>
-                        {TAMPER_KINDS.map((k) => <option key={k} value={k}>{E.tamperKinds[k]}</option>)}
-                        {tamperKindOf(selNode.tamper) === 'custom' && <option value="custom">{E.tamperKinds.custom}</option>}
-                      </select>
-                    </label>
-                  )}
-                  {selNode.kind === 'sta' && (
-                    <div style={{ marginBottom: 4 }}>
-                      {E.traffic}
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginTop: 2, paddingLeft: 8 }}>
-                        {STREAMS.map((p) => (
-                          <label key={p} style={{ display: 'flex', gap: 6, alignItems: 'center', cursor: 'pointer' }}>
-                            <input
-                              type="checkbox"
-                              checked={selNode.profiles.includes(p)}
-                              onChange={(e) => {
-                                const next = e.target.checked
-                                  ? [...selNode.profiles, p]
-                                  : selNode.profiles.filter((x) => x !== p)
-                                updateNode(selNode.id, { profiles: normalizeProfiles(next) })
-                              }}
-                            />
-                            <span style={{ flex: 1, minWidth: 0 }}>{L.profiles[p]}</span>
-                            {p === 'p2pvideo' && selNode.profiles.includes(p) && (
-                              <select value={selNode.p2pTarget ?? ''} title={E.p2pTargetHint} style={{ flexShrink: 0, maxWidth: 120, fontSize: 11 }}
-                                onClick={(e) => e.stopPropagation()}
-                                onChange={(e) => updateNode(selNode.id, { p2pTarget: e.target.value || undefined })}>
-                                <option value="">{E.p2pTarget}…</option>
-                                {scenario.nodes.filter((n) => n.kind === 'sta' && n.id !== selNode.id).map((n) => <option key={n.id} value={n.id}>{n.name}</option>)}
-                              </select>
+                      )}
+                      {selNode.kind === 'sta' && selNode.caps.generation !== 'vht' && selNode.caps.features.mlo !== true && (
+                        <label style={{ display: 'block', marginBottom: 4 }} title={E.linkHint}>
+                          {E.link}{' '}
+                          <select value={selNode.linkId ?? '5g'} onChange={(e) => updateNode(selNode.id, { linkId: e.target.value as LinkId })}>
+                            {(['2g', '5g', '6g'] as LinkId[])
+                              .filter((l) => l !== '6g' || selNode.caps.generation === 'he' || selNode.caps.generation === 'eht')
+                              .map((l) => <option key={l} value={l}>{E.bands[l]}</option>)}
+                          </select>
+                        </label>
+                      )}
+                      {selNode.kind === 'ap' && (
+                        <label style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 6, cursor: 'pointer' }} title={E.gameAccelHint}>
+                          <input type="checkbox" checked={selNode.gameAccel === true}
+                            onChange={(e) => updateNode(selNode.id, { gameAccel: e.target.checked || undefined })} />
+                          {E.gameAccel}
+                        </label>
+                      )}
+                      {selNode.kind === 'sta' && (
+                        <label style={{ display: 'block', marginBottom: 6 }} title={E.tamperHint}>
+                          {E.tamper}{' '}
+                          <select value={tamperKindOf(selNode.tamper)} style={{ maxWidth: 200 }}
+                            onChange={(e) => {
+                              const k = e.target.value
+                              updateNode(selNode.id, { tamper: k === 'none' || k === 'custom' ? undefined : { ...TAMPER_PRESETS[k as TamperKind] } })
+                            }}>
+                            <option value="none">{E.tamperKinds.none}</option>
+                            {TAMPER_KINDS.map((k) => <option key={k} value={k}>{E.tamperKinds[k]}</option>)}
+                            {tamperKindOf(selNode.tamper) === 'custom' && <option value="custom">{E.tamperKinds.custom}</option>}
+                          </select>
+                        </label>
+                      )}
+                      {selNode.kind === 'sta' && (
+                        <div style={{ marginBottom: 4 }}>
+                          {E.traffic}
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginTop: 2, paddingLeft: 8 }}>
+                            {STREAMS.map((p) => (
+                              <label key={p} style={{ display: 'flex', gap: 6, alignItems: 'center', cursor: 'pointer' }}>
+                                <input
+                                  type="checkbox"
+                                  checked={selNode.profiles.includes(p)}
+                                  onChange={(e) => {
+                                    const next = e.target.checked
+                                      ? [...selNode.profiles, p]
+                                      : selNode.profiles.filter((x) => x !== p)
+                                    updateNode(selNode.id, { profiles: normalizeProfiles(next) })
+                                  }}
+                                />
+                                <span style={{ flex: 1, minWidth: 0 }}>{L.profiles[p]}</span>
+                                {p === 'p2pvideo' && selNode.profiles.includes(p) && (
+                                  <select value={selNode.p2pTarget ?? ''} title={E.p2pTargetHint} style={{ flexShrink: 0, maxWidth: 120, fontSize: 11 }}
+                                    onClick={(e) => e.stopPropagation()}
+                                    onChange={(e) => updateNode(selNode.id, { p2pTarget: e.target.value || undefined })}>
+                                    <option value="">{E.p2pTarget}…</option>
+                                    {scenario.nodes.filter((n) => n.kind === 'sta' && n.id !== selNode.id).map((n) => <option key={n.id} value={n.id}>{n.name}</option>)}
+                                  </select>
+                                )}
+                                {selNode.profiles.includes(p) && serverKindFor(p) && (() => {
+                                  const kind = serverKindFor(p)!
+                                  const choices = scenario.servers.filter((s) => s.kind === kind)
+                                  const current = serverFor(scenario, selNode, p)?.id ?? ''
+                                  return choices.length ? (
+                                    <select value={current} title={E.streamServer} style={{ flexShrink: 0, maxWidth: 104, fontSize: 11 }}
+                                      onClick={(e) => e.stopPropagation()}
+                                      onChange={(e) => updateNode(selNode.id, { servers: { ...selNode.servers, [p]: e.target.value } })}>
+                                      {choices.map((s) => <option key={s.id} value={s.id}>☁ {s.name}</option>)}
+                                    </select>
+                                  ) : null
+                                })()}
+                              </label>
+                            ))}
+                            {selNode.profiles[0] === 'idle' && (
+                              <span style={{ color: 'var(--dim)', fontSize: 11 }}>{L.profiles.idle}</span>
                             )}
-                            {selNode.profiles.includes(p) && serverKindFor(p) && (() => {
-                              const kind = serverKindFor(p)!
-                              const choices = scenario.servers.filter((s) => s.kind === kind)
-                              const current = serverFor(scenario, selNode, p)?.id ?? ''
-                              return choices.length ? (
-                                <select value={current} title={E.streamServer} style={{ flexShrink: 0, maxWidth: 104, fontSize: 11 }}
-                                  onClick={(e) => e.stopPropagation()}
-                                  onChange={(e) => updateNode(selNode.id, { servers: { ...selNode.servers, [p]: e.target.value } })}>
-                                  {choices.map((s) => <option key={s.id} value={s.id}>☁ {s.name}</option>)}
-                                </select>
-                              ) : null
-                            })()}
-                          </label>
-                        ))}
-                        {selNode.profiles[0] === 'idle' && (
-                          <span style={{ color: 'var(--dim)', fontSize: 11 }}>{L.profiles.idle}</span>
-                        )}
-                      </div>
-                    </div>
+                          </div>
+                        </div>
+                      )}
+                    </>
                   )}
                   <label style={{ display: 'block', marginBottom: 4 }}>
                     {E.txPower}{' '}
                     <input type="number" value={selNode.txPowerDbm} style={{ width: 56 }}
                       onChange={(e) => updateNode(selNode.id, { txPowerDbm: Number(e.target.value) })} /> dBm
                   </label>
+                  {selNode.kind === 'amp' && (
+                    <label style={{ display: 'block', marginBottom: 4 }} title={E.ampSensHint}>
+                      {E.ampSens}{' '}
+                      <input type="number" value={selNode.ampTag?.dlSensDbm ?? -72} style={{ width: 56 }}
+                        onChange={(e) => updateNode(selNode.id, { ampTag: { ...selNode.ampTag, dlSensDbm: Number(e.target.value) } })} /> dBm
+                    </label>
+                  )}
                   <label style={{ display: 'block', marginBottom: 4 }}>
                     {E.height}{' '}
                     <input type="number" step={0.1} value={selNode.pos.z} style={{ width: 56 }}
                       onChange={(e) => updateNode(selNode.id, { pos: { ...selNode.pos, z: Number(e.target.value) } })} /> m
                   </label>
-                  {selNode.kind === 'sta' && <button onClick={() => deleteNode(selNode.id)}>{E.deleteNode}</button>}
+                  {selNode.kind === 'ap' && (
+                    <div style={{ marginTop: 8, paddingTop: 6, borderTop: '1px solid var(--border)' }}>
+                      <div style={{ color: 'var(--dim)', marginBottom: 4 }}>{E.amp}</div>
+                      {selNode.caps.generation !== 'eht' ? (
+                        <div style={{ fontSize: 11, color: 'var(--dim)' }}>{E.ampNeedsEht}</div>
+                      ) : (
+                        <>
+                          <label style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 6, cursor: 'pointer' }}>
+                            <input type="checkbox" checked={selNode.ampAp !== undefined}
+                              onChange={(e) => updateNode(selNode.id, { ampAp: e.target.checked ? { ...DEFAULT_AMP_AP } : undefined })} />
+                            {E.ampEnable}
+                          </label>
+                          {selNode.ampAp && (
+                            <>
+                              <label style={{ display: 'block', marginBottom: 4 }} title={E.ampIntervalHint}>
+                                {E.ampInterval}{' '}
+                                <input type="number" min={10} max={10_000} value={selNode.ampAp.pollIntervalMs} style={{ width: 62 }}
+                                  onChange={(e) => updateNode(selNode.id, { ampAp: { ...selNode.ampAp!, pollIntervalMs: Number(e.target.value) } })} /> ms
+                              </label>
+                              <label style={{ display: 'block', marginBottom: 4 }}>
+                                {E.ampSlots}{' '}
+                                <input type="number" min={1} max={16} value={selNode.ampAp.slots} style={{ width: 56 }}
+                                  onChange={(e) => updateNode(selNode.id, { ampAp: { ...selNode.ampAp!, slots: Number(e.target.value) } })} />
+                              </label>
+                              <label style={{ display: 'block', marginBottom: 4 }} title={E.ampAcweHint}>
+                                {E.ampAcwe}{' '}
+                                <input type="number" min={0} max={4} value={selNode.ampAp.acwe} style={{ width: 56 }}
+                                  onChange={(e) => updateNode(selNode.id, { ampAp: { ...selNode.ampAp!, acwe: Number(e.target.value) } })} />
+                              </label>
+                              <label style={{ display: 'block', marginBottom: 4 }}>
+                                {E.ampDl}{' '}
+                                <select value={selNode.ampAp.dlKbps}
+                                  onChange={(e) => updateNode(selNode.id, { ampAp: { ...selNode.ampAp!, dlKbps: Number(e.target.value) as AmpApCfg['dlKbps'] } })}>
+                                  <option value={250}>250 kbps</option>
+                                  <option value={1000}>1000 kbps</option>
+                                </select>
+                              </label>
+                              <label style={{ display: 'block', marginBottom: 4 }}>
+                                {E.ampUl}{' '}
+                                <select value={selNode.ampAp.ulKbps}
+                                  onChange={(e) => updateNode(selNode.id, { ampAp: { ...selNode.ampAp!, ulKbps: Number(e.target.value) as AmpApCfg['ulKbps'] } })}>
+                                  <option value={250}>250 kbps</option>
+                                  <option value={1000}>1000 kbps</option>
+                                  <option value={4000}>4000 kbps</option>
+                                </select>
+                              </label>
+                              <label style={{ display: 'block', marginBottom: 4 }}>
+                                <select value={selNode.ampAp.protection}
+                                  onChange={(e) => updateNode(selNode.id, { ampAp: { ...selNode.ampAp!, protection: e.target.value as AmpApCfg['protection'] } })}>
+                                  <option value="ctsSelf">{E.ampProt.ctsSelf}</option>
+                                  <option value="none">{E.ampProt.none}</option>
+                                </select>
+                              </label>
+                              <label style={{ display: 'block', marginBottom: 4 }}>
+                                <select value={selNode.ampAp.readMode}
+                                  onChange={(e) => updateNode(selNode.id, { ampAp: { ...selNode.ampAp!, readMode: e.target.value as AmpApCfg['readMode'] } })}>
+                                  <option value="inline">{E.ampRead.inline}</option>
+                                  <option value="twoPhase">{E.ampRead.twoPhase}</option>
+                                </select>
+                              </label>
+                            </>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  )}
+                  {selNode.kind !== 'ap' && <button onClick={() => deleteNode(selNode.id)}>{E.deleteNode}</button>}
                 </div>
               )}
 

@@ -59,6 +59,11 @@ function EditorGuideEn() {
         click to drop a station: 15 dBm, 1.0 m high, <i>browsing</i> traffic, 802.11a legacy.
         Set its real properties afterwards.
       </D>
+      <D t="🏷 AMP tag">
+        click to drop an IEEE P802.11bp ambient-power tag: a battery-free device that only replies
+        when the AP polls it. Tags live on the 2.4 GHz link, and the AP needs to be Wi-Fi 7 (EHT)
+        with its own <b>AMP polling (802.11bp)</b> section turned on before any tag responds.
+      </D>
       <D t="⌂ fit">
         recenter and refit the plan. Wheel zooms, middle/right-drag pans.
       </D>
@@ -225,6 +230,11 @@ function EditorGuideZh() {
       <D t="📱 终端">
         点击放置一个终端：15 dBm、高 1.0 米、<i>网页浏览</i>业务、802.11a 传统制式，
         放置后再按需修改属性。
+      </D>
+      <D t="🏷 AMP 标签">
+        点击放置一个 IEEE P802.11bp 环境功率（ambient-power）标签：这是一种无电池设备，
+        只有被 AP 轮询时才会应答。标签工作在 2.4 GHz 链路上，且 AP 必须是 Wi-Fi 7 (EHT)
+        并打开其 <b>AMP 轮询（802.11bp）</b> 一节，标签才会有任何应答。
       </D>
       <D t="⌂ 复位">
         重新居中并适配视图。滚轮缩放，中键/右键拖动平移。

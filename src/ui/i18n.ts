@@ -58,7 +58,7 @@ export interface Strings {
   strip: { windowHint: string; legendCollision: string }
   legend: LegendItem[]
   editor: {
-    tools: { select: string; room: string; door: string; window: string; sta: string; fit: string }
+    tools: { select: string; room: string; door: string; window: string; sta: string; tag: string; fit: string }
     scenario: string; save: string; load: string; export_: string; import_: string
     spawn: string; rts: string; rtsHint: string; seed: string; seedHint: string
     objects: string; properties: string; guide: string
@@ -80,6 +80,13 @@ export interface Strings {
     emptyHint: string
     saved: string; loaded: string; imported: string; nothingSaved: string
     scaleBarHint: string
+    amp: string; ampEnable: string; ampInterval: string; ampIntervalHint: string
+    ampSlots: string; ampAcwe: string; ampAcweHint: string
+    ampDl: string; ampUl: string
+    ampProt: Record<'ctsSelf' | 'none', string>
+    ampRead: Record<'inline' | 'twoPhase', string>
+    ampNeedsEht: string
+    ampSens: string; ampSensHint: string
   }
   inspector: {
     waiting: string; bssTotals: string; throughput: string; delivered: string
@@ -242,7 +249,7 @@ export const STRINGS: Record<Lang, Strings> = {
       { color: '#115e59', label: 'slot wait', hint: 'A tag armed for a later slot, counting the AP’s Acks.' },
     ],
     editor: {
-      tools: { select: '☝ select', room: '▭ room', door: '🚪 door', window: '🪟 window', sta: '📱 STA', fit: '⌂ fit' },
+      tools: { select: '☝ select', room: '▭ room', door: '🚪 door', window: '🪟 window', sta: '📱 STA', tag: '🏷 AMP tag', fit: '⌂ fit' },
       scenario: 'Scenario', save: '💾 Save', load: '📂 Load', export_: '⬇ Export', import_: '⬆ Import',
       spawn: '🎲 Spawn STAs', rts: 'RTS', rtsHint: 'dot11RTSThreshold: frames larger than this use RTS/CTS protection',
       seed: 'Seed', seedHint: 'random seed — identical seed reproduces the exact same run',
@@ -282,6 +289,14 @@ export const STRINGS: Record<Lang, Strings> = {
       emptyHint: 'Nothing selected. Click a node, wall or room on the canvas (or in Objects above) to edit its properties here. Scenario save/load and settings live in the menu bar at the top of the canvas.',
       saved: 'saved', loaded: 'loaded', imported: 'imported', nothingSaved: 'nothing saved',
       scaleBarHint: 'grid 1 m (bold 5 m) · wheel zoom · middle/right-drag pan',
+      amp: 'AMP polling (802.11bp)', ampEnable: 'poll ambient-power tags',
+      ampInterval: 'poll every', ampIntervalHint: 'how often the AP contends (AC_BK) for an AMP round',
+      ampSlots: 'slots (N)', ampAcwe: 'ACWE', ampAcweHint: 'ACW = 2^ACWE − 1: the range a tag draws its slot counter from',
+      ampDl: 'DL rate', ampUl: 'UL rate',
+      ampProt: { ctsSelf: 'CTS-to-self before the round', none: 'no protection' },
+      ampRead: { inline: 'reading in the random-access response', twoPhase: 'id first, then a scheduled read' },
+      ampNeedsEht: 'AMP polling needs a Wi-Fi 7 AP (the AMP DL PPDU carries U-SIG)',
+      ampSens: 'DL sensitivity', ampSensHint: 'weakest AMP DL PPDU this tag’s envelope detector can decode (model default −72 dBm)',
     },
     inspector: {
       waiting: 'waiting for simulation…', bssTotals: 'BSS totals — click a node or lane for detail',
@@ -550,7 +565,7 @@ export const STRINGS: Record<Lang, Strings> = {
       { color: '#115e59', label: '等候时隙', hint: '一枚标签正等待稍后的时隙，数着 AP 发出的 Ack。' },
     ],
     editor: {
-      tools: { select: '☝ 选择', room: '▭ 房间', door: '🚪 门', window: '🪟 窗', sta: '📱 终端', fit: '⌂ 复位' },
+      tools: { select: '☝ 选择', room: '▭ 房间', door: '🚪 门', window: '🪟 窗', sta: '📱 终端', tag: '🏷 AMP 标签', fit: '⌂ 复位' },
       scenario: '场景', save: '💾 保存', load: '📂 载入', export_: '⬇ 导出', import_: '⬆ 导入',
       spawn: '🎲 随机生成终端', rts: 'RTS', rtsHint: 'dot11RTSThreshold：大于该门限的帧启用 RTS/CTS 保护',
       seed: '种子', seedHint: '随机种子 — 相同种子可完全复现同一次仿真',
@@ -590,6 +605,14 @@ export const STRINGS: Record<Lang, Strings> = {
       emptyHint: '未选中任何对象。点击画布上（或上方对象列表中）的节点、墙体或房间即可在此编辑其属性。场景的保存/载入与设置位于画布顶部的菜单栏。',
       saved: '已保存', loaded: '已载入', imported: '已导入', nothingSaved: '尚无存档',
       scaleBarHint: '网格 1 米（粗线 5 米）· 滚轮缩放 · 中键/右键拖动平移',
+      amp: 'AMP 轮询（802.11bp）', ampEnable: '轮询环境功率标签',
+      ampInterval: '轮询间隔', ampIntervalHint: 'AP 为一轮 AMP 竞争（AC_BK）信道的频度',
+      ampSlots: '时隙数 (N)', ampAcwe: 'ACWE', ampAcweHint: 'ACW = 2^ACWE − 1：标签抽取时隙计数器的取值范围',
+      ampDl: '下行速率', ampUl: '上行速率',
+      ampProt: { ctsSelf: '轮询前先发 CTS-to-self', none: '不做保护' },
+      ampRead: { inline: '在随机接入应答中直接读取', twoPhase: '先读 id，再做一次预约读取' },
+      ampNeedsEht: 'AMP 轮询需要 Wi-Fi 7 的 AP（AMP 下行 PPDU 携带 U-SIG）',
+      ampSens: '下行灵敏度', ampSensHint: '该标签包络检波器能解出的最弱 AMP 下行 PPDU（模型默认 −72 dBm）',
     },
     inspector: {
       waiting: '等待仿真…', bssTotals: 'BSS 总览 — 点击节点或泳道查看详情',

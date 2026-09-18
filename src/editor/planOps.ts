@@ -177,6 +177,20 @@ export function spawnRandomStas(sc: Scenario, n: number, rng: () => number): Sce
   return { ...sc, nodes }
 }
 
+/** Append a fresh ambient-power (AMP) tag node at `pos`; returns the new scenario and its id. */
+export function newTag(sc: Scenario, pos: { x: number; y: number }): { sc: Scenario; id: string } {
+  const used = new Set(sc.nodes.map((n) => n.id))
+  let k = sc.nodes.length
+  let id = `tag-${k}`
+  while (used.has(id)) id = `tag-${++k}`
+  const node: NodeCfg = {
+    id, kind: 'amp', name: `Tag ${k}`, pos: { x: snap(pos.x), y: snap(pos.y), z: 1.0 },
+    txPowerDbm: 0, profiles: ['idle'], caps: { generation: 'nonht', features: {} },
+    linkId: '2g', ampTag: {},
+  }
+  return { sc: { ...sc, nodes: [...sc.nodes, node] }, id }
+}
+
 export function scenarioToJson(sc: Scenario): string {
   return JSON.stringify(sc, null, 2)
 }

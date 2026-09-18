@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import {
-  addOpening, hitTestNode, hitTestWall, roomsToWalls, scenarioFromJson, scenarioToJson, spawnRandomStas,
+  addOpening, hitTestNode, hitTestWall, newTag, roomsToWalls, scenarioFromJson, scenarioToJson, spawnRandomStas,
 } from '../../src/editor/planOps'
-import { defaultScenario, type Room, type Wall } from '../../src/model/scenario'
+import { defaultScenario, ScenarioSchema, type Room, type Wall } from '../../src/model/scenario'
 import { Rng } from '../../src/engine/rng'
 
 const rooms: Room[] = [
@@ -81,6 +81,17 @@ describe('spawnRandomStas', () => {
       const inside = sc.rooms.some((r) => n.pos.x >= r.x && n.pos.x <= r.x + r.w && n.pos.y >= r.y && n.pos.y <= r.y + r.h)
       expect(inside).toBe(true)
     }
+  })
+})
+
+describe('newTag', () => {
+  it('newTag appends an AMP tag on 2.4 GHz with a fresh id', () => {
+    const { sc, id } = newTag(defaultScenario(), { x: 3, y: 3 })
+    const n = sc.nodes.find((x) => x.id === id)!
+    expect(n).toMatchObject({ kind: 'amp', linkId: '2g', txPowerDbm: 0, profiles: ['idle'] })
+    expect(() => ScenarioSchema.parse(sc)).not.toThrow()
+    const again = newTag(sc, { x: 4, y: 4 })
+    expect(again.id).not.toBe(id)
   })
 })
 
