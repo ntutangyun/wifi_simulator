@@ -36,6 +36,9 @@ export function frameColor(frame: FrameDesc, apId: string): number {
     case 'cfend': return 0xfb7185
     case 'rts':
     case 'cts': return 0xf97316
+    case 'ampTrigger':
+    case 'ampAck': return 0x2dd4bf
+    case 'ampResp': return 0xa78bfa
   }
 }
 

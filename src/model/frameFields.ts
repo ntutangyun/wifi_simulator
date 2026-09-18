@@ -98,10 +98,12 @@ export const TID_FOR_AC = [1, 0, 5, 6] as const
 const SUBTYPE: Record<Exclude<FrameKind, 'data'>, string> = {
   ack: 'Ack', cts: 'CTS', rts: 'RTS', ba: 'Block Ack', mba: 'Block Ack (Multi-STA)',
   trigger: 'Trigger', cfend: 'CF-End',
+  ampTrigger: 'AMP Trigger', ampAck: 'AMP Ack', ampResp: 'AMP Response',
 }
 const SUBTYPE_BITS: Record<string, string> = {
   Ack: '1101', CTS: '1100', RTS: '1011', 'Block Ack': '1001', 'Block Ack (Multi-STA)': '1001',
   Trigger: '0010', 'CF-End': '1110', Data: '0000', 'QoS Data': '1000',
+  'AMP Trigger': '—', 'AMP Ack': '—', 'AMP Response': '—',
 }
 
 /** Frame Control + Duration + RA + TA. */
@@ -241,6 +243,12 @@ function controlMpdu(f: FrameDesc, apId: string): Mpdu {
       checkSize(fields, total)
       break
     }
+    case 'ampTrigger':
+    case 'ampAck':
+    case 'ampResp':
+      // Placeholder decode; the real AMP frame layout is added in Task 7.
+      fields = [{ key: 'body', bytes: f.bytes, value: 'AMP' }]
+      break
   }
   return mpduOf(kind, 'Control', sub, fields)
 }

@@ -1,7 +1,34 @@
 import { AMPDU_DELIMITER_BYTES, FCS_BYTES, MAC_HDR_BYTES, QOS_HDR_BYTES, type PhyMode } from '../engine/phy'
 import type { Ns } from './types'
 
-export type FrameKind = 'data' | 'ack' | 'rts' | 'cts' | 'ba' | 'trigger' | 'mba' | 'cfend'
+export type FrameKind = 'data' | 'ack' | 'rts' | 'cts' | 'ba' | 'trigger' | 'mba' | 'cfend' | 'ampTrigger' | 'ampAck' | 'ampResp'
+
+/** P802.11bp fields of an AMP frame; present on the three AMP kinds only. */
+export interface AmpInfo {
+  dir: 'dl' | 'ul'
+  /** Data rate of the AMP-Data field in kb/s (250 / 1000 DL; 250 / 1000 / 4000 UL). */
+  kbps: number
+  /** Triggers: the UL data rate the solicited responses must use (PDT 39.3.2.1 "UL data rate"). */
+  ulKbps?: number
+  /** Triggers: which access phase this round is. */
+  phase?: 'random' | 'scheduled'
+  /** Triggers: Number of Slots, Slot Duration, ACWE, Session ID, scheduled STA id list, and the round's total air after this PPDU. */
+  slots?: number
+  slotNs?: Ns
+  acwe?: number
+  sessionId?: number
+  staIds?: string[]
+  roundNs?: Ns
+  /** Triggers: whether the solicited response carries a reading (frame body). */
+  reading?: boolean
+  /** Responses: the slot it was sent in and the ABOC that chose it (undefined when scheduled). */
+  slot?: number
+  aboc?: number
+  /** Acks: the slot this Ack closes. */
+  ackFor?: number
+  /** DL PPDUs: the padding field length. */
+  padNs?: Ns
+}
 
 /** One user's share of a DL/UL MU (OFDMA) PPDU. */
 export interface MuPart {
@@ -60,6 +87,8 @@ export interface FrameDesc {
   ulWidthMhz?: number
   /** How a multi-user PPDU is split: by frequency (OFDMA) or by space (MU-MIMO). */
   muKind?: 'ofdma' | 'mumimo'
+  /** P802.11bp Ambient Power fields; present on the three AMP frame kinds only. */
+  amp?: AmpInfo
 }
 
 export function dataPsduBytes(msduBytes: number): number {

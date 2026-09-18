@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { STRINGS } from '../../src/ui/i18n'
 import type { FrameKind } from '../../src/model/frames'
 
-const KINDS: FrameKind[] = ['data', 'ack', 'rts', 'cts', 'ba', 'trigger', 'mba']
+const KINDS: FrameKind[] = ['data', 'ack', 'rts', 'cts', 'ba', 'trigger', 'mba', 'ampTrigger', 'ampAck', 'ampResp']
 const LANGS = ['en', 'zh'] as const
 
 describe('frameDetail strings', () => {
