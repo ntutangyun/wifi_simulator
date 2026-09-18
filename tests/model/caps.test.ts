@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { MAX_WIDTH, negotiatedNss, negotiatedWidth, nssOf, widthOf } from '../../src/model/caps'
-import { BAND_LABEL, LINK_ORDER, linkOfVirtual, linkPlanFor, nodeLinks, virtualId } from '../../src/model/caps'
+import {
+  BAND_LABEL, LINK_ORDER, MAX_WIDTH, linkOfVirtual, linkPlanFor, negotiatedNss, negotiatedWidth,
+  nodeLinks, nssOf, virtualId, widthOf,
+} from '../../src/model/caps'
 import type { NodeCfg } from '../../src/model/scenario'
 import type { Generation } from '../../src/model/types'
 
@@ -65,6 +67,27 @@ describe('the 2.4 GHz link', () => {
     expect(mixed.members['2g']).toEqual(['ap', 'a'])
     expect(mixed.members['5g']).toEqual(['ap', 'b'])
     expect(mixed.virtualIds).toEqual(['ap', 'ap#2g', 'a#2g', 'b'])
+  })
+
+  it('an all-2.4 GHz scenario builds no phantom 5 GHz link', () => {
+    const plan = linkPlanFor([mk('ap', 'ap', 'eht'), mk('sta', 'sta', 'he', { linkId: '2g' })])
+    expect(plan.links).toEqual(['2g'])
+    expect(plan.virtualIds).toEqual(['ap#2g', 'sta#2g'])
+    expect(plan.members['5g']).toEqual([])
+    expect(plan.members['2g']).toEqual(['ap', 'sta'])
+  })
+
+  it('an AP on its own still operates one 5 GHz link', () => {
+    const plan = linkPlanFor([mk('ap', 'ap', 'eht')])
+    expect(plan.links).toEqual(['5g'])
+    expect(plan.virtualIds).toEqual(['ap'])
+  })
+
+  it('an MLO AP keeps its 5 + 6 GHz pair even when every station is on 5 GHz', () => {
+    const ap = mk('ap', 'ap', 'eht', { caps: { generation: 'eht', features: { mlo: true } } })
+    const plan = linkPlanFor([ap, mk('a', 'sta', 'he')])
+    expect(plan.links).toEqual(['5g', '6g'])
+    expect(plan.virtualIds).toEqual(['ap', 'ap#6g', 'a'])
   })
 
   it('width is clamped to 40 MHz on 2.4 GHz', () => {

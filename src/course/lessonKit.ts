@@ -3,7 +3,7 @@
  * (walls, houses, nodes) and jump-target predicates. Lesson files import from
  * here, never from lessons.ts, so modules that define lessons do not form a cycle.
  */
-import { defaultFeatures } from '../model/caps'
+import { defaultFeatures, linkOfVirtual } from '../model/caps'
 import type { NodeCfg, ProfileId, Room, Scenario, Wall } from '../model/scenario'
 import type { TLRecord } from '../model/records'
 import type { Generation } from '../model/types'
@@ -161,7 +161,7 @@ export const firstTrigger = txOf((r) => r.frame.kind === 'trigger')
 export const firstMba = txOf((r) => r.frame.kind === 'mba')
 export const firstCfEnd = txOf((r) => r.frame.kind === 'cfend')
 export const firstCfEndRelay = txOf((r) => r.frame.kind === 'cfend' && r.node === 'ap')
-export const first6g = txOf((r) => r.node.includes('#6g') && r.frame.kind === 'data')
+export const first6g = txOf((r) => linkOfVirtual(r.node) === '6g' && r.frame.kind === 'data')
 export const firstCollision = (r: TLRecord): boolean => r.type === 'COLLISION'
 export const firstRetry = (r: TLRecord): boolean => r.type === 'RETRY'
 export const firstNav = (r: TLRecord): boolean => r.type === 'NAV_SET'

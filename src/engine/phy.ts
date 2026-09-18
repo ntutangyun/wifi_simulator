@@ -116,12 +116,13 @@ export const OFDM_5G: PhyTiming = {
 
 const ERP_SIFS_NS: Ns = 10_000
 const ERP_SIGNAL_EXT_NS: Ns = 6_000
+const ERP_DIFS_NS: Ns = ERP_SIFS_NS + 2 * SLOT_NS // 28_000
 export const ERP_2G: PhyTiming = {
-  sifsNs: ERP_SIFS_NS, slotNs: SLOT_NS, difsNs: ERP_SIFS_NS + 2 * SLOT_NS,
+  sifsNs: ERP_SIFS_NS, slotNs: SLOT_NS, difsNs: ERP_DIFS_NS,
   rxStartDelayNs: RX_START_DELAY_NS,
   ackTimeoutNs: ERP_SIFS_NS + SLOT_NS + RX_START_DELAY_NS,
   signalExtNs: ERP_SIGNAL_EXT_NS,
-  eifsNs: ERP_SIFS_NS + (ERP_SIFS_NS + 2 * SLOT_NS) + ACK_TX_TIME_6M_NS + ERP_SIGNAL_EXT_NS,
+  eifsNs: ERP_SIFS_NS + ERP_DIFS_NS + ACK_TX_TIME_6M_NS + ERP_SIGNAL_EXT_NS,
 }
 
 /** Highest rate whose Table 17-21 sensitivity + 3 dB margin is met; floor 6 Mbps. */

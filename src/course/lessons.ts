@@ -8,6 +8,7 @@
  * needs it (frames cost airtime; rate depends on link quality).
  */
 import type { ChannelWidth, Nss } from '../model/caps'
+import { linkOfVirtual } from '../model/caps'
 import type { Scenario } from '../model/scenario'
 import {
   N, brick, drywallDoor, oneRoom, hallwayHouse, longApartment, node, sc, txOf, firstData, firstAck, firstBa, firstRts, firstAmpdu, firstMuDl, firstTrigger, firstMba, firstCfEnd, firstCfEndRelay, first6g, firstCollision, firstRetry, firstNav, firstBackoffDraw, firstFreeze, firstTxop, firstInternal, firstVo, J,
@@ -1114,7 +1115,7 @@ const AUTHORED: Lesson[] = [
       node('sta-2', 'Neighbor (5G only)', 'sta', 3.5, 5, 'he', 'saturated', { edca: true, ampdu: true, txop: true }),
     ]),
     jumps: [
-      J('first 5 GHz data', '第一个 5 GHz 数据帧', txOf((r) => !r.node.includes('#6g') && r.frame.kind === 'data' && r.frame.src === 'sta-1')),
+      J('first 5 GHz data', '第一个 5 GHz 数据帧', txOf((r) => linkOfVirtual(r.node) === '5g' && r.frame.kind === 'data' && r.frame.src === 'sta-1')),
       J('first 6 GHz data', '第一个 6 GHz 数据帧', first6g),
     ],
     observe: [

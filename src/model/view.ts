@@ -4,7 +4,7 @@
  * player from (snapshot ≤ t) + record replay — the reducer is the single
  * source of truth for both, which guarantees snapshot/replay equivalence.
  */
-import { hasFeature, linkPlanFor, physicalId } from './caps'
+import { hasFeature, linkPlanFor, physicalId, virtualId, LINK_ORDER } from './caps'
 import type { FrameDesc } from './frames'
 import type { MacStateName, TLRecord } from './records'
 import type { Scenario } from './scenario'
@@ -190,35 +190,55 @@ function cancelIfs(n: NodeView): void {
   n.ifs = null
 }
 
-/** The sibling virtual node (other MLO link) sharing a physical queue, if present. */
-function siblingId(vs: ViewState, vid: string): string | null {
-  const other = vid.includes('#6g') ? physicalId(vid) : `${vid}#6g`
-  return other in vs.nodes ? other : null
+/**
+ * Every other lane of the same physical node. All of a node's lanes share one
+ * `AcQueues` in the engine, so any of them may claim an MSDU the primary lane
+ * enqueued — an MLO device (5 + 6 GHz) as much as an AP that also serves a
+ * 2.4 GHz station.
+ */
+function siblingIds(vs: ViewState, vid: string): string[] {
+  const phys = physicalId(vid)
+  return Object.keys(vs.nodes).filter((v) => v !== vid && physicalId(v) === phys)
 }
 
 /**
- * The node whose `queue` list holds a virtual node's MSDUs: itself, or — for
- * the MLO link that only claims from the shared MLD queue — its sibling.
+ * The lane whose `queue` list holds a virtual node's MSDUs: itself, or — for a
+ * lane that only claims from the shared queue — whichever sibling lane holds it.
  */
 function queueHolder(vs: ViewState, vid: string): NodeView {
   const n = vs.nodes[vid]
   if (n.queue.length > 0) return n
-  const sib = siblingId(vs, vid)
-  return sib && vs.nodes[sib].queue.length > 0 ? vs.nodes[sib] : n
+  for (const sib of siblingIds(vs, vid)) {
+    if (vs.nodes[sib].queue.length > 0) return vs.nodes[sib]
+  }
+  return n
+}
+
+/**
+ * The lane that carries a physical node's stats: its first link in LINK_ORDER
+ * (the bare id when it has a 5 GHz lane, else `id#6g`, else `id#2g`). Records
+ * name peers by physical id, so every per-peer lookup has to resolve one.
+ */
+export function primaryLaneOf(vs: ViewState, physId: string): NodeView | undefined {
+  for (const l of LINK_ORDER) {
+    const n = vs.nodes[virtualId(physId, l)]
+    if (n) return n
+  }
+  return undefined
 }
 
 /**
  * Per-AC counts are derived from the queue list, never from the engine's
  * `depth` field: the engine's depth omits a claimed (in-flight) MSDU while the
- * list keeps it until DEQUEUE, and the two must agree on screen. Both MLO
- * links mirror the shared list.
+ * list keeps it until DEQUEUE, and the two must agree on screen. Every lane of
+ * the node mirrors the shared list.
  */
 function syncQueueLen(vs: ViewState, vid: string): void {
   const holder = queueHolder(vs, vid)
   const counts = [0, 0, 0, 0]
   for (const m of holder.queue) if (m.ac !== undefined) counts[m.ac]++
-  for (const id of [vid, siblingId(vs, vid)]) {
-    const acs = id ? vs.nodes[id].acs : null
+  for (const id of [vid, ...siblingIds(vs, vid)]) {
+    const acs = vs.nodes[id].acs
     if (acs) acs.forEach((a, i) => { a.queueLen = counts[i] })
   }
 }
@@ -259,14 +279,15 @@ export function applyRecord(vs: ViewState, r: TLRecord): void {
       break
     }
     case 'DEQUEUE': {
-      // MLO: the claiming link may differ from the enqueuing (primary) link.
+      // The claiming lane may differ from the enqueuing (primary) lane: MLO's
+      // second link, or the AP's 2.4 GHz lane draining a downlink queued on 5 GHz.
       let q = vs.nodes[r.node].queue
       let i = q.findIndex((m) => m.id === r.msduId)
       if (i < 0) {
-        const sib = siblingId(vs, r.node)
-        if (sib) {
-          q = vs.nodes[sib].queue
-          i = q.findIndex((m) => m.id === r.msduId)
+        for (const sib of siblingIds(vs, r.node)) {
+          const sq = vs.nodes[sib].queue
+          const j = sq.findIndex((m) => m.id === r.msduId)
+          if (j >= 0) { q = sq; i = j; break }
         }
       }
       if (i >= 0) {
@@ -278,10 +299,10 @@ export function applyRecord(vs: ViewState, r: TLRecord): void {
           syncQueueLen(vs, r.node)
           break
         }
-        // MLO credits the delivering link, as txOk does; the receiver is the
-        // physical destination (its primary link holds the stats).
+        // The delivering lane is credited, as txOk is; the receiver is the
+        // physical destination (its primary lane holds the stats).
         addLatency(vs.nodes[r.node].stats.txLatency, r.t - m.bornNs)
-        const rx = vs.nodes[m.dst]
+        const rx = primaryLaneOf(vs, m.dst)
         if (rx) {
           addLatency(rx.stats.rxLatency, r.t - m.bornNs)
           if (m.rttFromNs !== undefined) {
@@ -397,7 +418,7 @@ export function applyRecord(vs: ViewState, r: TLRecord): void {
           fresh++
           n.stats.bytesDelivered += Math.max(0, sizes?.[i] ?? fallback)
         })
-        const sender = vs.nodes[r.from]
+        const sender = primaryLaneOf(vs, r.from)
         if (sender) sender.stats.txOk += fresh
       }
       break

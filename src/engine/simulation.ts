@@ -173,8 +173,13 @@ export class Simulation {
     }
 
     // ---- traffic → primary-link MAC (shared queues make it MLD-wide) ----
-    /** The virtual id of a node's primary MAC: its first lane in the plan (5g before 6g before 2g). */
-    const primaryVid = (id: string): string => plan.virtualIds.find((v) => physicalId(v) === id)!
+    /** The virtual id of each node's primary MAC: its first lane in the plan (5g before 6g before 2g). */
+    const primaryVids = new Map<string, string>()
+    for (const v of plan.virtualIds) {
+      const p = physicalId(v)
+      if (!primaryVids.has(p)) primaryVids.set(p, v)
+    }
+    const primaryVid = (id: string): string => primaryVids.get(id)!
     const primaryMac = (id: string): WifiMac => this.macs.get(primaryVid(id))!
     /** Uplink MSDUs bound for another station, by id: forwarded by the AP once acknowledged. */
     const relayPending = new Map<number, Msdu>()
@@ -189,7 +194,7 @@ export class Simulation {
       primaryMac(atNode).enqueue(msdu, ac)
       // MLO: wake the sibling link's MAC; OFDMA: poke the AP scheduler.
       for (const [vid, mac] of this.macs) {
-        if (vid !== virtualId(atNode, '5g') && vid.startsWith(`${atNode}#`)) mac.pokeAccess()
+        if (vid !== primaryVid(atNode) && physicalId(vid) === atNode) mac.pokeAccess()
       }
       if (atNode !== ap.id && sta && negotiated(sta, ap, 'ofdma')) {
         for (const m of apMacs) m.notifyUlBacklog()

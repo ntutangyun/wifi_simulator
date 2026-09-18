@@ -33,13 +33,18 @@ describe('a MAC on the 2.4 GHz link', () => {
     bss.runUntil(5_000_000)
     const ifs = bss.recs('IFS_START', 'ap')[0]
     expect(ifs.kind).toBe('DIFS')
+    // Two back-to-back MSDUs: the DIFS before the second one starts the instant
+    // the first exchange's ACK ends, so it is a full wait off a busy medium —
+    // not the zero-length one a MAC reports when the medium has long been idle.
+    bss.enqueue(6_000_000, 'sta-1', msdu('sta-1', 'ap', 1400))
     bss.enqueue(6_000_000, 'sta-1', msdu('sta-1', 'ap', 1400))
     bss.runUntil(8_000_000)
     const tx = bss.recs('TX_START', 'sta-1').find((r) => r.frame.kind === 'data')!
     // 1428-octet PSDU at 54 Mb/s: 20 µs preamble + ceil((16+8·1428+6)/216)=53 symbols × 4 µs = 232 µs, + 6 µs extension
     expect(tx.frame.txTimeNs).toBe(232_000 + 6_000)
-    const ifs2 = bss.recs('IFS_START', 'sta-1').find((r) => r.t >= 6_000_000)!
-    expect(ifs2.untilNs - ifs2.t).toBeLessThanOrEqual(28_000)
+    const ack = bss.recs('TX_END', 'ap').find((r) => r.frame.kind === 'ack' && r.t >= 6_000_000)!
+    const ifs2 = bss.recs('IFS_START', 'sta-1').find((r) => r.t >= ack.t && r.kind === 'DIFS')!
+    expect(ifs2.untilNs - ifs2.t).toBe(28_000) // SIFS 10 + 2 × 9 µs slot, not the 34 µs of 5 GHz
   })
 
   it('the ACK follows one 10 µs SIFS after the data PPDU (including its extension)', () => {
@@ -55,7 +60,7 @@ describe('a MAC on the 2.4 GHz link', () => {
     expect(ack.frame.txTimeNs).toBe(28_000 + 6_000) // ACK at 24 Mb/s carries the extension too
   })
 
-  it('a lost ACK times out after 39 µs and a corrupted frame costs EIFS 88 µs', () => {
+  it('a lost ACK times out after 39 µs', () => {
     // sta-1 → ap fails: the AP cannot hear sta-1 (−200), so sta-1's frame is never acknowledged.
     const bss = makeBss(['ap', 'sta-1'], { 'ap>sta-1': -50 }, { timing: ERP_2G })
     bss.enqueue(0, 'sta-1', msdu('sta-1', 'ap', 500))

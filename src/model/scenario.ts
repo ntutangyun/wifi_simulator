@@ -253,6 +253,9 @@ const NodeCfgSchema = z.preprocess(
     if (n.linkId === '2g' && n.caps.generation === 'vht') {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Wi-Fi 5 (VHT) has no 2.4 GHz mode; pick 802.11g, Wi-Fi 6 or Wi-Fi 7 for the 2.4 GHz link' })
     }
+    if (n.linkId === '6g' && (n.caps.generation === 'nonht' || n.caps.generation === 'vht')) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: '6 GHz needs Wi-Fi 6 or Wi-Fi 7; 802.11a and Wi-Fi 5 (VHT) have no 6 GHz mode' })
+    }
   }),
 )
 

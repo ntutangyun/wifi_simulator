@@ -92,7 +92,7 @@ export function nodeLinks(n: NodeCfg, apMlo: boolean): LinkId[] {
   if (hasFeature(n, 'mlo') && (n.kind === 'ap' || apMlo)) return ['5g', '6g']
   const g = n.caps.generation
   if (n.kind !== 'ap' && n.linkId === '2g' && g !== 'vht') return ['2g']
-  if ((g === 'he' || g === 'eht') && n.linkId === '6g') return ['6g']
+  if (n.kind !== 'ap' && (g === 'he' || g === 'eht') && n.linkId === '6g') return ['6g']
   return ['5g']
 }
 
@@ -123,7 +123,11 @@ export function linkPlanFor(nodes: NodeCfg[]): LinkPlan {
   const ap = nodes.find((n) => n.kind === 'ap')
   const apMlo = ap ? hasFeature(ap, 'mlo') : false
   const staLinks = new Map<string, LinkId[]>()
-  const used = new Set<LinkId>(['5g'])
+  // "The AP is a member of every link that has at least one other member": the
+  // set of links comes from the stations (plus 6 GHz for an MLO AP, which runs
+  // both of its links), never from an unconditional 5 GHz seed — an all-2.4 GHz
+  // scenario must not build a phantom, empty 5 GHz link.
+  const used = new Set<LinkId>()
   if (apMlo) used.add('6g')
   for (const n of nodes) {
     if (n.kind === 'ap') continue
@@ -131,6 +135,7 @@ export function linkPlanFor(nodes: NodeCfg[]): LinkPlan {
     staLinks.set(n.id, ls)
     for (const l of ls) used.add(l)
   }
+  if (used.size === 0) used.add('5g') // an AP on its own still operates one link
   const apLinks = LINK_ORDER.filter((l) => used.has(l))
   const members: Record<LinkId, string[]> = { '2g': [], '5g': [], '6g': [] }
   const virtualIds: string[] = []

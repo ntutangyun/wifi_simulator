@@ -5,6 +5,7 @@ import { useUi } from '../ui/store'
 import { buildHouse } from './house'
 import { buildNodeMeshes, updateNodeVisual } from './nodes'
 import { EffectsLayer } from './effects'
+import { primaryLaneOf } from '../model/view'
 
 export function Viewport() {
   const hostRef = useRef<HTMLDivElement>(null)
@@ -71,7 +72,8 @@ export function Viewport() {
       const { view, playheadNs, selectedNodeId } = useUi.getState()
       if (view) {
         for (const [id, g] of nodeMeshes) {
-          const nv = view.nodes[id]
+          // nodeMeshes are keyed by physical id; a 2.4 GHz- or 6 GHz-only node has no bare lane.
+          const nv = primaryLaneOf(view, id)
           if (nv) updateNodeVisual(g, nv, playheadNs)
           const halo = g.getObjectByName('halo') as THREE.Mesh
           halo.scale.setScalar(id === selectedNodeId ? 1.35 : 1)

@@ -67,4 +67,17 @@ describe('linkId 2g in the schema', () => {
     sc.nodes[1].caps.generation = 'vht'
     expect(() => ScenarioSchema.parse(sc)).toThrow(/2\.4 GHz/)
   })
+
+  it('rejects 6g on 802.11a and on Wi-Fi 5, and accepts it on Wi-Fi 6/7', () => {
+    const sc = defaultScenario()
+    sc.nodes[1].linkId = '6g'
+    for (const gen of ['he', 'eht'] as const) {
+      sc.nodes[1].caps.generation = gen
+      expect(() => ScenarioSchema.parse(sc)).not.toThrow()
+    }
+    for (const gen of ['nonht', 'vht'] as const) {
+      sc.nodes[1].caps.generation = gen
+      expect(() => ScenarioSchema.parse(sc)).toThrow(/6 GHz/)
+    }
+  })
 })

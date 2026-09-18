@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest'
 import type { FrameDesc } from '../../src/model/frames'
 import { makeEmitter, type EmitFn, type TLRecord } from '../../src/model/records'
 import { applyRecord, cloneView, initViewState } from '../../src/model/view'
-import { defaultScenario } from '../../src/model/scenario'
+import { defaultScenario, type Scenario } from '../../src/model/scenario'
+import { physicalId } from '../../src/model/caps'
 import { LESSONS } from '../../src/course/lessons'
 import { Simulation } from '../../src/engine/simulation'
 
@@ -288,5 +289,59 @@ describe('delivery latency: queue arrival to acknowledgement', () => {
     ])) applyRecord(vs, r)
     expect(vs.nodes['ap'].stats.bytesDelivered).toBe(3800)
     expect(vs.nodes['sta-1'].stats.txOk).toBe(3)
+  })
+})
+
+describe('a station on the 2.4 GHz link, through the live view', () => {
+  /** The default scenario with the TV (sta-1, downlink video) moved to 2.4 GHz. */
+  function tvOn2g(opts: { phone?: boolean; apMlo?: boolean } = {}) {
+    const sc = defaultScenario()
+    sc.nodes[1].caps.generation = 'he'
+    sc.nodes[1].linkId = '2g'
+    if (opts.apMlo === false) sc.nodes[0].caps.features.mlo = false
+    if (opts.phone === false) sc.nodes = [sc.nodes[0], sc.nodes[1]]
+    return sc
+  }
+
+  function runView(sc: Scenario) {
+    const vs = initViewState(sc)
+    let maxApQueue = 0
+    // 400 ms: long enough for the TV's 250 ms keepalive ping to go up and be echoed back.
+    for (const r of new Simulation(sc).runUntil(400_000_000).records) {
+      applyRecord(vs, r)
+      for (const [vid, n] of Object.entries(vs.nodes)) {
+        if (physicalId(vid) === 'ap') maxApQueue = Math.max(maxApQueue, n.queue.length)
+      }
+    }
+    const apTxLatency = Object.entries(vs.nodes)
+      .filter(([vid]) => physicalId(vid) === 'ap')
+      .reduce((s, [, n]) => s + n.stats.txLatency.n, 0)
+    return { vs, maxApQueue, apTxLatency }
+  }
+
+  it('drains the AP queue, times the downlink and credits the 2.4 GHz lane with txOk', () => {
+    const { vs, maxApQueue, apTxLatency } = runView(tvOn2g())
+    // The AP enqueues downlink on its primary lane and dequeues on the 2.4 GHz
+    // one. Before the fix the DEQUEUE never matched, so this list only grew.
+    expect(maxApQueue).toBeGreaterThan(0)
+    expect(maxApQueue).toBeLessThan(50)
+    expect(apTxLatency).toBeGreaterThan(0)
+    const tv = vs.nodes['sta-1#2g']
+    expect(vs.nodes['sta-1']).toBeUndefined() // the TV has no 5 GHz lane at all
+    expect(tv.stats.rxLatency.n).toBeGreaterThan(0)
+    expect(tv.stats.rxLatency.sumNs / tv.stats.rxLatency.n).toBeLessThanOrEqual(tv.stats.rxLatency.maxNs)
+    expect(tv.stats.appRtt.n).toBeGreaterThan(0)
+    expect(tv.stats.txOk).toBeGreaterThan(0) // its uplink requests, credited to its only lane
+  })
+
+  it('does the same when 2.4 GHz is the scenario’s only link', () => {
+    const { vs, maxApQueue, apTxLatency } = runView(tvOn2g({ phone: false, apMlo: false }))
+    // finding 6: no phantom, empty 5 GHz link — and the AP's primary lane is ap#2g
+    expect(Object.keys(vs.nodes).sort()).toEqual(['ap#2g', 'sta-1#2g'])
+    expect(maxApQueue).toBeGreaterThan(0)
+    expect(maxApQueue).toBeLessThan(50)
+    expect(apTxLatency).toBeGreaterThan(0)
+    expect(vs.nodes['sta-1#2g'].stats.rxLatency.n).toBeGreaterThan(0)
+    expect(vs.nodes['sta-1#2g'].stats.txOk).toBeGreaterThan(0)
   })
 })
