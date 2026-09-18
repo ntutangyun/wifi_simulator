@@ -54,6 +54,7 @@ RF model: log-distance path loss (n = 3.0, 5 GHz) + per-wall attenuation (drywal
 - 20 MHz channels only; PPDU decode is all-or-nothing per receiver (per-MU-part thresholds for OFDMA); receivers lock the first decodable preamble.
 - OFDMA RUs modeled as 1/n rate scaling; MLO is STR with a simplified 6 GHz path-loss offset; wall openings are full-height gaps.
 - TXOP NAV covers one exchange at a time rather than the full TXOP remainder.
+- 2.4 GHz always uses the 9 µs short slot (no 802.11b stations are modelled); the 6 µs signal extension is modelled as occupied medium, so a PPDU overlapping only another PPDU's extension counts as interference.
 
 ## Architecture
 

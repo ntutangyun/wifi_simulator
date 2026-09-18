@@ -197,8 +197,8 @@ export const GLOSSARY: GlossaryGroup[] = [
         term: 'aSignalExtension',
         alt: { en: 'signal extension, 6 µs', zh: '信号扩展，6 µs' },
         def: {
-          en: 'On 2.4 GHz every OFDM PPDU is followed by 6 µs of silence that counts as part of its TXTIME (§10.3.8), so that old 802.11b stations compute the NAV correctly. Every 2.4 GHz frame in the timeline is 6 µs longer than the same frame at 5 GHz.',
-          zh: '在 2.4 GHz，每个 OFDM PPDU 后面跟着 6 µs 的静默，计入其 TXTIME（§10.3.8），以便老式 802.11b 终端正确计算 NAV。时间线上每个 2.4 GHz 帧都比 5 GHz 上的同一帧长 6 µs。',
+          en: 'On 2.4 GHz every OFDM PPDU is followed by 6 µs of silence that counts as part of its TXTIME (§10.3.8), so that ERP receivers finish decoding before the SIFS response and the Duration/NAV arithmetic still adds up. Every 2.4 GHz frame in the timeline is 6 µs longer than the same frame at 5 GHz.',
+          zh: '在 2.4 GHz，每个 OFDM PPDU 后面跟着 6 µs 的静默，计入其 TXTIME（§10.3.8），使 ERP 接收机能在 SIFS 响应之前完成解码，Duration/NAV 的时间计算也才对得上。时间线上每个 2.4 GHz 帧都比 5 GHz 上的同一帧长 6 µs。',
         },
       },
       {

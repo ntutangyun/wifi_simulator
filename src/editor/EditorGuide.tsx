@@ -123,9 +123,12 @@ function EditorGuideEn() {
         Only reachable at strong RSSI anyway.
       </div>
       <D t="Link">
-        shown for non-MLO Wi-Fi 6/7 devices: which band the radio sits on. The two bands are
-        separate channels — devices on different links never hear or contend with each other, and
-        6 GHz carries +1.2 dB extra path loss here.
+        shown for every non-MLO station except Wi-Fi 5 ones (VHT is a 5 GHz-only PHY): which band
+        the radio sits on. The three bands are separate channels — devices on different links never
+        hear or contend with each other. Relative to 5 GHz, this model gives 2.4 GHz −6.5 dB of path
+        loss (it reaches further) and ERP-OFDM timing — SIFS 10 µs, DIFS 28 µs and a 6 µs signal
+        extension on every frame — while 6 GHz gets +1.2 dB. An MLO device has no selector: it runs
+        on 5 <i>and</i> 6 GHz.
       </D>
       <D t="TXOP protection">
         Shown when TXOP is on. How the node announces a burst of several exchanges it holds.
@@ -282,8 +285,11 @@ function EditorGuideZh() {
         无论如何都需要很强的 RSSI 才能达到。
       </div>
       <D t="频段">
-        仅对非 MLO 的 Wi-Fi 6/7 设备显示：该设备工作在哪个频段。两个频段是彼此独立的信道——
-        不同链路上的设备互相听不到、也不竞争；本模型中 6 GHz 额外增加 1.2 dB 路径损耗。
+        对除 Wi-Fi 5 以外的所有非 MLO 终端显示（VHT 只有 5 GHz 的 PHY）：该设备的射频工作在哪个
+        频段。三个频段是彼此独立的信道——不同链路上的设备互相听不到、也不竞争。相对 5 GHz，
+        本模型给 2.4 GHz 的路径损耗为 −6.5 dB（覆盖更远），并采用 ERP-OFDM 时序——SIFS 10 µs、
+        DIFS 28 µs，每帧还带 6 µs 的信号扩展；6 GHz 则为 +1.2 dB。MLO 设备不显示该选项：
+        它同时工作在 5 GHz 与 6 GHz 上。
       </D>
       <D t="TXOP 保护">
         开启 TXOP 时显示。节点持有多次交换的突发时如何预告。<i>单次</i>——每个帧的 Duration

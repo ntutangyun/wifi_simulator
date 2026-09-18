@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { physicalId } from '../model/caps'
+import { linkOfVirtual, physicalId } from '../model/caps'
 import type { FrameDesc } from '../model/frames'
 import type { Scenario } from '../model/scenario'
 import type { Ns } from '../model/types'
@@ -16,6 +16,14 @@ export function flightProgress(t: Ns, f: FlightView): number {
   const d = f.endNs - f.startNs
   if (d <= 0) return 1
   return Math.max(0, Math.min(1, (t - f.startNs) / d))
+}
+
+/** Warm (orange-shifted) variant of a frame colour: the 2.4 GHz band's tint. */
+export function warmShift(color: number): number {
+  const r = Math.min(255, Math.round(((color >> 16) & 0xff) * 0.45 + 0xf9 * 0.55))
+  const g = Math.min(255, Math.round(((color >> 8) & 0xff) * 0.45 + 0x73 * 0.55))
+  const b = Math.round((color & 0xff) * 0.45)
+  return (r << 16) | (g << 8) | b
 }
 
 export function frameColor(frame: FrameDesc, apId: string): number {
@@ -134,16 +142,17 @@ export class EffectsLayer {
       alive.add(key)
       let mesh = this.waves.get(key)
       if (!mesh) {
-        const is6g = f.from.includes('#6g')
+        const band = linkOfVirtual(f.from)
         mesh = new THREE.Mesh(
           new THREE.SphereGeometry(1, 24, 16),
           new THREE.MeshBasicMaterial({
-            color: frameColor(f.frame, this.apId),
+            // 2.4 GHz keeps the frame's colour but warm-shifted, so the three bands read apart.
+            color: band === '2g' ? warmShift(frameColor(f.frame, this.apId)) : frameColor(f.frame, this.apId),
             transparent: true,
             opacity: 0.22,
             depthWrite: false,
             side: THREE.DoubleSide,
-            wireframe: is6g, // 6 GHz link waves render as wireframe
+            wireframe: band !== '5g', // the 6 GHz and 2.4 GHz link waves render as wireframe
           }),
         )
         const p = this.positions.get(physicalId(f.from))

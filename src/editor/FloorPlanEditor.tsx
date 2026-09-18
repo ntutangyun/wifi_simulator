@@ -209,7 +209,9 @@ export function FloorPlanEditor() {
   const setGeneration = (n: NodeCfg, gen: Generation) => {
     const features: Partial<Record<FeatureFlag, boolean>> = {}
     for (const f of GEN_FEATURES[gen]) features[f] = n.caps.features[f] ?? true
-    updateNode(n.id, { caps: { generation: gen, features: features as Record<string, boolean> }, linkId: gen === 'vht' ? undefined : n.linkId })
+    // Drop a link the new generation cannot use: VHT is 5 GHz only, and 802.11a/g has no 6 GHz.
+    const keepsLink = gen !== 'vht' && !(gen === 'nonht' && n.linkId === '6g')
+    updateNode(n.id, { caps: { generation: gen, features: features as Record<string, boolean> }, linkId: keepsLink ? n.linkId : undefined })
   }
 
   const gridLines = () => {
@@ -574,7 +576,7 @@ export function FloorPlanEditor() {
                       </select>
                     </label>
                   )}
-                  {selNode.caps.generation !== 'vht' && selNode.caps.features.mlo !== true && (
+                  {selNode.kind === 'sta' && selNode.caps.generation !== 'vht' && selNode.caps.features.mlo !== true && (
                     <label style={{ display: 'block', marginBottom: 4 }} title={E.linkHint}>
                       {E.link}{' '}
                       <select value={selNode.linkId ?? '5g'} onChange={(e) => updateNode(selNode.id, { linkId: e.target.value as LinkId })}>
