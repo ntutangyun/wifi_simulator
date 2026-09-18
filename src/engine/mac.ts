@@ -234,6 +234,11 @@ export class WifiMac implements PhyListener {
     const e = this.edcafs[this.efIndex(0)]
     this.endTxop()
     e.backoff = null
+    // A completed round is a successful exchange sequence: CW and QSRC go back
+    // to their minimum, exactly as an acknowledged frame does (§10.23.2.2).
+    // Without this, internal collisions with the AP's higher ACs ratchet
+    // AC_BK's CW up and nothing ever brings it down.
+    this.resetQsrc(e)
     e.needDraw = true
     this.resumeAll()
   }

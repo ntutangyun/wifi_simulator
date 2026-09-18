@@ -93,6 +93,22 @@ describe('the AP’s AMP round', () => {
     const prot = new Simulation(scenario({ protection: 'ctsSelf' }, [cam])).runUntil(300 * MS).records
     expect(ofType(prot, 'NAV_SET', 'cam#2g').filter((r) => r.source.startsWith('cts')).length).toBeGreaterThan(0)
   })
+  it('a finished round resets AC_BK’s contention window, even against higher-AC traffic', () => {
+    // Downlink video (AC_VI) at the AP: every internal collision the AMP round
+    // loses bumps AC_BK's CW, and only a successful round brings it back.
+    const tv: NodeCfg = { id: 'tv', kind: 'sta', name: 'TV', pos: { x: 5, y: 2, z: 1 }, txPowerDbm: 15, profiles: ['video', 'saturated'], caps: { generation: 'he', features: { edca: true, ampdu: true, txop: true } }, linkId: '2g' }
+    const rs = new Simulation(scenario({ pollIntervalMs: 20 }, [tv])).runUntil(1000 * MS).records
+    const rounds = ofType(rs, 'AMP_ROUND', 'ap#2g').filter((r) => r.phase === 'random')
+    expect(rounds.length).toBeGreaterThan(20)
+    // the premise: AC_BK does lose internal collisions to the AP's AC_VI downlink
+    expect(ofType(rs, 'INTERNAL_COLLISION', 'ap#2g').filter((r) => r.loserAc === 0).length).toBeGreaterThan(0)
+    for (const rd of rounds) {
+      const end = rs.findIndex((r) => r.type === 'TX_END' && r.node === 'ap#2g' && r.frame.kind === 'ampAck' && r.t === rd.untilNs)
+      if (end < 0) continue // a round still running when the batch ended
+      const next = rs.slice(end).find((r) => r.type === 'CW_CHANGE' && r.node === 'ap#2g' && r.ac === 0)
+      expect(next).toMatchObject({ cw: 15, qsrc: 0 })
+    }
+  })
   it('the live view and snapshot replay agree with AMP records', () => {
     const sim = new Simulation(scenario({ pollIntervalMs: 20 }))
     const batches = [50, 100, 150].map((ms) => sim.runUntil(ms * MS))

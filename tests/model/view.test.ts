@@ -370,4 +370,29 @@ describe('AMP records in the view', () => {
     rec({ t: 2_500_000, type: 'AMP_RESULT', node: 'tag-1#2g', slot: 3, sent: true, acked: false })
     expect(vs.nodes['tag-1#2g'].amp!.lost).toBe(1)
   })
+
+  it('the AP lane lists only the responses its round counts: the current slot, once per tag', () => {
+    const sc = defaultScenario()
+    sc.nodes[0].caps = { generation: 'eht', features: { edca: true } }
+    sc.nodes[0].ampAp = { ...DEFAULT_AMP_AP }
+    sc.nodes.push({ id: 'tag-1', kind: 'amp', name: 'Tag 1', pos: { x: 3, y: 3, z: 1 }, txPowerDbm: 0, profiles: ['idle'], caps: { generation: 'nonht', features: {} } })
+    sc.nodes.push({ id: 'tag-2', kind: 'amp', name: 'Tag 2', pos: { x: 4, y: 3, z: 1 }, txPowerDbm: 0, profiles: ['idle'], caps: { generation: 'nonht', features: {} } })
+    const vs = initViewState(sc)
+    let n = 0
+    const rec = (r: Parameters<EmitFn>[0]) => applyRecord(vs, { ...r, seq: n++ } as TLRecord)
+    const resp = (src: string, slot: number): FrameDesc =>
+      ({ kind: 'ampResp', src, dst: 'ap', bytes: 15, mbps: 0.25, durationFieldNs: 0, txTimeNs: 528_000, amp: { dir: 'ul', kbps: 250, slot, reading: true } })
+    rec({ t: 0, type: 'AMP_ROUND', node: 'ap#2g', phase: 'random', slots: 4, slotNs: 528_000, acwe: 2, dlKbps: 250, ulKbps: 250, untilNs: 4_130_000 })
+    rec({ t: 628_000, type: 'AMP_SLOT', node: 'ap#2g', slot: 1, untilNs: 1_156_000 })
+    rec({ t: 1_156_000, type: 'RX_OK', node: 'ap#2g', from: 'tag-1', frame: resp('tag-1', 1) })
+    expect(vs.nodes['ap#2g'].ampRound!.received).toEqual(['tag-1'])
+    // a duplicate of the same response, and a response carrying another slot's
+    // number, are both ignored — the round counts neither
+    rec({ t: 1_156_001, type: 'RX_OK', node: 'ap#2g', from: 'tag-1', frame: resp('tag-1', 1) })
+    rec({ t: 1_156_002, type: 'RX_OK', node: 'ap#2g', from: 'tag-2', frame: resp('tag-2', 3) })
+    expect(vs.nodes['ap#2g'].ampRound!.received).toEqual(['tag-1'])
+    rec({ t: 2_034_000, type: 'AMP_SLOT', node: 'ap#2g', slot: 2, untilNs: 2_562_000 })
+    rec({ t: 2_562_000, type: 'RX_OK', node: 'ap#2g', from: 'tag-2', frame: resp('tag-2', 2) })
+    expect(vs.nodes['ap#2g'].ampRound!.received).toEqual(['tag-1', 'tag-2'])
+  })
 })

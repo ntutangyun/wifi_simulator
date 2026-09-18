@@ -456,7 +456,13 @@ export function applyRecord(vs: ViewState, r: TLRecord): void {
         if (sender) sender.stats.txOk += fresh
       }
       if (r.frame.kind === 'ampResp' && n.ampRound) {
-        n.ampRound.received.push(r.from)
+        // The same rule the AP's round applies (AmpApRound.onRxOk): only a
+        // response in the slot the round is actually in counts, and only the
+        // first one from a tag — so the lane's list matches the round's tally.
+        const slot = r.frame.amp?.slot
+        if (slot !== undefined && slot === n.ampRound.slot && !n.ampRound.received.includes(r.from)) {
+          n.ampRound.received.push(r.from)
+        }
       }
       break
     }

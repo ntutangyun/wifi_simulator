@@ -122,6 +122,10 @@ export class Simulation {
           continue
         }
         const edca = hasFeature(n, 'edca') && hasFeature(ap, 'edca')
+        // This MAC runs AMP polling: the AP, on the 2.4 GHz link, configured
+        // for it, with at least one tag to poll. Its radio decodes the tags'
+        // uplink for exactly as long as it polls them.
+        const polls = n.kind === 'ap' && link === '2g' && !!n.ampAp && members.some((m) => m.kind === 'amp')
         const rate = new RateControl()
         const mac = new WifiMac(
           n.id, this.q, () => this.nowNs, ch,
@@ -133,7 +137,7 @@ export class Simulation {
             txop: edca && hasFeature(n, 'txop') && hasFeature(ap, 'txop'),
             isAp: n.kind === 'ap',
             timing: timingFor(link),
-            ampAp: n.kind === 'ap' && link === '2g' && members.some((m) => m.kind === 'amp') ? n.ampAp : undefined,
+            ampAp: polls ? n.ampAp : undefined,
             modeForPeer: (peer) => modeFor(n, peer),
             mcsForPeer: (peer) => {
               const rssi = table.get(n.id)?.get(peer) ?? -200
@@ -186,7 +190,7 @@ export class Simulation {
           queuesOf.get(n.id),
         )
         this.macs.set(vid, mac)
-        ch.register(n.id, mac, { ampCapable: n.kind === 'ap' && link === '2g' && !!n.ampAp })
+        ch.register(n.id, mac, { ampCapable: polls })
         if (n.kind === 'ap') apMacs.push(mac)
       }
     }
