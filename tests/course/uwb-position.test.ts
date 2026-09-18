@@ -4,7 +4,8 @@
  * the sentence it guards, copied from the shipped string; the solver, the range
  * sigma, the NLOS excess delays and the FoM bytes come from the engine's own
  * exports (src/uwb/position.ts, src/uwb/phy.ts, src/uwb/scene.ts) rather than
- * being re-typed here.
+ * being re-typed here. The inspector rows are replayed through the player's own
+ * reducer (initViewState + applyRecord), so they are the panel's by construction.
  */
 import { describe, it, expect } from 'vitest'
 import { uwbPosition, uwbPositionScenario } from '../../src/course/uwb/uwb-position'
@@ -19,7 +20,8 @@ import { C_M_PER_NS, FOM_LOS, FOM_NLOS, UWB_NLOS_NS, fomText } from '../../src/u
 import { rangeSigmaM, solvePosition, type AnchorPos, type Fix } from '../../src/uwb/position'
 import { ELLIPSE_DRAW_SCALE } from '../../src/uwb/scene'
 import { uwbFixRow, uwbRangeRows } from '../../src/uwb/ui/rows'
-import type { UwbNodeView, UwbPositionView, UwbRangeView } from '../../src/uwb/view'
+import type { UwbNodeView } from '../../src/uwb/view'
+import { applyRecord, initViewState } from '../../src/model/view'
 import { STRINGS } from '../../src/ui/i18n'
 
 const MS = 1_000_000
@@ -85,21 +87,49 @@ function exactFix(px: number, py: number, drop?: string): Fix {
   return fix!
 }
 
-/** The inspector rows a learner reads, built from the record stream the same way the view does. */
-function inspectorAt(variant: number | undefined, block: number): { fix: UwbPositionView; node: UwbNodeView } {
-  const fix = fixes(variant).find((f) => f.block === block)!
-  const ranges: Record<string, UwbRangeView> = {}
-  for (const r of tagRanges(variant).filter((r) => r.block === block)) {
-    ranges[r.peer] = { distM: r.distM, trueDistM: r.trueDistM, method: r.method, fom: r.fom, block: r.block, n: 1 }
+/** A Jacobian row at (px, py): the horizontal part of the 3-D unit vector to an anchor. */
+function jRow(px: number, py: number, ax: number, ay: number): [number, number] {
+  const dx = px - ax, dy = py - ay, dz = TAG.z - ANCHOR_Z
+  const d3 = Math.hypot(dx, dy, dz)
+  return [dx / d3, dy / d3]
+}
+const rowLen = (px: number, py: number, ax: number, ay: number): number => Math.hypot(...jRow(px, py, ax, ay))
+
+/** GDOP straight from a set of Jacobian rows, so a row can be dropped past the solver's 3-range floor. */
+function gdopOfRows(rows: [number, number][]): number {
+  let xx = 0, xy = 0, yy = 0
+  for (const [ux, uy] of rows) { xx += ux * ux; xy += ux * uy; yy += uy * uy }
+  const det = xx * yy - xy * xy
+  return Math.sqrt((yy + xx) / det)
+}
+
+/** The gaps between the bearings of the named anchors as seen from (px, py), in degrees. */
+function gapsAt(px: number, py: number, ids: string[]): string[] {
+  const bs = CORNERS.filter(([id]) => ids.includes(id))
+    .map(([, x, y]) => Math.atan2(y - py, x - px) * 180 / Math.PI)
+    .sort((a, b) => a - b)
+  const gaps = bs.map((b, i) => (bs[(i + 1) % bs.length] - b + 360) % 360)
+  expect(gaps.reduce((a, b) => a + b, 0)).toBeCloseTo(360, 9)
+  return gaps.map((g) => g.toFixed(1))
+}
+
+/**
+ * The tag's inspector state after `blocks` ranging blocks, replayed through the
+ * player's own reducer — `initViewState` then `applyRecord` per record — so the
+ * pinned rows are the panel's by construction and not a hand-built lookalike.
+ */
+function inspectorAfter(variant: number | undefined, blocks: number): UwbNodeView {
+  const sc = scenarioOf(variant)
+  const vs = initViewState(sc)
+  const untilNs = blocks * 200 * MS + 10 * MS
+  for (const r of recs(variant)) {
+    if (r.t >= untilNs) break
+    applyRecord(vs, r)
   }
-  const view: UwbPositionView = {
-    x: fix.x, y: fix.y, trueX: fix.trueX, trueY: fix.trueY, gdop: fix.gdop, ellipse: fix.ellipse,
-    block: fix.block, n: block + 1,
-  }
-  return {
-    fix: view,
-    node: { role: 'tag', block, round: 0, slot: null, rounds: block + 1, timeouts: 0, ranges, position: view },
-  }
+  const u = vs.nodes['uwb-1'].uwb
+  expect(u, 'the tag has a UWB lane').toBeDefined()
+  expect(u!.position, 'the tag has a fix').not.toBeNull()
+  return u!
 }
 
 const FOM_S = { fomWithin: STRINGS.en.uwb.fomWithin, noFom: STRINGS.en.uwb.noFom }
@@ -261,13 +291,15 @@ describe('uwb-position · the solver, GDOP and the ellipse', () => {
     //  after 20 iterations"
     expect(prose()).toContain('starts at the anchors’ centroid')
     expect(prose()).toContain('under 1 mm, or after 20 iterations')
-    // "With fewer than three ranges … the round produces no fix at all"
+    // "Under three ranges, or with anchors in a line, there is no fix."
     const three: AnchorPos[] = CORNERS.slice(0, 3).map(([id, x, y]) => ({ id, x, y, z: ANCHOR_Z }))
     expect(solvePosition(three.slice(0, 2), three.slice(0, 2).map((a) => ({ id: a.id, distM: 5 })), TAG.z, SIGMA_R)).toBeNull()
-    // "or a JᵀJ too near singular to invert — anchors in a straight line"
+    // "or with anchors in a line, there is no fix"
     const line: AnchorPos[] = [1, 2, 3].map((i) => ({ id: `a${i}`, x: i, y: 4, z: ANCHOR_Z }))
     expect(solvePosition(line, line.map((a) => ({ id: a.id, distM: Math.hypot(TAG.x - a.x, TAG.y - a.y, TAG.z - a.z) })), TAG.z, SIGMA_R))
       .toBeNull()
+    // "or a JᵀJ too near singular to invert" is not in the shipped prose; the shipped
+    // clause is the line case, which is exactly what a singular JᵀJ means here.
   })
 
   it('GDOP at the tag is 1.05, and √trace((JᵀJ)⁻¹) is what the engine reports', () => {
@@ -280,6 +312,14 @@ describe('uwb-position · the solver, GDOP and the ellipse', () => {
     // σ_r = c·σ_ts/√2 at the session's 100 ps
     expect(SIGMA_R).toBeCloseTo(C_M_PER_NS * 0.1 / Math.SQRT2, 12)
     expect((SIGMA_R * 100).toFixed(2)).toBe('2.12')
+    // "the SS-TWR figure, the model’s conservative stand-in for DS, which lesson 3 measured at
+    //  1.8–1.9 cm": rangeSigmaM documents c·σ_ts/√2 as exact for SS and 0.62–0.65·c·σ_ts for
+    //  DS, so the printed σ_r is the larger, conservative one — 1/√2 = 0.707 against 0.65
+    expect(prose()).toContain('the SS-TWR figure, the model’s conservative stand-in for DS')
+    expect(prose()).toContain('lesson 3 measured at 1.8–1.9 cm')
+    expect(SIGMA_R / (C_M_PER_NS * 0.1)).toBeCloseTo(1 / Math.SQRT2, 12)
+    expect(SIGMA_R / (C_M_PER_NS * 0.1)).toBeGreaterThan(0.65)
+    expect(SIGMA_R * 100).toBeGreaterThan(1.9)
     // every simulated fix prints the geometry's GDOP: the solved point wanders by centimetres,
     // so JᵀJ is evaluated a hair away from the truth, and 1.05 survives to two decimals
     for (const f of fixes()) {
@@ -292,39 +332,60 @@ describe('uwb-position · the solver, GDOP and the ellipse', () => {
     // "JᵀJ is exactly (N/2)·I, the trace of its inverse is 4/N and GDOP is 2/√N — exactly 1.00
     //  at four anchors"
     expect((2 / Math.sqrt(4)).toFixed(2)).toBe('1.00')
-    // "each Jacobian row is the horizontal shadow of a slanted unit vector and is only 0.968
-    //  to 0.985 long"
-    const rows = CORNERS.map(([, x, y]) => {
-      const dx = TAG.x - x, dy = TAG.y - y, dz = TAG.z - ANCHOR_Z
-      return Math.hypot(dx, dy) / Math.hypot(dx, dy, dz)
-    })
+    // "each Jacobian row is the horizontal shadow of a slanted unit vector, only 0.968 to
+    //  0.985 long"
+    const rows = CORNERS.map(([, x, y]) => rowLen(TAG.x, TAG.y, x, y))
     expect(rows.map((r) => r.toFixed(3))).toEqual(['0.968', '0.982', '0.975', '0.985'])
     expect(Math.min(...rows)).toBeGreaterThan(0.9675)
     expect(Math.max(...rows)).toBeLessThan(0.9855)
-    // "its four bearings are 64.6°, 89.4°, 95.2° and 110.8° apart rather than four right angles"
-    const bearings = CORNERS.map(([, x, y]) => Math.atan2(y - TAG.y, x - TAG.x) * 180 / Math.PI)
-      .sort((a, b) => a - b)
-    const gaps = bearings.map((b, i) => ((bearings[(i + 1) % 4] - b + 360) % 360))
-    expect(gaps.map((g) => g.toFixed(1)).sort()).toEqual(['110.8', '64.6', '89.4', '95.2'].sort())
-    expect(gaps.reduce((a, b) => a + b, 0)).toBeCloseTo(360, 9)
+    // "from the tag the bearings are 64.6°, 89.4°, 95.2° and 110.8° apart"
+    expect(gapsAt(TAG.x, TAG.y, CORNERS.map(([id]) => id)).sort())
+      .toEqual(['110.8', '64.6', '89.4', '95.2'].sort())
   })
 
-  it('across the whole room the four-anchor GDOP stays inside 1.03 to 1.26', () => {
-    // "GDOP stays inside the band 1.03 to 1.26 everywhere in this 10 × 8 m room" and
-    // "Into the corner at (1, 1) it rises only to 1.18, and at (0.6, 0.6) to 1.23"
+  it('the anchors span 9 × 7 m, so no point sees four right angles — the room’s centre least of all', () => {
+    // "the anchors span 9 × 7 m, not a square, so no point sees four right angles: … and the
+    //  room’s centre is no better — 1.0544 against 1.0488"
+    expect(CORNERS[1][1] - CORNERS[0][1]).toBe(9)
+    expect(CORNERS[2][2] - CORNERS[0][2]).toBe(7)
+    const centre = exactFix(5, 4)
+    const tag = exactFix(TAG.x, TAG.y)
+    expect(centre.gdop.toFixed(4)).toBe('1.0544')
+    expect(tag.gdop.toFixed(4)).toBe('1.0488')
+    // the sentence's whole point: moving to the centre makes it worse, not better
+    expect(centre.gdop).toBeGreaterThan(tag.gdop)
+    // and the centre's own bearings are 104.3 / 75.7 twice over — still not four right angles
+    expect(gapsAt(5, 4, CORNERS.map(([id]) => id))).toEqual(['104.3', '75.7', '104.3', '75.7'])
+    // nowhere in the room, on a 0.1 m grid over the full bounds, are all four gaps 90°
+    let bestSpread = Infinity
+    for (let x = 0; x <= 10.0001; x += 0.1) {
+      for (let y = 0; y <= 8.0001; y += 0.1) {
+        const g = gapsAt(x, y, CORNERS.map(([id]) => id)).map(Number)
+        bestSpread = Math.min(bestSpread, Math.max(...g.map((v) => Math.abs(v - 90))))
+      }
+    }
+    expect(bestSpread).toBeGreaterThan(1)
+  })
+
+  it('across the whole room the four-anchor GDOP prints between 1.03 and 1.26', () => {
+    // "GDOP prints between 1.03 and 1.26 everywhere in this room" / "In the corner at (1, 1)
+    //  it only reaches 1.18, at (0.6, 0.6) 1.23"
+    // The sweep runs to the room's bounds, because the extremes live in the corner strip the
+    // old 0.2-inset grid never visited; "prints" is the load-bearing word — the true minimum
+    // is 1.0286, which the panel's two decimals show as 1.03.
     let lo = Infinity
     let hi = 0
-    for (let x = 0.2; x <= 9.81; x += 0.2) {
-      for (let y = 0.2; y <= 7.81; y += 0.2) {
+    for (let x = 0; x <= 10.0001; x += 0.05) {
+      for (let y = 0; y <= 8.0001; y += 0.05) {
         const g = exactFix(x, y).gdop
         lo = Math.min(lo, g)
         hi = Math.max(hi, g)
       }
     }
+    expect(lo.toFixed(4)).toBe('1.0286')
+    expect(hi.toFixed(4)).toBe('1.2574')
     expect(lo.toFixed(2)).toBe('1.03')
-    expect(hi.toFixed(2)).toBe('1.25')
-    expect(lo).toBeGreaterThanOrEqual(1.025)
-    expect(hi).toBeLessThanOrEqual(1.26)
+    expect(hi.toFixed(2)).toBe('1.26')
     expect(exactFix(1, 1).gdop.toFixed(2)).toBe('1.18')
     expect(exactFix(0.6, 0.6).gdop.toFixed(2)).toBe('1.23')
   })
@@ -352,7 +413,7 @@ describe('uwb-position · the solver, GDOP and the ellipse', () => {
 
 describe('uwb-position · the base run', () => {
   it('one fix per block, seven of them in 1.3 s, each at the end of the tag’s round', () => {
-    // "One fix per block, at the end of the tag’s round: seven of them in 1.3 s."
+    // "One fix per block, at the end of the tag’s round: seven in 1.3 s."
     expect(fixes()).toHaveLength(BLOCKS)
     expect(fixes().map((f) => f.block)).toEqual([0, 1, 2, 3, 4, 5, 6])
     expect(fixes().map((f) => f.t)).toEqual([0, 1, 2, 3, 4, 5, 6].map((b) => 20 * MS + b * 200 * MS))
@@ -364,16 +425,16 @@ describe('uwb-position · the base run', () => {
   })
 
   it('block 0’s log line is the one the lesson quotes, word for word', () => {
-    // "Block 0’s line reads “uwb-1 position (3.99, 3.50) m, true (4.00, 3.50), error 0.01 m,
-    //  GDOP 1.05, 4 anchors”"
+    // "Block 0 reads “uwb-1 position (3.99, 3.50) m, true (4.00, 3.50), error 0.01 m, GDOP
+    //  1.05, 4 anchors”"
     const line = 'uwb-1 position (3.99, 3.50) m, true (4.00, 3.50), error 0.01 m, GDOP 1.05, 4 anchors'
     expect(fmtRecord(fixes()[0])).toBe(line)
     expect(prose()).toContain(line)
   })
 
   it('the error runs 0.5 cm to 3.3 cm over the seven blocks, inside 4σ_r·GDOP = 8.9 cm', () => {
-    // "across the seven blocks the error runs from 0.5 cm to 3.3 cm" /
-    // "every one of them inside 4σ_r·GDOP = 8.9 cm"
+    // "across the seven the error runs 0.5 cm to 3.3 cm" / "Seven blocks put the fix 0.5 cm to
+    //  3.3 cm from the truth, every one inside 4σ_r·GDOP = 8.9 cm"
     const cm = fixes().map((f) => fixErr(f) * 100)
     expect(cm.map((c) => c.toFixed(1))).toEqual(['0.7', '3.3', '0.5', '2.3', '2.8', '0.5', '1.8'])
     expect(Math.min(...cm).toFixed(1)).toBe('0.5')
@@ -384,8 +445,8 @@ describe('uwb-position · the base run', () => {
   })
 
   it('the inspector prints GDOP 1.05 and an error ellipse of 1.7 × 1.4 cm', () => {
-    // "the tag’s inspector prints GDOP 1.05 and “error ellipse (1-σ) 1.7 × 1.4 cm”"
-    const row = uwbFixRow(inspectorAt(undefined, 0).fix)
+    // "the inspector prints GDOP 1.05 and “error ellipse (1-σ) 1.7 × 1.4 cm”"
+    const row = uwbFixRow(inspectorAfter(undefined, 1).position!)
     expect(row.gdop).toBe('1.05')
     expect(row.ellipse).toBe('1.7 × 1.4 cm')
     expect(row.estimate).toBe('(3.99, 3.50) m')
@@ -396,7 +457,7 @@ describe('uwb-position · the base run', () => {
     for (const f of fixes()) {
       expect([(f.ellipse.a * 100).toFixed(1), (f.ellipse.b * 100).toFixed(1)], `block ${f.block}`).toEqual(['1.7', '1.4'])
     }
-    // "four amber rings, one per anchor, at the range it just measured"
+    // "four amber rings at the measured ranges"
     expect(tagRanges().filter((r) => r.block === 0)).toHaveLength(4)
     // the LOS byte on every range: 0x16, "97 % within 0.5 ns"
     for (const r of tagRanges()) expect(r.fom, r.peer).toBe(FOM_LOS)
@@ -406,9 +467,9 @@ describe('uwb-position · the base run', () => {
 
 describe('uwb-position · a brick wall in one path', () => {
   it('the blocked range is long by 0.5996 m: 2.0 ns of brick times c', () => {
-    // "The model makes a first path through brick arrive 2.0 ns late, which is 0.5996 m of
-    //  flight" / "The first block measures 5.33 m against a true 4.76 m, and over seven blocks
-    //  the bias averages 59.4 cm, within a third of a σ_r of 0.5996 m."
+    // "A first path through brick arrives 2.0 ns late, which is 0.5996 m of flight." / "The
+    //  first block measures 5.33 m against a true 4.76 m, and over seven blocks the bias
+    //  averages 59.4 cm, within a third of a σ_r of 0.5996 m."
     const bias = UWB_NLOS_NS.brick * C_M_PER_NS
     expect(bias.toFixed(4)).toBe('0.5996')
     expect(prose()).toContain('2.0 ns late, which is 0.5996 m of flight')
@@ -422,31 +483,31 @@ describe('uwb-position · a brick wall in one path', () => {
     expect(Math.abs(mean - bias)).toBeLessThan(SIGMA_R / 3)
     // every block's blocked range sits within 4σ_r of the ideal bias — a reseed cannot hide it
     for (const r of blocked) expect(Math.abs(r.distM - r.trueDistM - bias), `block ${r.block}`).toBeLessThan(4 * SIGMA_R)
-    // "the other three rows are within 1.4 cm"
+    // "the other three are within 1.4 cm at “97 % within 0.5 ns”"
     const clean = tagRanges(0).filter((r) => r.peer !== 'anchor-1' && r.block === 0)
     expect(clean).toHaveLength(3)
     for (const r of clean) expect(Math.abs(r.distM - r.trueDistM) * 100, r.peer).toBeLessThan(1.45)
   })
 
   it('the FoM flags that one range as 0x7b and the other three as 0x16', () => {
-    // "that one range carries 0x7b, “75 % within 12 ns”, while the other three carry 0x16,
-    //  “97 % within 0.5 ns”"
+    // "that range carries 0x7b, “75 % within 12 ns”, the other three 0x16, “97 % within
+    //  0.5 ns”"
     expect(FOM_NLOS).toBe(0x7b)
     expect(FOM_LOS).toBe(0x16)
     expect(fomText(FOM_NLOS)).toBe('75 % within 12 ns')
     expect(fomText(FOM_LOS)).toBe('97 % within 0.5 ns')
     for (const r of tagRanges(0)) expect(r.fom, `${r.peer} b${r.block}`).toBe(r.peer === 'anchor-1' ? FOM_NLOS : FOM_LOS)
     // the inspector's range table, in the reader's language
-    const rows = uwbRangeRows(inspectorAt(0, 0).node, FOM_S)
+    const rows = uwbRangeRows(inspectorAfter(0, 1), FOM_S)
     const a1 = rows.find((r) => r.peer === 'anchor-1')!
     expect([a1.measured, a1.trueDist, a1.error, a1.fom]).toEqual(['5.33 m', '4.76 m', '57.1 cm', '75 % within 12 ns'])
     for (const r of rows.filter((r) => r.peer !== 'anchor-1')) expect(r.fom, r.peer).toBe('97 % within 0.5 ns')
   })
 
   it('the FoM is geometry: with NLOS cleared the bias goes and the byte stays', () => {
-    // "clear the session’s NLOS switch and the range returns to centimetres while the FoM
-    //  still reads 0x7b" / "The run becomes the base run to the centimetre — the same seven
-    //  fixes, error back inside 3.3 cm"
+    // "clear the session’s NLOS switch and the range returns to centimetres while the byte
+    //  still reads 0x7b" / "The run becomes the base run — the same seven fixes, error back
+    //  inside 3.3 cm"
     const walled = scenarioOf(0)
     const ideal = [...new Simulation({ ...walled, uwb: { ...walled.uwb!, nlos: false } }).runUntil(RUN_NS).records]
     const rs = ofType(ideal, 'UWB_RANGE').filter((r) => r.node === 'uwb-1')
@@ -457,10 +518,10 @@ describe('uwb-position · a brick wall in one path', () => {
     for (const f of idealFixes) expect(fixErr(f) * 100, `block ${f.block}`).toBeLessThan(3.35)
   })
 
-  it('the fix moves 0.32 m, not 0.60 m, and away from the blocked anchor', () => {
-    // "The fix lands at (4.18, 3.75) — 31 cm out, moved +0.18 m in x and +0.25 m in y, away
-    //  from the blocked anchor in both. With the noise taken out the shift is exactly
-    //  0.316 m, 53 % of the bias, on a bearing of 54°."
+  it('the fix moves 0.316 m, not 0.60 m, and away from the blocked anchor', () => {
+    // "The fix lands at (4.18, 3.75) — 30.9 cm out, +0.18 m in x and +0.25 m in y, away from
+    //  the blocked anchor in both. Noise-free the shift is 0.316 m, 53 % of the bias, on a
+    //  bearing of 54°." / quiz 1: "yet the fix moves 0.316 m noise-free"
     const line = 'uwb-1 position (4.18, 3.75) m, true (4.00, 3.50), error 0.31 m, GDOP 1.05, 4 anchors'
     expect(fmtRecord(fixes(0)[0])).toBe(line)
     expect(prose()).toContain(line)
@@ -484,14 +545,21 @@ describe('uwb-position · a brick wall in one path', () => {
     // away from anchor-1 at (0.5, 0.5): the shift has a positive component along anchor → tag
     const away = [(TAG.x - 0.5), (TAG.y - 0.5)]
     expect((biased.x - TAG.x) * away[0] + (biased.y - TAG.y) * away[1]).toBeGreaterThan(0)
-    // "it leaves a residual — 21 cm RMS, where a clean round leaves a micrometre"
+    // "leaving a 21 cm residual where a clean round leaves a micrometre"
     expect((biased.residualM * 100).toFixed(0)).toBe('21')
     expect(exactFix(TAG.x, TAG.y).residualM).toBeLessThan(1e-6)
+    // one number for the shift, everywhere it is quoted: the simulated 30.9 cm in the table,
+    // the body and observe 3, and the noise-free 0.316 m in the body and quiz 1
+    expect(prose()).toContain('30.9 cm out')
+    expect(prose()).toContain('30.9 cm moved')
+    expect(prose()).toContain('the shift is 0.316 m')
+    expect(uwbPosition.quiz[0].q.en).toContain('0.316 m noise-free')
+    expect(prose()).not.toContain('0.32 m')
   })
 
-  it('GDOP and the ellipse do not move at all, and 31 cm is nearly four times their envelope', () => {
-    // "GDOP still reads 1.05 and the ellipse still reads 1.7 × 1.4 cm" / "31 cm is nearly four
-    //  times the 8.9 cm envelope they promise"
+  it('GDOP and the ellipse do not move, and 30.9 cm is three and a half times their envelope', () => {
+    // "GDOP still reads 1.05 and the ellipse still 1.7 × 1.4 cm" / "30.9 cm is three and a
+    //  half times their 8.9 cm envelope"
     const exact = exactFix(TAG.x, TAG.y)
     for (const f of fixes(0)) {
       expect(f.gdop.toFixed(2), `block ${f.block}`).toBe('1.05')
@@ -499,18 +567,21 @@ describe('uwb-position · a brick wall in one path', () => {
       expect([(f.ellipse.a * 100).toFixed(1), (f.ellipse.b * 100).toFixed(1)], `block ${f.block}`)
         .toEqual(['1.7', '1.4'])
     }
-    const row = uwbFixRow(inspectorAt(0, 0).fix)
+    const row = uwbFixRow(inspectorAfter(0, 1).position!)
     expect([row.gdop, row.ellipse, row.error]).toEqual(['1.05', '1.7 × 1.4 cm', '30.9 cm'])
     const envelope = 4 * SIGMA_R * exact.gdop
-    expect(fixErr(fixes(0)[0]) / envelope).toBeGreaterThan(3.4)
-    expect(fixErr(fixes(0)[0]) / envelope).toBeLessThan(4)
+    expect((envelope * 100).toFixed(1)).toBe('8.9')
+    // "three and a half times", to the decimal the phrase claims — not "nearly four"
+    expect((fixErr(fixes(0)[0]) / envelope).toFixed(1)).toBe('3.5')
+    expect(prose()).toContain('three and a half times')
+    expect(prose()).not.toContain('nearly four times')
   })
 })
 
 describe('uwb-position · three anchors', () => {
   it('GDOP rises to 1.26, the ellipse grows to 2.2 × 1.5 cm and its axis swings to +61.5°', () => {
-    // "GDOP goes from 1.05 to 1.26 … the ellipse grows to 2.2 × 1.5 cm, its axis ratio goes
-    //  from 1.25 to 1.44, and its long axis swings from −86.8° to +61.5°"
+    // "the ellipse grows to 2.2 × 1.5 cm, its axis ratio from 1.25 to 1.44, and its long axis
+    //  swings from −86.8° to +61.5°, into the quadrant the anchor left empty"
     const three = exactFix(TAG.x, TAG.y, 'anchor-4')
     const four = exactFix(TAG.x, TAG.y)
     expect(three.gdop.toFixed(2)).toBe('1.26')
@@ -520,21 +591,35 @@ describe('uwb-position · three anchors', () => {
     expect((four.ellipse.a / four.ellipse.b).toFixed(2)).toBe('1.25')
     expect((three.ellipse.thetaRad * 180 / Math.PI).toFixed(1)).toBe('61.5')
     expect((four.ellipse.thetaRad * 180 / Math.PI).toFixed(1)).toBe('-86.8')
-    // "tilting towards the corner that is now empty, which sat at 36° from the tag"
-    expect((Math.atan2(7.5 - TAG.y, 9.5 - TAG.x) * 180 / Math.PI).toFixed(0)).toBe('36')
-    expect(three.ellipse.thetaRad * 180 / Math.PI).toBeGreaterThan(36)
-    expect(three.ellipse.thetaRad * 180 / Math.PI).toBeLessThan(90)
+    // "into the quadrant the anchor left empty": the deleted corner bears 36.0° from the tag,
+    // and the new axis at 61.5° lies in the same quadrant — the lesson claims the quadrant,
+    // not the bearing, because the three anchors that remain still shape the covariance and
+    // leave 25.5° between the two.
+    const removed = Math.atan2(7.5 - TAG.y, 9.5 - TAG.x) * 180 / Math.PI
+    const axis = three.ellipse.thetaRad * 180 / Math.PI
+    expect(removed.toFixed(1)).toBe('36.0')
+    expect(Math.floor(removed / 90)).toBe(Math.floor(axis / 90))
+    expect((axis - removed).toFixed(1)).toBe('25.5')
+    expect(prose()).toContain('into the quadrant the anchor left empty')
+    expect(prose()).not.toContain('towards the corner')
   })
 
   it('the run keeps every fix within 3.1 cm, on three anchors and one spare measurement', () => {
-    // "the seven fixes stay within 3.1 cm" / "Three ranges and two unknowns still leave one
-    //  spare measurement"
+    // "Three ranges and two unknowns leave one spare measurement, so there is still a fix and
+    //  an ellipse, and the seven stay within 3.1 cm"
     expect(fixes(1)).toHaveLength(BLOCKS)
     for (const f of fixes(1)) {
       expect(f.anchors, `block ${f.block}`).toHaveLength(3)
       expect(fixErr(f) * 100, `block ${f.block}`).toBeLessThan(3.1)
     }
-    expect(3 - 2).toBe(1)
+    // "one spare measurement": three ranges is exactly one above the solver's floor of three,
+    // i.e. one above the two unknowns — drop to two and it refuses to answer at all
+    const three: AnchorPos[] = CORNERS.slice(0, 3).map(([id, x, y]) => ({ id, x, y, z: ANCHOR_Z }))
+    const exactRanges = three.map((a) => ({ id: a.id, distM: Math.hypot(TAG.x - a.x, TAG.y - a.y, TAG.z - a.z) }))
+    expect(fixes(1)[0].anchors).toHaveLength(three.length)
+    expect(three.length - 2).toBe(1)
+    expect(solvePosition(three, exactRanges, TAG.z, SIGMA_R)).not.toBeNull()
+    expect(solvePosition(three.slice(0, 2), exactRanges.slice(0, 2), TAG.z, SIGMA_R)).toBeNull()
     const envelope = 4 * SIGMA_R * exactFix(TAG.x, TAG.y, 'anchor-4').gdop
     expect((envelope * 100).toFixed(1)).toBe('10.7')
     for (const f of fixes(1)) expect(fixErr(f), `block ${f.block}`).toBeLessThan(envelope)
@@ -547,21 +632,40 @@ describe('uwb-position · three anchors', () => {
     const line = 'uwb-1 position (3.98, 3.48) m, true (4.00, 3.50), error 0.03 m, GDOP 1.26, 3 anchors'
     expect(fmtRecord(fixes(1)[0])).toBe(line)
     expect(prose()).toContain(line)
-    const row = uwbFixRow(inspectorAt(1, 0).fix)
+    const row = uwbFixRow(inspectorAfter(1, 1).position!)
     expect([row.gdop, row.ellipse, row.error]).toEqual(['1.26', '2.2 × 1.5 cm', '2.7 cm'])
   })
 
-  it('near an anchor the three-anchor GDOP climbs past 2.3, where four anchors never pass 1.26', () => {
-    // "Drag the tag towards the anchor at (9.5, 0.5) and the three-anchor GDOP climbs past 2.3"
-    let hi = 0
-    for (let x = 0.2; x <= 9.81; x += 0.2) {
-      for (let y = 0.2; y <= 7.81; y += 0.2) hi = Math.max(hi, exactFix(x, y, 'anchor-4').gdop)
-    }
-    expect(hi).toBeGreaterThan(2.3)
-    expect(hi.toFixed(2)).toBe('2.38')
-    // and it is on anchor-2 that the drag the lesson describes gets there
-    expect(exactFix(9.5, 0.5, 'anchor-4').gdop).toBeGreaterThan(2.3)
-    expect(exactFix(9.5, 0.5).gdop).toBeLessThan(1.26)
+  it('standing on the anchor at (9.5, 0.5) zeroes its Jacobian row and takes GDOP to 2.32', () => {
+    // "Drag the tag onto the anchor at (9.5, 0.5) and the three-anchor GDOP reaches 2.32:
+    //  standing under an anchor makes its range blind to horizontal motion, so its Jacobian
+    //  row is exactly zero and drops out of JᵀJ, leaving two anchors 37.9° apart to carry
+    //  the fix."
+    const here: [number, number] = [9.5, 0.5]
+    const kept = CORNERS.slice(0, 3) // the three-anchor variant: 1, 2 and 3
+    expect(scenarioOf(1).nodes.map((n) => n.id)).toEqual([...kept.map(([id]) => id), 'uwb-1'])
+    // the tag stands under anchor-2, so its row is the shadow of a vertical unit vector: zero
+    const rows = kept.map(([, x, y]) => jRow(here[0], here[1], x, y))
+    expect(rows.map((r) => Math.hypot(...r).toFixed(4))).toEqual(['0.9912', '0.0000', '0.9945'])
+    expect(rows[1]).toEqual([0, 0])
+    expect(rowLen(here[0], here[1], ...([CORNERS[1][1], CORNERS[1][2]] as [number, number]))).toBe(0)
+    // it therefore contributes nothing: the same GDOP with and without it, to every digit
+    const withAll = gdopOfRows(rows)
+    const withoutA2 = gdopOfRows([rows[0], rows[2]])
+    expect(withAll).toBe(withoutA2)
+    expect(withAll.toFixed(4)).toBe('2.3201')
+    // and that is exactly what the solver reports on the variant's own geometry
+    const solved = exactFix(here[0], here[1], 'anchor-4')
+    expect(solved.gdop.toFixed(4)).toBe('2.3201')
+    expect(solved.gdop.toFixed(2)).toBe('2.32')
+    expect(solved.gdop).toBeGreaterThan(2.3)
+    // "two anchors 37.9° apart": no two bearings coincide — the surviving pair is 37.9° apart
+    const bearingTo = (ax: number, ay: number) => Math.atan2(ay - here[1], ax - here[0]) * 180 / Math.PI
+    expect(Math.abs(bearingTo(0.5, 7.5) - bearingTo(0.5, 0.5)).toFixed(1)).toBe('37.9')
+    expect(prose()).not.toContain('nearly coincide')
+    // with all four anchors the same spot is unremarkable, still under the 1.26 the room's band tops out at
+    expect(exactFix(here[0], here[1]).gdop.toFixed(2)).toBe('1.24')
+    expect(exactFix(here[0], here[1]).gdop).toBeLessThan(1.26)
   })
 
   it('the comparison table is the three runs, cell by cell', () => {
@@ -571,7 +675,7 @@ describe('uwb-position · three anchors', () => {
       ['Three anchors', '1.26', '2.2 × 1.5 cm', '(3.98, 3.48) m', '2.7 cm'],
     ]
     rows.forEach((row, i) => row.forEach((v, j) => expect(cell(0, i, j), `${row[0]} ${j}`).toBe(v)))
-    const measured = [undefined, 0, 1].map((v) => uwbFixRow(inspectorAt(v, 0).fix))
+    const measured = [undefined, 0, 1].map((v) => uwbFixRow(inspectorAfter(v, 1).position!))
     rows.forEach(([, gdop, ellipse, estimate, error], i) => {
       expect(measured[i].gdop, rows[i][0]).toBe(gdop)
       expect(measured[i].ellipse, rows[i][0]).toBe(ellipse)
