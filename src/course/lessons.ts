@@ -28,6 +28,7 @@ import { ampSlots } from './amp/amp-slots'
 import { ampCoexist } from './amp/amp-coexist'
 import { uwbIntro } from './uwb/uwb-intro'
 import { uwbSstwr } from './uwb/uwb-sstwr'
+import { uwbDstwr } from './uwb/uwb-dstwr'
 export type { Block, JumpTarget, L10n, Lesson, LessonVariant, Quiz } from './lessonKit'
 
 export { MODULES, TIERS } from './curriculum'
@@ -110,6 +111,7 @@ const AUTHORED: Lesson[] = [
   ampCoexist,
   uwbIntro,
   uwbSstwr,
+  uwbDstwr,
   // ======================= MODULE 1 =======================
   {
     id: 'airtime',
