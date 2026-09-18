@@ -1,4 +1,5 @@
 /** Compact learning guide tying real 802.11 mechanisms to what the sim shows. */
+import { ELLIPSE_DRAW_SCALE } from '../uwb/scene'
 import { useUi } from './store'
 
 const h: React.CSSProperties = { margin: '10px 0 3px', fontSize: 12.5, color: '#d5dae3' }
@@ -167,7 +168,7 @@ export function GuideEn() {
         {chip('#f59e0b')}cross. Rings, cross and ellipse fade out over one ranging block, so what you
         see is what was just measured. The ellipse around the cross is the solver's 1-σ confidence: a
         good fix is a couple of centimetres across, invisible beside a 3.5 m ring, so it is drawn at{' '}
-        <b>10×</b> — the inspector shows the true axes. Its shape is geometry, not noise: anchors that
+        <b>{ELLIPSE_DRAW_SCALE}×</b> — the inspector shows the true axes. Its shape is geometry, not noise: anchors that
         nearly line up give a long thin ellipse and a large <b>GDOP</b>.
       </p>
       <p style={p}>
@@ -336,7 +337,7 @@ export function GuideZh() {
         场景里：{chip('#fbbf24')}每个圆环是一次测得的距离——到测出它的那个锚点距离相同的所有点；
         圆环交汇处就是解算出的位置，画成一个小{chip('#f59e0b')}十字。圆环、十字与误差椭圆都会在一个测距块的
         时间内渐隐，因此你看到的永远是刚刚测出的结果。十字周围的椭圆是解算器给出的 1-σ 置信范围：
-        一次好的定位只有几厘米大，在 3.5 m 的圆环旁边根本看不见，所以按 <b>10×</b> 放大绘制——
+        一次好的定位只有几厘米大，在 3.5 m 的圆环旁边根本看不见，所以按 <b>{ELLIPSE_DRAW_SCALE}×</b> 放大绘制——
         检视面板（Inspector）显示的才是真实半轴长度。椭圆的形状由几何而非噪声决定：
         锚点接近共线时椭圆又长又扁，<b>GDOP</b> 也随之变大。
       </p>

@@ -71,7 +71,7 @@ function EditorGuideEn() {
         with its own <b>AMP polling (802.11bp)</b> section turned on before any tag responds.
       </D>
       <D t="📍 UWB anchor">
-        click to drop an IEEE 802.15.4z ranging anchor: a fixed device at a known place, 2.2 m
+        click to drop an IEEE 802.15.4-2024 ranging anchor: a fixed device at a known place, 2.2 m
         high, that answers a tag&rsquo;s poll in its own ranging slot. A fix needs three anchors the
         tag can hear, and they must not sit in a straight line.
       </D>
@@ -87,7 +87,8 @@ function EditorGuideEn() {
       <h4 style={h}>Scenario controls (menu bar)</h4>
       <D t="💾 Save / 📂 Load">browser localStorage, one slot.</D>
       <D t="⬇ Export / ⬆ Import">
-        scenario JSON. Imports are schema-validated: exactly one AP, unique node ids.
+        scenario JSON. Imports are schema-validated: exactly one AP whenever a station or AMP tag is
+        present, unique node ids.
       </D>
       <D t="🎲 Spawn STAs">
         N stations at random spots inside rooms, each with a random traffic profile (legacy
@@ -217,7 +218,7 @@ function EditorGuideEn() {
       </D>
       <D t="Timestamp / clock-estimate noise">
         the two error sources of a range: the one-sigma jitter of a receive timestamp (100 ps is
-        3 cm) and what is left of the carrier-frequency-offset estimate. The second one is exactly
+        3 cm of flight, 2.1 cm of range) and what is left of the carrier-frequency-offset estimate. The second one is exactly
         what SS-TWR cannot cancel.
       </D>
       <D t="NLOS wall delay">
@@ -301,7 +302,7 @@ function EditorGuideZh() {
         并打开其 <b>AMP 轮询（802.11bp）</b> 一节，标签才会有任何应答。
       </D>
       <D t="📍 UWB 锚点">
-        点击放置一个 IEEE 802.15.4z 测距锚点：位置已知的固定设备，默认高 2.2 米，
+        点击放置一个 IEEE 802.15.4-2024 测距锚点：位置已知的固定设备，默认高 2.2 米，
         在自己的测距时隙内应答标签的轮询。要解算出位置，标签至少要听到三个锚点，
         且这些锚点不能排成一条直线。
       </D>
@@ -317,7 +318,7 @@ function EditorGuideZh() {
       <h4 style={h}>场景控件（菜单栏）</h4>
       <D t="💾 保存 / 📂 载入">浏览器 localStorage，仅一个存档位。</D>
       <D t="⬇ 导出 / ⬆ 导入">
-        场景 JSON 文件。导入时会做模式校验：有且仅有一个 AP，节点 id 不重复。
+        场景 JSON 文件。导入时会做模式校验：只要存在终端或 AMP 标签，就必须有且仅有一个 AP；节点 id 不重复。
       </D>
       <D t="🎲 随机生成终端">
         在房间内随机位置生成 N 个终端，业务类型随机（传统 802.11a，15 dBm）。快速制造拥塞的手段。
@@ -432,7 +433,7 @@ function EditorGuideZh() {
         换来厘米级测距精度的正是这个带宽，而不是载波频率。
       </D>
       <D t="时间戳噪声 / 时钟估计噪声">
-        测距误差的两个来源：接收时间戳抖动的 1-σ 值（100 ps 折合 3 cm），
+        测距误差的两个来源：接收时间戳抖动的 1-σ 值（100 ps 折合 3 cm 的飞行距离、2.1 cm 的测距误差），
         以及载波频偏估计之后残留的误差。后者正是 SS-TWR 无法抵消的那一部分。
       </D>
       <D t="NLOS 穿墙时延">

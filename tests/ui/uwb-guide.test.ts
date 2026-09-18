@@ -97,6 +97,19 @@ describe('Guide section 11', () => {
     expect(en.toLowerCase()).toContain('inspector')
     expect(renderGuide('zh')).toContain(`${ELLIPSE_DRAW_SCALE}×`)
   })
+
+  it('the glossary and the README quote the same factor, so it is never retyped stale', () => {
+    // The constant has already moved once (3 → 10); every place that names it is pinned to it.
+    const ellipse = (GLOSSARY.find((g) => g.id === 'uwb')?.items ?? [])
+      .filter((i) => i.term.toLowerCase().includes('ellipse'))
+    expect(ellipse.length).toBeGreaterThan(0)
+    for (const i of ellipse) {
+      for (const text of [i.alt.en, i.alt.zh, i.def.en, i.def.zh]) {
+        expect(text, i.term).toContain(`${ELLIPSE_DRAW_SCALE}×`)
+      }
+    }
+    expect(README).toContain(`drawn at ${ELLIPSE_DRAW_SCALE}×`)
+  })
 })
 
 /**
