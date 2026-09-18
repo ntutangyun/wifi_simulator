@@ -41,6 +41,8 @@ const RECORDS: Parameters<EmitFn>[0][] = [
   { t: 3_000_000, type: 'UWB_RANGE', node: 'tag-1', peer: 'anc-1', method: 'ds', tofRctu: 1_240, distM: 5.71, trueDistM: 5.66, fom: 0x16, block: 3, round: 1 },
   { t: 4_000_000, type: 'UWB_POSITION', node: 'tag-1', x: 4.1, y: 3.9, trueX: 4, trueY: 4, gdop: 1.8, ellipse, anchors: ['anc-1', 'anc-2'], block: 3 },
   { t: 5_000_000, type: 'UWB_TIMEOUT', node: 'tag-1', slot: 3, peer: 'anc-2', expected: 'uwbResp' },
+  { t: 6_000_000, type: 'UWB_RANGE', node: 'anc-1', peer: 'tag-1', method: 'ds', tofRctu: 1_240, distM: 5.71, trueDistM: 5.66, fom: 0x16, block: 3, round: 0 },
+  { t: 6_000_000, type: 'UWB_ROUND_END', node: 'tag-1', block: 3, round: 0 },
 ]
 
 describe('the UWB view reducer', () => {
@@ -60,11 +62,12 @@ describe('the UWB view reducer', () => {
     for (const r of seq(RECORDS)) applyRecord(vs, r)
     const n = vs.nodes['tag-1']
     expect(n.state).toBe('uwbWait')
-    expect(vs.t).toBe(5_000_000)
+    expect(vs.t).toBe(6_000_000)
     const u = n.uwb!
     expect(u.block).toBe(3)
     expect(u.round).toBe(0)
-    expect(u.slot).toBe(2)
+    // the round ended: the tag is between rounds, radio off, no slot to show
+    expect(u.slot).toBeNull()
     expect(u.rounds).toBe(1)
     expect(u.timeouts).toBe(1)
     expect(u.ranges['anc-1'].n).toBe(2)
@@ -74,10 +77,28 @@ describe('the UWB view reducer', () => {
     expect(u.position).toEqual({ x: 4.1, y: 3.9, trueX: 4, trueY: 4, gdop: 1.8, ellipse, n: 1 })
   })
 
-  it('leaves the anchors’ lanes untouched by the tag’s records', () => {
+  it('the tag’s slot ticks while the round runs and only UWB_ROUND_END clears it', () => {
+    const vs = initViewState(uwbScenario())
+    const records = seq(RECORDS)
+    const end = records.findIndex((r) => r.type === 'UWB_ROUND_END')
+    expect(end).toBeGreaterThan(0)
+    for (const r of records.slice(0, end)) applyRecord(vs, r)
+    expect(vs.nodes['tag-1'].uwb!.slot).toBe(2)
+    applyRecord(vs, records[end])
+    expect(vs.nodes['tag-1'].uwb!.slot).toBeNull()
+    expect(vs.nodes['tag-1'].uwb!.rounds).toBe(1)
+  })
+
+  it('an anchor takes its block and round from its own ranges, not from the tag’s records', () => {
     const vs = initViewState(uwbScenario())
     for (const r of seq(RECORDS)) applyRecord(vs, r)
-    expect(vs.nodes['anc-1'].uwb).toEqual({
+    const a1 = vs.nodes['anc-1'].uwb!
+    expect(a1.block).toBe(3)
+    expect(a1.round).toBe(0)
+    expect(a1.slot).toBeNull()
+    expect(a1.ranges['tag-1'].n).toBe(1)
+    // anc-2 took part in nothing of its own: untouched by the tag's records
+    expect(vs.nodes['anc-2'].uwb).toEqual({
       role: 'anchor', block: 0, round: 0, slot: null, rounds: 0, timeouts: 0, ranges: {}, position: null,
     })
   })

@@ -72,6 +72,13 @@ export function applyUwbRecord(vs: ViewState, r: TLRecord): boolean {
         u.ranges[r.peer] = {
           distM: r.distM, trueDistM: r.trueDistM, method: r.method, fom: r.fom, n: (prev?.n ?? 0) + 1,
         }
+        // An anchor never sees UWB_ROUND / UWB_SLOT (those are the tag's own records),
+        // so its block and round come from the ranges it computes. A tag takes them
+        // from its own UWB_ROUND / UWB_ROUND_END instead.
+        if (u.role === 'anchor') {
+          u.block = r.block
+          u.round = r.round
+        }
       }
       return true
     }
@@ -88,6 +95,15 @@ export function applyUwbRecord(vs: ViewState, r: TLRecord): boolean {
     case 'UWB_TIMEOUT': {
       const u = vs.nodes[r.node]?.uwb
       if (u) u.timeouts += 1
+      return true
+    }
+    case 'UWB_ROUND_END': {
+      const u = vs.nodes[r.node]?.uwb
+      if (u) {
+        u.block = r.block
+        u.round = r.round
+        u.slot = null
+      }
       return true
     }
     default:

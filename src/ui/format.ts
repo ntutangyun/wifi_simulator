@@ -75,13 +75,14 @@ export function fmtRecord(r: TLRecord): string {
     case 'AMP_SLOT': return `${r.node} AMP slot ${r.slot} until ${fmtNs(r.untilNs)}`
     case 'AMP_ABOC': return `${r.node} ABOC ${r.aboc} of [0, ${r.acw}] → ${r.slot === null ? 'sits out' : `slot ${r.slot}`}`
     case 'AMP_RESULT': return `${r.node} slot ${r.slot}: ${!r.sent ? 'missed its cue' : r.acked ? 'acknowledged' : 'not acknowledged'}`
-    // The six UWB types keep their vocabulary beside the ranging engine.
+    // The seven UWB types keep their vocabulary beside the ranging engine.
     case 'UWB_ROUND':
     case 'UWB_SLOT':
     case 'UWB_TS':
     case 'UWB_RANGE':
     case 'UWB_POSITION':
-    case 'UWB_TIMEOUT': return fmtUwbRecord(r)
+    case 'UWB_TIMEOUT':
+    case 'UWB_ROUND_END': return fmtUwbRecord(r)
   }
 }
 

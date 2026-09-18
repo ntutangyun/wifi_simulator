@@ -15,7 +15,8 @@
  * Every measurement is a pair of ranging counters (standard §10.29.1): the
  * transmitter stamps the RMARKER it is about to send, the receiver stamps the
  * RMARKER it saw. Only the receive stamps carry noise — a transmitter knows
- * exactly when it fires — which is why a range's error is √2·σ_ts, not 2·σ_ts.
+ * exactly when it fires — so a round trip carries √2·σ_ts, not 2·σ_ts, and the
+ * range, which halves it, carries σ_ts/√2 (see `rangeSigmaM`).
  */
 import type { EventQueue } from '../engine/events'
 import type { Rng } from '../engine/rng'
@@ -153,12 +154,20 @@ export class UwbDevice implements UwbRadio {
     this.listenFor(slot, txId, action.kind)
   }
 
-  /** Tag: solve this round's fix. Both roles: drop the round's working state. */
+  /** Tag: solve this round's fix, then close the round. Both roles: drop the working state. */
   endRound(): void {
     this.closeSlot()
     const r = this.round
     this.round = null
     if (!r || this.cfg.role !== 'tag') return
+    this.solveFix(r)
+    // The round is over whether or not it produced a fix: the tag's radio is off until
+    // its round in the next block, and the view's slot returns to null.
+    this.emit({ t: this.now(), type: 'UWB_ROUND_END', node: this.id, block: r.block, round: r.round })
+  }
+
+  /** Tag only: the round's 2-D fix from the anchors that answered, emitted as UWB_POSITION. */
+  private solveFix(r: RoundState): void {
     if (r.ranges.length < 3) return
     const fix = solvePosition(
       r.anchors.map((id) => this.geometry.anchorPos(id)),

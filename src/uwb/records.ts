@@ -18,3 +18,6 @@ export type UwbRecord =
   | { type: 'UWB_POSITION'; node: string; x: number; y: number; trueX: number; trueY: number; gdop: number; ellipse: { a: number; b: number; thetaRad: number }; anchors: string[]; block: number }
   /** A slot passed with no answer from the peer it was scheduled for. */
   | { type: 'UWB_TIMEOUT'; node: string; slot: number; peer: string; expected: UwbFrameKind }
+  /** The tag's round is over (emitted after any UWB_POSITION it produced): the radio goes
+   * off until the next block, and the view's `slot` returns to null. */
+  | { type: 'UWB_ROUND_END'; node: string; block: number; round: number }
