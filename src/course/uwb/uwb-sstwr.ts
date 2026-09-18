@@ -7,12 +7,14 @@
  * distance measured four times with four different errors — 6, 12, 18 and 24 m
  * on a true 3.50 m. Then the clock-offset correction of §10.29.1.6 puts all
  * four back inside a tenth of a metre. Every number quoted below is pinned in
- * tests/course/uwb-sstwr.test.ts.
+ * tests/course/uwb-sstwr.test.ts — including every cell of the table, both
+ * numeric jump labels, the crystal offsets (read back from the scenes rather
+ * than re-typed) and the Coffs the engine actually used.
  *
  * CAUTION — word budget: `lessonMinutes` rounds to 25 minutes anywhere between
  * 975 and 1725 English words across body + observe + tryThis + quiz (4 observe
  * items and 2 experiments already account for 16 of those minutes). The prose
- * below totals 1707 words, so there is room for seventeen more and no more:
+ * below totals 1716 words, so there is room for eight more and no more:
  * adding a sentence means deleting one, or the study-time test fails.
  */
 import type { Scenario } from '../../model/scenario'
@@ -79,8 +81,8 @@ export const uwbSstwr: Lesson = {
       [N('anchor-4'), N('8 ms − Tprop'), N('24.0 m'), N('27.42 m'), N('23.92 m')],
     ] },
     { text: {
-      en: 'That is not noise: four readings of one distance, all biased long, each a clean multiple of the first. The phone sits 3.50 m from every anchor and believes it is 9.51 m from one and 27.42 m from another. With a crystal offset in play, uncorrected SS-TWR does not measure distance at all; it measures how long the responder waited, times half the offset.',
-      zh: '这不是噪声：对同一个距离的四次读数全都偏长，而且每一个都是第一个的整数倍。手机距每个锚点都是 3.50 m，却认定自己离其中一个有 9.51 m、离另一个有 27.42 m。一旦存在晶振偏差，未经修正的 SS-TWR 根本不是在测距离，它测的是应答方等了多久，再乘以偏差的一半。',
+      en: 'That is not noise: four readings of one distance, all biased long, each a clean multiple of the first. The phone sits 3.50 m from every anchor and believes it is 9.51 m from one and 27.42 m from another. With a crystal offset in play, uncorrected SS-TWR measures not distance but how long the responder waited, times half the offset.',
+      zh: '这不是噪声：对同一个距离的四次读数全都偏长，而且每一个都是第一个的整数倍。手机距每个锚点都是 3.50 m，却认定自己离其中一个有 9.51 m、离另一个有 27.42 m。一旦存在晶振偏差，未经修正的 SS-TWR 测的不是距离，而是应答方等了多久，再乘以偏差的一半。',
     } },
     { heading: { en: 'The standard’s answer: measure the other clock', zh: '标准给出的答案：把对方的时钟也测出来' }, text: {
       en: 'A UWB receiver has to lock onto the transmitter’s pulse train before it can find the RMARKER at all, and the loop that does that lock knows, as a by-product, how fast the incoming chips arrive relative to its own oscillator. §10.29.1.6 asks the receiver to report exactly that, as a ranging tracking offset counted over a ranging tracking interval: a measured ratio, not an assumed one. The simulator carries it on every received frame as Coffs — the responder’s clock rate relative to the initiator’s, as the initiator’s own receiver estimated it, positive when the responder runs fast. Here Coffs sits near −20 ppm.',
@@ -98,7 +100,7 @@ export const uwbSstwr: Lesson = {
       zh: 'Coffs 自己也是一次测量，而本模型在它上面留下了 0.2 ppm 的 1σ 误差。于是残差就是 ½·Treply·σ_cfo：1 ms 的 0.2 ppm 取一半是 0.1 ns，即每毫秒应答时延 3.0 cm。它会像 raw 误差一样沿着表格往下长——锚点 1 对应 6.0 cm 的 1σ，锚点 4 对应 24.0 cm。上面那四个误差只是从这四个分布里各抽了一次，所以它们并不单调递增：锚点 3 的 −9.5 cm 稳稳落在它自己的 σ 之内，而锚点 4 的 +0.5 cm 是从四者中最宽的那个分布里抽到的好运气。',
     } },
     { text: {
-      en: 'The correction does not make the reply delay free; it makes it cheap — 20 ppm of raw offset become 0.2 ppm of residual. But the residual still scales with how long the anchor waited, and it is the only term left in this lesson that does. That is the argument for the double-sided exchange of the next lesson, where the reply delay is measured in both directions and cancels instead of being estimated away.',
+      en: 'The correction does not make the reply delay free; it makes it cheap — 20 ppm of raw offset become 0.2 ppm of residual. But the residual still scales with how long the anchor waited, and it is the only term left in this lesson that does. That is the argument for the next lesson’s double-sided exchange, where the reply delay is measured in both directions and cancels instead of being estimated away.',
       zh: '修正并没有让应答时延变成免费的，只是让它变得便宜——20 ppm 的原始偏差变成 0.2 ppm 的残差。但残差依然随锚点等待的时长而增长，而且在本课里只剩它这一项会这样。这正是下一课要讲的双边交换的理由：在那里应答时延被双向测量并直接抵消，而不是靠估计把它消掉。',
     } },
     { heading: { en: 'The byte that says how much to trust it', zh: '用来说明“这有多可信”的那个字节' }, text: {
@@ -119,13 +121,13 @@ export const uwbSstwr: Lesson = {
   ],
   observe: [
     { en: 'One poll at 0 ns produces four RX_START records at 12 ns — the same 12 ns for all four, because all four are 3.50 m away. The round then spends five slots of 2 ms: the poll in slot 0, one response in each of slots 1 to 4.', zh: '0 ns 处的一帧 Poll 产生了四条 12 ns 的 RX_START——四个锚点都是 12 ns，因为它们距离都是 3.50 m。整轮随后花掉五个 2 ms 的时隙：Poll 在时隙 0，时隙 1 到 4 各有一条 Response。' },
-    { en: 'Read the four UWB_RANGE lines in order. Each reports about 3.4 m corrected, but the raw figure in brackets climbs 9.51 → 15.47 → 21.49 → 27.42 m. The corrected column is flat; the raw column is a ramp.', zh: '按顺序读四条 UWB_RANGE。每一条修正后都报出 3.4 m 上下，但括号里的 raw 值却一路爬升：9.51 → 15.47 → 21.49 → 27.42 m。修正后的那一列是平的，raw 那一列是一道斜坡。' },
+    { en: 'Read the four UWB_RANGE lines in order. The corrected figures stay between 3.41 and 3.51 m, but the raw figure in brackets climbs 9.51 → 15.47 → 21.49 → 27.42 m. The corrected column is flat; the raw column is a ramp.', zh: '按顺序读四条 UWB_RANGE。修正后的读数都落在 3.41 与 3.51 m 之间，但括号里的 raw 值却一路爬升：9.51 → 15.47 → 21.49 → 27.42 m。修正后的那一列是平的，raw 那一列是一道斜坡。' },
     { en: 'Take the differences of consecutive raw values: 5.96, 6.02, 5.93 m. Each extra 2 ms of waiting costs another 6 m, and the step is the same every time — a bias with a formula behind it, not scatter.', zh: '把相邻的 raw 值相减：5.96、6.02、5.93 m。每多等 2 ms 就多付 6 m，而且每一步的大小都一样——这是一个背后有公式的偏差，不是散布。' },
     { en: 'Find anchor-1’s two UWB_TS counters, 26 381 597 885 and 26 509 391 059. Their difference, 127 793 174 RCTU, is exactly the reply time its response carries. The number the tag subtracts was computed on the anchor’s clock.', zh: '找到 anchor-1 的两条 UWB_TS 计数值：26 381 597 885 与 26 509 391 059。两者之差 127 793 174 RCTU，正是它的 Response 帧所携带的应答时长。标签拿来相减的那个数，是在锚点的时钟上算出来的。' },
   ],
   tryThis: [
     { en: 'Load the “Perfect crystals” variant, which pins both ends to 0 ppm and changes nothing else. The raw errors collapse to 1.9, −1.9, 0.7 and −6.1 cm — no ramp at all, because eA − eB is zero. What remains is timestamp noise, whose 1-σ is 4.2 cm and which does not care which slot the anchor answered in.', zh: '载入“理想晶振”变体：它把两端都钉在 0 ppm，别的什么都不改。raw 误差随即坍缩为 1.9、−1.9、0.7 与 −6.1 cm——斜坡彻底消失，因为 eA − eB 为零。剩下的只有时间戳噪声，它的 1σ 是 4.2 cm，并且并不在意锚点是在第几个时隙作答的。' },
-    { en: 'Now load “TCXOs, ±1 ppm”, a twentieth of the base offset and the sort of part a careful product actually fits. The raw errors become 0.62, 1.18, 1.80 and 2.34 m: still a ramp, still about 0.60 m per slot, still hopeless for a 3.50 m range. Better crystals buy an order of magnitude and do not buy correctness — which is why the correction is in the standard, not in the bill of materials.', zh: '再载入“±1 ppm 的温补晶振”：偏差只有基准场景的二十分之一，也是认真的产品真会选用的器件。raw 误差变成 0.62、1.18、1.80 与 2.34 m：依然是一道斜坡，依然大约每时隙 0.60 m，对一个 3.50 m 的距离依然毫无指望。更好的晶振能买来一个数量级，却买不来正确性——这正是为什么这项修正写在标准里，而不是写在物料清单上。' },
+    { en: 'Now load “TCXOs, ±1 ppm”, a tenth of the base offset — eA − eB falls from 20 ppm to 2 ppm — and the sort of part a careful product actually fits. The raw errors become 0.62, 1.18, 1.80 and 2.34 m: still a ramp, still about 0.60 m per slot, still hopeless for a 3.50 m range. Better crystals buy an order of magnitude and do not buy correctness — which is why the correction is in the standard, not in the bill of materials.', zh: '再载入“±1 ppm 的温补晶振”：偏差只有基准场景的十分之一——eA − eB 从 20 ppm 降到 2 ppm——也是认真的产品真会选用的器件。raw 误差变成 0.62、1.18、1.80 与 2.34 m：依然是一道斜坡，依然大约每时隙 0.60 m，对一个 3.50 m 的距离依然毫无指望。更好的晶振能买来一个数量级，却买不来正确性——这正是为什么这项修正写在标准里，而不是写在物料清单上。' },
   ],
   quiz: [
     {

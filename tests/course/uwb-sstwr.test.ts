@@ -22,22 +22,39 @@ const MS = 1_000_000
 const RUN_NS = 30 * MS
 /** The ring the scene is built on: every anchor is exactly this far from the tag. */
 const RING_M = 3.5
+
+/** The scenario each part of the lesson runs: the base, then variant 0 and variant 1. */
+const scenarioOf = (variant?: number): Scenario =>
+  variant === undefined ? uwbSstwr.scenario() : uwbSstwr.variants![variant].scenario()
+/** The crystal offsets of a scene, read back from the scene itself: tag, anchors, and eA − eB. */
+function ppmOf(variant?: number): { tag: number; anchors: number; delta: number } {
+  const nodes = scenarioOf(variant).nodes
+  const tag = nodes.find((n) => n.uwb!.role === 'tag')!.uwb!.ppm!
+  const anchors = nodes.find((n) => n.uwb!.role === 'anchor')!.uwb!.ppm!
+  return { tag, anchors, delta: tag - anchors }
+}
+const BASE_PPM = ppmOf()
+const PERFECT_PPM = ppmOf(0)
+const TCXO_PPM = ppmOf(1)
+/** The session's noise model, likewise read back rather than re-typed. */
+const SESSION = uwbSstwr.scenario().uwb!
 /** 1-σ of one SS-TWR range at the session's 100 ps timestamp noise: 42.4 mm. */
-const SIGMA_R = rangeSigmaM(100)
-/** The session's residual clock-offset error, 1-σ, in ppm. */
-const CFO_NOISE_PPM = 0.2
+const SIGMA_R = rangeSigmaM(SESSION.tsNoisePs)
 /** 1-σ of what the correction leaves behind for an anchor answering in slot i: ½·Treply·σ_cfo. */
 const residualSigmaM = (slot: number): number =>
-  ((slot * 2 * MS - metresToNs(RING_M)) * CFO_NOISE_PPM * 1e-6) / 2 * C_M_PER_NS
+  ((slot * 2 * MS - metresToNs(RING_M)) * SESSION.cfoNoisePpm * 1e-6) / 2 * C_M_PER_NS
+/** The raw error the formula predicts for slot i: Tprop·eA + ½·Treply·(eA − eB), in metres. */
+const predictedRawErrM = (slot: number, ppm: { tag: number; delta: number }): number => {
+  const tpropNs = metresToNs(RING_M)
+  const treplyNs = slot * 2 * MS - tpropNs
+  return (tpropNs * ppm.tag * 1e-6 + (treplyNs * ppm.delta * 1e-6) / 2) * C_M_PER_NS
+}
 
 const memo = new Map<string, TLRecord[]>()
 /** Records of the base scenario (variant undefined) or a variant, memoised. */
 function recs(variant?: number): TLRecord[] {
   const key = String(variant ?? 'base')
-  if (!memo.has(key)) {
-    const s: Scenario = variant === undefined ? uwbSstwr.scenario() : uwbSstwr.variants![variant].scenario()
-    memo.set(key, [...new Simulation(s).runUntil(RUN_NS).records])
-  }
+  if (!memo.has(key)) memo.set(key, [...new Simulation(scenarioOf(variant)).runUntil(RUN_NS).records])
   return memo.get(key)!
 }
 const ofType = <K extends TLRecord['type']>(rs: TLRecord[], type: K) =>
@@ -75,22 +92,34 @@ describe('uwb-sstwr · lesson shape', () => {
   it('every jump target occurs in the base run, and the last one is the fourth range', () => {
     const rs = recs()
     for (const j of uwbSstwr.jumps) expect(rs.some(j.find), j.label.en).toBe(true)
-    // "the fourth range, 24 m long" — a pure predicate on the record, not a counter
+    // "the fourth range: raw is 24 m long" — a pure predicate on the record, not a counter
     const fourth = uwbSstwr.jumps[3].find
     expect(rs.filter(fourth)).toHaveLength(1)
     expect(ofType(rs, 'UWB_RANGE').findIndex(fourth)).toBe(3)
+  })
+
+  it('the two jump labels that quote a number quote the number the run produces', () => {
+    // "the first range: raw is 6 m long" / "the fourth range: raw is 24 m long"
+    expect(uwbSstwr.jumps.map((j) => j.label.en)).toEqual([
+      'the poll leaves the phone', 'the first anchor answers',
+      'the first range: raw is 6 m long', 'the fourth range: raw is 24 m long',
+    ])
+    expect(Math.round(rawErr(ranges()[0]))).toBe(6)
+    expect(Math.round(rawErr(ranges()[3]))).toBe(24)
   })
 
   it('every string a learner reads exists in both languages', () => {
     // A cell of numbers, log lines or protocol names reads the same in both (N());
     // anything holding two consecutive English words is prose and must be translated.
     const seen: L10n[] = []
+    const isL10n = (o: Record<string, unknown>): o is Record<string, unknown> & L10n =>
+      typeof o.en === 'string' && typeof o.zh === 'string'
     const walk = (x: unknown): void => {
       if (x == null || typeof x === 'function') return
       if (Array.isArray(x)) { x.forEach(walk); return }
       if (typeof x !== 'object') return
       const o = x as Record<string, unknown>
-      if (typeof o.en === 'string' && typeof o.zh === 'string') { seen.push(o as unknown as L10n); return }
+      if (isL10n(o)) { seen.push(o); return }
       for (const [k, v] of Object.entries(o)) if (k !== 'scenario' && k !== 'find') walk(v)
     }
     walk({ title: uwbSstwr.title, body: uwbSstwr.body, observe: uwbSstwr.observe, tryThis: uwbSstwr.tryThis, quiz: uwbSstwr.quiz, variants: uwbSstwr.variants, jumps: uwbSstwr.jumps })
@@ -133,14 +162,19 @@ describe('uwb-sstwr · the scene', () => {
     // no AP, no stations, no Wi-Fi traffic at all
     expect(s.nodes.every((n) => n.profiles.every((p) => p === 'idle'))).toBe(true)
     expect(s.servers).toEqual([])
-    expect(s.uwb).toMatchObject({ method: 'ss', nlos: false, slotRstu: 2400, tsNoisePs: 100, cfoNoisePpm: CFO_NOISE_PPM })
+    expect(s.uwb).toMatchObject({ method: 'ss', nlos: false, slotRstu: 2400, tsNoisePs: 100, cfoNoisePpm: 0.2 })
+    // the noise model every bound in this file is built from, taken from the scene, not re-typed
+    expect(SESSION.tsNoisePs).toBe(100)
+    expect(SESSION.cfoNoisePpm).toBe(0.2)
   })
 
   it('the base run is the phone 10 ppm fast against anchors 10 ppm slow, inside the ±20 ppm allowed', () => {
     // "The phone runs 10 ppm fast, every anchor 10 ppm slow — well inside the ±20 ppm the standard allows."
     expect(uwbSstwr.scenario().nodes.map((n) => n.uwb!.ppm)).toEqual([-10, -10, -10, -10, 10])
+    expect(BASE_PPM).toEqual({ tag: 10, anchors: -10, delta: 20 })
     expect(UWB_PPM_MAX).toBe(20)
-    expect(Math.abs(10)).toBeLessThan(UWB_PPM_MAX)
+    expect(Math.abs(BASE_PPM.tag)).toBeLessThan(UWB_PPM_MAX)
+    expect(Math.abs(BASE_PPM.anchors)).toBeLessThan(UWB_PPM_MAX)
   })
 
   it('the two variants change the crystals and nothing else', () => {
@@ -150,8 +184,8 @@ describe('uwb-sstwr · the scene', () => {
     expect(uwbSstwr.variants![0].scenario()).toEqual(uwbSstwrScenario({ tag: 0, anchors: 0 }))
     expect(uwbSstwr.variants![1].scenario()).toEqual(uwbSstwrScenario({ tag: 1, anchors: -1 }))
     expect(uwbSstwr.scenario()).toEqual(uwbSstwrScenario({ tag: 10, anchors: -10 }))
-    expect(uwbSstwr.variants![0].scenario().nodes.map((n) => n.uwb!.ppm)).toEqual([0, 0, 0, 0, 0])
-    expect(uwbSstwr.variants![1].scenario().nodes.map((n) => n.uwb!.ppm)).toEqual([-1, -1, -1, -1, 1])
+    expect(PERFECT_PPM).toEqual({ tag: 0, anchors: 0, delta: 0 })
+    expect(TCXO_PPM).toEqual({ tag: 1, anchors: -1, delta: 2 })
     const strip = (s: Scenario): unknown =>
       JSON.stringify({ ...s, nodes: s.nodes.map((n) => ({ ...n, uwb: { role: n.uwb!.role } })) })
     for (const v of uwbSstwr.variants!) expect(strip(v.scenario())).toEqual(strip(uwbSstwr.scenario()))
@@ -187,11 +221,13 @@ describe('uwb-sstwr · the raw error the crystal offset buys', () => {
     // "The second scales the reply, which at 2 ms is a hundred and seventy thousand times the flight.
     //  At eA − eB = 20 ppm it is ½ × 2 ms × 20 ppm = 20 ns, or 6.0 m of error on a 3.50 m range."
     const tpropNs = metresToNs(RING_M)
-    const flightTermNs = tpropNs * 10e-6
+    const flightTermNs = tpropNs * BASE_PPM.tag * 1e-6
     expect((flightTermNs * 1000).toFixed(2)).toBe('0.12') // picoseconds
     expect(Math.round(flightTermNs * C_M_PER_NS * 1e6)).toBe(35) // micrometres
-    expect(Math.round((2 * MS) / tpropNs / 1000) * 1000).toBe(171_000) // ~170 thousand
-    const replyTermNs = (2 * MS * 20e-6) / 2
+    // "a hundred and seventy thousand times the flight": the ratio is 171 306, and it is that
+    // number rounded to the nearest ten thousand that the prose speaks
+    expect(Math.round((2 * MS) / tpropNs / 10_000) * 10_000).toBe(170_000)
+    const replyTermNs = (2 * MS * BASE_PPM.delta * 1e-6) / 2
     expect(replyTermNs).toBe(20)
     expect((replyTermNs * C_M_PER_NS).toFixed(1)).toBe('6.0')
   })
@@ -204,25 +240,32 @@ describe('uwb-sstwr · the raw error the crystal offset buys', () => {
     resp.forEach((r, i) => {
       const treplyNs = r.frame.uwb!.replyRctu! * RCTU_NS
       const trueNs = (i + 1) * 2 * MS - metresToNs(RING_M)
-      // the anchor runs 10 ppm slow, so it measures the interval 1 − 10e-6 times too short
-      expect(treplyNs, `slot ${i + 1}`).toBeCloseTo(trueNs * (1 - 10e-6), 0)
+      // the anchors run 10 ppm slow, so each measures the interval 1 + eB times too long
+      expect(treplyNs, `slot ${i + 1}`).toBeCloseTo(trueNs * (1 + BASE_PPM.anchors * 1e-6), 0)
       // halved, that shortfall is 3 m per slot — half the raw error; the tag's own +10 ppm on
       // Tround supplies the other half, which is how eA − eB rather than either alone appears
       expect((trueNs - treplyNs) / 2 * C_M_PER_NS, `slot ${i + 1}`).toBeCloseTo((i + 1) * 3, 1)
     })
   })
 
-  it('the table’s predicted raw errors are 6.0, 12.0, 18.0 and 24.0 m — the formula, rounded', () => {
-    // the "Predicted error" column of the table of four anchors
+  it('every cell of the table is either the formula or the run — no free-typed number survives', () => {
+    // the four rows "anchor-i | i ms − Tprop | predicted | raw range | raw error"
     const table = uwbSstwr.body.find((b): b is Extract<Block, { kind: 'table' }> => b.kind === 'table')!
-    const cells = table.rows.flat().map((c) => c.en)
-    for (let i = 1; i <= 4; i++) {
-      const predictedNs = ((i * 2 * MS - metresToNs(RING_M)) * 20e-6) / 2 + metresToNs(RING_M) * 10e-6
-      expect((predictedNs * C_M_PER_NS).toFixed(1)).toBe(`${(i * 6).toFixed(1)}`)
-      expect(cells, `${i} × 6.0 m`).toContain(`${(i * 6).toFixed(1)} m`)
-    }
-    // …and every anchor's Treply is quoted as i ms − Tprop
-    for (const i of [2, 4, 6, 8]) expect(cells).toContain(`${i} ms − Tprop`)
+    const cells = table.rows.map((row) => row.map((c) => c.en))
+    expect(cells).toHaveLength(4)
+    const rs = ranges()
+    cells.forEach((row, i) => {
+      const slot = i + 1
+      const r = rs[i]
+      expect(row[0], 'anchor').toBe(r.peer)
+      expect(row[1], 'Treply').toBe(`${slot * 2} ms − Tprop`)
+      // "Predicted error": the formula, to one decimal — and it lands on exactly i × 6.0 m
+      expect(predictedRawErrM(slot, BASE_PPM).toFixed(1)).toBe((slot * 6).toFixed(1))
+      expect(row[2], 'predicted').toBe(`${(slot * 6).toFixed(1)} m`)
+      // "Raw range" and "Raw error": what the run reports, to two decimals
+      expect(row[3], 'raw range').toBe(`${rctuToMetres(r.tofRawRctu!).toFixed(2)} m`)
+      expect(row[4], 'raw error').toBe(`${rawErr(r).toFixed(2)} m`)
+    })
   })
 
   it('the four raw ranges are 9.51, 15.47, 21.49 and 27.42 m against a true 3.50 m', () => {
@@ -235,9 +278,17 @@ describe('uwb-sstwr · the raw error the crystal offset buys', () => {
     expect(rs.map((r) => rawErr(r).toFixed(2))).toEqual(['6.01', '11.97', '17.99', '23.92'])
     // each is within a decimetre of the prediction, and is the engine's own raw figure
     rs.forEach((r, i) => {
-      const predictedM = (((i + 1) * 2 * MS - metresToNs(RING_M)) * 20e-6 / 2 + metresToNs(RING_M) * 10e-6) * C_M_PER_NS
-      expect(Math.abs(rawErr(r) - predictedM), r.peer).toBeLessThan(0.15)
+      expect(Math.abs(rawErr(r) - predictedRawErrM(i + 1, BASE_PPM)), r.peer).toBeLessThan(0.15)
     })
+    // the prose quotes the first and the last of them back at the learner
+    const prose = uwbSstwr.body
+      .filter((b): b is Extract<Block, { kind?: 'p' }> => (b.kind ?? 'p') === 'p')
+      .map((b) => b.text.en).join(' ')
+    expect(prose).toContain(`believes it is ${rctuToMetres(rs[0].tofRawRctu!).toFixed(2)} m from one`)
+    expect(prose).toContain(`${rctuToMetres(rs[3].tofRawRctu!).toFixed(2)} m from another`)
+    // and observe 2 walks the same four figures in order
+    expect(uwbSstwr.observe[1].en)
+      .toContain(rs.map((r) => rctuToMetres(r.tofRawRctu!).toFixed(2)).join(' → '))
   })
 
   it('the consecutive raw steps are 5.96, 6.02 and 5.93 m: one 2 ms of waiting costs 6 m', () => {
@@ -270,12 +321,37 @@ describe('uwb-sstwr · what the clock-offset correction puts back', () => {
     expect(formulas.some((f) => f.text.en.includes('(Tround − Treply·(1 − Coffs)) / 2'))).toBe(true)
     expect(ssTwrCorrected(1000, 800, 0)).toBe(ssTwrRaw(1000, 800))
     // Coffs is the responder's rate relative to the initiator's: here −20 ppm, and it removes the bias
+    const eA = BASE_PPM.tag * 1e-6
+    const eB = BASE_PPM.anchors * 1e-6
     const treply = 2 * MS / RCTU_NS
     const tround = treply + 2 * (metresToNs(RING_M) / RCTU_NS)
-    const biased = ssTwrRaw(tround * (1 + 10e-6), treply * (1 - 10e-6))
+    const biased = ssTwrRaw(tround * (1 + eA), treply * (1 + eB))
     expect(rctuToMetres(biased) - RING_M).toBeCloseTo(6, 1)
-    const fixed = ssTwrCorrected(tround * (1 + 10e-6), treply * (1 - 10e-6), -20e-6)
+    const fixed = ssTwrCorrected(tround * (1 + eA), treply * (1 + eB), eB - eA)
     expect(rctuToMetres(fixed)).toBeCloseTo(RING_M, 3)
+  })
+
+  it('the Coffs the engine actually used is −20 ppm, the responder’s rate minus the initiator’s', () => {
+    // "The simulator carries it on every received frame as Coffs — the responder’s clock rate relative
+    //  to the initiator’s … positive when the responder runs fast. Here Coffs sits near −20 ppm."
+    // Coffs is on no record, so recover it by inverting ssTwrCorrected:
+    //   2·tof = Tround − Treply·(1 − Coffs)  ⇒  Coffs = (2·tof − Tround + Treply) / Treply
+    const rs = recs()
+    const ts = ofType(rs, 'UWB_TS')
+    const tagTx = ts.find((r) => r.node === 'tag-1' && r.dir === 'tx')!.counter
+    const tagRx = ts.filter((r) => r.node === 'tag-1' && r.dir === 'rx').map((r) => r.counter)
+    const replies = ofType(rs, 'TX_START')
+      .filter((r) => r.frame.kind === 'uwbResp').map((r) => r.frame.uwb!.replyRctu!)
+    const nominal = (BASE_PPM.anchors - BASE_PPM.tag) * 1e-6 // eB − eA = −20 ppm
+    expect(nominal).toBeCloseTo(-20e-6, 12)
+    ranges().forEach((r, i) => {
+      const tround = counterDiff(tagRx[i], tagTx)
+      const coffs = (2 * r.tofRctu - tround + replies[i]) / replies[i]
+      // within five sigma of the estimator's own 0.2 ppm noise, and "near −20 ppm" to the nearest ppm
+      expect(Math.abs(coffs - nominal), `${r.peer}: ${(coffs * 1e6).toFixed(2)} ppm`)
+        .toBeLessThan(5 * SESSION.cfoNoisePpm * 1e-6)
+      expect(Math.round(coffs * 1e6), r.peer).toBe(-20)
+    })
   })
 
   it('the four corrected ranges read 3.45, 3.42, 3.41 and 3.51 m against a true 3.50 m', () => {
@@ -291,6 +367,20 @@ describe('uwb-sstwr · what the clock-offset correction puts back', () => {
     for (const r of ranges()) expect(rctuToMetres(r.tofRctu)).toBeCloseTo(r.distM, 9)
   })
 
+  it('observe 2’s span holds: the corrected column stays between 3.41 and 3.51 m', () => {
+    // "The corrected figures stay between 3.41 and 3.51 m" — anchor 4 is 3.51 m, not "about 3.4 m",
+    // and quiz 3 turns on exactly that: it is the most accurate of the four at +0.5 cm.
+    const shown = ranges().map((r) => r.distM.toFixed(2))
+    const lo = shown.reduce((a, b) => (a < b ? a : b))
+    const hi = shown.reduce((a, b) => (a > b ? a : b))
+    expect([lo, hi]).toEqual(['3.41', '3.51'])
+    expect(uwbSstwr.observe[1].en).toContain(`between ${lo} and ${hi} m`)
+    expect(uwbSstwr.observe[1].zh).toContain(`${lo} 与 ${hi} m`)
+    // quiz 3: anchor 4 really is the closest to the truth of the four
+    const err = ranges().map((r) => Math.abs(r.distM - RING_M))
+    expect(err.indexOf(Math.min(...err))).toBe(3)
+  })
+
   it('every corrected error stays inside three sigma of its own slot’s residual', () => {
     // "The residual is then ½·Treply·σ_cfo … 6.0 cm of 1-σ for anchor 1, 24.0 cm for anchor 4. The four
     //  errors above are one draw from those four distributions, which is why they do not increase
@@ -298,7 +388,7 @@ describe('uwb-sstwr · what the clock-offset correction puts back', () => {
     expect((residualSigmaM(1) * 100).toFixed(1)).toBe('6.0')
     expect((residualSigmaM(4) * 100).toFixed(1)).toBe('24.0')
     // "3.0 cm per millisecond of reply"
-    expect(((CFO_NOISE_PPM * 1e-6 * MS) / 2 * C_M_PER_NS * 100).toFixed(1)).toBe('3.0')
+    expect(((SESSION.cfoNoisePpm * 1e-6 * MS) / 2 * C_M_PER_NS * 100).toFixed(1)).toBe('3.0')
     ranges().forEach((r, i) => {
       const bound = 3 * Math.hypot(residualSigmaM(i + 1), SIGMA_R)
       expect(Math.abs(r.distM - RING_M), `${r.peer} inside ${bound.toFixed(3)} m`).toBeLessThan(bound)
@@ -318,6 +408,11 @@ describe('uwb-sstwr · what the clock-offset correction puts back', () => {
     expect((FOM_LOS >> 3) & 0x3).toBe(2)
     expect((FOM_LOS >> 5) & 0x3).toBe(0)
     expect(fomDecode(FOM_LOS)).toEqual({ levelPct: 97, intervalNs: 0.5 })
+    // the two parenthetical lookups separately: interval index 2 is 1 ns (read with the identity
+    // scale index 1), and scale index 0 halves it. The tables themselves are module-private, so
+    // this is the finest grain the exported fomDecode allows.
+    expect(fomDecode((FOM_LOS & 0x1f) | (1 << 5)).intervalNs).toBe(1)
+    expect(fomDecode(FOM_LOS).intervalNs).toBe(0.5 * fomDecode((FOM_LOS & 0x1f) | (1 << 5)).intervalNs)
     expect(fomText(FOM_LOS)).toBe('97 % within 0.5 ns')
     expect(Math.round(0.5 * C_M_PER_NS * 100)).toBe(15)
     const rxTs = ofType(recs(), 'UWB_TS').filter((r) => r.dir === 'rx')
@@ -340,18 +435,38 @@ describe('uwb-sstwr · the two variants', () => {
     for (const r of rs) expect(Math.abs(rawErr(r))).toBeLessThan(2 * SIGMA_R)
   })
 
-  it('"TCXOs, ±1 ppm": the ramp survives at a twentieth of the size, 0.60 m per slot', () => {
+  it('"TCXOs, ±1 ppm" is a TENTH of the base offset, and gives a tenth of the ramp', () => {
+    // "a tenth of the base offset — eA − eB falls from 20 ppm to 2 ppm" / "still about 0.60 m per
+    //  slot" / "Better crystals buy an order of magnitude" — all three say the same factor, 10.
+    expect(BASE_PPM.delta).toBe(20)
+    expect(TCXO_PPM.delta).toBe(2)
+    expect(BASE_PPM.delta / TCXO_PPM.delta).toBe(10)
+    expect(uwbSstwr.tryThis[1].en).toContain('a tenth of the base offset')
+    expect(uwbSstwr.tryThis[1].en).toContain(`from ${BASE_PPM.delta} ppm to ${TCXO_PPM.delta} ppm`)
+    expect(uwbSstwr.tryThis[1].zh).toContain('十分之一')
+    expect(uwbSstwr.tryThis[1].zh).toContain(`从 ${BASE_PPM.delta} ppm 降到 ${TCXO_PPM.delta} ppm`)
+    // the formula's per-slot cost is a tenth too: 0.5996 m against 5.996 m
+    for (const slot of [1, 2, 3, 4]) {
+      expect(predictedRawErrM(slot, BASE_PPM) / predictedRawErrM(slot, TCXO_PPM)).toBeCloseTo(10, 6)
+    }
+    expect(predictedRawErrM(1, TCXO_PPM).toFixed(2)).toBe('0.60')
+    expect(predictedRawErrM(1, BASE_PPM).toFixed(2)).toBe('6.00')
+  })
+
+  it('"TCXOs, ±1 ppm": the ramp survives at 0.60 m per slot, still metres on a 3.50 m range', () => {
     // "The raw errors become 0.62, 1.18, 1.80 and 2.34 m: still a ramp, still about 0.60 m per slot,
     //  still hopeless for a 3.50 m range."
     const rs = ranges(1)
     expect(rs).toHaveLength(4)
     expect(rs.map((r) => rawErr(r).toFixed(2))).toEqual(['0.62', '1.18', '1.80', '2.34'])
     rs.forEach((r, i) => {
-      const predictedM = (((i + 1) * 2 * MS - metresToNs(RING_M)) * 2e-6 / 2 + metresToNs(RING_M) * 1e-6) * C_M_PER_NS
-      expect((predictedM).toFixed(2), r.peer).toBe(((i + 1) * 0.5996).toFixed(2))
+      const predictedM = predictedRawErrM(i + 1, TCXO_PPM)
+      expect(predictedM.toFixed(2), r.peer).toBe(((i + 1) * 0.5996).toFixed(2))
       expect(Math.abs(rawErr(r) - predictedM), r.peer).toBeLessThan(0.15)
+      // and the measured ramp is a tenth of the measured base ramp, to within the timestamp noise
+      expect(Math.abs(rawErr(r) * 10 - rawErr(ranges()[i])), r.peer).toBeLessThan(10 * 0.15)
     })
-    // a twentieth of the base offset gives a twentieth of the ramp, and it is still metres
+    // "still hopeless for a 3.50 m range": the last one is most of the distance again
     expect(Math.abs(rawErr(rs[3]))).toBeGreaterThan(RING_M / 2)
   })
 
