@@ -8,7 +8,8 @@
  * shows one lane per node per link; frame src/dst stay physical.
  */
 import {
-  hasFeature, linkPlanFor, minGen, negotiated, negotiatedNss, negotiatedWidth, nssOf, virtualId, type LinkId,
+  hasFeature, linkPlanFor, minGen, negotiated, negotiatedNss, negotiatedWidth, nssOf, physicalId, virtualId,
+  type LinkId,
 } from '../model/caps'
 import { makeEmitter, type EmitFn, type TLRecord } from '../model/records'
 import { ScenarioSchema, serverFor, type NodeCfg, type Scenario } from '../model/scenario'
@@ -17,7 +18,7 @@ import { applyRecord, cloneView, initViewState, type Snapshot, type ViewState } 
 import { Channel } from './channel'
 import { EventQueue } from './events'
 import { WifiMac } from './mac'
-import { mcsForRssi } from './phy'
+import { ERP_2G, mcsForRssi, OFDM_5G, type PhyTiming } from './phy'
 import { buildLinkTable } from './propagation'
 import { AcQueues } from './queues'
 import { RateControl } from './rate'
@@ -30,8 +31,13 @@ export interface Batch {
   frontierNs: Ns
 }
 
-/** Extra path loss on the 6 GHz link (higher frequency). TODO(Task 5): real 2.4 GHz figure. */
-export const LINK_EXTRA_LOSS_DB: Record<LinkId, number> = { '5g': 0, '6g': 1.2, '2g': 0 }
+/** Extra path loss per link relative to the 5 GHz table (higher frequency loses more; 2.4 GHz loses 6.5 dB less). */
+export const LINK_EXTRA_LOSS_DB: Record<LinkId, number> = { '2g': -6.5, '5g': 0, '6g': 1.2 }
+
+/** Interframe timing of a link's PHY: clause 18 ERP-OFDM on 2.4 GHz, clause 17 OFDM elsewhere. */
+export function timingFor(link: LinkId): PhyTiming {
+  return link === '2g' ? ERP_2G : OFDM_5G
+}
 
 export class Simulation {
   private q = new EventQueue()
@@ -108,16 +114,17 @@ export class Simulation {
             edca,
             txop: edca && hasFeature(n, 'txop') && hasFeature(ap, 'txop'),
             isAp: n.kind === 'ap',
+            timing: timingFor(link),
             modeForPeer: (peer) => modeFor(n, peer),
             mcsForPeer: (peer) => {
               const rssi = table.get(n.id)?.get(peer) ?? -200
               const mode = modeFor(n, peer)
               const peerCfg = other(n, peer)
               const cap = mode === 'eht' && !negotiated(n, peerCfg, 'qam4k') ? 11 : undefined
-              const ceiling = mcsForRssi(mode, rssi, cap, negotiatedWidth(n, peerCfg))
+              const ceiling = mcsForRssi(mode, rssi, cap, negotiatedWidth(n, peerCfg, link))
               return rate.mcsFor(peer, ceiling)
             },
-            widthForPeer: (peer) => negotiatedWidth(n, other(n, peer)),
+            widthForPeer: (peer) => negotiatedWidth(n, other(n, peer), link),
             nssForPeer: (peer) => negotiatedNss(n, other(n, peer)),
             reachable: (peer) => memberSet.has(peer),
             onTxOutcome: (peer, ok) => { if (ok) rate.onSuccess(peer); else rate.onFailure(peer) },
@@ -166,10 +173,9 @@ export class Simulation {
     }
 
     // ---- traffic → primary-link MAC (shared queues make it MLD-wide) ----
-    const primaryMac = (id: string): WifiMac => {
-      const links = plan.members['5g'].includes(id) ? '5g' : '6g'
-      return this.macs.get(virtualId(id, links))!
-    }
+    /** The virtual id of a node's primary MAC: its first lane in the plan (5g before 6g before 2g). */
+    const primaryVid = (id: string): string => plan.virtualIds.find((v) => physicalId(v) === id)!
+    const primaryMac = (id: string): WifiMac => this.macs.get(primaryVid(id))!
     /** Uplink MSDUs bound for another station, by id: forwarded by the AP once acknowledged. */
     const relayPending = new Map<number, Msdu>()
     const RELAY_FWD_NS = 50_000 // AP forwarding latency
@@ -179,7 +185,7 @@ export class Simulation {
       const sta = byId.get(staId)
       // a tampered driver may re-mark its own (uplink) frames; it cannot touch the AP's
       const ac = atNode !== ap.id && sta?.tamper?.allAsAc !== undefined ? sta.tamper.allAsAc : msdu.ac
-      baseEmit({ t: this.nowNs, type: 'ARRIVAL', node: virtualId(atNode, plan.members['5g'].includes(atNode) ? '5g' : '6g'), msduId: msdu.id, bytes: msdu.bytes, dst: msdu.dst })
+      baseEmit({ t: this.nowNs, type: 'ARRIVAL', node: primaryVid(atNode), msduId: msdu.id, bytes: msdu.bytes, dst: msdu.dst })
       primaryMac(atNode).enqueue(msdu, ac)
       // MLO: wake the sibling link's MAC; OFDMA: poke the AP scheduler.
       for (const [vid, mac] of this.macs) {

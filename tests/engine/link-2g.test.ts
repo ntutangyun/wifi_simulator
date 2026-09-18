@@ -1,6 +1,12 @@
 import { describe, it, expect } from 'vitest'
-import { ERP_2G, OFDM_5G, aifsNs, txTimeNs, ACK_BYTES } from '../../src/engine/phy'
+import { ERP_2G, OFDM_5G, aifsNs, txTimeNs, ACK_BYTES, mcsForRssi, mcsRateMbps } from '../../src/engine/phy'
 import { makeBss, msdu } from './helpers'
+import { Simulation, LINK_EXTRA_LOSS_DB, timingFor } from '../../src/engine/simulation'
+import { defaultScenario } from '../../src/model/scenario'
+import { buildLinkTable } from '../../src/engine/propagation'
+import type { TLRecord } from '../../src/model/records'
+
+type Rec<K extends TLRecord['type']> = Extract<TLRecord, { type: K }>
 
 describe('per-link PHY timing (802.11-2024 Table 17-21 / Table 18-5, §10.3.8)', () => {
   it('5 GHz OFDM keeps the clause 17 values', () => {
@@ -70,5 +76,50 @@ describe('a MAC on the 2.4 GHz link', () => {
     expect(fail).toBeDefined()
     const eifs = bss.recs('IFS_START', 'sta-2').find((r) => r.kind === 'EIFS' && r.t >= fail.t)!
     expect(eifs.untilNs - Math.max(eifs.t, fail.t)).toBe(88_000)
+  })
+})
+
+describe('a station on the 2.4 GHz link inside a Simulation', () => {
+  function twoBand() {
+    const sc = defaultScenario()
+    sc.nodes[0].caps = { generation: 'eht', features: { edca: true } } // AP: Wi-Fi 7
+    sc.nodes[1].caps = { generation: 'he', features: { edca: true } }
+    sc.nodes[1].linkId = '2g'
+    sc.nodes[1].profiles = ['saturated']
+    sc.nodes[2].profiles = ['idle']
+    return sc
+  }
+  it('path loss on 2.4 GHz is 6.5 dB lower than on 5 GHz', () => {
+    expect(LINK_EXTRA_LOSS_DB).toEqual({ '2g': -6.5, '5g': 0, '6g': 1.2 })
+    expect(timingFor('2g')).toBe(ERP_2G)
+    expect(timingFor('5g')).toBe(OFDM_5G)
+  })
+  it('records on the 2g lane use the 2.4 GHz timing and carry the extension', () => {
+    const sim = new Simulation(twoBand())
+    const recs = sim.runUntil(20 * 1_000_000).records
+    const tx = recs.find((r) => r.type === 'TX_START' && r.node === 'sta-1#2g' && r.frame.kind === 'data')
+    expect(tx).toBeDefined()
+    const data = recs.find((r) => r.type === 'TX_END' && r.node === 'sta-1#2g' && r.frame.kind === 'data')!
+    const ack = recs.find((r) => r.type === 'TX_START' && r.node === 'ap#2g' && r.frame.kind === 'ack' && r.t >= data.t)!
+    expect(ack.t - data.t).toBe(10_000)
+    expect(recs.some((r) => r.type === 'ARRIVAL' && r.node === 'sta-1#2g')).toBe(true)
+  })
+  it('the 2g link table is the 5g table plus 6.5 dB', () => {
+    const sc = twoBand()
+    const table = buildLinkTable(sc.nodes, sc.walls)
+    const sim = new Simulation(sc)
+    const recs = sim.runUntil(5 * 1_000_000).records
+    // The data rate chosen on 2g reflects the stronger link: never lower than what the 5 GHz table would give.
+    const tx = recs.find((r): r is Rec<'TX_START'> => r.type === 'TX_START' && r.node === 'sta-1#2g' && r.frame.kind === 'data')!
+    expect(tx.frame.mbps).toBeGreaterThan(0)
+    expect(table.get('sta-1')!.get('ap')!).toBeLessThan(-40) // sanity: the fixture geometry is not point-blank
+    // Strengthen: the MCS/rate actually chosen on the 2g lane is what the physics
+    // predicts for the 5g-table RSSI plus the 6.5 dB path-loss offset — not just "positive".
+    const rssi5g = table.get('sta-1')!.get('ap')!
+    const width = 20 // sta-1 defaults to 20 MHz; 2.4 GHz caps at 40 MHz anyway
+    const expectedMcs = mcsForRssi('he', rssi5g + 6.5, undefined, width) // he (sta-1) meets eht (ap) -> minGen = he
+    const expectedMbps = mcsRateMbps('he', expectedMcs)
+    expect(tx.frame.mcs).toBe(expectedMcs)
+    expect(tx.frame.mbps).toBe(expectedMbps)
   })
 })
