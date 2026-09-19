@@ -10,7 +10,8 @@
  * session changes nothing here — the grid reserves a response window, and the
  * anchors, not the network, decide which slot of it each of them answers in.
  *
- * Tag k owns round k of every block. Anchors serve every round.
+ * Tag k owns round k of every block. Anchors serve every round. DL-TDoA turns that around: the
+ * anchors own the one round a block holds, and every tag in the scenario listens to it.
  */
 import type { EventQueue } from '../engine/events'
 import { hashStr } from '../engine/hash'
@@ -45,10 +46,14 @@ export class UwbNetwork {
     const anchors = nodes.filter((n) => n.uwb?.role === 'anchor').map((n) => n.id)
     const tags = nodes.filter((n) => n.uwb?.role === 'tag').map((n) => n.id)
     this.plan = roundPlan(cfg, anchors.length)
+    // DL-TDoA runs one anchor round per block and every tag listens to it, so a block holds any
+    // number of tags — the rule below is a two-way-ranging (and UL-TDoA) rule, and the schema
+    // skips it in this mode for the same reason.
+    const listenOnly = this.plan.mode === 'dl-tdoa'
     // The scenario schema checks the same thing in RSTU, before rstuNs rounds;
     // this is the check in the units the scheduler actually uses, so the two
     // definitions of "how many tags fit in a block" cannot drift apart unnoticed.
-    if (tags.length > this.plan.roundsPerBlock) {
+    if (!listenOnly && tags.length > this.plan.roundsPerBlock) {
       throw new Error(
         `UwbNetwork: ${tags.length} tags need ${tags.length} rounds, but a ${this.plan.blockNs} ns block `
         + `holds ${this.plan.roundsPerBlock} rounds of ${this.plan.roundNs} ns`,
@@ -56,7 +61,7 @@ export class UwbNetwork {
     }
     // The same pair of guards, in the units the scheduler runs in: a frame that outlives its
     // slot would be lost to the receiver's deadline with no diagnostic at all.
-    const needNs = uwbSlotFitNs(anchors.length)
+    const needNs = uwbSlotFitNs(anchors.length, this.plan.mode)
     if (this.plan.slotNs < needNs) {
       throw new Error(
         `UwbNetwork: a ${this.plan.slotNs} ns ranging slot cannot carry a round of ${anchors.length} `
@@ -96,6 +101,7 @@ export class UwbNetwork {
         {
           role: n.uwb?.role ?? 'anchor', pos: n.pos,
           tsNoisePs: cfg.tsNoisePs, cfoNoisePpm: cfg.cfoNoisePpm, maxAttempts: cfg.maxAttempts,
+          tdoaClockCorrection: cfg.tdoaClockCorrection,
         },
         clock, rng, q, now, ch, emit, geometry,
       )
@@ -112,29 +118,45 @@ export class UwbNetwork {
      * queues from inside a slot. Keep that true, and a slot with no answer is
      * always reported exactly once, at exactly the slot boundary.
      */
-    const startBlock = (block: number): void => {
-      tags.forEach((tagId, k) => {
-        const crowd = [tagId, ...anchors].map((id) => this.devices.get(id)!)
-        const peers = { tag: tagId, anchors }
-        for (let s = 0; s < this.plan.slots; s++) {
-          const at = slotStartNs(this.plan, block, k, s)
-          q.schedule(at, () => {
-            if (s === 0) for (const d of crowd) d.beginRound(block, k, this.plan, tagId, anchors)
-            const action = slotAction(this.plan, s)
-            for (const d of crowd) d.onSlot(s, action, at + this.plan.slotNs, peers)
-          }, 0)
-        }
-        const endNs = slotStartNs(this.plan, block, k, this.plan.slots - 1) + this.plan.slotNs
-        q.schedule(endNs, () => {
-          // The tag closes first (it always did: it heads the crowd), and what it ranged this
-          // round is handed straight back to the anchors. SS-TWR ends at the tag, so this is
-          // the only way a responder in a contention round can learn whether its draw worked —
-          // the model's stand-in for the upper layer of standard §10.32.1 NOTE. A time-scheduled
-          // round ignores the flag entirely, and emits nothing either way.
-          const heard = new Set(this.devices.get(tagId)!.endRound())
-          for (const id of anchors) this.devices.get(id)!.endRound(heard.has(id))
+    const runRound = (block: number, round: number, tagId: string, crowdIds: string[]): void => {
+      const crowd = crowdIds.map((id) => this.devices.get(id)!)
+      const peers = { tag: tagId, anchors }
+      for (let s = 0; s < this.plan.slots; s++) {
+        const at = slotStartNs(this.plan, block, round, s)
+        q.schedule(at, () => {
+          if (s === 0) for (const d of crowd) d.beginRound(block, round, this.plan, tagId, anchors)
+          const action = slotAction(this.plan, s)
+          for (const d of crowd) d.onSlot(s, action, at + this.plan.slotNs, peers)
         }, 0)
-      })
+      }
+      const endNs = slotStartNs(this.plan, block, round, this.plan.slots - 1) + this.plan.slotNs
+      q.schedule(endNs, () => {
+        // A listen-only round belongs to nobody: every tag closes its own measurement and no
+        // feedback travels back to the anchors, because no anchor asked anything of a tag.
+        if (listenOnly) {
+          for (const d of crowd) d.endRound()
+          return
+        }
+        // The tag closes first (it always did: it heads the crowd), and what it ranged this
+        // round is handed straight back to the anchors. SS-TWR ends at the tag, so this is
+        // the only way a responder in a contention round can learn whether its draw worked —
+        // the model's stand-in for the upper layer of standard §10.32.1 NOTE. A time-scheduled
+        // round ignores the flag entirely, and emits nothing either way.
+        const heard = new Set(this.devices.get(tagId)!.endRound())
+        for (const id of anchors) this.devices.get(id)!.endRound(heard.has(id))
+      }, 0)
+    }
+
+    const startBlock = (block: number): void => {
+      if (listenOnly) {
+        // One round per block, run by the anchors, with every tag in the crowd: the tags come
+        // first so a listener's slot record precedes the frame that lands in it, exactly as the
+        // single tag of a two-way round heads its own crowd. `tagId` is empty because no tag
+        // owns this round — nothing in the round is addressed to one.
+        runRound(block, 0, '', [...tags, ...anchors])
+      } else {
+        tags.forEach((tagId, k) => runRound(block, k, tagId, [tagId, ...anchors]))
+      }
       q.schedule((block + 1) * this.plan.blockNs, () => startBlock(block + 1), 0)
     }
     // Block 0 starts at t = 0, i.e. now: the session is laid out block by block

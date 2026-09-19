@@ -29,8 +29,8 @@ import type { Ns, Vec3 } from '../model/types'
 import type { UwbChannel, UwbRadio, UwbRxInfo } from './channel'
 import { counterDiff, gaussian, type UwbClock } from './clock'
 import { makeFinal, makePoll, makeReport, makeResp, type UwbFrameKind } from './frames'
-import { UWB_RMARKER_NS } from './phy'
-import { rangeSigmaM, solvePosition, type AnchorPos } from './position'
+import { C_M_PER_NS, RCTU_NS, UWB_RMARKER_NS } from './phy'
+import { rangeSigmaM, solvePosition, solveTdoa, type AnchorPos } from './position'
 import { dsTwr, fomFor, rctuToMetres, ssTwrCorrected, ssTwrRaw } from './ranging'
 import type { RoundPlan, SlotAction } from './session'
 
@@ -45,6 +45,10 @@ export interface UwbDeviceCfg {
    * attempt per round its response is not acknowledged by a range, and sits a round out when the
    * budget is empty. Ignored entirely by a time-scheduled round. */
   maxAttempts: number
+  /** DL-TDoA only: the listening tag measures its own clock rate against the round's Poll-to-Final
+   * interval before it differences its arrival times. Off, it keeps its raw counter differences —
+   * and up to ±20 ppm of crystal error over a whole round is metres of position error. */
+  tdoaClockCorrection: boolean
 }
 
 export interface UwbGeometry {
@@ -84,6 +88,36 @@ interface PeerMeasurement {
   treply2: number | null
 }
 
+/** What one tag heard from one responder inside a DL-TDoA round. */
+interface DlResponse {
+  /** When the Response arrived, on the tag's own clock. */
+  rxCounter: number
+  /** How long the responder waited between hearing the Poll and answering, on the responder's
+   * clock: both counters rode in the Response, so the tag can subtract them itself. */
+  replyTime: number
+  /** The responder's own rate against anchor 0's (its ppm minus the reference's, as a fraction),
+   * which is what turns `replyTime` into an interval of the reference's timebase. */
+  coffs: number
+}
+
+/**
+ * What a device holds for a DL-TDoA round, where nothing is a round trip and the roles are not
+ * the two-way ones: anchor 0 runs the round, anchors 1…N−1 answer it, and every tag only listens.
+ * Null in a two-way ranging round, which needs none of it.
+ */
+interface DlRoundState {
+  /** Tag: its own arrival counters for the Poll and the Final — the ends of the interval it
+   * measures its clock rate over. Null until each lands; a round missing either produces nothing. */
+  rxPoll: number | null
+  rxFinal: number | null
+  /** Tag: one entry per responder it heard. */
+  responses: Map<string, DlResponse>
+  /** Responder: its clock-offset estimate to anchor 0, taken from the Poll's carrier. */
+  coffsToRef: number | null
+  /** Anchor 0: when each Response arrived on its clock, for the Final to carry. */
+  rxResp: Record<string, number>
+}
+
 /** Everything one device holds for the duration of a single ranging round. */
 interface RoundState {
   block: number
@@ -110,6 +144,8 @@ interface RoundState {
   rxFinalCounter: number | null
   /** The Final listed this anchor, i.e. the tag did receive its Response. */
   finalListedMe: boolean
+  /** One-way ranging state; non-null exactly in a DL-TDoA round. */
+  dl: DlRoundState | null
 }
 
 function freshRound(block: number, round: number, plan: RoundPlan, tagId: string, anchors: string[]): RoundState {
@@ -118,6 +154,9 @@ function freshRound(block: number, round: number, plan: RoundPlan, tagId: string
     slot: 0, contendSlot: null, contendCollisionSlot: null,
     txPollCounter: null, txFinalCounter: null, peers: new Map(), ranges: [],
     rxPollCounter: null, txRespCounter: null, rxFinalCounter: null, finalListedMe: false,
+    // Fresh every round: a tag that heard half a round keeps nothing of it, so a missing Poll
+    // or Final can never be filled in from the round before.
+    dl: plan.mode === 'dl-tdoa' ? { rxPoll: null, rxFinal: null, responses: new Map(), coffsToRef: null, rxResp: {} } : null,
   }
 }
 
@@ -158,13 +197,16 @@ export class UwbDevice implements UwbRadio {
 
   // ---- schedule hooks -------------------------------------------------------
 
-  /** Tag: open its round (UWB_ROUND). Anchor: note the round it is about to serve. */
+  /** Tag: open its round (UWB_ROUND) — in DL-TDoA that is the anchors' round, which every tag
+   * opens a lane for because every tag measures the whole of it. Anchor: note the round it is
+   * about to serve. */
   beginRound(block: number, round: number, plan: RoundPlan, tagId: string, anchors: string[]): void {
     this.round = freshRound(block, round, plan, tagId, anchors)
     if (this.cfg.role !== 'tag') return
     this.emit({
       t: this.now(), type: 'UWB_ROUND', node: this.id, block, round,
-      slots: plan.slots, slotNs: plan.slotNs, method: plan.method, untilNs: this.now() + plan.roundNs,
+      slots: plan.slots, slotNs: plan.slotNs, method: plan.method, mode: plan.mode,
+      untilNs: this.now() + plan.roundNs,
     })
   }
 
@@ -176,6 +218,10 @@ export class UwbDevice implements UwbRadio {
     r.slot = slot
     if (this.cfg.role === 'tag') {
       this.emit({ t: this.now(), type: 'UWB_SLOT', node: this.id, slot, untilNs: slotEndNs })
+    }
+    if (r.plan.mode === 'dl-tdoa') {
+      this.onDlSlot(slot, action, r, peers)
+      return
     }
     // A contention round's response phase belongs to nobody in advance: `slotAction` names no
     // anchor (its `anchor` is -1), each anchor drew its own slot when it decoded the Poll, and
@@ -204,6 +250,33 @@ export class UwbDevice implements UwbRadio {
   }
 
   /**
+   * One slot of a DL-TDoA round. The anchors own every slot of it: anchor 0 polls in slot 0 and
+   * closes with the Final in slot N, anchor i answers in slot i. A tag reaches exactly one branch
+   * here — `listenFor` — which is what makes "a tag never transmits in DL-TDoA" a property of the
+   * code and not of the schedule: there is no path from a tag to `transmitFor` in this mode.
+   */
+  private onDlSlot(slot: number, action: SlotAction, r: RoundState, peers: { tag: string; anchors: string[] }): void {
+    // Every DL-TDoA slot is an anchor's; `slotAction` never produces a tag transmission in it.
+    if (action.tx !== 'anchor') return
+    const txId = peers.anchors[action.anchor]
+    if (this.cfg.role === 'tag') {
+      // The whole round is the tag's measurement: the Poll starts its rate interval, each
+      // Response is one time difference, the Final ends the rate interval.
+      this.listenFor(slot, txId, action.kind)
+      return
+    }
+    if (txId === this.id) {
+      this.transmitFor(action, slot, r, peers)
+      return
+    }
+    // An anchor listens only for what its own part of the round needs, and sleeps through the
+    // rest: anchor 0 must stamp every Response for the Final, a responder must hear the Poll it
+    // answers. Neither ranges the other — there is no round trip anywhere in this round.
+    const wanted: UwbFrameKind = this.id === peers.anchors[0] ? 'uwbResp' : 'uwbPoll'
+    if (action.kind === wanted) this.listenFor(slot, txId, action.kind)
+  }
+
+  /**
    * Tag: solve this round's fix, close the round, and return the anchors it ranged — the set the
    * network hands straight back to those anchors as `heard`, which is the whole of the feedback
    * model an SS-TWR responder has no frame for (standard §10.32.1 NOTE leaves the filtering of a
@@ -224,7 +297,8 @@ export class UwbDevice implements UwbRadio {
       }
       return []
     }
-    this.solveFix(r)
+    if (r.plan.mode === 'dl-tdoa') this.solveTdoaFix(r)
+    else this.solveFix(r)
     // The round is over whether or not it produced a fix: the tag's radio is off until
     // its round in the next block, and the view's slot returns to null.
     this.emit({ t: this.now(), type: 'UWB_ROUND_END', node: this.id, block: r.block, round: r.round })
@@ -247,6 +321,68 @@ export class UwbDevice implements UwbRadio {
       t: this.now(), type: 'UWB_POSITION', node: this.id,
       x: fix.x, y: fix.y, trueX: this.cfg.pos.x, trueY: this.cfg.pos.y,
       gdop: fix.gdop, ellipse: fix.ellipse, anchors: r.ranges.map((x) => x.id), block: r.block,
+      method: 'twr',
+    })
+  }
+
+  /**
+   * Tag only, DL-TDoA: this round's time differences (UWB_TDOA, one per responder heard) and the
+   * hyperbolic fix they solve to.
+   *
+   * Two corrections stand between the raw arrival counters and a difference of distances.
+   *
+   * 1. The tag's own crystal. A two-way range differences it away inside one exchange; here the
+   *    arrivals are up to a whole round apart, and 20 ppm over 20 ms is 0.4 µs — 120 m. So the
+   *    tag measures its rate over the one interval it knows in the anchors' timebase: Poll to
+   *    Final is exactly the round's N slots, and anchor 0's flight time to the tag sits in both
+   *    arrivals and cancels. What is left after dividing by that ratio is the timestamp noise of
+   *    the two ends of the interval, scaled by how much of the round a difference spans.
+   * 2. The responders' transmit instants. Anchor i does not answer the Poll instantly: it waits
+   *    a slot boundary, which on its own clock is `replyTime`. Put on anchor 0's timebase with
+   *    the responder's own clock-offset estimate and added to the Poll's flight time across the
+   *    known anchor baseline, that is how much later than the Poll anchor i transmitted — which
+   *    is exactly what has to come out of the arrival difference to leave geometry behind.
+   */
+  private solveTdoaFix(r: RoundState): void {
+    const dl = r.dl
+    if (!dl || dl.rxPoll === null || dl.rxFinal === null) return
+    const refId = r.anchors[0]
+    const rate = this.cfg.tdoaClockCorrection
+      ? counterDiff(dl.rxFinal, dl.rxPoll) / (((r.plan.slots - 1) * r.plan.slotNs) / RCTU_NS)
+      : 1
+    if (!(rate > 0)) return
+    const ref = this.geometry.anchorPos(refId)
+    const deltas: { id: string; dtNs: number }[] = []
+    for (const id of r.anchors) {
+      const resp = dl.responses.get(id)
+      if (!resp) continue // this responder was not heard this round: it is simply left out
+      const a = this.geometry.anchorPos(id)
+      const tofRctu = Math.hypot(a.x - ref.x, a.y - ref.y, a.z - ref.z) / C_M_PER_NS / RCTU_NS
+      const txOffsetRctu = tofRctu + resp.replyTime * (1 - resp.coffs)
+      const dtNs = (counterDiff(resp.rxCounter, dl.rxPoll) / rate - txOffsetRctu) * RCTU_NS
+      const trueDtNs = (this.geometry.trueDistM(this.id, id) - this.geometry.trueDistM(this.id, refId)) / C_M_PER_NS
+      deltas.push({ id, dtNs })
+      this.emit({
+        t: this.now(), type: 'UWB_TDOA', node: this.id, ref: refId, peer: id,
+        dtNs, trueDtNs, block: r.block, round: r.round,
+      })
+    }
+    const fix = solveTdoa(
+      r.anchors.map((id) => this.geometry.anchorPos(id)),
+      refId,
+      deltas,
+      this.cfg.pos.z,
+      // Each difference carries two noisy timestamps where a range carries the equivalent of one,
+      // so the ellipse is drawn with √2·σ_r. It is the documented approximation of this model:
+      // the clock-correction residual, which grows with the responder's slot, is not in it.
+      Math.SQRT2 * rangeSigmaM(this.cfg.tsNoisePs),
+    )
+    if (!fix) return
+    this.emit({
+      t: this.now(), type: 'UWB_POSITION', node: this.id,
+      x: fix.x, y: fix.y, trueX: this.cfg.pos.x, trueY: this.cfg.pos.y,
+      gdop: fix.gdop, ellipse: fix.ellipse, anchors: [refId, ...deltas.map((d) => d.id)],
+      block: r.block, method: 'dl-tdoa',
     })
   }
 
@@ -305,6 +441,11 @@ export class UwbDevice implements UwbRadio {
 
     this.clearExpectation()
     this.setState('idle')
+
+    if (r.plan.mode === 'dl-tdoa') {
+      this.onDlRx(r, from, frame, kind, counter, coffs)
+      return
+    }
 
     switch (kind) {
       case 'uwbPoll':
@@ -394,6 +535,12 @@ export class UwbDevice implements UwbRadio {
   private transmitFor(action: SlotAction, slot: number, r: RoundState, peers: { tag: string; anchors: string[] }): void {
     const t = this.now()
     const txCounter = this.clock.counter(t + UWB_RMARKER_NS)
+    if (r.plan.mode === 'dl-tdoa') {
+      this.transmitDl(action, slot, r, peers, txCounter)
+      return
+    }
+    // TODO (Task 3, UL-TDoA): a tag's 'uwbBlink' has no case below. Nothing throws on it — the
+    // switch is not exhaustive by design — so an unwired mode is silent rather than fatal.
     switch (action.kind) {
       case 'uwbPoll': {
         r.txPollCounter = txCounter
@@ -442,6 +589,62 @@ export class UwbDevice implements UwbRadio {
     }
   }
 
+  /**
+   * An anchor's transmission in a DL-TDoA round. Each message says what its sender did on its own
+   * clock, and nothing about any round trip: the Poll carries anchor 0's transmit instant, a
+   * Response carries the responder's transmit instant, its arrival instant for the Poll and its
+   * clock offset to anchor 0, and the Final carries anchor 0's transmit instant and its arrival
+   * instant for every Response. All of it is broadcast — the audience is every tag in earshot,
+   * none of which the anchors know is there.
+   */
+  private transmitDl(
+    action: SlotAction, slot: number, r: RoundState, peers: { tag: string; anchors: string[] }, txCounter: number,
+  ): void {
+    const dl = r.dl
+    if (!dl) return
+    const refId = peers.anchors[0]
+    switch (action.kind) {
+      case 'uwbPoll': {
+        r.txPollCounter = txCounter
+        // The Poll's schedule lists the *responders*: anchor 0 has slot 0 and the Final, and
+        // slot i belongs to the i-th anchor of the scenario, which is how the Final can name
+        // its arrival times in slot order.
+        this.send(
+          makePoll(
+            this.id, peers.anchors.slice(1), r.plan.method, r.block, r.round,
+            r.plan.schedule, r.plan.contentionSlots, this.cfg.maxAttempts,
+            { txCounter, rxCounters: {} },
+          ),
+          txCounter,
+        )
+        break
+      }
+      case 'uwbResp': {
+        // An anchor that never heard the Poll has nothing to answer, and no offset to report.
+        if (r.rxPollCounter === null || dl.coffsToRef === null) return
+        r.txRespCounter = txCounter
+        this.send(
+          makeResp(
+            this.id, '*', r.plan.method, r.block, r.round, slot, undefined,
+            { txCounter, rxCounters: { [refId]: r.rxPollCounter }, coffs: dl.coffsToRef },
+          ),
+          txCounter,
+        )
+        break
+      }
+      case 'uwbFinal': {
+        // Anchor 0 closes the round whether or not anyone answered it: a tag needs the Final to
+        // measure its own clock rate, and an empty round still tells it that much.
+        r.txFinalCounter = txCounter
+        this.send(makeFinal(this.id, [], r.block, r.round, slot, { txCounter, rxCounters: { ...dl.rxResp } }), txCounter)
+        break
+      }
+      default:
+        // No other kind is ever scheduled in this mode (see slotAction).
+        break
+    }
+  }
+
   /** Radiate one PPDU: half-duplex for its whole airtime, RMARKER stamped before it leaves. */
   private send(desc: FrameDesc, txCounter: number): void {
     const t = this.now()
@@ -476,6 +679,55 @@ export class UwbDevice implements UwbRadio {
     const tofRawRctu = ssTwrRaw(tround1, replyRctu)
     const tofRctu = ssTwrCorrected(tround1, replyRctu, coffs)
     this.reportRange(r, from, 'ss', tofRctu, tofRawRctu, fom)
+  }
+
+  /**
+   * DL-TDoA reception. An anchor keeps only what its own message must carry; a tag keeps
+   * everything, because the whole round is its measurement.
+   *
+   * The responder's clock-offset estimate is stored as its own rate *against anchor 0*, i.e. the
+   * negative of what its receiver measured on the reference's carrier (`coffs` here is always
+   * "how much faster the sender runs than me"). That is the sign a consumer of the reply time
+   * wants, exactly as SS-TWR's `(1 − coffs)` turns a responder's interval into the initiator's
+   * timebase — only here the timebase everything lands in is anchor 0's, not the listener's.
+   */
+  private onDlRx(
+    r: RoundState, from: string, frame: FrameDesc, kind: UwbFrameKind, counter: number, coffs: number,
+  ): void {
+    const dl = r.dl
+    const refId = r.anchors[0]
+    if (!dl) return
+    if (this.cfg.role === 'anchor') {
+      if (kind === 'uwbPoll') {
+        r.rxPollCounter = counter
+        dl.coffsToRef = -coffs
+      } else if (kind === 'uwbResp') {
+        dl.rxResp[from] = counter
+      }
+      return
+    }
+    switch (kind) {
+      case 'uwbPoll':
+        dl.rxPoll = counter
+        break
+      case 'uwbFinal':
+        dl.rxFinal = counter
+        break
+      case 'uwbResp': {
+        const times = frame.uwb?.dl
+        // A Response that is missing any of the three is not a DL-TDoA Response at all; the
+        // responder is dropped rather than differenced against a time nobody sent.
+        if (!times || times.coffs === undefined) return
+        const rxPollAtPeer: number | undefined = times.rxCounters[refId]
+        if (rxPollAtPeer === undefined) return
+        dl.responses.set(from, {
+          rxCounter: counter,
+          replyTime: counterDiff(times.txCounter, rxPollAtPeer),
+          coffs: times.coffs,
+        })
+        break
+      }
+    }
   }
 
   /** Anchor, on the tag's Final: it now holds all four times of the double-sided exchange. */

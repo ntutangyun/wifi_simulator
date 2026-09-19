@@ -5,6 +5,7 @@ import type { Generation } from '../model/types'
 import type { ProfileId } from '../model/scenario'
 import type { RxFailReason } from '../model/records'
 import type { AddrRole, FcBitKey, FieldKey, PpduSegmentKey } from '../model/frameFields'
+import type { UwbFixMethod } from '../uwb/records'
 
 export type Lang = 'en' | 'zh'
 
@@ -141,10 +142,16 @@ export interface Strings {
     contendSitOut: string
     contendCollisions: string; contendCollisionsHint: string
     ranges: string; peer: string; measured: string; trueDist: string; error: string; fom: string; rounds: string
+    /** One-way ranging: the table of time differences against the round's reference anchor. */
+    tdoa: string; tdoaHint: string
     /** The Figure of Merit byte as a phrase: "97 % within 0.5 ns" (standard §10.29.1.7). */
     fomWithin: (pct: number, intervalNs: number) => string
     noFom: string
     position: string; estimate: string; gdop: string; ellipse: string; noPosition: string
+    /** What solved the fix, as a row label and as the four methods' names. */
+    methodLabel: string; method: Record<UwbFixMethod, string>
+    /** Shown on the ellipse of a one-way fix, whose σ is a documented approximation. */
+    ellipseHintTdoa: string
   }
   log: { empty: string }
   profiles: Record<ProfileId, string>
@@ -421,9 +428,16 @@ export const STRINGS: Record<Lang, Strings> = {
       contendCollisions: 'slots collided', contendCollisionsHint: 'response slots in which this tag lost an answer to another anchor answering in the same slot; a slot where the stronger answer was captured 6 dB above the other counts too, because an answer was still lost',
       ranges: 'ranges measured', peer: 'peer', measured: 'measured', trueDist: 'true', error: 'error',
       fom: 'confidence', rounds: 'rounds',
+      tdoa: 'time differences',
+      tdoaHint: 'one-way ranging measures no distances: each row is how much later this anchor’s message arrived than the reference anchor’s, which places the tag on a hyperbola between the two',
       fomWithin: (pct, ns) => `${pct} % within ${ns} ns`, noFom: 'no FoM',
       position: 'position', estimate: 'estimate', gdop: 'GDOP', ellipse: 'error ellipse (1-σ)',
       noPosition: 'no fix yet — a tag needs ranges to three anchors in one block',
+      methodLabel: 'solved from',
+      method: {
+        twr: 'two-way ranging', 'dl-tdoa': 'DL-TDoA', 'ul-tdoa': 'UL-TDoA', aoa: 'angle of arrival',
+      },
+      ellipseHintTdoa: 'a one-way fix draws its ellipse from √2 σ per difference — two noisy timestamps where a range carries one. It is an approximation: the clock-correction residual, which grows with the slot a responder answers in, is not in it, so the real error is larger than the ellipse says.',
     },
     log: { empty: 'no events in window' },
     profiles: {
@@ -818,9 +832,17 @@ export const STRINGS: Record<Lang, Strings> = {
       contendCollisions: '碰撞时隙数', contendCollisionsHint: '该标签因两个锚点选中同一响应时隙而丢失应答的时隙数；即使其中较强的一路高出 6 dB 被成功捕获，另一路应答仍然丢失，因此同样计入',
       ranges: '测距结果', peer: '对端', measured: '实测', trueDist: '真值', error: '误差',
       fom: '置信度', rounds: '轮次',
+      tdoa: '到达时间差',
+      tdoaHint: '单向测距不测距离：每一行是该锚点的消息比参考锚点晚到多少，这把标签定在两个锚点之间的一条双曲线上',
       fomWithin: (pct, ns) => `${pct} % 的误差落在 ${ns} ns 内`, noFom: '无 FoM',
       position: '位置解算', estimate: '估计值', gdop: '几何精度因子 GDOP', ellipse: '误差椭圆（1-σ）',
       noPosition: '尚无定位结果——标签需要在同一测距块内拿到三个锚点的距离',
+      methodLabel: '解算方式',
+      method: {
+        twr: '双向测距 (TWR)', 'dl-tdoa': '下行到达时间差 (DL-TDoA)', 'ul-tdoa': '上行到达时间差 (UL-TDoA)',
+        aoa: '到达角 (AoA)',
+      },
+      ellipseHintTdoa: '单向定位的椭圆按每个时间差 √2 σ 画出——一个时间差含两个带噪声的时间戳，而一次测距只相当于一个。这是一个近似：时钟速率校正的残差（响应越靠后越大）并未计入其中，因此真实误差比椭圆显示的更大。',
     },
     log: { empty: '窗口内无事件' },
     profiles: {

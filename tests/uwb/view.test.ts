@@ -33,13 +33,13 @@ function seq(recs: Parameters<EmitFn>[0][]): TLRecord[] {
 const ellipse = { a: 0.12, b: 0.07, thetaRad: 0.4 }
 
 const RECORDS: Parameters<EmitFn>[0][] = [
-  { t: 0, type: 'UWB_ROUND', node: 'tag-1', block: 3, round: 0, slots: 6, slotNs: 2_000_000, method: 'ds', untilNs: 12_000_000 },
+  { t: 0, type: 'UWB_ROUND', node: 'tag-1', block: 3, round: 0, slots: 6, slotNs: 2_000_000, method: 'ds', mode: 'twr', untilNs: 12_000_000 },
   { t: 0, type: 'MAC_STATE', node: 'tag-1', state: 'uwbWait' },
   { t: 1_000_000, type: 'UWB_SLOT', node: 'tag-1', slot: 2, untilNs: 6_000_000 },
   { t: 1_000_000, type: 'UWB_TS', node: 'tag-1', dir: 'tx', peer: 'anc-1', frameKind: 'uwbPoll', counter: 1_234_567 },
   { t: 2_000_000, type: 'UWB_RANGE', node: 'tag-1', peer: 'anc-1', method: 'ds', tofRctu: 1_234, distM: 5.62, trueDistM: 5.66, fom: 0x16, block: 3, round: 0 },
   { t: 3_000_000, type: 'UWB_RANGE', node: 'tag-1', peer: 'anc-1', method: 'ds', tofRctu: 1_240, distM: 5.71, trueDistM: 5.66, fom: 0x16, block: 3, round: 1 },
-  { t: 4_000_000, type: 'UWB_POSITION', node: 'tag-1', x: 4.1, y: 3.9, trueX: 4, trueY: 4, gdop: 1.8, ellipse, anchors: ['anc-1', 'anc-2'], block: 3 },
+  { t: 4_000_000, type: 'UWB_POSITION', node: 'tag-1', x: 4.1, y: 3.9, trueX: 4, trueY: 4, gdop: 1.8, ellipse, anchors: ['anc-1', 'anc-2'], block: 3, method: 'twr' },
   { t: 5_000_000, type: 'UWB_TIMEOUT', node: 'tag-1', slot: 3, peer: 'anc-2', expected: 'uwbResp' },
   { t: 6_000_000, type: 'UWB_RANGE', node: 'anc-1', peer: 'tag-1', method: 'ds', tofRctu: 1_240, distM: 5.71, trueDistM: 5.66, fom: 0x16, block: 3, round: 0 },
   { t: 6_000_000, type: 'UWB_ROUND_END', node: 'tag-1', block: 3, round: 0 },
@@ -53,7 +53,7 @@ describe('the UWB view reducer', () => {
     expect(tag.acs).toBeNull()
     expect(tag.uwb).toEqual({
       role: 'tag', block: 0, round: 0, slot: null, rounds: 0, timeouts: 0, interfered: 0,
-      contend: null, contendCollisions: 0, ranges: {}, position: null,
+      contend: null, contendCollisions: 0, ranges: {}, tdoa: {}, position: null,
     })
     expect(vs.nodes['anc-1'].uwb?.role).toBe('anchor')
   })
@@ -75,7 +75,7 @@ describe('the UWB view reducer', () => {
     expect(u.ranges['anc-1'].distM).toBeCloseTo(5.71, 6)
     expect(u.ranges['anc-1'].trueDistM).toBeCloseTo(5.66, 6)
     expect(u.ranges['anc-1'].method).toBe('ds')
-    expect(u.position).toEqual({ x: 4.1, y: 3.9, trueX: 4, trueY: 4, gdop: 1.8, ellipse, block: 3, n: 1 })
+    expect(u.position).toEqual({ x: 4.1, y: 3.9, trueX: 4, trueY: 4, gdop: 1.8, ellipse, method: 'twr', block: 3, n: 1 })
   })
 
   it('the tag’s slot ticks while the round runs and only UWB_ROUND_END clears it', () => {
@@ -101,7 +101,7 @@ describe('the UWB view reducer', () => {
     // anc-2 took part in nothing of its own: untouched by the tag's records
     expect(vs.nodes['anc-2'].uwb).toEqual({
       role: 'anchor', block: 0, round: 0, slot: null, rounds: 0, timeouts: 0, interfered: 0,
-      contend: null, contendCollisions: 0, ranges: {}, position: null,
+      contend: null, contendCollisions: 0, ranges: {}, tdoa: {}, position: null,
     })
   })
 
@@ -123,6 +123,37 @@ describe('the UWB view reducer', () => {
     expect(vs.nodes['tag-1'].uwb!.contendCollisions).toBe(2)
     expect(vs.nodes['tag-1'].uwb!.contend).toBeNull()
     expect(vs.nodes['anc-1'].uwb!.contendCollisions).toBe(0)
+  })
+
+  it('keeps the latest time difference per peer, all against the same reference', () => {
+    const vs = initViewState(uwbScenario())
+    const listening: Parameters<EmitFn>[0][] = [
+      { t: 1_000_000, type: 'UWB_TDOA', node: 'tag-1', ref: 'anc-1', peer: 'anc-2', dtNs: 12.5, trueDtNs: 12.1, block: 0, round: 0 },
+      { t: 1_000_100, type: 'UWB_TDOA', node: 'tag-1', ref: 'anc-1', peer: 'anc-2', dtNs: 12.9, trueDtNs: 12.1, block: 1, round: 0 },
+      { t: 1_000_200, type: 'UWB_TDOA', node: 'tag-1', ref: 'anc-1', peer: 'anc-3', dtNs: -4.2, trueDtNs: -4, block: 1, round: 0 },
+    ]
+    for (const r of seq(listening)) applyRecord(vs, r)
+    const u = vs.nodes['tag-1'].uwb!
+    // One row per peer, counting the rounds it has been measured in — the reference anchor
+    // itself never has a row, because it is what everything else is differenced against.
+    expect(u.tdoa).toEqual({
+      'anc-2': { dtNs: 12.9, trueDtNs: 12.1, n: 2 },
+      'anc-3': { dtNs: -4.2, trueDtNs: -4, n: 1 },
+    })
+    expect(u.ranges).toEqual({}) // a listening tag measures no distances at all
+    expect(vs.nodes['anc-1'].uwb!.tdoa).toEqual({})
+  })
+
+  it('remembers what solved a fix, so the panel can say two-way or one-way', () => {
+    const vs = initViewState(uwbScenario())
+    const fixes: Parameters<EmitFn>[0][] = [
+      { t: 1_000_000, type: 'UWB_POSITION', node: 'tag-1', x: 4.1, y: 3.9, trueX: 4, trueY: 4, gdop: 1.8, ellipse, anchors: ['anc-1', 'anc-2'], block: 0, method: 'twr' },
+      { t: 2_000_000, type: 'UWB_POSITION', node: 'tag-1', x: 4.2, y: 3.8, trueX: 4, trueY: 4, gdop: 0.9, ellipse, anchors: ['anc-1', 'anc-2'], block: 1, method: 'dl-tdoa' },
+    ]
+    for (const r of seq(fixes)) applyRecord(vs, r)
+    const p = vs.nodes['tag-1'].uwb!.position!
+    expect(p.method).toBe('dl-tdoa')
+    expect(p.n).toBe(2)
   })
 
   it('counts a frame lost to Wi-Fi at the receiver that lost it', () => {

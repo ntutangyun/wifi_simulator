@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { STRINGS } from '../../src/ui/i18n'
 import { FOM_LOS, FOM_NLOS, fomText } from '../../src/uwb/phy'
-import { uwbContendText, uwbFixRow, uwbFomText, uwbRangeRows } from '../../src/uwb/ui/rows'
+import { uwbContendText, uwbFixRow, uwbFomText, uwbRangeRows, uwbTdoaRows } from '../../src/uwb/ui/rows'
 import type { UwbNodeView } from '../../src/uwb/view'
 
 /** A tag mid-block with two peers: one clear, one through a wall. */
@@ -12,10 +12,21 @@ const tag: UwbNodeView = {
     'anc-1': { distM: 5.02, trueDistM: 5, method: 'ds', fom: FOM_LOS, block: 3, n: 7 },
     'anc-2': { distM: 4.38, trueDistM: 4.5, method: 'ds', fom: FOM_NLOS, block: 3, n: 6 },
   },
+  tdoa: {},
   position: {
     x: 0.03, y: -0.04, trueX: 0, trueY: 0, gdop: 1.41,
-    ellipse: { a: 0.062, b: 0.041, thetaRad: 0.5 }, block: 3, n: 7,
+    ellipse: { a: 0.062, b: 0.041, thetaRad: 0.5 }, method: 'twr', block: 3, n: 7,
   },
+}
+
+/** A tag that only listened: no distances, three differences against the reference anchor. */
+const listener: UwbNodeView = {
+  ...tag, ranges: {},
+  tdoa: {
+    'anc-2': { dtNs: 12.5, trueDtNs: 12.1, n: 3 },
+    'anc-3': { dtNs: -8.237, trueDtNs: -8.019, n: 3 },
+  },
+  position: { ...tag.position!, gdop: 0.87, method: 'dl-tdoa' },
 }
 
 const EN = STRINGS.en.uwb
@@ -52,13 +63,33 @@ describe('uwbRangeRows', () => {
 
 describe('uwbFixRow', () => {
   it('shows the estimate, the truth, the error, the GDOP and the ellipse axes', () => {
-    expect(uwbFixRow(tag.position!)).toEqual({
+    expect(uwbFixRow(tag.position!, EN)).toEqual({
       estimate: '(0.03, -0.04) m',
       truth: '(0.00, 0.00) m',
       error: '5.0 cm',
       gdop: '1.41',
       ellipse: '6.2 × 4.1 cm',
+      method: 'two-way ranging',
     })
+  })
+
+  it('names what solved the fix, in the reader’s language', () => {
+    expect(uwbFixRow(listener.position!, EN).method).toBe('DL-TDoA')
+    expect(uwbFixRow(listener.position!, ZH).method).toBe('下行到达时间差 (DL-TDoA)')
+    expect(uwbFixRow(tag.position!, ZH).method).toBe('双向测距 (TWR)')
+  })
+})
+
+describe('uwbTdoaRows', () => {
+  it('gives one row per peer, in nanoseconds, with the error signed', () => {
+    expect(uwbTdoaRows(listener)).toEqual([
+      { peer: 'anc-2', measured: '12.50 ns', trueDt: '12.10 ns', error: '0.40 ns', rounds: '3' },
+      { peer: 'anc-3', measured: '-8.24 ns', trueDt: '-8.02 ns', error: '-0.22 ns', rounds: '3' },
+    ])
+  })
+
+  it('has no rows for a tag that measured distances instead of differences', () => {
+    expect(uwbTdoaRows(tag)).toEqual([])
   })
 })
 

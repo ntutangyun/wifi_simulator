@@ -459,7 +459,7 @@ describe('uwb-position · the base run', () => {
 
   it('the inspector prints GDOP 1.05 and an error ellipse of 1.7 × 1.4 cm', () => {
     // "the inspector prints GDOP 1.05 and “error ellipse (1-σ) 1.7 × 1.4 cm”"
-    const row = uwbFixRow(inspectorAfter(undefined, 1).position!)
+    const row = uwbFixRow(inspectorAfter(undefined, 1).position!, STRINGS.en.uwb)
     expect(row.gdop).toBe('1.05')
     expect(row.ellipse).toBe('1.7 × 1.4 cm')
     expect(row.estimate).toBe('(3.99, 3.50) m')
@@ -580,7 +580,7 @@ describe('uwb-position · a brick wall in one path', () => {
       expect([(f.ellipse.a * 100).toFixed(1), (f.ellipse.b * 100).toFixed(1)], `block ${f.block}`)
         .toEqual(['1.7', '1.4'])
     }
-    const row = uwbFixRow(inspectorAfter(0, 1).position!)
+    const row = uwbFixRow(inspectorAfter(0, 1).position!, STRINGS.en.uwb)
     expect([row.gdop, row.ellipse, row.error]).toEqual(['1.05', '1.7 × 1.4 cm', '30.9 cm'])
     const envelope = 4 * SIGMA_R * exact.gdop
     expect((envelope * 100).toFixed(1)).toBe('8.9')
@@ -645,7 +645,7 @@ describe('uwb-position · three anchors', () => {
     const line = 'uwb-1 position (3.98, 3.48) m, true (4.00, 3.50), error 0.03 m, GDOP 1.26, 3 anchors'
     expect(fmtRecord(fixes(1)[0])).toBe(line)
     expect(prose()).toContain(line)
-    const row = uwbFixRow(inspectorAfter(1, 1).position!)
+    const row = uwbFixRow(inspectorAfter(1, 1).position!, STRINGS.en.uwb)
     expect([row.gdop, row.ellipse, row.error]).toEqual(['1.26', '2.2 × 1.5 cm', '2.7 cm'])
   })
 
@@ -688,7 +688,7 @@ describe('uwb-position · three anchors', () => {
       ['Three anchors', '1.26', '2.2 × 1.5 cm', '(3.98, 3.48) m', '2.7 cm'],
     ]
     rows.forEach((row, i) => row.forEach((v, j) => expect(cell(0, i, j), `${row[0]} ${j}`).toBe(v)))
-    const measured = [undefined, 0, 1].map((v) => uwbFixRow(inspectorAfter(v, 1).position!))
+    const measured = [undefined, 0, 1].map((v) => uwbFixRow(inspectorAfter(v, 1).position!, STRINGS.en.uwb))
     rows.forEach(([, gdop, ellipse, estimate, error], i) => {
       expect(measured[i].gdop, rows[i][0]).toBe(gdop)
       expect(measured[i].ellipse, rows[i][0]).toBe(ellipse)

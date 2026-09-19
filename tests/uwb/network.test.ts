@@ -285,6 +285,179 @@ describe('UwbNetwork — determinism', () => {
   })
 })
 
+// --- DL-TDoA: the anchors run the round and the tags only listen (§10.32.3) ----
+
+/**
+ * The lesson-5 lab: four anchors in the corners of a 10 × 8 m room and three tags that never
+ * transmit. The anchors' crystals are exact — anchor 1 is the reference every arrival is
+ * differenced against — and two of the tags sit at the ±20 ppm ends of the tolerance the
+ * standard allows, which is the whole point of the mode's clock correction.
+ */
+const CORNERS: Place[] = [
+  { x: 0.5, y: 0.5, z: 2.4, ppm: 0 }, { x: 9.5, y: 0.5, z: 2.4, ppm: 0 },
+  { x: 9.5, y: 7.5, z: 2.4, ppm: 0 }, { x: 0.5, y: 7.5, z: 2.4, ppm: 0 },
+]
+const LISTENERS: Place[] = [
+  { x: 5, y: 4, z: 1, ppm: 20 }, { x: 2, y: 6, z: 1, ppm: -20 }, { x: 8, y: 2, z: 1, ppm: 7 },
+]
+const dl = (session: Partial<UwbSessionCfg> = {}, anchors: Place[] = CORNERS): Scenario =>
+  uwbScenario(anchors, LISTENERS, { mode: 'dl-tdoa', nlos: false, ...session })
+/** Three 200 ms blocks, i.e. three anchor rounds — one per block, whoever is listening. */
+const DL_RUN_NS = 3 * 200 * MS - 1
+/** What a corrected difference is left with: the responder's own clock-offset estimate carries
+ * 1 σ = cfoNoisePpm, and it multiplies a reply time of one slot per slot the responder waited —
+ * so the residual grows with the slot it answered in. 12 cm per slot here. */
+const dlSigmaM = (slot: number): number =>
+  slot * 2 * MS * DEFAULT_UWB_SESSION.cfoNoisePpm * 1e-6 * C_M_PER_NS
+const dtErrM = (rs: TLRecord[], peer: string, node?: string): number[] =>
+  of(rs, 'UWB_TDOA', node).filter((r) => r.peer === peer).map((r) => Math.abs(r.dtNs - r.trueDtNs) * C_M_PER_NS)
+
+describe('UwbNetwork — DL-TDoA rounds', () => {
+  const rs = run(dl(), DL_RUN_NS)
+
+  it('gives every slot of the round to an anchor, and a tag none at all', () => {
+    const first = of(rs, 'TX_START').filter((r) => r.t < 200 * MS)
+    expect(first.map((r) => [r.node, r.frame.kind, r.frame.uwb?.slot])).toEqual([
+      ['anc-1', 'uwbPoll', 0], ['anc-2', 'uwbResp', 1], ['anc-3', 'uwbResp', 2],
+      ['anc-4', 'uwbResp', 3], ['anc-1', 'uwbFinal', 4],
+    ])
+    // Not one transmission from a tag in any block, and not one two-way range anywhere: this
+    // mode has no round trip in it at all.
+    expect(of(rs, 'TX_START').some((r) => r.node.startsWith('tag-'))).toBe(false)
+    expect(of(rs, 'UWB_RANGE')).toEqual([])
+  })
+
+  it('carries each sender’s own times, and only those', () => {
+    const frameOf = (kind: string, src: string) =>
+      of(rs, 'TX_START').find((r) => r.frame.kind === kind && r.frame.src === src)!.frame
+    const poll = frameOf('uwbPoll', 'anc-1')
+    // The Poll opens the round: its own transmit instant, no arrival times, and a schedule of
+    // the three responders (anchor 1 keeps slot 0 and the Final for itself).
+    expect(poll.uwb?.schedule).toEqual(['anc-2', 'anc-3', 'anc-4'])
+    expect(poll.uwb?.dl?.rxCounters).toEqual({})
+    expect(poll.uwb?.ies).toEqual(['ARC', 'RDM', 'RRMC', 'TXT'])
+    expect(poll.dst).toBe('*')
+    const resp = frameOf('uwbResp', 'anc-3')
+    expect(Object.keys(resp.uwb?.dl?.rxCounters ?? {})).toEqual(['anc-1'])
+    expect(resp.uwb?.dl?.coffs).toBeCloseTo(0, 5) // exact crystals: all of it is estimator noise
+    expect(resp.uwb?.ies).toEqual(['RRMC', 'TXT', 'RXT', 'COFF'])
+    expect(resp.uwb?.replyRctu).toBeUndefined() // a listening tag wants instants, not round trips
+    const final = frameOf('uwbFinal', 'anc-1')
+    expect(Object.keys(final.uwb?.dl?.rxCounters ?? {})).toEqual(['anc-2', 'anc-3', 'anc-4'])
+    expect(final.uwb?.finalTimes).toBeUndefined()
+  })
+
+  it('gives every tag three differences and one fix per block, from the one round', () => {
+    // All three tags share the round: one UWB_ROUND each, at the same instant, every block.
+    expect(of(rs, 'UWB_ROUND').filter((r) => r.t === 0).map((r) => [r.node, r.mode, r.slots]))
+      .toEqual([['tag-1', 'dl-tdoa', 5], ['tag-2', 'dl-tdoa', 5], ['tag-3', 'dl-tdoa', 5]])
+    for (const id of ['tag-1', 'tag-2', 'tag-3']) {
+      const diffs = of(rs, 'UWB_TDOA', id)
+      expect(diffs, id).toHaveLength(9)
+      expect(diffs.every((d) => d.ref === 'anc-1'), id).toBe(true)
+      expect(diffs.slice(0, 3).map((d) => d.peer), id).toEqual(['anc-2', 'anc-3', 'anc-4'])
+      const fixes = of(rs, 'UWB_POSITION', id)
+      expect(fixes.map((f) => f.block), id).toEqual([0, 1, 2])
+      expect(fixes.every((f) => f.method === 'dl-tdoa'), id).toBe(true)
+      expect(fixes[0].anchors, id).toEqual(['anc-1', 'anc-2', 'anc-3', 'anc-4'])
+    }
+  })
+
+  it('leaves decimetres on a difference, growing with the slot the responder answered in', () => {
+    const maxima = ['anc-2', 'anc-3', 'anc-4'].map((p) => Math.max(...dtErrM(rs, p)))
+    // Measured over nine rounds: 22 / 40 / 57 cm, all of it the clock-offset residual of the
+    // responder's reply time — which is one slot longer for each slot further into the round.
+    expect(maxima.map((v) => v.toFixed(2))).toEqual(['0.22', '0.40', '0.57'])
+    maxima.forEach((v, i) => {
+      expect(dlSigmaM(i + 1) * 100, `sigma ${i}`).toBeCloseTo(12 * (i + 1), 0)
+      expect(v, `peer ${i}`).toBeLessThan(3 * dlSigmaM(i + 1))
+    })
+    expect(maxima[0]).toBeLessThan(maxima[1])
+    expect(maxima[1]).toBeLessThan(maxima[2])
+  })
+
+  it('fixes every tag to within half a metre without ever measuring a distance', () => {
+    const fixes = of(rs, 'UWB_POSITION')
+    expect(fixes).toHaveLength(9)
+    const errs = fixes.map((f) => Math.hypot(f.x - f.trueX, f.y - f.trueY))
+    expect(Math.max(...errs).toFixed(2)).toBe('0.40')
+    for (const f of fixes) expect(f.gdop).toBeLessThan(1) // difference rows are longer than unit ones
+    // The ellipse is drawn from √2·σ_r per difference — two noisy timestamps where a range
+    // carries one — and knows nothing of the clock residual above, so it is the optimistic
+    // figure the inspector's hint calls an approximation: 2 cm beside a 40 cm error.
+    expect(fixes[0].ellipse.a).toBeLessThan(0.03)
+  })
+
+  it('needs every responder: one it cannot hear leaves too few differences to fix', () => {
+    const far: Place[] = [...CORNERS]
+    far[3] = { x: 0, y: -40, z: 2.4, ppm: 0 }
+    const lost = run(dl({}, far), 200 * MS - 1)
+    // anc-4 never hears the Poll, so it never answers, and each tag's slot-3 deadline says so.
+    expect(of(lost, 'TX_START').some((r) => r.node === 'anc-4')).toBe(false)
+    expect(of(lost, 'UWB_TIMEOUT', 'tag-1').map((r) => [r.slot, r.expected])).toEqual([[3, 'uwbResp']])
+    expect(of(lost, 'UWB_TDOA', 'tag-1').map((r) => r.peer)).toEqual(['anc-2', 'anc-3'])
+    // Three anchors are two differences: a hyperbolic fix needs three, so the round produces none.
+    expect(of(lost, 'UWB_POSITION')).toEqual([])
+  })
+})
+
+describe('UwbNetwork — DL-TDoA without the tag’s clock-rate correction', () => {
+  const rs = run(dl({ tdoaClockCorrection: false }), DL_RUN_NS)
+
+  it('lets the tag’s own crystal swamp the differences: metres per slot of the round', () => {
+    // tag-1 runs 20 ppm fast, so an arrival i slots after the Poll is stamped i·2 ms·20 ppm =
+    // i·40 ns late on its own clock — i·12 m of range difference that is not geometry.
+    const ppmM = (slot: number): number => slot * 2 * MS * 20e-6 * C_M_PER_NS
+    expect(ppmM(1).toFixed(2)).toBe('11.99')
+    for (const [i, peer] of ['anc-2', 'anc-3', 'anc-4'].entries()) {
+      // What is left beside it is the same clock-offset residual a corrected round has.
+      for (const err of dtErrM(rs, peer, 'tag-1')) {
+        expect(Math.abs(err - ppmM(i + 1)), peer).toBeLessThan(3 * dlSigmaM(i + 1))
+      }
+    }
+    // tag-3's crystal is only 7 ppm off, so its differences are wrong by a smaller multiple of
+    // the same thing — the error is the tag's own, not the anchors'.
+    expect(Math.max(...dtErrM(rs, 'anc-4', 'tag-3'))).toBeLessThan(ppmM(3) / 2)
+  })
+
+  it('produces no fix at all: no point in the plane explains differences that large', () => {
+    expect(of(rs, 'UWB_TDOA')).toHaveLength(27)
+    // 36 m of range difference between two anchors 11 m apart is not a hyperbola anyone stands
+    // on; Gauss–Newton walks out to where the difference rows go parallel and the solver, rather
+    // than inventing a position, returns nothing.
+    expect(of(rs, 'UWB_POSITION')).toEqual([])
+  })
+})
+
+describe('UwbNetwork — DL-TDoA with the anchors off frequency', () => {
+  it('puts each responder’s reply time on the reference’s clock before differencing it', () => {
+    // Anchor 1 is the reference (0 ppm by definition of the mode); the responders are ±20 and
+    // +13 ppm off it. Uncorrected, that is the same metres-per-slot error as an uncorrected
+    // tag; corrected by the offset each responder measured on the Poll, it is decimetres again.
+    const rs = run(dl({}, [
+      CORNERS[0], { ...CORNERS[1], ppm: 20 }, { ...CORNERS[2], ppm: -20 }, { ...CORNERS[3], ppm: 13 },
+    ]), DL_RUN_NS)
+    const maxima = ['anc-2', 'anc-3', 'anc-4'].map((p) => Math.max(...dtErrM(rs, p)))
+    for (const [i, v] of maxima.entries()) expect(v, `peer ${i}`).toBeLessThan(3 * dlSigmaM(i + 1))
+    expect(of(rs, 'UWB_POSITION')).toHaveLength(9)
+  })
+})
+
+describe('UwbNetwork — DL-TDoA determinism, and two-way ranging left alone', () => {
+  it('replays bit-for-bit', () => {
+    expect(run(dl(), DL_RUN_NS)).toEqual(run(dl(), DL_RUN_NS))
+  })
+
+  it('changes not one record of a two-way session, whatever the one-way knobs say', () => {
+    const twr = (session: Partial<UwbSessionCfg>): TLRecord[] =>
+      run(uwbScenario(ring(0), [{ x: 0, y: 0, z: 1, ppm: 0 }], { nlos: false, ...session }), 3 * 200 * MS)
+    const base = twr({})
+    expect(twr({ mode: 'twr', tdoaClockCorrection: false, syncErrorNs: 4 })).toEqual(base)
+    expect(of(base, 'UWB_TDOA')).toEqual([])
+    expect(of(base, 'UWB_POSITION').every((f) => f.method === 'twr')).toBe(true)
+  })
+})
+
 // --- contention rounds (standard §10.32.2 schedule mode 0) ---------------------
 
 /**

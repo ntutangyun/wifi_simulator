@@ -11,7 +11,8 @@ import { rctuToMetres } from '../../src/uwb/ranging'
 type Bare<T> = T extends unknown ? Omit<T, 't' | 'seq'> : never
 const rec = (r: Bare<UwbTLRecord>): UwbTLRecord => ({ t: 0, seq: 0, ...r } as UwbTLRecord)
 
-const ROUND = rec({ type: 'UWB_ROUND', node: 'tag-1', block: 3, round: 0, slots: 10, slotNs: 2_000_000, method: 'ds', untilNs: 20_000_000 })
+const ROUND = rec({ type: 'UWB_ROUND', node: 'tag-1', block: 3, round: 0, slots: 10, slotNs: 2_000_000, method: 'ds', mode: 'twr', untilNs: 20_000_000 })
+const DL_ROUND = rec({ type: 'UWB_ROUND', node: 'tag-1', block: 3, round: 0, slots: 5, slotNs: 2_000_000, method: 'ds', mode: 'dl-tdoa', untilNs: 10_000_000 })
 const SLOT = rec({ type: 'UWB_SLOT', node: 'tag-1', slot: 2, untilNs: 4_000_000 })
 const TS_TX = rec({ type: 'UWB_TS', node: 'tag-1', dir: 'tx', peer: 'anc-1', frameKind: 'uwbPoll', counter: 1_234_567 })
 const TS_RX = rec({ type: 'UWB_TS', node: 'tag-1', dir: 'rx', peer: 'anc-1', frameKind: 'uwbResp', counter: 999, fom: FOM_LOS })
@@ -26,6 +27,15 @@ const RANGE_NO_RAW = rec({
 const POSITION = rec({
   type: 'UWB_POSITION', node: 'tag-1', x: 0.03, y: -0.04, trueX: 0, trueY: 0, gdop: 1.41,
   ellipse: { a: 0.06, b: 0.04, thetaRad: 0.5 }, anchors: ['anc-1', 'anc-2', 'anc-3', 'anc-4'], block: 3,
+  method: 'twr',
+})
+const DL_POSITION = rec({
+  type: 'UWB_POSITION', node: 'tag-1', x: 0.03, y: -0.04, trueX: 0, trueY: 0, gdop: 0.87,
+  ellipse: { a: 0.03, b: 0.02, thetaRad: 0.5 }, anchors: ['anc-1', 'anc-2', 'anc-3', 'anc-4'], block: 3,
+  method: 'dl-tdoa',
+})
+const TDOA = rec({
+  type: 'UWB_TDOA', node: 'tag-1', ref: 'anc-1', peer: 'anc-3', dtNs: -8.237, trueDtNs: -8.019, block: 3, round: 0,
 })
 const TIMEOUT = rec({ type: 'UWB_TIMEOUT', node: 'tag-1', slot: 5, peer: 'anc-2', expected: 'uwbResp' })
 const INTERFERED = rec({ type: 'UWB_INTERFERED', node: 'anc-1', from: 'tag-1', foreignDbm: -42.214, sirDb: -34.459 })
@@ -58,8 +68,22 @@ describe('fmtUwbRecord', () => {
     expect(fmtUwbRecord(RANGE_NO_RAW)).toBe('tag-1 range → anc-1 (SS): 5.02 m (true 5.00 m)')
   })
 
+  it('names a one-way round by its direction, not by a TWR method it does not have', () => {
+    expect(fmtUwbRecord(DL_ROUND)).toBe('tag-1 UWB round 0 of block 3 (DL-TDoA): 5 slots × 2000.0 µs')
+  })
+
+  it('puts a time difference beside the geometry it should have measured', () => {
+    expect(fmtUwbRecord(TDOA)).toBe('tag-1 TDoA anc-3 − anc-1: -8.24 ns (true -8.02 ns)')
+  })
+
   it('reports a fix with its error against the truth, its GDOP and its anchor count', () => {
     expect(fmtUwbRecord(POSITION)).toBe('tag-1 position (0.03, -0.04) m, true (0.00, 0.00), error 0.05 m, GDOP 1.41, 4 anchors')
+  })
+
+  it('names the method of a fix that two-way ranging did not solve', () => {
+    // Two-way ranging is the line's unmarked case: it is what the lessons quote word for word.
+    expect(fmtUwbRecord(DL_POSITION))
+      .toBe('tag-1 position (0.03, -0.04) m, true (0.00, 0.00), error 0.05 m, GDOP 0.87, 4 anchors (DL-TDoA)')
   })
 
   it('names what a silent slot was waiting for', () => {
@@ -86,8 +110,8 @@ describe('fmtUwbRecord', () => {
 
 describe('fmtRecord delegates every UWB record', () => {
   it.each([
-    ROUND, SLOT, TS_TX, TS_RX, RANGE, RANGE_NO_RAW, POSITION, TIMEOUT, INTERFERED,
-    CONTEND, SIT_OUT, CONTEND_COLLISION,
+    ROUND, DL_ROUND, SLOT, TS_TX, TS_RX, RANGE, RANGE_NO_RAW, TDOA, POSITION, DL_POSITION,
+    TIMEOUT, INTERFERED, CONTEND, SIT_OUT, CONTEND_COLLISION,
   ])('$type', (r) => {
     expect(fmtRecord(r)).toBe(fmtUwbRecord(r))
   })

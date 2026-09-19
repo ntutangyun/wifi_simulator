@@ -4,6 +4,7 @@
  * reads is a value this module produced from the view state.
  */
 import { fomDecode } from '../phy'
+import type { UwbFixMethod } from '../records'
 import type { UwbNodeView, UwbPositionView } from '../view'
 
 /** The two phrases the confidence column needs, as the i18n table (Strings['uwb']) supplies them.
@@ -41,6 +42,7 @@ export function uwbContendText(u: UwbNodeView, S: UwbContendStrings): string | n
 
 const m = (v: number) => `${v.toFixed(2)} m`
 const cm = (v: number) => `${(v * 100).toFixed(1)} cm`
+const ns = (v: number) => `${v.toFixed(2)} ns`
 
 /** One measured range: the peer id (the caller turns it into a display name) and its figures. */
 export interface UwbRangeRow {
@@ -68,6 +70,32 @@ export function uwbRangeRows(u: UwbNodeView, S: UwbFomStrings): UwbRangeRow[] {
   }))
 }
 
+/** One measured time difference: how much later this peer's message arrived than the reference
+ * anchor's, and how much later it should have. */
+export interface UwbTdoaRow {
+  peer: string
+  measured: string
+  trueDt: string
+  /** Signed, in nanoseconds — a difference 0.4 ns long reads "0.40 ns", one short "-0.40 ns". */
+  error: string
+  rounds: string
+}
+
+export function uwbTdoaRows(u: UwbNodeView): UwbTdoaRow[] {
+  return Object.entries(u.tdoa).map(([peer, d]) => ({
+    peer,
+    measured: ns(d.dtNs),
+    trueDt: ns(d.trueDtNs),
+    error: ns(d.dtNs - d.trueDtNs),
+    rounds: String(d.n),
+  }))
+}
+
+/** How a fix was solved, in the reader's language (Strings['uwb'] supplies the map). */
+export interface UwbMethodStrings {
+  method: Record<UwbFixMethod, string>
+}
+
 /** A tag's latest fix, against the truth the scenario placed it at. */
 export interface UwbFixRow {
   estimate: string
@@ -75,14 +103,17 @@ export interface UwbFixRow {
   error: string
   gdop: string
   ellipse: string
+  /** What produced it: two-way ranges, one-way time differences, or an angle. */
+  method: string
 }
 
-export function uwbFixRow(p: UwbPositionView): UwbFixRow {
+export function uwbFixRow(p: UwbPositionView, S: UwbMethodStrings): UwbFixRow {
   return {
     estimate: `(${p.x.toFixed(2)}, ${p.y.toFixed(2)}) m`,
     truth: `(${p.trueX.toFixed(2)}, ${p.trueY.toFixed(2)}) m`,
     error: cm(Math.hypot(p.x - p.trueX, p.y - p.trueY)),
     gdop: p.gdop.toFixed(2),
     ellipse: `${(p.ellipse.a * 100).toFixed(1)} × ${(p.ellipse.b * 100).toFixed(1)} cm`,
+    method: S.method[p.method],
   }
 }

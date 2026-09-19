@@ -6,6 +6,7 @@
 import type { TLRecord } from '../model/records'
 import type { UwbNodeCfg } from '../model/scenario'
 import type { ViewState } from '../model/view'
+import type { UwbFixMethod } from './records'
 
 /** The latest range to one peer, with the geometric truth and how many have landed. */
 export interface UwbRangeView {
@@ -18,6 +19,14 @@ export interface UwbRangeView {
   n: number
 }
 
+/** The latest time difference of arrival against one peer, with the truth beside it. */
+export interface UwbTdoaView {
+  /** Peer arrival minus reference arrival, in nanoseconds, after the mode's corrections. */
+  dtNs: number
+  trueDtNs: number
+  n: number
+}
+
 /** The latest position fix, with the truth beside it and how many have landed. */
 export interface UwbPositionView {
   x: number
@@ -26,6 +35,8 @@ export interface UwbPositionView {
   trueY: number
   gdop: number
   ellipse: { a: number; b: number; thetaRad: number }
+  /** What solved it: two-way ranges, one-way time differences, or an angle. */
+  method: UwbFixMethod
   /** Ranging block this fix was solved in: what the scene overlay ages the cross and ellipse by. */
   block: number
   n: number
@@ -48,13 +59,16 @@ export interface UwbNodeView {
   contendCollisions: number
   /** Per peer id. */
   ranges: Record<string, UwbRangeView>
+  /** One-way ranging: the latest time difference per peer, all against the same reference
+   * anchor (the round's anchor 0), which is why the reference itself never has a row. */
+  tdoa: Record<string, UwbTdoaView>
   position: UwbPositionView | null
 }
 
 export function initUwbNodeView(cfg: UwbNodeCfg): UwbNodeView {
   return {
     role: cfg.role, block: 0, round: 0, slot: null, rounds: 0, timeouts: 0, interfered: 0,
-    contend: null, contendCollisions: 0, ranges: {}, position: null,
+    contend: null, contendCollisions: 0, ranges: {}, tdoa: {}, position: null,
   }
 }
 
@@ -96,12 +110,20 @@ export function applyUwbRecord(vs: ViewState, r: TLRecord): boolean {
       }
       return true
     }
+    case 'UWB_TDOA': {
+      const u = vs.nodes[r.node]?.uwb
+      if (u) {
+        const prev = u.tdoa[r.peer]
+        u.tdoa[r.peer] = { dtNs: r.dtNs, trueDtNs: r.trueDtNs, n: (prev?.n ?? 0) + 1 }
+      }
+      return true
+    }
     case 'UWB_POSITION': {
       const u = vs.nodes[r.node]?.uwb
       if (u) {
         u.position = {
           x: r.x, y: r.y, trueX: r.trueX, trueY: r.trueY, gdop: r.gdop,
-          ellipse: { ...r.ellipse }, block: r.block, n: (u.position?.n ?? 0) + 1,
+          ellipse: { ...r.ellipse }, method: r.method, block: r.block, n: (u.position?.n ?? 0) + 1,
         }
       }
       return true
