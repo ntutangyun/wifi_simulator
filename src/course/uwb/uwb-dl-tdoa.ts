@@ -110,7 +110,7 @@ export const uwbDlTdoa: Lesson = {
       [N('1–3'), N('anchor-2/3/4'), N('Response, 30 B, 197.6 µs'),
         { en: 'its transmit counter, its counter for the Poll’s arrival, its measured clock offset to anchor 1', zh: '它的发送计数器、它记下的轮询帧到达计数，以及它测得的相对 anchor-1 的时钟偏差' }],
       [N('4'), N('anchor-1'), N('Final, 34 B, 201.7 µs'),
-        { en: 'its transmit counter, and its counter for each Response’s arrival', zh: '它的发送计数器，以及它记下的每一帧应答的到达计数' }],
+        { en: 'its transmit counter, and its counter for each Response’s arrival, which no badge here reads', zh: '它的发送计数器，以及它记下的每一帧应答的到达计数——本课的胸牌并不使用它们' }],
     ] },
     { kind: 'formula', heading: { en: 'What a badge computes', zh: '一个胸牌要算什么' }, text: {
       en: 'r = (rx_F − rx_P)_badge ÷ (tx_F − tx_P)_anchor-1\nΔ_i = (rx_i − rx_P)_badge ÷ r − ( tof(a₁ → a_i) + T_reply,i · (1 − coff_i) )',

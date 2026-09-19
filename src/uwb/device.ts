@@ -42,9 +42,16 @@ export interface UwbDeviceCfg {
   pos: Vec3
   tsNoisePs: number
   cfoNoisePpm: number
-  /** Contention rounds only: the retry budget the Poll's RCMA IE advertises. An anchor spends one
-   * attempt per round its response is not acknowledged by a range, and sits a round out when the
-   * budget is empty. Ignored entirely by a time-scheduled round. */
+  /** Contention rounds only: this anchor's retry budget. The Poll's RCMA IE advertises the same
+   * number, but the anchor reads it from here - every device in a session is configured from the
+   * one session config, so the two cannot disagree today. An anchor spends one attempt per round
+   * its response is not acknowledged by a range, and sits a round out when the budget is empty.
+   * Ignored entirely by a time-scheduled round.
+   *
+   * Model: the budget is **one per anchor across every tag's rounds**, not one per (anchor, tag).
+   * With several tags in a session, a miss in tag A's round can sit the anchor out of tag B's next
+   * round. Nothing shipped is affected (the contention lesson has one tag); keying `attemptsLeft`
+   * by tag id is the change a multi-tag contention lesson would need. */
   maxAttempts: number
   /** DL-TDoA only: the listening tag measures its own clock rate against the round's Poll-to-Final
    * interval before it differences its arrival times. Off, it keeps its raw counter differences —
@@ -210,8 +217,13 @@ function freshRound(block: number, round: number, plan: RoundPlan, tagId: string
  * 1-σ of one DL-TDoA time difference, as a distance — the number the fix's error ellipse is drawn
  * from. Two terms: the tag's two independent receive timestamps (√2·c·σ_ts, 4.2 cm at 100 ps),
  * and the responder's clock-offset estimate, whose residual multiplies the reply time it corrects
- * (0.2 ppm of a 2 ms reply is 6 cm, of a 6 ms reply 18 cm). The second dominates from the first
+ * (0.2 ppm of a 2 ms reply is 12 cm, of a 6 ms reply 36 cm). The second dominates from the first
  * slot on, which is why a responder answering late is measured worse than one answering early.
+ *
+ * It assumes the tag's own rate correction is on. With `tdoaClockCorrection: false` the tag's
+ * crystal - up to 20 ppm of the whole poll-to-arrival interval - dominates everything here and is
+ * deliberately not in this figure; at the shipped +-20 ppm that variant produces no fix at all, so
+ * there is no ellipse for it to be wrong about.
  */
 function dlDiffSigmaM(replyNs: number, tsNoisePs: number, cfoNoisePpm: number): number {
   return Math.hypot(
@@ -443,6 +455,9 @@ export class UwbDevice implements UwbRadio {
    */
   private solveTdoaFix(r: RoundState): void {
     const dl = r.dl
+    // All four instants are required even with `tdoaClockCorrection: false`, where `rate = 1`
+    // needs none of anchor 0's: a round the tag heard only half of is incomplete either way, and
+    // dropping the same rounds in both variants is what makes them comparable round for round.
     if (!dl || dl.rxPoll === null || dl.rxFinal === null || dl.txPoll === null || dl.txFinal === null) return
     const refId = r.anchors[0]
     // The ratio of the two intervals is the tag's clock against anchor 0's, measured over the
@@ -464,6 +479,9 @@ export class UwbDevice implements UwbRadio {
       const resp = dl.responses.get(id)
       if (!resp) continue // this responder was not heard this round: it is simply left out
       const a = this.geometry.anchorPos(id)
+      // True-time RCTU, the one term of this sum not in anchor 0's counter units: exactly it
+      // would be tof*(1 + e_0), so the residual is tof*e_0 - 0.2 mm at 20 ppm over 30 m, orders
+      // of magnitude under the clock-offset residual the difference already carries.
       const tofRctu = Math.hypot(a.x - ref.x, a.y - ref.y, a.z - ref.z) / C_M_PER_NS / RCTU_NS
       const txOffsetRctu = tofRctu + resp.replyTime * (1 - resp.coffs)
       const dtNs = (counterDiff(resp.rxCounter, dl.rxPoll) / rate - txOffsetRctu) * RCTU_NS
@@ -613,10 +631,11 @@ export class UwbDevice implements UwbRadio {
     // Clock-offset estimate from the carrier (standard §16.4.9): how much faster
     // the sender's crystal runs than mine, with the estimator's residual error.
     const coffs = (info.txPpm - this.clock.ppm) * 1e-6 + gaussian(this.rng) * this.cfg.cfoNoisePpm * 1e-6
-    // The angle of arrival of the frame that just landed, and the third and last draw of a
-    // reception — after the receive timestamp's noise and the carrier-offset estimator's
-    // residual, in that order. Keeping it last is what makes `aoa: false` byte-identical to a
-    // session that never had the feature: no other draw moves in the stream.
+    // The angle of arrival of the frame that just landed: the last draw of the *reception*,
+    // after the receive timestamp's noise and the carrier-offset estimator's residual, in that
+    // order (an SS contention round adds its slot draw after this one, below). Keeping it last
+    // here is what makes `aoa: false` byte-identical to a session that never had the feature:
+    // no other draw moves in the stream.
     if (this.cfg.aoa && this.cfg.role === 'anchor' && r.plan.mode === 'twr' && from === r.tagId) {
       this.measureAoa(r, from)
     }
@@ -648,8 +667,8 @@ export class UwbDevice implements UwbRadio {
         // construction, so it never needs `coffs`, and its range is scored by
         // the Final's first-path quality (the last frame of the exchange).
         r.rxPollCounter = counter
-        // The contention draw comes last, after this reception's timestamp-noise and
-        // carrier-offset draws above, so it never reorders the stream a time-scheduled
+        // The contention draw comes after this reception's timestamp-noise, carrier-offset and
+        // (when `aoa` is on) phase draws above, so it never reorders the stream a time-scheduled
         // round takes from the same generator.
         if (r.plan.schedule === 'contention' && this.cfg.role === 'anchor') this.drawContentionSlot(r)
         break
@@ -693,7 +712,8 @@ export class UwbDevice implements UwbRadio {
 
   /**
    * Anchor, on the Poll of a contention round: draw the response slot to answer in, uniformly
-   * over the window the RCPS IE advertised (standard §10.32.2 schedule mode 0). An anchor whose
+   * over the window the round plan sets - the same window the Poll's RCPS IE advertises, since
+   * both come from the one session config (standard §10.32.2 schedule mode 0). An anchor whose
    * RCMA budget is spent answers in no slot at all this round — the one back-off a responder
    * that cannot hear the other responders has — and starts the next round with a full budget.
    */
@@ -796,6 +816,11 @@ export class UwbDevice implements UwbRadio {
    * clock offset to anchor 0, and the Final carries anchor 0's transmit instant and its arrival
    * instant for every Response. All of it is broadcast — the audience is every tag in earshot,
    * none of which the anchors know is there.
+   *
+   * The Final's arrival instants are the one part a tag here never uses: they are carried because
+   * the FiRa message does (a receiver could cross-check each responder's offset against anchor 0's
+   * round trip with them), while this model's tag takes each responder's reply time and offset
+   * from that responder's own Response.
    */
   private transmitDl(
     action: SlotAction, slot: number, r: RoundState, peers: { tag: string; anchors: string[] }, txCounter: number,
@@ -835,6 +860,10 @@ export class UwbDevice implements UwbRadio {
       case 'uwbFinal': {
         // Anchor 0 closes the round whether or not anyone answered it: a tag needs the Final to
         // measure its own clock rate, and an empty round still tells it that much.
+        // The Final's RX times are carried because a FiRa DL-TDoA Final carries them, but no tag
+        // in this model reads them: `onDlRx` takes only `txCounter` from the Final, and each
+        // responder's reply time and offset come from its own Response (TXT/RXT/COFF). They are
+        // what a receiver would need to check a responder's offset against anchor 0's round trip.
         r.txFinalCounter = txCounter
         this.send(makeFinal(this.id, [], r.block, r.round, slot, { txCounter, rxCounters: { ...dl.rxResp } }), txCounter)
         break
