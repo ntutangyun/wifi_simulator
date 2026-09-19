@@ -285,4 +285,6 @@ export const firstUwbBlink = txOf((r) => r.frame.kind === 'uwbBlink')
 /** DL-TDoA: the round the anchors run for whoever happens to be listening. Every tag in the
  * scenario opens one of these for the same round, so the first is the first tag's. */
 export const firstUwbDlRound = (r: TLRecord): boolean => r.type === 'UWB_ROUND' && r.mode === 'dl-tdoa'
+/** UL-TDoA: the one-slot round a single tag owns — the only thing it takes of the block. */
+export const firstUwbUlRound = (r: TLRecord): boolean => r.type === 'UWB_ROUND' && r.mode === 'ul-tdoa'
 
