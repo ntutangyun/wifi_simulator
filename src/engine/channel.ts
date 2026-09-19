@@ -10,10 +10,11 @@
  */
 import type { FrameDesc } from '../model/frames'
 import type { EmitFn } from '../model/records'
-import type { Ns } from '../model/types'
+import type { Ns, Vec3 } from '../model/types'
 import { EventQueue } from './events'
 import { byCodeUnit } from './hash'
 import { CCA_ED_DBM, CCA_PD_DBM, PHY_MODES, noiseDbm, reqSinrDb, sinrThreshDb } from './phy'
+import type { Emission, Spectrum } from './spectrum'
 import {
   AMP_DL_REQ_SINR_DB,
   AMP_DL_SYNC_NS,
@@ -41,6 +42,26 @@ interface ActiveTx {
   txId: string
   frame: FrameDesc
   endNs: Ns
+  /** The emission registered with the Spectrum, kept so `endTx` retires the same object. */
+  emission?: Emission
+}
+
+/**
+ * Cross-technology coupling, passed only for a link that shares its band with
+ * another technology (today: the 6 GHz link under a UWB channel-5 session).
+ * Without it the channel behaves exactly as before — no foreign term is ever
+ * added to a power sum, so every existing timeline replays bit-for-bit.
+ */
+export interface ChannelSpectrum {
+  s: Spectrum
+  /** Where a node of this link stands, for the foreign emission's path loss. */
+  posOf: (id: string) => Vec3
+  /** A node's transmit power (dBm EIRP), carried on every PPDU it puts on the air. */
+  txPowerOf: (id: string) => number
+  /** Centre frequency of the link's operating channel, in MHz. */
+  centerMhz: number
+  /** The link's widest operating width, in MHz: the bandwidth energy detection listens over. */
+  widthMhz: number
 }
 
 interface Lock {
@@ -166,7 +187,27 @@ export class Channel {
     private now: () => Ns,
     private linkTable: Map<string, Map<string, number>>,
     private emit: EmitFn,
-  ) {}
+    private spectrum?: ChannelSpectrum,
+  ) {
+    // The other technology's power can change between our own events, so every
+    // open lock re-takes its max-over-time and carrier sense is re-evaluated.
+    spectrum?.s.onChange('wifi', (t) => this.onForeignChange(t))
+  }
+
+  /** The band a PPDU occupies on this link: the operating centre, the PPDU's own width. */
+  private ppduBand(frame: FrameDesc, sp: ChannelSpectrum): [number, number] {
+    const w = ampNoiseBwMhz(frame)
+    return [sp.centerMhz - w / 2, sp.centerMhz + w / 2]
+  }
+
+  private onForeignChange(t: Ns): void {
+    for (const [rid, r] of this.radios) {
+      for (const lock of r.locks) {
+        lock.maxInterfMw = Math.max(lock.maxInterfMw, this.interferenceMw(rid, lock))
+      }
+    }
+    this.updateAllCca(t)
+  }
 
   register(nodeId: string, listener: PhyListener, opts: RadioOpts = {}): void {
     this.radios.set(nodeId, {
@@ -203,6 +244,15 @@ export class Channel {
 
     const tx: ActiveTx = { txId: nodeId, frame, endNs: t + frame.txTimeNs }
     this.active.push(tx)
+    const sp = this.spectrum
+    if (sp) {
+      // The other technology sees this PPDU as an EIRP spread over its band.
+      const [lo, hi] = this.ppduBand(frame, sp)
+      tx.emission = {
+        txId: nodeId, eirpDbm: sp.txPowerOf(nodeId), bandLoMhz: lo, bandHiMhz: hi, pos: sp.posOf(nodeId),
+      }
+      sp.s.emit('wifi', tx.emission)
+    }
     this.emit({ t, type: 'TX_START', node: nodeId, frame })
 
     // Propagation effects land in phase 1: a MAC deciding at this same instant
@@ -296,6 +346,7 @@ export class Channel {
   private endTx(tx: ActiveTx): void {
     const t = this.now()
     this.active = this.active.filter((a) => a !== tx)
+    if (this.spectrum && tx.emission) this.spectrum.s.retire('wifi', tx.emission)
     this.emit({ t, type: 'TX_END', node: tx.txId, frame: tx.frame })
     this.radios.get(tx.txId)!.transmitting = false
 
@@ -366,6 +417,13 @@ export class Channel {
       sum += mw(p)
       if (p >= OVERLAP_MIN_DBM) overlappers.add(a.txId)
     }
+    const sp = this.spectrum
+    if (sp) {
+      // Foreign power raises the noise a preamble has to stand out from; it has
+      // no transmitter on this link, so it never names a collision.
+      const [lo, hi] = this.ppduBand(tx.frame, sp)
+      sum += sp.s.foreignMw('wifi', sp.posOf(rid), lo, hi)
+    }
     return { mw: sum, overlappers }
   }
 
@@ -377,6 +435,11 @@ export class Channel {
       if (a.txId === rid || a.txId === lock.from) continue
       if (sameGroup(a.frame, lock.frame)) continue
       sum += mw(this.linkDbm(a.txId, rid))
+    }
+    const sp = this.spectrum
+    if (sp) {
+      const [lo, hi] = this.ppduBand(lock.frame, sp)
+      sum += sp.s.foreignMw('wifi', sp.posOf(rid), lo, hi)
     }
     return sum
   }
@@ -412,6 +475,15 @@ export class Channel {
           // An AMP UL PPDU is below Wi-Fi's preamble-detect floor, so it can
           // only ever hold CCA busy through raw energy, never as 'preamble'.
           if (p >= CCA_PD_DBM && r.observed.has(a.txId) && a.frame.amp?.dir !== 'ul') anyPd = true
+        }
+        const sp = this.spectrum
+        if (sp) {
+          // Energy detection listens over the whole operating channel, whatever
+          // width the PPDU on it happens to use. A foreign signal is never a
+          // detectable preamble, so it can only ever hold CCA busy as energy.
+          sum += sp.s.foreignMw(
+            'wifi', sp.posOf(rid), sp.centerMhz - sp.widthMhz / 2, sp.centerMhz + sp.widthMhz / 2,
+          )
         }
         busy = anyPd || sum >= mw(CCA_ED_DBM) || r.locks.length > 0
         cause = anyPd || r.locks.length > 0 ? 'preamble' : 'energy'

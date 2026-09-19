@@ -8,17 +8,21 @@
  * shows one lane per node per link; frame src/dst stay physical.
  */
 import {
-  hasFeature, linkPlanFor, minGen, negotiated, negotiatedNss, negotiatedWidth, nssOf, physicalId, virtualId,
+  hasFeature, linkPlanFor, minGen, negotiated, negotiatedNss, negotiatedWidth, nssOf, physicalId,
+  virtualId, widthOf,
   type LinkId,
 } from '../model/caps'
 import { makeEmitter, type EmitFn, type TLRecord } from '../model/records'
-import { ScenarioSchema, serverFor, type NodeCfg, type Scenario } from '../model/scenario'
+import {
+  DEFAULT_SIX_GHZ_CENTER_MHZ, ScenarioSchema, serverFor, type NodeCfg, type Scenario,
+} from '../model/scenario'
 import type { Ns } from '../model/types'
 import { applyRecord, cloneView, initViewState, type Snapshot, type ViewState } from '../model/view'
 import { UwbNetwork } from '../uwb/network'
+import { uwbBandOverlap } from '../uwb/phy'
 import { AMP_TAG_DL_SENS_DBM, ampId16 } from './amp'
 import { AmpStaMac } from './ampSta'
-import { Channel } from './channel'
+import { Channel, type ChannelSpectrum } from './channel'
 import { EventQueue } from './events'
 import { hashStr } from './hash'
 import { WifiMac } from './mac'
@@ -27,6 +31,7 @@ import { buildLinkTable } from './propagation'
 import { AcQueues } from './queues'
 import { RateControl } from './rate'
 import { Rng } from './rng'
+import { Spectrum } from './spectrum'
 import { TrafficSource, resetMsduIds, type Msdu } from './traffic'
 
 /** Re-exported for the callers that grew up importing it from here. */
@@ -59,6 +64,11 @@ export class Simulation {
   readonly tags = new Map<string, AmpStaMac>()
   /** The UWB ranging engine, when the scenario holds UWB nodes and a session. */
   readonly uwb?: UwbNetwork
+  /**
+   * The cross-technology mediator, non-null only when a 6 GHz Wi-Fi link and a
+   * UWB session actually share spectrum. Both engines hold the same object.
+   */
+  readonly spectrum: Spectrum | null = null
 
   constructor(sc: Scenario) {
     ScenarioSchema.parse(sc)
@@ -73,6 +83,7 @@ export class Simulation {
     const baseEmit = makeEmitter((r) => emit(r as never))
 
     const root = new Rng(sc.seed)
+    const uwbNodes = sc.nodes.filter((n) => n.kind === 'uwb')
     // Every Wi-Fi structure hangs off the one AP, and a scenario may legitimately
     // have none: a pure UWB ranging session is a complete scenario with no BSS at
     // all. Without an AP there is no link plan, no channel, no MAC and no traffic.
@@ -119,7 +130,33 @@ export class Simulation {
           if (Array.isArray(out.nodes)) out.nodes = (out.nodes as string[]).map(vname)
           baseEmit(out as never)
         }
-        const ch = new Channel(this.q, () => this.nowNs, table, linkEmit)
+        // Cross-technology coupling: only the 6 GHz link, only against a UWB
+        // session on channel 5, and only when the two bands can actually meet.
+        // Energy detection listens over the whole operating channel — the
+        // widest width any member negotiates with the AP — and the gate is that
+        // channel, never narrower than 160 MHz, so a link that only *might*
+        // widen into the UWB band is still coupled. Each PPDU then overlaps on
+        // its own real width, so an uncoupled link is one that cannot overlap.
+        let hook: ChannelSpectrum | undefined
+        if (link === '6g' && sc.uwb?.channel === 5 && uwbNodes.length > 0) {
+          const centerMhz = sc.sixGhzCenterMhz ?? DEFAULT_SIX_GHZ_CENTER_MHZ
+          const peers = members.filter((m) => m.id !== ap.id)
+          const widthMhz = peers.length
+            ? Math.max(...peers.map((m) => negotiatedWidth(m, ap, link)))
+            : widthOf(ap, link)
+          if (uwbBandOverlap(centerMhz, Math.max(widthMhz, 160), 5) > 0) {
+            const spectrum = this.spectrum ?? new Spectrum(sc.walls, this.q, () => this.nowNs)
+            this.spectrum = spectrum
+            hook = {
+              s: spectrum,
+              posOf: (id) => byId.get(id)!.pos,
+              txPowerOf: (id) => byId.get(id)!.txPowerDbm,
+              centerMhz,
+              widthMhz,
+            }
+          }
+        }
+        const ch = new Channel(this.q, () => this.nowNs, table, linkEmit, hook)
 
         for (const n of members) {
           const vid = vname(n.id)
@@ -265,7 +302,6 @@ export class Simulation {
     // medium, its own devices, its own event stream. Forking from `root` does
     // not advance it, so adding UWB nodes to a scenario leaves the Wi-Fi
     // timeline bit-for-bit identical.
-    const uwbNodes = sc.nodes.filter((n) => n.kind === 'uwb')
     if (uwbNodes.length && sc.uwb) {
       this.uwb = new UwbNetwork(this.q, () => this.nowNs, uwbNodes, sc.walls, sc.uwb, root, baseEmit)
     }
