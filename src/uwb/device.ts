@@ -110,6 +110,11 @@ interface DlRoundState {
    * measures its clock rate over. Null until each lands; a round missing either produces nothing. */
   rxPoll: number | null
   rxFinal: number | null
+  /** Tag: the same two instants as anchor 0 stamped them, straight out of those two frames. The
+   * rate ratio is one interval over the other, so it is the tag's clock against anchor 0's — and
+   * anchor 0's own crystal never enters the result. */
+  txPoll: number | null
+  txFinal: number | null
   /** Tag: one entry per responder it heard. */
   responses: Map<string, DlResponse>
   /** Responder: its clock-offset estimate to anchor 0, taken from the Poll's carrier. */
@@ -156,7 +161,9 @@ function freshRound(block: number, round: number, plan: RoundPlan, tagId: string
     rxPollCounter: null, txRespCounter: null, rxFinalCounter: null, finalListedMe: false,
     // Fresh every round: a tag that heard half a round keeps nothing of it, so a missing Poll
     // or Final can never be filled in from the round before.
-    dl: plan.mode === 'dl-tdoa' ? { rxPoll: null, rxFinal: null, responses: new Map(), coffsToRef: null, rxResp: {} } : null,
+    dl: plan.mode === 'dl-tdoa'
+      ? { rxPoll: null, rxFinal: null, txPoll: null, txFinal: null, responses: new Map(), coffsToRef: null, rxResp: {} }
+      : null,
   }
 }
 
@@ -333,10 +340,12 @@ export class UwbDevice implements UwbRadio {
    *
    * 1. The tag's own crystal. A two-way range differences it away inside one exchange; here the
    *    arrivals are up to a whole round apart, and 20 ppm over 20 ms is 0.4 µs — 120 m. So the
-   *    tag measures its rate over the one interval it knows in the anchors' timebase: Poll to
-   *    Final is exactly the round's N slots, and anchor 0's flight time to the tag sits in both
-   *    arrivals and cancels. What is left after dividing by that ratio is the timestamp noise of
-   *    the two ends of the interval, scaled by how much of the round a difference spans.
+   *    tag measures its rate over the one interval both clocks describe: anchor 0 reports when
+   *    it sent the Poll and when it sent the Final, the tag holds its own two arrivals, and the
+   *    flight from anchor 0 is in both of those and cancels. The ratio is the tag's clock over
+   *    anchor 0's — nothing in it is true time, so anchor 0 is free to run at any ppm it likes.
+   *    What is left after dividing is the timestamp noise of the two ends of the interval,
+   *    scaled by how much of the round a difference spans.
    * 2. The responders' transmit instants. Anchor i does not answer the Poll instantly: it waits
    *    a slot boundary, which on its own clock is `replyTime`. Put on anchor 0's timebase with
    *    the responder's own clock-offset estimate and added to the Poll's flight time across the
@@ -345,12 +354,18 @@ export class UwbDevice implements UwbRadio {
    */
   private solveTdoaFix(r: RoundState): void {
     const dl = r.dl
-    if (!dl || dl.rxPoll === null || dl.rxFinal === null) return
+    if (!dl || dl.rxPoll === null || dl.rxFinal === null || dl.txPoll === null || dl.txFinal === null) return
     const refId = r.anchors[0]
+    // The ratio of the two intervals is the tag's clock against anchor 0's, measured over the
+    // one span the round gives it twice: anchor 0 stamped the Poll and the Final on its own
+    // clock and said so in both frames, the tag stamped their arrivals on its own, and the
+    // flight from anchor 0 sits in both arrivals and cancels. Dividing by it puts the tag's
+    // arrival differences into anchor 0's counter units, which is where `txOffset_i` already
+    // is — so anchor 0's own crystal drops out of the result entirely, whatever it runs at.
     const rate = this.cfg.tdoaClockCorrection
-      ? counterDiff(dl.rxFinal, dl.rxPoll) / (((r.plan.slots - 1) * r.plan.slotNs) / RCTU_NS)
+      ? counterDiff(dl.rxFinal, dl.rxPoll) / counterDiff(dl.txFinal, dl.txPoll)
       : 1
-    if (!(rate > 0)) return
+    if (!(rate > 0) || !Number.isFinite(rate)) return
     const ref = this.geometry.anchorPos(refId)
     const deltas: { id: string; dtNs: number }[] = []
     for (const id of r.anchors) {
@@ -708,10 +723,16 @@ export class UwbDevice implements UwbRadio {
     }
     switch (kind) {
       case 'uwbPoll':
+        // Both ends of the rate interval come in pairs: when it arrived here, and when anchor 0
+        // says it left there. A frame without the sender's own instant is not one of this round's.
+        if (frame.uwb?.dl === undefined) return
         dl.rxPoll = counter
+        dl.txPoll = frame.uwb.dl.txCounter
         break
       case 'uwbFinal':
+        if (frame.uwb?.dl === undefined) return
         dl.rxFinal = counter
+        dl.txFinal = frame.uwb.dl.txCounter
         break
       case 'uwbResp': {
         const times = frame.uwb?.dl

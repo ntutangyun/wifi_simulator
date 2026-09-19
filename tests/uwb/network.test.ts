@@ -431,15 +431,34 @@ describe('UwbNetwork — DL-TDoA without the tag’s clock-rate correction', () 
 
 describe('UwbNetwork — DL-TDoA with the anchors off frequency', () => {
   it('puts each responder’s reply time on the reference’s clock before differencing it', () => {
-    // Anchor 1 is the reference (0 ppm by definition of the mode); the responders are ±20 and
-    // +13 ppm off it. Uncorrected, that is the same metres-per-slot error as an uncorrected
-    // tag; corrected by the offset each responder measured on the Poll, it is decimetres again.
+    // The responders are +20, −20 and +13 ppm off the reference. Uncorrected, that is the same
+    // metres-per-slot error as an uncorrected tag; corrected by the offset each responder
+    // measured on the Poll's carrier, it is decimetres again.
     const rs = run(dl({}, [
       CORNERS[0], { ...CORNERS[1], ppm: 20 }, { ...CORNERS[2], ppm: -20 }, { ...CORNERS[3], ppm: 13 },
     ]), DL_RUN_NS)
     const maxima = ['anc-2', 'anc-3', 'anc-4'].map((p) => Math.max(...dtErrM(rs, p)))
     for (const [i, v] of maxima.entries()) expect(v, `peer ${i}`).toBeLessThan(3 * dlSigmaM(i + 1))
     expect(of(rs, 'UWB_POSITION')).toHaveLength(9)
+  })
+
+  it('cancels the reference anchor’s own crystal: +20 ppm on anchor 1 changes nothing', () => {
+    // The rate ratio is one interval over the other — the tag's two arrivals over anchor 0's own
+    // two transmit instants, both of which ride in the Poll and the Final — so it is the tag's
+    // clock against anchor 0's and never against true time. Anchor 0 may run at any ppm: its
+    // crystal scales the numerator and the denominator of everything the tag computes alike.
+    const off = run(dl({}, [{ ...CORNERS[0], ppm: 20 }, ...CORNERS.slice(1)]), DL_RUN_NS)
+    const maxima = ['anc-2', 'anc-3', 'anc-4'].map((p) => Math.max(...dtErrM(off, p)))
+    expect(maxima.map((v) => v.toFixed(2))).toEqual(['0.22', '0.40', '0.57'])
+    for (const [i, v] of maxima.entries()) expect(v, `peer ${i}`).toBeLessThan(3 * dlSigmaM(i + 1))
+    const errs = of(off, 'UWB_POSITION').map((f) => Math.hypot(f.x - f.trueX, f.y - f.trueY))
+    expect(errs).toHaveLength(9)
+    expect(Math.max(...errs)).toBeLessThan(0.5)
+    // Every anchor 20 ppm fast is the same round again, relative to the reference: the reference
+    // is what the whole round is measured in, and a common offset is not an error at all.
+    const allOff = run(dl({}, CORNERS.map((c) => ({ ...c, ppm: 20 }))), DL_RUN_NS)
+    expect(['anc-2', 'anc-3', 'anc-4'].map((p) => Math.max(...dtErrM(allOff, p)).toFixed(2)))
+      .toEqual(['0.22', '0.40', '0.57'])
   })
 })
 
