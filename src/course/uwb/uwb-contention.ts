@@ -148,10 +148,10 @@ export const uwbContention: Lesson = {
       zh: '标签的第一次定位出现在第 6 个块、1.218 s：此前六轮都凑不齐解出位置所需的三次测距。三十轮里有十五轮给出了定位，而这十五次里有六次只有三个锚点可用。' },
   ],
   tryThis: [
-    { en: 'Load “16 response slots”. Collided slots fall from 43 to 26 and fixes rise from 15 to 27 of 30 — but the round grows from 18 ms to 34 ms and the RMS range error nearly doubles, 26.8 cm to 51.4 cm, because the average answer now waits eight slots instead of four. Then load “4 response slots”: 46 collided slots, 23 sit-outs and 7 fixes in thirty rounds, every one on the bare minimum of three anchors.',
-      zh: '载入“16 个应答时隙”。碰撞时隙从 43 降到 26，定位从 15 次升到 30 轮中的 27 次——但一轮从 18 ms 变成 34 ms，测距误差的 RMS 也几乎翻倍，从 26.8 cm 到 51.4 cm，因为平均而言一路应答现在要等八个时隙而不是四个。再载入“4 个应答时隙”：46 个碰撞时隙、23 次空过，三十轮只有 7 次定位，而且每一次都只勉强用上三个锚点。' },
+    { en: 'Load “16 response slots”. Collided slots fall from 43 to 26 and fixes rise from 15 to 27 of 30 — but the round grows from 18 ms to 34 ms and the RMS range error nearly doubles, 26.8 cm to 51.4 cm, because the average answer now waits eight and a half slots instead of four and a half. Then load “4 response slots”: 46 collided slots, 23 sit-outs and 7 fixes in thirty rounds, every one on the bare minimum of three anchors.',
+      zh: '载入“16 个应答时隙”。碰撞时隙从 43 降到 26，定位从 15 次升到 30 轮中的 27 次——但一轮从 18 ms 变成 34 ms，测距误差的 RMS 也几乎翻倍，从 26.8 cm 到 51.4 cm，因为平均而言一路应答现在要等八点五个时隙，而不是四点五个。再载入“4 个应答时隙”：46 个碰撞时隙、23 次空过，三十轮只有 7 次定位，而且每一次都只勉强用上三个锚点。' },
     { en: 'In the editor, set Schedule to “time-scheduled” on the base scene and reload. The round shrinks to 7 slots and 14 ms, all 180 responses arrive, all 30 rounds produce a fix, and Response slots and Attempts grey out. Note the one number that gets worse: 20.4 cm of RMS range error against the 4-slot run’s 14.6 cm. A roll-call of six anchors must reach slot 6; a 4-slot window never gets past slot 4.',
-      zh: '在编辑器里把基准场景的“调度”改成“时间调度”并重新载入。一轮缩到 7 个时隙、14 ms，180 次应答一次不落，30 轮全部解出定位，“响应时隙数”和“尝试次数”两个输入框变灰——已经没有什么可抽了。请注意唯一变差的那个数：测距误差 RMS 为 20.4 cm，而 4 个时隙那一次是 14.6 cm。六个锚点的点名必须排到第 6 个时隙，而 4 个时隙的窗口永远走不过第 4 个。' },
+      zh: '在编辑器里把基准场景的“调度”改成“时间调度”并重新载入。一轮缩到 7 个时隙、14 ms，180 次应答一次不落，30 轮全部解出定位，“响应时隙数”和“尝试次数”两个输入框变灰。请注意唯一变差的那个数：测距误差 RMS 为 20.4 cm，而 4 个时隙那一次是 14.6 cm。六个锚点的点名必须排到第 6 个时隙，而 4 个时隙的窗口永远走不过第 4 个。' },
   ],
   quiz: [
     {
@@ -175,7 +175,7 @@ export const uwbContention: Lesson = {
       explain: { en: 'A timeout names the peer that failed to answer, and a contention slot has no such peer — the tag opened it to anyone. An empty slot is the ordinary outcome of the draw, not a fault. Anchors still time out on a poll they miss.', zh: '超时记录要写明是哪个对端没有应答，而竞争时隙里不存在这样一个对端——标签把它对所有人开放。空时隙是抽取的正常结果，不是故障。锚点漏掉轮询帧时照样会超时。' },
     },
     {
-      q: { en: 'Same room, same six anchors, same radio: why are the 16-slot window’s ranges nearly four times worse than the 4-slot window’s?', zh: '同一个房间、同样六个锚点、同样的射频：为什么 16 个时隙窗口下的测距误差几乎是 4 个时隙窗口的四倍？' },
+      q: { en: 'Same room, same six anchors, same radio: why are the 16-slot window’s ranges three and a half times worse than the 4-slot window’s?', zh: '同一个房间、同样六个锚点、同样的射频：为什么 16 个时隙窗口下的测距误差是 4 个时隙窗口的三点五倍？' },
       options: [
         { en: 'The drawn slot is the reply time, and SS-TWR keeps ½·Treply·0.2 ppm of residual — 6.0 cm of 1-σ per slot', zh: '抽到的时隙就是应答时延，而 SS-TWR 留下 ½·Treply·0.2 ppm 的残差——每个时隙 6.0 cm 的 1σ' },
         { en: 'More slots mean more collisions, and a collided timestamp is still used, with a worse FoM', zh: '时隙越多碰撞越多，而碰撞过的时间戳仍会被使用，只是 FoM 更差' },

@@ -20,7 +20,7 @@ import type { Block, L10n, Lesson } from '../../src/course/lessonKit'
 import { COURSE_ORDER, MODULES, OBSERVE_MINUTES, TIERS, TRY_MINUTES, lessonMinutes, lessonWords } from '../../src/course/curriculum'
 import { LESSONS } from '../../src/course/lessons'
 import { fmtRecord } from '../../src/ui/format'
-import { UWB_CAPTURE_DB, rstuNs } from '../../src/uwb/phy'
+import { UWB_CAPTURE_DB, UWB_TX_POWER_DBM, rstuNs } from '../../src/uwb/phy'
 import { applyRecord, initViewState } from '../../src/model/view'
 import { uwbContendText } from '../../src/uwb/ui/rows'
 import { STRINGS } from '../../src/ui/i18n'
@@ -384,6 +384,8 @@ describe('uwb-contention · the analytic model', () => {
       expect(tagRanges(recs(v)).length, v).toBe(measured)
       expect(exp.toFixed(1), v).toBe(expStr)
       expect((Math.abs(measured - exp) / sd).toFixed(1), v).toBe(zStr)
+      // "within a sigma" for the 16-slot run is the inequality, not the rounded string
+      if (v === 'slots16') expect(Math.abs(measured - exp) / sd).toBeLessThan(1)
       // "All three sit inside a 4σ binomial envelope of the formula", the formula being the
       // all-six one the lesson prints
       const exp6 = ROUNDS * expectedResponses(CONTENTION_ANCHORS, s)
@@ -441,6 +443,11 @@ describe('uwb-contention · the draw, the collisions and the sit-outs', () => {
     // and the reason: six equal ranges cannot clear the medium's capture margin
     expect(UWB_CAPTURE_DB).toBe(6)
     const s = uwbContention.scenario()
+    // "at the same -14 dBm": the other engine number body 7 quotes
+    expect(UWB_TX_POWER_DBM).toBe(-14)
+    expect(new Set(s.nodes.filter((n) => n.kind === 'uwb').map((n) => n.txPowerDbm)))
+      .toEqual(new Set([UWB_TX_POWER_DBM]))
+    expect(prose()).toContain('at the same −14 dBm')
     const d = s.nodes.filter((n) => n.id !== TAG)
       .map((n) => Math.hypot(n.pos.x - RING_CENTER.x, n.pos.y - RING_CENTER.y, n.pos.z - RING_CENTER.z))
     const spreadDb = 20 * Math.log10(Math.max(...d) / Math.min(...d))
@@ -462,6 +469,12 @@ describe('uwb-contention · the draw, the collisions and the sit-outs', () => {
     for (const r of recs('base')) applyRecord(vs, r)
     expect(vs.nodes[TAG].uwb!.contendCollisions).toBe(43)
     expect(STRINGS.en.uwb.contendCollisions).toBe('slots collided')
+    // the two editor labels tryThis[1] quotes, so a rename cannot leave the lesson naming a
+    // caption that no longer exists
+    expect(STRINGS.en.editor.uwbContentionSlots).toBe('Response slots')
+    expect(STRINGS.en.editor.uwbMaxAttempts).toBe('Attempts')
+    expect(uwbContention.tryThis[1].en)
+      .toContain(`${STRINGS.en.editor.uwbContentionSlots} and ${STRINGS.en.editor.uwbMaxAttempts} grey out`)
     expect(uwbContention.observe[1].en).toContain('a “slots collided” row that reaches 43')
   })
 
@@ -507,6 +520,20 @@ describe('uwb-contention · what it costs', () => {
     expect(uwbContention.quiz[2].explain.en).toContain(ramp.join(', ').replace(/, ([^,]*)$/, ' and $1'))
   })
 
+  it('"the average answer now waits eight and a half slots instead of four and a half"', () => {
+    // (S + 1)/2 for a uniform draw over [1, S], and the runs' own draws say the same
+    const meanDrawn = (v: UwbContentionVariant): number => {
+      const drawn = rounds(v).flatMap((r) => [...r.drew.values()])
+      return drawn.reduce((a, b) => a + b, 0) / drawn.length
+    }
+    for (const v of VARIANTS) {
+      expect(meanDrawn(v), v).toBeCloseTo((CONTENTION_SLOTS[v] + 1) / 2, 0)
+    }
+    expect((CONTENTION_SLOTS.slots16 + 1) / 2).toBe(8.5)
+    expect((CONTENTION_SLOTS.base + 1) / 2).toBe(4.5)
+    expect(prose()).toContain('waits eight and a half slots instead of four and a half')
+  })
+
   it('"14.6 cm at 4 slots, 26.8 at 8 and 51.4 at 16 — against 20.4 cm time-scheduled"', () => {
     const errsOf = (v: UwbContentionVariant) => rounds(v).flatMap((r) => [...r.errCm.values()])
     expect(rms(errsOf('slots4')).toFixed(1)).toBe('14.6')
@@ -514,6 +541,9 @@ describe('uwb-contention · what it costs', () => {
     expect(rms(errsOf('slots16')).toFixed(1)).toBe('51.4')
     const ref = ofType(timeScheduled(), 'UWB_RANGE').filter((r) => r.node === TAG)
     expect(rms(ref.map((r) => Math.abs(r.distM - r.trueDistM) * 100)).toFixed(1)).toBe('20.4')
+    // "three and a half times worse": 51.4 / 14.6 = 3.52
+    expect(rms(errsOf('slots16')) / rms(errsOf('slots4'))).toBeCloseTo(3.5, 1)
+    expect(uwbContention.quiz[2].q.en).toContain('three and a half times worse')
     // "A roll-call of six anchors must reach slot 6; a 4-slot window never gets past slot 4"
     expect(Math.max(...rounds('slots4').flatMap((r) => [...r.drew.values()]))).toBe(4)
     expect(tagRounds(timeScheduled())[0].slots - 1).toBe(6)
