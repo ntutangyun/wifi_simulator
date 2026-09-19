@@ -21,3 +21,8 @@ export type UwbRecord =
   /** The tag's round is over (emitted after any UWB_POSITION it produced): the radio goes
    * off until the next block, and the view's `slot` returns to null. */
   | { type: 'UWB_ROUND_END'; node: string; block: number; round: number }
+  /** A reception that nothing else on the UWB medium spoiled was still lost, to in-band
+   * Wi-Fi power: the worst signal-to-interference ratio over the frame fell below
+   * `UWB_SIR_MIN_DB`. Emitted at the receiver, straight after that frame's RX_FAIL, so
+   * the coexistence lesson can count what the 6 GHz link costs the ranging session. */
+  | { type: 'UWB_INTERFERED'; node: string; from: string; foreignDbm: number; sirDb: number }

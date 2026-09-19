@@ -303,7 +303,9 @@ export class Simulation {
     // not advance it, so adding UWB nodes to a scenario leaves the Wi-Fi
     // timeline bit-for-bit identical.
     if (uwbNodes.length && sc.uwb) {
-      this.uwb = new UwbNetwork(this.q, () => this.nowNs, uwbNodes, sc.walls, sc.uwb, root, baseEmit)
+      // The mediator, if the 6 GHz link built one above, is handed on here: both
+      // engines then hold the same object and hear each other's emissions.
+      this.uwb = new UwbNetwork(this.q, () => this.nowNs, uwbNodes, sc.walls, sc.uwb, root, baseEmit, this.spectrum)
     }
 
     // ---- snapshots ----

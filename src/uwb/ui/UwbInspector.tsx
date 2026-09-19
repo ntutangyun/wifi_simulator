@@ -30,6 +30,7 @@ export function UwbInspector({ nv, nameOf }: { nv: NodeView; nameOf: (id: string
       </div>
       <div style={row}><span style={dim}>{U.slot}</span><span>{u.slot ?? '—'}</span></div>
       <div style={row}><span style={dim}>{U.timeouts}</span><span>{u.timeouts}</span></div>
+      <div style={row}><span style={dim}>{U.interfered}</span><span>{u.interfered}</span></div>
 
       <div style={{ ...dim, marginTop: 6 }}>{U.ranges} ({ranges.length})</div>
       {ranges.length > 0 && (

@@ -52,7 +52,7 @@ describe('the UWB view reducer', () => {
     const tag = vs.nodes['tag-1']
     expect(tag.acs).toBeNull()
     expect(tag.uwb).toEqual({
-      role: 'tag', block: 0, round: 0, slot: null, rounds: 0, timeouts: 0, ranges: {}, position: null,
+      role: 'tag', block: 0, round: 0, slot: null, rounds: 0, timeouts: 0, interfered: 0, ranges: {}, position: null,
     })
     expect(vs.nodes['anc-1'].uwb?.role).toBe('anchor')
   })
@@ -99,8 +99,21 @@ describe('the UWB view reducer', () => {
     expect(a1.ranges['tag-1'].n).toBe(1)
     // anc-2 took part in nothing of its own: untouched by the tag's records
     expect(vs.nodes['anc-2'].uwb).toEqual({
-      role: 'anchor', block: 0, round: 0, slot: null, rounds: 0, timeouts: 0, ranges: {}, position: null,
+      role: 'anchor', block: 0, round: 0, slot: null, rounds: 0, timeouts: 0, interfered: 0, ranges: {}, position: null,
     })
+  })
+
+  it('counts a frame lost to Wi-Fi at the receiver that lost it', () => {
+    const vs = initViewState(uwbScenario())
+    const lost: Parameters<EmitFn>[0][] = [
+      { t: 1_000_000, type: 'UWB_INTERFERED', node: 'anc-1', from: 'tag-1', foreignDbm: -42.2, sirDb: -34.5 },
+      { t: 2_000_000, type: 'UWB_INTERFERED', node: 'anc-1', from: 'tag-1', foreignDbm: -41.0, sirDb: -33.3 },
+    ]
+    for (const r of seq(lost)) applyRecord(vs, r)
+    expect(vs.nodes['anc-1'].uwb!.interfered).toBe(2)
+    // It is the receiver's counter, not the transmitter's, and nothing else moved.
+    expect(vs.nodes['tag-1'].uwb!.interfered).toBe(0)
+    expect(vs.nodes['anc-1'].uwb!.timeouts).toBe(0)
   })
 
   it('snapshot + replay equals the live view (the reducer is the single source of truth)', () => {

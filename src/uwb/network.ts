@@ -13,6 +13,7 @@
 import type { EventQueue } from '../engine/events'
 import { hashStr } from '../engine/hash'
 import type { Rng } from '../engine/rng'
+import type { Spectrum } from '../engine/spectrum'
 import type { EmitFn } from '../model/records'
 import type { NodeCfg, UwbSessionCfg, Wall } from '../model/scenario'
 import type { Ns } from '../model/types'
@@ -35,6 +36,9 @@ export class UwbNetwork {
     cfg: UwbSessionCfg,
     root: Rng,
     emit: EmitFn,
+    /** The cross-technology mediator, when the scenario's 6 GHz Wi-Fi link shares this
+     * session's band; null (the default) leaves the ranging session exactly as it was. */
+    spectrum: Spectrum | null = null,
   ) {
     const anchors = nodes.filter((n) => n.uwb?.role === 'anchor').map((n) => n.id)
     const tags = nodes.filter((n) => n.uwb?.role === 'tag').map((n) => n.id)
@@ -65,7 +69,7 @@ export class UwbNetwork {
     // the channel reads it back out of the devices it is about to carry.
     const ch = new UwbChannel(
       q, now, nodes, walls, { channel: cfg.channel, nlos: cfg.nlos },
-      (id) => this.devices.get(id)?.clock.ppm ?? 0, emit,
+      (id) => this.devices.get(id)?.clock.ppm ?? 0, emit, spectrum,
     )
     this.channel = ch
 

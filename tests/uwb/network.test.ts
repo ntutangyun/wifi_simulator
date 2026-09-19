@@ -6,6 +6,7 @@ import { makeEmitter, type TLRecord } from '../../src/model/records'
 import {
   DEFAULT_UWB_SESSION, defaultScenario, type NodeCfg, type Scenario, type UwbSessionCfg, type Wall,
 } from '../../src/model/scenario'
+import { node as wifiNode } from '../../src/course/lessonKit'
 import { UwbNetwork } from '../../src/uwb/network'
 import { C_M_PER_NS, UWB_TX_POWER_DBM } from '../../src/uwb/phy'
 import { rangeSigmaM } from '../../src/uwb/position'
@@ -317,5 +318,85 @@ describe('UwbNetwork — beside a Wi-Fi BSS', () => {
     const rs = run(withUwb(), 100 * MS)
     expect(of(rs, 'UWB_POSITION', 'uwb-tag')).toHaveLength(1)
     expect(of(rs, 'UWB_RANGE', 'uwb-tag')).toHaveLength(3)
+  })
+})
+
+// --- 6 GHz coexistence ---------------------------------------------------------
+
+/**
+ * The coexistence lab: the four corner anchors of lesson 5 with one tag in the
+ * middle on UWB channel 5, and — optionally — a 6 GHz BSS in the same room: one
+ * eht AP and an 80 MHz laptop pulling a saturated download.
+ *
+ * The UWB nodes are listed LAST on purpose: traffic streams are seeded from a
+ * node's index, so putting Wi-Fi stations in front must not renumber anything.
+ */
+function coexistScenario(opts: { wifi: boolean; centerMhz?: number }): Scenario {
+  const laptop = wifiNode('laptop', 'laptop', 'sta', 6, 4, 'eht', 'saturated')
+  const corners: Place[] = [
+    { x: 0.5, y: 0.5, z: 2.4, ppm: 0 }, { x: 9.5, y: 0.5, z: 2.4, ppm: 0 },
+    { x: 9.5, y: 7.5, z: 2.4, ppm: 0 }, { x: 0.5, y: 7.5, z: 2.4, ppm: 0 },
+  ]
+  return {
+    rooms: [{ x: 0, y: 0, w: 10, h: 8, name: 'lab' }],
+    walls: [],
+    nodes: [
+      ...(opts.wifi
+        ? [
+          wifiNode('ap', 'AP', 'ap', 5, 1, 'eht', 'idle'),
+          { ...laptop, linkId: '6g' as const, caps: { ...laptop.caps, widthMhz: 80 as const } },
+        ]
+        : []),
+      ...corners.map((p, i) => uwbNode(`anc-${i + 1}`, p, 'anchor')),
+      uwbNode('tag-1', { x: 5, y: 4, z: 1, ppm: 0 }, 'tag'),
+    ],
+    servers: [],
+    seed: 7,
+    rtsThresholdBytes: 3000,
+    snapshotIntervalMs: 10,
+    uwb: { ...DEFAULT_UWB_SESSION, channel: 5, nlos: false },
+    ...(opts.centerMhz === undefined ? {} : { sixGhzCenterMhz: opts.centerMhz }),
+  }
+}
+
+/** Every UWB record of a run, with the shared emitter's seq stripped: Wi-Fi records
+ * are numbered from the same counter, so seq shifts as soon as a BSS is there. */
+const uwbOnly = (rs: TLRecord[]): unknown[] => rs
+  .filter((r) => r.type.startsWith('UWB_'))
+  .map((r) => {
+    const o: Record<string, unknown> = { ...r }
+    delete o.seq
+    return o
+  })
+
+describe('UwbNetwork — beside a 6 GHz Wi-Fi link', () => {
+  it('changes not one ranging record when the two bands do not meet', () => {
+    // Channel 7 (5945–6025 MHz) is clear of UWB channel 5, so no mediator is built
+    // and the UWB engine is handed a null spectrum: the session runs as if alone.
+    const beside = new Simulation(coexistScenario({ wifi: true, centerMhz: 5985 }))
+    const alone = new Simulation(coexistScenario({ wifi: false }))
+    expect(beside.spectrum).toBeNull()
+    expect(alone.spectrum).toBeNull()
+    const withWifi = uwbOnly(beside.runUntil(1000 * MS).records)
+    expect(withWifi.length).toBeGreaterThan(50)
+    expect(withWifi).toEqual(uwbOnly(alone.runUntil(1000 * MS).records))
+  })
+
+  it('loses ranging frames to an overlapping link, and none to one beside it', () => {
+    const interfered = (centerMhz: number): Extract<TLRecord, { type: 'UWB_INTERFERED' }>[] => {
+      const sim = new Simulation(coexistScenario({ wifi: true, centerMhz }))
+      const rs = sim.runUntil(1000 * MS).records
+      expect(sim.spectrum === null).toBe(centerMhz === 5985)
+      return of(rs, 'UWB_INTERFERED')
+    }
+    const hit = interfered(6305)
+    expect(hit.length).toBeGreaterThan(0)
+    // Every one is a UWB receiver losing a UWB peer's frame, far under the −12 dB
+    // its correlation gain is good for, to an AP a few metres away.
+    for (const r of hit) {
+      expect(r.sirDb).toBeLessThan(-12)
+      expect(r.foreignDbm).toBeGreaterThan(-70)
+    }
+    expect(interfered(5985)).toEqual([])
   })
 })

@@ -39,13 +39,15 @@ export interface UwbNodeView {
   slot: number | null
   rounds: number
   timeouts: number
+  /** Receptions lost to in-band Wi-Fi power (UWB_INTERFERED), counted at the receiver. */
+  interfered: number
   /** Per peer id. */
   ranges: Record<string, UwbRangeView>
   position: UwbPositionView | null
 }
 
 export function initUwbNodeView(cfg: UwbNodeCfg): UwbNodeView {
-  return { role: cfg.role, block: 0, round: 0, slot: null, rounds: 0, timeouts: 0, ranges: {}, position: null }
+  return { role: cfg.role, block: 0, round: 0, slot: null, rounds: 0, timeouts: 0, interfered: 0, ranges: {}, position: null }
 }
 
 /** Applies one UWB_* record; returns true when it handled it. */
@@ -99,6 +101,11 @@ export function applyUwbRecord(vs: ViewState, r: TLRecord): boolean {
     case 'UWB_TIMEOUT': {
       const u = vs.nodes[r.node]?.uwb
       if (u) u.timeouts += 1
+      return true
+    }
+    case 'UWB_INTERFERED': {
+      const u = vs.nodes[r.node]?.uwb
+      if (u) u.interfered += 1
       return true
     }
     case 'UWB_ROUND_END': {

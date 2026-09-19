@@ -128,6 +128,8 @@ export interface Strings {
   uwb: {
     anchor: string; tag: string; role: string
     blockRound: string; slot: string; timeouts: string
+    /** Receptions this node lost to in-band Wi-Fi power. */
+    interfered: string
     ranges: string; peer: string; measured: string; trueDist: string; error: string; fom: string; rounds: string
     /** The Figure of Merit byte as a phrase: "97 % within 0.5 ns" (standard §10.29.1.7). */
     fomWithin: (pct: number, intervalNs: number) => string
@@ -397,6 +399,7 @@ export const STRINGS: Record<Lang, Strings> = {
     uwb: {
       anchor: 'anchor', tag: 'tag', role: 'role',
       blockRound: 'block / round', slot: 'ranging slot', timeouts: 'silent slots',
+      interfered: 'lost to Wi-Fi',
       ranges: 'ranges measured', peer: 'peer', measured: 'measured', trueDist: 'true', error: 'error',
       fom: 'confidence', rounds: 'rounds',
       fomWithin: (pct, ns) => `${pct} % within ${ns} ns`, noFom: 'no FoM',
@@ -774,6 +777,7 @@ export const STRINGS: Record<Lang, Strings> = {
     uwb: {
       anchor: '锚点', tag: '标签', role: '角色',
       blockRound: '测距块 / 轮次', slot: '测距时隙', timeouts: '超时时隙',
+      interfered: '被 Wi-Fi 干扰丢失',
       ranges: '测距结果', peer: '对端', measured: '实测', trueDist: '真值', error: '误差',
       fom: '置信度', rounds: '轮次',
       fomWithin: (pct, ns) => `${pct} % 的误差落在 ${ns} ns 内`, noFom: '无 FoM',

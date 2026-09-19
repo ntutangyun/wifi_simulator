@@ -2,7 +2,7 @@
  * Event-log lines for the UWB half of the record stream. Kept beside the
  * engine rather than in ui/format.ts so the ranging vocabulary (RCTU counters,
  * TWR methods, figures of merit) lives with the code that produces it;
- * fmtRecord simply delegates the seven UWB types here.
+ * fmtRecord simply delegates the eight UWB types here.
  */
 import type { TLRecord } from '../model/records'
 import { fmtNs, fmtUs } from '../ui/fmtTime'
@@ -36,5 +36,7 @@ export function fmtUwbRecord(r: UwbTLRecord): string {
       return `${r.node} UWB slot ${r.slot}: no ${KIND_SHORT[r.expected]} from ${r.peer}`
     case 'UWB_ROUND_END':
       return `${r.node} UWB round ${r.round} of block ${r.block} ends`
+    case 'UWB_INTERFERED':
+      return `${r.node} UWB frame from ${r.from} lost to Wi-Fi: SIR ${r.sirDb.toFixed(1)} dB (foreign ${r.foreignDbm.toFixed(1)} dBm)`
   }
 }

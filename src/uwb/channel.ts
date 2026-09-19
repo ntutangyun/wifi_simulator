@@ -19,11 +19,15 @@
 import { EventQueue } from '../engine/events'
 import { byCodeUnit } from '../engine/hash'
 import { wallLossDb, wallsCrossed } from '../engine/propagation'
+import type { Emission, Spectrum } from '../engine/spectrum'
 import type { FrameDesc } from '../model/frames'
 import type { EmitFn, RxFailReason } from '../model/records'
 import type { NodeCfg, Wall } from '../model/scenario'
 import type { Ns, Vec3 } from '../model/types'
-import { UWB_CAPTURE_DB, UWB_NLOS_NS, UWB_PL_EXP, UWB_RX_SENS_DBM, C_M_PER_NS, uwbPl0Db, type UwbChannelNo } from './phy'
+import {
+  UWB_BAND_MHZ, UWB_CAPTURE_DB, UWB_NLOS_NS, UWB_PL_EXP, UWB_RX_SENS_DBM, UWB_SIR_MIN_DB,
+  C_M_PER_NS, uwbPl0Db, type UwbChannelNo,
+} from './phy'
 
 export interface UwbRxInfo {
   rssiDbm: number
@@ -38,6 +42,9 @@ export interface UwbRxInfo {
   txStartNs: Ns
   /** The transmitter's crystal offset, for the receiver's clock-offset estimate. */
   txPpm: number
+  /** Worst in-band foreign (Wi-Fi) power seen over the whole reception, in dBm;
+   * −Infinity when nothing foreign was on the air — with no Spectrum, always. */
+  foreignDbm: number
 }
 
 export interface UwbRadio {
@@ -62,6 +69,9 @@ interface Reception {
   endNs: Ns
   /** Another reception overlapped it and neither captured it: it will fail at its end. */
   doomed: boolean
+  /** Max over the reception of the foreign in-band power at this receiver, in mW.
+   * Taken at arrival and raised on every change the Spectrum reports; 0 without one. */
+  maxForeignMw: number
 }
 
 interface RadioState {
@@ -92,18 +102,43 @@ export class UwbChannel {
     private cfg: UwbChannelCfg,
     private ppmOf: (id: string) => number,
     private emit: EmitFn,
+    /** The cross-technology mediator, when a Wi-Fi link shares this channel's band.
+     * Absent (or null) leaves every record exactly as it was: nothing is emitted onto
+     * the spectrum, no reception ever carries foreign power, and no SIR test can bite. */
+    private spectrum: Spectrum | null = null,
   ) {
     for (const n of nodes) this.byId.set(n.id, n)
+    const sp = spectrum
+    // The other technology's power changes between our own events, so every open
+    // reception re-takes its max whenever the mediator says something changed.
+    if (sp) {
+      sp.onChange('uwb', () => {
+        for (const [rxId, r] of this.radios) {
+          if (r.open.length === 0) continue
+          const mw = sp.foreignMw('uwb', this.posOf(rxId), this.band.lo, this.band.hi)
+          for (const rx of r.open) rx.maxForeignMw = Math.max(rx.maxForeignMw, mw)
+        }
+      })
+    }
+  }
+
+  /** The band this session occupies: what a foreign emission has to overlap to matter. */
+  private get band(): { lo: number; hi: number } {
+    return UWB_BAND_MHZ[this.cfg.channel]
   }
 
   register(id: string, radio: UwbRadio): void {
     this.radios.set(id, { radio, open: [] })
   }
 
-  private posOf(id: string): Vec3 {
+  private nodeOf(id: string): NodeCfg {
     const n = this.byId.get(id)
     if (!n) throw new Error(`UwbChannel: unknown node ${id}`)
-    return n.pos
+    return n
+  }
+
+  private posOf(id: string): Vec3 {
+    return this.nodeOf(id).pos
   }
 
   /** 3-D separation: anchors on a ceiling and a tag at hip height are not co-planar. */
@@ -115,8 +150,7 @@ export class UwbChannel {
 
   /** Free-space loss at the band's centre frequency, plus the walls in the way. */
   rssiDbm(from: string, to: string): number {
-    const tx = this.byId.get(from)
-    if (!tx) throw new Error(`UwbChannel: unknown node ${from}`)
+    const tx = this.nodeOf(from)
     const d = this.distanceM(from, to)
     return tx.txPowerDbm
       - uwbPl0Db(this.cfg.channel)
@@ -152,9 +186,23 @@ export class UwbChannel {
    */
   transmit(from: string, frame: FrameDesc): void {
     const t = this.now()
+    // The PPDU joins the shared spectrum at its true instants — on the air just
+    // before TX_START, off it just before TX_END — so a Wi-Fi receiver's
+    // max-over-lock sees the whole frame and nothing more.
+    const sp = this.spectrum
+    const emission: Emission | null = sp
+      ? {
+        txId: from, eirpDbm: this.nodeOf(from).txPowerDbm,
+        bandLoMhz: this.band.lo, bandHiMhz: this.band.hi, pos: this.posOf(from),
+      }
+      : null
+    if (sp && emission) sp.emit('uwb', emission)
     this.emit({ t, type: 'TX_START', node: from, frame })
     const endNs = t + frame.txTimeNs
-    this.q.schedule(endNs, () => this.emit({ t: endNs, type: 'TX_END', node: from, frame }), 2)
+    this.q.schedule(endNs, () => {
+      if (sp && emission) sp.retire('uwb', emission)
+      this.emit({ t: endNs, type: 'TX_END', node: from, frame })
+    }, 2)
 
     for (const rxId of this.radios.keys()) {
       if (rxId === from) continue
@@ -167,7 +215,7 @@ export class UwbChannel {
         rxId, from, frame, rssiDbm,
         info: {
           rssiDbm, propNs, nlosNs, nlos: this.obstructed(from, rxId),
-          txStartNs: t, txPpm: this.ppmOf(from),
+          txStartNs: t, txPpm: this.ppmOf(from), foreignDbm: -Infinity,
         },
       }
       const batch = this.pending.get(at)
@@ -198,7 +246,13 @@ export class UwbChannel {
     if (!r.radio.listening()) return
     if (a.rssiDbm < UWB_RX_SENS_DBM) return
 
-    const rx: Reception = { from: a.from, frame: a.frame, rssiDbm: a.rssiDbm, info: a.info, endNs: t + a.frame.txTimeNs, doomed: false }
+    const rx: Reception = {
+      from: a.from, frame: a.frame, rssiDbm: a.rssiDbm, info: a.info,
+      endNs: t + a.frame.txTimeNs, doomed: false,
+      maxForeignMw: this.spectrum
+        ? this.spectrum.foreignMw('uwb', this.posOf(a.rxId), this.band.lo, this.band.hi)
+        : 0,
+    }
 
     // Capture: against each reception already open, the stronger survives only
     // if it leads by the capture margin; otherwise both are lost. A late but
@@ -223,13 +277,26 @@ export class UwbChannel {
     if (i < 0) return
     r.open.splice(i, 1)
     const t = rx.endNs
+    const foreignDbm = rx.maxForeignMw > 0 ? 10 * Math.log10(rx.maxForeignMw) : -Infinity
+    rx.info.foreignDbm = foreignDbm
     if (rx.doomed) {
       const reason: RxFailReason = 'collision'
       this.emit({ t, type: 'RX_FAIL', node: rxId, from: rx.from, reason })
       r.radio.onRxFail(rx.from, reason)
-    } else {
-      this.emit({ t, type: 'RX_OK', node: rxId, from: rx.from, frame: rx.frame })
-      r.radio.onRxOk(rx.from, rx.frame, rx.info)
+      return
     }
+    // A UWB receiver has no SINR ladder, only its correlation gain: the frame
+    // survives interference up to UWB_SIR_MIN_DB above it and is lost beyond that.
+    // With nothing foreign on the air the ratio is +Infinity, so this cannot bite.
+    const sirDb = rx.rssiDbm - foreignDbm
+    if (sirDb < UWB_SIR_MIN_DB) {
+      const reason: RxFailReason = 'lowSinr'
+      this.emit({ t, type: 'RX_FAIL', node: rxId, from: rx.from, reason })
+      this.emit({ t, type: 'UWB_INTERFERED', node: rxId, from: rx.from, foreignDbm, sirDb })
+      r.radio.onRxFail(rx.from, reason)
+      return
+    }
+    this.emit({ t, type: 'RX_OK', node: rxId, from: rx.from, frame: rx.frame })
+    r.radio.onRxOk(rx.from, rx.frame, rx.info)
   }
 }

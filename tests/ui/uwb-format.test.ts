@@ -28,6 +28,7 @@ const POSITION = rec({
   ellipse: { a: 0.06, b: 0.04, thetaRad: 0.5 }, anchors: ['anc-1', 'anc-2', 'anc-3', 'anc-4'], block: 3,
 })
 const TIMEOUT = rec({ type: 'UWB_TIMEOUT', node: 'tag-1', slot: 5, peer: 'anc-2', expected: 'uwbResp' })
+const INTERFERED = rec({ type: 'UWB_INTERFERED', node: 'anc-1', from: 'tag-1', foreignDbm: -42.214, sirDb: -34.459 })
 
 describe('fmtUwbRecord', () => {
   it('names the round, its method and its slot shape', () => {
@@ -61,10 +62,15 @@ describe('fmtUwbRecord', () => {
   it('names what a silent slot was waiting for', () => {
     expect(fmtUwbRecord(TIMEOUT)).toBe('tag-1 UWB slot 5: no resp from anc-2')
   })
+
+  it('reports a frame lost to Wi-Fi with its ratio and the foreign power', () => {
+    expect(fmtUwbRecord(INTERFERED))
+      .toBe('anc-1 UWB frame from tag-1 lost to Wi-Fi: SIR -34.5 dB (foreign -42.2 dBm)')
+  })
 })
 
 describe('fmtRecord delegates every UWB record', () => {
-  it.each([ROUND, SLOT, TS_TX, TS_RX, RANGE, RANGE_NO_RAW, POSITION, TIMEOUT])('$type', (r) => {
+  it.each([ROUND, SLOT, TS_TX, TS_RX, RANGE, RANGE_NO_RAW, POSITION, TIMEOUT, INTERFERED])('$type', (r) => {
     expect(fmtRecord(r)).toBe(fmtUwbRecord(r))
   })
 })
