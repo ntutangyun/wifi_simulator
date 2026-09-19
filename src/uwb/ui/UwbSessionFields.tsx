@@ -34,6 +34,10 @@ export function UwbSessionFields(
   // anchor would contradict the issue line right beside it.
   const plan = anchors > 0 ? roundPlan(session, anchors) : null
   const orphan = anchors === 0 && tags === 0
+  // A contention round has only the response to place, so the schema allows it with SS-TWR
+  // alone; the window and the retry budget mean nothing until it is actually chosen.
+  const ssOnly = session.method === 'ss'
+  const contending = ssOnly && session.schedule === 'contention'
   return (
     <div>
       <div style={{ color: 'var(--dim)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -42,10 +46,36 @@ export function UwbSessionFields(
       </div>
       <label style={label} title={E.uwbMethodHint}>
         {E.uwbMethod}{' '}
-        <select value={session.method} onChange={(e) => onChange({ method: e.target.value as UwbSessionCfg['method'] })}>
+        <select value={session.method} onChange={(e) => {
+          const method = e.target.value as UwbSessionCfg['method']
+          // Only SS-TWR has a contention schedule, so picking DS-TWR takes the session back to
+          // the time schedule with it. Leaving the pair inconsistent would hand the user a plan
+          // the schema rejects, with the fix two fields away.
+          onChange(method === 'ds' ? { method, schedule: 'time' } : { method })
+        }}>
           <option value="ss">{E.uwbMethods.ss}</option>
           <option value="ds">{E.uwbMethods.ds}</option>
         </select>
+      </label>
+      <label style={label} title={ssOnly ? E.uwbScheduleHint : E.uwbSsOnly}>
+        {E.uwbSchedule}{' '}
+        <select value={session.schedule} disabled={!ssOnly}
+          onChange={(e) => onChange({ schedule: e.target.value as UwbSessionCfg['schedule'] })}>
+          <option value="time">{E.uwbSchedules.time}</option>
+          <option value="contention">{E.uwbSchedules.contention}</option>
+        </select>
+      </label>
+      <label style={label} title={contending ? E.uwbContentionSlotsHint : E.uwbSsOnly}>
+        {E.uwbContentionSlots}{' '}
+        <input type="number" min={2} max={32} step={1} value={session.contentionSlots} style={{ width: 62 }}
+          disabled={!contending}
+          onChange={(e) => onChange({ contentionSlots: clampField(e.target.value, 2, 32, true) })} />
+      </label>
+      <label style={label} title={contending ? E.uwbMaxAttemptsHint : E.uwbSsOnly}>
+        {E.uwbMaxAttempts}{' '}
+        <input type="number" min={1} max={10} step={1} value={session.maxAttempts} style={{ width: 62 }}
+          disabled={!contending}
+          onChange={(e) => onChange({ maxAttempts: clampField(e.target.value, 1, 10, true) })} />
       </label>
       <label style={label} title={E.uwbBlockHint}>
         {E.uwbBlock}{' '}

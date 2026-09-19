@@ -1,12 +1,13 @@
 import { describe, it, expect } from 'vitest'
 import { STRINGS } from '../../src/ui/i18n'
 import { FOM_LOS, FOM_NLOS, fomText } from '../../src/uwb/phy'
-import { uwbFixRow, uwbFomText, uwbRangeRows } from '../../src/uwb/ui/rows'
+import { uwbContendText, uwbFixRow, uwbFomText, uwbRangeRows } from '../../src/uwb/ui/rows'
 import type { UwbNodeView } from '../../src/uwb/view'
 
 /** A tag mid-block with two peers: one clear, one through a wall. */
 const tag: UwbNodeView = {
   role: 'tag', block: 3, round: 0, slot: 2, rounds: 7, timeouts: 1, interfered: 0,
+  contend: null, contendCollisions: 0,
   ranges: {
     'anc-1': { distM: 5.02, trueDistM: 5, method: 'ds', fom: FOM_LOS, block: 3, n: 7 },
     'anc-2': { distM: 4.38, trueDistM: 4.5, method: 'ds', fom: FOM_NLOS, block: 3, n: 6 },
@@ -58,6 +59,21 @@ describe('uwbFixRow', () => {
       gdop: '1.41',
       ellipse: '6.2 × 4.1 cm',
     })
+  })
+})
+
+describe('uwbContendText', () => {
+  const withDraw = (contend: UwbNodeView['contend']): UwbNodeView => ({ ...tag, role: 'anchor', contend })
+
+  it('shows no row at all in a time-scheduled session, where nothing is ever drawn', () => {
+    expect(uwbContendText(tag, EN)).toBeNull()
+  })
+
+  it('names the slot and the attempt, and the sit-out in both languages', () => {
+    expect(uwbContendText(withDraw({ slot: 5, attempt: 2 }), EN)).toBe('slot 5 · attempt 2')
+    expect(uwbContendText(withDraw({ slot: 5, attempt: 2 }), ZH)).toBe('时隙 5 · 第 2 次尝试')
+    expect(uwbContendText(withDraw({ slot: null, attempt: 0 }), EN)).toBe('sitting this round out')
+    expect(uwbContendText(withDraw({ slot: null, attempt: 0 }), ZH)).toBe('本轮空过')
   })
 })
 

@@ -85,6 +85,23 @@ describe('uwbSessionIssue', () => {
     expect(uwbSessionIssue(sc)).toContain('tags at')
   })
 
+  it('accepts what the session fields save for a contention round', () => {
+    // The three fields the editor adds, at the bounds its inputs clamp to.
+    const sc = withUwb(6, { method: 'ss', schedule: 'contention', contentionSlots: 16, maxAttempts: 5 })
+    expect(uwbSessionIssue(sc)).toBeNull()
+    expect(ScenarioSchema.safeParse(sc).success).toBe(true)
+    expect(uwbSessionIssue(withUwb(6, { method: 'ss', schedule: 'contention', contentionSlots: 2, maxAttempts: 1 }))).toBeNull()
+    expect(uwbSessionIssue(withUwb(6, { method: 'ss', schedule: 'contention', contentionSlots: 32, maxAttempts: 10 }))).toBeNull()
+  })
+
+  it('refuses a contention round on DS-TWR, which the method select is what keeps apart', () => {
+    // The field disables the schedule under DS-TWR and drops back to 'time' when the
+    // method changes; a file that carries the pair anyway is rejected here.
+    const bad = withUwb(6, { method: 'ds', schedule: 'contention' })
+    expect(ScenarioSchema.safeParse(bad).success).toBe(false)
+    expect(uwbSessionIssue(bad)).toMatch(/SS-TWR|contention/i)
+  })
+
   it('reports a UWB node left without a session', () => {
     const sc = withUwb(2)
     expect(uwbSessionIssue({ ...sc, uwb: undefined })).toContain('needs a UWB session')

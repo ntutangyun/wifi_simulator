@@ -52,7 +52,8 @@ describe('the UWB view reducer', () => {
     const tag = vs.nodes['tag-1']
     expect(tag.acs).toBeNull()
     expect(tag.uwb).toEqual({
-      role: 'tag', block: 0, round: 0, slot: null, rounds: 0, timeouts: 0, interfered: 0, ranges: {}, position: null,
+      role: 'tag', block: 0, round: 0, slot: null, rounds: 0, timeouts: 0, interfered: 0,
+      contend: null, contendCollisions: 0, ranges: {}, position: null,
     })
     expect(vs.nodes['anc-1'].uwb?.role).toBe('anchor')
   })
@@ -99,8 +100,29 @@ describe('the UWB view reducer', () => {
     expect(a1.ranges['tag-1'].n).toBe(1)
     // anc-2 took part in nothing of its own: untouched by the tag's records
     expect(vs.nodes['anc-2'].uwb).toEqual({
-      role: 'anchor', block: 0, round: 0, slot: null, rounds: 0, timeouts: 0, interfered: 0, ranges: {}, position: null,
+      role: 'anchor', block: 0, round: 0, slot: null, rounds: 0, timeouts: 0, interfered: 0,
+      contend: null, contendCollisions: 0, ranges: {}, position: null,
     })
+  })
+
+  it('keeps the anchor’s latest contention draw and counts the tag’s lost slots', () => {
+    const vs = initViewState(uwbScenario())
+    const contention: Parameters<EmitFn>[0][] = [
+      { t: 1_000_000, type: 'UWB_CONTEND', node: 'anc-1', slot: 3, attempt: 1 },
+      { t: 1_000_100, type: 'UWB_CONTEND', node: 'anc-2', slot: 3, attempt: 2 },
+      { t: 1_500_000, type: 'UWB_CONTEND_COLLISION', node: 'tag-1', slot: 3 },
+      { t: 2_000_000, type: 'UWB_CONTEND', node: 'anc-1', slot: null, attempt: 0 },
+      { t: 2_500_000, type: 'UWB_CONTEND_COLLISION', node: 'tag-1', slot: 5 },
+    ]
+    for (const r of seq(contention)) applyRecord(vs, r)
+    // An anchor sees no UWB_ROUND_END, so its row is the last draw it made — here the
+    // round it is sitting out, which is a slot of null and no attempt.
+    expect(vs.nodes['anc-1'].uwb!.contend).toEqual({ slot: null, attempt: 0 })
+    expect(vs.nodes['anc-2'].uwb!.contend).toEqual({ slot: 3, attempt: 2 })
+    // The collisions belong to the tag that lost the answers, not to the anchors.
+    expect(vs.nodes['tag-1'].uwb!.contendCollisions).toBe(2)
+    expect(vs.nodes['tag-1'].uwb!.contend).toBeNull()
+    expect(vs.nodes['anc-1'].uwb!.contendCollisions).toBe(0)
   })
 
   it('counts a frame lost to Wi-Fi at the receiver that lost it', () => {

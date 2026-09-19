@@ -101,6 +101,11 @@ export interface Strings {
     uwbChannel: string; uwbChannelHint: string
     uwbTsNoise: string; uwbTsNoiseHint: string; uwbCfoNoise: string; uwbCfoNoiseHint: string
     uwbNlos: string; uwbNlosHint: string
+    /** The contention schedule (standard §10.32.2 mode 0), SS-TWR only. */
+    uwbSchedule: string; uwbScheduleHint: string; uwbSchedules: Record<'time' | 'contention', string>
+    uwbSsOnly: string
+    uwbContentionSlots: string; uwbContentionSlotsHint: string
+    uwbMaxAttempts: string; uwbMaxAttemptsHint: string
     /** "slots per round N · rounds per block M" under the session fields. */
     uwbPlan: (slots: number, rounds: number) => string
   }
@@ -130,6 +135,11 @@ export interface Strings {
     blockRound: string; slot: string; timeouts: string
     /** Receptions this node lost to in-band Wi-Fi power. */
     interfered: string
+    /** Contention rounds: the anchor's latest draw, and the tag's lost response slots. */
+    contend: string; contendHint: string
+    contendDraw: (slot: number, attempt: number) => string
+    contendSitOut: string
+    contendCollisions: string; contendCollisionsHint: string
     ranges: string; peer: string; measured: string; trueDist: string; error: string; fom: string; rounds: string
     /** The Figure of Merit byte as a phrase: "97 % within 0.5 ns" (standard §10.29.1.7). */
     fomWithin: (pct: number, intervalNs: number) => string
@@ -357,6 +367,11 @@ export const STRINGS: Record<Lang, Strings> = {
       uwbTsNoise: 'Timestamp noise', uwbTsNoiseHint: 'one-sigma error of a receive timestamp; 100 ps of timing is 3 cm of flight and, after the TWR formula, 2.1 cm of range',
       uwbCfoNoise: 'Clock-estimate noise', uwbCfoNoiseHint: 'one-sigma error left over after the receiver estimates the carrier frequency offset; it is what SS-TWR cannot cancel',
       uwbNlos: 'NLOS wall delay', uwbNlosHint: 'add the extra delay of every wall a ray crosses (drywall 0.5 ns, brick 2 ns, glass 0.2 ns). A wall makes a range read long, never short.',
+      uwbSchedule: 'Schedule', uwbScheduleHint: 'time-scheduled: the poll names every anchor and its slot, so nothing can collide. Contention (schedule mode 0): the poll only opens a response window, and each anchor draws a slot in it at random — cheaper for a controller that does not know who is there, at the price of collisions.',
+      uwbSchedules: { time: 'time-scheduled', contention: 'contention-based' },
+      uwbSsOnly: 'a contention round has only the response to place; DS-TWR would need a second window for its reports, so the schema allows contention with SS-TWR only',
+      uwbContentionSlots: 'Response slots', uwbContentionSlotsHint: 'the response window the poll advertises (RCPS IE): every anchor draws one of these slots uniformly. With N anchors and S slots, an anchor is alone in its slot with probability (1 − 1/S)^(N−1).',
+      uwbMaxAttempts: 'Attempts', uwbMaxAttemptsHint: 'the retry budget the poll advertises (RCMA IE): after this many rounds in which the tag did not range it, an anchor sits one round out before drawing again',
       uwbPlan: (slots, rounds) => `slots per round ${slots} · rounds per block ${rounds}`,
     },
     inspector: {
@@ -400,6 +415,10 @@ export const STRINGS: Record<Lang, Strings> = {
       anchor: 'anchor', tag: 'tag', role: 'role',
       blockRound: 'block / round', slot: 'ranging slot', timeouts: 'silent slots',
       interfered: 'lost to Wi-Fi',
+      contend: 'contention draw', contendHint: 'the response slot this anchor drew in the latest contention round, and which attempt at being heard that was',
+      contendDraw: (slot, attempt) => `slot ${slot} · attempt ${attempt}`,
+      contendSitOut: 'sitting this round out',
+      contendCollisions: 'slots collided', contendCollisionsHint: 'response slots in which this tag lost an answer to another anchor answering in the same slot; a slot where the stronger answer was captured 6 dB above the other counts too, because an answer was still lost',
       ranges: 'ranges measured', peer: 'peer', measured: 'measured', trueDist: 'true', error: 'error',
       fom: 'confidence', rounds: 'rounds',
       fomWithin: (pct, ns) => `${pct} % within ${ns} ns`, noFom: 'no FoM',
@@ -737,6 +756,11 @@ export const STRINGS: Record<Lang, Strings> = {
       uwbTsNoise: '时间戳噪声', uwbTsNoiseHint: '接收时间戳误差的 1-σ 值；100 ps 的计时误差折合 3 cm 的飞行距离，经双向测距公式折算后是 2.1 cm 的测距误差',
       uwbCfoNoise: '时钟估计噪声', uwbCfoNoiseHint: '接收机估计载波频偏后残留误差的 1-σ 值；这正是 SS-TWR 无法抵消的那一部分',
       uwbNlos: 'NLOS 穿墙时延', uwbNlosHint: '把射线穿过的每一堵墙的附加时延计入飞行时间（石膏板 0.5 ns、砖墙 2 ns、玻璃 0.2 ns）。墙只会让测距结果偏大，不会偏小。',
+      uwbSchedule: '调度方式', uwbScheduleHint: '时间调度：轮询帧逐一指明每个锚点及其时隙，因此不可能发生碰撞。竞争调度（调度模式 0）：轮询帧只开出一个响应窗口，各锚点各自在窗口内随机抽取一个时隙——控制器无需事先知道现场有哪些锚点，代价则是碰撞。',
+      uwbSchedules: { time: '时间调度', contention: '竞争调度' },
+      uwbSsOnly: '竞争轮次中只有响应帧需要安排时隙；DS-TWR 还需要为报告帧再开一个窗口，因此本仿真的校验规则只允许竞争调度配合 SS-TWR',
+      uwbContentionSlots: '响应时隙数', uwbContentionSlotsHint: '轮询帧通告的响应窗口长度（RCPS IE）：每个锚点在这些时隙中均匀抽取一个。若有 N 个锚点、S 个时隙，则某个锚点独占其时隙的概率为 (1 − 1/S)^(N−1)。',
+      uwbMaxAttempts: '尝试次数', uwbMaxAttemptsHint: '轮询帧通告的重试预算（RCMA IE）：连续这么多轮都没有被标签测到之后，锚点会空过一轮再重新抽取时隙',
       uwbPlan: (slots, rounds) => `每轮 ${slots} 个时隙 · 每块 ${rounds} 轮`,
     },
     inspector: {
@@ -780,6 +804,10 @@ export const STRINGS: Record<Lang, Strings> = {
       anchor: '锚点', tag: '标签', role: '角色',
       blockRound: '测距块 / 轮次', slot: '测距时隙', timeouts: '超时时隙',
       interfered: '被 Wi-Fi 干扰丢失',
+      contend: '竞争抽取', contendHint: '该锚点在最近一个竞争轮次中抽到的响应时隙，以及这是它第几次尝试让标签听到自己',
+      contendDraw: (slot, attempt) => `时隙 ${slot} · 第 ${attempt} 次尝试`,
+      contendSitOut: '本轮空过',
+      contendCollisions: '碰撞时隙数', contendCollisionsHint: '该标签因两个锚点选中同一响应时隙而丢失应答的时隙数；即使其中较强的一路高出 6 dB 被成功捕获，另一路应答仍然丢失，因此同样计入',
       ranges: '测距结果', peer: '对端', measured: '实测', trueDist: '真值', error: '误差',
       fom: '置信度', rounds: '轮次',
       fomWithin: (pct, ns) => `${pct} % 的误差落在 ${ns} ns 内`, noFom: '无 FoM',

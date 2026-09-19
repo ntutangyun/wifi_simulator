@@ -41,13 +41,21 @@ export interface UwbNodeView {
   timeouts: number
   /** Receptions lost to in-band Wi-Fi power (UWB_INTERFERED), counted at the receiver. */
   interfered: number
+  /** Contention round, anchor: its latest draw — `slot` null while it sits a round out. It is
+   * the last one made, not one cleared between rounds: an anchor sees no UWB_ROUND_END. */
+  contend: { slot: number | null; attempt: number } | null
+  /** Contention round, tag: response slots lost to overlapping answers (UWB_CONTEND_COLLISION). */
+  contendCollisions: number
   /** Per peer id. */
   ranges: Record<string, UwbRangeView>
   position: UwbPositionView | null
 }
 
 export function initUwbNodeView(cfg: UwbNodeCfg): UwbNodeView {
-  return { role: cfg.role, block: 0, round: 0, slot: null, rounds: 0, timeouts: 0, interfered: 0, ranges: {}, position: null }
+  return {
+    role: cfg.role, block: 0, round: 0, slot: null, rounds: 0, timeouts: 0, interfered: 0,
+    contend: null, contendCollisions: 0, ranges: {}, position: null,
+  }
 }
 
 /** Applies one UWB_* record; returns true when it handled it. */
@@ -106,6 +114,16 @@ export function applyUwbRecord(vs: ViewState, r: TLRecord): boolean {
     case 'UWB_INTERFERED': {
       const u = vs.nodes[r.node]?.uwb
       if (u) u.interfered += 1
+      return true
+    }
+    case 'UWB_CONTEND': {
+      const u = vs.nodes[r.node]?.uwb
+      if (u) u.contend = { slot: r.slot, attempt: r.attempt }
+      return true
+    }
+    case 'UWB_CONTEND_COLLISION': {
+      const u = vs.nodes[r.node]?.uwb
+      if (u) u.contendCollisions += 1
       return true
     }
     case 'UWB_ROUND_END': {

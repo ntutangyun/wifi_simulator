@@ -29,6 +29,9 @@ const POSITION = rec({
 })
 const TIMEOUT = rec({ type: 'UWB_TIMEOUT', node: 'tag-1', slot: 5, peer: 'anc-2', expected: 'uwbResp' })
 const INTERFERED = rec({ type: 'UWB_INTERFERED', node: 'anc-1', from: 'tag-1', foreignDbm: -42.214, sirDb: -34.459 })
+const CONTEND = rec({ type: 'UWB_CONTEND', node: 'anc-2', slot: 5, attempt: 2 })
+const SIT_OUT = rec({ type: 'UWB_CONTEND', node: 'anc-2', slot: null, attempt: 0 })
+const CONTEND_COLLISION = rec({ type: 'UWB_CONTEND_COLLISION', node: 'tag-1', slot: 5 })
 
 describe('fmtUwbRecord', () => {
   it('names the round, its method and its slot shape', () => {
@@ -67,10 +70,25 @@ describe('fmtUwbRecord', () => {
     expect(fmtUwbRecord(INTERFERED))
       .toBe('anc-1 UWB frame from tag-1 lost to Wi-Fi: SIR -34.5 dB (foreign -42.2 dBm)')
   })
+
+  it('names the slot an anchor drew and which attempt it was', () => {
+    expect(fmtUwbRecord(CONTEND)).toBe('anc-2 contends: slot 5 (attempt 2)')
+  })
+
+  it('says an anchor out of attempts sits the round out, with no slot to name', () => {
+    expect(fmtUwbRecord(SIT_OUT)).toBe('anc-2 sits out this round')
+  })
+
+  it('names the response slot the tag lost to overlapping answers', () => {
+    expect(fmtUwbRecord(CONTEND_COLLISION)).toBe('tag-1 contention collision in slot 5')
+  })
 })
 
 describe('fmtRecord delegates every UWB record', () => {
-  it.each([ROUND, SLOT, TS_TX, TS_RX, RANGE, RANGE_NO_RAW, POSITION, TIMEOUT, INTERFERED])('$type', (r) => {
+  it.each([
+    ROUND, SLOT, TS_TX, TS_RX, RANGE, RANGE_NO_RAW, POSITION, TIMEOUT, INTERFERED,
+    CONTEND, SIT_OUT, CONTEND_COLLISION,
+  ])('$type', (r) => {
     expect(fmtRecord(r)).toBe(fmtUwbRecord(r))
   })
 })

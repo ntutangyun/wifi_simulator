@@ -18,6 +18,14 @@ export type UwbRecord =
   | { type: 'UWB_POSITION'; node: string; x: number; y: number; trueX: number; trueY: number; gdop: number; ellipse: { a: number; b: number; thetaRad: number }; anchors: string[]; block: number }
   /** A slot passed with no answer from the peer it was scheduled for. */
   | { type: 'UWB_TIMEOUT'; node: string; slot: number; peer: string; expected: UwbFrameKind }
+  /** Contention round (standard §10.32.2 schedule mode 0): an anchor that decoded the Poll drew
+   * the response slot it will answer in — `slot` null when its retry budget ran out and it sits
+   * this round out, and `attempt` counts from 1 (0 while sitting out). */
+  | { type: 'UWB_CONTEND'; node: string; slot: number | null; attempt: number }
+  /** Contention round: the tag lost the response slot to overlapping answers. Emitted once per
+   * slot, at the tag, whenever a response in it failed under the medium's capture rule — so a
+   * slot where one anchor was captured 6 dB above another is counted too: a response was lost. */
+  | { type: 'UWB_CONTEND_COLLISION'; node: string; slot: number }
   /** The tag's round is over (emitted after any UWB_POSITION it produced): the radio goes
    * off until the next block, and the view's `slot` returns to null. */
   | { type: 'UWB_ROUND_END'; node: string; block: number; round: number }

@@ -285,6 +285,170 @@ describe('UwbNetwork — determinism', () => {
   })
 })
 
+// --- contention rounds (standard §10.32.2 schedule mode 0) ---------------------
+
+/**
+ * A contention session as small as one can be: poll plus a two-slot response window, one
+ * round per block (900 RSTU = 750 µs), so two anchors land in the same slot half the time.
+ */
+const TIGHT: Partial<UwbSessionCfg> = {
+  method: 'ss', nlos: false, schedule: 'contention', contentionSlots: 2, slotRstu: 300, blockRstu: 900,
+}
+const TIGHT_ROUND_NS = 750_000
+
+/** `n` anchors on a 5 m circle around the origin, ceiling height, crystals exact. */
+const circle = (n: number, txPowerDbm?: number): Place[] =>
+  Array.from({ length: n }, (_, i) => ({
+    x: 5 * Math.cos((2 * Math.PI * i) / n), y: 5 * Math.sin((2 * Math.PI * i) / n), z: 2, ppm: 0,
+    ...(txPowerDbm === undefined ? {} : { txPowerDbm }),
+  }))
+
+const TAG_AT_ORIGIN: Place = { x: 0, y: 0, z: 1, ppm: 0 }
+
+describe('UwbNetwork — contention rounds, two anchors of equal strength', () => {
+  const sc = uwbScenario(circle(2), [TAG_AT_ORIGIN], TIGHT)
+  // Six rounds: three collisions spend the whole retry budget, the fourth is sat out.
+  const rs = run(sc, 6 * TIGHT_ROUND_NS - 1)
+  const inRound = <T extends TLRecord['type']>(type: T, k: number, node?: string) =>
+    of(rs, type, node).filter((r) => r.t >= k * TIGHT_ROUND_NS && r.t < (k + 1) * TIGHT_ROUND_NS)
+
+  it('reserves the window the session asked for, and advertises it in the poll', () => {
+    const round = of(rs, 'UWB_ROUND')[0]
+    expect(round.slots).toBe(3) // poll + two response slots
+    expect(of(rs, 'UWB_SLOT').filter((r) => r.t < TIGHT_ROUND_NS).map((r) => r.slot)).toEqual([0, 1, 2])
+    const poll = of(rs, 'TX_START', 'tag-1')[0].frame
+    expect(poll.uwb?.ies).toEqual(['ARC', 'RCPS', 'RCMA', 'RRMC'])
+    expect(poll.uwb?.contention).toEqual({ firstSlot: 1, lastSlot: 2, maxAttempts: 3 })
+    expect(poll.uwb?.schedule).toBeUndefined() // nobody is assigned a slot
+  })
+
+  it('loses both answers when both anchors draw the same slot', () => {
+    expect(inRound('UWB_CONTEND', 0).map((r) => [r.node, r.slot, r.attempt]))
+      .toEqual([['anc-1', 2, 1], ['anc-2', 2, 1]])
+    // Neither leads the other by the 6 dB capture margin, so the medium dooms both.
+    expect(inRound('RX_FAIL', 0, 'tag-1').map((r) => [r.from, r.reason]))
+      .toEqual([['anc-1', 'collision'], ['anc-2', 'collision']])
+    expect(inRound('UWB_RANGE', 0)).toEqual([])
+    // One record per slot, not one per doomed answer.
+    expect(inRound('UWB_CONTEND_COLLISION', 0).map((r) => [r.node, r.slot])).toEqual([['tag-1', 2]])
+  })
+
+  it('spends one attempt per unheard round, then sits exactly one round out', () => {
+    // maxAttempts is 3: attempts 1, 2 and 3 all collide, the fourth round is silent
+    // (slot null, attempt 0), and the fifth starts a fresh budget at attempt 1.
+    expect(of(rs, 'UWB_CONTEND', 'anc-1').map((r) => [r.slot, r.attempt]))
+      .toEqual([[2, 1], [1, 2], [1, 3], [null, 0], [1, 1], [2, 2]])
+    expect(of(rs, 'UWB_CONTEND', 'anc-2').map((r) => [r.slot, r.attempt]))
+      .toEqual([[2, 1], [1, 2], [1, 3], [null, 0], [1, 1], [1, 2]])
+    // Nothing at all is transmitted in the round both anchors sit out…
+    expect(inRound('TX_START', 3).map((r) => r.node)).toEqual(['tag-1'])
+    // …and the fifth round, drawn from a refilled budget, collides once more.
+    expect(inRound('UWB_RANGE', 4)).toEqual([])
+    // The sixth separates them, and both are heard — so both go back to attempt 1 after it.
+    expect(inRound('UWB_RANGE', 5).map((r) => r.peer)).toEqual(['anc-2', 'anc-1'])
+  })
+
+  it('never reports a silent contention slot as a timeout: the slot belongs to nobody', () => {
+    // Round 3 is silent in both response slots and round 5 fills both; neither is a
+    // peer that failed to answer, so no UWB_TIMEOUT is emitted anywhere in the run.
+    expect(of(rs, 'UWB_TIMEOUT')).toEqual([])
+  })
+})
+
+describe('UwbNetwork — contention rounds, capture inside one slot', () => {
+  // anc-2 radiates 10 dB above anc-1 from the same distance, so it clears the 6 dB
+  // capture margin at the tag and is decoded through the other anchor's answer.
+  const sc = uwbScenario([circle(2)[0], { ...circle(2)[1], txPowerDbm: UWB_TX_POWER_DBM + 10 }], [TAG_AT_ORIGIN], TIGHT)
+  const rs = run(sc, TIGHT_ROUND_NS - 1)
+
+  it('keeps the stronger answer and loses only the weaker one', () => {
+    expect(of(rs, 'UWB_CONTEND').map((r) => [r.node, r.slot])).toEqual([['anc-1', 2], ['anc-2', 2]])
+    const ranges = of(rs, 'UWB_RANGE')
+    expect(ranges).toHaveLength(1)
+    expect(ranges[0].peer).toBe('anc-2')
+    expect(Math.abs(ranges[0].distM - ranges[0].trueDistM)).toBeLessThan(3 * SS_CORRECTED_SIGMA_M)
+    expect(of(rs, 'RX_FAIL', 'tag-1').map((r) => [r.from, r.reason])).toEqual([['anc-1', 'collision']])
+    // A captured slot still cost the round one answer, so it is counted as a collision.
+    expect(of(rs, 'UWB_CONTEND_COLLISION').map((r) => r.slot)).toEqual([2])
+  })
+})
+
+describe('UwbNetwork — the contention draw', () => {
+  /** One anchor the tag always hears: it is at attempt 1 in every round, so all 200
+   * draws come from a full retry budget and the histogram is the raw distribution. */
+  const solo = (): Scenario => uwbScenario(
+    [{ x: 5, y: 0, z: 2, ppm: 0 }], [TAG_AT_ORIGIN],
+    { method: 'ss', nlos: false, schedule: 'contention', contentionSlots: 8, slotRstu: 300, blockRstu: 2700 },
+  )
+  const ROUNDS = 200
+  const draws = (sc: Scenario): (number | null)[] =>
+    of(run(sc, ROUNDS * 2_250_000 - 1), 'UWB_CONTEND').map((r) => r.slot)
+
+  it('is uniform over the whole response window', () => {
+    const slots = draws(solo())
+    expect(slots).toHaveLength(ROUNDS)
+    expect(slots.every((s) => s !== null && s >= 1 && s <= 8)).toBe(true)
+    const counts = Array.from({ length: 8 }, (_, i) => slots.filter((s) => s === i + 1).length)
+    const expected = ROUNDS / 8
+    const chi2 = counts.reduce((a, c) => a + (c - expected) ** 2 / expected, 0)
+    // 7 degrees of freedom: the 99.9 % point is 24.3, so 30 is a loose bound that a
+    // uniform generator passes and a biased one does not. Measured here: 10.48.
+    expect(chi2).toBeLessThan(30)
+  })
+
+  it('is deterministic: the same seed draws the same 200 slots', () => {
+    expect(draws(solo())).toEqual(draws(solo()))
+  })
+
+  it('leaves a time-scheduled session exactly as it was', () => {
+    const timed = (session: Partial<UwbSessionCfg>): TLRecord[] =>
+      run(uwbScenario(circle(4), [TAG_AT_ORIGIN], { method: 'ss', nlos: false, ...session }), 3 * 200 * MS)
+    const base = timed({})
+    // A time-scheduled round reads neither knob and draws nothing from any anchor's
+    // stream, so moving both cannot shift one timestamp of the run.
+    expect(timed({ contentionSlots: 31, maxAttempts: 9 })).toEqual(base)
+    expect(of(base, 'UWB_CONTEND')).toEqual([])
+    expect(of(base, 'UWB_CONTEND_COLLISION')).toEqual([])
+  })
+})
+
+describe('UwbNetwork — six anchors contending, the numbers the lesson quotes', () => {
+  // 400 µs slots (the smallest that fits a 6-anchor round) and one round per block, so
+  // a variant's round is 1 + S slots long and 30 blocks are 30 rounds.
+  const SIX: Partial<UwbSessionCfg> = {
+    method: 'ss', nlos: false, schedule: 'contention', slotRstu: 480, blockRstu: 8160,
+  }
+  const BLOCK_NS = 6_800_000
+
+  const measure = (contentionSlots: number) => {
+    const rs = run(uwbScenario(circle(6), [TAG_AT_ORIGIN], { ...SIX, contentionSlots }), 30 * BLOCK_NS - 1)
+    return {
+      rounds: of(rs, 'UWB_ROUND').length,
+      ranges: of(rs, 'UWB_RANGE').length,
+      collisions: of(rs, 'UWB_CONTEND_COLLISION').length,
+      sitOuts: of(rs, 'UWB_CONTEND').filter((r) => r.slot === null).length,
+      fixes: of(rs, 'UWB_POSITION').length,
+    }
+  }
+
+  it.each([
+    { S: 4, ranges: 50, collisions: 45, sitOuts: 20, fixes: 5 },
+    { S: 8, ranges: 90, collisions: 36, sitOuts: 8, fixes: 19 },
+    { S: 16, ranges: 125, collisions: 25, sitOuts: 4, fixes: 25 },
+  ])('S = $S: $ranges responses heard in 30 rounds', ({ S, ranges, collisions, sitOuts, fixes }) => {
+    const m = measure(S)
+    expect(m.rounds).toBe(30)
+    expect(m).toEqual({ rounds: 30, ranges, collisions, sitOuts, fixes })
+    // The analytic model of the lesson: N anchors, S slots, an anchor is alone in its
+    // slot with probability (1 − 1/S)^(N−1), so N·(1 − 1/S)^(N−1) are heard per round.
+    // The measurement runs a little above it at small S, because an anchor that has
+    // just spent its budget sits the next round out and thins the field for the others.
+    const analytic = 6 * (1 - 1 / S) ** 5
+    expect(m.ranges / 30).toBeGreaterThan(analytic - 0.5)
+    expect(m.ranges / 30).toBeLessThan(analytic + 0.5)
+  })
+})
+
 describe('UwbNetwork — beside a Wi-Fi BSS', () => {
   function withUwb(): Scenario {
     const sc = defaultScenario()

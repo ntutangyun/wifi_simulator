@@ -22,6 +22,23 @@ export function uwbFomText(fom: number, S: UwbFomStrings): string {
   return S.fomWithin(levelPct, intervalNs)
 }
 
+/** The two phrases an anchor's contention draw reads as, in the reader's language. */
+export interface UwbContendStrings {
+  contendDraw: (slot: number, attempt: number) => string
+  contendSitOut: string
+}
+
+/**
+ * An anchor's latest contention draw, as one line: the slot it answered in and which attempt
+ * that was, or that it sat the round out. Null in a time-scheduled session, where nothing is
+ * ever drawn and the inspector shows no row at all.
+ */
+export function uwbContendText(u: UwbNodeView, S: UwbContendStrings): string | null {
+  const c = u.contend
+  if (!c) return null
+  return c.slot === null ? S.contendSitOut : S.contendDraw(c.slot, c.attempt)
+}
+
 const m = (v: number) => `${v.toFixed(2)} m`
 const cm = (v: number) => `${(v * 100).toFixed(1)} cm`
 

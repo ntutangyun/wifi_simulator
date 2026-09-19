@@ -1,8 +1,11 @@
 /**
  * One HRP UWB ranging device — an anchor or a tag — driven entirely by the
  * session schedule (src/uwb/session.ts). It is a radio (UwbRadio) and a small
- * state machine; it never contends for the medium, because a scheduled ranging
- * session has already decided who transmits in every slot.
+ * state machine. In a time-scheduled session it never contends for the medium,
+ * because the session has already decided who transmits in every slot; in a
+ * contention session (standard §10.32.2 schedule mode 0) the schedule reserves a
+ * response window instead, and every anchor draws a slot in it from its own
+ * stream — so two anchors can land in one slot and lose each other there.
  *
  * The state it shows on its lane is the Wi-Fi MAC_STATE vocabulary, so one
  * timeline reducer covers both technologies:
@@ -38,6 +41,10 @@ export interface UwbDeviceCfg {
   pos: Vec3
   tsNoisePs: number
   cfoNoisePpm: number
+  /** Contention rounds only: the retry budget the Poll's RCMA IE advertises. An anchor spends one
+   * attempt per round its response is not acknowledged by a range, and sits a round out when the
+   * budget is empty. Ignored entirely by a time-scheduled round. */
+  maxAttempts: number
 }
 
 export interface UwbGeometry {
@@ -52,8 +59,17 @@ export type UwbDeviceState = Extract<MacStateName, 'idle' | 'uwbWait' | 'rx' | '
 /** The frame this device is waiting for in the slot it is in. */
 interface Expectation {
   slot: number
-  from: string
+  /** Null in an open slot, where the sender is not known in advance. */
+  from: string | null
   kind: UwbFrameKind
+  /**
+   * The slot is open: any anchor of the round may answer in it, and none has to.
+   * True only in a contention round's response phase, where the slot belongs to
+   * whoever drew it. An open slot that stays silent is the ordinary outcome of
+   * the draw, not a peer that failed to answer, so it reports no UWB_TIMEOUT —
+   * there is no peer the record could name.
+   */
+  open: boolean
 }
 
 /** What a tag remembers about one anchor inside the round in progress. */
@@ -75,6 +91,14 @@ interface RoundState {
   plan: RoundPlan
   tagId: string
   anchors: string[]
+  /** The slot the round is in, as the schedule last announced it. */
+  slot: number
+  /** Contention round, anchor: the response slot it drew on the Poll; null when it drew none
+   * (it is sitting the round out, or it never heard the Poll). */
+  contendSlot: number | null
+  /** Contention round, tag: the slot a collision was already reported for, so two doomed
+   * responses in one slot are one UWB_CONTEND_COLLISION and not two. */
+  contendCollisionSlot: number | null
   // tag side
   txPollCounter: number | null
   txFinalCounter: number | null
@@ -91,6 +115,7 @@ interface RoundState {
 function freshRound(block: number, round: number, plan: RoundPlan, tagId: string, anchors: string[]): RoundState {
   return {
     block, round, plan, tagId, anchors: [...anchors],
+    slot: 0, contendSlot: null, contendCollisionSlot: null,
     txPollCounter: null, txFinalCounter: null, peers: new Map(), ranges: [],
     rxPollCounter: null, txRespCounter: null, rxFinalCounter: null, finalListedMe: false,
   }
@@ -104,6 +129,14 @@ export class UwbDevice implements UwbRadio {
   private txSeq = 0
   /** The MHR's Sequence Number: one 8-bit counter per device, wrapping at 256. */
   private seqNo = 0
+  /**
+   * Contention rounds, anchor: what is left of the RCMA retry budget. SS-TWR gives a responder
+   * no acknowledgement of its own — the exchange ends at the tag — so the anchor cannot know
+   * whether it was heard. The model closes that loop at the round's end (see `endRound`): a
+   * round that produced a range for this anchor refills the budget, a round that did not spends
+   * one attempt of it, and an empty budget buys one silent round before the anchor tries again.
+   */
+  private attemptsLeft: number
 
   constructor(
     readonly id: string,
@@ -115,7 +148,9 @@ export class UwbDevice implements UwbRadio {
     private ch: UwbChannel,
     private emit: EmitFn,
     private geometry: UwbGeometry,
-  ) {}
+  ) {
+    this.attemptsLeft = cfg.maxAttempts
+  }
 
   get role(): 'anchor' | 'tag' {
     return this.cfg.role
@@ -138,8 +173,20 @@ export class UwbDevice implements UwbRadio {
     this.closeSlot()
     const r = this.round
     if (!r) return
+    r.slot = slot
     if (this.cfg.role === 'tag') {
       this.emit({ t: this.now(), type: 'UWB_SLOT', node: this.id, slot, untilNs: slotEndNs })
+    }
+    // A contention round's response phase belongs to nobody in advance: `slotAction` names no
+    // anchor (its `anchor` is -1), each anchor drew its own slot when it decoded the Poll, and
+    // the tag simply listens through the whole window for whoever turns up.
+    if (r.plan.schedule === 'contention' && action.kind === 'uwbResp') {
+      if (this.cfg.role === 'anchor') {
+        if (r.contendSlot === slot) this.transmitFor(action, slot, r, peers)
+        return
+      }
+      this.listenOpen(slot)
+      return
     }
     const txId = action.tx === 'tag' ? peers.tag : peers.anchors[action.anchor]
     if (txId === this.id) {
@@ -156,16 +203,32 @@ export class UwbDevice implements UwbRadio {
     this.listenFor(slot, txId, action.kind)
   }
 
-  /** Tag: solve this round's fix, then close the round. Both roles: drop the working state. */
-  endRound(): void {
+  /**
+   * Tag: solve this round's fix, close the round, and return the anchors it ranged — the set the
+   * network hands straight back to those anchors as `heard`, which is the whole of the feedback
+   * model an SS-TWR responder has no frame for (standard §10.32.1 NOTE leaves the filtering of a
+   * ranging result to the upper layer; here the upper layer is the network).
+   *
+   * Anchor: spend or refill the contention retry budget, and return nothing. Only an anchor that
+   * actually drew a slot this round spends an attempt — a round it sat out is the price it has
+   * already paid, and a round whose Poll it never heard is not its doing.
+   */
+  endRound(heard = false): string[] {
     this.closeSlot()
     const r = this.round
     this.round = null
-    if (!r || this.cfg.role !== 'tag') return
+    if (!r) return []
+    if (this.cfg.role !== 'tag') {
+      if (r.plan.schedule === 'contention' && r.contendSlot !== null) {
+        this.attemptsLeft = heard ? this.cfg.maxAttempts : Math.max(0, this.attemptsLeft - 1)
+      }
+      return []
+    }
     this.solveFix(r)
     // The round is over whether or not it produced a fix: the tag's radio is off until
     // its round in the next block, and the view's slot returns to null.
     this.emit({ t: this.now(), type: 'UWB_ROUND_END', node: this.id, block: r.block, round: r.round })
+    return r.ranges.map((x) => x.id)
   }
 
   /** Tag only: the round's 2-D fix from the anchors that answered, emitted as UWB_POSITION. */
@@ -197,7 +260,19 @@ export class UwbDevice implements UwbRadio {
     if (this.state === 'uwbWait') this.setState('rx')
   }
 
-  onRxFail(_from: string, _reason: RxFailReason): void {
+  onRxFail(_from: string, reason: RxFailReason): void {
+    const r = this.round
+    // A response lost to overlap in a contention slot is the collision the whole schedule mode
+    // is about, so the tag names the slot it happened in. It is keyed on the slot, not on the
+    // reception: two responses that doom each other fail twice and are one collision, and a slot
+    // where the stronger was captured still lost the weaker one.
+    if (
+      reason === 'collision' && r !== null && this.cfg.role === 'tag'
+      && r.plan.schedule === 'contention' && r.contendCollisionSlot !== r.slot
+    ) {
+      r.contendCollisionSlot = r.slot
+      this.emit({ t: this.now(), type: 'UWB_CONTEND_COLLISION', node: this.id, slot: r.slot })
+    }
     // The slot's deadline is still armed; it will report the miss.
     if (this.state === 'rx') this.setState(this.expect ? 'uwbWait' : 'idle')
   }
@@ -210,7 +285,7 @@ export class UwbDevice implements UwbRadio {
     const kind = frame.kind as UwbFrameKind
     const exp = this.expect
     const r = this.round
-    if (!r || !exp || exp.from !== from || exp.kind !== kind) {
+    if (!r || !exp || (exp.from !== null && exp.from !== from) || exp.kind !== kind) {
       // Not the frame this slot is for: no ranging counter is taken from it.
       if (this.state === 'rx') this.setState(this.expect ? 'uwbWait' : 'idle')
       return
@@ -237,6 +312,10 @@ export class UwbDevice implements UwbRadio {
         // construction, so it never needs `coffs`, and its range is scored by
         // the Final's first-path quality (the last frame of the exchange).
         r.rxPollCounter = counter
+        // The contention draw comes last, after this reception's timestamp-noise and
+        // carrier-offset draws above, so it never reorders the stream a time-scheduled
+        // round takes from the same generator.
+        if (r.plan.schedule === 'contention' && this.cfg.role === 'anchor') this.drawContentionSlot(r)
         break
       case 'uwbResp':
         this.onResponse(r, from, frame, counter, coffs, fom)
@@ -268,8 +347,32 @@ export class UwbDevice implements UwbRadio {
     const exp = this.expect
     if (!exp) return
     this.expect = null
-    this.emit({ t: this.now(), type: 'UWB_TIMEOUT', node: this.id, slot: exp.slot, peer: exp.from, expected: exp.kind })
+    // An open contention slot names no peer, so a silent one has nothing to report:
+    // an empty slot is what most of the response window looks like by design.
+    if (!exp.open && exp.from !== null) {
+      this.emit({ t: this.now(), type: 'UWB_TIMEOUT', node: this.id, slot: exp.slot, peer: exp.from, expected: exp.kind })
+    }
     this.setState('idle')
+  }
+
+  /**
+   * Anchor, on the Poll of a contention round: draw the response slot to answer in, uniformly
+   * over the window the RCPS IE advertised (standard §10.32.2 schedule mode 0). An anchor whose
+   * RCMA budget is spent answers in no slot at all this round — the one back-off a responder
+   * that cannot hear the other responders has — and starts the next round with a full budget.
+   */
+  private drawContentionSlot(r: RoundState): void {
+    if (this.attemptsLeft === 0) {
+      this.attemptsLeft = this.cfg.maxAttempts
+      this.emit({ t: this.now(), type: 'UWB_CONTEND', node: this.id, slot: null, attempt: 0 })
+      return
+    }
+    const slot = 1 + this.rng.int(r.plan.contentionSlots - 1)
+    r.contendSlot = slot
+    this.emit({
+      t: this.now(), type: 'UWB_CONTEND', node: this.id, slot,
+      attempt: this.cfg.maxAttempts - this.attemptsLeft + 1,
+    })
   }
 
   /** The expected frame arrived: drop the expectation without reporting a miss. */
@@ -279,7 +382,13 @@ export class UwbDevice implements UwbRadio {
 
   private listenFor(slot: number, from: string, kind: UwbFrameKind): void {
     this.setState('uwbWait')
-    this.expect = { slot, from, kind }
+    this.expect = { slot, from, kind, open: false }
+  }
+
+  /** Tag, contention round: listen through a response slot for whichever anchor drew it, if any. */
+  private listenOpen(slot: number): void {
+    this.setState('uwbWait')
+    this.expect = { slot, from: null, kind: 'uwbResp', open: true }
   }
 
   private transmitFor(action: SlotAction, slot: number, r: RoundState, peers: { tag: string; anchors: string[] }): void {
@@ -288,7 +397,13 @@ export class UwbDevice implements UwbRadio {
     switch (action.kind) {
       case 'uwbPoll': {
         r.txPollCounter = txCounter
-        this.send(makePoll(this.id, peers.anchors, r.plan.method, r.block, r.round), txCounter)
+        this.send(
+          makePoll(
+            this.id, peers.anchors, r.plan.method, r.block, r.round,
+            r.plan.schedule, r.plan.contentionSlots, this.cfg.maxAttempts,
+          ),
+          txCounter,
+        )
         break
       }
       case 'uwbResp': {

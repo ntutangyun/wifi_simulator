@@ -1,14 +1,16 @@
 /**
  * The inspector panel of a UWB device. A ranging node has no queue, no backoff
- * and no contention window, so none of the Wi-Fi rows apply: what it has is a
- * role, the block and round it is in, the ranges it has measured against each
- * peer, and — for a tag — the fix those ranges solve to.
+ * and no EDCA contention window, so none of the Wi-Fi rows apply: what it has is
+ * a role, the block and round it is in, the ranges it has measured against each
+ * peer, and — for a tag — the fix those ranges solve to. A contention session
+ * (standard §10.32.2 schedule mode 0) adds two rows of its own: the slot an
+ * anchor drew, and the response slots a tag lost to overlapping answers.
  *
  * Every number comes from ./rows.ts, which is where it is tested.
  */
 import type { NodeView } from '../../model/view'
 import { useStrings } from '../../ui/i18n'
-import { uwbFixRow, uwbRangeRows } from './rows'
+import { uwbContendText, uwbFixRow, uwbRangeRows } from './rows'
 
 const row: React.CSSProperties = { display: 'flex', justifyContent: 'space-between', padding: '1px 0' }
 const dim: React.CSSProperties = { color: 'var(--dim)' }
@@ -20,6 +22,9 @@ export function UwbInspector({ nv, nameOf }: { nv: NodeView; nameOf: (id: string
   if (!u) return null
   const ranges = uwbRangeRows(u, U)
   const fix = u.position ? uwbFixRow(u.position) : null
+  // Both rows exist only in a contention session: an anchor that never drew a slot and a tag
+  // that never lost one have nothing to say, and a time-scheduled session never shows either.
+  const contend = uwbContendText(u, U)
 
   return (
     <div>
@@ -31,6 +36,14 @@ export function UwbInspector({ nv, nameOf }: { nv: NodeView; nameOf: (id: string
       <div style={row}><span style={dim}>{U.slot}</span><span>{u.slot ?? '—'}</span></div>
       <div style={row}><span style={dim}>{U.timeouts}</span><span>{u.timeouts}</span></div>
       <div style={row}><span style={dim}>{U.interfered}</span><span>{u.interfered}</span></div>
+      {contend !== null && (
+        <div style={row} title={U.contendHint}><span style={dim}>{U.contend}</span><span>{contend}</span></div>
+      )}
+      {u.contendCollisions > 0 && (
+        <div style={row} title={U.contendCollisionsHint}>
+          <span style={dim}>{U.contendCollisions}</span><span>{u.contendCollisions}</span>
+        </div>
+      )}
 
       <div style={{ ...dim, marginTop: 6 }}>{U.ranges} ({ranges.length})</div>
       {ranges.length > 0 && (

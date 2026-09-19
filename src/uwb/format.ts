@@ -34,6 +34,12 @@ export function fmtUwbRecord(r: UwbTLRecord): string {
     }
     case 'UWB_TIMEOUT':
       return `${r.node} UWB slot ${r.slot}: no ${KIND_SHORT[r.expected]} from ${r.peer}`
+    case 'UWB_CONTEND':
+      return r.slot === null
+        ? `${r.node} sits out this round`
+        : `${r.node} contends: slot ${r.slot} (attempt ${r.attempt})`
+    case 'UWB_CONTEND_COLLISION':
+      return `${r.node} contention collision in slot ${r.slot}`
     case 'UWB_ROUND_END':
       return `${r.node} UWB round ${r.round} of block ${r.block} ends`
     case 'UWB_INTERFERED':

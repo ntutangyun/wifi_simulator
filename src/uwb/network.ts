@@ -3,10 +3,12 @@
  * that walks the session schedule.
  *
  * It is the UWB counterpart of the Wi-Fi link wiring in engine/simulation.ts,
- * and deliberately much smaller, because a scheduled ranging session has no
- * contention to arbitrate: the block/round/slot grid (src/uwb/session.ts) says
- * who transmits when, for the whole session, before it starts. All this class
- * does is turn that grid into events and hand each slot to its participants.
+ * and deliberately much smaller, because a ranging session has no medium to
+ * arbitrate: the block/round/slot grid (src/uwb/session.ts) says who transmits
+ * when, for the whole session, before it starts. All this class does is turn
+ * that grid into events and hand each slot to its participants. A contention
+ * session changes nothing here — the grid reserves a response window, and the
+ * anchors, not the network, decide which slot of it each of them answers in.
  *
  * Tag k owns round k of every block. Anchors serve every round.
  */
@@ -91,7 +93,10 @@ export class UwbNetwork {
       const clock = UwbClock.fromRng(rng, n.uwb?.ppm)
       const dev = new UwbDevice(
         n.id,
-        { role: n.uwb?.role ?? 'anchor', pos: n.pos, tsNoisePs: cfg.tsNoisePs, cfoNoisePpm: cfg.cfoNoisePpm },
+        {
+          role: n.uwb?.role ?? 'anchor', pos: n.pos,
+          tsNoisePs: cfg.tsNoisePs, cfoNoisePpm: cfg.cfoNoisePpm, maxAttempts: cfg.maxAttempts,
+        },
         clock, rng, q, now, ch, emit, geometry,
       )
       this.devices.set(n.id, dev)
@@ -120,7 +125,15 @@ export class UwbNetwork {
           }, 0)
         }
         const endNs = slotStartNs(this.plan, block, k, this.plan.slots - 1) + this.plan.slotNs
-        q.schedule(endNs, () => { for (const d of crowd) d.endRound() }, 0)
+        q.schedule(endNs, () => {
+          // The tag closes first (it always did: it heads the crowd), and what it ranged this
+          // round is handed straight back to the anchors. SS-TWR ends at the tag, so this is
+          // the only way a responder in a contention round can learn whether its draw worked —
+          // the model's stand-in for the upper layer of standard §10.32.1 NOTE. A time-scheduled
+          // round ignores the flag entirely, and emits nothing either way.
+          const heard = new Set(this.devices.get(tagId)!.endRound())
+          for (const id of anchors) this.devices.get(id)!.endRound(heard.has(id))
+        }, 0)
       })
       q.schedule((block + 1) * this.plan.blockNs, () => startBlock(block + 1), 0)
     }
