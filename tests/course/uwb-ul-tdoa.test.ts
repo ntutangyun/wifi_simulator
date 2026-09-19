@@ -217,9 +217,9 @@ describe('uwb-ul-tdoa · lesson shape', () => {
     const ids = LESSONS.map((l) => l.id)
     expect(ids[ids.indexOf('uwb-ul-tdoa') - 1]).toBe('uwb-dl-tdoa')
     expect(COURSE_ORDER[COURSE_ORDER.indexOf('uwb-dl-tdoa') + 1]).toBe('uwb-ul-tdoa')
-    // the last id of the tier has no lesson yet and is simply skipped
+    // and the last lesson of the tier follows it
     expect(COURSE_ORDER[COURSE_ORDER.indexOf('uwb-ul-tdoa') + 1]).toBe('uwb-aoa')
-    expect(ids).not.toContain('uwb-aoa')
+    expect(ids[ids.indexOf('uwb-ul-tdoa') + 1]).toBe('uwb-aoa')
   })
 })
 

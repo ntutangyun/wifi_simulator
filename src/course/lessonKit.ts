@@ -287,4 +287,9 @@ export const firstUwbBlink = txOf((r) => r.frame.kind === 'uwbBlink')
 export const firstUwbDlRound = (r: TLRecord): boolean => r.type === 'UWB_ROUND' && r.mode === 'dl-tdoa'
 /** UL-TDoA: the one-slot round a single tag owns — the only thing it takes of the block. */
 export const firstUwbUlRound = (r: TLRecord): boolean => r.type === 'UWB_ROUND' && r.mode === 'ul-tdoa'
+/** Angle of arrival: the first bearing an anchor took off a frame from a tag. */
+export const firstUwbAoa = (r: TLRecord): boolean => r.type === 'UWB_AOA'
+/** Angle of arrival: the first fix an anchor solved on its own, from its range and its bearing —
+ * the only position in this simulator that one anchor produces. */
+export const firstUwbAoaFix = (r: TLRecord): boolean => r.type === 'UWB_POSITION' && r.method === 'aoa'
 

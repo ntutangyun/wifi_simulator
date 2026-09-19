@@ -35,6 +35,7 @@ import { uwbCoexist } from './uwb/uwb-coexist'
 import { uwbContention } from './uwb/uwb-contention'
 import { uwbDlTdoa } from './uwb/uwb-dl-tdoa'
 import { uwbUlTdoa } from './uwb/uwb-ul-tdoa'
+import { uwbAoa } from './uwb/uwb-aoa'
 export type { Block, JumpTarget, L10n, Lesson, LessonVariant, Quiz } from './lessonKit'
 
 export { MODULES, TIERS } from './curriculum'
@@ -124,6 +125,7 @@ const AUTHORED: Lesson[] = [
   uwbContention,
   uwbDlTdoa,
   uwbUlTdoa,
+  uwbAoa,
   // ======================= MODULE 1 =======================
   {
     id: 'airtime',
