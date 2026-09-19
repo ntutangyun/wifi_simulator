@@ -271,4 +271,10 @@ export const firstUwbRoundEnd = (r: TLRecord): boolean => r.type === 'UWB_ROUND_
 export const firstUwbPosition = (r: TLRecord): boolean => r.type === 'UWB_POSITION'
 export const firstUwbTimeout = (r: TLRecord): boolean => r.type === 'UWB_TIMEOUT'
 export const firstUwbRxTs = (r: TLRecord): boolean => r.type === 'UWB_TS' && r.dir === 'rx'
+/** Contention round: the first anchor to actually draw a response slot (a sit-out draws nothing). */
+export const firstUwbContend = (r: TLRecord): boolean => r.type === 'UWB_CONTEND' && r.slot !== null
+/** Contention round: the first response slot the tag lost to two anchors answering in it. */
+export const firstUwbContendCollision = (r: TLRecord): boolean => r.type === 'UWB_CONTEND_COLLISION'
+/** Contention round: the first anchor whose retry budget ran out, so it stays silent for a round. */
+export const firstUwbSitOut = (r: TLRecord): boolean => r.type === 'UWB_CONTEND' && r.slot === null
 

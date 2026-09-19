@@ -239,13 +239,13 @@ describe('uwb-coexist · lesson shape', () => {
     expect(MODULES[13]).toEqual({ tier: 5, title: { en: 'Coexistence', zh: '共存' } })
     expect(MODULES[14]).toEqual({ tier: 5, title: { en: 'Other ranging modes', zh: '其他测距模式' } })
     expect(MODULES[uwbCoexist.module].tier).toBe(5)
-    // the five tier-2 ids follow uwb-position, and the four with no lesson yet are simply skipped
+    // the five tier-2 ids follow uwb-position, and the three with no lesson yet are simply skipped
     const after = COURSE_ORDER.slice(COURSE_ORDER.indexOf('uwb-position') + 1)
     expect(after).toEqual(['uwb-coexist', 'uwb-contention', 'uwb-dl-tdoa', 'uwb-ul-tdoa', 'uwb-aoa'])
     const ids = LESSONS.map((l) => l.id)
-    expect(ids[ids.length - 1]).toBe('uwb-coexist')
-    expect(ids[ids.length - 2]).toBe('uwb-position')
-    for (const id of after.slice(1)) expect(ids, id).not.toContain(id)
+    expect(ids[ids.length - 2]).toBe('uwb-coexist')
+    expect(ids[ids.length - 3]).toBe('uwb-position')
+    for (const id of after.slice(2)) expect(ids, id).not.toContain(id)
   })
 })
 
