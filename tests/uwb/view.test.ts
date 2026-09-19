@@ -53,7 +53,7 @@ describe('the UWB view reducer', () => {
     expect(tag.acs).toBeNull()
     expect(tag.uwb).toEqual({
       role: 'tag', block: 0, round: 0, slot: null, rounds: 0, timeouts: 0, interfered: 0,
-      contend: null, contendCollisions: 0, ranges: {}, tdoa: {}, position: null,
+      contend: null, contendCollisions: 0, ranges: {}, tdoa: {}, aoa: {}, position: null,
     })
     expect(vs.nodes['anc-1'].uwb?.role).toBe('anchor')
   })
@@ -75,7 +75,10 @@ describe('the UWB view reducer', () => {
     expect(u.ranges['anc-1'].distM).toBeCloseTo(5.71, 6)
     expect(u.ranges['anc-1'].trueDistM).toBeCloseTo(5.66, 6)
     expect(u.ranges['anc-1'].method).toBe('ds')
-    expect(u.position).toEqual({ x: 4.1, y: 3.9, trueX: 4, trueY: 4, gdop: 1.8, ellipse, method: 'twr', block: 3, n: 1 })
+    expect(u.position).toEqual({
+      x: 4.1, y: 3.9, trueX: 4, trueY: 4, gdop: 1.8, ellipse, method: 'twr',
+      anchors: ['anc-1', 'anc-2'], block: 3, n: 1,
+    })
   })
 
   it('the tag’s slot ticks while the round runs and only UWB_ROUND_END clears it', () => {
@@ -101,7 +104,7 @@ describe('the UWB view reducer', () => {
     // anc-2 took part in nothing of its own: untouched by the tag's records
     expect(vs.nodes['anc-2'].uwb).toEqual({
       role: 'anchor', block: 0, round: 0, slot: null, rounds: 0, timeouts: 0, interfered: 0,
-      contend: null, contendCollisions: 0, ranges: {}, tdoa: {}, position: null,
+      contend: null, contendCollisions: 0, ranges: {}, tdoa: {}, aoa: {}, position: null,
     })
   })
 
@@ -173,6 +176,33 @@ describe('the UWB view reducer', () => {
     const anchor = vs.nodes['anc-1'].uwb!
     expect(anchor.tdoa).toEqual({})
     expect(anchor.position).toBeNull()
+  })
+
+  it('keeps each anchor’s own bearings on its own lane, and the fix they solve on the tag’s', () => {
+    const vs = initViewState(uwbScenario())
+    const bearings: Parameters<EmitFn>[0][] = [
+      { t: 1_000_000, type: 'UWB_AOA', node: 'anc-1', peer: 'tag-1', thetaDeg: 41.6, trueThetaDeg: 45, block: 4, round: 0 },
+      { t: 1_100_000, type: 'UWB_AOA', node: 'anc-1', peer: 'tag-1', thetaDeg: 45.4, trueThetaDeg: 45, block: 4, round: 0 },
+      { t: 1_200_000, type: 'UWB_AOA', node: 'anc-2', peer: 'tag-1', thetaDeg: -12.1, trueThetaDeg: -10, block: 4, round: 0 },
+      {
+        t: 1_300_000, type: 'UWB_POSITION', node: 'anc-1', x: 4.1, y: 3.9, trueX: 4, trueY: 4,
+        gdop: 1, ellipse, anchors: ['anc-1'], block: 4, method: 'aoa', of: 'tag-1',
+      },
+    ]
+    for (const r of seq(bearings)) applyRecord(vs, r)
+    const a1 = vs.nodes['anc-1'].uwb!
+    // One row per peer, the latest reading, counting every frame it was measured on — and the
+    // anchor's block and round come from them, as they do from its ranges.
+    expect(a1.aoa).toEqual({ 'tag-1': { thetaDeg: 45.4, trueThetaDeg: 45, n: 2 } })
+    expect(a1.block).toBe(4)
+    expect(vs.nodes['anc-2'].uwb!.aoa).toEqual({ 'tag-1': { thetaDeg: -12.1, trueThetaDeg: -10, n: 1 } })
+    // The bearing belongs to the anchor; the position it helped solve belongs to the tag.
+    expect(a1.position).toBeNull()
+    const tag = vs.nodes['tag-1'].uwb!
+    expect(tag.aoa).toEqual({})
+    expect(tag.position?.method).toBe('aoa')
+    expect(tag.position?.anchors).toEqual(['anc-1'])
+    expect(tag.position?.gdop).toBe(1)
   })
 
   it('counts a frame lost to Wi-Fi at the receiver that lost it', () => {

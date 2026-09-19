@@ -117,6 +117,34 @@ describe('uwbSessionIssue', () => {
       .toEqual({ ...DEFAULT_UWB_SESSION, mode: 'dl-tdoa', schedule: 'time', tdoaClockCorrection: false })
   })
 
+  it('round-trips the angle-of-arrival checkbox and an anchor’s facing', () => {
+    // The two fields slice 6 adds to the editor: a session-wide checkbox, and a yaw on the
+    // anchor whose array it turns. Both survive the schema unchanged, and the yaw is optional —
+    // an anchor that has never been turned carries no field at all and faces +x.
+    const sc = withUwb(1, { aoa: true })
+    const turned: Scenario = {
+      ...sc,
+      nodes: sc.nodes.map((n) => (n.id === 'anchor-1' ? { ...n, uwb: { role: 'anchor' as const, yawDeg: 90 } } : n)),
+    }
+    expect(uwbSessionIssue(turned)).toBeNull()
+    const parsed = ScenarioSchema.parse(turned)
+    expect(parsed.uwb).toEqual({ ...DEFAULT_UWB_SESSION, aoa: true })
+    expect(parsed.nodes.find((n) => n.id === 'anchor-1')!.uwb).toEqual({ role: 'anchor', yawDeg: 90 })
+    expect(parsed.nodes.find((n) => n.id === 'uwb-1')!.uwb).toEqual({ role: 'tag' })
+    // A session saved before the checkbox existed reads as off, not as undefined.
+    const { aoa: _dropped, ...legacy } = DEFAULT_UWB_SESSION
+    expect(ScenarioSchema.parse({ ...sc, uwb: legacy }).uwb!.aoa).toBe(false)
+    // …and the field the editor clamps to ±180 is the field the schema accepts.
+    for (const yawDeg of [-180, 0, 180]) {
+      expect(ScenarioSchema.safeParse({
+        ...sc, nodes: sc.nodes.map((n) => (n.id === 'anchor-1' ? { ...n, uwb: { role: 'anchor', yawDeg } } : n)),
+      }).success).toBe(true)
+    }
+    expect(ScenarioSchema.safeParse({
+      ...sc, nodes: sc.nodes.map((n) => (n.id === 'anchor-1' ? { ...n, uwb: { role: 'anchor', yawDeg: 181 } } : n)),
+    }).success).toBe(false)
+  })
+
   it('takes a contention session back to the time schedule when a one-way mode is picked', () => {
     // Exactly what the method select does for DS-TWR: the schema takes a one-way round in a
     // time-scheduled session only, so the field changes the pair together rather than leaving

@@ -47,6 +47,11 @@ export function fmtUwbRecord(r: UwbTLRecord): string {
       return `${r.node} ${r.dir.toUpperCase()} RMARKER ${r.dir === 'tx' ? '→' : '←'} ${r.peer} ${KIND_SHORT[r.frameKind]}: counter ${r.counter}${r.fom !== undefined ? ` (${fomText(r.fom)})` : ''}`
     case 'UWB_RANGE':
       return `${r.node} range → ${r.peer} (${r.method.toUpperCase()}): ${r.distM.toFixed(2)} m (true ${r.trueDistM.toFixed(2)} m${r.tofRawRctu !== undefined ? `, raw ${rctuToMetres(r.tofRawRctu).toFixed(2)} m` : ''})`
+    case 'UWB_AOA':
+      // The arrow points the way the measurement does: the anchor looked *at* the tag. The
+      // truth beside it is where the tag really was — which is how a reader sees a bearing
+      // behind the anchor come back mirrored into its field of view.
+      return `${r.node} AoA ← ${r.peer}: ${r.thetaDeg.toFixed(1)}° (true ${r.trueThetaDeg.toFixed(1)}°)`
     case 'UWB_TDOA':
       // UL-TDoA: the node printing the line is the reference anchor, and the difference is about
       // a tag that blinked once. Say whose it is, or the line reads as the anchor's own geometry.

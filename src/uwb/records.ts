@@ -29,6 +29,12 @@ export type UwbRecord =
    * so `node` is the reference anchor, `of` names the tag, and the truth is about the tag:
    * (d(of, peer) − d(of, ref)) / c. */
   | { type: 'UWB_TDOA'; node: string; ref: string; peer: string; dtNs: number; trueDtNs: number; block: number; round: number; of?: string }
+  /** One bearing: the azimuth an anchor measured to a tag from the phase difference between
+   * its two antennas, in degrees from its own boresight (positive to its left), with the
+   * geometric truth beside it. Emitted at the anchor, once per frame it received from the tag
+   * in the round — and, behind the anchor, mirrored into the front half by the physics of a
+   * two-element array (src/uwb/aoa.ts), which is exactly what `trueThetaDeg` is there to show. */
+  | { type: 'UWB_AOA'; node: string; peer: string; thetaDeg: number; trueThetaDeg: number; block: number; round: number }
   /** A 2-D fix solved from this block's ranges or time differences. `method` says which, and
    * `of` names the node the fix is *about* when that is not `node` itself (UL-TDoA, where the
    * infrastructure solves a tag's position). */

@@ -89,6 +89,12 @@ export function UwbSessionFields(
           onChange={(e) => onChange({ tdoaClockCorrection: e.target.checked })} />
         {E.uwbClockCorrection}
       </label>
+      <label style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 4, cursor: oneWay === null ? 'pointer' : 'default' }}
+        title={oneWay === null ? E.uwbAoaHint : E.uwbAoaTwrOnly}>
+        <input type="checkbox" checked={session.aoa} disabled={oneWay !== null}
+          onChange={(e) => onChange({ aoa: e.target.checked })} />
+        {E.uwbAoa}
+      </label>
       <label style={label} title={oneWay === 'ul-tdoa' ? E.uwbSyncErrorHint : E.uwbUlOnly}>
         {E.uwbSyncError}{' '}
         <input type="number" min={0} max={10} step={0.1} value={session.syncErrorNs} style={{ width: 62 }}

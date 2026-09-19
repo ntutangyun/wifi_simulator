@@ -27,6 +27,14 @@ export interface UwbTdoaView {
   n: number
 }
 
+/** The latest bearing to one peer, with the geometric truth beside it. Degrees from the
+ * measuring anchor's own boresight, positive to its left. */
+export interface UwbAoaView {
+  thetaDeg: number
+  trueThetaDeg: number
+  n: number
+}
+
 /** The latest position fix, with the truth beside it and how many have landed. */
 export interface UwbPositionView {
   x: number
@@ -37,6 +45,10 @@ export interface UwbPositionView {
   ellipse: { a: number; b: number; thetaRad: number }
   /** What solved it: two-way ranges, one-way time differences, or an angle. */
   method: UwbFixMethod
+  /** The anchors it was solved from, in the order the record listed them. An angle fix names
+   * exactly one — the anchor that measured both the range and the bearing — which is what lets
+   * the overlay draw that bearing from the right place on the floor. */
+  anchors: string[]
   /** Ranging block this fix was solved in: what the scene overlay ages the cross and ellipse by. */
   block: number
   n: number
@@ -62,13 +74,17 @@ export interface UwbNodeView {
   /** One-way ranging: the latest time difference per peer, all against the same reference
    * anchor (the round's anchor 0), which is why the reference itself never has a row. */
   tdoa: Record<string, UwbTdoaView>
+  /** Angle-of-arrival sessions, anchor: the latest bearing it measured to each tag. It sits on
+   * the *anchor's* lane, unlike the fix that bearing helps solve — the bearing is the anchor's
+   * own measurement, and two anchors watching one tag each have their own. */
+  aoa: Record<string, UwbAoaView>
   position: UwbPositionView | null
 }
 
 export function initUwbNodeView(cfg: UwbNodeCfg): UwbNodeView {
   return {
     role: cfg.role, block: 0, round: 0, slot: null, rounds: 0, timeouts: 0, interfered: 0,
-    contend: null, contendCollisions: 0, ranges: {}, tdoa: {}, position: null,
+    contend: null, contendCollisions: 0, ranges: {}, tdoa: {}, aoa: {}, position: null,
   }
 }
 
@@ -120,6 +136,21 @@ export function applyUwbRecord(vs: ViewState, r: TLRecord): boolean {
       }
       return true
     }
+    case 'UWB_AOA': {
+      const u = vs.nodes[r.node]?.uwb
+      if (u) {
+        const prev = u.aoa[r.peer]
+        u.aoa[r.peer] = { thetaDeg: r.thetaDeg, trueThetaDeg: r.trueThetaDeg, n: (prev?.n ?? 0) + 1 }
+        // As with a range: an anchor sees none of the tag's round records, so the bearings it
+        // measures are what move its block and round. In an SS round they are the only thing
+        // that can — the anchor computes no range there at all.
+        if (u.role === 'anchor') {
+          u.block = r.block
+          u.round = r.round
+        }
+      }
+      return true
+    }
     case 'UWB_TDOA': {
       const u = subject(vs, r)
       if (u) {
@@ -133,7 +164,8 @@ export function applyUwbRecord(vs: ViewState, r: TLRecord): boolean {
       if (u) {
         u.position = {
           x: r.x, y: r.y, trueX: r.trueX, trueY: r.trueY, gdop: r.gdop,
-          ellipse: { ...r.ellipse }, method: r.method, block: r.block, n: (u.position?.n ?? 0) + 1,
+          ellipse: { ...r.ellipse }, method: r.method, anchors: [...r.anchors],
+          block: r.block, n: (u.position?.n ?? 0) + 1,
         }
       }
       return true

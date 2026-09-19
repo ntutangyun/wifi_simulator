@@ -12,7 +12,7 @@
  */
 import type { NodeView } from '../../model/view'
 import { useStrings } from '../../ui/i18n'
-import { uwbContendText, uwbFixRow, uwbRangeRows, uwbTdoaRows } from './rows'
+import { uwbAoaRows, uwbContendText, uwbFixRow, uwbRangeRows, uwbTdoaRows } from './rows'
 
 const row: React.CSSProperties = { display: 'flex', justifyContent: 'space-between', padding: '1px 0' }
 const dim: React.CSSProperties = { color: 'var(--dim)' }
@@ -25,6 +25,8 @@ export function UwbInspector({ nv, nameOf }: { nv: NodeView; nameOf: (id: string
   const ranges = uwbRangeRows(u, U)
   // One-way ranging: a listening tag measures no distance at all, only differences of them.
   const tdoa = uwbTdoaRows(u)
+  // Angle of arrival: the anchor's own bearings, one row per tag it has seen.
+  const aoa = uwbAoaRows(u)
   const fix = u.position ? uwbFixRow(u.position, U) : null
   // Both rows exist only in a contention session: an anchor that never drew a slot and a tag
   // that never lost one have nothing to say, and a time-scheduled session never shows either.
@@ -105,6 +107,36 @@ export function UwbInspector({ nv, nameOf }: { nv: NodeView; nameOf: (id: string
         </>
       )}
 
+      {aoa.length > 0 && (
+        <>
+          <div style={{ ...dim, marginTop: 6 }} title={U.aoaHint}>{U.aoa} ({aoa.length})</div>
+          <table style={{ width: '100%', fontSize: 11.5, borderCollapse: 'collapse' }}>
+            <thead>
+              <tr style={dim}>
+                <td>{U.peer}</td>
+                <td style={num}>{U.measured}</td>
+                <td style={num}>{U.trueDist}</td>
+                <td style={num}>{U.error}</td>
+                <td style={num}>{U.aoaSigma}</td>
+                <td style={num}>{U.rounds}</td>
+              </tr>
+            </thead>
+            <tbody>
+              {aoa.map((a) => (
+                <tr key={a.peer} title={U.aoaRowHint}>
+                  <td>{nameOf(a.peer)}</td>
+                  <td style={num}>{a.measured}</td>
+                  <td style={num}>{a.trueTheta}</td>
+                  <td style={num}>{a.error}</td>
+                  <td style={num}>{a.sigma}</td>
+                  <td style={num}>{a.rounds}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
+
       {u.role === 'tag' && (
         <>
           <div style={{ ...dim, marginTop: 6 }}>{U.position}</div>
@@ -117,7 +149,8 @@ export function UwbInspector({ nv, nameOf }: { nv: NodeView; nameOf: (id: string
               <div style={row}><span style={dim}>{U.gdop}</span><span>{fix.gdop}</span></div>
               <div
                 style={row}
-                title={u.position !== null && u.position.method !== 'twr' ? U.ellipseHintTdoa : undefined}
+                title={u.position === null || u.position.method === 'twr' ? undefined
+                  : u.position.method === 'aoa' ? U.ellipseHintAoa : U.ellipseHintTdoa}
               >
                 <span style={dim}>{U.ellipse}</span><span>{fix.ellipse}</span>
               </div>

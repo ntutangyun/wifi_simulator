@@ -12,6 +12,12 @@
  * is not even the tag's own — the infrastructure solved it and the view routed
  * it to the tag's lane (`of`), which is what puts the cross under the tag here.
  *
+ * An angle-of-arrival fix gets a ring *and* a ray: the anchor measured a distance
+ * and a direction, and the honest picture of that pair is the circle of the range
+ * crossed by the bearing line, meeting at the cross. The line runs from the anchor
+ * to the fix — which is exactly the bearing, at exactly the measured range, since
+ * that is how the fix was built — so nothing here needs to know the anchor's yaw.
+ *
  * Everything fades with age rather than blinking out: a drawing is at full
  * strength when its round ends and has faded to nothing one ranging block later,
  * so the eye sees the measurement's freshness. A ring, cross or ellipse more
@@ -34,6 +40,7 @@ import { roundPlan } from './session'
 export const UWB_RING_COLOR = 0xfbbf24
 export const UWB_FIX_COLOR = 0xf59e0b
 export const UWB_ELLIPSE_COLOR = 0xf59e0b
+export const UWB_BEARING_COLOR = 0xfbbf24
 
 export { ELLIPSE_DRAW_SCALE } from './view'
 
@@ -43,6 +50,7 @@ const RING_SEGMENTS = 64
 const RING_MAX_OPACITY = 0.45
 const FIX_MAX_OPACITY = 1
 const ELLIPSE_MAX_OPACITY = 0.8
+const BEARING_MAX_OPACITY = 0.55
 /** The fix cross is two lines of this length, crossed at the estimate. */
 const CROSS_LEN_M = 0.3
 
@@ -54,6 +62,11 @@ function circleGeometry(): THREE.BufferGeometry {
     pts.push(new THREE.Vector3(Math.cos(a), 0, Math.sin(a)))
   }
   return new THREE.BufferGeometry().setFromPoints(pts)
+}
+
+/** A unit segment from the origin along +x, ready to be turned to a bearing and scaled to a range. */
+function rayGeometry(): THREE.BufferGeometry {
+  return new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(1, 0, 0)])
 }
 
 function crossGeometry(): THREE.BufferGeometry {
@@ -75,7 +88,8 @@ export class UwbOverlay {
   private positions = new Map<string, { x: number; z: number }>()
   private blockNs: Ns
   private roundNs: Ns
-  /** Live objects, keyed by their own name: 'ring:<tag>:<anchor>', 'fix:<tag>', 'ellipse:<tag>'. */
+  /** Live objects, keyed by their own name: 'ring:<tag>:<anchor>', 'fix:<tag>', 'ellipse:<tag>',
+   * 'bearing:<tag>'. */
   private objects = new Map<string, THREE.Line>()
 
   constructor(sc: Scenario) {
@@ -134,7 +148,9 @@ export class UwbOverlay {
       // circle, and hyperbolae are not drawn here. So a TDoA lane shows the fix and its ellipse
       // and nothing else — which is also the honest picture of what that tag's round produced.
       // Two-way ranging keeps every ring it ever had.
-      const rings = u.position === null || u.position.method === 'twr'
+      // …and an angle fix keeps its ring too: the ring and the bearing line are the two halves
+      // of what one anchor measured, and where they cross is the whole of the lesson.
+      const rings = u.position === null || u.position.method === 'twr' || u.position.method === 'aoa'
       for (const [id, r] of rings ? Object.entries(u.ranges) : []) {
         const peer = physicalId(id)
         const anchor = this.positions.get(peer)
@@ -177,6 +193,21 @@ export class UwbOverlay {
       // is up, so the same turn is a negative rotation about it.
       ell.rotation.y = -fix.ellipse.thetaRad
       alive.add(`ellipse:${tag}`)
+
+      // The measured bearing, drawn from the anchor that measured it to the fix it produced.
+      // Its length is the range, because the fix sits at that range along that bearing.
+      const src = fix.method === 'aoa' ? this.positions.get(physicalId(fix.anchors[0])) : undefined
+      if (!src) continue
+      const ray = this.ensure(`bearing:${tag}`, () => new THREE.Line(
+        rayGeometry(), new THREE.LineBasicMaterial({ color: UWB_BEARING_COLOR, transparent: true, opacity: BEARING_MAX_OPACITY }),
+      ))
+      ray.position.set(src.x, FLOOR_Y, src.z)
+      // Scene z is model y, so a bearing counter-clockwise in the model turns clockwise here —
+      // the same sign the ellipse's major axis takes two lines above.
+      ray.rotation.y = -Math.atan2(fix.y - src.z, fix.x - src.x)
+      ray.scale.x = Math.hypot(fix.x - src.x, fix.y - src.z)
+      ;(ray.material as THREE.LineBasicMaterial).opacity = BEARING_MAX_OPACITY * fade
+      alive.add(`bearing:${tag}`)
     }
 
     for (const [key, obj] of this.objects) {

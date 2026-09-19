@@ -111,6 +111,9 @@ export class UwbNetwork {
           role: n.uwb?.role ?? 'anchor', pos: n.pos,
           tsNoisePs: cfg.tsNoisePs, cfoNoisePpm: cfg.cfoNoisePpm, maxAttempts: cfg.maxAttempts,
           tdoaClockCorrection: cfg.tdoaClockCorrection, syncOffsetNs, syncErrorNs: cfg.syncErrorNs,
+          // Angle of arrival is a property of the anchor hardware, so a tag carries the flag
+          // and never acts on it; an anchor with no yaw of its own faces +x.
+          aoa: cfg.aoa, yawDeg: n.uwb?.yawDeg ?? 0, channel: cfg.channel,
         },
         clock, rng, q, now, ch, emit, geometry,
       )

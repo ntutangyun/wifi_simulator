@@ -17,7 +17,9 @@ import { DEFAULT_UWB_SESSION, nonht, type NodeCfg, type Scenario } from '../../s
 import { cloneView, type ViewState } from '../../src/model/view'
 import { UWB_TX_POWER_DBM } from '../../src/uwb/phy'
 import { roundPlan } from '../../src/uwb/session'
-import { ELLIPSE_DRAW_SCALE, UWB_ELLIPSE_COLOR, UWB_FIX_COLOR, UWB_RING_COLOR, UwbOverlay } from '../../src/uwb/scene'
+import {
+  ELLIPSE_DRAW_SCALE, UWB_BEARING_COLOR, UWB_ELLIPSE_COLOR, UWB_FIX_COLOR, UWB_RING_COLOR, UwbOverlay,
+} from '../../src/uwb/scene'
 
 const MS = 1_000_000
 const ANCHORS = ['anchor-1', 'anchor-2', 'anchor-3', 'anchor-4']
@@ -42,6 +44,27 @@ function ulScenario(): Scenario {
     ],
     servers: [], seed: 7, rtsThresholdBytes: 3000, snapshotIntervalMs: 10,
     uwb: { ...DEFAULT_UWB_SESSION, mode: 'ul-tdoa', nlos: false },
+  }
+}
+
+/** An angle-of-arrival floor: one anchor on the south wall facing the room (+y), one tag 4 m
+ * away at 45° off that boresight. DS-TWR, so the anchor has a range as well as a bearing. */
+const AOA_ANCHOR = { x: 5, y: 0.5 }
+function aoaScenario(): Scenario {
+  const world = ((90 + 45) * Math.PI) / 180
+  const node = (id: string, x: number, y: number, role: 'anchor' | 'tag', yawDeg?: number): NodeCfg => ({
+    id, kind: 'uwb', name: id, pos: { x, y, z: 1 }, txPowerDbm: UWB_TX_POWER_DBM,
+    profiles: ['idle'], caps: { ...nonht }, uwb: { role, ppm: 0, ...(yawDeg === undefined ? {} : { yawDeg }) },
+  })
+  return {
+    rooms: [{ x: 0, y: 0, w: 10, h: 8, name: 'lab' }],
+    walls: [],
+    nodes: [
+      node('anc-1', AOA_ANCHOR.x, AOA_ANCHOR.y, 'anchor', 90),
+      node('tag-1', AOA_ANCHOR.x + 4 * Math.cos(world), AOA_ANCHOR.y + 4 * Math.sin(world), 'tag'),
+    ],
+    servers: [], seed: 7, rtsThresholdBytes: 3000, snapshotIntervalMs: 10,
+    uwb: { ...DEFAULT_UWB_SESSION, aoa: true, nlos: false },
   }
 }
 
@@ -247,6 +270,50 @@ describe('UwbOverlay', () => {
       expect(ell.scale.x).toBeCloseTo(fix.ellipse.a * ELLIPSE_DRAW_SCALE, 9)
       expect(ell.scale.z).toBeCloseTo(fix.ellipse.b * ELLIPSE_DRAW_SCALE, 9)
     }
+    overlay.dispose()
+  })
+
+  it('draws an angle fix as a ring crossed by the anchor’s bearing line', () => {
+    // One anchor on the south wall facing the room, one tag 4 m away at 45° off its boresight:
+    // the anchor measures both a distance and a direction, so the floor shows the range ring
+    // *and* the ray, meeting at the cross. Its round is four 2 ms slots, so 10 ms is one fix.
+    const sim = new Simulation(aoaScenario())
+    sim.runUntil(10 * MS)
+    const overlay = new UwbOverlay(aoaScenario())
+    overlay.update(sim.view)
+    expect(names(overlay.group)).toEqual(['bearing:tag-1', 'ellipse:tag-1', 'fix:tag-1', 'ring:tag-1:anc-1'])
+
+    const fix = sim.view.nodes['tag-1'].uwb!.position!
+    expect(fix.method).toBe('aoa')
+    expect(fix.anchors).toEqual(['anc-1'])
+    const ray = overlay.group.getObjectByName('bearing:tag-1') as THREE.Line
+    // It starts at the anchor that measured it, on the floor…
+    expect(ray.position.x).toBeCloseTo(AOA_ANCHOR.x, 9)
+    expect(ray.position.z).toBeCloseTo(AOA_ANCHOR.y, 9)
+    expect(ray.position.y).toBeGreaterThan(0)
+    // …and ends exactly at the fix: the bearing, at the measured range.
+    ray.updateMatrixWorld(true)
+    const end = new THREE.Vector3(1, 0, 0).applyMatrix4(ray.matrixWorld)
+    expect(end.x).toBeCloseTo(fix.x, 9)
+    expect(end.z).toBeCloseTo(fix.y, 9)
+    expect(ray.scale.x).toBeCloseTo(Math.hypot(fix.x - AOA_ANCHOR.x, fix.y - AOA_ANCHOR.y), 9)
+    expect((ray.material as THREE.LineBasicMaterial).color.getHex()).toBe(UWB_BEARING_COLOR)
+
+    // It ages exactly like a ring, by the block its fix was solved in.
+    const u = sim.view.nodes['tag-1'].uwb!
+    const aoaPlan = roundPlan(aoaScenario().uwb!, 1)
+    const roundEnd = fix.block * aoaPlan.blockNs + (u.round + 1) * aoaPlan.roundNs
+    overlay.update(at(sim.view, roundEnd))
+    expect(opacityOf(overlay.group.getObjectByName('bearing:tag-1')!)).toBeCloseTo(0.55, 9)
+    overlay.update(at(sim.view, roundEnd + aoaPlan.blockNs))
+    expect(opacityOf(overlay.group.getObjectByName('bearing:tag-1')!)).toBeCloseTo(0, 9)
+
+    // And it goes when the fix does: a ray with nothing at its end asserts a bearing the
+    // engine is no longer reporting.
+    const blind = cloneView(sim.view)
+    blind.nodes['tag-1'].uwb!.position = null
+    overlay.update(blind)
+    expect(overlay.group.getObjectByName('bearing:tag-1')).toBeUndefined()
     overlay.dispose()
   })
 

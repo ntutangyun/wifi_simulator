@@ -38,6 +38,16 @@ export function UwbNodeFields({ node, onChange }: { node: NodeCfg; onChange: (pa
           {ppm === undefined ? E.uwbPpmDrawn : E.uwbPpmRange}
         </span>
       </label>
+      {role === 'anchor' && (
+        <label style={label} title={E.uwbYawHint}>
+          {E.uwbYaw}{' '}
+          <input type="number" min={-180} max={180} step={5} value={node.uwb?.yawDeg ?? 0} style={{ width: 56 }}
+            onChange={(e) => onChange({
+              // merge, as the ppm field does: a later field of UwbNodeCfg must survive a yaw edit
+              uwb: { ...node.uwb, role, yawDeg: clampField(e.target.value, -180, 180) },
+            })} /> °
+        </label>
+      )}
       <label style={label}>
         {E.txPower}{' '}
         <input type="number" min={-30} max={0} step={1} value={node.txPowerDbm} style={{ width: 56 }}

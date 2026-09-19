@@ -47,6 +47,19 @@ const UL_POSITION = rec({
   ellipse: { a: 0.03, b: 0.02, thetaRad: 0.5 }, anchors: ['anc-1', 'anc-2', 'anc-3', 'anc-4'], block: 3,
   method: 'ul-tdoa', of: 'tag-1',
 })
+const AOA = rec({
+  type: 'UWB_AOA', node: 'anc-1', peer: 'tag-1', thetaDeg: 44.98764, trueThetaDeg: 45, block: 3, round: 0,
+})
+/** A tag behind the anchor: the bearing is mirrored into the field of view, and the line
+ * shows both numbers so a reader can see that it was. */
+const AOA_BEHIND = rec({
+  type: 'UWB_AOA', node: 'anc-1', peer: 'tag-1', thetaDeg: 41.62365, trueThetaDeg: 135, block: 3, round: 0,
+})
+/** One anchor, one range, one bearing: the fix names a single anchor and is about the tag. */
+const AOA_POSITION = rec({
+  type: 'UWB_POSITION', node: 'anc-1', x: 2.15, y: 3.35, trueX: 2.17, trueY: 3.33, gdop: 1,
+  ellipse: { a: 0.27, b: 0.02, thetaRad: 3.93 }, anchors: ['anc-1'], block: 3, method: 'aoa', of: 'tag-1',
+})
 const TIMEOUT = rec({ type: 'UWB_TIMEOUT', node: 'tag-1', slot: 5, peer: 'anc-2', expected: 'uwbResp' })
 const INTERFERED = rec({ type: 'UWB_INTERFERED', node: 'anc-1', from: 'tag-1', foreignDbm: -42.214, sirDb: -34.459 })
 const CONTEND = rec({ type: 'UWB_CONTEND', node: 'anc-2', slot: 5, attempt: 2 })
@@ -104,6 +117,14 @@ describe('fmtUwbRecord', () => {
       .toBe('anc-1 position of tag-1 (0.03, -0.04) m, true (0.00, 0.00), error 0.05 m, GDOP 0.87, 4 anchors (UL-TDoA)')
   })
 
+  it('prints a bearing with the truth beside it, mirror and all', () => {
+    expect(fmtUwbRecord(AOA)).toBe('anc-1 AoA ← tag-1: 45.0° (true 45.0°)')
+    expect(fmtUwbRecord(AOA_BEHIND)).toBe('anc-1 AoA ← tag-1: 41.6° (true 135.0°)')
+    // The fix it feeds says whose it is and that one anchor solved it.
+    expect(fmtUwbRecord(AOA_POSITION))
+      .toBe('anc-1 position of tag-1 (2.15, 3.35) m, true (2.17, 3.33), error 0.03 m, GDOP 1.00, 1 anchors (AoA)')
+  })
+
   it('names what a silent slot was waiting for', () => {
     expect(fmtUwbRecord(TIMEOUT)).toBe('tag-1 UWB slot 5: no resp from anc-2')
   })
@@ -129,7 +150,7 @@ describe('fmtUwbRecord', () => {
 describe('fmtRecord delegates every UWB record', () => {
   it.each([
     ROUND, DL_ROUND, SLOT, TS_TX, TS_RX, RANGE, RANGE_NO_RAW, TDOA, POSITION, DL_POSITION,
-    UL_TDOA, UL_POSITION, TIMEOUT, INTERFERED, CONTEND, SIT_OUT, CONTEND_COLLISION,
+    UL_TDOA, UL_POSITION, AOA, AOA_POSITION, TIMEOUT, INTERFERED, CONTEND, SIT_OUT, CONTEND_COLLISION,
   ])('$type', (r) => {
     expect(fmtRecord(r)).toBe(fmtUwbRecord(r))
   })

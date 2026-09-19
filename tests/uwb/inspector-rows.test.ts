@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { STRINGS } from '../../src/ui/i18n'
 import { FOM_LOS, FOM_NLOS, fomText } from '../../src/uwb/phy'
-import { uwbContendText, uwbFixRow, uwbFomText, uwbRangeRows, uwbTdoaRows } from '../../src/uwb/ui/rows'
+import { uwbAoaRows, uwbContendText, uwbFixRow, uwbFomText, uwbRangeRows, uwbTdoaRows } from '../../src/uwb/ui/rows'
 import type { UwbNodeView } from '../../src/uwb/view'
 
 /** A tag mid-block with two peers: one clear, one through a wall. */
@@ -12,10 +12,11 @@ const tag: UwbNodeView = {
     'anc-1': { distM: 5.02, trueDistM: 5, method: 'ds', fom: FOM_LOS, block: 3, n: 7 },
     'anc-2': { distM: 4.38, trueDistM: 4.5, method: 'ds', fom: FOM_NLOS, block: 3, n: 6 },
   },
-  tdoa: {},
+  tdoa: {}, aoa: {},
   position: {
     x: 0.03, y: -0.04, trueX: 0, trueY: 0, gdop: 1.41,
-    ellipse: { a: 0.062, b: 0.041, thetaRad: 0.5 }, method: 'twr', block: 3, n: 7,
+    ellipse: { a: 0.062, b: 0.041, thetaRad: 0.5 }, method: 'twr',
+    anchors: ['anc-1', 'anc-2', 'anc-3', 'anc-4'], block: 3, n: 7,
   },
 }
 
@@ -90,6 +91,28 @@ describe('uwbTdoaRows', () => {
 
   it('has no rows for a tag that measured distances instead of differences', () => {
     expect(uwbTdoaRows(tag)).toEqual([])
+  })
+})
+
+describe('uwbAoaRows', () => {
+  /** An anchor watching two tags: one nearly straight ahead, one behind it. */
+  const anchor: UwbNodeView = {
+    ...tag, role: 'anchor', ranges: {}, tdoa: {},
+    aoa: {
+      'tag-1': { thetaDeg: 44.9876, trueThetaDeg: 45, n: 6 },
+      'tag-2': { thetaDeg: 41.6236, trueThetaDeg: 135, n: 2 },
+    },
+  }
+
+  it('gives one row per peer, in degrees, with the error signed and the sigma of the angle', () => {
+    expect(uwbAoaRows(anchor)).toEqual([
+      { peer: 'tag-1', measured: '45.0°', trueTheta: '45.0°', error: '-0.0°', sigma: '± 3.9°', rounds: '6' },
+      { peer: 'tag-2', measured: '41.6°', trueTheta: '135.0°', error: '-93.4°', sigma: '± 3.7°', rounds: '2' },
+    ])
+  })
+
+  it('has no rows for a node that measured no angles', () => {
+    expect(uwbAoaRows(tag)).toEqual([])
   })
 })
 

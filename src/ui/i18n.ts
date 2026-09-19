@@ -94,6 +94,8 @@ export interface Strings {
     /** UWB ranging: the per-node fields (uwb/ui/UwbNodeFields.tsx). */
     uwbNode: string; uwbRole: string; uwbRoles: Record<'anchor' | 'tag', string>
     uwbPpm: string; uwbPpmHint: string; uwbPpmDrawn: string; uwbPpmRange: string
+    /** Anchor only: which way its antenna array faces (angle of arrival). */
+    uwbYaw: string; uwbYawHint: string
     /** UWB ranging: the session section (uwb/ui/UwbSessionFields.tsx). */
     uwbSession: string; uwbCounts: (anchors: number, tags: number) => string
     uwbNoNodes: string; uwbRemoveSession: string; uwbRemoveSessionHint: string; uwbSessionInUse: string
@@ -103,6 +105,7 @@ export interface Strings {
     uwbClockCorrection: string; uwbClockCorrectionHint: string; uwbDlOnly: string
     uwbSyncError: string; uwbSyncErrorHint: string; uwbUlOnly: string
     uwbTwrOnly: string
+    uwbAoa: string; uwbAoaHint: string; uwbAoaTwrOnly: string
     uwbBlock: string; uwbBlockHint: string; uwbSlot: string; uwbSlotHint: string
     uwbChannel: string; uwbChannelHint: string
     uwbTsNoise: string; uwbTsNoiseHint: string; uwbCfoNoise: string; uwbCfoNoiseHint: string
@@ -149,6 +152,8 @@ export interface Strings {
     ranges: string; peer: string; measured: string; trueDist: string; error: string; fom: string; rounds: string
     /** One-way ranging: the table of time differences against the round's reference anchor. */
     tdoa: string; tdoaHint: string
+    /** Angle of arrival: the anchor's table of bearings, one row per tag. */
+    aoa: string; aoaHint: string; aoaSigma: string; aoaRowHint: string
     /** The Figure of Merit byte as a phrase: "97 % within 0.5 ns" (standard §10.29.1.7). */
     fomWithin: (pct: number, intervalNs: number) => string
     noFom: string
@@ -157,6 +162,9 @@ export interface Strings {
     methodLabel: string; method: Record<UwbFixMethod, string>
     /** Shown on the ellipse of a one-way fix, whose σ is a documented approximation. */
     ellipseHintTdoa: string
+    /** Shown on the ellipse of a single-anchor angle fix, whose two axes are two different
+     * measurements rather than two directions of one. */
+    ellipseHintAoa: string
   }
   log: { empty: string }
   profiles: Record<ProfileId, string>
@@ -367,6 +375,8 @@ export const STRINGS: Record<Lang, Strings> = {
       uwbNode: 'UWB ranging (802.15.4-2024)', uwbRole: 'Role', uwbRoles: { anchor: 'anchor (fixed, answers)', tag: 'tag (ranges and solves its position)' },
       uwbPpm: 'Crystal offset', uwbPpmHint: 'error of this device’s ranging clock in parts per million; the standard allows ±20 ppm. Leave it blank to have the run draw one from the seed.',
       uwbPpmDrawn: 'drawn from the seed', uwbPpmRange: '±100 ppm; real crystals stay within ±20',
+      uwbYaw: 'Facing',
+      uwbYawHint: 'which way this anchor’s antenna array points, in degrees counter-clockwise from +x (0° faces +x, 90° faces +y). It matters only when the session measures angle of arrival: every bearing is reported from this boresight, and the anchor can only see ±90° of it — a tag behind the anchor comes back mirrored into the front half, because two antennas cannot tell front from back.',
       uwbSession: 'UWB session', uwbCounts: (a, t) => `${a} anchor${a === 1 ? '' : 's'} · ${t} tag${t === 1 ? '' : 's'}`,
       uwbNoNodes: 'no ranging device uses this session',
       uwbRemoveSession: '🗑 Remove session', uwbRemoveSessionHint: 'drop scenario.uwb — an imported file may carry a session no device takes part in',
@@ -380,6 +390,9 @@ export const STRINGS: Record<Lang, Strings> = {
       uwbSyncError: 'Anchor sync error', uwbSyncErrorHint: 'UL-TDoA: how well the anchors’ clocks are calibrated to one common timebase (model "wired sync"). Each anchor draws a fixed residual error of this size once; 1 ns of it is 30 cm of range difference that no number of blinks averages away.',
       uwbUlOnly: 'only UL-TDoA uses this: it is the anchors’ shared timebase, and no other mode compares two anchors’ timestamps',
       uwbTwrOnly: 'a one-way round is laid out in advance for every anchor, so the one-way modes are time-scheduled only',
+      uwbAoa: 'Angle of arrival (AoA)',
+      uwbAoaHint: 'every anchor also measures the phase difference between its two antennas on each frame it receives from the tag, and reports the bearing it implies (±90° of its facing, 2.7° of 1-σ at boresight and worse towards the edge). With DS-TWR an anchor then has a distance and a direction, and fixes the tag on its own — one anchor, one position.',
+      uwbAoaTwrOnly: 'the anchors only receive a frame from the tag in two-way ranging: in DL-TDoA the tag never transmits, and in UL-TDoA its one blink is not part of a round any anchor answers',
       uwbBlock: 'Block', uwbBlockHint: 'the ranging block repeats forever; every tag owns one round inside it, so the block sets how often a tag gets a fresh position',
       uwbSlot: 'Slot', uwbSlotHint: 'one ranging slot holds one frame; it has to be long enough for the round’s longest frame (the DS-TWR Final, which grows with the anchor count) plus its flight time',
       uwbChannel: 'Channel', uwbChannelHint: 'channel 5 is 6489.6 MHz, channel 9 is 7987.2 MHz. Only the 1 m free-space term differs (48.7 dB against 50.5 dB), so channel 9 costs a constant 1.8 dB at every distance.',
@@ -442,6 +455,10 @@ export const STRINGS: Record<Lang, Strings> = {
       fom: 'confidence', rounds: 'rounds',
       tdoa: 'time differences',
       tdoaHint: 'one-way ranging measures no distances: each row is how much later this anchor’s message arrived than the reference anchor’s, which places the tag on a hyperbola between the two',
+      aoa: 'bearings measured',
+      aoaHint: 'the angle this anchor saw the tag at, in degrees from its own facing and positive to its left; it comes from the phase difference between the anchor’s two antennas, not from any time of flight',
+      aoaSigma: '1-σ',
+      aoaRowHint: 'the 1-σ of a bearing is σ_φ/(π·cos θ): 2.7° straight ahead, twice that at 60°, and unbounded at ±90°, where turning the tag changes no phase at all. A true bearing beyond ±90° is behind the anchor, and comes back mirrored into the front half.',
       fomWithin: (pct, ns) => `${pct} % within ${ns} ns`, noFom: 'no FoM',
       position: 'position', estimate: 'estimate', gdop: 'GDOP', ellipse: 'error ellipse (1-σ)',
       noPosition: 'no fix yet — a tag needs ranges to three anchors in one block',
@@ -449,6 +466,7 @@ export const STRINGS: Record<Lang, Strings> = {
       method: {
         twr: 'two-way ranging', 'dl-tdoa': 'DL-TDoA', 'ul-tdoa': 'UL-TDoA', aoa: 'angle of arrival',
       },
+      ellipseHintAoa: 'a single-anchor fix has two unrelated axes: along the ray it is the range’s own sigma (2.1 cm at 100 ps), across it the bearing’s r·σ_θ — 19 cm at 4 m straight ahead, and more off to the side. So the ellipse is a sliver turned across the line of sight at any useful distance. The fix multiplies a slant range by a horizontal bearing, so an anchor well above the tag also places it a little too far out along the ray.',
       ellipseHintTdoa: 'a one-way fix draws its ellipse from what a time difference really carries: two noisy timestamps, and then — in DL-TDoA — each responder’s clock-offset residual, which grows with the slot it answers in, or — in UL-TDoA — the anchors’ calibration error. It is a first-order model: an anchor’s sync error is a fixed bias, not noise that averages away over rounds, so read the ellipse as indicative of how far the fix may be off rather than as a 68 % interval.',
     },
     log: { empty: 'no events in window' },
@@ -778,6 +796,8 @@ export const STRINGS: Record<Lang, Strings> = {
       uwbNode: 'UWB 测距（802.15.4-2024）', uwbRole: '角色', uwbRoles: { anchor: '锚点（位置固定，负责应答）', tag: '标签（测距并解算自身位置）' },
       uwbPpm: '晶振偏差', uwbPpmHint: '该设备测距时钟的频率偏差，单位 ppm；标准允许 ±20 ppm。留空则由本次仿真按随机种子抽取。',
       uwbPpmDrawn: '由种子抽取', uwbPpmRange: '±100 ppm；真实晶振通常在 ±20 以内',
+      uwbYaw: '朝向',
+      uwbYawHint: '该锚点天线阵列指向的方向，以 +x 轴为 0°、逆时针为正（90° 即指向 +y）。只有当会话开启到达角测量时才有意义：所有方位角都相对这个正前方给出，而锚点只能看到其左右各 90°——位于锚点背后的标签会被镜像到正前方那一侧，因为两根天线分辨不出前后。',
       uwbSession: 'UWB 测距会话', uwbCounts: (a, t) => `${a} 个锚点 · ${t} 个标签`,
       uwbNoNodes: '当前没有任何测距设备使用该会话',
       uwbRemoveSession: '🗑 删除测距会话', uwbRemoveSessionHint: '删除 scenario.uwb——导入的文件里可能带着一个没有任何设备参与的会话',
@@ -791,6 +811,9 @@ export const STRINGS: Record<Lang, Strings> = {
       uwbSyncError: '锚点同步误差', uwbSyncErrorHint: 'UL-TDoA：各锚点的时钟被校准到同一时基的程度（模型采用"有线同步"）。每个锚点一次性抽取一个这种量级的固定残差；1 ns 就是 30 cm 的距离差，而且发再多闪发也平均不掉。',
       uwbUlOnly: '只有 UL-TDoA 用得上：这是锚点之间的共享时基，其他模式都不会去比较两个锚点的时间戳',
       uwbTwrOnly: '单向测距的轮次必须为每个锚点事先排好时隙，因此两种单向模式只支持时间调度',
+      uwbAoa: '到达角（AoA）',
+      uwbAoaHint: '每个锚点在收到标签的每一帧时，都额外测量两根天线之间的相位差，并换算成方位角（视场为正前方左右各 90°，正前方 1-σ 约 2.7°，越靠边越差）。配合 DS-TWR，锚点同时握有距离和方向，仅凭自己就能定出标签的位置——一个锚点，一个定位。',
+      uwbAoaTwrOnly: '只有双向测距时锚点才会收到标签发来的帧：DL-TDoA 中标签根本不发射，UL-TDoA 中标签那一帧闪发也不属于任何锚点参与应答的轮次',
       uwbBlock: '测距块', uwbBlockHint: '测距块循环往复；每个标签在块内独占一个轮次，因此块长决定了标签多久刷新一次位置',
       uwbSlot: '测距时隙', uwbSlotHint: '一个测距时隙只装一帧；它必须容得下该轮次中最长的一帧（DS-TWR 的终结帧，长度随锚点数增长）以及其飞行时间',
       uwbChannel: '信道', uwbChannelHint: '信道 5 为 6489.6 MHz，信道 9 为 7987.2 MHz。两者只有 1 米处的自由空间损耗不同（48.7 dB 对 50.5 dB），因此信道 9 在任何距离上都恒定多损耗约 1.8 dB。',
@@ -853,6 +876,10 @@ export const STRINGS: Record<Lang, Strings> = {
       fom: '置信度', rounds: '轮次',
       tdoa: '到达时间差',
       tdoaHint: '单向测距不测距离：每一行是该锚点的消息比参考锚点晚到多少，这把标签定在两个锚点之间的一条双曲线上',
+      aoa: '到达角测量',
+      aoaHint: '该锚点看到标签的方位角，以自身正前方为 0°、向其左侧为正；它来自锚点两根天线之间的相位差，与飞行时间无关',
+      aoaSigma: '1-σ',
+      aoaRowHint: '方位角的 1-σ 为 σ_φ/(π·cos θ)：正前方约 2.7°，60° 处翻一倍，±90° 处发散——那里标签再转动也不会改变相位差。真实方位角超过 ±90° 说明标签在锚点背后，测量结果会被镜像到正前方一侧。',
       fomWithin: (pct, ns) => `${pct} % 的误差落在 ${ns} ns 内`, noFom: '无 FoM',
       position: '位置解算', estimate: '估计值', gdop: '几何精度因子 GDOP', ellipse: '误差椭圆（1-σ）',
       noPosition: '尚无定位结果——标签需要在同一测距块内拿到三个锚点的距离',
@@ -861,6 +888,7 @@ export const STRINGS: Record<Lang, Strings> = {
         twr: '双向测距 (TWR)', 'dl-tdoa': '下行到达时间差 (DL-TDoA)', 'ul-tdoa': '上行到达时间差 (UL-TDoA)',
         aoa: '到达角 (AoA)',
       },
+      ellipseHintAoa: '单锚点定位的椭圆，其两条轴来自两种互不相干的测量：沿视线方向是测距本身的 σ（100 ps 时为 2.1 cm），垂直视线方向则是 r·σ_θ——4 米正前方约 19 cm，偏向两侧还会更大。因此在任何有意义的距离上，椭圆都是一条横跨视线的细长条。此外定位时用倾斜的距离乘以水平方位角，所以锚点若比标签高出不少，解算出的位置会沿视线略微偏远。',
       ellipseHintTdoa: '单向定位的椭圆按一个时间差真正包含的误差画出：两个带噪声的时间戳，再加上 DL-TDoA 中各响应锚点的时钟偏差估计残差（响应时隙越靠后越大），或 UL-TDoA 中锚点之间的同步标定误差。这是一阶近似：锚点的同步误差是固定偏差，不是多轮平均就能消掉的噪声，因此该椭圆只表示定位可能偏离多远，而不是严格的 68 % 置信区间。',
     },
     log: { empty: '窗口内无事件' },

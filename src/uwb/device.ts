@@ -27,9 +27,10 @@ import type { FrameDesc } from '../model/frames'
 import type { EmitFn, MacStateName, RxFailReason } from '../model/records'
 import type { Ns, Vec3 } from '../model/types'
 import type { UwbChannel, UwbRadio, UwbRxInfo } from './channel'
+import { AOA_SIGMA_PHI_RAD, aoaSigmaDeg, azimuthFromPdoaDeg, pdoaRad, trueAzimuthDeg } from './aoa'
 import { counterDiff, gaussian, type UwbClock } from './clock'
 import { makeBlink, makeFinal, makePoll, makeReport, makeResp, type UwbFrameKind } from './frames'
-import { C_M_PER_NS, RCTU_NS, UWB_RMARKER_NS } from './phy'
+import { C_M_PER_NS, RCTU_NS, UWB_RMARKER_NS, type UwbChannelNo } from './phy'
 import { rangeSigmaM, solvePosition, solveTdoa, type AnchorPos } from './position'
 import { dsTwr, fomFor, rctuToMetres, ssTwrCorrected, ssTwrRaw } from './ranging'
 import type { RoundPlan, SlotAction } from './session'
@@ -58,6 +59,15 @@ export interface UwbDeviceCfg {
   /** UL-TDoA only: the session's 1-σ for the draw above — how well the anchors are calibrated,
    * as opposed to how wrong this one happens to be. The fix's error ellipse is drawn from it. */
   syncErrorNs: number
+  /** Two-way ranging, anchor: measure the angle of arrival of every frame this device receives
+   * from the tag (see `measureAoa`). Off — the default — nothing about the device changes, not
+   * even the random stream it draws from. */
+  aoa: boolean
+  /** Anchor: the direction its antenna array faces, in degrees counter-clockwise from +x. Every
+   * bearing it measures is relative to this, and so is the ±90° it can see at all. */
+  yawDeg: number
+  /** The session's channel: the wavelength an angle of arrival is measured in. */
+  channel: UwbChannelNo
 }
 
 export interface UwbGeometry {
@@ -171,6 +181,13 @@ interface RoundState {
    * fixed `syncOffsetNs`. Null until the blink lands, and in every other mode.
    */
   ulArrivalNs: number | null
+  /**
+   * Anchor, angle-of-arrival session: the bearing it last measured to this round's tag, in
+   * degrees from its boresight — null until a frame from the tag arrives. A DS round measures
+   * it twice (on the Poll and again on the Final) and the last one stands, so the bearing the
+   * round's fix is built from is the one taken closest to the range that goes with it.
+   */
+  aoaThetaDeg: number | null
 }
 
 function freshRound(block: number, round: number, plan: RoundPlan, tagId: string, anchors: string[]): RoundState {
@@ -185,6 +202,7 @@ function freshRound(block: number, round: number, plan: RoundPlan, tagId: string
       ? { rxPoll: null, rxFinal: null, txPoll: null, txFinal: null, responses: new Map(), coffsToRef: null, rxResp: {} }
       : null,
     ulArrivalNs: null,
+    aoaThetaDeg: null,
   }
 }
 
@@ -595,6 +613,13 @@ export class UwbDevice implements UwbRadio {
     // Clock-offset estimate from the carrier (standard §16.4.9): how much faster
     // the sender's crystal runs than mine, with the estimator's residual error.
     const coffs = (info.txPpm - this.clock.ppm) * 1e-6 + gaussian(this.rng) * this.cfg.cfoNoisePpm * 1e-6
+    // The angle of arrival of the frame that just landed, and the third and last draw of a
+    // reception — after the receive timestamp's noise and the carrier-offset estimator's
+    // residual, in that order. Keeping it last is what makes `aoa: false` byte-identical to a
+    // session that never had the feature: no other draw moves in the stream.
+    if (this.cfg.aoa && this.cfg.role === 'anchor' && r.plan.mode === 'twr' && from === r.tagId) {
+      this.measureAoa(r, from)
+    }
 
     this.clearExpectation()
     this.setState('idle')
@@ -943,6 +968,72 @@ export class UwbDevice implements UwbRadio {
       distM, trueDistM: this.geometry.trueDistM(this.id, peer), fom, block: r.block, round: r.round,
     })
     if (this.cfg.role === 'tag') r.ranges.push({ id: peer, distM })
+    // An anchor that measured a bearing this round and has just finished the range that goes
+    // with it holds both halves of a position — so it solves one, alone. Only DS-TWR ever
+    // reaches this: an SS round ends at the tag, and the anchor never computes a range at all.
+    else if (this.cfg.aoa) this.emitAoaFix(r, peer, distM)
+  }
+
+  /**
+   * Anchor, angle-of-arrival session: one phase-difference measurement of the frame that has
+   * just arrived from the tag, and the bearing it implies.
+   *
+   * The model measures the *true* azimuth's phase and adds the receiver's phase noise
+   * (`AOA_SIGMA_PHI_RAD`), rather than adding angular noise to the angle. That is the order the
+   * physics happens in, and it is why the bearing error grows towards the edge of the field of
+   * view all by itself: the same phase error is worth more degrees where sin θ is flattest.
+   * A tag behind the anchor arrives with the phase of its mirror image in front (sin(180° − θ)
+   * = sin θ), so `thetaDeg` lands in the front half while `trueThetaDeg` says where the tag
+   * really was — the record carries both precisely so the two can be compared.
+   */
+  private measureAoa(r: RoundState, tag: string): void {
+    const trueThetaDeg = trueAzimuthDeg(this.cfg.pos, this.cfg.yawDeg, this.geometry.anchorPos(tag))
+    const phiRad = pdoaRad(trueThetaDeg, this.cfg.channel) + gaussian(this.rng) * AOA_SIGMA_PHI_RAD
+    const thetaDeg = azimuthFromPdoaDeg(phiRad, this.cfg.channel)
+    r.aoaThetaDeg = thetaDeg
+    this.emit({
+      t: this.now(), type: 'UWB_AOA', node: this.id, peer: tag,
+      thetaDeg, trueThetaDeg, block: r.block, round: r.round,
+    })
+  }
+
+  /**
+   * Anchor, angle-of-arrival session: the tag's position from this anchor's own range and
+   * bearing — a circle and a ray, which meet in exactly one point. No other mode in this
+   * simulator fixes anything from one anchor, and nothing here is solved iteratively: the
+   * answer is the polar coordinate itself, so `gdop` is 1 by construction.
+   *
+   * The two axes of the error ellipse are the two measurements, and they are wildly unequal:
+   * along the ray the range's 2.1 cm (at 100 ps), across it the bearing's r·σ_θ — 19 cm at 4 m
+   * and boresight, and worse off to the side. So the major axis is across the ray at any useful
+   * distance, and the ellipse is turned a quarter turn from the bearing; it is only at a few
+   * centimetres from the anchor that the range becomes the worse of the two.
+   *
+   * One simplification worth naming: the range is a slant distance in 3-D and the bearing is
+   * horizontal, and the fix multiplies the two as if the tag were at the anchor's height. An
+   * anchor 1.4 m above a tag 4 m away therefore places it about 25 cm too far out along the
+   * ray — a bias the record shows honestly against `trueX`/`trueY`, not one it hides.
+   */
+  private emitAoaFix(r: RoundState, tag: string, distM: number): void {
+    const thetaDeg = r.aoaThetaDeg
+    if (thetaDeg === null) return
+    const bearingRad = (this.cfg.yawDeg + thetaDeg) * (Math.PI / 180)
+    const truth = this.geometry.anchorPos(tag)
+    const sigmaAlongM = rangeSigmaM(this.cfg.tsNoisePs)
+    const sigmaAcrossM = distM * aoaSigmaDeg(thetaDeg) * (Math.PI / 180)
+    const alongIsMajor = sigmaAlongM >= sigmaAcrossM
+    this.emit({
+      t: this.now(), type: 'UWB_POSITION', node: this.id,
+      x: this.cfg.pos.x + distM * Math.cos(bearingRad),
+      y: this.cfg.pos.y + distM * Math.sin(bearingRad),
+      trueX: truth.x, trueY: truth.y, gdop: 1,
+      ellipse: {
+        a: Math.max(sigmaAlongM, sigmaAcrossM),
+        b: Math.min(sigmaAlongM, sigmaAcrossM),
+        thetaRad: alongIsMajor ? bearingRad : bearingRad + Math.PI / 2,
+      },
+      anchors: [this.id], block: r.block, method: 'aoa', of: tag,
+    })
   }
 
   private setState(s: UwbDeviceState): void {

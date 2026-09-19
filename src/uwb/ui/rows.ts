@@ -6,6 +6,7 @@
 import { fomDecode } from '../phy'
 import type { UwbFixMethod } from '../records'
 import type { UwbNodeView, UwbPositionView } from '../view'
+import { aoaSigmaDeg } from '../aoa'
 
 /** The two phrases the confidence column needs, as the i18n table (Strings['uwb']) supplies them.
  * The event log keeps the engine's English `fomText`, like every other log line; the inspector
@@ -43,6 +44,7 @@ export function uwbContendText(u: UwbNodeView, S: UwbContendStrings): string | n
 const m = (v: number) => `${v.toFixed(2)} m`
 const cm = (v: number) => `${(v * 100).toFixed(1)} cm`
 const ns = (v: number) => `${v.toFixed(2)} ns`
+const deg = (v: number) => `${v.toFixed(1)}°`
 
 /** One measured range: the peer id (the caller turns it into a display name) and its figures. */
 export interface UwbRangeRow {
@@ -88,6 +90,31 @@ export function uwbTdoaRows(u: UwbNodeView): UwbTdoaRow[] {
     trueDt: ns(d.trueDtNs),
     error: ns(d.dtNs - d.trueDtNs),
     rounds: String(d.n),
+  }))
+}
+
+/** One measured bearing: how far off its own boresight the anchor saw this peer, and how far
+ * off it really was. */
+export interface UwbAoaRow {
+  peer: string
+  measured: string
+  trueTheta: string
+  /** Signed: a bearing 2° to the left of the truth reads "2.0°", one to the right "-2.0°". */
+  error: string
+  /** The 1-σ this bearing carries at the angle it was measured at — it grows towards the edge
+   * of the field of view, so it belongs on the row and not in a header. */
+  sigma: string
+  rounds: string
+}
+
+export function uwbAoaRows(u: UwbNodeView): UwbAoaRow[] {
+  return Object.entries(u.aoa).map(([peer, a]) => ({
+    peer,
+    measured: deg(a.thetaDeg),
+    trueTheta: deg(a.trueThetaDeg),
+    error: deg(a.thetaDeg - a.trueThetaDeg),
+    sigma: `± ${deg(aoaSigmaDeg(a.thetaDeg))}`,
+    rounds: String(a.n),
   }))
 }
 

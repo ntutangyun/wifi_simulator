@@ -9,19 +9,24 @@ import {
 import { node as wifiNode } from '../../src/course/lessonKit'
 import { UwbNetwork } from '../../src/uwb/network'
 import { C_M_PER_NS, UWB_TX_POWER_DBM } from '../../src/uwb/phy'
+import { aoaSigmaDeg } from '../../src/uwb/aoa'
 import { rangeSigmaM } from '../../src/uwb/position'
 import { rctuToMetres } from '../../src/uwb/ranging'
 
 const MS = 1_000_000
 
-interface Place { x: number; y: number; z: number; ppm?: number; txPowerDbm?: number }
+interface Place { x: number; y: number; z: number; ppm?: number; txPowerDbm?: number; yawDeg?: number }
 
 function uwbNode(id: string, p: Place, role: 'anchor' | 'tag'): NodeCfg {
   return {
     id, kind: 'uwb', name: id, pos: { x: p.x, y: p.y, z: p.z },
     txPowerDbm: p.txPowerDbm ?? UWB_TX_POWER_DBM, profiles: ['idle'],
     caps: { generation: 'nonht', features: {} },
-    uwb: { role, ...(p.ppm !== undefined ? { ppm: p.ppm } : {}) },
+    uwb: {
+      role,
+      ...(p.ppm !== undefined ? { ppm: p.ppm } : {}),
+      ...(p.yawDeg !== undefined ? { yawDeg: p.yawDeg } : {}),
+    },
   }
 }
 
@@ -879,5 +884,141 @@ describe('UwbNetwork — beside a 6 GHz Wi-Fi link', () => {
       expect(r.foreignDbm).toBeGreaterThan(-70)
     }
     expect(interfered(5985)).toEqual([])
+  })
+})
+
+/**
+ * Angle of arrival. One anchor, one tag, and a bearing on every frame the anchor receives
+ * from it — which under DS-TWR is two per round (the Poll and the Final), the second of
+ * which is the one the round's fix is built from.
+ *
+ * The geometry: an anchor at (5, 0.5) on the south wall, turned to face the room (`yawDeg`
+ * 90, i.e. +y), and a tag 4 m away at 45° off that boresight. Both at z = 1, so the range is
+ * exactly horizontal and the fix carries no slant-range bias to argue about.
+ */
+describe('UwbNetwork — angle of arrival', () => {
+  const R_M = 4
+  const THETA_DEG = 45
+  const ANCHOR = { x: 5, y: 0.5, z: 1, ppm: 0, yawDeg: 90 }
+  /** Where `R_M` at a world bearing puts a device. */
+  const polar = (a: { x: number; y: number }, worldDeg: number): Place => ({
+    x: a.x + R_M * Math.cos((worldDeg * Math.PI) / 180),
+    y: a.y + R_M * Math.sin((worldDeg * Math.PI) / 180),
+    z: 1, ppm: 0,
+  })
+  const TAG = polar(ANCHOR, ANCHOR.yawDeg + THETA_DEG)
+  /** 1-σ of a bearing at the angle it is measured at (3.87° here), and of the fix across the ray. */
+  const SIGMA_THETA_DEG = aoaSigmaDeg(THETA_DEG)
+  const SIGMA_CROSS_M = R_M * SIGMA_THETA_DEG * (Math.PI / 180)
+
+  const aoaScenario = (session: Partial<UwbSessionCfg> = {}): Scenario =>
+    uwbScenario([ANCHOR], [TAG], { aoa: true, nlos: false, ...session })
+  const BLOCKS = 3
+  const rs = run(aoaScenario(), BLOCKS * 200 * MS)
+
+  it('measures a bearing on every frame the anchor receives from the tag', () => {
+    const bearings = of(rs, 'UWB_AOA')
+    // Two per round of a DS exchange — the Poll and the Final — and none anywhere else:
+    // the tag has one antenna and measures no angle at all.
+    expect(bearings).toHaveLength(2 * BLOCKS)
+    expect(new Set(bearings.map((r) => `${r.node} sees ${r.peer}`))).toEqual(new Set(['anc-1 sees tag-1']))
+    for (const b of bearings) expect(b.trueThetaDeg).toBeCloseTo(THETA_DEG, 9)
+    // The first block's two measurements, pinned: the phase noise is worth a few degrees here.
+    expect(bearings[0].thetaDeg).toBeCloseTo(41.6236488, 6)
+    expect(bearings[1].thetaDeg).toBeCloseTo(44.9876414, 6)
+    // …and every one of them is inside 4 σ_θ of the truth.
+    expect(SIGMA_THETA_DEG).toBeCloseTo(3.8688, 4)
+    for (const b of bearings) expect(Math.abs(b.thetaDeg - b.trueThetaDeg)).toBeLessThan(4 * SIGMA_THETA_DEG)
+  })
+
+  it('fixes the tag from one anchor: a range along a bearing', () => {
+    const fixes = of(rs, 'UWB_POSITION')
+    expect(fixes).toHaveLength(BLOCKS)
+    for (const f of fixes) {
+      // It is the anchor's record, about the tag — the one fix in the simulator that names a
+      // single anchor, because a circle and a ray already meet in one point.
+      expect(f.node).toBe('anc-1')
+      expect(f.of).toBe('tag-1')
+      expect(f.method).toBe('aoa')
+      expect(f.anchors).toEqual(['anc-1'])
+      expect(f.gdop).toBe(1)
+      expect(f.trueX).toBeCloseTo(TAG.x, 9)
+      expect(f.trueY).toBeCloseTo(TAG.y, 9)
+
+      // Split the error into the two measurements it is made of: along the measured ray it is
+      // the range's error, across it the bearing's. They are worth wildly different amounts.
+      const bearingRad = Math.atan2(f.y - ANCHOR.y, f.x - ANCHOR.x)
+      const ex = f.x - f.trueX
+      const ey = f.y - f.trueY
+      const along = ex * Math.cos(bearingRad) + ey * Math.sin(bearingRad)
+      const across = -ex * Math.sin(bearingRad) + ey * Math.cos(bearingRad)
+      expect(Math.abs(along)).toBeLessThan(4 * SIGMA_R)
+      expect(Math.abs(across)).toBeLessThan(4 * SIGMA_CROSS_M)
+      // The ellipse says the same thing: a sliver r·σ_θ long across the ray (27 cm) and σ_r
+      // wide along it (2.1 cm), so the major axis is turned a quarter turn off the bearing.
+      expect(f.ellipse.b).toBeCloseTo(SIGMA_R, 9)
+      expect(f.ellipse.a).toBeCloseTo(SIGMA_CROSS_M, 1)
+      expect(f.ellipse.thetaRad).toBeCloseTo(bearingRad + Math.PI / 2, 2)
+    }
+    // The tag itself solves nothing: one anchor is one range, and three are needed for a
+    // two-way fix. Everything the tag's lane shows about its position came from the anchor.
+    expect(of(rs, 'UWB_POSITION', 'tag-1')).toEqual([])
+  })
+
+  it('routes the anchor’s bearing and fix to the lanes they are about', () => {
+    const sim = new Simulation(aoaScenario())
+    sim.runUntil(BLOCKS * 200 * MS)
+    // The bearing is the anchor's own measurement and stays on its lane…
+    const anchor = sim.view.nodes['anc-1'].uwb!
+    expect(anchor.aoa['tag-1'].n).toBe(2 * BLOCKS)
+    expect(anchor.aoa['tag-1'].trueThetaDeg).toBeCloseTo(THETA_DEG, 9)
+    expect(anchor.position).toBeNull()
+    // …while the position it solved is about the tag, so it lands on the tag's lane (`of`).
+    const tag = sim.view.nodes['tag-1'].uwb!
+    expect(tag.aoa).toEqual({})
+    expect(tag.position?.method).toBe('aoa')
+    expect(tag.position?.anchors).toEqual(['anc-1'])
+    expect(tag.position?.n).toBe(BLOCKS)
+  })
+
+  it('mirrors a tag behind the anchor into the field of view', () => {
+    // The same anchor, moved into the room and still facing +y, with the tag 135° off its
+    // boresight — behind it. Two antennas cannot tell front from back, so the phase is the
+    // phase of 45° and the bearing comes back as 45°: the fix is the tag's mirror image.
+    const behind = { x: 5, y: 5, z: 1, ppm: 0, yawDeg: 90 }
+    const tag = polar(behind, behind.yawDeg + 135)
+    const rsBehind = run(uwbScenario([behind], [tag], { aoa: true, nlos: false }), 200 * MS)
+    const bearings = of(rsBehind, 'UWB_AOA')
+    expect(bearings).toHaveLength(2)
+    for (const b of bearings) {
+      expect(b.trueThetaDeg).toBeCloseTo(135, 9)
+      expect(Math.abs(b.thetaDeg - 45)).toBeLessThan(4 * SIGMA_THETA_DEG)
+    }
+    const fix = of(rsBehind, 'UWB_POSITION')[0]
+    // The range is right — a distance is measured by flight time and knows nothing of
+    // antennas — and only the direction is a lie, by exactly the reflection in the boresight.
+    expect(Math.hypot(fix.x - behind.x, fix.y - behind.y)).toBeCloseTo(R_M, 1)
+    expect(Math.hypot(fix.x - fix.trueX, fix.y - fix.trueY)).toBeGreaterThan(5)
+  })
+
+  it('measures nothing, and draws nothing, when the session leaves AoA off', () => {
+    const off = run(aoaScenario({ aoa: false }), BLOCKS * 200 * MS)
+    expect(of(off, 'UWB_AOA')).toEqual([])
+    expect(of(off, 'UWB_POSITION')).toEqual([])
+    expect(of(off, 'UWB_RANGE')).toHaveLength(2 * BLOCKS) // the anchor's and the tag's, per block
+
+    // Only the *anchor* draws for a bearing, and only after that reception's timestamp noise
+    // and carrier-offset residual: so the tag's own stream is untouched, every stamp of it
+    // identical with the feature on, while the anchor's stamps agree up to its first phase
+    // draw (the Poll's) and part company from the next reception on (the Final's). That the
+    // whole record stream of a session with AoA off is unchanged is pinned by the lesson
+    // hashes, tests/engine/lesson-hashes.test.ts.
+    const stamps = (rec: TLRecord[], node: string): number[] =>
+      of(rec, 'UWB_TS', node).map((r) => r.counter)
+    expect(stamps(rs, 'tag-1')).toEqual(stamps(off, 'tag-1'))
+    const rxAt = (rec: TLRecord[]): number[] =>
+      of(rec, 'UWB_TS', 'anc-1').filter((r) => r.dir === 'rx').map((r) => r.counter)
+    expect(rxAt(rs)[0]).toBe(rxAt(off)[0]) // the Poll: stamped before the first phase draw
+    expect(rxAt(rs)[1]).not.toBe(rxAt(off)[1]) // the Final: stamped after it
   })
 })

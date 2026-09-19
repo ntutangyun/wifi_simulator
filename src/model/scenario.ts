@@ -165,6 +165,13 @@ export interface UwbNodeCfg {
   role: 'anchor' | 'tag'
   /** Crystal offset of this device's ranging clock, in ppm (standard §16.4.9 allows ±20). */
   ppm?: number
+  /**
+   * Anchor only, angle-of-arrival sessions: which way the anchor's antenna array faces, in
+   * degrees counter-clockwise from +x (so 90° faces +y). Every bearing it reports is measured
+   * from this boresight, and its ±90° field of view is centred on it — an anchor on a wall is
+   * normally turned to face the room. Absent means 0°.
+   */
+  yawDeg?: number
 }
 
 /**
@@ -210,12 +217,17 @@ export interface UwbSessionCfg {
   /** UL-TDoA only (model): 1-σ residual error, in nanoseconds, of each anchor's calibration to
    * anchor 0's timebase — what imperfect "wired sync" costs the fix. */
   syncErrorNs: number
+  /** Two-way ranging only: every anchor also measures the phase difference between its two
+   * antennas on each frame it receives from the tag, and reports the bearing that phase implies
+   * (src/uwb/aoa.ts). A DS-TWR anchor that has both a range and a bearing fixes the tag on its
+   * own — the one single-anchor position in the simulator. */
+  aoa: boolean
 }
 
 export const DEFAULT_UWB_SESSION: UwbSessionCfg = {
   method: 'ds', blockRstu: 240_000, slotRstu: 2400, channel: 9, tsNoisePs: 100, cfoNoisePpm: 0.2, nlos: true,
   schedule: 'time', contentionSlots: 8, maxAttempts: 3,
-  mode: 'twr', tdoaClockCorrection: true, syncErrorNs: 0,
+  mode: 'twr', tdoaClockCorrection: true, syncErrorNs: 0, aoa: false,
 }
 
 /** 802.11ax 6 GHz channel 7 (80 MHz), model default: the centre `Scenario.sixGhzCenterMhz`
@@ -375,6 +387,7 @@ const NodeCfgSchema = z.preprocess(
     uwb: z.object({
       role: z.enum(['anchor', 'tag']),
       ppm: z.number().min(-100).max(100).optional(),
+      yawDeg: z.number().min(-180).max(180).optional(),
     }).optional(),
   }).superRefine((n, ctx) => {
     if (n.linkId === '2g' && n.caps.generation === 'vht') {
@@ -435,6 +448,7 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
       mode: z.enum(['twr', 'dl-tdoa', 'ul-tdoa']).default('twr'),
       tdoaClockCorrection: z.boolean().default(true),
       syncErrorNs: z.number().min(0).max(10).default(0),
+      aoa: z.boolean().default(false),
     }).optional(),
     sixGhzCenterMhz: z.number().int().min(5955).max(7115).refine((v) => v % 5 === 0, '6 GHz centre frequency must be a 5 MHz channel step').optional(),
   })
