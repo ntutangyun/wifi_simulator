@@ -5,11 +5,30 @@
  * timeline, the frame inspector and the 3-D scene need no second frame type.
  */
 import type { FrameDesc } from '../model/frames'
-import { UWB_REPORT_BYTES, uwbFinalBytes, uwbPollBytes, uwbPpduNs, uwbRespBytes } from './phy'
+import {
+  dlExtraBytes, UWB_BLINK_BYTES, UWB_MHR_BYTES, UWB_FCS_BYTES, UWB_REPORT_BYTES, RRMC_IE_BYTES,
+  uwbFinalBytes, uwbPollBytes, uwbPpduNs, uwbRespBytes,
+} from './phy'
 
-export type UwbFrameKind = 'uwbPoll' | 'uwbResp' | 'uwbFinal' | 'uwbReport'
+export type UwbFrameKind = 'uwbPoll' | 'uwbResp' | 'uwbFinal' | 'uwbReport' | 'uwbBlink'
 
-/** The ranging fields of a UWB frame; present on the four UWB kinds only. */
+/**
+ * DL-TDoA message content (model, the RMI-style times of §10.29.8.4): what the sender did on its
+ * own clock, so that a tag which only listens can put every anchor's transmit instant on anchor
+ * 0's timebase. Each time is a 4-octet ranging counter in RCTU.
+ */
+export interface UwbDlTimes {
+  /** The sender's own TX counter for this very frame (stamped at its RMARKER). */
+  txCounter: number
+  /** RX counters the sender holds, by peer id: the Poll's at a responder, each Response's at
+   * anchor 0. Empty on the Poll, which opens the round. */
+  rxCounters: Record<string, number>
+  /** Response only: the responder's clock offset to anchor 0, in ppm (the carrier frequency
+   * offset its receiver measured on the Poll). */
+  coffs?: number
+}
+
+/** The ranging fields of a UWB frame; present on the UWB kinds only. */
 export interface UwbInfo {
   sp: 1
   method: 'ss' | 'ds'
@@ -29,6 +48,8 @@ export interface UwbInfo {
   finalTimes?: { id: string; tround1: number; treply2: number }[]
   /** Report (DS): the responder's treply1 and tround2 (RMI IE). */
   reportTimes?: { treply1: number; tround2: number }
+  /** DL-TDoA (Poll, Response, Final): the sender's ranging times, for the listening tags. */
+  dl?: UwbDlTimes
 }
 
 /**
@@ -50,8 +71,16 @@ function uwbFrame(kind: UwbFrameKind, src: string, dst: string, bytes: number, u
  */
 export function makePoll(
   tag: string, anchors: string[], method: 'ss' | 'ds', block: number, round: number,
-  schedule: 'time' | 'contention' = 'time', contentionSlots = 8, maxAttempts = 3,
+  schedule: 'time' | 'contention' = 'time', contentionSlots = 8, maxAttempts = 3, dl?: UwbDlTimes,
 ): FrameDesc {
+  // DL-TDoA: anchor 0 polls, `anchors` are the responders it gives slots to, and the frame adds
+  // anchor 0's own TX time so a listening tag can time the round on the anchors' clock.
+  if (dl) {
+    return uwbFrame('uwbPoll', tag, '*', uwbPollBytes(anchors.length) + dlExtra(dl), {
+      sp: 1, method, block, round, slot: 0, ies: ['ARC', 'RDM', 'RRMC', ...dlIes(dl)],
+      schedule: [...anchors], dl: copyDl(dl),
+    })
+  }
   if (schedule === 'contention') {
     return uwbFrame('uwbPoll', tag, '*', uwbPollBytes(anchors.length, 'contention'), {
       sp: 1, method, block, round, slot: 0, ies: ['ARC', 'RCPS', 'RCMA', 'RRMC'],
@@ -66,7 +95,16 @@ export function makePoll(
 /** An anchor's Response in its slot; SS-TWR carries the reply time (RRTI), DS-TWR does not. */
 export function makeResp(
   anchor: string, tag: string, method: 'ss' | 'ds', block: number, round: number, slot: number, replyRctu?: number,
+  dl?: UwbDlTimes,
 ): FrameDesc {
+  // DL-TDoA: the responder answers anchor 0 but every tag in earshot is the real audience, so
+  // the caller passes a broadcast destination. It carries no reply time — a listening tag wants
+  // the instants themselves — but its own TX time, its RX time of the Poll and its clock offset.
+  if (dl) {
+    return uwbFrame('uwbResp', anchor, tag, uwbRespBytes('ds') + dlExtra(dl), {
+      sp: 1, method, block, round, slot, ies: ['RRMC', ...dlIes(dl)], dl: copyDl(dl),
+    })
+  }
   return uwbFrame('uwbResp', anchor, tag, uwbRespBytes(method), {
     sp: 1, method, block, round, slot,
     ies: method === 'ss' ? ['RRMC', 'RRTI'] : ['RRMC'],
@@ -76,10 +114,19 @@ export function makeResp(
   })
 }
 
-/** The tag's Final (DS-TWR only): broadcast, carrying tround1/treply2 per anchor. */
+/** The tag's Final (DS-TWR only): broadcast, carrying tround1/treply2 per anchor.
+ * In DL-TDoA the Final is anchor 0's instead, and `times` is empty: it closes the round with
+ * anchor 0's own TX time and its RX time of every Response, which is all a listening tag needs
+ * to put the responders' transmit instants on anchor 0's timebase. */
 export function makeFinal(
   tag: string, times: { id: string; tround1: number; treply2: number }[], block: number, round: number, slot: number,
+  dl?: UwbDlTimes,
 ): FrameDesc {
+  if (dl) {
+    return uwbFrame('uwbFinal', tag, '*', UWB_MHR_BYTES + RRMC_IE_BYTES + UWB_FCS_BYTES + dlExtra(dl), {
+      sp: 1, method: 'ds', block, round, slot, ies: ['RRMC', ...dlIes(dl)], dl: copyDl(dl),
+    })
+  }
   return uwbFrame('uwbFinal', tag, '*', uwbFinalBytes(times.length), {
     sp: 1, method: 'ds', block, round, slot, ies: ['RMI', 'RRTI'], finalTimes: times.map((t) => ({ ...t })),
   })
@@ -92,4 +139,37 @@ export function makeReport(
   return uwbFrame('uwbReport', anchor, tag, UWB_REPORT_BYTES, {
     sp: 1, method: 'ds', block, round, slot, ies: ['RMI'], reportTimes: { treply1, tround2 },
   })
+}
+
+/** The blink of UL-TDoA: one 14-octet frame from the tag in its slot and nothing else, ever.
+ * It carries no times — the anchors take them on arrival, and their shared timebase turns the
+ * arrivals into differences — so its whole payload is a 3-octet blink IE. */
+export function makeBlink(tag: string, block: number, round: number): FrameDesc {
+  return uwbFrame('uwbBlink', tag, '*', UWB_BLINK_BYTES, {
+    // A blink is one-way: there is no TWR method behind it. `method` is the shape UwbInfo
+    // requires of every ranging frame, and the decoder never prints it for a blink.
+    sp: 1, method: 'ss', block, round, slot: 0, ies: ['BLINK'],
+  })
+}
+
+/** The DL-TDoA IEs a message carries, in order: the sender's TX time, the RX times it holds
+ * (none on the Poll, which opens the round) and, on a Response, its clock offset. The decoder
+ * walks this same list, so the two cannot disagree about what is in the frame. */
+function dlIes(dl: UwbDlTimes): string[] {
+  return [
+    'TXT',
+    ...(Object.keys(dl.rxCounters).length > 0 ? ['RXT'] : []),
+    ...(dl.coffs !== undefined ? ['COFF'] : []),
+  ]
+}
+
+/** Octets those IEs add, from the one definition in uwb/phy.ts. */
+function dlExtra(dl: UwbDlTimes): number {
+  return dlExtraBytes(Object.keys(dl.rxCounters).length, dl.coffs !== undefined)
+}
+
+/** The times ride in the FrameDesc, which outlives the round that built them: copy, so a later
+ * slot cannot rewrite what a frame already said. */
+function copyDl(dl: UwbDlTimes): UwbDlTimes {
+  return { ...dl, rxCounters: { ...dl.rxCounters } }
 }

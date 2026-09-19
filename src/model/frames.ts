@@ -5,7 +5,7 @@ import type { Ns } from './types'
 export type FrameKind =
   | 'data' | 'ack' | 'rts' | 'cts' | 'ba' | 'trigger' | 'mba' | 'cfend'
   | 'ampTrigger' | 'ampAck' | 'ampResp'
-  | 'uwbPoll' | 'uwbResp' | 'uwbFinal' | 'uwbReport'
+  | 'uwbPoll' | 'uwbResp' | 'uwbFinal' | 'uwbReport' | 'uwbBlink'
 
 /** P802.11bp fields of an AMP frame; present on the three AMP kinds only. */
 export interface AmpInfo {

@@ -1,4 +1,4 @@
-import type { Material } from '../model/scenario'
+import type { Material, UwbMode } from '../model/scenario'
 import type { Ns } from '../model/types'
 
 // --- Chip, RCTU, RSTU units -------------------------------------------------
@@ -173,6 +173,58 @@ export function uwbFinalBytes(anchors: number): number {
 /** MHR + the report's RMI IE 13 + FCS. */
 export const UWB_REPORT_BYTES = UWB_MHR_BYTES + RMI_REPORT_IE_BYTES + UWB_FCS_BYTES
 
+// --- One-way ranging (TDoA) message content -------------------------------------
+
+// Every ranging time below is 4 octets, exactly as the RRTI IE sizes one, and every IE
+// carries this file's 2-octet element header (ID + length) like all the others — so a
+// "+4 octet TX time" costs the frame 6 octets, not 4. The frames below are written as the
+// sum of those constants, and uwb/frameFields.ts decodes one row per IE at the same widths.
+
+/** Blink IE (model, §10.29.8-style): header + one octet of blink content (the tag's blink
+ * sequence). The blink carries no times at all — the anchors take them on arrival. */
+export const BLINK_IE_BYTES = UWB_IE_HDR_BYTES + 1
+/** UL-TDoA blink: MHR 9 + blink IE 3 + FCS 2 = 14 octets (model). */
+export const UWB_BLINK_BYTES = UWB_MHR_BYTES + BLINK_IE_BYTES + UWB_FCS_BYTES
+
+/** DL-TDoA TX-time IE (model; the RMI-style content of §10.29.8.4): header + the sender's own
+ * TX counter, one 4-octet ranging time. */
+export const DL_TX_TIME_IE_BYTES = UWB_IE_HDR_BYTES + 4
+/** DL-TDoA RX-times IE (model): header + one 4-octet RX counter per time carried. The times are
+ * listed in the round's slot order — the Poll's RDM IE already says who sits in which slot — so
+ * no address rides along with them. */
+export function dlRxTimesIeBytes(times: number): number {
+  return UWB_IE_HDR_BYTES + 4 * times
+}
+/** DL-TDoA clock-offset IE (model): header + a 16-bit carrier frequency offset, the responder's
+ * clock offset to anchor 0 that puts its reply time on anchor 0's timebase. */
+export const DL_COFFS_IE_BYTES = UWB_IE_HDR_BYTES + 2
+
+/** The DL-TDoA content a message adds to its two-way-ranging shape: the sender's TX time, the
+ * RX times it holds (none on the Poll: it opens the round) and, on a Response, its clock offset.
+ * One definition, so the builders and the decoder cannot size the same frame differently. */
+export function dlExtraBytes(rxTimes: number, coffs: boolean): number {
+  return DL_TX_TIME_IE_BYTES + (rxTimes > 0 ? dlRxTimesIeBytes(rxTimes) : 0) + (coffs ? DL_COFFS_IE_BYTES : 0)
+}
+
+/** DL-TDoA Poll (anchor 0): the time-scheduled Poll over the `responders` (anchors 1…N−1)
+ * plus anchor 0's own TX time. 27 + 3R + 6 octets. */
+export function uwbDlPollBytes(responders: number): number {
+  return uwbPollBytes(responders) + dlExtraBytes(0, false)
+}
+
+/** DL-TDoA Response (anchor i): the DS-TWR Response (no RRTI) plus the responder's TX time, its
+ * RX time of the Poll and its clock offset. 14 + 6 + 6 + 4 = 30 octets. */
+export function uwbDlRespBytes(): number {
+  return uwbRespBytes('ds') + dlExtraBytes(1, true)
+}
+
+/** DL-TDoA Final (anchor 0): MHR + RRMC + anchor 0's TX time + its RX time of each response +
+ * FCS. It carries no two-way times — a listening tag needs the instants, not the round trips —
+ * so it does not grow the way the TWR Final does: 22 + 4R octets. */
+export function uwbDlFinalBytes(responders: number): number {
+  return UWB_MHR_BYTES + RRMC_IE_BYTES + UWB_FCS_BYTES + dlExtraBytes(responders, false)
+}
+
 /** Anchors one ranging round can carry. The Final is the round's longest frame and grows by
  * 12 octets per anchor; at 9 anchors it is 122 octets and at 10 it is 134, past the 127-octet
  * PSDU the PHR's frame-length field can express (standard §16.2.7). */
@@ -191,8 +243,18 @@ export function rstuNs(rstu: number): Ns {
  * report each (DS); a contention round (schedule mode 0, standard §10.32.2) instead reserves
  * poll + a fixed response-phase window of `contentionSlots` slots any anchor may answer in
  * (`contentionSlots` 8 is a model default, the RCPS IE's response-phase window). The schema's
- * block-fit rule and `roundPlan` share this one definition. */
-export function uwbSlotsPerTag(method: 'ss' | 'ds', anchors: number, schedule: 'time' | 'contention' = 'time', contentionSlots = 8): number {
+ * block-fit rule and `roundPlan` share this one definition.
+ *
+ * One-way ranging counts its slots differently, because the tag is not what the round is built
+ * around: a DL-TDoA round is the anchors' own (Poll + N−1 Responses + Final = N + 1 slots) and
+ * every tag in the scenario listens to that same round, while a UL-TDoA round is one blink slot
+ * and belongs to one tag. */
+export function uwbSlotsPerTag(
+  method: 'ss' | 'ds', anchors: number, schedule: 'time' | 'contention' = 'time', contentionSlots = 8,
+  mode: UwbMode = 'twr',
+): number {
+  if (mode === 'ul-tdoa') return 1
+  if (mode === 'dl-tdoa') return anchors + 1
   if (schedule === 'contention') return 1 + contentionSlots
   return method === 'ss' ? anchors + 1 : 2 * anchors + 2
 }
@@ -200,11 +262,22 @@ export function uwbSlotsPerTag(method: 'ss' | 'ds', anchors: number, schedule: '
 /** Guard between the end of a slot's PPDU and the slot boundary: 200 ns is 60 m of flight (model). */
 export const UWB_SLOT_GUARD_NS = 200
 
-/** The shortest ranging slot a round with N anchors fits in: the round's longest PPDU (the
- * DS-TWR Final) plus the flight guard. In a shorter slot the receiver's deadline fires before
- * the frame lands, and the round loses every anchor to UWB_TIMEOUT with nothing to say why. */
-export function uwbSlotFitNs(anchors: number): Ns {
-  return uwbPpduNs(uwbFinalBytes(anchors)) + UWB_SLOT_GUARD_NS
+/** The round's longest frame, in octets: the Final in two-way ranging, the longer of the
+ * Poll and the Final in DL-TDoA (the Poll's RDM IE grows by 3 per responder, the Final's RX
+ * times by 4), and the blink — the only frame there is — in UL-TDoA. */
+export function uwbLongestFrameBytes(anchors: number, mode: UwbMode = 'twr'): number {
+  if (mode === 'ul-tdoa') return UWB_BLINK_BYTES
+  if (mode === 'dl-tdoa') {
+    return Math.max(uwbDlPollBytes(anchors - 1), uwbDlRespBytes(), uwbDlFinalBytes(anchors - 1))
+  }
+  return uwbFinalBytes(anchors)
+}
+
+/** The shortest ranging slot a round with N anchors fits in: the round's longest PPDU plus the
+ * flight guard. In a shorter slot the receiver's deadline fires before the frame lands, and the
+ * round loses every anchor to UWB_TIMEOUT with nothing to say why. */
+export function uwbSlotFitNs(anchors: number, mode: UwbMode = 'twr'): Ns {
+  return uwbPpduNs(uwbLongestFrameBytes(anchors, mode)) + UWB_SLOT_GUARD_NS
 }
 
 // --- Figure of Merit -----------------------------------------------------------

@@ -37,6 +37,8 @@ export type FieldKey =
   // 802.15.4 ranging frames (uwb/frameFields.ts): MHR fields then one key per payload IE.
   | 'seqNo' | 'dstPan' | 'dstAddr16' | 'srcAddr16'
   | 'ieArc' | 'ieRdm' | 'ieRrmc' | 'ieRrti' | 'ieRmi' | 'ieRcps' | 'ieRcma'
+  // One-way ranging (model IEs): the DL-TDoA times and the UL-TDoA blink.
+  | 'ieTxTime' | 'ieRxTimes' | 'ieCoffs' | 'ieBlink'
 
 export interface FrameField {
   key: FieldKey

@@ -41,6 +41,7 @@ export function frameColor(frame: FrameDesc, apId: string): number {
     case 'ampResp': return 0xa78bfa
     // Two shades of amber: the tag's own frames against the anchors' answers.
     case 'uwbPoll':
+    case 'uwbBlink':
     case 'uwbFinal': return 0xf59e0b
     case 'uwbResp':
     case 'uwbReport': return 0xfbbf24

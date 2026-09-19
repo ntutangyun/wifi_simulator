@@ -9,14 +9,17 @@
  * References: IEEE Std 802.15.4-2024 §7.2 (MAC frame format), §7.4.4 (the generic
  * Nested IE format) and the ranging IEs themselves: §10.29.8.1 RRTI, §10.29.8.3 RRMC,
  * §10.29.8.4 RMI, §10.32.9.1 ARC, §10.32.9.8 RDM, §10.32.9.5 RCPS, §10.32.9.6 RCMA;
- * §16.2 is the HRP UWB PPDU and its SP1 STS configuration.
+ * §16.2 is the HRP UWB PPDU and its SP1 STS configuration. The one-way ranging rows — the
+ * DL-TDoA TX time, RX times and clock offset, and the UL-TDoA blink — are model IEs in the
+ * shape of §10.29.8.4's measurement content, sized in uwb/phy.ts.
  */
 import type { DecodedFrame, FieldKey, FrameField, PpduSegment } from '../model/frameFields'
 import type { FrameDesc } from '../model/frames'
 import type { Ns } from '../model/types'
 import type { UwbFrameKind, UwbInfo } from './frames'
 import {
-  ARC_IE_BYTES, chipsToNs, PHR_SYMBOLS, PHR_SYMBOL_CHIPS, PSYM_CHIPS, rdmIeBytes, RCMA_IE_BYTES, RCPS_IE_BYTES,
+  ARC_IE_BYTES, BLINK_IE_BYTES, chipsToNs, DL_COFFS_IE_BYTES, DL_TX_TIME_IE_BYTES, dlRxTimesIeBytes,
+  PHR_SYMBOLS, PHR_SYMBOL_CHIPS, PSYM_CHIPS, rdmIeBytes, RCMA_IE_BYTES, RCPS_IE_BYTES,
   RCTU_NS, rmiFinalIeBytes, RMI_REPORT_IE_BYTES, RRMC_IE_BYTES, RRTI_IE_BYTES, SFD_SYMBOLS, STS_ACTIVE_CHIPS,
   STS_GAP_CHIPS, SYNC_SYMBOLS, UWB_FCS_BYTES, UWB_MHR_BYTES,
 } from './phy'
@@ -28,6 +31,7 @@ const BROADCAST_ADDR16 = 0xffff
 
 const SUBTYPE: Record<UwbFrameKind, string> = {
   uwbPoll: 'UWB Poll', uwbResp: 'UWB Response', uwbFinal: 'UWB Final', uwbReport: 'UWB Report',
+  uwbBlink: 'UWB Blink',
 }
 
 const hex16 = (v: number) => `0x${v.toString(16).padStart(4, '0')}`
@@ -109,6 +113,34 @@ function ies(u: UwbInfo): Ie[] {
             key: 'ieRmi', bytes: RMI_REPORT_IE_BYTES,
             value: `treply1 ${rctuText(u.reportTimes?.treply1 ?? 0)} · tround2 ${rctuText(u.reportTimes?.tround2 ?? 0)}`,
           })
+        break
+      // --- one-way ranging ---
+      case 'TXT':
+        // DL-TDoA: the sender's own transmit instant on its own clock (model IE).
+        out.push({
+          key: 'ieTxTime', bytes: DL_TX_TIME_IE_BYTES,
+          value: `TX ${rctuText(u.dl?.txCounter ?? 0)}`,
+        })
+        break
+      case 'RXT': {
+        // The RX counters the sender holds, in the round's slot order: 4 octets each.
+        const rx = Object.entries(u.dl?.rxCounters ?? {})
+        out.push({
+          key: 'ieRxTimes', bytes: dlRxTimesIeBytes(rx.length),
+          value: `${rx.length} RX times: ${rx.map(([id, c]) => `${id} ${grouped(c)}`).join(' · ')} RCTU`,
+        })
+        break
+      }
+      case 'COFF':
+        out.push({
+          key: 'ieCoffs', bytes: DL_COFFS_IE_BYTES,
+          value: `clock offset ${(u.dl?.coffs ?? 0).toFixed(2)} ppm to anchor 0`,
+        })
+        break
+      case 'BLINK':
+        // UL-TDoA: the whole payload of a blink. It says who blinked and when in the schedule,
+        // and nothing else — the times are the anchors' to take.
+        out.push({ key: 'ieBlink', bytes: BLINK_IE_BYTES, value: `blink · block ${u.block} · round ${u.round}` })
         break
       default:
         throw new Error(`uwbFrameFields: unknown ranging IE ${ie}`)

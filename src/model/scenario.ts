@@ -168,6 +168,14 @@ export interface UwbNodeCfg {
 }
 
 /**
+ * How a session measures. 'twr' is two-way ranging (the tag talks to every anchor and gets a
+ * distance each); the two one-way modes measure time differences of arrival instead, and the
+ * tag transmits nothing at all ('dl-tdoa', it listens to a round the anchors run) or exactly
+ * once ('ul-tdoa', it blinks and the infrastructure positions it).
+ */
+export type UwbMode = 'twr' | 'dl-tdoa' | 'ul-tdoa'
+
+/**
  * One ranging session (standard §10.32.2, the modes of §10.32.3): the block/slot structure every tag
  * shares, the TWR method, the channel, and the two noise knobs the engine
  * draws its timestamp and clock errors from.
@@ -193,11 +201,21 @@ export interface UwbSessionCfg {
   contentionSlots: number
   /** Contention round only: retries before an anchor sits out a round, RCMA IE (§10.32.9.6); 3 is a model default. */
   maxAttempts: number
+  /** What the session measures: two-way ranges, or one-way time differences (§10.32.3). */
+  mode: UwbMode
+  /** DL-TDoA only: the tag corrects its own clock rate from the round's poll-to-Final interval
+   * before differencing its arrival times. With it off, the tag's crystal offset (up to ±20 ppm
+   * over a whole round) swamps the differences — the lesson's centrepiece. */
+  tdoaClockCorrection: boolean
+  /** UL-TDoA only (model): 1-σ residual error, in nanoseconds, of each anchor's calibration to
+   * anchor 0's timebase — what imperfect "wired sync" costs the fix. */
+  syncErrorNs: number
 }
 
 export const DEFAULT_UWB_SESSION: UwbSessionCfg = {
   method: 'ds', blockRstu: 240_000, slotRstu: 2400, channel: 9, tsNoisePs: 100, cfoNoisePpm: 0.2, nlos: true,
   schedule: 'time', contentionSlots: 8, maxAttempts: 3,
+  mode: 'twr', tdoaClockCorrection: true, syncErrorNs: 0,
 }
 
 /** 802.11ax 6 GHz channel 7 (80 MHz), model default: the centre `Scenario.sixGhzCenterMhz`
@@ -414,6 +432,9 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
       schedule: z.enum(['time', 'contention']).default('time'),
       contentionSlots: z.number().int().min(2).max(32).default(8),
       maxAttempts: z.number().int().min(1).max(10).default(3),
+      mode: z.enum(['twr', 'dl-tdoa', 'ul-tdoa']).default('twr'),
+      tdoaClockCorrection: z.boolean().default(true),
+      syncErrorNs: z.number().min(0).max(10).default(0),
     }).optional(),
     sixGhzCenterMhz: z.number().int().min(5955).max(7115).refine((v) => v % 5 === 0, '6 GHz centre frequency must be a 5 MHz channel step').optional(),
   })
@@ -439,16 +460,37 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
         if (sc.uwb.schedule === 'contention' && sc.uwb.method !== 'ss') {
           ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['uwb'], message: 'contention-based rounds are SS-TWR only in this simulator' })
         }
+        // A contention round is a two-way exchange the tag starts; one-way ranging has no such
+        // exchange to contend for (in DL-TDoA the tag never transmits, in UL-TDoA it transmits
+        // once, in its own slot).
+        const mode = sc.uwb.mode
+        if (mode !== 'twr' && sc.uwb.schedule === 'contention') {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['uwb'], message: 'contention-based rounds are two-way ranging only' })
+        }
+        if (mode !== 'twr' && sc.uwb.schedule !== 'time') {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['uwb'], message: 'one-way ranging needs a time-scheduled session (schedule: time)' })
+        }
         const anchors = uwbNodes.filter((n) => n.uwb?.role === 'anchor').length
         const tags = uwbNodes.filter((n) => n.uwb?.role === 'tag').length
         if (anchors < 1 || tags < 1) {
           ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['uwb'], message: `a UWB session needs at least one anchor and one tag (found ${anchors} and ${tags})` })
         } else {
+          // A hyperbolic fix is solved from differences, and N anchors give N−1 of them: four
+          // anchors for the three a 2-D position needs.
+          if (mode !== 'twr' && anchors < 4) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ['uwb'],
+              message: `one-way ranging needs at least 4 anchors for 3 time differences (found ${anchors})`,
+            })
+          }
           // Every tag gets its own slots inside the block; the block cannot be
-          // oversubscribed or two tags would range in the same slot.
-          const slots = uwbSlotsPerTag(sc.uwb.method, anchors, sc.uwb.schedule, sc.uwb.contentionSlots)
+          // oversubscribed or two tags would range in the same slot. DL-TDoA is the exception:
+          // the anchors run one round per block and every tag in the scenario listens to that
+          // same round, so tags cost the schedule nothing at all.
+          const slots = uwbSlotsPerTag(sc.uwb.method, anchors, sc.uwb.schedule, sc.uwb.contentionSlots, mode)
           const fits = Math.floor(sc.uwb.blockRstu / (slots * sc.uwb.slotRstu))
-          if (tags > fits) {
+          if (mode !== 'dl-tdoa' && tags > fits) {
             ctx.addIssue({
               code: z.ZodIssueCode.custom,
               path: ['uwb'],
@@ -459,7 +501,7 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
           // slot is not an error at run time: the receiver's deadline fires first, the late
           // PPDU is ignored, and the round silently loses every anchor. So it is caught here.
           const slotNs = rstuNs(sc.uwb.slotRstu)
-          const needNs = uwbSlotFitNs(anchors)
+          const needNs = uwbSlotFitNs(anchors, mode)
           if (slotNs < needNs) {
             ctx.addIssue({
               code: z.ZodIssueCode.custom,

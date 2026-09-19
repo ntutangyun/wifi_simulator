@@ -8,7 +8,9 @@ import { EventQueue } from '../../src/engine/events'
 import { Rng } from '../../src/engine/rng'
 import { makeEmitter } from '../../src/model/records'
 import { UwbNetwork } from '../../src/uwb/network'
-import { rstuNs, UWB_MAX_ANCHORS, uwbFinalBytes, uwbSlotFitNs } from '../../src/uwb/phy'
+import {
+  rstuNs, UWB_BLINK_BYTES, UWB_MAX_ANCHORS, uwbDlPollBytes, uwbFinalBytes, uwbLongestFrameBytes, uwbSlotFitNs,
+} from '../../src/uwb/phy'
 
 function uwbNode(id: string, role: 'anchor' | 'tag', x: number, y: number): NodeCfg {
   return {
@@ -153,6 +155,61 @@ describe('UWB nodes and sessions in the schema', () => {
     const cfg: UwbSessionCfg = { ...DEFAULT_UWB_SESSION, method: 'ss', schedule: 'contention', contentionSlots: 8 }
     expect(() => ScenarioSchema.parse(uwbScenario([...anchors, ...tags(11)], cfg))).not.toThrow()
     expect(() => ScenarioSchema.parse(uwbScenario([...anchors, ...tags(12)], cfg))).toThrow(/fits 11 tags/)
+  })
+
+  it('one-way ranging needs four anchors and a time schedule', () => {
+    const anchors = (n: number) => Array.from({ length: n }, (_, i) => uwbNode(`anc-${i}`, 'anchor', i * 2, 0))
+    const tag = uwbNode('tag-1', 'tag', 4, 4)
+    for (const mode of ['dl-tdoa', 'ul-tdoa'] as const) {
+      const cfg = (over: Partial<UwbSessionCfg> = {}): UwbSessionCfg => ({ ...DEFAULT_UWB_SESSION, mode, ...over })
+      // Three anchors give two differences; a 2-D hyperbolic fix needs three.
+      expect(() => ScenarioSchema.parse(uwbScenario([...anchors(3), tag], cfg())), mode)
+        .toThrow(/needs at least 4 anchors for 3 time differences \(found 3\)/)
+      expect(() => ScenarioSchema.parse(uwbScenario([...anchors(4), tag], cfg())), mode).not.toThrow()
+      expect(() => ScenarioSchema.parse(uwbScenario([...anchors(4), tag], cfg({ schedule: 'contention', method: 'ss' }))), mode)
+        .toThrow(/contention-based rounds are two-way ranging only/)
+    }
+  })
+
+  it('DL-TDoA lifts the block-fit rule, UL-TDoA caps the block at one blink slot per tag', () => {
+    const anchors = [0, 1, 2, 3].map((i) => uwbNode(`anc-${i}`, 'anchor', i * 3, 0))
+    const tags = (n: number) => Array.from({ length: n }, (_, i) => uwbNode(`tag-${i}`, 'tag', i % 10, 4))
+    // DS-TWR fits 10 tags in the block; DL-TDoA fits any number, because they all listen to the
+    // same anchor round instead of each running one of their own.
+    expect(() => ScenarioSchema.parse(uwbScenario([...anchors, ...tags(11)]))).toThrow(/fits 10 tags/)
+    const dl: UwbSessionCfg = { ...DEFAULT_UWB_SESSION, mode: 'dl-tdoa' }
+    expect(() => ScenarioSchema.parse(uwbScenario([...anchors, ...tags(50)], dl))).not.toThrow()
+    // A blink is one slot, so the block holds blockRstu / slotRstu = 100 of them.
+    const ul: UwbSessionCfg = { ...DEFAULT_UWB_SESSION, mode: 'ul-tdoa' }
+    expect(DEFAULT_UWB_SESSION.blockRstu / DEFAULT_UWB_SESSION.slotRstu).toBe(100)
+    expect(() => ScenarioSchema.parse(uwbScenario([...anchors, ...tags(100)], ul))).not.toThrow()
+    expect(() => ScenarioSchema.parse(uwbScenario([...anchors, ...tags(101)], ul))).toThrow(/fits 100 tags at 1 slots each/)
+  })
+
+  it('the slot-fit rule measures the mode’s own longest frame', () => {
+    // A DL-TDoA round's longest frame is anchor 0's Poll (27 + 3R + 6 octets, R responders), not
+    // the TWR Final; a UL-TDoA round's is the 14-octet blink, the shortest frame there is.
+    expect(uwbLongestFrameBytes(4)).toBe(uwbFinalBytes(4))
+    expect(uwbLongestFrameBytes(4, 'dl-tdoa')).toBe(uwbDlPollBytes(3))
+    expect(uwbLongestFrameBytes(4, 'ul-tdoa')).toBe(UWB_BLINK_BYTES)
+    expect(uwbSlotFitNs(4, 'ul-tdoa')).toBeLessThan(uwbSlotFitNs(4, 'dl-tdoa'))
+    expect(uwbSlotFitNs(4, 'dl-tdoa')).toBeLessThan(uwbSlotFitNs(4))
+    // A 363 RSTU slot (302.5 µs) is too short for a nine-anchor DS-TWR round — its Final is 122
+    // octets — but it carries that round's DL-TDoA shape (a 57-octet Poll) and a blink with room
+    // to spare. So the rule has to ask the mode what the round's longest frame is.
+    const anchors = Array.from({ length: 9 }, (_, i) => uwbNode(`anc-${i}`, 'anchor', i * 2, 0))
+    const tag = uwbNode('tag-1', 'tag', 4, 4)
+    const short = { slotRstu: 363, blockRstu: 36_300 }
+    expect(rstuNs(363)).toBe(302_500)
+    expect(uwbSlotFitNs(9)).toBeGreaterThan(302_500)
+    expect(uwbSlotFitNs(9, 'dl-tdoa')).toBeLessThan(302_500)
+    expect(uwbSlotFitNs(9, 'ul-tdoa')).toBeLessThan(302_500)
+    expect(() => ScenarioSchema.parse(uwbScenario([...anchors, tag], { ...DEFAULT_UWB_SESSION, ...short })))
+      .toThrow(/363 RSTU ranging slot is 302.5 µs/)
+    expect(() => ScenarioSchema.parse(uwbScenario([...anchors, tag], { ...DEFAULT_UWB_SESSION, ...short, mode: 'dl-tdoa' })))
+      .not.toThrow()
+    expect(() => ScenarioSchema.parse(uwbScenario([...anchors, tag], { ...DEFAULT_UWB_SESSION, ...short, mode: 'ul-tdoa' })))
+      .not.toThrow()
   })
 
   it('every lesson scenario still parses', () => {

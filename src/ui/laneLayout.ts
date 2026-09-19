@@ -326,6 +326,7 @@ export function spanTooltip(s: LaneSpan, T: Strings['tooltips'], t?: Ns, nameOf:
         f.kind === 'uwbResp' ? T.uwbResp(f.uwb?.slot ?? 0) :
         f.kind === 'uwbFinal' ? T.uwbFinal :
         f.kind === 'uwbReport' ? T.uwbReport(dst) :
+        f.kind === 'uwbBlink' ? T.uwbBlink :
         f.kind === 'rts' ? T.rts(dst) :
         f.kind === 'cfend' ? T.cfend : T.cts(dst)
       const rate = f.amp ? `${f.amp.kbps} kb/s OOK`

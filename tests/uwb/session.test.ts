@@ -82,3 +82,41 @@ describe('roundPlan (contention)', () => {
     expect(p.contentionSlots).toBe(8)
   })
 })
+
+describe('roundPlan (one-way ranging)', () => {
+  it('a DL-TDoA round is the anchors’ own: N + 1 slots, one round per block', () => {
+    const p = roundPlan(session({ mode: 'dl-tdoa' }), 4)
+    expect(p.mode).toBe('dl-tdoa')
+    expect(p.slots).toBe(5) // poll + 3 responses + final
+    expect(p.roundNs).toBe(10 * MS)
+    // Every tag listens to the same round, so a block holds exactly one — not the 20 that fit.
+    expect(p.roundsPerBlock).toBe(1)
+    expect(Math.floor(p.blockNs / p.roundNs)).toBe(20)
+  })
+
+  it('a UL-TDoA round is one blink slot, and the block holds one per tag', () => {
+    const p = roundPlan(session({ mode: 'ul-tdoa' }), 4)
+    expect(p.mode).toBe('ul-tdoa')
+    expect(p.slots).toBe(1)
+    expect(p.roundNs).toBe(2 * MS)
+    expect(p.roundsPerBlock).toBe(100) // 240 000 / 2 400 RSTU
+  })
+
+  it('maps the DL-TDoA slots: anchor 0 polls, anchors 1…N−1 answer, anchor 0 finals', () => {
+    const p = roundPlan(session({ mode: 'dl-tdoa' }), 4)
+    expect(slotAction(p, 0)).toEqual({ kind: 'uwbPoll', tx: 'anchor', anchor: 0 })
+    for (let i = 1; i <= 3; i++) {
+      expect(slotAction(p, i)).toEqual({ kind: 'uwbResp', tx: 'anchor', anchor: i })
+    }
+    expect(slotAction(p, 4)).toEqual({ kind: 'uwbFinal', tx: 'anchor', anchor: 0 })
+    expect(() => slotAction(p, 5)).toThrow(/DL-TDoA round has 5 slots/)
+    // No tag transmits in a DL-TDoA round at all.
+    expect([0, 1, 2, 3, 4].every((s) => slotAction(p, s).tx === 'anchor')).toBe(true)
+  })
+
+  it('maps the UL-TDoA slot: the tag’s blink, and nothing after it', () => {
+    const p = roundPlan(session({ mode: 'ul-tdoa' }), 4)
+    expect(slotAction(p, 0)).toEqual({ kind: 'uwbBlink', tx: 'tag' })
+    expect(() => slotAction(p, 1)).toThrow(/UL-TDoA round has 1 slots/)
+  })
+})

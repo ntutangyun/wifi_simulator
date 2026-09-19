@@ -219,7 +219,7 @@ export interface Strings {
     ampTrigger: string; ampAck: (dst: string) => string; ampResp: (slot: number) => string
     ampWait: string; ampWaitNote: string
     uwbPoll: (anchors: number) => string; uwbResp: (slot: number) => string
-    uwbFinal: string; uwbReport: (dst: string) => string
+    uwbFinal: string; uwbReport: (dst: string) => string; uwbBlink: string
     uwbRate: (mbps: number) => string
     uwbWait: string; uwbWaitNote: string
   }
@@ -449,6 +449,7 @@ export const STRINGS: Record<Lang, Strings> = {
         trigger: 'Trigger frame', mba: 'Multi-STA BlockAck', cfend: 'CF-End — contention-free end',
         ampTrigger: 'AMP Trigger', ampAck: 'AMP Ack', ampResp: 'AMP response',
         uwbPoll: 'UWB Poll', uwbResp: 'UWB Response', uwbFinal: 'UWB Final', uwbReport: 'UWB measurement report',
+        uwbBlink: 'UWB Blink',
       },
       whatIs: {
         cfend: 'A TXOP holder giving time back. Its RTS/CTS had reserved the channel until the end of the TXOP; the burst finished early, so this frame tells everyone who decodes it to drop that reservation now. When a station sent it, the AP repeats it one SIFS later so the far side of the cell hears the release too.',
@@ -466,6 +467,7 @@ export const STRINGS: Record<Lang, Strings> = {
         uwbResp: 'One anchor’s answer in its own ranging slot. With SS-TWR it also carries the reply time the anchor measured, which is what lets the tag subtract the anchor’s processing delay from the round trip.',
         uwbFinal: 'The tag’s closing frame of a DS-TWR round: it broadcasts the round-trip and reply times the tag measured, so each anchor can combine them with its own pair and cancel both clocks’ drift.',
         uwbReport: 'An anchor’s measurement report: the two times only it could measure. Together with the Final’s numbers they complete the four-timestamp DS-TWR equation for that anchor.',
+        uwbBlink: 'A tag’s blink: fourteen octets, once per ranging block, and nothing else. It carries no times at all — the anchors stamp its arrival on their shared timebase, and the differences between those stamps are what places the tag.',
       },
       next: {
         cfend: 'Every station that decodes it resets its NAV and, after one DIFS/AIFS of quiet, may contend again. Stations that could not hear it keep waiting until the reservation they heard runs out.',
@@ -483,6 +485,7 @@ export const STRINGS: Record<Lang, Strings> = {
         uwbResp: 'Under SS-TWR the tag already has everything it needs and computes the distance straight away. Under DS-TWR it waits for every anchor, then sends its Final.',
         uwbFinal: 'Every anchor that heard it replies with its measurement report, each in its own slot; the tag then has four timestamps per anchor and turns them into distances.',
         uwbReport: 'The tag completes the DS-TWR calculation for this anchor. Once enough anchors have reported, it solves its own position and the round ends; the next one starts at the next ranging block.',
+        uwbBlink: 'The tag falls silent for the rest of the block. Every anchor that heard the blink hands its arrival time to the infrastructure, which differences them and solves the position on the tag’s behalf.',
       },
       nextTitle: 'What happens next',
       from: 'from', to: 'to', everyone: 'several stations (multi-user)',
@@ -533,6 +536,10 @@ export const STRINGS: Record<Lang, Strings> = {
           ieRmi: 'RMI IE · Ranging Measurement Information',
           ieRcps: 'RCPS IE · Ranging Contention Phase Slots',
           ieRcma: 'RCMA IE · Ranging Contention Maximum Attempts',
+          ieTxTime: 'TX Time IE · the sender’s own transmit instant',
+          ieRxTimes: 'RX Times IE · arrival instants the sender holds',
+          ieCoffs: 'Clock Offset IE · the responder’s offset to anchor 0',
+          ieBlink: 'Blink IE · one-way blink content',
         },
         bit: {
           protocolVersion: 'Protocol Version', type: 'Type', subtype: 'Subtype', toDs: 'To DS', fromDs: 'From DS',
@@ -610,6 +617,7 @@ export const STRINGS: Record<Lang, Strings> = {
       uwbResp: (slot) => `UWB Response in ranging slot ${slot}`,
       uwbFinal: 'UWB Final — the tag broadcasts the times it measured (DS-TWR)',
       uwbReport: (dst) => `UWB measurement report → ${dst}`,
+      uwbBlink: 'UWB Blink — the tag transmits once and the anchors time it (UL-TDoA)',
       uwbRate: (mbps) => `${mbps} Mbps BPRF · HRP UWB (SP1 PPDU)`,
       uwbWait: 'holding a ranging slot',
       uwbWaitNote: 'A UWB device never contends: the round’s schedule already says whose slot this is, so the receiver simply stays armed until the slot’s deadline.',
@@ -838,6 +846,7 @@ export const STRINGS: Record<Lang, Strings> = {
         trigger: 'Trigger — 触发帧', mba: '多站点 BlockAck', cfend: 'CF-End — 提前结束',
         ampTrigger: 'AMP 触发帧', ampAck: 'AMP 确认帧', ampResp: 'AMP 应答帧',
         uwbPoll: 'UWB 轮询帧', uwbResp: 'UWB 响应帧', uwbFinal: 'UWB 终结帧', uwbReport: 'UWB 测量报告帧',
+        uwbBlink: 'UWB 闪发帧',
       },
       whatIs: {
         cfend: 'TXOP 持有者把时间还回去。它的 RTS/CTS 已把信道预约到 TXOP 结束，但突发提前发完了，于是用这一帧告诉所有解出它的站点：现在就可以撤销那段预约。若发送者是终端，AP 会在一个 SIFS 后重复一遍，让小区另一侧也听到释放。',
@@ -855,6 +864,7 @@ export const STRINGS: Record<Lang, Strings> = {
         uwbResp: '某一个锚点在它自己的测距时隙里的回答。在 SS-TWR 下，它还会带上锚点测得的回复时间，标签靠它才能从往返时间里减去锚点的处理时延。',
         uwbFinal: '标签在 DS-TWR 一轮末尾发出的帧：广播它测得的往返时间和回复时间，让每个锚点能把它们与自己的一对时间合并，把两边时钟的偏差一起抵消掉。',
         uwbReport: '锚点的测量报告：其中是只有它自己能测到的那两个时间。它们和终结帧里的数字合在一起，恰好凑齐该锚点的 DS-TWR 四时间戳等式。',
+        uwbBlink: '标签的闪发帧：十四个字节，每个测距块发一次，仅此而已。它不携带任何时间——由各锚点在共享时基上给它的到达时刻打戳，这些时刻之差就定出了标签的位置。',
       },
       next: {
         cfend: '所有解出它的站点都会清零 NAV，安静一个 DIFS/AIFS 后即可重新竞争。听不到它的站点则要一直等到自己听到的那段预约自然结束。',
@@ -872,6 +882,7 @@ export const STRINGS: Record<Lang, Strings> = {
         uwbResp: '在 SS-TWR 下，标签此时已经拿齐所需的一切，可以直接算出距离。在 DS-TWR 下，它会等所有锚点答完，再发出终结帧。',
         uwbFinal: '每个听到它的锚点都会在自己的时隙里回一帧测量报告；标签随即就每个锚点都集齐了四个时间戳，可以换算成距离。',
         uwbReport: '标签就该锚点完成 DS-TWR 计算。当足够多的锚点都报告完毕，它就解出自己的位置，这一轮结束；下一轮在下一个测距块开始。',
+        uwbBlink: '标签在这个块剩下的时间里保持沉默。每个听到闪发帧的锚点把自己的到达时刻交给基础设施，由后者作差并代替标签解出位置。',
       },
       nextTitle: '接下来会发生什么',
       from: '发送方', to: '接收方', everyone: '多个终端（多用户）',
@@ -922,6 +933,10 @@ export const STRINGS: Record<Lang, Strings> = {
           ieRmi: 'RMI 信息元·测距测量信息',
           ieRcps: 'RCPS 信息元·竞争阶段时隙',
           ieRcma: 'RCMA 信息元·竞争最大尝试次数',
+          ieTxTime: '发送时刻信息元·发送方自己的发送时刻',
+          ieRxTimes: '接收时刻信息元·发送方掌握的各到达时刻',
+          ieCoffs: '时钟偏差信息元·响应锚点相对锚点 0 的偏差',
+          ieBlink: '闪发信息元·单向闪发帧的内容',
         },
         bit: {
           protocolVersion: '协议版本', type: '类型', subtype: '子类型', toDs: 'To DS', fromDs: 'From DS',
@@ -999,6 +1014,7 @@ export const STRINGS: Record<Lang, Strings> = {
       uwbResp: (slot) => `测距时隙 ${slot} 内的 UWB 响应帧`,
       uwbFinal: 'UWB 终结帧——标签广播它测得的时间（DS-TWR）',
       uwbReport: (dst) => `UWB 测量报告 → ${dst}`,
+      uwbBlink: 'UWB 闪发帧 — 标签只发一次，由各锚点打时间戳（UL-TDoA）',
       uwbRate: (mbps) => `${mbps} Mbps BPRF · HRP UWB（SP1 PPDU）`,
       uwbWait: '持有一个测距时隙',
       uwbWaitNote: 'UWB 设备从不参与竞争：本轮的调度表已经规定了这个时隙属于谁，接收机只需保持开启到时隙截止。',

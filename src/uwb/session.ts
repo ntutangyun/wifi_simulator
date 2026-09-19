@@ -13,8 +13,10 @@
  * A round is laid out as
  *   SS-TWR:  slot 0 Poll (tag) | slots 1..A Response (anchor 0..A-1)
  *   DS-TWR:  … | slot A+1 Final (tag) | slots A+2..2A+1 Report (anchor 0..A-1)
+ *   DL-TDoA: slot 0 Poll (anchor 0) | slots 1..A-1 Response (anchor 1..A-1) | slot A Final (anchor 0)
+ *   UL-TDoA: slot 0 Blink (tag)
  */
-import type { UwbSessionCfg } from '../model/scenario'
+import type { UwbMode, UwbSessionCfg } from '../model/scenario'
 import type { Ns } from '../model/types'
 import { rstuNs, uwbSlotsPerTag } from './phy'
 
@@ -32,18 +34,27 @@ export interface RoundPlan {
   schedule: 'time' | 'contention'
   /** The session's response-phase window; meaningful only when `schedule` is 'contention'. */
   contentionSlots: number
+  /** What the round measures: two-way ranges, or one-way time differences (§10.32.3). */
+  mode: UwbMode
 }
 
-/** The fixed shape of one round, and how many of them fit in a block. */
+/**
+ * The fixed shape of one round, and how many of them fit in a block.
+ *
+ * Two-way ranging and UL-TDoA give each tag a round of its own, and as many of them fit in the
+ * block as the arithmetic allows. A DL-TDoA block holds exactly one round — the anchors' own,
+ * run whether or not anyone is listening — because every tag in the scenario positions itself
+ * from that same round; a second copy would only cost air.
+ */
 export function roundPlan(cfg: UwbSessionCfg, anchors: number): RoundPlan {
-  const slots = uwbSlotsPerTag(cfg.method, anchors, cfg.schedule, cfg.contentionSlots)
+  const slots = uwbSlotsPerTag(cfg.method, anchors, cfg.schedule, cfg.contentionSlots, cfg.mode)
   const slotNs = rstuNs(cfg.slotRstu)
   const roundNs = slots * slotNs
   const blockNs = rstuNs(cfg.blockRstu)
   return {
     method: cfg.method, anchors, slots, slotNs, roundNs, blockNs,
-    roundsPerBlock: Math.floor(blockNs / roundNs),
-    schedule: cfg.schedule, contentionSlots: cfg.contentionSlots,
+    roundsPerBlock: cfg.mode === 'dl-tdoa' ? 1 : Math.floor(blockNs / roundNs),
+    schedule: cfg.schedule, contentionSlots: cfg.contentionSlots, mode: cfg.mode,
   }
 }
 
@@ -52,14 +63,32 @@ export function slotStartNs(p: RoundPlan, block: number, round: number, slot: nu
   return block * p.blockNs + round * p.roundNs + slot * p.slotNs
 }
 
-/** Who transmits in a slot, and what. */
+/** Who transmits in a slot, and what. In two-way ranging the tag opens and closes the round; in
+ * DL-TDoA the anchors own every slot (anchor 0 polls and finals, anchors 1…N−1 respond) and the
+ * tags only listen; in UL-TDoA the tag's single slot holds its blink. */
 export type SlotAction =
   | { kind: 'uwbPoll'; tx: 'tag' }
+  | { kind: 'uwbPoll'; tx: 'anchor'; anchor: number }
   | { kind: 'uwbResp'; tx: 'anchor'; anchor: number }
   | { kind: 'uwbFinal'; tx: 'tag' }
+  | { kind: 'uwbFinal'; tx: 'anchor'; anchor: number }
   | { kind: 'uwbReport'; tx: 'anchor'; anchor: number }
+  | { kind: 'uwbBlink'; tx: 'tag' }
 
 export function slotAction(p: RoundPlan, slot: number): SlotAction {
+  if (p.mode === 'dl-tdoa') {
+    // N + 1 slots: anchor 0's Poll, one Response per other anchor in its own slot, anchor 0's
+    // Final. The responder in slot i is anchor i, which is what lets the Final list its RX times
+    // in slot order without naming anyone.
+    if (slot === 0) return { kind: 'uwbPoll', tx: 'anchor', anchor: 0 }
+    if (slot < p.anchors) return { kind: 'uwbResp', tx: 'anchor', anchor: slot }
+    if (slot === p.anchors) return { kind: 'uwbFinal', tx: 'anchor', anchor: 0 }
+    throw new Error(`slotAction: DL-TDoA round has ${p.slots} slots, asked for ${slot}`)
+  }
+  if (p.mode === 'ul-tdoa') {
+    if (slot === 0) return { kind: 'uwbBlink', tx: 'tag' }
+    throw new Error(`slotAction: UL-TDoA round has ${p.slots} slots, asked for ${slot}`)
+  }
   if (slot === 0) return { kind: 'uwbPoll', tx: 'tag' }
   if (p.schedule === 'contention') {
     if (slot <= p.contentionSlots) return { kind: 'uwbResp', tx: 'anchor', anchor: -1 }

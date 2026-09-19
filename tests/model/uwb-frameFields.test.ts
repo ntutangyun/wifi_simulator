@@ -2,11 +2,12 @@ import { describe, it, expect } from 'vitest'
 import { decodeFrame, ppduLayout, type DecodedFrame } from '../../src/model/frameFields'
 import type { FrameDesc } from '../../src/model/frames'
 import { uwbFrameFields, uwbPpduLayout } from '../../src/uwb/frameFields'
-import { makeFinal, makePoll, makeReport, makeResp } from '../../src/uwb/frames'
+import { makeBlink, makeFinal, makePoll, makeReport, makeResp } from '../../src/uwb/frames'
 import {
-  ARC_IE_BYTES, chipsToNs, PHR_SYMBOLS, PHR_SYMBOL_CHIPS, PSYM_CHIPS, RCMA_IE_BYTES, RCPS_IE_BYTES, rdmIeBytes,
+  ARC_IE_BYTES, BLINK_IE_BYTES, chipsToNs, DL_COFFS_IE_BYTES, DL_TX_TIME_IE_BYTES, dlRxTimesIeBytes,
+  PHR_SYMBOLS, PHR_SYMBOL_CHIPS, PSYM_CHIPS, RCMA_IE_BYTES, RCPS_IE_BYTES, rdmIeBytes,
   rmiFinalIeBytes, RMI_REPORT_IE_BYTES, RRMC_IE_BYTES, RRTI_IE_BYTES, SFD_SYMBOLS, STS_ACTIVE_CHIPS, STS_GAP_CHIPS,
-  SYNC_SYMBOLS,
+  SYNC_SYMBOLS, UWB_BLINK_BYTES, uwbDlFinalBytes, uwbDlPollBytes, uwbDlRespBytes, uwbRespBytes,
 } from '../../src/uwb/phy'
 
 const FINAL_TIMES = [
@@ -92,6 +93,67 @@ describe('uwbFrameFields', () => {
 
   it('is what decodeFrame returns for a UWB frame', () => {
     for (const f of ALL) expect(decodeFrame(f, { apId: '', isEdca: false })).toEqual(uwbFrameFields(f))
+  })
+
+  it('decodes a UL-TDoA blink: MHR 9 + blink IE 3 + FCS 2 = 14 octets', () => {
+    const blink = makeBlink('tag-1', 3, 7)
+    expect(blink.bytes).toBe(14)
+    expect(blink.bytes).toBe(UWB_BLINK_BYTES)
+    expect(blink.dst).toBe('*')
+    const d = uwbFrameFields(blink)
+    expect(fieldSum(d)).toBe(14)
+    expect(d.users[0].subframes[0].mpdu.subtypeName).toBe('UWB Blink')
+    expect(fields(blink).map((x) => x.key))
+      .toEqual(['fc', 'seqNo', 'dstPan', 'dstAddr16', 'srcAddr16', 'ieBlink', 'fcs'])
+    expect(keyed(blink, 'ieBlink')!.bytes).toBe(BLINK_IE_BYTES)
+    expect(keyed(blink, 'ieBlink')!.value).toBe('blink · block 3 · round 7')
+    // The shortest frame the simulator puts on the air, and the cheapest position there is.
+    expect(blink.bytes).toBeLessThan(uwbRespBytes('ds') + 1)
+    expect(ppduLayout(blink).reduce((s, p) => s + p.durNs, 0)).toBe(blink.txTimeNs)
+  })
+
+  it('decodes the three DL-TDoA messages: ranging times at 4 octets each, IE headers counted', () => {
+    const dlPoll = makePoll('anc-0', ['anc-1', 'anc-2', 'anc-3'], 'ds', 0, 0, 'time', 8, 3, {
+      txCounter: 1_000_000, rxCounters: {},
+    })
+    const dlResp = makeResp('anc-1', '*', 'ds', 0, 0, 1, undefined, {
+      txCounter: 1_200_000, rxCounters: { 'anc-0': 1_100_000 }, coffs: 1.5,
+    })
+    const dlFinal = makeFinal('anc-0', [], 0, 0, 4, {
+      txCounter: 1_900_000,
+      rxCounters: { 'anc-1': 1_300_000, 'anc-2': 1_500_000, 'anc-3': 1_700_000 },
+    })
+    // Poll: the time-scheduled Poll over 3 responders (36) + the TX-time IE (2 + 4).
+    expect(dlPoll.bytes).toBe(uwbDlPollBytes(3))
+    expect(dlPoll.bytes).toBe(42)
+    // Response: the DS Response (14) + TX time (6) + one RX time (2 + 4) + clock offset (2 + 2).
+    expect(dlResp.bytes).toBe(uwbDlRespBytes())
+    expect(dlResp.bytes).toBe(30)
+    // Final: MHR 9 + RRMC 3 + FCS 2 + TX time 6 + three RX times (2 + 12). It carries no
+    // two-way times at all, so it does not grow the way the DS-TWR Final does.
+    expect(dlFinal.bytes).toBe(uwbDlFinalBytes(3))
+    expect(dlFinal.bytes).toBe(34)
+    expect(dlFinal.bytes).toBeLessThan(FINAL.bytes)
+
+    for (const f of [dlPoll, dlResp, dlFinal]) {
+      const d = uwbFrameFields(f)
+      expect(fieldSum(d), `${f.kind} ${f.bytes} B`).toBe(f.bytes)
+      expect(ppduLayout(f).reduce((s, p) => s + p.durNs, 0), f.kind).toBe(f.txTimeNs)
+    }
+    expect(fields(dlPoll).filter((x) => x.key.startsWith('ie')).map((x) => x.key))
+      .toEqual(['ieArc', 'ieRdm', 'ieRrmc', 'ieTxTime'])
+    expect(fields(dlResp).filter((x) => x.key.startsWith('ie')).map((x) => x.key))
+      .toEqual(['ieRrmc', 'ieTxTime', 'ieRxTimes', 'ieCoffs'])
+    expect(fields(dlFinal).filter((x) => x.key.startsWith('ie')).map((x) => x.key))
+      .toEqual(['ieRrmc', 'ieTxTime', 'ieRxTimes'])
+    expect(keyed(dlPoll, 'ieTxTime')!.bytes).toBe(DL_TX_TIME_IE_BYTES)
+    expect(keyed(dlResp, 'ieRxTimes')!.bytes).toBe(dlRxTimesIeBytes(1))
+    expect(keyed(dlResp, 'ieCoffs')!.bytes).toBe(DL_COFFS_IE_BYTES)
+    expect(keyed(dlFinal, 'ieRxTimes')!.bytes).toBe(dlRxTimesIeBytes(3))
+    // Four octets per ranging time, exactly as an RRTI IE sizes one.
+    expect(dlRxTimesIeBytes(3) - dlRxTimesIeBytes(2)).toBe(4)
+    expect(keyed(dlResp, 'ieCoffs')!.value).toBe('clock offset 1.50 ppm to anchor 0')
+    expect(keyed(dlFinal, 'ieRxTimes')!.value).toContain('3 RX times: anc-1 1 300 000')
   })
 
   it('decodes a contention Poll: ARC + RCPS + RCMA + RRMC summing to 31 octets', () => {
