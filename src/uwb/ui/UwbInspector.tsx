@@ -81,7 +81,9 @@ export function UwbInspector({ nv, nameOf }: { nv: NodeView; nameOf: (id: string
 
       {tdoa.length > 0 && (
         <>
-          <div style={{ ...dim, marginTop: 6 }} title={U.tdoaHint}>{U.tdoa} ({tdoa.length})</div>
+          <div style={{ ...dim, marginTop: 6 }} title={U.tdoaHint}>
+            {U.tdoa} ({tdoa.length}){u.tdoaRef === null ? '' : ` · ${U.tdoaAgainst(nameOf(u.tdoaRef))}`}
+          </div>
           <table style={{ width: '100%', fontSize: 11.5, borderCollapse: 'collapse' }}>
             <thead>
               <tr style={dim}>
@@ -156,7 +158,12 @@ export function UwbInspector({ nv, nameOf }: { nv: NodeView; nameOf: (id: string
               </div>
             </>
           ) : (
-            <div style={{ ...dim, fontSize: 11 }}>{U.noPosition}</div>
+            <div style={{ ...dim, fontSize: 11 }}>
+              {/* A one-way lane never measures a range, so telling it to go and get three of
+                  them is advice it cannot take; it is known to be one by the differences it
+                  has already collected. */}
+              {tdoa.length > 0 || u.tdoaRef !== null ? U.noPositionTdoa : U.noPosition}
+            </div>
           )}
         </>
       )}

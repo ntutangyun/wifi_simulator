@@ -53,7 +53,7 @@ describe('the UWB view reducer', () => {
     expect(tag.acs).toBeNull()
     expect(tag.uwb).toEqual({
       role: 'tag', block: 0, round: 0, slot: null, rounds: 0, timeouts: 0, interfered: 0,
-      contend: null, contendCollisions: 0, ranges: {}, tdoa: {}, aoa: {}, position: null,
+      contend: null, contendCollisions: 0, ranges: {}, tdoa: {}, tdoaRef: null, aoa: {}, position: null,
     })
     expect(vs.nodes['anc-1'].uwb?.role).toBe('anchor')
   })
@@ -104,7 +104,7 @@ describe('the UWB view reducer', () => {
     // anc-2 took part in nothing of its own: untouched by the tag's records
     expect(vs.nodes['anc-2'].uwb).toEqual({
       role: 'anchor', block: 0, round: 0, slot: null, rounds: 0, timeouts: 0, interfered: 0,
-      contend: null, contendCollisions: 0, ranges: {}, tdoa: {}, aoa: {}, position: null,
+      contend: null, contendCollisions: 0, ranges: {}, tdoa: {}, tdoaRef: null, aoa: {}, position: null,
     })
   })
 
@@ -143,8 +143,11 @@ describe('the UWB view reducer', () => {
       'anc-2': { dtNs: 12.9, trueDtNs: 12.1, n: 2 },
       'anc-3': { dtNs: -4.2, trueDtNs: -4, n: 1 },
     })
+    // the anchor every row is against, carried once beside the map so the panel can name it
+    expect(u.tdoaRef).toBe('anc-1')
     expect(u.ranges).toEqual({}) // a listening tag measures no distances at all
     expect(vs.nodes['anc-1'].uwb!.tdoa).toEqual({})
+    expect(vs.nodes['anc-1'].uwb!.tdoaRef).toBeNull()
   })
 
   it('remembers what solved a fix, so the panel can say two-way or one-way', () => {

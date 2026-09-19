@@ -154,12 +154,16 @@ export interface Strings {
     ranges: string; peer: string; measured: string; trueDist: string; error: string; fom: string; rounds: string
     /** One-way ranging: the table of time differences against the round's reference anchor. */
     tdoa: string; tdoaHint: string
+    /** Caption of the time-difference table: which anchor every row is measured against. */
+    tdoaAgainst: (ref: string) => string
     /** Angle of arrival: the anchor's table of bearings, one row per tag. */
     aoa: string; aoaHint: string; aoaSigma: string; aoaRowHint: string
     /** The Figure of Merit byte as a phrase: "97 % within 0.5 ns" (standard §10.29.1.7). */
     fomWithin: (pct: number, intervalNs: number) => string
     noFom: string
     position: string; estimate: string; gdop: string; ellipse: string; noPosition: string
+    /** The same line for a one-way lane, which never measures a range at all. */
+    noPositionTdoa: string
     /** What solved the fix, as a row label and as the four methods' names. */
     methodLabel: string; method: Record<UwbFixMethod, string>
     /** Shown on the ellipse of a one-way fix, whose σ is a documented approximation. */
@@ -389,7 +393,7 @@ export const STRINGS: Record<Lang, Strings> = {
       uwbModes: { twr: 'two-way ranging (TWR)', 'dl-tdoa': 'one-way, downlink (DL-TDoA)', 'ul-tdoa': 'one-way, uplink (UL-TDoA)' },
       uwbClockCorrection: 'Tag clock correction', uwbClockCorrectionHint: 'DL-TDoA: the listening tag measures its own crystal against the round’s poll-to-final interval before it differences its arrival times. Turn it off to see what ±20 ppm does: the error is 20 ppm of the gap between the Poll and the response being timed — up to 6 ms in the five-slot round the lessons run, so 36 m, and 120 m over a 20 ms round of nine anchors.',
       uwbDlOnly: 'only DL-TDoA uses this: it is the listening tag’s own correction, and no other mode has a tag that listens',
-      uwbSyncError: 'Anchor sync error', uwbSyncErrorHint: 'UL-TDoA: how well the anchors’ clocks are calibrated to one common timebase (model "wired sync"). Each anchor draws a fixed residual error of this size once; 1 ns of it is 30 cm of range difference that no number of blinks averages away.',
+      uwbSyncError: 'Anchor sync error', uwbSyncErrorHint: 'UL-TDoA: how well the anchors’ clocks are calibrated to one common timebase (model “wired sync”). Each anchor draws a fixed residual error of this size once; 1 ns of it is 30 cm of range difference that no number of blinks averages away.',
       uwbUlOnly: 'only UL-TDoA uses this: it is the anchors’ shared timebase, and no other mode compares two anchors’ timestamps',
       uwbTwrOnly: 'a one-way round is laid out in advance for every anchor, so the one-way modes are time-scheduled only',
       uwbAoa: 'Angle of arrival (AoA)',
@@ -457,6 +461,7 @@ export const STRINGS: Record<Lang, Strings> = {
       ranges: 'ranges measured', peer: 'peer', measured: 'measured', trueDist: 'true', error: 'error',
       fom: 'confidence', rounds: 'rounds',
       tdoa: 'time differences',
+      tdoaAgainst: (ref) => `against ${ref}`,
       tdoaHint: 'one-way ranging measures no distances: each row is how much later this anchor’s message arrived than the reference anchor’s, which places the tag on a hyperbola between the two',
       aoa: 'bearings measured',
       aoaHint: 'the angle this anchor saw the tag at, in degrees from its own facing and positive to its left; it comes from the phase difference between the anchor’s two antennas, not from any time of flight',
@@ -465,6 +470,7 @@ export const STRINGS: Record<Lang, Strings> = {
       fomWithin: (pct, ns) => `${pct} % within ${ns} ns`, noFom: 'no FoM',
       position: 'position', estimate: 'estimate', gdop: 'GDOP', ellipse: 'error ellipse (1-σ)',
       noPosition: 'no fix yet — a tag needs ranges to three anchors in one block',
+      noPositionTdoa: 'no fix yet — a tag needs three time differences in one block',
       methodLabel: 'solved from',
       method: {
         twr: 'two-way ranging', 'dl-tdoa': 'DL-TDoA', 'ul-tdoa': 'UL-TDoA', aoa: 'angle of arrival',
@@ -809,9 +815,9 @@ export const STRINGS: Record<Lang, Strings> = {
       uwbMethods: { ss: 'SS-TWR（单边双向）', ds: 'DS-TWR（双边双向）' },
       uwbMode: '测距模式', uwbModeHint: '双向测距为每个锚点测出一个距离，由标签自己解算位置。两种单向模式改为测量到达时间差：DL-TDoA 由锚点跑完整轮，全程不发射的标签据此自行定位；UL-TDoA 则由标签发一帧闪发，共享同一时基的锚点替它定位。两者都需要四个锚点，且必须是时间调度的会话。',
       uwbModes: { twr: '双向测距（TWR）', 'dl-tdoa': '单向·下行（DL-TDoA）', 'ul-tdoa': '单向·上行（UL-TDoA）' },
-      uwbClockCorrection: '标签时钟校正', uwbClockCorrectionHint: 'DL-TDoA：只听不发的标签先用本轮"轮询帧→终结帧"这段间隔量出自己晶振的快慢，再去做到达时间差。关掉它就能看到 ±20 ppm 的后果：误差为 20 ppm 乘以从轮询帧到被计时的那一帧之间的间隔——本系列课程那种五时隙轮次里最长 6 ms，即 36 米；若是九个锚点的 20 ms 轮次，则是 120 米。',
-      uwbDlOnly: '只有 DL-TDoA 用得上：这是那个"只听"的标签自己做的校正，其他模式里没有只听的标签',
-      uwbSyncError: '锚点同步误差', uwbSyncErrorHint: 'UL-TDoA：各锚点的时钟被校准到同一时基的程度（模型采用"有线同步"）。每个锚点一次性抽取一个这种量级的固定残差；1 ns 就是 30 cm 的距离差，而且发再多闪发也平均不掉。',
+      uwbClockCorrection: '标签时钟校正', uwbClockCorrectionHint: 'DL-TDoA：只听不发的标签先用本轮“轮询帧→终结帧”这段间隔量出自己晶振的快慢，再去做到达时间差。关掉它就能看到 ±20 ppm 的后果：误差为 20 ppm 乘以从轮询帧到被计时的那一帧之间的间隔——本系列课程那种五时隙轮次里最长 6 ms，即 36 米；若是九个锚点的 20 ms 轮次，则是 120 米。',
+      uwbDlOnly: '只有 DL-TDoA 用得上：这是那个“只听”的标签自己做的校正，其他模式里没有只听的标签',
+      uwbSyncError: '锚点同步误差', uwbSyncErrorHint: 'UL-TDoA：各锚点的时钟被校准到同一时基的程度（模型采用“有线同步”）。每个锚点一次性抽取一个这种量级的固定残差；1 ns 就是 30 cm 的距离差，而且发再多闪发也平均不掉。',
       uwbUlOnly: '只有 UL-TDoA 用得上：这是锚点之间的共享时基，其他模式都不会去比较两个锚点的时间戳',
       uwbTwrOnly: '单向测距的轮次必须为每个锚点事先排好时隙，因此两种单向模式只支持时间调度',
       uwbAoa: '到达角（AoA）',
@@ -879,6 +885,7 @@ export const STRINGS: Record<Lang, Strings> = {
       ranges: '测距结果', peer: '对端', measured: '实测', trueDist: '真值', error: '误差',
       fom: '置信度', rounds: '轮次',
       tdoa: '到达时间差',
+      tdoaAgainst: (ref) => `相对 ${ref}`,
       tdoaHint: '单向测距不测距离：每一行是该锚点的消息比参考锚点晚到多少，这把标签定在两个锚点之间的一条双曲线上',
       aoa: '到达角测量',
       aoaHint: '该锚点看到标签的方位角，以自身正前方为 0°、向其左侧为正；它来自锚点两根天线之间的相位差，与飞行时间无关',
@@ -887,6 +894,7 @@ export const STRINGS: Record<Lang, Strings> = {
       fomWithin: (pct, ns) => `${pct} % 的误差落在 ${ns} ns 内`, noFom: '无 FoM',
       position: '位置解算', estimate: '估计值', gdop: '几何精度因子 GDOP', ellipse: '误差椭圆（1-σ）',
       noPosition: '尚无定位结果——标签需要在同一测距块内拿到三个锚点的距离',
+      noPositionTdoa: '尚无定位结果——标签需要在同一测距块内拿到三个到达时间差',
       methodLabel: '解算方式',
       method: {
         twr: '双向测距 (TWR)', 'dl-tdoa': '下行到达时间差 (DL-TDoA)', 'ul-tdoa': '上行到达时间差 (UL-TDoA)',

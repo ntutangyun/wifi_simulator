@@ -12,7 +12,7 @@ const tag: UwbNodeView = {
     'anc-1': { distM: 5.02, trueDistM: 5, method: 'ds', fom: FOM_LOS, block: 3, n: 7 },
     'anc-2': { distM: 4.38, trueDistM: 4.5, method: 'ds', fom: FOM_NLOS, block: 3, n: 6 },
   },
-  tdoa: {}, aoa: {},
+  tdoa: {}, tdoaRef: null, aoa: {},
   position: {
     x: 0.03, y: -0.04, trueX: 0, trueY: 0, gdop: 1.41,
     ellipse: { a: 0.062, b: 0.041, thetaRad: 0.5 }, method: 'twr',
@@ -27,6 +27,7 @@ const listener: UwbNodeView = {
     'anc-2': { dtNs: 12.5, trueDtNs: 12.1, n: 3 },
     'anc-3': { dtNs: -8.237, trueDtNs: -8.019, n: 3 },
   },
+  tdoaRef: 'anc-1',
   position: { ...tag.position!, gdop: 0.87, method: 'dl-tdoa' },
 }
 

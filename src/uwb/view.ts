@@ -74,6 +74,10 @@ export interface UwbNodeView {
   /** One-way ranging: the latest time difference per peer, all against the same reference
    * anchor (the round's anchor 0), which is why the reference itself never has a row. */
   tdoa: Record<string, UwbTdoaView>
+  /** The anchor every one of those differences is taken against, or null before the first one
+   * lands. It is constant per node, so it sits beside the map rather than on every row - and
+   * without it a reader of "anc-2 -8.24 ns" has no way to tell what it is -8.24 ns later than. */
+  tdoaRef: string | null
   /** Angle-of-arrival sessions, anchor: the latest bearing it measured to each tag. It sits on
    * the *anchor's* lane, unlike the fix that bearing helps solve — the bearing is the anchor's
    * own measurement, and two anchors watching one tag each have their own. */
@@ -84,7 +88,7 @@ export interface UwbNodeView {
 export function initUwbNodeView(cfg: UwbNodeCfg): UwbNodeView {
   return {
     role: cfg.role, block: 0, round: 0, slot: null, rounds: 0, timeouts: 0, interfered: 0,
-    contend: null, contendCollisions: 0, ranges: {}, tdoa: {}, aoa: {}, position: null,
+    contend: null, contendCollisions: 0, ranges: {}, tdoa: {}, tdoaRef: null, aoa: {}, position: null,
   }
 }
 
@@ -156,6 +160,7 @@ export function applyUwbRecord(vs: ViewState, r: TLRecord): boolean {
       if (u) {
         const prev = u.tdoa[r.peer]
         u.tdoa[r.peer] = { dtNs: r.dtNs, trueDtNs: r.trueDtNs, n: (prev?.n ?? 0) + 1 }
+        u.tdoaRef = r.ref
       }
       return true
     }
