@@ -3,6 +3,7 @@ import { canDeleteNode, hasAp, newAnchor, newAp, newUwbTag, removeNode, uwbSessi
 import { GEN_FEATURES } from '../../src/model/caps'
 import { DEFAULT_UWB_SESSION, ScenarioSchema, defaultScenario, type Scenario, type UwbSessionCfg } from '../../src/model/scenario'
 import { UWB_TX_POWER_DBM } from '../../src/uwb/phy'
+import { uwbModePatch } from '../../src/uwb/ui/UwbSessionFields'
 
 /** A scenario carrying `n` anchors and one tag on top of the default house. */
 function withUwb(n: number, session: Partial<UwbSessionCfg> = {}): Scenario {
@@ -100,6 +101,37 @@ describe('uwbSessionIssue', () => {
     const bad = withUwb(6, { method: 'ds', schedule: 'contention' })
     expect(ScenarioSchema.safeParse(bad).success).toBe(false)
     expect(uwbSessionIssue(bad)).toMatch(/SS-TWR|contention/i)
+  })
+
+  it('round-trips the one-way mode and its two knobs through a valid session', () => {
+    // What the three new fields of the session section produce: the mode select's patch, the
+    // DL-only clock-correction checkbox and the UL-only sync error. Each survives the schema
+    // unchanged, and a four-anchor time-scheduled session takes all of them without complaint.
+    const uplink = withUwb(4, { ...uwbModePatch('ul-tdoa'), syncErrorNs: 1 })
+    expect(uwbSessionIssue(uplink)).toBeNull()
+    expect(ScenarioSchema.parse(uplink).uwb)
+      .toEqual({ ...DEFAULT_UWB_SESSION, mode: 'ul-tdoa', schedule: 'time', syncErrorNs: 1 })
+    const downlink = withUwb(4, { ...uwbModePatch('dl-tdoa'), tdoaClockCorrection: false })
+    expect(uwbSessionIssue(downlink)).toBeNull()
+    expect(ScenarioSchema.parse(downlink).uwb)
+      .toEqual({ ...DEFAULT_UWB_SESSION, mode: 'dl-tdoa', schedule: 'time', tdoaClockCorrection: false })
+  })
+
+  it('takes a contention session back to the time schedule when a one-way mode is picked', () => {
+    // Exactly what the method select does for DS-TWR: the schema takes a one-way round in a
+    // time-scheduled session only, so the field changes the pair together rather than leaving
+    // the user a plan it rejects, with the fix two fields away.
+    const contending: Partial<UwbSessionCfg> = { method: 'ss', schedule: 'contention' }
+    expect(uwbSessionIssue(withUwb(4, { ...contending, mode: 'ul-tdoa' }))).toMatch(/one-way|two-way/i)
+    expect(uwbModePatch('ul-tdoa')).toEqual({ mode: 'ul-tdoa', schedule: 'time' })
+    expect(uwbSessionIssue(withUwb(4, { ...contending, ...uwbModePatch('ul-tdoa') }))).toBeNull()
+    // Going back to two-way ranging touches the mode alone: the schedule is the user's again.
+    expect(uwbModePatch('twr')).toEqual({ mode: 'twr' })
+    expect(uwbSessionIssue(withUwb(4, { ...contending, ...uwbModePatch('twr') }))).toBeNull()
+  })
+
+  it('still needs four anchors for a one-way mode, which no field can patch away', () => {
+    expect(uwbSessionIssue(withUwb(3, uwbModePatch('ul-tdoa')))).toContain('at least 4 anchors')
   })
 
   it('reports a UWB node left without a session', () => {

@@ -13,7 +13,9 @@ import { describe, expect, it } from 'vitest'
 import * as THREE from 'three'
 import { uwbDstwr } from '../../src/course/uwb/uwb-dstwr'
 import { Simulation } from '../../src/engine/simulation'
+import { DEFAULT_UWB_SESSION, nonht, type NodeCfg, type Scenario } from '../../src/model/scenario'
 import { cloneView, type ViewState } from '../../src/model/view'
+import { UWB_TX_POWER_DBM } from '../../src/uwb/phy'
 import { roundPlan } from '../../src/uwb/session'
 import { ELLIPSE_DRAW_SCALE, UWB_ELLIPSE_COLOR, UWB_FIX_COLOR, UWB_RING_COLOR, UwbOverlay } from '../../src/uwb/scene'
 
@@ -22,6 +24,26 @@ const ANCHORS = ['anchor-1', 'anchor-2', 'anchor-3', 'anchor-4']
 
 const sc = uwbDstwr.scenario()
 const plan = roundPlan(sc.uwb!, ANCHORS.length)
+
+/** Four corner anchors and two blinking tags: the smallest UL-TDoA floor there is. Each tag
+ * owns one 2 ms round of the block, so by 5 ms both have been positioned once. */
+function ulScenario(): Scenario {
+  const corners = [{ x: 0.5, y: 0.5 }, { x: 9.5, y: 0.5 }, { x: 9.5, y: 7.5 }, { x: 0.5, y: 7.5 }]
+  const node = (id: string, x: number, y: number, role: 'anchor' | 'tag'): NodeCfg => ({
+    id, kind: 'uwb', name: id, pos: { x, y, z: role === 'anchor' ? 2.4 : 1 },
+    txPowerDbm: UWB_TX_POWER_DBM, profiles: ['idle'], caps: { ...nonht }, uwb: { role, ppm: 0 },
+  })
+  return {
+    rooms: [{ x: 0, y: 0, w: 10, h: 8, name: 'lab' }],
+    walls: [],
+    nodes: [
+      ...corners.map((c, i) => node(`anc-${i + 1}`, c.x, c.y, 'anchor')),
+      node('tag-1', 3, 3, 'tag'), node('tag-2', 7, 5, 'tag'),
+    ],
+    servers: [], seed: 7, rtsThresholdBytes: 3000, snapshotIntervalMs: 10,
+    uwb: { ...DEFAULT_UWB_SESSION, mode: 'ul-tdoa', nlos: false },
+  }
+}
 
 function viewAt(ms: number): ViewState {
   const sim = new Simulation(uwbDstwr.scenario())
@@ -204,6 +226,28 @@ describe('UwbOverlay', () => {
 
   it('refuses to draw for a scenario with no ranging session', () => {
     expect(() => new UwbOverlay({ ...sc, uwb: undefined })).toThrow(/ranging session/)
+  })
+
+  it('draws a one-way fix and its ellipse at the tag, and not a single ring', () => {
+    // UL-TDoA: the tags only blink, the reference anchor solves them, and the view routes each
+    // fix to the tag it is about. A time difference is a hyperbola, not a circle, so there is
+    // no ring to draw — and none of the tags ever measured a distance to draw one from.
+    const sim = new Simulation(ulScenario())
+    sim.runUntil(5 * MS)
+    const overlay = new UwbOverlay(ulScenario())
+    overlay.update(sim.view)
+    expect(names(overlay.group)).toEqual(['ellipse:tag-1', 'ellipse:tag-2', 'fix:tag-1', 'fix:tag-2'])
+    for (const id of ['tag-1', 'tag-2']) {
+      const fix = sim.view.nodes[id].uwb!.position!
+      expect(fix.method).toBe('ul-tdoa')
+      const cross = overlay.group.getObjectByName(`fix:${id}`)!
+      expect(cross.position.x).toBeCloseTo(fix.x, 9)
+      expect(cross.position.z).toBeCloseTo(fix.y, 9)
+      const ell = overlay.group.getObjectByName(`ellipse:${id}`)!
+      expect(ell.scale.x).toBeCloseTo(fix.ellipse.a * ELLIPSE_DRAW_SCALE, 9)
+      expect(ell.scale.z).toBeCloseTo(fix.ellipse.b * ELLIPSE_DRAW_SCALE, 9)
+    }
+    overlay.dispose()
   })
 
   it('reuses the same objects across updates and empties the group on dispose', () => {

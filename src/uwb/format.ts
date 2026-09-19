@@ -31,6 +31,12 @@ function roundName(mode: UwbMode, method: 'ss' | 'ds'): string {
   return mode === 'twr' ? `${method.toUpperCase()}-TWR` : METHOD_SHORT[mode]
 }
 
+/** " of tag-1" when a record is about another node (UL-TDoA), and nothing at all when it is
+ * about the node that emitted it — which is every record the existing lessons quote. */
+function ofWhom(of: string | undefined): string {
+  return of === undefined ? '' : ` of ${of}`
+}
+
 export function fmtUwbRecord(r: UwbTLRecord): string {
   switch (r.type) {
     case 'UWB_ROUND':
@@ -42,14 +48,17 @@ export function fmtUwbRecord(r: UwbTLRecord): string {
     case 'UWB_RANGE':
       return `${r.node} range → ${r.peer} (${r.method.toUpperCase()}): ${r.distM.toFixed(2)} m (true ${r.trueDistM.toFixed(2)} m${r.tofRawRctu !== undefined ? `, raw ${rctuToMetres(r.tofRawRctu).toFixed(2)} m` : ''})`
     case 'UWB_TDOA':
-      return `${r.node} TDoA ${r.peer} − ${r.ref}: ${r.dtNs.toFixed(2)} ns (true ${r.trueDtNs.toFixed(2)} ns)`
+      // UL-TDoA: the node printing the line is the reference anchor, and the difference is about
+      // a tag that blinked once. Say whose it is, or the line reads as the anchor's own geometry.
+      return `${r.node} TDoA${ofWhom(r.of)} ${r.peer} − ${r.ref}: ${r.dtNs.toFixed(2)} ns `
+        + `(true ${r.trueDtNs.toFixed(2)} ns)`
     case 'UWB_POSITION': {
       const err = Math.hypot(r.x - r.trueX, r.y - r.trueY)
       // Two-way ranging is the line's unmarked case — it is the only fix the log could print
       // before one-way ranging existed, and the lessons quote it word for word. Any other
       // method names itself, because "4 anchors" means something different in each of them.
       const how = r.method === 'twr' ? '' : ` (${METHOD_SHORT[r.method]})`
-      return `${r.node} position (${r.x.toFixed(2)}, ${r.y.toFixed(2)}) m, true (${r.trueX.toFixed(2)}, ${r.trueY.toFixed(2)}), error ${err.toFixed(2)} m, GDOP ${r.gdop.toFixed(2)}, ${r.anchors.length} anchors${how}`
+      return `${r.node} position${ofWhom(r.of)} (${r.x.toFixed(2)}, ${r.y.toFixed(2)}) m, true (${r.trueX.toFixed(2)}, ${r.trueY.toFixed(2)}), error ${err.toFixed(2)} m, GDOP ${r.gdop.toFixed(2)}, ${r.anchors.length} anchors${how}`
     }
     case 'UWB_TIMEOUT':
       return `${r.node} UWB slot ${r.slot}: no ${KIND_SHORT[r.expected]} from ${r.peer}`

@@ -7,6 +7,11 @@
  * exactly that — one ring per (tag, anchor) pair, the solved position as a
  * small cross, and the 1-σ confidence ellipse of the solver around it.
  *
+ * One-way ranging (DL-TDoA, UL-TDoA) measures no distances, so there is no ring
+ * to draw: those lanes get the cross and the ellipse alone. In UL-TDoA the fix
+ * is not even the tag's own — the infrastructure solved it and the view routed
+ * it to the tag's lane (`of`), which is what puts the cross under the tag here.
+ *
  * Everything fades with age rather than blinking out: a drawing is at full
  * strength when its round ends and has faded to nothing one ranging block later,
  * so the eye sees the measurement's freshness. A ring, cross or ellipse more
@@ -125,7 +130,12 @@ export class UwbOverlay {
       // through physicalId all the same, so the names never grow a lane suffix.
       const tag = physicalId(vid)
 
-      for (const [id, r] of Object.entries(u.ranges)) {
+      // One-way ranging measures no distances at all: a time difference is a hyperbola, not a
+      // circle, and hyperbolae are not drawn here. So a TDoA lane shows the fix and its ellipse
+      // and nothing else — which is also the honest picture of what that tag's round produced.
+      // Two-way ranging keeps every ring it ever had.
+      const rings = u.position === null || u.position.method === 'twr'
+      for (const [id, r] of rings ? Object.entries(u.ranges) : []) {
         const peer = physicalId(id)
         const anchor = this.positions.get(peer)
         if (!anchor || r.block < u.block - 1) continue

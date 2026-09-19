@@ -72,6 +72,16 @@ export function initUwbNodeView(cfg: UwbNodeCfg): UwbNodeView {
   }
 }
 
+/**
+ * The lane a measurement belongs on: the node the record is *about*, which is the node that
+ * emitted it in every mode but UL-TDoA. There the infrastructure measures a tag that never
+ * transmits again and names it in `of` — and the tag's own lane is where a reader (and the 3-D
+ * overlay, which draws at the lane it finds a fix on) goes looking for the tag's position.
+ */
+function subject(vs: ViewState, r: { node: string; of?: string }): UwbNodeView | undefined {
+  return vs.nodes[r.of ?? r.node]?.uwb
+}
+
 /** Applies one UWB_* record; returns true when it handled it. */
 export function applyUwbRecord(vs: ViewState, r: TLRecord): boolean {
   switch (r.type) {
@@ -111,7 +121,7 @@ export function applyUwbRecord(vs: ViewState, r: TLRecord): boolean {
       return true
     }
     case 'UWB_TDOA': {
-      const u = vs.nodes[r.node]?.uwb
+      const u = subject(vs, r)
       if (u) {
         const prev = u.tdoa[r.peer]
         u.tdoa[r.peer] = { dtNs: r.dtNs, trueDtNs: r.trueDtNs, n: (prev?.n ?? 0) + 1 }
@@ -119,7 +129,7 @@ export function applyUwbRecord(vs: ViewState, r: TLRecord): boolean {
       return true
     }
     case 'UWB_POSITION': {
-      const u = vs.nodes[r.node]?.uwb
+      const u = subject(vs, r)
       if (u) {
         u.position = {
           x: r.x, y: r.y, trueX: r.trueX, trueY: r.trueY, gdop: r.gdop,

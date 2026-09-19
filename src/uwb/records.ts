@@ -22,10 +22,13 @@ export type UwbRecord =
   | { type: 'UWB_TS'; node: string; dir: 'tx' | 'rx'; peer: string; frameKind: UwbFrameKind; counter: number; fom?: number }
   /** One finished range to a peer, with the geometric truth beside it. */
   | { type: 'UWB_RANGE'; node: string; peer: string; method: 'ss' | 'ds'; tofRctu: number; tofRawRctu?: number; distM: number; trueDistM: number; fom: number; block: number; round: number }
-  /** One time difference of arrival, at a listening device: how much later the peer's message
-   * arrived than the reference's, with the geometric truth beside it. `dtNs` is the measurement
-   * after every correction the mode applies; `trueDtNs` is (d(node, peer) − d(node, ref)) / c. */
-  | { type: 'UWB_TDOA'; node: string; ref: string; peer: string; dtNs: number; trueDtNs: number; block: number; round: number }
+  /** One time difference of arrival: how much later the peer's message arrived than the
+   * reference's, with the geometric truth beside it. `dtNs` is the measurement after every
+   * correction the mode applies. In DL-TDoA the listening tag measures it and `trueDtNs` is
+   * (d(node, peer) − d(node, ref)) / c; in UL-TDoA the infrastructure measures a *tag's* blink,
+   * so `node` is the reference anchor, `of` names the tag, and the truth is about the tag:
+   * (d(of, peer) − d(of, ref)) / c. */
+  | { type: 'UWB_TDOA'; node: string; ref: string; peer: string; dtNs: number; trueDtNs: number; block: number; round: number; of?: string }
   /** A 2-D fix solved from this block's ranges or time differences. `method` says which, and
    * `of` names the node the fix is *about* when that is not `node` itself (UL-TDoA, where the
    * infrastructure solves a tag's position). */

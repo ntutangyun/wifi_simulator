@@ -11,7 +11,9 @@
  * anchors, not the network, decide which slot of it each of them answers in.
  *
  * Tag k owns round k of every block. Anchors serve every round. DL-TDoA turns that around: the
- * anchors own the one round a block holds, and every tag in the scenario listens to it.
+ * anchors own the one round a block holds, and every tag in the scenario listens to it. UL-TDoA
+ * keeps the round-per-tag grid but empties the round out to a single slot: the tag blinks in it,
+ * every anchor listens, and the infrastructure does the arithmetic afterwards.
  */
 import type { EventQueue } from '../engine/events'
 import { hashStr } from '../engine/hash'
@@ -21,7 +23,7 @@ import type { EmitFn } from '../model/records'
 import type { NodeCfg, UwbSessionCfg, Wall } from '../model/scenario'
 import type { Ns } from '../model/types'
 import { UwbChannel } from './channel'
-import { UwbClock } from './clock'
+import { gaussian, UwbClock } from './clock'
 import { UwbDevice, type UwbGeometry } from './device'
 import { UWB_MAX_ANCHORS, uwbSlotFitNs } from './phy'
 import { roundPlan, slotAction, slotStartNs, type RoundPlan } from './session'
@@ -96,12 +98,19 @@ export class UwbNetwork {
       // and independent of how many nodes the scenario holds.
       const rng = root.fork(hashStr(`${n.id}#uwb`))
       const clock = UwbClock.fromRng(rng, n.uwb?.ppm)
+      // UL-TDoA (model "wired sync"): the anchors are calibrated to one common timebase, and each
+      // is left with a fixed residual error of it. It is drawn here, once, from this anchor's own
+      // stream and straight after its crystal — so it cannot reorder anything, and no other mode
+      // draws it at all: a two-way or DL-TDoA session takes exactly the stream it took before.
+      const syncOffsetNs = this.plan.mode === 'ul-tdoa' && n.uwb?.role === 'anchor'
+        ? gaussian(rng) * cfg.syncErrorNs
+        : 0
       const dev = new UwbDevice(
         n.id,
         {
           role: n.uwb?.role ?? 'anchor', pos: n.pos,
           tsNoisePs: cfg.tsNoisePs, cfoNoisePpm: cfg.cfoNoisePpm, maxAttempts: cfg.maxAttempts,
-          tdoaClockCorrection: cfg.tdoaClockCorrection,
+          tdoaClockCorrection: cfg.tdoaClockCorrection, syncOffsetNs,
         },
         clock, rng, q, now, ch, emit, geometry,
       )
@@ -134,6 +143,21 @@ export class UwbNetwork {
         // A listen-only round belongs to nobody: every tag closes its own measurement and no
         // feedback travels back to the anchors, because no anchor asked anything of a tag.
         if (listenOnly) {
+          for (const d of crowd) d.endRound()
+          return
+        }
+        if (this.plan.mode === 'ul-tdoa' && anchors.length > 0) {
+          // The tag blinked once and is finished; everything else happens on the infrastructure
+          // side. The anchors' arrivals are already on their common timebase, so the reference
+          // anchor — anchor 0, the one every difference is taken against — collects them and
+          // solves the tag's position before any round state is cleared. Nothing travels back to
+          // the tag: it is positioned without ever learning that it was.
+          const arrivals: { id: string; ns: number }[] = []
+          for (const id of anchors) {
+            const ns = this.devices.get(id)!.ulArrivalNs()
+            if (ns !== null) arrivals.push({ id, ns })
+          }
+          this.devices.get(anchors[0])!.solveUlFix(arrivals)
           for (const d of crowd) d.endRound()
           return
         }

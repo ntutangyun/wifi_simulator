@@ -37,6 +37,16 @@ const DL_POSITION = rec({
 const TDOA = rec({
   type: 'UWB_TDOA', node: 'tag-1', ref: 'anc-1', peer: 'anc-3', dtNs: -8.237, trueDtNs: -8.019, block: 3, round: 0,
 })
+/** UL-TDoA: the infrastructure's own records, about a tag that only blinked (`of`). */
+const UL_TDOA = rec({
+  type: 'UWB_TDOA', node: 'anc-1', ref: 'anc-1', peer: 'anc-3', dtNs: -8.237, trueDtNs: -8.019,
+  block: 3, round: 0, of: 'tag-1',
+})
+const UL_POSITION = rec({
+  type: 'UWB_POSITION', node: 'anc-1', x: 0.03, y: -0.04, trueX: 0, trueY: 0, gdop: 0.87,
+  ellipse: { a: 0.03, b: 0.02, thetaRad: 0.5 }, anchors: ['anc-1', 'anc-2', 'anc-3', 'anc-4'], block: 3,
+  method: 'ul-tdoa', of: 'tag-1',
+})
 const TIMEOUT = rec({ type: 'UWB_TIMEOUT', node: 'tag-1', slot: 5, peer: 'anc-2', expected: 'uwbResp' })
 const INTERFERED = rec({ type: 'UWB_INTERFERED', node: 'anc-1', from: 'tag-1', foreignDbm: -42.214, sirDb: -34.459 })
 const CONTEND = rec({ type: 'UWB_CONTEND', node: 'anc-2', slot: 5, attempt: 2 })
@@ -86,6 +96,14 @@ describe('fmtUwbRecord', () => {
       .toBe('tag-1 position (0.03, -0.04) m, true (0.00, 0.00), error 0.05 m, GDOP 0.87, 4 anchors (DL-TDoA)')
   })
 
+  it('says whose measurement it is when the node did not make it about itself', () => {
+    // UL-TDoA: the reference anchor prints both lines, and both are about a tag that blinked
+    // once. Without the "of" the position line would read as the anchor's own.
+    expect(fmtUwbRecord(UL_TDOA)).toBe('anc-1 TDoA of tag-1 anc-3 − anc-1: -8.24 ns (true -8.02 ns)')
+    expect(fmtUwbRecord(UL_POSITION))
+      .toBe('anc-1 position of tag-1 (0.03, -0.04) m, true (0.00, 0.00), error 0.05 m, GDOP 0.87, 4 anchors (UL-TDoA)')
+  })
+
   it('names what a silent slot was waiting for', () => {
     expect(fmtUwbRecord(TIMEOUT)).toBe('tag-1 UWB slot 5: no resp from anc-2')
   })
@@ -111,7 +129,7 @@ describe('fmtUwbRecord', () => {
 describe('fmtRecord delegates every UWB record', () => {
   it.each([
     ROUND, DL_ROUND, SLOT, TS_TX, TS_RX, RANGE, RANGE_NO_RAW, TDOA, POSITION, DL_POSITION,
-    TIMEOUT, INTERFERED, CONTEND, SIT_OUT, CONTEND_COLLISION,
+    UL_TDOA, UL_POSITION, TIMEOUT, INTERFERED, CONTEND, SIT_OUT, CONTEND_COLLISION,
   ])('$type', (r) => {
     expect(fmtRecord(r)).toBe(fmtUwbRecord(r))
   })

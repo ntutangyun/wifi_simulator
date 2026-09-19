@@ -2,7 +2,7 @@
 import type { FeatureFlag, LinkId } from '../model/caps'
 import type { FrameDesc, FrameKind } from '../model/frames'
 import type { Generation } from '../model/types'
-import type { ProfileId } from '../model/scenario'
+import type { ProfileId, UwbMode } from '../model/scenario'
 import type { RxFailReason } from '../model/records'
 import type { AddrRole, FcBitKey, FieldKey, PpduSegmentKey } from '../model/frameFields'
 import type { UwbFixMethod } from '../uwb/records'
@@ -98,6 +98,11 @@ export interface Strings {
     uwbSession: string; uwbCounts: (anchors: number, tags: number) => string
     uwbNoNodes: string; uwbRemoveSession: string; uwbRemoveSessionHint: string; uwbSessionInUse: string
     uwbMethod: string; uwbMethodHint: string; uwbMethods: Record<'ss' | 'ds', string>
+    /** One-way ranging (standard §10.32.3): the mode and the two knobs only one mode each uses. */
+    uwbMode: string; uwbModeHint: string; uwbModes: Record<UwbMode, string>
+    uwbClockCorrection: string; uwbClockCorrectionHint: string; uwbDlOnly: string
+    uwbSyncError: string; uwbSyncErrorHint: string; uwbUlOnly: string
+    uwbTwrOnly: string
     uwbBlock: string; uwbBlockHint: string; uwbSlot: string; uwbSlotHint: string
     uwbChannel: string; uwbChannelHint: string
     uwbTsNoise: string; uwbTsNoiseHint: string; uwbCfoNoise: string; uwbCfoNoiseHint: string
@@ -368,6 +373,13 @@ export const STRINGS: Record<Lang, Strings> = {
       uwbSessionInUse: 'the session cannot be removed while a UWB device is in the plan; delete the devices first',
       uwbMethod: 'Method', uwbMethodHint: 'SS-TWR: one poll and one response per anchor — half the frames, but the clock offset between the two devices leaks straight into the range. DS-TWR adds a final and a report, which cancels it.',
       uwbMethods: { ss: 'SS-TWR (single-sided)', ds: 'DS-TWR (double-sided)' },
+      uwbMode: 'Ranging mode', uwbModeHint: 'two-way ranging measures a distance per anchor and the tag solves its own position. The one-way modes measure time differences instead: in DL-TDoA the anchors run the round and a tag that never transmits positions itself from it; in UL-TDoA the tag sends one blink and the anchors, sharing a timebase, position it. Both need four anchors and a time-scheduled session.',
+      uwbModes: { twr: 'two-way ranging (TWR)', 'dl-tdoa': 'one-way, downlink (DL-TDoA)', 'ul-tdoa': 'one-way, uplink (UL-TDoA)' },
+      uwbClockCorrection: 'Tag clock correction', uwbClockCorrectionHint: 'DL-TDoA: the listening tag measures its own crystal against the round’s poll-to-final interval before it differences its arrival times. Turn it off to see what ±20 ppm over a whole round does — 20 ppm of 20 ms is 0.4 µs, i.e. 120 m.',
+      uwbDlOnly: 'only DL-TDoA uses this: it is the listening tag’s own correction, and no other mode has a tag that listens',
+      uwbSyncError: 'Anchor sync error', uwbSyncErrorHint: 'UL-TDoA: how well the anchors’ clocks are calibrated to one common timebase (model "wired sync"). Each anchor draws a fixed residual error of this size once; 1 ns of it is 30 cm of range difference that no number of blinks averages away.',
+      uwbUlOnly: 'only UL-TDoA uses this: it is the anchors’ shared timebase, and no other mode compares two anchors’ timestamps',
+      uwbTwrOnly: 'a one-way round is laid out in advance for every anchor, so the one-way modes are time-scheduled only',
       uwbBlock: 'Block', uwbBlockHint: 'the ranging block repeats forever; every tag owns one round inside it, so the block sets how often a tag gets a fresh position',
       uwbSlot: 'Slot', uwbSlotHint: 'one ranging slot holds one frame; it has to be long enough for the round’s longest frame (the DS-TWR Final, which grows with the anchor count) plus its flight time',
       uwbChannel: 'Channel', uwbChannelHint: 'channel 5 is 6489.6 MHz, channel 9 is 7987.2 MHz. Only the 1 m free-space term differs (48.7 dB against 50.5 dB), so channel 9 costs a constant 1.8 dB at every distance.',
@@ -772,6 +784,13 @@ export const STRINGS: Record<Lang, Strings> = {
       uwbSessionInUse: '场景中还有 UWB 设备时不能删除该会话；请先删除这些设备',
       uwbMethod: '测距方式', uwbMethodHint: 'SS-TWR（单边双向测距）：每个锚点只需一次轮询与一次响应，帧数减半，但两台设备之间的时钟偏差会原样进入测距结果。DS-TWR 增加终结帧与报告帧，可将其抵消。',
       uwbMethods: { ss: 'SS-TWR（单边双向）', ds: 'DS-TWR（双边双向）' },
+      uwbMode: '测距模式', uwbModeHint: '双向测距为每个锚点测出一个距离，由标签自己解算位置。两种单向模式改为测量到达时间差：DL-TDoA 由锚点跑完整轮，全程不发射的标签据此自行定位；UL-TDoA 则由标签发一帧闪发，共享同一时基的锚点替它定位。两者都需要四个锚点，且必须是时间调度的会话。',
+      uwbModes: { twr: '双向测距（TWR）', 'dl-tdoa': '单向·下行（DL-TDoA）', 'ul-tdoa': '单向·上行（UL-TDoA）' },
+      uwbClockCorrection: '标签时钟校正', uwbClockCorrectionHint: 'DL-TDoA：只听不发的标签先用本轮"轮询帧→终结帧"这段间隔量出自己晶振的快慢，再去做到达时间差。关掉它就能看到 ±20 ppm 在一整轮里的后果——20 ppm 乘 20 ms 就是 0.4 µs，也就是 120 米。',
+      uwbDlOnly: '只有 DL-TDoA 用得上：这是那个"只听"的标签自己做的校正，其他模式里没有只听的标签',
+      uwbSyncError: '锚点同步误差', uwbSyncErrorHint: 'UL-TDoA：各锚点的时钟被校准到同一时基的程度（模型采用"有线同步"）。每个锚点一次性抽取一个这种量级的固定残差；1 ns 就是 30 cm 的距离差，而且发再多闪发也平均不掉。',
+      uwbUlOnly: '只有 UL-TDoA 用得上：这是锚点之间的共享时基，其他模式都不会去比较两个锚点的时间戳',
+      uwbTwrOnly: '单向测距的轮次必须为每个锚点事先排好时隙，因此两种单向模式只支持时间调度',
       uwbBlock: '测距块', uwbBlockHint: '测距块循环往复；每个标签在块内独占一个轮次，因此块长决定了标签多久刷新一次位置',
       uwbSlot: '测距时隙', uwbSlotHint: '一个测距时隙只装一帧；它必须容得下该轮次中最长的一帧（DS-TWR 的终结帧，长度随锚点数增长）以及其飞行时间',
       uwbChannel: '信道', uwbChannelHint: '信道 5 为 6489.6 MHz，信道 9 为 7987.2 MHz。两者只有 1 米处的自由空间损耗不同（48.7 dB 对 50.5 dB），因此信道 9 在任何距离上都恒定多损耗约 1.8 dB。',

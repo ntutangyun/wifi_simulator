@@ -28,7 +28,7 @@ import type { EmitFn, MacStateName, RxFailReason } from '../model/records'
 import type { Ns, Vec3 } from '../model/types'
 import type { UwbChannel, UwbRadio, UwbRxInfo } from './channel'
 import { counterDiff, gaussian, type UwbClock } from './clock'
-import { makeFinal, makePoll, makeReport, makeResp, type UwbFrameKind } from './frames'
+import { makeBlink, makeFinal, makePoll, makeReport, makeResp, type UwbFrameKind } from './frames'
 import { C_M_PER_NS, RCTU_NS, UWB_RMARKER_NS } from './phy'
 import { rangeSigmaM, solvePosition, solveTdoa, type AnchorPos } from './position'
 import { dsTwr, fomFor, rctuToMetres, ssTwrCorrected, ssTwrRaw } from './ranging'
@@ -49,12 +49,22 @@ export interface UwbDeviceCfg {
    * interval before it differences its arrival times. Off, it keeps its raw counter differences —
    * and up to ±20 ppm of crystal error over a whole round is metres of position error. */
   tdoaClockCorrection: boolean
+  /** UL-TDoA only, anchor: this anchor's own residual calibration error to the infrastructure's
+   * common timebase, in nanoseconds — one number, drawn once when the network is built (model:
+   * "wired sync", the anchors' clocks are disciplined to one another, and what a real deployment
+   * cannot calibrate away is this leftover). It is a fixed bias, not a per-round draw: a miscalibrated
+   * anchor is wrong the same way in every round, which is exactly what makes it hard to spot. */
+  syncOffsetNs: number
 }
 
 export interface UwbGeometry {
   /** 3-D separation of two nodes from the scenario: the truth a range is scored against. */
   trueDistM: (a: string, b: string) => number
-  /** An anchor's surveyed position, as the tag's solver knows it. */
+  /**
+   * An anchor's surveyed position, as the tag's solver knows it — and, in UL-TDoA, the tag's own
+   * entry too: the infrastructure solves for a device whose height it assumes (every 2-D TDoA
+   * deployment configures one) and scores the fix against where the scenario actually put it.
+   */
   anchorPos: (id: string) => AnchorPos
 }
 
@@ -151,6 +161,13 @@ interface RoundState {
   finalListedMe: boolean
   /** One-way ranging state; non-null exactly in a DL-TDoA round. */
   dl: DlRoundState | null
+  /**
+   * UL-TDoA, anchor: when this round's blink arrived, on the **infrastructure's common
+   * timebase** rather than on this anchor's own crystal — that crystal is what the calibration
+   * removes, and what it leaves behind is the receiver's timestamp noise plus this anchor's
+   * fixed `syncOffsetNs`. Null until the blink lands, and in every other mode.
+   */
+  ulArrivalNs: number | null
 }
 
 function freshRound(block: number, round: number, plan: RoundPlan, tagId: string, anchors: string[]): RoundState {
@@ -164,6 +181,7 @@ function freshRound(block: number, round: number, plan: RoundPlan, tagId: string
     dl: plan.mode === 'dl-tdoa'
       ? { rxPoll: null, rxFinal: null, txPoll: null, txFinal: null, responses: new Map(), coffsToRef: null, rxResp: {} }
       : null,
+    ulArrivalNs: null,
   }
 }
 
@@ -230,6 +248,10 @@ export class UwbDevice implements UwbRadio {
       this.onDlSlot(slot, action, r, peers)
       return
     }
+    if (r.plan.mode === 'ul-tdoa') {
+      this.onUlSlot(slot, action, r, peers)
+      return
+    }
     // A contention round's response phase belongs to nobody in advance: `slotAction` names no
     // anchor (its `anchor` is -1), each anchor drew its own slot when it decoded the Poll, and
     // the tag simply listens through the whole window for whoever turns up.
@@ -284,6 +306,21 @@ export class UwbDevice implements UwbRadio {
   }
 
   /**
+   * One slot of a UL-TDoA round, and there is only ever one: the tag whose round it is blinks in
+   * it, and every anchor listens. Nothing answers the blink, so the tag's radio is off the instant
+   * its frame has left — one 181 µs transmission per block is the whole cost of being positioned —
+   * and an anchor that hears nothing simply has no arrival to contribute.
+   */
+  private onUlSlot(slot: number, action: SlotAction, r: RoundState, peers: { tag: string; anchors: string[] }): void {
+    if (action.kind !== 'uwbBlink') return
+    if (this.cfg.role === 'tag') {
+      if (peers.tag === this.id) this.transmitFor(action, slot, r, peers)
+      return
+    }
+    this.listenFor(slot, peers.tag, 'uwbBlink')
+  }
+
+  /**
    * Tag: solve this round's fix, close the round, and return the anchors it ranged — the set the
    * network hands straight back to those anchors as `heard`, which is the whole of the feedback
    * model an SS-TWR responder has no frame for (standard §10.32.1 NOTE leaves the filtering of a
@@ -304,8 +341,11 @@ export class UwbDevice implements UwbRadio {
       }
       return []
     }
+    // Who solves the round's fix is the mode's defining question: in two-way ranging and DL-TDoA
+    // the tag does, from what it measured itself; in UL-TDoA the tag measures nothing at all — it
+    // blinked and went back to sleep — and the infrastructure solves for it (see `solveUlFix`).
     if (r.plan.mode === 'dl-tdoa') this.solveTdoaFix(r)
-    else this.solveFix(r)
+    else if (r.plan.mode === 'twr') this.solveFix(r)
     // The round is over whether or not it produced a fix: the tag's radio is off until
     // its round in the next block, and the view's slot returns to null.
     this.emit({ t: this.now(), type: 'UWB_ROUND_END', node: this.id, block: r.block, round: r.round })
@@ -401,6 +441,73 @@ export class UwbDevice implements UwbRadio {
     })
   }
 
+  /**
+   * UL-TDoA, anchor: the arrival it stamped for this round's blink, already on the
+   * infrastructure's common timebase, or null if it never heard the blink. The network reads it
+   * while the round is still open and hands the set to the reference anchor.
+   */
+  ulArrivalNs(): number | null {
+    return this.round?.ulArrivalNs ?? null
+  }
+
+  /**
+   * UL-TDoA, the reference anchor: difference the anchors' arrivals and solve the tag's position
+   * from them. This is the one measurement in the whole model that no device made on its own —
+   * every arrival was stamped by a different receiver, and it is the shared timebase (and only
+   * the shared timebase) that lets them be subtracted at all. Two consequences the lesson lives
+   * on: the tag spends one frame and learns nothing, and a calibration error between two anchors
+   * is indistinguishable from the tag standing somewhere else.
+   *
+   * `dtNs` is a plain difference — there is no clock-rate correction to make, because no interval
+   * is measured on anybody's crystal here, only two instants on one timebase. The residual is the
+   * two receivers' timestamp noise (√2·σ_ts) and the two anchors' calibration offsets.
+   */
+  solveUlFix(arrivals: { id: string; ns: number }[]): void {
+    const r = this.round
+    if (!r) return
+    const refId = r.anchors[0]
+    const tagId = r.tagId
+    const byId = new Map(arrivals.map((a) => [a.id, a.ns]))
+    const refNs = byId.get(refId)
+    // Every difference is taken against the reference anchor: if it missed the blink there is
+    // nothing to difference against, and the round produces nothing rather than quietly
+    // re-referencing itself to an anchor the records do not name.
+    if (refNs === undefined) return
+    const deltas: { id: string; dtNs: number }[] = []
+    for (const id of r.anchors) {
+      if (id === refId) continue
+      const ns = byId.get(id)
+      if (ns === undefined) continue // this anchor did not hear the blink: it is left out
+      const dtNs = ns - refNs
+      const trueDtNs = (this.geometry.trueDistM(tagId, id) - this.geometry.trueDistM(tagId, refId)) / C_M_PER_NS
+      deltas.push({ id, dtNs })
+      this.emit({
+        t: this.now(), type: 'UWB_TDOA', node: this.id, ref: refId, peer: id,
+        dtNs, trueDtNs, block: r.block, round: r.round, of: tagId,
+      })
+    }
+    // The tag's height is the one thing about it the infrastructure assumes rather than solves
+    // (a 2-D fix needs it); its x and y are used only as the truth the record is scored against.
+    const tag = this.geometry.anchorPos(tagId)
+    const fix = solveTdoa(
+      r.anchors.map((id) => this.geometry.anchorPos(id)),
+      refId,
+      deltas,
+      tag.z,
+      // The same √2·σ_r per difference as DL-TDoA, and the same documented approximation: here
+      // the ellipse also knows nothing of the anchors' calibration offsets, which are a fixed
+      // bias no number of rounds averages away.
+      Math.SQRT2 * rangeSigmaM(this.cfg.tsNoisePs),
+    )
+    if (!fix) return
+    this.emit({
+      t: this.now(), type: 'UWB_POSITION', node: this.id,
+      x: fix.x, y: fix.y, trueX: tag.x, trueY: tag.y,
+      gdop: fix.gdop, ellipse: fix.ellipse, anchors: [refId, ...deltas.map((d) => d.id)],
+      block: r.block, method: 'ul-tdoa', of: tagId,
+    })
+  }
+
   // ---- radio ----------------------------------------------------------------
 
   listening(): boolean {
@@ -456,6 +563,19 @@ export class UwbDevice implements UwbRadio {
 
     this.clearExpectation()
     this.setState('idle')
+
+    if (r.plan.mode === 'ul-tdoa') {
+      // Wired sync (model): the anchors' clocks are disciplined to one common timebase, so this
+      // anchor reports the arrival on *that* — its own ppm is precisely what the calibration
+      // removes, which is why the counter it just stamped above (its own crystal, for the log)
+      // is not what the fix is computed from. What survives the calibration is the receiver's
+      // timestamp noise, drawn above in the order every mode draws it, and this anchor's own
+      // fixed residual offset.
+      if (kind === 'uwbBlink' && this.cfg.role === 'anchor') {
+        r.ulArrivalNs = trueRmarkerNs + extraNs + this.cfg.syncOffsetNs
+      }
+      return
+    }
 
     if (r.plan.mode === 'dl-tdoa') {
       this.onDlRx(r, from, frame, kind, counter, coffs)
@@ -554,9 +674,14 @@ export class UwbDevice implements UwbRadio {
       this.transmitDl(action, slot, r, peers, txCounter)
       return
     }
-    // TODO (Task 3, UL-TDoA): a tag's 'uwbBlink' has no case below. Nothing throws on it — the
-    // switch is not exhaustive by design — so an unwired mode is silent rather than fatal.
     switch (action.kind) {
+      case 'uwbBlink': {
+        // UL-TDoA: the whole of a tag's participation. It carries no times — the anchors take
+        // them on arrival — so nothing of this round is kept at the tag, and nothing is expected
+        // back: there is no round state to update here at all.
+        this.send(makeBlink(this.id, r.block, r.round), txCounter)
+        break
+      }
       case 'uwbPoll': {
         r.txPollCounter = txCounter
         this.send(

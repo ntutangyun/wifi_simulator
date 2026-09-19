@@ -477,6 +477,122 @@ describe('UwbNetwork — DL-TDoA determinism, and two-way ranging left alone', (
   })
 })
 
+// --- UL-TDoA: the tag blinks once and the infrastructure positions it ----------
+
+/**
+ * The lesson-6 lab: the same four corner anchors, and ten tags spread over the room, each with
+ * one slot of its own per block. Their crystals are at the ±20 ppm ends of the tolerance, which
+ * in this mode changes nothing at all — a blink carries no times, and no interval is ever
+ * measured on a tag's clock.
+ */
+const BLINKERS: Place[] = ([[2, 2], [5, 2], [8, 2], [2, 4], [5, 4], [8, 4], [2, 6], [5, 6], [8, 6], [6.5, 3]] as const)
+  .map(([x, y], i) => ({ x, y, z: 1, ppm: i % 2 === 0 ? 20 : -20 }))
+const ul = (session: Partial<UwbSessionCfg> = {}): Scenario =>
+  uwbScenario(CORNERS, BLINKERS, { mode: 'ul-tdoa', nlos: false, ...session })
+/** Two 200 ms blocks: ten rounds of one slot each per block, one per tag. */
+const UL_RUN_NS = 2 * 200 * MS - 1
+const TAG_IDS = BLINKERS.map((_, i) => `tag-${i + 1}`)
+/**
+ * 1-σ of one UL-TDoA difference: two independent receive timestamps and two anchors' residual
+ * calibration offsets, all in one subtraction. (The ellipse the solver draws uses √2·σ_r, i.e.
+ * c·σ_ts — a √2 below this, as in DL-TDoA: it is the model's documented approximation.)
+ */
+const ulSigmaM = (syncNs: number): number =>
+  Math.SQRT2 * Math.hypot(DEFAULT_UWB_SESSION.tsNoisePs / 1000, syncNs) * C_M_PER_NS
+const posErr = (rs: TLRecord[]): number[] =>
+  of(rs, 'UWB_POSITION').map((f) => Math.hypot(f.x - f.trueX, f.y - f.trueY))
+
+describe('UwbNetwork — UL-TDoA blinks', () => {
+  const rs = run(ul(), UL_RUN_NS)
+
+  it('spends one 14-octet blink per tag per block, and nothing else anywhere', () => {
+    const tx = of(rs, 'TX_START')
+    // Ten tags, ten rounds, one transmission each — and not one from an anchor: the
+    // infrastructure only listens, and no frame in this mode is ever answered.
+    expect(tx.filter((r) => r.t < 200 * MS).map((r) => [r.node, r.frame.kind, r.frame.uwb?.slot]))
+      .toEqual(TAG_IDS.map((id) => [id, 'uwbBlink', 0]))
+    expect(tx).toHaveLength(2 * TAG_IDS.length)
+    expect(tx.every((r) => r.frame.bytes === 14 && r.frame.txTimeNs === 181_218)).toBe(true)
+    expect(tx[0].frame.dst).toBe('*')
+    expect(tx[0].frame.uwb?.ies).toEqual(['BLINK'])
+    // No round trip exists in this mode, so no anchor and no tag ever reports a distance.
+    expect(of(rs, 'UWB_RANGE')).toEqual([])
+    expect(of(rs, 'UWB_TIMEOUT')).toEqual([])
+    // The tag's radio is off the moment its blink has left: it waits for nothing.
+    expect(of(rs, 'MAC_STATE', 'tag-1').map((r) => r.state)).toEqual(['tx', 'idle', 'tx', 'idle'])
+  })
+
+  it('has the reference anchor solve each tag, and the view put the fix on the tag’s lane', () => {
+    const diffs = of(rs, 'UWB_TDOA')
+    expect(diffs).toHaveLength(2 * TAG_IDS.length * 3) // three differences per blink
+    expect(diffs.every((d) => d.node === 'anc-1' && d.ref === 'anc-1')).toBe(true)
+    expect(diffs.slice(0, 3).map((d) => [d.peer, d.of])).toEqual([
+      ['anc-2', 'tag-1'], ['anc-3', 'tag-1'], ['anc-4', 'tag-1'],
+    ])
+    const fixes = of(rs, 'UWB_POSITION')
+    expect(fixes.map((f) => [f.node, f.of, f.method, f.block])).toEqual(
+      [0, 1].flatMap((block) => TAG_IDS.map((id) => ['anc-1', id, 'ul-tdoa', block])),
+    )
+    expect(fixes[0].anchors).toEqual(['anc-1', 'anc-2', 'anc-3', 'anc-4'])
+    // `of` routes the measurement to the node it is about: the tag that never transmits again
+    // is where the reader — and the 3-D overlay — finds its own position and its differences.
+    const sim = new Simulation(ul())
+    sim.runUntil(UL_RUN_NS)
+    const tag = sim.view.nodes['tag-1'].uwb!
+    expect(tag.position?.method).toBe('ul-tdoa')
+    expect(tag.position?.n).toBe(2)
+    expect(Object.keys(tag.tdoa)).toEqual(['anc-2', 'anc-3', 'anc-4'])
+    expect(tag.ranges).toEqual({})
+    expect(sim.view.nodes['anc-1'].uwb!.position).toBeNull()
+    expect(sim.view.nodes['anc-1'].uwb!.tdoa).toEqual({})
+  })
+
+  it('leaves nothing on a difference but the two receivers’ timestamp noise', () => {
+    // Perfectly synchronised anchors: no clock-rate correction is needed anywhere, because no
+    // interval is measured on anybody's crystal — only two instants on one shared timebase.
+    const dtErr = of(rs, 'UWB_TDOA').map((d) => Math.abs(d.dtNs - d.trueDtNs) * C_M_PER_NS)
+    expect(ulSigmaM(0) * 100).toBeCloseTo(4.24, 2) // 4.2 cm per difference
+    expect(Math.max(...dtErr)).toBeLessThan(4 * ulSigmaM(0))
+    expect(Math.max(...dtErr).toFixed(2)).toBe('0.11')
+    const errs = posErr(rs)
+    expect(errs).toHaveLength(2 * TAG_IDS.length)
+    // Centimetres, from a tag that spent 181 µs of air and learned nothing: over 20 fixes the
+    // worst is 6 cm, well inside four difference-sigmas of geometry (GDOP is about 1 here).
+    expect(Math.max(...errs).toFixed(2)).toBe('0.06')
+    expect(Math.max(...errs)).toBeLessThan(4 * ulSigmaM(0))
+    for (const f of of(rs, 'UWB_POSITION')) expect(f.gdop).toBeLessThan(1.1)
+  })
+
+  it('turns a nanosecond of anchor sync error into decimetres of position error', () => {
+    // syncErrorNs is a *fixed* draw per anchor, not a per-round one: a miscalibrated anchor is
+    // wrong the same way in every round, so averaging blinks does not help. 1 ns is 30 cm of
+    // range difference, and it lands almost whole in the fix.
+    const off = run(ul({ syncErrorNs: 1 }), UL_RUN_NS)
+    const dtErr = of(off, 'UWB_TDOA').map((d) => Math.abs(d.dtNs - d.trueDtNs) * C_M_PER_NS)
+    expect(ulSigmaM(1) * 100).toBeCloseTo(42.6, 1) // 43 cm per difference, ten times σ at 0 ns
+    expect(Math.max(...dtErr).toFixed(2)).toBe('1.02')
+    expect(Math.max(...dtErr)).toBeLessThan(4 * ulSigmaM(1))
+    const errs = posErr(off)
+    expect(Math.max(...errs).toFixed(2)).toBe('0.73')
+    expect(Math.max(...errs)).toBeLessThan(4 * ulSigmaM(1))
+    // An order of magnitude worse than the synchronised run, for one nanosecond.
+    expect(Math.max(...errs)).toBeGreaterThan(10 * Math.max(...posErr(rs)))
+    // The ellipse knows nothing of it — a calibration offset is not noise — so it is unchanged
+    // beside an error ten times larger: the inspector's hint says so in so many words.
+    expect(of(off, 'UWB_POSITION')[0].ellipse.a).toBeCloseTo(of(rs, 'UWB_POSITION')[0].ellipse.a, 2)
+  })
+
+  it('replays bit-for-bit, and needs the reference anchor to have heard the blink', () => {
+    expect(run(ul(), UL_RUN_NS)).toEqual(run(ul(), UL_RUN_NS))
+    // Anchor 1 is the reference every difference is taken against. Move it out of earshot and
+    // the round produces nothing at all — not a set of differences against some other anchor.
+    const deaf: Place[] = [{ x: 0, y: -60, z: 2.4, ppm: 0 }, ...CORNERS.slice(1)]
+    const lost = run(uwbScenario(deaf, BLINKERS, { mode: 'ul-tdoa', nlos: false }), 200 * MS - 1)
+    expect(of(lost, 'UWB_TDOA')).toEqual([])
+    expect(of(lost, 'UWB_POSITION')).toEqual([])
+  })
+})
+
 // --- contention rounds (standard §10.32.2 schedule mode 0) ---------------------
 
 /**

@@ -156,6 +156,25 @@ describe('the UWB view reducer', () => {
     expect(p.n).toBe(2)
   })
 
+  it('puts a measurement about another node on that node’s lane (UL-TDoA’s `of`)', () => {
+    const vs = initViewState(uwbScenario())
+    // The reference anchor emits both records, and both are about the tag that blinked: the
+    // lane a reader opens for the tag's position is the tag's, not the anchor's.
+    const infra: Parameters<EmitFn>[0][] = [
+      { t: 1_000_000, type: 'UWB_TDOA', node: 'anc-1', ref: 'anc-1', peer: 'anc-2', dtNs: 3.5, trueDtNs: 3.4, block: 0, round: 0, of: 'tag-1' },
+      { t: 1_000_100, type: 'UWB_POSITION', node: 'anc-1', x: 4.1, y: 3.9, trueX: 4, trueY: 4, gdop: 0.9, ellipse, anchors: ['anc-1', 'anc-2'], block: 0, method: 'ul-tdoa', of: 'tag-1' },
+    ]
+    for (const r of seq(infra)) applyRecord(vs, r)
+    const tag = vs.nodes['tag-1'].uwb!
+    expect(tag.tdoa).toEqual({ 'anc-2': { dtNs: 3.5, trueDtNs: 3.4, n: 1 } })
+    expect(tag.position?.method).toBe('ul-tdoa')
+    expect(tag.position?.n).toBe(1)
+    // The anchor that did the arithmetic keeps a clean lane: it is not the subject of either.
+    const anchor = vs.nodes['anc-1'].uwb!
+    expect(anchor.tdoa).toEqual({})
+    expect(anchor.position).toBeNull()
+  })
+
   it('counts a frame lost to Wi-Fi at the receiver that lost it', () => {
     const vs = initViewState(uwbScenario())
     const lost: Parameters<EmitFn>[0][] = [
