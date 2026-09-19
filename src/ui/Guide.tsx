@@ -1,7 +1,7 @@
 /** Compact learning guide tying real 802.11 mechanisms to what the sim shows. */
 import { DEFAULT_SIX_GHZ_CENTER_MHZ, DEFAULT_UWB_SESSION, sixGhzChannelNo } from '../model/scenario'
 import {
-  UWB_BAND_MHZ, UWB_CAPTURE_DB, UWB_MAX_INPUT_DBM_PER_MHZ, UWB_SIR_MIN_DB, UWB_TX_POWER_DBM,
+  UWB_BAND_MHZ, UWB_BLINK_BYTES, UWB_CAPTURE_DB, UWB_MAX_INPUT_DBM_PER_MHZ, UWB_SIR_MIN_DB, UWB_TX_POWER_DBM,
 } from '../uwb/phy'
 import { ELLIPSE_DRAW_SCALE } from '../uwb/view'
 import { useUi } from './store'
@@ -216,6 +216,24 @@ export function GuideEn() {
         it — it only shows up as a small noise rise inside the Wi-Fi receiver's SINR while the frame is on the
         air. The practical fix is UWB channel 9, or a 6 GHz Wi-Fi channel that does not overlap channel 5.
       </p>
+      <p style={p}>
+        <b>One-way ranging</b> (§10.29.1.2.5) trades the round trip for a time difference of arrival. In{' '}
+        <b>DL-TDoA</b> the anchors run the round instead — anchor 0 sends the Poll and the Final, the others
+        Respond, and every message carries the sender's own TX counter and the RX counters it holds for the
+        rest (FiRa-style content, model) — while a tag never transmits: it just listens, timestamps every
+        arrival on its own clock, and differences each responder against anchor 0. Those differences span a
+        whole round, so a listening tag's crystal does not cancel the way it does in TWR: it first measures
+        its own Poll-to-Final interval against the true one the anchors report and rescales its raw
+        differences by that ratio — without this <b>clock-rate correction</b>, 20 ppm over a 20 ms round is
+        120 m of nonsense; with it, the fix lands in decimetres. <b>UL-TDoA</b> turns the tag into the
+        transmitter instead: one {UWB_BLINK_BYTES}-octet <b>blink</b> (model, FiRa-style) and nothing else,
+        timestamped by anchors sharing one common timebase — "wired sync" (model) — each left with a fixed
+        residual of {DEFAULT_UWB_SESSION.syncErrorNs} ns by default that the fix's ellipse grows with. Either
+        way the position now comes from <b>hyperbolic positioning</b>, not trilateration: a time difference
+        traces a hyperbola, so three differences (four anchors) replace trilateration's three ranges, and any
+        number of tags can listen or blink without the round growing — DL-TDoA scales to an unlimited, silent
+        audience, UL-TDoA to as many tags as the block has slots for, one blink each.
+      </p>
 
       <h4 style={h}>Things to try</h4>
       <p style={p}>
@@ -407,6 +425,23 @@ export function GuideZh() {
         距离超过约 40 cm 之后，UWB 帧的带内功率就会落到 −62 dBm 能量检测门限之下，因此在任何实际间距下，
         Wi-Fi 的 CCA（物理载波侦听）都不会被它触发——它只会在 UWB 帧发射期间，让 Wi-Fi 接收机的
         SINR 出现一点点噪声抬升。实际的解决办法是改用 UWB 信道 9，或者选一个不与信道 5 重叠的 6 GHz Wi-Fi 信道。
+      </p>
+      <p style={p}>
+        <b>单向测距</b>（§10.29.1.2.5）把往返换成了一次到达时间差。<b>DL-TDoA</b> 改由锚点跑完整轮——
+        锚点 0 发送 Poll 与 Final，其余锚点依次 Respond，每一帧都携带发送方自己的发送计数器读数以及
+        它为其他各方保存的接收计数器读数（FiRa 风格内容，模型取值）——而标签则从不发射：它只是监听，
+        用自己的时钟给每次到达打上时间戳，再把各应答锚点的到达时刻与锚点 0 的作差。这些差值跨越了
+        整整一轮，因此听测标签自身晶振的误差不会像 TWR 那样自行相消：它需要先用自己测得的
+        “轮询→终结帧”间隔，去对照锚点报出的真实间隔，按这个比例重新缩放原始差值——没有这道
+        <b>时钟速率修正</b>，一整轮 20 ms 内 20 ppm 的晶振误差就是 120 米的乱码；加上它，定位误差
+        便回落到分米级。<b>UL-TDoA</b> 反过来让标签成为发射方：只发一次 {UWB_BLINK_BYTES} 字节的
+        <b>闪发帧</b>（模型取值，FiRa 风格），别无其他，由共享同一公共时基的锚点——“有线同步”
+        （模型取值）——为其打上时间戳，每个锚点还各自留有一份固定残差，默认为{' '}
+        {DEFAULT_UWB_SESSION.syncErrorNs} ns，定位结果的误差椭圆会随之增大。无论哪种方式，
+        定位现在都靠<b>双曲线定位</b>而非三边定位得出：一个时间差对应一条双曲线，因此三个差值
+        （四个锚点）就能替代三边定位所需的三个距离，而且无论多少个标签同时监听或闪发，轮次都不会
+        因此变长——DL-TDoA 可以服务无限多、完全静默的听众，UL-TDoA 则能容纳一个块的时隙所能装下的
+        任意多个标签，每个标签只需一次闪发。
       </p>
 
       <h4 style={h}>动手试试</h4>

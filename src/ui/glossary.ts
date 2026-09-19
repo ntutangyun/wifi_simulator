@@ -837,6 +837,54 @@ export const GLOSSARY: GlossaryGroup[] = [
           zh: '与 RCPS IE 一同随 Poll 发送（§10.32.9.6）：重试预算，模型默认 3 次——锚点最多可连续这么多轮未被测到，此后才空过一轮。信元头之外仅一字节，字节大小同样是模型选择。',
         },
       },
+      {
+        term: 'TDoA',
+        alt: { en: 'time difference of arrival — one-way ranging, standard §10.29.1.2.5', zh: '到达时间差——单向测距，标准 §10.29.1.2.5' },
+        def: {
+          en: 'The standard\'s one-way alternative to a round trip (§10.29.1.2.5): a device times the difference between two arrivals instead of measuring a distance, and the fix comes from hyperbolic rather than spherical least squares. This simulator runs it in two directions, DL-TDoA and UL-TDoA.',
+          zh: '标准中往返测距之外的单向替代方式（§10.29.1.2.5）：设备测的是两次到达时刻之差，而不是一个距离，解算位置时用双曲线最小二乘而不是球面最小二乘。本仿真沿两个方向运行它：DL-TDoA 与 UL-TDoA。',
+        },
+      },
+      {
+        term: 'DL-TDoA',
+        alt: { en: 'downlink TDoA — the anchors run the round, model FiRa-style content', zh: '下行 TDoA——锚点跑完整轮，内容为模型的 FiRa 风格取值' },
+        def: {
+          en: 'Anchor 0 sends the Poll and the Final, anchors 1…N−1 Respond in between — the anchors\' round, not the tag\'s — and every message carries the sender\'s own TX counter plus the RX counters it holds for the rest (FiRa-style, model). A tag never transmits: it times every arrival on its own clock and differences each responder against anchor 0. Any number of tags can listen to the one round, so `tags ≤ roundsPerBlock` no longer applies.',
+          zh: '锚点 0 发送 Poll 和 Final，锚点 1…N−1 依次在中间 Respond——这是锚点的轮，不是标签的轮——每一帧都携带发送方自己的发送计数器读数，以及它为其余各方保存的接收计数器读数（FiRa 风格，模型取值）。标签从不发射：它只用自己的时钟给每次到达打时间戳，再把各应答锚点与锚点 0 的到达时刻作差。任意数量的标签都能监听同一轮，因此 `tags ≤ roundsPerBlock` 的限制不再适用。',
+        },
+      },
+      {
+        term: 'UL-TDoA',
+        alt: { en: 'uplink TDoA — one blink per tag, model "wired sync"', zh: '上行 TDoA——每个标签一次闪发，模型“有线同步”' },
+        def: {
+          en: 'The tag sends one blink and nothing else; anchors sharing one common timebase ("wired sync", model — each anchor carries a fixed residual calibration error, `syncErrorNs`) timestamp it, and the reference anchor computes the differences and the fix itself. One slot per tag, so a block holds blockRstu / slotRstu of them.',
+          zh: '标签只发一次闪发帧，别无其他；共享同一公共时基的锚点（模型的“有线同步”——每个锚点都带有一份固定的残余校准误差 `syncErrorNs`）为其打上时间戳，再由参考锚点自行算出差值和定位结果。每个标签占一个时隙，因此一个块能容纳 blockRstu / slotRstu 个标签。',
+        },
+      },
+      {
+        term: 'Blink',
+        alt: { en: 'one 14-octet frame, model', zh: '一帧 14 字节，模型取值' },
+        def: {
+          en: 'UL-TDoA\'s only frame: MHR 9 + a 3-octet blink IE + FCS 2 = 14 octets (`UWB_BLINK_BYTES`, model — the standard names a blink-style IE, §10.29.8, but not its byte layout here). It carries no time at all; the anchors take the arrival instant on their own clocks.',
+          zh: 'UL-TDoA 中唯一的帧：MHR 9 字节 + 3 字节闪发信元 + FCS 2 字节 = 14 字节（`UWB_BLINK_BYTES`，模型取值——标准提到了闪发类信元，§10.29.8，但并未在此规定其字节布局）。它完全不携带时间信息；到达时刻由各锚点自行在本机时钟上记录。',
+        },
+      },
+      {
+        term: 'Hyperbolic positioning',
+        alt: { en: 'solveTdoa — Gauss–Newton on range differences, ≥ 3 needed', zh: 'solveTdoa——基于测距差值的高斯-牛顿法，至少需要 3 个' },
+        def: {
+          en: 'The TDoA counterpart of trilateration: residual (‖p − aᵢ‖ − ‖p − a_ref‖) − c·Δtᵢ, needing at least 3 differences (4 anchors) rather than 3 ranges, because the tag\'s own clock offset has already cancelled out of a difference. Its GDOP comes from the difference rows, not the range rows, so it is not on the same scale as trilateration\'s GDOP — √(2/3) at a square\'s centre, not 1.0.',
+          zh: '三边定位在 TDoA 一侧的对应版本：残差为（‖p − aᵢ‖ − ‖p − a_ref‖）− c·Δtᵢ，至少需要 3 个差值（4 个锚点）而不是 3 个距离，因为标签自身的时钟偏差在作差时已经抵消。它的 GDOP 由差值行而非距离行算出，与三边定位的 GDOP 并不在同一量纲上——正方形中心处是 √(2/3)，而不是 1.0。',
+        },
+      },
+      {
+        term: 'Clock-rate correction',
+        alt: { en: 'tdoaClockCorrection — DL-TDoA only, on by default', zh: 'tdoaClockCorrection——仅 DL-TDoA，默认开启' },
+        def: {
+          en: 'A listening tag\'s differences span a whole round, so its own crystal does not cancel the way it does in TWR: it measures its own Poll-to-Final interval against the true one the anchors report and rescales its raw differences by that ratio. Off, 20 ppm over a 20 ms round is 120 m of nonsense; on, what is left is the responders\' own clock-offset estimate noise — decimetres.',
+          zh: '听测标签的差值跨越了整整一轮，因此它自身晶振的误差不会像 TWR 那样自行相消：它需要用自己测得的“轮询→终结帧”间隔，去对照锚点报出的真实间隔，再按这个比例重新缩放原始差值。关闭时，一整轮 20 ms 内 20 ppm 的晶振误差就是 120 米的乱码；打开后，剩下的只是各应答锚点自身的时钟偏差估计噪声——分米级。',
+        },
+      },
     ],
   },
 ]

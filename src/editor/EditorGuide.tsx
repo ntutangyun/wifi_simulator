@@ -215,6 +215,25 @@ function EditorGuideEn() {
         devices leaks straight into the range. <b>DS-TWR</b> adds a final and a report per anchor,
         which cancels that offset at twice the frames.
       </D>
+      <D t="Ranging mode">
+        <b>two-way ranging</b> measures a distance per anchor, same as today. The two one-way
+        modes measure a time difference instead: <b>DL-TDoA</b> has the anchors run the round
+        while a tag that never transmits positions itself from what it hears; <b>UL-TDoA</b> has
+        the tag send one blink and the anchors, sharing a timebase, position it. Both need four
+        anchors and take the schedule to time-scheduled with them.
+      </D>
+      <D t="Tag clock correction">
+        DL-TDoA only: the listening tag&rsquo;s differences span a whole round, so its own crystal
+        does not cancel the way it does in TWR — it measures its own poll-to-Final interval
+        against the true one the anchors report and rescales its raw differences by that ratio.
+        Off, 20 ppm over a 20 ms round is 120 m of nonsense; on, the fix lands in decimetres.
+      </D>
+      <D t="Anchor sync error">
+        UL-TDoA only: how well the anchors&rsquo; clocks are calibrated to one shared timebase
+        (&ldquo;wired sync&rdquo;, model). Each anchor draws a fixed residual of this size once,
+        for the whole session — 1 ns is already 30 cm of range difference that no number of
+        blinks averages away.
+      </D>
       <D t="Schedule">
         <b>time-scheduled</b> (default) fixes every slot in advance, so nothing collides.{' '}
         <b>Contention</b> (schedule mode 0) instead opens a shared response window that anchors
@@ -450,6 +469,23 @@ function EditorGuideZh() {
         <b>SS-TWR</b>（单边双向）对每个锚点只有一次轮询和一次响应，两台设备之间的时钟偏差
         会原样进入测距结果；<b>DS-TWR</b>（双边双向）为每个锚点再加一帧终结帧和一帧报告帧，
         用两倍的帧数把这个偏差抵消掉。
+      </D>
+      <D t="测距模式">
+        <b>双向测距</b>与今天一样，为每个锚点测出一个距离。两种单向模式改为测量到达时间差：
+        <b>DL-TDoA</b> 由锚点跑完整轮，全程不发射的标签靠听到的内容自行定位；<b>UL-TDoA</b>
+        由标签发一次闪发，由共享同一时基的锚点替它定位。两者都需要四个锚点，切换时也会把
+        调度方式一并改回时间调度。
+      </D>
+      <D t="标签时钟校正">
+        仅 DL-TDoA 可用：听测标签的差值跨越了整整一轮，因此它自身晶振的误差不会像 TWR 那样
+        自行相消——它需要用自己测得的“轮询→终结帧”间隔，去对照锚点报出的真实间隔，按这个
+        比例重新缩放差值。关闭时，一整轮 20 ms 内 20 ppm 的晶振误差就是 120 米的乱码；打开后，
+        定位误差回到分米级。
+      </D>
+      <D t="锚点同步误差">
+        仅 UL-TDoA 可用：各锚点的时钟被校准到同一共享时基的程度（“有线同步”，模型取值）。
+        每个锚点在整个会话中只抽取一次这样大小的固定残差——仅 1 ns 就已相当于 30 cm 的
+        距离差，发再多闪发也平均不掉。
       </D>
       <D t="调度方式">
         <b>时间调度</b>（默认）预先固定每个时隙，因此不会发生碰撞；<b>竞争调度</b>（调度模式 0）

@@ -13,7 +13,7 @@ import { DEFAULT_UWB_SESSION } from '../../src/model/scenario'
 import { GuideEn, GuideZh } from '../../src/ui/Guide'
 import { GLOSSARY } from '../../src/ui/glossary'
 import {
-  COUNTER_MOD, FOM_LOS, FOM_NLOS, RCTU_NS, UWB_BAND_MHZ, UWB_CAPTURE_DB, UWB_MAX_ANCHORS,
+  COUNTER_MOD, FOM_LOS, FOM_NLOS, RCTU_NS, UWB_BAND_MHZ, UWB_BLINK_BYTES, UWB_CAPTURE_DB, UWB_MAX_ANCHORS,
   UWB_MAX_INPUT_DBM_PER_MHZ, UWB_PL_EXP, UWB_RX_SENS_DBM, UWB_SIR_MIN_DB, UWB_TX_POWER_DBM,
   fomDecode, fomText, rstuNs, uwbFinalBytes, uwbInBandDbm, uwbPl0Db, uwbSlotsPerTag,
 } from '../../src/uwb/phy'
@@ -298,6 +298,35 @@ describe('Contention-based rounds (schedule mode 0)', () => {
     expect(README).toContain('§10.32.9.5')
     expect(README).toContain('§10.32.9.6')
     expect(README).not.toContain('no contention-based ranging round')
+  })
+})
+
+describe('TDoA modes (one-way ranging, §10.29.1.2.5)', () => {
+  it('the Guide states DL-TDoA and UL-TDoA with the engine\'s blink size and default sync error', () => {
+    for (const text of [renderGuide('en'), renderGuide('zh')]) {
+      expect(text).toContain('§10.29.1.2.5')
+      expect(text).toContain('DL-TDoA')
+      expect(text).toContain('UL-TDoA')
+      expect(text).toContain(`${UWB_BLINK_BYTES}`) // the 14-octet blink
+      expect(text).toContain(`${DEFAULT_UWB_SESSION.syncErrorNs} ns`) // 0 ns, wired sync by default
+    }
+  })
+
+  it('the glossary carries the six TDoA terms, bilingual, cited against §10.29.1.2.5 or model', () => {
+    const group = GLOSSARY.find((g) => g.id === 'uwb')
+    const terms = (group?.items ?? []).map((i) => i.term.toLowerCase())
+    for (const t of ['tdoa', 'dl-tdoa', 'ul-tdoa', 'blink', 'hyperbolic positioning', 'clock-rate correction']) {
+      expect(terms, `missing glossary term: ${t}`).toContain(t)
+    }
+    const tdoa = group?.items.find((i) => i.term.toLowerCase() === 'tdoa')
+    expect(tdoa?.def.en).toContain('§10.29.1.2.5')
+    expect(tdoa?.def.zh).toContain('§10.29.1.2.5')
+    const blink = group?.items.find((i) => i.term.toLowerCase() === 'blink')
+    for (const text of [blink?.alt.en, blink?.def.en]) expect(text).toContain(`${UWB_BLINK_BYTES}`)
+    const ulTdoa = group?.items.find((i) => i.term.toLowerCase() === 'ul-tdoa')
+    for (const text of [ulTdoa?.def.en, ulTdoa?.def.zh]) expect(text).toContain('syncErrorNs')
+
+    expect(README).toContain('| standard §10.29.1.2.5 |')
   })
 })
 
