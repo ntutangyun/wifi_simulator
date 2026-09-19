@@ -512,6 +512,8 @@ export const STRINGS: Record<Lang, Strings> = {
           ieRrmc: 'RRMC IE · Ranging Round Management Control',
           ieRrti: 'RRTI IE · Ranging Reply Time Instantaneous',
           ieRmi: 'RMI IE · Ranging Measurement Information',
+          ieRcps: 'RCPS IE · Ranging Contention Phase Slots',
+          ieRcma: 'RCMA IE · Ranging Contention Maximum Attempts',
         },
         bit: {
           protocolVersion: 'Protocol Version', type: 'Type', subtype: 'Subtype', toDs: 'To DS', fromDs: 'From DS',
@@ -890,6 +892,8 @@ export const STRINGS: Record<Lang, Strings> = {
           ieRrmc: 'RRMC 信息元·测距轮次管理控制',
           ieRrti: 'RRTI 信息元·测距回复时间',
           ieRmi: 'RMI 信息元·测距测量信息',
+          ieRcps: 'RCPS 信息元·竞争阶段时隙',
+          ieRcma: 'RCMA 信息元·竞争最大尝试次数',
         },
         bit: {
           protocolVersion: '协议版本', type: '类型', subtype: '子类型', toDs: 'To DS', fromDs: 'From DS',

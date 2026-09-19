@@ -8,17 +8,17 @@
  *
  * References: IEEE Std 802.15.4-2024 §7.2 (MAC frame format), §7.4.4 (the generic
  * Nested IE format) and the ranging IEs themselves: §10.29.8.1 RRTI, §10.29.8.3 RRMC,
- * §10.29.8.4 RMI, §10.32.9.1 ARC, §10.32.9.8 RDM; §16.2 is the HRP UWB PPDU and its
- * SP1 STS configuration.
+ * §10.29.8.4 RMI, §10.32.9.1 ARC, §10.32.9.8 RDM, §10.32.9.5 RCPS, §10.32.9.6 RCMA;
+ * §16.2 is the HRP UWB PPDU and its SP1 STS configuration.
  */
 import type { DecodedFrame, FieldKey, FrameField, PpduSegment } from '../model/frameFields'
 import type { FrameDesc } from '../model/frames'
 import type { Ns } from '../model/types'
 import type { UwbFrameKind, UwbInfo } from './frames'
 import {
-  ARC_IE_BYTES, chipsToNs, PHR_SYMBOLS, PHR_SYMBOL_CHIPS, PSYM_CHIPS, rdmIeBytes, RCTU_NS, rmiFinalIeBytes,
-  RMI_REPORT_IE_BYTES, RRMC_IE_BYTES, RRTI_IE_BYTES, SFD_SYMBOLS, STS_ACTIVE_CHIPS, STS_GAP_CHIPS, SYNC_SYMBOLS,
-  UWB_FCS_BYTES, UWB_MHR_BYTES,
+  ARC_IE_BYTES, chipsToNs, PHR_SYMBOLS, PHR_SYMBOL_CHIPS, PSYM_CHIPS, rdmIeBytes, RCMA_IE_BYTES, RCPS_IE_BYTES,
+  RCTU_NS, rmiFinalIeBytes, RMI_REPORT_IE_BYTES, RRMC_IE_BYTES, RRTI_IE_BYTES, SFD_SYMBOLS, STS_ACTIVE_CHIPS,
+  STS_GAP_CHIPS, SYNC_SYMBOLS, UWB_FCS_BYTES, UWB_MHR_BYTES,
 } from './phy'
 
 /** Model: the simulator runs a single ranging session, so a single PAN. */
@@ -76,6 +76,15 @@ function ies(u: UwbInfo): Ie[] {
       }
       case 'RRMC':
         out.push({ key: 'ieRrmc', bytes: RRMC_IE_BYTES, value: `slot ${u.slot} · ${method}` })
+        break
+      case 'RCPS':
+        out.push({
+          key: 'ieRcps', bytes: RCPS_IE_BYTES,
+          value: `response phase slots ${u.contention?.firstSlot ?? 1}…${u.contention?.lastSlot ?? 8}`,
+        })
+        break
+      case 'RCMA':
+        out.push({ key: 'ieRcma', bytes: RCMA_IE_BYTES, value: `max attempts ${u.contention?.maxAttempts ?? 3}` })
         break
       case 'RRTI': {
         // One RRTI IE holds one reply time (standard §10.29.8.1), so a Response carries one

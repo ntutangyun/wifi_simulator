@@ -127,6 +127,34 @@ describe('UWB nodes and sessions in the schema', () => {
     expect(() => network([...anchors(10), tag])).toThrow(/10 anchors exceed the 9/)
   })
 
+  it('contention-based rounds are SS-TWR only', () => {
+    const ds = uwbScenario(twoAnchorsOneTag(), { ...DEFAULT_UWB_SESSION, schedule: 'contention', method: 'ds' })
+    expect(() => ScenarioSchema.parse(ds)).toThrow(/contention-based rounds are SS-TWR only in this simulator/)
+    const ss = uwbScenario(twoAnchorsOneTag(), { ...DEFAULT_UWB_SESSION, schedule: 'contention', method: 'ss' })
+    expect(() => ScenarioSchema.parse(ss)).not.toThrow()
+  })
+
+  it('contentionSlots and maxAttempts are bounded', () => {
+    const bad = (over: Partial<UwbSessionCfg>) => uwbScenario(twoAnchorsOneTag(), { ...DEFAULT_UWB_SESSION, ...over })
+    expect(() => ScenarioSchema.parse(bad({ contentionSlots: 1 }))).toThrow()
+    expect(() => ScenarioSchema.parse(bad({ contentionSlots: 33 }))).toThrow()
+    expect(() => ScenarioSchema.parse(bad({ contentionSlots: 2 }))).not.toThrow()
+    expect(() => ScenarioSchema.parse(bad({ contentionSlots: 32 }))).not.toThrow()
+    expect(() => ScenarioSchema.parse(bad({ maxAttempts: 0 }))).toThrow()
+    expect(() => ScenarioSchema.parse(bad({ maxAttempts: 11 }))).toThrow()
+    expect(() => ScenarioSchema.parse(bad({ maxAttempts: 1 }))).not.toThrow()
+    expect(() => ScenarioSchema.parse(bad({ maxAttempts: 10 }))).not.toThrow()
+  })
+
+  it('a contention round sizes the block-fit rule as 1 + contentionSlots, not per-anchor', () => {
+    // 9 slots (1 + 8 contention) × 2400 RSTU = 21 600 RSTU; a 240 000 RSTU block fits 11 tags.
+    const anchors = [0, 1, 2, 3].map((i) => uwbNode(`anc-${i}`, 'anchor', i * 3, 0))
+    const tags = (n: number) => Array.from({ length: n }, (_, i) => uwbNode(`tag-${i}`, 'tag', i, 4))
+    const cfg: UwbSessionCfg = { ...DEFAULT_UWB_SESSION, method: 'ss', schedule: 'contention', contentionSlots: 8 }
+    expect(() => ScenarioSchema.parse(uwbScenario([...anchors, ...tags(11)], cfg))).not.toThrow()
+    expect(() => ScenarioSchema.parse(uwbScenario([...anchors, ...tags(12)], cfg))).toThrow(/fits 11 tags/)
+  })
+
   it('every lesson scenario still parses', () => {
     for (const l of LESSONS) {
       expect(() => ScenarioSchema.parse(l.scenario()), l.id).not.toThrow()

@@ -28,15 +28,23 @@ export interface RoundPlan {
   roundNs: Ns
   blockNs: Ns
   roundsPerBlock: number
+  /** Schedule this round was planned under (standard §10.32.2 / §10.32.3). */
+  schedule: 'time' | 'contention'
+  /** The session's response-phase window; meaningful only when `schedule` is 'contention'. */
+  contentionSlots: number
 }
 
 /** The fixed shape of one round, and how many of them fit in a block. */
 export function roundPlan(cfg: UwbSessionCfg, anchors: number): RoundPlan {
-  const slots = uwbSlotsPerTag(cfg.method, anchors)
+  const slots = uwbSlotsPerTag(cfg.method, anchors, cfg.schedule, cfg.contentionSlots)
   const slotNs = rstuNs(cfg.slotRstu)
   const roundNs = slots * slotNs
   const blockNs = rstuNs(cfg.blockRstu)
-  return { method: cfg.method, anchors, slots, slotNs, roundNs, blockNs, roundsPerBlock: Math.floor(blockNs / roundNs) }
+  return {
+    method: cfg.method, anchors, slots, slotNs, roundNs, blockNs,
+    roundsPerBlock: Math.floor(blockNs / roundNs),
+    schedule: cfg.schedule, contentionSlots: cfg.contentionSlots,
+  }
 }
 
 /** Absolute start of one slot of one round of one block. */
@@ -53,6 +61,10 @@ export type SlotAction =
 
 export function slotAction(p: RoundPlan, slot: number): SlotAction {
   if (slot === 0) return { kind: 'uwbPoll', tx: 'tag' }
+  if (p.schedule === 'contention') {
+    if (slot <= p.contentionSlots) return { kind: 'uwbResp', tx: 'anchor', anchor: -1 }
+    throw new Error(`slotAction: contention round has ${p.slots} slots, asked for ${slot}`)
+  }
   if (slot <= p.anchors) return { kind: 'uwbResp', tx: 'anchor', anchor: slot - 1 }
   if (p.method === 'ss') throw new Error(`slotAction: SS round has ${p.slots} slots, asked for ${slot}`)
   if (slot === p.anchors + 1) return { kind: 'uwbFinal', tx: 'tag' }

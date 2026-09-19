@@ -4,8 +4,9 @@ import type { FrameDesc } from '../../src/model/frames'
 import { uwbFrameFields, uwbPpduLayout } from '../../src/uwb/frameFields'
 import { makeFinal, makePoll, makeReport, makeResp } from '../../src/uwb/frames'
 import {
-  ARC_IE_BYTES, chipsToNs, PHR_SYMBOLS, PHR_SYMBOL_CHIPS, PSYM_CHIPS, rdmIeBytes, rmiFinalIeBytes,
-  RMI_REPORT_IE_BYTES, RRMC_IE_BYTES, RRTI_IE_BYTES, SFD_SYMBOLS, STS_ACTIVE_CHIPS, STS_GAP_CHIPS, SYNC_SYMBOLS,
+  ARC_IE_BYTES, chipsToNs, PHR_SYMBOLS, PHR_SYMBOL_CHIPS, PSYM_CHIPS, RCMA_IE_BYTES, RCPS_IE_BYTES, rdmIeBytes,
+  rmiFinalIeBytes, RMI_REPORT_IE_BYTES, RRMC_IE_BYTES, RRTI_IE_BYTES, SFD_SYMBOLS, STS_ACTIVE_CHIPS, STS_GAP_CHIPS,
+  SYNC_SYMBOLS,
 } from '../../src/uwb/phy'
 
 const FINAL_TIMES = [
@@ -91,6 +92,19 @@ describe('uwbFrameFields', () => {
 
   it('is what decodeFrame returns for a UWB frame', () => {
     for (const f of ALL) expect(decodeFrame(f, { apId: '', isEdca: false })).toEqual(uwbFrameFields(f))
+  })
+
+  it('decodes a contention Poll: ARC + RCPS + RCMA + RRMC summing to 31 octets', () => {
+    const cPoll = makePoll('tag', ['a1', 'a2'], 'ss', 0, 0, 'contention', 8, 3)
+    expect(cPoll.bytes).toBe(31)
+    const d = uwbFrameFields(cPoll)
+    expect(fieldSum(d)).toBe(31)
+    expect(fields(cPoll).filter((x) => x.key.startsWith('ie')).map((x) => x.key))
+      .toEqual(['ieArc', 'ieRcps', 'ieRcma', 'ieRrmc'])
+    expect(keyed(cPoll, 'ieRcps')!.bytes).toBe(RCPS_IE_BYTES)
+    expect(keyed(cPoll, 'ieRcma')!.bytes).toBe(RCMA_IE_BYTES)
+    expect(keyed(cPoll, 'ieRcps')!.value).toBe('response phase slots 1…8')
+    expect(keyed(cPoll, 'ieRcma')!.value).toBe('max attempts 3')
   })
 })
 

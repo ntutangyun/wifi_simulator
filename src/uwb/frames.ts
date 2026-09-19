@@ -18,8 +18,11 @@ export interface UwbInfo {
   slot: number
   /** Payload IEs carried, in order (e.g. ['ARC', 'RDM', 'RRMC']). */
   ies: string[]
-  /** Poll: the anchors' ids in slot order (RDM IE). */
+  /** Poll (time schedule): the anchors' ids in slot order (RDM IE). */
   schedule?: string[]
+  /** Poll (contention schedule): the response phase any anchor may answer in (RCPS IE) and its
+   * retry budget (RCMA IE). */
+  contention?: { firstSlot: number; lastSlot: number; maxAttempts: number }
   /** Response (SS): RRTI reply time in RCTU. */
   replyRctu?: number
   /** Final (DS): per anchor { id, tround1, treply2 } (RMI + RRTI IEs). */
@@ -39,8 +42,22 @@ function uwbFrame(kind: UwbFrameKind, src: string, dst: string, bytes: number, u
   return { kind, src, dst, bytes, mbps: UWB_MBPS, durationFieldNs: 0, txTimeNs: uwbPpduNs(bytes), uwb }
 }
 
-/** The tag's Poll: broadcast, announcing the round's anchor order (ARC + RDM + RRMC). */
-export function makePoll(tag: string, anchors: string[], method: 'ss' | 'ds', block: number, round: number): FrameDesc {
+/**
+ * The tag's Poll: broadcast, either announcing the round's anchor order (time schedule: ARC + RDM
+ * + RRMC) or opening a shared response phase (contention schedule, standard §10.32.2 mode 0: ARC +
+ * RCPS + RCMA + RRMC) that any anchor may answer in. `contentionSlots` / `maxAttempts` are only
+ * read for the contention schedule, and default to the session's own model defaults (8 / 3).
+ */
+export function makePoll(
+  tag: string, anchors: string[], method: 'ss' | 'ds', block: number, round: number,
+  schedule: 'time' | 'contention' = 'time', contentionSlots = 8, maxAttempts = 3,
+): FrameDesc {
+  if (schedule === 'contention') {
+    return uwbFrame('uwbPoll', tag, '*', uwbPollBytes(anchors.length, 'contention'), {
+      sp: 1, method, block, round, slot: 0, ies: ['ARC', 'RCPS', 'RCMA', 'RRMC'],
+      contention: { firstSlot: 1, lastSlot: contentionSlots, maxAttempts },
+    })
+  }
   return uwbFrame('uwbPoll', tag, '*', uwbPollBytes(anchors.length), {
     sp: 1, method, block, round, slot: 0, ies: ['ARC', 'RDM', 'RRMC'], schedule: [...anchors],
   })

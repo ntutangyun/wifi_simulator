@@ -62,4 +62,23 @@ describe('slotAction', () => {
       expect(slotAction(p, 1 + i)).toEqual({ kind: 'uwbResp', tx: 'anchor', anchor: i })
     }
   })
+
+  it('maps a contention round: poll then any-anchor response slots', () => {
+    const p = roundPlan(session({ method: 'ss', schedule: 'contention', contentionSlots: 8 }), 4)
+    expect(slotAction(p, 0)).toEqual({ kind: 'uwbPoll', tx: 'tag' })
+    expect(slotAction(p, 3)).toEqual({ kind: 'uwbResp', tx: 'anchor', anchor: -1 })
+    for (let i = 1; i <= 8; i++) {
+      expect(slotAction(p, i)).toEqual({ kind: 'uwbResp', tx: 'anchor', anchor: -1 })
+    }
+    expect(() => slotAction(p, 9)).toThrow(/contention round has 9 slots/)
+  })
+})
+
+describe('roundPlan (contention)', () => {
+  it('a contention round is 1 + contentionSlots, whatever the anchor count', () => {
+    const p = roundPlan(session({ method: 'ss', schedule: 'contention', contentionSlots: 8 }), 4)
+    expect(p.slots).toBe(9)
+    expect(p.schedule).toBe('contention')
+    expect(p.contentionSlots).toBe(8)
+  })
 })

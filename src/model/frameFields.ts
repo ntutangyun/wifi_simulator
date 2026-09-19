@@ -36,7 +36,7 @@ export type FieldKey =
   | 'ampId' | 'ampTdc' | 'ampStaList'
   // 802.15.4 ranging frames (uwb/frameFields.ts): MHR fields then one key per payload IE.
   | 'seqNo' | 'dstPan' | 'dstAddr16' | 'srcAddr16'
-  | 'ieArc' | 'ieRdm' | 'ieRrmc' | 'ieRrti' | 'ieRmi'
+  | 'ieArc' | 'ieRdm' | 'ieRrmc' | 'ieRrti' | 'ieRmi' | 'ieRcps' | 'ieRcma'
 
 export interface FrameField {
   key: FieldKey

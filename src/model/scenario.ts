@@ -185,10 +185,19 @@ export interface UwbSessionCfg {
   cfoNoisePpm: number
   /** Add the extra NLOS delay of each wall crossed to the time of flight. */
   nlos: boolean
+  /** Round schedule (standard §10.32.2 / §10.32.3): 'time' assigns every device a fixed slot in
+   * advance; 'contention' (schedule mode 0) opens a shared response phase that responders draw a
+   * slot from at random (SS-TWR only in this simulator). */
+  schedule: 'time' | 'contention'
+  /** Contention round only: the response-phase window, RCPS IE (§10.32.9.5); 8 is a model default. */
+  contentionSlots: number
+  /** Contention round only: retries before an anchor sits out a round, RCMA IE (§10.32.9.6); 3 is a model default. */
+  maxAttempts: number
 }
 
 export const DEFAULT_UWB_SESSION: UwbSessionCfg = {
   method: 'ds', blockRstu: 240_000, slotRstu: 2400, channel: 9, tsNoisePs: 100, cfoNoisePpm: 0.2, nlos: true,
+  schedule: 'time', contentionSlots: 8, maxAttempts: 3,
 }
 
 /** 802.11ax 6 GHz channel 7 (80 MHz), model default: the centre `Scenario.sixGhzCenterMhz`
@@ -402,6 +411,9 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
       tsNoisePs: z.number().min(0),
       cfoNoisePpm: z.number().min(0),
       nlos: z.boolean(),
+      schedule: z.enum(['time', 'contention']).default('time'),
+      contentionSlots: z.number().int().min(2).max(32).default(8),
+      maxAttempts: z.number().int().min(1).max(10).default(3),
     }).optional(),
     sixGhzCenterMhz: z.number().int().min(5955).max(7115).refine((v) => v % 5 === 0, '6 GHz centre frequency must be a 5 MHz channel step').optional(),
   })
@@ -421,6 +433,12 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
       if (!sc.uwb) {
         ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['uwb'], message: 'a scenario with UWB nodes needs a UWB session (scenario.uwb)' })
       } else {
+        // A contention round's response phase (schedule mode 0) has only the response frame to
+        // work with: SS-TWR's; DS-TWR's report phase would need a second contention window of its
+        // own, which this simulator does not model.
+        if (sc.uwb.schedule === 'contention' && sc.uwb.method !== 'ss') {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['uwb'], message: 'contention-based rounds are SS-TWR only in this simulator' })
+        }
         const anchors = uwbNodes.filter((n) => n.uwb?.role === 'anchor').length
         const tags = uwbNodes.filter((n) => n.uwb?.role === 'tag').length
         if (anchors < 1 || tags < 1) {
@@ -428,7 +446,7 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
         } else {
           // Every tag gets its own slots inside the block; the block cannot be
           // oversubscribed or two tags would range in the same slot.
-          const slots = uwbSlotsPerTag(sc.uwb.method, anchors)
+          const slots = uwbSlotsPerTag(sc.uwb.method, anchors, sc.uwb.schedule, sc.uwb.contentionSlots)
           const fits = Math.floor(sc.uwb.blockRstu / (slots * sc.uwb.slotRstu))
           if (tags > fits) {
             ctx.addIssue({

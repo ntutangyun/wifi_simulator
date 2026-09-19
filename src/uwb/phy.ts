@@ -125,6 +125,10 @@ export const ARC_IE_BYTES = UWB_IE_HDR_BYTES + 8
 export const RRMC_IE_BYTES = UWB_IE_HDR_BYTES + 1
 /** RRTI IE (§10.29.8.1): header + one reply time of 4 octets. One IE holds one reply time. */
 export const RRTI_IE_BYTES = UWB_IE_HDR_BYTES + 4
+/** RCPS IE (§10.32.9.5): header + first slot 1 + last slot 1. standard §10.32.9.5; content sizing model */
+export const RCPS_IE_BYTES = UWB_IE_HDR_BYTES + 2
+/** RCMA IE (§10.32.9.6): header + max attempts 1. standard §10.32.9.6; content sizing model */
+export const RCMA_IE_BYTES = UWB_IE_HDR_BYTES + 1
 /** RDM IE (§10.32.9.8), fixed part: header + the device count. */
 export const RDM_IE_FIXED_BYTES = UWB_IE_HDR_BYTES + 1
 /** One RDM entry: the device's short address 2 + the slot index it is given 1. */
@@ -146,8 +150,13 @@ export function rmiFinalIeBytes(anchors: number): number {
   return RMI_FINAL_FIXED_BYTES + RMI_FINAL_ENTRY_BYTES * anchors
 }
 
-/** MHR + ARC IE + RDM IE (3 + 3N) + RRMC IE + FCS = 27 + 3N. */
-export function uwbPollBytes(anchors: number): number {
+/** MHR + ARC IE + RDM IE (3 + 3N) + RRMC IE + FCS = 27 + 3N (time-scheduled); a contention round's
+ * Poll lists no per-anchor schedule (any anchor may answer), so RDM is replaced by the fixed-size
+ * RCPS + RCMA IEs: MHR + ARC + RCPS (4) + RCMA (3) + RRMC + FCS = 31, independent of anchor count. */
+export function uwbPollBytes(anchors: number, schedule: 'time' | 'contention' = 'time'): number {
+  if (schedule === 'contention') {
+    return UWB_MHR_BYTES + ARC_IE_BYTES + RCPS_IE_BYTES + RCMA_IE_BYTES + RRMC_IE_BYTES + UWB_FCS_BYTES
+  }
   return UWB_MHR_BYTES + ARC_IE_BYTES + rdmIeBytes(anchors) + RRMC_IE_BYTES + UWB_FCS_BYTES
 }
 
@@ -179,8 +188,12 @@ export function rstuNs(rstu: number): Ns {
 }
 
 /** Ranging slots one tag needs per round: poll + one response each (SS), plus final + one
- * report each (DS). The schema's block-fit rule and `roundPlan` share this one definition. */
-export function uwbSlotsPerTag(method: 'ss' | 'ds', anchors: number): number {
+ * report each (DS); a contention round (schedule mode 0, standard §10.32.2) instead reserves
+ * poll + a fixed response-phase window of `contentionSlots` slots any anchor may answer in
+ * (`contentionSlots` 8 is a model default, the RCPS IE's response-phase window). The schema's
+ * block-fit rule and `roundPlan` share this one definition. */
+export function uwbSlotsPerTag(method: 'ss' | 'ds', anchors: number, schedule: 'time' | 'contention' = 'time', contentionSlots = 8): number {
+  if (schedule === 'contention') return 1 + contentionSlots
   return method === 'ss' ? anchors + 1 : 2 * anchors + 2
 }
 
