@@ -148,6 +148,55 @@ describe('Spectrum foreign power', () => {
     expect(s.foreignDbm('uwb', at(3), UWB5_LO, UWB5_HI)).toBe(-Infinity)
   })
 
+  it('retires by identity: an unregistered emission and a double retire are no-ops', () => {
+    const q = new EventQueue()
+    const clock = makeClock(q)
+    const s = new Spectrum([], q, clock.now)
+    const woken: Ns[] = []
+    s.onChange('uwb', (t) => woken.push(t))
+
+    const a = wifiPpdu(at(0), 'ap')
+    const b = wifiPpdu(at(0), 'ap') // same transmitter id, a second frame still on the air
+    s.emit('wifi', a)
+    s.emit('wifi', b)
+    const both = s.foreignMw('uwb', at(3), UWB5_LO, UWB5_HI)
+
+    s.retire('wifi', a)
+    const afterOne = s.foreignMw('uwb', at(3), UWB5_LO, UWB5_HI)
+    expect(afterOne).toBeCloseTo(both / 2, 12)
+    clock.runUntil(10) // the emits and the real retire all land at t = 0, coalesced
+    expect(woken).toEqual([0])
+
+    // a stray second retire of the same object must not take b off the air
+    s.retire('wifi', a)
+    expect(s.foreignMw('uwb', at(3), UWB5_LO, UWB5_HI)).toBe(afterOne)
+    // nor may an emission that was never registered, even with a matching txId
+    s.retire('wifi', wifiPpdu(at(0), 'ap'))
+    expect(s.foreignMw('uwb', at(3), UWB5_LO, UWB5_HI)).toBe(afterOne)
+
+    clock.runUntil(20)
+    expect(woken).toEqual([0]) // a no-op retire wakes nobody
+  })
+
+  it('refuses to guess a channel for a band that is no UWB channel', () => {
+    const q = new EventQueue()
+    const clock = makeClock(q)
+    const s = new Spectrum([], q, clock.now)
+    s.emit('uwb', { txId: 'odd', eirpDbm: -14, bandLoMhz: 2400, bandHiMhz: 2480, pos: at(0) })
+    expect(() => s.foreignMw('wifi', at(4), 2400, 2480)).toThrow(/no UWB channel/)
+  })
+
+  it('accepts channel 9 as well as channel 5', () => {
+    const q = new EventQueue()
+    const clock = makeClock(q)
+    const s = new Spectrum([], q, clock.now)
+    s.emit('uwb', { txId: 'anchor', eirpDbm: -14, bandLoMhz: UWB9_LO, bandHiMhz: UWB9_HI, pos: at(0) })
+    // uwbPl0Db(9) ≈ 50.50 against uwbPl0Db(5) ≈ 48.69, so channel 9 loses 1.80 dB more
+    const ch9 = s.foreignDbm('wifi', at(4), UWB9_LO, UWB9_HI)
+    expect(ch9).toBeCloseTo(-14 - uwbToWifiPathLossDb(4, 0, 9), 6)
+    expect(uwbToWifiPathLossDb(4, 0, 9) - uwbToWifiPathLossDb(4, 0, 5)).toBeCloseTo(1.8, 1)
+  })
+
   it('adds the loss of a wall on the direct ray', () => {
     const q = new EventQueue()
     const clock = makeClock(q)

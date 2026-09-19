@@ -16,8 +16,8 @@
 import type { Wall } from '../model/scenario'
 import type { Ns, Vec3 } from '../model/types'
 import { EventQueue } from './events'
-import { wallLossDb } from './propagation'
-import { UWB_CHANNEL_MHZ, uwbPl0Db, type UwbChannelNo } from '../uwb/phy'
+import { PL0_DB, PL_EXP, wallLossDb } from './propagation'
+import { UWB_CHANNEL_MHZ, UWB_PL_EXP, uwbPl0Db, type UwbChannelNo } from '../uwb/phy'
 
 export type SpectrumSide = 'wifi' | 'uwb'
 
@@ -29,19 +29,14 @@ export interface Emission {
   pos: Vec3
 }
 
-/** Wi-Fi free-space loss at 1 m (5.2 GHz reference) and the indoor exponent, as `propagation.ts` uses them. */
-const WIFI_PL0_DB = 46.7
-const WIFI_PL_EXP = 3.0
-/** `LINK_EXTRA_LOSS_DB['6g']` in `simulation.ts`; repeated here so the mediator stays free of the simulation's imports. */
+/** `LINK_EXTRA_LOSS_DB['6g']` in `simulation.ts`; repeated here so the mediator stays free of the
+ * simulation's imports (`simulation.ts` imports this module, so the edge cannot run the other way).
+ * `PL0_DB`/`PL_EXP` and `UWB_PL_EXP` are imported rather than copied: those edges already exist. */
 const WIFI_6G_EXTRA_LOSS_DB = 1.2
-
-const UWB_PL_EXP = 2.0 // model: indoor LOS, as `src/uwb/phy.ts` states it
 
 /** Wi-Fi 6 GHz PPDU seen by a UWB receiver: the Wi-Fi link's own law, 6 GHz extra loss included. */
 export function wifiToUwbPathLossDb(dM: number, wallsDb: number): number {
-  return (
-    WIFI_PL0_DB + 10 * WIFI_PL_EXP * Math.log10(Math.max(dM, 0.1)) + wallsDb + WIFI_6G_EXTRA_LOSS_DB
-  )
+  return PL0_DB + 10 * PL_EXP * Math.log10(Math.max(dM, 0.1)) + wallsDb + WIFI_6G_EXTRA_LOSS_DB
 }
 
 /** UWB frame seen by a Wi-Fi receiver: UWB's free-space law at the channel's centre frequency. */
@@ -59,13 +54,21 @@ export function bandOverlapMhz(
   return Math.max(0, Math.min(aHi, bHi) - Math.max(aLo, bLo))
 }
 
-/** The UWB channel an emission's band belongs to: the nearest channel centre. */
+const UWB_CHANNELS = [5, 9] as const satisfies readonly UwbChannelNo[]
+/** Half a UWB channel's width, near enough: a centre farther than this from every channel centre
+ * is not a UWB band at all, and the caller must say which channel it meant. */
+const UWB_CHANNEL_MATCH_MHZ = 250
+
+/** The UWB channel an emission's band belongs to: the nearest channel centre in `UWB_CHANNEL_MHZ`.
+ * Throws on a band that is no UWB channel — `Emission` would then need an explicit channel. */
 function uwbChannelOf(e: Emission): UwbChannelNo {
   const centre = (e.bandLoMhz + e.bandHiMhz) / 2
-  const channels: UwbChannelNo[] = [5, 9]
-  let best = channels[0]
-  for (const ch of channels) {
+  let best: UwbChannelNo = UWB_CHANNELS[0]
+  for (const ch of UWB_CHANNELS) {
     if (Math.abs(UWB_CHANNEL_MHZ[ch] - centre) < Math.abs(UWB_CHANNEL_MHZ[best] - centre)) best = ch
+  }
+  if (Math.abs(UWB_CHANNEL_MHZ[best] - centre) > UWB_CHANNEL_MATCH_MHZ) {
+    throw new Error(`spectrum: UWB emission from ${e.txId} centred at ${centre} MHz is on no UWB channel`)
   }
   return best
 }
@@ -88,17 +91,20 @@ export class Spectrum {
     private readonly now: () => Ns,
   ) {}
 
-  /** Register a live emission of one side; wakes the other side at phase 1 of the current instant. */
+  /** Register a live emission of one side; wakes the other side at phase 1 of the current instant.
+   * The emission is held **by reference**: it must not be mutated while live (a moving node emits
+   * a fresh `Emission` per frame), and the same object must be handed back to `retire`. */
   emit(side: SpectrumSide, e: Emission): void {
     this.live[side].push(e)
     this.notify(OTHER[side])
   }
 
-  /** Drop a live emission (the same object, or failing that the transmitter's oldest one). */
+  /** Drop a live emission, matched by object identity — the caller passes back the object it
+   * emitted. An emission that is not live is a no-op: nothing is removed and no one is woken, so a
+   * double retire cannot take a namesake's frame off the air. */
   retire(side: SpectrumSide, e: Emission): void {
     const list = this.live[side]
-    let i = list.indexOf(e)
-    if (i < 0) i = list.findIndex((x) => x.txId === e.txId)
+    const i = list.indexOf(e)
     if (i < 0) return
     list.splice(i, 1)
     this.notify(OTHER[side])
@@ -136,6 +142,10 @@ export class Spectrum {
     return mw > 0 ? 10 * Math.log10(mw) : -Infinity
   }
 
+  /** One phase-1 wake-up per side per instant. A caller already in phase 2 of that instant (a
+   * TX-end handler) gets its notification popped immediately after, still at the same instant and
+   * still ahead of the rest of that phase — harmless, because every consumer takes interference as
+   * a maximum over a whole reception rather than as a reading at one point in the phase order. */
   private notify(target: SpectrumSide): void {
     const t = this.now()
     if (this.pendingAt[target] === t) return

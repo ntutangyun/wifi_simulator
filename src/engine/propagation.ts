@@ -11,9 +11,11 @@ export const WALL_LOSS_DB: Record<Material, number> = {
   glass: 3,
 }
 
-/** Free-space loss at 1 m for 5.2 GHz ≈ 46.7 dB; path-loss exponent 3.0 (indoor). */
-const PL0_DB = 46.7
-const PL_EXP = 3.0
+/** Free-space loss at 1 m for 5.2 GHz ≈ 46.7 dB; path-loss exponent 3.0 (indoor).
+ * Exported so the cross-technology `Spectrum` gives a foreign Wi-Fi emission the
+ * same law as the link table, instead of a copy of it that could drift. */
+export const PL0_DB = 46.7
+export const PL_EXP = 3.0
 
 /**
  * Intersection of ray a→b with segment c→d.
