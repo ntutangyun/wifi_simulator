@@ -28,7 +28,7 @@ import {
   C_M_PER_NS, UWB_PPM_MAX, rstuNs, uwbDlFinalBytes, uwbDlPollBytes, uwbDlRespBytes, uwbPpduNs,
 } from '../../src/uwb/phy'
 import { roundPlan } from '../../src/uwb/session'
-import { solveTdoa } from '../../src/uwb/position'
+import { solvePosition, solveTdoa } from '../../src/uwb/position'
 import { applyRecord, initViewState } from '../../src/model/view'
 import { uwbFixRow, uwbTdoaRows } from '../../src/uwb/ui/rows'
 import { STRINGS } from '../../src/ui/i18n'
@@ -89,6 +89,20 @@ const slotSigmaM = (slot: number): number =>
  */
 const drawnPpm = (id: string, seed = 7): number =>
   (new Rng(seed).fork(hashStr(`${id}#uwb`)).next() * 2 - 1) * UWB_PPM_MAX
+
+/** The scene's anchors as the solver takes them. */
+const ANCHOR_POS = DL_ANCHORS.map((a) => ({ id: a.id, x: a.x, y: a.y, z: ANCHOR_Z }))
+/**
+ * The GDOP the hyperbolic solver reports for a tag standing exactly at (x, y), from noise-free
+ * differences: the geometry on its own, with no draw in it. `sigmaRangeM` scales the ellipse and
+ * not the GDOP, so the value it is given here does not matter.
+ */
+const trueGdopAt = (x: number, y: number): number | null => {
+  const d = (a: { x: number; y: number; z: number }): number => Math.hypot(x - a.x, y - a.y, TAG_Z - a.z)
+  const deltas = ANCHOR_POS.slice(1).map((a) => ({ id: a.id, dtNs: (d(a) - d(ANCHOR_POS[0])) / C_M_PER_NS }))
+  const fix = solveTdoa(ANCHOR_POS, REF, deltas, TAG_Z, 0.26)
+  return fix === null ? null : fix.gdop
+}
 
 /** Distance between two of the scene's anchors, in metres (they share a height). */
 const anchorGapM = (a: string, b: string): number => {
@@ -366,6 +380,14 @@ describe('uwb-dl-tdoa · the round the anchors run', () => {
     expect(round.t).toBe(0)
     expect(fmtRecord(round)).toBe('badge-1 UWB round 0 of block 0 (DL-TDoA): 5 slots × 2000.0 µs')
     expect(uwbDlTdoa.observe[0].en).toContain('badge-1 UWB round 0 of block 0 (DL-TDoA): 5 slots × 2000.0 µs')
+    // "then each badge's slot-0 line, and anchor-1's Poll": everything a learner sees in between,
+    // MAC_STATE being the one type the event log filters away. Only the badges open a slot in
+    // this mode — an anchor's round is the schedule itself, and it emits none.
+    const firstTx = rs.findIndex((r) => r.type === 'TX_START')
+    expect(rs.slice(0, firstTx).filter((r) => r.type !== 'MAC_STATE').map((r) => r.type))
+      .toEqual(['UWB_ROUND', 'UWB_ROUND', 'UWB_ROUND', 'UWB_SLOT', 'UWB_SLOT', 'UWB_SLOT', 'UWB_TS'])
+    expect(of(rs, 'UWB_SLOT').every((r) => r.node.startsWith('badge-'))).toBe(true)
+    expect(uwbDlTdoa.observe[0].en).toContain('then each badge’s slot-0 line, and anchor-1’s Poll')
     // "35 in 1.3 s"
     expect(of(rs, 'TX_START')).toHaveLength(BLOCKS * 5)
     expect(uwbDlTdoa.observe[0].en).toContain('35 in 1.3 s, none from a badge')
@@ -445,6 +467,14 @@ describe('uwb-dl-tdoa · the clock correction', () => {
     expect(t1).toContain('65.60, 139.29 and 201.83 ns')
     expect(t1).toContain('−8.14, −6.07 and −18.17 ns')
     expect(t1).toContain('63 differences, 0 fixes')
+    // quiz 2's mechanism, at the solver and not only at the absent record: hand solveTdoa the
+    // very same uncorrected differences and it returns nothing, while the corrected block of the
+    // same scene solves — the fit is what fails, not the emitter
+    const asDeltas = (rows: { peer: string; dtNs: number }[]) => rows.map((r) => ({ id: r.peer, dtNs: r.dtNs }))
+    expect(solveTdoa(ANCHOR_POS, REF, asDeltas(first), TAG_Z, 0.26)).toBeNull()
+    const corrected = of(recs('base'), 'UWB_TDOA').filter((r) => r.node === 'badge-2' && r.block === 0)
+    expect(solveTdoa(ANCHOR_POS, REF, asDeltas(corrected), TAG_Z, 0.26)).not.toBeNull()
+    expect(uwbDlTdoa.quiz[1].explain.en).toContain('describes no point in the plane')
   })
 
   it('correction on: "at most 0.19, 0.44 and 0.51 m over 21 rounds", inside 3σ of 0.12 m per slot', () => {
@@ -514,19 +544,32 @@ describe('uwb-dl-tdoa · the fix, the geometry and the ellipse', () => {
       const span = errs.length === 0 ? 'no fix at all' : `${Math.min(...errs).toFixed(2)}–${Math.max(...errs).toFixed(2)} m`
       expect(cell(1, row, 4), v).toBe(span)
       expect(cell(1, row, 4), v).toBe(err)
+      // the two variant rows are named exactly as their variant picker names them, so the table
+      // doubles as the lookup for it
+      if (v !== 'base') expect(cell(1, row, 0), v).toBe(uwbDlTdoa.variants![row - 1].label.en)
     }
   })
 
-  it('"In the middle of the room a badge’s seven fixes land 11 to 36 cm out"', () => {
+  it('"In the middle of the room badge 1’s seven fixes land 11 to 26 cm out"', () => {
+    // the sentence is about the badge in the middle, so it is pinned on that badge's own seven
+    // fixes; the 11–36 cm the table and the two-way comparison quote is the whole scene's 21
+    const mid = fixErrM(rs, 'badge-1')
+    expect(mid).toHaveLength(BLOCKS)
+    expect([Math.min(...mid), Math.max(...mid)].map((v) => (v * 100).toFixed(0))).toEqual(['11', '26'])
+    expect(prose()).toContain('badge 1’s seven fixes land 11 to 26 cm out')
+    // and it really is the middle one: it is the badge nearest the anchors' centroid
+    const centre = { x: mean(DL_ANCHORS.map((a) => a.x)), y: mean(DL_ANCHORS.map((a) => a.y)) }
+    const fromCentre = TAG_SPOTS.slice(0, 3).map((p) => Math.hypot(p.x - centre.x, p.y - centre.y))
+    expect(fromCentre.indexOf(Math.min(...fromCentre))).toBe(0)
+    // the paragraph's progression: middle 26 cm, baseline 34 cm, past its end 2.64 m
+    expect(Math.max(...mid)).toBeLessThan(0.34)
     const errs = fixErrM(rs)
     expect(errs).toHaveLength(21)
-    expect([Math.min(...errs), Math.max(...errs)].map((v) => (v * 100).toFixed(0))).toEqual(['11', '36'])
     for (const id of BADGES) expect(fixErrM(rs, id), id).toHaveLength(BLOCKS)
     for (const f of of(rs, 'UWB_POSITION')) {
       expect(f.method).toBe('dl-tdoa')
       expect(f.anchors).toEqual([REF, ...RESPONDERS])
     }
-    expect(prose()).toContain('a badge’s seven fixes land 11 to 36 cm out')
   })
 
   it('"at the centre of a square of anchors its floor is √(2/3) = 0.82 where trilateration’s is 1.00"', () => {
@@ -540,6 +583,9 @@ describe('uwb-dl-tdoa · the fix, the geometry and the ellipse', () => {
     const fix = solveTdoa(sq, 'a', deltas, 1, 0.26)!
     expect(fix.gdop).toBeCloseTo(Math.sqrt(2 / 3), 6)
     expect(Math.sqrt(2 / 3).toFixed(2)).toBe('0.82')
+    // the other half of the sentence: the same square through the two-way solver
+    const twr = solvePosition(sq, sq.map((a) => ({ id: a.id, distM: d(a) })), 1, 0.02)!
+    expect(twr.gdop).toBeCloseTo(1, 9)
     expect(prose()).toContain('its floor is √(2/3) = 0.82 where trilateration’s is 1.00')
   })
 
@@ -589,6 +635,17 @@ describe('uwb-dl-tdoa · the fix, the geometry and the ellipse', () => {
     // "(3.0, 4.8), gives GDOP 0.83 and 16 to 24 cm"
     const best = fixErrM(runOf('moved-3-4.8', () => moved('badge-1', 3.0, 4.8)), 'badge-1')
     expect([Math.min(...best), Math.max(...best)].map((v) => (v * 100).toFixed(0))).toEqual(['16', '24'])
+    // and it really is "the best spot": on a 0.1 m grid of noise-free differences over the whole
+    // room, nowhere does better by more than a thousandth
+    let floor = Infinity
+    for (let ix = 1; ix <= 99; ix++) {
+      for (let iy = 1; iy <= 79; iy++) {
+        const g = trueGdopAt(ix / 10, iy / 10)
+        if (g !== null && g < floor) floor = g
+      }
+    }
+    expect(trueGdopAt(3.0, 4.8)!).toBeLessThan(floor + 0.001)
+    expect(trueGdopAt(3.0, 4.8)!.toFixed(2)).toBe('0.83')
     // the base spot is better than either of the two the experiment moves to
     expect(of(recs('base'), 'UWB_POSITION')[0].gdop.toFixed(2)).toBe('0.84')
     const t2 = uwbDlTdoa.tryThis[1].en
@@ -601,6 +658,8 @@ describe('uwb-dl-tdoa · the fix, the geometry and the ellipse', () => {
     const vs = initViewState(uwbDlTdoa.scenario())
     for (const r of recs('base')) applyRecord(vs, r)
     const u = vs.nodes['badge-1'].uwb!
+    // "draws no rings": this is the data reason — a one-way lane holds no ranges at all. The
+    // overlay rule that consumes it lives in src/uwb/scene.ts and is Task 3's to pin.
     expect(u.ranges).toEqual({})
     const rows = uwbTdoaRows(u)
     expect(rows.map((r) => r.peer)).toEqual(RESPONDERS)

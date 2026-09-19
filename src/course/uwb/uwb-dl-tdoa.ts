@@ -21,7 +21,7 @@
  * 975 and 1724 English words across body + observe + tryThis + quiz (4 observe
  * items and 2 experiments already account for 16 of those minutes). At 1725 the
  * rounding tips to 30, and the study-time test pins that ceiling. The prose
- * below totals 1700 words, leaving room for 24 more and no others.
+ * below totals 1718 words, leaving room for 6 more and no others.
  */
 import type { Scenario } from '../../model/scenario'
 import {
@@ -116,7 +116,7 @@ export const uwbDlTdoa: Lesson = {
       en: 'r = (rx_F − rx_P)_badge ÷ (tx_F − tx_P)_anchor-1\nΔ_i = (rx_i − rx_P)_badge ÷ r − ( tof(a₁ → a_i) + T_reply,i · (1 − coff_i) )',
       zh: 'r = (rx_F − rx_P)_胸牌 ÷ (tx_F − tx_P)_anchor-1\nΔ_i = (rx_i − rx_P)_胸牌 ÷ r − ( tof(a₁ → a_i) + T_reply,i · (1 − coff_i) )',
     }, note: {
-      en: 'The first line is the badge’s clock against anchor 1’s, over the one span both describe: the flight from anchor 1 sits in both arrivals and cancels. The second takes out what is not geometry — anchor i waited T_reply,i on its own clock, converted by its measured offset, and the Poll crossed the surveyed baseline first. What is left is (distance to anchor i − distance to anchor 1) ÷ c: a hyperbola with the two anchors as foci.',
+      en: 'The first line is the badge’s clock against anchor 1’s, over the one span both describe: anchor 1 reports when it sent the Poll and the Final, the badge holds its own two arrivals, and the flight from anchor 1 sits in both and cancels. The second takes out what is not geometry — anchor i waited T_reply,i on its own clock, converted by its measured offset, and the Poll crossed the surveyed baseline first. What is left is (distance to anchor i − distance to anchor 1) ÷ c: a hyperbola with the two anchors as foci.',
       zh: '第一行是胸牌的时钟相对 anchor-1 的时钟，量在那一段两边都描述过的跨度上：anchor-1 在帧里报出自己何时发出轮询帧、何时发出 Final，胸牌手里则有这两帧的到达时刻，而从 anchor-1 飞来的那段路程同时出现在两个到达时刻里，相减就消掉了。第二行扣掉不属于几何的部分——锚点 i 按自己的时钟等了 T_reply,i，用它测得的偏差换算到 anchor-1 的单位；而轮询帧还要先跨过那段已勘测的锚点基线。剩下的就是（到锚点 i 的距离 − 到 anchor-1 的距离）÷ c：一条以这两个锚点为焦点的双曲线。',
     } },
     { heading: { en: 'Twenty parts per million, six milliseconds', zh: '二十个 ppm，六毫秒' }, text: {
@@ -137,11 +137,11 @@ export const uwbDlTdoa: Lesson = {
     ], rows: [
       [{ en: 'Three badges', zh: '三个胸牌' }, N('63'), N('0.51 m'), N('21'), N('0.11–0.36 m')],
       [{ en: 'Clock correction off', zh: '关闭时钟修正' }, N('63'), N('66.29 m'), N('0'), { en: 'no fix at all', zh: '完全没有定位' }],
-      [{ en: 'Ten badges', zh: '十个胸牌' }, N('210'), N('0.51 m'), N('70'), N('0.02–0.37 m')],
+      [{ en: 'Ten tags', zh: '十个标签' }, N('210'), N('0.51 m'), N('70'), N('0.02–0.37 m')],
     ] },
     { heading: { en: 'Hyperbolae, and where they go soft', zh: '双曲线，以及它软下来的地方' }, text: {
-      en: 'A range puts a tag on a circle; a difference of ranges puts it on a hyperbola with two anchors as foci, and three hyperbolae cross at the fix. A one-way fix therefore draws no rings, only the cross and the ellipse. Hyperbolae are sharpest across the middle of the anchor set and flatten along the line joining two anchors. In the middle of the room a badge’s seven fixes land 11 to 36 cm out; on the anchor-1–anchor-2 baseline at (5, 0.5) the worst is 34 cm, and past the end of that line at (9.8, 0.2) one fix lands 2.64 m out.',
-      zh: '一个距离把标签放在一个圆上；一个距离之差把它放在一条以两个锚点为焦点的双曲线上，三条双曲线交于定位点。所以单向定位不画圆环——根本没有距离可画——只有十字和椭圆。双曲线在锚点围成区域的中部最锐利，沿着连接两个锚点的那条线则渐渐摊平。在房间中部，一个胸牌的七次定位偏离真值 11 到 36 cm。把 badge-1 拖到 anchor-1 与 anchor-2 之间的基线上 (5, 0.5)，最差的一次是 34 cm；再移过这条线的末端、到 (9.8, 0.2)，就会有一次偏出 2.64 m。',
+      en: 'A range puts a tag on a circle; a difference of ranges puts it on a hyperbola with two anchors as foci, and three hyperbolae cross at the fix. A one-way fix therefore draws no rings, only the cross and the ellipse. Hyperbolae are sharpest across the middle of the anchor set and flatten along the line joining two anchors. In the middle of the room badge 1’s seven fixes land 11 to 26 cm out; on the anchor-1–anchor-2 baseline at (5, 0.5) the worst is 34 cm, and past the end of that line at (9.8, 0.2) one fix lands 2.64 m out.',
+      zh: '一个距离把标签放在一个圆上；一个距离之差把它放在一条以两个锚点为焦点的双曲线上，三条双曲线交于定位点。所以单向定位不画圆环，只有十字和椭圆。双曲线在锚点围成区域的中部最锐利，沿着连接两个锚点的那条线则渐渐摊平。在房间中部，badge-1 的七次定位偏离真值 11 到 26 cm。把 badge-1 拖到 anchor-1 与 anchor-2 之间的基线上 (5, 0.5)，最差的一次是 34 cm；再移过这条线的末端、到 (9.8, 0.2)，就会有一次偏出 2.64 m。',
     } },
     { text: {
       en: 'Do not read the two GDOP columns against each other: a hyperbolic Jacobian row is a difference of two unit vectors, so at the centre of a square of anchors its floor is √(2/3) = 0.82 where trilateration’s is 1.00. The comparison that means something is the error: lesson 5’s two-way fixes in this room stayed between 0.5 and 3.3 cm, these between 11 and 36 cm. The ellipse is comparable too, and it is honest: 18.6 to 23.0 cm of semi-major axis against lesson 5’s 1.7 cm, built from √((√2·c·σ_ts)² + (c·T_reply,i·0.2 ppm)²) over the three responders — only 4 cm of it timestamp noise — and every fix lands inside 1.6 of those semi-axes. It is first-order, though: reply times of 2, 4 and 6 ms do not share one sigma, so read it as how far the fix may be off rather than as a 68 % interval.',
@@ -166,14 +166,14 @@ export const uwbDlTdoa: Lesson = {
     J('the fix it solves', '由它解出的定位', firstUwbPosition),
   ],
   observe: [
-    { en: 'At t = 0 the log opens with three UWB_ROUND lines, one per badge — “badge-1 UWB round 0 of block 0 (DL-TDoA): 5 slots × 2000.0 µs” — then anchor-1’s Poll. Every TX_START in the run belongs to an anchor: 35 in 1.3 s, none from a badge.',
-      zh: 't = 0 处日志以三行 UWB_ROUND 开场，每个胸牌一行——“badge-1 UWB round 0 of block 0 (DL-TDoA): 5 slots × 2000.0 µs”——随后是 anchor-1 的轮询帧。整段运行里每一条 TX_START 都属于某个锚点：1.3 s 里共 35 条，胸牌一条也没有。' },
+    { en: 'At t = 0 the log opens with three UWB_ROUND lines, one per badge — “badge-1 UWB round 0 of block 0 (DL-TDoA): 5 slots × 2000.0 µs” — then each badge’s slot-0 line, and anchor-1’s Poll. Every TX_START in the run belongs to an anchor: 35 in 1.3 s, none from a badge.',
+      zh: 't = 0 处日志以三行 UWB_ROUND 开场，每个胸牌一行——“badge-1 UWB round 0 of block 0 (DL-TDoA): 5 slots × 2000.0 µs”——随后是三个胸牌各自的 slot 0 行，然后才是 anchor-1 的轮询帧。整段运行里每一条 TX_START 都属于某个锚点：1.3 s 里共 35 条，胸牌一条也没有。' },
     { en: 'Follow badge 1 through a round: five RX RMARKER lines, at 216.106 µs, 2.197 650 ms, 4.197 647 ms, 6.197 652 ms and 8.201 747 ms. Those five counters are all it ever has, and the first and last are the span it measures its own clock rate over.',
       zh: '跟着 badge-1 走完一轮：五条 RX RMARKER，分别在 216.106 µs、2.197 650 ms、4.197 647 ms、6.197 652 ms 与 8.201 747 ms。这五个计数就是它能拿到的全部；第一个与最后一个之间，正是它用来量自己时钟速率的那段跨度。' },
-    { en: 'At 10.000 000 ms come the three differences and the fix: “badge-1 TDoA anchor-2 − anchor-1: 5.66 ns (true 5.39 ns)”, anchor-3 1.12 against 2.29, anchor-4 6.85 against 7.15, then “badge-1 position (3.90, 3.74) m, true (4.00, 3.50), error 0.26 m, GDOP 0.84, 4 anchors (DL-TDoA)”. The line names its method.',
-      zh: '10.000 000 ms 处，三个时间差与一次定位一起出现：“badge-1 TDoA anchor-2 − anchor-1: 5.66 ns (true 5.39 ns)”，接着 anchor-3 是 1.12 对 2.29、anchor-4 是 6.85 对 7.15，最后是 “badge-1 position (3.90, 3.74) m, true (4.00, 3.50), error 0.26 m, GDOP 0.84, 4 anchors (DL-TDoA)”。这一行会写明解算方式。' },
+    { en: 'At 10.000 000 ms come the three differences and the fix: “badge-1 TDoA anchor-2 − anchor-1: 5.66 ns (true 5.39 ns)”, anchor-3 1.12 against 2.29, anchor-4 6.85 against 7.15, then “badge-1 position (3.90, 3.74) m, true (4.00, 3.50), error 0.26 m, GDOP 0.84, 4 anchors (DL-TDoA)”.',
+      zh: '10.000 000 ms 处，三个时间差与一次定位一起出现：“badge-1 TDoA anchor-2 − anchor-1: 5.66 ns (true 5.39 ns)”，接着 anchor-3 是 1.12 对 2.29、anchor-4 是 6.85 对 7.15，最后是 “badge-1 position (3.90, 3.74) m, true (4.00, 3.50), error 0.26 m, GDOP 0.84, 4 anchors (DL-TDoA)”。' },
     { en: 'The inspector holds no distances. Badge 1’s table reads “time differences”, one row per anchor against anchor 1; after seven blocks its errors are −0.51, +0.47 and −1.53 ns. Below: error 19.6 cm, GDOP 0.85, error ellipse 19.8 × 10.3 cm, solved from DL-TDoA.',
-      zh: '检视面板里一个距离也没有。badge-1 的表格标题是“到达时间差”——每个锚点一行，相对 anchor-1，列出实测、真值、误差与轮数——七个块之后它那三行的误差是 −0.51、+0.47 与 −1.53 ns。下面一行是：误差 19.6 cm，GDOP 0.85，误差椭圆 19.8 × 10.3 cm，解算方式为 DL-TDoA。' },
+      zh: '检视面板里一个距离也没有。badge-1 的表格标题是“到达时间差”，每个锚点一行，相对 anchor-1；七个块之后它那三行的误差是 −0.51、+0.47 与 −1.53 ns。下面一行是：误差 19.6 cm，GDOP 0.85，误差椭圆 19.8 × 10.3 cm，解算方式为 DL-TDoA。' },
   ],
   tryThis: [
     { en: 'Load “Clock correction off”. Badge 2’s first block reads 65.60, 139.29 and 201.83 ns where the truth is −8.14, −6.07 and −18.17 ns, and over seven blocks the three average 22.02, 44.04 and 65.81 m too long. No position line appears anywhere: 63 differences, 0 fixes. A difference of 65.81 m between anchors 11.40 m apart is no hyperbola at all, so the solver returns nothing rather than inventing a point.',
