@@ -815,7 +815,7 @@ export const GLOSSARY: GlossaryGroup[] = [
       },
       {
         term: 'Contention-based ranging',
-        alt: { en: '竞争式测距 — schedule mode 0, §10.32.2', zh: '竞争式测距——调度模式 0，§10.32.2' },
+        alt: { en: 'contention-based ranging — schedule mode 0, §10.32.2', zh: '竞争式测距——调度模式 0，§10.32.2' },
         def: {
           en: 'The Poll opens a shared response phase instead of assigning a slot to each anchor by name: every anchor draws one of the RCPS IE\'s 8 slots uniformly (model default) and retries up to the RCMA IE\'s 3 attempts (model default) before sitting a round out. SS-TWR only in this simulator — DS-TWR\'s report would need a second contended window.',
           zh: 'Poll 不再逐一为每个锚点指定时隙，而是打开一个共享响应阶段：每个锚点在 RCPS IE 通告的 8 个时隙（模型默认）中均匀抽取一个，最多重试 RCMA IE 通告的 3 次（模型默认），此后空过一轮。本仿真中仅限 SS-TWR——DS-TWR 的报告帧还需要另开一个竞争窗口。',
@@ -823,7 +823,7 @@ export const GLOSSARY: GlossaryGroup[] = [
       },
       {
         term: 'RCPS IE',
-        alt: { en: '竞争阶段结构信息元 — ranging contention phase structure IE, §10.32.9.5', zh: '竞争阶段结构信息元，§10.32.9.5' },
+        alt: { en: 'ranging contention phase structure IE, §10.32.9.5', zh: '竞争阶段结构信息元，§10.32.9.5' },
         def: {
           en: 'Rides in a contention round\'s Poll (§10.32.9.5): the response-phase window every anchor draws its slot from, first slot 1, last slot 8 by the model default. Header plus two octets — that content sizing is a model choice, not something the standard lays out byte by byte.',
           zh: '随竞争轮次的 Poll 发送（§10.32.9.5）：给出每个锚点据以抽取时隙的响应窗口，模型默认首时隙 1、末时隙 8。信元头之外仅两字节——具体字节大小是模型选择，标准并未逐字节规定该字段。',
@@ -831,7 +831,7 @@ export const GLOSSARY: GlossaryGroup[] = [
       },
       {
         term: 'RCMA IE',
-        alt: { en: '竞争最大尝试次数信息元 — ranging contention maximum attempts IE, §10.32.9.6', zh: '竞争最大尝试次数信息元，§10.32.9.6' },
+        alt: { en: 'ranging contention maximum attempts IE, §10.32.9.6', zh: '竞争最大尝试次数信息元，§10.32.9.6' },
         def: {
           en: 'Rides in the same Poll (§10.32.9.6): the retry budget, 3 attempts by the model default — how many rounds in a row an anchor may go unheard before it sits one out. Header plus one octet, again a model sizing choice.',
           zh: '与 RCPS IE 一同随 Poll 发送（§10.32.9.6）：重试预算，模型默认 3 次——锚点最多可连续这么多轮未被测到，此后才空过一轮。信元头之外仅一字节，字节大小同样是模型选择。',

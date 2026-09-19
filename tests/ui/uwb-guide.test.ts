@@ -300,3 +300,15 @@ describe('Contention-based rounds (schedule mode 0)', () => {
     expect(README).not.toContain('no contention-based ranging round')
   })
 })
+
+describe('glossary · language separation', () => {
+  it('every glossary term keeps alt.en and def.en free of Chinese characters', () => {
+    const cjk = /[一-鿿]/
+    for (const g of GLOSSARY) {
+      for (const i of g.items) {
+        expect(cjk.test(i.alt.en), `${i.term} alt.en`).toBe(false)
+        expect(cjk.test(i.def.en), `${i.term} def.en`).toBe(false)
+      }
+    }
+  })
+})
