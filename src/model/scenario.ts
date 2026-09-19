@@ -191,6 +191,16 @@ export const DEFAULT_UWB_SESSION: UwbSessionCfg = {
   method: 'ds', blockRstu: 240_000, slotRstu: 2400, channel: 9, tsNoisePs: 100, cfoNoisePpm: 0.2, nlos: true,
 }
 
+/** 802.11ax 6 GHz channel 7 (80 MHz), model default: the centre `Scenario.sixGhzCenterMhz`
+ * takes when a scenario does not set one. */
+export const DEFAULT_SIX_GHZ_CENTER_MHZ = 5985
+
+/** 6 GHz channel numbering: channel 1 sits at 5955 MHz, channels 5 MHz apart, so a centre
+ * frequency's channel number is (centre − 5950) / 5. standard 802.11ax 6 GHz channelization */
+export function sixGhzChannelNo(centerMhz: number): number {
+  return (centerMhz - 5950) / 5
+}
+
 /** What kind of endpoint a stream talks to beyond the AP. */
 export type ServerKind = 'video' | 'web' | 'call' | 'game'
 export const SERVER_KINDS: ServerKind[] = ['video', 'web', 'call', 'game']
@@ -256,6 +266,9 @@ export interface Scenario {
   queue?: { limit: number; lifetimeMs: number }
   /** UWB ranging session; required as soon as the scenario holds a `uwb` node. */
   uwb?: UwbSessionCfg
+  /** Centre frequency of the plan's 6 GHz Wi-Fi channel, in MHz (802.11ax channelization:
+   * 5955 + 5·(channel − 1)). Absent = DEFAULT_SIX_GHZ_CENTER_MHZ (channel 7, 80 MHz). */
+  sixGhzCenterMhz?: number
 }
 
 const OpeningSchema = z.object({ from: z.number().min(0), to: z.number().min(0) })
@@ -390,6 +403,7 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
       cfoNoisePpm: z.number().min(0),
       nlos: z.boolean(),
     }).optional(),
+    sixGhzCenterMhz: z.number().int().min(5955).max(7115).refine((v) => v % 5 === 0, '6 GHz centre frequency must be a 5 MHz channel step').optional(),
   })
   .superRefine((sc, ctx) => {
     // Wi-Fi needs its one AP; a scenario that is nothing but UWB nodes has no

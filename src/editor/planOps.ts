@@ -6,7 +6,8 @@ import { DEFAULT_UWB_SESSION, ScenarioSchema, type NodeCfg, type Opening, type R
 import { GEN_FEATURES, defaultFeatures, type FeatureFlag } from '../model/caps'
 import type { Generation } from '../model/types'
 import { STATION_PRESETS, presetNode } from '../model/presets'
-import { UWB_TX_POWER_DBM } from '../uwb/phy'
+import { UWB_TX_POWER_DBM, uwbBandOverlap } from '../uwb/phy'
+import { clampField } from '../ui/inputs'
 
 const SNAP = 0.1
 export const snap = (v: number): number => Math.round(v / SNAP) * SNAP
@@ -313,6 +314,22 @@ export function uwbSessionIssue(sc: Scenario): string | null {
  * from this module.
  */
 export { clampField } from '../ui/inputs'
+
+/** The 6 GHz channel field: clamp to the schema's [5955, 7115] range, then snap to the
+ * nearest 5 MHz step the schema also demands. */
+export function clampSixGhzCenterMhz(raw: string): number {
+  const clamped = clampField(raw, 5955, 7115, true)
+  return Math.round(clamped / 5) * 5
+}
+
+/** The overlap note's number: the percentage of the plan's 6 GHz channel that falls inside
+ * UWB channel 5's band, or null when there is nothing to warn about — either the UWB session
+ * is not on channel 5, or the plan has no UWB node to range on it. */
+export function sixGhzOverlapPct(sc: Scenario, centerMhz: number): number | null {
+  if (sc.uwb?.channel !== 5) return null
+  if (!sc.nodes.some((n) => n.kind === 'uwb')) return null
+  return Math.round(uwbBandOverlap(centerMhz, 80, 5) * 100)
+}
 
 /**
  * The node patch that switching `n` to Wi-Fi generation `gen` produces.

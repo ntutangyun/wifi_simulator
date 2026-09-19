@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  DEFAULT_UWB_SESSION, ScenarioSchema, nonht,
+  DEFAULT_UWB_SESSION, ScenarioSchema, nonht, sixGhzChannelNo,
   type NodeCfg, type Scenario, type UwbSessionCfg,
 } from '../../src/model/scenario'
 import { LESSONS } from '../../src/course/lessons'
@@ -131,5 +131,34 @@ describe('UWB nodes and sessions in the schema', () => {
     for (const l of LESSONS) {
       expect(() => ScenarioSchema.parse(l.scenario()), l.id).not.toThrow()
     }
+  })
+})
+
+describe('sixGhzChannelNo', () => {
+  it('channel = (centre − 5950) / 5', () => {
+    expect(sixGhzChannelNo(6305)).toBe(71)
+    expect(sixGhzChannelNo(5985)).toBe(7)
+  })
+})
+
+describe('Scenario.sixGhzCenterMhz', () => {
+  const base = (): Scenario => uwbScenario(twoAnchorsOneTag())
+
+  it('accepts a valid 5 MHz-step centre inside range', () => {
+    expect(() => ScenarioSchema.parse({ ...base(), sixGhzCenterMhz: 6305 })).not.toThrow()
+  })
+
+  it('rejects a centre that is not a multiple of 5', () => {
+    expect(() => ScenarioSchema.parse({ ...base(), sixGhzCenterMhz: 6303 })).toThrow()
+  })
+
+  it('rejects a centre below the schema minimum', () => {
+    expect(() => ScenarioSchema.parse({ ...base(), sixGhzCenterMhz: 5950 })).toThrow()
+  })
+
+  it('a scenario without the field parses unchanged (default applies later)', () => {
+    const sc = base()
+    expect(() => ScenarioSchema.parse(sc)).not.toThrow()
+    expect(sc.sixGhzCenterMhz).toBeUndefined()
   })
 })

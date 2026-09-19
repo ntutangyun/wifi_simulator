@@ -72,6 +72,38 @@ export const UWB_CAPTURE_DB = 6 // model
 export const UWB_NLOS_NS: Record<Material, number> = { drywall: 0.5, brick: 2.0, glass: 0.2 } // model
 export const UWB_PPM_MAX = 20 // standard §16.4.9: ±20 ppm
 
+// --- 6 GHz coexistence: band edges and overlap arithmetic -----------------------
+
+/** Each UWB channel's occupied band: centre ± 249.6 MHz (half of the 499.2 MHz channel
+ * width). standard Table 11-9 */
+export const UWB_BAND_MHZ: Record<UwbChannelNo, { lo: number; hi: number }> = {
+  5: { lo: 6240.0, hi: 6739.2 },
+  9: { lo: 7737.6, hi: 8236.8 },
+}
+
+/** Width, in MHz, of the Wi-Fi channel [centerMhz − widthMhz/2, centerMhz + widthMhz/2]
+ * that falls inside UWB channel `ch`'s band. Always ≥ 0. */
+export function uwbBandOverlapMhz(centerMhz: number, widthMhz: number, ch: UwbChannelNo): number {
+  const lo = centerMhz - widthMhz / 2
+  const hi = centerMhz + widthMhz / 2
+  const band = UWB_BAND_MHZ[ch]
+  return Math.max(0, Math.min(hi, band.hi) - Math.max(lo, band.lo))
+}
+
+/** Fraction (0…1) of the Wi-Fi channel that overlaps UWB channel `ch`'s band. */
+export function uwbBandOverlap(centerMhz: number, widthMhz: number, ch: UwbChannelNo): number {
+  return uwbBandOverlapMhz(centerMhz, widthMhz, ch) / widthMhz
+}
+
+export const UWB_SIR_MIN_DB = -12 // model
+export const UWB_MAX_INPUT_DBM_PER_MHZ = -45 // standard §16.4.10 (documented, not enforced)
+
+/** EIRP of a UWB frame inside a Wi-Fi channel: −14 dBm spread over 499.2 MHz, times the
+ * overlapping width. −Infinity when the channels do not overlap at all. */
+export function uwbInBandDbm(txPowerDbm: number, overlapMhz: number): number {
+  return txPowerDbm + 10 * Math.log10(overlapMhz / (UWB_CHIP_HZ / 1e6))
+}
+
 // --- Frame sizes --------------------------------------------------------------
 
 // The MHR and the FCS are the standard's frame format; every IE's content width is a model

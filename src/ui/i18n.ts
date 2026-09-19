@@ -63,6 +63,7 @@ export interface Strings {
     apExists: string; needApFirst: string
     scenario: string; save: string; load: string; export_: string; import_: string
     spawn: string; rts: string; rtsHint: string; seed: string; seedHint: string
+    sixGhz: string; sixGhzHint: string; sixGhzChannel: (n: number) => string; sixGhzOverlap: (pct: number) => string
     objects: string; properties: string; guide: string
     nodesHeader: string; rooms: string; walls: string; noRooms: string
     node: string; name: string; wifi: string; link: string; linkHint: string; bands: Record<LinkId, string>
@@ -289,6 +290,9 @@ export const STRINGS: Record<Lang, Strings> = {
       scenario: 'Scenario', save: '💾 Save', load: '📂 Load', export_: '⬇ Export', import_: '⬆ Import',
       spawn: '🎲 Spawn STAs', rts: 'RTS', rtsHint: 'dot11RTSThreshold: frames larger than this use RTS/CTS protection',
       seed: 'Seed', seedHint: 'random seed — identical seed reproduces the exact same run',
+      sixGhz: '6 GHz channel', sixGhzHint: 'centre frequency of the plan’s 6 GHz Wi-Fi channel (802.11ax channelization, 5 MHz steps)',
+      sixGhzChannel: (n) => `ch ${n}`,
+      sixGhzOverlap: (pct) => `overlaps UWB channel 5 at 80 MHz: ${pct} %`,
       objects: '🗂 OBJECTS', properties: '⚙ PROPERTIES', guide: '📖 EDITOR REFERENCE',
       nodesHeader: 'Nodes (order = timeline lanes)', rooms: 'Rooms', walls: 'Walls', noRooms: 'none — draw one with ▭',
       node: 'Node', name: 'Name', wifi: 'Wi-Fi', link: 'Link',
@@ -663,6 +667,9 @@ export const STRINGS: Record<Lang, Strings> = {
       scenario: '场景', save: '💾 保存', load: '📂 载入', export_: '⬇ 导出', import_: '⬆ 导入',
       spawn: '🎲 随机生成终端', rts: 'RTS', rtsHint: 'dot11RTSThreshold：大于该门限的帧启用 RTS/CTS 保护',
       seed: '种子', seedHint: '随机种子 — 相同种子可完全复现同一次仿真',
+      sixGhz: '6 GHz 信道', sixGhzHint: '本方案 6 GHz Wi-Fi 信道的中心频率（802.11ax 信道编号，5 MHz 步进）',
+      sixGhzChannel: (n) => `第 ${n} 信道`,
+      sixGhzOverlap: (pct) => `与 UWB 5 信道重叠（按 80 MHz 计）：${pct} %`,
       objects: '🗂 对象列表', properties: '⚙ 属性', guide: '📖 编辑器说明',
       nodesHeader: '节点（顺序 = 时间轴泳道）', rooms: '房间', walls: '墙体', noRooms: '暂无 — 用 ▭ 绘制一个',
       node: '节点', name: '名称', wifi: 'Wi-Fi', link: '频段',
