@@ -22,6 +22,9 @@ import { rangeSigmaM } from '../../src/uwb/position'
 import { ELLIPSE_DRAW_SCALE } from '../../src/uwb/scene'
 
 const README = readFileSync(new URL('../../README.md', import.meta.url), 'utf8')
+/** EditorGuideEn/Zh are not exported (they read the store's lang), so pinning their prose against
+ * the engine's live constants reads the source text directly, the same way README is read raw. */
+const EDITOR_GUIDE = readFileSync(new URL('../../src/editor/EditorGuide.tsx', import.meta.url), 'utf8')
 
 /** The prose writes a Unicode minus, not an ASCII hyphen. */
 const dbm = (v: number): string => `${v} dBm`.replace('-', '−')
@@ -347,6 +350,17 @@ describe('AoA (angle of arrival, §10.29.1.1)', () => {
     }
   })
 
+  it('the cross-range error is the horizontal range times theta, not the slant range, in both languages', () => {
+    // emitAoaFix (src/uwb/device.ts) walks out horizM = sqrt(r^2 - dz^2) before multiplying by
+    // aoaSigmaDeg, because an anchor off the tag's height measures a slant range, not a horizontal
+    // one; the Guide's teaching paragraph must say the same thing the engine and the Cross-range
+    // error glossary term (horizM·aoaSigmaDeg(θ)) do, not the slant range r·θ.
+    for (const text of [renderGuide('en'), renderGuide('zh')]) {
+      expect(text).toContain('r<sub>h</sub>·θ')
+      expect(text).toContain('r<sub>h</sub> = √(r² − Δz²)')
+    }
+  })
+
   it('the glossary carries the four AoA terms, bilingual, and the README documents AoA as standard plus the PDoA model', () => {
     const group = GLOSSARY.find((g) => g.id === 'uwb')
     const terms = (group?.items ?? []).map((i) => i.term.toLowerCase())
@@ -361,6 +375,27 @@ describe('AoA (angle of arrival, §10.29.1.1)', () => {
     expect(README).toContain('§10.29.1.1')
     expect(README).toContain(`${AOA_SIGMA_PHI_RAD} rad`)
     expect(README).toContain(ANTENNA_SPACING_CM)
+  })
+
+  it('pins the glossary and EditorGuide AoA figures to the live engine constants, so a drift fails here', () => {
+    // The Guide paragraph imports AOA_SIGMA_PHI_RAD/aoaSigmaDeg/antennaSpacingM directly, so it can
+    // never go stale; the glossary's AoA/PDoA entries and EditorGuide's checkbox prose repeat the
+    // same figures as plain text, so pin them here against a fresh computation from src/uwb/aoa.ts.
+    const group = GLOSSARY.find((g) => g.id === 'uwb')
+    const aoaItem = group?.items.find((i) => i.term.toLowerCase() === 'aoa')
+    const pdoaItem = group?.items.find((i) => i.term.toLowerCase() === 'pdoa')
+    for (const text of [aoaItem?.def.en, aoaItem?.def.zh]) {
+      expect(text, 'aoa def').toContain(SIGMA_BORESIGHT_DEG)
+      expect(text, 'aoa def').toContain(SIGMA_60_DEG)
+      expect(text, 'aoa def').toContain(`${AOA_SIGMA_CLAMP_DEG}°`)
+    }
+    for (const text of [pdoaItem?.def.en, pdoaItem?.def.zh]) {
+      expect(text, 'pdoa def').toContain(ANTENNA_SPACING_CM)
+    }
+    expect(pdoaItem?.def.en, 'pdoa.def.en').toContain(`${AOA_SIGMA_PHI_RAD}`)
+    expect(pdoaItem?.def.zh, 'pdoa.def.zh').toContain(`${AOA_SIGMA_PHI_RAD}`)
+
+    expect(EDITOR_GUIDE, 'EditorGuide AoA checkbox').toContain(SIGMA_BORESIGHT_DEG)
   })
 })
 

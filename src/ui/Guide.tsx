@@ -252,9 +252,11 @@ export function GuideEn() {
         boresight at the room, and reading the bearing off it, is the only defence two antennas
         have. With DS-TWR an anchor that now holds both a range and a bearing fixes the tag alone,
         from itself: the range's few centimetres of error run along the ray, while the bearing's
-        angle error becomes a <b>cross-range error</b> that grows with distance — r·θ (θ in
-        radians) metres off to the side — so the fix's error ellipse is long and thin, turned a
-        quarter turn from the ray, at any distance past a few centimetres.
+        angle error becomes a <b>cross-range error</b> that grows with distance —{' '}
+        r<sub>h</sub>·θ (θ in radians) metres off to the side, where r<sub>h</sub> = √(r² − Δz²) is
+        the <i>horizontal</i> range (an anchor on the ceiling measures a slant range r, not the
+        horizontal distance) — so the fix's error ellipse is long and thin, turned a quarter turn
+        from the ray, at any distance past a few centimetres.
       </p>
 
       <h4 style={h}>Things to try</h4>
@@ -477,7 +479,9 @@ export function GuideZh() {
         背后的标签会被报告成它在正前方的镜像；把锚点的 <code>yawDeg</code>（偏航角）视轴
         对准房间，并据此读出方位角，是两根天线唯一能做的防御。配合 DS-TWR，同时握有距离和
         方位角的锚点便能单凭自己定出标签的位置：距离的几厘米误差沿着射线方向，
-        而方位角误差则变成沿射线侧向的<b>横向误差</b>，且随距离增大——r·θ（θ 以弧度计）米——
+        而方位角误差则变成沿射线侧向的<b>横向误差</b>，且随水平距离增大——
+        r<sub>h</sub>·θ（θ 以弧度计）米，其中 r<sub>h</sub> = √(r² − Δz²) 才是<i>水平</i>距离
+        （装在天花板上的锚点测到的是斜距 r，而非水平距离）——
         因此在几厘米开外的任何距离，解算出的误差椭圆都又长又扁，且与射线方向相差九十度。
       </p>
 
