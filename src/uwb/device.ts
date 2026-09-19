@@ -55,6 +55,9 @@ export interface UwbDeviceCfg {
    * cannot calibrate away is this leftover). It is a fixed bias, not a per-round draw: a miscalibrated
    * anchor is wrong the same way in every round, which is exactly what makes it hard to spot. */
   syncOffsetNs: number
+  /** UL-TDoA only: the session's 1-σ for the draw above — how well the anchors are calibrated,
+   * as opposed to how wrong this one happens to be. The fix's error ellipse is drawn from it. */
+  syncErrorNs: number
 }
 
 export interface UwbGeometry {
@@ -183,6 +186,34 @@ function freshRound(block: number, round: number, plan: RoundPlan, tagId: string
       : null,
     ulArrivalNs: null,
   }
+}
+
+/**
+ * 1-σ of one DL-TDoA time difference, as a distance — the number the fix's error ellipse is drawn
+ * from. Two terms: the tag's two independent receive timestamps (√2·c·σ_ts, 4.2 cm at 100 ps),
+ * and the responder's clock-offset estimate, whose residual multiplies the reply time it corrects
+ * (0.2 ppm of a 2 ms reply is 6 cm, of a 6 ms reply 18 cm). The second dominates from the first
+ * slot on, which is why a responder answering late is measured worse than one answering early.
+ */
+function dlDiffSigmaM(replyNs: number, tsNoisePs: number, cfoNoisePpm: number): number {
+  return Math.hypot(
+    Math.SQRT2 * C_M_PER_NS * (tsNoisePs / 1000),
+    C_M_PER_NS * replyNs * cfoNoisePpm * 1e-6,
+  )
+}
+
+/**
+ * 1-σ of one UL-TDoA time difference, as a distance: two anchors' arrivals, each carrying its
+ * receiver's timestamp noise and its own residual calibration error to the common timebase.
+ *
+ * First-order model, and the one place it is worth saying so out loud: `syncErrorNs` is a **bias**
+ * per anchor, drawn once and kept for the whole session, not white noise that averages down over
+ * rounds. Treating it as noise makes the ellipse the right *size* while leaving it the wrong kind
+ * of statement — it is indicative of how far off the fix may be, not a 68 % interval a repeated
+ * measurement would fall in.
+ */
+function ulDiffSigmaM(tsNoisePs: number, syncErrorNs: number): number {
+  return Math.SQRT2 * C_M_PER_NS * Math.hypot(tsNoisePs / 1000, syncErrorNs)
 }
 
 export class UwbDevice implements UwbRadio {
@@ -408,6 +439,9 @@ export class UwbDevice implements UwbRadio {
     if (!(rate > 0) || !Number.isFinite(rate)) return
     const ref = this.geometry.anchorPos(refId)
     const deltas: { id: string; dtNs: number }[] = []
+    // Σσ_i² over the responders actually heard: one difference's sigma is not one number here,
+    // because the term that dominates it grows with the slot the responder answered in.
+    let sumSqM = 0
     for (const id of r.anchors) {
       const resp = dl.responses.get(id)
       if (!resp) continue // this responder was not heard this round: it is simply left out
@@ -417,6 +451,7 @@ export class UwbDevice implements UwbRadio {
       const dtNs = (counterDiff(resp.rxCounter, dl.rxPoll) / rate - txOffsetRctu) * RCTU_NS
       const trueDtNs = (this.geometry.trueDistM(this.id, id) - this.geometry.trueDistM(this.id, refId)) / C_M_PER_NS
       deltas.push({ id, dtNs })
+      sumSqM += dlDiffSigmaM(resp.replyTime * RCTU_NS, this.cfg.tsNoisePs, this.cfg.cfoNoisePpm) ** 2
       this.emit({
         t: this.now(), type: 'UWB_TDOA', node: this.id, ref: refId, peer: id,
         dtNs, trueDtNs, block: r.block, round: r.round,
@@ -427,10 +462,11 @@ export class UwbDevice implements UwbRadio {
       refId,
       deltas,
       this.cfg.pos.z,
-      // Each difference carries two noisy timestamps where a range carries the equivalent of one,
-      // so the ellipse is drawn with √2·σ_r. It is the documented approximation of this model:
-      // the clock-correction residual, which grows with the responder's slot, is not in it.
-      Math.SQRT2 * rangeSigmaM(this.cfg.tsNoisePs),
+      // One sigma for a solver that takes only one: the RMS of the per-responder sigmas above.
+      // A first-order model — the responders' reply times differ by a factor of three across a
+      // round, so no single number describes all three differences — but an honest one, in that
+      // the term it is dominated by is the one the measured errors are dominated by too.
+      Math.sqrt(sumSqM / Math.max(1, deltas.length)),
     )
     if (!fix) return
     this.emit({
@@ -494,10 +530,9 @@ export class UwbDevice implements UwbRadio {
       refId,
       deltas,
       tag.z,
-      // The same √2·σ_r per difference as DL-TDoA, and the same documented approximation: here
-      // the ellipse also knows nothing of the anchors' calibration offsets, which are a fixed
-      // bias no number of rounds averages away.
-      Math.SQRT2 * rangeSigmaM(this.cfg.tsNoisePs),
+      // Both of what a UL difference carries: two receivers' timestamp noise and two anchors'
+      // calibration errors (see `ulDiffSigmaM`, which also says why this is first-order).
+      ulDiffSigmaM(this.cfg.tsNoisePs, this.cfg.syncErrorNs),
     )
     if (!fix) return
     this.emit({

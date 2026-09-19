@@ -449,7 +449,7 @@ export const STRINGS: Record<Lang, Strings> = {
       method: {
         twr: 'two-way ranging', 'dl-tdoa': 'DL-TDoA', 'ul-tdoa': 'UL-TDoA', aoa: 'angle of arrival',
       },
-      ellipseHintTdoa: 'a one-way fix draws its ellipse from √2 σ per difference — two noisy timestamps where a range carries one. It is an approximation: the clock-correction residual, which grows with the slot a responder answers in, is not in it, so the real error is larger than the ellipse says.',
+      ellipseHintTdoa: 'a one-way fix draws its ellipse from what a time difference really carries: two noisy timestamps, and then — in DL-TDoA — each responder’s clock-offset residual, which grows with the slot it answers in, or — in UL-TDoA — the anchors’ calibration error. It is a first-order model: an anchor’s sync error is a fixed bias, not noise that averages away over rounds, so read the ellipse as indicative of how far the fix may be off rather than as a 68 % interval.',
     },
     log: { empty: 'no events in window' },
     profiles: {
@@ -861,7 +861,7 @@ export const STRINGS: Record<Lang, Strings> = {
         twr: '双向测距 (TWR)', 'dl-tdoa': '下行到达时间差 (DL-TDoA)', 'ul-tdoa': '上行到达时间差 (UL-TDoA)',
         aoa: '到达角 (AoA)',
       },
-      ellipseHintTdoa: '单向定位的椭圆按每个时间差 √2 σ 画出——一个时间差含两个带噪声的时间戳，而一次测距只相当于一个。这是一个近似：时钟速率校正的残差（响应越靠后越大）并未计入其中，因此真实误差比椭圆显示的更大。',
+      ellipseHintTdoa: '单向定位的椭圆按一个时间差真正包含的误差画出：两个带噪声的时间戳，再加上 DL-TDoA 中各响应锚点的时钟偏差估计残差（响应时隙越靠后越大），或 UL-TDoA 中锚点之间的同步标定误差。这是一阶近似：锚点的同步误差是固定偏差，不是多轮平均就能消掉的噪声，因此该椭圆只表示定位可能偏离多远，而不是严格的 68 % 置信区间。',
     },
     log: { empty: '窗口内无事件' },
     profiles: {

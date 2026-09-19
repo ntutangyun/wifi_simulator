@@ -382,10 +382,13 @@ describe('UwbNetwork — DL-TDoA rounds', () => {
     const errs = fixes.map((f) => Math.hypot(f.x - f.trueX, f.y - f.trueY))
     expect(Math.max(...errs).toFixed(2)).toBe('0.40')
     for (const f of fixes) expect(f.gdop).toBeLessThan(1) // difference rows are longer than unit ones
-    // The ellipse is drawn from √2·σ_r per difference — two noisy timestamps where a range
-    // carries one — and knows nothing of the clock residual above, so it is the optimistic
-    // figure the inspector's hint calls an approximation: 2 cm beside a 40 cm error.
-    expect(fixes[0].ellipse.a).toBeLessThan(0.03)
+    // The ellipse is drawn from what a difference really carries: the tag's two timestamps
+    // (4.2 cm) and each responder's clock-offset residual, 0.2 ppm of its own reply time —
+    // 12 / 24 / 36 cm at 2, 4 and 6 ms, RMS 26 cm. So it lands in the decimetres the measured
+    // errors are in, instead of claiming 2 cm beside a 40 cm error.
+    expect(fixes[0].ellipse.a.toFixed(2)).toBe('0.20')
+    expect(fixes[0].ellipse.a).toBeGreaterThan(Math.max(...errs) / 3)
+    expect(fixes[0].ellipse.a).toBeLessThan(Math.max(...errs))
   })
 
   it('needs every responder: one it cannot hear leaves too few differences to fix', () => {
@@ -577,9 +580,15 @@ describe('UwbNetwork — UL-TDoA blinks', () => {
     expect(Math.max(...errs)).toBeLessThan(4 * ulSigmaM(1))
     // An order of magnitude worse than the synchronised run, for one nanosecond.
     expect(Math.max(...errs)).toBeGreaterThan(10 * Math.max(...posErr(rs)))
-    // The ellipse knows nothing of it — a calibration offset is not noise — so it is unchanged
-    // beside an error ten times larger: the inspector's hint says so in so many words.
-    expect(of(off, 'UWB_POSITION')[0].ellipse.a).toBeCloseTo(of(rs, 'UWB_POSITION')[0].ellipse.a, 2)
+    // The ellipse grows with it, because `syncErrorNs` is in the sigma the solver is given:
+    // 35 cm against the 3.6 cm of the synchronised run, beside a 73 cm worst case. It is a
+    // first-order figure — a per-anchor bias is not white noise, as the inspector's hint says —
+    // but it is now the same order as the error instead of twenty times under it.
+    const ellipseA = (records: TLRecord[]): number => of(records, 'UWB_POSITION')[0].ellipse.a
+    expect(ellipseA(rs).toFixed(3)).toBe('0.036')
+    expect(ellipseA(off).toFixed(2)).toBe('0.35')
+    expect(ellipseA(off)).toBeGreaterThan(Math.max(...errs) / 3)
+    expect(ellipseA(off)).toBeLessThan(Math.max(...errs))
   })
 
   it('replays bit-for-bit, and needs the reference anchor to have heard the blink', () => {

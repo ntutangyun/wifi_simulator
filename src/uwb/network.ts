@@ -110,7 +110,7 @@ export class UwbNetwork {
         {
           role: n.uwb?.role ?? 'anchor', pos: n.pos,
           tsNoisePs: cfg.tsNoisePs, cfoNoisePpm: cfg.cfoNoisePpm, maxAttempts: cfg.maxAttempts,
-          tdoaClockCorrection: cfg.tdoaClockCorrection, syncOffsetNs,
+          tdoaClockCorrection: cfg.tdoaClockCorrection, syncOffsetNs, syncErrorNs: cfg.syncErrorNs,
         },
         clock, rng, q, now, ch, emit, geometry,
       )
