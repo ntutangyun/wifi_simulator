@@ -113,8 +113,8 @@ describe('uwbFrameFields', () => {
   })
 
   it('decodes the three DL-TDoA messages: ranging times at 4 octets each, IE headers counted', () => {
-    const dlPoll = makePoll('anc-0', ['anc-1', 'anc-2', 'anc-3'], 'ds', 0, 0, 'time', 8, 3, {
-      txCounter: 1_000_000, rxCounters: {},
+    const dlPoll = makePoll('anc-0', ['anc-1', 'anc-2', 'anc-3'], 'ds', 0, 0, {
+      dl: { txCounter: 1_000_000, rxCounters: {} },
     })
     const dlResp = makeResp('anc-1', '*', 'ds', 0, 0, 1, undefined, {
       // a fraction, as the engine stores it: 1.5 ppm
@@ -162,8 +162,8 @@ describe('uwbFrameFields', () => {
     expect(dlPoll.bytes).toBe(uwbDlPollBytes(3, 0, false))
     expect(dlResp.bytes).toBe(uwbDlRespBytes(1, true))
     expect(dlFinal.bytes).toBe(uwbDlFinalBytes(3, false))
-    const pollWithRx = makePoll('anc-0', ['anc-1', 'anc-2', 'anc-3'], 'ds', 0, 0, 'time', 8, 3, {
-      txCounter: 1_000_000, rxCounters: { 'anc-1': 999_000 }, coffs: 0.25e-6,
+    const pollWithRx = makePoll('anc-0', ['anc-1', 'anc-2', 'anc-3'], 'ds', 0, 0, {
+      dl: { txCounter: 1_000_000, rxCounters: { 'anc-1': 999_000 }, coffs: 0.25e-6 },
     })
     expect(pollWithRx.bytes).toBe(uwbDlPollBytes(3, 1, true))
     expect(pollWithRx.bytes).toBe(dlPoll.bytes + dlRxTimesIeBytes(1) + DL_COFFS_IE_BYTES)
@@ -176,7 +176,7 @@ describe('uwbFrameFields', () => {
   })
 
   it('decodes a contention Poll: ARC + RCPS + RCMA + RRMC summing to 31 octets', () => {
-    const cPoll = makePoll('tag', ['a1', 'a2'], 'ss', 0, 0, 'contention', 8, 3)
+    const cPoll = makePoll('tag', ['a1', 'a2'], 'ss', 0, 0, { schedule: 'contention' })
     expect(cPoll.bytes).toBe(31)
     const d = uwbFrameFields(cPoll)
     expect(fieldSum(d)).toBe(31)

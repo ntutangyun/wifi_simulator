@@ -9,7 +9,8 @@ import { Rng } from '../../src/engine/rng'
 import { makeEmitter } from '../../src/model/records'
 import { UwbNetwork } from '../../src/uwb/network'
 import {
-  rstuNs, UWB_BLINK_BYTES, UWB_MAX_ANCHORS, uwbDlPollBytes, uwbFinalBytes, uwbLongestFrameBytes, uwbSlotFitNs,
+  rstuNs, UWB_BLINK_BYTES, UWB_MAX_ANCHORS, uwbDlPollBytes, uwbFinalBytes, uwbLongestFrameBytes, uwbPollBytes,
+  uwbRespBytes, uwbSlotFitNs,
 } from '../../src/uwb/phy'
 
 function uwbNode(id: string, role: 'anchor' | 'tag', x: number, y: number): NodeCfg {
@@ -237,6 +238,21 @@ describe('UWB nodes and sessions in the schema', () => {
       .not.toThrow()
     expect(() => ScenarioSchema.parse(uwbScenario([...anchors, tag], { ...DEFAULT_UWB_SESSION, ...short, mode: 'ul-tdoa' })))
       .not.toThrow()
+  })
+
+  it('a contention round is sized by its Poll, not by the Final it never sends', () => {
+    // Contention is SS-TWR and ends at the Response: the frames on the air are the 31-octet Poll
+    // (RCPS + RCMA in place of the anchor list, so anchor-count independent) and an SS Response.
+    // At one anchor the Final-sized bound was the smaller number, which is the case that would
+    // have let a too-short slot through if the 300 RSTU floor were ever lowered.
+    expect(uwbPollBytes(1, 'contention')).toBe(31)
+    expect(uwbLongestFrameBytes(1, 'twr', 'contention')).toBe(31)
+    expect(uwbLongestFrameBytes(1, 'twr', 'contention')).toBeGreaterThan(uwbFinalBytes(1))
+    expect(uwbRespBytes('ss')).toBeLessThan(31)
+    // the window's size does not change the frames, and more anchors do not either
+    expect(uwbLongestFrameBytes(6, 'twr', 'contention')).toBe(31)
+    expect(uwbSlotFitNs(6, 'twr', 'contention')).toBeLessThan(uwbSlotFitNs(6))
+    expect(uwbSlotFitNs(1, 'twr', 'contention')).toBeGreaterThan(uwbSlotFitNs(1))
   })
 
   it('every lesson scenario still parses', () => {

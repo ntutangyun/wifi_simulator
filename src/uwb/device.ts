@@ -765,10 +765,10 @@ export class UwbDevice implements UwbRadio {
       case 'uwbPoll': {
         r.txPollCounter = txCounter
         this.send(
-          makePoll(
-            this.id, peers.anchors, r.plan.method, r.block, r.round,
-            r.plan.schedule, r.plan.contentionSlots, this.cfg.maxAttempts,
-          ),
+          makePoll(this.id, peers.anchors, r.plan.method, r.block, r.round, {
+            schedule: r.plan.schedule, contentionSlots: r.plan.contentionSlots,
+            maxAttempts: this.cfg.maxAttempts,
+          }),
           txCounter,
         )
         break
@@ -835,11 +835,11 @@ export class UwbDevice implements UwbRadio {
         // slot i belongs to the i-th anchor of the scenario, which is how the Final can name
         // its arrival times in slot order.
         this.send(
-          makePoll(
-            this.id, peers.anchors.slice(1), r.plan.method, r.block, r.round,
-            r.plan.schedule, r.plan.contentionSlots, this.cfg.maxAttempts,
-            { txCounter, rxCounters: {} },
-          ),
+          // A one-way round is time-scheduled by construction, so the contention fields the
+          // TWR Poll carries have nothing to say here: the Poll carries anchor 0's times instead.
+          makePoll(this.id, peers.anchors.slice(1), r.plan.method, r.block, r.round, {
+            dl: { txCounter, rxCounters: {} },
+          }),
           txCounter,
         )
         break

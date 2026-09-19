@@ -64,15 +64,30 @@ function uwbFrame(kind: UwbFrameKind, src: string, dst: string, bytes: number, u
   return { kind, src, dst, bytes, mbps: UWB_MBPS, durationFieldNs: 0, txTimeNs: uwbPpduNs(bytes), uwb }
 }
 
+/** The optional tail of a Poll: what it carries beyond the round it belongs to. Each field is
+ * read by exactly one kind of round, so an options object says at the call site which kind is
+ * being built - a contention Poll names the window, a DL-TDoA Poll names the times, and neither
+ * has to write the other's arguments out as placeholders. */
+export interface PollOpts {
+  /** Time-scheduled (the default) or a shared response phase. */
+  schedule?: 'time' | 'contention'
+  /** Contention only: the response window (RCPS IE), and the retry budget (RCMA IE). Both
+   * default to the session's own model defaults. */
+  contentionSlots?: number
+  maxAttempts?: number
+  /** DL-TDoA: anchor 0's own ranging times. A Poll that carries them is a DL-TDoA Poll, and the
+   * three fields above mean nothing to it - a one-way round is time-scheduled by construction. */
+  dl?: UwbDlTimes
+}
+
 /**
  * The tag's Poll: broadcast, either announcing the round's anchor order (time schedule: ARC + RDM
  * + RRMC) or opening a shared response phase (contention schedule, standard §10.32.2 mode 0: ARC +
- * RCPS + RCMA + RRMC) that any anchor may answer in. `contentionSlots` / `maxAttempts` are only
- * read for the contention schedule, and default to the session's own model defaults (8 / 3).
+ * RCPS + RCMA + RRMC) that any anchor may answer in.
  */
 export function makePoll(
   tag: string, anchors: string[], method: 'ss' | 'ds', block: number, round: number,
-  schedule: 'time' | 'contention' = 'time', contentionSlots = 8, maxAttempts = 3, dl?: UwbDlTimes,
+  { schedule = 'time', contentionSlots = 8, maxAttempts = 3, dl }: PollOpts = {},
 ): FrameDesc {
   // DL-TDoA: anchor 0 polls, `anchors` are the responders it gives slots to, and the frame adds
   // anchor 0's own TX time so a listening tag can time the round on the anchors' clock.

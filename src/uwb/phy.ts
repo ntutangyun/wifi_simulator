@@ -270,22 +270,31 @@ export function uwbSlotsPerTag(
 /** Guard between the end of a slot's PPDU and the slot boundary: 200 ns is 60 m of flight (model). */
 export const UWB_SLOT_GUARD_NS = 200
 
-/** The round's longest frame, in octets: the Final in two-way ranging, the longer of the
- * Poll and the Final in DL-TDoA (the Poll's RDM IE grows by 3 per responder, the Final's RX
- * times by 4), and the blink — the only frame there is — in UL-TDoA. */
-export function uwbLongestFrameBytes(anchors: number, mode: UwbMode = 'twr'): number {
+/** The round's longest frame, in octets: the Final in a time-scheduled two-way round, the Poll
+ * or the SS Response in a contention round (which has no Final at all), the longer of the Poll
+ * and the Final in DL-TDoA (the Poll's RDM IE grows by 3 per responder, the Final's RX times by
+ * 4), and the blink — the only frame there is — in UL-TDoA. */
+export function uwbLongestFrameBytes(
+  anchors: number, mode: UwbMode = 'twr', schedule: 'time' | 'contention' = 'time',
+): number {
   if (mode === 'ul-tdoa') return UWB_BLINK_BYTES
   if (mode === 'dl-tdoa') {
     return Math.max(uwbDlPollBytes(anchors - 1), uwbDlRespBytes(), uwbDlFinalBytes(anchors - 1))
   }
+  // A contention round is SS-TWR and ends at the Response: there is no Final to size it by, and
+  // the Poll carries RCPS + RCMA instead of the anchor list, so it is 31 octets whatever the
+  // anchor count. At one anchor that Poll is longer than the Final the round never sends.
+  if (schedule === 'contention') return Math.max(uwbPollBytes(anchors, 'contention'), uwbRespBytes('ss'))
   return uwbFinalBytes(anchors)
 }
 
 /** The shortest ranging slot a round with N anchors fits in: the round's longest PPDU plus the
  * flight guard. In a shorter slot the receiver's deadline fires before the frame lands, and the
  * round loses every anchor to UWB_TIMEOUT with nothing to say why. */
-export function uwbSlotFitNs(anchors: number, mode: UwbMode = 'twr'): Ns {
-  return uwbPpduNs(uwbLongestFrameBytes(anchors, mode)) + UWB_SLOT_GUARD_NS
+export function uwbSlotFitNs(
+  anchors: number, mode: UwbMode = 'twr', schedule: 'time' | 'contention' = 'time',
+): Ns {
+  return uwbPpduNs(uwbLongestFrameBytes(anchors, mode, schedule)) + UWB_SLOT_GUARD_NS
 }
 
 // --- Figure of Merit -----------------------------------------------------------

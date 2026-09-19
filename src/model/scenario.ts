@@ -540,7 +540,7 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
           // slot is not an error at run time: the receiver's deadline fires first, the late
           // PPDU is ignored, and the round silently loses every anchor. So it is caught here.
           const slotNs = rstuNs(sc.uwb.slotRstu)
-          const needNs = uwbSlotFitNs(anchors, mode)
+          const needNs = uwbSlotFitNs(anchors, mode, sc.uwb.schedule)
           if (slotNs < needNs) {
             ctx.addIssue({
               code: z.ZodIssueCode.custom,
