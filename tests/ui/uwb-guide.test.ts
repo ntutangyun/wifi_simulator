@@ -8,13 +8,14 @@ import { readFileSync } from 'node:fs'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, it, expect } from 'vitest'
+import { CCA_ED_DBM } from '../../src/engine/phy'
 import { DEFAULT_UWB_SESSION } from '../../src/model/scenario'
 import { GuideEn, GuideZh } from '../../src/ui/Guide'
 import { GLOSSARY } from '../../src/ui/glossary'
 import {
   COUNTER_MOD, FOM_LOS, FOM_NLOS, RCTU_NS, UWB_BAND_MHZ, UWB_MAX_ANCHORS, UWB_MAX_INPUT_DBM_PER_MHZ,
-  UWB_RX_SENS_DBM, UWB_SIR_MIN_DB, UWB_TX_POWER_DBM,
-  fomDecode, fomText, rstuNs, uwbFinalBytes, uwbSlotsPerTag,
+  UWB_PL_EXP, UWB_RX_SENS_DBM, UWB_SIR_MIN_DB, UWB_TX_POWER_DBM,
+  fomDecode, fomText, rstuNs, uwbFinalBytes, uwbInBandDbm, uwbPl0Db, uwbSlotsPerTag,
 } from '../../src/uwb/phy'
 import { rangeSigmaM } from '../../src/uwb/position'
 import { ELLIPSE_DRAW_SCALE } from '../../src/uwb/scene'
@@ -237,20 +238,28 @@ describe('6 GHz coexistence', () => {
 
   // The claim that Wi-Fi's CCA "never" fires on UWB power is only true past a distance: a UWB
   // channel-5 frame's in-band EIRP inside an 80 MHz Wi-Fi channel fully overlapping it is
-  // UWB_TX_POWER_DBM (−14) + 10·log10(80/499.2) ≈ −22 dBm; at 0.3 m the UWB→Wi-Fi path loss
-  // (channel 5's PL0 ≈ 48.7 dB, UWB_PL_EXP = 2.0) is 48.7 + 20·log10(0.3) ≈ 38.2 dB, so the
-  // received power is ≈ −22 − 38.2 ≈ −60 dBm — close to CCA_ED_DBM (−62 dBm, src/engine/phy.ts):
-  // a Wi-Fi radio well within a metre of a UWB transmitter genuinely can see CCA busy from it, so
-  // every "CCA never fires" claim here must be qualified by distance, not stated unconditionally.
+  // uwbInBandDbm(UWB_TX_POWER_DBM, 80) ≈ −22 dBm; the UWB→Wi-Fi path loss at distance d is
+  // uwbPl0Db(5) + 10·UWB_PL_EXP·log10(d), so the crossover where the received power equals
+  // CCA_ED_DBM (−62 dBm, src/engine/phy.ts) solves for d directly from those same constants.
+  // Below that distance, a Wi-Fi radio genuinely can see CCA busy from UWB energy, so every
+  // "CCA never fires" claim here must be qualified by distance, quoted rounded up to the next
+  // 10 cm (0.367 m → "40 cm") rather than stated unconditionally or understated.
+  const CCA_UWB_CROSSOVER_M = 10 ** ((uwbInBandDbm(UWB_TX_POWER_DBM, 80) - uwbPl0Db(5) - CCA_ED_DBM) / (10 * UWB_PL_EXP))
+
+  it('the CCA/UWB crossover computed from the engine constants is about 0.37 m', () => {
+    expect(CCA_UWB_CROSSOVER_M).toBeGreaterThan(0.36)
+    expect(CCA_UWB_CROSSOVER_M).toBeLessThan(0.38)
+  })
+
   it('qualifies "CCA never fires on UWB power" by distance, in the Guide, glossary and README', () => {
-    for (const text of [en, zh]) expect(text).toContain('30 cm')
+    for (const text of [en, zh]) expect(text).toContain('40 cm')
     const noiseRise = (GLOSSARY.find((g) => g.id === 'uwb')?.items ?? [])
       .find((i) => i.term.toLowerCase() === 'noise rise')
     expect(noiseRise).toBeDefined()
     for (const text of [noiseRise?.alt.en, noiseRise?.alt.zh, noiseRise?.def.en, noiseRise?.def.zh]) {
-      expect(text).toContain('30 cm')
+      expect(text).toContain('40 cm')
     }
     const sirRow = README.split('\n').find((l) => l.includes('UWB SIR floor under in-band Wi-Fi')) ?? ''
-    expect(sirRow).toContain('30 cm')
+    expect(sirRow).toContain('40 cm')
   })
 })

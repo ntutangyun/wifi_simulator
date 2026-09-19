@@ -198,7 +198,7 @@ export function GuideEn() {
         PPDU, the UWB receiver's correlation gain still decodes down to a signal-to-interference ratio (SIR) of{' '}
         {dbFmt(UWB_SIR_MIN_DB)} dB (model — the standard fixes only the receiver's maximum input, {dbFmt(UWB_MAX_INPUT_DBM_PER_MHZ)}{' '}
         dBm/MHz, §16.4.10); below that the frame is lost, logged as <b>UWB_INTERFERED</b>, "lost to Wi-Fi". The
-        reverse is far gentler: past about 30 cm a UWB frame's in-band power falls below the −62 dBm
+        reverse is far gentler: past about 40 cm a UWB frame's in-band power falls below the −62 dBm
         energy-detect floor, so at any realistic spacing Wi-Fi's CCA (physical carrier sense) never fires from
         it — it only shows up as a small noise rise inside the Wi-Fi receiver's SINR while the frame is on the
         air. The practical fix is UWB channel 9, or a 6 GHz Wi-Fi channel that does not overlap channel 5.
@@ -382,7 +382,7 @@ export function GuideZh() {
         （SIR）低至 {dbFmt(UWB_SIR_MIN_DB)} dB 时解调（模型取值——标准只规定了接收机的最大输入功率
         {dbFmt(UWB_MAX_INPUT_DBM_PER_MHZ)} dBm/MHz，§16.4.10）；低于这个门限，该帧就会丢失，记为
         <b> UWB_INTERFERED</b>，即“lost to Wi-Fi”（因 Wi-Fi 而丢失）。反过来的方向要温和得多：
-        距离超过约 30 cm 之后，UWB 帧的带内功率就会落到 −62 dBm 能量检测门限之下，因此在任何实际间距下，
+        距离超过约 40 cm 之后，UWB 帧的带内功率就会落到 −62 dBm 能量检测门限之下，因此在任何实际间距下，
         Wi-Fi 的 CCA（物理载波侦听）都不会被它触发——它只会在 UWB 帧发射期间，让 Wi-Fi 接收机的
         SINR 出现一点点噪声抬升。实际的解决办法是改用 UWB 信道 9，或者选一个不与信道 5 重叠的 6 GHz Wi-Fi 信道。
       </p>

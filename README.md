@@ -82,7 +82,7 @@ The UWB side is a separate radio with its own PHY, its own schedule and its own 
 | 2-D position: Gauss–Newton, GDOP, 1-σ ellipse | model | residual ‖p − aᵢ‖ − dᵢ with the tag's z known; Σ = σ_r²·(JᵀJ)⁻¹; needs ≥ 3 ranges |
 | ≤ 9 anchors per round | standard §16.2.7 (consequence) | the DS-TWR Final is 14 + 12N octets and must stay under the 127-octet PSDU limit |
 | 6 GHz Wi-Fi ↔ UWB channel-5 coupling | model | `Spectrum` mediator: flat spectral density inside each side's band, foreign power carried by the *transmitter's* own path-loss law; UWB channel 5 is 6 240–6 739.2 MHz, channel 9 is 7 737.6–8 236.8 MHz and never overlaps a 6 GHz Wi-Fi channel |
-| UWB SIR floor under in-band Wi-Fi, −12 dB | model | `UWB_SIR_MIN_DB`: rssi − foreignDbm below −12 dB fails the reception (`RX_FAIL { reason: 'lowSinr' }`) and logs `UWB_INTERFERED`; past about 30 cm a UWB frame's in-band power falls below the −62 dBm CCA energy-detect floor, so at any realistic spacing Wi-Fi's own CCA never fires on it — it only shows up as a small SINR noise rise |
+| UWB SIR floor under in-band Wi-Fi, −12 dB | model | `UWB_SIR_MIN_DB`: rssi − foreignDbm below −12 dB fails the reception (`RX_FAIL { reason: 'lowSinr' }`) and logs `UWB_INTERFERED`; past about 40 cm a UWB frame's in-band power falls below the −62 dBm CCA energy-detect floor, so at any realistic spacing Wi-Fi's own CCA never fires on it — it only shows up as a small SINR noise rise |
 | Receiver maximum input, −45 dBm/MHz | standard §16.4.10 | `UWB_MAX_INPUT_DBM_PER_MHZ`, documented for reference — not enforced as a threshold; the model's SIR floor stands in its place |
 
 ### Known simplifications

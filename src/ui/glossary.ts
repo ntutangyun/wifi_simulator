@@ -807,10 +807,10 @@ export const GLOSSARY: GlossaryGroup[] = [
       },
       {
         term: 'Noise rise',
-        alt: { en: 'what Wi-Fi sees from a UWB frame past ~30 cm — never CCA', zh: '距离超过约 30 cm 时 Wi-Fi 从 UWB 帧中看到的现象——绝不会触发 CCA' },
+        alt: { en: 'what Wi-Fi sees from a UWB frame past ~40 cm — never CCA', zh: '距离超过约 40 cm 时 Wi-Fi 从 UWB 帧中看到的现象——绝不会触发 CCA' },
         def: {
-          en: 'A UWB frame reaching a Wi-Fi receiver is spread so thinly (−14 dBm over 499.2 MHz) that past about 30 cm its in-band power falls below the −62 dBm energy-detect floor: at any realistic spacing it never crosses a CCA threshold, only adding a small amount of extra power into that receiver\'s SINR while the frame is on the air, exactly like a rise in the noise floor.',
-          zh: 'UWB 帧传到 Wi-Fi 接收机时功率被摊得极薄（−14 dBm 分摊在 499.2 MHz 上），距离超过约 30 cm 后其带内功率就会落到 −62 dBm 能量检测门限之下：在任何实际间距下都不会超过 CCA 门限，只会在自己发射期间，给接收机的 SINR 叠加一点点额外功率，如同噪底轻微抬升。',
+          en: 'A UWB frame reaching a Wi-Fi receiver is spread so thinly (−14 dBm over 499.2 MHz) that past about 40 cm its in-band power falls below the −62 dBm energy-detect floor: at any realistic spacing it never crosses a CCA threshold, only adding a small amount of extra power into that receiver\'s SINR while the frame is on the air, exactly like a rise in the noise floor.',
+          zh: 'UWB 帧传到 Wi-Fi 接收机时功率被摊得极薄（−14 dBm 分摊在 499.2 MHz 上），距离超过约 40 cm 后其带内功率就会落到 −62 dBm 能量检测门限之下：在任何实际间距下都不会超过 CCA 门限，只会在自己发射期间，给接收机的 SINR 叠加一点点额外功率，如同噪底轻微抬升。',
         },
       },
     ],
