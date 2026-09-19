@@ -228,11 +228,14 @@ export function GuideEn() {
         arrival on its own clock, and differences each responder against anchor 0. Those differences span a
         whole round, so a listening tag's crystal does not cancel the way it does in TWR: it first measures
         its own Poll-to-Final interval against the true one the anchors report and rescales its raw
-        differences by that ratio — without this <b>clock-rate correction</b>, 20 ppm over a 20 ms round is
-        120 m of nonsense; with it, the fix lands in decimetres. <b>UL-TDoA</b> turns the tag into the
+        differences by that ratio. Without this <b>clock-rate correction</b> the error is 20 ppm of the gap
+        between the Poll and the response being timed: up to 6 ms in the five-slot round the lessons run, so
+        36 m, and 120 m over a 20 ms round of nine anchors. With it, the fix lands in decimetres.
+        <b>UL-TDoA</b> turns the tag into the
         transmitter instead: one {UWB_BLINK_BYTES}-octet <b>blink</b> (model, FiRa-style) and nothing else,
         timestamped by anchors sharing one common timebase — "wired sync" (model) — each left with a fixed
-        residual of {DEFAULT_UWB_SESSION.syncErrorNs} ns by default that the fix's ellipse grows with. Either
+        residual of <code>syncErrorNs</code> ({DEFAULT_UWB_SESSION.syncErrorNs} ns by default, i.e. perfect
+        sync), which the fix's ellipse grows with. Either
         way the position now comes from <b>hyperbolic positioning</b>, not trilateration: a time difference
         traces a hyperbola, so three differences (four anchors) replace trilateration's three ranges, and any
         number of tags can listen or blink without the round growing — DL-TDoA scales to an unlimited, silent
@@ -456,12 +459,13 @@ export function GuideZh() {
         它为其他各方保存的接收计数器读数（FiRa 风格内容，模型取值）——而标签则从不发射：它只是监听，
         用自己的时钟给每次到达打上时间戳，再把各应答锚点的到达时刻与锚点 0 的作差。这些差值跨越了
         整整一轮，因此听测标签自身晶振的误差不会像 TWR 那样自行相消：它需要先用自己测得的
-        “轮询→终结帧”间隔，去对照锚点报出的真实间隔，按这个比例重新缩放原始差值——没有这道
-        <b>时钟速率修正</b>，一整轮 20 ms 内 20 ppm 的晶振误差就是 120 米的乱码；加上它，定位误差
+        “轮询→终结帧”间隔，去对照锚点报出的真实间隔，按这个比例重新缩放原始差值。没有这道
+        <b>时钟速率修正</b>，误差就是 20 ppm 乘以从轮询帧到被计时的那一帧之间的间隔：本系列课程
+        那种五时隙轮次里最长 6 ms，即 36 米；若是九个锚点的 20 ms 轮次，则是 120 米。加上它，定位误差
         便回落到分米级。<b>UL-TDoA</b> 反过来让标签成为发射方：只发一次 {UWB_BLINK_BYTES} 字节的
         <b>闪发帧</b>（模型取值，FiRa 风格），别无其他，由共享同一公共时基的锚点——“有线同步”
-        （模型取值）——为其打上时间戳，每个锚点还各自留有一份固定残差，默认为{' '}
-        {DEFAULT_UWB_SESSION.syncErrorNs} ns，定位结果的误差椭圆会随之增大。无论哪种方式，
+        （模型取值）——为其打上时间戳，每个锚点还各自留有一份固定残差 <code>syncErrorNs</code>，默认为{' '}
+        {DEFAULT_UWB_SESSION.syncErrorNs} ns，即完美同步；它不为零时，定位结果的误差椭圆会随之增大。无论哪种方式，
         定位现在都靠<b>双曲线定位</b>而非三边定位得出：一个时间差对应一条双曲线，因此三个差值
         （四个锚点）就能替代三边定位所需的三个距离，而且无论多少个标签同时监听或闪发，轮次都不会
         因此变长——DL-TDoA 可以服务无限多、完全静默的听众，UL-TDoA 则能容纳一个块的时隙所能装下的

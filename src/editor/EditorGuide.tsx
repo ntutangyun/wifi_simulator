@@ -241,7 +241,9 @@ function EditorGuideEn() {
         DL-TDoA only: the listening tag&rsquo;s differences span a whole round, so its own crystal
         does not cancel the way it does in TWR — it measures its own poll-to-Final interval
         against the true one the anchors report and rescales its raw differences by that ratio.
-        Off, 20 ppm over a 20 ms round is 120 m of nonsense; on, the fix lands in decimetres.
+        Off, the error is 20 ppm of the gap between the Poll and the response being timed: up to
+        6 ms in the five-slot round the lessons run, so 36 m, and 120 m over a 20 ms round of nine
+        anchors. On, the fix lands in decimetres.
       </D>
       <D t="Anchor sync error">
         UL-TDoA only: how well the anchors&rsquo; clocks are calibrated to one shared timebase
@@ -505,8 +507,9 @@ function EditorGuideZh() {
       <D t="标签时钟校正">
         仅 DL-TDoA 可用：听测标签的差值跨越了整整一轮，因此它自身晶振的误差不会像 TWR 那样
         自行相消——它需要用自己测得的“轮询→终结帧”间隔，去对照锚点报出的真实间隔，按这个
-        比例重新缩放差值。关闭时，一整轮 20 ms 内 20 ppm 的晶振误差就是 120 米的乱码；打开后，
-        定位误差回到分米级。
+        比例重新缩放差值。关闭时，误差为 20 ppm 乘以从轮询帧到被计时的那一帧之间的间隔：
+        本系列课程那种五时隙轮次里最长 6 ms，即 36 米；若是九个锚点的 20 ms 轮次，则是
+        120 米。打开后，定位误差回到分米级。
       </D>
       <D t="锚点同步误差">
         仅 UL-TDoA 可用：各锚点的时钟被校准到同一共享时基的程度（“有线同步”，模型取值）。
