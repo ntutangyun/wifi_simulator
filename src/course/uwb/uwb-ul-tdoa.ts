@@ -102,15 +102,15 @@ export const uwbUlTdoa: Lesson = {
       [{ en: 'The block’s ceiling', zh: '一个块的上限' }, N('100 badges (240 000 ÷ 2 400 RSTU), 9.06 %')],
     ] },
     { heading: { en: 'Positioned by somebody else', zh: '由别人来定位' }, text: {
-      en: 'Nothing answers a blink. Every anchor that hears it stamps the arrival on the infrastructure’s common timebase, and when the slot ends anchor 1 — the reference — subtracts its own stamp from each of the other three and solves the hyperbolae. Three time differences and one position leave anchor 1’s lane, and each says whose it is, so the log, the inspector and the overlay all put it on the badge. The badge is told nothing: it has no receiver open here, and not one record travels back to it.',
-      zh: '闪发帧没有任何回应。每个听到它的锚点都在基础设施的公共时基上记下到达时刻；时隙结束时，作为参考的 anchor-1 用其余三个时刻各减去自己的那个，再解双曲线。三个时间差与一次定位从 anchor-1 这条泳道发出，而每一条都写明“这是谁的”，于是日志、检视面板与叠加层都把它们放到那个胸牌身上。胸牌自己什么也不会知道：在这个模式里它根本不开接收机，也没有任何一条记录回到它那里。',
+      en: 'Nothing answers a blink. Every anchor that hears it stamps the arrival on the infrastructure’s common timebase, and when the slot ends anchor 1 — the reference — subtracts its own stamp from each of the other three and solves the hyperbolae. Three time differences and one position leave anchor 1’s lane, and each says whose it is, so the log names the badge and the inspector and the overlay place it there. The badge is told nothing: it has no receiver open here, and not one record travels back to it.',
+      zh: '闪发帧没有任何回应。每个听到它的锚点都在基础设施的公共时基上记下到达时刻；时隙结束时，作为参考的 anchor-1 用其余三个时刻各减去自己的那个，再解双曲线。三个时间差与一次定位从 anchor-1 这条泳道发出，而每一条都写明“这是谁的”：日志会点出那个胸牌的名字，检视面板与叠加层则把它放到那个胸牌身上。胸牌自己什么也不会知道：在这个模式里它根本不开接收机，也没有任何一条记录回到它那里。',
     } },
     { kind: 'formula', heading: { en: 'The whole of the arithmetic', zh: '全部的算术' }, text: {
       en: 'arrival_i = t_blink + d(badge, a_i)/c + noise_i + offset_i\nΔ_i = arrival_i − arrival_ref',
       zh: 'arrival_i = t_闪发 + d(胸牌, a_i)/c + noise_i + offset_i\nΔ_i = arrival_i − arrival_参考',
     }, note: {
-      en: 'Two instants on one timebase, subtracted — that is all of it. No interval is measured on anybody’s crystal, so this mode has no clock-rate correction and nothing for one to do: t_blink is unknown but identical in both terms, and cancels. The ±20 ppm §16.4.9 allows a badge, which cost the previous lesson its centrepiece, changes not one record here. What is left is the receivers’ timestamp noise and the anchors’ calibration offsets.',
-      zh: '同一时基上的两个时刻相减——全部就这些。没有任何一段间隔量在谁的晶振上，所以这个模式里根本没有时钟速率修正，也没有什么可修正的：t_闪发 未知，但它在两项里完全相同，一减就没了。§16.4.9 允许胸牌有 ±20 ppm 的晶振偏差，上一课的重头戏都在对付它，而在这里它连一条记录也改变不了。剩下的只有接收机的时间戳噪声和锚点的校准偏差。',
+      en: 'Two instants on one timebase, subtracted — that is all of it. No interval is measured on anybody’s crystal, so this mode has no clock-rate correction and nothing for one to do: t_blink is unknown but identical in both terms, and cancels. Pin all ten badges at either end of the ±20 ppm §16.4.9 allows — the tolerance that cost the previous lesson its centrepiece — and the run comes back the same: every record at the same instant and of the same type, and the same seventy fix errors. The only thing that moves is the counter a badge writes into its own transmit stamp, which nothing here reads. What is left is the receivers’ timestamp noise and the anchors’ calibration offsets.',
+      zh: '同一时基上的两个时刻相减——全部就这些。没有任何一段间隔量在谁的晶振上，所以这个模式里根本没有时钟速率修正，也没有什么可修正的：t_闪发 未知，但它在两项里完全相同，一减就没了。§16.4.9 允许胸牌有 ±20 ppm 的晶振偏差，上一课的重头戏都在对付它；而在这里，把十个胸牌都钉到这个容差的两端，整段运行还是原样：每一条记录都在同一时刻、是同一类型，七十次定位的误差也一模一样。唯一会变的，是胸牌写进自己那条发送时间戳里的计数值，而这里没有谁会去读它。剩下的只有接收机的时间戳噪声和锚点的校准偏差。',
     } },
     { heading: { en: 'What one nanosecond buys', zh: '一纳秒值多少' }, text: {
       en: 'Everything now rests on the four anchors agreeing what time it is. One nanosecond is 29.98 cm of pseudo-range, and every difference carries two anchors’ worth of it. The session’s anchor sync error is the 1-σ of that calibration: each anchor draws one fixed residual of that size, once, and the default of 0 ns makes them perfect. The variant sets 1 ns, the four draws come out +0.14, −0.97, −0.34 and −0.31 ns, and badge 1’s difference against anchor 2 then reads about 1.15 ns short — in every round of the run.',
@@ -153,8 +153,8 @@ export const uwbUlTdoa: Lesson = {
       zh: '跟着这帧闪发走进房间：四条 RX RMARKER，分别在 181.234、181.237、181.240 与 181.242 µs——anchor-1、anchor-3、anchor-2、anchor-4，顺序正是它们到 (4, 3.5) 的距离次序。第一个时间戳与最后一个之间相差八纳秒，而定出 badge-1 位置的就只有这八纳秒。' },
     { en: 'At 2.000 000 ms the slot ends and the infrastructure does its arithmetic: “anchor-1 TDoA of badge-1 anchor-2 − anchor-1: 5.33 ns (true 5.39 ns)”, then anchor 3 at 2.49 against 2.29 and anchor 4 at 7.19 against 7.15, and then “anchor-1 position of badge-1 (4.02, 3.46) m, true (4.00, 3.50), error 0.05 m, GDOP 0.85, 4 anchors (UL-TDoA)”. The line says whose it is.',
       zh: '2.000 000 ms 处时隙结束，基础设施开始算账：“anchor-1 TDoA of badge-1 anchor-2 − anchor-1: 5.33 ns (true 5.39 ns)”，接着 anchor-3 是 2.49 对 2.29、anchor-4 是 7.19 对 7.15，最后是 “anchor-1 position of badge-1 (4.02, 3.46) m, true (4.00, 3.50), error 0.05 m, GDOP 0.85, 4 anchors (UL-TDoA)”。这一行会写明它是谁的。' },
-    { en: 'Open badge 1 in the inspector. It holds no distances at all: three time differences, whose errors after seven blocks are +0.12, +0.11 and +0.09 ns, and a fix 2.1 cm from the truth, GDOP 0.85, error ellipse 3.2 × 1.7 cm, solved from UL-TDoA. Then open anchor 1, which did all of that arithmetic: its own lane is empty.',
-      zh: '在检视面板里打开 badge-1。它这里一个距离也没有：三个到达时间差——七个块之后误差是 +0.12、+0.11 与 +0.09 ns——以及一次定位，偏离真值 2.1 cm，GDOP 0.85，误差椭圆 3.2 × 1.7 cm，解算方式为 UL-TDoA。再打开 anchor-1，这些算术全是它做的：它自己那条泳道空空如也。' },
+    { en: 'Open badge 1 in the inspector. It holds no distances at all: three time differences, whose errors after seven blocks are 0.12, 0.11 and 0.09 ns — all three positive — and a fix 2.1 cm from the truth, GDOP 0.85, error ellipse 3.2 × 1.7 cm, solved from UL-TDoA. Then open anchor 1, which did all of that arithmetic: its own lane is empty.',
+      zh: '在检视面板里打开 badge-1。它这里一个距离也没有：三个到达时间差——七个块之后误差是 0.12、0.11 与 0.09 ns，三个都是正的——以及一次定位，偏离真值 2.1 cm，GDOP 0.85，误差椭圆 3.2 × 1.7 cm，解算方式为 UL-TDoA。再打开 anchor-1，这些算术全是它做的：它自己那条泳道空空如也。' },
   ],
   tryThis: [
     { en: 'Load “1 ns of sync error”. Nothing on the air changes — the same 70 blinks, the same 12.685 260 ms — and every fix moves. Badge 1’s three differences now read −0.99, −0.37 and −0.36 ns of error instead of about +0.1, its fix is 12.7 cm out and its ellipse has grown to 32.1 × 16.8 cm. Over all 70 fixes the error runs 10.4 to 27.9 cm against 0.2 to 7.7, a mean of 16.7 against 3.2. Then average each badge’s seven fixes: all ten have moved east, by 12 to 22 cm.',
@@ -171,7 +171,7 @@ export const uwbUlTdoa: Lesson = {
         { en: 'The anchors estimate the badge’s carrier offset and correct for it', zh: '锚点估计出胸牌的载波偏差，并据此做了修正' },
       ],
       answer: 1,
-      explain: { en: 'In DL-TDoA the badge subtracts two of its own arrivals 6 ms apart, so its rate error multiplies that gap. Here every timestamp belongs to an anchor, and the badge’s own transmit instant cancels in the difference.', zh: 'DL-TDoA 里胸牌相减的是自己的两个到达时刻，相隔可达 6 ms，速率误差乘在整段间隔上。而这里每一个时间戳都属于锚点，胸牌自己的发送时刻在相减中被消掉了。' },
+      explain: { en: 'In DL-TDoA the badge subtracts two of its own arrivals, up to 6 ms apart, so its rate error multiplies that gap. Here every timestamp belongs to an anchor, and the badge’s own transmit instant cancels in the difference.', zh: 'DL-TDoA 里胸牌相减的是自己的两个到达时刻，最多相隔 6 ms，速率误差乘在整段间隔上。而这里每一个时间戳都属于锚点，胸牌自己的发送时刻在相减中被消掉了。' },
     },
     {
       q: { en: 'At 1 ns of sync error the fixes are 10 to 28 cm out. Why does blinking ten times as often not help?', zh: '同步误差为 1 ns 时定位偏离 10 到 28 cm。把闪发频率提高十倍，为什么并不管用？' },

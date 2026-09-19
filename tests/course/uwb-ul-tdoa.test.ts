@@ -265,7 +265,7 @@ describe('uwb-ul-tdoa · the scene', () => {
       expect(u.tdoaClockCorrection, v).toBe(DEFAULT_UWB_SESSION.tdoaClockCorrection)
       for (const n of scenarioOf(v).nodes) expect(n.uwb?.ppm, `${v} ${n.id}`).toBeUndefined()
     }
-    // "at the default of 0 ns the anchors are perfect"; the variant sets 1 and nothing else
+    // "the default of 0 ns makes them perfect"; the variant sets 1 and nothing else
     expect(DEFAULT_UWB_SESSION.syncErrorNs).toBe(0)
     expect(scenarioOf('base').uwb!.syncErrorNs).toBe(0)
     expect(scenarioOf('sync').uwb!.syncErrorNs).toBe(1)
@@ -439,28 +439,53 @@ describe('uwb-ul-tdoa · positioned by somebody else', () => {
       gdop: '0.85', ellipse: '3.2 × 1.7 cm', method: 'UL-TDoA',
     })
     expect(uwbFixRow(u.position!, STRINGS.zh.uwb).method).toBe('上行到达时间差 (UL-TDoA)')
-    // "Then open anchor 1, which did every bit of that arithmetic: its own lane is empty."
+    // "Then open anchor 1, which did all of that arithmetic: its own lane is empty."
     const ref = vs.nodes[REF].uwb!
     expect(ref.position).toBeNull()
     expect(ref.tdoa).toEqual({})
     expect(ref.ranges).toEqual({})
+    // the panel prints no leading plus, so the prose says the sign in words instead
+    expect(rows.every((r) => !r.error.startsWith('+'))).toBe(true)
     const o4 = uwbUlTdoa.observe[3].en
-    expect(o4).toContain('+0.12, +0.11 and +0.09 ns')
+    expect(o4).toContain('0.12, 0.11 and 0.09 ns — all three positive')
     expect(o4).toContain('a fix 2.1 cm from the truth, GDOP 0.85, error ellipse 3.2 × 1.7 cm, solved from UL-TDoA')
   })
 
-  it('"no interval is measured on anybody’s crystal": the badges’ crystals reach nothing', () => {
+  it('the badges’ crystals move the counters they write and nothing else whatever', () => {
     // The formula block's claim, taken at the engine: every timestamp in the arithmetic belongs
-    // to an anchor, so pinning the badges at the ends of the ±20 ppm tolerance changes no fix.
+    // to an anchor, so pinning the badges at the ends of the ±20 ppm tolerance leaves the run
+    // where it was — except in the one field a badge writes from its own clock and nobody reads.
     const s = uwbUlTdoaScenario('base')
-    const pinned: Scenario = {
+    const pinned = (): Scenario => ({
       ...s,
       nodes: s.nodes.map((n): NodeCfg => (n.uwb?.role === 'tag'
         ? { ...n, uwb: { ...n.uwb, ppm: Number(n.id.slice(-1)) % 2 === 0 ? 20 : -20 } } : n)),
+    })
+    const base = recs('base')
+    const off = runOf('ppm20', pinned)
+    // "every record at the same instant and of the same type" — which is exactly what the
+    // timeline hash is taken over (`t:seq:type`), so the two runs share one
+    const hashOf = (build: () => Scenario): string => {
+      const sim = new Simulation(build())
+      sim.runUntil(RUN_NS)
+      return sim.timelineHash()
     }
-    const off = runOf('ppm20', () => pinned)
-    expect(fixErrM(off)).toEqual(fixErrM(recs('base')))
-    expect(prose()).toContain('No interval is measured on anybody’s crystal')
+    expect(hashOf(pinned)).toBe(hashOf(() => uwbUlTdoaScenario('base')))
+    expect(off).toHaveLength(base.length)
+    expect(off.map((r) => [r.t, r.type])).toEqual(base.map((r) => [r.t, r.type]))
+    // "and the same seventy fix errors"
+    expect(fixErrM(off)).toEqual(fixErrM(base))
+    expect(fixErrM(off)).toHaveLength(BLOCKS * BADGES.length)
+    // "The only thing that moves is the counter a badge writes into its own transmit stamp":
+    // 70 records of the 2520, one per blink; every difference, fix and anchor stamp is identical
+    const differing = off.filter((r, i) => JSON.stringify(r) !== JSON.stringify(base[i]))
+    expect(differing).toHaveLength(BLOCKS * BADGES.length)
+    expect(differing.every((r) => r.type === 'UWB_TS' && r.dir === 'tx' && r.node.startsWith('badge-')))
+      .toBe(true)
+    const en = prose()
+    expect(en).toContain('No interval is measured on anybody’s crystal')
+    expect(en).toContain('the run comes back the same: every record at the same instant and of the same type, and the same seventy fix errors')
+    expect(en).toContain('The only thing that moves is the counter a badge writes into its own transmit stamp, which nothing here reads')
   })
 })
 
@@ -538,7 +563,7 @@ describe('uwb-ul-tdoa · what one nanosecond buys', () => {
     expect(prose()).toContain('all ten badges are pushed east, by 12 to 22 cm on average')
   })
 
-  it('"The ellipse does grow with the sync error, tenfold", from the same σ, and it is honest', () => {
+  it('"The ellipse grows tenfold with it, from the same σ", and it is honest', () => {
     const a = (v: UwbUlTdoaVariant): number[] => of(recs(v), 'UWB_POSITION').map((f) => f.ellipse.a)
     const ratio = mean(a('sync')) / mean(a('base'))
     expect(ratio).toBeGreaterThan(9)
@@ -597,7 +622,18 @@ describe('uwb-ul-tdoa · what one nanosecond buys', () => {
     expect(fixes[0].ellipse.a.toFixed(1)).toBe('1.4')
     expect((Math.max(...fixErrM(out, 'badge-1')) * 100).toFixed(1)).toBe('45.3')
     expect(of(recs('sync'), 'UWB_POSITION')[0].gdop.toFixed(2)).toBe('0.85')
+    // "the anchor sync error field is live in UL-TDoA only": the field's label and its
+    // disabled-elsewhere tooltip exist in both languages, and the walk stays inside the range the
+    // schema — and so the field — allows. (The `disabled` binding itself lives in the editor's
+    // own tests; this pins the claim as far as a headless course test can reach.)
+    expect(STRINGS.en.editor.uwbSyncError).toBe('Anchor sync error')
+    expect(STRINGS.zh.editor.uwbSyncError).toBe('锚点同步误差')
+    expect(STRINGS.en.editor.uwbUlOnly).toContain('only UL-TDoA uses this')
+    expect(STRINGS.zh.editor.uwbUlOnly.length).toBeGreaterThan(0)
+    for (const ns of [0, 1, 2, 4]) expect(() => ScenarioSchema.parse(withSync(ns)), String(ns)).not.toThrow()
+    expect(() => ScenarioSchema.parse(withSync(11))).toThrow()
     const t2 = uwbUlTdoa.tryThis[1].en
+    expect(t2).toContain('the anchor sync error field is live in UL-TDoA only')
     expect(t2).toContain('mean errors of 3.2, 16.7, 33.4 and 70.4 cm, and worst cases of 7.7, 27.9, 54.4 and 135.3')
     expect(t2).toContain('GDOP goes from 0.85 to 3.43, the ellipse from 32 cm to 1.4 m, and the worst of its seven fixes to 45.3 cm')
   })
