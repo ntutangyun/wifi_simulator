@@ -981,6 +981,45 @@ describe('UwbNetwork — angle of arrival', () => {
     expect(tag.position?.n).toBe(BLOCKS)
   })
 
+  it('walks out the horizontal leg of a slant range, not the range itself', () => {
+    // The lesson's own mounting: the anchor on the wall at 2.2 m, the tag at head height, and
+    // 4 m between them on the floor. The flight time measures the slant distance — 4.18 m —
+    // and multiplying *that* by a horizontal bearing would push the fix 18 cm past the tag,
+    // every round, in the same direction. The fix uses √(r² − Δz²) against the height the tag
+    // is configured at, exactly as solvePosition is handed a tag's z rather than solving it.
+    const high = { ...ANCHOR, z: 2.2 }
+    const tag = { ...polar(high, high.yawDeg + THETA_DEG), z: 1 }
+    const slantM = Math.hypot(R_M, high.z - tag.z)
+    expect(slantM).toBeCloseTo(4.176, 3)
+
+    const rsHigh = run(uwbScenario([high], [tag], { aoa: true, nlos: false }), BLOCKS * 200 * MS)
+    const ranges = of(rsHigh, 'UWB_RANGE', 'anc-1')
+    expect(ranges).toHaveLength(BLOCKS)
+    for (const r of ranges) expect(r.trueDistM).toBeCloseTo(slantM, 9) // the radio measures the slant
+    const fixes = of(rsHigh, 'UWB_POSITION')
+    expect(fixes).toHaveLength(BLOCKS)
+    // The bias the correction removes is 17.6 cm, twice what four sigmas of range noise could
+    // ever explain — so it is the *along-ray* component of the error that proves the point:
+    // cross-range noise (27 cm of 1-σ here) lands in the other component and cannot hide it.
+    expect(slantM - R_M).toBeCloseTo(0.176, 3)
+    expect(slantM - R_M).toBeGreaterThan(4 * SIGMA_R)
+    for (const f of fixes) {
+      const horizM = Math.hypot(f.x - high.x, f.y - high.y)
+      expect(horizM).toBeCloseTo(R_M, 1) // not the 4.18 m the radio measured
+      const bearingRad = Math.atan2(f.y - high.y, f.x - high.x)
+      const ex = f.x - f.trueX
+      const ey = f.y - f.trueY
+      const along = ex * Math.cos(bearingRad) + ey * Math.sin(bearingRad)
+      const across = -ex * Math.sin(bearingRad) + ey * Math.cos(bearingRad)
+      expect(Math.abs(along)).toBeLessThan(4 * SIGMA_R) // centimetres, not 17.6 of them
+      expect(Math.abs(across)).toBeLessThan(4 * SIGMA_CROSS_M)
+      // The cross-range axis is the *horizontal* range's, not the slant range's: it is
+      // exactly rh·σ_θ at the angle this round measured.
+      const thetaHat = (bearingRad * 180) / Math.PI - high.yawDeg
+      expect(f.ellipse.a).toBeCloseTo(horizM * aoaSigmaDeg(thetaHat) * (Math.PI / 180), 9)
+    }
+  })
+
   it('mirrors a tag behind the anchor into the field of view', () => {
     // The same anchor, moved into the room and still facing +y, with the tag 135° off its
     // boresight — behind it. Two antennas cannot tell front from back, so the phase is the

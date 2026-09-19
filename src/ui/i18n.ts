@@ -466,7 +466,7 @@ export const STRINGS: Record<Lang, Strings> = {
       method: {
         twr: 'two-way ranging', 'dl-tdoa': 'DL-TDoA', 'ul-tdoa': 'UL-TDoA', aoa: 'angle of arrival',
       },
-      ellipseHintAoa: 'a single-anchor fix has two unrelated axes: along the ray it is the range’s own sigma (2.1 cm at 100 ps), across it the bearing’s r·σ_θ — 19 cm at 4 m straight ahead, and more off to the side. So the ellipse is a sliver turned across the line of sight at any useful distance. The fix multiplies a slant range by a horizontal bearing, so an anchor well above the tag also places it a little too far out along the ray.',
+      ellipseHintAoa: 'a single-anchor fix has two unrelated axes: along the ray it is the range’s own sigma (2.1 cm at 100 ps), across it the bearing’s r·σ_θ — 19 cm at 4 m straight ahead, and more off to the side. So the ellipse is a sliver turned across the line of sight at any useful distance. The bearing is horizontal and the range is a slant distance, so the fix walks out the horizontal leg of that triangle, √(r² − Δz²), against the height the tag is configured at — which is why a ceiling anchor’s cross sits a little inside its own range ring.',
       ellipseHintTdoa: 'a one-way fix draws its ellipse from what a time difference really carries: two noisy timestamps, and then — in DL-TDoA — each responder’s clock-offset residual, which grows with the slot it answers in, or — in UL-TDoA — the anchors’ calibration error. It is a first-order model: an anchor’s sync error is a fixed bias, not noise that averages away over rounds, so read the ellipse as indicative of how far the fix may be off rather than as a 68 % interval.',
     },
     log: { empty: 'no events in window' },
@@ -888,7 +888,7 @@ export const STRINGS: Record<Lang, Strings> = {
         twr: '双向测距 (TWR)', 'dl-tdoa': '下行到达时间差 (DL-TDoA)', 'ul-tdoa': '上行到达时间差 (UL-TDoA)',
         aoa: '到达角 (AoA)',
       },
-      ellipseHintAoa: '单锚点定位的椭圆，其两条轴来自两种互不相干的测量：沿视线方向是测距本身的 σ（100 ps 时为 2.1 cm），垂直视线方向则是 r·σ_θ——4 米正前方约 19 cm，偏向两侧还会更大。因此在任何有意义的距离上，椭圆都是一条横跨视线的细长条。此外定位时用倾斜的距离乘以水平方位角，所以锚点若比标签高出不少，解算出的位置会沿视线略微偏远。',
+      ellipseHintAoa: '单锚点定位的椭圆，其两条轴来自两种互不相干的测量：沿视线方向是测距本身的 σ（100 ps 时为 2.1 cm），垂直视线方向则是 r·σ_θ——4 米正前方约 19 cm，偏向两侧还会更大。因此在任何有意义的距离上，椭圆都是一条横跨视线的细长条。此外方位角是水平的、而测距是斜距，因此定位时沿视线走的是这个直角三角形的水平边 √(r² − Δz²)（Δz 按标签配置的高度计算）——这也是为什么装在天花板上的锚点，其定位十字会落在自己的测距圆环内侧一点。',
       ellipseHintTdoa: '单向定位的椭圆按一个时间差真正包含的误差画出：两个带噪声的时间戳，再加上 DL-TDoA 中各响应锚点的时钟偏差估计残差（响应时隙越靠后越大），或 UL-TDoA 中锚点之间的同步标定误差。这是一阶近似：锚点的同步误差是固定偏差，不是多轮平均就能消掉的噪声，因此该椭圆只表示定位可能偏离多远，而不是严格的 68 % 置信区间。',
     },
     log: { empty: '窗口内无事件' },

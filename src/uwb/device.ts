@@ -1003,29 +1003,39 @@ export class UwbDevice implements UwbRadio {
    * simulator fixes anything from one anchor, and nothing here is solved iteratively: the
    * answer is the polar coordinate itself, so `gdop` is 1 by construction.
    *
+   * The range is a *slant* distance in 3-D and the bearing is horizontal, so the two cannot be
+   * multiplied together directly: an anchor on the ceiling is further from the tag than the
+   * floor plan says. What goes along the bearing is the horizontal leg of that triangle,
+   * √(r² − Δz²), with Δz taken against the height the tag is configured at — the same
+   * assumption `solvePosition` makes when it solves a 2-D fix for a tag whose z it is handed
+   * rather than solving (see src/uwb/position.ts). Without it the lesson's own geometry — an
+   * anchor at 2.2 m, a tag at 1.0 m, 4 m apart on the floor — would be placed 18 cm too far
+   * out along the ray, a bias no amount of averaging removes. A range shorter than the height
+   * difference (only possible when noise eats a near-vertical geometry) leaves nothing
+   * horizontal at all, and the fix collapses onto the anchor rather than taking a root of a
+   * negative number.
+   *
    * The two axes of the error ellipse are the two measurements, and they are wildly unequal:
-   * along the ray the range's 2.1 cm (at 100 ps), across it the bearing's r·σ_θ — 19 cm at 4 m
+   * along the ray the range's 2.1 cm (at 100 ps), across it the bearing's rh·σ_θ — 19 cm at 4 m
    * and boresight, and worse off to the side. So the major axis is across the ray at any useful
    * distance, and the ellipse is turned a quarter turn from the bearing; it is only at a few
    * centimetres from the anchor that the range becomes the worse of the two.
-   *
-   * One simplification worth naming: the range is a slant distance in 3-D and the bearing is
-   * horizontal, and the fix multiplies the two as if the tag were at the anchor's height. An
-   * anchor 1.4 m above a tag 4 m away therefore places it about 25 cm too far out along the
-   * ray — a bias the record shows honestly against `trueX`/`trueY`, not one it hides.
    */
   private emitAoaFix(r: RoundState, tag: string, distM: number): void {
     const thetaDeg = r.aoaThetaDeg
     if (thetaDeg === null) return
     const bearingRad = (this.cfg.yawDeg + thetaDeg) * (Math.PI / 180)
     const truth = this.geometry.anchorPos(tag)
+    // The horizontal leg of the slant range, against the tag's configured height.
+    const dz = this.cfg.pos.z - truth.z
+    const horizM = Math.sqrt(Math.max(0, distM * distM - dz * dz))
     const sigmaAlongM = rangeSigmaM(this.cfg.tsNoisePs)
-    const sigmaAcrossM = distM * aoaSigmaDeg(thetaDeg) * (Math.PI / 180)
+    const sigmaAcrossM = horizM * aoaSigmaDeg(thetaDeg) * (Math.PI / 180)
     const alongIsMajor = sigmaAlongM >= sigmaAcrossM
     this.emit({
       t: this.now(), type: 'UWB_POSITION', node: this.id,
-      x: this.cfg.pos.x + distM * Math.cos(bearingRad),
-      y: this.cfg.pos.y + distM * Math.sin(bearingRad),
+      x: this.cfg.pos.x + horizM * Math.cos(bearingRad),
+      y: this.cfg.pos.y + horizM * Math.sin(bearingRad),
       trueX: truth.x, trueY: truth.y, gdop: 1,
       ellipse: {
         a: Math.max(sigmaAlongM, sigmaAcrossM),

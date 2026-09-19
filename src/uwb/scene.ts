@@ -14,9 +14,11 @@
  *
  * An angle-of-arrival fix gets a ring *and* a ray: the anchor measured a distance
  * and a direction, and the honest picture of that pair is the circle of the range
- * crossed by the bearing line, meeting at the cross. The line runs from the anchor
- * to the fix — which is exactly the bearing, at exactly the measured range, since
- * that is how the fix was built — so nothing here needs to know the anchor's yaw.
+ * crossed by the bearing line. The line runs from the anchor to the fix — which is
+ * exactly the bearing, at exactly the horizontal range the fix was built from — so
+ * nothing here needs to know the anchor's yaw. The ring is the *slant* range, as
+ * every ring on this floor is, so an anchor mounted above the tag draws its cross a
+ * little inside its own ring: that gap is the height difference, seen from above.
  *
  * Everything fades with age rather than blinking out: a drawing is at full
  * strength when its round ends and has faded to nothing one ranging block later,
@@ -195,7 +197,8 @@ export class UwbOverlay {
       alive.add(`ellipse:${tag}`)
 
       // The measured bearing, drawn from the anchor that measured it to the fix it produced.
-      // Its length is the range, because the fix sits at that range along that bearing.
+      // Its length needs no record field: the fix was placed at the horizontal range along
+      // this bearing, so the distance from the anchor to the fix is that range.
       const src = fix.method === 'aoa' ? this.positions.get(physicalId(fix.anchors[0])) : undefined
       if (!src) continue
       const ray = this.ensure(`bearing:${tag}`, () => new THREE.Line(
