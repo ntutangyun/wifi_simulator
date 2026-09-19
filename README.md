@@ -72,6 +72,10 @@ The UWB side is a separate radio with its own PHY, its own schedule and its own 
 | Figure of merit | standard §10.29.1.7, Tables 10-146…148 | LOS 0x16 = 97 % within 0.5 ns; through any wall 0x7B = 75 % within 12 ns; 0x00 = not available |
 | Ranging blocks / rounds / slots | standard §10.32.2, time-scheduled | one round per tag per block; SS-TWR takes N + 1 slots, DS-TWR 2N + 2; slot 0 is the Poll |
 | Ranging IEs: ARC, RDM, RRTI, RMI, RRMC | standard §10.29.8, §10.32.9 | field lists from the clauses; each IE's width is written out from the fields it stands for |
+| Contention-based round, schedule mode 0 | standard §10.32.2 | the Poll opens a shared response phase instead of naming a slot per anchor; every anchor draws one of the RCPS IE's slots uniformly (§10.32.9.5) and retries up to the RCMA IE's budget (§10.32.9.6) before sitting a round out; SS-TWR only |
+| RCPS / RCMA IE content | standard §10.32.9.5 / §10.32.9.6; content sizing model | RCPS carries the response-phase window (first slot, last slot); RCMA carries the retry budget; the standard defines each IE's purpose, not its byte layout |
+| Contention defaults: 8 response slots, 3 attempts | model | `UwbSessionCfg.contentionSlots` / `maxAttempts`; the standard fixes neither number |
+| Contention round feedback | model | an SS-TWR responder has no frame of its own to learn whether it was heard (§10.32.1 NOTE leaves this to the upper layer); here the network tells the anchor at the round's end — a hit refills its retry budget, a miss spends one, and an empty budget sits it out for a round |
 | Crystal tolerance ±20 ppm | standard §16.4.9 | per-device ppm, drawn uniformly unless the scenario pins it |
 | Ranging block 200 ms, ranging slot 2 ms | FiRa UCI defaults | 240 000 and 2 400 RSTU; a slot must hold the round's longest frame + 200 ns of flight guard |
 | DS-TWR deferred as the default method | FiRa | matches FiRa's default ranging round usage |
@@ -95,11 +99,11 @@ The UWB side is a separate radio with its own PHY, its own schedule and its own 
 - AMP models only the Active Tx non-AP AMP STA; backscatter (mono-/bistatic), the energizer, wireless power transfer and energy harvesting are not implemented yet.
 - AMP is a draft (P802.11bp D0.5/D1.0): the tag's −72 dBm downlink sensitivity and the OOK SINR thresholds (decoding requirements the draft does not publish) are model choices, not standard values.
 - A tag finds its slot by counting AMP Acks in arrival order rather than reading a slot number off them; the draft leaves ABOC retransmission behaviour TBD, so a lost response draws a fresh ABOC next round.
-- UWB ranging is time-scheduled only: there is **no CCA**, no backoff, no NAV and no contention-based ranging round — every slot is assigned before the session starts, so two UWB devices never collide.
+- UWB ranging schedules are either time-scheduled — every slot assigned before the session starts, so two UWB devices never collide — or contention-based (schedule mode 0), a shared response window responders draw a slot from at random. Even the contention schedule has **no CCA**, no backoff and no NAV: the draw is uniform-random against a fixed window and retry budget, not carrier sensing.
 - UWB reception is sensitivity-only against another UWB frame: a frame is received when it clears −93 dBm, and interference from another UWB transmission is a 6 dB capture margin — there is no UWB SINR curve or multipath channel model there. Wi-Fi 6E / UWB channel-5 coexistence is a separate, cruder model: flat spectral density inside each side's band, path loss from the *transmitter's* own table, and no adjacent-channel leakage (an emission is either inside a band or contributes nothing to it).
 - Positions are solved in 2-D with the tag's z taken from the scenario; there is no AoA (no antenna array, no PDoA), no TDoA and no downlink-TDoA mode — only two-way ranging.
 - NLOS is one excess delay per wall crossed, not a delay spread: no first-path/strongest-path split, no leading-edge detection and no ranging bias calibration. The FoM is a two-valued model mapping (LOS / through-a-wall) and is reported, never used by the solver.
-- STS key management, contention-based rounds, round hopping, LRP UWB and multi-node round scheduling beyond one round per tag are out of scope.
+- STS key management, round hopping, LRP UWB, DS-TWR under a contention schedule (its report would need a second contended window) and multi-node round scheduling beyond one round per tag are out of scope.
 - A Wi-Fi radio receives a downlink AMP PPDU as an ordinary legacy-preamble reception: it defers for the L-SIG length and then uses AIFS, not EIFS. The coexistence numbers (lesson 3) rest on this — a real 802.11 receiver's behaviour on an OOK payload under a legacy preamble is not something the draft pins down.
 
 ## Architecture

@@ -13,8 +13,8 @@ import { DEFAULT_UWB_SESSION } from '../../src/model/scenario'
 import { GuideEn, GuideZh } from '../../src/ui/Guide'
 import { GLOSSARY } from '../../src/ui/glossary'
 import {
-  COUNTER_MOD, FOM_LOS, FOM_NLOS, RCTU_NS, UWB_BAND_MHZ, UWB_MAX_ANCHORS, UWB_MAX_INPUT_DBM_PER_MHZ,
-  UWB_PL_EXP, UWB_RX_SENS_DBM, UWB_SIR_MIN_DB, UWB_TX_POWER_DBM,
+  COUNTER_MOD, FOM_LOS, FOM_NLOS, RCTU_NS, UWB_BAND_MHZ, UWB_CAPTURE_DB, UWB_MAX_ANCHORS,
+  UWB_MAX_INPUT_DBM_PER_MHZ, UWB_PL_EXP, UWB_RX_SENS_DBM, UWB_SIR_MIN_DB, UWB_TX_POWER_DBM,
   fomDecode, fomText, rstuNs, uwbFinalBytes, uwbInBandDbm, uwbPl0Db, uwbSlotsPerTag,
 } from '../../src/uwb/phy'
 import { rangeSigmaM } from '../../src/uwb/position'
@@ -261,5 +261,42 @@ describe('6 GHz coexistence', () => {
     }
     const sirRow = README.split('\n').find((l) => l.includes('UWB SIR floor under in-band Wi-Fi')) ?? ''
     expect(sirRow).toContain('40 cm')
+  })
+})
+
+describe('Contention-based rounds (schedule mode 0)', () => {
+  it('quotes the contention defaults and the capture margin, bilingual, from the engine constants', () => {
+    for (const text of [renderGuide('en'), renderGuide('zh')]) {
+      expect(text).toContain('§10.32.9.5')
+      expect(text).toContain('§10.32.9.6')
+      expect(text).toContain(`${DEFAULT_UWB_SESSION.contentionSlots}`)
+      expect(text).toContain(`${DEFAULT_UWB_SESSION.maxAttempts}`)
+      expect(text).toContain(`${UWB_CAPTURE_DB} dB`)
+      expect(text).toContain('UWB_CONTEND_COLLISION')
+    }
+  })
+
+  it('the glossary carries the three contention terms with their clauses, and the README documents schedule mode 0', () => {
+    const group = GLOSSARY.find((g) => g.id === 'uwb')
+    const terms = (group?.items ?? []).map((i) => i.term.toLowerCase())
+    for (const t of ['contention-based ranging', 'rcps ie', 'rcma ie']) {
+      expect(terms, `missing glossary term: ${t}`).toContain(t)
+    }
+    const rcps = group?.items.find((i) => i.term.toLowerCase() === 'rcps ie')
+    const rcma = group?.items.find((i) => i.term.toLowerCase() === 'rcma ie')
+    for (const item of [rcps, rcma]) {
+      expect(item?.alt.en, `${item?.term}.alt.en`).toBeTruthy()
+      expect(item?.alt.zh, `${item?.term}.alt.zh`).toBeTruthy()
+      expect(hasCjk(item?.alt.zh ?? ''), `${item?.term}.alt.zh is not Chinese`).toBe(true)
+    }
+    expect(rcps?.def.en).toContain('§10.32.9.5')
+    expect(rcps?.def.zh).toContain('§10.32.9.5')
+    expect(rcma?.def.en).toContain('§10.32.9.6')
+    expect(rcma?.def.zh).toContain('§10.32.9.6')
+
+    expect(README).toContain('schedule mode 0')
+    expect(README).toContain('§10.32.9.5')
+    expect(README).toContain('§10.32.9.6')
+    expect(README).not.toContain('no contention-based ranging round')
   })
 })

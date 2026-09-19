@@ -1,6 +1,8 @@
 /** Compact learning guide tying real 802.11 mechanisms to what the sim shows. */
-import { DEFAULT_SIX_GHZ_CENTER_MHZ, sixGhzChannelNo } from '../model/scenario'
-import { UWB_BAND_MHZ, UWB_MAX_INPUT_DBM_PER_MHZ, UWB_SIR_MIN_DB, UWB_TX_POWER_DBM } from '../uwb/phy'
+import { DEFAULT_SIX_GHZ_CENTER_MHZ, DEFAULT_UWB_SESSION, sixGhzChannelNo } from '../model/scenario'
+import {
+  UWB_BAND_MHZ, UWB_CAPTURE_DB, UWB_MAX_INPUT_DBM_PER_MHZ, UWB_SIR_MIN_DB, UWB_TX_POWER_DBM,
+} from '../uwb/phy'
 import { ELLIPSE_DRAW_SCALE } from '../uwb/view'
 import { useUi } from './store'
 
@@ -170,6 +172,17 @@ export function GuideEn() {
         backoff, no NAV, and every reply time is known in advance. A DS round with N anchors takes
         2N + 2 slots (Poll, N Responses, Final, N Reports); between its round and the next block the
         tag's radio is off, which is what lets a coin cell last.
+      </p>
+      <p style={p}>
+        <b>Contention-based rounds</b> (schedule mode 0, §10.32.2): instead of naming a slot per
+        anchor, the Poll opens a shared response phase — its RCPS IE (§10.32.9.5) advertises a
+        window of {DEFAULT_UWB_SESSION.contentionSlots} slots and its RCMA IE (§10.32.9.6) a retry
+        budget of {DEFAULT_UWB_SESSION.maxAttempts} attempts — and every anchor draws one slot in
+        it uniformly. Two answers landing in the same slot both fail unless one leads by the
+        channel's {UWB_CAPTURE_DB} dB capture margin, logged as <b>UWB_CONTEND_COLLISION</b>; since
+        an SS-TWR responder has no frame of its own to learn whether it was heard, the model has
+        the network tell it at the round's end — a hit refills its budget, a miss spends one
+        attempt, and an empty budget sits the anchor out for a round.
       </p>
       <p style={p}>
         In the scene: {chip('#fbbf24')}each ring is one measured range — every point that far from the
@@ -356,6 +369,15 @@ export function GuideZh() {
         这里没有任何竞争：不做 CCA、没有退避、没有 NAV，每个回复时间都是事先约定好的。
         N 个锚点的 DS 轮占 2N + 2 个时隙（Poll、N 个 Response、Final、N 个 Report）；
         在本轮结束到下一个块之间，标签的射频是关闭的——这正是一颗纽扣电池能用很久的原因。
+      </p>
+      <p style={p}>
+        <b>竞争式轮次</b>（调度模式 0，§10.32.2）：Poll 不再逐一指明每个锚点的时隙，而是打开一个
+        共享响应阶段——RCPS IE（§10.32.9.5）通告一个 {DEFAULT_UWB_SESSION.contentionSlots} 个时隙
+        的窗口，RCMA IE（§10.32.9.6）通告 {DEFAULT_UWB_SESSION.maxAttempts} 次的重试预算——每个锚点
+        都在其中均匀抽取一个时隙。同一时隙内的两个应答，除非有一方领先信道 {UWB_CAPTURE_DB} dB 的
+        捕获门限，否则两者都会失败，记为 <b>UWB_CONTEND_COLLISION</b>；由于 SS-TWR 的响应方没有
+        自己的帧可以得知是否被听到，模型让网络在本轮结束时告知它——测到就补满预算，没测到就扣一次
+        尝试，预算耗尽后便空过一轮。
       </p>
       <p style={p}>
         场景里：{chip('#fbbf24')}每个圆环是一次测得的距离——到测出它的那个锚点距离相同的所有点；

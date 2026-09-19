@@ -206,13 +206,25 @@ function EditorGuideEn() {
       <h4 style={h}>UWB session</h4>
       <p style={p}>
         One section under the node list, shared by every ranging device; it appears with the first
-        anchor or tag. A session is <i>scheduled</i>, so its whole shape is fixed before it starts —
-        nothing ever contends for the medium.
+        anchor or tag. A session is either <i>time-scheduled</i> — its whole shape fixed before it
+        starts, so nothing contends for the medium — or <i>contention-based</i>, where the response
+        phase is a shared window anchors draw a slot from at random.
       </p>
       <D t="Method">
         <b>SS-TWR</b> is one poll and one response per anchor; the clock offset between the two
         devices leaks straight into the range. <b>DS-TWR</b> adds a final and a report per anchor,
         which cancels that offset at twice the frames.
+      </D>
+      <D t="Schedule">
+        <b>time-scheduled</b> (default) fixes every slot in advance, so nothing collides.{' '}
+        <b>Contention</b> (schedule mode 0) instead opens a shared response window that anchors
+        draw a slot from at random — offered only with SS-TWR, since DS-TWR&rsquo;s report would
+        need a second contended window.
+      </D>
+      <D t="Response slots / Attempts">
+        contention only: the response-phase window every anchor draws from (RCPS IE, 8 by default)
+        and the retry budget an anchor spends before it sits a round out (RCMA IE, 3 by default).
+        More slots trade a longer round for fewer collisions.
       </D>
       <D t="Block / Slot">
         the block repeats forever and every tag owns one round inside it, so the block sets the
@@ -430,13 +442,24 @@ function EditorGuideZh() {
 
       <h4 style={h}>UWB 测距会话</h4>
       <p style={p}>
-        节点列表下方的一节，为所有测距设备共用；放下第一个锚点或标签时出现。测距会话是
-        <i>调度式</i>的，其全部结构在开始之前就已确定——没有任何设备需要竞争信道。
+        节点列表下方的一节，为所有测距设备共用；放下第一个锚点或标签时出现。测距会话可以是
+        <i>时间调度</i>的——其全部结构在开始之前就已确定，没有任何设备需要竞争信道；也可以是
+        <i>竞争调度</i>的——响应阶段是一个共享窗口，各锚点在其中随机抽取时隙。
       </p>
       <D t="测距方式">
         <b>SS-TWR</b>（单边双向）对每个锚点只有一次轮询和一次响应，两台设备之间的时钟偏差
         会原样进入测距结果；<b>DS-TWR</b>（双边双向）为每个锚点再加一帧终结帧和一帧报告帧，
         用两倍的帧数把这个偏差抵消掉。
+      </D>
+      <D t="调度方式">
+        <b>时间调度</b>（默认）预先固定每个时隙，因此不会发生碰撞；<b>竞争调度</b>（调度模式 0）
+        则改为打开一个共享响应窗口，各锚点在其中随机抽取一个时隙——仅在 SS-TWR 下可选，
+        因为 DS-TWR 的报告帧还需要再开一个竞争窗口。
+      </D>
+      <D t="响应时隙数 / 尝试次数">
+        仅竞争调度可用：响应时隙数是每个锚点据以抽取时隙的响应窗口（RCPS IE，默认 8 个）；
+        尝试次数是锚点空过一轮之前可用的重试预算（RCMA IE，默认 3 次）。时隙越多，碰撞越少，
+        但轮次也越长。
       </D>
       <D t="测距块 / 测距时隙">
         测距块循环往复，每个标签在块内独占一个轮次，因此块长决定了位置刷新率。
