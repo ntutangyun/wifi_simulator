@@ -134,7 +134,9 @@ function ies(u: UwbInfo): Ie[] {
       case 'COFF':
         out.push({
           key: 'ieCoffs', bytes: DL_COFFS_IE_BYTES,
-          value: `clock offset ${(u.dl?.coffs ?? 0).toFixed(2)} ppm to anchor 0`,
+          // Stored as a fraction (ppm x 1e-6), the form every consumer of a reply time wants;
+          // the octets on the air are an offset in ppm, so that is what the row prints.
+          value: `clock offset ${((u.dl?.coffs ?? 0) * 1e6).toFixed(2)} ppm to anchor 0`,
         })
         break
       case 'BLINK':

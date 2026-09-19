@@ -23,8 +23,9 @@ export interface UwbDlTimes {
   /** RX counters the sender holds, by peer id: the Poll's at a responder, each Response's at
    * anchor 0. Empty on the Poll, which opens the round. */
   rxCounters: Record<string, number>
-  /** Response only: the responder's clock offset to anchor 0, in ppm (the carrier frequency
-   * offset its receiver measured on the Poll). */
+  /** Response only: the responder's clock offset to anchor 0 as a fraction (ppm x 1e-6) — the
+   * carrier frequency offset its receiver measured on the Poll. A fraction is the form the
+   * consumer wants (`replyTime * (1 - coffs)`); the frame decoder prints it in ppm. */
   coffs?: number
 }
 
@@ -116,8 +117,10 @@ export function makeResp(
 
 /** The tag's Final (DS-TWR only): broadcast, carrying tround1/treply2 per anchor.
  * In DL-TDoA the Final is anchor 0's instead, and `times` is empty: it closes the round with
- * anchor 0's own TX time and its RX time of every Response, which is all a listening tag needs
- * to put the responders' transmit instants on anchor 0's timebase. */
+ * anchor 0's own TX time - which is what a listening tag measures its clock rate over - and its
+ * RX time of every Response. The RX times are carried because a FiRa DL-TDoA Final carries them
+ * (they would let a receiver check each responder's reported offset against anchor 0's round
+ * trip); no tag in this model reads them. */
 export function makeFinal(
   tag: string, times: { id: string; tround1: number; treply2: number }[], block: number, round: number, slot: number,
   dl?: UwbDlTimes,

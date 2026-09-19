@@ -117,7 +117,8 @@ describe('uwbFrameFields', () => {
       txCounter: 1_000_000, rxCounters: {},
     })
     const dlResp = makeResp('anc-1', '*', 'ds', 0, 0, 1, undefined, {
-      txCounter: 1_200_000, rxCounters: { 'anc-0': 1_100_000 }, coffs: 1.5,
+      // a fraction, as the engine stores it: 1.5 ppm
+      txCounter: 1_200_000, rxCounters: { 'anc-0': 1_100_000 }, coffs: 1.5e-6,
     })
     const dlFinal = makeFinal('anc-0', [], 0, 0, 4, {
       txCounter: 1_900_000,
@@ -162,7 +163,7 @@ describe('uwbFrameFields', () => {
     expect(dlResp.bytes).toBe(uwbDlRespBytes(1, true))
     expect(dlFinal.bytes).toBe(uwbDlFinalBytes(3, false))
     const pollWithRx = makePoll('anc-0', ['anc-1', 'anc-2', 'anc-3'], 'ds', 0, 0, 'time', 8, 3, {
-      txCounter: 1_000_000, rxCounters: { 'anc-1': 999_000 }, coffs: 0.25,
+      txCounter: 1_000_000, rxCounters: { 'anc-1': 999_000 }, coffs: 0.25e-6,
     })
     expect(pollWithRx.bytes).toBe(uwbDlPollBytes(3, 1, true))
     expect(pollWithRx.bytes).toBe(dlPoll.bytes + dlRxTimesIeBytes(1) + DL_COFFS_IE_BYTES)

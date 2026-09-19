@@ -30,6 +30,7 @@ import {
 import { roundPlan } from '../../src/uwb/session'
 import { solvePosition, solveTdoa } from '../../src/uwb/position'
 import { applyRecord, initViewState } from '../../src/model/view'
+import { uwbFrameFields } from '../../src/uwb/frameFields'
 import { uwbFixRow, uwbTdoaRows } from '../../src/uwb/ui/rows'
 import { STRINGS } from '../../src/ui/i18n'
 
@@ -426,6 +427,19 @@ describe('uwb-dl-tdoa · the clock correction', () => {
     const en = prose()
     expect(en).toContain('Anchor 1 comes out at −19.04 ppm and the three badges at 1.96, 17.65 and 4.08')
     expect(en).toContain('21.00, 36.69 and 23.12 ppm away from the reference')
+  })
+
+  it('the Response’s clock-offset IE prints ppm: the responder’s crystal against the reference’s', () => {
+    // The engine stores the offset as a fraction and the decoder multiplies by 1e6, so the row a
+    // learner opens shows the tens of ppm the round is really correcting, not a rounded 0.00.
+    const tx = of(recs('base'), 'TX_START')
+    for (const id of RESPONDERS) {
+      const resp = tx.find((r) => r.frame.kind === 'uwbResp' && r.frame.src === id)!.frame
+      const row = uwbFrameFields(resp).users[0].subframes[0].mpdu.fields.find((f) => f.key === 'ieCoffs')!
+      const printed = Number(/(-?[0-9.]+) ppm/.exec(row.value ?? '')?.[1] ?? NaN)
+      // the estimator's own residual is the only thing between the printed number and the draw
+      expect(Math.abs(printed - (drawnPpm(id) - drawnPpm(REF))), id).toBeLessThan(0.5)
+    }
   })
 
   it('correction off: "22.02, 44.04 and 65.81 m too long on average", the ppm gap times the reply', () => {
