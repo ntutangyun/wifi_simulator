@@ -154,6 +154,24 @@ describe('uwbFrameFields', () => {
     expect(dlRxTimesIeBytes(3) - dlRxTimesIeBytes(2)).toBe(4)
     expect(keyed(dlResp, 'ieCoffs')!.value).toBe('clock offset 1.50 ppm to anchor 0')
     expect(keyed(dlFinal, 'ieRxTimes')!.value).toContain('3 RX times: anc-1 1 300 000')
+
+    // One definition per frame: the builders size at the same phy.ts functions the schema's
+    // slot-fit rule measures, content for content — a message that grew an RX time would grow in
+    // both places or in neither.
+    expect(dlPoll.bytes).toBe(uwbDlPollBytes(3, 0, false))
+    expect(dlResp.bytes).toBe(uwbDlRespBytes(1, true))
+    expect(dlFinal.bytes).toBe(uwbDlFinalBytes(3, false))
+    const pollWithRx = makePoll('anc-0', ['anc-1', 'anc-2', 'anc-3'], 'ds', 0, 0, 'time', 8, 3, {
+      txCounter: 1_000_000, rxCounters: { 'anc-1': 999_000 }, coffs: 0.25,
+    })
+    expect(pollWithRx.bytes).toBe(uwbDlPollBytes(3, 1, true))
+    expect(pollWithRx.bytes).toBe(dlPoll.bytes + dlRxTimesIeBytes(1) + DL_COFFS_IE_BYTES)
+    expect(fieldSum(uwbFrameFields(pollWithRx))).toBe(pollWithRx.bytes)
+    const respNoCoffs = makeResp('anc-1', '*', 'ds', 0, 0, 1, undefined, {
+      txCounter: 1_200_000, rxCounters: { 'anc-0': 1_100_000 },
+    })
+    expect(respNoCoffs.bytes).toBe(uwbDlRespBytes(1, false))
+    expect(fieldSum(uwbFrameFields(respNoCoffs))).toBe(respNoCoffs.bytes)
   })
 
   it('decodes a contention Poll: ARC + RCPS + RCMA + RRMC summing to 31 octets', () => {

@@ -463,12 +463,15 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
         // A contention round is a two-way exchange the tag starts; one-way ranging has no such
         // exchange to contend for (in DL-TDoA the tag never transmits, in UL-TDoA it transmits
         // once, in its own slot).
+        // There are two schedules, so "not contention" and "time" are the same requirement: one
+        // mistake, one issue.
         const mode = sc.uwb.mode
-        if (mode !== 'twr' && sc.uwb.schedule === 'contention') {
-          ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['uwb'], message: 'contention-based rounds are two-way ranging only' })
-        }
         if (mode !== 'twr' && sc.uwb.schedule !== 'time') {
-          ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['uwb'], message: 'one-way ranging needs a time-scheduled session (schedule: time)' })
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['uwb'],
+            message: 'contention-based rounds are two-way ranging only; one-way ranging needs a time-scheduled session',
+          })
         }
         const anchors = uwbNodes.filter((n) => n.uwb?.role === 'anchor').length
         const tags = uwbNodes.filter((n) => n.uwb?.role === 'tag').length
@@ -490,7 +493,17 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
           // same round, so tags cost the schedule nothing at all.
           const slots = uwbSlotsPerTag(sc.uwb.method, anchors, sc.uwb.schedule, sc.uwb.contentionSlots, mode)
           const fits = Math.floor(sc.uwb.blockRstu / (slots * sc.uwb.slotRstu))
-          if (mode !== 'dl-tdoa' && tags > fits) {
+          // One round has to fit the block in every mode, DL-TDoA included: a round that outlives
+          // its block runs into the next one's slots, and nothing downstream notices — the
+          // scheduler starts each block on the clock, whatever the last one was still doing.
+          if (fits < 1) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ['uwb'],
+              message: `the UWB block of ${sc.uwb.blockRstu} RSTU is too short for one round of ${slots} `
+                + `slots × ${sc.uwb.slotRstu} RSTU; lengthen blockRstu or shorten slotRstu`,
+            })
+          } else if (mode !== 'dl-tdoa' && tags > fits) {
             ctx.addIssue({
               code: z.ZodIssueCode.custom,
               path: ['uwb'],
@@ -516,7 +529,8 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
               code: z.ZodIssueCode.custom,
               path: ['uwb'],
               message: `a ranging round takes at most ${UWB_MAX_ANCHORS} anchors (found ${anchors}): `
-                + 'the Final grows by 12 octets per anchor and must stay inside the 127-octet PSDU limit',
+                + 'the TWR Final grows by 12 octets per anchor and must stay inside the 127-octet PSDU limit '
+                + '(the one-way modes’ frames are shorter, so the same cap is conservative for them)',
             })
           }
         }

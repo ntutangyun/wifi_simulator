@@ -206,28 +206,36 @@ export function dlExtraBytes(rxTimes: number, coffs: boolean): number {
   return DL_TX_TIME_IE_BYTES + (rxTimes > 0 ? dlRxTimesIeBytes(rxTimes) : 0) + (coffs ? DL_COFFS_IE_BYTES : 0)
 }
 
+// The three functions below are each frame's one definition: uwb/frames.ts builds at these sizes
+// and the schema's slot rule measures them, so a DL message cannot grow in one place only. The
+// content arguments default to the canonical round's — the Poll opens it with no RX times, the
+// Response answers with one and its clock offset, the Final lists one RX time per responder —
+// and the builders pass what their own `dl` payload actually holds.
+
 /** DL-TDoA Poll (anchor 0): the time-scheduled Poll over the `responders` (anchors 1…N−1)
  * plus anchor 0's own TX time. 27 + 3R + 6 octets. */
-export function uwbDlPollBytes(responders: number): number {
-  return uwbPollBytes(responders) + dlExtraBytes(0, false)
+export function uwbDlPollBytes(responders: number, rxTimes = 0, coffs = false): number {
+  return uwbPollBytes(responders) + dlExtraBytes(rxTimes, coffs)
 }
 
 /** DL-TDoA Response (anchor i): the DS-TWR Response (no RRTI) plus the responder's TX time, its
  * RX time of the Poll and its clock offset. 14 + 6 + 6 + 4 = 30 octets. */
-export function uwbDlRespBytes(): number {
-  return uwbRespBytes('ds') + dlExtraBytes(1, true)
+export function uwbDlRespBytes(rxTimes = 1, coffs = true): number {
+  return uwbRespBytes('ds') + dlExtraBytes(rxTimes, coffs)
 }
 
 /** DL-TDoA Final (anchor 0): MHR + RRMC + anchor 0's TX time + its RX time of each response +
  * FCS. It carries no two-way times — a listening tag needs the instants, not the round trips —
  * so it does not grow the way the TWR Final does: 22 + 4R octets. */
-export function uwbDlFinalBytes(responders: number): number {
-  return UWB_MHR_BYTES + RRMC_IE_BYTES + UWB_FCS_BYTES + dlExtraBytes(responders, false)
+export function uwbDlFinalBytes(responders: number, coffs = false): number {
+  return UWB_MHR_BYTES + RRMC_IE_BYTES + UWB_FCS_BYTES + dlExtraBytes(responders, coffs)
 }
 
-/** Anchors one ranging round can carry. The Final is the round's longest frame and grows by
- * 12 octets per anchor; at 9 anchors it is 122 octets and at 10 it is 134, past the 127-octet
- * PSDU the PHR's frame-length field can express (standard §16.2.7). */
+/** Anchors one ranging round can carry. In two-way ranging the Final is the round's longest
+ * frame and grows by 12 octets per anchor; at 9 anchors it is 122 octets and at 10 it is 134,
+ * past the 127-octet PSDU the PHR's frame-length field can express (standard §16.2.7). The
+ * one-way modes are bounded by the same number, which is conservative for them: their longest
+ * frame is the DL-TDoA Poll at 33 + 3R octets (57 at nine anchors), less than half the limit. */
 export const UWB_MAX_ANCHORS = 9
 
 // --- Ranging schedule units ----------------------------------------------------

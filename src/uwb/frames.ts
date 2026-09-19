@@ -6,7 +6,7 @@
  */
 import type { FrameDesc } from '../model/frames'
 import {
-  dlExtraBytes, UWB_BLINK_BYTES, UWB_MHR_BYTES, UWB_FCS_BYTES, UWB_REPORT_BYTES, RRMC_IE_BYTES,
+  UWB_BLINK_BYTES, UWB_REPORT_BYTES, uwbDlFinalBytes, uwbDlPollBytes, uwbDlRespBytes,
   uwbFinalBytes, uwbPollBytes, uwbPpduNs, uwbRespBytes,
 } from './phy'
 
@@ -76,7 +76,7 @@ export function makePoll(
   // DL-TDoA: anchor 0 polls, `anchors` are the responders it gives slots to, and the frame adds
   // anchor 0's own TX time so a listening tag can time the round on the anchors' clock.
   if (dl) {
-    return uwbFrame('uwbPoll', tag, '*', uwbPollBytes(anchors.length) + dlExtra(dl), {
+    return uwbFrame('uwbPoll', tag, '*', uwbDlPollBytes(anchors.length, rxCount(dl), dl.coffs !== undefined), {
       sp: 1, method, block, round, slot: 0, ies: ['ARC', 'RDM', 'RRMC', ...dlIes(dl)],
       schedule: [...anchors], dl: copyDl(dl),
     })
@@ -101,7 +101,7 @@ export function makeResp(
   // the caller passes a broadcast destination. It carries no reply time — a listening tag wants
   // the instants themselves — but its own TX time, its RX time of the Poll and its clock offset.
   if (dl) {
-    return uwbFrame('uwbResp', anchor, tag, uwbRespBytes('ds') + dlExtra(dl), {
+    return uwbFrame('uwbResp', anchor, tag, uwbDlRespBytes(rxCount(dl), dl.coffs !== undefined), {
       sp: 1, method, block, round, slot, ies: ['RRMC', ...dlIes(dl)], dl: copyDl(dl),
     })
   }
@@ -123,7 +123,7 @@ export function makeFinal(
   dl?: UwbDlTimes,
 ): FrameDesc {
   if (dl) {
-    return uwbFrame('uwbFinal', tag, '*', UWB_MHR_BYTES + RRMC_IE_BYTES + UWB_FCS_BYTES + dlExtra(dl), {
+    return uwbFrame('uwbFinal', tag, '*', uwbDlFinalBytes(rxCount(dl), dl.coffs !== undefined), {
       sp: 1, method: 'ds', block, round, slot, ies: ['RRMC', ...dlIes(dl)], dl: copyDl(dl),
     })
   }
@@ -158,14 +158,15 @@ export function makeBlink(tag: string, block: number, round: number): FrameDesc 
 function dlIes(dl: UwbDlTimes): string[] {
   return [
     'TXT',
-    ...(Object.keys(dl.rxCounters).length > 0 ? ['RXT'] : []),
+    ...(rxCount(dl) > 0 ? ['RXT'] : []),
     ...(dl.coffs !== undefined ? ['COFF'] : []),
   ]
 }
 
-/** Octets those IEs add, from the one definition in uwb/phy.ts. */
-function dlExtra(dl: UwbDlTimes): number {
-  return dlExtraBytes(Object.keys(dl.rxCounters).length, dl.coffs !== undefined)
+/** How many RX times this payload actually carries — what the frame is sized at, so a message
+ * that grows an RX time grows in uwb/phy.ts's arithmetic and in the schema's slot rule too. */
+function rxCount(dl: UwbDlTimes): number {
+  return Object.keys(dl.rxCounters).length
 }
 
 /** The times ride in the FrameDesc, which outlives the round that built them: copy, so a later

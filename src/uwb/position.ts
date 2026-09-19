@@ -64,12 +64,7 @@ function accumulateNormal(
   let sumSq = 0
 
   for (const { anchor, distM } of usable) {
-    const dx = x - anchor.x
-    const dy = y - anchor.y
-    const dz = zTag - anchor.z
-    const dist3 = Math.hypot(dx, dy, dz)
-    const ux = dist3 > 0 ? dx / dist3 : 0
-    const uy = dist3 > 0 ? dy / dist3 : 0
+    const { ux, uy, dist3 } = unitTo(anchor, x, y, zTag)
     const resid = dist3 - distM
 
     jtjXX += ux * ux
@@ -103,19 +98,40 @@ export function solvePosition(
   }
   if (usable.length < 3) return null
 
-  let x = 0
-  let y = 0
+  let cx = 0
+  let cy = 0
   for (const { anchor } of usable) {
-    x += anchor.x
-    y += anchor.y
+    cx += anchor.x
+    cy += anchor.y
   }
-  x /= usable.length
-  y /= usable.length
+  cx /= usable.length
+  cy /= usable.length
+
+  const accumulate = (x: number, y: number) => accumulateNormal(usable, x, y, zTag)
+  const p = gaussNewton(cx, cy, accumulate)
+  if (!p) return null
+
+  // Final JtJ at the converged point (recompute to be exact at the solution).
+  return fixFrom(p.x, p.y, accumulate(p.x, p.y), usable.length, sigmaRangeM)
+}
+
+/**
+ * The iteration both solvers run: from a seed point, solve the 2×2 normal equations
+ * (JtJ)·delta = −Jtr for the step, take it, and stop after 20 of them or a step under 1 mm.
+ * `accumulate` is what makes the two different — spherical residuals and rows, or hyperbolic
+ * ones. null when JtJ is singular/near-singular at any iteration.
+ */
+function gaussNewton(
+  x0: number,
+  y0: number,
+  accumulate: (x: number, y: number) => NormalEquations,
+): { x: number; y: number } | null {
+  let x = x0
+  let y = y0
 
   for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
-    const { jtjXX, jtjXY, jtjYY, jtrX, jtrY } = accumulateNormal(usable, x, y, zTag)
+    const { jtjXX, jtjXY, jtjYY, jtrX, jtrY } = accumulate(x, y)
 
-    // Solve the 2x2 normal equations (JtJ) * delta = -Jtr
     const det = jtjXX * jtjYY - jtjXY * jtjXY
     if (Math.abs(det) < MIN_DET) return null
 
@@ -129,9 +145,7 @@ export function solvePosition(
     if (step < STEP_TOL_M) break
   }
 
-  // Final JtJ at the converged point (recompute to be exact at the solution).
-  const n = accumulateNormal(usable, x, y, zTag)
-  return fixFrom(x, y, n, usable.length, sigmaRangeM)
+  return { x, y }
 }
 
 /**
@@ -254,30 +268,18 @@ export function solveTdoa(
   }
   if (usable.length < 3) return null
 
-  let x = ref.x
-  let y = ref.y
+  let cx = ref.x
+  let cy = ref.y
   for (const { anchor } of usable) {
-    x += anchor.x
-    y += anchor.y
+    cx += anchor.x
+    cy += anchor.y
   }
-  x /= usable.length + 1
-  y /= usable.length + 1
+  cx /= usable.length + 1
+  cy /= usable.length + 1
 
-  for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
-    const { jtjXX, jtjXY, jtjYY, jtrX, jtrY } = accumulateTdoaNormal(usable, ref, x, y, zTag)
+  const accumulate = (x: number, y: number) => accumulateTdoaNormal(usable, ref, x, y, zTag)
+  const p = gaussNewton(cx, cy, accumulate)
+  if (!p) return null
 
-    const det = jtjXX * jtjYY - jtjXY * jtjXY
-    if (Math.abs(det) < MIN_DET) return null
-
-    const deltaX = -(jtjYY * jtrX - jtjXY * jtrY) / det
-    const deltaY = -(-jtjXY * jtrX + jtjXX * jtrY) / det
-
-    x += deltaX
-    y += deltaY
-
-    if (Math.hypot(deltaX, deltaY) < STEP_TOL_M) break
-  }
-
-  const n = accumulateTdoaNormal(usable, ref, x, y, zTag)
-  return fixFrom(x, y, n, usable.length, sigmaRangeM)
+  return fixFrom(p.x, p.y, accumulate(p.x, p.y), usable.length, sigmaRangeM)
 }

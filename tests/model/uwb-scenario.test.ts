@@ -168,6 +168,33 @@ describe('UWB nodes and sessions in the schema', () => {
       expect(() => ScenarioSchema.parse(uwbScenario([...anchors(4), tag], cfg())), mode).not.toThrow()
       expect(() => ScenarioSchema.parse(uwbScenario([...anchors(4), tag], cfg({ schedule: 'contention', method: 'ss' }))), mode)
         .toThrow(/contention-based rounds are two-way ranging only/)
+      // One mistake, one issue: there are two schedules, so "not contention" and "needs time"
+      // are the same requirement and must not be reported twice.
+      const bad = ScenarioSchema.safeParse(uwbScenario([...anchors(4), tag], cfg({ schedule: 'contention', method: 'ss' })))
+      expect(bad.success, mode).toBe(false)
+      if (!bad.success) expect(bad.error.issues, mode).toHaveLength(1)
+    }
+  })
+
+  it('one round must fit the block in every mode, DL-TDoA included', () => {
+    // 4 anchors, DL-TDoA: 5 slots × 2400 RSTU = 12 000 RSTU against a 3 000 RSTU block. Lifting
+    // the tags-per-block rule for DL-TDoA must not lift the floor under it: a round that outlives
+    // its block would run into the next block's slots, and nothing downstream notices.
+    const anchors = [0, 1, 2, 3].map((i) => uwbNode(`anc-${i}`, 'anchor', i * 3, 0))
+    const tag = uwbNode('tag-1', 'tag', 4, 4)
+    const tiny = { blockRstu: 3000, slotRstu: 2400 }
+    for (const mode of ['dl-tdoa', 'ul-tdoa', 'twr'] as const) {
+      const sc = uwbScenario([...anchors, tag], { ...DEFAULT_UWB_SESSION, ...tiny, mode })
+      if (mode === 'ul-tdoa') {
+        // A blink round is one slot of 2 400 RSTU, and that does fit a 3 000 RSTU block.
+        expect(() => ScenarioSchema.parse(sc), mode).not.toThrow()
+        continue
+      }
+      expect(() => ScenarioSchema.parse(sc), mode).toThrow(/block of 3000 RSTU is too short for one round/)
+      const bad = ScenarioSchema.safeParse(sc)
+      expect(bad.success, mode).toBe(false)
+      // …and it replaces the tags-per-block message rather than doubling it.
+      if (!bad.success) expect(bad.error.issues.filter((i) => /tags at/.test(i.message)), mode).toHaveLength(0)
     }
   })
 
