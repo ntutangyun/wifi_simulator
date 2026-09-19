@@ -1,5 +1,6 @@
 /** Compact learning guide tying real 802.11 mechanisms to what the sim shows. */
 import { DEFAULT_SIX_GHZ_CENTER_MHZ, DEFAULT_UWB_SESSION, sixGhzChannelNo } from '../model/scenario'
+import { AOA_SIGMA_CLAMP_DEG, AOA_SIGMA_PHI_RAD, aoaSigmaDeg, antennaSpacingM } from '../uwb/aoa'
 import {
   UWB_BAND_MHZ, UWB_BLINK_BYTES, UWB_CAPTURE_DB, UWB_MAX_INPUT_DBM_PER_MHZ, UWB_SIR_MIN_DB, UWB_TX_POWER_DBM,
 } from '../uwb/phy'
@@ -18,6 +19,9 @@ const UWB5_HI = UWB_BAND_MHZ[5].hi
 const UWB9_LO = UWB_BAND_MHZ[9].lo
 const UWB9_HI = UWB_BAND_MHZ[9].hi
 const SIX_GHZ_DEFAULT_CH = sixGhzChannelNo(DEFAULT_SIX_GHZ_CENTER_MHZ)
+const AOA_ANTENNA_SPACING_CM = (antennaSpacingM(9) * 100).toFixed(1)
+const AOA_SIGMA_BORESIGHT_DEG = aoaSigmaDeg(0).toFixed(1)
+const AOA_SIGMA_60_DEG = aoaSigmaDeg(60).toFixed(1)
 
 export function Guide() {
   const lang = useUi((s) => s.lang)
@@ -234,6 +238,24 @@ export function GuideEn() {
         number of tags can listen or blink without the round growing — DL-TDoA scales to an unlimited, silent
         audience, UL-TDoA to as many tags as the block has slots for, one blink each.
       </p>
+      <p style={p}>
+        <b>Angle of arrival (AoA)</b> (§10.29.1.1 lists it among ranging results) adds a bearing to
+        the range. An anchor's two antennas sit half a wavelength apart on its boresight —{' '}
+        {AOA_ANTENNA_SPACING_CM} cm on channel 9 — so a wavefront arriving at azimuth θ off
+        boresight reaches the far one later, a phase difference φ = 2π·(d/λ)·sin θ (PDoA, model,
+        FiRa-style). Inverting that line turns the receiver's phase noise (σ<sub>φ</sub> ={' '}
+        {AOA_SIGMA_PHI_RAD} rad, model) into a bearing error that grows with |θ|:{' '}
+        {AOA_SIGMA_BORESIGHT_DEG}° at boresight, {AOA_SIGMA_60_DEG}° at 60°, clamped at{' '}
+        {AOA_SIGMA_CLAMP_DEG}° near the edge of the ±90° field of view, where the array goes blind
+        to angle. Behind the anchor the geometry mirrors — sin(180° − θ) = sin θ — so a tag there
+        is reported at its mirror image in front instead; pointing the anchor's <code>yawDeg</code>{' '}
+        boresight at the room, and reading the bearing off it, is the only defence two antennas
+        have. With DS-TWR an anchor that now holds both a range and a bearing fixes the tag alone,
+        from itself: the range's few centimetres of error run along the ray, while the bearing's
+        angle error becomes a <b>cross-range error</b> that grows with distance — r·θ (θ in
+        radians) metres off to the side — so the fix's error ellipse is long and thin, turned a
+        quarter turn from the ray, at any distance past a few centimetres.
+      </p>
 
       <h4 style={h}>Things to try</h4>
       <p style={p}>
@@ -442,6 +464,21 @@ export function GuideZh() {
         （四个锚点）就能替代三边定位所需的三个距离，而且无论多少个标签同时监听或闪发，轮次都不会
         因此变长——DL-TDoA 可以服务无限多、完全静默的听众，UL-TDoA 则能容纳一个块的时隙所能装下的
         任意多个标签，每个标签只需一次闪发。
+      </p>
+      <p style={p}>
+        <b>到达角（AoA）</b>（§10.29.1.1 将其列为测距结果之一）在距离之外再给出一个方位角。
+        锚点的两根天线沿视轴（boresight）相距半个波长——信道 9 上为 {AOA_ANTENNA_SPACING_CM} cm——
+        于是从视轴外方位角 θ 到达的波前会晚到达较远的那根天线，形成相位差
+        φ = 2π·(d/λ)·sin θ（到达相位差 PDoA，模型取值，FiRa 风格）。反解这条关系式，
+        会把接收机的相位噪声（σ<sub>φ</sub> = {AOA_SIGMA_PHI_RAD} rad，模型取值）转换成
+        随 |θ| 增大而变差的方位角误差：正前方 {AOA_SIGMA_BORESIGHT_DEG}°，60° 处{' '}
+        {AOA_SIGMA_60_DEG}°，在 ±90° 视场边缘——阵列对角度完全失去分辨力之处——被限幅在{' '}
+        {AOA_SIGMA_CLAMP_DEG}°。锚点背后的几何是镜像的——sin(180° − θ) = sin θ——因此
+        背后的标签会被报告成它在正前方的镜像；把锚点的 <code>yawDeg</code>（偏航角）视轴
+        对准房间，并据此读出方位角，是两根天线唯一能做的防御。配合 DS-TWR，同时握有距离和
+        方位角的锚点便能单凭自己定出标签的位置：距离的几厘米误差沿着射线方向，
+        而方位角误差则变成沿射线侧向的<b>横向误差</b>，且随距离增大——r·θ（θ 以弧度计）米——
+        因此在几厘米开外的任何距离，解算出的误差椭圆都又长又扁，且与射线方向相差九十度。
       </p>
 
       <h4 style={h}>动手试试</h4>

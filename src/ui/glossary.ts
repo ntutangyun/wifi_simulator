@@ -885,6 +885,38 @@ export const GLOSSARY: GlossaryGroup[] = [
           zh: '听测标签的差值跨越了整整一轮，因此它自身晶振的误差不会像 TWR 那样自行相消：它需要用自己测得的“轮询→终结帧”间隔，去对照锚点报出的真实间隔，再按这个比例重新缩放原始差值。关闭时，一整轮 20 ms 内 20 ppm 的晶振误差就是 120 米的乱码；打开后，剩下的只是各应答锚点自身的时钟偏差估计噪声——分米级。',
         },
       },
+      {
+        term: 'AoA',
+        alt: { en: 'angle of arrival — a ranging result, standard §10.29.1.1', zh: '到达角——测距结果之一，标准 §10.29.1.1' },
+        def: {
+          en: 'A bearing from a single anchor, alongside its range (§10.29.1.1 lists angle of arrival among the results a ranging measurement can produce): with two antennas λ/2 apart on the anchor\'s boresight, the phase difference between them (PDoA) inverts to an azimuth whose 1-σ is aoaSigmaDeg — 2.7° at boresight, 5.5° at 60°, clamped at 45° near the ±90° edge of the field of view, where the array goes blind to angle. With DS-TWR, one anchor now holds a range and a bearing and fixes the tag alone.',
+          zh: '与距离一同由单个锚点给出的方位角（§10.29.1.1 把到达角列为测距测量可产生的结果之一）：锚点视轴上相距 λ/2 的两根天线之间的相位差（PDoA）反解成方位角，其 1-σ 为 aoaSigmaDeg——正前方 2.7°，60° 处 5.5°，在视场 ±90° 边缘（阵列对角度失去分辨力之处）被限幅在 45°。配合 DS-TWR，一个锚点同时握有距离和方位角，便能单独定出标签的位置。',
+        },
+      },
+      {
+        term: 'PDoA',
+        alt: { en: 'phase difference of arrival — the model behind AoA, FiRa-style', zh: '到达相位差——AoA 背后的模型，FiRa 风格' },
+        def: {
+          en: 'The phase difference between an anchor\'s two antennas on a frame from the tag: φ = 2π·(d/λ)·sin θ, where d = λ/2 is the antenna spacing (1.9 cm on channel 9) and θ is the azimuth off boresight. AOA_SIGMA_PHI_RAD = 0.15 rad of receiver phase noise is what makes the inverted bearing noisy, worse the further θ sits from boresight.',
+          zh: '锚点两根天线在收到标签一帧时的相位差：φ = 2π·(d/λ)·sin θ，其中 d = λ/2 为天线间距（信道 9 上为 1.9 cm），θ 为偏离视轴的方位角。AOA_SIGMA_PHI_RAD = 0.15 rad 的接收机相位噪声，正是反解出的方位角带有噪声的原因，且 θ 离视轴越远就越差。',
+        },
+      },
+      {
+        term: 'Boresight / yaw',
+        alt: { en: 'UwbNodeCfg.yawDeg — an anchor\'s antenna-array facing, default 0°', zh: 'UwbNodeCfg.yawDeg——锚点天线阵列的朝向，默认 0°' },
+        def: {
+          en: 'The direction an anchor\'s two-antenna array faces, in degrees counter-clockwise from +x (0° faces +x, 90° faces +y). Every AoA bearing is reported relative to it, and it is the only defence against the front/back mirror (sin(180° − θ) = sin θ): pointing it at the room keeps every real tag in the front half of the field of view.',
+          zh: '锚点双天线阵列所朝的方向，以 +x 轴为 0°、逆时针为正（90° 即指向 +y）。每一个 AoA 方位角都是相对它给出的，也是抵御前后镜像（sin(180° − θ) = sin θ）的唯一手段：把它对准房间，就能让每个真实标签都落在视场的正前方一侧。',
+        },
+      },
+      {
+        term: 'Cross-range error',
+        alt: { en: 'the AoA fix\'s error across the bearing, horizM·aoaSigmaDeg(θ)', zh: 'AoA 定位中垂直于方位角方向的误差，horizM·aoaSigmaDeg(θ)' },
+        def: {
+          en: 'The single-anchor AoA fix has two very different axes: along the ray, the range\'s few centimetres of timestamp-noise error; across it, the bearing\'s angle error turned into distance — horizM · aoaSigmaDeg(θ) in radians, worse the farther out and the further off boresight. It dominates past a few centimetres, so the fix\'s error ellipse is long and thin, turned a quarter turn from the ray.',
+          zh: '单锚点 AoA 定位的两个轴差异极大：沿射线方向是距离测量中几厘米的时间戳噪声误差；垂直于射线方向则是方位角误差换算出的距离——horizM · aoaSigmaDeg(θ)（以弧度计），距离越远、偏离视轴越多就越差。一旦超过几厘米这一项便占主导，因此定位的误差椭圆又长又扁，且与射线方向相差九十度。',
+        },
+      },
     ],
   },
 ]

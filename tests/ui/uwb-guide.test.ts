@@ -12,6 +12,7 @@ import { CCA_ED_DBM } from '../../src/engine/phy'
 import { DEFAULT_UWB_SESSION } from '../../src/model/scenario'
 import { GuideEn, GuideZh } from '../../src/ui/Guide'
 import { GLOSSARY } from '../../src/ui/glossary'
+import { AOA_SIGMA_CLAMP_DEG, AOA_SIGMA_PHI_RAD, aoaSigmaDeg, antennaSpacingM } from '../../src/uwb/aoa'
 import {
   COUNTER_MOD, FOM_LOS, FOM_NLOS, RCTU_NS, UWB_BAND_MHZ, UWB_BLINK_BYTES, UWB_CAPTURE_DB, UWB_MAX_ANCHORS,
   UWB_MAX_INPUT_DBM_PER_MHZ, UWB_PL_EXP, UWB_RX_SENS_DBM, UWB_SIR_MIN_DB, UWB_TX_POWER_DBM,
@@ -327,6 +328,39 @@ describe('TDoA modes (one-way ranging, §10.29.1.2.5)', () => {
     for (const text of [ulTdoa?.def.en, ulTdoa?.def.zh]) expect(text).toContain('syncErrorNs')
 
     expect(README).toContain('| standard §10.29.1.2.5 |')
+  })
+})
+
+describe('AoA (angle of arrival, §10.29.1.1)', () => {
+  const ANTENNA_SPACING_CM = `${(antennaSpacingM(9) * 100).toFixed(1)} cm`
+  const SIGMA_BORESIGHT_DEG = `${aoaSigmaDeg(0).toFixed(1)}°`
+  const SIGMA_60_DEG = `${aoaSigmaDeg(60).toFixed(1)}°`
+
+  it('the Guide states the phase-difference model and its bearing error from the engine constants', () => {
+    for (const text of [renderGuide('en'), renderGuide('zh')]) {
+      expect(text).toContain('§10.29.1.1')
+      expect(text).toContain(ANTENNA_SPACING_CM)
+      expect(text).toContain(`${AOA_SIGMA_PHI_RAD}`)
+      expect(text).toContain(SIGMA_BORESIGHT_DEG)
+      expect(text).toContain(SIGMA_60_DEG)
+      expect(text).toContain(`${AOA_SIGMA_CLAMP_DEG}°`)
+    }
+  })
+
+  it('the glossary carries the four AoA terms, bilingual, and the README documents AoA as standard plus the PDoA model', () => {
+    const group = GLOSSARY.find((g) => g.id === 'uwb')
+    const terms = (group?.items ?? []).map((i) => i.term.toLowerCase())
+    for (const t of ['aoa', 'pdoa', 'boresight / yaw', 'cross-range error']) {
+      expect(terms, `missing glossary term: ${t}`).toContain(t)
+    }
+    const aoaItem = group?.items.find((i) => i.term.toLowerCase() === 'aoa')
+    expect(aoaItem?.alt.en, 'aoa.alt.en').toContain('§10.29.1.1')
+    expect(aoaItem?.def.en, 'aoa.def.en').toContain('§10.29.1.1')
+    expect(aoaItem?.def.zh, 'aoa.def.zh').toContain('§10.29.1.1')
+
+    expect(README).toContain('§10.29.1.1')
+    expect(README).toContain(`${AOA_SIGMA_PHI_RAD} rad`)
+    expect(README).toContain(ANTENNA_SPACING_CM)
   })
 })
 

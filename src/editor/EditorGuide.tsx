@@ -197,6 +197,13 @@ function EditorGuideEn() {
         the z coordinate in meters (AP 2.0, STA 1.0). It counts in the 3D distance; walls are tested
         in 2D, so height changes range only.
       </D>
+      <D t="Facing (yaw)">
+        UWB anchors only: which way this anchor&rsquo;s antenna array points, in degrees
+        counter-clockwise from +x (0° faces +x, 90° faces +y). It matters only when the session&rsquo;s{' '}
+        <b>Angle of arrival</b> checkbox is on — every bearing is reported from this boresight, and
+        the anchor can only see ±90° of it, so a tag behind it comes back mirrored into the front
+        half.
+      </D>
       <D t="🗑 Delete node">
         removes the node. The AP is the one exception: it may only go once no station and no AMP
         tag is left, because Wi-Fi needs exactly one AP — a plan of nothing but UWB devices has no
@@ -221,6 +228,14 @@ function EditorGuideEn() {
         while a tag that never transmits positions itself from what it hears; <b>UL-TDoA</b> has
         the tag send one blink and the anchors, sharing a timebase, position it. Both need four
         anchors and take the schedule to time-scheduled with them.
+      </D>
+      <D t="Angle of arrival (AoA)">
+        ticked, every anchor also measures the phase difference between its two antennas on each
+        frame it receives from the tag and reports the bearing it implies — 2.7° of 1-σ at
+        boresight, worse toward the edge of the ±90° field of view. With DS-TWR, an anchor that now
+        holds a range and a bearing fixes the tag alone, without waiting on two more anchors.
+        Disabled under DL-TDoA/UL-TDoA: a one-way tag never sends the anchors a frame to measure a
+        phase on.
       </D>
       <D t="Tag clock correction">
         DL-TDoA only: the listening tag&rsquo;s differences span a whole round, so its own crystal
@@ -450,6 +465,11 @@ function EditorGuideZh() {
         <code>发射功率 − (46.7 + 30·log₁₀ d) − 墙体损耗</code>。调低它可以强制降低 MCS、
         把某个终端推出另一个终端的载波侦听范围（前导 −82 dBm / 能量 −62 dBm），或人为制造隐藏节点。
       </D>
+      <D t="朝向">
+        仅 UWB 锚点：该锚点天线阵列指向的方向，以 +x 轴为 0°、逆时针为正（90° 即指向 +y）。
+        只有当会话的<b>到达角（AoA）</b>勾选框打开时才有意义：所有方位角都相对这个正前方给出，
+        而锚点只能看到其左右各 90°——位于锚点背后的标签会被镜像到正前方那一侧。
+      </D>
       <D t="高度">
         z 坐标，单位米（AP 2.0，终端 1.0）。它计入三维距离；墙体判定是二维的，
         因此高度只影响距离。
@@ -475,6 +495,12 @@ function EditorGuideZh() {
         <b>DL-TDoA</b> 由锚点跑完整轮，全程不发射的标签靠听到的内容自行定位；<b>UL-TDoA</b>
         由标签发一次闪发，由共享同一时基的锚点替它定位。两者都需要四个锚点，切换时也会把
         调度方式一并改回时间调度。
+      </D>
+      <D t="到达角（AoA）">
+        勾选后，每个锚点在收到标签的每一帧时，都额外测量两根天线之间的相位差，并换算成方位角——
+        正前方 1-σ 约 2.7°，越靠近 ±90° 视场边缘越差。配合 DS-TWR，锚点同时握有距离和方向，
+        无需再等另外两个锚点即可单独定出标签的位置。DL-TDoA/UL-TDoA 下不可用：
+        单向测距中标签从不向锚点发送可供测相位的帧。
       </D>
       <D t="标签时钟校正">
         仅 DL-TDoA 可用：听测标签的差值跨越了整整一轮，因此它自身晶振的误差不会像 TWR 那样
