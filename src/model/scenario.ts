@@ -487,6 +487,18 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
             message: 'contention-based rounds are two-way ranging only; one-way ranging needs a time-scheduled session',
           })
         }
+        // An anchor measures the angle of arrival on a frame the tag sends it, and only a
+        // two-way round has one: in DL-TDoA the tag never transmits, in UL-TDoA its single blink
+        // is not part of an exchange. The engine guards on the mode, so the flag would be
+        // silently inert here rather than wrong - the schema says so instead of letting a
+        // hand-edited or imported plan carry a setting that does nothing.
+        if (mode !== 'twr' && sc.uwb.aoa) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['uwb'],
+            message: 'angle of arrival is measured on two-way responses; turn it off for TDoA modes',
+          })
+        }
         const anchors = uwbNodes.filter((n) => n.uwb?.role === 'anchor').length
         const tags = uwbNodes.filter((n) => n.uwb?.role === 'tag').length
         if (anchors < 1 || tags < 1) {

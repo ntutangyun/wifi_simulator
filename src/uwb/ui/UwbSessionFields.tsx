@@ -20,15 +20,26 @@ const ms = (rstu: number): string => (rstuNs(rstu) / 1e6).toFixed(rstu < 3000 ? 
 /**
  * What picking a ranging mode changes. A one-way round is laid out in advance for every anchor,
  * so the schema takes it in a time-scheduled session only: switching to one takes the schedule
- * with it, exactly as picking DS-TWR does. Leaving the pair inconsistent would hand the user a
- * plan the schema rejects, with the fix two fields away.
+ * with it, exactly as picking DS-TWR does. Angle of arrival goes the same way — it is measured
+ * on a frame the tag sends, which a one-way round does not have, and the schema rejects the pair.
+ * Leaving either inconsistent would hand the user a plan the schema rejects, with the fix two
+ * fields away.
  *
  * What it deliberately does *not* touch is the anchor count — four are needed for three time
  * differences, and that is a fact about the plan the session cannot fix on its own, so it stays
  * with `uwbSessionIssue` where the user can read why.
  */
 export function uwbModePatch(mode: UwbMode): Partial<UwbSessionCfg> {
-  return mode === 'twr' ? { mode } : { mode, schedule: 'time' }
+  return mode === 'twr' ? { mode } : { mode, schedule: 'time', aoa: false }
+}
+
+/**
+ * What picking a TWR method changes. Only SS-TWR has a contention schedule — DS-TWR's report
+ * phase would need a second contention window this simulator does not model — so picking DS-TWR
+ * takes the session back to the time schedule with it, for the same reason `uwbModePatch` does.
+ */
+export function uwbMethodPatch(method: UwbSessionCfg['method']): Partial<UwbSessionCfg> {
+  return method === 'ds' ? { method, schedule: 'time' } : { method }
 }
 
 /**
@@ -64,13 +75,8 @@ export function UwbSessionFields(
       </div>
       <label style={label} title={E.uwbMethodHint}>
         {E.uwbMethod}{' '}
-        <select value={session.method} onChange={(e) => {
-          const method = e.target.value as UwbSessionCfg['method']
-          // Only SS-TWR has a contention schedule, so picking DS-TWR takes the session back to
-          // the time schedule with it. Leaving the pair inconsistent would hand the user a plan
-          // the schema rejects, with the fix two fields away.
-          onChange(method === 'ds' ? { method, schedule: 'time' } : { method })
-        }}>
+        <select value={session.method}
+          onChange={(e) => onChange(uwbMethodPatch(e.target.value as UwbSessionCfg['method']))}>
           <option value="ss">{E.uwbMethods.ss}</option>
           <option value="ds">{E.uwbMethods.ds}</option>
         </select>
@@ -109,13 +115,13 @@ export function UwbSessionFields(
           <option value="contention">{E.uwbSchedules.contention}</option>
         </select>
       </label>
-      <label style={label} title={contending ? E.uwbContentionSlotsHint : E.uwbSsOnly}>
+      <label style={label} title={contending ? E.uwbContentionSlotsHint : ssOnly ? E.uwbContentionOnly : E.uwbSsOnly}>
         {E.uwbContentionSlots}{' '}
         <input type="number" min={2} max={32} step={1} value={session.contentionSlots} style={{ width: 62 }}
           disabled={!contending}
           onChange={(e) => onChange({ contentionSlots: clampField(e.target.value, 2, 32, true) })} />
       </label>
-      <label style={label} title={contending ? E.uwbMaxAttemptsHint : E.uwbSsOnly}>
+      <label style={label} title={contending ? E.uwbMaxAttemptsHint : ssOnly ? E.uwbContentionOnly : E.uwbSsOnly}>
         {E.uwbMaxAttempts}{' '}
         <input type="number" min={1} max={10} step={1} value={session.maxAttempts} style={{ width: 62 }}
           disabled={!contending}

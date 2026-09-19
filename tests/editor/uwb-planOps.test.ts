@@ -3,7 +3,7 @@ import { canDeleteNode, hasAp, newAnchor, newAp, newUwbTag, removeNode, uwbSessi
 import { GEN_FEATURES } from '../../src/model/caps'
 import { DEFAULT_UWB_SESSION, ScenarioSchema, defaultScenario, type Scenario, type UwbSessionCfg } from '../../src/model/scenario'
 import { UWB_TX_POWER_DBM } from '../../src/uwb/phy'
-import { uwbModePatch } from '../../src/uwb/ui/UwbSessionFields'
+import { uwbMethodPatch, uwbModePatch } from '../../src/uwb/ui/UwbSessionFields'
 
 /** A scenario carrying `n` anchors and one tag on top of the default house. */
 function withUwb(n: number, session: Partial<UwbSessionCfg> = {}): Scenario {
@@ -151,11 +151,40 @@ describe('uwbSessionIssue', () => {
     // the user a plan it rejects, with the fix two fields away.
     const contending: Partial<UwbSessionCfg> = { method: 'ss', schedule: 'contention' }
     expect(uwbSessionIssue(withUwb(4, { ...contending, mode: 'ul-tdoa' }))).toMatch(/one-way|two-way/i)
-    expect(uwbModePatch('ul-tdoa')).toEqual({ mode: 'ul-tdoa', schedule: 'time' })
+    expect(uwbModePatch('ul-tdoa')).toEqual({ mode: 'ul-tdoa', schedule: 'time', aoa: false })
     expect(uwbSessionIssue(withUwb(4, { ...contending, ...uwbModePatch('ul-tdoa') }))).toBeNull()
     // Going back to two-way ranging touches the mode alone: the schedule is the user's again.
     expect(uwbModePatch('twr')).toEqual({ mode: 'twr' })
     expect(uwbSessionIssue(withUwb(4, { ...contending, ...uwbModePatch('twr') }))).toBeNull()
+  })
+
+  it('refuses angle of arrival outside two-way ranging, and the mode select clears it', () => {
+    // A bearing is measured on a frame the tag sends the anchor, and a one-way round has none:
+    // in DL-TDoA the tag never transmits, in UL-TDoA its blink is answered by nobody. The engine
+    // already ignored the flag there, so the schema now refuses the pair instead of letting a
+    // hand-edited plan carry a setting that does nothing.
+    for (const mode of ['dl-tdoa', 'ul-tdoa'] as const) {
+      const bad = withUwb(4, { mode, aoa: true })
+      expect(ScenarioSchema.safeParse(bad).success, mode).toBe(false)
+      expect(uwbSessionIssue(bad), mode).toBe('angle of arrival is measured on two-way responses; turn it off for TDoA modes')
+    }
+    // and the field the user actually touches never produces that pair
+    expect(uwbModePatch('dl-tdoa')).toEqual({ mode: 'dl-tdoa', schedule: 'time', aoa: false })
+    expect(uwbSessionIssue(withUwb(4, { aoa: true, ...uwbModePatch('dl-tdoa') }))).toBeNull()
+    // two-way ranging keeps the checkbox the user's own
+    expect(uwbModePatch('twr').aoa).toBeUndefined()
+    expect(uwbSessionIssue(withUwb(4, { aoa: true, ...uwbModePatch('twr') }))).toBeNull()
+  })
+
+  it('the method select patches the schedule with it, both ways', () => {
+    // The same invariant as the mode select, in the pure helper the field calls: the editor can
+    // never leave the plan in the pair the schema rejects.
+    const contending: Partial<UwbSessionCfg> = { method: 'ss', schedule: 'contention' }
+    expect(uwbMethodPatch('ds')).toEqual({ method: 'ds', schedule: 'time' })
+    expect(uwbSessionIssue(withUwb(4, { ...contending, ...uwbMethodPatch('ds') }))).toBeNull()
+    // going back to SS-TWR leaves the schedule alone: it is the user's field again
+    expect(uwbMethodPatch('ss')).toEqual({ method: 'ss' })
+    expect(uwbSessionIssue(withUwb(4, { ...contending, ...uwbMethodPatch('ss') }))).toBeNull()
   })
 
   it('still needs four anchors for a one-way mode, which no field can patch away', () => {

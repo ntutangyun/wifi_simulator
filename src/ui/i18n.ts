@@ -113,6 +113,8 @@ export interface Strings {
     /** The contention schedule (standard §10.32.2 mode 0), SS-TWR only. */
     uwbSchedule: string; uwbScheduleHint: string; uwbSchedules: Record<'time' | 'contention', string>
     uwbSsOnly: string
+    /** Why the window and the budget are greyed out in an SS-TWR session that is time-scheduled. */
+    uwbContentionOnly: string
     uwbContentionSlots: string; uwbContentionSlotsHint: string
     uwbMaxAttempts: string; uwbMaxAttemptsHint: string
     /** "slots per round N · rounds per block M" under the session fields. */
@@ -402,6 +404,7 @@ export const STRINGS: Record<Lang, Strings> = {
       uwbSchedule: 'Schedule', uwbScheduleHint: 'time-scheduled: the poll names every anchor and its slot, so nothing can collide. Contention (schedule mode 0): the poll only opens a response window, and each anchor draws a slot in it at random — cheaper for a controller that does not know who is there, at the price of collisions.',
       uwbSchedules: { time: 'time-scheduled', contention: 'contention-based' },
       uwbSsOnly: 'a contention round has only the response to place; DS-TWR would need a second window for its reports, so the schema allows contention with SS-TWR only',
+      uwbContentionOnly: 'nothing is drawn in a time-scheduled round — every anchor already has its own slot. Set Schedule to contention-based to use this.',
       uwbContentionSlots: 'Response slots', uwbContentionSlotsHint: 'the response window the poll advertises (RCPS IE): every anchor draws one of these slots uniformly. With N anchors and S slots, an anchor is alone in its slot with probability (1 − 1/S)^(N−1).',
       uwbMaxAttempts: 'Attempts', uwbMaxAttemptsHint: 'the retry budget the poll advertises (RCMA IE): after this many rounds in which the tag did not range it, an anchor sits one round out before drawing again',
       uwbPlan: (slots, rounds) => `slots per round ${slots} · rounds per block ${rounds}`,
@@ -823,6 +826,7 @@ export const STRINGS: Record<Lang, Strings> = {
       uwbSchedule: '调度方式', uwbScheduleHint: '时间调度：轮询帧逐一指明每个锚点及其时隙，因此不可能发生碰撞。竞争调度（调度模式 0）：轮询帧只开出一个响应窗口，各锚点各自在窗口内随机抽取一个时隙——控制器无需事先知道现场有哪些锚点，代价则是碰撞。',
       uwbSchedules: { time: '时间调度', contention: '竞争调度' },
       uwbSsOnly: '竞争轮次中只有响应帧需要安排时隙；DS-TWR 还需要为报告帧再开一个窗口，因此本仿真的校验规则只允许竞争调度配合 SS-TWR',
+      uwbContentionOnly: '时间调度的轮次里无需抽取——每个锚点本来就有自己的时隙。把“调度方式”改成竞争调度后才能使用本项。',
       uwbContentionSlots: '响应时隙数', uwbContentionSlotsHint: '轮询帧通告的响应窗口长度（RCPS IE）：每个锚点在这些时隙中均匀抽取一个。若有 N 个锚点、S 个时隙，则某个锚点独占其时隙的概率为 (1 − 1/S)^(N−1)。',
       uwbMaxAttempts: '尝试次数', uwbMaxAttemptsHint: '轮询帧通告的重试预算（RCMA IE）：连续这么多轮都没有被标签测到之后，锚点会空过一轮再重新抽取时隙',
       uwbPlan: (slots, rounds) => `每轮 ${slots} 个时隙 · 每块 ${rounds} 轮`,
