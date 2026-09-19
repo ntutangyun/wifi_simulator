@@ -234,4 +234,23 @@ describe('6 GHz coexistence', () => {
     const row = README.split('\n').find((l) => l.includes('§16.4.10')) ?? ''
     expect(row, 'the §16.4.10 row must be tagged standard').toContain('| standard §16.4.10 |')
   })
+
+  // The claim that Wi-Fi's CCA "never" fires on UWB power is only true past a distance: a UWB
+  // channel-5 frame's in-band EIRP inside an 80 MHz Wi-Fi channel fully overlapping it is
+  // UWB_TX_POWER_DBM (−14) + 10·log10(80/499.2) ≈ −22 dBm; at 0.3 m the UWB→Wi-Fi path loss
+  // (channel 5's PL0 ≈ 48.7 dB, UWB_PL_EXP = 2.0) is 48.7 + 20·log10(0.3) ≈ 38.2 dB, so the
+  // received power is ≈ −22 − 38.2 ≈ −60 dBm — close to CCA_ED_DBM (−62 dBm, src/engine/phy.ts):
+  // a Wi-Fi radio well within a metre of a UWB transmitter genuinely can see CCA busy from it, so
+  // every "CCA never fires" claim here must be qualified by distance, not stated unconditionally.
+  it('qualifies "CCA never fires on UWB power" by distance, in the Guide, glossary and README', () => {
+    for (const text of [en, zh]) expect(text).toContain('30 cm')
+    const noiseRise = (GLOSSARY.find((g) => g.id === 'uwb')?.items ?? [])
+      .find((i) => i.term.toLowerCase() === 'noise rise')
+    expect(noiseRise).toBeDefined()
+    for (const text of [noiseRise?.alt.en, noiseRise?.alt.zh, noiseRise?.def.en, noiseRise?.def.zh]) {
+      expect(text).toContain('30 cm')
+    }
+    const sirRow = README.split('\n').find((l) => l.includes('UWB SIR floor under in-band Wi-Fi')) ?? ''
+    expect(sirRow).toContain('30 cm')
+  })
 })
