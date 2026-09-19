@@ -781,6 +781,38 @@ export const GLOSSARY: GlossaryGroup[] = [
           zh: '锚点固定不动，其坐标通过带外方式为所有标签所知；标签才是待定位的对象。每轮最多 9 个锚点（再多，Final 帧就会超过 127 字节的 PSDU 上限），而解算一个二维位置至少需要 3 个锚点应答。',
         },
       },
+      {
+        term: '6 GHz channel (Wi-Fi 6E)',
+        alt: { en: 'Scenario.sixGhzCenterMhz, default 5 985 MHz = channel 7', zh: 'Scenario.sixGhzCenterMhz，默认 5 985 MHz，即第 7 信道' },
+        def: {
+          en: 'The centre frequency of the plan\'s 6 GHz Wi-Fi link. 802.11ax numbers a 6 GHz channel as (centre − 5 950) / 5, so the model default of 5 985 MHz is channel 7 — clear of UWB channel 5 (6 240–6 739.2 MHz). A channel picked inside that band, such as channel 71 at 6 305 MHz, overlaps it instead.',
+          zh: '本方案 6 GHz Wi-Fi 链路的中心频率。802.11ax 的信道编号为（中心频率 − 5 950）/ 5，因此模型默认的 5 985 MHz 就是第 7 信道——与 UWB 信道 5（6 240–6 739.2 MHz）没有重叠。若把信道选在该频段之内，例如 6 305 MHz 的第 71 信道，就会与之重叠。',
+        },
+      },
+      {
+        term: 'In-band interference',
+        alt: { en: 'the other technology\'s power inside your band', zh: '落在自己频段内的另一制式功率' },
+        def: {
+          en: 'What the Spectrum mediator delivers when a Wi-Fi 6 GHz channel and a UWB channel overlap: the overlapping slice of the foreign emission\'s power, carried to the receiver by the foreign transmitter\'s own path-loss law. A UWB channel with no overlap (channel 9, or channel 5 against a non-overlapping Wi-Fi channel) sees none of it, ever.',
+          zh: '当 6 GHz Wi-Fi 信道与 UWB 信道发生重叠时，Spectrum 中介所传递的量：对方发射功率中落在重叠频段内的那一部分，并按对方发射机自身的路径损耗规律传播到接收机。没有重叠的 UWB 信道（信道 9，或与不重叠的 Wi-Fi 信道搭配的信道 5）永远不会看到这部分功率。',
+        },
+      },
+      {
+        term: 'SIR',
+        alt: { en: 'signal-to-interference ratio, −12 dB minimum (model)', zh: '信干比，最低 −12 dB（模型取值）' },
+        def: {
+          en: 'A UWB receiver\'s correlation gain lets it decode a wanted frame under in-band Wi-Fi power down to rssi − foreignDbm = −12 dB (UWB_SIR_MIN_DB, model); below that the reception fails and is logged as UWB_INTERFERED, "lost to Wi-Fi". The standard itself fixes only the receiver\'s maximum input, −45 dBm/MHz (§16.4.10), not an SIR floor.',
+          zh: 'UWB 接收机凭借相关增益，即使有带内 Wi-Fi 功率也能解调，直到 rssi − foreignDbm 降到 −12 dB（UWB_SIR_MIN_DB，模型取值）为止；低于这个门限接收就会失败，记为 UWB_INTERFERED，即 "lost to Wi-Fi"。标准本身只规定了接收机的最大输入功率 −45 dBm/MHz（§16.4.10），并未规定信干比门限。',
+        },
+      },
+      {
+        term: 'Noise rise',
+        alt: { en: 'what Wi-Fi sees from a UWB frame — never CCA', zh: 'Wi-Fi 从 UWB 帧中看到的现象——绝不会触发 CCA' },
+        def: {
+          en: 'A UWB frame reaching a Wi-Fi receiver is spread so thinly (−14 dBm over 499.2 MHz) that it never crosses a CCA threshold: it only adds a small amount of extra power into that receiver\'s SINR while the frame is on the air, exactly like a rise in the noise floor. Wi-Fi\'s carrier sense never fires from it.',
+          zh: 'UWB 帧传到 Wi-Fi 接收机时功率被摊得极薄（−14 dBm 分摊在 499.2 MHz 上），永远不会超过 CCA 门限：它只会在自己发射期间，给接收机的 SINR 叠加一点点额外功率，如同噪底轻微抬升。Wi-Fi 的载波侦听永远不会被它触发。',
+        },
+      },
     ],
   },
 ]

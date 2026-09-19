@@ -81,6 +81,9 @@ The UWB side is a separate radio with its own PHY, its own schedule and its own 
 | NLOS excess delay 0.2 / 0.5 / 2.0 ns | model | glass / drywall / brick per wall crossed = 0.06 / 0.15 / 0.60 m of bias |
 | 2-D position: Gauss–Newton, GDOP, 1-σ ellipse | model | residual ‖p − aᵢ‖ − dᵢ with the tag's z known; Σ = σ_r²·(JᵀJ)⁻¹; needs ≥ 3 ranges |
 | ≤ 9 anchors per round | standard §16.2.7 (consequence) | the DS-TWR Final is 14 + 12N octets and must stay under the 127-octet PSDU limit |
+| 6 GHz Wi-Fi ↔ UWB channel-5 coupling | model | `Spectrum` mediator: flat spectral density inside each side's band, foreign power carried by the *transmitter's* own path-loss law; UWB channel 5 is 6 240–6 739.2 MHz, channel 9 is 7 737.6–8 236.8 MHz and never overlaps a 6 GHz Wi-Fi channel |
+| UWB SIR floor under in-band Wi-Fi, −12 dB | model | `UWB_SIR_MIN_DB`: rssi − foreignDbm below −12 dB fails the reception (`RX_FAIL { reason: 'lowSinr' }`) and logs `UWB_INTERFERED`; Wi-Fi's own CCA never fires on UWB power, which only shows up as a small SINR noise rise |
+| Receiver maximum input, −45 dBm/MHz | standard §16.4.10 | `UWB_MAX_INPUT_DBM_PER_MHZ`, documented for reference — not enforced as a threshold; the model's SIR floor stands in its place |
 
 ### Known simplifications
 
@@ -93,7 +96,7 @@ The UWB side is a separate radio with its own PHY, its own schedule and its own 
 - AMP is a draft (P802.11bp D0.5/D1.0): the tag's −72 dBm downlink sensitivity and the OOK SINR thresholds (decoding requirements the draft does not publish) are model choices, not standard values.
 - A tag finds its slot by counting AMP Acks in arrival order rather than reading a slot number off them; the draft leaves ABOC retransmission behaviour TBD, so a lost response draws a fresh ABOC next round.
 - UWB ranging is time-scheduled only: there is **no CCA**, no backoff, no NAV and no contention-based ranging round — every slot is assigned before the session starts, so two UWB devices never collide.
-- UWB reception is sensitivity-only: a frame is received when it clears −93 dBm, and interference is a 6 dB capture margin. There is no UWB SINR curve, no multipath channel model and no Wi-Fi 6E / UWB channel-5 coexistence.
+- UWB reception is sensitivity-only against another UWB frame: a frame is received when it clears −93 dBm, and interference from another UWB transmission is a 6 dB capture margin — there is no UWB SINR curve or multipath channel model there. Wi-Fi 6E / UWB channel-5 coexistence is a separate, cruder model: flat spectral density inside each side's band, path loss from the *transmitter's* own table, and no adjacent-channel leakage (an emission is either inside a band or contributes nothing to it).
 - Positions are solved in 2-D with the tag's z taken from the scenario; there is no AoA (no antenna array, no PDoA), no TDoA and no downlink-TDoA mode — only two-way ranging.
 - NLOS is one excess delay per wall crossed, not a delay spread: no first-path/strongest-path split, no leading-edge detection and no ranging bias calibration. The FoM is a two-valued model mapping (LOS / through-a-wall) and is reported, never used by the solver.
 - STS key management, contention-based rounds, round hopping, LRP UWB and multi-node round scheduling beyond one round per tag are out of scope.

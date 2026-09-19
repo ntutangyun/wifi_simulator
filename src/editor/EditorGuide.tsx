@@ -104,6 +104,14 @@ function EditorGuideEn() {
         seeds every random stream (backoff draws, traffic jitter). Same scenario + same seed =
         bit-identical run. Change it to resample the same setup.
       </D>
+      <D t="6 GHz channel">
+        the centre frequency of the plan&rsquo;s 6 GHz Wi-Fi link, <code>Scenario.sixGhzCenterMhz</code>{' '}
+        (default 5 985 MHz, 5 MHz steps). The readout next to the field is the 802.11ax channel
+        number, (centre − 5 950) / 5 — the default is channel 7. Below it, whenever a UWB session is
+        on channel 5, an overlap line reports what fraction of the Wi-Fi channel falls inside UWB
+        channel 5&rsquo;s 6 240–6 739.2 MHz band; that fraction is what feeds the Wi-Fi ↔ UWB
+        coexistence coupling (📚 Course, §11).
+      </D>
 
       <h4 style={h}>Node properties</h4>
       <D t="Name">
@@ -331,6 +339,13 @@ function EditorGuideZh() {
       <D t="种子">
         为所有随机流（退避抽取、业务抖动）播种。相同场景 + 相同种子 = 完全一致的运行结果；
         改变它即可对同一套配置重新抽样。
+      </D>
+      <D t="6 GHz 信道">
+        本方案 6 GHz Wi-Fi 链路的中心频率，即 <code>Scenario.sixGhzCenterMhz</code>
+        （默认 5 985 MHz，步进 5 MHz）。输入框旁边显示的是 802.11ax 信道编号，
+        由（中心频率 − 5 950）/ 5 算出——默认即第 7 信道。当有 UWB 会话运行在信道 5 上时，
+        下方还会显示一行重叠提示，给出该 Wi-Fi 信道落在 UWB 信道 5 的 6 240–6 739.2 MHz
+        频段之内的比例；这个比例正是 Wi-Fi 与 UWB 共存耦合（📚 课程，第 11 节）的输入。
       </D>
 
       <h4 style={h}>节点属性</h4>

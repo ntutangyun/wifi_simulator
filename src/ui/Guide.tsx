@@ -1,4 +1,6 @@
 /** Compact learning guide tying real 802.11 mechanisms to what the sim shows. */
+import { DEFAULT_SIX_GHZ_CENTER_MHZ, sixGhzChannelNo } from '../model/scenario'
+import { UWB_BAND_MHZ, UWB_MAX_INPUT_DBM_PER_MHZ, UWB_SIR_MIN_DB, UWB_TX_POWER_DBM } from '../uwb/phy'
 import { ELLIPSE_DRAW_SCALE } from '../uwb/view'
 import { useUi } from './store'
 
@@ -7,6 +9,13 @@ const p: React.CSSProperties = { margin: '2px 0', fontSize: 11.5, color: 'var(--
 const chip = (color: string) => (
   <span style={{ display: 'inline-block', width: 9, height: 9, background: color, borderRadius: 2, marginRight: 4 }} />
 )
+/** ASCII hyphen-minus to Unicode minus, for a JS negative number dropped straight into prose. */
+const dbFmt = (v: number): string => String(v).replace('-', '−')
+const UWB5_LO = UWB_BAND_MHZ[5].lo
+const UWB5_HI = UWB_BAND_MHZ[5].hi
+const UWB9_LO = UWB_BAND_MHZ[9].lo
+const UWB9_HI = UWB_BAND_MHZ[9].hi
+const SIX_GHZ_DEFAULT_CH = sixGhzChannelNo(DEFAULT_SIX_GHZ_CENTER_MHZ)
 
 export function Guide() {
   const lang = useUi((s) => s.lang)
@@ -179,6 +188,20 @@ export function GuideEn() {
         through any wall is reported with the worse FoM, 75 % within 12 ns instead of 97 % within
         0.5 ns (§10.29.1.7).
       </p>
+      <p style={p}>
+        <b>Sharing the 6 GHz band:</b> UWB channel 5 ({UWB5_LO}–{UWB5_HI} MHz) sits inside the 6 GHz Wi-Fi band;
+        channel 9 ({UWB9_LO}–{UWB9_HI} MHz) never overlaps it. <code>Scenario.sixGhzCenterMhz</code> numbers the
+        Wi-Fi channel — (centre − 5950) / 5 — so the model default {DEFAULT_SIX_GHZ_CENTER_MHZ} MHz is channel{' '}
+        {SIX_GHZ_DEFAULT_CH}, clear of channel 5, while channel 71 (6305 MHz, 80 MHz wide) sits fully inside it —
+        the coexistence lesson's setting. The two sides are lopsided: a Wi-Fi AP typically radiates around 20 dBm,
+        a UWB frame only {dbFmt(UWB_TX_POWER_DBM)} dBm spread over half a gigahertz. Under an overlapping Wi-Fi
+        PPDU, the UWB receiver's correlation gain still decodes down to a signal-to-interference ratio (SIR) of{' '}
+        {dbFmt(UWB_SIR_MIN_DB)} dB (model — the standard fixes only the receiver's maximum input, {dbFmt(UWB_MAX_INPUT_DBM_PER_MHZ)}{' '}
+        dBm/MHz, §16.4.10); below that the frame is lost, logged as <b>UWB_INTERFERED</b>, "lost to Wi-Fi". Wi-Fi
+        never notices the reverse: a UWB frame is far too weak to trip CCA (physical carrier sense) — it only shows
+        up as a small noise rise inside the Wi-Fi receiver's SINR while the frame is on the air. The practical fix
+        is UWB channel 9, or a 6 GHz Wi-Fi channel that does not overlap channel 5.
+      </p>
 
       <h4 style={h}>Things to try</h4>
       <p style={p}>
@@ -347,6 +370,19 @@ export function GuideZh() {
         残余时钟偏差 0.2 ppm，以及穿墙附加时延 0.2 ns（玻璃）/ 0.5 ns（石膏板）/ 2.0 ns（砖）。
         这个 NLOS 时延是偏差而非噪声——再多次平均也消不掉——凡是穿墙的路径都会报出更差的 FoM：
         75 % 落在 12 ns 之内，而不是视距时的 97 % 落在 0.5 ns 之内（§10.29.1.7）。
+      </p>
+      <p style={p}>
+        <b>与 6 GHz Wi-Fi 共存：</b>UWB 信道 5（{UWB5_LO}–{UWB5_HI} MHz）落在 6 GHz Wi-Fi 频段之内；
+        信道 9（{UWB9_LO}–{UWB9_HI} MHz）则与之完全不重叠。<code>Scenario.sixGhzCenterMhz</code> 给出 Wi-Fi 信道编号——
+        （中心频率 − 5950）/ 5——因此模型默认的 {DEFAULT_SIX_GHZ_CENTER_MHZ} MHz 是第 {SIX_GHZ_DEFAULT_CH} 信道，
+        与信道 5 无重叠；而第 71 信道（6305 MHz，80 MHz 带宽）则整段落在信道 5 之内——这正是共存课程所用的设置。
+        两者的发射功率极不对称：Wi-Fi AP 通常在 20 dBm 附近发射，而一帧 UWB 只有 {dbFmt(UWB_TX_POWER_DBM)} dBm，
+        还分摊在近半个 GHz 的带宽上。当有重叠的 Wi-Fi PPDU 在空口上时，UWB 接收机凭借相关增益仍能在信干比
+        （SIR）低至 {dbFmt(UWB_SIR_MIN_DB)} dB 时解调（模型取值——标准只规定了接收机的最大输入功率
+        {dbFmt(UWB_MAX_INPUT_DBM_PER_MHZ)} dBm/MHz，§16.4.10）；低于这个门限，该帧就会丢失，记为
+        <b> UWB_INTERFERED</b>，即“lost to Wi-Fi”（因 Wi-Fi 而丢失）。反过来 Wi-Fi 完全察觉不到：
+        UWB 帧的功率远不足以触发 CCA（物理载波侦听）——它只会在 UWB 帧发射期间，让 Wi-Fi 接收机的
+        SINR 出现一点点噪声抬升。实际的解决办法是改用 UWB 信道 9，或者选一个不与信道 5 重叠的 6 GHz Wi-Fi 信道。
       </p>
 
       <h4 style={h}>动手试试</h4>

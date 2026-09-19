@@ -12,7 +12,8 @@ import { DEFAULT_UWB_SESSION } from '../../src/model/scenario'
 import { GuideEn, GuideZh } from '../../src/ui/Guide'
 import { GLOSSARY } from '../../src/ui/glossary'
 import {
-  COUNTER_MOD, FOM_LOS, FOM_NLOS, RCTU_NS, UWB_MAX_ANCHORS, UWB_RX_SENS_DBM, UWB_TX_POWER_DBM,
+  COUNTER_MOD, FOM_LOS, FOM_NLOS, RCTU_NS, UWB_BAND_MHZ, UWB_MAX_ANCHORS, UWB_MAX_INPUT_DBM_PER_MHZ,
+  UWB_RX_SENS_DBM, UWB_SIR_MIN_DB, UWB_TX_POWER_DBM,
   fomDecode, fomText, rstuNs, uwbFinalBytes, uwbSlotsPerTag,
 } from '../../src/uwb/phy'
 import { rangeSigmaM } from '../../src/uwb/position'
@@ -22,6 +23,8 @@ const README = readFileSync(new URL('../../README.md', import.meta.url), 'utf8')
 
 /** The prose writes a Unicode minus, not an ASCII hyphen. */
 const dbm = (v: number): string => `${v} dBm`.replace('-', '−')
+/** Same, for a bare dB figure (the coexistence SIR floor, not a power level). */
+const db = (v: number): string => `${v} dB`.replace('-', '−')
 /** A schedule figure as the prose states it: `rstuNs` is the one definition of an RSTU. */
 const ms = (rstu: number): string => `${rstuNs(rstu) / 1e6} ms`
 
@@ -194,5 +197,41 @@ describe('README', () => {
   it('records the UWB simplifications', () => {
     expect(README).toContain('no CCA')
     expect(README).toMatch(/AoA/)
+  })
+})
+
+describe('6 GHz coexistence', () => {
+  const en = renderGuide('en')
+  const zh = renderGuide('zh')
+
+  it('the Guide states the SIR floor and the UWB channel-5 band edges from the engine constants', () => {
+    for (const text of [en, zh]) {
+      expect(text).toContain(db(UWB_SIR_MIN_DB)) // −12 dB
+      expect(text).toContain(`${UWB_BAND_MHZ[5].lo}`) // 6240
+      expect(text).toContain(`${UWB_BAND_MHZ[5].hi}`) // 6739.2
+    }
+  })
+
+  it('the glossary carries the four coexistence terms, bilingual', () => {
+    const group = GLOSSARY.find((g) => g.id === 'uwb')
+    const terms = (group?.items ?? []).map((i) => i.term.toLowerCase())
+    for (const t of ['in-band interference', 'sir', 'noise rise', '6 ghz channel']) {
+      expect(terms.some((x) => x.includes(t)), `missing glossary term: ${t}`).toBe(true)
+    }
+    const sirItem = group?.items.find((i) => i.term.toLowerCase() === 'sir')
+    expect(sirItem).toBeDefined()
+    for (const text of [sirItem?.alt.en, sirItem?.alt.zh, sirItem?.def.en, sirItem?.def.zh]) {
+      expect(text).toContain(db(UWB_SIR_MIN_DB))
+    }
+    for (const text of [sirItem?.def.en, sirItem?.def.zh]) {
+      expect(text).toContain(`${UWB_MAX_INPUT_DBM_PER_MHZ}`.replace('-', '−'))
+      expect(text).toContain('§16.4.10')
+    }
+  })
+
+  it('the README carries the §16.4.10 row for the receiver maximum input', () => {
+    expect(README).toContain('§16.4.10')
+    const row = README.split('\n').find((l) => l.includes('§16.4.10')) ?? ''
+    expect(row, 'the §16.4.10 row must be tagged standard').toContain('| standard §16.4.10 |')
   })
 })
