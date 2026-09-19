@@ -35,6 +35,7 @@ export const TIERS: Tier[] = [
   { track: 'wifi', en: 'Tier 3 · The PHY underneath', zh: '第三阶段 · 底层 PHY' },
   { track: 'wifi', en: 'Tier 4 · Researcher', zh: '第四阶段 · 研究' },
   { track: 'uwb', en: 'UWB Tier 1 · Ranging foundations', zh: 'UWB 第一阶段 · 测距基础' },
+  { track: 'uwb', en: 'UWB Tier 2 · Sessions in the real world', zh: 'UWB 第二阶段 · 真实环境中的会话' },
 ]
 
 export interface CourseModule {
@@ -56,6 +57,8 @@ export const MODULES: CourseModule[] = [
   { tier: 3, title: { en: 'Wi-Fi 8 and research craft', zh: 'Wi-Fi 8 与研究方法' } },
   { tier: 4, title: { en: 'Time of flight', zh: '飞行时间' } },
   { tier: 4, title: { en: 'Ranging sessions and positioning', zh: '测距会话与定位' } },
+  { tier: 5, title: { en: 'Coexistence', zh: '共存' } },
+  { tier: 5, title: { en: 'Other ranging modes', zh: '其他测距模式' } },
 ]
 
 /**
@@ -82,6 +85,10 @@ export const COURSE_ORDER: string[] = [
   'uwb-intro', 'uwb-sstwr', 'uwb-dstwr',
   // UWB Tier 1 — M12 sessions and positioning
   'uwb-blocks', 'uwb-position',
+  // UWB Tier 2 — M13 coexistence
+  'uwb-coexist', 'uwb-contention',
+  // UWB Tier 2 — M14 other ranging modes
+  'uwb-dl-tdoa', 'uwb-ul-tdoa', 'uwb-aoa',
 ]
 
 /** Lessons in reading order; ids in COURSE_ORDER without an authored lesson are skipped. */

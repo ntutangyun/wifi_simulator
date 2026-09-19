@@ -3,7 +3,7 @@
  * (walls, houses, nodes) and jump-target predicates. Lesson files import from
  * here, never from lessons.ts, so modules that define lessons do not form a cycle.
  */
-import { defaultFeatures, linkOfVirtual } from '../model/caps'
+import { defaultFeatures, linkOfVirtual, type ChannelWidth } from '../model/caps'
 import type { AmpApCfg, NodeCfg, ProfileId, Room, Scenario, UwbSessionCfg, Wall } from '../model/scenario'
 import { DEFAULT_AMP_AP, DEFAULT_UWB_SESSION } from '../model/scenario'
 import type { TLRecord } from '../model/records'
@@ -153,6 +153,23 @@ export function tag(id: string, name: string, x: number, y: number, dlSensDbm?: 
 export function ampAp(id: string, name: string, x: number, y: number, amp: Partial<AmpApCfg> = {}, features?: Record<string, boolean>): NodeCfg {
   const n = node(id, name, 'ap', x, y, 'eht', 'idle', features ?? { edca: true, txop: true, ampdu: true })
   return { ...n, ampAp: { ...DEFAULT_AMP_AP, ...amp } }
+}
+
+/** The width every 6 GHz node this kit builds asks for: the 80 MHz block a Wi-Fi 6E/7
+ * client takes by default, and the width `Scenario.sixGhzCenterMhz` names the centre of. */
+export const LESSON_6G_WIDTH_MHZ: ChannelWidth = 80
+
+/**
+ * A station on the 6 GHz link at 80 MHz, Wi-Fi 7, with the feature set the AMP
+ * lessons give their router — EDCA, TXOP and aggregation — so a saturated or
+ * browsing stream behaves like a modern client rather than a 1997 one. `linkId`
+ * pins it to 6 GHz; its AP needs none, because an AP is a member of every link
+ * one of its stations uses.
+ */
+export function wifi6g(id: string, name: string, x: number, y: number, profile: ProfileId | ProfileId[]): NodeCfg {
+  const n = node(id, name, 'sta', x, y, 'eht', profile, { edca: true, txop: true, ampdu: true }, 1.0)
+  n.caps.widthMhz = LESSON_6G_WIDTH_MHZ
+  return { ...n, linkId: '6g' }
 }
 
 /**
