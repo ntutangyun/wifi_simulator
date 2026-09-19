@@ -178,12 +178,16 @@ describe('Spectrum foreign power', () => {
     expect(woken).toEqual([0]) // a no-op retire wakes nobody
   })
 
-  it('refuses to guess a channel for a band that is no UWB channel', () => {
+  it('refuses to guess a channel for a band that is no UWB channel, at the emit that built it', () => {
     const q = new EventQueue()
     const clock = makeClock(q)
     const s = new Spectrum([], q, clock.now)
-    s.emit('uwb', { txId: 'odd', eirpDbm: -14, bandLoMhz: 2400, bandHiMhz: 2480, pos: at(0) })
-    expect(() => s.foreignMw('wifi', at(4), 2400, 2480)).toThrow(/no UWB channel/)
+    const odd = { txId: 'odd', eirpDbm: -14, bandLoMhz: 2400, bandHiMhz: 2480, pos: at(0) }
+    // the throw names the caller that got it wrong, rather than surfacing later inside some
+    // Wi-Fi receiver's interference sum
+    expect(() => s.emit('uwb', odd)).toThrow(/no UWB channel/)
+    // and nothing was registered: the bad emission cannot reach a query at all
+    expect(s.foreignMw('wifi', at(4), 2400, 2480)).toBe(0)
   })
 
   it('accepts channel 9 as well as channel 5', () => {

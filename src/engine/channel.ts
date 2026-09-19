@@ -194,7 +194,18 @@ export class Channel {
     spectrum?.s.onChange('wifi', (t) => this.onForeignChange(t))
   }
 
-  /** The band a PPDU occupies on this link: the operating centre, the PPDU's own width. */
+  /**
+   * The band a PPDU occupies on this link: the operating centre, the PPDU's own width.
+   *
+   * `ampNoiseBwMhz` is a *receiver's* noise bandwidth, and it is exactly right for the two
+   * receive-side queries, which integrate the foreign term over the same band as the thermal term
+   * beside it. Used for the emission it is a deliberate simplification: a frame with no
+   * `widthMhz` - an ACK, a BlockAck, RTS/CTS, a Trigger - goes on the air as 20 MHz at the
+   * channel centre rather than as a non-HT duplicate across the operating channel. Total EIRP is
+   * preserved and nothing shipped straddles a UWB band edge, but at 320 MHz on 6305 MHz a data
+   * PPDU would put 70 % of its power into UWB channel 5 while the 20 MHz ACK answering it puts
+   * 100 %. Centring the emission on `sp.widthMhz` for such frames is the fix, when it matters.
+   */
   private ppduBand(frame: FrameDesc, sp: ChannelSpectrum): [number, number] {
     const w = ampNoiseBwMhz(frame)
     return [sp.centerMhz - w / 2, sp.centerMhz + w / 2]

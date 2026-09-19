@@ -74,11 +74,23 @@ export const UWB_PPM_MAX = 20 // standard §16.4.9: ±20 ppm
 
 // --- 6 GHz coexistence: band edges and overlap arithmetic -----------------------
 
-/** Each UWB channel's occupied band: centre ± 249.6 MHz (half of the 499.2 MHz channel
- * width). standard Table 11-9 */
+/**
+ * Each UWB channel's occupied band: its centre ± half the 499.2 MHz channel width, derived from
+ * the centres above rather than written out a second time, so a channel added there cannot be
+ * given an edge that disagrees with it. standard Table 11-9
+ *
+ * The halving is snapped back to the 0.1 MHz the standard's table states: `6489.6 + 249.6` is
+ * 6739.200000000001 in binary floating point, and these edges are compared against Wi-Fi channel
+ * edges that are exact, so the snap keeps 6240.0 / 6739.2 / 7737.6 / 8236.8 exactly as before.
+ */
+const bandOf = (ch: UwbChannelNo): { lo: number; hi: number } => {
+  const half = UWB_CHIP_HZ / 1e6 / 2
+  const snap = (x: number): number => Math.round(x * 10) / 10
+  return { lo: snap(UWB_CHANNEL_MHZ[ch] - half), hi: snap(UWB_CHANNEL_MHZ[ch] + half) }
+}
 export const UWB_BAND_MHZ: Record<UwbChannelNo, { lo: number; hi: number }> = {
-  5: { lo: 6240.0, hi: 6739.2 },
-  9: { lo: 7737.6, hi: 8236.8 },
+  5: bandOf(5),
+  9: bandOf(9),
 }
 
 /** Width, in MHz, of the Wi-Fi channel [centerMhz − widthMhz/2, centerMhz + widthMhz/2]

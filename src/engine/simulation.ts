@@ -66,7 +66,13 @@ export class Simulation {
   readonly uwb?: UwbNetwork
   /**
    * The cross-technology mediator, non-null only when a 6 GHz Wi-Fi link and a
-   * UWB session actually share spectrum. Both engines hold the same object.
+   * UWB session may share spectrum. Both engines hold the same object.
+   *
+   * "May": the gate widens the link's negotiated width to at least 160 MHz before testing the
+   * overlap, because a 6 GHz link can reach 320 MHz and a false negative would silently uncouple
+   * the two engines. So a narrow link centred just outside the UWB band still builds a mediator,
+   * which is then inert - every `foreignMw` uses the real width and returns 0. Read this field as
+   * "the bands may meet", never as "these two are coupled".
    */
   readonly spectrum: Spectrum | null = null
 
@@ -298,10 +304,12 @@ export class Simulation {
     }
 
     // ---- UWB ranging session ----
-    // A scheduled session runs beside the BSS without touching it: its own
-    // medium, its own devices, its own event stream. Forking from `root` does
-    // not advance it, so adding UWB nodes to a scenario leaves the Wi-Fi
-    // timeline bit-for-bit identical.
+    // A scheduled session runs beside the BSS: its own medium, its own devices, its own event
+    // stream. Forking from `root` does not advance it, so adding UWB nodes to a scenario leaves
+    // the Wi-Fi timeline bit-for-bit identical - unless the bands meet. With a `this.spectrum`
+    // the two engines do touch: a UWB frame raises every open Wi-Fi lock's interference and can
+    // turn an RX_OK into an RX_FAIL lowSinr, and each emission adds a phase-1 notification. The
+    // RNG fork order, which is what the bit-for-bit claim protects, is unchanged either way.
     if (uwbNodes.length && sc.uwb) {
       // The mediator, if the 6 GHz link built one above, is handed on here: both
       // engines then hold the same object and hear each other's emissions.

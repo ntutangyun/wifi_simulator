@@ -19,7 +19,7 @@ import type { Ns, Vec3 } from '../../src/model/types'
 import { UwbChannel, type UwbRadio, type UwbRxInfo } from '../../src/uwb/channel'
 import { makePoll } from '../../src/uwb/frames'
 import {
-  UWB_PL_EXP, UWB_SIR_MIN_DB, UWB_TX_POWER_DBM, uwbInBandDbm, uwbPl0Db,
+  UWB_CAPTURE_DB, UWB_PL_EXP, UWB_SIR_MIN_DB, UWB_TX_POWER_DBM, uwbInBandDbm, uwbPl0Db,
 } from '../../src/uwb/phy'
 
 /** 6 GHz channel 71: 6305 MHz centre, 80 MHz — wholly inside UWB channel 5's band. */
@@ -62,19 +62,20 @@ class StubRadio implements UwbRadio {
   onRxFail(from: string, reason: RxFailReason): void { this.fails.push({ from, reason }) }
 }
 
-/** A two-node UWB channel on channel 5, with or without a Spectrum beside it. */
-function harness(withSpectrum: boolean) {
+/** A UWB channel on channel 5, with or without a Spectrum beside it; two nodes unless a test
+ * needs a third to collide with. */
+function harness(withSpectrum: boolean, nodes: NodeCfg[] = NODES) {
   const q = new EventQueue()
   let now: Ns = 0
   const records: TLRecord[] = []
   const emit = makeEmitter((r) => records.push(r))
   const s = new Spectrum([], q, () => now)
   const ch = new UwbChannel(
-    q, () => now, NODES, [], { channel: 5, nlos: false }, () => 0, emit,
+    q, () => now, nodes, [], { channel: 5, nlos: false }, () => 0, emit,
     withSpectrum ? s : null,
   )
   const radios = new Map<string, StubRadio>()
-  for (const n of NODES) {
+  for (const n of nodes) {
     const r = new StubRadio()
     radios.set(n.id, r)
     ch.register(n.id, r)
@@ -166,6 +167,28 @@ describe('UwbChannel · a reception under in-band Wi-Fi power', () => {
     expect(out.fail?.reason).toBe('lowSinr')
     expect(out.interfered?.sirDb).toBeCloseTo(-34.46, 2)
     expect(out.records.find((r) => r.type === 'RX_START' && r.node === 'a')?.t).toBeLessThan(100_000)
+  })
+
+  it('reports a collided frame as a collision, never as interference', () => {
+    // Two transmitters the same distance from the anchor, so neither captures the other, under
+    // the same +20 dBm of Wi-Fi that kills a clean frame above. The collision decision is taken
+    // first and returns, so the reception never reaches the SIR test: one RX_FAIL, reason
+    // collision, and no UWB_INTERFERED anywhere - the lesson counts those per second, and a leak
+    // from the collision path would inflate the headline number it prints.
+    const second = node('t2', { x: 0, y: 0.2, z: 0 }, 'tag')
+    const h = harness(true, [...NODES, second])
+    h.at(0, () => h.ch.transmit('t', poll()))
+    h.at(0, () => h.ch.transmit('t2', makePoll('t2', ['a'], 'ss', 0, 0)))
+    h.at(0, () => h.s.emit('wifi', wifiEmission(20)))
+    h.runUntil(10_000_000)
+    const fails = h.records.filter((r) => r.type === 'RX_FAIL' && r.node === 'a')
+    // both frames are lost, each as a collision: neither captured the other
+    expect(fails.map((r) => (r as Extract<TLRecord, { type: 'RX_FAIL' }>).reason)).toEqual(['collision', 'collision'])
+    expect(h.records.some((r) => r.type === 'UWB_INTERFERED')).toBe(false)
+    // and the two levels really are inside the capture margin
+    const dA = Math.hypot(ANC_POS.x - TAG_POS.x, ANC_POS.y - TAG_POS.y)
+    const dB = Math.hypot(ANC_POS.x - second.pos.x, ANC_POS.y - second.pos.y)
+    expect(Math.abs(10 * UWB_PL_EXP * Math.log10(dB / dA))).toBeLessThan(UWB_CAPTURE_DB)
   })
 
   it('leaves every record untouched when nothing foreign is on the air', () => {

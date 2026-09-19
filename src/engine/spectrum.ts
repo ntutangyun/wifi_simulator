@@ -16,7 +16,7 @@
 import type { Wall } from '../model/scenario'
 import type { Ns, Vec3 } from '../model/types'
 import { EventQueue } from './events'
-import { PL0_DB, PL_EXP, wallLossDb } from './propagation'
+import { pathLossDb, wallLossDb } from './propagation'
 import { UWB_CHANNEL_MHZ, UWB_PL_EXP, uwbPl0Db, type UwbChannelNo } from '../uwb/phy'
 
 export type SpectrumSide = 'wifi' | 'uwb'
@@ -31,12 +31,14 @@ export interface Emission {
 
 /** `LINK_EXTRA_LOSS_DB['6g']` in `simulation.ts`; repeated here so the mediator stays free of the
  * simulation's imports (`simulation.ts` imports this module, so the edge cannot run the other way).
- * `PL0_DB`/`PL_EXP` and `UWB_PL_EXP` are imported rather than copied: those edges already exist. */
+ * `pathLossDb` and `UWB_PL_EXP` are imported rather than copied: those edges already exist. */
 const WIFI_6G_EXTRA_LOSS_DB = 1.2
 
-/** Wi-Fi 6 GHz PPDU seen by a UWB receiver: the Wi-Fi link's own law, 6 GHz extra loss included. */
+/** Wi-Fi 6 GHz PPDU seen by a UWB receiver: the Wi-Fi link's own law - `pathLossDb` itself, not a
+ * second copy of it, so a retune of its shape reaches the foreign term too - 6 GHz extra loss
+ * included. */
 export function wifiToUwbPathLossDb(dM: number, wallsDb: number): number {
-  return PL0_DB + 10 * PL_EXP * Math.log10(Math.max(dM, 0.1)) + wallsDb + WIFI_6G_EXTRA_LOSS_DB
+  return pathLossDb(dM) + wallsDb + WIFI_6G_EXTRA_LOSS_DB
 }
 
 /** UWB frame seen by a Wi-Fi receiver: UWB's free-space law at the channel's centre frequency. */
@@ -60,7 +62,8 @@ const UWB_CHANNELS = [5, 9] as const satisfies readonly UwbChannelNo[]
 const UWB_CHANNEL_MATCH_MHZ = 250
 
 /** The UWB channel an emission's band belongs to: the nearest channel centre in `UWB_CHANNEL_MHZ`.
- * Throws on a band that is no UWB channel — `Emission` would then need an explicit channel. */
+ * Throws on a band that is no UWB channel — `Emission` would then need an explicit channel.
+ * Called from `emit` (fail fast) as well as from `foreignMw`, which needs the answer. */
 function uwbChannelOf(e: Emission): UwbChannelNo {
   const centre = (e.bandLoMhz + e.bandHiMhz) / 2
   let best: UwbChannelNo = UWB_CHANNELS[0]
@@ -93,8 +96,12 @@ export class Spectrum {
 
   /** Register a live emission of one side; wakes the other side at phase 1 of the current instant.
    * The emission is held **by reference**: it must not be mutated while live (a moving node emits
-   * a fresh `Emission` per frame), and the same object must be handed back to `retire`. */
+   * a fresh `Emission` per frame), and the same object must be handed back to `retire`.
+   *
+   * A UWB band that matches no channel is refused here rather than at the first query that
+   * happens to touch it, so the exception names the caller that built it. */
   emit(side: SpectrumSide, e: Emission): void {
+    if (side === 'uwb') uwbChannelOf(e)
     this.live[side].push(e)
     this.notify(OTHER[side])
   }
