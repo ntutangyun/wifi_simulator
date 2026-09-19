@@ -337,9 +337,18 @@ describe('uwb-aoa · two antennas, one phase', () => {
     for (const t of [0, -45, -60, 30]) {
       expect(aoaSigmaDeg(t), String(t)).toBeCloseTo((AOA_SIGMA_PHI_RAD / (Math.PI * Math.cos(t * Math.PI / 180))) * 180 / Math.PI, 12)
     }
-    // "at ±90° it diverges … The model clamps it at 45°"
+    // "at ±90° it diverges … The model clamps σ_θ itself at 45°, which it reaches at about
+    // ±86.5° off boresight": the clamp is on the sigma, and it does not bite anywhere the lesson
+    // sends the badge — not at 60°, and not at the 80° spot of try-this 1
     expect(aoaSigmaDeg(90)).toBe(AOA_SIGMA_CLAMP_DEG)
     expect(AOA_SIGMA_CLAMP_DEG).toBe(45)
+    const crossoverDeg = Math.acos(AOA_SIGMA_PHI_RAD / (Math.PI * AOA_SIGMA_CLAMP_DEG * Math.PI / 180)) * 180 / Math.PI
+    expect(crossoverDeg.toFixed(1)).toBe('86.5')
+    expect(aoaSigmaDeg(86.4)).toBeLessThan(AOA_SIGMA_CLAMP_DEG)
+    expect(aoaSigmaDeg(86.6)).toBe(AOA_SIGMA_CLAMP_DEG)
+    expect(aoaSigmaDeg(-60)).toBeLessThan(AOA_SIGMA_CLAMP_DEG)
+    expect(aoaSigmaDeg(-80)).toBeLessThan(AOA_SIGMA_CLAMP_DEG)
+    expect(prose()).toContain('The model clamps σ_θ itself at 45°, which it reaches at about ±86.5° off boresight')
     expect(aoaSigmaDeg(-80).toFixed(2)).toBe('15.75')
     expect([cell(0, 2), cell(1, 2), cell(2, 2)]).toEqual(['2.74°', '3.87°', '5.47°'])
     expect(prose()).toContain('σ_θ = σ_φ/(π·cos θ)')
@@ -538,14 +547,27 @@ describe('uwb-aoa · the ellipse across the line of sight', () => {
       for (const r of recs(v)) applyRecord(st, r)
       return st
     }
-    // "the row's 1-σ grows 2.7° → 4.3° → 7.5°" — the inspector row, at the LAST measured angle
-    expect((['base', 'off45', 'off60'] as UwbAoaVariant[]).map((v) => uwbAoaRows(vs(v).nodes[ANC].uwb!)[0].sigma))
+    // "The inspector's 1-σ is σ_θ at the bearing that row happened to measure last, so it moves
+    // with every draw: here it reads ± 2.7°, ± 4.3° and ± 7.5° where the model's σ_θ at the three
+    // spots is 2.74°, 3.87° and 5.47°."
+    const SPOT3: UwbAoaVariant[] = ['base', 'off45', 'off60']
+    expect(SPOT3.map((v) => uwbAoaRows(vs(v).nodes[ANC].uwb!)[0].sigma))
       .toEqual(['± 2.7°', '± 4.3°', '± 7.5°'])
+    // it really is the LAST bearing of the run and not the truth: the row is aoaSigmaDeg of it,
+    // and at two of the three spots that is a different number from the model's σ_θ
+    for (const v of SPOT3) {
+      const last = of(recs(v), 'UWB_AOA').at(-1)!
+      expect(uwbAoaRows(vs(v).nodes[ANC].uwb!)[0].sigma, v).toBe(`± ${aoaSigmaDeg(last.thetaDeg).toFixed(1)}°`)
+      expect(last.thetaDeg, v).not.toBe(last.trueThetaDeg)
+    }
+    expect(SPOT3.map((v) => aoaSigmaDeg(SPOTS[v].offBoresightDeg).toFixed(2)))
+      .toEqual(['2.74', '3.87', '5.47'])
+    // and the sentence does not leave the reader with the row's trio as the model's
+    expect(uwbAoa.tryThis[0].en).toContain('the model’s σ_θ at the three spots is 2.74°, 3.87° and 5.47°')
+    expect(uwbAoa.tryThis[0].zh).toContain('2.74°、3.87° 与 5.47°')
     // "the mean fix error goes 9.6 → 26.5 → 48.2 cm while the range error stays at 2.0 cm"
-    expect((['base', 'off45', 'off60'] as UwbAoaVariant[]).map((v) => cm(mean(fixErrM(recs(v))))))
-      .toEqual(['9.6', '26.5', '48.2'])
-    expect((['base', 'off45', 'off60'] as UwbAoaVariant[]).map((v) => cm(mean(ancRangeErrM(recs(v))))))
-      .toEqual(['2.0', '2.0', '2.0'])
+    expect(SPOT3.map((v) => cm(mean(fixErrM(recs(v)))))).toEqual(['9.6', '26.5', '48.2'])
+    expect(SPOT3.map((v) => cm(mean(ancRangeErrM(recs(v)))))).toEqual(['2.0', '2.0', '2.0'])
     // the 80° spot: (8.94, 1.19) is 80° off boresight at 4 m, and inside the room
     const far = { x: ANCHOR_X + 4 * Math.sin(80 * Math.PI / 180), y: ANCHOR_Y + 4 * Math.cos(80 * Math.PI / 180) }
     expect([far.x.toFixed(2), far.y.toFixed(2)]).toEqual(['8.94', '1.19'])
@@ -560,10 +582,12 @@ describe('uwb-aoa · the ellipse across the line of sight', () => {
     expect(bearings.filter((b) => b.thetaDeg === -90)).toHaveLength(6)
     expect(Math.max(...of(run80, 'UWB_POSITION').map((f) => f.ellipse.a)).toFixed(2)).toBe('3.16')
     const t1 = uwbAoa.tryThis[0].en
-    expect(t1).toContain('the row’s 1-σ grows 2.7° → 4.3° → 7.5°')
-    expect(t1).toContain('the mean fix error goes 9.6 → 26.5 → 48.2 cm while the range error stays at 2.0 cm')
+    expect(t1).toContain('The inspector’s 1-σ is σ_θ at the bearing that row happened to measure last, so it moves with every draw: here it reads ± 2.7°, ± 4.3° and ± 7.5°')
+    expect(t1).toContain('The mean fix error goes 9.6 → 26.5 → 48.2 cm while the range error stays at 2.0 cm')
     expect(t1).toContain('9.4 × 2.1, 25.7 × 2.1, 43.1 × 2.1 cm')
-    expect(t1).toContain('(8.94, 1.19), 80° off at 4 m: σ_θ is 15.75°, six of the fourteen bearings are pinned at the −90.0° clamp, and the worst ellipse is 3.16 m long')
+    // `ellipse.a` is the semi-major axis, the same convention the body and the inspector use
+    expect(t1).toContain('(8.94, 1.19), 80° off at 4 m: σ_θ is 15.75°, six of the fourteen bearings are pinned at the −90.0° clamp, and the worst ellipse’s semi-major axis is 3.16 m')
+    expect(prose()).toContain('The ellipse’s semi-axes are those two measurements')
   })
 })
 
@@ -586,8 +610,14 @@ describe('uwb-aoa · the half it cannot see', () => {
     expect(behind.every((a) => a.trueThetaDeg === 180)).toBe(true)
     expect(behind.every((a) => Math.abs(a.thetaDeg) < 4 * aoaSigmaDeg(0))).toBe(true)
     expect(fmtRecord(behind[0])).toBe('anc-1 AoA ← badge-1: 2.3° (true 180.0°)')
-    // "only the anchor's Facing, 90° to −90°" — the badge did not move
+    // "only the anchor's Facing, 90° to −90°" — the badge did not move, and the "2.00 m" the
+    // mirror section quotes is the plan distance, not the 2.33 m slant range observe 1 prints
     expect(tagXY('behind')).toEqual(tagXY('base'))
+    const t = scenarioOf('behind').nodes[1].pos
+    expect(Math.hypot(t.x - ANCHOR_X, t.y - ANCHOR_Y).toFixed(2)).toBe('2.00')
+    expect(Math.hypot(t.x - ANCHOR_X, t.y - ANCHOR_Y, ANCHOR_Z - TAG_Z).toFixed(2)).toBe('2.33')
+    expect(prose()).toContain('unmoved, still 2.00 m away on the floor')
+    expect(uwbAoa.tryThis[1].en).toContain('same spot, same 2.00 m on the floor')
     expect(scenarioOf('behind').nodes[0].uwb!.yawDeg).toBe(-90)
     expect(scenarioOf('base').nodes[0].uwb!.yawDeg).toBe(90)
     // "the range is right to 2 cm there and the clamp never fires"
