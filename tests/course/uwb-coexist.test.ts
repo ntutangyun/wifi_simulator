@@ -24,7 +24,7 @@ import { fmtRecord } from '../../src/ui/format'
 import { CCA_ED_DBM, noiseDbm, reqSinrDb } from '../../src/engine/phy'
 import { uwbToWifiPathLossDb, wifiToUwbPathLossDb } from '../../src/engine/spectrum'
 import {
-  UWB_BAND_MHZ, UWB_MAX_INPUT_DBM_PER_MHZ, UWB_SIR_MIN_DB, UWB_TX_POWER_DBM,
+  UWB_BAND_MHZ, UWB_MAX_INPUT_DBM_PER_MHZ, UWB_PL_EXP, UWB_SIR_MIN_DB, UWB_TX_POWER_DBM,
   uwbBandOverlap, uwbBandOverlapMhz, uwbInBandDbm, uwbPl0Db,
 } from '../../src/uwb/phy'
 import { applyRecord, initViewState } from '../../src/model/view'
@@ -89,7 +89,6 @@ const stripSeq = (rs: TLRecord[]): unknown[] => rs.map((r) => {
   return o
 })
 const wifiSide = (rs: TLRecord[]): unknown[] => stripSeq(rs.filter((r) => !isUwbSide(r)))
-const uwbSide = (rs: TLRecord[]): unknown[] => stripSeq(rs.filter(isUwbSide))
 
 /** Air time (ns) a set of virtual node ids spent transmitting over the run. */
 const airNs = (rs: TLRecord[], ids: (id: string) => boolean): number =>
@@ -361,8 +360,8 @@ describe('uwb-coexist · the band arithmetic', () => {
 })
 
 describe('uwb-coexist · what each side hears', () => {
-  it('the tag hears the router at −42.80 dBm and the laptop at −48.67 dBm', () => {
-    // "The router is 3.14 m off at 20 dBm: −42.80 dBm at the tag. The laptop is 3.35 m off at
+  it('the tag hears the router at −42.79 dBm and the laptop at −48.67 dBm', () => {
+    // "The router is 3.14 m off at 20 dBm: −42.79 dBm at the tag. The laptop is 3.35 m off at
     //  15 dBm: −48.67 dBm."
     expect(dist(AP, TAG).toFixed(2)).toBe('3.14')
     expect(dist(LAPTOP, TAG).toFixed(2)).toBe('3.35')
@@ -381,6 +380,10 @@ describe('uwb-coexist · what each side hears', () => {
     // "where the receiver can stand −12. It is 18.8 dB short."
     expect((UWB_SIR_MIN_DB - sir).toFixed(1)).toBe('18.8')
     expect(sir).toBeLessThan(UWB_SIR_MIN_DB)
+    // quiz 1: "34 dB of EIRP, plus 7.95 dB of the UWB frame falling outside the 80 MHz channel" /
+    // "20 dBm against −14 dBm is 34 dB before anything else"
+    expect(20 - UWB_TX_POWER_DBM).toBe(34)
+    for (const s of ['34 dB of EIRP', '34 dB before anything else']) expect(prose(), s).toContain(s)
   })
 
   it('the loudest UWB signal at a Wi-Fi radio is −80.57 dBm: 8.12 dB of noise, 18.57 dB under CCA', () => {
@@ -399,10 +402,43 @@ describe('uwb-coexist · what each side hears', () => {
     // "18.57 dB below the −62 dBm energy-detect threshold"
     expect(CCA_ED_DBM).toBe(-62)
     expect((CCA_ED_DBM - loudest).toFixed(2)).toBe('18.57')
+    // quiz 2: "8.12 dB of noise rise still leaves 26 dB of SINR" — the router's own uplink lock
+    const rssiUl = 15 - wifiToUwbPathLossDb(dist(LAPTOP, AP), 0)
+    expect((rssiUl - (noiseDbm(WIDTH_MHZ) + noiseRiseDb(loudest))).toFixed(0)).toBe('26')
+    expect(prose()).toContain('8.12 dB of noise rise still leaves 26 dB of SINR')
   })
 
-  it('CCA never reports busy because of a UWB frame: the base run’s CCA records are the No-UWB run’s', () => {
-    // "so CCA never reports busy because of a UWB frame. Carrier sense misses the session entirely"
+  it('the CCA claim is qualified by distance: the threshold is reachable at 0.37 m, quoted as 40 cm', () => {
+    // "The threshold is not unreachable: a Wi-Fi radio brought within about 40 cm of a UWB
+    //  transmitter would trip it. Nowhere in this room is one that close" / quiz 2's "Come within
+    //  about 40 cm of a UWB transmitter and it would trip."
+    // Solving uwbInBandDbm(…) − uwbPl0Db(5) − 10·UWB_PL_EXP·log10(d) = CCA_ED_DBM for d, from the
+    // engine's own constants — the same derivation tests/ui/uwb-guide.test.ts makes for the Guide,
+    // whose paragraph this lesson is the reference for. Quoted rounded UP to the next 10 cm.
+    const crossoverM = 10 ** (
+      (uwbInBandDbm(UWB_TX_POWER_DBM, WIDTH_MHZ) - uwbPl0Db(5) - CCA_ED_DBM) / (10 * UWB_PL_EXP))
+    expect(crossoverM.toFixed(2)).toBe('0.37')
+    expect(crossoverM).toBeGreaterThan(0.36)
+    expect(crossoverM).toBeLessThan(0.40)
+    // at that distance the in-band power really is the threshold, and 1 cm inside it is above
+    expect(uwbAt({ ...TAG, x: TAG.x + crossoverM }, TAG).toFixed(4)).toBe(CCA_ED_DBM.toFixed(4))
+    expect(uwbAt({ ...TAG, x: TAG.x + crossoverM - 0.01 }, TAG)).toBeGreaterThan(CCA_ED_DBM)
+    // both languages carry the cutoff, and neither claims CCA can never trip at all
+    const zh = uwbCoexist.body.flatMap((b) => (b.kind === undefined || b.kind === 'p') ? [b.text.zh] : [])
+      .concat(uwbCoexist.quiz.map((q) => q.explain.zh)).join('\n')
+    expect(prose()).toContain('within about 40 cm of a UWB transmitter')
+    expect(zh).toContain('40 cm')
+    expect(prose()).not.toContain('at the loudest point in the room')
+    // the room's own nearest Wi-Fi radio is nowhere near it
+    const nearest = Math.min(...[TAG, ...CORNERS.map(([, x, y]) => ({ x, y, z: ANCHOR_Z }))]
+      .flatMap((p) => [dist(p, AP), dist(p, LAPTOP)]))
+    expect(nearest.toFixed(2)).toBe('3.14')
+    expect(nearest).toBeGreaterThan(crossoverM)
+    expect(prose()).toContain('the nearest Wi-Fi radio in this room, the router 3.14 m from the tag')
+  })
+
+  it('and in this room it never fires: the base run’s CCA records are the No-UWB run’s', () => {
+    // "so at these distances CCA never reports busy because of a UWB frame"
     const withUwb = stripSeq(recs().filter((r) => r.type === 'CCA_BUSY' || r.type === 'CCA_IDLE'))
     const without = stripSeq(recs(NO_UWB).filter((r) => r.type === 'CCA_BUSY' || r.type === 'CCA_IDLE'))
     expect(withUwb.length).toBeGreaterThan(100)
@@ -450,11 +486,16 @@ describe('uwb-coexist · what each side hears', () => {
     expect(ofType(recs(), 'RX_FAIL').filter((r) => !UWB_IDS.has(r.node))).toHaveLength(0)
   })
 
-  it('the Wi-Fi side is identical, field for field, with and without the UWB session', () => {
-    // "its record stream is identical, field for field, to the run with no UWB nodes — 9.960 Mb/s
-    //  either way"
+  it('the Wi-Fi side is identical but for the shared sequence number, with and without the session', () => {
+    // "its record stream is identical to the run with no UWB nodes in every field but the shared
+    //  sequence number — 9.960 Mb/s either way"
     expect(wifiSide(recs())).toEqual(wifiSide(recs(NO_UWB)))
     expect(wifiSide(recs()).length).toBeGreaterThan(10_000)
+    // the exception is real and is exactly one field: `seq` counts both technologies' records, so
+    // the base run's Wi-Fi records carry higher numbers than the No-UWB run's
+    const seqs = (rs: TLRecord[]) => rs.filter((r) => !isUwbSide(r)).map((r) => (r as { seq: number }).seq)
+    expect(seqs(recs())).not.toEqual(seqs(recs(NO_UWB)))
+    expect(prose()).toContain('in every field but the shared sequence number')
     expect(mbps(recs(), 'laptop#6g').toFixed(3)).toBe('9.960')
     expect(mbps(recs(NO_UWB), 'laptop#6g').toFixed(3)).toBe('9.960')
     expect(prose()).toContain('9.960 Mb/s either way')
@@ -469,7 +510,11 @@ describe('uwb-coexist · the base run', () => {
     expect(wifiAirPct().toFixed(2)).toBe('3.07')
     expect(uwbAirPct().toFixed(2)).toBe('0.97')
     expect(cell(0, 0, 1)).toBe('3.07 %')
-    expect(uwbCoexist.quiz[1].options[2].en).toContain('0.97 %')
+    // quiz 2's distractor quotes the session's air time in milliseconds, so the only "0.97 %" a
+    // learner meets is the saturated run's throughput cost
+    expect((airNs(recs(), (id) => UWB_IDS.has(id)) / 1e6).toFixed(1)).toBe('48.6')
+    expect(uwbCoexist.quiz[1].options[2].en).toContain('48.6 ms of the five seconds')
+    expect(prose().match(/0\.97 %/g)).toHaveLength(1)
   })
 
   it('eight frames are lost, one every third block, all the tag losing anchor-4 at −30.81 dB', () => {
@@ -477,6 +522,7 @@ describe('uwb-coexist · the base run', () => {
     //  tag losing anchor-4’s report at −30.81 dB of SIR"
     const hit = interfered()
     expect(hit).toHaveLength(8)
+    expect(cell(0, 0, 2)).toBe(String(hit.length))
     expect([...new Set(hit.map((r) => `${r.node}|${r.from}`))]).toEqual(['uwb-1|anchor-4'])
     for (const r of hit) {
       expect(r.sirDb.toFixed(2)).toBe('-30.81')
@@ -562,9 +608,16 @@ describe('uwb-coexist · the variants', () => {
       expect(cell(0, v + 1, 2), String(v)).toBe('0')
       expect(cell(0, v + 1, 3), String(v)).toBe('100 / 100')
     }
-    expect(uwbSide(recs(CH9))).toEqual(uwbSide(recs(WIFI7)))
+    // "to the last field" / "the session produces exactly the records it produces on channel 9":
+    // here the two runs emit the same records in the same order, so `seq` is compared too and the
+    // claim is literal — unlike the base-vs-No-UWB pair above, where `seq` necessarily differs.
+    const uwbRaw = (rs: TLRecord[]) => rs.filter(isUwbSide)
+    expect(uwbRaw(recs(WIFI7))).toEqual(uwbRaw(recs(CH9)))
+    expect(uwbRaw(recs(CH9)).length).toBeGreaterThan(1000)
     expect(wifiSide(recs(CH9))).toEqual(wifiSide(recs(WIFI7)))
     expect(wifiSide(recs(CH9))).toEqual(wifiSide(recs()))
+    expect(prose()).toContain('those of the channel-9 run to the last field')
+    expect(prose()).toContain('the session produces exactly the records it produces on channel 9')
   })
 
   it('the saturated upload takes 91.28 % of the air and every ranging frame with it', () => {
@@ -590,8 +643,13 @@ describe('uwb-coexist · the variants', () => {
 
   it('and it costs the Wi-Fi link 0.97 %: 274.128 Mb/s against 276.816 with the session removed', () => {
     // "50 PPDUs fail and throughput falls from 276.816 to 274.128 Mb/s — but that is 0.97 %"
-    const sat = scenarioOf(SAT)
-    const alone = { ...sat, nodes: sat.nodes.filter((n) => n.kind !== 'uwb') }
+    // the reference scene is the saturated one with the whole session removed — the nodes AND the
+    // `uwb` block, so it is a legal scenario rather than one carrying an orphan session
+    const { uwb: _session, ...sat } = scenarioOf(SAT)
+    const alone: Scenario = { ...sat, nodes: sat.nodes.filter((n) => n.kind !== 'uwb') }
+    expect(alone.uwb).toBeUndefined()
+    expect(() => ScenarioSchema.parse(alone)).not.toThrow()
+    expect(alone.nodes.map((n) => n.id)).toEqual(scenarioOf(NO_UWB).nodes.map((n) => n.id))
     const without = [...new Simulation(alone).runUntil(RUN_NS).records]
     const a = mbps(recs(SAT), 'laptop#6g')
     const b = mbps(without, 'laptop#6g')

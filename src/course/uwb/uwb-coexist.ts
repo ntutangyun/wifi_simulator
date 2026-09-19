@@ -13,7 +13,7 @@
  * 975 and 1724 English words across body + observe + tryThis + quiz (4 observe
  * items and 2 experiments already account for 16 of those minutes). At 1725 the
  * rounding tips to 30, and the study-time test pins that ceiling. The prose
- * below totals 1599 words, leaving room for 125 more and no others.
+ * below totals 1701 words, leaving room for 23 more and no others.
  */
 import type { Scenario } from '../../model/scenario'
 import type { TLRecord } from '../../model/records'
@@ -80,8 +80,8 @@ export const uwbCoexist: Lesson = {
       zh: '本课只有一处以 IEEE Std 802.15.4-2024 为依据：§16.4.10 规定 UWB 接收机的最大输入为 −45 dBm/MHz，超过它，标准什么也不再保证。其余都是模型。标准从未规定接收机在干扰下的解调能力，于是引擎给了它一个数——−12 dB 的信干比门限，理由是 499.2 MHz 码片率带来的相关增益大致值这么多。两条路径损耗公式、“功率在发射者自己的带内均匀铺开”这一假设，以及 6 GHz 的信道编号（这一条出自 802.11ax），也都属于模型。',
     } },
     { heading: { en: 'Two bands, one place', zh: '两个频段，同一个地方' }, text: {
-      en: 'UWB channel 5 is 499.2 MHz wide, centred at 6489.6 MHz: it occupies 6240.0 to 6739.2 MHz, inside the 6 GHz Wi-Fi band. This router runs 80 MHz at 6305 MHz — 802.11ax channel 71, 6265 to 6345 MHz — and all 80 of those megahertz lie inside the UWB channel: an overlap fraction of 1.00. The engine’s default centre, 5985 MHz (channel 7, 5945–6025 MHz), overlaps by 0 MHz; there no mediator is built and not one ranging record changes.',
-      zh: 'UWB 5 号信道宽 499.2 MHz，中心在 6489.6 MHz，占据 6240.0 至 6739.2 MHz——这一段正落在 6 GHz Wi-Fi 频段里。本场景的路由器工作在 6305 MHz 的 80 MHz 信道上，即 802.11ax 的 71 号信道，6265 至 6345 MHz，这 80 MHz 全部落在 UWB 信道之内，重叠比例为 1.00。引擎默认的中心频率 5985 MHz（7 号信道，5945–6025 MHz）重叠 0 MHz；那里频谱中介根本不会建立，测距记录一条也不会变。',
+      en: 'UWB channel 5 is 499.2 MHz wide, centred at 6489.6 MHz: it occupies 6240.0 to 6739.2 MHz, inside the 6 GHz Wi-Fi band. This router runs 80 MHz at 6305 MHz — 802.11ax channel 71, 6265 to 6345 MHz — and all 80 of those megahertz lie inside the UWB channel: an overlap fraction of 1.00. The engine’s default centre, 5985 MHz (channel 7, 5945–6025 MHz), overlaps by 0 MHz; there no mediator is built, and the session produces exactly the records it produces on channel 9, where the bands cannot meet either.',
+      zh: 'UWB 5 号信道宽 499.2 MHz，中心在 6489.6 MHz，占据 6240.0 至 6739.2 MHz——这一段正落在 6 GHz Wi-Fi 频段里。本场景的路由器工作在 6305 MHz 的 80 MHz 信道上，即 802.11ax 的 71 号信道，6265 至 6345 MHz，这 80 MHz 全部落在 UWB 信道之内，重叠比例为 1.00。引擎默认的中心频率 5985 MHz（7 号信道，5945–6025 MHz）重叠 0 MHz；那里频谱中介根本不会建立，会话给出的记录，与它在同样无法相遇的 9 号信道上给出的记录一模一样。',
     } },
     { kind: 'formula', text: {
       en: 'in-band EIRP = EIRP + 10·log10(W_overlap / W_own)      Wi-Fi: 20 + 10·log10(80/80) = 20 dBm      UWB: −14 + 10·log10(80/499.2) = −21.95 dBm',
@@ -95,12 +95,12 @@ export const uwbCoexist: Lesson = {
       zh: '标签在 (4, 3.5, 1.0)。路由器离它 3.14 m，往这段频谱里灌 20 dBm，到标签处是 −42.79 dBm；笔记本离它 3.35 m，发 15 dBm，到标签处是 −48.67 dBm。再看账本的另一边：锚点在四角，距离 4.76 至 6.91 m，从其中一个发来的 −14 dBm 帧到达时只有 −76.25 至 −79.48 dBm。取最弱的 anchor-4 与笔记本相比：−79.48 − (−48.67) = −30.81 dB 的信干比，而接收机只扛得住 −12 dB。差了 18.8 dB。',
     } },
     { heading: { en: 'What the router hears', zh: '路由器听到了什么' }, text: {
-      en: 'Reverse it. The loudest UWB signal any Wi-Fi radio here sees is the tag’s own frame at the router, 3.14 m away: −21.95 dBm of in-band EIRP minus 58.62 dB of free-space loss is −80.57 dBm. Against the 80 MHz noise floor of −87.97 dBm that is a noise rise of 8.12 dB — real enough, but 18.57 dB below the −62 dBm energy-detect threshold, so CCA never reports busy because of a UWB frame. Carrier sense misses the session entirely; only the demodulator meets it.',
-      zh: '反过来看。本房间里任何一台 Wi-Fi 收发机能听到的最强 UWB 信号，是标签自己的帧到达路由器时的电平——距离 3.14 m，−21.95 dBm 的带内 EIRP 减去 58.62 dB 的自由空间损耗，等于 −80.57 dBm。对着 80 MHz 下 −87.97 dBm 的噪声底，这是 8.12 dB 的噪声抬升——确实不算小，但仍比 −62 dBm 的能量检测门限低 18.57 dB，所以 CCA 一次也不会因为 UWB 帧而报忙。载波侦听不知道这个会话存在；只有解调器会碰上它。',
+      en: 'Reverse it. The loudest UWB signal any Wi-Fi radio here sees is the tag’s own frame at the router, 3.14 m away: −21.95 dBm of in-band EIRP minus 58.62 dB of free-space loss is −80.57 dBm. Against the 80 MHz noise floor of −87.97 dBm that is a noise rise of 8.12 dB — real enough, but 18.57 dB below the −62 dBm energy-detect threshold, so at these distances CCA never reports busy because of a UWB frame. The threshold is not unreachable: a Wi-Fi radio brought within about 40 cm of a UWB transmitter would trip it. Nowhere in this room is one that close, so carrier sense misses the session entirely and only the demodulator meets it.',
+      zh: '反过来看。本房间里任何一台 Wi-Fi 收发机能听到的最强 UWB 信号，是标签自己的帧到达路由器时的电平——距离 3.14 m，−21.95 dBm 的带内 EIRP 减去 58.62 dB 的自由空间损耗，等于 −80.57 dBm。对着 80 MHz 下 −87.97 dBm 的噪声底，这是 8.12 dB 的噪声抬升——确实不算小，但仍比 −62 dBm 的能量检测门限低 18.57 dB，所以在这样的距离上，CCA 一次也不会因为 UWB 帧而报忙。这个门限并非遥不可及：把一台 Wi-Fi 收发机放到离 UWB 发射机约 40 cm 以内，它就会被触发。这个房间里没有哪一台靠得这么近，因此载波侦听完全察觉不到这个会话，只有解调器会碰上它。',
     } },
     { text: {
-      en: 'And the demodulator copes. In the five seconds below, exactly eight UWB frames share the air with a Wi-Fi PPDU, all eight anchor-4’s — 8.16 m from the router, arriving at −88.87 dBm and lifting the noise 2.58 dB. The laptop’s uplink comes in at −53.46 dBm, leaving 31.92 dB of SINR where its MCS 7 needs 26.99. All eight decode. Those eight encounters cost the session eight frames and the Wi-Fi link nothing: its record stream is identical, field for field, to the run with no UWB nodes — 9.960 Mb/s either way.',
-      zh: '而解调器应付得来。在下面这五秒里，恰好有八个 UWB 帧与 Wi-Fi 的 PPDU 同时在空中，且八次全是 anchor-4 的帧——它离路由器 8.16 m，到达时只有 −88.87 dBm，把噪声抬高 2.58 dB。笔记本的上行以 −53.46 dBm 到达，于是还剩 31.92 dB 的信干噪比，而它所用的 MCS 7 只需要 26.99 dB。八个帧全部解出。同样这八次相遇，让会话丢了八个帧，却没让 Wi-Fi 链路丢掉任何东西：它的记录流与没有 UWB 节点的那次运行逐字段相同，两边都是 9.960 Mb/s。',
+      en: 'And the demodulator copes. In the five seconds below, exactly eight UWB frames share the air with a Wi-Fi PPDU, all eight anchor-4’s — 8.16 m from the router, arriving at −88.87 dBm and lifting the noise 2.58 dB. The laptop’s uplink comes in at −53.46 dBm, leaving 31.92 dB of SINR where its MCS 7 needs 26.99. All eight decode. Those eight encounters cost the session eight frames and the Wi-Fi link nothing: its record stream is identical to the run with no UWB nodes in every field but the shared sequence number — 9.960 Mb/s either way.',
+      zh: '而解调器应付得来。在下面这五秒里，恰好有八个 UWB 帧与 Wi-Fi 的 PPDU 同时在空中，且八次全是 anchor-4 的帧——它离路由器 8.16 m，到达时只有 −88.87 dBm，把噪声抬高 2.58 dB。笔记本的上行以 −53.46 dBm 到达，于是还剩 31.92 dB 的信干噪比，而它所用的 MCS 7 只需要 26.99 dB。八个帧全部解出。同样这八次相遇，让会话丢了八个帧，却没让 Wi-Fi 链路丢掉任何东西：它的记录流与没有 UWB 节点的那次运行只差共用的那个序号，其余字段完全相同，两边都是 9.960 Mb/s。',
     } },
     { kind: 'table', heading: { en: 'Five seconds, twenty-five blocks', zh: '五秒，二十五个块' }, head: [
       { en: 'Run', zh: '运行' }, { en: 'Wi-Fi air', zh: 'Wi-Fi 占空' }, { en: 'Lost to Wi-Fi', zh: '被 Wi-Fi 干扰丢失' },
@@ -120,11 +120,11 @@ export const uwbCoexist: Lesson = {
       zh: '载入“饱和上传”，这个备份件就用尽了。笔记本占了 91.28 % 的空口，每一个测距帧都会撞上 PPDU，标签什么也拿不到：五秒丢 200 个帧，每秒 40 个，400 个时隙超时，一次测距、一次定位都没有。请注意即使在这里，损害也是偏的。Wi-Fi 链路这回确实察觉到了这个会话——50 个 PPDU 解调失败，吞吐从 276.816 Mb/s 掉到 274.128 Mb/s——但那是 0.97 %，而对面那个会话已经不存在了。',
     } },
     { heading: { en: 'Why the answer is channel 9', zh: '为什么答案是 9 号信道' }, text: {
-      en: 'Three cures suggest themselves and two fail. Move the devices apart: the SIR reaches −12 dB only with the laptop 11.09 m from the tag, 14.21 m to protect the weakest anchor, while the farthest corner of a 10 × 8 m room is 7.50 m away and still leaves −17.10 dB. Slide the Wi-Fi channel a little: at 6225 MHz only 25 of its 80 MHz overlap — 31 %, worth 5.05 dB — taking the SIR to −25.76 and leaving the same eight losses. Partial overlap is not partial protection.',
+      en: 'Three cures suggest themselves and two fail. Move the devices apart: the SIR reaches −12 dB only with the laptop 11.09 m from the tag, 14.21 m to protect the weakest anchor, while the farthest corner of a 10 × 8 m room is 7.50 m away and still leaves −17.10 dB. Slide the Wi-Fi channel a little: at 6225 MHz only 25 of its 80 MHz overlap — 31 %, worth 5.05 dB — taking the SIR to −25.76 and leaving the same eight losses and the same 92 ranges. Partial overlap is not partial protection.',
       zh: '有三种办法自然会被想到，其中两种行不通。把设备拉开：要让信干比升到 −12 dB，笔记本得离标签 11.09 m，若要护住最弱的那个锚点则要 14.21 m；而 10 × 8 m 房间里最远的角落只有 7.50 m，此时仍是 −17.10 dB。把 Wi-Fi 信道挪一点：中心移到 6225 MHz 时，80 MHz 里只有 25 MHz 重叠——31 %，值 5.05 dB——信干比变成 −25.76 dB，仍是那八次丢失、那 92 次测距。部分重叠并不等于部分保护。',
     } },
     { text: {
-      en: 'The third works, and it is why channel 9 is the default. It occupies 7737.6 to 8236.8 MHz; the 6 GHz band stops at 7125 MHz, and even a 320 MHz channel at the highest centre the editor accepts, 7115 MHz, reaches only 7275 MHz — 462.6 MHz of clear air below channel 9’s lower edge. No Wi-Fi channel can overlap it, so the mediator is never built and the arithmetic above never runs. Beside a 6 GHz access point, channel 5 costs more than it buys.',
+      en: 'The third works, and it is why channel 9 is the default. It occupies 7737.6 to 8236.8 MHz; the 6 GHz band stops at 7125 MHz, and even a 320 MHz channel at the highest centre the editor accepts, 7115 MHz, reaches only 7275 MHz — 462.6 MHz of clear air below channel 9’s lower edge. No Wi-Fi channel can overlap it, so the mediator is never built and the arithmetic above never runs. Channel 5 is worth reaching for when its place in the spectrum buys you something; beside a 6 GHz access point it costs more than it buys.',
       zh: '第三种办法有效，这也正是 9 号信道成为默认值的理由。9 号信道占据 7737.6 至 8236.8 MHz；6 GHz 频段到 7125 MHz 为止，即便用编辑器允许的最高中心频率 7115 MHz 开一个 320 MHz 的信道，其上边沿也只到 7275 MHz——距 9 号信道的下边沿还有 462.6 MHz 的净空。没有任何 Wi-Fi 信道能与它重叠，于是中介根本不会建立，上面这套算术一次也不会跑。5 号信道值得一用，前提是它在频谱里的位置真能换来什么；而在一台 6 GHz 接入点旁边，它付出的比换来的多。',
     } },
   ],
@@ -143,7 +143,7 @@ export const uwbCoexist: Lesson = {
     J('the fix made on three anchors', '用三个锚点解出的定位', firstThreeAnchorFix),
   ],
   observe: [
-    { en: 'At 418.191 ms the log reads “uwb-1 UWB frame from anchor-4 lost to Wi-Fi: SIR -30.8 dB (foreign -48.7 dBm)”, straight after that frame’s RX_FAIL for lowSinr. The foreign level is the laptop’s, and the pair repeats every 600 ms.',
+    { en: 'At 418.191 ms the log reads “uwb-1 UWB frame from anchor-4 lost to Wi-Fi: SIR -30.8 dB (foreign -48.7 dBm)”, straight after that frame’s RX_FAIL for lowSinr. The foreign level is the laptop’s, and the pair repeats every 600 ms — eight times in five seconds.',
       zh: '418.191 ms 处日志写着 “uwb-1 UWB frame from anchor-4 lost to Wi-Fi: SIR -30.8 dB (foreign -48.7 dBm)”，就跟在这个帧因 lowSinr 而 RX_FAIL 之后。那个外来电平是笔记本的；这一对记录每 600 ms 重复一次，五秒里共八次。' },
     { en: 'The tag’s inspector grows a “lost to Wi-Fi” row and it reaches 8 — the same 8 as its timeouts. Every anchor’s row stays 0: the loss is felt at the tag, where the laptop is loud and the anchors faint.',
       zh: '标签的检视面板多出一行“被 Wi-Fi 干扰丢失”，最终停在 8——与它的超时次数一样。每个锚点的这一行都是 0：干扰是在标签处被感受到的，因为笔记本在那里最响，而锚点在那里最弱。' },
@@ -170,14 +170,14 @@ export const uwbCoexist: Lesson = {
       explain: { en: '20 dBm against −14 dBm is 34 dB before anything else; then −14 dBm spread over 499.2 MHz puts only 80 of those into the Wi-Fi channel. The laws differ too, but over 3 m they come to nearly the same number.', zh: '20 dBm 对 −14 dBm，一上来就是 34 dB；接着 −14 dBm 摊在 499.2 MHz 上，只有其中 80 MHz 落进 Wi-Fi 信道。两条路径损耗定律也不同，但在 3 m 上算出来几乎一样。' },
     },
     {
-      q: { en: 'A UWB frame raises the router’s noise floor by up to 8.12 dB. Why does CCA never call the channel busy because of one?', zh: '一个 UWB 帧最多能把路由器的噪声底抬高 8.12 dB。为什么 CCA 从不因为它而报信道忙？' },
+      q: { en: 'A UWB frame raises the router’s noise floor by up to 8.12 dB. Why does no UWB frame in this room ever make CCA call the channel busy?', zh: '一个 UWB 帧最多能把路由器的噪声底抬高 8.12 dB。为什么这个房间里没有哪个 UWB 帧会让 CCA 报信道忙？' },
       options: [
         { en: 'Foreign energy is excluded from the energy-detect sum', zh: '外来能量被排除在能量检测的求和之外' },
         { en: '−80.57 dBm is 18.57 dB below the −62 dBm threshold, and a foreign signal is never a detectable preamble', zh: '−80.57 dBm 比 −62 dBm 的门限还低 18.57 dB，而外来信号永远不会被当作可检测的前导' },
-        { en: 'The session is on the air only 0.97 % of the time, below the averaging window', zh: '会话只占 0.97 % 的时间在发射，低于平均窗口' },
+        { en: 'The session is on the air for only 48.6 ms of the five seconds, below the averaging window', zh: '会话在这五秒里只发射了 48.6 ms，低于平均窗口' },
       ],
       answer: 1,
-      explain: { en: 'The energy-detect sum does include it — it is simply far too small, by 18.57 dB at the loudest point in the room. Only the demodulator meets the session, and there 8.12 dB of noise rise still leaves 26 dB of SINR.', zh: '能量检测的求和其实是把它算进去的——只是太小，在房间里最响的那一点也还差 18.57 dB。只有解调器会碰上这个会话，而那里 8.12 dB 的噪声抬升之后仍剩约 26 dB 的信干噪比。' },
+      explain: { en: 'The energy-detect sum does include it — it is simply too small, by 18.57 dB at the nearest Wi-Fi radio in this room, the router 3.14 m from the tag. Come within about 40 cm of a UWB transmitter and it would trip. Otherwise only the demodulator meets the session, and there 8.12 dB of noise rise still leaves 26 dB of SINR.', zh: '能量检测的求和其实是把它算进去的——只是太小：在本房间里最近的那台 Wi-Fi 收发机处，也就是离标签 3.14 m 的路由器，还差 18.57 dB。凑到 UWB 发射机约 40 cm 以内，它就会被触发。否则只有解调器会碰上这个会话，而那里 8.12 dB 的噪声抬升之后仍剩约 26 dB 的信干噪比。' },
     },
     {
       q: { en: 'The backup costs the session 8 of its 100 ranges but not one of its 25 fixes. What absorbed the loss?', zh: '后台备份让会话在 100 次测距里丢了 8 次，却没丢掉 25 次定位中的任何一次。是什么吸收了这笔损失？' },
