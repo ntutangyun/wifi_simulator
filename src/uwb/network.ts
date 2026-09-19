@@ -146,7 +146,7 @@ export class UwbNetwork {
         // A listen-only round belongs to nobody: every tag closes its own measurement and no
         // feedback travels back to the anchors, because no anchor asked anything of a tag.
         if (listenOnly) {
-          for (const d of crowd) d.endRound()
+          for (const d of crowd) d.endRound(false)
           return
         }
         if (this.plan.mode === 'ul-tdoa' && anchors.length > 0) {
@@ -161,7 +161,7 @@ export class UwbNetwork {
             if (ns !== null) arrivals.push({ id, ns })
           }
           this.devices.get(anchors[0])!.solveUlFix(arrivals)
-          for (const d of crowd) d.endRound()
+          for (const d of crowd) d.endRound(false)
           return
         }
         // The tag closes first (it always did: it heads the crowd), and what it ranged this
@@ -169,7 +169,7 @@ export class UwbNetwork {
         // the only way a responder in a contention round can learn whether its draw worked —
         // the model's stand-in for the upper layer of standard §10.32.1 NOTE. A time-scheduled
         // round ignores the flag entirely, and emits nothing either way.
-        const heard = new Set(this.devices.get(tagId)!.endRound())
+        const heard = new Set(this.devices.get(tagId)!.endRound(false))
         for (const id of anchors) this.devices.get(id)!.endRound(heard.has(id))
       }, 0)
     }

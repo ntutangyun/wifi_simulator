@@ -2,7 +2,8 @@
  * Event-log lines for the UWB half of the record stream. Kept beside the
  * engine rather than in ui/format.ts so the ranging vocabulary (RCTU counters,
  * TWR methods, figures of merit) lives with the code that produces it;
- * fmtRecord simply delegates the eight UWB types here.
+ * fmtRecord simply delegates the UWB types here - the twelve `src/ui/format.ts` lists in the
+ * switch that hands them over.
  */
 import type { TLRecord } from '../model/records'
 import type { UwbMode } from '../model/scenario'

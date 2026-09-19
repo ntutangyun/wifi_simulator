@@ -409,6 +409,28 @@ describe('UwbNetwork — DL-TDoA rounds', () => {
   })
 })
 
+describe('UwbNetwork — DL-TDoA, a tag that misses the Poll and the Final', () => {
+  // Two brick walls across the line from anchor 1 to tag-2 only: 24 dB, enough to put the
+  // reference's frames under the receiver's sensitivity at that tag while leaving every other
+  // pair in the room in the clear - the responders still answer, and tag-2 still hears them.
+  const walls = [5.0, 5.1].map((y) => ({ x1: 1, y1: y, x2: 2.5, y2: y, material: 'brick' as const, openings: [] }))
+  const rs = run(uwbScenario(CORNERS, LISTENERS, { mode: 'dl-tdoa', nlos: false }, walls), DL_RUN_NS)
+
+  it('produces no difference and no fix that round, while the other tags are untouched', () => {
+    // it heard the three Responses, and neither end of the rate interval
+    const heardBy2 = of(rs, 'RX_OK', 'tag-2').map((r) => r.from)
+    expect([...new Set(heardBy2)].sort()).toEqual(['anc-2', 'anc-3', 'anc-4'])
+    // so the round is incomplete: a rate measured over half an interval is no rate at all
+    expect(of(rs, 'UWB_TDOA', 'tag-2')).toEqual([])
+    expect(of(rs, 'UWB_POSITION', 'tag-2')).toEqual([])
+    // and the walls are between anchor 1 and that tag alone
+    for (const id of ['tag-1', 'tag-3']) {
+      expect(of(rs, 'UWB_TDOA', id), id).toHaveLength(9)
+      expect(of(rs, 'UWB_POSITION', id).map((f) => f.block), id).toEqual([0, 1, 2])
+    }
+  })
+})
+
 describe('UwbNetwork — DL-TDoA without the tag’s clock-rate correction', () => {
   const rs = run(dl({ tdoaClockCorrection: false }), DL_RUN_NS)
 
@@ -502,8 +524,8 @@ const UL_RUN_NS = 2 * 200 * MS - 1
 const TAG_IDS = BLINKERS.map((_, i) => `tag-${i + 1}`)
 /**
  * 1-σ of one UL-TDoA difference: two independent receive timestamps and two anchors' residual
- * calibration offsets, all in one subtraction. (The ellipse the solver draws uses √2·σ_r, i.e.
- * c·σ_ts — a √2 below this, as in DL-TDoA: it is the model's documented approximation.)
+ * calibration offsets, all in one subtraction. This is exactly the sigma the solver draws its
+ * ellipse from — see the assertions below, which pin the semi-axis against it.
  */
 const ulSigmaM = (syncNs: number): number =>
   Math.SQRT2 * Math.hypot(DEFAULT_UWB_SESSION.tsNoisePs / 1000, syncNs) * C_M_PER_NS
@@ -674,6 +696,27 @@ describe('UwbNetwork — contention rounds, two anchors of equal strength', () =
     // Round 3 is silent in both response slots and round 5 fills both; neither is a
     // peer that failed to answer, so no UWB_TIMEOUT is emitted anywhere in the run.
     expect(of(rs, 'UWB_TIMEOUT')).toEqual([])
+  })
+})
+
+describe('UwbNetwork — a contention anchor that never heard the Poll', () => {
+  // anc-2 stands 200 m away: the Poll reaches it far below the receiver's sensitivity, so it has
+  // nothing to answer. `endRound` says a round whose Poll an anchor never heard is not its doing
+  // - it neither draws a slot nor spends an attempt - and that carve-out is the one branch of
+  // the guard nothing else exercises: delete it and every other test stays green while a missed
+  // Poll quietly costs a responder its budget.
+  const sc = uwbScenario([circle(2)[0], { x: 200, y: 0, z: 2, ppm: 0 }], [TAG_AT_ORIGIN], TIGHT)
+  const rs = run(sc, 6 * TIGHT_ROUND_NS - 1)
+
+  it('draws nothing, spends nothing, and leaves the near anchor’s rounds alone', () => {
+    expect(of(rs, 'UWB_CONTEND', 'anc-2')).toEqual([])
+    expect(of(rs, 'TX_START').some((r) => r.node === 'anc-2')).toBe(false)
+    // the near anchor is ranged every round, so its budget is refilled every round: attempt 1
+    // throughout, which is exactly what a spent attempt at the far anchor could not produce
+    const near = of(rs, 'UWB_CONTEND', 'anc-1')
+    expect(near).toHaveLength(6)
+    expect(near.map((r) => r.attempt)).toEqual([1, 1, 1, 1, 1, 1])
+    expect(of(rs, 'UWB_RANGE').map((r) => r.peer)).toEqual(Array(6).fill('anc-1'))
   })
 })
 
@@ -1035,9 +1078,17 @@ describe('UwbNetwork — angle of arrival', () => {
     }
     const fix = of(rsBehind, 'UWB_POSITION')[0]
     // The range is right — a distance is measured by flight time and knows nothing of
-    // antennas — and only the direction is a lie, by exactly the reflection in the boresight.
+    // antennas — and only the direction is a lie: the reflection across the array *baseline*,
+    // the line through the anchor perpendicular to its boresight (here y = 5), not across the
+    // boresight itself. sin(180° − θ) = sin θ sends 135° to +45°, which is this mirror; a
+    // reflection in the boresight would have sent it to −135°.
     expect(Math.hypot(fix.x - behind.x, fix.y - behind.y)).toBeCloseTo(R_M, 1)
     expect(Math.hypot(fix.x - fix.trueX, fix.y - fix.trueY)).toBeGreaterThan(5)
+    // the mirror image itself, not merely an error of about the right size
+    expect(fix.x).toBeCloseTo(tag.x, 1)
+    expect(fix.y).toBeCloseTo(2 * behind.y - tag.y, 1)
+    // and the error is twice the tag's distance from that baseline
+    expect(Math.hypot(fix.x - fix.trueX, fix.y - fix.trueY)).toBeCloseTo(2 * Math.abs(behind.y - tag.y), 1)
   })
 
   it('measures nothing, and draws nothing, when the session leaves AoA off', () => {

@@ -273,6 +273,26 @@ describe('UwbOverlay', () => {
     overlay.dispose()
   })
 
+  it('the ring gate is the fix’s method, not the absence of ranges', () => {
+    // A UL-TDoA lane carries no ranges, so the test above would pass with the gate deleted.
+    // Put a range on one anyway - what a mode switch mid-session would leave behind - and the
+    // hyperbolic fix must still draw no ring; flipping the same lane's method to two-way
+    // ranging brings the ring back, which is what makes this the gate and not the data.
+    const sim = new Simulation(ulScenario())
+    sim.runUntil(5 * MS)
+    const overlay = new UwbOverlay(ulScenario())
+    const withRange = cloneView(sim.view)
+    const u = withRange.nodes['tag-1'].uwb!
+    u.ranges['anc-1'] = { distM: 3, trueDistM: 3, method: 'ss', fom: 1, block: u.block, n: 1 }
+    overlay.update(withRange)
+    expect(names(overlay.group).filter((n) => n.startsWith('ring:'))).toEqual([])
+    const twoWay = cloneView(withRange)
+    twoWay.nodes['tag-1'].uwb!.position!.method = 'twr'
+    overlay.update(twoWay)
+    expect(names(overlay.group).filter((n) => n.startsWith('ring:'))).toEqual(['ring:tag-1:anc-1'])
+    overlay.dispose()
+  })
+
   it('draws an angle fix as a ring crossed by the anchor’s bearing line', () => {
     // One anchor on the south wall facing the room, one tag 4 m away at 45° off its boresight:
     // the anchor measures both a distance and a direction, so the floor shows the range ring

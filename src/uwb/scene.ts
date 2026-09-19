@@ -153,7 +153,8 @@ export class UwbOverlay {
       // …and an angle fix keeps its ring too: the ring and the bearing line are the two halves
       // of what one anchor measured, and where they cross is the whole of the lesson.
       const rings = u.position === null || u.position.method === 'twr' || u.position.method === 'aoa'
-      for (const [id, r] of rings ? Object.entries(u.ranges) : []) {
+      const ringsToDraw = rings ? Object.entries(u.ranges) : []
+      for (const [id, r] of ringsToDraw) {
         const peer = physicalId(id)
         const anchor = this.positions.get(peer)
         if (!anchor || r.block < u.block - 1) continue

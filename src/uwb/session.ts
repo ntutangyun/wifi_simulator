@@ -1,18 +1,19 @@
 /**
- * The ranging session schedule (standard §10.32.2, time-scheduled mode of
- * §10.32.3): a session is a train of
- * ranging blocks, each block is split into ranging rounds, each round into
- * ranging slots, and every slot belongs to exactly one device.
+ * The ranging session schedule (standard §10.32.2): a session is a train of ranging blocks, each
+ * block is split into ranging rounds, and each round into ranging slots.
  *
- * The shape is fixed before the session starts — that is the whole point of a
- * scheduled (as opposed to contention-based) ranging session: no device ever
- * contends for the medium, so a ranging exchange has no backoff, no NAV and no
- * retry, and its reply times are known to the nanosecond in advance. One tag
- * owns one round per block, so N tags need N rounds inside the block.
+ * The block, round and slot lengths are fixed before the session starts, in every mode. What the
+ * schedule decides is who owns a slot. In a **time-scheduled** session (§10.32.3) every slot
+ * belongs to exactly one device: no device ever contends for the medium, so a ranging exchange
+ * has no backoff, no NAV and no retry, and its reply times are known to the nanosecond in
+ * advance. In a **contention** round (§10.32.2 schedule mode 0) the response phase belongs to
+ * nobody in particular - each anchor draws a slot in it - so two anchors can and do land in one
+ * slot. One tag owns one round per block either way, so N tags need N rounds inside the block.
  *
  * A round is laid out as
- *   SS-TWR:  slot 0 Poll (tag) | slots 1..A Response (anchor 0..A-1)
- *   DS-TWR:  … | slot A+1 Final (tag) | slots A+2..2A+1 Report (anchor 0..A-1)
+ *   SS-TWR:      slot 0 Poll (tag) | slots 1..A Response (anchor 0..A-1)
+ *   DS-TWR:      … | slot A+1 Final (tag) | slots A+2..2A+1 Report (anchor 0..A-1)
+ *   contention:  slot 0 Poll (tag) | slots 1..S Response (whichever anchors drew the slot)
  *   DL-TDoA: slot 0 Poll (anchor 0) | slots 1..A-1 Response (anchor 1..A-1) | slot A Final (anchor 0)
  *   UL-TDoA: slot 0 Blink (tag)
  */

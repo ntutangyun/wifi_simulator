@@ -390,8 +390,11 @@ export class UwbDevice implements UwbRadio {
    * Anchor: spend or refill the contention retry budget, and return nothing. Only an anchor that
    * actually drew a slot this round spends an attempt — a round it sat out is the price it has
    * already paid, and a round whose Poll it never heard is not its doing.
+   *
+   * `heard` is required rather than defaulting: false is the failure-shaped value (it spends an
+   * attempt), and a caller that forgot the argument would quietly burn a responder's budget.
    */
-  endRound(heard = false): string[] {
+  endRound(heard: boolean): string[] {
     this.closeSlot()
     const r = this.round
     this.round = null
