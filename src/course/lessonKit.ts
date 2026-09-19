@@ -277,4 +277,12 @@ export const firstUwbContend = (r: TLRecord): boolean => r.type === 'UWB_CONTEND
 export const firstUwbContendCollision = (r: TLRecord): boolean => r.type === 'UWB_CONTEND_COLLISION'
 /** Contention round: the first anchor whose retry budget ran out, so it stays silent for a round. */
 export const firstUwbSitOut = (r: TLRecord): boolean => r.type === 'UWB_CONTEND' && r.slot === null
+/** One-way ranging: the first time difference of arrival anybody computed (a tag in DL-TDoA,
+ * the reference anchor in UL-TDoA). */
+export const firstUwbTdoa = (r: TLRecord): boolean => r.type === 'UWB_TDOA'
+/** UL-TDoA: the first blink a tag sends — the whole of its contribution to being positioned. */
+export const firstUwbBlink = txOf((r) => r.frame.kind === 'uwbBlink')
+/** DL-TDoA: the round the anchors run for whoever happens to be listening. Every tag in the
+ * scenario opens one of these for the same round, so the first is the first tag's. */
+export const firstUwbDlRound = (r: TLRecord): boolean => r.type === 'UWB_ROUND' && r.mode === 'dl-tdoa'
 

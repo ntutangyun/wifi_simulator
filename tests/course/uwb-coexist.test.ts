@@ -243,9 +243,8 @@ describe('uwb-coexist · lesson shape', () => {
     const after = COURSE_ORDER.slice(COURSE_ORDER.indexOf('uwb-position') + 1)
     expect(after).toEqual(['uwb-coexist', 'uwb-contention', 'uwb-dl-tdoa', 'uwb-ul-tdoa', 'uwb-aoa'])
     const ids = LESSONS.map((l) => l.id)
-    expect(ids[ids.length - 2]).toBe('uwb-coexist')
-    expect(ids[ids.length - 3]).toBe('uwb-position')
-    for (const id of after.slice(2)) expect(ids, id).not.toContain(id)
+    expect(ids[ids.indexOf('uwb-coexist') - 1]).toBe('uwb-position')
+    for (const id of after.slice(3)) expect(ids, id).not.toContain(id)
   })
 })
 

@@ -33,6 +33,7 @@ import { uwbBlocks } from './uwb/uwb-blocks'
 import { uwbPosition } from './uwb/uwb-position'
 import { uwbCoexist } from './uwb/uwb-coexist'
 import { uwbContention } from './uwb/uwb-contention'
+import { uwbDlTdoa } from './uwb/uwb-dl-tdoa'
 export type { Block, JumpTarget, L10n, Lesson, LessonVariant, Quiz } from './lessonKit'
 
 export { MODULES, TIERS } from './curriculum'
@@ -120,6 +121,7 @@ const AUTHORED: Lesson[] = [
   uwbPosition,
   uwbCoexist,
   uwbContention,
+  uwbDlTdoa,
   // ======================= MODULE 1 =======================
   {
     id: 'airtime',
