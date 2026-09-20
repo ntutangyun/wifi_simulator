@@ -881,8 +881,8 @@ export const GLOSSARY: GlossaryGroup[] = [
         term: 'Clock-rate correction',
         alt: { en: 'tdoaClockCorrection — DL-TDoA only, on by default', zh: 'tdoaClockCorrection——仅 DL-TDoA，默认开启' },
         def: {
-          en: 'A listening tag\'s differences span a whole round, so its own crystal does not cancel the way it does in TWR: it measures its own Poll-to-Final interval against the true one the anchors report and rescales its raw differences by that ratio. Off, the error is 20 ppm of the gap between the Poll and the response being timed: up to 6 ms in the five-slot round the lessons run, so 36 m, and 120 m over a 20 ms round of nine anchors. On, what is left is the responders\' own clock-offset estimate noise — decimetres.',
-          zh: '听测标签的差值跨越了整整一轮，因此它自身晶振的误差不会像 TWR 那样自行相消：它需要用自己测得的“轮询→终结帧”间隔，去对照锚点报出的真实间隔，再按这个比例重新缩放原始差值。关闭时，误差为 20 ppm 乘以从轮询帧到被计时的那一帧之间的间隔：本系列课程那种五时隙轮次里最长 6 ms，即 36 米；若是九个锚点的 20 ms 轮次，则是 120 米。打开后，剩下的只是各应答锚点自身的时钟偏差估计噪声——分米级。',
+          en: 'A listening tag\'s differences span a whole round, so its own crystal does not cancel the way it does in TWR: it measures its own Poll-to-Final interval against the true one the anchors report and rescales its raw differences by that ratio. Off, the error is 20 ppm of the gap between the Poll and the response being timed: up to 6 ms in the five-slot round the lessons run, so 36 m, and 96 m for the last of nine anchors, whose response comes 16 ms after the Poll. On, what is left is the responders\' own clock-offset estimate noise — decimetres.',
+          zh: '听测标签的差值跨越了整整一轮，因此它自身晶振的误差不会像 TWR 那样自行相消：它需要用自己测得的“轮询→终结帧”间隔，去对照锚点报出的真实间隔，再按这个比例重新缩放原始差值。关闭时，误差为 20 ppm 乘以从轮询帧到被计时的那一帧之间的间隔：本系列课程那种五时隙轮次里最长 6 ms，即 36 米；若有九个锚点，最后一个应答帧在轮询帧后 16 ms，则是 96 米。打开后，剩下的只是各应答锚点自身的时钟偏差估计噪声——分米级。',
         },
       },
       {

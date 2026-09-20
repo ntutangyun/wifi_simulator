@@ -230,7 +230,7 @@ export function GuideEn() {
         its own Poll-to-Final interval against the true one the anchors report and rescales its raw
         differences by that ratio. Without this <b>clock-rate correction</b> the error is 20 ppm of the gap
         between the Poll and the response being timed: up to 6 ms in the five-slot round the lessons run, so
-        36 m, and 120 m over a 20 ms round of nine anchors. With it, the fix lands in decimetres.
+        36 m, and 96 m for the last of nine anchors, whose response comes 16 ms after the Poll. With it, the fix lands in decimetres.
         <b>UL-TDoA</b> turns the tag into the
         transmitter instead: one {UWB_BLINK_BYTES}-octet <b>blink</b> (model, FiRa-style) and nothing else,
         timestamped by anchors sharing one common timebase — "wired sync" (model) — each left with a fixed
@@ -461,7 +461,7 @@ export function GuideZh() {
         整整一轮，因此听测标签自身晶振的误差不会像 TWR 那样自行相消：它需要先用自己测得的
         “轮询→终结帧”间隔，去对照锚点报出的真实间隔，按这个比例重新缩放原始差值。没有这道
         <b>时钟速率修正</b>，误差就是 20 ppm 乘以从轮询帧到被计时的那一帧之间的间隔：本系列课程
-        那种五时隙轮次里最长 6 ms，即 36 米；若是九个锚点的 20 ms 轮次，则是 120 米。加上它，定位误差
+        那种五时隙轮次里最长 6 ms，即 36 米；若有九个锚点，最后一个应答帧在轮询帧后 16 ms，则是 96 米。加上它，定位误差
         便回落到分米级。<b>UL-TDoA</b> 反过来让标签成为发射方：只发一次 {UWB_BLINK_BYTES} 字节的
         <b>闪发帧</b>（模型取值，FiRa 风格），别无其他，由共享同一公共时基的锚点——“有线同步”
         （模型取值）——为其打上时间戳，每个锚点还各自留有一份固定残差 <code>syncErrorNs</code>，默认为{' '}
