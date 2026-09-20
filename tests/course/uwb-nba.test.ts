@@ -13,7 +13,9 @@ import {
   WIFI_6G_CENTER_MHZ, uwbNba, uwbNbaScenario, type UwbNbaVariant,
 } from '../../src/course/uwb/uwb-nba'
 import { Simulation } from '../../src/engine/simulation'
-import { DEFAULT_UWB_SESSION, ScenarioSchema, type Scenario } from '../../src/model/scenario'
+import {
+  DEFAULT_UWB_SESSION, ScenarioSchema, sixGhzChannelNo, type Scenario,
+} from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 import type { Block, L10n, Lesson } from '../../src/course/lessonKit'
 import { LESSON_6G_WIDTH_MHZ, oneRoom } from '../../src/course/lessonKit'
@@ -26,9 +28,10 @@ import { STRINGS } from '../../src/ui/i18n'
 import { applyRecord, initViewState } from '../../src/model/view'
 import { uwbLbtText, uwbNbChannelText } from '../../src/uwb/ui/rows'
 import {
-  NB_CHANNELS, NB_CHANNEL_MHZ, NB_DEFAULT_CHANNELS, NB_LBT_CCA_US, NB_LBT_EDT_DBM_PER_MHZ,
-  NB_LBT_THRESHOLD_DBM, NB_POLL_BYTES, NB_REPORT_BYTES, NB_RX_SENS_DBM, NB_TX_DBM, nbBand,
-  nbCenterMhz, nbChannelForBlock, nbPl0Db, nbPpduNs,
+  NB_CHANNELS, NB_CHANNEL_MHZ, NB_CHIP_US, NB_DEFAULT_CHANNELS, NB_LBT_CCA_US,
+  NB_LBT_EDT_DBM_PER_MHZ, NB_LBT_THRESHOLD_DBM, NB_POLL_BYTES, NB_REPORT_BYTES, NB_RESP_BYTES,
+  NB_RX_SENS_DBM, NB_SYMBOL_CHIPS, NB_SYMBOL_US, NB_TX_DBM, nbBand, nbCenterMhz,
+  nbChannelForBlock, nbLbtRequired, nbPl0Db, nbPpduNs,
 } from '../../src/uwb/nb'
 import { bandOverlapMhz, uwbToWifiPathLossDb, wifiToUwbPathLossDb } from '../../src/engine/spectrum'
 import { CCA_ED_DBM } from '../../src/engine/phy'
@@ -249,7 +252,17 @@ describe('uwb-nba · lesson shape', () => {
     const first = uwbNba.body[0]
     expect(first.kind ?? 'p').toBe('p')
     const en = (first as Extract<Block, { kind?: 'p' }>).text.en
-    expect(en).toContain('IEEE Std 802.15.4-2024')
+    // the radio itself IS the standard's: Clause 12 O-QPSK, 32 chips a symbol at 0.5 µs,
+    // 4 bits a symbol — 250 kb/s — and the 576 µs of a 12-octet message falls out of it
+    expect(en).toContain('the 250 kb/s O-QPSK PHY of IEEE Std 802.15.4-2024 Clause 12')
+    expect(en).toContain('the 576 µs a 12-octet message takes comes straight from it')
+    expect(NB_SYMBOL_CHIPS * NB_CHIP_US).toBe(NB_SYMBOL_US)
+    expect(4 / (NB_SYMBOL_US / 1000)).toBe(250) // 4 bits per 16 µs symbol, in kb/s
+    expect(nbPpduNs(NB_POLL_BYTES) / 1000).toBe(576)
+    expect(NB_POLL_BYTES).toBe(12)
+    // and what the draft adds on top of it
+    expect(en).toContain('Everything that makes it an NBA-UWB control radio')
+    expect(en).toContain('the 250 channels, the poll/response/report cycle, the listen-before-talk rule, the block skip')
     expect(en).toContain('P802.15.4ab')
     expect(en).toContain('D5.0')
     expect(en).toContain('The balloted draft may differ')
@@ -297,9 +310,12 @@ describe('uwb-nba · the scene', () => {
     expect(laptop.profiles).toEqual(['saturated'])
     expect(laptop.txPowerDbm).toBe(15)
     expect(laptop.linkId).toBe('6g')
-    // "802.11ax channel 71, 6265 to 6345 MHz"
-    expect([WIFI_6G_CENTER_MHZ - 40, WIFI_6G_CENTER_MHZ + 40]).toEqual([6265, 6345])
-    expect(prose()).toContain('802.11ax channel 71, 6265 to 6345 MHz')
+    // "this Wi-Fi 7 router's 80 MHz (channel 71 of the 6 GHz plan, 6265 to 6345 MHz)"
+    expect(ap.caps.generation).toBe('eht') // Wi-Fi 7, as the header and the prose say
+    expect(sixGhzChannelNo(WIFI_6G_CENTER_MHZ)).toBe(71)
+    expect([WIFI_6G_CENTER_MHZ - LESSON_6G_WIDTH_MHZ / 2, WIFI_6G_CENTER_MHZ + LESSON_6G_WIDTH_MHZ / 2])
+      .toEqual([6265, 6345])
+    expect(prose()).toContain('this Wi-Fi 7 router’s 80 MHz (channel 71 of the 6 GHz plan, 6265 to 6345 MHz)')
   })
 
   it('places four corner anchors at 2.20 m and the tag 1.50 m from the router', () => {
@@ -425,6 +441,11 @@ describe('uwb-nba · the channel plan', () => {
     expect(NB_DEFAULT_CHANNELS).toEqual([3])
     expect(nbCenterMhz(3)).toBe(5733.75)
     expect(nbCenterMhz(3)).toBeLessThan(5850)
+    // "where listening first is optional" — and, on channel 200, it is not
+    expect(nbLbtRequired(3, 'auto')).toBe(false)
+    expect(nbLbtRequired(200, 'auto')).toBe(true)
+    expect(nbLbtRequired(200, 'off')).toBe(false)
+    expect(uwbNba.observe[0].en).toContain('Channel 200 is in UNII-5, so listening first is not optional')
     expect(prose()).toContain('the draft’s default allow list [3] — 5733.75 MHz, in UNII-3')
   })
 })
@@ -487,8 +508,13 @@ describe('uwb-nba · the base scene, inside the router’s channel', () => {
     expect(skippedBlocks('base', 'anchor-3')).toEqual([])
     expect(skippedBlocks('base', 'anchor-4')).toEqual([])
     expect(cell(0, 2)).toBe('7 of 7')
-    expect(prose()).toContain('Seven blocks, seven busy checks, seven skipped')
-    expect(prose()).toContain('Anchors 1 and 2 each have a busy check too, both in block 3')
+    expect(prose()).toContain('Seven blocks, seven checks, seven skipped')
+    // quiz 1 argues from the level the run's own checks read, and from the router's
+    expect(uwbNba.quiz[0].options[1].en)
+      .toContain('the laptop alone reads −63.72 dBm at the tag, the router 22.8 dB over when it sends')
+    expect(uwbNba.quiz[0].explain.en)
+      .toContain('Every one of the tag’s seven busy checks reads −63.72 dBm — the laptop, 3.35 m away, uploading')
+    expect(prose()).toContain('Anchors 1 and 2 have one too, in block 3')
   })
 
   it('"the anchor’s REPORT at 12.000 ms gives the tag the only range of the run"', () => {
@@ -531,7 +557,7 @@ describe('uwb-nba · the base scene, inside the router’s channel', () => {
       .toBe('uwb-1 NB LBT busy on ch 200: -63.7 dBm ≥ -71.0 — skipping the block')
     expect(uwbNba.observe[1].en)
       .toContain('“uwb-1 NB LBT busy on ch 200: -63.7 dBm ≥ -71.0 — skipping the block”')
-    // "its other three pair rounds never start": the anchors say so
+    // "rounds 1 to 3 run, but it says nothing in them": the anchors say so
     const to = of(recs('base'), 'UWB_TIMEOUT')
     expect(fmtRecord(to.find((r) => r.t === 14 * MS)!))
       .toBe('anchor-1 UWB slot 26: no nb-report from uwb-1')
@@ -539,6 +565,12 @@ describe('uwb-nba · the base scene, inside the router’s channel', () => {
       .toBe('anchor-2 UWB slot 0: no nb-poll from uwb-1')
     expect(uwbNba.observe[1].en).toContain('“anchor-1 UWB slot 26: no nb-report from uwb-1” at 14.000 ms')
     expect(uwbNba.observe[1].en).toContain('“anchor-2 UWB slot 0: no nb-poll from uwb-1” at 15.000 ms')
+    expect(prose()).toContain('rounds 1 to 3 run, but it says nothing in them')
+    // the rounds really do run — the tag opens all four of block 0 and is silent in three
+    const block0 = of(recs('base'), 'UWB_ROUND').filter((r) => r.block === 0)
+    expect(block0.map((r) => r.round)).toEqual([0, 1, 2, 3])
+    expect(nbFrames('base').filter((f) => f.frame.uwb!.block === 0 && f.frame.uwb!.round! > 0))
+      .toHaveLength(0)
     expect(nbFrames('base')).toHaveLength(6)
   })
 
@@ -627,13 +659,16 @@ describe('uwb-nba · hopping over four channels', () => {
     expect(fixes('hop').map((f) => f.block)).toEqual([0, 3, 4])
     expect(fixes('hop')).toHaveLength(3)
     for (const f of fixes('hop')) expect(f.anchors).toHaveLength(4)
-    // "though block 5 gets one range out before its report slot is stopped"
+    // "though block 5 gets a range out before its report slot is stopped"
     expect(tagRanges('hop')).toHaveLength(13)
     const perBlock: Record<number, number> = {}
     for (const r of tagRanges('hop')) perBlock[r.block] = (perBlock[r.block] ?? 0) + 1
     expect(perBlock).toEqual({ 0: 4, 3: 4, 4: 4, 5: 1 })
+    // the anchor lanes: three apiece, one per block that ran in full
+    for (const a of ANCHORS) expect(ranges('hop').filter((r) => r.node === a), a).toHaveLength(3)
+    expect(ranges('hop')).toHaveLength(13 + 4 * 3)
     expect([cell(2, 2), cell(2, 3), cell(2, 4)]).toEqual(['4 of 7', '13', '3'])
-    expect(prose()).toContain('though block 5 gets one range out before its report slot is stopped')
+    expect(prose()).toContain('though block 5 gets a range out before its report slot is stopped')
     expect(prose()).toContain('Three fixes instead of seven')
   })
 })
@@ -645,6 +680,10 @@ describe('uwb-nba · with listen before talk switched off', () => {
     expect(fixes('noLbt')).toHaveLength(5)
     expect(fixes('noLbt').map((f) => f.block)).toEqual([1, 2, 3, 4, 5])
     expect(nbFrames('noLbt')).toHaveLength(108)
+    // the anchor lanes: every anchor but the fourth reports in all seven blocks
+    expect(ANCHORS.map((a) => ranges('noLbt').filter((r) => r.node === a).length))
+      .toEqual([7, 7, 7, 5])
+    expect(ranges('noLbt')).toHaveLength(21 + 7 + 7 + 7 + 5)
     expect([cell(3, 2), cell(3, 3), cell(3, 4)]).toEqual(['0', '21', '5'])
     expect(uwbNba.tryThis[1].en).toContain('21 ranges and 5 fixes')
     expect(uwbNba.quiz[2].q.en).toContain('the session gets 21 ranges instead of 1')
@@ -704,8 +743,16 @@ describe('uwb-nba · with listen before talk switched off', () => {
     expect(nbDeferrals('outside')).toHaveLength(0)
     expect(nbDeferrals('base')).toHaveLength(7)
     expect(nbDeferrals('hop')).toHaveLength(1)
-    expect(prose()).toContain('44 times in 1.3 seconds one goes clear-channel busy')
-    expect(prose()).toContain('a 576 µs POLL or a 608 µs REPORT')
+    // the lesson names the proxy, its zero control, and why the count is not 108 × 2
+    expect(prose()).toContain('No record names the emitter, so count the clear-channel transitions that go busy on energy alone inside a narrowband frame')
+    expect(prose()).toContain('44 in 1.3 seconds with the rule off')
+    expect(prose()).toContain('against none in the uncoupled scene')
+    expect(prose()).toContain('Not 108 twice over: a radio already busy or transmitting makes no new transition')
+    // the three narrowband durations that sentence names
+    expect(nbPpduNs(NB_POLL_BYTES) / 1000).toBe(576)
+    expect(nbPpduNs(NB_RESP_BYTES) / 1000).toBe(576)
+    expect(nbPpduNs(NB_REPORT_BYTES) / 1000).toBe(608)
+    expect(prose()).toContain('a 576 µs POLL or RESP, a 608 µs REPORT')
   })
 
   it('"with the rule on, six reach the air … and five Wi-Fi PPDUs fail behind them"', () => {
@@ -719,7 +766,7 @@ describe('uwb-nba · with listen before talk switched off', () => {
       expect(wins.some(([a, b]) => f.t >= a && f.t <= b), String(f.t)).toBe(true)
     }
     expect(prose()).toContain('With the rule on, six reach the air in 1.3 seconds and five Wi-Fi PPDUs fail behind them')
-    expect(prose()).toContain('with it off, 108 reach the air and 87 fail')
+    expect(prose()).toContain('with it off, 108 and 87')
   })
 })
 
