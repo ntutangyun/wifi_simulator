@@ -406,7 +406,13 @@ export class UwbDevice implements UwbRadio {
     const mp = plan.mms
     const nbChannel = opts.nbChannel ?? null
     // A device never re-derives the block's channel: the network draws it once and both ends of
-    // the round are told the same number.
+    // the round are told the same number. Without one there is no MMS state, and the round
+    // would run its twenty-eight slots in silence — no control exchange, no fragments, no
+    // range, and nothing said about why. Say it here instead, as `uwbSlotsPerTag` does for the
+    // train shape: a caller that plans an MMS round and forgets the channel is a bug.
+    if (mp && nbChannel === null) {
+      throw new Error("UwbDevice.beginRound: mode 'mms' needs the block's narrowband channel")
+    }
     const mms = mp && nbChannel !== null ? freshMms(mp, nbChannel) : null
     this.round = freshRound(block, round, plan, tagId, anchors, mms)
     if (this.cfg.role !== 'tag') return

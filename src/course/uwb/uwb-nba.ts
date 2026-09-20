@@ -34,7 +34,8 @@ import {
  * an allow list of four, or the inside channel with the listen-before-talk rule switched off. */
 export type UwbNbaVariant = 'base' | 'outside' | 'hop' | 'noLbt'
 
-/** 802.11ax 6 GHz channel 71 — the coexistence lesson's router, 80 MHz over 6265–6345 MHz. */
+/** Channel 71 of the 6 GHz plan — the coexistence lesson's Wi-Fi 7 router, 80 MHz over
+ * 6265–6345 MHz. The channelization is the 6 GHz one the lesson names, not a generation. */
 export const WIFI_6G_CENTER_MHZ = 6305
 /** The narrowband allow list each scene runs: 200 is 6301.25 MHz (inside the router's channel),
  * 100 is 6051.25 MHz (outside), and the hop list mixes two of each — 210 is 6326.25 MHz, also

@@ -11,7 +11,11 @@ import {
 import { brick, node as wifiNode, rangingLab } from '../../src/course/lessonKit'
 import { mmsSet, ratioSigma, rsfNs } from '../../src/uwb/mms'
 import { nbBand, nbCenterMhz, nbChannelForBlock, NB_LBT_THRESHOLD_DBM } from '../../src/uwb/nb'
+import { UwbChannel } from '../../src/uwb/channel'
+import { UwbClock } from '../../src/uwb/clock'
+import { UwbDevice } from '../../src/uwb/device'
 import { UwbNetwork } from '../../src/uwb/network'
+import { roundPlan } from '../../src/uwb/session'
 import {
   C_M_PER_NS, UWB_BAND_MHZ, UWB_MAX_ANCHORS, UWB_NLOS_NS, UWB_RMARKER_NS, UWB_RX_SENS_DBM,
   UWB_SIR_MIN_DB, UWB_TX_POWER_DBM,
@@ -1662,6 +1666,46 @@ describe('UwbNetwork — MMS, the block must hold every pair', () => {
     const rs = run(mmsScene(anchors, [{ x: 4, y: 4, z: 1 }], mmsCfg(), []), 199 * MS)
     expect(of(rs, 'UWB_ROUND')).toHaveLength(anchors.length)
     expect(of(rs, 'UWB_RANGE', 'tag-1')).toHaveLength(anchors.length)
+  })
+})
+
+describe('UwbDevice.beginRound — an MMS round without a narrowband channel', () => {
+  /** One device, wired to nothing: `beginRound` is the only thing under test. */
+  const device = (): UwbDevice => {
+    const q = new EventQueue()
+    const now = (): number => 0
+    const nodes = [uwbNode('tag-1', { x: 0, y: 0, z: 1 }, 'tag')]
+    const emit = makeEmitter(() => {})
+    const ch = new UwbChannel(q, now, nodes, [], { channel: 9, nlos: false }, () => 0, emit)
+    return new UwbDevice(
+      'tag-1',
+      {
+        role: 'tag', pos: { x: 0, y: 0, z: 1 }, tsNoisePs: 100, cfoNoisePpm: 0.2, maxAttempts: 3,
+        tdoaClockCorrection: true, syncOffsetNs: 0, syncErrorNs: 0, aoa: false, yawDeg: 0, channel: 9,
+      },
+      new UwbClock(0, 0), new Rng(1), q, now, ch, emit,
+      { trueDistM: () => 1, anchorPos: (id) => ({ id, x: 0, y: 0, z: 1 }) },
+    )
+  }
+
+  const mmsPlan = roundPlan({ ...DEFAULT_UWB_SESSION, ...MMS_SESSION } as UwbSessionCfg, 1)
+
+  it('says so rather than running twenty-eight silent slots', () => {
+    // Without the block's channel there is no MMS state, so the device would poll nothing,
+    // hear nothing and range nothing — and emit not one record to say why. The same ruling
+    // `uwbSlotsPerTag` takes for a missing train shape.
+    expect(mmsPlan.mms).toBeDefined()
+    expect(() => device().beginRound(0, 0, mmsPlan, 'tag-1', ['anc-1'], {}))
+      .toThrow(/needs the block's narrowband channel/)
+    expect(() => device().beginRound(0, 0, mmsPlan, 'tag-1', ['anc-1'], { nbChannel: null }))
+      .toThrow(/needs the block's narrowband channel/)
+  })
+
+  it('takes the channel when it is given one, and every other mode needs none', () => {
+    expect(() => device().beginRound(0, 0, mmsPlan, 'tag-1', ['anc-1'], { nbChannel: 3 })).not.toThrow()
+    const twr = roundPlan(DEFAULT_UWB_SESSION, 1)
+    expect(twr.mms).toBeUndefined()
+    expect(() => device().beginRound(0, 0, twr, 'tag-1', ['anc-1'], {})).not.toThrow()
   })
 })
 
