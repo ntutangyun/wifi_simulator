@@ -40,12 +40,24 @@ const ms = (rstu: number): string => (rstuNs(rstu) / 1e6).toFixed(rstu < 3000 ? 
  * fields away. MMS takes the same two: its rounds are laid out pair by pair in advance, and its
  * ranging signal is a train of sequences with no frame to measure a bearing on.
  *
+ * MMS takes two more, and for the same reason — a mode whose defaults are not its own is a mode
+ * that reads wrong the moment it is picked. It ranges **single-sided**: a train hands the
+ * receiver a millisecond-long ruler to measure the transmitter's clock with, which is exactly
+ * what the second half of a double-sided exchange is for, so there is nothing for DS-TWR to add
+ * (spec "The clock ratio from the train"). And its slot is the draft's own **600 RSTU** (0.5 ms,
+ * 4ab draft 15-22/0381r5 Table 1.2.3.2 — the schema also requires a multiple of 300 RSTU there),
+ * which is what makes the editor's MMS round the 28-slot, 14 ms round the Guide describes rather
+ * than a 56 ms one. `DEFAULT_UWB_SESSION` keeps its own 2400 RSTU: this is what *picking the
+ * mode* means, not what a session is.
+ *
  * What it deliberately does *not* touch is the anchor count — four are needed for three time
  * differences, and that is a fact about the plan the session cannot fix on its own, so it stays
  * with `uwbSessionIssue` where the user can read why.
  */
 export function uwbModePatch(mode: UwbMode): Partial<UwbSessionCfg> {
-  return mode === 'twr' ? { mode } : { mode, schedule: 'time', aoa: false }
+  if (mode === 'twr') return { mode }
+  if (mode === 'mms') return { mode, schedule: 'time', aoa: false, method: 'ss', slotRstu: 600 }
+  return { mode, schedule: 'time', aoa: false }
 }
 
 /**

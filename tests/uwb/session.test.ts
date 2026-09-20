@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { DEFAULT_UWB_SESSION, type UwbSessionCfg } from '../../src/model/scenario'
+import { RIF_COUNT_SET, RSF_COUNT_SET } from '../../src/uwb/mms'
 import { roundPlan, rstuNs, slotAction, slotStartNs } from '../../src/uwb/session'
 
 const MS = 1_000_000
@@ -224,5 +225,69 @@ describe('slotAction — MMS', () => {
     // X = 2 RSFs (ms 0, 1), one idle millisecond (ms 2), then Y = 2 RIFs (ms 3, 4).
     expect(slotAction(q, 4 + 2 * 2)).toEqual({ kind: 'idle' })
     expect(slotAction(q, 4 + 2 * 3)).toEqual({ kind: 'uwbRif', tx: 'tag', anchor: 0, index: 0 })
+  })
+})
+
+describe('slotAction and mmsLayout are one map, not two', () => {
+  /**
+   * The schedule places a fragment and the device places its own from the same layout, so a
+   * disagreement between them would put two ends of a round in different slots with nothing to
+   * catch it. Walk every train the draft's parameter sets allow, and every slot of the round it
+   * makes, in both directions.
+   */
+  it('agrees slot for slot, on every legal (X, Y, Z)', () => {
+    for (const rsfs of RSF_COUNT_SET) {
+      for (const rifs of RIF_COUNT_SET) {
+        if (rsfs + rifs === 0) continue // the schema refuses an empty train
+        for (const gapMs of [1, 2] as const) {
+          const label = `X=${rsfs} Y=${rifs} Z=${gapMs}`
+          const p = roundPlan(mms({ rsfs, rifs, gapMs }), 1)
+          const L = p.mms?.layout
+          expect(L, label).toBeDefined()
+          if (!L) continue
+
+          // Forwards: every fragment the layout places is the fragment the schedule names there.
+          const placed = new Map<number, string>()
+          for (const side of ['initiator', 'responder'] as const) {
+            for (const [kind, n] of [['rsf', rsfs], ['rif', rifs]] as const) {
+              for (let i = 0; i < n; i++) {
+                const slot = L.fragmentSlot(side, kind, i)
+                placed.set(slot, `${side} ${kind} ${i}`)
+                expect(slotAction(p, slot), `${label} ${side} ${kind} ${i}`).toEqual({
+                  kind: kind === 'rsf' ? 'uwbRsf' : 'uwbRif',
+                  tx: side === 'initiator' ? 'tag' : 'anchor',
+                  anchor: 0,
+                  index: i,
+                })
+              }
+            }
+          }
+          // …and no two fragments were given the same slot.
+          expect(placed.size, label).toBe(2 * (rsfs + rifs))
+
+          // Backwards: every slot the schedule calls a fragment is one the layout placed, and
+          // every slot it calls idle is one the layout placed nothing in.
+          for (let slot = 0; slot < p.slots; slot++) {
+            const a = slotAction(p, slot)
+            const mine = a.kind === 'uwbRsf' || a.kind === 'uwbRif'
+            expect(mine, `${label} slot ${slot}`).toBe(placed.has(slot))
+            expect(L.slotFragment(slot) !== null, `${label} slot ${slot} inverse`).toBe(mine)
+          }
+        }
+      }
+    }
+  })
+
+  it('places nothing outside the ranging phase, whatever the train', () => {
+    const L = roundPlan(mms({ rsfs: 16, rifs: 8, gapMs: 2 }), 1).mms?.layout
+    expect(L).toBeDefined()
+    if (!L) return
+    // The control window, the gap between the two report windows, and one slot past the round.
+    for (const slot of [0, 1, 2, 3, L.controlSlots + L.rpSlots, L.slots - 1, L.slots]) {
+      expect(L.slotFragment(slot), `slot ${slot}`).toBeNull()
+    }
+    // …and a slot that is not a slot at all.
+    expect(L.slotFragment(-1)).toBeNull()
+    expect(L.slotFragment(4.5)).toBeNull()
   })
 })

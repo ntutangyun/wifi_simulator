@@ -160,8 +160,24 @@ describe('P802.15.4ab frames on a lane', () => {
     expect(second).not.toContain('Mbps')
   })
 
-  it('quotes the narrowband radio’s own 0.25 Mbps for a control message', () => {
-    expect(spanTooltip(txSpan(poll), STRINGS.en.tooltips)[1]).toContain('0.25 Mbps')
+  it('quotes the narrowband radio’s own O-QPSK, never the HRP UWB PSDU rate', () => {
+    for (const f of [poll, resp, report]) {
+      const line = spanTooltip(txSpan(f), STRINGS.en.tooltips)[1]
+      expect(line, f.kind).toContain('0.25 Mbps O-QPSK')
+      // It is a second radio altogether: the 4z PSDU's own line would be a lie on it.
+      expect(line, f.kind).not.toContain('HRP UWB')
+      expect(line, f.kind).not.toContain('BPRF')
+    }
+    // …while a 4z ranging frame still reads as the SP1 PPDU it is.
+    expect(spanTooltip(txSpan(makePoll('tag-1', ['anc-1'], 'ss', 0, 0)), STRINGS.en.tooltips)[1])
+      .toContain('HRP UWB')
+  })
+
+  it('says the same in Chinese, and not by leaving the English in', () => {
+    const zh = spanTooltip(txSpan(poll), STRINGS.zh.tooltips)[1]
+    expect(zh).toContain('0.25 Mbps O-QPSK')
+    expect(zh).not.toContain('HRP UWB')
+    expect(zh).not.toBe(spanTooltip(txSpan(poll), STRINGS.en.tooltips)[1])
   })
 
   it('paints both trains one colour and the control plane another, neither the ranging amber', () => {

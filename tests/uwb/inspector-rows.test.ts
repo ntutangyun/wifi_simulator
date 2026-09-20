@@ -17,7 +17,7 @@ const tag: UwbNodeView = {
     'anc-2': { distM: 4.38, trueDistM: 4.5, method: 'ds', fom: FOM_NLOS, block: 3, n: 6 },
   },
   tdoa: {}, tdoaRef: null, aoa: {},
-  mms: { trains: {}, nbChannel: null, lbtBusy: 0, skippedBlocks: 0 },
+  mms: { trains: {}, nbChannel: null, lbtBusy: 0, skippedBlocks: 0, lastLbtBlock: null },
   position: {
     x: 0.03, y: -0.04, trueX: 0, trueY: 0, gdop: 1.41,
     ellipse: { a: 0.062, b: 0.041, thetaRad: 0.5 }, method: 'twr',
@@ -170,6 +170,7 @@ const mmsTag: UwbNodeView = {
     nbChannel: 3,
     lbtBusy: 2,
     skippedBlocks: 2,
+    lastLbtBlock: 1,
   },
 }
 

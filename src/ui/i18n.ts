@@ -288,6 +288,9 @@ export interface Strings {
     uwbFragment: (kind: string, index: number, of: number) => string
     /** A fragment has no data rate — it is a sequence — so its own EIRP takes that column. */
     uwbFragmentRate: (dbm: number) => string
+    /** A narrowband control message is a second radio altogether: O-QPSK at 250 kb/s, not the
+     * HRP UWB PSDU rate the line above quotes. */
+    nbRate: (mbps: number) => string
     nbPoll: (dst: string) => string; nbResp: (dst: string) => string; nbReport: (dst: string) => string
     uwbRate: (mbps: number) => string
     uwbWait: string; uwbWaitNote: string
@@ -792,6 +795,7 @@ export const STRINGS: Record<Lang, Strings> = {
       uwbBlink: 'UWB Blink — the tag transmits once and the anchors time it (UL-TDoA)',
       uwbFragment: (kind, index, of) => `${kind} ${index} of ${of} — one fragment of a multi-millisecond train`,
       uwbFragmentRate: (dbm) => `sequence · ${dbm.toFixed(2)} dBm`,
+      nbRate: (mbps) => `${mbps} Mbps O-QPSK · narrowband control (802.15.4ab draft)`,
       nbPoll: (dst) => `Narrowband POLL → ${dst} — opening the ranging cycle on the control radio`,
       nbResp: (dst) => `Narrowband RESP → ${dst} — it heard the poll and will range`,
       nbReport: (dst) => `Narrowband REPORT → ${dst} — the time the range is computed from`,
@@ -1298,6 +1302,7 @@ export const STRINGS: Record<Lang, Strings> = {
       uwbBlink: 'UWB 闪发帧 — 标签只发一次，由各锚点打时间戳（UL-TDoA）',
       uwbFragment: (kind, index, of) => `${kind} 第 ${index} / ${of} 个 — 多毫秒序列中的一个片段`,
       uwbFragmentRate: (dbm) => `序列 · ${dbm.toFixed(2)} dBm`,
+      nbRate: (mbps) => `${mbps} Mbps O-QPSK · 窄带控制面（802.15.4ab 草案）`,
       nbPoll: (dst) => `窄带 POLL → ${dst} — 在控制电台上开启一次测距周期`,
       nbResp: (dst) => `窄带 RESP → ${dst} — 它听到了轮询，将参与测距`,
       nbReport: (dst) => `窄带 REPORT → ${dst} — 计算距离所用的那个时间`,

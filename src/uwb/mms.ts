@@ -215,6 +215,17 @@ export interface MmsLayout {
    * fragments sit on even offsets from the start of the ranging phase and the responder's one
    * slot later, so the two trains interleave inside each millisecond (model). */
   fragmentSlot(side: 'initiator' | 'responder', kind: 'rsf' | 'rif', index: number): number
+  /**
+   * The inverse of `fragmentSlot`: which fragment, if any, sits in slot `slot` of the round.
+   * Null for every slot no fragment owns — the control and report windows, the idle
+   * milliseconds between the two trains, and the tail of a ranging phase the draft sizes at
+   * 20 slots whatever the train is.
+   *
+   * It exists so that the schedule (`slotAction`) and the devices read **one** map rather than
+   * two: a second copy of this arithmetic is a second chance for the two ends of a round to
+   * disagree about where a fragment is.
+   */
+  slotFragment(slot: number): { side: 'initiator' | 'responder'; kind: 'rsf' | 'rif'; index: number } | null
   /** Slot index of the narrowband REPORT: the responder's first, the initiator's two later. */
   reportSlot(side: 'initiator' | 'responder'): number
 }
@@ -250,6 +261,18 @@ export function mmsLayout(phy: MmsPhy): MmsLayout {
       // RSF-m starts m ms into the ranging phase; RIF-y starts (X + Z − 1 + y) ms into it.
       const ms = kind === 'rsf' ? index : x + z - 1 + index
       return MMS_CONTROL_SLOTS + 2 * ms + (side === 'responder' ? 1 : 0)
+    },
+    slotFragment(slot) {
+      if (!Number.isInteger(slot) || slot < MMS_CONTROL_SLOTS || slot >= MMS_CONTROL_SLOTS + rp) return null
+      const off = slot - MMS_CONTROL_SLOTS
+      // Two slots to a millisecond: the initiator's, then the responder's one slot later — the
+      // same offset `fragmentSlot` adds, read the other way round.
+      const side = off % 2 === 0 ? 'initiator' : 'responder'
+      const ms = (off - (side === 'responder' ? 1 : 0)) / 2
+      if (ms < x) return { side, kind: 'rsf', index: ms }
+      const firstRif = x + z - 1
+      if (y > 0 && ms >= firstRif && ms < firstRif + y) return { side, kind: 'rif', index: ms - firstRif }
+      return null
     },
     reportSlot(side) {
       return MMS_CONTROL_SLOTS + rp + (side === 'initiator' ? 2 : 0)

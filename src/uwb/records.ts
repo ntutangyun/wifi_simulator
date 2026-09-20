@@ -70,7 +70,10 @@ export type UwbRecord =
    * train's last fragment. `fragments` is how many the train held (X for an RSF train, Y for an
    * RIF one) and `heard` how many arrived; `gainDb` is what those combine to (10·log10(heard)),
    * and `marginDb` how far the combined train clears the receiver's sensitivity — the number
-   * the whole multi-millisecond idea is about.
+   * the whole multi-millisecond idea is about. `marginDb = rxDbm + gainDb − UWB_RX_SENS_DBM`
+   * holds whenever anything was heard at all, and only then: a train nothing was heard of
+   * carries the sentinel below in both `rxDbm` and `marginDb`, and the identity says nothing
+   * about it.
    *
    * `rxDbm` is one fragment's received power (they are equal in a static scene, so the first
    * heard one stands for the train). **Sentinel**: a train nothing was heard of has no received

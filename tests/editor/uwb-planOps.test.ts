@@ -5,6 +5,7 @@ import { DEFAULT_UWB_SESSION, ScenarioSchema, defaultScenario, type Scenario, ty
 import { MMS_SETS, mmsSet, type MmsSetId } from '../../src/uwb/mms'
 import { NB_CHANNELS } from '../../src/uwb/nb'
 import { UWB_TX_POWER_DBM } from '../../src/uwb/phy'
+import { roundPlan } from '../../src/uwb/session'
 import { mmsSetIdOf, mmsSetPatch, uwbMethodPatch, uwbModePatch } from '../../src/uwb/ui/UwbSessionFields'
 
 /** A scenario carrying `n` anchors and one tag on top of the default house. */
@@ -182,12 +183,39 @@ describe('uwbSessionIssue', () => {
   it('takes an MMS session to the time schedule and clears the bearing, like the one-way modes', () => {
     // An MMS round is laid out pair by pair before the block starts, and its ranging signal is
     // a train of sequences with no frame to measure a bearing on — the same two settings the
-    // one-way modes move, so the select moves them here too.
-    expect(uwbModePatch('mms')).toEqual({ mode: 'mms', schedule: 'time', aoa: false })
+    // one-way modes move. It moves two more of its own: single-sided, because a train already
+    // hands the receiver the clock the second half of a double-sided exchange is for, and the
+    // draft's own 600 RSTU slot (4ab 15-22/0381r5 Table 1.2.3.2), which is what makes the round
+    // the 28-slot, 14 ms one the Guide describes.
+    expect(uwbModePatch('mms'))
+      .toEqual({ mode: 'mms', schedule: 'time', aoa: false, method: 'ss', slotRstu: 600 })
     const contending: Partial<UwbSessionCfg> = { method: 'ss', schedule: 'contention', aoa: true }
     // Three anchors and one tag: an MMS round is pairwise, and the default block holds three.
     expect(uwbSessionIssue(withUwb(3, { ...contending, mode: 'mms' }))).toMatch(/MMS/)
     expect(uwbSessionIssue(withUwb(3, { ...contending, ...uwbModePatch('mms') }))).toBeNull()
+  })
+
+  it('the MMS patch lands the draft’s own 28-slot, 14 ms round', () => {
+    const sc = withUwb(3, uwbModePatch('mms'))
+    const session = ScenarioSchema.parse(sc).uwb!
+    expect(session.slotRstu).toBe(600)
+    expect(session.method).toBe('ss')
+    // 4 control + 20 ranging + 4 report slots at 0.5 ms each, the draft's example round.
+    const plan = roundPlan(session, 3)
+    expect(plan.slots).toBe(28)
+    expect(plan.roundNs).toBe(14_000_000)
+    // …and the session default itself is untouched, which is what keeps every shipped scene
+    // byte-identical: this is what *picking the mode* means, not what a session is.
+    expect(DEFAULT_UWB_SESSION.slotRstu).toBe(2400)
+    expect(DEFAULT_UWB_SESSION.method).toBe('ds')
+  })
+
+  it('leaves the slot and the method alone in every other mode', () => {
+    for (const mode of ['twr', 'dl-tdoa', 'ul-tdoa'] as const) {
+      const patch = uwbModePatch(mode)
+      expect(patch.slotRstu, mode).toBeUndefined()
+      expect(patch.method, mode).toBeUndefined()
+    }
   })
 
   it('the method select patches the schedule with it, both ways', () => {

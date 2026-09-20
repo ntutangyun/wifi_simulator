@@ -83,8 +83,15 @@ export interface UwbMmsView {
   /** Listen-before-talk checks that found the channel busy (this run). */
   lbtBusy: number
   /** Ranging blocks lost to one of those — a busy check stops every narrowband transmission
-   * until the next block, so it is blocks, not messages, that the rule costs. */
+   * until the next block, so it is blocks, not messages, that the rule costs. Counted as
+   * *distinct* blocks rather than as checks: the two happen to agree while a device that has
+   * found the channel busy stops checking until the next block, and they must not silently
+   * stop agreeing if that ever changes. */
   skippedBlocks: number
+  /** The block the last busy check fell in, so the count above can tell a second check in the
+   * same block from the first check of the next one. Blocks only ever move forwards in the
+   * record stream, so one number is enough — no set is needed. Null until one lands. */
+  lastLbtBlock: number | null
 }
 
 export interface UwbNodeView {
@@ -124,7 +131,7 @@ export function initUwbNodeView(cfg: UwbNodeCfg): UwbNodeView {
   return {
     role: cfg.role, block: 0, round: 0, slot: null, rounds: 0, timeouts: 0, interfered: 0,
     contend: null, contendCollisions: 0, ranges: {}, tdoa: {}, tdoaRef: null, aoa: {},
-    mms: { trains: {}, nbChannel: null, lbtBusy: 0, skippedBlocks: 0 },
+    mms: { trains: {}, nbChannel: null, lbtBusy: 0, skippedBlocks: 0, lastLbtBlock: null },
     position: null,
   }
 }
@@ -234,10 +241,12 @@ export function applyUwbRecord(vs: ViewState, r: TLRecord): boolean {
       const u = vs.nodes[r.node]?.uwb
       if (u) {
         u.mms.lbtBusy += 1
-        // A busy check stops this node's narrowband radio for the rest of the block, and a
-        // device that has already stopped never checks again — so a node emits at most one of
-        // these per block, and every one of them is a block it lost.
-        u.mms.skippedBlocks += 1
+        // A busy check stops this node's narrowband radio for the rest of the block, so what
+        // the rule costs is blocks: a second check inside one block would not cost a second.
+        if (u.mms.lastLbtBlock !== r.block) {
+          u.mms.skippedBlocks += 1
+          u.mms.lastLbtBlock = r.block
+        }
       }
       return true
     }

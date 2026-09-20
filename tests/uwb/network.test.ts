@@ -1465,26 +1465,32 @@ describe('UwbNetwork — MMS, the narrowband control plane', () => {
     expect(polls[0].frame.uwb?.nb?.centerMhz).toBe(nbCenterMhz(polls[0].frame.uwb!.nb!.channel))
   })
 
-  it('a busy listen-before-talk check costs the whole block, not one message', () => {
-    // A Wi-Fi emission parked over the control channel, loud enough at the tag to sit above the
-    // draft's −71.02 dBm energy-detection threshold.
+  /**
+   * One pair, driven by hand so a `Spectrum` can be built around it — the simulator makes its
+   * own, and a listen-before-talk check has nothing to read without one. `wifiBand` null leaves
+   * the air empty; otherwise a Wi-Fi emission is parked on that band for the whole run.
+   */
+  const runWithSpectrum = (
+    wifiBand: { lo: number; hi: number } | null, session: Partial<UwbSessionCfg['mms']> = {},
+  ): TLRecord[] => {
     const nodes = [
-      uwbNode('anc-1', { x: 1, y: 1, z: 1 }, 'anchor'),
-      uwbNode('tag-1', { x: 4, y: 4, z: 1 }, 'tag'),
+      uwbNode('anc-1', { x: 1, y: 1, z: 1, ppm: 5 }, 'anchor'),
+      uwbNode('tag-1', { x: 4, y: 4, z: 1, ppm: -15 }, 'tag'),
     ]
     const q = new EventQueue()
     let now = 0
     const recs: TLRecord[] = []
     const emit = makeEmitter((x) => recs.push(x as TLRecord))
-    const sp = new Spectrum([], q, () => now)
-    const band = nbBand(DEFAULT_UWB_SESSION.mms.nbChannels[0])
-    sp.emit('wifi', {
-      txId: 'ap', eirpDbm: 20, bandLoMhz: band.lo - 10, bandHiMhz: band.hi + 10,
-      pos: { x: 5, y: 5, z: 1 }, lossDb: wifiToUwbPathLossDb,
-    })
+    const sp = wifiBand === null ? null : new Spectrum([], q, () => now)
+    if (sp && wifiBand) {
+      sp.emit('wifi', {
+        txId: 'ap', eirpDbm: 20, bandLoMhz: wifiBand.lo, bandHiMhz: wifiBand.hi,
+        pos: { x: 5, y: 5, z: 1 }, lossDb: wifiToUwbPathLossDb,
+      })
+    }
     const cfg: UwbSessionCfg = {
       ...DEFAULT_UWB_SESSION, ...MMS_SESSION, nlos: false,
-      mms: { ...DEFAULT_UWB_SESSION.mms, nbLbt: 'on' },
+      mms: { ...DEFAULT_UWB_SESSION.mms, ...session },
     }
     new UwbNetwork(q, () => now, nodes, [], cfg, new Rng(7), emit, sp, 7)
     for (;;) {
@@ -1494,6 +1500,19 @@ describe('UwbNetwork — MMS, the narrowband control plane', () => {
       now = e.t
       e.fn()
     }
+    return recs
+  }
+
+  /** The control channel's own 2.5 MHz, widened by 10 MHz each way so the overlap is total. */
+  const overNbChannel = (): { lo: number; hi: number } => {
+    const band = nbBand(DEFAULT_UWB_SESSION.mms.nbChannels[0])
+    return { lo: band.lo - 10, hi: band.hi + 10 }
+  }
+
+  it('a busy listen-before-talk check costs the whole block, not one message', () => {
+    // A Wi-Fi emission parked over the control channel, loud enough at the tag to sit above the
+    // draft's −71.02 dBm energy-detection threshold.
+    const recs = runWithSpectrum(overNbChannel(), { nbLbt: 'on' })
     const busy = of(recs, 'UWB_NB_LBT')
     expect(busy.map((r) => [r.node, r.channel, r.block, r.round]))
       .toEqual([['tag-1', DEFAULT_UWB_SESSION.mms.nbChannels[0], 0, 0]])
@@ -1507,7 +1526,7 @@ describe('UwbNetwork — MMS, the narrowband control plane', () => {
     expect(of(recs, 'UWB_RANGE')).toEqual([])
   })
 
-  it('draws nothing and says nothing when the channel is clear', () => {
+  it('draws nothing and says nothing when there is no mediator to read at all', () => {
     const rs = run(mmsScene(
       [{ x: 1, y: 1, z: 1, ppm: 5 }], [{ x: 4, y: 4, z: 1, ppm: -15 }], mmsCfg({ nbLbt: 'on' }), [],
     ), 14 * MS)
@@ -1518,6 +1537,19 @@ describe('UwbNetwork — MMS, the narrowband control plane', () => {
       [{ x: 1, y: 1, z: 1, ppm: 5 }], [{ x: 4, y: 4, z: 1, ppm: -15 }], mmsCfg({ nbLbt: 'off' }), [],
     ), 14 * MS)
     expect(rs).toEqual(off)
+  })
+
+  it('draws nothing and says nothing when the mediator is there and the channel is clear', () => {
+    // The stronger case: a Wi-Fi link really is on the air, on 6 GHz channel 71 — 500 MHz above
+    // the control channel and outside UWB channel 9 as well, so it overlaps neither radio.
+    const clear = runWithSpectrum({ lo: 6265, hi: 6345 }, { nbLbt: 'on' })
+    expect(of(clear, 'UWB_NB_LBT')).toEqual([])
+    // The window holds one pair round — the block is 200 ms — and its poll went out.
+    expect(of(clear, 'TX_START', 'tag-1').filter((r) => r.frame.kind === 'nbPoll')).toHaveLength(1)
+    expect(of(clear, 'UWB_RANGE').length).toBeGreaterThan(0)
+    // …and it drew nothing for the check: the run is record for record the one with no mediator
+    // at all, which a single extra draw anywhere would break.
+    expect(clear).toEqual(runWithSpectrum(null, { nbLbt: 'on' }))
   })
 })
 

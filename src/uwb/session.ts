@@ -144,11 +144,15 @@ export function slotAction(p: RoundPlan, slot: number): SlotAction {
 }
 
 /**
- * One slot of a pairwise MMS round (the table of the spec's "The ranging cycle"), read straight
- * off `mmsLayout` so that the schedule and the device cannot disagree about where a fragment
- * sits. Slots 0–1 are the initiator's narrowband POLL window and 2–3 the responder's RESP;
- * the ranging phase alternates initiator/responder inside each millisecond; the last four slots
- * are the two report windows. 4ab draft 15-22/0381r5 §1.1
+ * One slot of a pairwise MMS round (the table of the spec's "The ranging cycle"). Slots 0–1 are
+ * the initiator's narrowband POLL window and 2–3 the responder's RESP; the ranging phase
+ * alternates initiator/responder inside each millisecond; the last four slots are the two report
+ * windows. 4ab draft 15-22/0381r5 §1.1
+ *
+ * Every fragment slot here comes from `mmsLayout.slotFragment`, the inverse of the
+ * `fragmentSlot` the devices place their own fragments with — one map, read both ways, so that
+ * the schedule and the device cannot disagree about where a fragment sits. (`tests/uwb/
+ * session.test.ts` walks every legal train and every slot to keep that true.)
  */
 function mmsSlotAction(p: RoundPlan, slot: number): SlotAction {
   const m = p.mms
@@ -156,26 +160,25 @@ function mmsSlotAction(p: RoundPlan, slot: number): SlotAction {
   if (!Number.isInteger(slot) || slot < 0 || slot >= p.slots) {
     throw new Error(`slotAction: MMS round has ${p.slots} slots, asked for ${slot}`)
   }
-  const { layout, phy, report } = m
+  const { layout, report } = m
   // --- control ---
   if (slot === 0) return { kind: 'nbPoll', tx: 'tag' }
   if (slot === 2) return { kind: 'nbResp', tx: 'anchor', anchor: 0 }
   if (slot === 1 || slot === 3) return { kind: 'idle' }
   // --- ranging ---
-  const rpEnd = layout.controlSlots + layout.rpSlots
-  if (slot < rpEnd) {
-    const off = slot - layout.controlSlots
-    // Two slots to a millisecond: the initiator's, then the responder's one slot later.
-    const ms = Math.floor(off / 2)
-    const tx = off % 2 === 0 ? 'tag' : 'anchor'
-    if (ms < phy.rsfs) return { kind: 'uwbRsf', tx, anchor: 0, index: ms }
-    const firstRif = phy.rsfs + phy.gapMs - 1
-    if (phy.rifs > 0 && ms >= firstRif && ms < firstRif + phy.rifs) {
-      return { kind: 'uwbRif', tx, anchor: 0, index: ms - firstRif }
+  // The one map, read backwards: `mmsLayout.slotFragment` is built from the same arithmetic as
+  // `fragmentSlot`, which is what the devices place their own fragments with. The idle
+  // milliseconds between the two trains, and the tail of a ranging phase the draft sizes at 20
+  // slots whatever the train is, are the slots it answers null for — nobody owns them.
+  if (slot < layout.controlSlots + layout.rpSlots) {
+    const frag = layout.slotFragment(slot)
+    if (!frag) return { kind: 'idle' }
+    return {
+      kind: frag.kind === 'rsf' ? 'uwbRsf' : 'uwbRif',
+      tx: frag.side === 'initiator' ? 'tag' : 'anchor',
+      anchor: 0,
+      index: frag.index,
     }
-    // The idle milliseconds between the two trains, and the tail of a ranging phase the draft
-    // sizes at 20 slots whatever the train is: nobody owns them.
-    return { kind: 'idle' }
   }
   // --- report ---
   if (slot === layout.reportSlot('responder')) {

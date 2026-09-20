@@ -55,7 +55,8 @@ describe('the UWB view reducer', () => {
     expect(tag.uwb).toEqual({
       role: 'tag', block: 0, round: 0, slot: null, rounds: 0, timeouts: 0, interfered: 0,
       contend: null, contendCollisions: 0, ranges: {}, tdoa: {}, tdoaRef: null, aoa: {},
-      mms: { trains: {}, nbChannel: null, lbtBusy: 0, skippedBlocks: 0 }, position: null,
+      mms: { trains: {}, nbChannel: null, lbtBusy: 0, skippedBlocks: 0, lastLbtBlock: null },
+      position: null,
     })
     expect(vs.nodes['anc-1'].uwb?.role).toBe('anchor')
   })
@@ -107,7 +108,8 @@ describe('the UWB view reducer', () => {
     expect(vs.nodes['anc-2'].uwb).toEqual({
       role: 'anchor', block: 0, round: 0, slot: null, rounds: 0, timeouts: 0, interfered: 0,
       contend: null, contendCollisions: 0, ranges: {}, tdoa: {}, tdoaRef: null, aoa: {},
-      mms: { trains: {}, nbChannel: null, lbtBusy: 0, skippedBlocks: 0 }, position: null,
+      mms: { trains: {}, nbChannel: null, lbtBusy: 0, skippedBlocks: 0, lastLbtBlock: null },
+      position: null,
     })
   })
 
@@ -289,16 +291,33 @@ describe('the MMS half of a node view', () => {
   })
 
   it('counts a busy listen-before-talk check, and the block it cost', () => {
+    const lbt = (block: number, round: number) => ({
+      type: 'UWB_NB_LBT' as const, node: 'tag-1', channel: 3,
+      foreignDbm: -41.9, thresholdDbm: -71.02, block, round,
+    })
     const vs = fresh()
-    apply(vs, [
-      { type: 'UWB_NB_LBT', node: 'tag-1', channel: 3, foreignDbm: -41.9, thresholdDbm: -71.02, block: 0, round: 0 },
-      { type: 'UWB_NB_LBT', node: 'tag-1', channel: 3, foreignDbm: -41.9, thresholdDbm: -71.02, block: 1, round: 0 },
-    ])
+    apply(vs, [lbt(0, 0), lbt(1, 0)])
     const u = vs.nodes['tag-1'].uwb!
     expect(u.mms.lbtBusy).toBe(2)
     expect(u.mms.skippedBlocks).toBe(2)
     // It is the transmitter's own record: the anchor learns nothing from it.
     expect(vs.nodes['anc-1'].uwb!.mms.lbtBusy).toBe(0)
+  })
+
+  it('counts blocks, not checks: a second busy check inside one block costs no second block', () => {
+    // The device stops checking for the rest of a block it found busy, so this is not what the
+    // engine produces today — but the two counters mean different things and must not quietly
+    // become one number if that ever changes.
+    const lbt = (block: number, round: number) => ({
+      type: 'UWB_NB_LBT' as const, node: 'tag-1', channel: 3,
+      foreignDbm: -41.9, thresholdDbm: -71.02, block, round,
+    })
+    const vs = fresh()
+    apply(vs, [lbt(0, 0), lbt(0, 1), lbt(0, 2), lbt(3, 0)])
+    const u = vs.nodes['tag-1'].uwb!
+    expect(u.mms.lbtBusy).toBe(4)
+    expect(u.mms.skippedBlocks).toBe(2)
+    expect(u.mms.lastLbtBlock).toBe(3)
   })
 
   it('takes the narrowband channel from the frames themselves, at both ends', () => {

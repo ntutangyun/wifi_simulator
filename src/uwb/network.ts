@@ -162,13 +162,12 @@ export class UwbNetwork {
       /** The pair's own anchor list — one entry in an MMS round, every anchor in every other
        * mode, and what a slot action's `anchor` index is resolved against. */
       roundAnchors: string[] = anchors,
+      /** The block's narrowband channel, drawn once per block by `startBlock`; null outside
+       * an MMS session, where there is no narrowband radio to put on one. */
+      nbChannel: number | null = null,
     ): void => {
       const crowd = crowdIds.map((id) => this.devices.get(id)!)
       const peers = { tag: tagId, anchors: roundAnchors }
-      // The narrowband control plane hops channel per block, deterministically from the
-      // scenario's seed (4ab draft 15-22/0381r5 §1.5.3): the devices are told, they never
-      // re-derive it, so the two ends of a round cannot land on different channels.
-      const nbChannel = mmsPlan ? nbChannelForBlock(mmsPlan.nbChannels, this.seed, block) : null
       for (let s = 0; s < this.plan.slots; s++) {
         const at = slotStartNs(this.plan, block, round, s)
         q.schedule(at, () => {
@@ -226,11 +225,16 @@ export class UwbNetwork {
         // single tag of a two-way round heads its own crowd. `tagId` is empty because no tag
         // owns this round — nothing in the round is addressed to one.
         runRound(block, 0, '', [...tags, ...anchors])
-      } else if (pairwise) {
+      } else if (mmsPlan) {
+        // The narrowband control plane hops channel **per block**, deterministically from the
+        // scenario's seed (4ab draft 15-22/0381r5 §1.5.3): drawn once, here, and handed to every
+        // round of the block, so no device re-derives it and the two ends of a round cannot land
+        // on different channels.
+        const nbChannel = nbChannelForBlock(mmsPlan.nbChannels, this.seed, block)
         // One round per tag–anchor pair: tag t and anchor k own round t·A + k, which is what
         // lets a tag know its block is over when `round % A === A − 1`.
         tags.forEach((tagId, t) => anchors.forEach((anchorId, k) => {
-          runRound(block, t * anchors.length + k, tagId, [tagId, anchorId], [anchorId])
+          runRound(block, t * anchors.length + k, tagId, [tagId, anchorId], [anchorId], nbChannel)
         }))
       } else {
         tags.forEach((tagId, k) => runRound(block, k, tagId, [tagId, ...anchors]))

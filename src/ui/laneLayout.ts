@@ -335,9 +335,11 @@ export function spanTooltip(s: LaneSpan, T: Strings['tooltips'], t?: Ns, nameOf:
         f.kind === 'rts' ? T.rts(dst) :
         f.kind === 'cfend' ? T.cfend : T.cts(dst)
       const rate = f.amp ? `${f.amp.kbps} kb/s OOK`
-        // A fragment is a raw sequence with no data rate at all; a narrowband message runs at
-        // its own 250 kb/s, not the UWB PSDU rate.
+        // A fragment is a raw sequence with no data rate at all, so its own EIRP takes the
+        // column; a narrowband control message runs on a second radio entirely (O-QPSK at
+        // 250 kb/s), and neither of the two is the HRP UWB PSDU rate the last line quotes.
         : f.uwb?.mms ? T.uwbFragmentRate(f.uwb.mms.txDbm)
+        : f.uwb?.nb ? T.nbRate(f.mbps)
         : f.uwb ? T.uwbRate(f.mbps)
         : f.mcs !== undefined ? `${f.mode?.toUpperCase()} MCS${f.mcs} · ${f.mbps} Mbps` : `${f.mbps} Mbps (${T.nonHt})`
       const lines = [`${what}${ac}`, `${f.bytes} B · ${rate} · ${dur}`]
