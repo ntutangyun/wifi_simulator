@@ -31,7 +31,7 @@ import type { FrameDesc } from '../model/frames'
 import type { EmitFn, RxFailReason } from '../model/records'
 import type { NodeCfg, Wall } from '../model/scenario'
 import type { Ns, Vec3 } from '../model/types'
-import { MMS_COMBINE_MAX_DB, type MmsPhy } from './mms'
+import { MMS_COMBINE_MAX_DB } from './mms'
 import {
   NB_LBT_THRESHOLD_DBM, NB_RX_SENS_DBM, NB_SIR_MIN_DB, NB_TX_DBM, nbBand, nbPl0Db,
 } from './nb'
@@ -65,14 +65,12 @@ export interface UwbRadio {
   onRxFail(from: string, reason: RxFailReason): void
 }
 
-/** Internal to this module: the session knobs the medium itself reads. */
+/** Internal to this module: the session knobs the medium itself reads. There is no MMS entry
+ * here, and there must not be one: a fragment's power, its length and its place in its train
+ * all ride on the frame, which is what makes the per-frame dispatch above possible at all. */
 interface UwbChannelCfg {
   channel: UwbChannelNo
   nlos: boolean
-  /** The MMS train shape, carried for the devices that ask the channel about their session.
-   * The medium itself reads nothing from it: a fragment's power, length and place in its train
-   * all ride on the frame. */
-  mms?: MmsPhy
 }
 
 /** A reception in progress at one receiver. */

@@ -104,7 +104,7 @@ export class UwbNetwork {
     const ch = new UwbChannel(
       q, now, nodes, walls,
       // The train shape rides along for the devices; the medium reads nothing from it.
-      { channel: cfg.channel, nlos: cfg.nlos, mms: this.plan.mode === 'mms' ? cfg.mms : undefined },
+      { channel: cfg.channel, nlos: cfg.nlos },
       (id) => this.devices.get(id)?.clock.ppm ?? 0, emit, spectrum,
     )
     this.channel = ch
