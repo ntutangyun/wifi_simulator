@@ -10,6 +10,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, it, expect } from 'vitest'
 import { CCA_ED_DBM } from '../../src/engine/phy'
 import { DEFAULT_UWB_SESSION } from '../../src/model/scenario'
+import { EditorGuideEn, EditorGuideZh } from '../../src/editor/EditorGuide'
 import { GuideEn, GuideZh } from '../../src/ui/Guide'
 import { STRINGS } from '../../src/ui/i18n'
 import { GLOSSARY } from '../../src/ui/glossary'
@@ -466,7 +467,8 @@ describe('Guide section 12 (P802.15.4ab, draft)', () => {
     const lbt = NB_LBT_THRESHOLD_DBM.toFixed(2) // −71.02 dBm over 2.5 MHz
     expect(lbt).toBe('-71.02')
     for (const text of [en, zh, README]) {
-      expect(text).toContain(`${NB_CHANNELS}`) // 250 channels
+      // A bare "250" also matches the schema's "1…250", so the count is asserted as a phrase.
+      expect(text).toContain(text === zh ? `${NB_CHANNELS} 个信道` : `${NB_CHANNELS} channels`)
       expect(text).toContain(`${NB_LBT_CCA_US} µs`) // the 9 µs CCA
       expect(text).toContain(dbm(NB_LBT_EDT_DBM_PER_MHZ).replace(' dBm', ' dBm/MHz'))
       expect(text).toContain(`${lbt.replace('-', '−')} dBm`)
@@ -556,15 +558,35 @@ describe('the 802.15.4ab glossary group', () => {
 })
 
 describe('the EditorGuide MMS section', () => {
-  it('describes the MMS fields in both languages, with the draft qualifier', () => {
-    for (const marker of ['802.15.4ab', 'Parameter set', '参数集']) {
-      expect(EDITOR_GUIDE, marker).toContain(marker)
+  // Rendered, not read off the source: a marker that matched a comment would pass while the
+  // panel showed nothing, and every string below is meant to reach the user's screen.
+  const en = renderToStaticMarkup(createElement(EditorGuideEn))
+  const zh = renderToStaticMarkup(createElement(EditorGuideZh))
+  /** The section, from its own heading to the next one — so a marker cannot be satisfied by
+   * some other part of a very long panel. */
+  const section = (html: string, from: string, to: string): string => {
+    const start = html.indexOf(from)
+    expect(start, `heading not rendered: ${from}`).toBeGreaterThan(-1)
+    const end = html.indexOf(to, start)
+    expect(end, `next heading not rendered: ${to}`).toBeGreaterThan(start)
+    return html.slice(start, end)
+  }
+  const enMms = section(en, 'MMS train (802.15.4ab draft)', 'Wall properties')
+  const zhMms = section(zh, 'MMS 片段序列（802.15.4ab 草案）', '墙体属性')
+
+  it('describes every MMS field in both languages, inside its own section', () => {
+    for (const marker of ['Parameter set', 'nbChannels', 'LBT', 'RSF', 'RIF', 'N_MSR', 'D5.0']) {
+      expect(enMms, `EN: ${marker}`).toContain(marker)
     }
-    // the fields the session section adds in MMS mode
-    for (const marker of ['nbChannels', 'LBT', 'RSF', 'RIF', 'N_MSR']) {
-      expect(EDITOR_GUIDE, marker).toContain(marker)
+    for (const marker of ['参数集', 'nbChannels', 'LBT', 'RSF', 'RIF', 'N_MSR', 'D5.0', '草案']) {
+      expect(zhMms, `ZH: ${marker}`).toContain(marker)
     }
-    expect(EDITOR_GUIDE).toContain('草案')
+  })
+
+  it('marks the section a draft and says the method select is off for a reason', () => {
+    expect(enMms).toContain('802.15.4ab')
+    expect(enMms.toLowerCase()).toContain('single-sided')
+    expect(zhMms).toContain('单边')
   })
 })
 

@@ -4,9 +4,9 @@
  * The UWB side of an MMS session measures; it never negotiates. Everything around the
  * measurement — who polls whom, whether the responder heard the poll, and the reply times the
  * range is computed from — travels on a plain O-QPSK narrowband link in the same 5–6 GHz
- * neighbourhood. That radio is slow (250 kb/s: a 12-octet message takes 576 µs, longer than
- * the whole UWB ranging phase's worth of fragments) but it reaches far and costs almost nothing,
- * which is why the draft puts the control plane there.
+ * neighbourhood. That radio is slow (250 kb/s: a 12-octet message takes 576 µs, several times
+ * the length of any one fragment it sets up) but it reaches far and costs almost nothing, which
+ * is why the draft puts the control plane there.
  *
  * It shares the UNII-3 and UNII-5 bands with Wi-Fi, so it also brings a listen-before-talk rule
  * with it. The numbers below are paraphrased from the TG4ab contributions named in each tag.

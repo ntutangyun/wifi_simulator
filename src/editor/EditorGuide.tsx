@@ -28,7 +28,7 @@ export function EditorGuide() {
   return lang === 'zh' ? <EditorGuideZh /> : <EditorGuideEn />
 }
 
-function EditorGuideEn() {
+export function EditorGuideEn() {
   return (
     <div style={{ padding: '4px 12px 16px', overflowY: 'auto', fontSize: 12 }}>
       <h3 style={{ ...h, fontSize: 13 }}>What every control does</h3>
@@ -305,8 +305,9 @@ function EditorGuideEn() {
       <D t="Parameter set">
         the 17 mandatory operating parameter sets of the draft (15-23/0502r3): ten RSF-only trains
         and seven mixed. Picking one writes the five PHY fields below it and Z = 1; touch any of
-        them afterwards and the select reads <i>custom</i>. It stores nothing of its own — it is
-        derived from the fields every time, so it can never claim a set the session is not. The
+        those six afterwards — Z included, since every set is specified at Z = 1 — and the select
+        reads <i>custom</i>. It stores nothing of its own: it is derived from all six fields every
+        time, which is what keeps it from ever claiming a set the session is not. The
         session default is the draft&rsquo;s own cycle default rather than a set, so a fresh MMS
         session opens on <i>custom</i>.
       </D>
@@ -348,9 +349,12 @@ function EditorGuideEn() {
       </D>
       <D t="Report mode">
         who sends the narrowband measurement report at the end of a pair round: the responder in
-        the first report slot, the initiator in the second, or both. Only a side that receives a
-        report holds the round trip, the reply time and the clock ratio together, so only it
-        produces a range — which is what decides whose lane the range shows up on.
+        the first report slot, the initiator in the second, or both. A range is made of two times
+        and each side measures only one — the initiator the round trip, the responder the reply —
+        so only a side that receives the other&rsquo;s report produces a range, which is what
+        decides whose lane it shows up on. The clock ratio it corrects with is its own: it comes
+        from the fragment train it heard, or from the narrowband carrier estimate when that train
+        gave it a single fragment.
       </D>
 
       <h4 style={h}>Wall properties</h4>
@@ -381,7 +385,7 @@ function EditorGuideEn() {
   )
 }
 
-function EditorGuideZh() {
+export function EditorGuideZh() {
   return (
     <div style={{ padding: '4px 12px 16px', overflowY: 'auto', fontSize: 12 }}>
       <h3 style={{ ...h, fontSize: 13 }}>各项控件与属性说明</h3>
@@ -624,8 +628,9 @@ function EditorGuideZh() {
       </p>
       <D t="参数集">
         草案规定的 17 组必选工作参数集（15-23/0502r3）：十组纯 RSF、七组混合。选中其中一组会写入它下面
-        五个物理层字段并把 Z 置为 1；此后只要改动其中任意一个，下拉框就会显示<i>自定义</i>。它本身不保存
-        任何状态——每次渲染都从字段反推得出，因此绝不会声称会话是某个它其实已经不是的参数集。会话默认值
+        五个物理层字段并把 Z 置为 1；此后只要改动这六项中的任意一项——Z 也算在内，因为每组参数集都是按
+        Z = 1 规定的——下拉框就会显示<i>自定义</i>。它本身不保存任何状态：每次渲染都由这六项反推得出，
+        正因如此，它绝不会声称会话是某个它其实已经不是的参数集。会话默认值
         取自草案的测距周期默认配置而非某个参数集，所以新建的 MMS 会话一打开就是<i>自定义</i>。
       </D>
       <D t="RSF 个数（X）/ RIF 个数（Y）">
@@ -659,8 +664,9 @@ function EditorGuideZh() {
       </D>
       <D t="报告方式">
         成对轮次结束时由哪一方发送窄带测量报告：响应方用第一个报告时隙、发起方用第二个，或者两方都发。
-        只有收到报告的一方才同时握有往返时间、回复时间和时钟比率，也只有它才产出距离——这也就决定了
-        测距结果会出现在谁的泳道上。
+        一次测距由两个时间构成，而每一方各自只能测到其中之一——发起方测往返时间，响应方测回复时间——
+        因此只有收到对方报告的一方才产出距离，这也就决定了测距结果会出现在谁的泳道上。用来修正的时钟比率
+        则是它自己的：来自它听到的那列片段序列；若该序列只给了它一个片段，就改用窄带载波频偏估计。
       </D>
 
       <h4 style={h}>墙体属性</h4>

@@ -1,12 +1,16 @@
 import { describe, it, expect } from 'vitest'
-import { canDeleteNode, hasAp, newAnchor, newAp, newUwbTag, parseNbChannels, removeNode, uwbSessionIssue } from '../../src/editor/planOps'
+import { canDeleteNode, hasAp, newAnchor, newAp, newUwbTag, removeNode, uwbSessionIssue } from '../../src/editor/planOps'
 import { GEN_FEATURES } from '../../src/model/caps'
-import { DEFAULT_UWB_SESSION, ScenarioSchema, defaultScenario, type Scenario, type UwbSessionCfg } from '../../src/model/scenario'
+import { DEFAULT_UWB_SESSION, ScenarioSchema, defaultScenario, type Scenario, type UwbMode, type UwbSessionCfg } from '../../src/model/scenario'
+import { STRINGS } from '../../src/ui/i18n'
 import { MMS_SETS, mmsSet, type MmsSetId } from '../../src/uwb/mms'
 import { NB_CHANNELS } from '../../src/uwb/nb'
 import { UWB_TX_POWER_DBM } from '../../src/uwb/phy'
 import { roundPlan } from '../../src/uwb/session'
-import { mmsSetIdOf, mmsSetPatch, uwbMethodPatch, uwbModePatch } from '../../src/uwb/ui/UwbSessionFields'
+import {
+  mmsSetIdOf, mmsSetPatch, parseNbChannels, uwbAoaHintKey, uwbMethodPatch, uwbModePatch,
+  uwbScheduleHintKey,
+} from '../../src/uwb/ui/UwbSessionFields'
 
 /** A scenario carrying `n` anchors and one tag on top of the default house. */
 function withUwb(n: number, session: Partial<UwbSessionCfg> = {}): Scenario {
@@ -293,8 +297,9 @@ describe('MMS parameter-set select', () => {
     // …and one field off a set is no longer that set.
     expect(mmsSetIdOf({ ...MMS_SETS['rsf-1'], gap: 34 })).toBeNull()
     expect(mmsSetIdOf({ ...MMS_SETS['mixed-7'], rifs: 4 })).toBeNull()
-    // Z is not one of the five: it is written by the patch, not compared by the select.
-    expect(mmsSetIdOf({ ...MMS_SETS['rsf-1'], gapMs: 2 })).toBe('rsf-1')
+    // Z is compared too, although every set carries the same Z = 1: a session at Z = 2 is not
+    // the set, and the select must not say it is.
+    expect(mmsSetIdOf({ ...MMS_SETS['rsf-1'], gapMs: 2 })).toBeNull()
   })
 
   it('writes the set’s five PHY fields plus Z = 1, and the result is a session the schema takes', () => {
@@ -320,6 +325,45 @@ describe('MMS parameter-set select', () => {
         mms: { ...DEFAULT_UWB_SESSION.mms, ...mmsSetPatch(id) },
       })
       expect(uwbSessionIssue(one), id).toBeNull()
+    }
+  })
+})
+
+/**
+ * A disabled field's tooltip is the only place the editor explains itself, so a wrong one is
+ * worse than none. Adding MMS made the two one-way reasons false in a mode that is neither
+ * one-way nor missing a transmitting tag, which is what these pin — by key, and then by what the
+ * two languages of that key may and may not say.
+ */
+describe('why a field is greyed out', () => {
+  const MODES: UwbMode[] = ['twr', 'dl-tdoa', 'ul-tdoa', 'mms']
+
+  it('gives the angle-of-arrival checkbox a reason that fits the mode', () => {
+    expect(MODES.map(uwbAoaHintKey))
+      .toEqual(['uwbAoaHint', 'uwbAoaTwrOnly', 'uwbAoaTwrOnly', 'uwbAoaMms'])
+  })
+
+  it('gives the schedule select a reason that fits the mode and the method', () => {
+    expect(MODES.map((m) => uwbScheduleHintKey(m, 'ss')))
+      .toEqual(['uwbScheduleHint', 'uwbTwrOnly', 'uwbTwrOnly', 'uwbScheduleMms'])
+    // DS-TWR is the older reason and still wins in the modes that allow the method at all;
+    // in MMS the mode's own reason comes first, since the method select is disabled there too.
+    expect(MODES.map((m) => uwbScheduleHintKey(m, 'ds')))
+      .toEqual(['uwbSsOnly', 'uwbSsOnly', 'uwbSsOnly', 'uwbScheduleMms'])
+  })
+
+  it('does not tell an MMS user that the tag never transmits or that the range is one-way', () => {
+    for (const lang of ['en', 'zh'] as const) {
+      const E = STRINGS[lang].editor
+      for (const key of ['uwbAoaMms', 'uwbScheduleMms'] as const) {
+        expect(E[key], `${lang}.${key}`).toBeTruthy()
+        // The claims the one-way strings make, which are what made them wrong here.
+        expect(E[key], `${lang}.${key}`).not.toMatch(/one-way|单向/)
+        expect(E[key], `${lang}.${key}`).not.toMatch(/never transmits|从不发射|根本不发射/)
+      }
+      // …and each says the thing that is actually true of MMS.
+      expect(E.uwbAoaMms).toMatch(lang === 'en' ? /two-way/ : /双向/)
+      expect(E.uwbScheduleMms).toMatch(lang === 'en' ? /before the block starts/ : /块开始之前/)
     }
   })
 })

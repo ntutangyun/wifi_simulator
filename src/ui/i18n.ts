@@ -106,6 +106,12 @@ export interface Strings {
     uwbSyncError: string; uwbSyncErrorHint: string; uwbUlOnly: string
     uwbTwrOnly: string
     uwbAoa: string; uwbAoaHint: string; uwbAoaTwrOnly: string
+    /**
+     * Why the two fields are greyed out in MMS, which the one-way modes' own reasons do not
+     * cover: an MMS tag transmits and an MMS range is two-way, so `uwbAoaTwrOnly` and
+     * `uwbTwrOnly` would both be false there. Picked by `uwbAoaHintKey` / `uwbScheduleHintKey`.
+     */
+    uwbAoaMms: string; uwbScheduleMms: string
     uwbBlock: string; uwbBlockHint: string; uwbSlot: string; uwbSlotHint: string
     uwbChannel: string; uwbChannelHint: string
     uwbTsNoise: string; uwbTsNoiseHint: string; uwbCfoNoise: string; uwbCfoNoiseHint: string
@@ -138,7 +144,9 @@ export interface Strings {
     /** Why the SS/DS select is greyed out in MMS mode. */
     uwbMmsSsOnly: string
     /** The read-only line under the MMS fields: fragment length, its power and the round. */
-    uwbMmsDerived: (rsfUs: string, fragDbm: string, slots: number, roundMs: string) => string
+    uwbMmsDerived: (
+      rsfUs: string, longestUs: string, fragDbm: string, slots: number, roundMs: string,
+    ) => string
   }
   inspector: {
     waiting: string; bssTotals: string; throughput: string; delivered: string
@@ -448,6 +456,8 @@ export const STRINGS: Record<Lang, Strings> = {
       uwbAoa: 'Angle of arrival (AoA)',
       uwbAoaHint: 'every anchor also measures the phase difference between its two antennas on each frame it receives from the tag, and reports the bearing it implies (±90° of its facing, 2.7° of 1-σ at boresight and worse towards the edge). With DS-TWR an anchor then has a distance and a direction, and fixes the tag on its own — one anchor, one position.',
       uwbAoaTwrOnly: 'the anchors only receive a frame from the tag in two-way ranging: in DL-TDoA the tag never transmits, and in UL-TDoA its one blink is not part of a round any anchor answers',
+      uwbAoaMms: 'an MMS tag does transmit, and an MMS range is two-way — what it has no frame for is the bearing. Its ranging signal is a train of bare sequences: no preamble, no SFD, no PHR, nothing an array can compare the phase of between two antennas. It is the signal that leaves no bearing here, not the direction of the exchange.',
+      uwbScheduleMms: 'an MMS cycle is laid out before the block starts — every tag–anchor pair owns a round, and inside it every fragment owns a slot, one millisecond at a time — so there is no response window left to contend for. Picking the mode also takes the slot to the draft’s own 600 RSTU (4ab draft 15-22/0381r5 Table 1.2.3.2).',
       uwbBlock: 'Block', uwbBlockHint: 'the ranging block repeats forever; every tag owns one round inside it, so the block sets how often a tag gets a fresh position',
       uwbSlot: 'Slot', uwbSlotHint: 'one ranging slot holds one frame; it has to be long enough for the round’s longest frame (the DS-TWR Final, which grows with the anchor count) plus its flight time',
       uwbChannel: 'Channel', uwbChannelHint: 'channel 5 is 6489.6 MHz, channel 9 is 7987.2 MHz. Only the 1 m free-space term differs (48.7 dB against 50.5 dB), so channel 9 costs a constant 1.8 dB at every distance.',
@@ -485,15 +495,15 @@ export const STRINGS: Record<Lang, Strings> = {
       uwbNbLbtHint: 'whether a narrowband transmission first listens for 9 µs: the draft makes it mandatory in UNII-5 (channels ≥ 50) and optional in UNII-3, which is what “auto” follows (4ab draft 15-22/0381r5 §1.4.2, citing the ETSI EN 303 687 frame-based rules). Busy means foreign power at or above −71.02 dBm across the 2.5 MHz channel, and a busy check silences this device’s narrowband radio for the rest of the ranging block.',
       uwbNbLbts: { auto: 'auto — on for channels ≥ 50', on: 'always on', off: 'off' },
       uwbReport: 'Report mode',
-      uwbReportHint: 'who sends the narrowband measurement report at the end of a pair round: the responder in the first report slot, the initiator in the second, or both (4ab draft 15-22/0381r5 Table 1.1.4.1). Only a side that receives a report holds all three of the round trip, the reply time and the clock ratio, so only it computes a range.',
+      uwbReportHint: 'who sends the narrowband measurement report at the end of a pair round: the responder in the first report slot, the initiator in the second, or both (4ab draft 15-22/0381r5 Table 1.1.4.1). A range needs a round trip and a reply time, and each side measures only one of the two — so only a side that receives a report can compute one. The clock ratio it corrects with comes from its own fragment train, or, when the train gave it one fragment, from the narrowband carrier-offset estimate.',
       uwbReports: {
         responder: 'responder reports — the initiator ranges',
         initiator: 'initiator reports — the responder ranges',
         bi: 'both report',
       },
       uwbMmsSsOnly: 'MMS ranges single-sided and corrects it with the clock ratio the fragment train itself measures — a millisecond-long ruler leaves nothing for a double-sided round to cancel, so there is no MMS DS-TWR to pick',
-      uwbMmsDerived: (rsfUs, fragDbm, slots, roundMs) =>
-        `RSF ${rsfUs} µs · fragment ${fragDbm} dBm · round ${slots} slots · ${roundMs} ms`,
+      uwbMmsDerived: (rsfUs, longestUs, fragDbm, slots, roundMs) =>
+        `RSF ${rsfUs} µs · longest fragment ${longestUs} µs at ${fragDbm} dBm · round ${slots} slots · ${roundMs} ms`,
     },
     inspector: {
       waiting: 'waiting for simulation…', bssTotals: 'BSS totals — click a node or lane for detail',
@@ -954,6 +964,8 @@ export const STRINGS: Record<Lang, Strings> = {
       uwbAoa: '到达角（AoA）',
       uwbAoaHint: '每个锚点在收到标签的每一帧时，都额外测量两根天线之间的相位差，并换算成方位角（视场为正前方左右各 90°，正前方 1-σ 约 2.7°，越靠边越差）。配合 DS-TWR，锚点同时握有距离和方向，仅凭自己就能定出标签的位置——一个锚点，一个定位。',
       uwbAoaTwrOnly: '只有双向测距时锚点才会收到标签发来的帧：DL-TDoA 中标签根本不发射，UL-TDoA 中标签那一帧闪发也不属于任何锚点参与应答的轮次',
+      uwbAoaMms: 'MMS 中的标签确实会发射，测距也确实是双向的——它缺的不是“方向”，而是可供测方位角的那一帧。它的测距信号是一列“素”序列：没有前导、没有 SFD、没有 PHR，天线阵列根本找不到可以比较两路相位的东西。在这里让方位角无从测起的是信号本身，而不是交互的方向。',
+      uwbScheduleMms: 'MMS 的测距周期在块开始之前就已排定——每个标签–锚点配对独占一个轮次，轮次内每个片段又独占一个时隙，一毫秒一个——因此根本没有留下可供竞争的响应窗口。选中该模式时还会把时隙改成草案自己的 600 RSTU（4ab 草案 15-22/0381r5 Table 1.2.3.2）。',
       uwbBlock: '测距块', uwbBlockHint: '测距块循环往复；每个标签在块内独占一个轮次，因此块长决定了标签多久刷新一次位置',
       uwbSlot: '测距时隙', uwbSlotHint: '一个测距时隙只装一帧；它必须容得下该轮次中最长的一帧（DS-TWR 的终结帧，长度随锚点数增长）以及其飞行时间',
       uwbChannel: '信道', uwbChannelHint: '信道 5 为 6489.6 MHz，信道 9 为 7987.2 MHz。两者只有 1 米处的自由空间损耗不同（48.7 dB 对 50.5 dB），因此信道 9 在任何距离上都恒定多损耗约 1.8 dB。',
@@ -991,15 +1003,15 @@ export const STRINGS: Record<Lang, Strings> = {
       uwbNbLbtHint: '窄带发送前是否先监听 9 µs：草案规定 UNII-5（信道号 ≥ 50）必须执行、UNII-3 可选，“自动”即按此判断（4ab 草案 15-22/0381r5 §1.4.2，援引 ETSI EN 303 687 的基于帧设备规则）。“忙”的判据是 2.5 MHz 信道内的外部功率达到或超过 −71.02 dBm；一旦判忙，本设备的窄带电台在该测距块剩余时间内不再发送。',
       uwbNbLbts: { auto: '自动——信道号 ≥ 50 时开启', on: '始终开启', off: '关闭' },
       uwbReport: '报告方式',
-      uwbReportHint: '成对轮次结束时由哪一方发送窄带测量报告：响应方用第一个报告时隙、发起方用第二个，或者两方都发（4ab 草案 15-22/0381r5 Table 1.1.4.1）。只有收到报告的一方才同时握有往返时间、回复时间和时钟比率，也只有它才算得出距离。',
+      uwbReportHint: '成对轮次结束时由哪一方发送窄带测量报告：响应方用第一个报告时隙、发起方用第二个，或者两方都发（4ab 草案 15-22/0381r5 Table 1.1.4.1）。算一次距离需要往返时间和回复时间，而每一方各自只能测到其中之一——因此只有收到报告的一方才算得出距离。用来修正的时钟比率则来自它自己那列片段序列；若序列只给了它一个片段，就改用窄带载波频偏估计。',
       uwbReports: {
         responder: '响应方发报告——由发起方测距',
         initiator: '发起方发报告——由响应方测距',
         bi: '双方都发报告',
       },
       uwbMmsSsOnly: 'MMS 采用单边测距，再用片段序列自己量出的时钟比率加以修正——有了这把长达毫秒的“尺子”，双边测距已无可抵消之物，因此没有 MMS 版的 DS-TWR 可选',
-      uwbMmsDerived: (rsfUs, fragDbm, slots, roundMs) =>
-        `RSF ${rsfUs} µs · 片段 ${fragDbm} dBm · 每轮 ${slots} 个时隙 · ${roundMs} ms`,
+      uwbMmsDerived: (rsfUs, longestUs, fragDbm, slots, roundMs) =>
+        `RSF ${rsfUs} µs · 最长片段 ${longestUs} µs，${fragDbm} dBm · 每轮 ${slots} 个时隙 · ${roundMs} ms`,
     },
     inspector: {
       waiting: '等待仿真…', bssTotals: 'BSS 总览 — 点击节点或泳道查看详情',

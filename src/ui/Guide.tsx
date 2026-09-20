@@ -351,7 +351,8 @@ export function GuideEn() {
         transmitter's milliseconds apart, so a receiver that hears fragments <i>i</i> and <i>j</i> measures
         that span on its own counter and reads the clock ratio straight off it, σ = √2·σ<sub>ts</sub> / the
         span (model). Over the default train's 7 ms that is 0.0202 ppm, and what it leaves in a corrected
-        single-sided range is ½·T<sub>reply</sub>·σ — <b>1.5 mm</b> at the layout's 0.5 ms reply, against{' '}
+        single-sided range is ½·T<sub>reply</sub>·σ — <b>1.5 mm</b> at a 0.5 ms reply (the draft's default
+        slot, which the editor's MMS mode now uses), against{' '}
         <b>1.5 cm</b> from the narrowband carrier estimate alone (0.2 ppm) and <b>1.5 m</b> uncorrected
         (20 ppm). That ladder is why the slice needs no DS-TWR: with a train, single-sided ranging already
         sits on the timestamp floor. A device that heard one fragment only falls back to the carrier-offset
@@ -362,8 +363,9 @@ export function GuideEn() {
         <b> NBA-UWB</b> radio — O-QPSK at 250 kb/s, 32 chips per 16 µs symbol, 4 bits a symbol, no FEC
         (standard Clause 12; the configuration 4ab draft 0100r2 §2.3.1). Its messages are compressed PSDUs
         of a message-ID octet, the fields and a CRC-16: POLL {NB_POLL_BYTES} octets ({NB_POLL_US} µs), RESP{' '}
-        {NB_RESP_BYTES} ({NB_RESP_US} µs), REPORT {NB_REPORT_BYTES} ({NB_REPORT_US} µs) — each far longer
-        than the entire UWB exchange it carries (4ab draft 0381r5 Table 1.6.3.1 / 1.6.3.2). It lives in
+        {NB_RESP_BYTES} ({NB_RESP_US} µs), REPORT {NB_REPORT_BYTES} ({NB_REPORT_US} µs). Slow enough that
+        a single POLL outlasts any one fragment it sets up several times over — {NB_POLL_US} µs against the
+        {' '}{MMS_RSF_US} µs of the default RSF (4ab draft 0381r5 Table 1.6.3.1 / 1.6.3.2). It lives in
         UNII-3 and UNII-5: {NB_CHANNELS} channels {NB_CHANNEL_MHZ} MHz apart, numbered 0…{NB_CHANNELS - 1},
         the first at {NB_CH0_MHZ} MHz and channel 50 at {NB_CH50_MHZ} MHz — the draft gives the counts and
         the band edges in text but the numbering only as a figure, so that centre formula is{' '}
@@ -399,9 +401,12 @@ export function GuideEn() {
       </table>
       <p style={p}>
         The ranging phase is the draft's RpDuration default of 20 slots as a <i>floor</i>, grown to fit the
-        train (model). Whoever holds a round trip, a reply time and a ratio computes the corrected
-        single-sided range; the <b>report mode</b> decides who that is — responder only, initiator only, or
-        both (4ab draft 0381r5 Table 1.1.4.1). A tag with three or more ranges from the block then solves
+        train (model). Each side measures one of the two times a range is made of — the initiator the round
+        trip, the responder the reply — so whoever receives the other's report computes the corrected
+        single-sided range, and the <b>report mode</b> decides who that is: responder only, initiator only,
+        or both (4ab draft 0381r5 Table 1.1.4.1). The ratio it corrects with comes from its own train, or
+        from the narrowband carrier estimate when the train gave it one fragment. A tag with three or more
+        ranges from the block then solves
         its position at the end of its last pair round. Discontinuation follows the draft: an initiator
         whose LBT was busy or whose RESP never came, and a responder that heard no POLL, simply stop.
       </p>
@@ -714,7 +719,8 @@ export function GuideZh() {
         <b>这列序列同时也是一把尺子。</b>同一序列中两个片段之间，按发送方的时钟恰好相隔整数个毫秒，
         因此接收机只要用自己的计数器量出这段跨度，就直接读出了时钟比率，其 1-σ 为 √2·σ<sub>ts</sub> 除以
         该跨度（模型取值）。默认序列的跨度是 7 ms，对应 0.0202 ppm；它在修正后的单边测距里留下的是
-        ½·T<sub>reply</sub>·σ——在本布局 0.5 ms 的回复时间下即 <b>1.5 mm</b>，而仅凭窄带载波频偏估计
+        ½·T<sub>reply</sub>·σ——回复时间为 0.5 ms 时即 <b>1.5 mm</b>（0.5 ms 是草案的默认时隙，也正是编辑器
+        选中 MMS 模式后所用的值），而仅凭窄带载波频偏估计
         （0.2 ppm）是 <b>1.5 cm</b>，完全不修正（20 ppm）则是 <b>1.5 m</b>。正是这个阶梯说明本切片不需要
         DS-TWR：有了片段序列，单边测距已经贴在时间戳噪声的地板上。只听到一个片段的设备则退回到载波频偏
         估计，与第 11 节一样。
@@ -724,7 +730,8 @@ export function GuideZh() {
         250 kb/s，每符号 32 个码片、16 µs，4 比特，无前向纠错（标准 Clause 12；具体配置见 4ab 草案
         0100r2 §2.3.1）。它的消息都是压缩 PSDU：一个消息 ID 字节、若干字段，再加 CRC-16——POLL{' '}
         {NB_POLL_BYTES} 字节（{NB_POLL_US} µs）、RESP {NB_RESP_BYTES} 字节（{NB_RESP_US} µs）、REPORT{' '}
-        {NB_REPORT_BYTES} 字节（{NB_REPORT_US} µs），每一条都远长于它所承载的那次 UWB 交互
+        {NB_REPORT_BYTES} 字节（{NB_REPORT_US} µs）。它慢到单单一帧 POLL 就比它所安排的任何一个片段长出
+        好几倍——{NB_POLL_US} µs 对默认 RSF 的 {MMS_RSF_US} µs
         （4ab 草案 0381r5 Table 1.6.3.1 / 1.6.3.2）。它工作在 UNII-3 与 UNII-5：共 {NB_CHANNELS} 个信道，
         间隔 {NB_CHANNEL_MHZ} MHz，编号 0…{NB_CHANNELS - 1}，0 号中心为 {NB_CH0_MHZ} MHz，50 号为{' '}
         {NB_CH50_MHZ} MHz——草案用文字给出了信道数量与频段边界，编号却只画在图里，因此这条中心频率公式是
@@ -759,8 +766,10 @@ export function GuideZh() {
       </table>
       <p style={p}>
         测距阶段以草案的 RpDuration 默认值 20 个时隙为<i>下限</i>，再按序列长度往上撑（模型取值）。
-        谁同时握有往返时间、回复时间和时钟比率，谁就算出修正后的单边测距结果；由<b>报告方式</b>决定这是谁
-        ——只响应方、只发起方，或双方（4ab 草案 0381r5 Table 1.1.4.1）。标签在本块内攒够三个及以上距离后，
+        构成一次测距的两个时间，双方各自只能测到其中之一——发起方测往返时间，响应方测回复时间——因此谁
+        收到了对方的报告，谁就算出修正后的单边测距结果；由<b>报告方式</b>决定这是谁——只响应方、只发起方，
+        或双方（4ab 草案 0381r5 Table 1.1.4.1）。用来修正的时钟比率来自它自己那列片段序列；若序列只给了它
+        一个片段，则改用窄带载波频偏估计。标签在本块内攒够三个及以上距离后，
         会在它最后一个配对轮次结束时解算位置。中止规则遵循草案：先听后说判忙、或等不到 RESP 的发起方，
         以及没收到 POLL 的响应方，本轮不再有任何动作。
       </p>

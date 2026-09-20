@@ -11,14 +11,11 @@ import { roundPlan } from '../session'
 import { rstuNs } from '../phy'
 import {
   MMS_SETS, N_MSR_SET, RIF_COUNT_SET, RSF_COUNT_SET, STS_LEN_SET,
-  mmsFragmentDbm, mmsLayout, mmsSet, rsfNs, type MmsPhy, type MmsSetId,
+  mmsFragmentDbm, mmsLayout, mmsLongestFragmentNs, mmsSet, rsfNs, type MmsPhy, type MmsSetId,
 } from '../mms'
-// The allow-list parser lives beside the editor's other scenario-field parsers (the 6 GHz centre
-// channel is its sibling) because its rules are the schema's, not the panel's; it is pure and
-// pulls in no React, so reaching for it from here costs this panel nothing.
-import { parseNbChannels } from '../../editor/planOps'
+import { NB_CHANNELS } from '../nb'
 import { useStrings } from '../../ui/i18n'
-import { clampField } from '../../ui/inputs'
+import { clampField, parseIntList } from '../../ui/inputs'
 
 const label: React.CSSProperties = { display: 'block', marginBottom: 4 }
 const suffix: React.CSSProperties = { color: 'var(--dim)', fontSize: 11, marginLeft: 4 }
@@ -69,32 +66,69 @@ export function uwbMethodPatch(method: UwbSessionCfg['method']): Partial<UwbSess
   return method === 'ds' ? { method, schedule: 'time' } : { method }
 }
 
-/** The five PHY fields a mandatory parameter set fixes — what the set select compares and writes.
- * Z is deliberately not one of them: the sets are PHY shapes, and the draft's cycle carries its
- * own idle millisecond. 4ab draft 15-23/0502r3 (proposed 16.2.11.4) */
-type MmsSetFields = Pick<MmsPhy, 'rsfs' | 'rifs' | 'nMsr' | 'gap' | 'stsLen'>
+/** The five PHY fields a mandatory parameter set fixes, and the Z every one of them is specified
+ * against — together, the whole of what the set select compares and writes.
+ * 4ab draft 15-23/0502r3 (proposed 16.2.11.4) */
+type MmsSetFields = Pick<MmsPhy, 'rsfs' | 'rifs' | 'nMsr' | 'gap' | 'stsLen' | 'gapMs'>
 
 /**
  * Which mandatory set the current fragment parameters are, or null for "custom".
  *
- * The select stores nothing of its own: a stored id and five editable fields would be two
+ * The select stores nothing of its own: a stored id and the editable fields would be two
  * versions of the same fact, and editing one field would leave the select claiming a set the
- * session no longer is. Deriving it every render makes that state unrepresentable.
+ * session no longer is. Deriving it every render makes that state unrepresentable — which is
+ * why Z is compared too, although every set carries the same Z = 1: a session at Z = 2 is not
+ * the set, and a select that said it was would be the one thing this shape rules out.
  */
 export function mmsSetIdOf(phy: MmsPhy): MmsSetId | null {
   for (const id of Object.keys(MMS_SETS) as MmsSetId[]) {
     const s = MMS_SETS[id]
     if (s.rsfs === phy.rsfs && s.rifs === phy.rifs && s.nMsr === phy.nMsr
-      && s.gap === phy.gap && s.stsLen === phy.stsLen) return id
+      && s.gap === phy.gap && s.stsLen === phy.stsLen && s.gapMs === phy.gapMs) return id
   }
   return null
 }
 
 /** What picking a mandatory set writes: its five PHY fields, plus the one idle millisecond the
  * sets are specified against (Z = 1). The narrowband settings are the user's and stay put. */
-export function mmsSetPatch(id: MmsSetId): MmsSetFields & Pick<MmsPhy, 'gapMs'> {
+export function mmsSetPatch(id: MmsSetId): MmsSetFields {
   const { rsfs, rifs, nMsr, gap, stsLen } = mmsSet(id)
   return { rsfs, rifs, nMsr, gap, stsLen, gapMs: 1 }
+}
+
+/**
+ * The narrowband allow list as the session's text field takes it: the schema's own rule
+ * (`mode: 'mms'`, `path: ['uwb']`, 4ab draft 15-22/0381r5 §1.5.2) is 1…250 entries, each a whole
+ * channel number 0…249, no repeats — which is `parseIntList` over the plan `nb.ts` defines.
+ */
+export function parseNbChannels(raw: string): number[] | null {
+  return parseIntList(raw, 0, NB_CHANNELS - 1, NB_CHANNELS)
+}
+
+/**
+ * Which hint the angle-of-arrival checkbox shows, given the mode that disabled it.
+ *
+ * The reason differs by mode and saying the wrong one is worse than saying nothing: in the
+ * one-way modes the anchors never receive a frame *from the tag*, while in MMS the tag transmits
+ * and the range is two-way — what is missing there is a frame at all, the ranging signal being a
+ * bare sequence with no preamble for a two-antenna array to compare phases on.
+ */
+export function uwbAoaHintKey(mode: UwbMode): 'uwbAoaHint' | 'uwbAoaMms' | 'uwbAoaTwrOnly' {
+  if (mode === 'twr') return 'uwbAoaHint'
+  return mode === 'mms' ? 'uwbAoaMms' : 'uwbAoaTwrOnly'
+}
+
+/**
+ * Which hint the schedule select shows. Same care as `uwbAoaHintKey`: "the one-way modes are
+ * time-scheduled only" is not why an MMS session cannot contend — its cycle is laid out pair by
+ * pair and millisecond by millisecond before the block starts, so there is no window to open.
+ */
+export function uwbScheduleHintKey(
+  mode: UwbMode, method: UwbSessionCfg['method'],
+): 'uwbScheduleHint' | 'uwbScheduleMms' | 'uwbSsOnly' | 'uwbTwrOnly' {
+  if (mode === 'mms') return 'uwbScheduleMms'
+  if (method !== 'ss') return 'uwbSsOnly'
+  return mode === 'twr' ? 'uwbScheduleHint' : 'uwbTwrOnly'
 }
 
 /**
@@ -118,10 +152,11 @@ export function UwbSessionFields(
   // alone; the window and the retry budget mean nothing until it is actually chosen.
   const ssOnly = session.method === 'ss'
   const contending = ssOnly && session.schedule === 'contention'
-  // Which one-way mode is on, or null for two-way ranging: the clock correction belongs to the
-  // listening tag of DL-TDoA and the sync error to the shared timebase of UL-TDoA, so each field
-  // is live in exactly one mode and says why it is not in the others.
-  const oneWay = session.mode === 'twr' ? null : session.mode
+  // Which non-two-way mode is on, or null for two-way ranging: the clock correction belongs to
+  // the listening tag of DL-TDoA and the sync error to the shared timebase of UL-TDoA, so each
+  // field is live in exactly one mode and says why it is not in the others. It is deliberately
+  // not called `oneWay` — MMS is in here too, and MMS is a two-way range.
+  const nonTwr = session.mode === 'twr' ? null : session.mode
   // The MMS half of the session, or null outside MMS mode: every field below it reads only
   // `session.mms`, and a two-way or one-way session carries those settings untouched.
   const mms = session.mode === 'mms' ? session.mms : null
@@ -149,27 +184,27 @@ export function UwbSessionFields(
           <option value="mms">{E.uwbModes.mms}</option>
         </select>
       </label>
-      <label style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 4, cursor: oneWay === 'dl-tdoa' ? 'pointer' : 'default' }}
-        title={oneWay === 'dl-tdoa' ? E.uwbClockCorrectionHint : E.uwbDlOnly}>
-        <input type="checkbox" checked={session.tdoaClockCorrection} disabled={oneWay !== 'dl-tdoa'}
+      <label style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 4, cursor: nonTwr === 'dl-tdoa' ? 'pointer' : 'default' }}
+        title={nonTwr === 'dl-tdoa' ? E.uwbClockCorrectionHint : E.uwbDlOnly}>
+        <input type="checkbox" checked={session.tdoaClockCorrection} disabled={nonTwr !== 'dl-tdoa'}
           onChange={(e) => onChange({ tdoaClockCorrection: e.target.checked })} />
         {E.uwbClockCorrection}
       </label>
-      <label style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 4, cursor: oneWay === null ? 'pointer' : 'default' }}
-        title={oneWay === null ? E.uwbAoaHint : E.uwbAoaTwrOnly}>
-        <input type="checkbox" checked={session.aoa} disabled={oneWay !== null}
+      <label style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 4, cursor: nonTwr === null ? 'pointer' : 'default' }}
+        title={E[uwbAoaHintKey(session.mode)]}>
+        <input type="checkbox" checked={session.aoa} disabled={nonTwr !== null}
           onChange={(e) => onChange({ aoa: e.target.checked })} />
         {E.uwbAoa}
       </label>
-      <label style={label} title={oneWay === 'ul-tdoa' ? E.uwbSyncErrorHint : E.uwbUlOnly}>
+      <label style={label} title={nonTwr === 'ul-tdoa' ? E.uwbSyncErrorHint : E.uwbUlOnly}>
         {E.uwbSyncError}{' '}
         <input type="number" min={0} max={10} step={0.1} value={session.syncErrorNs} style={{ width: 62 }}
-          disabled={oneWay !== 'ul-tdoa'}
+          disabled={nonTwr !== 'ul-tdoa'}
           onChange={(e) => onChange({ syncErrorNs: clampField(e.target.value, 0, 10) })} /> ns
       </label>
-      <label style={label} title={!ssOnly ? E.uwbSsOnly : oneWay !== null ? E.uwbTwrOnly : E.uwbScheduleHint}>
+      <label style={label} title={E[uwbScheduleHintKey(session.mode, session.method)]}>
         {E.uwbSchedule}{' '}
-        <select value={session.schedule} disabled={!ssOnly || oneWay !== null}
+        <select value={session.schedule} disabled={!ssOnly || nonTwr !== null}
           onChange={(e) => onChange({ schedule: e.target.value as UwbSessionCfg['schedule'] })}>
           <option value="time">{E.uwbSchedules.time}</option>
           <option value="contention">{E.uwbSchedules.contention}</option>
@@ -244,9 +279,14 @@ function MmsFields(
 ) {
   const E = useStrings().editor
   const setId = mmsSetIdOf(mms)
-  // The RSF the fragment parameters describe, whether or not this train carries one: its length
-  // is what the millisecond's energy is spread over, and so what sets the fragment's power.
-  const fragNs = rsfNs(mms.nMsr, mms.gap)
+  // The RSF the fragment parameters describe, whether or not this train carries one — it is the
+  // arithmetic the N_MSR and gap fields drive, so it is worth showing either way.
+  const rsfFragNs = rsfNs(mms.nMsr, mms.gap)
+  // The power is a different question: the millisecond's energy is spread over whichever
+  // fragment is actually the longest, and with X = 0 that is the RIF, not the RSF. An empty
+  // train has no fragment at all (the schema refuses one), so the RSF stands in until it is
+  // filled — the alternative is dividing 37 nJ by zero on the way to the screen.
+  const longestNs = mmsLongestFragmentNs(mms) || rsfFragNs
   const layout = mmsLayout(mms)
   return (
     <div style={{ marginTop: 6, paddingTop: 5, borderTop: '1px solid var(--border)' }}>
@@ -307,8 +347,10 @@ function MmsFields(
       </label>
       <div style={note}>
         {E.uwbMmsDerived(
-          (fragNs / 1000).toFixed(2),
-          mmsFragmentDbm(fragNs).toFixed(2),
+          (rsfFragNs / 1000).toFixed(2),
+          (longestNs / 1000).toFixed(2),
+          // A Unicode minus, as every dBm figure in the Guide and the glossary is written.
+          mmsFragmentDbm(longestNs).toFixed(2).replace('-', '−'),
           layout.slots,
           ms(layout.slots * slotRstu),
         )}

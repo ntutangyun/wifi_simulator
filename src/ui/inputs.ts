@@ -14,3 +14,28 @@ export function clampField(raw: string, lo: number, hi: number, int = false): nu
   if (!Number.isFinite(n) || raw.trim() === '') return lo
   return Math.min(hi, Math.max(lo, n))
 }
+
+/**
+ * Parse a comma-separated list of whole numbers typed into a text field — `"100, 150, 200"` —
+ * or `null` when it is not a list the caller's bounds accept: empty, repeated, out of range, or
+ * not written as whole numbers. A field that gets `null` keeps the last list that worked rather
+ * than committing one the schema would reject on run.
+ *
+ * Parsing is deliberately strict where `Number` is not. `Number('')` is 0, `Number('1e2')` is
+ * 100 and `Number(' 3 ')` is 3; a value the user never typed must not reach a scenario because
+ * the field was lenient, so only digits (around any amount of space) are accepted.
+ *
+ * `lo`/`hi` are inclusive and `maxEntries` caps the list's length.
+ */
+export function parseIntList(raw: string, lo: number, hi: number, maxEntries: number): number[] | null {
+  const parts = raw.split(',').map((s) => s.trim())
+  if (parts.length > maxEntries) return null
+  const out: number[] = []
+  for (const part of parts) {
+    if (!/^\d+$/.test(part)) return null
+    const n = Number(part)
+    if (n < lo || n > hi || out.includes(n)) return null
+    out.push(n)
+  }
+  return out
+}
