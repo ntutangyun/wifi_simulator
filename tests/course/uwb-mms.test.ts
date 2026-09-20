@@ -33,7 +33,8 @@ import {
   rsfChips, rsfNs,
 } from '../../src/uwb/mms'
 import {
-  NB_DEFAULT_CHANNELS, NB_POLL_BYTES, NB_REPORT_BYTES, NB_RESP_BYTES, nbCenterMhz, nbPpduNs,
+  NB_CHIP_US, NB_DEFAULT_CHANNELS, NB_POLL_BYTES, NB_REPORT_BYTES, NB_RESP_BYTES,
+  NB_SYMBOL_CHIPS, NB_SYMBOL_US, nbCenterMhz, nbPpduNs,
 } from '../../src/uwb/nb'
 import { rangeSigmaM } from '../../src/uwb/position'
 import { rctuToMetres } from '../../src/uwb/ranging'
@@ -183,6 +184,17 @@ describe('uwb-mms · lesson shape', () => {
     expect(first.kind ?? 'p').toBe('p')
     const en = (first as Extract<Block, { kind?: 'p' }>).text.en
     expect(en).toContain('IEEE Std 802.15.4-2024')
+    // the narrowband radio is the standard's, exactly as the companion lesson says: Clause 12
+    // O-QPSK, 32 chips a symbol at 0.5 µs, 4 bits a symbol — 250 kb/s, and 576 µs for 12 octets
+    expect(en).toContain('everything that turns a Clause 12 O-QPSK radio into a control radio for UWB')
+    expect(NB_SYMBOL_CHIPS * NB_CHIP_US).toBe(NB_SYMBOL_US)
+    expect(4 / (NB_SYMBOL_US / 1000)).toBe(250) // 4 bits per 16 µs symbol, in kb/s
+    expect(nbPpduNs(NB_POLL_BYTES) / 1000).toBe(576)
+    // …and the paragraph that describes that radio credits Clause 12 for it too
+    const carries = uwbMms.body.find((b) => b.heading?.en === 'What the narrowband radio carries')!
+    const carriesText = (carries as Extract<Block, { kind?: 'p' }>).text
+    expect(carriesText.en).toContain('Clause 12’s 250 kb/s O-QPSK radio')
+    expect(carriesText.zh).toContain('标准第 12 章')
     expect(en).toContain('P802.15.4ab')
     expect(en).toContain('D5.0')
     expect(en).toContain('The balloted draft may differ')
