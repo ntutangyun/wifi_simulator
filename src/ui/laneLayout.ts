@@ -327,9 +327,17 @@ export function spanTooltip(s: LaneSpan, T: Strings['tooltips'], t?: Ns, nameOf:
         f.kind === 'uwbFinal' ? T.uwbFinal :
         f.kind === 'uwbReport' ? T.uwbReport(dst) :
         f.kind === 'uwbBlink' ? T.uwbBlink :
+        f.kind === 'uwbRsf' || f.kind === 'uwbRif'
+          ? T.uwbFragment(f.kind === 'uwbRsf' ? 'RSF' : 'RIF', (f.uwb?.mms?.index ?? 0) + 1, f.uwb?.mms?.of ?? 0) :
+        f.kind === 'nbPoll' ? T.nbPoll(dst) :
+        f.kind === 'nbResp' ? T.nbResp(dst) :
+        f.kind === 'nbReport' ? T.nbReport(dst) :
         f.kind === 'rts' ? T.rts(dst) :
         f.kind === 'cfend' ? T.cfend : T.cts(dst)
       const rate = f.amp ? `${f.amp.kbps} kb/s OOK`
+        // A fragment is a raw sequence with no data rate at all; a narrowband message runs at
+        // its own 250 kb/s, not the UWB PSDU rate.
+        : f.uwb?.mms ? T.uwbFragmentRate(f.uwb.mms.txDbm)
         : f.uwb ? T.uwbRate(f.mbps)
         : f.mcs !== undefined ? `${f.mode?.toUpperCase()} MCS${f.mcs} · ${f.mbps} Mbps` : `${f.mbps} Mbps (${T.nonHt})`
       const lines = [`${what}${ac}`, `${f.bytes} B · ${rate} · ${dur}`]

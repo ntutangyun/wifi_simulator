@@ -17,8 +17,9 @@
  *   DL-TDoA: slot 0 Poll (anchor 0) | slots 1..A-1 Response (anchor 1..A-1) | slot A Final (anchor 0)
  *   UL-TDoA: slot 0 Blink (tag)
  */
-import type { UwbMode, UwbSessionCfg } from '../model/scenario'
+import type { NbLbt, NbReportMode, UwbMode, UwbSessionCfg } from '../model/scenario'
 import type { Ns } from '../model/types'
+import { mmsLayout, type MmsLayout, type MmsPhy } from './mms'
 import { rstuNs, uwbSlotsPerTag } from './phy'
 
 export { rstuNs }
@@ -37,6 +38,23 @@ export interface RoundPlan {
   contentionSlots: number
   /** What the round measures: two-way ranges, or one-way time differences (§10.32.3). */
   mode: UwbMode
+  /** Set exactly when `mode` is 'mms': everything an MMS pair round is laid out from, resolved
+   * once here so that no device re-derives it — the two ends of a round must agree on the slot
+   * every fragment sits in, and a second copy of `mmsLayout` at the device would be a second
+   * chance to disagree. */
+  mms?: MmsRoundPlan
+}
+
+/** The MMS half of a round plan (P802.15.4ab): the train both devices cut their fragments from,
+ * the slot table those fragments and the narrowband messages sit in, and the three control-plane
+ * settings a device needs in the round itself. */
+export interface MmsRoundPlan {
+  phy: MmsPhy
+  layout: MmsLayout
+  report: NbReportMode
+  /** The session's narrowband allow list; the block's own channel is drawn from it per block. */
+  nbChannels: number[]
+  nbLbt: NbLbt
 }
 
 /**
@@ -56,6 +74,19 @@ export function roundPlan(cfg: UwbSessionCfg, anchors: number): RoundPlan {
     method: cfg.method, anchors, slots, slotNs, roundNs, blockNs,
     roundsPerBlock: cfg.mode === 'dl-tdoa' ? 1 : Math.floor(blockNs / roundNs),
     schedule: cfg.schedule, contentionSlots: cfg.contentionSlots, mode: cfg.mode,
+    // Copied, not referenced: a plan outlives the scenario object it was built from, and a
+    // device reading the train's shape must not be able to see it edited underneath.
+    ...(cfg.mode === 'mms'
+      ? {
+        mms: {
+          phy: { ...cfg.mms },
+          layout: mmsLayout(cfg.mms),
+          report: cfg.mms.report,
+          nbChannels: [...cfg.mms.nbChannels],
+          nbLbt: cfg.mms.nbLbt,
+        },
+      }
+      : {}),
   }
 }
 
@@ -75,6 +106,15 @@ export type SlotAction =
   | { kind: 'uwbFinal'; tx: 'anchor'; anchor: number }
   | { kind: 'uwbReport'; tx: 'anchor'; anchor: number }
   | { kind: 'uwbBlink'; tx: 'tag' }
+  // P802.15.4ab, the pairwise MMS cycle. The pair's anchor is always `anchor: 0` — a pair round
+  // holds exactly one responder, and the network is what maps round t·A + k to anchor k.
+  | { kind: 'nbPoll'; tx: 'tag' }
+  | { kind: 'nbResp'; tx: 'anchor'; anchor: number }
+  | { kind: 'uwbRsf' | 'uwbRif'; tx: 'tag' | 'anchor'; anchor: number; index: number }
+  | { kind: 'nbReport'; tx: 'tag' | 'anchor'; anchor: number }
+  /** Nobody transmits: the second slot of each two-slot narrowband window, a ranging slot the
+   * train does not reach, and a report slot the session's report mode does not use. */
+  | { kind: 'idle' }
 
 export function slotAction(p: RoundPlan, slot: number): SlotAction {
   if (p.mode === 'dl-tdoa') {
@@ -90,11 +130,7 @@ export function slotAction(p: RoundPlan, slot: number): SlotAction {
     if (slot === 0) return { kind: 'uwbBlink', tx: 'tag' }
     throw new Error(`slotAction: UL-TDoA round has ${p.slots} slots, asked for ${slot}`)
   }
-  if (p.mode === 'mms') {
-    // The MMS round is laid out by `mmsLayout`, not by this table: its slots hold narrowband
-    // messages and fragment trains rather than the PSDUs a `SlotAction` names.
-    throw new Error('slotAction: an MMS round is laid out by mmsLayout, not by slotAction')
-  }
+  if (p.mode === 'mms') return mmsSlotAction(p, slot)
   if (slot === 0) return { kind: 'uwbPoll', tx: 'tag' }
   if (p.schedule === 'contention') {
     if (slot <= p.contentionSlots) return { kind: 'uwbResp', tx: 'anchor', anchor: -1 }
@@ -105,4 +141,48 @@ export function slotAction(p: RoundPlan, slot: number): SlotAction {
   if (slot === p.anchors + 1) return { kind: 'uwbFinal', tx: 'tag' }
   if (slot <= 2 * p.anchors + 1) return { kind: 'uwbReport', tx: 'anchor', anchor: slot - p.anchors - 2 }
   throw new Error(`slotAction: DS round has ${p.slots} slots, asked for ${slot}`)
+}
+
+/**
+ * One slot of a pairwise MMS round (the table of the spec's "The ranging cycle"), read straight
+ * off `mmsLayout` so that the schedule and the device cannot disagree about where a fragment
+ * sits. Slots 0–1 are the initiator's narrowband POLL window and 2–3 the responder's RESP;
+ * the ranging phase alternates initiator/responder inside each millisecond; the last four slots
+ * are the two report windows. 4ab draft 15-22/0381r5 §1.1
+ */
+function mmsSlotAction(p: RoundPlan, slot: number): SlotAction {
+  const m = p.mms
+  if (!m) throw new Error('slotAction: an MMS round plan carries no MMS parameters')
+  if (!Number.isInteger(slot) || slot < 0 || slot >= p.slots) {
+    throw new Error(`slotAction: MMS round has ${p.slots} slots, asked for ${slot}`)
+  }
+  const { layout, phy, report } = m
+  // --- control ---
+  if (slot === 0) return { kind: 'nbPoll', tx: 'tag' }
+  if (slot === 2) return { kind: 'nbResp', tx: 'anchor', anchor: 0 }
+  if (slot === 1 || slot === 3) return { kind: 'idle' }
+  // --- ranging ---
+  const rpEnd = layout.controlSlots + layout.rpSlots
+  if (slot < rpEnd) {
+    const off = slot - layout.controlSlots
+    // Two slots to a millisecond: the initiator's, then the responder's one slot later.
+    const ms = Math.floor(off / 2)
+    const tx = off % 2 === 0 ? 'tag' : 'anchor'
+    if (ms < phy.rsfs) return { kind: 'uwbRsf', tx, anchor: 0, index: ms }
+    const firstRif = phy.rsfs + phy.gapMs - 1
+    if (phy.rifs > 0 && ms >= firstRif && ms < firstRif + phy.rifs) {
+      return { kind: 'uwbRif', tx, anchor: 0, index: ms - firstRif }
+    }
+    // The idle milliseconds between the two trains, and the tail of a ranging phase the draft
+    // sizes at 20 slots whatever the train is: nobody owns them.
+    return { kind: 'idle' }
+  }
+  // --- report ---
+  if (slot === layout.reportSlot('responder')) {
+    return report === 'initiator' ? { kind: 'idle' } : { kind: 'nbReport', tx: 'anchor', anchor: 0 }
+  }
+  if (slot === layout.reportSlot('initiator')) {
+    return report === 'responder' ? { kind: 'idle' } : { kind: 'nbReport', tx: 'tag', anchor: 0 }
+  }
+  return { kind: 'idle' }
 }

@@ -111,12 +111,118 @@ describe('roundPlan (one-way ranging)', () => {
     expect(slotAction(p, 4)).toEqual({ kind: 'uwbFinal', tx: 'anchor', anchor: 0 })
     expect(() => slotAction(p, 5)).toThrow(/DL-TDoA round has 5 slots/)
     // No tag transmits in a DL-TDoA round at all.
-    expect([0, 1, 2, 3, 4].every((s) => slotAction(p, s).tx === 'anchor')).toBe(true)
+    expect([0, 1, 2, 3, 4].every((s) => {
+      const a = slotAction(p, s)
+      return a.kind !== 'idle' && a.tx === 'anchor'
+    })).toBe(true)
   })
 
   it('maps the UL-TDoA slot: the tag’s blink, and nothing after it', () => {
     const p = roundPlan(session({ mode: 'ul-tdoa' }), 4)
     expect(slotAction(p, 0)).toEqual({ kind: 'uwbBlink', tx: 'tag' })
     expect(() => slotAction(p, 1)).toThrow(/UL-TDoA round has 1 slots/)
+  })
+})
+
+// --- P802.15.4ab: the pairwise MMS round ---------------------------------------
+
+/** The draft's own ranging-cycle defaults, on a 600 RSTU (0.5 ms) slot. */
+const mms = (over: Partial<UwbSessionCfg['mms']> = {}): UwbSessionCfg =>
+  session({ mode: 'mms', method: 'ss', slotRstu: 600, mms: { ...DEFAULT_UWB_SESSION.mms, ...over } })
+
+describe('roundPlan — MMS', () => {
+  it('lays out the draft’s default round: 4 control + 20 ranging + 4 report slots, 14 ms', () => {
+    const p = roundPlan(mms(), 3)
+    expect(p.slots).toBe(28)
+    expect(p.slotNs).toBe(500_000)
+    expect(p.roundNs).toBe(14 * MS)
+    // A 200 ms block holds 14 of them, which is what the pair count is measured against.
+    expect(p.roundsPerBlock).toBe(14)
+    expect(p.mode).toBe('mms')
+  })
+
+  it('carries the train, the layout and the control plane, so no device derives them twice', () => {
+    const p = roundPlan(mms({ report: 'responder', nbChannels: [7, 9], nbLbt: 'on' }), 3)
+    const m = p.mms
+    expect(m).toBeDefined()
+    expect(m?.phy.rsfs).toBe(8)
+    expect(m?.layout.slots).toBe(28)
+    expect(m?.report).toBe('responder')
+    expect(m?.nbChannels).toEqual([7, 9])
+    expect(m?.nbLbt).toBe('on')
+    // Copied, not referenced: the plan outlives the config object it was built from.
+    expect(m?.nbChannels).not.toBe(DEFAULT_UWB_SESSION.mms.nbChannels)
+  })
+
+  it('carries nothing of the kind in any other mode', () => {
+    for (const mode of ['twr', 'dl-tdoa', 'ul-tdoa'] as const) {
+      expect(roundPlan(session({ mode }), 4).mms, mode).toBeUndefined()
+    }
+  })
+})
+
+describe('slotAction — MMS', () => {
+  const p = roundPlan(mms(), 3)
+  const at = (slot: number) => slotAction(p, slot)
+
+  it('gives the control phase to the narrowband radio, two slots a message', () => {
+    expect(at(0)).toEqual({ kind: 'nbPoll', tx: 'tag' })
+    expect(at(1)).toEqual({ kind: 'idle' })
+    expect(at(2)).toEqual({ kind: 'nbResp', tx: 'anchor', anchor: 0 })
+    expect(at(3)).toEqual({ kind: 'idle' })
+  })
+
+  it('interleaves the two trains a slot apart inside each millisecond', () => {
+    for (let i = 0; i < 8; i++) {
+      expect(at(4 + 2 * i), `initiator RSF ${i}`).toEqual({ kind: 'uwbRsf', tx: 'tag', anchor: 0, index: i })
+      expect(at(5 + 2 * i), `responder RSF ${i}`).toEqual({ kind: 'uwbRsf', tx: 'anchor', anchor: 0, index: i })
+    }
+    // The draft sizes the ranging phase at 20 slots whatever the train is; X = 8 fills 16 of
+    // them, and nobody owns the other four.
+    for (const s of [20, 21, 22, 23]) expect(at(s), `tail ${s}`).toEqual({ kind: 'idle' })
+  })
+
+  it('follows mmsLayout exactly, slot for slot', () => {
+    const L = p.mms?.layout
+    expect(L).toBeDefined()
+    for (let i = 0; i < 8; i++) {
+      expect(L?.fragmentSlot('initiator', 'rsf', i)).toBe(4 + 2 * i)
+      expect(L?.fragmentSlot('responder', 'rsf', i)).toBe(5 + 2 * i)
+    }
+    expect(L?.reportSlot('responder')).toBe(24)
+    expect(L?.reportSlot('initiator')).toBe(26)
+  })
+
+  it('gives the responder the first report window and the initiator the second', () => {
+    expect(at(24)).toEqual({ kind: 'nbReport', tx: 'anchor', anchor: 0 })
+    expect(at(25)).toEqual({ kind: 'idle' })
+    expect(at(26)).toEqual({ kind: 'nbReport', tx: 'tag', anchor: 0 })
+    expect(at(27)).toEqual({ kind: 'idle' })
+    expect(() => at(28)).toThrow(/MMS round has 28 slots/)
+  })
+
+  it('empties the report window the session’s report mode does not use', () => {
+    const only = (report: 'responder' | 'initiator' | 'bi') => {
+      const q = roundPlan(mms({ report }), 3)
+      return [slotAction(q, 24).kind, slotAction(q, 26).kind]
+    }
+    expect(only('bi')).toEqual(['nbReport', 'nbReport'])
+    expect(only('responder')).toEqual(['nbReport', 'idle'])
+    expect(only('initiator')).toEqual(['idle', 'nbReport'])
+  })
+
+  it('places an integrity train after the idle millisecond, and grows the phase to fit', () => {
+    // mixed-7: X = 8, Y = 8, Z = 1 — sixteen milliseconds of train, so 32 ranging slots.
+    const q = roundPlan(mms({ rsfs: 8, rifs: 8, nMsr: 64, gap: 25, stsLen: 64 }), 1)
+    expect(q.slots).toBe(4 + 32 + 4)
+    expect(slotAction(q, 4 + 2 * 8)).toEqual({ kind: 'uwbRif', tx: 'tag', anchor: 0, index: 0 })
+    expect(slotAction(q, 4 + 2 * 15 + 1)).toEqual({ kind: 'uwbRif', tx: 'anchor', anchor: 0, index: 7 })
+  })
+
+  it('leaves the idle milliseconds between the trains to nobody (Z = 2)', () => {
+    const q = roundPlan(mms({ rsfs: 2, rifs: 2, gapMs: 2 }), 1)
+    // X = 2 RSFs (ms 0, 1), one idle millisecond (ms 2), then Y = 2 RIFs (ms 3, 4).
+    expect(slotAction(q, 4 + 2 * 2)).toEqual({ kind: 'idle' })
+    expect(slotAction(q, 4 + 2 * 3)).toEqual({ kind: 'uwbRif', tx: 'tag', anchor: 0, index: 0 })
   })
 })

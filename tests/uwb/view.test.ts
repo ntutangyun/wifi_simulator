@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { makeEmitter, type EmitFn, type TLRecord } from '../../src/model/records'
 import { applyRecord, cloneView, initViewState } from '../../src/model/view'
+import { makeNbPoll } from '../../src/uwb/frames'
 import { DEFAULT_UWB_SESSION, nonht, type NodeCfg, type Scenario } from '../../src/model/scenario'
 
 function uwbNode(id: string, role: 'anchor' | 'tag', x: number, y: number): NodeCfg {
@@ -53,7 +54,8 @@ describe('the UWB view reducer', () => {
     expect(tag.acs).toBeNull()
     expect(tag.uwb).toEqual({
       role: 'tag', block: 0, round: 0, slot: null, rounds: 0, timeouts: 0, interfered: 0,
-      contend: null, contendCollisions: 0, ranges: {}, tdoa: {}, tdoaRef: null, aoa: {}, position: null,
+      contend: null, contendCollisions: 0, ranges: {}, tdoa: {}, tdoaRef: null, aoa: {},
+      mms: { trains: {}, nbChannel: null, lbtBusy: 0, skippedBlocks: 0 }, position: null,
     })
     expect(vs.nodes['anc-1'].uwb?.role).toBe('anchor')
   })
@@ -104,7 +106,8 @@ describe('the UWB view reducer', () => {
     // anc-2 took part in nothing of its own: untouched by the tag's records
     expect(vs.nodes['anc-2'].uwb).toEqual({
       role: 'anchor', block: 0, round: 0, slot: null, rounds: 0, timeouts: 0, interfered: 0,
-      contend: null, contendCollisions: 0, ranges: {}, tdoa: {}, tdoaRef: null, aoa: {}, position: null,
+      contend: null, contendCollisions: 0, ranges: {}, tdoa: {}, tdoaRef: null, aoa: {},
+      mms: { trains: {}, nbChannel: null, lbtBusy: 0, skippedBlocks: 0 }, position: null,
     })
   })
 
@@ -234,5 +237,80 @@ describe('the UWB view reducer', () => {
     const replayed = snap!
     for (const r of records.slice(mid)) applyRecord(replayed, r)
     expect(replayed).toEqual(live)
+  })
+})
+
+/** A fresh view of the scene above, and a helper that folds bare records into it. */
+function fresh() {
+  return initViewState(uwbScenario())
+}
+
+/** A record without its timeline stamp; distributive, so each member keeps its own shape. */
+type Bare<T> = T extends unknown ? Omit<T, 't'> : never
+
+function apply(vs: ReturnType<typeof fresh>, recs: Bare<Parameters<EmitFn>[0]>[]): void {
+  for (const r of seq(recs.map((x) => ({ ...x, t: 0 } as Parameters<EmitFn>[0])))) applyRecord(vs, r)
+}
+
+// --- P802.15.4ab -----------------------------------------------------------------
+
+describe('the MMS half of a node view', () => {
+  it('keeps the latest train per peer, and the range’s integrity flag beside it', () => {
+    const vs = fresh()
+    apply(vs, [
+      {
+        type: 'UWB_MMS_TRAIN', node: 'tag-1', peer: 'anc-1', kind: 'rsf', fragments: 8, heard: 8,
+        rxDbm: -100.26, gainDb: 9.03, marginDb: 1.77, detected: true, ratioPpm: -20.03,
+        block: 0, round: 0,
+      },
+      {
+        type: 'UWB_MMS_TRAIN', node: 'tag-1', peer: 'anc-2', kind: 'rif', fragments: 2, heard: 0,
+        rxDbm: -999, gainDb: 0, marginDb: -999, detected: false, ratioPpm: null, block: 0, round: 1,
+      },
+      {
+        type: 'UWB_RANGE', node: 'tag-1', peer: 'anc-1', method: 'ss', tofRctu: 900,
+        distM: 4.24, trueDistM: 4.24, fom: 0x16, block: 0, round: 0, integrity: false,
+      },
+    ])
+    const u = vs.nodes['tag-1'].uwb!
+    expect(u.mms.trains['anc-1'])
+      .toEqual({ kind: 'rsf', fragments: 8, heard: 8, marginDb: 1.77, detected: true, ratioPpm: -20.03 })
+    // Nothing heard: the record's sentinel is carried through unchanged, and the rows module
+    // is what turns it into a dash.
+    expect(u.mms.trains['anc-2'].marginDb).toBe(-999)
+    expect(u.mms.trains['anc-2'].ratioPpm).toBeNull()
+    expect(u.ranges['anc-1'].integrity).toBe(false)
+    // A 4z range has no flag at all, not a false one.
+    apply(vs, [{
+      type: 'UWB_RANGE', node: 'tag-1', peer: 'anc-3', method: 'ds', tofRctu: 900,
+      distM: 4.24, trueDistM: 4.24, fom: 0x16, block: 0, round: 2,
+    }])
+    expect('integrity' in vs.nodes['tag-1'].uwb!.ranges['anc-3']).toBe(false)
+  })
+
+  it('counts a busy listen-before-talk check, and the block it cost', () => {
+    const vs = fresh()
+    apply(vs, [
+      { type: 'UWB_NB_LBT', node: 'tag-1', channel: 3, foreignDbm: -41.9, thresholdDbm: -71.02, block: 0, round: 0 },
+      { type: 'UWB_NB_LBT', node: 'tag-1', channel: 3, foreignDbm: -41.9, thresholdDbm: -71.02, block: 1, round: 0 },
+    ])
+    const u = vs.nodes['tag-1'].uwb!
+    expect(u.mms.lbtBusy).toBe(2)
+    expect(u.mms.skippedBlocks).toBe(2)
+    // It is the transmitter's own record: the anchor learns nothing from it.
+    expect(vs.nodes['anc-1'].uwb!.mms.lbtBusy).toBe(0)
+  })
+
+  it('takes the narrowband channel from the frames themselves, at both ends', () => {
+    const vs = fresh()
+    const poll = makeNbPoll('tag-1', 'anc-1', 37, 0, 0)
+    apply(vs, [
+      { type: 'TX_START', node: 'tag-1', frame: poll },
+      { type: 'RX_OK', node: 'anc-1', from: 'tag-1', frame: poll },
+    ])
+    expect(vs.nodes['tag-1'].uwb!.mms.nbChannel).toBe(37)
+    expect(vs.nodes['anc-1'].uwb!.mms.nbChannel).toBe(37)
+    // …and the Wi-Fi reducer still owns those two records: the transmission is in flight.
+    expect(vs.nodes['tag-1'].currentTx).toBe(poll)
   })
 })

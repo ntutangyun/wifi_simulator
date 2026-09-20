@@ -329,7 +329,7 @@ export class Simulation {
     if (uwbNodes.length && sc.uwb) {
       // The mediator, if the 6 GHz link built one above, is handed on here: both
       // engines then hold the same object and hear each other's emissions.
-      this.uwb = new UwbNetwork(this.q, () => this.nowNs, uwbNodes, sc.walls, sc.uwb, root, baseEmit, this.spectrum)
+      this.uwb = new UwbNetwork(this.q, () => this.nowNs, uwbNodes, sc.walls, sc.uwb, root, baseEmit, this.spectrum, sc.seed)
     }
 
     // ---- snapshots ----

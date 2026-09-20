@@ -1,14 +1,20 @@
 import { describe, it, expect } from 'vitest'
 import { EventQueue } from '../../src/engine/events'
+import { hashStr } from '../../src/engine/hash'
 import { Rng } from '../../src/engine/rng'
 import { Simulation } from '../../src/engine/simulation'
+import { Spectrum, wifiToUwbPathLossDb } from '../../src/engine/spectrum'
 import { makeEmitter, type TLRecord } from '../../src/model/records'
 import {
   DEFAULT_UWB_SESSION, defaultScenario, type NodeCfg, type Scenario, type UwbSessionCfg, type Wall,
 } from '../../src/model/scenario'
-import { node as wifiNode } from '../../src/course/lessonKit'
+import { brick, node as wifiNode, rangingLab } from '../../src/course/lessonKit'
+import { mmsSet, ratioSigma } from '../../src/uwb/mms'
+import { nbBand, nbCenterMhz, nbChannelForBlock, NB_LBT_THRESHOLD_DBM } from '../../src/uwb/nb'
 import { UwbNetwork } from '../../src/uwb/network'
-import { C_M_PER_NS, UWB_TX_POWER_DBM } from '../../src/uwb/phy'
+import {
+  C_M_PER_NS, UWB_MAX_ANCHORS, UWB_NLOS_NS, UWB_RMARKER_NS, UWB_RX_SENS_DBM, UWB_TX_POWER_DBM,
+} from '../../src/uwb/phy'
 import { aoaSigmaDeg } from '../../src/uwb/aoa'
 import { rangeSigmaM } from '../../src/uwb/position'
 import { rctuToMetres } from '../../src/uwb/ranging'
@@ -1110,5 +1116,449 @@ describe('UwbNetwork — angle of arrival', () => {
       of(rec, 'UWB_TS', 'anc-1').filter((r) => r.dir === 'rx').map((r) => r.counter)
     expect(rxAt(rs)[0]).toBe(rxAt(off)[0]) // the Poll: stamped before the first phase draw
     expect(rxAt(rs)[1]).not.toBe(rxAt(off)[1]) // the Final: stamped after it
+  })
+})
+
+// --- P802.15.4ab: the pairwise MMS cycle ------------------------------------------
+
+/**
+ * The 22 × 8 m hall of the MMS lessons. An MMS round holds exactly one tag and one anchor, so
+ * the scenes below are read pair by pair: tag t and anchor k own round t·A + k of every block,
+ * and the tag's fix is the block's, not the round's.
+ *
+ * The session is the draft's own ranging-cycle default — X = 8 RSFs of 82.05 µs, no integrity
+ * train, one UNII-3 control channel — on the 600 RSTU (0.5 ms) slot the draft's §1.1.1 asks for.
+ */
+const MMS_SESSION: Partial<UwbSessionCfg> = { mode: 'mms', method: 'ss', slotRstu: 600, aoa: false }
+
+const mmsCfg = (over: Partial<UwbSessionCfg['mms']> = {}): Partial<UwbSessionCfg> =>
+  ({ ...MMS_SESSION, mms: { ...DEFAULT_UWB_SESSION.mms, ...over } })
+
+function mmsScene(
+  anchors: Place[], tags: Place[], session: Partial<UwbSessionCfg> = {}, walls: Wall[] = [],
+): Scenario {
+  const lab = rangingLab()
+  return {
+    rooms: lab.rooms,
+    walls: [...lab.walls, ...walls],
+    nodes: [
+      ...anchors.map((p, i) => uwbNode(`anc-${i + 1}`, p, 'anchor')),
+      ...tags.map((p, i) => uwbNode(`tag-${i + 1}`, p, 'tag')),
+    ],
+    servers: [], seed: 7, rtsThresholdBytes: 3000, snapshotIntervalMs: 10,
+    uwb: { ...DEFAULT_UWB_SESSION, ...MMS_SESSION, ...session },
+  }
+}
+
+/** The round of one pair round: 28 slots of 0.5 ms. */
+const MMS_ROUND_NS = 14 * MS
+/** 1-σ of the train-derived clock ratio at X = 8: √2 · 100 ps over the train's 7 ms span. */
+const RATIO_SIGMA_PPM = ratioSigma(DEFAULT_UWB_SESSION.tsNoisePs, 7) * 1e6
+
+/** Three anchors in the first bay and one tag in the middle of the hall, all line of sight. */
+const LOS_ANCHORS: Place[] = [
+  { x: 1, y: 1, z: 1, ppm: 5 }, { x: 1, y: 7, z: 1, ppm: -7 }, { x: 8, y: 4, z: 1, ppm: 12 },
+]
+const LOS_TAG: Place = { x: 4, y: 4, z: 1, ppm: -15 }
+
+describe('UwbNetwork — MMS, the shape of a pair round', () => {
+  const sc = mmsScene(LOS_ANCHORS, [LOS_TAG], { nlos: false })
+  const rs = run(sc, 210 * MS)
+
+  it('runs one 28-slot round per tag–anchor pair, three to a block', () => {
+    const rounds = of(rs, 'UWB_ROUND')
+    expect(rounds.slice(0, 4).map((r) => [r.node, r.t, r.round, r.block, r.slots, r.mode])).toEqual([
+      ['tag-1', 0, 0, 0, 28, 'mms'],
+      ['tag-1', MMS_ROUND_NS, 1, 0, 28, 'mms'],
+      ['tag-1', 2 * MMS_ROUND_NS, 2, 0, 28, 'mms'],
+      ['tag-1', 200 * MS, 0, 1, 28, 'mms'],
+    ])
+    expect(rounds[0].method).toBe('ss')
+    expect(rounds[0].untilNs).toBe(MMS_ROUND_NS)
+  })
+
+  it('opens each round on the narrowband radio and closes it on narrowband reports', () => {
+    const kinds = of(rs, 'TX_START').filter((r) => r.t < MMS_ROUND_NS).map((r) => [r.node, r.frame.kind])
+    expect(kinds.slice(0, 2)).toEqual([['tag-1', 'nbPoll'], ['anc-1', 'nbResp']])
+    // Eight fragments each way, interleaved, then one report each way.
+    expect(kinds.filter((k) => k[1] === 'uwbRsf')).toHaveLength(16)
+    expect(kinds.slice(-2)).toEqual([['anc-1', 'nbReport'], ['tag-1', 'nbReport']])
+  })
+
+  it('puts every frame in the slot the layout gives it', () => {
+    const at = (t: number) => Math.round(t / 500_000)
+    const first = of(rs, 'TX_START').filter((r) => r.t < MMS_ROUND_NS)
+    expect(first.map((r) => [at(r.t), r.frame.kind, r.node]).slice(0, 6)).toEqual([
+      [0, 'nbPoll', 'tag-1'], [2, 'nbResp', 'anc-1'],
+      [4, 'uwbRsf', 'tag-1'], [5, 'uwbRsf', 'anc-1'],
+      [6, 'uwbRsf', 'tag-1'], [7, 'uwbRsf', 'anc-1'],
+    ])
+    expect(first.slice(-2).map((r) => [at(r.t), r.node])).toEqual([[24, 'anc-1'], [26, 'tag-1']])
+  })
+
+  it('stamps the train’s RMARKER at the first fragment’s TX instant, with no SHR offset', () => {
+    const clock = new Simulation(sc).uwb!.devices.get('tag-1')!.clock
+    const tx = of(rs, 'UWB_TS', 'tag-1').find((r) => r.dir === 'tx')!
+    expect(tx.frameKind).toBe('uwbRsf')
+    // Slot 4 of round 0: the fragment has no preamble at all, so its RMARKER is its first pulse.
+    expect(tx.t).toBe(2 * MS)
+    expect(tx.counter).toBe(clock.counter(2 * MS))
+    expect(tx.counter).not.toBe(clock.counter(2 * MS + UWB_RMARKER_NS))
+    // One TX stamp per train, not one per fragment.
+    expect(of(rs, 'UWB_TS', 'tag-1').filter((r) => r.dir === 'tx' && r.t < MMS_ROUND_NS)).toHaveLength(1)
+  })
+
+  it('reports one train per side per round, all eight fragments heard', () => {
+    const trains = of(rs, 'UWB_MMS_TRAIN').filter((r) => r.t < MMS_ROUND_NS)
+    expect(trains.map((t) => [t.node, t.peer, t.kind, t.heard, t.fragments, t.detected]))
+      .toEqual([['anc-1', 'tag-1', 'rsf', 8, 8, true], ['tag-1', 'anc-1', 'rsf', 8, 8, true]])
+    for (const t of trains) {
+      expect(t.gainDb).toBeCloseTo(10 * Math.log10(8), 9)
+      expect(t.marginDb).toBeCloseTo(t.rxDbm + t.gainDb - UWB_RX_SENS_DBM, 9)
+    }
+  })
+
+  it('never times out a lost fragment, and never stamps one on arrival', () => {
+    // Every UWB_TS of an MMS round is a train's, not a fragment's: two per round per side.
+    expect(of(rs, 'UWB_TIMEOUT')).toEqual([])
+    const ts = of(rs, 'UWB_TS').filter((r) => r.t < MMS_ROUND_NS)
+    expect(ts.map((r) => `${r.node} ${r.dir}`))
+      .toEqual(['tag-1 tx', 'anc-1 tx', 'anc-1 rx', 'tag-1 rx'])
+  })
+})
+
+describe('UwbNetwork — MMS, what a train measures', () => {
+  const sc = mmsScene(LOS_ANCHORS, [LOS_TAG], { nlos: false })
+  const rs = run(sc, 210 * MS)
+
+  it('ranges every pair to the timestamp floor', () => {
+    const ranges = of(rs, 'UWB_RANGE', 'tag-1')
+    expect(ranges.map((r) => r.peer)).toEqual(['anc-1', 'anc-2', 'anc-3'])
+    for (const r of ranges) {
+      expect(r.method).toBe('ss')
+      // The train's ratio leaves 1.5 mm of clock residual, so what is left is the two receive
+      // timestamps: σ = c·σ_ts/√2 = 2.1 cm.
+      expect(Math.abs(r.distM - r.trueDistM), `${r.peer} b${r.block}`).toBeLessThan(3 * SIGMA_R)
+      expect(r.integrity).toBeUndefined() // no integrity train in this session
+    }
+  })
+
+  it('measures the peer’s crystal against its own, over the whole length of the train', () => {
+    const ppm: Record<string, number> = { 'tag-1': -15, 'anc-1': 5, 'anc-2': -7, 'anc-3': 12 }
+    for (const t of of(rs, 'UWB_MMS_TRAIN')) {
+      expect(t.ratioPpm).not.toBeNull()
+      // The ratio is this device's counter per the peer's, i.e. its own ppm minus the peer's.
+      const truth = ppm[t.node] - ppm[t.peer]
+      expect(Math.abs(t.ratioPpm! - truth), `${t.node} ← ${t.peer}`).toBeLessThan(4 * RATIO_SIGMA_PPM)
+    }
+    expect(RATIO_SIGMA_PPM).toBeCloseTo(0.0202, 4)
+  })
+
+  it('the corrected range is at the timestamp floor over twenty rounds, not at the carrier’s', () => {
+    const long = run(mmsScene(LOS_ANCHORS, [LOS_TAG], { nlos: false }), 20 * 200 * MS)
+    const errs = of(long, 'UWB_RANGE', 'tag-1').filter((r) => r.peer === 'anc-3')
+      .map((r) => r.distM - r.trueDistM)
+    expect(errs.length).toBeGreaterThanOrEqual(20)
+    const rms = Math.sqrt(errs.reduce((s, e) => s + e * e, 0) / errs.length)
+    // The timestamp floor is 2.1 cm; the carrier-only correction would add 1.5 cm in quadrature
+    // and 20 ppm uncorrected would be 1.5 m. Anything near the floor says the ratio did its job.
+    expect(rms).toBeGreaterThan(0.5 * SIGMA_R)
+    expect(rms).toBeLessThan(1.6 * SIGMA_R)
+  })
+
+  it('fixes the tag once a block, after its last pair round, from the block’s three ranges', () => {
+    const fixes = of(rs, 'UWB_POSITION')
+    expect(fixes.map((f) => [f.node, f.t, f.block, f.method]))
+      .toEqual([['tag-1', 3 * MMS_ROUND_NS, 0, 'twr']])
+    expect(fixes[0].anchors).toEqual(['anc-1', 'anc-2', 'anc-3'])
+    expect(Math.hypot(fixes[0].x - fixes[0].trueX, fixes[0].y - fixes[0].trueY)).toBeLessThan(0.1)
+    // …and the round's own end follows the fix, as in every other mode.
+    const ends = of(rs, 'UWB_ROUND_END', 'tag-1')
+    expect(ends.filter((e) => e.t === 3 * MMS_ROUND_NS)).toHaveLength(1)
+    expect(fixes[0].seq).toBeLessThan(ends.find((e) => e.t === 3 * MMS_ROUND_NS)!.seq)
+  })
+})
+
+describe('UwbNetwork — MMS, reach behind two brick walls', () => {
+  // The lesson's geometry: three anchors in the first bay, the tag two full-height brick
+  // partitions away, 12.5 m off. Every fragment lands at −100.26 dBm, seven decibels under the
+  // receiver's own sensitivity; only the train can rescue it.
+  const walls = [brick(5, 0, 5, 8), brick(10, 0, 10, 8)]
+  const anchors: Place[] = [{ x: 0.5, y: 0.5, z: 2.2 }, { x: 0.5, y: 7.5, z: 2.2 }, { x: 4.5, y: 4, z: 2.2 }]
+  const tag: Place[] = [{ x: 13, y: 4, z: 1 }]
+  /** Trains at the tag, per anchor. The two far anchors are 13.03 m off, the third only
+   * 8.58 m — three and a half decibels nearer, which is more than the whole span the X = 4 /
+   * X = 8 lesson lives in, so the two groups are read apart. */
+  const at = (rsfs: UwbSessionCfg['mms']['rsfs'], peer: string) =>
+    of(run(mmsScene(anchors, tag, mmsCfg({ rsfs }), walls), 3 * 14 * MS), 'UWB_MMS_TRAIN', 'tag-1')
+      .filter((t) => t.peer === peer)
+
+  it('hears eight fragments into a range, with one to two decibels of margin', () => {
+    for (const peer of ['anc-1', 'anc-2']) {
+      const trains = at(8, peer)
+      expect(trains.length, peer).toBeGreaterThan(0)
+      for (const t of trains) {
+        expect(t.heard, peer).toBe(8)
+        // No single fragment is audible on its own: only the train is.
+        expect(t.rxDbm, peer).toBeLessThan(UWB_RX_SENS_DBM)
+        expect(t.marginDb, peer).toBeGreaterThan(1)
+        expect(t.marginDb, peer).toBeLessThan(2)
+        expect(t.detected, peer).toBe(true)
+      }
+    }
+    const rs = run(mmsScene(anchors, tag, mmsCfg({ rsfs: 8 }), walls), 3 * 14 * MS)
+    expect(of(rs, 'UWB_RANGE', 'tag-1').map((r) => r.peer)).toEqual(['anc-1', 'anc-2', 'anc-3'])
+  })
+
+  it('hears four of them into nothing at all, from the two anchors furthest away', () => {
+    for (const peer of ['anc-1', 'anc-2']) {
+      const trains = at(4, peer)
+      expect(trains.length, peer).toBeGreaterThan(0)
+      for (const t of trains) {
+        expect(t.heard, peer).toBe(4)
+        expect(t.marginDb, peer).toBeLessThan(0)
+        expect(t.detected, peer).toBe(false)
+        expect(t.ratioPpm, peer).toBeNull()
+      }
+    }
+    // Neither side of those two pairs holds an RMARKER, so neither reports a thing, and both
+    // report windows expire instead. (The window stops before the near anchor's own round.)
+    const rs = run(mmsScene(anchors, tag, mmsCfg({ rsfs: 4 }), walls), 2 * 14 * MS)
+    expect(of(rs, 'UWB_RANGE')).toEqual([])
+    expect(of(rs, 'UWB_TIMEOUT').map((r) => r.expected)).toContain('nbReport')
+  })
+
+  it('is three decibels a doubling either way: the near anchor keeps its train at four', () => {
+    const t4 = at(4, 'anc-3')[0]
+    const t8 = at(8, 'anc-3')[0]
+    expect(t4.detected).toBe(true)
+    expect(t8.marginDb - t4.marginDb).toBeCloseTo(10 * Math.log10(2), 9)
+  })
+
+  it('combines sixteen fragments into twelve decibels', () => {
+    const t = at(16, 'anc-1')[0]
+    expect(t.heard).toBe(16)
+    expect(t.marginDb).toBeCloseTo(t.rxDbm + 10 * Math.log10(16) - UWB_RX_SENS_DBM, 9)
+    expect(t.detected).toBe(true)
+  })
+})
+
+describe('UwbNetwork — MMS, one fragment falls back to the carrier', () => {
+  /** The tag's own random stream, as the network forks it: crystal origin, then the draws. */
+  const tagStream = (seed: number): () => number => {
+    const r = new Rng(seed).fork(hashStr('tag-1#uwb'))
+    r.next() // the counter origin (the crystal itself is configured, so it is not drawn)
+    return () => {
+      const u1 = Math.max(r.next(), 1e-12)
+      const u2 = r.next()
+      return Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2)
+    }
+  }
+  const anchor: Place[] = [{ x: 1, y: 1, z: 1, ppm: 5 }]
+  const tag: Place[] = [{ x: 4, y: 4, z: 1, ppm: -15 }]
+  /** coffs, recovered from the record: tofRctu − tofRawRctu = reply · coffs / 2. */
+  const coffsOf = (rs: TLRecord[]): number => {
+    const r = of(rs, 'UWB_RANGE', 'tag-1')[0]
+    const reply = of(rs, 'TX_START', 'anc-1').map((x) => x.frame.uwb?.nb?.replyRctu).find((x) => x !== undefined)!
+    return (2 * (r.tofRctu - r.tofRawRctu!)) / reply
+  }
+
+  it('measures no ratio from one fragment, and draws the carrier residual instead', () => {
+    const rs = run(mmsScene(anchor, tag, mmsCfg({ rsfs: 1 }), []), 14 * MS)
+    for (const t of of(rs, 'UWB_MMS_TRAIN')) {
+      expect(t.heard).toBe(1)
+      expect(t.detected).toBe(true)
+      expect(t.ratioPpm).toBeNull()
+    }
+    // The draws, in the spec's order: the RMARKER stamp first, then — because there is no
+    // second fragment to measure a span over — the carrier-offset residual, once.
+    const next = tagStream(7)
+    next() // the RMARKER stamp of the anchor's single fragment
+    const residual = next()
+    const truth = (5 - -15) * 1e-6 // the responder's crystal against the initiator's
+    expect(coffsOf(rs)).toBeCloseTo(truth + residual * DEFAULT_UWB_SESSION.cfoNoisePpm * 1e-6, 15)
+  })
+
+  it('takes the ratio from two fragments, and draws no carrier residual at all', () => {
+    const rs = run(mmsScene(anchor, tag, mmsCfg({ rsfs: 2 }), []), 14 * MS)
+    const train = of(rs, 'UWB_MMS_TRAIN', 'tag-1')[0]
+    expect(train.ratioPpm).not.toBeNull()
+    // The initiator inverts the ratio it measured — the correction is always the responder's
+    // rate against the initiator's — and nothing else is drawn for it.
+    const ratio = 1 + train.ratioPpm! * 1e-6
+    expect(coffsOf(rs)).toBeCloseTo(1 / ratio - 1, 15)
+  })
+})
+
+describe('UwbNetwork — MMS, the integrity train', () => {
+  const anchor: Place[] = [{ x: 0.5, y: 4, z: 1 }]
+  const mixed5 = mmsSet('mixed-5') // X = 2 RSFs, Y = 2 RIFs
+
+  it('flags a range the integrity train vouched for', () => {
+    const rs = run(mmsScene(anchor, [{ x: 6, y: 4, z: 1 }], mmsCfg(mixed5), []), 14 * MS)
+    const kinds = of(rs, 'UWB_MMS_TRAIN', 'tag-1').map((t) => [t.kind, t.detected])
+    expect(kinds).toEqual([['rsf', true], ['rif', true]])
+    expect(of(rs, 'UWB_RANGE', 'tag-1').map((r) => r.integrity)).toEqual([true])
+  })
+
+  it('still ranges when the integrity train is lost, and says the range is unverified', () => {
+    // The same train with a four-times longer STS segment: an integrity fragment then spends
+    // its millisecond over 262 µs instead of 66, which is 4.6 dB quieter than an RSF. One brick
+    // wall and 20 m puts exactly that gap across the receiver's sensitivity.
+    const rs = run(mmsScene(
+      anchor, [{ x: 20.5, y: 4, z: 1 }],
+      mmsCfg({ ...mixed5, stsLen: 256 }), [brick(11, 0, 11, 8)],
+    ), 14 * MS)
+    const trains = of(rs, 'UWB_MMS_TRAIN', 'tag-1')
+    expect(trains.map((t) => [t.kind, t.detected])).toEqual([['rsf', true], ['rif', false]])
+    expect(trains[0].marginDb - trains[1].marginDb).toBeCloseTo(4.59, 2)
+    const ranges = of(rs, 'UWB_RANGE', 'tag-1')
+    expect(ranges).toHaveLength(1)
+    expect(ranges[0].integrity).toBe(false)
+    // The range itself is the RSF train's, and the integrity train's loss costs it nothing.
+    // What is left is the brick wall's own 2 ns of excess delay: both RMARKERs cross it, so the
+    // round trip keeps it rather than cancelling it — 60 cm of honest NLOS bias.
+    const biasM = UWB_NLOS_NS.brick * C_M_PER_NS
+    expect(Math.abs(ranges[0].distM - ranges[0].trueDistM - biasM)).toBeLessThan(3 * SIGMA_R)
+  })
+})
+
+describe('UwbNetwork — MMS, who reports and who ranges', () => {
+  const lane = (report: 'responder' | 'initiator' | 'bi'): TLRecord[] =>
+    run(mmsScene(
+      [{ x: 1, y: 1, z: 1, ppm: 5 }], [{ x: 4, y: 4, z: 1, ppm: -15 }], mmsCfg({ report }), [],
+    ), 14 * MS)
+
+  it('gives the range to the side the report mode names', () => {
+    expect(of(lane('responder'), 'UWB_RANGE').map((r) => r.node)).toEqual(['tag-1'])
+    expect(of(lane('initiator'), 'UWB_RANGE').map((r) => r.node)).toEqual(['anc-1'])
+    expect(of(lane('bi'), 'UWB_RANGE').map((r) => r.node)).toEqual(['tag-1', 'anc-1'])
+  })
+
+  it('puts exactly one narrowband report on the air per reporting side', () => {
+    const reports = (m: 'responder' | 'initiator' | 'bi') =>
+      of(lane(m), 'TX_START').filter((r) => r.frame.kind === 'nbReport').map((r) => r.node)
+    expect(reports('responder')).toEqual(['anc-1'])
+    expect(reports('initiator')).toEqual(['tag-1'])
+    expect(reports('bi')).toEqual(['anc-1', 'tag-1'])
+  })
+
+  it('agrees on the distance from both ends, to the ratio’s own noise', () => {
+    const both = of(lane('bi'), 'UWB_RANGE')
+    // The two sides compute from the same round trip and reply time and differ only in the
+    // clock ratio each measured for itself: ½·T_reply·√2·σ_ratio, 2.1 mm at a 0.5 ms reply.
+    expect(Math.abs(both[0].distM - both[1].distM)).toBeLessThan(0.01)
+    expect(both[0].trueDistM).toBeCloseTo(both[1].trueDistM, 9)
+  })
+})
+
+describe('UwbNetwork — MMS, the narrowband control plane', () => {
+  it('hops the control channel per block, over the session’s allow list', () => {
+    const list = [100, 150, 200, 210]
+    const rs = run(mmsScene(
+      [{ x: 1, y: 1, z: 1 }], [{ x: 4, y: 4, z: 1 }], mmsCfg({ nbChannels: list, nbLbt: 'off' }), [],
+    ), 620 * MS)
+    const polls = of(rs, 'TX_START', 'tag-1').filter((r) => r.frame.kind === 'nbPoll')
+    expect(polls.map((r) => r.frame.uwb?.nb?.channel))
+      .toEqual([0, 1, 2, 3].map((b) => nbChannelForBlock(list, 7, b)))
+    // …and the frame carries the centre the channel plan gives it, for the decoder to print.
+    expect(polls[0].frame.uwb?.nb?.centerMhz).toBe(nbCenterMhz(polls[0].frame.uwb!.nb!.channel))
+  })
+
+  it('a busy listen-before-talk check costs the whole block, not one message', () => {
+    // A Wi-Fi emission parked over the control channel, loud enough at the tag to sit above the
+    // draft's −71.02 dBm energy-detection threshold.
+    const nodes = [
+      uwbNode('anc-1', { x: 1, y: 1, z: 1 }, 'anchor'),
+      uwbNode('tag-1', { x: 4, y: 4, z: 1 }, 'tag'),
+    ]
+    const q = new EventQueue()
+    let now = 0
+    const recs: TLRecord[] = []
+    const emit = makeEmitter((x) => recs.push(x as TLRecord))
+    const sp = new Spectrum([], q, () => now)
+    const band = nbBand(DEFAULT_UWB_SESSION.mms.nbChannels[0])
+    sp.emit('wifi', {
+      txId: 'ap', eirpDbm: 20, bandLoMhz: band.lo - 10, bandHiMhz: band.hi + 10,
+      pos: { x: 5, y: 5, z: 1 }, lossDb: wifiToUwbPathLossDb,
+    })
+    const cfg: UwbSessionCfg = {
+      ...DEFAULT_UWB_SESSION, ...MMS_SESSION, nlos: false,
+      mms: { ...DEFAULT_UWB_SESSION.mms, nbLbt: 'on' },
+    }
+    new UwbNetwork(q, () => now, nodes, [], cfg, new Rng(7), emit, sp, 7)
+    for (;;) {
+      const t = q.peekTime()
+      if (t === null || t > 30 * MS) break
+      const e = q.pop()!
+      now = e.t
+      e.fn()
+    }
+    const busy = of(recs, 'UWB_NB_LBT')
+    expect(busy.map((r) => [r.node, r.channel, r.block, r.round]))
+      .toEqual([['tag-1', DEFAULT_UWB_SESSION.mms.nbChannels[0], 0, 0]])
+    expect(busy[0].thresholdDbm).toBeCloseTo(NB_LBT_THRESHOLD_DBM, 9)
+    expect(busy[0].foreignDbm).toBeGreaterThanOrEqual(NB_LBT_THRESHOLD_DBM)
+    // Nothing goes on the air at all: with no poll there is no cycle, on either side.
+    expect(of(recs, 'TX_START')).toEqual([])
+    // The responder is left waiting for a poll that never came, and says so exactly once.
+    expect(of(recs, 'UWB_TIMEOUT').map((r) => [r.node, r.slot, r.expected]))
+      .toEqual([['anc-1', 0, 'nbPoll']])
+    expect(of(recs, 'UWB_RANGE')).toEqual([])
+  })
+
+  it('draws nothing and says nothing when the channel is clear', () => {
+    const rs = run(mmsScene(
+      [{ x: 1, y: 1, z: 1, ppm: 5 }], [{ x: 4, y: 4, z: 1, ppm: -15 }], mmsCfg({ nbLbt: 'on' }), [],
+    ), 14 * MS)
+    expect(of(rs, 'UWB_NB_LBT')).toEqual([])
+    // A clear check must not move the stream either: the same session with the check off is
+    // record for record the same run.
+    const off = run(mmsScene(
+      [{ x: 1, y: 1, z: 1, ppm: 5 }], [{ x: 4, y: 4, z: 1, ppm: -15 }], mmsCfg({ nbLbt: 'off' }), [],
+    ), 14 * MS)
+    expect(rs).toEqual(off)
+  })
+})
+
+describe('UwbNetwork — MMS, the block must hold every pair', () => {
+  it('counts pairs, not tags, and says so', () => {
+    const nodes = [
+      uwbNode('anc-1', { x: 0, y: 0, z: 1 }, 'anchor'), uwbNode('anc-2', { x: 5, y: 0, z: 1 }, 'anchor'),
+      uwbNode('tag-1', { x: 1, y: 1, z: 1 }, 'tag'), uwbNode('tag-2', { x: 2, y: 2, z: 1 }, 'tag'),
+    ]
+    // 28 slots × 0.5 ms = 14 ms a round; a 42 ms block holds three, and four pairs need four.
+    const cfg: UwbSessionCfg = {
+      ...DEFAULT_UWB_SESSION, ...MMS_SESSION, blockRstu: 50_400,
+      mms: { ...DEFAULT_UWB_SESSION.mms },
+    }
+    expect(() => new UwbNetwork(new EventQueue(), () => 0, nodes, [], cfg, new Rng(1), makeEmitter(() => {})))
+      .toThrow(/4 pairs need 4 rounds, but a 42000000 ns block holds 3 rounds/)
+  })
+
+  it('takes more anchors than a Final could ever list, because no MMS frame lists them', () => {
+    const anchors: Place[] = Array.from({ length: UWB_MAX_ANCHORS + 2 }, (_, i) => ({ x: 1 + i * 0.5, y: 1, z: 1 }))
+    // Eleven pairs of 14 ms need 154 ms, which one 200 ms block holds; the window stops just
+    // short of the next block, so the counts below are exactly one block's.
+    expect(anchors.length).toBeGreaterThan(UWB_MAX_ANCHORS)
+    const rs = run(mmsScene(anchors, [{ x: 4, y: 4, z: 1 }], mmsCfg(), []), 199 * MS)
+    expect(of(rs, 'UWB_ROUND')).toHaveLength(anchors.length)
+    expect(of(rs, 'UWB_RANGE', 'tag-1')).toHaveLength(anchors.length)
+  })
+})
+
+describe('UwbNetwork — MMS determinism, and the older modes left alone', () => {
+  it('replays bit-for-bit', () => {
+    const build = (): Scenario => mmsScene(LOS_ANCHORS, [LOS_TAG], { nlos: false })
+    expect(run(build(), 60 * MS)).toEqual(run(build(), 60 * MS))
+  })
+
+  it('changes not one record of a two-way session, whatever the MMS knobs say', () => {
+    const twr = (session: Partial<UwbSessionCfg>): TLRecord[] =>
+      run(uwbScenario(ring(0), [{ x: 0, y: 0, z: 1, ppm: 0 }], { nlos: false, ...session }), 3 * 200 * MS)
+    const base = twr({})
+    expect(twr({ mms: { ...DEFAULT_UWB_SESSION.mms, rsfs: 16, nbLbt: 'on', report: 'initiator' } })).toEqual(base)
+    expect(of(base, 'UWB_MMS_TRAIN')).toEqual([])
+    expect(of(base, 'UWB_NB_LBT')).toEqual([])
   })
 })

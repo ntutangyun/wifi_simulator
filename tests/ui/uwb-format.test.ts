@@ -179,3 +179,52 @@ describe('the event log expands a UWB frame in 802.15.4 vocabulary', () => {
     expect(decodeFrame(data).map((r) => r.field)).toContain('RA / Address 1')
   })
 })
+
+// --- P802.15.4ab -------------------------------------------------------------------
+
+const NB_LBT = rec({
+  type: 'UWB_NB_LBT', node: 'tag-1', channel: 3, foreignDbm: -41.96, thresholdDbm: -71.02,
+  block: 0, round: 0,
+})
+const TRAIN = rec({
+  type: 'UWB_MMS_TRAIN', node: 'tag-1', peer: 'anc-1', kind: 'rsf', fragments: 8, heard: 8,
+  rxDbm: -100.26, gainDb: 9.03, marginDb: 1.77, detected: true, ratioPpm: -20.0298, block: 0, round: 0,
+})
+const TRAIN_LOST = rec({
+  type: 'UWB_MMS_TRAIN', node: 'tag-1', peer: 'anc-1', kind: 'rif', fragments: 2, heard: 0,
+  rxDbm: -999, gainDb: 0, marginDb: -999, detected: false, ratioPpm: null, block: 0, round: 0,
+})
+
+describe('the MMS log lines', () => {
+  it('says what a busy listen-before-talk check cost', () => {
+    expect(fmtUwbRecord(NB_LBT))
+      .toBe('tag-1 NB LBT busy on ch 3: -42.0 dBm ≥ -71.0 — skipping the block')
+  })
+
+  it('says what a train came to, in one line', () => {
+    expect(fmtUwbRecord(TRAIN)).toBe(
+      'tag-1 RSF train ← anc-1: 8/8 heard, -100.3 dBm + 9.0 dB = margin 1.8 dB → detected, '
+      + 'ratio -20.030 ppm',
+    )
+  })
+
+  it('quotes no power at all for a train nothing was heard of', () => {
+    const line = fmtUwbRecord(TRAIN_LOST)
+    expect(line).toBe('tag-1 RIF train ← anc-1: 0/2 heard → lost')
+    // The sentinel never reaches the reader.
+    expect(line).not.toContain('-999')
+  })
+
+  it('is what fmtRecord hands back for both of them', () => {
+    for (const r of [NB_LBT, TRAIN, TRAIN_LOST]) {
+      expect(fmtRecord(r)).toBe(fmtUwbRecord(r))
+    }
+  })
+
+  it('names the five new frame kinds in a timestamp and a timeout', () => {
+    const ts = rec({ type: 'UWB_TS', node: 'anc-1', dir: 'rx', peer: 'tag-1', frameKind: 'uwbRsf', counter: 77, fom: FOM_LOS })
+    expect(fmtUwbRecord(ts)).toContain('RSF')
+    const to = rec({ type: 'UWB_TIMEOUT', node: 'anc-1', slot: 0, peer: 'tag-1', expected: 'nbPoll' })
+    expect(fmtUwbRecord(to)).toBe('anc-1 UWB slot 0: no nb-poll from tag-1')
+  })
+})

@@ -16,7 +16,11 @@
 import type { DecodedFrame, FieldKey, FrameField, PpduSegment } from '../model/frameFields'
 import type { FrameDesc } from '../model/frames'
 import type { Ns } from '../model/types'
-import type { UwbFrameKind, UwbInfo } from './frames'
+import type { UwbFrameKind, UwbInfo, UwbMmsFrag, UwbNbMsg } from './frames'
+import {
+  NB_CRC_BYTES, NB_MSG_ID, NB_MSG_ID_BYTES, NB_PHR_SYMBOLS, NB_REPORT_TIME_BYTES, NB_SHR_SYMBOLS,
+  NB_SYMBOL_US,
+} from './nb'
 import {
   ARC_IE_BYTES, BLINK_IE_BYTES, chipsToNs, DL_COFFS_IE_BYTES, DL_TX_TIME_IE_BYTES, dlRxTimesIeBytes,
   PHR_SYMBOLS, PHR_SYMBOL_CHIPS, PSYM_CHIPS, rdmIeBytes, RCMA_IE_BYTES, RCPS_IE_BYTES,
@@ -37,6 +41,7 @@ const SUBTYPE: Record<UwbFrameKind, string> = {
 }
 
 const hex16 = (v: number) => `0x${v.toString(16).padStart(4, '0')}`
+const hex8 = (v: number) => `0x${v.toString(16).padStart(2, '0')}`
 /** "127 803" — RCTU counters run to ten digits, and a wall of them reads as noise. */
 const grouped = (v: number) => String(v).replace(/\B(?=(\d{3})+(?!\d))/g, ' ')
 
@@ -156,10 +161,89 @@ function ies(u: UwbInfo): Ie[] {
 /** Frame Control 2 + Sequence Number 1 + Destination PAN 2 + two short addresses 2 each. */
 const MHR_FIELD_BYTES = [2, 1, 2, 2, 2] as const
 
+/**
+ * One multi-millisecond fragment (P802.15.4ab). It is not a PSDU at all — no MAC header, no
+ * payload IEs, no CRC — so every row below carries zero octets and the frame's whole content is
+ * its place in its train, the parameters it was cut from, its length and the power it spent.
+ * 4ab draft 15-23/0100r2 §2.3.2
+ */
+function mmsFields(frag: UwbMmsFrag, txTimeNs: Ns): FrameField[] {
+  return [
+    {
+      key: 'mmsFragment', bytes: 0,
+      value: `${frag.kind.toUpperCase()} ${frag.index + 1} of ${frag.of} · ${frag.index} ms into the train`,
+    },
+    {
+      key: 'mmsShape', bytes: 0,
+      value: frag.kind === 'rsf'
+        ? `N_MSR ${frag.nMsr ?? 0} × MMRS symbol · gap ${frag.gap ?? 0}`
+        : `STS segment ${frag.stsLen ?? 0} × 512 chips`,
+    },
+    { key: 'mmsLength', bytes: 0, value: `${(txTimeNs / 1000).toFixed(2)} µs` },
+    // The fragment spends the whole millisecond's energy budget inside its own length, so this
+    // is the fragment's EIRP and not the node's (see mmsFragmentDbm).
+    { key: 'mmsPower', bytes: 0, value: `${frag.txDbm.toFixed(2)} dBm EIRP` },
+  ]
+}
+
+/** The message-ID octet's name. 4ab draft 15-22/0381r5 Table 1.6.3.1 */
+const NB_MSG_NAME: Record<number, string> = {
+  [NB_MSG_ID.poll]: 'POLL', [NB_MSG_ID.resp]: 'RESP',
+  [NB_MSG_ID.reportInitiator]: 'REPORT (initiator)', [NB_MSG_ID.reportResponder]: 'REPORT (responder)',
+}
+
+/**
+ * One narrowband control message (P802.15.4ab). It is a *compressed* PSDU: a one-octet message
+ * ID, the fields the draft's table lists for that message, and a CRC-16 — none of the 802.15.4
+ * MAC header a UWB ranging frame carries. The one field this model actually uses is the
+ * REPORT's time; the rest of the table (session id, schedule, capability bits) is modelled as
+ * the octets it costs and not field by field. 4ab draft 15-22/0381r5 Table 1.6.3.1 / 1.6.3.2
+ */
+function nbFields(nb: UwbNbMsg, bytes: number): FrameField[] {
+  const time = nb.replyRctu ?? nb.roundTripRctu
+  const timeBytes = time === undefined ? 0 : NB_REPORT_TIME_BYTES
+  const rest = bytes - NB_MSG_ID_BYTES - timeBytes - NB_CRC_BYTES
+  return [
+    {
+      key: 'nbMsgId', bytes: NB_MSG_ID_BYTES,
+      value: `${NB_MSG_NAME[nb.msgId] ?? 'unknown'} (${hex8(nb.msgId)})`,
+    },
+    { key: 'nbChannel', bytes: 0, value: `channel ${nb.channel} · ${nb.centerMhz.toFixed(2)} MHz` },
+    ...(time !== undefined
+      ? [{
+        key: 'nbTime' as const, bytes: timeBytes,
+        value: `${nb.replyRctu !== undefined ? 'reply time' : 'turn-around time'} ${rctuText(time)}`,
+      }]
+      : []),
+    { key: 'nbFields', bytes: rest, value: `${rest} octets of session and schedule fields` },
+    { key: 'fcs', bytes: NB_CRC_BYTES, value: 'CRC-16' },
+  ]
+}
+
 /** MHR + payload IEs + FCS of one ranging frame. */
 export function uwbFrameFields(f: FrameDesc): DecodedFrame {
   const u = f.uwb!
   const kind = f.kind as UwbFrameKind
+  // P802.15.4ab: neither of the two new PHYs carries a 4z MAC header, so neither goes through
+  // the MHR + IE decoder below.
+  if (u.mms || u.nb) {
+    const nb = u.nb
+    const fields = u.mms ? mmsFields(u.mms, f.txTimeNs) : nb ? nbFields(nb, f.bytes) : []
+    const bytes = fields.reduce((sum, x) => sum + x.bytes, 0)
+    if (bytes !== f.bytes) throw new Error(`uwbFrameFields: ${bytes} B decoded, engine size ${f.bytes} B`)
+    return {
+      users: [{
+        dst: f.dst, aggregated: false,
+        subframes: [{
+          delimiterBytes: 0, padBytes: 0,
+          mpdu: { kind, typeName: 'Ranging', subtypeName: SUBTYPE[kind], fields, bytes },
+        }],
+        bytes,
+      }],
+      ppdu: uwbPpduLayout(f),
+      bytes,
+    }
+  }
   // '*' and the '*mu'-style wildcards the engine uses for a broadcast destination.
   const broadcast = f.dst.startsWith('*')
   const [fcB, seqB, panB, dstB, srcB] = MHR_FIELD_BYTES
@@ -218,6 +302,11 @@ export const UWB_RMARKER_OFFSET_NS: Ns = SYNC_NS + SFD_NS // 73 269 ns
  * remainder so the layout sums to frame.txTimeNs exactly.
  */
 export function uwbPpduLayout(f: FrameDesc): PpduSegment[] {
+  // P802.15.4ab brings two more PHYs to the same medium, and neither is an SP1 PPDU: a
+  // fragment has no preamble at all and a narrowband message has its own. `ppduLayout` routes
+  // every UWB frame here, so the dispatch belongs here and not at each caller.
+  if (f.uwb?.mms) return mmsPpduLayout(f)
+  if (f.uwb?.nb) return nbPpduLayout(f)
   const head = SYNC_NS + SFD_NS + 2 * STS_GAP_NS + STS_NS + PHR_NS
   return [
     { key: 'sync', durNs: SYNC_NS },
@@ -227,5 +316,27 @@ export function uwbPpduLayout(f: FrameDesc): PpduSegment[] {
     { key: 'stsGap', durNs: STS_GAP_NS },
     { key: 'phr', durNs: PHR_NS },
     { key: 'psdu', durNs: f.txTimeNs - head },
+  ]
+}
+
+// --- P802.15.4ab PPDU layouts --------------------------------------------------
+
+/**
+ * A fragment has no preamble, no PHY header and no payload: it is one sequence, and its RMARKER
+ * is its first pulse rather than a marker 73 µs into a SYNC field it does not have. That is the
+ * whole of why the mode can spend a millisecond's energy in 82 µs. 4ab draft 15-23/0100r2 §2.3.2
+ */
+export function mmsPpduLayout(f: FrameDesc): PpduSegment[] {
+  return [{ key: 'mmsFrag', durNs: f.txTimeNs, rmarkerNs: 0 }]
+}
+
+/** The narrowband PPDU: 10 SHR symbols, 2 PHR symbols, then two symbols an octet, all at
+ * 16 µs a symbol. standard Clause 12 / 4ab draft 15-23/0100r2 §2.3.1 */
+export function nbPpduLayout(f: FrameDesc): PpduSegment[] {
+  const symNs = NB_SYMBOL_US * 1000
+  return [
+    { key: 'nbShr', durNs: NB_SHR_SYMBOLS * symNs, symbols: NB_SHR_SYMBOLS, symNs },
+    { key: 'phr', durNs: NB_PHR_SYMBOLS * symNs, symbols: NB_PHR_SYMBOLS, symNs },
+    { key: 'psdu', durNs: f.txTimeNs - (NB_SHR_SYMBOLS + NB_PHR_SYMBOLS) * symNs, symbols: 2 * f.bytes, symNs },
   ]
 }

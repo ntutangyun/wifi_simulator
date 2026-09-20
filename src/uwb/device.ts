@@ -29,11 +29,17 @@ import type { Ns, Vec3 } from '../model/types'
 import type { UwbChannel, UwbRadio, UwbRxInfo } from './channel'
 import { AOA_SIGMA_PHI_RAD, aoaSigmaDeg, azimuthFromPdoaDeg, pdoaRad, trueAzimuthDeg } from './aoa'
 import { counterDiff, gaussian, type UwbClock } from './clock'
-import { makeBlink, makeFinal, makePoll, makeReport, makeResp, type UwbFrameKind } from './frames'
-import { C_M_PER_NS, RCTU_NS, UWB_RMARKER_NS, type UwbChannelNo } from './phy'
+import {
+  makeBlink, makeFinal, makeNbPoll, makeNbReport, makeNbResp, makePoll, makeReport, makeResp,
+  makeRif, makeRsf, type UwbFrameKind, type UwbInfo,
+} from './frames'
+import { combineGainDb, MS_NS, MS_RCTU, rmarkerFromFragment, trainDetected } from './mms'
+import { NB_LBT_THRESHOLD_DBM, nbLbtRequired } from './nb'
+import { C_M_PER_NS, RCTU_NS, UWB_RMARKER_NS, UWB_RX_SENS_DBM, type UwbChannelNo } from './phy'
 import { rangeSigmaM, solvePosition, solveTdoa, type AnchorPos } from './position'
 import { dsTwr, fomFor, rctuToMetres, ssTwrCorrected, ssTwrRaw } from './ranging'
-import type { RoundPlan, SlotAction } from './session'
+import { NOTHING_HEARD_DBM } from './records'
+import type { MmsRoundPlan, RoundPlan, SlotAction } from './session'
 
 /** Per-device settings. The TWR method is NOT here: a round's `RoundPlan` is the
  * one truth about how that round is measured, and the device reads it from there. */
@@ -90,12 +96,22 @@ export interface UwbGeometry {
 
 export type UwbDeviceState = Extract<MacStateName, 'idle' | 'uwbWait' | 'rx' | 'tx'>
 
+/** A slot action that names a frame — every one but the MMS layout's `idle`. Its `kind` is a
+ * `UwbFrameKind`, which is what lets one `listenFor` serve every mode. */
+type ScheduledAction = Exclude<SlotAction, { kind: 'idle' }>
+
 /** The frame this device is waiting for in the slot it is in. */
 interface Expectation {
   slot: number
   /** Null in an open slot, where the sender is not known in advance. */
   from: string | null
   kind: UwbFrameKind
+  /**
+   * The slot at whose *start* the wait expires. One slot on for every frame of a 4z round —
+   * its deadline is the end of its own slot — and two for a P802.15.4ab narrowband message,
+   * which the draft gives a two-slot window because a 608 µs PPDU does not fit one.
+   */
+  until: number
   /**
    * The slot is open: any anchor of the round may answer in it, and none has to.
    * True only in a contention round's response phase, where the slot belongs to
@@ -104,6 +120,13 @@ interface Expectation {
    * there is no peer the record could name.
    */
   open: boolean
+  /**
+   * Report nothing when this wait expires. The slot belongs to exactly one named peer — so
+   * `open` would be wrong — but a miss is not worth a record: one fragment of a train of
+   * sixteen is counted by the train's own evaluation, and a UWB_TIMEOUT per lost fragment
+   * would bury every other record in the log.
+   */
+  silent: boolean
 }
 
 /** What a tag remembers about one anchor inside the round in progress. */
@@ -153,6 +176,68 @@ interface DlRoundState {
   rxResp: Record<string, number>
 }
 
+/** One fragment of a peer's train, as this receiver saw it. No record is emitted per fragment:
+ * the train as a whole is what the receiver reports. */
+interface TrainFragment {
+  index: number
+  /**
+   * When its RMARKER reached this antenna, in true time and **before** the receiver's own
+   * excess delay and stamp noise (exactly as the 4z path separates `trueRmarkerNs` from
+   * `extraNs`). The simulator's schedule fires on true time, but a real transmitter cuts its
+   * train on its own crystal, so the millisecond spacing is re-scaled by the transmitter's ppm
+   * here — that is the whole of what the train-derived clock ratio measures, and at ±20 ppm it
+   * is at most 300 ns over the longest train, far inside the slot it sits in (model).
+   */
+  arrivalNs: Ns
+  /** The excess delay of an obstructed first path, as for any other reception. */
+  nlosNs: number
+  nlos: boolean
+  rssiDbm: number
+}
+
+/**
+ * What one device holds for one pairwise MMS round (P802.15.4ab). Null in every other mode.
+ *
+ * The round has two halves and a device may reach neither: the narrowband control exchange
+ * *primes* it (the initiator when its POLL is answered, the responder when it answers one), and
+ * only a primed device transmits fragments or listens for them.
+ */
+interface MmsRoundState {
+  /** The narrowband channel this block hops to; the network draws it and both ends are told. */
+  nbChannel: number
+  /** Initiator: its POLL was answered. Responder: it answered a POLL. */
+  primed: boolean
+  /** The round's POLL happened at this device: the initiator transmitted one, or the responder
+   * received one. An initiator whose listen-before-talk check was busy never polled, and so has
+   * no cycle to wait for a RESP of — the draft's discontinuation, on the initiator's side. */
+  polled: boolean
+  /** The peer's fragments, per kind, in the order they arrived (which is index order). */
+  frags: { rsf: TrainFragment[]; rif: TrainFragment[] }
+  /** The trains already closed out, so a train is evaluated exactly once. */
+  done: { rsf: boolean; rif: boolean }
+  /** This device's own RMARKER: the counter it stamped its first fragment of the *timing* train
+   * at (the RSFs, or the RIFs when the train carries no RSF). */
+  txRmarker: number | null
+  /** The peer's RMARKER as this device stamped it; null until that train is detected. */
+  rxRmarker: number | null
+  /** Whether that first path was obstructed — the range's figure of merit. */
+  rxNlos: boolean
+  /** The clock ratio the timing train measured, as this device's counter per the peer's; null
+   * when fewer than two fragments were heard, which is what the narrowband fallback is for. */
+  ratio: number | null
+  /** The integrity train was detected (Y > 0 only): the flag a range carries. */
+  rifDetected: boolean
+}
+
+function freshMms(plan: MmsRoundPlan, nbChannel: number): MmsRoundState {
+  return {
+    nbChannel, primed: false, polled: false,
+    frags: { rsf: [], rif: [] },
+    done: { rsf: plan.phy.rsfs === 0, rif: plan.phy.rifs === 0 },
+    txRmarker: null, rxRmarker: null, rxNlos: false, ratio: null, rifDetected: false,
+  }
+}
+
 /** Everything one device holds for the duration of a single ranging round. */
 interface RoundState {
   block: number
@@ -181,6 +266,8 @@ interface RoundState {
   finalListedMe: boolean
   /** One-way ranging state; non-null exactly in a DL-TDoA round. */
   dl: DlRoundState | null
+  /** Narrowband-assisted multi-millisecond state; non-null exactly in an MMS round. */
+  mms: MmsRoundState | null
   /**
    * UL-TDoA, anchor: when this round's blink arrived, on the **infrastructure's common
    * timebase** rather than on this anchor's own crystal — that crystal is what the calibration
@@ -197,7 +284,10 @@ interface RoundState {
   aoaThetaDeg: number | null
 }
 
-function freshRound(block: number, round: number, plan: RoundPlan, tagId: string, anchors: string[]): RoundState {
+function freshRound(
+  block: number, round: number, plan: RoundPlan, tagId: string, anchors: string[],
+  mms: MmsRoundState | null,
+): RoundState {
   return {
     block, round, plan, tagId, anchors: [...anchors],
     slot: 0, contendSlot: null, contendCollisionSlot: null,
@@ -208,6 +298,7 @@ function freshRound(block: number, round: number, plan: RoundPlan, tagId: string
     dl: plan.mode === 'dl-tdoa'
       ? { rxPoll: null, rxFinal: null, txPoll: null, txFinal: null, responses: new Map(), coffsToRef: null, rxResp: {} }
       : null,
+    mms,
     ulArrivalNs: null,
     aoaThetaDeg: null,
   }
@@ -246,6 +337,13 @@ function ulDiffSigmaM(tsNoisePs: number, syncErrorNs: number): number {
   return Math.SQRT2 * C_M_PER_NS * Math.hypot(tsNoisePs / 1000, syncErrorNs)
 }
 
+/** Which of a train's two kinds carries the round's ranging time: the RSFs, or the RIFs when
+ * the session's train has no RSF at all. The other kind is logged and, for the RIFs, decides the
+ * integrity flag — but no time is taken from it. 4ab draft 15-23/0100r2 §2.3.2 */
+function timingKind(mp: MmsRoundPlan): 'uwbRsf' | 'uwbRif' {
+  return mp.phy.rsfs > 0 ? 'uwbRsf' : 'uwbRif'
+}
+
 export class UwbDevice implements UwbRadio {
   state: UwbDeviceState = 'idle'
   private round: RoundState | null = null
@@ -262,6 +360,18 @@ export class UwbDevice implements UwbRadio {
    * one attempt of it, and an empty budget buys one silent round before the anchor tries again.
    */
   private attemptsLeft: number
+  /**
+   * P802.15.4ab: the ranging block this device found the narrowband channel busy in, or null.
+   * The draft's listen-before-talk rule is not per frame but per block — a busy check stops
+   * every narrowband transmission until the next block — and that is what this remembers.
+   */
+  private nbSkipBlock: number | null = null
+  /**
+   * P802.15.4ab, tag: the ranges of the block in progress, one per anchor. An MMS round holds
+   * one anchor, so a fix needs the ranges of several rounds; they are kept here, across those
+   * rounds, and cleared when the block's last pair round has solved.
+   */
+  private readonly blockRanges = new Map<string, number>()
 
   constructor(
     readonly id: string,
@@ -286,8 +396,19 @@ export class UwbDevice implements UwbRadio {
   /** Tag: open its round (UWB_ROUND) — in DL-TDoA that is the anchors' round, which every tag
    * opens a lane for because every tag measures the whole of it. Anchor: note the round it is
    * about to serve. */
-  beginRound(block: number, round: number, plan: RoundPlan, tagId: string, anchors: string[]): void {
-    this.round = freshRound(block, round, plan, tagId, anchors)
+  beginRound(
+    block: number, round: number, plan: RoundPlan, tagId: string, anchors: string[],
+    /** What the schedule knows about this round that the plan does not, because it changes from
+     * block to block: today only the narrowband channel of an MMS block. An options object
+     * rather than a sixth positional, so the next such thing costs no caller a change. */
+    opts: { nbChannel?: number | null } = {},
+  ): void {
+    const mp = plan.mms
+    const nbChannel = opts.nbChannel ?? null
+    // A device never re-derives the block's channel: the network draws it once and both ends of
+    // the round are told the same number.
+    const mms = mp && nbChannel !== null ? freshMms(mp, nbChannel) : null
+    this.round = freshRound(block, round, plan, tagId, anchors, mms)
     if (this.cfg.role !== 'tag') return
     this.emit({
       t: this.now(), type: 'UWB_ROUND', node: this.id, block, round,
@@ -298,13 +419,21 @@ export class UwbDevice implements UwbRadio {
 
   /** Called at every slot start of a round this device takes part in. */
   onSlot(slot: number, action: SlotAction, slotEndNs: Ns, peers: { tag: string; anchors: string[] }): void {
-    this.closeSlot()
+    this.closeSlot(slot)
     const r = this.round
     if (!r) return
     r.slot = slot
     if (this.cfg.role === 'tag') {
       this.emit({ t: this.now(), type: 'UWB_SLOT', node: this.id, slot, untilNs: slotEndNs })
     }
+    if (r.plan.mode === 'mms') {
+      this.onMmsSlot(slot, action, r, peers)
+      return
+    }
+    // An idle slot is the MMS layout's alone — the second slot of a narrowband window, or a
+    // ranging slot the train does not reach. No other mode ever schedules one, and after this
+    // line every action below names a frame.
+    if (action.kind === 'idle') return
     if (r.plan.mode === 'dl-tdoa') {
       this.onDlSlot(slot, action, r, peers)
       return
@@ -345,7 +474,7 @@ export class UwbDevice implements UwbRadio {
    * here — `listenFor` — which is what makes "a tag never transmits in DL-TDoA" a property of the
    * code and not of the schedule: there is no path from a tag to `transmitFor` in this mode.
    */
-  private onDlSlot(slot: number, action: SlotAction, r: RoundState, peers: { tag: string; anchors: string[] }): void {
+  private onDlSlot(slot: number, action: ScheduledAction, r: RoundState, peers: { tag: string; anchors: string[] }): void {
     // Every DL-TDoA slot is an anchor's; `slotAction` never produces a tag transmission in it.
     if (action.tx !== 'anchor') return
     const txId = peers.anchors[action.anchor]
@@ -372,7 +501,7 @@ export class UwbDevice implements UwbRadio {
    * its frame has left — one 181 µs transmission per block is the whole cost of being positioned —
    * and an anchor that hears nothing simply has no arrival to contribute.
    */
-  private onUlSlot(slot: number, action: SlotAction, r: RoundState, peers: { tag: string; anchors: string[] }): void {
+  private onUlSlot(slot: number, action: ScheduledAction, r: RoundState, peers: { tag: string; anchors: string[] }): void {
     if (action.kind !== 'uwbBlink') return
     if (this.cfg.role === 'tag') {
       if (peers.tag === this.id) this.transmitFor(action, slot, r, peers)
@@ -395,7 +524,7 @@ export class UwbDevice implements UwbRadio {
    * attempt), and a caller that forgot the argument would quietly burn a responder's budget.
    */
   endRound(heard: boolean): string[] {
-    this.closeSlot()
+    this.closeSlot(null)
     const r = this.round
     this.round = null
     if (!r) return []
@@ -409,6 +538,7 @@ export class UwbDevice implements UwbRadio {
     // the tag does, from what it measured itself; in UL-TDoA the tag measures nothing at all — it
     // blinked and went back to sleep — and the infrastructure solves for it (see `solveUlFix`).
     if (r.plan.mode === 'dl-tdoa') this.solveTdoaFix(r)
+    else if (r.plan.mode === 'mms') this.solveMmsFix(r)
     else if (r.plan.mode === 'twr') this.solveFix(r)
     // The round is over whether or not it produced a fix: the tag's radio is off until
     // its round in the next block, and the view's slot returns to null.
@@ -623,6 +753,15 @@ export class UwbDevice implements UwbRadio {
       return
     }
 
+    // P802.15.4ab: neither a fragment nor a narrowband message is stamped on arrival. A
+    // fragment is one member of a train and the train is timed as a whole, at its end; a
+    // narrowband message carries times but is not one. So the MMS branch comes before every
+    // draw below — a device in this mode takes nothing from the generator per reception.
+    if (r.plan.mode === 'mms') {
+      this.onMmsRx(r, from, frame, kind, info)
+      return
+    }
+
     // The receive stamp: the RMARKER's true instant, plus the extra delay this
     // receiver actually measures — the NLOS excess of an obstructed first path,
     // and the leading-edge estimator's own noise.
@@ -701,13 +840,18 @@ export class UwbDevice implements UwbRadio {
    * closed at exactly the right instant by the schedule itself (the invariant
    * is recorded in network.ts, which is what guarantees it).
    */
-  private closeSlot(): void {
+  private closeSlot(atSlot: number | null): void {
     const exp = this.expect
     if (!exp) return
+    // A narrowband message is two slots long, so its wait outlives the slot it was armed in:
+    // the expectation names the slot it expires at, and a slot boundary before that leaves it
+    // armed. `null` is the round's end, which closes every wait whatever it was waiting for.
+    if (atSlot !== null && exp.until > atSlot) return
     this.expect = null
     // An open contention slot names no peer, so a silent one has nothing to report:
-    // an empty slot is what most of the response window looks like by design.
-    if (!exp.open && exp.from !== null) {
+    // an empty slot is what most of the response window looks like by design; a fragment of a
+    // train is named but not worth a record either (see `Expectation.silent`).
+    if (!exp.open && !exp.silent && exp.from !== null) {
       this.emit({ t: this.now(), type: 'UWB_TIMEOUT', node: this.id, slot: exp.slot, peer: exp.from, expected: exp.kind })
     }
     this.setState('idle')
@@ -739,18 +883,18 @@ export class UwbDevice implements UwbRadio {
     this.expect = null
   }
 
-  private listenFor(slot: number, from: string, kind: UwbFrameKind): void {
+  private listenFor(slot: number, from: string, kind: UwbFrameKind, until = slot + 1, silent = false): void {
     this.setState('uwbWait')
-    this.expect = { slot, from, kind, open: false }
+    this.expect = { slot, from, kind, until, open: false, silent }
   }
 
   /** Tag, contention round: listen through a response slot for whichever anchor drew it, if any. */
   private listenOpen(slot: number): void {
     this.setState('uwbWait')
-    this.expect = { slot, from: null, kind: 'uwbResp', open: true }
+    this.expect = { slot, from: null, kind: 'uwbResp', until: slot + 1, open: true, silent: false }
   }
 
-  private transmitFor(action: SlotAction, slot: number, r: RoundState, peers: { tag: string; anchors: string[] }): void {
+  private transmitFor(action: ScheduledAction, slot: number, r: RoundState, peers: { tag: string; anchors: string[] }): void {
     const t = this.now()
     const txCounter = this.clock.counter(t + UWB_RMARKER_NS)
     if (r.plan.mode === 'dl-tdoa') {
@@ -826,7 +970,7 @@ export class UwbDevice implements UwbRadio {
    * from that responder's own Response.
    */
   private transmitDl(
-    action: SlotAction, slot: number, r: RoundState, peers: { tag: string; anchors: string[] }, txCounter: number,
+    action: ScheduledAction, slot: number, r: RoundState, peers: { tag: string; anchors: string[] }, txCounter: number,
   ): void {
     const dl = r.dl
     if (!dl) return
@@ -877,18 +1021,26 @@ export class UwbDevice implements UwbRadio {
     }
   }
 
-  /** Radiate one PPDU: half-duplex for its whole airtime, RMARKER stamped before it leaves. */
-  private send(desc: FrameDesc, txCounter: number): void {
+  /**
+   * Radiate one PPDU: half-duplex for its whole airtime, RMARKER stamped before it leaves.
+   *
+   * `txCounter` null means "no ranging counter was taken from this transmission" — the
+   * P802.15.4ab narrowband control messages, which carry times but are not timed themselves,
+   * and every fragment of a train but its first, whose RMARKER times the whole train.
+   */
+  private send(desc: FrameDesc, txCounter: number | null): void {
     const t = this.now()
     // The MHR's Sequence Number is a real per-device counter, as in any 802.15.4
     // device, so the decoder has a number to show instead of the schedule tuple.
     const frame: FrameDesc = { ...desc, seqNo: this.seqNo }
     this.seqNo = (this.seqNo + 1) % 256
     this.setState('tx')
-    this.emit({
-      t, type: 'UWB_TS', node: this.id, dir: 'tx', peer: frame.dst,
-      frameKind: frame.kind as UwbFrameKind, counter: txCounter,
-    })
+    if (txCounter !== null) {
+      this.emit({
+        t, type: 'UWB_TS', node: this.id, dir: 'tx', peer: frame.dst,
+        frameKind: frame.kind as UwbFrameKind, counter: txCounter,
+      })
+    }
     this.ch.transmit(this.id, frame)
     // The timer belongs to *this* transmission: comparing the id keeps a stale
     // one (a PPDU that somehow outlived its slot) from idling the next.
@@ -992,14 +1144,23 @@ export class UwbDevice implements UwbRadio {
 
   private reportRange(
     r: RoundState, peer: string, method: 'ss' | 'ds', tofRctu: number, tofRawRctu: number | undefined, fom: number,
+    /** MMS with an integrity train only: whether that train vouched for this range. Absent
+     * everywhere else, so a 4z UWB_RANGE compares equal to the one it always was. */
+    integrity?: boolean,
   ): void {
     const distM = rctuToMetres(tofRctu)
     this.emit({
       t: this.now(), type: 'UWB_RANGE', node: this.id, peer, method,
       tofRctu, ...(tofRawRctu !== undefined ? { tofRawRctu } : {}),
       distM, trueDistM: this.geometry.trueDistM(this.id, peer), fom, block: r.block, round: r.round,
+      ...(integrity !== undefined ? { integrity } : {}),
     })
-    if (this.cfg.role === 'tag') r.ranges.push({ id: peer, distM })
+    if (this.cfg.role === 'tag') {
+      r.ranges.push({ id: peer, distM })
+      // An MMS block is several pair rounds long and the fix is solved from all of them, so
+      // there the range has to outlive the round it was measured in.
+      if (r.plan.mode === 'mms') this.blockRanges.set(peer, distM)
+    }
     // An anchor that measured a bearing this round and has just finished the range that goes
     // with it holds both halves of a position — so it solves one, alone. Only DS-TWR ever
     // reaches this: an SS round ends at the tag, and the anchor never computes a range at all.
@@ -1075,6 +1236,328 @@ export class UwbDevice implements UwbRadio {
         thetaRad: alongIsMajor ? bearingRad : bearingRad + Math.PI / 2,
       },
       anchors: [this.id], block: r.block, method: 'aoa', of: tag,
+    })
+  }
+
+  // ---- P802.15.4ab: the pairwise MMS cycle ----------------------------------
+
+  /**
+   * One slot of a pairwise MMS round. The shape is `mmsLayout`'s and reaches the device through
+   * the round plan, so neither end derives it twice: control (narrowband POLL, then RESP), the
+   * ranging phase (both trains, interleaved a slot apart inside each millisecond), and the two
+   * narrowband report windows.
+   *
+   * Two rules run through all of it. **Priming**: the control exchange is what tells a device
+   * there is a peer to range with, and an unprimed device neither transmits a fragment nor
+   * listens for one — the draft's discontinuation rule, and what makes a busy listen-before-talk
+   * check cost the whole cycle rather than one message. **Evaluation at the end of a train**:
+   * a fragment is never stamped on arrival (see `onMmsRx`); the train is closed out in the slot
+   * after its last fragment, which is where every draw and every record of it happens.
+   */
+  private onMmsSlot(
+    slot: number, action: SlotAction, r: RoundState, peers: { tag: string; anchors: string[] },
+  ): void {
+    const m = r.mms
+    const mp = r.plan.mms
+    if (!m || !mp) return
+    const isTag = this.cfg.role === 'tag'
+    const peer = isTag ? peers.anchors[0] : peers.tag
+    if (peer === undefined || peer === '') return
+    this.closeDueTrains(r, m, mp, peer, slot)
+    switch (action.kind) {
+      case 'nbPoll':
+        if (isTag) this.txNbPoll(r, m, mp, peer)
+        // The responder's window is two slots long, so its wait is too.
+        else this.listenFor(slot, peer, 'nbPoll', slot + 2)
+        return
+      case 'nbResp':
+        if (!isTag) this.txNbResp(r, m, mp, peer)
+        else if (m.polled) this.listenFor(slot, peer, 'nbResp', slot + 2)
+        return
+      case 'uwbRsf':
+      case 'uwbRif': {
+        if (action.tx === (isTag ? 'tag' : 'anchor')) {
+          this.txFragment(r, m, mp, peer, action.kind, action.index, slot)
+        } else if (m.primed) {
+          // A lost fragment is counted by the train, not reported: `silent`.
+          this.listenFor(slot, peer, action.kind, slot + 1, true)
+        }
+        return
+      }
+      case 'nbReport':
+        if (action.tx === (isTag ? 'tag' : 'anchor')) this.txNbReport(r, m, mp, peer, slot)
+        else if (m.primed) this.listenFor(slot, peer, 'nbReport', slot + 2)
+        return
+      default:
+        // 'idle', and every 4z kind: no MMS round ever schedules one.
+        return
+    }
+  }
+
+  /**
+   * Listen before talk on the block's narrowband channel (4ab draft 15-22/0381r5 §1.4.2), and
+   * the draft's discontinuation that follows a busy one: **no narrowband transmission for the
+   * rest of the block**, which with no POLL (or no RESP) means no cycle at all.
+   *
+   * A clear check emits nothing and draws nothing — it is the ordinary case, and a record per
+   * clear check would be one per narrowband slot of every round.
+   */
+  private nbClear(r: RoundState, m: MmsRoundState, mp: MmsRoundPlan): boolean {
+    if (this.nbSkipBlock === r.block) return false
+    if (!nbLbtRequired(m.nbChannel, mp.nbLbt)) return true
+    const { busy, foreignDbm } = this.ch.lbtBusy(this.id, m.nbChannel)
+    if (!busy) return true
+    this.nbSkipBlock = r.block
+    this.emit({
+      t: this.now(), type: 'UWB_NB_LBT', node: this.id, channel: m.nbChannel,
+      foreignDbm, thresholdDbm: NB_LBT_THRESHOLD_DBM, block: r.block, round: r.round,
+    })
+    return false
+  }
+
+  /** Initiator, slot 0: open the cycle. */
+  private txNbPoll(r: RoundState, m: MmsRoundState, mp: MmsRoundPlan, peer: string): void {
+    if (!this.nbClear(r, m, mp)) return
+    m.polled = true
+    this.send(makeNbPoll(this.id, peer, m.nbChannel, r.block, r.round), null)
+  }
+
+  /** Responder, slot 2: answer a POLL it heard — and only then is either end primed. */
+  private txNbResp(r: RoundState, m: MmsRoundState, mp: MmsRoundPlan, peer: string): void {
+    if (!m.polled) return
+    if (!this.nbClear(r, m, mp)) return
+    m.primed = true
+    this.send(makeNbResp(this.id, peer, m.nbChannel, r.block, r.round), null)
+  }
+
+  /**
+   * One fragment of this device's own train. Only the first of each kind is stamped, and its
+   * stamp is taken at the transmission instant itself with **no SHR offset**: an MMS fragment's
+   * RMARKER is its first pulse, not a marker 73 µs into a preamble it does not have.
+   */
+  private txFragment(
+    r: RoundState, m: MmsRoundState, mp: MmsRoundPlan, peer: string,
+    kind: 'uwbRsf' | 'uwbRif', index: number, slot: number,
+  ): void {
+    if (!m.primed) return
+    const counter = this.clock.counter(this.now())
+    const desc = kind === 'uwbRsf'
+      ? makeRsf(this.id, peer, index, mp.phy, r.block, r.round, slot)
+      : makeRif(this.id, peer, index, mp.phy, r.block, r.round, slot)
+    if (index === 0 && kind === timingKind(mp)) m.txRmarker = counter
+    this.send(desc, index === 0 ? counter : null)
+  }
+
+  /**
+   * A narrowband measurement report, in the report window this device owns. The responder sends
+   * the reply time it turned the round around in and the initiator the round trip it measured —
+   * the two halves of one single-sided exchange, carried on the control radio because the UWB
+   * side of an MMS cycle transmits nothing but fragments.
+   *
+   * A device whose own train of the peer was never detected has no RMARKER of it and so no time
+   * to report; it stays silent, and the other end's wait reports the gap.
+   */
+  private txNbReport(
+    r: RoundState, m: MmsRoundState, mp: MmsRoundPlan, peer: string, slot: number,
+  ): void {
+    if (!m.primed || m.txRmarker === null || m.rxRmarker === null) return
+    if (!this.nbClear(r, m, mp)) return
+    const times = this.cfg.role === 'tag'
+      ? { roundTripRctu: counterDiff(m.rxRmarker, m.txRmarker) }
+      : { replyRctu: counterDiff(m.txRmarker, m.rxRmarker) }
+    this.send(makeNbReport(this.id, peer, m.nbChannel, r.block, r.round, slot, times), null)
+  }
+
+  /**
+   * An MMS reception. Nothing here draws from the generator and nothing here emits a record: a
+   * fragment is collected, a control message is acted on, and the train's own evaluation is
+   * where the timestamps are taken.
+   */
+  private onMmsRx(
+    r: RoundState, from: string, frame: FrameDesc, kind: UwbFrameKind, info: UwbRxInfo,
+  ): void {
+    const m = r.mms
+    this.clearExpectation()
+    this.setState('idle')
+    const u = frame.uwb
+    if (!m || !u) return
+    const frag = u.mms
+    if (frag) {
+      // The schedule fires a fragment on true time; a real transmitter cuts its train on its
+      // own crystal, and that difference IS the clock ratio the train measures. Re-space the
+      // arrival by the transmitter's ppm here — at most 300 ns over the longest train (model).
+      const drift = info.txPpm * 1e-6
+      m.frags[frag.kind].push({
+        index: frag.index,
+        arrivalNs: info.txStartNs + info.propNs - (frag.index * MS_NS * drift) / (1 + drift),
+        nlosNs: info.nlosNs, nlos: info.nlos, rssiDbm: info.rssiDbm,
+      })
+      return
+    }
+    switch (kind) {
+      case 'nbPoll':
+        m.polled = true
+        return
+      case 'nbResp':
+        // The initiator learns here, and only here, that it has a peer this round.
+        m.primed = true
+        return
+      case 'nbReport':
+        this.onNbReport(r, m, from, u, info)
+        return
+      default:
+        return
+    }
+  }
+
+  /** Close out every train of the peer whose last fragment was due in the slot just gone. */
+  private closeDueTrains(
+    r: RoundState, m: MmsRoundState, mp: MmsRoundPlan, peer: string, slot: number,
+  ): void {
+    if (!m.primed) return
+    const peerSide = this.cfg.role === 'tag' ? 'responder' : 'initiator'
+    for (const kind of ['rsf', 'rif'] as const) {
+      if (m.done[kind]) continue
+      const n = kind === 'rsf' ? mp.phy.rsfs : mp.phy.rifs
+      if (slot !== mp.layout.fragmentSlot(peerSide, kind, n - 1) + 1) continue
+      m.done[kind] = true
+      this.evaluateTrain(r, m, mp, peer, kind, n)
+    }
+  }
+
+  /**
+   * What one train came to, and the two timestamps taken from it — the heart of the mode.
+   *
+   * Detection is combining: the receiver was primed by the control exchange and accumulated
+   * blind, so no single fragment had to be audible on its own, and `heard` of them at `rxDbm`
+   * add up to `rxDbm + 10·log10(heard)`. That is the whole multi-millisecond idea, and
+   * `marginDb` is how far it cleared the receiver's sensitivity.
+   *
+   * The draws, in the order the spec fixes them: the first heard fragment's stamp, then — only
+   * when two or more were heard — the last heard fragment's. Nothing is drawn per fragment, and
+   * nothing at all for a train that was not detected. The first stamp is taken twice over, from
+   * one draw: once extrapolated back to the RMARKER (fragment 0, whether or not it arrived) and
+   * once at its own arrival, which is what the second stamp is measured against. When fragment 0
+   * did arrive the two are the same number.
+   */
+  private evaluateTrain(
+    r: RoundState, m: MmsRoundState, mp: MmsRoundPlan, peer: string, kind: 'rsf' | 'rif', fragments: number,
+  ): void {
+    const frags = m.frags[kind]
+    const heard = frags.length
+    const rxDbm = heard > 0 ? frags[0].rssiDbm : NOTHING_HEARD_DBM
+    const gainDb = combineGainDb(heard)
+    const marginDb = heard > 0 ? rxDbm + gainDb - UWB_RX_SENS_DBM : NOTHING_HEARD_DBM
+    const detected = heard > 0 && trainDetected(rxDbm, heard)
+    const frameKind: UwbFrameKind = kind === 'rsf' ? 'uwbRsf' : 'uwbRif'
+    let ratio: number | null = null
+    let rmarker: number | null = null
+    let fom = 0
+    if (detected) {
+      const first = frags[0]
+      const sigmaNs = this.cfg.tsNoisePs / 1000
+      const firstExtraNs = first.nlosNs + gaussian(this.rng) * sigmaNs
+      rmarker = this.clock.counter(rmarkerFromFragment(first.arrivalNs, first.index), firstExtraNs)
+      fom = fomFor(first.nlos)
+      if (heard >= 2) {
+        const last = frags[heard - 1]
+        const lastExtraNs = last.nlosNs + gaussian(this.rng) * sigmaNs
+        const spanRctu = counterDiff(
+          this.clock.counter(last.arrivalNs, lastExtraNs),
+          this.clock.counter(first.arrivalNs, firstExtraNs),
+        )
+        // The fragments are a millisecond apart on the transmitter's clock, so the span this
+        // receiver measured over them is its own counter per the peer's — a ruler milliseconds
+        // long, where the narrowband carrier offers only its own residual.
+        ratio = spanRctu / ((last.index - first.index) * MS_RCTU)
+      }
+    }
+    this.emit({
+      t: this.now(), type: 'UWB_MMS_TRAIN', node: this.id, peer, kind,
+      fragments, heard, rxDbm, gainDb, marginDb, detected,
+      ratioPpm: ratio === null ? null : (ratio - 1) * 1e6,
+      block: r.block, round: r.round,
+    })
+    if (detected && rmarker !== null) {
+      this.emit({
+        t: this.now(), type: 'UWB_TS', node: this.id, dir: 'rx', peer, frameKind, counter: rmarker, fom,
+      })
+    }
+    // Only one of the two trains carries this round's time. An integrity train is evaluated and
+    // logged like any other — it is the flag the range carries — but no time is taken from it,
+    // unless it is all the train has (X = 0).
+    if (kind === 'rif') m.rifDetected = detected
+    if (frameKind !== timingKind(mp) || !detected || rmarker === null) return
+    m.rxRmarker = rmarker
+    m.rxNlos = frags[0].nlos
+    m.ratio = ratio
+  }
+
+  /**
+   * The peer's half of the exchange has arrived: this device now holds a round trip and a reply
+   * time, and turns them into a range.
+   *
+   * The clock correction of single-sided TWR is always the *responder's* rate against the
+   * *initiator's*, whoever is computing — the reply is measured on one clock and the round trip
+   * on the other, and only their ratio matters. A train hands that over directly: the ratio it
+   * measured is this device's counter per the peer's, so the responder uses it as it stands and
+   * the initiator inverts it. Without a train (one fragment heard, or none but the integrity
+   * one) the device falls back on what the 4z path has always used — the carrier-frequency
+   * offset its receiver estimated, with the estimator's residual drawn here, once.
+   */
+  private onNbReport(
+    r: RoundState, m: MmsRoundState, from: string, u: UwbInfo, info: UwbRxInfo,
+  ): void {
+    const mp = r.plan.mms
+    const nb = u.nb
+    if (!mp || !nb || m.txRmarker === null || m.rxRmarker === null) return
+    const isTag = this.cfg.role === 'tag'
+    const own = isTag ? counterDiff(m.rxRmarker, m.txRmarker) : counterDiff(m.txRmarker, m.rxRmarker)
+    const roundTripRctu = isTag ? own : nb.roundTripRctu
+    const replyRctu = isTag ? nb.replyRctu : own
+    if (roundTripRctu === undefined || replyRctu === undefined) return
+    let coffs: number
+    if (m.ratio !== null) {
+      coffs = isTag ? 1 / m.ratio - 1 : m.ratio - 1
+    } else {
+      const responderPpm = isTag ? info.txPpm : this.clock.ppm
+      const initiatorPpm = isTag ? this.clock.ppm : info.txPpm
+      coffs = (responderPpm - initiatorPpm) * 1e-6 + gaussian(this.rng) * this.cfg.cfoNoisePpm * 1e-6
+    }
+    this.reportRange(
+      r, from, 'ss',
+      ssTwrCorrected(roundTripRctu, replyRctu, coffs),
+      ssTwrRaw(roundTripRctu, replyRctu),
+      fomFor(m.rxNlos),
+      mp.phy.rifs > 0 ? m.rifDetected : undefined,
+    )
+  }
+
+  /**
+   * Tag, MMS: the block's fix, solved at the end of its last pair round. A round holds one
+   * anchor, so three ranges are three rounds — which is why this is the one mode whose fix is
+   * not a round's but a block's. An MMS range is a two-way range like any other, so the record
+   * says `method: 'twr'`; what made it is on the round's own `UWB_ROUND.mode`.
+   */
+  private solveMmsFix(r: RoundState): void {
+    const anchors = r.anchors.length
+    // Round t·A + k belongs to anchor k, so the block's last pair round for this tag is k = A−1.
+    if (anchors === 0 || r.round % anchors !== anchors - 1) return
+    const ranges = [...this.blockRanges].map(([id, distM]) => ({ id, distM }))
+    this.blockRanges.clear()
+    if (ranges.length < 3) return
+    const fix = solvePosition(
+      r.anchors.map((id) => this.geometry.anchorPos(id)),
+      ranges,
+      this.cfg.pos.z,
+      rangeSigmaM(this.cfg.tsNoisePs),
+    )
+    if (!fix) return
+    this.emit({
+      t: this.now(), type: 'UWB_POSITION', node: this.id,
+      x: fix.x, y: fix.y, trueX: this.cfg.pos.x, trueY: this.cfg.pos.y,
+      gdop: fix.gdop, ellipse: fix.ellipse, anchors: ranges.map((x) => x.id), block: r.block,
+      method: 'twr',
     })
   }
 

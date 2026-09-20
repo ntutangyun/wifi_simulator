@@ -2,7 +2,7 @@
  * Event-log lines for the UWB half of the record stream. Kept beside the
  * engine rather than in ui/format.ts so the ranging vocabulary (RCTU counters,
  * TWR methods, figures of merit) lives with the code that produces it;
- * fmtRecord simply delegates the UWB types here - the twelve `src/ui/format.ts` lists in the
+ * fmtRecord simply delegates the UWB types here - the fourteen `src/ui/format.ts` lists in the
  * switch that hands them over.
  */
 import type { TLRecord } from '../model/records'
@@ -83,5 +83,17 @@ export function fmtUwbRecord(r: UwbTLRecord): string {
       return `${r.node} UWB round ${r.round} of block ${r.block} ends`
     case 'UWB_INTERFERED':
       return `${r.node} UWB frame from ${r.from} lost to Wi-Fi: SIR ${r.sirDb.toFixed(1)} dB (foreign ${r.foreignDbm.toFixed(1)} dBm)`
+    case 'UWB_NB_LBT':
+      return `${r.node} NB LBT busy on ch ${r.channel}: ${r.foreignDbm.toFixed(1)} dBm `
+        + `≥ ${r.thresholdDbm.toFixed(1)} — skipping the block`
+    case 'UWB_MMS_TRAIN':
+      // A train nothing was heard of has no received power to print (see NOTHING_HEARD_DBM);
+      // the line says so in words rather than quoting the sentinel back at the reader.
+      return `${r.node} ${r.kind.toUpperCase()} train ← ${r.peer}: ${r.heard}/${r.fragments} heard`
+        + (r.heard > 0
+          ? `, ${r.rxDbm.toFixed(1)} dBm + ${r.gainDb.toFixed(1)} dB = margin ${r.marginDb.toFixed(1)} dB`
+          : '')
+        + ` → ${r.detected ? 'detected' : 'lost'}`
+        + (r.ratioPpm !== null ? `, ratio ${r.ratioPpm.toFixed(3)} ppm` : '')
   }
 }

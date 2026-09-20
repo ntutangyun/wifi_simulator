@@ -107,6 +107,30 @@ export function trainDetected(rxDbm: number, heard: number): boolean {
   return heard > 0 && rxDbm + combineGainDb(heard) >= UWB_RX_SENS_DBM
 }
 
+/** One millisecond in nanoseconds: the spacing of two neighbouring fragments of a train, on the
+ * transmitter's own clock. 4ab draft 15-23/0100r2 §2.3.2 */
+export const MS_NS: Ns = 1_000_000
+
+/** Ranging counter units in one chip (standard §10.29.1.4: the RCTU is 2^-7 of a chip). It is
+ * written here rather than taken from `RCTU_NS`, because `phy.ts` and this module import each
+ * other and a constant of one evaluated inside the other would be undefined half the time. */
+const RCTU_PER_CHIP = 128
+
+/** The same millisecond in ranging counter units — what a measured span is divided by to get a
+ * clock ratio. derived (63 897 600 RCTU) */
+export const MS_RCTU = MS_CHIPS * RCTU_PER_CHIP
+
+/**
+ * Where a train's RMARKER fell, in true time, given any one fragment of it that was heard: the
+ * fragments are one millisecond apart and the receiver knows the train's shape from the
+ * narrowband control exchange, so fragment `index` arriving at `arrivalNs` puts fragment 0 —
+ * the RMARKER — `index` milliseconds earlier. A train whose first fragment was lost is
+ * therefore still timed, from whichever fragment did arrive. model
+ */
+export function rmarkerFromFragment(arrivalNs: Ns, index: number): Ns {
+  return arrivalNs - index * MS_NS
+}
+
 /** 1-σ of the train-derived clock ratio for a span of `spanMs` between the first and last heard
  * fragment: two timestamps of 1-σ `tsNoisePs` each, divided by the span they measure. The
  * result is a fraction (multiply by 1e6 for ppm). model */

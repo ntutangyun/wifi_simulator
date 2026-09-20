@@ -12,7 +12,10 @@
  */
 import type { NodeView } from '../../model/view'
 import { useStrings } from '../../ui/i18n'
-import { uwbAoaRows, uwbContendText, uwbFixRow, uwbRangeRows, uwbTdoaRows } from './rows'
+import {
+  uwbAoaRows, uwbContendText, uwbFixRow, uwbLbtText, uwbNbChannelText, uwbRangeRows, uwbTdoaRows,
+  uwbTrainRows,
+} from './rows'
 
 const row: React.CSSProperties = { display: 'flex', justifyContent: 'space-between', padding: '1px 0' }
 const dim: React.CSSProperties = { color: 'var(--dim)' }
@@ -31,6 +34,11 @@ export function UwbInspector({ nv, nameOf }: { nv: NodeView; nameOf: (id: string
   // Both rows exist only in a contention session: an anchor that never drew a slot and a tag
   // that never lost one have nothing to say, and a time-scheduled session never shows either.
   const contend = uwbContendText(u, U)
+  // P802.15.4ab: one row per peer whose fragment train this device has closed out, and the two
+  // lines of its narrowband control radio. All three are empty in every other mode.
+  const trains = uwbTrainRows(u, U)
+  const nbChannel = uwbNbChannelText(u, U)
+  const lbt = uwbLbtText(u, U)
 
   return (
     <div>
@@ -44,6 +52,12 @@ export function UwbInspector({ nv, nameOf }: { nv: NodeView; nameOf: (id: string
       <div style={row}><span style={dim}>{U.interfered}</span><span>{u.interfered}</span></div>
       {contend !== null && (
         <div style={row} title={U.contendHint}><span style={dim}>{U.contend}</span><span>{contend}</span></div>
+      )}
+      {nbChannel !== null && (
+        <div style={row} title={U.nbChannelHint}><span style={dim}>{U.nbChannel}</span><span>{nbChannel}</span></div>
+      )}
+      {lbt !== null && (
+        <div style={row} title={U.lbtBusyHint}><span style={dim}>{U.lbtBusy}</span><span>{lbt}</span></div>
       )}
       {u.contendCollisions > 0 && (
         <div style={row} title={U.contendCollisionsHint}>
@@ -66,7 +80,7 @@ export function UwbInspector({ nv, nameOf }: { nv: NodeView; nameOf: (id: string
           </thead>
           <tbody>
             {ranges.map((r) => (
-              <tr key={r.peer} title={r.method}>
+              <tr key={r.peer} title={r.integrity === undefined ? r.method : `${r.method} · ${r.integrity}`}>
                 <td>{nameOf(r.peer)}</td>
                 <td style={num}>{r.measured}</td>
                 <td style={num}>{r.trueDist}</td>
@@ -77,6 +91,36 @@ export function UwbInspector({ nv, nameOf }: { nv: NodeView; nameOf: (id: string
             ))}
           </tbody>
         </table>
+      )}
+
+      {trains.length > 0 && (
+        <>
+          <div style={{ ...dim, marginTop: 6 }} title={U.trainsHint}>{U.trains} ({trains.length})</div>
+          <table style={{ width: '100%', fontSize: 11.5, borderCollapse: 'collapse' }}>
+            <thead>
+              <tr style={dim}>
+                <td>{U.peer}</td>
+                <td style={num}>{U.trainKindCol}</td>
+                <td style={num}>{U.trainHeard}</td>
+                <td style={num}>{U.trainMargin}</td>
+                <td style={num}>{U.trainDetected}</td>
+                <td style={num}>{U.trainRatio}</td>
+              </tr>
+            </thead>
+            <tbody>
+              {trains.map((t) => (
+                <tr key={t.peer}>
+                  <td>{nameOf(t.peer)}</td>
+                  <td style={num}>{t.kind}</td>
+                  <td style={num}>{t.heard}</td>
+                  <td style={num}>{t.margin}</td>
+                  <td style={num}>{t.detected}</td>
+                  <td style={num}>{t.ratio}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
       )}
 
       {tdoa.length > 0 && (

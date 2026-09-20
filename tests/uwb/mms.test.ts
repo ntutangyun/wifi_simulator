@@ -2,10 +2,13 @@ import { describe, it, expect } from 'vitest'
 import {
   MMRS_LEN, MMS_COMBINE_MAX_DB, MMS_SETS, MMS_SPREAD, MS_CHIPS, MS_RSTU,
   UWB_MS_BUDGET_NJ, combineGainDb, mmsFragmentDbm, mmsLayout, mmsLongestFragmentNs, mmsSet,
-  mmrsSymbolChips, ratioSigma, rifChips, rifNs, rsfChips, rsfNs, trainDetected,
+  mmrsSymbolChips, MS_NS, MS_RCTU, ratioSigma, rifChips, rifNs, rmarkerFromFragment, rsfChips,
+  rsfNs, trainDetected,
   type MmsPhy, type MmsSetId,
 } from '../../src/uwb/mms'
-import { RSTU_CHIPS, UWB_CHIP_HZ, UWB_PL_EXP, UWB_RX_SENS_DBM, UWB_TX_POWER_DBM, uwbPl0Db } from '../../src/uwb/phy'
+import {
+  RCTU_NS, RSTU_CHIPS, UWB_CHIP_HZ, UWB_PL_EXP, UWB_RX_SENS_DBM, UWB_TX_POWER_DBM, uwbPl0Db,
+} from '../../src/uwb/phy'
 import { WALL_LOSS_DB } from '../../src/engine/propagation'
 
 /** A train of X RSFs and Y RIFs at the session default fragment shape. */
@@ -201,5 +204,42 @@ describe('the slot layout of one MMS pair round', () => {
     expect(mmsLongestFragmentNs({ rsfs: 1, rifs: 1, nMsr: 32, gap: 0, stsLen: 256, gapMs: 1 })).toBe(rifNs(256))
     // A 256-unit RIF is 262.6 µs and is why the 300 RSTU slot rule can still fail.
     expect(rifNs(256) / 1000).toBeCloseTo(262.56, 2)
+  })
+})
+
+// --- The millisecond ruler ------------------------------------------------------
+
+describe('one millisecond, in the units the ratio is measured in', () => {
+  it('is 63 897 600 RCTU, exactly', () => {
+    expect(MS_NS).toBe(1_000_000)
+    expect(MS_RCTU).toBe(63_897_600)
+    // The same number the engine's own RCTU gives, to the nanosecond — and taken from the chip
+    // count rather than from RCTU_NS, because mms.ts and phy.ts import each other.
+    expect(MS_RCTU * RCTU_NS).toBeCloseTo(MS_NS, 6)
+  })
+
+  it('is what turns a measured span into a clock ratio', () => {
+    // A receiver 20 ppm fast measures 7 ms of a train as 7 ms × (1 + 20e-6) of its own counter.
+    const span = 7 * MS_RCTU * (1 + 20e-6)
+    expect((span / (7 * MS_RCTU) - 1) * 1e6).toBeCloseTo(20, 9)
+  })
+})
+
+describe('rmarkerFromFragment', () => {
+  it('is the fragment’s own arrival when the train’s first fragment arrived', () => {
+    expect(rmarkerFromFragment(2_000_017, 0)).toBe(2_000_017)
+  })
+
+  it('walks back a millisecond per fragment when the first ones were lost', () => {
+    // The same RMARKER, recovered from fragment 3 of a train whose first three were lost: the
+    // structure is known from the narrowband control exchange, so any fragment times the train.
+    const rmarker = 2_000_017
+    for (let i = 0; i < 8; i++) {
+      expect(rmarkerFromFragment(rmarker + i * MS_NS, i), `fragment ${i}`).toBe(rmarker)
+    }
+  })
+
+  it('is exact: no rounding creeps in over the longest train the draft allows', () => {
+    expect(rmarkerFromFragment(123_456_789 + 15 * MS_NS, 15)).toBe(123_456_789)
   })
 })

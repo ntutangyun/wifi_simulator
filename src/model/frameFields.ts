@@ -39,6 +39,11 @@ export type FieldKey =
   | 'ieArc' | 'ieRdm' | 'ieRrmc' | 'ieRrti' | 'ieRmi' | 'ieRcps' | 'ieRcma'
   // One-way ranging (model IEs): the DL-TDoA times and the UL-TDoA blink.
   | 'ieTxTime' | 'ieRxTimes' | 'ieCoffs' | 'ieBlink'
+  // P802.15.4ab. A multi-millisecond fragment is a raw sequence, not a PSDU: its rows carry no
+  // octets at all. A narrowband control message is a compressed PSDU of its own shape, with
+  // none of the 802.15.4 MAC header the UWB ranging frames carry.
+  | 'mmsFragment' | 'mmsShape' | 'mmsLength' | 'mmsPower'
+  | 'nbMsgId' | 'nbChannel' | 'nbFields' | 'nbTime'
 
 export interface FrameField {
   key: FieldKey
@@ -86,6 +91,8 @@ export type PpduSegmentKey =
   | 'legacyPreamble' | 'signal' | 'preamble' | 'muSig' | 'data' | 'padding'
   | 'usig' | 'ampSync' | 'ampSig' | 'ampData' | 'signalExt'
   | 'sync' | 'sfd' | 'stsGap' | 'sts' | 'phr' | 'psdu'
+  // P802.15.4ab: the whole of a fragment, and the narrowband PPDU's own preamble.
+  | 'mmsFrag' | 'nbShr'
 
 export interface PpduSegment {
   key: PpduSegmentKey

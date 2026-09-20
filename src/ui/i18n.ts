@@ -171,6 +171,24 @@ export interface Strings {
     /** Shown on the ellipse of a single-anchor angle fix, whose two axes are two different
      * measurements rather than two directions of one. */
     ellipseHintAoa: string
+    /** P802.15.4ab: the fragment-train table, one row per peer. */
+    trains: string; trainsHint: string
+    /** Column headers of that table: what the train held, how many fragments arrived, how far
+     * the combined train cleared sensitivity, whether it did, and the ratio it measured. */
+    trainKindCol: string; trainHeard: string; trainMargin: string; trainDetected: string; trainRatio: string
+    trainYes: string; trainNo: string
+    /** "8 × RSF" / "2 × RIF": what the train was made of. */
+    trainKind: (kind: 'rsf' | 'rif', fragments: number) => string
+    /** A train nothing was heard of has no received power and no margin at all. */
+    trainNothing: string
+    /** The narrowband control radio: the channel this block hopped to, and what listen before
+     * talk has cost this node. */
+    nbChannel: string; nbChannelHint: string
+    nbChannelAt: (channel: number, centerMhz: number) => string
+    lbtBusy: string; lbtBusyHint: string
+    lbtBusyCount: (checks: number, blocks: number) => string
+    /** Shown on a range measured with an integrity train beside it. */
+    integrityOk: string; integrityBad: string
   }
   log: { empty: string }
   profiles: Record<ProfileId, string>
@@ -246,6 +264,11 @@ export interface Strings {
     ampWait: string; ampWaitNote: string
     uwbPoll: (anchors: number) => string; uwbResp: (slot: number) => string
     uwbFinal: string; uwbReport: (dst: string) => string; uwbBlink: string
+    /** P802.15.4ab: one fragment of a train ("RSF 3 of 8"), and the three narrowband messages. */
+    uwbFragment: (kind: string, index: number, of: number) => string
+    /** A fragment has no data rate — it is a sequence — so its own EIRP takes that column. */
+    uwbFragmentRate: (dbm: number) => string
+    nbPoll: (dst: string) => string; nbResp: (dst: string) => string; nbReport: (dst: string) => string
     uwbRate: (mbps: number) => string
     uwbWait: string; uwbWaitNote: string
   }
@@ -478,6 +501,21 @@ export const STRINGS: Record<Lang, Strings> = {
       method: {
         twr: 'two-way ranging', 'dl-tdoa': 'DL-TDoA', 'ul-tdoa': 'UL-TDoA', aoa: 'angle of arrival',
       },
+      trains: 'fragment trains',
+      trainsHint: 'multi-millisecond ranging sends its signal as a train of short fragments a millisecond apart and the receiver adds them up: N fragments are 10·log10(N) dB of gain, which is what the margin column already includes. The ratio is the peer’s clock rate measured against this device’s own over the whole length of the train.',
+      trainKindCol: 'train', trainHeard: 'heard', trainMargin: 'margin', trainDetected: 'combined',
+      trainRatio: 'clock ratio',
+      trainYes: 'detected', trainNo: 'lost',
+      trainKind: (kind, fragments) => `${fragments} × ${kind.toUpperCase()}`,
+      trainNothing: '—',
+      nbChannel: 'narrowband channel',
+      nbChannelHint: 'the 2.5 MHz channel this session’s control plane — poll, response and measurement report — is on. It hops from one ranging block to the next over the session’s allow list.',
+      nbChannelAt: (channel, centerMhz) => `${channel} · ${centerMhz.toFixed(2)} MHz`,
+      lbtBusy: 'listen before talk',
+      lbtBusyHint: 'checks that found the narrowband channel busy, and the ranging blocks they cost: a busy check stops every narrowband transmission until the next block, and with no poll there is no ranging cycle at all',
+      lbtBusyCount: (checks, blocks) => `${checks} busy · ${blocks} blocks skipped`,
+      integrityOk: 'integrity train verified this range',
+      integrityBad: 'the integrity train was not detected — this range is unverified',
       ellipseHintAoa: 'a single-anchor fix has two unrelated axes: along the ray it is the range’s own sigma (2.1 cm at 100 ps), across it the bearing’s r·σ_θ — 19 cm at 4 m straight ahead, and more off to the side. So the ellipse is a sliver turned across the line of sight at any useful distance. The bearing is horizontal and the range is a slant distance, so the fix walks out the horizontal leg of that triangle, √(r² − Δz²), against the height the tag is configured at — which is why a ceiling anchor’s cross sits a little inside its own range ring.',
       ellipseHintTdoa: 'a one-way fix draws its ellipse from what a time difference really carries: two noisy timestamps, and then — in DL-TDoA — each responder’s clock-offset residual, which grows with the slot it answers in, or — in UL-TDoA — the anchors’ calibration error. It is a first-order model: an anchor’s sync error is a fixed bias, not noise that averages away over rounds, so read the ellipse as indicative of how far the fix may be off rather than as a 68 % interval.',
     },
@@ -611,6 +649,14 @@ export const STRINGS: Record<Lang, Strings> = {
           ieRxTimes: 'RX Times IE · arrival instants the sender holds',
           ieCoffs: 'Clock Offset IE · the responder’s offset to anchor 0',
           ieBlink: 'Blink IE · one-way blink content',
+          mmsFragment: 'Fragment · which one, of how many',
+          mmsShape: 'Sequence · what the fragment is made of',
+          mmsLength: 'Length · what one millisecond of energy is spent in',
+          mmsPower: 'Transmit power · this fragment’s own EIRP',
+          nbMsgId: 'Message ID · which control message this is',
+          nbChannel: 'Narrowband channel · where it was sent',
+          nbFields: 'Message fields · the draft’s table, as octets',
+          nbTime: 'Ranging time · the number the range is computed from',
         },
         bit: {
           protocolVersion: 'Protocol Version', type: 'Type', subtype: 'Subtype', toDs: 'To DS', fromDs: 'From DS',
@@ -627,6 +673,8 @@ export const STRINGS: Record<Lang, Strings> = {
           ampData: 'AMP-Data (Manchester OOK)', signalExt: 'signal extension (6 µs)',
           sync: 'SYNC (64 preamble symbols)', sfd: 'SFD (start-of-frame delimiter)', stsGap: 'STS gap',
           sts: 'STS (scrambled timestamp sequence)', phr: 'PHR (PHY header)', psdu: 'PSDU (ranging payload)',
+          mmsFrag: 'fragment (one sequence, no preamble — the RMARKER is its first pulse)',
+          nbShr: 'SHR (8 preamble + 2 SFD symbols)',
         },
         symbols: (n, u) => `${n} symbols × ${u} µs`,
         rmarker: (us) => `RMARKER at ${us} µs — every ranging timestamp is read here, not at the start of the frame`,
@@ -689,6 +737,11 @@ export const STRINGS: Record<Lang, Strings> = {
       uwbFinal: 'UWB Final — the tag broadcasts the times it measured (DS-TWR)',
       uwbReport: (dst) => `UWB measurement report → ${dst}`,
       uwbBlink: 'UWB Blink — the tag transmits once and the anchors time it (UL-TDoA)',
+      uwbFragment: (kind, index, of) => `${kind} ${index} of ${of} — one fragment of a multi-millisecond train`,
+      uwbFragmentRate: (dbm) => `sequence · ${dbm.toFixed(2)} dBm`,
+      nbPoll: (dst) => `Narrowband POLL → ${dst} — opening the ranging cycle on the control radio`,
+      nbResp: (dst) => `Narrowband RESP → ${dst} — it heard the poll and will range`,
+      nbReport: (dst) => `Narrowband REPORT → ${dst} — the time the range is computed from`,
       uwbRate: (mbps) => `${mbps} Mbps BPRF · HRP UWB (SP1 PPDU)`,
       uwbWait: 'holding a ranging slot',
       uwbWaitNote: 'A UWB device never contends: the round’s schedule already says whose slot this is, so the receiver simply stays armed until the slot’s deadline.',
@@ -921,6 +974,21 @@ export const STRINGS: Record<Lang, Strings> = {
         twr: '双向测距 (TWR)', 'dl-tdoa': '下行到达时间差 (DL-TDoA)', 'ul-tdoa': '上行到达时间差 (UL-TDoA)',
         aoa: '到达角 (AoA)',
       },
+      trains: '片段序列',
+      trainsHint: '多毫秒测距把测距信号拆成一串每毫秒一个的短片段发出，接收机把它们叠加起来：N 个片段带来 10·log10(N) dB 的增益，余量一列里已经算进了这份增益。时钟比例是用整串片段的长度，量出对端时钟相对本机时钟的快慢。',
+      trainKindCol: '序列', trainHeard: '听到', trainMargin: '余量', trainDetected: '合成结果',
+      trainRatio: '时钟比例',
+      trainYes: '检出', trainNo: '丢失',
+      trainKind: (kind, fragments) => `${fragments} × ${kind.toUpperCase()}`,
+      trainNothing: '—',
+      nbChannel: '窄带信道',
+      nbChannelHint: '本次会话的控制面——轮询、响应和测量报告——所在的 2.5 MHz 信道。它按测距块在允许列表中跳变。',
+      nbChannelAt: (channel, centerMhz) => `${channel} · ${centerMhz.toFixed(2)} MHz`,
+      lbtBusy: '先听后发',
+      lbtBusyHint: '检测到窄带信道忙的次数，以及因此损失的测距块：一次忙检测会让该设备在本块内不再发出任何窄带消息，而没有轮询就没有整个测距周期',
+      lbtBusyCount: (checks, blocks) => `${checks} 次忙 · 跳过 ${blocks} 个块`,
+      integrityOk: '完整性序列已验证本次测距',
+      integrityBad: '未检出完整性序列——本次测距未经验证',
       ellipseHintAoa: '单锚点定位的椭圆，其两条轴来自两种互不相干的测量：沿视线方向是测距本身的 σ（100 ps 时为 2.1 cm），垂直视线方向则是 r·σ_θ——4 米正前方约 19 cm，偏向两侧还会更大。因此在任何有意义的距离上，椭圆都是一条横跨视线的细长条。此外方位角是水平的、而测距是斜距，因此定位时沿视线走的是这个直角三角形的水平边 √(r² − Δz²)（Δz 按标签配置的高度计算）——这也是为什么装在天花板上的锚点，其定位十字会落在自己的测距圆环内侧一点。',
       ellipseHintTdoa: '单向定位的椭圆按一个时间差真正包含的误差画出：两个带噪声的时间戳，再加上 DL-TDoA 中各响应锚点的时钟偏差估计残差（响应时隙越靠后越大），或 UL-TDoA 中锚点之间的同步标定误差。这是一阶近似：锚点的同步误差是固定偏差，不是多轮平均就能消掉的噪声，因此该椭圆只表示定位可能偏离多远，而不是严格的 68 % 置信区间。',
     },
@@ -1054,6 +1122,14 @@ export const STRINGS: Record<Lang, Strings> = {
           ieRxTimes: '接收时刻信息元·发送方掌握的各到达时刻',
           ieCoffs: '时钟偏差信息元·响应锚点相对锚点 0 的偏差',
           ieBlink: '闪发信息元·单向闪发帧的内容',
+          mmsFragment: '片段·第几个，共几个',
+          mmsShape: '序列·这个片段由什么构成',
+          mmsLength: '长度·一毫秒的能量花在多长的时间里',
+          mmsPower: '发射功率·这一个片段自己的 EIRP',
+          nbMsgId: '消息 ID·这是哪一种控制消息',
+          nbChannel: '窄带信道·在哪个信道上发出',
+          nbFields: '消息字段·草案表格中的其余字段，按字节计',
+          nbTime: '测距时间·计算距离所用的那个数',
         },
         bit: {
           protocolVersion: '协议版本', type: '类型', subtype: '子类型', toDs: 'To DS', fromDs: 'From DS',
@@ -1070,6 +1146,8 @@ export const STRINGS: Record<Lang, Strings> = {
           ampData: 'AMP-Data（曼彻斯特 OOK）', signalExt: '信号扩展（6 µs）',
           sync: 'SYNC（64 个前导符号）', sfd: 'SFD（帧起始定界符）', stsGap: 'STS 间隔',
           sts: 'STS（加扰时间戳序列）', phr: 'PHR（PHY 帧头）', psdu: 'PSDU（测距负载）',
+          mmsFrag: '片段（一段序列，没有前导码——RMARKER 就是它的第一个脉冲）',
+          nbShr: 'SHR（8 个前导符号 + 2 个 SFD 符号）',
         },
         symbols: (n, u) => `${n} 个符号 × ${u} µs`,
         rmarker: (us) => `RMARKER 位于 ${us} µs——所有测距时间戳都在这一点读取，而不是帧的起点`,
@@ -1132,6 +1210,11 @@ export const STRINGS: Record<Lang, Strings> = {
       uwbFinal: 'UWB 终结帧——标签广播它测得的时间（DS-TWR）',
       uwbReport: (dst) => `UWB 测量报告 → ${dst}`,
       uwbBlink: 'UWB 闪发帧 — 标签只发一次，由各锚点打时间戳（UL-TDoA）',
+      uwbFragment: (kind, index, of) => `${kind} 第 ${index} / ${of} 个 — 多毫秒序列中的一个片段`,
+      uwbFragmentRate: (dbm) => `序列 · ${dbm.toFixed(2)} dBm`,
+      nbPoll: (dst) => `窄带 POLL → ${dst} — 在控制电台上开启一次测距周期`,
+      nbResp: (dst) => `窄带 RESP → ${dst} — 它听到了轮询，将参与测距`,
+      nbReport: (dst) => `窄带 REPORT → ${dst} — 计算距离所用的那个时间`,
       uwbRate: (mbps) => `${mbps} Mbps BPRF · HRP UWB（SP1 PPDU）`,
       uwbWait: '持有一个测距时隙',
       uwbWaitNote: 'UWB 设备从不参与竞争：本轮的调度表已经规定了这个时隙属于谁，接收机只需保持开启到时隙截止。',

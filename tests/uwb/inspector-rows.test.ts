@@ -1,7 +1,11 @@
 import { describe, it, expect } from 'vitest'
 import { STRINGS } from '../../src/ui/i18n'
 import { FOM_LOS, FOM_NLOS, fomText } from '../../src/uwb/phy'
-import { uwbAoaRows, uwbContendText, uwbFixRow, uwbFomText, uwbRangeRows, uwbTdoaRows } from '../../src/uwb/ui/rows'
+import {
+  uwbAoaRows, uwbContendText, uwbFixRow, uwbFomText, uwbLbtText, uwbNbChannelText, uwbRangeRows,
+  uwbTdoaRows, uwbTrainRows,
+} from '../../src/uwb/ui/rows'
+import { NOTHING_HEARD_DBM } from '../../src/uwb/records'
 import type { UwbNodeView } from '../../src/uwb/view'
 
 /** A tag mid-block with two peers: one clear, one through a wall. */
@@ -13,6 +17,7 @@ const tag: UwbNodeView = {
     'anc-2': { distM: 4.38, trueDistM: 4.5, method: 'ds', fom: FOM_NLOS, block: 3, n: 6 },
   },
   tdoa: {}, tdoaRef: null, aoa: {},
+  mms: { trains: {}, nbChannel: null, lbtBusy: 0, skippedBlocks: 0 },
   position: {
     x: 0.03, y: -0.04, trueX: 0, trueY: 0, gdop: 1.41,
     ellipse: { a: 0.062, b: 0.041, thetaRad: 0.5 }, method: 'twr',
@@ -144,5 +149,96 @@ describe('fomText', () => {
     expect(uwbFomText(0, EN)).toBe('no FoM')
     expect(uwbFomText(0, ZH)).toBe('无 FoM')
     expect(uwbFomText(FOM_NLOS, ZH)).toBe('75 % 的误差落在 12 ns 内')
+  })
+})
+
+// --- P802.15.4ab -------------------------------------------------------------------
+
+/** A tag mid-block in an MMS session: one train it combined, one it lost entirely. */
+const mmsTag: UwbNodeView = {
+  ...tag,
+  ranges: {
+    'anc-1': { distM: 4.28, trueDistM: 4.24, method: 'ss', fom: FOM_LOS, block: 0, n: 3, integrity: false },
+  },
+  position: null,
+  mms: {
+    trains: {
+      'anc-1': { kind: 'rsf', fragments: 8, heard: 8, marginDb: 1.77, detected: true, ratioPpm: -20.0298 },
+      'anc-2': { kind: 'rif', fragments: 2, heard: 0, marginDb: NOTHING_HEARD_DBM, detected: false, ratioPpm: null },
+      'anc-3': { kind: 'rsf', fragments: 4, heard: 4, marginDb: -1.24, detected: false, ratioPpm: 8.02 },
+    },
+    nbChannel: 3,
+    lbtBusy: 2,
+    skippedBlocks: 2,
+  },
+}
+
+describe('the fragment-train table', () => {
+  const rows = uwbTrainRows(mmsTag, EN)
+
+  it('gives one row per peer, with the train and how much of it arrived', () => {
+    expect(rows.map((r) => [r.peer, r.kind, r.heard])).toEqual([
+      ['anc-1', '8 × RSF', '8 / 8'],
+      ['anc-2', '2 × RIF', '0 / 2'],
+      ['anc-3', '4 × RSF', '4 / 4'],
+    ])
+  })
+
+  it('signs the margin, and shows a dash where nothing was heard at all', () => {
+    expect(rows.map((r) => [r.margin, r.detected])).toEqual([
+      ['+1.8 dB', 'detected'],
+      ['—', 'lost'],
+      ['-1.2 dB', 'lost'],
+    ])
+    // The record's "nothing heard" sentinel never reaches the reader.
+    expect(rows.map((r) => r.margin).join(' ')).not.toContain('999')
+  })
+
+  it('shows the ratio only where the train measured one', () => {
+    expect(rows.map((r) => r.ratio)).toEqual(['-20.030 ppm', '—', '8.020 ppm'])
+  })
+
+  it('is empty in every other mode, where no train is ever evaluated', () => {
+    expect(uwbTrainRows(tag, EN)).toEqual([])
+  })
+
+  it('reads in Chinese too', () => {
+    const zh = uwbTrainRows(mmsTag, ZH)
+    expect(zh[0].detected).toBe(ZH.trainYes)
+    expect(zh[1].detected).toBe(ZH.trainNo)
+    expect(zh[0].detected).not.toBe(rows[0].detected)
+  })
+})
+
+describe('the narrowband control rows', () => {
+  it('names the channel and its centre frequency', () => {
+    expect(uwbNbChannelText(mmsTag, EN)).toBe('3 · 5733.75 MHz')
+  })
+
+  it('counts the busy checks and the blocks they cost', () => {
+    expect(uwbLbtText(mmsTag, EN)).toBe('2 busy · 2 blocks skipped')
+  })
+
+  it('shows neither row outside an MMS session', () => {
+    expect(uwbNbChannelText(tag, EN)).toBeNull()
+    expect(uwbLbtText(tag, EN)).toBeNull()
+    // …nor the listen-before-talk row when every check this run was clear.
+    expect(uwbLbtText({ ...mmsTag, mms: { ...mmsTag.mms, lbtBusy: 0 } }, EN)).toBeNull()
+  })
+})
+
+describe('the range row carries an integrity flag when the session has one', () => {
+  it('says whether the integrity train vouched for the range', () => {
+    const row = uwbRangeRows(mmsTag, EN)[0]
+    expect(row.integrity).toBe(EN.integrityBad)
+    const ok: UwbNodeView = {
+      ...mmsTag,
+      ranges: { 'anc-1': { ...mmsTag.ranges['anc-1'], integrity: true } },
+    }
+    expect(uwbRangeRows(ok, EN)[0].integrity).toBe(EN.integrityOk)
+  })
+
+  it('leaves it off a 4z range, which has no integrity train behind it', () => {
+    expect(uwbRangeRows(tag, EN).every((r) => r.integrity === undefined)).toBe(true)
   })
 })

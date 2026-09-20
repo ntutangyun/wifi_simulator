@@ -3,8 +3,9 @@
  * React so the panel's contents can be asserted directly: every row a learner
  * reads is a value this module produced from the view state.
  */
+import { nbCenterMhz } from '../nb'
 import { fomDecode } from '../phy'
-import type { UwbFixMethod } from '../records'
+import { NOTHING_HEARD_DBM, type UwbFixMethod } from '../records'
 import type { UwbNodeView, UwbPositionView } from '../view'
 import { aoaSigmaDeg } from '../aoa'
 
@@ -58,9 +59,12 @@ export interface UwbRangeRow {
   rounds: string
   /** 'SS-TWR' / 'DS-TWR', for the row's title. */
   method: string
+  /** P802.15.4ab with an integrity train: whether that train vouched for this range, as a
+   * phrase for the row's title. Absent in every other session. */
+  integrity?: string
 }
 
-export function uwbRangeRows(u: UwbNodeView, S: UwbFomStrings): UwbRangeRow[] {
+export function uwbRangeRows(u: UwbNodeView, S: UwbFomStrings & UwbIntegrityStrings): UwbRangeRow[] {
   return Object.entries(u.ranges).map(([peer, r]) => ({
     peer,
     measured: m(r.distM),
@@ -69,7 +73,69 @@ export function uwbRangeRows(u: UwbNodeView, S: UwbFomStrings): UwbRangeRow[] {
     fom: uwbFomText(r.fom, S),
     rounds: String(r.n),
     method: `${r.method.toUpperCase()}-TWR`,
+    // Only a session with an integrity train has anything to say here.
+    ...(r.integrity !== undefined ? { integrity: r.integrity ? S.integrityOk : S.integrityBad } : {}),
   }))
+}
+
+/** The two phrases an integrity flag reads as, in the reader's language. */
+export interface UwbIntegrityStrings {
+  integrityOk: string
+  integrityBad: string
+}
+
+/** The phrases the fragment-train table needs. */
+export interface UwbTrainStrings {
+  trainKind: (kind: 'rsf' | 'rif', fragments: number) => string
+  trainYes: string
+  trainNo: string
+  trainNothing: string
+}
+
+/** One peer's latest fragment train: what it held, how much of it arrived, and what the
+ * combined train came to. */
+export interface UwbTrainRow {
+  peer: string
+  /** "8 × RSF". */
+  kind: string
+  /** "6 / 8". */
+  heard: string
+  /** Signed, in dB — how far the combined train cleared the receiver's sensitivity. A dash
+   * when nothing was heard at all: there is no received power to take a margin from. */
+  margin: string
+  detected: string
+  /** The clock ratio the train measured, minus one; a dash under two fragments heard, where
+   * the range falls back to the narrowband carrier estimate instead. */
+  ratio: string
+}
+
+export function uwbTrainRows(u: UwbNodeView, S: UwbTrainStrings): UwbTrainRow[] {
+  return Object.entries(u.mms.trains).map(([peer, t]) => ({
+    peer,
+    kind: S.trainKind(t.kind, t.fragments),
+    heard: `${t.heard} / ${t.fragments}`,
+    margin: t.marginDb === NOTHING_HEARD_DBM ? S.trainNothing : `${t.marginDb >= 0 ? '+' : ''}${t.marginDb.toFixed(1)} dB`,
+    detected: t.detected ? S.trainYes : S.trainNo,
+    ratio: t.ratioPpm === null ? S.trainNothing : `${t.ratioPpm.toFixed(3)} ppm`,
+  }))
+}
+
+/** The two phrases the narrowband control rows need. */
+export interface UwbNbStrings {
+  nbChannelAt: (channel: number, centerMhz: number) => string
+  lbtBusyCount: (checks: number, blocks: number) => string
+}
+
+/** The narrowband control radio, as two lines: the channel this node's last control message
+ * went out on (with its centre frequency), and what listen before talk has cost it. Both null
+ * outside an MMS session, where nothing narrowband ever happens. */
+export function uwbNbChannelText(u: UwbNodeView, S: UwbNbStrings): string | null {
+  const ch = u.mms.nbChannel
+  return ch === null ? null : S.nbChannelAt(ch, nbCenterMhz(ch))
+}
+
+export function uwbLbtText(u: UwbNodeView, S: UwbNbStrings): string | null {
+  return u.mms.lbtBusy === 0 ? null : S.lbtBusyCount(u.mms.lbtBusy, u.mms.skippedBlocks)
 }
 
 /** One measured time difference: how much later this peer's message arrived than the reference

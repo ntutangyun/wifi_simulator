@@ -111,6 +111,9 @@ const SEG_COLOR: Record<PpduSegmentKey, string> = {
   // UWB SP1 PPDU: preamble violet, the STS its own teal (it is what a ranging
   // receiver actually times on), payload the same blue as any other data.
   sync: '#a78bfa', sfd: '#f472b6', stsGap: '#334155', sts: '#2dd4bf', phr: '#f59e0b', psdu: '#38bdf8',
+  // P802.15.4ab: a fragment is all sequence and nothing else, so it takes the STS teal; the
+  // narrowband preamble is a preamble like any other.
+  mmsFrag: '#2dd4bf', nbShr: '#a78bfa',
 }
 
 /** Collapsible field-by-field decode of the selected frame: MAC header of the first MPDU, subframes, PPDU layout. */

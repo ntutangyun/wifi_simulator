@@ -110,3 +110,18 @@ describe('the per-block channel hop', () => {
     expect(new Set(seven).size).toBeGreaterThan(1)
   })
 })
+
+describe('the channel plan has edges', () => {
+  it('refuses a channel number outside 0…249', () => {
+    for (const n of [-1, NB_CHANNELS, 1000]) {
+      expect(() => nbCenterMhz(n), String(n)).toThrow(/narrowband plan has 250 channels/)
+    }
+  })
+
+  it('refuses a channel number that is not a whole channel', () => {
+    expect(() => nbCenterMhz(3.5)).toThrow(/narrowband plan has 250 channels/)
+    // …and still answers for both band edges, which is what the guard must not cost.
+    expect(nbCenterMhz(0)).toBe(5726.25)
+    expect(nbCenterMhz(NB_CHANNELS - 1)).toBe(6423.75)
+  })
+})

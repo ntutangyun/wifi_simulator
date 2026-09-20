@@ -137,7 +137,10 @@ function inspectorAfter(variant: number | undefined, blocks: number): UwbNodeVie
   return u!
 }
 
-const FOM_S = { fomWithin: STRINGS.en.uwb.fomWithin, noFom: STRINGS.en.uwb.noFom }
+const FOM_S = {
+  fomWithin: STRINGS.en.uwb.fomWithin, noFom: STRINGS.en.uwb.noFom,
+  integrityOk: STRINGS.en.uwb.integrityOk, integrityBad: STRINGS.en.uwb.integrityBad,
+}
 
 describe('uwb-position · lesson shape', () => {
   it('the scenario and both variants pass the scenario schema', () => {

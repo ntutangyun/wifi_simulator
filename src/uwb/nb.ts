@@ -26,7 +26,7 @@ export const NB_SHR_SYMBOLS = 10
 /** The PHY header. 4ab draft 15-23/0100r2 §2.3.1, PHY configuration #1 */
 export const NB_PHR_SYMBOLS = 2
 
-/** A narrowband PPDU: header symbols plus two symbols an octet (4 bits per symbol), no FEC. */
+/** A narrowband PPDU: header symbols plus two symbols an octet (4 bits per symbol), no FEC. derived */
 export function nbPpduNs(octets: number): Ns {
   return (NB_SHR_SYMBOLS + NB_PHR_SYMBOLS + 2 * octets) * NB_SYMBOL_US * 1000
 }
@@ -48,6 +48,14 @@ export const NB_REPORT_BYTES = 13
 /** The message-ID octet each compressed PSDU opens with. 4ab draft 15-22/0381r5 Table 1.6.3.1 */
 export const NB_MSG_ID = { poll: 0x04, resp: 0x05, reportInitiator: 0x06, reportResponder: 0x07 } as const
 
+/** The message-ID octet itself. 4ab draft 15-22/0381r5 Table 1.6.3.1 */
+export const NB_MSG_ID_BYTES = 1
+/** The CRC-16 a compressed PSDU closes with. 4ab draft 15-22/0381r5 Table 1.6.3.1 */
+export const NB_CRC_BYTES = 2
+/** A REPORT's one time field: the responder's ReplyTime or the initiator's TurnAroundTime.
+ * 4ab draft 15-22/0381r5 Table 1.6.3.2 */
+export const NB_REPORT_TIME_BYTES = 5
+
 // --- The channel plan --------------------------------------------------------------
 
 /** 50 channels in UNII-3 (5725–5850 MHz) and 200 in UNII-5 (5925–6425 MHz), numbered 0…249.
@@ -59,6 +67,11 @@ export const NB_CHANNEL_MHZ = 2.5 // 4ab draft 15-22/0381r5 §1.4.1
  * 1.25 MHz inside each band edge; the draft gives the counts and the edges in text and the
  * numbering only as a figure, so this formula is **reconstructed** from them (model). */
 export function nbCenterMhz(n: number): number {
+  // Outside the plan there is no centre to give: a band edge invented for channel 250 would be
+  // carried silently into a path loss, an emission band and an LBT reading.
+  if (!Number.isInteger(n) || n < 0 || n >= NB_CHANNELS) {
+    throw new Error(`nbCenterMhz: the narrowband plan has ${NB_CHANNELS} channels (0…${NB_CHANNELS - 1}), asked for ${n}`)
+  }
   return n < 50 ? 5726.25 + NB_CHANNEL_MHZ * n : 5926.25 + NB_CHANNEL_MHZ * (n - 50)
 }
 
@@ -93,7 +106,8 @@ export function nbPl0Db(n: number): number {
 export const NB_LBT_EDT_DBM_PER_MHZ = -75
 export const NB_LBT_CCA_US = 9
 
-/** The same threshold over the whole 2.5 MHz channel: −71.02 dBm. */
+/** The same threshold over the whole 2.5 MHz channel: −71.02 dBm. model (the draft states the
+ * threshold per MHz; spreading it over the occupied bandwidth is this engine's reading) */
 export const NB_LBT_THRESHOLD_DBM = NB_LBT_EDT_DBM_PER_MHZ + 10 * Math.log10(NB_CHANNEL_MHZ)
 
 /** Whether a transmission on `channel` has to listen first. The draft makes it mandatory in

@@ -16,6 +16,8 @@ export interface UwbRangeView {
   fom: number
   /** Ranging block this measurement came from: what the scene overlay ages its ring by. */
   block: number
+  /** MMS with an integrity train only: whether that train vouched for this range. */
+  integrity?: boolean
   n: number
 }
 
@@ -54,6 +56,37 @@ export interface UwbPositionView {
   n: number
 }
 
+/** What one peer's latest fragment train came to, as the inspector shows it. One entry per
+ * peer: a train is evaluated per peer and per kind, and the last one to close wins — so a
+ * session with an integrity train shows the RIF row and a plain one the RSF row. */
+export interface UwbTrainView {
+  kind: 'rsf' | 'rif'
+  /** How many the train held (X for an RSF train, Y for an RIF one) and how many arrived. */
+  fragments: number
+  heard: number
+  /** How far the combined train cleared the receiver's sensitivity — the whole point of the
+   * mode. `NOTHING_HEARD_DBM` when nothing arrived (see records.ts). */
+  marginDb: number
+  detected: boolean
+  /** The clock ratio this train measured, minus one, in ppm; null under two fragments heard. */
+  ratioPpm: number | null
+}
+
+/** The P802.15.4ab half of a node's ranging state: what its peers' trains came to, and what its
+ * narrowband control radio has been doing. Empty and zeroed in every other mode. */
+export interface UwbMmsView {
+  /** Per peer id. */
+  trains: Record<string, UwbTrainView>
+  /** The narrowband channel of the last control message this node sent or received; null until
+   * one has. The session hops it per block, so it is state, not configuration. */
+  nbChannel: number | null
+  /** Listen-before-talk checks that found the channel busy (this run). */
+  lbtBusy: number
+  /** Ranging blocks lost to one of those — a busy check stops every narrowband transmission
+   * until the next block, so it is blocks, not messages, that the rule costs. */
+  skippedBlocks: number
+}
+
 export interface UwbNodeView {
   role: 'anchor' | 'tag'
   block: number
@@ -82,13 +115,17 @@ export interface UwbNodeView {
    * the *anchor's* lane, unlike the fix that bearing helps solve — the bearing is the anchor's
    * own measurement, and two anchors watching one tag each have their own. */
   aoa: Record<string, UwbAoaView>
+  /** Narrowband-assisted multi-millisecond ranging (P802.15.4ab). */
+  mms: UwbMmsView
   position: UwbPositionView | null
 }
 
 export function initUwbNodeView(cfg: UwbNodeCfg): UwbNodeView {
   return {
     role: cfg.role, block: 0, round: 0, slot: null, rounds: 0, timeouts: 0, interfered: 0,
-    contend: null, contendCollisions: 0, ranges: {}, tdoa: {}, tdoaRef: null, aoa: {}, position: null,
+    contend: null, contendCollisions: 0, ranges: {}, tdoa: {}, tdoaRef: null, aoa: {},
+    mms: { trains: {}, nbChannel: null, lbtBusy: 0, skippedBlocks: 0 },
+    position: null,
   }
 }
 
@@ -104,6 +141,18 @@ function subject(vs: ViewState, r: { node: string; of?: string }): UwbNodeView |
 
 /** Applies one UWB_* record; returns true when it handled it. */
 export function applyUwbRecord(vs: ViewState, r: TLRecord): boolean {
+  // Which narrowband channel a node is on is a property of the frames it sends and hears, not
+  // of any UWB_* record — a clear listen-before-talk check emits nothing at all. So the ranging
+  // reducer watches the two frame records too, and hands them straight back to the Wi-Fi
+  // reducer, which owns everything else about them.
+  if (r.type === 'TX_START' || r.type === 'RX_OK') {
+    const nb = r.frame.uwb?.nb
+    if (nb !== undefined) {
+      const u = vs.nodes[r.node]?.uwb
+      if (u) u.mms.nbChannel = nb.channel
+    }
+    return false
+  }
   switch (r.type) {
     case 'UWB_ROUND': {
       const u = vs.nodes[r.node]?.uwb
@@ -129,6 +178,7 @@ export function applyUwbRecord(vs: ViewState, r: TLRecord): boolean {
         const prev = u.ranges[r.peer]
         u.ranges[r.peer] = {
           distM: r.distM, trueDistM: r.trueDistM, method: r.method, fom: r.fom, block: r.block, n: (prev?.n ?? 0) + 1,
+          ...(r.integrity !== undefined ? { integrity: r.integrity } : {}),
         }
         // An anchor never sees UWB_ROUND / UWB_SLOT (those are the tag's own records),
         // so its block and round come from the ranges it computes. A tag takes them
@@ -178,6 +228,27 @@ export function applyUwbRecord(vs: ViewState, r: TLRecord): boolean {
     case 'UWB_TIMEOUT': {
       const u = vs.nodes[r.node]?.uwb
       if (u) u.timeouts += 1
+      return true
+    }
+    case 'UWB_NB_LBT': {
+      const u = vs.nodes[r.node]?.uwb
+      if (u) {
+        u.mms.lbtBusy += 1
+        // A busy check stops this node's narrowband radio for the rest of the block, and a
+        // device that has already stopped never checks again — so a node emits at most one of
+        // these per block, and every one of them is a block it lost.
+        u.mms.skippedBlocks += 1
+      }
+      return true
+    }
+    case 'UWB_MMS_TRAIN': {
+      const u = vs.nodes[r.node]?.uwb
+      if (u) {
+        u.mms.trains[r.peer] = {
+          kind: r.kind, fragments: r.fragments, heard: r.heard,
+          marginDb: r.marginDb, detected: r.detected, ratioPpm: r.ratioPpm,
+        }
+      }
       return true
     }
     case 'UWB_INTERFERED': {

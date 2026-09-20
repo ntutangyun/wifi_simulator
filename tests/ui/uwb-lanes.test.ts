@@ -8,7 +8,10 @@ import { STRINGS } from '../../src/ui/i18n'
 import { nodeDisplayName } from '../../src/ui/names'
 import { frameColor } from '../../src/scene/effects'
 import { haloColor, statusText } from '../../src/scene/nodes'
-import { makePoll, makeResp } from '../../src/uwb/frames'
+import {
+  makeNbPoll, makeNbReport, makeNbResp, makePoll, makeResp, makeRif, makeRsf,
+} from '../../src/uwb/frames'
+import { mmsSet } from '../../src/uwb/mms'
 import { initViewState, type NodeView } from '../../src/model/view'
 
 const uwbNode = (id: string, role: 'anchor' | 'tag'): NodeCfg => ({
@@ -122,5 +125,53 @@ describe('a UWB node in the 3-D scene', () => {
   it('annotates the node with the slot it is in', () => {
     expect(statusText(nv(3), 0)).toBe('slot 3')
     expect(statusText(nv(null), 0)).toBe('')
+  })
+})
+
+describe('P802.15.4ab frames on a lane', () => {
+  const phy = mmsSet('mixed-5')
+  const rsf: FrameDesc = makeRsf('tag-1', 'anc-1', 1, phy, 0, 0, 6)
+  const rif: FrameDesc = makeRif('anc-1', 'tag-1', 0, phy, 0, 0, 9)
+  const poll: FrameDesc = makeNbPoll('tag-1', 'anc-1', 3, 0, 0)
+  const resp: FrameDesc = makeNbResp('anc-1', 'tag-1', 3, 0, 0)
+  const report: FrameDesc = makeNbReport('anc-1', 'tag-1', 3, 0, 0, 24, { replyRctu: 31_948_044 })
+  const all = [rsf, rif, poll, resp, report]
+  const txSpan = (f: FrameDesc): LaneSpan => ({
+    kind: 'tx', nodeId: f.src, startNs: 0, endNs: f.txTimeNs, fullStartNs: 0, fullEndNs: f.txTimeNs,
+    frameKind: f.kind, frameSrc: f.src, frame: f, ifs: [], openStart: false, openEnded: false,
+  })
+
+  it.each(['en', 'zh'] as const)('%s labels each of the five kinds on its own', (lang) => {
+    const heads = all.map((f) => spanTooltip(txSpan(f), STRINGS[lang].tooltips)[0])
+    for (const h of heads) {
+      expect(h).toBeTruthy()
+      expect(h).not.toContain('undefined')
+    }
+    // Five kinds, five labels: none of them falls through to the CTS line any more.
+    expect(new Set(heads).size).toBe(5)
+    for (const h of heads) expect(h).not.toBe(STRINGS[lang].tooltips.cts('anc-1'))
+  })
+
+  it('names the fragment’s place in its train, and quotes its own power instead of a rate', () => {
+    const [head, second] = spanTooltip(txSpan(rsf), STRINGS.en.tooltips)
+    expect(head).toContain('RSF 2 of 2')
+    // A fragment has no data rate at all — it is a sequence — so the rate column is its EIRP.
+    expect(second).toContain('dBm')
+    expect(second).not.toContain('Mbps')
+  })
+
+  it('quotes the narrowband radio’s own 0.25 Mbps for a control message', () => {
+    expect(spanTooltip(txSpan(poll), STRINGS.en.tooltips)[1]).toContain('0.25 Mbps')
+  })
+
+  it('paints both trains one colour and the control plane another, neither the ranging amber', () => {
+    expect(frameColor(rsf, '')).toBe(frameColor(rif, ''))
+    expect(frameColor(poll, '')).toBe(frameColor(resp, ''))
+    expect(frameColor(poll, '')).toBe(frameColor(report, ''))
+    expect(frameColor(rsf, '')).not.toBe(frameColor(poll, ''))
+    for (const f of all) {
+      expect(frameColor(f, ''), f.kind).not.toBe(frameColor(makePoll('tag-1', ['anc-1'], 'ss', 0, 0), ''))
+      expect(frameColor(f, ''), f.kind).not.toBe(frameColor(makeResp('anc-1', 'tag-1', 'ss', 0, 0, 1), ''))
+    }
   })
 })

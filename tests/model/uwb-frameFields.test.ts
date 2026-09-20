@@ -1,8 +1,13 @@
 import { describe, it, expect } from 'vitest'
 import { decodeFrame, ppduLayout, type DecodedFrame } from '../../src/model/frameFields'
 import type { FrameDesc } from '../../src/model/frames'
-import { uwbFrameFields, uwbPpduLayout } from '../../src/uwb/frameFields'
-import { makeBlink, makeFinal, makePoll, makeReport, makeResp } from '../../src/uwb/frames'
+import { UWB_RMARKER_OFFSET_NS, uwbFrameFields, uwbPpduLayout } from '../../src/uwb/frameFields'
+import {
+  makeBlink, makeFinal, makeNbPoll, makeNbReport, makeNbResp, makePoll, makeReport, makeResp,
+  makeRif, makeRsf,
+} from '../../src/uwb/frames'
+import { mmsFragmentDbm, mmsSet } from '../../src/uwb/mms'
+import { nbCenterMhz } from '../../src/uwb/nb'
 import {
   ARC_IE_BYTES, BLINK_IE_BYTES, chipsToNs, DL_COFFS_IE_BYTES, DL_TX_TIME_IE_BYTES, dlRxTimesIeBytes,
   PHR_SYMBOLS, PHR_SYMBOL_CHIPS, PSYM_CHIPS, RCMA_IE_BYTES, RCPS_IE_BYTES, rdmIeBytes,
@@ -226,5 +231,94 @@ describe('uwbPpduLayout', () => {
 
   it('is what ppduLayout returns for a UWB frame', () => {
     for (const f of ALL) expect(ppduLayout(f)).toEqual(uwbPpduLayout(f))
+  })
+})
+
+// --- P802.15.4ab: the two new PHYs ---------------------------------------------------
+
+const PHY = mmsSet('mixed-5') // X = 2 RSFs, Y = 2 RIFs
+const RSF = makeRsf('tag', 'a1', 1, PHY, 0, 0, 6)
+const RIF = makeRif('tag', 'a1', 0, PHY, 0, 0, 10)
+const NB_POLL = makeNbPoll('tag', 'a1', 3, 0, 0)
+const NB_RESP = makeNbResp('a1', 'tag', 3, 0, 0)
+const NB_REPORT_R = makeNbReport('a1', 'tag', 3, 0, 0, 24, { replyRctu: 31_948_044 })
+const NB_REPORT_I = makeNbReport('tag', 'a1', 3, 0, 0, 26, { roundTripRctu: 31_950_000 })
+const FOUR_AB: FrameDesc[] = [RSF, RIF, NB_POLL, NB_RESP, NB_REPORT_R, NB_REPORT_I]
+
+describe('uwbFrameFields — the 4ab PHYs are not 4z frames', () => {
+  it('decodes none of them as a MAC header: no PAN id, no addresses, no ranging IE', () => {
+    for (const f of FOUR_AB) {
+      const keys = fields(f).map((x) => x.key)
+      expect(keys, f.kind).not.toContain('fc')
+      expect(keys, f.kind).not.toContain('dstPan')
+      expect(keys, f.kind).not.toContain('dstAddr16')
+      expect(keys.filter((k) => k.startsWith('ie')), f.kind).toEqual([])
+    }
+  })
+
+  it('still tiles each frame exactly', () => {
+    for (const f of FOUR_AB) {
+      expect(fieldSum(uwbFrameFields(f)), `${f.kind} ${f.bytes} B`).toBe(f.bytes)
+      expect(uwbFrameFields(f).bytes, f.kind).toBe(f.bytes)
+      expect(uwbFrameFields(f).users[0].subframes[0].mpdu.typeName, f.kind).toBe('Ranging')
+    }
+  })
+
+  it('a fragment carries no octets at all — it is a sequence, not a PSDU', () => {
+    expect(RSF.bytes).toBe(0)
+    expect(fields(RSF).every((x) => x.bytes === 0)).toBe(true)
+    expect(keyed(RSF, 'mmsFragment')?.value).toBe('RSF 2 of 2 · 1 ms into the train')
+    expect(keyed(RSF, 'mmsShape')?.value).toBe('N_MSR 64 × MMRS symbol · gap 25')
+    expect(keyed(RSF, 'mmsLength')?.value).toBe(`${(RSF.txTimeNs / 1000).toFixed(2)} µs`)
+    // The fragment's own EIRP, not the node's: it spends a whole millisecond's budget here.
+    expect(keyed(RSF, 'mmsPower')?.value).toBe(`${mmsFragmentDbm(RSF.txTimeNs).toFixed(2)} dBm EIRP`)
+  })
+
+  it('an integrity fragment names its STS segment instead', () => {
+    expect(keyed(RIF, 'mmsFragment')?.value).toBe('RIF 1 of 2 · 0 ms into the train')
+    expect(keyed(RIF, 'mmsShape')?.value).toBe('STS segment 64 × 512 chips')
+  })
+
+  it('a narrowband message names itself, its channel and its centre', () => {
+    expect(keyed(NB_POLL, 'nbMsgId')?.value).toBe('POLL (0x04)')
+    expect(keyed(NB_RESP, 'nbMsgId')?.value).toBe('RESP (0x05)')
+    expect(keyed(NB_REPORT_R, 'nbMsgId')?.value).toBe('REPORT (responder) (0x07)')
+    expect(keyed(NB_REPORT_I, 'nbMsgId')?.value).toBe('REPORT (initiator) (0x06)')
+    expect(keyed(NB_POLL, 'nbChannel')?.value).toBe(`channel 3 · ${nbCenterMhz(3).toFixed(2)} MHz`)
+  })
+
+  it('shows the one time the report actually carries, and only it', () => {
+    expect(keyed(NB_REPORT_R, 'nbTime')?.value).toContain('reply time 31 948 044 RCTU')
+    expect(keyed(NB_REPORT_R, 'nbTime')?.value).toContain('499.988 µs')
+    expect(keyed(NB_REPORT_I, 'nbTime')?.value).toContain('turn-around time')
+    expect(keyed(NB_POLL, 'nbTime')).toBeUndefined()
+    expect(keyed(NB_RESP, 'nbTime')).toBeUndefined()
+    // …and the CRC-16 the compressed PSDU closes with, on all three.
+    for (const f of [NB_POLL, NB_RESP, NB_REPORT_R]) expect(keyed(f, 'fcs')?.bytes).toBe(2)
+  })
+})
+
+describe('the 4ab PPDU layouts', () => {
+  it('gives a fragment one segment, with the RMARKER at its very first pulse', () => {
+    for (const f of [RSF, RIF]) {
+      const segs = uwbPpduLayout(f)
+      expect(segs, f.kind).toEqual([{ key: 'mmsFrag', durNs: f.txTimeNs, rmarkerNs: 0 }])
+      // No 73 µs of preamble to walk past: that is why a millisecond's energy fits in 91 µs.
+      expect(segs[0].rmarkerNs, f.kind).not.toBe(UWB_RMARKER_OFFSET_NS)
+    }
+  })
+
+  it('gives a narrowband message its own SHR, PHR and PSDU, summing to its airtime', () => {
+    for (const f of [NB_POLL, NB_REPORT_R]) {
+      const segs = uwbPpduLayout(f)
+      expect(segs.map((x) => x.key), f.kind).toEqual(['nbShr', 'phr', 'psdu'])
+      expect(segs.reduce((s, x) => s + x.durNs, 0), f.kind).toBe(f.txTimeNs)
+    }
+    // 12 octets at two symbols an octet, plus ten SHR and two PHR symbols, 16 µs each: 576 µs.
+    expect(NB_POLL.txTimeNs).toBe(576_000)
+  })
+
+  it('is what ppduLayout routes every 4ab frame to as well', () => {
+    for (const f of FOUR_AB) expect(ppduLayout(f), f.kind).toEqual(uwbPpduLayout(f))
   })
 })
