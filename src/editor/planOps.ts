@@ -2,10 +2,11 @@
  * Pure floor-plan operations: rooms → deduplicated walls, hit testing,
  * openings, random STA spawning, scenario (de)serialization.
  */
-import { DEFAULT_UWB_SESSION, ScenarioSchema, type NodeCfg, type Opening, type Room, type Scenario, type UwbNodeCfg, type Wall } from '../model/scenario'
+import { DEFAULT_UWB_SESSION, ScenarioSchema, SIX_GHZ_GATE_MIN_WIDTH_MHZ, type NodeCfg, type Opening, type Room, type Scenario, type UwbNodeCfg, type Wall } from '../model/scenario'
 import { GEN_FEATURES, defaultFeatures, type FeatureFlag } from '../model/caps'
 import type { Generation } from '../model/types'
 import { STATION_PRESETS, presetNode } from '../model/presets'
+import { nbListOverlapsSixGhz } from '../uwb/nb'
 import { UWB_TX_POWER_DBM, uwbBandOverlap } from '../uwb/phy'
 import { clampField } from '../ui/inputs'
 
@@ -329,6 +330,20 @@ export function sixGhzOverlapPct(sc: Scenario, centerMhz: number): number | null
   if (sc.uwb?.channel !== 5) return null
   if (!sc.nodes.some((n) => n.kind === 'uwb')) return null
   return Math.round(uwbBandOverlap(centerMhz, 80, 5) * 100)
+}
+
+/**
+ * The other half of the same note: an MMS session's narrowband control plane shares 6 GHz too,
+ * whatever UWB channel the ranging itself is on — channels 50…249 of the allow list sit in
+ * UNII-5, beside the plan's own Wi-Fi.
+ *
+ * It asks `nbListOverlapsSixGhz`, the very predicate the simulation gates its mediator on, at
+ * the gate's own narrowest width; so whenever this note appears the run really does couple the
+ * two engines. A wider link couples on more, which the note does not claim to enumerate. */
+export function sixGhzNbOverlaps(sc: Scenario, centerMhz: number): boolean {
+  if (sc.uwb?.mode !== 'mms') return false
+  if (!sc.nodes.some((n) => n.kind === 'uwb')) return false
+  return nbListOverlapsSixGhz(sc.uwb.mms.nbChannels, centerMhz, SIX_GHZ_GATE_MIN_WIDTH_MHZ)
 }
 
 /**

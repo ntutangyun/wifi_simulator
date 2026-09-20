@@ -65,6 +65,7 @@ export interface Strings {
     scenario: string; save: string; load: string; export_: string; import_: string
     spawn: string; rts: string; rtsHint: string; seed: string; seedHint: string
     sixGhz: string; sixGhzHint: string; sixGhzChannel: (n: number) => string; sixGhzOverlap: (pct: number) => string
+    sixGhzNbOverlap: string
     objects: string; properties: string; guide: string
     nodesHeader: string; rooms: string; walls: string; noRooms: string
     node: string; name: string; wifi: string; link: string; linkHint: string; bands: Record<LinkId, string>
@@ -385,6 +386,7 @@ export const STRINGS: Record<Lang, Strings> = {
       sixGhz: '6 GHz channel', sixGhzHint: 'centre frequency of the plan’s 6 GHz Wi-Fi channel (802.11ax channelization, 5 MHz steps)',
       sixGhzChannel: (n) => `ch ${n}`,
       sixGhzOverlap: (pct) => `overlaps UWB channel 5 at 80 MHz: ${pct} %`,
+      sixGhzNbOverlap: 'an MMS control channel sits inside this Wi-Fi channel',
       objects: '🗂 OBJECTS', properties: '⚙ PROPERTIES', guide: '📖 EDITOR REFERENCE',
       nodesHeader: 'Nodes (order = timeline lanes)', rooms: 'Rooms', walls: 'Walls', noRooms: 'none — draw one with ▭',
       node: 'Node', name: 'Name', wifi: 'Wi-Fi', link: 'Link',
@@ -893,6 +895,7 @@ export const STRINGS: Record<Lang, Strings> = {
       sixGhz: '6 GHz 信道', sixGhzHint: '本方案 6 GHz Wi-Fi 信道的中心频率（802.11ax 信道编号，5 MHz 步进）',
       sixGhzChannel: (n) => `第 ${n} 信道`,
       sixGhzOverlap: (pct) => `与 UWB 5 信道重叠（按 80 MHz 计）：${pct} %`,
+      sixGhzNbOverlap: '有一个 MMS 控制信道落在这个 Wi-Fi 信道中',
       objects: '🗂 对象列表', properties: '⚙ 属性', guide: '📖 编辑器说明',
       nodesHeader: '节点（顺序 = 时间轴泳道）', rooms: '房间', walls: '墙体', noRooms: '暂无 — 用 ▭ 绘制一个',
       node: '节点', name: '名称', wifi: 'Wi-Fi', link: '频段',

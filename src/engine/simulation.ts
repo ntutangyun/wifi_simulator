@@ -14,11 +14,12 @@ import {
 } from '../model/caps'
 import { makeEmitter, type EmitFn, type TLRecord } from '../model/records'
 import {
-  DEFAULT_SIX_GHZ_CENTER_MHZ, ScenarioSchema, serverFor, type NodeCfg, type Scenario,
+  DEFAULT_SIX_GHZ_CENTER_MHZ, ScenarioSchema, SIX_GHZ_GATE_MIN_WIDTH_MHZ, serverFor,
+  type NodeCfg, type Scenario,
 } from '../model/scenario'
 import type { Ns } from '../model/types'
 import { applyRecord, cloneView, initViewState, type Snapshot, type ViewState } from '../model/view'
-import { nbBand } from '../uwb/nb'
+import { nbListOverlapsSixGhz } from '../uwb/nb'
 import { UwbNetwork } from '../uwb/network'
 import { uwbBandOverlap } from '../uwb/phy'
 import { AMP_TAG_DL_SENS_DBM, ampId16 } from './amp'
@@ -32,7 +33,7 @@ import { buildLinkTable } from './propagation'
 import { AcQueues } from './queues'
 import { RateControl } from './rate'
 import { Rng } from './rng'
-import { bandOverlapMhz, Spectrum } from './spectrum'
+import { Spectrum } from './spectrum'
 import { TrafficSource, resetMsduIds, type Msdu } from './traffic'
 
 /** Re-exported for the callers that grew up importing it from here. */
@@ -157,15 +158,10 @@ export class Simulation {
           const widthMhz = peers.length
             ? Math.max(...peers.map((m) => negotiatedWidth(m, ap, link)))
             : widthOf(ap, link)
-          const gateWidthMhz = Math.max(widthMhz, 160)
-          const gateLo = centerMhz - gateWidthMhz / 2
-          const gateHi = centerMhz + gateWidthMhz / 2
+          const gateWidthMhz = Math.max(widthMhz, SIX_GHZ_GATE_MIN_WIDTH_MHZ)
           const uwbCoupled = sc.uwb.channel === 5 && uwbBandOverlap(centerMhz, gateWidthMhz, 5) > 0
           const nbCoupled = sc.uwb.mode === 'mms'
-            && sc.uwb.mms.nbChannels.some((n) => {
-              const b = nbBand(n)
-              return bandOverlapMhz(b.lo, b.hi, gateLo, gateHi) > 0
-            })
+            && nbListOverlapsSixGhz(sc.uwb.mms.nbChannels, centerMhz, gateWidthMhz)
           if (uwbCoupled || nbCoupled) {
             const spectrum = this.spectrum ?? new Spectrum(sc.walls, this.q, () => this.nowNs)
             this.spectrum = spectrum

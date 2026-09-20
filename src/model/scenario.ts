@@ -274,6 +274,12 @@ export const DEFAULT_UWB_SESSION: UwbSessionCfg = {
  * takes when a scenario does not set one. */
 export const DEFAULT_SIX_GHZ_CENTER_MHZ = 5985
 
+/** The narrowest 6 GHz channel the cross-technology gate ever tests: a 6 GHz link may widen to
+ * 320 MHz, and a false negative would silently uncouple the two engines, so the gate widens the
+ * negotiated width to at least this before asking whether the bands meet. The simulation gates
+ * on it and the editor's plan note warns on it, so the two cannot disagree. model */
+export const SIX_GHZ_GATE_MIN_WIDTH_MHZ = 160
+
 /** 6 GHz channel numbering: channel 1 sits at 5955 MHz, channels 5 MHz apart, so a centre
  * frequency's channel number is (centre − 5950) / 5. standard 802.11ax 6 GHz channelization */
 export function sixGhzChannelNo(centerMhz: number): number {

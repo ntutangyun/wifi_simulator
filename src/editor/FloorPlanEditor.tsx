@@ -14,7 +14,7 @@ import { UwbSessionFields } from '../uwb/ui/UwbSessionFields'
 import {
   addOpening, alongWall, canDeleteNode, clampField, clampSixGhzCenterMhz, generationPatch, hasAp, hitTestNode,
   hitTestWall, newAnchor, newAp, newTag, newUwbTag, removeNode, roomsToWalls, scenarioFromJson, scenarioToJson,
-  sixGhzOverlapPct, snap, spawnRandomStas, uwbSessionIssue,
+  sixGhzNbOverlaps, sixGhzOverlapPct, snap, spawnRandomStas, uwbSessionIssue,
 } from './planOps'
 
 type Tool = 'select' | 'room' | 'door' | 'window' | 'ap' | 'sta' | 'tag' | 'anchor' | 'uwbTag'
@@ -242,6 +242,7 @@ export function FloorPlanEditor() {
   const apPresent = hasAp(scenario)
   const sixGhzCenterMhz = scenario.sixGhzCenterMhz ?? DEFAULT_SIX_GHZ_CENTER_MHZ
   const sixGhzOverlapPctVal = sixGhzOverlapPct(scenario, sixGhzCenterMhz)
+  const sixGhzNbOverlapVal = sixGhzNbOverlaps(scenario, sixGhzCenterMhz)
   const toolDisabled = (t: Tool): string | null =>
     t === 'ap' && apPresent ? E.apExists : WIFI_TOOLS.includes(t) && !apPresent ? E.needApFirst : null
 
@@ -368,6 +369,7 @@ export function FloorPlanEditor() {
           {E.sixGhzChannel(sixGhzChannelNo(sixGhzCenterMhz))}
         </label>
         {sixGhzOverlapPctVal !== null && <span style={{ color: 'var(--dim)', fontSize: 11 }}>{E.sixGhzOverlap(sixGhzOverlapPctVal)}</span>}
+        {sixGhzNbOverlapVal && <span style={{ color: 'var(--dim)', fontSize: 11 }}>{E.sixGhzNbOverlap}</span>}
         {ioMsg && <span style={{ color: 'var(--dim)', fontSize: 11 }}>{ioMsg}</span>}
       </div>
 

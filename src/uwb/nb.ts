@@ -82,6 +82,26 @@ export function nbBand(n: number): { lo: number; hi: number } {
   return { lo: nbCenterMhz(n) - half, hi: nbCenterMhz(n) + half }
 }
 
+/**
+ * Whether any channel of an MMS session's allow list has a band overlapping the Wi-Fi channel
+ * [centerMhz ± widthMhz/2] — i.e. whether that session's control plane and that Wi-Fi link
+ * share spectrum at all.
+ *
+ * One definition, because two places ask it: the simulation builds its cross-technology
+ * mediator on this answer, and the editor's plan note warns on it. A UNII-3 allow list (the
+ * session default) never overlaps a 6 GHz channel, so the default session couples with nothing.
+ * The band arithmetic is `bandOverlapMhz`'s, written out rather than imported: `spectrum.ts`
+ * reaches this module through `phy.ts`, and the edge must not run back the other way.
+ */
+export function nbListOverlapsSixGhz(nbChannels: number[], centerMhz: number, widthMhz: number): boolean {
+  const lo = centerMhz - widthMhz / 2
+  const hi = centerMhz + widthMhz / 2
+  return nbChannels.some((n) => {
+    const b = nbBand(n)
+    return Math.max(0, Math.min(b.hi, hi) - Math.max(b.lo, lo)) > 0
+  })
+}
+
 /** Initialization channel, and the control/report allow list a session defaults to — both in
  * UNII-3, where listen-before-talk is optional. 4ab draft 15-22/0381r5 Table 1.2.3.1 */
 export const NB_DEFAULT_INIT_CHANNEL = 2
