@@ -658,7 +658,7 @@ describe('uwb-mms · what the walls charge anyway', () => {
     expect(prose()).toContain('with Y = 0 there is no integrity flag')
   })
 
-  it('"(14.22, 4.05) m against a true (13.00, 4.00), 1.22 m east, GDOP 2.93, ellipse 6.1 × 1.3 cm"', () => {
+  it('"(14.22, 4.05) m against a true (13.00, 4.00)", error 122.4 cm, GDOP 2.93, ellipse 6.1 × 1.3 cm', () => {
     const fixes = of(rs(), 'UWB_POSITION')
     expect(fixes).toHaveLength(BLOCKS)
     for (const f of fixes) {

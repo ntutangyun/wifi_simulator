@@ -367,7 +367,7 @@ export function GuideEn() {
         (standard Clause 12; the configuration 4ab draft 0100r2 §2.3.1). Its messages are compressed PSDUs
         of a message-ID octet, the fields and a CRC-16: POLL {NB_POLL_BYTES} octets ({NB_POLL_US} µs), RESP{' '}
         {NB_RESP_BYTES} ({NB_RESP_US} µs), REPORT {NB_REPORT_BYTES} ({NB_REPORT_US} µs). Slow enough that
-        a single POLL outlasts any one fragment it sets up several times over — {NB_POLL_US} µs against the
+        a single POLL outlasts any one fragment it sets up, for every mandatory set — {NB_POLL_US} µs against the
         {' '}{MMS_RSF_US} µs of the default RSF (4ab draft 0381r5 Table 1.6.3.1 / 1.6.3.2). It lives in
         UNII-3 and UNII-5: {NB_CHANNELS} channels {NB_CHANNEL_MHZ} MHz apart, numbered 0…{NB_CHANNELS - 1},
         the first at {NB_CH0_MHZ} MHz and channel 50 at {NB_CH50_MHZ} MHz — the draft gives the counts and
@@ -445,7 +445,7 @@ export function GuideEn() {
         (Table 1.2.3.3): X = {MMS.rsfs}, Y = {MMS.rifs}, N_MSR {MMS.nMsr}, gap {MMS.gap}, Z = {MMS.gapMs}.
       </p>
       <p style={p}>
-        <b>Known simplifications</b> (on top of section 11's): timestamp precision does not improve with
+        <b>Known simplifications</b> (on top of the ones the README lists): timestamp precision does not improve with
         SNR, so the draft's headline accuracy claim is <i>not</i> modelled — only its reach and its clock
         ratio are; there is no one-to-many cycle, one round is one pair; there is no initialization
         handshake, no advertising and no acquisition packets — the session is configured by the scenario;
@@ -735,8 +735,8 @@ export function GuideZh() {
         250 kb/s，每符号 32 个码片、16 µs，4 比特，无前向纠错（标准 Clause 12；具体配置见 4ab 草案
         0100r2 §2.3.1）。它的消息都是压缩 PSDU：一个消息 ID 字节、若干字段，再加 CRC-16——POLL{' '}
         {NB_POLL_BYTES} 字节（{NB_POLL_US} µs）、RESP {NB_RESP_BYTES} 字节（{NB_RESP_US} µs）、REPORT{' '}
-        {NB_REPORT_BYTES} 字节（{NB_REPORT_US} µs）。它慢到单单一帧 POLL 就比它所安排的任何一个片段长出
-        好几倍——{NB_POLL_US} µs 对默认 RSF 的 {MMS_RSF_US} µs
+        {NB_REPORT_BYTES} 字节（{NB_REPORT_US} µs）。它慢到对每一个必选参数集而言，单单一帧 POLL 都比它所安排的任何一个片段更长
+        ——{NB_POLL_US} µs 对默认 RSF 的 {MMS_RSF_US} µs
         （4ab 草案 0381r5 Table 1.6.3.1 / 1.6.3.2）。它工作在 UNII-3 与 UNII-5：共 {NB_CHANNELS} 个信道，
         间隔 {NB_CHANNEL_MHZ} MHz，编号 0…{NB_CHANNELS - 1}，0 号中心为 {NB_CH0_MHZ} MHz，50 号为{' '}
         {NB_CH50_MHZ} MHz——草案用文字给出了信道数量与频段边界，编号却只画在图里，因此这条中心频率公式是
@@ -805,7 +805,7 @@ export function GuideZh() {
         间隔 {MMS.gap}、Z = {MMS.gapMs}。
       </p>
       <p style={p}>
-        <b>已知的简化</b>（在第 11 节各项之外）：时间戳精度不随信噪比改善，因此草案最引人注目的那项精度
+        <b>已知的简化</b>（在 README 所列各项之外）：时间戳精度不随信噪比改善，因此草案最引人注目的那项精度
         主张<i>并未</i>建模——本仿真器只复现它带来的覆盖距离与时钟比率；没有一对多的测距周期，一个轮次就是
         一对设备；没有初始化握手、没有公开广播、也没有捕获包——会话由场景直接配置；窄带路径损耗按自由空间
         加穿墙计算；先听后说只取一次瞬时读数，而非对 {NB_LBT_CCA_US} µs 积分；窄带信道中心频率公式是由频段

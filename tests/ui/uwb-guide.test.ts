@@ -498,7 +498,7 @@ describe('Guide section 12 (P802.15.4ab, draft)', () => {
     }
   })
 
-  it('names the P802.15.4ab draft documents it paraphrases, and never claims D5.0', () => {
+  it('names the P802.15.4ab draft documents it paraphrases, and never claims to have read D5.0', () => {
     for (const doc of ['0381r5', '0100r2', '0502r3', '0205r0']) {
       expect(README, doc).toContain(doc)
     }

@@ -514,7 +514,7 @@ describe('uwb-nba · the base scene, inside the router’s channel', () => {
       .toContain('the laptop alone reads −63.72 dBm at the tag, the router 22.8 dB over when it sends')
     expect(uwbNba.quiz[0].explain.en)
       .toContain('Every one of the tag’s seven busy checks reads −63.72 dBm — the laptop, 3.35 m away, uploading')
-    expect(prose()).toContain('Anchors 1 and 2 have one too, in block 3')
+    expect(prose()).toContain('Anchors 1 and 2 have a busy check too, in block 3')
   })
 
   it('"the anchor’s REPORT at 12.000 ms gives the tag the only range of the run"', () => {
