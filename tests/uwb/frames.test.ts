@@ -20,7 +20,7 @@ describe('MMS fragment frames', () => {
   it('carries no octets, no rate, its own airtime and its own burst power', () => {
     const rsf = makeRsf('t', 'a', 3, PHY, 1, 0, 10)
     expect(rsf.kind).toBe('uwbRsf')
-    expect(isMmsFragment(rsf.kind === 'uwbRsf' ? 'uwbRsf' : 'uwbRif')).toBe(true)
+    expect(isMmsFragment(rsf.kind)).toBe(true)
     // A fragment is a raw sequence, not a PSDU: the timeline must show air, never bytes ÷ rate.
     expect(rsf.bytes).toBe(0)
     expect(rsf.mbps).toBe(0)
@@ -61,7 +61,7 @@ describe('narrowband control frames', () => {
     const report = makeNbReport('a', 't', 200, 4, 1, 26, { replyRctu: 1234 })
 
     expect([poll.kind, resp.kind, report.kind]).toEqual(['nbPoll', 'nbResp', 'nbReport'])
-    expect([poll.kind, resp.kind, report.kind].every((k) => isNbFrame(k === 'nbPoll' ? 'nbPoll' : k === 'nbResp' ? 'nbResp' : 'nbReport'))).toBe(true)
+    expect([poll.kind, resp.kind, report.kind].every(isNbFrame)).toBe(true)
 
     expect(poll.bytes).toBe(NB_POLL_BYTES)
     expect(resp.bytes).toBe(NB_RESP_BYTES)
@@ -107,13 +107,26 @@ describe('narrowband control frames', () => {
 
 describe('the kind predicates', () => {
   it('separate the two 4ab radios from the 4z frames', () => {
-    expect(['nbPoll', 'nbResp', 'nbReport'].every((k) => isNbFrame(k as 'nbPoll'))).toBe(true)
-    expect(['uwbRsf', 'uwbRif'].every((k) => isMmsFragment(k as 'uwbRsf'))).toBe(true)
+    // They take the whole FrameKind union, so a caller holding a FrameDesc.kind needs no cast.
+    expect((['nbPoll', 'nbResp', 'nbReport'] as const).every(isNbFrame)).toBe(true)
+    expect((['uwbRsf', 'uwbRif'] as const).every(isMmsFragment)).toBe(true)
     for (const k of ['uwbPoll', 'uwbResp', 'uwbFinal', 'uwbReport', 'uwbBlink'] as const) {
       expect(isNbFrame(k)).toBe(false)
       expect(isMmsFragment(k)).toBe(false)
     }
     expect(isMmsFragment('nbPoll')).toBe(false)
     expect(isNbFrame('uwbRsf')).toBe(false)
+    // and a Wi-Fi frame is neither, which is the reason the parameter is FrameKind
+    for (const k of ['data', 'ack', 'trigger', 'ampResp'] as const) {
+      expect(isNbFrame(k)).toBe(false)
+      expect(isMmsFragment(k)).toBe(false)
+    }
+  })
+
+  it('refuses a REPORT that carries neither time', () => {
+    expect(() => makeNbReport('a', 't', 3, 4, 1, 26, {})).toThrow(/neither a reply nor a round-trip time/)
+    // the two well-formed shapes still build
+    expect(makeNbReport('a', 't', 3, 4, 1, 26, { replyRctu: 1 }).kind).toBe('nbReport')
+    expect(makeNbReport('t', 'a', 3, 4, 1, 28, { roundTripRctu: 1 }).kind).toBe('nbReport')
   })
 })

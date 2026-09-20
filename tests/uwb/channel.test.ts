@@ -277,7 +277,13 @@ describe('UwbChannel per-frame PHY: the delivery floor', () => {
     const ok = atLevel(nb, NB_TX_DBM, nbPl0Db(200), -99)
     expect(ok.rec('RX_OK', 'a')).toHaveLength(1)
     expect(ok.of('a').oks[0].frame.kind).toBe('nbPoll')
-    expect(ok.ch.rssiDbm('t', 'a')).not.toBeCloseTo(-99, 3) // the 4z answer is a different one
+    // asked without a frame the same channel answers for the session's UWB radio instead: the
+    // node's −14 dBm at uwbPl0Db(9) over the same 1067.05 m, which is −125.06 dBm
+    const d = distanceForRx(NB_TX_DBM, nbPl0Db(200), -99)
+    expect(d).toBeCloseTo(1067.05, 2)
+    expect(ok.ch.rssiDbm('t', 'a'))
+      .toBeCloseTo(-14 - uwbPl0Db(9) - 10 * UWB_PL_EXP * Math.log10(d), 9)
+    expect(ok.ch.rssiDbm('t', 'a')).toBeCloseTo(-125.06, 2)
 
     const lost = atLevel(makeNbPoll('t', 'a', 200, 0, 0), NB_TX_DBM, nbPl0Db(200), -101)
     expect(lost.rec('RX_START', 'a')).toHaveLength(0)

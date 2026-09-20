@@ -22,7 +22,8 @@ import {
   NB_LBT_THRESHOLD_DBM, NB_SIR_MIN_DB, NB_TX_DBM, nbBand, nbPl0Db,
 } from '../../src/uwb/nb'
 import {
-  UWB_CAPTURE_DB, UWB_PL_EXP, UWB_SIR_MIN_DB, UWB_TX_POWER_DBM, uwbInBandDbm, uwbPl0Db,
+  UWB_BAND_MHZ, UWB_CAPTURE_DB, UWB_PL_EXP, UWB_SIR_MIN_DB, UWB_TX_POWER_DBM, uwbInBandDbm,
+  uwbPl0Db,
 } from '../../src/uwb/phy'
 
 /** 6 GHz channel 71: 6305 MHz centre, 80 MHz — wholly inside UWB channel 5's band. */
@@ -310,5 +311,106 @@ describe('UwbChannel . listen before talk on the narrowband channel', () => {
 
     const uncoupled = harness(false, lbtNodes)
     expect(uncoupled.ch.lbtBusy('near', NB_UNII5)).toEqual({ busy: false, foreignDbm: -Infinity })
+  })
+})
+
+
+describe('UwbChannel . the narrowband PPDU it puts on the shared air', () => {
+  /** A Wi-Fi receiver 2 m from the tag, listening over the AP's whole 80 MHz channel. */
+  const AT_2M: Vec3 = { x: 0, y: 2, z: 0 }
+
+  it('radiates a narrowband message at its own power, over its own 2.5 MHz, under its own law', () => {
+    const h = harness(true)
+    const seen = (): number => h.s.foreignDbm('wifi', AT_2M, WIFI_LO_MHZ, WIFI_HI_MHZ)
+    const readings: { t: Ns; dbm: number }[] = []
+    // the POLL leaves at 50 us, so there is an instant before TX_START to read as well
+    h.at(50_000, () => h.ch.transmit('t', makeNbPoll('t', 'a', NB_UNII5, 0, 0)))
+    for (const t of [0, 50_000, 300_000, 700_000]) h.at(t, () => { readings.push({ t, dbm: seen() }) })
+    h.runUntil(10_000_000)
+
+    const txStart = h.records.find((r) => r.type === 'TX_START')!.t
+    const txEnd = h.records.find((r) => r.type === 'TX_END')!.t
+    expect(txStart).toBe(50_000)
+    expect(txEnd).toBe(50_000 + 576_000) // one 12-octet O-QPSK PPDU
+
+    // All 2.5 MHz of channel 200 sits inside the AP's 6265-6345 MHz channel, so no spectral
+    // slice is taken: NB_TX_DBM - (nbPl0Db(200) + 10*UWB_PL_EXP*log10(2) + 0 dB of walls)
+    // = 10 - (48.4363 + 6.0206) = -44.46 dBm.
+    const expected = NB_TX_DBM - (nbPl0Db(NB_UNII5) + 10 * UWB_PL_EXP * Math.log10(2))
+    expect(expected).toBeCloseTo(-44.46, 2)
+    expect(readings.find((r) => r.t === 0)?.dbm).toBe(-Infinity) // before TX_START
+    expect(readings.filter((r) => r.t >= txStart && r.t < txEnd).map((r) => r.dbm))
+      .toEqual([expected, expected])
+    expect(readings.find((r) => r.t > txEnd)?.dbm).toBe(-Infinity) // after TX_END
+
+    // The power really is the narrowband radio's, not the node's: the tag is a -14 dBm UWB
+    // transmitter and this PPDU left at +10 dBm.
+    expect(NB_TX_DBM).not.toBe(UWB_TX_POWER_DBM)
+    // and the law really is the narrowband one, not the session channel's
+    expect(expected).not.toBeCloseTo(NB_TX_DBM - uwbToWifiPathLossDb(2, 0, 5), 2)
+  })
+
+  it('leaves a 4z frame in the same scene at exactly the number it always had', () => {
+    const h = harness(true)
+    const readings: number[] = []
+    h.at(0, () => h.ch.transmit('t', poll()))
+    h.at(1000, () => readings.push(h.s.foreignDbm('wifi', AT_2M, WIFI_LO_MHZ, WIFI_HI_MHZ)))
+    h.runUntil(10_000_000)
+    // 80 MHz of the Poll's 499.2 MHz at -14 dBm, 2 m away under the UWB channel-5 law
+    const expected = uwbInBandDbm(UWB_TX_POWER_DBM, WIFI_HI_MHZ - WIFI_LO_MHZ) - uwbToWifiPathLossDb(2, 0, 5)
+    expect(expected).toBeCloseTo(-76.66, 2)
+    expect(readings).toEqual([expected])
+  })
+})
+
+describe('UwbChannel . a narrowband reception re-takes foreign power over its own band', () => {
+  /** The NB POLL is 576 us of air; at 100 us the anchor is long since locked on to it and the
+   * foreign power it saw at arrival was zero, so only the mediator's change listener can raise
+   * it — and it must do so over the narrowband channel, not over the session's UWB band. */
+  const MID_RECEPTION_NS = 100_000
+
+  it('counts a Wi-Fi PPDU that only starts in the middle of a UNII-5 reception', () => {
+    const eirp = 30
+    const h = harness(true)
+    h.at(0, () => h.ch.transmit('t', makeNbPoll('t', 'a', NB_UNII5, 0, 0)))
+    h.at(MID_RECEPTION_NS, () => h.s.emit('wifi', wifiEmission(eirp)))
+    h.runUntil(10_000_000)
+
+    const rxStart = h.records.find((r) => r.type === 'RX_START' && r.node === 'a')
+    expect(rxStart?.t).toBeLessThan(MID_RECEPTION_NS)
+    const interfered = h.records.find((r) => r.type === 'UWB_INTERFERED')
+    expect(interfered).toMatchObject({ type: 'UWB_INTERFERED', node: 'a', from: 't' })
+    expect(h.radioOf('a').fails.map((f) => f.reason)).toEqual(['lowSinr'])
+
+    // The level is the 2.5 MHz slice of the AP's 80 MHz, -47.27 dBm, against the message's own
+    // -52.42 dBm. Over the UWB band the same PPDU would read -32.21 dBm: this pins which band
+    // the change listener asked for.
+    const overNbBand = foreignInNbChannel(eirp)
+    const overUwbBand = eirp - wifiToUwbPathLossDb(AP_DIST_M, 0)
+    expect(overNbBand).toBeCloseTo(-47.27, 2)
+    expect(overUwbBand).toBeCloseTo(-32.21, 2)
+    expect(interfered && 'foreignDbm' in interfered ? interfered.foreignDbm : 0)
+      .toBeCloseTo(overNbBand, 9)
+    expect(interfered && 'sirDb' in interfered ? interfered.sirDb : 0)
+      .toBeCloseTo(nbRssiDbm(NB_UNII5) - overNbBand, 9)
+  })
+
+  it('ignores a mid-reception PPDU that misses the narrowband channel, though it fills the UWB band', () => {
+    const h = harness(true)
+    h.at(0, () => h.ch.transmit('t', makeNbPoll('t', 'a', NB_UNII3, 0, 0)))
+    h.at(MID_RECEPTION_NS, () => h.s.emit('wifi', wifiEmission(20)))
+    h.runUntil(10_000_000)
+
+    // The AP's channel is wholly inside UWB channel 5's band and wholly outside NB channel 3's,
+    // so a listener that re-took over the session band would find this PPDU and lose the message.
+    expect(WIFI_LO_MHZ).toBeGreaterThan(UWB_BAND_MHZ[5].lo)
+    expect(WIFI_HI_MHZ).toBeLessThan(UWB_BAND_MHZ[5].hi)
+    expect(nbBand(NB_UNII3).hi).toBeLessThan(WIFI_LO_MHZ)
+
+    const ok = h.radioOf('a').oks[0]
+    expect(ok).toBeDefined()
+    expect(ok.info.foreignDbm).toBe(-Infinity)
+    expect(h.records.some((r) => r.type === 'UWB_INTERFERED')).toBe(false)
+    expect(h.radioOf('a').fails).toEqual([])
   })
 })

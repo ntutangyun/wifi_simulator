@@ -4,7 +4,7 @@
  * They travel through the same FrameDesc the Wi-Fi engine uses, so the
  * timeline, the frame inspector and the 3-D scene need no second frame type.
  */
-import type { FrameDesc } from '../model/frames'
+import type { FrameDesc, FrameKind } from '../model/frames'
 import type { Ns } from '../model/types'
 import { mmsFragmentDbm, rifNs, rsfNs, type MmsPhy } from './mms'
 import {
@@ -21,13 +21,17 @@ export type UwbFrameKind =
   // the control plane. 4ab draft 15-23/0100r2 §2.3.2 / 15-22/0381r5 Table 1.6.3.1
   | 'uwbRsf' | 'uwbRif' | 'nbPoll' | 'nbResp' | 'nbReport'
 
+// Both predicates take the whole `FrameKind` union, not just the UWB half: their callers hold a
+// `FrameDesc.kind` (a lane, the timeline, a decoder), and narrowing at the call site would only
+// push a cast onto every one of them.
+
 /** True of the three narrowband control messages — the frames that travel on the 4ab
  * narrowband radio rather than on the UWB one. */
-export const isNbFrame = (k: UwbFrameKind): boolean => k === 'nbPoll' || k === 'nbResp' || k === 'nbReport'
+export const isNbFrame = (k: FrameKind): boolean => k === 'nbPoll' || k === 'nbResp' || k === 'nbReport'
 
 /** True of the two multi-millisecond fragment kinds: one member of a train, not a frame that
  * stands on its own. */
-export const isMmsFragment = (k: UwbFrameKind): boolean => k === 'uwbRsf' || k === 'uwbRif'
+export const isMmsFragment = (k: FrameKind): boolean => k === 'uwbRsf' || k === 'uwbRif'
 
 /**
  * DL-TDoA message content (model, the RMI-style times of §10.29.8.4): what the sender did on its
@@ -344,6 +348,12 @@ export function makeNbReport(
   src: string, dst: string, channel: number, block: number, round: number, slot: number,
   times: { replyRctu?: number; roundTripRctu?: number },
 ): FrameDesc {
+  // A REPORT exists to carry one of the two times, and which one is there is what names the
+  // message. With neither, the message id would be a guess and the receiver would have nothing
+  // to range with, so the caller is told at the call site rather than in the ranging arithmetic.
+  if (times.replyRctu === undefined && times.roundTripRctu === undefined) {
+    throw new Error(`makeNbReport: ${src} built a REPORT with neither a reply nor a round-trip time`)
+  }
   return nbFrame('nbReport', src, dst, NB_REPORT_BYTES, block, round, slot, {
     channel,
     msgId: times.replyRctu !== undefined ? NB_MSG_ID.reportResponder : NB_MSG_ID.reportInitiator,
