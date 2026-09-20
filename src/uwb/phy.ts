@@ -1,5 +1,7 @@
 import type { Material, UwbMode } from '../model/scenario'
 import type { Ns } from '../model/types'
+import { mmsLayout, mmsLongestFragmentNs, type MmsPhy } from './mms'
+import { NB_REPORT_BYTES, nbPpduNs } from './nb'
 
 // --- Chip, RCTU, RSTU units -------------------------------------------------
 
@@ -59,10 +61,17 @@ export function uwbPpduNs(octets: number): Ns {
 export type UwbChannelNo = 5 | 9
 export const UWB_CHANNEL_MHZ: Record<UwbChannelNo, number> = { 5: 6489.6, 9: 7987.2 } // standard Table 11-9
 
-/** Free-space path loss at 1 m: 20·log10(4π·f/c). standard Table 11-9 (frequencies) */
+/** Free-space path loss at 1 m for a carrier of `mhz`: 20·log10(4π·f/c). physics
+ *
+ * One definition, because the UWB channels are not the only carrier this engine measures a
+ * first metre on: the 4ab narrowband radio (`nb.ts`) sits at 5.7–6.4 GHz and uses the same law. */
+export function freeSpacePl0Db(mhz: number): number {
+  return 20 * Math.log10((4 * Math.PI * mhz * 1e6) / (C_M_PER_NS * 1e9))
+}
+
+/** Free-space path loss at 1 m on a UWB channel. standard Table 11-9 (frequencies) */
 export function uwbPl0Db(ch: UwbChannelNo): number {
-  const fHz = UWB_CHANNEL_MHZ[ch] * 1e6
-  return 20 * Math.log10((4 * Math.PI * fHz) / (C_M_PER_NS * 1e9))
+  return freeSpacePl0Db(UWB_CHANNEL_MHZ[ch])
 }
 
 export const UWB_PL_EXP = 2.0 // model: indoor LOS
@@ -268,11 +277,17 @@ export function rstuNs(rstu: number): Ns {
  * One-way ranging counts its slots differently, because the tag is not what the round is built
  * around: a DL-TDoA round is the anchors' own (Poll + N−1 Responses + Final = N + 1 slots) and
  * every tag in the scenario listens to that same round, while a UL-TDoA round is one blink slot
- * and belongs to one tag. */
+ * and belongs to one tag. An MMS round is pairwise — one tag and one anchor — and its length is
+ * the train's, not the anchor count's: `mmsLayout` counts its slots, so a tag needs that many
+ * per anchor (4ab draft 15-22/0381r5 §1.1). */
 export function uwbSlotsPerTag(
   method: 'ss' | 'ds', anchors: number, schedule: 'time' | 'contention' = 'time', contentionSlots = 8,
-  mode: UwbMode = 'twr',
+  mode: UwbMode = 'twr', mms?: MmsPhy,
 ): number {
+  if (mode === 'mms') {
+    if (!mms) throw new Error("uwbSlotsPerTag: mode 'mms' needs the session's MMS parameters")
+    return mmsLayout(mms).slots
+  }
   if (mode === 'ul-tdoa') return 1
   if (mode === 'dl-tdoa') return anchors + 1
   if (schedule === 'contention') return 1 + contentionSlots
@@ -285,10 +300,18 @@ export const UWB_SLOT_GUARD_NS = 200
 /** The round's longest frame, in octets: the Final in a time-scheduled two-way round, the Poll
  * or the SS Response in a contention round (which has no Final at all), the longer of the Poll
  * and the Final in DL-TDoA (the Poll's RDM IE grows by 3 per responder, the Final's RX times by
- * 4), and the blink — the only frame there is — in UL-TDoA. */
+ * 4), and the blink — the only frame there is — in UL-TDoA.
+ *
+ * An MMS round has no such frame: its ranging phase carries fragments, which are sequences and
+ * not PSDUs at all, and its control and report phases are narrowband messages sized in `nb.ts`.
+ * Asking this function is a mistake, so it says so rather than returning a number that means
+ * nothing — `uwbSlotFitNs` and `uwbNbSlotFitNs` measure an MMS slot instead. */
 export function uwbLongestFrameBytes(
   anchors: number, mode: UwbMode = 'twr', schedule: 'time' | 'contention' = 'time',
 ): number {
+  if (mode === 'mms') {
+    throw new Error('uwbLongestFrameBytes: an MMS round carries fragments and narrowband messages, not PSDUs')
+  }
   if (mode === 'ul-tdoa') return UWB_BLINK_BYTES
   if (mode === 'dl-tdoa') {
     return Math.max(uwbDlPollBytes(anchors - 1), uwbDlRespBytes(), uwbDlFinalBytes(anchors - 1))
@@ -302,11 +325,26 @@ export function uwbLongestFrameBytes(
 
 /** The shortest ranging slot a round with N anchors fits in: the round's longest PPDU plus the
  * flight guard. In a shorter slot the receiver's deadline fires before the frame lands, and the
- * round loses every anchor to UWB_TIMEOUT with nothing to say why. */
+ * round loses every anchor to UWB_TIMEOUT with nothing to say why.
+ *
+ * In MMS it is the longest fragment of the train plus the same guard: a 256-unit RIF is 262.6 µs
+ * and does not fit the 250 µs a 300 RSTU slot gives it. */
 export function uwbSlotFitNs(
-  anchors: number, mode: UwbMode = 'twr', schedule: 'time' | 'contention' = 'time',
+  anchors: number, mode: UwbMode = 'twr', schedule: 'time' | 'contention' = 'time', mms?: MmsPhy,
 ): Ns {
+  if (mode === 'mms') {
+    if (!mms) throw new Error("uwbSlotFitNs: mode 'mms' needs the session's MMS parameters")
+    return mmsLongestFragmentNs(mms) + UWB_SLOT_GUARD_NS
+  }
   return uwbPpduNs(uwbLongestFrameBytes(anchors, mode, schedule)) + UWB_SLOT_GUARD_NS
+}
+
+/** The room an MMS round's narrowband control and report messages need. They are far longer
+ * than any fragment — 608 µs against 82 µs — and the draft gives each of them two slots
+ * (RcpPollSlot, RcpResponseSlot, MrpFirstSlot, MrpSecondSlot are all 2), so this is what two
+ * slots together have to hold. 4ab draft 15-22/0381r5 §1.1 */
+export function uwbNbSlotFitNs(): Ns {
+  return nbPpduNs(NB_REPORT_BYTES) + UWB_SLOT_GUARD_NS
 }
 
 // --- Figure of Merit -----------------------------------------------------------

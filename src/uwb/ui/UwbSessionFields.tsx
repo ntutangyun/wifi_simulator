@@ -23,7 +23,8 @@ const ms = (rstu: number): string => (rstuNs(rstu) / 1e6).toFixed(rstu < 3000 ? 
  * with it, exactly as picking DS-TWR does. Angle of arrival goes the same way — it is measured
  * on a frame the tag sends, which a one-way round does not have, and the schema rejects the pair.
  * Leaving either inconsistent would hand the user a plan the schema rejects, with the fix two
- * fields away.
+ * fields away. MMS takes the same two: its rounds are laid out pair by pair in advance, and its
+ * ranging signal is a train of sequences with no frame to measure a bearing on.
  *
  * What it deliberately does *not* touch is the anchor count — four are needed for three time
  * differences, and that is a fact about the plan the session cannot fix on its own, so it stays

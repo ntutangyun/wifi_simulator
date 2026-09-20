@@ -29,7 +29,11 @@ const METHOD_SHORT: Record<UwbFixMethod, string> = {
 /** What a round measures, as the log names it. Only two-way ranging has an SS/DS flavour —
  * a one-way round is named by its direction, and printing "DS-TWR" over it would be a lie. */
 function roundName(mode: UwbMode, method: 'ss' | 'ds'): string {
-  return mode === 'twr' ? `${method.toUpperCase()}-TWR` : METHOD_SHORT[mode]
+  if (mode === 'twr') return `${method.toUpperCase()}-TWR`
+  // An MMS round is two-way, but naming it "SS-TWR" would hide what makes it different: the
+  // narrowband control plane and the fragment train. 4ab draft 15-22/0381r5 §1.1
+  if (mode === 'mms') return 'MMS'
+  return METHOD_SHORT[mode]
 }
 
 /** " of tag-1" when a record is about another node (UL-TDoA), and nothing at all when it is

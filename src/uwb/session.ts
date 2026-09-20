@@ -48,7 +48,7 @@ export interface RoundPlan {
  * from that same round; a second copy would only cost air.
  */
 export function roundPlan(cfg: UwbSessionCfg, anchors: number): RoundPlan {
-  const slots = uwbSlotsPerTag(cfg.method, anchors, cfg.schedule, cfg.contentionSlots, cfg.mode)
+  const slots = uwbSlotsPerTag(cfg.method, anchors, cfg.schedule, cfg.contentionSlots, cfg.mode, cfg.mms)
   const slotNs = rstuNs(cfg.slotRstu)
   const roundNs = slots * slotNs
   const blockNs = rstuNs(cfg.blockRstu)
@@ -89,6 +89,11 @@ export function slotAction(p: RoundPlan, slot: number): SlotAction {
   if (p.mode === 'ul-tdoa') {
     if (slot === 0) return { kind: 'uwbBlink', tx: 'tag' }
     throw new Error(`slotAction: UL-TDoA round has ${p.slots} slots, asked for ${slot}`)
+  }
+  if (p.mode === 'mms') {
+    // The MMS round is laid out by `mmsLayout`, not by this table: its slots hold narrowband
+    // messages and fragment trains rather than the PSDUs a `SlotAction` names.
+    throw new Error('slotAction: an MMS round is laid out by mmsLayout, not by slotAction')
   }
   if (slot === 0) return { kind: 'uwbPoll', tx: 'tag' }
   if (p.schedule === 'contention') {

@@ -163,10 +163,11 @@ describe('uwbSessionIssue', () => {
     // in DL-TDoA the tag never transmits, in UL-TDoA its blink is answered by nobody. The engine
     // already ignored the flag there, so the schema now refuses the pair instead of letting a
     // hand-edited plan carry a setting that does nothing.
-    for (const mode of ['dl-tdoa', 'ul-tdoa'] as const) {
+    for (const mode of ['dl-tdoa', 'ul-tdoa', 'mms'] as const) {
       const bad = withUwb(4, { mode, aoa: true })
       expect(ScenarioSchema.safeParse(bad).success, mode).toBe(false)
-      expect(uwbSessionIssue(bad), mode).toBe('angle of arrival is measured on two-way responses; turn it off for TDoA modes')
+      expect(uwbSessionIssue(bad), mode)
+        .toBe('angle of arrival is measured on two-way responses; turn it off for TDoA and MMS modes')
     }
     // and the field the user actually touches never produces that pair
     expect(uwbModePatch('dl-tdoa')).toEqual({ mode: 'dl-tdoa', schedule: 'time', aoa: false })
@@ -174,6 +175,17 @@ describe('uwbSessionIssue', () => {
     // two-way ranging keeps the checkbox the user's own
     expect(uwbModePatch('twr').aoa).toBeUndefined()
     expect(uwbSessionIssue(withUwb(4, { aoa: true, ...uwbModePatch('twr') }))).toBeNull()
+  })
+
+  it('takes an MMS session to the time schedule and clears the bearing, like the one-way modes', () => {
+    // An MMS round is laid out pair by pair before the block starts, and its ranging signal is
+    // a train of sequences with no frame to measure a bearing on — the same two settings the
+    // one-way modes move, so the select moves them here too.
+    expect(uwbModePatch('mms')).toEqual({ mode: 'mms', schedule: 'time', aoa: false })
+    const contending: Partial<UwbSessionCfg> = { method: 'ss', schedule: 'contention', aoa: true }
+    // Three anchors and one tag: an MMS round is pairwise, and the default block holds three.
+    expect(uwbSessionIssue(withUwb(3, { ...contending, mode: 'mms' }))).toMatch(/MMS/)
+    expect(uwbSessionIssue(withUwb(3, { ...contending, ...uwbModePatch('mms') }))).toBeNull()
   })
 
   it('the method select patches the schedule with it, both ways', () => {

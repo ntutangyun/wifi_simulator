@@ -63,7 +63,7 @@ export class UwbNetwork {
     }
     // The same pair of guards, in the units the scheduler runs in: a frame that outlives its
     // slot would be lost to the receiver's deadline with no diagnostic at all.
-    const needNs = uwbSlotFitNs(anchors.length, this.plan.mode, this.plan.schedule)
+    const needNs = uwbSlotFitNs(anchors.length, this.plan.mode, this.plan.schedule, cfg.mms)
     if (this.plan.slotNs < needNs) {
       throw new Error(
         `UwbNetwork: a ${this.plan.slotNs} ns ranging slot cannot carry a round of ${anchors.length} `

@@ -390,7 +390,10 @@ export const STRINGS: Record<Lang, Strings> = {
       uwbMethod: 'Method', uwbMethodHint: 'SS-TWR: one poll and one response per anchor — half the frames, but the clock offset between the two devices leaks straight into the range. DS-TWR adds a final and a report, which cancels it.',
       uwbMethods: { ss: 'SS-TWR (single-sided)', ds: 'DS-TWR (double-sided)' },
       uwbMode: 'Ranging mode', uwbModeHint: 'two-way ranging measures a distance per anchor and the tag solves its own position. The one-way modes measure time differences instead: in DL-TDoA the anchors run the round and a tag that never transmits positions itself from it; in UL-TDoA the tag sends one blink and the anchors, sharing a timebase, position it. Both need four anchors and a time-scheduled session.',
-      uwbModes: { twr: 'two-way ranging (TWR)', 'dl-tdoa': 'one-way, downlink (DL-TDoA)', 'ul-tdoa': 'one-way, uplink (UL-TDoA)' },
+      uwbModes: {
+        twr: 'two-way ranging (TWR)', 'dl-tdoa': 'one-way, downlink (DL-TDoA)', 'ul-tdoa': 'one-way, uplink (UL-TDoA)',
+        mms: 'narrowband-assisted MMS (802.15.4ab)',
+      },
       uwbClockCorrection: 'Tag clock correction', uwbClockCorrectionHint: 'DL-TDoA: the listening tag measures its own crystal against the round’s poll-to-final interval before it differences its arrival times. Turn it off to see what ±20 ppm does: the error is 20 ppm of the gap between the Poll and the response being timed — up to 6 ms in the five-slot round the lessons run, so 36 m, and 96 m for the last of nine anchors, whose response comes 16 ms after the Poll.',
       uwbDlOnly: 'only DL-TDoA uses this: it is the listening tag’s own correction, and no other mode has a tag that listens',
       uwbSyncError: 'Anchor sync error', uwbSyncErrorHint: 'UL-TDoA: how well the anchors’ clocks are calibrated to one common timebase (model “wired sync”). Each anchor draws a fixed residual error of this size once; 1 ns of it is 30 cm of range difference that no number of blinks averages away.',
@@ -814,7 +817,10 @@ export const STRINGS: Record<Lang, Strings> = {
       uwbMethod: '测距方式', uwbMethodHint: 'SS-TWR（单边双向测距）：每个锚点只需一次轮询与一次响应，帧数减半，但两台设备之间的时钟偏差会原样进入测距结果。DS-TWR 增加终结帧与报告帧，可将其抵消。',
       uwbMethods: { ss: 'SS-TWR（单边双向）', ds: 'DS-TWR（双边双向）' },
       uwbMode: '测距模式', uwbModeHint: '双向测距为每个锚点测出一个距离，由标签自己解算位置。两种单向模式改为测量到达时间差：DL-TDoA 由锚点跑完整轮，全程不发射的标签据此自行定位；UL-TDoA 则由标签发一帧闪发，共享同一时基的锚点替它定位。两者都需要四个锚点，且必须是时间调度的会话。',
-      uwbModes: { twr: '双向测距（TWR）', 'dl-tdoa': '单向·下行（DL-TDoA）', 'ul-tdoa': '单向·上行（UL-TDoA）' },
+      uwbModes: {
+        twr: '双向测距（TWR）', 'dl-tdoa': '单向·下行（DL-TDoA）', 'ul-tdoa': '单向·上行（UL-TDoA）',
+        mms: '窄带辅助多毫秒（802.15.4ab）',
+      },
       uwbClockCorrection: '标签时钟校正', uwbClockCorrectionHint: 'DL-TDoA：只听不发的标签先用本轮“轮询帧→终结帧”这段间隔量出自己晶振的快慢，再去做到达时间差。关掉它就能看到 ±20 ppm 的后果：误差为 20 ppm 乘以从轮询帧到被计时的那一帧之间的间隔——本系列课程那种五时隙轮次里最长 6 ms，即 36 米；若有九个锚点，最后一个应答帧在轮询帧后 16 ms，则是 96 米。',
       uwbDlOnly: '只有 DL-TDoA 用得上：这是那个“只听”的标签自己做的校正，其他模式里没有只听的标签',
       uwbSyncError: '锚点同步误差', uwbSyncErrorHint: 'UL-TDoA：各锚点的时钟被校准到同一时基的程度（模型采用“有线同步”）。每个锚点一次性抽取一个这种量级的固定残差；1 ns 就是 30 cm 的距离差，而且发再多闪发也平均不掉。',

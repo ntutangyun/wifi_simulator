@@ -1,7 +1,10 @@
 import { z } from 'zod'
-// src/uwb/phy.ts is a leaf (it imports nothing at run time), so the schema can measure a
-// ranging slot with the very functions the ranging engine uses, without a cycle.
-import { rstuNs, UWB_MAX_ANCHORS, uwbSlotFitNs, uwbSlotsPerTag } from '../uwb/phy'
+// src/uwb/phy.ts imports nothing of the model at run time (only `mms.ts`, `nb.ts` and the
+// determinism hash, which in turn take nothing from here but types), so the schema can measure
+// a ranging slot with the very functions the ranging engine uses, without a cycle.
+import type { MmsPhy } from '../uwb/mms'
+import { NB_CHANNELS } from '../uwb/nb'
+import { rstuNs, UWB_MAX_ANCHORS, uwbNbSlotFitNs, uwbSlotFitNs, uwbSlotsPerTag } from '../uwb/phy'
 import type { LinkId } from './caps'
 import type { CapabilityProfile, NodeKind, Vec3 } from './types'
 
@@ -178,9 +181,32 @@ export interface UwbNodeCfg {
  * How a session measures. 'twr' is two-way ranging (the tag talks to every anchor and gets a
  * distance each); the two one-way modes measure time differences of arrival instead, and the
  * tag transmits nothing at all ('dl-tdoa', it listens to a round the anchors run) or exactly
- * once ('ul-tdoa', it blinks and the infrastructure positions it).
+ * once ('ul-tdoa', it blinks and the infrastructure positions it). 'mms' is the narrowband-
+ * assisted multi-millisecond ranging of IEEE P802.15.4ab: a two-way exchange again, but one
+ * whose control plane rides a narrowband radio and whose ranging signal is a train of fragments
+ * a millisecond apart (src/uwb/mms.ts, src/uwb/nb.ts).
  */
-export type UwbMode = 'twr' | 'dl-tdoa' | 'ul-tdoa'
+export type UwbMode = 'twr' | 'dl-tdoa' | 'ul-tdoa' | 'mms'
+
+/** Whether a narrowband transmission listens before it talks: 'auto' follows the draft's rule
+ * (mandatory in UNII-5, optional in UNII-3), 'on' and 'off' are the scenario's override. */
+export type NbLbt = 'auto' | 'on' | 'off'
+
+/** Which side of an MMS pair round sends a narrowband measurement report: the responder in the
+ * first report slot, the initiator in the second, or both. 4ab draft 15-22/0381r5 Table 1.1.4.1 */
+export type NbReportMode = 'responder' | 'initiator' | 'bi'
+
+/**
+ * The MMS half of a session: the shape of each device's fragment train, and the narrowband
+ * radio its control plane runs on. Only `mode: 'mms'` reads any of it.
+ */
+export interface UwbMmsCfg extends MmsPhy {
+  /** The narrowband channels the session may hop between, 1…250 distinct entries of 0…249.
+   * 4ab draft 15-22/0381r5 §1.5.2 */
+  nbChannels: number[]
+  nbLbt: NbLbt
+  report: NbReportMode
+}
 
 /**
  * One ranging session (standard §10.32.2, the modes of §10.32.3): the block/slot structure every tag
@@ -222,12 +248,26 @@ export interface UwbSessionCfg {
    * (src/uwb/aoa.ts). A DS-TWR anchor that has both a range and a bearing fixes the tag on its
    * own — the one single-anchor position in the simulator. */
   aoa: boolean
+  /** `mode: 'mms'` only: the fragment train and the narrowband control radio of P802.15.4ab.
+   * It is carried in every session, at its default, so that switching the mode needs no second
+   * decision — and so that a scenario saved before this slice reads back unchanged. */
+  mms: UwbMmsCfg
+}
+
+/** The draft's own ranging-cycle defaults, which are deliberately not one of the mandatory
+ * parameter sets of `MMS_SETS`: X = 8 RSFs, no RIF, N_MSR 40 at the MMRS default gap of 64
+ * (an 82.05 µs fragment), Z = 1, and a UNII-3 control channel where listen-before-talk is
+ * optional. 4ab draft 15-22/0381r5 Table 1.2.3.1 / 1.2.3.3 */
+export const DEFAULT_UWB_MMS: UwbMmsCfg = {
+  rsfs: 8, rifs: 0, nMsr: 40, gap: 64, stsLen: 64, gapMs: 1,
+  nbChannels: [3], nbLbt: 'auto', report: 'bi',
 }
 
 export const DEFAULT_UWB_SESSION: UwbSessionCfg = {
   method: 'ds', blockRstu: 240_000, slotRstu: 2400, channel: 9, tsNoisePs: 100, cfoNoisePpm: 0.2, nlos: true,
   schedule: 'time', contentionSlots: 8, maxAttempts: 3,
   mode: 'twr', tdoaClockCorrection: true, syncErrorNs: 0, aoa: false,
+  mms: { ...DEFAULT_UWB_MMS, nbChannels: [...DEFAULT_UWB_MMS.nbChannels] },
 }
 
 /** 802.11ax 6 GHz channel 7 (80 MHz), model default: the centre `Scenario.sixGhzCenterMhz`
@@ -414,6 +454,29 @@ const NodeCfgSchema = z.preprocess(
   }),
 )
 
+/**
+ * The MMS half of a session. The four enumerated fields are checked here, where a bad value has
+ * nowhere sensible to go; each union is `mms.ts`'s own set written out as literals, because zod
+ * cannot build one from an array without a cast, and `tests/model/uwb-scenario.test.ts` walks
+ * the exported sets against this schema so the two cannot drift apart unnoticed.
+ *
+ * `gap` and `nbChannels` are deliberately left open and checked in the scenario's `superRefine`
+ * instead, because their rules belong to the ranging session as a whole — `path: ['uwb']`, in
+ * the wording the editor shows — and an issue raised on the field would stop that refinement
+ * running at all.
+ */
+const UwbMmsSchema = z.object({
+  rsfs: z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(4), z.literal(8), z.literal(16)]),
+  rifs: z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(4), z.literal(8)]),
+  nMsr: z.union([z.literal(32), z.literal(40), z.literal(48), z.literal(64), z.literal(128), z.literal(256)]),
+  gap: z.number(),
+  stsLen: z.union([z.literal(32), z.literal(64), z.literal(128), z.literal(256)]),
+  gapMs: z.union([z.literal(1), z.literal(2)]),
+  nbChannels: z.array(z.number()),
+  nbLbt: z.enum(['auto', 'on', 'off']),
+  report: z.enum(['responder', 'initiator', 'bi']),
+})
+
 const ServerSchema = z.object({
   id: z.string().min(1),
   kind: z.enum(['video', 'web', 'call', 'game']),
@@ -445,10 +508,13 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
       schedule: z.enum(['time', 'contention']).default('time'),
       contentionSlots: z.number().int().min(2).max(32).default(8),
       maxAttempts: z.number().int().min(1).max(10).default(3),
-      mode: z.enum(['twr', 'dl-tdoa', 'ul-tdoa']).default('twr'),
+      mode: z.enum(['twr', 'dl-tdoa', 'ul-tdoa', 'mms']).default('twr'),
       tdoaClockCorrection: z.boolean().default(true),
       syncErrorNs: z.number().min(0).max(10).default(0),
       aoa: z.boolean().default(false),
+      // A session saved before P802.15.4ab existed here carries no MMS settings at all, and
+      // reads back with the draft's defaults — so every such scenario replays unchanged.
+      mms: UwbMmsSchema.default(() => ({ ...DEFAULT_UWB_MMS, nbChannels: [...DEFAULT_UWB_MMS.nbChannels] })),
     }).optional(),
     sixGhzCenterMhz: z.number().int().min(5955).max(7115).refine((v) => v % 5 === 0, '6 GHz centre frequency must be a 5 MHz channel step').optional(),
   })
@@ -484,20 +550,79 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             path: ['uwb'],
-            message: 'contention-based rounds are two-way ranging only; one-way ranging needs a time-scheduled session',
+            message: 'contention-based rounds are two-way ranging only; one-way and MMS ranging need a time-scheduled session',
           })
         }
         // An anchor measures the angle of arrival on a frame the tag sends it, and only a
         // two-way round has one: in DL-TDoA the tag never transmits, in UL-TDoA its single blink
-        // is not part of an exchange. The engine guards on the mode, so the flag would be
-        // silently inert here rather than wrong - the schema says so instead of letting a
-        // hand-edited or imported plan carry a setting that does nothing.
+        // is not part of an exchange, and in MMS the tag's ranging signal is a train of
+        // sequences, not a frame with a phase to compare. The engine guards on the mode, so the
+        // flag would be silently inert here rather than wrong - the schema says so instead of
+        // letting a hand-edited or imported plan carry a setting that does nothing.
         if (mode !== 'twr' && sc.uwb.aoa) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             path: ['uwb'],
-            message: 'angle of arrival is measured on two-way responses; turn it off for TDoA modes',
+            message: 'angle of arrival is measured on two-way responses; turn it off for TDoA and MMS modes',
           })
+        }
+        // The P802.15.4ab rules. They read only `sc.uwb.mms`, and only in MMS mode: a two-way
+        // or one-way session carries the same settings untouched and must not be judged on them.
+        if (mode === 'mms') {
+          const mms = sc.uwb.mms
+          if (mms.rsfs + mms.rifs === 0) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ['uwb'],
+              message: 'an MMS train needs at least one fragment (rsfs + rifs > 0)',
+            })
+          }
+          if (!Number.isInteger(mms.gap) || mms.gap < 0 || mms.gap > 64) {
+            ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['uwb'], message: 'MMRS gap must be an integer 0…64' })
+          }
+          const channels = mms.nbChannels
+          const distinct = new Set(channels).size === channels.length
+          const inRange = channels.every((c) => Number.isInteger(c) && c >= 0 && c < NB_CHANNELS)
+          if (channels.length < 1 || channels.length > NB_CHANNELS || !distinct || !inRange) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ['uwb'],
+              message: 'the narrowband allow list needs 1…250 distinct channels 0…249',
+            })
+          }
+          // The draft's ranging slot is a multiple of 300 RSTU (0.25 ms), not of the 3 RSTU the
+          // core standard asks for: the cycle is laid out in milliseconds and the slot has to
+          // divide them. 4ab draft 15-22/0381r5 §1.1.1
+          if (sc.uwb.slotRstu % 300 !== 0) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ['uwb'],
+              message: 'an MMS ranging slot must be a multiple of 300 RSTU (P802.15.4ab draft)',
+            })
+          }
+          // The two slot rules that replace the frame rule below: a slot holds one fragment, and
+          // the two slots the draft gives each narrowband message hold one of those. The anchor
+          // count `uwbSlotFitNs` takes is for the modes whose frames grow with it — an MMS slot
+          // holds one fragment whoever is in the round — so it is passed none.
+          const slotNs = rstuNs(sc.uwb.slotRstu)
+          const fragNs = uwbSlotFitNs(0, 'mms', sc.uwb.schedule, mms)
+          if (slotNs < fragNs) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ['uwb'],
+              message: `a ${sc.uwb.slotRstu} RSTU slot is ${(slotNs / 1000).toFixed(1)} µs, but the longest MMS `
+                + `fragment needs ${(fragNs / 1000).toFixed(1)} µs plus flight`,
+            })
+          }
+          const nbNs = uwbNbSlotFitNs()
+          if (2 * slotNs < nbNs) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ['uwb'],
+              message: `two ${sc.uwb.slotRstu} RSTU slots are ${(2 * slotNs / 1000).toFixed(1)} µs, but a narrowband `
+                + `message needs ${(nbNs / 1000).toFixed(1)} µs plus flight`,
+            })
+          }
         }
         const anchors = uwbNodes.filter((n) => n.uwb?.role === 'anchor').length
         const tags = uwbNodes.filter((n) => n.uwb?.role === 'tag').length
@@ -505,8 +630,9 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
           ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['uwb'], message: `a UWB session needs at least one anchor and one tag (found ${anchors} and ${tags})` })
         } else {
           // A hyperbolic fix is solved from differences, and N anchors give N−1 of them: four
-          // anchors for the three a 2-D position needs.
-          if (mode !== 'twr' && anchors < 4) {
+          // anchors for the three a 2-D position needs. MMS measures ranges, not differences,
+          // so it needs no more anchors than two-way ranging does.
+          if ((mode === 'dl-tdoa' || mode === 'ul-tdoa') && anchors < 4) {
             ctx.addIssue({
               code: z.ZodIssueCode.custom,
               path: ['uwb'],
@@ -517,7 +643,9 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
           // oversubscribed or two tags would range in the same slot. DL-TDoA is the exception:
           // the anchors run one round per block and every tag in the scenario listens to that
           // same round, so tags cost the schedule nothing at all.
-          const slots = uwbSlotsPerTag(sc.uwb.method, anchors, sc.uwb.schedule, sc.uwb.contentionSlots, mode)
+          // An MMS round is pairwise, so a block has to hold one round per tag–anchor pair
+          // rather than one per tag — the count the rule below compares against `fits`.
+          const slots = uwbSlotsPerTag(sc.uwb.method, anchors, sc.uwb.schedule, sc.uwb.contentionSlots, mode, sc.uwb.mms)
           const fits = Math.floor(sc.uwb.blockRstu / (slots * sc.uwb.slotRstu))
           // One round has to fit the block in every mode, DL-TDoA included: a round that outlives
           // its block runs into the next one's slots, and nothing downstream notices — the
@@ -529,7 +657,13 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
               message: `the UWB block of ${sc.uwb.blockRstu} RSTU is too short for one round of ${slots} `
                 + `slots × ${sc.uwb.slotRstu} RSTU; lengthen blockRstu or shorten slotRstu`,
             })
-          } else if (mode !== 'dl-tdoa' && tags > fits) {
+          } else if (mode === 'mms' && tags * anchors > fits) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ['uwb'],
+              message: `the UWB block fits ${fits} tag–anchor pairs at ${slots} slots each (found ${tags * anchors}); lengthen blockRstu or shorten slotRstu`,
+            })
+          } else if (mode !== 'dl-tdoa' && mode !== 'mms' && tags > fits) {
             ctx.addIssue({
               code: z.ZodIssueCode.custom,
               path: ['uwb'],
@@ -539,18 +673,24 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
           // …and every frame of the round has to fit its slot. A frame that outlives its
           // slot is not an error at run time: the receiver's deadline fires first, the late
           // PPDU is ignored, and the round silently loses every anchor. So it is caught here.
-          const slotNs = rstuNs(sc.uwb.slotRstu)
-          const needNs = uwbSlotFitNs(anchors, mode, sc.uwb.schedule)
-          if (slotNs < needNs) {
-            ctx.addIssue({
-              code: z.ZodIssueCode.custom,
-              path: ['uwb'],
-              message: `a ${sc.uwb.slotRstu} RSTU ranging slot is ${(slotNs / 1000).toFixed(1)} µs, but a round with `
-                + `${anchors} anchors needs ${(needNs / 1000).toFixed(1)} µs for its longest frame plus flight; `
-                + 'lengthen slotRstu or use fewer anchors',
-            })
+          // An MMS round has no such frame — its two slot rules are above, and they do not
+          // depend on the anchor count.
+          if (mode !== 'mms') {
+            const slotNs = rstuNs(sc.uwb.slotRstu)
+            const needNs = uwbSlotFitNs(anchors, mode, sc.uwb.schedule)
+            if (slotNs < needNs) {
+              ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: ['uwb'],
+                message: `a ${sc.uwb.slotRstu} RSTU ranging slot is ${(slotNs / 1000).toFixed(1)} µs, but a round with `
+                  + `${anchors} anchors needs ${(needNs / 1000).toFixed(1)} µs for its longest frame plus flight; `
+                  + 'lengthen slotRstu or use fewer anchors',
+              })
+            }
           }
-          if (anchors > UWB_MAX_ANCHORS) {
+          // Nothing in an MMS round grows with the anchor count — every pair gets a round of
+          // its own — so the PSDU-length cap does not apply to it; the block rule bounds it.
+          if (mode !== 'mms' && anchors > UWB_MAX_ANCHORS) {
             ctx.addIssue({
               code: z.ZodIssueCode.custom,
               path: ['uwb'],

@@ -1,16 +1,17 @@
 import { describe, it, expect } from 'vitest'
 import {
-  DEFAULT_UWB_SESSION, ScenarioSchema, nonht, sixGhzChannelNo,
-  type NodeCfg, type Scenario, type UwbSessionCfg,
+  DEFAULT_UWB_MMS, DEFAULT_UWB_SESSION, ScenarioSchema, nonht, sixGhzChannelNo,
+  type NodeCfg, type Scenario, type UwbMmsCfg, type UwbSessionCfg,
 } from '../../src/model/scenario'
 import { LESSONS } from '../../src/course/lessons'
+import { N_MSR_SET, RIF_COUNT_SET, RSF_COUNT_SET, STS_LEN_SET } from '../../src/uwb/mms'
 import { EventQueue } from '../../src/engine/events'
 import { Rng } from '../../src/engine/rng'
 import { makeEmitter } from '../../src/model/records'
 import { UwbNetwork } from '../../src/uwb/network'
 import {
-  rstuNs, UWB_BLINK_BYTES, UWB_MAX_ANCHORS, uwbDlPollBytes, uwbFinalBytes, uwbLongestFrameBytes, uwbPollBytes,
-  uwbRespBytes, uwbSlotFitNs,
+  rstuNs, UWB_BLINK_BYTES, UWB_MAX_ANCHORS, uwbDlPollBytes, uwbFinalBytes, uwbLongestFrameBytes, uwbNbSlotFitNs,
+  uwbPollBytes, uwbRespBytes, uwbSlotFitNs, uwbSlotsPerTag,
 } from '../../src/uwb/phy'
 
 function uwbNode(id: string, role: 'anchor' | 'tag', x: number, y: number): NodeCfg {
@@ -259,6 +260,152 @@ describe('UWB nodes and sessions in the schema', () => {
     for (const l of LESSONS) {
       expect(() => ScenarioSchema.parse(l.scenario()), l.id).not.toThrow()
     }
+  })
+})
+
+describe('the P802.15.4ab MMS session in the schema', () => {
+  /** An MMS session, optionally with a patch over the defaults. */
+  function mmsSession(patch: Partial<UwbSessionCfg> = {}, mms: Partial<UwbMmsCfg> = {}): UwbSessionCfg {
+    return {
+      ...DEFAULT_UWB_SESSION, mode: 'mms', ...patch,
+      mms: { ...DEFAULT_UWB_MMS, nbChannels: [...DEFAULT_UWB_MMS.nbChannels], ...mms },
+    }
+  }
+  const anchorsN = (n: number): NodeCfg[] =>
+    Array.from({ length: n }, (_, i) => uwbNode(`anc-${i}`, 'anchor', i * 2, 0))
+  const tag = uwbNode('tag-1', 'tag', 4, 4)
+
+  it('a session saved before P802.15.4ab existed reads back with the draft’s defaults', () => {
+    const legacy: Record<string, unknown> = { ...DEFAULT_UWB_SESSION }
+    delete legacy.mms
+    const sc: unknown = { ...uwbScenario(twoAnchorsOneTag()), uwb: legacy }
+    const parsed = ScenarioSchema.parse(sc)
+    expect(parsed.uwb).toEqual(DEFAULT_UWB_SESSION)
+    expect(parsed.uwb?.mms).toEqual({
+      rsfs: 8, rifs: 0, nMsr: 40, gap: 64, stsLen: 64, gapMs: 1, nbChannels: [3], nbLbt: 'auto', report: 'bi',
+    })
+    // Two such scenarios must not share the one allow-list array the default is written from.
+    const again = ScenarioSchema.parse(sc)
+    expect(again.uwb?.mms.nbChannels).not.toBe(parsed.uwb?.mms.nbChannels)
+    expect(again.uwb?.mms.nbChannels).not.toBe(DEFAULT_UWB_MMS.nbChannels)
+  })
+
+  it('the default MMS session is legal, and every other mode ignores its settings', () => {
+    expect(() => ScenarioSchema.parse(uwbScenario(twoAnchorsOneTag(), mmsSession()))).not.toThrow()
+    // A nonsense train in a two-way session is never read, so it is never judged.
+    const twr = { ...DEFAULT_UWB_SESSION, mms: { ...DEFAULT_UWB_MMS, rsfs: 0 as const, rifs: 0 as const, gap: 900 } }
+    expect(() => ScenarioSchema.parse(uwbScenario(twoAnchorsOneTag(), twr))).not.toThrow()
+  })
+
+  it('accepts exactly the enumerated values mms.ts publishes, and nothing else', () => {
+    // The schema writes each set out as a union of literals, because zod cannot build one from
+    // an array without a cast. This walk is the tie that keeps the two from drifting apart.
+    const cases: Array<[string, readonly number[], number]> = [
+      ['rsfs', RSF_COUNT_SET, 3], ['rifs', RIF_COUNT_SET, 16],
+      ['nMsr', N_MSR_SET, 33], ['stsLen', STS_LEN_SET, 512], ['gapMs', [1, 2], 3],
+    ]
+    for (const [field, allowed, rejected] of cases) {
+      for (const v of allowed) {
+        const uwb = { ...DEFAULT_UWB_SESSION, mms: { ...DEFAULT_UWB_MMS, [field]: v } }
+        expect(ScenarioSchema.safeParse(uwbScenario(twoAnchorsOneTag(), uwb)).success, `${field} ${v}`).toBe(true)
+      }
+      const bad = { ...DEFAULT_UWB_SESSION, mms: { ...DEFAULT_UWB_MMS, [field]: rejected } }
+      expect(ScenarioSchema.safeParse(uwbScenario(twoAnchorsOneTag(), bad)).success, `${field} ${rejected}`).toBe(false)
+    }
+  })
+
+  it('a train needs at least one fragment', () => {
+    const empty = mmsSession({}, { rsfs: 0, rifs: 0 })
+    expect(() => ScenarioSchema.parse(uwbScenario(twoAnchorsOneTag(), empty)))
+      .toThrow(/an MMS train needs at least one fragment \(rsfs \+ rifs > 0\)/)
+    expect(() => ScenarioSchema.parse(uwbScenario(twoAnchorsOneTag(), mmsSession({}, { rsfs: 0, rifs: 1 }))))
+      .not.toThrow()
+  })
+
+  it('the MMRS gap is a whole number of zeros, 0 to 64', () => {
+    for (const gap of [-1, 65, 33.5]) {
+      expect(() => ScenarioSchema.parse(uwbScenario(twoAnchorsOneTag(), mmsSession({}, { gap }))), `gap ${gap}`)
+        .toThrow(/MMRS gap must be an integer 0…64/)
+    }
+    for (const gap of [0, 33, 64]) {
+      expect(() => ScenarioSchema.parse(uwbScenario(twoAnchorsOneTag(), mmsSession({}, { gap }))), `gap ${gap}`)
+        .not.toThrow()
+    }
+  })
+
+  it('the narrowband allow list is 1…250 distinct channels of the 250 there are', () => {
+    for (const nbChannels of [[], [3, 3], [250], [-1], [3.5], Array.from({ length: 251 }, (_, i) => i)]) {
+      expect(
+        () => ScenarioSchema.parse(uwbScenario(twoAnchorsOneTag(), mmsSession({}, { nbChannels }))),
+        JSON.stringify(nbChannels).slice(0, 20),
+      ).toThrow(/the narrowband allow list needs 1…250 distinct channels 0…249/)
+    }
+    expect(() => ScenarioSchema.parse(uwbScenario(twoAnchorsOneTag(), mmsSession({}, { nbChannels: [0, 3, 249] }))))
+      .not.toThrow()
+  })
+
+  it('an MMS ranging slot is a multiple of 300 RSTU, not of the core standard’s 3', () => {
+    // 2403 RSTU is a legal slot everywhere else in the simulator and is refused here.
+    expect(() => ScenarioSchema.parse(uwbScenario(twoAnchorsOneTag(), mmsSession({ slotRstu: 2403 }))))
+      .toThrow(/an MMS ranging slot must be a multiple of 300 RSTU \(P802\.15\.4ab draft\)/)
+    expect(() => ScenarioSchema.parse(uwbScenario(twoAnchorsOneTag(), { ...DEFAULT_UWB_SESSION, slotRstu: 2403 })))
+      .not.toThrow()
+  })
+
+  it('a slot has to hold the longest fragment, and two slots a narrowband message', () => {
+    // A 256-unit RIF is 262.6 µs: it does not fit the 250 µs of a 300 RSTU slot, though the
+    // 82.1 µs default RSF does.
+    const bigRif = mmsSession({ slotRstu: 300 }, { rifs: 1, stsLen: 256 })
+    expect(() => ScenarioSchema.parse(uwbScenario(twoAnchorsOneTag(), bigRif)))
+      .toThrow(/a 300 RSTU slot is 250\.0 µs, but the longest MMS fragment needs 262\.8 µs plus flight/)
+    // The 608 µs REPORT is what really sets the floor: two 300 RSTU slots are 500 µs.
+    expect(() => ScenarioSchema.parse(uwbScenario(twoAnchorsOneTag(), mmsSession({ slotRstu: 300 }))))
+      .toThrow(/two 300 RSTU slots are 500\.0 µs, but a narrowband message needs 608\.2 µs plus flight/)
+    // 600 RSTU — the draft's own default slot — clears both.
+    expect(() => ScenarioSchema.parse(uwbScenario(twoAnchorsOneTag(), mmsSession({ slotRstu: 600 })))).not.toThrow()
+    expect(uwbNbSlotFitNs()).toBe(608_200)
+  })
+
+  it('the block has to hold one round per tag–anchor pair, not one per tag', () => {
+    // 28 slots × 2400 RSTU = 67 200 RSTU a round; a 240 000 RSTU block holds three of them.
+    expect(uwbSlotsPerTag('ds', 4, 'time', 8, 'mms', DEFAULT_UWB_MMS)).toBe(28)
+    expect(() => ScenarioSchema.parse(uwbScenario([...anchorsN(3), tag], mmsSession()))).not.toThrow()
+    expect(() => ScenarioSchema.parse(uwbScenario([...anchorsN(4), tag], mmsSession())))
+      .toThrow(/the UWB block fits 3 tag–anchor pairs at 28 slots each \(found 4\); lengthen blockRstu or shorten slotRstu/)
+  })
+
+  it('skips the rules that are about frames the MMS round does not send', () => {
+    // The nine-anchor cap sizes the TWR Final's PSDU; nothing in an MMS round grows with the
+    // anchor count, so ten anchors are fine — the block rule is what bounds them.
+    const tenPairs = mmsSession({ slotRstu: 600 })
+    expect(() => ScenarioSchema.parse(uwbScenario([...anchorsN(10), tag], tenPairs))).not.toThrow()
+    expect(() => ScenarioSchema.parse(uwbScenario([...anchorsN(10), tag]))).toThrow(/at most 9 anchors/)
+    // The one-way four-anchor rule is about time differences; MMS measures ranges.
+    expect(() => ScenarioSchema.parse(uwbScenario([...anchorsN(1), tag], mmsSession()))).not.toThrow()
+    expect(() => ScenarioSchema.parse(uwbScenario([...anchorsN(1), tag], { ...DEFAULT_UWB_SESSION, mode: 'dl-tdoa' })))
+      .toThrow(/needs at least 4 anchors/)
+    // And the TWR frame rule: at 300 RSTU a six-anchor two-way round is refused for its Final,
+    // while the MMS round of the same six anchors is judged on its fragment and its NB message.
+    expect(() => ScenarioSchema.parse(uwbScenario([...anchorsN(6), tag], { ...DEFAULT_UWB_SESSION, slotRstu: 300 })))
+      .toThrow(/300 RSTU ranging slot is 250\.0 µs/)
+    let mmsMsg = ''
+    try {
+      ScenarioSchema.parse(uwbScenario([...anchorsN(6), tag], mmsSession({ slotRstu: 300 })))
+    } catch (e) {
+      mmsMsg = e instanceof Error ? e.message : String(e)
+    }
+    expect(mmsMsg).not.toMatch(/ranging slot is 250\.0 µs/)
+    expect(mmsMsg).toMatch(/two 300 RSTU slots/)
+    expect(() => uwbLongestFrameBytes(6, 'mms')).toThrow(/not PSDUs/)
+    expect(() => uwbSlotsPerTag('ds', 6, 'time', 8, 'mms')).toThrow(/needs the session's MMS parameters/)
+    expect(() => uwbSlotFitNs(6, 'mms')).toThrow(/needs the session's MMS parameters/)
+  })
+
+  it('takes the two rules the one-way modes already carry', () => {
+    expect(() => ScenarioSchema.parse(uwbScenario(twoAnchorsOneTag(), mmsSession({ schedule: 'contention', method: 'ss' }))))
+      .toThrow(/contention-based rounds are two-way ranging only; one-way and MMS ranging need a time-scheduled session/)
+    expect(() => ScenarioSchema.parse(uwbScenario(twoAnchorsOneTag(), mmsSession({ aoa: true }))))
+      .toThrow(/angle of arrival is measured on two-way responses; turn it off for TDoA and MMS modes/)
   })
 })
 
