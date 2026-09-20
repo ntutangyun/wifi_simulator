@@ -45,6 +45,21 @@ export function freeSpacePl0Db(mhz: number): number {
 
 export const UWB_PL_EXP = 2.0 // model: indoor LOS
 
+/**
+ * The UWB engine's whole path-loss law, in one expression: free space at 1 m on the band in
+ * question, `UWB_PL_EXP` decades of spreading beyond it, and whatever the walls in the way
+ * charge. Distances under 10 cm are clamped, so a co-located pair is loud, not infinite.
+ *
+ * Three call sites had a copy of it — the cross-technology mediator's view of a UWB emission
+ * (`uwbToWifiPathLossDb`), the received power of any UWB frame (`UwbChannel.rssiDbm`) and the
+ * law a frame carries onto the Spectrum (`UwbChannel.lossDbFor`). They are one expression now,
+ * so a retune reaches all three and none of them can drift. model (the exponent), physics
+ * (the first metre).
+ */
+export function uwbPathLossDb(pl0Db: number, dM: number, wallsDb: number): number {
+  return pl0Db + 10 * UWB_PL_EXP * Math.log10(Math.max(dM, 0.1)) + wallsDb
+}
+
 // --- Receiver -------------------------------------------------------------------
 
 export const UWB_RX_SENS_DBM = -93 // model

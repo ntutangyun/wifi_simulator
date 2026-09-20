@@ -36,8 +36,8 @@ import {
   NB_LBT_THRESHOLD_DBM, NB_RX_SENS_DBM, NB_SIR_MIN_DB, NB_TX_DBM, nbBand, nbPl0Db,
 } from './nb'
 import {
-  UWB_BAND_MHZ, UWB_CAPTURE_DB, UWB_NLOS_NS, UWB_PL_EXP, UWB_RX_SENS_DBM, UWB_SIR_MIN_DB,
-  C_M_PER_NS, uwbPl0Db, type UwbChannelNo,
+  UWB_BAND_MHZ, UWB_CAPTURE_DB, UWB_NLOS_NS, UWB_RX_SENS_DBM, UWB_SIR_MIN_DB,
+  C_M_PER_NS, uwbPathLossDb, uwbPl0Db, type UwbChannelNo,
 } from './phy'
 
 export interface UwbRxInfo {
@@ -196,7 +196,7 @@ export class UwbChannel {
     const nb = frame.uwb?.nb
     if (nb) {
       const pl0 = nbPl0Db(nb.channel)
-      return (dM, wallsDb) => pl0 + 10 * UWB_PL_EXP * Math.log10(Math.max(dM, 0.1)) + wallsDb
+      return (dM, wallsDb) => uwbPathLossDb(pl0, dM, wallsDb)
     }
     const ch = this.cfg.channel
     return (dM, wallsDb) => uwbToWifiPathLossDb(dM, wallsDb, ch)
@@ -229,10 +229,8 @@ export class UwbChannel {
   rssiDbm(from: string, to: string, frame?: FrameDesc): number {
     const tx = this.nodeOf(from)
     const d = this.distanceM(from, to)
-    return this.txDbmFor(from, frame)
-      - this.pl0For(frame)
-      - 10 * UWB_PL_EXP * Math.log10(Math.max(d, 0.1))
-      - wallLossDb(tx.pos, this.posOf(to), this.walls)
+    const wallsDb = wallLossDb(tx.pos, this.posOf(to), this.walls)
+    return this.txDbmFor(from, frame) - uwbPathLossDb(this.pl0For(frame), d, wallsDb)
   }
 
   /**

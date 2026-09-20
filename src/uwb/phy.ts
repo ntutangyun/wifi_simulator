@@ -11,8 +11,8 @@ import { chipsToNs, freeSpacePl0Db, UWB_CHIP_HZ, UWB_CHIP_NS } from './units'
 // (which imports them). They are re-exported here because every caller in the repository has
 // always asked `phy.ts` for them, and `phy.ts` is still where a reader looks for the UWB PHY.
 export {
-  chipsToNs, freeSpacePl0Db, COUNTER_BITS, COUNTER_MOD, C_M_PER_NS, RCTU_NS, RCTU_PER_CHIP,
-  RCTU_PS, UWB_CHIP_HZ, UWB_CHIP_NS, UWB_PL_EXP, UWB_RX_SENS_DBM,
+  chipsToNs, freeSpacePl0Db, uwbPathLossDb, COUNTER_BITS, COUNTER_MOD, C_M_PER_NS, RCTU_NS,
+  RCTU_PER_CHIP, RCTU_PS, UWB_CHIP_HZ, UWB_CHIP_NS, UWB_PL_EXP, UWB_RX_SENS_DBM,
 } from './units'
 
 export const RSTU_CHIPS = 416 // standard §10.29.1.5, Table 10-145

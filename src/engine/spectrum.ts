@@ -17,7 +17,7 @@ import type { Wall } from '../model/scenario'
 import type { Ns, Vec3 } from '../model/types'
 import { EventQueue } from './events'
 import { pathLossDb, wallLossDb } from './propagation'
-import { UWB_PL_EXP, uwbPl0Db, type UwbChannelNo } from '../uwb/phy'
+import { uwbPathLossDb, uwbPl0Db, type UwbChannelNo } from '../uwb/phy'
 
 export type SpectrumSide = 'wifi' | 'uwb'
 
@@ -37,7 +37,7 @@ export interface Emission {
 
 /** `LINK_EXTRA_LOSS_DB['6g']` in `simulation.ts`; repeated here so the mediator stays free of the
  * simulation's imports (`simulation.ts` imports this module, so the edge cannot run the other way).
- * `pathLossDb` and `UWB_PL_EXP` are imported rather than copied: those edges already exist. */
+ * `pathLossDb` and `uwbPathLossDb` are imported rather than copied: those edges already exist. */
 const WIFI_6G_EXTRA_LOSS_DB = 1.2
 
 /** Wi-Fi 6 GHz PPDU seen by a UWB receiver: the Wi-Fi link's own law - `pathLossDb` itself, not a
@@ -47,9 +47,10 @@ export function wifiToUwbPathLossDb(dM: number, wallsDb: number): number {
   return pathLossDb(dM) + wallsDb + WIFI_6G_EXTRA_LOSS_DB
 }
 
-/** UWB frame seen by a Wi-Fi receiver: UWB's free-space law at the channel's centre frequency. */
+/** UWB frame seen by a Wi-Fi receiver: UWB's own law (`uwbPathLossDb`) at the channel's centre
+ * frequency — the very expression the UWB channel uses on its own receivers. */
 export function uwbToWifiPathLossDb(dM: number, wallsDb: number, ch: UwbChannelNo): number {
-  return uwbPl0Db(ch) + 10 * UWB_PL_EXP * Math.log10(Math.max(dM, 0.1)) + wallsDb
+  return uwbPathLossDb(uwbPl0Db(ch), dM, wallsDb)
 }
 
 /** Width (MHz) of the overlap of two bands; 0 when they are disjoint. */
