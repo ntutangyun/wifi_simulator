@@ -1,9 +1,11 @@
 import { describe, it, expect } from 'vitest'
-import { canDeleteNode, hasAp, newAnchor, newAp, newUwbTag, removeNode, uwbSessionIssue } from '../../src/editor/planOps'
+import { canDeleteNode, hasAp, newAnchor, newAp, newUwbTag, parseNbChannels, removeNode, uwbSessionIssue } from '../../src/editor/planOps'
 import { GEN_FEATURES } from '../../src/model/caps'
 import { DEFAULT_UWB_SESSION, ScenarioSchema, defaultScenario, type Scenario, type UwbSessionCfg } from '../../src/model/scenario'
+import { MMS_SETS, mmsSet, type MmsSetId } from '../../src/uwb/mms'
+import { NB_CHANNELS } from '../../src/uwb/nb'
 import { UWB_TX_POWER_DBM } from '../../src/uwb/phy'
-import { uwbMethodPatch, uwbModePatch } from '../../src/uwb/ui/UwbSessionFields'
+import { mmsSetIdOf, mmsSetPatch, uwbMethodPatch, uwbModePatch } from '../../src/uwb/ui/UwbSessionFields'
 
 /** A scenario carrying `n` anchors and one tag on top of the default house. */
 function withUwb(n: number, session: Partial<UwbSessionCfg> = {}): Scenario {
@@ -246,6 +248,84 @@ describe('uwbSessionIssue', () => {
       const worded = parsed.error.issues.filter((i) => /\bUWB\b|ranging/i.test(i.message))
       expect(worded.length).toBeGreaterThan(0)
       for (const i of worded) expect(i.path[0], i.message).toBe('uwb')
+    }
+  })
+})
+
+describe('MMS parameter-set select', () => {
+  it('names the set the five PHY fields are, and "custom" for anything else', () => {
+    // The select stores nothing: it is derived from the fields every time, so editing one field
+    // of a set drops the select to "custom" without any extra state to keep in step.
+    for (const id of Object.keys(MMS_SETS) as MmsSetId[]) {
+      expect(mmsSetIdOf(MMS_SETS[id]), id).toBe(id)
+    }
+    // The session default is the draft's cycle default (X = 8, N_MSR 40, gap 64), not a
+    // mandatory set — so the select opens on "custom".
+    expect(mmsSetIdOf(DEFAULT_UWB_SESSION.mms)).toBeNull()
+    // …and one field off a set is no longer that set.
+    expect(mmsSetIdOf({ ...MMS_SETS['rsf-1'], gap: 34 })).toBeNull()
+    expect(mmsSetIdOf({ ...MMS_SETS['mixed-7'], rifs: 4 })).toBeNull()
+    // Z is not one of the five: it is written by the patch, not compared by the select.
+    expect(mmsSetIdOf({ ...MMS_SETS['rsf-1'], gapMs: 2 })).toBe('rsf-1')
+  })
+
+  it('writes the set’s five PHY fields plus Z = 1, and the result is a session the schema takes', () => {
+    const patch = mmsSetPatch('rsf-1')
+    expect(patch).toEqual({ ...mmsSet('rsf-1'), gapMs: 1 })
+    expect(patch).toMatchObject({ rsfs: 16, rifs: 0, nMsr: 40, gap: 33, stsLen: 64, gapMs: 1 })
+    // What the field actually saves: the patch over the session's own narrowband settings.
+    const sc = withUwb(1, {
+      ...uwbModePatch('mms'),
+      slotRstu: 600,
+      blockRstu: 240_000,
+      mms: { ...DEFAULT_UWB_SESSION.mms, ...mmsSetPatch('rsf-1') },
+    })
+    expect(uwbSessionIssue(sc)).toBeNull()
+    expect(ScenarioSchema.parse(sc).uwb!.mms).toMatchObject({ rsfs: 16, nMsr: 40, gap: 33, nbChannels: [3] })
+    expect(mmsSetIdOf(ScenarioSchema.parse(sc).uwb!.mms)).toBe('rsf-1')
+    // Every mandatory set is a set the schema accepts at the draft's slot length.
+    for (const id of Object.keys(MMS_SETS) as MmsSetId[]) {
+      const one = withUwb(1, {
+        ...uwbModePatch('mms'),
+        slotRstu: 600,
+        blockRstu: 240_000,
+        mms: { ...DEFAULT_UWB_SESSION.mms, ...mmsSetPatch(id) },
+      })
+      expect(uwbSessionIssue(one), id).toBeNull()
+    }
+  })
+})
+
+describe('parseNbChannels', () => {
+  it('takes a comma-separated allow list the schema would accept', () => {
+    expect(parseNbChannels('100,150,200,210')).toEqual([100, 150, 200, 210])
+    // whitespace around the numbers is the user's, not the list's
+    expect(parseNbChannels(' 3 ')).toEqual([3])
+    expect(parseNbChannels('0, 49,50 , 249')).toEqual([0, 49, 50, 249])
+  })
+
+  it('rejects anything the schema would reject, so the field can keep the last good list', () => {
+    for (const bad of ['3, x', '', '   ', '3,,4', '3.5', '250', '-1', '3,3', ' , ', '1e2']) {
+      expect(parseNbChannels(bad), bad).toBeNull()
+    }
+    expect(parseNbChannels(`${NB_CHANNELS - 1}`)).toEqual([NB_CHANNELS - 1])
+    expect(parseNbChannels(`${NB_CHANNELS}`)).toBeNull()
+  })
+
+  it('agrees with the schema on every list it accepts and every list it refuses', () => {
+    const session = (nbChannels: number[]): Scenario => withUwb(1, {
+      ...uwbModePatch('mms'),
+      slotRstu: 600,
+      blockRstu: 240_000,
+      mms: { ...DEFAULT_UWB_SESSION.mms, nbChannels },
+    })
+    for (const good of ['3', '100,150,200,210', '0,249']) {
+      expect(uwbSessionIssue(session(parseNbChannels(good)!)), good).toBeNull()
+    }
+    // The lists the parser refuses are exactly the ones the schema complains about.
+    for (const bad of [[], [3, 3], [250], [-1], [1.5]]) {
+      expect(uwbSessionIssue(session(bad)), JSON.stringify(bad))
+        .toContain('the narrowband allow list needs 1…250 distinct channels 0…249')
     }
   })
 })

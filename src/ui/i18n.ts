@@ -2,7 +2,7 @@
 import type { FeatureFlag, LinkId } from '../model/caps'
 import type { FrameDesc, FrameKind } from '../model/frames'
 import type { Generation } from '../model/types'
-import type { ProfileId, UwbMode } from '../model/scenario'
+import type { NbLbt, NbReportMode, ProfileId, UwbMode } from '../model/scenario'
 import type { RxFailReason } from '../model/records'
 import type { AddrRole, FcBitKey, FieldKey, PpduSegmentKey } from '../model/frameFields'
 import type { UwbFixMethod } from '../uwb/records'
@@ -119,6 +119,26 @@ export interface Strings {
     uwbMaxAttempts: string; uwbMaxAttemptsHint: string
     /** "slots per round N · rounds per block M" under the session fields. */
     uwbPlan: (slots: number, rounds: number) => string
+    /**
+     * `mode: 'mms'` only: the P802.15.4ab fragment train and the narrowband radio its control
+     * plane runs on. The "draft" qualifier lives on the mode name and on `uwbMmsHint`; every
+     * other hint carries the tag of whatever number it quotes.
+     */
+    uwbMms: string; uwbMmsHint: string
+    uwbMmsSet: string; uwbMmsSetHint: string; uwbMmsCustom: string
+    uwbRsfs: string; uwbRsfsHint: string
+    uwbRifs: string; uwbRifsHint: string
+    uwbNMsr: string; uwbNMsrHint: string
+    uwbGap: string; uwbGapHint: string
+    uwbStsLen: string; uwbStsLenHint: string
+    uwbGapMs: string; uwbGapMsHint: string
+    uwbNbChannels: string; uwbNbChannelsHint: string; uwbNbChannelsBad: string
+    uwbNbLbt: string; uwbNbLbtHint: string; uwbNbLbts: Record<NbLbt, string>
+    uwbReport: string; uwbReportHint: string; uwbReports: Record<NbReportMode, string>
+    /** Why the SS/DS select is greyed out in MMS mode. */
+    uwbMmsSsOnly: string
+    /** The read-only line under the MMS fields: fragment length, its power and the round. */
+    uwbMmsDerived: (rsfUs: string, fragDbm: string, slots: number, roundMs: string) => string
   }
   inspector: {
     waiting: string; bssTotals: string; throughput: string; delivered: string
@@ -412,10 +432,10 @@ export const STRINGS: Record<Lang, Strings> = {
       uwbSessionInUse: 'the session cannot be removed while a UWB device is in the plan; delete the devices first',
       uwbMethod: 'Method', uwbMethodHint: 'SS-TWR: one poll and one response per anchor — half the frames, but the clock offset between the two devices leaks straight into the range. DS-TWR adds a final and a report, which cancels it.',
       uwbMethods: { ss: 'SS-TWR (single-sided)', ds: 'DS-TWR (double-sided)' },
-      uwbMode: 'Ranging mode', uwbModeHint: 'two-way ranging measures a distance per anchor and the tag solves its own position. The one-way modes measure time differences instead: in DL-TDoA the anchors run the round and a tag that never transmits positions itself from it; in UL-TDoA the tag sends one blink and the anchors, sharing a timebase, position it. Both need four anchors and a time-scheduled session.',
+      uwbMode: 'Ranging mode', uwbModeHint: 'two-way ranging measures a distance per anchor and the tag solves its own position. The one-way modes measure time differences instead: in DL-TDoA the anchors run the round and a tag that never transmits positions itself from it; in UL-TDoA the tag sends one blink and the anchors, sharing a timebase, position it — both need four anchors for three differences. Narrowband-assisted MMS measures a two-way range again, but pairwise: one round holds one tag and one anchor, the control exchange and the report ride a narrowband radio, and the ranging signal is a train of fragments. It needs no minimum anchor count; what it needs is a block long enough for every pair, tags × anchors ≤ rounds per block. All three take a time-scheduled session.',
       uwbModes: {
         twr: 'two-way ranging (TWR)', 'dl-tdoa': 'one-way, downlink (DL-TDoA)', 'ul-tdoa': 'one-way, uplink (UL-TDoA)',
-        mms: 'narrowband-assisted MMS (802.15.4ab)',
+        mms: 'narrowband-assisted MMS (802.15.4ab draft)',
       },
       uwbClockCorrection: 'Tag clock correction', uwbClockCorrectionHint: 'DL-TDoA: the listening tag measures its own crystal against the round’s poll-to-final interval before it differences its arrival times. Turn it off to see what ±20 ppm does: the error is 20 ppm of the gap between the Poll and the response being timed — up to 6 ms in the five-slot round the lessons run, so 36 m, and 96 m for the last of nine anchors, whose response comes 16 ms after the Poll.',
       uwbDlOnly: 'only DL-TDoA uses this: it is the listening tag’s own correction, and no other mode has a tag that listens',
@@ -438,6 +458,39 @@ export const STRINGS: Record<Lang, Strings> = {
       uwbContentionSlots: 'Response slots', uwbContentionSlotsHint: 'the response window the poll advertises (RCPS IE): every anchor draws one of these slots uniformly. With N anchors and S slots, an anchor is alone in its slot with probability (1 − 1/S)^(N−1).',
       uwbMaxAttempts: 'Attempts', uwbMaxAttemptsHint: 'the retry budget the poll advertises (RCMA IE): after this many rounds in which the tag did not range it, an anchor sits one round out before drawing again',
       uwbPlan: (slots, rounds) => `slots per round ${slots} · rounds per block ${rounds}`,
+      uwbMms: 'MMS train',
+      uwbMmsHint: 'the multi-millisecond packet of the 802.15.4ab draft: instead of one burst, the ranging signal is a train of short fragments sent a millisecond apart. Each fragment may spend a whole millisecond’s 37 nJ energy allowance (regulation) inside its own much shorter length, and X fragments combine coherently for another 10·log10(X) dB. Everything in this section is paraphrased from the TG4ab contributions — the balloted D5.0 may differ in numbering and detail.',
+      uwbMmsSet: 'Parameter set',
+      uwbMmsSetHint: 'the mandatory operating parameter sets (4ab draft 15-23/0502r3, proposed 16.2.11.4): ten RSF-only trains of 16 fragments and seven mixed ones. Picking a set writes the five PHY fields below and Z = 1; change any of them and the select reads “custom”. The session default is the draft’s cycle default rather than a set, so it opens on “custom”.',
+      uwbMmsCustom: 'custom',
+      uwbRsfs: 'RSFs (X)',
+      uwbRsfsHint: 'how many ranging sequence fragments a device sends, one per millisecond. The ranging timestamp sits on the first one; with X = 0 it moves to the first RIF instead. X = 0, 1, 2, 4, 8 or 16 (4ab draft 15-22/0381r5 Table 1.6.3.2), and 16 of them are 12.04 dB of combining gain.',
+      uwbRifs: 'RIFs (Y)',
+      uwbRifsHint: 'how many ranging integrity fragments follow the RSFs. Each is one STS segment, and their train decides the range’s integrity flag and nothing else — Y = 0 means no integrity check. Y = 0, 1, 2, 4 or 8 (4ab draft 15-22/0381r5 Table 1.6.3.2).',
+      uwbNMsr: 'N_MSR',
+      uwbNMsrHint: 'MMRS symbol repetitions in one RSF. An RSF is N_MSR × 4 × (128 + 2 × gap) chips at 499.2 Mchip/s (4ab draft 15-23/0100r2 §2.3.2), so this is what buys the fragment its length — and, because the millisecond’s energy is spread over that length, what makes it quieter.',
+      uwbGap: 'MMRS gap',
+      uwbGapHint: 'the zeros an MMRS symbol carries between the halves of its length-128 complementary set, 0…64 (4ab draft 15-23/0100r2 §2.3.2). The mandatory sets use 25 to 64; the session default is 64.',
+      uwbStsLen: 'STS length',
+      uwbStsLenHint: 'an RIF’s scrambled timestamp segment, in units of 512 chips (STS: standard §16.2.9; the units 4ab draft 15-23/0100r2 §2.3.2). 64 units is a 65.64 µs fragment.',
+      uwbGapMs: 'Idle ms (Z)',
+      uwbGapMsHint: 'the gap the draft leaves between the ranging train and the integrity train, so a receiver can finish with the first before the second starts. Z = 1 lets the first RIF follow the millisecond after the last RSF; Z = 2 leaves one millisecond empty between them (4ab draft 15-23/0100r2 §2.3.2).',
+      uwbNbChannels: 'NB channels',
+      uwbNbChannelsHint: 'the narrowband control channels this session may use, comma-separated. There are 250 of them, 2.5 MHz apart: 0–49 in UNII-3 from 5726.25 MHz and 50–249 in UNII-5 from 5926.25 MHz (4ab draft 15-22/0381r5 §1.4.1; the centre formula itself is reconstructed from the band edges — model). Each ranging block picks one from the list. Press Enter or leave the field to apply.',
+      uwbNbChannelsBad: 'the narrowband allow list needs 1…250 distinct channels 0…249',
+      uwbNbLbt: 'Listen before talk',
+      uwbNbLbtHint: 'whether a narrowband transmission first listens for 9 µs: the draft makes it mandatory in UNII-5 (channels ≥ 50) and optional in UNII-3, which is what “auto” follows (4ab draft 15-22/0381r5 §1.4.2, citing the ETSI EN 303 687 frame-based rules). Busy means foreign power at or above −71.02 dBm across the 2.5 MHz channel, and a busy check silences this device’s narrowband radio for the rest of the ranging block.',
+      uwbNbLbts: { auto: 'auto — on for channels ≥ 50', on: 'always on', off: 'off' },
+      uwbReport: 'Report mode',
+      uwbReportHint: 'who sends the narrowband measurement report at the end of a pair round: the responder in the first report slot, the initiator in the second, or both (4ab draft 15-22/0381r5 Table 1.1.4.1). Only a side that receives a report holds all three of the round trip, the reply time and the clock ratio, so only it computes a range.',
+      uwbReports: {
+        responder: 'responder reports — the initiator ranges',
+        initiator: 'initiator reports — the responder ranges',
+        bi: 'both report',
+      },
+      uwbMmsSsOnly: 'MMS ranges single-sided and corrects it with the clock ratio the fragment train itself measures — a millisecond-long ruler leaves nothing for a double-sided round to cancel, so there is no MMS DS-TWR to pick',
+      uwbMmsDerived: (rsfUs, fragDbm, slots, roundMs) =>
+        `RSF ${rsfUs} µs · fragment ${fragDbm} dBm · round ${slots} slots · ${roundMs} ms`,
     },
     inspector: {
       waiting: 'waiting for simulation…', bssTotals: 'BSS totals — click a node or lane for detail',
@@ -884,10 +937,10 @@ export const STRINGS: Record<Lang, Strings> = {
       uwbSessionInUse: '场景中还有 UWB 设备时不能删除该会话；请先删除这些设备',
       uwbMethod: '测距方式', uwbMethodHint: 'SS-TWR（单边双向测距）：每个锚点只需一次轮询与一次响应，帧数减半，但两台设备之间的时钟偏差会原样进入测距结果。DS-TWR 增加终结帧与报告帧，可将其抵消。',
       uwbMethods: { ss: 'SS-TWR（单边双向）', ds: 'DS-TWR（双边双向）' },
-      uwbMode: '测距模式', uwbModeHint: '双向测距为每个锚点测出一个距离，由标签自己解算位置。两种单向模式改为测量到达时间差：DL-TDoA 由锚点跑完整轮，全程不发射的标签据此自行定位；UL-TDoA 则由标签发一帧闪发，共享同一时基的锚点替它定位。两者都需要四个锚点，且必须是时间调度的会话。',
+      uwbMode: '测距模式', uwbModeHint: '双向测距为每个锚点测出一个距离，由标签自己解算位置。两种单向模式改为测量到达时间差：DL-TDoA 由锚点跑完整轮，全程不发射的标签据此自行定位；UL-TDoA 则由标签发一帧闪发，共享同一时基的锚点替它定位——这两种模式都需要四个锚点才能凑出三个时间差。窄带辅助 MMS 又回到双向测距，但它是成对进行的：一个轮次只含一个标签和一个锚点，控制交互与测量报告都走窄带电台，而测距信号是一列片段。它对锚点数量没有下限要求，要求的是测距块能装下所有配对，即“标签数 × 锚点数 ≤ 每块轮次数”。以上三种模式都必须是时间调度的会话。',
       uwbModes: {
         twr: '双向测距（TWR）', 'dl-tdoa': '单向·下行（DL-TDoA）', 'ul-tdoa': '单向·上行（UL-TDoA）',
-        mms: '窄带辅助多毫秒（802.15.4ab）',
+        mms: '窄带辅助 MMS（802.15.4ab 草案）',
       },
       uwbClockCorrection: '标签时钟校正', uwbClockCorrectionHint: 'DL-TDoA：只听不发的标签先用本轮“轮询帧→终结帧”这段间隔量出自己晶振的快慢，再去做到达时间差。关掉它就能看到 ±20 ppm 的后果：误差为 20 ppm 乘以从轮询帧到被计时的那一帧之间的间隔——本系列课程那种五时隙轮次里最长 6 ms，即 36 米；若有九个锚点，最后一个应答帧在轮询帧后 16 ms，则是 96 米。',
       uwbDlOnly: '只有 DL-TDoA 用得上：这是那个“只听”的标签自己做的校正，其他模式里没有只听的标签',
@@ -910,6 +963,39 @@ export const STRINGS: Record<Lang, Strings> = {
       uwbContentionSlots: '响应时隙数', uwbContentionSlotsHint: '轮询帧通告的响应窗口长度（RCPS IE）：每个锚点在这些时隙中均匀抽取一个。若有 N 个锚点、S 个时隙，则某个锚点独占其时隙的概率为 (1 − 1/S)^(N−1)。',
       uwbMaxAttempts: '尝试次数', uwbMaxAttemptsHint: '轮询帧通告的重试预算（RCMA IE）：连续这么多轮都没有被标签测到之后，锚点会空过一轮再重新抽取时隙',
       uwbPlan: (slots, rounds) => `每轮 ${slots} 个时隙 · 每块 ${rounds} 轮`,
+      uwbMms: 'MMS 片段序列',
+      uwbMmsHint: '802.15.4ab 草案中的多毫秒数据包：测距信号不再是一次突发，而是一列相隔一毫秒发出的短片段。每个片段都可以把整整一毫秒的 37 nJ 能量额度（法规）花在自己那段短得多的长度里，而 X 个片段相干合并又能再换来 10·log10(X) dB。本节所有内容都是对 TG4ab 提案文稿的转述——已进入投票的 D5.0 在编号与细节上可能有所不同。',
+      uwbMmsSet: '参数集',
+      uwbMmsSetHint: '草案规定的必选工作参数集（4ab 草案 15-23/0502r3，拟编为 16.2.11.4）：十组纯 RSF 序列（各 16 个片段）和七组混合序列。选中某一组会写入下面五个物理层字段并把 Z 置为 1；改动其中任何一个，下拉框就会显示“自定义”。会话默认值取自草案的测距周期默认配置而非某个参数集，因此一打开就是“自定义”。',
+      uwbMmsCustom: '自定义',
+      uwbRsfs: 'RSF 个数（X）',
+      uwbRsfsHint: '一台设备发送多少个测距序列片段，每毫秒一个。测距时间戳落在第一个片段上；X = 0 时改落到第一个 RIF 上。可取 0、1、2、4、8、16（4ab 草案 15-22/0381r5 Table 1.6.3.2），其中 16 个片段相当于 12.04 dB 的合并增益。',
+      uwbRifs: 'RIF 个数（Y）',
+      uwbRifsHint: 'RSF 之后跟随多少个完整性片段。每个片段就是一段 STS，这一列片段只决定测距结果的完整性标志，别无他用——Y = 0 即不做完整性校验。可取 0、1、2、4、8（4ab 草案 15-22/0381r5 Table 1.6.3.2）。',
+      uwbNMsr: 'N_MSR',
+      uwbNMsrHint: '一个 RSF 内 MMRS 符号的重复次数。在 499.2 Mchip/s 下，一个 RSF 为 N_MSR × 4 ×（128 + 2 × 间隔）个码片（4ab 草案 15-23/0100r2 §2.3.2），因此它决定片段的长度——又因为一毫秒的能量要摊在这段长度上，它也决定了片段有多“轻”。',
+      uwbGap: 'MMRS 间隔',
+      uwbGapHint: 'MMRS 符号在其长度为 128 的互补序列两半之间插入的零的个数，取 0…64（4ab 草案 15-23/0100r2 §2.3.2）。必选参数集使用 25 到 64，会话默认值为 64。',
+      uwbStsLen: 'STS 长度',
+      uwbStsLenHint: 'RIF 中加扰时间戳序列的长度，以 512 个码片为单位（STS 见标准 §16.2.9，单位见 4ab 草案 15-23/0100r2 §2.3.2）。64 个单位即一个 65.64 µs 的片段。',
+      uwbGapMs: '空闲毫秒（Z）',
+      uwbGapMsHint: '草案在测距序列与完整性序列之间留出的间隔，好让接收机先处理完前者再开始后者。Z = 1 时第一个 RIF 紧接最后一个 RSF 的下一毫秒发出；Z = 2 时两者之间空出一整毫秒（4ab 草案 15-23/0100r2 §2.3.2）。',
+      uwbNbChannels: '窄带信道',
+      uwbNbChannelsHint: '本会话可用的窄带控制信道，用逗号分隔。全部共 250 个，间隔 2.5 MHz：0–49 位于 UNII-3，自 5726.25 MHz 起；50–249 位于 UNII-5，自 5926.25 MHz 起（4ab 草案 15-22/0381r5 §1.4.1；中心频率公式本身是依据频段边界反推出来的——模型取值）。每个测距块从列表中挑一个。按回车或移开焦点即生效。',
+      uwbNbChannelsBad: '窄带信道白名单需要 1…250 个互不相同的信道，取值范围 0…249',
+      uwbNbLbt: '先听后说（LBT）',
+      uwbNbLbtHint: '窄带发送前是否先监听 9 µs：草案规定 UNII-5（信道号 ≥ 50）必须执行、UNII-3 可选，“自动”即按此判断（4ab 草案 15-22/0381r5 §1.4.2，援引 ETSI EN 303 687 的基于帧设备规则）。“忙”的判据是 2.5 MHz 信道内的外部功率达到或超过 −71.02 dBm；一旦判忙，本设备的窄带电台在该测距块剩余时间内不再发送。',
+      uwbNbLbts: { auto: '自动——信道号 ≥ 50 时开启', on: '始终开启', off: '关闭' },
+      uwbReport: '报告方式',
+      uwbReportHint: '成对轮次结束时由哪一方发送窄带测量报告：响应方用第一个报告时隙、发起方用第二个，或者两方都发（4ab 草案 15-22/0381r5 Table 1.1.4.1）。只有收到报告的一方才同时握有往返时间、回复时间和时钟比率，也只有它才算得出距离。',
+      uwbReports: {
+        responder: '响应方发报告——由发起方测距',
+        initiator: '发起方发报告——由响应方测距',
+        bi: '双方都发报告',
+      },
+      uwbMmsSsOnly: 'MMS 采用单边测距，再用片段序列自己量出的时钟比率加以修正——有了这把长达毫秒的“尺子”，双边测距已无可抵消之物，因此没有 MMS 版的 DS-TWR 可选',
+      uwbMmsDerived: (rsfUs, fragDbm, slots, roundMs) =>
+        `RSF ${rsfUs} µs · 片段 ${fragDbm} dBm · 每轮 ${slots} 个时隙 · ${roundMs} ms`,
     },
     inspector: {
       waiting: '等待仿真…', bssTotals: 'BSS 总览 — 点击节点或泳道查看详情',

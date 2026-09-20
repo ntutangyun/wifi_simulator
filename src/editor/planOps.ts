@@ -6,6 +6,7 @@ import { DEFAULT_UWB_SESSION, ScenarioSchema, type NodeCfg, type Opening, type R
 import { GEN_FEATURES, defaultFeatures, type FeatureFlag } from '../model/caps'
 import type { Generation } from '../model/types'
 import { STATION_PRESETS, presetNode } from '../model/presets'
+import { NB_CHANNELS } from '../uwb/nb'
 import { UWB_TX_POWER_DBM, uwbBandOverlap } from '../uwb/phy'
 import { clampField } from '../ui/inputs'
 
@@ -314,6 +315,30 @@ export function uwbSessionIssue(sc: Scenario): string | null {
  * from this module.
  */
 export { clampField } from '../ui/inputs'
+
+/**
+ * The MMS session's narrowband allow list, typed as text: `"100, 150, 200, 210"` becomes
+ * `[100, 150, 200, 210]`, and anything the schema would refuse becomes `null` so the field can
+ * keep the last list that worked instead of committing one the run would reject.
+ *
+ * The rules are the schema's own (`mode: 'mms'`, `path: ['uwb']`, 4ab draft 15-22/0381r5 §1.5.2):
+ * 1…250 entries, each a whole channel number 0…249, no repeats. Parsing is deliberately strict —
+ * `Number(' 3 ')` is 3 but `Number('')` is 0 and `Number('1e2')` is 100, and a channel the user
+ * never typed must not appear in the list because the field was lenient.
+ */
+export function parseNbChannels(raw: string): number[] | null {
+  const parts = raw.split(',').map((s) => s.trim())
+  if (parts.length < 1 || parts.length > NB_CHANNELS) return null
+  const out: number[] = []
+  for (const part of parts) {
+    if (!/^\d{1,3}$/.test(part)) return null
+    const n = Number(part)
+    if (n < 0 || n >= NB_CHANNELS) return null
+    if (out.includes(n)) return null
+    out.push(n)
+  }
+  return out
+}
 
 /** The 6 GHz channel field: clamp to the schema's [5955, 7115] range, then snap to the
  * nearest 5 MHz step the schema also demands. */

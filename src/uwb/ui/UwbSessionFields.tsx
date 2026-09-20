@@ -6,14 +6,28 @@
  * the schema's own complaint when the numbers do not add up.
  */
 import { useState } from 'react'
-import type { UwbMode, UwbSessionCfg } from '../../model/scenario'
+import type { NbLbt, NbReportMode, UwbMmsCfg, UwbMode, UwbSessionCfg } from '../../model/scenario'
 import { roundPlan } from '../session'
 import { rstuNs } from '../phy'
+import {
+  MMS_SETS, N_MSR_SET, RIF_COUNT_SET, RSF_COUNT_SET, STS_LEN_SET,
+  mmsFragmentDbm, mmsLayout, mmsSet, rsfNs, type MmsPhy, type MmsSetId,
+} from '../mms'
+// The allow-list parser lives beside the editor's other scenario-field parsers (the 6 GHz centre
+// channel is its sibling) because its rules are the schema's, not the panel's; it is pure and
+// pulls in no React, so reaching for it from here costs this panel nothing.
+import { parseNbChannels } from '../../editor/planOps'
 import { useStrings } from '../../ui/i18n'
 import { clampField } from '../../ui/inputs'
 
 const label: React.CSSProperties = { display: 'block', marginBottom: 4 }
 const suffix: React.CSSProperties = { color: 'var(--dim)', fontSize: 11, marginLeft: 4 }
+const note: React.CSSProperties = { color: 'var(--dim)', fontSize: 11 }
+/** How this section shows a rule the plan breaks — the schema's own complaint, in red. */
+const issueStyle: React.CSSProperties = { color: '#f87171', fontSize: 11, marginTop: 3, lineHeight: 1.45 }
+
+/** Z, the idle milliseconds between the last RSF and the first RIF. 4ab draft 15-23/0100r2 §2.3.2 */
+const GAP_MS_SET = [1, 2] as const
 
 const ms = (rstu: number): string => (rstuNs(rstu) / 1e6).toFixed(rstu < 3000 ? 3 : 1)
 
@@ -43,6 +57,34 @@ export function uwbMethodPatch(method: UwbSessionCfg['method']): Partial<UwbSess
   return method === 'ds' ? { method, schedule: 'time' } : { method }
 }
 
+/** The five PHY fields a mandatory parameter set fixes — what the set select compares and writes.
+ * Z is deliberately not one of them: the sets are PHY shapes, and the draft's cycle carries its
+ * own idle millisecond. 4ab draft 15-23/0502r3 (proposed 16.2.11.4) */
+type MmsSetFields = Pick<MmsPhy, 'rsfs' | 'rifs' | 'nMsr' | 'gap' | 'stsLen'>
+
+/**
+ * Which mandatory set the current fragment parameters are, or null for "custom".
+ *
+ * The select stores nothing of its own: a stored id and five editable fields would be two
+ * versions of the same fact, and editing one field would leave the select claiming a set the
+ * session no longer is. Deriving it every render makes that state unrepresentable.
+ */
+export function mmsSetIdOf(phy: MmsPhy): MmsSetId | null {
+  for (const id of Object.keys(MMS_SETS) as MmsSetId[]) {
+    const s = MMS_SETS[id]
+    if (s.rsfs === phy.rsfs && s.rifs === phy.rifs && s.nMsr === phy.nMsr
+      && s.gap === phy.gap && s.stsLen === phy.stsLen) return id
+  }
+  return null
+}
+
+/** What picking a mandatory set writes: its five PHY fields, plus the one idle millisecond the
+ * sets are specified against (Z = 1). The narrowband settings are the user's and stay put. */
+export function mmsSetPatch(id: MmsSetId): MmsSetFields & Pick<MmsPhy, 'gapMs'> {
+  const { rsfs, rifs, nMsr, gap, stsLen } = mmsSet(id)
+  return { rsfs, rifs, nMsr, gap, stsLen, gapMs: 1 }
+}
+
 /**
  * `issue` is what `uwbSessionIssue` says about the scenario this session belongs
  * to, and `onRemove` drops the session — offered because an imported file may
@@ -68,15 +110,19 @@ export function UwbSessionFields(
   // listening tag of DL-TDoA and the sync error to the shared timebase of UL-TDoA, so each field
   // is live in exactly one mode and says why it is not in the others.
   const oneWay = session.mode === 'twr' ? null : session.mode
+  // The MMS half of the session, or null outside MMS mode: every field below it reads only
+  // `session.mms`, and a two-way or one-way session carries those settings untouched.
+  const mms = session.mode === 'mms' ? session.mms : null
+  const patchMms = (patch: Partial<UwbMmsCfg>): void => onChange({ mms: { ...session.mms, ...patch } })
   return (
     <div>
       <div style={{ color: 'var(--dim)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
         {E.uwbSession}
         <span style={{ marginLeft: 'auto', fontSize: 11 }}>{E.uwbCounts(anchors, tags)}</span>
       </div>
-      <label style={label} title={E.uwbMethodHint}>
+      <label style={label} title={mms ? E.uwbMmsSsOnly : E.uwbMethodHint}>
         {E.uwbMethod}{' '}
-        <select value={session.method}
+        <select value={session.method} disabled={mms !== null}
           onChange={(e) => onChange(uwbMethodPatch(e.target.value as UwbSessionCfg['method']))}>
           <option value="ss">{E.uwbMethods.ss}</option>
           <option value="ds">{E.uwbMethods.ds}</option>
@@ -88,6 +134,7 @@ export function UwbSessionFields(
           <option value="twr">{E.uwbModes.twr}</option>
           <option value="dl-tdoa">{E.uwbModes['dl-tdoa']}</option>
           <option value="ul-tdoa">{E.uwbModes['ul-tdoa']}</option>
+          <option value="mms">{E.uwbModes.mms}</option>
         </select>
       </label>
       <label style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 4, cursor: oneWay === 'dl-tdoa' ? 'pointer' : 'default' }}
@@ -159,11 +206,148 @@ export function UwbSessionFields(
         <input type="checkbox" checked={session.nlos} onChange={(e) => onChange({ nlos: e.target.checked })} />
         {E.uwbNlos}
       </label>
-      {plan && <div style={{ color: 'var(--dim)', fontSize: 11 }}>{E.uwbPlan(plan.slots, plan.roundsPerBlock)}</div>}
-      {orphan && <div style={{ color: 'var(--dim)', fontSize: 11 }}>{E.uwbNoNodes}</div>}
-      {issue && <div style={{ color: '#f87171', fontSize: 11, marginTop: 3, lineHeight: 1.45 }}>{issue}</div>}
+      {mms && <MmsFields mms={mms} slotRstu={session.slotRstu} onChange={patchMms} />}
+      {plan && <div style={note}>{E.uwbPlan(plan.slots, plan.roundsPerBlock)}</div>}
+      {orphan && <div style={note}>{E.uwbNoNodes}</div>}
+      {issue && <div style={issueStyle}>{issue}</div>}
       <button style={{ marginTop: 5 }} disabled={!orphan} title={orphan ? E.uwbRemoveSessionHint : E.uwbSessionInUse}
         onClick={onRemove}>{E.uwbRemoveSession}</button>
+    </div>
+  )
+}
+
+/**
+ * The `mode: 'mms'` section: the shape of one device's fragment train and the narrowband radio
+ * its control plane runs on (IEEE P802.15.4ab draft).
+ *
+ * Everything but the MMRS gap is a select over the set of legal values `src/uwb/mms.ts` exports,
+ * so a value the schema's literal unions reject cannot be typed in the first place; the gap is a
+ * plain 0…64 integer and is clamped. The read-only line at the bottom is the consequence of the
+ * fields above it — what the fragment actually is, how loud it may be, and how long the pair
+ * round it builds runs — because none of that is visible in the parameters themselves.
+ */
+function MmsFields(
+  { mms, slotRstu, onChange }:
+  { mms: UwbMmsCfg; slotRstu: number; onChange: (patch: Partial<UwbMmsCfg>) => void },
+) {
+  const E = useStrings().editor
+  const setId = mmsSetIdOf(mms)
+  // The RSF the fragment parameters describe, whether or not this train carries one: its length
+  // is what the millisecond's energy is spread over, and so what sets the fragment's power.
+  const fragNs = rsfNs(mms.nMsr, mms.gap)
+  const layout = mmsLayout(mms)
+  return (
+    <div style={{ marginTop: 6, paddingTop: 5, borderTop: '1px solid var(--border)' }}>
+      <div style={{ color: 'var(--dim)', marginBottom: 4 }} title={E.uwbMmsHint}>{E.uwbMms}</div>
+      <label style={label} title={E.uwbMmsSetHint}>
+        {E.uwbMmsSet}{' '}
+        <select value={setId ?? 'custom'}
+          onChange={(e) => {
+            // "custom" is derived, never chosen: picking it would have no fields to write.
+            if (e.target.value !== 'custom') onChange(mmsSetPatch(e.target.value as MmsSetId))
+          }}>
+          <option value="custom">{E.uwbMmsCustom}</option>
+          {(Object.keys(MMS_SETS) as MmsSetId[]).map((id) => <option key={id} value={id}>{id}</option>)}
+        </select>
+      </label>
+      <label style={label} title={E.uwbRsfsHint}>
+        {E.uwbRsfs}{' '}
+        <NumSelect value={mms.rsfs} options={RSF_COUNT_SET} onPick={(rsfs) => onChange({ rsfs })} />
+      </label>
+      <label style={label} title={E.uwbRifsHint}>
+        {E.uwbRifs}{' '}
+        <NumSelect value={mms.rifs} options={RIF_COUNT_SET} onPick={(rifs) => onChange({ rifs })} />
+      </label>
+      <label style={label} title={E.uwbNMsrHint}>
+        {E.uwbNMsr}{' '}
+        <NumSelect value={mms.nMsr} options={N_MSR_SET} onPick={(nMsr) => onChange({ nMsr })} />
+      </label>
+      <label style={label} title={E.uwbGapHint}>
+        {E.uwbGap}{' '}
+        <input type="number" min={0} max={64} step={1} value={mms.gap} style={{ width: 62 }}
+          onChange={(e) => onChange({ gap: clampField(e.target.value, 0, 64, true) })} />
+      </label>
+      <label style={label} title={E.uwbStsLenHint}>
+        {E.uwbStsLen}{' '}
+        <NumSelect value={mms.stsLen} options={STS_LEN_SET} onPick={(stsLen) => onChange({ stsLen })} />
+        <span style={suffix}>× 512 chips</span>
+      </label>
+      <label style={label} title={E.uwbGapMsHint}>
+        {E.uwbGapMs}{' '}
+        <NumSelect value={mms.gapMs} options={GAP_MS_SET} onPick={(gapMs) => onChange({ gapMs })} />
+      </label>
+      <NbChannelsInput value={mms.nbChannels} onCommit={(nbChannels) => onChange({ nbChannels })} />
+      <label style={label} title={E.uwbNbLbtHint}>
+        {E.uwbNbLbt}{' '}
+        <select value={mms.nbLbt} onChange={(e) => onChange({ nbLbt: e.target.value as NbLbt })}>
+          <option value="auto">{E.uwbNbLbts.auto}</option>
+          <option value="on">{E.uwbNbLbts.on}</option>
+          <option value="off">{E.uwbNbLbts.off}</option>
+        </select>
+      </label>
+      <label style={label} title={E.uwbReportHint}>
+        {E.uwbReport}{' '}
+        <select value={mms.report} onChange={(e) => onChange({ report: e.target.value as NbReportMode })}>
+          <option value="responder">{E.uwbReports.responder}</option>
+          <option value="initiator">{E.uwbReports.initiator}</option>
+          <option value="bi">{E.uwbReports.bi}</option>
+        </select>
+      </label>
+      <div style={note}>
+        {E.uwbMmsDerived(
+          (fragNs / 1000).toFixed(2),
+          mmsFragmentDbm(fragNs).toFixed(2),
+          layout.slots,
+          ms(layout.slots * slotRstu),
+        )}
+      </div>
+    </div>
+  )
+}
+
+/** A select over one of `mms.ts`'s sets of legal values: the option list *is* the type, so the
+ * editor cannot produce a number the schema's literal union rejects. */
+function NumSelect<T extends number>(
+  { value, options, onPick }: { value: T; options: readonly T[]; onPick: (v: T) => void },
+) {
+  return (
+    <select value={value} onChange={(e) => onPick(Number(e.target.value) as T)}>
+      {options.map((o) => <option key={o} value={o}>{o}</option>)}
+    </select>
+  )
+}
+
+/**
+ * The narrowband allow list, typed as comma-separated channel numbers and committed on blur or
+ * Enter. A list the schema would refuse is not committed at all: the session keeps the last one
+ * that worked and the field says, in the schema's own words, what a list has to be. Committing
+ * the bad list instead would hand the user a plan that fails on run, with the fix one field away.
+ */
+function NbChannelsInput({ value, onCommit }: { value: number[]; onCommit: (v: number[]) => void }) {
+  const E = useStrings().editor
+  const [draft, setDraft] = useState<string | null>(null)
+  const [bad, setBad] = useState(false)
+  const commit = (): void => {
+    if (draft === null) return
+    const parsed = parseNbChannels(draft)
+    if (parsed === null) {
+      setBad(true) // the draft stays on screen: it is what the user has to fix
+      return
+    }
+    setBad(false)
+    setDraft(null)
+    onCommit(parsed)
+  }
+  return (
+    <div style={label}>
+      <label title={E.uwbNbChannelsHint}>
+        {E.uwbNbChannels}{' '}
+        <input type="text" style={{ width: 132 }} value={draft ?? value.join(', ')}
+          onChange={(e) => { setDraft(e.target.value); setBad(false) }}
+          onBlur={commit}
+          onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }} />
+      </label>
+      {bad && <div style={issueStyle}>{E.uwbNbChannelsBad}</div>}
     </div>
   )
 }

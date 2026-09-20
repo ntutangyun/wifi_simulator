@@ -226,8 +226,12 @@ function EditorGuideEn() {
         <b>two-way ranging</b> measures a distance per anchor, same as today. The two one-way
         modes measure a time difference instead: <b>DL-TDoA</b> has the anchors run the round
         while a tag that never transmits positions itself from what it hears; <b>UL-TDoA</b> has
-        the tag send one blink and the anchors, sharing a timebase, position it. Both need four
-        anchors and take the schedule to time-scheduled with them.
+        the tag send one blink and the anchors, sharing a timebase, position it — both need four
+        anchors, for three differences. <b>Narrowband-assisted MMS</b> (802.15.4ab draft) measures
+        a two-way range again, but pairwise: one round holds one tag and one anchor, so it needs no
+        minimum anchor count at all — what it needs is a block long enough for every pair
+        (tags × anchors ≤ rounds per block). All three take the schedule to time-scheduled with
+        them, and all three clear the AoA checkbox.
       </D>
       <D t="Angle of arrival (AoA)">
         ticked, every anchor also measures the phase difference between its two antennas on each
@@ -286,6 +290,68 @@ function EditorGuideEn() {
         more tags than the block fits, more than nine anchors — is reported in red under the
         section instead of failing on run.
       </p>
+
+      <h4 style={h}>MMS train (802.15.4ab draft)</h4>
+      <p style={p}>
+        These fields appear only under the <i>narrowband-assisted MMS</i> ranging mode, and they
+        describe two things at once: the shape of the fragment train each device sends, and the
+        narrowband radio its control exchange and its report ride on. Everything here is
+        paraphrased from the P802.15.4ab draft contributions — the balloted D5.0 may differ. While
+        the mode is on, the <b>Method</b> select is greyed out: MMS ranges single-sided and corrects
+        it with the clock ratio the train itself measures, so there is no double-sided round to pick.
+        The read-only line at the bottom of the section is the consequence of the fields above it —
+        the RSF&rsquo;s length in µs, the power it may radiate, and how long the pair round runs.
+      </p>
+      <D t="Parameter set">
+        the 17 mandatory operating parameter sets of the draft (15-23/0502r3): ten RSF-only trains
+        and seven mixed. Picking one writes the five PHY fields below it and Z = 1; touch any of
+        them afterwards and the select reads <i>custom</i>. It stores nothing of its own — it is
+        derived from the fields every time, so it can never claim a set the session is not. The
+        session default is the draft&rsquo;s own cycle default rather than a set, so a fresh MMS
+        session opens on <i>custom</i>.
+      </D>
+      <D t="RSFs (X) / RIFs (Y)">
+        how many <b>RSF</b> ranging fragments and <b>RIF</b> integrity fragments one device sends,
+        one per millisecond. The RSFs carry the ranging timestamp and their number is the whole
+        point of the mode: X fragments combine for 10·log10(X) dB, so 16 of them are 12.04 dB of
+        reach the 4z modes cannot have. The RIFs carry an STS segment each and decide the
+        range&rsquo;s integrity flag and nothing else; Y = 0 turns integrity off, and X = 0 moves
+        the timestamp onto the first RIF.
+      </D>
+      <D t="N_MSR / MMRS gap / STS length">
+        the fragment geometry. An RSF is <code>N_MSR</code> repetitions of one MMRS symbol, and an
+        MMRS symbol is a length-128 complementary set with <i>gap</i> zeros in the middle, spread
+        by four: N_MSR × 4 × (128 + 2 × gap) chips at 499.2 Mchip/s. A RIF is <code>stsLen</code>{' '}
+        × 512 chips instead. Longer is not better here — the millisecond&rsquo;s 37 nJ energy
+        allowance is spread over whatever length you build, so a longer fragment is a quieter one.
+      </D>
+      <D t="Idle ms (Z)">
+        the gap between the ranging train and the integrity train, so a receiver can finish with
+        the first before the second starts. Z = 1 lets the first RIF follow the millisecond after
+        the last RSF; Z = 2 leaves one millisecond empty between them.
+      </D>
+      <D t="NB channels">
+        the narrowband control channels this session may use, typed as a comma-separated list and
+        applied on Enter or on leaving the field. There are 250 of them, 2.5 MHz apart, 0–49 in
+        UNII-3 and 50–249 in UNII-5, and each ranging block picks one from the list. A list the
+        schema would refuse — empty, repeated, out of range, or not a list of whole numbers — is
+        not saved at all: the session keeps the last one that worked and the field says in red what
+        a <code>nbChannels</code> list has to be. A UNII-3 list never overlaps a 6 GHz Wi-Fi
+        channel, so it never couples to the Wi-Fi side; a UNII-5 one may.
+      </D>
+      <D t="Listen before talk">
+        whether a narrowband transmission assesses the channel for 9 µs first. The draft makes it
+        mandatory in UNII-5 (channels ≥ 50) and optional in UNII-3, which is what <i>auto</i>{' '}
+        follows; <b>LBT</b> busy — foreign power at or above −71.02 dBm across the 2.5 MHz channel —
+        silences this device&rsquo;s narrowband radio for the rest of the ranging block, which costs
+        it every round it owned there. Turning it off is how a lesson shows what the rule is for.
+      </D>
+      <D t="Report mode">
+        who sends the narrowband measurement report at the end of a pair round: the responder in
+        the first report slot, the initiator in the second, or both. Only a side that receives a
+        report holds the round trip, the reply time and the clock ratio together, so only it
+        produces a range — which is what decides whose lane the range shows up on.
+      </D>
 
       <h4 style={h}>Wall properties</h4>
       <D t="Material">
@@ -494,8 +560,10 @@ function EditorGuideZh() {
       <D t="测距模式">
         <b>双向测距</b>与今天一样，为每个锚点测出一个距离。两种单向模式改为测量到达时间差：
         <b>DL-TDoA</b> 由锚点跑完整轮，全程不发射的标签靠听到的内容自行定位；<b>UL-TDoA</b>
-        由标签发一次闪发，由共享同一时基的锚点替它定位。两者都需要四个锚点，切换时也会把
-        调度方式一并改回时间调度。
+        由标签发一次闪发，由共享同一时基的锚点替它定位——这两种都需要四个锚点才能凑出三个时间差。
+        <b>窄带辅助 MMS</b>（802.15.4ab 草案）又回到双向测距，但它是成对进行的：一个轮次只含一个标签
+        和一个锚点，因此对锚点数量没有任何下限要求——它要求的是测距块足够长，能装下所有配对
+        （标签数 × 锚点数 ≤ 每块轮次数）。这三种模式切换时都会把调度方式改回时间调度，并清除 AoA 勾选。
       </D>
       <D t="到达角（AoA）">
         勾选后，每个锚点在收到标签的每一帧时，都额外测量两根天线之间的相位差，并换算成方位角——
@@ -545,6 +613,55 @@ function EditorGuideZh() {
         若某个参数排不进这个时间表——时隙装不下该轮次最长的一帧、标签数超过一个块能容纳的轮次数、
         或锚点超过九个——本节下方会用红字给出提示，而不是等到开始仿真时才报错。
       </p>
+
+      <h4 style={h}>MMS 片段序列（802.15.4ab 草案）</h4>
+      <p style={p}>
+        这些字段只在<i>窄带辅助 MMS</i> 测距模式下出现，它们同时描述两件事：每台设备发出的片段序列的
+        形状，以及承载其控制交互与测量报告的那套窄带电台。此处全部内容都是对 P802.15.4ab 草案提案文稿的
+        转述——已进入投票的 D5.0 可能有所不同。该模式开启时，<b>测距方式</b>下拉框会置灰：MMS 采用单边
+        测距，并用片段序列自己量出的时钟比率加以修正，因此没有双边轮次可选。本节最下方那行只读文字，
+        是上面各字段的直接后果——RSF 的长度（µs）、它可以辐射的功率，以及一个配对轮次要跑多久。
+      </p>
+      <D t="参数集">
+        草案规定的 17 组必选工作参数集（15-23/0502r3）：十组纯 RSF、七组混合。选中其中一组会写入它下面
+        五个物理层字段并把 Z 置为 1；此后只要改动其中任意一个，下拉框就会显示<i>自定义</i>。它本身不保存
+        任何状态——每次渲染都从字段反推得出，因此绝不会声称会话是某个它其实已经不是的参数集。会话默认值
+        取自草案的测距周期默认配置而非某个参数集，所以新建的 MMS 会话一打开就是<i>自定义</i>。
+      </D>
+      <D t="RSF 个数（X）/ RIF 个数（Y）">
+        一台设备发送多少个 <b>RSF</b> 测距片段和多少个 <b>RIF</b> 完整性片段，每毫秒一个。测距时间戳由
+        RSF 承载，而它的个数正是这个模式的意义所在：X 个片段合并可得 10·log10(X) dB，因此 16 个片段就是
+        12.04 dB 的覆盖增益，这是 4z 各模式拿不到的。RIF 每个承载一段 STS，只决定测距结果的完整性标志，
+        别无他用；Y = 0 即关闭完整性校验，X = 0 则把时间戳挪到第一个 RIF 上。
+      </D>
+      <D t="N_MSR / MMRS 间隔 / STS 长度">
+        片段的几何形状。一个 RSF 是一个 MMRS 符号重复 <code>N_MSR</code> 次，而 MMRS 符号是一段长度 128
+        的互补序列，中间插入<i>间隔</i>个零，再按四倍扩频：在 499.2 Mchip/s 下共 N_MSR × 4 ×（128 + 2 ×
+        间隔）个码片。RIF 则改为 <code>stsLen</code> × 512 个码片。这里并不是越长越好——一毫秒 37 nJ 的
+        能量额度要摊在你构造出的这段长度上，片段越长就越“轻”。
+      </D>
+      <D t="空闲毫秒（Z）">
+        测距序列与完整性序列之间的间隔，好让接收机先处理完前者再开始后者。Z = 1 时第一个 RIF 紧接最后一个
+        RSF 的下一毫秒发出；Z = 2 时两者之间空出一整毫秒。
+      </D>
+      <D t="窄带信道">
+        本会话可用的窄带控制信道，以逗号分隔的形式键入，按回车或移开焦点后生效。全部共 250 个，间隔
+        2.5 MHz，0–49 在 UNII-3、50–249 在 UNII-5，每个测距块从列表中挑一个。凡是校验规则会拒绝的列表
+        ——空的、有重复的、超出范围的，或者不是整数列表——都不会被保存：会话保留上一份可用的列表，
+        字段下方则用红字说明一份 <code>nbChannels</code> 列表必须是什么样子。纯 UNII-3 的列表与任何
+        6 GHz Wi-Fi 信道都不重叠，因此不会与 Wi-Fi 侧发生耦合；UNII-5 的列表则可能会。
+      </D>
+      <D t="先听后说（LBT）">
+        窄带发送前是否先对信道评估 9 µs。草案规定 UNII-5（信道号 ≥ 50）必须执行、UNII-3 可选，
+        这正是<i>自动</i>一档的依据；一旦 <b>LBT</b> 判忙——2.5 MHz 信道内的外部功率达到或超过
+        −71.02 dBm——本设备的窄带电台在该测距块剩余时间内不再发送，也就丢掉了它在这块里的全部轮次。
+        把它关掉，正是课程用来展示这条规则意义何在的手段。
+      </D>
+      <D t="报告方式">
+        成对轮次结束时由哪一方发送窄带测量报告：响应方用第一个报告时隙、发起方用第二个，或者两方都发。
+        只有收到报告的一方才同时握有往返时间、回复时间和时钟比率，也只有它才产出距离——这也就决定了
+        测距结果会出现在谁的泳道上。
+      </D>
 
       <h4 style={h}>墙体属性</h4>
       <D t="材质">

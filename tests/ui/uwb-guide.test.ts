@@ -11,8 +11,16 @@ import { describe, it, expect } from 'vitest'
 import { CCA_ED_DBM } from '../../src/engine/phy'
 import { DEFAULT_UWB_SESSION } from '../../src/model/scenario'
 import { GuideEn, GuideZh } from '../../src/ui/Guide'
+import { STRINGS } from '../../src/ui/i18n'
 import { GLOSSARY } from '../../src/ui/glossary'
 import { AOA_SIGMA_CLAMP_DEG, AOA_SIGMA_PHI_RAD, aoaSigmaDeg, antennaSpacingM } from '../../src/uwb/aoa'
+import {
+  MMS_COMBINE_MAX_DB, MMS_SETS, UWB_MS_BUDGET_NJ, mmsFragmentDbm, mmsLayout, rifNs, rsfNs,
+} from '../../src/uwb/mms'
+import {
+  NB_CHANNELS, NB_LBT_CCA_US, NB_LBT_EDT_DBM_PER_MHZ, NB_LBT_THRESHOLD_DBM, NB_POLL_BYTES,
+  NB_REPORT_BYTES, NB_RX_SENS_DBM, NB_TX_DBM, nbCenterMhz, nbPpduNs,
+} from '../../src/uwb/nb'
 import {
   COUNTER_MOD, FOM_LOS, FOM_NLOS, RCTU_NS, UWB_BAND_MHZ, UWB_BLINK_BYTES, UWB_CAPTURE_DB, UWB_MAX_ANCHORS,
   UWB_MAX_INPUT_DBM_PER_MHZ, UWB_PL_EXP, UWB_RX_SENS_DBM, UWB_SIR_MIN_DB, UWB_TX_POWER_DBM,
@@ -396,6 +404,167 @@ describe('AoA (angle of arrival, §10.29.1.1)', () => {
     expect(pdoaItem?.def.zh, 'pdoa.def.zh').toContain(`${AOA_SIGMA_PHI_RAD}`)
 
     expect(EDITOR_GUIDE, 'EditorGuide AoA checkbox').toContain(SIGMA_BORESIGHT_DEG)
+  })
+})
+
+/**
+ * Section 12 is the one section of the Guide built on an *unratified* draft, so two things are
+ * pinned that no other section needs: that the word "draft" is on the heading in both languages,
+ * and that every fragment length and LBT figure the prose quotes is the number `src/uwb/mms.ts`
+ * and `src/uwb/nb.ts` actually compute — paraphrased draft numbers rot silently otherwise.
+ */
+describe('Guide section 12 (P802.15.4ab, draft)', () => {
+  const en = renderGuide('en')
+  const zh = renderGuide('zh')
+  const us = (ns: number): string => (ns / 1000).toFixed(2)
+
+  it('renders the heading in both languages, marked as a draft', () => {
+    expect(en).toContain('12 · ')
+    expect(en).toContain('multi-millisecond')
+    expect(en).toContain('(draft)')
+    expect(zh).toContain('12 · ')
+    expect(zh).toContain('多毫秒')
+    expect(zh).toContain('草案')
+    // the mode name the editor's select shows carries the same qualifier
+    expect(STRINGS.en.editor.uwbModes.mms).toContain('802.15.4ab draft')
+    expect(STRINGS.zh.editor.uwbModes.mms).toContain('802.15.4ab 草案')
+  })
+
+  it('quotes the fragment lengths mms.ts computes, not retyped draft numbers', () => {
+    // The three published RSF lengths the draft's own table gives, plus the 64-unit RIF and the
+    // session default's RSF — each written to 2 decimals in the prose.
+    const cases: [string, number][] = [
+      ['rsf-1 (N_MSR 40, gap 33)', rsfNs(MMS_SETS['rsf-1'].nMsr, MMS_SETS['rsf-1'].gap)],
+      ['rsf-10 (N_MSR 32, gap 64)', rsfNs(MMS_SETS['rsf-10'].nMsr, MMS_SETS['rsf-10'].gap)],
+      ['mixed (N_MSR 64, gap 25)', rsfNs(MMS_SETS['mixed-1'].nMsr, MMS_SETS['mixed-1'].gap)],
+      ['RIF, 64 × 512 chips', rifNs(64)],
+      ['the session default RSF', rsfNs(DEFAULT_UWB_SESSION.mms.nMsr, DEFAULT_UWB_SESSION.mms.gap)],
+    ]
+    expect(cases.map(([, ns]) => us(ns))).toEqual(['62.18', '65.64', '91.28', '65.64', '82.05'])
+    for (const text of [en, zh, README]) {
+      for (const [what, ns] of cases) expect(text, what).toContain(`${us(ns)} µs`)
+    }
+  })
+
+  it('quotes the millisecond budget and the combining gain from the engine', () => {
+    for (const text of [en, zh, README]) {
+      expect(text).toContain(`${UWB_MS_BUDGET_NJ} nJ`)
+      expect(text).toContain('10·log10(X)')
+      expect(text).toContain(`${MMS_COMBINE_MAX_DB.toFixed(2)} dB`) // 12.04 dB, X = 16
+    }
+    // the fragment power the channel actually radiates, for the default RSF and for set rsf-1
+    const defaultDbm = mmsFragmentDbm(rsfNs(DEFAULT_UWB_SESSION.mms.nMsr, DEFAULT_UWB_SESSION.mms.gap))
+    const setDbm = mmsFragmentDbm(rsfNs(MMS_SETS['rsf-1'].nMsr, MMS_SETS['rsf-1'].gap))
+    expect([defaultDbm.toFixed(2), setDbm.toFixed(2)]).toEqual(['-3.46', '-2.25'])
+    for (const text of [en, zh]) {
+      expect(text).toContain(dbm(Number(defaultDbm.toFixed(2))))
+      expect(text).toContain(dbm(Number(setDbm.toFixed(2))))
+    }
+  })
+
+  it('quotes the narrowband PHY, the channel plan and the LBT threshold from nb.ts', () => {
+    const lbt = NB_LBT_THRESHOLD_DBM.toFixed(2) // −71.02 dBm over 2.5 MHz
+    expect(lbt).toBe('-71.02')
+    for (const text of [en, zh, README]) {
+      expect(text).toContain(`${NB_CHANNELS}`) // 250 channels
+      expect(text).toContain(`${NB_LBT_CCA_US} µs`) // the 9 µs CCA
+      expect(text).toContain(dbm(NB_LBT_EDT_DBM_PER_MHZ).replace(' dBm', ' dBm/MHz'))
+      expect(text).toContain(`${lbt.replace('-', '−')} dBm`)
+      expect(text).toContain(dbm(NB_TX_DBM)) // 10 dBm
+      expect(text).toContain(dbm(NB_RX_SENS_DBM)) // −100 dBm
+      expect(text).toContain(`${(nbPpduNs(NB_POLL_BYTES) / 1000).toFixed(0)} µs`) // 576 µs
+      expect(text).toContain(`${(nbPpduNs(NB_REPORT_BYTES) / 1000).toFixed(0)} µs`) // 608 µs
+    }
+    // the reconstructed centre formula's two anchors, in the Guide and the README
+    for (const text of [en, zh, README]) {
+      expect(text).toContain(`${nbCenterMhz(0)}`) // 5726.25
+      expect(text).toContain(`${nbCenterMhz(50)}`) // 5926.25
+    }
+  })
+
+  it('states the pairwise cycle the layout builds, with the draft slot default', () => {
+    const layout = mmsLayout(DEFAULT_UWB_SESSION.mms)
+    expect(layout.slots).toBe(28)
+    expect(layout.controlSlots + layout.rpSlots + layout.reportSlots).toBe(layout.slots)
+    for (const text of [en, README]) expect(text).toContain(`${layout.slots} slots`)
+    expect(zh).toContain(`${layout.slots} 个时隙`)
+    for (const text of [en, zh, README]) expect(text).toContain('0.5 ms')
+    // the two coexistence radii the coupling model pins
+    for (const text of [en, zh]) {
+      expect(text).toContain('≈ 8.6 m')
+      expect(text).toContain('≈ 15 m')
+    }
+  })
+
+  it('names the P802.15.4ab draft documents it paraphrases, and never claims D5.0', () => {
+    for (const doc of ['0381r5', '0100r2', '0502r3', '0205r0']) {
+      expect(README, doc).toContain(doc)
+    }
+    for (const text of [en, zh, README]) expect(text).toContain('D5.0')
+    expect(README).toContain('Draft status')
+  })
+})
+
+describe('the 802.15.4ab glossary group', () => {
+  const group = GLOSSARY.find((g) => g.id === 'uwb-mms')
+
+  it('exists, titled in both languages and marked a draft', () => {
+    expect(group).toBeDefined()
+    expect(group?.title.en).toContain('802.15.4ab')
+    expect(group?.title.en).toContain('draft')
+    expect(hasCjk(group?.title.zh ?? '')).toBe(true)
+    expect(group?.title.zh).toContain('草案')
+  })
+
+  it('carries every term the MMS engine exposes', () => {
+    const terms = (group?.items ?? []).map((i) => i.term.toLowerCase())
+    for (const t of [
+      'mms', 'rsf', 'rif', 'mmrs', 'n_msr', 'nba-uwb', 'nb control channel',
+      'lbt', 'millisecond energy budget', 'coherent combining', 'train-derived clock ratio',
+    ]) {
+      expect(terms.some((x) => x.includes(t)), `missing glossary term: ${t}`).toBe(true)
+    }
+  })
+
+  it('is bilingual in every item, with real Chinese and a CJK-free English side', () => {
+    expect(group?.items.length ?? 0).toBeGreaterThanOrEqual(11)
+    for (const item of group?.items ?? []) {
+      for (const text of [item.alt.en, item.alt.zh, item.def.en, item.def.zh]) expect(text, item.term).toBeTruthy()
+      expect(hasCjk(item.alt.en), `${item.term}.alt.en`).toBe(false)
+      expect(hasCjk(item.def.en), `${item.term}.def.en`).toBe(false)
+      expect(hasCjk(item.def.zh), `${item.term}.def.zh`).toBe(true)
+      expect(item.def.zh, item.term).not.toBe(item.def.en)
+    }
+  })
+
+  it('pins its numbers to the engine, so a moved constant fails here', () => {
+    const find = (term: string) => group?.items.find((i) => i.term.toLowerCase() === term)
+    const budget = find('millisecond energy budget')
+    for (const text of [budget?.def.en, budget?.def.zh]) expect(text).toContain(`${UWB_MS_BUDGET_NJ} nJ`)
+    const combining = find('coherent combining')
+    for (const text of [combining?.def.en, combining?.def.zh]) {
+      expect(text).toContain(`${MMS_COMBINE_MAX_DB.toFixed(2)} dB`)
+    }
+    const lbt = group?.items.find((i) => i.term.toLowerCase().startsWith('lbt'))
+    for (const text of [lbt?.def.en, lbt?.def.zh]) {
+      expect(text).toContain(`${NB_LBT_THRESHOLD_DBM.toFixed(2)}`.replace('-', '−'))
+      expect(text).toContain(`${NB_LBT_CCA_US} µs`)
+    }
+    const rif = find('rif')
+    for (const text of [rif?.def.en, rif?.def.zh]) expect(text).toContain(`${(rifNs(64) / 1000).toFixed(2)} µs`)
+  })
+})
+
+describe('the EditorGuide MMS section', () => {
+  it('describes the MMS fields in both languages, with the draft qualifier', () => {
+    for (const marker of ['802.15.4ab', 'Parameter set', '参数集']) {
+      expect(EDITOR_GUIDE, marker).toContain(marker)
+    }
+    // the fields the session section adds in MMS mode
+    for (const marker of ['nbChannels', 'LBT', 'RSF', 'RIF', 'N_MSR']) {
+      expect(EDITOR_GUIDE, marker).toContain(marker)
+    }
+    expect(EDITOR_GUIDE).toContain('草案')
   })
 })
 

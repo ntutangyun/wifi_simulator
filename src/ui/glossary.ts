@@ -919,4 +919,101 @@ export const GLOSSARY: GlossaryGroup[] = [
       },
     ],
   },
+  {
+    id: 'uwb-mms',
+    title: {
+      en: 'P802.15.4ab: narrowband-assisted MMS ranging (draft)',
+      zh: 'P802.15.4ab：窄带辅助的多毫秒测距（草案）',
+    },
+    items: [
+      {
+        term: 'MMS',
+        alt: { en: 'multi-millisecond packet — 4ab draft 15-23/0100r2 §2.3.2', zh: '多毫秒数据包——4ab 草案 15-23/0100r2 §2.3.2' },
+        def: {
+          en: 'One ranging “packet” sent as a train of short fragments a millisecond apart instead of a single burst, so each fragment may spend a whole millisecond’s energy allowance inside its own much shorter length and the receiver may add the fragments up. A train is X ranging sequence fragments then Y integrity fragments, with Z idle milliseconds between them; the session mode is `mms`. Draft material throughout — the balloted D5.0 may differ.',
+          zh: '一次测距“数据包”不再是一次突发，而是一列相隔一毫秒发出的短片段：每个片段都能把整整一毫秒的能量额度花在自己那段短得多的长度里，接收机再把这些片段叠加起来。一列序列是 X 个测距序列片段接 Y 个完整性片段，中间空出 Z 个毫秒；对应的会话模式是 `mms`。全部内容均来自草案——已进入投票的 D5.0 可能有所不同。',
+        },
+      },
+      {
+        term: 'RSF',
+        alt: { en: 'ranging sequence fragment — it carries the RMARKER', zh: '测距序列片段——RMARKER 打在它上面' },
+        def: {
+          en: 'The fragment a range is timed on: N_MSR repetitions of one MMRS symbol, N_MSR·4·(128 + 2·gap) chips at 499.2 Mchip/s (4ab draft 15-23/0100r2 §2.3.2). It carries no preamble, no SFD, no PHR and no data, so its RMARKER is the peak of its very first pulse — there is no 73.269 µs SHR offset to subtract. The session default (N_MSR 40, gap 64) is 82.05 µs; the mandatory sets run from 62.18 µs to 91.28 µs.',
+          zh: '测距时刻就打在这种片段上：它是一个 MMRS 符号重复 N_MSR 次，在 499.2 Mchip/s 下共 N_MSR·4·(128 + 2·间隔) 个码片（4ab 草案 15-23/0100r2 §2.3.2）。它没有前导、没有 SFD、没有 PHR，也没有数据，因此它的 RMARKER 就是第一个脉冲的峰值——不必再减去 73.269 µs 的 SHR 偏移。会话默认值（N_MSR 40、间隔 64）为 82.05 µs；各必选参数集则从 62.18 µs 到 91.28 µs。',
+        },
+      },
+      {
+        term: 'RIF',
+        alt: { en: 'ranging integrity fragment — one STS segment', zh: '测距完整性片段——一段 STS' },
+        def: {
+          en: 'The other fragment kind: one scrambled timestamp segment of `stsLen` × 512 chips (STS: standard §16.2.9; the units 4ab draft 15-23/0100r2 §2.3.2), so the default 64 units are 65.64 µs. An RIF train is judged for detection exactly like an RSF train, but it decides only the range’s integrity flag — Y = 0 turns it off, and X = 0 moves the ranging timestamp onto the first RIF instead.',
+          zh: '另一种片段：一段加扰时间戳序列，长度为 `stsLen` × 512 个码片（STS 见标准 §16.2.9，单位见 4ab 草案 15-23/0100r2 §2.3.2），因此默认的 64 个单位即 65.64 µs。完整性序列的检出判据与测距序列完全相同，但它只决定测距结果的完整性标志——Y = 0 即关闭，而 X = 0 时测距时间戳会改落到第一个 RIF 上。',
+        },
+      },
+      {
+        term: 'MMRS',
+        alt: { en: 'the symbol an RSF repeats — 4ab draft 15-23/0100r2 §2.3.2', zh: 'RSF 反复重复的那个符号——4ab 草案 15-23/0100r2 §2.3.2' },
+        def: {
+          en: 'A length-128 complementary-set sequence split [A, G, B, G], where G is a gap of 0…64 zeros, spread by L = 4 — so one symbol is 4·(128 + 2·gap) chips. The gap is what the mandatory sets vary (25 to 64): more zeros make a longer fragment, and because the millisecond’s energy is spread over that length, a quieter one.',
+          zh: '一段长度为 128 的互补序列，按 [A, G, B, G] 切分，其中 G 是 0…64 个零的间隔，整体再按 L = 4 扩频——因此一个符号为 4·(128 + 2·间隔) 个码片。必选参数集变动的正是这个间隔（25 到 64）：零越多，片段越长；又因为一毫秒的能量要摊在这段长度上，片段也就越“轻”。',
+        },
+      },
+      {
+        term: 'N_MSR',
+        alt: { en: 'MMRS repetitions per RSF — 32, 40, 48, 64, 128 or 256', zh: '每个 RSF 内 MMRS 的重复次数——32、40、48、64、128 或 256' },
+        def: {
+          en: 'How many MMRS symbols one RSF repeats (4ab draft 15-23/0100r2 §2.3.2). It is the fragment’s length knob and therefore its correlation-gain knob; the mandatory sets use 40 and 32 for the RSF-only trains and 64 for the mixed ones. The editor offers it as a select, because the schema takes only those six values.',
+          zh: '一个 RSF 里重复多少个 MMRS 符号（4ab 草案 15-23/0100r2 §2.3.2）。它既是片段长度的旋钮，也就是相关增益的旋钮；必选参数集里，纯 RSF 序列用 40 和 32，混合序列用 64。编辑器把它做成下拉框，因为校验规则只接受这六个取值。',
+        },
+      },
+      {
+        term: 'NBA-UWB',
+        alt: { en: 'narrowband-assisted UWB — the second radio', zh: '窄带辅助 UWB——第二套电台' },
+        def: {
+          en: 'The 802.15.4ab architecture this mode implements: the UWB fragments only measure, while a narrowband O-QPSK radio at 250 kb/s carries the control exchange, the acquisition the bare fragments no longer provide, and the measurement report (standard Clause 12 for the PHY; the configuration 4ab draft 15-23/0100r2 §2.3.1). It transmits at 10 dBm and hears down to −100 dBm (both model).',
+          zh: '本模式实现的正是 802.15.4ab 的这套架构：UWB 片段只负责测量，而一套 250 kb/s 的 O-QPSK 窄带电台承担控制交互、承担这些“素”片段不再提供的捕获，以及测量报告的传递（物理层见标准 Clause 12，具体配置见 4ab 草案 15-23/0100r2 §2.3.1）。它以 10 dBm 发射，灵敏度到 −100 dBm（两者皆为模型取值）。',
+        },
+      },
+      {
+        term: 'NB control channel',
+        alt: { en: '250 channels 2.5 MHz apart, in UNII-3 and UNII-5', zh: 'UNII-3 与 UNII-5 中间隔 2.5 MHz 的 250 个信道' },
+        def: {
+          en: 'The narrowband plan: 50 channels in UNII-3 (5725–5850 MHz) and 200 in UNII-5 (5925–6425 MHz), numbered 0…249, the first centred at 5726.25 MHz and channel 50 at 5926.25 MHz (4ab draft 15-22/0381r5 §1.4.1 gives the counts and the band edges; the centre formula itself is reconstructed from them — model). A session carries an allow list and each ranging block picks one entry of it; the draft hops with AES-128-CTR over the block index (§1.5.3), where this engine uses its own string hash (model).',
+          zh: '窄带信道规划：UNII-3（5725–5850 MHz）内 50 个、UNII-5（5925–6425 MHz）内 200 个，编号 0…249，0 号中心为 5726.25 MHz、50 号为 5926.25 MHz（4ab 草案 15-22/0381r5 §1.4.1 给出了数量与频段边界；中心频率公式本身是据此反推的——模型取值）。会话带着一份白名单，每个测距块从中挑一项；草案用对块序号做 AES-128-CTR 来跳信道（§1.5.3），本引擎则用自己的字符串哈希顶替（模型取值）。',
+        },
+      },
+      {
+        term: 'LBT / frame-based equipment',
+        alt: { en: 'listen before talk — 4ab draft 15-22/0381r5 §1.4.2', zh: '先听后说——4ab 草案 15-22/0381r5 §1.4.2' },
+        def: {
+          en: 'The rule the narrowband radio brings with it for sharing 6 GHz: assess the channel for at least 9 µs against −75 dBm/MHz of energy and transmit within 16 µs if it is clear (the draft cites the ETSI EN 303 687 frame-based-equipment rules). Over a 2.5 MHz channel that threshold is −71.02 dBm (model reading). Busy costs the whole block: the device sends nothing more on narrowband until the next one, and logs UWB_NB_LBT. Mandatory in UNII-5, optional in UNII-3, which is what the `auto` setting follows.',
+          zh: '窄带电台为共享 6 GHz 而带来的规则：发送前对信道至少评估 9 µs，门限为 −75 dBm/MHz 的能量，若判为空闲则须在 16 µs 内发出（草案援引 ETSI EN 303 687 的“基于帧的设备”规则）。摊到 2.5 MHz 的整个信道上，这个门限即 −71.02 dBm（模型读法）。判忙的代价是整整一个测距块：该设备在下一个块之前不再发送任何窄带帧，并记录 UWB_NB_LBT。UNII-5 必须执行、UNII-3 可选，这正是 `auto` 一档的依据。',
+        },
+      },
+      {
+        term: 'Millisecond energy budget',
+        alt: { en: '37 nJ per millisecond — regulation, via 4ab draft 15-22/0205r0', zh: '每毫秒 37 nJ——法规，经 4ab 草案 15-22/0205r0 转引' },
+        def: {
+          en: 'Why MMS exists at all. The UWB limit is a mean EIRP of −41.3 dBm/MHz averaged over 1 ms, which over 499.2 MHz is −14.3 dBm and so about 37 nJ a millisecond (FCC Part 15.519 / ETSI EN 302 065). A 4z Poll spends roughly 7.5 nJ of its millisecond and then stops; a fragment spends the full 37 nJ inside its own much shorter length — −3.46 dBm for the default 82.05 µs RSF (model). Of the total gain a train shows, that burst power is one part and 10·log10(X) of combining is the other, and the lesson says so plainly.',
+          zh: 'MMS 之所以存在的根本原因。UWB 的限制是平均 EIRP −41.3 dBm/MHz（在 1 ms 上取平均），折合到 499.2 MHz 即 −14.3 dBm，也就是每毫秒约 37 nJ（FCC Part 15.519 / ETSI EN 302 065）。一帧 4z 轮询只花掉这一毫秒里约 7.5 nJ 就结束了；而一个片段把整整 37 nJ 花在自己那段短得多的长度里——默认 82.05 µs 的 RSF 即 −3.46 dBm（模型取值）。一列序列显示出的总增益里，这种突发功率是其中一份，10·log10(X) 的相干合并是另一份，课程会把这一点讲明白。',
+        },
+      },
+      {
+        term: 'Coherent combining',
+        alt: { en: '10·log10(X) dB from X fragments — model', zh: 'X 个片段换来 10·log10(X) dB——模型取值' },
+        def: {
+          en: 'What the receiver does with a train: primed by the narrowband exchange, it accumulates blind and, at the train’s end, counts the fragments it heard. The train is detected when rxDbm + 10·log10(heard) clears −93 dBm, so no single fragment has to be audible on its own. The largest train the model allows is 16 fragments, i.e. 12.04 dB — which is also the channel’s delivery floor, since a fragment quieter than −93 − 12.04 dB cannot be rescued by any train and need not be carried at all.',
+          zh: '接收机对一列序列所做的事：它已由窄带交互“预热”，于是盲累加，等序列结束时再清点听到了多少个片段。当 rxDbm + 10·log10(听到的个数) 越过 −93 dBm 时，该序列即判为检出，因此任何单个片段都不必自己就能被听见。本模型允许的最长序列是 16 个片段，即 12.04 dB——这同时也是信道的投递地板：比 −93 − 12.04 dB 还弱的片段，任何序列都救不回来，也就根本不必投递。',
+        },
+      },
+      {
+        term: 'Train-derived clock ratio',
+        alt: { en: 'the train as a millisecond-long ruler — model', zh: '把片段序列当作一把毫秒长的尺子——模型取值' },
+        def: {
+          en: 'Two fragments of one train are an exact whole number of the transmitter’s milliseconds apart, so a receiver that heard both measures that span on its own counter and reads the clock ratio straight off it, with σ = √2·σ_ts / span — 0.0202 ppm over the default train’s 7 ms. What that leaves in a corrected single-sided range is ½·T_reply·σ: 1.5 mm at a 0.5 ms reply, against 1.5 cm from the narrowband carrier estimate alone and 1.5 m uncorrected. It is why MMS needs no double-sided round. A device that heard one fragment only falls back to the carrier-offset draw.',
+          zh: '同一序列中的两个片段，按发送方的时钟恰好相隔整数个毫秒，因此同时听到两者的接收机只要用自己的计数器量出这段跨度，就直接读出了时钟比率，其 σ = √2·σ_ts / 跨度——默认序列跨度 7 ms，对应 0.0202 ppm。它在修正后的单边测距里留下的是 ½·T_reply·σ：回复时间 0.5 ms 时为 1.5 mm，而仅凭窄带载波频偏估计是 1.5 cm，完全不修正则是 1.5 m。这正是 MMS 不需要双边测距轮次的原因。只听到一个片段的设备则退回到载波频偏抽取。',
+        },
+      },
+    ],
+  },
 ]
