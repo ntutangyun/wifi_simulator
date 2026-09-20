@@ -198,7 +198,7 @@ describe('uwb-mms · lesson shape', () => {
     expect(zh).toContain('15-22/0205r0')
   })
 
-  it('opens UWB Tier 3 as the only lesson of module 15, after uwb-aoa', () => {
+  it('opens UWB Tier 3 and module 15, after uwb-aoa and before uwb-nba', () => {
     expect(TIERS[6]).toEqual({
       track: 'uwb', en: 'UWB Tier 3 · What comes next: 802.15.4ab', zh: 'UWB 第三阶段 · 下一步：802.15.4ab',
     })
@@ -209,7 +209,8 @@ describe('uwb-mms · lesson shape', () => {
     expect(COURSE_ORDER[COURSE_ORDER.indexOf('uwb-aoa') + 1]).toBe('uwb-mms')
     const ids = LESSONS.map((l) => l.id)
     expect(ids[ids.indexOf('uwb-mms') - 1]).toBe('uwb-aoa')
-    expect(ids[ids.length - 1]).toBe('uwb-mms')
+    expect(ids[ids.indexOf('uwb-mms') + 1]).toBe('uwb-nba')
+    expect(ids[ids.length - 1]).toBe('uwb-nba')
   })
 })
 

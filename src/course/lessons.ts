@@ -37,6 +37,7 @@ import { uwbDlTdoa } from './uwb/uwb-dl-tdoa'
 import { uwbUlTdoa } from './uwb/uwb-ul-tdoa'
 import { uwbAoa } from './uwb/uwb-aoa'
 import { uwbMms } from './uwb/uwb-mms'
+import { uwbNba } from './uwb/uwb-nba'
 export type { Block, JumpTarget, L10n, Lesson, LessonVariant, Quiz } from './lessonKit'
 
 export { MODULES, TIERS } from './curriculum'
@@ -128,6 +129,7 @@ const AUTHORED: Lesson[] = [
   uwbUlTdoa,
   uwbAoa,
   uwbMms,
+  uwbNba,
   // ======================= MODULE 1 =======================
   {
     id: 'airtime',
