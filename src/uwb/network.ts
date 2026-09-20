@@ -103,7 +103,8 @@ export class UwbNetwork {
     // the channel reads it back out of the devices it is about to carry.
     const ch = new UwbChannel(
       q, now, nodes, walls,
-      // The train shape rides along for the devices; the medium reads nothing from it.
+      // The medium reads only the session's channel and its NLOS switch; everything an MMS frame
+      // needs (power, band, length) rides on the frame itself.
       { channel: cfg.channel, nlos: cfg.nlos },
       (id) => this.devices.get(id)?.clock.ppm ?? 0, emit, spectrum,
     )
