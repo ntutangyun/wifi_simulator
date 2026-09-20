@@ -20,7 +20,7 @@ export interface LegendItem {
 
 export interface Strings {
   header: { subtitle: string; edit: string; simulate: string; course: string }
-  panel: { inspector: string; log: string; guide: string }
+  panel: { inspector: string; log: string; guide: string; resizeHint: string }
   guideWindow: {
     title: string; terms: string; overview: string; search: string
     empty: string; close: string; dragHint: string
@@ -254,7 +254,7 @@ export interface Strings {
 export const STRINGS: Record<Lang, Strings> = {
   en: {
     header: { subtitle: 'IEEE 802.11 DCF/EDCA · µs timescale', edit: '✎ Edit', simulate: '▶ Simulate', course: '📚 Course' },
-    panel: { inspector: '🔍 Inspector', log: '📜 Log', guide: '📖 Guide' },
+    panel: { inspector: '🔍 Inspector', log: '📜 Log', guide: '📖 Guide', resizeHint: 'drag to resize · double-click to reset' },
     guideWindow: {
       title: '📖 Wi-Fi reference', terms: 'Terms', overview: 'Overview',
       search: 'search terms…', empty: 'no term matches',
@@ -678,7 +678,7 @@ export const STRINGS: Record<Lang, Strings> = {
   },
   zh: {
     header: { subtitle: 'IEEE 802.11 DCF/EDCA · 微秒时间尺度', edit: '✎ 编辑', simulate: '▶ 仿真', course: '📚 课程' },
-    panel: { inspector: '🔍 检视器', log: '📜 事件日志', guide: '📖 学习指南' },
+    panel: { inspector: '🔍 检视器', log: '📜 事件日志', guide: '📖 学习指南', resizeHint: '拖动调整宽度 · 双击恢复默认' },
     guideWindow: {
       title: '📖 Wi-Fi 速查手册', terms: '术语', overview: '概览',
       search: '搜索术语…', empty: '没有匹配的术语',

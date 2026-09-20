@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { CoursePanel } from '../course/CoursePanel'
+import { ColumnResizeHandle, useColumnWidth } from './columnResize'
 import { FloorPlanEditor } from '../editor/FloorPlanEditor'
 import { Viewport } from '../scene/viewport'
 import { EventLog } from './EventLog'
@@ -20,6 +21,10 @@ const tabBtn = (active: boolean): React.CSSProperties => ({
   borderBottom: active ? '1px solid var(--panel2)' : '1px solid transparent', marginBottom: -1,
   cursor: 'pointer',
 })
+
+/** Course column: default 340 px; it may not squeeze the viewport and side panel below ~660 px together. */
+const COURSE_COL_DEFAULT = 340
+const COURSE_COL_LIMITS = { min: 240, max: 900, reserve: 660 }
 
 type SideTab = 'inspector' | 'log'
 
@@ -55,6 +60,7 @@ export function App() {
   const { mode, setMode, simError, lang, setLang, courseLoaded, simSession } = useUi()
   const L = useStrings()
   const [guideOpen, setGuideOpen] = useState(false)
+  const [courseW, setCourseW] = useColumnWidth('wifi-sim.courseWidth', COURSE_COL_DEFAULT, COURSE_COL_LIMITS)
   const simActive = mode === 'simulate' || (mode === 'course' && courseLoaded)
   /** Course mode keeps the player under the viewport so the lesson and side columns run full height. */
   const stackPlayer = mode === 'course'
@@ -85,10 +91,14 @@ export function App() {
         position: 'relative', overflow: 'hidden', display: 'grid', minHeight: 0,
         gridTemplateColumns:
           mode === 'simulate' ? 'minmax(0, 1fr) minmax(320px, 400px)' :
-          mode === 'course' ? '340px minmax(0, 1fr) minmax(300px, 360px)' : '1fr',
+          mode === 'course' ? `${courseW}px minmax(0, 1fr) minmax(300px, 360px)` : '1fr',
       }}>
         {mode === 'course' && (
-          <div style={{ borderRight: '1px solid var(--border)', background: 'var(--panel)', overflow: 'hidden', display: 'grid', minHeight: 0 }}>
+          <div style={{ position: 'relative', borderRight: '1px solid var(--border)', background: 'var(--panel)', overflow: 'hidden', display: 'grid', minHeight: 0, minWidth: 0 }}>
+            <ColumnResizeHandle
+              edge="right" width={courseW} onWidth={setCourseW}
+              onReset={() => setCourseW(COURSE_COL_DEFAULT)} title={L.panel.resizeHint}
+            />
             <CoursePanel />
           </div>
         )}
