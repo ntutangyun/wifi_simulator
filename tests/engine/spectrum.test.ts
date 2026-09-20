@@ -9,6 +9,8 @@ import {
 } from '../../src/engine/spectrum'
 import type { Wall } from '../../src/model/scenario'
 import type { Ns, Vec3 } from '../../src/model/types'
+import { NB_TX_DBM, nbBand, nbCenterMhz, nbPl0Db } from '../../src/uwb/nb'
+import { UWB_PL_EXP } from '../../src/uwb/phy'
 
 /** UWB channel 5: 6489.6 MHz centre, 499.2 MHz wide. */
 const UWB5_LO = 6240
@@ -37,6 +39,8 @@ const wifiPpdu = (pos: Vec3, txId = 'ap'): Emission => ({
   bandLoMhz: WIFI_LO,
   bandHiMhz: WIFI_HI,
   pos,
+  // what `Channel.startTx` puts on every Wi-Fi PPDU
+  lossDb: wifiToUwbPathLossDb,
 })
 
 const uwbFrame = (pos: Vec3, txId = 'anchor'): Emission => ({
@@ -45,6 +49,8 @@ const uwbFrame = (pos: Vec3, txId = 'anchor'): Emission => ({
   bandLoMhz: UWB5_LO,
   bandHiMhz: UWB5_HI,
   pos,
+  // what `UwbChannel.transmit` binds to a channel-5 frame
+  lossDb: (d, w) => uwbToWifiPathLossDb(d, w, 5),
 })
 
 /** Drive a real queue up to and including `t`, keeping the clock the handlers see. */
@@ -92,6 +98,30 @@ describe('Spectrum foreign power', () => {
     s.emit('wifi', wifiPpdu(at(0)))
     // the whole 80 MHz channel is inside the UWB band: 20 − 62.2 dB
     expect(s.foreignDbm('uwb', at(3), UWB5_LO, UWB5_HI)).toBeCloseTo(-42.2, 1)
+    // and it is still exactly the Wi-Fi link's own law, not an approximation of it: the
+    // emission carries `wifiToUwbPathLossDb` itself, so every coupled scenario is unchanged
+    expect(s.foreignDbm('uwb', at(3), UWB5_LO, UWB5_HI)).toBeCloseTo(20 - wifiToUwbPathLossDb(3, 0), 12)
+  })
+
+  it('gives a 6 GHz Wi-Fi receiver a 4ab narrowband message at the narrowband free-space law', () => {
+    const q = new EventQueue()
+    const clock = makeClock(q)
+    const s = new Spectrum([], q, clock.now)
+    // control channel 200: 6301.25 MHz, 2.5 MHz wide, wholly inside the 80 MHz Wi-Fi channel
+    const band = nbBand(200)
+    expect(nbCenterMhz(200)).toBeCloseTo(6301.25, 9)
+    expect(band.lo).toBeGreaterThan(WIFI_LO)
+    expect(band.hi).toBeLessThan(WIFI_HI)
+    s.emit('uwb', {
+      txId: 'tag', eirpDbm: NB_TX_DBM, bandLoMhz: band.lo, bandHiMhz: band.hi, pos: at(0),
+      lossDb: (d, w) => nbPl0Db(200) + 10 * UWB_PL_EXP * Math.log10(Math.max(d, 0.1)) + w,
+    })
+    // all 2.5 MHz of it lands in the query band, so no spectral slice is taken:
+    // 10 − (48.44 + 20·log10 4) = −50.48 dBm at 4 m
+    expect(nbPl0Db(200)).toBeCloseTo(48.44, 2)
+    expect(s.foreignDbm('wifi', at(4), WIFI_LO, WIFI_HI))
+      .toBeCloseTo(NB_TX_DBM - nbPl0Db(200) - 20 * Math.log10(4), 12)
+    expect(s.foreignDbm('wifi', at(4), WIFI_LO, WIFI_HI)).toBeCloseTo(-50.48, 2)
   })
 
   it('reports nothing on UWB channel 9', () => {
@@ -178,23 +208,29 @@ describe('Spectrum foreign power', () => {
     expect(woken).toEqual([0]) // a no-op retire wakes nobody
   })
 
-  it('refuses to guess a channel for a band that is no UWB channel, at the emit that built it', () => {
+  it('applies each emission\u2019s own law, whatever band it names', () => {
     const q = new EventQueue()
     const clock = makeClock(q)
     const s = new Spectrum([], q, clock.now)
-    const odd = { txId: 'odd', eirpDbm: -14, bandLoMhz: 2400, bandHiMhz: 2480, pos: at(0) }
-    // the throw names the caller that got it wrong, rather than surfacing later inside some
-    // Wi-Fi receiver's interference sum
-    expect(() => s.emit('uwb', odd)).toThrow(/no UWB channel/)
-    // and nothing was registered: the bad emission cannot reach a query at all
-    expect(s.foreignMw('wifi', at(4), 2400, 2480)).toBe(0)
+    // The mediator no longer guesses a PHY from a band: a 2.5 MHz narrowband message far from
+    // every UWB channel centre is registered and heard under the law it carries.
+    let asked: [number, number] | null = null
+    s.emit('uwb', {
+      txId: 'nb', eirpDbm: 10, bandLoMhz: 5933.75, bandHiMhz: 5936.25, pos: at(0),
+      lossDb: (d, w) => { asked = [d, w]; return 60 + w },
+    })
+    expect(s.foreignDbm('wifi', at(4), 5925, 6005)).toBeCloseTo(10 - 60, 9)
+    expect(asked).toEqual([4, 0])
   })
 
-  it('accepts channel 9 as well as channel 5', () => {
+  it('carries a channel-9 law as easily as a channel-5 one', () => {
     const q = new EventQueue()
     const clock = makeClock(q)
     const s = new Spectrum([], q, clock.now)
-    s.emit('uwb', { txId: 'anchor', eirpDbm: -14, bandLoMhz: UWB9_LO, bandHiMhz: UWB9_HI, pos: at(0) })
+    s.emit('uwb', {
+      txId: 'anchor', eirpDbm: -14, bandLoMhz: UWB9_LO, bandHiMhz: UWB9_HI, pos: at(0),
+      lossDb: (d, w) => uwbToWifiPathLossDb(d, w, 9),
+    })
     // uwbPl0Db(9) ≈ 50.50 against uwbPl0Db(5) ≈ 48.69, so channel 9 loses 1.80 dB more
     const ch9 = s.foreignDbm('wifi', at(4), UWB9_LO, UWB9_HI)
     expect(ch9).toBeCloseTo(-14 - uwbToWifiPathLossDb(4, 0, 9), 6)

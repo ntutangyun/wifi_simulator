@@ -49,6 +49,8 @@ const uwbEmission = (eirpDbm: number): Emission => ({
   bandLoMhz: UWB_BAND_MHZ[5].lo,
   bandHiMhz: UWB_BAND_MHZ[5].hi,
   pos: UWB_POS,
+  // the law the UwbChannel binds to a channel-5 frame
+  lossDb: (d, w) => uwbToWifiPathLossDb(d, w, 5),
 })
 
 const frame = (src: string, dst: string): FrameDesc => ({
@@ -213,7 +215,7 @@ const UWB_NODES = [
   uwbNode('tag-1', 0, 0, 'tag'),
 ]
 
-function scenario(opts: { wifi: boolean; uwb: 5 | 9 | null; centerMhz?: number }): Scenario {
+function scenario(opts: { wifi: boolean; uwb: 5 | 9 | null; centerMhz?: number; nbChannels?: number[] }): Scenario {
   return {
     rooms: [{ x: -8, y: -8, w: 20, h: 20, name: 'lab' }],
     walls: [],
@@ -227,7 +229,16 @@ function scenario(opts: { wifi: boolean; uwb: 5 | 9 | null; centerMhz?: number }
     seed: 7,
     rtsThresholdBytes: 3000,
     snapshotIntervalMs: 10,
-    ...(opts.uwb === null ? {} : { uwb: { ...DEFAULT_UWB_SESSION, channel: opts.uwb, nlos: false } }),
+    ...(opts.uwb === null ? {} : {
+      uwb: {
+        ...DEFAULT_UWB_SESSION, channel: opts.uwb, nlos: false,
+        // an MMS session only when a narrowband allow list is asked for
+        ...(opts.nbChannels === undefined ? {} : {
+          mode: 'mms' as const,
+          mms: { ...DEFAULT_UWB_SESSION.mms, nbChannels: [...opts.nbChannels] },
+        }),
+      },
+    }),
     ...(opts.centerMhz === undefined ? {} : { sixGhzCenterMhz: opts.centerMhz }),
   }
 }
@@ -249,5 +260,20 @@ describe('Simulation · the Spectrum exists only where the bands meet', () => {
   it('builds one mediator for a 6 GHz link inside the UWB channel-5 band', () => {
     const sim = new Simulation(scenario({ wifi: true, uwb: 5, centerMhz: 6305 }))
     expect(sim.spectrum).toBeInstanceOf(Spectrum)
+  })
+
+  it('couples an MMS session whose narrowband allow list reaches into UNII-5', () => {
+    // UWB channel 9 never meets 6 GHz Wi-Fi, so only the narrowband side can couple here:
+    // control channel 200 is 6301.25 MHz, inside the AP's 6305 MHz channel.
+    const sim = new Simulation(scenario({ wifi: true, uwb: 9, centerMhz: 6305, nbChannels: [200] }))
+    expect(sim.spectrum).toBeInstanceOf(Spectrum)
+  })
+
+  it('leaves a UNII-3 allow list uncoupled, so the default session is unchanged', () => {
+    // channel 3 is 5733.75 MHz: the whole UNII-3 half of the plan is below every 6 GHz channel
+    expect(DEFAULT_UWB_SESSION.mms.nbChannels).toEqual([3])
+    expect(new Simulation(scenario({ wifi: true, uwb: 9, centerMhz: 6305, nbChannels: [3] })).spectrum).toBeNull()
+    // and every UNII-3 channel behaves the same way, including the highest
+    expect(new Simulation(scenario({ wifi: true, uwb: 9, centerMhz: 6305, nbChannels: [0, 49] })).spectrum).toBeNull()
   })
 })

@@ -77,7 +77,9 @@ export class UwbNetwork {
     // The receiver's clock-offset estimate needs the transmitter's crystal, so
     // the channel reads it back out of the devices it is about to carry.
     const ch = new UwbChannel(
-      q, now, nodes, walls, { channel: cfg.channel, nlos: cfg.nlos },
+      q, now, nodes, walls,
+      // The train shape rides along for the devices; the medium reads nothing from it.
+      { channel: cfg.channel, nlos: cfg.nlos, mms: this.plan.mode === 'mms' ? cfg.mms : undefined },
       (id) => this.devices.get(id)?.clock.ppm ?? 0, emit, spectrum,
     )
     this.channel = ch

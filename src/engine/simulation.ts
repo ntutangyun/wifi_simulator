@@ -18,6 +18,7 @@ import {
 } from '../model/scenario'
 import type { Ns } from '../model/types'
 import { applyRecord, cloneView, initViewState, type Snapshot, type ViewState } from '../model/view'
+import { nbBand } from '../uwb/nb'
 import { UwbNetwork } from '../uwb/network'
 import { uwbBandOverlap } from '../uwb/phy'
 import { AMP_TAG_DL_SENS_DBM, ampId16 } from './amp'
@@ -31,7 +32,7 @@ import { buildLinkTable } from './propagation'
 import { AcQueues } from './queues'
 import { RateControl } from './rate'
 import { Rng } from './rng'
-import { Spectrum } from './spectrum'
+import { bandOverlapMhz, Spectrum } from './spectrum'
 import { TrafficSource, resetMsduIds, type Msdu } from './traffic'
 
 /** Re-exported for the callers that grew up importing it from here. */
@@ -136,21 +137,36 @@ export class Simulation {
           if (Array.isArray(out.nodes)) out.nodes = (out.nodes as string[]).map(vname)
           baseEmit(out as never)
         }
-        // Cross-technology coupling: only the 6 GHz link, only against a UWB
-        // session on channel 5, and only when the two bands can actually meet.
-        // Energy detection listens over the whole operating channel — the
-        // widest width any member negotiates with the AP — and the gate is that
-        // channel, never narrower than 160 MHz, so a link that only *might*
-        // widen into the UWB band is still coupled. Each PPDU then overlaps on
-        // its own real width, so an uncoupled link is one that cannot overlap.
+        // Cross-technology coupling: only the 6 GHz link, and only when a band
+        // of the UWB session can actually meet it. Energy detection listens
+        // over the whole operating channel — the widest width any member
+        // negotiates with the AP — and the gate is that channel, never narrower
+        // than 160 MHz, so a link that only *might* widen into a UWB band is
+        // still coupled. Each PPDU then overlaps on its own real width, so an
+        // uncoupled link is one that cannot overlap.
+        //
+        // Two bands can meet it: UWB channel 5 (as before), and — in MMS mode —
+        // any narrowband control channel of the session's allow list, which for
+        // channels 50…249 sits in UNII-5 alongside 6 GHz Wi-Fi. A UNII-3 allow
+        // list (the default) therefore never couples, and every session that
+        // existed before this slice is gated exactly as it was.
         let hook: ChannelSpectrum | undefined
-        if (link === '6g' && sc.uwb?.channel === 5 && uwbNodes.length > 0) {
+        if (link === '6g' && sc.uwb && uwbNodes.length > 0) {
           const centerMhz = sc.sixGhzCenterMhz ?? DEFAULT_SIX_GHZ_CENTER_MHZ
           const peers = members.filter((m) => m.id !== ap.id)
           const widthMhz = peers.length
             ? Math.max(...peers.map((m) => negotiatedWidth(m, ap, link)))
             : widthOf(ap, link)
-          if (uwbBandOverlap(centerMhz, Math.max(widthMhz, 160), 5) > 0) {
+          const gateWidthMhz = Math.max(widthMhz, 160)
+          const gateLo = centerMhz - gateWidthMhz / 2
+          const gateHi = centerMhz + gateWidthMhz / 2
+          const uwbCoupled = sc.uwb.channel === 5 && uwbBandOverlap(centerMhz, gateWidthMhz, 5) > 0
+          const nbCoupled = sc.uwb.mode === 'mms'
+            && sc.uwb.mms.nbChannels.some((n) => {
+              const b = nbBand(n)
+              return bandOverlapMhz(b.lo, b.hi, gateLo, gateHi) > 0
+            })
+          if (uwbCoupled || nbCoupled) {
             const spectrum = this.spectrum ?? new Spectrum(sc.walls, this.q, () => this.nowNs)
             this.spectrum = spectrum
             hook = {

@@ -14,7 +14,7 @@ import type { Ns, Vec3 } from '../model/types'
 import { EventQueue } from './events'
 import { byCodeUnit } from './hash'
 import { CCA_ED_DBM, CCA_PD_DBM, PHY_MODES, noiseDbm, reqSinrDb, sinrThreshDb } from './phy'
-import type { Emission, Spectrum } from './spectrum'
+import { wifiToUwbPathLossDb, type Emission, type Spectrum } from './spectrum'
 import {
   AMP_DL_REQ_SINR_DB,
   AMP_DL_SYNC_NS,
@@ -259,8 +259,11 @@ export class Channel {
     if (sp) {
       // The other technology sees this PPDU as an EIRP spread over its band.
       const [lo, hi] = this.ppduBand(frame, sp)
+      // The emission carries the Wi-Fi link's own path-loss law, so the mediator applies it
+      // without having to work out which technology built the band.
       tx.emission = {
         txId: nodeId, eirpDbm: sp.txPowerOf(nodeId), bandLoMhz: lo, bandHiMhz: hi, pos: sp.posOf(nodeId),
+        lossDb: wifiToUwbPathLossDb,
       }
       sp.s.emit('wifi', tx.emission)
     }

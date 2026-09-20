@@ -17,7 +17,10 @@ import { makeEmitter, type RxFailReason, type TLRecord } from '../../src/model/r
 import type { NodeCfg } from '../../src/model/scenario'
 import type { Ns, Vec3 } from '../../src/model/types'
 import { UwbChannel, type UwbRadio, type UwbRxInfo } from '../../src/uwb/channel'
-import { makePoll } from '../../src/uwb/frames'
+import { makeNbPoll, makePoll } from '../../src/uwb/frames'
+import {
+  NB_LBT_THRESHOLD_DBM, NB_SIR_MIN_DB, NB_TX_DBM, nbBand, nbPl0Db,
+} from '../../src/uwb/nb'
 import {
   UWB_CAPTURE_DB, UWB_PL_EXP, UWB_SIR_MIN_DB, UWB_TX_POWER_DBM, uwbInBandDbm, uwbPl0Db,
 } from '../../src/uwb/phy'
@@ -51,6 +54,7 @@ const eirpForSir = (sirDb: number): number => RSSI_DBM - sirDb + wifiToUwbPathLo
 
 const wifiEmission = (eirpDbm: number): Emission => ({
   txId: 'ap', eirpDbm, bandLoMhz: WIFI_LO_MHZ, bandHiMhz: WIFI_HI_MHZ, pos: AP_POS,
+  lossDb: wifiToUwbPathLossDb,
 })
 
 class StubRadio implements UwbRadio {
@@ -217,5 +221,94 @@ describe('UwbChannel · the PPDU it puts on the shared air', () => {
     expect(expected).toBeCloseTo(-76.66, 2)
     expect(readings.filter((r) => r.t < txEnd).map((r) => r.dbm)).toEqual([expected, expected, expected])
     expect(readings.find((r) => r.t > txEnd)?.dbm).toBe(-Infinity)
+  })
+})
+
+
+// --- P802.15.4ab: the narrowband radio under the same 6 GHz Wi-Fi ---------------------
+
+/** A UNII-5 control channel: 5926.25 + 2.5 x 150 = 6301.25 MHz, wholly inside the AP's
+ * 6265-6345 MHz channel. 4ab draft 15-22/0381r5 s1.4.1 */
+const NB_UNII5 = 200
+/** A UNII-3 control channel (the session default): 5733.75 MHz, nowhere near the AP. */
+const NB_UNII3 = 3
+
+/** What the anchor hears of a narrowband message from the tag 5 m away. */
+const nbRssiDbm = (ch: number): number =>
+  NB_TX_DBM - nbPl0Db(ch) - 10 * UWB_PL_EXP * Math.log10(UWB_DIST_M)
+
+/** The AP's EIRP that lands at the anchor inside one 2.5 MHz narrowband channel. */
+const foreignInNbChannel = (eirpDbm: number): number =>
+  eirpDbm + 10 * Math.log10(2.5 / (WIFI_HI_MHZ - WIFI_LO_MHZ)) - wifiToUwbPathLossDb(AP_DIST_M, 0)
+
+describe('UwbChannel . a narrowband reception uses its own band, power and SIR floor', () => {
+  it('sees no Wi-Fi at all on a UNII-3 control channel the AP cannot reach', () => {
+    const h = harness(true)
+    h.at(0, () => h.ch.transmit('t', makeNbPoll('t', 'a', NB_UNII3, 0, 0)))
+    h.at(0, () => h.s.emit('wifi', wifiEmission(20)))
+    h.runUntil(10_000_000)
+    const ok = h.radioOf('a').oks[0]
+    expect(ok).toBeDefined()
+    // the same instant, the same AP: a 4z reception would have been swamped, but the query band
+    // is the NB channel's 2.5 MHz and the AP's 80 MHz does not touch it
+    expect(nbBand(NB_UNII3).hi).toBeLessThan(WIFI_LO_MHZ)
+    expect(ok.info.foreignDbm).toBe(-Infinity)
+    expect(ok.info.rssiDbm).toBeCloseTo(nbRssiDbm(NB_UNII3), 9)
+  })
+
+  it('loses a UNII-5 message to the same PPDU, and says so with UWB_INTERFERED', () => {
+    // NB has no correlation gain to spend: it is lost as soon as the foreign power reaches its own
+    expect(NB_SIR_MIN_DB).toBe(0)
+    expect(NB_SIR_MIN_DB).toBeGreaterThan(UWB_SIR_MIN_DB)
+    const eirp = 30
+    expect(foreignInNbChannel(eirp)).toBeGreaterThan(nbRssiDbm(NB_UNII5))
+
+    const h = harness(true)
+    h.at(0, () => h.ch.transmit('t', makeNbPoll('t', 'a', NB_UNII5, 0, 0)))
+    h.at(0, () => h.s.emit('wifi', wifiEmission(eirp)))
+    h.runUntil(10_000_000)
+    const interfered = h.records.find((r) => r.type === 'UWB_INTERFERED')
+    expect(interfered).toMatchObject({ type: 'UWB_INTERFERED', node: 'a', from: 't' })
+    expect(interfered && 'foreignDbm' in interfered ? interfered.foreignDbm : 0)
+      .toBeCloseTo(foreignInNbChannel(eirp), 9)
+    expect(h.radioOf('a').fails.map((f) => f.reason)).toEqual(['lowSinr'])
+  })
+})
+
+describe('UwbChannel . listen before talk on the narrowband channel', () => {
+  /** Two would-be transmitters, 8 m and 9.5 m from the AP, on either side of the crossing. */
+  const lbtNodes = [
+    node('t', TAG_POS, 'tag'),
+    node('near', { x: AP_POS.x, y: AP_POS.y + 8, z: AP_POS.z }, 'anchor'),
+    node('far', { x: AP_POS.x, y: AP_POS.y + 9.5, z: AP_POS.z }, 'anchor'),
+  ]
+
+  it('is busy inside 8.6 m of a transmitting 6E AP and clear outside it', () => {
+    // -75 dBm/MHz over 2.5 MHz. 4ab draft 15-22/0381r5 s1.4.2
+    expect(NB_LBT_THRESHOLD_DBM).toBeCloseTo(-71.02, 2)
+    const h = harness(true, lbtNodes)
+    h.s.emit('wifi', wifiEmission(20))
+
+    const near = h.ch.lbtBusy('near', NB_UNII5)
+    const far = h.ch.lbtBusy('far', NB_UNII5)
+    // an 80 MHz 20 dBm PPDU puts 4.95 dBm into 2.5 MHz; under the Wi-Fi law that is
+    // -70.04 dBm at 8 m and -72.28 dBm at 9.5 m, so the crossing is at 8.63 m
+    expect(near.foreignDbm).toBeCloseTo(-70.04, 2)
+    expect(far.foreignDbm).toBeCloseTo(-72.28, 2)
+    expect(near.busy).toBe(true)
+    expect(far.busy).toBe(false)
+  })
+
+  it('reads nothing but the mediator: a silent AP, a UNII-3 channel and no mediator are all clear', () => {
+    const quiet = harness(true, lbtNodes)
+    expect(quiet.ch.lbtBusy('near', NB_UNII5)).toEqual({ busy: false, foreignDbm: -Infinity })
+
+    const loud = harness(true, lbtNodes)
+    loud.s.emit('wifi', wifiEmission(20))
+    // the same PPDU, a UNII-3 channel: nothing of it lands in the band at all
+    expect(loud.ch.lbtBusy('near', NB_UNII3)).toEqual({ busy: false, foreignDbm: -Infinity })
+
+    const uncoupled = harness(false, lbtNodes)
+    expect(uncoupled.ch.lbtBusy('near', NB_UNII5)).toEqual({ busy: false, foreignDbm: -Infinity })
   })
 })

@@ -32,6 +32,8 @@ const BROADCAST_ADDR16 = 0xffff
 const SUBTYPE: Record<UwbFrameKind, string> = {
   uwbPoll: 'UWB Poll', uwbResp: 'UWB Response', uwbFinal: 'UWB Final', uwbReport: 'UWB Report',
   uwbBlink: 'UWB Blink',
+  uwbRsf: 'MMS Ranging Fragment', uwbRif: 'MMS Integrity Fragment',
+  nbPoll: 'Narrowband POLL', nbResp: 'Narrowband RESP', nbReport: 'Narrowband REPORT',
 }
 
 const hex16 = (v: number) => `0x${v.toString(16).padStart(4, '0')}`

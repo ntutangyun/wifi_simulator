@@ -5,8 +5,10 @@ import { makeEmitter, type RxFailReason, type TLRecord } from '../../src/model/r
 import type { NodeCfg, Wall } from '../../src/model/scenario'
 import type { Ns } from '../../src/model/types'
 import { UwbChannel, type UwbRadio, type UwbRxInfo } from '../../src/uwb/channel'
-import { makePoll } from '../../src/uwb/frames'
-import { C_M_PER_NS } from '../../src/uwb/phy'
+import { makeNbPoll, makePoll, makeRif, makeRsf } from '../../src/uwb/frames'
+import { MMS_COMBINE_MAX_DB, type MmsPhy } from '../../src/uwb/mms'
+import { NB_RX_SENS_DBM, NB_TX_DBM, nbPl0Db } from '../../src/uwb/nb'
+import { C_M_PER_NS, UWB_PL_EXP, UWB_RX_SENS_DBM, uwbPl0Db } from '../../src/uwb/phy'
 
 const node = (id: string, x: number, y: number, txPowerDbm = -14, role: 'anchor' | 'tag' = 'anchor'): NodeCfg => ({
   id, kind: 'uwb', name: id, pos: { x, y, z: 0 }, txPowerDbm,
@@ -215,5 +217,69 @@ describe('UwbChannel capture and collision', () => {
     h.runUntil(f.txTimeNs * 3)
     expect(h.of('l').oks.map((o) => o.from)).toEqual(['s'])
     expect(h.of('l').fails).toEqual([{ from: 'w', reason: 'collision' }])
+  })
+})
+
+
+// --- P802.15.4ab: one medium, three PHYs -------------------------------------------
+
+/** The draft's own ranging-cycle default train. 4ab draft 15-22/0381r5 Table 1.2.3.3 */
+const MMS_PHY: MmsPhy = { rsfs: 8, rifs: 2, nMsr: 40, gap: 64, stsLen: 64, gapMs: 1 }
+
+/** How far a transmitter of `txDbm`, on a band whose 1 m loss is `pl0`, is heard at exactly
+ * `rxDbm` \u2014 the channel's own law solved for distance. */
+const distanceForRx = (txDbm: number, pl0: number, rxDbm: number): number =>
+  10 ** ((txDbm - pl0 - rxDbm) / (10 * UWB_PL_EXP))
+
+/** A two-node floor on channel 9 with the receiver placed where `frame` lands at `rxDbm`. */
+function atLevel(frame: FrameDesc, txDbm: number, pl0: number, rxDbm: number) {
+  const d = distanceForRx(txDbm, pl0, rxDbm)
+  const h = harness([node('t', 0, 0, -14, 'tag'), node('a', d, 0)], [], { channel: 9, nlos: false })
+  expect(h.ch.rssiDbm('t', 'a', frame)).toBeCloseTo(rxDbm, 9)
+  h.ch.transmit('t', frame)
+  h.runUntil(frame.txTimeNs * 2)
+  return h
+}
+
+describe('UwbChannel per-frame PHY: the delivery floor', () => {
+  it('hands a fragment to its device twelve decibels below 4z sensitivity, because a train combines', () => {
+    // MMS_COMBINE_MAX_DB = 10\u00b7log10(16): the largest train this model allows. \u221293 \u2212 12.04 = \u2212105.04 dBm
+    expect(MMS_COMBINE_MAX_DB).toBeCloseTo(12.041, 3)
+    expect(UWB_RX_SENS_DBM - MMS_COMBINE_MAX_DB).toBeCloseTo(-105.04, 2)
+
+    const rsf = makeRsf('t', 'a', 0, MMS_PHY, 0, 0, 4)
+    const h = atLevel(rsf, rsf.uwb!.mms!.txDbm, uwbPl0Db(9), -100)
+    expect(h.rec('RX_OK', 'a')).toHaveLength(1)
+    expect(h.of('a').oks[0].info.rssiDbm).toBeCloseTo(-100, 9)
+    expect(h.of('a').oks[0].frame.kind).toBe('uwbRsf')
+  })
+
+  it('drops a fragment no train could rescue', () => {
+    const rif = makeRif('t', 'a', 0, MMS_PHY, 0, 0, 26)
+    const h = atLevel(rif, rif.uwb!.mms!.txDbm, uwbPl0Db(9), -106)
+    expect(h.rec('RX_START', 'a')).toHaveLength(0)
+    expect(h.rec('RX_OK', 'a')).toHaveLength(0)
+    expect(h.rec('RX_FAIL', 'a')).toHaveLength(0)
+  })
+
+  it('still drops a 4z frame at \u2212100 dBm: only a fragment gets the combining allowance', () => {
+    const f = makePoll('t', ['a'], 'ss', 0, 0)
+    const h = atLevel(f, -14, uwbPl0Db(9), -100)
+    expect(h.rec('RX_START', 'a')).toHaveLength(0)
+    expect(h.rec('RX_OK', 'a')).toHaveLength(0)
+  })
+
+  it('delivers a narrowband message down to its own \u2212100 dBm receiver, at its own power and its own band', () => {
+    const nb = makeNbPoll('t', 'a', 200, 0, 0)
+    expect(NB_RX_SENS_DBM).toBe(-100)
+    // the NB radio runs at NB_TX_DBM whatever the node's UWB power is, and its 1 m loss is the
+    // narrowband channel's, not the UWB channel's
+    const ok = atLevel(nb, NB_TX_DBM, nbPl0Db(200), -99)
+    expect(ok.rec('RX_OK', 'a')).toHaveLength(1)
+    expect(ok.of('a').oks[0].frame.kind).toBe('nbPoll')
+    expect(ok.ch.rssiDbm('t', 'a')).not.toBeCloseTo(-99, 3) // the 4z answer is a different one
+
+    const lost = atLevel(makeNbPoll('t', 'a', 200, 0, 0), NB_TX_DBM, nbPl0Db(200), -101)
+    expect(lost.rec('RX_START', 'a')).toHaveLength(0)
   })
 })

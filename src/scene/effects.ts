@@ -45,6 +45,13 @@ export function frameColor(frame: FrameDesc, apId: string): number {
     case 'uwbFinal': return 0xf59e0b
     case 'uwbResp':
     case 'uwbReport': return 0xfbbf24
+    // P802.15.4ab: a fragment is the same UWB radio as the frames above; the narrowband
+    // control messages are a second radio, so they take the responder shade.
+    case 'uwbRsf':
+    case 'uwbRif': return 0xf59e0b
+    case 'nbPoll':
+    case 'nbResp':
+    case 'nbReport': return 0xfbbf24
   }
 }
 

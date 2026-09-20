@@ -5,12 +5,29 @@
  * timeline, the frame inspector and the 3-D scene need no second frame type.
  */
 import type { FrameDesc } from '../model/frames'
+import type { Ns } from '../model/types'
+import { mmsFragmentDbm, rifNs, rsfNs, type MmsPhy } from './mms'
+import {
+  NB_MSG_ID, NB_POLL_BYTES, NB_REPORT_BYTES, NB_RESP_BYTES, nbCenterMhz, nbPpduNs,
+} from './nb'
 import {
   UWB_BLINK_BYTES, UWB_REPORT_BYTES, uwbDlFinalBytes, uwbDlPollBytes, uwbDlRespBytes,
   uwbFinalBytes, uwbPollBytes, uwbPpduNs, uwbRespBytes,
 } from './phy'
 
-export type UwbFrameKind = 'uwbPoll' | 'uwbResp' | 'uwbFinal' | 'uwbReport' | 'uwbBlink'
+export type UwbFrameKind =
+  | 'uwbPoll' | 'uwbResp' | 'uwbFinal' | 'uwbReport' | 'uwbBlink'
+  // P802.15.4ab: the two multi-millisecond fragment kinds and the three narrowband messages of
+  // the control plane. 4ab draft 15-23/0100r2 §2.3.2 / 15-22/0381r5 Table 1.6.3.1
+  | 'uwbRsf' | 'uwbRif' | 'nbPoll' | 'nbResp' | 'nbReport'
+
+/** True of the three narrowband control messages — the frames that travel on the 4ab
+ * narrowband radio rather than on the UWB one. */
+export const isNbFrame = (k: UwbFrameKind): boolean => k === 'nbPoll' || k === 'nbResp' || k === 'nbReport'
+
+/** True of the two multi-millisecond fragment kinds: one member of a train, not a frame that
+ * stands on its own. */
+export const isMmsFragment = (k: UwbFrameKind): boolean => k === 'uwbRsf' || k === 'uwbRif'
 
 /**
  * DL-TDoA message content (model, the RMI-style times of §10.29.8.4): what the sender did on its
@@ -27,6 +44,42 @@ export interface UwbDlTimes {
    * carrier frequency offset its receiver measured on the Poll. A fraction is the form the
    * consumer wants (`replyTime * (1 - coffs)`); the frame decoder prints it in ppm. */
   coffs?: number
+}
+
+/**
+ * One fragment of a multi-millisecond train: which kind it is, where it sits in its train, the
+ * PHY parameters it was cut from, and the power it is radiated at. A fragment spends the whole
+ * millisecond's energy budget inside its own length, so `txDbm` is the fragment's, not the
+ * node's. 4ab draft 15-23/0100r2 §2.3.2
+ */
+export interface UwbMmsFrag {
+  kind: 'rsf' | 'rif'
+  /** 0-based index within its own train. */
+  index: number
+  /** The train's length: X for an RSF, Y for an RIF. */
+  of: number
+  /** RSF only: MMRS repetitions and the zero gap the symbol was built with. */
+  nMsr?: number
+  gap?: number
+  /** RIF only: the STS segment length, in 512-chip units. */
+  stsLen?: number
+  /** EIRP of this fragment (dBm), from `mmsFragmentDbm` of its own length. */
+  txDbm: number
+}
+
+/**
+ * A narrowband control message of the 4ab control plane: the channel it went out on, that
+ * channel's centre, the compressed PSDU's message-ID octet and whichever time the message
+ * carries. 4ab draft 15-22/0381r5 Table 1.6.3.1
+ */
+export interface UwbNbMsg {
+  channel: number
+  centerMhz: number
+  msgId: number
+  /** Responder's REPORT: the ReplyTime it measured, in RCTU. */
+  replyRctu?: number
+  /** Initiator's REPORT: the TurnAroundTime it measured, in RCTU. */
+  roundTripRctu?: number
 }
 
 /** The ranging fields of a UWB frame; present on the UWB kinds only. */
@@ -51,6 +104,10 @@ export interface UwbInfo {
   reportTimes?: { treply1: number; tround2: number }
   /** DL-TDoA (Poll, Response, Final): the sender's ranging times, for the listening tags. */
   dl?: UwbDlTimes
+  /** MMS fragment (`uwbRsf` / `uwbRif`): its place in the train and its own transmit power. */
+  mms?: UwbMmsFrag
+  /** Narrowband message (`nbPoll` / `nbResp` / `nbReport`): the control-plane fields. */
+  nb?: UwbNbMsg
 }
 
 /**
@@ -191,4 +248,107 @@ function rxCount(dl: UwbDlTimes): number {
  * slot cannot rewrite what a frame already said. */
 function copyDl(dl: UwbDlTimes): UwbDlTimes {
   return { ...dl, rxCounters: { ...dl.rxCounters } }
+}
+
+
+// --- P802.15.4ab: the multi-millisecond fragments -------------------------------
+
+/** A fragment is not a PSDU at all — it is a raw sequence, so it carries no octets and has no
+ * data rate. Its airtime comes from `mms.ts`, never from bytes ÷ rate. */
+const MMS_FRAG_BYTES = 0
+const MMS_FRAG_MBPS = 0
+
+function mmsFrame(
+  kind: 'uwbRsf' | 'uwbRif', src: string, dst: string, txTimeNs: Ns,
+  block: number, round: number, slot: number, frag: Omit<UwbMmsFrag, 'txDbm'>,
+): FrameDesc {
+  return {
+    kind, src, dst, bytes: MMS_FRAG_BYTES, mbps: MMS_FRAG_MBPS, durationFieldNs: 0, txTimeNs,
+    uwb: {
+      // A fragment belongs to a train, not to a TWR flavour: `sp` and `method` are the shape
+      // `UwbInfo` requires of every ranging frame, and the decoder never prints them here.
+      sp: 1, method: 'ss', block, round, slot, ies: [],
+      mms: { ...frag, txDbm: mmsFragmentDbm(txTimeNs) },
+    },
+  }
+}
+
+/** One ranging sequence fragment: `nMsr` repetitions of the MMRS symbol, carrying the ranging
+ * timestamp. 4ab draft 15-23/0100r2 §2.3.2 */
+export function makeRsf(
+  src: string, dst: string, index: number, phy: MmsPhy, block: number, round: number, slot: number,
+): FrameDesc {
+  return mmsFrame('uwbRsf', src, dst, rsfNs(phy.nMsr, phy.gap), block, round, slot, {
+    kind: 'rsf', index, of: phy.rsfs, nMsr: phy.nMsr, gap: phy.gap,
+  })
+}
+
+/** One ranging integrity fragment: a single STS segment, which verifies that the range was not
+ * spoofed. 4ab draft 15-23/0100r2 §2.3.2 */
+export function makeRif(
+  src: string, dst: string, index: number, phy: MmsPhy, block: number, round: number, slot: number,
+): FrameDesc {
+  return mmsFrame('uwbRif', src, dst, rifNs(phy.stsLen), block, round, slot, {
+    kind: 'rif', index, of: phy.rifs, stsLen: phy.stsLen,
+  })
+}
+
+// --- P802.15.4ab: the narrowband control plane ------------------------------------
+
+/** O-QPSK at 250 kb/s, as the inspector and the timeline print a rate. standard Clause 12 */
+export const NB_MBPS = 0.25
+
+/** The POLL opens the round in the first control slot and the RESP answers in the third.
+ * 4ab draft 15-22/0381r5 §1.1 (RcpPollSlot 2 + RcpResponseSlot 2) */
+const NB_POLL_SLOT = 0
+const NB_RESP_SLOT = 2
+
+function nbFrame(
+  kind: 'nbPoll' | 'nbResp' | 'nbReport', src: string, dst: string, bytes: number,
+  block: number, round: number, slot: number, nb: Omit<UwbNbMsg, 'centerMhz'>,
+): FrameDesc {
+  return {
+    kind, src, dst, bytes, mbps: NB_MBPS, durationFieldNs: 0, txTimeNs: nbPpduNs(bytes),
+    uwb: {
+      // As for a fragment: the ranging flavour lives on the UWB side, and an NB message only
+      // carries the shape `UwbInfo` asks of every ranging frame.
+      sp: 1, method: 'ss', block, round, slot, ies: [],
+      nb: { ...nb, centerMhz: nbCenterMhz(nb.channel) },
+    },
+  }
+}
+
+/** The initiator's narrowband POLL, which opens the ranging round.
+ * 4ab draft 15-22/0381r5 Table 1.6.3.1 */
+export function makeNbPoll(tag: string, anchor: string, channel: number, block: number, round: number): FrameDesc {
+  return nbFrame('nbPoll', tag, anchor, NB_POLL_BYTES, block, round, NB_POLL_SLOT, {
+    channel, msgId: NB_MSG_ID.poll,
+  })
+}
+
+/** The responder's narrowband RESP: it heard the POLL and will range.
+ * 4ab draft 15-22/0381r5 Table 1.6.3.1 */
+export function makeNbResp(anchor: string, tag: string, channel: number, block: number, round: number): FrameDesc {
+  return nbFrame('nbResp', anchor, tag, NB_RESP_BYTES, block, round, NB_RESP_SLOT, {
+    channel, msgId: NB_MSG_ID.resp,
+  })
+}
+
+/**
+ * A narrowband REPORT, in the report slot its sender owns. The responder's carries the
+ * ReplyTime it measured and the initiator's the TurnAroundTime, and that is what names the
+ * message: the two differ only in their message-ID octet and in which time is present.
+ * 4ab draft 15-22/0381r5 Table 1.6.3.1 / 1.6.3.2
+ */
+export function makeNbReport(
+  src: string, dst: string, channel: number, block: number, round: number, slot: number,
+  times: { replyRctu?: number; roundTripRctu?: number },
+): FrameDesc {
+  return nbFrame('nbReport', src, dst, NB_REPORT_BYTES, block, round, slot, {
+    channel,
+    msgId: times.replyRctu !== undefined ? NB_MSG_ID.reportResponder : NB_MSG_ID.reportInitiator,
+    // Absent, not undefined, so a REPORT compares equal to a hand-built one.
+    ...(times.replyRctu !== undefined ? { replyRctu: times.replyRctu } : {}),
+    ...(times.roundTripRctu !== undefined ? { roundTripRctu: times.roundTripRctu } : {}),
+  })
 }

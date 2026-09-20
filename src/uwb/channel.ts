@@ -11,6 +11,13 @@
  * txStart + d/c (+ NLOS excess), so the delivery delay has to be the physical
  * one, not a rounded slot.
  *
+ * P802.15.4ab adds two more PHYs to the same medium, so every quantity the channel needs is
+ * asked of the *frame* rather than of the session: an MMS fragment is louder than a 4z frame
+ * and is delivered far below 4z sensitivity (its train combines), and a narrowband control
+ * message is a different power, a different band, a different sensitivity and a different
+ * path loss altogether. `txDbmFor` / `pl0For` / `sensFor` / `sirMinFor` / `bandFor` /
+ * `lossDbFor` are that dispatch; a frame with no 4ab fields answers exactly as before.
+ *
  * Event phases (src/engine/events.ts): a transmission's TX_START is emitted in
  * the caller's own phase, deliveries land in phase 1 (propagation effects) and
  * TX_END in phase 2 (post-propagation bookkeeping), so a device deciding at an
@@ -19,11 +26,15 @@
 import { EventQueue } from '../engine/events'
 import { byCodeUnit } from '../engine/hash'
 import { wallLossDb, wallsCrossed } from '../engine/propagation'
-import type { Emission, Spectrum } from '../engine/spectrum'
+import { uwbToWifiPathLossDb, type Emission, type Spectrum } from '../engine/spectrum'
 import type { FrameDesc } from '../model/frames'
 import type { EmitFn, RxFailReason } from '../model/records'
 import type { NodeCfg, Wall } from '../model/scenario'
 import type { Ns, Vec3 } from '../model/types'
+import { MMS_COMBINE_MAX_DB, type MmsPhy } from './mms'
+import {
+  NB_LBT_THRESHOLD_DBM, NB_RX_SENS_DBM, NB_SIR_MIN_DB, NB_TX_DBM, nbBand, nbPl0Db,
+} from './nb'
 import {
   UWB_BAND_MHZ, UWB_CAPTURE_DB, UWB_NLOS_NS, UWB_PL_EXP, UWB_RX_SENS_DBM, UWB_SIR_MIN_DB,
   C_M_PER_NS, uwbPl0Db, type UwbChannelNo,
@@ -54,10 +65,14 @@ export interface UwbRadio {
   onRxFail(from: string, reason: RxFailReason): void
 }
 
-/** Internal to this module: the two session knobs the medium itself reads. */
+/** Internal to this module: the session knobs the medium itself reads. */
 interface UwbChannelCfg {
   channel: UwbChannelNo
   nlos: boolean
+  /** The MMS train shape, carried for the devices that ask the channel about their session.
+   * The medium itself reads nothing from it: a fragment's power, length and place in its train
+   * all ride on the frame. */
+  mms?: MmsPhy
 }
 
 /** A reception in progress at one receiver. */
@@ -115,16 +130,76 @@ export class UwbChannel {
       sp.onChange('uwb', () => {
         for (const [rxId, r] of this.radios) {
           if (r.open.length === 0) continue
-          const mw = sp.foreignMw('uwb', this.posOf(rxId), this.band.lo, this.band.hi)
-          for (const rx of r.open) rx.maxForeignMw = Math.max(rx.maxForeignMw, mw)
+          const pos = this.posOf(rxId)
+          // One node may hold a UWB reception and a narrowband one at the same instant, and the
+          // two do not see the same foreign power: each re-takes its max over its own band.
+          for (const rx of r.open) {
+            const band = this.bandFor(rx.frame)
+            rx.maxForeignMw = Math.max(rx.maxForeignMw, sp.foreignMw('uwb', pos, band.lo, band.hi))
+          }
         }
       })
     }
   }
 
-  /** The band this session occupies: what a foreign emission has to overlap to matter. */
+  /** The band this session's UWB radio occupies: what a foreign emission has to overlap to
+   * matter to a 4z frame or a fragment. */
   private get band(): { lo: number; hi: number } {
     return UWB_BAND_MHZ[this.cfg.channel]
+  }
+
+  // --- Per-frame PHY ------------------------------------------------------------
+  // Each of these is keyed on the 4ab fields the frame carries, never on its kind string, so a
+  // frame built without them (every 4z frame) takes the session's own answer, unchanged.
+
+  /** EIRP of one frame: a narrowband message runs at the NB module's power, an MMS fragment at
+   * the power its own length lets it spend, and everything else at the node's. */
+  private txDbmFor(from: string, frame?: FrameDesc): number {
+    if (frame?.uwb?.nb) return NB_TX_DBM
+    if (frame?.uwb?.mms) return frame.uwb.mms.txDbm
+    return this.nodeOf(from).txPowerDbm
+  }
+
+  /** Free-space loss at 1 m of the band the frame actually went out on. */
+  private pl0For(frame?: FrameDesc): number {
+    const nb = frame?.uwb?.nb
+    return nb ? nbPl0Db(nb.channel) : uwbPl0Db(this.cfg.channel)
+  }
+
+  /** The floor this frame has to clear to reach its device at all. A fragment is handed over
+   * `MMS_COMBINE_MAX_DB` below 4z sensitivity, because the largest train this model allows adds
+   * exactly that much back; quieter than that, no train can rescue it. */
+  private sensFor(frame: FrameDesc): number {
+    if (frame.uwb?.nb) return NB_RX_SENS_DBM
+    if (frame.uwb?.mms) return UWB_RX_SENS_DBM - MMS_COMBINE_MAX_DB
+    return UWB_RX_SENS_DBM
+  }
+
+  /** How far above the foreign power this frame must sit to survive it. An HRP receiver has its
+   * correlation gain to spend; a 250 kb/s O-QPSK one has none. */
+  private sirMinFor(frame: FrameDesc): number {
+    return frame.uwb?.nb ? NB_SIR_MIN_DB : UWB_SIR_MIN_DB
+  }
+
+  /** The band a frame occupies — the band it is radiated over, and the band its receiver asks
+   * the mediator for foreign power in. */
+  private bandFor(frame: FrameDesc): { lo: number; hi: number } {
+    const nb = frame.uwb?.nb
+    return nb ? nbBand(nb.channel) : this.band
+  }
+
+  /** The path-loss law this frame travels under, as the mediator will apply it to a Wi-Fi
+   * receiver: UWB's free-space law at the session channel's centre, or the narrowband one at
+   * the message's own 2.5 MHz centre. The NB law is the UWB engine's own — exponent
+   * `UWB_PL_EXP` plus walls — taken at `nbPl0Db` (model). */
+  private lossDbFor(frame: FrameDesc): (dM: number, wallsDb: number) => number {
+    const nb = frame.uwb?.nb
+    if (nb) {
+      const pl0 = nbPl0Db(nb.channel)
+      return (dM, wallsDb) => pl0 + 10 * UWB_PL_EXP * Math.log10(Math.max(dM, 0.1)) + wallsDb
+    }
+    const ch = this.cfg.channel
+    return (dM, wallsDb) => uwbToWifiPathLossDb(dM, wallsDb, ch)
   }
 
   register(id: string, radio: UwbRadio): void {
@@ -148,14 +223,30 @@ export class UwbChannel {
     return Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z)
   }
 
-  /** Free-space loss at the band's centre frequency, plus the walls in the way. */
-  rssiDbm(from: string, to: string): number {
+  /** Free-space loss at the band's centre frequency, plus the walls in the way. With no frame
+   * it answers for the session's own UWB radio at the node's own power, which is what every 4z
+   * caller means. */
+  rssiDbm(from: string, to: string, frame?: FrameDesc): number {
     const tx = this.nodeOf(from)
     const d = this.distanceM(from, to)
-    return tx.txPowerDbm
-      - uwbPl0Db(this.cfg.channel)
+    return this.txDbmFor(from, frame)
+      - this.pl0For(frame)
       - 10 * UWB_PL_EXP * Math.log10(Math.max(d, 0.1))
       - wallLossDb(tx.pos, this.posOf(to), this.walls)
+  }
+
+  /**
+   * Listen before talk on narrowband channel `channel` (4ab draft 15-22/0381r5 §1.4.2): one
+   * instantaneous reading of the mediator's foreign power over the channel's 2.5 MHz stands for
+   * the draft's 9 µs energy-detection window (model). Without a mediator — no Wi-Fi link shares
+   * the band — the channel is always clear and nothing is drawn or scheduled.
+   */
+  lbtBusy(id: string, channel: number): { busy: boolean; foreignDbm: number } {
+    const sp = this.spectrum
+    if (!sp) return { busy: false, foreignDbm: -Infinity }
+    const band = nbBand(channel)
+    const foreignDbm = sp.foreignDbm('uwb', this.posOf(id), band.lo, band.hi)
+    return { busy: foreignDbm >= NB_LBT_THRESHOLD_DBM, foreignDbm }
   }
 
   /**
@@ -190,10 +281,12 @@ export class UwbChannel {
     // before TX_START, off it just before TX_END — so a Wi-Fi receiver's
     // max-over-lock sees the whole frame and nothing more.
     const sp = this.spectrum
+    const band = this.bandFor(frame)
     const emission: Emission | null = sp
       ? {
-        txId: from, eirpDbm: this.nodeOf(from).txPowerDbm,
-        bandLoMhz: this.band.lo, bandHiMhz: this.band.hi, pos: this.posOf(from),
+        txId: from, eirpDbm: this.txDbmFor(from, frame),
+        bandLoMhz: band.lo, bandHiMhz: band.hi, pos: this.posOf(from),
+        lossDb: this.lossDbFor(frame),
       }
       : null
     if (sp && emission) sp.emit('uwb', emission)
@@ -210,7 +303,7 @@ export class UwbChannel {
       const propNs = d / C_M_PER_NS
       const nlosNs = this.nlosNs(from, rxId)
       const at = t + Math.ceil(propNs)
-      const rssiDbm = this.rssiDbm(from, rxId)
+      const rssiDbm = this.rssiDbm(from, rxId, frame)
       const arrival: Arrival = {
         rxId, from, frame, rssiDbm,
         info: {
@@ -244,13 +337,14 @@ export class UwbChannel {
     const r = this.radios.get(a.rxId)
     if (!r) return
     if (!r.radio.listening()) return
-    if (a.rssiDbm < UWB_RX_SENS_DBM) return
+    if (a.rssiDbm < this.sensFor(a.frame)) return
 
+    const band = this.bandFor(a.frame)
     const rx: Reception = {
       from: a.from, frame: a.frame, rssiDbm: a.rssiDbm, info: a.info,
       endNs: t + a.frame.txTimeNs, doomed: false,
       maxForeignMw: this.spectrum
-        ? this.spectrum.foreignMw('uwb', this.posOf(a.rxId), this.band.lo, this.band.hi)
+        ? this.spectrum.foreignMw('uwb', this.posOf(a.rxId), band.lo, band.hi)
         : 0,
     }
 
@@ -287,9 +381,10 @@ export class UwbChannel {
     }
     // A UWB receiver has no SINR ladder, only its correlation gain: the frame
     // survives interference up to UWB_SIR_MIN_DB above it and is lost beyond that.
+    // A narrowband message has no such gain and goes at NB_SIR_MIN_DB instead.
     // With nothing foreign on the air the ratio is +Infinity, so this cannot bite.
     const sirDb = rx.rssiDbm - foreignDbm
-    if (sirDb < UWB_SIR_MIN_DB) {
+    if (sirDb < this.sirMinFor(rx.frame)) {
       const reason: RxFailReason = 'lowSinr'
       this.emit({ t, type: 'RX_FAIL', node: rxId, from: rx.from, reason })
       this.emit({ t, type: 'UWB_INTERFERED', node: rxId, from: rx.from, foreignDbm, sirDb })
