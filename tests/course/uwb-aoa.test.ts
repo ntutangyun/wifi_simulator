@@ -198,13 +198,13 @@ describe('uwb-aoa · lesson shape', () => {
     expect(en).toContain('FiRa-style, not anything the standard specifies')
   })
 
-  it('it is the last lesson of module 14 and closes the UWB course order', () => {
+  it('it is the last lesson of module 14, and UWB Tier 3 follows it', () => {
     expect(MODULES[14]).toEqual({ tier: 5, title: { en: 'Other ranging modes', zh: '其他测距模式' } })
     expect(MODULES[uwbAoa.module].tier).toBe(5)
     expect(TIERS[5].track).toBe('uwb')
     const ids = LESSONS.map((l) => l.id)
     expect(ids[ids.indexOf('uwb-aoa') - 1]).toBe('uwb-ul-tdoa')
-    expect(COURSE_ORDER[COURSE_ORDER.length - 1]).toBe('uwb-aoa')
+    expect(COURSE_ORDER[COURSE_ORDER.indexOf('uwb-aoa') + 1]).toBe('uwb-mms')
     expect(COURSE_ORDER.filter((id) => !ids.includes(id))).toEqual([])
   })
 })

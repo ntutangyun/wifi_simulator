@@ -223,6 +223,17 @@ export function rangingLab(): { rooms: Room[]; walls: Wall[] } {
   }
 }
 
+/**
+ * The UWB hall with two full-height brick partitions across it, at x = 5 and x = 10, neither
+ * of them with an opening: three bays of 5, 5 and 12 m. A device in the first bay and one in
+ * the third are 24 dB and a dozen metres apart — far under what one 4z frame reaches, and
+ * exactly the room a multi-millisecond train is for.
+ */
+export function twoWallLab(): { rooms: Room[]; walls: Wall[] } {
+  const hall = rangingLab()
+  return { rooms: hall.rooms, walls: [...hall.walls, brick(5, 0, 5, 8), brick(10, 0, 10, 8)] }
+}
+
 // ---------------------------------------------------------------------------
 // jump-target predicates
 // ---------------------------------------------------------------------------
@@ -287,6 +298,21 @@ export const firstUwbBlink = txOf((r) => r.frame.kind === 'uwbBlink')
 export const firstUwbDlRound = (r: TLRecord): boolean => r.type === 'UWB_ROUND' && r.mode === 'dl-tdoa'
 /** UL-TDoA: the one-slot round a single tag owns — the only thing it takes of the block. */
 export const firstUwbUlRound = (r: TLRecord): boolean => r.type === 'UWB_ROUND' && r.mode === 'ul-tdoa'
+/** P802.15.4ab: the narrowband POLL an initiator opens a pair round with — the first thing
+ * that happens in an MMS round, and on the other radio. */
+export const firstNbPoll = txOf((r) => r.frame.kind === 'nbPoll')
+/** P802.15.4ab: the narrowband REPORT that closes a pair round, carrying the reply time or the
+ * round trip the range is computed from. */
+export const firstNbReport = txOf((r) => r.frame.kind === 'nbReport')
+/** P802.15.4ab: the first fragment of a ranging train — one sequence, no preamble, and far too
+ * quiet on its own to be heard at the far end of the two-wall hall. */
+export const firstUwbRsf = txOf((r) => r.frame.kind === 'uwbRsf')
+/** P802.15.4ab: the first verdict a receiver reached on a whole train — how many fragments
+ * arrived, what they combined to, and whether that cleared its sensitivity. */
+export const firstUwbTrain = (r: TLRecord): boolean => r.type === 'UWB_MMS_TRAIN'
+/** P802.15.4ab: the first narrowband transmission that listen-before-talk stopped, which costs
+ * the device every narrowband message of that block. */
+export const firstNbLbt = (r: TLRecord): boolean => r.type === 'UWB_NB_LBT'
 /** Angle of arrival: the first bearing an anchor took off a frame from a tag. */
 export const firstUwbAoa = (r: TLRecord): boolean => r.type === 'UWB_AOA'
 /** Angle of arrival: the first fix an anchor solved on its own, from its range and its bearing —

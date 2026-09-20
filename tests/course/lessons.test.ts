@@ -265,18 +265,18 @@ describe('lesson 12 claims about TB PPDUs', () => {
 
 describe('module 4 lessons', () => {
   it('adds a fourth module', () => {
-    // four Wi-Fi tiers, then the UWB track's two
-    expect(TIERS).toHaveLength(6)
-    expect(TIERS.map((t) => t.track)).toEqual(['wifi', 'wifi', 'wifi', 'wifi', 'uwb', 'uwb'])
-    expect(MODULES.map((m) => m.tier)).toEqual([0, 0, 1, 1, 1, 1, 1, 1, 1, 2, 3, 4, 4, 5, 5])
+    // four Wi-Fi tiers, then the UWB track's three
+    expect(TIERS).toHaveLength(7)
+    expect(TIERS.map((t) => t.track)).toEqual(['wifi', 'wifi', 'wifi', 'wifi', 'uwb', 'uwb', 'uwb'])
+    expect(MODULES.map((m) => m.tier)).toEqual([0, 0, 1, 1, 1, 1, 1, 1, 1, 2, 3, 4, 4, 5, 5, 6])
     for (const m of MODULES) expect(m.title.zh.length).toBeGreaterThan(0)
   })
 
   it('a track heading opens the first tier and every change of radio', () => {
     // what the course panel prints above a tier: one heading per run of same-radio tiers
-    expect(trackHeadings(TIERS)).toEqual([true, false, false, false, true, false])
+    expect(trackHeadings(TIERS)).toEqual([true, false, false, false, true, false, false])
     expect(trackHeadings([])).toEqual([])
-    expect(trackHeadings(TIERS.slice(4))).toEqual([true, false])
+    expect(trackHeadings(TIERS.slice(4))).toEqual([true, false, false])
     const alternating = [TIERS[0], TIERS[4], TIERS[1], TIERS[4]]
     expect(trackHeadings(alternating)).toEqual([true, true, true, true])
     // it is a decision about the list it is given: a tier with no lesson is dropped first,

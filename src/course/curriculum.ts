@@ -36,6 +36,7 @@ export const TIERS: Tier[] = [
   { track: 'wifi', en: 'Tier 4 · Researcher', zh: '第四阶段 · 研究' },
   { track: 'uwb', en: 'UWB Tier 1 · Ranging foundations', zh: 'UWB 第一阶段 · 测距基础' },
   { track: 'uwb', en: 'UWB Tier 2 · Sessions in the real world', zh: 'UWB 第二阶段 · 真实环境中的会话' },
+  { track: 'uwb', en: 'UWB Tier 3 · What comes next: 802.15.4ab', zh: 'UWB 第三阶段 · 下一步：802.15.4ab' },
 ]
 
 export interface CourseModule {
@@ -59,6 +60,7 @@ export const MODULES: CourseModule[] = [
   { tier: 4, title: { en: 'Ranging sessions and positioning', zh: '测距会话与定位' } },
   { tier: 5, title: { en: 'Coexistence', zh: '共存' } },
   { tier: 5, title: { en: 'Other ranging modes', zh: '其他测距模式' } },
+  { tier: 6, title: { en: 'Narrowband-assisted multi-millisecond UWB', zh: '窄带辅助的多毫秒 UWB' } },
 ]
 
 /**
@@ -89,6 +91,8 @@ export const COURSE_ORDER: string[] = [
   'uwb-coexist', 'uwb-contention',
   // UWB Tier 2 — M14 other ranging modes
   'uwb-dl-tdoa', 'uwb-ul-tdoa', 'uwb-aoa',
+  // UWB Tier 3 — M15 narrowband-assisted multi-millisecond UWB
+  'uwb-mms',
 ]
 
 /** Lessons in reading order; ids in COURSE_ORDER without an authored lesson are skipped. */
