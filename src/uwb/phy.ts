@@ -2,18 +2,21 @@ import type { Material, UwbMode } from '../model/scenario'
 import type { Ns } from '../model/types'
 import { mmsLayout, mmsLongestFragmentNs, type MmsPhy } from './mms'
 import { NB_REPORT_BYTES, nbPpduNs } from './nb'
+import { chipsToNs, freeSpacePl0Db, UWB_CHIP_HZ, UWB_CHIP_NS } from './units'
 
 // --- Chip, RCTU, RSTU units -------------------------------------------------
 
-export const UWB_CHIP_HZ = 499.2e6 // standard §16.2.4 peak PRF
-export const UWB_CHIP_NS = 1000 / 499.2 // standard §16.2.4: 2.003205 ns
-export const RCTU_NS = UWB_CHIP_NS / 128 // standard §10.29.1.4: 2^-7 chip ≈ 15.650 ps
-export const RCTU_PS = RCTU_NS * 1000 // standard §10.29.1.4
+// The units themselves, the free-space law and the receiver's floor live one module down, in
+// the leaf `units.ts`, so that `mms.ts` and `nb.ts` can read them without importing this file
+// (which imports them). They are re-exported here because every caller in the repository has
+// always asked `phy.ts` for them, and `phy.ts` is still where a reader looks for the UWB PHY.
+export {
+  chipsToNs, freeSpacePl0Db, COUNTER_BITS, COUNTER_MOD, C_M_PER_NS, RCTU_NS, RCTU_PER_CHIP,
+  RCTU_PS, UWB_CHIP_HZ, UWB_CHIP_NS, UWB_PL_EXP, UWB_RX_SENS_DBM,
+} from './units'
+
 export const RSTU_CHIPS = 416 // standard §10.29.1.5, Table 10-145
 export const RSTU_NS = RSTU_CHIPS * UWB_CHIP_NS // standard §10.29.1.5: 833.333 ns
-export const C_M_PER_NS = 0.299792458 // physics
-export const COUNTER_BITS = 40 // model (standard: "at minimum 32-bit")
-export const COUNTER_MOD = 2 ** COUNTER_BITS // model
 
 // --- SP1 BPRF PPDU structure -------------------------------------------------
 
@@ -48,10 +51,6 @@ export function uwbPpduChips(octets: number): number {
   return UWB_SHR_CHIPS + UWB_STS_CHIPS + UWB_PHR_CHIPS + psduSymbols(octets) * DATA_SYMBOL_CHIPS
 }
 
-export function chipsToNs(chips: number): Ns {
-  return Math.round((chips * 1000) / 499.2)
-}
-
 export function uwbPpduNs(octets: number): Ns {
   return chipsToNs(uwbPpduChips(octets))
 }
@@ -61,22 +60,12 @@ export function uwbPpduNs(octets: number): Ns {
 export type UwbChannelNo = 5 | 9
 export const UWB_CHANNEL_MHZ: Record<UwbChannelNo, number> = { 5: 6489.6, 9: 7987.2 } // standard Table 11-9
 
-/** Free-space path loss at 1 m for a carrier of `mhz`: 20·log10(4π·f/c). physics
- *
- * One definition, because the UWB channels are not the only carrier this engine measures a
- * first metre on: the 4ab narrowband radio (`nb.ts`) sits at 5.7–6.4 GHz and uses the same law. */
-export function freeSpacePl0Db(mhz: number): number {
-  return 20 * Math.log10((4 * Math.PI * mhz * 1e6) / (C_M_PER_NS * 1e9))
-}
-
 /** Free-space path loss at 1 m on a UWB channel. standard Table 11-9 (frequencies) */
 export function uwbPl0Db(ch: UwbChannelNo): number {
   return freeSpacePl0Db(UWB_CHANNEL_MHZ[ch])
 }
 
-export const UWB_PL_EXP = 2.0 // model: indoor LOS
 export const UWB_TX_POWER_DBM = -14 // model default (−41.3 dBm/MHz mean EIRP over 499.2 MHz)
-export const UWB_RX_SENS_DBM = -93 // model
 export const UWB_CAPTURE_DB = 6 // model
 export const UWB_NLOS_NS: Record<Material, number> = { drywall: 0.5, brick: 2.0, glass: 0.2 } // model
 export const UWB_PPM_MAX = 20 // standard §16.4.9: ±20 ppm

@@ -14,7 +14,7 @@
 import type { NbLbt } from '../model/scenario'
 import type { Ns } from '../model/types'
 import { hashStr } from '../engine/hash'
-import { freeSpacePl0Db } from './phy'
+import { freeSpacePl0Db } from './units'
 
 // --- The PHY -------------------------------------------------------------------
 

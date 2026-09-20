@@ -7,7 +7,8 @@ import {
   type MmsPhy, type MmsSetId,
 } from '../../src/uwb/mms'
 import {
-  COUNTER_MOD, RCTU_NS, RSTU_CHIPS, UWB_CHIP_HZ, UWB_PL_EXP, UWB_RX_SENS_DBM, UWB_TX_POWER_DBM,
+  COUNTER_MOD, RCTU_NS, RCTU_PER_CHIP, RSTU_CHIPS, UWB_CHIP_HZ, UWB_CHIP_NS, UWB_PL_EXP,
+  UWB_RX_SENS_DBM, UWB_TX_POWER_DBM,
   uwbPl0Db,
 } from '../../src/uwb/phy'
 import { WALL_LOSS_DB } from '../../src/engine/propagation'
@@ -214,8 +215,10 @@ describe('one millisecond, in the units the ratio is measured in', () => {
   it('is 63 897 600 RCTU, exactly', () => {
     expect(MS_NS).toBe(1_000_000)
     expect(MS_RCTU).toBe(63_897_600)
-    // The same number the engine's own RCTU gives, to the nanosecond — and taken from the chip
-    // count rather than from RCTU_NS, because mms.ts and phy.ts import each other.
+    // The same number the engine's own RCTU gives, to the nanosecond — and built from the one
+    // shared RCTU_PER_CHIP of the units leaf, not from a second copy of the 128.
+    expect(MS_RCTU).toBe(MS_CHIPS * RCTU_PER_CHIP)
+    expect(RCTU_NS).toBe(UWB_CHIP_NS / RCTU_PER_CHIP)
     expect(MS_RCTU * RCTU_NS).toBeCloseTo(MS_NS, 6)
   })
 

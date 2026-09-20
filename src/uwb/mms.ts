@@ -17,12 +17,12 @@
  * text is members-only: every number below is paraphrased from the TG4ab contributions named in
  * its tag, never copied, and the balloted D5.0 may differ.
  *
- * This module and `phy.ts` import each other (it needs `chipsToNs`; `phy.ts` needs the layout to
- * size an MMS slot). Neither touches the other's bindings while the modules are evaluating —
- * only inside functions — so the cycle resolves whichever one is loaded first.
+ * Everything this module needs of the engine's units comes from the leaf `units.ts`, never
+ * from `phy.ts`: `phy.ts` imports *this* module to size an MMS slot, and an import the other
+ * way would be a cycle whose constants are undefined half the time.
  */
 import type { Ns } from '../model/types'
-import { chipsToNs, COUNTER_MOD, UWB_RX_SENS_DBM } from './phy'
+import { chipsToNs, COUNTER_MOD, RCTU_PER_CHIP, UWB_RX_SENS_DBM } from './units'
 
 // --- The fragment ------------------------------------------------------------
 
@@ -110,11 +110,6 @@ export function trainDetected(rxDbm: number, heard: number): boolean {
 /** One millisecond in nanoseconds: the spacing of two neighbouring fragments of a train, on the
  * transmitter's own clock. 4ab draft 15-23/0100r2 §2.3.2 */
 export const MS_NS: Ns = 1_000_000
-
-/** Ranging counter units in one chip (standard §10.29.1.4: the RCTU is 2^-7 of a chip). It is
- * written here rather than taken from `RCTU_NS`, because `phy.ts` and this module import each
- * other and a constant of one evaluated inside the other would be undefined half the time. */
-const RCTU_PER_CHIP = 128
 
 /** The same millisecond in ranging counter units — what a measured span is divided by to get a
  * clock ratio. derived (63 897 600 RCTU) */
