@@ -106,7 +106,11 @@ stamp noise (both from the receiver's stream; the second only when two or more f
 carrier-offset residual only when the fallback is used. No draw per fragment.
 
 If the first fragment of a train was lost, the RMARKER stamp is the first heard fragment's arrival minus its index ×
-1 ms on the receiver's counter (the train's structure is known from the control exchange) — model.
+1 ms *of the transmitter's clock* (the train's structure is known from the control exchange) — i.e. minus `index ·
+MS_RCTU · ratio` on the receiver's own counter, using the ratio the train itself measured. Walking back undrifted
+milliseconds instead would leave index × 1 ms × the offset between the two crystals: 20 ns, and so 3.0 m of range,
+per lost leading fragment at 20 ppm. A receiver that heard one fragment only has no ratio and must use its own
+nominal millisecond, residual and all — model.
 
 ## The narrowband side (`src/uwb/nb.ts`)
 

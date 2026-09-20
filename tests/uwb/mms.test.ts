@@ -7,7 +7,8 @@ import {
   type MmsPhy, type MmsSetId,
 } from '../../src/uwb/mms'
 import {
-  RCTU_NS, RSTU_CHIPS, UWB_CHIP_HZ, UWB_PL_EXP, UWB_RX_SENS_DBM, UWB_TX_POWER_DBM, uwbPl0Db,
+  COUNTER_MOD, RCTU_NS, RSTU_CHIPS, UWB_CHIP_HZ, UWB_PL_EXP, UWB_RX_SENS_DBM, UWB_TX_POWER_DBM,
+  uwbPl0Db,
 } from '../../src/uwb/phy'
 import { WALL_LOSS_DB } from '../../src/engine/propagation'
 
@@ -226,20 +227,44 @@ describe('one millisecond, in the units the ratio is measured in', () => {
 })
 
 describe('rmarkerFromFragment', () => {
-  it('is the fragment’s own arrival when the train’s first fragment arrived', () => {
-    expect(rmarkerFromFragment(2_000_017, 0)).toBe(2_000_017)
+  it('is the fragment’s own stamp when the train’s first fragment arrived', () => {
+    // Index 0 walks back nothing at all, whatever the ratio says — which is why a train that
+    // arrived whole is stamped bit for bit as it was before the ratio entered this function.
+    expect(rmarkerFromFragment(2_000_017, 0, null)).toBe(2_000_017)
+    expect(rmarkerFromFragment(2_000_017, 0, 1 + 40e-6)).toBe(2_000_017)
   })
 
-  it('walks back a millisecond per fragment when the first ones were lost', () => {
-    // The same RMARKER, recovered from fragment 3 of a train whose first three were lost: the
+  it('walks back a millisecond of the transmitter’s per fragment when the first ones were lost', () => {
+    // The same RMARKER, recovered from fragment i of a train whose first i were lost: the
     // structure is known from the narrowband control exchange, so any fragment times the train.
+    // The receiver counts its own milliseconds, so each of the peer's is MS_RCTU × ratio of them.
     const rmarker = 2_000_017
+    const ratio = 1 + 40e-6
     for (let i = 0; i < 8; i++) {
-      expect(rmarkerFromFragment(rmarker + i * MS_NS, i), `fragment ${i}`).toBe(rmarker)
+      const stamp = rmarker + Math.round(i * MS_RCTU * ratio)
+      expect(rmarkerFromFragment(stamp, i, ratio), `fragment ${i}`).toBe(rmarker)
     }
   })
 
+  it('leaves the crystals’ whole offset behind when there was no ratio to measure', () => {
+    // One fragment heard and it was not the first: the receiver has only its own nominal
+    // millisecond, and the walk-back is short by index × 1 ms × the offset between the clocks.
+    const rmarker = 2_000_017
+    const ratio = 1 + 40e-6
+    const stamp = rmarker + Math.round(3 * MS_RCTU * ratio)
+    const residualRctu = rmarkerFromFragment(stamp, 3, null) - rmarker
+    expect(residualRctu).toBe(Math.round(3 * MS_RCTU * ratio) - 3 * MS_RCTU)
+    // 3 ms × 40 ppm = 120 ns of counter, which is 7 665 RCTU.
+    expect(residualRctu * RCTU_NS).toBeCloseTo(120, 1)
+  })
+
   it('is exact: no rounding creeps in over the longest train the draft allows', () => {
-    expect(rmarkerFromFragment(123_456_789 + 15 * MS_NS, 15)).toBe(123_456_789)
+    expect(rmarkerFromFragment(123_456_789 + 15 * MS_RCTU, 15, 1)).toBe(123_456_789)
+    expect(MS_NS).toBe(1_000_000) // the true-time millisecond the train is cut on
+  })
+
+  it('wraps the 40-bit counter rather than going negative', () => {
+    // A train whose first fragment fell before the counter rolled over.
+    expect(rmarkerFromFragment(10, 1, 1)).toBe(COUNTER_MOD - MS_RCTU + 10)
   })
 })

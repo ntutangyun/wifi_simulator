@@ -3,17 +3,18 @@ import { EventQueue } from '../../src/engine/events'
 import { hashStr } from '../../src/engine/hash'
 import { Rng } from '../../src/engine/rng'
 import { Simulation } from '../../src/engine/simulation'
-import { Spectrum, wifiToUwbPathLossDb } from '../../src/engine/spectrum'
+import { Spectrum, wifiToUwbPathLossDb, type Emission } from '../../src/engine/spectrum'
 import { makeEmitter, type TLRecord } from '../../src/model/records'
 import {
   DEFAULT_UWB_SESSION, defaultScenario, type NodeCfg, type Scenario, type UwbSessionCfg, type Wall,
 } from '../../src/model/scenario'
 import { brick, node as wifiNode, rangingLab } from '../../src/course/lessonKit'
-import { mmsSet, ratioSigma } from '../../src/uwb/mms'
+import { mmsSet, ratioSigma, rsfNs } from '../../src/uwb/mms'
 import { nbBand, nbCenterMhz, nbChannelForBlock, NB_LBT_THRESHOLD_DBM } from '../../src/uwb/nb'
 import { UwbNetwork } from '../../src/uwb/network'
 import {
-  C_M_PER_NS, UWB_MAX_ANCHORS, UWB_NLOS_NS, UWB_RMARKER_NS, UWB_RX_SENS_DBM, UWB_TX_POWER_DBM,
+  C_M_PER_NS, UWB_BAND_MHZ, UWB_MAX_ANCHORS, UWB_NLOS_NS, UWB_RMARKER_NS, UWB_RX_SENS_DBM,
+  UWB_SIR_MIN_DB, UWB_TX_POWER_DBM,
 } from '../../src/uwb/phy'
 import { aoaSigmaDeg } from '../../src/uwb/aoa'
 import { rangeSigmaM } from '../../src/uwb/position'
@@ -1387,6 +1388,91 @@ describe('UwbNetwork — MMS, one fragment falls back to the carrier', () => {
     // rate against the initiator's — and nothing else is drawn for it.
     const ratio = 1 + train.ratioPpm! * 1e-6
     expect(coffsOf(rs)).toBeCloseTo(1 / ratio - 1, 15)
+  })
+})
+
+describe('UwbNetwork — MMS, a train whose leading fragment was lost', () => {
+  // ±20 ppm, the widest pair of crystals the standard allows (standard §16.4.9), so the
+  // walk-back to a lost RMARKER is the worst it can be.
+  const TAG_PPM = -20
+  const ANC_PPM = 20
+
+  /**
+   * One pair on UWB channel 5, driven by hand so a `Spectrum` can be put around it, with a
+   * single Wi-Fi emission parked over the UWB channel for one slot only. There is no production
+   * hook for dropping a fragment, and none is wanted: the channel's own SIR rule does it, and
+   * the window is cut so that only the initiator's fragment 0 — slot 4, 2.000 ms — is inside it.
+   * Its fragment 1 (slot 6, 3.000 ms) and the responder's whole train (slots 5, 7, …) are not.
+   */
+  const runWithOneSlotOfWifi = (): TLRecord[] => {
+    const nodes = [
+      uwbNode('anc-1', { x: 1, y: 1, z: 1, ppm: ANC_PPM }, 'anchor'),
+      uwbNode('tag-1', { x: 4, y: 4, z: 1, ppm: TAG_PPM }, 'tag'),
+    ]
+    const q = new EventQueue()
+    let now = 0
+    const recs: TLRecord[] = []
+    const emit = makeEmitter((x) => recs.push(x as TLRecord))
+    const sp = new Spectrum([], q, () => now)
+    const band = UWB_BAND_MHZ[5]
+    const wifi: Emission = {
+      txId: 'ap', eirpDbm: 20, bandLoMhz: band.lo, bandHiMhz: band.hi,
+      // A metre from the anchor: an in-band Wi-Fi reading far above the fragment's own power,
+      // which is well under the receiver's −12 dB correlation margin — the fragment is lost.
+      pos: { x: 2, y: 1, z: 1 }, lossDb: wifiToUwbPathLossDb,
+    }
+    q.schedule(2 * MS - 1, () => sp.emit('wifi', wifi), 0)
+    q.schedule(2 * MS + 400_000, () => sp.retire('wifi', wifi), 0)
+    const cfg: UwbSessionCfg = {
+      ...DEFAULT_UWB_SESSION, ...MMS_SESSION, channel: 5, nlos: false,
+      mms: { ...DEFAULT_UWB_SESSION.mms },
+    }
+    new UwbNetwork(q, () => now, nodes, [], cfg, new Rng(7), emit, sp, 7)
+    for (;;) {
+      const t = q.peekTime()
+      if (t === null || t > 30 * MS) break
+      const e = q.pop()!
+      now = e.t
+      e.fn()
+    }
+    return recs
+  }
+
+  const recs = runWithOneSlotOfWifi()
+
+  it('loses the initiator’s first fragment, and that one only', () => {
+    const lost = of(recs, 'UWB_INTERFERED')
+    expect(lost.map((r) => [r.node, r.from])).toEqual([['anc-1', 'tag-1']])
+    // Slot 4 is 2.000 ms; the fragment flies 4.24 m (15 ns, rounded up) and is 82.05 µs long,
+    // so its reception ends there — the only reception the Wi-Fi window ever touched.
+    expect(lost[0].t).toBe(2 * MS + 15 + rsfNs(DEFAULT_UWB_SESSION.mms.nMsr, DEFAULT_UWB_SESSION.mms.gap))
+    expect(lost[0].sirDb).toBeLessThan(UWB_SIR_MIN_DB)
+  })
+
+  it('hears seven of the eight and still detects the train', () => {
+    const trains = of(recs, 'UWB_MMS_TRAIN').filter((t) => t.t < MMS_ROUND_NS)
+    expect(trains.map((t) => [t.node, t.peer, t.heard, t.fragments, t.detected]))
+      .toEqual([['anc-1', 'tag-1', 7, 8, true], ['tag-1', 'anc-1', 8, 8, true]])
+    // The responder still has a span to measure the ratio over — six milliseconds, not seven.
+    expect(trains[0].ratioPpm).not.toBeNull()
+    expect(Math.abs(trains[0].ratioPpm! - (ANC_PPM - TAG_PPM)))
+      .toBeLessThan(4 * ratioSigma(DEFAULT_UWB_SESSION.tsNoisePs, 6) * 1e6)
+  })
+
+  it('walks the RMARKER back by the train’s own ratio, and so ranges through the loss', () => {
+    // What the walk-back costs when it covers an undrifted millisecond instead: the responder's
+    // reply time comes out short by index × 1 ms × the initiator's ppm, and half of that is
+    // time of flight.
+    const wouldBeErrM = ((1 * MS * Math.abs(TAG_PPM) * 1e-6) / 2) * C_M_PER_NS
+    expect(wouldBeErrM).toBeCloseTo(3.0, 1)
+
+    const ranges = of(recs, 'UWB_RANGE').filter((r) => r.block === 0 && r.round === 0)
+    expect(ranges.map((r) => r.node)).toEqual(['tag-1', 'anc-1'])
+    for (const r of ranges) {
+      // Still at the timestamp floor: nothing of the lost millisecond survives in the range.
+      expect(Math.abs(r.distM - r.trueDistM), r.node).toBeLessThan(4 * SIGMA_R)
+      expect(Math.abs(r.distM - r.trueDistM)).toBeLessThan(wouldBeErrM / 20)
+    }
   })
 })
 

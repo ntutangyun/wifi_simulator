@@ -1436,9 +1436,10 @@ export class UwbDevice implements UwbRadio {
    * The draws, in the order the spec fixes them: the first heard fragment's stamp, then — only
    * when two or more were heard — the last heard fragment's. Nothing is drawn per fragment, and
    * nothing at all for a train that was not detected. The first stamp is taken twice over, from
-   * one draw: once extrapolated back to the RMARKER (fragment 0, whether or not it arrived) and
-   * once at its own arrival, which is what the second stamp is measured against. When fragment 0
-   * did arrive the two are the same number.
+   * one draw: once at its own arrival, which is what the second stamp is measured against, and
+   * once walked back to the RMARKER (fragment 0, whether or not it arrived) — by the ratio the
+   * two stamps just measured, because the milliseconds walked back are the peer's and this
+   * counter is this receiver's. When fragment 0 did arrive the two are the same number.
    */
   private evaluateTrain(
     r: RoundState, m: MmsRoundState, mp: MmsRoundPlan, peer: string, kind: 'rsf' | 'rif', fragments: number,
@@ -1457,20 +1458,21 @@ export class UwbDevice implements UwbRadio {
       const first = frags[0]
       const sigmaNs = this.cfg.tsNoisePs / 1000
       const firstExtraNs = first.nlosNs + gaussian(this.rng) * sigmaNs
-      rmarker = this.clock.counter(rmarkerFromFragment(first.arrivalNs, first.index), firstExtraNs)
+      const firstCounter = this.clock.counter(first.arrivalNs, firstExtraNs)
       fom = fomFor(first.nlos)
       if (heard >= 2) {
         const last = frags[heard - 1]
         const lastExtraNs = last.nlosNs + gaussian(this.rng) * sigmaNs
-        const spanRctu = counterDiff(
-          this.clock.counter(last.arrivalNs, lastExtraNs),
-          this.clock.counter(first.arrivalNs, firstExtraNs),
-        )
+        const spanRctu = counterDiff(this.clock.counter(last.arrivalNs, lastExtraNs), firstCounter)
         // The fragments are a millisecond apart on the transmitter's clock, so the span this
         // receiver measured over them is its own counter per the peer's — a ruler milliseconds
         // long, where the narrowband carrier offers only its own residual.
         ratio = spanRctu / ((last.index - first.index) * MS_RCTU)
       }
+      // …and that same ruler is what the walk-back to the RMARKER is measured with when the
+      // leading fragments were lost. With fragment 0 in hand this is `firstCounter` itself, so
+      // a train that arrived whole is stamped exactly as before.
+      rmarker = rmarkerFromFragment(firstCounter, first.index, ratio)
     }
     this.emit({
       t: this.now(), type: 'UWB_MMS_TRAIN', node: this.id, peer, kind,

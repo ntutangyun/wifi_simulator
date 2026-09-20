@@ -343,8 +343,11 @@ export function GuideEn() {
         simply the peak of the first pulse of the first RSF — the first RIF when X = 0 — so unlike every
         frame in section 11 there is <i>no</i> 73.269 µs offset between the PPDU's start and the ranging
         instant (4ab draft 0100r2 §2.3.2). If the first fragment is lost, the stamp is still recovered: the
-        receiver knows the train's shape from the control exchange, so a fragment that did arrive minus its
-        index × 1 ms is the same instant (model).
+        receiver knows the train's shape from the control exchange, so a fragment that did arrive, walked
+        back its index × 1 ms, is the same instant. Those milliseconds are the transmitter's, so the
+        walk-back is scaled by the clock ratio the same train measured — undrifted ones would leave
+        index × 1 ms × the offset between the two crystals, 3.0 m of range per lost fragment at 20 ppm
+        (model).
       </p>
       <p style={p}>
         <b>The train is also a ruler.</b> Two fragments of one train are an exact whole number of the
@@ -713,7 +716,9 @@ export function GuideZh() {
         <b>时间戳挪到了最前面。</b>既然没有 SHR 要等，<b>RSF-RMARKER</b> 就是第一个 RSF 第一个脉冲的峰值
         （X = 0 时则是第一个 RIF），因此与第 11 节里的每一帧都不同：PPDU 起点与测距时刻之间<i>没有</i>
         73.269 µs 的偏移（4ab 草案 0100r2 §2.3.2）。即使第一个片段丢了，这个时刻依然能还原：接收机已从控制
-        交互中得知序列的形状，于是把任何一个收到的片段的到达时刻减去“序号 × 1 ms”即可（模型取值）。
+        交互中得知序列的形状，于是把任何一个收到的片段的到达时刻往回推“序号 × 1 ms”即可。但这些毫秒是
+        <i>发送方</i>的，所以回推时要乘上同一列序列量出的时钟比率；若按未修正的毫秒回推，就会留下
+        “序号 × 1 ms × 两块晶振之间的偏差”——在 20 ppm 下，每丢一个前导片段就是 3.0 m 的测距误差（模型取值）。
       </p>
       <p style={p}>
         <b>这列序列同时也是一把尺子。</b>同一序列中两个片段之间，按发送方的时钟恰好相隔整数个毫秒，

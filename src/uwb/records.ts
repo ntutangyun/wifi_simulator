@@ -84,6 +84,12 @@ export type UwbRecord =
    * `ratioPpm` is the clock ratio the train measured against this receiver's own crystal, minus
    * one, in ppm — null when fewer than two fragments were heard, which is the case the range
    * falls back to the narrowband carrier estimate in.
+   *
+   * That ratio is also what the train's `UWB_TS` is walked back with when the leading fragments
+   * were lost: the RMARKER is `index` of the *peer's* milliseconds before the first fragment
+   * that did arrive, and this receiver counts its own (`rmarkerFromFragment`, src/uwb/mms.ts).
+   * With no ratio to scale by, the nominal millisecond leaves `index` × 1 ms × the offset
+   * between the two crystals — 3.0 m of range per lost leading fragment at 20 ppm.
    */
   | { type: 'UWB_MMS_TRAIN'; node: string; peer: string; kind: 'rsf' | 'rif'; fragments: number; heard: number; rxDbm: number; gainDb: number; marginDb: number; detected: boolean; ratioPpm: number | null; block: number; round: number }
   /** A reception that nothing else on the UWB medium spoiled was still lost, to in-band

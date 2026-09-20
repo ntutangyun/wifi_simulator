@@ -22,7 +22,7 @@
  * only inside functions — so the cycle resolves whichever one is loaded first.
  */
 import type { Ns } from '../model/types'
-import { chipsToNs, UWB_RX_SENS_DBM } from './phy'
+import { chipsToNs, COUNTER_MOD, UWB_RX_SENS_DBM } from './phy'
 
 // --- The fragment ------------------------------------------------------------
 
@@ -121,14 +121,27 @@ const RCTU_PER_CHIP = 128
 export const MS_RCTU = MS_CHIPS * RCTU_PER_CHIP
 
 /**
- * Where a train's RMARKER fell, in true time, given any one fragment of it that was heard: the
- * fragments are one millisecond apart and the receiver knows the train's shape from the
- * narrowband control exchange, so fragment `index` arriving at `arrivalNs` puts fragment 0 —
- * the RMARKER — `index` milliseconds earlier. A train whose first fragment was lost is
- * therefore still timed, from whichever fragment did arrive. model
+ * Where a train's RMARKER fell on the receiver's own ranging counter, given the first fragment
+ * of the train it actually heard: the fragments are one millisecond apart and the receiver
+ * knows the train's shape from the narrowband control exchange, so fragment `index`, stamped at
+ * `firstCounter`, puts fragment 0 — the RMARKER — `index` milliseconds earlier. A train whose
+ * first fragment was lost is therefore still timed, from whichever fragment did arrive. model
+ *
+ * Those milliseconds are the *transmitter's*, and this counter is the receiver's, so the
+ * walk-back is scaled by `ratio` — the receiver's counter per the peer's, which the very same
+ * train measured. Walking back `index` undrifted milliseconds instead would leave `index` ×
+ * 1 ms × the clock offset between the two crystals: 20 ns, and so 3.0 m of range, per lost
+ * leading fragment at 20 ppm.
+ *
+ * `ratio` is null when fewer than two fragments were heard and there was no span to measure it
+ * over. The receiver's own nominal millisecond is then all it has, and that residual stands —
+ * there is nothing better to use. With fragment 0 in hand (`index` 0) nothing is walked back at
+ * all and the ratio never enters.
  */
-export function rmarkerFromFragment(arrivalNs: Ns, index: number): Ns {
-  return arrivalNs - index * MS_NS
+export function rmarkerFromFragment(firstCounter: number, index: number, ratio: number | null): number {
+  if (index === 0) return firstCounter
+  const back = Math.round(index * MS_RCTU * (ratio ?? 1))
+  return (((firstCounter - back) % COUNTER_MOD) + COUNTER_MOD) % COUNTER_MOD
 }
 
 /** 1-σ of the train-derived clock ratio for a span of `spanMs` between the first and last heard
