@@ -6,7 +6,7 @@ import {
   uwbTdoaRows, uwbTrainRows,
 } from '../../src/uwb/ui/rows'
 import { NOTHING_HEARD_DBM } from '../../src/uwb/records'
-import type { UwbNodeView } from '../../src/uwb/view'
+import { uwbTrainKey, type UwbNodeView } from '../../src/uwb/view'
 
 /** A tag mid-block with two peers: one clear, one through a wall. */
 const tag: UwbNodeView = {
@@ -154,7 +154,9 @@ describe('fomText', () => {
 
 // --- P802.15.4ab -------------------------------------------------------------------
 
-/** A tag mid-block in an MMS session: one train it combined, one it lost entirely. */
+/** A tag mid-block in a *mixed*-set MMS session: one peer whose RSF train it combined and
+ * whose RIF train vouched for the range, one peer whose integrity train it lost entirely, and
+ * one peer whose RSF train fell short. The first two share a peer, and must not share a row. */
 const mmsTag: UwbNodeView = {
   ...tag,
   ranges: {
@@ -163,9 +165,12 @@ const mmsTag: UwbNodeView = {
   position: null,
   mms: {
     trains: {
-      'anc-1': { kind: 'rsf', fragments: 8, heard: 8, marginDb: 1.77, detected: true, ratioPpm: -20.0298 },
-      'anc-2': { kind: 'rif', fragments: 2, heard: 0, marginDb: NOTHING_HEARD_DBM, detected: false, ratioPpm: null },
-      'anc-3': { kind: 'rsf', fragments: 4, heard: 4, marginDb: -1.24, detected: false, ratioPpm: 8.02 },
+      [uwbTrainKey('anc-1', 'rsf')]:
+        { peer: 'anc-1', kind: 'rsf', fragments: 8, heard: 8, marginDb: 1.77, detected: true, ratioPpm: -20.0298 },
+      [uwbTrainKey('anc-1', 'rif')]:
+        { peer: 'anc-1', kind: 'rif', fragments: 2, heard: 0, marginDb: NOTHING_HEARD_DBM, detected: false, ratioPpm: null },
+      [uwbTrainKey('anc-3', 'rsf')]:
+        { peer: 'anc-3', kind: 'rsf', fragments: 4, heard: 4, marginDb: -1.24, detected: false, ratioPpm: 8.02 },
     },
     nbChannel: 3,
     lbtBusy: 2,
@@ -177,12 +182,15 @@ const mmsTag: UwbNodeView = {
 describe('the fragment-train table', () => {
   const rows = uwbTrainRows(mmsTag, EN)
 
-  it('gives one row per peer, with the train and how much of it arrived', () => {
+  it('gives one row per peer and kind, with the train and how much of it arrived', () => {
     expect(rows.map((r) => [r.peer, r.kind, r.heard])).toEqual([
       ['anc-1', '8 × RSF', '8 / 8'],
-      ['anc-2', '2 × RIF', '0 / 2'],
+      ['anc-1', '2 × RIF', '0 / 2'],
       ['anc-3', '4 × RSF', '4 / 4'],
     ])
+    // The RSF train the range was made on survives the RIF train of the same peer: both rows
+    // are there, and the margin the range rests on is still readable.
+    expect(rows.filter((r) => r.peer === 'anc-1')).toHaveLength(2)
   })
 
   it('signs the margin, and shows a dash where nothing was heard at all', () => {

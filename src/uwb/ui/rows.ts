@@ -109,9 +109,11 @@ export interface UwbTrainRow {
   ratio: string
 }
 
+/** One row per peer *and* kind, in the order the trains closed: a mixed set shows the RSF
+ * train the range was made on above the RIF train that vouched for it. */
 export function uwbTrainRows(u: UwbNodeView, S: UwbTrainStrings): UwbTrainRow[] {
-  return Object.entries(u.mms.trains).map(([peer, t]) => ({
-    peer,
+  return Object.values(u.mms.trains).map((t) => ({
+    peer: t.peer,
     kind: S.trainKind(t.kind, t.fragments),
     heard: `${t.heard} / ${t.fragments}`,
     margin: t.marginDb === NOTHING_HEARD_DBM ? S.trainNothing : `${t.marginDb >= 0 ? '+' : ''}${t.marginDb.toFixed(1)} dB`,

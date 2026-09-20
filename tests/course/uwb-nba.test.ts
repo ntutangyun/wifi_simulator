@@ -37,6 +37,7 @@ import { bandOverlapMhz, uwbToWifiPathLossDb, wifiToUwbPathLossDb } from '../../
 import { CCA_ED_DBM } from '../../src/engine/phy'
 import { UWB_PL_EXP, UWB_TX_POWER_DBM } from '../../src/uwb/phy'
 import { roundPlan } from '../../src/uwb/session'
+import { uwbTrainKey } from '../../src/uwb/view'
 
 const MS = 1_000_000
 /** Seven whole blocks: block 6 opens at 1.200 s and its four pair rounds are over by
@@ -590,7 +591,8 @@ describe('uwb-nba · the base scene, inside the router’s channel', () => {
     expect(uwbNba.observe[2].en).toContain('“7 busy · 7 blocks skipped”')
     expect(uwbNba.observe[2].zh).toContain('“7 次忙 · 跳过 7 个块”')
     // "Its two train rows are untouched: 8 / 8 heard, +34.5 and +32.0 dB, detected"
-    expect(Object.keys(u.mms.trains)).toEqual(['anchor-1', 'anchor-2'])
+    // Y = 0 in this session, so there is one RSF row per peer and no integrity row at all.
+    expect(Object.keys(u.mms.trains)).toEqual([uwbTrainKey('anchor-1', 'rsf'), uwbTrainKey('anchor-2', 'rsf')])
     for (const t of Object.values(u.mms.trains)) {
       expect(`${t.heard} / ${t.fragments}`).toBe('8 / 8')
       expect(t.detected).toBe(true)

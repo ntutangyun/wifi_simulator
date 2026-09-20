@@ -56,10 +56,17 @@ export interface UwbPositionView {
   n: number
 }
 
+/** The `mms.trains` key: one peer's RSF train and its RIF train are two rows, not one. */
+export function uwbTrainKey(peer: string, kind: 'rsf' | 'rif'): string {
+  return `${peer}:${kind}`
+}
+
 /** What one peer's latest fragment train came to, as the inspector shows it. One entry per
- * peer: a train is evaluated per peer and per kind, and the last one to close wins — so a
- * session with an integrity train shows the RIF row and a plain one the RSF row. */
+ * peer *and kind*: the two trains of a mixed set say different things — the RSF train is what
+ * the range was made on, the RIF train only whether it was vouched for — so neither may
+ * overwrite the other. The peer rides on the row because the map's key is `peer:kind`. */
 export interface UwbTrainView {
+  peer: string
   kind: 'rsf' | 'rif'
   /** How many the train held (X for an RSF train, Y for an RIF one) and how many arrived. */
   fragments: number
@@ -75,7 +82,7 @@ export interface UwbTrainView {
 /** The P802.15.4ab half of a node's ranging state: what its peers' trains came to, and what its
  * narrowband control radio has been doing. Empty and zeroed in every other mode. */
 export interface UwbMmsView {
-  /** Per peer id. */
+  /** Keyed `${peer}:${kind}` — `uwbTrainKey` builds it, and nothing else should. */
   trains: Record<string, UwbTrainView>
   /** The narrowband channel of the last control message this node sent or received; null until
    * one has. The session hops it per block, so it is state, not configuration. */
@@ -253,8 +260,8 @@ export function applyUwbRecord(vs: ViewState, r: TLRecord): boolean {
     case 'UWB_MMS_TRAIN': {
       const u = vs.nodes[r.node]?.uwb
       if (u) {
-        u.mms.trains[r.peer] = {
-          kind: r.kind, fragments: r.fragments, heard: r.heard,
+        u.mms.trains[uwbTrainKey(r.peer, r.kind)] = {
+          peer: r.peer, kind: r.kind, fragments: r.fragments, heard: r.heard,
           marginDb: r.marginDb, detected: r.detected, ratioPpm: r.ratioPpm,
         }
       }

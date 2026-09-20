@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { makeEmitter, type EmitFn, type TLRecord } from '../../src/model/records'
 import { applyRecord, cloneView, initViewState } from '../../src/model/view'
 import { makeNbPoll } from '../../src/uwb/frames'
+import { uwbTrainKey } from '../../src/uwb/view'
 import { DEFAULT_UWB_SESSION, nonht, type NodeCfg, type Scenario } from '../../src/model/scenario'
 
 function uwbNode(id: string, role: 'anchor' | 'tag', x: number, y: number): NodeCfg {
@@ -257,13 +258,17 @@ function apply(vs: ReturnType<typeof fresh>, recs: Bare<Parameters<EmitFn>[0]>[]
 // --- P802.15.4ab -----------------------------------------------------------------
 
 describe('the MMS half of a node view', () => {
-  it('keeps the latest train per peer, and the range’s integrity flag beside it', () => {
+  it('keeps the latest train per peer and kind, and the range’s integrity flag beside it', () => {
     const vs = fresh()
     apply(vs, [
       {
         type: 'UWB_MMS_TRAIN', node: 'tag-1', peer: 'anc-1', kind: 'rsf', fragments: 8, heard: 8,
         rxDbm: -100.26, gainDb: 9.03, marginDb: 1.77, detected: true, ratioPpm: -20.03,
         block: 0, round: 0,
+      },
+      {
+        type: 'UWB_MMS_TRAIN', node: 'tag-1', peer: 'anc-1', kind: 'rif', fragments: 2, heard: 0,
+        rxDbm: -999, gainDb: 0, marginDb: -999, detected: false, ratioPpm: null, block: 0, round: 0,
       },
       {
         type: 'UWB_MMS_TRAIN', node: 'tag-1', peer: 'anc-2', kind: 'rif', fragments: 2, heard: 0,
@@ -275,12 +280,16 @@ describe('the MMS half of a node view', () => {
       },
     ])
     const u = vs.nodes['tag-1'].uwb!
-    expect(u.mms.trains['anc-1'])
-      .toEqual({ kind: 'rsf', fragments: 8, heard: 8, marginDb: 1.77, detected: true, ratioPpm: -20.03 })
+    // The integrity train of the same peer landed after it and did not overwrite it: the row
+    // the range was actually made on is still there, margin and all.
+    expect(u.mms.trains[uwbTrainKey('anc-1', 'rsf')]).toEqual({
+      peer: 'anc-1', kind: 'rsf', fragments: 8, heard: 8, marginDb: 1.77, detected: true, ratioPpm: -20.03,
+    })
+    expect(Object.keys(u.mms.trains)).toEqual(['anc-1:rsf', 'anc-1:rif', 'anc-2:rif'])
     // Nothing heard: the record's sentinel is carried through unchanged, and the rows module
     // is what turns it into a dash.
-    expect(u.mms.trains['anc-2'].marginDb).toBe(-999)
-    expect(u.mms.trains['anc-2'].ratioPpm).toBeNull()
+    expect(u.mms.trains[uwbTrainKey('anc-2', 'rif')].marginDb).toBe(-999)
+    expect(u.mms.trains[uwbTrainKey('anc-2', 'rif')].ratioPpm).toBeNull()
     expect(u.ranges['anc-1'].integrity).toBe(false)
     // A 4z range has no flag at all, not a false one.
     apply(vs, [{
