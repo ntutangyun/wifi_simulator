@@ -25,6 +25,25 @@ describe('scene mappings', () => {
     expect(frameColor(mkFrame('rts', 'sta-1'), 'ap')).toBe(0xf97316)
   })
 
+  it('gives every frame kind a colour, and an MMS fragment one nothing else wears', () => {
+    const KINDS: FrameDesc['kind'][] = [
+      'data', 'ack', 'rts', 'cts', 'ba', 'trigger', 'mba', 'cfend',
+      'ampTrigger', 'ampAck', 'ampResp',
+      'uwbPoll', 'uwbResp', 'uwbFinal', 'uwbReport', 'uwbBlink',
+      'uwbRsf', 'uwbRif', 'nbPoll', 'nbResp', 'nbReport',
+    ]
+    const frag = frameColor(mkFrame('uwbRsf', 'tag-1'), 'ap')
+    expect(frameColor(mkFrame('uwbRif', 'tag-1'), 'ap')).toBe(frag)
+    // Not the AMP trigger/ack teal it used to share, and not a ranging amber either.
+    expect(frameColor(mkFrame('ampTrigger', 'ap'), 'ap')).toBe(0x2dd4bf)
+    expect(frag).not.toBe(0x2dd4bf)
+    for (const k of KINDS) {
+      if (k === 'uwbRsf' || k === 'uwbRif') continue
+      expect(frameColor(mkFrame(k, 'sta-1'), 'ap'), k).not.toBe(frag)
+      expect(frameColor(mkFrame(k, 'ap'), 'ap'), k).not.toBe(frag)
+    }
+  })
+
   it('flightProgress clamps to [0,1]', () => {
     const f = { from: 'a', frame: mkFrame('data', 'a'), startNs: 100, endNs: 200 }
     expect(flightProgress(50, f)).toBe(0)

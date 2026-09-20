@@ -48,8 +48,11 @@ export function frameColor(frame: FrameDesc, apId: string): number {
     // P802.15.4ab. Both trains are one colour whoever sent them — a fragment is a member of a
     // train, not one side's message — and the narrowband control plane is a second radio
     // altogether, so it gets a colour of its own rather than a shade of the ranging amber.
+    // Lime, not the AMP teal above: AMP and UWB never share a scene, but a screenshot of one
+    // should not read as the other, and the fragment is the only thing here that is neither a
+    // message nor a Wi-Fi frame.
     case 'uwbRsf':
-    case 'uwbRif': return 0x2dd4bf
+    case 'uwbRif': return 0xa3e635
     case 'nbPoll':
     case 'nbResp':
     case 'nbReport': return 0x818cf8
