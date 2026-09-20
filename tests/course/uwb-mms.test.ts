@@ -24,7 +24,7 @@ import { LESSONS } from '../../src/course/lessons'
 import { fmtRecord } from '../../src/ui/format'
 import { STRINGS } from '../../src/ui/i18n'
 import {
-  C_M_PER_NS, UWB_NLOS_NS, UWB_PL_EXP, UWB_PPM_MAX, UWB_RX_SENS_DBM, UWB_TX_POWER_DBM,
+  C_M_PER_NS, RCTU_NS, UWB_NLOS_NS, UWB_PL_EXP, UWB_PPM_MAX, UWB_RX_SENS_DBM, UWB_TX_POWER_DBM,
   fomText, uwbPl0Db, uwbPollBytes, uwbPpduNs,
 } from '../../src/uwb/phy'
 import { WALL_LOSS_DB } from '../../src/engine/propagation'
@@ -38,7 +38,6 @@ import {
 import { rangeSigmaM } from '../../src/uwb/position'
 import { rctuToMetres } from '../../src/uwb/ranging'
 import { roundPlan } from '../../src/uwb/session'
-import { RCTU_NS } from '../../src/uwb/phy'
 import { applyRecord, initViewState } from '../../src/model/view'
 import { uwbFixRow, uwbNbChannelText, uwbTrainRows } from '../../src/uwb/ui/rows'
 
@@ -343,10 +342,15 @@ describe('uwb-mms · thirty-seven nanojoules, and one fragment', () => {
   it('"X equal-power fragments combine to 10·log10(X) dB", 6.02 / 9.03 / 12.04', () => {
     expect([4, 8, 16].map((n) => combineGainDb(n).toFixed(2))).toEqual(['6.02', '9.03', '12.04'])
     expect(UWB_RX_SENS_DBM).toBe(-93)
-    expect(cell(0, 2)).toBe('+6.02 dB')
-    expect(cell(1, 2)).toBe('+9.03 dB')
-    expect(cell(2, 2)).toBe('+12.04 dB')
-    expect(prose()).toContain('the train is detected when the received power plus that gain clears −93 dBm')
+    expect([0, 1, 2].map((r) => cell(r, 2))).toEqual(['+6.02 dB', '+9.03 dB', '+12.04 dB'])
+    // the first column is the train each row is about, and the last is what came of it
+    expect([0, 1, 2].map((r) => cell(r, 0)))
+      .toEqual(['4 × 82.051 µs', '8 × 82.051 µs', '16 × 62.179 µs'])
+    expect([0, 1, 2].map((r) => cell(r, 4))).toEqual(['lost', 'detected', 'detected'])
+    expect([0, 1, 2].map((r) => tables()[0].rows[r][4].zh)).toEqual(['丢失', '检出', '检出'])
+    expect(tables()[0].head.map((h) => h.en))
+      .toEqual(['Train', 'Per fragment', 'Gain', 'Margin', 'Verdict'])
+    expect(prose()).toContain('combine to 10·log10(X) dB, detected once that clears −93 dBm')
   })
 })
 
@@ -405,9 +409,19 @@ describe('uwb-mms · the two-wall link budget', () => {
     const outs = of(recs('four'), 'UWB_TIMEOUT')
     expect(outs).toHaveLength(21)
     expect(outs).toHaveLength(BLOCKS * ANCHORS.length)
-    expect(new Set(outs.map((o) => `${o.node} ${o.expected} ${o.slot}`)))
-      .toEqual(new Set([`${TAG} nbReport 24`]))
-    expect(fmtRecord(outs[0])).toBe('tag-1 UWB slot 24: no nb-report from anchor-1')
+    // one per pair round, so the peer walks the anchors: seven lines each, not 21 of anchor-1
+    expect(new Set(outs.map((o) => `${o.node} ${o.expected} ${o.slot} ${o.peer}`)))
+      .toEqual(new Set(ANCHORS.map((a) => `${TAG} nbReport 24 ${a}`)))
+    expect(outs.filter((o) => o.peer === 'anchor-1')).toHaveLength(BLOCKS)
+    expect(outs.slice(0, 3).map((o) => fmtRecord(o))).toEqual([
+      'tag-1 UWB slot 24: no nb-report from anchor-1',
+      'tag-1 UWB slot 24: no nb-report from anchor-2',
+      'tag-1 UWB slot 24: no nb-report from anchor-3',
+    ])
+    expect(uwbMms.tryThis[0].en).toContain('one per pair round — “tag-1 UWB slot 24: no nb-report from anchor-1”, then anchor-2, then anchor-3')
+    // "Each anchor loses the tag's train and the tag loses all three of theirs"
+    for (const a of ANCHORS) expect(trainsAt('four', a), a).toHaveLength(BLOCKS)
+    expect(trainsAt('four', TAG)).toHaveLength(BLOCKS * ANCHORS.length)
     // exactly the 3.01 dB of a halved train, and nothing else
     for (const t of firstTrains('four')) {
       const eight = firstTrains('base').find((b) => b.peer === t.peer)!
@@ -607,7 +621,7 @@ describe('uwb-mms · where the gain actually comes from', () => {
     // "a burst-mode one could hold −7.41 dBm and be as legal"
     expect(mmsFragmentDbm(pollNs).toFixed(2)).toBe('-7.41')
     expect((burstDb + shorterDb).toFixed(2)).toBe('10.54')
-    expect(prose()).toContain('an eight-fragment train at an effective −91.23: 19.57 dB better')
+    expect(prose()).toContain('its eight-fragment train arrives at an effective −91.23: 19.57 dB better')
     expect(uwbMms.quiz[1].options[1].en).toContain('9.03 dB; the other 10.54 is transmit power')
   })
 })
@@ -627,8 +641,8 @@ describe('uwb-mms · what the walls charge anyway', () => {
       expect(r.method).toBe('ss')
     }
     expect(uwbMmsScenario('base').uwb!.mms.rifs).toBe(0)
-    expect(prose()).toContain('the figure of merit says “75 % within 12 ns”, the NLOS byte')
-    expect(prose()).toContain('With Y = 0 there is no integrity flag')
+    expect(prose()).toContain('figure of merit says “75 % within 12 ns”, the NLOS byte')
+    expect(prose()).toContain('with Y = 0 there is no integrity flag')
   })
 
   it('"(14.22, 4.05) m against a true (13.00, 4.00), 1.22 m east, GDOP 2.93, ellipse 6.1 × 1.3 cm"', () => {
@@ -686,9 +700,109 @@ describe('uwb-mms · 4z for comparison', () => {
     expect(byKind).toEqual({ uwbPoll: BLOCKS * ANCHORS.length, uwbResp: BLOCKS * ANCHORS.length })
     expect(of(rs, 'UWB_ROUND')).toHaveLength(BLOCKS)
     expect(of(rs, 'UWB_ROUND')[0].slots).toBe(4)
-    // the Poll reaches the tag at −110.80 dBm, far under the receiver's −93
     expect(of(rs, 'UWB_MMS_TRAIN')).toEqual([])
     expect(prose()).toContain('the same room, ordinary SS-TWR — 42 timeouts, not one range')
+  })
+
+  it('the tag is the one that polls, and the anchors are the ones left waiting', () => {
+    const rs = recs('twr')
+    // "the tag's Poll to three anchors" / "The tag's 4z Poll reaches anchor 1 at −110.80 dBm"
+    const polls = of(rs, 'TX_START').filter((r) => r.frame.kind === 'uwbPoll')
+    expect(polls).toHaveLength(BLOCKS)
+    expect(new Set(polls.map((r) => r.node))).toEqual(new Set([TAG]))
+    expect(polls[0].frame.dst).toBe('*')
+    // so every 'uwbPoll' timeout belongs to an anchor, and every 'uwbResp' one to the tag
+    const outs = of(rs, 'UWB_TIMEOUT')
+    expect(new Set(outs.filter((o) => o.expected === 'uwbPoll').map((o) => o.node)))
+      .toEqual(new Set(ANCHORS))
+    expect(new Set(outs.filter((o) => o.expected === 'uwbResp').map((o) => o.node)))
+      .toEqual(new Set([TAG]))
+    expect(prose()).toContain('the tag’s Poll to three anchors (36 octets, 203.782 µs)')
+    expect(prose()).toContain('The tag’s 4z Poll reaches anchor 1 at −110.80 dBm')
+    // the room is symmetric, so what anchor 1 hears of the tag is what the tag hears of it:
+    // the same −110.80 dBm for a Poll, and the same −100.26 dBm for a fragment
+    const atAnchor = trainsAt('base', 'anchor-1')[0]
+    expect(atAnchor.rxDbm.toFixed(2)).toBe(firstTrains('base')[0].rxDbm.toFixed(2))
+    expect((atAnchor.rxDbm + atAnchor.gainDb).toFixed(2)).toBe('-91.23')
+  })
+})
+
+describe('uwb-mms · the lines the observe items quote', () => {
+  const rs = () => recs('base')
+  const txLine = (kind: string, node?: string): string =>
+    fmtRecord(of(rs(), 'TX_START').find((r) => r.frame.kind === kind && (node === undefined || r.node === node))!)
+
+  it('observe 1: the round, and the narrowband poll that opens it', () => {
+    expect(fmtRecord(of(rs(), 'UWB_ROUND')[0]))
+      .toBe('tag-1 UWB round 0 of block 0 (MMS): 28 slots × 500.0 µs')
+    expect(txLine('nbPoll')).toBe('tag-1 → anchor-1 NBPOLL 12 B @0.25 Mbps (576.0 µs)')
+    for (const q of [
+      'tag-1 UWB round 0 of block 0 (MMS): 28 slots × 500.0 µs',
+      'tag-1 → anchor-1 NBPOLL 12 B @0.25 Mbps (576.0 µs)',
+    ]) {
+      expect(uwbMms.observe[0].en, q).toContain(q)
+      expect(uwbMms.observe[0].zh, q).toContain(q)
+    }
+  })
+
+  it('observe 2: the transmit stamp, and the fragment it stamps', () => {
+    const tx = of(rs(), 'UWB_TS').find((r) => r.dir === 'tx')!
+    expect(fmtRecord(tx)).toBe('tag-1 TX RMARKER → anchor-1 RSF: counter 336330610684')
+    expect(tx.t).toBe(2 * MS)
+    expect(txLine('uwbRsf')).toBe('tag-1 → anchor-1 UWBRSF 0 B @0 Mbps (82.1 µs)')
+    for (const q of [
+      'tag-1 TX RMARKER → anchor-1 RSF: counter 336330610684',
+      'tag-1 → anchor-1 UWBRSF 0 B @0 Mbps (82.1 µs)',
+    ]) {
+      expect(uwbMms.observe[1].en, q).toContain(q)
+      expect(uwbMms.observe[1].zh, q).toContain(q)
+    }
+  })
+
+  it('observe 3: the receive stamp with its figure of merit, and when each side rules', () => {
+    const rx = of(rs(), 'UWB_TS').find((r) => r.dir === 'rx')!
+    expect(fmtRecord(rx))
+      .toBe('anchor-1 RX RMARKER ← tag-1 RSF: counter 26504711136 (75 % within 12 ns)')
+    expect(rx.t).toBe(9.5 * MS)
+    // "The tag rules at 10.000 ms": its own verdict on the anchor's train, one slot later
+    expect(trainsAt('base', 'anchor-1')[0].t).toBe(9.5 * MS)
+    expect(trainsAt('base', TAG)[0].t).toBe(10 * MS)
+    const q = 'anchor-1 RX RMARKER ← tag-1 RSF: counter 26504711136 (75 % within 12 ns)'
+    expect(uwbMms.observe[2].en).toContain(q)
+    expect(uwbMms.observe[2].zh).toContain(q)
+    expect(uwbMms.observe[2].en).toContain('At 9.500 ms')
+    expect(uwbMms.observe[2].en).toContain('The tag rules at 10.000 ms')
+  })
+
+  it('observe 4: the narrowband report, and the inspector in both languages', () => {
+    expect(txLine('nbReport')).toBe('anchor-1 → tag-1 NBREPORT 13 B @0.25 Mbps (608.0 µs)')
+    expect(uwbMms.observe[3].en).toContain('anchor-1 → tag-1 NBREPORT 13 B @0.25 Mbps (608.0 µs)')
+    expect(uwbMms.observe[3].zh).toContain('anchor-1 → tag-1 NBREPORT 13 B @0.25 Mbps (608.0 µs)')
+    // "After seven blocks": the fix the inspector holds at the end of the run is the last of
+    // the seven, not the first, which was solved at 42 ms
+    const fixes = of(rs(), 'UWB_POSITION')
+    expect(fixes).toHaveLength(BLOCKS)
+    expect(fixes[0].t).toBe(42 * MS)
+    const vs = initViewState(uwbMmsScenario('base'))
+    for (const r of rs()) applyRecord(vs, r)
+    const u = vs.nodes[TAG].uwb!
+    expect(uwbFixRow(u.position!, STRINGS.en.uwb).estimate)
+      .toBe(`(${fixes[BLOCKS - 1].x.toFixed(2)}, ${fixes[BLOCKS - 1].y.toFixed(2)}) m`)
+    expect(uwbMms.observe[3].en).toContain('After seven blocks the tag’s inspector reads')
+    expect(uwbMms.observe[3].zh).toContain('七个块之后打开标签的检视面板')
+    // the ZH observe quotes the ZH inspector: the train row's kind, count, margin and verdict
+    const zhRows = uwbTrainRows(u, STRINGS.zh.uwb)
+    expect(uwbMms.observe[3].zh).toContain(zhRows[0].kind)
+    expect(uwbMms.observe[3].zh).toContain(zhRows[0].heard)
+    expect(uwbMms.observe[3].zh).toContain(zhRows[0].margin)
+    expect(uwbMms.observe[3].zh).toContain(zhRows[0].detected)
+    expect(uwbMms.observe[3].zh).toContain(zhRows[2].margin)
+    expect(uwbMms.observe[3].zh).toContain(uwbNbChannelText(u, STRINGS.zh.uwb)!)
+  })
+
+  it('"one of the seventeen mandatory sets"', () => {
+    expect(Object.keys(MMS_SETS)).toHaveLength(17)
+    expect(uwbMms.tryThis[1].en).toContain('one of the seventeen mandatory sets')
   })
 })
 
