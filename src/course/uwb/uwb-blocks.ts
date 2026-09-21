@@ -1,21 +1,21 @@
 /**
  * UWB Tier 1 · M12 · Ranging sessions and positioning · Blocks, rounds and slots.
  *
- * The first three lessons measured one distance, then four, inside a single
- * round. This one zooms out to the grid that round sits in: a ranging block of
- * 200 ms, ten rounds inside it, ten slots inside each round, and three tags
- * that never once collide because the schedule was fixed before the first frame
- * flew. The pay-off is measured rather than asserted — a tag owns 10 % of the
- * block and an anchor serves 30 % of it, yet their radios are on for 0.97 % and
- * 1.22 % of it. Every number quoted below is pinned in
- * tests/course/uwb-blocks.test.ts.
+ * The lessons before this one measured one distance inside a single round.
+ * This one zooms out to the grid that round sits in: a ranging block that
+ * repeats, one round to a tag, one frame to a slot, and three phones that
+ * never once collide because the timetable was written before the first frame
+ * flew. The pay-off is measured rather than asserted — a tag owns a tenth of
+ * the block and an anchor serves three tenths of it, yet their radios are on
+ * for 0.97 % and 1.22 % of it.
  *
- * CAUTION — word budget: `lessonMinutes` rounds to 25 minutes anywhere between
- * 975 and 1724 English words across body + observe + tryThis + quiz (4 observe
- * items and 2 experiments already account for 16 of those minutes). At 1725 the
- * rounding tips to 30, and the study-time test pins that ceiling. The prose
- * below totals 1712 words, so there is room for twelve more and no more:
- * adding a sentence means deleting one.
+ * Written to the zero-to-hero contract
+ * (docs/superpowers/specs/2026-09-21-course-readability-design.md): the
+ * timetable in plain words first, the exact RSTU counts and the radio bill
+ * after it, the slot-length arithmetic in `deeper` and the clauses in
+ * `sources`. Every number quoted below is pinned in
+ * tests/course/uwb-blocks.test.ts; `npx tsx scripts/lesson-dump.ts uwb-blocks
+ * en` prints the section budgets.
  */
 import type { Scenario } from '../../model/scenario'
 import {
@@ -30,11 +30,11 @@ const secondTagRound = (r: TLRecord): boolean => r.type === 'UWB_ROUND' && r.nod
 const nextBlock = (r: TLRecord): boolean => r.type === 'UWB_ROUND' && r.block === 1
 
 /**
- * Lesson 2's four anchors, on the same 3.50 m ring around (5, 4) at 2.20 m, now
- * serving three phones at desk height: one under the ring's centre and two off
- * to the sides. The anchors are unchanged on purpose — what this lesson varies
- * is the session's own grid, not the geometry — and the only knob the variant
- * turns is the ranging slot.
+ * Four anchors on a 3.50 m ring around (5, 4) at 2.20 m, serving three phones
+ * at desk height: one under the ring's centre and two off to the sides. The
+ * anchors are unchanged from the earlier ranging scenes on purpose — what this
+ * lesson varies is the session's own grid, not the geometry — and the only
+ * knob the variant turns is the ranging slot.
  */
 export function uwbBlocksScenario(slotRstu: number): Scenario {
   return uwbSc(oneRoom(), [
@@ -52,16 +52,66 @@ export const uwbBlocks: Lesson = {
   id: 'uwb-blocks',
   module: 12,
   title: { en: 'Blocks, rounds and slots', zh: '块、轮与时隙' },
-  body: [
+  why: {
+    en: 'A room with several phones in it wants several distances at once. On a Wi-Fi link they would argue for the air: listen, wait, back off, try again. A ranging session does the opposite — it writes a timetable before anybody transmits, and each radio simply reads its own line. This lesson is that timetable: what it is made of, who owns each piece of it, and what it costs a battery.',
+    zh: '一个房间里有好几部手机，它们想同时各自测出距离。换成一条 Wi-Fi 链路，它们会为空口争起来：先听、再等、退避、重来。测距会话反其道而行：在任何人开口之前先把时间表写好，每台射频只管读自己那一行。这一课讲的就是这张时间表——它由什么拼成、每一块归谁所有，以及它要让电池付出多少。',
+  },
+  outcomes: [
+    { en: 'read a round off the log and say which phone owns it', zh: '从日志里读出一轮测距，并说出它属于哪一部手机' },
+    { en: 'say why nothing in a ranging session listens first, backs off or retries', zh: '说清为什么测距会话里没有谁需要先听、退避或重传' },
+    { en: 'tell what shortening a slot buys, and what it does not', zh: '讲清把时隙缩短能买到什么，又买不到什么' },
+  ],
+  needs: ['uwb-frame'],
+  terms: [
+    { term: 'block', plain: {
+      en: 'the whole timetable, which repeats for as long as the session lives',
+      zh: '整张时间表；只要会话还活着，它就一遍遍重复',
+    } },
+    { term: 'round', plain: {
+      en: 'one phone’s turn inside the block: all the frames of one measurement',
+      zh: '块里属于某一部手机的那一轮：一次测量的全部帧都在这里面',
+    } },
+    { term: 'slot', plain: {
+      en: 'one line of the timetable — one frame leaves in it, and nothing else',
+      zh: '时间表上的一行——里面只走一帧，别无他物',
+    } },
+    { term: 'RSTU', plain: {
+      en: 'the unit the timetable is written in: a ranging slot time unit, a good deal shorter than a microsecond',
+      zh: '写这张时间表所用的单位：测距时隙时间单元，比一微秒短不少',
+    } },
+  ],
+  picture: [
+    { heading: { en: 'A timetable nobody negotiates', zh: '一张无需商量的时间表' }, text: {
+      en: 'A ranging session hands out time before anyone transmits. The whole schedule is one block, and the block repeats unchanged for as long as the session lasts. Nothing inside it listens for an idle medium, waits out a gap, draws a backoff or retries: every device knows the instant of every frame it will send before the first one flies.',
+      zh: '测距会话在任何人发送之前就把时间分配完毕。整张日程就是一个块，只要会话还在，这个块就原样重复下去。它里面没有谁需要先听信道是否空闲、没有谁要等一段间隔、没有谁要取退避值、也没有谁要重传：每台设备在第一帧起飞之前，就已经知道自己要发的每一帧发生在哪一刻。',
+    } },
     { text: {
-      en: 'IEEE Std 802.15.4-2024 is the source for the shape of this lesson. §10.32.2 defines the ranging block, the ranging round and the ranging slot, and counts a block and a slot in whole 3-RSTU units; §10.29.1.5 and Table 10-145 fix the RSTU at 416 chips, which is 833.333 ns at 499.2 Mchip/s. The schedule rides in two elements: the ARC IE of §10.32.9.1 and the RDM IE of §10.32.9.8, which seats each responder. The 2 ms slot and the 200 ms block are FiRa profile numbers. Three are the model’s own: the 200 ns of flight guard the slot-fit rule adds to the longest frame, the floor of 300 RSTU the schema puts under any slot, and the nine anchors one Final can list.',
-      zh: 'IEEE Std 802.15.4-2024 是本课内容的依据。§10.32.2 定义了测距块、测距轮与测距时隙，并规定块长与时隙长都以整数个 3 RSTU 计；§10.29.1.5 与表 10-145 则把 RSTU 定为 416 个码片，在 499.2 Mchip/s 下即 833.333 ns。调度表随两个信息元素一起飞：§10.32.9.1 的 ARC IE，以及 §10.32.9.8 的 RDM IE——后者逐一点名应答方及分配给它的时隙。2 ms 的时隙与 200 ms 的块来自 FiRa 的规范档案。另有三个数字是仿真器自己的模型取值：时隙容量规则在最长帧之外追加的 200 ns 飞行余量、schema 给任何时隙设下的 300 RSTU 下限，以及一帧 Final 最多能列出的九个锚点。',
+      en: 'Inside the block, each phone gets a round of its own — its turn, and nobody else’s. Inside a round, time is cut into equal slots and each slot carries exactly one frame: the phone’s question first, then each anchor’s answer, each in the place the timetable gave it.',
+      zh: '块的内部，每部手机分到属于自己的一轮——它的回合，别人插不进来。而一轮的内部，时间被切成等长的时隙，每个时隙恰好走一帧：先是手机的提问，然后是各个锚点的回答，每一帧都落在时间表分给它的那个位置上。',
     } },
-    { heading: { en: 'Three nested clocks', zh: '三重嵌套的节拍' }, text: {
-      en: 'A scheduled ranging session is a grid fixed before the first frame flies: a ranging block that repeats for the session’s life, rounds inside the block, slots inside a round, one frame each. Nothing contends for the medium — no backoff, no NAV, no retry — so every device knows the instant of every frame it will send before the session starts.',
-      zh: '一次被调度的测距会话就是一张在第一帧起飞之前便已钉死的网格：一个只要会话还活着就不断循环的测距块，块里装着轮，轮里装着时隙，一个时隙一帧。这里没有任何东西要竞争信道——没有退避、没有 NAV、没有重传——所以会话开始之前，每台设备就已经知道自己要发的每一帧发生在哪一刻。',
+    { kind: 'watch', jump: 4, heading: { en: 'Watch it come round again', zh: '看它又转回来' }, text: {
+      en: 'Load the simulation and press play. Every transmission starts exactly on a slot boundary, the three phones take their turns one after another, and then the whole pattern begins again at the top of the next block.',
+      zh: '载入仿真，按下播放。每一次发送都恰好压在时隙边界上，三部手机依次轮到自己，然后整个图案又从下一个块的开头重新来过。',
     } },
-    { kind: 'table', head: [
+    { heading: { en: 'The timetable travels in the first frame', zh: '时间表随第一帧一起飞' }, text: {
+      en: 'The anchors were not born knowing the grid. It rides in the phone’s opening frame, as two short lists: one says where in the session this round sits, the other names each anchor and the slot it is to answer in.',
+      zh: '锚点并不是生来就知道这张网格的，它是随手机那一帧开场帧飞过来的，形式是两张小小的清单：一张说明本轮落在会话的什么位置，另一张逐个点名锚点，并写清它该在哪个时隙作答。',
+    } },
+    { heading: { en: 'Awake is not the same as allotted', zh: '醒着，和分到手，是两回事' }, text: {
+      en: 'A device pays for airtime, not for the time the timetable gave it. It arms its receiver at the start of a slot it expects a frame in, and switches it off the moment that frame lands. So an anchor serving three rounds out of ten still has its radio on for barely one part in a hundred of the block.',
+      zh: '一台设备付的是空口时间的账，不是时间表分给它那段时间的账。它只在“预期有帧到来”的时隙起点打开接收机，并在那一帧落地的瞬间关掉。于是，服务着十轮中三轮的锚点，射频开启时长也不过占整块的百分之一上下。',
+    } },
+    { heading: { en: 'Why a slot is so much longer than a frame', zh: '为什么时隙比帧长这么多' }, text: {
+      en: 'A slot must hold the longest frame of its round and that frame’s flight, with a little to spare. Past that the length is a choice, and here a generous one: most of a slot is silence. The margin pays for what this model leaves out — a receiver’s search before it can name an arrival, the turnaround from listening to transmitting, clocks drifting apart.',
+      zh: '一个时隙必须装得下本轮最长的那一帧和它的飞行时间，再留一点余量。除此之外，时隙多长是一个选择，而这里选得很宽裕：时隙里大半是静默。这份余量买的是本模型略去的东西——接收机判定一帧到达前的搜索、从收到发的转换时间，还有两端时钟的相互漂移。',
+    } },
+    { kind: 'watch', jump: 1, heading: { en: 'One fix, once a block', zh: '一个块，一次定位' }, text: {
+      en: 'Jump to the first phone’s fix. It lands at the end of its own round, and the next one is a whole block away — this grid sets not only who speaks but how often a phone learns where it is.',
+      zh: '跳到第一部手机的那次定位。它落在自己这一轮的末尾，而下一次要等整整一个块——这张网格定下的不只是谁何时说话，还有一部手机多久才知道一次自己在哪儿。',
+    } },
+  ],
+  numbers: [
+    { kind: 'table', heading: { en: 'Three nested clocks', zh: '三重嵌套的节拍' }, head: [
       { en: 'Level', zh: '层级' }, { en: 'RSTU', zh: 'RSTU' }, { en: 'Duration', zh: '时长' }, { en: 'What owns it', zh: '归谁所有' },
     ], rows: [
       [{ en: 'Ranging block', zh: '测距块' }, N('240 000'), N('200.0 ms'), { en: 'the session; it repeats forever', zh: '整个会话；无限循环' }],
@@ -69,22 +119,31 @@ export const uwbBlocks: Lesson = {
       [{ en: 'Ranging slot', zh: '测距时隙' }, N('2 400'), N('2 000.0 µs'), { en: 'one device, one frame', zh: '一台设备，一帧' }],
     ] },
     { text: {
-      en: 'Ten rounds fit inside the block and this scene holds three tags, so rounds 0, 1 and 2 belong to uwb-1, uwb-2 and uwb-3 while rounds 3 to 9 — 140 ms of every block — stay empty. Each phone gets exactly one fix per block, five a second, whatever the other two do. A fourth tag would cost nothing but round 3; the block breaks only at the eleventh.',
-      zh: '一个块里装得下十轮，而本场景有三个标签，于是第 0、1、2 轮分别属于 uwb-1、uwb-2、uwb-3，第 3 到 9 轮——每个块里的 140 ms——空着。因此每部手机每个块恰好得到一次定位，每秒五次，另外两部在做什么都不影响。再加一个标签，代价不过是第 3 轮；要到第十一个标签，这个块才装不下。',
+      en: 'Ten rounds fit a block and this scene holds three phones, so the other seven — 140 ms of every block — stay empty. A fourth phone would cost nothing but the next empty round; the block breaks only at the eleventh.',
+      zh: '一个块装得下十轮，而本场景只有三部手机，余下七轮——每个块里的 140 ms——空着。再加一部手机，代价不过是下一个空轮；要到第十一部，这个块才装不下。',
     } },
-    { heading: { en: 'The schedule travels in the Poll', zh: '调度表随 Poll 一起飞' }, text: {
-      en: 'The grid is not something the anchors were born knowing: it rides in the tag’s Poll, 39 octets, in two information elements. The ARC IE, 10 octets, says where in the session the frame sits — “SP1 · DS-TWR · block 0 · round 0 · 4 responders”. The RDM IE, 15 octets, is the seating plan — “4 devices: anchor-1 slot 1, anchor-2 slot 2, anchor-3 slot 3, anchor-4 slot 4” — three octets per device, a short address and a slot index. One Poll tells an anchor which slots to answer in, and which six to sleep through.',
-      zh: '这张网格并不是锚点与生俱来的配置，它随标签的 Poll 一起飞过来：39 字节，两个信息元素。10 字节的 ARC IE 说明本帧落在会话的什么位置——“SP1 · DS-TWR · block 0 · round 0 · 4 responders”。15 字节的 RDM IE 则是座位表——“4 devices: anchor-1 slot 1, anchor-2 slot 2, anchor-3 slot 3, anchor-4 slot 4”——每台设备三个字节：一个短地址加一个时隙序号。一帧 Poll 就告诉了锚点该在哪几个时隙作答，以及可以安睡过哪六个时隙。',
-    } },
+    { kind: 'table', heading: { en: 'What the log says the grid is', zh: '日志是怎么写这张网格的' }, head: [
+      { en: 'What', zh: '内容' }, { en: 'It reads', zh: '写的是' },
+    ], rows: [
+      [{ en: 'The round line', zh: '整轮那一行' }, N('uwb-1 UWB round 0 of block 0 (DS-TWR): 10 slots × 2000.0 µs')],
+      [{ en: 'Where the rounds of block 0 open', zh: '第 0 块的各轮何时开启' }, N('0, 20 and 40 ms; block 1 at 200, 220 and 240 ms')],
+      [{ en: 'Where the three Polls of block 0 leave', zh: '第 0 块的三帧 Poll 何时离开' }, N('0, 20 000 000 and 40 000 000 ns')],
+      [{ en: 'The opening frame that carries the grid', zh: '带着这张网格的那帧开场帧' }, N('Poll, 39 octets')],
+      [{ en: 'Its first list, 10 octets', zh: '第一张清单，10 字节' }, N('SP1 · DS-TWR · block 0 · round 0 · 4 responders')],
+      [{ en: 'Its second list, 15 octets', zh: '第二张清单，15 字节' }, N('4 devices: anchor-1 slot 1, anchor-2 slot 2, anchor-3 slot 3, anchor-4 slot 4')],
+    ] },
+    { kind: 'table', heading: { en: 'One fix per phone per block', zh: '每块一部手机一次定位' }, head: [
+      { en: 'Phone', zh: '手机' }, { en: 'Its fix in block 0', zh: '它在第 0 块的定位' },
+    ], rows: [
+      [N('uwb-1'), N('(5.01, 3.99) m at 20 ms, GDOP 1.06')],
+      [N('uwb-2'), N('(3.01, 2.52) m at 40 ms, GDOP 1.08')],
+      [N('uwb-3'), N('(7.50, 6.01) m at 60 ms, GDOP 1.06')],
+    ] },
     { text: {
-      en: 'And every frame leaves at the top of its slot. The standard allows a transmission offset inside the slot; this model uses none, so a TX_START timestamp is its slot’s start to the nanosecond — the three Polls of block 0 at 0, 20 000 000 and 40 000 000 ns. Nothing here waits for an idle medium.',
-      zh: '而且每一帧都在自己时隙的起点离开。标准允许在时隙内设置发送偏移；本模型取零偏移，于是 TX_START 的时间戳精确到纳秒就是它那个时隙的起点——第 0 个块的三帧 Poll 分别在 0、20 000 000 与 40 000 000 ns。这里没有谁需要等待信道空闲。',
+      en: 'Five fixes a second each, whatever the other two phones do, and each one 2 cm out or better.',
+      zh: '每部手机每秒五次定位，另外两部在做什么都不影响，而且每一次的误差都在 2 cm 以内。',
     } },
-    { heading: { en: 'What the radio actually costs', zh: '射频真正的开销' }, text: {
-      en: 'Two different shares of the block are easy to confuse, and here they differ tenfold and more. The schedule share is what the grid hands a device: a tag owns one round of ten, 20 ms of 200 ms, 10 %, and the anchors serve every round that has a tag — three of them, 60 ms, 30 %. The radio-on share is what the MAC_STATE lane shows: uwbWait, rx and tx, and nothing else.',
-      zh: '有两种很不一样的“占块比例”极易混为一谈，而在这里它们相差十倍以上。调度占比是网格分给一台设备的份额：标签占十轮中的一轮，200 ms 里的 20 ms，10 %；锚点则要服务每一个有标签的轮次——一共三轮，60 ms，30 %。射频开启占比则是 MAC_STATE 泳道上真正显示的东西：uwbWait、rx 与 tx，别的都不算。',
-    } },
-    { kind: 'table', head: [
+    { kind: 'table', heading: { en: 'What the radio actually costs', zh: '射频真正的开销' }, head: [
       { en: 'Device', zh: '设备' }, { en: 'Its rounds', zh: '参与的轮次' }, { en: 'Slots it wakes in', zh: '醒来的时隙' },
       { en: 'Radio on in the block', zh: '块内射频开启时长' }, { en: 'Share', zh: '占比' },
     ], rows: [
@@ -92,28 +151,51 @@ export const uwbBlocks: Lesson = {
       [N('anchor-1'), N('3 of 10'), N('4 of 10 × 3'), N('2 448 546 ns'), N('1.22 %')],
     ] },
     { text: {
-      en: 'The receiver is armed at the start of a slot the device expects a frame in and switched off the moment that frame lands, so a slot costs its frame’s airtime and nothing else. The tag takes part in all ten slots of its round, and its 1 934 334 ns is exactly the round’s airtime, 1 934 230 ns, plus 13 ns of flight for each of the eight frames it receives. The anchor is cheaper still: it hears the Poll, sends its Response, hears the Final, sends its Report — four wake-ups in ten slots, 816 180 ns in the first — and is deaf through the other anchors’ slots. Three rounds, differing by nanoseconds of flight, make 2 448 546 ns.',
-      zh: '设备只在“预期有帧到来”的时隙起点打开接收机，并在该帧落地的那一刻关掉它，因此一个时隙的代价就是那一帧的空口时间，别无其他。标签参与自己那一轮的全部十个时隙，它的 1 934 334 ns 恰好就是这一轮的空口时间 1 934 230 ns，再加上它所接收的八帧、每帧 13 ns 的飞行时间。锚点还要更省：它听 Poll、发 Response、听 Final、发 Report——十个时隙里醒来四次，第一轮 816 180 ns——而在其他锚点的时隙里是聋的。三轮之间因飞行时间差着几纳秒，合计 2 448 546 ns。',
+      en: 'The schedule hands a phone one round in ten and an anchor three; the state lane shows what the radio was actually on for. The two shares differ tenfold and more.',
+      zh: '时间表分给手机的是十轮中的一轮，分给锚点的是三轮；而状态泳道显示的，是射频真正开着的那点时间。两种占比相差十倍以上。',
     } },
-    { heading: { en: 'Why a 2 ms slot for a 237 µs frame', zh: '为什么 237 µs 的帧要配 2 ms 的时隙' }, text: {
-      en: 'A slot has to hold the round’s longest frame plus its flight. In a DS round that is the Final — 62 octets for four anchors, 236 603 ns on the air — and the model adds a 200 ns guard, which is 60 m of flight.',
-      zh: '一个时隙必须装得下本轮最长的那一帧，外加它的飞行时间。在 DS 轮里那就是 Final——四个锚点时 62 字节，空口 236 603 ns——模型再加 200 ns 的余量，相当于 60 m 的飞行距离。',
-    } },
-    { kind: 'formula', text: {
+    { kind: 'formula', heading: { en: 'How short a slot may be', zh: '时隙最短能有多短' }, text: {
       en: 'slot ≥ PPDU(Final, N anchors) + 200 ns = 236 603 + 200 = 236 803 ns at N = 4',
       zh: 'slot ≥ PPDU(Final, N anchors) + 200 ns = 236 603 + 200 = 236 803 ns at N = 4',
     }, note: {
-      en: 'That is the schema’s slot-fit rule, and it is not what stops you shortening this slot. The schema also puts a floor of 300 RSTU under every slot: 282 RSTU (235.0 µs) is refused twice, by the floor and by the fit rule, while 285 RSTU (237.5 µs) clears the fit rule by 697 ns and is still refused by the floor. The shortest slot this scene accepts is 300 RSTU, 250.0 µs. The fit rule only binds once the Final grows: at six anchors it asks 267 572 ns, which is 324 RSTU, past the floor. A slot too short is caught before the run because at run time nobody can report it: the deadline fires before the frame lands, and the log says only that nobody answered.',
-      zh: '这就是 schema 的时隙容量规则；不过真正拦住你缩短本场景时隙的并不是它。schema 还给每个时隙设了 300 RSTU 的下限：282 RSTU（235.0 µs）会被拒绝两次，一次因为下限，一次因为容量规则；而 285 RSTU（237.5 µs）比容量规则还宽出 697 ns，却仍然过不了下限。本场景能接受的最短时隙是 300 RSTU，250.0 µs。只有当 Final 变长，容量规则才真正起作用：六个锚点时它要 267 572 ns，即 324 RSTU，已经越过下限。时隙太短必须在运行之前就被拦下，因为到了运行时它根本不是谁能报出来的错误——截止时刻先于帧的到达触发，而日志只会说“没人应答”。',
+      en: 'The editor applies it before a run: a slot must hold the round’s longest frame plus a 200 ns flight guard, which is 60 m of air. So 2 ms is not a computed minimum but a profile number, and it leaves that frame on 11.8 % of its own slot.',
+      zh: '编辑器在运行之前就会套用它：时隙必须装得下本轮最长的那一帧，再加 200 ns 的飞行余量，相当于 60 m 空气。所以 2 ms 不是算出来的下限，而是规范档案里的取值；它让那一帧只占掉自己时隙的 11.8 %。',
     } },
+    { kind: 'table', heading: { en: 'Two slot lengths, one scene', zh: '同一场景，两种时隙长度' }, head: [
+      { en: 'Ranging slot', zh: '测距时隙' }, { en: 'Round', zh: '一轮' }, { en: 'Rounds per block', zh: '每块轮数' },
+      { en: 'All three phones done', zh: '三部手机全部完成' }, { en: 'Radio on per phone', zh: '每部手机射频开启' },
+    ], rows: [
+      [N('2 400 RSTU · 2 ms'), N('20.0 ms'), N('10'), N('60 ms'), N('1 934 334 ns')],
+      [N('600 RSTU · 0.5 ms'), N('5.0 ms'), N('40'), N('15 ms'), N('1 934 334 ns')],
+    ] },
     { text: {
-      en: 'So 2 ms is not a computed minimum but a profile number, and it leaves the Final on 11.8 % of its own slot. The margin pays for what this model leaves out: the leading-edge search a receiver runs before it can call an RMARKER, an anchor’s turnaround from receive to transmit, and schedule drift — here a slot boundary is exact, but 20 ppm across 200 ms is 4 µs each way.',
-      zh: '所以 2 ms 并不是算出来的下限，而是一个规范档案里的取值，它让 Final 只占掉自己时隙的 11.8 %。这份余量买的是本模型略去的那些东西：接收机在判定 RMARKER 之前要做的首径搜索、锚点从收到发的转换时间，以及调度本身的漂移——这里的时隙边界是精确的，但 20 ppm 跨 200 ms 是每边 4 µs。',
+      en: 'The same ten frames, four times closer together — and the radio-on total does not move, to the nanosecond, because no frame changed length. Shortening a slot buys latency and room for more phones, not battery.',
+      zh: '还是那十帧，只是挨得紧了四倍——而射频开启的总时长一纳秒都没动，因为没有任何一帧的长度发生变化。缩短时隙买到的是时延和容纳更多手机的空间，不是电池。',
     } },
-    { heading: { en: 'Shorter slots', zh: '把时隙缩短' }, text: {
-      en: 'Load “0.5 ms slots”. At 600 RSTU the round falls to 5.0 ms, all three tags are finished 15 ms into a 200 ms block, and 40 rounds fit where 10 did. The fixes arrive at 5, 10 and 15 ms instead of 20, 40 and 60 — the same ten frames, closer together. The radio-on total does not move — 1 934 334 ns, 0.97 % of the block, to the nanosecond — because no frame changed length. Shortening a slot buys latency and room for more tags, not battery.',
-      zh: '载入“0.5 ms 时隙”。600 RSTU 让一轮缩到 5.0 ms，三个标签在 200 ms 的块里 15 ms 就全部做完，原本只装得下 10 轮的地方现在能装 40 轮。定位结果落在 5、10、15 ms，而不再是 20、40、60 ms——同样十帧，只是挨得更紧。射频开启时长纹丝不动——1 934 334 ns，占块的 0.97 %，一纳秒都不差——因为没有任何一帧的长度发生变化。缩短时隙买到的是时延和更多标签的容纳空间，不是电池。',
+  ],
+  deeper: [
+    { heading: { en: 'The floor under every slot', zh: '每个时隙脚下的那条下限' }, text: {
+      en: 'The fit rule above is not what stops you shortening this slot. The scenario schema also puts a floor of 300 RSTU under any slot: 282 RSTU (235.0 µs) is refused twice, by the floor and by the fit rule, while 285 RSTU (237.5 µs) clears the fit rule by 697 ns and is still refused by the floor. The shortest slot this scene accepts is therefore 300 RSTU, 250.0 µs. The fit rule only overtakes the floor once the Final grows: at six anchors it asks 267 572 ns, which is 324 RSTU.',
+      zh: '上面那条容量规则，并不是真正拦住你缩短本场景时隙的东西。场景 schema 还给任何时隙设了 300 RSTU 的下限：282 RSTU（235.0 µs）会被拒绝两次，一次因为下限，一次因为容量规则；而 285 RSTU（237.5 µs）比容量规则还宽出 697 ns，却仍然过不了下限。所以本场景能接受的最短时隙是 300 RSTU，250.0 µs。只有当 Final 变长，容量规则才超过下限：六个锚点时它要 267 572 ns，即 324 RSTU。',
     } },
+    { heading: { en: 'Where the 2 ms margin goes', zh: '2 ms 的余量花在哪里' }, text: {
+      en: 'A four-anchor Final is 62 octets and 236 603 ns on the air, so a 2 ms slot is nearly nine tenths silence. The margin pays for the leading-edge search a receiver runs before it can call an RMARKER, an anchor’s turnaround from receive to transmit, and schedule drift: here a slot boundary is exact, but 20 ppm across a 200 ms block is 4 µs each way.',
+      zh: '四个锚点的 Final 是 62 字节、空口 236 603 ns，所以 2 ms 的时隙里将近九成是静默。这份余量买的是：接收机在判定 RMARKER 之前要做的首径搜索、锚点从收到发的转换时间，以及调度漂移——这里的时隙边界是精确的，但 20 ppm 跨过一个 200 ms 的块就是每边 4 µs。',
+    } },
+    { heading: { en: 'What the 1 934 334 ns is made of', zh: '1 934 334 ns 是怎么凑出来的' }, text: {
+      en: 'The phone takes part in all ten slots of its round, and its 1 934 334 ns is exactly the round’s airtime, 1 934 230 ns, plus 13 ns of flight for each of the eight frames it receives. The anchor is cheaper still: it hears the Poll, sends its Response, hears the Final, sends its Report — four wake-ups in ten slots, 816 180 ns in the first round — and is deaf through the other anchors’ slots. Three rounds, differing by nanoseconds of flight, make 2 448 546 ns.',
+      zh: '手机参与自己那一轮的全部十个时隙，它的 1 934 334 ns 恰好是这一轮的空口时间 1 934 230 ns，再加上它接收的八帧、每帧 13 ns 的飞行时间。锚点还要更省：它听 Poll、发 Response、听 Final、发 Report——十个时隙里醒来四次，第一轮 816 180 ns——在其他锚点的时隙里则是聋的。三轮之间因飞行时间差着几纳秒，合计 2 448 546 ns。',
+    } },
+  ],
+  sources: [
+    { en: 'IEEE Std 802.15.4-2024 §10.32.2 defines the ranging block, the ranging round and the ranging slot, and counts a block and a slot in whole 3-RSTU units; §10.29.1.5 and Table 10-145 fix the RSTU at 416 chips, which is 833.333 ns at 499.2 Mchip/s.',
+      zh: 'IEEE Std 802.15.4-2024 的 §10.32.2 定义了测距块、测距轮与测距时隙，并规定块长与时隙长都以整数个 3 RSTU 计；§10.29.1.5 与表 10-145 把 RSTU 定为 416 个码片，在 499.2 Mchip/s 下即 833.333 ns。' },
+    { en: 'The two lists the opening frame carries are information elements: the ARC IE of §10.32.9.1, which places the round in the session, and the RDM IE of §10.32.9.8, which seats each responder.',
+      zh: '开场帧携带的那两张清单是信息元素：§10.32.9.1 的 ARC IE 把本轮定位在会话之中，§10.32.9.8 的 RDM IE 则逐一安排每个应答方的座位。' },
+    { en: 'The 2 ms ranging slot and the 200 ms ranging block are FiRa profile numbers, not the standard’s.',
+      zh: '2 ms 的测距时隙与 200 ms 的测距块是 FiRa 规范档案里的取值，不是标准正文。' },
+    { en: 'Three numbers are the simulator’s own model choices: the 200 ns of flight guard the slot-fit rule adds to the longest frame, the floor of 300 RSTU the scenario schema puts under any slot, and the nine anchors one Final can list.',
+      zh: '有三个数字是仿真器自己的模型取值：时隙容量规则在最长帧之外追加的 200 ns 飞行余量、场景 schema 给任何时隙设下的 300 RSTU 下限，以及一帧 Final 最多能列出的九个锚点。' },
   ],
   scenario: () => uwbBlocksScenario(2400),
   variants: [
@@ -127,51 +209,37 @@ export const uwbBlocks: Lesson = {
     J('the block repeats', '整个块重新开始', nextBlock),
   ],
   observe: [
-    { en: 'The round line reads “uwb-1 UWB round 0 of block 0 (DS-TWR): 10 slots × 2000.0 µs”. Rounds open at 0, 20 and 40 ms, one per tag, and then the block repeats: uwb-1 at 200 ms, uwb-2 at 220, uwb-3 at 240. Rounds 3 to 9 never open.',
-      zh: '整轮那一行写着 “uwb-1 UWB round 0 of block 0 (DS-TWR): 10 slots × 2000.0 µs”。轮次在 0、20、40 ms 依次开启，一个标签一轮，然后整个块重来一遍：uwb-1 在 200 ms、uwb-2 在 220 ms、uwb-3 在 240 ms。第 3 到 9 轮从未开启。' },
-    { en: 'Every transmission sits on a slot boundary: the three Polls of block 0 leave at 0, 20 000 000 and 40 000 000 ns exactly, and there is no IFS, no backoff draw and no NAV on these lanes.',
-      zh: '每一次发送都压在时隙边界上：第 0 个块的三帧 Poll 恰好在 0、20 000 000 与 40 000 000 ns 离开，而这些泳道上没有 IFS、没有退避取值，也没有 NAV。' },
-    { en: 'Open the Poll — 39 octets. The ARC IE, 10 octets, reads “SP1 · DS-TWR · block 0 · round 0 · 4 responders”; the RDM IE, 15 octets, reads “4 devices: anchor-1 slot 1, anchor-2 slot 2, anchor-3 slot 3, anchor-4 slot 4”. One frame, the whole round’s schedule.',
-      zh: '打开这帧 Poll——39 字节。10 字节的 ARC IE 写着 “SP1 · DS-TWR · block 0 · round 0 · 4 responders”；15 字节的 RDM IE 写着 “4 devices: anchor-1 slot 1, anchor-2 slot 2, anchor-3 slot 3, anchor-4 slot 4”。一帧，装下整轮的调度表。' },
-    { en: 'Each tag’s lane carries one fix at the end of its own round and nothing in between: uwb-1 at (5.01, 3.99) m at 20 ms, GDOP 1.06; uwb-2 at (3.01, 2.52) m at 40 ms, 1.08; uwb-3 at (7.50, 6.01) m at 60 ms, 1.06. Each phone is 2 cm out or better, once per block.',
-      zh: '每个标签的泳道上只在自己轮次的末尾有一次定位，中间什么也没有：uwb-1 在 20 ms 给出 (5.01, 3.99) m、GDOP 1.06；uwb-2 在 40 ms 给出 (3.01, 2.52) m、1.08；uwb-3 在 60 ms 给出 (7.50, 6.01) m、1.06。每部手机的误差都在 2 cm 以内，每块一次。' },
+    { en: 'The round line names the phone, its round, the block and the method, then the slots and their length. Rounds open one after another, one per phone, and when the third is done the block starts over.',
+      zh: '整轮那一行依次写出手机、它的轮次、所在的块、所用的方法，再写出时隙数和时隙长度。各轮一个接一个开启，一部手机一轮；第三部做完，整个块又从头开始。' },
+    { en: 'Every transmission sits on a slot boundary, to the nanosecond. There is no IFS, no backoff draw and no NAV anywhere on these lanes — and the seven rounds nobody owns never open at all.',
+      zh: '每一次发送都压在时隙边界上，精确到纳秒。这些泳道上没有 IFS、没有退避取值，也没有 NAV——而那七个没有主人的轮次，从头到尾都不曾开启。' },
   ],
   tryThis: [
-    { en: 'Load “0.5 ms slots” and watch the block empty out: the three rounds finish by 15 ms, the fixes land at 5, 10 and 15 ms, and the editor’s session section plans 40 rounds per block instead of 10. Compare the lanes with the base run — the same ten frames, four times closer together, and each tag’s radio-on still 1 934 334 ns.',
-      zh: '载入“0.5 ms 时隙”，看这个块如何空了下来：三个轮次到 15 ms 就做完，定位落在 5、10、15 ms，编辑器里会话那一栏现在规划出每块 40 轮而不是 10 轮。再把泳道与基准运行对照——还是那十帧，只是紧凑了四倍，而每个标签的射频开启时长依旧是 1 934 334 ns。' },
-    { en: 'Open the scenario editor, delete anchor-4 and read the UWB session section: “slots per round 8 · rounds per block 12”, because a DS round is 2N + 2 slots — a 16 ms round, and a Final 12 octets shorter. Then type 285 into the slot field and leave it: it snaps to 300, the floor under every slot.',
-      zh: '打开场景编辑器，删掉 anchor-4，再看 UWB 会话那一栏：“每轮 8 个时隙 · 每块 12 轮”，因为一个 DS 轮是 2N + 2 个时隙——一轮 16 ms，Final 也短了 12 字节。然后在时隙那一栏里输入 285 再移开焦点：它会跳到 300，也就是每个时隙的那条下限。' },
+    { en: 'Load “0.5 ms slots” and watch the block empty out: the three rounds finish by 15 ms, the fixes land at 5, 10 and 15 ms, and the editor plans 40 rounds per block instead of ten.',
+      zh: '载入“0.5 ms 时隙”，看这个块如何空了下来：三个轮次到 15 ms 就做完，定位落在 5、10、15 ms，而编辑器规划出每块 40 轮，不再是十轮。' },
+    { en: 'Open the scenario editor, delete an anchor and read the UWB session section: “slots per round 8 · rounds per block 12”, because a round of this method is 2N + 2 slots. Then type 285 into the slot field and leave it: it snaps to 300.',
+      zh: '打开场景编辑器，删掉一个锚点，再看 UWB 会话那一栏：“每轮 8 个时隙 · 每块 12 轮”，因为本方法的一轮是 2N + 2 个时隙。然后在时隙那一栏输入 285 再移开焦点：它会跳到 300。' },
   ],
   quiz: [
     {
-      q: { en: 'A tag owns 10 % of the block and the anchors 30 %, yet the radio time measured on their lanes is 0.97 % and 1.22 %. Why?', zh: '标签占了块的 10 %，锚点占 30 %，可泳道上实测的射频开启时间只有 0.97 % 与 1.22 %。为什么？' },
+      q: { en: 'A phone owns a tenth of the block and an anchor three tenths, yet the radio time on their lanes is 0.97 % and 1.22 %. Why?', zh: '一部手机占了块的十分之一，锚点占十分之三，可泳道上实测的射频开启时间只有 0.97 % 与 1.22 %。为什么？' },
       options: [
-        { en: 'The MAC_STATE lane samples the radio, so short spans are missed', zh: 'MAC_STATE 泳道是对射频采样的，短的区间会被漏掉' },
+        { en: 'The state lane samples the radio, so short spans are missed', zh: '状态泳道是对射频采样的，短的区间会被漏掉' },
         { en: 'A device arms its receiver at a slot boundary and switches it off the moment the expected frame lands: it pays for airtime, not for the slots it owns', zh: '设备在时隙边界打开接收机，并在预期的那一帧落地时立刻关掉：它付的是空口时间的账，不是所占时隙的账' },
         { en: 'The block’s seven empty rounds are skipped, and that is where the difference goes', zh: '块里那七个空轮被跳过了，差额就出在那里' },
       ],
       answer: 1,
-      explain: { en: 'The tag’s 1 934 334 ns is its round’s whole airtime plus 13 ns of flight per reception. The anchor is deaf through the other anchors’ slots, waking four times in a ten-slot round.', zh: '标签的 1 934 334 ns 就是整轮的空口时间，加上每次接收 13 ns 的飞行时间。锚点在其他锚点的时隙里是聋的，十个时隙的一轮里只醒来四次。' },
+      explain: { en: 'The phone’s radio time is its round’s whole airtime plus a few nanoseconds of flight per reception. The anchor is deaf through the other anchors’ slots, waking four times in a ten-slot round.', zh: '手机的射频开启时间就是整轮的空口时间，加上每次接收那几纳秒的飞行时间。锚点在其他锚点的时隙里是聋的，十个时隙的一轮里只醒来四次。' },
     },
     {
       q: { en: 'Shortening the ranging slot from 2 ms to 0.5 ms — what does it change?', zh: '把测距时隙从 2 ms 缩到 0.5 ms，改变了什么？' },
       options: [
         { en: 'The radio-on time falls with it, to roughly a quarter', zh: '射频开启时长随之下降，大约变成四分之一' },
         { en: 'Nothing that matters: the rounds and the fixes are identical', zh: '没有什么要紧的改变：轮次和定位都一模一样' },
-        { en: 'The round falls to 5.0 ms and the block holds 40 rounds instead of 10 — sooner fixes, more tags — while the radio-on stays at 1 934 334 ns', zh: '一轮缩到 5.0 ms，一个块装 40 轮而不是 10 轮——定位更快、标签更多——而射频开启时长仍是 1 934 334 ns' },
+        { en: 'The round falls to 5.0 ms and the block holds 40 rounds instead of 10 — sooner fixes, more phones — while the radio-on total stays where it was', zh: '一轮缩到 5.0 ms，一个块装 40 轮而不是 10 轮——定位更快、手机更多——而射频开启的总时长原地不动' },
       ],
       answer: 2,
       explain: { en: 'No frame changed length, so no energy changed. Slot length buys latency and capacity, and is bounded below by the longest frame it must carry.', zh: '没有任何一帧的长度发生变化，功耗自然也没变。时隙长度买到的是时延与容量，而它的下界由必须装下的最长一帧决定。' },
-    },
-    {
-      q: { en: 'A four-anchor Final plus its guard needs 236 803 ns. Why does the schema refuse a 285 RSTU slot, which is 237 500 ns?', zh: '四个锚点的 Final 加上余量需要 236 803 ns。285 RSTU 的时隙是 237 500 ns，schema 为什么还是拒绝它？' },
-      options: [
-        { en: 'Because 285 is not a whole number of 3-RSTU units', zh: '因为 285 不是 3 RSTU 的整数倍' },
-        { en: 'Because the fit rule is computed from the Poll, not the Final', zh: '因为容量规则是按 Poll 而不是 Final 算的' },
-        { en: 'Because the fit rule is not the only one: the schema puts a floor of 300 RSTU under every slot', zh: '因为容量规则不是唯一的一条：schema 给每个时隙设了 300 RSTU 的下限' },
-      ],
-      answer: 2,
-      explain: { en: '285 is 95 × 3, and it clears the fit rule by 697 ns; the floor is what refuses it, while 282 fails both. The fit rule only overtakes the floor at six anchors, where the Final asks 324 RSTU.', zh: '285 是 95 × 3，而且比容量规则还宽出 697 ns；拒绝它的是那条下限，282 则两条都不过。只有到六个锚点、Final 要 324 RSTU 时，容量规则才超过下限。' },
     },
   ],
 }
