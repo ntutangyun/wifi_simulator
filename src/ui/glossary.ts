@@ -595,16 +595,16 @@ export const GLOSSARY: GlossaryGroup[] = [
         term: 'BST-Excitation',
         alt: { en: 'reply carrier, after every command', zh: '应答载波，跟在每条命令之后' },
         def: {
-          en: 'The carrier the reader keeps radiating after a command\'s AMP-Data so a tag has something to reflect: at least 1.2·T1 + 1.1·T4 for an immediate reply, 1.1·T3 + 1 µs + 1.1·T4 for a delayed one (Write, T3 = 2 ms) — SFD PM-74, PM-75, PM-86…PM-88.',
-          zh: '阅读器在一条命令的 AMP-Data 之后继续辐射的载波，好让标签有信号可反射：立即应答至少需要 1.2·T1 + 1.1·T4，延迟应答（Write，T3 = 2 ms）需要 1.1·T3 + 1 µs + 1.1·T4——SFD PM-74、PM-75、PM-86…PM-88。',
+          en: 'The carrier the reader keeps transmitting right after a command, so the tag has a signal to reflect while it replies — it stays on for about as long as that reply takes. For most commands that is a fraction of a millisecond; after a Write, whose reply only comes 2 milliseconds after it was asked, the carrier stays on for a little over 2 milliseconds (SFD PM-74, PM-75, PM-86…PM-88).',
+          zh: '阅读器在一条命令之后紧接着继续发射的载波，好让标签在应答期间有信号可反射——它持续的时间大致就是那次应答本身所需的时间。多数命令下这只是不到一毫秒；而 Write 的应答要等发出命令后 2 毫秒才会到来，所以这段载波要持续 2 毫秒多一点（SFD PM-74、PM-75、PM-86…PM-88）。',
         },
       },
       {
         term: 'EPC Gen2',
         alt: { en: 'ISO/IEC 18000-63, tunnelled', zh: 'ISO/IEC 18000-63，隧道封装' },
         def: {
-          en: 'The tag-inventory protocol the SFD tunnels inside AMP RFID frames (MM-10, MM-29, FM-44): Query, QueryRep, ACK, Read, Write and the slot-counter algorithm below. No DL Ack follows a backscatter reply — the next command is the acknowledgement.',
-          zh: 'SFD 在 AMP RFID 帧内隧道封装的标签盘点协议（MM-10、MM-29、FM-44）：Query、QueryRep、ACK、Read、Write，以及下面的时隙计数器算法。反向散射应答之后没有下行 Ack——下一条命令本身就是确认。',
+          en: 'The tag-inventory protocol the draft\'s framework document (SFD) tunnels inside AMP RFID frames (MM-10, MM-29, FM-44): Query, QueryRep, ACK, Read, Write and the slot-counter algorithm below. No DL Ack follows a backscatter reply — the next command is the acknowledgement.',
+          zh: '草案的框架文档（SFD）在 AMP RFID 帧内隧道封装的标签盘点协议（MM-10、MM-29、FM-44）：Query、QueryRep、ACK、Read、Write，以及下面的时隙计数器算法。反向散射应答之后没有下行 Ack——下一条命令本身就是确认。',
         },
       },
       {

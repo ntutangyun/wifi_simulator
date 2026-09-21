@@ -39,3 +39,16 @@ export function parseIntList(raw: string, lo: number, hi: number, maxEntries: nu
   }
   return out
 }
+
+/**
+ * A backscatter tag's EPC (`AmpTagCfg.epc`, `AmpTagCfg.ts`'s own regex): blank means "derive one
+ * from the node id" — `undefined`, the schema's own reading of an absent field — a valid 24-hex-
+ * character string commits lower-cased (matching `epcOf`'s own case), and anything else does not
+ * parse at all (`null`), so the caller keeps whatever value already worked. Treated exactly like
+ * `parseIntList`: a leaf parser a component can unit-test without rendering anything.
+ */
+export function parseEpc(raw: string): string | undefined | null {
+  const t = raw.trim()
+  if (t === '') return undefined
+  return /^[0-9a-fA-F]{24}$/.test(t) ? t.toLowerCase() : null
+}

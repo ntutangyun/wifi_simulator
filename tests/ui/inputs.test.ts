@@ -5,7 +5,7 @@
  * `Number` is too generous for a field whose value ends up in a scenario.
  */
 import { describe, it, expect } from 'vitest'
-import { parseIntList } from '../../src/ui/inputs'
+import { parseEpc, parseIntList } from '../../src/ui/inputs'
 
 describe('parseIntList', () => {
   it('reads a comma-separated list, with the spacing the user chose', () => {
@@ -36,5 +36,24 @@ describe('parseIntList', () => {
     // `''.split(',')` is `['']`, not `[]` — the one case where a length check alone would pass.
     expect(parseIntList('', 0, 9, 4)).toBeNull()
     expect(parseIntList(',', 0, 9, 4)).toBeNull()
+  })
+})
+
+describe('parseEpc', () => {
+  it('blank (or whitespace-only) clears the field, so the schema derives one from the node id', () => {
+    expect(parseEpc('')).toBeUndefined()
+    expect(parseEpc('   ')).toBeUndefined()
+  })
+
+  it('a valid 24-hex-character EPC commits lower-cased, matching epcOf\'s own case', () => {
+    expect(parseEpc('0123456789ABCDEF01234567')).toBe('0123456789abcdef01234567')
+    expect(parseEpc('0123456789abcdef01234567')).toBe('0123456789abcdef01234567')
+    expect(parseEpc('  0123456789abcdef01234567  ')).toBe('0123456789abcdef01234567') // trimmed
+  })
+
+  it('anything else does not parse, so the caller keeps the field on screen', () => {
+    for (const bad of ['0123', '0123456789abcdef0123456', '0123456789abcdef012345678', 'zzz456789abcdef01234567', '0123-456789abcdef012345']) {
+      expect(parseEpc(bad), bad).toBeNull()
+    }
   })
 })

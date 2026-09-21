@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  addOpening, clampField, generationPatch, hitTestNode, hitTestWall, newTag, roomsToWalls,
+  addOpening, ampTagIssue, clampField, generationPatch, hitTestNode, hitTestWall, newTag, roomsToWalls,
   scenarioFromJson, scenarioToJson, spawnRandomStas,
 } from '../../src/editor/planOps'
 import { DEFAULT_AMP_AP, DEFAULT_AMP_BS, defaultScenario, ScenarioSchema, type Room, type Wall } from '../../src/model/scenario'
@@ -156,6 +156,55 @@ describe('backscatter (mono-static) in the editor', () => {
     expect(() => ScenarioSchema.parse(withInventory)).not.toThrow()
     expect(withInventory.nodes[0].ampAp?.backscatter).toEqual(DEFAULT_AMP_BS)
     expect(scenarioFromJson(scenarioToJson(withInventory)).nodes[0].ampAp?.backscatter).toEqual(DEFAULT_AMP_BS)
+  })
+})
+
+describe('ampTagIssue', () => {
+  /** An eht AP with a backscatter tag beside it — the exact shape `newTag` + the Mode select
+   * produce — with `bs` controlling whether the AP runs the RFID inventory. */
+  function withBsTag(bs: boolean): { sc: ReturnType<typeof defaultScenario>; tagId: string } {
+    const base = defaultScenario()
+    base.nodes[0].caps = { generation: 'eht', features: { edca: true } }
+    base.nodes[0].ampAp = { ...DEFAULT_AMP_AP, backscatter: bs ? { ...DEFAULT_AMP_BS } : undefined }
+    const { sc, id } = newTag(base, { x: 2, y: 2 })
+    return { sc: { ...sc, nodes: sc.nodes.map((n) => (n.id === id ? { ...n, ampTag: { mode: 'backscatter' as const } } : n)) }, tagId: id }
+  }
+
+  it('is false once an AP on the plan runs the RFID inventory', () => {
+    const { sc, tagId } = withBsTag(true)
+    expect(ampTagIssue(sc, tagId)).toBe(false)
+    // and the schema agrees: this exact plan parses
+    expect(() => ScenarioSchema.parse(sc)).not.toThrow()
+  })
+
+  it('is true for a backscatter tag when no AP runs the RFID inventory — mirroring the schema rule', () => {
+    const { sc, tagId } = withBsTag(false)
+    expect(ampTagIssue(sc, tagId)).toBe(true)
+    // and the schema agrees: this exact plan is the one the cross-node rule rejects
+    expect(() => ScenarioSchema.parse(sc)).toThrow(/a backscatter tag needs an AP with the RFID inventory on/)
+  })
+
+  it('is false for an Active Tx tag, a missing node, and a non-amp node, regardless of the reader', () => {
+    const { sc, tagId } = withBsTag(false)
+    const activeSc = { ...sc, nodes: sc.nodes.map((n) => (n.id === tagId ? { ...n, ampTag: { mode: 'active' as const } } : n)) }
+    expect(ampTagIssue(activeSc, tagId)).toBe(false)
+    expect(ampTagIssue(sc, 'no-such-node')).toBe(false)
+    expect(ampTagIssue(sc, sc.nodes[0].id)).toBe(false) // the AP itself
+  })
+
+  it('a fresh amp tag with no ampTag at all (defaults to active) is never an issue', () => {
+    const base = defaultScenario()
+    base.nodes[0].caps = { generation: 'eht', features: { edca: true } }
+    const { sc, id } = newTag(base, { x: 2, y: 2 })
+    expect(sc.nodes.find((n) => n.id === id)?.ampTag?.mode).toBe('active')
+    expect(ampTagIssue(sc, id)).toBe(false)
+  })
+
+  it('turns true the moment the AP\'s RFID inventory is switched off — the "unticking AMP polling" trap', () => {
+    const { sc, tagId } = withBsTag(true)
+    expect(ampTagIssue(sc, tagId)).toBe(false)
+    const withoutReader = { ...sc, nodes: sc.nodes.map((n) => (n.id === sc.nodes[0].id ? { ...n, ampAp: { ...n.ampAp!, backscatter: undefined } } : n)) }
+    expect(ampTagIssue(withoutReader, tagId)).toBe(true)
   })
 })
 

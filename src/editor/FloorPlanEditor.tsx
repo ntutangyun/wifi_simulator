@@ -7,15 +7,16 @@ import { nonht } from '../model/scenario'
 import { BRANDS, STATION_PRESETS, applyPreset } from '../model/presets'
 import type { Generation } from '../model/types'
 import { useStrings } from '../ui/i18n'
+import { parseEpc } from '../ui/inputs'
 import { useUi } from '../ui/store'
 import { EditorGuide } from './EditorGuide'
 import { canRedo, canUndo } from './history'
 import { UwbNodeFields } from '../uwb/ui/UwbNodeFields'
 import { UwbSessionFields } from '../uwb/ui/UwbSessionFields'
 import {
-  addOpening, alongWall, canDeleteNode, clampField, clampSixGhzCenterMhz, generationPatch, hasAp, hitTestNode,
-  hitTestWall, newAnchor, newAp, newTag, newUwbTag, removeNode, roomsToWalls, scenarioFromJson, scenarioToJson,
-  sixGhzNbOverlaps, sixGhzOverlapPct, snap, spawnRandomStas, uwbSessionIssue,
+  addOpening, alongWall, ampTagIssue, canDeleteNode, clampField, clampSixGhzCenterMhz, generationPatch, hasAp,
+  hitTestNode, hitTestWall, newAnchor, newAp, newTag, newUwbTag, removeNode, roomsToWalls, scenarioFromJson,
+  scenarioToJson, sixGhzNbOverlaps, sixGhzOverlapPct, snap, spawnRandomStas, uwbSessionIssue,
 } from './planOps'
 
 type Tool = 'select' | 'room' | 'door' | 'window' | 'ap' | 'sta' | 'tag' | 'anchor' | 'uwbTag'
@@ -52,6 +53,9 @@ function fitView(sc: Scenario, wPx: number, hPx: number): ViewT {
 }
 
 const menuDivider: React.CSSProperties = { width: 1, height: 18, background: 'var(--border)', margin: '0 2px' }
+/** How this panel shows a rule the plan breaks — the schema's own complaint, in red, the same
+ * style `uwb/ui/UwbSessionFields.tsx`'s `issueStyle` uses for the UWB session's own issue line. */
+const issueStyle: React.CSSProperties = { color: '#f87171', fontSize: 11, marginTop: 3, lineHeight: 1.45 }
 
 export function FloorPlanEditor() {
   const { scenario, setScenario, selectedNodeId, select } = useUi()
@@ -777,8 +781,9 @@ export function FloorPlanEditor() {
                           <option value="backscatter">{E.ampModes.backscatter}</option>
                         </select>
                       </label>
+                      {ampTagIssue(scenario, selNode.id) && <div style={issueStyle}>{E.ampBsNeedsReader}</div>}
                       {(selNode.ampTag?.mode ?? 'active') === 'backscatter' ? (
-                        <AmpEpcInput epc={selNode.ampTag?.epc}
+                        <AmpEpcInput key={selNode.id} epc={selNode.ampTag?.epc}
                           onCommit={(epc) => updateNode(selNode.id, { ampTag: { ...selNode.ampTag, epc } })} />
                       ) : (
                         <label style={{ display: 'block', marginBottom: 4 }} title={E.ampSensHint}>
@@ -911,7 +916,9 @@ export function FloorPlanEditor() {
                                       {E.ampBsTxop}{' '}
                                       <input type="number" min={1} max={10} value={selNode.ampAp.backscatter.txopMs} style={{ width: 56 }}
                                         onChange={(e) => updateNode(selNode.id, {
-                                          ampAp: { ...selNode.ampAp!, backscatter: { ...selNode.ampAp!.backscatter!, txopMs: clampField(e.target.value, 1, 10, true) } },
+                                          // the schema allows a fraction here (unlike `q`/`slots`/`acwe`), so this is
+                                          // not int-clamped: an imported plan with e.g. txopMs 4.5 is never rounded
+                                          ampAp: { ...selNode.ampAp!, backscatter: { ...selNode.ampAp!.backscatter!, txopMs: clampField(e.target.value, 1, 10) } },
                                         })} /> ms
                                     </label>
                                     <label style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 4, cursor: 'pointer' }} title={E.ampBsReadHint}>
@@ -998,10 +1005,12 @@ export function FloorPlanEditor() {
 }
 
 /**
- * A backscatter tag's EPC field: blank commits `undefined` (the schema derives one from the node
- * id), a valid 24-hex-character string commits lower-cased (matching `epcOf`'s own case), and
- * anything else is left on screen with a red message instead of committing a scenario the schema
- * would reject — the same buffered-draft pattern as `NbChannelsInput` (uwb/ui/UwbSessionFields.tsx).
+ * A backscatter tag's EPC field: `parseEpc` (src/ui/inputs.ts) does the parsing, this component
+ * only buffers the draft and shows a red message when it does not parse — the same pattern as
+ * `NbChannelsInput` (uwb/ui/UwbSessionFields.tsx). Callers must pass `key={id}` (the tag's node
+ * id): without it, React reconciles this component's `draft`/`bad` state onto whatever tag is
+ * selected next, so a rejected draft for tag A can end up committed to tag B once the user fixes
+ * and blurs it. Keying by id forces a fresh instance — and fresh state — on every selection change.
  */
 function AmpEpcInput({ epc, onCommit }: { epc: string | undefined; onCommit: (epc: string | undefined) => void }) {
   const E = useStrings().editor
@@ -1009,14 +1018,14 @@ function AmpEpcInput({ epc, onCommit }: { epc: string | undefined; onCommit: (ep
   const [bad, setBad] = useState(false)
   const commit = (): void => {
     if (draft === null) return
-    const t = draft.trim()
-    if (t !== '' && !/^[0-9a-fA-F]{24}$/.test(t)) {
+    const parsed = parseEpc(draft)
+    if (parsed === null) {
       setBad(true) // the draft stays on screen: it is what the user has to fix
       return
     }
     setBad(false)
     setDraft(null)
-    onCommit(t === '' ? undefined : t.toLowerCase())
+    onCommit(parsed)
   }
   return (
     <div style={{ marginBottom: 4 }}>
@@ -1027,7 +1036,7 @@ function AmpEpcInput({ epc, onCommit }: { epc: string | undefined; onCommit: (ep
           onBlur={commit}
           onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }} />
       </label>
-      {bad && <div style={{ color: '#f87171', fontSize: 11, marginTop: 3, lineHeight: 1.45 }}>{E.ampEpcBad}</div>}
+      {bad && <div style={issueStyle}>{E.ampEpcBad}</div>}
     </div>
   )
 }

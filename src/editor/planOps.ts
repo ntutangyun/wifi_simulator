@@ -311,6 +311,20 @@ export function uwbSessionIssue(sc: Scenario): string | null {
 }
 
 /**
+ * Whether the amp node `id` is a backscatter tag with no AP running the RFID inventory — the
+ * editor's own read of the schema's cross-node rule (`scenario.ts`'s `superRefine`, "a backscatter
+ * tag needs an AP with the RFID inventory on"), so the plan the schema would reject is visible
+ * under the Mode select before Save or Run ever reaches it, the same way `uwbSessionIssue` surfaces
+ * its own cross-node rule. `false` for a missing node, a non-backscatter tag, and once any AP on
+ * the plan runs `ampAp.backscatter`.
+ */
+export function ampTagIssue(sc: Scenario, id: string): boolean {
+  const n = sc.nodes.find((x) => x.id === id)
+  if (!n || n.kind !== 'amp' || (n.ampTag?.mode ?? 'active') !== 'backscatter') return false
+  return !sc.nodes.some((x) => x.kind === 'ap' && x.ampAp?.backscatter !== undefined)
+}
+
+/**
  * Clamping a number field lives in the leaf `src/ui/inputs.ts` so the technology
  * panels under `src/uwb/ui/` can reach it without importing the core editor;
  * it is re-exported here because the editor's own fields have always used it

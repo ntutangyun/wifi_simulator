@@ -197,26 +197,30 @@ export function GuideEn() {
 
       <h4 style={h}>Backscatter (mono-static)</h4>
       <p style={p}>
-        A backscatter tag owns no transmitter of its own: it answers by reflecting the AP's own
-        carrier, {AMP_BS_LOSS_DB} dB down for the switch. <b>Mono-static</b> means the AP is both
-        the illuminator and the receiver, so its own transmitted power leaks straight into its own
-        receiver — {AMP_BS_ISOLATION_DB} dB down (self-leakage), inside {AMP_BS_READER_DR_DB} dB of
-        dynamic range after digital cancellation. That noise floor rises with the excitation exactly
-        as fast as the reply does, so turning the reader up buys <i>no reach at all</i>:{' '}
-        {AMP_BS_REACH_250_CM} cm at 250 kb/s, {AMP_BS_REACH_1000_CM} cm at 1 Mb/s, whatever the BS
-        power. Only <b>activation</b> grows with power — a tag needs {dbFmt(AMP_BS_ACTIVATION_DBM)}{' '}
-        dBm for a whole wake-up millisecond to boot at all: {AMP_BS_ACTIVATION_10_CM} cm of reach at
-        the model default 10 dBm charge power, {AMP_BS_ACTIVATION_20_CM} cm at 20 dBm. A tag beyond
-        its activation reach never boots — no lane, no record, nothing to see.
+        A backscatter tag owns no transmitter of its own: it answers by flipping a simple switch
+        that reflects the AP's own carrier back at it, {AMP_BS_LOSS_DB} dB weaker for that
+        reflection. <b>Mono-static</b> means the AP is both the illuminator and the receiver, so its
+        own transmitted power leaks straight into its own receiver — {AMP_BS_ISOLATION_DB} dB down
+        (self-leakage) — leaving only {AMP_BS_READER_DR_DB} dB of headroom above that leakage even
+        after the reader digitally cancels as much of its own transmission as it can. That headroom
+        shrinks by exactly as much as the excitation is turned up, so raising the reader's power
+        buys <i>no reach at all</i>: {AMP_BS_REACH_250_CM} cm at 250 kb/s, {AMP_BS_REACH_1000_CM} cm
+        at 1 Mb/s, whatever power it radiates during the reply window (the editor's <b>BS power</b>{' '}
+        field). Only <b>activation</b> grows with power — a tag needs{' '}
+        {dbFmt(AMP_BS_ACTIVATION_DBM)} dBm for a whole wake-up millisecond to boot at all:{' '}
+        {AMP_BS_ACTIVATION_10_CM} cm of reach at the model default 10 dBm charge power,{' '}
+        {AMP_BS_ACTIVATION_20_CM} cm at 20 dBm. A tag beyond its activation reach never boots — no
+        lane, no record, nothing to see.
       </p>
       <p style={p}>
         The round tunnels an <b>EPC Gen2</b>-style inventory inside AMP RFID frames: Query(Q) opens
-        a session and every powered tag draws a slot counter from [0, 2^Q − 1]; QueryRep decrements
-        it; a tag at 0 backscatters its <b>RN16</b>, and if only one tag answers, the reader's
-        ACK(RN16) collects its <b>EPC</b> and, if configured, reads or writes it. Two excitations
-        carry the exchange: a <b>WUP-Excitation</b> of at least a millisecond wakes the tag, and a{' '}
-        <b>BST-Excitation</b> after each command's data gives it a carrier to reflect while it
-        replies. Gen2's own Q-adaptation is not modelled — Q is fixed for the run.
+        a session and every powered tag draws a slot counter from [0, 2^Q − 1] — Q = 2, the default,
+        means four slots; QueryRep decrements it; a tag at 0 backscatters its <b>RN16</b>, and if
+        only one tag answers, the reader's ACK(RN16) collects its <b>EPC</b> and, if configured,
+        reads or writes it. Two excitations carry the exchange: a <b>WUP-Excitation</b> of at least
+        a millisecond wakes the tag, and a <b>BST-Excitation</b> after each command's data gives it
+        a carrier to reflect while it replies. Gen2's own Q-adaptation is not modelled — Q is fixed
+        for the run.
       </p>
 
       <h4 style={h}>11 · UWB ranging (802.15.4-2024 HRP)</h4>
@@ -615,23 +619,25 @@ export function GuideZh() {
 
       <h4 style={h}>反向散射（单站式）</h4>
       <p style={p}>
-        反向散射标签自己不带发射机：它靠反射 AP 自己的载波来应答，反射一次损耗
-        {AMP_BS_LOSS_DB} dB。<b>单站式</b>是指 AP 既是照射源又是接收机，因此它自己发射的功率会
-        直接泄漏进自己的接收机——衰减 {AMP_BS_ISOLATION_DB} dB（自泄漏），落在数字对消之后
-        {AMP_BS_READER_DR_DB} dB 的动态范围之内。这个底噪随激励功率上升的速度和应答信号一样快，
-        因此把阅读器功率调高<i>完全换不来更远的距离</i>：250 kb/s 下是 {AMP_BS_REACH_250_CM} cm，
-        1 Mb/s 下是 {AMP_BS_REACH_1000_CM} cm，无论散射窗功率怎么设都不变。只有<b>启动距离</b>
-        会随功率增长——标签需要在 {dbFmt(AMP_BS_ACTIVATION_DBM)} dBm 以上持续整整一个唤醒毫秒才能
-        启动：默认 10 dBm 充能功率下可达 {AMP_BS_ACTIVATION_10_CM} cm，20 dBm 下可达
-        {AMP_BS_ACTIVATION_20_CM} cm。超出启动距离的标签永远不会启动——没有泳道，没有记录，什么都看不到。
+        反向散射标签自己不带发射机：它靠拨动一个简单的开关，把 AP 自己的载波反射回去来应答，
+        反射一次要损耗 {AMP_BS_LOSS_DB} dB。<b>单站式</b>是指 AP 既是照射源又是接收机，
+        因此它自己发射的功率会直接泄漏进自己的接收机——衰减 {AMP_BS_ISOLATION_DB} dB（自泄漏）——
+        即使阅读器已经尽力用数字手段对消掉自己的发射，留给它的净空也只有 {AMP_BS_READER_DR_DB} dB。
+        阅读器把激励功率调高多少，这部分净空就跟着缩小多少，因此调高功率
+        <i>完全换不来更远的距离</i>：250 kb/s 下是 {AMP_BS_REACH_250_CM} cm，1 Mb/s 下是{' '}
+        {AMP_BS_REACH_1000_CM} cm，无论应答期间辐射多大功率（编辑器里的<b>散射窗功率</b>字段）
+        都不变。只有<b>启动距离</b>会随功率增长——标签需要在 {dbFmt(AMP_BS_ACTIVATION_DBM)} dBm
+        以上持续整整一个唤醒毫秒才能启动：默认 10 dBm 充能功率下可达 {AMP_BS_ACTIVATION_10_CM} cm，
+        20 dBm 下可达 {AMP_BS_ACTIVATION_20_CM} cm。超出启动距离的标签永远不会启动——
+        没有泳道，没有记录，什么都看不到。
       </p>
       <p style={p}>
         这一轮在 AMP RFID 帧内隧道封装了一套 <b>EPC Gen2</b> 风格的盘点流程：Query(Q) 开启一个会话，
-        每个已启动的标签都从 [0, 2^Q − 1] 中抽取一个时隙计数器；QueryRep 使其递减；计数器归零的标签
-        反向散射出自己的 <b>RN16</b>，若恰好只有一个标签应答，阅读器的 ACK(RN16) 就会收集它的
-        <b>EPC</b>，并按配置对它读取或写入。整个交换靠两段激励载波支撑：至少一毫秒的
-        <b>WUP-Excitation</b> 唤醒标签，每条命令的数据之后的 <b>BST-Excitation</b> 则在标签应答期间
-        给它一段可供反射的载波。Gen2 自身的 Q 自适应未建模——Q 在整次运行中保持固定。
+        每个已启动的标签都从 [0, 2^Q − 1] 中抽取一个时隙计数器——默认 Q = 2，即四个时隙；QueryRep
+        使其递减；计数器归零的标签反向散射出自己的 <b>RN16</b>，若恰好只有一个标签应答，阅读器的
+        ACK(RN16) 就会收集它的 <b>EPC</b>，并按配置对它读取或写入。整个交换靠两段激励载波支撑：
+        至少一毫秒的 <b>WUP-Excitation</b> 唤醒标签，每条命令的数据之后的 <b>BST-Excitation</b>{' '}
+        则在标签应答期间给它一段可供反射的载波。Gen2 自身的 Q 自适应未建模——Q 在整次运行中保持固定。
       </p>
 
       <h4 style={h}>11 · UWB 测距（802.15.4-2024 HRP）</h4>

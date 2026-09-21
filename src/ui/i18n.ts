@@ -107,6 +107,8 @@ export interface Strings {
     ampMode: string; ampModeHint: string; ampModes: Record<AmpTagMode, string>
     /** Backscatter tags only: the 96-bit EPC as 24 hex characters. */
     ampEpc: string; ampEpcHint: string; ampEpcBad: string
+    /** Shown under the Mode select when this tag is `ampTagIssue`'s "will not pass" case. */
+    ampBsNeedsReader: string
     /** The AP's mono-static reader: an EPC Gen2-style inventory tunnelled in AMP RFID frames. */
     ampBs: string; ampBsEnable: string; ampBsEnableHint: string
     ampBsQ: string; ampBsQHint: string
@@ -485,11 +487,12 @@ export const STRINGS: Record<Lang, Strings> = {
       ampModes: { active: 'Active Tx', backscatter: 'Backscatter' },
       ampEpc: 'EPC', ampEpcHint: 'the 96-bit Electronic Product Code as 24 hex characters; blank generates one from the node id',
       ampEpcBad: 'an EPC is 24 hex characters (96 bits), or blank',
+      ampBsNeedsReader: 'this tag has no AP running RFID inventory — turn it on in the AP’s own properties, or the plan will not pass validation',
       ampBs: 'RFID inventory', ampBsEnable: 'run an EPC Gen2 inventory (mono-static backscatter)',
       ampBsEnableHint: 'the AP radiates its own carrier and listens for a tag reflecting it back — no backscatter tag answers until this is on',
       ampBsQ: 'Q', ampBsQHint: 'Query(Q): each tag draws a slot counter from [0, 2^Q − 1]; Q = 2 offers four slots. The draft’s own Q-adaptation is not modelled',
       ampBsUl: 'UL rate', ampBsUlHint: 'the rate a tag backscatters its reply at',
-      ampBsWup: 'WUP (ms)', ampBsWupHint: 'how long the wake-up carrier runs at the front of the first PPDU of a TXOP; a tag needs the whole millisecond above −20 dBm to boot',
+      ampBsWup: 'WUP (ms)', ampBsWupHint: 'how long the wake-up carrier runs at the front of the first PPDU of a TXOP; a tag needs the whole window above −20 dBm to boot',
       ampBsCharge: 'Charge power', ampBsChargeHint: 'power radiated up to the end of each command; a tag has to hear this for the whole WUP to boot — 30.9 cm of reach at the default 10 dBm, 97.8 cm at 20 dBm. A tag beyond that reach never boots: no lane, no record.',
       ampBsBs: 'BS power', ampBsBsHint: 'power radiated while a reply is expected; raising it does not add reach, because the reader’s own leakage floor rises just as much — reply reach stays 32.8 cm at 250 kb/s and 23.2 cm at 1 Mb/s whatever this is set to',
       ampBsTxop: 'TXOP (ms)', ampBsTxopHint: 'how long one inventory burst may hold the medium; an inventory too big for one TXOP resumes in the next, from the same session and slot',
@@ -1038,11 +1041,12 @@ export const STRINGS: Record<Lang, Strings> = {
       ampModes: { active: '主动发射（Active Tx）', backscatter: '反向散射（Backscatter）' },
       ampEpc: 'EPC', ampEpcHint: '96 位电子产品编码，24 个十六进制字符；留空则由节点 id 派生',
       ampEpcBad: 'EPC 必须是 24 个十六进制字符（96 位），或留空',
+      ampBsNeedsReader: '该标签所在的场景里没有任何 AP 打开 RFID 盘点——请到 AP 自己的属性里打开它，否则场景无法通过校验',
       ampBs: 'RFID 盘点', ampBsEnable: '运行 EPC Gen2 盘点（单站式反向散射）',
       ampBsEnableHint: 'AP 自己辐射载波并聆听标签反射回来的信号——关闭时不会有任何反向散射标签应答',
       ampBsQ: 'Q', ampBsQHint: 'Query(Q)：每个标签从 [0, 2^Q − 1] 中抽取一个时隙计数器；Q = 2 即四个时隙。草案自身的 Q 自适应未建模',
       ampBsUl: '上行速率', ampBsUlHint: '标签反向散射应答所用的速率',
-      ampBsWup: '唤醒载波（ms）', ampBsWupHint: '一个 TXOP 第一个 PPDU 前端的唤醒载波时长；标签需要在 −20 dBm 以上持续整整这一毫秒才能启动',
+      ampBsWup: '唤醒载波（ms）', ampBsWupHint: '一个 TXOP 第一个 PPDU 前端的唤醒载波时长；标签需要在 −20 dBm 以上持续整个窗口才能启动',
       ampBsCharge: '充能功率', ampBsChargeHint: '直到每条命令结束为止所辐射的功率；标签必须在整个唤醒窗口内听到它才能启动——默认 10 dBm 时可达 30.9 cm，20 dBm 时可达 97.8 cm。超出这个距离的标签永远不会启动：没有泳道，也没有记录。',
       ampBsBs: '散射窗功率', ampBsBsHint: '等待应答期间辐射的功率；调高它并不会增加距离，因为阅读器自身的泄漏底噪也会同样升高——无论如何设置，应答距离在 250 kb/s 时都是 32.8 cm，1 Mb/s 时都是 23.2 cm',
       ampBsTxop: 'TXOP（ms）', ampBsTxopHint: '一次盘点突发最多占用信道多久；装不下的盘点会在下一个 TXOP 中继续，沿用同一个会话与同一个时隙',

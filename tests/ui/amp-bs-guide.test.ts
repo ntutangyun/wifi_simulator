@@ -11,7 +11,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, it, expect } from 'vitest'
 import {
   AMP_BS_ACTIVATION_DBM, AMP_BS_ISOLATION_DB, AMP_BS_LOSS_DB, AMP_BS_READER_DR_DB,
-  activationReachM, monoReachM,
+  activationReachM, bsReplyNs, monoReachM,
 } from '../../src/engine/ampBs'
 import { EditorGuideEn, EditorGuideZh } from '../../src/editor/EditorGuide'
 import { GuideEn, GuideZh } from '../../src/ui/Guide'
@@ -50,13 +50,19 @@ describe('Guide: Backscatter (mono-static) subsection', () => {
   const zh = renderGuide('zh')
 
   it('renders the EN heading, after the Ambient power heading', () => {
+    // toContain first on every heading the ordering check leans on — otherwise a heading that
+    // silently disappeared would leave indexOf at -1 and the "-1 < n" comparison would still pass.
+    expect(en).toContain('10 · Ambient power')
     expect(en).toContain('Backscatter (mono-static)')
+    expect(en).toContain('11 · UWB ranging')
     expect(en.indexOf('10 · Ambient power')).toBeLessThan(en.indexOf('Backscatter (mono-static)'))
     expect(en.indexOf('Backscatter (mono-static)')).toBeLessThan(en.indexOf('11 · UWB ranging'))
   })
 
   it('renders the ZH heading, after the Ambient power heading', () => {
+    expect(zh).toContain('10 · 环境能量')
     expect(zh).toContain('反向散射（单站式）')
+    expect(zh).toContain('11 · UWB 测距')
     expect(zh.indexOf('10 · 环境能量')).toBeLessThan(zh.indexOf('反向散射（单站式）'))
     expect(zh.indexOf('反向散射（单站式）')).toBeLessThan(zh.indexOf('11 · UWB 测距'))
   })
@@ -140,6 +146,30 @@ describe('AMP glossary group: the new backscatter terms', () => {
       expect(text).toContain(`${ACTIVATION_20_CM} cm`)
     }
   })
+
+  it('pins the RN16 entry\'s airtime to bsReplyNs, not a retyped literal', () => {
+    const rn16Ns = bsReplyNs('rn16', 250)
+    expect(rn16Ns).toBe(112_000) // 48 µs sync + 64 µs data
+    const item = group?.items.find((i) => i.term.toLowerCase() === 'rn16')
+    for (const text of [item?.alt.en, item?.def.en, item?.alt.zh, item?.def.zh]) {
+      expect(text).toContain(`${rn16Ns / 1000} µs`)
+    }
+  })
+
+  it('the BST-Excitation entry is plain words: no bare T1/T3/T4 symbols, and states how long in prose', () => {
+    const item = group?.items.find((i) => i.term.toLowerCase() === 'bst-excitation')
+    for (const text of [item?.def.en, item?.def.zh]) {
+      expect(text).not.toMatch(/T1|T3|T4/)
+    }
+    expect(item?.def.en).toContain('2 milliseconds')
+    expect(item?.def.zh).toContain('2 毫秒')
+  })
+
+  it('the EPC Gen2 entry expands SFD on first use', () => {
+    const item = group?.items.find((i) => i.term.toLowerCase() === 'epc gen2')
+    expect(item?.def.en).toContain('framework document (SFD)')
+    expect(item?.def.zh).toContain('框架文档（SFD）')
+  })
 })
 
 describe('EditorGuide: one entry per new control', () => {
@@ -181,6 +211,40 @@ describe('EditorGuide: one entry per new control', () => {
     expect(STRINGS.zh.editor.ampModes.active).toContain('主动发射')
     expect(STRINGS.zh.editor.ampModes.backscatter).toContain('反向散射')
   })
+
+  it('the Charge power / BS power entries quote the reach and activation figures, pinned to the engine', () => {
+    for (const text of [enSection, zhSection]) {
+      expect(text).toContain(`${ACTIVATION_10_CM} cm`)
+      expect(text).toContain(`${ACTIVATION_20_CM} cm`)
+      expect(text).toContain(`${REACH_250_CM}`)
+      expect(text).toContain(`${REACH_1000_CM}`)
+    }
+  })
+})
+
+/**
+ * Important #3 of the review: the constraint asks for engine-computed numbers "where a test can
+ * check them" — the Guide already imports the constants directly, but EditorGuide and the i18n
+ * hints only ever held retyped literals, so a moved engine constant could go stale there with a
+ * green suite. These are the two places that were missing; every other learner-facing surface is
+ * covered above (Guide) or in the README describe block below.
+ */
+describe('i18n hints quote the reach and activation figures, pinned to the engine', () => {
+  it('ampBsChargeHint and ampBsWupHint (activation), in both languages', () => {
+    for (const lang of ['en', 'zh'] as const) {
+      const E = STRINGS[lang].editor
+      expect(E.ampBsChargeHint).toContain(`${ACTIVATION_10_CM} cm`)
+      expect(E.ampBsChargeHint).toContain(`${ACTIVATION_20_CM} cm`)
+    }
+  })
+
+  it('ampBsBsHint (reply reach), in both languages', () => {
+    for (const lang of ['en', 'zh'] as const) {
+      const E = STRINGS[lang].editor
+      expect(E.ampBsBsHint).toContain(`${REACH_250_CM} cm`)
+      expect(E.ampBsBsHint).toContain(`${REACH_1000_CM} cm`)
+    }
+  })
 })
 
 describe('README: backscatter conformance and simplifications', () => {
@@ -203,11 +267,23 @@ describe('README: backscatter conformance and simplifications', () => {
   })
 
   it('records the new simplifications: nominal T1, no Q-adaptation, Friis below 1 m, two powers in one PPDU', () => {
-    expect(README).toContain('nominal')
-    expect(README).toMatch(/T1.*16.*µs.*fixed|fixed rather than resampled/)
-    expect(README).toContain('Q-adaptation')
-    expect(README).toContain('free-space (Friis)')
+    // Exact phrases, not the bare word "nominal" (which also matches unrelated prose elsewhere).
+    expect(README).toContain('Backscatter timing is nominal')
+    expect(README).toContain('T1 (16 µs) is fixed rather than resampled every reply')
+    expect(README).toContain("Q-adaptation (QueryAdjust) is not modelled")
+    expect(README).toContain('free-space (Friis), not the indoor Wi-Fi law')
     expect(README).toContain('5 cm floor')
     expect(README).toContain('two powers in one frame')
+  })
+
+  it('tags every conformance row the way the spec tags it: model split, PM-57, and T3\'s own contribution', () => {
+    const row = (marker: string) => README.split('\n').find((l) => l.includes(marker)) ?? ''
+    const dl = row('Backscatter DL PPDU: two excitations')
+    expect(dl, 'DL PPDU row').toContain('model (the two-power split)')
+    const ul = row('Backscatter UL PPDU')
+    expect(ul, 'UL PPDU row').toContain('PM-57')
+    expect(ul, 'UL PPDU row').toContain('model reading of PM-35')
+    const bst = row('BST-Excitation timing')
+    expect(bst, 'BST timing row').toContain('11-26/0120r0')
   })
 })
