@@ -65,15 +65,15 @@ export const frameAnatomyBytes: Lesson = {
       zh: '这时接收端已经锁住了信号，可对后面是什么仍一无所知。L-SIG 只告诉它两件事：后面这段用多快的速率编码、一共有多长。这就足够让一台根本解不出这一帧的射频——邻居的，或者更老的设备——知道空口什么时候会重新空出来。每一代都照样发它，一个字不改，而且用的是最慢的那档速率，原因就在这里。',
     } },
     { kind: 'watch', jump: 0, heading: { en: 'Look at the bars', zh: '看看那几条' }, text: {
-      en: 'Load the simulation and jump to the old laptop\'s first frame, then to the phone\'s. Both blocks on the timeline split into a front and a body; compare how much of each block is front.',
-      zh: '载入仿真，先跳到旧笔记本的第一帧，再跳到手机的那一帧。时间轴上这两个块都会分成"前脸"和"正身"两截；比一比各自的前脸占了多少。',
+      en: 'Load the simulation and jump to the old laptop\'s first frame, then to the phone\'s, opening "Fields on the air" on each. Both blocks split into a front and a body; compare how much of each is front.',
+      zh: '载入仿真，先跳到旧笔记本的第一帧，再跳到手机的那一帧，各自展开"空中字段"。两个块都会分成"前脸"和"正身"两截；比一比各自的前脸占了多少。',
     } },
     { heading: { en: 'A new radio still starts the old way', zh: '新射频，照样按老规矩开场' }, text: {
       en: 'A Wi-Fi 7 frame could have opened with something better suited to it. It does not. It opens with exactly those three, so that every device in the building can read its length, and only afterwards adds the U-SIG, which says what the newer format behind it really is. Backwards compatibility is not politeness here; it is the only thing stopping neighbours from talking over each other.',
       zh: '一帧 Wi-Fi 7 的帧本可以用更适合它自己的开头，但它没有。它照样用那三段开场，好让楼里每一台设备都能读出它有多长；之后才加上 U-SIG，说明后面那种新格式究竟是什么。这里的向后兼容不是客气，而是唯一能防止邻居们互相压着说话的东西。',
     } },
     { heading: { en: 'Counting the bytes', zh: '把字节数出来' }, text: {
-      en: 'The frame itself is easy to add up: the header, then your payload, then the check. The header is a fixed size, and the mark for the kind of traffic makes it two bytes longer. But air is not sold by the byte. It is sold in whole symbols, so a frame is rounded up to the next one, and two extra bytes often disappear into rounding that was already being paid for.',
+      en: 'The frame itself is easy to add up: the header, then your payload, then the check. The header is a fixed size, and the mark for the kind of traffic makes it two bytes longer. But air is not sold by the byte. It is sold in whole symbols, so a frame is rounded up, and two extra bytes often vanish into rounding already being paid for.',
       zh: '帧本身很好加：帧头，加上你的载荷，再加上校验。帧头是固定长度的，而那个业务类别标记会让它长两个字节。可空口不是按字节卖的，是按整个符号卖的：一帧要向上凑成整数个符号，于是多出来的那两个字节，常常就消失在本来就要付的那点凑整里。',
     } },
     { heading: { en: 'Many frames, one front', zh: '很多帧，共用一个前脸' }, text: {

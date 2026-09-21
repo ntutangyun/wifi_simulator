@@ -76,8 +76,8 @@ export const rolesStack: Lesson = {
   ],
   picture: [
     { heading: { en: 'Two parts, one set of rules', zh: '两种角色，同一套规则' }, text: {
-      en: 'Every device in a home network runs the same MAC and the same PHY, and obeys the same rules about when it may speak. A station is anything that has joined: a laptop, a phone, a TV. One device is not like the others — the access point — but not because its radio is stronger or because it may talk whenever it likes. It has a job the others do not, and it is the one device every station may address.',
-      zh: '家里这张网上的每台设备，跑的都是同一套 MAC 和同一套 PHY，什么时候可以开口，守的也是同一套规则。凡是加入进来的都叫站点：笔记本、手机、电视。只有一台设备不太一样——接入点——但不是因为它的射频更强，也不是因为它想说就能说。它多的是一份别人没有的差事，而且它是唯一一台每个站点都可以直接寻址的设备。',
+      en: 'Every device in a home network runs the same MAC and the same PHY, and obeys the same rules about when it may speak. Each of them is a station: the laptop, the phone, the TV — and the access point too. What sets the access point apart is not a stronger radio, nor a right to talk whenever it likes. It is a job the others do not have, and every other station may address it.',
+      zh: '家里这张网上的每台设备，跑的都是同一套 MAC 和同一套 PHY，什么时候可以开口，守的也是同一套规则。它们每一台都是站点：笔记本、手机、电视——接入点也是。接入点特殊在哪儿？不是射频更强，也不是想说就能说，而是它多了一份别人没有的差事，而且每个别的站点都可以直接寻址到它。',
     } },
     { heading: { en: 'One access point, one network', zh: '一个接入点，一张网' }, text: {
       en: 'An access point and the devices that joined it are one network — a BSS. It needs an address of its own, so that a station can say which network a frame belongs to and a neighbour\'s frames can be told apart from this one\'s. That address is not invented: it is the access point\'s own MAC address, and used this way it is called the BSSID. One access point, one network, one address.',
@@ -88,34 +88,34 @@ export const rolesStack: Lesson = {
       zh: '载入仿真，跳到一部手机发给另一部手机的第一帧。它的收件人是接入点，而不是对面那部手机。再跳到下一个目标，看接入点把同一份载荷又发了一次。',
     } },
     { heading: { en: 'The name you actually pick', zh: '你真正挑的是那个名字' }, text: {
-      en: 'You never type an address when you join a network. You pick a name off a list, and that name is the SSID. Name and address are kept apart on purpose: a house with a router upstairs and another downstairs has two networks, two addresses and one name, so a laptop carried down the stairs joins the second network without anyone choosing anything.',
-      zh: '加入一张网的时候，你从来不用去输入什么地址。你是在一个列表里挑一个名字，这个名字就是 SSID。名字和地址是有意分开的：楼上一台路由器、楼下一台路由器的屋子，是两张网、两个地址、一个名字；于是被拿着下楼的笔记本，谁都没选什么，就已经换到了第二张网上。',
+      en: 'You never type an address when you join a network. You pick a name off a list, and that name is the SSID. Name and address are kept apart on purpose: a house with a router upstairs and one downstairs has two networks, two addresses and a single name, so a laptop carried downstairs joins the second without anyone choosing.',
+      zh: '加入一张网的时候，你从来不用去输入什么地址。你是在一个列表里挑一个名字，这个名字就是 SSID。名字和地址是有意分开的：楼上一台路由器、楼下一台路由器的屋子，是两张网、两个地址、一个名字；于是被拿着下楼的笔记本，谁都没选，就已经换到了第二张网上。',
     } },
     { heading: { en: 'Everything goes through the middle', zh: '一切都从中间过' }, text: {
-      en: 'A station has exactly one peer it may send data to: its access point. Even when the device it is talking to sits beside it, the frame goes to the access point first. The access point hands the payload to the DS, which hands it straight back, and the access point sends it a second time. The path follows the network, not the distance across the room.',
-      zh: '一个站点能发送数据的对端只有一个：它的接入点。哪怕要找的那台设备就在旁边，帧也要先发给接入点。接入点把载荷交给 DS，DS 再原样交回来，接入点于是第二次把它发出去。走哪条路，取决于这张网，而不是屋里的直线距离。',
+      en: 'A station has exactly one peer it may send data to: its access point. Even when the device it is talking to sits beside it, the frame goes to the access point first, which hands the payload to the DS, gets it straight back, and sends it a second time. The path follows the network, not the distance across the room.',
+      zh: '一个站点能发送数据的对端只有一个：它的接入点。哪怕要找的那台设备就在旁边，帧也要先发给接入点；接入点把载荷交给 DS，又原样拿回来，于是第二次把它发出去。走哪条路，取决于这张网，而不是屋里的直线距离。',
     } },
     { heading: { en: 'Envelopes inside envelopes', zh: '一层套一层的信封' }, text: {
-      en: 'None of that is visible to the layer above, which just hands the MAC a payload and expects it delivered. The MAC puts a header in front and a check behind — that parcel is a frame. The PHY takes the frame, or a batch of them, puts a pattern in front that any nearby radio can lock on to, and only then is anything on the air.',
-      zh: '这些事，上面那一层一概看不见：它只是把一份载荷交给 MAC，然后等着它被送到。MAC 在前面加一段头、后面加一个校验——这个包裹就是一帧。PHY 拿到一帧、或一批帧，再在最前面放上一段图案，好让附近任何一台射频都能锁住；到这时，空口上才真的有东西。',
+      en: 'None of that is visible to the layer above, which just hands the MAC a payload and expects it delivered. The MAC puts a header in front and a check behind — that parcel is a frame. The PHY takes the frame, or a batch, puts a pattern in front for any nearby radio to lock on to, and only then is anything on the air.',
+      zh: '这些事，上面那一层一概看不见：它只是把一份载荷交给 MAC，然后等着它被送到。MAC 在前面加一段头、后面加一个校验——这个包裹就是一帧。PHY 拿到一帧、或一批帧，再在最前面放上一段图案，好让附近的射频锁住；到这时，空口上才真的有东西。',
     } },
   ],
   numbers: [
     { kind: 'table', heading: { en: 'One payload, four wrappings', zh: '同一份载荷，四层包装' }, head: [
       { en: 'What it is', zh: '这是什么' }, { en: 'Where it is handed over', zh: '在哪儿交接' }, { en: 'In this scenario', zh: '本场景里的值' },
     ], rows: [
-      [{ en: 'The payload from the layer above', zh: '上层交下来的载荷' }, { en: 'down into the MAC', zh: '交给 MAC' }, N('1400 B of video')],
+      [{ en: 'The payload from the layer above', zh: '上层交下来的载荷' }, { en: 'down into the MAC', zh: '交给 MAC' }, { en: '1400 B of video', zh: '1400 B 的视频' }],
       [{ en: 'The frame the MAC builds', zh: 'MAC 造出来的帧' }, { en: 'header + payload + check', zh: '头 + 载荷 + 校验' }, N('26 + 1400 + 4 = 1430 B')],
       [{ en: 'What the PHY is handed', zh: '交给 PHY 的东西' }, { en: 'one frame, or a batch', zh: '一帧，或者一批' }, { en: '1430 B; the laptop hands over 50', zh: '1430 B；笔记本一次交 50 个' }],
-      [{ en: 'What is on the air', zh: '空口上传的东西' }, { en: 'a pattern in front, then that', zh: '先一段图案，再是前面那个' }, N('125.6 µs at 20 MHz')],
+      [{ en: 'What is on the air', zh: '空口上传的东西' }, { en: 'a pattern in front, then that', zh: '先一段图案，再是前面那个' }, { en: '125.6 µs at 20 MHz', zh: '20 MHz 下 125.6 µs' }],
     ] },
     { kind: 'table', heading: { en: 'What each device is doing', zh: '每台设备在干什么' }, head: [
       { en: 'Device', zh: '设备' }, { en: 'What it sends', zh: '它在发什么' }, { en: 'How much, how often', zh: '多大、多久一次' },
     ], rows: [
-      [{ en: 'Laptop', zh: '笔记本' }, { en: 'a backup, uphill', zh: '上行的备份' }, N('50 × 1500 B every 60 ms')],
+      [{ en: 'Laptop', zh: '笔记本' }, { en: 'a backup, uphill', zh: '上行的备份' }, { en: '50 × 1500 B every 60 ms', zh: '50 × 1500 B，每 60 ms 一批' }],
       [{ en: 'TV', zh: '电视' }, { en: 'video, downhill only', zh: '只收下行的视频' }, { en: '1400 B about every 0.85 ms', zh: '1400 B，约每 0.85 ms 一个' }],
       [{ en: 'Phone A and Phone B', zh: '手机 A 与手机 B' }, { en: 'a call to each other', zh: '彼此之间的通话' }, { en: '1400 B every 1.4–1.7 ms each way', zh: '1400 B，每个方向每 1.4–1.7 ms 一个' }],
-      [{ en: 'Access point', zh: '接入点' }, { en: 'handing a payload back out', zh: '把载荷再发出去' }, N('a fixed 50 µs to forward')],
+      [{ en: 'Access point', zh: '接入点' }, { en: 'handing a payload back out', zh: '把载荷再发出去' }, { en: 'a fixed 50 µs to forward', zh: '转发固定 50 µs' }],
     ] },
     { kind: 'steps', heading: { en: 'One payload from phone to phone', zh: '一份载荷，从一部手机到另一部' }, items: [
       { en: 'At 1.4157 ms it arrives at Phone B, which finds the room quiet and sends it straight away.', zh: '1.4157 ms，它到达手机 B；屋里正安静，手机 B 立刻把它发了出去。' },
@@ -127,12 +127,12 @@ export const rolesStack: Lesson = {
     { kind: 'table', heading: { en: 'One hop or two, over a whole second', zh: '一跳还是两跳，整整一秒的平均' }, head: [
       { en: 'Journey', zh: '路程' }, { en: 'Hops on the air', zh: '空口上几跳' }, { en: 'Average', zh: '平均' },
     ], rows: [
-      [{ en: 'Access point to TV', zh: '接入点到电视' }, N('1'), N('about 0.7 ms')],
-      [{ en: 'Phone to phone', zh: '手机到手机' }, N('2'), N('about 1.3 ms')],
+      [{ en: 'Access point to TV', zh: '接入点到电视' }, N('1'), { en: 'about 0.7 ms', zh: '约 0.7 ms' }],
+      [{ en: 'Phone to phone', zh: '手机到手机' }, N('2'), { en: 'about 1.3 ms', zh: '约 1.3 ms' }],
     ] },
     { text: {
-      en: 'Close to double, and the doubling is not the 50 µs of forwarding: the second hop queues and waits its turn exactly like the first.',
-      zh: '接近两倍，而多出来的这一倍并不是那 50 µs 的转发：是第二跳同样要排队、同样要等轮到自己。',
+      en: 'Close to double — and not because of the 50 µs of forwarding: the second hop queues and waits its turn just like the first.',
+      zh: '接近两倍——而且不是因为那 50 µs 的转发：是第二跳同样要排队、同样要等轮到自己。',
     } },
   ],
   deeper: [
@@ -176,12 +176,12 @@ export const rolesStack: Lesson = {
     J('first relayed frame, hop 2 (AP → Phone A)', '第一个中继帧，第二跳（AP → 手机 A）', firstRelayHop2),
   ],
   observe: [
-    { en: 'Hover the data blocks at hop 1 and hop 2: the same payload number, addressed first to the access point and then sent by it to Phone A. No data frame here goes straight from one station to another.', zh: '悬停第一跳与第二跳的数据块：载荷编号相同，先发往接入点，再由它发给手机 A。这里没有任何数据帧是从一个站点直接发给另一个站点的。' },
+    { en: 'Hover the data blocks at hop 1 and hop 2: the same payload number, addressed first to the access point and then sent by it to Phone A. No data frame here goes station to station.', zh: '悬停第一跳与第二跳的数据块：载荷编号相同，先发往接入点，再由它发给手机 A。这里没有任何数据帧是站点直发站点的。' },
     { en: 'At the first uplink frame the Laptop sends a short reservation frame, then one burst carrying 50 payloads. The TV\'s lane holds no data frame at all: a device that only receives still transmits, but only to answer. Run a second and its receive figure settles near 0.7 ms, against 1.3 ms phone to phone.', zh: '在第一个上行帧处，笔记本先发一个短的预约帧，接着是承载 50 份载荷的一个突发。电视那条泳道上一个数据帧也没有：只收不发的设备仍然要发送，但只是为了作答。跑满一秒，它的接收数值稳定在约 0.7 ms，而手机互传是 1.3 ms。' },
   ],
   tryThis: [
-    { en: 'Drag Phone B across the room until it sits next to Phone A. Every payload still goes by way of the access point, and the average is still about 1.3 ms: the path follows the network, not the distance.', zh: '把手机 B 拖到手机 A 旁边。每一份载荷仍要绕经接入点，平均值仍约 1.3 ms：路径跟着这张网走，而不是跟着距离走。' },
-    { en: 'Set the Laptop to idle and run again. Phone to phone falls to about 0.7 ms and the TV to about 0.3 ms — still close to double, because the relay still pays for two turns.', zh: '把笔记本改成 idle 再跑一遍。手机互传降到约 0.7 ms，电视降到约 0.3 ms——仍接近两倍，因为中继照样要付两次排队的代价。' },
+    { en: 'Drag Phone B across the room to sit next to Phone A. Every payload still goes by way of the access point, still about 1.3 ms: the path follows the network, not the distance.', zh: '把手机 B 拖到手机 A 旁边。每一份载荷仍要绕经接入点，仍约 1.3 ms：路径跟着这张网走，而不是跟着距离走。' },
+    { en: 'Set the Laptop to idle and run again. Phone to phone falls to about 0.7 ms and the TV to about 0.3 ms — still close to double: the relay still pays for two turns.', zh: '把笔记本改成 idle 再跑一遍。手机互传降到约 0.7 ms，电视降到约 0.3 ms——仍接近两倍：中继照样要付两次排队的代价。' },
   ],
   quiz: [
     {
@@ -192,7 +192,7 @@ export const rolesStack: Lesson = {
         { en: 'Three times: Phone A, the access point, the DS, then Phone B', zh: '三次：手机 A、接入点、DS，然后手机 B' },
       ],
       answer: 1,
-      explain: { en: 'The DS hands the payload back to the same access point, and is not itself a hop on the air: two frames, each with its own answer.', zh: 'DS 把载荷交回同一个接入点，它自己并不是空口上的一跳：两帧，各自带一个回复。' },
+      explain: { en: 'The DS hands the payload back to the same access point and is not itself a hop on the air: two frames, each with an answer.', zh: 'DS 把载荷交回同一个接入点，它自己并不是空口上的一跳：两帧，各带一个回复。' },
     },
     {
       q: { en: 'The Laptop hands the radio 50 payloads at once. How many frames did the MAC build, and how many bursts went out?', zh: '笔记本一次交给射频 50 份载荷。MAC 造了几帧？空口上走了几个突发？' },
@@ -202,17 +202,17 @@ export const rolesStack: Lesson = {
         { en: '50 frames and one burst', zh: '50 帧、1 个突发' },
       ],
       answer: 2,
-      explain: { en: 'Each payload gets its own header and check, so the MAC builds 50 frames. They go behind one pattern as a single burst — hence one block on the timeline.', zh: '每份载荷都有自己的头和校验，所以 MAC 造了 50 帧。它们跟在同一段图案后面作为一个突发发出——时间轴上于是只有一个块。' },
+      explain: { en: 'Each payload gets its own header and check: 50 frames. They go behind one pattern as a single burst — hence one block on the timeline.', zh: '每份载荷都有自己的头和校验，所以是 50 帧。它们跟在同一段图案后面作为一个突发发出——时间轴上于是只有一个块。' },
     },
     {
       q: { en: 'What makes an access point different from a station?', zh: '接入点和站点，区别到底在哪儿？' },
       options: [
-        { en: 'It contains a station, and gives the stations on it a way out through the DS', zh: '它本身含有一个站点，并为挂在它上面的站点提供一条经 DS 出去的路' },
+        { en: 'It is a station too, and it also gives the stations on it a way out through the DS', zh: '它本身也是一个站点，此外还为挂在它上面的站点提供一条经 DS 出去的路' },
         { en: 'It may transmit without waiting its turn', zh: '它可以不排队就发送' },
         { en: 'It has no MAC address, only an SSID', zh: '它没有 MAC 地址，只有一个 SSID' },
       ],
       answer: 0,
-      explain: { en: 'That is the definition, and its own MAC address is the BSSID. It waits its turn like everyone else — which is why a relay\'s second hop costs as much as its first.', zh: '这就是定义，而它自己的 MAC 地址就是 BSSID。它和所有设备一样要排队——中继的第二跳之所以和第一跳一样贵，原因在此。' },
+      explain: { en: 'An access point is a station, with one job added; its own MAC address is the BSSID. It waits its turn like the rest — which is why a relay\'s second hop costs as much as its first.', zh: '接入点就是一个站点，只是多了一份差事；它自己的 MAC 地址就是 BSSID。它和其余设备一样要排队——中继的第二跳之所以和第一跳一样贵，原因在此。' },
     },
   ],
 }
