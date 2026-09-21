@@ -16,7 +16,7 @@ import {
   AMP_DL_REQ_SINR_DB, AMP_PADDING_NS, AMP_PADDING_PROTECTED_NS, AMP_SIFS_NS, AMP_TAG_DL_SENS_DBM,
   AMP_UL_REQ_SINR_DB, ampUlSensDbm,
 } from '../../src/engine/amp'
-import { CCA_PD_DBM, ERP_2G, SLOT_NS } from '../../src/engine/phy'
+import { CCA_PD_DBM, ERP_2G } from '../../src/engine/phy'
 import { LINK_EXTRA_LOSS_DB } from '../../src/engine/simulation'
 import { buildLinkTable } from '../../src/engine/propagation'
 import { rssiOn } from './rssi'
@@ -25,6 +25,7 @@ import { fmtRecord } from '../../src/ui/format'
 import type { TLRecord } from '../../src/model/records'
 import { isMigrated, type L10n } from '../../src/course/lessonKit'
 import { OBSERVE_MINUTES, TRY_MINUTES, lessonBlocks, lessonMinutes, lessonWords } from '../../src/course/curriculum'
+import { lessonStrings } from '../../src/course/readability'
 
 const MS = 1_000_000
 const US = 1_000
@@ -102,24 +103,20 @@ describe('amp-intro · lesson shape', () => {
   })
 
   it('every string a learner reads exists in both languages', () => {
-    const seen: L10n[] = []
-    const isL10n = (o: Record<string, unknown>): o is Record<string, unknown> & L10n =>
-      typeof o.en === 'string' && typeof o.zh === 'string'
-    const walk = (x: unknown): void => {
-      if (x == null || typeof x === 'function') return
-      if (Array.isArray(x)) { x.forEach(walk); return }
-      if (typeof x !== 'object') return
-      const o = x as Record<string, unknown>
-      if (isL10n(o)) { seen.push(o); return }
-      for (const [k, v] of Object.entries(o)) if (k !== 'scenario' && k !== 'find') walk(v)
-    }
-    walk({
-      title: ampIntro.title, why: ampIntro.why, outcomes: ampIntro.outcomes, terms: ampIntro.terms,
-      picture: ampIntro.picture, numbers: ampIntro.numbers, deeper: ampIntro.deeper,
-      sources: ampIntro.sources, observe: ampIntro.observe, tryThis: ampIntro.tryThis,
-      quiz: ampIntro.quiz, variants: ampIntro.variants, jumps: ampIntro.jumps,
-    })
-    expect(seen.length).toBeGreaterThan(40)
+    // One walk for every lesson test: src/course/readability.ts. `title`, the variant
+    // labels and the jump labels are the chrome around a lesson, so they are added here.
+    const seen: L10n[] = [
+      ...lessonStrings(ampIntro), ampIntro.title,
+      ...ampIntro.variants!.map((v) => v.label), ...ampIntro.jumps.map((j) => j.label),
+    ]
+    // a structural floor rather than a smoke bound: one string per outcome, term, block,
+    // source, observation, experiment and (question + options + explanation) of a quiz,
+    // plus why, the title, every variant label and every jump label.
+    const floor = 2 + ampIntro.outcomes!.length + ampIntro.terms!.length + ampIntro.picture!.length
+      + ampIntro.numbers!.length + (ampIntro.deeper?.length ?? 0) + ampIntro.sources!.length
+      + ampIntro.observe.length + ampIntro.tryThis.length + 3 * ampIntro.quiz.length
+      + ampIntro.variants!.length + ampIntro.jumps.length
+    expect(seen.length).toBeGreaterThanOrEqual(floor)
     for (const l of seen) {
       expect(l.en.trim().length, l.en).toBeGreaterThan(0)
       expect(l.zh.trim().length, l.en).toBeGreaterThan(0)
@@ -149,9 +146,9 @@ describe('amp-intro · standard constants', () => {
     //  happens to equal the SIFS 2.4 GHz Wi-Fi already uses."
     expect(AMP_SIFS_NS).toBe(10 * US)
     expect(ERP_2G.sifsNs).toBe(AMP_SIFS_NS)
-    // "a clock good enough to count 9 µs slots" (the picture's carrier-sense reminder)
-    expect(SLOT_NS).toBe(9 * US)
-    expect(ERP_2G.slotNs).toBe(SLOT_NS)
+    // The 9 µs contention slot is quoted nowhere in this lesson any more — the picture's
+    // carrier-sense reminder now says only that a tag "cannot keep time between frames" — so
+    // the two assertions that used to pin it were dropped rather than left guarding nothing.
   })
 
   it('a protected AMP frame pads 36 µs where an unprotected one pads 20 µs', () => {
@@ -261,7 +258,7 @@ describe('amp-intro · a second of polling', () => {
 
   it('one second holds ten rounds, forty slots and forty Acks, sixteen of them naming a tag', () => {
     // "A round starts every 100 ms, so a second holds ten: forty slots, forty Acks, twenty tag
-    //  answers. Sixteen Acks name a tag; the other twenty-four name the router."
+    //  answers. Sixteen Acks name a tag; the other twenty-four the router."
     expect(ofType(rs, 'AMP_ROUND').length).toBe(10)
     expect(ofType(rs, 'AMP_ROUND').map((r) => r.t)[1]).toBe(100 * MS + 60 * US)
     expect(ofType(rs, 'AMP_SLOT').length).toBe(40)
@@ -274,7 +271,7 @@ describe('amp-intro · a second of polling', () => {
   })
 
   it('each tag answers all ten rounds: eight acknowledged and two lost', () => {
-    // "Each tag answers in every round — eight acknowledged, two lost."
+    // "Each tag answers in every round: eight acknowledged, two lost."
     for (const tag of TAGS) {
       const rr = results(rs, tag)
       expect(rr.length).toBe(10)
@@ -296,10 +293,11 @@ describe('amp-intro · a second of polling', () => {
   })
 
   it('a draw of 3 lands in slot 4, so with ACW + 1 = N neither tag ever sits a round out', () => {
-    // numbers: "The trigger’s window exponent ACWE is 2, so ACW = 2² − 1 = 3: each tag draws an
-    //  ABOC at random from 0, 1, 2, 3 and answers in slot ABOC + 1." / deeper: "A tag sits a round
-    //  out when its draw can land past the last slot, that is when ACW + 1 > N. Here ACW + 1 = 4 = N
-    //  … a draw of 3 lands in slot 4, the last one there is."
+    // numbers: "Each tag picks one of four numbers at random and counts that many slots along.
+    //  In the trigger’s own terms: its window exponent ACWE is 2, so ACW = 2² − 1 = 3, and the
+    //  ABOC drawn from 0, 1, 2, 3 picks slot ABOC + 1." / deeper: "A tag sits a round out when its
+    //  draw can land past the last slot, that is when ACW + 1 > N. Here ACW + 1 = 4 = N … a draw
+    //  of 3 lands in slot 4, the last one there is."
     const acw = 2 ** 2 - 1
     const slots = ampIntro.scenario().nodes[0].ampAp!.slots
     expect(acw).toBe(3)
@@ -320,7 +318,7 @@ describe('amp-intro · a second of polling', () => {
   it('the two losses are the two rounds in which both tags drew the same slot', () => {
     // "Twice in ten rounds both draw the same number — the slots ending at 201 216 µs and
     //  502 972 µs. The router logs a collision, the closing Ack names the router, and each tag
-    //  learns at 201 556 µs and 503 312 µs that its reading never arrived."
+    //  learns at 201 556 µs and 503 312 µs that its reading was lost."
     const coll = ofType(rs, 'COLLISION')
     expect(coll.length).toBe(2)
     // the COLLISION is stamped at the instant the overlapping slot ends
@@ -343,9 +341,10 @@ describe('amp-intro · a second of polling', () => {
   })
 
   it('the tags never carrier-sense, never back off and never wait out an IFS; the AP does all three', () => {
-    // "Scroll a tag’s lane for a whole second: no CCA_BUSY record, no BACKOFF_DRAW, no IFS_START.
-    //  It has none of those to record; its whole contribution is ten transmissions. The router’s
-    //  lane has all three."
+    // "Scroll a tag’s lane for a whole second and three kinds of record are missing: CCA_BUSY,
+    //  the channel sounding busy; BACKOFF_DRAW, a countdown drawn before speaking; IFS_START, the
+    //  wait after someone else stops. A tag has none of them to record; its whole contribution is
+    //  ten transmissions. The router’s lane has all three."
     for (const tag of TAGS) {
       for (const type of CONTENTION_RECORDS) expect(countAt(rs, tag, type), `${tag} ${type}`).toBe(0)
       expect(countAt(rs, tag, 'TX_START')).toBe(10)

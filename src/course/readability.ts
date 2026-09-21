@@ -7,7 +7,7 @@
  * (a word counter, an acronym linter) speaks exactly the same rules the test
  * does, and so each rule can be pinned on its own.
  */
-import type { Block, L10n } from './lessonKit'
+import type { Block, L10n, Lesson } from './lessonKit'
 
 /**
  * Acronyms and everyday words a reader is assumed to know before lesson one:
@@ -135,5 +135,42 @@ export function paragraphTexts(blocks: Block[]): L10n[] {
         break
     }
   }
+  return out
+}
+
+/**
+ * Every bilingual string a learner can read in a lesson: the one walk that all
+ * the per-lesson tests and the contract test share, so a field added to the
+ * contract is covered everywhere the moment it is added here.
+ *
+ * Walked: `why`, `outcomes`, `terms` (the `plain` line of each — the `term`
+ * itself is the standard's own spelling and carries no translation),
+ * `picture`, `numbers`, `deeper`, `sources`, `observe`, `tryThis` and `quiz`,
+ * including table cells, formula bodies and quiz options, because a learner
+ * reads those too. `scenario` and `find` are skipped: they are functions of
+ * the engine, not text.
+ *
+ * `title`, `variants[].label` and `jumps[].label` are deliberately outside it —
+ * they are the chrome around a lesson rather than the lesson — so a caller
+ * that wants them appends them to the result itself.
+ *
+ * It takes a `Partial<Lesson>` so a caller can ask for one field at a time,
+ * `lessonStrings({ picture })`, which is how the citation rule is applied
+ * field by field.
+ */
+export function lessonStrings(l: Partial<Lesson>): L10n[] {
+  const out: L10n[] = []
+  const walk = (x: unknown): void => {
+    if (x == null || typeof x === 'function') return
+    if (Array.isArray(x)) { x.forEach(walk); return }
+    if (typeof x !== 'object') return
+    const o = x as Record<string, unknown>
+    if (typeof o.en === 'string' && typeof o.zh === 'string') { out.push(o as unknown as L10n); return }
+    for (const [k, v] of Object.entries(o)) if (k !== 'scenario' && k !== 'find') walk(v)
+  }
+  walk({
+    why: l.why, outcomes: l.outcomes, terms: l.terms, picture: l.picture, numbers: l.numbers,
+    deeper: l.deeper, sources: l.sources, observe: l.observe, tryThis: l.tryThis, quiz: l.quiz,
+  })
   return out
 }

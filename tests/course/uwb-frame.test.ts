@@ -21,6 +21,7 @@ import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 import { isMigrated, type L10n } from '../../src/course/lessonKit'
 import { lessonBlocks, lessonMinutes, lessonWords } from '../../src/course/curriculum'
+import { lessonStrings } from '../../src/course/readability'
 import { ACK_TX_TIME_6M_NS } from '../../src/engine/phy'
 import { uwbPpduLayout } from '../../src/uwb/frameFields'
 import {
@@ -100,24 +101,20 @@ describe('uwb-frame · lesson shape', () => {
   })
 
   it('every string a learner reads exists in both languages', () => {
-    const seen: L10n[] = []
-    const isL10n = (o: Record<string, unknown>): o is Record<string, unknown> & L10n =>
-      typeof o.en === 'string' && typeof o.zh === 'string'
-    const walk = (x: unknown): void => {
-      if (x == null || typeof x === 'function') return
-      if (Array.isArray(x)) { x.forEach(walk); return }
-      if (typeof x !== 'object') return
-      const o = x as Record<string, unknown>
-      if (isL10n(o)) { seen.push(o); return }
-      for (const [k, v] of Object.entries(o)) if (k !== 'scenario' && k !== 'find') walk(v)
-    }
-    walk({
-      title: uwbFrame.title, why: uwbFrame.why, outcomes: uwbFrame.outcomes, terms: uwbFrame.terms,
-      picture: uwbFrame.picture, numbers: uwbFrame.numbers, sources: uwbFrame.sources,
-      observe: uwbFrame.observe, tryThis: uwbFrame.tryThis, quiz: uwbFrame.quiz,
-      variants: uwbFrame.variants, jumps: uwbFrame.jumps,
-    })
-    expect(seen.length).toBeGreaterThan(50)
+    // One walk for every lesson test: src/course/readability.ts. `title`, the variant
+    // labels and the jump labels are the chrome around a lesson, so they are added here.
+    const seen: L10n[] = [
+      ...lessonStrings(uwbFrame), uwbFrame.title,
+      ...uwbFrame.variants!.map((v) => v.label), ...uwbFrame.jumps.map((j) => j.label),
+    ]
+    // a structural floor rather than a smoke bound: one string per outcome, term, block,
+    // source, observation, experiment and (question + options + explanation) of a quiz,
+    // plus why, the title, every variant label and every jump label.
+    const floor = 2 + uwbFrame.outcomes!.length + uwbFrame.terms!.length + uwbFrame.picture!.length
+      + uwbFrame.numbers!.length + (uwbFrame.deeper?.length ?? 0) + uwbFrame.sources!.length
+      + uwbFrame.observe.length + uwbFrame.tryThis.length + 3 * uwbFrame.quiz.length
+      + uwbFrame.variants!.length + uwbFrame.jumps.length
+    expect(seen.length).toBeGreaterThanOrEqual(floor)
     for (const l of seen) {
       expect(l.en.trim().length, l.en).toBeGreaterThan(0)
       expect(l.zh.trim().length, l.en).toBeGreaterThan(0)

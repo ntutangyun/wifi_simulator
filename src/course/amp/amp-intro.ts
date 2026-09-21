@@ -1,5 +1,5 @@
 /**
- * AMP Tier 2 · M7 · Ambient power IoT (802.11bp) · A tag with no battery.
+ * Tier 2 · M8 · Ambient power IoT (802.11bp) · A tag with no battery.
  *
  * The first lesson of the AMP track, written to the zero-to-hero contract
  * (docs/superpowers/specs/2026-09-21-course-readability-design.md): why a radio
@@ -56,7 +56,7 @@ export const ampIntro: Lesson = {
   needs: ['radio-primer', 'frame-anatomy'],
   terms: [
     { term: 'AMP', plain: {
-      en: 'ambient power: the Wi-Fi feature for devices that run on harvested energy',
+      en: 'ambient power: the Wi-Fi feature for devices running on harvested energy',
       zh: '环境能量：Wi-Fi 为“只靠收集来的能量工作”的设备准备的功能',
     } },
     { term: 'tag', plain: {
@@ -74,23 +74,23 @@ export const ampIntro: Lesson = {
   ],
   picture: [
     { heading: { en: 'A radio that cannot listen', zh: '一台听不了的射频' }, text: {
-      en: 'A tag’s receiver is an envelope detector: it tells loud from quiet, nothing else. It lives on a few microwatts scavenged from the air, with no dependable sense of time between frames. Carrier sense — a receiver kept running to hear if anyone else is talking — is beyond it, and so is a NAV, the countdown a station keeps from the lengths it hears.',
-      zh: '标签的接收机是一个包络检波器：它分得出响和静，仅此而已。它靠从空气里捡来的几十微瓦活着，两帧之间也没有任何靠得住的时间感。载波侦听——让接收机一直开着，听有没有别人在说话——它做不到。NAV 同样做不到：那是 Wi-Fi 终端从自己解出的每一帧里读到时长后记下的倒计时。',
+      en: 'A tag’s receiver is an envelope detector: it tells loud from quiet. It lives on a few microwatts scavenged from the air, and cannot keep time between frames. Carrier sense — a receiver kept running to hear if anyone else is talking — is beyond it, and so is a NAV, the countdown a station keeps from the lengths it hears.',
+      zh: '标签的接收机是一个包络检波器：它只分得出响和静。它靠从空气里捡来的几十微瓦活着；帧与帧之间，它也没法准确计时。载波侦听——让接收机一直开着，听有没有别人在说话——它做不到。NAV 同样做不到：那是 Wi-Fi 终端从自己解出的每一帧里读到时长后记下的倒计时。',
     } },
     { heading: { en: 'First, keep the neighbours quiet', zh: '第一步：让邻居先安静' }, text: {
-      en: 'The router owns the round and clears the air first: a CTS addressed to itself, a very short frame whose whole content is a length of time. Every Wi-Fi radio that hears it stays quiet for exactly that long. The tags take no notice — they cannot decode it anyway.',
+      en: 'The router owns the round and clears the air first: a CTS addressed to itself, a very short frame whose whole content is a length of time. Every Wi-Fi radio that hears it stays quiet that long. The tags take no notice — they cannot decode it.',
       zh: '这一轮由路由器主持，所以开场前它先把场子清干净：发一帧写给自己的 CTS——极短的一帧，内容几乎只有一个时长——凡是听见它的 Wi-Fi 射频，都会老老实实闭嘴那么久。标签则毫无反应：它们本来就解不出这一帧。',
     } },
     { kind: 'watch', jump: 1, heading: { en: 'Then the router asks', zh: '然后，路由器发问' }, text: {
-      en: 'Load the simulation and jump to the first trigger. This is the frame that does the asking: it opens a row of equal slots and invites any tag that hears it into one of them.',
+      en: 'Load the simulation and jump to the first trigger. This is the frame that asks: it opens a row of equal slots and invites any tag that hears it into one.',
       zh: '载入仿真，跳到第一帧触发帧。发问的就是这一帧：它一口气打开一排等长的时隙，邀请每一个听见它的标签挑其中一个作答。',
     } },
     { heading: { en: 'Picking a slot at random', zh: '随手抽一个时隙' }, text: {
-      en: 'The trigger does not say which tag goes where. It gives the number of slots and the range to draw from; each tag that decoded it draws its own number, its ABOC, and answers in the slot it points at. The draw is a tag’s whole decision-making.',
+      en: 'The trigger does not say which tag goes where. It gives the number of slots and the range to draw from; each tag that decoded it draws its own number, its ABOC, and answers in the slot it points at — the whole of a tag’s decision-making.',
       zh: '触发帧并不指定谁去哪个时隙。它只说明一共几个时隙、该从多大的范围里抽数；凡是解出了它的标签，都自己抽一个数——也就是 ABOC——然后在这个数指向的时隙里作答。抽这一下，就是标签全部的“思考”。',
     } },
     { text: {
-      en: 'No tag can hear another, so nothing stops two of them drawing the same number. Both then answer in one slot, the router hears two signals at once and understands neither. Both readings are lost, and neither tag knows until the Ack closing that slot names the router itself.',
+      en: 'No tag can hear another, so nothing stops two drawing the same number. Both then answer in one slot, the router hears two signals at once and understands neither. Both readings are lost, and neither tag knows until the Ack closing that slot names the router.',
       zh: '标签之间彼此听不见，所以没有什么拦得住两个标签抽到同一个数。一旦如此，它们会挤在同一个时隙里一起开口，路由器收到两路叠在一起的信号，哪一路都解不出。两个读数都丢了；而它们要等到收尾的那帧确认——里面写的是路由器自己的名字——才知道出了事。',
     } },
     { kind: 'watch', jump: 4, text: {
@@ -98,20 +98,20 @@ export const ampIntro: Lesson = {
       zh: '跳到第一次丢失的作答：两个标签抽到了同一个数，一起开了口。看一看路由器在那个时隙末尾发出的是什么，里面写着谁的名字。',
     } },
     { heading: { en: 'An acknowledgement is also a clock', zh: '确认帧同时还是一只钟' }, text: {
-      en: 'After every slot the router sends a short acknowledgement, answer or no answer — and not out of manners. A tag cannot count its own way to the next slot boundary, so the end of each acknowledgement opens the next. Miss one and the round is lost.',
-      zh: '每个时隙结束后，路由器都会发一帧很短的确认——不管这个时隙里有没有人作答，而且这不是出于客套。标签没本事自己数到下一个时隙的边界，所以每一帧确认的结束，才是下一个时隙的开始。漏掉一帧的标签，这一轮也就丢了。',
+      en: 'After every slot the router sends a short acknowledgement, answer or no answer — and not out of manners. A tag cannot count its way to the next slot boundary, so the next slot opens just after each acknowledgement ends. Miss one and the round is lost.',
+      zh: '每个时隙结束后，路由器都会发一帧很短的确认——不管这个时隙里有没有人作答，而且这不是出于客套。标签没本事自己数到下一个时隙的边界，所以下一个时隙就紧跟在每一帧确认结束之后开启。漏掉一帧的标签，这一轮也就丢了。',
     } },
     { heading: { en: 'What a tag never does', zh: '标签从不做的那些事' }, text: {
-      en: 'Scroll a tag’s lane for a whole second: no CCA_BUSY record, no BACKOFF_DRAW, no IFS_START. It has none of those to record; its whole contribution is ten transmissions. The router’s lane has all three.',
-      zh: '把标签的泳道整整一秒都翻一遍，你找不到一条 CCA_BUSY，也找不到 BACKOFF_DRAW 或 IFS_START。它压根没有这些东西可记；它对整条时间线的全部贡献，就是十次发送。而路由器的泳道里，这三类一应俱全。',
+      en: 'Scroll a tag’s lane for a whole second and three kinds of record are missing: CCA_BUSY, the channel sounding busy; BACKOFF_DRAW, a countdown drawn before speaking; IFS_START, the wait after someone else stops. A tag has none of them to record; its whole contribution is ten transmissions. The router’s lane has all three.',
+      zh: '把标签的泳道整整一秒都翻一遍，会发现三类记录始终缺席：CCA_BUSY，意思是“信道听起来占着”；BACKOFF_DRAW，是开口之前新抽的一个退避计数；IFS_START，是别人停下之后的那段等待。这三样标签都没有可记的；它对整条时间线的全部贡献，就是十次发送。而路由器的泳道里，这三类一应俱全。',
     } },
   ],
   numbers: [
     { heading: { en: 'One round, microsecond by microsecond', zh: '一轮轮询，逐微秒展开' }, text: {
-      en: 'One router, two battery-free tags, no other Wi-Fi traffic: the round stands alone. The router takes the channel the ordinary way, on its lowest-priority access function, then sends the CTS-to-self (50 µs) and, one gap later, the trigger. Every gap here is 10 µs.',
+      en: 'One router, two battery-free tags, no other Wi-Fi traffic: the round stands alone. The router takes the channel the ordinary way, on its lowest-priority access function, sends the CTS-to-self (50 µs) and, one gap later, the trigger. Every gap is 10 µs.',
       zh: '一台路由器、两个无电池标签，没有别的 Wi-Fi 业务，所以这一轮是孤立的。路由器按普通方式、用优先级最低的接入函数拿下信道，先发那帧写给自己的 CTS（50 µs），隔一个间隔再发触发帧。这一轮里每个间隔都是 10 µs。',
     } },
-    { kind: 'table', heading: { en: 'The first round on the router’s lane', zh: '路由器泳道上的第一轮' }, head: [
+    { kind: 'table', heading: { en: 'The first round, on the router’s lane', zh: '路由器泳道上的第一轮' }, head: [
       { en: 'What', zh: '内容' }, { en: 'From', zh: '起' }, { en: 'To', zh: '止' },
     ], rows: [
       [{ en: 'CTS-to-self, Duration 4140 µs', zh: 'CTS-to-self，Duration 4140 µs' }, N('0 µs'), N('50 µs')],
@@ -126,23 +126,23 @@ export const ampIntro: Lesson = {
       [{ en: 'Ack₄ → Router', zh: '第 4 帧 Ack → 路由器' }, N('3860 µs'), N('4190 µs')],
     ] },
     { text: {
-      en: 'Slot 1 opens one gap after the trigger’s last symbol, at 678 + 10 = 688 µs; slot 2 one gap after Ack₁ stops, at 1556 + 10 = 1566 µs. A tag cannot find four boundaries by itself, so the Acks find them.',
-      zh: '时隙 1 在触发帧最后一个符号之后一个间隔打开，即 678 + 10 = 688 µs；时隙 2 在 Ack₁ 结束后一个间隔打开，即 1556 + 10 = 1566 µs。标签的时钟自己找不齐四个边界，于是由确认帧替它一个个点出来。',
+      en: 'Slot 1 opens one gap after the trigger’s last symbol, at 678 + 10 = 688 µs; slot 2 one gap after Ack₁ stops, at 1556 + 10 = 1566 µs. A tag cannot find four boundaries alone; the Acks find them.',
+      zh: '时隙 1 在触发帧最后一个符号之后一个间隔打开，即 678 + 10 = 688 µs；时隙 2 在 Ack₁ 结束后一个间隔打开，即 1556 + 10 = 1566 µs。这四个边界，标签自己掀不准，得靠确认帧一个个替它点明。',
     } },
     { kind: 'formula', text: {
       en: 'round = 50 + 10 + 618 + 4 × (10 + 528 + 10 + 330) = 4190 µs = 4.19 % of 100 ms',
       zh: 'round = 50 + 10 + 618 + 4 × (10 + 528 + 10 + 330) = 4190 µs = 100 ms 的 4.19 %',
     }, note: {
-      en: 'Only 3044 µs of that has a frame on the air; 90 µs is the nine gaps and 1056 µs the two unused slots — the price of a random draw.',
+      en: 'Only 3044 µs of that has a frame on the air; 90 µs is the nine gaps, 1056 µs the two unused slots — the price of a random draw.',
       zh: '这 4190 µs 里，真正有帧在空中的只有 3044 µs。90 µs 是那九个间隔，1056 µs 是两个没人用的时隙——这就是让标签自己挑时隙的代价。',
     } },
     { heading: { en: 'A second of polling', zh: '一秒钟的轮询' }, text: {
-      en: 'A round starts every 100 ms, so a second holds ten: forty slots, forty Acks, twenty tag answers. Sixteen Acks name a tag; the other twenty-four name the router, which is what an empty or unreadable slot gets. Each tag answers in every round — eight acknowledged, two lost.',
+      en: 'A round starts every 100 ms, so a second holds ten: forty slots, forty Acks, twenty tag answers. Sixteen Acks name a tag; the other twenty-four the router, which is what an empty or unreadable slot gets. Each tag answers in every round: eight acknowledged, two lost.',
       zh: '路由器每 100 ms 整点开启一轮，所以一秒钟里有十轮：四十个时隙、四十帧 Ack、二十次标签作答。其中十六帧点名了某个标签，另外二十四帧写的是路由器自己——空时隙或解不出的时隙，确认帧里填的就是它自己的标识。两个标签都在全部十轮里作了答：各有八次被确认、两次丢失。',
     } },
-    { heading: { en: 'Where the two losses come from', zh: '那两次丢失是怎么来的' }, text: {
-      en: 'Not weak signal. The trigger’s window exponent ACWE is 2, so ACW = 2² − 1 = 3: each tag draws an ABOC at random from 0, 1, 2, 3 and answers in slot ABOC + 1. Twice in ten rounds both draw the same number — the slots ending at 201 216 µs and 502 972 µs. The router logs a collision, the closing Ack names the router, and each tag learns at 201 556 µs and 503 312 µs that its reading never arrived.',
-      zh: '丢失不是因为信号弱。触发帧把窗口指数 ACWE 设成 2，于是 ACW = 2² − 1 = 3：每个标签从 0、1、2、3 中均匀抽一个 ABOC，并在第 ABOC + 1 个时隙作答。十轮里有两轮，两个标签抽到了同一个数而一起开口——分别在结束于 201 216 µs 和 502 972 µs 的那两个时隙里。路由器记下一次碰撞，收尾的 Ack 写的是它自己；两个标签分别在 201 556 µs 和 503 312 µs 得知自己的读数没能送达。',
+    { heading: { en: 'Where the losses come from', zh: '那两次丢失是怎么来的' }, text: {
+      en: 'Not weak signal. Each tag picks one of four numbers at random and counts that many slots along. In the trigger’s own terms: its window exponent ACWE is 2, so ACW = 2² − 1 = 3, and the ABOC drawn from 0, 1, 2, 3 picks slot ABOC + 1. Twice in ten rounds both draw the same number — the slots ending at 201 216 µs and 502 972 µs. The router logs a collision, the closing Ack names the router, and each tag learns at 201 556 µs and 503 312 µs that its reading was lost.',
+      zh: '丢失不是因为信号弱。每个标签就是从四个数里随机抽一个，再往后数那么多个时隙。写成公式：触发帧把窗口指数 ACWE 设成 2，于是 ACW = 2² − 1 = 3，ABOC 从 0、1、2、3 中抽出，作答落在第 ABOC + 1 个时隙。十轮里有两轮，两个标签抽到了同一个数而一起开口——分别在结束于 201 216 µs 和 502 972 µs 的那两个时隙里。路由器记下一次碰撞，收尾的 Ack 写的是它自己；两个标签分别在 201 556 µs 和 503 312 µs 得知自己的读数没能送达。',
     } },
     { heading: { en: 'Enormous link margin', zh: '链路余量大得惊人' }, text: {
       en: 'Downlink, the router reaches the Door tag at −37.4 dBm — 34.6 dB above the −72 dBm a tag needs. Uplink, its answer arrives at −57.4 dBm, 36.6 dB above the router’s −94 dBm floor.',
@@ -192,11 +192,11 @@ export const ampIntro: Lesson = {
     J('first lost answer (two tags, one slot)', '第一次作答丢失（两个标签挤进同一时隙）', firstAmpLost),
   ],
   observe: [
-    { en: 'Jump to the first AMP Trigger and zoom to tens of microseconds. Every gap is 10 µs: trigger end 678 µs → slot 1 at 688 µs, Ack₁ end 1556 µs → slot 2 at 1566 µs.', zh: '跳到第一帧 AMP Trigger，把时间条放大到能看清几十微秒。所有间隔都是 10 µs：触发帧 678 µs 结束 → 时隙 1 在 688 µs 开始，Ack₁ 1556 µs 结束 → 时隙 2 在 1566 µs 开始。' },
-    { en: 'Step a round through the inspector with the Fridge tag selected. The log prints the draw as “ABOC 1 of [0, 3] → slot 2”, the outcome as “slot 1: acknowledged”, and a round line naming the slots, the window and both rates; the counters end at 10 / 8 / 2.', zh: '选中 Fridge tag，在检视器里单步走完一轮，同时看旁边的日志：抽取打印成 “ABOC 1 of [0, 3] → slot 2”，结果打印成 “slot 1: acknowledged”，还有一行写明时隙数、窗口和上下行速率；计数器最后停在 10 / 8 / 2。' },
+    { en: 'Jump to the first AMP Trigger and zoom to tens of microseconds. Every gap is 10 µs: trigger end 678 → slot 1 at 688 µs, Ack₁ end 1556 → slot 2 at 1566 µs.', zh: '跳到第一帧 AMP Trigger，把时间条放大到能看清几十微秒。所有间隔都是 10 µs：触发帧 678 µs 结束 → 时隙 1 在 688 µs 开始，Ack₁ 1556 µs 结束 → 时隙 2 在 1566 µs 开始。' },
+    { en: 'Step a round through the inspector with the Fridge tag selected. The log prints the draw as “ABOC 1 of [0, 3] → slot 2”, the outcome as “slot 1: acknowledged”, and a round line naming the slots, the window and both rates; the counters end 10 / 8 / 2.', zh: '选中 Fridge tag，在检视器里单步走完一轮，同时看旁边的日志：抽取打印成 “ABOC 1 of [0, 3] → slot 2”，结果打印成 “slot 1: acknowledged”，还有一行写明时隙数、窗口和上下行速率；计数器最后停在 10 / 8 / 2。' },
   ],
   tryThis: [
-    { en: 'In the editor raise the Door tag’s downlink sensitivity threshold above the −37.4 dBm it actually receives, and reload. It stops decoding triggers, so it never draws an ABOC and never transmits — while the round keeps its forty slots and forty Acks a second, unchanged.', zh: '在编辑器里把 Door tag 的下行灵敏度门限抬到高于它实际收到的 −37.4 dBm，然后重新载入。它将解不出触发帧，于是既不抽 ABOC 也不发送——而每秒四十个时隙、四十帧 Ack 的轮询照旧，一丝不变。' },
+    { en: 'In the editor raise the Door tag’s downlink sensitivity threshold above the −37.4 dBm it receives, and reload. It stops decoding triggers, so it never draws an ABOC and never transmits — while the round keeps its forty slots and forty Acks a second.', zh: '在编辑器里把 Door tag 的下行灵敏度门限抬到高于它实际收到的 −37.4 dBm，然后重新载入。它将解不出触发帧，于是既不抽 ABOC 也不发送——而每秒四十个时隙、四十帧 Ack 的轮询照旧。' },
   ],
   quiz: [
     {
@@ -207,7 +207,7 @@ export const ampIntro: Lesson = {
         { en: 'A Wi-Fi radio cannot detect what a tag sends', zh: 'Wi-Fi 射频检测不到标签发出的信号' },
       ],
       answer: 1,
-      explain: { en: 'An envelope detector and a few microwatts — and in a whole second, no CCA_BUSY, BACKOFF_DRAW or IFS_START.', zh: '它只有一个包络检波器和几十微瓦的功率，整整一秒里也没产生任何 CCA_BUSY、BACKOFF_DRAW 或 IFS_START 记录。' },
+      explain: { en: 'An envelope detector and a few microwatts — and in a whole second, not one of those three records.', zh: '它只有一个包络检波器和几十微瓦的功率；整整一秒里，这三类记录一条也没有。' },
     },
     {
       q: { en: 'Two tags lose their readings twice in ten rounds. Why?', zh: '十轮里两个标签各丢了两次读数。为什么？' },
@@ -217,10 +217,10 @@ export const ampIntro: Lesson = {
         { en: 'The router ran out of slots before reaching them', zh: '路由器的时隙不够用，没轮到它们' },
       ],
       answer: 1,
-      explain: { en: 'The link has decibels to spare; the draw is random, so two tags on one slot is luck, not range.', zh: '这条链路余量充足；抽数是随机的，两个标签撞进同一个时隙纯属运气，与距离无关。' },
+      explain: { en: 'The link has decibels to spare; the draw is random, so two tags on one slot is luck.', zh: '这条链路余量充足；抽数是随机的，两个标签撞进同一个时隙纯属运气。' },
     },
     {
-      q: { en: 'A slot went by with no answer. Whose name is in the Ack that closes it?', zh: '某个时隙里没有人作答。收尾的那帧确认里写的是谁的名字？' },
+      q: { en: 'A slot went by with no answer. Whose name is in the Ack closing it?', zh: '某个时隙里没有人作答。收尾的那帧确认里写的是谁的名字？' },
       options: [
         { en: 'The tag that was supposed to answer', zh: '本该在这个时隙作答的那个标签' },
         { en: 'The router’s own — the Ack is sent anyway, being also the clock', zh: '路由器自己——确认帧照发，因为它同时还是那只钟' },

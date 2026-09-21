@@ -17,6 +17,7 @@ import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 import { isMigrated, type L10n } from '../../src/course/lessonKit'
 import { OBSERVE_MINUTES, TRY_MINUTES, lessonBlocks, lessonMinutes, lessonWords } from '../../src/course/curriculum'
+import { lessonStrings } from '../../src/course/readability'
 import { fmtRecord } from '../../src/ui/format'
 import { counterDiff } from '../../src/uwb/clock'
 import { rangeSigmaM } from '../../src/uwb/position'
@@ -135,24 +136,20 @@ describe('uwb-intro · lesson shape', () => {
   it('every string a learner reads exists in both languages', () => {
     // A cell of numbers, log lines or protocol names reads the same in both (N());
     // anything holding two consecutive English words is prose and must be translated.
-    const seen: L10n[] = []
-    const isL10n = (o: Record<string, unknown>): o is Record<string, unknown> & L10n =>
-      typeof o.en === 'string' && typeof o.zh === 'string'
-    const walk = (x: unknown): void => {
-      if (x == null || typeof x === 'function') return
-      if (Array.isArray(x)) { x.forEach(walk); return }
-      if (typeof x !== 'object') return
-      const o = x as Record<string, unknown>
-      if (isL10n(o)) { seen.push(o); return }
-      for (const [k, v] of Object.entries(o)) if (k !== 'scenario' && k !== 'find') walk(v)
-    }
-    walk({
-      title: uwbIntro.title, why: uwbIntro.why, outcomes: uwbIntro.outcomes, terms: uwbIntro.terms,
-      picture: uwbIntro.picture, numbers: uwbIntro.numbers, deeper: uwbIntro.deeper, sources: uwbIntro.sources,
-      observe: uwbIntro.observe, tryThis: uwbIntro.tryThis, quiz: uwbIntro.quiz,
-      variants: uwbIntro.variants, jumps: uwbIntro.jumps,
-    })
-    expect(seen.length).toBeGreaterThan(50)
+    // One walk for every lesson test: src/course/readability.ts. `title`, the variant
+    // labels and the jump labels are the chrome around a lesson, so they are added here.
+    const seen: L10n[] = [
+      ...lessonStrings(uwbIntro), uwbIntro.title,
+      ...uwbIntro.variants!.map((v) => v.label), ...uwbIntro.jumps.map((j) => j.label),
+    ]
+    // a structural floor rather than a smoke bound: one string per outcome, term, block,
+    // source, observation, experiment and (question + options + explanation) of a quiz,
+    // plus why, the title, every variant label and every jump label.
+    const floor = 2 + uwbIntro.outcomes!.length + uwbIntro.terms!.length + uwbIntro.picture!.length
+      + uwbIntro.numbers!.length + (uwbIntro.deeper?.length ?? 0) + uwbIntro.sources!.length
+      + uwbIntro.observe.length + uwbIntro.tryThis.length + 3 * uwbIntro.quiz.length
+      + uwbIntro.variants!.length + uwbIntro.jumps.length
+    expect(seen.length).toBeGreaterThanOrEqual(floor)
     for (const l of seen) {
       expect(l.en.trim().length, l.en).toBeGreaterThan(0)
       expect(l.zh.trim().length, l.en).toBeGreaterThan(0)

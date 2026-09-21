@@ -18,6 +18,7 @@ import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 import { isMigrated, type L10n } from '../../src/course/lessonKit'
 import { lessonBlocks, lessonMinutes, lessonWords } from '../../src/course/curriculum'
+import { lessonStrings } from '../../src/course/readability'
 import {
   AMP_ACK_BYTES, AMP_DL_SIG_BYTES, AMP_DL_SYNC_NS, AMP_LEGACY_PREAMBLE_NS, AMP_PADDING_NS,
   AMP_PADDING_PROTECTED_NS, AMP_SIFS_NS, AMP_UL_CHIP_NS, AMP_UL_SYNC_CHIPS, ampBitsNs, ampDlPpduNs,
@@ -91,24 +92,20 @@ describe('amp-ppdu · lesson shape', () => {
   })
 
   it('every string a learner reads exists in both languages', () => {
-    const seen: L10n[] = []
-    const isL10n = (o: Record<string, unknown>): o is Record<string, unknown> & L10n =>
-      typeof o.en === 'string' && typeof o.zh === 'string'
-    const walk = (x: unknown): void => {
-      if (x == null || typeof x === 'function') return
-      if (Array.isArray(x)) { x.forEach(walk); return }
-      if (typeof x !== 'object') return
-      const o = x as Record<string, unknown>
-      if (isL10n(o)) { seen.push(o); return }
-      for (const [k, v] of Object.entries(o)) if (k !== 'scenario' && k !== 'find') walk(v)
-    }
-    walk({
-      title: ampPpdu.title, why: ampPpdu.why, outcomes: ampPpdu.outcomes, terms: ampPpdu.terms,
-      picture: ampPpdu.picture, numbers: ampPpdu.numbers, sources: ampPpdu.sources,
-      observe: ampPpdu.observe, tryThis: ampPpdu.tryThis, quiz: ampPpdu.quiz,
-      variants: ampPpdu.variants, jumps: ampPpdu.jumps,
-    })
-    expect(seen.length).toBeGreaterThan(40)
+    // One walk for every lesson test: src/course/readability.ts. `title`, the variant
+    // labels and the jump labels are the chrome around a lesson, so they are added here.
+    const seen: L10n[] = [
+      ...lessonStrings(ampPpdu), ampPpdu.title,
+      ...ampPpdu.variants!.map((v) => v.label), ...ampPpdu.jumps.map((j) => j.label),
+    ]
+    // a structural floor rather than a smoke bound: one string per outcome, term, block,
+    // source, observation, experiment and (question + options + explanation) of a quiz,
+    // plus why, the title, every variant label and every jump label.
+    const floor = 2 + ampPpdu.outcomes!.length + ampPpdu.terms!.length + ampPpdu.picture!.length
+      + ampPpdu.numbers!.length + (ampPpdu.deeper?.length ?? 0) + ampPpdu.sources!.length
+      + ampPpdu.observe.length + ampPpdu.tryThis.length + 3 * ampPpdu.quiz.length
+      + ampPpdu.variants!.length + ampPpdu.jumps.length
+    expect(seen.length).toBeGreaterThanOrEqual(floor)
     for (const l of seen) {
       expect(l.en.trim().length, l.en).toBeGreaterThan(0)
       expect(l.zh.trim().length, l.en).toBeGreaterThan(0)
@@ -119,10 +116,11 @@ describe('amp-ppdu · lesson shape', () => {
 
 describe('amp-ppdu · what a downlink frame is made of', () => {
   it('the downlink PPDU is a legacy preamble, then AMP-Sync, AMP-SIG, the data and the padding', () => {
-    // the formula "32 + 80 + 64 + 416 + 20 + 6 = 618 µs" and its note: "32 µs of legacy opening —
-    //  the preamble, the legacy signal field and the U-SIG a Wi-Fi 7 router adds; 80 µs of AMP-Sync;
-    //  two octets of AMP-SIG, 64 µs here and 16 µs at 1 Mb/s; the trigger’s 13 octets at 416 µs;
-    //  20 µs of padding; and the 6 µs extension every 2.4 GHz frame with a legacy preamble carries."
+    // the formula "32 + 80 + 64 + 416 + 20 + 6 = 618 µs" and its note: "32 µs of legacy opening:
+    //  the preamble, the legacy signal field that states the length, and the U-SIG, the newer
+    //  header a Wi-Fi 7 radio reads to learn what kind of frame this is. Then 80 µs of AMP-Sync;
+    //  two octets of AMP-SIG, 64 µs here and 16 µs at 1 Mb/s; 13 octets of trigger at 416 µs;
+    //  20 µs of padding; the 6 µs closing extension."
     expect(AMP_LEGACY_PREAMBLE_NS).toBe(32 * US)
     expect(AMP_DL_SYNC_NS).toBe(80 * US)
     expect(AMP_DL_SIG_BYTES).toBe(2)
@@ -144,7 +142,8 @@ describe('amp-ppdu · what a downlink frame is made of', () => {
 
   it('padding is 20 µs unprotected and 36 µs protected, and every frame here is unprotected', () => {
     // the padding table's two rows: "unprotected — every frame in this scene | 20 µs" and
-    //  "protected, meaning encrypted | 36 µs"
+    //  "protected, meaning encrypted | 36 µs". The clause they come from is in `sources`, not in
+    //  a table cell: the beginner read found a citation inside the main teaching table jarring.
     expect(AMP_PADDING_NS).toBe(20 * US)
     expect(AMP_PADDING_PROTECTED_NS).toBe(36 * US)
     const dl = ofType(recs(), 'TX_START').filter((r) => r.frame.amp?.dir === 'dl')
@@ -191,8 +190,8 @@ describe('amp-ppdu · what a downlink frame is made of', () => {
 
   it('at 250 kb/s the trigger is longest and the Ack shortest, but only the response scales by four', () => {
     // "Raise the rate four-fold and the answer takes a quarter of the air: 528 µs becomes 132 µs,
-    //  having no fixed opening to dilute it. The trigger has one — 138 µs of opening, sync, padding
-    //  and extension that no rate can touch — so it falls only from 618 µs to 258 µs."
+    //  having no fixed opening to dilute it. The trigger has 138 µs no rate can touch, so it falls
+    //  only to 258 µs." The 138 µs is named field by field in the formula note above.
     const ext = ERP_2G.signalExtNs
     const trig250 = ampDlPpduNs(250, ampTriggerBytes(0), ext)
     const ack250 = ampDlPpduNs(250, AMP_ACK_BYTES, ext)
@@ -211,7 +210,7 @@ describe('amp-ppdu · what a downlink frame is made of', () => {
 
   it('the Ack spends 128 µs of its 330 µs on the four octets it carries', () => {
     // "Four octets at 250 kb/s are 128 µs of the Ack’s 330 µs; the other 202 µs is opening,
-    //  AMP-Sync, AMP-SIG, padding and extension — fixed cost, paid in full for four octets."
+    //  AMP-Sync, AMP-SIG, padding and extension — paid in full for four octets."
     const toTag = txs(recs(), 'ampAck')[0]
     const ppdu = decodeFrame(toTag.frame, { apId: 'ap', isEdca: false }).ppdu
     expect(ppdu.find((s) => s.key === 'ampData')!.durNs).toBe(128 * US)
@@ -220,9 +219,9 @@ describe('amp-ppdu · what a downlink frame is made of', () => {
   })
 
   it('an ordinary Wi-Fi CTS of fourteen octets takes 50 µs, a sixth of the four-octet Ack', () => {
-    // "The CTS the router uses to clear the air is fourteen octets of ordinary Wi-Fi in 50 µs:
-    //  44 µs at 6 Mb/s plus the band’s 6 µs. Three and a half times the content, under a sixth of
-    //  the airtime."
+    // "The CTS that clears the air is fourteen octets of ordinary Wi-Fi in 50 µs: 44 µs at
+    //  6 Mb/s plus the band’s 6 µs. Three and a half times the content, under a sixth of the
+    //  airtime."
     expect(CTS_BYTES).toBe(14)
     expect(txTimeNs(CTS_BYTES, 6)).toBe(44 * US)
     expect(ACK_TX_TIME_6M_NS).toBe(44 * US)
@@ -256,8 +255,8 @@ describe('amp-ppdu · what the frame detail shows', () => {
   })
 
   it('the trigger’s six-octet body carries the numbers the round is built from', () => {
-    // "Its 6-octet body decodes into session, window, slots and slot width" — those fields are the
-    // round's own parameters, so the decode is pinned against them.
+    // "Its 6-octet body decodes into session, window and slots" — those fields are the round's
+    // own parameters, so the decode is pinned against them.
     const trig = txs(rs, 'ampTrigger')[0]
     const body = decodeFrame(trig.frame, CTX).users[0].subframes[0].mpdu.fields.find((f) => f.key === 'body')!
     expect(body.bytes).toBe(6)
@@ -268,6 +267,8 @@ describe('amp-ppdu · what the frame detail shows', () => {
   it('the trigger’s segment strip adds up to the formula, legacy half first', () => {
     // "Open the first trigger and read its strip left to right: 16, 4 and 12 µs of legacy opening,
     //  80 µs of AMP-Sync, 64 µs of AMP-SIG, 416 µs of data, 20 µs of padding, 6 µs of extension."
+    //  The picture calls that last one "a scrap of quiet the band adds after any frame with a
+    //  Wi-Fi opening".
     const trig = txs(rs, 'ampTrigger')[0]
     const strip = decodeFrame(trig.frame, CTX).ppdu
     expect(strip.map((s) => s.durNs / US)).toEqual([16, 4, 12, 80, 64, 416, 20, 6])
@@ -293,5 +294,12 @@ describe('amp-ppdu · the 1 Mb/s experiment', () => {
     expect(ends(fast, 'ampTrigger')[0].t).toBe(318 * US)
     expect(ofType(fast, 'AMP_SLOT')[0].t).toBe(328 * US)
     expect(ofType(fast, 'AMP_ROUND')[0].slotNs).toBe(132 * US)
+    // the 250 kb/s half of the same sentence, measured here rather than trusted from
+    // tests/course/amp-intro.test.ts: both lessons load the same scenario, but a reader of
+    // this file alone should still see where 4190 µs and 4.19 % come from.
+    const base = recs()
+    const baseLast = ends(base, 'ampAck').filter((r) => r.t <= 5 * MS).pop()!
+    expect(baseLast.t - txs(base, 'cts')[0].t).toBe(4190 * US)
+    expect(((4190 / 100_000) * 100).toFixed(2)).toBe('4.19')
   })
 })

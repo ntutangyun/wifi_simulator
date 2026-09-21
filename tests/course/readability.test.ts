@@ -7,12 +7,18 @@
  * in `sources` and in table cells of `numbers`) and length (the main path fits
  * a sitting). Lessons still in the old shape are listed in MIGRATING and
  * skipped; each migration task deletes its ids, so the list only shrinks.
+ *
+ * The word rules are applied to BOTH languages: the spec writes them about the
+ * lesson, not about its English half, and the acronyms of a Chinese paragraph
+ * are the same Latin tokens (`NAV`, `AMP-SIG`, `RMARKER`) the English one uses.
  */
 import { describe, it, expect } from 'vitest'
 import { LESSONS } from '../../src/course/lessons'
 import { COURSE_ORDER, lessonMinutes, lessonWords, trackOf } from '../../src/course/curriculum'
 import { isMigrated, type L10n, type Lesson } from '../../src/course/lessonKit'
-import { CITATION, KNOWN_WORDS, acronyms, enWords, numericQuantities, paragraphTexts, zhChars } from '../../src/course/readability'
+import {
+  CITATION, KNOWN_WORDS, acronyms, enWords, lessonStrings, numericQuantities, paragraphTexts, zhChars,
+} from '../../src/course/readability'
 
 /** Lessons still in the old shape. Each migration task removes its ids; the list only shrinks. */
 export const MIGRATING: string[] = [
@@ -29,21 +35,17 @@ const byId = new Map(LESSONS.map((l) => [l.id, l]))
 const ordered = COURSE_ORDER.flatMap((id) => byId.get(id) ?? [])
 const migrated = ordered.filter((l) => !MIGRATING.includes(l.id))
 
-/** Every bilingual string inside a lesson field, the walk lessonWords uses. */
-const textsOf = (x: unknown): L10n[] => {
-  const out: L10n[] = []
-  const walk = (v: unknown): void => {
-    if (v == null || typeof v === 'function') return
-    if (Array.isArray(v)) { v.forEach(walk); return }
-    if (typeof v === 'object') {
-      const o = v as Record<string, unknown>
-      if (typeof o.en === 'string' && typeof o.zh === 'string') { out.push(o as unknown as L10n); return }
-      for (const [k, val] of Object.entries(o)) if (k !== 'scenario' && k !== 'find') walk(val)
-    }
-  }
-  walk(x)
-  return out
-}
+/** Every bilingual string of one lesson field — `lessonStrings`, asked for a single field. */
+const textsOf = (l: Lesson, f: keyof Lesson): L10n[] =>
+  lessonStrings({ [f]: l[f] } as unknown as Partial<Lesson>)
+/**
+ * True for the first MIGRATED lesson of a track, which is the one held to the
+ * stricter opening rules (at most four new words, no table in the picture).
+ * Mid-migration that is not necessarily the track's first lesson in
+ * COURSE_ORDER: a track whose opener is still in MIGRATING has its second
+ * lesson judged as the opener until the first one lands. That is deliberate —
+ * the rule exists to protect whichever lesson a reader actually meets first.
+ */
 const firstOfTrack = (l: Lesson) => ordered.find((o) => trackOf(o) === trackOf(l) && !MIGRATING.includes(o.id)) === l
 
 describe('readability · migration bookkeeping', () => {
@@ -73,6 +75,22 @@ if (migrated.length) {
       expect(l.sources!.length).toBeGreaterThan(0)
       for (const b of l.picture!) if (b.kind === 'watch' && b.jump !== undefined) expect(l.jumps[b.jump]).toBeDefined()
     })
+    it('says everything in both languages', () => {
+      // every string a learner reads, `sources`, `outcomes` and each term's plain line included
+      const seen = lessonStrings(l)
+      // a structural floor: one string per outcome, term, block, source, observation,
+      // experiment and (question + options + explanation) of a quiz, plus `why` itself,
+      // so deleting a section cannot pass as "still bilingual".
+      const floor = 1 + l.outcomes!.length + l.terms!.length + l.picture!.length + l.numbers!.length
+        + (l.deeper?.length ?? 0) + l.sources!.length + l.observe.length + l.tryThis.length + 3 * l.quiz.length
+      expect(seen.length).toBeGreaterThanOrEqual(floor)
+      for (const x of seen) {
+        expect(x.en.trim(), x.en).not.toBe('')
+        expect(x.zh.trim(), x.en).not.toBe('')
+        // anything that is a sentence of English must have been written in Chinese too
+        if (/[a-z]{3,}\s+[a-z]{3,}/.test(x.en)) expect(x.zh, x.en).not.toBe(x.en)
+      }
+    })
     it('names prerequisites that exist, precede it, and respect the track rule', () => {
       if (l.id !== 'radio-primer') expect(l.needs!.length).toBeGreaterThan(0)
       for (const id of l.needs!) {
@@ -96,18 +114,23 @@ if (migrated.length) {
       }
       for (const t of l.terms!) known.add(t.term.toUpperCase())
       const texts = [l.why!, ...paragraphTexts(l.picture!), ...l.outcomes!]
-      for (const s of texts) for (const a of acronyms(s.en)) expect(known.has(a), `${l.id}: "${a}" in "${s.en.slice(0, 60)}…"`).toBe(true)
+      // both languages: a Chinese paragraph borrows the same Latin acronyms
+      for (const s of texts) {
+        for (const a of acronyms(s.en)) expect(known.has(a), `${l.id} EN: "${a}" in "${s.en.slice(0, 60)}…"`).toBe(true)
+        for (const a of acronyms(s.zh)) expect(known.has(a), `${l.id} ZH: "${a}" in "${s.zh.slice(0, 30)}…"`).toBe(true)
+      }
     })
     it('keeps the picture light: short paragraphs, at most two quantities each, no citations', () => {
       for (const p of paragraphTexts(l.picture!)) {
         expect(enWords(p.en), p.en).toBeLessThanOrEqual(90)
         expect(zhChars(p.zh), p.zh).toBeLessThanOrEqual(170)
         expect(numericQuantities(p.en), p.en).toBeLessThanOrEqual(2)
+        expect(numericQuantities(p.zh), p.zh).toBeLessThanOrEqual(2)
         expect(CITATION.test(p.en) || CITATION.test(p.zh), p.en).toBe(false)
       }
     })
     it('cites only in sources and in table cells of the numbers', () => {
-      for (const f of CITED_FIELDS) for (const s of textsOf(l[f])) expect(CITATION.test(s.en) || CITATION.test(s.zh), `${f}: ${s.en.slice(0, 80)}`).toBe(false)
+      for (const f of CITED_FIELDS) for (const s of textsOf(l, f)) expect(CITATION.test(s.en) || CITATION.test(s.zh), `${f}: ${s.en.slice(0, 80)}`).toBe(false)
       for (const s of paragraphTexts(l.numbers!)) expect(CITATION.test(s.en) || CITATION.test(s.zh), s.en).toBe(false)
     })
     it('fits the main path: 500–1300 words, at most 20 minutes', () => {
