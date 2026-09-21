@@ -1,0 +1,36 @@
+# Tier 2 fix wave — report
+
+Base 7553553. One commit. `npx tsc -b --noEmit` clean; `npx vitest run tests/course tests/engine/lesson-hashes.test.ts` → 59 files, 2045 passed, 0 failed. `tests/fixtures/lesson-hashes.json`, `src/course/lessons.ts`, `src/course/curriculum.ts` and `src/course/uwb/` untouched.
+
+## Important
+
+**I1 — allow-lists cleared** (`tests/course/readability.test.ts`).
+`VOCAB_CARRIES` and its `!includes` filter are deleted; the one-name lint now grades every migrated Wi-Fi lesson. `CELL_RULE_CARRIES` holds the four UWB ids only, its `TODO(tier-2-fix-wave)` replaced by a line saying what the wave did. Per the clearance table: `edca` and `txop` gloss the class cells in the cell itself (`VO (voice)` / `VO（语音）`, `BE (best effort) / BK (background)`), which is what `definedInPlace` accepts and what glosses the run tables' neutral `VO` cells; `edca` 33 终端 → 站点 and 2 bare AP → 接入点; `txop` 8 终端, 7 bare AP; `ampdu` 2 终端; `width` four `N('172.1 Mbps')` cells + observe 3 → `Mb/s`, 2 终端; `streams` 1 终端; `rate` 14 终端; `rate-fallback` 25 终端; `txop-protect` had nothing and is simply gone from the lists.
+
+**I2 — the front is 44 / 48 / 52 µs, and each says which generation it is.**
+`ofdma-dl`'s first table heading is now "Two video frames to Wi-Fi 6 televisions, two ways"; its formula note says "44 µs is a Wi-Fi 6 frame's front (a Wi-Fi 7 frame's is the 48 of the width lesson); the map of who is in the send adds four microseconds". `mumimo`'s formula note opens "The 52 µs is a Wi-Fi 7 frame's 48 µs front plus the same 4 µs map", and its table heading now carries the scene facts that make 4,306 B fit in 3 / 1 symbols: "— 160 MHz, two streams each". EN and ZH both; no pin moved.
+
+**I3 — the capstone's three options are now instructions.**
+Option 2 → "Turn MLO off on the laptop, so its backup goes back to one band"; option 3 → "Give the tablet a Wi-Fi 6 radio with OFDMA on — the oldest radio anyone browses on, though not the oldest in the flat"; the table row label → "Tablet given a Wi-Fi 6 radio"; `deeper` "on the oldest radio in the flat" → "on the oldest radio that carries anyone's browsing"; experiment 2 names the knob ("turn MLO off on the laptop, which takes its second radio away"). The quiz's "a newer radio" stands.
+
+**I4 — one name for the access point, and a lint that keeps it.**
+The rule applied is the screen: a lesson may say "router" only where its own scene labels that node `Router`. **The review's list of which lessons those are is wrong on two ids** — `rateScenario` labels the node `AP` (so `rate` and `rate-fallback` may *not* keep "router") and `mumimoScenario` labels it `Router` (so `mumimo` may). Checked in `src/course/wifiScenes.ts:80, 101, 124` and in each inline `scenario()`. So: `ROUTER_LABELLED = ['width', 'streams', 'mumimo']`; `rate` (6 EN / 7 ZH), `rate-fallback` (3 / 3), `ofdma-dl` (11 / 11) and `mlo` (3 / 3) now say access point / 接入点; `mumimo`'s four stray "access point" / bare-AP uses became router / 路由器 so it is self-consistent with its own label; `edca` (2), `txop` (7), `txop-protect` (3), `ofdma-ul` (12) lost their bare "AP" in Chinese. `width`'s first mention bridges once: "the first data frame the laptop sends the router — this flat's access point". New lint in `readability.test.ts`, scoped to Wi-Fi Tier 2: no `router` in EN and no 路由器 in ZH outside the allow-list, and no bare `AP` in any Tier 2 lesson's Chinese. 13 lessons graded.
+
+**I5 — capstone's clause numbers** are the 2024 edition's: §10.23.2 and §10.23.2.8 (EN + ZH), matching what `edca` and `txop` already cite.
+
+## Minor (all 20, plus C-review Minors in Tier 2 files)
+
+1 octets → bytes in `width`, `streams`, `rate` headings · 2 one ladder: "the rate ladder", "each rung's sensitivity" (`width` ×1, `streams` ×2 + a quiz explanation) · 3 `txop`'s first picture paragraph now says "the frames one win carries are its burst", `txop-protect`'s title says burst (ZH 整轮 → 整个突发) · 4 `rate`'s `deeper` names the lesson: "the OFDMA variant of the MU-MIMO lesson" · 5 `txop`'s experiment says 462 is "one draw short of its 463 bursts, because the first burst of the run needed no countdown" · 6 `txop-protect` observe 3: "lands at t = 28 µs, the end of the two questions that started together" · 7 observe 2: "another frame and its answer" · 8 `ampdu` table now prints 228.0 µs, and the picture says each subframe travels "behind a short marker giving its length" · 9 `ampdu`'s row is "Transmission time per delivered frame" (both tables) · 10 `mlo`'s picture paragraph 1 no longer restates `why`; it opens on the mechanism and ends on "what the pair has is a choice of queue" · 11 `mlo`'s column is "Share of that band's clock, answers included" · 12 capstone: "within a few per cent of what they did, 2.22 ms against 2.26" · 13 write-up step 2: "before you ran it and before you look at the table above" · 14 `streams`: "In this simulator — and nearly so in a room full of reflections — streams are the multiplier nobody charges you for" · 15 模拟器 → 仿真器 in `mlo` (4) and `capstone` (3), and the lint now forbids 模拟器 across the Wi-Fi track · 16 `width`'s formula note names the 16 and the 6 as the service and tail bits · 17 `rate`'s rungs table heading says "20 MHz and one stream" · 18 `rate-fallback`'s hold table heading says "from the freeze to the slot it resumes in, not the frame's airtime" · 19 the stale comments in `quoted-timestamps.test.ts` (the "lesson 18" doc blocks, the MCS-2 quote, the octets line, the per-rung block — now stated as the timeout-only subset against `rate-fallback`'s 337 / flat 11.1-11.8-11.1 %) and three in `lesson-claims.test.ts` (the "This scenario, 300 ms" heading, B's NAV/reservation, the EDCA-between-rounds quote) · 20 `mumimo`'s ack-round pin is now exact: 162 of 169 and 190 of 196, with the collided remainder pinned too.
+
+C1 Minor 2 (the zero-internal-collision fact off the main path) is fixed on `edca`'s main path as a short headed `numbers` paragraph, "The collision you will not see".
+
+## Deviations and trims
+
+- **I4's allow-list is three ids, not four** — see above; the review's rationale ("their label is `AP`") was applied to the actual labels.
+- **`txop-protect`'s title** keeps a repeated word as the review prescribed ("Protecting the burst — one answer for the whole burst"); the ZH opener was shortened to 保护突发 so it does not read 突发 three times.
+- **Trims to pay for the additions** (several lessons sat on the 20-minute line): `width` lost ~13 words from its formula note, the inversion sentence and the neighbours paragraph (1273 words, one under the 20-minute boundary); `ofdma-dl` and `mumimo` paid for their new clauses inside the same notes and, for `mumimo`, one clause of the antenna paragraph. Every lesson is within picture ≤ 650 / numbers ≤ 350 / practice ≤ 400 / total ≤ 1300 and 20 min, and each lesson's own `proseMax` pin is unchanged.
+- **Nothing skipped.**
+
+## Carries left open
+
+The review's carries 1–9 are untouched by this wave except 8 (mumimo's loose pin — taken). Carry 4 (the `Router` node label vs the prose) is now settled in the prose's favour for `AP`-labelled scenes and in the label's favour for `Router`-labelled ones, and the lint records that decision; renaming `widthScenario`'s / `mumimoScenario`'s node would change the fixture and was not attempted.
