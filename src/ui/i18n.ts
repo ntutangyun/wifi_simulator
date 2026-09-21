@@ -2,7 +2,7 @@
 import type { FeatureFlag, LinkId } from '../model/caps'
 import type { FrameDesc, FrameKind } from '../model/frames'
 import type { Generation } from '../model/types'
-import type { NbLbt, NbReportMode, ProfileId, UwbMode } from '../model/scenario'
+import type { AmpTagMode, NbLbt, NbReportMode, ProfileId, UwbMode } from '../model/scenario'
 import type { RxFailReason } from '../model/records'
 import type { AddrRole, FcBitKey, FieldKey, PpduSegmentKey } from '../model/frameFields'
 import type { UwbFixMethod } from '../uwb/records'
@@ -103,6 +103,20 @@ export interface Strings {
     ampRead: Record<'inline' | 'twoPhase', string>; ampReadLabel: string
     ampNeedsEht: string
     ampSens: string; ampSensHint: string
+    /** A tag's answer mode (mode is a property; the ⚡ tool always places an Active Tx tag). */
+    ampMode: string; ampModeHint: string; ampModes: Record<AmpTagMode, string>
+    /** Backscatter tags only: the 96-bit EPC as 24 hex characters. */
+    ampEpc: string; ampEpcHint: string; ampEpcBad: string
+    /** The AP's mono-static reader: an EPC Gen2-style inventory tunnelled in AMP RFID frames. */
+    ampBs: string; ampBsEnable: string; ampBsEnableHint: string
+    ampBsQ: string; ampBsQHint: string
+    ampBsUl: string; ampBsUlHint: string
+    ampBsWup: string; ampBsWupHint: string
+    ampBsCharge: string; ampBsChargeHint: string
+    ampBsBs: string; ampBsBsHint: string
+    ampBsTxop: string; ampBsTxopHint: string
+    ampBsRead: string; ampBsReadHint: string
+    ampBsWrite: string; ampBsWriteHint: string
     /** UWB ranging: the per-node fields (uwb/ui/UwbNodeFields.tsx). */
     uwbNode: string; uwbRole: string; uwbRoles: Record<'anchor' | 'tag', string>
     uwbPpm: string; uwbPpmHint: string; uwbPpmDrawn: string; uwbPpmRange: string
@@ -467,6 +481,20 @@ export const STRINGS: Record<Lang, Strings> = {
       ampRead: { inline: 'reading in the random-access response', twoPhase: 'id first, then a scheduled read' }, ampReadLabel: 'read mode',
       ampNeedsEht: 'AMP polling needs a Wi-Fi 7 AP (the AMP DL PPDU carries U-SIG)',
       ampSens: 'DL sensitivity', ampSensHint: 'weakest AMP DL PPDU this tag’s envelope detector can decode (model default −72 dBm)',
+      ampMode: 'Mode', ampModeHint: 'how this tag answers: with a transmitter of its own, or by reflecting the reader’s carrier',
+      ampModes: { active: 'Active Tx', backscatter: 'Backscatter' },
+      ampEpc: 'EPC', ampEpcHint: 'the 96-bit Electronic Product Code as 24 hex characters; blank generates one from the node id',
+      ampEpcBad: 'an EPC is 24 hex characters (96 bits), or blank',
+      ampBs: 'RFID inventory', ampBsEnable: 'run an EPC Gen2 inventory (mono-static backscatter)',
+      ampBsEnableHint: 'the AP radiates its own carrier and listens for a tag reflecting it back — no backscatter tag answers until this is on',
+      ampBsQ: 'Q', ampBsQHint: 'Query(Q): each tag draws a slot counter from [0, 2^Q − 1]; Q = 2 offers four slots. The draft’s own Q-adaptation is not modelled',
+      ampBsUl: 'UL rate', ampBsUlHint: 'the rate a tag backscatters its reply at',
+      ampBsWup: 'WUP (ms)', ampBsWupHint: 'how long the wake-up carrier runs at the front of the first PPDU of a TXOP; a tag needs the whole millisecond above −20 dBm to boot',
+      ampBsCharge: 'Charge power', ampBsChargeHint: 'power radiated up to the end of each command; a tag has to hear this for the whole WUP to boot — 30.9 cm of reach at the default 10 dBm, 97.8 cm at 20 dBm. A tag beyond that reach never boots: no lane, no record.',
+      ampBsBs: 'BS power', ampBsBsHint: 'power radiated while a reply is expected; raising it does not add reach, because the reader’s own leakage floor rises just as much — reply reach stays 32.8 cm at 250 kb/s and 23.2 cm at 1 Mb/s whatever this is set to',
+      ampBsTxop: 'TXOP (ms)', ampBsTxopHint: 'how long one inventory burst may hold the medium; an inventory too big for one TXOP resumes in the next, from the same session and slot',
+      ampBsRead: 'read after ACK', ampBsReadHint: 'an 8-octet Read follows a successful EPC reply',
+      ampBsWrite: 'write after read', ampBsWriteHint: 'a 2 ms Write follows the read; its reply lands 2 ms later still',
       uwbNode: 'UWB ranging (802.15.4-2024)', uwbRole: 'Role', uwbRoles: { anchor: 'anchor (fixed, answers)', tag: 'tag (ranges and solves its position)' },
       uwbPpm: 'Crystal offset', uwbPpmHint: 'error of this device’s ranging clock in parts per million; the standard allows ±20 ppm. Leave it blank to have the run draw one from the seed.',
       uwbPpmDrawn: 'drawn from the seed', uwbPpmRange: '±100 ppm; real crystals stay within ±20',
@@ -1006,6 +1034,20 @@ export const STRINGS: Record<Lang, Strings> = {
       ampRead: { inline: '在随机接入应答中直接读取', twoPhase: '先读 id，再做一次预约读取' }, ampReadLabel: '读取方式',
       ampNeedsEht: 'AMP 轮询需要 Wi-Fi 7 的 AP（AMP 下行 PPDU 携带 U-SIG）',
       ampSens: '下行灵敏度', ampSensHint: '该标签包络检波器能解出的最弱 AMP 下行 PPDU（模型默认 −72 dBm）',
+      ampMode: '模式', ampModeHint: '该标签如何应答：自带发射机，还是反射阅读器的载波',
+      ampModes: { active: '主动发射（Active Tx）', backscatter: '反向散射（Backscatter）' },
+      ampEpc: 'EPC', ampEpcHint: '96 位电子产品编码，24 个十六进制字符；留空则由节点 id 派生',
+      ampEpcBad: 'EPC 必须是 24 个十六进制字符（96 位），或留空',
+      ampBs: 'RFID 盘点', ampBsEnable: '运行 EPC Gen2 盘点（单站式反向散射）',
+      ampBsEnableHint: 'AP 自己辐射载波并聆听标签反射回来的信号——关闭时不会有任何反向散射标签应答',
+      ampBsQ: 'Q', ampBsQHint: 'Query(Q)：每个标签从 [0, 2^Q − 1] 中抽取一个时隙计数器；Q = 2 即四个时隙。草案自身的 Q 自适应未建模',
+      ampBsUl: '上行速率', ampBsUlHint: '标签反向散射应答所用的速率',
+      ampBsWup: '唤醒载波（ms）', ampBsWupHint: '一个 TXOP 第一个 PPDU 前端的唤醒载波时长；标签需要在 −20 dBm 以上持续整整这一毫秒才能启动',
+      ampBsCharge: '充能功率', ampBsChargeHint: '直到每条命令结束为止所辐射的功率；标签必须在整个唤醒窗口内听到它才能启动——默认 10 dBm 时可达 30.9 cm，20 dBm 时可达 97.8 cm。超出这个距离的标签永远不会启动：没有泳道，也没有记录。',
+      ampBsBs: '散射窗功率', ampBsBsHint: '等待应答期间辐射的功率；调高它并不会增加距离，因为阅读器自身的泄漏底噪也会同样升高——无论如何设置，应答距离在 250 kb/s 时都是 32.8 cm，1 Mb/s 时都是 23.2 cm',
+      ampBsTxop: 'TXOP（ms）', ampBsTxopHint: '一次盘点突发最多占用信道多久；装不下的盘点会在下一个 TXOP 中继续，沿用同一个会话与同一个时隙',
+      ampBsRead: 'ACK 后读取', ampBsReadHint: 'EPC 应答成功后跟一次 8 字节的 Read',
+      ampBsWrite: '读取后写入', ampBsWriteHint: 'Read 之后跟一次 2 ms 的 Write，其应答在 2 ms 后到达',
       uwbNode: 'UWB 测距（802.15.4-2024）', uwbRole: '角色', uwbRoles: { anchor: '锚点（位置固定，负责应答）', tag: '标签（测距并解算自身位置）' },
       uwbPpm: '晶振偏差', uwbPpmHint: '该设备测距时钟的频率偏差，单位 ppm；标准允许 ±20 ppm。留空则由本次仿真按随机种子抽取。',
       uwbPpmDrawn: '由种子抽取', uwbPpmRange: '±100 ppm；真实晶振通常在 ±20 以内',

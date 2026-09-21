@@ -569,10 +569,82 @@ export const GLOSSARY: GlossaryGroup[] = [
       },
       {
         term: 'Backscatter',
-        alt: { en: 'future slice — mono-/bistatic', zh: '未来切片——单站式/双站式' },
+        alt: { en: 'mono-static modeled; bistatic a future slice', zh: '单站式已建模；双站式留待后续切片' },
         def: {
-          en: 'A tag that answers by reflecting an illuminator\'s carrier instead of generating its own — mono-static from the AP itself, bistatic from a separate energizer. Not modeled in this slice.',
-          zh: '标签不产生自己的载波，而是反射照射源的载波来应答——单站式由 AP 自身照射，双站式由独立的 Energizer 照射。本切片尚未建模。',
+          en: 'A tag that answers by reflecting an illuminator\'s own carrier instead of generating one, 6 dB down for the switch (AMP_BS_LOSS_DB, TGbp 11-24/0537r0). Mono-static — the AP itself illuminates and listens — is modeled in this slice; bistatic (a separate energizer) is a later one.',
+          zh: '标签不产生自己的载波，而是反射照射源的载波来应答，反射损耗 6 dB（AMP_BS_LOSS_DB，TGbp 11-24/0537r0）。单站式——由 AP 自己照射并聆听——已在本切片建模；双站式（由独立的 Energizer 照射）留待后续切片。',
+        },
+      },
+      {
+        term: 'Mono-static',
+        alt: { en: 'one radio, both jobs', zh: '一部电台身兼两职' },
+        def: {
+          en: 'The Wi-Fi AP is the RFID reader: it radiates the excitation carrier and listens for its own signal coming back modulated. One radio doing both jobs means its own transmitted power is what sets its own receive floor (self-leakage, below) — turning the excitation up buys no extra reach.',
+          zh: 'Wi-Fi AP 本身就是 RFID 阅读器：它辐射激励载波，同时聆听自己的信号被调制后反射回来。一部电台身兼两职，意味着它自己发射的功率决定了自己接收的底噪（见下方“自泄漏”）——把激励功率调高并不能换来更远的距离。',
+        },
+      },
+      {
+        term: 'WUP-Excitation',
+        alt: { en: 'wake-up carrier, ≥ 1 ms', zh: '唤醒载波，≥ 1 ms' },
+        def: {
+          en: 'The carrier at the front of the first downlink PPDU of a TXOP, `wupMs` (default 1 ms, the framework\'s own minimum, SFD PM-72/PM-73). A tag needs the whole millisecond above −20 dBm (AMP_BS_ACTIVATION_DBM) to charge up and boot — 30.9 cm of reach at the model default 10 dBm charge power, 97.8 cm at 20 dBm. A tag beyond that reach never boots: no lane, no record.',
+          zh: '一个 TXOP 第一个下行 PPDU 前端的载波，即 `wupMs`（默认 1 ms，框架自身的下限，SFD PM-72/PM-73）。标签需要在 −20 dBm（AMP_BS_ACTIVATION_DBM）以上持续整整这一毫秒才能充能并启动——默认 10 dBm 充能功率时可达 30.9 cm，20 dBm 时可达 97.8 cm。超出这个距离的标签永远不会启动：没有泳道，也没有记录。',
+        },
+      },
+      {
+        term: 'BST-Excitation',
+        alt: { en: 'reply carrier, after every command', zh: '应答载波，跟在每条命令之后' },
+        def: {
+          en: 'The carrier the reader keeps radiating after a command\'s AMP-Data so a tag has something to reflect: at least 1.2·T1 + 1.1·T4 for an immediate reply, 1.1·T3 + 1 µs + 1.1·T4 for a delayed one (Write, T3 = 2 ms) — SFD PM-74, PM-75, PM-86…PM-88.',
+          zh: '阅读器在一条命令的 AMP-Data 之后继续辐射的载波，好让标签有信号可反射：立即应答至少需要 1.2·T1 + 1.1·T4，延迟应答（Write，T3 = 2 ms）需要 1.1·T3 + 1 µs + 1.1·T4——SFD PM-74、PM-75、PM-86…PM-88。',
+        },
+      },
+      {
+        term: 'EPC Gen2',
+        alt: { en: 'ISO/IEC 18000-63, tunnelled', zh: 'ISO/IEC 18000-63，隧道封装' },
+        def: {
+          en: 'The tag-inventory protocol the SFD tunnels inside AMP RFID frames (MM-10, MM-29, FM-44): Query, QueryRep, ACK, Read, Write and the slot-counter algorithm below. No DL Ack follows a backscatter reply — the next command is the acknowledgement.',
+          zh: 'SFD 在 AMP RFID 帧内隧道封装的标签盘点协议（MM-10、MM-29、FM-44）：Query、QueryRep、ACK、Read、Write，以及下面的时隙计数器算法。反向散射应答之后没有下行 Ack——下一条命令本身就是确认。',
+        },
+      },
+      {
+        term: 'Q / slot counter',
+        alt: { en: 'Query(Q), [0, 2^Q − 1]', zh: 'Query(Q)，取值 [0, 2^Q − 1]' },
+        def: {
+          en: 'Query(Q) tells every powered tag to draw a counter uniformly from [0, 2^Q − 1] (Gen2); a tag whose counter reads 0 answers, every other tag decrements it on QueryRep. Q is a scenario knob (default 2, four slots) — the draft\'s own Q-adaptation (QueryAdjust) is not modelled.',
+          zh: 'Query(Q) 要求每个已启动的标签从 [0, 2^Q − 1] 中均匀抽取一个计数器（Gen2）；计数器为 0 的标签应答，其余标签在每次 QueryRep 时递减。Q 是场景中的一个旋钮（默认 2，四个时隙）——草案自身的 Q 自适应（QueryAdjust）未建模。',
+        },
+      },
+      {
+        term: 'RN16',
+        alt: { en: '16-bit random number, 112 µs at 250 kb/s', zh: '16 位随机数，250 kb/s 下 112 µs' },
+        def: {
+          en: 'The random number a tag backscatters when its slot counter reaches 0 — 112 µs of airtime at 250 kb/s (48 µs sync + 64 µs data). The reader\'s ACK(RN16) only reaches the tag whose reflection it echoes back, which is what tells Gen2\'s collision from its silence.',
+          zh: '标签的时隙计数器归零时反向散射的随机数——250 kb/s 下占用 112 µs 空口时间（48 µs 同步 + 64 µs 数据）。阅读器的 ACK(RN16) 只有它反射的那个 RN16 对应的标签才会认领，这正是 Gen2 用来区分“碰撞”与“沉默”的办法。',
+        },
+      },
+      {
+        term: 'EPC',
+        alt: { en: '96-bit code, 24 hex characters', zh: '96 位编码，24 个十六进制字符' },
+        def: {
+          en: 'The Electronic Product Code a tag reports after its ACK — 24 hex characters in the scenario (`AmpTagCfg.epc`), derived from the node id when left blank.',
+          zh: '标签在收到 ACK 后报告的电子产品编码——在场景中是 24 个十六进制字符（`AmpTagCfg.epc`），留空时由节点 id 派生。',
+        },
+      },
+      {
+        term: 'Reader dynamic range',
+        alt: { en: '50 dB, after digital cancellation', zh: '50 dB，数字对消之后' },
+        def: {
+          en: 'AMP_BS_READER_DR_DB, 50 dB (TGbp 11-25/0307r0): how far the reader\'s own leaked excitation can sit above the weakest reflection it can still decode. The reader\'s noise floor is leakDbm − 50 dB, so turning the excitation up raises the floor exactly as much as it raises the reply — reach does not move; only isolation or dynamic range would.',
+          zh: 'AMP_BS_READER_DR_DB，50 dB（TGbp 11-25/0307r0）：阅读器自身泄漏的激励信号，最多能比它仍可解出的最弱反射高出多少。阅读器的底噪即 leakDbm − 50 dB，因此把激励功率调高，底噪也同样升高——距离并不会因此变远；只有隔离度或动态范围才能做到。',
+        },
+      },
+      {
+        term: 'Self-leakage',
+        alt: { en: '20 dB TX-to-RX isolation', zh: '20 dB 收发隔离度' },
+        def: {
+          en: 'The reader\'s own transmitted excitation reaching its own receiver, 20 dB down (AMP_BS_ISOLATION_DB — a 2×2 Wi-Fi radio in 1TX+1RX mode, TGbp 11-25/0058r1): monoLeakDbm = excitationDbm − 20. The mono-static reader\'s fundamental problem — hearing a whisper over its own shout.',
+          zh: '阅读器自己发射的激励信号泄漏进自己的接收机，衰减 20 dB（AMP_BS_ISOLATION_DB——一部工作在 1 发 1 收模式下的 2×2 Wi-Fi 设备，TGbp 11-25/0058r1）：monoLeakDbm = excitationDbm − 20。这正是单站式阅读器最根本的难题——要在自己的喊声里听清一声耳语。',
         },
       },
       {

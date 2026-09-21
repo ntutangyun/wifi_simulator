@@ -3,7 +3,7 @@ import {
   addOpening, clampField, generationPatch, hitTestNode, hitTestWall, newTag, roomsToWalls,
   scenarioFromJson, scenarioToJson, spawnRandomStas,
 } from '../../src/editor/planOps'
-import { DEFAULT_AMP_AP, defaultScenario, ScenarioSchema, type Room, type Wall } from '../../src/model/scenario'
+import { DEFAULT_AMP_AP, DEFAULT_AMP_BS, defaultScenario, ScenarioSchema, type Room, type Wall } from '../../src/model/scenario'
 import { Rng } from '../../src/engine/rng'
 
 const rooms: Room[] = [
@@ -131,6 +131,31 @@ describe('generationPatch', () => {
     expect(generationPatch(sta, 'vht').linkId).toBeUndefined()
     expect(generationPatch(sta, 'he').linkId).toBe('6g')
     expect(generationPatch(sta, 'he').caps!.features.edca).toBe(true)
+  })
+})
+
+describe('backscatter (mono-static) in the editor', () => {
+  it('a plan round-trips a backscatter tag with an EPC through JSON', () => {
+    const base = defaultScenario()
+    base.nodes[0].caps = { generation: 'eht', features: { edca: true } }
+    // the editor's "RFID inventory" checkbox: ampAp gains DEFAULT_AMP_BS
+    base.nodes[0].ampAp = { ...DEFAULT_AMP_AP, backscatter: { ...DEFAULT_AMP_BS } }
+    const { sc, id } = newTag(base, { x: 2, y: 2 })
+    // the editor's Mode select + EPC field, exactly what updateNode would commit
+    const withTag = { ...sc, nodes: sc.nodes.map((n) => (n.id === id ? { ...n, ampTag: { mode: 'backscatter' as const, epc: '0123456789abcdef01234567' } } : n)) }
+    expect(() => ScenarioSchema.parse(withTag)).not.toThrow()
+    expect(scenarioFromJson(scenarioToJson(withTag))).toEqual(withTag)
+  })
+
+  it('enabling RFID inventory on the AP yields a schema-valid scenario with DEFAULT_AMP_BS', () => {
+    const sc = defaultScenario()
+    sc.nodes[0].caps = { generation: 'eht', features: { edca: true } }
+    sc.nodes[0].ampAp = { ...DEFAULT_AMP_AP } // AMP polling on first, as the editor requires
+    // the RFID inventory checkbox's onChange: ampAp.backscatter = { ...DEFAULT_AMP_BS }
+    const withInventory = { ...sc, nodes: sc.nodes.map((n, i) => (i === 0 ? { ...n, ampAp: { ...n.ampAp!, backscatter: { ...DEFAULT_AMP_BS } } } : n)) }
+    expect(() => ScenarioSchema.parse(withInventory)).not.toThrow()
+    expect(withInventory.nodes[0].ampAp?.backscatter).toEqual(DEFAULT_AMP_BS)
+    expect(scenarioFromJson(scenarioToJson(withInventory)).nodes[0].ampAp?.backscatter).toEqual(DEFAULT_AMP_BS)
   })
 })
 

@@ -215,6 +215,59 @@ export function EditorGuideEn() {
         BSS at all and runs happily without one.
       </D>
 
+      <h4 style={h}>AMP backscatter (RFID inventory)</h4>
+      <p style={p}>
+        A mono-static reader: instead of Active Tx's trigger-and-slot round, the AP itself radiates
+        an excitation carrier and listens for a tag reflecting it back, running an EPC Gen2-style
+        inventory (Query / QueryRep / ACK / Read / Write). Protocol theory is in <b>📚 Course</b> and
+        the Guide's Ambient power section — this panel stays on what each control does.
+      </p>
+      <D t="Mode">
+        an AMP tag&rsquo;s answer: <i>Active Tx</i> (default) keeps its own transmitter; <i>Backscatter</i>{' '}
+        switches it to answer by reflecting the reader&rsquo;s carrier instead — it needs an AP with{' '}
+        <b>RFID inventory</b> (below) turned on before it answers anything. The 🏷 AMP tag tool always
+        places an Active Tx tag; switch the mode afterwards.
+      </D>
+      <D t="EPC">
+        backscatter tags only: the 96-bit code the tag reports, typed as 24 hex characters. Leave it
+        blank to have one derived from the node id; anything else that is not 24 hex characters is
+        left on screen in red instead of being committed.
+      </D>
+      <D t="RFID inventory">
+        the AP&rsquo;s mono-static reader, a section beside <b>AMP polling</b>. Off, the AP only runs
+        Active Tx rounds; on, it also radiates an excitation carrier and inventories every
+        backscatter tag on the link.
+      </D>
+      <D t="Q">
+        Query(Q): a tag draws a slot counter uniformly from [0, 2^Q − 1] and answers when it reaches
+        0. Default 2 (four slots). The draft&rsquo;s own Q-adaptation is not modelled — Q stays fixed
+        for the run.
+      </D>
+      <D t="UL rate (RFID inventory)">
+        the rate a tag backscatters its reply at: 250 kb/s reaches 32.8 cm, 1 Mb/s reaches 23.2 cm —
+        the same either way the BS power (below) is set.
+      </D>
+      <D t="WUP (ms)">
+        how long the wake-up carrier runs at the front of the first PPDU of a TXOP. A tag needs the
+        whole window above −20 dBm to boot; the framework&rsquo;s own minimum is 1 ms.
+      </D>
+      <D t="Charge power">
+        power radiated up to the end of each command. A tag has to hear it for the whole WUP to
+        boot: 30.9 cm of reach at the default 10 dBm, 97.8 cm at 20 dBm. A tag beyond that reach
+        never boots — no lane, no record, nothing to see.
+      </D>
+      <D t="BS power">
+        power radiated while a reply is expected. Raising it does not add reach: the reader&rsquo;s
+        own leakage floor rises by the same amount, so the reply reach stays 32.8 / 23.2 cm whatever
+        this is set to — only isolation or dynamic range would move it.
+      </D>
+      <D t="TXOP (ms, RFID inventory)">
+        how long one inventory burst may hold the medium. An inventory too big for one TXOP picks up
+        in the next one, from the same session and the same slot.
+      </D>
+      <D t="read after ACK">an 8-octet Read follows a successful EPC reply.</D>
+      <D t="write after read">a 2 ms Write follows the read; its reply lands 2 ms later still.</D>
+
       <h4 style={h}>UWB session</h4>
       <p style={p}>
         One section under the node list, shared by every ranging device; it appears with the first
@@ -558,6 +611,53 @@ export function EditorGuideZh() {
         删除该节点。AP 是唯一的例外：只有当场景里不再有终端、也不再有 AMP 标签时才能删除它，
         因为 Wi-Fi 要求有且仅有一个 AP——而纯 UWB 场景根本没有 BSS，没有 AP 也能正常仿真。
       </D>
+
+      <h4 style={h}>AMP 反向散射（RFID 盘点）</h4>
+      <p style={p}>
+        一种单站式阅读器：与 Active Tx 的触发-时隙轮询不同，AP 自己辐射激励载波，并聆听标签反射
+        回来的信号，运行一套 EPC Gen2 风格的盘点流程（Query / QueryRep / ACK / Read / Write）。
+        协议原理见 <b>📚 课程</b> 与指南的“环境能量”一节——本面板只说明各控件的作用。
+      </p>
+      <D t="模式">
+        AMP 标签如何应答：<i>主动发射</i>（默认）保留标签自己的发射机；<i>反向散射</i>
+        改为反射阅读器的载波——需要 AP 打开下方的 <b>RFID 盘点</b> 才会有任何应答。🏷 AMP 标签
+        工具放下的始终是主动发射标签，放置后再切换模式。
+      </D>
+      <D t="EPC">
+        仅反向散射标签：标签报告的 96 位编码，键入为 24 个十六进制字符。留空即由节点 id 派生；
+        键入了其他内容（非 24 位十六进制）时会以红字留在屏幕上，而不会被提交。
+      </D>
+      <D t="RFID 盘点">
+        AP 的单站式阅读器，位于 <b>AMP 轮询</b> 旁边的一节。关闭时 AP 只运行 Active Tx 轮询；
+        打开后它还会辐射激励载波，对链路上的每个反向散射标签做盘点。
+      </D>
+      <D t="Q">
+        Query(Q)：标签从 [0, 2^Q − 1] 中均匀抽取一个时隙计数器，归零时应答。默认 2（四个时隙）。
+        草案自身的 Q 自适应未建模——Q 在整次运行中保持固定。
+      </D>
+      <D t="上行速率（RFID 盘点）">
+        标签反向散射应答所用的速率：250 kb/s 可达 32.8 cm，1 Mb/s 可达 23.2 cm——
+        无论下方的散射窗功率怎么设都一样。
+      </D>
+      <D t="唤醒载波（ms）">
+        一个 TXOP 第一个 PPDU 前端的唤醒载波时长。标签需要在 −20 dBm 以上持续整个窗口才能启动；
+        框架自身的下限是 1 ms。
+      </D>
+      <D t="充能功率">
+        直到每条命令结束为止所辐射的功率。标签必须在整个唤醒窗口内听到它才能启动：
+        默认 10 dBm 时可达 30.9 cm，20 dBm 时可达 97.8 cm。超出这个距离的标签永远不会启动——
+        没有泳道，没有记录，什么都看不到。
+      </D>
+      <D t="散射窗功率">
+        等待应答期间辐射的功率。调高它并不会增加距离：阅读器自身的泄漏底噪也会同样升高，
+        因此应答距离始终是 32.8 / 23.2 cm，与这里的设置无关——只有隔离度或动态范围才能改变它。
+      </D>
+      <D t="TXOP（ms，RFID 盘点）">
+        一次盘点突发最多占用信道多久。装不下的盘点会在下一个 TXOP 中继续，
+        沿用同一个会话与同一个时隙。
+      </D>
+      <D t="ACK 后读取">EPC 应答成功后跟一次 8 字节的 Read。</D>
+      <D t="读取后写入">Read 之后跟一次 2 ms 的 Write，其应答在 2 ms 后到达。</D>
 
       <h4 style={h}>UWB 测距会话</h4>
       <p style={p}>

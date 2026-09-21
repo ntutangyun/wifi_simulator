@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Rng } from '../engine/rng'
 import { GEN_FEATURES, physicalId, type LinkId } from '../model/caps'
-import { DEFAULT_AMP_AP, DEFAULT_SIX_GHZ_CENTER_MHZ, normalizeProfiles, PROFILE_IDS, SERVER_KINDS, sixGhzChannelNo, TAMPER_KINDS, TAMPER_PRESETS, TXOP_PROTECTIONS, serverFor, serverKindFor, tamperKindOf, type AmpApCfg, type Material, type NodeCfg, type ProfileId, type Scenario, type ServerCfg, type ServerKind, type TamperKind, type TxopProtection, type UwbSessionCfg } from '../model/scenario'
+import { DEFAULT_AMP_AP, DEFAULT_AMP_BS, DEFAULT_SIX_GHZ_CENTER_MHZ, normalizeProfiles, PROFILE_IDS, SERVER_KINDS, sixGhzChannelNo, TAMPER_KINDS, TAMPER_PRESETS, TXOP_PROTECTIONS, serverFor, serverKindFor, tamperKindOf, type AmpApCfg, type AmpBackscatterCfg, type AmpTagMode, type Material, type NodeCfg, type ProfileId, type Scenario, type ServerCfg, type ServerKind, type TamperKind, type TxopProtection, type UwbSessionCfg } from '../model/scenario'
 import { HOUSEHOLDS } from '../model/households'
 import { nonht } from '../model/scenario'
 import { BRANDS, STATION_PRESETS, applyPreset } from '../model/presets'
@@ -768,11 +768,26 @@ export function FloorPlanEditor() {
                     </label>
                   )}
                   {selNode.kind === 'amp' && (
-                    <label style={{ display: 'block', marginBottom: 4 }} title={E.ampSensHint}>
-                      {E.ampSens}{' '}
-                      <input type="number" value={selNode.ampTag?.dlSensDbm ?? -72} style={{ width: 56 }}
-                        onChange={(e) => updateNode(selNode.id, { ampTag: { ...selNode.ampTag, dlSensDbm: Number(e.target.value) } })} /> dBm
-                    </label>
+                    <>
+                      <label style={{ display: 'block', marginBottom: 4 }} title={E.ampModeHint}>
+                        {E.ampMode}{' '}
+                        <select value={selNode.ampTag?.mode ?? 'active'}
+                          onChange={(e) => updateNode(selNode.id, { ampTag: { ...selNode.ampTag, mode: e.target.value as AmpTagMode } })}>
+                          <option value="active">{E.ampModes.active}</option>
+                          <option value="backscatter">{E.ampModes.backscatter}</option>
+                        </select>
+                      </label>
+                      {(selNode.ampTag?.mode ?? 'active') === 'backscatter' ? (
+                        <AmpEpcInput epc={selNode.ampTag?.epc}
+                          onCommit={(epc) => updateNode(selNode.id, { ampTag: { ...selNode.ampTag, epc } })} />
+                      ) : (
+                        <label style={{ display: 'block', marginBottom: 4 }} title={E.ampSensHint}>
+                          {E.ampSens}{' '}
+                          <input type="number" value={selNode.ampTag?.dlSensDbm ?? -72} style={{ width: 56 }}
+                            onChange={(e) => updateNode(selNode.id, { ampTag: { ...selNode.ampTag, dlSensDbm: Number(e.target.value) } })} /> dBm
+                        </label>
+                      )}
+                    </>
                   )}
                   {selNode.kind !== 'uwb' && (
                     <label style={{ display: 'block', marginBottom: 4 }}>
@@ -843,6 +858,79 @@ export function FloorPlanEditor() {
                                   <option value="twoPhase">{E.ampRead.twoPhase}</option>
                                 </select>
                               </label>
+                              <div style={{ marginTop: 8, paddingTop: 6, borderTop: '1px solid var(--border)' }}>
+                                <div style={{ color: 'var(--dim)', marginBottom: 4 }}>{E.ampBs}</div>
+                                <label style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 6, cursor: 'pointer' }} title={E.ampBsEnableHint}>
+                                  <input type="checkbox" checked={selNode.ampAp.backscatter !== undefined}
+                                    onChange={(e) => updateNode(selNode.id, {
+                                      ampAp: { ...selNode.ampAp!, backscatter: e.target.checked ? { ...DEFAULT_AMP_BS } : undefined },
+                                    })} />
+                                  {E.ampBsEnable}
+                                </label>
+                                {selNode.ampAp.backscatter && (
+                                  <>
+                                    <label style={{ display: 'block', marginBottom: 4 }} title={E.ampBsQHint}>
+                                      {E.ampBsQ}{' '}
+                                      <input type="number" min={0} max={8} value={selNode.ampAp.backscatter.q} style={{ width: 56 }}
+                                        onChange={(e) => updateNode(selNode.id, {
+                                          ampAp: { ...selNode.ampAp!, backscatter: { ...selNode.ampAp!.backscatter!, q: clampField(e.target.value, 0, 8, true) } },
+                                        })} />
+                                    </label>
+                                    <label style={{ display: 'block', marginBottom: 4 }} title={E.ampBsUlHint}>
+                                      {E.ampBsUl}{' '}
+                                      <select value={selNode.ampAp.backscatter.ulKbps}
+                                        onChange={(e) => updateNode(selNode.id, {
+                                          ampAp: { ...selNode.ampAp!, backscatter: { ...selNode.ampAp!.backscatter!, ulKbps: Number(e.target.value) as AmpBackscatterCfg['ulKbps'] } },
+                                        })}>
+                                        <option value={250}>250 kbps</option>
+                                        <option value={1000}>1000 kbps</option>
+                                      </select>
+                                    </label>
+                                    <label style={{ display: 'block', marginBottom: 4 }} title={E.ampBsWupHint}>
+                                      {E.ampBsWup}{' '}
+                                      <input type="number" min={1} max={1000} value={selNode.ampAp.backscatter.wupMs} style={{ width: 56 }}
+                                        onChange={(e) => updateNode(selNode.id, {
+                                          ampAp: { ...selNode.ampAp!, backscatter: { ...selNode.ampAp!.backscatter!, wupMs: clampField(e.target.value, 1, 1000) } },
+                                        })} /> ms
+                                    </label>
+                                    <label style={{ display: 'block', marginBottom: 4 }} title={E.ampBsChargeHint}>
+                                      {E.ampBsCharge}{' '}
+                                      <input type="number" min={-10} max={30} value={selNode.ampAp.backscatter.chargeDbm} style={{ width: 56 }}
+                                        onChange={(e) => updateNode(selNode.id, {
+                                          ampAp: { ...selNode.ampAp!, backscatter: { ...selNode.ampAp!.backscatter!, chargeDbm: clampField(e.target.value, -10, 30) } },
+                                        })} /> dBm
+                                    </label>
+                                    <label style={{ display: 'block', marginBottom: 4 }} title={E.ampBsBsHint}>
+                                      {E.ampBsBs}{' '}
+                                      <input type="number" min={-10} max={30} value={selNode.ampAp.backscatter.bsDbm} style={{ width: 56 }}
+                                        onChange={(e) => updateNode(selNode.id, {
+                                          ampAp: { ...selNode.ampAp!, backscatter: { ...selNode.ampAp!.backscatter!, bsDbm: clampField(e.target.value, -10, 30) } },
+                                        })} /> dBm
+                                    </label>
+                                    <label style={{ display: 'block', marginBottom: 4 }} title={E.ampBsTxopHint}>
+                                      {E.ampBsTxop}{' '}
+                                      <input type="number" min={1} max={10} value={selNode.ampAp.backscatter.txopMs} style={{ width: 56 }}
+                                        onChange={(e) => updateNode(selNode.id, {
+                                          ampAp: { ...selNode.ampAp!, backscatter: { ...selNode.ampAp!.backscatter!, txopMs: clampField(e.target.value, 1, 10, true) } },
+                                        })} /> ms
+                                    </label>
+                                    <label style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 4, cursor: 'pointer' }} title={E.ampBsReadHint}>
+                                      <input type="checkbox" checked={selNode.ampAp.backscatter.read}
+                                        onChange={(e) => updateNode(selNode.id, {
+                                          ampAp: { ...selNode.ampAp!, backscatter: { ...selNode.ampAp!.backscatter!, read: e.target.checked } },
+                                        })} />
+                                      {E.ampBsRead}
+                                    </label>
+                                    <label style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 4, cursor: 'pointer' }} title={E.ampBsWriteHint}>
+                                      <input type="checkbox" checked={selNode.ampAp.backscatter.write}
+                                        onChange={(e) => updateNode(selNode.id, {
+                                          ampAp: { ...selNode.ampAp!, backscatter: { ...selNode.ampAp!.backscatter!, write: e.target.checked } },
+                                        })} />
+                                      {E.ampBsWrite}
+                                    </label>
+                                  </>
+                                )}
+                              </div>
                             </>
                           )}
                         </>
@@ -905,6 +993,41 @@ export function FloorPlanEditor() {
           <EditorGuide />
         </div>
       </div>
+    </div>
+  )
+}
+
+/**
+ * A backscatter tag's EPC field: blank commits `undefined` (the schema derives one from the node
+ * id), a valid 24-hex-character string commits lower-cased (matching `epcOf`'s own case), and
+ * anything else is left on screen with a red message instead of committing a scenario the schema
+ * would reject — the same buffered-draft pattern as `NbChannelsInput` (uwb/ui/UwbSessionFields.tsx).
+ */
+function AmpEpcInput({ epc, onCommit }: { epc: string | undefined; onCommit: (epc: string | undefined) => void }) {
+  const E = useStrings().editor
+  const [draft, setDraft] = useState<string | null>(null)
+  const [bad, setBad] = useState(false)
+  const commit = (): void => {
+    if (draft === null) return
+    const t = draft.trim()
+    if (t !== '' && !/^[0-9a-fA-F]{24}$/.test(t)) {
+      setBad(true) // the draft stays on screen: it is what the user has to fix
+      return
+    }
+    setBad(false)
+    setDraft(null)
+    onCommit(t === '' ? undefined : t.toLowerCase())
+  }
+  return (
+    <div style={{ marginBottom: 4 }}>
+      <label title={E.ampEpcHint}>
+        {E.ampEpc}{' '}
+        <input type="text" style={{ width: 160 }} value={draft ?? epc ?? ''}
+          onChange={(e) => { setDraft(e.target.value); setBad(false) }}
+          onBlur={commit}
+          onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }} />
+      </label>
+      {bad && <div style={{ color: '#f87171', fontSize: 11, marginTop: 3, lineHeight: 1.45 }}>{E.ampEpcBad}</div>}
     </div>
   )
 }

@@ -1,4 +1,8 @@
 /** Compact learning guide tying real 802.11 mechanisms to what the sim shows. */
+import {
+  AMP_BS_ACTIVATION_DBM, AMP_BS_ISOLATION_DB, AMP_BS_LOSS_DB, AMP_BS_READER_DR_DB,
+  activationReachM, monoReachM,
+} from '../engine/ampBs'
 import { DEFAULT_SIX_GHZ_CENTER_MHZ, DEFAULT_UWB_SESSION, sixGhzChannelNo } from '../model/scenario'
 import { AOA_SIGMA_CLAMP_DEG, AOA_SIGMA_PHI_RAD, aoaSigmaDeg, antennaSpacingM } from '../uwb/aoa'
 import {
@@ -22,6 +26,13 @@ const chip = (color: string) => (
 )
 /** ASCII hyphen-minus to Unicode minus, for a JS negative number dropped straight into prose. */
 const dbFmt = (v: number): string => String(v).replace('-', '−')
+/** The reply reach at each UL rate (independent of BS power) and the activation reach at the
+ * model default and the "reader at 20 dBm" variant, so the Guide's prose can never drift from
+ * the closed forms `ampBs.ts` actually computes. */
+const AMP_BS_REACH_250_CM = (monoReachM(0, 250) * 100).toFixed(1)
+const AMP_BS_REACH_1000_CM = (monoReachM(0, 1000) * 100).toFixed(1)
+const AMP_BS_ACTIVATION_10_CM = (activationReachM(10) * 100).toFixed(1)
+const AMP_BS_ACTIVATION_20_CM = (activationReachM(20) * 100).toFixed(1)
 const UWB5_LO = UWB_BAND_MHZ[5].lo
 const UWB5_HI = UWB_BAND_MHZ[5].hi
 const UWB9_LO = UWB_BAND_MHZ[9].lo
@@ -182,6 +193,30 @@ export function GuideEn() {
         P802.11bp is an unratified draft (D0.5 May 2026, D1.0 letter ballot September 2026) — this
         simulator follows 11-24/1613r20, 11-26/1519r5 and 11-26/1889r4, and marks every value the draft
         leaves TBD as a model choice.
+      </p>
+
+      <h4 style={h}>Backscatter (mono-static)</h4>
+      <p style={p}>
+        A backscatter tag owns no transmitter of its own: it answers by reflecting the AP's own
+        carrier, {AMP_BS_LOSS_DB} dB down for the switch. <b>Mono-static</b> means the AP is both
+        the illuminator and the receiver, so its own transmitted power leaks straight into its own
+        receiver — {AMP_BS_ISOLATION_DB} dB down (self-leakage), inside {AMP_BS_READER_DR_DB} dB of
+        dynamic range after digital cancellation. That noise floor rises with the excitation exactly
+        as fast as the reply does, so turning the reader up buys <i>no reach at all</i>:{' '}
+        {AMP_BS_REACH_250_CM} cm at 250 kb/s, {AMP_BS_REACH_1000_CM} cm at 1 Mb/s, whatever the BS
+        power. Only <b>activation</b> grows with power — a tag needs {dbFmt(AMP_BS_ACTIVATION_DBM)}{' '}
+        dBm for a whole wake-up millisecond to boot at all: {AMP_BS_ACTIVATION_10_CM} cm of reach at
+        the model default 10 dBm charge power, {AMP_BS_ACTIVATION_20_CM} cm at 20 dBm. A tag beyond
+        its activation reach never boots — no lane, no record, nothing to see.
+      </p>
+      <p style={p}>
+        The round tunnels an <b>EPC Gen2</b>-style inventory inside AMP RFID frames: Query(Q) opens
+        a session and every powered tag draws a slot counter from [0, 2^Q − 1]; QueryRep decrements
+        it; a tag at 0 backscatters its <b>RN16</b>, and if only one tag answers, the reader's
+        ACK(RN16) collects its <b>EPC</b> and, if configured, reads or writes it. Two excitations
+        carry the exchange: a <b>WUP-Excitation</b> of at least a millisecond wakes the tag, and a{' '}
+        <b>BST-Excitation</b> after each command's data gives it a carrier to reflect while it
+        replies. Gen2's own Q-adaptation is not modelled — Q is fixed for the run.
       </p>
 
       <h4 style={h}>11 · UWB ranging (802.15.4-2024 HRP)</h4>
@@ -576,6 +611,27 @@ export function GuideZh() {
         P802.11bp 目前仍是未获批准的草案（D0.5 于 2026 年 5 月发布，D1.0 将于 2026 年 9 月进入
         letter ballot）——本仿真器依据 11-24/1613r20、11-26/1519r5 与 11-26/1889r4 三份文件建模，
         草案中标为 TBD 的每个数值都标注为模型取值。
+      </p>
+
+      <h4 style={h}>反向散射（单站式）</h4>
+      <p style={p}>
+        反向散射标签自己不带发射机：它靠反射 AP 自己的载波来应答，反射一次损耗
+        {AMP_BS_LOSS_DB} dB。<b>单站式</b>是指 AP 既是照射源又是接收机，因此它自己发射的功率会
+        直接泄漏进自己的接收机——衰减 {AMP_BS_ISOLATION_DB} dB（自泄漏），落在数字对消之后
+        {AMP_BS_READER_DR_DB} dB 的动态范围之内。这个底噪随激励功率上升的速度和应答信号一样快，
+        因此把阅读器功率调高<i>完全换不来更远的距离</i>：250 kb/s 下是 {AMP_BS_REACH_250_CM} cm，
+        1 Mb/s 下是 {AMP_BS_REACH_1000_CM} cm，无论散射窗功率怎么设都不变。只有<b>启动距离</b>
+        会随功率增长——标签需要在 {dbFmt(AMP_BS_ACTIVATION_DBM)} dBm 以上持续整整一个唤醒毫秒才能
+        启动：默认 10 dBm 充能功率下可达 {AMP_BS_ACTIVATION_10_CM} cm，20 dBm 下可达
+        {AMP_BS_ACTIVATION_20_CM} cm。超出启动距离的标签永远不会启动——没有泳道，没有记录，什么都看不到。
+      </p>
+      <p style={p}>
+        这一轮在 AMP RFID 帧内隧道封装了一套 <b>EPC Gen2</b> 风格的盘点流程：Query(Q) 开启一个会话，
+        每个已启动的标签都从 [0, 2^Q − 1] 中抽取一个时隙计数器；QueryRep 使其递减；计数器归零的标签
+        反向散射出自己的 <b>RN16</b>，若恰好只有一个标签应答，阅读器的 ACK(RN16) 就会收集它的
+        <b>EPC</b>，并按配置对它读取或写入。整个交换靠两段激励载波支撑：至少一毫秒的
+        <b>WUP-Excitation</b> 唤醒标签，每条命令的数据之后的 <b>BST-Excitation</b> 则在标签应答期间
+        给它一段可供反射的载波。Gen2 自身的 Q 自适应未建模——Q 在整次运行中保持固定。
       </p>
 
       <h4 style={h}>11 · UWB 测距（802.15.4-2024 HRP）</h4>
