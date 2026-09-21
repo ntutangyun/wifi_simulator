@@ -15,7 +15,10 @@ import {
   AMP_READING_BYTES, AMP_STA_ID_BYTES, AMP_TRIGGER_BODY_BYTES, AMP_UL_CHIP_NS, AMP_UL_SYNC_CHIPS,
   ampBitsNs, ampId16, type AmpUlKbps,
 } from '../engine/amp'
-import { AMP_RFID_FCS_BYTES, GEN2_CMD_BYTES, GEN2_CMD_NAME, GEN2_REPLY_BYTES, crc16Epc, epcOf } from '../engine/ampBs'
+import {
+  AMP_BS_DL_KBPS, AMP_BS_DL_SYNC_NS, AMP_BS_UL_CHIP_NS, AMP_BS_UL_SYNC_CHIPS, AMP_RFID_FCS_BYTES,
+  GEN2_CMD_BYTES, GEN2_CMD_NAME, GEN2_REPLY_BYTES, crc16Epc, epcOf, type AmpBsUlKbps,
+} from '../engine/ampBs'
 import {
   ACK_BYTES, AMPDU_DELIMITER_BYTES, BA_BYTES, CF_END_BYTES, CTS_BYTES, FCS_BYTES, MAC_HDR_BYTES,
   PHY_MODES, QOS_HDR_BYTES, RTS_BYTES, multiStaBaBytes, triggerBytes,
@@ -91,6 +94,9 @@ export interface UserPsdu {
 export type PpduSegmentKey =
   | 'legacyPreamble' | 'signal' | 'preamble' | 'muSig' | 'data' | 'padding'
   | 'usig' | 'ampSync' | 'ampSig' | 'ampData' | 'signalExt'
+  // P802.11bp backscatter: the two excitation fields, which are carrier rather than data — the
+  // wake-up that powers the tags, and the one the reply is reflected out of.
+  | 'ampWup' | 'ampBst'
   | 'sync' | 'sfd' | 'stsGap' | 'sts' | 'phr' | 'psdu'
   // P802.15.4ab: the whole of a fragment, and the narrowband PPDU's own preamble.
   | 'mmsFrag' | 'nbShr'
@@ -315,8 +321,12 @@ function controlMpdu(f: FrameDesc, apId: string): Mpdu {
       fields = [
         { key: 'fc', bytes: 1, bits: [{ key: 'type', value: `AMP RFID (${GEN2_CMD_NAME[r.cmd]})` }, { key: 'protected', value: '0' }] },
         {
+          // FM-25's 16-bit id is the CRC-16 of the tag's EPC, so it has to be the EPC the tag
+          // actually carries: the one the scenario configured when there is one, and only then
+          // the one derived from the node id. Otherwise a tag with a custom EPC shows an id its
+          // own reply contradicts.
           key: 'ampId', bytes: 2, node: broadcast ? undefined : f.dst,
-          value: broadcast ? 'broadcast (inventory)' : crc16Epc(epcOf(f.dst)).toString(16).padStart(4, '0'),
+          value: broadcast ? 'broadcast (inventory)' : crc16Epc(r.epc ?? epcOf(f.dst)).toString(16).padStart(4, '0'),
         },
         { key: 'ampTdc', bytes: 2, value: `session ${r.session} · UL ${r.ulKbps} kb/s${r.q !== undefined ? ` · Q ${r.q}` : ''}` },
         {
@@ -396,20 +406,38 @@ function decodeData(f: FrameDesc, ctx: DecodeCtx): UserPsdu[] {
 }
 
 /**
- * P802.11bp AMP PPDU: legacy preamble + U-SIG then AMP-Sync/SIG/Data (DL), or AMP-Sync/Data only
- * (UL, no legacy preamble).
+ * P802.11bp AMP PPDU. Three shapes, and every one of them sums to `f.txTimeNs` exactly:
  *
- * The uplink branch covers a backscattered reply unchanged — 24 sync chips of 2 µs and 48 of
- * 1 µs are the same 48 µs, and the same holds at 1 Mb/s — but the downlink branch is still the
- * Active Tx layout: an `ampRfid` PPDU has a 16 µs mono-static AMP-Sync, no AMP-SIG and no padding
- * field, and carries a WUP- and a BST-Excitation that have no segment key here yet, so its
- * segments currently fall out as one long signal extension. They still sum to `txTimeNs`.
+ * - **Active Tx downlink** — legacy preamble + U-SIG, then AMP-Sync / AMP-SIG / AMP-Data, a
+ *   padding field and the signal extension.
+ * - **Backscatter downlink** (`amp.rfid`) — the same preamble, then the WUP-Excitation that boots
+ *   the tags (absent after the first PPDU of a TXOP), a 16 µs mono-static AMP-Sync, the command
+ *   at 250 kb/s, and the BST-Excitation the reply is reflected out of. No AMP-SIG (SFD PM-65
+ *   note) and no padding field, which is why this cannot reuse the Active Tx arithmetic: its
+ *   fixed prefix alone is longer than a whole QueryRep PPDU at 1 Mb/s.
+ * - **Uplink**, Active Tx or backscattered — sync chips then data, no legacy preamble. The two
+ *   tiers count sync differently (48 chips against 24) at different chip rates, so each reads its
+ *   own constants rather than leaning on the fact that the products happen to coincide.
  */
 function ampPpduLayout(f: FrameDesc): PpduSegment[] {
   const a = f.amp!
   if (a.dir === 'ul') {
-    const sync = AMP_UL_SYNC_CHIPS * AMP_UL_CHIP_NS[a.kbps as AmpUlKbps]
+    const sync = a.bs
+      ? AMP_BS_UL_SYNC_CHIPS * AMP_BS_UL_CHIP_NS[a.kbps as AmpBsUlKbps]
+      : AMP_UL_SYNC_CHIPS * AMP_UL_CHIP_NS[a.kbps as AmpUlKbps]
     return [{ key: 'ampSync', durNs: sync }, { key: 'ampData', durNs: f.txTimeNs - sync }]
+  }
+  if (a.rfid) {
+    const r = a.rfid
+    const data = ampBitsNs(f.bytes * 8, AMP_BS_DL_KBPS)
+    const ext = f.txTimeNs - (AMP_LEGACY_PREAMBLE_NS + r.wupNs + AMP_BS_DL_SYNC_NS + data + r.bstNs)
+    const segs: PpduSegment[] = [
+      { key: 'legacyPreamble', durNs: 16_000 }, { key: 'signal', durNs: 4_000 }, { key: 'usig', durNs: 12_000 },
+    ]
+    if (r.wupNs > 0) segs.push({ key: 'ampWup', durNs: r.wupNs })
+    segs.push({ key: 'ampSync', durNs: AMP_BS_DL_SYNC_NS }, { key: 'ampData', durNs: data }, { key: 'ampBst', durNs: r.bstNs })
+    if (ext > 0) segs.push({ key: 'signalExt', durNs: ext })
+    return segs
   }
   const sig = ampBitsNs(AMP_DL_SIG_BYTES * 8, a.kbps)
   const data = ampBitsNs(f.bytes * 8, a.kbps)

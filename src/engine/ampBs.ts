@@ -52,12 +52,22 @@ export const AMP_BS_DL_SYNC_NS: Ns = 16_000 // SFD PM-63: 8 chips × 2 µs (PM-1
 export const AMP_BS_DL_KBPS = 250 // TGbp 11-25/0061r0: single DL rate for backscatter (contribution)
 export const AMP_BS_UL_SYNC_CHIPS = 24 // SFD PM-57: [S,S,S], S = 8 chips
 export const AMP_BS_UL_CHIP_NS: Record<AmpBsUlKbps, Ns> = { 250: 2000, 1000: 500 } // model reading of PM-35 (Manchester, no FEC)
-/** The 20 % of T1 and the 10 % of T3/T4 the excitation is stretched by, so the tag's ±20 % clock
- * (100 000 ppm, PM-28) cannot walk its reply out of the carrier. SFD PM-74, PM-87, PM-88 */
-const BST_T1_MARGIN = 1.2 // SFD PM-87
-const BST_REPLY_MARGIN = 1.1 // SFD PM-88
-/** The 1 µs the delayed form adds on top of the stretched T3. SFD PM-88 */
-const BST_DELAYED_SLACK_NS: Ns = 1000 // SFD PM-88
+/**
+ * The excitation is stretched by 20 % over T1 and by 10 % over T3 and the reply itself, so a tag
+ * whose clock is nowhere near the reader's cannot walk its answer out of the carrier.
+ *
+ * Those two percentages are the draft's own response-window margins, not a conversion of the tag
+ * clock: `AMP_BS_TAG_PPM` = 100 000 ppm is ±10 %, and the framework states the ±20 % window on T1
+ * separately. The model applies the framework's numbers, 1.2 and 1.1, and does not re-derive them
+ * from the ppm figure.
+ *
+ * The framework attributes the BST-Excitation *formula* to a group of motions rather than each
+ * margin to one of them, so the collective tag is the honest one. SFD PM-74, PM-75, PM-86…PM-88
+ */
+const BST_T1_MARGIN = 1.2 // SFD PM-74, PM-75, PM-86…PM-88 (collective)
+const BST_REPLY_MARGIN = 1.1 // SFD PM-74, PM-75, PM-86…PM-88 (collective)
+/** The 1 µs the delayed form adds on top of the stretched T3. SFD PM-74, PM-75, PM-86…PM-88 (collective) */
+const BST_DELAYED_SLACK_NS: Ns = 1000
 
 // --- Propagation -----------------------------------------------------------------
 
@@ -161,7 +171,7 @@ export function bsReplyNs(reply: Gen2Reply, kbps: AmpBsUlKbps): Ns {
  * Three cases. An immediate response is stretched over `1.2·T1 + 1.1·T4`, T4 being the reply's
  * own airtime; a delayed one — Write, which answers after T3 = 2 ms — over `1.1·T3 + 1 µs +
  * 1.1·T4`; and a command expecting nothing back still holds the carrier for the stretched T1.
- * The first and third never drop below `AMP_BS_BST_MIN_NS`. SFD PM-74, PM-86…PM-88; T3 from
+ * The first and third never drop below `AMP_BS_BST_MIN_NS`. SFD PM-74, PM-75, PM-86…PM-88; T3 from
  * TGbp 11-26/0120r0 (contribution)
  */
 export function bstNs(reply: Gen2Reply | null, kbps: AmpBsUlKbps, delayedT3Ns?: Ns): Ns {
@@ -189,6 +199,9 @@ export function ampBsDlPpduNs(cmd: Gen2Cmd, wupNs: Ns, bstNs: Ns, signalExtNs: N
 export interface AmpRfidArgs {
   src: string; dst: string; cmd: Gen2Cmd; session: number; q?: number; rn16?: number; slot: number
   ulKbps: AmpBsUlKbps; wupNs: Ns; bstNs: Ns; chargeDbm: number; bsDbm: number; signalExtNs: Ns
+  /** The addressed tag's EPC, when the scenario configured one. Left out for a broadcast command
+   * and for a tag that takes the EPC `epcOf` derives from its node id. */
+  epc?: string
 }
 
 /** An AMP RFID frame: one EPC Gen2 command inside a downlink PPDU with its two excitations.
@@ -201,7 +214,7 @@ export function ampRfidFrame(a: AmpRfidArgs): FrameDesc {
     amp: {
       dir: 'dl', kbps: AMP_BS_DL_KBPS,
       rfid: {
-        cmd: a.cmd, session: a.session, q: a.q, rn16: a.rn16, slot: a.slot,
+        cmd: a.cmd, session: a.session, q: a.q, rn16: a.rn16, epc: a.epc, slot: a.slot,
         wupNs: a.wupNs, bstNs: a.bstNs, chargeDbm: a.chargeDbm, bsDbm: a.bsDbm, ulKbps: a.ulKbps,
       },
     },

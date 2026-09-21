@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import { LESSONS } from '../../src/course/lessons'
 import { ampAckFrame, ampRespFrame, ampTriggerFrame } from '../../src/engine/amp'
+import {
+  AMP_BS_WRITE_T3_NS, ampBsReplyFrame, ampRfidBytes, ampRfidFrame, bstNs, crc16Epc, epcOf,
+  type AmpBsUlKbps, type Gen2Cmd, type Gen2Reply,
+} from '../../src/engine/ampBs'
 import { Simulation } from '../../src/engine/simulation'
 import { hasFeature } from '../../src/model/caps'
 import { decodeFrame, type DecodeCtx, type DecodedFrame, type FrameField } from '../../src/model/frameFields'
@@ -165,5 +169,100 @@ describe('AMP frames decode to their P802.11bp fields and PPDU layout', () => {
     expect(r.users[0].subframes[0].mpdu.fields.map((x) => [x.key, x.bytes])).toEqual([['fc', 1], ['ampId', 2], ['ampTdc', 2], ['body', 8], ['fcs', 2]])
     expect(r.ppdu.map((s) => s.key)).toEqual(['ampSync', 'ampData'])
     expect(r.ppdu[0].durNs).toBe(48_000)
+  })
+})
+
+describe('backscatter frames decode to their EPC Gen2 fields and excitation layout', () => {
+  const ctx = { apId: 'ap', isEdca: true }
+  const CMDS: Gen2Cmd[] = ['query', 'queryRep', 'ack', 'read', 'write']
+  const RATES: AmpBsUlKbps[] = [250, 1000]
+
+  /** The command PPDU the AP would send for `cmd`, its BST sized for the reply it expects. */
+  function rfid(cmd: Gen2Cmd, kbps: AmpBsUlKbps, wupNs: number) {
+    const reply: Gen2Reply = cmd === 'ack' ? 'epc' : cmd === 'read' ? 'read' : cmd === 'write' ? 'write' : 'rn16'
+    const bst = cmd === 'write' ? bstNs(reply, kbps, AMP_BS_WRITE_T3_NS) : bstNs(reply, kbps)
+    return ampRfidFrame({
+      src: 'ap', dst: cmd === 'query' || cmd === 'queryRep' ? '*amp' : 'tag-1', cmd, session: 1,
+      q: cmd === 'query' ? 2 : undefined, slot: 1, ulKbps: kbps, wupNs, bstNs: bst,
+      chargeDbm: 10, bsDbm: 0, signalExtNs: 6_000,
+    })
+  }
+
+  it('every command at both uplink rates and either wake-up: segments sum to the airtime', () => {
+    for (const cmd of CMDS) {
+      for (const kbps of RATES) {
+        for (const wupNs of [1_000_000, 2_000_000]) {
+          const f = rfid(cmd, kbps, wupNs)
+          const d = decodeFrame(f, ctx)
+          const where = `${cmd} @ ${kbps} kb/s, WUP ${wupNs / 1e6} ms`
+          expect(d.ppdu.reduce((s, x) => s + x.durNs, 0), where).toBe(f.txTimeNs)
+          for (const p of d.ppdu) expect(p.durNs, `${where} · ${p.key}`).toBeGreaterThan(0)
+          // Preamble, wake-up carrier, sync, command, reply carrier, extension — no AMP-SIG
+          // (SFD PM-65 note) and no padding field.
+          expect(d.ppdu.map((x) => x.key), where).toEqual([
+            'legacyPreamble', 'signal', 'usig', 'ampWup', 'ampSync', 'ampData', 'ampBst', 'signalExt',
+          ])
+          expect(d.ppdu.find((x) => x.key === 'ampWup')!.durNs, where).toBe(wupNs)
+          expect(d.ppdu.find((x) => x.key === 'ampBst')!.durNs, where).toBe(f.amp!.rfid!.bstNs)
+          expect(d.ppdu.find((x) => x.key === 'ampSync')!.durNs, where).toBe(16_000)
+          expect(d.ppdu.find((x) => x.key === 'signalExt')!.durNs, where).toBe(6_000)
+        }
+      }
+    }
+  })
+
+  it('a command inside the TXOP has no wake-up field at all, and still sums', () => {
+    for (const cmd of CMDS) {
+      for (const kbps of RATES) {
+        const f = rfid(cmd, kbps, 0)
+        const d = decodeFrame(f, ctx)
+        const where = `${cmd} @ ${kbps} kb/s`
+        expect(d.ppdu.some((x) => x.key === 'ampWup'), where).toBe(false)
+        expect(d.ppdu.reduce((s, x) => s + x.durNs, 0), where).toBe(f.txTimeNs)
+      }
+    }
+    // The case the Active Tx arithmetic used to overrun by 92 µs: its fixed prefix alone
+    // (32 + 80 + 64 + 20 µs) is longer than this entire PPDU.
+    const qr = rfid('queryRep', 1000, 0)
+    expect(qr.txTimeNs).toBe(360_000)
+    expect(decodeFrame(qr, ctx).ppdu.reduce((s, x) => s + x.durNs, 0)).toBe(360_000)
+  })
+
+  it('the BST-Excitation dominates a Write and holds the 2 ms T3', () => {
+    const f = rfid('write', 250, 0)
+    expect(decodeFrame(f, ctx).ppdu.find((x) => x.key === 'ampBst')!.durNs).toBe(2_429_800)
+    expect(f.txTimeNs).toBe(2_963_800)
+  })
+
+  it('sizes every Gen2 command and every reply, and replies lay out as sync then data', () => {
+    for (const cmd of CMDS) {
+      const d = decodeFrame(rfid(cmd, 250, 0), ctx)
+      expect(d.users[0].subframes[0].mpdu.fields.map((x) => x.key), cmd).toEqual(['fc', 'ampId', 'ampTdc', 'body', 'fcs'])
+      expect(d.bytes, cmd).toBe(ampRfidBytes(cmd))
+    }
+    for (const [reply, bytes] of [['rn16', 2], ['epc', 16], ['read', 13], ['write', 5]] as const) {
+      const r = ampBsReplyFrame({ src: 'tag-1', dst: 'ap', reply, kbps: 250, slot: 1 })
+      const d = decodeFrame(r, ctx)
+      expect(d.bytes, reply).toBe(bytes)
+      expect(d.ppdu.map((x) => x.key), reply).toEqual(['ampSync', 'ampData'])
+      expect(d.ppdu[0].durNs, reply).toBe(48_000) // 24 chips × 2 µs
+      expect(d.ppdu.reduce((s, x) => s + x.durNs, 0), reply).toBe(r.txTimeNs)
+    }
+    // A 1 Mb/s reply reads its own constants: 24 chips × 0.5 µs, not the Active Tx 48 × 0.25.
+    expect(decodeFrame(ampBsReplyFrame({ src: 'tag-1', dst: 'ap', reply: 'epc', kbps: 1000, slot: 1 }), ctx).ppdu[0].durNs).toBe(12_000)
+  })
+
+  it('the id field decodes the tag’s configured EPC, not one derived from its node id', () => {
+    const epc = 'abcdefabcdefabcdefabcdef'
+    const idOf = (d: DecodedFrame) => d.users[0].subframes[0].mpdu.fields.find((x) => x.key === 'ampId')!.value
+    const withEpc = decodeFrame(ampRfidFrame({
+      src: 'ap', dst: 'tag-1', cmd: 'read', session: 1, slot: 1, ulKbps: 250, wupNs: 0,
+      bstNs: bstNs('read', 250), chargeDbm: 10, bsDbm: 0, signalExtNs: 6_000, epc,
+    }), ctx)
+    expect(idOf(withEpc)).toBe(crc16Epc(epc).toString(16).padStart(4, '0'))
+    expect(idOf(decodeFrame(rfid('read', 250, 0), ctx))).toBe(crc16Epc(epcOf('tag-1')).toString(16).padStart(4, '0'))
+    expect(idOf(withEpc)).not.toBe(idOf(decodeFrame(rfid('read', 250, 0), ctx)))
+    // A broadcast command addresses no tag, so it carries no id to decode.
+    expect(idOf(decodeFrame(rfid('query', 250, 1_000_000), ctx))).toBe('broadcast (inventory)')
   })
 })

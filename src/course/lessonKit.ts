@@ -147,7 +147,9 @@ export function sc(house: { rooms: Room[]; walls: Wall[] }, nodes: NodeCfg[], ex
 }
 
 export function tag(id: string, name: string, x: number, y: number, dlSensDbm?: number): NodeCfg {
-  return { id, kind: 'amp', name, pos: { x, y, z: 1 }, txPowerDbm: 0, profiles: ['idle'], caps: { generation: 'nonht', features: {} }, linkId: '2g', ampTag: dlSensDbm === undefined ? {} : { dlSensDbm } }
+  // The mode is stated rather than left to the schema's default, as in `editor/planOps.newTag`:
+  // a lesson scenario and the same scenario reloaded from JSON have to be the same object.
+  return { id, kind: 'amp', name, pos: { x, y, z: 1 }, txPowerDbm: 0, profiles: ['idle'], caps: { generation: 'nonht', features: {} }, linkId: '2g', ampTag: dlSensDbm === undefined ? { mode: 'active' } : { mode: 'active', dlSensDbm } }
 }
 
 export function ampAp(id: string, name: string, x: number, y: number, amp: Partial<AmpApCfg> = {}, features?: Record<string, boolean>): NodeCfg {

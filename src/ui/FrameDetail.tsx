@@ -108,6 +108,9 @@ const cell: React.CSSProperties = { padding: '2px 4px', borderBottom: '1px solid
 const SEG_COLOR: Record<PpduSegmentKey, string> = {
   legacyPreamble: '#a78bfa', signal: '#f472b6', preamble: '#a78bfa', muSig: '#f472b6', data: '#38bdf8', padding: '#64748b',
   usig: '#f472b6', ampSync: '#a78bfa', ampSig: '#f472b6', ampData: '#38bdf8', signalExt: '#64748b',
+  // Backscatter: both excitations are unmodulated carrier, not data, so they take one amber of
+  // their own — the PPDU is mostly this, and it should read that way at a glance.
+  ampWup: '#f59e0b', ampBst: '#fbbf24',
   // UWB SP1 PPDU: preamble violet, the STS its own teal (it is what a ranging
   // receiver actually times on), payload the same blue as any other data.
   sync: '#a78bfa', sfd: '#f472b6', stsGap: '#334155', sts: '#2dd4bf', phr: '#f59e0b', psdu: '#38bdf8',

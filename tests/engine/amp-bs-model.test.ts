@@ -196,7 +196,23 @@ describe('tag identity', () => {
       expect(v).not.toBe(0)
       expect(v).not.toBe(0xffff)
     }
-    // The two reserved words are mapped away rather than emitted.
-    expect(crc16Epc('000000000000000000000000')).not.toBe(0xffff)
+  })
+
+  /**
+   * The fold itself, on inputs that actually reach it. None of the node ids above does — their raw
+   * CRCs are ordinary values — so without these two the `crc === 0 || crc === 0xffff` clause could
+   * be deleted and the suite would stay green.
+   *
+   * Both were constructed, not searched for. CRC-16-CCITT (0x1021, init 0xFFFF, no final xor) has
+   * the property that appending a message's own CRC makes the CRC of the extension zero: the CRC
+   * of the ten octets `0123456789abcdef0123` is 0x6bbf, so that prefix followed by `6bbf` is a
+   * 24-hex EPC whose raw CRC is 0x0000. The 0xffff case is the same prefix with the two trailing
+   * octets solved for that residue instead: `ef70`.
+   */
+  it('maps both reserved words to 0x5a5a rather than emitting them', () => {
+    expect(crc16Epc('0123456789abcdef01236bbf')).toBe(0x5a5a) // raw CRC 0x0000
+    expect(crc16Epc('0123456789abcdef0123ef70')).toBe(0x5a5a) // raw CRC 0xffff
+    // …and an ordinary value passes through untouched: twelve zero octets hash to 0x84f9.
+    expect(crc16Epc('000000000000000000000000')).toBe(0x84f9)
   })
 })

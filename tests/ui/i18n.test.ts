@@ -1,14 +1,23 @@
 import { describe, it, expect } from 'vitest'
 import { STRINGS } from '../../src/ui/i18n'
-import type { FrameKind } from '../../src/model/frames'
+import { FRAME_KINDS } from '../../src/model/frames'
 import { DEFAULT_UWB_SESSION } from '../../src/model/scenario'
 import { C_M_PER_NS } from '../../src/uwb/phy'
 import { rangeSigmaM } from '../../src/uwb/position'
 
-const KINDS: FrameKind[] = ['data', 'ack', 'rts', 'cts', 'ba', 'trigger', 'mba', 'ampTrigger', 'ampAck', 'ampResp']
+/** Every kind the engine can emit, from the one list `FrameKind` itself is derived from — a
+ * hand-written copy here had gone stale by six kinds before it was noticed. */
+const KINDS = FRAME_KINDS
 const LANGS = ['en', 'zh'] as const
 
 describe('frameDetail strings', () => {
+  it('walks every frame kind the engine can emit, not a hand-kept subset', () => {
+    expect(KINDS.length).toBeGreaterThanOrEqual(23)
+    expect(KINDS).toContain('ampRfid')
+    expect(KINDS).toContain('ampBsReply')
+    expect(new Set(KINDS).size).toBe(KINDS.length)
+  })
+
   it.each(LANGS)('%s covers every frame kind with non-empty text', (lang) => {
     const fd = STRINGS[lang].frameDetail
     for (const k of KINDS) {

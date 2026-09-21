@@ -3,11 +3,22 @@ import type { AmpBsUlKbps, Gen2Cmd, Gen2Reply } from '../engine/ampBs'
 import type { UwbInfo } from '../uwb/frames'
 import type { Ns } from './types'
 
-export type FrameKind =
-  | 'data' | 'ack' | 'rts' | 'cts' | 'ba' | 'trigger' | 'mba' | 'cfend'
-  | 'ampTrigger' | 'ampAck' | 'ampResp' | 'ampRfid' | 'ampBsReply'
-  | 'uwbPoll' | 'uwbResp' | 'uwbFinal' | 'uwbReport' | 'uwbBlink'
-  | 'uwbRsf' | 'uwbRif' | 'nbPoll' | 'nbResp' | 'nbReport'
+/**
+ * Every frame kind this engine can put on the air, as a value rather than only a type.
+ *
+ * `FrameKind` is derived from it, so the list cannot fall behind the union: a kind added to the
+ * type has to be added here, and anything that walks the list — `tests/ui/i18n.test.ts` checks
+ * that each one has a non-empty name, description and follow-on in both languages — covers it
+ * from the moment it exists. A hand-written copy of this array had gone six kinds stale.
+ */
+export const FRAME_KINDS = [
+  'data', 'ack', 'rts', 'cts', 'ba', 'trigger', 'mba', 'cfend',
+  'ampTrigger', 'ampAck', 'ampResp', 'ampRfid', 'ampBsReply',
+  'uwbPoll', 'uwbResp', 'uwbFinal', 'uwbReport', 'uwbBlink',
+  'uwbRsf', 'uwbRif', 'nbPoll', 'nbResp', 'nbReport',
+] as const
+
+export type FrameKind = typeof FRAME_KINDS[number]
 
 /** P802.11bp fields of an AMP frame; present on the five AMP kinds only. */
 export interface AmpInfo {
@@ -39,13 +50,16 @@ export interface AmpInfo {
    * inventory round it belongs to, and the two excitation fields wrapped around it — the WUP
    * that boots the tags (0 after the first PPDU of a TXOP) and the BST the reply is reflected
    * inside. `chargeDbm` is the power up to the end of AMP-Data, `bsDbm` the power during the
-   * BST-Excitation. SFD FM-44/FM-45, PM-72…PM-74
+   * BST-Excitation. `epc` is the addressed tag's own EPC when the scenario configured one, which
+   * is what the id field decodes to (SFD FM-25); absent on a broadcast command, and absent when
+   * the tag takes the EPC derived from its node id. SFD FM-44/FM-45, PM-72…PM-74
    */
   rfid?: {
     cmd: Gen2Cmd
     session: number
     q?: number
     rn16?: number
+    epc?: string
     slot: number
     wupNs: Ns
     bstNs: Ns
