@@ -129,7 +129,7 @@ export const uwbDstwr: Lesson = {
     ] },
     { text: {
       en: 'Averaging the first row’s two halves gives −5.49 m. Note the symmetry that is absent: the anchor answering last waits four times as long as the first, yet every result lands inside 6 cm.',
-      zh: '把第一行的两个半场平均一下，得到 −5.49 m。再留意这里并不存在的那种对称：最后作答的锚点等的时间是第一个的四倍，而手机在发 Final 前等的只有四分之一——每个结果却都落在 6 cm 以内。',
+      zh: '把第一行的两个半场平均一下，得到 −5.49 m。再留意这里并不存在的那种对称：最后作答的锚点等的时间是第一个的四倍，每个结果却都落在 6 cm 以内。',
     } },
     { kind: 'table', heading: { en: 'Ten slots, and what fills them', zh: '十个时隙，都被什么填满' }, head: [
       { en: 'Frame', zh: '帧' }, { en: 'Count', zh: '数量' }, { en: 'Octets', zh: '字节' }, { en: 'Airtime each', zh: '单帧空口时间' },
@@ -231,7 +231,7 @@ export const uwbDstwr: Lesson = {
     {
       q: { en: 'What does the extra message cost, and what does it not buy?', zh: '多发的这条消息花了什么代价，又买不到什么？' },
       options: [
-        { en: 'Nothing measurable: 9.67 % of the round radiates against 9.56 %, and the noise goes', zh: '没有可测的代价：辐射占比 9.67 % 对 9.56 %，噪声也一并没了' },
+        { en: 'Nothing measurable: 9.67 % of the round radiates against 9.56 %, and the noise goes too', zh: '没有可测的代价：辐射占比 9.67 % 对 9.56 %，噪声也一并没了' },
         { en: 'Ten slots instead of five, twice the wake-ups — the noise and a blocked path survive', zh: '十个时隙而不是五个，醒来次数翻倍——噪声和被遮挡的路径都活了下来' },
         { en: 'Four times the airtime, since the Final and reports are largest', zh: '四倍的空口时间，因为 Final 与报告是最大的帧' },
       ],
