@@ -206,7 +206,7 @@ Existing suites keep their job: `lesson-claims.test.ts`, `quoted-timestamps
 - `src/course/CoursePanel.tsx` — renders the 13 sections; `<details>` for
   `deeper` and `sources`; `watch` call-out with inline load/jump; `needs` as
   links.
-- `src/ui/i18n.ts` — `course.why` (unused label, kept for a11y), `outcomes`,
+- `src/ui/i18n.ts` — `outcomes`,
   `needs`, `terms`, `numbers`, `deeper`, `sources`, `watchLoad`, `watchJump`.
 - `src/course/tier1/*.ts`, `src/course/tier2/*.ts` (new), `src/course/amp/*.ts`,
   `src/course/uwb/*.ts` — the lessons.
