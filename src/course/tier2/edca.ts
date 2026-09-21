@@ -1,115 +1,129 @@
-import { type Lesson, N, oneRoom, node, sc, firstInternal, firstVo, J } from '../lessonKit'
+/**
+ * Wi-Fi Tier 2 · M3 · QoS and efficiency · EDCA, four queues in one radio.
+ *
+ * Rewritten to the zero-to-hero contract
+ * (docs/superpowers/specs/2026-09-21-course-readability-design.md): one radio
+ * sorts its traffic into four queues, each queue contends on its own, and the
+ * two knobs that decide who wins are the silence before counting and the width
+ * of the draw. The dense material that used to open the lesson — the xIFS
+ * ladder, the 2ⁿ − 1 series, the internal collision — lives in `deeper`, and
+ * the clause numbers in `sources`.
+ *
+ * The scenario builder and the jump-zero predicate are unchanged, so the
+ * recorded timeline hash stays identical. Every number quoted below is pinned
+ * in tests/course/edca.test.ts.
+ */
+import { type Lesson, N, oneRoom, node, sc, firstVo, J } from '../lessonKit'
 
 export const edca: Lesson = {
   id: 'edca',
   module: 2,
   title: { en: 'EDCA — four queues, four personalities', zh: 'EDCA——四条队列，四种性格' },
-  body: [
-    { text: {
-      en: 'DCF treats a voice packet and a bulk upload identically. EDCA (802.11e, in every device since Wi-Fi 5) splits traffic into four access categories (ACs), each running its own backoff engine with its own parameters (Table 9-194):',
-      zh: 'DCF 对语音包和大文件上传一视同仁。EDCA（802.11e，Wi-Fi 5 起人人都有）把流量分进四个接入类别（AC），每个类别都有一台独立的退避引擎和自己的参数（Table 9-194）：',
+  why: {
+    en: 'A phone call and a file upload want the same air, and they do not want it the same way. A few milliseconds of waiting ruins the call; nobody would notice the same wait on the upload. Yet the rules so far treat every frame alike, so the call takes its chances beside the upload and usually loses. This lesson watches a radio that stops being one contender and becomes four.',
+    zh: '一通电话和一个文件上传抢的是同一片空口，但它们要的东西不一样。几毫秒的等待就能毁掉通话；同样的等待落在上传上，谁也察觉不到。可到目前为止的规则对每一帧都一视同仁，于是通话只能和上传一起碰运气，而且通常运气更差。这一课我们看一台电台如何不再以“一个竞争者”的身份参赛，而是变成四个。',
+  },
+  outcomes: [
+    { en: 'say what changes inside a station once its traffic is sorted into four classes', zh: '说清一台终端把自己的流量分成四类之后，内部到底变了什么' },
+    { en: 'read a class’s required silence and its draw width off the run, and say which one the head start came from', zh: '从仿真里读出某一类的必等静默和抽取宽度，并说出抢跑是哪一个带来的' },
+    { en: 'explain what priority here cannot do, and what the lowest class pays for it', zh: '解释这里的优先级做不到什么，以及最低的那一类为此付出了什么' },
+  ],
+  needs: ['ifs', 'backoff', 'retries-queues'],
+  terms: [
+    { term: 'EDCA', plain: {
+      en: 'enhanced distributed channel access: the rule that gives one station four waiting queues instead of one, each contending on its own',
+      zh: '增强型分布式信道接入：这条规则让一台终端拥有四条等待队列，而不是一条，每一条各自去竞争',
     } },
-    { kind: 'table', head: [
-      N('AC'), N('AIFSN'), N('AIFS'), N('CWmin'), N('CWmax'),
+    { term: 'access category', plain: {
+      en: 'the class a frame is filed under on its way into the radio: voice, video, best effort or background',
+      zh: '一帧进入电台时被归入的那一类：语音、视频、尽力而为、后台',
+    } },
+    { term: 'AIFS', plain: {
+      en: 'arbitration interframe space: the silence a queue must hear before its countdown may move — the long fixed wait, made adjustable per class',
+      zh: '仲裁帧间间隔：一条队列的倒数开始走动之前必须听到的那段安静——就是那段固定的长等待，只是按类别做成了可调的',
+    } },
+  ],
+  picture: [
+    { heading: { en: 'One radio, four waiting rooms', zh: '一台电台，四间候车室' }, text: {
+      en: 'On its way into the radio, every frame is filed under one of four classes by what it carries: a call, a film, ordinary traffic, or something nobody is waiting for. Each class gets its own queue, and each queue runs its own countdown as if it were a separate station in the room. Whichever of them reaches zero first is what the radio sends. That is EDCA, and each of the four queues is an access category.',
+      zh: '每一帧进入电台的时候，都会按它装的东西被归入四类之一：一通电话、一部影片、普通流量，或者压根没人在等的东西。每一类有自己的队列，每条队列各跑各的倒数，就像房间里另一台独立的终端一样。哪条先数到零，电台就发哪条的帧。这就是 EDCA，而这四条队列里的每一条，都是一个接入类别。',
+    } },
+    { heading: { en: 'Two knobs, and no referee', zh: '两个旋钮，没有裁判' }, text: {
+      en: 'Nothing new was added to decide between them — no scheduler, no permission to ask. The four queues play the same waiting game the whole room plays, with two numbers set differently for each. The first is how long the queue must hear nothing before its counter may move at all: its AIFS. The second is how wide a range it draws its countdown from. Voice waits less and draws smaller. The lottery is simply rigged.',
+      zh: '为了在它们之间分出胜负，并没有新增任何东西——没有调度器，也不用向谁请示。四条队列玩的还是整个房间都在玩的那套等待游戏，只是有两个数按类别分别设定。第一个是：这条队列必须先听到多久的“什么都没有”，它的倒数才被允许走动，这就是它的 AIFS。第二个是：它抽倒数值时的取值范围有多宽。语音等得更短，抽得更小。抽签，只不过是被做了手脚。',
+    } },
+    { kind: 'watch', jump: 0, heading: { en: 'Watch the call get in', zh: '看通话是怎么挤进去的' }, text: {
+      en: 'Load the simulation and jump to the caller’s first frame. The uploader beside it never stops; the call still gets on the air. Hover the caller’s countdown block, then the backup station’s, and compare the two numbers on them.',
+      zh: '载入仿真，跳到通话终端的第一帧。旁边的上传终端从来没停过，可通话依然上了空口。把鼠标悬在通话终端的倒数色块上，再悬在备份终端的色块上，比一比这两个块上的数。',
+    } },
+    { heading: { en: 'A head start paid every round', zh: '每一轮都要兑现的抢跑' }, text: {
+      en: 'The two knobs are not the same kind of advantage. A narrower draw only shifts the odds — the background queue may still roll low and win. The shorter silence is harder than that: while the background queue is still serving out its required quiet, the voice queue has already been counting down, and during those slots the background queue may not even begin. It is a head start, collected in every single round.',
+      zh: '这两个旋钮给的优势并不是同一种。抽取范围更窄，只是把概率往一边拨了拨——后台队列照样可能抽到很小的数然后赢。更短的静默要硬得多：当后台队列还在熬它那段必等的安静时，语音队列已经在倒数了，而在这些时隙里，后台队列连开始的资格都没有。这是抢跑，而且每一轮都要兑现一次。',
+    } },
+    { heading: { en: 'What priority cannot do', zh: '优先级做不到的事' }, text: {
+      en: 'None of this interrupts anything. A frame already on the air is on the air; a voice frame that arrives in the middle of somebody’s long burst waits for the whole burst to finish, exactly like every other frame. What priority buys is a better place in the argument over the next turn, never a way out of the current one. This is why voice here is quick on average and still has bad moments.',
+      zh: '这一切都不会打断任何东西。已经在空中的帧就是在空中；一帧语音如果赶上别人正发着一长串突发，它就得等那串突发整个结束，和其他任何帧一样。优先级买到的，是在“下一轮归谁”这场争论里站得更靠前，而绝不是从这一轮里脱身的办法。所以这里的语音平均而言很快，却照样会有几次很难看的时刻。',
+    } },
+    { heading: { en: 'Somebody has to be last', zh: '总得有人排在最后' }, text: {
+      en: 'The head start comes out of someone else’s pocket. The background class — a backup, an update, anything nobody is waiting for — takes the longest silence and the widest draw, so it reaches the air last and least often. In a busy room its frames sit in their queue many times longer than the call’s do. That is not a flaw in the design; it is the design, and it is why the class exists.',
+      zh: '抢跑的额度是从别人兜里掏出来的。后台这一类——备份、更新，以及任何没人在等的东西——拿到的是最长的静默和最宽的抽取范围，于是它最晚、也最少地摸到空口。在一个繁忙的房间里，它的帧待在队列里的时间是通话的好几倍。这不是设计上的缺陷，这正是设计本身，也正是这一类存在的理由。',
+    } },
+  ],
+  numbers: [
+    { kind: 'table', heading: { en: 'What each class is given', zh: '每一类拿到的东西' }, head: [
+      { en: 'Class', zh: '类别' }, { en: 'What it carries', zh: '它装什么' },
+      { en: 'Silence first', zh: '先等的静默' }, { en: 'First draw from', zh: '第一次抽取范围' }, { en: 'Where', zh: '出处' },
     ], rows: [
-      [{ en: 'VO (voice)', zh: 'VO（语音）' }, N('2'), N('34 µs'), N('3'), N('7')],
-      [{ en: 'VI (video)', zh: 'VI（视频）' }, N('2'), N('34 µs'), N('7'), N('15')],
-      [{ en: 'BE (best effort)', zh: 'BE（尽力而为）' }, N('3'), N('43 µs'), N('15'), N('1023')],
-      [{ en: 'BK (background)', zh: 'BK（后台）' }, N('7'), N('79 µs'), N('15'), N('1023')],
+      [N('VO'), { en: 'a call', zh: '一通电话' }, N('34 µs'), N('0–3'), N('Table 9-194')],
+      [N('VI'), { en: 'a film', zh: '一部影片' }, N('34 µs'), N('0–7'), N('Table 9-194')],
+      [N('BE'), { en: 'ordinary traffic', zh: '普通流量' }, N('43 µs'), N('0–15'), N('Table 9-194')],
+      [N('BK'), { en: 'a backup', zh: '一次备份' }, N('79 µs'), N('0–15'), N('Table 9-194')],
     ] },
-    { text: {
-      en: 'Shorter waits + smaller draws = statistically earlier transmission. Priority in Wi-Fi is not a scheduler’s decree — it is a rigged lottery with two knobs: AIFS and CW.',
-      zh: '等得更短 + 抽值更小 = 统计上总能更早发送。Wi-Fi 里的优先级不是调度器的命令，而是一场被做了手脚的抽签，手脚就做在两个旋钮上：AIFS 和 CW。',
-    } },
-    { heading: { en: 'AIFS — when the waiting itself became the knob', zh: 'AIFS——当“等待”本身成为旋钮' }, text: {
-      en: 'AIFS is the Arbitration Interframe Space: the quiet time an access category must observe before its backoff may count.',
-      zh: 'AIFS 是仲裁帧间间隔（Arbitration Interframe Space）：一个接入类别在退避计数开始之前必须观察到的静默时长。',
-    } },
-    { kind: 'formula', text: {
-      en: 'AIFS[AC] = SIFS + AIFSN × slot = 16 + n × 9 µs',
-      zh: 'AIFS[AC] = SIFS + AIFSN × 时隙 = 16 + n × 9 µs',
+    { kind: 'formula', heading: { en: 'Where those waits come from', zh: '这些等待是怎么来的' }, text: {
+      en: 'silence = SIFS + n × slot = 16 + n × 9 µs,  n = 2, 3 or 7',
+      zh: '静默 = SIFS + n × 时隙 = 16 + n × 9 µs，n 取 2、3 或 7',
     }, note: {
-      en: 'n = 2 → 34 µs (VO, VI); n = 3 → 43 µs (BE); n = 7 → 79 µs (BK).',
-      zh: 'n = 2 → 34 µs（VO、VI）；n = 3 → 43 µs（BE）；n = 7 → 79 µs（BK）。',
+      en: 'The old one-size-fits-all wait was this same sum with n fixed at two. Nothing was invented; a constant was made into a parameter.',
+      zh: '过去那段“一刀切”的等待，就是这同一个式子把 n 钉死在 2。什么都没有新发明，只是把一个常数改成了参数。',
     } },
-    { text: {
-      en: 'Why was it invented? Because DCF’s DIFS was one-size-fits-all: every station waited exactly the same 34 µs, so the waiting stage was priority-blind and only the random draw decided. 802.11e needed priority without adding a scheduler — so it made the fixed wait programmable per class.',
-      zh: '为什么要发明它？因为 DCF 的 DIFS 是“一刀切”：所有站点等待完全相同的 34 µs，等待阶段对优先级视而不见，胜负全靠随机抽取。802.11e 要在不引入调度器的前提下实现优先级——于是把这段固定的等待改成了按类别可调的参数。',
-    } },
-    { text: {
-      en: 'Unlike the CW lottery, which is only a statistical bias, a shorter AIFS is a deterministic head start paid in every single contention round: while BK is still sitting out its 79 µs of mandatory silence, VO has already been counting down for 45 µs — and in those slots BK cannot even begin.',
-      zh: '与 CW 抽签只提供统计上的偏向不同，更短的 AIFS 是每一轮竞争都要兑现的确定性抢跑：当 BK 还在熬它那 79 µs 的强制静默时，VO 已经倒数了 45 µs——而在这些时隙里，BK 连开始的资格都没有。',
-    } },
-    { heading: { en: 'The xIFS family — one ladder, not rivals', zh: 'xIFS 家族——一把梯子，而非对手' }, text: {
-      en: 'Every interframe space is built from the same recipe, and the family is best read as one ladder:',
-      zh: '每一种帧间间隔都出自同一条配方，整个家族最好读成一把梯子：',
-    } },
-    { kind: 'formula', text: {
-      en: 'xIFS = SIFS + n × slot = 16 + n × 9 µs',
-      zh: 'xIFS = SIFS + n × 时隙 = 16 + n × 9 µs',
-    } },
-    { kind: 'table', head: [
-      { en: 'Space', zh: '间隔' }, N('n'), { en: 'Length', zh: '时长' }, { en: 'Role', zh: '角色' },
+    { kind: 'table', heading: { en: 'What the three stations actually did', zh: '三台终端实际的表现' }, head: [
+      { en: 'Station', zh: '终端' }, { en: 'Class', zh: '类别' }, { en: 'Silence', zh: '静默' },
+      { en: 'Draws', zh: '抽取次数' }, { en: 'Mean drawn', zh: '平均抽到' }, { en: 'Mean queue wait', zh: '平均排队时延' },
     ], rows: [
-      [N('SIFS'), N('0'), N('16 µs'), { en: 'Glue inside an exchange (before an ACK or CTS); not a contention wait at all.', zh: '交换内部的黏合剂（ACK、CTS 之前的间隙）；根本不是竞争等待。' }],
-      [N('PIFS'), N('1'), N('25 µs'), { en: 'Reserved for the AP’s scheduled, contention-free access (not modeled here).', zh: '留给 AP 的免竞争调度接入（本仿真器未建模）。' }],
-      [N('DIFS'), N('2'), N('34 µs'), { en: 'DCF’s fixed contention wait — in hindsight simply AIFS with AIFSN 2; this simulator models a legacy station as one pseudo-AC with AIFSN 2.', zh: 'DCF 的固定竞争等待——事后看，它不过是 AIFSN = 2 的 AIFS；本仿真器就是把传统站点建模为一个 AIFSN 为 2 的伪接入类别。' }],
-      [N('AIFS'), N('2, 3, 7'), N('34–79 µs'), { en: 'DIFS made per-class.', zh: '把 DIFS 变成按类别可调。' }],
-      [N('EIFS'), N('—'), N('94 µs'), { en: 'Not a rung: a penalty overlay after a corrupted reception.', zh: '不是梯子上的一级：收到损坏帧之后叠加的惩罚。' }],
+      [{ en: 'Caller', zh: '通话终端' }, N('VO'), N('34 µs'), N('33'), N('2.2'), N('1.49 ms')],
+      [{ en: 'Uploader', zh: '上传终端' }, N('BE'), N('43 µs'), N('107'), N('7.9'), N('2.23 ms')],
+      [{ en: 'Backup', zh: '备份终端' }, N('BK'), N('79 µs'), N('14'), N('8.2'), N('10.23 ms')],
     ] },
-    { kind: 'list', heading: { en: 'Do they work together or exclude each other? Together.', zh: '它们是协同工作还是互斥？协同。' }, items: [
-      { en: 'The ladder only creates priority because everyone is counting against the same silence at once.', zh: '这把梯子之所以能产生优先级，正是因为所有人同时对着同一段静默计时。' },
-      { en: 'A responder waiting SIFS always beats every contender waiting AIFS ≥ 34 µs: the ACK is protected by arithmetic, not by luck.', zh: '等 SIFS 的响应方永远赢过任何等 AIFS ≥ 34 µs 的竞争者：ACK 受算术保护，而不是靠运气。' },
-      { en: 'Within one device, all four ACs run their AIFS timers in parallel — the inspector’s IFS row shows them side by side.', zh: '在同一台设备内，四个 AC 的 AIFS 计时器并行运转——检视器的 IFS 一行会把它们并排列出。' },
-      { en: 'EIFS does not replace AIFS, it adds to it (§10.23.2.2):', zh: 'EIFS 也不是替换 AIFS，而是与它相加（§10.23.2.2）：' },
-    ] },
-    { kind: 'formula', text: {
-      en: 'wait after a corrupted frame = EIFS − DIFS + AIFS[AC]\nBE: 94 − 34 + 43 = 103 µs\nBK: 94 − 34 + 79 = 139 µs',
-      zh: '收到损坏帧后的等待 = EIFS − DIFS + AIFS[AC]\nBE：94 − 34 + 43 = 103 µs\nBK：94 − 34 + 79 = 139 µs',
-    }, note: {
-      en: 'Penalty and class-wait, composed. The uploader’s BE queue is the one that shows it here — hover its 103 µs defer blocks. The backup never gets one: a corrupted reception needs a preamble the radio actually locked onto, and the collisions in this scene bury both preambles at once.',
-      zh: '惩罚与类别等待，叠加而成。本场景里能看到它的是上传终端的 BE 队列——悬停它那些 103 µs 的等待色块。备份终端一次也没有：要有“损坏的接收”，先得有一个真正被锁定的前导码，而这个场景里的碰撞往往把两个前导码同时淹没。',
+    { heading: { en: 'The head start, measured', zh: '把抢跑量出来' }, text: {
+      en: 'The gap between the top row and the bottom one is 45 µs of silence — five slots in which the caller’s counter moves and the backup’s may not. Add the narrower draw, and the caller reaches zero from a mean of 2.2 slots against the backup’s 8.2.',
+      zh: '最上面一行和最下面一行之间，相差 45 µs 的静默——也就是五个时隙，在这五个时隙里通话终端的计数在走，备份终端的不许走。再加上更窄的抽取范围：通话终端平均从 2.2 个时隙数到零，备份终端则是 8.2 个。',
     } },
-    { heading: { en: 'CW — how big the lottery is, and how it doubles', zh: 'CW——抽签区间有多大，碰撞后怎么翻倍' }, text: {
-      en: '“CW 3–7” does not mean “draw a number between 3 and 7”. CW is the upper bound of the draw, and 3 and 7 are CWmin and CWmax — the smallest and largest that bound is ever allowed to be (§10.3.3).',
-      zh: '“CW 3–7”不是“从 3 到 7 里抽一个数”。CW 是抽取区间的上限，而 3 和 7 是 CWmin 与 CWmax——这个上限所允许的最小值和最大值（§10.3.3）。',
+    { heading: { en: 'The penalty is composed, not replaced', zh: '惩罚是叠加的，不是替换的' }, text: {
+      en: 'Only the uploader ever hears a frame arrive broken here, and its punishment wait is 103 µs: the old penalty, minus the old fixed wait, plus its own class wait. The backup never collects one — a reception has to start before it can fail, and the collisions in this room bury both preambles at once.',
+      zh: '这个房间里只有上传终端听到过坏掉的帧，它的惩罚等待是 103 µs：那段旧的惩罚，减去那段旧的固定等待，再加上它自己这一类的等待。备份终端一次都没摊上过——接收得先开始，才谈得上失败，而这个房间里的碰撞往往把两个前导一起淹没。',
     } },
-    { kind: 'formula', text: {
-      en: 'backoff = uniform random integer in [0, CW]',
-      zh: '退避计数 = [0, CW] 上均匀分布的随机整数',
+  ],
+  deeper: [
+    { heading: { en: 'When two of your own queues tie', zh: '当自己的两条队列打平' }, text: {
+      en: 'Four countdowns inside one radio can reach zero in the same slot, and only one frame can go out. The device resolves it in advance: the higher class transmits, and the lower one doubles its window and redraws exactly as if its frame had been lost in the air — an internal collision, paid without wasting a microsecond of airtime. Nothing of the sort happens in this room, because every station here runs a single class.',
+      zh: '一台电台里的四个倒数，完全可能在同一个时隙同时归零，而能发出去的只有一帧。设备会提前把这件事解决掉：高的那一类发送，低的那一类把窗口翻倍、重新抽取，完全当作自己的帧在空中丢了一样——这叫内部碰撞，代价付了，却没浪费一微秒的空口时间。本场景里不会出现这种情况，因为这里每台终端都只跑一类流量。',
     } },
-    { text: {
-      en: 'After a collision the standard never adds one to CW: it takes the next value in the series 2ⁿ − 1. Equivalently, new CW = 2 × old CW + 1. Both say the same thing — the number of candidates doubles:',
-      zh: '碰撞之后，标准不是“CW 加一”，而是“CW 取序列中的下一个值”，这个序列是 2ⁿ − 1。等价的算法是新 CW = 2 × 旧 CW + 1。两种说法本质相同——可选值的个数翻倍：',
+    { heading: { en: 'The whole ladder of waits', zh: '等待的整把梯子' }, text: {
+      en: 'Every wait in the protocol is the same sum, SIFS plus n slots, and the family reads as one ladder: n = 0 is the pause inside an exchange, n = 1 is reserved for an access point’s own scheduled access, n = 2 is the old fixed contention wait, and n = 2, 3 or 7 are the four classes. The penalty wait after a broken reception is not a rung of that ladder but an overlay on it, which is why it composes with a class wait instead of replacing it.',
+      zh: '协议里的每一种等待都是同一个和式：SIFS 加上 n 个时隙，整个家族可以读成一把梯子。n = 0 是一次交互内部的停顿，n = 1 留给 AP 自己的调度接入，n = 2 是那段旧的固定竞争等待，而 n = 2、3、7 就是四个类别。收到坏帧之后的惩罚等待不是梯子上的一级，而是叠加在梯子上的一层，所以它与类别等待相加，而不是把它替换掉。',
     } },
-    { kind: 'table', head: [
-      N('n'), N('CW = 2ⁿ − 1'), { en: 'Draw from', zh: '抽取区间' }, { en: 'Candidates', zh: '可选值个数' },
-    ], rows: [
-      [N('2'), N('3'), N('0–3'), N('4')],
-      [N('3'), N('7'), N('0–7'), N('8')],
-      [N('4'), N('15'), N('0–15'), N('16')],
-      [N('5'), N('31'), N('0–31'), N('32')],
-      [N('…'), N('…'), N('…'), N('…')],
-      [N('10'), N('1023'), N('0–1023'), N('1024')],
-    ] },
-    { text: {
-      en: 'Why doubling and not +1? A collision means there are too many contenders. Doubling the interval sharply raises the chance they spread out, whereas adding one value would change almost nothing. That is what “binary exponential backoff” means.',
-      zh: '为什么是翻倍而不是加一？碰撞说明竞争者太多。把区间加倍能让大家散开的概率大幅提高，加一的话只多一个值，几乎没用。这就是“二进制指数退避”名字的由来。',
+    { heading: { en: 'Why the window doubles rather than grows', zh: '窗口为什么是翻倍而不是加一' }, text: {
+      en: 'Each class has a smallest and a largest window, and the failures in between walk the series 2ⁿ − 1: 3, 7, 15, 31 and so on. Voice has only two rungs, 3 and 7, on purpose — a call that backs off for hundreds of slots is a call that has already failed — while background may climb all the way to 1023.',
+      zh: '每一类都有一个最小窗口和一个最大窗口，中间每失败一次，就沿着 2ⁿ − 1 这个序列往上走：3、7、15、31……语音故意只有两级，3 和 7——一通退避到几百个时隙的电话，其实已经失败了——而后台可以一路爬到 1023。',
     } },
-    { kind: 'steps', heading: { en: 'Voice’s full journey', zh: '语音流量的完整过程' }, items: [
-      { en: 'First attempt: CW = 3, draw from 0–3.', zh: '第一次发：CW = 3，从 0~3 抽。' },
-      { en: 'Collision: CW = 7, draw from 0–7 — not 0–4.', zh: '碰撞了：CW = 7，从 0~7 抽——不是 0~4。' },
-      { en: 'Another collision: the series says 15, but VO’s CWmax is 7, so it is capped and still draws 0–7 — however many collisions follow.', zh: '又碰撞了：按序列该到 15，但 VO 的 CWmax = 7，被封顶，还是从 0~7 抽——之后不管碰撞多少次都停在 7。' },
-      { en: 'Success, or a drop at the retry limit: CW resets to 3.', zh: '发成功了，或者重试次数用尽被丢包：CW 重置回 3。' },
-    ] },
-    { text: {
-      en: 'VO has only two rungs, 0–3 and 0–7, and that is deliberate — voice needs low delay and is never allowed to back off for hundreds of slots. Compare BK: it starts at 15 and may climb through 31, 63, 127, 255 and 511 to 1023 — seven rungs.',
-      zh: '所以对 VO 来说只有两档：0~3 和 0~7。这是故意设计的，语音要求低延迟，不允许它退避到几百个时隙那么久。对比 BK：从 15 起步，可以一路翻到 1023，中间要经过 31、63、127、255、511，共有七档。',
-    } },
-    { text: {
-      en: 'The four categories contend even inside one device: when two hit zero together, the higher AC transmits and the lower one doubles its CW as if it had collided (internal collision).',
-      zh: '四个类别在同一台设备内部也在竞争：若两个同时清零，高优先级类别发送，低优先级类别像真的碰撞了一样把 CW 翻倍（内部碰撞）。',
-    } },
+  ],
+  sources: [
+    { en: 'The four access categories and their default parameters are Table 9-194 of IEEE Std 802.11-2024 (the EDCA Parameter Set element, §9.4.2.28); AIFS[AC] = aSIFSTime + AIFSN × aSlotTime is §10.23.2.4, with 16 µs and 9 µs from §17.4.4.',
+      zh: '四个接入类别及其默认参数见 IEEE Std 802.11-2024 的 Table 9-194（EDCA 参数集元素，§9.4.2.28）；AIFS[AC] = aSIFSTime + AIFSN × aSlotTime 见 §10.23.2.4，其中 16 µs 与 9 µs 取自 §17.4.4。' },
+    { en: 'The internal collision rule — the higher category transmits, the lower invokes its backoff as after an external collision — is §10.23.2.2, which is also where the wait after a broken reception is given as EIFS − DIFS + AIFS[AC].',
+      zh: '内部碰撞的规则——高优先级类别发送，低优先级类别按外部碰撞进入退避——见 §10.23.2.2；收到坏帧之后的等待写作 EIFS − DIFS + AIFS[AC]，同样出自该条。' },
+    { en: 'The seed, the three stations, their traffic profiles and the capture margin that decides which of two overlapping preambles a radio locks onto are model choices of this simulator, not values from the standard.',
+      zh: '随机种子、三台终端、它们的业务模型，以及决定“两个重叠前导里锁住哪一个”的捕获余量，都是本仿真器的模型取值，而非标准中的数值。' },
   ],
   scenario: () => sc(oneRoom(), [
     node('ap', 'AP', 'ap', 5, 4, 'eht', 'idle'),
@@ -119,37 +133,48 @@ export const edca: Lesson = {
   ]),
   jumps: [
     J('first VO access', '第一次 VO 接入', firstVo),
-    J('first internal collision', '第一次内部碰撞', firstInternal),
+    J('first background frame', '后台终端的第一帧', (r) => r.type === 'TX_START' && r.node === 'sta-3' && r.frame.kind === 'data'),
+    J('first EIFS on the uploader', '上传终端的第一次 EIFS', (r) => r.type === 'IFS_START' && r.node === 'sta-2' && r.kind === 'EIFS'),
   ],
   observe: [
-    { en: 'Hover backoff blocks: the caller’s show AC_VO with tiny CW; the backup’s show AC_BK with CW 15+ and a longer AIFS.', zh: '悬停退避块：通话终端显示 AC_VO、CW 极小；备份终端显示 AC_BK、CW ≥ 15 且 AIFS 更长。' },
-    { en: 'The inspector’s per-AC table shows each queue contending independently.', zh: '检视器的分 AC 表格显示每条队列独立竞争。' },
-    { en: 'Voice frames get through with low delay even while the uploader saturates the channel.', zh: '即使上传终端把信道打满，语音帧的时延依然很低。' },
+    { en: 'Hover the caller’s countdown blocks: they are marked AC_VO and the window on them is never wider than 7. The backup’s say AC_BK, never narrower than 15, above a silence of 79 µs.', zh: '把鼠标悬在通话终端的倒数色块上：它们标着 AC_VO，块上的窗口从不宽过 7。备份终端的块标着 AC_BK，从不窄于 15，而且上面那段静默是 79 µs。' },
+    { en: 'Jump to the backup’s first frame: it is 55 ms into the run. The uploader has been sending since 0.088 ms, and the caller first speaks at 23 ms.', zh: '跳到备份终端的第一帧：它落在整轮的第 55 ms。上传终端从 0.088 ms 起就一直在发，而通话终端第一次开口是在 23 ms。' },
+    { en: 'Over 300 ms the caller draws a countdown 33 times and the backup only 14 — and the backup’s frames still wait about seven times longer in their queue.', zh: '在 300 ms 里，通话终端抽了 33 次倒数，备份终端只抽了 14 次——可备份终端的帧在队列里等的时间，依然是通话的约七倍。' },
   ],
   tryThis: [
-    { en: 'Turn EDCA off on the caller (features) and compare its delay against the saturated uploader.', zh: '关闭通话终端的 EDCA 功能，再比较它在饱和上传旁的时延。' },
-    { en: 'Change the uploader’s traffic to voice too — watch two VO queues collide more often.', zh: '把上传终端的业务也改成语音——观察两条 VO 队列更频繁地相撞。' },
+    { en: 'Turn EDCA off on the caller in the features panel and reload. It falls back to one queue with the old fixed wait and the old wide window, and its frames wait about two and a half times longer.', zh: '在功能面板里关掉通话终端的 EDCA 再载入。它退回成单队列，用回那段旧的固定等待和旧的宽窗口，它的帧要多等大约两倍半的时间。' },
+    { en: 'Change the uploader’s traffic to voice as well and reload: two voice queues now draw from the same tiny range, and they collide with each other far more often than before.', zh: '把上传终端的业务也改成语音再载入：两条语音队列现在从同一个极小的范围里抽数，它们互相碰撞的频率比之前高得多。' },
   ],
   quiz: [
     {
-      q: { en: 'How does AC_VO actually get priority over AC_BK?', zh: 'AC_VO 究竟是如何压过 AC_BK 的？' },
+      q: { en: 'How does the voice queue actually get ahead of the background queue?', zh: '语音队列究竟是怎么跑到后台队列前面的？' },
       options: [
-        { en: 'The AP polls voice stations first', zh: 'AP 先轮询语音终端' },
-        { en: 'Shorter AIFS and a much smaller contention window make it statistically win the lottery', zh: '更短的 AIFS 和小得多的竞争窗口让它在“抽签”中统计性获胜' },
-        { en: 'Voice frames preempt ongoing transmissions', zh: '语音帧可以抢断正在进行的传输' },
+        { en: 'The access point serves voice stations first', zh: 'AP 优先服务语音终端' },
+        { en: 'It hears a shorter silence before counting, and draws its countdown from a narrower range', zh: '它开始倒数前要听的静默更短，而且倒数值是从更窄的范围里抽的' },
+        { en: 'Voice frames push aside whatever is already being sent', zh: '语音帧可以把正在发送的东西挤开' },
       ],
       answer: 1,
-      explain: { en: 'EDCA never interrupts a frame in flight — it only biases who wins the next idle slot.', zh: 'EDCA 从不打断空中的帧——它只是让下一个空闲时隙更可能属于谁。' },
+      explain: { en: 'Two numbers, no scheduler: a class that may start counting sooner and from a smaller number reaches zero sooner, most of the time.', zh: '两个数，没有调度器：一个能更早开始数、又从更小的数开始数的类别，多数时候会更早数到零。' },
     },
     {
-      q: { en: 'In an internal collision between AC_VI and AC_BE in one device…', zh: '同一设备内 AC_VI 与 AC_BE 发生内部碰撞时……' },
+      q: { en: 'A voice frame is queued while a neighbour is halfway through a long burst. What happens to it?', zh: '一帧语音入队时，邻居正发到一串长突发的一半。它会怎么样？' },
       options: [
-        { en: 'both transmit on different channels', zh: '两者在不同信道上同时发送' },
-        { en: 'AC_VI transmits; AC_BE doubles its CW as after a real collision', zh: 'AC_VI 发送；AC_BE 像真碰撞一样把 CW 翻倍' },
-        { en: 'the frame queued first wins', zh: '先入队的帧获胜' },
+        { en: 'It interrupts the burst, because voice has priority', zh: '它打断那串突发，因为语音有优先级' },
+        { en: 'It waits for the burst to end, then contends with a head start for the next turn', zh: '它等那串突发结束，然后带着抢跑的优势去争下一轮' },
+        { en: 'It is dropped, because the channel is busy', zh: '它被丢掉，因为信道忙' },
       ],
       answer: 1,
-      explain: { en: '§10.23.2.2: the higher AC gets the TXOP; lower ACs invoke their backoff as for an external collision.', zh: '§10.23.2.2：高优先级类别获得 TXOP；低优先级类别按外部碰撞处理进入退避。' },
+      explain: { en: 'Priority is decided entirely in the silence between frames. Nothing in this mechanism can touch a transmission that has already started.', zh: '优先级完全是在帧与帧之间的静默里决出来的。这套机制里没有任何东西能动一下已经开始的传输。' },
+    },
+    {
+      q: { en: 'What does the background class pay for everyone else’s head start?', zh: '为了别人的抢跑，后台这一类付出了什么？' },
+      options: [
+        { en: 'A lower data rate', zh: '更低的数据速率' },
+        { en: 'The longest silence and the widest draw, so its frames sit in the queue far longer', zh: '最长的静默和最宽的抽取范围，于是它的帧在队列里待得久得多' },
+        { en: 'Nothing: the classes never interfere', zh: '什么都没付：四个类别互不干扰' },
+      ],
+      answer: 1,
+      explain: { en: 'There is one channel. Anything given to one class is taken from another — which is exactly what a backup is supposed to give up.', zh: '信道只有一条。给了某一类的东西，必然是从另一类身上拿的——而一次备份，本来就该让出这些。' },
     },
   ],
 }
