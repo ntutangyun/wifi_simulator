@@ -27,8 +27,11 @@ describe('the narrowband PHY', () => {
     expect(nbPpduNs(13) - nbPpduNs(12)).toBe(2 * 16_000)
   })
 
-  it('numbers its four message kinds as the draft’s compressed PSDU does', () => {
-    expect(NB_MSG_ID).toEqual({ poll: 0x04, resp: 0x05, reportInitiator: 0x06, reportResponder: 0x07 })
+  it('numbers its message kinds as the draft’s compressed PSDU does, pairwise and one-to-many', () => {
+    expect(NB_MSG_ID).toEqual({
+      poll: 0x04, resp: 0x05, reportInitiator: 0x06, reportResponder: 0x07,
+      pollOtm: 0x10, respOtm: 0x11, reportResponderOtm: 0x12, reportInitiatorOtm: 0x13,
+    })
   })
 })
 

@@ -95,5 +95,7 @@ export function fmtUwbRecord(r: UwbTLRecord): string {
           : '')
         + ` → ${r.detected ? 'detected' : 'lost'}`
         + (r.ratioPpm !== null ? `, ratio ${r.ratioPpm.toFixed(3)} ppm` : '')
+        // One-to-many only: who else was in the round the train went out to.
+        + (r.responders ? ` · responders ${r.responders.join(', ')}` : '')
   }
 }

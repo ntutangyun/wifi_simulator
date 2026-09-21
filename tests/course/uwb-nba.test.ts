@@ -312,7 +312,9 @@ describe('uwb-nba · the grid underneath and the train on top', () => {
 
 describe('uwb-nba · what the depth says', () => {
   it('the compressed payload: one message-ID octet, the fields, a two-octet check', () => {
-    expect(NB_MSG_ID).toEqual({ poll: 0x04, resp: 0x05, reportInitiator: 0x06, reportResponder: 0x07 })
+    // The lesson teaches the pairwise four; the one-to-many four (0x10…0x13) are the same
+    // table's other half and are pinned in tests/uwb/nb.test.ts.
+    expect(NB_MSG_ID).toMatchObject({ poll: 0x04, resp: 0x05, reportInitiator: 0x06, reportResponder: 0x07 })
     expect(NB_MSG_ID_BYTES).toBe(1)
     expect(NB_CRC_BYTES).toBe(2)
     expect(NB_REPORT_BYTES - NB_POLL_BYTES).toBe(1) // the payload-length octet with no payload

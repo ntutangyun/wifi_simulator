@@ -417,6 +417,20 @@ export function EditorGuideEn() {
         from the fragment train it heard, or from the narrowband carrier estimate when that train
         gave it a single fragment.
       </D>
+      <D t="One-to-many round">
+        one round, one initiator, and <i>every</i> anchor of the session as its responders. The
+        tag&rsquo;s POLL becomes a broadcast that names them all, its fragment train goes out once
+        and all of them hear it, and each anchor then answers in a narrowband window, ranging
+        slots and a pair of report windows of its own — so the tag walks out of a single round
+        with a range to every anchor, where the pairwise cycle needs one round per pair. Two
+        things follow and are worth knowing before you switch it on. A millisecond of the ranging
+        phase becomes one slot per device instead of two, so with three responders at the
+        draft&rsquo;s 600 RSTU slot the fragments really are 2 ms apart, not 1 ms — the ruler the
+        train hands the receiver is that span, and the engine measures the clock ratio over it
+        rather than over a nominal millisecond. And the POLL grows by three octets per responder,
+        so at that slot the round holds at most three of them before the message outlives its
+        two-slot window; the section&rsquo;s red line says so when it does.
+      </D>
 
       <h4 style={h}>Wall properties</h4>
       <D t="Material">
@@ -779,6 +793,16 @@ export function EditorGuideZh() {
         一次测距由两个时间构成，而每一方各自只能测到其中之一——发起方测往返时间，响应方测回复时间——
         因此只有收到对方报告的一方才产出距离，这也就决定了测距结果会出现在谁的泳道上。用来修正的时钟比率
         则是它自己的：来自它听到的那列片段序列；若该序列只给了它一个片段，就改用窄带载波频偏估计。
+      </D>
+      <D t="一对多轮次">
+        一个轮次里只有一个发起方，而会话中的<i>每一个</i>锚点都是它的响应方。标签的 POLL 变成一条点名
+        所有响应方的广播，它那列片段序列只发一次、所有锚点同时收听，随后每个锚点在自己的窄带窗口、自己的
+        测距时隙和属于自己的那一对报告窗口里回应——于是标签只用一个轮次就能得到到每个锚点的距离，而成对
+        轮次需要每一对各跑一个轮次。开启之前有两点值得先知道。测距阶段的一毫秒会变成「每台设备一个时隙」
+        而不是两个，所以在草案默认的 600 RSTU 时隙下、带三个响应方时，片段之间真正的间隔是 2 ms 而不是
+        1 ms——片段序列交给接收端的那把尺子就是这段间隔，引擎也按它来测时钟比率，而不是按名义上的一毫秒。
+        另外，POLL 每多一个响应方就多三个字节，因此在该时隙下一个轮次最多容纳三个响应方，再多这条消息就
+        装不进它那两个时隙的窗口；真到那一步，本节下方的红色提示会直接说出来。
       </D>
 
       <h4 style={h}>墙体属性</h4>

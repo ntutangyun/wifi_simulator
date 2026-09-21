@@ -20,7 +20,7 @@
 import type { NbLbt, NbReportMode, UwbMode, UwbSessionCfg } from '../model/scenario'
 import type { Ns } from '../model/types'
 import { mmsLayout, type MmsLayout, type MmsPhy } from './mms'
-import { rstuNs, uwbSlotsPerTag } from './phy'
+import { mmsResponders, rstuNs, uwbSlotsPerTag } from './phy'
 
 export { rstuNs }
 
@@ -51,6 +51,21 @@ export interface RoundPlan {
 export interface MmsRoundPlan {
   phy: MmsPhy
   layout: MmsLayout
+  /** The round is one initiator and every anchor of the session (P802.15.4ab one-to-many
+   * ranging), rather than one tag–anchor pair. `layout.responders` is the count it implies. */
+  oneToMany: boolean
+  /**
+   * How far apart this round actually spaces one train's fragments, in nanoseconds: the
+   * (R + 1) slots one "millisecond" of the ranging phase is made of. At the draft's 600 RSTU
+   * slot and one responder it is a true millisecond (`MS_NS`), which is the case every shipped
+   * scene runs; a one-to-many round stretches it unless the slot is shortened to 1 ms / (R + 1).
+   *
+   * The receiver measures its clock ratio and walks its RMARKER back over *this* span rather
+   * than over the nominal millisecond, because this is the span the schedule really produced —
+   * a receiver that assumed 1 ms in a round that spaces them at 2 ms would read a clock ratio of
+   * 2 and a range of tens of kilometres.
+   */
+  fragGapNs: Ns
   report: NbReportMode
   /** The session's narrowband allow list; the block's own channel is drawn from it per block. */
   nbChannels: number[]
@@ -80,7 +95,9 @@ export function roundPlan(cfg: UwbSessionCfg, anchors: number): RoundPlan {
       ? {
         mms: {
           phy: { ...cfg.mms },
-          layout: mmsLayout(cfg.mms),
+          layout: mmsLayout(cfg.mms, mmsResponders(cfg.mms, anchors)),
+          oneToMany: cfg.mms.oneToMany,
+          fragGapNs: (mmsResponders(cfg.mms, anchors) + 1) * slotNs,
           report: cfg.mms.report,
           nbChannels: [...cfg.mms.nbChannels],
           nbLbt: cfg.mms.nbLbt,
@@ -162,9 +179,16 @@ function mmsSlotAction(p: RoundPlan, slot: number): SlotAction {
   }
   const { layout, report } = m
   // --- control ---
+  // The initiator's POLL opens the round, and every responder then answers in a RESP window of
+  // its own — one window in a pair round, N in a one-to-many one, in responder order (4ab draft
+  // 15-22/0381r5 Table 1.6.3.1, POLL 0x10 carries the responder list its slots follow).
   if (slot === 0) return { kind: 'nbPoll', tx: 'tag' }
-  if (slot === 2) return { kind: 'nbResp', tx: 'anchor', anchor: 0 }
-  if (slot === 1 || slot === 3) return { kind: 'idle' }
+  if (slot < layout.controlSlots) {
+    for (let k = 0; k < layout.responders; k++) {
+      if (slot === layout.respSlot(k)) return { kind: 'nbResp', tx: 'anchor', anchor: k }
+    }
+    return { kind: 'idle' }
+  }
   // --- ranging ---
   // The one map, read backwards: `mmsLayout.slotFragment` is built from the same arithmetic as
   // `fragmentSlot`, which is what the devices place their own fragments with. The idle
@@ -176,16 +200,18 @@ function mmsSlotAction(p: RoundPlan, slot: number): SlotAction {
     return {
       kind: frag.kind === 'rsf' ? 'uwbRsf' : 'uwbRif',
       tx: frag.side === 'initiator' ? 'tag' : 'anchor',
-      anchor: 0,
+      anchor: frag.responder,
       index: frag.index,
     }
   }
   // --- report ---
-  if (slot === layout.reportSlot('responder')) {
-    return report === 'initiator' ? { kind: 'idle' } : { kind: 'nbReport', tx: 'anchor', anchor: 0 }
-  }
-  if (slot === layout.reportSlot('initiator')) {
-    return report === 'responder' ? { kind: 'idle' } : { kind: 'nbReport', tx: 'tag', anchor: 0 }
+  for (let k = 0; k < layout.responders; k++) {
+    if (slot === layout.reportSlot('responder', k)) {
+      return report === 'initiator' ? { kind: 'idle' } : { kind: 'nbReport', tx: 'anchor', anchor: k }
+    }
+    if (slot === layout.reportSlot('initiator', k)) {
+      return report === 'responder' ? { kind: 'idle' } : { kind: 'nbReport', tx: 'tag', anchor: k }
+    }
   }
   return { kind: 'idle' }
 }

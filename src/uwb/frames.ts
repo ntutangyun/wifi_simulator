@@ -8,7 +8,7 @@ import type { FrameDesc, FrameKind } from '../model/frames'
 import type { Ns } from '../model/types'
 import { mmsFragmentDbm, rifNs, rsfNs, type MmsPhy } from './mms'
 import {
-  NB_MSG_ID, NB_POLL_BYTES, NB_REPORT_BYTES, NB_RESP_BYTES, nbCenterMhz, nbPpduNs,
+  NB_MSG_ID, NB_POLL_BYTES, NB_REPORT_BYTES, NB_RESP_BYTES, nbCenterMhz, nbOtmPollBytes, nbPpduNs,
 } from './nb'
 import {
   UWB_BLINK_BYTES, UWB_REPORT_BYTES, uwbDlFinalBytes, uwbDlPollBytes, uwbDlRespBytes,
@@ -84,6 +84,11 @@ export interface UwbNbMsg {
   replyRctu?: number
   /** Initiator's REPORT: the TurnAroundTime it measured, in RCTU. */
   roundTripRctu?: number
+  /** One-to-many POLL: the responders this round is addressed to, in slot order — the draft's
+   * Number of Responders, SlotsPerResponder and Responder Address list (4ab draft
+   * 15-22/0381r5 Table 1.6.3.1, 0x10). A responder that does not find itself here is not in
+   * this round. */
+  responders?: string[]
 }
 
 /** The ranging fields of a UWB frame; present on the UWB kinds only. */
@@ -120,6 +125,10 @@ export interface UwbInfo {
  * builder takes txTimeNs from uwbPpduNs(); mbps is carried for display only.
  */
 export const UWB_MBPS = 6.81
+
+/** The destination of a frame addressed to the whole round rather than to one device — the Poll,
+ * the Final, a blink, and the two one-to-many narrowband broadcasts. */
+export const UWB_BROADCAST = '*'
 
 function uwbFrame(kind: UwbFrameKind, src: string, dst: string, bytes: number, uwb: UwbInfo): FrameDesc {
   return { kind, src, dst, bytes, mbps: UWB_MBPS, durationFieldNs: 0, txTimeNs: uwbPpduNs(bytes), uwb }
@@ -330,11 +339,26 @@ export function makeNbPoll(tag: string, anchor: string, channel: number, block: 
   })
 }
 
-/** The responder's narrowband RESP: it heard the POLL and will range.
+/** The initiator's one-to-many POLL (message 0x10): one broadcast that opens the round for every
+ * responder it names, and tells each of them which slots are its own.
  * 4ab draft 15-22/0381r5 Table 1.6.3.1 */
-export function makeNbResp(anchor: string, tag: string, channel: number, block: number, round: number): FrameDesc {
-  return nbFrame('nbResp', anchor, tag, NB_RESP_BYTES, block, round, NB_RESP_SLOT, {
-    channel, msgId: NB_MSG_ID.resp,
+export function makeNbPollOtm(
+  tag: string, responders: string[], channel: number, block: number, round: number,
+): FrameDesc {
+  return nbFrame('nbPoll', tag, UWB_BROADCAST, nbOtmPollBytes(responders.length), block, round, NB_POLL_SLOT, {
+    channel, msgId: NB_MSG_ID.pollOtm, responders: [...responders],
+  })
+}
+
+/** The responder's narrowband RESP: it heard the POLL and will range. In a one-to-many round it
+ * answers in its own RESP window, which is why the slot is passed rather than fixed.
+ * 4ab draft 15-22/0381r5 Table 1.6.3.1 */
+export function makeNbResp(
+  anchor: string, tag: string, channel: number, block: number, round: number,
+  slot: number = NB_RESP_SLOT, otm = false,
+): FrameDesc {
+  return nbFrame('nbResp', anchor, tag, NB_RESP_BYTES, block, round, slot, {
+    channel, msgId: otm ? NB_MSG_ID.respOtm : NB_MSG_ID.resp,
   })
 }
 
@@ -347,6 +371,9 @@ export function makeNbResp(anchor: string, tag: string, channel: number, block: 
 export function makeNbReport(
   src: string, dst: string, channel: number, block: number, round: number, slot: number,
   times: { replyRctu?: number; roundTripRctu?: number },
+  /** One-to-many round: the same message, under the message ids the draft gives it (0x12 from a
+   * responder, 0x13 from the initiator). 4ab draft 15-22/0381r5 Table 1.6.3.1 */
+  otm = false,
 ): FrameDesc {
   // A REPORT exists to carry one of the two times, and which one is there is what names the
   // message. With neither, the message id would be a guess and the receiver would have nothing
@@ -356,9 +383,12 @@ export function makeNbReport(
   }
   return nbFrame('nbReport', src, dst, NB_REPORT_BYTES, block, round, slot, {
     channel,
-    msgId: times.replyRctu !== undefined ? NB_MSG_ID.reportResponder : NB_MSG_ID.reportInitiator,
+    msgId: times.replyRctu !== undefined
+      ? (otm ? NB_MSG_ID.reportResponderOtm : NB_MSG_ID.reportResponder)
+      : (otm ? NB_MSG_ID.reportInitiatorOtm : NB_MSG_ID.reportInitiator),
     // Absent, not undefined, so a REPORT compares equal to a hand-built one.
     ...(times.replyRctu !== undefined ? { replyRctu: times.replyRctu } : {}),
     ...(times.roundTripRctu !== undefined ? { roundTripRctu: times.roundTripRctu } : {}),
   })
 }
+

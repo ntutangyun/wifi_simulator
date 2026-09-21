@@ -33,6 +33,18 @@ export interface Emission {
    * `wifiToUwbPathLossDb`, a UWB frame `uwbToWifiPathLossDb` bound to its channel, and a
    * narrowband 4ab message its own free-space law at its 2.5 MHz centre. */
   lossDb: (dM: number, wallsDb: number) => number
+  /**
+   * The one receiver this emission is *for*, when it has one: an MMS fragment train addressed to
+   * a single device (P802.15.4ab). It scopes **competition for a radio**, not power — the UWB
+   * medium reads it so that a fragment aimed at the initiator cannot knock a different
+   * responder off the train it is accumulating, which is what makes a one-to-many round's N
+   * responder trains independent of one another.
+   *
+   * The mediator itself never reads it, and must not: foreign power is power wherever it lands,
+   * and a Wi-Fi receiver beside a scoped fragment is interfered with exactly as much as it
+   * would be by a broadcast one. Undefined on every broadcast emission, and on every Wi-Fi one.
+   */
+  rxId?: string
 }
 
 /** `LINK_EXTRA_LOSS_DB['6g']` in `simulation.ts`; repeated here so the mediator stays free of the

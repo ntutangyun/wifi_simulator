@@ -169,6 +169,7 @@ export interface Strings {
     uwbNbChannels: string; uwbNbChannelsHint: string; uwbNbChannelsBad: string
     uwbNbLbt: string; uwbNbLbtHint: string; uwbNbLbts: Record<NbLbt, string>
     uwbReport: string; uwbReportHint: string; uwbReports: Record<NbReportMode, string>
+    uwbOneToMany: string; uwbOneToManyHint: string
     /** Why the SS/DS select is greyed out in MMS mode. */
     uwbMmsSsOnly: string
     /** The read-only line under the MMS fields: fragment length, its power and the round. */
@@ -569,6 +570,8 @@ export const STRINGS: Record<Lang, Strings> = {
         initiator: 'initiator reports — the responder ranges',
         bi: 'both report',
       },
+      uwbOneToMany: 'One-to-many round',
+      uwbOneToManyHint: 'one round, one initiator and every anchor of the session as its responders (4ab draft 15-22/0381r5 Table 1.6.3.1: the one-to-many POLL 0x10 carries Number of Responders, SlotsPerResponder and the responder address list, and 0x12/0x13 are its reports). The tag’s fragment train goes out once and every anchor hears it; each anchor answers in a narrowband window and ranging slots of its own, so a millisecond of the ranging phase is one slot per device rather than two, and the tag comes out of a single round with a range to every anchor. Off — the default — a round is one tag–anchor pair and a block holds one round per pair. The slot interleave inside a millisecond is this engine’s (model); the messages and the per-responder allocation are the draft’s.',
       uwbMmsSsOnly: 'MMS ranges single-sided and corrects it with the clock ratio the fragment train itself measures — a millisecond-long ruler leaves nothing for a double-sided round to cancel, so there is no MMS DS-TWR to pick',
       uwbMmsDerived: (rsfUs, longestUs, fragDbm, slots, roundMs) =>
         `RSF ${rsfUs} µs · longest fragment ${longestUs} µs at ${fragDbm} dBm · round ${slots} slots · ${roundMs} ms`,
@@ -808,6 +811,7 @@ export const STRINGS: Record<Lang, Strings> = {
           nbChannel: 'Narrowband channel · where it was sent',
           nbFields: 'Message fields · the draft’s table, as octets',
           nbTime: 'Ranging time · the number the range is computed from',
+          nbResponders: 'Responder list · who this one-to-many round is for',
         },
         bit: {
           protocolVersion: 'Protocol Version', type: 'Type', subtype: 'Subtype', toDs: 'To DS', fromDs: 'From DS',
@@ -1120,6 +1124,8 @@ export const STRINGS: Record<Lang, Strings> = {
       uwbNbLbts: { auto: '自动——信道号 ≥ 50 时开启', on: '始终开启', off: '关闭' },
       uwbReport: '报告方式',
       uwbReportHint: '成对轮次结束时由哪一方发送窄带测量报告：响应方用第一个报告时隙、发起方用第二个，或者两方都发（4ab 草案 15-22/0381r5 Table 1.1.4.1）。算一次距离需要往返时间和回复时间，而每一方各自只能测到其中之一——因此只有收到报告的一方才算得出距离。用来修正的时钟比率则来自它自己那列片段序列；若序列只给了它一个片段，就改用窄带载波频偏估计。',
+      uwbOneToMany: '一对多轮次',
+      uwbOneToManyHint: '一个轮次里只有一个发起方，而会话中的每个锚点都是它的响应方（4ab 草案 15-22/0381r5 Table 1.6.3.1：一对多 POLL 0x10 携带响应方数量、每响应方时隙数以及响应方地址列表，0x12/0x13 则是它的报告消息）。标签的片段序列只发一次，所有锚点同时收听；每个锚点在自己的窄带窗口和自己的测距时隙里回应，于是测距阶段的一毫秒是「每台设备一个时隙」而不是两个，标签只用一个轮次就能得到到每个锚点的距离。关闭（默认）时一个轮次只是一对标签–锚点，一个测距块要装下每一对各一个轮次。一毫秒内各时隙的交错顺序是本引擎的取值（模型）；消息格式与「每响应方分配时隙」则来自草案。',
       uwbReports: {
         responder: '响应方发报告——由发起方测距',
         initiator: '发起方发报告——由响应方测距',
@@ -1365,6 +1371,7 @@ export const STRINGS: Record<Lang, Strings> = {
           nbChannel: '窄带信道·在哪个信道上发出',
           nbFields: '消息字段·草案表格中的其余字段，按字节计',
           nbTime: '测距时间·计算距离所用的那个数',
+          nbResponders: '响应方列表·这一轮一对多测距是发给谁的',
         },
         bit: {
           protocolVersion: '协议版本', type: '类型', subtype: '子类型', toDs: 'To DS', fromDs: 'From DS',

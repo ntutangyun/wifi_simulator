@@ -1,7 +1,7 @@
 import type { Material, UwbMode } from '../model/scenario'
 import type { Ns } from '../model/types'
 import { mmsLayout, mmsLongestFragmentNs, type MmsPhy } from './mms'
-import { NB_REPORT_BYTES, nbPpduNs } from './nb'
+import { NB_REPORT_BYTES, nbOtmPollBytes, nbPpduNs } from './nb'
 import { chipsToNs, freeSpacePl0Db, UWB_CHIP_HZ, UWB_CHIP_NS, UWB_RX_SENS_DBM } from './units'
 
 // --- Chip, RCTU, RSTU units -------------------------------------------------
@@ -316,6 +316,18 @@ export function rstuNs(rstu: number): Ns {
   return Math.round((rstu * RSTU_CHIPS * 1000) / 499.2)
 }
 
+/** A train shape plus the one session switch that decides how many responders a round holds.
+ * `UwbMmsCfg` satisfies it; a bare `MmsPhy` does too, and reads as pairwise. */
+export type MmsRoundShape = MmsPhy & { oneToMany?: boolean }
+
+/** How many responders one MMS round holds: every anchor of the session in a one-to-many round
+ * (4ab draft 15-22/0381r5 Table 1.6.3.1, POLL 0x10 `Number of Responders`), and one — the pair's
+ * own anchor — otherwise. A session with no anchor at all still lays out a one-responder round:
+ * the schema refuses that scenario, and a zero-responder layout has no slots to refuse it in. */
+export function mmsResponders(mms: MmsRoundShape, anchors: number): number {
+  return mms.oneToMany ? Math.max(1, anchors) : 1
+}
+
 /** Ranging slots one tag needs per round: poll + one response each (SS), plus final + one
  * report each (DS); a contention round (schedule mode 0, standard §10.32.2) instead reserves
  * poll + a fixed response-phase window of `contentionSlots` slots any anchor may answer in
@@ -325,16 +337,18 @@ export function rstuNs(rstu: number): Ns {
  * One-way ranging counts its slots differently, because the tag is not what the round is built
  * around: a DL-TDoA round is the anchors' own (Poll + N−1 Responses + Final = N + 1 slots) and
  * every tag in the scenario listens to that same round, while a UL-TDoA round is one blink slot
- * and belongs to one tag. An MMS round is pairwise — one tag and one anchor — and its length is
- * the train's, not the anchor count's: `mmsLayout` counts its slots, so a tag needs that many
- * per anchor (4ab draft 15-22/0381r5 §1.1). */
+ * and belongs to one tag. An MMS round is pairwise by default — one tag and one anchor — and its
+ * length is the train's, not the anchor count's: `mmsLayout` counts its slots, so a tag needs
+ * that many per anchor (4ab draft 15-22/0381r5 §1.1). A one-to-many MMS round instead holds
+ * every anchor at once, and grows by a slot per responder per millisecond and by a narrowband
+ * window per responder at each end — `mmsResponders` is the one place that count is decided. */
 export function uwbSlotsPerTag(
   method: 'ss' | 'ds', anchors: number, schedule: 'time' | 'contention' = 'time', contentionSlots = 8,
-  mode: UwbMode = 'twr', mms?: MmsPhy,
+  mode: UwbMode = 'twr', mms?: MmsRoundShape,
 ): number {
   if (mode === 'mms') {
     if (!mms) throw new Error("uwbSlotsPerTag: mode 'mms' needs the session's MMS parameters")
-    return mmsLayout(mms).slots
+    return mmsLayout(mms, mmsResponders(mms, anchors)).slots
   }
   if (mode === 'ul-tdoa') return 1
   if (mode === 'dl-tdoa') return anchors + 1
@@ -378,7 +392,7 @@ export function uwbLongestFrameBytes(
  * In MMS it is the longest fragment of the train plus the same guard: a 256-unit RIF is 262.6 µs
  * and does not fit the 250 µs a 300 RSTU slot gives it. */
 export function uwbSlotFitNs(
-  anchors: number, mode: UwbMode = 'twr', schedule: 'time' | 'contention' = 'time', mms?: MmsPhy,
+  anchors: number, mode: UwbMode = 'twr', schedule: 'time' | 'contention' = 'time', mms?: MmsRoundShape,
 ): Ns {
   if (mode === 'mms') {
     if (!mms) throw new Error("uwbSlotFitNs: mode 'mms' needs the session's MMS parameters")
@@ -387,12 +401,15 @@ export function uwbSlotFitNs(
   return uwbPpduNs(uwbLongestFrameBytes(anchors, mode, schedule)) + UWB_SLOT_GUARD_NS
 }
 
-/** The room an MMS round's narrowband control and report messages need. They are far longer
- * than any fragment — 608 µs against 82 µs — and the draft gives each of them two slots
- * (RcpPollSlot, RcpResponseSlot, MrpFirstSlot, MrpSecondSlot are all 2), so this is what two
- * slots together have to hold. 4ab draft 15-22/0381r5 §1.1 */
-export function uwbNbSlotFitNs(): Ns {
-  return nbPpduNs(NB_REPORT_BYTES) + UWB_SLOT_GUARD_NS
+/** The room an MMS round's longest narrowband message needs. They are far longer than any
+ * fragment — 608 µs against 82 µs — and the draft gives each of them two slots (RcpPollSlot,
+ * RcpResponseSlot, MrpFirstSlot, MrpSecondSlot are all 2), so this is what two slots together
+ * have to hold. 4ab draft 15-22/0381r5 §1.1 */
+export function uwbNbSlotFitNs(responders = 1): Ns {
+  // A one-to-many POLL names its responders — two content octets plus three per address — and
+  // overtakes the REPORT as the round's longest narrowband message from four responders up.
+  const octets = Math.max(NB_REPORT_BYTES, responders > 1 ? nbOtmPollBytes(responders) : 0)
+  return nbPpduNs(octets) + UWB_SLOT_GUARD_NS
 }
 
 // --- Figure of Merit -----------------------------------------------------------

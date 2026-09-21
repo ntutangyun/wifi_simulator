@@ -10,9 +10,10 @@
  * session changes nothing here — the grid reserves a response window, and the
  * anchors, not the network, decide which slot of it each of them answers in.
  *
- * Tag k owns round k of every block. Anchors serve every round. An MMS round is pairwise
- * instead — tag t and anchor k own round t·A + k, and no other device is in it — so a block
- * holds one round per pair. DL-TDoA turns that around: the
+ * Tag k owns round k of every block. Anchors serve every round. An MMS round is pairwise by
+ * default — tag t and anchor k own round t·A + k, and no other device is in it — so a block
+ * holds one round per pair; with `mms.oneToMany` the tag's round holds every anchor at once and
+ * a block is back to one round per tag. DL-TDoA turns that around: the
  * anchors own the one round a block holds, and every tag in the scenario listens to it. UL-TDoA
  * keeps the round-per-tag grid but empties the round out to a single slot: the tag blinks in it,
  * every anchor listens, and the infrastructure does the arithmetic afterwards.
@@ -59,17 +60,21 @@ export class UwbNetwork {
     // number of tags — the rule below is a two-way-ranging (and UL-TDoA) rule, and the schema
     // skips it in this mode for the same reason.
     const listenOnly = this.plan.mode === 'dl-tdoa'
-    // An MMS session is pairwise: one round holds one tag and one anchor, so a block has to
-    // hold a round per *pair* rather than one per tag (4ab draft 15-22/0381r5 §1.1).
+    // A pairwise MMS round holds one tag and one anchor, so a block has to hold a round per
+    // *pair* rather than one per tag (4ab draft 15-22/0381r5 §1.1); a one-to-many round holds
+    // the whole ring, and a block is one round per tag again.
     const mmsPlan = this.plan.mms ?? null
-    const pairwise = mmsPlan !== null
+    // Every MMS session ends a round the same way — nothing travels back — whether that round
+    // held one pair or the whole ring; `oneToMany` only decides how many rounds a block needs.
+    const mms = mmsPlan !== null
+    const oneToMany = mmsPlan?.oneToMany === true
     // The scenario schema checks the same things in RSTU, before rstuNs rounds; these are the
     // checks in the units the scheduler actually uses, so the two definitions of "how much fits
     // in a block" — and of which modes are exempt from which rule — cannot drift apart unnoticed.
-    const rounds = pairwise ? tags.length * anchors.length : tags.length
+    const rounds = mms && !oneToMany ? tags.length * anchors.length : tags.length
     if (!listenOnly && rounds > this.plan.roundsPerBlock) {
       throw new Error(
-        `UwbNetwork: ${rounds} ${pairwise ? 'pairs' : 'tags'} need ${rounds} rounds, but a ${this.plan.blockNs} ns `
+        `UwbNetwork: ${rounds} ${mms && !oneToMany ? 'pairs' : 'tags'} need ${rounds} rounds, but a ${this.plan.blockNs} ns `
         + `block holds ${this.plan.roundsPerBlock} rounds of ${this.plan.roundNs} ns`,
       )
     }
@@ -84,18 +89,18 @@ export class UwbNetwork {
     }
     // An MMS round has a second frame rule the schema checks too: the draft gives each
     // narrowband message two slots, and a 608 µs REPORT has to fit inside them.
-    if (pairwise) {
-      const nbNs = uwbNbSlotFitNs()
+    if (mms) {
+      const nbNs = uwbNbSlotFitNs(mmsPlan.layout.responders)
       if (2 * this.plan.slotNs < nbNs) {
         throw new Error(
-          `UwbNetwork: two ${this.plan.slotNs} ns ranging slots cannot carry a narrowband message, `
-          + `which needs ${nbNs} ns plus flight`,
+          `UwbNetwork: two ${this.plan.slotNs} ns ranging slots cannot carry a narrowband message of a `
+          + `round with ${mmsPlan.layout.responders} responders, which needs ${nbNs} ns plus flight`,
         )
       }
     }
     // Nothing in an MMS round grows with the anchor count — each pair gets a round of its own,
     // and no frame lists the anchors — so the PSDU cap the Final runs into does not apply to it.
-    if (!pairwise && anchors.length > UWB_MAX_ANCHORS) {
+    if (!mms && anchors.length > UWB_MAX_ANCHORS) {
       throw new Error(`UwbNetwork: ${anchors.length} anchors exceed the ${UWB_MAX_ANCHORS} a Final can list`)
     }
 
@@ -185,12 +190,12 @@ export class UwbNetwork {
           for (const d of crowd) d.endRound(false)
           return
         }
-        // A pairwise MMS round ends at both devices with nothing travelling back: each side
+        // An MMS round ends at every device in it with nothing travelling back: each side
         // computed its own range from the narrowband reports, and there is no contention budget
         // for a feedback flag to refill. The tag heads the crowd, so its block fix — solved
         // inside its own `endRound` at the last pair round of the block — still precedes the
         // anchor's close, exactly as every other mode's tag-first order does.
-        if (pairwise) {
+        if (mms) {
           for (const d of crowd) d.endRound(false)
           return
         }
@@ -232,11 +237,19 @@ export class UwbNetwork {
         // round of the block, so no device re-derives it and the two ends of a round cannot land
         // on different channels.
         const nbChannel = nbChannelForBlock(mmsPlan.nbChannels, this.seed, block)
-        // One round per tag–anchor pair: tag t and anchor k own round t·A + k, which is what
-        // lets a tag know its block is over when `round % A === A − 1`.
-        tags.forEach((tagId, t) => anchors.forEach((anchorId, k) => {
-          runRound(block, t * anchors.length + k, tagId, [tagId, anchorId], [anchorId], nbChannel)
-        }))
+        if (oneToMany) {
+          // One round per tag, and every anchor is in it: the tag's POLL names them all, its
+          // train goes out once for all of them, and each answers in slots of its own (4ab draft
+          // 15-22/0381r5 Table 1.6.3.1). A block therefore costs one round per tag — a longer
+          // round than a pair's, but one of them.
+          tags.forEach((tagId, t) => runRound(block, t, tagId, [tagId, ...anchors], anchors, nbChannel))
+        } else {
+          // One round per tag–anchor pair: tag t and anchor k own round t·A + k, which is what
+          // lets a tag know its block is over when `round % A === A − 1`.
+          tags.forEach((tagId, t) => anchors.forEach((anchorId, k) => {
+            runRound(block, t * anchors.length + k, tagId, [tagId, anchorId], [anchorId], nbChannel)
+          }))
+        }
       } else {
         tags.forEach((tagId, k) => runRound(block, k, tagId, [tagId, ...anchors]))
       }

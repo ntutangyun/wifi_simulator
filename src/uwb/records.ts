@@ -90,8 +90,13 @@ export type UwbRecord =
    * that did arrive, and this receiver counts its own (`rmarkerFromFragment`, src/uwb/mms.ts).
    * With no ratio to scale by, the nominal millisecond leaves `index` × 1 ms × the offset
    * between the two crystals — 3.0 m of range per lost leading fragment at 20 ppm.
+   *
+   * `responders` is present only in a **one-to-many** round (P802.15.4ab): the ids of every
+   * responder that round holds, in slot order. It is what says that the initiator's train in
+   * this record went out once and was heard by all of them — a pair round has no such list, and
+   * its record carries no such field.
    */
-  | { type: 'UWB_MMS_TRAIN'; node: string; peer: string; kind: 'rsf' | 'rif'; fragments: number; heard: number; rxDbm: number; gainDb: number; marginDb: number; detected: boolean; ratioPpm: number | null; block: number; round: number }
+  | { type: 'UWB_MMS_TRAIN'; node: string; peer: string; kind: 'rsf' | 'rif'; fragments: number; heard: number; rxDbm: number; gainDb: number; marginDb: number; detected: boolean; ratioPpm: number | null; block: number; round: number; responders?: string[] }
   /** A reception that nothing else on the UWB medium spoiled was still lost, to in-band
    * Wi-Fi power: the worst signal-to-interference ratio over the frame fell below
    * `UWB_SIR_MIN_DB`. Emitted at the receiver, straight after that frame's RX_FAIL, so

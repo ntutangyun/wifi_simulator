@@ -47,7 +47,7 @@ export type FieldKey =
   // octets at all. A narrowband control message is a compressed PSDU of its own shape, with
   // none of the 802.15.4 MAC header the UWB ranging frames carry.
   | 'mmsFragment' | 'mmsShape' | 'mmsLength' | 'mmsPower'
-  | 'nbMsgId' | 'nbChannel' | 'nbFields' | 'nbTime'
+  | 'nbMsgId' | 'nbChannel' | 'nbFields' | 'nbTime' | 'nbResponders'
 
 export interface FrameField {
   key: FieldKey

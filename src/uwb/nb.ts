@@ -45,8 +45,12 @@ export const NB_RESP_BYTES = 12
  * 4ab draft 15-22/0381r5 Table 1.6.3.1 */
 export const NB_REPORT_BYTES = 13
 
-/** The message-ID octet each compressed PSDU opens with. 4ab draft 15-22/0381r5 Table 1.6.3.1 */
-export const NB_MSG_ID = { poll: 0x04, resp: 0x05, reportInitiator: 0x06, reportResponder: 0x07 } as const
+/** The message-ID octet each compressed PSDU opens with — the pairwise cycle's four messages and
+ * the four the draft gives one-to-many ranging. 4ab draft 15-22/0381r5 Table 1.6.3.1 */
+export const NB_MSG_ID = {
+  poll: 0x04, resp: 0x05, reportInitiator: 0x06, reportResponder: 0x07,
+  pollOtm: 0x10, respOtm: 0x11, reportResponderOtm: 0x12, reportInitiatorOtm: 0x13,
+} as const
 
 /** The message-ID octet itself. 4ab draft 15-22/0381r5 Table 1.6.3.1 */
 export const NB_MSG_ID_BYTES = 1
@@ -55,6 +59,21 @@ export const NB_CRC_BYTES = 2
 /** A REPORT's one time field: the responder's ReplyTime or the initiator's TurnAroundTime.
  * 4ab draft 15-22/0381r5 Table 1.6.3.2 */
 export const NB_REPORT_TIME_BYTES = 5
+
+/** One device address inside a one-to-many message's content: the draft's Responder Address.
+ * 4ab draft 15-22/0381r5 Table 1.6.3.1 */
+export const NB_ADDR_BYTES = 3
+/** The one-to-many POLL's own content beyond the address list: Number of Responders and
+ * SlotsPerResponder, one octet each. 4ab draft 15-22/0381r5 Table 1.6.3.1 (0x10, MessageControl
+ * 0x10) */
+export const NB_OTM_POLL_BYTES = 2
+
+/** A one-to-many POLL: the pairwise POLL plus the responder list it has to carry, because a
+ * broadcast POLL is only actionable by a device that finds itself named in it. */
+export function nbOtmPollBytes(responders: number): number {
+  return NB_POLL_BYTES + NB_OTM_POLL_BYTES + NB_ADDR_BYTES * responders
+}
+
 
 // --- The channel plan --------------------------------------------------------------
 

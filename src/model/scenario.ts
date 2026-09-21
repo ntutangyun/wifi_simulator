@@ -4,7 +4,7 @@ import { z } from 'zod'
 // a ranging slot with the very functions the ranging engine uses, without a cycle.
 import type { MmsPhy } from '../uwb/mms'
 import { NB_CHANNELS } from '../uwb/nb'
-import { rstuNs, UWB_MAX_ANCHORS, uwbNbSlotFitNs, uwbSlotFitNs, uwbSlotsPerTag } from '../uwb/phy'
+import { mmsResponders, rstuNs, UWB_MAX_ANCHORS, uwbNbSlotFitNs, uwbSlotFitNs, uwbSlotsPerTag } from '../uwb/phy'
 import type { LinkId } from './caps'
 import type { CapabilityProfile, NodeKind, Vec3 } from './types'
 
@@ -241,6 +241,17 @@ export interface UwbMmsCfg extends MmsPhy {
   nbChannels: number[]
   nbLbt: NbLbt
   report: NbReportMode
+  /**
+   * One round, one initiator, **every** anchor of the session as its responders (P802.15.4ab
+   * one-to-many ranging: 4ab draft 15-22/0381r5 Table 1.6.3.1, POLL 0x10 / RESP 0x11 /
+   * REPORT 0x12 / 0x13). The initiator's train goes out once and every responder hears it;
+   * each responder answers in its own narrowband and ranging slots, and the tag comes out of
+   * one round with a range to each of them.
+   *
+   * Off — the default — a round is one pair, and a block holds a round per tag–anchor pair:
+   * exactly what shipped before, byte for byte.
+   */
+  oneToMany: boolean
 }
 
 /**
@@ -295,7 +306,7 @@ export interface UwbSessionCfg {
  * optional. 4ab draft 15-22/0381r5 Table 1.2.3.1 / 1.2.3.3 */
 export const DEFAULT_UWB_MMS: UwbMmsCfg = {
   rsfs: 8, rifs: 0, nMsr: 40, gap: 64, stsLen: 64, gapMs: 1,
-  nbChannels: [3], nbLbt: 'auto', report: 'bi',
+  nbChannels: [3], nbLbt: 'auto', report: 'bi', oneToMany: false,
 }
 
 export const DEFAULT_UWB_SESSION: UwbSessionCfg = {
@@ -533,6 +544,9 @@ const UwbMmsSchema = z.object({
   nbChannels: z.array(z.number()),
   nbLbt: z.enum(['auto', 'on', 'off']),
   report: z.enum(['responder', 'initiator', 'bi']),
+  // A scenario saved before one-to-many rounds existed reads back pairwise, which is what it
+  // was: the field has to carry a default or the editor would refuse every such plan.
+  oneToMany: z.boolean().default(false),
 })
 
 const ServerSchema = z.object({
@@ -672,13 +686,18 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
                 + `fragment needs ${(fragNs / 1000).toFixed(1)} µs plus flight`,
             })
           }
-          const nbNs = uwbNbSlotFitNs()
+          // …and a one-to-many POLL names every responder, three octets each, so the longest
+          // narrowband message of the round grows with the anchor count even though no fragment
+          // does. At the draft's 600 RSTU slot that caps a one-to-many round at three responders.
+          const responders = mmsResponders(mms, uwbNodes.filter((n) => n.uwb?.role === 'anchor').length)
+          const nbNs = uwbNbSlotFitNs(responders)
           if (2 * slotNs < nbNs) {
             ctx.addIssue({
               code: z.ZodIssueCode.custom,
               path: ['uwb'],
               message: `two ${sc.uwb.slotRstu} RSTU slots are ${(2 * slotNs / 1000).toFixed(1)} µs, but a narrowband `
-                + `message needs ${(nbNs / 1000).toFixed(1)} µs plus flight`,
+                + `message of a round with ${responders} responder${responders === 1 ? '' : 's'} needs `
+                + `${(nbNs / 1000).toFixed(1)} µs plus flight`,
             })
           }
         }
@@ -715,11 +734,19 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
               message: `the UWB block of ${sc.uwb.blockRstu} RSTU is too short for one round of ${slots} `
                 + `slots × ${sc.uwb.slotRstu} RSTU; lengthen blockRstu or shorten slotRstu`,
             })
-          } else if (mode === 'mms' && tags * anchors > fits) {
+          } else if (mode === 'mms' && !sc.uwb.mms.oneToMany && tags * anchors > fits) {
             ctx.addIssue({
               code: z.ZodIssueCode.custom,
               path: ['uwb'],
               message: `the UWB block fits ${fits} tag–anchor pairs at ${slots} slots each (found ${tags * anchors}); lengthen blockRstu or shorten slotRstu`,
+            })
+          } else if (mode === 'mms' && sc.uwb.mms.oneToMany && tags > fits) {
+            // A one-to-many round holds every anchor at once, so a block costs one round per
+            // tag — a longer round, but one of them, which is the whole point of the mode.
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ['uwb'],
+              message: `the UWB block fits ${fits} one-to-many rounds at ${slots} slots each (found ${tags}); lengthen blockRstu or shorten slotRstu`,
             })
           } else if (mode !== 'dl-tdoa' && mode !== 'mms' && tags > fits) {
             ctx.addIssue({

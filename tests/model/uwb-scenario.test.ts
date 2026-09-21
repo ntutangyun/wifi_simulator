@@ -283,6 +283,8 @@ describe('the P802.15.4ab MMS session in the schema', () => {
     expect(parsed.uwb).toEqual(DEFAULT_UWB_SESSION)
     expect(parsed.uwb?.mms).toEqual({
       rsfs: 8, rifs: 0, nMsr: 40, gap: 64, stsLen: 64, gapMs: 1, nbChannels: [3], nbLbt: 'auto', report: 'bi',
+      // A plan saved before one-to-many rounds existed reads back pairwise, which is what it was.
+      oneToMany: false,
     })
     // Two such scenarios must not share the one allow-list array the default is written from.
     const again = ScenarioSchema.parse(sc)
@@ -360,7 +362,7 @@ describe('the P802.15.4ab MMS session in the schema', () => {
       .toThrow(/a 300 RSTU slot is 250\.0 µs, but the longest MMS fragment needs 262\.8 µs plus flight/)
     // The 608 µs REPORT is what really sets the floor: two 300 RSTU slots are 500 µs.
     expect(() => ScenarioSchema.parse(uwbScenario(twoAnchorsOneTag(), mmsSession({ slotRstu: 300 }))))
-      .toThrow(/two 300 RSTU slots are 500\.0 µs, but a narrowband message needs 608\.2 µs plus flight/)
+      .toThrow(/two 300 RSTU slots are 500\.0 µs, but a narrowband message of a round with 1 responder needs 608\.2 µs plus flight/)
     // 600 RSTU — the draft's own default slot — clears both.
     expect(() => ScenarioSchema.parse(uwbScenario(twoAnchorsOneTag(), mmsSession({ slotRstu: 600 })))).not.toThrow()
     expect(uwbNbSlotFitNs()).toBe(608_200)

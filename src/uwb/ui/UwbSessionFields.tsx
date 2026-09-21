@@ -8,7 +8,7 @@
 import { useState } from 'react'
 import type { NbLbt, NbReportMode, UwbMmsCfg, UwbMode, UwbSessionCfg } from '../../model/scenario'
 import { roundPlan } from '../session'
-import { rstuNs } from '../phy'
+import { mmsResponders, rstuNs } from '../phy'
 import {
   MMS_SETS, N_MSR_SET, RIF_COUNT_SET, RSF_COUNT_SET, STS_LEN_SET,
   mmsFragmentDbm, mmsLayout, mmsLongestFragmentNs, mmsSet, rsfNs, type MmsPhy, type MmsSetId,
@@ -253,7 +253,7 @@ export function UwbSessionFields(
         <input type="checkbox" checked={session.nlos} onChange={(e) => onChange({ nlos: e.target.checked })} />
         {E.uwbNlos}
       </label>
-      {mms && <MmsFields mms={mms} slotRstu={session.slotRstu} onChange={patchMms} />}
+      {mms && <MmsFields mms={mms} slotRstu={session.slotRstu} anchors={anchors} onChange={patchMms} />}
       {plan && <div style={note}>{E.uwbPlan(plan.slots, plan.roundsPerBlock)}</div>}
       {orphan && <div style={note}>{E.uwbNoNodes}</div>}
       {issue && <div style={issueStyle}>{issue}</div>}
@@ -274,8 +274,8 @@ export function UwbSessionFields(
  * round it builds runs — because none of that is visible in the parameters themselves.
  */
 function MmsFields(
-  { mms, slotRstu, onChange }:
-  { mms: UwbMmsCfg; slotRstu: number; onChange: (patch: Partial<UwbMmsCfg>) => void },
+  { mms, slotRstu, anchors, onChange }:
+  { mms: UwbMmsCfg; slotRstu: number; anchors: number; onChange: (patch: Partial<UwbMmsCfg>) => void },
 ) {
   const E = useStrings().editor
   const setId = mmsSetIdOf(mms)
@@ -287,7 +287,9 @@ function MmsFields(
   // train has no fragment at all (the schema refuses one), so the RSF stands in until it is
   // filled — the alternative is dividing 37 nJ by zero on the way to the screen.
   const longestNs = mmsLongestFragmentNs(mms) || rsfFragNs
-  const layout = mmsLayout(mms)
+  // The round the derived line below measures is the one this scenario would actually run:
+  // a one-to-many round grows with the anchors, and with none of them there is only a pair.
+  const layout = mmsLayout(mms, mmsResponders(mms, anchors))
   return (
     <div style={{ marginTop: 6, paddingTop: 5, borderTop: '1px solid var(--border)' }}>
       <div style={{ color: 'var(--dim)', marginBottom: 4 }} title={E.uwbMmsHint}>{E.uwbMms}</div>
@@ -344,6 +346,11 @@ function MmsFields(
           <option value="initiator">{E.uwbReports.initiator}</option>
           <option value="bi">{E.uwbReports.bi}</option>
         </select>
+      </label>
+      <label style={label} title={E.uwbOneToManyHint}>
+        <input type="checkbox" checked={mms.oneToMany}
+          onChange={(e) => onChange({ oneToMany: e.target.checked })} />
+        {' '}{E.uwbOneToMany}
       </label>
       <div style={note}>
         {E.uwbMmsDerived(

@@ -128,14 +128,20 @@ export const MS_RCTU = MS_CHIPS * RCTU_PER_CHIP
  * 1 ms × the clock offset between the two crystals: 20 ns, and so 3.0 m of range, per lost
  * leading fragment at 20 ppm.
  *
+ * `gapRctu` is how far apart this round actually spaces the fragments, in the receiver's counter
+ * units — `MS_RCTU`, a true millisecond, whenever the round's ranging phase gives one millisecond
+ * to each (R + 1)-slot group (see `mmsLayout`), and longer when it does not.
+ *
  * `ratio` is null when fewer than two fragments were heard and there was no span to measure it
  * over. The receiver's own nominal millisecond is then all it has, and that residual stands —
  * there is nothing better to use. With fragment 0 in hand (`index` 0) nothing is walked back at
  * all and the ratio never enters.
  */
-export function rmarkerFromFragment(firstCounter: number, index: number, ratio: number | null): number {
+export function rmarkerFromFragment(
+  firstCounter: number, index: number, ratio: number | null, gapRctu: number = MS_RCTU,
+): number {
   if (index === 0) return firstCounter
-  const back = Math.round(index * MS_RCTU * (ratio ?? 1))
+  const back = Math.round(index * gapRctu * (ratio ?? 1))
   return (((firstCounter - back) % COUNTER_MOD) + COUNTER_MOD) % COUNTER_MOD
 }
 
@@ -229,20 +235,32 @@ export function mmsLongestFragmentNs(phy: MmsPhy): Ns {
 
 // --- The round's slot layout ----------------------------------------------------
 
-/** Where every fragment and every report of one MMS pair round sits, in slots counted from the
- * start of the round. The round is control (4 slots) + ranging (`rpSlots`) + report (4). */
+/** Where every fragment and every report of one MMS round sits, in slots counted from the start
+ * of the round. The round is control + ranging (`rpSlots`) + report, and a pair round — one
+ * initiator, one responder — is the R = 1 case of all of it: control 4, report 4. */
 export interface MmsLayout {
-  /** Slots 0–1 the initiator's narrowband POLL, 2–3 the responder's RESP. 4ab draft 0381r5 §1.1 */
-  controlSlots: 4
+  /** How many responders this round holds: 1 in a pair round, N in a one-to-many one. */
+  responders: number
+  /** Slots 0–1 the initiator's narrowband POLL, then two slots per responder's RESP.
+   * 4ab draft 0381r5 §1.1 (RcpPollSlot 2 + RcpResponseSlot 2 per responder) */
+  controlSlots: number
   /** The ranging phase: the draft's RpDuration default of 20 slots, grown to fit the train. */
   rpSlots: number
-  /** Two narrowband reports of two slots each. 4ab draft 0381r5 §1.1 */
-  reportSlots: 4
+  /** Two narrowband report windows per responder: the responder's own, then the initiator's
+   * answer to it. A pair round is the R = 1 case — the draft's MrpFirstSlot + MrpSecondSlot.
+   * 4ab draft 0381r5 §1.1; 15-22/0381r5 Table 1.6.3.1 gives one-to-many ranging a REPORT from
+   * each end (0x12, 0x13), each carrying the one time its sender measured. */
+  reportSlots: number
   slots: number
-  /** Slot index, within the round, of fragment `index` of `kind` for `side`. The initiator's
-   * fragments sit on even offsets from the start of the ranging phase and the responder's one
-   * slot later, so the two trains interleave inside each millisecond (model). */
-  fragmentSlot(side: 'initiator' | 'responder', kind: 'rsf' | 'rif', index: number): number
+  /** Slot index, within the round, of the narrowband RESP window responder `responder` owns. */
+  respSlot(responder: number): number
+  /** Slot index, within the round, of fragment `index` of `kind` for `side`. Each millisecond of
+   * the ranging phase is R + 1 slots: the initiator's first, then one per responder in responder
+   * order, so every train of the round interleaves inside the same millisecond (model; the
+   * draft's one-to-many POLL allots `SlotsPerResponder` slots to each responder address it
+   * lists — 4ab draft 15-22/0381r5 Table 1.6.3.1, message 0x10 — but does not fix the
+   * interleave, so the order here is this engine's). */
+  fragmentSlot(side: 'initiator' | 'responder', kind: 'rsf' | 'rif', index: number, responder?: number): number
   /**
    * The inverse of `fragmentSlot`: which fragment, if any, sits in slot `slot` of the round.
    * Null for every slot no fragment owns — the control and report windows, the idle
@@ -253,59 +271,99 @@ export interface MmsLayout {
    * two: a second copy of this arithmetic is a second chance for the two ends of a round to
    * disagree about where a fragment is.
    */
-  slotFragment(slot: number): { side: 'initiator' | 'responder'; kind: 'rsf' | 'rif'; index: number } | null
-  /** Slot index of the narrowband REPORT: the responder's first, the initiator's two later. */
-  reportSlot(side: 'initiator' | 'responder'): number
+  slotFragment(slot: number): {
+    side: 'initiator' | 'responder'; kind: 'rsf' | 'rif'; index: number; responder: number
+  } | null
+  /** Slot index of the narrowband REPORT: responder `responder`'s own window, or the
+   * initiator's answer to that responder two slots later. */
+  reportSlot(side: 'initiator' | 'responder', responder?: number): number
 }
 
-const MMS_CONTROL_SLOTS = 4 // 4ab draft 15-22/0381r5 §1.1: RcpPollSlot 2 + RcpResponseSlot 2
-const MMS_REPORT_SLOTS = 4 // 4ab draft 15-22/0381r5 §1.1: MrpFirstSlot 2 + MrpSecondSlot 2
+/** The two slots one narrowband window is: the draft's RcpPollSlot, RcpResponseSlot,
+ * MrpFirstSlot and MrpSecondSlot are all 2. 4ab draft 15-22/0381r5 §1.1 */
+const NB_WINDOW_SLOTS = 2
 /** RpDuration, the ranging phase's default length in slots. 4ab draft 15-22/0381r5 Table 1.2.3.3 */
 export const MMS_RP_MIN_SLOTS = 20
 
 /**
- * The fixed shape of one pairwise round (the table of the spec's "The ranging cycle").
+ * The fixed shape of one round (the table of the spec's "The ranging cycle"), for an initiator
+ * and `responders` responders. A pair round is `responders = 1`, and every number below reduces
+ * to the pairwise one there — control 4, two slots to a millisecond, report 4 — which is what
+ * keeps the pairwise cycle byte-identical to the one that shipped before one-to-many existed.
  *
- * Both devices send a fragment per millisecond, and a millisecond is two slots — the initiator's
- * and the responder's — so the ranging phase needs `2·(X + Y)` slots, plus `2·(Z − 1)` for the
- * idle milliseconds before the RIFs. The draft's RpDuration default of 20 slots is a floor under
- * that, not a cap: a short train still pays for the phase the draft sizes (model).
+ * Every device in the round sends a fragment per millisecond, and a millisecond is therefore
+ * R + 1 slots — the initiator's, then one per responder — so the ranging phase needs
+ * `(R + 1)·(X + Y)` slots, plus `(R + 1)·(Z − 1)` for the idle milliseconds before the RIFs.
+ * The draft's RpDuration default of 20 slots is a floor under that, not a cap: a short train
+ * still pays for the phase the draft sizes (model).
+ *
+ * The control phase is the initiator's POLL window and one RESP window per responder, and the
+ * report phase a pair of windows per responder — its own REPORT, then the initiator's answer to
+ * it. That is the shape the draft's one-to-many POLL describes when it carries `Number of
+ * Responders`, `SlotsPerResponder` and a responder address list, together with its one-to-many
+ * REPORTs from each end, each carrying the single time its sender measured (4ab draft
+ * 15-22/0381r5 Table 1.6.3.1, messages 0x10/0x11/0x12/0x13).
+ *
+ * One narrowband window is two slots whatever the round, so the **POLL has to fit two of them**:
+ * it grows by three octets per responder, and `uwbNbSlotFitNs` is where that rule is checked.
  */
-export function mmsLayout(phy: MmsPhy): MmsLayout {
+export function mmsLayout(phy: MmsPhy, responders = 1): MmsLayout {
+  if (!Number.isInteger(responders) || responders < 1) {
+    throw new Error(`mmsLayout: a round needs at least one responder, asked for ${responders}`)
+  }
   const x = phy.rsfs
   const y = phy.rifs
   const z = phy.gapMs
+  const perMs = responders + 1
+  const control = NB_WINDOW_SLOTS * (1 + responders)
+  const report = 2 * NB_WINDOW_SLOTS * responders
   // The phase has to hold every fragment: the RSFs' X milliseconds, and — when the train has
   // RIFs — up to the last one, which `rifStartMs` puts at X + Z − 1 + (Y − 1).
-  const rp = Math.max(MMS_RP_MIN_SLOTS, 2 * (y > 0 ? rifStartMs(x, z, y - 1) + 1 : x))
+  const rp = Math.max(MMS_RP_MIN_SLOTS, perMs * (y > 0 ? rifStartMs(x, z, y - 1) + 1 : x))
   const count = (kind: 'rsf' | 'rif'): number => (kind === 'rsf' ? x : y)
+  const checkResponder = (r: number): void => {
+    if (!Number.isInteger(r) || r < 0 || r >= responders) {
+      throw new Error(`mmsLayout: this round has ${responders} responders, asked for ${r}`)
+    }
+  }
   return {
-    controlSlots: MMS_CONTROL_SLOTS,
+    responders,
+    controlSlots: control,
     rpSlots: rp,
-    reportSlots: MMS_REPORT_SLOTS,
-    slots: MMS_CONTROL_SLOTS + rp + MMS_REPORT_SLOTS,
-    fragmentSlot(side, kind, index) {
+    reportSlots: report,
+    slots: control + rp + report,
+    respSlot(responder) {
+      checkResponder(responder)
+      return NB_WINDOW_SLOTS * (1 + responder)
+    },
+    fragmentSlot(side, kind, index, responder = 0) {
       if (!Number.isInteger(index) || index < 0 || index >= count(kind)) {
         throw new Error(`mmsLayout: this train has ${count(kind)} ${kind.toUpperCase()} fragments, asked for ${index}`)
       }
+      checkResponder(responder)
       // RSF-m starts m ms into the ranging phase; the RIFs follow `rifStartMs` (§10.38.5).
       const ms = kind === 'rsf' ? index : rifStartMs(x, z, index)
-      return MMS_CONTROL_SLOTS + 2 * ms + (side === 'responder' ? 1 : 0)
+      return control + perMs * ms + (side === 'responder' ? 1 + responder : 0)
     },
     slotFragment(slot) {
-      if (!Number.isInteger(slot) || slot < MMS_CONTROL_SLOTS || slot >= MMS_CONTROL_SLOTS + rp) return null
-      const off = slot - MMS_CONTROL_SLOTS
-      // Two slots to a millisecond: the initiator's, then the responder's one slot later — the
-      // same offset `fragmentSlot` adds, read the other way round.
-      const side = off % 2 === 0 ? 'initiator' : 'responder'
-      const ms = (off - (side === 'responder' ? 1 : 0)) / 2
-      if (ms < x) return { side, kind: 'rsf', index: ms }
+      if (!Number.isInteger(slot) || slot < control || slot >= control + rp) return null
+      const off = slot - control
+      // R + 1 slots to a millisecond: the initiator's, then the responders' in order — the same
+      // offset `fragmentSlot` adds, read the other way round.
+      const within = off % perMs
+      const side = within === 0 ? 'initiator' : 'responder'
+      const responder = within === 0 ? 0 : within - 1
+      const ms = (off - within) / perMs
+      if (ms < x) return { side, kind: 'rsf', index: ms, responder }
       const firstRif = rifStartMs(x, z, 0)
-      if (y > 0 && ms >= firstRif && ms < firstRif + y) return { side, kind: 'rif', index: ms - firstRif }
+      if (y > 0 && ms >= firstRif && ms < firstRif + y) {
+        return { side, kind: 'rif', index: ms - firstRif, responder }
+      }
       return null
     },
-    reportSlot(side) {
-      return MMS_CONTROL_SLOTS + rp + (side === 'initiator' ? 2 : 0)
+    reportSlot(side, responder = 0) {
+      checkResponder(responder)
+      return control + rp + 2 * NB_WINDOW_SLOTS * responder + (side === 'initiator' ? NB_WINDOW_SLOTS : 0)
     },
   }
 }

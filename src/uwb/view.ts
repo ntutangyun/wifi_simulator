@@ -71,6 +71,9 @@ export interface UwbTrainView {
   /** How many the train held (X for an RSF train, Y for an RIF one) and how many arrived. */
   fragments: number
   heard: number
+  /** One-to-many round only: every responder that round holds, in slot order — who else heard
+   * the same train. Absent in a pair round, which has nobody else in it. */
+  responders?: string[]
   /** How far the combined train cleared the receiver's sensitivity — the whole point of the
    * mode. `NOTHING_HEARD_DBM` when nothing arrived (see records.ts). */
   marginDb: number
@@ -262,6 +265,7 @@ export function applyUwbRecord(vs: ViewState, r: TLRecord): boolean {
       if (u) {
         u.mms.trains[uwbTrainKey(r.peer, r.kind)] = {
           peer: r.peer, kind: r.kind, fragments: r.fragments, heard: r.heard,
+          ...(r.responders ? { responders: [...r.responders] } : {}),
           marginDb: r.marginDb, detected: r.detected, ratioPpm: r.ratioPpm,
         }
       }

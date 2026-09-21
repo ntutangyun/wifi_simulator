@@ -80,8 +80,14 @@ interface Reception {
   rssiDbm: number
   info: UwbRxInfo
   endNs: Ns
-  /** Another reception overlapped it and neither captured it: it will fail at its end. */
+  /** Another reception overlapped it and it lost: it will fail at its end. */
   doomed: boolean
+  /** Why it will fail: 'capture' when a fragment train that led it by the capture margin took
+   * the radio, 'collision' when the two spoiled each other. */
+  failReason: 'collision' | 'capture'
+  /** The only receiver this reception competes for a radio at, or null when it is on the air
+   * for everyone — `Emission.rxId`, carried through the medium. */
+  rxScope: string | null
   /** Max over the reception of the foreign in-band power at this receiver, in mW.
    * Taken at arrival and raised on every change the Spectrum reports; 0 without one. */
   maxForeignMw: number
@@ -99,6 +105,30 @@ interface Arrival {
   frame: FrameDesc
   rssiDbm: number
   info: UwbRxInfo
+  /** See `Reception.rxScope`. */
+  rxScope: string | null
+}
+
+/**
+ * The one receiver a transmission competes for, or null when it competes everywhere.
+ *
+ * Only an MMS **fragment** is ever scoped, and only when it is addressed to a single device.
+ * P802.15.4ab's one-to-many round puts N responder trains on the air in the same milliseconds,
+ * each unicast to the initiator; at the initiator they do compete — that is the capture rule
+ * this whole scope exists to keep honest — but at responder j, which is accumulating the
+ * initiator's own broadcast train, responder k's fragment is not a frame its radio was ever
+ * trying to decode, and must not doom the train it is building. Every 4z frame, every
+ * narrowband message and every broadcast train is unscoped and behaves exactly as before.
+ */
+function rxScopeOf(frame: FrameDesc): string | null {
+  if (!frame.uwb?.mms) return null
+  return frame.dst.startsWith('*') ? null : frame.dst
+}
+
+/** Whether two overlapping receptions contend for the radio at `rxId`: both have to be on the
+ * air for this receiver, i.e. unscoped or scoped to it. */
+function competes(a: Reception, b: Reception, rxId: string): boolean {
+  return (a.rxScope === null || a.rxScope === rxId) && (b.rxScope === null || b.rxScope === rxId)
 }
 
 export class UwbChannel {
@@ -278,11 +308,13 @@ export class UwbChannel {
     // max-over-lock sees the whole frame and nothing more.
     const sp = this.spectrum
     const band = this.bandFor(frame)
+    const rxScope = rxScopeOf(frame)
     const emission: Emission | null = sp
       ? {
         txId: from, eirpDbm: this.txDbmFor(from, frame),
         bandLoMhz: band.lo, bandHiMhz: band.hi, pos: this.posOf(from),
         lossDb: this.lossDbFor(frame),
+        ...(rxScope !== null ? { rxId: rxScope } : {}),
       }
       : null
     if (sp && emission) sp.emit('uwb', emission)
@@ -301,7 +333,7 @@ export class UwbChannel {
       const at = t + Math.ceil(propNs)
       const rssiDbm = this.rssiDbm(from, rxId, frame)
       const arrival: Arrival = {
-        rxId, from, frame, rssiDbm,
+        rxId, from, frame, rssiDbm, rxScope,
         info: {
           rssiDbm, propNs, nlosNs, nlos: this.obstructed(from, rxId),
           txStartNs: t, txPpm: this.ppmOf(from), foreignDbm: -Infinity,
@@ -338,20 +370,33 @@ export class UwbChannel {
     const band = this.bandFor(a.frame)
     const rx: Reception = {
       from: a.from, frame: a.frame, rssiDbm: a.rssiDbm, info: a.info,
-      endNs: t + a.frame.txTimeNs, doomed: false,
+      endNs: t + a.frame.txTimeNs, doomed: false, failReason: 'collision', rxScope: a.rxScope,
       maxForeignMw: this.spectrum
         ? this.spectrum.foreignMw('uwb', this.posOf(a.rxId), band.lo, band.hi)
         : 0,
     }
 
-    // Capture: against each reception already open, the stronger survives only
-    // if it leads by the capture margin; otherwise both are lost. A late but
-    // dominant arrival therefore takes the receiver from an open reception.
+    // Capture: against each reception already open **that competes for this radio**, the
+    // stronger survives only if it leads by the capture margin; otherwise both are lost. A late
+    // but dominant arrival therefore takes the receiver from an open reception.
+    //
+    // The rule is per reception, and an MMS fragment is one reception — so in a train it is
+    // applied per *fragment*, millisecond by millisecond, and a receiver keeps whichever train
+    // is strongest in each of them rather than deciding once for the whole train. A fragment
+    // that lost to a train leading it by the margin is reported as a capture and not as a
+    // collision: something was decoded in that millisecond, and the log should say which.
     for (const other of r.open) {
+      if (!competes(rx, other, a.rxId)) continue
       const strong = rx.rssiDbm >= other.rssiDbm ? rx : other
       const weak = strong === rx ? other : rx
       weak.doomed = true
-      if (strong.rssiDbm - weak.rssiDbm < UWB_CAPTURE_DB) strong.doomed = true
+      if (strong.rssiDbm - weak.rssiDbm < UWB_CAPTURE_DB) {
+        strong.doomed = true
+        strong.failReason = 'collision'
+        weak.failReason = 'collision'
+      } else if (!strong.doomed) {
+        weak.failReason = weak.frame.uwb?.mms ? 'capture' : 'collision'
+      }
     }
 
     r.open.push(rx)
@@ -370,7 +415,7 @@ export class UwbChannel {
     const foreignDbm = rx.maxForeignMw > 0 ? 10 * Math.log10(rx.maxForeignMw) : -Infinity
     rx.info.foreignDbm = foreignDbm
     if (rx.doomed) {
-      const reason: RxFailReason = 'collision'
+      const reason: RxFailReason = rx.failReason
       this.emit({ t, type: 'RX_FAIL', node: rxId, from: rx.from, reason })
       r.radio.onRxFail(rx.from, reason)
       return

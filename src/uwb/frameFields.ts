@@ -18,7 +18,8 @@ import type { FrameDesc } from '../model/frames'
 import type { Ns } from '../model/types'
 import type { UwbFrameKind, UwbInfo, UwbMmsFrag, UwbNbMsg } from './frames'
 import {
-  NB_CRC_BYTES, NB_MSG_ID, NB_MSG_ID_BYTES, NB_PHR_SYMBOLS, NB_REPORT_TIME_BYTES, NB_SHR_SYMBOLS,
+  NB_ADDR_BYTES, NB_CRC_BYTES, NB_MSG_ID, NB_MSG_ID_BYTES, NB_OTM_POLL_BYTES, NB_PHR_SYMBOLS,
+  NB_REPORT_TIME_BYTES, NB_SHR_SYMBOLS,
   NB_SYMBOL_US,
 } from './nb'
 import {
@@ -190,6 +191,9 @@ function mmsFields(frag: UwbMmsFrag, txTimeNs: Ns): FrameField[] {
 const NB_MSG_NAME: Record<number, string> = {
   [NB_MSG_ID.poll]: 'POLL', [NB_MSG_ID.resp]: 'RESP',
   [NB_MSG_ID.reportInitiator]: 'REPORT (initiator)', [NB_MSG_ID.reportResponder]: 'REPORT (responder)',
+  [NB_MSG_ID.pollOtm]: 'POLL (one-to-many)', [NB_MSG_ID.respOtm]: 'RESP (one-to-many)',
+  [NB_MSG_ID.reportInitiatorOtm]: 'REPORT (initiator, one-to-many)',
+  [NB_MSG_ID.reportResponderOtm]: 'REPORT (responder, one-to-many)',
 }
 
 /**
@@ -202,13 +206,22 @@ const NB_MSG_NAME: Record<number, string> = {
 function nbFields(nb: UwbNbMsg, bytes: number): FrameField[] {
   const time = nb.replyRctu ?? nb.roundTripRctu
   const timeBytes = time === undefined ? 0 : NB_REPORT_TIME_BYTES
-  const rest = bytes - NB_MSG_ID_BYTES - timeBytes - NB_CRC_BYTES
+  // The responder list of a one-to-many POLL: two content octets (Number of Responders,
+  // SlotsPerResponder) plus one address each. The draft's fields, sized in `nb.ts`.
+  const respBytes = nb.responders ? NB_OTM_POLL_BYTES + NB_ADDR_BYTES * nb.responders.length : 0
+  const rest = bytes - NB_MSG_ID_BYTES - timeBytes - respBytes - NB_CRC_BYTES
   return [
     {
       key: 'nbMsgId', bytes: NB_MSG_ID_BYTES,
       value: `${NB_MSG_NAME[nb.msgId] ?? 'unknown'} (${hex8(nb.msgId)})`,
     },
     { key: 'nbChannel', bytes: 0, value: `channel ${nb.channel} · ${nb.centerMhz.toFixed(2)} MHz` },
+    ...(nb.responders
+      ? [{
+        key: 'nbResponders' as const, bytes: respBytes,
+        value: `${nb.responders.length} responders · 1 slot each · ${nb.responders.join(', ')}`,
+      }]
+      : []),
     ...(time !== undefined
       ? [{
         key: 'nbTime' as const, bytes: timeBytes,
