@@ -488,8 +488,11 @@ describe('uwb-mms · reach is not accuracy', () => {
     expect(row.ellipse).toBe('6.1 × 1.3 cm')
     expect(row.method).toBe('two-way ranging')
     expect(uwbFixRow(vs.nodes[TAG].uwb!.position!, STRINGS.zh.uwb).method).toBe('双向测距 (TWR)')
-    expect(prose()).toContain('The fix inherits it whole — (14.22, 4.05) m against a true (13.00, 4.00)')
-    expect(prose()).toContain('while the ellipse beside it, which knows only noise, stays at centimetres')
+    // M2: the inspector shows the block-6 fix, and the log table three blocks up quotes
+    // block 0's — the prose now says which is which
+    expect(prose()).toContain('The inspector shows the last block’s, (14.22, 4.05) m against a true (13.00, 4.00)')
+    expect(logLine(7)).toContain('(14.24, 4.08)')
+    expect(prose()).toContain('the ellipse beside it, which knows only noise, stays at centimetres')
   })
 
   it('"4z for comparison": not one range in the same room, 42 timeouts instead', () => {

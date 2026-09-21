@@ -191,7 +191,7 @@ export const uwbMms: Lesson = {
       [{ en: 'Rounds per block', zh: '每块的轮数' }, N('1'), N('3'), { en: 'one per tag–anchor pair', zh: '每个标签—锚点对一轮' }],
       [{ en: 'To the block’s fix', zh: '到本块定位为止' }, N('26 ms'), N('42 ms'), N('UWB_POSITION')],
       [{ en: 'Narrowband messages', zh: '窄带消息数' }, N('7'), N('9'), N('NBPOLL, NBRESP, NBREPORT')],
-      [{ en: 'Responders one slot allows', zh: '一个时隙容得下的应答者' }, N('3'), N('1'), { en: 'two 600 RSTU slots must hold the Poll, which grows by 3 octets per responder', zh: '两个 600 RSTU 时隙要装下 Poll，而 Poll 每多一个应答者就长 3 字节' }],
+      [{ en: 'Responders the Poll window holds', zh: 'Poll 窗口装得下的应答者' }, N('3'), N('1'), { en: 'two 600 RSTU slots must hold the Poll, which grows by 3 octets per responder', zh: '两个 600 RSTU 时隙要装下 Poll，而 Poll 每多一个应答者就长 3 字节' }],
     ] },
     { heading: { en: 'Where the slots go', zh: '时隙都花在哪里' }, text: {
       en: 'Eight slots open the round: the Poll, then a window per anchor. Thirty-two carry the fragments, four devices taking turns. The last twelve hold the reports.',
@@ -206,8 +206,8 @@ export const uwbMms: Lesson = {
       zh: '每一次测距都偏长同样的 1.199 m：砖墙给首径添 2 ns，而射线来回各穿两道墙，这一份双向测距留了下来，没有抵消掉。',
     } },
     { text: {
-      en: 'The fix inherits it whole — (14.22, 4.05) m against a true (13.00, 4.00) — while the ellipse beside it, which knows only noise, stays at centimetres.',
-      zh: '定位把它整个继承过去——(14.22, 4.05) m，真值 (13.00, 4.00)——而旁边那个只认识噪声的椭圆，仍停在厘米量级。',
+      en: 'The fix inherits it whole. The inspector shows the last block’s, (14.22, 4.05) m against a true (13.00, 4.00); the ellipse beside it, which knows only noise, stays at centimetres.',
+      zh: '定位把它整个继承过去。检视面板显示的是最后一个块的结果：(14.22, 4.05) m，真值 (13.00, 4.00)；而旁边那个只认识噪声的椭圆，仍停在厘米量级。',
     } },
   ],
   deeper: [
@@ -257,7 +257,7 @@ export const uwbMms: Lesson = {
   tryThis: [
     { en: 'Load “4z for comparison”: same room, same nodes, ordinary two-way ranging. Not one range comes back. The anchors wait for a Poll they never hear, the tag waits out every response slot, and the log fills with timeouts.',
       zh: '载入“拿 4z 作对照”：同样的房间、同样的节点，改用普通的双向测距。一次测距也回不来。锚点在等一帧它们永远听不到的 Poll，标签把每个响应时隙都等空，于是日志里填满的是超时。' },
-    { en: 'Load “One anchor at a time”. The same three ranges come back, as three rounds instead of one, and the block’s fix arrives at 42 ms instead of 26. No single range changed.',
+    { en: 'Load “One anchor at a time”. The same three ranges come back, as three rounds instead of one, and the block’s fix arrives at 42 ms instead of 26.',
       zh: '载入“一次只问一个锚点”。回来的还是那三个距离，只不过是三轮而不是一轮，本块的定位也从 26 ms 推迟到 42 ms。任何单个距离本身都没有变。' },
   ],
   quiz: [

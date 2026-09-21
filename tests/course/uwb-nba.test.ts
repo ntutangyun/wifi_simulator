@@ -335,6 +335,13 @@ describe('uwb-nba · the grid underneath and the train on top', () => {
     // one 26 ms round is 26 ms of a 200 ms block, so it is what the block holds, not what
     // fills it: the run's own numbers say the rest of the block is empty
     expect(prose()).toContain('One round like that is all a block holds, and the rest of it is empty air')
+    // Review I3: the base yields four distances in two of the seven blocks, not one in all of them
+    expect(prose()).toContain('In this scene that happens twice in seven blocks')
+    expect(prose()).not.toContain('happens exactly once')
+    expect(uwbNba.jumps.map((j) => j.label.en)).toContain('the first distance the run gets out')
+    const blocks = [...new Set(ofType(recs(), 'UWB_RANGE').filter((r) => r.node === TAG).map((r) => r.block))]
+    expect(blocks).toEqual([0, 4])
+    expect(ofType(recs(), 'UWB_RANGE').filter((r) => r.node === TAG)).toHaveLength(4)
     expect(prose()).not.toContain('fill a block')
     expect(block0.length * 26).toBeLessThan(200)
     // and the experiment sends the reader to the pair round, where the cycle runs four times

@@ -84,7 +84,7 @@ export const uwbSts: Lesson = {
     } },
     { heading: { en: 'Standing in the middle', zh: '站在中间的人' }, text: {
       en: 'Now put a box between the phone and the anchor. It listens to whatever is coming, and emits the same thing again towards the far end. It cannot beat light, so it cannot make a real arrival earlier. What it can do is start sending before it has finished listening — as long as it can already guess what comes next. That is the whole relay attack: guess, and send the guess early.',
-      zh: '现在在手机和锚点之间放一个盒子。它把传来的东西听住，再朝另一端把同样的东西发一遍。它跑不过光，所以没法让一次真实的到达变早。但它能做的是：还没听完就开始发——前提是它已经能猜出接下来是什么。这就是 relay attack 的全部：猜，然后把猜出来的提前发出去。',
+      zh: '现在在手机和锚点之间放一个盒子。它把传来的东西听住，再朝另一端把同样的东西发一遍。它跑不过光，所以没法让一次真实的到达变早。但它能做的是：还没听完就开始发——前提是它已经能猜出接下来是什么。这就是中继攻击的全部：猜，然后把猜出来的提前发出去。',
     } },
     { heading: { en: 'Why the opening of a frame is a gift', zh: '为什么帧的开头是一份礼物' }, text: {
       en: 'The head of a ranging frame is public by design. SYNC is a pattern every receiver must already hold, or it could never lock on, and the SFD that closes it is just as well known. An attacker holds them too. So a receiver that times the RMARKER and nothing else is timing something the attacker could have produced without listening at all.',
@@ -92,7 +92,7 @@ export const uwbSts: Lesson = {
     } },
     { heading: { en: 'A stretch of pulses only two people can write', zh: '一段只有两个人写得出的脉冲' }, text: {
       en: 'The cure is to put something unguessable where the timing is taken. Both ends of a session hold one shared secret — a key — and both generate the same long stretch of pulses from it: the STS, the scrambled timestamp sequence. The receiver knows it in advance and can time it to a fraction of a chip. The box in the middle has no key, hears noise, and has nothing to send early.',
-      zh: '解法是：在取时间的那个位置，放上一段猜不出来的东西。会话的两端共同持有一个秘密——一把 key——并各自用它生成同一段很长的脉冲：STS，也就是加扰时间戳序列。接收端事先就知道它，因此能把它计到码片的零头。而中间那个盒子没有 key，听到的只是噪声，也就没有任何东西可以提前发出去。',
+      zh: '解法是：在取时间的那个位置，放上一段猜不出来的东西。会话的两端共同持有一个秘密——一把密钥——并各自用它生成同一段很长的脉冲：STS，也就是加扰时间戳序列。接收端事先就知道它，因此能把它计到码片的零头。而中间那个盒子没有这把密钥，听到的只是噪声，也就没有任何东西可以提前发出去。',
     } },
     { kind: 'watch', jump: 3, heading: { en: 'Now switch the sequence off', zh: '现在把这段序列关掉' }, text: {
       en: 'Load the first variant. The relay is running and the sequence is off, so the stolen advance lands on both receptions of the round. Read the range line and compare it with the truth beside it.',
@@ -119,11 +119,11 @@ export const uwbSts: Lesson = {
       zh: '不是它的一半，也不是两倍：这一轮的两次接收都被提前了，于是这 50 ns 的提前量整个地、一次性地从飞行时间里被扣掉。',
     } },
     { heading: { en: 'The same subtraction, in counter units', zh: '同一次相减，换成计数单位' }, text: {
-      en: 'Both receive counters of the round come back low by the same amount, and the two halves of the formula pull the same way.',
-      zh: '这一轮的两个接收计数值，都偏低了同样多；而公式里的两半，把结果朝同一个方向拉。',
+      en: 'Both receive counters come back low by the same amount. That makes the round trip shorter and the reply time longer, so their difference falls by twice the advance, and the halving leaves exactly one.',
+      zh: '两个接收计数值都偏低了同样多。这让往返时间变短、让作答时间变长，于是两者之差降了提前量的两倍，再一折半，正好剩下一个提前量。',
     } },
     { kind: 'table', head: [
-      { en: 'Reading', zh: '读数' }, { en: 'Honest, at 20 m', zh: '诚实，20 m' }, { en: 'With the relay', zh: '有转发时' }, { en: 'Where', zh: '出处' },
+      { en: 'Reading', zh: '读数' }, { en: 'Honest, at 20 m (third variant)', zh: '诚实的 20 m（第三个变体）' }, { en: 'With the relay', zh: '有转发时' }, { en: 'Where', zh: '出处' },
     ], rows: [
       [N('anchor-1 RX RMARKER ← tag-1 poll'), N('26 381 601 449'), N('26 381 598 254'), N('UWB_TS')],
       [N('tag-1 RX RMARKER ← anchor-1 resp'), N('336 335 294 125'), N('336 335 290 930'), N('UWB_TS')],
@@ -149,8 +149,8 @@ export const uwbSts: Lesson = {
       zh: '日志里那次拒绝出自锚点，针对的是 Poll 帧——因为 Poll 是这一轮的第一次接收，转发同样让它提早到达。标签根本没机会去判断一帧应答，因为锚点压根没发：它的时隙先超时了。于是一个有防护的会话在遭受攻击时，让攻击者白费一整轮，同时还向基础设施透露了一点情况——这比毫无防护的情形已经多得多。',
     } },
     { heading: { en: 'Length is security here', zh: '在这里，长度就是安全性' }, text: {
-      en: 'An attacker who guesses the sequence chip by chip wins with probability one half per chip, so the active segment of the sequence is what fixes the odds. The packet configuration this simulator sends carries 32 768 chips of it between the marker and the header — two thirds as long again as the pattern that opens the frame, for a segment that carries no information whatsoever.',
-      zh: '一个逐码片去猜这段序列的攻击者，每个码片赢的概率是二分之一，所以真正定下胜算的，是这段序列有多长。本仿真器发出的分组配置，在标记与头部之间放了 32 768 个码片——比开头那串图案还长三分之二，而这一段却一个比特的信息也不携带。',
+      en: 'An attacker who guesses the sequence chip by chip wins with probability one half per chip, so the active segment of the sequence is what fixes the odds. The packet configuration this simulator sends carries 32 768 chips of it between the marker and the header — about as long as the SYNC that opens the frame, which is 32 512 chips — for a segment that carries no information whatsoever.',
+      zh: '一个逐码片去猜这段序列的攻击者，每个码片赢的概率是二分之一，所以真正定下胜算的，是这段序列有多长。本仿真器发出的分组配置，在标记与头部之间放了 32 768 个码片——与开头那段 SYNC 差不多长（SYNC 是 32 512 个码片），而这一段却一个比特的信息也不携带。',
     } },
   ],
   sources: [
@@ -167,6 +167,10 @@ export const uwbSts: Lesson = {
   variants: [
     { label: { en: 'A relay, and the sequence off', zh: '有转发，且序列关闭' }, scenario: () => uwbStsScenario(true) },
     { label: { en: 'The same relay, the sequence on', zh: '同样的转发，序列开启' }, scenario: () => uwbStsScenario(false) },
+    // The honest 20 m room, so the counters the table compares against can be loaded from this
+    // lesson. It is `uwb-intro`'s own "20 m apart" variant, scenario for scenario, so the
+    // fixture entry added for it equals `uwb-intro#0` in both files.
+    { label: { en: 'Honest, at 20 m', zh: '诚实的 20 m' }, scenario: () => uwbIntroScenario(20) },
   ],
   jumps: [
     J('the poll leaves the phone', 'Poll 帧离开手机', firstUwbPoll),
@@ -180,7 +184,7 @@ export const uwbSts: Lesson = {
     { en: 'Load the second variant. There is no range at all: one UWB_STS_REJECT at anchor-1 on the poll, then two UWB_TIMEOUT lines as the two slots run out in turn.', zh: '载入第二个变体。这里一个距离也没有：anchor-1 针对 Poll 帧给出一条 UWB_STS_REJECT，随后两个时隙依次空过，留下两条 UWB_TIMEOUT。' },
   ],
   tryThis: [
-    { en: 'Copy the two RX counters out of the first variant and out of the honest 20 m run, and subtract each pair. Both differences are 3195 RCTU, which is 50.0 ns — the advance, arriving once on each side of the round.', zh: '把第一个变体和诚实的 20 m 那一轮里的两个 RX 计数值都抄下来，分别相减。两个差都是 3195 RCTU，也就是 50.0 ns——这正是那个提前量，在这一轮的两侧各落了一次。' },
+    { en: 'Copy the two RX counters out of the first variant and out of the third, the honest 20 m room, and subtract each pair. Both differences are 3195 RCTU, which is 50.0 ns — the advance, arriving once on each side of the round.', zh: '把第一个变体、以及第三个变体（诚实的 20 m 房间）里的两个 RX 计数值都抄下来，分别相减。两个差都是 3195 RCTU，也就是 50.0 ns——这正是那个提前量，在这一轮的两侧各落了一次。' },
     { en: 'Work out what the relay would steal at 5 m. It steals the same 14.99 m, so the range comes out below zero. An attacker gains nothing from a relay that is too greedy for the room it is in.', zh: '算一算这个转发放在 5 m 上会偷走多少。它偷走的还是那 14.99 m，于是距离会算到零以下。一个对所在房间来说太贪心的转发，攻击者从中什么也捞不着。' },
   ],
   quiz: [

@@ -142,11 +142,11 @@ export const uwbCapstone: Lesson = {
     } },
     { heading: { en: 'Decision two: how often to measure', zh: '决定其二：多久量一次' }, text: {
       en: 'A block is one measurement. Run blocks twice as often and the phone is tracked twice as smoothly — and the session is on the air twice as much, so it meets the router twice as often and loses twice as many frames to it. Nothing about the accuracy of a single fix improves. Only the duty cycle moves, and the price is paid in somebody else’s throughput.',
-      zh: '一个块就是一次测量。让块的节奏快一倍，手机的轨迹就跟得平滑一倍——代价是会话占用空口的时间也多了一倍，于是它撞上路由器的次数翻倍，被路由器打掉的帧也翻倍。单次定位的精度一点没变。变的只有 duty cycle，而这笔账是记在别人的吞吐上的。',
+      zh: '一个块就是一次测量。让块的节奏快一倍，手机的轨迹就跟得平滑一倍——代价是会话占用空口的时间也多了一倍，于是它撞上路由器的次数翻倍，被路由器打掉的帧也翻倍。单次定位的精度一点没变。变的只有占空比，而这笔账是记在别人的吞吐上的。',
     } },
     { heading: { en: 'Decision three: one round, or three', zh: '决定其三：一轮，还是三轮' }, text: {
-      en: 'So far the phone has asked each anchor in turn. The multi-millisecond mode lets it ask once and be answered by all three: one train goes out, every anchor hears the same one, and each answers in a slot of its own. It is fewer transmissions for the same three ranges — and a longer round, in which a lost fragment costs every anchor at once instead of one.',
-      zh: '到目前为止，手机都是挨个去问每一个锚点。多毫秒模式让它问一次、由三个锚点一起作答：一串片段发出去，每个锚点听到的都是同一串，各自在自己的时隙里回话。同样是三个距离，发射的次数更少——但一轮也更长，而且这一轮里丢掉一个片段，代价是三个锚点一起承担，而不是只损失一个。',
+      en: 'So far the phone has asked each anchor in turn. The multi-millisecond mode lets it ask once and be answered by all three: one train goes out, every anchor hears that same one, and each answers in a slot of its own. One exchange instead of three — bought with far more time on the air, because a train is a fragment from every device in every millisecond it lasts. The variant drops the bearings too: this mode measures distance only.',
+      zh: '到目前为止，手机都是挨个去问每一个锚点。多毫秒模式让它问一次、由三个锚点一起作答：一串片段发出去，每个锚点听到的都是同一串，各自在自己的时隙里回话。一次交互顶掉三次——代价是空口时间多得多，因为这一串在它持续的每一毫秒里，都要每台设备各发一个片段。这个变体还把测向一并去掉了：这个模式只量距离。',
     } },
     { heading: { en: 'The one-sided error you are meant to find', zh: '你应该找出来的那个单向误差' }, text: {
       en: 'One of the three ranges in this flat is not merely noisy; it is wrong the same way every block. Look for the anchor whose straight line to the phone passes through something, and compare its reported distance with the truth printed beside it. Noise is symmetric and averages away. This does not, and a fix that averages it will sit off in one direction.',
@@ -154,44 +154,53 @@ export const uwbCapstone: Lesson = {
     } },
   ],
   numbers: [
-    { kind: 'table', heading: { en: 'The four scenes over seven blocks', zh: '四个场景，七个块' }, head: [
+    { kind: 'table', heading: { en: 'Four scenes, seven blocks', zh: '四个场景，七个块' }, head: [
       { en: 'Scene', zh: '场景' }, { en: 'Fixes', zh: '定位' }, { en: 'Of them, three-range', zh: '其中三距离交汇' },
       { en: 'Timeouts', zh: '超时' }, { en: 'Lost to Wi-Fi', zh: '被 Wi-Fi 打掉' },
+      { en: 'Transmissions', zh: '发射次数' }, { en: 'Air', zh: '空口时间' },
     ], rows: [
-      [{ en: 'The flat as it stands', zh: '现状' }, N('20'), N('5'), N('18'), N('6')],
-      [{ en: 'Anchor 3 in the far room', zh: '锚点 3 挪到另一个房间' }, N('10'), N('0'), N('40'), N('4')],
-      [{ en: 'A block every 100 ms', zh: '每 100 ms 一个块' }, N('36'), N('9'), N('36'), N('12')],
-      [{ en: 'One round for all three', zh: '一轮问遍三个' }, N('7'), N('7'), N('0'), N('14')],
+      [{ en: 'The flat as it stands', zh: '现状' }, N('20'), N('5'), N('18'), N('6'), N('44'), N('8.5 ms')],
+      [{ en: 'Anchor 3 in the far room', zh: '锚点 3 挪到另一个房间' }, N('10'), N('0'), N('40'), N('4'), N('34'), N('6.5 ms')],
+      [{ en: 'A block every 100 ms', zh: '每 100 ms 一个块' }, N('36'), N('9'), N('36'), N('12'), N('81'), N('15.7 ms')],
+      [{ en: 'One round for all three', zh: '一轮问遍三个' }, N('7'), N('7'), N('0'), N('14'), N('294'), N('62.5 ms')],
     ] },
     { text: {
-      en: 'One 1300 ms window throughout. Every other fix is a single anchor’s bearing: another measurement, not a cheaper one.',
-      zh: '全部取自同一个 1300 ms 窗口。其余的定位都是单个锚点测出的方位：那是另一种测量，不是廉价版。',
+      en: 'One 1300 ms window; the last two columns count the session’s own frames. Every other fix is one anchor’s bearing.',
+      zh: '同一个 1300 ms 窗口；最后两列数的是会话自己发出的帧。其余定位都是单锚点测出的方位。',
     } },
-    { kind: 'table', heading: { en: 'The three ranges of the base flat', zh: '现状下的三个距离' }, head: [
+    { kind: 'table', heading: { en: 'The base flat’s three ranges', zh: '现状下的三个距离' }, head: [
       { en: 'Anchor', zh: '锚点' }, { en: 'True', zh: '真值' }, { en: 'Mean error', zh: '平均误差' }, { en: 'Why', zh: '成因' },
     ], rows: [
-      [N('anchor-1'), N('3.99 m'), N('−0.02 m'), { en: 'clear path, timestamp noise only', zh: '直视路径，只有时间戳噪声' }],
-      [N('anchor-2'), N('3.99 m'), N('−0.00 m'), { en: 'clear path, timestamp noise only', zh: '直视路径，只有时间戳噪声' }],
-      [N('anchor-3'), N('3.23 m'), N('+0.60 m'), { en: 'one brick wall: obstructed-path excess delay, model', zh: '一道砖墙：遮挡路径的额外时延，模型取值' }],
+      [N('anchor-1'), N('3.99 m'), N('−0.02 m'), { en: 'clear path', zh: '直视路径' }],
+      [N('anchor-2'), N('3.99 m'), N('−0.00 m'), { en: 'clear path', zh: '直视路径' }],
+      [N('anchor-3'), N('3.23 m'), N('+0.60 m'), { en: 'one brick wall: obstructed-path delay, model', zh: '一道砖墙：遮挡路径的额外时延，模型取值' }],
     ] },
     { kind: 'formula', heading: { en: 'What the bias does to the fix', zh: '这个偏差对定位的影响' }, text: {
       en: 'three-range fix: mean error 0.55 m, worst 0.57 m, GDOP 1.25',
       zh: '三距离交汇的定位：平均误差 0.55 m，最差 0.57 m，GDOP 1.25',
     }, note: {
-      en: 'The spread is tiny and the offset is nearly the whole error: one range reads long every block, and a solver with no reason to distrust it pushes that straight into the answer. Good geometry does not help, because nothing here is random.',
+      en: 'The spread is tiny and the offset is nearly the whole error: one range reads long every block, and a solver with no reason to distrust it passes that on. Good geometry does not help, because nothing here is random.',
       zh: '离散度极小，而误差几乎全是那个固定的偏移：有一个距离每个块都偏长，而一个没有理由去怀疑它的解算器，把这份偏长原样推进了答案里。好的几何条件救不了它，因为这里出错的东西根本不是随机的。',
+    } },
+    { heading: { en: 'Does anything meet the brief?', zh: '有谁达到要求了吗' }, text: {
+      en: 'No: no scene keeps every fix inside half a metre, because the offset alone is 0.60 m. The second experiment does — take that offset off anchor-3’s ranges, re-solve, and the block lands 0.02 m out',
+      zh: '没有：四个场景没有一个能把每一次定位都压在半米以内，因为光那个偏移就有 0.60 m。第二个实验做到了——把这份偏移从 anchor-3 的距离里扣掉、再解一次，这个块就只差 0.02 m。',
     } },
     { kind: 'table', heading: { en: 'What a good answer contains', zh: '好答案长什么样' }, head: [
       { en: 'Decision', zh: '决定' }, { en: 'A good answer', zh: '好答案长什么样' },
     ], rows: [
-      [{ en: 'Anchor 3', zh: '锚点 3' }, { en: 'Keeps it in the hallway, and prices the alternative: the far room halves the fixes, doubles the timeouts and leaves no three-range fix at all. Does not read the surviving bearings’ smaller error as an improvement.', zh: '把它留在走廊里，并给另一种选择标价：挪到另一个房间会让定位次数减半、超时翻倍，而且一次三距离交汇的定位也剩不下。也不会把剩下那些测向结果更小的误差当成变好了。' }],
-      [{ en: 'Block rate', zh: '块的节奏' }, { en: 'Notices that it buys smoothness, not accuracy: the fix error is unchanged while airtime, timeouts and losses to Wi-Fi all roughly double.', zh: '看出它买到的是平滑而不是精度：定位误差没变，而空口占用、超时数和被 Wi-Fi 打掉的接收都大致翻倍。' }],
-      [{ en: 'One round or three', zh: '一轮还是三轮' }, { en: 'Weighs three ranges either way against far fewer transmissions and a longer round; puts the price where a fragment is lost, since all three then suffer together.', zh: '看出两种做法都是三个距离，而一轮制换来发射次数少得多、但一轮更长；并把代价放在丢片段的时刻——那时三个一起受损。' }],
-      [{ en: 'The bias', zh: '那个偏差' }, { en: 'Names anchor-3, gives its sign and size from the log, blames the obstructed path rather than noise, and says why averaging cannot remove it.', zh: '点名 anchor-3，从日志里给出偏差的符号与大小，归因于遮挡路径而非噪声，并说清为什么取平均消不掉。' }],
-      [{ en: 'Honesty', zh: '诚实' }, { en: 'States the residual it cannot explain, in the log’s own units, instead of fitting it away.', zh: '把解释不了的残差如实说出来，用日志自己的单位，而不是拟合掉。' }],
+      [{ en: 'Anchor 3', zh: '锚点 3' }, { en: 'Keeps it in the hallway: the far room halves the fixes, roughly doubles the timeouts and leaves no three-range fix. Does not read the surviving bearings’ smaller error as an improvement.', zh: '把它留在走廊里：挪到另一个房间会让定位次数减半、超时大致翻倍，而且一次三距离交汇的定位也剩不下。也不会把剩下那些测向结果更小的误差当成变好了。' }],
+      [{ en: 'Block rate', zh: '块的节奏' }, { en: 'Notices that it buys smoothness, not accuracy: the fix error is unchanged while airtime, timeouts and losses all double exactly.', zh: '看出它买到的是平滑而不是精度：定位误差没变，而空口占用、超时数和被 Wi-Fi 打掉的接收都恰好翻倍。' }],
+      [{ en: 'One round or three', zh: '一轮还是三轮' }, { en: 'Prices one exchange against three: far more transmissions and airtime, more lost to the router. Does not claim it is cheaper, and notices that it drops the bearings.', zh: '给“一次交互对三次”标价：发射次数与空口时间都多得多，被路由器打掉的也更多。不会说它更省，并注意到它把测向去掉了。' }],
+      [{ en: 'The bias', zh: '那个偏差' }, { en: 'Names anchor-3, gives its sign and size from the log, blames the obstructed path rather than noise, and says why averaging cannot remove it', zh: '点名 anchor-3，给出偏差的符号与大小，归因于遮挡路径而非噪声，并说清为什么取平均消不掉。' }],
+      [{ en: 'The brief', zh: '任务要求' }, { en: 'Says plainly that no scene meets half a metre as it stands, names the correction that does, and reports the residual instead of fitting it away', zh: '直说四个场景原样都达不到半米，点出那个能达标的修正，并如实报出残差，而不是拟合掉。' }],
     ] },
   ],
   deeper: [
+    { heading: { en: 'Who pays when something is lost', zh: '东西丢了，谁来付账' }, text: {
+      en: 'A fragment is lost at one receiver and nowhere else: capture and detection are decided per receiver, per fragment, so an anchor that misses one is the only anchor poorer for it. What costs all three at once is a message from the phone — the Poll that opens the round, or the phone’s own busy check on the control channel, which is the whole subject of the narrowband coexistence lesson. The airtime is the honest price of the one-to-many round; a shared risk of losing fragments is not.',
+      zh: '一个片段的丢失只发生在某一个接收端，别处不受影响：捕获与检出都是逐接收端、逐片段判定的，所以漏掉一个片段的锚点，是唯一因此变穷的那一个。真正让三个一起受损的，是手机发出的消息——开启这一轮的那帧 Poll，或者手机自己在控制信道上的那次判忙，而后者正是窄带共存那一课的全部主题。一对多轮次该付的账是空口时间；至于"丢片段的风险大家一起担"，那不是它的账。',
+    } },
     { heading: { en: 'Why the fix is barely better than the worst range', zh: '为什么定位结果并不比最差的那个距离好多少' }, text: {
       en: 'A least-squares fix over three ranges has no redundancy at all: three unknowns would be two coordinates and nothing else, so with three ranges the residual has one degree of freedom left. A single biased range therefore moves the answer almost as much as it is biased, and the residual the solver reports stays small — the fix is consistent with the data, and the data is wrong. A fourth anchor is the cheapest thing that would let the solver notice.',
       zh: '在三个距离上做最小二乘，几乎没有任何冗余：未知量是两个坐标，于是三个距离只留下一个自由度给残差。所以单个有偏的距离，几乎会把答案挪动它自己那么多，而解算器报出的残差却依然很小——结果和数据是自洽的，只是数据本身错了。要让解算器察觉到这一点，最便宜的办法就是加第四个锚点。',
@@ -229,7 +238,6 @@ export const uwbCapstone: Lesson = {
   ],
   observe: [
     { en: 'Read one block of the base flat end to end: three ranges, three bearings, one three-anchor fix. Then read the UWB_RANGE line from anchor-3, compare it with the truth beside it, and look at its quality byte.', zh: '把现状下的一个块从头读到尾：三个距离、三个方位、一次三锚点定位。然后读 anchor-3 那条 UWB_RANGE，把它和旁边的真值比一比，再看看它的品质字节。' },
-    { en: 'Count the UWB_TIMEOUT lines in the base flat and in the far-anchor variant: 18 against 40. Every extra one is a slot that waited for an answer that was never loud enough to arrive.', zh: '分别数一数现状和"锚点挪远"变体里的 UWB_TIMEOUT：18 条对 40 条。多出来的每一条，都是一个时隙在等一个根本不够响、到不了的回答。' },
     { en: 'In the one-to-many variant, find a UWB_MMS_TRAIN line and read its responder list. One train, three names: the whole saving, in one line.', zh: '在"一轮问遍三个"的变体里找一条 UWB_MMS_TRAIN，读它的应答者名单。一串片段，三个名字：省下来的东西，全在这一行里。' },
   ],
   tryThis: [

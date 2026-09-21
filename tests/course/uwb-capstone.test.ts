@@ -16,6 +16,7 @@ import type { TLRecord } from '../../src/model/records'
 import { UWB_NLOS_NS, FOM_LOS, FOM_NLOS, rstuNs } from '../../src/uwb/phy'
 import { C_M_PER_NS } from '../../src/uwb/phy'
 import { roundPlan } from '../../src/uwb/session'
+import { solvePosition } from '../../src/uwb/position'
 import type { Block } from '../../src/course/lessonKit'
 import { lessonShapeSuite, ofType, runOf } from './kit'
 
@@ -37,9 +38,20 @@ const table = (n: number): Extract<Block, { kind: 'table' }> =>
   uwbCapstone.numbers!.filter((b): b is Extract<Block, { kind: 'table' }> => b.kind === 'table')[n]
 const cell = (n: number, row: number, col: number): string => table(n).rows[row][col].en
 const mean = (xs: number[]): number => xs.reduce((a, b) => a + b, 0) / xs.length
+/** Every UWB node of the flat: the ranging session's own transmissions, not the router's. */
+const UWB_NODES = new Set([...ANCHORS, TAG])
+/** The session's own frames in one scene: how many, and how long they hold the air. */
+const onAir = (variant?: number): { n: number; ms: string } => {
+  const tx = ofType(recs(variant), 'TX_START').filter((r) => UWB_NODES.has(r.node))
+  return { n: tx.length, ms: (tx.reduce((a, r) => a + r.frame.txTimeNs, 0) / MS).toFixed(1) }
+}
+/** The three-range fixes of a scene, with the error of each. */
+const threeRange = (variant?: number) => ofType(recs(variant), 'UWB_POSITION')
+  .filter((f) => f.anchors.length === 3)
+  .map((f) => ({ f, err: Math.hypot(f.x - f.trueX, f.y - f.trueY) }))
 
 // The contract every migrated lesson owes, written once in tests/course/kit.ts.
-lessonShapeSuite(uwbCapstone, { proseMax: 950, runNs: RUN_NS })
+lessonShapeSuite(uwbCapstone, { proseMax: 965, runNs: RUN_NS })
 
 describe('uwb-capstone · the lesson', () => {
   it('closes the UWB track: module 16, four prerequisites, two new words', () => {
@@ -48,6 +60,8 @@ describe('uwb-capstone · the lesson', () => {
     expect(uwbCapstone.needs).toEqual(['uwb-position', 'uwb-aoa', 'uwb-mms', 'uwb-coexist'])
     expect(uwbCapstone.terms!.map((t) => t.term)).toEqual(['brief', 'duty cycle'])
     expect(uwbCapstone.outcomes).toHaveLength(4)
+    expect(uwbCapstone.observe).toHaveLength(2)
+    expect(uwbCapstone.tryThis).toHaveLength(2)
     expect(uwbCapstone.variants).toHaveLength(3)
     expect(uwbCapstone.variants!.map((v) => v.label.en))
       .toEqual(['Anchor 3 in the far room', 'A block every 100 ms', 'One round for all three'])
@@ -123,6 +137,40 @@ describe('uwb-capstone · the four scenes over seven blocks', () => {
     }
   })
 
+  it('the last two columns are what the session puts on the air, scene by scene', () => {
+    // Review I1: one round for all three is NOT fewer transmissions. 44 → 294, 8.5 → 62.5 ms.
+    const rows: [number | undefined, string, string][] = [
+      [undefined, '44', '8.5 ms'], [V_FAR, '34', '6.5 ms'],
+      [V_FAST, '81', '15.7 ms'], [V_OTM, '294', '62.5 ms'],
+    ]
+    for (const [i, [variant, n, ms]] of rows.entries()) {
+      const air = onAir(variant)
+      expect([String(air.n), `${air.ms} ms`], `row ${i}`).toEqual([n, ms])
+      expect([cell(0, i, 5), cell(0, i, 6)], `row ${i}`).toEqual([n, ms])
+    }
+    // seven times the airtime, and more receptions buried, for the same three ranges a block
+    expect(onAir(V_OTM).n).toBeGreaterThan(6 * onAir(undefined).n)
+    expect(count(V_OTM, 'UWB_INTERFERED')).toBeGreaterThan(count(undefined, 'UWB_INTERFERED'))
+    const picture = uwbCapstone.picture!.map((b) => (b as { text?: { en: string } }).text?.en ?? '').join('\n')
+    expect(picture).toContain('bought with far more time on the air')
+    expect(picture).toContain('The variant drops the bearings too')
+    expect(picture).not.toContain('fewer transmissions')
+    expect(cell(2, 2, 1)).toContain('far more transmissions and airtime')
+    expect(cell(2, 2, 1)).toContain('drops the bearings')
+  })
+
+  it('a lost fragment is one receiver’s loss, and `deeper` is where that is said', () => {
+    // Review I1: the rubric used to claim all three anchors suffer together when a fragment
+    // is lost. Loss is decided per receiver, per fragment (tests/uwb/mms-one-to-many.test.ts).
+    const deeper = (uwbCapstone.deeper ?? []).map((b) => (b as { text: { en: string } }).text.en).join('\n')
+    expect(deeper).toContain('A fragment is lost at one receiver and nowhere else')
+    expect(deeper).toContain('the Poll that opens the round, or the phone’s own busy check')
+    for (const s of [cell(2, 2, 1), ...uwbCapstone.picture!.map((b) => (b as { text?: { en: string } }).text?.en ?? '')]) {
+      expect(s).not.toContain('all three then suffer together')
+      expect(s).not.toContain('costs every anchor at once')
+    }
+  })
+
   it('a faster block doubles the work and leaves the accuracy alone', () => {
     const err = (v?: number) => mean(ofType(recs(v), 'UWB_POSITION')
       .filter((f) => f.anchors.length === 3)
@@ -141,7 +189,7 @@ describe('uwb-capstone · the four scenes over seven blocks', () => {
     expect(count(V_FAR, 'UWB_TIMEOUT')).toBeGreaterThan(2 * count(undefined, 'UWB_TIMEOUT') - 1)
     // anchor-3 never gets a range back through two brick walls
     expect(ofType(recs(V_FAR), 'UWB_RANGE').some((r) => r.peer === 'anchor-3')).toBe(false)
-    expect(cell(2, 0, 1)).toContain('halves the fixes, doubles the timeouts and leaves no three-range fix at all')
+    expect(cell(2, 0, 1)).toContain('halves the fixes, roughly doubles the timeouts and leaves no three-range fix')
   })
 
   it('one round for all three is one round a block, with every anchor in it', () => {
@@ -150,7 +198,7 @@ describe('uwb-capstone · the four scenes over seven blocks', () => {
     for (const r of rounds) expect(r.mode).toBe('mms')
     const train = ofType(recs(V_OTM), 'UWB_MMS_TRAIN')[0]
     expect(train.responders).toEqual(ANCHORS)
-    expect(uwbCapstone.observe[2].en).toContain('read its responder list')
+    expect(uwbCapstone.observe[1].en).toContain('read its responder list')
     // three ranges a block either way, but from one round instead of three exchanges
     expect(ofType(recs(V_OTM), 'UWB_RANGE').filter((r) => r.node === TAG)).toHaveLength(21)
     expect(ofType(recs(), 'UWB_RANGE').filter((r) => r.node === TAG)).toHaveLength(15)
@@ -197,14 +245,49 @@ describe('uwb-capstone · the one-sided error', () => {
     const formula = uwbCapstone.numbers!.find((b) => b.kind === 'formula')!
     expect(formula.text.en).toBe('three-range fix: mean error 0.55 m, worst 0.57 m, GDOP 1.25')
   })
+
+  it('the brief is closed: no scene meets half a metre, and the correction does', () => {
+    // Review I2: the lesson asks for half a metre and never said whether anything delivers it.
+    for (const v of [undefined, V_FAST, V_OTM]) {
+      const errs = threeRange(v).map((x) => x.err)
+      expect(errs.length, String(v)).toBeGreaterThan(0)
+      expect(Math.max(...errs), String(v)).toBeGreaterThan(0.5)
+    }
+    expect(threeRange(V_FAR)).toHaveLength(0)
+    // and the second experiment does deliver it: anchor-3's ranges less its own mean error
+    const ranges = ofType(recs(), 'UWB_RANGE').filter((r) => r.node === TAG)
+    const bias = mean(ranges.filter((r) => r.peer === 'anchor-3').map((r) => r.distM - r.trueDistM))
+    expect(bias.toFixed(2)).toBe('0.60')
+    const block = threeRange()[0].f.block
+    const inBlock = ranges.filter((r) => r.block === block)
+    expect(inBlock).toHaveLength(3)
+    const fix = solvePosition(
+      CAPSTONE_ANCHORS.map((a) => ({ id: a.id, x: a.x, y: a.y, z: ANCHOR_Z })),
+      inBlock.map((r) => ({ id: r.peer, distM: r.distM - (r.peer === 'anchor-3' ? bias : 0) })),
+      TAG_Z, 0.021,
+    )!
+    expect(Math.hypot(fix.x - TAG_POS.x, fix.y - TAG_POS.y)).toBeLessThan(0.5)
+    expect(Math.hypot(fix.x - TAG_POS.x, fix.y - TAG_POS.y).toFixed(2)).toBe('0.02')
+    const brief = uwbCapstone.numbers!.find((b): b is Extract<Block, { kind?: 'p' }> =>
+      (b.kind ?? 'p') === 'p' && b.heading?.en === 'Does anything meet the brief?')!
+    expect(brief.text.en).toContain('no scene keeps every fix inside half a metre')
+    expect(brief.text.en).toContain('the block lands 0.02 m out')
+    expect(cell(2, 4, 0)).toBe('The brief')
+    expect(cell(2, 4, 1)).toContain('no scene meets half a metre as it stands')
+  })
 })
 
 describe('uwb-capstone · the rubric and the sources', () => {
   it('the rubric names a decision per row and the honesty the write-up owes', () => {
     expect(table(2).rows.map((r) => r[0].en))
-      .toEqual(['Anchor 3', 'Block rate', 'One round or three', 'The bias', 'Honesty'])
+      .toEqual(['Anchor 3', 'Block rate', 'One round or three', 'The bias', 'The brief'])
     expect(cell(2, 3, 1)).toContain('Names anchor-3')
-    expect(cell(2, 4, 1)).toContain('States the residual it cannot explain')
+    expect(cell(2, 4, 1)).toContain('reports the residual instead of fitting it away')
+    // M1: the hedge belongs on the far-anchor row (18 → 40), not on the block rate (18 → 36)
+    expect(cell(2, 0, 1)).toContain('roughly doubles the timeouts')
+    expect(cell(2, 1, 1)).toContain('all double exactly')
+    expect(count(V_FAST, 'UWB_TIMEOUT')).toBe(2 * count(undefined, 'UWB_TIMEOUT'))
+    expect(count(V_FAR, 'UWB_TIMEOUT')).not.toBe(2 * count(undefined, 'UWB_TIMEOUT'))
   })
 
   it('says what is standard, what is draft and what is the flat’s own', () => {

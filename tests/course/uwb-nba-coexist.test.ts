@@ -325,6 +325,14 @@ describe('uwb-nba-coexist · the base scene, inside the router’s channel', () 
     expect(ofType(recs(), 'UWB_TIMEOUT')).toHaveLength(21)
     expect([cell(1, 0, 3), cell(1, 0, 4)]).toEqual(['4', '0'])
     expect(prose()).toContain('Two blocks in seven get anything out')
+    // Review I3: the quiz questions were re-based too, so pin their text, not only the answers
+    expect(uwbNbaCoexist.quiz[0].q.en).toContain('four distances in seven blocks')
+    expect(uwbNbaCoexist.quiz[1].q.en).toContain('21 distances instead of four')
+    expect(uwbNbaCoexist.quiz[0].explain.en).toContain('never a fix’s three')
+    for (const s of [uwbNbaCoexist.quiz[0].q, uwbNbaCoexist.quiz[1].q, uwbNbaCoexist.quiz[0].explain]) {
+      expect(s.en, s.en).not.toContain('one distance')
+      expect(s.zh, s.en).not.toContain('只量出一个距离')
+    }
     expect(prose()).toContain('Four distances between them, and still no position, because a position needs three in one block')
     expect(uwbNbaCoexist.observe[2].en).toContain('21 timeouts')
   })
@@ -441,7 +449,7 @@ describe('uwb-nba-coexist · the other three placements', () => {
     expect(nbFrames(V_NOLBT)).toHaveLength(108)
     expect([cell(1, 3, 2), cell(1, 3, 3), cell(1, 3, 4)]).toEqual(['0', '21', '5'])
     expect(uwbNbaCoexist.tryThis[0].en).toContain('21 distances, 5 fixes')
-    expect(uwbNbaCoexist.quiz[1].q.en).toContain('the session gets 21 distances instead of one')
+    expect(uwbNbaCoexist.quiz[1].q.en).toContain('the session gets 21 distances instead of four')
   })
 })
 

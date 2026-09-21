@@ -5,8 +5,10 @@
  * what it says in one round, and what that costs in airtime. The coexistence
  * half — the listen-before-talk rule, the channel plan, the hop and the price
  * the Wi-Fi link pays — is next door in `uwb-nba-coexist`, which loads exactly
- * this scene and these three variants, so the split adds no new scenario and the
- * recorded hashes of the two ids are equal, value for value.
+ * this scene and these four variants, so the split adds no new scenario and the
+ * recorded hashes of the two ids are equal, value for value. Since the lesson task
+ * the base is a one-to-many round over three of the four corner anchors, and the
+ * pair round it used to run is the last variant, "One anchor at a time".
  *
  * Written to the zero-to-hero contract
  * (docs/superpowers/specs/2026-09-21-course-readability-design.md): the two
@@ -166,8 +168,8 @@ export const uwbNba: Lesson = {
       zh: '盯住一个测距块看，形状就很清楚了。Poll 在最开头出发，并在里面点名它要问的每一个锚点；一个时隙之后，它们各自作答；片段在这期间穿过房间；大约第二十毫秒上，第一条收尾消息到达，发问的一方这才终于拿到一个距离。一个块里就装这么一轮，余下的大半时间是空的。',
     } },
     { heading: { en: 'And then the room goes quiet', zh: '然后房间就安静了' }, text: {
-      en: 'In this scene that happens exactly once. The small radio is sharing its slice of spectrum with the Wi-Fi router overhead, and the rule that comes with that band takes the rest of the run away from it. Nothing is wrong with either measurement; the talking simply stops. That is the next lesson, “The narrowband radio shares 6 GHz too”.',
-      zh: '在本课的场景里，这件事只发生了一次。那部小射频与头顶的 Wi-Fi 路由器共用着同一薄片频谱，而这个频段附带的规则，把这段运行余下的时间全从它手里拿走了。两边的测量都没毛病，只是话说不出去了。这正是下一课《窄带射频也共享 6 GHz》要讲的事。',
+      en: 'In this scene that happens twice in seven blocks. The small radio is sharing its slice of spectrum with the Wi-Fi router overhead, and the rule that comes with that band takes the other five away from it. Nothing is wrong with either measurement; the talking simply stops. That is the next lesson, “The narrowband radio shares 6 GHz too”.',
+      zh: '在本课的场景里，七个块里只有两个走完了这件事。那部小射频与头顶的 Wi-Fi 路由器共用着同一薄片频谱，而这个频段附带的规则，把其余五个块从它手里拿走了。两边的测量都没毛病，只是话说不出去了。这正是下一课《窄带射频也共享 6 GHz》要讲的事。',
     } },
   ],
   numbers: [
@@ -234,7 +236,7 @@ export const uwbNba: Lesson = {
     J('the narrowband poll that opens the round', '打开轮次的那帧窄带 Poll', firstNbPoll),
     J('what the far end made of the train', '对端如何判定这一串片段', firstUwbTrain),
     J('the narrowband report that closes it', '收尾的那帧窄带 Report', firstNbReport),
-    J('the one distance of the whole run', '整段运行里唯一的一个距离', firstUwbRange),
+    J('the first distance the run gets out', '整段运行里第一个发得出去的距离', firstUwbRange),
   ],
   observe: [
     { en: 'The round opens on the other radio: “uwb-1 → * NBPOLL 23 B @0.25 Mbps (928.0 µs)”. It is the first thing in the whole run — no ranging frame has been sent yet.',

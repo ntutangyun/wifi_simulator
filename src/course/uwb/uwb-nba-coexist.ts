@@ -7,14 +7,15 @@
  * the listen-before-talk rule the band comes with.
  *
  * The result is the lesson: the UWB side is flawless — 4.76 m across an empty
- * room, 8/8 fragments, 34.5 dB of margin — and the session still produces one
- * distance and no position in 1.3 seconds, because a busy check costs a whole
- * ranging block and a saturated 6 GHz laptop is almost never quiet. Moving the
+ * room, 8/8 fragments, 34.5 dB of margin — and the session still gets only four
+ * distances out of seven blocks, and no position at all, in 1.3 seconds, because
+ * a busy check costs a whole ranging block and a saturated 6 GHz laptop is almost
+ * never quiet. Moving the
  * control channel 250 MHz down gives everything back; hopping gives back the
  * fraction of blocks the hash puts outside; switching the rule off gives back
  * most of the ranging and charges Wi-Fi 10.95 % of its throughput for it.
  *
- * It loads exactly the scene `uwb-nba` loads — the same builder, the same three
+ * It loads exactly the scene `uwb-nba` loads — the same builder, the same four
  * variants — so the split adds no new scenario and the recorded hashes of
  * `uwb-nba-coexist` are `uwb-nba`'s, value for value. Every number quoted below
  * is pinned in tests/course/uwb-nba-coexist.test.ts.
@@ -191,17 +192,17 @@ export const uwbNbaCoexist: Lesson = {
   ],
   quiz: [
     {
-      q: { en: 'The phone is 1.50 m from the router and its fragments clear the receiver by 34.5 dB. Why does the base scene produce one distance in 1.3 seconds?', zh: '手机离路由器只有 1.50 m，它的片段还高出接收门限 34.5 dB。为什么基础场景 1.3 秒里只量出一个距离？' },
+      q: { en: 'The phone is 1.50 m from the router and its fragments clear the receiver by 34.5 dB. Why does the base scene get four distances in seven blocks?', zh: '手机离路由器只有 1.50 m，它的片段还高出接收门限 34.5 dB。为什么基础场景七个块里只拿到四个距离？' },
       options: [
         { en: 'The fragments are buried by the router’s bursts', zh: '片段被路由器的猝发压住了' },
         { en: 'Listen before talk is an energy test, not a margin test: the laptop alone reads −63.72 dBm at the phone, and one busy check costs the whole block', zh: '先听后发测的是能量，不是余量：光是那台笔记本在手机处就有 −63.72 dBm，而一次判忙要赔上整整一个块' },
         { en: 'The narrowband receiver is below its sensitivity at that range', zh: '在那个距离上窄带接收机低于自己的灵敏度' },
       ],
       answer: 1,
-      explain: { en: 'Both links are excellent here; what fails is a rule. Seven blocks, seven checks reading −63.72 dBm, seven blocks skipped — and a position needs three distances.', zh: '两条链路在这里都好得很，失败的是一条规则。七个块，七次读到 −63.72 dBm 的检测，七个块被跳过——而解一个定位要三个距离。' },
+      explain: { en: 'Both links are excellent here; what fails is a rule. Seven blocks, seven checks at −63.72 dBm, seven skipped — and the two that got a poll out first gave two distances each, never a fix’s three.', zh: '两条链路在这里都好得很，失败的是一条规则。七个块，七次读到 −63.72 dBm 的检测，七个块被跳过——而那两个赶在判忙之前把 Poll 发出去的块，各自也只给出两个距离，凑不齐解一次定位所需的三个。' },
     },
     {
-      q: { en: 'With the rule off the session gets 21 distances instead of one. What did that cost the Wi-Fi link?', zh: '关掉规则之后，会话拿到的是 21 个距离而不是一个。这让 Wi-Fi 链路付出了什么？' },
+      q: { en: 'With the rule off the session gets 21 distances instead of four. What did that cost the Wi-Fi link?', zh: '关掉规则之后，会话拿到的是 21 个距离，而不是四个。这让 Wi-Fi 链路付出了什么？' },
       options: [
         { en: 'Nothing measurable — 10 dBm is far below the energy-detect threshold', zh: '没有可测的代价——10 dBm 远低于能量检测门限' },
         { en: '87 failed frames and 10.95 % of the laptop’s throughput: 362.631 Mb/s against 407.215', zh: '87 个帧解调失败，以及笔记本吞吐的 10.95 %：362.631 Mb/s 对 407.215 Mb/s' },
