@@ -27,6 +27,7 @@ import { ampIntro } from './amp/amp-intro'
 import { ampSlots } from './amp/amp-slots'
 import { ampCoexist } from './amp/amp-coexist'
 import { uwbIntro } from './uwb/uwb-intro'
+import { uwbFrame } from './uwb/uwb-frame'
 import { uwbSstwr } from './uwb/uwb-sstwr'
 import { uwbDstwr } from './uwb/uwb-dstwr'
 import { uwbBlocks } from './uwb/uwb-blocks'
@@ -120,6 +121,7 @@ const AUTHORED: Lesson[] = [
   ampSlots,
   ampCoexist,
   uwbIntro,
+  uwbFrame,
   uwbSstwr,
   uwbDstwr,
   uwbBlocks,

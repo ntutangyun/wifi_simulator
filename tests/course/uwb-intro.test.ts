@@ -1,9 +1,12 @@
 /**
- * Every empirical claim in the "Timestamps, not throughput" lesson, measured
+ * Every empirical claim in the "A radio that measures time" lesson, measured
  * against the lesson's own scenario and its 20 m variant. Each assertion quotes
  * the sentence it guards; standard constants are checked against the engine's
  * exports (src/uwb/phy.ts, src/uwb/ranging.ts, src/uwb/clock.ts) rather than
  * re-typed.
+ *
+ * The frame anatomy — the 197.628 µs table, the RMARKER offset and the two-slot
+ * round — moved with its sentences to tests/course/uwb-frame.test.ts.
  */
 import { describe, it, expect } from 'vitest'
 import { uwbIntro, uwbIntroScenario } from '../../src/course/uwb/uwb-intro'
@@ -12,20 +15,16 @@ import { Simulation } from '../../src/engine/simulation'
 import { SLOT_NS } from '../../src/engine/phy'
 import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
-import type { L10n } from '../../src/course/lessonKit'
-import { OBSERVE_MINUTES, TRY_MINUTES, lessonMinutes, lessonWords } from '../../src/course/curriculum'
+import { isMigrated, type L10n } from '../../src/course/lessonKit'
+import { OBSERVE_MINUTES, TRY_MINUTES, lessonBlocks, lessonMinutes, lessonWords } from '../../src/course/curriculum'
 import { fmtRecord } from '../../src/ui/format'
-import { uwbPpduLayout } from '../../src/uwb/frameFields'
 import { counterDiff } from '../../src/uwb/clock'
 import { rangeSigmaM } from '../../src/uwb/position'
 import { rctuToMetres, ssTwrRaw } from '../../src/uwb/ranging'
 import {
-  COUNTER_BITS, COUNTER_MOD, C_M_PER_NS, DATA_SYMBOL_CHIPS, PHR_SYMBOLS, PHR_SYMBOL_CHIPS, PSYM_CHIPS,
-  RCTU_NS, RCTU_PS, RSTU_NS, RS_PARITY_BITS, SFD_SYMBOLS, STS_ACTIVE_CHIPS, STS_GAP_CHIPS,
-  SYNC_SYMBOLS, TAIL_SYMBOLS, UWB_CHIP_HZ, UWB_CHIP_NS, UWB_PPM_MAX, UWB_RMARKER_CHIPS,
-  UWB_RX_SENS_DBM, UWB_TX_POWER_DBM, chipsToNs, psduSymbols, uwbPollBytes, uwbPpduNs, uwbRespBytes,
+  COUNTER_BITS, COUNTER_MOD, C_M_PER_NS, RCTU_NS, RCTU_PS, RSTU_NS, UWB_CHIP_HZ, UWB_CHIP_NS,
+  UWB_PPM_MAX, UWB_RX_SENS_DBM, UWB_TX_POWER_DBM,
 } from '../../src/uwb/phy'
-import { UWB_MBPS } from '../../src/uwb/frames'
 
 const MS = 1_000_000
 const US = 1_000
@@ -47,32 +46,57 @@ function recs(variant?: number): TLRecord[] {
 }
 const ofType = <K extends TLRecord['type']>(rs: TLRecord[], type: K) =>
   rs.filter((r): r is Extract<TLRecord, { type: K }> => r.type === type)
-const txs = (rs: TLRecord[], kind: string) => ofType(rs, 'TX_START').filter((r) => r.frame.kind === kind)
 
 describe('uwb-intro · lesson shape', () => {
+  it('is written to the zero-to-hero contract', () => {
+    expect(isMigrated(uwbIntro)).toBe(true)
+    // the first lesson of the UWB track: at most four new words, and no table in the picture
+    expect(uwbIntro.terms!.map((t) => t.term)).toEqual(['UWB', 'anchor', 'RMARKER', 'RCTU'])
+    expect(uwbIntro.picture!.some((b) => b.kind === 'table')).toBe(false)
+    // the reader is sent to the simulator before the mechanism is finished
+    const firstWatch = uwbIntro.picture!.findIndex((b) => b.kind === 'watch')
+    expect(firstWatch).toBeGreaterThanOrEqual(0)
+    expect(firstWatch).toBeLessThan(3)
+    // it assumes Wi-Fi Tier 1 and nothing else
+    expect(uwbIntro.needs).toEqual(['radio-primer', 'frame-anatomy'])
+  })
+
   it('the scenario and the variant pass the scenario schema', () => {
     expect(() => ScenarioSchema.parse(uwbIntro.scenario())).not.toThrow()
     for (const v of uwbIntro.variants!) expect(() => ScenarioSchema.parse(v.scenario())).not.toThrow()
   })
 
-  it('the computed study time follows the formula and stays inside the 15–25 minute target', () => {
+  it('the computed study time follows the formula and stays under 20 minutes', () => {
     const raw = lessonWords(uwbIntro) / 150
       + OBSERVE_MINUTES * uwbIntro.observe.length + TRY_MINUTES * uwbIntro.tryThis.length
     expect(lessonMinutes(uwbIntro)).toBe(Math.max(5, Math.round(raw / 5) * 5))
-    expect(lessonMinutes(uwbIntro)).toBeGreaterThanOrEqual(15)
-    expect(lessonMinutes(uwbIntro)).toBeLessThanOrEqual(25)
+    expect(lessonMinutes(uwbIntro)).toBeLessThanOrEqual(20)
     // the module the lesson opens: UWB Tier 1, "Time of flight"
     expect(uwbIntro.module).toBe(11)
+  })
+
+  it('fits one sitting: 900–1300 words on the main path', () => {
+    expect(lessonWords(uwbIntro)).toBeGreaterThanOrEqual(900)
+    expect(lessonWords(uwbIntro)).toBeLessThanOrEqual(1300)
+    // what the reader reads before the simulator: why, outcomes, terms, picture, numbers.
+    // The split budgeted 600–900 for this lesson; observe, tryThis and quiz add the rest.
+    const prose = lessonWords({ ...uwbIntro, observe: [], tryThis: [], quiz: [] })
+    expect(prose).toBeGreaterThanOrEqual(600)
+    expect(prose).toBeLessThanOrEqual(1000)
+    expect(lessonBlocks(uwbIntro).length).toBe(uwbIntro.picture!.length + uwbIntro.numbers!.length)
   })
 
   it('every jump target occurs in the base run', () => {
     const rs = recs()
     for (const j of uwbIntro.jumps) expect(rs.some(j.find), j.label.en).toBe(true)
+    for (const b of uwbIntro.picture!) {
+      if (b.kind === 'watch' && b.jump !== undefined) expect(uwbIntro.jumps[b.jump]).toBeDefined()
+    }
   })
 
   it('the scene is one anchor and one phone, both crystals pinned to 0 ppm', () => {
-    // "One anchor and one phone, five metres apart" / "Both crystals are pinned to 0 ppm in this
-    //  scenario, which no real pair of devices ever is"
+    // "one anchor, one phone, four timestamps, one distance" / "Both crystals are pinned to 0 ppm
+    //  here, which no real pair ever is"
     for (const s of [uwbIntro.scenario(), uwbIntro.variants![0].scenario()]) {
       expect(s.nodes.map((n) => n.kind)).toEqual(['uwb', 'uwb'])
       expect(s.nodes.map((n) => n.uwb!.role)).toEqual(['anchor', 'tag'])
@@ -88,9 +112,8 @@ describe('uwb-intro · lesson shape', () => {
   })
 
   it('the two model constants the lesson invites you to argue with are the engine’s own', () => {
-    // "The rest are model choices, named so you can argue with them: −14 dBm of transmit power,
-    //  −93 dBm of sensitivity, 100 ps of 1-σ noise on every received timestamp, 0.2 ppm of residual
-    //  error in the clock-offset estimate"
+    // sources: "−14 dBm of transmit power, −93 dBm of sensitivity, 100 ps of 1-σ noise on every
+    //  received timestamp, and 0.2 ppm of residual error in the clock-offset estimate"
     expect(UWB_TX_POWER_DBM).toBe(-14)
     expect(UWB_RX_SENS_DBM).toBe(-93)
     expect(uwbIntro.scenario().nodes.map((n) => n.txPowerDbm)).toEqual([-14, -14])
@@ -123,7 +146,12 @@ describe('uwb-intro · lesson shape', () => {
       if (isL10n(o)) { seen.push(o); return }
       for (const [k, v] of Object.entries(o)) if (k !== 'scenario' && k !== 'find') walk(v)
     }
-    walk({ title: uwbIntro.title, body: uwbIntro.body, observe: uwbIntro.observe, tryThis: uwbIntro.tryThis, quiz: uwbIntro.quiz, variants: uwbIntro.variants, jumps: uwbIntro.jumps })
+    walk({
+      title: uwbIntro.title, why: uwbIntro.why, outcomes: uwbIntro.outcomes, terms: uwbIntro.terms,
+      picture: uwbIntro.picture, numbers: uwbIntro.numbers, deeper: uwbIntro.deeper, sources: uwbIntro.sources,
+      observe: uwbIntro.observe, tryThis: uwbIntro.tryThis, quiz: uwbIntro.quiz,
+      variants: uwbIntro.variants, jumps: uwbIntro.jumps,
+    })
     expect(seen.length).toBeGreaterThan(50)
     for (const l of seen) {
       expect(l.en.trim().length, l.en).toBeGreaterThan(0)
@@ -135,15 +163,16 @@ describe('uwb-intro · lesson shape', () => {
 
 describe('uwb-intro · the units', () => {
   it('the chip is 2.003 ns at 499.2 MHz and the counter unit 15.650 ps', () => {
-    // "sends its pulses at 499.2 MHz, so one chip lasts 2.003 ns. The ranging counter runs 128 times
-    //  finer: one ranging counter time unit (RCTU) is 2⁻⁷ of a chip, 15.650 ps."
+    // the "Units" table: "One chip at 499.2 MHz | 2.003 ns" and "One RCTU (2⁻⁷ of a chip) | 15.650 ps",
+    // and the quiz's "The counter runs 128 times finer than the 499.2 MHz chip rate."
     expect(UWB_CHIP_HZ).toBe(499.2e6)
     expect(UWB_CHIP_NS.toFixed(3)).toBe('2.003')
     expect(RCTU_NS).toBe(UWB_CHIP_NS / 2 ** 7)
     expect(RCTU_PS.toFixed(3)).toBe('15.650')
-    // the quiz: "The counter runs 128 times finer than the 499.2 MHz chip rate."
     expect(UWB_CHIP_NS / RCTU_NS).toBe(128)
-    // the two FiRa numbers the lesson names: "the 2 ms ranging slot and the 200 ms ranging block"
+    // the wrong quiz option "One chip, 2.003 ns, about 60 cm" is wrong by being right about the chip
+    expect((UWB_CHIP_NS * C_M_PER_NS * 100).toFixed(0)).toBe('60')
+    // the two FiRa numbers the sources name: "the 2 ms ranging slot and the 200 ms ranging block"
     expect(RSTU_NS.toFixed(3)).toBe('833.333')
     expect(Math.round(2400 * RSTU_NS)).toBe(2 * MS)
     expect(Math.round(240_000 * RSTU_NS)).toBe(200 * MS)
@@ -155,10 +184,10 @@ describe('uwb-intro · the units', () => {
   })
 
   it('one metre is 3.3356 ns and 213.1 ticks, so a tick is 4.7 mm of flight and 2.3 mm of range', () => {
-    // "Light covers one metre in 3.3356 ns, which is 213.1 RCTU, so one tick of the counter is 4.7 mm
-    //  of flight — and because two-way ranging halves a round trip, one tick of timing error is 2.3 mm
-    //  of distance error."
+    // the "Units" table: "One metre of flight | 3.3356 ns = 213.1 RCTU | c = 0.299792458 m/ns" and
+    // "One RCTU of timing error | 4.7 mm of flight, 2.3 mm of range"
     const nsPerMetre = 1 / C_M_PER_NS
+    expect(C_M_PER_NS).toBe(0.299792458)
     expect(nsPerMetre.toFixed(4)).toBe('3.3356')
     expect((nsPerMetre / RCTU_NS).toFixed(1)).toBe('213.1')
     expect((rctuToMetres(1) * 1000).toFixed(1)).toBe('4.7')
@@ -166,109 +195,22 @@ describe('uwb-intro · the units', () => {
   })
 
   it('the 40-bit counter wraps after 17.2 seconds', () => {
-    // "The counter is 40 bits wide in this model; the standard asks only for 32 or more. At 15.650 ps a
-    //  tick, 2⁴⁰ ticks is 17.2 seconds, and then it wraps to zero."
+    // "Going deeper": "The counter is 40 bits wide in this model; the standard asks only for 32 or
+    //  more. At 15.650 ps a tick, 2⁴⁰ ticks is 17.2 seconds, and then it wraps to zero."
     expect(COUNTER_BITS).toBe(40)
     expect(COUNTER_MOD).toBe(2 ** 40)
     expect(((COUNTER_MOD * RCTU_NS) / 1e9).toFixed(1)).toBe('17.2')
-    // "every subtraction below is modulo 2⁴⁰"
+    // "every subtraction above is modulo 2⁴⁰"
     expect(counterDiff(5, COUNTER_MOD - 5)).toBe(10)
   })
 
   it('the standard allows ±20 ppm, which costs six metres on a 2 ms reply', () => {
-    // "the standard allows ±20 ppm (§16.4.9). At 20 ppm of relative offset, the anchor’s 2 ms reply is
-    //  mismeasured by 40 ns, half of which lands straight on the range — 20 ns, six metres"
+    // "Going deeper": "the standard allows ±20 ppm. At 20 ppm of relative offset the anchor’s 2 ms
+    //  reply is mismeasured by 40 ns, half of which lands straight on the range — 20 ns, six metres"
     expect(UWB_PPM_MAX).toBe(20)
     const errNs = 2 * MS * 20e-6
     expect(errNs).toBe(40)
     expect((errNs / 2) * C_M_PER_NS).toBeCloseTo(6, 1)
-  })
-})
-
-describe('uwb-intro · what 197.628 µs is made of', () => {
-  const poll = txs(recs(), 'uwbPoll')[0]
-  const layout = uwbPpduLayout(poll.frame)
-  const durOf = (key: string, nth = 0): number => layout.filter((s) => s.key === key)[nth].durNs
-
-  it('the poll is 30 octets and 197.628 µs, exactly the PPDU the engine builds', () => {
-    // the table's "PSDU, 30 octets" row and its "The whole poll … 197.628 µs" row
-    expect(uwbPollBytes(1)).toBe(30)
-    expect(poll.frame.bytes).toBe(30)
-    expect(uwbPpduNs(30)).toBe(197_628)
-    expect(poll.frame.txTimeNs).toBe(197_628)
-    expect((197_628 / US).toFixed(3)).toBe('197.628')
-  })
-
-  it('every field duration in the table is chipsToNs of its chip count', () => {
-    // the "Duration" column: SYNC 65.128, SFD 8.141, STS gap 1.026, STS 65.641, PHR 19.487, PSDU 37.179
-    expect(durOf('sync')).toBe(chipsToNs(SYNC_SYMBOLS * PSYM_CHIPS))
-    expect(durOf('sync')).toBe(65_128)
-    expect(durOf('sfd')).toBe(chipsToNs(SFD_SYMBOLS * PSYM_CHIPS))
-    expect(durOf('sfd')).toBe(8_141)
-    expect(durOf('stsGap')).toBe(chipsToNs(STS_GAP_CHIPS))
-    expect(durOf('stsGap')).toBe(1_026)
-    expect(durOf('stsGap', 1)).toBe(1_026)
-    expect(durOf('sts')).toBe(chipsToNs(STS_ACTIVE_CHIPS))
-    expect(durOf('sts')).toBe(65_641)
-    expect(durOf('phr')).toBe(chipsToNs(PHR_SYMBOLS * PHR_SYMBOL_CHIPS))
-    expect(durOf('phr')).toBe(19_487)
-    expect(durOf('psdu')).toBe(chipsToNs(psduSymbols(30) * DATA_SYMBOL_CHIPS))
-    expect(durOf('psdu')).toBe(37_179)
-    expect(layout.reduce((s, x) => s + x.durNs, 0)).toBe(197_628)
-  })
-
-  it('the symbol and chip counts the "Field" column names are the engine’s own', () => {
-    // "SYNC, 64 preamble symbols" / "SFD, 8 symbols" / "512 chips of silence" /
-    // "STS, 64 × 512 chips" / "PHR, 19 symbols" — a compensating change (fewer symbols, longer
-    // symbol) would keep every duration above and quietly falsify all five cells.
-    expect(SYNC_SYMBOLS).toBe(64)
-    expect(SFD_SYMBOLS).toBe(8)
-    expect(STS_GAP_CHIPS).toBe(512)
-    expect(STS_ACTIVE_CHIPS).toBe(64 * 512)
-    expect(PHR_SYMBOLS).toBe(19)
-  })
-
-  it('the PSDU is 240 data bits, 48 parity bits and a 2-symbol tail, carried at 6.81 Mb/s', () => {
-    // "the poll at 6.81 Mb/s: 240 data bits, 48 parity bits, a 2-symbol tail" — the clause exists
-    // because 30 × 8 / 6.81 Mb/s is 35.2 µs, not the 37.179 µs beside it.
-    expect(UWB_MBPS).toBe(6.81)
-    expect(poll.frame.mbps).toBe(UWB_MBPS)
-    expect(30 * 8).toBe(240)
-    expect(RS_PARITY_BITS).toBe(48)
-    expect(TAIL_SYMBOLS).toBe(2)
-    expect(psduSymbols(30)).toBe(240 + RS_PARITY_BITS + TAIL_SYMBOLS)
-  })
-
-  it('160.449 µs of the poll is structure and only 37.179 µs is the message', () => {
-    // "160.449 µs of it is structure; only 37.179 µs is the message"
-    const structure = layout.filter((s) => s.key !== 'psdu').reduce((s, x) => s + x.durNs, 0)
-    expect(structure).toBe(160_449)
-    expect(structure + 37_179).toBe(197_628)
-  })
-
-  it('the RMARKER is the first chip after the SFD, 73.269 µs in', () => {
-    // "The RMARKER is the first chip after the SFD (§10.29.1.1), 65.128 + 8.141 = 73.269 µs into the
-    //  PPDU." — and the quiz option "the first chip after the SFD — 73.269 µs into the frame"
-    expect(UWB_RMARKER_CHIPS).toBe((SYNC_SYMBOLS + SFD_SYMBOLS) * PSYM_CHIPS)
-    expect(chipsToNs(UWB_RMARKER_CHIPS)).toBe(73_269)
-    expect(65_128 + 8_141).toBe(73_269)
-    expect(layout.find((s) => s.rmarkerNs !== undefined)!.rmarkerNs).toBe(73_269)
-  })
-
-  it('the response is 20 octets and 187.372 µs, differing from the poll only in its PSDU', () => {
-    // "The 20-octet response is built the same way and differs only in its PSDU: 26.923 µs of payload,
-    //  187.372 µs in all, with its RMARKER at the very same 73.269 µs offset."
-    const resp = txs(recs(), 'uwbResp')[0]
-    expect(uwbRespBytes('ss')).toBe(20)
-    expect(resp.frame.bytes).toBe(20)
-    expect(resp.frame.txTimeNs).toBe(187_372)
-    const rl = uwbPpduLayout(resp.frame)
-    expect(rl.find((s) => s.key === 'psdu')!.durNs).toBe(26_923)
-    expect(rl.filter((s) => s.key !== 'psdu').map((s) => s.durNs))
-      .toEqual(layout.filter((s) => s.key !== 'psdu').map((s) => s.durNs))
-    expect(rl.find((s) => s.rmarkerNs !== undefined)!.rmarkerNs).toBe(73_269)
-    // "Of those 4 ms, 385 µs carries a frame and the rest is schedule."
-    expect(Math.round((197_628 + 187_372) / US)).toBe(385)
   })
 })
 
@@ -283,7 +225,7 @@ describe('uwb-intro · the flight time on the timeline', () => {
 
   it('five metres of air is a 17 ns gap between TX_START and RX_START, both ways', () => {
     // "TX_START on the phone’s lane is at 0 ns and RX_START on the anchor’s is at 17 ns — five metres
-    //  of air" / "Jump to the poll’s TX_START at 0 ns, then look at the anchor’s lane: RX_START at 17 ns."
+    //  of air" / "Why does the timeline show 17 ns of flight and not 16.68?"
     const rs = recs()
     expect(ofType(rs, 'TX_START')[0].t).toBe(0)
     expect(gaps(rs)).toEqual([17, 17])
@@ -298,9 +240,9 @@ describe('uwb-intro · the flight time on the timeline', () => {
   })
 
   it('the engine rounds the flight UP, never to nearest — measured where the two differ', () => {
-    // "Five metres at c is 16.678 ns, and the event queue counts whole nanoseconds. The arrival is
-    //  scheduled at the next whole nanosecond up — rounded up, never to nearest, so no frame is ever
-    //  delivered a hair earlier than physics allows."
+    // "Five metres at the speed of light is 16.678 ns, and the event queue counts whole nanoseconds.
+    //  An arrival is scheduled at the next whole nanosecond up — rounded up, never to nearest, so no
+    //  frame is ever delivered a hair earlier than physics allows."
     // Both lesson distances have a fraction above 0.5, so Math.round would give the same 17 and 67:
     // this measures a scratch placement whose fraction is 0.336, where round gives 3 and ceil 4.
     const scratch = uwbIntroScenario(5)
@@ -328,9 +270,9 @@ describe('uwb-intro · the flight time on the timeline', () => {
   })
 
   it('the Wi-Fi channel, by contrast, delivers a frame at the instant it was transmitted', () => {
-    // "The Wi-Fi channel delivers a frame at the instant it was transmitted, deliberately: across a
-    //  flat, propagation delay is tens of nanoseconds against a 9 µs slot, so dropping it costs the
-    //  MAC nothing."
+    // "Going deeper": "The Wi-Fi half of this simulator delivers a frame at the instant it was
+    //  transmitted, deliberately. Across a flat, propagation delay is tens of nanoseconds against a
+    //  9 µs slot, so dropping it costs the MAC nothing."
     expect(SLOT_NS).toBe(9 * US)
     const wifi = LESSONS.find((l) => l.id === 'airtime')!.scenario()
     const rs = [...new Simulation(wifi).runUntil(20 * MS).records]
@@ -341,21 +283,6 @@ describe('uwb-intro · the flight time on the timeline', () => {
       expect(rx.length, `RX_START for the frame at ${t.t}`).toBeGreaterThan(0)
       for (const r of rx) expect(r.t, 'the Wi-Fi channel adds no flight time').toBe(t.t)
     }
-  })
-
-  it('the round is two 2 ms slots and the response leaves at exactly 2 000 000 ns', () => {
-    // "the round is two slots of 2 ms, the poll in slot 0 and the response in slot 1, which starts at
-    //  exactly 2 000 000 ns" / "the anchor answers in the next ranging slot"
-    const rs = recs()
-    const round = ofType(rs, 'UWB_ROUND')
-    expect(round).toHaveLength(1)
-    expect(round[0].t).toBe(0)
-    expect(round[0].node).toBe('tag-1')
-    expect(round[0].method).toBe('ss')
-    expect(round[0].slots).toBe(2)
-    expect(round[0].slotNs).toBe(2 * MS)
-    expect(ofType(rs, 'UWB_SLOT').map((r) => r.t)).toEqual([0, 2 * MS])
-    expect(txs(rs, 'uwbResp')[0].t).toBe(2 * MS)
   })
 })
 
@@ -385,7 +312,7 @@ describe('uwb-intro · the four lines to subtract', () => {
   it('subtracting them by hand gives 1070 RCTU, 16.75 ns, 5.02 m — the range line’s raw figure', () => {
     // "Tround = 336 335 290 928 − 336 207 494 656 = 127 796 272 / Treply = 26 509 392 384 −
     //  26 381 598 252 = 127 794 132 / T̂prop = (127 796 272 − 127 794 132) / 2 = 1070 RCTU = 16.75 ns
-    //  = 5.02 m" — the try-this experiment asks the learner to do exactly this.
+    //  = 5.02 m" — the try-this experiment of uwb-frame asks the learner to do exactly this.
     const [t1, t2, t3, t4] = ts.map((r) => r.counter)
     const tround = counterDiff(t4, t1)
     const treply = counterDiff(t3, t2)
@@ -401,15 +328,15 @@ describe('uwb-intro · the four lines to subtract', () => {
   })
 
   it('1070 is 4.3 ticks long: the truth is 16.678 ns, or 1065.7 ticks', () => {
-    // "The truth is 16.678 ns, or 1065.7 ticks: the reading is 4.3 ticks long because each of the two
-    //  receive counters carries 100 ps of noise, and the ticks themselves are integers."
+    // "The truth is 16.678 ns, or 1065.7 ticks: the reading is 4.3 ticks long because each receive
+    //  counter carries 100 ps of noise and ticks are integers."
     const trueRctu = 5 / C_M_PER_NS / RCTU_NS
     expect(trueRctu.toFixed(1)).toBe('1065.7')
     expect((1070 - trueRctu).toFixed(1)).toBe('4.3')
   })
 
-  it('the anchor’s reply is 2 ms − Tprop and the tag’s round trip 2 ms + Tprop', () => {
-    // "In this lab the anchor answers in the next ranging slot, so Treply is 2 ms − Tprop and Tround is
+  it('the anchor’s reply is 2 ms − Tprop and the phone’s round trip 2 ms + Tprop', () => {
+    // "Here the anchor answers in the next ranging slot, so Treply is 2 ms − Tprop and Tround is
     //  2 ms + Tprop: the reply dwarfs the flight by five orders of magnitude"
     const [t1, t2, t3, t4] = ts.map((r) => r.counter)
     const flightNs = 5 / C_M_PER_NS
@@ -435,8 +362,8 @@ describe('uwb-intro · the range the log reports', () => {
   })
 
   it('both readings land within three sigma of the true 5 m', () => {
-    // "a few centimetres out, from timestamp noise and a clock correction that had nothing to correct"
-    // — raw and corrected differ even at 0 ppm, so neither is pinned to equality.
+    // "The distance the log reports will sit a few centimetres either side of the truth" —
+    // raw and corrected differ even at 0 ppm, so neither is pinned to equality.
     const r = ofType(recs(), 'UWB_RANGE')[0]
     expect(SIGMA_R.toFixed(3)).toBe('0.021')
     // the raw reading carries the timestamp noise alone; the corrected one also carries the
@@ -447,9 +374,9 @@ describe('uwb-intro · the range the log reports', () => {
   })
 
   it('the correction moves a perfect-crystal answer by 7 cm, the 0.2 ppm the estimator cannot see past', () => {
-    // "it moves the answer by 7 cm, because the estimator itself is noisy to 0.2 ppm, and 0.2 ppm of a
-    //  2 ms reply is 0.4 ns" / "Both errors are small: the raw reading is 2 cm long, the corrected one
-    //  5 cm short, against 2.1 cm of range-noise sigma"
+    // "it still moves the answer by 7 cm, because the estimator itself is noisy to 0.2 ppm, and
+    //  0.2 ppm of a 2 ms reply is 0.4 ns" / the observation "a few centimetres out, against 2.1 cm
+    //  of range-noise sigma" — a figure uwb-position quotes back as "Lesson 1’s 2.1 cm of σ_r".
     const r = ofType(recs(), 'UWB_RANGE')[0]
     const raw = rctuToMetres(r.tofRawRctu!)
     const corrected = rctuToMetres(r.tofRctu)
