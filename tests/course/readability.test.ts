@@ -20,6 +20,7 @@ import {
   CITATION, KNOWN_WORDS, acronyms, definedInPlace, densityTexts, enWords, firstTermUses, lessonBudget,
   lessonStrings, numericQuantities, paragraphTexts, zhChars,
 } from '../../src/course/readability'
+import { effectiveMigrating } from './kit'
 
 /** Lessons still in the old shape. Each migration task removes its ids; the list only shrinks. */
 export const MIGRATING: string[] = [
@@ -32,9 +33,19 @@ export const MIGRATING: string[] = [
 const TIER1_BASELINE = ['SINR', 'SNR', 'RSSI', 'MCS', 'OFDM', 'PPDU', 'MPDU', 'MSDU', 'FCS', 'BSS', 'BSSID', 'SSID', 'ACK', 'CRC', 'QOS', 'L-SIG', 'L-STF', 'L-LTF', 'U-SIG', 'HE', 'EHT', 'HT', 'VHT', 'SIFS', 'DIFS', 'NAV', 'CW', 'CCA', 'EIFS', 'RTS', 'CTS']
 const CITED_FIELDS: (keyof Lesson)[] = ['why', 'outcomes', 'terms', 'picture', 'observe', 'tryThis', 'quiz']
 
+/**
+ * MIGRATING as this run grades it. `READABILITY_INCLUDE=uwb-sstwr,uwb-dstwr`
+ * removes those ids for one run, so an implementer can hold a rewritten lesson
+ * to the contract before the controller has registered it — without editing
+ * this file, which is the controller's. The switch only ever shrinks the list
+ * (tests/course/kit.ts), and the bookkeeping below reads the recorded
+ * MIGRATING, so it can admit a lesson to the contract but never excuse one.
+ */
+const MIGRATING_NOW = effectiveMigrating(MIGRATING, process.env.READABILITY_INCLUDE)
+
 const byId = new Map(LESSONS.map((l) => [l.id, l]))
 const ordered = COURSE_ORDER.flatMap((id) => byId.get(id) ?? [])
-const migrated = ordered.filter((l) => !MIGRATING.includes(l.id))
+const migrated = ordered.filter((l) => !MIGRATING_NOW.includes(l.id))
 
 /** Every bilingual string of one lesson field — `lessonStrings`, asked for a single field. */
 const textsOf = (l: Lesson, f: keyof Lesson): L10n[] =>
@@ -47,7 +58,7 @@ const textsOf = (l: Lesson, f: keyof Lesson): L10n[] =>
  * lesson judged as the opener until the first one lands. That is deliberate —
  * the rule exists to protect whichever lesson a reader actually meets first.
  */
-const firstOfTrack = (l: Lesson) => ordered.find((o) => trackOf(o) === trackOf(l) && !MIGRATING.includes(o.id)) === l
+const firstOfTrack = (l: Lesson) => ordered.find((o) => trackOf(o) === trackOf(l) && !MIGRATING_NOW.includes(o.id)) === l
 
 /**
  * Every acronym a lesson may use without introducing it: the baseline, its own
@@ -63,7 +74,7 @@ function knownFor(l: Lesson): Set<string> {
   for (const o of ordered) {
     if (o === l) break
     const admitted = trackOf(o) === trackOf(l) || (trackOf(o) === 'wifi' && MODULES[o.module].tier === 0)
-    if (admitted && !MIGRATING.includes(o.id)) for (const t of o.terms!) known.add(t.term.toUpperCase())
+    if (admitted && !MIGRATING_NOW.includes(o.id)) for (const t of o.terms!) known.add(t.term.toUpperCase())
   }
   for (const t of l.terms!) known.add(t.term.toUpperCase())
   return known
@@ -71,10 +82,14 @@ function knownFor(l: Lesson): Set<string> {
 
 describe('readability · migration bookkeeping', () => {
   it('every MIGRATING id is a real lesson still in the old shape', () => {
-    for (const id of MIGRATING) { expect(byId.has(id), id).toBe(true); expect(isMigrated(byId.get(id)!), id).toBe(false) }
+    // an id READABILITY_INCLUDE names is being graded as migrated in this run, so its
+    // old-shape claim is suspended for the run; every other id is held to it.
+    for (const id of MIGRATING) expect(byId.has(id), id).toBe(true)
+    for (const id of MIGRATING_NOW) expect(isMigrated(byId.get(id)!), id).toBe(false)
   })
   it('every lesson not in MIGRATING is in the new shape', () => {
-    for (const l of migrated) expect(isMigrated(l), l.id).toBe(true)
+    // the recorded list, not this run's: the env var cannot take an id out of it for good
+    for (const l of ordered.filter((x) => !MIGRATING.includes(x.id))) expect(isMigrated(l), l.id).toBe(true)
   })
   it('TIER1_BASELINE exists only while radio-primer and frame-anatomy are unmigrated', () => {
     const stillOld = MIGRATING.includes('radio-primer') || MIGRATING.includes('frame-anatomy')

@@ -23,9 +23,7 @@ import { rssiOn } from './rssi'
 import { applyRecord, initViewState } from '../../src/model/view'
 import { fmtRecord } from '../../src/ui/format'
 import type { TLRecord } from '../../src/model/records'
-import { isMigrated, type L10n } from '../../src/course/lessonKit'
-import { OBSERVE_MINUTES, TRY_MINUTES, lessonBlocks, lessonMinutes, lessonWords } from '../../src/course/curriculum'
-import { lessonStrings } from '../../src/course/readability'
+import { lessonShapeSuite, ofType, runOf } from './kit'
 
 const MS = 1_000_000
 const US = 1_000
@@ -36,21 +34,12 @@ const TAGS = ['tag-1#2g', 'tag-2#2g'] as const
 /** Exactly the record types the prose names as absent from a tag and present at the AP. */
 const CONTENTION_RECORDS = ['CCA_BUSY', 'BACKOFF_DRAW', 'IFS_START'] as const
 
-const memo = new Map<string, TLRecord[]>()
+/** One scratch scenario, run for the same second the lesson's own runs cover. */
 function run(s: Scenario): TLRecord[] {
   return [...new Simulation(s).runUntil(RUN_NS).records]
 }
-/** Records of the base scenario (variant undefined) or a variant, memoised. */
-function recs(variant?: number): TLRecord[] {
-  const key = String(variant ?? 'base')
-  if (!memo.has(key)) {
-    const s: Scenario = variant === undefined ? ampIntro.scenario() : ampIntro.variants![variant].scenario()
-    memo.set(key, run(s))
-  }
-  return memo.get(key)!
-}
-const ofType = <K extends TLRecord['type']>(rs: TLRecord[], type: K) =>
-  rs.filter((r): r is Extract<TLRecord, { type: K }> => r.type === type)
+/** This lesson's records, from the kit's shared memo: one run per variant per worker. */
+const recs = (variant?: number): TLRecord[] => runOf(ampIntro, variant, RUN_NS)
 const txs = (rs: TLRecord[], kind: string) => ofType(rs, 'TX_START').filter((r) => r.frame.kind === kind)
 const ends = (rs: TLRecord[], kind: string) => ofType(rs, 'TX_END').filter((r) => r.frame.kind === kind)
 const aboc = (rs: TLRecord[], node: string) => ofType(rs, 'AMP_ABOC').filter((r) => r.node === node)
@@ -58,17 +47,17 @@ const results = (rs: TLRecord[], node: string) => ofType(rs, 'AMP_RESULT').filte
 const countAt = (rs: TLRecord[], node: string, type: string) =>
   rs.filter((r) => 'node' in r && r.node === node && r.type === type).length
 
-describe('amp-intro · lesson shape', () => {
-  it('is written to the zero-to-hero contract', () => {
-    expect(isMigrated(ampIntro)).toBe(true)
+// The contract every migrated lesson owes, written once in tests/course/kit.ts.
+// A track's first lesson is held to 1000 main-path words, not 1300, and the
+// prose window (why + outcomes + terms + picture + numbers) to the same 1000.
+lessonShapeSuite(ampIntro, { proseMax: 1000, totalMax: 1000, runNs: RUN_NS })
+
+describe('amp-intro · the lesson’s own scene', () => {
+  it('is the opening lesson of the AMP track', () => {
     expect(ampIntro.module).toBe(7)
-    // the first lesson of the AMP track: at most four new words, and no table in the picture
+    // at most four new words, and no table in the picture
     expect(ampIntro.terms!.map((t) => t.term)).toEqual(['AMP', 'tag', 'slot', 'ABOC'])
     expect(ampIntro.picture!.some((b) => b.kind === 'table')).toBe(false)
-    // the reader is sent to the simulator before the mechanism is finished
-    const firstWatch = ampIntro.picture!.findIndex((b) => b.kind === 'watch')
-    expect(firstWatch).toBeGreaterThanOrEqual(0)
-    expect(firstWatch).toBeLessThan(3)
     // it assumes Wi-Fi Tier 1 and nothing else
     expect(ampIntro.needs).toEqual(['radio-primer', 'frame-anatomy'])
   })
@@ -77,55 +66,6 @@ describe('amp-intro · lesson shape', () => {
     expect(ampIntro.scenario()).toEqual(ampIntroScenario({ dlKbps: 250, ulKbps: 250 }))
     expect(() => ScenarioSchema.parse(ampIntro.scenario())).not.toThrow()
     for (const v of ampIntro.variants!) expect(() => ScenarioSchema.parse(v.scenario())).not.toThrow()
-  })
-
-  it('fits one sitting: the spec’s bounds for a track’s first lesson, plus the split’s prose window', () => {
-    // The spec's bounds: 500–1300 main-path words, and at most 1000 for a track's
-    // first lesson (…/2026-09-21-course-readability-design.md, "Length and pace").
-    // The three section budgets that sum to it are asserted for every migrated
-    // lesson in tests/course/readability.test.ts, and printed by
-    // `npx tsx scripts/lesson-dump.ts amp-intro en`.
-    const raw = lessonWords(ampIntro) / 150
-      + OBSERVE_MINUTES * ampIntro.observe.length + TRY_MINUTES * ampIntro.tryThis.length
-    expect(lessonMinutes(ampIntro)).toBe(Math.max(5, Math.round(raw / 5) * 5))
-    expect(lessonWords(ampIntro)).toBeGreaterThanOrEqual(500)
-    expect(lessonWords(ampIntro)).toBeLessThanOrEqual(1000)
-    expect(lessonMinutes(ampIntro)).toBeLessThanOrEqual(20)
-    // the content contract's window is for the PROSE count: what the reader reads
-    // before the simulator — why, outcomes, terms, picture and numbers.
-    const prose = lessonWords({ ...ampIntro, observe: [], tryThis: [], quiz: [] })
-    expect(prose).toBeLessThanOrEqual(1000)
-    expect(lessonBlocks(ampIntro).length).toBe(ampIntro.picture!.length + ampIntro.numbers!.length)
-  })
-
-  it('every jump target occurs in the base run', () => {
-    const rs = recs()
-    for (const j of ampIntro.jumps) expect(rs.some(j.find), j.label.en).toBe(true)
-    for (const b of ampIntro.picture!) {
-      if (b.kind === 'watch' && b.jump !== undefined) expect(ampIntro.jumps[b.jump]).toBeDefined()
-    }
-  })
-
-  it('every string a learner reads exists in both languages', () => {
-    // One walk for every lesson test: src/course/readability.ts. `title`, the variant
-    // labels and the jump labels are the chrome around a lesson, so they are added here.
-    const seen: L10n[] = [
-      ...lessonStrings(ampIntro), ampIntro.title,
-      ...ampIntro.variants!.map((v) => v.label), ...ampIntro.jumps.map((j) => j.label),
-    ]
-    // a structural floor rather than a smoke bound: one string per outcome, term, block,
-    // source, observation, experiment and (question + options + explanation) of a quiz,
-    // plus why, the title, every variant label and every jump label.
-    const floor = 2 + ampIntro.outcomes!.length + ampIntro.terms!.length + ampIntro.picture!.length
-      + ampIntro.numbers!.length + (ampIntro.deeper?.length ?? 0) + ampIntro.sources!.length
-      + ampIntro.observe.length + ampIntro.tryThis.length + 3 * ampIntro.quiz.length
-      + ampIntro.variants!.length + ampIntro.jumps.length
-    expect(seen.length).toBeGreaterThanOrEqual(floor)
-    for (const l of seen) {
-      expect(l.en.trim().length, l.en).toBeGreaterThan(0)
-      expect(l.zh.trim().length, l.en).toBeGreaterThan(0)
-      if (/[a-z]{3,}\s+[a-z]{3,}/.test(l.en)) expect(l.zh, l.en).not.toBe(l.en)
-    }
   })
 
   it('the scene is one router and two tags, and nothing else', () => {

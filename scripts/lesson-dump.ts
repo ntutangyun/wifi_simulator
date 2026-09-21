@@ -3,6 +3,11 @@
  *
  *   npx tsx scripts/lesson-dump.ts <lessonId> <en|zh>
  *
+ * or, for the budget line of every UWB lesson at once — the one screen that
+ * shows a batch's word counts against the spec's windows:
+ *
+ *   npx tsx scripts/lesson-dump.ts --all-uwb
+ *
  * The novice read of the readability programme
  * (docs/superpowers/specs/2026-09-21-course-readability-design.md, "Reviewing
  * a lesson") is done on this dump, not on the TypeScript source: a reviewer
@@ -19,15 +24,34 @@
  * `npx vite-node scripts/lesson-dump.ts <id> <lang>` runs it too.
  */
 import { LESSONS } from '../src/course/lessons'
-import { lessonMinutes, lessonWords } from '../src/course/curriculum'
+import { lessonMinutes, lessonWords, trackOf } from '../src/course/curriculum'
 import { lessonBudget } from '../src/course/readability'
 import type { Block, L10n, Lesson } from '../src/course/lessonKit'
 
+/** The spec's "Length and pace" section budgets, one lesson to a line. */
+function budgetLine(l: Lesson): string {
+  const b = lessonBudget(l)
+  return `${l.id.padEnd(16)} picture ${String(b.picture).padStart(4)}/650`
+    + ` · numbers ${String(b.numbers).padStart(4)}/350`
+    + ` · practice ${String(b.practice).padStart(4)}/400`
+    + ` · total ${String(b.total).padStart(4)} (${lessonWords(l)} words, ${lessonMinutes(l)} min)`
+}
+
 const [id, langArg] = process.argv.slice(2)
+
+// The whole UWB track's budgets, in reading order: no prose, just the line the
+// per-lesson dump ends with. An unmigrated lesson has no sections, so its words
+// land in the total alone — which is how it shows up as still to be rewritten.
+if (id === '--all-uwb') {
+  for (const l of LESSONS.filter((x) => trackOf(x) === 'uwb')) console.log(budgetLine(l))
+  process.exit(0)
+}
+
 const lang: 'en' | 'zh' = langArg === 'zh' ? 'zh' : 'en'
 
 if (!id || (langArg !== undefined && langArg !== 'en' && langArg !== 'zh')) {
   console.error('usage: npx tsx scripts/lesson-dump.ts <lessonId> <en|zh>')
+  console.error('       npx tsx scripts/lesson-dump.ts --all-uwb')
   console.error(`lessons: ${LESSONS.map((l) => l.id).join(' ')}`)
   process.exit(2)
 }
@@ -137,7 +161,5 @@ if (lesson.sources?.length) {
   for (const s of lesson.sources) out(`- ${t(s)}`)
 }
 
-const b = lessonBudget(lesson)
 rule('budget')
-out(`${lesson.id}: picture ${b.picture}/650 · numbers ${b.numbers}/350 · practice ${b.practice}/400`
-  + ` · total ${b.total} (${lessonWords(lesson)} words, ${lessonMinutes(lesson)} min)`)
+out(budgetLine(lesson))

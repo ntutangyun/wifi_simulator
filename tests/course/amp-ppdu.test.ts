@@ -13,12 +13,9 @@
 import { describe, it, expect } from 'vitest'
 import { ampPpdu } from '../../src/course/amp/amp-ppdu'
 import { ampIntroScenario } from '../../src/course/amp/amp-intro'
-import { Simulation } from '../../src/engine/simulation'
-import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
+import { ScenarioSchema } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
-import { isMigrated, type L10n } from '../../src/course/lessonKit'
-import { lessonBlocks, lessonMinutes, lessonWords } from '../../src/course/curriculum'
-import { lessonStrings } from '../../src/course/readability'
+import { lessonShapeSuite, ofType, runOf } from './kit'
 import {
   AMP_ACK_BYTES, AMP_DL_SIG_BYTES, AMP_DL_SYNC_NS, AMP_LEGACY_PREAMBLE_NS, AMP_PADDING_NS,
   AMP_PADDING_PROTECTED_NS, AMP_SIFS_NS, AMP_UL_CHIP_NS, AMP_UL_SYNC_CHIPS, ampBitsNs, ampDlPpduNs,
@@ -31,24 +28,18 @@ const MS = 1_000_000
 const US = 1_000
 const RUN_NS = 1000 * MS
 
-const memo = new Map<string, TLRecord[]>()
-/** Records of the base scenario (variant undefined) or a variant, memoised. */
-function recs(variant?: number): TLRecord[] {
-  const key = String(variant ?? 'base')
-  if (!memo.has(key)) {
-    const s: Scenario = variant === undefined ? ampPpdu.scenario() : ampPpdu.variants![variant].scenario()
-    memo.set(key, [...new Simulation(s).runUntil(RUN_NS).records])
-  }
-  return memo.get(key)!
-}
-const ofType = <K extends TLRecord['type']>(rs: TLRecord[], type: K) =>
-  rs.filter((r): r is Extract<TLRecord, { type: K }> => r.type === type)
+/** This lesson's records, from the kit's shared memo: amp-intro's scene, run once per worker. */
+const recs = (variant?: number): TLRecord[] => runOf(ampPpdu, variant, RUN_NS)
 const txs = (rs: TLRecord[], kind: string) => ofType(rs, 'TX_START').filter((r) => r.frame.kind === kind)
 const ends = (rs: TLRecord[], kind: string) => ofType(rs, 'TX_END').filter((r) => r.frame.kind === kind)
 
-describe('amp-ppdu · lesson shape', () => {
-  it('is written to the zero-to-hero contract', () => {
-    expect(isMigrated(ampPpdu)).toBe(true)
+// The contract every migrated lesson owes, written once in tests/course/kit.ts.
+// `sameSceneAs` is the split rule: amp-ppdu loads amp-intro's scene, so its
+// recorded timeline hashes are amp-intro's, value for value.
+lessonShapeSuite(ampPpdu, { proseMax: 1100, runNs: RUN_NS, sameSceneAs: 'amp-intro' })
+
+describe('amp-ppdu · the lesson’s own scene', () => {
+  it('is the second lesson of the AMP track', () => {
     expect(ampPpdu.module).toBe(7)
     expect(ampPpdu.needs).toEqual(['amp-intro'])
     // the second lesson of the AMP track may use a table in the picture, and gets up to six new
@@ -56,10 +47,6 @@ describe('amp-ppdu · lesson shape', () => {
     // leans on it hard enough that it is reminded rather than assumed.
     expect(ampPpdu.terms!.map((t) => t.term))
       .toEqual(['OOK', 'Manchester', 'preamble', 'AMP-Sync', 'AMP-SIG', 'padding'])
-    // the reader is sent to the simulator before the mechanism is finished
-    const firstWatch = ampPpdu.picture!.findIndex((b) => b.kind === 'watch')
-    expect(firstWatch).toBeGreaterThanOrEqual(0)
-    expect(firstWatch).toBeLessThan(3)
   })
 
   it('the scenario and the variant are amp-intro’s own, and pass the schema', () => {
@@ -71,51 +58,6 @@ describe('amp-ppdu · lesson shape', () => {
     for (const v of ampPpdu.variants!) expect(() => ScenarioSchema.parse(v.scenario())).not.toThrow()
   })
 
-  it('fits one sitting: the spec’s bounds, plus the split’s prose window', () => {
-    // The spec's bounds: 500–1300 main-path words, at most 20 minutes
-    // (…/2026-09-21-course-readability-design.md, "Length and pace"). The three
-    // section budgets that sum to it are asserted for every migrated lesson in
-    // tests/course/readability.test.ts, and printed by
-    // `npx tsx scripts/lesson-dump.ts amp-ppdu en`.
-    expect(lessonWords(ampPpdu)).toBeGreaterThanOrEqual(500)
-    expect(lessonWords(ampPpdu)).toBeLessThanOrEqual(1300)
-    expect(lessonMinutes(ampPpdu)).toBeLessThanOrEqual(20)
-    // the content contract's window is for the PROSE count: what the reader reads
-    // before the simulator — why, outcomes, terms, picture and numbers.
-    const prose = lessonWords({ ...ampPpdu, observe: [], tryThis: [], quiz: [] })
-    expect(prose).toBeLessThanOrEqual(1100)
-    expect(lessonBlocks(ampPpdu).length).toBe(ampPpdu.picture!.length + ampPpdu.numbers!.length)
-  })
-
-  it('every jump target occurs in the base run', () => {
-    const rs = recs()
-    for (const j of ampPpdu.jumps) expect(rs.some(j.find), j.label.en).toBe(true)
-    for (const b of ampPpdu.picture!) {
-      if (b.kind === 'watch' && b.jump !== undefined) expect(ampPpdu.jumps[b.jump]).toBeDefined()
-    }
-  })
-
-  it('every string a learner reads exists in both languages', () => {
-    // One walk for every lesson test: src/course/readability.ts. `title`, the variant
-    // labels and the jump labels are the chrome around a lesson, so they are added here.
-    const seen: L10n[] = [
-      ...lessonStrings(ampPpdu), ampPpdu.title,
-      ...ampPpdu.variants!.map((v) => v.label), ...ampPpdu.jumps.map((j) => j.label),
-    ]
-    // a structural floor rather than a smoke bound: one string per outcome, term, block,
-    // source, observation, experiment and (question + options + explanation) of a quiz,
-    // plus why, the title, every variant label and every jump label.
-    const floor = 2 + ampPpdu.outcomes!.length + ampPpdu.terms!.length + ampPpdu.picture!.length
-      + ampPpdu.numbers!.length + (ampPpdu.deeper?.length ?? 0) + ampPpdu.sources!.length
-      + ampPpdu.observe.length + ampPpdu.tryThis.length + 3 * ampPpdu.quiz.length
-      + ampPpdu.variants!.length + ampPpdu.jumps.length
-    expect(seen.length).toBeGreaterThanOrEqual(floor)
-    for (const l of seen) {
-      expect(l.en.trim().length, l.en).toBeGreaterThan(0)
-      expect(l.zh.trim().length, l.en).toBeGreaterThan(0)
-      if (/[a-z]{3,}\s+[a-z]{3,}/.test(l.en)) expect(l.zh, l.en).not.toBe(l.en)
-    }
-  })
 })
 
 describe('amp-ppdu · what a downlink frame is made of', () => {

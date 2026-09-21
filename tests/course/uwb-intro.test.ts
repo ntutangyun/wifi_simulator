@@ -15,9 +15,7 @@ import { Simulation } from '../../src/engine/simulation'
 import { SLOT_NS } from '../../src/engine/phy'
 import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
-import { isMigrated, type L10n } from '../../src/course/lessonKit'
-import { OBSERVE_MINUTES, TRY_MINUTES, lessonBlocks, lessonMinutes, lessonWords } from '../../src/course/curriculum'
-import { lessonStrings } from '../../src/course/readability'
+import { lessonShapeSuite, ofType, runOf } from './kit'
 import { fmtRecord } from '../../src/ui/format'
 import { counterDiff } from '../../src/uwb/clock'
 import { rangeSigmaM } from '../../src/uwb/position'
@@ -35,68 +33,28 @@ const SIGMA_R = rangeSigmaM(100)
 /** 1-σ of the corrected SS-TWR reading's clock-correction residual: ½·Treply·σ_cfo, 6.0 cm at a 2 ms reply. */
 const CFO_RESIDUAL_M = ((2 * MS * 0.2e-6) / 2) * C_M_PER_NS
 
-const memo = new Map<string, TLRecord[]>()
-/** Records of the base scenario (variant undefined) or a variant, memoised. */
-function recs(variant?: number): TLRecord[] {
-  const key = String(variant ?? 'base')
-  if (!memo.has(key)) {
-    const s: Scenario = variant === undefined ? uwbIntro.scenario() : uwbIntro.variants![variant].scenario()
-    memo.set(key, [...new Simulation(s).runUntil(RUN_NS).records])
-  }
-  return memo.get(key)!
-}
-const ofType = <K extends TLRecord['type']>(rs: TLRecord[], type: K) =>
-  rs.filter((r): r is Extract<TLRecord, { type: K }> => r.type === type)
+/** This lesson's records, from the kit's shared memo: one run per variant per worker. */
+const recs = (variant?: number): TLRecord[] => runOf(uwbIntro, variant, RUN_NS)
 
-describe('uwb-intro · lesson shape', () => {
-  it('is written to the zero-to-hero contract', () => {
-    expect(isMigrated(uwbIntro)).toBe(true)
-    // the first lesson of the UWB track: at most four new words, and no table in the picture
+// The contract every migrated lesson owes, written once in tests/course/kit.ts.
+// A track's first lesson is held to 1000 main-path words, not 1300, and the
+// prose window (why + outcomes + terms + picture + numbers) to the same 1000.
+lessonShapeSuite(uwbIntro, { proseMax: 1000, totalMax: 1000, runNs: RUN_NS })
+
+describe('uwb-intro · the lesson’s own scene', () => {
+  it('is the opening lesson of the UWB track', () => {
+    // at most four new words, and no table in the picture
     expect(uwbIntro.terms!.map((t) => t.term)).toEqual(['UWB', 'anchor', 'RMARKER', 'RCTU'])
     expect(uwbIntro.picture!.some((b) => b.kind === 'table')).toBe(false)
-    // the reader is sent to the simulator before the mechanism is finished
-    const firstWatch = uwbIntro.picture!.findIndex((b) => b.kind === 'watch')
-    expect(firstWatch).toBeGreaterThanOrEqual(0)
-    expect(firstWatch).toBeLessThan(3)
     // it assumes Wi-Fi Tier 1 and nothing else
     expect(uwbIntro.needs).toEqual(['radio-primer', 'frame-anatomy'])
+    // the module the lesson opens: UWB Tier 1, "Time of flight"
+    expect(uwbIntro.module).toBe(11)
   })
 
   it('the scenario and the variant pass the scenario schema', () => {
     expect(() => ScenarioSchema.parse(uwbIntro.scenario())).not.toThrow()
     for (const v of uwbIntro.variants!) expect(() => ScenarioSchema.parse(v.scenario())).not.toThrow()
-  })
-
-  it('the computed study time follows the formula and stays under 20 minutes', () => {
-    const raw = lessonWords(uwbIntro) / 150
-      + OBSERVE_MINUTES * uwbIntro.observe.length + TRY_MINUTES * uwbIntro.tryThis.length
-    expect(lessonMinutes(uwbIntro)).toBe(Math.max(5, Math.round(raw / 5) * 5))
-    expect(lessonMinutes(uwbIntro)).toBeLessThanOrEqual(20)
-    // the module the lesson opens: UWB Tier 1, "Time of flight"
-    expect(uwbIntro.module).toBe(11)
-  })
-
-  it('fits one sitting: the spec’s bounds for a track’s first lesson, plus the split’s prose window', () => {
-    // The spec's bounds: 500–1300 main-path words, and at most 1000 for a track's
-    // first lesson (…/2026-09-21-course-readability-design.md, "Length and pace").
-    // The three section budgets that sum to it are asserted for every migrated
-    // lesson in tests/course/readability.test.ts, and printed by
-    // `npx tsx scripts/lesson-dump.ts uwb-intro en`.
-    expect(lessonWords(uwbIntro)).toBeGreaterThanOrEqual(500)
-    expect(lessonWords(uwbIntro)).toBeLessThanOrEqual(1000)
-    // the content contract's window is for the PROSE count: what the reader reads
-    // before the simulator — why, outcomes, terms, picture and numbers.
-    const prose = lessonWords({ ...uwbIntro, observe: [], tryThis: [], quiz: [] })
-    expect(prose).toBeLessThanOrEqual(1000)
-    expect(lessonBlocks(uwbIntro).length).toBe(uwbIntro.picture!.length + uwbIntro.numbers!.length)
-  })
-
-  it('every jump target occurs in the base run', () => {
-    const rs = recs()
-    for (const j of uwbIntro.jumps) expect(rs.some(j.find), j.label.en).toBe(true)
-    for (const b of uwbIntro.picture!) {
-      if (b.kind === 'watch' && b.jump !== undefined) expect(uwbIntro.jumps[b.jump]).toBeDefined()
-    }
   })
 
   it('the scene is one anchor and one phone, both crystals pinned to 0 ppm', () => {
@@ -137,29 +95,6 @@ describe('uwb-intro · lesson shape', () => {
     expect(sep(uwbIntro.variants![0].scenario())).toBe(20)
   })
 
-  it('every string a learner reads exists in both languages', () => {
-    // A cell of numbers, log lines or protocol names reads the same in both (N());
-    // anything holding two consecutive English words is prose and must be translated.
-    // One walk for every lesson test: src/course/readability.ts. `title`, the variant
-    // labels and the jump labels are the chrome around a lesson, so they are added here.
-    const seen: L10n[] = [
-      ...lessonStrings(uwbIntro), uwbIntro.title,
-      ...uwbIntro.variants!.map((v) => v.label), ...uwbIntro.jumps.map((j) => j.label),
-    ]
-    // a structural floor rather than a smoke bound: one string per outcome, term, block,
-    // source, observation, experiment and (question + options + explanation) of a quiz,
-    // plus why, the title, every variant label and every jump label.
-    const floor = 2 + uwbIntro.outcomes!.length + uwbIntro.terms!.length + uwbIntro.picture!.length
-      + uwbIntro.numbers!.length + (uwbIntro.deeper?.length ?? 0) + uwbIntro.sources!.length
-      + uwbIntro.observe.length + uwbIntro.tryThis.length + 3 * uwbIntro.quiz.length
-      + uwbIntro.variants!.length + uwbIntro.jumps.length
-    expect(seen.length).toBeGreaterThanOrEqual(floor)
-    for (const l of seen) {
-      expect(l.en.trim().length, l.en).toBeGreaterThan(0)
-      expect(l.zh.trim().length, l.en).toBeGreaterThan(0)
-      if (/[a-z]{3,}\s+[a-z]{3,}/.test(l.en)) expect(l.zh, l.en).not.toBe(l.en)
-    }
-  })
 })
 
 describe('uwb-intro · the units', () => {
