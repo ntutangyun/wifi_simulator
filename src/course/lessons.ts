@@ -63,6 +63,7 @@ import { width } from './tier2/width'
 import { streams } from './tier2/streams'
 import { mumimo } from './tier2/mumimo'
 import { rate } from './tier2/rate'
+import { rateFallback } from './tier2/rate-fallback'
 export type { Block, JumpTarget, L10n, Lesson, LessonVariant, Quiz, Term } from './lessonKit'
 export { isMigrated } from './lessonKit'
 
@@ -130,6 +131,7 @@ const AUTHORED: Lesson[] = [
   streams,
   mumimo,
   rate,
+  rateFallback,
 ]
 
 /** Every course lesson, in reading order (see curriculum.ts). */
