@@ -163,7 +163,7 @@ describe('uwb-intro · lesson shape', () => {
 
 describe('uwb-intro · the units', () => {
   it('the chip is 2.003 ns at 499.2 MHz and the counter unit 15.650 ps', () => {
-    // the "Units" table: "One chip at 499.2 MHz | 2.003 ns" and "One RCTU (2⁻⁷ of a chip) | 15.650 ps",
+    // the "Units" table: "A 499.2 MHz chip | 2.003 ns" and "One RCTU = 2⁻⁷ chip | 15.650 ps",
     // and the quiz's "The counter runs 128 times finer than the 499.2 MHz chip rate."
     expect(UWB_CHIP_HZ).toBe(499.2e6)
     expect(UWB_CHIP_NS.toFixed(3)).toBe('2.003')
@@ -179,13 +179,14 @@ describe('uwb-intro · the units', () => {
   })
 
   it('the 1 ns timeline grid is 64 ranging ticks wide', () => {
-    // "The timeline is drawn on a 1 ns grid; the ranging underneath runs 64 times finer."
+    // "…the counter is stamped from the unrounded flight time, in 15.650 ps units — a grid
+    //  64 times finer than the 1 ns timeline."
     expect(Math.round(1 / RCTU_NS)).toBe(64)
   })
 
   it('one metre is 3.3356 ns and 213.1 ticks, so a tick is 4.7 mm of flight and 2.3 mm of range', () => {
     // the "Units" table: "One metre of flight | 3.3356 ns = 213.1 RCTU | c = 0.299792458 m/ns" and
-    // "One RCTU of timing error | 4.7 mm of flight, 2.3 mm of range"
+    // "A tick of timing error | 4.7 mm flight, 2.3 mm range | a round trip, halved"
     const nsPerMetre = 1 / C_M_PER_NS
     expect(C_M_PER_NS).toBe(0.299792458)
     expect(nsPerMetre.toFixed(4)).toBe('3.3356')
@@ -224,25 +225,24 @@ describe('uwb-intro · the flight time on the timeline', () => {
   }
 
   it('five metres of air is a 17 ns gap between TX_START and RX_START, both ways', () => {
-    // "TX_START on the phone’s lane is at 0 ns and RX_START on the anchor’s is at 17 ns — five metres
-    //  of air" / "Why does the timeline show 17 ns of flight and not 16.68?"
+    // "TX_START on the phone’s lane is at 0 ns, RX_START on the anchor’s at 17 ns — five metres of
+    //  air, to scale" / "Why 17 ns of flight on the timeline and not 16.68?"
     const rs = recs()
     expect(ofType(rs, 'TX_START')[0].t).toBe(0)
     expect(gaps(rs)).toEqual([17, 17])
   })
 
   it('twenty metres is 67 ns — four times the distance, four times the delay', () => {
-    // "The arrival gap grows from 17 ns to 67 ns: four times the distance is four times the flight,
-    //  16.678 ns becoming 66.713 ns, each rounded up onto the grid."
+    // "The arrival gap grows from 17 ns to 67 ns: four times the distance, four times the flight —
+    //  16.678 ns becomes 66.713 ns, rounded up onto the grid."
     expect(gaps(recs(0))).toEqual([67, 67])
     expect((20 / C_M_PER_NS).toFixed(3)).toBe('66.713')
     expect((4 * (5 / C_M_PER_NS)).toFixed(3)).toBe('66.713')
   })
 
   it('the engine rounds the flight UP, never to nearest — measured where the two differ', () => {
-    // "Five metres at the speed of light is 16.678 ns, and the event queue counts whole nanoseconds.
-    //  An arrival is scheduled at the next whole nanosecond up — rounded up, never to nearest, so no
-    //  frame is ever delivered a hair earlier than physics allows."
+    // "Five metres at the speed of light is 16.678 ns, and the event queue counts whole nanoseconds,
+    //  always rounding up so nothing arrives too early."
     // Both lesson distances have a fraction above 0.5, so Math.round would give the same 17 and 67:
     // this measures a scratch placement whose fraction is 0.336, where round gives 3 and ceil 4.
     const scratch = uwbIntroScenario(5)

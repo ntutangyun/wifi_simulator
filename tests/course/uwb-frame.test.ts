@@ -5,6 +5,13 @@
  *
  * The field durations, the RMARKER offset and the two-slot round moved here from
  * tests/course/uwb-intro.test.ts, each with the sentence it guards.
+ *
+ * One claim of this lesson is pinned next door: the try-this experiment's
+ * 15.650 ps, 0.299792458 m/ns, 1070 RCTU and 5.02 m are the four counters of
+ * uwb-intro's own round, asserted in tests/course/uwb-intro.test.ts, describe
+ * "uwb-intro · the four lines to subtract", test "subtracting them by hand
+ * gives 1070 RCTU, 16.75 ns, 5.02 m". The two lessons share one scene, so that
+ * assertion covers this experiment exactly.
  */
 import { describe, it, expect } from 'vitest'
 import { uwbFrame } from '../../src/course/uwb/uwb-frame'
@@ -14,6 +21,7 @@ import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 import { isMigrated, type L10n } from '../../src/course/lessonKit'
 import { lessonBlocks, lessonMinutes, lessonWords } from '../../src/course/curriculum'
+import { ACK_TX_TIME_6M_NS } from '../../src/engine/phy'
 import { uwbPpduLayout } from '../../src/uwb/frameFields'
 import {
   DATA_SYMBOL_CHIPS, PHR_SYMBOLS, PHR_SYMBOL_CHIPS, PSYM_CHIPS, RS_PARITY_BITS, SFD_SYMBOLS,
@@ -45,9 +53,21 @@ describe('uwb-frame · lesson shape', () => {
     expect(isMigrated(uwbFrame)).toBe(true)
     expect(uwbFrame.module).toBe(11)
     expect(uwbFrame.needs).toEqual(['uwb-intro'])
-    // the second lesson of the track may use a table in the picture, and gets up to six new words
-    expect(uwbFrame.terms!.map((t) => t.term)).toEqual(['SYNC', 'SFD', 'STS', 'PHR', 'PSDU', 'slot'])
-    expect(uwbFrame.picture!.some((b) => b.kind === 'watch')).toBe(true)
+    // the second lesson of the track may use a table in the picture, and gets up to six new words.
+    // `chip` is one of them: it is the unit every duration in this lesson is counted in, and
+    // uwb-intro cannot hold it (a track's first lesson is capped at four terms).
+    expect(uwbFrame.terms!.map((t) => t.term)).toEqual(['SYNC', 'SFD', 'STS', 'PHR', 'PSDU', 'chip'])
+    // the reader is sent to the simulator before the mechanism is finished
+    const firstWatch = uwbFrame.picture!.findIndex((b) => b.kind === 'watch')
+    expect(firstWatch).toBeGreaterThanOrEqual(0)
+    expect(firstWatch).toBeLessThan(3)
+  })
+
+  it('the poll really is far longer than a Wi-Fi acknowledgement', () => {
+    // why: "A ranging frame carries almost no data, yet it is long — far longer than a Wi-Fi
+    //  acknowledgement." A 14-octet ACK at 6 Mb/s is 44 µs; the poll is 197.628 µs.
+    expect(ACK_TX_TIME_6M_NS).toBe(44_000)
+    expect(uwbPpduNs(30)).toBeGreaterThan(4 * ACK_TX_TIME_6M_NS)
   })
 
   it('the scenario and the variant are uwb-intro’s own, and pass the schema', () => {
@@ -140,9 +160,9 @@ describe('uwb-frame · what 197.628 µs is made of', () => {
   })
 
   it('the symbol and chip counts the "Field" column names are the engine’s own', () => {
-    // "SYNC, 64 preamble symbols" / "SFD, 8 symbols" / "512 chips of silence" /
-    // "STS, 64 × 512 chips" / "PHR, 19 symbols" — a compensating change (fewer symbols, longer
-    // symbol) would keep every duration above and quietly falsify all five cells.
+    // "SYNC, 64 preamble symbols of 508 chips" / "SFD, 8 preamble symbols" / "512 chips of silence" /
+    // "STS, 64 × 512 chips" / "PHR, 19 symbols of 512 chips" — a compensating change (fewer symbols,
+    // longer symbol) would keep every duration above and quietly falsify all five cells.
     expect(SYNC_SYMBOLS).toBe(64)
     expect(SFD_SYMBOLS).toBe(8)
     expect(STS_GAP_CHIPS).toBe(512)
@@ -150,9 +170,44 @@ describe('uwb-frame · what 197.628 µs is made of', () => {
     expect(PHR_SYMBOLS).toBe(19)
   })
 
+  it('a symbol is a block of chips, and the blocks are not the same size', () => {
+    // "Two words, two sizes": "A symbol is a block of chips — a preamble symbol a long block, a
+    //  symbol carrying message bits a much shorter one — which is why a field counted in symbols
+    //  and one counted in chips can come out nearly the same length." The table's three counts:
+    //  508 chips a preamble symbol, 512 a PHR symbol, 64 a data symbol.
+    expect(PSYM_CHIPS).toBe(508)
+    expect(PHR_SYMBOL_CHIPS).toBe(512)
+    expect(DATA_SYMBOL_CHIPS).toBe(64)
+    expect(PSYM_CHIPS).toBeGreaterThan(DATA_SYMBOL_CHIPS)
+    // the paragraph's claim about SYNC (64 symbols) and STS (32 768 chips) landing nearly together
+    expect(durOf('sts') / durOf('sync')).toBeGreaterThan(0.99)
+    expect(durOf('sts') / durOf('sync')).toBeLessThan(1.02)
+    // "290 symbols of 64 chips" for the 30-octet PSDU
+    expect(psduSymbols(30)).toBe(290)
+    expect(chipsToNs(290 * DATA_SYMBOL_CHIPS)).toBe(37_179)
+  })
+
+  it('the frame runs SYNC, SFD, the stamp, STS between its gaps, PHR, PSDU', () => {
+    // "Where the stamp goes": "The RMARKER is the first chip after the SFD ends, so the frame runs
+    //  SYNC, SFD, the stamp, then the STS between its two gaps, the PHR and the PSDU." The old
+    //  wording ("everything after it is the message") was false of this layout.
+    expect(layout.map((s) => s.key)).toEqual(['sync', 'sfd', 'stsGap', 'sts', 'stsGap', 'phr', 'psdu'])
+    // the stamp falls on the boundary between the SFD and the first STS gap — after SYNC and SFD,
+    // and before the STS, the PHR and the PSDU, which is what the sentence now says
+    const stamped = layout.findIndex((s) => s.rmarkerNs !== undefined)
+    expect(layout[stamped].key).toBe('stsGap')
+    expect(layout.slice(0, stamped).map((s) => s.key)).toEqual(['sync', 'sfd'])
+    expect(layout.slice(stamped).map((s) => s.key)).toEqual(['stsGap', 'sts', 'stsGap', 'phr', 'psdu'])
+    expect(layout[stamped].rmarkerNs).toBe(durOf('sync') + durOf('sfd'))
+    // and so most of what follows the stamp is not the message
+    const afterStamp = 197_628 - 73_269
+    expect(afterStamp - durOf('psdu')).toBeGreaterThan(durOf('psdu'))
+  })
+
   it('the PSDU is 240 data bits, 48 parity bits and a 2-symbol tail, carried at 6.81 Mb/s', () => {
-    // "The poll’s PSDU is 30 octets at 6.81 Mb/s, which is not 35.2 µs of air but 37.179 µs: the
-    //  radio sends 240 data bits, 48 parity bits and a 2-symbol tail"
+    // "The poll’s PSDU is 30 octets at 6.81 Mb/s, which is not 35.2 µs of air but 37.179 µs. Each of
+    //  the 240 data bits gets one data symbol of 64 chips, the 48 parity bits get one each, and a
+    //  2-symbol tail closes it: 290 symbols."
     expect(UWB_MBPS).toBe(6.81)
     expect(poll.frame.mbps).toBe(UWB_MBPS)
     expect(30 * 8).toBe(240)
