@@ -14,10 +14,11 @@
  */
 import { describe, it, expect } from 'vitest'
 import { LESSONS } from '../../src/course/lessons'
-import { COURSE_ORDER, lessonMinutes, lessonWords, trackOf } from '../../src/course/curriculum'
+import { COURSE_ORDER, MODULES, lessonMinutes, lessonWords, trackOf } from '../../src/course/curriculum'
 import { isMigrated, type L10n, type Lesson } from '../../src/course/lessonKit'
 import {
-  CITATION, KNOWN_WORDS, acronyms, enWords, lessonStrings, numericQuantities, paragraphTexts, zhChars,
+  CITATION, KNOWN_WORDS, acronyms, definedInPlace, densityTexts, enWords, firstTermUses, lessonBudget,
+  lessonStrings, numericQuantities, paragraphTexts, zhChars,
 } from '../../src/course/readability'
 
 /** Lessons still in the old shape. Each migration task removes its ids; the list only shrinks. */
@@ -47,6 +48,26 @@ const textsOf = (l: Lesson, f: keyof Lesson): L10n[] =>
  * the rule exists to protect whichever lesson a reader actually meets first.
  */
 const firstOfTrack = (l: Lesson) => ordered.find((o) => trackOf(o) === trackOf(l) && !MIGRATING.includes(o.id)) === l
+
+/**
+ * Every acronym a lesson may use without introducing it: the baseline, its own
+ * `terms`, and the `terms` of every migrated lesson before it that is in the
+ * same track OR in Wi-Fi Tier 1. The Tier 1 admission is the spec's, and is
+ * wider than the prerequisite rule on purpose — `needs` stays restricted to
+ * radio-primer and frame-anatomy, but a one-line reminder in the picture is
+ * enough for any Tier 1 word. Narrowing it to those two lessons would leave
+ * `NAV` and `CTS` with no legal owner once TIER1_BASELINE goes.
+ */
+function knownFor(l: Lesson): Set<string> {
+  const known = new Set<string>([...KNOWN_WORDS, ...TIER1_BASELINE])
+  for (const o of ordered) {
+    if (o === l) break
+    const admitted = trackOf(o) === trackOf(l) || (trackOf(o) === 'wifi' && MODULES[o.module].tier === 0)
+    if (admitted && !MIGRATING.includes(o.id)) for (const t of o.terms!) known.add(t.term.toUpperCase())
+  }
+  for (const t of l.terms!) known.add(t.term.toUpperCase())
+  return known
+}
 
 describe('readability · migration bookkeeping', () => {
   it('every MIGRATING id is a real lesson still in the old shape', () => {
@@ -106,13 +127,7 @@ if (migrated.length) {
       }
     })
     it('introduces every acronym before using it', () => {
-      const known = new Set<string>([...KNOWN_WORDS, ...TIER1_BASELINE])
-      for (const o of ordered) {
-        if (o === l) break
-        const sameTrack = trackOf(o) === trackOf(l) || (trackOf(o) === 'wifi' && ['radio-primer', 'frame-anatomy'].includes(o.id))
-        if (sameTrack && !MIGRATING.includes(o.id)) for (const t of o.terms!) known.add(t.term.toUpperCase())
-      }
-      for (const t of l.terms!) known.add(t.term.toUpperCase())
+      const known = knownFor(l)
       const texts = [l.why!, ...paragraphTexts(l.picture!), ...l.outcomes!]
       // both languages: a Chinese paragraph borrows the same Latin acronyms
       for (const s of texts) {
@@ -129,12 +144,49 @@ if (migrated.length) {
         expect(CITATION.test(p.en) || CITATION.test(p.zh), p.en).toBe(false)
       }
     })
+    it('keeps the picture uncrowded: two new words and four acronyms to a paragraph', () => {
+      const paragraphs = densityTexts(l.picture!)
+      const fresh = firstTermUses(l.picture!, l.terms!.map((t) => t.term))
+      for (const [i, p] of paragraphs.entries()) {
+        expect(fresh[i].length, `${l.id}: ${fresh[i].join(', ')} all first used in "${p.en.slice(0, 60)}…"`).toBeLessThanOrEqual(2)
+        const distinct = new Set([...acronyms(p.en), ...acronyms(p.zh)])
+        expect(distinct.size, `${l.id}: ${[...distinct].join(', ')} in "${p.en.slice(0, 60)}…"`).toBeLessThanOrEqual(4)
+      }
+    })
+    it('keeps the numbers prose short: ≤ 90 words, ≤ 4 quantities, acronyms known or defined in place', () => {
+      const known = knownFor(l)
+      for (const p of paragraphTexts(l.numbers!)) {
+        expect(enWords(p.en), p.en).toBeLessThanOrEqual(90)
+        expect(zhChars(p.zh), p.en).toBeLessThanOrEqual(170)
+        expect(numericQuantities(p.en), p.en).toBeLessThanOrEqual(4)
+        expect(numericQuantities(p.zh), p.en).toBeLessThanOrEqual(4)
+        for (const a of new Set([...acronyms(p.en), ...acronyms(p.zh)])) {
+          expect(known.has(a) || definedInPlace(p, a), `${l.id} numbers: "${a}" in "${p.en.slice(0, 60)}…"`).toBe(true)
+        }
+      }
+    })
+    it('keeps an observe or try-this item to one thing to do: ≤ 60 words, ≤ 6 quantities', () => {
+      for (const s of [...l.observe, ...l.tryThis]) {
+        expect(enWords(s.en), s.en).toBeLessThanOrEqual(60)
+        expect(numericQuantities(s.en), s.en).toBeLessThanOrEqual(6)
+        expect(numericQuantities(s.zh), s.en).toBeLessThanOrEqual(6)
+      }
+    })
     it('cites only in sources and in table cells of the numbers', () => {
       for (const f of CITED_FIELDS) for (const s of textsOf(l, f)) expect(CITATION.test(s.en) || CITATION.test(s.zh), `${f}: ${s.en.slice(0, 80)}`).toBe(false)
       for (const s of paragraphTexts(l.numbers!)) expect(CITATION.test(s.en) || CITATION.test(s.zh), s.en).toBe(false)
+      // depth may be dense, but its provenance still belongs in `sources`
+      for (const s of paragraphTexts(l.deeper ?? [])) expect(CITATION.test(s.en) || CITATION.test(s.zh), `deeper: ${s.en.slice(0, 80)}`).toBe(false)
     })
-    it('fits the main path: 500–1300 words, at most 20 minutes', () => {
-      expect(lessonWords(l)).toBeGreaterThanOrEqual(500); expect(lessonWords(l)).toBeLessThanOrEqual(1300)
+    it('fits the main path: the section budgets, 500–1300 words, at most 20 minutes', () => {
+      const b = lessonBudget(l)
+      expect(b.picture, 'why + outcomes + terms + picture').toBeLessThanOrEqual(650)
+      expect(b.numbers, 'numbers').toBeLessThanOrEqual(350)
+      expect(b.practice, 'observe + tryThis + quiz').toBeLessThanOrEqual(400)
+      expect(b.total).toBe(lessonWords(l))
+      expect(lessonWords(l)).toBeGreaterThanOrEqual(500)
+      // the point of the programme is that a track's first lesson is short
+      expect(lessonWords(l)).toBeLessThanOrEqual(firstOfTrack(l) ? 1000 : 1300)
       expect(lessonMinutes(l)).toBeLessThanOrEqual(20)
     })
   })

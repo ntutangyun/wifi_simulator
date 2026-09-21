@@ -10,10 +10,11 @@
  *
  * Every number quoted below is pinned in tests/course/amp-ppdu.test.ts.
  *
- * CAUTION — word budget. The main path (`lessonWords`: why, outcomes, terms,
- * picture, numbers, observe, tryThis and quiz — never deeper, never sources)
- * is capped at 1300 English words and measures 1284: SIXTEEN words of headroom.
- * `lessonMinutes` is 15 of the permitted 20, so the word count bites first.
+ * The main path is held to 1300 words, with `why` + `outcomes` + `terms` +
+ * `picture` ≤ 650, `numbers` ≤ 350 and `observe` + `tryThis` + `quiz` ≤ 400
+ * (tests/course/readability.test.ts; `npx tsx scripts/lesson-dump.ts amp-ppdu
+ * en` prints the four counts). Depth belongs in `deeper`, provenance in
+ * `sources`; neither is counted.
  */
 import {
   J, N, firstAmpAckToTag, firstAmpTrigger, txOf,
@@ -71,9 +72,16 @@ export const ampPpdu: Lesson = {
       zh: '这一帧的开头，就是每一帧 Wi-Fi 都有的那段前导——一段已知的图案，接收端靠它锁住信号，紧接着是说明“这一帧要持续多久”的那个字段。房间里任何一台 Wi-Fi 射频都会老老实实避让这么久，却始终不知道后面那部分在讲什么。标签对这半段则完全无从下手，只能干等它过去。',
     } },
     { kind: 'watch', jump: 0, heading: { en: 'Open one and look', zh: '打开一帧看看' }, text: {
-      en: 'Load the simulation, jump to the first trigger and open it in the frame detail view. Read the strip left to right: the legacy opening a Wi-Fi radio reads; then AMP-Sync, a run of flashes that lets the tag find the beat; then AMP-SIG, two octets saying what frame follows and how long it is; then the data octets, and the padding at the end.',
-      zh: '载入仿真，跳到第一帧触发帧，再到帧细节视图里把它打开。把那条带子从左读到右：先是 Wi-Fi 射频读的那段传统开头；接着是 AMP-Sync，一串闪烁，让标签找准节拍；然后是 AMP-SIG，两个字节，告诉标签后面是什么帧、有多长；再往后是数据字节，最末尾是填充。',
+      en: 'Load the simulation, jump to the first trigger and open it in the frame detail view. The coloured strip is the frame, left to right.',
+      zh: '载入仿真，跳到第一帧触发帧，再到帧细节视图里把它打开。那条彩色的带子就是这一帧，从左读到右。',
     } },
+    { kind: 'steps', heading: { en: 'A downlink frame, left to right', zh: '一帧下行帧，从左到右' }, items: [
+      { en: 'the legacy opening, for Wi-Fi radios', zh: '传统开头，给 Wi-Fi 射频' },
+      { en: 'AMP-Sync, so the tag finds the beat', zh: 'AMP-Sync，让标签找准节拍' },
+      { en: 'AMP-SIG: what follows, and how long', zh: 'AMP-SIG：后面是什么、有多长' },
+      { en: 'the data octets', zh: '数据字节' },
+      { en: 'the padding, at the end', zh: '填充，在最末尾' },
+    ] },
     { heading: { en: 'Loud or quiet, and nothing in between', zh: '不是响就是静，没有中间地带' }, text: {
       en: 'The tag’s half is sent in OOK: the transmitter is either on or off, one flash per bit. An envelope detector can follow that much. To keep the tag in step the bits go out in Manchester form — each a flash-then-dark or a dark-then-flash, so every bit has an edge in the middle, however many zeros run together.',
       zh: '标签那一半用的是 OOK：发射机要么开要么关，闪一下就是一个比特。这点东西，包络检波器跟得上。为了让标签不跟丢，这些比特还按 Manchester 的方式发出——每个比特都是“先亮后暗”或“先暗后亮”，于是每一个比特中间都有一道边沿；哪怕连着来一长串零，标签的节拍也不会散。',
@@ -87,8 +95,8 @@ export const ampPpdu: Lesson = {
       zh: '标签的作答帧是反着搭的。它完全不带 Wi-Fi 前导——标签也造不出来——所以一上来就是它自己那段很短的 AMP-Sync，紧接着就是数据字节。正因如此，站在标签旁边的 Wi-Fi 终端只能察觉“空中有动静”，却认不出那是一帧——里面没有一段是 Wi-Fi 射频懂得去锁的。',
     } },
     { heading: { en: 'Small frame, long airtime', zh: '帧很小，空口时间很长' }, text: {
-      en: 'Two halves together, and a small AMP frame is mostly not its message. The opening, the sync, the field describing the data, the padding and the closing extension — a scrap of quiet the band adds after any frame with a Wi-Fi opening — cost the same whatever the frame carries. The acknowledgement is the extreme case: four octets, in a frame that takes longer on the air than an ordinary Wi-Fi frame saying far more.',
-      zh: '两半合起来看就会发现：一帧小小的 AMP 帧，绝大部分并不是它要说的内容。开头、同步、描述数据的那个字段、填充，还有收尾的扩展——凡是以 Wi-Fi 开头的帧，本频段都要在它后面再接一小段安静——不管这一帧装了什么，它们花的时间都一样。确认帧是最极端的例子：内容只有四个字节，外面那层壳占用的空口时间，却比一帧说得多得多的普通 Wi-Fi 还长。',
+      en: 'A small AMP frame is mostly not its message. The opening, the sync, the field describing the data, the padding and the closing extension — a scrap of quiet the band adds after any frame with a Wi-Fi opening — cost the same whatever the frame carries. The Ack is the extreme case: four octets in a frame that takes longer on the air than an ordinary Wi-Fi frame saying far more.',
+      zh: '一帧小小的 AMP 帧，绝大部分并不是它要说的内容。开头、同步、描述数据的那个字段、填充，还有收尾的扩展——凡是以 Wi-Fi 开头的帧，本频段都要在它后面再接一小段安静——不管这一帧装了什么，它们花的时间都一样。确认帧是最极端的例子：内容只有四个字节，占用的空口时间却比一帧说得多得多的普通 Wi-Fi 还长。',
     } },
   ],
   numbers: [
@@ -96,9 +104,21 @@ export const ampPpdu: Lesson = {
       en: 'AMP Trigger @ 250 kb/s = 32 + 80 + 64 + 416 + 20 + 6 = 618 µs',
       zh: 'AMP Trigger @ 250 kb/s = 32 + 80 + 64 + 416 + 20 + 6 = 618 µs',
     }, note: {
-      en: '32 µs of legacy opening: the preamble, the legacy signal field that states the length, and the U-SIG, the newer header a Wi-Fi 7 radio reads to learn what kind of frame this is. Then 80 µs of AMP-Sync; two octets of AMP-SIG, 64 µs here and 16 µs at 1 Mb/s; 13 octets of trigger at 416 µs; 20 µs of padding; the 6 µs closing extension.',
-      zh: '32 µs 是传统开头：前导本身、告知帧长的传统信号字段，以及 U-SIG——一个更新的头部，Wi-Fi 7 射频读它就知道这是哪一类帧。接下来是 80 µs 的 AMP-Sync；两个字节的 AMP-SIG 在 250 kb/s 下是 64 µs，1 Mb/s 下是 16 µs；触发帧的 13 个字节占 416 µs；填充 20 µs；最后 6 µs 是收尾的扩展。',
+      en: 'The first 32 µs is ordinary Wi-Fi; everything after it is the tag’s. Only the two middle rows shrink when the rate rises — the AMP-SIG to 16 µs at 1 Mb/s.',
+      zh: '开头的 32 µs 是普通 Wi-Fi，其后的一切都是发给标签的。速率提高时只有中间那两行会缩短——AMP-SIG 在 1 Mb/s 下是 16 µs。',
     } },
+    { kind: 'table', heading: { en: 'What the strip is made of', zh: '这条带子由什么组成' }, head: [
+      { en: 'Segment', zh: '段' }, N('250 kb/s'), { en: 'Who reads it', zh: '读它的是谁' },
+    ], rows: [
+      [{ en: 'legacy preamble', zh: '传统前导' }, N('16 µs'), { en: 'every Wi-Fi radio', zh: '每一台 Wi-Fi 射频' }],
+      [{ en: 'L-SIG, the length field', zh: 'L-SIG，长度字段' }, N('4 µs'), { en: 'every Wi-Fi radio', zh: '每一台 Wi-Fi 射频' }],
+      [{ en: 'U-SIG, what kind of frame this is', zh: 'U-SIG，说明这是哪一类帧' }, N('12 µs'), { en: 'a Wi-Fi 7 radio', zh: 'Wi-Fi 7 射频' }],
+      [N('AMP-Sync'), N('80 µs'), { en: 'the tag', zh: '标签' }],
+      [{ en: 'AMP-SIG, 2 octets', zh: 'AMP-SIG，2 个字节' }, N('64 µs'), { en: 'the tag', zh: '标签' }],
+      [{ en: 'trigger body, 13 octets', zh: '触发帧帧体，13 个字节' }, N('416 µs'), { en: 'the tag', zh: '标签' }],
+      [{ en: 'padding', zh: '填充' }, N('20 µs'), { en: 'nobody: it buys the tag time', zh: '没人：它买的是标签的时间' }],
+      [{ en: 'signal extension', zh: '信号扩展' }, N('6 µs'), { en: 'nobody: the band’s own', zh: '没人：本频段自带' }],
+    ] },
     { kind: 'table', heading: { en: 'The three AMP frames', zh: '三种 AMP 帧' }, head: [
       { en: 'Frame', zh: '帧' }, { en: 'Octets', zh: '字节' }, N('250 kb/s'), N('1 Mb/s'),
     ], rows: [
@@ -107,8 +127,12 @@ export const ampPpdu: Lesson = {
       [{ en: 'Answer with a reading (uplink)', zh: '带读数的作答（上行）' }, N('15'), N('528 µs'), N('132 µs')],
     ] },
     { text: {
-      en: 'An answer that names only itself is 7 octets, used in a later lesson; this one carries the reading inline, so it is 15. Raise the rate four-fold and the answer takes a quarter of the air: 528 µs becomes 132 µs, having no fixed opening to dilute it. The trigger has 138 µs no rate can touch, so it falls only to 258 µs.',
-      zh: '只报自己身份的作答是 7 个字节，后面某一课会用到；这里的作答把读数直接带在里面，所以是 15 个字节。速率提高四倍，作答占用的空口时间就真的只剩四分之一：528 µs 变成 132 µs——因为它没有固定开头可以摊薄。触发帧却有：138 µs 任凭速率怎么变都省不掉，所以它只能降到 258 µs。',
+      en: 'An answer that names only itself is 7 octets, used in a later lesson; this one carries the reading inline, so it is 15.',
+      zh: '只报自己身份的作答是 7 个字节，后面某一课会用到；这里的作答把读数直接带在里面，所以是 15 个字节。',
+    } },
+    { text: {
+      en: 'Raise the rate four-fold and the answer takes a quarter of the air: 528 µs becomes 132 µs, having no fixed opening to dilute it. The trigger has 138 µs no rate can touch, so it falls only to 258 µs.',
+      zh: '速率提高四倍，作答占用的空口时间就真的只剩四分之一：528 µs 变成 132 µs——因为它没有固定开头可以摊薄。触发帧却有：138 µs 任凭速率怎么变都省不掉，所以它只能降到 258 µs。',
     } },
     { kind: 'table', heading: { en: 'How much padding', zh: '填充有多少' }, head: [
       { en: 'Kind of downlink frame', zh: '下行帧的类型' }, { en: 'Padding', zh: '填充' },
@@ -116,9 +140,19 @@ export const ampPpdu: Lesson = {
       [{ en: 'unprotected — every frame in this scene', zh: '非保护帧——本场景里的每一帧' }, N('20 µs')],
       [{ en: 'protected, meaning encrypted', zh: '受保护帧，也就是加了密的帧' }, N('36 µs')],
     ] },
-    { heading: { en: 'Where an Ack’s 330 µs goes', zh: '一帧 Ack 的 330 µs 花在哪儿' }, text: {
-      en: 'Four octets at 250 kb/s are 128 µs of the Ack’s 330 µs; the other 202 µs is opening, AMP-Sync, AMP-SIG, padding and extension — paid in full for four octets. The CTS that clears the air is fourteen octets of ordinary Wi-Fi in 50 µs: 44 µs at 6 Mb/s plus the band’s 6 µs. Three and a half times the content, under a sixth of the airtime.',
-      zh: '四个字节在 250 kb/s 下是 128 µs，占 Ack 全长 330 µs 中的一部分。余下的 202 µs 是传统开头、AMP-Sync、AMP-SIG、填充和信号扩展——固定开销，为四个字节也得照付一遍。作个对比：路由器用来清场的那帧 CTS 是十四个字节的普通 Wi-Fi，只要 50 µs——6 Mb/s 下 44 µs，再加本频段的 6 µs 信号扩展。内容是三倍半，空口时间却不到六分之一。',
+    { kind: 'formula', heading: { en: 'Where an Ack’s 330 µs goes', zh: '一帧 Ack 的 330 µs 花在哪儿' }, text: {
+      en: '4 octets at 250 kb/s = 128 µs + 202 µs of wrapper = 330 µs',
+      zh: '250 kb/s 下的 4 个字节 = 128 µs + 202 µs 的外壳 = 330 µs',
+    }, note: {
+      en: 'The wrapper — opening, AMP-Sync, AMP-SIG, padding, extension — is paid in full for four octets. The CTS that clears the air is fourteen octets of ordinary Wi-Fi: 44 µs at 6 Mb/s plus the band’s 6 µs. Three and a half times the content, under a sixth of the airtime.',
+      zh: '外壳——传统开头、AMP-Sync、AMP-SIG、填充、信号扩展——为四个字节也得照付一遍。作个对比：路由器用来清场的那帧 CTS 是十四个字节的普通 Wi-Fi，6 Mb/s 下 44 µs，再加本频段的 6 µs。内容是三倍半，空口时间却不到六分之一。',
+    } },
+    { kind: 'formula', heading: { en: 'The same round at 1 Mb/s', zh: '同一轮，换成 1 Mb/s' }, text: {
+      en: '50 + 10 + 258 + 4 × (10 + 132 + 10 + 186) = 1670 µs = 1.67 % of 100 ms',
+      zh: '50 + 10 + 258 + 4 × (10 + 132 + 10 + 186) = 1670 µs = 100 ms 的 1.67 %',
+    }, note: {
+      en: 'The trigger now ends at 318 µs and slot 1 opens at 328 µs; the CTS Duration that covers the round is 1620 µs.',
+      zh: '触发帧现在在 318 µs 结束，时隙 1 在 328 µs 打开；覆盖这一轮的 CTS Duration 是 1620 µs。',
     } },
   ],
   sources: [
@@ -145,10 +179,10 @@ export const ampPpdu: Lesson = {
   ],
   observe: [
     { en: 'Open the Ack at 1226 µs in frame detail: its ID field is two octets and names the Door tag. Then the one at 2982 µs, closing an empty slot — same 330 µs, same four octets, but the ID field holds the router’s own id.', zh: '在帧细节里打开 1226 µs 那帧 Ack：ID 字段两个字节，点名的是 Door tag。再打开 2982 µs 那一帧，它收尾的是一个空时隙——同样 330 µs、同样四个字节，但 ID 字段里装的是路由器自己的标识。' },
-    { en: 'Open the first trigger and read its strip left to right: 16, 4 and 12 µs of legacy opening, 80 µs of AMP-Sync, 64 µs of AMP-SIG, 416 µs of data, 20 µs of padding, 6 µs of extension. Its 6-octet body decodes into session, window and slots.', zh: '在帧细节里打开第一帧触发帧，把那条带子从左读到右：传统开头的 16、4、12 µs，然后 80 µs 的 AMP-Sync、64 µs 的 AMP-SIG、416 µs 的数据、20 µs 的填充，末尾还有 6 µs 的信号扩展。它 6 个字节的帧体会被逐字段解开：会话号、窗口、时隙数与时隙长度。' },
+    { en: 'Open the first trigger and read its strip left to right, checking each segment against the table above. Then open its 6-octet body, which decodes into the session, the window, and the number and length of the slots.', zh: '在帧细节里打开第一帧触发帧，把那条带子从左读到右，逐段对照上面那张表。再打开它 6 个字节的帧体：会话号、窗口、时隙数与时隙长度。' },
   ],
   tryThis: [
-    { en: 'Load the 1 Mb/s variant and jump to the first trigger. It now ends at 318 µs, slot 1 opens at 328 µs, and the round is 1670 µs instead of 4190 µs — 1.67 % of each 100 ms, not 4.19 %. Work out why the saving is not four-fold, then check the CTS Duration: 1620 µs.', zh: '载入 1 Mb/s 变体，跳到第一帧触发帧。它现在在 318 µs 结束，时隙 1 在 328 µs 打开，整轮从 4190 µs 缩到 1670 µs——占每 100 ms 的比例从 4.19 % 降到 1.67 %。想一想为什么没能省到四分之一，再核对 CTS 的 Duration：1620 µs。' },
+    { en: 'Load the 1 Mb/s variant and jump to the first trigger. Check the round against the arithmetic above, then work out why the saving is not four-fold when the rate is four times higher.', zh: '载入 1 Mb/s 变体，跳到第一帧触发帧。拿上面那道算式逐项核对这一轮，再想一想：速率提高到四倍，为什么省下来的没有四分之三。' },
   ],
   quiz: [
     {

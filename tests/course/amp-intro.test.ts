@@ -79,17 +79,21 @@ describe('amp-intro · lesson shape', () => {
     for (const v of ampIntro.variants!) expect(() => ScenarioSchema.parse(v.scenario())).not.toThrow()
   })
 
-  it('fits one sitting: 500–1300 words on the main path, at most 20 minutes', () => {
+  it('fits one sitting: the spec’s bounds for a track’s first lesson, plus the split’s prose window', () => {
+    // The spec's bounds: 500–1300 main-path words, and at most 1000 for a track's
+    // first lesson (…/2026-09-21-course-readability-design.md, "Length and pace").
+    // The three section budgets that sum to it are asserted for every migrated
+    // lesson in tests/course/readability.test.ts, and printed by
+    // `npx tsx scripts/lesson-dump.ts amp-intro en`.
     const raw = lessonWords(ampIntro) / 150
       + OBSERVE_MINUTES * ampIntro.observe.length + TRY_MINUTES * ampIntro.tryThis.length
     expect(lessonMinutes(ampIntro)).toBe(Math.max(5, Math.round(raw / 5) * 5))
     expect(lessonWords(ampIntro)).toBeGreaterThanOrEqual(500)
-    expect(lessonWords(ampIntro)).toBeLessThanOrEqual(1300)
+    expect(lessonWords(ampIntro)).toBeLessThanOrEqual(1000)
     expect(lessonMinutes(ampIntro)).toBeLessThanOrEqual(20)
-    // what the reader reads before the simulator: why, outcomes, terms, picture, numbers.
-    // The split budgeted 600–900 for this lesson; observe, tryThis and quiz add the rest.
+    // the content contract's window is for the PROSE count: what the reader reads
+    // before the simulator — why, outcomes, terms, picture and numbers.
     const prose = lessonWords({ ...ampIntro, observe: [], tryThis: [], quiz: [] })
-    expect(prose).toBeGreaterThanOrEqual(450)
     expect(prose).toBeLessThanOrEqual(1000)
     expect(lessonBlocks(ampIntro).length).toBe(ampIntro.picture!.length + ampIntro.numbers!.length)
   })
@@ -142,7 +146,7 @@ describe('amp-intro · lesson shape', () => {
 
 describe('amp-intro · standard constants', () => {
   it('AMP SIFS is 10 µs, exactly the 2.4 GHz SIFS a Wi-Fi radio already uses', () => {
-    // numbers: "Every gap here is 10 µs." / sources: "The 10 µs AMP SIFS is SFD PM-96, and it
+    // numbers: "every gap in the round is 10 µs" / sources: "The 10 µs AMP SIFS is SFD PM-96, and it
     //  happens to equal the SIFS 2.4 GHz Wi-Fi already uses."
     expect(AMP_SIFS_NS).toBe(10 * US)
     expect(ERP_2G.sifsNs).toBe(AMP_SIFS_NS)
@@ -175,7 +179,7 @@ describe('amp-intro · the shape of one round', () => {
 
   it('the round opens with a CTS-to-self one SIFS before the trigger', () => {
     // the timeline table's "CTS-to-self … 0 µs → 50 µs" and "AMP Trigger … 60 µs" rows, and
-    // "sends the CTS-to-self (50 µs) and, one gap later, the trigger"
+    // the round formula's "round = 50 + 10 + 618 + …"
     const cts = txs(rs, 'cts')[0]
     const ctsEnd = ends(rs, 'cts')[0]
     const trig = txs(rs, 'ampTrigger')[0]
@@ -283,8 +287,8 @@ describe('amp-intro · a second of polling', () => {
   })
 
   it('the inspector counters a tag ends the second with are 10 / 8 / 2', () => {
-    // observe: "Step a round through the inspector with the Fridge tag selected … the counters
-    //  end at 10 / 8 / 2."
+    // numbers: "Each tag answers in every round — eight acknowledged, two lost, the counters
+    //  the inspector ends the second with."
     const vs = initViewState(ampIntro.scenario())
     for (const r of rs) applyRecord(vs, r)
     for (const tag of TAGS) {
@@ -293,9 +297,10 @@ describe('amp-intro · a second of polling', () => {
   })
 
   it('a draw of 3 lands in slot 4, so with ACW + 1 = N neither tag ever sits a round out', () => {
-    // numbers: "Each tag picks one of four numbers at random and counts that many slots along.
-    //  In the trigger’s own terms: its window exponent ACWE is 2, so ACW = 2² − 1 = 3, and the
-    //  ABOC drawn from 0, 1, 2, 3 picks slot ABOC + 1." / deeper: "A tag sits a round out when its
+    // picture: "each tag that decoded it draws its own number, its ABOC, and answers in the slot
+    //  it points at" / deeper: "The trigger carries a window exponent, ACWE, set to 2 here, so the
+    //  window is ACW = 2² − 1 = 3. Each tag draws an ABOC from 0, 1, 2, 3 and answers in slot
+    //  ABOC + 1." / deeper: "A tag sits a round out when its
     //  draw can land past the last slot, that is when ACW + 1 > N. Here ACW + 1 = 4 = N … a draw
     //  of 3 lands in slot 4, the last one there is."
     const acw = 2 ** 2 - 1
@@ -316,13 +321,16 @@ describe('amp-intro · a second of polling', () => {
   })
 
   it('the two losses are the two rounds in which both tags drew the same slot', () => {
-    // "Twice in ten rounds both draw the same number — the slots ending at 201 216 µs and
-    //  502 972 µs. The router logs a collision, the closing Ack names the router, and each tag
-    //  learns at 201 556 µs and 503 312 µs that its reading was lost."
+    // numbers: "Not weak signal: twice in ten rounds both tags drew the same number and spoke
+    //  together", and the table beside it, row by row — round · slot · collision at · Ack
+    //  names · tag learns at: "3 · 1 · 201 216 µs · the router · 201 556 µs" and
+    //  "6 · 3 · 502 972 µs · the router · 503 312 µs".
     const coll = ofType(rs, 'COLLISION')
     expect(coll.length).toBe(2)
     // the COLLISION is stamped at the instant the overlapping slot ends
     expect(coll.map((r) => r.t)).toEqual([201_216 * US, 502_972 * US])
+    // the table's "Round" column: rounds start every 100 ms, so these are the 3rd and the 6th
+    expect(coll.map((r) => Math.floor(r.t / (100 * MS)) + 1)).toEqual([3, 6])
     for (const c of coll) {
       expect([...c.nodes].sort()).toEqual([...TAGS])
       const slot = ofType(rs, 'AMP_SLOT').find((r) => r.untilNs === c.t)!
@@ -341,7 +349,7 @@ describe('amp-intro · a second of polling', () => {
   })
 
   it('the tags never carrier-sense, never back off and never wait out an IFS; the AP does all three', () => {
-    // "Scroll a tag’s lane for a whole second and three kinds of record are missing: CCA_BUSY,
+    // deeper: "Scroll a tag’s lane for a whole second and three kinds of record are missing: CCA_BUSY,
     //  the channel sounding busy; BACKOFF_DRAW, a countdown drawn before speaking; IFS_START, the
     //  wait after someone else stops. A tag has none of them to record; its whole contribution is
     //  ten transmissions. The router’s lane has all three."
@@ -365,10 +373,10 @@ describe('amp-intro · a second of polling', () => {
   })
 
   it('the link budget leaves both tags far above the thresholds that matter', () => {
-    // numbers: "Downlink, the router reaches the Door tag at −37.4 dBm — 34.6 dB above the
-    //  −72 dBm a tag needs. Uplink, its answer arrives at −57.4 dBm, 36.6 dB above the router’s
-    //  −94 dBm floor." / deeper: "−94 dBm … is about 12 dB below the −82 dBm an ordinary Wi-Fi
-    //  frame must clear to be received at all."
+    // deeper, the "Enormous link margin" table row by row: "Router → Door tag · −37.4 dBm ·
+    //  −72 dBm · 34.6 dB" and "Door tag → router · −57.4 dBm · −94 dBm · 36.6 dB" / deeper:
+    //  "−94 dBm … is about 12 dB below the −82 dBm an ordinary Wi-Fi frame must clear to be
+    //  received at all."
     const s = ampIntro.scenario()
     const links = buildLinkTable(s.nodes, s.walls)
     // the engine gives 2.4 GHz 6.5 dB less path loss than the band-neutral table
@@ -414,11 +422,17 @@ describe('amp-intro · what the log shows', () => {
   const rs = recs()
 
   it('the log prints the ABOC draw, the round summary and the outcome the lesson quotes', () => {
-    // "The log prints the draw as “ABOC 1 of [0, 3] → slot 2”, the outcome as “slot 1:
-    //  acknowledged”, and a round line naming the slots, the window and both rates."
+    // observe: "Step a round through the inspector with the Fridge tag selected. The log prints
+    //  its draw as “ABOC 1 of [0, 3] → slot 2”, its outcome as “slot 2: acknowledged”, and a
+    //  round line naming the slots, the window and both rates."
+    // Both quoted lines are the Fridge tag's own — the observation names that tag, so it is
+    // pinned against that node's records and not against the first record of each type. The
+    // Door tag's first outcome, "slot 1: acknowledged", is the line the sentence used to quote.
     expect(fmtRecord(ofType(rs, 'AMP_ABOC')[0])).toBe('tag-1#2g ABOC 1 of [0, 3] → slot 2')
+    expect(fmtRecord(aboc(rs, 'tag-1#2g')[0])).toBe('tag-1#2g ABOC 1 of [0, 3] → slot 2')
+    expect(fmtRecord(results(rs, 'tag-1#2g')[0])).toBe('tag-1#2g slot 2: acknowledged')
     expect(fmtRecord(ofType(rs, 'AMP_ROUND')[0]))
       .toBe('ap#2g AMP round (random): 4 slots × 528.0 µs, ACW 3, DL 250 kb/s, UL 250 kb/s')
-    expect(fmtRecord(ofType(rs, 'AMP_RESULT')[0])).toBe('tag-2#2g slot 1: acknowledged')
+    expect(fmtRecord(results(rs, 'tag-2#2g')[0])).toBe('tag-2#2g slot 1: acknowledged')
   })
 })

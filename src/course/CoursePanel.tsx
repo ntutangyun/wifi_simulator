@@ -122,7 +122,7 @@ function BlockView({ b, t }: { b: Block; t: (l: L10n) => string }) {
 }
 
 export function CoursePanel() {
-  const { lang, courseLessonId, selectLesson, loadCourseScenario, adoptCourseScenario, courseLoaded } = useUi()
+  const { lang, courseLessonId, selectLesson, loadCourseScenario, adoptCourseScenario, courseLoaded, courseLoadedFor } = useUi()
   const L = useStrings().course
   const [progress, setProgress] = useState<Progress>(loadProgress)
   const [jumpMsg, setJumpMsg] = useState('')
@@ -225,6 +225,14 @@ export function CoursePanel() {
   }
 
   /**
+   * Whether the scene now loaded is THIS lesson's. A jump only makes sense
+   * against this lesson's own recording: another lesson's scene may not hold
+   * the moment the jump looks for, and if it does it is not the one the prose
+   * is about. Anything else offers "load" instead.
+   */
+  const loaded = courseLoaded && courseLoadedFor === lesson.id
+
+  /**
    * A call-out that sends the reader to the simulator: it loads the lesson's
    * scenario while nothing is loaded, and once something is, seeks straight to
    * the moment the call-out is about. A call-out without a jump target just
@@ -235,12 +243,12 @@ export function CoursePanel() {
     return (
       <div style={watchStyle}>
         <p style={{ ...prose, margin: 0 }}>{t(b.text)}</p>
-        {!courseLoaded && (
-          <button style={{ marginTop: 6, fontSize: 11.5 }} onClick={() => loadCourseScenario(lesson.scenario())}>
+        {!loaded && (
+          <button style={{ marginTop: 6, fontSize: 11.5 }} onClick={() => loadCourseScenario(lesson.scenario(), lesson.id)}>
             {L.watchLoad}
           </button>
         )}
-        {courseLoaded && target && (
+        {loaded && target && (
           <button style={{ marginTop: 6, fontSize: 11.5 }} onClick={() => jump(target.find, t(target.label))}>
             {L.watchJump}
           </button>
@@ -326,7 +334,7 @@ export function CoursePanel() {
           )}
 
           {(lesson.deeper ?? []).length > 0 && (
-            <details>
+            <details style={{ margin: '10px 0 4px' }}>
               <summary style={summaryStyle}>{L.deeper}</summary>
               {blocks(lesson.deeper!, 'deeper')}
             </details>
@@ -339,12 +347,12 @@ export function CoursePanel() {
           className="active"
           style={{ padding: '6px 10px' }}
           title={L.loadHint}
-          onClick={() => loadCourseScenario(lesson.scenario())}
+          onClick={() => loadCourseScenario(lesson.scenario(), lesson.id)}
         >
-          {courseLoaded ? L.reload : L.load}
+          {loaded ? L.reload : L.load}
         </button>
         {lesson.variants?.map((v, i) => (
-          <button key={i} onClick={() => loadCourseScenario(v.scenario())}>
+          <button key={i} onClick={() => loadCourseScenario(v.scenario(), lesson.id)}>
             {L.variants}: {t(v.label)}
           </button>
         ))}
@@ -353,7 +361,7 @@ export function CoursePanel() {
         </button>
       </div>
 
-      {courseLoaded && lesson.jumps.length > 0 && (
+      {loaded && lesson.jumps.length > 0 && (
         <div style={{ margin: '8px 0' }}>
           <div style={{ ...dim, fontSize: 11, marginBottom: 3 }}>{L.jumps}</div>
           <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>

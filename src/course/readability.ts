@@ -174,3 +174,123 @@ export function lessonStrings(l: Partial<Lesson>): L10n[] {
   })
   return out
 }
+
+/**
+ * English words a learner reads in one bilingual string, for the length
+ * budget. A language-neutral cell (`en === zh`: a counter value, a symbol, a
+ * protocol name) counts ONE — it is a glance, not something read at 150 words
+ * a minute — which is what the spec's "Length and pace" says counts.
+ */
+export const countedWords = (s: L10n): number => (s.en === s.zh ? 1 : enWords(s.en))
+
+/**
+ * English words a learner reads in anything a lesson field can hold: a string,
+ * a block, a list of blocks, a quiz. The one walk behind `lessonWords` and
+ * `lessonBudget`.
+ *
+ * Two things are not counted word by word, for the same reason: a
+ * language-neutral cell and a formula body are read at a glance, so each
+ * counts one. A `Term`'s own word counts — the "New words" table is read.
+ */
+export function wordsIn(x: unknown): number {
+  if (x == null || typeof x === 'function') return 0
+  if (Array.isArray(x)) return x.reduce<number>((n, v) => n + wordsIn(v), 0)
+  if (typeof x !== 'object') return 0
+  const o = x as Record<string, unknown>
+  if (typeof o.en === 'string' && typeof o.zh === 'string') return countedWords(o as unknown as L10n)
+  let n = 0
+  // A formula's body is one glance whatever language its units are in; its
+  // heading and its note are prose and are walked like anything else.
+  if (o.kind === 'formula' && o.text !== undefined) n += 1
+  if (typeof o.term === 'string' && o.plain !== undefined) n += enWords(o.term)
+  for (const [k, v] of Object.entries(o)) {
+    if (k === 'scenario' || k === 'find') continue
+    if (k === 'text' && o.kind === 'formula') continue
+    n += wordsIn(v)
+  }
+  return n
+}
+
+/**
+ * The main path's word count, section by section: the spec's "Length and pace"
+ * budgets, which sum to the total. `deeper` and `sources` are never counted —
+ * the stated minutes are the minutes of the main path.
+ */
+export interface LessonBudget {
+  /** `why` + `outcomes` + `terms` + `picture`: everything before "Now the numbers". ≤ 650. */
+  picture: number
+  /** `numbers`. ≤ 350. */
+  numbers: number
+  /** `observe` + `tryThis` + `quiz`: what the reader does at the simulator. ≤ 400. */
+  practice: number
+  /** All three, plus an unmigrated lesson's flat `body`. 500–1300; ≤ 1000 for a track's first lesson. */
+  total: number
+}
+
+/** The four counts of {@link LessonBudget}: the contract test, the lesson tests and the dump share them. */
+export function lessonBudget(l: Partial<Lesson>): LessonBudget {
+  const picture = wordsIn([l.why, l.outcomes, l.terms, l.picture])
+  const numbers = wordsIn(l.numbers)
+  const practice = wordsIn([l.observe, l.tryThis, l.quiz])
+  // The old flat shape has no sections, so it lands in the total alone.
+  return { picture, numbers, practice, total: picture + numbers + practice + wordsIn(l.body) }
+}
+
+/**
+ * The paragraphs the density rule measures: `paragraphTexts` without the items
+ * of a `steps` block. An ordered recap — "SYNC, then SFD, then the stamp" — is
+ * exempt from the density cap by the spec, and is the shape a pile-up should
+ * be rewritten into; the citation rule still reads every one of its items.
+ */
+export function densityTexts(blocks: Block[]): L10n[] {
+  return blocks.flatMap((b) => (b.kind === 'steps'
+    ? (b.heading ? [b.heading] : [])
+    : paragraphTexts([b])))
+}
+
+const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\-]/g, '\\$&')
+
+/**
+ * Whether a paragraph of `numbers` defines an acronym as it uses it, which the
+ * spec exempts from the acronym rule ("its window exponent ACWE").
+ *
+ * The rule, stated so an author can hit it deliberately: the token is exempt
+ * when, in EITHER language of the same paragraph, it is
+ *   - written inside parentheses, which is how a name introduces its own
+ *     short form — "Single-sided two-way ranging (SS-TWR)", "（SS-TWR）";
+ *   - followed by a parenthesis opening a gloss — `ACWE (the window exponent)`;
+ *   - preceded by a determiner and one to four lower-case words naming it:
+ *     "its window exponent ACWE", "the scrambled timestamp sequence STS".
+ * The two languages share one verdict because they are one sentence written
+ * twice: a half that spells the word out has introduced it for either reader.
+ */
+export function definedInPlace(p: L10n, token: string): boolean {
+  const t = escapeRe(token)
+  const parenthesised = new RegExp(`[(（]\\s*${t}\\s*[)）]`)
+  const gloss = new RegExp(`${t}\\s*[(（]`, 'i')
+  const spelledOut = new RegExp(`\\b(?:[Tt]he|[Ii]ts|[Tt]heir|[Tt]his|[Aa]n?)\\s+(?:[a-z]+\\s+){1,4}${t}\\b`)
+  const defines = (s: string): boolean => parenthesised.test(s) || gloss.test(s) || spelledOut.test(s)
+  return defines(p.en) || defines(p.zh)
+}
+
+/**
+ * Which of a lesson's `terms` make their first appearance in each paragraph of
+ * the picture, in reading order: the density rule's "at most two of a lesson's
+ * terms in one paragraph" counts the entries of each list.
+ *
+ * A term is matched as a word prefix, ignoring case, so "chips" introduces
+ * `chip` and "tags" introduces `tag` — the reader meets the word, not the
+ * singular.
+ */
+export function firstTermUses(blocks: Block[], terms: readonly string[]): string[][] {
+  const seen = new Set<string>()
+  return densityTexts(blocks).map((p) => {
+    const fresh: string[] = []
+    for (const term of terms) {
+      if (seen.has(term)) continue
+      const re = new RegExp(`\\b${escapeRe(term)}`, 'i')
+      if (re.test(p.en) || re.test(p.zh)) { seen.add(term); fresh.push(term) }
+    }
+    return fresh
+  })
+}

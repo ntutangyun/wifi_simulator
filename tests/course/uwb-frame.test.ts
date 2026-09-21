@@ -80,14 +80,18 @@ describe('uwb-frame · lesson shape', () => {
     for (const v of uwbFrame.variants!) expect(() => ScenarioSchema.parse(v.scenario())).not.toThrow()
   })
 
-  it('fits one sitting: 800–1300 words on the main path, at most 20 minutes', () => {
-    expect(lessonWords(uwbFrame)).toBeGreaterThanOrEqual(800)
+  it('fits one sitting: the spec’s bounds, plus the split’s prose window', () => {
+    // The spec's bounds: 500–1300 main-path words, at most 20 minutes
+    // (…/2026-09-21-course-readability-design.md, "Length and pace"). The three
+    // section budgets that sum to it are asserted for every migrated lesson in
+    // tests/course/readability.test.ts, and printed by
+    // `npx tsx scripts/lesson-dump.ts uwb-frame en`.
+    expect(lessonWords(uwbFrame)).toBeGreaterThanOrEqual(500)
     expect(lessonWords(uwbFrame)).toBeLessThanOrEqual(1300)
     expect(lessonMinutes(uwbFrame)).toBeLessThanOrEqual(20)
-    // what the reader reads before the simulator: why, outcomes, terms, picture, numbers.
-    // The split budgeted 800–1200 for this lesson; observe, tryThis and quiz add the rest.
+    // the content contract's window is for the PROSE count: what the reader reads
+    // before the simulator — why, outcomes, terms, picture and numbers.
     const prose = lessonWords({ ...uwbFrame, observe: [], tryThis: [], quiz: [] })
-    expect(prose).toBeGreaterThanOrEqual(600)
     expect(prose).toBeLessThanOrEqual(1000)
     expect(lessonBlocks(uwbFrame).length).toBe(uwbFrame.picture!.length + uwbFrame.numbers!.length)
   })
@@ -157,21 +161,30 @@ describe('uwb-frame · what 197.628 µs is made of', () => {
   })
 
   it('the symbol and chip counts the "Field" column names are the engine’s own', () => {
-    // "SYNC, 64 preamble symbols of 508 chips" / "SFD, 8 preamble symbols" / "512 chips of silence" /
-    // "STS, 64 × 512 chips" / "PHR, 19 symbols of 512 chips" — a compensating change (fewer symbols,
-    // longer symbol) would keep every duration above and quietly falsify all five cells.
+    // Every "Field" cell now states its chips as well as its symbols: "SYNC, 64 preamble symbols
+    // × 508 chips = 32 512 chips" / "SFD, 8 preamble symbols × 508 chips = 4064 chips" /
+    // "STS gap, 512 chips" / "STS, 64 × 512 = 32 768 chips" / "PHR, 19 symbols × 512 chips =
+    // 9728 chips" / "PSDU, 30 octets: 290 symbols × 64 chips = 18 560 chips". A compensating
+    // change (fewer symbols, longer symbol) would keep every duration above and quietly falsify
+    // all six cells, so both factors and the product are pinned.
     expect(SYNC_SYMBOLS).toBe(64)
     expect(SFD_SYMBOLS).toBe(8)
     expect(STS_GAP_CHIPS).toBe(512)
     expect(STS_ACTIVE_CHIPS).toBe(64 * 512)
     expect(PHR_SYMBOLS).toBe(19)
+    // the chip products each cell prints, and the duration each one buys
+    expect(SYNC_SYMBOLS * PSYM_CHIPS).toBe(32_512)
+    expect(SFD_SYMBOLS * PSYM_CHIPS).toBe(4064)
+    expect(STS_ACTIVE_CHIPS).toBe(32_768)
+    expect(PHR_SYMBOLS * PHR_SYMBOL_CHIPS).toBe(9728)
+    expect(psduSymbols(30) * DATA_SYMBOL_CHIPS).toBe(18_560)
+    expect(chipsToNs(SFD_SYMBOLS * PSYM_CHIPS)).toBe(8141)
   })
 
   it('a symbol is a block of chips, and the blocks are not the same size', () => {
-    // "Two words, two sizes": "A symbol is a block of chips — a preamble symbol a long block, a
-    //  symbol carrying message bits a much shorter one — which is why a field counted in symbols
-    //  and one counted in chips can come out nearly the same length." The table's three counts:
-    //  508 chips a preamble symbol, 512 a PHR symbol, 64 a data symbol.
+    // The table's three symbol sizes, one per "Field" cell: 508 chips a preamble symbol, 512 a
+    //  PHR symbol, 64 a data symbol. ("Two words, two sizes", the paragraph that used to
+    //  reconcile them in prose, went when every cell started printing its own chips.)
     expect(PSYM_CHIPS).toBe(508)
     expect(PHR_SYMBOL_CHIPS).toBe(512)
     expect(DATA_SYMBOL_CHIPS).toBe(64)
@@ -185,9 +198,10 @@ describe('uwb-frame · what 197.628 µs is made of', () => {
   })
 
   it('the frame runs SYNC, SFD, the stamp, STS between its gaps, PHR, PSDU', () => {
-    // "Where the stamp goes": "The RMARKER is the first chip after the SFD ends, so the frame runs
-    //  SYNC, SFD, the stamp, then the STS between its two gaps, the PHR and the PSDU." The old
-    //  wording ("everything after it is the message") was false of this layout.
+    // the steps block "The frame in order": "SYNC, the long known pattern" / "SFD, the short
+    //  marker that ends it" / "the RMARKER: the first chip after the SFD" / "the STS, between two
+    //  short gaps" / "the PHR" / "the PSDU". (An earlier wording, "everything after it is the
+    //  message", was false of this layout.)
     expect(layout.map((s) => s.key)).toEqual(['sync', 'sfd', 'stsGap', 'sts', 'stsGap', 'phr', 'psdu'])
     // the stamp falls on the boundary between the SFD and the first STS gap — after SYNC and SFD,
     // and before the STS, the PHR and the PSDU, which is what the sentence now says
@@ -202,9 +216,9 @@ describe('uwb-frame · what 197.628 µs is made of', () => {
   })
 
   it('the PSDU is 240 data bits, 48 parity bits and a 2-symbol tail, carried at 6.81 Mb/s', () => {
-    // "The poll’s PSDU is 30 octets at 6.81 Mb/s, which is not 35.2 µs of air but 37.179 µs. Each of
-    //  the 240 data bits gets one data symbol of 64 chips, the 48 parity bits get one each, and a
-    //  2-symbol tail closes it: 290 symbols."
+    // the formula "Why 30 octets cost 37.179 µs": "240 data bits + 48 parity bits + a 2-symbol
+    //  tail = 290 symbols × 64 chips", and its note: "At 6.81 Mb/s the message alone would be
+    //  35.2 µs of air. Coding, not the message, is most of what a payload costs."
     expect(UWB_MBPS).toBe(6.81)
     expect(poll.frame.mbps).toBe(UWB_MBPS)
     expect(30 * 8).toBe(240)
@@ -231,7 +245,8 @@ describe('uwb-frame · what 197.628 µs is made of', () => {
   })
 
   it('the RMARKER is the first chip after the SFD, 73.269 µs in', () => {
-    // "The RMARKER sits 65.128 + 8.141 = 73.269 µs into the frame — after the SYNC and the SFD"
+    // the formula "Where the RMARKER falls": "SYNC 65.128 µs + SFD 8.141 µs = 73.269 µs into the
+    //  frame", and its note "After the pattern and the marker that closes it, before everything else"
     // and the quiz option "the first chip after the SFD — 73.269 µs into the frame"
     expect(UWB_RMARKER_CHIPS).toBe((SYNC_SYMBOLS + SFD_SYMBOLS) * PSYM_CHIPS)
     expect(chipsToNs(UWB_RMARKER_CHIPS)).toBe(73_269)
@@ -240,8 +255,9 @@ describe('uwb-frame · what 197.628 µs is made of', () => {
   })
 
   it('the response is 20 octets and 187.372 µs, differing from the poll only in its PSDU', () => {
-    // "The response is built the same way and differs only in its message: 20 octets, 26.923 µs of
-    //  payload, 187.372 µs in all, with its RMARKER at the very same 73.269 µs."
+    // the "The poll and the response" table: "Poll | 30 octets | 37.179 µs | 197.628 µs" and
+    //  "Response | 20 octets | 26.923 µs | 187.372 µs", and the formula note's "the response is
+    //  built the same way, so its RMARKER falls at the very same offset"
     const resp = txs(recs(), 'uwbResp')[0]
     expect(uwbRespBytes('ss')).toBe(20)
     expect(resp.frame.bytes).toBe(20)
@@ -256,9 +272,10 @@ describe('uwb-frame · what 197.628 µs is made of', () => {
   })
 
   it('the round is two 2 ms slots and the response leaves at exactly 2 000 000 ns', () => {
-    // "the round is two slots of 2 ms, the poll in slot 0 and the response in slot 1, which starts at
-    //  exactly 2 000 000 ns. Of those 4 ms, only 385 µs carries a frame." / "the answer leaves at the
-    //  top of its slot whether it is ready early or not"
+    // observe: "the poll in the first slot, the response in the second, which starts at exactly
+    //  2 000 000 ns. Almost all of the round is silence." / numbers: "Of the two 2 ms slots the
+    //  round occupies, only 385 µs carries a frame at all." / picture: "the answer leaves at the
+    //  top of its slot whether it was ready early or not"
     const rs = recs()
     const round = ofType(rs, 'UWB_ROUND')
     expect(round).toHaveLength(1)

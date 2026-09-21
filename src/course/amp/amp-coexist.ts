@@ -1,7 +1,7 @@
 /**
  * Tier 2 · M8 · Ambient power IoT (802.11bp) · AMP and Wi-Fi share 2.4 GHz.
  *
- * The first two lessons gave the tags a channel to themselves. Here the router
+ * The AMP lessons before this one gave the tags a channel to themselves. Here the router
  * polls two tags on AC_BK while a camera uploads flat out on AC_BE in the same
  * 2.4 GHz channel and a phone streams video on 5 GHz: the AIFS gap the round
  * starts behind, the CTS-to-self that keeps the camera out of the slots (and
@@ -54,8 +54,8 @@ export const ampCoexist: Lesson = {
   title: { en: 'AMP and Wi-Fi share 2.4 GHz', zh: 'AMP 与 Wi-Fi 共享 2.4 GHz' },
   body: [
     { text: {
-      en: 'IEEE P802.11bp is still a draft: D0.5 in May 2026, D1.0 to letter ballot in September 2026. The round taken apart here is proposed draft text 11-26/1889r4 §39.4 and 11-26/1519r5; that the AP runs it on AC_BK comes from the PAR, and the CTS-to-self in front of it is a model choice — the Specification Framework 11-24/1613r20 mandates protection only for bistatic backscatter (FM-48). The first two lessons gave the tags a channel to themselves. This one gives them neighbours.',
-      zh: 'IEEE P802.11bp 仍是草案：D0.5 于 2026 年 5 月发布，D1.0 将于 2026 年 9 月进入 letter ballot。本课拆解的轮来自提案草案文本 11-26/1889r4 第 39.4 节与 11-26/1519r5；AP 用 AC_BK 发起这个轮出自 PAR，而轮前面那帧 CTS-to-self 是仿真器的模型选择——规范框架 11-24/1613r20 只对双基地反向散射强制要求保护（FM-48）。前两课里标签独占一条信道。这一课给它们安排了邻居。',
+      en: 'IEEE P802.11bp is still a draft: D0.5 in May 2026, D1.0 to letter ballot in September 2026. The round taken apart here is proposed draft text 11-26/1889r4 §39.4 and 11-26/1519r5; that the AP runs it on AC_BK comes from the PAR, and the CTS-to-self in front of it is a model choice — the Specification Framework 11-24/1613r20 mandates protection only for bistatic backscatter (FM-48). The AMP lessons before this one gave the tags a channel to themselves. This one gives them neighbours.',
+      zh: 'IEEE P802.11bp 仍是草案：D0.5 于 2026 年 5 月发布，D1.0 将于 2026 年 9 月进入 letter ballot。本课拆解的轮来自提案草案文本 11-26/1889r4 第 39.4 节与 11-26/1519r5；AP 用 AC_BK 发起这个轮出自 PAR，而轮前面那帧 CTS-to-self 是仿真器的模型选择——规范框架 11-24/1613r20 只对双基地反向散射强制要求保护（FM-48）。前面几课里标签独占一条信道。这一课给它们安排了邻居。',
     } },
     { heading: { en: 'The scene: one router, two bands', zh: '场景：一台路由器，两个频段' }, text: {
       en: 'The router sits in the study at (3, 4) with two radios. Two tags — a window sensor at (2, 2) and a plant sensor at (4, 6) — answer its poll every 100 ms on the 2.4 GHz link the tags, the camera and the router’s second radio all share. A camera at (6, 4) uploads on 2.4 GHz as hard as the channel will let it, on AC_BE, and a phone in the living room streams video on 5 GHz. Every number below is measured over the first two seconds.',
@@ -85,8 +85,8 @@ export const ampCoexist: Lesson = {
       zh: '标签的上行是 250 kb/s 的 OOK。没有任何 Wi-Fi 终端能解出它，而解不出 PPDU 就拿不到 Duration 字段，也就无从设置 NAV——它只能看见能量，而且只在能量持续的那段时间里看见。标签的发射功率是 0 dBm，于是在书房另一头的摄像头那里，植物标签只有 −65.7 dBm，窗磁只有 −71.7 dBm，都低于 −62 dBm 的能量检测门限。摄像头的载波侦听根本看不见这些时隙。',
     } },
     { text: {
-      en: 'So before each round the router sends itself a CTS: 14 octets at 6 Mb/s, 50 µs on the air. The round itself has not changed since lesson 1 — 50 + 10 + 618 + 4 × (10 + 528 + 10 + 330) = 4190 µs — of which the CTS-to-self’s Duration field covers the 4140 µs that follow it. The camera decodes 17 of the 20 and sets its NAV for the 4140 µs the Duration field asks for.',
-      zh: '所以每个轮开始之前，路由器先给自己发一帧 CTS：14 个字节、6 Mb/s、占空口 50 µs，用的是 BSS 里人人都读得懂的速率。轮本身和第一课一样——50 + 10 + 618 + 4 × (10 + 528 + 10 + 330) = 4190 µs——其中 CTS-to-self 的 Duration 字段覆盖了它之后的 4140 µs。摄像头解出了二十帧里的十七帧，并按 Duration 的要求把 NAV 设了 4140 µs。',
+      en: 'So before each round the router sends itself a CTS: 14 octets at 6 Mb/s, 50 µs on the air. The round itself has not changed since the first AMP lesson — 50 + 10 + 618 + 4 × (10 + 528 + 10 + 330) = 4190 µs — of which the CTS-to-self’s Duration field covers the 4140 µs that follow it. The camera decodes 17 of the 20 and sets its NAV for the 4140 µs the Duration field asks for.',
+      zh: '所以每个轮开始之前，路由器先给自己发一帧 CTS：14 个字节、6 Mb/s、占空口 50 µs，用的是 BSS 里人人都读得懂的速率。轮本身和最初那一课一样——50 + 10 + 618 + 4 × (10 + 528 + 10 + 330) = 4190 µs——其中 CTS-to-self 的 Duration 字段覆盖了它之后的 4140 µs。摄像头解出了二十帧里的十七帧，并按 Duration 的要求把 NAV 设了 4140 µs。',
     } },
     { text: {
       en: 'The other three are the interesting ones. In all three the camera’s own RTS starts at the same nanosecond as the CTS-to-self: a half-duplex radio that is talking cannot hear, and a station that never heard the Duration never sets a NAV. Protection in 802.11 is best-effort: the protecting frame contends like any other, and the station it is meant to silence may be mid-frame when it goes out.',

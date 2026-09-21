@@ -38,10 +38,18 @@ export interface UiState {
   /** Course: currently selected lesson + whether its sim is loaded. */
   courseLessonId: string | null
   courseLoaded: boolean
+  /**
+   * Which lesson the loaded scene belongs to, or null when nothing is loaded.
+   * `courseLoaded` alone is global: with it, a call-out in lesson B would offer
+   * "Jump there" into lesson A's recording and seek to a moment that is not in
+   * it. A panel asks `courseLoaded && courseLoadedFor === lesson.id`.
+   */
+  courseLoadedFor: string | null
   /** Increments whenever a new simulation is (re)started — keys scene rebuilds. */
   simSession: number
   selectLesson(id: string | null): void
-  loadCourseScenario(sc: Scenario): void
+  /** `lessonId` names the lesson the scene belongs to — a variant's scene is still that lesson's. */
+  loadCourseScenario(sc: Scenario, lessonId?: string): void
   adoptCourseScenario(sc: Scenario): void
   /** `coalesceKey`: successive edits sharing one key fold into a single undo step. */
   setScenario(sc: Scenario, coalesceKey?: string | null): void
@@ -123,26 +131,27 @@ export const useUi = create<UiState>((set, get) => ({
     } else if (m === 'course') {
       courseStash = { scenario: get().scenario, history: get().history }
       player.dispose()
-      set({ mode: m, playing: false, view: null, playheadNs: 0, courseLoaded: false, simError: null, selectedFrame: null })
+      set({ mode: m, playing: false, view: null, playheadNs: 0, courseLoaded: false, courseLoadedFor: null, simError: null, selectedFrame: null })
     } else {
       // The banner belongs to the run that raised it: leaving it up over the
       // editor would show the learner a complaint about a plan they are in the
       // middle of fixing, beside the live one the session section already draws.
       player.dispose()
-      set({ mode: m, playing: false, view: null, playheadNs: 0, courseLoaded: false, simError: null, selectedFrame: null })
+      set({ mode: m, playing: false, view: null, playheadNs: 0, courseLoaded: false, courseLoadedFor: null, simError: null, selectedFrame: null })
     }
   },
   courseLessonId: null,
   courseLoaded: false,
+  courseLoadedFor: null,
   simSession: 0,
   selectLesson(id) {
     set({ courseLessonId: id })
   },
-  loadCourseScenario(sc) {
+  loadCourseScenario(sc, lessonId) {
     player.dispose()
     // A lesson scenario is transient course state, not an edit: the editor is
     // unmounted and its history stays parked in courseStash until it returns.
-    set({ scenario: sc, simError: null, playheadNs: 0, view: null, courseLoaded: true, selectedNodeId: null, selectedFrame: null, simSession: get().simSession + 1 })
+    set({ scenario: sc, simError: null, playheadNs: 0, view: null, courseLoaded: true, courseLoadedFor: lessonId ?? null, selectedNodeId: null, selectedFrame: null, simSession: get().simSession + 1 })
     player.speedUsPerSec = get().speedUsPerSec
     player.load(sc)
   },
@@ -150,7 +159,7 @@ export const useUi = create<UiState>((set, get) => ({
     // user wants the lesson scenario in the editor: don't restore the stash
     courseStash = null
     player.dispose()
-    set({ mode: 'edit', scenario: sc, history: historyInit(sc), playing: false, view: null, playheadNs: 0, courseLoaded: false, selectedFrame: null })
+    set({ mode: 'edit', scenario: sc, history: historyInit(sc), playing: false, view: null, playheadNs: 0, courseLoaded: false, courseLoadedFor: null, selectedFrame: null })
   },
   setScenario(sc, coalesceKey = null) {
     const h = historyPush(get().history, sc, coalesceKey)

@@ -52,13 +52,16 @@ describe('roles-stack · structure', () => {
 
   it('study time follows the curriculum formula and stays inside the target band', () => {
     // lessonWords walks the bilingual strings; this is an independent count of
-    // the same EN prose, so a structural change in either is caught here.
+    // the same EN prose, so a structural change in either is caught here. It
+    // applies the spec's one counting rule (docs/…/course-readability-design.md,
+    // "Length and pace"): a language-neutral cell — a number, a symbol, a
+    // protocol name, en === zh — is one glance, not its digits.
     const texts: L10n[] = [
       ...rolesStack.body!.flatMap(blockTexts),
       ...rolesStack.observe, ...rolesStack.tryThis,
       ...rolesStack.quiz.flatMap((q) => [q.q, ...q.options, q.explain]),
     ]
-    const n = texts.reduce((s, t) => s + words(t.en), 0)
+    const n = texts.reduce((s, t) => s + (t.en === t.zh ? 1 : words(t.en)), 0)
     expect(lessonWords(rolesStack)).toBe(n)
     const raw = n / 150
       + OBSERVE_MINUTES * rolesStack.observe.length

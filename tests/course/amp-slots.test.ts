@@ -165,7 +165,7 @@ describe('amp-slots · standard constants', () => {
     expect(AMP_TRIGGER_BODY_BYTES).toBe(6)
     expect(ampDlPpduNs(250, ampTriggerBytes(0), ext)).toBe(618 * US)
     expect(ampDlPpduNs(250, ampTriggerBytes(3), ext)).toBe(810 * US)
-    // "The round itself is unchanged from lesson 1: 50 + 10 + 618 + 4 × (10 + 528 + 10 + 330) = 4190 µs."
+    // "The round itself is unchanged from the first AMP lesson: 50 + 10 + 618 + 4 × (10 + 528 + 10 + 330) = 4190 µs."
     expect(ampDlPpduNs(250, AMP_ACK_BYTES, ext)).toBe(330 * US)
     expect(txTimeNs(CTS_BYTES, 6) + ext).toBe(50 * US)
     expect(AMP_SIFS_NS).toBe(10 * US)
@@ -242,7 +242,7 @@ describe('amp-slots · one round, slot by slot', () => {
 
   it('the round is the same 4190 µs as lesson 1, now 20.95 % of every 20 ms', () => {
     // "The router polls every 20 ms, so thirty rounds fit into 600 ms — the window every number below is
-    //  measured over. The round itself is unchanged from lesson 1: 50 + 10 + 618 + 4 × (10 + 528 + 10 + 330)
+    //  measured over. The round itself is unchanged from the first AMP lesson: 50 + 10 + 618 + 4 × (10 + 528 + 10 + 330)
     //  = 4190 µs. Its price is not: 20.95 % of every 20 ms instead of 4.19 % of every 100 ms."
     expect(50 + 10 + 618 + 4 * (10 + 528 + 10 + 330)).toBe(4190)
     const cts = txs(rs, 'cts')

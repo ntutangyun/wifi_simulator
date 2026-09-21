@@ -163,7 +163,7 @@ describe('amp-coexist · standard constants', () => {
   })
 
   it('the round is the same 4190 µs as lesson 1, and the CTS-to-self reserves 4140 µs of it', () => {
-    // "The round itself has not changed since lesson 1 — 50 + 10 + 618 + 4 × (10 + 528 + 10 + 330) =
+    // "The round itself has not changed since the first AMP lesson — 50 + 10 + 618 + 4 × (10 + 528 + 10 + 330) =
     //  4190 µs — of which the CTS-to-self's Duration field covers the 4140 µs that follow it."
     const ext = ERP_2G.signalExtNs
     expect(txTimeNs(CTS_BYTES, 6) + ext).toBe(50 * US)

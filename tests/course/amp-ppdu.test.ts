@@ -71,14 +71,18 @@ describe('amp-ppdu · lesson shape', () => {
     for (const v of ampPpdu.variants!) expect(() => ScenarioSchema.parse(v.scenario())).not.toThrow()
   })
 
-  it('fits one sitting: 500–1300 words on the main path, at most 20 minutes', () => {
+  it('fits one sitting: the spec’s bounds, plus the split’s prose window', () => {
+    // The spec's bounds: 500–1300 main-path words, at most 20 minutes
+    // (…/2026-09-21-course-readability-design.md, "Length and pace"). The three
+    // section budgets that sum to it are asserted for every migrated lesson in
+    // tests/course/readability.test.ts, and printed by
+    // `npx tsx scripts/lesson-dump.ts amp-ppdu en`.
     expect(lessonWords(ampPpdu)).toBeGreaterThanOrEqual(500)
     expect(lessonWords(ampPpdu)).toBeLessThanOrEqual(1300)
     expect(lessonMinutes(ampPpdu)).toBeLessThanOrEqual(20)
-    // what the reader reads before the simulator: why, outcomes, terms, picture, numbers.
-    // The split budgeted 800–1200 for this lesson; observe, tryThis and quiz add the rest.
+    // the content contract's window is for the PROSE count: what the reader reads
+    // before the simulator — why, outcomes, terms, picture and numbers.
     const prose = lessonWords({ ...ampPpdu, observe: [], tryThis: [], quiz: [] })
-    expect(prose).toBeGreaterThanOrEqual(500)
     expect(prose).toBeLessThanOrEqual(1100)
     expect(lessonBlocks(ampPpdu).length).toBe(ampPpdu.picture!.length + ampPpdu.numbers!.length)
   })
@@ -116,11 +120,11 @@ describe('amp-ppdu · lesson shape', () => {
 
 describe('amp-ppdu · what a downlink frame is made of', () => {
   it('the downlink PPDU is a legacy preamble, then AMP-Sync, AMP-SIG, the data and the padding', () => {
-    // the formula "32 + 80 + 64 + 416 + 20 + 6 = 618 µs" and its note: "32 µs of legacy opening:
-    //  the preamble, the legacy signal field that states the length, and the U-SIG, the newer
-    //  header a Wi-Fi 7 radio reads to learn what kind of frame this is. Then 80 µs of AMP-Sync;
-    //  two octets of AMP-SIG, 64 µs here and 16 µs at 1 Mb/s; 13 octets of trigger at 416 µs;
-    //  20 µs of padding; the 6 µs closing extension."
+    // the formula "32 + 80 + 64 + 416 + 20 + 6 = 618 µs", its note ("The first 32 µs is ordinary
+    //  Wi-Fi; everything after it is the tag's. Only the two middle rows shrink when the rate
+    //  rises — the AMP-SIG to 16 µs at 1 Mb/s") and the "What the strip is made of" table beside
+    //  it, row by row: legacy preamble 16 µs · L-SIG 4 µs · U-SIG 12 µs · AMP-Sync 80 µs ·
+    //  AMP-SIG, 2 octets 64 µs · trigger body, 13 octets 416 µs · padding 20 µs · extension 6 µs.
     expect(AMP_LEGACY_PREAMBLE_NS).toBe(32 * US)
     expect(AMP_DL_SYNC_NS).toBe(80 * US)
     expect(AMP_DL_SIG_BYTES).toBe(2)
@@ -209,8 +213,9 @@ describe('amp-ppdu · what a downlink frame is made of', () => {
   })
 
   it('the Ack spends 128 µs of its 330 µs on the four octets it carries', () => {
-    // "Four octets at 250 kb/s are 128 µs of the Ack’s 330 µs; the other 202 µs is opening,
-    //  AMP-Sync, AMP-SIG, padding and extension — paid in full for four octets."
+    // the formula "4 octets at 250 kb/s = 128 µs + 202 µs of wrapper = 330 µs" and its note:
+    //  "The wrapper — opening, AMP-Sync, AMP-SIG, padding, extension — is paid in full for four
+    //  octets."
     const toTag = txs(recs(), 'ampAck')[0]
     const ppdu = decodeFrame(toTag.frame, { apId: 'ap', isEdca: false }).ppdu
     expect(ppdu.find((s) => s.key === 'ampData')!.durNs).toBe(128 * US)
@@ -219,8 +224,8 @@ describe('amp-ppdu · what a downlink frame is made of', () => {
   })
 
   it('an ordinary Wi-Fi CTS of fourteen octets takes 50 µs, a sixth of the four-octet Ack', () => {
-    // "The CTS that clears the air is fourteen octets of ordinary Wi-Fi in 50 µs: 44 µs at
-    //  6 Mb/s plus the band’s 6 µs. Three and a half times the content, under a sixth of the
+    // the same note: "The CTS that clears the air is fourteen octets of ordinary Wi-Fi: 44 µs
+    //  at 6 Mb/s plus the band's 6 µs. Three and a half times the content, under a sixth of the
     //  airtime."
     expect(CTS_BYTES).toBe(14)
     expect(txTimeNs(CTS_BYTES, 6)).toBe(44 * US)
@@ -265,10 +270,10 @@ describe('amp-ppdu · what the frame detail shows', () => {
   })
 
   it('the trigger’s segment strip adds up to the formula, legacy half first', () => {
-    // "Open the first trigger and read its strip left to right: 16, 4 and 12 µs of legacy opening,
-    //  80 µs of AMP-Sync, 64 µs of AMP-SIG, 416 µs of data, 20 µs of padding, 6 µs of extension."
-    //  The picture calls that last one "a scrap of quiet the band adds after any frame with a
-    //  Wi-Fi opening".
+    // observe: "Open the first trigger and read its strip left to right, checking each segment
+    //  against the table above" — so the strip the simulator draws must be the table's rows, in
+    //  the table's order. The picture calls the last one "a scrap of quiet the band adds after
+    //  any frame with a Wi-Fi opening".
     const trig = txs(rs, 'ampTrigger')[0]
     const strip = decodeFrame(trig.frame, CTX).ppdu
     expect(strip.map((s) => s.durNs / US)).toEqual([16, 4, 12, 80, 64, 416, 20, 6])
@@ -280,9 +285,10 @@ describe('amp-ppdu · what the frame detail shows', () => {
 
 describe('amp-ppdu · the 1 Mb/s experiment', () => {
   it('at 1 Mb/s the same round is 1670 µs, 1.67 % of each 100 ms', () => {
-    // "Load the 1 Mb/s variant and jump to the first trigger. It now ends at 318 µs, slot 1 opens
-    //  at 328 µs, and the round is 1670 µs instead of 4190 µs — 1.67 % of each 100 ms, not 4.19 %.
-    //  … then check the CTS Duration: 1620 µs."
+    // the formula "The same round at 1 Mb/s": "50 + 10 + 258 + 4 × (10 + 132 + 10 + 186) =
+    //  1670 µs = 1.67 % of 100 ms", and its note: "The trigger now ends at 318 µs and slot 1
+    //  opens at 328 µs; the CTS Duration that covers the round is 1620 µs." The experiment sends
+    //  the reader to check the round against that arithmetic.
     const fast = recs(0)
     const total = 50 + 10 + 258 + 4 * (10 + 132 + 10 + 186)
     expect(total).toBe(1670)

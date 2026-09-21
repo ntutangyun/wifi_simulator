@@ -7,6 +7,7 @@
  * See docs/superpowers/specs/2026-09-18-zero-to-hero-curriculum-design.md.
  */
 import type { Block, L10n, Lesson } from './lessonKit'
+import { lessonBudget } from './readability'
 
 /** The radio the tier teaches. Tracks are listed in this order, Wi-Fi first. */
 export type Track = 'wifi' | 'uwb'
@@ -126,27 +127,14 @@ export function lessonBlocks(l: Lesson): Block[] {
  * English words across everything a learner reads on a lesson's main path.
  * `deeper` and `sources` are deliberately absent: the stated minutes are the
  * minutes of the main path, not of the depth behind the collapsed sections.
+ *
+ * It is `lessonBudget(l).total` — one walk, in `readability.ts`, shared with
+ * the section budgets and the contract test. A language-neutral cell and a
+ * formula body count one word each: they are read at a glance, not at 150
+ * words a minute. A `Term`'s own word counts; the "New words" table is read.
  */
 export function lessonWords(l: Lesson): number {
-  const strings: string[] = []
-  const walk = (x: unknown): void => {
-    if (x == null || typeof x === 'function') return
-    if (Array.isArray(x)) { x.forEach(walk); return }
-    if (typeof x === 'object') {
-      const o = x as Record<string, unknown>
-      if (typeof o.en === 'string' && typeof o.zh === 'string') { strings.push(o.en); return }
-      // A Term's word is the only text a learner reads that is not bilingual —
-      // the standard spells it the same in both languages — so it needs its
-      // own line here or the "New words" table would read as free.
-      if (typeof o.term === 'string' && o.plain !== undefined) strings.push(o.term)
-      for (const [k, v] of Object.entries(o)) if (k !== 'scenario' && k !== 'find') walk(v)
-    }
-  }
-  walk({
-    why: l.why, outcomes: l.outcomes, terms: l.terms, picture: l.picture, numbers: l.numbers,
-    body: l.body, observe: l.observe, tryThis: l.tryThis, quiz: l.quiz,
-  })
-  return strings.join(' ').split(/\s+/).filter(Boolean).length
+  return lessonBudget(l).total
 }
 
 /** Minutes budgeted for one thing to observe in the running simulation. */

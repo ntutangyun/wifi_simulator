@@ -15,16 +15,12 @@
  * timeline belongs to it. Every number quoted below is pinned in
  * tests/course/uwb-intro.test.ts.
  *
- * CAUTION — word budget. The readability contract caps the main path
- * (`lessonWords`: why, outcomes, terms, picture, numbers, observe, tryThis and
- * quiz — never deeper, never sources) at 1300 English words, and this lesson
- * sits within NINE words of that ceiling. A sentence added here means a
- * sentence deleted, or tests/course/readability.test.ts fails. Depth that will
- * not fit belongs in `deeper`, provenance in `sources`; neither is counted.
- *
- * The study-time ceiling bites first. `lessonMinutes` is already exactly 20,
- * the contract's maximum, so one more `observe` item (+2 min) or one more
- * `tryThis` (+4 min) fails the same test however few words it adds.
+ * As the first lesson of its track this one is held to 1000 main-path words,
+ * not 1300, with `why` + `outcomes` + `terms` + `picture` ≤ 650, `numbers`
+ * ≤ 350 and `observe` + `tryThis` + `quiz` ≤ 400
+ * (tests/course/readability.test.ts; `npx tsx scripts/lesson-dump.ts uwb-intro
+ * en` prints the four counts). Depth that will not fit belongs in `deeper`,
+ * provenance in `sources`; neither is counted.
  */
 import type { Scenario } from '../../model/scenario'
 import {
@@ -45,8 +41,8 @@ export const uwbIntro: Lesson = {
   module: 11,
   title: { en: 'A radio that measures time', zh: '一台测量时间的射频' },
   why: {
-    en: 'Your phone can already tell you how far it is from a Wi-Fi router, roughly, from how loud the router sounds. Roughly is the problem: a wall or a hand costs more signal than ten metres of air. Ultra-wideband takes a different route. It does not ask how loud a signal is; it asks when it arrived, and light is a very reliable clock. This lesson shows the smallest possible measurement: one anchor, one phone, four timestamps, one distance.',
-    zh: '手机其实早就能估出自己离路由器有多远——靠的是信号听上去有多响。问题就出在这个"估"字上：一堵墙、一只挡住天线的手，吃掉的信号比十米空气还多。超宽带换了一条路走。它不问信号有多响，只问信号是什么时候到的，而光速是一把非常可靠的尺子。这一课做的是一次最小的测量：一个锚点、一部手机、四个时间戳，换来一个距离。',
+    en: 'Your phone can already tell you how far it is from a Wi-Fi router, roughly, from how loud the router sounds. Roughly is the problem: a wall or a hand costs more signal than ten metres of air. Ultra-wideband asks a different question — not how loud the signal is, but when it arrived, and light is a very reliable clock. This lesson shows the smallest possible measurement: one anchor, one phone, four timestamps, one distance.',
+    zh: '手机其实早就能估出自己离路由器有多远——靠的是信号听上去有多响。问题就出在这个"估"字上：一堵墙、一只挡住天线的手，吃掉的信号比十米空气还多。超宽带问的是另一个问题：不问信号有多响，只问它是什么时候到的，而光速是一把非常可靠的尺子。这一课做的是一次最小的测量：一个锚点、一部手机、四个时间戳，换来一个距离。',
   },
   outcomes: [
     { en: 'read the four timestamps of a ranging round off the event log', zh: '从事件日志里读出一轮测距的四个时间戳' },
@@ -56,8 +52,8 @@ export const uwbIntro: Lesson = {
   needs: ['radio-primer', 'frame-anatomy'],
   terms: [
     { term: 'UWB', plain: {
-      en: 'ultra-wideband: very short pulses over a very wide band, so the moment one arrives can be pinned down sharply',
-      zh: '超宽带：把极短的脉冲铺在极宽的频段上，所以能准确地认出脉冲到达的那一刻',
+      en: 'ultra-wideband: very short pulses over a very wide band, so the moment one arrives is sharp',
+      zh: '超宽带：把极短的脉冲铺在极宽的频段上，所以脉冲到达的那一刻格外分明',
     } },
     { term: 'anchor', plain: {
       en: 'a UWB radio fixed to the building; the phone measures against it',
@@ -73,20 +69,19 @@ export const uwbIntro: Lesson = {
     } },
   ],
   picture: [
-    { heading: { en: 'Loud is not the same as near', zh: '响，不等于近' }, text: {
-      en: 'A Wi-Fi radio has one clue about distance: how strong the signal is when it arrives. Strength falls off with distance — but also behind a door, in a pocket, under a hand, which the receiver cannot tell apart. A distance built on loudness inherits every obstacle in the room.',
-      zh: 'Wi-Fi 的射频判断距离只有一条线索：信号到达时有多强。强度确实随距离衰减——可隔着一扇门、揣在兜里、被一只手盖住，它同样会变弱，而接收端分不清这几种情况。靠响度算出来的距离，会把房间里每一个障碍物都算进去。',
-    } },
+    // "Loud is not the same as near" stood here until the step-1 fix wave: it said again,
+    // at length, what `why` opens with — that a distance built on loudness inherits every
+    // obstacle in the room — and a track's first lesson is held to 1000 words.
     { heading: { en: 'Clicks instead of tones', zh: '发出的是嗒，不是嗡' }, text: {
       en: 'Most radios hold a tone steady for a long moment, and a receiver asked when that tone started can only be vague. A UWB radio does the opposite: it sends chips — pulses so short each is over almost before it began. A sharp edge gives a sharp answer, good to a fraction of a nanosecond.',
       zh: '大多数射频会把一个音调稳稳地保持很长一段；你问接收端这个音调是从哪一刻开始的，它只能给个大概。UWB 正相反：它发出的是码片——短到几乎刚开始就已经结束的脉冲。边沿越陡，答案越利落，能答到零点几纳秒。',
     } },
     { kind: 'watch', jump: 0, heading: { en: 'One question, one answer', zh: '一问，一答' }, text: {
-      en: 'Load the simulation and press play. The phone sends a poll — the frame that opens a round — and the anchor answers. Zoom the timeline until the tiny gap between the lanes shows: that gap is the air.',
+      en: 'Load the simulation and press play. The phone sends a poll — the frame that opens a round — and the anchor answers. Zoom in until the tiny gap between the lanes shows: that gap is the air.',
       zh: '把仿真载入，按下播放。手机发出一帧 Poll——开启一轮测距的那一帧——锚点随后作答。把时间线一直放大，直到你能看见两条泳道之间那道极窄的缝隙：那道缝隙就是它们之间的空气。',
     } },
     { text: {
-      en: 'Neither radio stamps when its frame began or ended. Both stamp the same landmark inside it — the RMARKER, one agreed instant a little way into every ranging frame. The phone notes when it sent the poll and when the answer returned; the anchor notes the mirror image. Four numbers, and the round is over.',
+      en: 'Neither radio stamps when its frame began or ended. Both stamp the same landmark inside it — the RMARKER, one agreed instant a little way into every ranging frame. The phone notes when it sent the poll and when the answer returned; the anchor notes the mirror image. Four numbers, and the round is done.',
       zh: '两端都不去记自己这一帧的开头或结尾，它们记的是帧里同一个地标——RMARKER，在每一帧测距帧内部稍靠前一点、双方事先约定好要一起打时间戳的那个瞬间。手机记下自己何时发出 Poll、何时收到回答；锚点记的两笔正好反过来。四个数字，一轮就结束了。',
     } },
     { heading: { en: 'Two clocks that do not agree', zh: '两只对不上的钟' }, text: {
@@ -98,25 +93,25 @@ export const uwbIntro: Lesson = {
       zh: '每一个时间戳都带着一点噪声：脉冲越过判决门限的确切时刻本身就不确定，而时钟只能一格一格地数。四次读数里有两次是接收，所以答案里带着两份这样的噪声。日志报出的距离会落在真值两侧几厘米的范围里。这是这台射频在正常工作，不是出了毛病。',
     } },
     { kind: 'watch', jump: 3, text: {
-      en: 'Jump to the line where the range falls out: what the radio worked out, the truth the simulator knows, and the uncorrected reading. The rest of this lesson is those gaps.',
-      zh: '跳到算出距离的那一行。它一次印出三个数：射频算出来的、仿真器知道的真值，以及那个未经修正的读数。这一课余下的部分讲的就是这些差。',
+      en: 'Jump to the line where the range falls out: three numbers, and the rest of this lesson is the gaps between them.',
+      zh: '跳到算出距离的那一行：一行三个数，而这一课余下的部分讲的就是它们之间的差。',
     } },
   ],
   numbers: [
-    { kind: 'formula', heading: { en: 'Single-sided two-way ranging', zh: '单边双向测距（SS-TWR）' }, text: {
+    { kind: 'formula', heading: { en: 'Single-sided two-way ranging (SS-TWR)', zh: '单边双向测距（SS-TWR）' }, text: {
       en: 'T̂prop = (Tround − Treply) / 2',
       zh: 'T̂prop = (Tround − Treply) / 2',
     }, note: {
-      en: 'Tround is one subtraction on the phone’s clock: the RMARKER it sent to the RMARKER it received. Treply is the mirror subtraction at the anchor.',
+      en: 'Tround is one subtraction on the phone’s clock, from the RMARKER it sent to the RMARKER it received; Treply is the mirror at the anchor.',
       zh: 'Tround 是手机自己时钟上的一次相减：从它发出的 RMARKER 到它收到的 RMARKER。Treply 是锚点那侧镜像的一次相减。',
     } },
     { text: {
-      en: 'The anchor answers in the next ranging slot, so Treply is 2 ms − Tprop and Tround 2 ms + Tprop. The reply dwarfs the flight by five orders of magnitude, and the art of the formula is that it cancels.',
-      zh: '锚点在下一个测距时隙作答，所以 Treply 是 2 ms − Tprop，Tround 是 2 ms + Tprop。应答时延比飞行时间大五个数量级，而这个公式全部的巧妙之处，就是它会被抵消掉。',
+      en: 'The anchor answers in the next ranging slot, so Treply is 2 ms − Tprop and Tround 2 ms + Tprop: the reply dwarfs the flight by five orders of magnitude, and the formula cancels it.',
+      zh: '锚点在下一个测距时隙作答，所以 Treply 是 2 ms − Tprop，Tround 是 2 ms + Tprop：应答时延比飞行时间大五个数量级，而这个公式正好把它抵消掉。',
     } },
     { heading: { en: 'The four lines to subtract', zh: '要相减的那四行' }, text: {
-      en: 'Every UWB_TS record in the log is one counter reading. This round produces four, in this order.',
-      zh: '日志里每一条 UWB_TS 记录都是一次计数器读数。这一轮恰好产生四条，顺序如下。',
+      en: 'Every UWB_TS record is one counter reading; this round makes four, in this order.',
+      zh: '每一条 UWB_TS 记录都是一次计数器读数；这一轮产生四条，顺序如下。',
     } },
     { kind: 'table', head: [
       { en: 'Log line', zh: '日志行' }, { en: 'Counter (RCTU)', zh: '计数值（RCTU）' },
@@ -130,12 +125,15 @@ export const uwbIntro: Lesson = {
       en: 'Tround = 336 335 290 928 − 336 207 494 656 = 127 796 272\nTreply = 26 509 392 384 − 26 381 598 252 = 127 794 132\nT̂prop = (127 796 272 − 127 794 132) / 2 = 1070 RCTU = 16.75 ns = 5.02 m',
       zh: 'Tround = 336 335 290 928 − 336 207 494 656 = 127 796 272\nTreply = 26 509 392 384 − 26 381 598 252 = 127 794 132\nT̂prop = (127 796 272 − 127 794 132) / 2 = 1070 RCTU = 16.75 ns = 5.02 m',
     }, note: {
-      en: 'A difference of 2140 between two numbers in the hundreds of billions. The truth is 16.678 ns, or 1065.7 ticks: the reading runs 4.3 ticks long, because each receive counter carries 100 ps of noise.',
-      zh: '两个几千亿量级的数字，差值只有 2140。真值是 16.678 ns，即 1065.7 格：读数偏大 4.3 格，因为两次接收计数各带 100 ps 噪声，而计数只能取整。',
+      en: 'A difference of 2140 between two numbers in the hundreds of billions. The truth is 1065.7 ticks: the reading runs 4.3 ticks long, because each receive counter carries 100 ps of noise and ticks are whole.',
+      zh: '两个几千亿量级的数字，差值只有 2140。真值是 1065.7 格：读数偏大 4.3 格，因为两次接收计数各带 100 ps 噪声，而计数只能取整。',
     } },
-    { text: {
-      en: 'The log’s range line reads “tag-1 range → anchor-1 (SS): 4.95 m (true 5.00 m, raw 5.02 m)”. Raw is the 1070 above; 4.95 m is the same measurement after a clock-offset correction. Both crystals are perfect here, so the correction had nothing to correct — yet it moved the answer 7 cm. Going deeper says why.',
-      zh: '日志里的测距行写着 “tag-1 range → anchor-1 (SS): 4.95 m (true 5.00 m, raw 5.02 m)”。raw 就是上面那个 1070；4.95 m 是同一次测量经过时钟偏差修正之后的结果。这里两个晶振都是完美的，修正本来无事可修——可它还是把答案挪动了 7 cm。原因见"再深一层"。',
+    { kind: 'formula', heading: { en: 'What the range line says', zh: '测距行是怎么写的' }, text: {
+      en: 'tag-1 range → anchor-1 (SS): 4.95 m (true 5.00 m, raw 5.02 m)',
+      zh: 'tag-1 range → anchor-1 (SS): 4.95 m (true 5.00 m, raw 5.02 m)',
+    }, note: {
+      en: 'Raw is the 1070 above; the figure in front of it is that same measurement, corrected for clock offset. Both crystals are perfect here, so nothing needed correcting — yet the answer moved 7 cm. Going deeper says why.',
+      zh: 'raw 就是上面那个 1070；写在前面的那个数，是同一次测量做了时钟偏差修正之后的结果。这里两个晶振都是完美的，本来无事可修——可答案还是挪动了 7 cm。原因见“再深一层”。',
     } },
     { kind: 'table', heading: { en: 'Units', zh: '单位换算' }, head: [
       { en: 'Quantity', zh: '量' }, { en: 'Value', zh: '数值' }, { en: 'Where', zh: '出处' },
@@ -145,9 +143,15 @@ export const uwbIntro: Lesson = {
       [{ en: 'One metre of flight', zh: '飞行一米' }, N('3.3356 ns = 213.1 RCTU'), N('c = 0.299792458 m/ns')],
       [{ en: 'A tick of timing error', zh: '计时差一格' }, { en: '4.7 mm flight, 2.3 mm range', zh: '飞行 4.7 mm，测距 2.3 mm' }, { en: 'a round trip, halved', zh: '往返折半' }],
     ] },
+    { kind: 'table', heading: { en: 'Flight, and where it lands on the timeline', zh: '飞行时间，以及它落在时间线的哪一格' }, head: [
+      { en: 'Apart', zh: '相距' }, { en: 'Flight', zh: '飞行时间' }, { en: 'On the 1 ns grid', zh: '落在 1 ns 网格上' },
+    ], rows: [
+      [N('5 m'), N('16.678 ns'), N('17 ns')],
+      [N('20 m'), N('66.713 ns'), N('67 ns')],
+    ] },
     { text: {
-      en: 'Why 17 ns of flight on the timeline and not 16.68? Five metres at the speed of light is 16.678 ns, and the event queue counts whole nanoseconds, always rounding up so nothing arrives too early. The counter, though, is stamped from the unrounded flight time, in 15.650 ps units — a grid 64 times finer than the 1 ns timeline.',
-      zh: '为什么时间线上的飞行时间是 17 ns，而不是 16.68？五米按光速是 16.678 ns，而事件队列只数整纳秒，且一律向上取整，好让没有一帧比物理允许的更早送达。测量并不使用这个取整后的时刻：计数器读的是未取整的飞行时间，单位 15.650 ps，这张网格比 1 ns 的时间线精细 64 倍。',
+      en: 'The event queue counts whole nanoseconds, always rounding up so nothing arrives too early. The counter does not round: it is stamped in 15.650 ps units, a grid 64 times finer.',
+      zh: '事件队列只数整纳秒，且一律向上取整，好让没有一帧比物理允许的更早送达。计数器不取整：它以 15.650 ps 为单位，这张网格比时间线精细 64 倍。',
     } },
   ],
   deeper: [
@@ -189,12 +193,12 @@ export const uwbIntro: Lesson = {
     J('the range falls out', '距离算出来了', firstUwbRange),
   ],
   observe: [
-    { en: 'Jump to the poll and zoom the timeline to nanoseconds. TX_START on the phone’s lane is at 0 ns, RX_START on the anchor’s at 17 ns — five metres of air, to scale for once.', zh: '跳到 Poll 帧，把时间线一直放大到纳秒级。手机泳道上的 TX_START 在 0 ns，锚点泳道上的 RX_START 在 17 ns——五米空气，这一次是按真实比例画出来的。' },
-    { en: 'Read the four UWB_TS lines in order: the phone’s TX RMARKER, the anchor’s RX RMARKER, the anchor’s TX RMARKER, the phone’s RX RMARKER — two on one crystal, two on the other, nothing else measured.', zh: '按顺序读日志里的四条 UWB_TS：手机的 TX RMARKER、锚点的 RX RMARKER、锚点的 TX RMARKER、手机的 RX RMARKER。两条读自一个晶振，两条读自另一个，此外再没有东西被测量。' },
-    { en: 'Find the UWB_RANGE line at 2 187 389 ns: 4.95 m against a true 5.00 m, with the raw 5.02 m beside it — a few centimetres out, against 2.1 cm of range-noise sigma, the standard deviation of a reading.', zh: '找到 2 187 389 ns 处的 UWB_RANGE：报出 4.95 m，真值 5.00 m，旁边还附着 raw 的 5.02 m——差了几厘米，而单次读数本身的标准差就是 2.1 cm。' },
+    { en: 'Jump to the poll and zoom to nanoseconds: TX_START on the phone’s lane at 0 ns, RX_START on the anchor’s at 17 ns. Five metres of air, to scale for once.', zh: '跳到 Poll 帧，把时间线放大到纳秒级：手机泳道上的 TX_START 在 0 ns，锚点泳道上的 RX_START 在 17 ns。五米空气，这一次是按真实比例画出来的。' },
+    { en: 'Read the four UWB_TS lines in order: the phone’s TX RMARKER, the anchor’s RX RMARKER, the anchor’s TX RMARKER, the phone’s RX RMARKER. Two on one crystal, two on the other.', zh: '按顺序读日志里的四条 UWB_TS：手机的 TX RMARKER、锚点的 RX RMARKER、锚点的 TX RMARKER、手机的 RX RMARKER。两条读自一个晶振，两条读自另一个。' },
+    { en: 'Find the UWB_RANGE line at 2 187 389 ns: 4.95 m against a true 5.00 m, raw 5.02 m beside it — a few centimetres out, against 2.1 cm of range-noise sigma.', zh: '找到 2 187 389 ns 处的 UWB_RANGE：报出 4.95 m，真值 5.00 m，旁边是 raw 的 5.02 m——差了几厘米，而单次读数的噪声标准差就是 2.1 cm。' },
   ],
   tryThis: [
-    { en: 'Load the 20 m variant. The arrival gap grows from 17 ns to 67 ns: four times the distance, four times the flight — 16.678 ns becomes 66.713 ns, rounded up onto the grid. The range reads 19.95 m against a true 20.00 m, and the error is still about 5 cm: timestamp noise does not care how far the frame flew.', zh: '载入 20 m 变体。到达间隔从 17 ns 变成 67 ns：距离四倍，飞行时间也四倍——16.678 ns 变成 66.713 ns，各自向上取整到网格上。测距行现在报 19.95 m，真值 20.00 m，而误差依然是 5 cm 上下：时间戳噪声并不在乎这一帧飞了多远。' },
+    { en: 'Load the 20 m variant. The arrival gap grows from 17 ns to 67 ns — four times the distance, four times the flight. The range reads 19.95 m against a true 20.00 m: still a few centimetres out, because timestamp noise does not care how far the frame flew.', zh: '载入 20 m 变体。到达间隔从 17 ns 变成 67 ns——距离四倍，飞行时间也四倍。测距行报出 19.95 m，真值 20.00 m：依然差几厘米，因为时间戳噪声并不在乎这一帧飞了多远。' },
   ],
   quiz: [
     {
@@ -217,15 +221,10 @@ export const uwbIntro: Lesson = {
       answer: 1,
       explain: { en: 'The counter runs 128 times finer than the 499.2 MHz chip rate; a metre is 213.1 ticks.', zh: '计数器比 499.2 MHz 的码片速率再细 128 倍；一米是 213.1 格。' },
     },
-    {
-      q: { en: 'Five metres is 16.678 ns of flight, yet RX_START sits 17 ns after TX_START. Is the range 0.3 ns wrong?', zh: '五米飞行是 16.678 ns，而 RX_START 在 TX_START 之后 17 ns。测距是不是差了 0.3 ns？' },
-      options: [
-        { en: 'Yes — the engine rounds the flight, so ranges read long', zh: '是——引擎对飞行时间取整，测距因此偏长' },
-        { en: 'No — 17 ns is only where the event landed on the 1 ns grid', zh: '否——17 ns 只是事件落在 1 ns 网格上的位置' },
-        { en: 'No — the 0.3 ns is the receiver’s processing time', zh: '否——那 0.3 ns 是接收机的处理时间' },
-      ],
-      answer: 1,
-      explain: { en: 'The queue rounds up so nothing arrives too early; the counter uses the exact flight time.', zh: '队列向上取整，是为了不让任何东西比物理允许的更早到达；而 RMARKER 计数值按精确飞行时间算出。' },
-    },
+    // A third question — "five metres is 16.678 ns, yet RX_START sits 17 ns after TX_START:
+    // is the range 0.3 ns wrong?" — stood here until the step-1 fix wave. It asked about the
+    // timeline's 1 ns grid rather than about ranging, and a track's first lesson is held to
+    // 1000 words. The claim it tested is still in `numbers` ("Flight, and where it lands on
+    // the timeline") and still pinned in tests/course/uwb-intro.test.ts.
   ],
 }

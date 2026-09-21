@@ -76,13 +76,17 @@ describe('uwb-intro · lesson shape', () => {
     expect(uwbIntro.module).toBe(11)
   })
 
-  it('fits one sitting: 900–1300 words on the main path', () => {
-    expect(lessonWords(uwbIntro)).toBeGreaterThanOrEqual(900)
-    expect(lessonWords(uwbIntro)).toBeLessThanOrEqual(1300)
-    // what the reader reads before the simulator: why, outcomes, terms, picture, numbers.
-    // The split budgeted 600–900 for this lesson; observe, tryThis and quiz add the rest.
+  it('fits one sitting: the spec’s bounds for a track’s first lesson, plus the split’s prose window', () => {
+    // The spec's bounds: 500–1300 main-path words, and at most 1000 for a track's
+    // first lesson (…/2026-09-21-course-readability-design.md, "Length and pace").
+    // The three section budgets that sum to it are asserted for every migrated
+    // lesson in tests/course/readability.test.ts, and printed by
+    // `npx tsx scripts/lesson-dump.ts uwb-intro en`.
+    expect(lessonWords(uwbIntro)).toBeGreaterThanOrEqual(500)
+    expect(lessonWords(uwbIntro)).toBeLessThanOrEqual(1000)
+    // the content contract's window is for the PROSE count: what the reader reads
+    // before the simulator — why, outcomes, terms, picture and numbers.
     const prose = lessonWords({ ...uwbIntro, observe: [], tryThis: [], quiz: [] })
-    expect(prose).toBeGreaterThanOrEqual(600)
     expect(prose).toBeLessThanOrEqual(1000)
     expect(lessonBlocks(uwbIntro).length).toBe(uwbIntro.picture!.length + uwbIntro.numbers!.length)
   })
@@ -176,8 +180,8 @@ describe('uwb-intro · the units', () => {
   })
 
   it('the 1 ns timeline grid is 64 ranging ticks wide', () => {
-    // "…the counter is stamped from the unrounded flight time, in 15.650 ps units — a grid
-    //  64 times finer than the 1 ns timeline."
+    // numbers: "The counter does not round: it is stamped in 15.650 ps units, a grid 64 times
+    //  finer." (finer, that is, than the 1 ns grid the timeline counts in)
     expect(Math.round(1 / RCTU_NS)).toBe(64)
   })
 
@@ -222,24 +226,25 @@ describe('uwb-intro · the flight time on the timeline', () => {
   }
 
   it('five metres of air is a 17 ns gap between TX_START and RX_START, both ways', () => {
-    // "TX_START on the phone’s lane is at 0 ns, RX_START on the anchor’s at 17 ns — five metres of
-    //  air, to scale" / "Why 17 ns of flight on the timeline and not 16.68?"
+    // observe: "TX_START on the phone’s lane at 0 ns, RX_START on the anchor’s at 17 ns. Five
+    //  metres of air, to scale for once." / the numbers table "Flight, and where it lands on the
+    //  timeline": "5 m | 16.678 ns | 17 ns"
     const rs = recs()
     expect(ofType(rs, 'TX_START')[0].t).toBe(0)
     expect(gaps(rs)).toEqual([17, 17])
   })
 
   it('twenty metres is 67 ns — four times the distance, four times the delay', () => {
-    // "The arrival gap grows from 17 ns to 67 ns: four times the distance, four times the flight —
-    //  16.678 ns becomes 66.713 ns, rounded up onto the grid."
+    // tryThis: "The arrival gap grows from 17 ns to 67 ns — four times the distance, four times
+    //  the flight." / the same table's second row: "20 m | 66.713 ns | 67 ns"
     expect(gaps(recs(0))).toEqual([67, 67])
     expect((20 / C_M_PER_NS).toFixed(3)).toBe('66.713')
     expect((4 * (5 / C_M_PER_NS)).toFixed(3)).toBe('66.713')
   })
 
   it('the engine rounds the flight UP, never to nearest — measured where the two differ', () => {
-    // "Five metres at the speed of light is 16.678 ns, and the event queue counts whole nanoseconds,
-    //  always rounding up so nothing arrives too early."
+    // numbers: "The event queue counts whole nanoseconds, always rounding up so nothing arrives
+    //  too early", against the table's 16.678 ns of flight showing as 17 ns
     // Both lesson distances have a fraction above 0.5, so Math.round would give the same 17 and 67:
     // this measures a scratch placement whose fraction is 0.336, where round gives 3 and ceil 4.
     const scratch = uwbIntroScenario(5)
@@ -325,16 +330,18 @@ describe('uwb-intro · the four lines to subtract', () => {
   })
 
   it('1070 is 4.3 ticks long: the truth is 16.678 ns, or 1065.7 ticks', () => {
-    // "The truth is 16.678 ns, or 1065.7 ticks: the reading is 4.3 ticks long because each receive
-    //  counter carries 100 ps of noise and ticks are integers."
+    // the formula note: "A difference of 2140 between two numbers in the hundreds of billions.
+    //  The truth is 1065.7 ticks: the reading runs 4.3 ticks long, because each receive counter
+    //  carries 100 ps of noise and ticks are whole." — 1065.7 ticks is the table's 16.678 ns
     const trueRctu = 5 / C_M_PER_NS / RCTU_NS
     expect(trueRctu.toFixed(1)).toBe('1065.7')
     expect((1070 - trueRctu).toFixed(1)).toBe('4.3')
   })
 
   it('the anchor’s reply is 2 ms − Tprop and the phone’s round trip 2 ms + Tprop', () => {
-    // "Here the anchor answers in the next ranging slot, so Treply is 2 ms − Tprop and Tround is
-    //  2 ms + Tprop: the reply dwarfs the flight by five orders of magnitude"
+    // numbers: "The anchor answers in the next ranging slot, so Treply is 2 ms − Tprop and Tround
+    //  2 ms + Tprop: the reply dwarfs the flight by five orders of magnitude, and the formula
+    //  cancels it."
     const [t1, t2, t3, t4] = ts.map((r) => r.counter)
     const flightNs = 5 / C_M_PER_NS
     expect(counterDiff(t3, t2) * RCTU_NS).toBeCloseTo(2 * MS - flightNs, 0)
@@ -345,8 +352,8 @@ describe('uwb-intro · the four lines to subtract', () => {
 
 describe('uwb-intro · the range the log reports', () => {
   it('the range line reads 4.95 m against a true 5.00 m, with raw 5.02 m beside it', () => {
-    // "The log’s range line reads “tag-1 range → anchor-1 (SS): 4.95 m (true 5.00 m, raw 5.02 m)”." /
-    // "Find the UWB_RANGE line at 2 187 389 ns."
+    // the numbers formula "What the range line says": "tag-1 range → anchor-1 (SS): 4.95 m
+    //  (true 5.00 m, raw 5.02 m)" / observe: "Find the UWB_RANGE line at 2 187 389 ns."
     const rs = recs()
     const ranges = ofType(rs, 'UWB_RANGE')
     expect(ranges).toHaveLength(1)
@@ -371,9 +378,10 @@ describe('uwb-intro · the range the log reports', () => {
   })
 
   it('the correction moves a perfect-crystal answer by 7 cm, the 0.2 ppm the estimator cannot see past', () => {
-    // "it still moves the answer by 7 cm, because the estimator itself is noisy to 0.2 ppm, and
-    //  0.2 ppm of a 2 ms reply is 0.4 ns" / the observation "a few centimetres out, against 2.1 cm
-    //  of range-noise sigma" — a figure uwb-position quotes back as "Lesson 1’s 2.1 cm of σ_r".
+    // numbers: "Both crystals are perfect here, so nothing needed correcting — yet the answer
+    //  moved 7 cm" / deeper: "the estimator is itself noisy, to 0.2 ppm in this model, and 0.2 ppm
+    //  of a 2 ms reply is 0.4 ns" / the observation "a few centimetres out, against 2.1 cm of
+    //  range-noise sigma" — a figure uwb-position quotes back as "Lesson 1’s 2.1 cm of σ_r".
     const r = ofType(recs(), 'UWB_RANGE')[0]
     const raw = rctuToMetres(r.tofRawRctu!)
     const corrected = rctuToMetres(r.tofRctu)

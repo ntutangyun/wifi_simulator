@@ -38,16 +38,16 @@ export const ampSlots: Lesson = {
   title: { en: 'Slotted random access: ABOC, ACW and collisions', zh: '时隙化随机接入：ABOC、ACW 与碰撞' },
   body: [
     { text: {
-      en: 'IEEE P802.11bp is still a draft: D0.5 in May 2026, D1.0 to letter ballot in September 2026. The uplink access taken apart here is proposed draft text 11-26/1889r4 §39.4, the triggering procedure 11-26/1519r5. Lesson 1 gave each tag a slot of its own; this lesson asks what happens when more tags want a slot than there are slots.',
-      zh: 'IEEE P802.11bp 仍是草案：D0.5 于 2026 年 5 月发布，D1.0 将于 2026 年 9 月进入 letter ballot。本课拆解的上行接入来自提案草案文本 11-26/1889r4 第 39.4 节，触发过程见 11-26/1519r5。第一课里每个标签都有自己的时隙，根本不必问“时隙该给谁”。这一课要问的是更难的问题：当想要时隙的标签比时隙还多时，会发生什么？',
+      en: 'IEEE P802.11bp is still a draft: D0.5 in May 2026, D1.0 to letter ballot in September 2026. The uplink access taken apart here is proposed draft text 11-26/1889r4 §39.4, the triggering procedure 11-26/1519r5. The first AMP lesson gave each tag a slot of its own; this lesson asks what happens when more tags want a slot than there are slots.',
+      zh: 'IEEE P802.11bp 仍是草案：D0.5 于 2026 年 5 月发布，D1.0 将于 2026 年 9 月进入 letter ballot。本课拆解的上行接入来自提案草案文本 11-26/1889r4 第 39.4 节，触发过程见 11-26/1519r5。最初那一课里每个标签都有自己的时隙，根本不必问“时隙该给谁”。这一课要问的是更难的问题：当想要时隙的标签比时隙还多时，会发生什么？',
     } },
     { heading: { en: 'The scene: six tags, four slots', zh: '场景：六个标签，四个时隙' }, text: {
       en: 'Six tags sit on a ring 2 m from the router. The geometry is deliberate: every one hears the router at −30.7 dBm and reaches it at −50.7 dBm — 41.3 dB of downlink margin, 43.3 dB up — with under a hundredth of a decibel between them. Capture needs one signal 5 dB above the rest, inside the 48 µs of AMP-Sync that is an uplink response’s whole preamble. Nothing here has it, so a collision is always a collision.',
       zh: '六个标签均匀分布在距路由器 2 m 的圆环上。这个几何布置是刻意的：每个标签收到路由器的下行都是 −30.7 dBm，到达 AP 的上行都是 −50.7 dBm——下行余量 41.3 dB，上行余量 43.3 dB——六者之间的差异不到百分之一分贝。捕获要求某一路信号比其他路高出 5 dB，而且必须落在上行回应仅有的那 48 µs AMP-Sync 之内。这里谁都没有这个余量，所以碰撞永远就是碰撞。',
     } },
     { text: {
-      en: 'The router polls every 20 ms, so thirty rounds fit into 600 ms — the window every number below is measured over. The round itself is unchanged from lesson 1: 50 + 10 + 618 + 4 × (10 + 528 + 10 + 330) = 4190 µs. Its price is not: 20.95 % of every 20 ms instead of 4.19 % of every 100 ms.',
-      zh: '路由器把轮询间隔从 100 ms 收紧到 20 ms，于是三十轮正好装进 600 ms——下文每个数字都是在这个窗口里量出来的。轮本身与第一课相同：50 + 10 + 618 + 4 × (10 + 528 + 10 + 330) = 4190 µs。变的是它的代价：占每 20 ms 的 20.95 %，而不是每 100 ms 的 4.19 %。',
+      en: 'The router polls every 20 ms, so thirty rounds fit into 600 ms — the window every number below is measured over. The round itself is unchanged from the first AMP lesson: 50 + 10 + 618 + 4 × (10 + 528 + 10 + 330) = 4190 µs. Its price is not: 20.95 % of every 20 ms instead of 4.19 % of every 100 ms.',
+      zh: '路由器把轮询间隔从 100 ms 收紧到 20 ms，于是三十轮正好装进 600 ms——下文每个数字都是在这个窗口里量出来的。轮本身与最初那一课相同：50 + 10 + 618 + 4 × (10 + 528 + 10 + 330) = 4190 µs。变的是它的代价：占每 20 ms 的 20.95 %，而不是每 100 ms 的 4.19 %。',
     } },
     { heading: { en: 'ABOC and ACW', zh: 'ABOC 与 ACW' }, text: {
       en: 'A tag has no carrier sense, so its only decision is which slot to answer in. The trigger carries an AMP contention window exponent, ACWE; the tag computes ACW = 2^ACWE − 1, draws an AMP backoff counter (ABOC) uniformly from 0 to ACW, and transmits in slot ABOC + 1. If the draw is too big for the slots on offer it sits the round out (11-26/1889r4 §39.4).',

@@ -56,21 +56,20 @@ export const uwbFrame: Lesson = {
   ],
   picture: [
     { heading: { en: 'Locking on before listening', zh: '先锁住，再去听' }, text: {
-      en: 'A receiver cannot decode anything until it knows where the pulses are. So a ranging frame opens with a long stretch of pulses whose pattern is already known — the SYNC field — and the receiver slides its own copy along until the two line up. Then the SFD, a short different pattern whose only job is to announce that SYNC has ended. From that edge on, both ends count the same chips.',
-      zh: '接收端在找到脉冲落在哪里之前，什么也解不出来。所以一帧测距帧的开头是一长串图案已知的脉冲——SYNC 字段——接收端拿自己手里的同一份副本去滑动比对，直到两者对齐。紧接着是 SFD：另一段很短、也不一样的图案，它唯一的任务就是宣布 SYNC 到此结束。从这道边沿往后，两端数的就是同一批码片了。',
+      en: 'A receiver cannot decode anything until it knows where the pulses are. So a ranging frame opens with a long stretch of pulses whose pattern is already known — the SYNC field — and the receiver slides its own copy along until the two line up. Then the SFD, a short different pattern whose only job is to announce that SYNC has ended. From that edge on, both ends are counting from the same instant.',
+      zh: '接收端在找到脉冲落在哪里之前，什么也解不出来。所以一帧测距帧的开头是一长串图案已知的脉冲——SYNC 字段——接收端拿自己手里的同一份副本去滑动比对，直到两者对齐。紧接着是 SFD：另一段很短、也不一样的图案，它唯一的任务就是宣布 SYNC 到此结束。从这道边沿往后，两端数的就是同一个起点了。',
     } },
     { heading: { en: 'A sequence nobody can forge', zh: '一段谁也伪造不了的序列' }, text: {
       en: 'If an attacker could replay the part of the frame you time, they could make you believe a locked car is closer than it is. So the frame carries the STS — pulses generated from a key only the two radios in this session hold. The receiver knows what is coming and can time it; anyone else sees noise and cannot produce it early. Security here is a property of timing, not encryption of the message.',
       zh: '如果攻击者能把你用来计时的那一段原样重放，他就能让你以为一辆锁着的车比实际更近。所以帧里还带着 STS：一段由密钥生成的脉冲，而这把密钥只有本次会话的那两台射频握有。接收端知道接下来该是什么，因此能给它计时；别人看到的只是噪声，也造不出提前的版本。这里的安全性是一种计时上的性质，而不是对消息做加密。',
     } },
     { kind: 'watch', jump: 0, heading: { en: 'Read the strip left to right', zh: '把这条带子从左读到右' }, text: {
-      en: 'Load the simulation, jump to the poll and open it in the frame detail view. Read the coloured strip left to right: the long run at the head, the short marker that closes it, the sequence in the middle, then the header and, at the end, the message.',
-      zh: '载入仿真，跳到 Poll 帧，再在帧细节视图里把它打开。把那条彩色的带子从左读到右：开头那一长段、结束它的那一小段标记、中间那段序列，然后是头部，最后才是消息。',
+      en: 'Load the simulation, jump to the poll and open it in the frame detail view. Read the coloured strip left to right, and name each part as you reach it.',
+      zh: '载入仿真，跳到 Poll 帧，再在帧细节视图里把它打开。把那条彩色的带子从左读到右，每读到一段就说出它是什么。',
     } },
-    { heading: { en: 'Two words, two sizes', zh: '两个词，两种尺度' }, text: {
-      en: 'Those chips are what every length in this lesson is counted in. A symbol is a block of chips — a preamble symbol a long block, a symbol carrying message bits a much shorter one — which is why a field counted in symbols and one counted in chips can come out nearly the same length. The table below gives both counts, so no row leaves you guessing which unit it is in.',
-      zh: '本课里所有的长度，数的都是这些码片。符号则是一整块码片——前导符号是很长的一块，承载消息比特的符号短得多——所以一个按符号计数的字段和一个按码片计数的字段，时长可能差不多。下面的表格给出每个字段的两种计数，不必再猜哪一行用的是哪个单位。',
-    } },
+    // "Two words, two sizes" stood here until the step-1 fix wave: 75 words reconciling a
+    // table that counted some fields in symbols and others in chips. Every Field cell of
+    // that table now gives its chips, so the paragraph had nothing left to explain.
     { heading: { en: 'The header and the message', zh: '头部与消息' }, text: {
       en: 'Only now does the frame say anything at all. The PHR states how long the message is and at what rate it was coded, and the receiver needs both before it can read a bit. Then the PSDU: the message itself, thirty bytes in the poll and twenty in the answer. Nothing else is sent. A ranging frame is not a way of moving data; it is a way of being in a known place in time.',
       zh: '到这里，这一帧才第一次真正开口说话。PHR 交代消息有多长、用多快的速率编码，这两件事接收端必须先知道，才读得懂哪怕一个比特。再往后是 PSDU：消息本身，Poll 帧里三十个字节，应答帧里二十个。再没有别的要发了。一帧测距帧不是用来搬运数据的，它是用来在时间上占住一个确定位置的。',
@@ -79,31 +78,55 @@ export const uwbFrame: Lesson = {
       en: 'The two frames could follow each other much more closely; the session does not let them. It cuts time into equal slots and gives each frame one: the poll the first, the answer the second, and the answer leaves at the top of its slot whether it was ready early or not. Most of a slot is silence, deliberately — a fixed grid is what lets many devices share the room later.',
       zh: '这两帧本来可以挨得更近，但会话不让。它把时间切成等长的时隙，一帧给一个：Poll 在第一个，应答在第二个；哪怕应答早就准备好了，也要等到自己那个时隙的开头才出发。一个时隙里大部分时间是静默的，而这是有意为之——正是这张固定的格子，让日后许多设备能共用同一个房间。',
     } },
+    { kind: 'steps', heading: { en: 'The frame in order', zh: '整帧的顺序' }, items: [
+      { en: 'SYNC, the long known pattern', zh: 'SYNC，那一长串已知图案' },
+      { en: 'SFD, the short marker that ends it', zh: 'SFD，结束它的那一小段标记' },
+      { en: 'the RMARKER: the first chip after the SFD', zh: 'RMARKER：SFD 之后的第一个码片' },
+      { en: 'the STS, between two short gaps', zh: 'STS，夹在两段短间隔之间' },
+      { en: 'the PHR', zh: 'PHR' },
+      { en: 'the PSDU', zh: 'PSDU' },
+    ] },
     { heading: { en: 'Where the stamp goes', zh: '时间戳打在哪里' }, text: {
-      en: 'The RMARKER is the first chip after the SFD ends, so the frame runs SYNC, SFD, the stamp, then the STS between its two gaps, the PHR and the PSDU. Everything before the stamp gets both radios locked on; everything after it is what the frame has to prove and to say. Stamp the start and the receiver is not locked on yet; stamp the end and the two ends time different things. Only that one edge can be named, by both, to a fraction of a chip.',
-      zh: 'RMARKER 就是 SFD 结束之后的第一个码片，所以整帧的顺序是：SYNC、SFD、时间戳，然后才是夹在两段间隔之间的 STS、PHR 和 PSDU。时间戳之前的一切，是为了让两台射频都锁住信号；它之后的一切，是这一帧要证明和要说的内容。把时间戳打在帧首，接收端那时还没锁住；打在帧尾，两端计的就不是同一件事了。整帧里，只有这一道边沿双方都能精确到码片零头地说清楚——所以时间戳就打在这里。',
+      en: 'Everything before the stamp gets both radios locked on; everything after it is what the frame has to prove and to say. Stamp the start and the receiver is not locked on yet; stamp the end and the two ends time different things. Only that one edge can be named, by both, to a fraction of a chip.',
+      zh: '时间戳之前的一切，是为了让两台射频都锁住信号；它之后的一切，是这一帧要证明和要说的内容。把时间戳打在帧首，接收端那时还没锁住；打在帧尾，两端计的就不是同一件事了。整帧里，只有这一道边沿双方都能精确到码片零头地说清楚——所以时间戳就打在这里。',
     } },
   ],
   numbers: [
     { kind: 'table', heading: { en: 'What 197.628 µs is made of', zh: '197.628 µs 由什么组成' }, head: [
       { en: 'Field', zh: '字段' }, { en: 'Duration', zh: '时长' }, { en: 'Purpose', zh: '作用' },
     ], rows: [
-      [{ en: 'SYNC, 64 preamble symbols of 508 chips', zh: 'SYNC，64 个前导符号，每个 508 码片' }, N('65.128 µs'), { en: 'acquisition and timing lock', zh: '捕获并锁定定时' }],
-      [{ en: 'SFD, 8 preamble symbols', zh: 'SFD，8 个前导符号' }, N('8.141 µs'), { en: 'fixes the RMARKER', zh: '确定 RMARKER 的位置' }],
-      [{ en: 'STS gap', zh: 'STS 间隔' }, N('1.026 µs'), { en: '512 chips of silence', zh: '512 个码片的静默' }],
-      [{ en: 'STS, 64 × 512 chips', zh: 'STS，64 × 512 个码片' }, N('65.641 µs'), { en: 'unforgeable timing sequence', zh: '无法伪造的定时序列' }],
-      [{ en: 'STS gap', zh: 'STS 间隔' }, N('1.026 µs'), { en: '512 more chips', zh: '再来 512 个码片' }],
-      [{ en: 'PHR, 19 symbols of 512 chips', zh: 'PHR，19 个符号，每个 512 码片' }, N('19.487 µs'), { en: 'length and data rate', zh: '长度与数据速率' }],
-      [{ en: 'PSDU, 30 octets: 290 symbols of 64 chips', zh: 'PSDU，30 个字节：290 个符号，每个 64 码片' }, N('37.179 µs'), { en: 'the poll itself, the frame’s last segment', zh: 'Poll 帧本身，整帧的最后一段' }],
+      [{ en: 'SYNC, 64 preamble symbols × 508 chips = 32 512 chips', zh: 'SYNC，64 个前导符号 × 508 码片 = 32 512 码片' }, N('65.128 µs'), { en: 'acquisition and timing lock', zh: '捕获并锁定定时' }],
+      [{ en: 'SFD, 8 preamble symbols × 508 chips = 4064 chips', zh: 'SFD，8 个前导符号 × 508 码片 = 4064 码片' }, N('8.141 µs'), { en: 'fixes the RMARKER', zh: '确定 RMARKER 的位置' }],
+      [{ en: 'STS gap, 512 chips', zh: 'STS 间隔，512 码片' }, N('1.026 µs'), { en: 'silence', zh: '静默' }],
+      [{ en: 'STS, 64 × 512 = 32 768 chips', zh: 'STS，64 × 512 = 32 768 码片' }, N('65.641 µs'), { en: 'unforgeable timing sequence', zh: '无法伪造的定时序列' }],
+      [{ en: 'STS gap, 512 chips', zh: 'STS 间隔，512 码片' }, N('1.026 µs'), { en: 'silence again', zh: '再一次静默' }],
+      [{ en: 'PHR, 19 symbols × 512 chips = 9728 chips', zh: 'PHR，19 个符号 × 512 码片 = 9728 码片' }, N('19.487 µs'), { en: 'length and data rate', zh: '长度与数据速率' }],
+      [{ en: 'PSDU, 30 octets: 290 symbols × 64 chips = 18 560 chips', zh: 'PSDU，30 个字节：290 个符号 × 64 码片 = 18 560 码片' }, N('37.179 µs'), { en: 'the poll itself, the frame’s last segment', zh: 'Poll 帧本身，整帧的最后一段' }],
       [{ en: 'The whole poll', zh: '整帧 Poll' }, N('197.628 µs'), { en: '160.449 µs structure, 37.179 µs message', zh: '结构 160.449 µs，消息 37.179 µs' }],
     ] },
-    { text: {
-      en: 'The RMARKER sits 65.128 + 8.141 = 73.269 µs into the frame — after the SYNC and the SFD, before everything else. The response is built the same way and differs only in its message: 20 octets, 26.923 µs of payload, 187.372 µs in all, with its RMARKER at the very same 73.269 µs. Of the two 2 ms slots the round occupies, only 385 µs carries a frame at all.',
-      zh: 'RMARKER 位于帧内 65.128 + 8.141 = 73.269 µs 处——在 SYNC 与 SFD 之后，在其余一切之前。应答帧的搭法完全相同，只有消息不一样：20 个字节、26.923 µs 的净荷、全帧 187.372 µs，RMARKER 同样落在 73.269 µs。而这一轮占用的两个 2 ms 时隙里，真正有帧在传的只有 385 µs。',
+    { kind: 'formula', heading: { en: 'Where the RMARKER falls', zh: 'RMARKER 落在哪儿' }, text: {
+      en: 'SYNC 65.128 µs + SFD 8.141 µs = 73.269 µs into the frame',
+      zh: 'SYNC 65.128 µs + SFD 8.141 µs = 帧内 73.269 µs',
+    }, note: {
+      en: 'After the pattern and the marker that closes it, before everything else — and the response is built the same way, so its RMARKER falls at the very same offset.',
+      zh: '在那串图案、以及结束它的那个标记之后，在其余一切之前——应答帧的搭法完全相同，它的 RMARKER 落在同一个偏移上。',
     } },
+    { kind: 'table', heading: { en: 'The poll and the response', zh: 'Poll 帧与应答帧' }, head: [
+      { en: 'Frame', zh: '帧' }, { en: 'Message', zh: '消息' }, { en: 'Payload', zh: '净荷' }, { en: 'Whole frame', zh: '整帧' },
+    ], rows: [
+      [{ en: 'Poll', zh: 'Poll' }, N('30 octets'), N('37.179 µs'), N('197.628 µs')],
+      [{ en: 'Response', zh: 'Response' }, N('20 octets'), N('26.923 µs'), N('187.372 µs')],
+    ] },
     { text: {
-      en: 'The poll’s PSDU is 30 octets at 6.81 Mb/s, which is not 35.2 µs of air but 37.179 µs. Each of the 240 data bits gets one data symbol of 64 chips, the 48 parity bits get one each, and a 2-symbol tail closes it: 290 symbols. Coding, not the message, is most of what the payload costs.',
-      zh: 'Poll 帧的 PSDU 是 30 个字节、速率 6.81 Mb/s，占用的空口时间却不是 35.2 µs，而是 37.179 µs。射频把 240 个数据比特一个比特一个数据符号地发出去，每个数据符号 64 个码片；48 个校验比特照此办理，再加 2 个符号的尾，一共 290 个符号。净荷的开销大头是编码，不是消息本身。',
+      en: 'Of the two 2 ms slots the round occupies, only 385 µs carries a frame at all.',
+      zh: '这一轮占用的两个 2 ms 时隙里，真正有帧在传的只有 385 µs。',
+    } },
+    { kind: 'formula', heading: { en: 'Why 30 octets cost 37.179 µs', zh: '为什么 30 个字节要花 37.179 µs' }, text: {
+      en: '240 data bits + 48 parity bits + a 2-symbol tail = 290 symbols × 64 chips',
+      zh: '240 个数据比特 + 48 个校验比特 + 2 个符号的尾 = 290 个符号 × 64 码片',
+    }, note: {
+      en: 'At 6.81 Mb/s the message alone would be 35.2 µs of air. Coding, not the message, is most of what a payload costs.',
+      zh: '按 6.81 Mb/s 算，光是消息本身只要 35.2 µs 的空口时间。净荷的开销大头是编码，不是消息。',
     } },
   ],
   sources: [
@@ -123,7 +146,7 @@ export const uwbFrame: Lesson = {
     J('the anchor answers', '锚点作答', firstUwbResp),
   ],
   observe: [
-    { en: 'Look at the phone’s lane as a whole: two slots of 2 ms, the poll in slot 0 and the response in slot 1, which starts at exactly 2 000 000 ns. Of that 4 ms, only 385 µs carries a frame.', zh: '整体看手机这条泳道：一轮由两个 2 ms 的时隙组成，Poll 在时隙 0，Response 在时隙 1，而时隙 1 恰好从 2 000 000 ns 开始。这 4 ms 里只有 385 µs 真的在传帧。' },
+    { en: 'Look at the phone’s lane as a whole: the poll in the first slot, the response in the second, which starts at exactly 2 000 000 ns. Almost all of the round is silence.', zh: '整体看手机这条泳道：Poll 在第一个时隙，Response 在第二个，而第二个时隙恰好从 2 000 000 ns 开始。一轮里绝大部分时间是静默的。' },
     { en: 'Open the poll in the frame detail view and read the strip left to right. The PSDU is the last segment you reach, and shorter than the run of SYNC that opens the frame — though it alone carries a message.', zh: '在帧细节视图里打开 Poll 帧，把那条带子从左读到右。最后读到的一段是 PSDU，它比开头那一长串 SYNC 还短——尽管它才是唯一装着消息的部分。' },
   ],
   tryThis: [
