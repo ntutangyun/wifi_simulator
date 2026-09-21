@@ -127,7 +127,7 @@ export const ampIntro: Lesson = {
     ] },
     { text: {
       en: 'Slot 1 opens one gap after the trigger’s last symbol, at 678 + 10 = 688 µs; slot 2 one gap after Ack₁ stops, at 1556 + 10 = 1566 µs. A tag cannot find four boundaries alone; the Acks find them.',
-      zh: '时隙 1 在触发帧最后一个符号之后一个间隔打开，即 678 + 10 = 688 µs；时隙 2 在 Ack₁ 结束后一个间隔打开，即 1556 + 10 = 1566 µs。这四个边界，标签自己掀不准，得靠确认帧一个个替它点明。',
+      zh: '时隙 1 在触发帧最后一个符号之后一个间隔打开，即 678 + 10 = 688 µs；时隙 2 在 Ack₁ 结束后一个间隔打开，即 1556 + 10 = 1566 µs。这四个边界，标签自己掐不准，得靠确认帧一个个替它点明。',
     } },
     { kind: 'formula', text: {
       en: 'round = 50 + 10 + 618 + 4 × (10 + 528 + 10 + 330) = 4190 µs = 4.19 % of 100 ms',
