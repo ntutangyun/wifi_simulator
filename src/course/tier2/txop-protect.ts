@@ -1,53 +1,130 @@
+/**
+ * Wi-Fi Tier 2 · M3 · QoS and efficiency · Protecting a whole burst.
+ *
+ * Rewritten to the zero-to-hero contract
+ * (docs/superpowers/specs/2026-09-21-course-readability-design.md): the hallway
+ * house of `hidden`, but the winner now sends several frames in a row, so the
+ * station that cannot hear it has a long window to blunder into instead of a
+ * short one. One question and one answer at the start of the burst announce all
+ * of it; CF-End hands back what the burst did not use; a CTS-to-self buys the
+ * announcement without the question and is useless here. The costs and the
+ * counts of the three policies are in `numbers`; the RTS-threshold corner and
+ * what a CTS-to-self cannot do are in `deeper`; the clause numbers are in
+ * `sources`.
+ *
+ * The scenario builder and its two variants are unchanged, so the recorded
+ * timeline hashes in tests/fixtures/lesson-hashes.json stay byte-identical.
+ * Every number quoted below is pinned in tests/course/txop-protect.test.ts,
+ * except the four counts of the 300 ms table and the observe list's timings,
+ * which tests/course/lesson-claims.test.ts ("lesson 10 · protecting the burst")
+ * has always held and still holds.
+ */
 import { type Lesson, N, hallwayHouse, node, sc, firstRts, firstCfEnd, firstCfEndRelay, firstCollision, J } from '../lessonKit'
 
 export const txopProtect: Lesson = {
   id: 'txop-protect',
   module: 2,
-  title: { en: 'Protecting the burst — one CTS for the whole TXOP', zh: '保护整个突发——一个 CTS 预约整个 TXOP' },
-  body: [
-    { text: {
-      en: 'Lesson 9 showed a holder chaining exchanges one SIFS apart. Anyone who can hear the holder cannot break in: SIFS is shorter than every AIFS. But lesson 5’s hidden station hears only the receiver. This scene is lesson 5’s hallway with TXOP bursts and an RTS threshold of 500 B, so every TXOP — in both variants — opens with an RTS/CTS the hidden station can hear. The only difference left is how far that reservation reaches. Under single protection it covers one exchange: the hidden station stays quiet for the first frame and its ACK, then counts straight into the second frame of the burst.',
-      zh: '第 9 课里，持有者以一个 SIFS 的间隔串联多次交换。听得到持有者的站点插不进来：SIFS 比任何 AIFS 都短。但第 5 课那种隐藏站点只听得到接收方。本场景就是第 5 课的走廊，加上 TXOP 突发，并把 RTS 门限设成 500 B——于是两个变体里的每一个 TXOP 都以隐藏站点听得见的 RTS/CTS 开场。剩下的唯一区别，是这段预约能覆盖多远。单次保护下它只覆盖一次交换：隐藏站点为第一帧和它的 ACK 保持安静，随后就径直数进了突发的第二帧。',
+  title: { en: 'Protecting the burst — one answer for the whole turn', zh: '保护整个突发——一个回答管住整轮' },
+  why: {
+    en: 'A station that wins the air can keep it for a while and send several frames back to back. That is a good bargain when everyone can hear everyone. Where one station cannot hear the other it is a trap: a long burst is a long stretch of time for the deaf neighbour to blunder into. The cure from the hidden-node lesson still works, but it has to be aimed further — announce the whole burst at once, in a voice the far room can hear.',
+    zh: '抢到空口的站点可以多占一会儿，把好几帧连着发出去，而不是只发一帧。当屋里所有人都听得见所有人时，这是笔划算的买卖。可在一台站点听不见另一台的房子里，它就成了陷阱：一长串帧，无非就是给那位“聋着的”邻居留出了一大段可以撞进来的时间。隐藏节点那一课的解法依然管用，只是要瞄得更远——用远处那个房间听得见的声音，把整串帧一次性预告出去。',
+  },
+  outcomes: [
+    { en: 'say why a burst is more dangerous than one frame when a station is hidden', zh: '说出有站点被隐藏时，为什么一串帧比单独一帧更危险' },
+    { en: 'name the frame that carries a whole burst’s reservation into the far room', zh: '说出是哪一帧把整串帧的预约送进了远处那个房间' },
+    { en: 'read a reservation off the timeline and watch it end early', zh: '在时间轴上读出一条预约，并看着它提前结束' },
+    { en: 'compare the collisions and the airtime of the three policies', zh: '对比三种预告策略各自的碰撞次数与空口开销' },
+  ],
+  needs: ['nav', 'hidden', 'txop'],
+  terms: [
+    { term: 'protection', plain: {
+      en: 'saying in advance how long you will hold the air, so stations that cannot hear you stay quiet anyway',
+      zh: '事先说清自己要占用空口多久，好让那些听不见你的站点照样保持安静',
     } },
-    { kind: 'table', heading: { en: 'Three ways to announce a burst (§9.2.5.2)', zh: '预告突发的三种方式（§9.2.5.2）' }, head: [
-      { en: 'Policy', zh: '策略' }, { en: 'Opens the burst with', zh: '突发以什么开头' }, { en: 'Data frames carry', zh: '数据帧携带' }, { en: 'Ends early with', zh: '提前结束时' },
-    ], rows: [
-      [{ en: 'single', zh: '单次' }, { en: 'the data frame (RTS only above the threshold)', zh: '数据帧本身（超过门限才有 RTS）' }, N('SIFS + ACK'), { en: 'nothing to give back', zh: '无需归还' }],
-      [{ en: 'boundary', zh: '边界' }, { en: 'RTS/CTS whose Duration reaches the end of the TXOP', zh: 'Duration 直达 TXOP 末尾的 RTS/CTS' }, N('SIFS + ACK'), N('CF-End')],
-      [{ en: 'multiple', zh: '多重' }, { en: 'the same RTS/CTS', zh: '同样的 RTS/CTS' }, { en: 'the TXOP remainder', zh: 'TXOP 剩余时间' }, N('CF-End')],
+    { term: 'CF-End', plain: {
+      en: 'a few bytes meaning “I have finished early”: everyone who hears it drops the reservation on the spot',
+      zh: '几个字节的一帧，意思是“我提前结束了”：听见的人当场把这段预约作废',
+    } },
+    { term: 'CTS-to-self', plain: {
+      en: 'a station sending the permission frame to its own address, taking the announcement without asking anyone',
+      zh: '站点把“允许发送”那一帧发给自己的地址：不问任何人，直接把预告做了',
+    } },
+  ],
+  picture: [
+    { heading: { en: 'The same house, now in bursts', zh: '同一间房子，现在成串地发' }, text: {
+      en: 'This is the hallway house of the hidden-node lesson: a station in each end room, the access point between them, neither able to hear a whisper of the other. What is new is that the winner no longer sends one frame and stops. It holds the air and sends several frames back to back. For the far room, which hears none of it, the danger is no longer a moment. It is a long stretch of time.',
+      zh: '这还是隐藏节点那一课的走廊房子：两头的房间里各一台站点，接入点在中间，两台站点谁也听不见对方一丁点动静。新的地方在于，赢家不再发一帧就收手：它占住空口，把好几帧连着发出去。而对那个什么也听不见的远房间来说，危险不再是一瞬间，而是一大段时间。',
+    } },
+    { heading: { en: 'Announce the burst, not the next frame', zh: '预告的是整串，而不是下一帧' }, text: {
+      en: 'Before the burst the holder still sends its short question, and the access point still answers out loud, so both rooms hear it. What matters now is how much that answer announces: only the frame about to go out, or every frame of the burst. Announcing the whole burst in one breath is this lesson’s protection — the difference between a far station that sits the burst out and one that wakes in the middle.',
+      zh: '发这一串之前，持有者照样先发出那句简短的提问，接入点也照样大声回答，于是两个房间都听得见这个回答。现在关键在于：这个回答预告了多少——只是马上要发的那一帧，还是这一串里的每一帧。一口气把整串预告出去，就是这一课说的保护；一个远端站点是安安静静把整串等完，还是在半途中醒来，差别就在这里。',
+    } },
+    { kind: 'watch', jump: 0, heading: { en: 'Watch the far room fall quiet', zh: '看远处那个房间安静下来' }, text: {
+      en: 'Load the simulation and jump to the first question. Watch the far station’s lane: a reservation appears under it and runs to the end of a burst it cannot hear a single frame of. Then load the single-protection variant and watch that lane wake up while the burst is still going.',
+      zh: '载入仿真，跳到第一次提问。盯住远端站点的泳道：它下方出现一条预约，一直延伸到那串帧的末尾——而这一串它连一帧都听不见。然后载入“单次保护”变体，再看同一条泳道：这一串还没发完，它就醒了。',
+    } },
+    { heading: { en: 'Giving the time back', zh: '把时间还回去' }, text: {
+      en: 'An announcement covering the whole burst is usually longer than the burst needs: the queue runs dry, or the next frame no longer fits. So the holder sends a CF-End, and everyone who hears it drops the reservation there and then. The far room cannot hear the holder — so the access point repeats the CF-End on its behalf: the same trick as the answer, pointing the other way.',
+      zh: '覆盖整串的预告，通常比这串帧最后真正需要的更长：队列空了，或者下一帧已经塞不下。于是持有者发出一个 CF-End，听见的人当场把预约作废。可远处那个房间听不见持有者——于是接入点替它把这个 CF-End 重复一遍。这和那个回答是同一个手法，只是方向反了过来。',
+    } },
+    { kind: 'list', heading: { en: 'Three ways to say it', zh: '预告的三种说法' }, items: [
+      { en: 'Single: say nothing beyond the frame in hand. A far station is told of one exchange at a time, and counts on into the rest of the burst.', zh: '单次：除了手上这一帧，什么也不多说。远端站点一次只被告知一次交互，然后就径直数进了这一串剩下的部分。' },
+      { en: 'Boundary: one question and one answer at the start, announcing the burst to its end. This is what the lesson loads.', zh: '边界：开头一问一答，把这一串预告到末尾为止。本课载入的就是这种。' },
+      { en: 'Multiple: the same opening, and every data frame carries the time still to come, so a station that missed the answer can pick the reservation up from the data.', zh: '多重：开头同样是一问一答，而且每个数据帧都携带剩余时间，于是错过那个回答的站点，也能从数据帧里把预约接上。' },
     ] },
-    { heading: { en: 'What the CTS does that the RTS cannot', zh: 'CTS 能做到而 RTS 做不到的事' }, text: {
-      en: 'The RTS is heard only by the holder’s neighbourhood; the hidden station cannot decode it. The CTS comes from the receiver — here the AP — and repeats the reservation minus itself. That is the frame the hidden station loads into its NAV, and with boundary protection that NAV lasts to the end of the TXOP, not just one exchange.',
-      zh: 'RTS 只有持有者周围的站点能听到，隐藏站点解不出它。CTS 来自接收方——这里是 AP——把预约减去自身后再广播一遍。隐藏站点装进 NAV 的正是这一帧；在边界保护下，这个 NAV 一直持续到 TXOP 结束，而不只是一次交换。',
+    { heading: { en: 'When nobody is there to answer', zh: '没人替你回答的时候' }, text: {
+      en: 'Sometimes a holder wants the announcement without the asking. It can send the permission frame to its own address: a CTS-to-self, one frame where there were two. It costs half as much — and carries exactly as far as the holder’s own voice, which is to say, not into the far room.',
+      zh: '有时候持有者只想要预告，不想要那次问答。它可以把“允许发送”那一帧直接发给自己的地址：这就是 CTS-to-self，本来两帧，现在一帧。代价少了一半——而它传得多远，和持有者自己的嗓门一模一样，也就是说，传不进远处那个房间。',
     } },
-    { kind: 'formula', text: {
-      en: 'CTS Duration = RTS Duration − SIFS − CTS time\nNAV at hidden B = CTS end + CTS Duration = end of A’s TXOP',
-      zh: 'CTS 的 Duration = RTS 的 Duration − SIFS − CTS 时长\n隐藏站 B 的 NAV = CTS 结束 + CTS 的 Duration = A 的 TXOP 末尾',
-    } },
-    { heading: { en: 'Giving time back — CF-End', zh: '把时间还回去——CF-End' }, text: {
-      en: 'A reservation to the end of the TXOP is usually more than the burst needs. When the burst ends before it — the queue ran dry, or the next exchange no longer fits — the holder sends a CF-End one SIFS after the last ACK, and every station that decodes it resets its NAV. A hidden station cannot decode the holder’s CF-End — so the standard has the AP repeat it one SIFS later (§10.23.2.9): the same trick as the CTS, in reverse.',
-      zh: '预约到 TXOP 末尾通常比突发实际需要的更长。突发提前结束时——队列空了，或者下一次交换已经装不下——持有者就在最后一个 ACK 之后一个 SIFS 发出 CF-End，所有解出它的站点清零 NAV。隐藏站点解不出持有者的 CF-End——所以标准让 AP 在一个 SIFS 后重复一遍（§10.23.2.9）：和 CTS 一样的手法，方向相反。',
-    } },
-    { kind: 'table', heading: { en: 'This scenario, 300 ms', zh: '本场景，300 ms' }, head: [
-      { en: 'Metric', zh: '指标' }, { en: 'single', zh: '单次' }, { en: 'boundary', zh: '边界' },
+  ],
+  numbers: [
+    { kind: 'table', heading: { en: 'The same three hundred milliseconds, three ways', zh: '同样的三百毫秒，三种说法' }, head: [
+      { en: 'Counted over 300 ms', zh: '300 ms 内的统计' }, { en: 'single', zh: '单次' }, { en: 'boundary', zh: '边界' }, { en: 'multiple', zh: '多重' },
     ], rows: [
-      [{ en: 'collisions', zh: '碰撞' }, N('46'), N('21')],
-      [{ en: 'frames delivered', zh: '送达帧数' }, N('212'), N('614')],
-      [{ en: 'retries', zh: '重传' }, N('112'), N('47')],
-      [{ en: 'frames dropped', zh: '丢弃帧数' }, N('6'), N('1')],
+      [{ en: 'Collisions', zh: '碰撞次数' }, N('46'), N('21'), N('21')],
+      [{ en: 'Data frames delivered', zh: '成功送达的数据帧' }, N('212'), N('614'), N('614')],
+      [{ en: 'Retries', zh: '重传' }, N('112'), N('47'), N('47')],
+      [{ en: 'Frames dropped', zh: '丢弃帧数' }, N('6'), N('1'), N('1')],
     ] },
-    { text: {
-      en: 'Of the 21 collisions that remain, 18 are RTS meeting RTS — two hidden stations starting within one 28 µs RTS of each other, but now each loses 20 bytes instead of a burst of 1500-byte frames — and 3 catch a data frame already under way. That is lesson 5’s bargain, extended from one frame to a whole TXOP.',
-      zh: '剩下的 21 次碰撞里，18 次是 RTS 撞 RTS——两台隐藏站点的起跑时刻相差不到一个 28 µs 的 RTS，但现在各自只损失 20 字节，而不是一整串 1500 字节的帧——另外 3 次撞上了正在进行中的数据帧。这正是第 5 课的那笔交易，从一帧扩展到了整个 TXOP。',
+    { kind: 'table', heading: { en: 'What the announcing frames cost, and what they buy', zh: '用来预告的那些帧，花了多少，换回什么' }, head: [
+      { en: 'Per 300 ms', zh: '每 300 ms' }, { en: 'single', zh: '单次' }, { en: 'boundary', zh: '边界' }, { en: 'multiple', zh: '多重' },
+    ], rows: [
+      [{ en: 'Air spent on questions, answers and CF-End', zh: '花在提问、回答与 CF-End 上的空口时间' }, N('14.9 ms'), N('14.3 ms'), N('14.3 ms')],
+      [{ en: 'Air spent per frame delivered', zh: '每送达一帧所花的空口时间' }, N('1281 µs'), N('422 µs'), N('422 µs')],
+      [{ en: 'Average reservation a hidden station loads', zh: '隐藏站点装上的预约，平均有多长' }, N('1.05 ms'), N('2.45 ms'), N('2.45 ms')],
+    ] },
+    { heading: { en: 'The same bill, better aimed', zh: '同样的账单，瞄得更准' }, text: {
+      en: 'Protection is not the expensive part: both policies spend about a twentieth of the air on the frames that do the announcing, and boundary spends slightly less, because one opening serves a whole burst. What changes is the reach. The reservation a hidden station loads now lasts 2.45 ms instead of 1.05 ms, so it sits the burst out — and the room delivers nearly three times the frames for a third of the air each.',
+      zh: '保护本身并不是花钱的地方。两种策略花在预告帧上的空口时间都在二十分之一上下——边界还略少一点，因为一次开场就管住了一整串。变的是覆盖范围：隐藏站点装上的预约，现在平均是 2.45 ms，而不是 1.05 ms，于是它把整串等完；整个房间送达的帧数因此接近三倍，而每送达一帧所花的空口时间只有原来的三分之一。',
     } },
-    { text: {
-      en: 'The price is airtime: an RTS/CTS per burst, a CF-End (twice, with the relay), and anyone who misses the CF-End waits until the announced end. Real Wi-Fi 6/7 gear pays it this way: data frames keep single protection, and the RTS/CTS — or its multi-user form, MU-RTS — at the TXOP boundary carries the burst.',
-      zh: '代价是空口时间：每个突发一次 RTS/CTS、一次 CF-End（加上 AP 的重复是两次），而错过 CF-End 的站点要等到预告的末尾。真实的 Wi-Fi 6/7 设备正是这样付账的：数据帧保持单次保护，由 TXOP 边界处的 RTS/CTS——或其多用户形式 MU-RTS——来承载整个突发的预约。',
+    { heading: { en: 'What the third policy adds, and what it does not', zh: '第三种策略多给了什么，又没给什么' }, text: {
+      en: 'Multiple protection puts the time still to come on every data frame: a Duration of up to 2.164 ms, where boundary protection carries 60 µs. Nobody in this house needs it — every station that could collide has already heard the answer — so the run comes out identical to boundary, collision for collision. It earns its keep where the answer itself can be missed.',
+      zh: '多重保护把“还剩多久”写进每一个数据帧：Duration 最长可达 2.164 ms，而在边界保护下这个字段只有 60 µs。这间房子里没人需要它——所有可能撞车的站点都已经听见了那个回答——所以整轮跑下来和边界保护完全一样，一帧对一帧，一次碰撞对一次碰撞。它真正派上用场，是在那种连回答本身都可能错过的房间里。',
     } },
-    { text: {
-      en: 'And note what boundary protection is not: a blanket rule that every TXOP opens with an RTS. The holder sends that boundary RTS only when more than one exchange is actually planned for this TXOP — there is no burst to protect otherwise. So when the rate falls far enough that a single 1500-byte frame fills the TXOP on its own, boundary protection sends nothing, and that lone exchange is protected only if the frame is above the RTS threshold. That is why this scene sets the threshold to 500 B: without it, the TXOPs that hold one long low-rate frame would go out bare, and they are exactly the ones a hidden station has the most time to walk into.',
-      zh: '也要看清边界保护不是什么：它不是“每个 TXOP 都先发一个 RTS”的一刀切规则。只有当这个 TXOP 确实计划了不止一次交换时，持有者才会发出这个边界 RTS——否则根本没有突发需要保护。于是当速率低到一个 1500 字节的帧就能把整个 TXOP 填满时，边界保护什么也不会发，那次孤零零的交换只能靠 RTS 门限来保护。这正是本场景把门限设为 500 B 的原因：否则那些只装得下一个长慢帧的 TXOP 会裸奔上阵——而恰恰是它们，给了隐藏站点最长的时间撞进来。',
+    { heading: { en: 'The collisions that are left', zh: '剩下的那些碰撞' }, text: {
+      en: 'Of the 21 collisions that survive, 18 are one question meeting another: two hidden stations starting within one short question of each other, losing 20 bytes each instead of a burst. Only 3 catch a data frame already under way. That is the bargain of the hidden-node lesson, stretched from a single frame to a whole burst.',
+      zh: '活下来的 21 次碰撞里，有 18 次是两句提问撞在一起：两台隐藏站点的起跑时刻，相差不到一句提问那么长，于是各损失 20 字节，而不是一整串帧。只有 3 次撞上了正在进行中的数据帧。这正是隐藏节点那一课里的那笔交易，从一帧扩展到了一整串。',
     } },
+  ],
+  deeper: [
+    { heading: { en: 'The turns that get no announcement at all', zh: '完全得不到预告的那些轮次' }, text: {
+      en: 'A holder only sends the opening question when it actually plans more than one exchange — with nothing to burst, there is nothing to protect. So a turn that will hold a single frame is covered only if that frame is above the station’s RTS threshold, which is why this scene sets the threshold at 500 bytes. Raise it to 3000, above every frame here, and those turns go out bare: collisions rise from 21 to 80, deliveries fall from 614 to 344. The frames left bare are the slow ones — one of them is 1.9 ms of air, and gives a hidden station the longest run at it.',
+      zh: '只有当这一轮确实计划了不止一次交互时，持有者才会发出开场那句提问——没有一串要发，也就没有什么要保护。于是只装得下一帧的那种轮次，只有当这一帧超过本站的 RTS 门限时才受保护，这正是本场景把门限设成 500 字节的原因。把它调到 3000、高过这里的每一帧，那些轮次就裸奔上阵：碰撞从 21 次升到 80 次，送达从 614 帧降到 344 帧。裸奔的恰恰是慢帧——其中一帧占了 1.9 ms 的空口，也就给了隐藏站点最长的一段可乘之机。',
+    } },
+    { heading: { en: 'What a CTS-to-self cannot do', zh: 'CTS-to-self 做不到的事' }, text: {
+      en: 'Sending the permission frame to yourself saves the question, and in a crowded room of mixed-age radios that is a real saving. In this house it protects nothing at all: the frame travels exactly as far as everything else the holder sends, so the station in the far room never hears it and its counter runs on regardless. A cheaper announcement is worth nothing if it is inaudible where the danger is.',
+      zh: '把“允许发送”发给自己，省掉的是那次提问；在一屋子新旧混杂的设备里，这笔节省是实打实的。但在这间房子里，它什么也保护不了：这一帧传得和持有者发的其它东西一样远，远房间里的站点根本听不见，它的计数器照样往下走。预告再便宜，如果在危险所在之处听不见，就一文不值。',
+    } },
+  ],
+  sources: [
+    { en: 'How a QoS station sets the Duration field under single and multiple protection is §9.2.5 (in particular §9.2.5.2) of IEEE Std 802.11-2024; the RTS/CTS exchange itself is §10.3.2.9.',
+      zh: 'QoS 站点在单次与多重保护下如何填写 Duration 字段，见 IEEE Std 802.11-2024 的 §9.2.5（尤其是 §9.2.5.2）；RTS/CTS 交互本身见 §10.3.2.9。' },
+    { en: 'CF-End and the rule that a station receiving one resets its NAV are §10.23.2.10, "Truncation of TXOP". The standard spells the access point’s repeat out for an S1G access point; this simulator grants it to every access point, which is a model choice.',
+      zh: 'CF-End，以及“收到它的站点清零 NAV”这条规则，见 §10.23.2.10《TXOP 的截断》。标准是针对 S1G 接入点写明那次重复的；本仿真器让所有接入点都这么做，这是模型取值。' },
+    { en: 'CTS-to-self is one of the NAV distribution mechanisms of §10.3.2.15, which says in as many words that it costs less than RTS/CTS and is less robust against hidden nodes.',
+      zh: 'CTS-to-self 是 §10.3.2.15 所列的 NAV 分发机制之一；标准正文明说它比 RTS/CTS 开销更低，但对隐藏节点更不稳健。' },
+    { en: 'Every count, average and timestamp above is the model’s own, reproducible from this scene’s seed rather than taken from the standard.',
+      zh: '上面每一个计数、平均值与时刻都是模型取值，靠本场景的随机种子即可复现，并非取自标准正文。' },
   ],
   scenario: () => sc(hallwayHouse(), [
     node('ap', 'AP', 'ap', 5, 4, 'eht', 'idle'),
@@ -79,35 +156,34 @@ export const txopProtect: Lesson = {
     J('first collision', '第一次碰撞', firstCollision),
   ],
   observe: [
-    { en: '“first RTS”: A and B both open with an RTS at t = 0 — and collide, 20 bytes each. A’s third try at 0.736 ms gets through: hover its RTS (Duration 2500 µs, reaching the end of its 2.528 ms TXOP) and the AP’s CTS at 0.780 ms (2456 µs — the same minus one SIFS and the CTS itself). Hidden B’s lane turns NAV-purple until 3.264 ms, although B never hears A.', zh: '“第一个 RTS”：A 和 B 都在 t = 0 以 RTS 开场——然后撞在一起，各损失 20 字节。A 在 0.736 ms 的第三次尝试成功了：悬停它的 RTS（Duration 2500 µs，直达它 2.528 ms TXOP 的末尾）和 AP 在 0.780 ms 的 CTS（2456 µs——相同数值减去一个 SIFS 和 CTS 自身）。隐藏站 B 的泳道一直到 3.264 ms 都是 NAV 紫色，尽管 B 从来听不到 A。' },
-    { en: '“first CF-End” (≈ 2.90 ms): after five exchanges 376 µs of A’s reservation remain — too little for another 1500-byte frame and its ACK. A sends CF-End, the AP repeats it one SIFS later, and B’s NAV ends at 2.976 ms instead of 3.264 ms.', zh: '“第一个 CF-End”（≈ 2.90 ms）：五次交换之后，A 的预约还剩 376 µs——不够再发一个 1500 字节的帧加 ACK。A 发出 CF-End，AP 在一个 SIFS 后重复一遍，B 的 NAV 在 2.976 ms 结束，而不是 3.264 ms。' },
-    { en: '“first collision” (28 µs) is an RTS meeting an RTS — 20 bytes lost each, not a burst. Then load the “single protection” variant: B’s NAV covers only the first exchange, so it wakes up inside the burst and collides into A’s second, third or fourth frame — 24 of its 29 data-frame collisions are not the first exchange of a TXOP — and the red ticks pile up as in lesson 5.', zh: '“第一次碰撞”（28 µs）是 RTS 撞 RTS——各损失 20 字节，而不是一整个突发。再载入“单次保护”变体：B 的 NAV 只覆盖第一次交换，于是它在突发中途醒来，撞进 A 的第二、第三或第四帧——它那 29 次数据帧碰撞里有 24 次都不是 TXOP 的第一次交换——红色刻度像第 5 课那样堆积起来。' },
+    { en: '“first RTS”: both stations ask at t = 0 and collide. A’s third try at 0.736 ms gets through, reserving 2500 µs, and the AP’s answer at 0.780 ms carries 2456 µs — one SIFS and itself less. Hidden B’s lane turns purple until 3.264 ms, though B never hears A.', zh: '“第一个 RTS”：两台站点都在 t = 0 开口发问，撞在一起。A 在 0.736 ms 的第三次尝试成功了，预约 2500 µs；AP 在 0.780 ms 的回答携带 2456 µs——正好少了一个 SIFS 和它自身。隐藏站 B 的泳道一直紫到 3.264 ms，尽管 B 从来听不到 A。' },
+    { en: '“first CF-End” (≈ 2.90 ms): after five exchanges, 376 µs of the reservation are left — too little for another frame and its receipt. A sends CF-End, the AP repeats it one SIFS later, and B’s reservation ends at 2.976 ms instead of 3.264 ms.', zh: '“第一个 CF-End”（≈ 2.90 ms）：五次交互之后，预约还剩 376 µs——不够再发一帧加它的回执。A 发出 CF-End，AP 在一个 SIFS 之后重复一遍，于是 B 的预约在 2.976 ms 结束，而不是 3.264 ms。' },
+    { en: '“first collision” (28 µs) is one question meeting another, not a ruined burst. Now load single protection: the far station wakes up inside the burst, and 24 of its 29 data-frame collisions are not the first exchange of a turn.', zh: '“第一次碰撞”（28 µs）是两句提问撞在一起，而不是报废了一整串。再载入“单次保护”：远端站点在这一串的中途醒来，它那 29 次数据帧碰撞里，有 24 次都不是某一轮的第一次交互。' },
   ],
   tryThis: [
-    { en: 'Load the “multiple protection” variant and hover a data frame inside a burst: its Duration now reaches the end of the TXOP, so even a station that missed the CTS learns the reservation from the data itself.', zh: '载入“多重保护”变体，悬停突发内部的一个数据帧：它的 Duration 现在直达 TXOP 末尾，于是错过 CTS 的站点也能从数据帧本身得知预约。' },
-    { en: 'Open the scenario in the editor, turn TXOP off on both stations and compare: every frame contends again, and there is no burst left to protect.', zh: '在编辑器中打开本场景，关闭两台终端的 TXOP 再比较：每一帧都要重新竞争，也就没有突发可保护了。' },
-    { en: 'Raise the RTS threshold back to the usual 3000 B, above the 1500-byte frames, and reload. Boundary protection still covers the multi-exchange bursts, but every TXOP that turned out to hold a single frame now opens bare: collisions rise from 21 to 80 and deliveries fall from 614 to 344. The frames that go unprotected are the slow ones — one MCS-0 frame is 1.9 ms and fills the 2.528 ms TXOP by itself.', zh: '把 RTS 门限调回常见的 3000 B（高于 1500 字节的帧）再重新载入。边界保护仍然覆盖多次交换的突发，但凡是最后只装了一帧的 TXOP 都变成裸奔：碰撞从 21 次升到 80 次，送达帧数从 614 降到 344。裸奔的恰恰是那些慢帧——一个 MCS 0 的帧要 1.9 ms，光它自己就填满了 2.528 ms 的 TXOP。' },
+    { en: 'Load the “multiple protection” variant and hover a data frame inside a burst: its Duration now reaches the end of the turn, 2.164 ms at the longest, where boundary protection carries 60 µs. The counters do not move — the same 21 collisions, the same 614 frames delivered.', zh: '载入“多重保护”变体，悬停这一串中间的某个数据帧：它的 Duration 现在直达本轮末尾，最长 2.164 ms，而边界保护下只有 60 µs。但计数一点没变——还是 21 次碰撞，还是送达 614 帧。' },
+    { en: 'Open the scenario in the editor, turn bursting off on both stations and reload. Every frame contends for itself again, no station holds the air for two frames in a row, and there is no burst left to protect.', zh: '在编辑器中打开本场景，把两台站点的突发关掉再重新载入。每一帧又要各自去竞争，没有哪台站点能连着两帧占住空口，也就没有什么突发需要保护了。' },
   ],
   quiz: [
     {
-      q: { en: 'Hidden B never hears A. Which frame silences B for A’s whole burst?', zh: '隐藏站 B 从来听不到 A。哪一帧让 B 在 A 的整个突发期间保持安静？' },
+      q: { en: 'Hidden B never hears A. Which frame keeps B quiet for A’s whole burst?', zh: '隐藏站 B 从来听不见 A。是哪一帧让 B 在 A 的整串帧期间保持安静？' },
       options: [
-        { en: 'A’s RTS', zh: 'A 的 RTS' },
-        { en: 'The AP’s CTS', zh: 'AP 的 CTS' },
+        { en: 'A’s question', zh: 'A 的提问' },
+        { en: 'The access point’s answer', zh: '接入点的回答' },
         { en: 'A’s first data frame', zh: 'A 的第一个数据帧' },
       ],
       answer: 1,
-      explain: { en: 'Only the AP is audible to B. The CTS repeats A’s reservation from the AP’s side, and with boundary protection that reservation reaches the end of A’s TXOP.', zh: 'B 只听得到 AP。CTS 从 AP 一侧重复 A 的预约，而在边界保护下这段预约直达 A 的 TXOP 末尾。' },
+      explain: { en: 'Only the access point is audible to B. Its answer repeats A’s reservation, and under boundary protection that reservation reaches the end of the burst.', zh: 'B 只听得见接入点。它的回答把 A 的预约重复了一遍，而在边界保护下，这段预约一直管到这一串的末尾。' },
     },
     {
-      q: { en: 'A burst ends 1.5 ms before its announced reservation. What happens?', zh: '一个突发比预告的预约提前 1.5 ms 结束。会发生什么？' },
+      q: { en: 'A burst ends well before the reservation it announced. What happens?', zh: '一串帧比它预告的预约提前不少就结束了。会发生什么？' },
       options: [
-        { en: 'Nothing — everyone waits out the reservation', zh: '什么都不发生——所有人把预约等完' },
-        { en: 'The holder sends CF-End and the AP repeats it', zh: '持有者发出 CF-End，AP 重复一遍' },
-        { en: 'The holder sends a new RTS', zh: '持有者再发一个 RTS' },
+        { en: 'Nothing — everyone waits the reservation out', zh: '什么也不发生——所有人把预约等完' },
+        { en: 'The holder sends CF-End, and the access point repeats it', zh: '持有者发出 CF-End，接入点再重复一遍' },
+        { en: 'The holder asks again', zh: '持有者再问一次' },
       ],
       answer: 1,
-      explain: { en: 'CF-End truncates the TXOP (§10.23.2.9). Stations that decode either copy reset their NAV; the rest wait until the announced end.', zh: 'CF-End 截断 TXOP（§10.23.2.9）。解出任一份的站点清零 NAV，其余站点等到预告的末尾。' },
+      explain: { en: 'CF-End hands the unused time back. Stations that hear either copy drop the reservation; anyone who hears neither waits until the announced end.', zh: 'CF-End 把没用掉的时间还回去。听见任意一份的站点作废预约；两份都没听见的，只能等到预告的末尾。' },
     },
   ],
 }
