@@ -24,7 +24,7 @@ import { effectiveMigrating } from './kit'
 
 /** Lessons still in the old shape. Each migration task removes its ids; the list only shrinks. */
 export const MIGRATING: string[] = [
-  'roles-stack', 'frame-anatomy', 'hidden', 'anomaly',
+  'roles-stack', 'frame-anatomy',  
   'retries-queues', 'bianchi', 'bianchi-vs-sim', 'tier1-project', 'edca', 'ampdu', 'txop', 'txop-protect', 'width', 'streams', 'rate',
   'ofdma-dl', 'ofdma-ul', 'mumimo', 'mlo', 'amp-slots', 'amp-coexist', 'capstone',
 ]
