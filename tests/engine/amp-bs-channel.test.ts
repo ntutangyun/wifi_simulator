@@ -169,7 +169,15 @@ describe('a backscatter tag under the excitation', () => {
   })
 })
 
-/** Drive one command and one reply T1 into its excitation, and say whether the reader heard it. */
+/**
+ * Drive one command and one reply T1 into its excitation, and say whether the reader heard it.
+ *
+ * The reply is scheduled unconditionally, whether or not that tag could have been powered: the
+ * channel does not gate a reply on activation and should not, and these tests are after the
+ * *reply* boundary on its own. Worth knowing which one binds in a real scene, though — at the
+ * default 10 dBm charge, activation stops at 0.309 m, inside the 0.328 m the reply reaches, so a
+ * tag placed at 0.327 m here would in truth never have woken up to answer.
+ */
 function round(
   tagM: number, opts: { chargeDbm?: number; bsDbm?: number; kbps?: AmpBsUlKbps; walls?: Wall[] } = {},
 ): { heard: boolean; records: TLRecord[] } {
@@ -220,24 +228,72 @@ describe('a backscattered reply at the reader', () => {
     expect((tx as { frame: FrameDesc }).frame.amp!.bs!.incidentDbm).toBeCloseTo(-29.738, 3)
   })
 
-  it('is ignored when it lands outside the BST-Excitation', () => {
-    for (const startNs of [500_000, DATA_END_NS - 1, DATA_END_NS + 142_400]) {
+  it('is ignored when it lands outside the BST-Excitation, or after the PPDU altogether', () => {
+    // The last two start after the reader has stopped transmitting: nothing is being reflected
+    // off anything, so an idle reader must not hear a reply however loud it claims to be.
+    const f = query()
+    for (const startNs of [500_000, DATA_END_NS - 1, DATA_END_NS + 142_400, f.txTimeNs + 1]) {
       const w = world([
         { id: 'ap', pos: at(0), opts: reader },
         { id: 'tag', pos: at(0.3), opts: bsTag },
       ])
       w.at(0, () => w.ch.startTx('ap', query()))
       w.at(startNs, () => {
-        const f = reply('tag')
-        f.amp!.bs!.incidentDbm = -29.74
-        w.ch.startTx('tag', f)
+        const r = reply('tag')
+        r.amp!.bs!.incidentDbm = -29.738
+        w.ch.startTx('tag', r)
       })
       w.run(3_000_000)
       expect(w.heard.ap).toEqual([])
     }
   })
 
-  it('two replies in one slot collide; a 6 dB louder one is captured', () => {
+  it('is never heard by a reader that is not transmitting at all, even from 0.05 m', () => {
+    // 0.05 m is the path-loss clamp: −20 dBm incident, a −40 dBm reply. Against thermal noise
+    // that is a 70 dB margin; against an excitation that is not on the air it is no reply at all.
+    const w = world([
+      { id: 'ap', pos: at(0), opts: reader },
+      { id: 'tag', pos: at(0.05), opts: bsTag },
+    ])
+    w.at(0, () => {
+      const r = reply('tag')
+      r.amp!.bs!.incidentDbm = 10 - 14.176 // the 10 dBm excitation, had one been radiating
+      w.ch.startTx('tag', r)
+    })
+    w.run(1_000_000)
+    expect(w.heard.ap).toEqual([])
+    expect(w.recs('RX_START', 'ap')).toEqual([])
+  })
+
+  it('must clear its SNR against Wi-Fi in the band, not only against the reader\'s leakage', () => {
+    const noisy = (staDbmAtAp: number) => {
+      const w = world([
+        { id: 'ap', pos: at(0), opts: reader },
+        { id: 'tag', pos: at(0.3), opts: bsTag },
+        { id: 'sta', pos: at(4) },
+      ], { 'sta>ap': staDbmAtAp })
+      w.at(0, () => w.ch.startTx('ap', query()))
+      // A Wi-Fi PPDU right across the excitation — what the lesson's `none` variant shows.
+      w.at(DATA_END_NS - 10_000, () => w.ch.startTx('sta', {
+        kind: 'data', src: 'sta', dst: 'ap', bytes: 1500, mbps: 6, durationFieldNs: 0,
+        txTimeNs: 300_000,
+      }))
+      w.at(DATA_END_NS + T1_NS, () => w.ch.startTx('tag', reply('tag')))
+      w.run(3_000_000)
+      return w
+    }
+    // The reply at 0.3 m sits 4.5 dB over the reader's floor: −70 dBm of Wi-Fi in the band eats
+    // that margin and the reply is lost, and the collision names the station that did it.
+    const lost = noisy(-70)
+    expect(lost.heard.ap.some((h) => h.what === 'ampBsReply:tag')).toBe(false)
+    expect(lost.recs('COLLISION').some((r) => r.nodes.includes('sta') && r.nodes.includes('tag'))).toBe(true)
+    // The same geometry with the station 30 dB quieter: the reply survives.
+    expect(noisy(-100).heard.ap.some((h) => h.what === 'ampBsReply:tag')).toBe(true)
+  })
+
+  // Not capture: the louder reply is detected first (same-instant starts are applied strongest
+  // first) and the quieter one fails the 5 dB capture test and becomes interference.
+  it('two replies in one slot collide; a 6 dB louder one survives the other', () => {
     const both = (aM: number, bM: number) => {
       const w = world([
         { id: 'ap', pos: at(0), opts: reader },
@@ -303,5 +359,16 @@ describe('the Active Tx tier is untouched', () => {
     expect(w.heard.ap.map((h) => h.what)).toEqual(['ampResp:tag'])
     // The DL reception still resolves at the end of the PPDU, not early.
     expect(w.heard.tag[0].t).toBe(trigger.txTimeNs)
+  })
+
+  it('an Active Tx tag does not hear a mono-static command it could never sync to', () => {
+    const w = world([
+      { id: 'ap', pos: at(0), opts: reader },
+      { id: 'tag', pos: at(0.3), opts: { kind: 'tag', cca: false } },
+    ], { 'ap>tag': -40 })
+    w.at(0, () => w.ch.startTx('ap', query()))
+    w.run(3_000_000)
+    expect(w.heard.tag).toEqual([])
+    expect(w.recs('RX_START', 'tag')).toEqual([])
   })
 })

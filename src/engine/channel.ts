@@ -30,20 +30,18 @@ import {
   AMP_UL_CHIP_NS,
   AMP_UL_REQ_SINR_DB,
   AMP_UL_SYNC_CHIPS,
-  ampBitsNs,
   ampUlSensDbm,
   type AmpUlKbps,
 } from './amp'
 import {
   AMP_BS_ACTIVATION_DBM,
-  AMP_BS_DL_KBPS,
-  AMP_BS_DL_SYNC_NS,
   AMP_BS_LOSS_DB,
   AMP_BS_REQ_SNR_DB,
   AMP_BS_UL_CHIP_NS,
   AMP_BS_UL_SYNC_CHIPS,
   FREQ_24G_MHZ,
-  ampRfidBytes,
+  ampBsDataEndNs,
+  ampBsSyncEndNs,
   bsPathLossDb,
   monoLeakDbm,
   readerFloorDbm,
@@ -109,15 +107,16 @@ export interface InFlightTx {
 
 /**
  * Where AMP-Data ends inside a downlink RFID PPDU — the instant the command is complete, the
- * BST-Excitation starts and a tag's answer becomes due (T1 later). Measured forward from the
- * start of the PPDU so it needs no knowledge of the link's signal extension. null for every
- * frame that is not an `ampRfid`. SFD PM-38, PM-63, PM-72…PM-75
+ * BST-Excitation starts and a tag's answer becomes due (T1 later).
+ *
+ * The composition is `ampBsDataEndNs`'s, the same one `ampBsDlPpduNs` builds the airtime out of,
+ * so the frame's `txTimeNs` and this offset into it cannot drift apart when the PPDU gains a
+ * field. Measured forward from the start, so it needs no knowledge of the link's signal
+ * extension. null for every frame that is not an `ampRfid`.
  */
 export function bsDataEndNs(frame: FrameDesc): Ns | null {
   const r = frame.kind === 'ampRfid' ? frame.amp?.rfid : undefined
-  if (r === undefined) return null
-  return AMP_LEGACY_PREAMBLE_NS + r.wupNs + AMP_BS_DL_SYNC_NS
-    + ampBitsNs(ampRfidBytes(r.cmd) * 8, AMP_BS_DL_KBPS)
+  return r === undefined ? null : ampBsDataEndNs(r.cmd, r.wupNs)
 }
 
 /**
@@ -216,21 +215,47 @@ const CAPTURE_MARGIN_DB = 5
 const captureWindowNs = (frame: FrameDesc): Ns => {
   // A backscatter DL PPDU syncs on 8 chips after its WUP-Excitation, not on the Active Tx tier's
   // 40; a reply on [S, S, S] rather than 48 chips. Same arithmetic, different fields.
-  if (frame.kind === 'ampRfid') {
-    return AMP_LEGACY_PREAMBLE_NS + frame.amp!.rfid!.wupNs + AMP_BS_DL_SYNC_NS
-  }
+  if (frame.kind === 'ampRfid') return ampBsSyncEndNs(frame.amp!.rfid!.wupNs)
   if (frame.kind === 'ampBsReply') {
-    return AMP_BS_UL_SYNC_CHIPS * AMP_BS_UL_CHIP_NS[frame.amp!.kbps as AmpBsUlKbps]
+    return AMP_BS_UL_SYNC_CHIPS * AMP_BS_UL_CHIP_NS[bsUlKbps(frame)]
   }
   if (frame.amp?.dir === 'dl') return AMP_LEGACY_PREAMBLE_NS + AMP_DL_SYNC_NS
   if (frame.amp?.dir === 'ul') return AMP_UL_SYNC_CHIPS * AMP_UL_CHIP_NS[frame.amp.kbps as AmpUlKbps]
   return PHY_MODES[frame.mode ?? 'nonht'].preambleNs
 }
 
+/**
+ * The uplink rate of a backscattered reply, narrowed rather than asserted.
+ *
+ * `amp.kbps` is a plain number and the Active Tx union admits 4000, which a backscatter tag
+ * cannot produce: left as a cast, such a frame would index both the SNR table and the chip table
+ * with a missing key and be silently undetectable (undefined compares false) with a NaN capture
+ * window. `ampBsReplyFrame`'s signature makes that unreachable, so this is a loud floor under a
+ * programming error, not a runtime case.
+ */
+function bsUlKbps(frame: FrameDesc): AmpBsUlKbps {
+  const kbps = frame.amp?.kbps
+  if (kbps !== 250 && kbps !== 1000) {
+    throw new Error(`channel: ${kbps} kb/s is not a backscatter uplink rate`)
+  }
+  return kbps
+}
+
 const sameGroup = (a: FrameDesc, b: FrameDesc): boolean =>
   a.orthogonalGroup !== undefined && a.orthogonalGroup === b.orthogonalGroup
 
-/** Noise bandwidth for a PPDU: an AMP UL PPDU uses its OOK-rate-dependent width; everything else the PPDU's width. */
+/**
+ * Noise bandwidth for a PPDU: an AMP UL PPDU uses its OOK-rate-dependent width; everything else
+ * the PPDU's width.
+ *
+ * A backscattered reply takes the Active Tx widths too, although its chip rate is half the
+ * Active Tx one at 250 kb/s (`AMP_BS_UL_CHIP_NS` 2 µs against `AMP_UL_CHIP_NS` 1 µs). It costs
+ * nothing here — a mono-static reader hears every reply against its own leakage floor, not
+ * against thermal noise, so this width never enters the answer — and it is deliberate rather
+ * than overlooked, because a narrower width would be a new model number with no source behind
+ * it. **A bistatic receiver (A4) falls back to thermal, and would inherit a ~3 dB optimism from
+ * this line: give a reply its own width there.**
+ */
 function ampNoiseBwMhz(frame: FrameDesc): number {
   return frame.amp?.dir === 'ul' ? AMP_UL_BW_MHZ[frame.amp.kbps as AmpUlKbps] : frame.widthMhz ?? 20
 }
@@ -245,13 +270,11 @@ function ampNoiseBwMhz(frame: FrameDesc): number {
  * quotes (3 dB at 250 kb/s), instead of quietly pulling it in to the 4 dB of a blind search.
  */
 const detectThreshDb = (frame: FrameDesc): number =>
-  frame.kind === 'ampBsReply'
-    ? AMP_BS_REQ_SNR_DB[frame.amp!.kbps as AmpBsUlKbps]
-    : PREAMBLE_DETECT_SINR_DB
+  frame.kind === 'ampBsReply' ? AMP_BS_REQ_SNR_DB[bsUlKbps(frame)] : PREAMBLE_DETECT_SINR_DB
 
 /** Decode SINR threshold for a frame as seen by receiver rid. */
 function decodeThreshDb(frame: FrameDesc, rid: string, r: RadioState): number {
-  if (frame.kind === 'ampBsReply') return AMP_BS_REQ_SNR_DB[frame.amp!.kbps as AmpBsUlKbps]
+  if (frame.kind === 'ampBsReply') return AMP_BS_REQ_SNR_DB[bsUlKbps(frame)]
   if (frame.amp?.dir === 'ul') return AMP_UL_REQ_SINR_DB[frame.amp.kbps as AmpUlKbps]
   if (frame.amp?.dir === 'dl') return r.kind !== 'wifi' ? AMP_DL_REQ_SINR_DB : sinrThreshDb(6)
   // Only a multi-user data PPDU is decoded per user; a Trigger or M-BA carries
@@ -431,11 +454,19 @@ export class Channel {
   }
 
   /** Lowest RSSI at which this radio can acquire this PPDU, or null when it cannot see it as a PPDU at all. */
-  private detectFloorDbm(rid: string, r: RadioState, frame: FrameDesc): number | null {
+  private detectFloorDbm(t: Ns, rid: string, r: RadioState, frame: FrameDesc): number | null {
     // A backscatter tag has an envelope detector and no oscillator: the reader's commands are
     // the only thing it can see, and it must be powered by them to see them at all.
     if (r.kind === 'bsTag') return frame.kind === 'ampRfid' ? r.floorDbm : null
-    if (frame.kind === 'ampBsReply') return r.ampCapable ? this.bsFloorDbm(rid, frame) : null
+    // An Active Tx tag syncs on 40 chips and an AMP-SIG; a mono-static command has neither, so
+    // it cannot see one even though both are downlink AMP PPDUs.
+    if (r.kind === 'tag' && frame.kind === 'ampRfid') return null
+    // A reflection exists only while the reader's own excitation is on the air. The window is
+    // the gate, not half-duplex: an idle reader has nothing being reflected off anything, and
+    // must not decode a reply against thermal noise.
+    if (frame.kind === 'ampBsReply') {
+      return r.ampCapable && this.bstOpenAt(rid, t) ? this.bsFloorDbm(rid, frame) : null
+    }
     if (frame.amp?.dir === 'ul') return r.ampCapable ? ampUlSensDbm(frame.amp.kbps as AmpUlKbps) : null
     if (frame.amp?.dir === 'dl') return r.kind === 'tag' ? r.floorDbm : CCA_PD_DBM
     return r.kind === 'tag' ? null : CCA_PD_DBM
@@ -444,12 +475,15 @@ export class Channel {
   /**
    * Can this radio hear anything at all right now? Half-duplex says no while it transmits — with
    * one exception, the mono-static reader. A backscattered reply *is* the reader's own excitation
-   * coming back off a tag, so it arrives inside the PPDU the reader is still transmitting, and
-   * only inside that PPDU's BST-Excitation.
+   * coming back off a tag, so it necessarily arrives inside the PPDU the reader is transmitting.
+   *
+   * Whether an excitation is actually radiating at that instant is `detectFloorDbm`'s question,
+   * not this one: it asks it of an idle reader too, so the BST window is one positive gate
+   * rather than a half-duplex side effect that stops applying the moment the reader stops
+   * transmitting.
    */
-  private listening(t: Ns, rid: string, r: RadioState, frame: FrameDesc): boolean {
-    if (!r.transmitting) return true
-    return frame.kind === 'ampBsReply' && r.ampCapable && this.bstOpenAt(rid, t)
+  private listening(r: RadioState, frame: FrameDesc): boolean {
+    return !r.transmitting || frame.kind === 'ampBsReply'
   }
 
   startTx(nodeId: string, frame: FrameDesc): void {
@@ -457,6 +491,9 @@ export class Channel {
     const me = this.radios.get(nodeId)!
     if (me.transmitting) throw new Error(`${nodeId} startTx while transmitting`)
     me.transmitting = true
+    // The medium writes on the frame it is handed: a backscattered reply has its incident power
+    // filled in here, before TX_START carries the frame into the records. Hand a fresh frame per
+    // transmission — a reused one would keep the previous round's `incidentDbm`.
     this.fillIncidentDbm(t, nodeId, frame)
 
     // Half-duplex: transmitting kills any reception in progress.
@@ -527,8 +564,8 @@ export class Channel {
   }
 
   private applyOneTx(t: Ns, rid: string, r: RadioState, tx: ActiveTx, p: number): void {
-    const floor = this.detectFloorDbm(rid, r, tx.frame)
-    const listening = this.listening(t, rid, r, tx.frame)
+    const floor = this.detectFloorDbm(t, rid, r, tx.frame)
+    const listening = this.listening(r, tx.frame)
     const canCoexist = r.locks.every((l) => sameGroup(l.frame, tx.frame))
     if (r.locks.length > 0 && !canCoexist) {
       if (listening && floor !== null && p >= floor && this.canCapture(t, r, p)) {

@@ -184,16 +184,35 @@ export function bstNs(reply: Gen2Reply | null, kbps: AmpBsUlKbps, delayedT3Ns?: 
 }
 
 /**
- * The whole downlink PPDU, excitations included: legacy preamble + U-SIG (whose L-SIG LENGTH
- * covers all of this, so Wi-Fi defers for the lot), the WUP-Excitation that boots the tags — a
- * millisecond at minimum, and only on the first PPDU of a TXOP, so `wupNs` is 0 afterwards —
- * the mono-static AMP-Sync, the command at 250 kb/s Manchester OOK, the BST-Excitation and the
- * signal extension. There is no AMP-SIG in mono-static and no padding field. SFD PM-38, PM-63,
- * PM-65 note, PM-72, PM-73
+ * Where the AMP-Sync of a downlink PPDU ends and the command begins: the legacy preamble +
+ * U-SIG, then the WUP-Excitation that boots the tags — a millisecond at minimum, and only on the
+ * first PPDU of a TXOP, so `wupNs` is 0 afterwards — then the mono-static AMP-Sync.
+ * SFD PM-38, PM-63, PM-72, PM-73
+ */
+export function ampBsSyncEndNs(wupNs: Ns): Ns {
+  return AMP_LEGACY_PREAMBLE_NS + wupNs + AMP_BS_DL_SYNC_NS
+}
+
+/**
+ * Where AMP-Data ends: the sync, then the command at 250 kb/s Manchester OOK. There is no
+ * AMP-SIG in mono-static and no padding field.
+ *
+ * This is the instant the BST-Excitation starts, the tag's answer becomes due (T1 later) and the
+ * radiated power drops from `chargeDbm` to `bsDbm` — so the medium needs it as much as the
+ * airtime does, and both take it from here rather than each composing the prefix for itself.
+ * SFD PM-65 note; 11-25/0061r0 (single DL rate)
+ */
+export function ampBsDataEndNs(cmd: Gen2Cmd, wupNs: Ns): Ns {
+  return ampBsSyncEndNs(wupNs) + ampBitsNs(ampRfidBytes(cmd) * 8, AMP_BS_DL_KBPS)
+}
+
+/**
+ * The whole downlink PPDU, excitations included: everything up to the end of AMP-Data (whose
+ * L-SIG LENGTH covers all of this, so Wi-Fi defers for the lot), the BST-Excitation and the
+ * signal extension. SFD PM-38, PM-63, PM-65 note, PM-72, PM-73
  */
 export function ampBsDlPpduNs(cmd: Gen2Cmd, wupNs: Ns, bstNs: Ns, signalExtNs: Ns): Ns {
-  return AMP_LEGACY_PREAMBLE_NS + wupNs + AMP_BS_DL_SYNC_NS
-    + ampBitsNs(ampRfidBytes(cmd) * 8, AMP_BS_DL_KBPS) + bstNs + signalExtNs
+  return ampBsDataEndNs(cmd, wupNs) + bstNs + signalExtNs
 }
 
 export interface AmpRfidArgs {
