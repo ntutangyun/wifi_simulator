@@ -488,6 +488,13 @@ describe('uwb-dl-tdoa · the clock correction', () => {
     const corrected = ofType(recs('base'), 'UWB_TDOA').filter((r) => r.node === 'badge-2' && r.block === 0)
     expect(solveTdoa(ANCHOR_POS, REF, asDeltas(corrected), TAG_Z, 0.26)).not.toBeNull()
     expect(uwbDlTdoa.quiz[1].explain.en).toContain('describes no point at all')
+    // "badge 2's first block reads 65.60, 139.29 and 201.83 ns where the truth is
+    //  −8.14, −6.07 and −18.17 ns" — the uncorrected readings themselves, in `deeper`
+    expect(first.map((r) => r.dtNs.toFixed(2))).toEqual(['65.60', '139.29', '201.83'])
+    expect(first.map((r) => r.trueDtNs.toFixed(2))).toEqual(['-8.14', '-6.07', '-18.17'])
+    const en = prose()
+    expect(en).toContain('badge 2’s first block reads 65.60, 139.29 and 201.83 ns')
+    expect(en).toContain('the truth is −8.14, −6.07 and −18.17 ns')
   })
 
   it('correction on: the worst of 21 is 0.19, 0.44 and 0.51 m, inside 3σ of 0.12 m per slot', () => {
