@@ -1,32 +1,25 @@
 /**
- * UWB Tier 3 · M15 · Narrowband-assisted multi-millisecond UWB · The narrowband radio shares 6 GHz too.
+ * UWB Tier 3 · M15 · Narrowband-assisted multi-millisecond UWB · A second radio does the talking.
  *
- * The companion to "Sixteen milliseconds of energy". That lesson put its control
- * channel in UNII-3, where nothing else lives, and said nothing about the price
- * of the second radio. This one puts it in UNII-5 — channel 200, 6301.25 MHz —
- * one of the thirty-two narrowband channels that fit inside the Wi-Fi 7 router's
- * 80 MHz on 6 GHz channel 71, and turns on the listen-before-talk rule the draft
- * brings with it. The radio is Clause 12's own O-QPSK PHY; only what is done with
- * it — the 250 channels, the control cycle, listen before talk — is 4ab draft.
+ * The first half of the old `uwb-nba`: what the narrowband control radio is for,
+ * what it says in one round, and what that costs in airtime. The coexistence
+ * half — the listen-before-talk rule, the channel plan, the hop and the price
+ * the Wi-Fi link pays — is next door in `uwb-nba-coexist`, which loads exactly
+ * this scene and these three variants, so the split adds no new scenario and the
+ * recorded hashes of the two ids are equal, value for value.
  *
- * The result is the lesson: the UWB side is flawless (4.76 m across an empty
- * room, 8/8 fragments, 34.5 dB of margin) and the session still produces one
- * range and no position in 1.3 seconds, because a busy check costs a whole
- * ranging block and a saturated 6 GHz laptop is almost never quiet. Moving the
- * control channel 250 MHz down gives everything back; hopping gives back the
- * fraction of blocks the hash puts outside; switching the rule off gives back
- * most of the ranging and charges Wi-Fi 10.95 % of its throughput for it.
- * Every number quoted below is pinned in tests/course/uwb-nba.test.ts.
- *
- * CAUTION — word budget: `lessonMinutes` rounds to 25 minutes anywhere between
- * 975 and 1724 English words across body + observe + tryThis + quiz (4 observe
- * items and 2 experiments already account for 16 of those minutes). At 1725 the
- * rounding tips to 30, and the study-time test pins that ceiling.
+ * Written to the zero-to-hero contract
+ * (docs/superpowers/specs/2026-09-21-course-readability-design.md): the two
+ * radios and the poll/response/report cycle in plain words first, the message
+ * sizes and the block-0 timeline after them, the compressed formats in `deeper`,
+ * the clause, the contributions and the model's own constants in `sources`.
+ * Every number quoted below is pinned in tests/course/uwb-nba.test.ts;
+ * `npx tsx scripts/lesson-dump.ts uwb-nba en` prints the section budgets.
  */
 import type { Scenario } from '../../model/scenario'
 import { DEFAULT_UWB_SESSION } from '../../model/scenario'
 import {
-  J, LESSON_6G_WIDTH_MHZ, N, anchor, firstNbLbt, firstNbPoll, firstNbReport, firstUwbRange,
+  J, LESSON_6G_WIDTH_MHZ, N, anchor, firstNbPoll, firstNbReport, firstUwbRange,
   firstUwbTrain, node, oneRoom, uwbSc, uwbTag, wifi6g, type Lesson,
 } from '../lessonKit'
 
@@ -47,7 +40,7 @@ export const NBA_CHANNELS: Record<UwbNbaVariant, number[]> = {
 /** Anchors on the ceiling, the tag at chest height — the two planes of every UWB lesson. */
 export const ANCHOR_Z = 2.2
 export const TAG_Z = 1.0
-/** The four corners of the 10 × 8 m room, as lesson 5 and the coexistence lesson place them. */
+/** The four corners of the 10 × 8 m room, as the positioning and coexistence lessons place them. */
 export const NBA_ANCHORS: { id: string; name: string; x: number; y: number }[] = [
   { id: 'anchor-1', name: 'Anchor 1', x: 0.5, y: 0.5 },
   { id: 'anchor-2', name: 'Anchor 2', x: 9.5, y: 0.5 },
@@ -67,7 +60,7 @@ export const LAPTOP_POS = { x: 7, y: 5 }
  * corner anchors, one tag, UWB **channel 9** so the ranging frames themselves cannot meet
  * 6 GHz Wi-Fi, and `report: 'bi'` so both ends of a pair round have a narrowband message of
  * their own to get out. Only the narrowband control radio couples with Wi-Fi here, which is
- * the point: everything that goes wrong below goes wrong on 2.5 MHz.
+ * the point: everything that goes wrong in `uwb-nba-coexist` goes wrong on 2.5 MHz.
  *
  * The Wi-Fi nodes are listed first, so the 6 GHz link is built — and its mediator decided —
  * before the ranging session asks for one.
@@ -98,57 +91,124 @@ export function uwbNbaScenario(variant: UwbNbaVariant = 'base'): Scenario {
 export const uwbNba: Lesson = {
   id: 'uwb-nba',
   module: 15,
-  title: { en: 'The narrowband radio shares 6 GHz too', zh: '窄带电台也共享 6 GHz' },
-  body: [
-    { text: {
-      en: 'The radio itself is the standard’s: the 250 kb/s O-QPSK PHY of IEEE Std 802.15.4-2024 Clause 12, and the 576 µs a 12-octet message takes comes straight from it. Everything that makes it an NBA-UWB control radio — the 250 channels, the poll/response/report cycle, the listen-before-talk rule, the block skip — is P802.15.4ab, at D5.0 in Sponsor-ballot recirculation, September 2026; that draft is members-only, so this is paraphrased from two TG4ab contributions: 15-22/0381r5 (channels, LBT, the block-wise hop) and 15-23/0100r2 (the PHY configuration and the channel counts). The balloted draft may differ. One layer is regulation — the −75 dBm/MHz threshold the draft takes from ETSI EN 303 687 — and the rest is model: the channel-centre formula is reconstructed from the published counts and band edges, the block-wise hop uses the simulator’s own string hash where the draft specifies AES-128-CTR keyed by the session seed, and one instantaneous power reading stands in for the draft’s 9 µs assessment.',
-      zh: '电台本身是标准里的：IEEE Std 802.15.4-2024 第 12 章那部 250 kb/s 的 O-QPSK PHY，一帧 12 字节的消息要用 576 µs，这个数字就直接出自它。真正把它变成 NBA-UWB 控制电台的那些东西——250 个信道、轮询/响应/报告的周期、先听后发规则、跳过整块——才来自 P802.15.4ab：截至 2026 年 9 月仍处于 Sponsor 投票再循环阶段，版本 D5.0；该草案仅对会员开放，所以这里改写自 TG4ab 的两篇提案文稿：15-22/0381r5（信道规划、先听后发规则与按块跳变）与 15-23/0100r2（PHY 配置与信道数目）。已投票的草案可能与之不同。其中只有一层来自法规——草案援引 ETSI EN 303 687“基于帧的设备”规则所给的 −75 dBm/MHz 能量检测门限——其余都是模型：信道中心频率的公式是依据已公开的信道数目与频段边界反推出来的；按块跳变用的是仿真器自己的字符串散列，而草案规定的是以会话种子为密钥的 AES-128-CTR；草案要求评估至少 9 µs，这里以一次瞬时功率读数代之。',
+  title: { en: 'A second radio does the talking', zh: '另一部电台负责开口说话' },
+  why: {
+    en: 'A ranging device measures time; it does not negotiate. Somebody still has to say who is asking whom, and whether the answer was heard at all. Doing that on the wide ranging radio would spend its airtime on words instead of on measurements. So the device carries a second, much smaller radio beside it, and this lesson follows what that radio says in one round.',
+    zh: '测距设备做的是量时间，它并不商量事情。可总得有人说清楚：是谁在问谁，对方到底有没有听见。若把这些话交给那部宽带测距电台去说，它的空口时间就会花在字句上，而不是花在测量上。于是设备在它旁边又带了一部小得多的电台。这一课要跟着这部小电台，听它在一轮测距里究竟说了些什么。',
+  },
+  outcomes: [
+    { en: 'name the three messages the small radio sends in one round, in order',
+      zh: '按顺序说出小电台在一轮里发的那三条消息' },
+    { en: 'say why the timing and the talking travel on two different radios',
+      zh: '说清为什么“计时”和“说话”要分在两部电台上走' },
+    { en: 'read one of those messages off the timeline and give its length in microseconds',
+      zh: '从时间线上读出其中一条消息，并说出它占了多少微秒' },
+  ],
+  needs: ['uwb-mms'],
+  terms: [
+    { term: 'narrowband', plain: {
+      en: 'a radio using a thin slice of spectrum: slow, but it reaches far and costs almost nothing',
+      zh: '只占一薄片频谱的电台：速率很低，但传得远，也几乎不花什么成本',
     } },
-    { heading: { en: 'Two hundred and fifty channels of 2.5 MHz', zh: '二百五十个 2.5 MHz 信道' }, text: {
-      en: 'The narrowband radio has 250 channels 2.5 MHz wide: 50 in UNII-3 from 5726.25 MHz up, and 200 in UNII-5 — the 6 GHz Wi-Fi band — from 5926.25 MHz up. One 20 MHz Wi-Fi channel covers eight of them, and this Wi-Fi 7 router’s 80 MHz (channel 71 of the 6 GHz plan, 6265 to 6345 MHz) wholly contains thirty-two, numbers 186 to 217. The session’s control channel is 200, at 6301.25 MHz — one of the thirty-two. Channel 100 would be 6051.25 MHz, with 212.5 MHz of empty spectrum between its upper edge and the router’s.',
-      zh: '窄带电台共有 250 个信道，每个 2.5 MHz：UNII-3 里 50 个，自 5726.25 MHz 起；UNII-5——也就是 6 GHz Wi-Fi 频段——里 200 个，自 5926.25 MHz 起。一个 20 MHz 的 Wi-Fi 信道能盖住其中八个；而这台 Wi-Fi 7 路由器的 80 MHz——6 GHz 信道表的 71 号信道，6265 至 6345 MHz——整整包住三十二个，编号 186 到 217。本会话的控制信道是 200 号，中心 6301.25 MHz，正是那三十二个之一。若改用 100 号，中心是 6051.25 MHz，其上边沿与路由器的下边沿之间隔着 212.5 MHz 的空白频谱。',
+    { term: 'NB', plain: {
+      en: 'how the log labels anything belonging to that second radio',
+      zh: '日志里凡是属于那部小电台的东西，都用这两个字母打头',
     } },
-    { kind: 'formula', heading: { en: 'The rule the band comes with', zh: '这个频段附带的规则' }, text: {
-      en: 'threshold = −75 dBm/MHz + 10·log10(2.5 MHz) = −71.02 dBm\n20 dBm over 80 MHz → 20 + 10·log10(2.5 / 80) = 4.95 dBm inside one narrowband channel\n4.95 − (46.7 + 30·log10 d + 1.2) = −71.02  →  d = 8.62 m',
-      zh: 'threshold = −75 dBm/MHz + 10·log10(2.5 MHz) = −71.02 dBm\n20 dBm 摊在 80 MHz 上 → 20 + 10·log10(2.5 / 80) = 4.95 dBm 落在一个窄带信道内\n4.95 − (46.7 + 30·log10 d + 1.2) = −71.02  →  d = 8.62 m',
-    }, note: {
-      en: 'Before each narrowband transmission the device assesses the channel for at least 9 µs and stays silent at −75 dBm/MHz or more — over 2.5 MHz, −71.02 dBm. The three lines are arithmetic, not a measurement: an 80 MHz PPDU at 20 dBm puts 4.95 dBm into any 2.5 MHz slice of itself, and under the Wi-Fi link’s own indoor law it crosses the threshold 8.62 m away. Inside that radius the check stops being about distance.',
-      zh: '每次窄带发射之前，设备要对信道评估至少 9 µs，若读数达到 −75 dBm/MHz 就不许发；摊到整个 2.5 MHz 上，这个门限是 −71.02 dBm。上面三行是算术，不是测量：20 dBm 的 80 MHz PPDU 在自己带内任意 2.5 MHz 的一片里都是 4.95 dBm，按 Wi-Fi 链路自己的室内传播律，它在离接入点 8.62 m 处跨过门限。在这个半径之内，这项检测就与距离无关了。',
+    { term: 'Poll', plain: {
+      en: 'the message that opens a round: the asker names the device it wants to measure against',
+      zh: '开启一轮的那条消息：发问的一方点名说它要和谁量距离',
     } },
-    { heading: { en: 'A check that only asks who is talking', zh: '只问“此刻谁在发”的检测' }, text: {
-      en: 'The tag at (4.00, 3.50, 1.00) and the router at (5.00, 4.00, 2.00) are √(1² + 0.5² + 1²) = 1.50 m apart, well inside the 8.62. An 80 MHz PPDU from the router reads −48.23 dBm there, 22.8 dB over the threshold; the router’s 20 MHz control frames read −42.21 dBm; the laptop, 3.35 m away at 15 dBm, reads −63.72, still 7.3 dB over. So the check only discovers whether anyone is on the air just then — and the laptop is saturated.',
-      zh: '标签站在 (4.00, 3.50, 1.00)，路由器在 (5.00, 4.00, 2.00)：√(1² + 0.5² + 1²) = 1.50 m，远在 8.62 m 之内。路由器的 80 MHz PPDU 在那里是 −48.23 dBm，高出门限 22.8 dB；它的 20 MHz 控制帧是 −42.21 dBm；笔记本在 3.35 m 外以 15 dBm 发射，是 −63.72 dBm，仍高出 7.3 dB。于是这项检测能查出的只有一件事：此刻是否恰好有人在发——而那台笔记本是饱和的。',
+    { term: 'Response', plain: {
+      en: 'the answer that says the poll was heard, so both ends know the round is really on',
+      zh: '回说“我听见了”的那条消息，两端由此都确认这一轮真的开始了',
     } },
-    { heading: { en: 'What one busy check costs', zh: '一次“忙”的代价' }, text: {
-      en: 'A busy check is not a deferral: the draft’s discontinuation rule stops that device’s narrowband transmissions for the rest of the block, and with no POLL there is no cycle. At t = 0 the channel is clear: POLL, RESP at 1.000 ms, eight fragments each way at 34.5 dB of margin — anchor 1 is 4.76 m off — and the anchor’s REPORT at 12.000 ms gives the tag the only range of the run. Then at 13.000 ms the tag’s own report slot finds the channel busy, and block 0 is over for the tag: rounds 1 to 3 run, but it says nothing in them.',
-      zh: '一次“忙”不是一次退避：按草案的中止规则，该设备在本测距块剩下的时间里不再发出任何窄带帧；而没有 POLL，整个周期根本不会发生。t = 0 时信道恰好空闲，POLL 发了出去，1.000 ms 处 RESP 作答，八个片段来回穿过房间，余量 34.5 dB——anchor-1 才 4.76 m 远，UWB 这一侧从来不成问题——12.000 ms 处锚点的 REPORT 让标签拿到了整段运行里唯一一次测距。接着 13.000 ms，标签自己的报告时隙读到了“忙”，第 0 个块对标签而言就此结束：第 1 到 3 轮照跑，只是它在里面什么也不说。',
+    { term: 'Report', plain: {
+      en: 'the closing message: it carries the reply time the distance is computed from',
+      zh: '收尾的那条消息：它捎回用来算距离的那段回复时延',
     } },
-    { kind: 'table', heading: { en: 'Four ways to place one control channel', zh: '同一个控制信道的四种放法' }, head: [
-      { en: 'Scene', zh: '场景' }, { en: 'Narrowband channel', zh: '窄带信道' },
-      { en: 'Blocks skipped', zh: '跳过的块' }, { en: 'Tag ranges', zh: '标签测距' },
-      { en: 'Fixes', zh: '定位' },
-    ], rows: [
-      [{ en: 'Inside the router’s channel', zh: '落在路由器的信道之内' }, N('200 · 6301.25 MHz'), N('7 of 7'), N('1'), N('0')],
-      [{ en: 'Outside it', zh: '避开它' }, N('100 · 6051.25 MHz'), N('0'), N('28'), N('7')],
-      [{ en: 'Hopping over four', zh: '在四个信道间跳变' }, N('100 / 150 / 200 / 210'), N('4 of 7'), N('13'), N('3')],
-      [{ en: 'Inside it, no listening', zh: '落在之内，且不先听' }, N('200 · 6301.25 MHz'), N('0'), N('21'), N('5')],
+  ],
+  picture: [
+    { heading: { en: 'Two radios, two jobs', zh: '两部电台，两份差事' }, text: {
+      en: 'A ranging frame is built to be placed in time, not to carry words. Ask it to hold a conversation as well and every sentence eats airtime the measurement wanted. So the device carries a second radio beside the wide one: a narrowband radio, on a thin slice of spectrum, slow but cheap and far-reaching. The wide radio keeps the timing; the small one does the talking, and the log marks everything of its own with NB.',
+      zh: '一帧测距帧生来是为了在时间上占住一个位置，而不是为了捎话。若还要它顺便把话也说了，每一句都要吃掉本该留给测量的空口时间。于是设备在那部宽带电台旁边又放了一部：一部窄带电台，只占一薄片频谱，速率低，却便宜、传得远。宽带那部管计时，小的这部管说话；日志里凡是它的东西，都以 NB 打头。',
+    } },
+    { kind: 'steps', heading: { en: 'What the small radio says in one round', zh: '一轮里小电台说的话' }, items: [
+      { en: 'Poll — the asker opens the round and names the device that should answer',
+        zh: 'Poll——发问的一方开启这一轮，并点名该由谁作答' },
+      { en: 'Response — the named device says it heard, so both ends know the round is on',
+        zh: 'Response——被点名的一方说自己听见了，两端于是都知道这一轮成立' },
+      { en: 'then the fragments, on the wide radio: the only part of the round that is measured',
+        zh: '接着是那串片段，走宽带电台：整轮里唯一被真正测量的部分' },
+      { en: 'Report — the answering device sends back its reply time, and the asker turns the pair of stamps into a distance',
+        zh: 'Report——作答的一方把自己的回复时延捎回来，发问的一方据此把两个时间戳变成一个距离' },
     ] },
-    { heading: { en: 'Hopping averages; it does not avoid', zh: '跳变是在平均，不是在躲开' }, text: {
-      en: 'The allow list [100, 150, 200, 210] holds two channels outside the router’s 80 MHz and two inside — 6326.25 MHz is inside too. Block b takes list[hash(“7:b”) mod 4], giving 100, 210, 200, 150, 100, 210, 200 over the run. Blocks 0, 3 and 4 land outside and run in full; 1, 2, 5 and 6 land inside and are skipped, though block 5 gets a range out before its report slot is stopped. Three fixes instead of seven: hopping buys the share of blocks the hash puts somewhere quiet.',
-      zh: '允许列表 [100, 150, 200, 210] 里有两个信道在路由器的 80 MHz 之外，两个在之内——6326.25 MHz 同样落在里面。第 b 块取 list[hash(“7:b”) mod 4]，在这段运行的七个块上依次给出 100、210、200、150、100、210、200。第 0、3、4 块落在外面，完整跑完；第 1、2、5、6 块落在里面，被跳过，其中第 5 块在报告时隙被拦下之前还发出了一次测距。七次定位变成三次：跳变买到的，恰好是散列把多少个块丢到清静处的那个比例。',
+    { kind: 'watch', jump: 0, heading: { en: 'Hear the round open', zh: '听这一轮怎么开场' }, text: {
+      en: 'Load the simulation and press play, then jump to the first narrowband message. It goes out before any ranging frame does: a round is arranged on the small radio first and only then measured on the wide one.',
+      zh: '载入仿真、按下播放，然后跳到第一条窄带消息。它出现在任何一帧测距帧之前：一轮测距总是先在小电台上谈妥，之后才在宽带电台上量出来。',
     } },
-    { heading: { en: 'What the narrowband radio costs Wi-Fi', zh: '窄带电台让 Wi-Fi 付出什么' }, text: {
-      en: 'In “Sharing 6 GHz” a ranging frame’s −14 dBm, spread over 499.2 MHz, only trips Wi-Fi’s −62 dBm energy detection within about 40 cm. This radio is different: 10 dBm inside 2.5 MHz, free space at 6301.25 MHz, and 10 − 48.44 − 20·log10 d = −62 puts the radius at 15.07 m, longer than the room. Every narrowband frame is audible here. No record names the emitter, so count the clear-channel transitions that go busy on energy alone inside a narrowband frame: 44 in 1.3 seconds with the rule off — a 576 µs POLL or RESP, a 608 µs REPORT — against none in the uncoupled scene. Not 108 twice over: a radio already busy or transmitting makes no new transition.',
-      zh: '在《共享 6 GHz》里，一个测距帧的 −14 dBm 摊在 499.2 MHz 上，只在约 40 cm 以内才能触动 Wi-Fi 的 −62 dBm 能量检测。这部电台完全是另一种东西：10 dBm 全落在 2.5 MHz 内，按 6301.25 MHz 的自由空间传播，10 − 48.44 − 20·log10 d = −62 给出的半径是 15.07 m，比房间还长。这里每一个窄带帧，每一台 Wi-Fi 收发机都听得见。没有任何记录会写明“是谁在发”，所以改数另一件事：落在某个窄带帧期间、且仅因能量而转为“忙”的那些 CCA 跳变——关掉规则后，1.3 秒里 44 次，而能触发它们的只有一帧 576 µs 的 POLL 或 RESP、或一帧 608 µs 的 REPORT；而在不耦合的那个场景里一次也没有。不是 108 的两倍，因为本来就忙着、或正在发的收发机，根本不会再跳一次。',
+    { heading: { en: 'Why not simply say it on the wide radio', zh: '为什么不干脆在宽带电台上说' }, text: {
+      en: 'It could. But a ranging frame’s value is that both ends can name one edge of it to a fraction of a chip, and every byte of conversation pushed into it lengthens the frame without making that edge any sharper. The narrowband radio is slower per byte and still cheaper, because its bytes are not paid for out of the measurement.',
+      zh: '也不是不行。只是一帧测距帧的价值，在于两端都能把它的某一道边沿说到码片的零头；而往里塞进去的每一个字节，只会让帧更长，却半点也不会让那道边沿更锐利。窄带电台论字节更慢，可它反而更便宜——因为它的字节不是从测量里扣出来的。',
+    } },
+    { heading: { en: 'One block, from the outside', zh: '从外面看一个块' }, text: {
+      en: 'Watch one ranging block and the shape is easy to see. The poll leaves at the very start; the answer follows a slot later; the fragments cross the room in between; and about twelve milliseconds in the closing message arrives and the asker finally has a distance. Four rounds like that fill a block, one for each anchor in the room.',
+      zh: '盯住一个测距块看，形状就很清楚了。Poll 在最开头出发；一个时隙之后，作答的那条消息跟上；片段在这期间穿过房间；大约第十二毫秒上，收尾的那条消息到达，发问的一方这才终于拿到一个距离。四轮这样的对话填满一个块，房间里每个锚点各占一轮。',
+    } },
+    { heading: { en: 'And then the room goes quiet', zh: '然后房间就安静了' }, text: {
+      en: 'In this scene that happens exactly once. The small radio is sharing its slice of spectrum with the Wi-Fi router overhead, and the rule that comes with that band takes the rest of the run away from it. Nothing is wrong with either measurement; the talking simply stops. That is the next lesson, “The narrowband radio shares 6 GHz too”.',
+      zh: '在本课的场景里，这件事只发生了一次。那部小电台与头顶的 Wi-Fi 路由器共用着同一薄片频谱，而这个频段附带的规则，把这段运行余下的时间全从它手里拿走了。两边的测量都没毛病，只是话说不出去了。这正是下一课《窄带电台也共享 6 GHz》要讲的事。',
+    } },
+  ],
+  numbers: [
+    { kind: 'table', heading: { en: 'The three messages of a round', zh: '一轮里的三条消息' }, head: [
+      { en: 'Message', zh: '消息' }, { en: 'Size', zh: '大小' }, { en: 'On the air', zh: '占用空口' },
+      { en: 'What it carries', zh: '捎的是什么' },
+    ], rows: [
+      [N('Poll'), N('12 B'), N('576.0 µs'), { en: 'who is asking, and of whom', zh: '谁在问，问的是谁' }],
+      [N('Response'), N('12 B'), N('576.0 µs'), { en: 'the poll was heard', zh: 'Poll 已经听到了' }],
+      [N('Report'), N('13 B'), N('608.0 µs'), { en: 'the reply time, five octets of it', zh: '回复时延，占其中五个字节' }],
+    ] },
+    { kind: 'formula', heading: { en: 'Where 576 µs comes from', zh: '576 µs 是怎么来的' }, text: {
+      en: '(10 + 2 + 2 × octets) symbols × 16 µs\n12 octets → 36 × 16 = 576 µs      13 octets → 38 × 16 = 608 µs',
+      zh: '(10 + 2 + 2 × 字节数) 个符号 × 16 µs\n12 字节 → 36 × 16 = 576 µs      13 字节 → 38 × 16 = 608 µs',
+    }, note: {
+      en: 'Four bits ride on each symbol and a symbol lasts 16 µs, which is 250 kb/s. Two symbols carry an octet, and twelve symbols of header go in front of the message. So the shortest thing this radio can say still holds the air for more than half a millisecond.',
+      zh: '每个符号载四个比特，一个符号持续 16 µs，也就是 250 kb/s。一个字节要两个符号，而消息前面还有十二个符号的头部。于是这部电台哪怕说最短的一句话，也要占住空口半毫秒有余。',
     } },
     { text: {
-      en: 'Listening does not make a narrowband frame harmless, only rarer. With the rule on, six reach the air in 1.3 seconds and five Wi-Fi PPDUs fail behind them; with it off, 108 and 87. The laptop’s throughput drops from 407.215 Mb/s to 362.631, a loss of 10.95 %. The model’s simplification shows: one reading at the slot start says nothing about the 576 µs that follow, so a PPDU beginning during a narrowband frame lands on it anyway.',
-      zh: '而“先听”并不能让一个窄带帧变得无害——它只是让这样的帧变少。规则开着时，1.3 秒里只有六个窄带帧上了空口，其后有五个 Wi-Fi PPDU 解调失败；关掉之后，108 个上了空口，87 个失败：两边的比例差不多，而笔记本的吞吐从 407.215 Mb/s 掉到 362.631 Mb/s，损失 10.95 %。这里露出来的正是模型自身的简化：时隙开头的一次功率读数，对随后的 576 µs 什么也没说，于是在窄带帧中途开始的那个 PPDU，照样撞了上去。',
+      en: 'The first block, message by message: the poll leaves at zero, the response answers at 1.000 ms, the anchor’s report goes out at 12.000 ms, and the distance appears 608 µs behind it, at 12.608 ms.',
+      zh: '第一个块，逐条消息看过去：Poll 在零时刻出发，Response 在 1.000 ms 处作答，锚点的 Report 在 12.000 ms 处发出，而距离紧随其后 608 µs 出现，落在 12.608 ms。',
     } },
-    { heading: { en: 'Where a control channel belongs', zh: '控制信道该放在哪里' }, text: {
-      en: 'The other side of that trade is uncomfortable: with the rule off the tag gets 21 ranges and 5 fixes instead of 1 and 0. The polite configuration is the useless one, and only the regulator decides which you may ship. Hence the draft’s default allow list [3] — 5733.75 MHz, in UNII-3, where listening first is optional. A control channel does not need the band Wi-Fi is in; it needs two and a half megahertz nobody wants, and there are 250.',
-      zh: '这笔交易的另一面并不好看：把规则关掉，标签拿到的是 21 次测距、5 次定位，而不是 1 次和 0 次。守规矩的那套配置正是没用的那套，而能不能出货只由监管说了算。这也正是草案自带的默认允许列表是 [3] 的原因——5733.75 MHz，位于 UNII-3，那里先听后发是可选的，而任何 6 GHz Wi-Fi 信道都够不着。窄带控制信道并不需要待在 Wi-Fi 所在的频段里，它只需要两兆半没人要的频谱——而可选的有 250 个。',
+    { text: {
+      en: 'The grid underneath is wide: a round is 28 slots of 500 µs, so 14 ms, and a block holds four of them, one per anchor. Seven whole blocks fit in the 1.3 seconds of this run.',
+      zh: '底下那张格子铺得很宽：一轮是 28 个时隙、每个 500 µs，合 14 ms；一个块装得下四轮，每个锚点一轮。这段 1.3 秒的运行里，整整齐齐放得下七个块。',
     } },
+    { text: {
+      en: 'The wide radio is never the problem here. Both listening anchors hear 8 fragments of 8, and the two trains clear what the receiver needs by 34.5 dB and 32.0 dB.',
+      zh: '在这里，宽带那一侧从来不是问题所在。两个在听的锚点都是 8 个片段收到 8 个，两串片段分别高出接收端所需的门限 34.5 dB 与 32.0 dB。',
+    } },
+    { text: {
+      en: 'And the talking is not a rounding error. A poll and a response together hold the air for 1.152 ms, while any single fragment of the train they set up is shorter than either of them on its own.',
+      zh: '而“说话”这件事，绝不是个可以忽略的零头。一条 Poll 加一条 Response 合起来占住空口 1.152 ms，而它们所安排的那串片段里，任何一个片段单拿出来都比它们中的任何一条更短。',
+    } },
+  ],
+  deeper: [
+    { heading: { en: 'What is actually in those twelve bytes', zh: '那十二个字节里究竟装了什么' }, text: {
+      en: 'None of the three messages carries a full 802.15.4 header. Each is a compressed payload: one message-ID octet (0x04 for a poll, 0x05 for a response, 0x06 and 0x07 for the two directions of a report), the fields that message needs, and a two-octet CRC. A report spends five of its thirteen octets on the time itself — the responder’s reply time, or the initiator’s turnaround time — and the responder’s copy adds a payload-length octet with no payload behind it, which is why it is thirteen octets against the poll’s twelve.',
+      zh: '这三条消息都不带完整的 802.15.4 帧头。每一条都是一份压缩过的载荷：一个字节的消息 ID（Poll 是 0x04，Response 是 0x05，Report 的两个方向分别是 0x06 与 0x07），加上这条消息真正需要的那几个字段，末尾再跟两个字节的 CRC。一条 Report 把十三个字节里的五个花在时间本身上——应答方的回复时延，或发起方的转向时间——而应答方那一份还多带一个“载荷长度”字节，后面却并没有载荷，这就是它比 Poll 多出一个字节的原因。',
+    } },
+    { heading: { en: 'Why a slow radio is the right radio', zh: '为什么慢的那部才是对的那部' }, text: {
+      en: '250 kb/s sounds absurd next to a ranging channel 499.2 MHz wide. But the control plane needs range and reliability, not rate: the modelled receiver hears down to −100 dBm and the transmitter puts out 10 dBm, so a control message crosses a building where a ranging fragment would not. The device also gets to keep the wideband front end asleep between blocks, which is most of why a ranging tag lasts a year on a coin cell.',
+      zh: '和一条 499.2 MHz 宽的测距信道摆在一起，250 kb/s 听上去荒唐。可控制面要的是距离和可靠，而不是速率：模型里的接收端能听到 −100 dBm，发射端则发 10 dBm，于是一条控制消息能穿过整栋楼，而一个测距片段做不到。何况这样一来，设备在两个块之间还能让宽带前端继续睡着——测距标签靠一颗纽扣电池撑上一年，多半就是这么来的。',
+    } },
+  ],
+  sources: [
+    { en: 'The radio itself is the standard’s: the 250 kb/s O-QPSK PHY of IEEE Std 802.15.4-2024 Clause 12, 32 chips to a symbol at 0.5 µs each and four bits on every symbol. The 576 µs of a 12-octet message falls straight out of those numbers.',
+      zh: '电台本身出自标准：IEEE Std 802.15.4-2024 第 12 章那部 250 kb/s 的 O-QPSK PHY，一个符号 32 个码片、每个码片 0.5 µs，每个符号载四个比特。一条 12 字节消息的 576 µs，正是从这几个数里直接算出来的。' },
+    { en: 'Everything that turns it into a control radio for ranging — the poll/response/report cycle and the compressed message formats — is P802.15.4ab, at D5.0 in Sponsor-ballot recirculation in September 2026. That draft is members-only, so this is paraphrased from two TG4ab contributions: 15-22/0381r5 (the cycle and the message tables) and 15-23/0100r2 (the PHY configuration). The balloted draft may differ.',
+      zh: '而把它变成一部测距控制电台的那些东西——轮询/响应/报告的周期，以及压缩后的消息格式——都来自 P802.15.4ab：截至 2026 年 9 月仍处于 Sponsor 投票再循环阶段，版本 D5.0。该草案仅对会员开放，所以这里是改写自 TG4ab 的两篇提案文稿：15-22/0381r5（周期与消息字段表）与 15-23/0100r2（PHY 配置）。已投票的草案可能与之不同。' },
+    { en: 'Model choices: the ten preamble-and-marker symbols and two header symbols in front of every message, the receiver’s −100 dBm sensitivity (the standard’s own floor for this PHY is −85 dBm) and the 10 dBm a control transmission goes out at. The 28-slot round and the 200 ms block are the session’s settings, not the standard’s.',
+      zh: '以下是模型取值：每条消息前面那十个前导与标记符号、两个头部符号；接收端 −100 dBm 的灵敏度（标准对这部 PHY 给出的底线是 −85 dBm）；以及一次控制发射所用的 10 dBm。28 个时隙一轮、200 ms 一个块，则是本会话的参数设置，并非标准规定。' },
   ],
   scenario: () => uwbNbaScenario('base'),
   variants: [
@@ -157,58 +217,45 @@ export const uwbNba: Lesson = {
     { label: { en: 'No LBT', zh: '不先听后发' }, scenario: () => uwbNbaScenario('noLbt') },
   ],
   jumps: [
-    J('the narrowband poll that opens the round', '打开轮次的那帧窄带 POLL', firstNbPoll),
+    J('the narrowband poll that opens the round', '打开轮次的那帧窄带 Poll', firstNbPoll),
     J('what the far end made of the train', '对端如何判定这一串片段', firstUwbTrain),
-    J('the narrowband report that closes it', '收尾的那帧窄带 REPORT', firstNbReport),
-    J('the one range of the whole run', '整段运行里唯一的一次测距', firstUwbRange),
-    J('the busy check that ends the block', '终结这个块的那次“忙”检测', firstNbLbt),
+    J('the narrowband report that closes it', '收尾的那帧窄带 Report', firstNbReport),
+    J('the one distance of the whole run', '整段运行里唯一的一个距离', firstUwbRange),
   ],
   observe: [
-    { en: 'At t = 0 the round opens on the other radio: “uwb-1 → anchor-1 NBPOLL 12 B @0.25 Mbps (576.0 µs)”. Channel 200 is in UNII-5, so listening first is not optional — the POLL went out because that instant was clear, not because nothing checked.',
-      zh: 't = 0 处，这一轮是在另一部电台上开场的：“uwb-1 → anchor-1 NBPOLL 12 B @0.25 Mbps (576.0 µs)”。200 号信道在 UNII-5，所以先听后发不是可选项——这帧 POLL 发得出去，是因为那一瞬间恰好空闲，而不是因为没人检测。' },
-    { en: 'At 13.000 ms the tag’s own report slot: “uwb-1 NB LBT busy on ch 200: -63.7 dBm ≥ -71.0 — skipping the block”. Nothing of the tag’s is heard again until block 1: anchor 1 prints “anchor-1 UWB slot 26: no nb-report from uwb-1” at 14.000 ms, anchor 2 “anchor-2 UWB slot 0: no nb-poll from uwb-1” at 15.000 ms.',
-      zh: '13.000 ms 处轮到标签自己的报告时隙：“uwb-1 NB LBT busy on ch 200: -63.7 dBm ≥ -71.0 — skipping the block”。此后直到第 1 个块，空口上再也听不到标签。14.000 ms 处 anchor-1 印出 “anchor-1 UWB slot 26: no nb-report from uwb-1”，15.000 ms 处 anchor-2 印出 “anchor-2 UWB slot 0: no nb-poll from uwb-1”。' },
-    { en: 'The tag’s inspector reads “200 · 6301.25 MHz” and, under listen before talk, “7 busy · 7 blocks skipped”. Its two train rows are untouched: 8 / 8 heard, +34.5 and +32.0 dB, detected. Nothing is wrong with the UWB side.',
-      zh: '标签的检视面板上写着 “200 · 6301.25 MHz”，而“先听后发”一行是 “7 次忙 · 跳过 7 个块”——运行中的七个块里，每个都有一次判忙。它那两行片段序列却纹丝不动：8 / 8 收到，+34.5 dB 与 +32.0 dB，检出。UWB 这一侧一点毛病也没有。' },
-    { en: 'The one that worked: “uwb-1 range → anchor-1 (SS): 4.74 m (true 4.76 m, raw 7.51 m)” at 12.608 ms. One range in 1.3 seconds and no position — a fix needs three — against 29 timeouts. Anchors 1 and 2 have a busy check too, in block 3.',
-      zh: '唯一成功的一件事：12.608 ms 处的 “uwb-1 range → anchor-1 (SS): 4.74 m (true 4.76 m, raw 7.51 m)”。1.3 秒里一次测距，一次定位也没有——解一个定位要三次测距——而超时有 29 次。anchor-1 与 anchor-2 也各有一次判忙，都发生在第 3 个块。' },
+    { en: 'The round opens on the other radio: “uwb-1 → anchor-1 NBPOLL 12 B @0.25 Mbps (576.0 µs)”. It is the first thing in the whole run — no ranging frame has been sent yet.',
+      zh: '这一轮是在另一部电台上开场的：“uwb-1 → anchor-1 NBPOLL 12 B @0.25 Mbps (576.0 µs)”。它是整段运行里的第一件事——那时还没有任何一帧测距帧发出去。' },
+    { en: 'The answering anchor closes the round: “anchor-1 → uwb-1 NBREPORT 13 B @0.25 Mbps (608.0 µs)” at 12.000 ms. Only after that last message does the asker have anything to compute a distance from.',
+      zh: '作答的锚点为这一轮收尾：12.000 ms 处的 “anchor-1 → uwb-1 NBREPORT 13 B @0.25 Mbps (608.0 µs)”。直到这最后一条消息落地，发问的一方手里才有了算距离的材料。' },
+    { en: 'The distance follows it: “uwb-1 range → anchor-1 (SS): 4.74 m (true 4.76 m, raw 7.51 m)”. Open the tag’s inspector beside it — its fragment rows say every fragment was heard and detected.',
+      zh: '距离紧跟在它后面：“uwb-1 range → anchor-1 (SS): 4.74 m (true 4.76 m, raw 7.51 m)”。顺手打开标签的检视面板：那几行片段写着，每一个片段都收到了，也都检出了。' },
   ],
   tryThis: [
-    { en: 'Load “Outside the router’s channel”: 6051.25 MHz, and the coupling disappears — not one busy check, 28 ranges, and a fix in all seven blocks on four anchors — “uwb-1 position (3.99, 3.50) m, true (4.00, 3.50), error 0.01 m, GDOP 1.05, 4 anchors”. The Wi-Fi side is identical to a run with no ranging session: 407.215 Mb/s, not one failed PPDU. That gap cost nothing and bought everything.',
-      zh: '载入“避开路由器的信道”。100 号是 6051.25 MHz，整套耦合随之消失：一次判忙也没有，28 次测距，七个块每一块都用四个锚点解出定位——“uwb-1 position (3.99, 3.50) m, true (4.00, 3.50), error 0.01 m, GDOP 1.05, 4 anchors”。Wi-Fi 这一侧与完全没有测距会话的那次运行一模一样：407.215 Mb/s，没有一个 PPDU 失败。那一段空白频谱什么也没花掉，却把一切都买了回来。' },
-    { en: 'Now “Hop over four channels”: blocks 0, 3 and 4 land outside and give three fixes; the other four are skipped. Then “No LBT”, which stops yielding on 200 — 21 ranges and 5 fixes, and the interference runs the other way. Seven narrowband frames die at the tag, five REPORTs and two RESPs, the first “uwb-1 UWB frame from anchor-3 lost to Wi-Fi: SIR -10.9 dB (foreign -42.2 dBm)”: the router’s own 20 MHz control frame, 1.50 m away.',
-      zh: '再载入“在四个信道间跳变”：第 0、3、4 块落在外面，给出三次定位，另外四块被跳过。然后载入“不先听后发”：信道仍是 200，只是不再让路——21 次测距、5 次定位，而干扰这回反了个方向。七个窄带帧死在标签处，五帧 REPORT、两帧 RESP，头一条是 “uwb-1 UWB frame from anchor-3 lost to Wi-Fi: SIR -10.9 dB (foreign -42.2 dBm)”：那是路由器自己的 20 MHz 控制帧，就在 1.50 m 外。' },
+    { en: 'Load “Outside the router’s channel” and step through one block. The cycle runs to the end for every anchor in the room: a poll, a response, a train of fragments, a report and a distance, four times over.',
+      zh: '载入“避开路由器的信道”，把一个块一步步走完。房间里每个锚点的周期都跑到了头：一条 Poll、一条 Response、一串片段、一条 Report、一个距离，前后四遍。' },
+    { en: 'Jump to “what the far end made of the train”, read the verdict line, then jump on to the report that follows it. The wide radio reached the verdict; the small radio is what carries it home.',
+      zh: '跳到“对端如何判定这一串片段”，读一读那行判定，再往后跳到紧随其后的那条 Report。判定是宽带电台做出的，而把它捎回家的，是那部小电台。' },
   ],
   quiz: [
     {
-      q: { en: 'The tag is 1.50 m from the router and its trains clear sensitivity by 34.5 dB. Why does the base scene produce one range in 1.3 seconds?', zh: '标签离路由器只有 1.50 m，它的片段序列高出接收灵敏度 34.5 dB。为什么基础场景 1.3 秒里只测出一次距离？' },
+      q: { en: 'Which radio carries the reply time that the distance is computed from?', zh: '用来算距离的那段回复时延，是哪部电台捎回来的？' },
       options: [
-        { en: 'The fragments are buried by Wi-Fi', zh: '片段被 Wi-Fi 压住了' },
-        { en: 'Listen before talk is an energy test, not a margin test: the laptop alone reads −63.72 dBm at the tag, the router 22.8 dB over when it sends, and one busy check costs the whole block', zh: '先听后发测的是能量，不是余量：光是那台饱和的笔记本在标签处就是 −63.72 dBm，路由器一发更高出门限 22.8 dB，而一次判忙要赔上整整一个块' },
-        { en: 'The narrowband receiver is below its sensitivity at that distance', zh: '在那个距离上窄带接收机低于灵敏度' },
+        { en: 'The wide ranging radio, inside the last fragment', zh: '宽带测距电台，装在最后一个片段里' },
+        { en: 'The narrowband radio, in the Report that closes the round', zh: '窄带电台，装在收尾的那条 Report 里' },
+        { en: 'Neither — each end keeps its own stamps and never sends them', zh: '两部都不是——两端各自留着自己的时间戳，从不发出来' },
       ],
       answer: 1,
-      explain: { en: 'Both links are excellent here; what fails is a rule. Every one of the tag’s seven busy checks reads −63.72 dBm — the laptop, 3.35 m away, uploading — and the router when it sends is 22.8 dB over. Seven blocks, seven checks, seven skipped.', zh: '两条链路在这里都好得很，失败的是一条规则。标签那七次判忙，每一次读到的都是 −63.72 dBm——3.35 m 外正在上传的笔记本；而路由器一发，还要高出门限 22.8 dB。七个块，七次检测，七个被跳过。' },
+      explain: { en: 'The fragments are measured, not read: they carry an edge, not a number. The reply time travels in the report, and until it arrives the asker has half of an answer.', zh: '片段是被“量”的，不是被“读”的：它们捎的是一道边沿，不是一个数。回复时延走的是 Report，在它到达之前，发问的一方手里只有半个答案。' },
     },
     {
-      q: { en: 'Two of the four channels in the hop list sit outside the router’s 80 MHz. Which blocks survive?', zh: '跳变列表里有两个信道在路由器的 80 MHz 之外。哪些块活了下来？' },
+      q: { en: 'A twelve-byte message takes 576 µs on this radio. Why so long for so few bytes?', zh: '一条十二字节的消息，在这部电台上要 576 µs。这么几个字节，为什么要这么久？' },
       options: [
-        { en: 'Every other one — the list is used in order', zh: '每隔一个——列表是按顺序用的' },
-        { en: 'Whichever the hash picks: list[hash(“7:b”) mod 4] gives 100, 210, 200, 150, 100, 210, 200, so blocks 0, 3 and 4 survive', zh: '散列挑中哪些就是哪些：list[hash(“7:b”) mod 4] 给出 100、210、200、150、100、210、200，于是活下来的是第 0、3、4 块' },
-        { en: 'All of them — a busy channel is only used for part of a block', zh: '全都活着——一个忙信道只在块的一部分里被用到' },
+        { en: 'It is sent three times over, once per anchor', zh: '它被重发了三遍，每个锚点一遍' },
+        { en: 'Four bits ride on a 16 µs symbol — 250 kb/s — and twelve header symbols go in front', zh: '一个 16 µs 的符号只载四个比特——250 kb/s——前面还要加十二个头部符号' },
+        { en: 'It waits for the next slot boundary before it may start', zh: '它必须等到下一个时隙边界才能开始发' },
       ],
       answer: 1,
-      explain: { en: 'The draft hops with AES-128-CTR; the simulator’s hash stands in. The choice is made once per block and holds for all of it: half the list outside bought three blocks of seven.', zh: '草案用以会话种子为密钥的 AES-128-CTR 来跳变，仿真器以字符串散列代之；无论哪一种，选择都是每块一次，并且在整块之内不变。列表里一半在外面，买到的是七个块里的三个。' },
-    },
-    {
-      q: { en: 'With listen before talk off the session gets 21 ranges instead of 1. What did that cost the Wi-Fi link?', zh: '关掉先听后发之后，会话拿到 21 次测距而不是 1 次。这让 Wi-Fi 链路付出了什么？' },
-      options: [
-        { en: 'Nothing measurable — a 10 dBm narrowband frame is far below the −62 dBm threshold', zh: '没有可测的代价——10 dBm 的窄带帧远低于 −62 dBm 的门限' },
-        { en: '87 failed PPDUs and 10.95 % of the laptop’s throughput: 362.631 Mb/s against 407.215', zh: '87 个 PPDU 解调失败，以及笔记本吞吐的 10.95 %：362.631 Mb/s 对 407.215 Mb/s' },
-        { en: 'Only carrier sense: the deferrals cost time, but no PPDU is lost', zh: '只是载波侦听：退避花掉了时间，但没有 PPDU 丢失' },
-      ],
-      answer: 1,
-      explain: { en: '10 dBm in 2.5 MHz reaches −62 dBm at 15.07 m, further than this room is long. Listening does not change the damage per frame — five PPDUs behind six frames with it on, 87 behind 108 without — only how many frames there are.', zh: '2.5 MHz 里的 10 dBm 到 15.07 m 处仍有 −62 dBm，比这个房间还远，所以每台 Wi-Fi 收发机都听得见每一个窄带帧。先听并不改变“每帧造成多少损害”——开着时六个帧对应五个失败的 PPDU，关掉时 108 个对应 87 个——它改变的只是帧的数量。' },
+      explain: { en: 'Thirty-six symbols in all: two for every octet, plus twelve of header. Slow per byte is the price of a radio that reaches across a building on almost no power.', zh: '总共三十六个符号：每个字节两个，再加十二个头部符号。论字节慢，正是换来“几乎不费功率就能穿过整栋楼”的代价。' },
     },
   ],
 }
