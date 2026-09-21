@@ -83,6 +83,11 @@ export function EditorGuideEn() {
       <D t="⌂ fit">
         recenter and refit the plan. Wheel zooms, middle/right-drag pans.
       </D>
+      <D t="↶ Undo / ↷ Redo">
+        step back and forth through your edits (Ctrl+Z, Ctrl+Shift+Z or Ctrl+Y). One pointer drag is
+        one step, and the last 100 steps are kept; switching documents — a lesson scenario adopted
+        into the editor — starts a fresh history.
+      </D>
 
       <h4 style={h}>Scenario controls (menu bar)</h4>
       <D t="💾 Save / 📂 Load">browser localStorage, one slot.</D>
@@ -438,6 +443,10 @@ export function EditorGuideZh() {
       </D>
       <D t="⌂ 复位">
         重新居中并适配视图。滚轮缩放，中键/右键拖动平移。
+      </D>
+      <D t="↶ 撤销 / ↷ 重做">
+        在编辑历史中前后移动（Ctrl+Z、Ctrl+Shift+Z 或 Ctrl+Y）。一次拖动算一步，最多保留 100 步；
+        换了一份新文档（比如把课程场景采用到编辑器）会重新开始记录历史。
       </D>
 
       <h4 style={h}>场景控件（菜单栏）</h4>

@@ -9,6 +9,7 @@ import type { Generation } from '../model/types'
 import { useStrings } from '../ui/i18n'
 import { useUi } from '../ui/store'
 import { EditorGuide } from './EditorGuide'
+import { canRedo, canUndo } from './history'
 import { UwbNodeFields } from '../uwb/ui/UwbNodeFields'
 import { UwbSessionFields } from '../uwb/ui/UwbSessionFields'
 import {
@@ -54,6 +55,9 @@ const menuDivider: React.CSSProperties = { width: 1, height: 18, background: 'va
 
 export function FloorPlanEditor() {
   const { scenario, setScenario, selectedNodeId, select } = useUi()
+  const history = useUi((s) => s.history)
+  const undo = useUi((s) => s.undo)
+  const redo = useUi((s) => s.redo)
   const L = useStrings()
   const E = L.editor
   const lang = useUi((s) => s.lang)
@@ -67,6 +71,8 @@ export function FloorPlanEditor() {
   const panRef = useRef<{ x: number; y: number; cx: number; cy: number } | null>(null)
   const hostRef = useRef<HTMLDivElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+  /** Bumped per node drag: its number keys every commit of that drag into one undo step. */
+  const dragSeq = useRef(0)
 
   useEffect(() => {
     if (!view && hostRef.current) {
@@ -80,7 +86,29 @@ export function FloorPlanEditor() {
     setView(fitView(scenario, r.width, r.height))
   }
 
-  const commit = (sc: Scenario) => setScenario(sc)
+  const commit = (sc: Scenario, key?: string | null) => setScenario(sc, key)
+
+  const undoHere = () => { undo(); setSel(null) }
+  const redoHere = () => { redo(); setSel(null) }
+
+  // Shortcuts are window-wide because the plan canvas is not focusable; the
+  // editor is only mounted in edit mode, so they cannot fire over the player.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey) return
+      const el = document.activeElement as HTMLElement | null
+      const tag = el?.tagName.toLowerCase()
+      // inside a text field the browser's own undo stack is the right one
+      if (tag === 'input' || tag === 'textarea' || tag === 'select' || el?.isContentEditable) return
+      const k = e.key.toLowerCase()
+      if (k === 'z' && !e.shiftKey) undoHere()
+      else if ((k === 'z' && e.shiftKey) || k === 'y') redoHere()
+      else return
+      e.preventDefault()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [undo, redo])
 
   // ------- canvas interactions -------
   const rect = () => hostRef.current!.getBoundingClientRect()
@@ -111,6 +139,7 @@ export function FloorPlanEditor() {
       if (nid) {
         setSel({ kind: 'node', id: nid })
         setDragNode(nid)
+        dragSeq.current++
         return
       }
       const wi = hitTestWall(scenario.walls, p, px(8))
@@ -169,7 +198,7 @@ export function FloorPlanEditor() {
       const nodes = scenario.nodes.map((n) =>
         n.id === dragNode ? { ...n, pos: { ...n.pos, x: snap(p.x), y: snap(p.y) } } : n,
       )
-      commit({ ...scenario, nodes })
+      commit({ ...scenario, nodes }, `drag:${dragSeq.current}`)
     }
   }
 
@@ -311,6 +340,8 @@ export function FloorPlanEditor() {
           )
         })}
         <button onClick={resetView}>{E.tools.fit}</button>
+        <button onClick={undoHere} disabled={!canUndo(history)} title={E.undoHint}>{E.tools.undo}</button>
+        <button onClick={redoHere} disabled={!canRedo(history)} title={E.redoHint}>{E.tools.redo}</button>
         <span style={menuDivider} />
         <span style={{ color: 'var(--dim)' }}>{E.scenario}</span>
         <button onClick={() => { localStorage.setItem(LS_KEY, scenarioToJson(scenario)); setIoMsg(E.saved) }}>{E.save}</button>

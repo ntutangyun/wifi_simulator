@@ -59,7 +59,8 @@ export interface Strings {
   strip: { windowHint: string; legendCollision: string }
   legend: LegendItem[]
   editor: {
-    tools: { select: string; room: string; door: string; window: string; ap: string; sta: string; tag: string; anchor: string; uwbTag: string; fit: string }
+    tools: { select: string; room: string; door: string; window: string; ap: string; sta: string; tag: string; anchor: string; uwbTag: string; fit: string; undo: string; redo: string }
+    undoHint: string; redoHint: string
     /** Why the AP tool, the Wi-Fi device tools and 🎲 Spawn are disabled. */
     apExists: string; needApFirst: string
     scenario: string; save: string; load: string; export_: string; import_: string
@@ -379,7 +380,9 @@ export const STRINGS: Record<Lang, Strings> = {
       { color: '#fbbf24', label: 'UWB anchor', hint: 'An anchor’s answer in its ranging slot: the Response, and under DS-TWR the measurement report.' },
     ],
     editor: {
-      tools: { select: '☝ select', room: '▭ room', door: '🚪 door', window: '🪟 window', ap: '📡 AP', sta: '📱 STA', tag: '🏷 AMP tag', anchor: '📍 UWB anchor', uwbTag: '📱 UWB tag', fit: '⌂ fit' },
+      tools: { select: '☝ select', room: '▭ room', door: '🚪 door', window: '🪟 window', ap: '📡 AP', sta: '📱 STA', tag: '🏷 AMP tag', anchor: '📍 UWB anchor', uwbTag: '📱 UWB tag', fit: '⌂ fit', undo: '↶ Undo', redo: '↷ Redo' },
+      undoHint: 'undo the last edit (Ctrl+Z)',
+      redoHint: 'redo the undone edit (Ctrl+Shift+Z or Ctrl+Y)',
       apExists: 'the plan already has its AP — Wi-Fi allows exactly one',
       needApFirst: 'place an AP first: a station or an AMP tag needs one (only a plan of nothing but UWB devices may go without)',
       scenario: 'Scenario', save: '💾 Save', load: '📂 Load', export_: '⬇ Export', import_: '⬆ Import',
@@ -895,7 +898,9 @@ export const STRINGS: Record<Lang, Strings> = {
       { color: '#fbbf24', label: 'UWB 锚点', hint: '锚点在自己测距时隙内的回答：响应帧，以及 DS-TWR 下的测量报告帧。' },
     ],
     editor: {
-      tools: { select: '☝ 选择', room: '▭ 房间', door: '🚪 门', window: '🪟 窗', ap: '📡 AP', sta: '📱 终端', tag: '🏷 AMP 标签', anchor: '📍 UWB 锚点', uwbTag: '📱 UWB 标签', fit: '⌂ 复位' },
+      tools: { select: '☝ 选择', room: '▭ 房间', door: '🚪 门', window: '🪟 窗', ap: '📡 AP', sta: '📱 终端', tag: '🏷 AMP 标签', anchor: '📍 UWB 锚点', uwbTag: '📱 UWB 标签', fit: '⌂ 复位', undo: '↶ 撤销', redo: '↷ 重做' },
+      undoHint: '撤销上一步编辑（Ctrl+Z）',
+      redoHint: '重做已撤销的编辑（Ctrl+Shift+Z 或 Ctrl+Y）',
       apExists: '场景中已经有 AP 了——Wi-Fi 有且仅允许一个',
       needApFirst: '请先放置一个 AP：终端和 AMP 标签都需要 AP（只有纯 UWB 场景才可以没有）',
       scenario: '场景', save: '💾 保存', load: '📂 载入', export_: '⬇ 导出', import_: '⬆ 导入',
