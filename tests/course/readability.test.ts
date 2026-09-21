@@ -18,7 +18,7 @@ import { CITATION, KNOWN_WORDS, acronyms, enWords, numericQuantities, paragraphT
 export const MIGRATING: string[] = [
   'radio-primer', 'decode-thresholds', 'roles-stack', 'frame-anatomy', 'airtime', 'ifs', 'backoff', 'nav', 'hidden', 'anomaly',
   'retries-queues', 'bianchi', 'bianchi-vs-sim', 'tier1-project', 'edca', 'ampdu', 'txop', 'txop-protect', 'width', 'streams', 'rate',
-  'ofdma-dl', 'ofdma-ul', 'mumimo', 'mlo', 'amp-intro', 'amp-slots', 'amp-coexist', 'capstone',
+  'ofdma-dl', 'ofdma-ul', 'mumimo', 'mlo', 'amp-slots', 'amp-coexist', 'capstone',
   'uwb-sstwr', 'uwb-dstwr', 'uwb-blocks', 'uwb-position', 'uwb-coexist', 'uwb-contention', 'uwb-dl-tdoa', 'uwb-ul-tdoa', 'uwb-aoa', 'uwb-mms', 'uwb-nba',
 ]
 /** Stands in for the `terms` of radio-primer and frame-anatomy until they migrate (then delete it: the test below insists). */

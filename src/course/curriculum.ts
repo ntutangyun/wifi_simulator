@@ -80,7 +80,7 @@ export const COURSE_ORDER: string[] = [
   // Tier 2 — M7 scheduled Wi-Fi 6/7
   'ofdma-dl', 'ofdma-ul', 'mumimo', 'mlo',
   // Tier 2 — M8 ambient power IoT
-  'amp-intro', 'amp-slots', 'amp-coexist',
+  'amp-intro', 'amp-ppdu', 'amp-slots', 'amp-coexist',
   // Tier 2 — M9 real applications
   'capstone',
   // UWB Tier 1 — M11 time of flight

@@ -1,28 +1,30 @@
 /**
- * Every empirical claim in the "A station that never contends" lesson, measured
- * against the lesson's own scenario and variant. Each assertion quotes the
- * sentence it guards; standard constants are checked against the engine's
- * exports (src/engine/amp.ts, src/engine/phy.ts) rather than re-typed.
+ * Every empirical claim in the "A tag with no battery" lesson, measured against
+ * the lesson's own scenario and variant. Each assertion quotes the sentence it
+ * guards; standard constants are checked against the engine's exports
+ * (src/engine/amp.ts, src/engine/phy.ts) rather than re-typed.
+ *
+ * The frame anatomy — the PPDU's parts, the three frames' octets and airtimes,
+ * the padding, the rate scaling and the frame-detail decodes — moved with its
+ * sentences to tests/course/amp-ppdu.test.ts, along with the 1 Mb/s round.
  */
 import { describe, it, expect } from 'vitest'
-import { ampIntro } from '../../src/course/amp/amp-intro'
+import { ampIntro, ampIntroScenario } from '../../src/course/amp/amp-intro'
 import { Simulation } from '../../src/engine/simulation'
 import { ScenarioSchema, type NodeCfg, type Scenario } from '../../src/model/scenario'
 import {
-  AMP_ACK_BYTES, AMP_DL_SIG_BYTES, AMP_DL_SYNC_NS, AMP_DL_REQ_SINR_DB, AMP_LEGACY_PREAMBLE_NS,
-  AMP_PADDING_NS, AMP_PADDING_PROTECTED_NS, AMP_SIFS_NS, AMP_TAG_DL_SENS_DBM, AMP_UL_CHIP_NS,
-  AMP_UL_REQ_SINR_DB, AMP_UL_SYNC_CHIPS, ampBitsNs, ampDlPpduNs, ampRespBytes, ampTriggerBytes,
-  ampUlPpduNs, ampUlSensDbm,
+  AMP_DL_REQ_SINR_DB, AMP_PADDING_NS, AMP_PADDING_PROTECTED_NS, AMP_SIFS_NS, AMP_TAG_DL_SENS_DBM,
+  AMP_UL_REQ_SINR_DB, ampUlSensDbm,
 } from '../../src/engine/amp'
-import { ACK_TX_TIME_6M_NS, CCA_PD_DBM, CTS_BYTES, ERP_2G, SLOT_NS, txTimeNs } from '../../src/engine/phy'
+import { CCA_PD_DBM, ERP_2G, SLOT_NS } from '../../src/engine/phy'
 import { LINK_EXTRA_LOSS_DB } from '../../src/engine/simulation'
 import { buildLinkTable } from '../../src/engine/propagation'
 import { rssiOn } from './rssi'
-import { decodeFrame, ppduLayout } from '../../src/model/frameFields'
 import { applyRecord, initViewState } from '../../src/model/view'
 import { fmtRecord } from '../../src/ui/format'
 import type { TLRecord } from '../../src/model/records'
-import { OBSERVE_MINUTES, TRY_MINUTES, lessonMinutes, lessonWords } from '../../src/course/curriculum'
+import { isMigrated, type L10n } from '../../src/course/lessonKit'
+import { OBSERVE_MINUTES, TRY_MINUTES, lessonBlocks, lessonMinutes, lessonWords } from '../../src/course/curriculum'
 
 const MS = 1_000_000
 const US = 1_000
@@ -56,33 +58,84 @@ const countAt = (rs: TLRecord[], node: string, type: string) =>
   rs.filter((r) => 'node' in r && r.node === node && r.type === type).length
 
 describe('amp-intro · lesson shape', () => {
+  it('is written to the zero-to-hero contract', () => {
+    expect(isMigrated(ampIntro)).toBe(true)
+    expect(ampIntro.module).toBe(7)
+    // the first lesson of the AMP track: at most four new words, and no table in the picture
+    expect(ampIntro.terms!.map((t) => t.term)).toEqual(['AMP', 'tag', 'slot', 'ABOC'])
+    expect(ampIntro.picture!.some((b) => b.kind === 'table')).toBe(false)
+    // the reader is sent to the simulator before the mechanism is finished
+    const firstWatch = ampIntro.picture!.findIndex((b) => b.kind === 'watch')
+    expect(firstWatch).toBeGreaterThanOrEqual(0)
+    expect(firstWatch).toBeLessThan(3)
+    // it assumes Wi-Fi Tier 1 and nothing else
+    expect(ampIntro.needs).toEqual(['radio-primer', 'frame-anatomy'])
+  })
+
   it('the scenario and the variant pass the scenario schema', () => {
+    expect(ampIntro.scenario()).toEqual(ampIntroScenario({ dlKbps: 250, ulKbps: 250 }))
     expect(() => ScenarioSchema.parse(ampIntro.scenario())).not.toThrow()
     for (const v of ampIntro.variants!) expect(() => ScenarioSchema.parse(v.scenario())).not.toThrow()
   })
 
-  it('the computed study time follows the formula and stays inside the 15–25 minute target', () => {
+  it('fits one sitting: 500–1300 words on the main path, at most 20 minutes', () => {
     const raw = lessonWords(ampIntro) / 150
       + OBSERVE_MINUTES * ampIntro.observe.length + TRY_MINUTES * ampIntro.tryThis.length
     expect(lessonMinutes(ampIntro)).toBe(Math.max(5, Math.round(raw / 5) * 5))
-    expect(lessonMinutes(ampIntro)).toBeGreaterThanOrEqual(15)
-    expect(lessonMinutes(ampIntro)).toBeLessThanOrEqual(25)
+    expect(lessonWords(ampIntro)).toBeGreaterThanOrEqual(500)
+    expect(lessonWords(ampIntro)).toBeLessThanOrEqual(1300)
+    expect(lessonMinutes(ampIntro)).toBeLessThanOrEqual(20)
+    // what the reader reads before the simulator: why, outcomes, terms, picture, numbers.
+    // The split budgeted 600–900 for this lesson; observe, tryThis and quiz add the rest.
+    const prose = lessonWords({ ...ampIntro, observe: [], tryThis: [], quiz: [] })
+    expect(prose).toBeGreaterThanOrEqual(450)
+    expect(prose).toBeLessThanOrEqual(1000)
+    expect(lessonBlocks(ampIntro).length).toBe(ampIntro.picture!.length + ampIntro.numbers!.length)
   })
 
   it('every jump target occurs in the base run', () => {
     const rs = recs()
     for (const j of ampIntro.jumps) expect(rs.some(j.find), j.label.en).toBe(true)
+    for (const b of ampIntro.picture!) {
+      if (b.kind === 'watch' && b.jump !== undefined) expect(ampIntro.jumps[b.jump]).toBeDefined()
+    }
+  })
+
+  it('every string a learner reads exists in both languages', () => {
+    const seen: L10n[] = []
+    const isL10n = (o: Record<string, unknown>): o is Record<string, unknown> & L10n =>
+      typeof o.en === 'string' && typeof o.zh === 'string'
+    const walk = (x: unknown): void => {
+      if (x == null || typeof x === 'function') return
+      if (Array.isArray(x)) { x.forEach(walk); return }
+      if (typeof x !== 'object') return
+      const o = x as Record<string, unknown>
+      if (isL10n(o)) { seen.push(o); return }
+      for (const [k, v] of Object.entries(o)) if (k !== 'scenario' && k !== 'find') walk(v)
+    }
+    walk({
+      title: ampIntro.title, why: ampIntro.why, outcomes: ampIntro.outcomes, terms: ampIntro.terms,
+      picture: ampIntro.picture, numbers: ampIntro.numbers, deeper: ampIntro.deeper,
+      sources: ampIntro.sources, observe: ampIntro.observe, tryThis: ampIntro.tryThis,
+      quiz: ampIntro.quiz, variants: ampIntro.variants, jumps: ampIntro.jumps,
+    })
+    expect(seen.length).toBeGreaterThan(40)
+    for (const l of seen) {
+      expect(l.en.trim().length, l.en).toBeGreaterThan(0)
+      expect(l.zh.trim().length, l.en).toBeGreaterThan(0)
+      if (/[a-z]{3,}\s+[a-z]{3,}/.test(l.en)) expect(l.zh, l.en).not.toBe(l.en)
+    }
   })
 
   it('the scene is one router and two tags, and nothing else', () => {
-    // "The scene is one router and two battery-free tags, with no Wi-Fi traffic at all, so the round
-    //  stands alone." / "here a Wi-Fi 7 router, because the downlink AMP PPDU carries a U-SIG field."
+    // "One router, two battery-free tags, no other Wi-Fi traffic: the round stands alone." /
+    //  sources: "The router is a Wi-Fi 7 device because the downlink AMP PPDU carries a U-SIG field."
     const s = ampIntro.scenario()
     expect(s.nodes.map((n) => n.kind)).toEqual(['ap', 'amp', 'amp'])
     expect(s.nodes[0].caps.generation).toBe('eht')
     expect(s.nodes.every((n) => n.profiles.every((p) => p === 'idle'))).toBe(true)
     expect(s.nodes[0].ampAp).toMatchObject({ pollIntervalMs: 100, slots: 4, acwe: 2, dlKbps: 250, ulKbps: 250, protection: 'ctsSelf', readMode: 'inline' })
-    // "The tag transmits at 0 dBm against the router’s 20 dBm"
+    // deeper: "The tag answers at 0 dBm against the router’s 20 dBm"
     expect(s.nodes[0].txPowerDbm).toBe(20)
     expect(s.nodes.slice(1).map((n) => n.txPowerDbm)).toEqual([0, 0])
     // the variant labelled "1 Mb/s both ways"
@@ -92,109 +145,27 @@ describe('amp-intro · lesson shape', () => {
 
 describe('amp-intro · standard constants', () => {
   it('AMP SIFS is 10 µs, exactly the 2.4 GHz SIFS a Wi-Fi radio already uses', () => {
-    // "In 2.4 GHz that SIFS is 10 µs, exactly the AMP SIFS the draft specifies (SFD PM-96)"
+    // numbers: "Every gap here is 10 µs." / sources: "The 10 µs AMP SIFS is SFD PM-96, and it
+    //  happens to equal the SIFS 2.4 GHz Wi-Fi already uses."
     expect(AMP_SIFS_NS).toBe(10 * US)
     expect(ERP_2G.sifsNs).toBe(AMP_SIFS_NS)
-    // "a clock good enough to count 9 µs slots"
+    // "a clock good enough to count 9 µs slots" (the picture's carrier-sense reminder)
     expect(SLOT_NS).toBe(9 * US)
     expect(ERP_2G.slotNs).toBe(SLOT_NS)
   })
 
-  it('padding is 20 µs unprotected and 36 µs protected, and every frame here is unprotected', () => {
-    // "The padding buys that time where it costs only airtime: 20 µs unprotected, 36 µs protected" /
-    // "Every AMP frame in this slice is unprotected, so every one pads 20 µs." / "a protected AMP frame,
-    //  which means an encrypted one and pads 36 µs instead of 20"
+  it('a protected AMP frame pads 36 µs where an unprotected one pads 20 µs', () => {
+    // "Going deeper": "Protecting the round is not the same thing as a protected AMP frame, which
+    //  means an encrypted one and pads 36 µs instead of 20."
+    // The padding mechanism itself — why it is there, and that every frame in this scene is
+    // unprotected — is pinned next door in tests/course/amp-ppdu.test.ts.
     expect(AMP_PADDING_NS).toBe(20 * US)
     expect(AMP_PADDING_PROTECTED_NS).toBe(36 * US)
-    const dl = ofType(recs(), 'TX_START').filter((r) => r.frame.amp?.dir === 'dl')
-    expect(dl.length).toBe(50) // 10 triggers + 40 Acks
-    for (const r of dl) expect(r.frame.amp!.padNs).toBe(AMP_PADDING_NS)
-    expect(dl.some((r) => r.frame.amp!.padNs === AMP_PADDING_PROTECTED_NS)).toBe(false)
-  })
-
-  it('the downlink PPDU is 32 µs of legacy preamble, 80 µs of AMP-Sync, then OOK', () => {
-    // "32 µs of ordinary legacy preamble … 80 µs of AMP-Sync … an AMP-SIG of two octets (64 µs at
-    //  250 kb/s, 16 µs at 1 Mb/s) … the 6 µs signal extension every 2.4 GHz PPDU with a legacy preamble
-    //  carries" / "= 32 + 80 + 64 + 416 + 20 + 6 = 618 µs"
-    expect(AMP_LEGACY_PREAMBLE_NS).toBe(32 * US)
-    expect(AMP_DL_SYNC_NS).toBe(80 * US)
-    expect(AMP_DL_SIG_BYTES).toBe(2)
-    expect(ampBitsNs(2 * 8, 250)).toBe(64 * US)
-    expect(ampBitsNs(2 * 8, 1000)).toBe(16 * US)
-    expect(ampBitsNs(13 * 8, 250)).toBe(416 * US)
-    expect(ERP_2G.signalExtNs).toBe(6 * US)
-    expect(32 + 80 + 64 + 416 + 20 + 6).toBe(618)
-    // "the 32 + 80 + 20 + 6 = 138 µs of preamble, sync, padding and extension does not [shrink]"
-    expect(32 + 80 + 20 + 6).toBe(138)
-  })
-
-  it('the uplink PPDU has no legacy preamble and therefore no signal extension', () => {
-    // "no legacy preamble at all, and therefore no signal extension either — just 48 chips of AMP-Sync
-    //  (48 µs at 250 kb/s, 12 µs at 1 Mb/s) and then the octets"
-    expect(AMP_UL_SYNC_CHIPS).toBe(48)
-    expect(AMP_UL_SYNC_CHIPS * AMP_UL_CHIP_NS[250]).toBe(48 * US)
-    expect(AMP_UL_SYNC_CHIPS * AMP_UL_CHIP_NS[1000]).toBe(12 * US)
-    const resp = txs(recs(), 'ampResp')[0]
-    const ul = ppduLayout(resp.frame).map((s) => s.key)
-    expect(ul).toEqual(['ampSync', 'ampData'])
-    expect(ul).not.toContain('legacyPreamble')
-    expect(ul).not.toContain('signalExt')
-    // the downlink frame has both
-    const dl = ppduLayout(txs(recs(), 'ampTrigger')[0].frame).map((s) => s.key)
-    expect(dl).toContain('legacyPreamble')
-    expect(dl).toContain('signalExt')
-  })
-
-  it('the three frames are 13, 4 and 15 octets', () => {
-    // the "Octets" column of the three-AMP-frames table, and "an identity-only one is 7 octets"
-    expect(ampTriggerBytes(0)).toBe(13)
-    expect(AMP_ACK_BYTES).toBe(4)
-    expect(ampRespBytes(true)).toBe(15)
-    expect(ampRespBytes(false)).toBe(7)
-  })
-
-  it('at 250 kb/s the airtimes are 618, 330 and 528 µs; at 1 Mb/s, 258, 186 and 132 µs', () => {
-    // the "250 kb/s" and "1 Mb/s" columns of the three-AMP-frames table
-    const ext = ERP_2G.signalExtNs
-    expect(ampDlPpduNs(250, ampTriggerBytes(0), ext)).toBe(618 * US)
-    expect(ampDlPpduNs(250, AMP_ACK_BYTES, ext)).toBe(330 * US)
-    expect(ampUlPpduNs(250, ampRespBytes(true))).toBe(528 * US)
-    expect(ampDlPpduNs(1000, ampTriggerBytes(0), ext)).toBe(258 * US)
-    expect(ampDlPpduNs(1000, AMP_ACK_BYTES, ext)).toBe(186 * US)
-    expect(ampUlPpduNs(1000, ampRespBytes(true))).toBe(132 * US)
-  })
-
-  it('at 250 kb/s the trigger is longest and the Ack shortest, but only the response scales by four', () => {
-    // "At 250 kb/s the trigger is still the longest frame and the Ack the shortest — but the response is
-    //  the one the low rate punishes most. With no fixed preamble to dilute it, its airtime tracks the
-    //  rate exactly: 528 µs becomes 132 µs at 1 Mb/s, a clean factor of four. The trigger carries 138 µs
-    //  that no rate can touch, so it only falls from 618 to 258 µs."
-    const ext = ERP_2G.signalExtNs
-    const trig250 = ampDlPpduNs(250, ampTriggerBytes(0), ext)
-    const ack250 = ampDlPpduNs(250, AMP_ACK_BYTES, ext)
-    const resp250 = ampUlPpduNs(250, ampRespBytes(true))
-    expect(trig250).toBeGreaterThan(resp250)
-    expect(resp250).toBeGreaterThan(ack250)
-    // the response is pure payload: a four-fold rate step is a four-fold airtime step
-    expect(resp250 / ampUlPpduNs(1000, ampRespBytes(true))).toBe(4)
-    // the trigger is not, because 138 µs of it is rate-independent (padding does not shrink either)
-    const fixedNs = AMP_LEGACY_PREAMBLE_NS + AMP_DL_SYNC_NS + AMP_PADDING_NS + ext
-    expect(fixedNs).toBe(138 * US)
-    const trig1000 = ampDlPpduNs(1000, ampTriggerBytes(0), ext)
-    expect(trig250 / trig1000).toBeLessThan(4)
-    expect(trig250 - fixedNs).toBe(4 * (trig1000 - fixedNs))
-  })
-
-  it('the CTS-to-self is 44 µs at 6 Mb/s plus the 6 µs 2.4 GHz signal extension', () => {
-    // "a non-HT CTS-to-self — 44 µs at 6 Mb/s plus the band’s 6 µs signal extension, 50 µs in all"
-    expect(txTimeNs(CTS_BYTES, 6)).toBe(44 * US)
-    expect(ACK_TX_TIME_6M_NS).toBe(44 * US)
-    expect(txTimeNs(CTS_BYTES, 6) + ERP_2G.signalExtNs).toBe(50 * US)
   })
 
   it('the model values: −72 dBm tag sensitivity, 8 dB downlink SINR, 10 dB uplink SINR, −94 dBm uplink floor', () => {
-    // "the tag’s −72 dBm downlink sensitivity, the OOK SINR thresholds (8 dB down, 10 dB up at 250 kb/s)
-    //  … are model choices, not standard values" / "the AP’s −94 dBm floor for a 250 kb/s OOK response"
+    // sources: "the tag’s −72 dBm downlink sensitivity and the on–off keying thresholds (8 dB down,
+    //  10 dB up at 250 kb/s) are the simulator's own choices" / "the router's own −94 dBm floor"
     expect(AMP_TAG_DL_SENS_DBM).toBe(-72)
     expect(AMP_DL_REQ_SINR_DB).toBe(8)
     expect(AMP_UL_REQ_SINR_DB[250]).toBe(10)
@@ -207,7 +178,7 @@ describe('amp-intro · the shape of one round', () => {
 
   it('the round opens with a CTS-to-self one SIFS before the trigger', () => {
     // the timeline table's "CTS-to-self … 0 µs → 50 µs" and "AMP Trigger … 60 µs" rows, and
-    // "One SIFS later the trigger goes out."
+    // "sends the CTS-to-self (50 µs) and, one gap later, the trigger"
     const cts = txs(rs, 'cts')[0]
     const ctsEnd = ends(rs, 'cts')[0]
     const trig = txs(rs, 'ampTrigger')[0]
@@ -219,8 +190,8 @@ describe('amp-intro · the shape of one round', () => {
   })
 
   it('the CTS Duration of 4140 µs ends exactly where the round’s last Ack ends, at 4190 µs', () => {
-    // "The CTS-to-self carries a Duration of 4140 µs. It ends at 50 µs, so the NAV expires at 4190 µs —
-    //  the very microsecond the fourth Ack stops transmitting."
+    // "The CTS-to-self carries a Duration of 4140 µs. It ends at 50 µs, so the reservation expires
+    //  at 4190 µs — the very microsecond the fourth Ack stops transmitting."
     const cts = txs(rs, 'cts')[0]
     expect(cts.frame.durationFieldNs).toBe(4140 * US)
     const navEnd = ends(rs, 'cts')[0].t + cts.frame.durationFieldNs
@@ -230,8 +201,8 @@ describe('amp-intro · the shape of one round', () => {
   })
 
   it('slot 1 starts one AMP SIFS after the trigger ends, and slot 2 one AMP SIFS after Ack₁', () => {
-    // "Slot 1 opens one AMP SIFS after the trigger’s last symbol, at 678 + 10 = 688 µs; every later slot
-    //  opens one AMP SIFS after the previous Ack stops, so slot 2 starts at 1556 + 10 = 1566 µs."
+    // "Slot 1 opens one gap after the trigger’s last symbol, at 678 + 10 = 688 µs; slot 2 one gap
+    //  after Ack₁ stops, at 1556 + 10 = 1566 µs."
     const trigEnd = ends(rs, 'ampTrigger')[0]
     const slots = ofType(rs, 'AMP_SLOT').filter((r) => r.t < 5 * MS)
     expect(trigEnd.t).toBe(678 * US)
@@ -244,7 +215,7 @@ describe('amp-intro · the shape of one round', () => {
   })
 
   it('the first round runs to the timeline table, slot by slot and Ack by Ack', () => {
-    // every "From"/"To" cell of "The first round on the AP’s lane", and
+    // every "From"/"To" cell of "The first round on the router’s lane", and
     // "AMP Trigger, 4 slots × 528 µs"
     const slots = ofType(rs, 'AMP_SLOT').filter((r) => r.t < 5 * MS)
     expect(slots.map((r) => r.slot)).toEqual([1, 2, 3, 4])
@@ -274,8 +245,8 @@ describe('amp-intro · the shape of one round', () => {
   })
 
   it('of those 4190 µs, 3044 µs are PPDU, 90 µs are SIFS gaps and 1056 µs are two silent slots', () => {
-    // "Of those 4190 µs only 3044 µs is PPDU actually on the air. 90 µs is the nine SIFS gaps, and
-    //  1056 µs is the two slots nobody used."
+    // "Only 3044 µs of that has a frame on the air; 90 µs is the nine gaps and 1056 µs the two
+    //  unused slots — the price of a random draw."
     const first = [...txs(rs, 'cts'), ...txs(rs, 'ampTrigger'), ...txs(rs, 'ampAck'), ...txs(rs, 'ampResp')]
       .filter((r) => r.t < 5 * MS)
     expect(first.reduce((s, r) => s + r.frame.txTimeNs, 0)).toBe(3044 * US)
@@ -283,30 +254,14 @@ describe('amp-intro · the shape of one round', () => {
     expect(2 * 528).toBe(1056)
     expect(3044 + 90 + 1056).toBe(4190)
   })
-
-  it('at 1 Mb/s the same round is 1670 µs, 1.67 % of each 100 ms', () => {
-    // "the round is 1670 µs instead of 4190 µs, 1.67 % of each 100 ms instead of 4.19 % … It now ends at
-    //  318 µs and slot 1 opens at 328 µs … check the CTS Duration: 1620 µs."
-    const fast = recs(0)
-    const total = 50 + 10 + 258 + 4 * (10 + 132 + 10 + 186)
-    expect(total).toBe(1670)
-    const cts = txs(fast, 'cts')[0]
-    expect(cts.frame.durationFieldNs).toBe(1620 * US)
-    const lastAck = ends(fast, 'ampAck').filter((r) => r.t <= 5 * MS).pop()!
-    expect(lastAck.t - cts.t).toBe(1670 * US)
-    expect(((1670 / 100_000) * 100).toFixed(2)).toBe('1.67')
-    expect(ends(fast, 'ampTrigger')[0].t).toBe(318 * US)
-    expect(ofType(fast, 'AMP_SLOT')[0].t).toBe(328 * US)
-    expect(ofType(fast, 'AMP_ROUND')[0].slotNs).toBe(132 * US)
-  })
 })
 
 describe('amp-intro · a second of polling', () => {
   const rs = recs()
 
   it('one second holds ten rounds, forty slots and forty Acks, sixteen of them naming a tag', () => {
-    // "The router starts a round every 100 ms on the dot, so one second holds ten rounds: forty slots,
-    //  forty Acks, twenty tag responses. Sixteen Acks name a tag; twenty-four name the router itself."
+    // "A round starts every 100 ms, so a second holds ten: forty slots, forty Acks, twenty tag
+    //  answers. Sixteen Acks name a tag; the other twenty-four name the router."
     expect(ofType(rs, 'AMP_ROUND').length).toBe(10)
     expect(ofType(rs, 'AMP_ROUND').map((r) => r.t)[1]).toBe(100 * MS + 60 * US)
     expect(ofType(rs, 'AMP_SLOT').length).toBe(40)
@@ -319,7 +274,7 @@ describe('amp-intro · a second of polling', () => {
   })
 
   it('each tag answers all ten rounds: eight acknowledged and two lost', () => {
-    // "Each tag answers in all ten rounds — eight acknowledged, two lost."
+    // "Each tag answers in every round — eight acknowledged, two lost."
     for (const tag of TAGS) {
       const rr = results(rs, tag)
       expect(rr.length).toBe(10)
@@ -331,8 +286,8 @@ describe('amp-intro · a second of polling', () => {
   })
 
   it('the inspector counters a tag ends the second with are 10 / 8 / 2', () => {
-    // "The inspector shows a tag’s ABOC, ACW, armed slot and its sent / acknowledged / lost counters,
-    //  — 10 / 8 / 2 after one second."
+    // observe: "Step a round through the inspector with the Fridge tag selected … the counters
+    //  end at 10 / 8 / 2."
     const vs = initViewState(ampIntro.scenario())
     for (const r of rs) applyRecord(vs, r)
     for (const tag of TAGS) {
@@ -341,9 +296,10 @@ describe('amp-intro · a second of polling', () => {
   })
 
   it('a draw of 3 lands in slot 4, so with ACW + 1 = N neither tag ever sits a round out', () => {
-    // "each tag draws an ABOC uniformly from 0, 1, 2, 3 and transmits in slot ABOC + 1 — a draw of 3
-    //  lands in slot 4, the last one there is. A tag sits a round out only when the draw can land past
-    //  the last slot, that is when ACW + 1 > N; here ACW + 1 = 4 = N, so neither tag ever sits out."
+    // numbers: "The trigger’s window exponent ACWE is 2, so ACW = 2² − 1 = 3: each tag draws an
+    //  ABOC at random from 0, 1, 2, 3 and answers in slot ABOC + 1." / deeper: "A tag sits a round
+    //  out when its draw can land past the last slot, that is when ACW + 1 > N. Here ACW + 1 = 4 = N
+    //  … a draw of 3 lands in slot 4, the last one there is."
     const acw = 2 ** 2 - 1
     const slots = ampIntro.scenario().nodes[0].ampAp!.slots
     expect(acw).toBe(3)
@@ -362,9 +318,9 @@ describe('amp-intro · a second of polling', () => {
   })
 
   it('the two losses are the two rounds in which both tags drew the same slot', () => {
-    // "twice in ten rounds both tags draw the same number and collide, in the slot ending at 201 216 µs
-    //  and the one ending at 502 972 µs. The AP records a collision, the closing Ack names the router,
-    //  and each tag learns at 201 556 µs and 503 312 µs that its reading never arrived."
+    // "Twice in ten rounds both draw the same number — the slots ending at 201 216 µs and
+    //  502 972 µs. The router logs a collision, the closing Ack names the router, and each tag
+    //  learns at 201 556 µs and 503 312 µs that its reading never arrived."
     const coll = ofType(rs, 'COLLISION')
     expect(coll.length).toBe(2)
     // the COLLISION is stamped at the instant the overlapping slot ends
@@ -387,21 +343,22 @@ describe('amp-intro · a second of polling', () => {
   })
 
   it('the tags never carrier-sense, never back off and never wait out an IFS; the AP does all three', () => {
-    // "neither tag emits one CCA_BUSY, BACKOFF_DRAW or IFS_START record — it has none of those things to
-    //  record, and its entire contribution to the timeline is ten transmissions. The router’s lane has
-    //  all three."
+    // "Scroll a tag’s lane for a whole second: no CCA_BUSY record, no BACKOFF_DRAW, no IFS_START.
+    //  It has none of those to record; its whole contribution is ten transmissions. The router’s
+    //  lane has all three."
     for (const tag of TAGS) {
       for (const type of CONTENTION_RECORDS) expect(countAt(rs, tag, type), `${tag} ${type}`).toBe(0)
       expect(countAt(rs, tag, 'TX_START')).toBe(10)
     }
     for (const type of CONTENTION_RECORDS) expect(countAt(rs, AP, type), `ap ${type}`).toBeGreaterThan(0)
-    // "the AP wins the channel with its AC_BK access function"
+    // "the router takes the channel the ordinary way, on its lowest-priority access function"
     expect(ofType(rs, 'IFS_START').every((r) => r.ac === 0)).toBe(true)
   })
 
   it('no lane in this scene ever sets a NAV', () => {
-    // "What no lane here holds is a NAV_SET: a CTS-to-self sets a NAV in the nodes that hear it, never
-    //  in its own sender, and there is no other Wi-Fi node to send one back."
+    // deeper: "No lane in this scene ever holds a NAV_SET record. A CTS-to-self sets the countdown
+    //  in the nodes that hear it, never in its own sender, and there is no other Wi-Fi node here to
+    //  send one back."
     expect(ofType(rs, 'NAV_SET').length).toBe(0)
     expect(countAt(rs, AP, 'NAV_SET')).toBe(0)
     // the Duration is nonetheless on the air for anyone who might arrive
@@ -409,9 +366,10 @@ describe('amp-intro · a second of polling', () => {
   })
 
   it('the link budget leaves both tags far above the thresholds that matter', () => {
-    // "The router reaches the Door tag at −37.4 dBm, 34.6 dB above the −72 dBm a tag needs here … its
-    //  reply still arrives at −57.4 dBm, 36.6 dB above the AP’s −94 dBm floor … −94 dBm is about 12 dB
-    //  below the −82 dBm preamble-detect gate an OFDM frame has to clear to be received at all."
+    // numbers: "Downlink, the router reaches the Door tag at −37.4 dBm — 34.6 dB above the
+    //  −72 dBm a tag needs. Uplink, its answer arrives at −57.4 dBm, 36.6 dB above the router’s
+    //  −94 dBm floor." / deeper: "−94 dBm … is about 12 dB below the −82 dBm an ordinary Wi-Fi
+    //  frame must clear to be received at all."
     const s = ampIntro.scenario()
     const links = buildLinkTable(s.nodes, s.walls)
     // the engine gives 2.4 GHz 6.5 dB less path loss than the band-neutral table
@@ -427,16 +385,16 @@ describe('amp-intro · a second of polling', () => {
   })
 })
 
-describe('amp-intro · the try-this experiments', () => {
+describe('amp-intro · the try-this experiment', () => {
   const withSens = (dlSensDbm: number): Scenario => {
     const base = ampIntro.scenario()
     return { ...base, nodes: base.nodes.map((n: NodeCfg) => (n.id === 'tag-2' ? { ...n, ampTag: { dlSensDbm } } : n)) }
   }
 
   it('a Door tag deafened past its received −37.4 dBm answers nothing, and the round is unchanged', () => {
-    // "In the editor raise the Door tag’s downlink sensitivity threshold above the −37.4 dBm it actually
-    //  receives, and reload. It stops decoding triggers, so it never draws an ABOC and never transmits —
-    //  while the round keeps its forty slots and forty Acks a second, unchanged."
+    // "In the editor raise the Door tag’s downlink sensitivity threshold above the −37.4 dBm it
+    //  actually receives, and reload. It stops decoding triggers, so it never draws an ABOC and
+    //  never transmits — while the round keeps its forty slots and forty Acks a second, unchanged."
     // −36 dBm is above what it receives, −38 dBm below: the bracket measures the received power itself.
     expect(run(withSens(-38)).filter((r) => 'node' in r && r.node === 'tag-2#2g' && r.type === 'AMP_ABOC').length).toBe(10)
     const rs = run(withSens(-36))
@@ -453,52 +411,15 @@ describe('amp-intro · the try-this experiments', () => {
   })
 })
 
-describe('amp-intro · what the UI shows', () => {
+describe('amp-intro · what the log shows', () => {
   const rs = recs()
-  const CTX = { apId: 'ap', isEdca: false }
-
-  it('the Ack’s ID field names the tag it acknowledges, or the AP when the slot was empty', () => {
-    // "Open the Ack at 1226 µs in frame detail: its ID field is two octets and names the Door tag. Then
-    //  the one at 2982 µs, closing an empty slot — same 330 µs PPDU, four octets again, but the ID field
-    //  carries the router’s id."
-    const toTag = txs(rs, 'ampAck')[0]
-    expect(toTag.t).toBe(1226 * US)
-    const idField = decodeFrame(toTag.frame, CTX).users[0].subframes[0].mpdu.fields.find((f) => f.key === 'ampId')!
-    expect(idField.bytes).toBe(2)
-    expect(idField.node).toBe('tag-2')
-    const empty = txs(rs, 'ampAck').find((r) => r.frame.dst === r.frame.src)!
-    expect(empty.t).toBe(2982 * US)
-    expect(empty.frame.txTimeNs).toBe(330 * US)
-    expect(empty.frame.bytes).toBe(4)
-    expect(decodeFrame(empty.frame, CTX).users[0].subframes[0].mpdu.fields.find((f) => f.key === 'ampId')!.node).toBe('ap')
-  })
-
-  it('the Ack PPDU spends 128 µs of its 330 µs on the four octets it carries', () => {
-    // "The four octets are 128 µs; the other 202 µs is preamble, AMP-Sync, AMP-SIG, padding and
-    //  signal extension"
-    const toTag = txs(rs, 'ampAck')[0]
-    const ppdu = decodeFrame(toTag.frame, CTX).ppdu
-    expect(ppdu.find((s) => s.key === 'ampData')!.durNs).toBe(128 * US)
-    expect(ppdu.reduce((s, x) => s + x.durNs, 0)).toBe(330 * US)
-    expect(330 - 128).toBe(202)
-  })
 
   it('the log prints the ABOC draw, the round summary and the outcome the lesson quotes', () => {
-    // "The log prints the draw as “ABOC 1 of [0, 3] → slot 2” and the outcome as “slot 1: acknowledged”;
-    //  the round line names the slots, the ACW and both rates."
+    // "The log prints the draw as “ABOC 1 of [0, 3] → slot 2”, the outcome as “slot 1:
+    //  acknowledged”, and a round line naming the slots, the window and both rates."
     expect(fmtRecord(ofType(rs, 'AMP_ABOC')[0])).toBe('tag-1#2g ABOC 1 of [0, 3] → slot 2')
     expect(fmtRecord(ofType(rs, 'AMP_ROUND')[0]))
       .toBe('ap#2g AMP round (random): 4 slots × 528.0 µs, ACW 3, DL 250 kb/s, UL 250 kb/s')
     expect(fmtRecord(ofType(rs, 'AMP_RESULT')[0])).toBe('tag-2#2g slot 1: acknowledged')
-  })
-
-  it('the trigger’s six-octet body carries the numbers the round is built from', () => {
-    // "Frame detail decodes the trigger’s 6-octet body field by field" — and those fields are the
-    // round's own parameters, so the decode is pinned against them.
-    const trig = txs(rs, 'ampTrigger')[0]
-    const body = decodeFrame(trig.frame, CTX).users[0].subframes[0].mpdu.fields.find((f) => f.key === 'body')!
-    expect(body.bytes).toBe(6)
-    expect(body.value).toBe('Session 1 · ACWE 2 (ACW 3) · 4 slots × 528 µs · reading')
-    expect(trig.frame.dst).toBe('*amp')
   })
 })

@@ -24,6 +24,7 @@ import { bianchi } from './tier1/bianchi'
 import { bianchiVsSim } from './tier1/bianchi-vs-sim'
 import { tier1Project } from './tier1/tier1-project'
 import { ampIntro } from './amp/amp-intro'
+import { ampPpdu } from './amp/amp-ppdu'
 import { ampSlots } from './amp/amp-slots'
 import { ampCoexist } from './amp/amp-coexist'
 import { uwbIntro } from './uwb/uwb-intro'
@@ -118,6 +119,7 @@ const AUTHORED: Lesson[] = [
   bianchiVsSim,
   tier1Project,
   ampIntro,
+  ampPpdu,
   ampSlots,
   ampCoexist,
   uwbIntro,
