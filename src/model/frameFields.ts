@@ -15,6 +15,7 @@ import {
   AMP_READING_BYTES, AMP_STA_ID_BYTES, AMP_TRIGGER_BODY_BYTES, AMP_UL_CHIP_NS, AMP_UL_SYNC_CHIPS,
   ampBitsNs, ampId16, type AmpUlKbps,
 } from '../engine/amp'
+import { AMP_RFID_FCS_BYTES, GEN2_CMD_BYTES, GEN2_CMD_NAME, GEN2_REPLY_BYTES, crc16Epc, epcOf } from '../engine/ampBs'
 import {
   ACK_BYTES, AMPDU_DELIMITER_BYTES, BA_BYTES, CF_END_BYTES, CTS_BYTES, FCS_BYTES, MAC_HDR_BYTES,
   PHY_MODES, QOS_HDR_BYTES, RTS_BYTES, multiStaBaBytes, triggerBytes,
@@ -126,6 +127,7 @@ const SUBTYPE: Record<Exclude<FrameKind, 'data' | UwbFrameKind>, string> = {
   ack: 'Ack', cts: 'CTS', rts: 'RTS', ba: 'Block Ack', mba: 'Block Ack (Multi-STA)',
   trigger: 'Trigger', cfend: 'CF-End',
   ampTrigger: 'AMP Trigger', ampAck: 'AMP Ack', ampResp: 'AMP Response',
+  ampRfid: 'AMP RFID', ampBsReply: 'AMP Backscatter Reply',
 }
 const SUBTYPE_BITS: Record<string, string> = {
   Ack: '1101', CTS: '1100', RTS: '1011', 'Block Ack': '1001', 'Block Ack (Multi-STA)': '1001',
@@ -304,6 +306,56 @@ function controlMpdu(f: FrameDesc, apId: string): Mpdu {
       checkSize(fields, f.bytes)
       break
     }
+    // Backscatter (slice A2). The downlink carries one EPC Gen2 command in an AMP RFID frame;
+    // the id field is the addressed tag's 16-bit identifier, which SFD FM-25 defines as the
+    // CRC-16 of its EPC, and the TDC carries the UL Rate field (FM-24).
+    case 'ampRfid': {
+      const r = f.amp!.rfid!
+      const broadcast = f.dst.startsWith('*')
+      fields = [
+        { key: 'fc', bytes: 1, bits: [{ key: 'type', value: `AMP RFID (${GEN2_CMD_NAME[r.cmd]})` }, { key: 'protected', value: '0' }] },
+        {
+          key: 'ampId', bytes: 2, node: broadcast ? undefined : f.dst,
+          value: broadcast ? 'broadcast (inventory)' : crc16Epc(epcOf(f.dst)).toString(16).padStart(4, '0'),
+        },
+        { key: 'ampTdc', bytes: 2, value: `session ${r.session} · UL ${r.ulKbps} kb/s${r.q !== undefined ? ` · Q ${r.q}` : ''}` },
+        {
+          key: 'body', bytes: GEN2_CMD_BYTES[r.cmd],
+          value: `${GEN2_CMD_NAME[r.cmd]}${r.rn16 !== undefined ? ` · RN16 ${r.rn16.toString(16).padStart(4, '0')}` : ''}`,
+        },
+        { key: 'fcs', bytes: AMP_RFID_FCS_BYTES, value: 'CRC-16' },
+      ]
+      checkSize(fields, f.bytes)
+      break
+    }
+    // …and the uplink keeps Gen2's own reply shapes, which have no AMP MAC header at all: a bare
+    // RN16, or a payload closed by Gen2's CRC-16.
+    case 'ampBsReply': {
+      const b = f.amp!.bs!
+      const rn16 = b.rn16 !== undefined ? b.rn16.toString(16).padStart(4, '0') : '—'
+      fields = b.reply === 'rn16'
+        ? [{ key: 'body', bytes: GEN2_REPLY_BYTES.rn16, value: `RN16 ${rn16}` }]
+        : b.reply === 'epc'
+          ? [
+            { key: 'body', bytes: 2, value: 'PC (protocol control)' },
+            { key: 'body', bytes: 12, value: `EPC ${b.epc ?? epcOf(f.src)}` },
+            { key: 'fcs', bytes: 2, value: 'CRC-16' },
+          ]
+          : b.reply === 'read'
+            ? [
+              { key: 'body', bytes: 1, value: 'header (0 = success)' },
+              { key: 'body', bytes: AMP_READING_BYTES, value: 'memory words' },
+              { key: 'body', bytes: 2, value: `RN16 ${rn16}` },
+              { key: 'fcs', bytes: 2, value: 'CRC-16' },
+            ]
+            : [
+              { key: 'body', bytes: 1, value: 'header (0 = success)' },
+              { key: 'body', bytes: 2, value: `RN16 ${rn16}` },
+              { key: 'fcs', bytes: 2, value: 'CRC-16' },
+            ]
+      checkSize(fields, f.bytes)
+      break
+    }
   }
   return mpduOf(kind, 'Control', sub, fields)
 }
@@ -343,7 +395,16 @@ function decodeData(f: FrameDesc, ctx: DecodeCtx): UserPsdu[] {
   return [userPsdu(f.dst, [{ delimiterBytes: 0, mpdu, padBytes: 0 }], false)]
 }
 
-/** P802.11bp AMP PPDU: legacy preamble + U-SIG then AMP-Sync/SIG/Data (DL), or AMP-Sync/Data only (UL, no legacy preamble). */
+/**
+ * P802.11bp AMP PPDU: legacy preamble + U-SIG then AMP-Sync/SIG/Data (DL), or AMP-Sync/Data only
+ * (UL, no legacy preamble).
+ *
+ * The uplink branch covers a backscattered reply unchanged — 24 sync chips of 2 µs and 48 of
+ * 1 µs are the same 48 µs, and the same holds at 1 Mb/s — but the downlink branch is still the
+ * Active Tx layout: an `ampRfid` PPDU has a 16 µs mono-static AMP-Sync, no AMP-SIG and no padding
+ * field, and carries a WUP- and a BST-Excitation that have no segment key here yet, so its
+ * segments currently fall out as one long signal extension. They still sum to `txTimeNs`.
+ */
 function ampPpduLayout(f: FrameDesc): PpduSegment[] {
   const a = f.amp!
   if (a.dir === 'ul') {

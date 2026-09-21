@@ -148,16 +148,51 @@ export interface AmpApCfg {
   ulKbps: 250 | 1000 | 4000
   protection: 'ctsSelf' | 'none'
   readMode: 'inline' | 'twoPhase'
+  /**
+   * The reader half of the backscatter tier: absent, the AP only runs Active Tx rounds. Present,
+   * it also runs EPC Gen2 inventory rounds — `q` slots of 2^Q, replies at `ulKbps`, a WUP of
+   * `wupMs` to boot the tags, `chargeDbm` up to the end of each command and `bsDbm` while the
+   * reply is expected, a TXOP of `txopMs`, and whether a successful inventory is followed by a
+   * Read and a Write.
+   */
+  backscatter?: AmpBackscatterCfg
+}
+
+export interface AmpBackscatterCfg {
+  q: number
+  ulKbps: 250 | 1000
+  wupMs: number
+  chargeDbm: number
+  bsDbm: number
+  txopMs: number
+  read: boolean
+  write: boolean
 }
 
 export const DEFAULT_AMP_AP: AmpApCfg = {
   pollIntervalMs: 100, slots: 4, acwe: 2, dlKbps: 250, ulKbps: 250, protection: 'ctsSelf', readMode: 'inline',
 }
 
+/**
+ * The reader's defaults: Gen2's Q = 2 (four slots), the slower of the two uplink rates, the
+ * minimum wake-up preamble the framework allows (PM-73), and 11-25/0307r0's PEX_C = 10 dBm /
+ * PEX_B = 0 dBm. `txopMs` is a model choice. Read on, Write off — a Write costs 3 ms of air.
+ */
+export const DEFAULT_AMP_BS: AmpBackscatterCfg = {
+  q: 2, ulKbps: 250, wupMs: 1, chargeDbm: 10, bsDbm: 0, txopMs: 4, read: true, write: false,
+}
+
+/** How a tag answers: with a carrier of its own (Active Tx) or by reflecting the reader's. */
+export type AmpTagMode = 'active' | 'backscatter'
+
 /** An ambient-power tag's per-node configuration. */
 export interface AmpTagCfg {
   id16?: number
   dlSensDbm?: number
+  /** Default `'active'`: every tag saved before the backscatter tier existed is an Active Tx one. */
+  mode?: AmpTagMode
+  /** Backscatter tags: the 96-bit EPC as 24 hex characters. Absent, it is derived from the node id. */
+  epc?: string
 }
 
 /**
@@ -425,10 +460,27 @@ const NodeCfgSchema = z.preprocess(
       ulKbps: z.union([z.literal(250), z.literal(1000), z.literal(4000)]),
       protection: z.enum(['ctsSelf', 'none']),
       readMode: z.enum(['inline', 'twoPhase']),
+      // EPC Gen2 allows Q 0…15; 8 is 256 slots, which is already more than a TXOP can offer
+      // (model). `wupMs` has the framework's 1 ms minimum under it (SFD PM-73); `txopMs` and the
+      // two power ranges are model choices wide enough for the lesson's variants.
+      backscatter: z.object({
+        q: z.number().int().min(0).max(8),
+        ulKbps: z.union([z.literal(250), z.literal(1000)]),
+        wupMs: z.number().min(1),
+        chargeDbm: z.number().min(-10).max(30),
+        bsDbm: z.number().min(-10).max(30),
+        txopMs: z.number().min(1).max(10),
+        read: z.boolean(),
+        write: z.boolean(),
+      }).optional(),
     }).optional(),
     ampTag: z.object({
       id16: z.number().int().min(1).max(0xfffe).optional(),
       dlSensDbm: z.number().optional(),
+      // A tag saved before the backscatter tier existed carries no mode at all and reads back as
+      // an Active Tx one, so every such scenario replays unchanged.
+      mode: z.enum(['active', 'backscatter']).default('active'),
+      epc: z.string().regex(/^[0-9a-fA-F]{24}$/, 'an EPC is 24 hex characters (96 bits)').optional(),
     }).optional(),
     uwb: z.object({
       role: z.enum(['anchor', 'tag']),
@@ -728,6 +780,18 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
       for (const [profile, sid] of Object.entries(n.servers ?? {})) {
         if (!serverIds.has(sid)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `node "${n.id}" binds ${profile} to unknown server "${sid}"` })
       }
+    }
+    // A backscatter tag has no transmitter of its own: with no reader running inventory rounds
+    // it can never be heard from, so the plan is asking for something that cannot happen. The
+    // rule is here rather than on the node because it needs the AP, and it is tagged with the
+    // tag's own index so the editor can point at the node that is wrong.
+    const hasReader = sc.nodes.some((n) => n.kind === 'ap' && n.ampAp?.backscatter !== undefined)
+    if (!hasReader) {
+      sc.nodes.forEach((n, i) => {
+        if (n.kind === 'amp' && n.ampTag?.mode === 'backscatter') {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['nodes', i], message: 'a backscatter tag needs an AP with the RFID inventory on' })
+        }
+      })
     }
   })
 

@@ -290,6 +290,8 @@ export interface Strings {
     ifsChain: (kinds: string) => string
     navTitle: string; navNote: string; sifsWait: string
     ampTrigger: string; ampAck: (dst: string) => string; ampResp: (slot: number) => string
+    /** Backscatter: the Gen2 command name, and the Gen2 reply name with the slot it came back in. */
+    ampRfid: (cmd: string) => string; ampBsReply: (reply: string, slot: number) => string
     ampWait: string; ampWaitNote: string
     uwbPoll: (anchors: number) => string; uwbResp: (slot: number) => string
     uwbFinal: string; uwbReport: (dst: string) => string; uwbBlink: string
@@ -610,6 +612,7 @@ export const STRINGS: Record<Lang, Strings> = {
         cts: 'CTS — clear to send', ba: 'BlockAck — block acknowledgement',
         trigger: 'Trigger frame', mba: 'Multi-STA BlockAck', cfend: 'CF-End — contention-free end',
         ampTrigger: 'AMP Trigger', ampAck: 'AMP Ack', ampResp: 'AMP response',
+        ampRfid: 'AMP RFID command', ampBsReply: 'Backscattered reply',
         uwbPoll: 'UWB Poll', uwbResp: 'UWB Response', uwbFinal: 'UWB Final', uwbReport: 'UWB measurement report',
         uwbBlink: 'UWB Blink',
         uwbRsf: 'MMS ranging fragment (RSF)',
@@ -630,6 +633,8 @@ export const STRINGS: Record<Lang, Strings> = {
         ampTrigger: 'The AP’s P802.11bp draft trigger for an ambient-power round: a slow on-off-keyed PPDU that opens N uplink slots and states how tags pick one — at random or in a scheduled order. Battery-free tags have no ordinary Wi-Fi receiver, so this trigger is what lets a round begin at all.',
         ampAck: 'The AP’s Ack for one AMP uplink slot: a normal, AP-powered OOK PPDU, unlike the tag’s own transmission on harvested power that it closes. Under the P802.11bp draft, tags with no clock of their own count these Acks to know when their slot has opened, so each one also cues the next.',
         ampResp: 'An Active Tx tag’s answer in its AMP uplink slot, sent on a carrier the tag makes itself, on power harvested from the AP’s signal rather than from a battery. The P802.11bp draft keeps it minimal — an id and, when the trigger asked for one, a sensor reading — so the harvested energy is enough to finish the transmission.',
+        ampRfid: 'The reader’s command to a backscatter tag: one EPC Gen2 command — Query, QueryRep, ACK, Read, Write — wrapped in a P802.11bp AMP RFID frame. The PPDU around it is mostly not data at all but carrier: a wake-up excitation of at least a millisecond that powers the tags up, and, after the command, a second excitation the tag will reflect its answer out of.',
+        ampBsReply: 'A tag answering with no transmitter of its own. It has no oscillator; it simply switches its antenna between two impedances, so the reader’s own carrier comes back modulated and about 6 dB weaker. Having crossed the room twice, it reaches the reader far below the noise an ordinary receiver would tolerate — which is why the reader’s self-leakage and dynamic range, not its output power, decide how far this works.',
         uwbPoll: 'The tag opens a ranging round: a broadcast UWB frame that names the anchors and the order of their slots. Its transmit time, read off the tag’s own ranging counter, is the first of the timestamps every distance is computed from.',
         uwbResp: 'One anchor’s answer in its own ranging slot. With SS-TWR it also carries the reply time the anchor measured, which is what lets the tag subtract the anchor’s processing delay from the round trip.',
         uwbFinal: 'The tag’s closing frame of a DS-TWR round: it broadcasts the round-trip and reply times the tag measured, so each anchor can combine them with its own pair and cancel both clocks’ drift.',
@@ -653,6 +658,8 @@ export const STRINGS: Record<Lang, Strings> = {
         ampTrigger: 'A tag that chose a slot answers there with its AMP response; the AP acknowledges every slot in turn, whether or not a tag actually used it. This slotted answer-then-Ack rhythm is how the P802.11bp draft resolves contention without giving tags any carrier-sense capability.',
         ampAck: 'The round moves on to the next slot cued by this very Ack, or closes once every slot has been answered and acknowledged. Under the P802.11bp draft a tag has no clock of its own, so it learns when to transmit purely by counting these Acks from the trigger.',
         ampResp: 'One SIFS later the AP sends an Ack for this slot, whether or not a tag actually answered in it — silence is just another outcome. The P802.11bp draft repeats this for every slot the trigger opened, then either the round ends or the AP starts a new one.',
+        ampRfid: 'Any tag whose slot counter has reached zero reflects its answer inside the excitation that closes this PPDU — there is no separate uplink and no gap to wait through. The reader then sends the next command straight away: under the P802.11bp draft no Ack follows a backscattered reply, because the next command is the acknowledgement.',
+        ampBsReply: 'The reader either heard it or did not, and moves on: an ACK naming this tag’s random number if a single reply decoded, or the next slot’s QueryRep if two tags collided or nothing came back. The round ends when every slot has been offered or the TXOP runs out.',
         uwbPoll: 'Each anchor answers in the ranging slot the Poll assigned it, one after another. A slot that passes in silence is a timeout: that anchor simply contributes no range this round.',
         uwbResp: 'Under SS-TWR the tag already has everything it needs and computes the distance straight away. Under DS-TWR it waits for every anchor, then sends its Final.',
         uwbFinal: 'Every anchor that heard it replies with its measurement report, each in its own slot; the tag then has four timestamps per anchor and turns them into distances.',
@@ -798,6 +805,8 @@ export const STRINGS: Record<Lang, Strings> = {
       ampTrigger: 'AMP Trigger — the AP opens uplink slots for ambient-power tags',
       ampAck: (dst) => `AMP Ack → ${dst} — closes a slot and cues the next one`,
       ampResp: (slot) => `AMP response in slot ${slot}`,
+      ampRfid: (cmd) => `AMP RFID · ${cmd} — an EPC Gen2 command inside the reader’s excitation`,
+      ampBsReply: (reply, slot) => `${reply} backscattered in slot ${slot} — the reader’s own carrier, reflected`,
       ampWait: 'waiting for its slot',
       ampWaitNote: 'A tag has no carrier sense: it counts the AP’s Acks and transmits one AMP SIFS (10 µs) after the Ack that opens its slot.',
       uwbPoll: (n) => `UWB Poll — the tag opens a ranging round over ${n} anchors`,
@@ -1120,6 +1129,7 @@ export const STRINGS: Record<Lang, Strings> = {
         cts: 'CTS — 允许发送', ba: 'BlockAck — 块确认',
         trigger: 'Trigger — 触发帧', mba: '多站点 BlockAck', cfend: 'CF-End — 提前结束',
         ampTrigger: 'AMP 触发帧', ampAck: 'AMP 确认帧', ampResp: 'AMP 应答帧',
+        ampRfid: 'AMP RFID 命令帧', ampBsReply: '反向散射应答',
         uwbPoll: 'UWB 轮询帧', uwbResp: 'UWB 响应帧', uwbFinal: 'UWB 终结帧', uwbReport: 'UWB 测量报告帧',
         uwbBlink: 'UWB 闪发帧',
         uwbRsf: 'MMS 测距片段（RSF）',
@@ -1140,6 +1150,8 @@ export const STRINGS: Record<Lang, Strings> = {
         ampTrigger: 'AP 按 P802.11bp 草案发送的环境能量触发帧：以慢速通断键控（OOK）PPDU 划出 N 个上行时隙，并规定标签如何从中选定一个——随机竞争还是按预定顺序。无电池的标签没有普通 Wi-Fi 接收机，正是这一帧才让一轮能够开始。',
         ampAck: 'AP 对某个 AMP 上行时隙的确认帧：同样由 AP 正常供电发出的 OOK PPDU，用来关闭它所确认的、由标签以收集到的能量主动发射作答的那个时隙。按照 P802.11bp 草案，没有自己时钟的标签靠数这些确认帧来判断时隙何时打开，因此每一帧同时也在提示下一个时隙。',
         ampResp: '标签在自己 AMP 上行时隙里的应答，用从 AP 载波上收集到的能量发送，而不是电池供电。按照 P802.11bp 草案，这一帧尽量精简——只有 ID，以及触发帧要求时才附带的一次传感器读数——这样收集到的能量刚好够发完。',
+        ampRfid: '读写器发给反向散射标签的命令：一条 EPC Gen2 命令——Query、QueryRep、ACK、Read、Write——被装进 P802.11bp 的 AMP RFID 帧里。整个 PPDU 里大部分时间根本不是数据而是载波：先是至少一毫秒的唤醒激励，把标签供上电；命令之后还有第二段激励，标签就靠反射它把答案送回去。',
+        ampBsReply: '标签在完全没有发射机的情况下作答。它没有振荡器，只是让天线在两种阻抗之间来回切换，于是读写器自己的载波被调制后反射回来，功率还低了约 6 dB。这个信号在房间里往返了两趟，回到读写器时远低于普通接收机能容忍的噪声——所以决定它能传多远的，是读写器的自泄漏和动态范围，而不是它的发射功率。',
         uwbPoll: '标签用它开启一轮测距：一帧广播的 UWB 帧，列出参与的锚点及其时隙顺序。它的发送时刻由标签自己的测距计数器读出，是后续所有距离计算的第一个时间戳。',
         uwbResp: '某一个锚点在它自己的测距时隙里的回答。在 SS-TWR 下，它还会带上锚点测得的回复时间，标签靠它才能从往返时间里减去锚点的处理时延。',
         uwbFinal: '标签在 DS-TWR 一轮末尾发出的帧：广播它测得的往返时间和回复时间，让每个锚点能把它们与自己的一对时间合并，把两边时钟的偏差一起抵消掉。',
@@ -1163,6 +1175,8 @@ export const STRINGS: Record<Lang, Strings> = {
         ampTrigger: '选中某个时隙的标签会在该时隙内用 AMP 应答帧作答；AP 依次确认每一个时隙，无论该时隙是否真的有标签应答。P802.11bp 草案正是靠这种「先应答、后确认」的节奏来化解竞争——标签根本不具备载波侦听能力。',
         ampAck: '轮次会被这一帧本身提示进入下一个时隙，或者在所有时隙都被应答并确认后结束。按照 P802.11bp 草案，标签没有自己的时钟，只能靠数这些确认帧来判断该在什么时候发送。',
         ampResp: '一个 SIFS 之后，AP 会为这个时隙发送一个确认帧，无论该时隙里是否真的有标签应答——沉默也是一种结果。P802.11bp 草案对触发帧打开的每个时隙都重复这一过程，之后要么结束这一轮，要么由 AP 开启新一轮。',
+        ampRfid: '凡是时隙计数器已经减到 0 的标签，都会在这个 PPDU 末尾那段激励里把答案反射回来——没有单独的上行，也不用等待任何间隔。随后读写器直接发出下一条命令：按照 P802.11bp 草案，反向散射应答之后不跟确认帧，因为下一条命令本身就是确认。',
+        ampBsReply: '读写器要么听见了，要么没听见，然后继续往下走：若只有一个应答被正确解出，就发 ACK 点名这个标签的随机数；若两个标签撞在一起或者根本没有回应，就发下一个时隙的 QueryRep。等所有时隙都发完、或者 TXOP 用尽，这一轮就结束。',
         uwbPoll: '各个锚点按轮询帧分配的测距时隙依次作答。某个时隙如果一直沉默，就是一次超时：该锚点这一轮不贡献距离。',
         uwbResp: '在 SS-TWR 下，标签此时已经拿齐所需的一切，可以直接算出距离。在 DS-TWR 下，它会等所有锚点答完，再发出终结帧。',
         uwbFinal: '每个听到它的锚点都会在自己的时隙里回一帧测量报告；标签随即就每个锚点都集齐了四个时间戳，可以换算成距离。',
@@ -1308,6 +1322,8 @@ export const STRINGS: Record<Lang, Strings> = {
       ampTrigger: 'AMP 触发帧 — AP 为环境能量标签开放上行时隙',
       ampAck: (dst) => `AMP 确认 → ${dst} — 关闭一个时隙并开启下一个`,
       ampResp: (slot) => `时隙 ${slot} 内的 AMP 应答`,
+      ampRfid: (cmd) => `AMP RFID · ${cmd} —— 读写器激励信号中承载的一条 EPC Gen2 命令`,
+      ampBsReply: (reply, slot) => `时隙 ${slot} 内反向散射回来的 ${reply} —— 读写器自己的载波被反射回来`,
       ampWait: '等待自己的时隙',
       ampWaitNote: '标签没有载波侦听：它靠数 AP 发出的 Ack 来计时，并在打开自己时隙的那个 Ack 之后一个 AMP SIFS（10 µs）发送。',
       uwbPoll: (n) => `UWB 轮询帧——标签对 ${n} 个锚点开启一轮测距`,

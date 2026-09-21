@@ -1,4 +1,5 @@
 /** Pure helpers turning timeline records into per-node lane spans. */
+import { GEN2_CMD_NAME, GEN2_REPLY_NAME } from '../engine/ampBs'
 import type { FrameDesc, FrameKind } from '../model/frames'
 import type { MacStateName, RxFailReason, TLRecord } from '../model/records'
 import type { Ns } from '../model/types'
@@ -322,6 +323,8 @@ export function spanTooltip(s: LaneSpan, T: Strings['tooltips'], t?: Ns, nameOf:
         f.kind === 'ampTrigger' ? T.ampTrigger :
         f.kind === 'ampAck' ? T.ampAck(dst) :
         f.kind === 'ampResp' ? T.ampResp(f.amp?.slot ?? 0) :
+        f.kind === 'ampRfid' ? T.ampRfid(GEN2_CMD_NAME[f.amp?.rfid?.cmd ?? 'query']) :
+        f.kind === 'ampBsReply' ? T.ampBsReply(GEN2_REPLY_NAME[f.amp?.bs?.reply ?? 'rn16'], f.amp?.bs?.slot ?? 0) :
         f.kind === 'uwbPoll' ? T.uwbPoll(f.uwb?.schedule?.length ?? 0) :
         f.kind === 'uwbResp' ? T.uwbResp(f.uwb?.slot ?? 0) :
         f.kind === 'uwbFinal' ? T.uwbFinal :

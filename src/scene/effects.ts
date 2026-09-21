@@ -39,6 +39,11 @@ export function frameColor(frame: FrameDesc, apId: string): number {
     case 'ampTrigger':
     case 'ampAck': return 0x2dd4bf
     case 'ampResp': return 0xa78bfa
+    // Backscatter (slice A2) joins the same two colours: an AP-powered downlink is teal whether
+    // it carries a trigger or an EPC Gen2 command, and a tag's answer is violet whether the tag
+    // made the carrier or merely reflected it.
+    case 'ampRfid': return 0x2dd4bf
+    case 'ampBsReply': return 0xa78bfa
     // Two shades of amber: the tag's own frames against the anchors' answers.
     case 'uwbPoll':
     case 'uwbBlink':

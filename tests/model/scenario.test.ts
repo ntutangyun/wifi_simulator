@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { DEFAULT_AMP_AP, ScenarioSchema, defaultScenario, nonht, scenarioErrorText } from '../../src/model/scenario'
+import {
+  DEFAULT_AMP_AP, DEFAULT_AMP_BS, ScenarioSchema, defaultScenario, nonht, scenarioErrorText,
+  type AmpBackscatterCfg,
+} from '../../src/model/scenario'
 
 describe('scenario schema', () => {
   it('accepts the default scenario', () => {
@@ -103,6 +106,71 @@ describe('AMP nodes in the schema', () => {
     delete sc.nodes[1].ampTag
     sc.nodes[0].ampTag = { id16: 7 }
     expect(() => ScenarioSchema.parse(sc)).toThrow(/AMP tag/)
+  })
+})
+
+describe('backscatter tags and the RFID reader in the schema', () => {
+  /** A Wi-Fi 7 AP with AMP polling on, and one tag of the given mode. `null` turns the RFID
+   * inventory off — not `undefined`, which would take the default parameter below. */
+  function reader(mode: 'active' | 'backscatter', bs: AmpBackscatterCfg | null = { ...DEFAULT_AMP_BS }) {
+    const sc = defaultScenario()
+    sc.nodes[0].caps = { generation: 'eht', features: { edca: true } }
+    sc.nodes[0].ampAp = { ...DEFAULT_AMP_AP, backscatter: bs ?? undefined }
+    sc.nodes.push({
+      id: 'tag-1', kind: 'amp', name: 'Tag', pos: { x: 3, y: 3, z: 1 }, txPowerDbm: 0, profiles: ['idle'],
+      caps: { generation: 'nonht', features: {} }, ampTag: { mode },
+    })
+    return sc
+  }
+
+  it('a tag saved before the backscatter tier existed reads back as an Active Tx one', () => {
+    const sc = defaultScenario()
+    sc.nodes[0].caps = { generation: 'eht', features: { edca: true } }
+    sc.nodes[0].ampAp = { ...DEFAULT_AMP_AP }
+    sc.nodes.push({
+      id: 'tag-1', kind: 'amp', name: 'Tag', pos: { x: 3, y: 3, z: 1 }, txPowerDbm: 0, profiles: ['idle'],
+      caps: { generation: 'nonht', features: {} }, ampTag: { dlSensDbm: -70 },
+    })
+    // Neither `mode` nor `backscatter` is in the saved plan, and it still parses.
+    const out = ScenarioSchema.parse(JSON.parse(JSON.stringify(sc)))
+    expect(out.nodes[3].ampTag?.mode).toBe('active')
+    expect(out.nodes[0].ampAp?.backscatter).toBeUndefined()
+  })
+
+  it('accepts a backscatter tag when the AP runs the RFID inventory, and refuses it otherwise', () => {
+    expect(() => ScenarioSchema.parse(reader('backscatter'))).not.toThrow()
+    // Active Tx tags never needed a reader, and still do not.
+    expect(() => ScenarioSchema.parse(reader('active', null))).not.toThrow()
+    expect(() => ScenarioSchema.parse(reader('backscatter', null)))
+      .toThrow(/a backscatter tag needs an AP with the RFID inventory on/)
+  })
+
+  it('bounds every reader setting', () => {
+    const bad = (patch: Partial<AmpBackscatterCfg>) => () => ScenarioSchema.parse(reader('backscatter', { ...DEFAULT_AMP_BS, ...patch }))
+    expect(bad({ q: -1 })).toThrow()
+    expect(bad({ q: 9 })).toThrow()
+    expect(bad({ q: 2.5 })).toThrow()
+    expect(bad({ ulKbps: 4000 as 250 })).toThrow()
+    expect(bad({ wupMs: 0.5 })).toThrow() // SFD PM-73: the WUP is a millisecond at minimum
+    expect(bad({ txopMs: 0.5 })).toThrow()
+    expect(bad({ txopMs: 11 })).toThrow()
+    expect(bad({ chargeDbm: 31 })).toThrow()
+    expect(bad({ bsDbm: -11 })).toThrow()
+    // …and accepts the edges of each range.
+    expect(bad({ q: 0, ulKbps: 1000, wupMs: 1, txopMs: 10, chargeDbm: 30, bsDbm: -10, write: true })).not.toThrow()
+  })
+
+  it('takes an EPC only as 24 hex characters', () => {
+    const withEpc = (epc: string) => {
+      const sc = reader('backscatter')
+      sc.nodes[3].ampTag = { mode: 'backscatter', epc }
+      return () => ScenarioSchema.parse(sc)
+    }
+    expect(withEpc('0123456789abcdef01234567')).not.toThrow()
+    expect(withEpc('0123456789ABCDEF01234567')).not.toThrow()
+    expect(withEpc('0123456789abcdef0123456')).toThrow(/24 hex/)
+    expect(withEpc('0123456789abcdef012345678')).toThrow(/24 hex/)
+    expect(withEpc('0123456789abcdef0123456g')).toThrow(/24 hex/)
   })
 })
 

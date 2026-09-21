@@ -1,14 +1,15 @@
 import { AMPDU_DELIMITER_BYTES, FCS_BYTES, MAC_HDR_BYTES, QOS_HDR_BYTES, type PhyMode } from '../engine/phy'
+import type { AmpBsUlKbps, Gen2Cmd, Gen2Reply } from '../engine/ampBs'
 import type { UwbInfo } from '../uwb/frames'
 import type { Ns } from './types'
 
 export type FrameKind =
   | 'data' | 'ack' | 'rts' | 'cts' | 'ba' | 'trigger' | 'mba' | 'cfend'
-  | 'ampTrigger' | 'ampAck' | 'ampResp'
+  | 'ampTrigger' | 'ampAck' | 'ampResp' | 'ampRfid' | 'ampBsReply'
   | 'uwbPoll' | 'uwbResp' | 'uwbFinal' | 'uwbReport' | 'uwbBlink'
   | 'uwbRsf' | 'uwbRif' | 'nbPoll' | 'nbResp' | 'nbReport'
 
-/** P802.11bp fields of an AMP frame; present on the three AMP kinds only. */
+/** P802.11bp fields of an AMP frame; present on the five AMP kinds only. */
 export interface AmpInfo {
   dir: 'dl' | 'ul'
   /** Data rate of the AMP-Data field in kb/s (250 / 1000 DL; 250 / 1000 / 4000 UL). */
@@ -33,6 +34,37 @@ export interface AmpInfo {
   ackFor?: number
   /** DL PPDUs: the padding field length. */
   padNs?: Ns
+  /**
+   * Backscatter downlink (`ampRfid`): the EPC Gen2 command this AMP RFID frame tunnels, the
+   * inventory round it belongs to, and the two excitation fields wrapped around it — the WUP
+   * that boots the tags (0 after the first PPDU of a TXOP) and the BST the reply is reflected
+   * inside. `chargeDbm` is the power up to the end of AMP-Data, `bsDbm` the power during the
+   * BST-Excitation. SFD FM-44/FM-45, PM-72…PM-74
+   */
+  rfid?: {
+    cmd: Gen2Cmd
+    session: number
+    q?: number
+    rn16?: number
+    slot: number
+    wupNs: Ns
+    bstNs: Ns
+    chargeDbm: number
+    bsDbm: number
+    ulKbps: AmpBsUlKbps
+  }
+  /**
+   * Backscatter uplink (`ampBsReply`): which Gen2 reply the tag reflected, in which slot of the
+   * round, and what it carried. `incidentDbm` is the excitation power that reached the tag,
+   * which only the medium knows — the builder leaves it unset. SFD PM-24, FM-35
+   */
+  bs?: {
+    reply: Gen2Reply
+    slot: number
+    rn16?: number
+    epc?: string
+    incidentDbm?: number
+  }
 }
 
 /** One user's share of a DL/UL MU (OFDMA) PPDU. */
@@ -92,7 +124,7 @@ export interface FrameDesc {
   ulWidthMhz?: number
   /** How a multi-user PPDU is split: by frequency (OFDMA) or by space (MU-MIMO). */
   muKind?: 'ofdma' | 'mumimo'
-  /** P802.11bp Ambient Power fields; present on the three AMP frame kinds only. */
+  /** P802.11bp Ambient Power fields; present on the five AMP frame kinds only. */
   amp?: AmpInfo
   /** HRP UWB ranging fields; present on the four UWB frame kinds only. */
   uwb?: UwbInfo

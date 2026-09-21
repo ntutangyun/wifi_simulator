@@ -191,7 +191,9 @@ export function newTag(sc: Scenario, pos: { x: number; y: number }): { sc: Scena
   const node: NodeCfg = {
     id, kind: 'amp', name: `Tag ${k}`, pos: { x: snap(pos.x), y: snap(pos.y), z: 1.0 },
     txPowerDbm: 0, profiles: ['idle'], caps: { generation: 'nonht', features: {} },
-    linkId: '2g', ampTag: {},
+    // A fresh tag states its mode rather than leaning on the schema's default, so a plan the
+    // editor just built and a plan reloaded from JSON are the same object.
+    linkId: '2g', ampTag: { mode: 'active' },
   }
   return { sc: { ...sc, nodes: [...sc.nodes, node] }, id }
 }
