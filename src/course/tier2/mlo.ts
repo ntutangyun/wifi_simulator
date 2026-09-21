@@ -21,7 +21,7 @@ export const mlo: Lesson = {
   title: { en: 'MLO — one queue, two radios', zh: 'MLO——一条队列，两台电台' },
   why: {
     en: 'A radio that has joined a band is stuck with whatever is happening on it. If the neighbours on that band are busy, every frame of yours waits behind theirs, however quiet the band next door happens to be. Wi-Fi 7 lets one device keep two radios awake on two bands at the same moment and feed both from a single pile of waiting frames, so a frame leaves by whichever door opens first. This lesson shows what that second door buys, what it does not, and how this simulator draws it.',
-    zh: '一台电台一旦落在某个频段上，就只能认命于这个频段上正在发生的一切。这个频段上的邻居忙，你的每一帧就得排在人家后面——哪怕隔壁那个频段一直空着。Wi-Fi 7 允许一台设备同时让两台电台醒着，分别待在两个频段上，并且由同一堆待发的帧一起喂它们：哪扇门先开，帧就从哪扇门出去。这一课讲清楚：这第二扇门买到了什么、没买到什么，以及本模拟器是怎么把它画出来的。',
+    zh: '一台电台一旦落在某个频段上，就只能认命于这个频段上正在发生的一切。这个频段上的邻居忙，你的每一帧就得排在人家后面——哪怕隔壁那个频段一直空着。Wi-Fi 7 允许一台设备同时让两台电台醒着，分别待在两个频段上，并且由同一堆待发的帧一起喂它们：哪扇门先开，帧就从哪扇门出去。这一课讲清楚：这第二扇门买到了什么、没买到什么，以及本仿真器是怎么把它画出来的。',
   },
   outcomes: [
     { en: 'say what a device with two radios shares between them and what it keeps apart', zh: '说出一台有两台电台的设备，在两者之间共享了什么、又把什么各管各的' },
@@ -45,8 +45,8 @@ export const mlo: Lesson = {
   ],
   picture: [
     { heading: { en: 'Two doors instead of one', zh: '从一扇门变成两扇门' }, text: {
-      en: 'A radio that has joined a band is tied to it. When the neighbours on that band are busy, every frame of yours queues behind theirs, however quiet the band next door happens to be. Wi-Fi 7 lets one device hold two radios awake at the same moment, on two different bands. Each radio, with its own channel and its own turn-taking, is a link; running the pair of them together is MLO.',
-      zh: '一台电台加入了哪个频段，就被拴在哪个频段上。这个频段的邻居一忙，你的每一帧都得排在人家后面——隔壁那个频段再空也没用。Wi-Fi 7 让一台设备可以在同一时刻让两台电台都醒着，各待在一个频段上。每一台电台都有自己的信道、自己的排队过程，这就是一条链路；把两条链路一起跑起来，就是 MLO。',
+      en: 'Wi-Fi 7 lets one device hold two radios awake at the same moment, on two different bands. Each of them has its own channel and takes its turn on that channel by itself, and each is a link; running the pair together is MLO. Neither link is quicker than the single radio it replaces. What the pair has is a choice of queue.',
+      zh: 'Wi-Fi 7 让一台设备可以在同一时刻让两台电台都醒着，各待在一个频段上。每一台都有自己的信道，也自己在那条信道上排队，每一台就是一条链路；把两条链路一起跑起来，就是 MLO。哪一条链路都不比它所取代的那一台电台更快。这一对多出来的，是“去哪条队”的选择。',
     } },
     { kind: 'watch', jump: 1, heading: { en: 'Go and look', zh: '去看一眼' }, text: {
       en: 'Load the simulation and jump to the first 6 GHz data frame. The laptop has two lanes on the timeline, the second of them marked ·6G, and blocks are landing on both at once. Then look at the neighbour below it: one lane, one band, and that band is full.',
@@ -64,9 +64,9 @@ export const mlo: Lesson = {
       en: 'A second link does not create air. It only lets its owner reach a band the neighbours are not in — and only for as long as they stay out of it. Give the neighbour the same pair of radios and the quiet door fills up: both devices then spread their work across both bands, and each carries less than the single MLO device carried on its own.',
       zh: '第二条链路并不会凭空造出空口时间。它只是让自己的主人够得着一个邻居还没进去的频段——而且只在邻居还没进去的这段时间里有效。把同样的两台电台也给邻居装上，那扇安静的门就被填满了：两台设备都把活儿摊到两个频段上，于是每一台拿到的，都比当初那台独苗 MLO 设备拿到的少。',
     } },
-    { heading: { en: 'What this simulator models', zh: '本模拟器模拟的是哪一种' }, text: {
-      en: 'Here both radios may transmit at the same instant, which is the arrangement a router, or a laptop with room for two radios inside it, actually uses. The two lanes, the ·6G mark and the wireframe spheres of the 3D view are simply those two links drawn apart, because apart is what they are.',
-      zh: '在这里，两台电台可以在同一瞬间各自发送——路由器，或者机箱里塞得下两台电台的笔记本，用的正是这种形态。时间轴上的两条泳道、那个 ·6G 标记，以及 3D 视图里的线框球，不过是把这两条链路分开画出来而已；它们本来就是分开的。',
+    { heading: { en: 'What this simulator models', zh: '本仿真器模拟的是哪一种' }, text: {
+      en: 'Here both radios may transmit at the same instant, which is the arrangement an access point, or a laptop with room for two radios inside it, actually uses. The two lanes, the ·6G mark and the wireframe spheres of the 3D view are simply those two links drawn apart, because apart is what they are.',
+      zh: '在这里，两台电台可以在同一瞬间各自发送——接入点，或者机箱里塞得下两台电台的笔记本，用的正是这种形态。时间轴上的两条泳道、那个 ·6G 标记，以及 3D 视图里的线框球，不过是把这两条链路分开画出来而已；它们本来就是分开的。',
     } },
   ],
   numbers: [
@@ -75,7 +75,7 @@ export const mlo: Lesson = {
       zh: '最初 300 ms 里，笔记本的活儿去了哪边',
     }, head: [
       { en: 'Lane', zh: '泳道' }, { en: 'Data frames', zh: '数据帧' },
-      { en: 'Airtime of those frames', zh: '这些帧占用的空口时间' }, { en: 'Share of that band’s clock', zh: '占该频段时钟的比例' },
+      { en: 'Airtime of those frames', zh: '这些帧占用的空口时间' }, { en: 'Share of that band’s clock, answers included', zh: '占该频段时钟的比例（含回答）' },
     ], rows: [
       [N('5 GHz'), N('67'), N('53.9 ms'), N('18.3%')],
       [N('6 GHz'), N('240'), N('249.6 ms'), N('84.2%')],
@@ -109,8 +109,8 @@ export const mlo: Lesson = {
   ],
   deeper: [
     { heading: { en: 'The cheaper arrangement most phones use', zh: '多数手机用的那种更便宜的形态' }, text: {
-      en: 'Two radios transmitting at once is only one form of MLO, and the expensive one. A phone more often runs EMLSR: several links are set up and listened on, but only one of them transmits at any instant, so the device pays for one transmit chain and still gets to answer on whichever link the router used. The pairing need not be 5 and 6 GHz either — 2.4 + 5 GHz is common on cheaper hardware. This simulator models the simultaneous two-radio form only, so every number above is the best case a second link can give.',
-      zh: '两台电台同时发送，只是 MLO 的一种形态，而且是贵的那种。手机上更常见的是 EMLSR：建立并监听多条链路，但任一时刻只有一条在发送，于是设备只需为一套发射通道买单，却仍然能在路由器用的那条链路上作答。配对也不一定是 5 GHz 加 6 GHz——便宜的硬件上 2.4 + 5 GHz 很常见。本模拟器只模拟双电台同时收发这一种形态，所以上面每一个数字，都是第二条链路所能给出的最好情况。',
+      en: 'Two radios transmitting at once is only one form of MLO, and the expensive one. A phone more often runs EMLSR: several links are set up and listened on, but only one of them transmits at any instant, so the device pays for one transmit chain and still gets to answer on whichever link the access point used. The pairing need not be 5 and 6 GHz either — 2.4 + 5 GHz is common on cheaper hardware. This simulator models the simultaneous two-radio form only, so every number above is the best case a second link can give.',
+      zh: '两台电台同时发送，只是 MLO 的一种形态，而且是贵的那种。手机上更常见的是 EMLSR：建立并监听多条链路，但任一时刻只有一条在发送，于是设备只需为一套发射通道买单，却仍然能在接入点用的那条链路上作答。配对也不一定是 5 GHz 加 6 GHz——便宜的硬件上 2.4 + 5 GHz 很常见。本仿真器只模拟双电台同时收发这一种形态，所以上面每一个数字，都是第二条链路所能给出的最好情况。',
     } },
     { heading: { en: 'Why a failure on one link can be retried on the other', zh: '为什么一条链路上的失败可以由另一条重传' }, text: {
       en: 'A frame that has been sent but not acknowledged is still in the shared pile: nothing at the MLD level marks it as belonging to the link that tried it. So the next retry is taken by whichever link is free, which is why a device whose 5 GHz link is being hammered by a neighbour does not accumulate a backlog there — the backlog is the other link’s work too.',
@@ -123,7 +123,7 @@ export const mlo: Lesson = {
     { en: 'That each link keeps its own channel access state — its own carrier sense, its own backoff and its own retry counters — is §35.3.7; nothing in the standard pools contention across links.',
       zh: '每条链路各自保留自己的信道接入状态——自己的载波侦听、自己的退避、自己的重传计数——见 §35.3.7；标准中没有任何机制把竞争状态在链路之间合并。' },
     { en: 'Which band the laptop’s frames end up on is not standardised at all: the simulator hands each link the next frames from the shared queue as it wins the air, which is a model choice standing in for a real vendor’s link-selection policy.',
-      zh: '笔记本的帧最终落在哪个频段，标准完全没有规定：本模拟器的做法是，哪条链路赢得空口，就把共享队列里的下一批帧交给它——这是模型取值，替代真实厂商各自的链路选择策略。' },
+      zh: '笔记本的帧最终落在哪个频段，标准完全没有规定：本仿真器的做法是，哪条链路赢得空口，就把共享队列里的下一批帧交给它——这是模型取值，替代真实厂商各自的链路选择策略。' },
   ],
   scenario: () => sc(oneRoom(), [
     node('ap', 'AP (MLO)', 'ap', 5, 4, 'eht', 'idle'),
@@ -159,7 +159,7 @@ export const mlo: Lesson = {
       options: [
         { en: 'Nothing: it keeps its lead, because it reached the quiet band first', zh: '没事：它保住了领先，因为它先到了那个安静的频段' },
         { en: 'Its work splits almost evenly and its total falls from 307 frames to 258 — the second band was worth only its emptiness', zh: '它的活儿几乎平分，总量从 307 帧掉到 258——第二个频段值钱的地方只在于它空着' },
-        { en: 'The router refuses the second device a second link', zh: '路由器会拒绝给第二台设备开第二条链路' },
+        { en: 'The access point refuses the second device a second link', zh: '接入点会拒绝给第二台设备开第二条链路' },
       ],
       answer: 1,
       explain: { en: 'A second link buys access to an emptier band, not more air. Once the neighbour is in that band too, both devices spread across both and each carries less than the lone MLO device did.', zh: '第二条链路买到的是进入一个更空频段的资格，不是更多的空口时间。邻居也进了那个频段之后，两台设备都摊在两个频段上，各自拿到的都比当初那台独苗 MLO 设备少。' },

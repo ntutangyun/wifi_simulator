@@ -445,7 +445,7 @@ describe('lesson 10 · protecting the burst', () => {
   const single = recs('txop-protect', 300 * MS, 0)
 
   it('the 300 ms table: single vs boundary', () => {
-    // table "This scenario, 300 ms": collisions 46 / 21, frames delivered 212 / 614,
+    // the "Counted over 300 ms" table: collisions 46 / 21, frames delivered 212 / 614,
     // retries 112 / 47, frames dropped 6 / 1
     const row = (rs: TLRecord[]) => [
       ofType(rs, 'COLLISION').length,
@@ -547,7 +547,8 @@ describe('lesson 10 · protecting the burst', () => {
     expect(cf[0].t).toBe(lastAckEnd + 16_000)
     // "too little for another 1500-byte frame and its ACK"
     expect(16_000 + burst[0].frame.txTimeNs + 16_000 + lastAck.frame.txTimeNs).toBeGreaterThan(376_000)
-    // "the AP repeats it one SIFS later, and B’s NAV ends at 2.976 ms instead of 3.264 ms"
+    // "the access point repeats it one SIFS later, and B’s reservation ends at 2.976 ms
+    // instead of 3.264 ms" — the reservation is B’s NAV
     expect(cf[1].node).toBe('ap')
     expect(cf[1].t).toBe(cf[0].t + cf[0].frame.txTimeNs + 16_000)
     expect(ofType(boundary, 'NAV_CLEAR').find((r) => r.node === 'sta-2')!.t).toBe(2_976_000)
@@ -571,7 +572,8 @@ describe('lesson 11 · OFDMA downlink', () => {
 
 describe('lesson 12 · Trigger frames', () => {
   it('between triggered bursts the stations still contend via EDCA', () => {
-    // "Between triggered bursts the stations still contend normally via EDCA."
+    // "between rounds nothing is conducted at all: the same two uploaders queue up and
+    //  contend exactly as they did before"
     const rs = recs('ofdma-ul', 100 * MS)
     for (const n of ['sta-1', 'sta-2']) {
       expect(ofType(rs, 'BACKOFF_DRAW').some((r) => r.node === n)).toBe(true)

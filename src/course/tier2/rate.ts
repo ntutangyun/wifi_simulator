@@ -46,12 +46,12 @@ export const rate: Lesson = {
       zh: '选一级这条链路撑不住的，接收端听到的就是一团糊：帧发出去了，空口时间花掉了，什么也没到。选一级远低于链路能力的，帧倒是帧帧都到——可每一帧占住信道的时间是它本来需要的好几倍，而在这段时间里，屋里其他人谁也不能开口。对的那一级，是这条链路还撑得住的最高一级；而人走来走去、门开门关，这一级还会变。',
     } },
     { heading: { en: 'The lid the signal puts on', zh: '信号扣下来的那个盖子' }, text: {
-      en: 'On this scene two stations upload flat out to the same router: one on the desk beside it, one in the far corner behind a brick wall. The far station cannot use a rung above its ceiling however it tries, because the signal in that corner will not carry a denser MCS. Distance and the wall decided that. Everything below the ceiling is the sender’s own decision, made frame by frame.',
-      zh: '这一幕里有两台终端在向同一台路由器满速上传：一台在它旁边的桌上，一台在另一头、隔着一堵砖墙的角落里。远端那台再怎么试，也用不了高于自己上限的那一级，因为那个角落的信号撑不住更密的 MCS。定下这个上限的，是距离和那堵墙。上限以下的一切，才是发送端自己一帧一帧做的决定。',
+      en: 'On this scene two stations upload flat out to the same access point: one on the desk beside it, one in the far corner behind a brick wall. The far station cannot use a rung above its ceiling however it tries, because the signal in that corner will not carry a denser MCS. Distance and the wall decided that. Everything below the ceiling is the sender’s own decision, made frame by frame.',
+      zh: '这一幕里有两台站点在向同一个接入点满速上传：一台在它旁边的桌上，一台在另一头、隔着一堵砖墙的角落里。远端那台再怎么试，也用不了高于自己上限的那一级，因为那个角落的信号撑不住更密的 MCS。定下这个上限的，是距离和那堵墙。上限以下的一切，才是发送端自己一帧一帧做的决定。',
     } },
     { kind: 'watch', jump: 0, heading: { en: 'Go and look', zh: '去看一眼' }, text: {
       en: 'Load the simulation and jump to the first data frame. Then follow the far station’s lane for a few seconds: its blocks keep changing length, while the near station’s never do. Nothing in the flat moved — only one sender’s choice did.',
-      zh: '载入仿真，跳到第一个数据帧，然后顺着远端终端那条泳道往后看几秒：它的方块长度一直在变，而近端终端的从头到尾一个样。屋里什么都没挪动，变的只是一台发送端的选择。',
+      zh: '载入仿真，跳到第一个数据帧，然后顺着远端站点那条泳道往后看几秒：它的方块长度一直在变，而近端站点的从头到尾一个样。屋里什么都没挪动，变的只是一台发送端的选择。',
     } },
     { heading: { en: 'The only news a sender gets', zh: '发送端唯一收到的消息' }, text: {
       en: 'A sender cannot see the signal at the far end. All it has is what came back. Each attempt ends one of two ways: the ACK arrives, or the ACK timeout does. That single scrap of news — answered, not answered — is the whole input to rate control. It cannot tell a frame killed by a weak signal from one killed because a neighbour started talking in the same slot; from here the two look exactly alike.',
@@ -64,8 +64,8 @@ export const rate: Lesson = {
   ],
   numbers: [
     { kind: 'table', heading: {
-      en: 'The far station’s frames, three rungs, the same 1,530 octets',
-      zh: '远端终端的帧：三个级别，同样的 1,530 字节',
+      en: 'The far station’s frames, three rungs, the same 1,530 bytes, 20 MHz and one stream',
+      zh: '远端站点的帧：三个级别，同样的 1,530 字节，20 MHz，单流',
     }, head: [
       { en: 'Rung', zh: '级别' }, { en: 'Rate line', zh: '速率一行' },
       { en: 'Airtime', zh: '空口时间' }, { en: 'Share of its frames', zh: '占它帧数的比例' },
@@ -76,17 +76,17 @@ export const rate: Lesson = {
     ] },
     { heading: { en: 'What one step down costs', zh: '降一级要付什么' }, text: {
       en: 'Each step down halves, or nearly halves, the bits every chunk of signal carries, so the same payload takes almost three times the air at the bottom rung as at the ceiling. The ceiling itself never moves: across three seconds the far station does not send above MCS 2 once.',
-      zh: '每降一级，每一块信号能装的比特数就减半或接近减半，所以同样的内容，在最底一级要花掉将近上限三倍的空口时间。而上限本身从不移动：整整三秒里，远端终端一次也没有发到 MCS 2 以上。',
+      zh: '每降一级，每一块信号能装的比特数就减半或接近减半，所以同样的内容，在最底一级要花掉将近上限三倍的空口时间。而上限本身从不移动：整整三秒里，远端站点一次也没有发到 MCS 2 以上。',
     } },
-    { heading: { en: 'The station that never has to choose', zh: '那台根本不用做选择的终端' }, text: {
-      en: 'A metre from the router, the near station sends 4,010 frames in three seconds, every one of them at its own MCS 11 ceiling, and not one goes unanswered. With no failures there is nothing for rate control to react to. The choice only becomes interesting once frames start going missing.',
-      zh: '离路由器一米远的近端终端，三秒里发了 4,010 帧，帧帧都跑在它自己的上限 MCS 11 上，而且没有一帧等不到答复。一次失败都没有，速率控制也就无事可做。只有当帧开始丢失，这个选择才变得有意思。',
+    { heading: { en: 'The station that never has to choose', zh: '那台根本不用做选择的站点' }, text: {
+      en: 'A metre from the access point, the near station sends 4,010 frames in three seconds, every one of them at its own MCS 11 ceiling, and not one goes unanswered. With no failures there is nothing for rate control to react to. The choice only becomes interesting once frames start going missing.',
+      zh: '离接入点一米远的近端站点，三秒里发了 4,010 帧，帧帧都跑在它自己的上限 MCS 11 上，而且没有一帧等不到答复。一次失败都没有，速率控制也就无事可做。只有当帧开始丢失，这个选择才变得有意思。',
     } },
   ],
   deeper: [
     { heading: { en: 'Multi-user frames report an outcome too', zh: '多用户帧同样会上报结果' }, text: {
-      en: 'The loop is fed by every exchange, not only single-user ones: a downlink multi-user PPDU reports one outcome per member, success or failure, exactly as an ordinary frame would. Over the OFDMA run of the scheduled-Wi-Fi lesson the router sends 169 multi-user PPDUs carrying 492 parts addressed to phones, and rate control hears about each of them: 620 outcome reports for those phones in all — 128 from single-user frames and 492 from multi-user parts, 597 successes and 23 failures. A rung used only inside multi-user PPDUs therefore adapts exactly as a single-user one does.',
-      zh: '喂给这个回路的是每一次交换，不只是单用户的：一个下行多用户 PPDU 会为每个成员各上报一次成功或失败，和普通帧一模一样。在“调度式 Wi-Fi”那一课的 OFDMA 仿真里，路由器发出 169 个多用户 PPDU，其中 492 份是发给手机的，而速率控制对每一份都收到了上报：这些手机一共产生 620 次结果上报——128 次来自单用户帧，492 次来自多用户部分，其中 597 次成功、23 次失败。所以一个只在多用户 PPDU 里用到的级别，也会像单用户的那样自适应。',
+      en: 'The loop is fed by every exchange, not only single-user ones: a downlink multi-user PPDU reports one outcome per member, success or failure, exactly as an ordinary frame would. In the OFDMA variant of the MU-MIMO lesson the access point sends 169 multi-user PPDUs carrying 492 parts addressed to phones, and rate control hears about each of them: 620 outcome reports for those phones in all — 128 from single-user frames and 492 from multi-user parts, 597 successes and 23 failures. A rung used only inside multi-user PPDUs therefore adapts exactly as a single-user one does.',
+      zh: '喂给这个回路的是每一次交换，不只是单用户的：一个下行多用户 PPDU 会为每个成员各上报一次成功或失败，和普通帧一模一样。在 MU-MIMO 那一课的 OFDMA 变体里，接入点发出 169 个多用户 PPDU，其中 492 份是发给手机的，而速率控制对每一份都收到了上报：这些手机一共产生 620 次结果上报——128 次来自单用户帧，492 次来自多用户部分，其中 597 次成功、23 次失败。所以一个只在多用户 PPDU 里用到的级别，也会像单用户的那样自适应。',
     } },
   ],
   sources: [
@@ -104,13 +104,13 @@ export const rate: Lesson = {
     J('first retry', '第一次重传', firstRetry),
   ],
   observe: [
-    { en: 'The far station’s blocks change length as the run goes on: 524.0 µs at its MCS 2 ceiling, 768.8 one step down, 1,476.0 at the bottom rung. The choice is visibly moving, not fixed.', zh: '远端终端的方块随着仿真推进在变长变短：在上限 MCS 2 上是 524.0 µs，降一级是 768.8 µs，到最底一级是 1,476.0 µs。这个选择肉眼可见地在动，不是固定的。' },
-    { en: 'Scroll the whole three seconds and the far station never once sends above MCS 2. The ceiling is a lid it bumps into, not a target it sometimes overshoots.', zh: '把整整三秒拉完，远端终端一次也没有发到 MCS 2 以上。上限是它撞上去的一个盖子，而不是一个偶尔会冲过头的目标。' },
-    { en: 'The near station, a metre from the router, never moves at all: 4,010 frames in three seconds, every one at MCS 11, and no ACK timeout anywhere on its lane.', zh: '离路由器一米的近端终端则纹丝不动：三秒 4,010 帧，全部在 MCS 11 上，它那条泳道上一次 ACK 超时也没有。' },
+    { en: 'The far station’s blocks change length as the run goes on: 524.0 µs at its MCS 2 ceiling, 768.8 one step down, 1,476.0 at the bottom rung. The choice is visibly moving, not fixed.', zh: '远端站点的方块随着仿真推进在变长变短：在上限 MCS 2 上是 524.0 µs，降一级是 768.8 µs，到最底一级是 1,476.0 µs。这个选择肉眼可见地在动，不是固定的。' },
+    { en: 'Scroll the whole three seconds and the far station never once sends above MCS 2. The ceiling is a lid it bumps into, not a target it sometimes overshoots.', zh: '把整整三秒拉完，远端站点一次也没有发到 MCS 2 以上。上限是它撞上去的一个盖子，而不是一个偶尔会冲过头的目标。' },
+    { en: 'The near station, a metre from the access point, never moves at all: 4,010 frames in three seconds, every one at MCS 11, and no ACK timeout anywhere on its lane.', zh: '离接入点一米的近端站点则纹丝不动：三秒 4,010 帧，全部在 MCS 11 上，它那条泳道上一次 ACK 超时也没有。' },
   ],
   tryThis: [
-    { en: 'Open in the editor and move the far station half a metre towards the router. Nothing happens: it crosses no threshold, and the run comes back frame for frame identical. Move it two metres and the ceiling rises from MCS 2 to MCS 3 — 3,712 frames in the three seconds instead of 3,003.', zh: '点“在编辑器中打开”，把远端终端朝路由器挪半米。什么也不会发生：它跨不过任何门限，整段仿真一帧不差地重来一遍。挪两米才管用：上限从 MCS 2 抬到 MCS 3，三秒里交付的帧数从 3,003 变成 3,712。' },
-    { en: 'Put it back, then drag it five metres closer instead. The bottom rung now never occurs at all — with that much signal in hand, the sender has no reason to go anywhere near it.', zh: '把它挪回去，再改成朝路由器挪五米。这回最底一级一次都不出现了——手里有这么多信号，发送端根本没有理由靠近它。' },
+    { en: 'Open in the editor and move the far station half a metre towards the access point. Nothing happens: it crosses no threshold, and the run comes back frame for frame identical. Move it two metres and the ceiling rises from MCS 2 to MCS 3 — 3,712 frames in the three seconds instead of 3,003.', zh: '点“在编辑器中打开”，把远端站点朝接入点挪半米。什么也不会发生：它跨不过任何门限，整段仿真一帧不差地重来一遍。挪两米才管用：上限从 MCS 2 抬到 MCS 3，三秒里交付的帧数从 3,003 变成 3,712。' },
+    { en: 'Put it back, then drag it five metres closer instead. The bottom rung now never occurs at all — with that much signal in hand, the sender has no reason to go anywhere near it.', zh: '把它挪回去，再改成朝接入点挪五米。这回最底一级一次都不出现了——手里有这么多信号，发送端根本没有理由靠近它。' },
   ],
   quiz: [
     {
@@ -118,20 +118,20 @@ export const rate: Lesson = {
       options: [
         { en: 'That the signal was too weak for the rung it chose', zh: '它知道信号撑不住自己选的那一级' },
         { en: 'Only that no answer came — a weak signal and a neighbour starting in the same slot look identical from there', zh: '它只知道没有答复——弱信号和“邻居在同一个时隙开口”，在它那里长得一模一样' },
-        { en: 'The router names the reason in its next beacon', zh: '路由器会在下一个信标里告诉它原因' },
+        { en: 'The access point names the reason in its next beacon', zh: '接入点会在下一个信标里告诉它原因' },
       ],
       answer: 1,
       explain: { en: 'The only input rate control has is whether the ACK arrived or the ACK timeout did. Nothing in that says which of the two killed the frame, which is why a run of bad luck at contention can drag the rung down exactly as a wall would.', zh: '速率控制唯一的输入，就是“ACK 回来了”还是“ACK 超时到了”。这里面没有任何东西能区分是哪一种原因打死了这一帧——所以竞争中的一串坏运气，能像一堵墙那样把级别拖下去。' },
     },
     {
-      q: { en: 'The far station succeeds twenty times in a row. Can it move above MCS 2?', zh: '远端终端连着成功了二十次。它能升到 MCS 2 以上吗？' },
+      q: { en: 'The far station succeeds twenty times in a row. Can it move above MCS 2?', zh: '远端站点连着成功了二十次。它能升到 MCS 2 以上吗？' },
       options: [
         { en: 'No: MCS 2 is the ceiling the signal in that corner sets, and no run of successes lifts it', zh: '不能：MCS 2 是那个角落的信号定下的上限，再长的连胜也抬不动它' },
         { en: 'Yes, once it has enough successes banked', zh: '能，只要攒够足够多的成功次数' },
-        { en: 'Only if the near station stops uploading', zh: '只有在近端终端停止上传时才可以' },
+        { en: 'Only if the near station stops uploading', zh: '只有在近端站点停止上传时才可以' },
       ],
       answer: 0,
-      explain: { en: 'Distance and the brick wall fix the ceiling; the sender only ever chooses among the rungs below it. Across three seconds of this run the far station does not send above MCS 2 once.', zh: '上限由距离和那堵砖墙钉死，发送端只能在上限以下的那些级别里挑。整段三秒的仿真里，远端终端一次也没有发到 MCS 2 以上。' },
+      explain: { en: 'Distance and the brick wall fix the ceiling; the sender only ever chooses among the rungs below it. Across three seconds of this run the far station does not send above MCS 2 once.', zh: '上限由距离和那堵砖墙钉死，发送端只能在上限以下的那些级别里挑。整段三秒的仿真里，远端站点一次也没有发到 MCS 2 以上。' },
     },
   ],
 }

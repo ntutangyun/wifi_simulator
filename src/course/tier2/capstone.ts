@@ -59,8 +59,8 @@ export const capstone: Lesson = {
     } },
     { kind: 'list', heading: { en: 'Three changes you could make', zh: '你可以做的三个改动' }, items: [
       { en: 'Stop the laptop’s backup, or move it to the middle of the night — the brute-force answer.', zh: '把笔记本的备份停掉，或者挪到半夜再做——最粗暴的那个答案。' },
-      { en: 'Take the laptop’s second radio away, so its backup goes back to one band.', zh: '把笔记本的第二台电台撤掉，让它的备份退回一个频段。' },
-      { en: 'Replace the oldest radio in the house with a newer one, which is what most people do first.', zh: '把屋里最旧的那台电台换成新的——多数人第一反应就是这么干。' },
+      { en: 'Turn MLO off on the laptop, so its backup goes back to one band.', zh: '把笔记本的 MLO 关掉，让它的备份退回一个频段。' },
+      { en: 'Give the tablet a Wi-Fi 6 radio with OFDMA on — the oldest radio anyone browses on, though not the oldest in the flat.', zh: '给平板换一台开着 OFDMA 的 Wi-Fi 6 电台——屋里有人拿来上网的最旧那台，虽然它并不是屋里最旧的。' },
     ] },
     { heading: { en: 'The trap in the middle', zh: '中间那个陷阱' }, text: {
       en: 'The slowest radio is the obvious suspect, and here it is innocent. The sensor speaks slowly, but it barely speaks: a handful of tiny frames across the whole run. A device is a bottleneck only if it spends the shared resource, and spending it means holding the air — offered load times the time each frame takes, not the age on the box.',
@@ -82,7 +82,7 @@ export const capstone: Lesson = {
       [{ en: 'As it stands', zh: '原样' }, N('78.0'), N('2.26 ms'), N('39.06 ms'), N('1.90 ms')],
       [{ en: 'Backup stopped', zh: '停掉备份' }, N('0'), N('0.21 ms'), N('0.50 ms'), N('0.83 ms')],
       [{ en: 'Second radio off', zh: '关掉第二台电台' }, N('37.7'), N('2.22 ms'), N('25.93 ms'), N('1.95 ms')],
-      [{ en: 'Tablet radio replaced', zh: '换掉平板的电台' }, N('78.1'), N('2.18 ms'), N('34.31 ms'), N('1.82 ms')],
+      [{ en: 'Tablet given a Wi-Fi 6 radio', zh: '给平板换上 Wi-Fi 6 电台' }, N('78.1'), N('2.18 ms'), N('34.31 ms'), N('1.82 ms')],
     ] },
     { heading: { en: 'Nothing here is about throughput', zh: '这里没有一样是关于吞吐量的' }, text: {
       en: 'In all four scenes the television receives about 8.3 megabytes and the tablet exactly 88,200 bytes. No change alters what any of them receives. What moves — by two orders of magnitude, in one column — is how long a frame waits for its turn. The shared resource is time, and one device spends nearly all of it.',
@@ -99,7 +99,7 @@ export const capstone: Lesson = {
     ] },
     { kind: 'steps', heading: { en: 'The write-up', zh: '这份报告怎么写' }, items: [
       { en: 'One sentence: which device decides what everybody else gets, and the one number that says so.', zh: '一句话：是哪台设备在决定别人能拿到多少，以及说明这一点的那一个数字。' },
-      { en: 'The change you would make, and the number you expected it to move, written before you ran it.', zh: '你打算做的改动，以及你预期它会让哪个数字怎么动——在你跑它之前先写下来。' },
+      { en: 'The change you would make, and the number you expected it to move, written before you ran it and before you look at the table above.', zh: '你打算做的改动，以及你预期它会让哪个数字怎么动——在你跑它之前、也在你看上面那张表之前，先写下来。' },
       { en: 'What it actually moved, from the run, including the numbers that did not move.', zh: '它实际上让什么动了，数据来自仿真——包括那些没动的数字。' },
       { en: 'One change you rejected, and the measurement that made you reject it.', zh: '一个你否决掉的改动，以及是哪个测量让你否决它的。' },
       { en: 'What this scene does not model, so nobody reads more into your answer than it holds.', zh: '这个场景没有建模什么，好让别人不会把你的答案读得比它本身更重。' },
@@ -107,21 +107,21 @@ export const capstone: Lesson = {
   ],
   deeper: [
     { heading: { en: 'Why the tablet is so much worse off than the television', zh: '为什么平板比电视惨得多' }, text: {
-      en: 'The television and the projector are streamed to constantly, so the access point has something for them in almost every transmission and they ride along in the multi-user groups it forms. The tablet asks for a page now and then, from the far corner behind two walls, on the oldest radio in the flat: it is never in a group, its frames are long, and each one has to win a turn of its own against a saturated uploader. Its 39.06 ms is not a slow link — it is a slow queue in front of a fast enough link.',
-      zh: '电视和投影仪是一直在被推流的，所以接入点几乎每一次发送都有东西给它们，它们也就顺带被编进了接入点组成的多用户组里。平板则是隔一阵子要一个网页，而且待在两堵墙之后的远角上，用的是屋里最旧的那台电台：它从来没被编进组，它的帧又长，每一帧都得自己去和一个满负荷的上传者争一次发送机会。它那 39.06 ms 不是链路慢，而是一条足够快的链路前面排了一条很慢的队。',
+      en: 'The television and the projector are streamed to constantly, so the access point has something for them in almost every transmission and they ride along in the multi-user groups it forms. The tablet asks for a page now and then, from the far corner behind two walls, on the oldest radio that carries anyone’s browsing: it is never in a group, its frames are long, and each one has to win a turn of its own against a saturated uploader. Its 39.06 ms is not a slow link — it is a slow queue in front of a fast enough link.',
+      zh: '电视和投影仪是一直在被推流的，所以接入点几乎每一次发送都有东西给它们，它们也就顺带被编进了接入点组成的多用户组里。平板则是隔一阵子要一个网页，而且待在两堵墙之后的远角上，用的是屋里承载着人上网的最旧那台电台：它从来没被编进组，它的帧又长，每一帧都得自己去和一个满负荷的上传者争一次发送机会。它那 39.06 ms 不是链路慢，而是一条足够快的链路前面排了一条很慢的队。',
     } },
     { heading: { en: 'What a real answer would do next', zh: '真正的答案下一步会做什么' }, text: {
       en: 'Nothing in this flat schedules the backup. A real deployment would not stop it — it would give it a smaller share: rate-limit the upload, or put its traffic in a lower access category so that every other queue takes its turn first. Both are one line of configuration and neither costs anybody a new radio. The reason this lesson does not offer them as buttons is that the simulator has no policy engine, not that they are the wrong answer; they are, in fact, the right one.',
-      zh: '这套房子里没有任何东西去调度那个备份。真实的部署不会把它停掉，而是会给它一份更小的份额：给上传限速，或者把它的流量放进优先级更低的接入类别，让其他每一条队列都排在它前面。这两样都只是一行配置，谁也不用换新电台。这一课没有把它们做成按钮，原因是本模拟器没有策略引擎，而不是因为它们不对；事实上，它们才是对的那个答案。',
+      zh: '这套房子里没有任何东西去调度那个备份。真实的部署不会把它停掉，而是会给它一份更小的份额：给上传限速，或者把它的流量放进优先级更低的接入类别，让其他每一条队列都排在它前面。这两样都只是一行配置，谁也不用换新电台。这一课没有把它们做成按钮，原因是本仿真器没有策略引擎，而不是因为它们不对；事实上，它们才是对的那个答案。',
     } },
   ],
   sources: [
     { en: 'The walls, their materials and the path loss through them are the simulator’s own propagation model; the brick and drywall attenuations are model choices calibrated to typical measured figures, not values IEEE Std 802.11-2024 states.',
-      zh: '墙体、材质以及穿墙损耗来自本模拟器自己的传播模型；砖墙与石膏板的衰减是按常见实测数据标定的模型取值，并非 IEEE Std 802.11-2024 规定的数值。' },
-    { en: 'Every mechanism the scene exercises has its own clause: the access categories and their parameters §10.22.2, the transmit opportunity §10.22.2.8, aggregation §10.12, multi-user downlink Clause 27, and multi-link operation Clause 35 of IEEE Std 802.11be-2024.',
-      zh: '场景里用到的每一个机制都有各自的条款：接入类别及其参数 §10.22.2，发送机会 §10.22.2.8，聚合 §10.12，下行多用户见第 27 章，多链路操作见 IEEE Std 802.11be-2024 第 35 章。' },
+      zh: '墙体、材质以及穿墙损耗来自本仿真器自己的传播模型；砖墙与石膏板的衰减是按常见实测数据标定的模型取值，并非 IEEE Std 802.11-2024 规定的数值。' },
+    { en: 'Every mechanism the scene exercises has its own clause: the access categories and their parameters §10.23.2, the transmit opportunity §10.23.2.8, aggregation §10.12, multi-user downlink Clause 27, and multi-link operation Clause 35 of IEEE Std 802.11be-2024.',
+      zh: '场景里用到的每一个机制都有各自的条款：接入类别及其参数 §10.23.2，发送机会 §10.23.2.8，聚合 §10.12，下行多用户见第 27 章，多链路操作见 IEEE Std 802.11be-2024 第 35 章。' },
     { en: 'The traffic profiles — a backup, two video streams, a voice call, a browsing session and a sensor — are the simulator’s own generators, not a standard traffic model; their packet sizes and intervals are model choices, so the five-second figures are this scene’s, not a household’s.',
-      zh: '流量模型——一个备份、两路视频、一通语音、一次浏览会话和一个传感器——是本模拟器自带的产生器，不是标准的流量模型；它们的包长与间隔都是模型取值，所以这些五秒钟的数字属于这个场景，而不属于某个真实家庭。' },
+      zh: '流量模型——一个备份、两路视频、一通语音、一次浏览会话和一个传感器——是本仿真器自带的产生器，不是标准的流量模型；它们的包长与间隔都是模型取值，所以这些五秒钟的数字属于这个场景，而不属于某个真实家庭。' },
   ],
   scenario: () => sc({
     rooms: [
@@ -156,7 +156,7 @@ export const capstone: Lesson = {
   ],
   tryThis: [
     { en: 'Set the laptop’s backup to idle in the editor and reload. Every other wait collapses below a millisecond: the video from 2.26 ms to 0.21, the voice call from 1.90 to 0.83, the tablet’s pages from 39.06 to 0.50. The backup itself then delivers nothing.', zh: '在编辑器里把笔记本的备份改成空闲，然后重新加载。其他所有等待都塌到一毫秒以下：视频从 2.26 ms 到 0.21，语音通话从 1.90 到 0.83，平板的网页从 39.06 到 0.50。而备份自己从此一个字节也送不出去。' },
-    { en: 'Put it back and take the laptop’s second radio away instead. Its own delivery halves, 78.0 megabytes to 37.7, while the video streams wait exactly as long as before, 2.22 ms against 2.26. That radio bought its owner throughput, not its neighbours relief.', zh: '把它改回来，改成撤掉笔记本的第二台电台。它自己的送达量减半，78.0 兆字节变成 37.7，而视频流的等待和原来分毫不差，2.22 ms 对 2.26。那台电台买到的是它主人的吞吐量，不是邻居的解脱。' },
+    { en: 'Put it back and turn MLO off on the laptop instead, which takes its second radio away. Its own delivery halves, 78.0 megabytes to 37.7, while the video streams wait within a few per cent of what they did, 2.22 ms against 2.26. That radio bought its owner throughput, not its neighbours relief.', zh: '把它改回来，改成把笔记本的 MLO 关掉——也就是撤掉它的第二台电台。它自己的送达量减半，78.0 兆字节变成 37.7，而视频流的等待和原来相差不到几个百分点，2.22 ms 对 2.26。那台电台买到的是它主人的吞吐量，不是邻居的解脱。' },
   ],
   quiz: [
     {

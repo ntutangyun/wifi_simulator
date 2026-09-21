@@ -24,7 +24,7 @@ import { type Lesson, N, hallwayHouse, node, sc, firstRts, firstCfEnd, firstCfEn
 export const txopProtect: Lesson = {
   id: 'txop-protect',
   module: 2,
-  title: { en: 'Protecting the burst — one answer for the whole turn', zh: '保护整个突发——一个回答管住整轮' },
+  title: { en: 'Protecting the burst — one answer for the whole burst', zh: '保护突发——一个回答管住整个突发' },
   why: {
     en: 'A station that wins the air can keep it for a while and send several frames back to back. That is a good bargain when everyone can hear everyone. Where one station cannot hear the other it is a trap: a long burst is a long stretch of time for the deaf neighbour to blunder into. The cure from the hidden-node lesson still works, but it has to be aimed further — announce the whole burst at once, in a voice the far room can hear.',
     zh: '抢到空口的站点可以多占一会儿，把好几帧连着发出去，而不是只发一帧。当屋里所有人都听得见所有人时，这是笔划算的买卖。可在一台站点听不见另一台的房子里，它就成了陷阱：一长串帧，无非就是给那位“聋着的”邻居留出了一大段可以撞进来的时间。隐藏节点那一课的解法依然管用，只是要瞄得更远——用远处那个房间听得见的声音，把整串帧一次性预告出去。',
@@ -152,13 +152,13 @@ export const txopProtect: Lesson = {
   jumps: [
     J('first RTS', '第一个 RTS', firstRts),
     J('first CF-End', '第一个 CF-End', firstCfEnd),
-    J('first CF-End relayed by the AP', '第一个由 AP 重复的 CF-End', firstCfEndRelay),
+    J('first CF-End relayed by the AP', '第一个由接入点重复的 CF-End', firstCfEndRelay),
     J('first collision', '第一次碰撞', firstCollision),
   ],
   observe: [
-    { en: '“first RTS”: both stations ask at t = 0 and collide. A’s third try at 0.736 ms gets through, reserving 2500 µs, and the AP’s answer at 0.780 ms carries 2456 µs — one SIFS and itself less. Hidden B’s lane turns purple until 3.264 ms, though B never hears A.', zh: '“第一个 RTS”：两台站点都在 t = 0 开口发问，撞在一起。A 在 0.736 ms 的第三次尝试成功了，预约 2500 µs；AP 在 0.780 ms 的回答携带 2456 µs——正好少了一个 SIFS 和它自身。隐藏站 B 的泳道一直紫到 3.264 ms，尽管 B 从来听不到 A。' },
-    { en: '“first CF-End” (≈ 2.90 ms): after five exchanges, 376 µs of the reservation are left — too little for another frame and its receipt. A sends CF-End, the AP repeats it one SIFS later, and B’s reservation ends at 2.976 ms instead of 3.264 ms.', zh: '“第一个 CF-End”（≈ 2.90 ms）：五次交互之后，预约还剩 376 µs——不够再发一帧加它的回执。A 发出 CF-End，AP 在一个 SIFS 之后重复一遍，于是 B 的预约在 2.976 ms 结束，而不是 3.264 ms。' },
-    { en: '“first collision” (28 µs) is one question meeting another, not a ruined burst. Now load single protection: the far station wakes up inside the burst, and 24 of its 29 data-frame collisions are not the first exchange of a turn.', zh: '“第一次碰撞”（28 µs）是两句提问撞在一起，而不是报废了一整串。再载入“单次保护”：远端站点在这一串的中途醒来，它那 29 次数据帧碰撞里，有 24 次都不是某一轮的第一次交互。' },
+    { en: '“first RTS”: both stations ask at t = 0 and collide. A’s third try at 0.736 ms gets through, reserving 2500 µs, and the AP’s answer at 0.780 ms carries 2456 µs — one SIFS and itself less. Hidden B’s lane turns purple until 3.264 ms, though B never hears A.', zh: '“第一个 RTS”：两台站点都在 t = 0 开口发问，撞在一起。A 在 0.736 ms 的第三次尝试成功了，预约 2500 µs；接入点在 0.780 ms 的回答携带 2456 µs——正好少了一个 SIFS 和它自身。隐藏站 B 的泳道一直紫到 3.264 ms，尽管 B 从来听不到 A。' },
+    { en: '“first CF-End” (≈ 2.90 ms): after five exchanges, 376 µs of the reservation are left — too little for another frame and its answer. A sends CF-End, the AP repeats it one SIFS later, and B’s reservation ends at 2.976 ms instead of 3.264 ms.', zh: '“第一个 CF-End”（≈ 2.90 ms）：五次交互之后，预约还剩 376 µs——不够再发一帧加它的回答。A 发出 CF-End，接入点在一个 SIFS 之后重复一遍，于是 B 的预约在 2.976 ms 结束，而不是 3.264 ms。' },
+    { en: '“first collision” lands at t = 28 µs, the end of the two questions that started together — not a ruined burst. Now load single protection: the far station wakes up inside the burst, and 24 of its 29 data-frame collisions are not the first exchange of a turn.', zh: '“第一次碰撞”落在 t = 28 µs，那是同时开口的两句提问结束的时刻，而不是报废了一整串。再载入“单次保护”：远端站点在这一串的中途醒来，它那 29 次数据帧碰撞里，有 24 次都不是某一轮的第一次交互。' },
   ],
   tryThis: [
     { en: 'Load the “multiple protection” variant and hover a data frame inside a burst: its Duration now reaches the end of the turn, 2.164 ms at the longest, where boundary protection carries 60 µs. The counters do not move — the same 21 collisions, the same 614 frames delivered.', zh: '载入“多重保护”变体，悬停这一串中间的某个数据帧：它的 Duration 现在直达本轮末尾，最长 2.164 ms，而边界保护下只有 60 µs。但计数一点没变——还是 21 次碰撞，还是送达 614 帧。' },

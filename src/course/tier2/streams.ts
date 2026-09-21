@@ -53,8 +53,8 @@ export const streams: Lesson = {
       zh: '载入仿真，跳到第一个数据帧。这一课打开的是单流；上面的按钮把它切到两条流、四条流，再切到两个混合的情形。变的只有那个蓝色数据块。',
     } },
     { heading: { en: 'The multiplier that is free', zh: '白送的那个倍数' }, text: {
-      en: 'The difference from width is the price. A wider channel makes the receiver take in more noise; another stream does not. The channel is the same size as it was, so the noise floor and every step of the sensitivity ladder stay exactly where they were. Streams are the multiplier nobody charges you for. Width is the one that costs 3 dB every time it doubles.',
-      zh: '和带宽的区别在于价钱。信道变宽，接收端就要多收进一份噪声；而多加一条流不会——信道还是原来那么大，噪声底和灵敏度阶梯上的每一级都一动不动。空间流是没人跟你收钱的那个倍数；带宽那个倍数，每翻一倍都要付 3 dB。',
+      en: 'The difference from width is the price. A wider channel makes the receiver take in more noise; another stream does not. The channel is the same size as it was, so the noise floor stays where it was and so does every rung’s sensitivity on the rate ladder. In this simulator — and nearly so in a room full of reflections — streams are the multiplier nobody charges you for. Width is the one that costs 3 dB every time it doubles.',
+      zh: '和带宽的区别在于价钱。信道变宽，接收端就要多收进一份噪声；而多加一条流不会——信道还是原来那么大，噪声底不动，速率阶梯上每一级所要的信号也不动。在本仿真器里——在一间满是反射的屋子里也差不多——空间流是没人跟你收钱的那个倍数；带宽那个倍数，每翻一倍都要付 3 dB。',
     } },
     { heading: { en: 'Where the multipliers stop', zh: '倍数到头的地方' }, text: {
       en: 'A multiplier only helps while there is still something left to divide. Run the widest channel and the most streams together and the frame comes out no shorter than the widest channel managed on its own: it was already down to a single symbol, and one symbol is the floor. The streams buy nothing there — and the wide channel is still taking in every bit of its extra noise, now paid for nothing at all.',
@@ -63,7 +63,7 @@ export const streams: Lesson = {
   ],
   numbers: [
     { kind: 'table', heading: {
-      en: 'The same 1500-byte frame (1530 octets on the air), 20 MHz, MCS 13',
+      en: 'The same 1500-byte frame (1530 bytes on the air), 20 MHz, MCS 13',
       zh: '同一个 1500 字节的帧（空口上 1530 字节），20 MHz，MCS 13',
     }, head: [
       { en: 'Streams', zh: '空间流' }, { en: 'Bits per symbol', zh: '每符号比特数' },
@@ -92,7 +92,7 @@ export const streams: Lesson = {
   deeper: [
     { heading: { en: 'What the spare pair is for', zh: '多出来的那一对流做什么用' }, text: {
       en: 'A four-antenna router talking to a two-stream phone is not stuck with half its hardware idle. It can point the other two streams at a second phone in the very same instant, sending different data to each — that is MU-MIMO, multi-user MIMO, and it has a lesson of its own later in this module. What it needs is a second station with traffic waiting, which is why the gain shows up in a busy house and not on this desk.',
-      zh: '四根天线的路由器对上两流的手机，并不意味着一半硬件只能闲着。它可以在同一瞬间把另外两条流指向第二部手机，给两边各发各的数据——这就是 MU-MIMO（多用户 MIMO），本模块后面有专门的一课。它需要的是“还有第二台终端正等着发东西”，所以这份好处只在热闹的房子里看得见，在这张桌子上看不见。',
+      zh: '四根天线的路由器对上两流的手机，并不意味着一半硬件只能闲着。它可以在同一瞬间把另外两条流指向第二部手机，给两边各发各的数据——这就是 MU-MIMO（多用户 MIMO），本模块后面有专门的一课。它需要的是“还有第二台站点正等着发东西”，所以这份好处只在热闹的房子里看得见，在这张桌子上看不见。',
     } },
     { heading: { en: 'Why the paths have to differ', zh: '为什么路径必须不一样' }, text: {
       en: 'Separating the streams is linear algebra: the receiver solves a small system of equations, one row per receive antenna. That works only while the rows are genuinely different, which is to say only while the signals reached the antennas by genuinely different paths. A room full of reflections — a flat, an office — is good for streams. A clean line of sight across an empty field is the worst case, and there the second stream can be worth almost nothing.',
@@ -137,7 +137,7 @@ export const streams: Lesson = {
         { en: 'The extra streams are sent on a second channel', zh: '多出来的那些流是在另一条信道上发的' },
       ],
       answer: 1,
-      explain: { en: 'Noise power follows the width of the channel. Doubling the width doubles it, which is the 3 dB; a second stream reuses the very same sub-carriers, so the noise floor and the whole sensitivity ladder do not move at all.', zh: '噪声功率跟着信道宽度走。带宽翻倍，噪声也翻倍，这就是那 3 dB；而第二条流复用的是同一批子载波，噪声底和整把灵敏度阶梯都纹丝不动。' },
+      explain: { en: 'Noise power follows the width of the channel. Doubling the width doubles it, which is the 3 dB; a second stream reuses the very same sub-carriers, so the noise floor does not move and neither does any rung’s sensitivity on the rate ladder.', zh: '噪声功率跟着信道宽度走。带宽翻倍，噪声也翻倍，这就是那 3 dB；而第二条流复用的是同一批子载波，噪声底不动，速率阶梯上每一级所要的信号也纹丝不动。' },
     },
     {
       q: { en: 'A router with four antennas serves a phone with two. How many streams does that link use?', zh: '一台四根天线的路由器服务一部两根天线的手机。这条链路用几条流？' },

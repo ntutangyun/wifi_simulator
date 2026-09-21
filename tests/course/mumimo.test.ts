@@ -125,7 +125,10 @@ describe('mumimo · one send of each kind', () => {
 })
 
 describe('mumimo · one round of acknowledgement settles the whole group', () => {
-  it.each([[0, 'OFDMA'], [1, 'MU-MIMO']] as const)('variant %i (%s)', (v, _name) => {
+  // the counts the observation was written from, pinned rather than bounded (tier-2 review,
+  // Minor 20): the OFDMA variant settles 162 of 169 sends, the MU-MIMO one 190 of 196, and the
+  // rest are the sends the laptop talked over — "which happens to a few of them".
+  it.each([[0, 'OFDMA', 169, 162], [1, 'MU-MIMO', 196, 190]] as const)('variant %i (%s)', (v, _name, total, ok) => {
     const rs = runOf(mumimo, v, RUN_NS)
     const sends = muSends(rs)
     expect(sends.length).toBeGreaterThan(50)
@@ -145,7 +148,9 @@ describe('mumimo · one round of acknowledgement settles the whole group', () =>
       expect(hit, `the send at ${s.t} was neither acknowledged nor collided with`).toBe(true)
       collided++
     }
+    expect(sends.length).toBe(total)
     expect(settled + collided).toBe(sends.length)
-    expect(settled).toBeGreaterThan(sends.length * 0.9)
+    expect(settled).toBe(ok)
+    expect(collided).toBe(total - ok)
   })
 })

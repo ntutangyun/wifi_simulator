@@ -71,28 +71,18 @@ const RECORD_NAME = /^[A-Z0-9_]+$/
  * lessons outside the Wi-Fi Tier 1 fix wave that introduced them. The rule stays on;
  * these ids are excused until their own wave rewrites the offending cells.
  *
- * TODO(tier-2-fix-wave): `edca` and `txop` print the four access-category short names
- * (VO / VI / BE / BK) in main-path cells with no gloss in that section.
+ * The Wi-Fi ids are gone: the Tier 2 fix wave glossed `edca`'s and `txop`'s four
+ * access-category short names in the cell itself (`VO (voice)` / `VO（语音）`).
  * TODO(uwb-fix-wave): `uwb-ul-tdoa` and `uwb-mms-numbers` print English phrases into
  * language-neutral cells ("1 slot of 2 ms, 1 frame", "2.10 cm over 21 ranges");
  * `uwb-dstwr` and `uwb-blocks` print `Treply1` and `SP1` unglossed.
  */
 const CELL_RULE_CARRIES: Record<string, string> = {
-  edca: 'tier-2 fix wave: VO / VI / BE / BK unglossed in numbers cells',
-  txop: 'tier-2 fix wave: VO / VI / BE / BK unglossed in numbers cells',
   'uwb-ul-tdoa': 'uwb fix wave: English prose in a language-neutral cell',
   'uwb-mms-numbers': 'uwb fix wave: English prose in a language-neutral cell',
   'uwb-dstwr': 'uwb fix wave: `Treply1` unglossed in a numbers cell',
   'uwb-blocks': 'uwb fix wave: `SP1` unglossed in a numbers cell',
 }
-
-/**
- * TEMPORARY — the same for the vocabulary and unit lint (rule-gap 5). Wi-Fi Tier 1
- * now says `Mb/s` and 站点 everywhere; the Tier 2 lessons still say `Mbps` and 终端.
- *
- * TODO(tier-2-fix-wave): remove each id as its lesson is brought onto the sheet.
- */
-const VOCAB_CARRIES = ['edca', 'ampdu', 'txop', 'width', 'streams', 'rate', 'rate-fallback', 'txop-protect']
 
 /**
  * MIGRATING as this run grades it. `READABILITY_INCLUDE=uwb-sstwr,uwb-dstwr`
@@ -347,13 +337,40 @@ if (migrated.length) {
  * Scope is the Wi-Fi track, because that is the track whose vocabulary sheet this is.
  */
 describe('readability · one name per thing, across the Wi-Fi track', () => {
-  const wifi = migrated.filter((l) => trackOf(l) === 'wifi' && !VOCAB_CARRIES.includes(l.id))
+  const wifi = migrated.filter((l) => trackOf(l) === 'wifi')
   it.each(wifi.map((l) => [l.id, l] as const))('%s says Mb/s, and calls a station 站点', (_id, l) => {
     for (const s of lessonStrings(l)) {
       expect(/Mbps/.test(s.en) || /Mbps/.test(s.zh), `${l.id}: write Mb/s, not Mbps — "${s.en.slice(0, 60)}…"`).toBe(false)
       // 终端 is the ZH word Tier 1 settled against: roles-stack teaches 站点 and every
       // lesson after it has to keep calling the same actor by the same name.
       expect(/终端/.test(s.zh), `${l.id}: a station is 站点, not 终端 — "${s.zh.slice(0, 40)}…"`).toBe(false)
+      // 模拟器 against 仿真器 (Tier 2 review, Minor 15): the tool has one ZH name.
+      expect(/模拟器/.test(s.zh), `${l.id}: this tool is 仿真器, not 模拟器 — "${s.zh.slice(0, 40)}…"`).toBe(false)
+    }
+  })
+
+  /**
+   * Tier 2 review, Important 4: the access point had three names across Tier 2 and
+   * they flipped lesson to lesson — "router" in one, "access point" in the next, a
+   * bare "AP" in the Chinese of a third, while the node on screen said `AP`.
+   *
+   * The rule is the screen: a lesson may call it a router only where its own scene
+   * labels that node `Router` (widthScenario, mumimoScenario). Everywhere else in
+   * Tier 2 it is the access point, and in Chinese 接入点 — never a bare "AP", which a
+   * beginner reading Chinese has to translate back before the sentence means anything.
+   *
+   * Scope is Wi-Fi Tier 2, which is the block this sheet was settled for; Tier 1
+   * has its own bridge from "router" to "access point" in roles-stack.
+   */
+  const ROUTER_LABELLED = ['width', 'streams', 'mumimo']
+  const tier2 = wifi.filter((l) => MODULES[l.module].tier === 1)
+  it.each(tier2.map((l) => [l.id, l] as const))('%s calls the access point by the name on its own screen', (_id, l) => {
+    for (const s of lessonStrings(l)) {
+      if (!ROUTER_LABELLED.includes(l.id)) {
+        expect(/routers?/i.test(s.en), `${l.id}: this scene labels the node AP — say access point — "${s.en.slice(0, 60)}…"`).toBe(false)
+        expect(/路由器/.test(s.zh), `${l.id}: this scene labels the node AP — say 接入点 — "${s.zh.slice(0, 40)}…"`).toBe(false)
+      }
+      expect(/AP/.test(s.zh), `${l.id}: write 接入点 in Chinese, not a bare AP — "${s.zh.slice(0, 40)}…"`).toBe(false)
     }
   })
 })

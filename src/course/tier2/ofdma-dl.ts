@@ -18,11 +18,11 @@ export const ofdmaDl: Lesson = {
   module: 6,
   title: { en: 'OFDMA downlink — one send, several phones', zh: 'OFDMA 下行——一次发送，好几台设备' },
   why: {
-    en: 'A television streaming a film does not need much of the air at a time, but it does need a turn: its own opening, its own answer, its own wait beforehand. Put three of them in one room and the router spends much of its evening on those wrappers rather than on film. This lesson watches a router stop serving one device per turn and start serving several inside a single send.',
-    zh: '一台正在放片子的电视，每次并不需要占多少空口，但它需要一个“轮次”：自己的开场、自己的回执、之前还要自己等一轮。同一个房间里放三台，路由器整晚花在这些包装上的工夫，就多过花在片子上。这一课要看的是：路由器如何不再一轮只服务一台设备，而是在一次发送里同时服务好几台。',
+    en: 'A television streaming a film does not need much of the air at a time, but it does need a turn: its own opening, its own answer, its own wait beforehand. Put three of them in one room and the access point spends much of its evening on those wrappers rather than on film. This lesson watches an access point stop serving one device per turn and start serving several inside a single send.',
+    zh: '一台正在放片子的电视，每次并不需要占多少空口，但它需要一个“轮次”：自己的开场、自己的回执、之前还要自己等一轮。同一个房间里放三台，接入点整晚花在这些包装上的工夫，就多过花在片子上。这一课要看的是：接入点如何不再一轮只服务一台设备，而是在一次发送里同时服务好几台。',
   },
   outcomes: [
-    { en: 'say what a router divides up when it serves several devices in one send', zh: '说出路由器在一次发送里服务多台设备时，被切分的到底是什么' },
+    { en: 'say what an access point divides up when it serves several devices in one send', zh: '说出接入点在一次发送里服务多台设备时，被切分的到底是什么' },
     { en: 'read one multi-user PPDU off the timeline: who is inside it, how long it took, how it was answered', zh: '在时间轴上读出一个多用户 PPDU：里面有谁、花了多久、怎么被确认的' },
     { en: 'say when cutting the channel into slices saves air, and when it saves nothing at all', zh: '说出把信道切成小片什么时候省空口，什么时候一点也省不下' },
   ],
@@ -55,22 +55,22 @@ export const ofdmaDl: Lesson = {
       zh: '载入仿真，跳到第一次多用户发送。把鼠标停在那个宽蓝块上：一帧里点着两台电视的名字。它结束之后隔一小段，两个回执在同一个瞬间一起开始，并排落在不同的泳道上。',
     } },
     { heading: { en: 'Who decides the slices', zh: '谁来决定怎么切' }, text: {
-      en: 'Nobody negotiates a slice. The router alone decides, once it has won its turn: it looks at which devices have something waiting for them at that instant, takes up to four of them, gives each an equal RU, and sends. The devices it did not take are not refused — there was simply nothing in their queue to put in. The trace calls what goes out an MU PPDU.',
-      zh: '切片不是谈出来的。赢下这一轮之后，由路由器一个人决定：它看一眼此刻有哪些设备的东西正等着发，最多挑四台，给每台分一个同样大的 RU，然后发出去。没被挑中的设备不是被拒绝了——只是它们的队列里此刻根本没有东西可装。发出去的这一帧，记录里叫作 MU PPDU。',
+      en: 'Nobody negotiates a slice. The access point alone decides, once it has won its turn: it looks at which devices have something waiting for them at that instant, takes up to four of them, gives each an equal RU, and sends. The devices it did not take are not refused — there was simply nothing in their queue to put in. The trace calls what goes out an MU PPDU.',
+      zh: '切片不是谈出来的。赢下这一轮之后，由接入点一个人决定：它看一眼此刻有哪些设备的东西正等着发，最多挑四台，给每台分一个同样大的 RU，然后发出去。没被挑中的设备不是被拒绝了——只是它们的队列里此刻根本没有东西可装。发出去的这一帧，记录里叫作 MU PPDU。',
     } },
     { heading: { en: 'What the slices buy', zh: '切片买来了什么' }, text: {
       en: 'Every send starts with a fixed opening the receiver locks on to, and ends in an answer. Two frames sent one after the other pay for two openings and two answers; the same two frames inside one send pay for one opening, and the two answers come back together instead of in a queue. Each part is on a narrower slice, so it needs more symbols than it would alone — but the wrappers are paid once.',
       zh: '每一次发送，开头都有一段固定的开场让接收端锁定，结尾都要收一个回执。两帧一前一后地发，就要付两段开场、两个回执；同样这两帧装进一次发送，只付一段开场，而两个回执是一起回来的，不必排队。每一片都更窄，所以同一帧要用比单独发时更多的符号——但包装只付一次。',
     } },
     { heading: { en: 'And what they cannot buy', zh: '切片买不来的东西' }, text: {
-      en: 'Slicing makes no link faster. A television asks for the film it asks for, so it receives exactly the frames it would have received anyway; what it saves is air, and the air it saves belongs to whoever else wants the room. Nor can the router group devices with empty queues: two of them must have something waiting in the same instant, which in a room of steady streams is not most instants.',
-      zh: '切片不会让任何一条链路变快。电视要多少片子就是多少，它收到的帧和本来会收到的一模一样；省下来的是空口，而省下的这点空口属于房间里其他想说话的人。路由器也没法把队列是空的设备凑成一组：必须有两台设备在同一瞬间都有东西等着发，而在一屋子平稳的视频流里，这样的瞬间并不多。',
+      en: 'Slicing makes no link faster. A television asks for the film it asks for, so it receives exactly the frames it would have received anyway; what it saves is air, and the air it saves belongs to whoever else wants the room. Nor can the access point group devices with empty queues: two of them must have something waiting in the same instant, which in a room of steady streams is not most instants.',
+      zh: '切片不会让任何一条链路变快。电视要多少片子就是多少，它收到的帧和本来会收到的一模一样；省下来的是空口，而省下的这点空口属于房间里其他想说话的人。接入点也没法把队列是空的设备凑成一组：必须有两台设备在同一瞬间都有东西等着发，而在一屋子平稳的视频流里，这样的瞬间并不多。',
     } },
   ],
   numbers: [
     { kind: 'table', heading: {
-      en: 'Two video frames on the air, one way and the other',
-      zh: '同样两个视频帧上空口，两种发法',
+      en: 'Two video frames to Wi-Fi 6 televisions, two ways',
+      zh: '同样两个视频帧发给 Wi-Fi 6 电视，两种发法',
     }, head: [
       { en: 'Way', zh: '发法' }, { en: 'Opening', zh: '开场' }, { en: 'Data symbols each', zh: '每帧数据符号' },
       { en: 'On the air', zh: '占用空口' }, { en: 'Answer', zh: '回执' },
@@ -84,8 +84,8 @@ export const ofdmaDl: Lesson = {
       en: 'symbols = ⌈(16 + 8·bytes + 6) ÷ (bits per symbol × RU share)⌉',
       zh: '符号数 = ⌈(16 + 8·字节数 + 6) ÷ (每符号比特数 × RU 占比)⌉',
     }, note: {
-      en: 'Half the sub-carriers, twice the symbols. The opening grows by the four microseconds that carry the map of who is in the send, and the two frames still leave in 211.2 µs where one after the other they would need 251.2.',
-      zh: '子载波少一半，符号数就翻一倍。开场则长了四微秒——多出来的那一段装的是“这一发里有谁”的分配表。即便如此，两帧一起走只要 211.2 µs，而一前一后地发要 251.2 µs。',
+      en: 'Half the sub-carriers, twice the symbols. 44 µs is a Wi-Fi 6 frame’s front (a Wi-Fi 7 frame’s is the 48 of the width lesson); the map of who is in the send adds four microseconds. The pair still leaves in 211.2 µs against 251.2.',
+      zh: '子载波少一半，符号数就翻一倍。44 µs 是一个 Wi-Fi 6 帧的开场——Wi-Fi 7 帧的开场则是带宽那一课里的 48——而“这一发里有谁”的分配表又添了四微秒。即便如此，两帧一起走只要 211.2 µs，而一前一后地发要 251.2 µs。',
     } },
     { kind: 'table', heading: {
       en: 'The whole run: three televisions, 300 ms',
@@ -93,7 +93,7 @@ export const ofdmaDl: Lesson = {
     }, head: [
       { en: 'Measured', zh: '测量项' }, { en: 'With OFDMA', zh: '开 OFDMA' }, { en: 'Without', zh: '关 OFDMA' },
     ], rows: [
-      [{ en: 'Sends the router made downwards', zh: '路由器向下发送的次数' }, N('1016'), N('1061')],
+      [{ en: 'Sends the access point made downwards', zh: '接入点向下发送的次数' }, N('1016'), N('1061')],
       [{ en: '…of those, sends carrying two televisions', zh: '其中装着两台电视的' }, N('45'), N('0')],
       [{ en: 'Frames delivered to television 1 / 2 / 3', zh: '电视 1 / 2 / 3 收到的帧数' },
         N('352 / 355 / 354'), N('352 / 355 / 354')],
@@ -108,8 +108,8 @@ export const ofdmaDl: Lesson = {
   ],
   deeper: [
     { heading: { en: 'Why the group is two and not three', zh: '为什么一组是两台而不是三台' }, text: {
-      en: 'The engine takes up to four members, and the three televisions here could all fit — a third member would simply make every slice a third of the channel instead of a half. It never happens: a steady video stream delivers a frame and then waits, so the chance that a third queue is non-empty in the very instant the router wins its turn is small. Grouping is opportunistic, and the opportunity is the queue, not the radio.',
-      zh: '引擎一组最多收四个成员，这里的三台电视其实都塞得下——再加一个成员，无非是每片从半条信道变成三分之一条。可它从来没发生过：平稳的视频流发一帧、等一会儿，于是在路由器恰好赢下这一轮的那个瞬间，第三条队列非空的概率很小。分组是见机行事的，而机会在队列里，不在电台里。',
+      en: 'The engine takes up to four members, and the three televisions here could all fit — a third member would simply make every slice a third of the channel instead of a half. It never happens: a steady video stream delivers a frame and then waits, so the chance that a third queue is non-empty in the very instant the access point wins its turn is small. Grouping is opportunistic, and the opportunity is the queue, not the radio.',
+      zh: '引擎一组最多收四个成员，这里的三台电视其实都塞得下——再加一个成员，无非是每片从半条信道变成三分之一条。可它从来没发生过：平稳的视频流发一帧、等一会儿，于是在接入点恰好赢下这一轮的那个瞬间，第三条队列非空的概率很小。分组是见机行事的，而机会在队列里，不在电台里。',
     } },
     { heading: { en: 'Where the extra four microseconds go', zh: '多出来的那四微秒去哪儿了' }, text: {
       en: 'A single-user send opens with 44 µs of preamble; a multi-user one opens with 48. The difference carries the per-user map: which resource unit belongs to which device, and at which modulation each part was sent. Without it a receiver could not know which part of the channel to read, so the map is the price of the whole idea — and it is a flat price, which is why grouping pays better the more members share it.',
@@ -117,12 +117,12 @@ export const ofdmaDl: Lesson = {
     } },
   ],
   sources: [
-    { en: 'The downlink OFDMA PPDU, its per-user fields and the resource-unit sizes are Clause 27 of IEEE Std 802.11-2024 (the HE PPDU of 802.11ax); this room’s televisions are Wi-Fi 6 stations, so the router sends an HE MU PPDU rather than the 802.11be one.',
-      zh: '下行 OFDMA 的 PPDU、其每用户字段与资源单元尺寸，出自 IEEE Std 802.11-2024 第 27 章（802.11ax 的 HE PPDU）；本房间里的电视是 Wi-Fi 6 站点，所以路由器发的是 HE MU PPDU，而不是 802.11be 的那种。' },
+    { en: 'The downlink OFDMA PPDU, its per-user fields and the resource-unit sizes are Clause 27 of IEEE Std 802.11-2024 (the HE PPDU of 802.11ax); this room’s televisions are Wi-Fi 6 stations, so the access point sends an HE MU PPDU rather than the 802.11be one.',
+      zh: '下行 OFDMA 的 PPDU、其每用户字段与资源单元尺寸，出自 IEEE Std 802.11-2024 第 27 章（802.11ax 的 HE PPDU）；本房间里的电视是 Wi-Fi 6 站点，所以接入点发的是 HE MU PPDU，而不是 802.11be 的那种。' },
     { en: 'The 44 µs preamble, the extra 4 µs of multi-user signalling and the 13.6 µs symbol are this simulator’s single representative values for such a PPDU, not a field-by-field sum; the airtime they feed is the TXTIME formula of §17.4.3.',
       zh: '44 µs 的前导、多用户信令多出的 4 µs 以及 13.6 µs 的符号，是本仿真器为这类 PPDU 取的单一代表值，并非逐字段相加；它们代入的空口时间公式是 §17.4.3 的 TXTIME。' },
     { en: 'That the acknowledgements come back simultaneously is the standard’s solicited response: the access point asks for them with a Trigger, or with the TRS field carried in each station’s own part, and they return as trigger-based PPDUs (Clause 26.5). The simulator draws them as BlockAcks on each station’s own slice and charges the same airtime.',
-      zh: '确认帧同时返回，在标准里是被征询的响应：AP 用 Trigger 帧、或用各站点自己那一片里携带的 TRS 字段发起征询，站点以基于触发的 PPDU 返回（第 26.5 节）。仿真器把它们画成各站点自己那一片上的 BlockAck，并按同样的空口时间计费。' },
+      zh: '确认帧同时返回，在标准里是被征询的响应：接入点用 Trigger 帧、或用各站点自己那一片里携带的 TRS 字段发起征询，站点以基于触发的 PPDU 返回（第 26.5 节）。仿真器把它们画成各站点自己那一片上的 BlockAck，并按同样的空口时间计费。' },
     { en: 'The cap of four members in one group is this engine’s own limit (`muDsts.slice(0, 4)` in mac.ts), not the standard’s: 802.11ax allows far more, down to 26-tone resource units.',
       zh: '“一组最多四个成员”是本引擎自己的限制（mac.ts 里的 `muDsts.slice(0, 4)`），不是标准的规定：802.11ax 允许的成员数远不止于此，资源单元最小可到 26 个子载波。' },
   ],
@@ -138,8 +138,8 @@ export const ofdmaDl: Lesson = {
   ],
   observe: [
     { en: 'Jump to the first multi-user send. The wide blue block runs 211.2 µs and carries 1434 bytes for each of two televisions; the third is not in it, because nothing was waiting for it at that instant.', zh: '跳到第一次多用户发送。那个宽蓝块长 211.2 µs，为两台电视各装了 1434 字节；第三台不在里面，因为那个瞬间没有东西在等着发给它。' },
-    { en: 'One short gap later, two BlockAck frames of 32 µs begin at the same instant on different lanes. They do not collide: each one answers on its own slice of the channel, and the router hears both.', zh: '隔一小段之后，两个 32 µs 的 BlockAck 在不同泳道的同一瞬间开始。它们不会碰撞：各自在自己那片信道上作答，路由器两个都听得见。' },
-    { en: 'Most sends are still ordinary ones. Over the run the router sends 1016 times downwards and only 45 of those carry two televisions — grouping needs two queues with something in them in the same instant.', zh: '大多数发送仍然是普通的。整段仿真里路由器向下发了 1016 次，其中只有 45 次装着两台电视——凑成一组，需要两条队列在同一瞬间都有东西。' },
+    { en: 'One short gap later, two BlockAck frames of 32 µs begin at the same instant on different lanes. They do not collide: each one answers on its own slice of the channel, and the access point hears both.', zh: '隔一小段之后，两个 32 µs 的 BlockAck 在不同泳道的同一瞬间开始。它们不会碰撞：各自在自己那片信道上作答，接入点两个都听得见。' },
+    { en: 'Most sends are still ordinary ones. Over the run the access point sends 1016 times downwards and only 45 of those carry two televisions — grouping needs two queues with something in them in the same instant.', zh: '大多数发送仍然是普通的。整段仿真里接入点向下发了 1016 次，其中只有 45 次装着两台电视——凑成一组，需要两条队列在同一瞬间都有东西。' },
   ],
   tryThis: [
     { en: 'Open in editor and turn OFDMA off on television 1. It leaves every group at once: the other two still pair up, 11 times over the run, and television 1 is served on its own from then on.', zh: '点“在编辑器中打开”，关掉电视 1 的 OFDMA。它立刻退出所有分组：另外两台照样凑成一组，整段仿真里凑了 11 次，而电视 1 从此只被单独服务。' },
@@ -151,7 +151,7 @@ export const ofdmaDl: Lesson = {
       options: [
         { en: 'They are short enough to fit between each other', zh: '它们足够短，能互相挤过去' },
         { en: 'Each answers on its own resource unit, so they sit side by side in frequency rather than on top of each other', zh: '各自在自己的资源单元上作答，于是它们在频率上并排，而不是叠在一起' },
-        { en: 'The router cancels the interference afterwards', zh: '路由器事后把干扰消掉了' },
+        { en: 'The access point cancels the interference afterwards', zh: '接入点事后把干扰消掉了' },
       ],
       answer: 1,
       explain: { en: 'OFDMA divides frequency, not time. Two transmissions on different slices of the channel do not interfere, which is exactly why the answers can be simultaneous.', zh: 'OFDMA 分的是频率而不是时间。落在信道不同片上的两次传输互不干扰，回执之所以能同时发出，原因正在这里。' },

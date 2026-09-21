@@ -26,7 +26,7 @@ export const width: Lesson = {
   outcomes: [
     { en: 'say why doubling the width never halves the frame', zh: '说出带宽翻倍为什么从来不会让一帧的时间减半' },
     { en: 'read one frame’s airtime off the timeline at each of the four widths', zh: '在时间轴上读出同一帧在四种带宽下各自的空口时间' },
-    { en: 'choose between a wide channel and a robust one for a station at the edge of range', zh: '为一台处在覆盖边缘的终端，在“宽”和“稳”之间做出选择' },
+    { en: 'choose between a wide channel and a robust one for a station at the edge of range', zh: '为一台处在覆盖边缘的站点，在“宽”和“稳”之间做出选择' },
   ],
   needs: ['decode-thresholds', 'airtime'],
   terms: [
@@ -57,42 +57,42 @@ export const width: Lesson = {
       zh: '一帧里只有数据那一段是骑在子载波上的。它前面还有前导——接收端用来锁住这一帧的那段固定图案——在任何带宽下都一样长。而且数据也不能切得比一个完整的符号更细：除不尽的零头，总要向上凑成一个完整符号。所以信道变宽，缩短的只是能缩的那一段，其余原地不动。',
     } },
     { kind: 'watch', jump: 0, heading: { en: 'Go and look', zh: '去看一眼' }, text: {
-      en: 'Load the simulation and jump to the laptop’s first data frame. The lesson opens on the widest channel; step the buttons down and back up, and watch that one blue block change length while everything around it stays put.',
-      zh: '载入仿真，跳到笔记本的第一个数据帧。这一课打开的是最宽的一档；用上面的按钮逐档调窄再调回来，盯住那个蓝色数据块——只有它在变长变短，周围一切纹丝不动。',
+      en: 'Load the simulation and jump to the first data frame the laptop sends the router — this flat’s access point. The lesson opens on the widest channel; step the buttons down and back up, and watch that one blue block change length while everything around it stays put.',
+      zh: '载入仿真，跳到笔记本发给路由器——也就是这套房子的接入点——的第一个数据帧。这一课打开的是最宽的一档；用上面的按钮逐档调窄再调回来，盯住那个蓝色数据块——只有它在变长变短，周围一切纹丝不动。',
     } },
     { heading: { en: 'The bill is noise', zh: '账单付的是噪声' }, text: {
       en: 'A wider door lets in more of everything, the room’s background hiss included. Double the width and the noise floor rises with it, so every rung of the rate ladder now wants a stronger signal. Note what this bill is and is not: it buys nothing against another station talking over you, whose signal grows with the width exactly as your own does. What a wide channel spends is reach.',
-      zh: '门开得越大，进来的东西就越多，屋里的背景嘶声也一样。带宽翻倍，噪声底就跟着抬高，于是速率阶梯上的每一级，现在都要比原来更强的信号才撑得住。但要看清这笔账付的是什么、不是什么：它对“另一台终端压着你说话”毫无帮助——对方的信号会随带宽一起变大，和你自己的一模一样。宽信道花掉的，是覆盖距离。',
+      zh: '门开得越大，进来的东西就越多，屋里的背景嘶声也一样。带宽翻倍，噪声底就跟着抬高，于是速率阶梯上的每一级，现在都要比原来更强的信号才撑得住。但要看清这笔账付的是什么、不是什么：它对“另一台站点压着你说话”毫无帮助——对方的信号会随带宽一起变大，和你自己的一模一样。宽信道花掉的，是覆盖距离。',
     } },
     { heading: { en: 'When wider comes out slower', zh: '更宽反而更慢的时候' }, text: {
       en: 'That bill can grow larger than the goods. Out towards the edge of the flat, a wider channel asks for more signal than the room has left to give, so the link falls to a slower rung and the frame comes out longer than it was on the narrow channel. Twice the sub-carriers cannot pay for a rate that fell by more than half.',
       zh: '这张账单有时会大过货品本身。往屋子边缘走，宽信道要的信号比这个位置拿得出来的更多，于是链路掉到更慢的一级，同一帧发出来反而比在窄信道上更长。子载波翻一倍，补不回速率掉了一半还多的窟窿。',
     } },
     { heading: { en: 'And the neighbours', zh: '还有邻居' }, text: {
-      en: 'A wide channel is also wider in everybody else’s ears: it covers more of the band, so more of the other networks in the building must wait for you, and you for them. Where the air is empty, width is free money. In a block of flats the fastest setting on paper can turn out to be the slowest one in the room.',
+      en: 'A wide channel is also wider in everybody else’s ears: it covers more of the band, so more of the building’s other networks must wait for you, and you for them. Where the air is empty, width is free money; in a block of flats the fastest setting on paper can be the slowest one in the room.',
       zh: '信道宽，在所有邻居耳朵里也一样宽：它盖住的频段更多，于是楼里更多的其它网络得等你，你也得等它们。空口很空的时候，带宽是白捡的便宜；可在一栋住宅楼里，纸面上最快的那一档，到了真实的房间里反倒最慢。',
     } },
   ],
   numbers: [
     { kind: 'table', heading: {
-      en: 'One 1500-byte frame (1530 octets on the air), Wi-Fi 7, one stream, on the desk',
+      en: 'One 1500-byte frame (1530 bytes on the air), Wi-Fi 7, one stream, on the desk',
       zh: '同一个 1500 字节的帧（空口上 1530 字节），Wi-Fi 7，单流，就在书桌上',
     }, head: [
       { en: 'Width', zh: '带宽' }, { en: 'Data sub-carriers', zh: '数据子载波' },
       { en: 'MCS', zh: 'MCS' }, { en: 'Rate line', zh: '速率一行' },
       { en: 'Symbols', zh: '符号数' }, { en: 'Airtime', zh: '空口时间' },
     ], rows: [
-      [N('20 MHz'), N('234'), N('13'), N('172.1 Mbps'), N('6'), N('129.6 µs')],
-      [N('40 MHz'), N('468'), N('13'), N('172.1 Mbps'), N('3'), N('88.8 µs')],
-      [N('80 MHz'), N('980'), N('13'), N('172.1 Mbps'), N('2'), N('75.2 µs')],
-      [N('160 MHz'), N('1960'), N('13'), N('172.1 Mbps'), N('1'), N('61.6 µs')],
+      [N('20 MHz'), N('234'), N('13'), N('172.1 Mb/s'), N('6'), N('129.6 µs')],
+      [N('40 MHz'), N('468'), N('13'), N('172.1 Mb/s'), N('3'), N('88.8 µs')],
+      [N('80 MHz'), N('980'), N('13'), N('172.1 Mb/s'), N('2'), N('75.2 µs')],
+      [N('160 MHz'), N('1960'), N('13'), N('172.1 Mb/s'), N('1'), N('61.6 µs')],
     ] },
     { kind: 'formula', heading: { en: 'Where the airtime goes', zh: '空口时间花在哪儿' }, text: {
       en: 'airtime = 48 µs + 13.6 µs × ⌈(16 + 8·bytes + 6) ÷ (bits per symbol at 20 MHz × sub-carrier ratio)⌉',
       zh: '空口时间 = 48 µs + 13.6 µs × ⌈(16 + 8·字节数 + 6) ÷ (20 MHz 下每符号比特数 × 子载波倍数)⌉',
     }, note: {
-      en: 'The opening never moves and the ceiling brackets round a leftover up to a whole symbol. The step to 80 MHz gives slightly more than four times the sub-carriers of 20 MHz, because the quiet edges of a channel are paid once across the block rather than once per 20 MHz.',
-      zh: '开场那一段永远不动，而向上取整的括号把零头凑成一个完整符号。到 80 MHz 那一步给的子载波比 20 MHz 的四倍还多一点点：信道两端那截安静的边沿，是整块频段付一次，而不是每 20 MHz 付一次。',
+      en: 'The opening never moves; the 16 and the 6 are the service and tail bits every frame adds to its payload; the brackets round a leftover up to a whole symbol. 80 MHz gives slightly more than four times the sub-carriers of 20 MHz, because a channel’s quiet edges are paid once across the whole block.',
+      zh: '开场那一段永远不动；式子里的 16 和 6，是每一帧都要在负载之外添上的服务位与尾位；向上取整的括号把零头凑成一个完整符号。80 MHz 给的子载波比 20 MHz 的四倍还多一点点，因为信道两端那截安静的边沿是整块频段只付一次。',
     } },
     { heading: { en: 'What the width costs in noise', zh: '带宽在噪声上的代价' }, text: {
       en: 'Each doubling of the width takes in twice the noise power — 3 dB — so the widest channel here needs about 9 dB more signal than the narrowest. On this desk that is affordable: the link holds the top rung with 48.7 dB of signal against noise where that rung asks for 48.0.',
@@ -111,8 +111,8 @@ export const width: Lesson = {
       [N('160 MHz'), N('0'), N('224.8 µs'), { en: 'every frame — and slower than 80 MHz', zh: '帧帧送达——却比 80 MHz 还慢' }],
     ] },
     { heading: { en: 'The inversion, in one line', zh: '倒挂，一句话说清' }, text: {
-      en: 'The extra noise a 160 MHz channel takes in over an 80 MHz one costs two rungs at that spot, not one: the sensitivity ladder has a short 2 dB rung in it, so a 3 dB step skips straight over one. Exactly double the sub-carriers cannot pay back a third of the bits per symbol.',
-      zh: '在那个位置，160 MHz 比 80 MHz 多收进来的噪声要用两级调制去换，而不是一级：灵敏度阶梯上有一档只有 2 dB 的窄阶，3 dB 的一步就把它整个跨过去了。而子载波恰好翻倍，补不回每符号比特数只剩三分之一的亏空。',
+      en: 'The extra noise a 160 MHz channel takes in over an 80 MHz one costs two rungs at that spot, not one: on the rate ladder one rung sits only 2 dB above the next, so a 3 dB step skips over it. Exactly double the sub-carriers cannot pay back a third of the bits per symbol.',
+      zh: '在那个位置，160 MHz 比 80 MHz 多收进来的噪声要用两级调制去换，而不是一级：速率阶梯上有一级只比下一级高 2 dB，3 dB 的一步就把它整个跨过去了。而子载波恰好翻倍，补不回每符号比特数只剩三分之一的亏空。',
     } },
   ],
   deeper: [
@@ -147,7 +147,7 @@ export const width: Lesson = {
   observe: [
     { en: 'Step through the four widths and watch one blue block: 129.6 µs, 88.8, 75.2, 61.6. Doubling the width never halves the frame — the fixed opening inside each scales with nothing.', zh: '把四种带宽逐档切过去，盯住同一个蓝色数据块：129.6 µs、88.8、75.2、61.6。带宽翻倍从来不会让一帧减半——每一帧里那段固定的开场，不随任何东西缩短。' },
     { en: 'Take the fixed 48 µs opening off those four and what is left is 81.6, 40.8, 27.2 and 13.6 µs of data. Only that part ever moved, and at the widest setting it is one symbol.', zh: '把这四个数字各减掉固定的 48 µs 开场，剩下的数据分别是 81.6、40.8、27.2 和 13.6 µs。从头到尾只有这一段在动，而到了最宽的一档，它只剩一个符号。' },
-    { en: 'The white ACK is identical in all four, and the rate line never moves either: 172.1 Mbps at every width, because it names what one 20 MHz sub-carrier set carries. Width lives in the airtime, never in the rate line.', zh: '四档里白色的 ACK 完全一样，“速率”那一行也从不动：四种带宽都是 172.1 Mbps，因为它报的是一组 20 MHz 子载波能装多少。带宽体现在空口时间里，从不体现在速率那一行。' },
+    { en: 'The white ACK is identical in all four, and the rate line never moves either: 172.1 Mb/s at every width, because it names what one 20 MHz sub-carrier set carries. Width lives in the airtime, never in the rate line.', zh: '四档里白色的 ACK 完全一样，“速率”那一行也从不动：四种带宽都是 172.1 Mb/s，因为它报的是一组 20 MHz 子载波能装多少。带宽体现在空口时间里，从不体现在速率那一行。' },
   ],
   tryThis: [
     { en: 'Open in editor and drag the laptop seven and a half squares right of the router and two down, half way into the living room. Every width still delivers there, and the widest is no longer the quickest: the second table above is that spot.', zh: '点“在编辑器中打开”，把笔记本拖到路由器右边七格半、下面两格，大约客厅正中。四种带宽在那里仍然帧帧送达，但最宽的一档已经不是最快的了：上面第二张表说的就是这个位置。' },

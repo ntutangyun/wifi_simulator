@@ -19,7 +19,7 @@ export const txop: Lesson = {
   title: { en: 'TXOP — own the channel, briefly', zh: 'TXOP——短暂地拥有信道' },
   why: {
     en: 'Winning the channel is the expensive part, and so far a winner has handed it straight back after a single exchange — then queued up to pay the same price again. If a station has several frames waiting for the same neighbour, that is absurd. So a win stopped being a ticket for one exchange and became a short lease on the air. This lesson watches an access point keep the floor, and asks what stops it keeping it for ever.',
-    zh: '赢下信道才是贵的那一步，可到目前为止，赢家做完一次交互就把它原样交还了——然后重新排队，再付一遍同样的价钱。如果一台终端手里还攒着好几帧、都是发给同一个邻居的，这就太荒唐了。于是“赢一次”不再是一次交互的门票，而变成了对空口的一小段短租。这一课我们看一个 AP 如何占住发言权，并追问：是什么让它不能一直占下去。',
+    zh: '赢下信道才是贵的那一步，可到目前为止，赢家做完一次交互就把它原样交还了——然后重新排队，再付一遍同样的价钱。如果一台站点手里还攒着好几帧、都是发给同一个邻居的，这就太荒唐了。于是“赢一次”不再是一次交互的门票，而变成了对空口的一小段短租。这一课我们看一个接入点如何占住发言权，并追问：是什么让它不能一直占下去。',
   },
   outcomes: [
     { en: 'describe what a winner may do with the channel after its first exchange', zh: '说清赢家在第一次交互之后还能拿这条信道做什么' },
@@ -39,12 +39,12 @@ export const txop: Lesson = {
   ],
   picture: [
     { heading: { en: 'Winning once, keeping the floor', zh: '赢一次，占住发言权' }, text: {
-      en: 'After all the waiting and counting, a winner has bought something more valuable than a single exchange: for a while, it is the only one allowed to speak. Everyone else is still obliged to hear silence before starting, and there is no silence — the winner comes back on the air after only the short pause inside an exchange, which is shorter than anything a contender may wait. That stretch of ownership is the TXOP.',
-      zh: '在那么多等待和倒数之后，赢家买到的东西其实比“一次交互”值钱得多：在一小段时间里，它是唯一被允许说话的。其他人开口前依然必须先听到静默，可静默根本不出现——赢家只隔着交互内部那段短短的停顿就又上了空口，而这段停顿比任何竞争者要等的都短。这段“归我所有”的时间，就是 TXOP。',
+      en: 'After all the waiting and counting, a winner has bought something more valuable than a single exchange: for a while, it is the only one allowed to speak. Everyone else is still obliged to hear silence before starting, and there is no silence — the winner comes back on the air after only the short pause inside an exchange, which is shorter than anything a contender may wait. That stretch of ownership is the TXOP, and the frames one win carries are its burst.',
+      zh: '在那么多等待和倒数之后，赢家买到的东西其实比“一次交互”值钱得多：在一小段时间里，它是唯一被允许说话的。其他人开口前依然必须先听到静默，可静默根本不出现——赢家只隔着交互内部那段短短的停顿就又上了空口，而这段停顿比任何竞争者要等的都短。这段“归我所有”的时间，就是 TXOP；而赢一次所带出去的那几帧，就是它的突发。',
     } },
     { kind: 'watch', jump: 0, heading: { en: 'Watch one burst', zh: '看一串突发' }, text: {
       en: 'Load the simulation and jump to the first burst. The access point sends to one television, takes its answer, and a moment later is already sending to the other — no required silence, no countdown anywhere in between.',
-      zh: '载入仿真，跳到第一串突发。AP 发给一台电视，收下它的回答，转眼间就已经在发给另一台了——中间没有必等的静默，也没有任何倒数。',
+      zh: '载入仿真，跳到第一串突发。接入点发给一台电视，收下它的回答，转眼间就已经在发给另一台了——中间没有必等的静默，也没有任何倒数。',
     } },
     { heading: { en: 'The lease has a ceiling', zh: '短租有个上限' }, text: {
       en: 'A lease with no end would be a takeover, so every win comes with a clock: the TXOP limit. Everything the holder sends and every answer it gets must fit inside it, and when there is not enough time left for the next exchange, the holder stops and goes back to waiting and counting like everybody else. The ceiling is set per class, so the classes that carry conversation get their own size.',
@@ -52,22 +52,22 @@ export const txop: Lesson = {
     } },
     { heading: { en: 'Usually it is not the ceiling that stops you', zh: '多数时候拦住你的不是上限' }, text: {
       en: 'In practice a holder rarely reaches its ceiling. It stops because the queue for that neighbour has run dry — a station that wins the air with two frames in hand sends two frames and gives it back. The limit only bites when a sender has far more waiting than the lease can carry, which is exactly the case it was written for.',
-      zh: '实际上，持有者很少真的顶到自己的上限。它停下来，是因为发往那个邻居的队列已经空了——手里攒着两帧就赢下空口的终端，发完两帧就把空口还回去。只有当发送方手里攒的东西远远超过这段短租装得下的量时，上限才真正起作用，而这正是当初写下它的那种情形。',
+      zh: '实际上，持有者很少真的顶到自己的上限。它停下来，是因为发往那个邻居的队列已经空了——手里攒着两帧就赢下空口的站点，发完两帧就把空口还回去。只有当发送方手里攒的东西远远超过这段短租装得下的量时，上限才真正起作用，而这正是当初写下它的那种情形。',
     } },
     { heading: { en: 'Why this is fair enough', zh: '为什么这算得上公平' }, text: {
       en: 'Everyone plays by the same rule: win, and you may hold the floor the same way. Nobody wins more often because of it — the arguing is unchanged. What changes is how much each win is worth, so the room spends less of its time on ceremony and more of it carrying traffic. The cost is patience: a station that arrives just after someone wins waits out the whole burst, so the ceiling is really a cap on how long anyone must wait.',
-      zh: '大家守的是同一条规则：你赢了，你也可以照样占住发言权。没有人因此赢得更频繁——争抢那一段一点没变。变的是每一次获胜值多少钱，于是房间把更少的时间花在排场上、更多的时间用来运东西。代价是耐心：一台刚好在别人获胜之后到场的终端，得把整串突发等完，所以那个上限，其实是给“任何人最多要等多久”封的顶。',
+      zh: '大家守的是同一条规则：你赢了，你也可以照样占住发言权。没有人因此赢得更频繁——争抢那一段一点没变。变的是每一次获胜值多少钱，于是房间把更少的时间花在排场上、更多的时间用来运东西。代价是耐心：一台刚好在别人获胜之后到场的站点，得把整串突发等完，所以那个上限，其实是给“任何人最多要等多久”封的顶。',
     } },
   ],
   numbers: [
     { kind: 'table', heading: { en: 'The ceiling, by class', zh: '按类别看上限' }, head: [
       { en: 'Class', zh: '类别' }, { en: 'Ceiling', zh: '上限' }, { en: 'Why that size', zh: '为什么是这个尺码' }, { en: 'Where', zh: '出处' },
     ], rows: [
-      [N('VO'), N('2.080 ms'), { en: 'short: a call must not be made to wait', zh: '短：不能让一通电话干等' }, N('Table 9-194')],
-      [N('VI'), N('4.096 ms'), { en: 'the largest: video frames are big and arrive in groups', zh: '最大：视频帧又大又成组到达' }, N('Table 9-194')],
-      [N('BE / BK'), N('2.528 ms'), { en: 'enough to make a win worth having', zh: '够让“赢一次”值回票价' }, N('Table 9-194')],
+      [{ en: 'VO (voice)', zh: 'VO（语音）' }, N('2.080 ms'), { en: 'short: a call must not be made to wait', zh: '短：不能让一通电话干等' }, N('Table 9-194')],
+      [{ en: 'VI (video)', zh: 'VI（视频）' }, N('4.096 ms'), { en: 'the largest: video frames are big and arrive in groups', zh: '最大：视频帧又大又成组到达' }, N('Table 9-194')],
+      [{ en: 'BE (best effort) / BK (background)', zh: 'BE（尽力而为）/ BK（后台）' }, N('2.528 ms'), { en: 'enough to make a win worth having', zh: '够让“赢一次”值回票价' }, N('Table 9-194')],
     ] },
-    { kind: 'table', heading: { en: 'What the access point actually did', zh: 'AP 实际的表现' }, head: [
+    { kind: 'table', heading: { en: 'What the access point actually did', zh: '接入点实际的表现' }, head: [
       { en: 'Over 300 ms', zh: '300 ms 之内' }, { en: 'Value', zh: '数值' },
     ], rows: [
       [{ en: 'Bursts won', zh: '赢下的突发次数' }, N('463')],
@@ -87,17 +87,17 @@ export const txop: Lesson = {
     } },
     { heading: { en: 'What ended every burst here', zh: '这里的每一串突发是被什么结束的' }, text: {
       en: 'Not the ceiling: the longest hold is 480 µs of the 4 096 µs it was allowed. With two moderate video streams the access point simply has nothing more for that television, so about half of its wins carry a single frame. The lease is generous; the queue is not.',
-      zh: '不是上限：最长的一次占用是 480 µs，而它被允许的是 4 096 µs。只有两路不大的视频流时，AP 手里根本没有更多东西要发给那台电视，所以它大约一半的获胜只带着一帧。短租很慷慨，队列并不。',
+      zh: '不是上限：最长的一次占用是 480 µs，而它被允许的是 4 096 µs。只有两路不大的视频流时，接入点手里根本没有更多东西要发给那台电视，所以它大约一半的获胜只带着一帧。短租很慷慨，队列并不。',
     } },
   ],
   deeper: [
     { heading: { en: 'Telling the room how long to stay away', zh: '告诉整个房间要躲多久' }, text: {
       en: 'A neighbour that hears only one frame of a burst has no way of knowing more is coming. So each frame of the burst announces, in its own header, how long the exchange it belongs to still needs, and neighbours hold their own timer accordingly. A burst is therefore not silence enforced by luck but by a number every listener updates — which is also why a burst survives a station that woke up in the middle of it.',
-      zh: '一个只听到突发里某一帧的邻居，没法知道后面还有东西要来。所以突发里的每一帧都在自己的帧头里声明：它所属的这次交互还需要多久，邻居们据此各自维护自己的计时器。因此一串突发之所以安静，靠的不是运气，而是每个听者都在更新的一个数——这也正是为什么中途才醒来的终端不会破坏这串突发。',
+      zh: '一个只听到突发里某一帧的邻居，没法知道后面还有东西要来。所以突发里的每一帧都在自己的帧头里声明：它所属的这次交互还需要多久，邻居们据此各自维护自己的计时器。因此一串突发之所以安静，靠的不是运气，而是每个听者都在更新的一个数——这也正是为什么中途才醒来的站点不会破坏这串突发。',
     } },
     { heading: { en: 'Lending the floor back', zh: '把发言权借回去' }, text: {
       en: 'The holder does not have to use its lease alone. It may hand the remainder to the station it is talking to, so the answer comes back carrying data of its own, and it may ask that station to reply with something larger than an acknowledgement. Both are ways of spending one hard-won win on traffic in two directions, and both live inside the same ceiling.',
-      zh: '持有者不一定非得自己把这段短租用完。它可以把剩下的时间交给正在对话的那台终端，让对方的回答里捎上自己的数据；它也可以要求对方回一个比确认帧更大的东西。这两种做法，都是把一次来之不易的获胜花在双向的流量上，而且都关在同一个上限之内。',
+      zh: '持有者不一定非得自己把这段短租用完。它可以把剩下的时间交给正在对话的那台站点，让对方的回答里捎上自己的数据；它也可以要求对方回一个比确认帧更大的东西。这两种做法，都是把一次来之不易的获胜花在双向的流量上，而且都关在同一个上限之内。',
     } },
     { heading: { en: 'A long burst is a long bet', zh: '越长的突发，赌注越大' }, text: {
       en: 'Holding the floor for milliseconds is only safe if the room really is quiet for the holder. A hidden neighbour that cannot hear the burst will start into the middle of it, and everything from that moment to the end of the lease is wasted. That is why long bursts are usually opened with a short protective exchange first — the subject of the next lesson.',
@@ -117,16 +117,16 @@ export const txop: Lesson = {
   ]),
   jumps: [
     J('first TXOP start', '第一次 TXOP 开始', firstTxop),
-    J('first backoff draw by the AP', 'AP 的第一次退避抽取', (r) => r.type === 'BACKOFF_DRAW' && r.node === 'ap'),
+    J('first backoff draw by the AP', '接入点的第一次退避抽取', (r) => r.type === 'BACKOFF_DRAW' && r.node === 'ap'),
   ],
   observe: [
     { en: 'The first burst, at 0.88 ms, serves both televisions: a frame to one, its answer, then one short pause later a frame to the other. No required silence and no countdown appear inside it.', zh: '第一串突发落在 0.88 ms，它一次服务了两台电视：发给其中一台、收到回答，再隔一段短停顿就发给另一台。突发内部既没有必等的静默，也没有任何倒数。' },
     { en: 'While a burst runs, the inspector shows the class it belongs to and the time still left on the lease. It reads AC_VI here, because both streams are video.', zh: '突发进行时，检视器会显示它属于哪一类，以及这段短租还剩多少时间。这里显示的是 AC_VI，因为两路流都是视频。' },
-    { en: 'Across the run the access point wins 463 bursts: 219 of them carry one frame and 243 carry two. The queue, not the ceiling, decides which.', zh: '整轮下来 AP 赢下 463 串突发：其中 219 串只带一帧，243 串带两帧。决定是哪一种的是队列，不是上限。' },
+    { en: 'Across the run the access point wins 463 bursts: 219 of them carry one frame and 243 carry two. The queue, not the ceiling, decides which.', zh: '整轮下来接入点赢下 463 串突发：其中 219 串只带一帧，243 串带两帧。决定是哪一种的是队列，不是上限。' },
   ],
   tryThis: [
-    { en: 'Turn the feature off on the access point and reload. It sends the same number of frames, but now draws a countdown 706 times instead of 462 — every exchange pays the price of winning all over again.', zh: '在 AP 上关掉这个功能再载入。它发出的帧数一模一样，但抽取倒数的次数从 462 变成了 706——每一次交互都要把“赢一次”的代价重新付一遍。' },
-    { en: 'Give one television a saturated download instead of a video stream. That station now has frames waiting whenever the access point wins, and bursts grow to 1.9 ms and three frames.', zh: '把其中一台电视的业务从视频流改成饱和下载。现在只要 AP 获胜，发往这台终端的帧总是攒着，于是突发长到 1.9 ms、一次三帧。' },
+    { en: 'Turn the feature off on the access point and reload. It sends the same number of frames, but now draws a countdown 706 times instead of 462 — one draw short of its 463 bursts, because the first burst of the run needed no countdown at all. Every exchange pays the price of winning all over again.', zh: '在接入点上关掉这个功能再载入。它发出的帧数一模一样，但抽取倒数的次数从 462 变成了 706——462 比它赢下的 463 串突发少一次，因为整轮的第一串根本不需要倒数。每一次交互都要把“赢一次”的代价重新付一遍。' },
+    { en: 'Give one television a saturated download instead of a video stream. That station now has frames waiting whenever the access point wins, and bursts grow to 1.9 ms and three frames.', zh: '把其中一台电视的业务从视频流改成饱和下载。现在只要接入点获胜，发往这台站点的帧总是攒着，于是突发长到 1.9 ms、一次三帧。' },
   ],
   quiz: [
     {
@@ -144,7 +144,7 @@ export const txop: Lesson = {
       options: [
         { en: 'The ceiling on the lease runs out', zh: '短租的上限用完了' },
         { en: 'The holder has nothing more waiting for that neighbour', zh: '持有者手里没有更多发往那个邻居的东西了' },
-        { en: 'Another station takes the channel', zh: '另一台终端把信道抢走了' },
+        { en: 'Another station takes the channel', zh: '另一台站点把信道抢走了' },
       ],
       answer: 1,
       explain: { en: 'The longest burst here uses about a tenth of what it was allowed. With modest streams, the queue empties long before the clock does.', zh: '这里最长的一串突发，只用掉了它被允许的大约十分之一。流量不大时，队列会比钟早得多地见底。' },
@@ -154,7 +154,7 @@ export const txop: Lesson = {
       options: [
         { en: 'To stop one winner from making everybody else wait too long', zh: '为了不让某个赢家把所有人晾得太久' },
         { en: 'To keep frames from becoming too large', zh: '为了不让帧变得太大' },
-        { en: 'To give the access point more turns than the stations', zh: '为了让 AP 比终端多拿到几轮' },
+        { en: 'To give the access point more turns than the stations', zh: '为了让接入点比站点多拿到几轮' },
       ],
       answer: 0,
       explain: { en: 'The worst wait anyone faces is roughly one full burst, so bounding the burst bounds the wait — which is why the class that carries calls gets the shortest ceiling.', zh: '任何人最坏的等待大约就是一整串突发，所以给突发封顶，就是给等待封顶——这也正是承载通话的那一类上限最短的原因。' },

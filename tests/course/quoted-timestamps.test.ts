@@ -312,10 +312,10 @@ it('lesson 17’s added-phones experiment caps the OFDMA group at four and MU-MI
 })
 
 /**
- * Lesson 18's body and observe list quote the far station's per-MCS airtime, its MCS 2
- * ceiling, the shape of its excursions below that ceiling over a 3 s run, and the near
- * station's unmoving MCS 11. Pinned here so a PHY or traffic drift breaks this test, not a
- * reader's trust in the prose.
+ * `rate` and `rate-fallback` quote the far station's per-MCS airtime, its MCS 2 ceiling, the
+ * shape of its excursions below that ceiling over a 3 s run, and the near station's unmoving
+ * MCS 11. Pinned here so a PHY or traffic drift breaks this test, not a reader's trust in the
+ * prose; each of the two lessons also holds its own claims in its own test file.
  */
 it('lesson 18 quotes the far station\u2019s airtimes/excursions and the near station\u2019s unmoving ceiling', () => {
   const l = LESSONS.find((x) => x.id === 'rate')!
@@ -331,8 +331,8 @@ it('lesson 18 quotes the far station\u2019s airtimes/excursions and the near sta
   // "almost three times the airtime at the bottom rung"
   expect(Math.round((atMcs(0) / atMcs(2)) * 10) / 10).toBe(2.8)
 
-  // "here MCS 2, decided purely by distance and the wall" \u2014 the far
-  // station's signal-strength ceiling: it never exceeds MCS 2 under contention.
+  // "The far station cannot use a rung above its ceiling however it tries \u2026 Distance and
+  // the wall decided that" \u2014 it never exceeds MCS 2 under contention.
   expect(Math.max(...far.map((r) => r.frame.mcs!))).toBe(2)
 
   // "25 excursions below MCS 2 in three seconds, six of which reach the bottom rung and last
@@ -365,22 +365,25 @@ it('lesson 18 quotes the far station\u2019s airtimes/excursions and the near sta
   expect(near.length).toBe(4_010)
   expect(recs.filter((r) => r.type === 'ACK_TIMEOUT' && r.node === 'sta-1')).toHaveLength(0)
 
-  // "25.8 Mb/s becomes 17.2, then 8.6" \u2014 the rate line for the same 1,530 octets.
+  // the rungs table's rate line for the same 1,530 bytes: 25.8, 17.2 and 8.6 Mb/s.
   const rateLine = (mcs: number): number => far.find((r) => r.frame.mcs === mcs)!.frame.mbps!
   expect([rateLine(2), rateLine(1), rateLine(0)]).toEqual([25.8, 17.2, 8.6])
 })
 
 /**
- * Lesson 18 used to teach a collision death spiral \u2014 a lower rate makes frames longer, longer
- * frames are exposed to collision for longer, so the rate spirals down. Backoff freezes while
- * the medium is busy (IEEE 802.11-2024 \u00a710.23.2.4, `onCcaBusy` in mac.ts), so a longer frame
- * gives no other station's counter extra time to expire, and the measurement says the opposite
- * of the spiral: the long low-rate frames are lost slightly LESS often per attempt.
+ * The lesson this run belongs to used to teach a collision death spiral \u2014 a lower rate makes
+ * frames longer, longer frames are exposed to collision for longer, so the rate spirals down.
+ * Backoff freezes while the medium is busy (IEEE 802.11-2024 \u00a710.23.2.4, `onCcaBusy` in mac.ts),
+ * so a longer frame gives no other station's counter extra time to expire, and the spiral is not
+ * in the data.
  *
- * Note what a "loss" is here, and what it is not. With the near station 40 dB stronger at the
- * AP, a same-slot tie is not a mutual collision: the AP detects and decodes the near preamble
- * and only the far frame dies, so the run contains no COLLISION record at all. The far
- * station's losses are exactly its ACK timeouts.
+ * Note what a "loss" is here, and what it is not. This walk counts ONLY the attempts followed by
+ * an ACK timeout, 254 of them: a real but partial view. `rate-fallback` counts every failure the
+ * engine's `onFailure` fires on (254 timeouts + 83 late retries = 337) and reports a flat
+ * 11.1 / 11.8 / 11.1 % per rung, which is what that lesson now says; the per-rung percentages
+ * below are this subset's, not the lesson's. With the near station 40 dB stronger at the access
+ * point, a same-slot tie is not a mutual collision: the access point decodes the near preamble
+ * and only the far frame dies, so the run contains no COLLISION record at all.
  */
 it('lesson 18\u2019s per-attempt loss rates, the backoff freeze and the airtime tax', () => {
   const l = LESSONS.find((x) => x.id === 'rate')!
@@ -394,12 +397,12 @@ it('lesson 18\u2019s per-attempt loss rates, the backoff freeze and the airtime 
     return timeouts.some((x) => x > end && x <= end + 50_000)
   }
 
-  // "no reception at the AP ever failed" \u2014 hence no collision is drawn anywhere in this run
+  // "no reception at the access point ever failed" \u2014 hence no collision is drawn anywhere in this run
   expect(recs.filter((r) => r.type === 'COLLISION')).toHaveLength(0)
   expect(recs.filter((r) => r.type === 'RX_FAIL' && r.node === 'ap' && r.reason === 'collision')).toHaveLength(0)
 
-  // "2,396 attempts at its MCS 2 ceiling, of which 209 are lost \u2014 8.7% \u2014 517 attempts at
-  // MCS 1, of which 39 are lost (7.5%), and 90 at MCS 0, of which 6 are lost (6.7%)"
+  // the timeout-only subset, per rung: 2,396 attempts at the MCS 2 ceiling of which 209 time out
+  // (8.7%), 517 at MCS 1 of which 39 do (7.5%), and 90 at MCS 0 of which 6 do (6.7%)
   const perMcs = (mcs: number) => {
     const xs = far.filter((r) => r.frame.mcs === mcs)
     const c = xs.filter(lost).length

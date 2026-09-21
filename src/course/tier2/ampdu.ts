@@ -20,7 +20,7 @@ export const ampdu: Lesson = {
   title: { en: 'A-MPDU — pay contention once', zh: 'A-MPDU——竞争一次，发一批' },
   why: {
     en: 'Winning the channel is expensive, and the price has nothing to do with how much you then send. The waiting, the countdown, the pattern at the head of the frame and the answer at the end all cost the same whether the frame is nearly empty or as full as it can be. As radios got faster the data shrank against that fixed price, until most of a turn was ceremony. This lesson watches a station buy one turn and use it properly.',
-    zh: '赢下信道是件贵事，而这笔钱和你随后发多少毫无关系。等待、倒数、帧头那段图案、末尾那个回答，无论这一帧几乎是空的还是塞得满满当当，价钱都一样。随着电台越来越快，数据在这笔固定开销面前越缩越小，最后一轮里大半时间都花在了排场上。这一课我们看一台终端如何买下一轮，并且把它用好。',
+    zh: '赢下信道是件贵事，而这笔钱和你随后发多少毫无关系。等待、倒数、帧头那段图案、末尾那个回答，无论这一帧几乎是空的还是塞得满满当当，价钱都一样。随着电台越来越快，数据在这笔固定开销面前越缩越小，最后一轮里大半时间都花在了排场上。这一课我们看一台站点如何买下一轮，并且把它用好。',
   },
   outcomes: [
     { en: 'explain why a faster radio makes the fixed cost of a turn worse, not better', zh: '解释为什么电台越快，一轮的固定开销反而越难受' },
@@ -48,8 +48,8 @@ export const ampdu: Lesson = {
       zh: '把空口上的一轮想成“固定价 + 浮动价”。静默、倒数、让接收端锁住的那段前导、末尾那个回答，都是固定的那部分；只有净荷随你发的东西变大。换一档更快的编码，净荷会缩——可固定的那部分纹丝不动，因为前导是用人人都听得见的慢速率发的，而那段等待不管你随后说得多快，价钱都一样。',
     } },
     { heading: { en: 'Several frames, one preamble', zh: '好几帧，一个前导' }, text: {
-      en: 'So instead of spending a whole turn on one frame, the sender takes everything already queued for the same receiver, lines the frames up back to back, and sends the lot as a single transmission behind a single preamble. That batch is an A-MPDU. Nothing inside it is merged: each frame keeps its own header and its own check, and travels as a subframe with a short marker saying where it ends.',
-      zh: '所以，与其把一整轮花在一帧上，发送方干脆把已经排在队列里、发往同一个接收端的帧全拿过来，首尾相接排好，作为一次传输、跟在同一个前导后面发出去。这一批就是 A-MPDU。里面的东西并没有被合并：每一帧都保留自己的帧头和自己的校验，作为一个子帧走，前面还有一小段标记说明它到哪里结束。',
+      en: 'So instead of spending a whole turn on one frame, the sender takes everything already queued for the same receiver, lines the frames up back to back, and sends the lot as a single transmission behind a single preamble. That batch is an A-MPDU. Nothing inside it is merged: each frame keeps its own header and its own check, and travels as a subframe behind a short marker giving its length.',
+      zh: '所以，与其把一整轮花在一帧上，发送方干脆把已经排在队列里、发往同一个接收端的帧全拿过来，首尾相接排好，作为一次传输、跟在同一个前导后面发出去。这一批就是 A-MPDU。里面的东西并没有被合并：每一帧都保留自己的帧头和自己的校验，作为一个子帧走，身前还有一小段标记报出它有多长。',
     } },
     { kind: 'watch', jump: 0, heading: { en: 'Open one batch', zh: '打开一批看看' }, text: {
       en: 'Load the simulation and jump to the first batch. It carries a badge with the number of frames in it; hover it to see that count and the total bytes, then look at how little of the turn is spent on anything else.',
@@ -76,7 +76,7 @@ export const ampdu: Lesson = {
       [{ en: 'The transmission', zh: '这次传输' }, N('21 502 B · 2 248 µs'), N('1 530 B · 200 µs')],
       [{ en: 'The answer', zh: '回答' }, N('BlockAck · 32 B · 32 µs'), N('ACK · 14 B · 28 µs')],
       [{ en: 'Opened by', zh: '开场' }, N('RTS + CTS · 28 µs each'), N('—')],
-      [{ en: 'Air per delivered frame', zh: '每成功一帧的空口时间' }, N('166.9 µs'), N('228 µs')],
+      [{ en: 'Transmission time per delivered frame', zh: '每成功一帧的发送时间' }, N('166.9 µs'), N('228.0 µs')],
     ] },
     { kind: 'formula', heading: { en: 'That last row, worked out', zh: '最后一行是怎么算的' }, text: {
       en: 'batched:      (28 + 28 + 2 248 + 32) µs ÷ 14 frames = 166.9 µs\none at a time: (200 + 28) µs ÷ 1 frame        = 228.0 µs',
@@ -90,7 +90,7 @@ export const ampdu: Lesson = {
     ], rows: [
       [{ en: 'Turns won', zh: '赢下的轮数' }, N('81'), N('83')],
       [{ en: 'Frames delivered', zh: '成功送达的帧数' }, N('1 120'), N('738')],
-      [{ en: 'Air per delivered frame', zh: '每成功一帧的空口时间' }, N('168.9 µs'), N('228.3 µs')],
+      [{ en: 'Transmission time per delivered frame', zh: '每成功一帧的发送时间' }, N('168.9 µs'), N('228.3 µs')],
     ] },
     { heading: { en: 'Why the run is not quite the arithmetic', zh: '为什么实测和算式不完全一致' }, text: {
       en: 'Almost the same number of turns is won either way — the difference is what each turn carries. The measured figures sit a little above the worked ones because a few turns are lost and repeated, and the coding is the same on both sides, so none of the gain is hiding in the rate.',
@@ -115,7 +115,7 @@ export const ampdu: Lesson = {
     { en: 'A-MPDU aggregation, the delimiter, the padding to a four-octet boundary and the 64-subframe ceiling used here are §10.12 and §9.7 of IEEE Std 802.11-2024; the BlockAck frame and its bitmap are §9.3.1.9, and the agreement that precedes it is §10.25.',
       zh: 'A-MPDU 聚合、定界符、补齐到四字节边界，以及这里用的 64 个子帧上限，见 IEEE Std 802.11-2024 的 §10.12 与 §9.7；BlockAck 帧及其位图见 §9.3.1.9，先于它的那份约定见 §10.25。' },
     { en: 'Losing a whole aggregate when any part of it collides is a model choice of this simulator: the standard acknowledges each subframe on its own bit. The seed, the single uploader, the 1 500-byte frames and the coding the run settles on are model choices too.',
-      zh: '“聚合中任意一处发生碰撞就整批丢失”是本仿真器的模型取值：标准是按每个子帧各自的比特来确认的。随机种子、这台唯一的上传终端、1500 字节的帧，以及本轮最终采用的编码，同样都是模型取值。' },
+      zh: '“聚合中任意一处发生碰撞就整批丢失”是本仿真器的模型取值：标准是按每个子帧各自的比特来确认的。随机种子、这台唯一的上传站点、1500 字节的帧，以及本轮最终采用的编码，同样都是模型取值。' },
   ],
   scenario: () => sc(oneRoom(), [
     node('ap', 'AP', 'ap', 5, 4, 'eht', 'idle'),

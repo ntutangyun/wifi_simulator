@@ -26,7 +26,7 @@ export const mumimo: Lesson = {
   },
   outcomes: [
     { en: 'say what MU-MIMO divides up, and what it does not', zh: '说出 MU-MIMO 切分的是什么、不切分的又是什么' },
-    { en: 'say why an access point must measure the room before it can use it', zh: '说出 AP 为什么必须先把房间量一遍，才用得了这个办法' },
+    { en: 'say why a router must measure the room before it can use it', zh: '说出路由器为什么必须先把房间量一遍，才用得了这个办法' },
     { en: 'read both variants off the timeline and say which suits small frames and which suits large ones', zh: '在时间轴上读出两个变体，并说出小帧适合哪一种、大帧适合哪一种' },
   ],
   needs: ['streams', 'ofdma-dl'],
@@ -40,8 +40,8 @@ export const mumimo: Lesson = {
       zh: '用多根天线发同一个信号，彼此错开一点点，使它在某个位置叠加变强、在另一个位置互相抵消',
     } },
     { term: 'sounding', plain: {
-      en: 'the measurement beforehand: the access point sends a known pattern and each device reports back what it heard',
-      zh: '事先的那次测量：AP 发出一段已知的图案，每台设备把自己听到的样子报回来',
+      en: 'the measurement beforehand: the router sends a known pattern and each device reports back what it heard',
+      zh: '事先的那次测量：路由器发出一段已知的图案，每台设备把自己听到的样子报回来',
     } },
   ],
   picture: [
@@ -50,15 +50,15 @@ export const mumimo: Lesson = {
       zh: '切片的做法，是把子载波分给每个成员一部分，于是每个成员也只拿到速率的一部分。但可以切的不止这一个维度。换成：每个成员都拿到整条信道，只是给每台瞄准不同的一组空间流——这样谁也不必让出带宽，区分成员靠的是它们在哪儿，而不是它们用哪些音调。这就是 MU-MIMO。',
     } },
     { heading: { en: 'Which means knowing where everyone is', zh: '但这要求知道每个人在哪儿' }, text: {
-      en: 'Aiming is not pointing a dish. The same signal leaves several antennas with small delays chosen so that it adds up at one phone and cancels itself at the next — beamforming. To choose those delays the access point first has to measure the room: it sends a known pattern and every phone reports back what it heard, which is sounding. Furniture moves, people move, and a stale measurement aims at where a phone used to be.',
-      zh: '所谓“瞄准”，并不是转动一口天线锅。同一个信号从多根天线发出去，彼此错开一点点，而这个“一点点”被挑得恰到好处：让它在某部手机处叠加，在另一部手机处互相抵消——这就是波束成形。而要挑出这些延迟，AP 得先把房间量一遍：它发出一段已知的图案，每部手机把听到的样子报回来，这就是探测。家具会挪，人会走动，量得太旧的结果，瞄准的只是手机从前待过的地方。',
+      en: 'Aiming is not pointing a dish. The same signal leaves several antennas with small delays chosen so that it adds up at one phone and cancels itself at the next — beamforming. To choose those delays the router first has to measure the room: it sends a known pattern and every phone reports back what it heard, which is sounding. Furniture moves, people move, and a stale measurement aims at where a phone used to be.',
+      zh: '所谓“瞄准”，并不是转动一口天线锅。同一个信号从多根天线发出去，彼此错开一点点，而这个“一点点”被挑得恰到好处：让它在某部手机处叠加，在另一部手机处互相抵消——这就是波束成形。而要挑出这些延迟，路由器得先把房间量一遍：它发出一段已知的图案，每部手机把听到的样子报回来，这就是探测。家具会挪，人会走动，量得太旧的结果，瞄准的只是手机从前待过的地方。',
     } },
     { kind: 'watch', jump: 0, heading: { en: 'Go and look', zh: '去看一眼' }, text: {
       en: 'Load the simulation and jump to the first send that carries more than one phone. Step between the two variants above the timeline: the same house, the same traffic, the same phones — and a wide block that holds three parts in one and two in the other.',
       zh: '载入仿真，跳到第一个同时装着多部手机的发送。在时间轴上方的两个变体之间切换：同一栋房子、同样的流量、同样的手机——只是那个宽块在一边装着三份，在另一边只装两份。',
     } },
     { heading: { en: 'Why the group is never three here', zh: '这里的分组为什么永远不是三个' }, text: {
-      en: 'Aiming costs antennas. Every member’s spatial streams have to be carried by the router’s own, so a group can only be as large as its antenna count allows: this router has four, each phone negotiated two, and two phones already use all four. A third would need six. Slicing has no such limit — all three phones fit on their own slices — so where space runs out, frequency keeps going.',
+      en: 'Aiming costs antennas. Every member’s spatial streams have to be carried by the router’s own, so a group is capped by the antenna count: this router has four, each phone negotiated two, and two phones already use all four. A third would need six. Slicing has no such limit — all three fit on their own slices — so where space runs out, frequency keeps going.',
       zh: '瞄准是要拿天线换的。每个成员的空间流都得由路由器自己的天线扛着，所以一个组能有多大，上限就是它的天线数：这台路由器有四根，每部手机协商到两条流，两部手机就把四根占满了。第三部还得再要六条。切片没有这道坎——三部手机各占一片都塞得下——所以空间用尽的地方，频率还走得下去。',
     } },
     { heading: { en: 'Which one wins', zh: '谁赢' }, text: {
@@ -68,8 +68,8 @@ export const mumimo: Lesson = {
   ],
   numbers: [
     { kind: 'table', heading: {
-      en: 'One send of each kind, from the two variants of this house',
-      zh: '两种发送各取一次，都来自这栋房子的两个变体',
+      en: 'One send of each kind, from the two variants of this house — 160 MHz, two streams each',
+      zh: '两种发送各取一次，都来自这栋房子的两个变体——160 MHz，每部手机两条流',
     }, head: [
       { en: 'Variant', zh: '变体' }, { en: 'Members', zh: '成员数' }, { en: 'Payload each', zh: '每成员负载' },
       { en: 'Data symbols', zh: '数据符号' }, { en: 'Send length', zh: '整帧长度' }, { en: 'Rate per member', zh: '单成员速率' },
@@ -81,8 +81,8 @@ export const mumimo: Lesson = {
       en: 'send length = 52 µs + 13.6 µs × data symbols',
       zh: '整帧长度 = 52 µs + 13.6 µs × 数据符号数',
     }, note: {
-      en: 'On its third of the sub-carriers each OFDMA member needs three data symbols where a MU-MIMO member on the whole channel needs one — a clean threefold gain, exactly the group size MU-MIMO gave up. End to end it is only 1.41 times, because the opening never shrinks.',
-      zh: 'OFDMA 的成员只占三分之一子载波，同样的负载要三个数据符号；MU-MIMO 的成员独占整条信道，只要一个——干净的三倍增益，正好等于 MU-MIMO 放弃掉的那个组的大小。可整帧算下来只差 1.41 倍，因为开场那一段从不缩短。',
+      en: 'The 52 µs is a Wi-Fi 7 frame’s 48 µs front plus the same 4 µs map. On its third of the sub-carriers an OFDMA member needs three data symbols where a MU-MIMO member needs one — exactly the threefold gain of the group MU-MIMO gave up. End to end it is only 1.41 times, because the opening never shrinks.',
+      zh: '这里的 52 µs，是 Wi-Fi 7 帧的 48 µs 开场加上同样那张 4 µs 的“这一发里有谁”分配表。OFDMA 的成员只占三分之一子载波，同样的负载要三个数据符号；MU-MIMO 的成员独占整条信道，只要一个——干净的三倍增益，正好等于 MU-MIMO 放弃掉的那个组的大小。可整帧算下来只差 1.41 倍，因为开场那一段从不缩短。',
     } },
     { heading: { en: 'The combined load is the other way round', zh: '合起来交付的量，方向正相反' }, text: {
       en: 'Both sends carry the same payload per member — three video frames the router had saved up for that phone. Three members deliver 12,918 bytes in one send against two members’ 8,612, so the wider group moves more in one go while the narrower one serves each member faster. Which of those you want depends on whether anybody is waiting.',
