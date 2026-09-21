@@ -71,7 +71,7 @@ Existing kinds (`p`, `formula`, `table`, `list`, `steps`, `widget`) are unchange
 
 ### Words
 
-- **Acronym rule.** A token of 2–6 upper-case letters/digits (`STS`, `SFD`,
+- **Acronym rule.** A token of two or more upper-case letters/digits (any length: `RMARKER` counts) (`STS`, `SFD`,
   `RCTU`, `OOK`, `TXOP`, `A-MPDU`, `L-SIG`) appearing in `why` or `picture` must
   be one of: (a) in this lesson's `terms`; (b) in the `terms` of a lesson that
   precedes it in `COURSE_ORDER` and is in the same track or in Wi-Fi Tier 1;
