@@ -131,16 +131,16 @@ export const uwbContention: Lesson = {
       zh: '跳到第一个用完尝试次数的锚点。连着三轮它都抽了时隙，却一次也没被听见；到第四轮，它干脆不作声了。那一轮它的泳道上什么也没有——没有抽取，没有应答，也没有失败。',
     } },
     { heading: { en: 'The slot you drew is the wait you pay', zh: '抽到第几个时隙，就等多久' }, text: {
-      en: 'Here is the cost that is easy to miss. The anchor answers in the slot it drew, so the slot number is how long the phone waited — and the longer the wait, the further the two crystals drift apart. A roll call fixes that wait; here it is a die roll, and a wider window is a bigger die.',
-      zh: '这里有一笔容易被忽略的账。锚点是在自己抽到的那个时隙里作答的，所以时隙号就是手机等待这个回答的时长——而等得越久，两只晶振在这段时间里就漂得越开。点名式的轮次里，这段等待由日程表钉死；而在这里它是一次掷骰子，窗口越宽，骰子的面数越多。',
+      en: 'Here is the cost easy to miss. The anchor answers in the slot it drew, so the slot number is how long the phone waited — and the longer the wait, the further the two crystals drift apart. A roll call fixes that wait; here it is a die roll, and a wider window is a bigger die.',
+      zh: '这里有一笔容易被忽略的账。锚点是在自己抽到的那个时隙里作答的，抽到第几号时隙，手机就得等多久——而等得越久，两只晶振漂开得也越多。点名式的轮次里，这段等待由日程表钉死；而在这里它是一次掷骰子，窗口越宽，骰子的面数越多。',
     } },
     { heading: { en: 'When to go back to the roll call', zh: '什么时候该回到点名' }, text: {
-      en: 'So a wider window buys fewer collisions and worse ranges, a narrower one the other way round. Either way, once the controller has a list the roll call wins on every axis measured here. Drawing for slots is not a way of making known anchors faster; it is how you talk to devices you have never met.',
-      zh: '所以，窗口越宽，碰撞越少而距离越差；窗口越窄则反过来。而无论哪一边，只要控制器手里有了名单，点名在本课衡量的每一个维度上都赢。抽签抢时隙并不是让一组已知锚点跑得更快的办法；它是用来与一组你还不认识的设备说话的办法。',
+      en: 'So a wider window buys fewer collisions and worse ranges, a narrower one the other way round. Either way, once the controller has a list the roll call wins on every axis measured here. Drawing for slots is not a way to make known anchors faster; it is how you talk to devices you have never met.',
+      zh: '所以，窗口越宽，碰撞越少而距离越差；窗口越窄则反过来。而无论哪一边，只要控制器手里有了名单，点名在本课衡量的每一个维度上都赢。抽签抢时隙不是让一批已知锚点跑得更快的手段，而是用来跟你还没见过的设备搭上话。',
     } },
   ],
   numbers: [
-    { kind: 'formula', heading: { en: 'The birthday problem, with slots', zh: '换成时隙的生日问题' }, text: {
+    { kind: 'formula', heading: { en: 'The birthday problem, with slots instead of birthdays', zh: '把生日换成时隙的生日问题' }, text: {
       en: 'P(alone in your slot) = (1 − 1/S)^(N−1)      expected responses = N·(1 − 1/S)^(N−1)\nN = 6 anchors:      S = 4 → 1.42      S = 8 → 3.08      S = 16 → 4.35',
       zh: 'P(独占自己的时隙) = (1 − 1/S)^(N−1)      期望应答数 = N·(1 − 1/S)^(N−1)\nN = 6 个锚点：      S = 4 → 1.42      S = 8 → 3.08      S = 16 → 4.35',
     }, note: {
@@ -179,7 +179,7 @@ export const uwbContention: Lesson = {
       [N('anchor-6'), N('slot 7'), { en: 'lost', zh: '丢失' }],
     ] },
     { kind: 'table', heading: { en: 'What a wider window costs', zh: '窗口加宽的代价' }, head: [
-      { en: 'Response slots', zh: '应答时隙' }, { en: 'Average wait', zh: '平均等待' }, { en: 'RMS range error', zh: '测距误差 RMS' },
+      { en: 'Response slots', zh: '应答时隙' }, { en: 'Average wait', zh: '平均等待' }, { en: 'Typical range error', zh: '典型测距误差' },
     ], rows: [
       [N('4'), N('2.5 slots'), N('14.6 cm')],
       [N('8'), N('4.5 slots'), N('26.8 cm')],
@@ -187,10 +187,10 @@ export const uwbContention: Lesson = {
       [{ en: 'roll call, 6 anchors', zh: '点名，6 个锚点' }, { en: 'set by the schedule', zh: '由日程表定死' }, N('20.4 cm')],
     ] },
     { text: {
-      en: 'A single-sided measurement keeps a residual of 3.0 cm for every millisecond the answer waits, so 6.0 cm a slot. That is the whole of the table above: the drawn slot is the reply time, and a wider window means a longer wait.',
+      en: 'A single-sided measurement keeps a residual of 3.0 cm for every millisecond the answer waits, so 6.0 cm a slot. That is the whole of the table above: the drawn slot is the reply time, and a wider window is a longer wait.',
       zh: '单边测距会留下一项残差：应答每多等一毫秒，就是 3.0 cm，于是每个时隙 6.0 cm。上面那张表讲的就是这一件事：抽到的时隙就是应答时延，而窗口越宽，等得越久。',
     } },
-    { text: {
+    { heading: { en: 'Latency', zh: '时延' }, text: {
       en: 'Latency lands on the same side. The base scene needs six rounds before one holds three ranges, so its first position is at 1.218 s; the roll call has one from the first round, in a round 4 ms shorter.',
       zh: '时延也站在同一边。基准场景要等六轮，才有某一轮凑齐三次测距，所以它的第一次定位落在 1.218 s；而点名从第一轮起就每轮都有，而且每轮还短 4 ms。',
     } },
@@ -220,8 +220,8 @@ export const uwbContention: Lesson = {
       zh: '§10.32.9.5 是 RCPS IE，用来通告这个窗口；§10.32.9.6 是 RCMA IE，规定应答者可以尝试的次数。' },
     { en: 'The NOTE in §10.32.1 leaves the filtering of wrong results to the upper layer, which is why nothing in the standard tells a responder its answer was lost.',
       zh: '§10.32.1 的 NOTE 把“筛掉错误结果”留给上层，这正是标准里没有任何机制告诉应答者“你的回答丢了”的原因。' },
-    { en: 'The rest is the model: the defaults of 8 slots and 3 attempts, the uniform draw, the 6 dB capture margin, and the feedback loop that lets an anchor learn at a round’s end whether the tag ranged it.',
-      zh: '其余都是模型：8 个时隙与 3 次尝试这两个默认值、均匀抽取、6 dB 的捕获余量，以及那个让锚点在一轮结束时得知标签有没有测到自己的反馈回路。' },
+    { en: 'The rest is the model: the defaults of 8 slots and 3 attempts, the uniform draw, the 6 dB capture margin, and the feedback loop that lets an anchor learn at a round’s end whether the phone ranged it.',
+      zh: '其余都是模型：8 个时隙与 3 次尝试这两个默认值、均匀抽取、6 dB 的捕获余量，以及那个让锚点在一轮结束时得知手机有没有测到自己的反馈回路。' },
   ],
   scenario: () => uwbContentionScenario('base'),
   variants: [

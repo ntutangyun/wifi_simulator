@@ -115,7 +115,7 @@ export const uwbBlocks: Lesson = {
       { en: 'Level', zh: '层级' }, { en: 'RSTU', zh: 'RSTU' }, { en: 'Duration', zh: '时长' }, { en: 'What owns it', zh: '归谁所有' },
     ], rows: [
       [{ en: 'Ranging block', zh: '测距块' }, N('240 000'), N('200.0 ms'), { en: 'the session; it repeats forever', zh: '整个会话；无限循环' }],
-      [{ en: 'Ranging round', zh: '测距轮' }, N('24 000'), N('20.0 ms'), { en: 'one tag: tag k owns round k', zh: '一个标签：第 k 个标签占用第 k 轮' }],
+      [{ en: 'Ranging round', zh: '测距轮' }, N('24 000'), N('20.0 ms'), { en: 'one phone: phone k owns round k', zh: '一部手机：第 k 部手机占用第 k 轮' }],
       [{ en: 'Ranging slot', zh: '测距时隙' }, N('2 400'), N('2 000.0 µs'), { en: 'one device, one frame', zh: '一台设备，一帧' }],
     ] },
     { text: {
@@ -135,9 +135,9 @@ export const uwbBlocks: Lesson = {
     { kind: 'table', heading: { en: 'One fix per phone per block', zh: '每块一部手机一次定位' }, head: [
       { en: 'Phone', zh: '手机' }, { en: 'Its fix in block 0', zh: '它在第 0 块的定位' },
     ], rows: [
-      [N('uwb-1'), N('(5.01, 3.99) m at 20 ms, GDOP 1.06')],
-      [N('uwb-2'), N('(3.01, 2.52) m at 40 ms, GDOP 1.08')],
-      [N('uwb-3'), N('(7.50, 6.01) m at 60 ms, GDOP 1.06')],
+      [N('uwb-1'), N('(5.01, 3.99) m at 20 ms')],
+      [N('uwb-2'), N('(3.01, 2.52) m at 40 ms')],
+      [N('uwb-3'), N('(7.50, 6.01) m at 60 ms')],
     ] },
     { text: {
       en: 'Five fixes a second each, whatever the other two phones do, and each one 2 cm out or better.',
@@ -203,16 +203,16 @@ export const uwbBlocks: Lesson = {
   ],
   jumps: [
     J('the first Poll, on the slot boundary', '第一帧 Poll，压在时隙边界上', firstUwbPoll),
-    J('the first tag’s fix', '第一个标签的定位', firstUwbPosition),
+    J('the first phone’s fix', '第一部手机的定位', firstUwbPosition),
     J('its round ends', '它的轮次结束', firstUwbRoundEnd),
-    J('the second tag’s round opens', '第二个标签的轮次开始', secondTagRound),
+    J('the second phone’s round opens', '第二部手机的轮次开始', secondTagRound),
     J('the block repeats', '整个块重新开始', nextBlock),
   ],
   observe: [
     { en: 'The round line names the phone, its round, the block and the method, then the slots and their length. Rounds open one after another, one per phone, and when the third is done the block starts over.',
       zh: '整轮那一行依次写出手机、它的轮次、所在的块、所用的方法，再写出时隙数和时隙长度。各轮一个接一个开启，一部手机一轮；第三部做完，整个块又从头开始。' },
-    { en: 'Every transmission sits on a slot boundary, to the nanosecond. There is no IFS, no backoff draw and no NAV anywhere on these lanes — and the seven rounds nobody owns never open at all.',
-      zh: '每一次发送都压在时隙边界上，精确到纳秒。这些泳道上没有 IFS、没有退避取值，也没有 NAV——而那七个没有主人的轮次，从头到尾都不曾开启。' },
+    { en: 'Every transmission sits on a slot boundary, to the nanosecond. There is no interframe space, no backoff draw and no NAV anywhere on these lanes — and the seven rounds nobody owns never open at all.',
+      zh: '每一次发送都压在时隙边界上，精确到纳秒。这些泳道上没有帧间间隔、没有退避取值，也没有 NAV——而那七个没有主人的轮次，从头到尾都不曾开启。' },
   ],
   tryThis: [
     { en: 'Load “0.5 ms slots” and watch the block empty out: the three rounds finish by 15 ms, the fixes land at 5, 10 and 15 ms, and the editor plans 40 rounds per block instead of ten.',

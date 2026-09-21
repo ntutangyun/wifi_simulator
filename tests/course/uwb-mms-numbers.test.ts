@@ -387,7 +387,7 @@ describe('uwb-mms-numbers · the ruler a millisecond long', () => {
     const floor = rangeSigmaM(DEFAULT_UWB_SESSION.tsNoisePs)
     expect(rms).toBeLessThan(1.2 * floor)
     expect((Math.hypot(floor, 0.0015) * 100).toFixed(1)).toBe((floor * 100).toFixed(1))
-    expect(prose()).toContain('two receive stamps alone are worth 2.1 cm, so the train’s millimetre of clock residual is invisible')
+    expect(prose()).toContain('two receive stamps alone are worth 2.1 cm, so the train’s millimetre of clock leftover is invisible')
   })
 
   it('observe 2: the range line prints the corrected range and the raw one', () => {

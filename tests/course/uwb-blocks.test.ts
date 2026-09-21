@@ -254,7 +254,8 @@ describe('uwb-blocks · the grid', () => {
 
   it('each phone gets one fix per block — five a second — and each is 2 cm out or better', () => {
     // "Five fixes a second each, whatever the other two phones do, and each one 2 cm out or
-    //  better." / the "One fix per phone per block" table: "(5.01, 3.99) m at 20 ms, GDOP 1.06"
+    //  better." / the "One fix per phone per block" table: "(5.01, 3.99) m at 20 ms". The table
+    // quotes position and time only: GDOP is uwb-geometry's word, two lessons further on.
     expect(1000 / (PLAN.blockNs / MS)).toBe(5)
     const fixes = ofType(recs(), 'UWB_POSITION')
     // "once per block": every block the run covers, not only the first
@@ -272,12 +273,14 @@ describe('uwb-blocks · the grid', () => {
       'uwb-2 position (3.01, 2.52) m, true (3.00, 2.50), error 0.02 m, GDOP 1.08, 4 anchors',
       'uwb-3 position (7.50, 6.01) m, true (7.50, 6.00), error 0.01 m, GDOP 1.06, 4 anchors',
     ])
-    // the table says the same thing in the shape a reader can scan: position, time, GDOP
+    // the table says the same thing in the shape a reader can scan: position and time
     const table2: [string, string][] = [
-      ['uwb-1', '(5.01, 3.99) m at 20 ms, GDOP 1.06'],
-      ['uwb-2', '(3.01, 2.52) m at 40 ms, GDOP 1.08'],
-      ['uwb-3', '(7.50, 6.01) m at 60 ms, GDOP 1.06'],
+      ['uwb-1', '(5.01, 3.99) m at 20 ms'],
+      ['uwb-2', '(3.01, 2.52) m at 40 ms'],
+      ['uwb-3', '(7.50, 6.01) m at 60 ms'],
     ]
+    // and it does not print GDOP, which uwb-geometry is where the reader meets
+    for (const i of [0, 1, 2]) expect(cell(2, i, 1), `row ${i}`).not.toContain('GDOP')
     table2.forEach((row, i) => row.forEach((v, j) => expect(cell(2, i, j), `${row[0]} ${j}`).toBe(v)))
     // "Each phone is 2 cm out or better": on this seed, and inside 4-σ of the solver's own
     // 1-σ on a 4-anchor fix, so a reseed cannot quietly turn the sentence into a fiction

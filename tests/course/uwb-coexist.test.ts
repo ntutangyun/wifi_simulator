@@ -355,10 +355,11 @@ describe('uwb-coexist · what each side hears', () => {
     expect((UWB_SIR_MIN_DB - sir).toFixed(1)).toBe('18.8')
     expect(sir).toBeLessThan(UWB_SIR_MIN_DB)
     expect(prose()).toContain('18.8 dB short')
-    // quiz 1: "34 dB of EIRP, plus 7.95 dB of the UWB frame falling outside the 80 MHz channel" /
+    // quiz 1: "34 dB of transmit power, plus 7.95 dB of the UWB frame falling outside the 80 MHz"
+    // ("EIRP" is the formula's word, and the formula body is the one place it is allowed) /
     // "20 dBm against −14 dBm is 34 dB before anything else"
     expect(20 - UWB_TX_POWER_DBM).toBe(34)
-    for (const s of ['34 dB of EIRP', '34 dB before anything else']) expect(prose(), s).toContain(s)
+    for (const s of ['34 dB of transmit power', '34 dB before anything else']) expect(prose(), s).toContain(s)
   })
 
   it('the loudest UWB signal at a Wi-Fi radio is −80.57 dBm: 8.12 dB of noise, 18.57 dB under CCA', () => {
@@ -388,7 +389,7 @@ describe('uwb-coexist · what each side hears', () => {
 
   it('the CCA claim is qualified by distance: the threshold is reachable at 0.37 m, quoted as 40 cm', () => {
     // deeper: "a Wi-Fi radio brought within about 40 cm of a UWB transmitter would trip it. But
-    //  the nearest Wi-Fi radio in this room, the router 3.14 m from the tag, is nowhere near that
+    //  the nearest Wi-Fi radio in this room, the router 3.14 m from the phone, is nowhere near that
     //  close". Solving uwbInBandDbm(…) − uwbPl0Db(5) − 10·UWB_PL_EXP·log10(d) = CCA_ED_DBM for d,
     // from the engine's own constants — the same derivation tests/ui/uwb-guide.test.ts makes for
     // the Guide, whose paragraph this lesson is the reference for. Quoted rounded UP to 10 cm.
@@ -410,7 +411,7 @@ describe('uwb-coexist · what each side hears', () => {
       .flatMap((p) => [dist(p, AP), dist(p, LAPTOP)]))
     expect(nearest.toFixed(2)).toBe('3.14')
     expect(nearest).toBeGreaterThan(crossoverM)
-    expect(prose()).toContain('the nearest Wi-Fi radio in this room, the router 3.14 m from the tag')
+    expect(prose()).toContain('the nearest Wi-Fi radio in this room, the router 3.14 m from the phone')
   })
 
   it('and in this room it never fires: the base run’s CCA records are the No-UWB run’s', () => {

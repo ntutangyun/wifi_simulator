@@ -485,7 +485,7 @@ describe('uwb-dstwr · two wrong halves', () => {
       expect(cell(0, i - 1, 4), `row ${i} ds`).toBe(`${ds[i - 1]} m`)
     }
     expect(table(0).rows).toHaveLength(ANCHORS)
-    expect(table(0).head.map((h) => h.en)).toEqual(['Anchor', 'Treply1', 'First half', 'Second half', 'DS result'])
+    expect(table(0).head.map((h) => h.en)).toEqual(['Anchor', 'Treply1', 'First half', 'Second half', 'DS-TWR result'])
   })
 
   it('the first half is the previous lesson’s raw ramp: 6 m per slot of waiting', () => {

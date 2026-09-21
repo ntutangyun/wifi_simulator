@@ -131,11 +131,11 @@ describe('uwb-position · the lesson’s own place in the track', () => {
   })
 
   it('owns the arithmetic as the model’s, and cites only in `sources`', () => {
-    // "The standard says nothing at all about how a tag turns ranges into a point" — the
+    // "The standard says nothing at all about how a phone turns ranges into a point" — the
     // provenance paragraph that used to open the lesson is now the collapsed section.
     const src = uwbPosition.sources!.map((s) => s.en).join('\n')
     expect(src).toContain('IEEE Std 802.15.4-2024')
-    expect(src).toContain('The standard says nothing at all about how a tag turns ranges into a point')
+    expect(src).toContain('The standard says nothing at all about how a phone turns ranges into a point')
     expect(src).toContain('Gauss–Newton least squares')
   })
 })

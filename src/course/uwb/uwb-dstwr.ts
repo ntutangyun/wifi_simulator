@@ -102,8 +102,8 @@ export const uwbDstwr: Lesson = {
       zh: 'DS-TWR 既不挑其中一半，也不求平均。它把两次往返相乘，把两段等待相乘，再把两个乘积相减。每一对里都是手机量一段、锚点量一段，所以两个乘积被同一对速率拉伸了同样的倍数——而随后的那次除法正好把这份拉伸再除掉。两段等待对不对称，无关紧要。',
     } },
     { heading: { en: 'The price is slots, not airtime', zh: '代价是时隙，不是空口时间' }, text: {
-      en: 'Two round trips need two more messages than one did — a Final from the phone and a Report from every anchor — so a round of four anchors takes ten slots where it took five. The frames stay small, and the share of the round that radiates barely moves. What doubles is how long a round lasts and how often each device wakes up.',
-      zh: '两次往返比一次多用两类消息——手机发的 Final，和每个锚点发的 Report——所以同样四个锚点，一轮要占十个时隙，原来只要五个。帧本身依然很小，这一轮里真正有信号在辐射的比例也几乎没变。翻倍的是一轮持续多久，以及每台设备要醒来多少次。',
+      en: 'Two round trips need two more messages than one did — a Final from the phone and a Report from every anchor — so a round of four anchors takes ten slots where it took five. What doubles is how long a round lasts and how often each device wakes up.',
+      zh: '两次往返比一次多用两类消息——手机发的 Final，和每个锚点发的 Report——所以同样四个锚点，一轮要占十个时隙，原来只要五个。翻倍的是一轮持续多久，以及每台设备要醒来多少次。',
     } },
     { heading: { en: 'What it does not fix', zh: '它修不好的那些' }, text: {
       en: 'All of this removes one error term: the crystals. Every received timestamp is still a little noisy, and that noise is now what the error is made of — but it no longer grows with the waiting, so the anchor that answered last is as good as the first. A blocked line of sight is untouched too: a first path that arrives late is added straight to the range.',
@@ -120,7 +120,7 @@ export const uwbDstwr: Lesson = {
     } },
     { kind: 'table', heading: { en: 'Two halves and the answer', zh: '两个半场与答案' }, head: [
       { en: 'Anchor', zh: '锚点' }, { en: 'Treply1', zh: 'Treply1' }, { en: 'First half', zh: '前半场' },
-      { en: 'Second half', zh: '后半场' }, { en: 'DS result', zh: 'DS 结果' },
+      { en: 'Second half', zh: '后半场' }, { en: 'DS-TWR result', zh: 'DS-TWR 结果' },
     ], rows: [
       [N('anchor-1'), N('2 ms − Tprop'), N('9.51 m'), N('−20.49 m'), N('3.51 m')],
       [N('anchor-2'), N('4 ms − Tprop'), N('15.47 m'), N('−14.48 m'), N('3.49 m')],
@@ -128,8 +128,8 @@ export const uwbDstwr: Lesson = {
       [N('anchor-4'), N('8 ms − Tprop'), N('27.42 m'), N('−2.55 m'), N('3.45 m')],
     ] },
     { text: {
-      en: 'Averaging the first row’s two halves gives −5.49 m. Note the symmetry that is absent: the anchor answering last waits four times as long as the first, yet every result lands inside 6 cm.',
-      zh: '把第一行的两个半场平均一下，得到 −5.49 m。再留意这里并不存在的那种对称：最后作答的锚点等的时间是第一个的四倍，每个结果却都落在 6 cm 以内。',
+      en: 'Averaging the first row’s two halves gives −5.49 m. Note what is absent: the anchor answering last waits four times as long as the first, yet every result lands inside 6 cm.',
+      zh: '把第一行的两个半场平均一下，得到 −5.49 m。还有一件本该出现、这里却没有出现的事：最后作答的锚点等的时间是第一个的四倍，每个结果却都落在 6 cm 以内。',
     } },
     { kind: 'table', heading: { en: 'Ten slots, and what fills them', zh: '十个时隙，都被什么填满' }, head: [
       { en: 'Frame', zh: '帧' }, { en: 'Count', zh: '数量' }, { en: 'Octets', zh: '字节' }, { en: 'Airtime each', zh: '单帧空口时间' },
@@ -140,6 +140,10 @@ export const uwbDstwr: Lesson = {
       [N('Report'), N('4'), N('24'), N('191.47 µs')],
       [{ en: 'Round total', zh: '整轮合计' }, N('10'), N('253'), N('1 934.23 µs')],
     ] },
+    { heading: { en: 'The Response shrank', zh: 'Response 变短了' }, text: {
+      en: 'The Response is 14 octets here, not 20: its reply time now travels in the Report.',
+      zh: '这里的 Response 是 14 个字节，不是 20 个：它那段回复时延如今改由 Report 捎回去。',
+    } },
     { text: {
       en: '1 934.23 µs of radiation inside a 20 000 µs round is 9.67 %, against 9.56 % for the single-sided round of the lesson before. Channel occupancy barely moves; latency and wake-ups double.',
       zh: '在一个 20 000 µs 的轮里辐射 1 934.23 µs，占 9.67 %，而上一课那个单边轮是 9.56 %。信道占用率几乎没动，翻倍的是时延和醒来的次数。',
@@ -198,7 +202,7 @@ export const uwbDstwr: Lesson = {
       zh: '整轮那一行写着 "10 slots × 2000.0 µs"，到 20 000 000 ns 结束——同样的锚点，却是上一课那一轮的两倍长。' },
     { en: 'The Final sits alone in the middle of the round, at 10 ms: one frame for every anchor, after the last response and before the first report.',
       zh: 'Final 独自坐在这一轮正中间，10 ms 处：一帧发给所有锚点，排在最后一条 Response 之后、第一份报告之前。' },
-    { en: 'All four anchor-lane ranges appear at 10 236 615 ns, when the Final lands; the phone’s own follow at 12, 14, 16 and 18 ms, each pair alike.',
+    { en: 'All four anchor-lane ranges appear at 10 236 615 ns, when the Final lands; the phone’s follow at 12, 14, 16 and 18 ms, each pair alike.',
       zh: '四条锚点泳道上的测距都出现在 10 236 615 ns，即 Final 落地之时；手机自己那四条则在 12、14、16、18 ms 出现。每一对读数完全相同。' },
   ],
   tryThis: [

@@ -91,7 +91,7 @@ export const uwbGeometry: Lesson = {
       en: 'Four corner anchors hold this room between 1.03 and 1.26 wherever the phone stands. Delete a corner and that floor goes with it: standing directly under one of the three remaining anchors, the figure reaches 2.32.',
       zh: '只要四角都有锚点，这个房间里无论手机站在哪儿，这个数都落在 1.03 与 1.26 之间。删掉一角，这条底线也跟着没了：站在余下三个锚点中某一个的正下方时，它会达到 2.32。',
     } },
-    { text: {
+    { heading: { en: 'What one wall costs', zh: '一堵墙的代价' }, text: {
       en: 'A first path through brick arrives 2.0 ns late, which is 0.5996 m of flight.',
       zh: '穿过砖墙的首径迟到 2.0 ns，折合 0.5996 m 的飞行距离。',
     } },
@@ -99,7 +99,7 @@ export const uwbGeometry: Lesson = {
       en: 'The blocked range reads 5.33 m against a true 4.76 m in the first block, and over seven blocks the bias averages 59.4 cm — within a third of a σ_r of the ideal figure above.',
       zh: '第一个块里，这条被挡住的距离报出 5.33 m，真值是 4.76 m；七个块平均下来，偏差是 59.4 cm——与上面那个理想值相差不到三分之一个 σ_r。',
     } },
-    { text: {
+    { heading: { en: 'What it does to the fix', zh: '它对定位做了什么' }, text: {
       en: 'The fix moves 30.9 cm, not 60. Noise-free the shift is 0.316 m, 53 % of the bias, on a bearing that points away from the blocked anchor.',
       zh: '而定位只挪了 30.9 cm，不是 60。扣掉噪声，位移是 0.316 m，即偏差的 53 %，方向背离那个被挡住的锚点。',
     } },

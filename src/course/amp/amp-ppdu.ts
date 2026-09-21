@@ -130,7 +130,7 @@ export const ampPpdu: Lesson = {
       en: 'An answer that names only itself is 7 octets, used in a later lesson; this one carries the reading inline, so it is 15.',
       zh: '只报自己身份的作答是 7 个字节，后面某一课会用到；这里的作答把读数直接带在里面，所以是 15 个字节。',
     } },
-    { text: {
+    { heading: { en: 'What the rate buys', zh: '提速买来什么' }, text: {
       en: 'Raise the rate four-fold and the answer takes a quarter of the air: 528 µs becomes 132 µs, having no fixed opening to dilute it. The trigger has 138 µs no rate can touch, so it falls only to 258 µs.',
       zh: '速率提高四倍，作答占用的空口时间就真的只剩四分之一：528 µs 变成 132 µs——因为它没有固定开头可以摊薄。触发帧却有：138 µs 任凭速率怎么变都省不掉，所以它只能降到 258 µs。',
     } },

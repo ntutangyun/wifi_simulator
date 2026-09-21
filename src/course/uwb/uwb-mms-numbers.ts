@@ -134,7 +134,7 @@ export const uwbMmsNumbers: Lesson = {
       [{ en: 'The noise floor under all of them', zh: '它们脚下的噪声地板' }, N('2.05 cm over 21 ranges')],
     ] },
     { text: {
-      en: 'The last row is the point: two receive stamps alone are worth 2.1 cm, so the train’s millimetre of clock residual is invisible.',
+      en: 'The last row is the point: two receive stamps alone are worth 2.1 cm, so the train’s millimetre of clock leftover is invisible.',
       zh: '最后一行才是重点：光是两个接收时间戳就值 2.1 cm，所以这一串留下的那一毫米时钟残差根本看不见。',
     } },
     { kind: 'table', heading: { en: 'Where the 19.57 dB comes from', zh: '那 19.57 dB 从哪来' }, head: [
@@ -159,9 +159,9 @@ export const uwbMmsNumbers: Lesson = {
       en: 'The verdict line is the whole sum, so the two runs differ in one term of it. At eight fragments: “anchor-1 RSF train ← tag-1: 8/8 heard, -100.3 dBm + 9.0 dB = margin 1.8 dB → detected, ratio -39.995 ppm”. At four: “anchor-1 RSF train ← tag-1: 4/4 heard, -100.3 dBm + 6.0 dB = margin -1.2 dB → lost”. Same level, same completeness, three decibels apart — and the second line has no ratio at all, because a train that was never detected was never measured either.',
       zh: '判定那一行本身就是整笔加法，所以两次运行只差其中一项。八个片段时：“anchor-1 RSF train ← tag-1: 8/8 heard, -100.3 dBm + 9.0 dB = margin 1.8 dB → detected, ratio -39.995 ppm”。四个片段时：“anchor-1 RSF train ← tag-1: 4/4 heard, -100.3 dBm + 6.0 dB = margin -1.2 dB → lost”。电平一样、收得一样全，只差三个分贝——而后一行连比值都没有，因为一串从未被检出的片段，也就从未被测量过。',
     } },
-    { heading: { en: 'Why the ordinary radio fails completely, not slightly', zh: '为什么普通电台是彻底失败，而不是稍差一点' }, text: {
+    { heading: { en: 'Why the ordinary radio fails completely, not slightly', zh: '为什么普通射频是彻底失败，而不是稍差一点' }, text: {
       en: 'Run the same room with ordinary single-sided two-way ranging and there is not one range in 1.3 seconds: 42 timeouts, half of them anchors waiting for a poll they never heard and half of them the tag waiting out response slots. The poll arrives at −110.80 dBm, nearly eighteen decibels under the receiver, and nothing in that mode accumulates. A radio either detects a frame or it does not; there is no partial credit to build on.',
-      zh: '在同一个房间里跑普通的单边双向测距，1.3 秒内一次测距也没有：42 次超时，一半是锚点在等一帧它们从没听见的 poll，另一半是标签把响应时隙等空。那帧 poll 到达时是 −110.80 dBm，比接收机低了将近十八个分贝，而那个模式里没有任何东西会累加。一台电台要么检出一帧，要么检不出；没有可供叠加的“半分”。',
+      zh: '在同一个房间里跑普通的单边双向测距，1.3 秒内一次测距也没有：42 次超时，一半是锚点在等一帧它们从没听见的 poll，另一半是标签把响应时隙等空。那帧 poll 到达时是 −110.80 dBm，比接收机低了将近十八个分贝，而那个模式里没有任何东西会累加。一台射频要么检出一帧，要么检不出；没有可供叠加的“半分”。',
     } },
     { heading: { en: 'Why the ratio is measured over the train, not over a frame', zh: '为什么比值量在整串上，而不是量在一帧上' }, text: {
       en: 'σ_ratio falls as the span grows: two stamps 100 ps noisy, taken 7 ms apart, give 0.0202 ppm, where the same two stamps taken across a single 82 µs fragment would give about 1.7 ppm — worse than the crystal they are trying to measure. The train is long precisely where a frame is short, which is why a mode built for reach also happens to be the one that measures clocks best.',
@@ -224,7 +224,7 @@ export const uwbMmsNumbers: Lesson = {
     {
       q: { en: 'Single-sided ranging usually needs a second round trip or a very good crystal. Why neither here?', zh: '单边测距通常要么再做一次往返，要么靠一块很好的晶振。这里为什么两样都不要？' },
       options: [
-        { en: 'The narrowband radio estimates the offset better', zh: '窄带电台把偏差估得更准' },
+        { en: 'The narrowband radio estimates the offset better', zh: '窄带射频把偏差估得更准' },
         { en: 'The fragments are a millisecond apart on the sender’s clock, so the train compares the two crystals over 7 ms', zh: '片段在发送方时钟上相隔一毫秒，于是整串用 7 ms 的跨度比较了两块晶振' },
         { en: 'The report carries the responder’s crystal offset', zh: '报告里带着响应方的晶振偏差' },
       ],

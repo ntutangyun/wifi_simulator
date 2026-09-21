@@ -167,7 +167,7 @@ describe('uwb-contention · the lesson’s own place in the track', () => {
     // "the defaults of 8 slots and 3 attempts": both are the engine's own, not the standard's
     expect(src).toContain(`the defaults of ${DEFAULT_UWB_SESSION.contentionSlots} slots and ${DEFAULT_UWB_SESSION.maxAttempts} attempts`)
     expect(src).toContain('The rest is the model')
-    expect(src).toContain('the feedback loop that lets an anchor learn at a round’s end whether the tag ranged it')
+    expect(src).toContain('the feedback loop that lets an anchor learn at a round’s end whether the phone ranged it')
   })
 
   it('it is the first lesson of module 14, after uwb-coexist in the course order', () => {

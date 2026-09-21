@@ -87,8 +87,8 @@ export const uwbUlTdoa: Lesson = {
   module: 14,
   title: { en: 'One blink per tag', zh: '每个标签一次闪发' },
   why: {
-    en: 'A tag that listens still needs a receiver, a clock of its own and a solver to run. A badge on a hospital lanyard would rather have none of those, and the people who fitted the building would rather read every badge’s place off a screen than ask each badge in turn. So flip the link once more: the tag speaks, and the building listens.',
-    zh: '只听的标签，仍然要有接收机、要有自己的钟、还要跑一套解算。挂在医院工牌带上的胸牌，这三样一个都不想要；而给这栋楼布网的人，也宁愿在屏幕上直接读出每个胸牌在哪儿，而不是挨个去问。那就把这条链路再翻一次：标签说话，楼来听。',
+    en: 'A tag — anything being located — that listens still needs a receiver, a clock of its own and a solver to run. A badge on a hospital lanyard would rather have none of those, and the people who fitted the building would rather read every badge’s place off a screen than ask each badge in turn. So flip the link once more: the tag speaks, and the building listens.',
+    zh: '只听的标签（被定位的那一端就叫标签），仍然要有接收机、要有自己的钟、还要跑一套解算。挂在医院工牌带上的胸牌，这三样一个都不想要；而给这栋楼布网的人，也宁愿在屏幕上直接读出每个胸牌在哪儿，而不是挨个去问。那就把这条链路再翻一次：标签说话，楼来听。',
   },
   outcomes: [
     { en: 'say what one short frame costs a tag and what it buys the building', zh: '说清一帧短短的信号，标签付出什么，楼里换来什么' },
@@ -120,8 +120,8 @@ export const uwbUlTdoa: Lesson = {
       zh: '还是上一课那个房间：锚点在四角，胸牌在胸口高度。把轮次再翻一次，于是只有胸牌在发送。它每个块占一个时隙，用来发一帧闪发（blink）——一小段广播，里面没有任何时间——发完，它的射频就关到下一个块。',
     } },
     { heading: { en: 'Positioned by somebody else', zh: '由别人来定位' }, text: {
-      en: 'Nothing answers a blink. Every anchor that hears it stamps the arrival on the timebase they all share, and when the slot ends the reference anchor subtracts its own stamp from each of the other three and solves the same hyperbolae as before. The badge is told nothing: it has no receiver open, and not one record travels back to it.',
-      zh: '闪发帧没有任何回应。每个听到它的锚点，都在大家共用的那条时基上记下到达时刻；时隙结束时，参考锚点用其余三个时刻各减去自己的那个，再解出和上一课一样的双曲线。胸牌什么也不会知道：它根本没开接收机，也没有任何一条记录回到它那里。',
+      en: 'Nothing answers a blink. Every anchor that hears it stamps the arrival on the timebase they all share, and when the slot ends the reference anchor subtracts its own stamp from each of the other three and solves the same hyperbolae as before. This uplink form, UL-TDoA, tells the badge nothing: it has no receiver open, and not one record travels back to it.',
+      zh: '闪发帧没有任何回应。每个听到它的锚点，都在大家共用的那条时基上记下到达时刻；时隙结束时，参考锚点用其余三个时刻各减去自己的那个，再解出和上一课一样的双曲线。这种上行形态 UL-TDoA 什么也不告诉胸牌：它根本没开接收机，也没有任何一条记录回到它那里。',
     } },
     { kind: 'watch', jump: 4, heading: { en: 'Watch it happen to someone else', zh: '看它发生在别人身上' }, text: {
       en: 'Load the simulation and jump to the fix. It leaves the reference anchor’s lane, not the badge’s, and the line names the badge it is about.',
@@ -129,7 +129,7 @@ export const uwbUlTdoa: Lesson = {
     } },
     { heading: { en: 'Its crystal stops mattering', zh: '它的晶振不再要紧' }, text: {
       en: 'Two instants on one timebase, subtracted — that is the whole of the arithmetic. No interval is measured on the badge’s crystal, so there is no clock rate to correct and nothing for a correction to do. The instant the blink left is unknown, but it is the same in both terms, and it cancels. All that survives is the receivers.',
-      zh: '同一条时基上的两个时刻相减——全部算术就这些。没有任何一段间隔量在胸牌的晶振上，所以既没有时钟速率要修正，也没有什么可供修正。闪发离开的那一刻是未知的，但它在两项里完全相同，一减就没了。活下来的只有接收端。',
+      zh: '同一条时基上的两个时刻相减——全部算术就这些。没有任何一段间隔量在胸牌的晶振上，所以既没有时钟速率要修正，也没有什么可供修正。闪发离开的那一刻是未知的，但它在两项里完全相同，一减就没了。最后剩下的只有接收端那一侧。',
     } },
     { heading: { en: 'Everything rests on the anchors agreeing', zh: '一切都压在锚点的共识上' }, text: {
       en: 'So the whole mode rests on four anchors agreeing what time it is. They are calibrated against each other, and what is left over afterwards is the sync error. A nanosecond of it is about a third of a metre, and the session lets you dial it.',
@@ -212,7 +212,7 @@ export const uwbUlTdoa: Lesson = {
     ] },
     { heading: { en: 'How honest the ellipse is', zh: '那个椭圆有多诚实' }, text: {
       en: 'It is first-order, and a bias is not white noise, so read it as how far the fix may be off, not as a 68 % interval. In both scenes the semi-major axis is at least half the worst of the seventy errors and never more than a few times it, which is about as much as a first-order figure can promise.',
-      zh: '它是一阶近似，而偏差并不是白噪声，所以请把它读作“定位可能偏离多远”，而不是 68 % 置信区间。两个场景里，长半轴都不小于那七十次里最差误差的一半，也不会超过它几倍——一阶的数字，能许诺的大概也就这么多。',
+      zh: '它是一阶近似，而偏差并不是白噪声，所以请把它读作“定位可能偏离多远”，而不是 68 % 置信区间。两个场景里，长半轴至少有那七十次中最差误差的一半，最多也不过是它的几倍——一阶的数字，能许诺的大概也就这么多。',
     } },
     { heading: { en: 'What each way costs the air', zh: '两条路各占多少空口' }, text: {
       en: 'A listening round costs the anchors 0.505 % of the block whether three badges hear it or three thousand; ten blinking badges spend 12.685 260 ms of air over seven blocks, one slot each, and the block runs out at a hundred. Four hundred tags therefore need four blocks of slots, or a shorter slot, or a second channel. What the uplink form buys is the badge itself: no receiver, no clock-rate correction, no solver.',

@@ -17,7 +17,15 @@ describe('readability rules', () => {
       .toEqual(['STS', 'SFD'])
     expect(acronyms('An A-MPDU behind an L-SIG')).toEqual(['A-MPDU', 'L-SIG'])
     expect(acronyms('CTS-to-self ends the NAV')).toEqual(['CTS', 'NAV'])
-    expect(acronyms('5 dBm at 2.4 GHz for 16 µs')).toEqual([])
+    expect(acronyms('5 dBm at 2.4 GHz for 16 µs')).toEqual(['GHZ'])
+  })
+  it('keeps a mixed-case tail whole, and leaves an ordinary capitalised word alone', () => {
+    expect(acronyms('DL-TDoA, TDoA and AoA at 6 GHz, then Poll')).toEqual(['DL-TDOA', 'TDOA', 'AOA', 'GHZ'])
+    expect(acronyms('UL-TDoA and SS-TWR, and the FoM byte')).toEqual(['UL-TDOA', 'SS-TWR', 'FOM'])
+    // one capital is a sentence's opening or a message's name, not an acronym
+    expect(acronyms('The Poll, the Response and the Final are Report words')).toEqual([])
+    // and a unit is a word the reader is assumed to know
+    for (const w of ['MHZ', 'GHZ', 'KHZ']) expect(KNOWN_WORDS.has(w), w).toBe(true)
   })
   it('counts numeric quantities, grouping spaced thousands, ignoring protocol names', () => {
     expect(numericQuantities('five metres is 16.678 ns, or 1 065.7 ticks, in 802.15.4')).toBe(2)

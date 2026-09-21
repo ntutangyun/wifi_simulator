@@ -73,23 +73,23 @@ export const uwbIntro: Lesson = {
     // at length, what `why` opens with — that a distance built on loudness inherits every
     // obstacle in the room — and a track's first lesson is held to 1000 words.
     { heading: { en: 'Clicks instead of tones', zh: '发出的是嗒，不是嗡' }, text: {
-      en: 'Most radios hold a tone steady for a long moment, and a receiver asked when that tone started can only be vague. A UWB radio does the opposite: it sends chips — pulses so short each is over almost before it began. A sharp edge gives a sharp answer, good to a fraction of a nanosecond.',
+      en: 'Most radios hold a tone steady for a long moment, and a receiver asked when that tone started can only be vague. A UWB radio does the opposite: it sends chips, pulses so short each is over almost before it began. A sharp edge gives a sharp answer, good to a fraction of a nanosecond.',
       zh: '大多数射频会把一个音调稳稳地保持很长一段；你问接收端这个音调是从哪一刻开始的，它只能给个大概。UWB 正相反：它发出的是码片——短到几乎刚开始就已经结束的脉冲。边沿越陡，答案越利落，能答到零点几纳秒。',
     } },
     { kind: 'watch', jump: 0, heading: { en: 'One question, one answer', zh: '一问，一答' }, text: {
-      en: 'Load the simulation and press play. The phone sends a poll — the frame that opens a round — and the anchor answers. Zoom in until the tiny gap between the lanes shows: that gap is the air.',
-      zh: '把仿真载入，按下播放。手机发出一帧 Poll——开启一轮测距的那一帧——锚点随后作答。把时间线一直放大，直到你能看见两条泳道之间那道极窄的缝隙：那道缝隙就是它们之间的空气。',
+      en: 'Load the simulation and press play. The phone (`tag-1` in the log — a tag is whatever is being located) sends a poll, the frame that opens a round, and the anchor answers. Zoom in until the tiny gap between the lanes shows: that gap is the air.',
+      zh: '把仿真载入，按下播放。手机（日志里叫它 tag-1：被定位的那一端就叫标签）发出一帧 Poll，也就是开启一轮测距的那一帧，锚点随后作答。把时间线一直放大，直到你能看见两条泳道之间那道极窄的缝隙：那道缝隙就是它们之间的空气。',
     } },
     { text: {
       en: 'Neither radio stamps when its frame began or ended. Both stamp the same landmark inside it — the RMARKER, one agreed instant a little way into every ranging frame. The phone notes when it sent the poll and when the answer returned; the anchor notes the mirror image. Four numbers, and the round is done.',
       zh: '两端都不去记自己这一帧的开头或结尾，它们记的是帧里同一个地标——RMARKER，在每一帧测距帧内部稍靠前一点、双方事先约定好要一起打时间戳的那个瞬间。手机记下自己何时发出 Poll、何时收到回答；锚点记的两笔正好反过来。四个数字，一轮就结束了。',
     } },
     { heading: { en: 'Two clocks that do not agree', zh: '两只对不上的钟' }, text: {
-      en: 'The phone and the anchor count on their own crystals, and nobody aligns the two. It does not matter: each subtracts two of its own readings, so the unknown starting points cancel. The phone is left with a round trip, the anchor with a reply; the round trip minus the reply is two flights.',
+      en: 'The phone and the anchor count on their own crystals, and nobody aligns the two. It does not matter: each subtracts two of its own readings, so the unknown starting points cancel. The phone is left with a round trip, the anchor with a reply; the difference is two flights.',
       zh: '手机和锚点各用各的晶振数时间，从来没有人去把这两只钟对齐。但这不要紧：每台设备减的都只是自己的两次读数，未知的起点因此被约掉。手机手里剩下一个往返时间，锚点手里剩下一个作答时间。把作答时间从往返时间里扣掉，剩下的就是两趟空中飞行。',
     } },
     { heading: { en: 'How wrong is a few centimetres', zh: '差几厘米，算差吗' }, text: {
-      en: 'Every timestamp is a little noisy: the moment a pulse crosses the detection threshold is uncertain, and the clock counts whole ticks. Two of the four readings are receptions, so the answer carries two doses of it. The log’s distance lands a few centimetres either side of the truth — the radio working, not failing.',
+      en: 'Every timestamp is a little noisy: the moment a pulse crosses the detection threshold is uncertain, and the clock counts whole ticks. Two of the four readings are receptions, so the answer carries two doses. The log’s distance lands a few centimetres either side of the truth — the radio working, not failing.',
       zh: '每一个时间戳都带着一点噪声：脉冲越过判决门限的确切时刻本身就不确定，而时钟只能一格一格地数。四次读数里有两次是接收，所以答案里带着两份这样的噪声。日志报出的距离会落在真值两侧几厘米的范围里。这是这台射频在正常工作，不是出了毛病。',
     } },
     { kind: 'watch', jump: 3, text: {

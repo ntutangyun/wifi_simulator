@@ -111,10 +111,12 @@ const ALL: UwbAoaVariant[] = ['base', 'off45', 'off60', 'behind']
 lessonShapeSuite(uwbAoa, { proseMax: 950 })
 
 describe('uwb-aoa · the lesson', () => {
-  it('sits in module 14, needs the double-sided lesson, and names four new words', () => {
+  it('sits in module 14, needs the double-sided and the geometry lesson, and names four new words', () => {
     expect(uwbAoa.id).toBe('uwb-aoa')
     expect(uwbAoa.module).toBe(14)
-    expect(uwbAoa.needs).toEqual(['uwb-dstwr'])
+    // uwb-geometry as well as uwb-dstwr: a whole picture section is "An ellipse across the
+    // line of sight", the numbers table carries an Ellipse column and the log line a GDOP.
+    expect(uwbAoa.needs).toEqual(['uwb-dstwr', 'uwb-geometry'])
     expect(uwbAoa.terms!.map((t) => t.term)).toEqual(['AoA', 'phase difference', 'boresight', 'field of view'])
     // the reader is sent to the bearing itself, not to the Poll that carried it
     const watch = uwbAoa.picture!.find((b) => b.kind === 'watch') as Extract<Block, { kind: 'watch' }>
@@ -510,7 +512,7 @@ describe('uwb-aoa · the ellipse across the line of sight', () => {
     const slant = Math.hypot(t.x - ANCHOR_X, t.y - ANCHOR_Y, ANCHOR_Z - TAG_Z)
     expect(slant.toFixed(3)).toBe('4.176')
     expect(Math.hypot(t.x - ANCHOR_X, t.y - ANCHOR_Y).toFixed(3)).toBe('4.000')
-    // "would plant the point 17.6 cm too far away"
+    // "would plant the point 17.6 cm too far"
     expect(cm(slant - 4)).toBe('17.6')
     expect((slant - 4) / rangeSigmaM(DEFAULT_UWB_SESSION.tsNoisePs)).toBeGreaterThan(8)
     // it does not: every fix sits at √(r² − Δz²) from the anchor, and the along-ray error
@@ -533,7 +535,7 @@ describe('uwb-aoa · the ellipse across the line of sight', () => {
     fixErrM(flat).forEach((e, i) => expect(Math.abs(e - fixErrM(recs('off45'))[i]), String(i)).toBeLessThan(0.001))
     const en = prose()
     expect(en).toContain('the radio measures 4.176 m where the plan shows 4.000')
-    expect(en).toContain('that would plant the point 17.6 cm too far away')
+    expect(en).toContain('that would plant the point 17.6 cm too far')
     expect(en).toContain('the fix walks out √(r² − Δz²) instead')
   })
 

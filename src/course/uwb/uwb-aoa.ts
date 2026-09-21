@@ -102,7 +102,7 @@ export const uwbAoa: Lesson = {
     { en: 'read a bearing and a one-anchor fix off the log', zh: '从日志里读出一个方位角，和一个锚点独自解出的定位' },
     { en: 'say which measurement the error belongs to, and what happens behind the anchor', zh: '说出误差属于哪一次测量，以及锚点背后会发生什么' },
   ],
-  needs: ['uwb-dstwr'],
+  needs: ['uwb-dstwr', 'uwb-geometry'],
   terms: [
     { term: 'AoA', plain: {
       en: 'angle of arrival: which direction a frame came in from, reported as an angle',
@@ -143,12 +143,12 @@ export const uwbAoa: Lesson = {
       zh: '再看这件事对那个点做了什么。距离还是老样子，前后差一两厘米；而方位角在一条长射线的远端，横着值好几十厘米。于是不确定性是一条细长条：沿你望去的方向很短，横过来很长，并随距离和角度一起长大。',
     } },
     { heading: { en: 'Walk out the floor distance, not the slant', zh: '走出平面距离，而不是斜距' }, text: {
-      en: 'One correction hides in that. The bearing is a flat, floor-plan angle, while the distance is measured up to an anchor near the ceiling. Walked out flat it would plant every point slightly too far away, the same way every round — a bias, not noise. So the height comes out of it first.',
-      zh: '这里面藏着一处修正。方位角是平面图上的角度，而距离量的是到天花板附近那个锚点的斜距。原样平着走出去，每次定位都会稍稍偏远，而且每轮都朝同一方向——这是偏差，不是噪声。所以要先把高度扣掉。',
+      en: 'One correction hides in that. The bearing is a flat, floor-plan angle, while the distance is measured up to an anchor near the ceiling. Walked out flat it would plant every point slightly too far away, the same way every round — an offset, not noise. So the height comes out of it first.',
+      zh: '这里面藏着一处修正。方位角是平面图上的角度，而距离量的是到天花板附近那个锚点的斜距。原样平着走出去，每次定位都会稍稍偏远，而且每轮都朝同一方向——这是固定的偏移，不是噪声。所以要先把高度扣掉。',
     } },
     { heading: { en: 'The half it cannot see', zh: '它看不见的那一半' }, text: {
       en: 'And here is where it fails. A badge behind the anchor arrives with exactly the phase its mirror image in front would produce, and an arc sine has nothing else to go on: it reports the mirror, confidently, with the same tidy ellipse around it. Face the anchor at its own wall and the badge, which has not moved, is located outside the building. Aim anchors into the room, or add an antenna.',
-      zh: '而它错得离谱的地方在这里。锚点背后的胸牌，其到达相位恰好等于它在正前方的镜像会给出的相位，反正弦再没有别的线索，于是报出那个镜像——理直气壮，周围照样画着齐整的椭圆。把锚点转去对着自己那面墙，胸牌一动没动，却被定到了楼外。办法是把锚点朝房间里装，或者加第三根天线。',
+      zh: '而它出大错的地方正在这里。锚点背后的胸牌，其到达相位恰好等于它在正前方的镜像会给出的相位，反正弦手里再没有别的依据，于是报出那个镜像——理直气壮，周围照样画着齐整的椭圆。把锚点转去对着自己那面墙，胸牌一动没动，却被定到了楼外。办法是把锚点朝房间里装，或者加第三根天线。',
     } },
   ],
   numbers: [
@@ -198,10 +198,10 @@ export const uwbAoa: Lesson = {
         N('(5.13, 2.47) m, true (5.00, 2.50) m, 13.3 cm, GDOP 1.00, ellipse 9.4 × 2.1 cm')],
     ] },
     { text: {
-      en: 'The height correction in figures: at the middle spot the radio measures 4.176 m where the plan shows 4.000. Walked out flat, that would plant the point 17.6 cm too far away; the fix walks out √(r² − Δz²) instead.',
+      en: 'The height correction in figures: at the middle spot the radio measures 4.176 m where the plan shows 4.000. Walked out flat that would plant the point 17.6 cm too far; the fix walks out √(r² − Δz²) instead.',
       zh: '把高度修正换成数字：中间那个位置上，射频量到 4.176 m，平面图上是 4.000 m。原样平着走出去，会把点钉远 17.6 cm；定位走出的是 √(r² − Δz²)。',
     } },
-    { text: {
+    { heading: { en: 'Behind the anchor', zh: '锚点背后' }, text: {
       en: 'Facing the wall, the badge is 180.0° off boresight, and the fourteen bearings come back as the base scene’s, to every digit.',
       zh: '锚点面朝墙时，胸牌偏离正前方 180.0°，而十四个方位角与基准场景的每一位数字都相同。',
     } },

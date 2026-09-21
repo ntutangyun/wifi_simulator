@@ -15,10 +15,10 @@
 import { describe, it, expect } from 'vitest'
 import { LESSONS } from '../../src/course/lessons'
 import { COURSE_ORDER, MODULES, lessonMinutes, lessonWords, trackOf } from '../../src/course/curriculum'
-import { isMigrated, type L10n, type Lesson } from '../../src/course/lessonKit'
+import { isMigrated, type Block, type L10n, type Lesson } from '../../src/course/lessonKit'
 import {
-  CITATION, KNOWN_WORDS, acronyms, definedInPlace, densityTexts, enWords, firstTermUses, lessonBudget,
-  lessonStrings, numericQuantities, paragraphTexts, zhChars,
+  CITATION, KNOWN_WORDS, LOG_NAMES, acronyms, cellTexts, definedInPlace, densityTexts, enWords,
+  firstTermUses, lessonBudget, lessonStrings, numericQuantities, paragraphTexts, zhChars,
 } from '../../src/course/readability'
 import { effectiveMigrating } from './kit'
 
@@ -69,7 +69,7 @@ const firstOfTrack = (l: Lesson) => ordered.find((o) => trackOf(o) === trackOf(l
  * `NAV` and `CTS` with no legal owner once TIER1_BASELINE goes.
  */
 function knownFor(l: Lesson): Set<string> {
-  const known = new Set<string>([...KNOWN_WORDS, ...TIER1_BASELINE])
+  const known = new Set<string>([...KNOWN_WORDS, ...TIER1_BASELINE, ...LOG_NAMES])
   for (const o of ordered) {
     if (o === l) break
     const admitted = trackOf(o) === trackOf(l) || (trackOf(o) === 'wifi' && MODULES[o.module].tier === 0)
@@ -179,6 +179,40 @@ if (migrated.length) {
         }
       }
     })
+    it('introduces every acronym the tables and the practice use, too', () => {
+      // Amendment A3: the rule used to stop at the cell border, so a word a learner meets in
+      // a `numbers` cell ("GDOP 1.06"), in an observation, in an experiment or in a quiz could
+      // be two lessons ahead of its gloss and nothing turned red. A language-neutral cell (a
+      // log line, a counter) is still exempt — `cellTexts` drops it — and so is a token the
+      // paragraph or the item defines where it uses it.
+      const known = knownFor(l)
+      const quiz = l.quiz.flatMap((q) => [q.q, ...q.options, q.explain])
+      const texts: [string, L10n][] = [
+        ...cellTexts(l.numbers!).map((c) => ['numbers cell', c] as [string, L10n]),
+        ...cellTexts(l.picture!).map((c) => ['picture cell', c] as [string, L10n]),
+        ...l.observe.map((s) => ['observe', s] as [string, L10n]),
+        ...l.tryThis.map((s) => ['tryThis', s] as [string, L10n]),
+        ...quiz.map((s) => ['quiz', s] as [string, L10n]),
+      ]
+      for (const [where, s] of texts) {
+        for (const a of new Set([...acronyms(s.en), ...acronyms(s.zh)])) {
+          expect(known.has(a) || definedInPlace(s, a), `${l.id} ${where}: "${a}" in "${s.en.slice(0, 60)}…"`).toBe(true)
+        }
+      }
+    })
+    it('tabulates a run of figures instead of chopping it into paragraphs', () => {
+      // Amendment A2: the four-quantity cap was being met by cutting one paragraph into a run
+      // of heading-less one-sentence paragraphs, which reads worse than what it replaced and
+      // loses the heading that told the reader which scene the figures belong to. A run of
+      // figures is a `table`, a `list` or a `steps` block; a bare paragraph may follow one of
+      // those or a headed paragraph, never another bare paragraph.
+      for (const [i, b] of l.numbers!.entries()) {
+        if ((b.kind ?? 'p') !== 'p' || b.heading) continue
+        const prev = l.numbers![i - 1]
+        const bare = prev !== undefined && (prev.kind ?? 'p') === 'p' && !prev.heading
+        expect(bare, `${l.id} numbers[${i}]: "${(b as Extract<Block, { kind?: 'p' }>).text.en.slice(0, 60)}…" follows a heading-less paragraph`).toBe(false)
+      }
+    })
     it('keeps an observe or try-this item to one thing to do: ≤ 60 words, ≤ 6 quantities', () => {
       for (const s of [...l.observe, ...l.tryThis]) {
         expect(enWords(s.en), s.en).toBeLessThanOrEqual(60)
@@ -205,3 +239,52 @@ if (migrated.length) {
     })
   })
 }
+
+/**
+ * Amendment A4: `needs` is the promise a lesson makes about what the reader
+ * has already read, and until now nothing held the promise to what the picture
+ * actually leans on. The acronym rule admits any earlier lesson of the track
+ * by design — a one-line reminder is enough for a word met in passing — but a
+ * picture section BUILT on another lesson's term ("An ellipse across the line
+ * of sight", "the quality byte on each range") needs that lesson named.
+ *
+ * Scope, and why it is this and not wider:
+ *  - per track, because a term's owner is the lesson of that track that
+ *    glosses it, and `needs` may only name lessons of the same track;
+ *  - only an owner EARLIER in COURSE_ORDER, because a lesson cannot need one
+ *    that comes after it, and a word a lesson uses before any lesson claims it
+ *    is being used in its everyday sense (uwb-intro's "round", "poll");
+ *  - `picture` only, because that is where a reader is being taught rather
+ *    than shown figures; `numbers` and `deeper` may lean forward (A7).
+ */
+describe('readability · needs is honest about what the picture leans on', () => {
+  /** The first lesson of each track to gloss each term: its owner. */
+  const owners = new Map<string, Map<string, string>>()
+  for (const l of migrated) {
+    const track = trackOf(l)
+    if (!owners.has(track)) owners.set(track, new Map())
+    const own = owners.get(track)!
+    for (const t of l.terms!) if (!own.has(t.term.toLowerCase())) own.set(t.term.toLowerCase(), l.id)
+  }
+  /** Every lesson reachable from `id` through `needs`, transitively. */
+  const closureOf = (id: string, acc = new Set<string>()): Set<string> => {
+    for (const n of byId.get(id)?.needs ?? []) if (!acc.has(n)) { acc.add(n); closureOf(n, acc) }
+    return acc
+  }
+  const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\-]/g, '\\$&')
+
+  it.each(migrated.map((l) => [l.id, l] as const))('%s', (_id, l) => {
+    const own = owners.get(trackOf(l))!
+    const reachable = closureOf(l.id).add(l.id)
+    for (const p of paragraphTexts(l.picture!)) {
+      for (const [term, ownerId] of own) {
+        if (reachable.has(ownerId)) continue
+        if (COURSE_ORDER.indexOf(ownerId) > COURSE_ORDER.indexOf(l.id)) continue
+        // a word prefix, as `firstTermUses` matches: "chips" is `chip`
+        const re = new RegExp(`\\b${escapeRe(term)}`, 'i')
+        const hit = re.test(p.en) ? p.en : null
+        expect(hit, `${l.id}: "${term}" is ${ownerId}'s word, and ${ownerId} is not in the needs closure — "${hit?.slice(0, 60)}…"`).toBe(null)
+      }
+    }
+  })
+})

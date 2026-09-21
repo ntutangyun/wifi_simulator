@@ -43,8 +43,8 @@ export type UwbMmsVariant = 'base' | 'four' | 'rsf1' | 'twr'
  * from the tag. They are placed so that the three of them are as nearly equidistant as the bay
  * allows — 13.04, 13.04 and 12.76 m — because the lesson's whole subject is one threshold: at
  * X = 4 every one of the three has to fail, and at X = 8 every one has to succeed. An anchor
- * in the middle of the bay would be 8.58 m away, three and a half decibels louder, and would
- * range on four fragments while the other two ranged on none.
+ * pushed up against the first partition would be 8.58 m away, 3.6 decibels louder, and would
+ * go on ranging on half a train while the other two heard nothing.
  *
  * Each crystal is set rather than drawn, so the ratio the trains measure has a known truth to
  * be checked against: the tag at +20 ppm and the anchors at −20, 0 and +10 give ratios of 40,
@@ -98,7 +98,7 @@ export const uwbMms: Lesson = {
     { en: 'follow one round from its narrowband opening to the range at the end', zh: '把一轮从窄带开场一路跟到末尾那次测距' },
     { en: 'say which parts of a round carry timing and which carry words', zh: '说出一轮里哪些部分承载时间、哪些承载话语' },
   ],
-  needs: ['uwb-blocks', 'uwb-dstwr'],
+  needs: ['uwb-blocks', 'uwb-dstwr', 'uwb-geometry'],
   terms: [
     { term: 'MMS', plain: {
       en: 'multi-millisecond: one ranging packet spread over many milliseconds, not sent in one go',
@@ -140,11 +140,11 @@ export const uwbMms: Lesson = {
     } },
     { heading: { en: 'Who does the talking', zh: '谁来说话' }, text: {
       en: 'Knowing the shape of the train in advance has to come from somewhere, and not over the wideband radio. A small narrowband radio sits beside it and carries the words: a Poll that opens the round, a Response that accepts it, and at the end a Report carrying the reply time the initiator needs. Between those, the wideband radio carries timing and nothing else.',
-      zh: '事先知道这一串的形状，总得有个来处，而它不是从宽带那台电台来的。旁边还有一台小小的窄带电台，由它承载话语：一帧 Poll 打开这一轮，一帧 Response 接受它，末尾再由一帧 Report 把发起方需要的回复时间捎回去。在这两头之间，宽带电台只承载时间，别的什么也不载。',
+      zh: '事先知道这一串的形状，总得有个来处，而它不是从宽带那台射频来的。旁边还有一台小小的窄带射频，由它承载话语：一帧 Poll 打开这一轮，一帧 Response 接受它，末尾再由一帧 Report 把发起方需要的回复时间捎回去。在这两头之间，宽带射频只承载时间，别的什么也不载。',
     } },
     { heading: { en: 'Reach is not accuracy', zh: '够得着不等于测得准' }, text: {
-      en: 'The train buys distance, and only distance. The first path through brick still arrives late, so every range comes back long by the same amount, round after round — a bias, not noise, which the quality byte on each range flags as an obstructed path. The fix inherits it whole. Nothing here makes the measurement better; it makes a measurement exist.',
-      zh: '这一串片段买来的是距离，而且只有距离。穿过砖墙的首径依旧迟到，于是每次测距都偏长，而且每轮偏得一样多——这是偏差，不是噪声，附在每条距离上的品质字节会把它标成被遮挡的路径。整块的定位把这份偏差原封不动地继承下来。这里没有任何东西让测量变得更准，它只是让测量得以存在。',
+      en: 'The train buys distance, and only distance. The first path through brick still arrives late, so every range comes back long by the same amount, round after round — an offset, not noise, which the quality byte on each range flags as an obstructed path. The fix inherits it whole. Nothing here makes the measurement better; it makes a measurement exist.',
+      zh: '这一串片段买来的是距离，而且只有距离。穿过砖墙的首径依旧迟到，于是每次测距都偏长，而且每轮偏得一样多——这是固定的偏移，不是噪声，附在每条距离上的品质字节会把它标成被遮挡的路径。整块的定位把这份偏移原封不动地继承下来。这里没有任何东西让测量变得更准，它只是让测量得以存在。',
     } },
   ],
   numbers: [
@@ -178,7 +178,7 @@ export const uwbMms: Lesson = {
       en: 'A round is 28 slots of 500 µs, so 14 ms, and it holds one anchor; three of them fit easily inside the 200 ms block.',
       zh: '一轮是 28 个 500 µs 的时隙，合 14 ms，而且只装一个锚点；三轮轻松放进 200 ms 的块里。',
     } },
-    { text: {
+    { heading: { en: 'Where the slots go', zh: '时隙都花在哪里' }, text: {
       en: 'Four slots open the round, twenty carry the fragments, and the responder reports in slot 24.',
       zh: '开头四个时隙用来开场，二十个承载片段，响应方在第 24 个时隙给出报告。',
     } },
@@ -186,7 +186,7 @@ export const uwbMms: Lesson = {
       en: 'The narrowband side is the slow part. Its three messages take 1.760 ms of the round’s 3.073 ms of air, while all sixteen fragments together take 1.313 ms — and one transmit stamp is taken per train, not per fragment.',
       zh: '慢的是窄带那一侧。它那三条消息占掉整轮 3.073 ms 空口时间里的 1.760 ms，而十六个片段加起来才 1.313 ms——而且每串只取一个发送时间戳，不是每个片段一个。',
     } },
-    { text: {
+    { heading: { en: 'What the wall adds', zh: '墙加进来多少' }, text: {
       en: 'Every range is long by the same 1.199 m: brick delays a first path by 2 ns and the ray crosses two walls each way, which a two-way range keeps rather than cancels.',
       zh: '每一次测距都偏长同样的 1.199 m：砖墙给首径添 2 ns，而射线来回各穿两道墙，这一份双向测距留了下来，没有抵消掉。',
     } },
@@ -211,9 +211,9 @@ export const uwbMms: Lesson = {
   ],
   sources: [
     { en: 'Almost nothing here is IEEE Std 802.15.4-2024. The units are: RSTU, RCTU, the block and its slots; so is the narrowband radio itself, the Clause 12 O-QPSK PHY at 250 kb/s.',
-      zh: '本课几乎没有一处出自 IEEE Std 802.15.4-2024。单位是标准的：RSTU、RCTU、块与它的时隙；那台窄带电台本身也是标准的，即第 12 章、250 kb/s 的 O-QPSK PHY。' },
+      zh: '本课几乎没有一处出自 IEEE Std 802.15.4-2024。单位是标准的：RSTU、RCTU、块与它的时隙；那台窄带射频本身也是标准的，即第 12 章、250 kb/s 的 O-QPSK PHY。' },
     { en: 'The multi-millisecond packet, the fragments and everything that turns that narrowband radio into a control radio for UWB come from P802.15.4ab, at D5.0 in Sponsor-ballot recirculation. The draft is members-only, so this paraphrases four TG4ab contributions: 15-22/0381r5 (the ranging cycle), 15-23/0100r2 (fragments and the narrowband PHY), 15-23/0502r3 (parameter sets) and 15-22/0205r0 (the energy budget). The balloted draft may differ.',
-      zh: '多毫秒分组、片段，以及把那台窄带电台变成 UWB 控制电台的一切，都来自 P802.15.4ab：它处于 Sponsor 投票再循环阶段，版本为 D5.0。该草案仅对会员开放，所以这里改写自 TG4ab 的四篇提案文稿：15-22/0381r5（测距周期）、15-23/0100r2（片段与窄带 PHY）、15-23/0502r3（参数集）与 15-22/0205r0（能量预算）。已投票的草案可能与此不同。' },
+      zh: '多毫秒分组、片段，以及把那台窄带射频变成 UWB 控制射频的一切，都来自 P802.15.4ab：它处于 Sponsor 投票再循环阶段，版本为 D5.0。该草案仅对会员开放，所以这里改写自 TG4ab 的四篇提案文稿：15-22/0381r5（测距周期）、15-23/0100r2（片段与窄带 PHY）、15-23/0502r3（参数集）与 15-22/0205r0（能量预算）。已投票的草案可能与此不同。' },
     { en: 'The room is the simulator’s own: a 22 × 8 m hall, two brick partitions at 12 dB each, an NLOS excess delay of 2.0 ns per brick wall, and a session on the draft’s default ranging cycle with the narrowband control channel in UNII-3, where nothing else in this scene is talking.',
       zh: '房间是仿真器自己的模型取值：22 × 8 m 的大厅、两道各 12 dB 的砖墙、每道砖墙 2.0 ns 的非视距额外时延，以及一个跑在草案默认测距周期上的会话，窄带控制信道落在 UNII-3，而本场景里那里没有别人在说话。' },
   ],
@@ -224,15 +224,15 @@ export const uwbMms: Lesson = {
     { label: { en: '4z for comparison', zh: '拿 4z 作对照' }, scenario: () => uwbMmsScenario('twr') },
   ],
   jumps: [
-    J('the narrowband poll that opens the round', '打开轮次的那帧窄带 POLL', firstNbPoll),
+    J('the narrowband poll that opens the round', '打开轮次的那帧窄带 Poll', firstNbPoll),
     J('the first fragment of the first train', '第一串片段里的第一个', firstUwbRsf),
     J('what the far end made of that train', '对端如何判定这一串片段', firstUwbTrain),
-    J('the narrowband report that closes it', '收尾的那帧窄带 REPORT', firstNbReport),
+    J('the narrowband report that closes it', '收尾的那帧窄带 Report', firstNbReport),
     J('the range the two of them produce', '两者共同得出的那次测距', firstUwbRange),
   ],
   observe: [
     { en: 'Nothing wideband happens first. The tag opens the round with a narrowband poll, the anchor answers half a millisecond later, and only then is either side primed to listen for fragments. One round holds one anchor, so the next anchor waits its turn.',
-      zh: '一开始空口上没有任何宽带动静。标签用一帧窄带 POLL 打开这一轮，锚点在半毫秒后作答，到这时两边才算就绪、才去听片段。一轮只装一个锚点，所以下一个锚点得等到自己那一轮。' },
+      zh: '一开始空口上没有任何宽带动静。标签用一帧窄带 Poll 打开这一轮，锚点在半毫秒后作答，到这时两边才算就绪、才去听片段。一轮只装一个锚点，所以下一个锚点得等到自己那一轮。' },
     { en: 'Then the fragments: two interleaved trains, one frame every half millisecond, each of zero octets at no data rate — a fragment carries nothing. In the slot after the last one, each side rules on what it accumulated, and only then does a receive stamp appear.',
       zh: '接着是片段：两串交错着来，每半毫秒一帧，每一帧零字节、没有速率——片段里什么也不装。在最后一个片段之后的那个时隙里，两边各自对累加到的东西下判断，而接收时间戳直到这时才出现。' },
   ],
@@ -254,14 +254,14 @@ export const uwbMms: Lesson = {
       explain: { en: 'No single moment may be made louder, but nothing caps how many milliseconds you use — and the far end can add them up.', zh: '任何一瞬都不能更响，但用掉多少毫秒并不受限——而对端可以把它们加起来。' },
     },
     {
-      q: { en: 'What is the narrowband radio for, if the wideband one does the measuring?', zh: '既然测量是宽带电台做的，那窄带电台是干什么的？' },
+      q: { en: 'What is the narrowband radio for, if the wideband one does the measuring?', zh: '既然测量是宽带射频做的，那窄带射频是干什么的？' },
       options: [
         { en: 'It measures a second, coarser distance as a cross-check', zh: '它再粗略地量一次距离，用来相互校验' },
         { en: 'It carries the words — open the round, accept it, report the reply time — so the receiver knows the train’s shape before any of it arrives', zh: '它承载话语——开场、接受、报出回复时间——好让接收机在片段到来之前就知道这一串的形状' },
         { en: 'It wakes the anchors up between blocks', zh: '它在块与块之间把锚点唤醒' },
       ],
       answer: 1,
-      explain: { en: 'Accumulating blind only works if you already know when each fragment comes and what is in it. That knowledge arrives over the small radio.', zh: '盲目累加的前提，是你已经知道每个片段何时到、里面装什么。这份知识是由那台小电台送来的。' },
+      explain: { en: 'Accumulating blind only works if you already know when each fragment comes and what is in it. That knowledge arrives over the small radio.', zh: '盲目累加的前提，是你已经知道每个片段何时到、里面装什么。这份知识是由那台小射频送来的。' },
     },
   ],
 }

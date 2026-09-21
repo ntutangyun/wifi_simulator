@@ -138,8 +138,8 @@ export const uwbPosition: Lesson = {
       [{ en: 'The seven fixes of the run', zh: '整段运行的七次定位' }, N('0.7, 3.3, 0.5, 2.3, 2.8, 0.5, 1.8 cm')],
     ] },
     { text: {
-      en: 'One fix per block, seven of them in this run, each a whole block after the last. The error runs from half a centimetre to a little over three — a few times σ_r, which is exactly what four noisy rings should produce.',
-      zh: '每个块一次定位，本次运行共七次，每一次都比上一次晚整整一个块。误差在半厘米到三厘米出头之间——不过是 σ_r 的几倍，而这正是四个带噪声的圆环应该给出的结果。',
+      en: 'One fix per block, seven of them in this run, each a whole block after the last. The error runs from half a centimetre to a little over three — a few times σ_r, which is exactly what four noisy rings should produce. The fix line prints a GDOP (the price the anchors’ own layout puts on that error) beside it; the next lesson is about nothing else.',
+      zh: '每个块一次定位，本次运行共七次，每一次都比上一次晚整整一个块。误差在半厘米到三厘米出头之间——不过是 σ_r 的几倍，而这正是四个带噪声的圆环应该给出的结果。定位行里还并排印着一个 GDOP（锚点自身的摆放给这份误差开出的价码）；下一课讲的就只有它。',
     } },
   ],
   deeper: [
@@ -148,14 +148,14 @@ export const uwbPosition: Lesson = {
       zh: '残差并不是位置的线性函数，但它的梯度既便宜又规矩：每个锚点贡献一个单位向量。因此高斯－牛顿从锚点形心出发，几步就能收敛，而形心永远落在凸包内部，不会跑到二义解的另一侧。恰好三个距离时是有闭式解的，这里不用它，因为它会把第四个测量扔掉——而第四个测量正是那道检查的全部意义所在。',
     } },
     { heading: { en: 'What the residual is not', zh: '残差不是什么' }, text: {
-      en: 'A small residual says the four measurements agree with each other, not that they are right. Move every anchor a metre east in the editor without telling the solver and the residual stays tiny while the fix is a metre out. Consistency and accuracy are different questions, and only one of them a tag can check by itself.',
+      en: 'A small residual says the four measurements agree with each other, not that they are right. Move every anchor a metre east in the editor without telling the solver and the residual stays tiny while the fix is a metre out. Consistency and accuracy are different questions, and only one of them a phone can check by itself.',
       zh: '残差小，说明的是四个测量彼此一致，而不是它们正确。在编辑器里把每个锚点都往东挪一米、却不告诉解算器，残差依旧很小，而定位整整偏了一米。一致与准确是两个不同的问题，而标签自己能查的只有其中一个。',
     } },
   ],
   sources: [
-    { en: 'The standard says nothing at all about how a tag turns ranges into a point: IEEE Std 802.15.4-2024 defines the ranging exchange and the timestamps, and stops there. Everything in this lesson after the ranges is the simulator’s own model.',
+    { en: 'The standard says nothing at all about how a phone turns ranges into a point: IEEE Std 802.15.4-2024 defines the ranging exchange and the timestamps, and stops there. Everything in this lesson after the ranges is the simulator’s own model.',
       zh: '标准对“标签怎样把几个距离变成一个点”只字未提：IEEE Std 802.15.4-2024 定义的是测距交互与时间戳，到此为止。本课里距离之后的一切，都是仿真器自己的模型。' },
-    { en: 'The model choices, named so you can argue with them: Gauss–Newton least squares on (x, y) with the tag’s height known, a start at the anchors’ centroid, a 1 mm step threshold, at most 20 iterations, and a refusal to answer under three ranges.',
+    { en: 'The model choices, named so you can argue with them: Gauss–Newton least squares on (x, y) with the phone’s height known, a start at the anchors’ centroid, a 1 mm step threshold, at most 20 iterations, and a refusal to answer under three ranges.',
       zh: '下面这些是仿真器自己的模型取值，列出来方便你质疑：对 (x, y) 做高斯－牛顿最小二乘、标签高度视为已知、从锚点形心起步、步长阈值 1 mm、最多 20 次迭代，以及可用距离不足三个时拒绝作答。' },
     { en: 'σ_r = c · σ_ts / √2 is exact for single-sided ranging; the double-sided figure is 0.62–0.65 · c · σ_ts, and the single-sided value is kept as the documented conservative model. The 100 ps of timestamp noise it is evaluated at is itself a model choice.',
       zh: 'σ_r = c · σ_ts / √2 对单边测距是精确的；双边测距的取值是 0.62–0.65 · c · σ_ts，而模型有意沿用偏保守的单边值。它所代入的 100 ps 时间戳噪声，本身也是一个模型取值。' },
@@ -166,18 +166,18 @@ export const uwbPosition: Lesson = {
     { label: { en: 'Three anchors', zh: '三个锚点' }, scenario: () => uwbPositionScenario('three') },
   ],
   jumps: [
-    J('the tag’s Poll opens the round', '标签的 Poll 开启这一轮', firstUwbPoll),
+    J('the phone’s Poll opens the round', '手机的 Poll 开启这一轮', firstUwbPoll),
     J('the first finished range', '第一个算完的距离', firstUwbRange),
     J('the fix this block’s ranges make', '这个块的距离解出的定位', firstUwbPosition),
     J('the round ends', '这一轮结束', firstUwbRoundEnd),
     J('the next block’s fix', '下一个块的定位', secondBlockFix),
   ],
   observe: [
-    { en: 'One fix per block, at the end of the tag’s round. The position line names the estimate, the truth beside it and the distance between the two; across the run that distance never leaves the low centimetres.',
+    { en: 'One fix per block, at the end of the phone’s round. The position line names the estimate, the truth beside it and the distance between the two; across the run that distance never leaves the low centimetres.',
       zh: '每个块一次定位，落在标签那一轮的末尾。定位那一行写出估计值、紧挨着的真值，以及两者之间的距离；整段运行里，这个距离始终停在几厘米的量级。' },
-    { en: 'In the scene: four amber rings at the ranges just measured, and a cross where the solver put the tag. Both fade away over one block, then the next round draws them again a centimetre or two elsewhere.',
+    { en: 'In the scene: four amber rings at the ranges just measured, and a cross where the solver put the phone. Both fade away over one block, then the next round draws them again a centimetre or two elsewhere.',
       zh: '场景里：四圈琥珀色的环，半径是刚测出的距离；还有一个十字，标着解算器认为标签所在的位置。两者在一个块之内淡去，下一轮又在一两厘米之外重新画出。' },
-    { en: 'Step through the round and watch the ranges arrive one anchor at a time. The cross appears only after the last of them: until then the tag has nothing to solve.',
+    { en: 'Step through the round and watch the ranges arrive one anchor at a time. The cross appears only after the last of them: until then the phone has nothing to solve.',
       zh: '单步走过这一轮，看各个距离怎样一个锚点一个锚点地到齐。十字只在最后一个到手之后才出现：在那之前，标签手里没有可解的东西。' },
   ],
   tryThis: [

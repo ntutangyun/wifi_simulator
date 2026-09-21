@@ -7,6 +7,7 @@
  * (a word counter, an acronym linter) speaks exactly the same rules the test
  * does, and so each rule can be pinned on its own.
  */
+import { FRAME_KINDS } from '../model/frames'
 import type { Block, L10n, Lesson } from './lessonKit'
 
 /**
@@ -24,7 +25,21 @@ export const KNOWN_WORDS: ReadonlySet<string> = new Set([
   'WI-FI', 'AP', 'STA', 'MAC', 'PHY', 'DB', 'DBM', 'ID', 'RF', 'OK',
   'CPU', 'IOT', 'GPS', 'USB', 'TX', 'RX', 'US', 'EU', 'CN', 'LED',
   'PC', 'TV', 'QR', 'I', 'A', 'AM', 'PM',
+  // Units. They only became visible to `acronyms()` when the tokenizer
+  // learned mixed-case tails, and a frequency is not a word to introduce.
+  'MHZ', 'GHZ', 'KHZ',
 ])
+
+/**
+ * The names the log prints for a frame — `NBPOLL`, `UWBRSF`, `UWBBLINK` — which
+ * a reader reads off the screen rather than out of the standard, and which are
+ * therefore no more a word to introduce than `TX_START` is. The list is the
+ * engine's own `FRAME_KINDS`, upper-cased exactly as `src/ui/format.ts` prints
+ * it, so a kind added to the engine is exempt the moment it exists rather than
+ * when somebody remembers to type it here. A record type (`UWB_TS`) carries an
+ * underscore and is already exempt.
+ */
+export const LOG_NAMES: ReadonlySet<string> = new Set(FRAME_KINDS.map((k) => k.toUpperCase()))
 
 /**
  * A protocol's name, which is neither an acronym to introduce nor a quantity
@@ -40,8 +55,27 @@ export const PROTOCOL_NAME = /(?:P?802\.1[15](?:\.\d)?[a-z]*|Wi-Fi\s?\d|Bluetoot
  */
 export const CITATION = /§|\bClause\b|IEEE Std|\bP802\.|\b1[15]-2\d\/\d{3,4}(?:r\d+)?\b|\bPM-\d|\bD[01]\.\d\b|\bdraft\b|\bTBD\b|model choice|草案|标准正文|模型取值/i
 
-/** Upper-case tokens, hyphenated parts included: STS, SFD, A-MPDU, L-SIG. */
-const ACRONYM = /\b[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*\b/g
+/**
+ * A token that opens on a capital and may carry a mixed-case tail, hyphenated
+ * parts included: STS, SFD, A-MPDU, L-SIG, and also TDoA, AoA, FoM, DL-TDoA,
+ * MHz. The all-capitals form of the pattern read `DL-TDoA` as the bare `DL`
+ * and could not see `AoA` at all, so a whole family of the course's own words
+ * — the ones with a lower-case tail — was outside the acronym rule.
+ *
+ * A hyphen only continues the token when the part after it opens on a capital
+ * or a digit, so `CTS-to-self` is the acronym `CTS` followed by two English
+ * words, while `DL-TDoA` and `A-MPDU` are each one word to introduce.
+ *
+ * A match is only an acronym when {@link ACRONYM_CAPS} holds: see there.
+ */
+const ACRONYM = /\b[A-Z][A-Za-z0-9]*(?:-[A-Z0-9][A-Za-z0-9]*)*\b/g
+
+/**
+ * How many capitals or digits a token must hold to be an acronym rather than
+ * an ordinary capitalised word. Two: `The`, `Poll`, `Final` and `Response` are
+ * words a reader knows; `TDoA`, `AoA`, `FoM`, `MHz` and `DL-TDoA` are not.
+ */
+const ACRONYM_CAPS = 2
 
 /**
  * A digit group: a number, its decimals and its thousands separators. A space
@@ -70,6 +104,7 @@ const withoutProtocolNames = (text: string): string => text.replace(PROTOCOL_NAM
 export function acronyms(text: string): string[] {
   const out: string[] = []
   for (const m of withoutProtocolNames(text).matchAll(ACRONYM)) {
+    if ((m[0].match(/[A-Z0-9]/g) ?? []).length < ACRONYM_CAPS) continue
     const token = m[0].toUpperCase()
     // The last two conditions cannot fire against ACRONYM as it stands (its
     // class holds no `_`, and a match always opens on a letter). They are kept
@@ -134,6 +169,25 @@ export function paragraphTexts(blocks: Block[]): L10n[] {
         // the provenance of the numbers is allowed to be written down.
         break
     }
+  }
+  return out
+}
+
+/**
+ * The table cells of a set of blocks that a learner reads as language: the
+ * ones whose two halves differ. A language-neutral cell (`en === zh`) is a log
+ * line, a counter value or a symbol — a glance rather than a sentence, and the
+ * one place the contract lets provenance stand — so it is left out here for
+ * the same reason `paragraphTexts` leaves every cell out of the citation rule.
+ *
+ * The acronym rule reads these: `GDOP 1.06` in a cell is a word the learner
+ * meets whether or not the sentence around it is prose.
+ */
+export function cellTexts(blocks: Block[]): L10n[] {
+  const out: L10n[] = []
+  for (const b of blocks) {
+    if (b.kind !== 'table') continue
+    for (const c of [...b.head, ...b.rows.flat()]) if (c.en !== c.zh) out.push(c)
   }
   return out
 }

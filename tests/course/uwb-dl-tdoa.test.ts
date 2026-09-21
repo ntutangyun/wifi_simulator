@@ -155,10 +155,13 @@ const formulas = (): Extract<Block, { kind: 'formula' }>[] =>
 lessonShapeSuite(uwbDlTdoa, { proseMax: 900, runNs: RUN_NS })
 
 describe('uwb-dl-tdoa · the lesson’s own place in the track', () => {
-  it('asks for the positioning lesson and adds four words', () => {
+  it('asks for the geometry lesson and adds four words', () => {
     expect(uwbDlTdoa.module).toBe(14)
     expect(uwbDlTdoa.id).toBe('uwb-dl-tdoa')
-    expect(uwbDlTdoa.needs).toEqual(['uwb-position'])
+    // uwb-geometry, not uwb-position: the numbers table prints GDOP and an error ellipse and
+    // the deeper section compares the two GDOP columns, and those are uwb-geometry's words.
+    // uwb-geometry needs uwb-position, so the reader still arrives by way of the fix itself.
+    expect(uwbDlTdoa.needs).toEqual(['uwb-geometry'])
     expect(uwbDlTdoa.terms!.map((t) => t.term)).toEqual(['TDoA', 'DL-TDoA', 'hyperbola', 'clock correction'])
   })
 
@@ -211,7 +214,7 @@ describe('uwb-dl-tdoa · the lesson’s own place in the track', () => {
     expect(ids[ids.indexOf('uwb-dl-tdoa') - 1]).toBe('uwb-contention')
     expect(COURSE_ORDER[COURSE_ORDER.indexOf('uwb-contention') + 1]).toBe('uwb-dl-tdoa')
     // and the lesson its `needs` names really does come before it
-    expect(COURSE_ORDER.indexOf('uwb-position')).toBeLessThan(COURSE_ORDER.indexOf('uwb-dl-tdoa'))
+    expect(COURSE_ORDER.indexOf('uwb-geometry')).toBeLessThan(COURSE_ORDER.indexOf('uwb-dl-tdoa'))
   })
 })
 

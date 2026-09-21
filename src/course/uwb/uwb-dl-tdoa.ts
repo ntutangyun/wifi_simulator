@@ -94,15 +94,15 @@ export const uwbDlTdoa: Lesson = {
   module: 14,
   title: { en: 'Listen-only positioning', zh: '只听不发的定位' },
   why: {
-    en: 'A building full of badges defeats two-way ranging: every tag wants a round of its own, and the air runs out long before the building is covered. So turn the exchange over. Let the anchors talk to each other on a fixed timetable, and let a badge place itself from nothing but the order and the spacing of what it hears.',
-    zh: '一栋楼里挂满了胸牌，双向测距就顶不住了：每个标签都要独占一轮，楼还没覆盖完，空口先用光了。那就把这次交互翻过来。让锚点之间按固定的时间表互相说话，而胸牌只凭听到的先后与间隔，把自己放到地图上。',
+    en: 'A building full of badges defeats two-way ranging: every tag — anything being located — wants a round of its own, and the air runs out long before the building is covered. So turn the exchange over. Let the anchors talk to each other on a fixed timetable, and let a badge place itself from nothing but the order and the spacing of what it hears.',
+    zh: '一栋楼里挂满了胸牌，双向测距就顶不住了：每个标签（也就是被定位的那一端）都要独占一轮，楼还没覆盖完，空口先用光了。那就把这次交互翻过来。让锚点之间按固定的时间表互相说话，而胸牌只凭听到的先后与间隔，把自己放到地图上。',
   },
   outcomes: [
     { en: 'say what a silent badge can work out from arrival times alone', zh: '说清一个不发信号的胸牌，单凭到达时刻能算出什么' },
     { en: 'explain why it must first measure its own clock against the anchors’', zh: '解释这样的胸牌为什么必须先把自己的时钟对着锚点量一遍' },
     { en: 'read a time difference and the place it feeds off the log', zh: '从日志里读出一个时间差，以及它喂出来的那个位置' },
   ],
-  needs: ['uwb-position'],
+  needs: ['uwb-geometry'],
   terms: [
     { term: 'TDoA', plain: {
       en: 'time difference of arrival: placing something by when its signals landed, not by how far off it is',
@@ -127,8 +127,8 @@ export const uwbDlTdoa: Lesson = {
       zh: '在此之前，每一轮测距都属于某个标签：它问，锚点答，再由它来算。现在把这件事翻过来。这里是锚点自己开一轮，每块开一次——其中一个开启这一轮，其余的在各自时隙里作答，最后仍由它收尾——而挂在脖子上的胸牌全程听着，一个字也不发。',
     } },
     { heading: { en: 'Differences, not distances', zh: '量的是差，不是距离' }, text: {
-      en: 'A silent badge can never learn how far an anchor is: that takes a round trip, and it makes none. What it can do is subtract — this frame landed before that one, by this much. Placing something from those gaps is TDoA, time difference of arrival, and its downlink form — the one where the anchors do all the transmitting — is what this lesson runs.',
-      zh: '不发信号的胸牌，永远量不出某个锚点有多远：那需要一次往返，而它一次也不做。它能做的只是相减——这一帧比那一帧早落地，早了这么多。靠这些间隔来定位，就是 TDoA（到达时间差）；而本课要跑的，正是它的下行形态——发送全由锚点承担的那一种。',
+      en: 'A silent badge can never learn how far an anchor is: that takes a round trip, and it makes none. What it can do is subtract — this frame landed before that one, by this much. Placing something from those gaps is TDoA, time difference of arrival, and its downlink form, DL-TDoA — the anchors do all the transmitting — is what this lesson runs.',
+      zh: '不发信号的胸牌，永远量不出某个锚点有多远：那需要一次往返，而它一次也不做。它能做的只是相减——这一帧比那一帧早落地，早了这么多。靠这些间隔来定位，就是 TDoA（到达时间差）；而本课要跑的，正是它的下行形态 DL-TDoA——发送全由锚点承担的那一种。',
     } },
     { kind: 'watch', jump: 4, heading: { en: 'Watch a difference appear', zh: '看一个时间差出现' }, text: {
       en: 'Load the simulation and jump to the first time difference. It arrives at the end of the round, one line per answering anchor, with the truth printed beside each.',
@@ -144,7 +144,7 @@ export const uwbDlTdoa: Lesson = {
     } },
     { heading: { en: 'Measuring its clock against theirs', zh: '拿自己的钟去比他们的钟' }, text: {
       en: 'The cure is the one span both ends describe. The reference anchor says in its frames when it sent the first of them and when it sent the last; the badge holds its own arrivals for those. The ratio of the two spans is the clock correction, and dividing by it removes the badge’s crystal and the reference anchor’s alike.',
-      zh: '解法是那一段两边都描述过的跨度。参考锚点在帧里报出自己何时发出第一帧、何时发出最后一帧，而胸牌手里有这两帧各自的到达时刻。两段跨度之比就是时钟修正（clock correction）：除以它，就把胸牌的晶振和参考锚点的晶振一起消掉了。',
+      zh: '解法藏在同一段时间里，而这段时间两边都各自描述过。参考锚点在帧里报出自己何时发出第一帧、何时发出最后一帧，而胸牌手里有这两帧各自的到达时刻。两段跨度之比就是时钟修正（clock correction）：除以它，就把胸牌的晶振和参考锚点的晶振一起消掉了。',
     } },
     { heading: { en: 'A round that does not grow', zh: '不会变大的一轮' }, text: {
       en: 'Nothing in this round names a badge, so nothing in it grows with how many are listening: ten cost the anchors what three do. Two-way ranging cannot: a round belongs to the tag that started it. And a badge that says nothing cannot be counted from the air.',
@@ -182,15 +182,15 @@ export const uwbDlTdoa: Lesson = {
     { kind: 'table', heading: { en: 'What the correction is worth', zh: '这次修正值多少' }, head: [
       { en: 'Responder', zh: '应答锚点' }, { en: 'It waited', zh: '它等了' },
       { en: 'Uncorrected, badge 2', zh: '未修正，badge-2' }, { en: 'Corrected, worst of 21', zh: '修正后，21 次里最差' },
-      { en: '3σ of the residual', zh: '残差的 3σ' },
+      { en: '3σ of the leftover', zh: '残差的 3σ' },
     ], rows: [
       [N('anchor-2'), N('2 ms'), N('22.02 m'), N('0.19 m'), N('0.36 m')],
       [N('anchor-3'), N('4 ms'), N('44.04 m'), N('0.44 m'), N('0.72 m')],
       [N('anchor-4'), N('6 ms'), N('65.81 m'), N('0.51 m'), N('1.08 m')],
     ] },
     { text: {
-      en: 'The uncorrected column is that badge’s gap to the reference crystal, 36.69 ppm, times the wait beside it. What survives is each responder’s clock-offset residual, 0.2 ppm of the reply time it corrects — 0.12 m per slot, so the last to answer is the worst. All 63 differences fall inside the last column.',
-      zh: '未修正那一列，正是这个胸牌与参考晶振之间 36.69 ppm 的差距，乘上旁边那段等待。残下来的是每个应答锚点自己的时钟偏差残差，为它所修正的那段应答时延的 0.2 ppm——每个时隙 0.12 m，所以最后作答的锚点最差。63 个时间差全部落在最后一列之内。',
+      en: 'The uncorrected column is that badge’s gap to the reference crystal, 36.69 ppm, times the wait beside it. What survives is each responder’s clock-offset leftover, 0.2 ppm of the reply time it corrects — 0.12 m per slot, so the last to answer is the worst. All 63 differences fall inside the last column.',
+      zh: '未修正那一列，正是这个胸牌与参考晶振之间 36.69 ppm 的差距，乘上旁边那段等待。剩下的是每个应答锚点自己那一点时钟偏差残差，为它所修正的那段应答时延的 0.2 ppm——每个时隙 0.12 m，所以最后作答的锚点最差。63 个时间差全部落在最后一列之内。',
     } },
     { kind: 'table', heading: { en: 'The three scenes, seven blocks each', zh: '三个场景，各七个块' }, head: [
       { en: 'Scene', zh: '场景' }, { en: 'Differences', zh: '时间差' }, { en: 'Worst difference', zh: '最差的时间差' },

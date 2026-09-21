@@ -76,7 +76,10 @@ describe('uwb-nba · the lesson', () => {
   })
 
   it('names the second radio and the three things it says', () => {
-    expect(uwbNba.terms!.map((t) => t.term)).toEqual(['narrowband', 'NB', 'Poll', 'Response', 'Report'])
+    // the log's own prefix on all three: "Report" alone is uwb-dstwr's word for the wideband
+    // message that closes a DS-TWR round, and one track may not gloss one word twice.
+    expect(uwbNba.terms!.map((t) => t.term)).toEqual(['narrowband', 'NB', 'NB Poll', 'NB Response', 'NB Report'])
+    expect(uwbNba.terms!.at(-1)!.plain.en).toContain('not the wideband Report of DS-TWR')
     // the picture promises the log's own prefix, which the observations then quote
     expect(prose()).toContain('the log marks everything of its own with NB')
     expect(uwbNba.observe[0].en).toContain('NBPOLL')
@@ -296,7 +299,11 @@ describe('uwb-nba · the grid underneath and the train on top', () => {
   it('the round really is four pair rounds, one per anchor, when nothing stops it', () => {
     const block0 = ofType(recs(V_OUT), 'UWB_ROUND').filter((r) => r.block === 0)
     expect(block0.map((r) => r.round)).toEqual([0, 1, 2, 3])
-    expect(prose()).toContain('Four rounds like that fill a block, one for each anchor in the room')
+    // four 14 ms rounds are 56 ms of a 200 ms block, so they are what the block holds, not
+    // what fills it: the run's own numbers say the rest of the block is empty
+    expect(prose()).toContain('Four rounds like that are all a block holds, one for each anchor in the room')
+    expect(prose()).not.toContain('fill a block')
+    expect(block0.length * 14).toBeLessThan(200)
     // and the experiment says so: the cycle runs to the end for every anchor
     expect(ofType(recs(V_OUT), 'UWB_RANGE').filter((r) => r.node === TAG)).toHaveLength(BLOCKS * 4)
     expect(uwbNba.tryThis[0].en).toContain('Outside the router’s channel')

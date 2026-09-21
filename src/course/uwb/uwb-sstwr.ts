@@ -135,7 +135,7 @@ export const uwbSstwr: Lesson = {
       { en: 'Raw error, slot 1', zh: '时隙 1 的 raw 误差' }, { en: 'Raw error, slot 4', zh: '时隙 4 的 raw 误差' },
     ], rows: [
       [{ en: 'Perfect crystals', zh: '理想晶振' }, N('0 ppm'), N('+1.9 cm'), N('−6.1 cm')],
-      [{ en: 'TCXOs, ±1 ppm', zh: '温补晶振，±1 ppm' }, N('2 ppm'), N('0.62 m'), N('2.34 m')],
+      [{ en: 'Temperature-compensated, ±1 ppm', zh: '温补晶振，±1 ppm' }, N('2 ppm'), N('0.62 m'), N('2.34 m')],
       [{ en: 'This scene, ±10 ppm', zh: '本场景，±10 ppm' }, N('20 ppm'), N('6.01 m'), N('23.92 m')],
     ] },
     { kind: 'formula', heading: { en: 'Single-sided two-way ranging, corrected', zh: '经过修正的单边双向测距' }, text: {
@@ -188,7 +188,7 @@ export const uwbSstwr: Lesson = {
   scenario: () => uwbSstwrScenario({ tag: 10, anchors: -10 }),
   variants: [
     { label: { en: 'Perfect crystals', zh: '理想晶振' }, scenario: () => uwbSstwrScenario({ tag: 0, anchors: 0 }) },
-    { label: { en: 'TCXOs, ±1 ppm', zh: '±1 ppm 的温补晶振' }, scenario: () => uwbSstwrScenario({ tag: 1, anchors: -1 }) },
+    { label: { en: 'Temperature-compensated, ±1 ppm', zh: '±1 ppm 的温补晶振' }, scenario: () => uwbSstwrScenario({ tag: 1, anchors: -1 }) },
   ],
   jumps: [
     J('the poll leaves the phone', 'Poll 帧离开手机', firstUwbPoll),
@@ -203,7 +203,7 @@ export const uwbSstwr: Lesson = {
   ],
   tryThis: [
     { en: 'Load "Perfect crystals", which pins both ends to zero and changes nothing else. The ramp vanishes: the raw errors are centimetres either way, and the slot no longer matters. What is left is timestamp noise, whose 1-σ is 2.1 cm.', zh: '载入"理想晶振"：它把两端都钉在零，别的什么都不改。斜坡随即消失——raw 误差只剩正负几厘米，作答的时隙也不再要紧。剩下的只有时间戳噪声，它的 1σ 是 2.1 cm。' },
-    { en: 'Now load "TCXOs, ±1 ppm", a tenth of the base offset and the sort of part a careful product really fits. The ramp survives at about 0.60 m a slot: better crystals buy an order of magnitude, not correctness.', zh: '再载入"±1 ppm 的温补晶振"：偏差只有基准的十分之一，也是认真的产品真会选用的器件。斜坡依然在，每个时隙约 0.60 m：更好的晶体买来的是一个数量级，不是正确性。' },
+    { en: 'Now load "Temperature-compensated, ±1 ppm", a tenth of the base offset and the sort of part a careful product really fits. The ramp survives at about 0.60 m a slot: better crystals buy an order of magnitude, not correctness.', zh: '再载入"±1 ppm 的温补晶振"：偏差只有基准的十分之一，也是认真的产品真会选用的器件。斜坡依然在，每个时隙约 0.60 m：更好的晶体买来的是一个数量级，不是正确性。' },
   ],
   quiz: [
     {

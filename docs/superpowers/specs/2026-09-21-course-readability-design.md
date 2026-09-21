@@ -121,7 +121,10 @@ Existing kinds (`p`, `formula`, `table`, `list`, `steps`, `widget`) are unchange
   in `picture`.
 - **Record names** in the UI's own spelling (`TX_START`, `UWB_TS`) are not
   acronyms for the rule: they are what the reader sees on screen. Tokens that
-  contain an underscore are exempt; the novice read still judges them.
+  contain an underscore are exempt, and so is any frame name the log prints
+  (`NBPOLL`, `UWBRSF`, `UWBBLINK`) — the exempt list is the engine's own
+  `FRAME_KINDS`, upper-cased, not a hand-typed copy. The novice read still
+  judges them.
 - **Before Wi-Fi Tier 1 is migrated** the readability test seeds the known set
   with a `TIER1_BASELINE` list standing in for the `terms` of `radio-primer`
   and `frame-anatomy`; the list is deleted, with a test asserting so, when

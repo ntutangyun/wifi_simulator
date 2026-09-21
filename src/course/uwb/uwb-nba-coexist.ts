@@ -25,10 +25,10 @@ import { uwbNbaScenario } from './uwb-nba'
 export const uwbNbaCoexist: Lesson = {
   id: 'uwb-nba-coexist',
   module: 15,
-  title: { en: 'The narrowband radio shares 6 GHz too', zh: '窄带电台也共享 6 GHz' },
+  title: { en: 'The narrowband radio shares 6 GHz too', zh: '窄带射频也共享 6 GHz' },
   why: {
     en: 'The little control radio has to live somewhere, and the place it was given is the newest Wi-Fi band. Sharing that band comes with a rule: listen first, and keep quiet if anyone else is already on the air. In a room with a busy router that rule almost never lets the control radio speak — and a ranging session that cannot speak measures nothing. This lesson prices both sides of that bargain.',
-    zh: '那部小小的控制电台总得住在某个地方，而分给它的，正是最新的那个 Wi-Fi 频段。想用这个频段，就得守一条规矩：先听，若空口上已经有人在说话，就闭嘴。在一间摆着忙碌路由器的屋子里，这条规矩几乎从不放行——而一个说不出话的测距会话，什么也量不出来。这一课要把这笔交易的两面都算清楚。',
+    zh: '那部小小的控制射频总得住在某个地方，而分给它的，正是最新的那个 Wi-Fi 频段。想用这个频段，就得守一条规矩：先听，若空口上已经有人在说话，就闭嘴。在一间摆着忙碌路由器的屋子里，这条规矩几乎从不放行——而一个说不出话的测距会话，什么也量不出来。这一课要把这笔交易的两面都算清楚。',
   },
   outcomes: [
     { en: 'say what a device must do before it may speak on a shared narrowband channel',
@@ -54,9 +54,9 @@ export const uwbNbaCoexist: Lesson = {
     } },
   ],
   picture: [
-    { heading: { en: 'Where the small radio lives', zh: '那部小电台住在哪里' }, text: {
+    { heading: { en: 'Where the small radio lives', zh: '那部小射频住在哪里' }, text: {
       en: 'The control radio is tuned in the same neighbourhood as Wi-Fi: a couple of hundred narrow channels, each a small fraction of what one Wi-Fi channel covers. So a single Wi-Fi channel can hold dozens of them at once — and this session’s control channel is one of the ones the router overhead is sitting on.',
-      zh: '这部控制电台就调在 Wi-Fi 的隔壁：两百多个窄信道，每个的宽度都只是一条 Wi-Fi 信道的一小块。于是一条 Wi-Fi 信道就能一口气盖住其中几十个——而本会话用的那个控制信道，恰好压在头顶那台路由器身下。',
+      zh: '这部控制射频就调在 Wi-Fi 的隔壁：两百多个窄信道，每个的宽度都只是一条 Wi-Fi 信道的一小块。于是一条 Wi-Fi 信道就能一口气盖住其中几十个——而本会话用的那个控制信道，恰好压在头顶那台路由器身下。',
     } },
     { heading: { en: 'The rule the band comes with', zh: '这个频段附带的规矩' }, text: {
       en: 'There a device may not simply transmit. Before every narrowband message it has to measure the channel — listen before talk, LBT — and if it finds more energy there than a fixed threshold it must stay silent. The test is a power reading, nothing more: it asks whether anybody is on the air, not whether this message would have survived.',
@@ -105,7 +105,7 @@ export const uwbNbaCoexist: Lesson = {
     } },
     { kind: 'table', heading: { en: 'Four ways to place one control channel', zh: '同一个控制信道的四种放法' }, head: [
       { en: 'Scene', zh: '场景' }, { en: 'Narrowband channel', zh: '窄带信道' },
-      { en: 'Blocks skipped', zh: '跳过的块' }, { en: 'Tag distances', zh: '标签测距' },
+      { en: 'Blocks skipped', zh: '跳过的块' }, { en: 'Phone ranges', zh: '手机测距' },
       { en: 'Fixes', zh: '定位' },
     ], rows: [
       [{ en: 'Inside the router’s channel', zh: '落在路由器的信道之内' }, N('200 · 6301.25 MHz'), N('7 of 7'), N('1'), N('0')],
@@ -117,15 +117,15 @@ export const uwbNbaCoexist: Lesson = {
       en: 'Only the first block gets anything out: its poll left at the one instant the channel happened to be clear. One distance, and no position, because a position needs three.',
       zh: '整段运行里只有第一个块有所收获：它的 Poll 恰好赶在信道空闲的那一瞬发了出去。一个距离，且没有定位，因为解一个定位要三个距离。',
     } },
-    { text: {
+    { heading: { en: 'The other direction', zh: '反过来的那一侧' }, text: {
       en: 'The narrowband radio is far from harmless in the other direction. Its 10 dBm all sits inside one 2.5 MHz channel, and that reaches Wi-Fi’s energy-detect threshold 15.07 m away — longer than this room. Every control message here is audible to every Wi-Fi radio in it.',
-      zh: '反过来看，这部窄带电台也远称不上无害。它那 10 dBm 全挤在一个 2.5 MHz 的信道里，按此推算，它在 15.07 m 外仍够得着 Wi-Fi 的能量检测门限——比这个房间还长。于是这里发出的每一条控制消息，屋里每一台 Wi-Fi 收发机都听得见。',
+      zh: '反过来看，这部窄带射频也远称不上无害。它那 10 dBm 全挤在一个 2.5 MHz 的信道里，按此推算，它在 15.07 m 外仍够得着 Wi-Fi 的能量检测门限——比这个房间还长。于是这里发出的每一条控制消息，屋里每一台 Wi-Fi 收发机都听得见。',
     } },
     { text: {
       en: 'Listening does not make a message harmless, only rarer. With the rule on, six of them reach the air and five Wi-Fi frames fail behind them; with it off, 108 messages and 87 failures.',
       zh: '“先听”并不能让一条消息变得无害，它只是让这样的消息变少。规则开着时，只有六条上了空口，其后有五个 Wi-Fi 帧解不出来；关掉之后，是 108 条消息与 87 次失败。',
     } },
-    { text: {
+    { heading: { en: 'Who pays', zh: '这笔账谁付' }, text: {
       en: 'The laptop pays for the difference. Its throughput falls from 407.215 Mb/s to 362.631, a loss of 10.95 % — the price of a session that works.',
       zh: '这笔差额由笔记本来付：它的吞吐从 407.215 Mb/s 掉到 362.631 Mb/s，损失 10.95 %——这就是“会话能干活”的标价。',
     } },
@@ -144,7 +144,7 @@ export const uwbNbaCoexist: Lesson = {
     } },
     { heading: { en: 'Counting what Wi-Fi gives up', zh: '数一数 Wi-Fi 让出了多少' }, text: {
       en: 'No record names the emitter that made a Wi-Fi radio defer, so count instead the clear-channel transitions that go busy on energy alone while a narrowband message is on the air: 44 in 1.3 seconds with the rule off, against none in the scene where the control channel sits outside. Not 108 twice over — a radio already busy, or already transmitting, makes no new transition. This radio is a different animal from the wideband one next door: a ranging frame’s −14 dBm, spread over 499.2 MHz, only trips the same threshold within about 40 cm. The model’s simplification shows the other way too: one reading at the slot start says nothing about the 576 µs that follow, so a Wi-Fi frame beginning during a control message lands on it anyway.',
-      zh: '没有哪条记录会写明“是谁害得这台 Wi-Fi 收发机退让”，所以改数另一件事：落在某条窄带消息期间、且仅因能量而转为“忙”的 CCA 跳变——关掉规则后，1.3 秒里 44 次；而在控制信道避开路由器的那个场景里，一次也没有。它不是 108 的两倍：本来就忙着、或者正在发的收发机，根本不会再跳一次。这部电台和隔壁那部宽带电台完全是两回事：一帧测距帧的 −14 dBm 摊在 499.2 MHz 上，只在约 40 cm 以内才碰得到同一个门限。模型的简化在另一个方向上也露了馅：时隙开头的一次功率读数，对随后的 576 µs 什么也没说，于是在一条控制消息中途开始的那个 Wi-Fi 帧，照样撞了上去。',
+      zh: '没有哪条记录会写明“是谁害得这台 Wi-Fi 收发机退让”，所以改数另一件事：落在某条窄带消息期间、且仅因能量而转为“忙”的 CCA 跳变——关掉规则后，1.3 秒里 44 次；而在控制信道避开路由器的那个场景里，一次也没有。它不是 108 的两倍：本来就忙着、或者正在发的收发机，根本不会再跳一次。这部射频和隔壁那部宽带射频完全是两回事：一帧测距帧的 −14 dBm 摊在 499.2 MHz 上，只在约 40 cm 以内才碰得到同一个门限。模型的简化在另一个方向上也露了馅：时隙开头的一次功率读数，对随后的 576 µs 什么也没说，于是在一条控制消息中途开始的那个 Wi-Fi 帧，照样撞了上去。',
     } },
     { heading: { en: 'What comes back the other way', zh: '反方向飞回来的东西' }, text: {
       en: 'With the rule off, seven narrowband messages die at the phone — five reports and two responses — every one of them under the router’s own 20 MHz control frame, arriving at −42.21 dBm from 1.50 m away. The first reads “uwb-1 UWB frame from anchor-3 lost to Wi-Fi: SIR -10.9 dB (foreign -42.2 dBm)”. A control message has no margin to spend: its receiver bottoms out at −100 dBm, so foreign power reaching its own level is enough.',
@@ -163,7 +163,7 @@ export const uwbNbaCoexist: Lesson = {
     { en: 'Model choices: the channel-centre formula is reconstructed from the published channel counts and band edges; the block-wise hop uses the simulator’s own string hash where the draft specifies AES-128-CTR keyed by the session seed; and one instantaneous power reading stands in for the 9 µs assessment.',
       zh: '以下是模型取值：信道中心频率的公式，是依据已公开的信道数目与频段边界反推出来的；按块跳变用的是仿真器自己的字符串散列，而草案规定的是以会话种子为密钥的 AES-128-CTR；草案要求至少评估 9 µs，这里以一次瞬时功率读数代之。' },
     { en: 'The two path-loss laws are the model’s and each emission keeps its transmitter’s own: Wi-Fi under the indoor exponent 3 — 46.7 dB at one metre, plus 30·log10 d, plus 1.2 dB for 6 GHz — and the narrowband radio under free space, 48.44 dB at one metre on channel 200. The −62 dBm energy-detect threshold and the 6 GHz channel numbering are the model’s too.',
-      zh: '两条路径损耗公式都是模型的，而且每一路发射都沿用自己发射端的那一条：Wi-Fi 按室内衰减指数 3 传播——一米处 46.7 dB，加 30·log10 d，6 GHz 再加 1.2 dB；窄带电台按自由空间传播，200 号信道一米处 48.44 dB。−62 dBm 的能量检测门限与 6 GHz 的信道编号，同样属于模型。' },
+      zh: '两条路径损耗公式都是模型的，而且每一路发射都沿用自己发射端的那一条：Wi-Fi 按室内衰减指数 3 传播——一米处 46.7 dB，加 30·log10 d，6 GHz 再加 1.2 dB；窄带射频按自由空间传播，200 号信道一米处 48.44 dB。−62 dBm 的能量检测门限与 6 GHz 的信道编号，同样属于模型。' },
   ],
   scenario: () => uwbNbaScenario('base'),
   variants: [

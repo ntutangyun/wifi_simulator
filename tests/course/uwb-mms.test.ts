@@ -72,7 +72,9 @@ describe('uwb-mms · the lesson', () => {
   it('opens UWB Tier 3 and module 15, after uwb-aoa, and names its four new words', () => {
     expect(uwbMms.id).toBe('uwb-mms')
     expect(uwbMms.module).toBe(15)
-    expect(uwbMms.needs).toEqual(['uwb-blocks', 'uwb-dstwr'])
+    // uwb-geometry too: the picture's last paragraph leans on the quality byte each range
+    // carries flagging an obstructed path, which is uwb-geometry's FoM.
+    expect(uwbMms.needs).toEqual(['uwb-blocks', 'uwb-dstwr', 'uwb-geometry'])
     expect(uwbMms.terms!.map((t) => t.term)).toEqual(['MMS', 'fragment', 'RSF', 'RIF'])
     expect(TIERS[6]).toEqual({
       track: 'uwb', en: 'UWB Tier 3 · What comes next: 802.15.4ab', zh: 'UWB 第三阶段 · 下一步：802.15.4ab',

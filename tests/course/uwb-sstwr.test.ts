@@ -162,8 +162,10 @@ describe('uwb-sstwr · the scene', () => {
   })
 
   it('the two variants change the crystals and nothing else', () => {
-    // "Perfect crystals" / "TCXOs, ±1 ppm" — "which pins both ends to zero and changes nothing else"
-    expect(uwbSstwr.variants!.map((v) => v.label.en)).toEqual(['Perfect crystals', 'TCXOs, ±1 ppm'])
+    // "Perfect crystals" / "Temperature-compensated, ±1 ppm" — "which pins both ends to zero and
+    // changes nothing else". The label spells the part out rather than writing TCXO, which is
+    // glossed nowhere in the track and which a reader meets in a table cell and an experiment.
+    expect(uwbSstwr.variants!.map((v) => v.label.en)).toEqual(['Perfect crystals', 'Temperature-compensated, ±1 ppm'])
     expect(uwbSstwr.variants!.map((v) => v.label.zh)).toEqual(['理想晶振', '±1 ppm 的温补晶振'])
     expect(uwbSstwr.variants![0].scenario()).toEqual(uwbSstwrScenario({ tag: 0, anchors: 0 }))
     expect(uwbSstwr.variants![1].scenario()).toEqual(uwbSstwrScenario({ tag: 1, anchors: -1 }))
@@ -507,7 +509,7 @@ describe('uwb-sstwr · the two variants and the crystals table', () => {
       .toEqual(['Crystals', 'eA − eB', 'Raw error, slot 1', 'Raw error, slot 4'])
     const rows: [string, { delta: number }, number | undefined][] = [
       ['Perfect crystals', PERFECT_PPM, 0],
-      ['TCXOs, ±1 ppm', TCXO_PPM, 1],
+      ['Temperature-compensated, ±1 ppm', TCXO_PPM, 1],
       ['This scene, ±10 ppm', BASE_PPM, undefined],
     ]
     rows.forEach(([label, ppm, variant], i) => {

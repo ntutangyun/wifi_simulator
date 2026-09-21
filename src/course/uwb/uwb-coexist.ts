@@ -114,7 +114,7 @@ export const uwbCoexist: Lesson = {
     } },
     { heading: { en: 'What the phone hears', zh: '手机听到了什么' }, text: {
       en: 'At the phone the strongest wanted signal is an anchor answering from across the room; the loudest unwanted one is a laptop a few paces away. The gap between them is the SIR — the signal-to-interference ratio — and here it is deeply negative, far below what the receiver can decode through.',
-      zh: '在手机这一侧，最强的“想要”是从房间对角作答的那个锚点，最响的“不想要”是几步之外的那台笔记本。两者之间的差距就是 SIR——信干比——而这里它是一个很深的负数，远低于接收机能够穿透解调的程度。',
+      zh: '在手机这一侧，最强的“想要”是从房间对角作答的那个锚点，最响的“不想要”是几步之外的那台笔记本。两者之间的差距就是 SIR——信干比——这里的它是一个很深的负数，远远低于接收机还解得出来的下限。',
     } },
     { heading: { en: 'What the router hears', zh: '路由器听到了什么' }, text: {
       en: 'Turn it round. A ranging frame reaching the router is weaker than the router’s own noise: it lifts the noise floor a few decibels and does nothing else. Wi-Fi calls a channel busy by energy detect, and a ranging frame this far off is nowhere near that threshold. The router never defers; only its demodulator meets the session.',
@@ -151,7 +151,7 @@ export const uwbCoexist: Lesson = {
       zh: 'in-band EIRP = EIRP + 10·log10(W_overlap / W_own)      Wi-Fi: 20 + 10·log10(80/80) = 20 dBm      UWB: −14 + 10·log10(80/499.2) = −21.95 dBm',
     }, note: {
       en: 'The router loses nothing, its channel lying wholly inside the ranging one. A ranging frame’s power is spread over 499.2 MHz and only 80 of those reach an 80 MHz receiver — 7.95 dB gone before the path loss starts.',
-      zh: '路由器什么也没损失，它的信道整个躺在测距信道里面。而一帧测距帧的功率摊在 499.2 MHz 上，能进到一个 80 MHz 接收机里的只有其中 80 MHz——路径损耗还没开始，就先丢掉 7.95 dB。',
+      zh: '路由器这一侧一点也没损失：它的信道整个落在测距信道里面。而一帧测距帧的功率摊在 499.2 MHz 上，能进到一个 80 MHz 接收机里的只有其中 80 MHz——路径损耗还没开始，就先丢掉 7.95 dB。',
     } },
     { kind: 'table', heading: { en: 'What each side hears', zh: '两边各自听到什么' }, head: [
       { en: 'Heard by', zh: '谁听到' }, { en: 'What', zh: '听到的是' }, { en: 'Level', zh: '电平' },
@@ -160,17 +160,17 @@ export const uwbCoexist: Lesson = {
       [N('uwb-1'), { en: 'the laptop, 3.35 m off', zh: '笔记本，相距 3.35 m' }, N('−48.67 dBm')],
       [N('uwb-1'), { en: 'four anchors, 4.76 to 6.91 m off', zh: '四个锚点，相距 4.76 至 6.91 m' }, N('−76.25 to −79.48 dBm')],
       [N('uwb-1'), { en: 'weakest anchor over the laptop', zh: '最弱的锚点盖过笔记本' }, N('SIR −30.81 dB · floor −12 dB')],
-      [N('ap'), { en: 'the tag, 3.14 m off', zh: '标签，相距 3.14 m' }, N('−80.57 dBm')],
+      [N('ap'), { en: 'the phone, 3.14 m off', zh: '手机，相距 3.14 m' }, N('−80.57 dBm')],
       [N('ap'), { en: 'its own noise, 80 MHz wide', zh: '它自己 80 MHz 上的噪声' }, N('−87.97 dBm · rise 8.12 dB')],
       [N('ap'), { en: 'the energy-detect threshold', zh: '能量检测门限' }, N('−62 dBm · 18.57 dB above')],
     ] },
     { text: {
-      en: 'The gap runs one way. Against the laptop the weakest anchor leaves the tag 18.8 dB short of what it can decode through. Reverse it: the loudest ranging frame any Wi-Fi radio here sees is 18.57 dB under the energy-detect threshold — carrier sense never calls busy.',
-      zh: '这条鸿沟是单向的。对上笔记本，最弱的那个锚点让标签差了 18.8 dB 才够得着可解调的程度。反过来：本房间任何一台 Wi-Fi 收发机能听到的最强测距帧，比能量检测门限还低 18.57 dB，于是载波侦听从不判定信道忙。',
+      en: 'The gap runs one way. Against the laptop the weakest anchor leaves the phone 18.8 dB short of what it can decode. Reverse it: the loudest ranging frame any Wi-Fi radio here sees is 18.57 dB under the energy-detect threshold — carrier sense never calls busy.',
+      zh: '这条鸿沟是单向的。对上笔记本，最弱的那个锚点让手机差了 18.8 dB 才够得着可解调的程度。反过来：本房间任何一台 Wi-Fi 收发机能听到的最强测距帧，比能量检测门限还低 18.57 dB，于是载波侦听从不判定信道忙。',
     } },
     { kind: 'table', heading: { en: 'Five seconds, twenty-five blocks', zh: '五秒，二十五个块' }, head: [
       { en: 'Run', zh: '运行' }, { en: 'Wi-Fi air', zh: 'Wi-Fi 占空' }, { en: 'Lost to Wi-Fi', zh: '被 Wi-Fi 干扰丢失' },
-      { en: 'Tag ranges', zh: '标签测距' }, { en: 'Fixes', zh: '定位' },
+      { en: 'Phone ranges', zh: '手机测距' }, { en: 'Fixes', zh: '定位' },
     ], rows: [
       [{ en: 'Backup running', zh: '后台备份' }, N('3.07 %'), N('8'), N('92 / 100'), N('25')],
       [{ en: 'UWB on channel 9', zh: 'UWB 使用 9 号信道' }, N('3.07 %'), N('0'), N('100 / 100'), N('25')],
@@ -178,11 +178,11 @@ export const uwbCoexist: Lesson = {
       [{ en: 'Saturated upload', zh: '饱和上传' }, N('91.28 %'), N('200'), N('0 / 100'), N('0')],
     ] },
     { text: {
-      en: 'The backup run loses one ranging frame every third block, always the tag losing the far anchor’s report, and the slot times out 1.8 ms later. Eight ranges of a hundred go — yet all twenty-five fixes are made, eight on three anchors, the error still inside 4.2 cm.',
-      zh: '备份那次运行每三个块丢一帧测距帧，每次都是标签丢掉最远那个锚点的报告，而 1.8 ms 之后那个时隙超时。一百次测距丢了八次——可二十五次定位一次也没少，其中八次只用三个锚点，误差依然在 4.2 cm 以内。',
+      en: 'The backup run loses one ranging frame every third block, always the far anchor’s report, and the slot times out 1.8 ms later. Eight ranges of a hundred go — yet all twenty-five fixes are made, eight on three anchors, the error still inside 4.2 cm.',
+      zh: '备份那次运行每三个块丢一帧测距帧，每次都是最远那个锚点的报告丢了，而 1.8 ms 之后那个时隙超时。一百次测距丢了八次——可二十五次定位一次也没少，其中八次只用三个锚点，误差依然在 4.2 cm 以内。',
     } },
-    { text: {
-      en: 'Saturate the upload and the spare runs out. Every ranging frame meets a burst, 200 are lost in five seconds, and not one position is solved. The link notices this time — throughput falls from 276.816 to 274.128 Mb/s — but that is 0.97 %, against a session that has stopped existing.',
+    { heading: { en: 'When the spare runs out', zh: '余量用尽的时候' }, text: {
+      en: 'Saturate the upload and it runs out. Every ranging frame meets a burst, 200 are lost in five seconds, and not one position is solved. The link notices this time — throughput falls from 276.816 to 274.128 Mb/s — but that is 0.97 %, against a session that has stopped existing.',
       zh: '把上传灌满，这个备份件就用尽了。每一帧测距帧都会撞上一次猝发，五秒里丢掉 200 帧，一次定位也解不出来。这回链路确实察觉到了——吞吐从 276.816 Mb/s 掉到 274.128 Mb/s——但那只是 0.97 %，而对面那个会话已经不存在了。',
     } },
   ],
@@ -204,8 +204,8 @@ export const uwbCoexist: Lesson = {
       zh: 'UWB 9 号信道占据 7737.6 至 8236.8 MHz。6 GHz 的 Wi-Fi 频段到 7125 MHz 为止；即便用编辑器允许的最高中心频率 7115 MHz 开一条 320 MHz 的信道，其上边沿也只到 7275 MHz——距 9 号信道的下边沿还有 462.6 MHz 的净空。所以任何带宽的 Wi-Fi 信道都无法与它重叠：中介根本不会建立，而上表最后两行其实是同一个答案的两种写法。重叠为零时，会话给出的记录与它在 9 号信道上给出的一模一样。',
     } },
     { heading: { en: 'Where the 40 cm comes from', zh: '那 40 cm 是怎么算出来的' }, text: {
-      en: 'The threshold is not unreachable. Solve the in-band level of one ranging frame against the −62 dBm energy-detect threshold and the crossover falls at 0.37 m, quoted rounded up to the next ten centimetres: a Wi-Fi radio brought within about 40 cm of a UWB transmitter would trip it. But the nearest Wi-Fi radio in this room, the router 3.14 m from the tag, is nowhere near that close. Even at the 8.12 dB of noise rise the tag causes, the router’s own uplink still holds 26 dB of SINR.',
-      zh: '这个门限并非遥不可及。把一帧测距帧的带内电平与 −62 dBm 的能量检测门限解一个等式，交叉点落在 0.37 m，正文里向上取整到十厘米：把一台 Wi-Fi 收发机放到离 UWB 发射机约 40 cm 以内，它就会被触发。只是本房间里最近的那台 Wi-Fi 收发机——离标签 3.14 m 的路由器——远远没有那么近。即使在标签造成的 8.12 dB 噪声抬升之下，路由器自己的上行仍然保有 26 dB 的信干噪比。',
+      en: 'The threshold is not unreachable. Solve the in-band level of one ranging frame against the −62 dBm energy-detect threshold and the crossover falls at 0.37 m, quoted rounded up to the next ten centimetres: a Wi-Fi radio brought within about 40 cm of a UWB transmitter would trip it. But the nearest Wi-Fi radio in this room, the router 3.14 m from the phone, is nowhere near that close. Even at the 8.12 dB of noise rise the phone causes, the router’s own uplink still holds 26 dB of SINR.',
+      zh: '这个门限并非遥不可及。把一帧测距帧的带内电平与 −62 dBm 的能量检测门限解一个等式，交叉点落在 0.37 m，正文里向上取整到十厘米：把一台 Wi-Fi 收发机放到离 UWB 发射机约 40 cm 以内，它就会被触发。只是本房间里最近的那台 Wi-Fi 收发机——离手机 3.14 m 的路由器——远远没有那么近。即使在手机造成的 8.12 dB 噪声抬升之下，路由器自己的上行仍然保有 26 dB 的信干噪比。',
     } },
     { text: {
       en: 'Those eight encounters cost the Wi-Fi link nothing: its record stream is identical to a run with no UWB nodes in every field but the shared sequence number — 9.960 Mb/s either way.',
@@ -240,7 +240,7 @@ export const uwbCoexist: Lesson = {
     { label: { en: 'No UWB', zh: '没有 UWB' }, scenario: () => uwbCoexistScenario('noUwb') },
   ],
   jumps: [
-    J('the tag’s Poll opens the round', '标签的 Poll 开启这一轮', firstUwbPoll),
+    J('the phone’s Poll opens the round', '手机的 Poll 开启这一轮', firstUwbPoll),
     J('the laptop’s first 6 GHz data frame', '笔记本的第一个 6 GHz 数据帧', first6g),
     J('the first ranging frame lost to Wi-Fi', '第一个被 Wi-Fi 干扰丢失的测距帧', firstInterfered),
     J('the slot that then times out', '随后超时的那个时隙', firstUwbTimeout),
@@ -249,8 +249,8 @@ export const uwbCoexist: Lesson = {
   observe: [
     { en: 'At 418.191 ms the log reads “uwb-1 UWB frame from anchor-4 lost to Wi-Fi: SIR -30.8 dB (foreign -48.7 dBm)”, straight after that frame’s failed reception. The foreign level is the laptop’s, and the pair returns every 600 ms.',
       zh: '418.191 ms 处日志写着 “uwb-1 UWB frame from anchor-4 lost to Wi-Fi: SIR -30.8 dB (foreign -48.7 dBm)”，就跟在这一帧接收失败之后。那个外来电平是笔记本的；这一对记录每 600 ms 回来一次。' },
-    { en: 'The tag’s inspector grows a “lost to Wi-Fi” row and it climbs to 8 — the same 8 as its timeouts. Every anchor’s row stays 0: the interference is felt at the tag, where the laptop is loud and the anchors faint.',
-      zh: '标签的检视面板多出一行“被 Wi-Fi 干扰丢失”，最终爬到 8——与它的超时次数一样。每个锚点的这一行都是 0：干扰是在标签处被感受到的，因为笔记本在那里最响，而锚点在那里最弱。' },
+    { en: 'The phone’s inspector grows a “lost to Wi-Fi” row and it climbs to 8 — the same 8 as its timeouts. Every anchor’s row stays 0: the interference is felt at the phone, where the laptop is loud and the anchors faint.',
+      zh: '手机的检视面板多出一行“被 Wi-Fi 干扰丢失”，最终爬到 8——与它的超时次数一样。每个锚点的这一行都是 0：干扰是在手机处被感受到的，因为笔记本在那里最响，而锚点在那里最弱。' },
   ],
   tryThis: [
     { en: 'Load “Wi-Fi on channel 7”. The ranging records become those of the channel-9 run to the last field, and the Wi-Fi side does not move: with no overlap there is nothing to mediate.',
@@ -260,10 +260,10 @@ export const uwbCoexist: Lesson = {
   ],
   quiz: [
     {
-      q: { en: 'The router puts −42.79 dBm into the tag; the tag puts −80.57 dBm into the router. Why so lopsided?', zh: '路由器在标签处造成 −42.79 dBm，标签在路由器处只造成 −80.57 dBm。为什么如此悬殊？' },
+      q: { en: 'The router puts −42.79 dBm into the phone; the phone puts −80.57 dBm into the router. Why so lopsided?', zh: '路由器在手机处造成 −42.79 dBm，手机在路由器处只造成 −80.57 dBm。为什么如此悬殊？' },
       options: [
         { en: 'The router transmits far more often, so its average power is higher', zh: '路由器发射得频繁得多，所以平均功率更高' },
-        { en: '34 dB of EIRP, plus 7.95 dB of the UWB frame falling outside the 80 MHz channel', zh: '34 dB 的 EIRP 差距，再加上 UWB 帧有 7.95 dB 落在这 80 MHz 信道之外' },
+        { en: '34 dB of transmit power, plus 7.95 dB of the UWB frame falling outside the 80 MHz channel', zh: '34 dB 的发射功率差距，再加上 UWB 帧有 7.95 dB 落在这 80 MHz 信道之外' },
         { en: 'The UWB receiver has the lower noise figure', zh: 'UWB 接收机的噪声系数更低' },
       ],
       answer: 1,
@@ -272,7 +272,7 @@ export const uwbCoexist: Lesson = {
     {
       q: { en: 'The backup costs the session 8 of its 100 ranges but not one of its 25 fixes. What absorbed the loss?', zh: '后台备份让会话在 100 次测距里丢了 8 次，却没丢掉 25 次定位中的任何一次。是什么吸收了这笔损失？' },
       options: [
-        { en: 'The tag repeats the lost range inside the same block', zh: '标签在同一个块内重发了丢失的那次测距' },
+        { en: 'The phone repeats the lost range inside the same block', zh: '手机在同一个块内重发了丢失的那次测距' },
         { en: 'Three ranges still solve two unknowns: the fix is made on three anchors and GDOP rises from 1.05 to 1.26', zh: '三个距离仍能解出两个未知数：定位改用三个锚点，GDOP 从 1.05 升到 1.26' },
         { en: 'The solver weights the interfered range down through its FoM byte', zh: '解算器通过 FoM 字节把受干扰的那次测距降权了' },
       ],
