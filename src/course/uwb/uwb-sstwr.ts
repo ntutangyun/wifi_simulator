@@ -1,21 +1,21 @@
 /**
  * UWB Tier 1 · M11 · Time of flight · The clock inside the reply time.
  *
- * Lesson 1 pinned both crystals to 0 ppm and told you that was a mercy. Here it
- * is withdrawn: the phone runs 10 ppm fast, every anchor 10 ppm slow, and the
- * four anchors answer in four different slots, so one scene shows the same
- * distance measured four times with four different errors — 6, 12, 18 and 24 m
- * on a true 3.50 m. Then the clock-offset correction of §10.29.1.6 puts all
- * four back inside a tenth of a metre. Every number quoted below is pinned in
- * tests/course/uwb-sstwr.test.ts — including every cell of the table, both
- * numeric jump labels, the crystal offsets (read back from the scenes rather
- * than re-typed) and the Coffs the engine actually used.
+ * The third lesson of the UWB track, written to the zero-to-hero contract
+ * (docs/superpowers/specs/2026-09-21-course-readability-design.md): why a reply
+ * time measured on the other radio's crystal makes the range too long, how the
+ * error grows with the slot the anchor answered in, and what the standard's
+ * clock-offset correction does and does not remove.
  *
- * CAUTION — word budget: `lessonMinutes` rounds to 25 minutes anywhere between
- * 975 and 1725 English words across body + observe + tryThis + quiz (4 observe
- * items and 2 experiments already account for 16 of those minutes). The prose
- * below totals 1716 words, so there is room for eight more and no more:
- * adding a sentence means deleting one, or the study-time test fails.
+ * The scene is unchanged from before the rewrite: the phone runs 10 ppm fast,
+ * every anchor 10 ppm slow, and the four anchors answer in four different
+ * slots, so one round shows the same 3.50 m measured four times with four
+ * different errors. The provenance that used to open the lesson is in
+ * `sources`; the Figure of Merit byte, the two surviving error terms and the
+ * counters behind the reply time are in `deeper`.
+ *
+ * Every number the lesson prints is pinned in tests/course/uwb-sstwr.test.ts.
+ * `npx tsx scripts/lesson-dump.ts uwb-sstwr en` prints the section budgets.
  */
 import type { Scenario } from '../../model/scenario'
 import {
@@ -47,31 +47,77 @@ export const uwbSstwr: Lesson = {
   id: 'uwb-sstwr',
   module: 11,
   title: { en: 'The clock inside the reply time', zh: '应答时间里藏着的那只时钟' },
-  body: [
-    { text: {
-      en: 'IEEE Std 802.15.4-2024 is the source for the shape of this lesson. §10.29.1.2.2 gives the single-sided two-way ranging computation; §10.29.1.6 defines the ranging tracking offset and ranging tracking interval, the fields with which a receiver reports the transmitter’s clock rate as it measured it; §10.29.1.7 defines the Figure of Merit byte whose three tables this lesson decodes. The ±20 ppm crystal tolerance is §16.4.9. Three numbers are the model’s own: 100 ps of 1-σ noise on every received timestamp, 0.2 ppm of residual error in the clock-offset estimate, and the 2 ms ranging slot, which is FiRa’s, not the standard’s.',
-      zh: 'IEEE Std 802.15.4-2024 是本课内容的依据。§10.29.1.2.2 给出单边双向测距的计算式；§10.29.1.6 定义了测距跟踪偏差（ranging tracking offset）与测距跟踪区间（ranging tracking interval）——接收端用这两个字段上报自己测到的发送端时钟速率；§10.29.1.7 则定义了本课要逐位拆解的品质因数（FoM）字节及其三张表。±20 ppm 的晶振容差来自 §16.4.9。有三个数字是仿真器自己的模型取值：每个接收时间戳上 100 ps 的 1σ 噪声、时钟偏差估计中残留的 0.2 ppm 误差，以及 2 ms 的测距时隙——最后这个来自 FiRa 而非标准。',
+  why: {
+    en: 'The lessons so far let both radios keep perfect time. No real pair does: a quartz crystal runs a little fast or a little slow, and an interval measured on a slow one comes out short. The longest interval in the exchange is the anchor’s, and the phone subtracts it as if it were its own. Here that goes wrong by metres.',
+    zh: '前面几课让两台射频都守着完美的时间，现实里没有哪一对是这样：石英晶体总会走得偏快或偏慢，用走得慢的钟量出来的一段时间就偏短。偏偏交互里最长的那一段是锚点量的，手机却把它当成自己量的直接减掉。这一课里，这件事会错出好几米。',
+  },
+  outcomes: [
+    { en: 'say why a reply measured on the other radio’s clock makes a range too long', zh: '说清为什么"用对方的钟量出来的应答时间"会把距离测长' },
+    { en: 'predict how much too long, from the slot an anchor answered in', zh: '根据锚点在第几个时隙作答，预测它会测长多少' },
+    { en: 'tell the corrected figure from the raw one on a range line', zh: '在测距行上分清修正值与 raw 值' },
+  ],
+  needs: ['uwb-frame'],
+  terms: [
+    { term: 'crystal', plain: {
+      en: 'the sliver of quartz a radio counts time with; no two run at the same rate',
+      zh: '射频用来数时间的那一小片石英；没有哪两片走得一样快',
     } },
-    { heading: { en: 'Treply is measured by the other clock', zh: 'Treply 是用对方的时钟量出来的' }, text: {
-      en: 'Four anchors stand on a 3.50 m ring around a phone in the middle of a 10 × 8 m lab, all five devices at 2.20 m, so every true distance is exactly 3.50 m — 11.675 ns of flight, a 12 ns gap between TX_START and RX_START. One poll goes out at 0 ns and all four anchors hear it; then they answer one at a time, in slots that begin at 2, 4, 6 and 8 ms. Four ranges to the same distance, from one poll.',
-      zh: '在一间 10 × 8 m 的实验室中央放一部手机，四个锚点站在它周围一个 3.50 m 的圆环上，五台设备都在 2.20 m 的高度，因此四个真实距离恰好都是 3.50 m——飞行时间 11.675 ns，时间线上 TX_START 与 RX_START 相隔 12 ns。0 ns 时发出一帧 Poll，四个锚点都听到了；随后它们逐一作答，各自的时隙从 2、4、6、8 ms 开始。一帧 Poll，换来对同一个距离的四次测量。',
+    { term: 'ppm', plain: {
+      en: 'parts per million, the unit of a clock’s rate error: one tick in a million',
+      zh: '百万分之几，时钟速率误差的单位：一百万格里差一格',
     } },
-    { text: {
-      en: 'The crystals are no longer perfect. The phone runs 10 ppm fast, every anchor 10 ppm slow — well inside the ±20 ppm the standard allows. Call the initiator’s fractional frequency error eA and the responder’s eB. Tround is a difference of two readings of the tag’s counter, so the tag measures it 1 + eA times too long. Treply is a difference of two readings of the anchor’s counter, measured 1 + eB times too long — and the anchor puts that number in the response for the tag to subtract. Each subtraction kills the crystal’s unknown origin. Neither touches its rate.',
-      zh: '这一次晶振不再完美。手机快 10 ppm，每个锚点慢 10 ppm——远在标准允许的 ±20 ppm 之内。把发起方的相对频率误差记作 eA，应答方的记作 eB。Tround 是标签自己计数器上两次读数之差，于是标签把它量得偏长 1 + eA 倍；Treply 是锚点自己计数器上两次读数之差，于是锚点把它量得偏长 1 + eB 倍——然后把这个数写进 Response 帧，交给标签去相减。两次相减都抹掉了晶振那个未知的起点，却都没有碰到它的速率。',
+    { term: 'clock offset', plain: {
+      en: 'how much faster one radio’s clock runs than the other’s, as a ratio',
+      zh: '一台射频的时钟比另一台快多少，写成一个比值',
     } },
+    { term: 'SS-TWR', plain: {
+      en: 'single-sided two-way ranging: one question, one answer',
+      zh: '单边双向测距：一问一答',
+    } },
+    { term: 'Coffs', plain: {
+      en: 'the clock offset a receiver measured for the radio it is hearing',
+      zh: '接收端对自己正在听的那台射频测出的时钟偏差',
+    } },
+  ],
+  picture: [
+    { heading: { en: 'Four anchors, one distance', zh: '四个锚点，一个距离' }, text: {
+      en: 'Put a phone in the middle of a lab and four anchors on a ring around it, every one the same distance away and at the same height. The phone asks once and all four hear it; then they answer one at a time, each in its own slot. One question, four measurements of one distance.',
+      zh: '把一部手机放在实验室正中，四个锚点摆在它周围的一个圆环上，每个锚点离它一样远、也一样高。手机只问一次，四个锚点都听见了；随后它们逐一作答，各占一个时隙。一次提问，换来对同一个距离的四次测量。',
+    } },
+    { kind: 'watch', jump: 2, heading: { en: 'What does it think the distance is?', zh: '它以为这段距离是多少？' }, text: {
+      en: 'Load the simulation and jump to the first range line. The phone is three and a half metres from that anchor; read what it believes instead, then read the three lines under it.',
+      zh: '载入仿真，跳到第一条测距行。手机离那个锚点三米半，而它自己以为是多少？读一读，再往下读接着的三行。',
+    } },
+    { heading: { en: 'A crystal nobody ever set', zh: '一块从没被校准过的晶体' }, text: {
+      en: 'Each radio counts time on its own crystal, and no crystal runs at exactly its stated rate — the error is quoted in ppm. This phone runs a little fast, every anchor a little slow, and neither knows it. Each end still subtracts two readings of its own counter, so the unknown starting point cancels. The rate does not cancel.',
+      zh: '每台射频都用自己那块晶体数时间，而没有哪块晶体真的走在标称速率上——这点误差用 ppm 来说。这里的手机走得偏快，每个锚点都走得偏慢，而且谁也不知道。两端减的依然是自己计数器上的两次读数，未知的起点因此被约掉；速率却没有被约掉。',
+    } },
+    { heading: { en: 'The wait is the problem, not the flight', zh: '出问题的是等待，不是飞行' }, text: {
+      en: 'The phone times a round trip on its own clock; the anchor times its reply on its own and sends that number over to be subtracted. Both are stretched, and the subtraction cancels most of the stretch. What is left is half the reply times the difference between the two rates. The flight is billionths of a second, the reply a whole slot of waiting: an error invisible on one is metres on the other.',
+      zh: '手机用自己的钟量一次往返；锚点用自己的钟量自己的作答时长，再把这个数发过来让手机减掉。两个数都被拉长了，一减之下大部分拉长量互相抵消。剩下的是应答时长的一半乘以两端速率之差。而飞行时间是几十亿分之一秒，应答时长却是整整一个时隙的等待：同一个误差落在前者上看不见，落在后者上就是好几米。',
+    } },
+    { heading: { en: 'Wait longer, lie further', zh: '等得越久，谎话越大' }, text: {
+      en: 'That is why the scene has four anchors and not one. The anchor in the first slot waits one slot before answering, the anchor in the fourth waits four, and the leftover error is proportional to the wait. Four identical distances come back as a ramp. Uncorrected, SS-TWR measures how long the responder waited, not how far away it is.',
+      zh: '这就是场景里要摆四个锚点而不是一个的原因。第一个时隙里的锚点等一个时隙才作答，第四个要等四个，而剩下的那点误差与等待时长成正比。四个一模一样的距离，读出来却是一道斜坡。不作修正的话，SS-TWR 量的不是距离有多远，而是应答方等了多久。',
+    } },
+    { heading: { en: 'Ask the receiver how fast the other clock runs', zh: '问接收端：对面那只钟走得多快' }, text: {
+      en: 'A receiver cannot find the RMARKER until it has locked onto the incoming pulses, and the loop that locks knows, as a by-product, how fast those pulses arrive against its own crystal. That ratio is the clock offset, measured rather than assumed, and the simulator carries it on every received frame as Coffs. Scale the reply by it and the near-cancellation becomes real.',
+      zh: '接收端必须先锁住进来的脉冲，才谈得上找到 RMARKER；而完成这次锁定的环路顺带就知道：这些脉冲相对自己那块晶体跑得有多快。这个比值就是时钟偏差——是测出来的，不是假定的；仿真器把它挂在每个收到的帧上，叫作 Coffs。拿它去缩放应答时长，那次"几乎抵消"就成了真的抵消。',
+    } },
+    { heading: { en: 'What the correction leaves behind', zh: '修正之后还剩下什么' }, text: {
+      en: 'Coffs is itself a measurement, so a little of it is wrong. The correction turns a large rate error into a tiny one, but the leftover is still half the reply times that tiny error — so it still grows with the waiting. The next lesson gets rid of the wait by arithmetic instead.',
+      zh: 'Coffs 自己也是测出来的，因此本身就带着一点误差。修正把一个大的速率误差换成了一个很小的，但残下来的那一项依旧是应答时长的一半乘以这个小误差，所以它还是随等待时长一起变大。下一课改用算术把这段等待直接消掉。',
+    } },
+  ],
+  numbers: [
     { kind: 'formula', heading: { en: 'What the raw estimate really contains', zh: 'raw 估计里真正装着什么' }, text: {
       en: 'T̂prop = (Tround·(1 + eA) − Treply·(1 + eB)) / 2\n       = Tprop + Tprop·eA + ½·Treply·(eA − eB)',
       zh: 'T̂prop = (Tround·(1 + eA) − Treply·(1 + eB)) / 2\n       = Tprop + Tprop·eA + ½·Treply·(eA − eB)',
     }, note: {
-      en: 'Substitute Tround = Treply + 2·Tprop and the Treply terms almost cancel — almost. Two error terms survive. The first, Tprop·eA, scales a 11.675 ns flight by 10 ppm: 0.12 picoseconds, 35 micrometres — forget it. The second scales the reply, which at 2 ms is a hundred and seventy thousand times the flight. At eA − eB = 20 ppm it is ½ × 2 ms × 20 ppm = 20 ns, or 6.0 m of error on a 3.50 m range.',
-      zh: '把 Tround = Treply + 2·Tprop 代进去，Treply 项几乎抵消——只是几乎。有两个误差项活了下来。第一项 Tprop·eA 是拿 10 ppm 去缩放 11.675 ns 的飞行时间：0.12 皮秒，合 35 微米，可以直接忘掉。第二项缩放的是应答时延，而 2 ms 的应答时延是飞行时间的十七万倍。当 eA − eB = 20 ppm 时，它是 ½ × 2 ms × 20 ppm = 20 ns，落在一个 3.50 m 的距离上就是 6.0 m 的误差。',
+      en: 'eA is the initiator’s rate error, eB the responder’s. The reply almost cancels between the two measurements, and two terms survive. The first scales the flight: micrometres. The second scales the wait — half of a 2 ms reply at 20 ppm is 20 ns, or 6.0 m.',
+      zh: 'eA 是发起方的速率误差，eB 是应答方的。两次测量一减，应答时长几乎被抵消，但有两项活了下来。第一项缩放飞行时间，只有几十微米。第二项缩放等待：2 ms 的应答取一半再乘 20 ppm，就是 20 ns，合 6.0 m。',
     } },
-    { heading: { en: 'Four anchors, four different errors', zh: '四个锚点，四个不同的误差' }, text: {
-      en: 'That is why the scene has four anchors rather than one. The anchor in slot i holds its answer until slot i begins, so its Treply is i × 2 ms − Tprop and the surviving error term is proportional to i. The geometry is identical for all four; only the waiting differs.',
-      zh: '这就是本场景要摆四个锚点而不是一个的原因。第 i 个时隙里的锚点把回答压到第 i 个时隙开始才发出，于是它的 Treply 是 i × 2 ms − Tprop，活下来的那个误差项就与 i 成正比。四者的几何完全一样，差别只在等了多久。',
-    } },
-    { kind: 'table', head: [
+    { kind: 'table', heading: { en: 'Four anchors, four errors', zh: '四个锚点，四个误差' }, head: [
       { en: 'Anchor', zh: '锚点' }, { en: 'Treply', zh: 'Treply' }, { en: 'Predicted error', zh: '预测误差' },
       { en: 'Raw range', zh: 'raw 距离' }, { en: 'Raw error', zh: 'raw 误差' },
     ], rows: [
@@ -81,32 +127,63 @@ export const uwbSstwr: Lesson = {
       [N('anchor-4'), N('8 ms − Tprop'), N('24.0 m'), N('27.42 m'), N('23.92 m')],
     ] },
     { text: {
-      en: 'That is not noise: four readings of one distance, all biased long, each a clean multiple of the first. The phone sits 3.50 m from every anchor and believes it is 9.51 m from one and 27.42 m from another. With a crystal offset in play, uncorrected SS-TWR measures not distance but how long the responder waited, times half the offset.',
-      zh: '这不是噪声：对同一个距离的四次读数全都偏长，而且每一个都是第一个的整数倍。手机距每个锚点都是 3.50 m，却认定自己离其中一个有 9.51 m、离另一个有 27.42 m。一旦存在晶振偏差，未经修正的 SS-TWR 测的不是距离，而是应答方等了多久，再乘以偏差的一半。',
+      en: 'Not scatter: four readings of one distance, all long, each a multiple of the first. The phone sits 3.50 m from every anchor and believes it is 9.51 m from one and 27.42 m from another.',
+      zh: '这不是散布：对同一个距离的四次读数全都偏长，且每一个都是第一个的整数倍。手机距每个锚点都是 3.50 m，却认定自己离其中一个有 9.51 m、离另一个有 27.42 m。',
     } },
-    { heading: { en: 'The standard’s answer: measure the other clock', zh: '标准给出的答案：把对方的时钟也测出来' }, text: {
-      en: 'A UWB receiver has to lock onto the transmitter’s pulse train before it can find the RMARKER at all, and the loop that does that lock knows, as a by-product, how fast the incoming chips arrive relative to its own oscillator. §10.29.1.6 asks the receiver to report exactly that, as a ranging tracking offset counted over a ranging tracking interval: a measured ratio, not an assumed one. The simulator carries it on every received frame as Coffs — the responder’s clock rate relative to the initiator’s, as the initiator’s own receiver estimated it, positive when the responder runs fast. Here Coffs sits near −20 ppm.',
-      zh: 'UWB 接收机必须先锁住发送端的脉冲序列，才谈得上找到 RMARKER；而完成这次锁定的环路顺带就知道了：进来的码片相对自己本振跑得有多快。§10.29.1.6 要求接收端把这件事原样上报——在一个测距跟踪区间内累计出的测距跟踪偏差：一个实测的比值，而不是一个假定值。仿真器把它挂在每一个收到的帧上，叫作 Coffs——应答方的时钟速率相对于发起方的比值，由发起方自己的接收机估计得到，为正表示应答方偏快。本场景中 Coffs 在 −20 ppm 附近。',
-    } },
+    { kind: 'table', heading: { en: 'The same ramp, three pairs of crystals', zh: '同一道斜坡，三种晶体' }, head: [
+      { en: 'Crystals', zh: '晶体' }, { en: 'eA − eB', zh: 'eA − eB' },
+      { en: 'Raw error, slot 1', zh: '时隙 1 的 raw 误差' }, { en: 'Raw error, slot 4', zh: '时隙 4 的 raw 误差' },
+    ], rows: [
+      [{ en: 'Perfect crystals', zh: '理想晶振' }, N('0 ppm'), N('+1.9 cm'), N('−6.1 cm')],
+      [{ en: 'TCXOs, ±1 ppm', zh: '温补晶振，±1 ppm' }, N('2 ppm'), N('0.62 m'), N('2.34 m')],
+      [{ en: 'This scene, ±10 ppm', zh: '本场景，±10 ppm' }, N('20 ppm'), N('6.01 m'), N('23.92 m')],
+    ] },
     { kind: 'formula', heading: { en: 'Single-sided two-way ranging, corrected', zh: '经过修正的单边双向测距' }, text: {
       en: 'T̂prop = (Tround − Treply·(1 − Coffs)) / 2',
       zh: 'T̂prop = (Tround − Treply·(1 − Coffs)) / 2',
     }, note: {
-      en: 'One multiplication. Treply arrived measured on the anchor’s clock; scaling it by (1 − Coffs) re-expresses it in the tag’s ticks, the unit Tround is already in, and the near-cancellation becomes an actual one. The four range lines now read 3.45, 3.42, 3.41 and 3.51 m against a true 3.50 m — errors of −5.3, −7.8, −9.5 and +0.5 cm, where a moment ago they were 6.01, 11.97, 17.99 and 23.92 m. Nothing about the radio changed.',
-      zh: '只多了一次乘法。Treply 送来时是用锚点的时钟量的；乘上 (1 − Coffs) 就把它换算成标签的计数单位，也就是 Tround 本来所用的单位，于是那次“几乎抵消”变成了真正的抵消。四条测距行现在读作 3.45、3.42、3.41 与 3.51 m，真值 3.50 m——误差为 −5.3、−7.8、−9.5 与 +0.5 cm，而片刻之前它们还是 6.01、11.97、17.99 与 23.92 m。射频什么都没有变。',
+      en: 'One multiplication. Treply arrived measured in the anchor’s ticks; scaling it re-expresses it in the phone’s, the unit Tround was already in. The four range lines now read 3.45, 3.42, 3.41 and 3.51 m, on a ring built at one distance. Nothing about the radio changed.',
+      zh: '只多了一次乘法。Treply 送来时是按锚点的计数单位量的；缩放一下，就把它换算成手机的单位，也就是 Tround 本来所用的单位。圆环上四个距离本是一样的，而四条测距行现在读作 3.45、3.42、3.41 与 3.51 m。射频本身什么都没有变。',
     } },
-    { heading: { en: 'What the correction cannot remove', zh: '修正拿不掉的那部分' }, text: {
-      en: 'Coffs is itself a measurement, and this model leaves 0.2 ppm of 1-σ error in it. The residual is then ½·Treply·σ_cfo: half of 0.2 ppm of 1 ms is 0.1 ns, or 3.0 cm per millisecond of reply. It grows down the table exactly as the raw error did — 6.0 cm of 1-σ for anchor 1, 24.0 cm for anchor 4. The four errors above are one draw from those four distributions, which is why they do not increase monotonically: −9.5 cm at anchor 3 is well inside its sigma, and anchor 4’s +0.5 cm is a lucky draw from the widest of the four.',
-      zh: 'Coffs 自己也是一次测量，而本模型在它上面留下了 0.2 ppm 的 1σ 误差。于是残差就是 ½·Treply·σ_cfo：1 ms 的 0.2 ppm 取一半是 0.1 ns，即每毫秒应答时延 3.0 cm。它会像 raw 误差一样沿着表格往下长——锚点 1 对应 6.0 cm 的 1σ，锚点 4 对应 24.0 cm。上面那四个误差只是从这四个分布里各抽了一次，所以它们并不单调递增：锚点 3 的 −9.5 cm 稳稳落在它自己的 σ 之内，而锚点 4 的 +0.5 cm 是从四者中最宽的那个分布里抽到的好运气。',
-    } },
+    { kind: 'table', heading: { en: 'What the correction leaves', zh: '修正之后留下的' }, head: [
+      { en: 'Anchor', zh: '锚点' }, { en: 'Reply', zh: '应答时长' },
+      { en: 'Leftover, 1-σ', zh: '残差 1σ' }, { en: 'Error this run', zh: '本次运行的误差' },
+    ], rows: [
+      [N('anchor-1'), N('2 ms'), N('6.0 cm'), N('−5.3 cm')],
+      [N('anchor-2'), N('4 ms'), N('12.0 cm'), N('−7.8 cm')],
+      [N('anchor-3'), N('6 ms'), N('18.0 cm'), N('−9.5 cm')],
+      [N('anchor-4'), N('8 ms'), N('24.0 cm'), N('+0.5 cm')],
+    ] },
     { text: {
-      en: 'The correction does not make the reply delay free; it makes it cheap — 20 ppm of raw offset become 0.2 ppm of residual. But the residual still scales with how long the anchor waited, and it is the only term left in this lesson that does. That is the argument for the next lesson’s double-sided exchange, where the reply delay is measured in both directions and cancels instead of being estimated away.',
-      zh: '修正并没有让应答时延变成免费的，只是让它变得便宜——20 ppm 的原始偏差变成 0.2 ppm 的残差。但残差依然随锚点等待的时长而增长，而且在本课里只剩它这一项会这样。这正是下一课要讲的双边交换的理由：在那里应答时延被双向测量并直接抵消，而不是靠估计把它消掉。',
+      en: 'The last column is one draw from those distributions, which is why it does not grow: the widest of them landed nearest the truth.',
+      zh: '最后一列只是从这些分布里各抽了一次，所以它并不一路变大：最宽的那个分布这次恰好落得离真值最近。',
     } },
-    { heading: { en: 'The byte that says how much to trust it', zh: '用来说明“这有多可信”的那个字节' }, text: {
-      en: 'Every UWB_TS line for a received frame ends in “(97 % within 0.5 ns)”. That is the Figure of Merit byte, 0x16 here, decoded through three tables in §10.29.1.7: three bits of confidence level (6 → 97 %), two bits of interval (2 → 1 ns) and two bits of scale (0 → ×0.5) — 97 % of the timestamp error inside a half-nanosecond window, which is ±0.25 ns, about 7.5 cm of one-way flight. It travels with the measurement so a position solver can weight a confident range above a doubtful one. It says nothing about the crystal offset: a timestamp of exactly this confidence produced the 27.42 m reading above.',
-      zh: '每一条描述接收帧的 UWB_TS 行末尾都跟着 “(97 % within 0.5 ns)”。那是品质因数字节，此处为 0x16，按 §10.29.1.7 的三张表解码：3 位置信水平（6 → 97 %）、2 位区间（2 → 1 ns）、2 位比例因子（0 → ×0.5）——即 97 % 的时间戳误差落在一个半纳秒宽的区间内，也就是 ±0.25 ns，约合 7.5 cm 的单向飞行距离。它随测量结果一起传递，好让定位解算器给可信的距离更高的权重。它对晶振偏差只字未提：上面那个 27.42 m 的读数，正出自一个置信度恰好如此的时间戳。',
+  ],
+  deeper: [
+    { heading: { en: 'The two terms that survive', zh: '活下来的那两项' }, text: {
+      en: 'Substitute Tround = Treply + 2·Tprop into the raw formula and the reply cancels down to the two terms above. Tprop·eA scales an 11.675 ns flight by 10 ppm: 0.12 picoseconds, 35 micrometres — forget it. The other scales a reply that, at 2 ms, is about a hundred and seventy thousand times the flight. Nothing about the geometry distinguishes the four anchors; only the waiting does.',
+      zh: '把 Tround = Treply + 2·Tprop 代进 raw 公式，应答时长就抵消到只剩上面那两项。Tprop·eA 是拿 10 ppm 去缩放 11.675 ns 的飞行时间：0.12 皮秒，合 35 微米，可以直接忘掉。另一项缩放的是应答时长，而 2 ms 的应答时长大约是飞行时间的十七万倍。四个锚点在几何上毫无分别，区别只在等了多久。',
     } },
+    { heading: { en: 'The number the phone subtracts', zh: '手机减掉的那个数' }, text: {
+      en: 'Anchor 1 stamps two ranging counters, 26 381 597 885 and 26 509 391 059. Their difference, 127 793 174 RCTU, is exactly the reply time its response carries — computed on the anchor’s own clock, which is the whole trouble. The phone’s own pair differs from it by 4056 ticks.',
+      zh: '锚点 1 打出两个测距计数值：26 381 597 885 与 26 509 391 059。两者之差 127 793 174 RCTU，正是它的应答帧所携带的应答时长——这个数是在锚点自己的钟上算出来的，麻烦正出在这里。手机自己那一对读数与它相差 4056 格。',
+    } },
+    { heading: { en: 'How big the leftover is', zh: '残差有多大' }, text: {
+      en: 'The correction turns 20 ppm of raw offset into 0.2 ppm of estimator noise. Half of 0.2 ppm of a millisecond is 0.1 ns, so the leftover is 3.0 cm for every millisecond the anchor waited. Anchor 3’s −9.5 cm is well inside its own 18.0 cm sigma.',
+      zh: '修正把 20 ppm 的原始偏差换成了估计器上 0.2 ppm 的噪声。1 ms 的 0.2 ppm 取一半是 0.1 ns，于是锚点每多等 1 ms，残差就多 3.0 cm。锚点 3 的 −9.5 cm 稳稳落在它自己 18.0 cm 的 σ 之内。',
+    } },
+    { heading: { en: 'The byte that says how much to trust it', zh: '用来说明"这有多可信"的那个字节' }, text: {
+      en: 'Every UWB_TS line for a received frame ends in "(97 % within 0.5 ns)". That is the Figure of Merit byte, 0x16 here: three bits of confidence level (6 → 97 %), two of interval (2 → 1 ns) and two of scale (0 → ×0.5). A half-nanosecond window is ±0.25 ns, about 7.5 cm of one-way flight. It travels with the measurement so a position solver can weight a confident range above a doubtful one — and it says nothing about the crystals: a timestamp of exactly this confidence produced the 27.42 m reading.',
+      zh: '每一条描述接收帧的 UWB_TS 行末尾都跟着 "(97 % within 0.5 ns)"。那是品质因数字节，此处为 0x16：3 位置信水平（6 → 97 %）、2 位区间（2 → 1 ns）、2 位比例因子（0 → ×0.5）。半纳秒宽的区间就是 ±0.25 ns，约合 7.5 cm 的单向飞行距离。它随测量结果一起传递，好让定位解算器给可信的距离更高的权重；而它对晶体只字未提：上面那个 27.42 m 的读数，正出自一个置信度恰好如此的时间戳。',
+    } },
+  ],
+  sources: [
+    { en: 'IEEE Std 802.15.4-2024 §10.29.1.2.2 gives the single-sided two-way ranging computation; §10.29.1.6 defines the ranging tracking offset and ranging tracking interval, the fields with which a receiver reports the transmitter’s clock rate as it measured it. The ±20 ppm crystal tolerance is §16.4.9.',
+      zh: 'IEEE Std 802.15.4-2024 的 §10.29.1.2.2 给出单边双向测距的计算式；§10.29.1.6 定义了测距跟踪偏差与测距跟踪区间——接收端就是用这两个字段上报自己测到的发送端时钟速率。±20 ppm 的晶振容差来自 §16.4.9。' },
+    { en: 'The Figure of Merit byte under "Going deeper" and its three lookup tables are §10.29.1.7.',
+      zh: '"再深一层"里的品质因数字节及其三张查找表出自 §10.29.1.7。' },
+    { en: 'Three numbers are the simulator’s own model choices: 100 ps of 1-σ noise on every received timestamp, 0.2 ppm of residual error in the clock-offset estimate, and the 2 ms ranging slot, which is FiRa’s rather than the standard’s.',
+      zh: '有三个数字是仿真器自己的模型取值：每个接收时间戳上 100 ps 的 1σ 噪声、时钟偏差估计中残留的 0.2 ppm 误差，以及 2 ms 的测距时隙——最后这个来自 FiRa，不是标准正文。' },
   ],
   scenario: () => uwbSstwrScenario({ tag: 10, anchors: -10 }),
   variants: [
@@ -120,45 +197,44 @@ export const uwbSstwr: Lesson = {
     J('the fourth range: raw is 24 m long', '第四次测距：raw 长了 24 m', fourthUwbRange),
   ],
   observe: [
-    { en: 'One poll at 0 ns produces four RX_START records at 12 ns — the same 12 ns for all four, because all four are 3.50 m away. The round then spends five slots of 2 ms: the poll in slot 0, one response in each of slots 1 to 4.', zh: '0 ns 处的一帧 Poll 产生了四条 12 ns 的 RX_START——四个锚点都是 12 ns，因为它们距离都是 3.50 m。整轮随后花掉五个 2 ms 的时隙：Poll 在时隙 0，时隙 1 到 4 各有一条 Response。' },
-    { en: 'Read the four UWB_RANGE lines in order. The corrected figures stay between 3.41 and 3.51 m, but the raw figure in brackets climbs 9.51 → 15.47 → 21.49 → 27.42 m. The corrected column is flat; the raw column is a ramp.', zh: '按顺序读四条 UWB_RANGE。修正后的读数都落在 3.41 与 3.51 m 之间，但括号里的 raw 值却一路爬升：9.51 → 15.47 → 21.49 → 27.42 m。修正后的那一列是平的，raw 那一列是一道斜坡。' },
-    { en: 'Take the differences of consecutive raw values: 5.96, 6.02, 5.93 m. Each extra 2 ms of waiting costs another 6 m, and the step is the same every time — a bias with a formula behind it, not scatter.', zh: '把相邻的 raw 值相减：5.96、6.02、5.93 m。每多等 2 ms 就多付 6 m，而且每一步的大小都一样——这是一个背后有公式的偏差，不是散布。' },
-    { en: 'Find anchor-1’s two UWB_TS counters, 26 381 597 885 and 26 509 391 059. Their difference, 127 793 174 RCTU, is exactly the reply time its response carries. The number the tag subtracts was computed on the anchor’s clock.', zh: '找到 anchor-1 的两条 UWB_TS 计数值：26 381 597 885 与 26 509 391 059。两者之差 127 793 174 RCTU，正是它的 Response 帧所携带的应答时长。标签拿来相减的那个数，是在锚点的时钟上算出来的。' },
+    { en: 'One poll at 0 ns produces four RX_START records, all at 12 ns: the anchors are equally far. The round spends five slots of 2 ms.', zh: '0 ns 处的一帧 Poll 产生四条 RX_START，全都在 12 ns：四个锚点一样远。整轮花掉五个 2 ms 的时隙。' },
+    { en: 'Read the four UWB_RANGE lines in order. The corrected figures stay between 3.41 and 3.51 m, while the raw figure in brackets climbs 9.51 → 15.47 → 21.49 → 27.42 m.', zh: '按顺序读四条 UWB_RANGE。修正后的读数落在 3.41 与 3.51 m 之间，括号里的 raw 值却一路爬升：9.51 → 15.47 → 21.49 → 27.42 m。' },
+    { en: 'Take the differences of consecutive raw values: 5.96, 6.02, 5.93 m. Every extra slot of waiting costs six more metres — a bias, not scatter.', zh: '把相邻的 raw 值相减：5.96、6.02、5.93 m。每多等一个时隙就多付六米——这是偏差，不是散布。' },
   ],
   tryThis: [
-    { en: 'Load the “Perfect crystals” variant, which pins both ends to 0 ppm and changes nothing else. The raw errors collapse to 1.9, −1.9, 0.7 and −6.1 cm — no ramp at all, because eA − eB is zero. What remains is timestamp noise, whose 1-σ is 2.1 cm and which does not care which slot the anchor answered in.', zh: '载入“理想晶振”变体：它把两端都钉在 0 ppm，别的什么都不改。raw 误差随即坍缩为 1.9、−1.9、0.7 与 −6.1 cm——斜坡彻底消失，因为 eA − eB 为零。剩下的只有时间戳噪声，它的 1σ 是 2.1 cm，并且并不在意锚点是在第几个时隙作答的。' },
-    { en: 'Now load “TCXOs, ±1 ppm”, a tenth of the base offset — eA − eB falls from 20 ppm to 2 ppm — and the sort of part a careful product actually fits. The raw errors become 0.62, 1.18, 1.80 and 2.34 m: still a ramp, still about 0.60 m per slot, still hopeless for a 3.50 m range. Better crystals buy an order of magnitude and do not buy correctness — which is why the correction is in the standard, not in the bill of materials.', zh: '再载入“±1 ppm 的温补晶振”：偏差只有基准场景的十分之一——eA − eB 从 20 ppm 降到 2 ppm——也是认真的产品真会选用的器件。raw 误差变成 0.62、1.18、1.80 与 2.34 m：依然是一道斜坡，依然大约每时隙 0.60 m，对一个 3.50 m 的距离依然毫无指望。更好的晶振能买来一个数量级，却买不来正确性——这正是为什么这项修正写在标准里，而不是写在物料清单上。' },
+    { en: 'Load "Perfect crystals", which pins both ends to zero and changes nothing else. The ramp vanishes: the raw errors are centimetres either way, and the slot no longer matters. What is left is timestamp noise, whose 1-σ is 2.1 cm.', zh: '载入"理想晶振"：它把两端都钉在零，别的什么都不改。斜坡随即消失——raw 误差只剩正负几厘米，作答的时隙也不再要紧。剩下的只有时间戳噪声，它的 1σ 是 2.1 cm。' },
+    { en: 'Now load "TCXOs, ±1 ppm", a tenth of the base offset and the sort of part a careful product really fits. The ramp survives at about 0.60 m a slot: better crystals buy an order of magnitude, not correctness.', zh: '再载入"±1 ppm 的温补晶振"：偏差只有基准的十分之一，也是认真的产品真会选用的器件。斜坡依然在，每个时隙约 0.60 m：更好的晶体买来的是一个数量级，不是正确性。' },
   ],
   quiz: [
     {
-      q: { en: 'Anchor 1 answers in slot 1 and anchor 4 in slot 4, from the same 3.50 m. Why is anchor 4’s raw error four times anchor 1’s?', zh: '锚点 1 在时隙 1 作答，锚点 4 在时隙 4 作答，两者距离都是 3.50 m。为什么锚点 4 的 raw 误差是锚点 1 的四倍？' },
+      q: { en: 'Anchor 1 and anchor 4 are equally far. Why is anchor 4’s raw error four times anchor 1’s?', zh: '锚点 1 与锚点 4 一样远。为什么锚点 4 的 raw 误差是锚点 1 的四倍？' },
       options: [
-        { en: 'Its response is weaker after three more slots of channel fading', zh: '又过了三个时隙，信道衰落让它的 Response 变得更弱' },
-        { en: 'The surviving error term is ½·Treply·(eA − eB), and Treply is four times longer', zh: '活下来的误差项是 ½·Treply·(eA − eB)，而它的 Treply 长了四倍' },
-        { en: 'Its ranging counter has had four times as long to drift away from the tag’s', zh: '它的测距计数器有四倍的时间从标签的计数器上漂走' },
+        { en: 'Its response is weaker after three more slots of fading', zh: '又过了三个时隙，衰落让它的应答更弱' },
+        { en: 'The surviving error is half the reply times the rate difference, and its reply is four times longer', zh: '活下来的误差是应答时长的一半乘以速率之差，而它的应答时长长了四倍' },
+        { en: 'Its counter has had four times as long to drift', zh: '它的计数器有四倍的时间可以漂移' },
       ],
       answer: 1,
-      explain: { en: 'The error is not a drift accumulating in the counter; it is a scale error on one measured interval. The same 20 ppm times a longer interval is a proportionally larger error: 2, 4, 6 and 8 ms of reply give 6, 12, 18 and 24 m.', zh: '这个误差不是计数器里累积出来的漂移，而是加在某一段被测量的时间间隔上的比例误差。同样的 20 ppm 乘以更长的间隔，误差就按比例变大：2、4、6、8 ms 的应答时延分别给出 6、12、18、24 m。' },
+      explain: { en: 'Not drift in a counter but a scale error on one interval: the same rate difference on a longer interval is a larger error.', zh: '这不是计数器里的漂移，而是加在一段被测时间上的比例误差：同样的速率之差乘以更长的时间，误差更大。' },
     },
     {
       q: { en: 'Where does the value of Coffs come from?', zh: 'Coffs 这个值是从哪里来的？' },
       options: [
-        { en: 'From the anchor’s datasheet, exchanged once when the session opened', zh: '来自锚点的数据手册，在会话建立时交换一次' },
-        { en: 'From the initiator’s own receiver, which measures the incoming chip rate against its own oscillator and reports it per §10.29.1.6', zh: '来自发起方自己的接收机：它拿进来的码片速率与自己的本振比对，并按 §10.29.1.6 上报' },
-        { en: 'From the difference between Tround and Treply, once both are known', zh: '在 Tround 与 Treply 都已知之后，由两者之差得到' },
+        { en: 'From the anchor’s datasheet, exchanged when the session opens', zh: '来自锚点的数据手册，在会话建立时交换' },
+        { en: 'From the receiver’s own lock on the incoming pulses, against its own crystal', zh: '来自接收端对进来的脉冲的锁定，拿自己的晶体比出来' },
+        { en: 'From the difference between the round trip and the reply', zh: '由往返时间与应答时间之差得到' },
       ],
       answer: 1,
-      explain: { en: 'The ratio is a by-product of a lock the receiver had to acquire anyway. Deriving it from Tround − Treply would be circular: that difference is the answer being sought.', zh: '这个比值是接收机无论如何都要完成的那次锁定的副产品。若想从 Tround − Treply 推出它则会陷入循环：那个差值正是我们要求的答案本身。' },
+      explain: { en: 'The ratio is a by-product of a lock the receiver had to acquire anyway. Deriving it from that difference would be circular: the difference is the answer sought.', zh: '这个比值是接收端无论如何都要完成的那次锁定的副产品。若想从那个差值推出它就成了循环：那个差正是我们要求的答案。' },
     },
     {
-      q: { en: 'After the correction, anchor 4’s range is the most accurate of the four. Is slot 4 therefore the best place to answer from?', zh: '修正之后，锚点 4 的距离反而是四者中最准的。那么在时隙 4 作答是不是最好的选择？' },
+      q: { en: 'After the correction, anchor 4’s range is the most accurate. Is slot 4 the best place to answer from?', zh: '修正之后，锚点 4 的距离反而最准。在时隙 4 作答是不是最好？' },
       options: [
-        { en: 'Yes — the longer reply gives the receiver more time to average its clock estimate', zh: '是——更长的应答时延给了接收机更多时间去平均它的时钟估计' },
-        { en: 'No — slot 4 has the widest residual (1-σ of 24.0 cm against anchor 1’s 6.0 cm); this run drew a small value from it', zh: '否——时隙 4 的残差分布最宽（1σ 为 24.0 cm，而锚点 1 是 6.0 cm）；这一次运行不过是从中抽到了一个小值' },
-        { en: 'No — the accuracy is real, but it comes from anchor 4’s better geometry', zh: '否——这个精度是真实的，但它来自锚点 4 更好的几何位置' },
+        { en: 'Yes — the longer reply gives the receiver more time to average', zh: '是——更长的应答时延让接收端有更多时间去平均' },
+        { en: 'No — slot 4 has the widest leftover, 24.0 cm of 1-σ against anchor 1’s 6.0 cm', zh: '否——时隙 4 的残差最宽，1σ 为 24.0 cm，而锚点 1 只有 6.0 cm' },
+        { en: 'No — it is real, but it comes from anchor 4’s position', zh: '否——精度是真实的，但它来自锚点 4 所在的位置' },
       ],
       answer: 1,
-      explain: { en: 'The residual is ½·Treply·σ_cfo, 3.0 cm of 1-σ per millisecond, so it grows with the reply exactly as the raw error did. A sample from a wide distribution can land anywhere, including nearer the truth than a sample from a narrow one. The four anchors have identical geometry by construction.', zh: '残差是 ½·Treply·σ_cfo，每毫秒 3.0 cm 的 1σ，因此它像 raw 误差一样随应答时延增长。从一个宽分布里抽样，落在哪里都有可能，包括比窄分布的样本更接近真值。而四个锚点的几何是按场景设计刻意做成完全一样的。' },
+      explain: { en: 'The leftover grows with the reply as the raw error did, and a sample from a wide distribution can land anywhere — including nearer the truth than a narrow one’s.', zh: '残差像 raw 误差一样随应答时长增长；而从宽分布里抽样落在哪儿都有可能，包括比窄分布的样本更靠近真值。' },
     },
   ],
 }
