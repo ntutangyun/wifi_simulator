@@ -87,8 +87,8 @@ export const hidden: Lesson = {
         { en: 'Freezes at 64, sits out the 28 µs ACK and a 34 µs wait, resumes at 64 at 2387 µs', zh: '在 64 冻结，熬完 28 µs 的 ACK 和 34 µs 的等待，于 2387 µs 从 64 继续' }],
     ] },
     { heading: { en: 'A freeze that guards nothing', zh: '一次什么也没守住的冻结' }, text: {
-      en: 'That receipt is the last frame of the exchange, so it has nothing left to announce: its Duration is zero and no timer is set anywhere. Moments later the near station starts its next frame and the far one, deaf again, counts straight through it. This is precisely the hole the protected variant fills — there the access point speaks first, and what it announces is the whole exchange still to come.',
-      zh: '那张回执是本次交互的最后一帧，已经没有什么可预告的了：它的 Duration 是零，任何人都不会因此挂起计时器。片刻之后近端站点开始下一帧，重新“失聪”的远端又径直数了过去。受保护的那个变体补的正是这个洞——在那里接入点先开口，而它预告的是整场尚未开始的交互。',
+      en: 'That answer is the last frame of the exchange, so it has nothing left to announce: its Duration is zero and no timer is set anywhere. Moments later the near station starts its next frame and the far one, deaf again, counts straight through it. This is precisely the hole the protected variant fills — there the access point speaks first, and what it announces is the whole exchange still to come.',
+      zh: '那个回答是本次交互的最后一帧，已经没有什么可预告的了：它的 Duration 是零，任何人都不会因此挂起计时器。片刻之后近端站点开始下一帧，重新“失聪”的远端又径直数了过去。受保护的那个变体补的正是这个洞——在那里接入点先开口，而它预告的是整场尚未开始的交互。',
     } },
     { kind: 'table', heading: { en: 'Three hundred milliseconds, with the exchange off and on', zh: '同样的 300 ms，关与开' }, head: [
       { en: 'Counted over 300 ms', zh: '300 ms 内的统计' }, { en: 'Off', zh: '关' }, { en: 'On', zh: '开' },
@@ -108,8 +108,8 @@ export const hidden: Lesson = {
       zh: '受保护那一轮剩下的 32 次碰撞里，25 次是“请问”撞上“请问”：两台隐藏站点的计数器，在相隔不到四个时隙的时间里先后归零。一句“请问”只有二十字节，所以这种碰撞的代价，只是报废一个数据帧的很小一部分。另外 7 次确实撞上了数据帧——有人开口发问时，那一帧其实已经在路上了。这套办法并没有让介质变安全，它只是让不安全的时刻变短。',
     } },
     { heading: { en: 'Which frames pay', zh: '哪些帧要买单' }, text: {
-      en: 'The variant sets its RTS threshold at 500 bytes, and every data frame in this scene is 1528, so all of them ask first. The unprotected scene is the same scene with the threshold left at 3000 — above every frame in the room, so nothing ever asks. Set it far lower instead and the receipts and answers would start asking about themselves, which is why the threshold always sits well above the short frames.',
-      zh: '该变体把 RTS 门限设在 500 字节，而本场景里每个数据帧都是 1528 字节，所以它们全都要先问一句。未受保护的那个场景，就是同一个场景把门限留在 3000——高过屋里任何一帧，于是谁也不会发问。反过来把门限调得极低，则连回执和回答自己都要为自己发问了——这正是门限总要远高于短帧长度的原因。',
+      en: 'The variant sets its RTS threshold at 500 bytes, and every data frame in this scene is 1528, so all of them ask first. The unprotected scene is the same scene with the threshold left at 3000 — above every frame in the room, so nothing ever asks. Set it far lower instead and the answers themselves would start asking first, which is why the threshold always sits well above the short frames.',
+      zh: '该变体把 RTS 门限设在 500 字节，而本场景里每个数据帧都是 1528 字节，所以它们全都要先问一句。未受保护的那个场景，就是同一个场景把门限留在 3000——高过屋里任何一帧，于是谁也不会发问。反过来把门限调得极低，则连回答自己都要先发问了——这正是门限总要远高于短帧长度的原因。',
     } },
   ],
   sources: [

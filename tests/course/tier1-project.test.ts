@@ -172,7 +172,7 @@ describe('tier1-project · (b) the airtime the learner predicts', () => {
     expect(fast.tcNs).toBe(208_600)
     expect(slow.tcNs).toBe(603_000)
 
-    quotes('1528 octets', '⌈12246 / 2340⌉ = 6', '⌈12246 / 351⌉ = 35',
+    quotes('1528 bytes', '⌈12246 / 2340⌉ = 6', '⌈12246 / 351⌉ = 35',
       '48 + 81.6 = 129.6 µs', '48 + 476 = 524.0 µs', '24 Mb/s, 28 µs', '12 Mb/s, 32 µs',
       '129.6 + 16 + 28 + 34 = 207.6 µs', '524.0 + 16 + 32 + 34 = 606.0 µs', '208.6 µs', '603.0 µs')
   })

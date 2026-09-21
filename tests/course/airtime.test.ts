@@ -30,7 +30,9 @@ lessonShapeSuite(airtime, { proseMax: 750, totalMax: 1000, runNs: RUN_NS })
 describe('airtime · the lesson’s own scene', () => {
   it('is a Tier 1 lesson that names the lessons its words come from', () => {
     expect(airtime.module).toBe(0)
-    expect(airtime.needs).toEqual(['radio-primer', 'decode-thresholds', 'frame-anatomy'])
+    // Step review, Minor "front / pattern / preamble": the `preamble` term now says it is
+    // the front whose bytes frame-anatomy-bytes counted, so that lesson joins `needs`.
+    expect(airtime.needs).toEqual(['radio-primer', 'decode-thresholds', 'frame-anatomy', 'frame-anatomy-bytes'])
     // the owner table of the readability programme gives this lesson ACK; it is also
     // held to the opening rules (at most four new words) while it may be the first
     // migrated Wi-Fi lesson a reader meets.

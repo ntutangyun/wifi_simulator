@@ -119,7 +119,7 @@ describe('decode-thresholds · the three questions', () => {
 describe('decode-thresholds · the ladder', () => {
   it('the six printed rungs are the engine’s, requirement and sensitivity alike', () => {
     // "Six of the fourteen rungs, 20 MHz, one stream": MCS, modulation, bits per sub-carrier,
-    //  Mbps, sensitivity, needs.
+    //  Mb/s, sensitivity, needs.
     const rows = mcsLadder('eht')
     expect(rows).toHaveLength(14)
     const printed: [number, number, number, number, string][] = [

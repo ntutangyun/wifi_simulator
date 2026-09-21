@@ -19,7 +19,7 @@ export const backoff: Lesson = {
   title: { en: 'Random backoff & collisions', zh: '随机退避与碰撞' },
   why: {
     en: 'Waiting cannot settle an argument on its own. If two stations are both holding back until the channel goes quiet, they will both hear it go quiet at the same instant, and both start talking. Wi-Fi breaks the tie the only way it can without a referee: every station rolls a die, and the low roll speaks first. This lesson watches the dice, and what happens when two come up equal.',
-    zh: '光是等，解决不了争端。如果两台终端都憋着、等信道安静下来，那它们会在同一瞬间听到它安静下来，然后一起开口。没有裁判的情况下，Wi-Fi 只能用唯一可行的办法来打破平局：每台终端掷一次骰子，点数小的先说。这一课我们盯着骰子看——也看看两颗骰子点数相同时会发生什么。',
+    zh: '光是等，解决不了争端。如果两台站点都憋着、等信道安静下来，那它们会在同一瞬间听到它安静下来，然后一起开口。没有裁判的情况下，Wi-Fi 只能用唯一可行的办法来打破平局：每台站点掷一次骰子，点数小的先说。这一课我们盯着骰子看——也看看两颗骰子点数相同时会发生什么。',
   },
   outcomes: [
     { en: 'describe the draw-and-count-down rule in your own words', zh: '用自己的话说清“抽一个数、再倒着数下去”这条规则' },
@@ -42,13 +42,13 @@ export const backoff: Lesson = {
     } },
   ],
   picture: [
-    { heading: { en: 'Two stations, one instant', zh: '两台终端，同一瞬间' }, text: {
+    { heading: { en: 'Two stations, one instant', zh: '两台站点，同一瞬间' }, text: {
       en: 'Both stations here are busy, both are waiting for the channel, and both follow the same rule. The moment the required silence is over they are in identical states — so a rule with no randomness in it would have them start in the same microsecond, every time, for ever. Something has to make two identical stations behave differently.',
-      zh: '这里的两台终端都很忙，都在等信道，遵守的也是同一条规则。要求的那段安静一走完，它们的状态一模一样——也就是说，一条不带随机性的规则，会让它们在同一微秒开口，每一次都这样，永远这样。讲礼貌是不够的。必须有点什么，让两台一模一样的终端做出不一样的事。',
+      zh: '这里的两台站点都很忙，都在等信道，遵守的也是同一条规则。要求的那段安静一走完，它们的状态一模一样——也就是说，一条不带随机性的规则，会让它们在同一微秒开口，每一次都这样，永远这样。讲礼貌是不够的。必须有点什么，让两台一模一样的站点做出不一样的事。',
     } },
     { heading: { en: 'Roll, then count down', zh: '先掷骰子，再倒着数' }, text: {
       en: 'So each one draws a random whole number and treats it as a count of idle slots to sit through: its backoff. Every slot the channel stays quiet, the count drops by one; at zero the station sends. The lower draw wins, and since the draws are independent, the winner changes from round to round. If a frame starts mid-count the counter freezes and later picks up where it stopped, so nobody loses the waiting already done.',
-      zh: '于是每台终端抽一个随机整数，把它当作“要熬过的空闲时隙数”：这就是它的退避值。信道每安静一个时隙，这个数就减一；减到零就发。抽得小的赢，而由于两边各抽各的，赢家每一轮都可能换人。若中途有帧开始，计数就地冻结，之后从停下的那个数继续，谁都不会把已经等过的时间白等。',
+      zh: '于是每台站点抽一个随机整数，把它当作“要熬过的空闲时隙数”：这就是它的退避值。信道每安静一个时隙，这个数就减一；减到零就发。抽得小的赢，而由于两边各抽各的，赢家每一轮都可能换人。若中途有帧开始，计数就地冻结，之后从停下的那个数继续，谁都不会把已经等过的时间白等。',
     } },
     { kind: 'watch', jump: 0, heading: { en: 'Look at a collision', zh: '去看一次碰撞' }, text: {
       en: 'Load the simulation and jump to the first collision. Two frames start in the same instant and lie on top of each other; at the red tick the access point reports that it locked onto neither.',
@@ -56,7 +56,7 @@ export const backoff: Lesson = {
     } },
     { heading: { en: 'When both dice agree', zh: '当两颗骰子点数相同' }, text: {
       en: 'Nothing stops two stations drawing the same number. When they do, both counters reach zero in the same slot and both frames go out together, on top of each other. Neither sender notices: a radio cannot listen while it transmits. The first thing either learns is that the answer it expected has not arrived.',
-      zh: '没有任何机制能阻止两台终端抽到同一个数。一旦抽到，两边的计数在同一个时隙同时归零，两帧一起发出去，彼此重叠。两个发送方什么都没察觉：无线电在发送时听不见。它们最先得知的事情，是自己等的那个回答没来。',
+      zh: '没有任何机制能阻止两台站点抽到同一个数。一旦抽到，两边的计数在同一个时隙同时归零，两帧一起发出去，彼此重叠。两个发送方什么都没察觉：无线电在发送时听不见。它们最先得知的事情，是自己等的那个回答没来。',
     } },
     { heading: { en: 'Silence needs a deadline', zh: '沉默需要一个期限' }, text: {
       en: 'So the sender starts a clock the moment its frame ends. If an answer were on its way it would have been noticed by now: the receiver’s own short pause, one slot of margin, and the time a radio needs to spot a signal beginning. Past that point silence is a verdict — the ACK timeout expires, the frame is lost, and the station must try again.',
@@ -89,11 +89,11 @@ export const backoff: Lesson = {
     ] },
     { heading: { en: 'The first collision, timed', zh: '第一次碰撞的时刻表' }, text: {
       en: 'Both find the channel idle at the start and send at once, with no draw at all. The overlap is reported at 248 µs, the deadline expires at 293 µs, both windows double to 31, and the fresh draws come at 327 µs.',
-      zh: '一开始两台终端都发现信道空闲，于是根本没抽签就同时发了出去。重叠在 248 µs 被报出来，期限在 293 µs 到期，两边的窗口都翻倍到 31，新的抽取在 327 µs 完成。',
+      zh: '一开始两台站点都发现信道空闲，于是根本没抽签就同时发了出去。重叠在 248 µs 被报出来，期限在 293 µs 到期，两边的窗口都翻倍到 31，新的抽取在 327 µs 完成。',
     } },
     { heading: { en: 'How often it goes wrong', zh: '出错的频率' }, text: {
       en: 'Across 300 ms these two stations send 864 frames and collide 47 times — roughly one attempt in twenty. Doubling works: only five draws in the run come from a window as wide as 63.',
-      zh: '在 300 ms 里，这两台终端一共发出 864 帧，碰撞 47 次——大约二十次里错一次。翻倍是管用的：整轮下来，只有五次抽取来自宽达 63 的窗口。',
+      zh: '在 300 ms 里，这两台站点一共发出 864 帧，碰撞 47 次——大约二十次里错一次。翻倍是管用的：整轮下来，只有五次抽取来自宽达 63 的窗口。',
     } },
   ],
   deeper: [
@@ -112,7 +112,7 @@ export const backoff: Lesson = {
     { en: 'The acknowledgement deadline is §10.3.2.9: aSIFSTime + aSlotTime + aRxPHYStartDelay, which is 16 + 9 + 20 µs here.',
       zh: '确认帧的期限见 §10.3.2.9：aSIFSTime + aSlotTime + aRxPHYStartDelay，在这里就是 16 + 9 + 20 µs。' },
     { en: 'The capture margin that decides which of two overlapping preambles a radio locks onto is a model choice of this simulator, as are the seed, the two saturated stations and the 1528-byte frame.',
-      zh: '“两个重叠前导里无线电锁住哪一个”所用的捕获余量，是本仿真器的模型取值；随机种子、两台饱和终端与 1528 字节的帧同样如此。' },
+      zh: '“两个重叠前导里无线电锁住哪一个”所用的捕获余量，是本仿真器的模型取值；随机种子、两台饱和站点与 1528 字节的帧同样如此。' },
   ],
   scenario: () => sc(oneRoom(), [
     node('ap', 'AP', 'ap', 5, 4, 'eht', 'idle'),
@@ -127,36 +127,36 @@ export const backoff: Lesson = {
   ],
   observe: [
     { en: 'The counters (bo:n) drop only while the channel is idle. When the other station transmits they freeze and resume at the same value — 770 pairs here, not one losing a slot.', zh: '计数器（bo:n）只在信道空闲时递减。对方一发送就冻结，之后从同一个值继续——本轮共有 770 组冻结与恢复，没有一组丢掉过一个时隙。' },
-    { en: 'At the red tick the access point’s lane shows the overlap hatched and marked “not detected”. Afterwards both stations show CW 31 in the inspector, and each retry frame carries the Retry flag.', zh: '红色刻度处，AP 泳道上的重叠部分打着斜线并标着“未检测到”。之后检视器里两台终端的 CW 都变成 31，而每一个重传帧都带着 Retry 标志。' },
+    { en: 'At the red tick the access point’s lane shows the overlap hatched and marked “not detected”. Afterwards both stations show CW 31 in the inspector, and each retry frame carries the Retry flag.', zh: '红色刻度处，AP 泳道上的重叠部分打着斜线并标着“未检测到”。之后检视器里两台站点的 CW 都变成 31，而每一个重传帧都带着 Retry 标志。' },
     { en: 'Jump to the second collision, at about 8.1 ms, and step backwards: both counters reach zero in the very same slot. It was settled a moment before it happened.', zh: '跳到大约 8.1 ms 处的第二次碰撞，从那里往回步进：两个计数器在同一个时隙同时归零。碰撞在发生之前的那一刻就已经注定了。' },
   ],
   tryThis: [
-    { en: 'Count the idle slots between the end of a DIFS and the frame that follows it. It always equals the number that station drew.', zh: '数一数从一个 DIFS 结束到紧随其后那一帧开始之间的空闲时隙。它永远等于那台终端抽到的数。' },
+    { en: 'Count the idle slots between the end of a DIFS and the frame that follows it. It always equals the number that station drew.', zh: '数一数从一个 DIFS 结束到紧随其后那一帧开始之间的空闲时隙。它永远等于那台站点抽到的数。' },
     { en: 'Change the seed in the editor and reload: different draws, different collision times, still roughly one attempt in twenty going wrong.', zh: '在编辑器里换一个随机种子再载入。抽到的数不同，碰撞的时刻不同——但出错的比例依旧是大约二十次里一次。' },
   ],
   quiz: [
     {
-      q: { en: 'How does a station discover that its frame collided?', zh: '终端是怎么发现自己那一帧碰撞了的？' },
+      q: { en: 'How does a station discover that its frame collided?', zh: '站点是怎么发现自己那一帧碰撞了的？' },
       options: [
         { en: 'It hears the interference while it is transmitting', zh: '它在发送时听到了干扰' },
         { en: 'The answer never arrives, and the deadline for it expires', zh: '回答一直没来，等它的那个期限到期了' },
         { en: 'The access point broadcasts a collision notice', zh: 'AP 广播了一条碰撞通知' },
       ],
       answer: 1,
-      explain: { en: 'A half-duplex radio cannot listen while it talks. Hence collision avoidance rather than collision detection.', zh: '半双工的无线电边说边听是做不到的。正因如此，这套机制是“碰撞避免”，而不是“碰撞检测”。' },
+      explain: { en: 'A radio cannot listen while it talks. Hence collision avoidance rather than collision detection.', zh: '无线电边说边听是做不到的。正因如此，这套机制是“碰撞避免”，而不是“碰撞检测”。' },
     },
     {
       q: { en: 'Why double the window after each failure?', zh: '为什么每失败一次就要把窗口翻倍？' },
       options: [
-        { en: 'To punish stations that misbehave', zh: '为了惩罚行为不端的终端' },
+        { en: 'To punish stations that misbehave', zh: '为了惩罚行为不端的站点' },
         { en: 'More contenders mean more collisions; spreading the draws over a wider range separates them again', zh: '竞争者越多碰撞越多；把抽值摊到更宽的范围上，能把它们重新分开' },
-        { en: 'To save the station’s battery', zh: '为了给终端省电' },
+        { en: 'To save the station’s battery', zh: '为了给站点省电' },
       ],
       answer: 1,
-      explain: { en: 'Nobody knows how many stations are active, so the window learns it the hard way: wider after each failure, smallest again after each success.', zh: '没人知道到底有多少台终端在抢，所以窗口只能用笨办法去学：每失败一次就变宽，每成功一次就弹回去。' },
+      explain: { en: 'Nobody knows how many stations are active, so the window learns it the hard way: wider after each failure, smallest again after each success.', zh: '没人知道到底有多少台站点在抢，所以窗口只能用笨办法去学：每失败一次就变宽，每成功一次就弹回去。' },
     },
     {
-      q: { en: 'A counter freezes at 7 while another station transmits. What value does it resume at?', zh: '别的终端在发送时，一个计数器冻结在 7。恢复时它从几开始？' },
+      q: { en: 'A counter freezes at 7 while another station transmits. What value does it resume at?', zh: '别的站点在发送时，一个计数器冻结在 7。恢复时它从几开始？' },
       options: [
         { en: 'A freshly drawn number', zh: '重新抽一个数' },
         { en: '7 — exactly where it stopped', zh: '7——正是它停下的那个数' },

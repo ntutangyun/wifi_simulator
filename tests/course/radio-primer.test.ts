@@ -90,7 +90,7 @@ describe('radio-primer · what arrives', () => {
 
   it('the four-place table is the link budget, the link table and the first frame, all agreeing', () => {
     // "The same laptop, four places": −31.7/−52.7/−72.3/−78.1 dBm, 62.3/41.3/21.7/15.9 dB,
-    //  172.1/129.0/34.4/17.2 Mbps — and the observation "Jump to the first data frame in each
+    //  172.1/129.0/34.4/17.2 Mb/s — and the observation "Jump to the first data frame in each
     //  of the four variants and read the rate".
     PRIMER_DISTANCES.forEach((d, i) => {
       const e = TABLE[i]
@@ -199,8 +199,8 @@ describe('radio-primer · what the run shows', () => {
     expect(acks[3] / acks[0]).toBeLessThan(1 / 3)
   })
 
-  it('deeper: the router’s reply is 24 Mbps and 28 µs, and only 12 Mbps and 32 µs at the far wall', () => {
-    // "24 Mbps in the first three variants and 12 Mbps only at the far wall, 28 µs of air
+  it('deeper: the router’s reply is 24 Mb/s and 28 µs, and only 12 Mb/s and 32 µs at the far wall', () => {
+    // "24 Mb/s in the first three variants and 12 Mb/s only at the far wall, 28 µs of air
     //  against 32 µs … while the data frames stretch nearly sixfold."
     const acks = radioPrimer.variants!.map((_v, i) => txs(variantRecs(i), 'ap', 'ack')[0].frame)
     expect(acks.map((f) => f.mbps)).toEqual([24, 24, 24, 12])
@@ -221,9 +221,9 @@ describe('radio-primer · try this', () => {
     expect((rssi[1] - rssi[2]).toFixed(1)).toBe('9.0')
   })
 
-  it('brick swapped for glass in the living room: −63.3 dBm and 86.0 Mbps', () => {
+  it('brick swapped for glass in the living room: −63.3 dBm and 86.0 Mb/s', () => {
     // "The received level rises to −63.3 dBm — the 4.5 m brick figure — and the frames speed up
-    //  from 34.4 to 86.0 Mbps."
+    //  from 34.4 to 86.0 Mb/s."
     const s = primerScenario(9)
     const i = s.walls.findIndex((w) => w.x1 === 6 && w.x2 === 6)
     expect(s.walls[i].material).toBe('brick')

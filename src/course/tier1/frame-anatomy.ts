@@ -176,7 +176,7 @@ export const frameAnatomy: Lesson = {
       [N('B10'), { en: 'More Fragments', zh: '更多分片' }, { en: 'Another fragment of this MSDU follows.', zh: '后面还有本 MSDU 的分片。' }],
       [N('B11'), { en: 'Retry', zh: '重传' }, { en: '1 on a retransmission, so the receiver can drop a duplicate.', zh: '重传时置 1，接收方据此丢弃重复帧。' }],
       [N('B12'), { en: 'Power Management', zh: '电源管理' }, { en: 'The sender will doze after this exchange.', zh: '发送方在本次交换后将进入休眠。' }],
-      [N('B13'), { en: 'More Data', zh: '更多数据' }, { en: 'The AP holds more buffered frames for a dozing station.', zh: 'AP 还为休眠终端缓存着更多帧。' }],
+      [N('B13'), { en: 'More Data', zh: '更多数据' }, { en: 'The AP holds more buffered frames for a dozing station.', zh: 'AP 还为休眠站点缓存着更多帧。' }],
       [N('B14'), { en: 'Protected Frame', zh: '受保护帧' }, { en: 'The body is encrypted.', zh: '帧体已加密。' }],
       [N('B15'), N('+HTC / Order'), { en: 'A 4 B HT Control field follows the header.', zh: '头后跟着 4 B 的 HT 控制字段。' }],
     ] },
@@ -201,9 +201,6 @@ export const frameAnatomy: Lesson = {
   jumps: [
     J('first legacy data frame', '第一个传统数据帧', firstLegacyData),
     J('first QoS data frame', '第一个 QoS 数据帧', firstQosSingle),
-    J('first RTS', '第一个 RTS', firstRtsFrame),
-    J('first A-MPDU', '第一个 A-MPDU', firstAmpduFrame),
-    J('first BlockAck', '第一个 BlockAck', firstBlockAck),
     J('first retransmission (Retry = 1)', '第一次重传（Retry = 1）', firstLegacyRetry),
   ],
   observe: [

@@ -101,19 +101,19 @@ export const frameAnatomyBytes: Lesson = {
       en: '24 + 1500 + 4 = 1528 B      ·      26 + 1500 + 4 = 1530 B with the mark',
       zh: '24 + 1500 + 4 = 1528 B      ·      带标记时 26 + 1500 + 4 = 1530 B',
     }, note: {
-      en: 'Both fill 57 symbols at 54 Mb/s, so both take 248 µs of air: the two extra bytes buy no extra symbol, and cost nothing at all here.',
-      zh: '两者在 54 Mb/s 下都占满 57 个符号，所以都要 248 µs 空口时间：多出的那两个字节没换来一个新符号，在这里等于白送。',
+      en: 'Both fill 57 symbols at 54 Mb/s, so both take 248 µs of air: the two extra bytes buy no extra symbol, and cost nothing here.',
+      zh: '两者在 54 Mb/s 下都占满 57 个符号，所以都要 248 µs 空口时间：多出的那两个字节没换来一个新符号，在这里白送。',
     } },
     { kind: 'table', heading: { en: 'The small frames carry only what they need', zh: '小帧只带非带不可的东西' }, head: [
       { en: 'Frame', zh: '帧' }, { en: 'What is in it', zh: '里面有什么' }, { en: 'Size', zh: '大小' },
     ], rows: [
       [N('Ack, CTS'), { en: 'Frame Control, Duration, Address 1, FCS', zh: '帧控制、持续时间、地址 1、FCS' }, N('14 B')],
       [N('RTS'), { en: 'the same, plus Address 2 — the answer has to come back to it', zh: '同样的内容，再加地址 2——回复得找得到它' }, N('20 B')],
-      [N('BlockAck'), { en: 'both addresses, a starting number and a 64-bit map of what arrived', zh: '两个地址、一个起始序号，以及一张 64 位的到达情况位图' }, N('32 B')],
+      [N('BlockAck'), { en: 'the BlockAck (one answer for a whole burst): both addresses, a start number, a 64-bit map', zh: 'BlockAck（一整串帧只换一个回答）：两个地址、一个起始序号、一张 64 位位图' }, N('32 B')],
     ] },
     { heading: { en: 'What a small frame costs', zh: '一个小帧要花多少' }, text: {
-      en: 'A 14 B answer at 24 Mb/s fills two symbols and takes 28 µs of air — 20 µs of it front, not answer.',
-      zh: '一个 14 B 的回复在 24 Mb/s 下占两个符号，要 28 µs 空口时间——其中 20 µs 是前脸，不是回复本身。',
+      en: 'A 14 B answer at 24 Mb/s fills two symbols and takes 28 µs of air, 20 µs of it front.',
+      zh: '一个 14 B 的回复在 24 Mb/s 下占两个符号，要 28 µs 空口时间，其中 20 µs 是前脸。',
     } },
     { kind: 'formula', heading: { en: 'Lining them up behind one front', zh: '把它们排在一个前脸后面' }, text: {
       en: 'one place in the queue = a 4 B delimiter + the frame + padding up to a multiple of four',

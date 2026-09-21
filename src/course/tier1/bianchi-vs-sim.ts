@@ -54,11 +54,11 @@ export const bianchiVsSim: Lesson = {
   picture: [
     { heading: { en: 'Two answers, side by side', zh: '两个答案，并排放' }, text: {
       en: 'On the arc — every station the same distance from the access point, every frame the same length — the prediction and the run agree closely. That is the good case, and it is good on purpose: the scene was built so that each assumption the paper makes is actually true. Move one thing, and the agreement can vanish.',
-      zh: '在圆弧上——每台终端到 AP 的距离相同，每一帧的长度也相同——预测与实跑吻合得相当好。这是好的那一种情况，而且是刻意布置出来的：整个场景就是为了让论文的每一条假设真的成立。只要挪动其中一件事，这份吻合就可能消失。',
+      zh: '在圆弧上——每台站点到 AP 的距离相同，每一帧的长度也相同——预测与实跑吻合得相当好。这是好的那一种情况，而且是刻意布置出来的：整个场景就是为了让论文的每一条假设真的成立。只要挪动其中一件事，这份吻合就可能消失。',
     } },
     { heading: { en: 'A sender that changes its mind', zh: '一个会改主意的发送方' }, text: {
       en: 'Move the same five stations close in, where the link can carry frames nine times faster, and the run delivers a fifth of what the paper says. The rules did not break. Rate control did: a sender that loses frames slows down, and it cannot tell a collision from a weak signal. So it slows down into a crowd, making every frame longer and every clash more likely.',
-      zh: '把同样这五台终端挪到近处——链路在那里能把帧发快九倍——实跑却只交付了纸上说法的五分之一。规则没坏，坏的是速率控制：丢帧的发送方会降速，而它分不清“碰撞”和“信号弱”。于是它在人多的时候越降越慢，让每一帧都更长、每一次相撞都更容易发生。',
+      zh: '把同样这五台站点挪到近处——链路在那里能把帧发快九倍——实跑却只交付了纸上说法的五分之一。规则没坏，坏的是速率控制：丢帧的发送方会降速，而它分不清“碰撞”和“信号弱”。于是它在人多的时候越降越慢，让每一帧都更长、每一次相撞都更容易发生。',
     } },
     { kind: 'watch', jump: 1, heading: { en: 'Watch the blocks change length', zh: '看那些色块的长度在变' }, text: {
       en: 'Load the simulation and jump to the first collision. The coloured blocks keep changing length as the senders step up and down. Then load the arc variant: every block is the same length again. That is the fixed-rate assumption, switched off and on.',
@@ -70,7 +70,7 @@ export const bianchiVsSim: Lesson = {
     } },
     { heading: { en: 'One event, three clocks', zh: '一次事件，三只钟' }, text: {
       en: 'The paper restarts everybody at the same instant. Real stations do not. The two that collided wait out their own deadline. A neighbour that locked onto one of the overlapping frames and failed to read it owes the long penalty wait, EIFS. A neighbour that locked onto neither owes only the short one, DIFS. Three different restart times, from one event — and the chain has no state for that.',
-      zh: '论文让所有人在同一瞬间重启，真实的终端不会。碰撞的那两台各自等满自己的期限。锁上了重叠帧之一却没能读出来的邻居，欠的是那段长长的惩罚等待 EIFS。两个都没锁上的邻居，只欠短的那个 DIFS。一次事件，三种重启时刻——而那条链里根本没有描述这件事的状态。',
+      zh: '论文让所有人在同一瞬间重启，真实的站点不会。碰撞的那两台各自等满自己的期限。锁上了重叠帧之一却没能读出来的邻居，欠的是那段长长的惩罚等待 EIFS。两个都没锁上的邻居，只欠短的那个 DIFS。一次事件，三种重启时刻——而那条链里根本没有描述这件事的状态。',
     } },
     { heading: { en: 'What to do with what is left', zh: '剩下的那部分怎么办' }, text: {
       en: 'Name each cause, size it in the model’s own units, check its sign — then say out loud how much is still unaccounted for. That leftover is the residual, and reporting it is a result. Tuning a constant until the curves meet is not: it destroys the one thing the prediction was good for.',
@@ -89,9 +89,9 @@ export const bianchiVsSim: Lesson = {
     ] },
     { heading: { en: 'Close, but wrong the same way each time', zh: '很接近，但每次都错向同一边' }, text: {
       en: 'Every collision figure lands within 10 % of the prediction and every throughput within 5 %, with no fitted parameter. But from five stations upward the run always collides less than predicted, and only the two-station row flips sign — systematic, therefore explainable.',
-      zh: '每一个碰撞数都落在预测的 10% 以内，每一个吞吐都在 5% 以内，而且全程没有任何拟合参数。但从五台终端往上，实跑的碰撞总是少于预测，只有两台终端那一行符号反了过来。既然是系统性的，就是可以解释的。',
+      zh: '每一个碰撞数都落在预测的 10% 以内，每一个吞吐都在 5% 以内，而且全程没有任何拟合参数。但从五台站点往上，实跑的碰撞总是少于预测，只有两台站点那一行符号反了过来。既然是系统性的，就是可以解释的。',
     } },
-    { kind: 'table', heading: { en: 'The same five stations, moved close in', zh: '同样五台终端，挪到近处' }, head: [
+    { kind: 'table', heading: { en: 'The same five stations, moved close in', zh: '同样五台站点，挪到近处' }, head: [
       { en: 'Measured close in', zh: '近处实测' }, { en: 'On the arc', zh: '圆弧上' }, { en: 'Predicted', zh: '预测' },
     ], rows: [
       [{ en: 'Collides: 26.17 %', zh: '碰撞：26.17%' }, N('25.84 %'), N('27.22 %')],
@@ -100,12 +100,12 @@ export const bianchiVsSim: Lesson = {
     ] },
     { heading: { en: 'Reading that table', zh: '这张表怎么读' }, text: {
       en: 'The middle column is the alibi: close in the stations collide just as the paper says, so contention is not the suspect — what collapsed is the rate. Of 6248 frames sent close in, only 1.1 % used the fast rate the link could carry.',
-      zh: '中间那一列就是不在场证明：近处的终端碰撞得和论文说的一样多，竞争不是嫌疑人——崩掉的是速率。近处发出的 6248 帧里，只有 1.1% 用上了链路扛得住的快速率。',
+      zh: '中间那一列就是不在场证明：近处的站点碰撞得和论文说的一样多，竞争不是嫌疑人——崩掉的是速率。近处发出的 6248 帧里，只有 1.1% 用上了链路扛得住的快速率。',
     } },
     { kind: 'list', heading: { en: 'The smaller differences, sized', zh: '较小的差异，各值多少' }, items: [
-      { en: 'The slot clock. The chain lets a waiting counter tick down across a busy period; the standard freezes it. Force the engine to tick and the twenty-station figure climbs from 45.83 % towards 47.9 % — half the gap to the predicted 49.59 %.', zh: '时隙时钟。链会让等待中的计数器在忙周期上继续减一，而标准是把它冻住。把引擎改成继续减一，二十台终端的实测值就从 45.83% 升到 47.9% 左右——大约是它与预测值 49.59% 之间差距的一半。' },
-      { en: 'Restart times. The five-station arc run logs 1029 long penalty waits, each keeping one neighbour out of the contention 60 µs longer than the others. The chain has no state for that.', zh: '重启时刻。五台终端的圆弧仿真记录了 1029 次长惩罚等待，每一次都让某个邻居比其他人多被挡在竞争之外 60 µs。而那条链里没有描述“人群失去同步”的状态。' },
-      { en: 'The cost of a pile-up. A collision here ends 15 µs sooner than a success, 0.7 % of one exchange and worth 0.2 % of throughput at twenty stations. The paper’s own figure would move the prediction 0.6 % the other way.', zh: '撞车的代价。在这里，一次碰撞比一次成功早结束 15 µs，约占一次交互的 0.7%，在二十台终端时值 0.2% 的吞吐。改用论文自己的取值，预测反而会往另一边挪 0.6%。' },
+      { en: 'The slot clock. The chain lets a waiting counter tick down across a busy period; the standard freezes it. Force the engine to tick and the twenty-station figure climbs from 45.83 % towards 47.9 % — half the gap to the predicted 49.59 %.', zh: '时隙时钟。链会让等待中的计数器在忙周期上继续减一，而标准是把它冻住。把引擎改成继续减一，二十台站点的实测值就从 45.83% 升到 47.9% 左右——大约是它与预测值 49.59% 之间差距的一半。' },
+      { en: 'Restart times. The five-station arc run logs 1029 long penalty waits, each keeping one neighbour out of the contention 60 µs longer than the others. The chain has no state for that.', zh: '重启时刻。五台站点的圆弧仿真记录了 1029 次长惩罚等待，每一次都让某个邻居比其他人多被挡在竞争之外 60 µs。而那条链里没有描述“人群失去同步”的状态。' },
+      { en: 'The cost of a pile-up. A collision here ends 15 µs sooner than a success, 0.7 % of one exchange and worth 0.2 % of throughput at twenty stations. The paper’s own figure would move the prediction 0.6 % the other way.', zh: '撞车的代价。在这里，一次碰撞比一次成功早结束 15 µs，约占一次交互的 0.7%，在二十台站点时值 0.2% 的吞吐。改用论文自己的取值，预测反而会往另一边挪 0.6%。' },
     ] },
     { heading: { en: 'The residual', zh: '残差' }, text: {
       en: 'Add the named causes up and about two points of collision rate at the larger crowds are still unaccounted for. Say so. The prediction earns its keep anyway: two equations, no fitted parameter, throughput right to a few percent across a tenfold change in crowd size.',
@@ -115,11 +115,11 @@ export const bianchiVsSim: Lesson = {
   deeper: [
     { heading: { en: 'Why small crowds are the hard case', zh: '为什么人少反而是难的情形' }, text: {
       en: 'Two stations is the row whose sign flips: measured 11.20 % against a predicted 10.46 %. The chain treats the others as coins tossed independently in every slot, and with a single opponent there is nothing to average over — after one station wins, what is left on its partner’s counter is anything but a fresh uniform draw. Accuracy improves as the crowd grows, which is exactly backwards from the intuition that small networks are easy.',
-      zh: '两台终端就是那个符号反转的行：实测 11.20%，预测 10.46%。链把其余终端当成每个时隙独立抛掷的硬币，而只有一个对手时根本无从平均——某台终端赢下一轮之后，对方计数器上剩下的数怎么看都不是一次全新的均匀抽签。精度随人群变大而变好，这与“小网络更简单”的直觉恰好相反。',
+      zh: '两台站点就是那个符号反转的行：实测 11.20%，预测 10.46%。链把其余站点当成每个时隙独立抛掷的硬币，而只有一个对手时根本无从平均——某台站点赢下一轮之后，对方计数器上剩下的数怎么看都不是一次全新的均匀抽签。精度随人群变大而变好，这与“小网络更简单”的直觉恰好相反。',
     } },
     { heading: { en: 'What the model cannot be asked', zh: '有些问题不能问这个模型' }, text: {
       en: 'The collision probability is one number for a whole network. In the twenty-station arc run the per-station rates spread from 42.9 % to 52.1 %, and nothing is wrong: that is the spread of a finite sample of one shared lottery. But fairness, delay tails and starvation are outside this model’s vocabulary entirely, and a model quietly answering a question you did not ask it is the most expensive mistake in this lesson.',
-      zh: '碰撞概率是整个网络一个数。在二十台终端的圆弧仿真里，各终端自己的碰撞率从 42.9% 铺到 52.1%，而这没有任何问题：那只是同一场共享抽奖在有限样本上的离散。但公平性、时延长尾与饿死现象，根本不在这个模型的词汇表里；而一个模型悄悄回答了你没问它的问题，是本课中代价最高的错误。',
+      zh: '碰撞概率是整个网络一个数。在二十台站点的圆弧仿真里，各站点自己的碰撞率从 42.9% 铺到 52.1%，而这没有任何问题：那只是同一场共享抽奖在有限样本上的离散。但公平性、时延长尾与饿死现象，根本不在这个模型的词汇表里；而一个模型悄悄回答了你没问它的问题，是本课中代价最高的错误。',
     } },
     { heading: { en: 'The pathology has a literature', zh: '这个病症是有文献的' }, text: {
       en: 'A rate controller that reads collisions as fading is exactly what collision-aware rate adaptation was invented to fix: CARA (Kim et al., INFOCOM 2006) probes with a request-to-send frame before stepping down, and RRAA (Wong et al., MobiCom 2006) keeps a short-window loss estimate instead of counting consecutive failures. Neither is modelled here; the point of the close-in run is to show why they exist.',
@@ -127,7 +127,7 @@ export const bianchiVsSim: Lesson = {
     } },
     { heading: { en: 'Testing the model at its corner', zh: '在模型的极端角落考它' }, text: {
       en: 'Give all five arc stations a tampered driver with no window at all and the equations say every station transmits in every slot, every attempt collides, throughput is zero. The run delivers exactly that: 23,335 attempts, 23,330 of them collided, not one answer, 3,330 frames given up. Leave the cheat on one station only and it takes 4,634 of the 4,639 attempts, the four obedient stations get five frames away between them in ten seconds, and the channel still carries 5.557 Mb/s — the one-station ceiling, a payload divided by the cost of one clean exchange.',
-      zh: '给圆弧上五台终端全挂上“根本没有窗口”的篡改驱动，方程会说：每台终端在每个时隙都发送，每次尝试都碰撞，吞吐为零。实跑给出的正是如此：23,335 次尝试，其中 23,330 次碰撞，一个回答也没有，3,330 帧被放弃。只给一台挂上作弊，它就拿走 4,639 次尝试中的 4,634 次，四台守规矩的终端十秒里一共只发出五帧，而信道仍跑出 5.557 Mb/s——正是单终端的天花板：一个净荷除以一次干净交互的代价。',
+      zh: '给圆弧上五台站点全挂上“根本没有窗口”的篡改驱动，方程会说：每台站点在每个时隙都发送，每次尝试都碰撞，吞吐为零。实跑给出的正是如此：23,335 次尝试，其中 23,330 次碰撞，一个回答也没有，3,330 帧被放弃。只给一台挂上作弊，它就拿走 4,639 次尝试中的 4,634 次，四台守规矩的站点十秒里一共只发出五帧，而信道仍跑出 5.557 Mb/s——正是单站点的天花板：一个净荷除以一次干净交互的代价。',
     } },
   ],
   sources: [
@@ -151,12 +151,12 @@ export const bianchiVsSim: Lesson = {
   ],
   observe: [
     { en: 'In the close-in run the green blocks keep changing length: 248 µs at the fast rate, 2064 µs at the slow one. On the arc variant every block is the same length.', zh: '在近处那次仿真里，绿色色块的长度一直在变：快速率下 248 µs，慢速率下 2064 µs。而在圆弧变体里，每个色块都一样长。' },
-    { en: 'Close in, the access point sometimes locks onto one of two overlapping frames and logs a failed reception. On the arc, where every station arrives at the same strength, it never does. Capture is a distance effect.', zh: '在近处，AP 有时会锁住两个重叠帧中的一个，并记下一次接收失败。而在圆弧上，每台终端到达的强度都一样，这种事从不发生。捕获是距离带来的效应。' },
+    { en: 'Close in, the access point sometimes locks onto one of two overlapping frames and logs a failed reception. On the arc, where every station arrives at the same strength, it never does. Capture is a distance effect.', zh: '在近处，AP 有时会锁住两个重叠帧中的一个，并记下一次接收失败。而在圆弧上，每台站点到达的强度都一样，这种事从不发生。捕获是距离带来的效应。' },
     { en: 'After a collision, step forward through the waiting blocks: the two that collided are still inside their own deadline while one neighbour is in EIFS and another in DIFS. Three clocks, one event.', zh: '碰撞之后，逐步向前翻那些等待色块：碰撞的两台还在各自的期限里，一个邻居已经进入 EIFS，另一个只在 DIFS。一次事件，三只钟。' },
   ],
   tryThis: [
     { en: 'Run both variants ten seconds and put four numbers side by side: 26.17 % close in against 25.84 % on the arc, then 5.534 against 4.717 Mb/s. Blaming rate control rather than contention is the whole exercise.', zh: '把两个变体各跑十秒，把四个数并排放：近处 26.17%、圆弧 25.84%，然后是 5.534 对 4.717 Mb/s。把缺掉的那部分吞吐归因于速率控制而不是竞争，就是这道练习的全部。' },
-    { en: 'Test the prediction at its corner. Give all five arc stations the tampered driver with no window: the run collides 23,330 times out of 23,335 attempts, delivers nothing, gives up 3,330 frames — exactly what the equations say.', zh: '在预测的极端角落考它。给圆弧上五台终端都挂上“没有窗口”的篡改驱动：实跑在 23,335 次尝试里碰撞 23,330 次，什么也没送到，放弃 3,330 帧——与方程说的分毫不差。' },
+    { en: 'Test the prediction at its corner. Give all five arc stations the tampered driver with no window: the run collides 23,330 times out of 23,335 attempts, delivers nothing, gives up 3,330 frames — exactly what the equations say.', zh: '在预测的极端角落考它。给圆弧上五台站点都挂上“没有窗口”的篡改驱动：实跑在 23,335 次尝试里碰撞 23,330 次，什么也没送到，放弃 3,330 帧——与方程说的分毫不差。' },
   ],
   quiz: [
     {
@@ -164,7 +164,7 @@ export const bianchiVsSim: Lesson = {
       options: [
         { en: 'How many frames were given up', zh: '有多少帧被放弃了' },
         { en: 'The spread of data rates over the frames actually sent', zh: '实际发出的帧在各数据速率上的分布' },
-        { en: 'How deep each station’s queue got', zh: '各终端的队列排到多深' },
+        { en: 'How deep each station’s queue got', zh: '各站点的队列排到多深' },
       ],
       answer: 1,
       explain: { en: 'The measured collision rate already matches the prediction, so contention is not the suspect. The rate mix names the mechanism at a glance.', zh: '实测的碰撞率已经与预测吻合，所以竞争不是嫌疑人。速率分布用一张直方图就点出了机制。' },
@@ -177,7 +177,7 @@ export const bianchiVsSim: Lesson = {
         { en: 'The preamble rule that turns simultaneous starts into clean collisions', zh: '把同时起始变成干净碰撞的那条前导规则' },
       ],
       answer: 1,
-      explain: { en: 'The retry limit pushes the collision rate up, not down, and the preamble rule is what makes no capture true. Freezing delays every waiting station by a slot.', zh: '重传上限是把碰撞率往上推而不是往下压，而前导规则恰恰让“无捕获”假设成立。冻结则让每台等待中的终端晚一个时隙。' },
+      explain: { en: 'The retry limit pushes the collision rate up, not down, and the preamble rule is what makes no capture true. Freezing delays every waiting station by a slot.', zh: '重传上限是把碰撞率往上推而不是往下压，而前导规则恰恰让“无捕获”假设成立。冻结则让每台等待中的站点晚一个时隙。' },
     },
     {
       q: { en: 'A few percent stay unexplained. What is the professional move?', zh: '还剩几个百分点解释不了。专业的做法是什么？' },

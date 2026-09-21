@@ -81,16 +81,16 @@ export const ifs: Lesson = {
       [N('slot'), N('9 µs'), { en: 'the unit the longer waits are built from', zh: '较长等待都是拿它搭出来的' }, N('§17.4.4')],
       [N('SIFS'), N('16 µs'), { en: 'only the exchange already running — its answer can never be beaten to the channel', zh: '只有已经在进行的那次交互——它的回答永远不会被抢先' }, N('§17.4.4')],
       [N('DIFS'), { en: '34 µs = SIFS + 2 slots', zh: '34 µs = SIFS + 2 个时隙' }, { en: 'any station asking for a new turn', zh: '任何想要新发言机会的站点' }, N('§10.3.2.3.5')],
-      [N('EIFS'), { en: '94 µs = SIFS + ACK + DIFS', zh: '94 µs = SIFS + ACK + DIFS' }, { en: 'a station whose reception started and then failed its check', zh: '已经开始接收、却校验失败的站点' }, N('§10.3.2.3.7')],
+      [N('EIFS'), { en: '94 µs = 16 + 44 + 34: a SIFS, an ACK at the slowest rate, a DIFS', zh: '94 µs = 16 + 44 + 34：一个 SIFS、一个以最慢速率发出的 ACK、一个 DIFS' }, { en: 'a station whose reception started and then failed its check', zh: '已经开始接收、却校验失败的站点' }, N('§10.3.2.3.7')],
     ] },
     { heading: { en: 'What that buys in this run', zh: '这在本轮仿真里换来了什么' }, text: {
       en: 'The uploader’s frame holds the channel for 248 µs, and its answer starts exactly 16 µs after the frame ends — every one of the 254 answers in this run, never a microsecond more or less.',
-      zh: '上传终端的帧把信道占住 248 µs，而它的回答恰好在帧结束后 16 µs 开始——本轮仿真里 254 个回答个个如此，一微秒也不多、一微秒也不少。',
+      zh: '上传站点的帧把信道占住 248 µs，而它的回答恰好在帧结束后 16 µs 开始——本轮仿真里 254 个回答个个如此，一微秒也不多、一微秒也不少。',
     } },
     { kind: 'table', heading: { en: 'One full turn, in order', zh: '完整的一轮，按顺序' }, head: [
       { en: 'When', zh: '时刻' }, { en: 'What happens', zh: '发生了什么' },
     ], rows: [
-      [N('0 µs'), { en: 'the uploader’s data frame starts', zh: '上传终端的数据帧开始' }],
+      [N('0 µs'), { en: 'the uploader’s data frame starts', zh: '上传站点的数据帧开始' }],
       [N('248 µs'), { en: 'the frame ends and the channel goes quiet', zh: '帧结束，信道安静下来' }],
       [N('264 µs'), { en: 'the answer starts, one SIFS later', zh: '一个 SIFS 之后，回答开始' }],
       [N('292 µs'), { en: 'the answer ends; the DIFS begins', zh: '回答结束，DIFS 开始' }],
@@ -108,7 +108,7 @@ export const ifs: Lesson = {
     { en: '§10.3.2.3.7 defines EIFS as SIFS + DIFS + the time to send an acknowledgement at the lowest mandatory rate, which is 44 µs at 6 Mb/s in this model — hence 94 µs.',
       zh: '§10.3.2.3.7 把 EIFS 定义为 SIFS + DIFS + 以最低强制速率发完一个确认帧的时间；在本模型中后者是 6 Mb/s 下的 44 µs，因此总共 94 µs。' },
     { en: 'The 1528-byte frame, the saturated uploader and the timestamps above are this simulator’s scene, reproducible from its seed; they are not figures from the standard.',
-      zh: '1528 字节的帧、处于饱和状态的上传终端，以及上面那些时刻，都是本仿真器的场景，靠随机种子可以复现；它们不是标准正文里的数字。' },
+      zh: '1528 字节的帧、处于饱和状态的上传站点，以及上面那些时刻，都是本仿真器的场景，靠随机种子可以复现；它们不是标准正文里的数字。' },
   ],
   scenario: () => sc(oneRoom(), [
     node('ap', 'AP', 'ap', 5, 4, 'eht', 'idle'),

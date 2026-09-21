@@ -76,10 +76,10 @@ export const radioPrimer: Lesson = {
     { kind: 'table', heading: { en: 'The same laptop, four places', zh: '同一台笔记本，四个位置' }, head: [
       { en: 'Where it sits', zh: '它在哪儿' }, N('RSSI'), N('SNR'), { en: 'Rate of its frames', zh: '它发帧的速率' },
     ], rows: [
-      [{ en: 'Desk, 1 m', zh: '书桌，1 m' }, N('−31.7 dBm'), N('62.3 dB'), N('172.1 Mbps')],
-      [{ en: 'Study, 5 m', zh: '书房，5 m' }, N('−52.7 dBm'), N('41.3 dB'), N('129.0 Mbps')],
-      [{ en: 'Living room, 9 m + brick', zh: '客厅，9 m + 砖墙' }, N('−72.3 dBm'), N('21.7 dB'), N('34.4 Mbps')],
-      [{ en: 'Far wall, 14 m + brick', zh: '远端墙边，14 m + 砖墙' }, N('−78.1 dBm'), N('15.9 dB'), N('17.2 Mbps')],
+      [{ en: 'Desk, 1 m', zh: '书桌，1 m' }, N('−31.7 dBm'), N('62.3 dB'), N('172.1 Mb/s')],
+      [{ en: 'Study, 5 m', zh: '书房，5 m' }, N('−52.7 dBm'), N('41.3 dB'), N('129.0 Mb/s')],
+      [{ en: 'Living room, 9 m + brick', zh: '客厅，9 m + 砖墙' }, N('−72.3 dBm'), N('21.7 dB'), N('34.4 Mb/s')],
+      [{ en: 'Far wall, 14 m + brick', zh: '远端墙边，14 m + 砖墙' }, N('−78.1 dBm'), N('15.9 dB'), N('17.2 Mb/s')],
     ] },
     { kind: 'formula', heading: { en: 'The floor of the room', zh: '房间的地板' }, text: {
       en: 'N(W) = −174 dBm/Hz + 10·log10(W) + 7 dB   →   N(20 MHz) = −93.99 dBm',
@@ -115,9 +115,9 @@ export const radioPrimer: Lesson = {
     ], rows: [
       [{ en: 'Noise floor', zh: '噪声地板' }, N('−93.99 dBm'), N('−90.98 dBm'), N('−87.97 dBm'), N('−84.96 dBm'), N('−81.95 dBm')],
     ] },
-    { heading: { en: 'What the router\'s reply does', zh: '路由器的回帧又如何' }, text: {
-      en: 'The router\'s answering frame barely notices any of this: 24 Mbps in the first three variants and 12 Mbps only at the far wall, 28 µs of air against 32 µs. A reply goes out at a low compulsory rate, so it steps coarsely while the data frames stretch nearly sixfold.',
-      zh: '路由器的回帧几乎不受这些影响：前三个变体都是 24 Mbps，只有到远端墙边才降到 12 Mbps，空口时间 28 µs 对 32 µs。回帧走的是低速的强制速率，只会粗粒度地跳档，而数据帧的时长已经拉长到近六倍。',
+    { heading: { en: 'What the router\'s answer does', zh: '路由器的回帧又如何' }, text: {
+      en: 'The router\'s answering frame barely notices any of this: 24 Mb/s in the first three variants and 12 Mb/s only at the far wall, 28 µs of air against 32 µs. An answer goes out at a low compulsory rate, so it steps coarsely while the data frames stretch nearly sixfold.',
+      zh: '路由器的回帧几乎不受这些影响：前三个变体都是 24 Mb/s，只有到远端墙边才降到 12 Mb/s，空口时间 28 µs 对 32 µs。回帧走的是低速的强制速率，只会粗粒度地跳档，而数据帧的时长已经拉长到近六倍。',
     } },
     { text: {
       en: 'The simulator keeps the worst interference seen at any instant during a reception and judges the whole frame by it. Distance is measured in three dimensions; walls are counted along the two-dimensional floor-plan ray, and a ray through a door or window opening crosses no wall. A 6 GHz link pays a further 1.2 dB, the extra free-space loss of the higher frequency.',
@@ -139,12 +139,12 @@ export const radioPrimer: Lesson = {
     J('first ACK', '第一个 ACK', firstAck),
   ],
   observe: [
-    { en: 'Jump to the first data frame in each of the four variants and read the rate: 172.1, 129.0, 34.4 and 17.2 Mbps. Laptop, router and traffic are identical in all four; only the distance and one brick wall differ.', zh: '在四个变体里分别跳到第一个数据帧，读出速率：172.1、129.0、34.4、17.2 Mbps。四个变体里笔记本、路由器和业务完全一样，差别只有距离和那一堵砖墙。' },
+    { en: 'Jump to the first data frame in each of the four variants and read the rate: 172.1, 129.0, 34.4 and 17.2 Mb/s. Laptop, router and traffic are identical in all four; only the distance and one brick wall differ.', zh: '在四个变体里分别跳到第一个数据帧，读出速率：172.1、129.0、34.4、17.2 Mb/s。四个变体里笔记本、路由器和业务完全一样，差别只有距离和那一堵砖墙。' },
     { en: 'In the first 100 ms the router acknowledges 353 frames from the desk but only 107 from the far wall, under a third as many. Same rules at both ends; the difference is 46 dB of distance and brick.', zh: '前 100 ms 里，路由器确认了书桌位置的 353 帧，远端墙边却只有 107 帧，不到三分之一。两处遵循的规则一模一样，差别全在那 46 dB 的距离与砖墙。' },
   ],
   tryThis: [
     { en: 'In the panel above, walk the laptop from 4.5 m to 9 m and then to 18 m, brick wall in place. The received level reads −63.3, −72.3 and −81.4 dBm: the same step down for each doubling.', zh: '在上面的小部件里，把笔记本从 4.5 m 挪到 9 m，再挪到 18 m，砖墙保持不动。接收电平依次是 −63.3、−72.3、−81.4 dBm：距离每翻一倍，就往下掉同样的一格。' },
-    { en: 'In the editor, open the living-room variant and change the brick wall between study and living room to glass. The received level rises to −63.3 dBm — the 4.5 m brick figure — and the frames speed up from 34.4 to 86.0 Mbps.', zh: '在编辑器里打开客厅变体，选中书房与客厅之间那堵砖墙，把材质改成玻璃。接收电平升到 −63.3 dBm——正是 4.5 m 隔砖墙时的那个数——帧速率也从 34.4 Mbps 升到 86.0 Mbps。' },
+    { en: 'In the editor, open the living-room variant and change the brick wall between study and living room to glass. The received level rises to −63.3 dBm — the 4.5 m brick figure — and the frames speed up from 34.4 to 86.0 Mb/s.', zh: '在编辑器里打开客厅变体，选中书房与客厅之间那堵砖墙，把材质改成玻璃。接收电平升到 −63.3 dBm——正是 4.5 m 隔砖墙时的那个数——帧速率也从 34.4 Mb/s 升到 86.0 Mb/s。' },
   ],
   quiz: [
     {

@@ -74,10 +74,12 @@ describe('frame-anatomy · the lesson itself', () => {
     for (const q of frameAnatomy.quiz) expect(q.answer).toBeLessThan(q.options.length)
   })
 
-  it('the six jump targets are the ones the two halves share, in order', () => {
+  it('the three jump targets are the ones this half’s text uses, in order', () => {
+    // Step review, Minor: the RTS / A-MPDU / BlockAck buttons are frame-anatomy-bytes'
+    // — three acronyms of later lessons on the jump bar of lesson 4. This half keeps
+    // only the frames its own text walks the reader through.
     expect(frameAnatomy.jumps.map((j) => j.label.en)).toEqual([
-      'first legacy data frame', 'first QoS data frame', 'first RTS',
-      'first A-MPDU', 'first BlockAck', 'first retransmission (Retry = 1)',
+      'first legacy data frame', 'first QoS data frame', 'first retransmission (Retry = 1)',
     ])
   })
 

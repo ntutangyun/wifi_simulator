@@ -57,8 +57,8 @@ export const decodeThresholds: Lesson = {
       zh: '载入仿真，跳到笔记本的第一个数据帧，看清这一块有多长。然后依次切过四个变体：笔记本越走越远，级别一路往下掉，而同样一帧在时间轴上肉眼可见地被拉长。',
     } },
     { heading: { en: 'Three questions, not one', zh: '是三个问题，不是一个' }, text: {
-      en: 'A receiver does not ask one question about a signal but three, and the MAC acts differently after each. Did I catch the start of this frame — its preamble — cleanly enough to lock on to it? Is there simply too much power in the air for me to start talking, whoever is making it? And, at the end: was the ratio good enough, for the whole frame, for the rung it was sent at? The first two together are CCA. The third is decoding.',
-      zh: '接收端对一个信号问的不是一个问题，而是三个，而 MAC 在每种答案之后的动作都不一样。第一，这一帧开头那段前导，我抓得够干净、能锁住它吗？第二，不管是谁弄出来的，空中的功率是不是已经大到我不该开口？第三，到最后：整帧期间的比值，够不够它所用的那一级？前两个合起来就是 CCA，第三个才是解码。',
+      en: 'A receiver does not ask one question about a signal but three, and the MAC — the part of the radio that decides when to send — acts differently after each. Did I catch the start of this frame, its preamble, cleanly enough to lock on? Is there too much power in the air for me to start talking? And at the end: was the ratio good enough, for the whole frame, for the rung it was sent at? The first two are CCA. The third is decoding.',
+      zh: '接收端对一个信号问的不是一个问题，而是三个，而 MAC——无线电里决定何时开口的那一部分——在每种答案之后的动作都不一样。第一，这一帧开头那段前导，我抓得够干净、能锁住它吗？第二，空中的功率是不是已经大到我不该开口？第三，到最后：整帧期间的比值，够不够它所用的那一级？前两个合起来就是 CCA，第三个才是解码。',
     } },
     { heading: { en: 'Clear channel, and the gap in it', zh: '空闲判断，以及其中的那道缝' }, text: {
       en: 'A radio that hears a preamble it can lock on to knows a frame is starting and holds off, even when that frame is faint. One that missed the preamble — because it was transmitting at the time, or because the energy was never Wi-Fi — has nothing but raw power to go on, and it takes far more power to stop it. The two thresholds are twenty decibels apart, and much later trouble lives in that gap.',
@@ -84,7 +84,7 @@ export const decodeThresholds: Lesson = {
       zh: '这两个数不能混用：−82 dBm 只适用于本机正在侦听、并且抓到了前导的那一帧；抓不到前导时，仅剩高二十分贝的 −62 dBm 这条判据。',
     } },
     { kind: 'table', heading: { en: 'Six of the fourteen rungs, 20 MHz, one stream', zh: '十四级中的六级，20 MHz、单流' }, head: [
-      N('MCS'), { en: 'Modulation', zh: '调制' }, { en: 'Bits per sub-carrier', zh: '每子载波比特' }, N('Mbps'),
+      N('MCS'), { en: 'Modulation', zh: '调制' }, { en: 'Bits per sub-carrier', zh: '每子载波比特' }, N('Mb/s'),
       { en: 'Sensitivity', zh: '灵敏度' }, { en: 'Needs', zh: '所需' },
     ], rows: [
       [N('0'), N('BPSK 1/2'), N('0.5'), N('8.6'), N('−82 dBm'), N('8.99 dB')],
@@ -107,7 +107,7 @@ export const decodeThresholds: Lesson = {
       en: 'The sender picks the highest rung whose requirement, plus 3 dB kept in hand, still fits; decoding then compares against the bare requirement. At 20 MHz that is head arithmetic: the rung is the highest one whose sensitivity the RSSI meets.',
       zh: '发送端选的是这样一级：它的要求再加上手里留的 3 dB，仍然放得进这条链路；而解码时比的是不含余量的那个要求。在 20 MHz 上这笔账可以口算：最高的那一级，就是 RSSI 达到其灵敏度的那一级。',
     } },
-    { kind: 'table', heading: { en: 'One 1530-octet frame, by position', zh: '同一个 1530 字节帧，按位置' }, head: [
+    { kind: 'table', heading: { en: 'One 1530-byte frame, by position', zh: '同一个 1530 字节帧，按位置' }, head: [
       { en: 'Where it sits', zh: '它在哪儿' }, N('RSSI'), N('SNR'), N('MCS'), { en: 'Needs + 3 dB', zh: '所需 + 3 dB' }, { en: 'Airtime', zh: '空口时间' },
     ], rows: [
       [{ en: 'Desk, 1 m', zh: '书桌，1 m' }, N('−31.7 dBm'), N('62.3 dB'), N('13'), N('47.99 dB'), N('129.6 µs')],
@@ -158,7 +158,7 @@ export const decodeThresholds: Lesson = {
   ],
   observe: [
     { en: 'Read the MCS of the first data frame in each of the four variants: 13, 10, 3 and 1 — the rungs the ladder lights for the four ratios in the table above.', zh: '读出四个变体里第一个数据帧的 MCS：13、10、3、1——上表那四个比值在阶梯上点亮的级。' },
-    { en: 'Now read the airtime of that frame: 129.6, 143.2, 415.2 and 768.8 µs. Twelve rungs down costs nearly six times the air for the very same 1530 octets.', zh: '再读这一帧的空口时间：129.6、143.2、415.2、768.8 µs。往下走十二级，同样的 1530 个字节要多花近六倍的空口时间。' },
+    { en: 'Now read the airtime of that frame: 129.6, 143.2, 415.2 and 768.8 µs. Twelve rungs down costs nearly six times the air for the very same 1530 bytes.', zh: '再读这一帧的空口时间：129.6、143.2、415.2、768.8 µs。往下走十二级，同样的 1530 个字节要多花近六倍的空口时间。' },
     { en: 'No variant shows a retry, a timeout or a failed reception. A lone link at its ceiling still keeps 3 dB in hand — against a hard threshold, enough never to lose a frame.', zh: '四个变体里都没有重传、没有超时、也没有接收失败。一条孤零零的链路停在上限时，手里仍留着 3 dB，而面对一道硬门限，这就足以一帧不丢。' },
   ],
   tryThis: [
@@ -167,7 +167,7 @@ export const decodeThresholds: Lesson = {
   ],
   quiz: [
     {
-      q: { en: 'Why does the same 1530-octet frame take 129.6 µs at the desk and 768.8 µs at the far wall?', zh: '同样的 1530 字节帧，为什么在书桌旁只要 129.6 µs，到远端墙边却要 768.8 µs？' },
+      q: { en: 'Why does the same 1530-byte frame take 129.6 µs at the desk and 768.8 µs at the far wall?', zh: '同样的 1530 字节帧，为什么在书桌旁只要 129.6 µs，到远端墙边却要 768.8 µs？' },
       options: [
         { en: 'The router is slower to answer from far away', zh: '路由器在远处应答得更慢' },
         { en: 'The far link only supports a low rung, which carries fewer bits per sub-carrier, so the same bytes need more symbols', zh: '远处那条链路只撑得住低的一级，每个子载波驮的比特更少，同样的字节就要用更多符号' },

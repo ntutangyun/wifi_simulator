@@ -261,8 +261,8 @@ describe('lesson 5 · hidden nodes & RTS/CTS', () => {
     expect(ofType(rs, 'BACKOFF_FREEZE').some((r) => r.node === 'sta-2' && r.t > next.t && r.t < nextEnd)).toBe(false)
   })
 
-  it('RTS/CTS cuts data-frame collisions by about 95%, and the stragglers meet an RTS', () => {
-    // "In this scene data collisions drop by about 95%; a few stragglers remain where a data frame meets an RTS."
+  it('RTS/CTS cuts data-frame collisions by about 94%, and the stragglers meet an RTS', () => {
+    // hidden: "Turning the exchange on cuts the collisions that catch a data frame by about 94%."
     const base = recs('hidden', 300 * MS)
     const rts = recs('hidden', 300 * MS, 0)
     const withData = (rs2: TLRecord[]) => ofType(rs2, 'COLLISION').map((c) => collisionFrames(rs2, c))

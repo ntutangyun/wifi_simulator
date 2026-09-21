@@ -73,7 +73,7 @@ export const retriesQueues: Lesson = {
     } },
     { kind: 'watch', jump: 0, heading: { en: 'Follow one frame', zh: '盯住一帧' }, text: {
       en: 'Load the simulation and jump to the first retry. Follow one frame from the uploader on the left: the same frame going out again, and again, each attempt further from the last — until it stops.',
-      zh: '载入仿真，跳到第一次重传。盯住左边那台上传终端的某一帧：同一帧一次、又一次地发出去，每次尝试都比上次隔得更远——直到它不再出现。',
+      zh: '载入仿真，跳到第一次重传。盯住左边那台上传站点的某一帧：同一帧一次、又一次地发出去，每次尝试都比上次隔得更远——直到它不再出现。',
     } },
     { heading: { en: 'Seven tries, then let it go', zh: '七次之后，放手' }, text: {
       en: 'No frame is tried for ever. Each one carries a count of how often it has been sent, and when that count reaches the retry limit — seven here — the frame is given up and the next one moves to the front. That is the rule working, not failing: a link that cannot push a frame through in seven tries will not push it through in seventy.',
@@ -126,7 +126,7 @@ export const retriesQueues: Lesson = {
     ] },
     { heading: { en: 'What the knobs cannot do', zh: '旋钮做不到的事' }, text: {
       en: 'All three runs deliver the AP’s same 2644 video frames: a buffer cannot make airtime. A short queue moves the loss to the door; a short lifetime moves it to the clock, and the uploaders then lose 987 frames of their own to age.',
-      zh: '三次运行里 AP 送达的都是同样的 2644 个视频帧：缓冲区变不出空口时间。短队列把损失挪到门口；短生存期把它挪到钟上，两台上传终端因此有 987 帧老死在队列里。',
+      zh: '三次运行里 AP 送达的都是同样的 2644 个视频帧：缓冲区变不出空口时间。短队列把损失挪到门口；短生存期把它挪到钟上，两台上传站点因此有 987 帧老死在队列里。',
     } },
     { kind: 'table', heading: { en: 'How long a delivered frame had waited', zh: '送达的帧等了多久' }, head: [
       { en: 'Delivered during', zh: '送达时段' }, { en: 'Mean wait, defaults', zh: '平均等待，默认' },
@@ -187,7 +187,7 @@ export const retriesQueues: Lesson = {
   ],
   tryThis: [
     { en: 'Load each variant and look for the AP’s first queue-full and first lifetime drop. Predict which one each variant lacks, and why all three runs still deliver 2644 frames.', zh: '依次载入两个变体，去找 AP 第一次队列满丢帧与第一次生存期丢帧。先预测每个变体缺哪一种，以及为什么三次运行送达的都是 2644 帧。' },
-    { en: 'In the editor set the RTS threshold to 500 B — the cure the hidden-node lesson gave you — and reload. Watch the uploaders’ give-ups and the AP’s queue.', zh: '在编辑器里把 RTS 门限设为 500 B——隐藏节点那一课给你的解法——再重新载入。看看两台上传终端的“放弃”和 AP 的队列。' },
+    { en: 'In the editor set the RTS threshold to 500 B — the cure the hidden-node lesson gave you — and reload. Watch the uploaders’ give-ups and the AP’s queue.', zh: '在编辑器里把 RTS 门限设为 500 B——隐藏节点那一课给你的解法——再重新载入。看看两台上传站点的“放弃”和 AP 的队列。' },
   ],
   quiz: [
     {
@@ -218,7 +218,7 @@ export const retriesQueues: Lesson = {
         { en: 'Nothing at all', zh: '什么都不会变' },
       ],
       answer: 1,
-      explain: { en: 'A bigger buffer cannot make airtime, only hold frames longer: the mean wait over the last second rises from 117 ms to 472 ms.', zh: '更大的缓冲区造不出空口时间，只会让帧等得更久。最后一秒的平均等待从 117 ms 升到 472 ms。' },
+      explain: { en: 'A bigger buffer cannot make airtime, only hold frames longer: at the defaults the mean wait over the last second is 472 ms.', zh: '更大的缓冲区造不出空口时间，只会让帧等得更久。默认设置下，最后一秒的平均等待是 472 ms。' },
     },
   ],
 }

@@ -107,17 +107,17 @@ export const tier1ProjectReview: Lesson = {
     { kind: 'table', heading: { en: 'Where the gap comes from', zh: '差距出在哪里' }, head: [
       { en: 'Mechanism', zh: '机制' }, { en: 'What the log shows', zh: '日志里看到的' }, { en: 'How big', zh: '有多大' },
     ], rows: [
-      [{ en: 'Capture rescues the loser', zh: '捕获把输家救了回来' }, N('4,990 overlaps → 2,713 retries'),
+      [{ en: 'Capture rescues the loser', zh: '捕获把输家救了回来' }, { en: '4,990 overlaps → 2,713 retries', zh: '4,990 次重叠 → 2,713 次重传' },
         { en: 'about 46 % of losers survive; the two differ by 34 dB', zh: '约 46 % 的输家活了下来；两台相差 34 dB' }],
       [{ en: 'The deaf late start', zh: '聋掉的迟到起跑' }, { en: '1,342 of 2,399 laptop-against-laptop collisions', zh: '2,399 次笔记本互撞中有 1,342 次' },
         N('10.46 % → 23.15 %')],
       [{ en: 'Frames grow under rate adaptation', zh: '帧在速率自适应下变长' }, N('148.1 vs 129.6 µs · 600.9 vs 524.0 µs'),
         { en: 'most of the 11.6 % shortfall', zh: '吞吐少掉的 11.6 % 的大部分' }],
       [{ en: 'Residual', zh: '残差' }, { en: 'nothing in the log names it', zh: '日志里没有东西指认它' },
-        { en: 'a couple of points, reported not fitted away', zh: '两个百分点左右，如实报出而不拟合掉' }],
+        { en: 'a couple of points, reported not fitted', zh: '两个百分点左右，如实报出而不拟合掉' }],
     ] },
     { heading: { en: 'The level the two laptops hear each other at', zh: '两台笔记本互相听到的电平' }, text: {
-      en: 'They arrive at each other at −72.64 dBm: above the −82 dBm a preamble needs, far below the −62 dBm energy alone must reach. Detect it and you freeze; miss it, and the channel reads idle.',
+      en: 'They reach each other at −72.64 dBm: above the −82 dBm a preamble needs, far below the −62 dBm energy alone must reach. Detect it and you freeze; miss it, and the channel reads idle.',
       zh: '它们到达对方处的电平是 −72.64 dBm：高于检出一个前导所需的 −82 dBm，又远低于仅凭能量判忙所需的 −62 dBm。抓到了前导就冻结；错过了，信道读出来就是空闲。',
     } },
     { kind: 'table', heading: { en: 'What each station waits after the same frame', zh: '同一帧之后，各自要等多久' }, head: [
@@ -132,9 +132,9 @@ export const tier1ProjectReview: Lesson = {
     ], rows: [
       [N('(a)'), { en: 'Both levels within a decibel, the wall counted once, the rung justified by requirement plus margin', zh: '两个电平误差都在一分贝内，墙只数一次，等级用“要求加余量”说清' }],
       [N('(b)'), { en: 'Symbols rounded up, header and check bytes included, the answer’s rate derived not assumed', zh: '符号数向上取整，算进头部与校验字节，回答的速率是推出来的而不是想当然的' }],
-      [N('(c)'), { en: 'The collision chance quoted with no rate in it, the estimator named before comparing', zh: '给出碰撞概率时不带速率，并在比较之前先说清用的是哪个估计量' }],
+      [N('(c)'), { en: 'The collision chance quoted with no rate in it, the estimator named', zh: '给出碰撞概率时不带速率，并说清用的是哪个估计量' }],
       [N('(d)'), { en: 'Equal frames, unequal airtime, the split taken from the durations', zh: '帧数相同而空口时间不同，占比由帧时长算出' }],
-      [{ en: 'The gaps', zh: '差距' }, { en: 'Two mechanisms named and sized in the model’s units, the residual reported', zh: '至少点名两个机制，各自用模型自己的单位定量，并报出残差' }],
+      [{ en: 'The gaps', zh: '差距' }, { en: 'Two mechanisms named and sized in the model’s units, the residual reported', zh: '点名两个机制，各自用模型自己的单位定量，并报出残差' }],
     ] },
   ],
   deeper: [
@@ -183,7 +183,7 @@ export const tier1ProjectReview: Lesson = {
       options: [
         { en: 'The NAV had expired, so the channel was free', zh: 'NAV 已经到期，所以信道在形式上是空闲的' },
         { en: 'Its preamble was missed while the radio was transmitting, so only energy is left — and −72.64 dBm is under −62 dBm', zh: '那个前导在本机发送期间到达而被错过，于是只剩能量可判——而 −72.64 dBm 低于 −62 dBm' },
-        { en: 'A station may always start after its ACK timeout and a DIFS', zh: '终端在 ACK 超时加一个 DIFS 之后总是可以开始发送' },
+        { en: 'A station may always start after its ACK timeout and a DIFS', zh: '站点在 ACK 超时加一个 DIFS 之后总是可以开始发送' },
       ],
       answer: 1,
       explain: { en: 'The −82 dBm threshold applies only to a preamble actually detected; everything else is energy, and energy must reach −62 dBm to hold CCA busy. Neither frame leaves a NAV the other can read.', zh: '−82 dBm 的门限只适用于电台确实检测到了的前导；其余一切只算能量，而能量必须达到 −62 dBm 才能让 CCA 置忙。两个帧都没有给对方留下可读的 NAV。' },

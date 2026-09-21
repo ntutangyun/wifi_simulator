@@ -17,7 +17,7 @@ export const airtime: Lesson = {
   module: 0,
   title: { en: 'Frames cost airtime', zh: '帧要花“空口时间”' },
   why: {
-    en: 'One room, one channel, one voice at a time. A video stream, a file upload and a phone checking mail all have to be squeezed into the same air, one frame after another. So the thing worth counting is not bytes but time: how long each frame holds the channel, and how much of that time carries nothing anyone asked for.',
+    en: 'One room, one channel, one voice at a time. A video stream, a file upload and a phone checking mail all have to squeeze into the same air, one frame after another. So the thing worth counting is not bytes but time: how long each frame holds the channel, and how much of that time carries nothing anyone asked for.',
     zh: '一个房间，一条信道，同一时刻只能有一个人说话。视频流、文件上传、手机收邮件，全都得挤进同一片空气里，一帧接着一帧。所以真正值得数的不是字节，而是时间：每一帧把信道占住多久，其中又有多少根本没在搬运谁想要的东西。这一课，我们给一次收发交互掐一次秒表。',
   },
   outcomes: [
@@ -25,15 +25,15 @@ export const airtime: Lesson = {
     { en: 'explain why every frame pays the same fixed opening cost', zh: '解释为什么每一帧都要付同样的固定开场费' },
     { en: 'say why the acknowledgement is worth the air it costs', zh: '说清确认帧为什么值得它占掉的那点空口时间' },
   ],
-  needs: ['radio-primer', 'decode-thresholds', 'frame-anatomy'],
+  needs: ['radio-primer', 'decode-thresholds', 'frame-anatomy', 'frame-anatomy-bytes'],
   terms: [
     { term: 'ACK', plain: {
       en: 'acknowledgement: the tiny frame a receiver sends straight back to say the frame arrived intact',
       zh: '确认帧：接收方立刻回发的一个小帧，意思是“这帧我完整收到了”',
     } },
     { term: 'preamble', plain: {
-      en: 'the fixed, already-known signal at the head of every frame, there so the receiver can lock on before the data starts',
-      zh: '每一帧开头那段固定的、双方早已约好的信号，用处是让接收端在数据开始之前先锁住这一帧',
+      en: 'the front of every frame: the fixed, already-known signal whose bytes the last lesson counted, there so the receiver can lock on before the data starts',
+      zh: '每一帧的开头，也就是上一课数过字节的那段“前面”：固定的、双方早已约好的信号，用处是让接收端在数据开始之前先锁住这一帧',
     } },
     { term: 'payload', plain: {
       en: 'the part of a frame that carries what was actually being sent',
@@ -43,26 +43,26 @@ export const airtime: Lesson = {
   picture: [
     { heading: { en: 'One channel, one speaker', zh: '一条信道，一个说话人' }, text: {
       en: 'The air in a room is one channel, and a radio cannot send and listen at once. While any frame is going out, nobody within earshot can start one. So the currency of a wireless network is time on the air: a station does not buy bandwidth, it buys a slice of the clock. Everything the MAC does is about who gets the next slice.',
-      zh: '一个房间里的空气就是一条信道，而一台无线电没法一边发一边听。只要有一帧正在发出去，听力范围内的其他设备就都开不了口。所以无线网络的“货币”是空口上的时间：终端买到的不是带宽，而是时钟上的一小段。MAC 所做的一切，都是在决定下一段归谁。',
+      zh: '一个房间里的空气就是一条信道，而一台无线电没法一边发一边听。只要有一帧正在发出去，听力范围内的其他设备就都开不了口。所以无线网络的“货币”是空口上的时间：站点买到的不是带宽，而是时钟上的一小段。MAC 所做的一切，都是在决定下一段归谁。',
     } },
     { heading: { en: 'Why a frame cannot start cold', zh: '一帧为什么不能张口就来' }, text: {
-      en: 'A receiver is not waiting for your bits; it is waiting for anything at all. Before it can read a single bit it must notice that a signal has begun, lock onto its rhythm, and learn how what follows is coded. That is the job of the preamble: a fixed pattern both ends already know. It carries no data, it is the same length whether the frame is huge or nearly empty, and it is paid every time.',
-      zh: '接收端并不是专等你的比特，它等的是“有没有信号”。在读到哪怕一个比特之前，它得先察觉到有信号开始了，锁住它的节奏，再弄清后面的东西是怎么编码的。这就是前导的活儿：一段两端早已约好的固定图案。它不装数据，帧是很大还是几乎为空，它都一样长，而且每一次都要付。',
+      en: 'A receiver is not waiting for your bits; it is waiting for anything at all. Before it can read a single bit it must notice that a signal has begun, lock onto its rhythm, and learn how what follows is coded. That is the preamble’s job: a fixed pattern both ends already know. It carries no data, it is the same length whatever the frame holds, and it is paid every time.',
+      zh: '接收端并不是专等你的比特，它等的是“有没有信号”。在读到哪怕一个比特之前，它得先察觉到有信号开始了，锁住它的节奏，再弄清后面的东西是怎么编码的。这就是前导干的活：一段两端早已约好的固定图案。它不装数据，帧里装什么它都一样长，而且每一次都要付。',
     } },
     { kind: 'watch', jump: 0, heading: { en: 'Put a stopwatch on one frame', zh: '给一帧掐一次表' }, text: {
-      en: 'Load the simulation and jump to the first data frame. Hover it: the tooltip prints its size, its rate and its exact duration. That duration is what the room is paying for.',
-      zh: '载入仿真，跳到第一个数据帧。把鼠标悬在它上面：提示框会给出帧的大小、速率和精确时长。房间里其他人付的，就是这个时长。',
+      en: 'Load the simulation and jump to the first data frame. Hover it: the tooltip prints its size, its rate and its exact duration. That duration is what the room is paying for. Blue is the access point’s lane, green a station’s.',
+      zh: '载入仿真，跳到第一个数据帧。把鼠标悬在它上面：提示框会给出帧的大小、速率和精确时长。房间里其他人付的，就是这个时长。蓝色是接入点的泳道，绿色是站点的。',
     } },
     { heading: { en: 'Only the middle part grows', zh: '会变长的只有中间那段' }, text: {
-      en: 'After the preamble come the data symbols: equal-length chunks of signal, each carrying a fixed number of bits. Double the payload and you double the symbols; choose a faster coding and each symbol holds more, so fewer are needed. The preamble does not move either way. A big frame spends most of its airtime on the message; a small one spends most of it on the opening.',
-      zh: '前导之后是数据符号：一段段等长的信号，每段装固定数量的比特。净荷翻倍，符号数就翻倍；换一档更快的编码，每个符号装得更多，需要的符号就更少。无论怎么变，前导都纹丝不动。大帧的空口时间大头花在消息上，小帧的大头却花在开场上。',
+      en: 'After the preamble come the data symbols: equal-length chunks of signal, each carrying a fixed number of bits. Double the payload and you double the symbols; choose a faster coding and each symbol holds more, so fewer are needed. A big frame spends most of its airtime on the message; a small one spends most of it on the opening.',
+      zh: '前导之后是数据符号：一段段等长的信号，每段装固定数量的比特。净荷翻倍，符号数就翻倍；换一档更快的编码，每个符号装得更多，需要的符号就更少。大帧的空口时间大头花在消息上，小帧的大头却花在开场上。',
     } },
     { heading: { en: 'And the air is paid for twice', zh: '而且这段空口要付两遍' }, text: {
       en: 'The sender cannot hear a collision: while it transmits, its own signal deafens it. Silence tells it nothing, and only the receiver can report that the frame survived. That report is the ACK — a few bytes, sent back after a short fixed pause. It is tiny, never optional, and charged to every exchange.',
       zh: '发送方听不见碰撞：发送的时候，自己的信号把耳朵震聋了。所以安静对它毫无信息量，只有接收方才能报告这一帧活着到达。这份报告就是 ACK——只有几个字节，在一段固定的短暂停顿之后回过来。它很小，却永远不是可选项；而且这段停顿加上 ACK，每一次交互都要记账。',
     } },
     { heading: { en: 'So what does an exchange cost?', zh: '那么一次交互到底花多少？' }, text: {
-      en: 'One exchange is three things, then: a fixed opening, the payload, a fixed closing. Only the middle depends on what you sent. That is why a network of many small frames can be busy all day and move almost nothing, and why nearly every later trick spreads those fixed costs over more data.',
+      en: 'One exchange is three things: a fixed opening, the payload, a fixed closing. Only the middle depends on what you sent. That is why a network of many small frames can be busy all day and move almost nothing, and why nearly every later trick spreads those fixed costs over more data.',
       zh: '所以一次交互由三样东西组成：固定的开场、净荷、固定的收尾。只有中间那样取决于你发了什么。这就是为什么一个净发小帧的网络可以整天忙得不可开交却几乎没搬动什么；也是为什么后面几乎每一招，都是把这些固定开销摊到更多数据上去。',
     } },
   ],
@@ -78,11 +78,11 @@ export const airtime: Lesson = {
       [{ en: 'The whole exchange', zh: '整次交互' }, N('169.6 µs'), { en: '88.0 µs of it fixed, 81.6 µs payload', zh: '其中固定开销 88.0 µs，净荷 81.6 µs' }, N('—')],
     ] },
     { kind: 'formula', heading: { en: 'Where the time goes', zh: '时间花在哪儿' }, text: {
-      en: 'airtime = preamble + symbols × (payload bits ÷ bits per symbol)',
-      zh: '空口时间 = 前导 + 符号数 ×（净荷比特数 ÷ 每符号比特数）',
+      en: 'airtime = preamble + symbol time × ⌈payload bits ÷ bits per symbol⌉',
+      zh: '空口时间 = 前导 + 符号时长 × ⌈净荷比特数 ÷ 每符号比特数⌉',
     }, note: {
-      en: 'The first term never moves. The second is the only one a bigger frame or a faster coding can change.',
-      zh: '第一项永远不动。帧变大、编码变快、信道变宽，能改的都只有第二项。',
+      en: 'The first term never moves; the symbol time is the 13.6 µs above. Only the second changes with a bigger frame or a faster coding.',
+      zh: '第一项永远不动；符号时长就是上表里那 13.6 µs。帧变大、编码变快，能改的只有第二项。',
     } },
     { heading: { en: 'The tax, in one number', zh: '这笔税，用一个数说清' }, text: {
       en: 'Of the 169.6 µs this exchange holds the channel, 88.0 µs is opening, pause and answer. The payload is the other 81.6 µs — under half.',
@@ -122,7 +122,7 @@ export const airtime: Lesson = {
     {
       q: { en: 'Why does Wi-Fi need acknowledgements at all?', zh: 'Wi-Fi 为什么非要有确认帧？' },
       options: [
-        { en: 'To tell the other stations to stay silent', zh: '为了通知其他终端保持安静' },
+        { en: 'To tell the other stations to stay silent', zh: '为了通知其他站点保持安静' },
         { en: 'The sender cannot detect a collision itself, so the ACK is its only proof of delivery', zh: '发送方自己检测不到碰撞，所以 ACK 是它唯一的送达凭据' },
         { en: 'To carry the receiver’s preferred data rate', zh: '为了把接收方偏好的速率带回给发送方' },
       ],

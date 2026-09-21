@@ -18,13 +18,13 @@ import { COURSE_ORDER, MODULES, lessonMinutes, lessonWords, trackOf } from '../.
 import { isMigrated, type Block, type L10n, type Lesson } from '../../src/course/lessonKit'
 import {
   CITATION, KNOWN_WORDS, LOG_NAMES, acronyms, cellTexts, definedInPlace, densityTexts, enWords,
-  firstTermUses, lessonBudget, lessonStrings, numericQuantities, paragraphTexts, zhChars,
+  firstTermUses, lessonBudget, lessonStrings, neutralCellTexts, numericQuantities, paragraphTexts,
+  zhChars,
 } from '../../src/course/readability'
 import { effectiveMigrating } from './kit'
 
 /** Lessons still in the old shape. Each migration task removes its ids; the list only shrinks. */
 export const MIGRATING: string[] = [
-    
   'txop-protect', 'rate',
   'ofdma-dl', 'ofdma-ul', 'mumimo', 'mlo', 'amp-slots', 'amp-coexist', 'capstone',
 ]
@@ -46,6 +46,53 @@ const TIER1_OWNERS: Record<string, string[]> = {
   hidden: ['RTS', 'CTS'],
 }
 const CITED_FIELDS: (keyof Lesson)[] = ['why', 'outcomes', 'terms', 'picture', 'observe', 'tryThis', 'quiz']
+
+/**
+ * Two lower-case English words reading as a phrase: the shape of a sentence, as
+ * opposed to a value, an arithmetic line, a protocol name or a log line.
+ * "26 + 1400 + 4 = 1430 B", "retryLimit", "MCS 13" and "9 µs" do not match it;
+ * "1400 B of video" and "4,990 overlaps → 2,713 retries" do.
+ *
+ * Two alternatives, because the review's own two examples need both: adjacent
+ * words ("of video"), and two words of four letters or more with only digits,
+ * units and punctuation between them ("overlaps → 2,713 retries"). The second
+ * keeps its gap short and its words long so that "20 and 40 ms" — a value list,
+ * not a sentence — stays out of it.
+ */
+const CELL_PROSE = /\b[a-z]{2,}\s+[a-z]{2,}\b|\b[a-z]{4,}\b[^A-Za-z\n]{1,12}\b[a-z]{4,}\b/
+/** A record or log line the reader copies off the screen: it opens with a node id. */
+const LOG_LINE = /^[a-z][a-z0-9]*-\d+\b/
+/** A record type or constant name — `TX_START`, `MCS` — read rather than translated. */
+const RECORD_NAME = /^[A-Z0-9_]+$/
+
+/**
+ * TEMPORARY — step 5's tightened cell rules (rule-gaps 1 and 2 of
+ * .superpowers/sdd/2026-09-22-course-readability-wifi/tier1-review.md) turn red on
+ * lessons outside the Wi-Fi Tier 1 fix wave that introduced them. The rule stays on;
+ * these ids are excused until their own wave rewrites the offending cells.
+ *
+ * TODO(tier-2-fix-wave): `edca` and `txop` print the four access-category short names
+ * (VO / VI / BE / BK) in main-path cells with no gloss in that section.
+ * TODO(uwb-fix-wave): `uwb-ul-tdoa` and `uwb-mms-numbers` print English phrases into
+ * language-neutral cells ("1 slot of 2 ms, 1 frame", "2.10 cm over 21 ranges");
+ * `uwb-dstwr` and `uwb-blocks` print `Treply1` and `SP1` unglossed.
+ */
+const CELL_RULE_CARRIES: Record<string, string> = {
+  edca: 'tier-2 fix wave: VO / VI / BE / BK unglossed in numbers cells',
+  txop: 'tier-2 fix wave: VO / VI / BE / BK unglossed in numbers cells',
+  'uwb-ul-tdoa': 'uwb fix wave: English prose in a language-neutral cell',
+  'uwb-mms-numbers': 'uwb fix wave: English prose in a language-neutral cell',
+  'uwb-dstwr': 'uwb fix wave: `Treply1` unglossed in a numbers cell',
+  'uwb-blocks': 'uwb fix wave: `SP1` unglossed in a numbers cell',
+}
+
+/**
+ * TEMPORARY — the same for the vocabulary and unit lint (rule-gap 5). Wi-Fi Tier 1
+ * now says `Mb/s` and 站点 everywhere; the Tier 2 lessons still say `Mbps` and 终端.
+ *
+ * TODO(tier-2-fix-wave): remove each id as its lesson is brought onto the sheet.
+ */
+const VOCAB_CARRIES = ['edca', 'ampdu', 'txop', 'width', 'streams', 'rate', 'rate-fallback', 'txop-protect']
 
 /**
  * MIGRATING as this run grades it. `READABILITY_INCLUDE=uwb-sstwr,uwb-dstwr`
@@ -219,6 +266,35 @@ if (migrated.length) {
         }
       }
     })
+    it('keeps a language-neutral cell neutral: a value or a name, never an English sentence', () => {
+      // Step 5 review, rule-gap 1 (the B2 defect, recurring in B6): `en === zh` renders the
+      // ONE string to both readers, so `N('1400 B of video')` puts English verbatim into a
+      // Chinese main-path table. A value, an arithmetic line, a protocol or log name, a record
+      // name and a provenance cell are all fine — none of them is two English words in a row.
+      if (CELL_RULE_CARRIES[l.id]) return
+      for (const c of [...neutralCellTexts(l.numbers!), ...neutralCellTexts(l.picture!)]) {
+        if (CITATION.test(c.en) || LOG_LINE.test(c.en) || RECORD_NAME.test(c.en) || LOG_NAMES.has(c.en.toUpperCase())) continue
+        expect(CELL_PROSE.test(c.en), `${l.id}: language-neutral cell reads as English prose — "${c.en}"`).toBe(false)
+      }
+    })
+    it('introduces the acronyms of a language-neutral cell as well', () => {
+      // Step 5 review, rule-gap 2 (B1's carry): `cellTexts` drops `en === zh` cells, so
+      // `BPSK 1/2` in a main-path table met the reader with no gloss anywhere. A word is a
+      // word whichever cell it stands in; it may be glossed in the cell, in that section's
+      // prose, or in any bilingual cell of that section — anywhere the reader is looking.
+      if (CELL_RULE_CARRIES[l.id]) return
+      const known = knownFor(l)
+      for (const bs of [l.numbers!, l.picture!]) {
+        const around = [...paragraphTexts(bs), ...cellTexts(bs)]
+        for (const c of neutralCellTexts(bs)) {
+          if (CITATION.test(c.en)) continue
+          for (const a of acronyms(c.en)) {
+            const ok = known.has(a) || definedInPlace(c, a) || around.some((p) => definedInPlace(p, a))
+            expect(ok, `${l.id} neutral cell: "${a}" in "${c.en}" is glossed nowhere in that section`).toBe(true)
+          }
+        }
+      }
+    })
     it('tabulates a run of figures instead of chopping it into paragraphs', () => {
       // Amendment A2: the four-quantity cap was being met by cutting one paragraph into a run
       // of heading-less one-sentence paragraphs, which reads worse than what it replaced and
@@ -260,6 +336,29 @@ if (migrated.length) {
 }
 
 /**
+ * Step 5 review, rule-gap 5: one name per thing, across a whole track.
+ *
+ * Two drifts got through five batch reviews because each one is invisible inside a
+ * single lesson and only shows up when the track is read end to end: `Mbps` against
+ * `Mb/s` (nine uses in the two primer lessons, `Mb/s` in every later one), and a ZH
+ * learner meeting the same actor as 站点 in one lesson and 终端 in the next. Both are
+ * a grep, so they belong in the suite rather than in a reviewer's patience.
+ *
+ * Scope is the Wi-Fi track, because that is the track whose vocabulary sheet this is.
+ */
+describe('readability · one name per thing, across the Wi-Fi track', () => {
+  const wifi = migrated.filter((l) => trackOf(l) === 'wifi' && !VOCAB_CARRIES.includes(l.id))
+  it.each(wifi.map((l) => [l.id, l] as const))('%s says Mb/s, and calls a station 站点', (_id, l) => {
+    for (const s of lessonStrings(l)) {
+      expect(/Mbps/.test(s.en) || /Mbps/.test(s.zh), `${l.id}: write Mb/s, not Mbps — "${s.en.slice(0, 60)}…"`).toBe(false)
+      // 终端 is the ZH word Tier 1 settled against: roles-stack teaches 站点 and every
+      // lesson after it has to keep calling the same actor by the same name.
+      expect(/终端/.test(s.zh), `${l.id}: a station is 站点, not 终端 — "${s.zh.slice(0, 40)}…"`).toBe(false)
+    }
+  })
+})
+
+/**
  * Amendment A4: `needs` is the promise a lesson makes about what the reader
  * has already read, and until now nothing held the promise to what the picture
  * actually leans on. The acronym rule admits any earlier lesson of the track
@@ -299,8 +398,9 @@ describe('readability · needs is honest about what the picture leans on', () =>
       for (const [term, ownerId] of own) {
         if (reachable.has(ownerId)) continue
         if (COURSE_ORDER.indexOf(ownerId) > COURSE_ORDER.indexOf(l.id)) continue
-        // a word prefix, as `firstTermUses` matches: "chips" is `chip`
-        const re = new RegExp(`\\b${escapeRe(term)}`, 'i')
+        // a whole word with an optional plural, as `firstTermUses` matches: "chips" is
+        // `chip`, but "essentially" is no longer `ESS` (step 5 review, rule-gap 3)
+        const re = new RegExp(`\\b${escapeRe(term)}(e?s)?\\b`, 'i')
         const hit = re.test(p.en) ? p.en : null
         expect(hit, `${l.id}: "${term}" is ${ownerId}'s word, and ${ownerId} is not in the needs closure — "${hit?.slice(0, 60)}…"`).toBe(null)
       }

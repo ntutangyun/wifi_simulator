@@ -81,8 +81,8 @@ export const tier1Project: Lesson = {
     zh: '项目——题面与计划',
   },
   why: {
-    en: 'Every lesson so far taught one mechanism and showed it working. Here they all arrive at once, in a flat nobody has explained: a router on a shelf, two laptops uploading as hard as they can, a phone on a call. Your job is to say what the air will do before you watch it do anything. A prediction you adjust after seeing the answer teaches nothing, so this half stops at the plan.',
-    zh: '在此之前的每一课，都是讲透一个机制，再让你看着它工作。这一课里它们一起到场：一户没人替你讲解过的房子，架子上一台路由器、两台拼命上传的笔记本、一部正在通话的手机。你的任务是在看到任何结果之前，先说出空口会发生什么。看过答案再改的预测什么也教不会你，所以前半程到“计划”为止。',
+    en: 'Every lesson so far taught one mechanism and showed it working. Here they all arrive at once, in a flat nobody has explained: a router on a shelf, two laptops uploading as hard as they can, a phone on a call. Your job is to say what the air will do before you watch it do anything, so this half stops at the plan.',
+    zh: '在此之前的每一课，都是讲透一个机制，再让你看着它工作。这一课里它们一起到场：一户没人替你讲解过的房子，架子上一台路由器、两台拼命上传的笔记本、一部正在通话的手机。你的任务是在看到任何结果之前，先说出空口会发生什么——所以前半程到“计划”为止。',
   },
   outcomes: [
     { en: 'turn a floor plan into each station’s arriving signal, and the coding rung it may use', zh: '把一张平面图，算成每台站点到达的信号，以及它能用的编码等级' },
@@ -90,7 +90,7 @@ export const tier1Project: Lesson = {
     { en: 'predict how often two saturated senders collide, and what the pair delivers', zh: '预测两台饱和发送方多久相撞一次，以及这一对能交付多少' },
     { en: 'write four predictions down in a form somebody else could mark', zh: '把四个预测写成别人能拿去批改的样子' },
   ],
-  needs: ['airtime', 'ifs', 'backoff', 'nav', 'hidden', 'anomaly', 'retries-queues', 'bianchi', 'bianchi-vs-sim'],
+  needs: ['frame-anatomy-bytes', 'airtime', 'ifs', 'backoff', 'nav', 'hidden', 'anomaly', 'retries-queues', 'bianchi', 'bianchi-vs-sim'],
   terms: [
     { term: 'brief', plain: {
       en: 'what has to be answered here, and what counts as an answer',
@@ -115,12 +115,12 @@ export const tier1Project: Lesson = {
   ],
   picture: [
     { heading: { en: 'The flat you have not seen', zh: '一户你没见过的房子' }, text: {
-      en: 'A router sits on a study shelf. Two laptops upload as fast as they can — one at the desk beside it, one at the far end of the flat behind a brick wall — and a phone is on a call. The rest of this lesson is a brief: what has to be worked out about that room before anybody opens the simulation.',
+      en: 'A router sits on a study shelf. Two laptops upload as fast as they can — one at the desk beside it, one at the far end of the flat behind a brick wall — and a phone is on a call. The rest of this lesson is a brief: what to work out about that room before anybody opens the simulation.',
       zh: '路由器放在书房的架子上。两台笔记本在拼命上传——一台就在旁边的书桌上，一台在房子另一头、隔着一堵砖墙——还有一部手机正在通话。本课余下的部分是一份题面：在任何人打开仿真之前，关于这个房间要先算清哪些事。',
     } },
     { heading: { en: 'What is switched off, and why that matters', zh: '关掉了什么，为什么要紧' }, text: {
-      en: 'Every radio here shares one narrow channel and one stream, with the best coding it owns and nothing else: no priority classes, no bundling, no reserved turns. Each exchange is therefore one data frame answered by one ACK, with a wait and a countdown in front — DCF, as this tier taught it. Both laptops are saturated: a world a pencil can still describe.',
-      zh: '这里每台设备都共用一条窄信道、一条空间流，开着自己最好的编码，此外什么都没有：没有优先级分类，不把多个帧捆在一起，也没有预留的轮次。于是每次交换就是一个数据帧加一个 ACK 回答，前面还有一段等待和一次倒数——正是本阶段讲过的 DCF。两台笔记本都是饱和的。这样的世界，纸笔还描述得动。',
+      en: 'Every radio here shares one narrow channel and one stream, with the best coding it owns and nothing else: no priority classes, no bundling, no reserved turns. Each exchange is therefore one data frame answered by one ACK, with a wait and a countdown in front — DCF, as this tier taught it. Both laptops are saturated: a world a pencil can still describe. All four radios are Wi-Fi 7, so each frame’s front is the 48 µs the byte-counting lesson measured.',
+      zh: '这里每台设备都共用一条窄信道、一条空间流，开着自己最好的编码，此外什么都没有：没有优先级分类，不把多个帧捆在一起，也没有预留的轮次。于是每次交换就是一个数据帧加一个 ACK 回答，前面还有一段等待和一次倒数——正是本阶段讲过的 DCF。两台笔记本都是饱和的。这样的世界，纸笔还描述得动。四台设备都是 Wi-Fi 7，所以每帧的前导就是“数字节”那一课量到的 48 µs。',
     } },
     { kind: 'watch', jump: 0, heading: { en: 'Look at the room, not at the run', zh: '看房间，先别看仿真' }, text: {
       en: 'Load the simulation and read the plan view: the walls, the four devices, where each one stands. Then leave it alone — once you have read a result you can no longer honestly predict it.',
@@ -168,13 +168,13 @@ export const tier1Project: Lesson = {
       en: 'symbols = ⌈(16 + 8·L + 6) / bits per symbol⌉        airtime = preamble + symbols × 13.6 µs',
       zh: '符号数 = ⌈(16 + 8·L + 6) / 每符号比特数⌉        空口时间 = 前导 + 符号数 × 13.6 µs',
     }, note: {
-      en: 'L is what goes on the air: the 1500-byte payload, 24 bytes of MAC header and 4 of FCS — 1528 octets.',
+      en: 'L is what goes on the air: the 1500-byte payload, 24 bytes of MAC header and 4 of FCS — 1528 bytes.',
       zh: 'L 是真正上到空口的东西：1500 字节净荷、24 字节 MAC 头、4 字节 FCS——合计 1528 字节。',
     } },
     { kind: 'table', head: [
       { en: 'Uploader', zh: '上传设备' }, { en: 'Bits per symbol', zh: '每符号比特' }, { en: 'Symbols', zh: '符号数' },
       { en: 'Data frame', zh: '数据帧' }, { en: 'Its answer', zh: '它的回答' },
-      { en: 'Whole exchange', zh: '整次交换' }, { en: 'If it collides', zh: '若发生碰撞' },
+      { en: 'Exchange, and the DIFS after it', zh: '交换，以及其后的 DIFS' }, { en: 'If it collides', zh: '若发生碰撞' },
     ], rows: [
       [{ en: 'Study laptop', zh: '书房笔记本' }, N('2340'), N('⌈12246 / 2340⌉ = 6'), N('48 + 81.6 = 129.6 µs'),
         N('24 Mb/s, 28 µs'), N('129.6 + 16 + 28 + 34 = 207.6 µs'), N('208.6 µs')],
@@ -182,7 +182,7 @@ export const tier1Project: Lesson = {
         N('12 Mb/s, 32 µs'), N('524.0 + 16 + 32 + 34 = 606.0 µs'), N('603.0 µs')],
     ] },
     { heading: { en: 'The answer has its own rate', zh: '回答有它自己的速率' }, text: {
-      en: 'An ACK travels not at the data frame’s rate but at the fastest mandatory rate at or below that frame’s reference rate: 24 Mb/s behind the fast frame, 12 Mb/s behind the slow one. A collision pays the ACK timeout instead.',
+      en: 'An ACK travels not at the data frame’s rate but at the fastest mandatory rate at or below it: 24 Mb/s behind the fast frame, 12 Mb/s behind the slow one. A collision pays the ACK timeout instead.',
       zh: 'ACK 并不以数据帧的速率发送。它用的是不超过该帧参考速率的最高强制速率：快帧之后是 24 Mb/s，慢帧之后是 12 Mb/s。而一次碰撞付的是 ACK 超时。',
     } },
     { kind: 'table', heading: { en: '(c) Predicted: two saturated stations', zh: '（c）预测：两台饱和站点' }, head: [
@@ -196,7 +196,7 @@ export const tier1Project: Lesson = {
       [{ en: '…and each', zh: '……各自' }, N('12.793 Mb/s')],
     ] },
     { heading: { en: 'Why the collision chance ignores rates', zh: '为什么碰撞概率不看速率' }, text: {
-      en: 'Neither of the first two knows anything about coding or frame length: only the contenders, the window and the tries enter them. Throughput does — and the two win equally often, so a generic exchange costs the mean.',
+      en: 'The first two know nothing about coding or frame length: only the contenders, the window and the tries enter them. Throughput does, and the two win equally often, so a generic exchange costs the mean.',
       zh: '前两个数字与编码、帧长毫无关系：进入它们的只有竞争者个数、窗口和尝试次数。吞吐则不然；而两台抢到空口的次数相同，所以“一次通用的交换”按两者的平均定价。',
     } },
     { kind: 'table', heading: { en: '(d) Predicted: the share, and what it costs', zh: '（d）预测：份额与代价' }, head: [
@@ -204,10 +204,10 @@ export const tier1Project: Lesson = {
     ], rows: [
       [{ en: 'Frames each', zh: '各自帧数' }, { en: 'equal', zh: '相同' }],
       [{ en: 'Airtime, study / living room', zh: '空口占比，书房 / 客厅' }, N('19.8 % / 80.2 %')],
-      [{ en: 'Study laptop alone (exchange + 7.5 slots)', zh: '书房笔记本独占（交换 + 7.5 个时隙）' }, N('12,000 bits / 275.1 µs = 43.621 Mb/s')],
+      [{ en: 'Study laptop alone (exchange + 7.5 slots)', zh: '书房笔记本独占（交换 + 7.5 个时隙）' }, { en: '12,000 bits / 275.1 µs = 43.621 Mb/s', zh: '12,000 比特 / 275.1 µs = 43.621 Mb/s' }],
     ] },
     { kind: 'table', heading: { en: 'The three variants, predicted', zh: '三个变体的预测' }, head: [
-      { en: 'Variant', zh: '变体' }, { en: 'The link that moved', zh: '变了的那条链路' }, { en: 'Frame / exchange', zh: '帧 / 交换' },
+      { en: 'Variant', zh: '变体' }, { en: 'The study laptop’s link', zh: '书房笔记本那条链路' }, { en: 'Frame / exchange', zh: '帧 / 交换' },
       { en: 'Collision chance', zh: '碰撞概率' }, { en: 'Delivered', zh: '交付' },
     ], rows: [
       [{ en: 'Study laptop to the living room', zh: '书房笔记本搬到客厅' }, N('9.000 m → −72.33 dBm, 21.66 dB, MCS 3'),
@@ -254,7 +254,7 @@ export const tier1Project: Lesson = {
   ],
   quiz: [
     {
-      q: { en: 'The living-room laptop arrives at 18.84 dB and MCS 3 needs 16.99 dB. Why does the prediction still say MCS 2?', zh: '客厅笔记本到达时是 18.84 dB，而 MCS 3 需要 16.99 dB。为什么预测仍然是 MCS 2？' },
+      q: { en: 'The living-room laptop’s SNR is 18.84 dB and MCS 3 needs 16.99 dB. Why does the prediction still say MCS 2?', zh: '客厅笔记本的 SNR 是 18.84 dB，而 MCS 3 需要 16.99 dB。为什么预测仍然是 MCS 2？' },
       options: [
         { en: 'MCS 3 is not available on this radio', zh: '这一代设备上没有 MCS 3 这一级' },
         { en: 'A rung needs 3 dB of margin above its requirement, and 16.99 + 3 exceeds 18.84', zh: '取用某一级要在其要求之上留 3 dB 余量，而 16.99 + 3 超过了 18.84' },

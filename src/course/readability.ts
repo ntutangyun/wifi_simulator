@@ -196,6 +196,29 @@ export function cellTexts(blocks: Block[]): L10n[] {
 }
 
 /**
+ * The other half of {@link cellTexts}: the table cells whose two halves are
+ * IDENTICAL. The contract calls these language-neutral — a counter value, a
+ * symbol, a protocol or log name — and renders the one string to both readers.
+ *
+ * Step 5's review found two rules leaking through that exemption, so they now
+ * read these cells too (`tests/course/readability.test.ts`):
+ *  - a neutral cell must actually be neutral. `N('1400 B of video')` and
+ *    `N('4,990 overlaps → 2,713 retries')` are English sentences printed
+ *    verbatim into a Chinese table, which is the B2/B6 defect class.
+ *  - a word met in one is still a word met: `BPSK 1/2` in a main-path table
+ *    has to be glossed somewhere in that section, exactly as `GDOP 1.06` in a
+ *    bilingual cell already had to be.
+ */
+export function neutralCellTexts(blocks: Block[]): L10n[] {
+  const out: L10n[] = []
+  for (const b of blocks) {
+    if (b.kind !== 'table') continue
+    for (const c of [...b.head, ...b.rows.flat()]) if (c.en === c.zh) out.push(c)
+  }
+  return out
+}
+
+/**
  * Every bilingual string a learner can read in a lesson: the one walk that all
  * the per-lesson tests and the contract test share, so a field added to the
  * contract is covered everywhere the moment it is added here.
@@ -335,9 +358,11 @@ export function definedInPlace(p: L10n, token: string): boolean {
  * the picture, in reading order: the density rule's "at most two of a lesson's
  * terms in one paragraph" counts the entries of each list.
  *
- * A term is matched as a word prefix, ignoring case, so "chips" introduces
- * `chip` and "tags" introduces `tag` — the reader meets the word, not the
- * singular.
+ * A term is matched as a WHOLE word with an optional plural, ignoring case, so
+ * "chips" introduces `chip` and "tags" introduces `tag` — the reader meets the
+ * word, not the singular. It used to be a bare prefix, which made `DS` match
+ * "dso…" and `ESS` match "essentially" (step 5 review, rule-gap 3); the plural
+ * tail is what a prefix was there for in the first place.
  */
 export function firstTermUses(blocks: Block[], terms: readonly string[]): string[][] {
   const seen = new Set<string>()
@@ -345,7 +370,7 @@ export function firstTermUses(blocks: Block[], terms: readonly string[]): string
     const fresh: string[] = []
     for (const term of terms) {
       if (seen.has(term)) continue
-      const re = new RegExp(`\\b${escapeRe(term)}`, 'i')
+      const re = new RegExp(`\\b${escapeRe(term)}(e?s)?\\b`, 'i')
       if (re.test(p.en) || re.test(p.zh)) { seen.add(term); fresh.push(term) }
     }
     return fresh
