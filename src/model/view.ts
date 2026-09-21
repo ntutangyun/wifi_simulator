@@ -111,7 +111,14 @@ export interface AmpInventoryView {
   session: number
   /** The slot the reader is offering, 1-based within the session. */
   slot: number
-  /** EPCs read, slots two tags answered in, and slots nobody answered in — this TXOP. */
+  /**
+   * EPCs read, slots the reader heard two answers in, and slots with no answer it could hear —
+   * **this TXOP**, and filled in at its end, because `AMP_INVENTORY` is the only record that
+   * carries the reader's own energy judgement. The row therefore reads 0 / 0 / 0 while a TXOP is
+   * running and lands complete when it closes; `slot` is what moves live. Deriving `read` early
+   * from the ACK commands would fill one column of three and leave the other two at zero, which
+   * reads as a result rather than as "not yet".
+   */
   read: number
   collisions: number
   empties: number

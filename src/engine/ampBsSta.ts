@@ -86,7 +86,11 @@ export class AmpBsStaMac implements PhyListener {
   onRxStart(t: Ns, frame: FrameDesc, _from: string): void {
     if (this.powerHandle) this.q.cancel(this.powerHandle)
     this.powerHandle = this.q.schedule(t + frame.txTimeNs + AMP_BS_POWER_HOLD_NS, () => this.unpower())
-    if (this.state === 'idle' || this.state === 'bsWait') this.setState('rx')
+    // An unpowered tag is not receiving, it is inert: it shows `rx` only for a PPDU it can act
+    // on — one already charging it, or one whose WUP-Excitation is about to. Otherwise the lane
+    // would draw a reception for a tag the model says is not thinking at all.
+    const wakes = (frame.amp?.rfid?.wupNs ?? 0) >= AMP_BS_WUP_MIN_NS
+    if ((this.powered || wakes) && (this.state === 'idle' || this.state === 'bsWait')) this.setState('rx')
   }
 
   /**

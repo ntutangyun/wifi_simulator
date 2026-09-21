@@ -1,8 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import {
-  AMP_BS_T1_NS, AMP_BS_T2_NS, AMP_BS_WRITE_T3_NS, epcOf,
+  AMP_BS_REQ_SNR_DB, AMP_BS_T1_NS, AMP_BS_T2_NS, AMP_BS_WRITE_T3_NS, epcOf,
 } from '../../src/engine/ampBs'
 import { bsDataEndNs } from '../../src/engine/channel'
+import { hashStr } from '../../src/engine/hash'
+import { Rng } from '../../src/engine/rng'
 import { Simulation } from '../../src/engine/simulation'
 import type { TLRecord } from '../../src/model/records'
 import { DEFAULT_AMP_AP, DEFAULT_AMP_BS, type NodeCfg, type Scenario } from '../../src/model/scenario'
@@ -137,17 +139,17 @@ describe('the reader’s RFID inventory round', () => {
 
   it('Q = 2 with four tags: each draws its counter once per session from its own stream', () => {
     const tags = [bsTag('tag-1', 0.1), bsTag('tag-2', 0.2), bsTag('tag-3', 0.3), bsTag('tag-4', 0.1, 'y')]
-    // `read: false` keeps a full four-slot inventory inside one 10 ms TXOP, so every slot's
-    // outcome lands in one AMP_INVENTORY and none is cut off by a TXOP boundary.
-    const rs = new Simulation(bsScenario({ pollIntervalMs: 40, txopMs: 10, read: false }, tags)).runUntil(60 * MS).records
+    const sc = bsScenario({ pollIntervalMs: 40, txopMs: 10 }, tags)
+    const rs = new Simulation(sc).runUntil(60 * MS).records
     const session = ofType(rs, 'AMP_RFID', 'ap#2g')[0].session
     const inSession = (n: string) => ofType(rs, 'AMP_BS_COUNTER', n).filter((c) => c.t < 40 * MS)
     for (const id of ['tag-1', 'tag-2', 'tag-3', 'tag-4']) {
       const draws = inSession(`${id}#2g`)
       expect(draws.length, `${id} draws exactly once in session ${session}`).toBe(1)
       expect(draws[0].q).toBe(2)
-      expect(draws[0].counter).toBeGreaterThanOrEqual(0)
-      expect(draws[0].counter).toBeLessThanOrEqual(3)
+      // Replayed from the tag's own stream, built the way simulation.ts forks it: this is what
+      // catches a change in the fork wiring, which reading the record back never would.
+      expect(draws[0].counter, id).toBe(new Rng(sc.seed).fork(hashStr(`${id}#2g`)).int(3))
     }
     const counters = ['tag-1', 'tag-2', 'tag-3', 'tag-4'].map((id) => inSession(`${id}#2g`)[0].counter)
     const inv = ofType(rs, 'AMP_INVENTORY', 'ap#2g').filter((i) => i.t < 40 * MS)
@@ -169,6 +171,60 @@ describe('the reader’s RFID inventory round', () => {
     expect(ofType(rs, 'AMP_BS_BOOT', 'far#2g')).toEqual([])
     expect(ofType(rs, 'AMP_BS_COUNTER', 'far#2g')).toEqual([])
     expect(ofType(rs, 'AMP_BS_REPLY', 'far#2g')).toEqual([])
+  })
+
+  it('a tag that boots but cannot be heard leaves an empty slot, not a collision', () => {
+    // At 20 dBm charge the activation reach is 0.978 m but the reply reach does not move: a tag
+    // at 0.5 m wakes, draws, and backscatters an answer 7 dB under the reader's own leakage
+    // floor. That is not energy the reader can measure, so the slot has no answer in it.
+    const rs = new Simulation(bsScenario({ chargeDbm: 20, q: 0, pollIntervalMs: 20 }, [bsTag('lonely', 0.5)])).runUntil(100 * MS).records
+    expect(ofType(rs, 'AMP_BS_BOOT', 'lonely#2g')[0]).toMatchObject({ powered: true })
+    expect(ofType(rs, 'AMP_BS_COUNTER', 'lonely#2g')[0]).toMatchObject({ counter: 0 })
+    const replies = ofType(rs, 'AMP_BS_REPLY', 'lonely#2g')
+    expect(replies.length).toBeGreaterThan(0)
+    expect(replies[0].snrDb).toBeLessThan(AMP_BS_REQ_SNR_DB[250]) // under the reader's floor
+    expect(ofType(rs, 'RX_OK', 'ap#2g').filter((r) => r.frame.kind === 'ampBsReply')).toEqual([])
+    const invs = ofType(rs, 'AMP_INVENTORY', 'ap#2g')
+    expect(invs.length).toBeGreaterThan(2)
+    for (const i of invs) expect(i).toMatchObject({ slotsOffered: 1, read: [], collisions: 0, empties: 1 })
+
+    // …and the same reader, at the same charge power, still calls a real two-tag pile-up a
+    // collision: the floor gates the energy, it does not switch the detector off.
+    const both = new Simulation(bsScenario({ chargeDbm: 20, q: 0, pollIntervalMs: 20 }, [bsTag('near-1', 0.15), bsTag('near-2', 0.15, 'y')])).runUntil(100 * MS).records
+    const collided = ofType(both, 'AMP_INVENTORY', 'ap#2g')
+    expect(collided.length).toBeGreaterThan(2)
+    for (const i of collided) expect(i).toMatchObject({ slotsOffered: 1, read: [], collisions: 1, empties: 0 })
+  })
+
+  it('never opens a slot it cannot finish: no RN16 is left unacknowledged and every slot is tallied', () => {
+    // A four-slot inventory with Read on needs ~3.6 ms per tag answered, so a 10 ms TXOP cannot
+    // hold all four: the boundary falls in the middle of the round, which is exactly where a
+    // slot used to be cut in half after its RN16.
+    for (const txopMs of [4, 6, 8, 10]) {
+      const tags = [bsTag('tag-1', 0.1), bsTag('tag-2', 0.2), bsTag('tag-3', 0.3), bsTag('tag-4', 0.1, 'y')]
+      const rs = new Simulation(bsScenario({ pollIntervalMs: 60, txopMs }, tags)).runUntil(300 * MS).records
+      const invs = ofType(rs, 'AMP_INVENTORY', 'ap#2g')
+      expect(invs.length, `${txopMs} ms`).toBeGreaterThan(2)
+      for (const i of invs) {
+        // Every slot offered lands in exactly one column — the invariant a cut slot broke.
+        expect(i.read.length + i.collisions + i.empties, `${txopMs} ms TXOP at ${i.t}`).toBe(i.slotsOffered)
+      }
+      // Every RN16 the reader decoded is answered by an ACK carrying it, inside the same TXOP.
+      const heard = ofType(rs, 'RX_OK', 'ap#2g').filter((r) => r.frame.amp?.bs?.reply === 'rn16')
+      const acks = ofType(rs, 'TX_START', 'ap#2g').filter((r) => r.frame.amp?.rfid?.cmd === 'ack')
+      expect(heard.length, `${txopMs} ms`).toBeGreaterThan(0)
+      for (const h of heard) {
+        const ack = acks.find((a) => a.t > h.t && a.frame.amp!.rfid!.rn16 === h.frame.amp!.bs!.rn16)
+        expect(ack, `${txopMs} ms: the RN16 heard at ${h.t} is acknowledged`).toBeDefined()
+        expect(ack!.t - h.t, `${txopMs} ms: acknowledged in the very next command`).toBeLessThan(2 * MS)
+      }
+      // …and a session that completes has offered all 2^Q of its slots, whatever it cost in TXOPs.
+      const done = invs.filter((i) => i.complete)
+      expect(done.length, `${txopMs} ms`).toBeGreaterThan(0)
+      for (const d of done) {
+        expect(invs.filter((i) => i.session === d.session).reduce((n, i) => n + i.slotsOffered, 0)).toBe(4)
+      }
+    }
   })
 
   it('a Wi-Fi station on 2.4 GHz defers for every RFID PPDU, excitation included', () => {

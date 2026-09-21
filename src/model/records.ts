@@ -76,6 +76,16 @@ export type TLRecord = { t: Ns; seq: number } & (
    * inventory as a whole (complete once 2^Q slots have been offered); `slotsOffered`, `read`,
    * `collisions`, `empties` and `txopNs` describe this TXOP alone, so a session spread over
    * several TXOPs is the sum of its records.
+   *
+   * Every slot offered lands in exactly one of the three columns, so
+   * `read.length + collisions + empties === slotsOffered` holds for every record: the reader
+   * never opens a slot it has not reserved the air to finish.
+   *
+   * `collisions` is a slot the reader *heard* something in and could not read — two reflections
+   * on top of each other, or one spoiled by Wi-Fi. `empties` is a slot with no answer the reader
+   * could hear, which covers both silence and a tag that booted and answered from beyond the
+   * reply reach: the charge power carries much further than a reflection does, so those are not
+   * the same distance, and neither is a collision.
    */
   | { type: 'AMP_INVENTORY'; node: string; session: number; slotsOffered: number; read: string[]; collisions: number; empties: number; txopNs: Ns; complete: boolean }
   /**

@@ -18,6 +18,7 @@ import type { AmpApCfg, TamperCfg } from '../model/scenario'
 import type { Ns } from '../model/types'
 import type { TxopProtection } from '../model/scenario'
 import { AmpApRound } from './ampAp'
+import { AMP_BS_LOSS_DB, bsDecodes, monoLeakDbm, readerFloorDbm, type AmpBsUlKbps } from './ampBs'
 import { AmpInventoryRound } from './ampReader'
 import type { Channel, PhyListener } from './channel'
 import { EventQueue } from './events'
@@ -240,7 +241,7 @@ export class WifiMac implements PhyListener {
       nodeId, q, now, emit, timing: this.T,
       transmit: (f: FrameDesc) => this.transmitFrame(f, false),
       done: () => this.onAmpDone(),
-      bstEnergy: () => (cfg.ampBsTagIds ?? []).some((id) => ch.currentTx(id) !== null),
+      bstEnergy: () => this.bstEnergy(),
     }
     // Which tiers exist decides which rounds this MAC owns. An unstated `ampTiers` is Active Tx
     // alone: that is every AMP scenario written before the backscatter tier.
@@ -250,6 +251,34 @@ export class WifiMac implements PhyListener {
       ? new AmpInventoryRound({ ...cfg.ampAp, backscatter: cfg.ampAp.backscatter }, ampDeps)
       : null
     if (this.ampRound || this.ampInventory) this.scheduleAmpPoll(0)
+  }
+
+  /**
+   * Energy detection inside the reader's own BST-Excitation: is anything reflecting that this
+   * receiver could actually measure?
+   *
+   * A reader's energy detector sits on the same self-leakage floor as its demodulator, so a
+   * reflection below that floor is not energy — it is indistinguishable from the reader's own
+   * transmission leaking into its receiver. That distinction is the whole point of the query: a
+   * slot two tags answered in is a collision, while a slot whose tag booted and was never heard
+   * (the charge power reaches far further than a reflection does) is a slot with no answer in it.
+   *
+   * It is not addressing. The inventory exists precisely because the reader does not know who is
+   * out there; this asks the medium "is any reflection above my floor right now", which is what a
+   * real EPC Gen2 reader measures per slot.
+   */
+  private bstEnergy(): boolean {
+    const bs = this.cfg.ampAp?.backscatter
+    if (bs === undefined) return false
+    const floorDbm = readerFloorDbm(monoLeakDbm(bs.bsDbm))
+    return (this.cfg.ampBsTagIds ?? []).some((id) => {
+      if (this.ch.currentTx(id) === null) return false
+      // The same round trip the channel walks: out at the excitation power, reflected
+      // AMP_BS_LOSS_DB down, back over the same path.
+      const incidentDbm = this.ch.bsRxDbm(this.nodeId, id, bs.bsDbm)
+      const atMeDbm = this.ch.bsRxDbm(id, this.nodeId, incidentDbm - AMP_BS_LOSS_DB)
+      return bsDecodes(atMeDbm, floorDbm, bs.ulKbps as AmpBsUlKbps)
+    })
   }
 
   /**
@@ -1287,13 +1316,15 @@ export class WifiMac implements PhyListener {
     return this.awaiting.kind === 'cts' ? frame.kind === 'cts' : frame.kind === 'ack' || frame.kind === 'ba'
   }
 
-  onRxCorrupt(_t: Ns): void {
+  onRxCorrupt(t: Ns): void {
     // An empty or collided AMP slot is not a reason to arm EIFS: the AP owns
     // the medium until the round's last Ack and answers on AMP SIFS.
     if (!this.ampActive) this.corruptLast = true
-    // A reflection that did not decode is the inventory's business: it is the difference
-    // between a slot two tags answered in and one nobody did.
-    this.ampInventory?.onRxFail()
+    // A reflection that did not decode is the inventory's business — but only a reflection.
+    // Anything corrupted in one of the 16 µs turnaround gaps between commands is a Wi-Fi frame
+    // talking over the reader, not a tag answering, and must not turn an empty slot into a
+    // collision. The BST window is the test: it is the only place a reply can exist at all.
+    if (this.ch.bstOpenAt(this.nodeId, t)) this.ampInventory?.onRxFail()
     if (this.awaiting !== null) this.failAttempt()
   }
 

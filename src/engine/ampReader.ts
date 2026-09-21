@@ -16,8 +16,8 @@
  * TGbp 11-25/0061r0 (contribution). Nothing of the draft's text is reproduced.
  */
 import {
-  AMP_BS_T1_NS, AMP_BS_T2_NS, AMP_BS_WRITE_T3_NS, ampRfidFrame, bsReplyNs, bstNs, epcOf,
-  type AmpBsUlKbps, type Gen2Cmd, type Gen2Reply,
+  AMP_BS_T1_NS, AMP_BS_T2_NS, AMP_BS_WRITE_T3_NS, ampBsDlPpduNs, ampRfidFrame, bsReplyNs, bstNs,
+  epcOf, type AmpBsUlKbps, type Gen2Cmd, type Gen2Reply,
 } from './ampBs'
 import type { AmpApDeps } from './ampAp'
 import { bsDataEndNs } from './channel'
@@ -59,7 +59,13 @@ interface Command {
   opensSlot: boolean
 }
 
+/** The destination a Query or QueryRep carries: it addresses no tag, because the whole point of
+ * an inventory is that the reader does not yet know who is there. A sentinel, not physics. model */
 const BROADCAST = '*tags'
+/** Inventory session numbers roll 1…255. EPC Gen2's own sessions are S0–S3 and mean something
+ * else (which flag a tag keeps); this is a rolling id for "which inventory is this", wide enough
+ * that a tag cannot confuse two of them inside one run. model */
+const SESSION_MODULUS = 255
 
 export class AmpInventoryRound {
   private running = false
@@ -127,7 +133,7 @@ export class AmpInventoryRound {
     // A TXOP that resumes an unfinished session keeps its number, and the tags keep the counters
     // they drew under it (11-25/0061r0's "Extend", model); only an exhausted one starts over.
     if (this.remaining === 0) {
-      this.session = (this.session % 255) + 1
+      this.session = (this.session % SESSION_MODULUS) + 1
       this.remaining = 2 ** this.bs.q
       this.slot = 0
     }
@@ -171,6 +177,26 @@ export class AmpInventoryRound {
     })
   }
 
+  /**
+   * The air a slot needs before the reader may open it: the command PPDU itself, and — against
+   * the chance that a tag answers in it — the turnaround and the ACK PPDU whose own excitation
+   * carries the EPC back.
+   *
+   * Reserving it is what stops a slot being cut in half. An RN16 the reader hears and can never
+   * acknowledge is a tag lost for the rest of the session (it spent its counter answering) and a
+   * slot that lands in none of the three tallies, so the reader would report fewer outcomes than
+   * slots it offered. Better to leave the slot unopened: the next TXOP offers it whole.
+   *
+   * The Read and the Write that may follow an EPC are deliberately *not* reserved. By then the
+   * tag has been read and counted; losing its 8 octets of memory to a TXOP boundary costs the
+   * inventory nothing, and reserving 1.1 ms (or 3 ms) more per slot would empty most TXOPs.
+   */
+  private slotReserveNs(): Ns {
+    const kbps = this.bs.ulKbps as AmpBsUlKbps
+    const ackNs = ampBsDlPpduNs('ack', 0, bstNs('epc', kbps), this.deps.timing.signalExtNs)
+    return AMP_BS_T2_NS + ackNs
+  }
+
   /** Send the next command, or close the TXOP because the session is done or the budget is spent. */
   private step(): void {
     const c = this.nextCommand()
@@ -182,10 +208,12 @@ export class AmpInventoryRound {
     const slot = c.opensSlot ? this.slot + 1 : this.slot
     const frame = this.build(c, wupNs, slot)
     const t = this.deps.now()
-    if (t + frame.txTimeNs > this.txopStartNs + this.txopNs) {
-      // Not enough air left for this PPDU. A command that would have opened a slot has not
-      // opened it, so the next TXOP offers it; one owed inside a slot is dropped, because the
-      // tag's handle only lives as long as the carrier that lit it.
+    const needNs = frame.txTimeNs + (c.opensSlot ? this.slotReserveNs() : 0)
+    if (t + needNs > this.txopStartNs + this.txopNs) {
+      // Not enough air left. A command that would have opened a slot has not opened it, so the
+      // next TXOP offers it whole; one owed inside a slot can only be an access command after an
+      // EPC already read, and is dropped, because the tag's handle only lives as long as the
+      // carrier that lit it.
       if (!c.opensSlot) this.queued = []
       this.endTxop()
       return
