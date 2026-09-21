@@ -26,6 +26,14 @@ const tabBtn = (active: boolean): React.CSSProperties => ({
 const COURSE_COL_DEFAULT = 340
 const COURSE_COL_LIMITS = { min: 240, max: 900, reserve: 660 }
 
+/**
+ * Every row-only grid in the layout states this single column. Without it the
+ * implicit column is `auto`, so a child wide enough to set its own width (the
+ * 3-D viewport's canvas keeps the pixel width it was last given) makes the
+ * column wider than the grid item and paints over the column beside it.
+ */
+const ONE_COLUMN = 'minmax(0, 1fr)'
+
 type SideTab = 'inspector' | 'log'
 
 /**
@@ -40,7 +48,7 @@ function SidePanel() {
   return (
     <div style={{
       borderLeft: '1px solid var(--border)', background: 'var(--panel)',
-      display: 'grid', gridTemplateRows: 'auto 1fr', minHeight: 0, minWidth: 0,
+      display: 'grid', gridTemplateRows: 'auto 1fr', gridTemplateColumns: ONE_COLUMN, minHeight: 0, minWidth: 0,
     }}>
       <div style={tabBar} role="tablist">
         {tabs.map(([id, label]) => (
@@ -49,7 +57,7 @@ function SidePanel() {
           </button>
         ))}
       </div>
-      <div style={{ overflow: 'hidden', display: 'grid', minHeight: 0, minWidth: 0 }}>
+      <div style={{ overflow: 'hidden', display: 'grid', gridTemplateColumns: ONE_COLUMN, minHeight: 0, minWidth: 0 }}>
         {tab === 'inspector' ? <Inspector /> : <EventLog />}
       </div>
     </div>
@@ -66,7 +74,7 @@ export function App() {
   const stackPlayer = mode === 'course'
 
   return (
-    <div style={{ display: 'grid', gridTemplateRows: 'auto 1fr auto auto', height: '100%' }}>
+    <div style={{ display: 'grid', gridTemplateRows: 'auto 1fr auto auto', gridTemplateColumns: ONE_COLUMN, height: '100%' }}>
       <header style={{
         display: 'flex', alignItems: 'center', gap: 12, padding: '6px 12px',
         background: 'var(--panel)', borderBottom: '1px solid var(--border)',
@@ -94,7 +102,7 @@ export function App() {
           mode === 'course' ? `${courseW}px minmax(0, 1fr) minmax(300px, 360px)` : '1fr',
       }}>
         {mode === 'course' && (
-          <div style={{ position: 'relative', borderRight: '1px solid var(--border)', background: 'var(--panel)', overflow: 'hidden', display: 'grid', minHeight: 0, minWidth: 0 }}>
+          <div style={{ position: 'relative', borderRight: '1px solid var(--border)', background: 'var(--panel)', overflow: 'hidden', display: 'grid', gridTemplateColumns: ONE_COLUMN, minHeight: 0, minWidth: 0 }}>
             <ColumnResizeHandle
               edge="right" width={courseW} onWidth={setCourseW}
               onReset={() => setCourseW(COURSE_COL_DEFAULT)} title={L.panel.resizeHint}
@@ -102,7 +110,7 @@ export function App() {
             <CoursePanel />
           </div>
         )}
-        <div style={{ display: 'grid', gridTemplateRows: 'minmax(0, 1fr) auto auto', minHeight: 0, minWidth: 0 }}>
+        <div style={{ display: 'grid', gridTemplateRows: 'minmax(0, 1fr) auto auto', gridTemplateColumns: ONE_COLUMN, minHeight: 0, minWidth: 0 }}>
           <div style={{ position: 'relative', minHeight: 0 }}>
             {simError && (
               <pre style={{ color: '#f87171', padding: 16, whiteSpace: 'pre-wrap', position: 'absolute', zIndex: 5 }}>
@@ -115,7 +123,7 @@ export function App() {
               ) : simActive ? (
                 <Viewport key={`vp-${mode}-${simSession}`} />
               ) : (
-                <div style={{ display: 'grid', placeItems: 'center', height: '100%', color: 'var(--dim)', padding: 24, textAlign: 'center' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: ONE_COLUMN, placeItems: 'center', height: '100%', color: 'var(--dim)', padding: 24, textAlign: 'center' }}>
                   {L.course.selectPrompt}
                 </div>
               )}
