@@ -81,6 +81,16 @@ Existing kinds (`p`, `formula`, `table`, `list`, `steps`, `widget`) are unchange
   global baseline `KNOWN_WORDS` (units and everyday words: Wi-Fi, AP, STA, MAC,
   PHY, dB, dBm, µs, ns, ms, s, MHz, GHz, kb/s, Mb/s, ID, RF, OK, CPU, IoT, GPS,
   USB). The test walks the course in order and keeps the running set.
+- **Tokens.** An acronym token starts with two or more capitals and may
+  continue with letters, digits and hyphens, so mixed-case tails stay whole
+  (`DL-TDoA`, `SS-TWR`); MHz/GHz/kHz are known words. The rule reads `why`,
+  `outcomes`, `picture`, `numbers` prose, table cells, `observe`, `tryThis` and
+  `quiz` (same-sentence definitions exempt).
+- **Prerequisite closure.** Every term a lesson uses in `picture` is introduced
+  in that lesson or in a lesson inside the transitive closure of its `needs`
+  (a test walks the closure), so `needs` is honest.
+- **Numbers layout.** Two heading-less paragraphs never sit side by side in
+  `numbers`: a run of facts is a table, a formula, or carries a heading.
 - **Density.** At most two of a lesson's `terms` make their first `picture`
   appearance in the same paragraph, and no `picture` paragraph carries more than
   four distinct acronyms. An ordered recap goes in a `steps` block, which is
