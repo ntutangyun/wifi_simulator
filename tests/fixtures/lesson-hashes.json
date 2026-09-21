@@ -11,6 +11,7 @@
   "decode-thresholds#3": "5dbc9d1b",
   "roles-stack": "6b54eacf",
   "frame-anatomy": "27f82e3c",
+  "frame-anatomy-bytes": "27f82e3c",
   "airtime": "7ed7b30c",
   "ifs": "4cbdc90b",
   "backoff": "5394a7e6",

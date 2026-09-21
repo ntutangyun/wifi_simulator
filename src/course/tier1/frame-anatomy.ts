@@ -1,9 +1,20 @@
-﻿/**
- * Tier 1 · M1 · lesson 3: frame anatomy. What one PPDU carries, field by field:
- * the PHY preamble and header, the MAC header (Frame Control bits, Duration,
- * the four address roles, Sequence Control, QoS Control), the FCS, the tiny
- * control frames and the A-MPDU subframe. Every number quoted here is pinned in
- * tests/course/tier1-frame-anatomy.test.ts by decoding this scenario's frames.
+/**
+ * Wi-Fi Tier 1 · M1 · lesson 4: the header of a frame. What the first two
+ * bytes say, whom the addresses name, how long the room is spoken for, where
+ * the frame sits in a numbered run, and what the four bytes at the end are for.
+ *
+ * Written to the zero-to-hero contract
+ * (docs/superpowers/specs/2026-09-21-course-readability-design.md). The old
+ * lesson was 1 542 words and carried two ideas a reader wants to stop between,
+ * so it is split per the spec's table: this half keeps the header, the
+ * addresses and what each field is for, and `frame-anatomy-bytes` takes the
+ * byte budget, the decoder and the aggregation hooks. The second half loads
+ * this lesson's own scene, so the split adds no scenario.
+ *
+ * The bit-by-bit breakdown of Frame Control, the mesh four-address case and
+ * the management frames are in `deeper`; the clause numbers are in `sources`.
+ *
+ * Every number quoted below is pinned in tests/course/frame-anatomy.test.ts.
  */
 import type { TLRecord } from '../../model/records'
 import { N, J, node, oneRoom, sc, txOf, type Lesson } from '../lessonKit'
@@ -36,43 +47,132 @@ export const firstLegacyRetry = (r: TLRecord): boolean =>
 export const frameAnatomy: Lesson = {
   id: 'frame-anatomy',
   module: 0,
-  title: { en: 'Frame anatomy — what is actually on the air', zh: '帧的解剖——空中到底传了什么' },
-  body: [
-    { text: {
-      en: 'Every block on the timeline is one PPDU, and every PPDU is a set of nested wrappers. The layer above hands the MAC an MSDU (here a 1500 B packet). The MAC wraps it into an MPDU: MAC header + frame body + FCS. The PHY carries that MPDU, or an aggregate of several, as its PSDU, and puts a preamble and a PHY header in front. Click any frame on the timeline and open “Fields on the air” to see this decode for real (IEEE 802.11-2024 §9.2–9.3).',
-      zh: '时间轴上的每一个块都是一个 PPDU，而每个 PPDU 都是层层包裹的结构。上层交给 MAC 的是 MSDU（这里是一个 1500 B 的数据包）。MAC 把它封装成 MPDU：MAC 头 + 帧体 + 帧校验序列（FCS）。物理层把这个 MPDU（或由多个 MPDU 聚合而成的整体）作为 PSDU 承载，并在前面加上前导码和 PHY 头。在时间轴上点击任意一帧，展开“空中字段”，就能看到真实的逐字段解码（IEEE 802.11-2024 §9.2–9.3）。',
+  title: { en: 'What a frame says before it says anything', zh: '一帧在开口之前先说了什么' },
+  why: {
+    en: 'A frame is not your data with a label stuck on it. In front of the data sits a small run of fields: what kind of frame this is, which radio must catch it, who sent it, how much longer the room is spoken for, and where it sits in a numbered run. Nearly everything a network decides, it decides from those.',
+    zh: '一帧并不是"你的数据外面贴了张标签"。数据前面有一小串字段：这是哪一类帧、哪台射频必须接住它、是谁发的、这个房间还要被占用多久、以及它在一串编号里排第几。网络所做的几乎每一个决定，依据的都是它们。',
+  },
+  outcomes: [
+    { en: 'read the header of any frame in the simulator and say what kind it is', zh: '读懂仿真里任意一帧的帧头，说出它是哪一类' },
+    { en: 'work out which address must answer and which is the far end', zh: '判断哪个地址必须作答，哪个才是远端' },
+    { en: 'say what the four bytes at the end do, and what happens when they disagree', zh: '说出帧尾那四个字节的作用，以及对不上时会怎样' },
+    { en: 'tell a plain data frame from one carrying a traffic mark', zh: '把普通数据帧和带业务标记的数据帧区分开' },
+  ],
+  needs: ['roles-stack'],
+  terms: [
+    { term: 'MSDU', plain: {
+      en: 'your packet, as the layer above hands it down',
+      zh: '上层交下来的那份载荷，也就是你的数据包',
     } },
-    { kind: 'formula', text: {
-      en: 'PPDU = preamble + PHY header + PSDU      MPDU = MAC header + frame body + FCS',
-      zh: 'PPDU = 前导码 + PHY 头 + PSDU      MPDU = MAC 头 + 帧体 + FCS',
+    { term: 'MPDU', plain: {
+      en: 'one finished frame: header, payload, check',
+      zh: '一个造好的帧：帧头、载荷、校验',
     } },
-    { kind: 'table', heading: { en: 'The PPDU: what the PHY puts in front', zh: 'PPDU：物理层在前面加了什么' }, head: [
-      { en: 'Format', zh: '格式' }, { en: 'Preamble + PHY header', zh: '前导码 + PHY 头' }, { en: 'One data symbol', zh: '一个数据符号' },
+    { term: 'PPDU', plain: {
+      en: 'what leaves the antenna: a pattern to lock on to, then the frame',
+      zh: '离开天线的东西：先一段用来锁住的图案，然后是那个帧',
+    } },
+    { term: 'FCS', plain: {
+      en: 'frame check sequence: the four bytes that say the frame arrived intact',
+      zh: '帧校验序列：说明这一帧完好到达的那四个字节',
+    } },
+    { term: 'CRC', plain: {
+      en: 'the arithmetic that produces those four bytes',
+      zh: '算出那四个字节的那套算术',
+    } },
+    { term: 'QOS', plain: {
+      en: 'quality of service: two header bytes naming the kind of traffic',
+      zh: '服务质量：帧头里说明业务类别的那两个字节',
+    } },
+  ],
+  picture: [
+    { heading: { en: 'Three wrappings, three names', zh: '三层包装，三个名字' }, text: {
+      en: 'The layer above hands the MAC a payload to deliver. That payload is the MSDU. The MAC puts a header in front of it and a check behind it, and the parcel that results is the MPDU — one frame. Everything in this lesson sits inside that parcel, in front of your data.',
+      zh: '上面那一层把一份载荷交给 MAC，请它送到。这份载荷就是 MSDU。MAC 在它前面加一段头、后面加一个校验，做成的这个包裹就是 MPDU——也就是一帧。这一课讲的全部内容，都在这个包裹里、在你的数据前面。',
+    } },
+    { heading: { en: 'And then the radio puts a front on it', zh: '再由射频给它加个前脸' }, text: {
+      en: 'The frame goes down to the PHY, which cannot just start sending bytes: a receiver has to notice that something began. So the PHY puts a known pattern in front, and what leaves the antenna — pattern first, frame behind — is the PPDU. One block on the timeline is one of those.',
+      zh: '帧接着交给 PHY，而 PHY 不能直接开始发字节：接收端得先察觉"有东西开始了"。所以 PHY 会在最前面放一段已知的图案；离开天线的这整个东西——先图案、后帧——就是 PPDU。时间轴上的一个块，就是其中一个。',
+    } },
+    { kind: 'watch', jump: 0, heading: { en: 'Open one and look', zh: '打开一帧看看' }, text: {
+      en: 'Load the simulation, jump to the old laptop\'s first frame and open "Fields on the air". Every field named below is in that list, in the order the lesson takes them.',
+      zh: '载入仿真，跳到旧笔记本的第一帧，展开"空中字段"。下面提到的每一个字段都在那张列表里，顺序和这一课讲的一样。',
+    } },
+    { heading: { en: 'The first two bytes say what this is', zh: '头两个字节先说清这是什么' }, text: {
+      en: 'A receiver reads the front of the header first, so the first two bytes tell it what to do at all: which family this frame belongs to — data, control or management — and the exact kind within it. Two more bits give the direction, into the network or out of it, and one says "this is a repeat".',
+      zh: '接收端最先读到的是帧头前端，所以头两个字节要让它能决定接下来做什么：这一帧属于哪一大类——数据、控制还是管理——以及在这一类里具体是哪一种。另有两个比特给出方向，是进网还是出网；还有一个比特说"这是重发的"。',
+    } },
+    { heading: { en: 'Who must catch it', zh: '谁必须接住它' }, text: {
+      en: 'Then three addresses, six bytes each: the radio that must catch this frame and answer it, the radio that sent it, and the far end of the journey the payload is really making. Keeping them apart is what lets a message to the phone next door be addressed to the access point.',
+      zh: '接下来是三个地址，每个六字节：必须接住这一帧并作答的那台射频、发出它的那台射频，以及这份载荷真正要走完那段路的终点。正是把它们分开写，才使得"发给隔壁那部手机"的消息，收件人可以是接入点。',
+    } },
+    { heading: { en: 'How long, and which one in the run', zh: '还要多久，以及这是第几个' }, text: {
+      en: 'Two small fields follow: one says how much longer the exchange needs after this frame, so the neighbours stay quiet for the answer too; the other numbers each payload, and a repeat keeps its number, which is how a duplicate is recognised.',
+      zh: '随后是两个小字段：一个说明这一帧之后交互还要多久，好让邻居连回复也一并让出来；另一个给每份载荷编号，重发沿用原号——重复帧正是这样被认出来的。',
+    } },
+    { heading: { en: 'A check at the end', zh: '末尾的那个校验' }, text: {
+      en: 'The last four bytes are the FCS, and they are not part of the message. The sender runs everything in front of them through a fixed piece of arithmetic, a CRC, and writes the result down; the receiver does the same and compares. If the two disagree it says nothing at all, and the sender sends the frame again.',
+      zh: '最后四个字节是 FCS，并不属于消息本身。发送端把前面的所有内容过一遍固定的算术，也就是 CRC，把结果写下来；接收端照样算一遍再比对。两者对不上，它就什么都不说；发送端于是把这一帧再发一次。',
+    } },
+    { heading: { en: 'A mark for the kind of traffic', zh: '给业务类别打的那个标记' }, text: {
+      en: 'A voice call and a file upload want different things from a network, so a modern station adds two more header bytes carrying a QoS mark: which of four kinds of traffic this frame is, and how it wants to be answered. Those two bytes are the whole difference between a plain data frame and a marked one.',
+      zh: '一通语音通话和一次文件上传，对网络的要求并不相同，所以现代站点会在帧头再加两个字节，写上一个 QoS 标记：这一帧属于四类业务中的哪一类，以及它希望被怎样确认。这两个字节，就是普通数据帧与带标记数据帧的全部差别。',
+    } },
+  ],
+  numbers: [
+    { kind: 'table', heading: { en: 'The header, field by field', zh: '帧头，逐个字段' }, head: [
+      { en: 'Field', zh: '字段' }, { en: 'Bytes', zh: '字节' }, { en: 'What it says', zh: '它说明什么' },
     ], rows: [
-      [{ en: 'Non-HT (802.11a, clause 17)', zh: '非 HT（802.11a，第 17 章）' }, { en: '20 µs = L-STF + L-LTF 16 µs + SIGNAL 4 µs', zh: '20 µs = L-STF + L-LTF 16 µs + SIGNAL 4 µs' }, N('4 µs')],
-      [{ en: 'VHT (Wi-Fi 5)', zh: 'VHT（Wi-Fi 5）' }, N('40 µs'), N('4 µs')],
-      [{ en: 'HE (Wi-Fi 6)', zh: 'HE（Wi-Fi 6）' }, { en: '44 µs (+4 µs HE-SIG-B in an MU PPDU)', zh: '44 µs（MU PPDU 另加 4 µs HE-SIG-B）' }, N('13.6 µs')],
-      [{ en: 'EHT (Wi-Fi 7)', zh: 'EHT（Wi-Fi 7）' }, { en: '48 µs (+4 µs EHT-SIG in an MU PPDU)', zh: '48 µs（MU PPDU 另加 4 µs EHT-SIG）' }, N('13.6 µs')],
+      [{ en: 'Frame Control', zh: '帧控制' }, N('2'), { en: 'family, exact kind, direction, repeat flag, nine more bits', zh: '大类、具体类型、方向、重发标志，另有九个比特' }],
+      [{ en: 'Duration', zh: '持续时间' }, N('2'), { en: 'how many µs the exchange needs after this frame', zh: '本帧之后，这次交互还需要多少 µs' }],
+      [{ en: 'Address 1', zh: '地址 1' }, N('6'), { en: 'the radio that must catch it and answer', zh: '必须接住它并作答的那台射频' }],
+      [{ en: 'Address 2', zh: '地址 2' }, N('6'), { en: 'the radio that sent it', zh: '发出它的那台射频' }],
+      [{ en: 'Address 3', zh: '地址 3' }, N('6'), { en: 'the far end of the payload\'s journey', zh: '这份载荷那段路程的远端' }],
+      [{ en: 'Sequence Control', zh: '序列控制' }, N('2'), { en: 'a 12-bit counter, 0–4095, plus a fragment number', zh: '12 位计数器（0–4095），加分片号' }],
+      [{ en: 'QoS Control', zh: 'QoS 控制' }, N('2'), { en: 'on a marked frame only: the traffic identifier (TID) and the answer policy', zh: '只有带标记的帧才有：业务标识（TID）与确认策略' }],
+      [{ en: 'Frame body', zh: '帧体' }, { en: 'the payload', zh: '就是载荷' }, { en: 'the MSDU handed down', zh: '交下来的那个 MSDU' }],
+      [N('FCS'), N('4'), { en: 'the CRC over header and body', zh: '对帧头与帧体算出的 CRC' }],
+    ] },
+    { kind: 'formula', heading: { en: 'What Duration reserves on a lone data frame', zh: '单独一个数据帧的持续时间字段保住了什么' }, text: {
+      en: '16 µs of silence + a 28 µs answer = 44 µs',
+      zh: '16 µs 的静默 + 28 µs 的回复 = 44 µs',
+    }, note: {
+      en: 'It counts from the end of the frame that carries it. The neighbours can already hear the frame; what they must not trample is the short answer that comes after it.',
+      zh: '它是从携带它的这一帧结束时开始算的。邻居本来就听得见这一帧；他们不能踩到的，是紧随其后的那个短回复。',
+    } },
+    { kind: 'table', heading: { en: 'Which address is which, by direction', zh: '按方向看，哪个地址是谁' }, head: [
+      { en: 'Direction', zh: '方向' }, { en: 'Address 1', zh: '地址 1' }, { en: 'Address 2', zh: '地址 2' }, { en: 'Address 3', zh: '地址 3' },
+    ], rows: [
+      [{ en: 'Station → access point', zh: '站点 → 接入点' }, N('RA = BSSID'), N('TA = SA'), N('DA')],
+      [{ en: 'Access point → station', zh: '接入点 → 站点' }, N('RA = DA'), N('TA = BSSID'), N('SA')],
+      [{ en: 'Neither, or management', zh: '两者皆非，或管理帧' }, N('RA = DA'), N('TA = SA'), N('BSSID')],
     ] },
     { text: {
-      en: 'The non-HT numbers are the standard’s own. The newer rows are the simulator’s representative single-user values for 20 MHz and one stream: the real VHT/HE/EHT preamble grows with the number of streams and users. SIGNAL tells the receiver the rate and the length; the data symbols then carry a 16-bit SERVICE field, the PSDU, 6 tail bits and padding up to a whole symbol.',
-      zh: '非 HT 那一行是标准本身的数值。更新的几行是仿真器采用的代表性单用户数值（20 MHz、单流）：真实的 VHT/HE/EHT 前导码会随空间流数和用户数变长。SIGNAL 字段告诉接收方速率和长度；随后的数据符号承载 16 比特的 SERVICE 字段、PSDU、6 个尾比特，以及补齐到整符号的填充。',
+      en: 'RA (the radio that must answer) and TA (the one that sent it) are the two ends of this hop; SA (the source) and DA (the destination) are the two ends of the payload\'s own journey. This room has no server behind the router, so an uplink frame names the router in all three.',
+      zh: 'RA（必须作答的那台射频）与 TA（发出它的那台）是这一跳的两头；SA（源）与 DA（目的）则是这份载荷自己那段路程的两头。这个房间里路由器背后没有服务器，所以上行帧的三个地址指的都是路由器。',
     } },
-    { kind: 'formula', text: {
-      en: 'TXTIME (non-HT) = 16 + 4 + 4 × ⌈(16 + 8 × LENGTH + 6) ÷ N_DBPS⌉ µs',
-      zh: 'TXTIME（非 HT）= 16 + 4 + 4 × ⌈(16 + 8 × LENGTH + 6) ÷ N_DBPS⌉ µs',
-    }, note: {
-      en: '§17.4.3. N_DBPS, the data bits per symbol, is 216 at 54 Mb/s and 96 at 24 Mb/s.',
-      zh: '§17.4.3。N_DBPS 是每个符号的数据比特数：54 Mb/s 时为 216，24 Mb/s 时为 96。',
+    { kind: 'table', heading: { en: 'Four kinds of traffic, four marks', zh: '四类业务，四个标记' }, head: [
+      { en: 'Kind of traffic', zh: '业务类别' }, { en: 'Priorities it covers', zh: '它涵盖的优先级' }, N('TID'),
+    ], rows: [
+      [{ en: 'Background', zh: '背景' }, N('1, 2'), N('1')],
+      [{ en: 'Best effort', zh: '尽力而为' }, N('0, 3'), N('0')],
+      [{ en: 'Video', zh: '视频' }, N('4, 5'), N('5')],
+      [{ en: 'Voice', zh: '语音' }, N('6, 7'), N('6')],
+    ] },
+    { text: {
+      en: 'The numbers are names, not an order: background is 1 and best effort is 0, yet background is the one that yields. The phone in this room is on a call, so its frames are marked 6.',
+      zh: '这些数字是名字，不是次序：背景是 1、尽力而为是 0，可该让路的偏偏是背景。这个房间里的手机正在通话，所以它的帧标的是 6。',
     } },
-    { kind: 'table', heading: { en: 'Frame Control (2 B), bit by bit — §9.2.4.1', zh: '帧控制字段（2 B）逐位拆解——§9.2.4.1' }, head: [
+  ],
+  deeper: [
+    { kind: 'table', heading: { en: 'Frame Control, bit by bit', zh: '帧控制，逐位拆解' }, head: [
       { en: 'Bits', zh: '比特' }, { en: 'Subfield', zh: '子字段' }, { en: 'What it says', zh: '含义' },
     ], rows: [
       [N('B0–B1'), { en: 'Protocol Version', zh: '协议版本' }, { en: 'Always 0.', zh: '恒为 0。' }],
       [N('B2–B3'), { en: 'Type', zh: '类型' }, { en: '00 management, 01 control, 10 data, 11 extension.', zh: '00 管理帧，01 控制帧，10 数据帧，11 扩展帧。' }],
       [N('B4–B7'), { en: 'Subtype', zh: '子类型' }, { en: 'Data 0000, QoS Data 1000; RTS 1011, CTS 1100, Ack 1101, Block Ack 1001.', zh: 'Data 0000，QoS Data 1000；RTS 1011，CTS 1100，Ack 1101，Block Ack 1001。' }],
-      [N('B8'), N('To DS'), { en: '1: the frame is going into the distribution system (towards the AP).', zh: '1：帧正进入分布式系统（发往 AP）。' }],
-      [N('B9'), N('From DS'), { en: '1: the frame is coming out of it (sent by the AP).', zh: '1：帧来自分布式系统（由 AP 发出）。' }],
+      [N('B8'), N('To DS'), { en: '1: the frame is going into the distribution system (towards the AP).', zh: '1：帧正进入分发系统（发往 AP）。' }],
+      [N('B9'), N('From DS'), { en: '1: the frame is coming out of it (sent by the AP).', zh: '1：帧来自分发系统（由 AP 发出）。' }],
       [N('B10'), { en: 'More Fragments', zh: '更多分片' }, { en: 'Another fragment of this MSDU follows.', zh: '后面还有本 MSDU 的分片。' }],
       [N('B11'), { en: 'Retry', zh: '重传' }, { en: '1 on a retransmission, so the receiver can drop a duplicate.', zh: '重传时置 1，接收方据此丢弃重复帧。' }],
       [N('B12'), { en: 'Power Management', zh: '电源管理' }, { en: 'The sender will doze after this exchange.', zh: '发送方在本次交换后将进入休眠。' }],
@@ -80,67 +180,22 @@ export const frameAnatomy: Lesson = {
       [N('B14'), { en: 'Protected Frame', zh: '受保护帧' }, { en: 'The body is encrypted.', zh: '帧体已加密。' }],
       [N('B15'), N('+HTC / Order'), { en: 'A 4 B HT Control field follows the header.', zh: '头后跟着 4 B 的 HT 控制字段。' }],
     ] },
-    { kind: 'list', heading: { en: 'The rest of the MAC header — §9.2.4.2–9.2.4.7', zh: 'MAC 头的其余部分——§9.2.4.2–9.2.4.7' }, items: [
-      { en: 'Duration/ID (2 B): how many µs the exchange still needs after this frame ends. Every station that decodes the frame but is not its receiver sets its NAV from it. A data frame that expects an ACK carries SIFS + ACK = 16 + 28 = 44 µs.', zh: '持续时间/ID（2 B）：本帧结束后这次帧交换还需要多少微秒。凡是解出此帧、但不是接收方的站点，都据此设置自己的 NAV。一个等待 ACK 的数据帧写的是 SIFS + ACK = 16 + 28 = 44 µs。' },
-      { en: 'Address 1–3 (6 B each): which radio receives, which sends, and the endpoints behind them. Address 4 appears only when To DS and From DS are both 1.', zh: '地址 1–3（各 6 B）：谁接收、谁发送，以及它们背后的端点。只有 To DS 与 From DS 同时为 1 时才出现地址 4。' },
-      { en: 'Sequence Control (2 B): a 12-bit sequence number (0–4095) and a 4-bit fragment number. A retransmission keeps its number, which is how duplicates are recognised.', zh: '序列控制（2 B）：12 比特序列号（0–4095）加 4 比特分片号。重传帧沿用原序列号，重复帧正是靠它识别的。' },
-      { en: 'QoS Control (2 B, QoS Data only): the TID (4 bits), the ack policy (2 bits) and a few more bits.', zh: 'QoS 控制（2 B，仅 QoS Data 帧有）：TID（4 比特）、确认策略（2 比特）以及其他几个比特。' },
-      { en: 'Frame body: the MSDU itself. FCS (4 B): a CRC-32 over header and body. A receiver whose CRC does not match discards the frame silently — no ACK — so the sender retries.', zh: '帧体：MSDU 本身。帧校验序列 FCS（4 B）：对头和帧体计算的 CRC-32。CRC 不匹配时接收方悄悄丢弃该帧——不回 ACK——于是发送方重传。' },
-    ] },
-    { kind: 'table', heading: { en: 'Address roles per To DS / From DS', zh: '按 To DS / From DS 划分的地址角色' }, head: [
-      N('To DS · From DS'), { en: 'Address 1', zh: '地址 1' }, { en: 'Address 2', zh: '地址 2' }, { en: 'Address 3', zh: '地址 3' }, { en: 'Address 4', zh: '地址 4' }, { en: 'Used for', zh: '用途' },
-    ], rows: [
-      [N('0 · 0'), N('RA = DA'), N('TA = SA'), N('BSSID'), N('—'), { en: 'Management frames; data sent directly between stations', zh: '管理帧；终端之间直接收发的数据' }],
-      [N('1 · 0'), N('RA = BSSID'), N('TA = SA'), N('DA'), N('—'), { en: 'Uplink: station → AP', zh: '上行：终端 → AP' }],
-      [N('0 · 1'), N('RA = DA'), N('TA = BSSID'), N('SA'), N('—'), { en: 'Downlink: AP → station', zh: '下行：AP → 终端' }],
-      [N('1 · 1'), N('RA'), N('TA'), N('DA'), N('SA'), { en: 'Mesh and wireless distribution systems', zh: 'Mesh 与无线分布式系统' }],
-    ] },
-    { text: {
-      en: 'RA is the radio that must decode and acknowledge the frame; TA is the radio that sent it. DA and SA are the endpoints of the packet; BSSID is the AP’s MAC address. This lesson has no servers, so the stations’ packets end at the router and an uplink frame names the router as DA in Address 3; with a real destination on the wired side, Address 3 would hold that MAC address instead.',
-      zh: 'RA 是必须解出并确认此帧的无线电；TA 是发出此帧的无线电。DA 和 SA 是数据包的两个端点；BSSID 是 AP 的 MAC 地址。本课没有配置服务器，终端的数据包就终止在路由器，因此上行帧的地址 3 把路由器写作 DA；如果目的地在有线侧，地址 3 填的就会是那个 MAC 地址。',
+    { heading: { en: 'The fourth address', zh: '第四个地址' }, text: {
+      en: 'Address 4 appears only when To DS and From DS are both 1, which is the mesh and wireless-distribution-system case: the frame is travelling between two APs, so the header must carry RA, TA, DA and SA all four, and the MAC header grows from 24 B to 30 B. A lone station never sees one.',
+      zh: '只有 To DS 与 From DS 同时为 1 时才会出现地址 4，那是 Mesh 与无线分发系统的情形：帧在两台 AP 之间传送，帧头必须把 RA、TA、DA、SA 四个全带上，MAC 头也从 24 B 长到 30 B。普通站点是看不到它的。',
     } },
-    { kind: 'table', heading: { en: 'TID and access category — Table 10-1', zh: 'TID 与接入类别——表 10-1' }, head: [
-      { en: 'Access category', zh: '接入类别' }, { en: 'User priorities', zh: '用户优先级' }, { en: 'TID this simulator writes', zh: '本仿真器写入的 TID' },
-    ], rows: [
-      [{ en: 'AC_BK background', zh: 'AC_BK 背景' }, N('1, 2'), N('1')],
-      [{ en: 'AC_BE best effort', zh: 'AC_BE 尽力而为' }, N('0, 3'), N('0')],
-      [{ en: 'AC_VI video', zh: 'AC_VI 视频' }, N('4, 5'), N('5')],
-      [{ en: 'AC_VO voice', zh: 'AC_VO 语音' }, N('6, 7'), N('6')],
-    ] },
-    { text: {
-      en: 'TID numbers are not a priority order: background is TID 1, best effort TID 0. The ack policy 00 means Normal Ack on a lone frame; inside an A-MPDU the same two bits mean Implicit Block Ack Request, and the receiver answers the whole aggregate with one BlockAck.',
-      zh: 'TID 的数值并不代表优先级高低：背景流量是 TID 1，尽力而为是 TID 0。确认策略 00 用在单个帧上表示 Normal Ack（普通确认）；在 A-MPDU 里同样的两个比特表示 Implicit Block Ack Request（隐式块确认请求），接收方用一个 BlockAck 回复整个聚合帧。',
+    { heading: { en: 'The frames this room never sends', zh: '这个房间里从不出现的帧' }, text: {
+      en: 'Management frames — beacons, probes, authentication, association, type 00 — carry the full 24 B header followed by information elements rather than an MSDU, and they are how a BSS comes into existence in the first place. The simulator does not send them yet: every station here starts associated, and a module on the link lifecycle will build them.',
+      zh: '管理帧——信标、探测、认证、关联，类型 00——带的是完整的 24 B 帧头，后面跟的是信息元素而不是 MSDU；BSS 一开始能建立起来，靠的正是它们。仿真器目前还不发送管理帧：这里每个站点一开始就已关联，讲链路生命周期的模块会把它们补上。',
     } },
-    { kind: 'formula', heading: { en: 'Bytes you can check on the timeline', zh: '可以在时间轴上核对的字节数' }, text: {
-      en: '1500 B MSDU → 24 + 1500 + 4 = 1528 B (Data)  ·  26 + 1500 + 4 = 1530 B (QoS Data)',
-      zh: '1500 B 的 MSDU → 24 + 1500 + 4 = 1528 B（Data）  ·  26 + 1500 + 4 = 1530 B（QoS Data）',
-    }, note: {
-      en: 'At 54 Mb/s both fill 57 symbols: 20 + 57 × 4 = 248 µs — the two QoS octets cost no extra symbol here. The ACK’s 14 B at 24 Mb/s fill 2 symbols: 20 + 2 × 4 = 28 µs.',
-      zh: '在 54 Mb/s 下两者都占 57 个符号：20 + 57 × 4 = 248 µs——多出的两个 QoS 字节在这里没有多占符号。ACK 的 14 B 在 24 Mb/s 下占 2 个符号：20 + 2 × 4 = 28 µs。',
-    } },
-    { kind: 'table', heading: { en: 'Control frames carry only what they need — §9.3.1', zh: '控制帧只带必需的字段——§9.3.1' }, head: [
-      { en: 'Frame', zh: '帧' }, { en: 'Fields', zh: '字段' }, { en: 'Size', zh: '大小' },
-    ], rows: [
-      [N('Ack / CTS'), { en: 'Frame Control, Duration, RA, FCS', zh: '帧控制、持续时间、RA、FCS' }, N('14 B')],
-      [N('RTS'), { en: 'Frame Control, Duration, RA, TA, FCS', zh: '帧控制、持续时间、RA、TA、FCS' }, N('20 B')],
-      [{ en: 'BlockAck (compressed)', zh: 'BlockAck（压缩型）' }, { en: 'Frame Control, Duration, RA, TA, BA Control (2 B), starting sequence number (2 B) + 64-bit bitmap (8 B), FCS', zh: '帧控制、持续时间、RA、TA、BA 控制（2 B）、起始序列号（2 B）+ 64 比特位图（8 B）、FCS' }, N('32 B')],
-    ] },
-    { text: {
-      en: 'An ACK needs no TA: it goes out one SIFS after the frame it answers, and only that frame’s sender is waiting for it. An RTS does carry a TA, because the CTS must be addressed back to it. Management frames — beacons, probes, authentication, association (type 00) — carry the full 24 B header plus information elements. The simulator does not send them yet; they get their own module on the link lifecycle.',
-      zh: 'ACK 不需要 TA：它在被确认的帧结束后一个 SIFS 发出，而只有那一帧的发送方在等它。RTS 却要带 TA，因为 CTS 必须回给它。管理帧——信标、探测、认证、关联（类型 00）——带有完整的 24 B 头加上信息元素。仿真器目前还不发送管理帧，后面讲链路生命周期的模块会专门讲它们。',
-    } },
-    { kind: 'formula', heading: { en: 'A preview of aggregation', zh: '聚合预告' }, text: {
-      en: 'A-MPDU subframe = delimiter (4 B) + MPDU + padding to a 4-octet boundary (none after the last)',
-      zh: 'A-MPDU 子帧 = 分隔符（4 B）+ MPDU + 补齐到 4 字节边界的填充（最后一个子帧不填充）',
-    }, note: {
-      en: 'The Wi-Fi 5 laptop’s 1530 B MPDUs get 2 B of padding: 14 subframes = 13 × 1536 + 1534 = 21 502 B. Why aggregation pays is the subject of the A-MPDU lesson.',
-      zh: 'Wi-Fi 5 笔记本的 1530 B MPDU 各补 2 B：14 个子帧 = 13 × 1536 + 1534 = 21 502 B。聚合为什么划算，留到 A-MPDU 那一课再讲。',
-    } },
-    { kind: 'list', heading: { en: 'In the simulation', zh: '在仿真里看' }, items: [
-      { en: 'Router (Wi-Fi 7). Old laptop (802.11a): uploads 1500 B packets non-stop, as plain Data frames.', zh: '路由器（Wi-Fi 7）。旧笔记本（802.11a）：不停上传 1500 B 的数据包，用的是普通 Data 帧。' },
-      { en: 'Phone (Wi-Fi 6, EDCA on, no aggregation): a voice call, 200 B each way in single QoS Data frames.', zh: '手机（Wi-Fi 6，开启 EDCA，不聚合）：语音通话，双向各 200 B，用单个 QoS Data 帧发送。' },
-      { en: 'Laptop (Wi-Fi 5): a cloud backup sent as A-MPDUs. The RTS threshold is 2000 B, so every aggregate is opened by RTS/CTS while the old laptop’s 1528 B frames are not.', zh: '笔记本（Wi-Fi 5）：云备份，以 A-MPDU 发送。RTS 门限为 2000 B，因此每个聚合帧前都有 RTS/CTS，而旧笔记本 1528 B 的帧则没有。' },
-    ] },
+  ],
+  sources: [
+    { en: 'The MAC header and its fields are IEEE Std 802.11-2024 §9.2.4: Frame Control §9.2.4.1, Duration/ID §9.2.4.2, the addresses §9.2.4.3, Sequence Control §9.2.4.4, QoS Control §9.2.4.5, the FCS §9.2.4.7. The address roles per To DS / From DS are Table 9-30.',
+      zh: 'MAC 头及其字段见 IEEE Std 802.11-2024 §9.2.4：帧控制 §9.2.4.1、持续时间/ID §9.2.4.2、地址 §9.2.4.3、序列控制 §9.2.4.4、QoS 控制 §9.2.4.5、FCS §9.2.4.7。按 To DS / From DS 划分的地址角色见表 9-30。' },
+    { en: 'The FCS is a CRC-32 over the header and the frame body. The mapping of user priorities to access categories, and the TID each one is written with, is Table 10-1; the values this simulator writes are background 1, best effort 0, video 5, voice 6.',
+      zh: 'FCS 是对帧头与帧体计算的 CRC-32。用户优先级到接入类别的映射、以及各自写入的 TID，见表 10-1；本仿真器写入的取值是：背景 1、尽力而为 0、视频 5、语音 6。' },
+    { en: 'The 44 µs a lone data frame reserves is 16 µs plus the 28 µs its answer takes at 24 Mb/s in this scenario — a measured value of this simulation, not a constant of the standard.',
+      zh: '单独一个数据帧预留的 44 µs，是 16 µs 加上本场景中回复在 24 Mb/s 下所占的 28 µs——这是本仿真的实测值，不是标准里的常数。' },
   ],
   scenario: frameAnatomyScenario,
   jumps: [
@@ -153,67 +208,54 @@ export const frameAnatomy: Lesson = {
   ],
   observe: [
     {
-      en: 'Jump to the first legacy data frame (0 µs) and the first QoS data frame (20.452 ms), click each and open “Fields on the air”. The old laptop’s frame is Data (0000), 1528 B, To DS 1 and From DS 0, Address 1 the Router as RA = BSSID, Address 2 the Old laptop as TA = SA. The phone’s is QoS Data (1000), 230 B = 26 + 200 + 4, TID 6, Duration 44 µs. Two frames later the router answers: From DS 1, Address 1 the Phone as RA = DA, Address 2 the Router as TA = BSSID.',
-      zh: '跳到第一个传统数据帧（0 µs）和第一个 QoS 数据帧（20.452 ms），分别点击并展开“空中字段”。旧笔记本的帧是 Data（0000），1528 B，To DS 1、From DS 0，地址 1 是路由器（RA = BSSID），地址 2 是旧笔记本（TA = SA）。手机的帧是 QoS Data（1000），230 B = 26 + 200 + 4，TID 6，持续时间 44 µs。再往后两帧是路由器的回复：From DS 1，地址 1 是手机（RA = DA），地址 2 是路由器（TA = BSSID）。',
+      en: 'Jump to the old laptop\'s first frame, at 0 µs, then to the first QoS data frame, at 20.452 ms, opening "Fields on the air" on each. Same direction, same address roles, Duration 44 µs — but the second has a QoS Control field whose traffic identifier (TID) reads 6.',
+      zh: '跳到旧笔记本的第一帧（0 µs），再跳到第一个 QoS 数据帧（20.452 ms），各自展开"空中字段"。方向相同，地址角色相同，持续时间都是 44 µs——但后者多了一个 QoS 控制字段，它的业务标识（TID）写着 6。',
     },
     {
-      en: 'Jump to the first RTS (2.298 ms): 20 B, Duration 2356 µs = CTS 28 + A-MPDU 2248 + BlockAck 32 + three SIFS 48. The CTS carries 2312 µs, the same reservation minus the SIFS and its own 28 µs. The first A-MPDU holds 14 subframes (21 502 B): TID 1, ack policy Implicit BAR, Duration 48 µs = SIFS + the 32 µs BlockAck. The first BlockAck (4.650 ms) carries Duration 0: nothing follows it.',
-      zh: '跳到第一个 RTS（2.298 ms）：20 B，持续时间 2356 µs = CTS 28 + A-MPDU 2248 + BlockAck 32 + 三个 SIFS 共 48。CTS 写的是 2312 µs，即同一预约减去一个 SIFS 和它自己的 28 µs。第一个 A-MPDU 含 14 个子帧（21 502 B）：TID 1，确认策略 Implicit BAR，持续时间 48 µs = SIFS + 32 µs 的 BlockAck。第一个 BlockAck（4.650 ms）的持续时间为 0：它之后没有后续帧。',
-    },
-    {
-      en: 'Jump to the first retransmission (12.013 ms): the old laptop’s frame collided and went again with Retry = 1 and the same sequence number, 11. Compare the PPDU bars: its preamble is 16 µs of L-STF + L-LTF and 4 µs of SIGNAL before 57 symbols; the phone’s Wi-Fi 6 frame is a 44 µs preamble and a single 13.6 µs symbol.',
-      zh: '跳到第一次重传（12.013 ms）：旧笔记本的帧发生碰撞，于是以 Retry = 1、相同的序列号 11 再发一次。对比 PPDU 条：它的前导是 16 µs 的 L-STF + L-LTF 加 4 µs 的 SIGNAL，之后是 57 个符号；手机的 Wi-Fi 6 帧则是 44 µs 前导加一个 13.6 µs 的符号。',
+      en: 'Jump to the first retransmission, at 12.013 ms. The old laptop\'s frame collided, so it goes again with the repeat bit set and the same counter value, 11. Find the original at 11.650 ms: same number, repeat bit clear.',
+      zh: '跳到第一次重传（12.013 ms）。旧笔记本的那一帧撞了，于是带着置位的重发比特、以及同一个计数值 11 再发一次。回头找 11.650 ms 的原帧：号码相同，重发比特是 0。',
     },
   ],
   tryThis: [
     {
-      en: 'Open the scenario in the editor and turn EDCA off on the phone: its frames become plain Data, 228 B, with no QoS Control field and no TID.',
-      zh: '在编辑器中打开本场景，关闭手机的 EDCA：它的帧变成普通 Data 帧，228 B，没有 QoS 控制字段，也就没有 TID。',
+      en: 'Open the scenario in the editor and turn the phone\'s quality-of-service marking (EDCA) off. Its frames become plain Data frames: the QoS Control field is gone, and with it the traffic mark.',
+      zh: '在编辑器里打开本场景，把手机的服务质量标记（EDCA）关掉。它的帧变成普通 Data 帧：QoS 控制字段没有了，业务标记也跟着没有了。',
     },
     {
-      en: 'Change the old laptop to Wi-Fi 5: its uploads turn into QoS Data A-MPDUs with TID 0 (best effort), each opened by an RTS.',
-      zh: '把旧笔记本改成 Wi-Fi 5：它的上传变成 TID 0（尽力而为）的 QoS Data A-MPDU，每个前面都有 RTS。',
+      en: 'Change the old laptop to Wi-Fi 5. Its uploads are marked frames now, and the mark reads 0 — best effort, because a backup is not a call. Nothing else about the header moves.',
+      zh: '把旧笔记本改成 Wi-Fi 5。它的上传现在是带标记的帧了，标记写的是 0——尽力而为，因为备份不是通话。帧头的其他部分则纹丝不动。',
     },
   ],
   quiz: [
     {
-      q: { en: 'A station sends a data frame to its AP. Which address is the RA?', zh: '终端向它的 AP 发送一个数据帧。哪个地址是 RA？' },
+      q: { en: 'A station sends a data frame to its access point. Which address names the radio that must answer?', zh: '一个站点向它的接入点发送一个数据帧。哪个地址指的是必须作答的那台射频？' },
       options: [
-        { en: 'Address 1, the AP (RA = BSSID)', zh: '地址 1，即 AP（RA = BSSID）' },
-        { en: 'Address 2, the station itself', zh: '地址 2，即终端自己' },
-        { en: 'Address 3, the final destination', zh: '地址 3，即最终目的地' },
+        { en: 'Address 1, the access point', zh: '地址 1，也就是接入点' },
+        { en: 'Address 2, the station itself', zh: '地址 2，也就是站点自己' },
+        { en: 'Address 3, the far end of the journey', zh: '地址 3，也就是这段路程的远端' },
       ],
       answer: 0,
-      explain: {
-        en: 'Uplink means To DS 1, From DS 0: Address 1 is always the receiving radio, here the AP, which is also the BSSID. The station is the TA = SA in Address 2 and the destination DA sits in Address 3.',
-        zh: '上行即 To DS 1、From DS 0：地址 1 永远是接收的无线电，这里就是 AP，它同时也是 BSSID。终端是地址 2 的 TA = SA，目的地 DA 在地址 3。',
-      },
+      explain: { en: 'Address 1 is always the radio that must catch the frame; going uphill that is the access point, which is also the BSSID. Address 3 is where the payload is really headed.', zh: '地址 1 永远是必须接住这一帧的那台射频；朝上走时那就是接入点，它同时也是 BSSID。地址 3 才是这份载荷真正要去的地方。' },
     },
     {
-      q: { en: 'Why can an ACK leave out the transmitter address?', zh: '为什么 ACK 可以省略发送方地址？' },
+      q: { en: 'A frame arrives and the receiver\'s arithmetic does not match the four bytes at the end. What does it do?', zh: '一帧到了，接收端算出来的结果和帧尾那四个字节对不上。它会怎么做？' },
       options: [
-        { en: 'The FCS already identifies the sender', zh: 'FCS 已经标识了发送方' },
-        { en: 'It is sent one SIFS after the frame it acknowledges, and only that frame’s sender is waiting for it', zh: '它在被确认的帧结束后一个 SIFS 发出，而只有那一帧的发送方在等它' },
-        { en: 'ACKs are broadcast to everyone', zh: 'ACK 是广播给所有人的' },
-      ],
-      answer: 1,
-      explain: {
-        en: 'The exchange itself gives the context: the ACK’s RA is the TA of the frame just received, and no other station expects an ACK at that instant. That is why it fits in 14 B and 28 µs at 24 Mb/s.',
-        zh: '帧交换本身就提供了上下文：ACK 的 RA 就是刚收到那一帧的 TA，而此刻没有别的站点在等 ACK。所以它只要 14 B，在 24 Mb/s 下只占 28 µs。',
-      },
-    },
-    {
-      q: { en: 'A lone data frame that expects an ACK carries Duration = 44 µs. What does that cover?', zh: '一个等待 ACK 的单独数据帧写着持续时间 = 44 µs。它覆盖的是什么？' },
-      options: [
-        { en: 'The data frame’s own airtime', zh: '数据帧本身的空口时间' },
-        { en: 'The backoff the sender drew', zh: '发送方抽取的退避时间' },
-        { en: 'What remains after the frame ends: SIFS 16 µs + ACK 28 µs', zh: '帧结束后剩下的部分：SIFS 16 µs + ACK 28 µs' },
+        { en: 'Answers anyway, and lets the layer above notice', zh: '照样作答，让上层自己去发现' },
+        { en: 'Sends back a complaint naming the damaged field', zh: '回一条抱怨，指明是哪个字段坏了' },
+        { en: 'Nothing at all — and the sender, hearing no answer, sends it again', zh: '什么也不做——发送端等不到回复，就会再发一次' },
       ],
       answer: 2,
-      explain: {
-        en: 'Duration counts from the end of the frame that carries it. Bystanders already know the frame is on the air; what they must not trample is the ACK that follows, so they set their NAV for SIFS + ACK.',
-        zh: '持续时间从携带它的帧结束时开始计算。旁听者已经知道这一帧正在空中；它们不能踩到的是随后的 ACK，所以按 SIFS + ACK 设置 NAV。',
-      },
+      explain: { en: 'A damaged frame may have a damaged address too, so answering it would be guesswork. Silence is the whole mechanism: no answer means resend.', zh: '一个坏掉的帧，地址也可能是坏的，回它就成了瞎猜。沉默本身就是全部机制：没有回复，就重发。' },
+    },
+    {
+      q: { en: 'A lone data frame writes 44 µs into its Duration field. What is that protecting?', zh: '一个单独的数据帧在持续时间字段里写了 44 µs。它保护的是什么？' },
+      options: [
+        { en: 'The airtime of the frame itself', zh: '这一帧自己占用的空口时间' },
+        { en: 'The wait the sender counted down before starting', zh: '发送端开始之前数完的那段等待' },
+        { en: 'What comes after the frame: the short gap, then the answer', zh: '帧之后的那部分：先是短暂的间隔，然后是回复' },
+      ],
+      answer: 2,
+      explain: { en: 'Duration counts from the end of the frame carrying it. The neighbours can hear the frame already; the answer is the part they cannot see coming, so it is the part reserved.', zh: '持续时间从携带它的那一帧结束时算起。邻居本来就听得见这一帧；他们预料不到的是那个回复，所以要预留的正是它。' },
     },
   ],
 }

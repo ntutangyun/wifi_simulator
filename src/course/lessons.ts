@@ -17,6 +17,7 @@ import { radioPrimer } from './tier1/radio-primer'
 import { decodeThresholds } from './tier1/decode-thresholds'
 import { rolesStack } from './tier1/roles-stack'
 import { frameAnatomy } from './tier1/frame-anatomy'
+import { frameAnatomyBytes } from './tier1/frame-anatomy-bytes'
 import { retriesQueues } from './tier1/retries-queues'
 import { bianchi } from './tier1/bianchi'
 import { bianchiVsSim } from './tier1/bianchi-vs-sim'
@@ -75,6 +76,7 @@ const AUTHORED: Lesson[] = [
   decodeThresholds,
   rolesStack,
   frameAnatomy,
+  frameAnatomyBytes,
   retriesQueues,
   bianchi,
   bianchiVsSim,

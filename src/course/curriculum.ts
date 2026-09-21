@@ -72,7 +72,7 @@ export const MODULES: CourseModule[] = [
  */
 export const COURSE_ORDER: string[] = [
   // Tier 1 — M1 the network and the frame
-  'radio-primer', 'decode-thresholds', 'roles-stack', 'frame-anatomy', 'airtime',
+  'radio-primer', 'decode-thresholds', 'roles-stack', 'frame-anatomy', 'frame-anatomy-bytes', 'airtime',
   // Tier 1 — M2 channel access
   'ifs', 'backoff', 'nav', 'hidden', 'anomaly', 'retries-queues', 'bianchi', 'bianchi-vs-sim', 'tier1-project',
   // Tier 2 — M3 QoS and efficiency
