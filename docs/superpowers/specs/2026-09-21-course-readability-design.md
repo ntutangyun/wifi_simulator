@@ -74,19 +74,38 @@ Existing kinds (`p`, `formula`, `table`, `list`, `steps`, `widget`) are unchange
 - **Acronym rule.** A token of two or more upper-case letters/digits (any length: `RMARKER` counts) (`STS`, `SFD`,
   `RCTU`, `OOK`, `TXOP`, `A-MPDU`, `L-SIG`) appearing in `why` or `picture` must
   be one of: (a) in this lesson's `terms`; (b) in the `terms` of a lesson that
-  precedes it in `COURSE_ORDER` and is in the same track or in Wi-Fi Tier 1;
-  (c) in the global baseline `KNOWN_WORDS` (units and everyday words: Wi-Fi, AP,
-  STA, MAC, PHY, dB, dBm, µs, ns, ms, s, MHz, GHz, kb/s, Mb/s, ID, RF, OK, CPU,
-  IoT, GPS, USB). The test walks the course in order and keeps the running set.
+  precedes it in `COURSE_ORDER` and is in the same track or in **any Wi-Fi
+  Tier 1 lesson** (`needs` stays restricted to `radio-primer` / `frame-anatomy`;
+  the acronym admission is wider than the prerequisite rule on purpose — a
+  one-line reminder in the picture is enough for a Tier 1 word); (c) in the
+  global baseline `KNOWN_WORDS` (units and everyday words: Wi-Fi, AP, STA, MAC,
+  PHY, dB, dBm, µs, ns, ms, s, MHz, GHz, kb/s, Mb/s, ID, RF, OK, CPU, IoT, GPS,
+  USB). The test walks the course in order and keeps the running set.
+- **Density.** At most two of a lesson's `terms` make their first `picture`
+  appearance in the same paragraph, and no `picture` paragraph carries more than
+  four distinct acronyms. An ordered recap goes in a `steps` block, which is
+  exempt from the density cap (not from the citation rule).
 - **First use.** Inside `picture` the first sentence that uses a term from
   `terms` reads naturally without the reader having memorised the table: write
   "the STS — the timing sequence a spoofer cannot forge —" once, then `STS`.
 - **Numbers.** In `picture`, at most two numeric quantities per paragraph (a
   numeric token is a number with an optional unit; ordinal words and "one"/"two"
   do not count). Exact values, derivations and tables belong in `numbers`.
+- **Numbers prose.** A paragraph, watch text, formula note or widget caption
+  inside `numbers` is ≤ 90 EN words / ≤ 170 ZH characters and carries at most
+  **four** numeric quantities; anything denser is a `table` or a `formula`.
+  Acronyms in `numbers` prose obey the acronym rule, except a token defined in
+  that same sentence ("its window exponent ACWE").
+- **Observe and experiments.** An `observe` or `tryThis` item is ≤ 60 EN words
+  and carries at most six numeric quantities; the rest belongs in `numbers`.
+  Each item is pinned against the record it names (the node and the slot), never
+  against "the first record of that type".
+- **Quantities in words** agree across languages ("a few" is not 几十); the
+  novice read checks it, the task review pins it.
 - **Citations** (`§`, `Clause`, `IEEE Std`, `P802.`, `11-2x/nnnn`, `15-2x/nnnn`,
   `PM-`, `D0.`, `D1.`, "draft", "TBD", "model choice"; ZH 草案 / 标准正文 /
-  模型取值) appear only in `sources` and in table cells of `numbers`.
+  模型取值) appear only in `sources` and in table cells of `numbers`. The check
+  covers `deeper` too; no other rule applies to `deeper` — depth may be dense.
 - **Digits in `why`.** None, except inside a protocol name (`802.11bp`,
   `802.15.4`, `Wi-Fi 7`); the same names do not count as numeric quantities
   in `picture`.
@@ -103,8 +122,16 @@ Existing kinds (`p`, `formula`, `table`, `list`, `steps`, `widget`) are unchange
 
 ### Length and pace
 
-- Main path (`lessonWords`) between **500 and 1 300** English words. Above that
-  the lesson is split (below, "Splitting").
+- Main path (`lessonWords`) between **500 and 1 300** English words, with
+  section budgets that sum to it: `why` + `outcomes` + `terms` + `picture`
+  ≤ 650; `numbers` ≤ 350; `observe` + `tryThis` + `quiz` ≤ 400. **A track's
+  first lesson is ≤ 1 000 in total** — the point of the programme is that the
+  first lesson is short. Above the budgets the lesson is split (below,
+  "Splitting").
+- What `lessonWords` counts: every EN string a learner reads on the main path,
+  except that a language-neutral cell (`en === zh`: a number, a symbol, a
+  protocol name) and a formula body count **one** word each; `terms[].term`
+  counts. Counter values and formula lines are not read at 150 words a minute.
 - Study time ≤ 20 minutes per lesson (the `lessonMinutes` formula is unchanged).
 - `needs` of a UWB or AMP lesson name only lessons of the same track or
   `radio-primer` / `frame-anatomy`. Wi-Fi concepts a UWB/AMP lesson leans on
@@ -172,6 +199,40 @@ Two reviews per lesson batch, in this order:
    fix round.
 2. **Task review** as usual: pinned claims, contract tests, byte-identical
    scenarios, EN/ZH parity, no lifted prose.
+
+The novice reader reads a **rendered text dump**, not the TypeScript source:
+`scripts/lesson-dump.ts <id> <en|zh>` prints the main path then the collapsed
+sections, tables as rows, built on `lessonStrings` / `paragraphTexts`. The
+novice read runs first; one stop point opens the fix round. Running it in
+parallel with the task review is fine only if the ruling still waits for it.
+
+## Plan template for steps 2–7 (learned from step 1)
+
+- **Word windows** in a content contract are for the *prose* count
+  `lessonWords({ ...l, observe: [], tryThis: [], quiz: [] })` and say so; each
+  lesson test asserts the spec's bounds plus `prose ≤ <window max>` — one
+  convention, not four.
+- **Shape tests** come from one kit: `lessonShapeSuite(lesson, { proseMax })` in
+  `tests/course/kit.ts` (migrated, ≤ 20 min, budgets, jumps found, bilingual
+  walk, first watch within the first three picture blocks, no citation in
+  deeper). Step 2 Task 1 creates it and migrates the four step-1 tests to it.
+- **Fixtures** step reads: "`lesson-hashes.json` and, for UWB, `uwb-record-
+  hashes.json`: additions only, equal to the first half's".
+- **`.body!` retirement**: each task's file list names the `.body!` sites it
+  retires, so step 7's type change is a no-op.
+- **Batch by scene, not by count**: lessons sharing a scenario builder go to one
+  implementer in one task (the split rule and the shared-scene pins are where
+  the cross-file mistakes live). At most two tasks per step in parallel, each
+  with its own fixture lines; `MIGRATING` edits serialised.
+- **Shared simulation fixtures**: lesson tests that run the same scene share a
+  memoised run (`tests/course/kit.ts`), so the course suite's wall time does
+  not grow with the lesson count.
+- **`courseLoadedFor`** in the store: a watch call-out offers "Jump there" only
+  when *this* lesson's scene is the one loaded.
+- **Step 5** carries a table assigning every `TIER1_BASELINE` word to the Tier 1
+  lesson whose `terms` will own it (NAV → nav, CTS/RTS → hidden, SIFS/DIFS/EIFS
+  → ifs, CW → backoff, CCA → decode-thresholds, …); the deletion test asserts
+  each ex-baseline word is in some Tier 1 lesson's `terms`.
 
 ## Tests
 
