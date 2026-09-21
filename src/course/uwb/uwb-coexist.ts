@@ -84,7 +84,7 @@ export const uwbCoexist: Lesson = {
     { en: 'read a lost ranging frame off the log and name the device that drowned it', zh: '从日志里读出一帧丢失的测距帧，并点出是哪台设备把它淹掉的' },
     { en: 'choose between moving the devices, the Wi-Fi channel and the session', zh: '在“挪设备”“挪 Wi-Fi 信道”和“挪会话”之间做出选择' },
   ],
-  needs: ['uwb-blocks'],
+  needs: ['uwb-blocks', 'uwb-geometry'],
   terms: [
     { term: 'overlap', plain: {
       en: 'how much of one radio’s band falls inside the other’s — all, some or none',

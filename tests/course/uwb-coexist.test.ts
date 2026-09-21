@@ -150,10 +150,10 @@ function inspectorAfter(variant: number | undefined, id: string) {
 }
 
 describe('uwb-coexist · the lesson’s own place in the track', () => {
-  it('opens the coexistence module and asks only for the sessions lesson', () => {
+  it('opens the coexistence module and asks for the sessions and geometry lessons', () => {
     expect(uwbCoexist.module).toBe(13)
     expect(uwbCoexist.id).toBe('uwb-coexist')
-    expect(uwbCoexist.needs).toEqual(['uwb-blocks'])
+    expect(uwbCoexist.needs).toEqual(['uwb-blocks', 'uwb-geometry'])
     // the three words this lesson introduces: what shares, what it costs, and what Wi-Fi does about it
     expect(uwbCoexist.terms!.map((t) => t.term)).toEqual(['overlap', 'SIR', 'energy detect'])
   })
