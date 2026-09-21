@@ -41,6 +41,7 @@ import { uwbUlTdoa } from './uwb/uwb-ul-tdoa'
 import { uwbAoa } from './uwb/uwb-aoa'
 import { uwbMms } from './uwb/uwb-mms'
 import { uwbNba } from './uwb/uwb-nba'
+import { uwbNbaCoexist } from './uwb/uwb-nba-coexist'
 export type { Block, JumpTarget, L10n, Lesson, LessonVariant, Quiz, Term } from './lessonKit'
 export { isMigrated } from './lessonKit'
 
@@ -137,6 +138,7 @@ const AUTHORED: Lesson[] = [
   uwbAoa,
   uwbMms,
   uwbNba,
+  uwbNbaCoexist,
   // ======================= MODULE 1 =======================
   {
     id: 'airtime',

@@ -93,7 +93,7 @@ export const COURSE_ORDER: string[] = [
   // UWB Tier 2 — M14 other ranging modes
   'uwb-dl-tdoa', 'uwb-ul-tdoa', 'uwb-aoa',
   // UWB Tier 3 — M15 narrowband-assisted multi-millisecond UWB
-  'uwb-mms', 'uwb-nba',
+  'uwb-mms', 'uwb-nba', 'uwb-nba-coexist',
 ]
 
 /** Lessons in reading order; ids in COURSE_ORDER without an authored lesson are skipped. */
