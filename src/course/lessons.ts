@@ -22,6 +22,7 @@ import { retriesQueues } from './tier1/retries-queues'
 import { bianchi } from './tier1/bianchi'
 import { bianchiVsSim } from './tier1/bianchi-vs-sim'
 import { tier1Project } from './tier1/tier1-project'
+import { tier1ProjectReview } from './tier1/tier1-project-review'
 import { ampIntro } from './amp/amp-intro'
 import { ampPpdu } from './amp/amp-ppdu'
 import { ampSlots } from './amp/amp-slots'
@@ -81,6 +82,7 @@ const AUTHORED: Lesson[] = [
   bianchi,
   bianchiVsSim,
   tier1Project,
+  tier1ProjectReview,
   ampIntro,
   ampPpdu,
   ampSlots,

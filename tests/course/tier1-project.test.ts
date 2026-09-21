@@ -1,37 +1,40 @@
 /**
- * Pins the Tier 1 project, "Predict a flat, then measure it": every link
- * budget, airtime, fixed point and share quoted as a *prediction* is recomputed
- * from the engine's own functions and the Bianchi solver, and every number
- * quoted as a *measurement* comes from a 10 s run of the lesson's own
- * scenarios. The worked example in the prose therefore cannot drift from
- * either side.
+ * Pins the first half of the Tier 1 project, "The brief and the plan": every
+ * number it quotes is a PREDICTION, and every one of them is recomputed here
+ * from the engine's own functions and the Bianchi solver, so the worked
+ * example cannot drift from the model it claims to apply.
  *
- * Probes used while authoring (session scratchpad, run with npx tsx):
- * <scratchpad>/lesson-project/probe1..4.mts.
+ * What the simulator actually does with this flat — and the two mechanisms
+ * that explain the difference — is pinned next door, in
+ * tests/course/tier1-project-review.test.ts, against a 10 s run. The only
+ * measurements asserted here are the three the lesson's own `observe` items
+ * send the reader to read off the first millisecond of the timeline.
+ *
+ * The `.body!` walk of the old flat shape is retired: the prose is now walked
+ * with `lessonStrings`, the contract's own reader.
  */
 import { describe, it, expect } from 'vitest'
-import { tier1Project, projectFlat } from '../../src/course/tier1/tier1-project'
+import { projectFlat, projectJumps, projectVariants, tier1Project } from '../../src/course/tier1/tier1-project'
 import { dcfTimes, saturationThroughput, solveBianchi } from '../../src/course/tier1/bianchiModel'
-import { COURSE_ORDER, OBSERVE_MINUTES, TRY_MINUTES, lessonMinutes, lessonWords } from '../../src/course/curriculum'
-import { Simulation } from '../../src/engine/simulation'
-import type { Scenario } from '../../src/model/scenario'
-import type { TLRecord } from '../../src/model/records'
-import type { Block, L10n } from '../../src/course/lessonKit'
+import { COURSE_ORDER } from '../../src/course/curriculum'
+import { ScenarioSchema } from '../../src/model/scenario'
+import { lessonStrings } from '../../src/course/readability'
 import {
   ACK_BYTES, DIFS_NS, FCS_BYTES, MAC_HDR_BYTES, SIFS_NS, SLOT_NS, ACK_TIMEOUT_NS,
   ctrlRespRateForMode, mcsForRssi, mcsRateMbps, noiseDbm, reqSinrDb, txTimeModeNs, txTimeNs,
 } from '../../src/engine/phy'
 import { buildLinkTable, pathLossDb } from '../../src/engine/propagation'
+import { lessonShapeSuite, ofType, runOf } from './kit'
 
-const SECS = 10
-const RUN_NS = SECS * 1e9
+const MS = 1_000_000
+const RUN_NS = 30 * MS
 const PAYLOAD_BITS = 12_000
 const MSDU = 1500
 const PARAMS = { W: 16, m: 6, attempts: 7 } as const
 
 // ---------------------------------------------------------------------------
-// the prediction side: one place that assembles T_s / T_c, checked against
-// bianchiModel's own assembly so the two cannot drift apart
+// the prediction side: one place that assembles the exchange times, checked
+// against bianchiModel's own assembly so the two cannot drift apart
 // ---------------------------------------------------------------------------
 
 function times(mcs: number): { dataNs: number; ackNs: number; respRate: number; tsNs: number; tcNs: number } {
@@ -49,111 +52,61 @@ function modelS(n: number, tsNs: number, tcNs: number): number {
 }
 
 // ---------------------------------------------------------------------------
-// the measurement side
+// the prose: `lessonStrings` is the contract's own walk over everything a
+// learner reads, so a quoted value cannot hide in a section this test forgot.
 // ---------------------------------------------------------------------------
 
-interface Stats {
-  records: TLRecord[]
-  attempts: Map<string, number>
-  retries: Map<string, number>
-  overlaps: Map<string, number>
-  txOk: Map<string, number>
-  airtimeNs: Map<string, number>
-  firstMcs: Map<string, number>
-  eifs: number
-  collisions: number
-  /** Per unordered pair of colliding nodes: total, and those where one started late. */
-  pairTotal: Map<string, number>
-  pairLate: Map<string, number>
-}
-
-const memo = new Map<string, Stats>()
-
-function measure(key: string, scenario: Scenario): Stats {
-  const hit = memo.get(key)
-  if (hit) return hit
-  const sim = new Simulation(scenario)
-  const records = [...sim.runUntil(RUN_NS).records]
-  const attempts = new Map<string, number>()
-  const retries = new Map<string, number>()
-  const overlaps = new Map<string, number>()
-  const firstMcs = new Map<string, number>()
-  const pairTotal = new Map<string, number>()
-  const pairLate = new Map<string, number>()
-  const lastStart = new Map<string, number>()
-  let eifs = 0
-  let collisions = 0
-  const bump = (m: Map<string, number>, k: string): void => { m.set(k, (m.get(k) ?? 0) + 1) }
-  for (const r of records) {
-    if (r.type === 'TX_START') {
-      lastStart.set(r.node, r.t)
-      if (r.frame.kind === 'data') {
-        bump(attempts, r.node)
-        if (!firstMcs.has(r.node)) firstMcs.set(r.node, r.frame.mcs ?? -1)
-      }
-    } else if (r.type === 'RETRY') bump(retries, r.node)
-    else if (r.type === 'IFS_START' && r.kind === 'EIFS') eifs++
-    else if (r.type === 'COLLISION') {
-      collisions++
-      for (const n of r.nodes) bump(overlaps, n)
-      if (r.nodes.length === 2) {
-        const ns = [...r.nodes].sort()
-        const key2 = ns.join('+')
-        bump(pairTotal, key2)
-        if (Math.abs((lastStart.get(ns[0]) ?? 0) - (lastStart.get(ns[1]) ?? 0)) > 1000) bump(pairLate, key2)
-      }
-    }
-  }
-  const txOk = new Map<string, number>()
-  const airtimeNs = new Map<string, number>()
-  for (const [id, n] of Object.entries(sim.view.nodes)) {
-    txOk.set(id, n.stats.txOk)
-    airtimeNs.set(id, n.stats.airtimeNs)
-  }
-  const out: Stats = { records, attempts, retries, overlaps, txOk, airtimeNs, firstMcs, eifs, collisions, pairTotal, pairLate }
-  memo.set(key, out)
-  return out
-}
-
-const base = (): Stats => measure('base', tier1Project.scenario())
-const vMoved = (): Stats => measure('moved', tier1Project.variants![0].scenario())
-const vThird = (): Stats => measure('third', tier1Project.variants![1].scenario())
-const vAlone = (): Stats => measure('alone', tier1Project.variants![2].scenario())
-
-const mbps = (s: Stats, id: string): number => ((s.txOk.get(id) ?? 0) * PAYLOAD_BITS) / SECS / 1e6
-const pooled = (s: Stats, ids: string[], m: Map<string, number>): number =>
-  ids.reduce((a, id) => a + (m.get(id) ?? 0), 0) / ids.reduce((a, id) => a + (s.attempts.get(id) ?? 0), 0)
-
-// ---------------------------------------------------------------------------
-// prose
-// ---------------------------------------------------------------------------
-
-function allText(): string {
-  const parts: string[] = []
-  const push = (l?: L10n): void => { if (l) parts.push(l.en, l.zh) }
-  for (const b of tier1Project.body as Block[]) {
-    push(b.heading)
-    if ('text' in b) push(b.text)
-    if (b.kind === 'formula') push(b.note)
-    if (b.kind === 'list' || b.kind === 'steps') b.items.forEach(push)
-    if (b.kind === 'table') { b.head.forEach(push); b.rows.forEach((row) => row.forEach(push)) }
-  }
-  tier1Project.observe.forEach(push)
-  tier1Project.tryThis.forEach(push)
-  for (const q of tier1Project.quiz) { push(q.q); q.options.forEach(push); push(q.explain) }
-  tier1Project.variants!.forEach((v) => push(v.label))
-  return parts.join(' ')
-}
-const prose = allText()
+const prose = [...lessonStrings(tier1Project), tier1Project.title,
+  ...projectVariants.map((v) => v.label), ...projectJumps.map((j) => j.label)]
+  .flatMap((s) => [s.en, s.zh]).join(' ')
 const quotes = (...needles: string[]): void => {
   for (const s of needles) expect(prose, `prose is missing "${s}"`).toContain(s)
 }
 
-// ---------------------------------------------------------------------------
+// The contract every migrated lesson owes, written once in tests/course/kit.ts.
+lessonShapeSuite(tier1Project, { proseMax: 1000, runNs: RUN_NS })
 
-describe('(a) the link budget the learner must predict', () => {
-  it('the two uploaders land where the prose says, and the ladder picks their ceilings', () => {
-    const scen = tier1Project.scenario()
+describe('tier1-project · the lesson itself', () => {
+  it('is the tier’s project, module 1, with the second half right behind it', () => {
+    expect(tier1Project.module).toBe(1)
+    expect(COURSE_ORDER.indexOf('tier1-project')).toBe(COURSE_ORDER.indexOf('bianchi-vs-sim') + 1)
+    expect(COURSE_ORDER.indexOf('tier1-project-review')).toBe(COURSE_ORDER.indexOf('tier1-project') + 1)
+    expect(tier1Project.terms!.map((t) => t.term)).toEqual(['brief', 'link budget', 'margin', 'DCF', 'saturated'])
+    // it is a brief, not exposition: the four questions and the discipline that goes with them
+    quotes('(a) How strong each laptop arrives', '(b) How long one data frame', '(c) How often two saturated senders',
+      '(d) How the air divides', 'once you have read a result you can no longer honestly predict it')
+  })
+
+  it('the scenario is small, deterministic and plain take-turns access', () => {
+    const scen = projectFlat()
+    expect(scen.seed).toBe(7)
+    expect(scen.nodes.length).toBe(4)
+    expect(scen.rtsThresholdBytes).toBeGreaterThan(MSDU)
+    for (const n of scen.nodes) {
+      expect(n.caps.widthMhz).toBe(20)
+      expect(n.caps.features.edca ?? false).toBe(false)
+      expect(n.caps.features.ampdu ?? false).toBe(false)
+      expect(n.caps.features.txop ?? false).toBe(false)
+    }
+    expect(projectFlat({ third: true }).nodes.length).toBe(5)
+    expect(projectFlat({ noFar: true }).nodes.length).toBe(3)
+    expect(() => ScenarioSchema.parse(scen)).not.toThrow()
+    for (const v of tier1Project.variants!) expect(() => ScenarioSchema.parse(v.scenario())).not.toThrow()
+  })
+
+  it('the brief table places the four devices where the scene does', () => {
+    const at = (id: string) => projectFlat().nodes.find((n) => n.id === id)!
+    expect([at('ap').pos.x, at('ap').pos.y, at('ap').txPowerDbm]).toEqual([3, 4, 20])
+    expect([at('sta-1').pos.x, at('sta-1').pos.y, at('sta-1').txPowerDbm]).toEqual([5, 4, 15])
+    expect([at('sta-2').pos.x, at('sta-2').pos.y]).toEqual([14, 6])
+    expect([at('sta-3').pos.x, at('sta-3').pos.y]).toEqual([4, 6])
+    quotes('(3, 4), 20 dBm', '(5, 4), 15 dBm', '(14, 6), 15 dBm', '(4, 6), 15 dBm')
+  })
+})
+
+describe('tier1-project · (a) the link budget the learner predicts', () => {
+  it('the two uploaders land where the table says, and the ladder picks their rungs', () => {
+    const scen = projectFlat()
     const table = buildLinkTable(scen.nodes, scen.walls)
     const noise = noiseDbm(20)
     expect(noise.toFixed(2)).toBe('-93.99')
@@ -176,39 +129,30 @@ describe('(a) the link budget the learner must predict', () => {
     expect(mcsForRssi('eht', far, undefined, 20)).toBe(2)
     expect(mcsRateMbps('eht', 2)).toBe(25.8)
 
-    // the rungs the worked example names, and the 3 dB margin that excludes MCS 3
+    // the rungs the table names, and the 3 dB margin that excludes the next one up
     expect(reqSinrDb('eht', 2).toFixed(2)).toBe('13.99')
     expect(reqSinrDb('eht', 3).toFixed(2)).toBe('16.99')
     expect(far - noise).toBeGreaterThan(reqSinrDb('eht', 2) + 3)
     expect(far - noise).toBeLessThan(reqSinrDb('eht', 3) + 3)
 
-    quotes('−40.73 dBm / 53.26 dB / 13', '−75.15 dBm / 18.84 dB / 2', '11.180 m', '78.15 dB',
-      '13.99 + 3 = 16.99 dB', '16.99 + 3 = 19.99 dB', '55.73 dB', '172.1 Mb/s', '25.8 Mb/s', '−93.99')
+    quotes('2.000 m, no wall', '55.73 dB', '−40.73 dBm', '53.26 dB', 'MCS 13, 172.1 Mb/s',
+      '11.180 m, one brick wall', '78.15 dB', '−75.15 dBm', '18.84 dB', 'MCS 2, 25.8 Mb/s',
+      '13.99 + 3 = 16.99 dB ✓ · 16.99 + 3 = 19.99 dB ✗', '−93.99 dBm')
   })
 
-  it('the 34 dB spread between the two uploaders, and the −72.64 dBm they hear each other at', () => {
-    const scen = tier1Project.scenario()
-    const table = buildLinkTable(scen.nodes, scen.walls)
-    const near = table.get('sta-1')!.get('ap')!
-    const far = table.get('sta-2')!.get('ap')!
-    expect(near - far).toBeCloseTo(34.4, 1)
-    const mutual = table.get('sta-1')!.get('sta-2')!
-    expect(mutual.toFixed(2)).toBe('-72.64')
-    expect((mutual - noiseDbm(20)).toFixed(2)).toBe('21.35')
-    expect(reqSinrDb('eht', 13).toFixed(2)).toBe('44.99')
-    // above preamble detection, far below energy detection
-    expect(mutual).toBeGreaterThan(-82)
-    expect(mutual).toBeLessThan(-62)
-    quotes('34 dB', '−72.64 dBm', '21.35 dB', '44.99 dB', '−82 dBm', '−62 dBm')
-  })
-
-  it('the run confirms both ceilings on the first frame each station sends', () => {
-    expect(base().firstMcs.get('sta-1')).toBe(13)
-    expect(base().firstMcs.get('sta-2')).toBe(2)
+  it('the deeper note: a channel eight times as wide takes the far link off the ladder', () => {
+    expect(noiseDbm(160).toFixed(2)).toBe('-84.96')
+    const scen = projectFlat()
+    const far = buildLinkTable(scen.nodes, scen.walls).get('sta-2')!.get('ap')!
+    expect((far - noiseDbm(160)).toFixed(2)).toBe('9.81')
+    expect(reqSinrDb('eht', 0).toFixed(2)).toBe('8.99')
+    expect(far - noiseDbm(160)).toBeLessThan(reqSinrDb('eht', 0) + 3)
+    expect(noiseDbm(160) - noiseDbm(20)).toBeCloseTo(9.03, 2)
+    quotes('−93.99 to −84.96 dBm', '9.81 dB', '8.99 dB')
   })
 })
 
-describe('(b) the airtime of a frame and of its exchange', () => {
+describe('tier1-project · (b) the airtime the learner predicts', () => {
   it('the symbol arithmetic and the two exchange times', () => {
     expect(MSDU + MAC_HDR_BYTES + FCS_BYTES).toBe(1528)
     expect(16 + 8 * 1528 + 6).toBe(12_246)
@@ -228,24 +172,21 @@ describe('(b) the airtime of a frame and of its exchange', () => {
     expect(fast.tcNs).toBe(208_600)
     expect(slow.tcNs).toBe(603_000)
 
-    quotes('⌈12246 / 351⌉ = 35 symbols', '⌈12246 / 2340⌉ = 6 symbols', '129.6 µs', '524.0 µs', '207.6 µs', '606.0 µs', '208.6', '603.0',
-      '24 Mb/s (28 µs)', '12 Mb/s (32 µs)', '1528 octets')
+    quotes('1528 octets', '⌈12246 / 2340⌉ = 6', '⌈12246 / 351⌉ = 35',
+      '48 + 81.6 = 129.6 µs', '48 + 476 = 524.0 µs', '24 Mb/s, 28 µs', '12 Mb/s, 32 µs',
+      '129.6 + 16 + 28 + 34 = 207.6 µs', '524.0 + 16 + 32 + 34 = 606.0 µs', '208.6 µs', '603.0 µs')
   })
 
-  it('the T_s / T_c assembly is bianchiModel’s own, so the worked example cannot drift', () => {
+  it('the exchange is assembled exactly as bianchiModel assembles it', () => {
     // same four terms, checked against dcfTimes on a legacy link where both apply
     const legacy = dcfTimes(MSDU, 6)
-    const byHand = {
-      tsNs: legacy.dataNs + SIFS_NS + legacy.ackNs + DIFS_NS,
-      tcNs: legacy.dataNs + ACK_TIMEOUT_NS + DIFS_NS,
-    }
-    expect(byHand.tsNs).toBe(legacy.tsNs)
-    expect(byHand.tcNs).toBe(legacy.tcNs)
+    expect(legacy.dataNs + SIFS_NS + legacy.ackNs + DIFS_NS).toBe(legacy.tsNs)
+    expect(legacy.dataNs + ACK_TIMEOUT_NS + DIFS_NS).toBe(legacy.tcNs)
   })
 })
 
-describe('(c) the fixed point and the saturation throughput', () => {
-  it('n = 2 gives τ = 0.1046 and p = 10.46 %, and the generic slot gives 25.585 Mb/s', () => {
+describe('tier1-project · (c) the fixed point the learner predicts', () => {
+  it('n = 2 gives τ = 0.1046 and p = 10.46 %, and the generic exchange gives 25.585 Mb/s', () => {
     const { tau, p } = solveBianchi({ n: 2, ...PARAMS })
     expect(tau.toFixed(4)).toBe('0.1046')
     expect((100 * p).toFixed(2)).toBe('10.46')
@@ -255,112 +196,26 @@ describe('(c) the fixed point and the saturation throughput', () => {
     const S = modelS(2, ts, tc)
     expect(S.toFixed(3)).toBe('25.585')
     expect((S / 2).toFixed(3)).toBe('12.793')
-    quotes('τ = 0.1046', 'p = 10.46%', '406.8 µs', '25.585 Mb/s', '12.793 Mb/s')
-  })
-
-  it('the measured run: 22.610 Mb/s against the predicted 25.585, 11.6 % short', () => {
-    const s = base()
-    expect(s.txOk.get('sta-1')).toBe(9719)
-    expect(s.txOk.get('sta-2')).toBe(9123)
-    expect(mbps(s, 'sta-1').toFixed(3)).toBe('11.663')
-    expect(mbps(s, 'sta-2').toFixed(3)).toBe('10.948')
-    const total = mbps(s, 'sta-1') + mbps(s, 'sta-2')
-    expect(total.toFixed(3)).toBe('22.610')
-    const S = modelS(2, mix([times(13).tsNs, times(2).tsNs]), mix([times(13).tcNs, times(2).tcNs]))
-    expect((100 * (S - total) / S).toFixed(1)).toBe('11.6')
-    quotes('22.610 Mb/s', '9,719 / 9,123', '11.6%')
-  })
-
-  it('the two estimators: 23.15 % of attempts overlap, 12.59 % end in a retry', () => {
-    const s = base()
-    const ids = ['sta-1', 'sta-2']
-    expect((100 * pooled(s, ids, s.retries)).toFixed(2)).toBe('12.59')
-    expect((100 * pooled(s, ids, s.overlaps)).toFixed(2)).toBe('23.15')
-    const overlapped = ids.reduce((a, id) => a + s.overlaps.get(id)!, 0)
-    const retried = ids.reduce((a, id) => a + s.retries.get(id)!, 0)
-    expect(overlapped).toBe(4990)
-    expect(retried).toBe(2713)
-    expect((100 * (overlapped - retried) / overlapped).toFixed(0)).toBe('46')
-    quotes('23.15 %', '12.59 %', '4,990', '2,713', '46%')
+    quotes('16, 6, 7', 'τ = 0.1046', 'p = 10.46 %', '(207.6 + 606.0) / 2 = 406.8 µs', '25.585 Mb/s', '12.793 Mb/s')
   })
 })
 
-describe('(d) the share and the anomaly', () => {
-  it('the predicted 19.8 / 80.2 split and the measured 21.2 / 78.8', () => {
+describe('tier1-project · (d) the share the learner predicts', () => {
+  it('19.8 / 80.2 from the two frame durations, and 43.621 Mb/s with the flat to itself', () => {
     const fast = times(13).dataNs
     const slow = times(2).dataNs
     expect((100 * fast / (fast + slow)).toFixed(1)).toBe('19.8')
     expect((100 * slow / (fast + slow)).toFixed(1)).toBe('80.2')
 
-    const s = base()
-    const a1 = s.airtimeNs.get('sta-1')!
-    const a2 = s.airtimeNs.get('sta-2')!
-    expect((100 * a1 / RUN_NS).toFixed(2)).toBe('16.66')
-    expect((100 * a2 / RUN_NS).toFixed(2)).toBe('61.94')
-    expect((100 * a1 / (a1 + a2)).toFixed(1)).toBe('21.2')
-    expect((100 * a2 / (a1 + a2)).toFixed(1)).toBe('78.8')
-    // equal opportunities, four times the airtime
-    expect(a2 / a1).toBeGreaterThan(3.5)
-    const ratio = s.txOk.get('sta-1')! / s.txOk.get('sta-2')!
-    expect(ratio).toBeGreaterThan(0.9)
-    expect(ratio).toBeLessThan(1.1)
-    quotes('19.8 % / 80.2 %', '21.2 % / 78.8 %', '19.8% against 80.2%', 'four times')
-  })
-
-  it('alone the study laptop should get 43.621 Mb/s and gets 42.470', () => {
-    const t = times(13)
-    const perExchangeNs = t.tsNs + 7.5 * SLOT_NS
+    const perExchangeNs = times(13).tsNs + 7.5 * SLOT_NS
     expect((perExchangeNs / 1000).toFixed(1)).toBe('275.1')
     expect((PAYLOAD_BITS / (perExchangeNs * 1e-9) / 1e6).toFixed(3)).toBe('43.621')
-    const s = vAlone()
-    expect(mbps(s, 'sta-1').toFixed(3)).toBe('42.470')
-    expect((100 * pooled(s, ['sta-1'], s.retries)).toFixed(2)).toBe('0.28')
-    quotes('275.1 µs', '43.621 Mb/s', '42.470', '0.28%')
+    quotes('19.8 % / 80.2 %', '12,000 bits / 275.1 µs = 43.621 Mb/s', '7.5')
   })
 })
 
-describe('reading the gaps', () => {
-  it('the deaf late start: 1,342 of 2,399 laptop-vs-laptop collisions begin late', () => {
-    const s = base()
-    expect(s.pairTotal.get('sta-1+sta-2')).toBe(2399)
-    expect(s.pairLate.get('sta-1+sta-2')).toBe(1342)
-    expect(s.collisions).toBe(2733)
-    quotes('2,399', '1,342')
-  })
-
-  it('the restart-time split: 9,499 EIFS deferrals, and 45 / 94 / 34 µs', () => {
-    expect(base().eifs).toBe(9499)
-    expect(ACK_TIMEOUT_NS).toBe(45_000)
-    expect(DIFS_NS).toBe(34_000)
-    expect(SIFS_NS + DIFS_NS + txTimeNs(ACK_BYTES, 6)).toBe(94_000)
-    quotes('9,499 EIFS', 'EIFS (94 µs)', 'DIFS (34 µs)', '45 µs for the colliders')
-  })
-
-  it('ARF: the mean PPDU is 148.1 µs against 129.6, and 600.9 against 524.0', () => {
-    const s = base()
-    const mean = (id: string): number => s.airtimeNs.get(id)! / s.attempts.get(id)! / 1000
-    expect(mean('sta-1').toFixed(1)).toBe('148.1')
-    expect(mean('sta-2').toFixed(1)).toBe('600.9')
-    expect(mean('sta-1')).toBeGreaterThan(times(13).dataNs / 1000)
-    expect(mean('sta-2')).toBeGreaterThan(times(2).dataNs / 1000)
-    quotes('148.1 µs against a predicted 129.6, and 600.9 against 524.0')
-  })
-
-  it('the first millisecond the observe item describes', () => {
-    const s = base()
-    const tx1 = s.records.filter((r) => r.type === 'TX_START' && r.node === 'sta-1' && r.frame.kind === 'data')
-    const tx2 = s.records.filter((r) => r.type === 'TX_START' && r.node === 'sta-2' && r.frame.kind === 'data')
-    expect(tx1[0].t).toBe(0)
-    expect(tx2[0].t).toBe(0)
-    expect(tx1[1].t).toBe(406_600)
-    // …and it lands inside the living-room laptop's 524 µs frame
-    expect(tx1[1].t).toBeLessThan(tx2[0].t + times(2).dataNs)
-    quotes('406.6 µs')
-  })
-})
-
-describe('the variants the learner predicts next', () => {
-  it('moved to the living room: MCS 3, S = 19.350 predicted, 16.796 measured, overlap 11.10 %', () => {
+describe('tier1-project · the three variants, predicted', () => {
+  it('moved to the living room: 9.000 m, MCS 3, and S = 19.350 Mb/s', () => {
     const scen = tier1Project.variants![0].scenario()
     const table = buildLinkTable(scen.nodes, scen.walls)
     const rssi = table.get('sta-1')!.get('ap')!
@@ -373,104 +228,58 @@ describe('the variants the learner predicts next', () => {
     const S = modelS(2, mix([times(3).tsNs, times(2).tsNs]), mix([times(3).tcNs, times(2).tcNs]))
     expect(S.toFixed(3)).toBe('19.350')
     expect((S / 2).toFixed(3)).toBe('9.675')
-
-    const s = vMoved()
-    expect(s.firstMcs.get('sta-1')).toBe(3)
-    expect(mbps(s, 'sta-1').toFixed(3)).toBe('8.737')
-    expect(mbps(s, 'sta-2').toFixed(3)).toBe('8.059')
-    expect((mbps(s, 'sta-1') + mbps(s, 'sta-2')).toFixed(3)).toBe('16.796')
-    const overlap = pooled(s, ['sta-1', 'sta-2'], s.overlaps)
-    expect((100 * overlap).toFixed(2)).toBe('11.10')
-    // the point of the experiment: the symmetric flat lands within a point of the model
-    expect(Math.abs(100 * overlap - 100 * solveBianchi({ n: 2, ...PARAMS }).p)).toBeLessThan(1)
-    quotes('9.000 m', '−72.33 dBm', '21.66 dB', '415.2 µs', '493.2 µs', '19.350 Mb/s', '9.675',
-      '16.796 Mb/s', '8.737', '8.059', '11.10%')
+    quotes('9.000 m → −72.33 dBm, 21.66 dB, MCS 3', '415.2 / 493.2 µs', '19.350 → 9.675 + 9.675 Mb/s')
   })
 
-  it('a third contender: p = 17.81 % predicted / 17.13 % measured, S 29.574 against 21.184', () => {
+  it('a third contender: p = 17.81 % and S = 29.574 Mb/s; alone, 43.621 Mb/s', () => {
     const { p } = solveBianchi({ n: 3, ...PARAMS })
     expect((100 * p).toFixed(2)).toBe('17.81')
     const ts = mix([times(13).tsNs, times(13).tsNs, times(2).tsNs])
     const tc = mix([times(13).tcNs, times(13).tcNs, times(2).tcNs])
-    const S = modelS(3, ts, tc)
-    expect(S.toFixed(3)).toBe('29.574')
-
-    const s = vThird()
-    const ids = ['sta-1', 'sta-2', 'sta-4']
-    expect((100 * pooled(s, ids, s.retries)).toFixed(2)).toBe('17.13')
-    expect(mbps(s, 'sta-1').toFixed(3)).toBe('7.734')
-    expect(mbps(s, 'sta-2').toFixed(3)).toBe('5.852')
-    expect(mbps(s, 'sta-4').toFixed(3)).toBe('7.597')
-    const total = ids.reduce((a, id) => a + mbps(s, id), 0)
-    expect(total.toFixed(3)).toBe('21.184')
-    expect((100 * (S - total) / S).toFixed(0)).toBe('28')
-    // ARF walks the living-room laptop down to MCS 0
-    const mcs0 = s.records.filter((r) => r.type === 'TX_START' && r.node === 'sta-2' && r.frame.kind === 'data' && r.frame.mcs === 0).length
-    expect(mcs0).toBeGreaterThan(1000)
-    quotes('17.81%', '17.13%', '29.574 Mb/s', '21.184 Mb/s', '7.734, 5.852, 7.597', '28%', 'MCS 0')
+    expect(modelS(3, ts, tc).toFixed(3)).toBe('29.574')
+    quotes('17.81 %', '29.574 Mb/s', '43.621 Mb/s', '129.6 / 207.6 µs')
   })
 })
 
-describe('the quiz’s 160 MHz claim', () => {
-  it('the noise floor rises 9 dB and the living-room link falls under MCS 0 with margin', () => {
-    expect(noiseDbm(160).toFixed(2)).toBe('-84.96')
-    const scen = tier1Project.scenario()
-    const far = buildLinkTable(scen.nodes, scen.walls).get('sta-2')!.get('ap')!
-    expect((far - noiseDbm(160)).toFixed(2)).toBe('9.81')
-    expect(reqSinrDb('eht', 0).toFixed(2)).toBe('8.99')
-    expect(far - noiseDbm(160)).toBeLessThan(reqSinrDb('eht', 0) + 3)
-    // the requirement itself is width-independent
-    expect(reqSinrDb('eht', 0)).toBe(reqSinrDb('eht', 0))
-    quotes('−84.96 dBm', '9.81 dB', '−93.99 to −84.96')
-  })
-})
+describe('tier1-project · what the three observations send the reader to read', () => {
+  const records = runOf(tier1Project, undefined, RUN_NS)
 
-describe('lesson contract', () => {
-  it('study time follows the curriculum formula and lands inside the 15–25 minute band', () => {
-    const raw = lessonWords(tier1Project) / 150
-      + OBSERVE_MINUTES * tier1Project.observe.length
-      + TRY_MINUTES * tier1Project.tryThis.length
-    expect(lessonMinutes(tier1Project)).toBe(Math.max(5, Math.round(raw / 5) * 5))
-    expect(lessonMinutes(tier1Project)).toBeGreaterThanOrEqual(15)
-    expect(lessonMinutes(tier1Project)).toBeLessThanOrEqual(25)
-  })
-
-  it('is the last lesson of Tier 1, bilingual, with 3 observe items and 2 experiments', () => {
-    expect(tier1Project.id).toBe('tier1-project')
-    expect(tier1Project.module).toBe(1)
-    expect(COURSE_ORDER.indexOf('tier1-project')).toBe(COURSE_ORDER.indexOf('bianchi-vs-sim') + 1)
-    expect(tier1Project.title.en).not.toMatch(/^\d+\s*[·.]/)
-    expect(tier1Project.observe.length).toBe(3)
-    expect(tier1Project.tryThis.length).toBe(2)
-    expect(tier1Project.quiz.length).toBeGreaterThanOrEqual(2)
-    expect(tier1Project.variants!.length).toBeGreaterThanOrEqual(2)
-    for (const q of tier1Project.quiz) {
-      expect(q.answer).toBeGreaterThanOrEqual(0)
-      expect(q.answer).toBeLessThan(q.options.length)
-      expect(q.explain.zh.length).toBeGreaterThan(20)
+  it('both stations pick their rung on the very first frame they send', () => {
+    const first = (id: string): number => {
+      const r = ofType(records, 'TX_START').find((x) => x.node === id && x.frame.kind === 'data')!
+      expect(r, id).toBeDefined()
+      return r.frame.mcs!
     }
-    for (const v of tier1Project.variants!) expect(v.label.zh.length).toBeGreaterThan(3)
-    // it is a project: instructions and a rubric, not exposition
-    quotes('Self-check rubric', '自评标准', 'A good answer', 'Predicted', 'Measured',
-      'Do not open the run until the four predictions are written down')
+    expect(first('sta-1')).toBe(13)
+    expect(first('sta-2')).toBe(2)
+    expect(ofType(records, 'TX_START').find((x) => x.node === 'sta-1' && x.frame.kind === 'data')!.frame.txTimeNs)
+      .toBe(129_600)
+    expect(ofType(records, 'TX_START').find((x) => x.node === 'sta-2' && x.frame.kind === 'data')!.frame.txTimeNs)
+      .toBe(524_000)
   })
 
-  it('every jump target occurs in the base scenario', () => {
-    for (const j of tier1Project.jumps) expect(base().records.some(j.find), j.label.en).toBe(true)
+  it('a 16 µs gap, a 28 µs answer and a 34 µs wait, as the second observation says', () => {
+    const ends = ofType(records, 'TX_END').filter((r) => r.frame.kind === 'data' && r.node === 'sta-1')
+    const ack = ofType(records, 'TX_START').find((r) => r.frame.kind === 'ack' && ends.some((e) => r.t - e.t === SIFS_NS))
+    expect(ack, 'an ACK one SIFS after a study-laptop frame').toBeDefined()
+    expect(SIFS_NS).toBe(16_000)
+    expect(ack!.frame.txTimeNs).toBe(28_000)
+    expect(DIFS_NS).toBe(34_000)
+    quotes('the gap is 16 µs, one SIFS, and the answer is 28 µs')
   })
 
-  it('the scenario is small, deterministic and plain DCF', () => {
-    const scen = projectFlat()
-    expect(scen.seed).toBe(7)
-    expect(scen.nodes.length).toBe(4)
-    expect(scen.rtsThresholdBytes).toBeGreaterThan(MSDU)
-    for (const n of scen.nodes) {
-      expect(n.caps.widthMhz).toBe(20)
-      expect(n.caps.features.edca ?? false).toBe(false)
-      expect(n.caps.features.ampdu ?? false).toBe(false)
-      expect(n.caps.features.txop ?? false).toBe(false)
-    }
-    expect(projectFlat({ third: true }).nodes.length).toBe(5)
-    expect(projectFlat({ noFar: true }).nodes.length).toBe(3)
+  it('the first backoff draw is a whole number of slots, already from a doubled window', () => {
+    // the two opening frames collide at t = 0, so the first draw in this scene is taken
+    // from 32 values, not from the first window of 16 — which is what the observation says
+    const draw = ofType(records, 'BACKOFF_DRAW')[0]
+    expect(draw, 'a backoff draw').toBeDefined()
+    expect(['sta-1', 'sta-2']).toContain(draw.node)
+    expect(draw.cw).toBe(31)
+    expect(Number.isInteger(draw.value)).toBe(true)
+    expect(draw.value).toBeLessThanOrEqual(draw.cw)
+    const opens = ofType(records, 'TX_START').filter((r) => r.frame.kind === 'data' && r.t === 0)
+    expect(opens.map((r) => r.node).sort()).toEqual(['sta-1', 'sta-2'])
+    expect(ofType(records, 'COLLISION')[0].nodes.slice().sort()).toEqual(['sta-1', 'sta-2'])
+    quotes('already from a doubled window')
   })
 })

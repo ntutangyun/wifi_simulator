@@ -1,13 +1,20 @@
 /**
- * Tier 1 · project · "Predict a flat, then measure it".
+ * Tier 1 · project · "The brief and the plan".
  *
- * The closing exercise of Tier 1: one small, deterministic flat whose link
- * budgets, airtimes, collision probability and airtime shares are all
- * computable by hand from the eight lessons before it — predicted first, then
- * measured, then reconciled with the discipline of bianchi-vs-sim.
+ * The first half of the closing exercise of Tier 1, rewritten to the
+ * zero-to-hero contract
+ * (docs/superpowers/specs/2026-09-21-course-readability-design.md): one small
+ * deterministic flat, the four quantities the learner works out with a pencil,
+ * and the three variants they predict before running any of them. Every number
+ * here is a PREDICTION — recomputed in tests/course/tier1-project.test.ts from
+ * the engine's own functions and the Bianchi solver, never from a run.
  *
- * Every number in the prose is recomputed from the engine's own functions, the
- * Bianchi solver and a 10 s run by tests/course/tier1-project.test.ts.
+ * What the run actually does, and why it differs, is the second half:
+ * `tier1-project-review`, which loads this same scene and these same variants,
+ * so the recorded timeline hashes of the two ids are the same run twice.
+ *
+ * The scenario builder and its three variants are unchanged from the flat
+ * shape, so tests/fixtures/lesson-hashes.json keeps its recorded values.
  */
 import type { Scenario } from '../../model/scenario'
 import { J, N, firstBackoffDraw, firstCollision, firstData, firstRetry, longApartment, node, sc, type Lesson } from '../lessonKit'
@@ -38,174 +45,233 @@ export function projectFlat(opts: { nearX?: number; third?: boolean; noFar?: boo
   return sc(longApartment(), nodes)
 }
 
+/**
+ * The three variants, in the order both halves of the project list them. The
+ * second half reuses this array rather than rebuilding it, so the two ids
+ * replay to the same recorded timeline hashes, variant for variant.
+ */
+export const projectVariants = [
+  {
+    label: { en: 'The study laptop moves to the living room', zh: '书房笔记本搬进客厅' },
+    scenario: () => projectFlat({ nearX: 12 }),
+  },
+  {
+    label: { en: 'A third contender: a tablet beside the router', zh: '第三个竞争者：路由器旁的平板' },
+    scenario: () => projectFlat({ third: true }),
+  },
+  {
+    label: { en: 'The living-room laptop leaves', zh: '客厅笔记本离线' },
+    scenario: () => projectFlat({ noFar: true }),
+  },
+]
+
+/** The four jumps both halves of the project offer. */
+export const projectJumps = [
+  J('first data frame', '第一个数据帧', firstData),
+  J('first collision', '第一次碰撞', firstCollision),
+  J('first retry', '第一次重传', firstRetry),
+  J('first backoff draw', '第一次退避抽签', firstBackoffDraw),
+]
+
 export const tier1Project: Lesson = {
   id: 'tier1-project',
   module: 1,
   title: {
-    en: 'Project — predict a flat, then measure it',
-    zh: '项目——先预测一户人家，再去测量它',
+    en: 'Project — the brief and the plan',
+    zh: '项目——题面与计划',
   },
-  body: [
-    { text: {
-      en: 'Tier 1 is over. This is the exam it was written for: a flat you have never seen, four quantities you work out with a pencil before you press play, and an honest reckoning with whatever the simulator does instead. Do not open the run until the four predictions are written down — one you adjust after seeing the answer teaches nothing.',
-      zh: '第一阶段到此结束。这是它一直在准备的那场考试：一户你没见过的房子、四个在按下播放键之前用纸笔算出来的量，然后与仿真器真正做出的结果做一次诚实的对账。四个预测没写下来之前不要打开仿真——看过答案再改的预测，什么也教不会你。',
+  why: {
+    en: 'Every lesson so far taught one mechanism and showed it working. Here they all arrive at once, in a flat nobody has explained: a router on a shelf, two laptops uploading as hard as they can, a phone on a call. Your job is to say what the air will do before you watch it do anything. A prediction you adjust after seeing the answer teaches nothing, so this half stops at the plan.',
+    zh: '在此之前的每一课，都是讲透一个机制，再让你看着它工作。这一课里它们一起到场：一户没人替你讲解过的房子，架子上一台路由器、两台拼命上传的笔记本、一部正在通话的手机。你的任务是在看到任何结果之前，先说出空口会发生什么。看过答案再改的预测什么也教不会你，所以前半程到“计划”为止。',
+  },
+  outcomes: [
+    { en: 'turn a floor plan into each station’s arriving signal, and the coding rung it may use', zh: '把一张平面图，算成每台站点到达的信号，以及它能用的编码等级' },
+    { en: 'price one data frame and the exchange around it, in microseconds', zh: '给一个数据帧、以及围绕它的那次交换，按微秒标价' },
+    { en: 'predict how often two saturated senders collide, and what the pair delivers', zh: '预测两台饱和发送方多久相撞一次，以及这一对能交付多少' },
+    { en: 'write four predictions down in a form somebody else could mark', zh: '把四个预测写成别人能拿去批改的样子' },
+  ],
+  needs: ['airtime', 'ifs', 'backoff', 'nav', 'hidden', 'anomaly', 'retries-queues', 'bianchi', 'bianchi-vs-sim'],
+  terms: [
+    { term: 'brief', plain: {
+      en: 'what has to be answered here, and what counts as an answer',
+      zh: '这里要回答哪些问题，以及什么才算一个回答',
     } },
-
+    { term: 'link budget', plain: {
+      en: 'power out, minus what the distance takes, minus what each wall takes',
+      zh: '发出去的功率，减去距离拿走的，再减去每堵墙拿走的',
+    } },
+    { term: 'margin', plain: {
+      en: 'the extra decibels a station insists on before trusting a faster rung',
+      zh: '站点在敢用更快的等级之前，坚持要多留的那几个分贝',
+    } },
+    { term: 'DCF', plain: {
+      en: 'the plain take-turns access of this tier: wait, count down, send, be answered',
+      zh: '本阶段讲的那套朴素轮流接入：先等，再倒数，发一个，等一个回答',
+    } },
+    { term: 'saturated', plain: {
+      en: 'a station whose queue never empties, so the next frame is always ready',
+      zh: '队列永远排不空的站点，下一个帧总是备好的',
+    } },
+  ],
+  picture: [
+    { heading: { en: 'The flat you have not seen', zh: '一户你没见过的房子' }, text: {
+      en: 'A router sits on a study shelf. Two laptops upload as fast as they can — one at the desk beside it, one at the far end of the flat behind a brick wall — and a phone is on a call. The rest of this lesson is a brief: what has to be worked out about that room before anybody opens the simulation.',
+      zh: '路由器放在书房的架子上。两台笔记本在拼命上传——一台就在旁边的书桌上，一台在房子另一头、隔着一堵砖墙——还有一部手机正在通话。本课余下的部分是一份题面：在任何人打开仿真之前，关于这个房间要先算清哪些事。',
+    } },
+    { heading: { en: 'What is switched off, and why that matters', zh: '关掉了什么，为什么要紧' }, text: {
+      en: 'Every radio here shares one narrow channel and one stream, with the best coding it owns and nothing else: no priority classes, no bundling, no reserved turns. Each exchange is therefore one data frame answered by one ACK, with a wait and a countdown in front — DCF, as this tier taught it. Both laptops are saturated: a world a pencil can still describe.',
+      zh: '这里每台设备都共用一条窄信道、一条空间流，开着自己最好的编码，此外什么都没有：没有优先级分类，不把多个帧捆在一起，也没有预留的轮次。于是每次交换就是一个数据帧加一个 ACK 回答，前面还有一段等待和一次倒数——正是本阶段讲过的 DCF。两台笔记本都是饱和的。这样的世界，纸笔还描述得动。',
+    } },
+    { kind: 'watch', jump: 0, heading: { en: 'Look at the room, not at the run', zh: '看房间，先别看仿真' }, text: {
+      en: 'Load the simulation and read the plan view: the walls, the four devices, where each one stands. Then leave it alone — once you have read a result you can no longer honestly predict it.',
+      zh: '载入仿真，只读平面图：墙在哪里、四台设备在哪里、各自站在什么位置。然后就别动它了——只要你读到了结果，就再也没法诚实地预测它了。',
+    } },
     { kind: 'table', heading: { en: 'The brief', zh: '题面' }, head: [
-      { en: 'Device', zh: '设备' }, { en: 'Where', zh: '位置' }, { en: 'Traffic', zh: '业务' },
+      { en: 'Device', zh: '设备' }, { en: 'Where it stands', zh: '位置' }, { en: 'What it sends', zh: '业务' },
     ], rows: [
-      [{ en: 'Router (AP)', zh: '路由器（AP）' }, { en: 'Study shelf, (3, 4), 20 dBm', zh: '书房架子上，(3, 4)，20 dBm' }, { en: 'Downlink when it has something to send', zh: '只在有东西要发时下行' }],
-      [{ en: 'Study laptop', zh: '书房笔记本' }, { en: '(5, 4) — 2 m away, same room, 15 dBm', zh: '(5, 4)——2 m 外，同一房间，15 dBm' }, { en: 'Saturated upload, 1500-byte MSDUs', zh: '饱和上传，1500 字节 MSDU' }],
-      [{ en: 'Living-room laptop', zh: '客厅笔记本' }, { en: '(14, 6) — across the brick wall, 15 dBm', zh: '(14, 6)——隔着砖墙，15 dBm' }, { en: 'Saturated upload, 1500-byte MSDUs', zh: '饱和上传，1500 字节 MSDU' }],
-      [{ en: 'Phone', zh: '手机' }, { en: '(4, 6) — beside the router, 15 dBm', zh: '(4, 6)——路由器旁边，15 dBm' }, { en: 'Voice call: 200 B every 20 ms, each way', zh: '语音通话：每 20 ms 上下行各 200 字节' }],
+      [{ en: 'Router', zh: '路由器' }, N('(3, 4), 20 dBm'), { en: 'only when it has something to send', zh: '只在有东西要发时才发' }],
+      [{ en: 'Study laptop', zh: '书房笔记本' }, N('(5, 4), 15 dBm'), { en: 'saturated upload, 1500-byte payloads', zh: '饱和上传，1500 字节净荷' }],
+      [{ en: 'Living-room laptop', zh: '客厅笔记本' }, N('(14, 6), 15 dBm'), { en: 'saturated upload, 1500-byte payloads', zh: '饱和上传，1500 字节净荷' }],
+      [{ en: 'Phone', zh: '手机' }, N('(4, 6), 15 dBm'), { en: 'a call: 200 bytes every 20 ms, each way', zh: '通话：每 20 ms 上下行各 200 字节' }],
     ] },
-    { text: {
-      en: 'All four radios are Wi-Fi 7 on one 20 MHz channel, one spatial stream, 4096-QAM enabled. EDCA, aggregation and TXOP are off, so every exchange is one MSDU and one ACK — plain DCF. Antennas are 1 m above the floor, so distances are the ones on the floor plan. Predict four things:',
-      zh: '四台设备都是 Wi-Fi 7、单条 20 MHz 信道、单空间流、开启 4096-QAM。EDCA、聚合与 TXOP 全部关闭，于是每次交换就是一个 MSDU 加一个 ACK——纯粹的 DCF。天线都离地 1 m，所以距离就是平面图上的距离。要预测的四件事：',
+    { heading: { en: 'Signal in, signal out', zh: '进去的信号，出来的信号' }, text: {
+      en: 'Each link has a budget. Power leaves the antenna, the distance takes a share, each wall on the straight line takes another, and what is left is what arrives. A rung may be used only when that clears its requirement with a margin to spare — the ladder never climbs to the edge of what would just about work.',
+      zh: '每条链路都有一本预算。功率从天线出发，距离拿走一份，直线上的每堵墙再拿走一份，剩下的才是到达的。只有当到达的信号在满足某一级的要求之外还留有余量时，才可以用这一级——这架阶梯从不爬到“勉强还行”的那条边上。',
     } },
-    { kind: 'list', items: [
-      { en: '(a) Each uploader\'s RSSI, SNR and MCS ceiling.', zh: '（a）每台上传设备的 RSSI、SNR 与 MCS 上限。' },
-      { en: '(b) The airtime of one data frame, and of its whole exchange.', zh: '（b）一个数据帧的空口时间，以及承载它的整次交换的时长。' },
-      { en: '(c) The conditional collision probability p and the saturation throughput S.', zh: '（c）两台竞争终端的条件碰撞概率 p 与饱和吞吐 S。' },
-      { en: '(d) How the airtime splits, and how much the fast station loses to the slow one.', zh: '（d）空口时间如何在两者之间分配，以及快终端为慢终端付出了多少。' },
+    { kind: 'steps', heading: { en: 'Four things to predict', zh: '要预测的四件事' }, items: [
+      { en: '(a) How strong each laptop arrives at the router, and the fastest rung that survives.', zh: '（a）每台笔记本到达路由器时有多强，以及这趟路走下来还能用的最快等级。' },
+      { en: '(b) How long one data frame is on the air, and how long the exchange around it lasts.', zh: '（b）一个数据帧在空口上多久，以及围绕它的整次交换持续多久。' },
+      { en: '(c) How often two saturated senders pick the same moment, and what they deliver together.', zh: '（c）两台饱和的发送方多久会挑中同一个时刻，以及它们合起来交付多少。' },
+      { en: '(d) How the air divides, and what the fast laptop gives up to the slow one.', zh: '（d）空口在两者之间怎么分，以及快的那台向慢的那台让出了多少。' },
     ] },
-
-    { heading: { en: 'Method (a): the link budget', zh: '方法（a）：链路预算' }, kind: 'steps', items: [
-      { en: 'Distance in 3D, walls along the 2D ray. The living-room laptop is √(11² + 2²) = 11.180 m away and its ray crosses one brick wall.', zh: '距离按三维算，穿墙按平面射线判。客厅笔记本距路由器 √(11² + 2²) = 11.180 m，射线穿过一堵砖墙。' },
-      { en: 'Path loss = 46.7 + 30·log10(d) = 78.15 dB; brick adds 12 dB.', zh: '路径损耗 = 46.7 + 30·log10(d) = 78.15 dB；砖墙再加 12 dB。' },
-      { en: 'RSSI = 15 − 78.15 − 12 = −75.15 dBm. SNR = RSSI − (−93.99) = 18.84 dB.', zh: 'RSSI = 15 − 78.15 − 12 = −75.15 dBm。SNR = RSSI − (−93.99) = 18.84 dB。' },
-      { en: 'Ceiling: the highest EHT rung whose required SINR + 3 dB fits. MCS 2 needs 13.99 + 3 = 16.99 dB ✓; MCS 3 needs 16.99 + 3 = 19.99 dB ✗. So MCS 2, 25.8 Mb/s.', zh: '上限：所需 SINR + 3 dB 仍装得下的最高 EHT 级。MCS 2 需 13.99 + 3 = 16.99 dB ✓；MCS 3 需 16.99 + 3 = 19.99 dB ✗。所以是 MCS 2，25.8 Mb/s。' },
-      { en: 'Repeat for the study laptop: 2.000 m, no wall, 55.73 dB, −40.73 dBm, 53.26 dB — MCS 13, 172.1 Mb/s, the top of the ladder.', zh: '对书房笔记本重复一遍：2.000 m、无墙、路径损耗 55.73 dB，−40.73 dBm、53.26 dB——MCS 13、172.1 Mb/s，阶梯的顶端。' },
+    { heading: { en: 'Three things you may change', zh: '你可以动的三件事' }, text: {
+      en: 'Three variants come with the brief, each moving one thing: the study laptop walks to the far side of the wall; a tablet joins beside the router; the living-room laptop leaves. Predict all three before running any. Two of the four answers barely move, and knowing which two is most of the lesson.',
+      zh: '题面附了三个变体，每个只动一件事：书房笔记本沿着房子走到墙的另一侧；一台平板加入，就摆在路由器旁；客厅笔记本直接离线。三个都要先预测，再去跑。四个答案里有两个几乎不动——知道是哪两个，就是这一课的大半。',
+    } },
+  ],
+  numbers: [
+    { kind: 'table', heading: { en: '(a) Predicted: what arrives, and the rung it buys', zh: '（a）预测：到达了多少，买得起哪一级' }, head: [
+      { en: 'Uploader', zh: '上传设备' }, { en: 'Distance, walls', zh: '距离与隔墙' }, { en: 'Path loss', zh: '路径损耗' },
+      { en: 'Arrives at', zh: '到达电平' }, { en: 'SNR', zh: 'SNR' }, { en: 'Rung', zh: '等级' },
+      { en: 'Next rung up', zh: '再上一级' },
+    ], rows: [
+      [{ en: 'Study laptop', zh: '书房笔记本' }, { en: '2.000 m, no wall', zh: '2.000 m，无墙' }, N('55.73 dB'),
+        N('−40.73 dBm'), N('53.26 dB'), N('MCS 13, 172.1 Mb/s'), { en: 'already the top', zh: '已是顶端' }],
+      [{ en: 'Living-room laptop', zh: '客厅笔记本' }, { en: '11.180 m, one brick wall', zh: '11.180 m，一堵砖墙' }, N('78.15 dB'),
+        N('−75.15 dBm'), N('18.84 dB'), N('MCS 2, 25.8 Mb/s'), N('13.99 + 3 = 16.99 dB ✓ · 16.99 + 3 = 19.99 dB ✗')],
     ] },
-
-    { heading: { en: 'Method (b): airtime', zh: '方法（b）：空口时间' }, kind: 'formula', text: {
-      en: 'N_sym = ⌈(16 + 8·L + 6) / N_DBPS⌉      airtime = preamble + N_sym · 13.6 µs',
-      zh: 'N_sym = ⌈(16 + 8·L + 6) / N_DBPS⌉      空口时间 = 前导 + N_sym · 13.6 µs',
+    { heading: { en: 'The floor it is all measured against', zh: '一切都以它为底' }, text: {
+      en: 'Noise across a 20 MHz channel is −93.99 dBm, and SNR is what arrives minus that floor. A rung is allowed when its required SINR plus 3 dB of margin fits underneath.',
+      zh: '一条 20 MHz 信道上的噪声是 −93.99 dBm，而 SNR 就是到达电平减去这个底。只有当某一级所需的 SINR 再加 3 dB 余量仍装得下时，这一级才可以用。',
+    } },
+    { kind: 'formula', heading: { en: '(b) Predicted: symbols, then microseconds', zh: '（b）预测：先数符号，再算微秒' }, text: {
+      en: 'symbols = ⌈(16 + 8·L + 6) / bits per symbol⌉        airtime = preamble + symbols × 13.6 µs',
+      zh: '符号数 = ⌈(16 + 8·L + 6) / 每符号比特数⌉        空口时间 = 前导 + 符号数 × 13.6 µs',
     }, note: {
-      en: 'L = 1500 + 24 (MAC header) + 4 (FCS) = 1528 octets on the air. EHT preamble 48 µs. MCS 2 carries 351 bits per symbol: ⌈12246 / 351⌉ = 35 symbols, 48 + 476 = 524.0 µs. MCS 13 carries 2340: ⌈12246 / 2340⌉ = 6 symbols, 48 + 81.6 = 129.6 µs.',
-      zh: 'L = 1500 + 24（MAC 头）+ 4（FCS）= 空口上 1528 字节。EHT 前导 48 µs。MCS 2 每符号 351 比特：⌈12246 / 351⌉ = 35 个符号，48 + 476 = 524.0 µs。MCS 13 每符号 2340 比特：⌈12246 / 2340⌉ = 6 个符号，48 + 81.6 = 129.6 µs。',
+      en: 'L is what goes on the air: the 1500-byte payload, 24 bytes of MAC header and 4 of FCS — 1528 octets.',
+      zh: 'L 是真正上到空口的东西：1500 字节净荷、24 字节 MAC 头、4 字节 FCS——合计 1528 字节。',
     } },
-    { kind: 'formula', text: {
-      en: 'T_s = data + SIFS + ACK + DIFS        T_c = data + ACKTimeout + DIFS',
-      zh: 'T_s = 数据 + SIFS + ACK + DIFS        T_c = 数据 + ACK 超时 + DIFS',
-    }, note: {
-      en: 'The ACK goes at the highest mandatory rate at or below the data frame\'s non-HT reference rate: 24 Mb/s (28 µs) for MCS 13, 12 Mb/s (32 µs) for MCS 2. So T_s is 129.6 + 16 + 28 + 34 = 207.6 µs for the study laptop and 524.0 + 16 + 32 + 34 = 606.0 µs for the living-room one; T_c is 208.6 and 603.0 µs.',
-      zh: 'ACK 以不超过数据帧非 HT 参考速率的最高强制速率发送：MCS 13 对应 24 Mb/s（28 µs），MCS 2 对应 12 Mb/s（32 µs）。于是书房笔记本的 T_s = 129.6 + 16 + 28 + 34 = 207.6 µs，客厅笔记本的 T_s = 524.0 + 16 + 32 + 34 = 606.0 µs；T_c 分别是 208.6 与 603.0 µs。',
-    } },
-
-    { heading: { en: 'Method (c): the fixed point', zh: '方法（c）：不动点' }, text: {
-      en: 'Two saturated stations, W = 16, m = 6, seven attempts: the Bianchi fixed point gives τ = 0.1046 and p = 10.46%. Neither number knows anything about rate or frame length. Throughput does, and the two stations win equally often, so price a generic successful slot at the mean of the two exchanges: T_s = (207.6 + 606.0)/2 = 406.8 µs, and T_c likewise. That gives S = 25.585 Mb/s in total, 12.793 Mb/s each.',
-      zh: '两台饱和终端，W = 16、m = 6、七次尝试：Bianchi 不动点给出 τ = 0.1046、p = 10.46%。这两个数与速率、帧长毫无关系。但吞吐要用到它们，而两台终端获胜的次数相同，所以给“一个成功的通用时隙”定价时取两次交换的平均：T_s = (207.6 + 606.0)/2 = 406.8 µs，T_c 同理为 406.8 µs。由此得到总吞吐 S = 25.585 Mb/s，每台 12.793 Mb/s。',
-    } },
-
-    { heading: { en: 'Method (d): the share, and the anomaly', zh: '方法（d）：份额与速率异常' }, text: {
-      en: 'DCF is fair in transmission opportunities, so predict equal frame counts and — every frame carrying the same 1500 bytes — equal throughput. Airtime is where the fairness turns ugly: the two data frames are 129.6 and 524.0 µs, so the split is 19.8% against 80.2%. The study laptop pays four fifths of the channel to a neighbour that delivers no more than it does. To size that, predict what it would get alone: 12,000 bits over T_s plus a mean backoff of 7.5 slots — 12,000 / 275.1 µs = 43.621 Mb/s.',
-      zh: 'DCF 的公平是“传输机会公平”，所以预测两者帧数相同；又因为每帧都载同样的 1500 字节，吞吐也相同。难看的地方在空口时间：两个数据帧分别是 129.6 与 524.0 µs，于是占用比是 19.8% 对 80.2%。书房笔记本把五分之四的信道让给了一个交付量并不比它多的邻居。要给这份损失定个量，就预测它独占信道时能拿到多少：每次交换 12,000 比特，除以 T_s 加上平均 7.5 个时隙的退避——12,000 / 275.1 µs = 43.621 Mb/s。',
-    } },
-
-    { kind: 'list', heading: { en: 'The measurement: what to read where', zh: '测量：各项数据到哪里读' }, items: [
-      { en: '(a) Jump to each laptop\'s first data frame: the Inspector shows the frame\'s MCS and rate, and the node panel the RSSI and SNR of its link to the router.', zh: '（a）跳到每台笔记本的第一个数据帧：检视器显示帧的 MCS 与速率，节点面板显示它到路由器那条链路的 RSSI 与 SNR。' },
-      { en: '(b) Hover the same block for its duration, then step to the ACK: the gap is one SIFS, and DIFS follows the ACK.', zh: '（b）悬停同一色块读出精确时长，再步进到 ACK：中间的间隙是一个 SIFS，ACK 之后跟着 DIFS。' },
-      { en: '(c) Count data TX_START records for attempts and RETRY records for failures — but read the gap analysis below before calling that ratio p. COLLISION records count the overlaps themselves.', zh: '（c）按终端统计数据帧的 TX_START 记录得到尝试次数，统计 RETRY 记录得到失败次数——但在把这个比值叫作 p 之前，先读下面的偏差分析。COLLISION 记录统计的才是重叠本身。' },
-      { en: '(d) The per-node stats give delivered frames and accumulated airtime; throughput is 12,000 bits per acknowledged frame over the run length.', zh: '（d）每节点统计给出成功交付的帧数与累计空口时间；吞吐 = 每个被确认的帧记 12,000 比特，除以仿真时长。' },
-    ] },
-
-    { kind: 'table', heading: { en: 'Predicted vs measured (10 s, seed 7)', zh: '预测对实测（10 秒，种子 7）' }, head: [
-      { en: 'Quantity', zh: '量' }, { en: 'Predicted', zh: '预测' }, { en: 'Measured', zh: '实测' },
+    { kind: 'table', head: [
+      { en: 'Uploader', zh: '上传设备' }, { en: 'Bits per symbol', zh: '每符号比特' }, { en: 'Symbols', zh: '符号数' },
+      { en: 'Data frame', zh: '数据帧' }, { en: 'Its answer', zh: '它的回答' },
+      { en: 'Whole exchange', zh: '整次交换' }, { en: 'If it collides', zh: '若发生碰撞' },
     ], rows: [
-      [{ en: 'Study laptop: RSSI / SNR / MCS', zh: '书房笔记本：RSSI / SNR / MCS' }, N('−40.73 dBm / 53.26 dB / 13'), { en: 'MCS 13 on the first frame', zh: '第一帧就是 MCS 13' }],
-      [{ en: 'Living-room laptop: RSSI / SNR / MCS', zh: '客厅笔记本：RSSI / SNR / MCS' }, N('−75.15 dBm / 18.84 dB / 2'), { en: 'MCS 2 on the first frame', zh: '第一帧就是 MCS 2' }],
-      [{ en: 'Data frame / exchange (study)', zh: '数据帧 / 交换（书房）' }, N('129.6 / 207.6 µs'), { en: '129.6 µs; run mean 148.1 µs', zh: '129.6 µs；全程均值 148.1 µs' }],
-      [{ en: 'Data frame / exchange (living room)', zh: '数据帧 / 交换（客厅）' }, N('524.0 / 606.0 µs'), { en: '524.0 µs; run mean 600.9 µs', zh: '524.0 µs；全程均值 600.9 µs' }],
-      [{ en: 'Collision probability p', zh: '碰撞概率 p' }, N('10.46 %'), { en: '23.15 % of attempts overlap; 12.59 % end in a retry', zh: '23.15% 的尝试发生重叠；12.59% 以重传收场' }],
-      [{ en: 'Throughput, both contenders', zh: '两台竞争终端的总吞吐' }, N('25.585 Mb/s'), N('22.610 Mb/s')],
-      [{ en: 'Frames each', zh: '各自帧数' }, { en: 'equal', zh: '相同' }, N('9,719 / 9,123')],
-      [{ en: 'Airtime split', zh: '空口时间占比' }, N('19.8 % / 80.2 %'), N('21.2 % / 78.8 %')],
-      [{ en: 'Study laptop alone', zh: '书房笔记本独占信道' }, N('43.621 Mb/s'), N('42.470 Mb/s')],
+      [{ en: 'Study laptop', zh: '书房笔记本' }, N('2340'), N('⌈12246 / 2340⌉ = 6'), N('48 + 81.6 = 129.6 µs'),
+        N('24 Mb/s, 28 µs'), N('129.6 + 16 + 28 + 34 = 207.6 µs'), N('208.6 µs')],
+      [{ en: 'Living-room laptop', zh: '客厅笔记本' }, N('351'), N('⌈12246 / 351⌉ = 35'), N('48 + 476 = 524.0 µs'),
+        N('12 Mb/s, 32 µs'), N('524.0 + 16 + 32 + 34 = 606.0 µs'), N('603.0 µs')],
     ] },
-
-    { heading: { en: 'Reading the gaps', zh: '读懂偏差' }, kind: 'steps', items: [
-      { en: 'Estimator. RETRY per attempt is not p here. There were 4,990 overlapping attempts but only 2,713 retries: capture let about 46% of the losers through, because the study laptop\'s frames arrive 34 dB above the living-room laptop\'s. Two errors of opposite sign left 12.59% looking deceptively close to 10.46%.', zh: '估计量。这里“每次尝试的 RETRY 数”不是 p。重叠的尝试有 4,990 次，重传只有 2,713 次：捕获效应放过了约 46% 的输家，因为书房笔记本的帧比客厅笔记本强 34 dB。两个符号相反的误差，让 12.59% 看上去与 10.46% 近得可疑。' },
-      { en: 'Assumption. "Everyone in range" fails in one direction. The two laptops hear each other at −72.64 dBm — above −82 dBm, so a preamble is detected and backoff freezes. But a station transmitting when the other\'s preamble arrived never caught it, and −72.64 dBm is far below the −62 dBm energy threshold: it believes the channel is idle while a 524 µs frame is still running.', zh: '假设。“彼此都在覆盖内”在一个方向上不成立。两台笔记本互相收到的电平是 −72.64 dBm——高于 −82 dBm，所以前导能被检测到、退避随之冻结。但如果对方的前导到达时本机正在发送，它就永远抓不到那个前导，而 −72.64 dBm 远低于 −62 dBm 的能量门限。于是在一个 524 µs 的帧还在空中时，它认为信道是空闲的。' },
-      { en: 'Mechanism and size. Of 2,399 laptop-against-laptop collisions, 1,342 are exactly that: a second collision piled onto the first, the short-frame station having finished its ACK timeout, waited DIFS and transmitted again on top of a frame it could no longer hear. That one mechanism roughly doubles the true overlap rate, 10.46% → 23.15%.', zh: '机制与量级。在 2,399 次“笔记本对笔记本”的碰撞中，有 1,342 次正是如此：第一次碰撞之上又叠了第二次，因为短帧的一方等完 ACK 超时、再等一个 DIFS，就又发到了一个它已经听不见的帧上。仅这一个机制就把真实重叠率翻了约一倍，10.46% → 23.15%。' },
-      { en: 'Residual. Throughput falls 11.6% short of 25.585 Mb/s, and rate control takes most of it: the mean PPDU is 148.1 µs against a predicted 129.6, and 600.9 against 524.0. ARF steps down after two consecutive failures and cannot tell a collision from fading. What is left, a couple of points, stays unexplained — and saying so is part of the answer.', zh: '残差。吞吐比 25.585 Mb/s 少了 11.6%，其中大部分要记在速率控制头上：PPDU 均值是 148.1 µs（预测 129.6）与 600.9 µs（预测 524.0）。ARF 连续两次失败就降档，而它分不清碰撞与衰落。剩下的两个百分点仍无法解释——如实说出来也是答案的一部分。' },
-    ] },
-    { text: {
-      en: 'One restart-time detail completes the picture: 9,499 EIFS deferrals. The living-room laptop hears the study laptop at 21.35 dB but its MCS 13 frames need 44.99 dB, so every one is a failed reception — and that costs EIFS (94 µs), not DIFS (34 µs). Three clocks, one event: 45 µs for the colliders, 94 for the station that locked on and failed, 34 for the one that heard nothing.',
-      zh: '还有一个重启时刻的细节补全了这幅图：9,499 次 EIFS 延迟。客厅笔记本收到书房笔记本的 SINR 是 21.35 dB，而对方 MCS 13 的帧需要 44.99 dB，所以每一帧对它都是一次失败的接收——代价是 EIFS（94 µs），不是 DIFS（34 µs）。一次事件，三个时钟：碰撞双方 45 µs，锁上却解不出来的一方 94 µs，什么也没听到的一方 34 µs。',
+    { heading: { en: 'The answer has its own rate', zh: '回答有它自己的速率' }, text: {
+      en: 'An ACK travels not at the data frame’s rate but at the fastest mandatory rate at or below that frame’s reference rate: 24 Mb/s behind the fast frame, 12 Mb/s behind the slow one. A collision pays the ACK timeout instead.',
+      zh: 'ACK 并不以数据帧的速率发送。它用的是不超过该帧参考速率的最高强制速率：快帧之后是 24 Mb/s，慢帧之后是 12 Mb/s。而一次碰撞付的是 ACK 超时。',
     } },
-
-    { kind: 'table', heading: { en: 'Self-check rubric', zh: '自评标准' }, head: [
-      { en: 'Quantity', zh: '量' }, { en: 'A good answer', zh: '好答案长什么样' },
+    { kind: 'table', heading: { en: '(c) Predicted: two saturated stations', zh: '（c）预测：两台饱和站点' }, head: [
+      { en: 'Quantity', zh: '量' }, { en: 'Predicted', zh: '预测' },
     ], rows: [
-      [N('(a)'), { en: 'Both RSSIs within 1 dB, the brick wall counted once, and the ceiling justified by a named rung and its required SINR + 3 dB.', zh: '两个 RSSI 误差都在 1 dB 以内，砖墙只数一次，且上限要用某一级及其“所需 SINR + 3 dB”说清楚——而不是“看着差不多”。' }],
-      [N('(b)'), { en: 'Symbols rounded up, 28 octets of MAC overhead included, and the ACK\'s rate derived from the non-HT reference rate, not assumed equal to the data rate.', zh: '符号数向上取整，算进 28 字节 MAC 开销，ACK 的速率由非 HT 参考速率推出，而不是想当然地等于数据速率。' }],
-      [N('(c)'), { en: 'p quoted without reference to rate or frame length, S built from a generic slot holding both exchange times, the estimator named before it is measured.', zh: 'p 的给出与速率、帧长无关；S 由包含两种交换时长的通用时隙算出；在测量之前先说清楚用的是哪个估计量。' }],
-      [N('(d)'), { en: 'Equal frames but unequal airtime, the split computed from the frame durations, the fast station\'s loss stated against what it would get alone.', zh: '帧数相同而空口时间不同，占比由帧时长算出，并把快终端的损失与它独占信道时的结果做对照。' }],
-      [{ en: 'Gaps', zh: '偏差' }, { en: 'Two mechanisms named and sized in the model\'s own units, the residual reported rather than fitted away.', zh: '至少点名两个机制，各自用模型自己的单位定量，并把残差如实报告，而不是拟合掉。' }],
+      [{ en: 'Window, doublings, attempts', zh: '窗口、倍增、尝试' }, N('16, 6, 7')],
+      [{ en: 'Chance of sending in a slot', zh: '某时隙里发送的概率' }, N('τ = 0.1046')],
+      [{ en: 'Chance of meeting another', zh: '撞上别人的概率' }, N('p = 10.46 %')],
+      [{ en: 'One generic exchange', zh: '一次通用的交换' }, N('(207.6 + 606.0) / 2 = 406.8 µs')],
+      [{ en: 'The two together', zh: '两台合计' }, N('25.585 Mb/s')],
+      [{ en: '…and each', zh: '……各自' }, N('12.793 Mb/s')],
+    ] },
+    { heading: { en: 'Why the collision chance ignores rates', zh: '为什么碰撞概率不看速率' }, text: {
+      en: 'Neither of the first two knows anything about coding or frame length: only the contenders, the window and the tries enter them. Throughput does — and the two win equally often, so a generic exchange costs the mean.',
+      zh: '前两个数字与编码、帧长毫无关系：进入它们的只有竞争者个数、窗口和尝试次数。吞吐则不然；而两台抢到空口的次数相同，所以“一次通用的交换”按两者的平均定价。',
+    } },
+    { kind: 'table', heading: { en: '(d) Predicted: the share, and what it costs', zh: '（d）预测：份额与代价' }, head: [
+      { en: 'Quantity', zh: '量' }, { en: 'Predicted', zh: '预测' },
+    ], rows: [
+      [{ en: 'Frames each', zh: '各自帧数' }, { en: 'equal', zh: '相同' }],
+      [{ en: 'Airtime, study / living room', zh: '空口占比，书房 / 客厅' }, N('19.8 % / 80.2 %')],
+      [{ en: 'Study laptop alone (exchange + 7.5 slots)', zh: '书房笔记本独占（交换 + 7.5 个时隙）' }, N('12,000 bits / 275.1 µs = 43.621 Mb/s')],
+    ] },
+    { kind: 'table', heading: { en: 'The three variants, predicted', zh: '三个变体的预测' }, head: [
+      { en: 'Variant', zh: '变体' }, { en: 'The link that moved', zh: '变了的那条链路' }, { en: 'Frame / exchange', zh: '帧 / 交换' },
+      { en: 'Collision chance', zh: '碰撞概率' }, { en: 'Delivered', zh: '交付' },
+    ], rows: [
+      [{ en: 'Study laptop to the living room', zh: '书房笔记本搬到客厅' }, N('9.000 m → −72.33 dBm, 21.66 dB, MCS 3'),
+        N('415.2 / 493.2 µs'), N('10.46 %'), N('19.350 → 9.675 + 9.675 Mb/s')],
+      [{ en: 'A tablet joins, beside the router', zh: '多一台平板，就在路由器旁' }, N('MCS 13'),
+        N('129.6 / 207.6 µs'), N('17.81 %'), N('29.574 Mb/s')],
+      [{ en: 'The living-room laptop leaves', zh: '客厅笔记本离线' }, N('MCS 13'),
+        N('129.6 / 207.6 µs'), { en: 'nobody to collide with', zh: '没有人可撞' }, N('43.621 Mb/s')],
     ] },
   ],
-
+  deeper: [
+    { heading: { en: 'What a markable prediction looks like', zh: '一个可批改的预测长什么样' }, text: {
+      en: 'Write each of the four as one line: the quantity, its units, the value, and the one thing on screen you will compare it against — a count, a duration, a share. "About the same" is not a prediction, and neither is a number with no stated way of being wrong. The four lines take five minutes, and they are what the second half marks you against.',
+      zh: '四件事各写成一行：量、单位、数值，以及你打算拿屏幕上的哪一样东西去对照它——一个计数、一段时长，还是一个占比。“差不多”不是预测；一个没有说明怎样才算错的数字，也不是预测。这四行只要五分钟，而后半程批改的就是它们。',
+    } },
+    { heading: { en: 'Why the mean of two exchanges is the right price', zh: '为什么取两次交换的平均是对的定价' }, text: {
+      en: 'The fixed point gives one chance of transmitting per slot, shared by both stations, so a successful slot is equally likely to belong to either. Its expected length is therefore the mean of the two exchange times, and the same argument prices a collision. If the two won the air in unequal proportions the mean would have to be weighted — which is what happens the moment a third contender joins on a different rung.',
+      zh: '不动点给出的是“每个时隙里发送的概率”，两台站点共用这一个值，所以一个成功的时隙属于谁的机会均等。于是它的期望长度就是两次交换时长的平均，碰撞也用同样的道理定价。如果两者抢到空口的比例不同，这个平均就得加权——而一旦加入第三个用着不同等级的竞争者，正是这种情况。',
+    } },
+    { heading: { en: 'The same flat on a much wider channel', zh: '同一户人家，换到宽得多的信道上' }, text: {
+      en: 'A channel eight times as wide gathers eight times the noise: the floor rises from −93.99 to −84.96 dBm. The living-room laptop’s 18.84 dB of SNR becomes 9.81 dB, which is under even the lowest rung’s 8.99 dB requirement once the 3 dB margin is added — the link falls off the ladder entirely, while the collision chance and the way airtime splits do not notice the width at all.',
+      zh: '把信道加宽到八倍，收进来的噪声也是八倍：噪声底从 −93.99 升到 −84.96 dBm。客厅笔记本 18.84 dB 的 SNR 变成 9.81 dB；再加上 3 dB 余量，连最低一级 8.99 dB 的要求都够不着——这条链路整个跌出了阶梯。而碰撞概率和空口的分法，对带宽的变化毫无察觉。',
+    } },
+  ],
+  sources: [
+    { en: 'The take-turns access this project runs — one frame, one ACK, the waits and the countdown — is the DCF of §10.3.4 of IEEE Std 802.11-2024; the ACK’s rate rule (the highest mandatory rate at or below the data frame’s reference rate) is §10.7.6.',
+      zh: '本项目所跑的这套轮流接入——一个帧、一个 ACK、几段等待和一次倒数——即 IEEE Std 802.11-2024 §10.3.4 的 DCF；ACK 的速率规则（不超过数据帧参考速率的最高强制速率）见 §10.7.6。' },
+    { en: 'The fixed point behind τ and p is Bianchi, "Performance analysis of the IEEE 802.11 distributed coordination function", IEEE JSAC 18(3), 2000, with this simulator’s own window, doubling limit and retry limit fed into it.',
+      zh: 'τ 与 p 背后的不动点出自 Bianchi 的《Performance analysis of the IEEE 802.11 distributed coordination function》（IEEE JSAC 18(3)，2000），代入的是本仿真器自己的窗口、倍增上限与重传上限。' },
+    { en: 'Model choices, named so you can argue with them: the path-loss form 46.7 + 30·log10(d), 12 dB for a brick wall, the 3 dB margin above each rung’s required SINR, and the −93.99 dBm noise floor of a 20 MHz channel. All four are the simulator’s, not the standard’s.',
+      zh: '模型取值，列出来方便你质疑：路径损耗公式 46.7 + 30·log10(d)、砖墙 12 dB、每一级所需 SINR 之上再留 3 dB 余量，以及 20 MHz 信道 −93.99 dBm 的噪声底。这四项都是仿真器的取值，而非标准正文。' },
+  ],
   scenario: () => projectFlat(),
-  variants: [
-    {
-      label: { en: 'The study laptop moves to the living room', zh: '书房笔记本搬进客厅' },
-      scenario: () => projectFlat({ nearX: 12 }),
-    },
-    {
-      label: { en: 'A third contender: a tablet beside the router', zh: '第三个竞争者：路由器旁的平板' },
-      scenario: () => projectFlat({ third: true }),
-    },
-    {
-      label: { en: 'The living-room laptop leaves', zh: '客厅笔记本离线' },
-      scenario: () => projectFlat({ noFar: true }),
-    },
-  ],
-  jumps: [
-    J('first data frame', '第一个数据帧', firstData),
-    J('first collision', '第一次碰撞', firstCollision),
-    J('first retry', '第一次重传', firstRetry),
-    J('first backoff draw', '第一次退避抽签', firstBackoffDraw),
-  ],
+  variants: projectVariants,
+  jumps: projectJumps,
   observe: [
-    { en: 'Both laptops find the medium idle at t = 0 and transmit together. The study laptop\'s 129.6 µs block ends long before the living-room one\'s 524.0 µs block — and then it comes back at 406.6 µs and lands on that very frame, still running. The deaf late start, in the first millisecond.', zh: '两台笔记本在 t = 0 都发现介质空闲，一起发送。书房笔记本 129.6 µs 的色块远早于客厅那块 524.0 µs 结束——然后它在 406.6 µs 又回来了，正好踩在那个仍在进行的帧上。“聋掉的迟到起跑”，就发生在第一毫秒里。' },
-    { en: 'Hover the living-room laptop\'s defer blocks after a study-laptop frame: they read EIFS, 94 µs, not DIFS. It locked onto a preamble at 21.35 dB and could not decode a frame asking for 44.99 dB, so it must assume an ACK it cannot hear is on its way.', zh: '在书房笔记本发完一帧之后，悬停客厅笔记本的等待色块：上面写的是 EIFS、94 µs，而不是 DIFS。它以 21.35 dB 锁上了前导，却解不出一个要求 44.99 dB 的帧，于是必须假设有一个它听不见的 ACK 正在路上。' },
-    { en: 'Read the two green lanes side by side: the blocks come in comparable numbers (9,719 against 9,123 delivered) but the living-room lane is dark four times as long. Equal opportunities, unequal airtime — the anomaly, in one screenful.', zh: '把两条绿色泳道并排看：色块的数量相当（成功交付 9,719 对 9,123），但客厅那条泳道被占满的时间是四倍。机会相同、空口不同——一屏之内就是速率异常。' },
+    { en: 'Jump to the first data frame: the study laptop’s block is MCS 13 and 129.6 µs long, the living-room laptop’s MCS 2 and 524.0 µs. Both pick their rung on the very first frame.', zh: '跳到第一个数据帧：书房笔记本的色块是 MCS 13、长 129.6 µs，客厅笔记本的是 MCS 2、长 524.0 µs。两台站点在发出的第一帧上就选定了自己的等级。' },
+    { en: 'Step from that block to the ACK behind it: the gap is 16 µs, one SIFS, and the answer is 28 µs. A 34 µs wait follows — the exchange you priced, on screen.', zh: '从那个色块步进到它后面的 ACK：中间的间隙是 16 µs，一个 SIFS，而回答本身是 28 µs。其后还跟着 34 µs 的等待——你刚刚定价的那次交换，就在屏幕上。' },
+    { en: 'Jump to the first backoff draw and read the counter: a whole number of slots, and already from a doubled window, because the two opening frames collided. Nothing in the draw asks how long the frame will take.', zh: '跳到第一次退避抽签，读一下计数器：一个整数个时隙，而且窗口已经翻过一倍了——开局的两个帧撞在了一起。这次抽签完全不问那个帧要发多久。' },
   ],
   tryThis: [
-    { en: 'Predict the first variant before running it. The study laptop moves to (12, 4): 9.000 m plus the brick wall gives −72.33 dBm, 21.66 dB, MCS 3 — a 415.2 µs frame and T_s = 493.2 µs. p is unchanged at 10.46% (only n, W and m enter it), and S falls to 19.350 Mb/s, 9.675 each. The run gives 16.796 Mb/s (8.737 and 8.059) and 11.10% of attempts overlapping. Note which number got dramatically better: with both frames now long and similar, the deaf late start almost disappears.', zh: '在跑第一个变体之前先预测它。书房笔记本搬到 (12, 4)：9.000 m 加一堵砖墙给出 −72.33 dBm、21.66 dB、MCS 3——帧长 415.2 µs，T_s = 493.2 µs。p 仍是 10.46%（不动点里只有 n、W、m），S 降到 19.350 Mb/s，每台 9.675。实跑给出 16.796 Mb/s（8.737 与 8.059），重叠率 11.10%。注意是哪个数急剧变好了：现在两个帧都长且相近，“聋掉的迟到起跑”几乎消失。' },
-    { en: 'Now the other two. Adding the tablet makes n = 3: p rises to 17.81%, and S, with two fast exchanges and one slow one averaged into the generic slot, is 29.574 Mb/s. Measured: 17.13% retried and 21.184 Mb/s (7.734, 5.852, 7.597) — p almost exact, S 28% short, because the living-room laptop now collides so often that ARF walks it down to MCS 0. Remove that laptop instead and the study laptop should get 43.621 Mb/s; it gets 42.470, retrying 0.28%.', zh: '再看另外两个。加上平板就是 n = 3：p 升到 17.81%，把两次快交换与一次慢交换平均进通用时隙后，S = 29.574 Mb/s。实测：17.13% 的尝试重传，吞吐 21.184 Mb/s（7.734、5.852、7.597）——p 几乎分毫不差，S 却少了 28%，因为客厅笔记本现在碰撞得太频繁，ARF 把它一路压到了 MCS 0。反过来撤掉那台笔记本，书房笔记本应当拿到 43.621 Mb/s；它拿到 42.470，重传率 0.28%。' },
+    { en: 'Write the four predictions down before loading anything, one line each, with units and the screen reading you will check them against. The second half marks the run against exactly those four lines.', zh: '在载入任何东西之前先把四个预测写下来，一件一行，写明单位，以及你打算用屏幕上的哪个读数去核对。后半程就是拿这四行去对照仿真。' },
+    { en: 'Now predict the three variants. Two of the four quantities come out unchanged in the first variant, and one is unchanged in all three. Name them before you look at the table.', zh: '再预测三个变体。在第一个变体里，四个量中有两个原封不动；其中一个在三个变体里都不变。先说出是哪两个，再去看上面的表。' },
   ],
   quiz: [
     {
-      q: { en: 'Your predicted p is 10.46% and the run retries 12.59% of attempts. Why is agreeing at this point a mistake?', zh: '你预测的 p 是 10.46%，实跑中 12.59% 的尝试发生了重传。为什么此刻就宣告一致是个错误？' },
+      q: { en: 'The living-room laptop arrives at 18.84 dB and MCS 3 needs 16.99 dB. Why does the prediction still say MCS 2?', zh: '客厅笔记本到达时是 18.84 dB，而 MCS 3 需要 16.99 dB。为什么预测仍然是 MCS 2？' },
       options: [
-        { en: 'Because 12.59% is outside the 10% tolerance the model deserves', zh: '因为 12.59% 超出了模型应有的 10% 容差' },
-        { en: 'Because the estimator does not measure the model\'s quantity here: 23.15% of attempts actually overlap, and capture rescues about 46% of the losers', zh: '因为这里的估计量测的不是模型里的那个量：实际有 23.15% 的尝试重叠，而捕获效应救回了约 46% 的输家' },
-        { en: 'Because ten seconds is too short a sample', zh: '因为十秒的样本太短' },
+        { en: 'MCS 3 is not available on this radio', zh: '这一代设备上没有 MCS 3 这一级' },
+        { en: 'A rung needs 3 dB of margin above its requirement, and 16.99 + 3 exceeds 18.84', zh: '取用某一级要在其要求之上留 3 dB 余量，而 16.99 + 3 超过了 18.84' },
+        { en: 'The brick wall was counted twice', zh: '那堵砖墙已经被算过两次了' },
       ],
       answer: 1,
-      explain: { en: 'A retry counts a lost frame, not an overlap, and in a flat with a 34 dB spread those are different events. The near agreement is two errors of opposite sign cancelling; the honest reading names both. Ten seconds is thousands of attempts, and the model has no tolerance band.', zh: '重传统计的是丢失的帧，而不是重叠；在一户信号相差 34 dB 的房子里，这是两件不同的事。这份“接近”是两个符号相反的误差相互抵消，诚实的读法要把两者都点名。十秒已经是数千次尝试，而模型本身也没有什么容差带。' },
+      explain: { en: 'The ladder is climbed with a margin, never to the edge: 13.99 + 3 fits under 18.84, 16.99 + 3 does not.', zh: '爬这架阶梯要留余量，绝不贴边：13.99 + 3 装得进 18.84，16.99 + 3 装不进。' },
     },
     {
-      q: { en: 'The study laptop transmits a second time while the living-room laptop\'s frame is still on the air. Which rule allows that?', zh: '客厅笔记本的帧还在空中时，书房笔记本又发了一次。是哪条规则允许了这件事？' },
+      q: { en: 'A tablet joins beside the router. Which predicted quantity moves least?', zh: '路由器旁多了一台平板。哪一个预测量变化最小？' },
       options: [
-        { en: 'The NAV had already expired, so the channel was formally free', zh: 'NAV 已经到期，所以信道在形式上是空闲的' },
-        { en: 'Its preamble was missed because the radio was transmitting, so only energy detection applies — and −72.64 dBm is below −62 dBm', zh: '那个前导在本机发送期间到达而被错过，于是只剩能量检测可用——而 −72.64 dBm 低于 −62 dBm' },
-        { en: 'A station may always start after its ACK timeout plus DIFS', zh: '终端在 ACK 超时加一个 DIFS 之后总是可以起始发送' },
+        { en: 'The airtime share, with a third lane in it', zh: '空口占比，因为现在多了一条泳道' },
+        { en: 'The study laptop’s frame and exchange times: its link has not changed', zh: '书房笔记本的帧长与交换时长，因为它那条链路没变' },
+        { en: 'The collision chance, fixed for this room', zh: '碰撞概率，因为它对这个房间是定死的' },
       ],
       answer: 1,
-      explain: { en: 'The −82 dBm threshold applies only to a PPDU whose preamble the radio actually detected; anything else is energy, and energy must reach −62 dBm to hold CCA busy. Neither frame sets a NAV the other can read, and the ACK timeout only says when to stop waiting — carrier sense still governs when a station may start.', zh: '−82 dBm 的门限只适用于电台确实检测到了前导的 PPDU；其余一切只算能量，而能量必须达到 −62 dBm 才能让 CCA 置忙。两个帧都没有给对方留下可读的 NAV；ACK 超时只告诉终端何时停止等待，何时可以起始发送仍由载波侦听说了算。' },
-    },
-    {
-      q: { en: 'Which prediction would you trust least if the same flat ran at 160 MHz instead of 20?', zh: '如果同一户人家把信道从 20 MHz 换成 160 MHz，你最不信任哪一个预测？' },
-      options: [
-        { en: 'p — it would change with the width', zh: 'p——它会随带宽改变' },
-        { en: 'The MCS ceilings — the noise floor rises 9 dB and the living-room link may fall off the ladder entirely', zh: 'MCS 上限——噪声底升高 9 dB，客厅那条链路可能整个跌出阶梯' },
-        { en: 'The airtime split — wider channels are shared differently', zh: '空口占比——更宽的信道分享方式不同' },
-      ],
-      answer: 1,
-      explain: { en: 'p depends only on n, W and m. The split still follows the frame durations, whatever they become. But the noise floor goes from −93.99 to −84.96 dBm, so the living-room laptop\'s 18.84 dB of SNR becomes 9.81 dB — under MCS 0\'s requirement with margin, and the required SINR itself does not change with width.', zh: 'p 只与 n、W、m 有关。占比也仍旧跟随帧时长，不论帧时长变成多少。但噪声底会从 −93.99 升到 −84.96 dBm，客厅笔记本 18.84 dB 的 SNR 变成 9.81 dB——低于含余量的 MCS 0 要求；而所需 SINR 本身并不随带宽改变。' },
+      explain: { en: 'Airtime is a property of one link and one frame length, and neither moved. The collision chance rises to 17.81 %, and the shares are redrawn across three lanes.', zh: '空口时间只取决于一条链路和一个帧长，两样都没变。碰撞概率反而升到 17.81 %，占比也要在三条泳道之间重新划分。' },
     },
   ],
 }
