@@ -174,13 +174,12 @@ export interface MmsPhy {
  * is at X − 1 + Z and every further one a millisecond later. With no RSF at all (X = 0) the
  * offset is zero and the RIFs open the phase.
  *
- * P802.15.4ab §10.38.5 (the UWB MMS ranging phase; §10.35.5 before the clause was renumbered):
- * a device "may start transmitting a first RIF fragment at RpRifOffset into the ranging phase
- * if no RSF fragments are present, or RpRifOffset after the start of its last RSF fragment
- * transmission otherwise", with RpRifOffset 2 ms when RSFs were sent and 0 ms otherwise. The
- * balloted D5.0 is not in the corpus this repository was checked against; the clause text above
- * is the editor's instruction carried by the comment resolution 15-24/0235r2 (from the proposed
- * clause text of 15-23/0371r1 and 15-23/0412r0), which is the latest form available here.
+ * P802.15.4ab §10.38.5 (the UWB MMS ranging phase; §10.35.5 before the clause was renumbered),
+ * paraphrased: without RSFs the first RIF may go out RpRifOffset into the phase; with RSFs it
+ * may go out RpRifOffset after the last RSF started. RpRifOffset is 2 ms when RSFs were sent and
+ * 0 ms otherwise. The balloted D5.0 is not in the corpus this repository was checked against;
+ * the rule is the editor's instruction carried by comment resolution 15-24/0235r2 (from the
+ * proposed clause text of 15-23/0371r1 and 15-23/0412r0), the latest form available here.
  */
 export function rifStartMs(rsfs: number, gapMs: number, index: number): number {
   return rsfs > 0 ? rsfs + gapMs - 1 + index : index
