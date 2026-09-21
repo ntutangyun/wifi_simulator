@@ -8,18 +8,20 @@
  * fragment of every train lands at −100.26 dBm, seven decibels under the
  * receiver's own sensitivity, and nothing but the train rescues it.
  *
- * The centrepiece is the three decibels between four fragments and eight. The
- * fragments do not change — same power, same room, all of them heard — and only
- * what they add up to moves: 6.02 dB of combining gives a margin of −1.24 dB and
- * no range at all, 9.03 dB gives +1.77 dB and a fix every block. The second half
- * is the honesty: of the 19.57 dB a train beats a 4z Poll by in this room, only
- * 9.03 is the multi-millisecond idea, and the lesson says so.
- * Every number quoted below is pinned in tests/course/uwb-mms.test.ts.
+ * This is the picture half of the old lesson: why one frame cannot cross that
+ * room, why a longer one would not help, what a fragment is, how a receiver
+ * that cannot hear one adds up eight of them, and what the narrowband radio
+ * beside it carries meanwhile. The arithmetic — the millisecond's energy
+ * budget, the combining gains, the three decibels between four fragments and
+ * eight, the clock ratio a train measures, and the honest share of the
+ * 19.57 dB a train beats a 4z Poll by — is the second half, `uwb-mms-numbers`,
+ * which loads exactly this scene and these variants, so the split adds no new
+ * scenario and the recorded hashes of the two ids are equal.
  *
- * CAUTION — word budget: `lessonMinutes` rounds to 25 minutes anywhere between
- * 975 and 1724 English words across body + observe + tryThis + quiz (4 observe
- * items and 2 experiments already account for 16 of those minutes). At 1725 the
- * rounding tips to 30, and the study-time test pins that ceiling.
+ * Written to the zero-to-hero contract
+ * (docs/superpowers/specs/2026-09-21-course-readability-design.md). Every
+ * number quoted below is pinned in tests/course/uwb-mms.test.ts;
+ * `npx tsx scripts/lesson-dump.ts uwb-mms en` prints the section budgets.
  */
 import type { Scenario } from '../../model/scenario'
 import { DEFAULT_UWB_SESSION } from '../../model/scenario'
@@ -87,57 +89,133 @@ export const uwbMms: Lesson = {
   id: 'uwb-mms',
   module: 15,
   title: { en: 'Sixteen milliseconds of energy', zh: '十六毫秒的能量' },
-  body: [
-    { text: {
-      en: 'Almost nothing here is IEEE Std 802.15.4-2024. The units are: RSTU, RCTU, the block and its slots. But the multi-millisecond packet, and everything that turns a Clause 12 O-QPSK radio into a control radio for UWB, come from P802.15.4ab, at D5.0 in Sponsor-ballot recirculation. The draft is members-only; this paraphrases four TG4ab contributions: 15-22/0381r5 (cycle), 15-23/0100r2 (fragments, narrowband PHY), 15-23/0502r3 (parameter sets), 15-22/0205r0 (budget). The balloted draft may differ. One number is regulation, the −41.3 dBm/MHz mean EIRP averaged over a millisecond, and the rest is model: a fragment’s power, the combining rule, this room’s path loss.',
-      zh: '本课几乎没有一处出自 IEEE Std 802.15.4-2024。单位是标准的：RSTU、RCTU、块与时隙。但多毫秒分组，以及把一部第 12 章的 O-QPSK 电台变成 UWB 控制电台的一切，都来自 P802.15.4ab：截至 2026 年 9 月，它仍处于 Sponsor 投票再循环阶段，版本为 D5.0。该草案文本仅对会员开放，所以这里都改写自 TG4ab 的四篇提案文稿：15-22/0381r5（测距周期）、15-23/0100r2（片段与窄带 PHY）、15-23/0502r3（参数集）以及 15-22/0205r0（能量预算）。已投票的草案可能与之不同。只有一个数字来自法规，即按毫秒平均的 −41.3 dBm/MHz 平均 EIRP，其余都是模型：片段的功率、合成规则、这个房间的路径损耗。',
+  why: {
+    en: 'Take the same tag and the same anchors and put two brick walls between them. Every ranging frame still arrives — it just arrives quieter than the receiver can hear, so nothing is measured at all. This lesson is the trick that gets the measurement anyway: instead of one frame, send a train of short ones spread over many milliseconds, and let the far end add them up.',
+    zh: '把同样的标签和同样的锚点摆好，中间隔上两道砖墙。每一帧测距帧其实都到了——只是到达时比接收机能听见的还轻，于是什么也量不出来。这一课讲的就是仍然把测量做成的那个办法：不发一帧，改发一串短的、摊在好几毫秒里的片段，让对端把它们加起来。',
+  },
+  outcomes: [
+    { en: 'say why a longer frame does not help and a train of short ones does', zh: '说清为什么把帧拉长没用，而一串短片段管用' },
+    { en: 'follow one round from its narrowband opening to the range at the end', zh: '把一轮从窄带开场一路跟到末尾那次测距' },
+    { en: 'say which parts of a round carry timing and which carry words', zh: '说出一轮里哪些部分承载时间、哪些承载话语' },
+  ],
+  needs: ['uwb-blocks', 'uwb-dstwr'],
+  terms: [
+    { term: 'MMS', plain: {
+      en: 'multi-millisecond: one ranging packet spread over many milliseconds, not sent in one go',
+      zh: '多毫秒：把一个测距分组摊到好几毫秒里发，而不是一次发完',
     } },
-    { heading: { en: 'Thirty-seven nanojoules a millisecond', zh: '每毫秒三十七纳焦' }, text: {
-      en: '−41.3 dBm/MHz over 499.2 MHz is −14.3 dBm, and −14.3 dBm for a millisecond is 37 nJ: an energy budget, not a power ceiling. How you spend it inside the millisecond is yours; the simulator’s 4z transmitter does not choose — it holds −14 dBm whatever it sends, so the tag’s Poll to three anchors (36 octets, 203.782 µs) spends 8.11 nJ and throws the other 29 away.',
-      zh: '−41.3 dBm/MHz 乘 499.2 MHz 是 −14.3 dBm，而 −14.3 dBm 持续一毫秒就是 37 nJ：这是能量预算，不是功率红线。这一毫秒之内怎么花由你决定，而仿真器里那台 4z 发射机并不做选择——不管发什么都保持 −14 dBm，于是标签那帧发往三个锚点的 Poll（36 字节、203.782 µs）只花掉 8.11 nJ，剩下的 29 nJ 扔掉了。',
+    { term: 'fragment', plain: {
+      en: 'one millisecond’s piece of that packet, sent on its own and added in later',
+      zh: '这个分组在某一毫秒里的那一片，单独发出，事后再累加进来',
     } },
-    { heading: { en: 'One fragment', zh: '一个片段' }, text: {
-      en: 'An MMS ranging packet is a train of fragments, one per millisecond, carrying no preamble, no SFD, no PHY header and no data — only a ranging sequence: N_MSR = 40 repetitions of an MMRS symbol with a gap of 64 zeros, spread by four. 40 × 4 × (128 + 2 × 64) = 40 960 chips, 82.051 µs; a millisecond’s 37 nJ inside it is −3.46 dBm. With no preamble to search for there is no SHR offset: the timestamp is the first pulse of the first fragment.',
-      zh: 'MMS 的测距“分组”是一串片段，每毫秒一个。片段里没有前导、没有 SFD、没有 PHY 头，也没有数据——只有一段测距序列：把一个 MMRS 符号重复 N_MSR = 40 次，该符号带 64 个零的间隔，再按 4 倍扩展。40 × 4 × (128 + 2 × 64) = 40 960 个码片，82.051 µs；把一毫秒的 37 nJ 装进去就是 −3.46 dBm。既然没有前导要搜索，也就没有 SHR 偏移：测距时间戳就是第一个片段的第一个脉冲。',
+    { term: 'RSF', plain: {
+      en: 'ranging sequence fragment: a fragment carrying nothing but the sequence a timestamp comes from',
+      zh: '测距序列片段：里面除了用来取时间戳的那段序列，什么也不装',
     } },
-    { heading: { en: 'A room one 4z frame cannot cross', zh: '一个 4z 帧过不去的房间' }, text: {
-      en: 'Fragments are one millisecond apart, and the narrowband exchange has told the receiver the train’s shape, so it accumulates blind and counts at the end: X fragments of equal power combine to 10·log10(X) dB, detected once that clears −93 dBm. The hall is 22 × 8 m, cut into three bays by full-height brick partitions at x = 5 and x = 10. Three anchors stand in the first bay at 2.20 m, all about equally far from the tag at (13.00, 4.00) in the third: 13.04, 13.04 and 12.76 m through 24 dB of brick. Every fragment arrives at −100.26 dBm, or −100.07 from the near anchor: seven decibels under the receiver.',
-      zh: '片段彼此相距一毫秒，而窄带交互已经告诉接收机这一串的形状，所以它盲目地累加，到结束时再数：X 个等功率片段合成为 10·log10(X) dB，越过 −93 dBm 就算检出。大厅 22 × 8 m，被 x = 5 与 x = 10 处两道通顶砖墙切成三个隔间。三个锚点立在第一个隔间里，高 2.20 m，到标签的距离大致相同；标签在第三个隔间的 (13.00, 4.00)：13.04、13.04 与 12.76 m，中间隔着 24 dB 的砖墙。每个片段到达时是 −100.26 dBm，近处那个锚点是 −100.07 dBm：比接收机低七个分贝。',
+    { term: 'RIF', plain: {
+      en: 'ranging integrity fragment: an optional extra that checks a result — this scene sends none',
+      zh: '测距完整性片段：用来校验结果的可选附加片段——本场景一个也不发',
     } },
-    { kind: 'table', heading: { en: 'Three trains in the same room', zh: '同一个房间里的三种序列' }, head: [
-      { en: 'Train', zh: '序列' }, { en: 'Per fragment', zh: '每个片段' },
-      { en: 'Gain', zh: '增益' }, { en: 'Margin', zh: '余量' }, { en: 'Verdict', zh: '结果' },
+  ],
+  picture: [
+    { heading: { en: 'A room one frame cannot cross', zh: '一个帧过不去的房间' }, text: {
+      en: 'The scene is a long hall cut into three bays by two full-height brick partitions. Three anchors stand in the first bay and one tag in the third, so every ray between them crosses both walls. The frames still arrive — the room is not that big — but they arrive below what the receiver can detect, and a receiver that cannot detect a frame cannot timestamp it either.',
+      zh: '场景是一条长厅，被两道通顶砖墙切成三个隔间。三个锚点立在第一个隔间里，一个标签在第三个隔间里，于是它们之间的每一条射线都要穿过两道墙。帧还是照样到达——房间没那么大——只是到达时比接收机能检出的门限低了好几分贝；而检不出一帧，也就没法给它打时间戳。',
+    } },
+    { kind: 'watch', jump: 2, heading: { en: 'Watch a train be judged', zh: '看一串片段被判定' }, text: {
+      en: 'Load the simulation and jump to the verdict on the first train. One line says how many fragments were heard, how loud each was, what they added up to, and whether that cleared the receiver. Everything here is in that line.',
+      zh: '载入仿真，跳到对第一串片段的判定。一行字写着收到了几个片段、每个多响、加起来是多少，以及这有没有越过接收机的门限。本课要讲的一切都在这一行里。',
+    } },
+    { heading: { en: 'The energy is there; the moment is not', zh: '能量是有的，只是不在同一瞬间' }, text: {
+      en: 'The obvious answer — shout — is not available. What the regulator caps is not a total but an average taken over each millisecond, so no single moment may be made louder. What it does not cap is how many milliseconds you use: a transmitter that spends this millisecond’s allowance, then the next, then the next, is as legal as one that spends a single millisecond and stops.',
+      zh: '最顺手的办法——喊得更响——用不了。法规限住的不是总量，而是在每一毫秒上取的平均，所以任何单独的一瞬都不能更响。它没有限住的，是你用掉多少个毫秒。一台把这一毫秒的额度花掉、再花下一毫秒、再花下一毫秒的发射机，和一台只花一毫秒就收手的，同样合规。',
+    } },
+    { heading: { en: 'One fragment, then another', zh: '一个片段，再来一个' }, text: {
+      en: 'So the packet is broken up. A fragment is one millisecond’s piece of it, and it is stripped to the bone: no preamble to search for, no header, no address, no data — only the sequence a timestamp is taken from, which is why it is called a ranging sequence fragment, RSF. One goes out every millisecond, and the pair interleave, each using the gaps in the other’s train.',
+      zh: '于是把这个分组拆开。一个片段就是其中一毫秒的那一片，而且被剥得只剩骨头：没有要搜索的前导、没有头、没有地址、没有数据——只有用来取时间戳的那段序列，所以它叫测距序列片段，RSF。每毫秒发出一个，而配对的两端交错发送，各自用上对方留下的空隙。',
+    } },
+    { heading: { en: 'Adding up what you could not hear', zh: '把听不见的东西加起来' }, text: {
+      en: 'None of those fragments is audible on its own. But the receiver already knows the shape of the train — when each fragment comes and what is in it — so it need not detect anything to start: it accumulates blind, millisecond after millisecond, and only decides at the end. Doubling the fragments doubles what has accumulated, and the sum can clear a threshold no part of it could.',
+      zh: '这些片段单独拿出来，一个也听不见。但接收机事先已经知道这一串的形状——每个片段什么时候来、里面装的是什么——所以它根本不需要先检出什么才能开始：它盲目地累加，一毫秒又一毫秒，直到最后才下判断。片段数量翻一番，累加起来的量也翻一番，而这个和可以越过其中任何一片都越不过的门限。',
+    } },
+    { heading: { en: 'Who does the talking', zh: '谁来说话' }, text: {
+      en: 'Knowing the shape of the train in advance has to come from somewhere, and not over the wideband radio. A small narrowband radio sits beside it and carries the words: a Poll that opens the round, a Response that accepts it, and at the end a Report carrying the reply time the initiator needs. Between those, the wideband radio carries timing and nothing else.',
+      zh: '事先知道这一串的形状，总得有个来处，而它不是从宽带那台电台来的。旁边还有一台小小的窄带电台，由它承载话语：一帧 Poll 打开这一轮，一帧 Response 接受它，末尾再由一帧 Report 把发起方需要的回复时间捎回去。在这两头之间，宽带电台只承载时间，别的什么也不载。',
+    } },
+    { heading: { en: 'Reach is not accuracy', zh: '够得着不等于测得准' }, text: {
+      en: 'The train buys distance, and only distance. The first path through brick still arrives late, so every range comes back long by the same amount, round after round — a bias, not noise, which the quality byte on each range flags as an obstructed path. The fix inherits it whole. Nothing here makes the measurement better; it makes a measurement exist.',
+      zh: '这一串片段买来的是距离，而且只有距离。穿过砖墙的首径依旧迟到，于是每次测距都偏长，而且每轮偏得一样多——这是偏差，不是噪声，附在每条距离上的品质字节会把它标成被遮挡的路径。整块的定位把这份偏差原封不动地继承下来。这里没有任何东西让测量变得更准，它只是让测量得以存在。',
+    } },
+  ],
+  numbers: [
+    { kind: 'table', heading: { en: 'The room, and what reaches across it', zh: '这个房间，以及什么能穿过去' }, head: [
+      { en: 'The scene', zh: '场景' }, { en: 'Value', zh: '取值' },
     ], rows: [
-      [N('4 × 82.051 µs'), N('−100.26 / −100.07 dBm'), N('+6.02 dB'), N('−1.24 / −1.05 dB'),
-        { en: 'lost', zh: '丢失' }],
-      [N('8 × 82.051 µs'), N('−100.26 / −100.07 dBm'), N('+9.03 dB'), N('+1.77 / +1.96 dB'),
-        { en: 'detected', zh: '检出' }],
-      [N('16 × 62.179 µs'), N('−99.05 / −98.86 dBm'), N('+12.04 dB'), N('+5.99 / +6.18 dB'),
-        { en: 'detected', zh: '检出' }],
+      [{ en: 'The hall', zh: '大厅' }, N('22 × 8 m')],
+      [{ en: 'Brick partitions at', zh: '砖墙位于' }, N('x = 5 m, x = 10 m')],
+      [{ en: 'Anchors to tag', zh: '锚点到标签' }, N('13.04, 13.04, 12.76 m')],
+      [{ en: 'Two walls of brick', zh: '两道砖墙' }, N('24 dB')],
+      [{ en: 'One fragment on arrival', zh: '一个片段到达时' }, N('−100.26 / −100.07 dBm')],
+      [{ en: 'What the receiver needs', zh: '接收机需要的门限' }, N('−93 dBm')],
     ] },
-    { heading: { en: 'What the narrowband radio carries', zh: '窄带电台负责运什么' }, text: {
-      en: 'The UWB side only measures. Everything else rides Clause 12’s 250 kb/s O-QPSK radio in 5725–5850 and 5925–6425 MHz — here channel 3, 5733.75 MHz. The initiator opens with a POLL of 12 octets and 576 µs, the responder answers with a RESP of the same size, and only then is either side primed to listen. After the twenty-slot ranging phase, in slot 24, the responder’s REPORT of 13 octets and 608 µs carries the reply time. Those three are 1.760 ms of the round’s 3.073 ms of air; all sixteen fragments are 1.313 ms.',
-      zh: 'UWB 一侧只负责测量。其余一切都跑在标准第 12 章那部 250 kb/s O-QPSK 电台上，频段为 5725–5850 与 5925–6425 MHz——这里是 3 号信道，中心 5733.75 MHz。发起方用一帧 12 字节、576 µs 的 POLL 开场；响应方用同样大小的 RESP 作答，而只有到这时两边才算就绪，才会去听片段。二十个时隙的测距阶段结束后，在第 24 个时隙，响应方那帧 13 字节、608 µs 的 REPORT 捎上回复时间。这三条消息占 1.760 ms，而整轮空口时间是 3.073 ms；十六个片段加起来才 1.313 ms。',
+    { text: {
+      en: 'Each fragment lands about seven decibels under the receiver, and the three anchors are placed so that they are nearly equally far away: at the threshold this lesson is about, either all three are heard or none of them is.',
+      zh: '每个片段到达时比接收机门限低了约七个分贝；而三个锚点的摆法让它们与标签几乎等距：在本课要讲的那个临界点上，要么三个都被听见，要么一个也听不见。',
     } },
-    { kind: 'formula', heading: { en: 'A ruler a millisecond long', zh: '一把一毫秒长的尺子' }, text: {
-      en: 'ratio = span_measured / ((j − i) × 1 ms)\nσ_ratio = √2 · σ_ts / ((j − i) ms)',
-      zh: 'ratio = 实测跨度 / ((j − i) × 1 ms)\nσ_ratio = √2 · σ_ts / ((j − i) ms)',
-    }, note: {
-      en: 'Two fragments are exactly one millisecond apart on the sender’s clock, so measuring that span on your own counter measures the two crystals against each other. Over the 7 ms from the first fragment to the eighth, 100 ps stamps give σ_ratio = 0.0202 ppm. The tag is set to +20 ppm and the anchors to −20, 0 and +10, so the true ratios at the tag are 40, 20 and 10 ppm; round 0 measures 39.970, 19.992 and 9.967. The responder uses that ratio; the initiator inverts it.',
-      zh: '同一串里的两个片段在发送方时钟上正好相隔一毫秒，把这段跨度量在自己的计数器上，就量出了两块晶振的相对快慢。从第一个片段到第八个是 7 ms，100 ps 的时间戳给出 σ_ratio = 0.0202 ppm。标签的晶振设为 +20 ppm，三个锚点为 −20、0 与 +10，所以标签处的真实比值是 40、20 与 10 ppm；第 0 轮量得 39.970、19.992 与 9.967。响应方直接用这个比值，发起方则取倒数。',
+    { kind: 'table', heading: { en: 'One round, as the log prints it', zh: '一轮，日志怎么印' }, head: [
+      { en: 'When', zh: '何时' }, { en: 'The line', zh: '那一行' },
+    ], rows: [
+      [N('0 ms'), N('tag-1 UWB round 0 of block 0 (MMS): 28 slots × 500.0 µs')],
+      [N('0 ms'), N('tag-1 → anchor-1 NBPOLL 12 B @0.25 Mbps (576.0 µs)')],
+      [N('2.000 ms'), N('tag-1 TX RMARKER → anchor-1 RSF: counter 336330610684')],
+      [N('2.000 ms'), N('tag-1 → anchor-1 UWBRSF 0 B @0 Mbps (82.1 µs)')],
+      [N('9.500 ms'), N('anchor-1 RSF train ← tag-1: 8/8 heard, -100.3 dBm + 9.0 dB = margin 1.8 dB → detected, ratio -39.995 ppm')],
+      [N('9.500 ms'), N('anchor-1 RX RMARKER ← tag-1 RSF: counter 26504711136 (75 % within 12 ns)')],
+      [N('12.000 ms'), N('anchor-1 → tag-1 NBREPORT 13 B @0.25 Mbps (608.0 µs)')],
+      [N('12.608 ms'), N('tag-1 range → anchor-1 (SS): 14.26 m (true 13.04 m, raw 17.25 m)')],
+    ] },
+    { text: {
+      en: 'A round is 28 slots of 500 µs, so 14 ms, and it holds one anchor; three of them fit easily inside the 200 ms block.',
+      zh: '一轮是 28 个 500 µs 的时隙，合 14 ms，而且只装一个锚点；三轮轻松放进 200 ms 的块里。',
     } },
-    { heading: { en: 'Three metres, and fifteen millimetres', zh: '三米，和十五毫米' }, text: {
-      en: 'The clock error enters multiplied by half the reply time — the reply is one slot, 0.5 ms. Tag and anchor 1 are 40 ppm apart, so uncorrected that is ½ × 0.5 ms × 40 ppm × c = 3.00 m, and the log prints both: “range → anchor-1 (SS): 14.26 m (true 13.04 m, raw 17.25 m)”. One crystal at the ±20 ppm of §16.4.9 would be 1.5 m of it; the carrier estimate 4z falls back on leaves 1.5 cm at 0.2 ppm; the train’s 0.0202 ppm leaves 1.5 mm. All three are arithmetic from the constants, not measurements; the run measures the floor under them: two receive stamps are c·σ_ts/√2 = 2.1 cm, and over 21 ranges the error about this room’s bias has an RMS of 2.05 cm. So the 1.5 mm is invisible, and no double-sided exchange is needed.',
-      zh: '单边测距会把时钟误差乘上回复时间的一半——回复本身占一个时隙，即 0.5 ms。标签与 anchor-1 相差 40 ppm，不修正就是 ½ × 0.5 ms × 40 ppm × c = 3.00 m——日志把两个数一起印了出来：“range → anchor-1 (SS): 14.26 m (true 13.04 m, raw 17.25 m)”。若只有一块晶振偏到 §16.4.9 允许的 ±20 ppm，那是其中的 1.5 m；4z 退而用的载波估计，以 0.2 ppm 的残差留下 1.5 cm；而序列给出的 0.0202 ppm 只留下 1.5 mm。这三级台阶都是由常数算出来的，不是量出来的；运行量到的是它们脚下的那块地板：光是两个接收时间戳就值 c·σ_ts/√2 = 2.1 cm，而 21 次测距扣掉这房间自带的偏差后，误差均方根是 2.05 cm。所以这 1.5 mm 看不见，也用不着双边交互。',
+    { text: {
+      en: 'Four slots open the round, twenty carry the fragments, and the responder reports in slot 24.',
+      zh: '开头四个时隙用来开场，二十个承载片段，响应方在第 24 个时隙给出报告。',
     } },
-    { heading: { en: 'Where the gain actually comes from', zh: '增益究竟从哪里来' }, text: {
-      en: 'The tag’s 4z Poll reaches anchor 1 at −110.80 dBm; its eight-fragment train arrives at an effective −91.23: 19.57 dB better. Only 9.03 dB of that is the multi-millisecond idea. Another 3.95 dB is that a fragment is shorter than a Poll — 82.051 µs against 203.782 — so the same energy is louder; and 6.59 dB is that this 4z transmitter never spends its budget, holding −14 dBm where a burst-mode one could hold −7.41 dBm and be as legal. The honest claim is the 9 dB.',
-      zh: '标签那帧 4z Poll 到达 anchor-1 时是 −110.80 dBm；它那八个片段的序列合成后等效为 −91.23 dBm，好了 19.57 dB。其中只有 9.03 dB 属于“多毫秒”这个想法。另有 3.95 dB 来自片段比 Poll 短——82.051 µs 对 203.782 µs——同样的能量在更短的时间里更响；还有 6.59 dB，只是因为这台 4z 发射机从不把预算花完：它保持 −14 dBm，而突发式的发射机可以保持 −7.41 dBm，一样合规。诚实的说法是那 9 dB。',
+    { text: {
+      en: 'The narrowband side is the slow part. Its three messages take 1.760 ms of the round’s 3.073 ms of air, while all sixteen fragments together take 1.313 ms — and one transmit stamp is taken per train, not per fragment.',
+      zh: '慢的是窄带那一侧。它那三条消息占掉整轮 3.073 ms 空口时间里的 1.760 ms，而十六个片段加起来才 1.313 ms——而且每串只取一个发送时间戳，不是每个片段一个。',
     } },
-    { heading: { en: 'What the walls charge anyway', zh: '墙照样要收费' }, text: {
-      en: 'Every range is long by the same amount: 14.26 m against a true 13.04. Brick adds 2 ns of excess delay to a first path, the ray crosses two walls each way, and a two-way range keeps what a time difference would cancel: 4 ns, 1.199 m, every round. The figure of merit says “75 % within 12 ns”, the NLOS byte, and the block’s fix inherits the bias: (14.22, 4.05) m against a true (13.00, 4.00), GDOP 2.93, ellipse 6.1 × 1.3 cm — which knows only the noise. Reach is not accuracy, and with Y = 0 there is no integrity flag.',
-      zh: '每一次测距都偏长，而且长得一样多：14.26 m 对真值 13.04 m。这个模型里砖墙给首径添 2 ns 额外时延，射线来回各穿两道墙，而双向测距会保留时间差本可抵消的那一部分：4 ns、1.199 m，每一轮都有。品质因子写着 “75 % within 12 ns”，那是 NLOS 的字节；整块的定位也继承了这份偏差，落在 (14.22, 4.05) m，真值 (13.00, 4.00)，GDOP 2.93，椭圆 6.1 × 1.3 cm——而椭圆只知道噪声。合成换来的是距离，距离不等于精度；Y = 0，也没有完整性标志。',
+    { text: {
+      en: 'Every range is long by the same 1.199 m: brick delays a first path by 2 ns and the ray crosses two walls each way, which a two-way range keeps rather than cancels.',
+      zh: '每一次测距都偏长同样的 1.199 m：砖墙给首径添 2 ns，而射线来回各穿两道墙，这一份双向测距留了下来，没有抵消掉。',
     } },
+    { text: {
+      en: 'The fix inherits it whole — (14.22, 4.05) m against a true (13.00, 4.00) — while the ellipse beside it, which knows only noise, stays at centimetres.',
+      zh: '定位把它整个继承过去——(14.22, 4.05) m，真值 (13.00, 4.00)——而旁边那个只认识噪声的椭圆，仍停在厘米量级。',
+    } },
+  ],
+  deeper: [
+    { heading: { en: 'Why there is no preamble offset to subtract', zh: '为什么没有前导偏移要减' }, text: {
+      en: 'An ordinary ranging frame carries a preamble the receiver must find before anything can be timed, and the timestamp is defined at a marker some known distance into the frame. A fragment has none of that: the receiver knew when it was coming, so the timestamp is simply the first pulse of the first fragment of the train. One RMARKER per train, taken at its start, is what both the transmit and the receive record hold.',
+      zh: '普通的测距帧带着前导，接收机得先找到它才谈得上计时，而时间戳定义在帧内某个已知位置的标记上。片段完全没有这一套：接收机本来就知道它什么时候来，于是时间戳就是这一串里第一个片段的第一个脉冲。每串一个 RMARKER，取在串的开头——发送记录和接收记录里存的都是它。',
+    } },
+    { heading: { en: 'The integrity fragments this scene does not send', zh: '本场景没有发的那些完整性片段' }, text: {
+      en: 'A train may carry a second kind of fragment after the ranging ones: integrity fragments, whose sequence is not known in advance and which therefore cannot be forged by replaying a recording. The session here asks for none of them, so no range in the run carries an integrity verdict at all — the log simply has no such field to print. Reach was the problem to solve; integrity is a separate bill, paid in slots.',
+      zh: '在测距片段之后，一串还可以带上第二种片段：完整性片段。它们的序列事先并不公开，因此无法靠重放录音伪造。本课的会话一个也不要，所以整段运行里没有任何一次测距带有完整性判定——日志里干脆就没有这个字段可印。这里要解决的问题是够得着；完整性是另一张账单，用时隙来付。',
+    } },
+    { heading: { en: 'Why the anchors stand where they do', zh: '锚点为什么站在那里' }, text: {
+      en: 'The three anchors are 13.04, 13.04 and 12.76 m from the tag — as nearly equidistant as the first bay allows. That is deliberate: the whole lesson turns on a single threshold, and an anchor pushed up against the first partition would be 8.58 m away, 3.6 decibels louder, and would go on ranging on half a train while the other two heard nothing. Making the three fail together is what makes the threshold visible.',
+      zh: '三个锚点到标签分别是 13.04、13.04 与 12.76 m——在第一个隔间里能做到的最接近等距。这是有意为之：整堂课都系在同一个临界点上，而若把一个锚点贴到第一道砖墙上，它就只有 8.58 m 远、响 3.6 个分贝，于是它会在半串片段上照常测距，而另外两个什么也听不见。让三者一起失败，才让这个临界点看得见。',
+    } },
+  ],
+  sources: [
+    { en: 'Almost nothing here is IEEE Std 802.15.4-2024. The units are: RSTU, RCTU, the block and its slots; so is the narrowband radio itself, the Clause 12 O-QPSK PHY at 250 kb/s.',
+      zh: '本课几乎没有一处出自 IEEE Std 802.15.4-2024。单位是标准的：RSTU、RCTU、块与它的时隙；那台窄带电台本身也是标准的，即第 12 章、250 kb/s 的 O-QPSK PHY。' },
+    { en: 'The multi-millisecond packet, the fragments and everything that turns that narrowband radio into a control radio for UWB come from P802.15.4ab, at D5.0 in Sponsor-ballot recirculation. The draft is members-only, so this paraphrases four TG4ab contributions: 15-22/0381r5 (the ranging cycle), 15-23/0100r2 (fragments and the narrowband PHY), 15-23/0502r3 (parameter sets) and 15-22/0205r0 (the energy budget). The balloted draft may differ.',
+      zh: '多毫秒分组、片段，以及把那台窄带电台变成 UWB 控制电台的一切，都来自 P802.15.4ab：它处于 Sponsor 投票再循环阶段，版本为 D5.0。该草案仅对会员开放，所以这里改写自 TG4ab 的四篇提案文稿：15-22/0381r5（测距周期）、15-23/0100r2（片段与窄带 PHY）、15-23/0502r3（参数集）与 15-22/0205r0（能量预算）。已投票的草案可能与此不同。' },
+    { en: 'The room is the simulator’s own: a 22 × 8 m hall, two brick partitions at 12 dB each, an NLOS excess delay of 2.0 ns per brick wall, and a session on the draft’s default ranging cycle with the narrowband control channel in UNII-3, where nothing else in this scene is talking.',
+      zh: '房间是仿真器自己的模型取值：22 × 8 m 的大厅、两道各 12 dB 的砖墙、每道砖墙 2.0 ns 的非视距额外时延，以及一个跑在草案默认测距周期上的会话，窄带控制信道落在 UNII-3，而本场景里那里没有别人在说话。' },
   ],
   scenario: () => uwbMmsScenario('base'),
   variants: [
@@ -153,51 +231,37 @@ export const uwbMms: Lesson = {
     J('the range the two of them produce', '两者共同得出的那次测距', firstUwbRange),
   ],
   observe: [
-    { en: 'At t = 0 the tag opens a pair round — “tag-1 UWB round 0 of block 0 (MMS): 28 slots × 500.0 µs” — and the first thing on the air is not UWB: “tag-1 → anchor-1 NBPOLL 12 B @0.25 Mbps (576.0 µs)”. Anchor 1 answers at 1.000 ms. One round holds one anchor: anchor 2’s opens at 14 ms, anchor 3’s at 28.',
-      zh: 't = 0 处标签打开一个配对轮次——“tag-1 UWB round 0 of block 0 (MMS): 28 slots × 500.0 µs”——而空口上最先出现的并不是 UWB：“tag-1 → anchor-1 NBPOLL 12 B @0.25 Mbps (576.0 µs)”。anchor-1 在 1.000 ms 处作答。一个轮次只装一个锚点：anchor-2 的轮次在 14 ms 处开始，anchor-3 的在 28 ms 处。' },
-    { en: 'At 2.000 ms: “tag-1 TX RMARKER → anchor-1 RSF: counter 336330610684”, then “tag-1 → anchor-1 UWBRSF 0 B @0 Mbps (82.1 µs)” — zero octets, no data rate: a fragment carries nothing. Anchor 1’s follows half a millisecond later; the two trains interleave for sixteen slots. One transmit RMARKER per train, not one per fragment.',
-      zh: '2.000 ms 处：“tag-1 TX RMARKER → anchor-1 RSF: counter 336330610684”，接着是 “tag-1 → anchor-1 UWBRSF 0 B @0 Mbps (82.1 µs)”——零字节、没有速率：片段里什么也不装。anchor-1 自己的第一个片段在半毫秒后跟上，两串片段交错了十六个时隙。每串只有一个发送 RMARKER，而不是每个片段一个。' },
-    { en: 'At 9.500 ms, the slot after the tag’s last fragment, anchor 1 rules: “anchor-1 RSF train ← tag-1: 8/8 heard, -100.3 dBm + 9.0 dB = margin 1.8 dB → detected, ratio -39.995 ppm”, and only then a receive stamp: “anchor-1 RX RMARKER ← tag-1 RSF: counter 26504711136 (75 % within 12 ns)”. The tag rules at 10.000 ms, the ratio the other way up: 39.970 ppm.',
-      zh: '9.500 ms 处，也就是标签最后一个片段之后的那个时隙，anchor-1 给出判定：“anchor-1 RSF train ← tag-1: 8/8 heard, -100.3 dBm + 9.0 dB = margin 1.8 dB → detected, ratio -39.995 ppm”，接收时间戳直到这时才出现：“anchor-1 RX RMARKER ← tag-1 RSF: counter 26504711136 (75 % within 12 ns)”。标签自己的判定在 10.000 ms 处，比值是反过来的：39.970 ppm。' },
-    { en: 'At 12.000 ms “anchor-1 → tag-1 NBREPORT 13 B @0.25 Mbps (608.0 µs)”, and at 12.608 ms “tag-1 range → anchor-1 (SS): 14.26 m (true 13.04 m, raw 17.25 m)”. After seven blocks the tag’s inspector reads 8 × RSF, 8 / 8, +1.8 dB, detected (+2.0 dB for the near anchor); channel “3 · 5733.75 MHz”; fix (14.22, 4.05) m, error 122.4 cm, GDOP 2.93, ellipse 6.1 × 1.3 cm.',
-      zh: '12.000 ms 处是 “anchor-1 → tag-1 NBREPORT 13 B @0.25 Mbps (608.0 µs)”，12.608 ms 处是 “tag-1 range → anchor-1 (SS): 14.26 m (true 13.04 m, raw 17.25 m)”。七个块之后打开标签的检视面板：两个远处锚点是 8 × RSF、8 / 8、+1.8 dB、检出，近处那个是 +2.0 dB；窄带信道一行是 “3 · 5733.75 MHz”；定位 (14.22, 4.05) m，误差 122.4 cm，GDOP 2.93，椭圆 6.1 × 1.3 cm。' },
+    { en: 'Nothing wideband happens first. The tag opens the round with a narrowband poll, the anchor answers half a millisecond later, and only then is either side primed to listen for fragments. One round holds one anchor, so the next anchor waits its turn.',
+      zh: '一开始空口上没有任何宽带动静。标签用一帧窄带 POLL 打开这一轮，锚点在半毫秒后作答，到这时两边才算就绪、才去听片段。一轮只装一个锚点，所以下一个锚点得等到自己那一轮。' },
+    { en: 'Then the fragments: two interleaved trains, one frame every half millisecond, each of zero octets at no data rate — a fragment carries nothing. In the slot after the last one, each side rules on what it accumulated, and only then does a receive stamp appear.',
+      zh: '接着是片段：两串交错着来，每半毫秒一帧，每一帧零字节、没有速率——片段里什么也不装。在最后一个片段之后的那个时隙里，两边各自对累加到的东西下判断，而接收时间戳直到这时才出现。' },
   ],
   tryThis: [
-    { en: 'Load “Four fragments”. Nothing changes on the air — every train still heard in full, 4/4, at −100.3 dBm — but four combine to 6.0 dB instead of 9.0: “anchor-1 RSF train ← tag-1: 4/4 heard, -100.3 dBm + 6.0 dB = margin -1.2 dB → lost”. Each anchor loses the tag’s train, and the tag all three of theirs. No RMARKER, no reply time, no report: 21 timeouts, one per pair round — “tag-1 UWB slot 24: no nb-report from anchor-1”, then anchor-2, then anchor-3. Not one range in 1.3 seconds — three decibels between a working system and a dead one.',
-      zh: '载入“四个片段”。空口上什么也没变——每一串仍被完整收到，4/4，仍是 −100.3 dBm——但四个合成的是 6.0 dB 而不是 9.0：“anchor-1 RSF train ← tag-1: 4/4 heard, -100.3 dBm + 6.0 dB = margin -1.2 dB → lost”。每个锚点都丢了标签那一串，标签也把三串全丢了。没有 RMARKER 就没有回复时间，也就没有报告：21 次超时，每个配对轮次一次——“tag-1 UWB slot 24: no nb-report from anchor-1”，然后是 anchor-2、anchor-3。1.3 秒里一次测距、一次定位都没有——能用与报废之间只隔着三个分贝。' },
-    { en: 'Now “Set rsf-1”, one of the seventeen mandatory sets: X = 16, N_MSR 40 with a gap of 33 zeros instead of 64, so the fragment is 62.179 µs instead of 82.051. Twelve decibels of combining instead of nine, plus 1.20 dB for the shorter fragment: the margin goes from +1.8 to +6.0 dB. Not free — the ranging phase grows from 20 slots to 32, the round from 14 ms to 20, three rounds from 42 ms of the block to 60 ms. Then “4z for comparison”: the same room, ordinary SS-TWR — 42 timeouts, not one range.',
-      zh: '再载入“参数集 rsf-1”，它是十七个强制参数集之一：X = 16，N_MSR 仍是 40，但间隔是 33 个零而不是 64，于是片段从 82.051 µs 缩到 62.179 µs。合成增益从九个分贝变成十二个，短片段又多出 1.20 dB 功率：余量从 +1.8 dB 涨到 +6.0 dB。代价也有——测距阶段从 20 个时隙涨到 32 个，轮次从 14 ms 涨到 20 ms，三个轮次占块里的 60 ms 而不是 42 ms。再载入“拿 4z 作对照”：同样的房间，改用普通 SS-TWR——42 次超时，一次测距也没有。' },
+    { en: 'Load “4z for comparison”: the same room, the same nodes, ordinary two-way ranging. Not one range comes back. The anchors wait for a Poll they never hear and the tag waits out every response slot, so the log fills with timeouts instead.',
+      zh: '载入“拿 4z 作对照”：同样的房间、同样的节点，改用普通的双向测距。一次测距也回不来。锚点在等一帧它们永远听不到的 Poll，标签把每个响应时隙都等空，于是日志里填满的是超时。' },
+    { en: 'Open the tag’s inspector after a few blocks. One table says how many fragments each peer’s train was heard in full and what the sum came to; the other carries the ranges, each long by the same amount, each with the obstructed-path byte.',
+      zh: '跑过几个块之后打开标签的检视面板。一张表写着每个对端那一串收全了几个片段、加起来是多少；另一张是各次测距，每一次都偏长同样多，每一次都带着“被遮挡路径”那个字节。' },
   ],
   quiz: [
     {
-      q: { en: 'At X = 4 nothing ranges and at X = 8 everything does. What changed on the air?', zh: 'X = 4 时什么也测不出来，X = 8 时全都测得出来。空口上究竟变了什么？' },
+      q: { en: 'Why not simply send one longer ranging frame instead of a train of fragments?', zh: '为什么不干脆发一帧更长的测距帧，而要发一串片段？' },
       options: [
-        { en: 'The fragments are quieter at X = 4', zh: 'X = 4 时片段更轻' },
-        { en: 'Nothing — the same fragments at the same −100.3 dBm, all heard. Only what they add up to differs, 6.0 dB against 9.0', zh: '什么也没变——同样的片段、同样的 −100.3 dBm，而且全都收到了。不同的只是它们加起来是多少：6.0 dB 对 9.0 dB' },
-        { en: 'At X = 4 the receiver is never primed', zh: 'X = 4 时接收机根本没就绪' },
+        { en: 'A longer frame would not fit in a slot', zh: '更长的帧塞不进一个时隙' },
+        { en: 'The cap is an average over each millisecond, so a longer frame is not louder; a train spends a fresh millisecond’s allowance again and again', zh: '限制是按每毫秒取的平均，所以帧更长并不更响；而一串片段是把每一毫秒的额度一次次重新花掉' },
+        { en: 'The receiver cannot timestamp a long frame', zh: '接收机没法给长帧打时间戳' },
       ],
       answer: 1,
-      explain: { en: 'Each fragment spends its own millisecond’s budget, so its power does not depend on how many follow: −100.26 dBm in both scenes. Four combine to −94.24, eight to −91.23.', zh: '每个片段花的是自己那一毫秒的预算，功率与后面还有几个无关：两个场景里远处锚点都是 −100.26 dBm。四个合成为 −94.24，八个为 −91.23。' },
+      explain: { en: 'No single moment may be made louder, but nothing caps how many milliseconds you use — and the far end can add them up.', zh: '任何一瞬都不能更响，但用掉多少毫秒并不受限——而对端可以把它们加起来。' },
     },
     {
-      q: { en: 'A train of eight beats a 4z Poll by 19.6 dB in this room. How much of that is the multi-millisecond idea?', zh: '在这个房间里，八个片段的序列比一帧 4z Poll 好 19.6 dB。其中有多少来自“多毫秒”这个想法？' },
+      q: { en: 'What is the narrowband radio for, if the wideband one does the measuring?', zh: '既然测量是宽带电台做的，那窄带电台是干什么的？' },
       options: [
-        { en: 'All of it', zh: '全部' },
-        { en: '9.03 dB; the other 10.54 is transmit power — 3.95 dB because a fragment is shorter than a Poll, 6.59 dB because this 4z transmitter spends 8.11 nJ of its 37', zh: '9.03 dB；另外 10.54 dB 是发射功率——3.95 dB 因为片段比 Poll 短，6.59 dB 因为这台 4z 发射机在 37 nJ 里只花了 8.11 nJ' },
-        { en: '12.04 dB, the model’s largest combining gain', zh: '12.04 dB，模型允许的最大合成增益' },
+        { en: 'It measures a second, coarser distance as a cross-check', zh: '它再粗略地量一次距离，用来相互校验' },
+        { en: 'It carries the words — open the round, accept it, report the reply time — so the receiver knows the train’s shape before any of it arrives', zh: '它承载话语——开场、接受、报出回复时间——好让接收机在片段到来之前就知道这一串的形状' },
+        { en: 'It wakes the anchors up between blocks', zh: '它在块与块之间把锚点唤醒' },
       ],
       answer: 1,
-      explain: { en: '10·log10(8) = 9.03 dB is the only part that comes from spending eight milliseconds instead of one; the rest compares two transmitters.', zh: '10·log10(8) = 9.03 dB 才是“花八个毫秒而不是一个”带来的部分。其余比较的是两台发射机，而不是两个想法。' },
-    },
-    {
-      q: { en: 'Single-sided ranging usually needs a double-sided exchange or a very good crystal. Why neither here?', zh: '单边测距通常要么做双边交互，要么靠一块很好的晶振。这个模式为什么两样都不需要？' },
-      options: [
-        { en: 'The narrowband radio estimates the carrier offset better', zh: '窄带电台估计载波偏差的本事更强' },
-        { en: 'The fragments are exactly a millisecond apart on the sender’s clock: the receiver measures the two crystals against each other over 7 ms', zh: '片段在发送方时钟上正好相隔一毫秒：接收机用 7 ms 的跨度量出两块晶振的相对快慢' },
-        { en: 'The REPORT carries the responder’s crystal offset', zh: 'REPORT 里带着响应方的晶振偏差' },
-      ],
-      answer: 1,
-      explain: { en: 'σ_ratio is 0.0202 ppm over the train’s 7 ms, and half the 0.5 ms reply turns it into 1.5 mm — against 1.5 cm from the carrier estimate and 3.00 m uncorrected.', zh: '整串 7 ms 的跨度给出 σ_ratio = 0.0202 ppm，乘上 0.5 ms 回复时间的一半就是 1.5 mm——而载波估计对应 1.5 cm，不修正则是 3.00 m。' },
+      explain: { en: 'Accumulating blind only works if you already know when each fragment comes and what is in it. That knowledge arrives over the small radio.', zh: '盲目累加的前提，是你已经知道每个片段何时到、里面装什么。这份知识是由那台小电台送来的。' },
     },
   ],
 }

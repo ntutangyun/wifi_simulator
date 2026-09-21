@@ -11,6 +11,10 @@
  * against rh·σ_θ and against the fixes decomposed along and across the true ray; and the
  * mirror against sin(180° − θ) = sin θ and against the run, which reproduces the base
  * scene's fourteen bearings exactly while the fixes land outside the room.
+ *
+ * The lesson is written to the zero-to-hero contract, so the shape — the sections, the
+ * budgets, the bilingual walk, the first watch — is the kit's `lessonShapeSuite`, and the
+ * log lines a reader is shown live in a table of `numbers` rather than in an observe item.
  */
 import { describe, it, expect } from 'vitest'
 import {
@@ -20,9 +24,10 @@ import {
 import { Simulation } from '../../src/engine/simulation'
 import { DEFAULT_UWB_SESSION, ScenarioSchema, type NodeCfg, type Scenario } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
-import type { Block, L10n, Lesson } from '../../src/course/lessonKit'
-import { COURSE_ORDER, MODULES, OBSERVE_MINUTES, TIERS, TRY_MINUTES, lessonMinutes, lessonWords } from '../../src/course/curriculum'
+import type { Block } from '../../src/course/lessonKit'
+import { COURSE_ORDER, MODULES, TIERS } from '../../src/course/curriculum'
 import { LESSONS } from '../../src/course/lessons'
+import { lessonStrings } from '../../src/course/readability'
 import { fmtRecord } from '../../src/ui/format'
 import {
   AOA_SIGMA_CLAMP_DEG, AOA_SIGMA_PHI_RAD, antennaSpacingM, aoaSigmaDeg, azimuthFromPdoaDeg,
@@ -33,6 +38,7 @@ import { UWB_CHANNEL_MHZ } from '../../src/uwb/phy'
 import { applyRecord, initViewState } from '../../src/model/view'
 import { uwbAoaRows, uwbFixRow, uwbRangeRows } from '../../src/uwb/ui/rows'
 import { STRINGS } from '../../src/ui/i18n'
+import { lessonShapeSuite, ofType, runOf } from './kit'
 
 const MS = 1_000_000
 /** Seven blocks, the window every UWB lesson measures over: one DS round per 200 ms block. */
@@ -45,26 +51,26 @@ const V: Record<Exclude<UwbAoaVariant, 'base'>, number> = { off45: 0, off60: 1, 
 
 const scenarioOf = (v: UwbAoaVariant): Scenario =>
   v === 'base' ? uwbAoa.scenario() : uwbAoa.variants![V[v]].scenario()
+/** The lesson's own scenes go through the kit's shared runs; the editor's do not. */
+const recs = (v: UwbAoaVariant): TLRecord[] =>
+  runOf(uwbAoa, v === 'base' ? undefined : V[v], RUN_NS)
 
-const memo = new Map<string, TLRecord[]>()
-const runOf = (key: string, build: () => Scenario): TLRecord[] => {
-  if (!memo.has(key)) memo.set(key, [...new Simulation(build()).runUntil(RUN_NS).records])
-  return memo.get(key)!
+/** A scene the reader builds in the editor rather than picks from the variant list. */
+const extra = new Map<string, TLRecord[]>()
+const runExtra = (key: string, build: () => Scenario): TLRecord[] => {
+  if (!extra.has(key)) extra.set(key, [...new Simulation(build()).runUntil(RUN_NS).records])
+  return extra.get(key)!
 }
-const recs = (v: UwbAoaVariant): TLRecord[] => runOf(v, () => scenarioOf(v))
-
-const of = <K extends TLRecord['type']>(rs: TLRecord[], type: K): Extract<TLRecord, { type: K }>[] =>
-  rs.filter((r): r is Extract<TLRecord, { type: K }> => r.type === type)
 
 const mean = (xs: number[]): number => xs.reduce((a, b) => a + b, 0) / xs.length
 const cm = (m: number): string => (m * 100).toFixed(1)
 
 /** Fix errors in metres, in the order the anchor emitted them. */
 const fixErrM = (rs: TLRecord[]): number[] =>
-  of(rs, 'UWB_POSITION').map((f) => Math.hypot(f.x - f.trueX, f.y - f.trueY))
+  ofType(rs, 'UWB_POSITION').map((f) => Math.hypot(f.x - f.trueX, f.y - f.trueY))
 /** |measured − true| of every range the anchor reported, in metres. */
 const ancRangeErrM = (rs: TLRecord[]): number[] =>
-  of(rs, 'UWB_RANGE').filter((r) => r.node === ANC).map((r) => Math.abs(r.distM - r.trueDistM))
+  ofType(rs, 'UWB_RANGE').filter((r) => r.node === ANC).map((r) => Math.abs(r.distM - r.trueDistM))
 /**
  * Each fix split into its component along the true anchor→badge ray and its component
  * across it. This is the whole argument of the lesson's ellipse section, so it is measured
@@ -74,7 +80,7 @@ const split = (rs: TLRecord[], v: UwbAoaVariant): { along: number[]; across: num
   const t = tagXY(v)
   const bx = t.x - ANCHOR_X, by = t.y - ANCHOR_Y
   const L = Math.hypot(bx, by)
-  const fs = of(rs, 'UWB_POSITION')
+  const fs = ofType(rs, 'UWB_POSITION')
   return {
     along: fs.map((f) => ((f.x - f.trueX) * bx + (f.y - f.trueY) * by) / L),
     across: fs.map((f) => ((f.x - f.trueX) * -by + (f.y - f.trueY) * bx) / L),
@@ -86,55 +92,38 @@ const horizM = (v: UwbAoaVariant): number => SPOTS[v].rangeM
 const crossSigmaM = (v: UwbAoaVariant): number =>
   horizM(v) * aoaSigmaDeg(SPOTS[v].offBoresightDeg) * (Math.PI / 180)
 
-/** Everything a learner reads of this lesson, joined — for "is this number actually printed?". */
-const lessonProse = (l: Lesson): string => {
-  const out: string[] = []
-  const walk = (x: unknown): void => {
-    if (x == null || typeof x === 'function') return
-    if (Array.isArray(x)) { x.forEach(walk); return }
-    if (typeof x !== 'object') return
-    const o = x as Record<string, unknown>
-    if (typeof o.en === 'string') { out.push(o.en); return }
-    for (const [k, vv] of Object.entries(o)) if (k !== 'scenario' && k !== 'find') walk(vv)
-  }
-  walk({ body: l.body, observe: l.observe, tryThis: l.tryThis, quiz: l.quiz })
-  return out.join('\n')
-}
-const prose = (): string => lessonProse(uwbAoa)
+/** Everything a learner reads of this lesson, joined — `deeper` and `sources` included. */
+const prose = (): string => lessonStrings(uwbAoa).map((s) => s.en).join('\n')
 
-const tables = (): Extract<Block, { kind: 'table' }>[] =>
-  uwbAoa.body!.filter((b): b is Extract<Block, { kind: 'table' }> => b.kind === 'table')
-const cell = (row: number, col: number): string => tables()[0].rows[row][col].en
+/** The lesson's nth table of `numbers`: 0 is the three spots, 1 is the log lines. */
+const table = (n: number): Extract<Block, { kind: 'table' }> =>
+  uwbAoa.numbers!.filter((b): b is Extract<Block, { kind: 'table' }> => b.kind === 'table')[n]
+const cell = (n: number, row: number, col: number): string => table(n).rows[row][col].en
+const formulas = (): Extract<Block, { kind: 'formula' }>[] =>
+  uwbAoa.numbers!.filter((b): b is Extract<Block, { kind: 'formula' }> => b.kind === 'formula')
 
 const ALL: UwbAoaVariant[] = ['base', 'off45', 'off60', 'behind']
 
-describe('uwb-aoa · lesson shape', () => {
-  it('the scenario and its three variants pass the scenario schema', () => {
-    expect(() => ScenarioSchema.parse(uwbAoa.scenario())).not.toThrow()
-    expect(uwbAoa.variants).toHaveLength(3)
-    for (const v of uwbAoa.variants!) expect(() => ScenarioSchema.parse(v.scenario())).not.toThrow()
-    expect(uwbAoa.variants!.map((x) => x.label.en)).toEqual(['45° at 4 m', '60° at 5 m', 'Behind the anchor'])
-    expect(uwbAoa.variants!.map((x) => x.label.zh)).toEqual(['4 m 处 45°', '5 m 处 60°', '锚点背后'])
-  })
+// The contract every migrated lesson owes: the sections, the section budgets, the stated
+// minutes, the jump targets, the bilingual walk and the first watch. The window is what
+// `npx tsx scripts/lesson-dump.ts uwb-aoa en` reports for why + outcomes + terms + picture
+// + numbers.
+lessonShapeSuite(uwbAoa, { proseMax: 950 })
 
-  it('the computed study time follows the formula and stays inside the 15–25 minute target', () => {
-    const raw = lessonWords(uwbAoa) / 150
-      + OBSERVE_MINUTES * uwbAoa.observe.length + TRY_MINUTES * uwbAoa.tryThis.length
-    expect(lessonMinutes(uwbAoa)).toBe(Math.max(5, Math.round(raw / 5) * 5))
-    expect(lessonMinutes(uwbAoa)).toBeGreaterThanOrEqual(15)
-    expect(lessonMinutes(uwbAoa)).toBeLessThanOrEqual(25)
-    // the header's word budget: 25 minutes needs at most 1724 words, because 1725 makes raw
-    // exactly 27.5 and Math.round(5.5) rounds up
-    expect(lessonWords(uwbAoa)).toBeLessThanOrEqual(1724)
-    const at1725 = 1725 / 150 + OBSERVE_MINUTES * 4 + TRY_MINUTES * 2
-    expect(Math.round(at1725 / 5) * 5).toBe(30)
-    expect(uwbAoa.module).toBe(14)
+describe('uwb-aoa · the lesson', () => {
+  it('sits in module 14, needs the double-sided lesson, and names four new words', () => {
     expect(uwbAoa.id).toBe('uwb-aoa')
+    expect(uwbAoa.module).toBe(14)
+    expect(uwbAoa.needs).toEqual(['uwb-dstwr'])
+    expect(uwbAoa.terms!.map((t) => t.term)).toEqual(['AoA', 'phase difference', 'boresight', 'field of view'])
+    // the reader is sent to the bearing itself, not to the Poll that carried it
+    const watch = uwbAoa.picture!.find((b) => b.kind === 'watch') as Extract<Block, { kind: 'watch' }>
+    expect(uwbAoa.jumps[watch.jump!].label.en).toBe('the bearing the anchor takes off it')
   })
 
-  it('it offers five jumps, four things to observe, two experiments and three questions', () => {
+  it('it offers five jumps, two things to observe, two experiments and three questions', () => {
     expect(uwbAoa.jumps).toHaveLength(5)
-    expect(uwbAoa.observe).toHaveLength(4)
+    expect(uwbAoa.observe).toHaveLength(2)
     expect(uwbAoa.tryThis).toHaveLength(2)
     expect(uwbAoa.quiz).toHaveLength(3)
     for (const q of uwbAoa.quiz) expect(q.options[q.answer]).toBeDefined()
@@ -157,45 +146,20 @@ describe('uwb-aoa · lesson shape', () => {
     expect(rs[idx[3]].t).toBe(4_193_534)
     expect(rs[idx[4]].t).toBe(4_193_534)
     // the jumped-to fix is the AoA one, and it is the only kind of fix in the run
-    expect(of(rs, 'UWB_POSITION').every((f) => f.method === 'aoa')).toBe(true)
+    expect(ofType(rs, 'UWB_POSITION').every((f) => f.method === 'aoa')).toBe(true)
   })
 
-  it('every string a learner reads exists in both languages', () => {
-    const seen: L10n[] = []
-    const isL10n = (o: Record<string, unknown>): o is Record<string, unknown> & L10n =>
-      typeof o.en === 'string' && typeof o.zh === 'string'
-    const walk = (x: unknown): void => {
-      if (x == null || typeof x === 'function') return
-      if (Array.isArray(x)) { x.forEach(walk); return }
-      if (typeof x !== 'object') return
-      const o = x as Record<string, unknown>
-      if (isL10n(o)) { seen.push(o); return }
-      for (const [k, vv] of Object.entries(o)) if (k !== 'scenario' && k !== 'find') walk(vv)
-    }
-    walk({
-      title: uwbAoa.title, body: uwbAoa.body, observe: uwbAoa.observe,
-      tryThis: uwbAoa.tryThis, quiz: uwbAoa.quiz, variants: uwbAoa.variants, jumps: uwbAoa.jumps,
-    })
-    expect(seen.length).toBeGreaterThan(40)
-    for (const l of seen) {
-      expect(l.en.trim().length, l.en).toBeGreaterThan(0)
-      expect(l.zh.trim().length, l.en).toBeGreaterThan(0)
-      if (/[a-z]{3,}\s+[a-z]{3,}/.test(l.en)) expect(l.zh, l.en).not.toBe(l.en)
-    }
-  })
-
-  it('names the clause it leans on and owns the antennas, the sigma and the mirror as the model’s', () => {
-    const first = uwbAoa.body![0]
-    expect(first.kind ?? 'p').toBe('p')
-    const en = (first as Extract<Block, { kind?: 'p' }>).text.en
-    expect(en).toContain('IEEE Std 802.15.4-2024')
-    expect(en).toContain('§10.29.1.1')
-    expect(en).toContain('lists angle of arrival among the results a ranging round may report')
-    expect(en).toContain('The rest is the model')
-    expect(en).toContain('two antennas a half wavelength apart')
-    expect(en).toContain('a phase measurement of σ_φ = 0.15 rad')
-    expect(en).toContain('the mirror behind the anchor')
-    expect(en).toContain('FiRa-style, not anything the standard specifies')
+  it('names the one clause it leans on and owns the antennas, the sigma and the mirror as the model’s', () => {
+    const src = uwbAoa.sources!.map((s) => s.en).join('\n')
+    expect(src).toContain('IEEE Std 802.15.4-2024')
+    expect(src).toContain('§10.29.1.1')
+    expect(src).toContain('lists angle of arrival among the results a ranging round may report')
+    expect(src).toContain('two receive antennas half a wavelength apart')
+    expect(src).toContain('a phase measurement with σ_φ = 0.15 rad')
+    expect(src).toContain('the mirror behind the anchor')
+    expect(src).toContain('in the style of the FiRa profiles rather than of anything the standard specifies')
+    // "DS is not optional here" is a scene choice, so it is owned in `sources` too
+    expect(src).toContain('a double-sided session')
   })
 
   it('it is the last lesson of module 14, and UWB Tier 3 follows it', () => {
@@ -213,6 +177,7 @@ describe('uwb-aoa · the scene', () => {
   it('is one anchor facing into the room and one badge, at the angles the prose names', () => {
     for (const v of ALL) {
       const s = scenarioOf(v)
+      expect(() => ScenarioSchema.parse(s), v).not.toThrow()
       expect(s.nodes.map((n) => n.id), v).toEqual([ANC, TAG])
       const a = s.nodes[0]
       expect(a.pos, v).toEqual({ x: ANCHOR_X, y: ANCHOR_Y, z: ANCHOR_Z })
@@ -229,12 +194,12 @@ describe('uwb-aoa · the scene', () => {
       expect(t.pos.y, v).toBeGreaterThan(0)
       expect(t.pos.y, v).toBeLessThan(8)
     }
-    // "at (5.00, 0.50) and 2.20 m up", "the 10 × 8 m lab", 1.00 m badges
-    const en = prose()
-    expect(en).toContain('at (5.00, 0.50) and 2.20 m up, facing into the room')
-    expect(en).toContain('The anchor is at 2.20 m and the badge at 1.00 m')
+    // "the distance is measured up to an anchor near the ceiling", "the height comes out of it first"
     expect(ANCHOR_Z).toBe(2.2)
     expect(TAG_Z).toBe(1)
+    expect(ANCHOR_Z).toBeGreaterThan(TAG_Z)
+    expect(uwbAoa.variants!.map((x) => x.label.en)).toEqual(['45° at 4 m', '60° at 5 m', 'Behind the anchor'])
+    expect(uwbAoa.variants!.map((x) => x.label.zh)).toEqual(['4 m 处 45°', '5 m 处 60°', '锚点背后'])
   })
 
   it('the spots are exact polar coordinates, so the records read −45.000° and −60.000°', () => {
@@ -249,10 +214,12 @@ describe('uwb-aoa · the scene', () => {
       // and the plan distance is the r the spot was built from
       expect(Math.hypot(t.x - ANCHOR_X, t.y - ANCHOR_Y), v).toBeCloseTo(SPOTS[v].rangeM, 9)
       // which is what the engine says, to the last digit the log prints
-      expect(of(recs(v), 'UWB_AOA')[0].trueThetaDeg.toFixed(3), v).toBe(expected.toFixed(3))
+      expect(ofType(recs(v), 'UWB_AOA')[0].trueThetaDeg.toFixed(3), v).toBe(expected.toFixed(3))
     }
-    expect([cell(0, 1), cell(1, 1), cell(2, 1)]).toEqual(['0.0°', '−45.0°', '−60.0°'])
-    expect(prose()).toContain('The true bearing reads −45.0° and −60.0° exactly')
+    // the table's "True bearing" column, and the names of the two variants it is read with
+    expect([cell(0, 0, 1), cell(0, 1, 1), cell(0, 2, 1)]).toEqual(['0.0°', '−45.0°', '−60.0°'])
+    expect([cell(0, 1, 0), cell(0, 2, 0)]).toEqual(['45° to its right, 4 m', '60° to its right, 5 m'])
+    expect(uwbAoa.tryThis[0].en).toContain('Load “45° at 4 m”, then “60° at 5 m”')
     // "a badge to the anchor's right … has a negative azimuth"
     expect(tagXY('off45').x).toBeGreaterThan(ANCHOR_X)
     expect(tagXY('off60').x).toBeGreaterThan(ANCHOR_X)
@@ -272,15 +239,17 @@ describe('uwb-aoa · the scene', () => {
       expect(u.cfoNoisePpm, v).toBe(DEFAULT_UWB_SESSION.cfoNoisePpm)
       for (const n of scenarioOf(v).nodes) expect(n.uwb?.ppm, `${v} ${n.id}`).toBeUndefined()
     }
-    // "the default of false" — nothing else in the course turns this on
+    // nothing else in the course turns this on
     expect(DEFAULT_UWB_SESSION.aoa).toBe(false)
-    // "DS is not optional here": in SS the anchor measures bearings and never a range, so it
-    // has nothing to cross them with and emits no fix at all
+    // `sources`: "with a single-sided one the anchor would hold a bearing and never compute a
+    // range to cross it with" — in SS the anchor measures bearings and emits no fix at all
     const ss = uwbAoaScenario('base')
-    const ssRun = runOf('ss', () => ({ ...ss, uwb: { ...ss.uwb!, method: 'ss' } }))
-    expect(of(ssRun, 'UWB_AOA').length).toBe(BLOCKS)
-    expect(of(ssRun, 'UWB_POSITION')).toEqual([])
-    expect(of(recs('base'), 'UWB_POSITION')).toHaveLength(BLOCKS)
+    const ssRun = runExtra('ss', () => ({ ...ss, uwb: { ...ss.uwb!, method: 'ss' } }))
+    expect(ofType(ssRun, 'UWB_AOA').length).toBe(BLOCKS)
+    expect(ofType(ssRun, 'UWB_POSITION')).toEqual([])
+    expect(ofType(recs('base'), 'UWB_POSITION')).toHaveLength(BLOCKS)
+    expect(uwbAoa.sources!.map((s) => s.en).join('\n'))
+      .toContain('the anchor would hold a bearing and never compute a range to cross it with')
   })
 
   it('replays bit-for-bit, in all four scenes', () => {
@@ -292,17 +261,17 @@ describe('uwb-aoa · the scene', () => {
 })
 
 describe('uwb-aoa · two antennas, one phase', () => {
-  it('"two receive antennas 1.88 cm apart — half a wavelength on channel 9"', () => {
+  it('"antennas 1.88 cm apart under a 3.75 cm carrier" on channel 9, and only the ratio matters', () => {
     expect(UWB_CHANNEL_MHZ[9]).toBe(7987.2)
     expect((wavelengthM(9) * 100).toFixed(2)).toBe('3.75')
     expect((antennaSpacingM(9) * 100).toFixed(2)).toBe('1.88')
     expect(antennaSpacingM(9)).toBeCloseTo(wavelengthM(9) / 2, 12)
-    // "(Channel 5: λ = 4.62 cm, spacing 2.31 cm; only the ratio matters.)"
+    // "Going deeper": "Channel 5’s are 4.62 cm and 2.31 cm"
     expect((wavelengthM(5) * 100).toFixed(2)).toBe('4.62')
     expect((antennaSpacingM(5) * 100).toFixed(2)).toBe('2.31')
     const en = prose()
-    expect(en).toContain('two receive antennas are 1.88 cm apart — half a wavelength on channel 9, whose 7 987.2 MHz carrier is 3.75 cm long')
-    expect(en).toContain('Channel 5: λ = 4.62 cm, spacing 2.31 cm; only the ratio matters')
+    expect(en).toContain('on channel 9, antennas 1.88 cm apart under a 3.75 cm carrier')
+    expect(en).toContain('Channel 9’s carrier is 3.75 cm with antennas 1.88 cm apart; channel 5’s are 4.62 cm and 2.31 cm')
     // and the ratio really is all that matters: the same true azimuth gives the same phase and
     // the same estimate on both channels
     for (const t of [0, -45, -60, 80]) {
@@ -311,25 +280,27 @@ describe('uwb-aoa · two antennas, one phase', () => {
     }
   })
 
-  it('"A badge 45° off boresight produces 2.221 rad, one 60° off 2.721 rad"', () => {
-    expect(Math.abs(pdoaRad(-45, 9)).toFixed(3)).toBe('2.221')
-    expect(Math.abs(pdoaRad(-60, 9)).toFixed(3)).toBe('2.721')
-    // "the whole ±90° field of view maps onto exactly one turn of phase, and nothing wraps"
+  it('the formula is the shipped one, and nothing wraps inside the field of view', () => {
+    expect(formulas()).toHaveLength(2)
+    expect(formulas()[0].text.en).toBe('Δφ = 2π·(d/λ)·sin θ = π·sin θ   (at d = λ/2)\nθ̂ = asin(Δφ/π),  clamped to ±90°')
+    expect(formulas()[1].text.en).toBe('σ_θ = σ_φ / (π·cos θ)')
+    for (const f of formulas()) expect(f.text.zh.length).toBeGreaterThan(0)
+    // "The whole field of view maps onto one turn of phase, so nothing wraps"
     expect(pdoaRad(90, 9)).toBeCloseTo(Math.PI, 12)
     expect(pdoaRad(-90, 9)).toBeCloseTo(-Math.PI, 12)
     expect(pdoaRad(0, 9)).toBe(0)
-    // "σ_φ = 0.15 rad ≈ 8.6° of phase noise"
-    expect(AOA_SIGMA_PHI_RAD).toBe(0.15)
-    expect((AOA_SIGMA_PHI_RAD * 180 / Math.PI).toFixed(1)).toBe('8.6')
-    // "the argument is clamped rather than dropped and the reading lands at the edge"
+    // "Going deeper": "2.221 rad at 45° off boresight, 2.721 rad at 60°, and π at the edge"
+    expect(Math.abs(pdoaRad(-45, 9)).toFixed(3)).toBe('2.221')
+    expect(Math.abs(pdoaRad(-60, 9)).toFixed(3)).toBe('2.721')
+    expect(prose()).toContain('2.221 rad at 45° off boresight, 2.721 rad at 60°, and π at the edge of the field of view')
+    // "Noise can push the argument past ±π, where the arc sine has no answer, so the model clamps it"
     expect(azimuthFromPdoaDeg(Math.PI * 1.4, 9)).toBe(90)
     expect(azimuthFromPdoaDeg(-Math.PI * 1.4, 9)).toBe(-90)
-    const en = prose()
-    expect(en).toContain('A badge 45° off boresight produces 2.221 rad, one 60° off 2.721 rad')
-    expect(en).toContain('the argument is clamped rather than dropped and the reading lands at the edge of the field of view')
   })
 
-  it('"Straight ahead that is 2.74°; at 45° it is 3.87°, at 60° 5.47°"', () => {
+  it('"0.15 rad or about 8.6°" inverts to 2.74° ahead, 3.87° at 45° and 5.47° at 60°', () => {
+    expect(AOA_SIGMA_PHI_RAD).toBe(0.15)
+    expect((AOA_SIGMA_PHI_RAD * 180 / Math.PI).toFixed(1)).toBe('8.6')
     expect(aoaSigmaDeg(0).toFixed(2)).toBe('2.74')
     expect(aoaSigmaDeg(-45).toFixed(2)).toBe('3.87')
     expect(aoaSigmaDeg(-60).toFixed(2)).toBe('5.47')
@@ -337,29 +308,48 @@ describe('uwb-aoa · two antennas, one phase', () => {
     for (const t of [0, -45, -60, 30]) {
       expect(aoaSigmaDeg(t), String(t)).toBeCloseTo((AOA_SIGMA_PHI_RAD / (Math.PI * Math.cos(t * Math.PI / 180))) * 180 / Math.PI, 12)
     }
-    // "at ±90° it diverges … The model clamps σ_θ itself at 45°, which it reaches at about
-    // ±86.5° off boresight": the clamp is on the sigma, and it does not bite anywhere the lesson
-    // sends the badge — not at 60°, and not at the 80° spot of try-this 1
+    expect([cell(0, 0, 2), cell(0, 1, 2), cell(0, 2, 2)]).toEqual(['2.74°', '3.87°', '5.47°'])
+    expect(prose()).toContain('0.15 rad or about 8.6°')
+    expect(prose()).toContain('Straight ahead it inverts to 2.74° of bearing noise')
+    // and the measurements obey it: every one of the 14 bearings is inside 4 σ_θ of the truth
+    for (const v of ['base', 'off45', 'off60'] as UwbAoaVariant[]) {
+      const as = ofType(recs(v), 'UWB_AOA')
+      expect(as, v).toHaveLength(2 * BLOCKS)
+      for (const a of as) {
+        expect(Math.abs(a.thetaDeg - a.trueThetaDeg), `${v} ${a.thetaDeg}`).toBeLessThan(4 * aoaSigmaDeg(a.trueThetaDeg))
+      }
+    }
+  })
+
+  it('"Going deeper": the two clamps, and the 80° spot where they begin to bite', () => {
+    // "σ_θ itself is clamped at 45°, which the formula reaches at about ±86.5° off boresight"
     expect(aoaSigmaDeg(90)).toBe(AOA_SIGMA_CLAMP_DEG)
     expect(AOA_SIGMA_CLAMP_DEG).toBe(45)
     const crossoverDeg = Math.acos(AOA_SIGMA_PHI_RAD / (Math.PI * AOA_SIGMA_CLAMP_DEG * Math.PI / 180)) * 180 / Math.PI
     expect(crossoverDeg.toFixed(1)).toBe('86.5')
     expect(aoaSigmaDeg(86.4)).toBeLessThan(AOA_SIGMA_CLAMP_DEG)
     expect(aoaSigmaDeg(86.6)).toBe(AOA_SIGMA_CLAMP_DEG)
+    // "neither fires anywhere the lesson sends the badge"
     expect(aoaSigmaDeg(-60)).toBeLessThan(AOA_SIGMA_CLAMP_DEG)
-    expect(aoaSigmaDeg(-80)).toBeLessThan(AOA_SIGMA_CLAMP_DEG)
-    expect(prose()).toContain('The model clamps σ_θ itself at 45°, which it reaches at about ±86.5° off boresight')
-    expect(aoaSigmaDeg(-80).toFixed(2)).toBe('15.75')
-    expect([cell(0, 2), cell(1, 2), cell(2, 2)]).toEqual(['2.74°', '3.87°', '5.47°'])
-    expect(prose()).toContain('σ_θ = σ_φ/(π·cos θ)')
-    // and the measurements obey it: every one of the 14 bearings is inside 4 σ_θ of the truth
     for (const v of ['base', 'off45', 'off60'] as UwbAoaVariant[]) {
-      const as = of(recs(v), 'UWB_AOA')
-      expect(as, v).toHaveLength(2 * BLOCKS)
-      for (const a of as) {
-        expect(Math.abs(a.thetaDeg - a.trueThetaDeg), `${v} ${a.thetaDeg}`).toBeLessThan(4 * aoaSigmaDeg(a.trueThetaDeg))
-      }
+      expect(ofType(recs(v), 'UWB_AOA').some((a) => Math.abs(a.thetaDeg) === 90), v).toBe(false)
     }
+    // the 80° spot: (8.94, 1.19) is 80° off boresight at 4 m, and inside the room
+    const far = { x: ANCHOR_X + 4 * Math.sin(80 * Math.PI / 180), y: ANCHOR_Y + 4 * Math.cos(80 * Math.PI / 180) }
+    expect([far.x.toFixed(2), far.y.toFixed(2)]).toEqual(['8.94', '1.19'])
+    expect(aoaSigmaDeg(-80).toFixed(2)).toBe('15.75')
+    expect(aoaSigmaDeg(-80)).toBeLessThan(AOA_SIGMA_CLAMP_DEG)
+    const base = uwbAoaScenario('base')
+    const run80 = runExtra('off80', () => ({
+      ...base,
+      nodes: base.nodes.map((n): NodeCfg => (n.id === TAG ? { ...n, pos: { ...n.pos, ...far } } : n)),
+    }))
+    const bearings = ofType(run80, 'UWB_AOA')
+    expect(bearings).toHaveLength(2 * BLOCKS)
+    expect(bearings.filter((b) => b.thetaDeg === -90)).toHaveLength(6)
+    expect(Math.max(...ofType(run80, 'UWB_POSITION').map((f) => f.ellipse.a)).toFixed(2)).toBe('3.16')
+    expect(prose()).toContain('σ_θ is 15.75°, six of the fourteen bearings come back pinned at −90.0°, and the worst ellipse has a semi-major axis of 3.16 m')
+    expect(prose()).toContain('about ±86.5° off boresight')
   })
 })
 
@@ -367,79 +357,81 @@ describe('uwb-aoa · a circle and a ray', () => {
   const rs = recs('base')
 
   it('the anchor measures a bearing on every frame from the badge, and fixes the badge alone', () => {
-    // "It does this on every frame from the badge, so a DS round yields two bearings"
-    const as = of(rs, 'UWB_AOA')
+    // "It does this on every frame from the badge, so one round leaves two bearings"
+    const as = ofType(rs, 'UWB_AOA')
     expect(as).toHaveLength(2 * BLOCKS)
     expect(as.every((a) => a.node === ANC && a.peer === TAG)).toBe(true)
-    const fixes = of(rs, 'UWB_POSITION')
+    const fixes = ofType(rs, 'UWB_POSITION')
     expect(fixes).toHaveLength(BLOCKS)
     expect(fixes.every((f) => f.node === ANC && f.of === TAG && f.method === 'aoa')).toBe(true)
-    // "one anchor, one position" — and "GDOP is 1.00 by construction"
+    // "the anchor needs nobody else: it solves the badge's position by itself", and "GDOP is
+    // 1.00 here by construction and has nothing to say"
     expect(fixes.every((f) => f.anchors.length === 1 && f.anchors[0] === ANC)).toBe(true)
     expect(fixes.every((f) => f.gdop === 1)).toBe(true)
-    expect(prose()).toContain('GDOP is 1.00 by construction and has nothing to say here')
-    // "the 2.12 cm sigma it has had since module 11"
+    expect(prose()).toContain('GDOP is 1.00 here by construction and has nothing to say')
+    // "The 2.12 cm range sigma is the model constant the positioning lessons use"
     expect((rangeSigmaM(DEFAULT_UWB_SESSION.tsNoisePs) * 100).toFixed(2)).toBe('2.12')
-    expect(prose()).toContain('with the 2.12 cm sigma it has had since module 11')
+    expect(uwbAoa.sources!.map((s) => s.en).join('\n'))
+      .toContain('The 2.12 cm range sigma is the model constant the positioning lessons use, σ_r = c · σ_ts / √2 at 100 ps of timestamp noise')
+    expect(DEFAULT_UWB_SESSION.tsNoisePs).toBe(100)
   })
 
-  it('observe 1: the Poll, the bearing taken off it, and the Final’s bearing', () => {
-    const as = of(rs, 'UWB_AOA')
+  it('the log table is the round, line for line', () => {
+    const as = ofType(rs, 'UWB_AOA')
     expect(as[0].t).toBe(197_636)
-    expect(fmtRecord(as[0])).toBe('anc-1 AoA ← badge-1: 2.3° (true 0.0°)')
     expect(as[1].t).toBe(4_193_534)
-    expect(fmtRecord(as[1])).toBe('anc-1 AoA ← badge-1: 1.8° (true 0.0°)')
-    const o1 = uwbAoa.observe[0].en
-    expect(o1).toContain('197.636 µs later')
-    expect(o1).toContain('anc-1 AoA ← badge-1: 2.3° (true 0.0°)')
-    expect(o1).toContain('the Final’s arrives at 4.193 534 ms reading 1.8°')
-    expect(o1).toContain('Seven rounds, fourteen bearings')
-  })
-
-  it('observe 2: the three lines that land together at 4.193 534 ms', () => {
+    expect(cell(1, 0, 0)).toBe('First bearing, at 197.636 µs')
+    expect(cell(1, 0, 1)).toBe(fmtRecord(as[0]))
+    expect(cell(1, 0, 1)).toBe('anc-1 AoA ← badge-1: 2.3° (true 0.0°)')
+    expect(cell(1, 1, 0)).toBe('Second, off the Final, at 4.193 534 ms')
+    expect(cell(1, 1, 1)).toBe(fmtRecord(as[1]))
+    expect(cell(1, 1, 1)).toBe('anc-1 AoA ← badge-1: 1.8° (true 0.0°)')
+    // the three lines observe 2 says land together
     const at = rs.filter((r) => r.t === 4_193_534 && (r.type === 'UWB_AOA' || r.type === 'UWB_RANGE' || r.type === 'UWB_POSITION'))
     expect(at.map((r) => r.type)).toEqual(['UWB_AOA', 'UWB_RANGE', 'UWB_POSITION'])
-    const lines = at.map(fmtRecord)
-    expect(lines[1]).toBe('anc-1 range → badge-1 (DS): 2.30 m (true 2.33 m)')
-    expect(lines[2]).toBe(
+    expect(cell(1, 2, 1)).toBe(fmtRecord(at[1]))
+    expect(cell(1, 2, 1)).toBe('anc-1 range → badge-1 (DS): 2.30 m (true 2.33 m)')
+    expect(cell(1, 3, 1)).toBe(fmtRecord(at[2]))
+    expect(cell(1, 3, 1)).toBe(
       'anc-1 position of badge-1 (4.94, 2.47) m, true (5.00, 2.50), error 0.07 m, GDOP 1.00, 1 anchors (AoA)',
     )
-    const o2 = uwbAoa.observe[1].en
-    for (const l of lines) expect(o2, l).toContain(l)
-    expect(o2).toContain('Three lines land together at 4.193 534 ms')
-    // "The fix takes the Final's bearing": the ellipse is turned a quarter turn from
-    // yaw + θ̂ of the SECOND bearing of the round, not the first
-    const fix = of(rs, 'UWB_POSITION')[0]
-    const bearingRad = (YAW_IN + of(rs, 'UWB_AOA')[1].thetaDeg) * (Math.PI / 180)
+    expect(uwbAoa.observe[1].en).toContain('Three lines land together at the end of the round')
+    // "always with the later bearing": the ellipse is turned a quarter turn from yaw + θ̂ of the
+    // SECOND bearing of the round, not the first
+    const fix = ofType(rs, 'UWB_POSITION')[0]
+    const bearingRad = (YAW_IN + as[1].thetaDeg) * (Math.PI / 180)
     expect(fix.ellipse.thetaRad).toBeCloseTo(bearingRad + Math.PI / 2, 12)
-    expect(o2).toContain('The fix takes the Final’s bearing')
+    expect(uwbAoa.observe[1].en).toContain('always with the later bearing, measured closest in time to the range it crosses')
   })
 
-  it('observe 3 and 4: the anchor holds the bearing, the badge holds the fix', () => {
+  it('the anchor holds the bearing, the badge holds the fix — the table’s last row', () => {
     const vs = initViewState(uwbAoa.scenario())
     for (const r of rs) applyRecord(vs, r)
     const a = vs.nodes[ANC].uwb!
+    // "The range row beside it reads 2.31 m against a true 2.33, −2.4 cm, over seven rounds of DS-TWR"
     expect(uwbRangeRows(a, STRINGS.en.uwb)).toEqual([{
       peer: TAG, measured: '2.31 m', trueDist: '2.33 m', error: '-2.4 cm',
       fom: '97 % within 0.5 ns', rounds: String(BLOCKS), method: 'DS-TWR',
     }])
+    expect(prose()).toContain('reads 2.31 m against a true 2.33, −2.4 cm, over seven rounds of DS-TWR')
     expect(uwbAoaRows(a)).toEqual([{
       peer: TAG, measured: '-3.7°', trueTheta: '0.0°', error: '-3.7°',
       sigma: '± 2.7°', rounds: String(2 * BLOCKS),
     }])
-    // "A bearing belongs to the anchor that measured it; a fix belongs to whoever it is of"
+    // "A bearing belongs to the anchor that measured it, a fix to whoever it is of"
     expect(a.position).toBeNull()
     const t = vs.nodes[TAG].uwb!
     expect(uwbAoaRows(t)).toEqual([])
-    expect(uwbFixRow(t.position!, STRINGS.en.uwb)).toEqual({
+    const row = uwbFixRow(t.position!, STRINGS.en.uwb)
+    expect(row).toEqual({
       estimate: '(5.13, 2.47) m', truth: '(5.00, 2.50) m', error: '13.3 cm',
       gdop: '1.00', ellipse: '9.4 × 2.1 cm', method: 'angle of arrival',
     })
     expect(uwbFixRow(t.position!, STRINGS.zh.uwb).method).toBe('到达角 (AoA)')
-    const o3 = uwbAoa.observe[2].en, o4 = uwbAoa.observe[3].en
-    expect(o3).toContain('2.31 m against a true 2.33, −2.4 cm, 97 % within 0.5 ns, 7 rounds, DS-TWR')
-    expect(o3).toContain('measured −3.7°, true 0.0°, error −3.7°, ± 2.7°, over 14 rounds')
-    expect(o4).toContain('(5.13, 2.47) m against (5.00, 2.50), 13.3 cm out, GDOP 1.00, ellipse 9.4 × 2.1 cm')
+    expect(cell(1, 4, 0)).toBe('The badge’s row, after seven rounds')
+    expect(cell(1, 4, 1))
+      .toBe(`${row.estimate}, true ${row.truth}, ${row.error}, GDOP ${row.gdop}, ellipse ${row.ellipse}`)
+    expect(uwbAoa.observe[1].en).toContain('Open the badge and the fix is in its lane')
   })
 })
 
@@ -450,26 +442,29 @@ describe('uwb-aoa · the ellipse across the line of sight', () => {
     for (const [v, row] of SPOT_ROWS) {
       const run = recs(v)
       // "Cross-range 1-σ" = rh·σ_θ at the true azimuth
-      expect(cell(row, 3), v).toBe(`${cm(crossSigmaM(v))} cm`)
+      expect(cell(0, row, 3), v).toBe(`${cm(crossSigmaM(v))} cm`)
       // "Range error" — the anchor's own, to one decimal
       const re = ancRangeErrM(run)
       expect(re, v).toHaveLength(BLOCKS)
-      expect(cell(row, 4), v).toBe(`${cm(mean(re))} cm`)
+      expect(cell(0, row, 4), v).toBe(`${cm(mean(re))} cm`)
       // "Fix error"
       const fe = fixErrM(run)
       expect(fe, v).toHaveLength(BLOCKS)
-      expect(cell(row, 5), v).toBe(`${cm(Math.min(...fe))}–${cm(Math.max(...fe))} cm, mean ${cm(mean(fe))}`)
+      expect(cell(0, row, 5), v).toBe(`${cm(Math.min(...fe))}–${cm(Math.max(...fe))} cm, mean ${cm(mean(fe))}`)
     }
-    expect([cell(0, 3), cell(1, 3), cell(2, 3)]).toEqual(['9.5 cm', '27.0 cm', '47.7 cm'])
-    expect([cell(0, 4), cell(1, 4), cell(2, 4)]).toEqual(['2.0 cm', '2.0 cm', '2.0 cm'])
-    expect([cell(0, 5), cell(1, 5), cell(2, 5)])
+    expect([cell(0, 0, 3), cell(0, 1, 3), cell(0, 2, 3)]).toEqual(['9.5 cm', '27.0 cm', '47.7 cm'])
+    // "The range error is the same in all three rows"
+    expect([cell(0, 0, 4), cell(0, 1, 4), cell(0, 2, 4)]).toEqual(['2.0 cm', '2.0 cm', '2.0 cm'])
+    expect([cell(0, 0, 5), cell(0, 1, 5), cell(0, 2, 5)])
       .toEqual(['2.1–15.6 cm, mean 9.6', '5.8–44.5 cm, mean 26.5', '10.4–87.7 cm, mean 48.2'])
-    expect(tables()[0].head).toHaveLength(6)
-    expect(tables()[0].rows.every((r) => r.length === 6)).toBe(true)
+    // "grows fivefold", to the decimals the table prints
+    expect(crossSigmaM('off60') / crossSigmaM('base')).toBeGreaterThan(4.5)
+    expect(table(0).head).toHaveLength(7)
+    expect(table(0).rows.every((r) => r.length === 7)).toBe(true)
+    expect(prose()).toContain('the cross-range error rh·σ_θ grows fivefold and takes the fix error with it')
   })
 
-  it('"the cross-range error rh·σ_θ goes from 9.5 cm to 47.7" while the range does not', () => {
-    // the whole argument of the section: the error has a direction
+  it('the error has a direction: across is the bearing’s, along stays inside 9 cm', () => {
     const alongAll: number[] = []
     for (const [v] of SPOT_ROWS) {
       const { along, across } = split(recs(v), v)
@@ -477,36 +472,37 @@ describe('uwb-aoa · the ellipse across the line of sight', () => {
       // across ≈ the fix error, within a millimetre, at every spot
       const fe = fixErrM(recs(v))
       across.forEach((x, i) => expect(Math.abs(Math.abs(x) - fe[i]), `${v} ${i}`).toBeLessThan(0.01))
-      // and it is what the cross-range sigma predicts: worst case inside 2σ, none inside 0.1σ
+      // and it is what the cross-range sigma predicts: worst case inside 2σ
       expect(Math.max(...across.map(Math.abs)), v).toBeLessThan(2 * crossSigmaM(v))
     }
-    // "the along-the-ray component of all twenty-one fixes stays inside 9 cm"
+    // "Going deeper": "all twenty-one of them stay inside 9 cm, under four times the range sigma"
     expect(alongAll).toHaveLength(3 * BLOCKS)
     expect(alongAll).toHaveLength(21)
     expect(Math.max(...alongAll.map(Math.abs))).toBeLessThan(0.09)
-    // and that 9 cm is the range's doing: under 4 σ_r
     expect(Math.max(...alongAll.map(Math.abs))).toBeLessThan(4 * rangeSigmaM(DEFAULT_UWB_SESSION.tsNoisePs))
-    const en = prose()
-    expect(en).toContain('the cross-range error rh·σ_θ goes from 9.5 cm to 47.7')
-    expect(en).toContain('the along-the-ray component of all twenty-one fixes stays inside 9 cm')
+    expect(prose()).toContain('all twenty-one of them stay inside 9 cm, under four times the range sigma')
   })
 
-  it('"9.4 × 2.1 cm at the first fix, 25.7 × 2.1 at 45°, 43.1 × 2.1 at 60°", turned a quarter turn', () => {
-    const first = SPOT_ROWS.map(([v]) => of(recs(v), 'UWB_POSITION')[0])
-    expect(first.map((f) => `${cm(f.ellipse.a)} × ${(f.ellipse.b * 100).toFixed(1)}`))
-      .toEqual(['9.4 × 2.1', '25.7 × 2.1', '43.1 × 2.1'])
-    // "The ellipse's semi-axes are those two measurements": b is the range sigma at every spot
+  it('the ellipse column is the run’s, and every ellipse is a quarter turn from the bearing', () => {
+    const first = SPOT_ROWS.map(([v]) => ofType(recs(v), 'UWB_POSITION')[0])
+    expect(first.map((f) => `${cm(f.ellipse.a)} × ${(f.ellipse.b * 100).toFixed(1)} cm`))
+      .toEqual([cell(0, 0, 6), cell(0, 1, 6), cell(0, 2, 6)])
+    expect([cell(0, 0, 6), cell(0, 1, 6), cell(0, 2, 6)])
+      .toEqual(['9.4 × 2.1 cm', '25.7 × 2.1 cm', '43.1 × 2.1 cm'])
+    // "The ellipse is those two measurements as semi-axes": b is the range sigma at every spot,
+    // which is why "its short axis never moves"
     for (const f of first) expect(f.ellipse.b).toBeCloseTo(rangeSigmaM(DEFAULT_UWB_SESSION.tsNoisePs), 12)
-    // "its major axis is the angle's and it is drawn a quarter turn from the bearing"
+    // "a quarter turn from the bearing"
     for (const [v] of SPOT_ROWS) {
-      for (const f of of(recs(v), 'UWB_POSITION')) {
+      for (const f of ofType(recs(v), 'UWB_POSITION')) {
         expect(f.ellipse.a, v).toBeGreaterThan(f.ellipse.b)
         const bearing = Math.atan2(f.y - ANCHOR_Y, f.x - ANCHOR_X)
         const turn = Math.abs(Math.atan2(Math.sin(f.ellipse.thetaRad - bearing), Math.cos(f.ellipse.thetaRad - bearing)))
         expect(turn, v).toBeCloseTo(Math.PI / 2, 9)
       }
     }
-    expect(prose()).toContain('9.4 × 2.1 cm at the first fix, 25.7 × 2.1 at 45°, 43.1 × 2.1 at 60°')
+    expect(prose()).toContain('The ellipse is those two measurements as semi-axes, a quarter turn from the bearing; its short axis never moves')
+    expect(uwbAoa.tryThis[0].en).toContain('Watch the ellipse stretch while its short axis stands still')
   })
 
   it('"the radio measures 4.176 m where the plan shows 4.000", and the fix walks out the plan leg', () => {
@@ -514,13 +510,13 @@ describe('uwb-aoa · the ellipse across the line of sight', () => {
     const slant = Math.hypot(t.x - ANCHOR_X, t.y - ANCHOR_Y, ANCHOR_Z - TAG_Z)
     expect(slant.toFixed(3)).toBe('4.176')
     expect(Math.hypot(t.x - ANCHOR_X, t.y - ANCHOR_Y).toFixed(3)).toBe('4.000')
-    // "would plant every fix 17.6 cm too far out, eight times the range's own sigma"
+    // "would plant the point 17.6 cm too far away"
     expect(cm(slant - 4)).toBe('17.6')
     expect((slant - 4) / rangeSigmaM(DEFAULT_UWB_SESSION.tsNoisePs)).toBeGreaterThan(8)
     // it does not: every fix sits at √(r² − Δz²) from the anchor, and the along-ray error
     // is centimetres rather than the 17.6 cm bias the slant range would have left
-    const fs = of(recs('off45'), 'UWB_POSITION')
-    const rs45 = of(recs('off45'), 'UWB_RANGE').filter((r) => r.node === ANC)
+    const fs = ofType(recs('off45'), 'UWB_POSITION')
+    const rs45 = ofType(recs('off45'), 'UWB_RANGE').filter((r) => r.node === ANC)
     fs.forEach((f, i) => {
       const walked = Math.hypot(f.x - ANCHOR_X, f.y - ANCHOR_Y)
       const dz = ANCHOR_Z - TAG_Z
@@ -530,64 +526,40 @@ describe('uwb-aoa · the ellipse across the line of sight', () => {
     // lifting the badge to the anchor's own height, where slant and plan agree, moves
     // no fix by more than a millimetre — the correction is doing exactly its job
     const lifted = uwbAoaScenario('off45')
-    const flat = runOf('off45-flat', () => ({
+    const flat = runExtra('off45-flat', () => ({
       ...lifted,
       nodes: lifted.nodes.map((n): NodeCfg => (n.id === TAG ? { ...n, pos: { ...n.pos, z: ANCHOR_Z } } : n)),
     }))
     fixErrM(flat).forEach((e, i) => expect(Math.abs(e - fixErrM(recs('off45'))[i]), String(i)).toBeLessThan(0.001))
     const en = prose()
     expect(en).toContain('the radio measures 4.176 m where the plan shows 4.000')
-    expect(en).toContain('17.6 cm too far out, eight times the range’s own sigma')
+    expect(en).toContain('that would plant the point 17.6 cm too far away')
     expect(en).toContain('the fix walks out √(r² − Δz²) instead')
   })
 
-  it('try-this 1: the three spots, and the 80° spot the editor reaches', () => {
+  it('the inspector’s ± is the last bearing’s, not the spot’s', () => {
     const vs = (v: UwbAoaVariant) => {
       const st = initViewState(scenarioOf(v))
       for (const r of recs(v)) applyRecord(st, r)
       return st
     }
-    // "The inspector's 1-σ is σ_θ at the bearing that row happened to measure last, so it moves
-    // with every draw: here it reads ± 2.7°, ± 4.3° and ± 7.5° where the model's σ_θ at the three
-    // spots is 2.74°, 3.87° and 5.47°."
+    // "Going deeper": "± 2.7°, ± 4.3° and ± 7.5° at the three spots, where the model's σ_θ at
+    //  the true bearings is 2.74°, 3.87° and 5.47°"
     const SPOT3: UwbAoaVariant[] = ['base', 'off45', 'off60']
     expect(SPOT3.map((v) => uwbAoaRows(vs(v).nodes[ANC].uwb!)[0].sigma))
       .toEqual(['± 2.7°', '± 4.3°', '± 7.5°'])
-    // it really is the LAST bearing of the run and not the truth: the row is aoaSigmaDeg of it,
-    // and at two of the three spots that is a different number from the model's σ_θ
+    // it really is the LAST bearing of the run and not the truth
     for (const v of SPOT3) {
-      const last = of(recs(v), 'UWB_AOA').at(-1)!
+      const last = ofType(recs(v), 'UWB_AOA').at(-1)!
       expect(uwbAoaRows(vs(v).nodes[ANC].uwb!)[0].sigma, v).toBe(`± ${aoaSigmaDeg(last.thetaDeg).toFixed(1)}°`)
       expect(last.thetaDeg, v).not.toBe(last.trueThetaDeg)
     }
-    expect(SPOT3.map((v) => aoaSigmaDeg(SPOTS[v].offBoresightDeg).toFixed(2)))
-      .toEqual(['2.74', '3.87', '5.47'])
-    // and the sentence does not leave the reader with the row's trio as the model's
-    expect(uwbAoa.tryThis[0].en).toContain('the model’s σ_θ at the three spots is 2.74°, 3.87° and 5.47°')
-    expect(uwbAoa.tryThis[0].zh).toContain('2.74°、3.87° 与 5.47°')
-    // "the mean fix error goes 9.6 → 26.5 → 48.2 cm while the range error stays at 2.0 cm"
+    expect(SPOT3.map((v) => aoaSigmaDeg(SPOTS[v].offBoresightDeg).toFixed(2))).toEqual(['2.74', '3.87', '5.47'])
+    expect(prose()).toContain('± 2.7°, ± 4.3° and ± 7.5° at the three spots, where the model’s σ_θ at the true bearings is 2.74°, 3.87° and 5.47°')
+    expect(uwbAoa.observe[0].en).toContain('It does this on every frame from the badge, so one round leaves two bearings')
+    // "the mean fix error grow towards half a metre while the range error does not move"
     expect(SPOT3.map((v) => cm(mean(fixErrM(recs(v)))))).toEqual(['9.6', '26.5', '48.2'])
     expect(SPOT3.map((v) => cm(mean(ancRangeErrM(recs(v)))))).toEqual(['2.0', '2.0', '2.0'])
-    // the 80° spot: (8.94, 1.19) is 80° off boresight at 4 m, and inside the room
-    const far = { x: ANCHOR_X + 4 * Math.sin(80 * Math.PI / 180), y: ANCHOR_Y + 4 * Math.cos(80 * Math.PI / 180) }
-    expect([far.x.toFixed(2), far.y.toFixed(2)]).toEqual(['8.94', '1.19'])
-    const base = uwbAoaScenario('base')
-    const run80 = runOf('off80', () => ({
-      ...base,
-      nodes: base.nodes.map((n): NodeCfg => (n.id === TAG ? { ...n, pos: { ...n.pos, ...far } } : n)),
-    }))
-    expect(aoaSigmaDeg(-80).toFixed(2)).toBe('15.75')
-    const bearings = of(run80, 'UWB_AOA')
-    expect(bearings).toHaveLength(2 * BLOCKS)
-    expect(bearings.filter((b) => b.thetaDeg === -90)).toHaveLength(6)
-    expect(Math.max(...of(run80, 'UWB_POSITION').map((f) => f.ellipse.a)).toFixed(2)).toBe('3.16')
-    const t1 = uwbAoa.tryThis[0].en
-    expect(t1).toContain('The inspector’s 1-σ is σ_θ at the bearing that row happened to measure last, so it moves with every draw: here it reads ± 2.7°, ± 4.3° and ± 7.5°')
-    expect(t1).toContain('The mean fix error goes 9.6 → 26.5 → 48.2 cm while the range error stays at 2.0 cm')
-    expect(t1).toContain('9.4 × 2.1, 25.7 × 2.1, 43.1 × 2.1 cm')
-    // `ellipse.a` is the semi-major axis, the same convention the body and the inspector use
-    expect(t1).toContain('(8.94, 1.19), 80° off at 4 m: σ_θ is 15.75°, six of the fourteen bearings are pinned at the −90.0° clamp, and the worst ellipse’s semi-major axis is 3.16 m')
-    expect(prose()).toContain('The ellipse’s semi-axes are those two measurements')
   })
 })
 
@@ -600,9 +572,9 @@ describe('uwb-aoa · the half it cannot see', () => {
     expect(prose()).toContain('sin(180° − θ) = sin θ')
   })
 
-  it('"the fourteen bearings come back identical to before, around 0°"', () => {
-    const behind = of(recs('behind'), 'UWB_AOA')
-    const base = of(recs('base'), 'UWB_AOA')
+  it('"the fourteen bearings come back as the base scene’s, to every digit"', () => {
+    const behind = ofType(recs('behind'), 'UWB_AOA')
+    const base = ofType(recs('base'), 'UWB_AOA')
     // identical to every decimal anything prints: what separates them is the 4e-16 rad of
     // phase that sin(180°) leaves behind, fourteen places below the last digit on screen
     expect(behind).toHaveLength(base.length)
@@ -610,50 +582,43 @@ describe('uwb-aoa · the half it cannot see', () => {
     expect(behind.every((a) => a.trueThetaDeg === 180)).toBe(true)
     expect(behind.every((a) => Math.abs(a.thetaDeg) < 4 * aoaSigmaDeg(0))).toBe(true)
     expect(fmtRecord(behind[0])).toBe('anc-1 AoA ← badge-1: 2.3° (true 180.0°)')
-    // "only the anchor's Facing, 90° to −90°" — the badge did not move, and the "2.00 m" the
-    // mirror section quotes is the plan distance, not the 2.33 m slant range observe 1 prints
+    // "the badge, which has not moved" — only the anchor's Facing, 90° to −90°
     expect(tagXY('behind')).toEqual(tagXY('base'))
-    const t = scenarioOf('behind').nodes[1].pos
-    expect(Math.hypot(t.x - ANCHOR_X, t.y - ANCHOR_Y).toFixed(2)).toBe('2.00')
-    expect(Math.hypot(t.x - ANCHOR_X, t.y - ANCHOR_Y, ANCHOR_Z - TAG_Z).toFixed(2)).toBe('2.33')
-    expect(prose()).toContain('unmoved, still 2.00 m away on the floor')
-    expect(uwbAoa.tryThis[1].en).toContain('same spot, same 2.00 m on the floor')
     expect(scenarioOf('behind').nodes[0].uwb!.yawDeg).toBe(-90)
     expect(scenarioOf('base').nodes[0].uwb!.yawDeg).toBe(90)
-    // "the range is right to 2 cm there and the clamp never fires"
+    expect(uwbAoa.tryThis[1].en).toContain('Only the anchor’s Facing changed, so it now looks at its own wall')
+    // "The range is as right there as anywhere and the clamp never fires"
     expect(ancRangeErrM(recs('behind'))).toEqual(ancRangeErrM(recs('base')))
     expect(cm(mean(ancRangeErrM(recs('behind'))))).toBe('2.0')
     expect(behind.some((a) => Math.abs(a.thetaDeg) === 90)).toBe(false)
-    expect(uwbAoa.quiz[2].explain.en).toContain('The range is right to 2 cm there and the clamp never fires')
+    expect(uwbAoa.quiz[2].explain.en).toContain('The range is as right there as anywhere and the clamp never fires')
   })
 
-  it('"the seven fixes land near (5.06, −1.47) … The error is exactly twice the horizontal range"', () => {
-    const fs = of(recs('behind'), 'UWB_POSITION')
+  it('"the seven fixes land near (5.06, −1.47) m … twice the floor distance"', () => {
+    const fs = ofType(recs('behind'), 'UWB_POSITION')
     expect(fs).toHaveLength(BLOCKS)
     expect([fs[0].x.toFixed(2), fs[0].y.toFixed(2)]).toEqual(['5.06', '-1.47'])
     expect(fmtRecord(fs[0])).toContain('(5.06, -1.47) m, true (5.00, 2.50), error 3.97 m')
     const errs = fixErrM(recs('behind'))
-    expect([cm(Math.min(...errs)), cm(Math.max(...errs)), cm(mean(errs))]).toEqual(['396.7', '403.0', '400.2'])
-    // "3.97 to 4.03 m from the badge and outside the room", and exactly twice rh
+    expect([Math.min(...errs).toFixed(2), Math.max(...errs).toFixed(2)]).toEqual(['3.97', '4.03'])
+    // "outside the room", and exactly twice the floor distance
     expect(fs.every((f) => f.y < 0)).toBe(true)
     expect(mean(errs)).toBeCloseTo(2 * horizM('behind'), 1)
-    // the fix is the truth reflected in the boresight: same distance from the anchor, and the
-    // component across the boresight axis is the base run's, with its sign turned over
+    // the fix is the truth reflected in the boresight: the component across the boresight
+    // axis is the base run's, with its sign turned over
     const baseAcross = split(recs('base'), 'base').across
     const behindAcross = split(recs('behind'), 'behind').across
     behindAcross.forEach((x, i) => expect(x, String(i)).toBeCloseTo(-baseAcross[i], 9))
-    // "Put Facing back to 90° and the error returns to 2.1–15.6 cm"
+    // "Put Facing back and the error returns to centimetres"
     const fixed = fixErrM(recs('base'))
     expect([cm(Math.min(...fixed)), cm(Math.max(...fixed))]).toEqual(['2.1', '15.6'])
-    // "with a confident 9.4 × 2.1 cm ellipse": the ellipse is the base run's, unchanged
-    expect(of(recs('behind'), 'UWB_POSITION').map((f) => f.ellipse.a))
-      .toEqual(of(recs('base'), 'UWB_POSITION').map((f) => f.ellipse.a))
+    expect(cell(0, 0, 5)).toBe(`${cm(Math.min(...fixed))}–${cm(Math.max(...fixed))} cm, mean ${cm(mean(fixed))}`)
+    // "with the same tidy ellipse around it": the ellipse is the base run's, unchanged
+    expect(fs.map((f) => f.ellipse.a)).toEqual(ofType(recs('base'), 'UWB_POSITION').map((f) => f.ellipse.a))
     const en = prose()
-    expect(en).toContain('the seven fixes land near (5.06, −1.47), 3.97 to 4.03 m from the badge and outside the room')
-    expect(en).toContain('The error is exactly twice the horizontal range')
-    const t2 = uwbAoa.tryThis[1].en
-    expect(t2).toContain('the seven fixes are 396.7 to 403.0 cm out, mean 400.2')
-    expect(t2).toContain('Put Facing back to 90° and the error returns to 2.1–15.6 cm')
+    expect(en).toContain('The seven fixes then land near (5.06, −1.47) m, 3.97 to 4.03 m from the badge — twice the floor distance, outside the room')
+    expect(en).toContain('Facing the wall, the badge is 180.0° off boresight')
+    expect(uwbAoa.tryThis[1].en).toContain('Put Facing back and the error returns to centimetres')
   })
 
   it('"the editor’s Facing field" exists in both languages, and yaw stays inside the schema', () => {
@@ -668,6 +633,8 @@ describe('uwb-aoa · the half it cannot see', () => {
       nodes: behind.nodes.map((n): NodeCfg => (n.id === ANC ? { ...n, uwb: { ...n.uwb!, yawDeg: 270 } } : n)),
     }
     expect(() => ScenarioSchema.parse(outOfRange)).toThrow()
-    expect(prose()).toContain('the editor’s Facing field')
+    // the reader is told which control to reach for, in both languages
+    expect(uwbAoa.tryThis[1].en).toContain('Facing')
+    expect(uwbAoa.tryThis[1].zh).toContain('朝向')
   })
 })
