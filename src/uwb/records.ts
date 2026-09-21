@@ -102,3 +102,10 @@ export type UwbRecord =
    * `UWB_SIR_MIN_DB`. Emitted at the receiver, straight after that frame's RX_FAIL, so
    * the coexistence lesson can count what the 6 GHz link costs the ranging session. */
   | { type: 'UWB_INTERFERED'; node: string; from: string; foreignDbm: number; sirDb: number }
+  /** The scrambled timestamp sequence did its job: this reception's leading edge arrived
+   * `advanceNs` earlier than the geometry allows — a relay in the middle — and the sequence the
+   * session's key generates did not correlate at that edge, so the receiver threw the stamp away
+   * instead of ranging on it. Emitted at the receiver, in place of the `UWB_TS` it did not take;
+   * the slot's own deadline then reports the miss as it always does. Only a session that carries
+   * `uwb.attacker` and leaves `uwb.stsOff` off can produce one. model */
+  | { type: 'UWB_STS_REJECT'; node: string; peer: string; frameKind: UwbFrameKind; advanceNs: number }

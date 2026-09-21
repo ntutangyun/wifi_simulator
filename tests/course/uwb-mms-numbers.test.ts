@@ -47,7 +47,7 @@ const BLOCKS = 7
 const TAG = 'tag-1'
 const ANCHORS = MMS_ANCHORS.map((a) => a.id)
 /** Indices into the variant list, which is `uwb-mms`'s twice over. */
-const V: Record<Exclude<UwbMmsVariant, 'base'>, number> = { four: 0, rsf1: 1, twr: 2 }
+const V: Record<Exclude<UwbMmsVariant, 'base'>, number> = { four: 0, rsf1: 1, twr: 2, pairwise: 3 }
 
 const recs = (v: UwbMmsVariant): TLRecord[] =>
   runOf(uwbMmsNumbers, v === 'base' ? undefined : V[v], RUN_NS)
@@ -92,7 +92,7 @@ describe('uwb-mms-numbers · the second half of the split', () => {
     // the same builder, the same three arguments: no new scenario, so no new recorded run
     expect(uwbMmsNumbers.scenario()).toEqual(uwbMmsScenario('base'))
     expect(uwbMmsNumbers.variants!.map((v) => v.scenario()))
-      .toEqual([uwbMmsScenario('four'), uwbMmsScenario('rsf1'), uwbMmsScenario('twr')])
+      .toEqual([uwbMmsScenario('four'), uwbMmsScenario('rsf1'), uwbMmsScenario('twr'), uwbMmsScenario('pairwise')])
     expect(uwbMmsNumbers.variants!.map((v) => v.label)).toEqual(uwbMms.variants!.map((v) => v.label))
     expect(uwbMmsNumbers.jumps).toHaveLength(4)
     expect(uwbMmsNumbers.observe).toHaveLength(2)
@@ -200,8 +200,9 @@ describe('uwb-mms-numbers · what a millisecond buys', () => {
     expect(rsf1.slots).toBe(40)
     expect(rsf1.roundNs).toBe(20 * MS)
     expect(3 * rsf1.roundNs).toBe(60 * MS)
-    expect(3 * roundPlan(uwbMmsScenario('base').uwb!, ANCHORS.length).roundNs).toBe(42 * MS)
-    expect(prose()).toContain('the ranging phase grows from 20 slots to 32, the round from 14 ms to 20, and three rounds from 42 ms of the block to 60 ms')
+    // rsf-1 is a pair round, so the 14 ms it is measured against is the pairwise variant's
+    expect(3 * roundPlan(uwbMmsScenario('pairwise').uwb!, ANCHORS.length).roundNs).toBe(42 * MS)
+    expect(prose()).toContain('the ranging phase grows from 20 slots to 32 and a pair round from 14 ms to 20, so the three of them take 60 ms of the block instead of 42')
   })
 
   it('"−93 dBm" is what the receiver needs, and no fragment ever gets there alone', () => {
@@ -284,7 +285,7 @@ describe('uwb-mms-numbers · what a train adds up to', () => {
 
   it('"The same line, two trains": the verdict line, at eight fragments and at four', () => {
     expect(fmtRecord(trainsAt('base', 'anchor-1')[0]))
-      .toBe('anchor-1 RSF train ← tag-1: 8/8 heard, -100.3 dBm + 9.0 dB = margin 1.8 dB → detected, ratio -39.995 ppm')
+      .toBe('anchor-1 RSF train ← tag-1: 8/8 heard, -100.3 dBm + 9.0 dB = margin 1.8 dB → detected, ratio -39.997 ppm · responders: anchor-1, anchor-2, anchor-3')
     expect(fmtRecord(trainsAt('four', 'anchor-1')[0]))
       .toBe('anchor-1 RSF train ← tag-1: 4/4 heard, -100.3 dBm + 6.0 dB = margin -1.2 dB → lost')
     const deeper = (uwbMmsNumbers.deeper ?? []).map((b) => (b as Extract<Block, { kind?: 'p' }>).text)
@@ -336,18 +337,18 @@ describe('uwb-mms-numbers · the ruler a millisecond long', () => {
     expect(prose()).toContain('would give about 1.7 ppm')
   })
 
-  it('"round 0 measures 39.970, 19.992, 9.967 ppm" against a true 40, 20 and 10', () => {
+  it('"round 0 measures 39.985, 19.996, 9.984 ppm" against a true 40, 20 and 10', () => {
     expect(ANCHORS.map(trueRatio)).toEqual([40, 20, 10])
     expect(firstTrains('base').map((t) => t.ratioPpm!.toFixed(3)))
-      .toEqual(['39.970', '19.992', '9.967'])
+      .toEqual(['39.985', '19.996', '9.984'])
     expect(cell(2, 0, 0)).toBe('Round 0 measures, against a true 40 / 20 / 10 ppm')
-    expect(cell(2, 0, 1)).toBe('39.970, 19.992, 9.967 ppm')
+    expect(cell(2, 0, 1)).toBe('39.985, 19.996, 9.984 ppm')
     for (const t of trainsAt('base', TAG)) {
       expect(Math.abs(t.ratioPpm! - trueRatio(t.peer)), t.peer).toBeLessThan(4 * sigmaPpm())
     }
     // "the two ends report with opposite signs"
     const atAnchor = trainsAt('base', 'anchor-1')[0]
-    expect(atAnchor.ratioPpm!.toFixed(3)).toBe('-39.995')
+    expect(atAnchor.ratioPpm!.toFixed(3)).toBe('-39.997')
     expect(Math.sign(atAnchor.ratioPpm!)).toBe(-Math.sign(firstTrains('base')[0].ratioPpm!))
   })
 
@@ -394,7 +395,8 @@ describe('uwb-mms-numbers · the ruler a millisecond long', () => {
   it('observe 2: the range line prints the corrected range and the raw one', () => {
     const first = ofType(recs('base'), 'UWB_RANGE')[0]
     expect(fmtRecord(first)).toBe('tag-1 range → anchor-1 (SS): 14.26 m (true 13.04 m, raw 17.25 m)')
-    expect(first.t).toBe(12 * MS + nbPpduNs(NB_REPORT_BYTES) + 44)
+    // the first report of a one-to-many round lands in slot 40, at 20 ms
+    expect(first.t).toBe(20 * MS + nbPpduNs(NB_REPORT_BYTES) + 44)
     expect(rctuToMetres(first.tofRawRctu!) - first.distM).toBeGreaterThan(2.9)
     expect(uwbMmsNumbers.observe[1].en).toContain('the raw range it would have been if the clock ratio had never been measured')
   })

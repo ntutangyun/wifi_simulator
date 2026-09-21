@@ -32,11 +32,16 @@ import {
 } from '../lessonKit'
 
 /**
- * Which scene the lesson runs: the draft's own ranging-cycle default (X = 8), the same cycle
- * with half the train, one of the mandatory parameter sets (X = 16 on a shorter fragment), or
- * ordinary 4z two-way ranging in the same room.
+ * Which scene the lesson runs: the draft's own ranging-cycle default (X = 8) as a **one-to-many**
+ * round — one train from the tag, answered by all three anchors — the same cycle with half the
+ * train, one of the mandatory parameter sets (X = 16 on a shorter fragment), ordinary 4z two-way
+ * ranging in the same room, or the pair round this lesson ran before one-to-many existed.
+ *
+ * Only `base` is one-to-many. `four`, `rsf1`, `twr` and `pairwise` are pair rounds, and
+ * `pairwise` is byte for byte the scene that used to be the base — which is why the recorded
+ * hash that moved is the base's alone.
  */
-export type UwbMmsVariant = 'base' | 'four' | 'rsf1' | 'twr'
+export type UwbMmsVariant = 'base' | 'four' | 'rsf1' | 'twr' | 'pairwise'
 
 /**
  * The three anchors, all in the first bay of the hall and all behind both brick partitions
@@ -80,7 +85,10 @@ export function uwbMmsScenario(variant: UwbMmsVariant = 'base'): Scenario {
       ? { mode: 'twr', method: 'ss', slotRstu: 600, aoa: false, nlos: true }
       : {
         mode: 'mms', method: 'ss', slotRstu: 600, aoa: false, nlos: true,
-        mms: { ...DEFAULT_UWB_SESSION.mms, ...phy, nbChannels: [3], report: 'responder' },
+        mms: {
+          ...DEFAULT_UWB_SESSION.mms, ...phy, nbChannels: [3], report: 'responder',
+          oneToMany: variant === 'base',
+        },
       },
   )
 }
@@ -119,7 +127,7 @@ export const uwbMms: Lesson = {
   ],
   picture: [
     { heading: { en: 'A room one frame cannot cross', zh: '一个帧过不去的房间' }, text: {
-      en: 'The scene is a long hall cut into three bays by two full-height brick partitions. Three anchors stand in the first bay and one tag in the third, so every ray between them crosses both walls. The frames still arrive — the room is not that big — but they arrive below what the receiver can detect, and a receiver that cannot detect a frame cannot timestamp it either.',
+      en: 'The scene is a long hall cut into three bays by two full-height brick partitions. Three anchors stand in the first bay and one tag in the third, so every ray between them crosses both walls. The frames still arrive — the room is not that big — but below what the receiver can detect, and a frame it cannot detect it cannot timestamp either.',
       zh: '场景是一条长厅，被两道通顶砖墙切成三个隔间。三个锚点立在第一个隔间里，一个标签在第三个隔间里，于是它们之间的每一条射线都要穿过两道墙。帧还是照样到达——房间没那么大——只是到达时比接收机能检出的门限低了好几分贝；而检不出一帧，也就没法给它打时间戳。',
     } },
     { kind: 'watch', jump: 2, heading: { en: 'Watch a train be judged', zh: '看一串片段被判定' }, text: {
@@ -127,24 +135,24 @@ export const uwbMms: Lesson = {
       zh: '载入仿真，跳到对第一串片段的判定。一行字写着收到了几个片段、每个多响、加起来是多少，以及这有没有越过接收机的门限。本课要讲的一切都在这一行里。',
     } },
     { heading: { en: 'The energy is there; the moment is not', zh: '能量是有的，只是不在同一瞬间' }, text: {
-      en: 'The obvious answer — shout — is not available. What the regulator caps is not a total but an average taken over each millisecond, so no single moment may be made louder. What it does not cap is how many milliseconds you use: a transmitter that spends this millisecond’s allowance, then the next, then the next, is as legal as one that spends a single millisecond and stops.',
+      en: 'The obvious answer — shout — is not available. What the regulator caps is not a total but an average over each millisecond, so no single moment may be made louder. What it does not cap is how many milliseconds you use: a transmitter that spends this millisecond’s allowance, then the next, then the next, is as legal as one that stops after a single millisecond.',
       zh: '最顺手的办法——喊得更响——用不了。法规限住的不是总量，而是在每一毫秒上取的平均，所以任何单独的一瞬都不能更响。它没有限住的，是你用掉多少个毫秒。一台把这一毫秒的额度花掉、再花下一毫秒、再花下一毫秒的发射机，和一台只花一毫秒就收手的，同样合规。',
     } },
     { heading: { en: 'One fragment, then another', zh: '一个片段，再来一个' }, text: {
-      en: 'So the packet is broken up. A fragment is one millisecond’s piece of it, and it is stripped to the bone: no preamble to search for, no header, no address, no data — only the sequence a timestamp is taken from, which is why it is called a ranging sequence fragment, RSF. One goes out every millisecond, and the pair interleave, each using the gaps in the other’s train.',
-      zh: '于是把这个分组拆开。一个片段就是其中一毫秒的那一片，而且被剥得只剩骨头：没有要搜索的前导、没有头、没有地址、没有数据——只有用来取时间戳的那段序列，所以它叫测距序列片段，RSF。每毫秒发出一个，而配对的两端交错发送，各自用上对方留下的空隙。',
+      en: 'So the packet is broken up. A fragment is one millisecond’s piece of it, stripped to the bone: no preamble to search for, no header, no address, no data — only the sequence a timestamp is taken from, which is why it is called a ranging sequence fragment, RSF. Each device sends one per turn, and they interleave, every one using the gaps the others leave.',
+      zh: '于是把这个分组拆开。一个片段就是其中一毫秒的那一片，而且被剥得只剩骨头：没有要搜索的前导、没有头、没有地址、没有数据——只有用来取时间戳的那段序列，所以它叫测距序列片段，RSF。每台设备每轮到一次就发一个，标签和它的锚点交错着来，谁都用得上别人留下的空隙。',
     } },
     { heading: { en: 'Adding up what you could not hear', zh: '把听不见的东西加起来' }, text: {
-      en: 'None of those fragments is audible on its own. But the receiver already knows the shape of the train — when each fragment comes and what is in it — so it need not detect anything to start: it accumulates blind, millisecond after millisecond, and only decides at the end. Doubling the fragments doubles what has accumulated, and the sum can clear a threshold no part of it could.',
+      en: 'None of those fragments is audible on its own. But the receiver already knows the shape of the train — when each fragment comes and what is in it — so it need not detect anything to start: it accumulates blind and only decides at the end. Doubling the fragments doubles the sum, and that sum can clear a threshold no part of it could.',
       zh: '这些片段单独拿出来，一个也听不见。但接收机事先已经知道这一串的形状——每个片段什么时候来、里面装的是什么——所以它根本不需要先检出什么才能开始：它盲目地累加，一毫秒又一毫秒，直到最后才下判断。片段数量翻一番，累加起来的量也翻一番，而这个和可以越过其中任何一片都越不过的门限。',
     } },
     { heading: { en: 'Who does the talking', zh: '谁来说话' }, text: {
-      en: 'Knowing the shape of the train in advance has to come from somewhere, and not over the wideband radio. A small narrowband radio sits beside it and carries the words: a Poll that opens the round, a Response that accepts it, and at the end a Report carrying the reply time the initiator needs. Between those, the wideband radio carries timing and nothing else.',
-      zh: '事先知道这一串的形状，总得有个来处，而它不是从宽带那台射频来的。旁边还有一台小小的窄带射频，由它承载话语：一帧 Poll 打开这一轮，一帧 Response 接受它，末尾再由一帧 Report 把发起方需要的回复时间捎回去。在这两头之间，宽带射频只承载时间，别的什么也不载。',
+      en: 'Knowing the shape of the train in advance has to come from somewhere, and not over the wideband radio. A small narrowband radio sits beside it and carries the words: one Poll that opens the round and names every anchor it wants, a Response from each accepting it, and a Report from each at the end. Between those, the wideband radio carries timing and nothing else.',
+      zh: '事先知道这一串的形状，总得有个来处，而它不是从宽带那台射频来的。旁边还有一台小小的窄带射频，由它承载话语：一帧 Poll 打开这一轮，并点名它要问的每一个锚点；每个锚点各回一帧 Response 表示接受；末尾再各发一帧 Report。在这两头之间，宽带射频只承载时间，别的什么也不载。',
     } },
     { heading: { en: 'Reach is not accuracy', zh: '够得着不等于测得准' }, text: {
-      en: 'The train buys distance, and only distance. The first path through brick still arrives late, so every range comes back long by the same amount, round after round — an offset, not noise, which the quality byte on each range flags as an obstructed path. The fix inherits it whole. Nothing here makes the measurement better; it makes a measurement exist.',
-      zh: '这一串片段买来的是距离，而且只有距离。穿过砖墙的首径依旧迟到，于是每次测距都偏长，而且每轮偏得一样多——这是固定的偏移，不是噪声，附在每条距离上的品质字节会把它标成被遮挡的路径。整块的定位把这份偏移原封不动地继承下来。这里没有任何东西让测量变得更准，它只是让测量得以存在。',
+      en: 'The train buys distance, and only distance. The first path through brick still arrives late, so every range comes back long by the same amount — an offset, not noise, which the quality byte on each range flags as an obstructed path. Nothing here makes the measurement better; it makes a measurement exist.',
+      zh: '这一串片段买来的是距离，而且只有距离。穿过砖墙的首径依旧迟到，于是每次测距都偏长，而且每轮偏得一样多——这是固定的偏移，不是噪声，附在每条距离上的品质字节会把它标成被遮挡的路径。这里没有任何东西让测量变得更准，它只是让测量得以存在。',
     } },
   ],
   numbers: [
@@ -165,26 +173,33 @@ export const uwbMms: Lesson = {
     { kind: 'table', heading: { en: 'One round, as the log prints it', zh: '一轮，日志怎么印' }, head: [
       { en: 'When', zh: '何时' }, { en: 'The line', zh: '那一行' },
     ], rows: [
-      [N('0 ms'), N('tag-1 UWB round 0 of block 0 (MMS): 28 slots × 500.0 µs')],
-      [N('0 ms'), N('tag-1 → anchor-1 NBPOLL 12 B @0.25 Mbps (576.0 µs)')],
-      [N('2.000 ms'), N('tag-1 TX RMARKER → anchor-1 RSF: counter 336330610684')],
-      [N('2.000 ms'), N('tag-1 → anchor-1 UWBRSF 0 B @0 Mbps (82.1 µs)')],
-      [N('9.500 ms'), N('anchor-1 RSF train ← tag-1: 8/8 heard, -100.3 dBm + 9.0 dB = margin 1.8 dB → detected, ratio -39.995 ppm')],
-      [N('9.500 ms'), N('anchor-1 RX RMARKER ← tag-1 RSF: counter 26504711136 (75 % within 12 ns)')],
-      [N('12.000 ms'), N('anchor-1 → tag-1 NBREPORT 13 B @0.25 Mbps (608.0 µs)')],
-      [N('12.608 ms'), N('tag-1 range → anchor-1 (SS): 14.26 m (true 13.04 m, raw 17.25 m)')],
+      [N('0 ms'), N('tag-1 UWB round 0 of block 0 (MMS): 52 slots × 500.0 µs')],
+      [N('0 ms'), N('tag-1 → * NBPOLL 23 B @0.25 Mbps (928.0 µs)')],
+      [N('1.000 ms'), N('anchor-1 → tag-1 NBRESP 12 B @0.25 Mbps (576.0 µs)')],
+      [N('4.000 ms'), N('tag-1 → * UWBRSF 0 B @0 Mbps (82.1 µs)')],
+      [N('18.500 ms'), N('anchor-1 RSF train ← tag-1: 8/8 heard, -100.3 dBm + 9.0 dB = margin 1.8 dB → detected, ratio -39.997 ppm · responders: anchor-1, anchor-2, anchor-3')],
+      [N('20.000 ms'), N('anchor-1 → tag-1 NBREPORT 13 B @0.25 Mbps (608.0 µs)')],
+      [N('20.608 ms'), N('tag-1 range → anchor-1 (SS): 14.26 m (true 13.04 m, raw 17.25 m)')],
+      [N('26.000 ms'), N('tag-1 position (14.24, 4.08) m, true (13.00, 4.00), error 1.24 m, GDOP 2.93, 3 anchors')],
     ] },
-    { text: {
-      en: 'A round is 28 slots of 500 µs, so 14 ms, and it holds one anchor; three of them fit easily inside the 200 ms block.',
-      zh: '一轮是 28 个 500 µs 的时隙，合 14 ms，而且只装一个锚点；三轮轻松放进 200 ms 的块里。',
-    } },
+    { kind: 'table', heading: { en: 'One round for three, or three rounds of one', zh: '一轮问三个，还是三轮各问一个' }, head: [
+      { en: 'Quantity', zh: '量' }, { en: 'One round for all three', zh: '一轮问遍三个' },
+      { en: 'One anchor at a time', zh: '一次只问一个' }, { en: 'Where', zh: '出处' },
+    ], rows: [
+      [{ en: 'Slots in a round', zh: '一轮的时隙数' }, N('52'), N('28'), N('UWB_ROUND')],
+      [{ en: 'A round lasts', zh: '一轮的时长' }, N('26 ms'), N('14 ms'), N('52 × 500 µs')],
+      [{ en: 'Rounds per block', zh: '每块的轮数' }, N('1'), N('3'), { en: 'one per tag–anchor pair', zh: '每个标签—锚点对一轮' }],
+      [{ en: 'To the block’s fix', zh: '到本块定位为止' }, N('26 ms'), N('42 ms'), N('UWB_POSITION')],
+      [{ en: 'Narrowband messages', zh: '窄带消息数' }, N('7'), N('9'), N('NBPOLL, NBRESP, NBREPORT')],
+      [{ en: 'Responders one slot allows', zh: '一个时隙容得下的应答者' }, N('3'), N('1'), { en: 'two 600 RSTU slots must hold the Poll, which grows by 3 octets per responder', zh: '两个 600 RSTU 时隙要装下 Poll，而 Poll 每多一个应答者就长 3 字节' }],
+    ] },
     { heading: { en: 'Where the slots go', zh: '时隙都花在哪里' }, text: {
-      en: 'Four slots open the round, twenty carry the fragments, and the responder reports in slot 24.',
-      zh: '开头四个时隙用来开场，二十个承载片段，响应方在第 24 个时隙给出报告。',
+      en: 'Eight slots open the round: the Poll, then a window per anchor. Thirty-two carry the fragments, four devices taking turns. The last twelve hold the reports.',
+      zh: '开头八个时隙用来开场：一帧 Poll，再给每个锚点一个窗口。三十二个承载片段，四台设备轮流发。最后十二个装报告。',
     } },
     { text: {
-      en: 'The narrowband side is the slow part. Its three messages take 1.760 ms of the round’s 3.073 ms of air, while all sixteen fragments together take 1.313 ms — and one transmit stamp is taken per train, not per fragment.',
-      zh: '慢的是窄带那一侧。它那三条消息占掉整轮 3.073 ms 空口时间里的 1.760 ms，而十六个片段加起来才 1.313 ms——而且每串只取一个发送时间戳，不是每个片段一个。',
+      en: 'The narrowband side is still the slow part. Its seven messages take 4.480 ms of the round’s 7.106 ms of air, while all thirty-two fragments together take 2.626 ms — and one transmit stamp is taken per train, not per fragment.',
+      zh: '慢的依旧是窄带那一侧。它那七条消息占掉整轮 7.106 ms 空口时间里的 4.480 ms，而三十二个片段加起来才 2.626 ms——而且每串只取一个发送时间戳，不是每个片段一个。',
     } },
     { heading: { en: 'What the wall adds', zh: '墙加进来多少' }, text: {
       en: 'Every range is long by the same 1.199 m: brick delays a first path by 2 ns and the ray crosses two walls each way, which a two-way range keeps rather than cancels.',
@@ -222,6 +237,7 @@ export const uwbMms: Lesson = {
     { label: { en: 'Four fragments', zh: '四个片段' }, scenario: () => uwbMmsScenario('four') },
     { label: { en: 'Set rsf-1', zh: '参数集 rsf-1' }, scenario: () => uwbMmsScenario('rsf1') },
     { label: { en: '4z for comparison', zh: '拿 4z 作对照' }, scenario: () => uwbMmsScenario('twr') },
+    { label: { en: 'One anchor at a time', zh: '一次只问一个锚点' }, scenario: () => uwbMmsScenario('pairwise') },
   ],
   jumps: [
     J('the narrowband poll that opens the round', '打开轮次的那帧窄带 Poll', firstNbPoll),
@@ -231,16 +247,18 @@ export const uwbMms: Lesson = {
     J('the range the two of them produce', '两者共同得出的那次测距', firstUwbRange),
   ],
   observe: [
-    { en: 'Nothing wideband happens first. The tag opens the round with a narrowband poll, the anchor answers half a millisecond later, and only then is either side primed to listen for fragments. One round holds one anchor, so the next anchor waits its turn.',
-      zh: '一开始空口上没有任何宽带动静。标签用一帧窄带 Poll 打开这一轮，锚点在半毫秒后作答，到这时两边才算就绪、才去听片段。一轮只装一个锚点，所以下一个锚点得等到自己那一轮。' },
-    { en: 'Then the fragments: two interleaved trains, one frame every half millisecond, each of zero octets at no data rate — a fragment carries nothing. In the slot after the last one, each side rules on what it accumulated, and only then does a receive stamp appear.',
-      zh: '接着是片段：两串交错着来，每半毫秒一帧，每一帧零字节、没有速率——片段里什么也不装。在最后一个片段之后的那个时隙里，两边各自对累加到的东西下判断，而接收时间戳直到这时才出现。' },
+    { en: 'Nothing wideband happens first. The tag opens the round with one narrowband poll addressed to every anchor at once; each answers in a slot of its own, and only then is anybody primed to listen for fragments.',
+      zh: '一开始空口上没有任何宽带动静。标签用一帧窄带 Poll 打开这一轮，而这一帧是同时说给每个锚点听的；它们各自在自己的时隙里作答，到这时才有人算就绪、才去听片段。' },
+    { en: 'Then the fragments: four interleaved trains, one frame every half millisecond, each of zero octets at no data rate — a fragment carries nothing. After the last one, each side rules on what it accumulated, and only then does a receive stamp appear.',
+      zh: '接着是片段：四串交错着来，每半毫秒一帧，每一帧零字节、没有速率——片段里什么也不装。在最后一个片段之后的那个时隙里，各方对自己累加到的东西下判断，而接收时间戳直到这时才出现。' },
+    { en: 'Read the train verdict at 18.500 ms: it ends with a responder list. One train went out, and all three heard that one.',
+      zh: '读一读 18.500 ms 处那条判定：它末尾跟着一串应答者名单。片段只发了一次，而三个锚点听的都是这一次。' },
   ],
   tryThis: [
-    { en: 'Load “4z for comparison”: the same room, the same nodes, ordinary two-way ranging. Not one range comes back. The anchors wait for a Poll they never hear and the tag waits out every response slot, so the log fills with timeouts instead.',
+    { en: 'Load “4z for comparison”: same room, same nodes, ordinary two-way ranging. Not one range comes back. The anchors wait for a Poll they never hear, the tag waits out every response slot, and the log fills with timeouts.',
       zh: '载入“拿 4z 作对照”：同样的房间、同样的节点，改用普通的双向测距。一次测距也回不来。锚点在等一帧它们永远听不到的 Poll，标签把每个响应时隙都等空，于是日志里填满的是超时。' },
-    { en: 'Open the tag’s inspector after a few blocks. One table says how many fragments each peer’s train was heard in full and what the sum came to; the other carries the ranges, each long by the same amount, each with the obstructed-path byte.',
-      zh: '跑过几个块之后打开标签的检视面板。一张表写着每个对端那一串收全了几个片段、加起来是多少；另一张是各次测距，每一次都偏长同样多，每一次都带着“被遮挡路径”那个字节。' },
+    { en: 'Load “One anchor at a time”. The same three ranges come back, as three rounds instead of one, and the block’s fix arrives at 42 ms instead of 26. No single range changed.',
+      zh: '载入“一次只问一个锚点”。回来的还是那三个距离，只不过是三轮而不是一轮，本块的定位也从 26 ms 推迟到 42 ms。任何单个距离本身都没有变。' },
   ],
   quiz: [
     {

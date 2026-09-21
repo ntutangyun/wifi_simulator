@@ -83,6 +83,9 @@ export function fmtUwbRecord(r: UwbTLRecord): string {
       return `${r.node} UWB round ${r.round} of block ${r.block} ends`
     case 'UWB_INTERFERED':
       return `${r.node} UWB frame from ${r.from} lost to Wi-Fi: SIR ${r.sirDb.toFixed(1)} dB (foreign ${r.foreignDbm.toFixed(1)} dBm)`
+    case 'UWB_STS_REJECT':
+      return `${r.node} rejects the ${KIND_SHORT[r.frameKind]} from ${r.peer}: STS did not verify `
+        + `(leading edge ${r.advanceNs.toFixed(0)} ns early)`
     case 'UWB_NB_LBT':
       return `${r.node} NB LBT busy on ch ${r.channel}: ${r.foreignDbm.toFixed(1)} dBm `
         + `≥ ${r.thresholdDbm.toFixed(1)} — skipping the block`
@@ -96,6 +99,6 @@ export function fmtUwbRecord(r: UwbTLRecord): string {
         + ` → ${r.detected ? 'detected' : 'lost'}`
         + (r.ratioPpm !== null ? `, ratio ${r.ratioPpm.toFixed(3)} ppm` : '')
         // One-to-many only: who else was in the round the train went out to.
-        + (r.responders ? ` · responders ${r.responders.join(', ')}` : '')
+        + (r.responders ? ` · responders: ${r.responders.join(', ')}` : '')
   }
 }

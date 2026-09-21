@@ -85,6 +85,13 @@ export interface UwbDeviceCfg {
   yawDeg: number
   /** The session's channel: the wavelength an angle of arrival is measured in. */
   channel: UwbChannelNo
+  /** Model, security: a relay between this device and its peers that makes every reception's
+   * leading edge land `advanceNs` early. Absent — the default — there is no attacker, and not a
+   * draw of this device's random stream moves. */
+  attacker?: { advanceNs: number }
+  /** Model, security: this session's frames carry no scrambled timestamp sequence, so a relayed
+   * edge has nothing to fail to correlate against and is stamped at face value. */
+  stsOff?: boolean
 }
 
 export interface UwbGeometry {
@@ -473,9 +480,27 @@ export class UwbDevice implements UwbRadio {
     // stamped worse (`tsSigmaNs`). The draw itself is one draw from this device's stream,
     // taken here as it always was — only its scale moved — so a link at or above the
     // reference stamps exactly the counters it stamped before.
+    //
+    // Before any of it: the relay, if this session has one. An attacker between the two radios
+    // re-emits the frame so its leading edge lands `advanceNs` early. With the scrambled
+    // timestamp sequence switched off there is nothing in the frame the attacker cannot
+    // reproduce, and the receiver stamps the early edge — each reception of the round pulls the
+    // range in by the whole advance. With the sequence on, the attacker cannot generate the
+    // session key's pulses ahead of time, so nothing correlates at that edge: the receiver
+    // rejects the stamp and the slot's deadline reports the miss, exactly as a lost frame does.
+    const atk = this.cfg.attacker
+    if (atk !== undefined && atk.advanceNs > 0 && !this.cfg.stsOff) {
+      this.emit({
+        t: this.now(), type: 'UWB_STS_REJECT', node: this.id, peer: from,
+        frameKind: kind, advanceNs: atk.advanceNs,
+      })
+      if (this.state === 'rx') this.setState(this.expect ? 'uwbWait' : 'idle')
+      return
+    }
+    const advanceNs = atk !== undefined && this.cfg.stsOff === true ? atk.advanceNs : 0
     const trueRmarkerNs = info.txStartNs + UWB_RMARKER_NS + info.propNs
     const sigmaNs = tsSigmaNs(this.cfg.tsNoisePs, uwbSinrDb(info.rssiDbm, info.foreignDbm))
-    const extraNs = info.nlosNs + gaussian(this.rng) * sigmaNs
+    const extraNs = info.nlosNs + gaussian(this.rng) * sigmaNs - advanceNs
     const counter = this.clock.counter(trueRmarkerNs, extraNs)
     const fom = fomFor(info.nlos)
     this.emit({ t: this.now(), type: 'UWB_TS', node: this.id, dir: 'rx', peer: from, frameKind: kind, counter, fom })

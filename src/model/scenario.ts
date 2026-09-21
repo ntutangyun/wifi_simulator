@@ -298,6 +298,26 @@ export interface UwbSessionCfg {
    * It is carried in every session, at its default, so that switching the mode needs no second
    * decision — and so that a scenario saved before this slice reads back unchanged. */
   mms: UwbMmsCfg
+  /**
+   * Model: an attacker sitting between the two radios that relays every ranging frame of this
+   * session so that its RMARKER appears to arrive `advanceNs` earlier than light allows — the
+   * distance-reduction relay the scrambled timestamp sequence exists to stop.
+   *
+   * Absent — the default — there is no attacker at all, and no scenario that never named one
+   * changes by a chip.
+   */
+  attacker?: { advanceNs: number }
+  /**
+   * Model: the session's ranging frames carry no scrambled timestamp sequence, so the receiver
+   * has nothing unforgeable to time and takes the relayed leading edge at face value
+   * (standard §10.32: an STS-less SP0 packet is a legal configuration, and ranging on it is
+   * what the standard's own security clause warns against).
+   *
+   * With it absent or false the sequence is there: a relayed frame does not correlate against
+   * the key the session holds, the receiver rejects the stamp (`UWB_STS_REJECT`) and the round
+   * simply produces no range. It only ever matters when `attacker` is set.
+   */
+  stsOff?: boolean
 }
 
 /** The draft's own ranging-cycle defaults, which are deliberately not one of the mandatory
@@ -587,6 +607,10 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
       // A session saved before P802.15.4ab existed here carries no MMS settings at all, and
       // reads back with the draft's defaults — so every such scenario replays unchanged.
       mms: UwbMmsSchema.default(() => ({ ...DEFAULT_UWB_MMS, nbChannels: [...DEFAULT_UWB_MMS.nbChannels] })),
+      // The security pair, both absent by default: a plan that never named an attacker reads
+      // back without either field, exactly as it was written.
+      attacker: z.object({ advanceNs: z.number().min(0).max(10_000) }).optional(),
+      stsOff: z.boolean().optional(),
     }).optional(),
     sixGhzCenterMhz: z.number().int().min(5955).max(7115).refine((v) => v % 5 === 0, '6 GHz centre frequency must be a 5 MHz channel step').optional(),
   })

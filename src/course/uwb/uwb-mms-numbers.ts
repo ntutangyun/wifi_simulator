@@ -126,7 +126,7 @@ export const uwbMmsNumbers: Lesson = {
       { en: 'Correction', zh: '修正方式' }, { en: 'What it leaves', zh: '留下多少' },
     ], rows: [
       [{ en: 'Round 0 measures, against a true 40 / 20 / 10 ppm', zh: '第 0 轮量得，真值为 40 / 20 / 10 ppm' },
-        N('39.970, 19.992, 9.967 ppm')],
+        N('39.985, 19.996, 9.984 ppm')],
       [{ en: 'Uncorrected, 40 ppm apart', zh: '不修正，相差 40 ppm' }, N('3.00 m')],
       [{ en: 'A crystal at its limit', zh: '晶振偏到极限' }, N('1.5 m')],
       [{ en: 'A 4z carrier estimate', zh: '4z 的载波估计' }, N('1.5 cm')],
@@ -152,12 +152,12 @@ export const uwbMmsNumbers: Lesson = {
   ],
   deeper: [
     { heading: { en: 'What a bigger parameter set costs', zh: '更大的参数集要付什么' }, text: {
-      en: 'Set rsf-1 is one of the seventeen mandatory sets: X = 16 with the same 40 repetitions but a gap of 33 zeros instead of 64, so the fragment shortens from 82.051 µs to 62.179 and the same millisecond’s energy is 1.20 dB louder inside it. Twelve decibels of combining plus that 1.20 takes the margin from +1.8 dB to +6.0. It is not free: the ranging phase grows from 20 slots to 32, the round from 14 ms to 20, and three rounds from 42 ms of the block to 60 ms.',
-      zh: '参数集 rsf-1 是十七个强制参数集之一：X = 16，重复次数仍是 40，但间隔是 33 个零而不是 64，于是片段从 82.051 µs 缩到 62.179 µs，同样一毫秒的能量装进去就响了 1.20 dB。十二个分贝的合成再加这 1.20，把余量从 +1.8 dB 抬到 +6.0。代价也有：测距阶段从 20 个时隙涨到 32 个，一轮从 14 ms 涨到 20 ms，三轮从块里的 42 ms 涨到 60 ms。',
+      en: 'Set rsf-1 is one of the seventeen mandatory sets: X = 16 with the same 40 repetitions but a gap of 33 zeros instead of 64, so the fragment shortens from 82.051 µs to 62.179 and the same millisecond’s energy is 1.20 dB louder inside it. Twelve decibels of combining plus that 1.20 takes the margin from +1.8 dB to +6.0. It is not free: the ranging phase grows from 20 slots to 32 and a pair round from 14 ms to 20, so the three of them take 60 ms of the block instead of 42.',
+      zh: '参数集 rsf-1 是十七个强制参数集之一：X = 16，重复次数仍是 40，但间隔是 33 个零而不是 64，于是片段从 82.051 µs 缩到 62.179 µs，同样一毫秒的能量装进去就响了 1.20 dB。十二个分贝的合成再加这 1.20，把余量从 +1.8 dB 抬到 +6.0。代价也有：测距阶段从 20 个时隙涨到 32 个，一轮成对测距从 14 ms 涨到 20 ms，于是三轮要占掉块里的 60 ms，而不是 42 ms。',
     } },
     { heading: { en: 'The same line, two trains', zh: '同一行字，两串片段' }, text: {
-      en: 'The verdict line is the whole sum, so the two runs differ in one term of it. At eight fragments: “anchor-1 RSF train ← tag-1: 8/8 heard, -100.3 dBm + 9.0 dB = margin 1.8 dB → detected, ratio -39.995 ppm”. At four: “anchor-1 RSF train ← tag-1: 4/4 heard, -100.3 dBm + 6.0 dB = margin -1.2 dB → lost”. Same level, same completeness, three decibels apart — and the second line has no ratio at all, because a train that was never detected was never measured either.',
-      zh: '判定那一行本身就是整笔加法，所以两次运行只差其中一项。八个片段时：“anchor-1 RSF train ← tag-1: 8/8 heard, -100.3 dBm + 9.0 dB = margin 1.8 dB → detected, ratio -39.995 ppm”。四个片段时：“anchor-1 RSF train ← tag-1: 4/4 heard, -100.3 dBm + 6.0 dB = margin -1.2 dB → lost”。电平一样、收得一样全，只差三个分贝——而后一行连比值都没有，因为一串从未被检出的片段，也就从未被测量过。',
+      en: 'The verdict line is the whole sum, so the two runs differ in one term of it. At eight fragments: “anchor-1 RSF train ← tag-1: 8/8 heard, -100.3 dBm + 9.0 dB = margin 1.8 dB → detected, ratio -39.997 ppm · responders: anchor-1, anchor-2, anchor-3”. At four: “anchor-1 RSF train ← tag-1: 4/4 heard, -100.3 dBm + 6.0 dB = margin -1.2 dB → lost”. Same level, same completeness, three decibels apart — and the second line has no ratio at all, because a train that was never detected was never measured either.',
+      zh: '判定那一行本身就是整笔加法，所以两次运行只差其中一项。八个片段时：“anchor-1 RSF train ← tag-1: 8/8 heard, -100.3 dBm + 9.0 dB = margin 1.8 dB → detected, ratio -39.997 ppm · responders: anchor-1, anchor-2, anchor-3”。四个片段时：“anchor-1 RSF train ← tag-1: 4/4 heard, -100.3 dBm + 6.0 dB = margin -1.2 dB → lost”。电平一样、收得一样全，只差三个分贝——而后一行连比值都没有，因为一串从未被检出的片段，也就从未被测量过。',
     } },
     { heading: { en: 'Why the ordinary radio fails completely, not slightly', zh: '为什么普通射频是彻底失败，而不是稍差一点' }, text: {
       en: 'Run the same room with ordinary single-sided two-way ranging and there is not one range in 1.3 seconds: 42 timeouts, half of them anchors waiting for a poll they never heard and half of them the tag waiting out response slots. The poll arrives at −110.80 dBm, nearly eighteen decibels under the receiver, and nothing in that mode accumulates. A radio either detects a frame or it does not; there is no partial credit to build on.',
@@ -181,6 +181,7 @@ export const uwbMmsNumbers: Lesson = {
     { label: { en: 'Four fragments', zh: '四个片段' }, scenario: () => uwbMmsScenario('four') },
     { label: { en: 'Set rsf-1', zh: '参数集 rsf-1' }, scenario: () => uwbMmsScenario('rsf1') },
     { label: { en: '4z for comparison', zh: '拿 4z 作对照' }, scenario: () => uwbMmsScenario('twr') },
+    { label: { en: 'One anchor at a time', zh: '一次只问一个锚点' }, scenario: () => uwbMmsScenario('pairwise') },
   ],
   jumps: [
     J('the first fragment of the first train', '第一串片段里的第一个', firstUwbRsf),

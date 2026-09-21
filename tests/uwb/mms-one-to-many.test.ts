@@ -365,13 +365,18 @@ describe('a responder that never gets into the round costs only its own range', 
 // --- 4 & 5. the pairwise cycle is untouched -----------------------------------------------------
 
 describe('oneToMany: false is the cycle that shipped', () => {
-  it('replays the uwb-mms lesson scene to its recorded fixture hash', () => {
+  it('replays the uwb-mms lesson’s pairwise scene to its recorded fixture hash', () => {
+    // Since the lesson task, `uwb-mms`'s BASE is a one-to-many round and the pair round it
+    // used to run is its last variant, `uwb-mms#3` — the same scenario, byte for byte, so
+    // this guard follows it there rather than losing its subject.
     const lesson = LESSONS.find((l) => l.id === 'uwb-mms')!
-    expect(lesson.scenario().uwb?.mms.oneToMany).toBe(false)
-    const records = new Simulation(lesson.scenario()).runUntil(1300 * MS)
+    const pairwise = lesson.variants!.at(-1)!.scenario()
+    expect(lesson.scenario().uwb?.mms.oneToMany).toBe(true)
+    expect(pairwise.uwb?.mms.oneToMany).toBe(false)
+    const records = new Simulation(pairwise).runUntil(1300 * MS)
       .records.filter((r) => r.type.startsWith('UWB_'))
-    expect(FIXTURE['uwb-mms']).toBeDefined()
-    expect(hashOf(records)).toBe(FIXTURE['uwb-mms'])
+    expect(FIXTURE['uwb-mms#3']).toBeDefined()
+    expect(hashOf(records)).toBe(FIXTURE['uwb-mms#3'])
   })
 
   it('reads back pairwise from a plan that predates the switch, and hashes the same', () => {

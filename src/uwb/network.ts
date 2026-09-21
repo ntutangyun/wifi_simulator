@@ -147,6 +147,10 @@ export class UwbNetwork {
           // Angle of arrival is a property of the anchor hardware, so a tag carries the flag
           // and never acts on it; an anchor with no yaw of its own faces +x.
           aoa: cfg.aoa, yawDeg: n.uwb?.yawDeg ?? 0, channel: cfg.channel,
+          // The security pair, spread only when the session names them, so a device of a
+          // session that has no attacker carries neither field.
+          ...(cfg.attacker ? { attacker: { ...cfg.attacker } } : {}),
+          ...(cfg.stsOff !== undefined ? { stsOff: cfg.stsOff } : {}),
         },
         clock, rng, q, now, ch, emit, geometry,
       )

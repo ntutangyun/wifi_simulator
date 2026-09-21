@@ -25,7 +25,7 @@ import {
 
 /** Which scene the lesson runs: one control channel inside the router's 80 MHz, one outside,
  * an allow list of four, or the inside channel with the listen-before-talk rule switched off. */
-export type UwbNbaVariant = 'base' | 'outside' | 'hop' | 'noLbt'
+export type UwbNbaVariant = 'base' | 'outside' | 'hop' | 'noLbt' | 'pairwise'
 
 /** Channel 71 of the 6 GHz plan — the coexistence lesson's Wi-Fi 7 router, 80 MHz over
  * 6265–6345 MHz. The channelization is the 6 GHz one the lesson names, not a generation. */
@@ -34,8 +34,18 @@ export const WIFI_6G_CENTER_MHZ = 6305
  * 100 is 6051.25 MHz (outside), and the hop list mixes two of each — 210 is 6326.25 MHz, also
  * inside, and 150 is 6176.25 MHz, also outside. */
 export const NBA_CHANNELS: Record<UwbNbaVariant, number[]> = {
-  base: [200], outside: [100], hop: [100, 150, 200, 210], noLbt: [200],
+  base: [200], outside: [100], hop: [100, 150, 200, 210], noLbt: [200], pairwise: [200],
 }
+
+/**
+ * How many of the four corner anchors a scene uses. A one-to-many round holds every anchor of
+ * the session at once, and two narrowband slots have to hold its POLL, which grows by three
+ * octets per responder: at the 600 RSTU slot — the shortest an MMS round may use — that stops
+ * at three responders, and the schema refuses a fourth. So the one-to-many base leaves the
+ * fourth corner empty and says so in its numbers; every pair-round variant keeps all four,
+ * which is why their recorded hashes do not move.
+ */
+export const NBA_ANCHOR_COUNT = (variant: UwbNbaVariant): number => (variant === 'base' ? 3 : 4)
 
 /** Anchors on the ceiling, the tag at chest height — the two planes of every UWB lesson. */
 export const ANCHOR_Z = 2.2
@@ -74,7 +84,7 @@ export function uwbNbaScenario(variant: UwbNbaVariant = 'base'): Scenario {
     oneRoom(),
     [
       ap, laptop,
-      ...NBA_ANCHORS.map((a) => anchor(a.id, a.name, a.x, a.y, ANCHOR_Z)),
+      ...NBA_ANCHORS.slice(0, NBA_ANCHOR_COUNT(variant)).map((a) => anchor(a.id, a.name, a.x, a.y, ANCHOR_Z)),
       uwbTag('uwb-1', 'Phone', TAG_POS.x, TAG_POS.y, TAG_Z),
     ],
     {
@@ -82,6 +92,7 @@ export function uwbNbaScenario(variant: UwbNbaVariant = 'base'): Scenario {
       mms: {
         ...DEFAULT_UWB_SESSION.mms, nbChannels: NBA_CHANNELS[variant],
         nbLbt: variant === 'noLbt' ? 'off' : 'auto', report: 'bi',
+        oneToMany: variant === 'base',
       },
     },
     { sixGhzCenterMhz: WIFI_6G_CENTER_MHZ },
@@ -151,8 +162,8 @@ export const uwbNba: Lesson = {
       zh: '也不是不行。只是一帧测距帧的价值，在于两端都能把它的某一道边沿说到码片的零头；而往里塞进去的每一个字节，只会让帧更长，却半点也不会让那道边沿更锐利。窄带射频论字节更慢，可它反而更便宜——因为它的字节不是从测量里扣出来的。',
     } },
     { heading: { en: 'One block, from the outside', zh: '从外面看一个块' }, text: {
-      en: 'Watch one ranging block and the shape is easy to see. The poll leaves at the very start; the answer follows a slot later; the fragments cross the room in between; and about twelve milliseconds in the closing message arrives and the asker finally has a distance. Four rounds like that are all a block holds, one for each anchor in the room; the rest of it is empty air.',
-      zh: '盯住一个测距块看，形状就很清楚了。Poll 在最开头出发；一个时隙之后，作答的那条消息跟上；片段在这期间穿过房间；大约第十二毫秒上，收尾的那条消息到达，发问的一方这才终于拿到一个距离。一个块里就装这样四轮，房间里每个锚点各占一轮；块里余下的大半时间是空的。',
+      en: 'Watch one ranging block and the shape is easy to see. The poll leaves at the very start, naming every anchor it wants; each of them answers a slot later; the fragments cross the room in between; and about twenty milliseconds in the first closing message arrives and the asker finally has a distance. One round like that is all a block holds, and the rest of it is empty air.',
+      zh: '盯住一个测距块看，形状就很清楚了。Poll 在最开头出发，并在里面点名它要问的每一个锚点；一个时隙之后，它们各自作答；片段在这期间穿过房间；大约第二十毫秒上，第一条收尾消息到达，发问的一方这才终于拿到一个距离。一个块里就装这么一轮，余下的大半时间是空的。',
     } },
     { heading: { en: 'And then the room goes quiet', zh: '然后房间就安静了' }, text: {
       en: 'In this scene that happens exactly once. The small radio is sharing its slice of spectrum with the Wi-Fi router overhead, and the rule that comes with that band takes the rest of the run away from it. Nothing is wrong with either measurement; the talking simply stops. That is the next lesson, “The narrowband radio shares 6 GHz too”.',
@@ -164,32 +175,34 @@ export const uwbNba: Lesson = {
       { en: 'Message', zh: '消息' }, { en: 'Size', zh: '大小' }, { en: 'On the air', zh: '占用空口' },
       { en: 'What it carries', zh: '捎的是什么' },
     ], rows: [
-      [N('Poll'), N('12 B'), N('576.0 µs'), { en: 'who is asking, and of whom', zh: '谁在问，问的是谁' }],
-      [N('Response'), N('12 B'), N('576.0 µs'), { en: 'the poll was heard', zh: 'Poll 已经听到了' }],
+      [{ en: 'Poll, three responders', zh: 'Poll，三个应答者' }, N('23 B'), N('928.0 µs'), { en: 'who is asking, and of all whom', zh: '谁在问，以及问的是哪几个' }],
+      [{ en: 'Poll, one responder', zh: 'Poll，一个应答者' }, N('12 B'), N('576.0 µs'), { en: 'the pair round’s own poll', zh: '成对轮次自己的 Poll' }],
+      [N('Response'), N('12 B'), N('576.0 µs'), { en: 'the poll was heard; one per responder', zh: 'Poll 已经听到了；每个应答者一条' }],
       [N('Report'), N('13 B'), N('608.0 µs'), { en: 'the reply time, five octets of it', zh: '回复时延，占其中五个字节' }],
+      [{ en: 'Responders this round holds', zh: '这一轮容得下的应答者' }, N('3 of 4'), N('—'), { en: 'the poll grows 3 octets per responder and two 600 RSTU slots must hold it, so the fourth corner sits this round out', zh: 'Poll 每多一个应答者就长 3 字节，而两个 600 RSTU 时隙必须装得下它，于是第四个角落这一轮不参加' }],
     ] },
     { kind: 'formula', heading: { en: 'Where 576 µs comes from', zh: '576 µs 是怎么来的' }, text: {
-      en: '(10 + 2 + 2 × octets) symbols × 16 µs\n12 octets → 36 × 16 = 576 µs      13 octets → 38 × 16 = 608 µs',
-      zh: '(10 + 2 + 2 × 字节数) 个符号 × 16 µs\n12 字节 → 36 × 16 = 576 µs      13 字节 → 38 × 16 = 608 µs',
+      en: '(10 + 2 + 2 × octets) symbols × 16 µs\n12 octets → 36 × 16 = 576 µs\n13 octets → 38 × 16 = 608 µs      23 octets → 58 × 16 = 928 µs',
+      zh: '(10 + 2 + 2 × 字节数) 个符号 × 16 µs\n12 字节 → 36 × 16 = 576 µs\n13 字节 → 38 × 16 = 608 µs      23 字节 → 58 × 16 = 928 µs',
     }, note: {
       en: 'Four bits ride on each symbol and a symbol lasts 16 µs, which is 250 kb/s. Two symbols carry an octet, and twelve symbols of header go in front of the message. So the shortest thing this radio can say still holds the air for more than half a millisecond.',
       zh: '每个符号载四个比特，一个符号持续 16 µs，也就是 250 kb/s。一个字节要两个符号，而消息前面还有十二个符号的头部。于是这部射频哪怕说最短的一句话，也要占住空口半毫秒有余。',
     } },
     { text: {
-      en: 'The first block, message by message: the poll leaves at zero, the response answers at 1.000 ms, the anchor’s report goes out at 12.000 ms, and the distance appears 608 µs behind it, at 12.608 ms.',
-      zh: '第一个块，逐条消息看过去：Poll 在零时刻出发，Response 在 1.000 ms 处作答，锚点的 Report 在 12.000 ms 处发出，而距离紧随其后 608 µs 出现，落在 12.608 ms。',
+      en: 'The first block, message by message: the poll leaves at zero, the first response answers at 1.000 ms, the first report goes out at 20.000 ms, and the distance appears 608 µs behind it, at 20.608 ms.',
+      zh: '第一个块，逐条消息看过去：Poll 在零时刻出发，第一条 Response 在 1.000 ms 处作答，第一条 Report 在 20.000 ms 处发出，而距离紧随其后 608 µs 出现，落在 20.608 ms。',
     } },
     { heading: { en: 'The grid underneath', zh: '底下那张格子' }, text: {
-      en: 'The grid underneath is wide: a round is 28 slots of 500 µs, so 14 ms, and a block holds four of them, one per anchor. Seven whole blocks fit in the 1.3 seconds of this run.',
-      zh: '底下那张格子铺得很宽：一轮是 28 个时隙、每个 500 µs，合 14 ms；一个块装得下四轮，每个锚点一轮。这段 1.3 秒的运行里，整整齐齐放得下七个块。',
+      en: 'The grid underneath is wide: a round is 52 slots of 500 µs, so 26 ms, and a block holds one of them, with every anchor inside it. Seven whole blocks fit in the 1.3 seconds of this run.',
+      zh: '底下那张格子铺得很宽：一轮是 52 个时隙、每个 500 µs，合 26 ms；一个块只装一轮，而每个锚点都在这一轮里。这段 1.3 秒的运行里，整整齐齐放得下七个块。',
     } },
     { text: {
-      en: 'The wide radio is never the problem here. Both listening anchors hear 8 fragments of 8, and the two trains clear what the receiver needs by 34.5 dB and 32.0 dB.',
-      zh: '在这里，宽带那一侧从来不是问题所在。两个在听的锚点都是 8 个片段收到 8 个，两串片段分别高出接收端所需的门限 34.5 dB 与 32.0 dB。',
+      en: 'The wide radio is never the problem here. Both answering anchors hear 8 fragments of 8, and the two trains clear what the receiver needs by 34.5 dB and 33.4 dB.',
+      zh: '在这里，宽带那一侧从来不是问题所在。两个作答的锚点都是 8 个片段收到 8 个，两串片段分别高出接收端所需的门限 34.5 dB 与 33.4 dB。',
     } },
     { heading: { en: 'Talking is not a rounding error', zh: '“说话”不是零头' }, text: {
-      en: 'And the talking is not a rounding error. A poll and a response together hold the air for 1.152 ms, while any single fragment of the train they set up is shorter than either of them on its own.',
-      zh: '而“说话”这件事，绝不是个可以忽略的零头。一条 Poll 加一条 Response 合起来占住空口 1.152 ms，而它们所安排的那串片段里，任何一个片段单拿出来都比它们中的任何一条更短。',
+      en: 'And the talking is not a rounding error. A poll and a response together hold the air for 1.504 ms, while any single fragment of the train they set up is shorter than either of them on its own.',
+      zh: '而“说话”这件事，绝不是个可以忽略的零头。一条 Poll 加一条 Response 合起来占住空口 1.504 ms，而它们所安排的那串片段里，任何一个片段单拿出来都比它们中的任何一条更短。',
     } },
   ],
   deeper: [
@@ -215,6 +228,7 @@ export const uwbNba: Lesson = {
     { label: { en: 'Outside the router’s channel', zh: '避开路由器的信道' }, scenario: () => uwbNbaScenario('outside') },
     { label: { en: 'Hop over four channels', zh: '在四个信道间跳变' }, scenario: () => uwbNbaScenario('hop') },
     { label: { en: 'No LBT', zh: '不先听后发' }, scenario: () => uwbNbaScenario('noLbt') },
+    { label: { en: 'One anchor at a time', zh: '一次只问一个锚点' }, scenario: () => uwbNbaScenario('pairwise') },
   ],
   jumps: [
     J('the narrowband poll that opens the round', '打开轮次的那帧窄带 Poll', firstNbPoll),
@@ -223,16 +237,16 @@ export const uwbNba: Lesson = {
     J('the one distance of the whole run', '整段运行里唯一的一个距离', firstUwbRange),
   ],
   observe: [
-    { en: 'The round opens on the other radio: “uwb-1 → anchor-1 NBPOLL 12 B @0.25 Mbps (576.0 µs)”. It is the first thing in the whole run — no ranging frame has been sent yet.',
-      zh: '这一轮是在另一部射频上开场的：“uwb-1 → anchor-1 NBPOLL 12 B @0.25 Mbps (576.0 µs)”。它是整段运行里的第一件事——那时还没有任何一帧测距帧发出去。' },
-    { en: 'The answering anchor closes the round: “anchor-1 → uwb-1 NBREPORT 13 B @0.25 Mbps (608.0 µs)” at 12.000 ms. Only after that last message does the asker have anything to compute a distance from.',
-      zh: '作答的锚点为这一轮收尾：12.000 ms 处的 “anchor-1 → uwb-1 NBREPORT 13 B @0.25 Mbps (608.0 µs)”。直到这最后一条消息落地，发问的一方手里才有了算距离的材料。' },
+    { en: 'The round opens on the other radio: “uwb-1 → * NBPOLL 23 B @0.25 Mbps (928.0 µs)”. It is the first thing in the whole run — no ranging frame has been sent yet.',
+      zh: '这一轮是在另一部射频上开场的：“uwb-1 → * NBPOLL 23 B @0.25 Mbps (928.0 µs)”。它是整段运行里的第一件事——那时还没有任何一帧测距帧发出去。' },
+    { en: 'The first answering anchor closes its half of the round: “anchor-1 → uwb-1 NBREPORT 13 B @0.25 Mbps (608.0 µs)” at 20.000 ms. Only after that message does the asker have anything to compute a distance from.',
+      zh: '第一个作答的锚点为自己这半轮收尾：20.000 ms 处的 “anchor-1 → uwb-1 NBREPORT 13 B @0.25 Mbps (608.0 µs)”。直到这条消息落地，发问的一方手里才有了算距离的材料。' },
     { en: 'The distance follows it: “uwb-1 range → anchor-1 (SS): 4.74 m (true 4.76 m, raw 7.51 m)”. Open the asker’s inspector beside it — its fragment rows say every fragment was heard and detected.',
       zh: '距离紧跟在它后面：“uwb-1 range → anchor-1 (SS): 4.74 m (true 4.76 m, raw 7.51 m)”。顺手打开发问那一端的检视面板：那几行片段写着，每一个片段都收到了，也都检出了。' },
   ],
   tryThis: [
-    { en: 'Load “Outside the router’s channel” and step through one block. The cycle runs to the end for every anchor in the room: a poll, a response, a train of fragments, a report and a distance, four times over.',
-      zh: '载入“避开路由器的信道”，把一个块一步步走完。房间里每个锚点的周期都跑到了头：一条 Poll、一条 Response、一串片段、一条 Report、一个距离，前后四遍。' },
+    { en: 'Load “One anchor at a time” and step through one block. The same cycle runs four times over, once per anchor: a poll, a response, a train of fragments, a report and a distance, each in a round of its own.',
+      zh: '载入“一次只问一个锚点”，把一个块一步步走完。同样的周期跑了四遍，每个锚点一遍：一条 Poll、一条 Response、一串片段、一条 Report、一个距离，各自占一整轮。' },
     { en: 'Jump to “what the far end made of the train”, read the verdict line, then jump on to the report that follows it. The wide radio reached the verdict; the small radio is what carries it home.',
       zh: '跳到“对端如何判定这一串片段”，读一读那行判定，再往后跳到紧随其后的那条 Report。判定是宽带射频做出的，而把它捎回家的，是那部小射频。' },
   ],

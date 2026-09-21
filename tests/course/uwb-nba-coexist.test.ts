@@ -186,7 +186,7 @@ describe('uwb-nba-coexist · the lesson', () => {
       expect(i, j.label.en).toBeGreaterThanOrEqual(0)
       return i
     })
-    expect(rs[idx[0]].t).toBe(13 * MS) // the busy check that ends the block
+    expect(rs[idx[0]].t).toBe(2 * MS) // the busy check that ends the block
     expect(rs[idx[1]].t).toBe(0) // the one poll that did get out
     const watch = uwbNbaCoexist.picture!.find((b) => b.kind === 'watch') as Extract<Block, { kind: 'watch' }>
     expect(watch.jump).toBe(0)
@@ -306,47 +306,52 @@ describe('uwb-nba-coexist · the base scene, inside the router’s channel', () 
     expect(lbt()).toHaveLength(9)
     expect(skippedBlocks(undefined, TAG)).toEqual([0, 1, 2, 3, 4, 5, 6])
     expect(lbt().filter((l) => l.node === TAG)).toHaveLength(BLOCKS)
-    expect(skippedBlocks(undefined, 'anchor-1')).toEqual([3])
-    expect(skippedBlocks(undefined, 'anchor-2')).toEqual([3])
+    expect(skippedBlocks(undefined, 'anchor-1')).toEqual([])
+    expect(skippedBlocks(undefined, 'anchor-2')).toEqual([0, 4])
     expect(skippedBlocks(undefined, 'anchor-3')).toEqual([])
-    expect(skippedBlocks(undefined, 'anchor-4')).toEqual([])
     expect(cell(1, 0, 2)).toBe('7 of 7')
     expect(prose()).toContain('Seven blocks, seven checks, seven skipped')
-    expect(prose()).toContain('two anchors lose a block to a check of their own as well')
+    expect(prose()).toContain('one anchor loses two blocks to checks of its own as well')
   })
 
-  it('"Only the first block gets anything out: one distance, and no position"', () => {
-    expect(tagRanges()).toHaveLength(1)
-    expect(ranges()).toHaveLength(1)
+  it('"Two blocks in seven get anything out: four distances, and no position"', () => {
+    expect(tagRanges()).toHaveLength(4)
+    expect(ranges()).toHaveLength(4)
     expect(fixes()).toHaveLength(0)
     const r = tagRanges()[0]
     expect([r.peer, r.block, r.method]).toEqual(['anchor-1', 0, 'ss'])
-    expect(ofType(recs(), 'UWB_TIMEOUT')).toHaveLength(29)
-    expect([cell(1, 0, 3), cell(1, 0, 4)]).toEqual(['1', '0'])
-    expect(prose()).toContain('Only the first block gets anything out')
-    expect(prose()).toContain('One distance, and no position, because a position needs three')
-    expect(uwbNbaCoexist.observe[2].en).toContain('29 timeouts')
+    // two of the seven blocks, two ranges each: never the three one fix needs
+    expect([...new Set(tagRanges().map((x) => x.block))]).toEqual([0, 4])
+    expect(ofType(recs(), 'UWB_TIMEOUT')).toHaveLength(21)
+    expect([cell(1, 0, 3), cell(1, 0, 4)]).toEqual(['4', '0'])
+    expect(prose()).toContain('Two blocks in seven get anything out')
+    expect(prose()).toContain('Four distances between them, and still no position, because a position needs three in one block')
+    expect(uwbNbaCoexist.observe[2].en).toContain('21 timeouts')
   })
 
   it('the busy check, the line it prints, and the silence the anchors then report', () => {
-    const busy = lbt()[0]
-    expect(busy.t).toBe(13 * MS)
-    expect(busy.node).toBe(TAG)
+    // the run's first busy check is an anchor's, in its response window; the phone's own
+    // comes at its report slot, 21 ms in
+    const busy = lbt().find((l) => l.node === TAG)!
+    expect(busy.t).toBe(21 * MS)
     expect(busy.block).toBe(0)
+    expect(lbt()[0].t).toBe(2 * MS)
+    expect(fmtRecord(lbt()[0])).toBe('anchor-2 NB LBT busy on ch 200: -69.6 dBm ≥ -71.0 — skipping the block')
     expect(fmtRecord(busy)).toBe('uwb-1 NB LBT busy on ch 200: -63.7 dBm ≥ -71.0 — skipping the block')
     expect(uwbNbaCoexist.observe[0].en)
       .toContain('“uwb-1 NB LBT busy on ch 200: -63.7 dBm ≥ -71.0 — skipping the block”')
-    expect(uwbNbaCoexist.observe[0].en).toContain('At 13.000 ms')
+    expect(uwbNbaCoexist.observe[0].en).toContain('At 21.000 ms')
     // "the block's later rounds still run on the grid — the anchors turn up and wait"
     const to = ofType(recs(), 'UWB_TIMEOUT')
-    expect(fmtRecord(to.find((r) => r.t === 14 * MS)!)).toBe('anchor-1 UWB slot 26: no nb-report from uwb-1')
-    expect(fmtRecord(to.find((r) => r.t === 15 * MS)!)).toBe('anchor-2 UWB slot 0: no nb-poll from uwb-1')
-    expect(uwbNbaCoexist.observe[1].en).toContain('“anchor-1 UWB slot 26: no nb-report from uwb-1”')
-    expect(uwbNbaCoexist.observe[1].en).toContain('“anchor-2 UWB slot 0: no nb-poll from uwb-1”')
+    expect(fmtRecord(to.find((r) => r.t === 22 * MS && r.node === 'anchor-1')!)).toBe('anchor-1 UWB slot 42: no nb-report from uwb-1')
+    expect(fmtRecord(to.find((r) => r.t === 201 * MS && r.node === 'anchor-1')!)).toBe('anchor-1 UWB slot 0: no nb-poll from uwb-1')
+    expect(uwbNbaCoexist.observe[1].en).toContain('“anchor-1 UWB slot 42: no nb-report from uwb-1”')
+    expect(uwbNbaCoexist.observe[1].en).toContain('“anchor-1 UWB slot 0: no nb-poll from uwb-1”')
     const block0 = ofType(recs(), 'UWB_ROUND').filter((r) => r.block === 0)
-    expect(block0.map((r) => r.round)).toEqual([0, 1, 2, 3])
+    // one one-to-many round a block now, where the pair round had one per anchor
+    expect(block0.map((r) => r.round)).toEqual([0])
     expect(nbFrames().filter((f) => f.frame.uwb!.block === 0 && f.frame.uwb!.round! > 0)).toHaveLength(0)
-    expect(nbFrames()).toHaveLength(6)
+    expect(nbFrames()).toHaveLength(10)
   })
 
   it('the phone’s inspector: "200 · 6301.25 MHz" and "7 busy · 7 blocks skipped", EN and ZH', () => {
@@ -462,9 +467,9 @@ describe('uwb-nba-coexist · what the narrowband radio costs Wi-Fi', () => {
     expect(prose()).toContain('only trips the same threshold within about 40 cm')
   })
 
-  it('"six of them reach the air and five Wi-Fi frames fail behind them; … 108 messages and 87 failures"', () => {
-    expect(nbFrames()).toHaveLength(6)
-    expect(wifiRxFail(recs())).toHaveLength(5)
+  it('"ten of them reach the air and six Wi-Fi frames fail behind them; … 108 messages and 87 failures"', () => {
+    expect(nbFrames()).toHaveLength(10)
+    expect(wifiRxFail(recs())).toHaveLength(6)
     expect(nbFrames(V_NOLBT)).toHaveLength(108)
     expect(wifiRxFail(recs(V_NOLBT))).toHaveLength(87)
     // every one of the base run's five failures happened while a narrowband message was on the air
@@ -472,7 +477,7 @@ describe('uwb-nba-coexist · what the narrowband radio costs Wi-Fi', () => {
     for (const f of wifiRxFail(recs())) {
       expect(wins.some(([a, b]) => f.t >= a && f.t <= b), String(f.t)).toBe(true)
     }
-    expect(prose()).toContain('six of them reach the air and five Wi-Fi frames fail behind them')
+    expect(prose()).toContain('ten of them reach the air and six Wi-Fi frames fail behind them')
     expect(prose()).toContain('with it off, 108 messages and 87 failures')
   })
 

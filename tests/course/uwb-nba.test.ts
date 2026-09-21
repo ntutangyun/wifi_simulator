@@ -45,10 +45,12 @@ const TAG = 'uwb-1'
 const ANCHORS = NBA_ANCHORS.map((a) => a.id)
 /** Index into `uwbNba.variants`: the scene where nothing stops the cycle. */
 const V_OUT = 0
+/** Index into `uwbNba.variants`: the pair round this lesson ran before one-to-many existed. */
+const V_PAIR = 3
 
 // The contract every migrated lesson owes. The window is what `lessonBudget` reports —
 // `npx tsx scripts/lesson-dump.ts uwb-nba en` prints it — and the kit enforces it.
-lessonShapeSuite(uwbNba, { proseMax: 850 })
+lessonShapeSuite(uwbNba, { proseMax: 900 })
 
 const recs = (variant?: number): TLRecord[] => runOf(uwbNba, variant, RUN_NS)
 const dist3 = (a: { x: number; y: number; z: number }, b: { x: number; y: number; z: number }): number =>
@@ -85,14 +87,22 @@ describe('uwb-nba · the lesson', () => {
     expect(uwbNba.observe[0].en).toContain('NBPOLL')
   })
 
-  it('the scenario and its three variants pass the scenario schema, labels unchanged', () => {
+  it('the scenario and its four variants pass the scenario schema, labels unchanged', () => {
     expect(() => ScenarioSchema.parse(uwbNba.scenario())).not.toThrow()
-    expect(uwbNba.variants).toHaveLength(3)
+    expect(uwbNba.variants).toHaveLength(4)
     for (const v of uwbNba.variants!) expect(() => ScenarioSchema.parse(v.scenario())).not.toThrow()
     expect(uwbNba.variants!.map((v) => v.label.en))
-      .toEqual(['Outside the router’s channel', 'Hop over four channels', 'No LBT'])
+      .toEqual(['Outside the router’s channel', 'Hop over four channels', 'No LBT', 'One anchor at a time'])
     expect(uwbNba.variants!.map((v) => v.label.zh))
-      .toEqual(['避开路由器的信道', '在四个信道间跳变', '不先听后发'])
+      .toEqual(['避开路由器的信道', '在四个信道间跳变', '不先听后发', '一次只问一个锚点'])
+    // only the base is one-to-many; every variant is the pair round this lesson used to run,
+    // with all four corner anchors, which is why only the base's recorded hash moved
+    expect(uwbNbaScenario('base').uwb!.mms.oneToMany).toBe(true)
+    expect(uwbNbaScenario('base').nodes.map((n) => n.id)).toEqual(['ap', 'laptop', 'anchor-1', 'anchor-2', 'anchor-3', TAG])
+    for (const v of ['outside', 'hop', 'noLbt', 'pairwise'] as const) {
+      expect(uwbNbaScenario(v).uwb!.mms.oneToMany, v).toBe(false)
+      expect(uwbNbaScenario(v).nodes.map((n) => n.id), v).toEqual(['ap', 'laptop', ...ANCHORS, TAG])
+    }
   })
 
   it('offers four jumps, and they occur in the base run in the order the list gives them', () => {
@@ -104,12 +114,12 @@ describe('uwb-nba · the lesson', () => {
       return i
     })
     expect(idx).toEqual([...idx].sort((a, b) => a - b))
-    // the poll opens the round at 0, the anchor judges the tag's train in the slot after its
-    // last fragment, the report lands in slot 24, and the distance follows it
+    // the poll opens the one-to-many round at 0, the anchors judge the tag's train in the
+    // slot after its last fragment, the first report lands in slot 40, and the distance follows
     expect(rs[idx[0]].t).toBe(0)
-    expect(rs[idx[1]].t).toBe(9.5 * MS)
-    expect(rs[idx[2]].t).toBe(12 * MS)
-    expect(rs[idx[3]].t).toBe(12 * MS + nbPpduNs(NB_REPORT_BYTES) + 16)
+    expect(rs[idx[1]].t).toBe(18.5 * MS)
+    expect(rs[idx[2]].t).toBe(20 * MS)
+    expect(rs[idx[3]].t).toBe(20 * MS + nbPpduNs(NB_REPORT_BYTES) + 16)
     // the watch call-out sends the reader to the first of them
     const watch = uwbNba.picture!.find((b) => b.kind === 'watch') as Extract<Block, { kind: 'watch' }>
     expect(watch.jump).toBe(0)
@@ -141,9 +151,11 @@ describe('uwb-nba · the scene', () => {
       .toEqual([6265, 6345])
   })
 
-  it('places four corner anchors at 2.20 m and the tag 1.50 m from the router', () => {
-    expect(sc.nodes.map((n) => n.id)).toEqual(['ap', 'laptop', ...ANCHORS, TAG])
-    for (const a of NBA_ANCHORS) {
+  it('places the corner anchors at 2.20 m and the tag 1.50 m from the router', () => {
+    // the one-to-many base leaves the fourth corner empty (see the variants test above)
+    expect(sc.nodes.map((n) => n.id)).toEqual(['ap', 'laptop', 'anchor-1', 'anchor-2', 'anchor-3', TAG])
+    expect(uwbNbaScenario('pairwise').nodes.map((n) => n.id)).toEqual(['ap', 'laptop', ...ANCHORS, TAG])
+    for (const a of NBA_ANCHORS.slice(0, 3)) {
       const n = sc.nodes.find((x) => x.id === a.id)!
       expect(n.pos, a.id).toEqual({ x: a.x, y: a.y, z: ANCHOR_Z })
       expect(n.uwb, a.id).toEqual({ role: 'anchor' })
@@ -173,14 +185,18 @@ describe('uwb-nba · the scene', () => {
     expect(u.aoa).toBe(false)
     expect(u.nlos).toBe(true)
     expect(u.blockRstu).toBe(DEFAULT_UWB_SESSION.blockRstu)
-    expect(u.mms).toEqual({ ...DEFAULT_UWB_SESSION.mms, nbChannels: [200], nbLbt: 'auto', report: 'bi' })
+    expect(u.mms).toEqual({ ...DEFAULT_UWB_SESSION.mms, nbChannels: [200], nbLbt: 'auto', report: 'bi', oneToMany: true })
     expect(u.mms.rsfs).toBe(8)
-    expect(uwbNbaScenario('outside').uwb!.mms).toEqual({ ...u.mms, nbChannels: [100] })
-    expect(uwbNbaScenario('hop').uwb!.mms).toEqual({ ...u.mms, nbChannels: [100, 150, 200, 210] })
-    expect(uwbNbaScenario('noLbt').uwb!.mms).toEqual({ ...u.mms, nbLbt: 'off' })
-    expect(NBA_CHANNELS).toEqual({ base: [200], outside: [100], hop: [100, 150, 200, 210], noLbt: [200] })
-    for (const v of ['base', 'outside', 'hop', 'noLbt'] as UwbNbaVariant[]) {
-      expect(JSON.stringify(uwbNbaScenario(v).nodes), v).toBe(JSON.stringify(sc.nodes))
+    const pair = { ...u.mms, oneToMany: false }
+    expect(uwbNbaScenario('outside').uwb!.mms).toEqual({ ...pair, nbChannels: [100] })
+    expect(uwbNbaScenario('hop').uwb!.mms).toEqual({ ...pair, nbChannels: [100, 150, 200, 210] })
+    expect(uwbNbaScenario('noLbt').uwb!.mms).toEqual({ ...pair, nbLbt: 'off' })
+    expect(uwbNbaScenario('pairwise').uwb!.mms).toEqual(pair)
+    expect(NBA_CHANNELS).toEqual({ base: [200], outside: [100], hop: [100, 150, 200, 210], noLbt: [200], pairwise: [200] })
+    // every pair-round variant carries the same four nodes, byte for byte
+    const pairNodes = JSON.stringify(uwbNbaScenario('pairwise').nodes)
+    for (const v of ['outside', 'hop', 'noLbt'] as UwbNbaVariant[]) {
+      expect(JSON.stringify(uwbNbaScenario(v).nodes), v).toBe(pairNodes)
     }
   })
 })
@@ -193,12 +209,18 @@ describe('uwb-nba · the three messages of a round', () => {
     expect(nbPpduNs(NB_POLL_BYTES) / 1000).toBe(576)
     expect(nbPpduNs(NB_RESP_BYTES) / 1000).toBe(576)
     expect(nbPpduNs(NB_REPORT_BYTES) / 1000).toBe(608)
-    expect([cell(0, 0, 0), cell(0, 0, 1), cell(0, 0, 2)]).toEqual(['Poll', '12 B', '576.0 µs'])
-    expect([cell(0, 1, 0), cell(0, 1, 1), cell(0, 1, 2)]).toEqual(['Response', '12 B', '576.0 µs'])
-    expect([cell(0, 2, 0), cell(0, 2, 1), cell(0, 2, 2)]).toEqual(['Report', '13 B', '608.0 µs'])
+    // the one-to-many poll names its responders: two content octets plus three per address
+    expect(nbPpduNs(23) / 1000).toBe(928)
+    expect([cell(0, 0, 0), cell(0, 0, 1), cell(0, 0, 2)]).toEqual(['Poll, three responders', '23 B', '928.0 µs'])
+    expect([cell(0, 1, 0), cell(0, 1, 1), cell(0, 1, 2)]).toEqual(['Poll, one responder', '12 B', '576.0 µs'])
+    expect([cell(0, 2, 0), cell(0, 2, 1), cell(0, 2, 2)]).toEqual(['Response', '12 B', '576.0 µs'])
+    expect([cell(0, 3, 0), cell(0, 3, 1), cell(0, 3, 2)]).toEqual(['Report', '13 B', '608.0 µs'])
+    // the row that says why this round holds three of the room's four anchors
+    expect([cell(0, 4, 0), cell(0, 4, 1)]).toEqual(['Responders this round holds', '3 of 4'])
+    expect(cell(0, 4, 3)).toContain('the poll grows 3 octets per responder and two 600 RSTU slots must hold it')
     // "the reply time, five octets of it"
     expect(NB_REPORT_TIME_BYTES).toBe(5)
-    expect(cell(0, 2, 3)).toContain('five octets')
+    expect(cell(0, 3, 3)).toContain('five octets')
   })
 
   it('"(10 + 2 + 2 × octets) symbols × 16 µs" is the engine’s own airtime', () => {
@@ -219,12 +241,14 @@ describe('uwb-nba · the three messages of a round', () => {
     expect(NB_SHR_SYMBOLS + NB_PHR_SYMBOLS).toBe(12)
   })
 
-  it('"a poll and a response together hold the air for 1.152 ms", longer than any fragment', () => {
+  it('"a poll and a response together hold the air for 1.504 ms", longer than any fragment', () => {
     expect((2 * nbPpduNs(NB_POLL_BYTES) / MS).toFixed(3)).toBe('1.152')
+    // the one-to-many poll is 23 octets, so the pair is 928 + 576 µs
+    expect(((nbPpduNs(23) + nbPpduNs(NB_RESP_BYTES)) / MS).toFixed(3)).toBe('1.504')
     const fragments = ofType(recs(V_OUT), 'TX_START').filter((r) => r.frame.kind === 'uwbRsf')
     expect(fragments.length).toBeGreaterThan(0)
     for (const f of fragments) expect(f.frame.txTimeNs).toBeLessThan(nbPpduNs(NB_POLL_BYTES))
-    expect(prose()).toContain('hold the air for 1.152 ms')
+    expect(prose()).toContain('hold the air for 1.504 ms')
     expect(prose()).toContain('any single fragment of the train they set up is shorter than either of them')
   })
 })
@@ -234,47 +258,54 @@ describe('uwb-nba · one block, message by message', () => {
     recs().find((r) => r.t === t && pred(r))!
   const txKind = (k: string) => (r: TLRecord): boolean => r.type === 'TX_START' && r.frame.kind === k
 
-  it('"the poll leaves at zero, the response answers at 1.000 ms"', () => {
-    expect(fmtRecord(at(0, txKind('nbPoll')))).toBe('uwb-1 → anchor-1 NBPOLL 12 B @0.25 Mbps (576.0 µs)')
+  it('"the poll leaves at zero, the first response answers at 1.000 ms"', () => {
+    expect(fmtRecord(at(0, txKind('nbPoll')))).toBe('uwb-1 → * NBPOLL 23 B @0.25 Mbps (928.0 µs)')
     expect(at(1 * MS, txKind('nbResp'))).toBeDefined()
-    expect(uwbNba.observe[0].en).toContain('“uwb-1 → anchor-1 NBPOLL 12 B @0.25 Mbps (576.0 µs)”')
+    expect(uwbNba.observe[0].en).toContain('“uwb-1 → * NBPOLL 23 B @0.25 Mbps (928.0 µs)”')
     // "It is the first thing in the whole run — no ranging frame has been sent yet"
     expect(ofType(recs(), 'TX_START')[0].frame.kind).toBe('nbPoll')
-    expect(prose()).toContain('the poll leaves at zero, the response answers at 1.000 ms')
+    expect(prose()).toContain('the poll leaves at zero, the first response answers at 1.000 ms')
+    // the pair round's own poll, still twelve octets, is on the pairwise variant
+    const pairPoll = ofType(runOf(uwbNba, V_PAIR, RUN_NS), 'TX_START').find((r) => r.frame.kind === 'nbPoll')!
+    expect(fmtRecord(pairPoll)).toBe('uwb-1 → anchor-1 NBPOLL 12 B @0.25 Mbps (576.0 µs)')
   })
 
-  it('"the anchor’s report goes out at 12.000 ms, and the distance appears 608 µs behind it"', () => {
-    expect(fmtRecord(at(12 * MS, txKind('nbReport'))))
+  it('"the first report goes out at 20.000 ms, and the distance appears 608 µs behind it"', () => {
+    expect(fmtRecord(at(20 * MS, txKind('nbReport'))))
       .toBe('anchor-1 → uwb-1 NBREPORT 13 B @0.25 Mbps (608.0 µs)')
     expect(uwbNba.observe[1].en)
-      .toContain('“anchor-1 → uwb-1 NBREPORT 13 B @0.25 Mbps (608.0 µs)” at 12.000 ms')
+      .toContain('“anchor-1 → uwb-1 NBREPORT 13 B @0.25 Mbps (608.0 µs)” at 20.000 ms')
     const r = ofType(recs(), 'UWB_RANGE')[0]
     expect(r.node).toBe(TAG)
-    expect(r.t).toBe(12 * MS + nbPpduNs(NB_REPORT_BYTES) + 16)
-    expect((r.t / MS).toFixed(3)).toBe('12.608')
+    expect(r.t).toBe(20 * MS + nbPpduNs(NB_REPORT_BYTES) + 16)
+    expect((r.t / MS).toFixed(3)).toBe('20.608')
     expect(fmtRecord(r)).toBe('uwb-1 range → anchor-1 (SS): 4.74 m (true 4.76 m, raw 7.51 m)')
     expect(uwbNba.observe[2].en)
       .toContain('“uwb-1 range → anchor-1 (SS): 4.74 m (true 4.76 m, raw 7.51 m)”')
-    expect(prose()).toContain('the distance appears 608 µs behind it, at 12.608 ms')
+    expect(prose()).toContain('the distance appears 608 µs behind it, at 20.608 ms')
   })
 })
 
 describe('uwb-nba · the grid underneath and the train on top', () => {
-  it('"a round is 28 slots of 500 µs, so 14 ms", four to a block, seven blocks in 1.3 s', () => {
-    const plan = roundPlan(uwbNbaScenario('base').uwb!, ANCHORS.length)
-    expect(plan.slots).toBe(28)
-    expect(plan.roundNs).toBe(14 * MS)
+  it('"a round is 52 slots of 500 µs, so 26 ms", one to a block, seven blocks in 1.3 s', () => {
+    const plan = roundPlan(uwbNbaScenario('base').uwb!, 3)
+    expect(plan.slots).toBe(52)
+    expect(plan.roundNs).toBe(26 * MS)
     expect(plan.roundNs / plan.slots).toBe(0.5 * MS)
     expect(plan.blockNs).toBe(200 * MS)
-    // four anchors, one round each: the last of block 6 ends at 1.256 s, inside the window
-    expect(6 * plan.blockNs + ANCHORS.length * plan.roundNs).toBeLessThan(RUN_NS)
+    // one round a block: block 6's ends at 1.226 s, inside the window
+    expect(6 * plan.blockNs + plan.roundNs).toBeLessThan(RUN_NS)
     expect(7 * plan.blockNs).toBeGreaterThan(RUN_NS)
-    const rounds = ofType(recs(V_OUT), 'UWB_ROUND')
-    expect(rounds).toHaveLength(BLOCKS * ANCHORS.length)
+    const rounds = ofType(recs(), 'UWB_ROUND')
+    expect(rounds).toHaveLength(BLOCKS)
     expect([...new Set(rounds.map((r) => r.block))]).toEqual([0, 1, 2, 3, 4, 5, 6])
     for (const r of rounds) expect(r.mode).toBe('mms')
-    expect(prose()).toContain('a round is 28 slots of 500 µs, so 14 ms, and a block holds four of them')
+    expect(prose()).toContain('a round is 52 slots of 500 µs, so 26 ms, and a block holds one of them')
     expect(prose()).toContain('Seven whole blocks fit in the 1.3 seconds of this run')
+    // the pair round the variants still run: 28 slots, one per anchor, four to a block
+    const pair = roundPlan(uwbNbaScenario('pairwise').uwb!, ANCHORS.length)
+    expect([pair.slots, pair.roundNs]).toEqual([28, 14 * MS])
+    expect(ofType(recs(V_OUT), 'UWB_ROUND')).toHaveLength(BLOCKS * ANCHORS.length)
   })
 
   it('"8 fragments of 8 … 34.5 dB and 32.0 dB" — the wide radio is never the problem', () => {
@@ -282,31 +313,35 @@ describe('uwb-nba · the grid underneath and the train on top', () => {
     for (const r of recs()) applyRecord(vs, r)
     const u = vs.nodes[TAG].uwb!
     // Y = 0 in this session, so there is one fragment row per peer and no integrity row
-    expect(Object.keys(u.mms.trains)).toEqual([uwbTrainKey('anchor-1', 'rsf'), uwbTrainKey('anchor-2', 'rsf')])
+    // anchor-2 loses its narrowband slot to the router and never joins, so the tag's two
+    // trains are anchor-1's and anchor-3's
+    expect(Object.keys(u.mms.trains)).toEqual([uwbTrainKey('anchor-1', 'rsf'), uwbTrainKey('anchor-3', 'rsf')])
     for (const t of Object.values(u.mms.trains)) {
       expect(`${t.heard} / ${t.fragments}`).toBe('8 / 8')
       expect(t.detected).toBe(true)
     }
-    expect(Object.values(u.mms.trains).map((t) => t.marginDb.toFixed(1))).toEqual(['34.5', '32.0'])
+    expect(Object.values(u.mms.trains).map((t) => t.marginDb.toFixed(1))).toEqual(['34.5', '33.4'])
     const train = ofType(recs(), 'UWB_MMS_TRAIN')[0]
     expect([train.heard, train.fragments, train.detected]).toEqual([8, 8, true])
     expect(train.marginDb.toFixed(1)).toBe('34.5')
-    expect(prose()).toContain('Both listening anchors hear 8 fragments of 8')
-    expect(prose()).toContain('by 34.5 dB and 32.0 dB')
+    expect(prose()).toContain('Both answering anchors hear 8 fragments of 8')
+    expect(prose()).toContain('by 34.5 dB and 33.4 dB')
     expect(uwbNba.observe[2].en).toContain('every fragment was heard and detected')
   })
 
-  it('the round really is four pair rounds, one per anchor, when nothing stops it', () => {
-    const block0 = ofType(recs(V_OUT), 'UWB_ROUND').filter((r) => r.block === 0)
-    expect(block0.map((r) => r.round)).toEqual([0, 1, 2, 3])
-    // four 14 ms rounds are 56 ms of a 200 ms block, so they are what the block holds, not
-    // what fills it: the run's own numbers say the rest of the block is empty
-    expect(prose()).toContain('Four rounds like that are all a block holds, one for each anchor in the room')
+  it('the base round is one round a block; the pair variants are four', () => {
+    const block0 = ofType(recs(), 'UWB_ROUND').filter((r) => r.block === 0)
+    expect(block0.map((r) => r.round)).toEqual([0])
+    // one 26 ms round is 26 ms of a 200 ms block, so it is what the block holds, not what
+    // fills it: the run's own numbers say the rest of the block is empty
+    expect(prose()).toContain('One round like that is all a block holds, and the rest of it is empty air')
     expect(prose()).not.toContain('fill a block')
-    expect(block0.length * 14).toBeLessThan(200)
-    // and the experiment says so: the cycle runs to the end for every anchor
+    expect(block0.length * 26).toBeLessThan(200)
+    // and the experiment sends the reader to the pair round, where the cycle runs four times
+    const pairBlock0 = ofType(recs(V_PAIR), 'UWB_ROUND').filter((r) => r.block === 0)
+    expect(pairBlock0.map((r) => r.round)).toEqual([0, 1, 2, 3])
     expect(ofType(recs(V_OUT), 'UWB_RANGE').filter((r) => r.node === TAG)).toHaveLength(BLOCKS * 4)
-    expect(uwbNba.tryThis[0].en).toContain('Outside the router’s channel')
+    expect(uwbNba.tryThis[0].en).toContain('One anchor at a time')
   })
 })
 
@@ -360,6 +395,6 @@ describe('uwb-nba · the quiz is answerable from the main path', () => {
       .toContain('Four bits ride on a 16 µs symbol — 250 kb/s — and twelve header symbols go in front')
     // both answers are derivable from the numbers section alone
     expect(formula().note!.en).toContain('Four bits ride on each symbol')
-    expect(cell(0, 2, 3)).toContain('reply time')
+    expect(cell(0, 3, 3)).toContain('reply time')
   })
 })

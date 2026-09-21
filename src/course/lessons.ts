@@ -29,6 +29,7 @@ import { ampSlots } from './amp/amp-slots'
 import { ampCoexist } from './amp/amp-coexist'
 import { uwbIntro } from './uwb/uwb-intro'
 import { uwbFrame } from './uwb/uwb-frame'
+import { uwbSts } from './uwb/uwb-sts'
 import { uwbSstwr } from './uwb/uwb-sstwr'
 import { uwbDstwr } from './uwb/uwb-dstwr'
 import { uwbBlocks } from './uwb/uwb-blocks'
@@ -43,6 +44,7 @@ import { uwbMms } from './uwb/uwb-mms'
 import { uwbMmsNumbers } from './uwb/uwb-mms-numbers'
 import { uwbNba } from './uwb/uwb-nba'
 import { uwbNbaCoexist } from './uwb/uwb-nba-coexist'
+import { uwbCapstone } from './uwb/uwb-capstone'
 export type { Block, JumpTarget, L10n, Lesson, LessonVariant, Quiz, Term } from './lessonKit'
 export { isMigrated } from './lessonKit'
 
@@ -127,6 +129,7 @@ const AUTHORED: Lesson[] = [
   ampCoexist,
   uwbIntro,
   uwbFrame,
+  uwbSts,
   uwbSstwr,
   uwbDstwr,
   uwbBlocks,
@@ -141,6 +144,7 @@ const AUTHORED: Lesson[] = [
   uwbMmsNumbers,
   uwbNba,
   uwbNbaCoexist,
+  uwbCapstone,
   // ======================= MODULE 1 =======================
   {
     id: 'airtime',

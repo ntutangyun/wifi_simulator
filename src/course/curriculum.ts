@@ -62,6 +62,7 @@ export const MODULES: CourseModule[] = [
   { tier: 5, title: { en: 'Coexistence', zh: '共存' } },
   { tier: 5, title: { en: 'Other ranging modes', zh: '其他测距模式' } },
   { tier: 6, title: { en: 'Narrowband-assisted multi-millisecond UWB', zh: '窄带辅助的多毫秒 UWB' } },
+  { tier: 6, title: { en: 'The ranging capstone', zh: '测距综合实践' } },
 ]
 
 /**
@@ -85,7 +86,7 @@ export const COURSE_ORDER: string[] = [
   // Tier 2 — M9 real applications
   'capstone',
   // UWB Tier 1 — M11 time of flight
-  'uwb-intro', 'uwb-frame', 'uwb-sstwr', 'uwb-dstwr',
+  'uwb-intro', 'uwb-frame', 'uwb-sts', 'uwb-sstwr', 'uwb-dstwr',
   // UWB Tier 1 — M12 sessions and positioning
   'uwb-blocks', 'uwb-position', 'uwb-geometry',
   // UWB Tier 2 — M13 coexistence
@@ -94,6 +95,8 @@ export const COURSE_ORDER: string[] = [
   'uwb-dl-tdoa', 'uwb-ul-tdoa', 'uwb-aoa',
   // UWB Tier 3 — M15 narrowband-assisted multi-millisecond UWB
   'uwb-mms', 'uwb-mms-numbers', 'uwb-nba', 'uwb-nba-coexist',
+  // UWB Tier 3 — M15 the capstone of the ranging track
+  'uwb-capstone',
 ]
 
 /** Lessons in reading order; ids in COURSE_ORDER without an authored lesson are skipped. */

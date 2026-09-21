@@ -272,7 +272,7 @@ describe('module 4 lessons', () => {
     // four Wi-Fi tiers, then the UWB track's three
     expect(TIERS).toHaveLength(7)
     expect(TIERS.map((t) => t.track)).toEqual(['wifi', 'wifi', 'wifi', 'wifi', 'uwb', 'uwb', 'uwb'])
-    expect(MODULES.map((m) => m.tier)).toEqual([0, 0, 1, 1, 1, 1, 1, 1, 1, 2, 3, 4, 4, 5, 5, 6])
+    expect(MODULES.map((m) => m.tier)).toEqual([0, 0, 1, 1, 1, 1, 1, 1, 1, 2, 3, 4, 4, 5, 5, 6, 6])
     for (const m of MODULES) expect(m.title.zh.length).toBeGreaterThan(0)
   })
 
