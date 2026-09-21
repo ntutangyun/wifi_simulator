@@ -124,7 +124,7 @@ const lessonProse = (l: Lesson): string => {
 const prose = (): string => lessonProse(uwbCoexist)
 
 const table = (n: number): Extract<Block, { kind: 'table' }> =>
-  uwbCoexist.body.filter((b): b is Extract<Block, { kind: 'table' }> => b.kind === 'table')[n]
+  uwbCoexist.body!.filter((b): b is Extract<Block, { kind: 'table' }> => b.kind === 'table')[n]
 const cell = (n: number, row: number, col: number): string => table(n).rows[row][col].en
 
 /** In-band level (dBm) a Wi-Fi transmitter of `eirpDbm` puts into the UWB band at `at`. */
@@ -221,7 +221,7 @@ describe('uwb-coexist · lesson shape', () => {
   })
 
   it('names the one standard clause it leans on and owns the rest as the model’s', () => {
-    const first = uwbCoexist.body[0]
+    const first = uwbCoexist.body![0]
     expect(first.kind ?? 'p').toBe('p')
     const en = (first as Extract<Block, { kind?: 'p' }>).text.en
     // "§16.4.10 sets a UWB receiver’s maximum input at −45 dBm/MHz"
@@ -319,7 +319,7 @@ describe('uwb-coexist · the band arithmetic', () => {
   })
 
   it('the in-band formula is the mediator’s own: 20 dBm against −21.95 dBm', () => {
-    const f = uwbCoexist.body.filter((b): b is Extract<Block, { kind: 'formula' }> => b.kind === 'formula')
+    const f = uwbCoexist.body!.filter((b): b is Extract<Block, { kind: 'formula' }> => b.kind === 'formula')
     expect(f).toHaveLength(1)
     expect(f[0].text.en).toBe(
       'in-band EIRP = EIRP + 10·log10(W_overlap / W_own)      Wi-Fi: 20 + 10·log10(80/80) = 20 dBm      UWB: −14 + 10·log10(80/499.2) = −21.95 dBm')
@@ -424,7 +424,7 @@ describe('uwb-coexist · what each side hears', () => {
     expect(uwbAt({ ...TAG, x: TAG.x + crossoverM }, TAG).toFixed(4)).toBe(CCA_ED_DBM.toFixed(4))
     expect(uwbAt({ ...TAG, x: TAG.x + crossoverM - 0.01 }, TAG)).toBeGreaterThan(CCA_ED_DBM)
     // both languages carry the cutoff, and neither claims CCA can never trip at all
-    const zh = uwbCoexist.body.flatMap((b) => (b.kind === undefined || b.kind === 'p') ? [b.text.zh] : [])
+    const zh = uwbCoexist.body!.flatMap((b) => (b.kind === undefined || b.kind === 'p') ? [b.text.zh] : [])
       .concat(uwbCoexist.quiz.map((q) => q.explain.zh)).join('\n')
     expect(prose()).toContain('within about 40 cm of a UWB transmitter')
     expect(zh).toContain('40 cm')

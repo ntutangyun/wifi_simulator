@@ -142,7 +142,7 @@ const lessonProse = (l: Lesson): string => {
 const prose = (): string => lessonProse(uwbDlTdoa)
 
 const tables = (): Extract<Block, { kind: 'table' }>[] =>
-  uwbDlTdoa.body.filter((b): b is Extract<Block, { kind: 'table' }> => b.kind === 'table')
+  uwbDlTdoa.body!.filter((b): b is Extract<Block, { kind: 'table' }> => b.kind === 'table')
 const cell = (table: number, row: number, col: number): string => tables()[table].rows[row][col].en
 
 describe('uwb-dl-tdoa · lesson shape', () => {
@@ -220,7 +220,7 @@ describe('uwb-dl-tdoa · lesson shape', () => {
   })
 
   it('names the clause it leans on and owns the message content and both corrections as the model’s', () => {
-    const first = uwbDlTdoa.body[0]
+    const first = uwbDlTdoa.body![0]
     expect(first.kind ?? 'p').toBe('p')
     const en = (first as Extract<Block, { kind?: 'p' }>).text.en
     expect(en).toContain('IEEE Std 802.15.4-2024')

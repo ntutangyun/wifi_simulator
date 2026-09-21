@@ -6,7 +6,7 @@
  *
  * See docs/superpowers/specs/2026-09-18-zero-to-hero-curriculum-design.md.
  */
-import type { L10n, Lesson } from './lessonKit'
+import type { Block, L10n, Lesson } from './lessonKit'
 
 /** The radio the tier teaches. Tracks are listed in this order, Wi-Fi first. */
 export type Track = 'wifi' | 'uwb'
@@ -104,7 +104,29 @@ export function orderLessons(authored: Lesson[]): Lesson[] {
   return COURSE_ORDER.flatMap((id) => byId.get(id) ?? [])
 }
 
-/** English words across everything a learner reads in a lesson. */
+/**
+ * The pseudo-track a lesson belongs to for the prerequisite and acronym rules.
+ * The AMP lessons are a module of the Wi-Fi tiers, but they teach their own
+ * radio and are read as their own climb, so they get a track of their own.
+ */
+export function trackOf(l: Lesson): 'wifi' | 'amp' | 'uwb' {
+  return l.module === 7 ? 'amp' : TIERS[MODULES[l.module].tier].track
+}
+
+/**
+ * Every block a learner reads on the main path, in either lesson shape — the
+ * old flat `body`, or the picture and then the numbers. `deeper` is not on the
+ * main path and is never included.
+ */
+export function lessonBlocks(l: Lesson): Block[] {
+  return l.body ?? [...(l.picture ?? []), ...(l.numbers ?? [])]
+}
+
+/**
+ * English words across everything a learner reads on a lesson's main path.
+ * `deeper` and `sources` are deliberately absent: the stated minutes are the
+ * minutes of the main path, not of the depth behind the collapsed sections.
+ */
 export function lessonWords(l: Lesson): number {
   const strings: string[] = []
   const walk = (x: unknown): void => {
@@ -116,7 +138,10 @@ export function lessonWords(l: Lesson): number {
       for (const [k, v] of Object.entries(o)) if (k !== 'scenario' && k !== 'find') walk(v)
     }
   }
-  walk({ body: l.body, observe: l.observe, tryThis: l.tryThis, quiz: l.quiz })
+  walk({
+    why: l.why, outcomes: l.outcomes, terms: l.terms, picture: l.picture, numbers: l.numbers,
+    body: l.body, observe: l.observe, tryThis: l.tryThis, quiz: l.quiz,
+  })
   return strings.join(' ').split(/\s+/).filter(Boolean).length
 }
 

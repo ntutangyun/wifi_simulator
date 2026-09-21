@@ -31,6 +31,16 @@ export interface Strings {
     module: string
     minutes: (n: number) => string
     selectPrompt: string
+    /** Section labels of the zero-to-hero lesson shape. */
+    outcomes: string
+    needs: string
+    terms: string
+    numbers: string
+    deeper: string
+    sources: string
+    /** Buttons inside a `watch` call-out. */
+    watchLoad: string
+    watchJump: string
     load: string
     reload: string
     variants: string
@@ -334,6 +344,14 @@ export const STRINGS: Record<Lang, Strings> = {
       module: 'Module',
       minutes: (n) => `~${n} min`,
       selectPrompt: 'Pick a lesson on the left, load its simulation, and follow the text against the live timeline.',
+      outcomes: 'After this lesson you can',
+      needs: 'You need',
+      terms: 'New words',
+      numbers: 'Now the numbers',
+      deeper: 'Going deeper',
+      sources: 'Where these numbers come from',
+      watchLoad: '▶ Load and watch',
+      watchJump: '⚡ Jump there',
       load: "▶ Load this lesson's simulation",
       reload: '↻ Restart simulation',
       variants: 'Scenario variants',
@@ -865,6 +883,14 @@ export const STRINGS: Record<Lang, Strings> = {
       module: '模块',
       minutes: (n) => `约 ${n} 分钟`,
       selectPrompt: '在左侧选择一课，载入其仿真场景，对照课文观察实时时间轴。',
+      outcomes: '学完这一课你能',
+      needs: '需要先学',
+      terms: '新词',
+      numbers: '现在看数字',
+      deeper: '再深一层',
+      sources: '这些数字从哪里来',
+      watchLoad: '▶ 载入并观察',
+      watchJump: '⚡ 跳到那里',
       load: '▶ 载入本课仿真',
       reload: '↻ 重新开始仿真',
       variants: '场景变体',

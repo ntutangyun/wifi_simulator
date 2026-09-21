@@ -69,7 +69,7 @@ function radioOnNs(rs: TLRecord[], node: string, untilNs: number, fromNs = 0): n
 
 /** The lesson's nth table, rows kept in place so a cell can be checked by position. */
 const table = (n: number): Extract<Block, { kind: 'table' }> =>
-  uwbBlocks.body.filter((b): b is Extract<Block, { kind: 'table' }> => b.kind === 'table')[n]
+  uwbBlocks.body!.filter((b): b is Extract<Block, { kind: 'table' }> => b.kind === 'table')[n]
 const cell = (n: number, row: number, col: number): string => table(n).rows[row][col].en
 
 /** Everything the learner reads, joined — for "is this number actually printed?" checks. */
@@ -167,7 +167,7 @@ describe('uwb-blocks · lesson shape', () => {
   })
 
   it('names the standard clauses it leans on, and the model numbers are the engine’s', () => {
-    const first = uwbBlocks.body[0]
+    const first = uwbBlocks.body![0]
     expect(first.kind ?? 'p').toBe('p')
     const en = (first as Extract<Block, { kind?: 'p' }>).text.en
     for (const s of ['IEEE Std 802.15.4-2024', '§10.32.2', '§10.29.1.5', 'Table 10-145', '§10.32.9.1', '§10.32.9.8']) {
@@ -449,7 +449,7 @@ describe('uwb-blocks · what the radio costs', () => {
 describe('uwb-blocks · the slot-fit rule', () => {
   it('the printed rule is the engine’s uwbSlotFitNs, term for term', () => {
     // "slot ≥ PPDU(Final, N anchors) + 200 ns = 236 603 + 200 = 236 803 ns at N = 4"
-    const formulas = uwbBlocks.body.filter((b): b is Extract<Block, { kind: 'formula' }> => b.kind === 'formula')
+    const formulas = uwbBlocks.body!.filter((b): b is Extract<Block, { kind: 'formula' }> => b.kind === 'formula')
     expect(formulas).toHaveLength(1)
     expect(formulas[0].text.en)
       .toBe('slot ≥ PPDU(Final, N anchors) + 200 ns = 236 603 + 200 = 236 803 ns at N = 4')

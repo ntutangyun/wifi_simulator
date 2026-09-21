@@ -47,12 +47,45 @@ export type Block =
   | { kind: 'steps'; heading?: L10n; items: L10n[] }
   /** An interactive view computed from the engine's own functions; params preset its controls. */
   | { kind: 'widget'; heading?: L10n; widget: 'linkBudget' | 'mcsLadder'; params?: Record<string, number | string>; caption?: L10n }
+  /** A call-out that sends the reader to the simulator: loads the lesson scenario, or jumps to jumps[jump] once loaded. */
+  | { kind: 'watch'; heading?: L10n; text: L10n; jump?: number }
 
+/** One word the standard's own spelling, and the plain-language line that explains it. */
+export interface Term {
+  term: string
+  plain: L10n
+}
+
+/**
+ * A lesson in either shape. The old shape is one flat `body`; the new,
+ * zero-to-hero shape (docs/superpowers/specs/2026-09-21-course-readability-design.md)
+ * opens with why the reader should care, says what they will be able to do and
+ * what they need first, names the new words, paints the picture in plain
+ * language, and only then reaches the numbers — with the professional depth and
+ * the provenance collapsed behind `deeper` and `sources`.
+ */
 export interface Lesson {
   id: string
   module: number
   title: L10n
-  body: Block[]
+  /** Old shape, being migrated away. A lesson has either `body` or the eight fields below. */
+  body?: Block[]
+  /** 2–4 plain sentences: the problem, who has it, what the lesson shows. */
+  why?: L10n
+  /** 2–4 verb phrases the reader can do afterwards. */
+  outcomes?: L10n[]
+  /** Lesson ids this one assumes; rendered as clickable titles. */
+  needs?: string[]
+  /** The new words this lesson introduces, at most six (four for a track's first lesson). */
+  terms?: Term[]
+  /** The mechanism in plain words; carries at least one `watch` call-out. */
+  picture?: Block[]
+  /** The exact values: tables, formulas, widgets and short paragraphs. */
+  numbers?: Block[]
+  /** Optional professional depth, collapsed; never needed to pass the quiz. */
+  deeper?: Block[]
+  /** Where the numbers come from: clauses, contributions, model choices. Collapsed. */
+  sources?: L10n[]
   scenario: () => Scenario
   variants?: LessonVariant[]
   jumps: JumpTarget[]
@@ -60,6 +93,9 @@ export interface Lesson {
   tryThis: L10n[]
   quiz: Quiz[]
 }
+
+/** True once a lesson carries the new shape. */
+export const isMigrated = (l: Lesson): boolean => l.why !== undefined
 
 /** A language-neutral cell (numbers, symbols, protocol names). */
 export const N = (s: string): L10n => ({ en: s, zh: s })

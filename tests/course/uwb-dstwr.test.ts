@@ -116,7 +116,7 @@ function fourTimes(anchorId: string, rs: TLRecord[] = recs()): {
 
 /** The lesson's nth table, rows kept in place so a cell can be checked by position. */
 const table = (n: number): Extract<Block, { kind: 'table' }> =>
-  uwbDstwr.body.filter((b): b is Extract<Block, { kind: 'table' }> => b.kind === 'table')[n]
+  uwbDstwr.body!.filter((b): b is Extract<Block, { kind: 'table' }> => b.kind === 'table')[n]
 /** One cell of one table, in English. */
 const cell = (n: number, row: number, col: number): string => table(n).rows[row][col].en
 
@@ -208,7 +208,7 @@ describe('uwb-dstwr · lesson shape', () => {
 
   it('names the standard clauses it leans on, and the model numbers are the engine’s', () => {
     // the source-status sentence, first block of the body
-    const first = uwbDstwr.body[0]
+    const first = uwbDstwr.body![0]
     expect(first.kind ?? 'p').toBe('p')
     const en = (first as Extract<Block, { kind?: 'p' }>).text.en
     for (const s of ['IEEE Std 802.15.4-2024', '§10.29.1.2.4', 'Figure 10-199', '§10.32.5', '§16.4.9']) {
@@ -476,7 +476,7 @@ describe('uwb-dstwr · the four times', () => {
 
   it('the printed formula is the engine’s dsTwr, operand for operand', () => {
     // "Tprop = (Tround1·Tround2 − Treply1·Treply2) / (Tround1 + Tround2 + Treply1 + Treply2)"
-    const formulas = uwbDstwr.body.filter((b): b is Extract<Block, { kind: 'formula' }> => b.kind === 'formula')
+    const formulas = uwbDstwr.body!.filter((b): b is Extract<Block, { kind: 'formula' }> => b.kind === 'formula')
     expect(formulas).toHaveLength(1)
     expect(formulas[0].text.en)
       .toBe('Tprop = (Tround1·Tround2 − Treply1·Treply2) / (Tround1 + Tround2 + Treply1 + Treply2)')

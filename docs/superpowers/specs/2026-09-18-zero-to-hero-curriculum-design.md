@@ -13,7 +13,7 @@ The course is the main way its primary user goes from zero to a professional Wi-
 ## Audience and pace
 
 - **Learner:** a single, motivated engineer starting from zero.
-- **Density:** dense lessons are fine. Main text keeps § citations and exact µs numbers.
+- **Density:** see `2026-09-21-course-readability-design.md` — depth after understanding; citations only in the sources block.
 - **Length:** 15–25 minutes per lesson, including time in the simulator.
 - **Stated duration:** estimated as words ÷ 150 wpm, plus 5 minutes per observe item and 5 per try-this item. Each estimate is checked by a test against the lesson's word count.
 - **Structure:** four tiers: MAC foundations, MAC practitioner, PHY, researcher. Each tier ends with a project, not only quizzes.

@@ -103,7 +103,7 @@ const lessonProse = (l: Lesson): string => {
 const prose = (): string => lessonProse(uwbAoa)
 
 const tables = (): Extract<Block, { kind: 'table' }>[] =>
-  uwbAoa.body.filter((b): b is Extract<Block, { kind: 'table' }> => b.kind === 'table')
+  uwbAoa.body!.filter((b): b is Extract<Block, { kind: 'table' }> => b.kind === 'table')
 const cell = (row: number, col: number): string => tables()[0].rows[row][col].en
 
 const ALL: UwbAoaVariant[] = ['base', 'off45', 'off60', 'behind']
@@ -185,7 +185,7 @@ describe('uwb-aoa · lesson shape', () => {
   })
 
   it('names the clause it leans on and owns the antennas, the sigma and the mirror as the model’s', () => {
-    const first = uwbAoa.body[0]
+    const first = uwbAoa.body![0]
     expect(first.kind ?? 'p').toBe('p')
     const en = (first as Extract<Block, { kind?: 'p' }>).text.en
     expect(en).toContain('IEEE Std 802.15.4-2024')

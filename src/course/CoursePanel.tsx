@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useStrings } from '../ui/i18n'
 import { player, useUi } from '../ui/store'
-import { LESSONS, lessonIndex, type Block, type L10n, type Lesson } from './lessons'
-import { MODULES, TIERS, TRACKS, lessonMinutes, trackHeadings } from './curriculum'
+import { LESSONS, isMigrated, lessonIndex, type Block, type L10n, type Lesson } from './lessons'
+import { MODULES, TIERS, TRACKS, lessonBlocks, lessonMinutes, trackHeadings } from './curriculum'
 import { LinkBudget } from './widgets/LinkBudget'
 import { McsLadder } from './widgets/McsLadder'
 
@@ -51,6 +51,18 @@ const td: React.CSSProperties = {
   verticalAlign: 'top',
 }
 const listStyle: React.CSSProperties = { margin: '4px 0', paddingLeft: 20, color: '#c3c9d4' }
+/** `why`: the opening paragraph, a shade larger than the rest so it reads first. */
+const whyStyle: React.CSSProperties = { margin: '6px 0 2px', fontSize: 13.5, color: '#d5dae3' }
+/** A `watch` call-out: go and look at the simulation now. */
+const watchStyle: React.CSSProperties = {
+  margin: '8px 0',
+  padding: 8,
+  borderLeft: '3px solid var(--accent)',
+  background: 'rgba(59,130,246,0.08)',
+  borderRadius: '0 4px 4px 0',
+}
+/** `deeper` and `sources`: present but out of the way until the reader wants them. */
+const summaryStyle: React.CSSProperties = { ...h4, cursor: 'pointer', listStyle: 'revert' }
 
 /** Render one lesson body block in the current language. */
 function BlockView({ b, t }: { b: Block; t: (l: L10n) => string }) {
@@ -212,6 +224,39 @@ export function CoursePanel() {
     setJumpMsg(ok ? '' : `${label}: ${L.notFound}`)
   }
 
+  /**
+   * A call-out that sends the reader to the simulator: it loads the lesson's
+   * scenario while nothing is loaded, and once something is, seeks straight to
+   * the moment the call-out is about. A call-out without a jump target just
+   * says what to look at.
+   */
+  const watchCallout = (b: Extract<Block, { kind: 'watch' }>) => {
+    const target = b.jump === undefined ? undefined : lesson.jumps[b.jump]
+    return (
+      <div style={watchStyle}>
+        <p style={{ ...prose, margin: 0 }}>{t(b.text)}</p>
+        {!courseLoaded && (
+          <button style={{ marginTop: 6, fontSize: 11.5 }} onClick={() => loadCourseScenario(lesson.scenario())}>
+            {L.watchLoad}
+          </button>
+        )}
+        {courseLoaded && target && (
+          <button style={{ marginTop: 6, fontSize: 11.5 }} onClick={() => jump(target.find, t(target.label))}>
+            {L.watchJump}
+          </button>
+        )}
+      </div>
+    )
+  }
+
+  /** One run of blocks, each with its optional heading. */
+  const blocks = (bs: Block[], key: string) => bs.map((b, i) => (
+    <div key={`${lesson.id}:${key}:${i}`}>
+      {b.heading && <h4 style={h4}>{t(b.heading)}</h4>}
+      {b.kind === 'watch' ? watchCallout(b) : <BlockView b={b} t={t} />}
+    </div>
+  ))
+
   return (
     <div style={{ padding: 12, overflowY: 'auto', fontSize: 12.5, lineHeight: 1.55 }}>
       <div style={{ display: 'flex', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
@@ -225,12 +270,65 @@ export function CoursePanel() {
       </div>
       <h3 style={{ margin: '4px 0 8px', fontSize: 14 }}>{idx + 1} · {t(lesson.title)}</h3>
 
-      {lesson.body.map((b, i) => (
-        <div key={`${lesson.id}:${i}`}>
-          {b.heading && <h4 style={h4}>{t(b.heading)}</h4>}
-          <BlockView b={b} t={t} />
-        </div>
-      ))}
+      {!isMigrated(lesson) && blocks(lessonBlocks(lesson), 'body')}
+
+      {isMigrated(lesson) && (
+        <>
+          <p style={whyStyle}>{t(lesson.why!)}</p>
+
+          <h4 style={h4}>{L.outcomes}</h4>
+          <ul style={listStyle}>
+            {(lesson.outcomes ?? []).map((o, i) => <li key={i}>{t(o)}</li>)}
+          </ul>
+
+          {(lesson.needs ?? []).length > 0 && (
+            <>
+              <h4 style={h4}>{L.needs}</h4>
+              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                {lesson.needs!.map((id) => (
+                  <button key={id} style={{ fontSize: 11.5 }} onClick={() => selectLesson(id)}>
+                    {t(LESSONS.find((x) => x.id === id)?.title ?? { en: id, zh: id })}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+
+          {(lesson.terms ?? []).length > 0 && (
+            <>
+              <h4 style={h4}>{L.terms}</h4>
+              <div style={tableWrap}>
+                <table style={tableStyle}>
+                  <tbody>
+                    {lesson.terms!.map((term) => (
+                      <tr key={term.term}>
+                        <td style={{ ...td, whiteSpace: 'nowrap', color: '#e6eaf2' }}>{term.term}</td>
+                        <td style={td}>{t(term.plain)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+
+          {blocks(lesson.picture ?? [], 'picture')}
+
+          {(lesson.numbers ?? []).length > 0 && (
+            <>
+              <h4 style={h4}>{L.numbers}</h4>
+              {blocks(lesson.numbers!, 'numbers')}
+            </>
+          )}
+
+          {(lesson.deeper ?? []).length > 0 && (
+            <details>
+              <summary style={summaryStyle}>{L.deeper}</summary>
+              {blocks(lesson.deeper!, 'deeper')}
+            </details>
+          )}
+        </>
+      )}
 
       <div style={{ margin: '10px 0 4px', display: 'flex', flexDirection: 'column', gap: 4 }}>
         <button
@@ -310,6 +408,15 @@ export function CoursePanel() {
           </div>
         </div>
       ))}
+
+      {lesson.sources && lesson.sources.length > 0 && (
+        <details style={{ margin: '10px 0 4px' }}>
+          <summary style={summaryStyle}>{L.sources}</summary>
+          <ul style={{ ...listStyle, fontSize: 11.5 }}>
+            {lesson.sources.map((s, i) => <li key={i}>{t(s)}</li>)}
+          </ul>
+        </details>
+      )}
 
       <button
         className={progress[lesson.id]?.done ? 'active' : ''}

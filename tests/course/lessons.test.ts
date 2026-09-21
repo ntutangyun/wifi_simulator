@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { LESSONS, MODULES, type L10n } from '../../src/course/lessons'
-import { COURSE_ORDER, OBSERVE_MINUTES, TIERS, TRY_MINUTES, lessonMinutes, lessonWords, trackHeadings } from '../../src/course/curriculum'
+import { COURSE_ORDER, OBSERVE_MINUTES, TIERS, TRY_MINUTES, lessonBlocks, lessonMinutes, lessonWords, trackHeadings } from '../../src/course/curriculum'
 import { ScenarioSchema } from '../../src/model/scenario'
 import { Simulation } from '../../src/engine/simulation'
 import { buildLinkTable } from '../../src/engine/propagation'
@@ -31,7 +31,7 @@ describe('course structure', () => {
         expect(q.answer).toBeLessThan(q.options.length)
       }
       expect(l.observe.length).toBeGreaterThan(0)
-      expect(l.body.length).toBeGreaterThan(0)
+      expect(lessonBlocks(l).length).toBeGreaterThan(0)
     }
   })
 
@@ -191,12 +191,13 @@ describe('lesson body blocks', () => {
 
   it('every block is bilingual and well-formed for its kind', () => {
     for (const l of LESSONS) {
-      l.body.forEach((b, i) => {
+      lessonBlocks(l).forEach((b, i) => {
         const where = `${l.id} body[${i}]`
         if (b.heading) bilingual(b.heading, `${where} heading`)
         switch (b.kind ?? 'p') {
           case 'p':
           case 'formula':
+          case 'watch':
             bilingual((b as { text: L10n }).text, `${where} text`)
             if ('note' in b && b.note) bilingual(b.note, `${where} note`)
             break
@@ -233,8 +234,8 @@ describe('lesson body blocks', () => {
 
   it('lesson 7 presents EDCA parameters as a table and AIFS as a formula', () => {
     const edca = LESSONS.find((l) => l.id === 'edca')!
-    expect(edca.body.some((b) => b.kind === 'table')).toBe(true)
-    expect(edca.body.some((b) => b.kind === 'formula')).toBe(true)
+    expect(lessonBlocks(edca).some((b) => b.kind === 'table')).toBe(true)
+    expect(lessonBlocks(edca).some((b) => b.kind === 'formula')).toBe(true)
   })
 })
 

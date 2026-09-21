@@ -122,7 +122,7 @@ describe('radio primer: dB, path loss, noise, SINR', () => {
 
 describe('radio primer: widget and simulation agree', () => {
   it('the linkBudget widget params produce the numbers the caption quotes', () => {
-    const w = radioPrimer.body.find((b): b is Extract<Block, { kind: 'widget' }> => b.kind === 'widget')!
+    const w = radioPrimer.body!.find((b): b is Extract<Block, { kind: 'widget' }> => b.kind === 'widget')!
     expect(w.widget).toBe('linkBudget')
     const p = w.params!
     const walls = (['drywall', 'brick', 'glass'] as const).flatMap((m) => Array(Number(p[m])).fill(m))

@@ -54,7 +54,7 @@ describe('roles-stack · structure', () => {
     // lessonWords walks the bilingual strings; this is an independent count of
     // the same EN prose, so a structural change in either is caught here.
     const texts: L10n[] = [
-      ...rolesStack.body.flatMap(blockTexts),
+      ...rolesStack.body!.flatMap(blockTexts),
       ...rolesStack.observe, ...rolesStack.tryThis,
       ...rolesStack.quiz.flatMap((q) => [q.q, ...q.options, q.explain]),
     ]

@@ -58,11 +58,11 @@ const tagRanges = (variant?: number) => ofType(recs(variant), 'UWB_RANGE').filte
 
 /** The lesson's nth table, rows kept in place so a cell can be checked by position. */
 const table = (n: number): Extract<Block, { kind: 'table' }> =>
-  uwbPosition.body.filter((b): b is Extract<Block, { kind: 'table' }> => b.kind === 'table')[n]
+  uwbPosition.body!.filter((b): b is Extract<Block, { kind: 'table' }> => b.kind === 'table')[n]
 const cell = (n: number, row: number, col: number): string => table(n).rows[row][col].en
 
 const formulas = (): Extract<Block, { kind: 'formula' }>[] =>
-  uwbPosition.body.filter((b): b is Extract<Block, { kind: 'formula' }> => b.kind === 'formula')
+  uwbPosition.body!.filter((b): b is Extract<Block, { kind: 'formula' }> => b.kind === 'formula')
 
 /** Everything a learner reads of one lesson, joined — for "is this number actually printed?" checks. */
 const lessonProse = (l: Lesson): string => {
@@ -216,7 +216,7 @@ describe('uwb-position · lesson shape', () => {
   it('names the one standard clause it leans on and owns the rest as the model’s', () => {
     // "§10.29.1.7, with Tables 10-146, 10-147 and 10-148, defines the Figure of Merit byte" /
     // "The standard says nothing at all about how a tag turns ranges into a point"
-    const first = uwbPosition.body[0]
+    const first = uwbPosition.body![0]
     expect(first.kind ?? 'p').toBe('p')
     const en = (first as Extract<Block, { kind?: 'p' }>).text.en
     for (const s of ['IEEE Std 802.15.4-2024', '§10.29.1.7', 'Table', '10-146', '10-147', '10-148']) {

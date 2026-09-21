@@ -135,7 +135,7 @@ describe('decode thresholds: required SINR and the ladder', () => {
       expect(rows[mcs].reqSinrDb.toFixed(2)).toBe(req)
     }
 
-    const w = decodeThresholds.body.find((b): b is Extract<Block, { kind: 'widget' }> => b.kind === 'widget')!
+    const w = decodeThresholds.body!.find((b): b is Extract<Block, { kind: 'widget' }> => b.kind === 'widget')!
     expect(w.widget).toBe('mcsLadder')
     expect(w.params!.mode).toBe('eht')
     const snr = Number(w.params!.snrDb)

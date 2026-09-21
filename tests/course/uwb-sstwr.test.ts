@@ -133,7 +133,7 @@ describe('uwb-sstwr · lesson shape', () => {
 
   it('names the standard clauses it leans on and the three numbers that are model', () => {
     // the source-status sentence, first block of the body
-    const first = uwbSstwr.body[0]
+    const first = uwbSstwr.body![0]
     expect(first.kind ?? 'p').toBe('p')
     const en = (first as Extract<Block, { kind?: 'p' }>).text.en
     for (const s of ['IEEE Std 802.15.4-2024', '§10.29.1.2.2', '§10.29.1.6', '§10.29.1.7', '§16.4.9']) {
@@ -250,7 +250,7 @@ describe('uwb-sstwr · the raw error the crystal offset buys', () => {
 
   it('every cell of the table is either the formula or the run — no free-typed number survives', () => {
     // the four rows "anchor-i | i ms − Tprop | predicted | raw range | raw error"
-    const table = uwbSstwr.body.find((b): b is Extract<Block, { kind: 'table' }> => b.kind === 'table')!
+    const table = uwbSstwr.body!.find((b): b is Extract<Block, { kind: 'table' }> => b.kind === 'table')!
     const cells = table.rows.map((row) => row.map((c) => c.en))
     expect(cells).toHaveLength(4)
     const rs = ranges()
@@ -281,7 +281,7 @@ describe('uwb-sstwr · the raw error the crystal offset buys', () => {
       expect(Math.abs(rawErr(r) - predictedRawErrM(i + 1, BASE_PPM)), r.peer).toBeLessThan(0.15)
     })
     // the prose quotes the first and the last of them back at the learner
-    const prose = uwbSstwr.body
+    const prose = uwbSstwr.body!
       .filter((b): b is Extract<Block, { kind?: 'p' }> => (b.kind ?? 'p') === 'p')
       .map((b) => b.text.en).join(' ')
     expect(prose).toContain(`believes it is ${rctuToMetres(rs[0].tofRawRctu!).toFixed(2)} m from one`)
@@ -317,7 +317,7 @@ describe('uwb-sstwr · the raw error the crystal offset buys', () => {
 describe('uwb-sstwr · what the clock-offset correction puts back', () => {
   it('the corrected formula is the engine’s ssTwrCorrected, Treply scaled by (1 − Coffs)', () => {
     // "T̂prop = (Tround − Treply·(1 − Coffs)) / 2" — the formula block
-    const formulas = uwbSstwr.body.filter((b): b is Extract<Block, { kind: 'formula' }> => b.kind === 'formula')
+    const formulas = uwbSstwr.body!.filter((b): b is Extract<Block, { kind: 'formula' }> => b.kind === 'formula')
     expect(formulas.some((f) => f.text.en.includes('(Tround − Treply·(1 − Coffs)) / 2'))).toBe(true)
     expect(ssTwrCorrected(1000, 800, 0)).toBe(ssTwrRaw(1000, 800))
     // Coffs is the responder's rate relative to the initiator's: here −20 ppm, and it removes the bias

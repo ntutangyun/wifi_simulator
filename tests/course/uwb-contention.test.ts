@@ -121,7 +121,7 @@ const lessonProse = (l: Lesson): string => {
 const prose = (): string => lessonProse(uwbContention)
 
 const table = (): Extract<Block, { kind: 'table' }> =>
-  uwbContention.body.find((b): b is Extract<Block, { kind: 'table' }> => b.kind === 'table')!
+  uwbContention.body!.find((b): b is Extract<Block, { kind: 'table' }> => b.kind === 'table')!
 const cell = (row: number, col: number): string => table().rows[row][col].en
 
 describe('uwb-contention · lesson shape', () => {
@@ -198,7 +198,7 @@ describe('uwb-contention · lesson shape', () => {
   })
 
   it('names the clauses it leans on and owns the defaults and the feedback loop as the model’s', () => {
-    const first = uwbContention.body[0]
+    const first = uwbContention.body![0]
     expect(first.kind ?? 'p').toBe('p')
     const en = (first as Extract<Block, { kind?: 'p' }>).text.en
     expect(en).toContain('IEEE Std 802.15.4-2024')
@@ -297,7 +297,7 @@ describe('uwb-contention · the scene', () => {
 
 describe('uwb-contention · the analytic model', () => {
   it('"N = 6 anchors: S = 4 → 1.42, S = 8 → 3.08, S = 16 → 4.35" follows from the printed formula', () => {
-    const formula = uwbContention.body.find((b): b is Extract<Block, { kind: 'formula' }> => b.kind === 'formula')!
+    const formula = uwbContention.body!.find((b): b is Extract<Block, { kind: 'formula' }> => b.kind === 'formula')!
     expect(formula.text.en).toContain('P(alone in your slot) = (1 − 1/S)^(N−1)')
     expect(formula.text.en).toContain('expected responses = N·(1 − 1/S)^(N−1)')
     expect(CONTENTION_ANCHORS).toBe(6)

@@ -169,7 +169,7 @@ const lessonProse = (l: Lesson): string => {
 const prose = (): string => lessonProse(uwbNba)
 
 const table = (): Extract<Block, { kind: 'table' }> =>
-  uwbNba.body.filter((b): b is Extract<Block, { kind: 'table' }> => b.kind === 'table')[0]
+  uwbNba.body!.filter((b): b is Extract<Block, { kind: 'table' }> => b.kind === 'table')[0]
 const cell = (row: number, col: number): string => table().rows[row][col].en
 
 describe('uwb-nba · lesson shape', () => {
@@ -250,7 +250,7 @@ describe('uwb-nba · lesson shape', () => {
   })
 
   it('opens by saying what is standard, what is draft, what is regulation and what is model', () => {
-    const first = uwbNba.body[0]
+    const first = uwbNba.body![0]
     expect(first.kind ?? 'p').toBe('p')
     const en = (first as Extract<Block, { kind?: 'p' }>).text.en
     // the radio itself IS the standard's: Clause 12 O-QPSK, 32 chips a symbol at 0.5 µs,
@@ -457,7 +457,7 @@ describe('uwb-nba · the listen-before-talk threshold', () => {
     expect(NB_LBT_CCA_US).toBe(9)
     expect(NB_LBT_THRESHOLD_DBM).toBeCloseTo(-75 + 10 * Math.log10(2.5), 12)
     expect(NB_LBT_THRESHOLD_DBM.toFixed(2)).toBe('-71.02')
-    const formula = uwbNba.body.find((b): b is Extract<Block, { kind: 'formula' }> => b.kind === 'formula')!
+    const formula = uwbNba.body!.find((b): b is Extract<Block, { kind: 'formula' }> => b.kind === 'formula')!
     expect(formula.text.en).toContain('threshold = −75 dBm/MHz + 10·log10(2.5 MHz) = −71.02 dBm')
     expect(formula.note!.en).toContain('at least 9 µs')
     // every busy record the run emits carries that same threshold
@@ -469,7 +469,7 @@ describe('uwb-nba · the listen-before-talk threshold', () => {
     expect(inBand.toFixed(2)).toBe('4.95')
     const d = crossingM((m) => wifiInNbDbm(20, LESSON_6G_WIDTH_MHZ, m), NB_LBT_THRESHOLD_DBM)
     expect(d.toFixed(2)).toBe('8.62')
-    const formula = uwbNba.body.find((b): b is Extract<Block, { kind: 'formula' }> => b.kind === 'formula')!
+    const formula = uwbNba.body!.find((b): b is Extract<Block, { kind: 'formula' }> => b.kind === 'formula')!
     expect(formula.text.en).toContain('20 + 10·log10(2.5 / 80) = 4.95 dBm')
     expect(formula.text.en).toContain('4.95 − (46.7 + 30·log10 d + 1.2) = −71.02  →  d = 8.62 m')
     expect(formula.note!.en).toContain('The three lines are arithmetic, not a measurement')

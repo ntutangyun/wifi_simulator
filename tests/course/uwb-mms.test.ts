@@ -101,7 +101,7 @@ const lessonProse = (l: Lesson): string => {
 const prose = (): string => lessonProse(uwbMms)
 
 const tables = (): Extract<Block, { kind: 'table' }>[] =>
-  uwbMms.body.filter((b): b is Extract<Block, { kind: 'table' }> => b.kind === 'table')
+  uwbMms.body!.filter((b): b is Extract<Block, { kind: 'table' }> => b.kind === 'table')
 const cell = (row: number, col: number): string => tables()[0].rows[row][col].en
 
 describe('uwb-mms · lesson shape', () => {
@@ -180,7 +180,7 @@ describe('uwb-mms · lesson shape', () => {
   })
 
   it('opens by saying what is standard, what is draft, what is regulation and what is model', () => {
-    const first = uwbMms.body[0]
+    const first = uwbMms.body![0]
     expect(first.kind ?? 'p').toBe('p')
     const en = (first as Extract<Block, { kind?: 'p' }>).text.en
     expect(en).toContain('IEEE Std 802.15.4-2024')
@@ -191,7 +191,7 @@ describe('uwb-mms · lesson shape', () => {
     expect(4 / (NB_SYMBOL_US / 1000)).toBe(250) // 4 bits per 16 µs symbol, in kb/s
     expect(nbPpduNs(NB_POLL_BYTES) / 1000).toBe(576)
     // …and the paragraph that describes that radio credits Clause 12 for it too
-    const carries = uwbMms.body.find((b) => b.heading?.en === 'What the narrowband radio carries')!
+    const carries = uwbMms.body!.find((b) => b.heading?.en === 'What the narrowband radio carries')!
     const carriesText = (carries as Extract<Block, { kind?: 'p' }>).text
     expect(carriesText.en).toContain('Clause 12’s 250 kb/s O-QPSK radio')
     expect(carriesText.zh).toContain('标准第 12 章')

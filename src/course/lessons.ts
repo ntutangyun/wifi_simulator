@@ -38,7 +38,8 @@ import { uwbUlTdoa } from './uwb/uwb-ul-tdoa'
 import { uwbAoa } from './uwb/uwb-aoa'
 import { uwbMms } from './uwb/uwb-mms'
 import { uwbNba } from './uwb/uwb-nba'
-export type { Block, JumpTarget, L10n, Lesson, LessonVariant, Quiz } from './lessonKit'
+export type { Block, JumpTarget, L10n, Lesson, LessonVariant, Quiz, Term } from './lessonKit'
+export { isMigrated } from './lessonKit'
 
 export { MODULES, TIERS } from './curriculum'
 
