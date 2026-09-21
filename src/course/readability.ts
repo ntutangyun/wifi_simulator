@@ -25,6 +25,9 @@ export const KNOWN_WORDS: ReadonlySet<string> = new Set([
   'WI-FI', 'AP', 'STA', 'MAC', 'PHY', 'DB', 'DBM', 'ID', 'RF', 'OK',
   'CPU', 'IOT', 'GPS', 'USB', 'TX', 'RX', 'US', 'EU', 'CN', 'LED',
   'PC', 'TV', 'QR', 'I', 'A', 'AM', 'PM',
+  // Wi-Fi generation labels: product names a learner meets on a box (Wi-Fi 4/5/6/7), not
+  // terms any lesson has to introduce. Ruling 3 of plans/2026-09-22-course-readability-wifi.
+  'HT', 'VHT', 'HE', 'EHT',
   // Units. They only became visible to `acronyms()` when the tokenizer
   // learned mixed-case tails, and a frequency is not a word to introduce.
   'MHZ', 'GHZ', 'KHZ',

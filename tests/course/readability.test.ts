@@ -24,12 +24,27 @@ import { effectiveMigrating } from './kit'
 
 /** Lessons still in the old shape. Each migration task removes its ids; the list only shrinks. */
 export const MIGRATING: string[] = [
-  'roles-stack', 'frame-anatomy',  
-  'retries-queues', 'bianchi', 'bianchi-vs-sim', 'tier1-project', 'edca', 'ampdu', 'txop', 'txop-protect', 'width', 'streams', 'rate',
+    
+  'tier1-project', 'edca', 'ampdu', 'txop', 'txop-protect', 'width', 'streams', 'rate',
   'ofdma-dl', 'ofdma-ul', 'mumimo', 'mlo', 'amp-slots', 'amp-coexist', 'capstone',
 ]
-/** Stands in for the `terms` of radio-primer and frame-anatomy until they migrate (then delete it: the test below insists). */
-const TIER1_BASELINE = ['SINR', 'SNR', 'RSSI', 'MCS', 'OFDM', 'PPDU', 'MPDU', 'MSDU', 'FCS', 'BSS', 'BSSID', 'SSID', 'ACK', 'CRC', 'QOS', 'L-SIG', 'L-STF', 'L-LTF', 'U-SIG', 'HE', 'EHT', 'HT', 'VHT', 'SIFS', 'DIFS', 'NAV', 'CW', 'CCA', 'EIFS', 'RTS', 'CTS']
+/**
+ * Step 5's owner table (plans/2026-09-22-course-readability-wifi.md): every word the
+ * TIER1_BASELINE stand-in used to admit now belongs to one Tier 1 lesson's `terms`, and
+ * the generation labels HT/VHT/HE/EHT moved to KNOWN_WORDS. The test below keeps it so.
+ */
+const TIER1_OWNERS: Record<string, string[]> = {
+  'radio-primer': ['SNR', 'SINR', 'RSSI'],
+  'decode-thresholds': ['MCS', 'OFDM', 'CCA'],
+  'roles-stack': ['BSS', 'BSSID', 'SSID'],
+  'frame-anatomy': ['PPDU', 'MPDU', 'MSDU', 'FCS', 'CRC', 'QOS'],
+  'frame-anatomy-bytes': ['L-STF', 'L-LTF', 'L-SIG', 'U-SIG'],
+  airtime: ['ACK'],
+  ifs: ['SIFS', 'DIFS', 'EIFS'],
+  backoff: ['CW'],
+  nav: ['NAV'],
+  hidden: ['RTS', 'CTS'],
+}
 const CITED_FIELDS: (keyof Lesson)[] = ['why', 'outcomes', 'terms', 'picture', 'observe', 'tryThis', 'quiz']
 
 /**
@@ -66,10 +81,10 @@ const firstOfTrack = (l: Lesson) => ordered.find((o) => trackOf(o) === trackOf(l
  * wider than the prerequisite rule on purpose — `needs` stays restricted to
  * radio-primer and frame-anatomy, but a one-line reminder in the picture is
  * enough for any Tier 1 word. Narrowing it to those two lessons would leave
- * `NAV` and `CTS` with no legal owner once TIER1_BASELINE goes.
+ * `NAV` and `CTS` with no legal owner (TIER1_OWNERS names who owns what).
  */
 function knownFor(l: Lesson): Set<string> {
-  const known = new Set<string>([...KNOWN_WORDS, ...TIER1_BASELINE, ...LOG_NAMES])
+  const known = new Set<string>([...KNOWN_WORDS, ...LOG_NAMES])
   for (const o of ordered) {
     if (o === l) break
     const admitted = trackOf(o) === trackOf(l) || (trackOf(o) === 'wifi' && MODULES[o.module].tier === 0)
@@ -90,9 +105,13 @@ describe('readability · migration bookkeeping', () => {
     // the recorded list, not this run's: the env var cannot take an id out of it for good
     for (const l of ordered.filter((x) => !MIGRATING.includes(x.id))) expect(isMigrated(l), l.id).toBe(true)
   })
-  it('TIER1_BASELINE exists only while radio-primer and frame-anatomy are unmigrated', () => {
-    const stillOld = MIGRATING.includes('radio-primer') || MIGRATING.includes('frame-anatomy')
-    expect(TIER1_BASELINE.length > 0).toBe(stillOld)
+  it('every ex-baseline word is a term of the Tier 1 lesson that owns it', () => {
+    for (const [id, words] of Object.entries(TIER1_OWNERS)) {
+      const l = byId.get(id)!
+      expect(l, id).toBeDefined()
+      const terms = new Set((l.terms ?? []).map((t) => t.term.toUpperCase()))
+      for (const w of words) expect(terms.has(w), `${id} owns ${w}`).toBe(true)
+    }
   })
 })
 
