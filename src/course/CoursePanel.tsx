@@ -276,10 +276,14 @@ export function CoursePanel() {
         <>
           <p style={whyStyle}>{t(lesson.why!)}</p>
 
-          <h4 style={h4}>{L.outcomes}</h4>
-          <ul style={listStyle}>
-            {(lesson.outcomes ?? []).map((o, i) => <li key={i}>{t(o)}</li>)}
-          </ul>
+          {(lesson.outcomes ?? []).length > 0 && (
+            <>
+              <h4 style={h4}>{L.outcomes}</h4>
+              <ul style={listStyle}>
+                {lesson.outcomes!.map((o, i) => <li key={i}>{t(o)}</li>)}
+              </ul>
+            </>
+          )}
 
           {(lesson.needs ?? []).length > 0 && (
             <>

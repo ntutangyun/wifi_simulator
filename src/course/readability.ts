@@ -14,6 +14,11 @@ import type { Block, L10n } from './lessonKit'
  * units, the two ends of a Wi-Fi link, and words any engineer meets outside
  * this course. Everything else must be introduced by a lesson's `terms`.
  * Upper-case, because `acronyms()` returns upper-case tokens.
+ *
+ * `I` and `A` are never consulted, because `acronyms()` drops single
+ * characters before any lookup. They are kept so that this reads as the whole
+ * list of words a reader is assumed to know, rather than that list minus the
+ * two that happen to be one letter long.
  */
 export const KNOWN_WORDS: ReadonlySet<string> = new Set([
   'WI-FI', 'AP', 'STA', 'MAC', 'PHY', 'DB', 'DBM', 'ID', 'RF', 'OK',
@@ -56,11 +61,20 @@ const withoutProtocolNames = (text: string): string => text.replace(PROTOCOL_NAM
  * of first use and without repeats. Protocol names are not acronyms, and
  * neither are the UI's own record names (`TX_START`), which the reader reads
  * off the screen rather than out of the standard.
+ *
+ * There is deliberately no upper bound on a token's length. The spec's phrase
+ * is "a token of 2–6 upper-case letters/digits", but its own worked example of
+ * a word that must be introduced is RMARKER, which is seven; a ceiling would
+ * wave through exactly the terms this rule exists to catch.
  */
 export function acronyms(text: string): string[] {
   const out: string[] = []
   for (const m of withoutProtocolNames(text).matchAll(ACRONYM)) {
     const token = m[0].toUpperCase()
+    // The last two conditions cannot fire against ACRONYM as it stands (its
+    // class holds no `_`, and a match always opens on a letter). They are kept
+    // as the record-name and bare-number rules in executable form, so that
+    // widening ACRONYM later cannot silently start reporting `TX_START`.
     if (token.length < 2 || token.includes('_') || /^[\d-]+$/.test(token)) continue
     if (!out.includes(token)) out.push(token)
   }
@@ -83,17 +97,27 @@ export function zhChars(text: string): number {
 }
 
 /**
- * The running prose of a set of blocks: what the word and citation rules
- * measure. Table cells and formula bodies are excluded — they are where the
- * exact values and (in `numbers`) their provenance are allowed to live.
+ * The running prose of a set of blocks, in reading order: what the word and
+ * citation rules measure. A heading and the items of a list or a set of steps
+ * are prose like any other — a citation or an unintroduced acronym hides in
+ * them just as well as in a paragraph.
+ *
+ * Only two things are left out, and for the same reason: table cells and
+ * formula bodies are where the exact values live, and (inside `numbers`) a
+ * table cell is the one place the contract allows provenance.
  */
 export function paragraphTexts(blocks: Block[]): L10n[] {
   const out: L10n[] = []
   for (const b of blocks) {
+    if (b.heading) out.push(b.heading)
     switch (b.kind ?? 'p') {
       case 'p':
       case 'watch':
         out.push((b as Extract<Block, { kind?: 'p' }>).text)
+        break
+      case 'list':
+      case 'steps':
+        out.push(...(b as Extract<Block, { kind: 'list' }>).items)
         break
       case 'formula': {
         const note = (b as Extract<Block, { kind: 'formula' }>).note
@@ -106,6 +130,8 @@ export function paragraphTexts(blocks: Block[]): L10n[] {
         break
       }
       default:
+        // `table`: the cells are the values, and the "where" column is where
+        // the provenance of the numbers is allowed to be written down.
         break
     }
   }

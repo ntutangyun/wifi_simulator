@@ -5,7 +5,8 @@
  * lesson through without a single test turning red.
  */
 import { describe, it, expect } from 'vitest'
-import { acronyms, numericQuantities, CITATION, enWords, zhChars, KNOWN_WORDS } from '../../src/course/readability'
+import { acronyms, numericQuantities, CITATION, enWords, zhChars, KNOWN_WORDS, paragraphTexts } from '../../src/course/readability'
+import { N, type Block } from '../../src/course/lessonKit'
 
 describe('readability rules', () => {
   it('finds acronyms and leaves protocol names, units and record names alone', () => {
@@ -29,6 +30,35 @@ describe('readability rules', () => {
   it('counts words and CJK characters', () => {
     expect(enWords('one two  three')).toBe(3)
     expect(zhChars('一二三 abc，四')).toBe(4)
+  })
+  it('reads headings and list items as prose, and leaves table cells and formula bodies out', () => {
+    const blocks: Block[] = [
+      { heading: N('What the tag does'), text: N('A tag with no battery cannot listen.') },
+      { kind: 'watch', text: N('Press play and watch the second slot.') },
+      { kind: 'list', heading: N('Three things happen'), items: [N('the reader asks'), N('the tag answers')] },
+      { kind: 'steps', items: [N('arm the slot'), N('send the answer')] },
+      { kind: 'formula', heading: N('Airtime'), text: N('T = L / R'), note: N('L is the length in bits.') },
+      { kind: 'table', heading: N('Where the values come from'), head: [N('what'), N('where')], rows: [[N('16 µs'), N('§9.3.7')]] },
+      { kind: 'widget', widget: 'linkBudget', caption: N('Drag the distance slider.') },
+    ]
+    expect(paragraphTexts(blocks).map((l) => l.en)).toEqual([
+      'What the tag does', 'A tag with no battery cannot listen.',
+      'Press play and watch the second slot.',
+      'Three things happen', 'the reader asks', 'the tag answers',
+      'arm the slot', 'send the answer',
+      'Airtime', 'L is the length in bits.',
+      'Where the values come from',
+      'Drag the distance slider.',
+    ])
+  })
+  it('so a citation hiding in a list item or a heading is caught', () => {
+    const sneaky: Block[] = [
+      { kind: 'list', items: [N('the anchor answers'), N('the reply time is fixed per §10.29.1.1')] },
+      { kind: 'p', heading: N('Clause 16 in one picture'), text: N('The tag answers in its slot.') },
+    ]
+    expect(paragraphTexts(sneaky).some((l) => CITATION.test(l.en))).toBe(true)
+    expect(paragraphTexts(sneaky).filter((l) => CITATION.test(l.en)).map((l) => l.en))
+      .toEqual(['the reply time is fixed per §10.29.1.1', 'Clause 16 in one picture'])
   })
   it('the baseline knows units and everyday words only', () => {
     for (const w of ['AP', 'STA', 'DBM', 'WI-FI']) expect(KNOWN_WORDS.has(w)).toBe(true)

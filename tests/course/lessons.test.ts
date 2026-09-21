@@ -191,7 +191,10 @@ describe('lesson body blocks', () => {
 
   it('every block is bilingual and well-formed for its kind', () => {
     for (const l of LESSONS) {
-      lessonBlocks(l).forEach((b, i) => {
+      // `deeper` is off the main path, so lessonBlocks leaves it out — but the
+      // panel renders it, so it is held to the same shape as everything else.
+      const all = [...lessonBlocks(l), ...(l.deeper ?? [])]
+      all.forEach((b, i) => {
         const where = `${l.id} body[${i}]`
         if (b.heading) bilingual(b.heading, `${where} heading`)
         switch (b.kind ?? 'p') {

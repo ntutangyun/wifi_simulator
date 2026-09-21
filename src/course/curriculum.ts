@@ -135,6 +135,10 @@ export function lessonWords(l: Lesson): number {
     if (typeof x === 'object') {
       const o = x as Record<string, unknown>
       if (typeof o.en === 'string' && typeof o.zh === 'string') { strings.push(o.en); return }
+      // A Term's word is the only text a learner reads that is not bilingual —
+      // the standard spells it the same in both languages — so it needs its
+      // own line here or the "New words" table would read as free.
+      if (typeof o.term === 'string' && o.plain !== undefined) strings.push(o.term)
       for (const [k, v] of Object.entries(o)) if (k !== 'scenario' && k !== 'find') walk(v)
     }
   }
