@@ -26,7 +26,7 @@ import { effectiveMigrating } from './kit'
 /** Lessons still in the old shape. Each migration task removes its ids; the list only shrinks. */
 export const MIGRATING: string[] = [
   
-  'ofdma-dl', 'ofdma-ul', 'mumimo', 'mlo', 'amp-slots', 'amp-coexist', 'capstone',
+  'ofdma-dl', 'ofdma-ul', 'mumimo', 'amp-slots', 'amp-coexist',
 ]
 /**
  * Step 5's owner table (plans/2026-09-22-course-readability-wifi.md): every word the
