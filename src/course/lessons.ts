@@ -40,6 +40,7 @@ import { uwbDlTdoa } from './uwb/uwb-dl-tdoa'
 import { uwbUlTdoa } from './uwb/uwb-ul-tdoa'
 import { uwbAoa } from './uwb/uwb-aoa'
 import { uwbMms } from './uwb/uwb-mms'
+import { uwbMmsNumbers } from './uwb/uwb-mms-numbers'
 import { uwbNba } from './uwb/uwb-nba'
 import { uwbNbaCoexist } from './uwb/uwb-nba-coexist'
 export type { Block, JumpTarget, L10n, Lesson, LessonVariant, Quiz, Term } from './lessonKit'
@@ -137,6 +138,7 @@ const AUTHORED: Lesson[] = [
   uwbUlTdoa,
   uwbAoa,
   uwbMms,
+  uwbMmsNumbers,
   uwbNba,
   uwbNbaCoexist,
   // ======================= MODULE 1 =======================

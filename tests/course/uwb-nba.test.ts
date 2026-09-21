@@ -72,7 +72,7 @@ describe('uwb-nba · the lesson', () => {
     expect(TIERS[6].track).toBe('uwb')
     expect(MODULES[uwbNba.module].tier).toBe(6)
     expect(uwbNba.needs).toEqual(['uwb-mms'])
-    expect(COURSE_ORDER[COURSE_ORDER.indexOf('uwb-nba') - 1]).toBe('uwb-mms')
+    expect(COURSE_ORDER.indexOf('uwb-nba')).toBeGreaterThan(COURSE_ORDER.indexOf('uwb-mms-numbers'))
   })
 
   it('names the second radio and the three things it says', () => {
