@@ -1,66 +1,114 @@
+/**
+ * Wi-Fi Tier 1 · M2 · Channel access · NAV — reserving with a promise.
+ *
+ * Rewritten to the zero-to-hero contract
+ * (docs/superpowers/specs/2026-09-21-course-readability-design.md): what
+ * listening cannot tell you, the announcement every header carries, and only
+ * then the long frozen wait taken apart µs by µs. The "what A knows, and when"
+ * material moved to `deeper`.
+ *
+ * Every number quoted below is pinned in tests/course/nav.test.ts. The
+ * scenario builder is unchanged, so the recorded timeline hash stays identical.
+ */
 import { type Lesson, N, oneRoom, node, sc, firstNav, J } from '../lessonKit'
 
 export const nav: Lesson = {
   id: 'nav',
   module: 1,
   title: { en: 'NAV — reserving with a promise', zh: 'NAV——用“预告”预约信道' },
-  body: [
-    { text: {
-      en: 'Physical carrier sense only tells you the channel is busy *now*. But an exchange is longer than one frame: after the data comes SIFS, then the ACK.',
-      zh: '物理载波侦听只能告诉你“此刻”信道忙。但一次帧交换比一个帧长：数据之后还有 SIFS 和 ACK。',
+  why: {
+    en: 'Listening tells a station only whether the air is busy right now. But a conversation has gaps in it — the small pause before the answer comes back — and the answer itself may come from a device too far away to be heard. A station that trusts its ears alone will walk into both. So every frame announces how much longer its exchange will take, and everyone who hears it holds a timer instead.',
+    zh: '光靠听，站点只知道空口此刻忙不忙。可一场对话里是有缝的——回答回来之前那一小段停顿；而回答本身，还可能来自一台远得根本听不见的设备。只相信自己耳朵的站点，这两处都会一头撞进去。于是每一帧都会预告本次交互还要多久，听到的人则改为在心里挂一个倒计时。',
+  },
+  outcomes: [
+    { en: 'say what a station loads into its timer, and from which frames', zh: '说清站点往自己的计时器里装的是什么、从哪些帧里装' },
+    { en: 'explain why listening to the channel is not enough to protect an exchange', zh: '解释为什么光听信道保护不了一次交互' },
+    { en: 'read the reservation off a data frame and check it against the answer it protects', zh: '从数据帧上读出那份预约，并拿它保护的那个回答来核对' },
+  ],
+  needs: ['backoff'],
+  terms: [
+    { term: 'Duration', plain: {
+      en: 'the field near the front of a frame saying how much longer, after this frame, the exchange still needs',
+      zh: '帧头靠前的一个字段，说明这一帧之后，本次交互还需要多久',
     } },
-    { text: {
-      en: 'The Duration field in every MAC header announces how much longer the exchange needs, and every overhearer loads it into a countdown timer — the NAV. While NAV > 0 the station treats the medium as busy even in perfect silence. That is virtual carrier sense: the SIFS gap is protected not by energy, but by a promise everyone heard.',
-      zh: '每个 MAC 头里的 Duration 字段都会预告本次帧交换还需要多久，每个侦听到的终端把它装入一个倒数计时器——NAV。只要 NAV > 0，即使空口一片寂静，终端也视介质为忙。这就是虚拟载波侦听：SIFS 间隙靠的不是能量，而是所有人都听到的一句承诺。',
+    { term: 'NAV', plain: {
+      en: 'network allocation vector: the countdown a station keeps, during which it treats the channel as busy even in silence',
+      zh: '网络分配向量：站点自己挂着的一个倒计时，只要它还在走，哪怕一片寂静也当信道是忙的',
     } },
-    { heading: { en: 'Why NAV at all, when CCA already works?', zh: '有了 CCA，为什么还要 NAV？' }, text: {
-      en: 'Duration is measured from the instant the current frame ends, and covers only the remainder of the exchange. The frame itself needs no announcement: while it is in the air, everyone’s physical carrier sense already reports busy.',
-      zh: 'Duration 从当前帧结束的那一瞬间起算，只覆盖交换的剩余部分。帧本身不需要预告：它还在空中时，所有人的物理载波侦听本来就报告“忙”。',
+    { term: 'virtual carrier sense', plain: {
+      en: 'treating the channel as busy because of something you were told, not something you can hear',
+      zh: '把信道当作忙，依据的是别人告诉你的话，而不是你听得见的东西',
     } },
-    { kind: 'table', head: [
-      { en: 'Frame', zh: '帧' }, { en: 'Its Duration announces', zh: '它的 Duration 预告' },
+  ],
+  picture: [
+    { heading: { en: 'What your ears cannot tell you', zh: '耳朵告诉不了你的事' }, text: {
+      en: 'Sensing the channel answers exactly one question: is there energy on the air at this instant? That is enough while a frame is being sent. It is not enough in the pause afterwards, when the air really is empty and yet the exchange is not finished. And it is not enough when the next frame will come from a device on the far side of the room that you cannot hear at all.',
+      zh: '侦听信道只回答一个问题：此刻空口上有没有能量？帧还在发的时候，这就够了。可帧发完之后那段停顿里就不够了——那时空口确实是空的，交互却还没完。而当下一帧将由房间另一头、你压根听不见的设备发出时，它同样不够。',
+    } },
+    { heading: { en: 'A promise in every header', zh: '每个帧头里的一句承诺' }, text: {
+      en: 'So each frame carries a small field near the front — the Duration — saying how much more time the exchange needs once this frame has ended. Anyone who decodes the frame takes that number and starts a countdown, the NAV, including the stations the frame was never addressed to. While the countdown runs, the station behaves exactly as if the channel were busy, however quiet it sounds.',
+      zh: '所以每一帧靠前的位置都带着一个小字段——Duration——说明这一帧结束之后，本次交互还需要多少时间。凡是解出这一帧的人，都会把这个数拿去起一个倒计时，也就是 NAV，包括那些根本不是收件人的站点。只要倒计时还在走，站点的行为就完全等同于“信道忙”，不管听上去有多安静。',
+    } },
+    { kind: 'watch', jump: 0, heading: { en: 'Watch a timer being set', zh: '看一次计时器被装上' }, text: {
+      en: 'Load the simulation and jump to the first reservation being set. It is the Listener, reacting to a data frame it had no part in: the frame ends, and at that exact instant its countdown starts.',
+      zh: '载入仿真，跳到第一次预约被装上的地方。那是旁听者，它在对一帧与自己毫无关系的数据帧作出反应：帧一结束，它的倒计时就在那一刻起跑。',
+    } },
+    { heading: { en: 'Busy because you were told so', zh: '因为被告知，所以算忙' }, text: {
+      en: 'This is virtual carrier sense, and it is the half of the rule that has nothing to do with radio. Real sensing protects the frame while the frame is on the air; the announcement protects everything that comes after it. One sentence is worth keeping: your ears guard the frame, the promise guards the gap and the answer.',
+      zh: '这就是虚拟载波侦听，是这条规则里与射频毫无关系的那一半。真正的侦听保护的是还在空中的那一帧；而那句预告保护的，是它之后的一切。有一句话值得记住：耳朵守的是帧，承诺守的是间隙和回答。',
+    } },
+    { heading: { en: 'Only the remainder', zh: '只算剩下的部分' }, text: {
+      en: 'Notice what the number leaves out: the frame carrying it. There is no need for it — while that frame is on the air, everybody’s ears already report busy. So a data frame’s announcement covers just the pause and the answer, and each later frame of the same exchange carries a smaller remainder than the one before it.',
+      zh: '注意这个数没把什么算进去：它自己所在的那一帧。这本来也没必要——那一帧还在空中时，所有人的耳朵本来就报“忙”。所以数据帧预告的，只是那段停顿加上那个回答；而同一次交互里越靠后的帧，带的剩余量就越小。',
+    } },
+    { heading: { en: 'Frozen, and not knowing for how long', zh: '冻住了，却不知道要冻多久' }, text: {
+      en: 'A station part-way through counting down its own wait simply stops when a frame starts, and at that moment it has no idea how long the interruption will last. It learns the frame’s length from the header; only when the frame has arrived whole and passed its check may it trust the announcement and set its countdown. Most of the wait is spent not knowing when the wait will end.',
+      zh: '一个正数着自己那份等待的站点，在有帧开始时就地停住，而那一刻它根本不知道这次打断会持续多久。它从帧头里得知这一帧有多长；只有当整帧完整到达、校验通过之后，它才可以相信那句预告，并装上自己的倒计时。这段等待的大部分时间，它都不知道等待何时结束。',
+    } },
+  ],
+  numbers: [
+    { kind: 'table', heading: { en: 'Where the 44 µs comes from', zh: '44 µs 是怎么来的' }, head: [
+      { en: 'Piece', zh: '组成' }, { en: 'Duration', zh: '时长' }, { en: 'Where', zh: '出处' },
     ], rows: [
-      [{ en: 'Data expecting an ACK', zh: '期待 ACK 的数据帧' }, N('SIFS + ACK')],
-      [N('RTS'), { en: 'The whole planned exchange: CTS + data + ACK', zh: '整场对话：CTS + 数据 + ACK' }],
-      [{ en: 'CTS and each following frame', zh: 'CTS 及后续每一帧' }, { en: 'The shrinking remainder', zh: '不断缩短的剩余量' }],
+      [{ en: 'The pause before the answer', zh: '回答之前的停顿' }, N('16 µs'), N('§17.4.4')],
+      [{ en: 'The answer itself: 14 bytes at the safe rate', zh: '回答本身：14 个字节，用保底速率发' }, N('28 µs'), N('§17.4.3')],
+      [{ en: 'What the data frame announces', zh: '数据帧预告的量' }, N('44 µs'), N('§9.2.4.2')],
+      [{ en: 'What the answer announces', zh: '回答预告的量' }, N('0 µs'), { en: 'the exchange is over', zh: '交互到此结束' }],
     ] },
-    { kind: 'list', heading: { en: 'The announcement matters for two reasons', zh: '这个预告之所以重要，有两个原因' }, items: [
-      { en: 'The gaps are silent: SIFS is 16 µs of genuine silence, and a countdown timer is the only thing standing between that silence and an eager contender.', zh: '间隙是安静的：SIFS 是 16 µs 的真正寂静，能挡住急切竞争者的只有一个倒计时。' },
-      { en: 'The response comes from the *other* end. The ACK is sent by the receiver, which may be far away: a station close enough to hear the data may be too far to hear the ACK. For it the ACK is invisible to CCA — the channel measures idle while a frame is actually on the air — and only its NAV keeps it quiet.', zh: '响应来自“另一端”：ACK 由接收方发出，而接收方可能离你很远——你听得到数据帧，却未必听得到 ACK。对这样的终端来说，ACK 在 CCA 眼里是隐形的：空口上明明有帧，信道却测得“空闲”，全靠 NAV 让它保持安静。' },
-    ] },
-    { text: {
-      en: 'One sentence to keep: CCA protects the frame; Duration/NAV protects everything after it.',
-      zh: '记住一句话：CCA 保护帧本身；Duration/NAV 保护帧之后的一切。',
+    { heading: { en: 'The same number, every time', zh: '每一次都是同一个数' }, text: {
+      en: 'All 576 data frames in this run announce the same 44 µs, and the Listener’s countdown ends at the exact nanosecond the answer ends — 513 times over, without once being early or late.',
+      zh: '本轮仿真里 576 个数据帧预告的都是同一个 44 µs，而旁听者的倒计时，恰好在回答结束的那一纳秒到期——513 次无一例外，不早也不晚。',
     } },
-    { heading: { en: 'Reading the long “waiting (DIFS)” block', zh: '读懂那段长长的“等待（DIFS）”' }, text: {
-      en: 'Around t ≈ 498–824 µs you can watch all of this inside a single block. Talker A is mid-countdown (backoff at 3) when Talker B’s frame starts: A freezes, and its lane shows one long “waiting (DIFS)” block. That block is not a DIFS — it is everything A must sit through before its countdown may resume:',
-      zh: '在 t ≈ 498–824 µs 附近，这一切可以在同一个色块里看完。Talker B 的帧开始时，Talker A 正数到退避 3：A 冻结，泳道上出现一段长长的“等待（DIFS）”色块。这段并不是一个 DIFS——它是 A 在倒数恢复之前必须熬过的全部时间：',
-    } },
-    { kind: 'table', head: [
-      { en: 'Ingredient', zh: '组成' }, N('µs'), { en: 'What A is waiting through', zh: 'A 在熬什么' },
+    { kind: 'table', heading: { en: 'One long freeze, taken apart', zh: '把一段长长的冻结拆开' }, head: [
+      { en: 'Ingredient', zh: '组成' }, N('µs'), { en: 'What Talker A is sitting through', zh: 'A 在熬的是什么' },
     ], rows: [
-      [{ en: 'Rest of B’s data frame', zh: 'B 数据帧的剩余部分' }, N('248'), { en: 'CCA busy', zh: 'CCA 忙' }],
-      [{ en: 'NAV loaded from B’s Duration', zh: '从 B 的 Duration 装入的 NAV' }, N('44'), N('SIFS + ACK')],
-      [{ en: 'One real DIFS', zh: '一个货真价实的 DIFS' }, N('34'), { en: 'Idle', zh: '空闲' }],
-      [{ en: 'Total', zh: '合计' }, N('326'), { en: 'Then A resumes at 3', zh: '之后 A 从 3 继续' }],
+      [{ en: 'The rest of Talker B’s frame', zh: 'B 那一帧的剩余部分' }, N('248'), { en: 'the channel is audibly busy', zh: '信道听得出是忙的' }],
+      [{ en: 'The reservation B announced', zh: 'B 预告的那份预约' }, N('44'), { en: 'silence, but spoken for', zh: '虽然安静，但已被预订' }],
+      [{ en: 'One real DIFS', zh: '一个货真价实的 DIFS' }, N('34'), { en: 'genuinely idle', zh: '真正的空闲' }],
+      [{ en: 'Total', zh: '合计' }, N('326'), { en: 'and then A resumes at 3', zh: '之后 A 从 3 继续数' }],
     ] },
-    { text: {
-      en: 'The label names only the final ingredient — the thing A is waiting *for* — while the length is the whole wait. When it ends, A resumes counting at 3, exactly where it froze.',
-      zh: '标签只写了最后一味原料——那是 A 正在“等”的东西——而长度是整段等待。结束时，A 从退避 3 继续倒数，正是它冻结时的数值。',
+    { heading: { en: 'When A learns the total', zh: 'A 什么时候才算得出总数' }, text: {
+      en: 'A freezes at 498 µs knowing only that the channel is busy. B’s frame ends at 746 µs and passes its check; only then can the reservation be trusted, running to 790 µs, with the last wait carrying A to 824 µs.',
+      zh: 'A 在 498 µs 冻结，当时它只知道信道忙。B 的帧在 746 µs 结束并通过校验；直到这时那份预约才可信，它一直管到 790 µs，最后那段等待再把 A 送到 824 µs。',
     } },
-    { kind: 'steps', heading: { en: 'When does A learn how long the wait is?', zh: 'A 什么时候才知道要等多久？' }, items: [
-      { en: '498 µs: A knows only “busy *now*”. It freezes at 3 — end of knowledge.', zh: '498 µs：A 只知道“此刻忙”，冻结在 3——认知到此为止。' },
-      { en: '≈ 518 µs: the PHY header reveals the frame’s length. Now A knows this frame ends at 746, plus something unknown after it.', zh: '约 518 µs：PHY 头揭示了帧长。A 这才知道这帧将在 746 结束，之后还有一段未知。' },
-      { en: '746 µs: the frame completes and its checksum passes, so the Duration field can be trusted: NAV until 790, then a 34 µs DIFS, resume at 824.', zh: '746 µs：帧完整收下、校验通过，Duration 字段才可信：NAV 到 790，再一个 34 µs 的 DIFS，824 恢复。' },
-    ] },
-    { text: {
-      en: 'So the total of 326 µs first becomes computable at 746, by which point 248 µs — about three quarters of the wait — has already passed. A spends most of the wait not knowing how long the wait is. And even then the figure is conditional: another preamble during the DIFS would simply extend it.',
-      zh: '所以最早能算出总共要等 326 µs 的时刻是 746——那时等待本身已经过去了 248 µs，约四分之三。A 在这段等待的大部分时间里，并不知道自己要等多久。而且这个数字仍是有条件的：若 DIFS 期间又冒出一个前导码，等待只会继续变长。',
+  ],
+  deeper: [
+    { heading: { en: 'A station never holds a schedule', zh: '站点手里从来没有时刻表' }, text: {
+      en: 'The 326 µs total first becomes computable at 746 µs, by which point 248 µs — about three quarters of the wait — has already gone by. And even then the figure is conditional: another frame starting during the last 34 µs would simply extend it. A station carries no timetable, only a constantly revised belief, "the earliest I might resume is ___", re-derived at every event, with a single number carried through the fog: the frozen counter.',
+      zh: '326 µs 这个总数，最早要到 746 µs 才算得出来，而那时等待本身已经过去了 248 µs，约四分之三。就算算出来了，这个数也是有条件的：最后那 34 µs 里若又有一帧开始，它只会继续变长。站点手里没有任何时刻表，只有一个不断修正的信念——“我最早可能在 ___ 恢复”——每来一个事件就重算一次；穿过这团迷雾时，它随身带着的只有一个数字：冻结住的那个计数。',
     } },
-    { text: {
-      en: 'A station never holds a schedule — only one constantly revised belief, “the earliest I might resume is ___”, re-derived at every event, with a single number carried through the fog: the frozen counter.',
-      zh: '终端手里从来没有一张时刻表，只有一个不断修正的信念——“我最早可能在 ___ 恢复”——每来一个事件就重算一次；穿过这团迷雾时，它随身携带的只有一个数字：冻结的退避计数。',
+    { heading: { en: 'Why the label says one thing and the block means another', zh: '为什么标签写的是一回事，色块代表的是另一回事' }, text: {
+      en: 'The lane draws that whole 326 µs as a single block and labels it with the final ingredient — the thing A is waiting for — rather than with the sum. It is not a 326 µs wait of that kind; it is everything A must sit through before its own countdown may resume, and the label names only the last of the three.',
+      zh: '泳道把这整整 326 µs 画成一个色块，标签写的却是最后那一味组成——A 正在“等”的那个东西——而不是三段之和。它并不是一段 326 µs 的那种等待；它是 A 在自己的倒数获准恢复之前必须熬过的全部，而标签只点了三段里的最后一段。',
     } },
+  ],
+  sources: [
+    { en: '§10.3.2.4 of IEEE Std 802.11-2024 gives the NAV update rule: a station that correctly receives a frame not addressed to it sets its NAV to the later of the current value and the frame’s end plus Duration.',
+      zh: 'IEEE Std 802.11-2024 的 §10.3.2.4 给出 NAV 的更新规则：站点正确收到一帧不是发给自己的帧时，把 NAV 设为“当前值”与“帧结束时刻加 Duration”中较晚的那个。' },
+    { en: 'The Duration field itself, and its meaning as a time in microseconds measured from the end of the current frame, are §9.2.4.2.',
+      zh: 'Duration 字段本身，以及“它是从当前帧结束起算、以微秒为单位的一段时间”这一含义，见 §9.2.4.2。' },
+    { en: 'The 248 µs frame, the 28 µs acknowledgement and every timestamp quoted above are this simulator’s scene, reproducible from its seed rather than taken from the standard.',
+      zh: '248 µs 的帧、28 µs 的确认帧，以及上面引用的每一个时刻，都是本仿真器的场景，靠随机种子即可复现，并非取自标准正文。' },
   ],
   scenario: () => sc(oneRoom(), [
     node('ap', 'AP', 'ap', 5, 4, 'eht', 'idle'),
@@ -72,23 +120,34 @@ export const nav: Lesson = {
     J('first NAV set', '第一次设置 NAV', firstNav),
   ],
   observe: [
-    { en: 'Thin purple bars under a lane = NAV; they end exactly when the ACK ends.', zh: '泳道下方细紫条 = NAV；它恰好在 ACK 结束的瞬间到期。' },
-    { en: 'During the SIFS gap the medium is silent, yet the Listener stays deferred — its NAV covers it.', zh: 'SIFS 间隙里空口是安静的，但旁听者依然按兵不动——它的 NAV 覆盖了这段时间。' },
-    { en: 'Hover a data block: its Duration field equals SIFS + the ACK’s airtime.', zh: '悬停数据块：其 Duration 字段恰为 SIFS + ACK 的空口时间。' },
+    { en: 'The thin purple bars under a lane are the countdown. They end at the exact instant the answer ends — check any of the Listener’s 513 of them.', zh: '泳道下方那些细细的紫条就是倒计时。它们恰好在回答结束的那一瞬间到期——旁听者的 513 条里随便挑一条核对都一样。' },
+    { en: 'Pause inside the gap between a frame and its answer. The air is silent, the Listener’s own sensing reports idle — and it still does not transmit.', zh: '在一帧与它的回答之间的间隙里暂停。空口一片安静，旁听者自己的侦听也报空闲——可它依然不发。' },
+    { en: 'Hover a data block and read its Duration: 44 µs on every one of them, the pause plus the answer it is expecting.', zh: '悬停在一个数据块上，读它的 Duration：每一个都是 44 µs，也就是那段停顿加上它正等着的那个回答。' },
   ],
   tryThis: [
-    { en: 'Pause inside a SIFS gap and check the Listener’s inspector: CCA idle, NAV counting.', zh: '在 SIFS 间隙里暂停，看旁听者的检视器：CCA 空闲、NAV 在倒数。' },
+    { en: 'Pause inside a gap and open the Listener’s inspector: carrier sense idle, countdown running. Two different answers to “is the channel busy?” at the same instant.', zh: '在间隙里暂停，打开旁听者的检视器：载波侦听空闲，倒计时在走。同一瞬间，“信道忙不忙”有两个不同的答案。' },
+    { en: 'Step Talker A from 498 µs to 824 µs with the microsecond buttons and name, at each moment, which of the three waits it is sitting in.', zh: '用微秒按钮把 A 从 498 µs 走到 824 µs，每走到一处就说出：它此刻熬的是三段等待里的哪一段。' },
   ],
   quiz: [
     {
-      q: { en: 'What exactly does a station load into its NAV?', zh: '终端装入 NAV 的到底是什么？' },
+      q: { en: 'What exactly does a station load into its countdown?', zh: '站点往自己的倒计时里装的到底是什么？' },
       options: [
-        { en: 'The measured signal strength', zh: '测得的信号强度' },
-        { en: 'The Duration field of any correctly decoded frame not addressed to it', zh: '任何解码成功、且不是发给自己的帧中的 Duration 字段' },
-        { en: 'A random hold-off time', zh: '一个随机等待时间' },
+        { en: 'The signal strength it measured', zh: '它测到的信号强度' },
+        { en: 'The Duration of any frame it decoded correctly that was not addressed to it', zh: '任何它正确解出、而且不是发给自己的帧里的 Duration' },
+        { en: 'A random hold-off time', zh: '一个随机的等待时间' },
       ],
       answer: 1,
-      explain: { en: '§10.3.2.4: overheard Duration ⇒ NAV = max(NAV, frame end + Duration).', zh: '§10.3.2.4：侦听到的 Duration ⇒ NAV = max(当前 NAV, 帧结束 + Duration)。' },
+      explain: { en: 'The frame has to arrive whole and pass its check first — an announcement that might be corrupted is worth nothing. Being the addressee is not required.', zh: '这一帧必须先完整到达、通过校验——一句可能已经损坏的预告毫无价值。至于是不是收件人，并不要求。' },
+    },
+    {
+      q: { en: 'Why does a data frame’s announcement not cover the data frame itself?', zh: '数据帧的预告为什么不把这一帧自己算进去？' },
+      options: [
+        { en: 'Because the sender does not know its own frame’s length', zh: '因为发送方不知道自己这一帧有多长' },
+        { en: 'Because while the frame is on the air, ordinary sensing already reports busy', zh: '因为这一帧还在空中时，普通的侦听本来就报“忙”' },
+        { en: 'Because the field is too small to hold that number', zh: '因为那个字段太小，装不下这个数' },
+      ],
+      answer: 1,
+      explain: { en: 'The announcement exists to cover what sensing cannot: the silent pause and an answer that may come from somewhere you cannot hear.', zh: '这句预告存在的意义，正是去盖住侦听盖不住的部分：那段安静的停顿，以及一个可能来自你听不见之处的回答。' },
     },
   ],
 }

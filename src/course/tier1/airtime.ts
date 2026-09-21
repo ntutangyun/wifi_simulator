@@ -1,30 +1,105 @@
-import { type Lesson, oneRoom, node, sc, firstData, firstAck, J } from '../lessonKit'
+/**
+ * Wi-Fi Tier 1 · M1 · The network and the frame · Frames cost airtime.
+ *
+ * Rewritten to the zero-to-hero contract
+ * (docs/superpowers/specs/2026-09-21-course-readability-design.md): why one
+ * shared channel makes time the thing worth counting, what a frame is made of
+ * in plain words, and only then the microseconds of the run.
+ *
+ * Every number quoted below is pinned in tests/course/airtime.test.ts, against
+ * the lesson's own scene. The scenario builder is unchanged, so the recorded
+ * timeline hash in tests/fixtures/lesson-hashes.json is byte-identical.
+ */
+import { type Lesson, N, oneRoom, node, sc, firstData, firstAck, J } from '../lessonKit'
 
 export const airtime: Lesson = {
   id: 'airtime',
   module: 0,
   title: { en: 'Frames cost airtime', zh: '帧要花“空口时间”' },
-  body: [
-    { text: {
-      en: 'The MAC manages one shared, half-duplex medium. Its currency is airtime: while any frame is in the air, nobody else in range can use the channel.',
-      zh: 'MAC 管理的是一条共享的半双工介质，它的“货币”就是空口时间：只要有帧在空中，范围内的其他设备都用不了信道。',
+  why: {
+    en: 'One room, one channel, one voice at a time. A video stream, a file upload and a phone checking mail all have to be squeezed into the same air, one frame after another. So the thing worth counting is not bytes but time: how long each frame holds the channel, and how much of that time carries nothing anyone asked for.',
+    zh: '一个房间，一条信道，同一时刻只能有一个人说话。视频流、文件上传、手机收邮件，全都得挤进同一片空气里，一帧接着一帧。所以真正值得数的不是字节，而是时间：每一帧把信道占住多久，其中又有多少根本没在搬运谁想要的东西。这一课，我们给一次收发交互掐一次秒表。',
+  },
+  outcomes: [
+    { en: 'read a frame’s duration off the timeline and say which part of it is payload', zh: '在时间轴上读出一帧的时长，并说出其中哪一段才是净荷' },
+    { en: 'explain why every frame pays the same fixed opening cost', zh: '解释为什么每一帧都要付同样的固定开场费' },
+    { en: 'say why the acknowledgement is worth the air it costs', zh: '说清确认帧为什么值得它占掉的那点空口时间' },
+  ],
+  needs: ['radio-primer', 'decode-thresholds', 'frame-anatomy'],
+  terms: [
+    { term: 'ACK', plain: {
+      en: 'acknowledgement: the tiny frame a receiver sends straight back to say the frame arrived intact',
+      zh: '确认帧：接收方立刻回发的一个小帧，意思是“这帧我完整收到了”',
     } },
-    { kind: 'formula', text: {
-      en: 'airtime = fixed preamble + payload symbols (bytes ÷ data rate)',
-      zh: '空口时间 = 固定前导 + 数据符号（字节数 ÷ 速率）',
-    }, note: {
-      en: 'A bigger frame costs more; a higher MCS costs less.',
-      zh: '帧越大耗时越长，MCS 越高耗时越短。',
+    { term: 'preamble', plain: {
+      en: 'the fixed, already-known signal at the head of every frame, there so the receiver can lock on before the data starts',
+      zh: '每一帧开头那段固定的、双方早已约好的信号，用处是让接收端在数据开始之前先锁住这一帧',
     } },
-    { text: {
-      en: 'Everything the MAC does — waiting, backing off, aggregating, scheduling — exists to spend this airtime well.',
-      zh: 'MAC 做的一切——等待、退避、聚合、调度——都是为了把空口时间花得值。',
+    { term: 'payload', plain: {
+      en: 'the part of a frame that carries what was actually being sent',
+      zh: '帧里真正装着“要发的东西”的那一段',
     } },
-    { kind: 'list', heading: { en: 'In the simulation', zh: '在仿真里看' }, items: [
-      { en: 'One AP streams video to one station.', zh: '一个 AP 向一台终端推送视频流。' },
-      { en: 'Hover a blue block in the timeline: you can read its size, MCS and exact duration.', zh: '将鼠标悬停在时间轴的蓝色块上，可以看到帧大小、MCS 与精确时长。' },
-      { en: 'The white ACK is tiny but never optional — the sender cannot hear collisions, so only the ACK proves delivery.', zh: '白色的 ACK 很小却必不可少——发送方听不到碰撞，只有 ACK 能证明帧已送达。' },
+  ],
+  picture: [
+    { heading: { en: 'One channel, one speaker', zh: '一条信道，一个说话人' }, text: {
+      en: 'The air in a room is one channel, and a radio cannot send and listen at once. While any frame is going out, nobody within earshot can start one. So the currency of a wireless network is time on the air: a station does not buy bandwidth, it buys a slice of the clock. Everything the MAC does is about who gets the next slice.',
+      zh: '一个房间里的空气就是一条信道，而一台无线电没法一边发一边听。只要有一帧正在发出去，听力范围内的其他设备就都开不了口。所以无线网络的“货币”是空口上的时间：终端买到的不是带宽，而是时钟上的一小段。MAC 所做的一切，都是在决定下一段归谁。',
+    } },
+    { heading: { en: 'Why a frame cannot start cold', zh: '一帧为什么不能张口就来' }, text: {
+      en: 'A receiver is not waiting for your bits; it is waiting for anything at all. Before it can read a single bit it must notice that a signal has begun, lock onto its rhythm, and learn how what follows is coded. That is the job of the preamble: a fixed pattern both ends already know. It carries no data, it is the same length whether the frame is huge or nearly empty, and it is paid every time.',
+      zh: '接收端并不是专等你的比特，它等的是“有没有信号”。在读到哪怕一个比特之前，它得先察觉到有信号开始了，锁住它的节奏，再弄清后面的东西是怎么编码的。这就是前导的活儿：一段两端早已约好的固定图案。它不装数据，帧是很大还是几乎为空，它都一样长，而且每一次都要付。',
+    } },
+    { kind: 'watch', jump: 0, heading: { en: 'Put a stopwatch on one frame', zh: '给一帧掐一次表' }, text: {
+      en: 'Load the simulation and jump to the first data frame. Hover it: the tooltip prints its size, its rate and its exact duration. That duration is what the room is paying for.',
+      zh: '载入仿真，跳到第一个数据帧。把鼠标悬在它上面：提示框会给出帧的大小、速率和精确时长。房间里其他人付的，就是这个时长。',
+    } },
+    { heading: { en: 'Only the middle part grows', zh: '会变长的只有中间那段' }, text: {
+      en: 'After the preamble come the data symbols: equal-length chunks of signal, each carrying a fixed number of bits. Double the payload and you double the symbols; choose a faster coding and each symbol holds more, so fewer are needed. The preamble does not move either way. A big frame spends most of its airtime on the message; a small one spends most of it on the opening.',
+      zh: '前导之后是数据符号：一段段等长的信号，每段装固定数量的比特。净荷翻倍，符号数就翻倍；换一档更快的编码，每个符号装得更多，需要的符号就更少。无论怎么变，前导都纹丝不动。大帧的空口时间大头花在消息上，小帧的大头却花在开场上。',
+    } },
+    { heading: { en: 'And the air is paid for twice', zh: '而且这段空口要付两遍' }, text: {
+      en: 'The sender cannot hear a collision: while it transmits, its own signal deafens it. Silence tells it nothing, and only the receiver can report that the frame survived. That report is the ACK — a few bytes, sent back after a short fixed pause. It is tiny, never optional, and charged to every exchange.',
+      zh: '发送方听不见碰撞：发送的时候，自己的信号把耳朵震聋了。所以安静对它毫无信息量，只有接收方才能报告这一帧活着到达。这份报告就是 ACK——只有几个字节，在一段固定的短暂停顿之后回过来。它很小，却永远不是可选项；而且这段停顿加上 ACK，每一次交互都要记账。',
+    } },
+    { heading: { en: 'So what does an exchange cost?', zh: '那么一次交互到底花多少？' }, text: {
+      en: 'One exchange is three things, then: a fixed opening, the payload, a fixed closing. Only the middle depends on what you sent. That is why a network of many small frames can be busy all day and move almost nothing, and why nearly every later trick spreads those fixed costs over more data.',
+      zh: '所以一次交互由三样东西组成：固定的开场、净荷、固定的收尾。只有中间那样取决于你发了什么。这就是为什么一个净发小帧的网络可以整天忙得不可开交却几乎没搬动什么；也是为什么后面几乎每一招，都是把这些固定开销摊到更多数据上去。',
+    } },
+  ],
+  numbers: [
+    { kind: 'table', heading: { en: 'One exchange in this room', zh: '这个房间里的一次交互' }, head: [
+      { en: 'Part', zh: '组成' }, { en: 'Duration', zh: '时长' }, { en: 'What it is', zh: '这是什么' }, { en: 'Where', zh: '出处' },
+    ], rows: [
+      [{ en: 'Preamble of the data frame', zh: '数据帧的前导' }, N('44.0 µs'), { en: 'fixed, whatever the frame carries', zh: '固定值，与帧里装了什么无关' }, N('§27.3.10')],
+      [{ en: '6 data symbols × 13.6 µs', zh: '6 个数据符号 × 13.6 µs' }, N('81.6 µs'), { en: 'the 1430-byte payload', zh: '那 1430 字节的净荷' }, N('§27.3.10')],
+      [{ en: 'The whole data frame', zh: '整个数据帧' }, N('125.6 µs'), { en: 'what the timeline block measures', zh: '时间轴上那个色块量的就是它' }, N('§27.3.10')],
+      [{ en: 'The pause before the answer', zh: '回答之前的停顿' }, N('16 µs'), { en: 'the same for every exchange', zh: '每一次交互都一样' }, N('§17.4.4')],
+      [{ en: 'The ACK', zh: 'ACK' }, N('28 µs'), { en: '14 bytes at a rate every station can read', zh: '14 个字节，用人人都解得出的低速率发' }, N('§17.4.3')],
+      [{ en: 'The whole exchange', zh: '整次交互' }, N('169.6 µs'), { en: '88.0 µs of it fixed, 81.6 µs payload', zh: '其中固定开销 88.0 µs，净荷 81.6 µs' }, N('—')],
     ] },
+    { kind: 'formula', heading: { en: 'Where the time goes', zh: '时间花在哪儿' }, text: {
+      en: 'airtime = preamble + symbols × (payload bits ÷ bits per symbol)',
+      zh: '空口时间 = 前导 + 符号数 ×（净荷比特数 ÷ 每符号比特数）',
+    }, note: {
+      en: 'The first term never moves. The second is the only one a bigger frame or a faster coding can change.',
+      zh: '第一项永远不动。帧变大、编码变快、信道变宽，能改的都只有第二项。',
+    } },
+    { heading: { en: 'The tax, in one number', zh: '这笔税，用一个数说清' }, text: {
+      en: 'Of the 169.6 µs this exchange holds the channel, 88.0 µs is opening, pause and answer. The payload is the other 81.6 µs — under half.',
+      zh: '这次交互一共占住信道 169.6 µs，其中 88.0 µs 是开场、停顿和回答。净荷只占剩下的 81.6 µs——还不到一半。',
+    } },
+    { heading: { en: 'How busy is the room?', zh: '这个房间有多忙？' }, text: {
+      en: 'In the first 100 ms the access point sends 117 such frames and gets 116 answers — about 18 % of the time. The rest is silence.',
+      zh: '前 100 ms 里，AP 发出 117 个这样的帧，收到 116 个回答——合起来约占 18 % 的时间。其余都是静默。',
+    } },
+  ],
+  sources: [
+    { en: 'The airtime formula is §17.4.3 (TXTIME) of IEEE Std 802.11-2024; the 44 µs high-efficiency preamble and the 13.6 µs symbol are this simulator’s single representative values for a Clause 27 PPDU, not a field-by-field sum of the training fields.',
+      zh: '空口时间公式出自 IEEE Std 802.11-2024 的 §17.4.3（TXTIME）；44 µs 的高效率前导与 13.6 µs 的符号，是本仿真器为第 27 章 PPDU 取的单一代表值，并非逐个训练字段加出来的结果。' },
+    { en: 'The acknowledgement rule — a sender treats a missing ACK as failure because it cannot detect a collision itself — is §10.3.2.9. The 16 µs pause is aSIFSTime, §17.4.4.',
+      zh: '“发送方因为自己检测不到碰撞，所以把收不到 ACK 当作失败”这条规则见 §10.3.2.9。16 µs 的停顿是 aSIFSTime，见 §17.4.4。' },
+    { en: 'The 1430-byte frame, the video profile that produces it and the two positions in the room are this simulator’s model of a stream, not figures from the standard.',
+      zh: '1430 字节的帧、产生它的视频业务模型，以及两台设备在房间里的位置，都是本仿真器对一路视频流的模型取值，标准正文里没有这些数字。' },
   ],
   scenario: () => sc(oneRoom(), [
     node('ap', 'AP', 'ap', 5, 4, 'eht', 'idle'),
@@ -35,34 +110,44 @@ export const airtime: Lesson = {
     J('first ACK', '第一个 ACK', firstAck),
   ],
   observe: [
-    { en: 'Each blue block’s length equals its real duration — hover to read bytes, MCS, µs.', zh: '每个蓝色块的长度就是真实时长——悬停可读出字节数、MCS 与微秒数。' },
-    { en: 'The ACK follows exactly 16 µs (one SIFS) after the data block ends.', zh: 'ACK 恰好在数据块结束后 16 µs（一个 SIFS）出现。' },
-    { en: 'Between exchanges the channel is idle — video at this rate uses under a fifth of the airtime.', zh: '两次帧交换（数据帧 + 紧随其后的 ACK）之间信道是空闲的——这个码率的视频占用的空口时间不到五分之一。' },
+    { en: 'Hover any blue data block on the access point’s lane: 1430 bytes and 125.6 µs of air, every time. Its width on the timeline is that duration, to scale.', zh: '把鼠标悬到 AP 泳道上任意一个蓝色数据块：每一个都是 1430 字节、125.6 µs 的空口时间。色块在时间轴上的宽度，就是按比例画出的这个时长。' },
+    { en: 'The white answer starts 16 µs after the data block ends and lasts 28 µs — under a quarter of the frame it answers.', zh: '白色的回答在数据块结束后 16 µs 开始，持续 28 µs——比它所回答的那一帧的四分之一略少一点。' },
+    { en: 'Between exchanges the lane is empty: across the first 100 ms the channel is busy under a fifth of the time, though the stream never stops.', zh: '两次交互之间泳道是空的。在前 100 ms 里，信道忙的时间不到五分之一，尽管这路视频流一刻也没停。' },
   ],
   tryThis: [
-    { en: 'Open the scenario in the editor, set the TV to 802.11a (legacy), and compare frame durations.', zh: '在编辑器中打开场景，把电视改成 802.11a（传统模式），比较帧时长的变化。' },
-    { en: 'Drag the TV far from the AP: the MCS drops, and the same frames get longer.', zh: '把电视拖到离 AP 很远的位置：MCS 下降，同样的帧变得更长。' },
+    { en: 'Do the arithmetic: take the 125.6 µs block, subtract the 44.0 µs preamble, divide the rest by 13.6 µs. You should land on exactly six symbols.', zh: '把算术做一遍。拿 125.6 µs 的色块减去 44.0 µs 的前导，再把剩下的除以 13.6 µs。你应该刚好得到六个符号。' },
+    { en: 'In the editor, set the TV to 802.11a and reload. Same payload, far fewer bits per symbol: the frame stretches to 232 µs.', zh: '在编辑器里把电视改成 802.11a 再载入。净荷没变，但现在每个符号装的比特少得多：同样一帧拉长到了 232 µs。' },
   ],
   quiz: [
     {
-      q: { en: 'Why does Wi-Fi need ACK frames at all?', zh: 'Wi-Fi 为什么必须要有 ACK 帧？' },
+      q: { en: 'Why does Wi-Fi need acknowledgements at all?', zh: 'Wi-Fi 为什么非要有确认帧？' },
       options: [
-        { en: 'To tell other stations to stay silent', zh: '通知其他终端保持沉默' },
-        { en: 'The transmitter cannot detect collisions itself — the ACK is its only proof of delivery', zh: '发送方自己检测不到碰撞——ACK 是唯一的送达证明' },
-        { en: 'To carry the receiver’s data rate preferences', zh: '携带接收方的速率偏好' },
+        { en: 'To tell the other stations to stay silent', zh: '为了通知其他终端保持安静' },
+        { en: 'The sender cannot detect a collision itself, so the ACK is its only proof of delivery', zh: '发送方自己检测不到碰撞，所以 ACK 是它唯一的送达凭据' },
+        { en: 'To carry the receiver’s preferred data rate', zh: '为了把接收方偏好的速率带回给发送方' },
       ],
       answer: 1,
-      explain: { en: 'Radios are half-duplex: while transmitting they cannot listen, so a missing ACK is the only sign of failure (§10.3.2.9).', zh: '无线电是半双工的：发送时无法侦听，所以“没收到 ACK”是唯一的失败信号（§10.3.2.9）。' },
+      explain: { en: 'A radio cannot listen while it transmits, so silence means nothing. Only a frame coming back says the data arrived.', zh: '无线电发送时听不见，所以一帧发完后的安静本身什么也说明不了。只有回过来的那一帧才说明数据到了。' },
     },
     {
-      q: { en: 'Two frames carry the same payload; one uses a higher MCS. Which occupies the medium longer?', zh: '两个帧载荷相同，其中一个用了更高的 MCS。哪个占用介质更久？' },
+      q: { en: 'Two frames carry the same payload, one at a slower coding. Which holds the channel longer?', zh: '两帧净荷相同，其中一帧用了更慢的编码。哪一帧占住信道更久？' },
       options: [
-        { en: 'The higher-MCS frame', zh: '高 MCS 的帧' },
-        { en: 'The lower-MCS frame', zh: '低 MCS 的帧' },
-        { en: 'Identical — airtime depends only on bytes', zh: '一样——空口时间只取决于字节数' },
+        { en: 'The faster-coded one', zh: '编码更快的那一帧' },
+        { en: 'The slower-coded one', zh: '编码更慢的那一帧' },
+        { en: 'Neither — airtime depends only on the number of bytes', zh: '一样久——空口时间只取决于字节数' },
       ],
       answer: 1,
-      explain: { en: 'More bits per symbol means fewer symbols: higher MCS = shorter airtime for the same bytes.', zh: '每符号承载更多比特意味着符号更少：同样字节数下，MCS 越高空口时间越短。' },
+      explain: { en: 'Fewer bits per symbol means more symbols for the same payload, and every symbol is the same length. The preamble is identical.', zh: '每符号装的比特越少，同样的净荷就要用越多符号，而每个符号都一样长。两种情况下前导完全相同。' },
+    },
+    {
+      q: { en: 'Halve this frame’s payload. What happens to the exchange’s 169.6 µs?', zh: '把这一帧的净荷减半，那 169.6 µs 的交互会怎样？' },
+      options: [
+        { en: 'It halves too', zh: '也跟着减半' },
+        { en: 'It falls by 40.8 µs — the three symbols you no longer need', zh: '减少 40.8 µs——正好是用不上的那三个符号' },
+        { en: 'It does not change', zh: '完全不变' },
+      ],
+      answer: 1,
+      explain: { en: 'Only the symbols shrink, six to three. Opening, pause and answer are unchanged, so the exchange lands at 128.8 µs.', zh: '缩水的只有符号，从六个变成三个。开场、停顿和回答都没变，所以整次交互落在 128.8 µs。' },
     },
   ],
 }

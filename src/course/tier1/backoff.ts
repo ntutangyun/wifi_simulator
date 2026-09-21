@@ -1,67 +1,118 @@
+/**
+ * Wi-Fi Tier 1 · M2 · Channel access · Random backoff & collisions.
+ *
+ * Rewritten to the zero-to-hero contract
+ * (docs/superpowers/specs/2026-09-21-course-readability-design.md): why two
+ * identical stations need a die at all, what the countdown does, and how a
+ * sender that cannot hear a collision finds out about one. The dense material
+ * that used to open the lesson — the deadline's three pieces, the buried
+ * preambles, the EIFS that is never armed — lives in `numbers` and `deeper`.
+ *
+ * Every number quoted below is pinned in tests/course/backoff.test.ts. The
+ * scenario builder is unchanged, so the recorded timeline hash stays identical.
+ */
 import { type Lesson, N, oneRoom, node, sc, firstCollision, firstRetry, firstFreeze, J } from '../lessonKit'
 
 export const backoff: Lesson = {
   id: 'backoff',
   module: 1,
   title: { en: 'Random backoff & collisions', zh: '随机退避与碰撞' },
-  body: [
-    { text: {
-      en: 'When two stations both want the channel, silence alone cannot break the tie — both would finish DIFS at the same instant. So each one plays a lottery:',
-      zh: '当两台终端都想要信道时，仅靠静默无法决出胜负——它们会在同一瞬间等完 DIFS。于是每台终端都要抽一次签：',
+  why: {
+    en: 'Waiting cannot settle an argument on its own. If two stations are both holding back until the channel goes quiet, they will both hear it go quiet at the same instant, and both start talking. Wi-Fi breaks the tie the only way it can without a referee: every station rolls a die, and the low roll speaks first. This lesson watches the dice, and what happens when two come up equal.',
+    zh: '光是等，解决不了争端。如果两台终端都憋着、等信道安静下来，那它们会在同一瞬间听到它安静下来，然后一起开口。没有裁判的情况下，Wi-Fi 只能用唯一可行的办法来打破平局：每台终端掷一次骰子，点数小的先说。这一课我们盯着骰子看——也看看两颗骰子点数相同时会发生什么。',
+  },
+  outcomes: [
+    { en: 'describe the draw-and-count-down rule in your own words', zh: '用自己的话说清“抽一个数、再倒着数下去”这条规则' },
+    { en: 'explain how a sender discovers a collision it could not possibly have heard', zh: '解释发送方是怎么发现一次它根本听不见的碰撞的' },
+    { en: 'say what doubling the window buys, and what it costs', zh: '说清把窗口翻倍买到了什么、又付出了什么' },
+  ],
+  needs: ['ifs'],
+  terms: [
+    { term: 'backoff', plain: {
+      en: 'the random number of idle slots a station counts down before it is allowed to start',
+      zh: '站点在获准开口之前，要倒着数完的那个随机的空闲时隙数',
     } },
-    { kind: 'steps', items: [
-      { en: 'Draw a random integer from [0, CW].', zh: '从 [0, CW] 里抽一个随机整数。' },
-      { en: 'Decrement it once per idle 9 µs slot; the lower draw transmits first.', zh: '介质每空闲一个 9 µs 时隙就减一，抽得小的先发。' },
-      { en: 'Equal draws hit zero in the same slot and transmit on top of each other: a collision.', zh: '若抽到相同值，双方在同一时隙同时清零、同时发送：碰撞。' },
-      { en: 'Neither notices until the 45 µs ACK timeout expires; then each doubles its CW (15→31→…→1023) and redraws — collisions get rapidly less likely.', zh: '双方都要等到 45 µs 的 ACK 超时才察觉，然后各自把 CW 翻倍（15→31→…→1023）并重抽——碰撞概率随之骤降。' },
-    ] },
-    { heading: { en: 'Why exactly 45 µs?', zh: '为什么恰好是 45 µs？' }, text: {
-      en: 'A transmitter cannot hear a collision — while sending, its own signal drowns out everything else, so the only evidence of failure is silence: the ACK never arrives. But silence needs a deadline, and 45 µs is the sum of three physically motivated pieces:',
-      zh: '发送方听不到碰撞——发送时自己的信号会盖过一切，所以失败的唯一证据是沉默：ACK 迟迟不来。但“沉默”需要一个期限，而 45 µs 是三段有物理含义的时间之和：',
+    { term: 'CW', plain: {
+      en: 'contention window: the top of the range the random number is drawn from',
+      zh: '竞争窗口：抽那个随机数时，取值范围的上限',
     } },
-    { kind: 'table', head: [
-      { en: 'Piece', zh: '组成' }, N('µs'), { en: 'Meaning', zh: '含义' },
+    { term: 'ACK timeout', plain: {
+      en: 'the deadline after which a sender stops expecting an answer and calls the frame lost',
+      zh: '一个期限：过了它，发送方就不再指望回答，判这一帧已经丢了',
+    } },
+  ],
+  picture: [
+    { heading: { en: 'Two stations, one instant', zh: '两台终端，同一瞬间' }, text: {
+      en: 'Both stations here are busy, both are waiting for the channel, and both follow the same rule. The moment the required silence is over they are in identical states — so a rule with no randomness in it would have them start in the same microsecond, every time, for ever. Something has to make two identical stations behave differently.',
+      zh: '这里的两台终端都很忙，都在等信道，遵守的也是同一条规则。要求的那段安静一走完，它们的状态一模一样——也就是说，一条不带随机性的规则，会让它们在同一微秒开口，每一次都这样，永远这样。讲礼貌是不够的。必须有点什么，让两台一模一样的终端做出不一样的事。',
+    } },
+    { heading: { en: 'Roll, then count down', zh: '先掷骰子，再倒着数' }, text: {
+      en: 'So each one draws a random whole number and treats it as a count of idle slots to sit through: its backoff. Every slot the channel stays quiet, the count drops by one; at zero the station sends. The lower draw wins, and since the draws are independent, the winner changes from round to round. If a frame starts mid-count the counter freezes and later picks up where it stopped, so nobody loses the waiting already done.',
+      zh: '于是每台终端抽一个随机整数，把它当作“要熬过的空闲时隙数”：这就是它的退避值。信道每安静一个时隙，这个数就减一；减到零就发。抽得小的赢，而由于两边各抽各的，赢家每一轮都可能换人。若中途有帧开始，计数就地冻结，之后从停下的那个数继续，谁都不会把已经等过的时间白等。',
+    } },
+    { kind: 'watch', jump: 0, heading: { en: 'Look at a collision', zh: '去看一次碰撞' }, text: {
+      en: 'Load the simulation and jump to the first collision. Two frames start in the same instant and lie on top of each other; at the red tick the access point reports that it locked onto neither.',
+      zh: '载入仿真，跳到第一次碰撞。两帧在同一瞬间开始，彼此叠在一起；在红色刻度处，AP 报告说这两帧它一个都没锁定。',
+    } },
+    { heading: { en: 'When both dice agree', zh: '当两颗骰子点数相同' }, text: {
+      en: 'Nothing stops two stations drawing the same number. When they do, both counters reach zero in the same slot and both frames go out together, on top of each other. Neither sender notices: a radio cannot listen while it transmits. The first thing either learns is that the answer it expected has not arrived.',
+      zh: '没有任何机制能阻止两台终端抽到同一个数。一旦抽到，两边的计数在同一个时隙同时归零，两帧一起发出去，彼此重叠。两个发送方什么都没察觉：无线电在发送时听不见。它们最先得知的事情，是自己等的那个回答没来。',
+    } },
+    { heading: { en: 'Silence needs a deadline', zh: '沉默需要一个期限' }, text: {
+      en: 'So the sender starts a clock the moment its frame ends. If an answer were on its way it would have been noticed by now: the receiver’s own short pause, one slot of margin, and the time a radio needs to spot a signal beginning. Past that point silence is a verdict — the ACK timeout expires, the frame is lost, and the station must try again.',
+      zh: '于是发送方在自己这帧结束的那一刻起表。如果回答真在路上，到这时候早该被察觉了：接收端理应先停的那一小段、一个时隙的余量、再加上无线电察觉“有信号开始了”所需的时间。过了这个点，沉默就是判决。ACK 超时到期，这一帧被判丢失，站点必须重来。',
+    } },
+    { heading: { en: 'Doubling the window', zh: '把窗口翻倍' }, text: {
+      en: 'Trying again with the same die would be foolish: a collision is evidence that too many stations are drawing from too small a range. So a station that has failed doubles its CW, and doubles again with every further failure. Waits get longer, which costs airtime — but the chance of two draws landing on the same number falls fast. On the next success the window snaps back to its smallest value.',
+      zh: '再拿同一颗骰子重来是愚蠢的：碰撞本身就是证据，说明抽签的人太多、范围太小。所以失败过的站点会把自己的 CW 翻倍，从更宽的范围里抽；再失败就再翻一倍。等待变长，要多花空口时间——但两个人抽到同一个数的概率会迅速下降。下一次成功之后，窗口立刻弹回到最小值。',
+    } },
+  ],
+  numbers: [
+    { kind: 'table', heading: { en: 'The draws this run makes', zh: '本轮仿真抽出来的数' }, head: [
+      { en: 'Window', zh: '窗口' }, { en: 'Draws in 300 ms', zh: '300 ms 内的抽取次数' }, { en: 'Mean slots drawn', zh: '平均抽到的时隙数' },
     ], rows: [
-      [N('SIFS'), N('16'), { en: 'The gap the receiver legitimately takes before starting its ACK.', zh: '接收方在开始回 ACK 前理应等待的间隔。' }],
-      [{ en: '1 slot', zh: '1 个时隙' }, N('9'), { en: 'Margin.', zh: '余量。' }],
-      [N('RxPHYStartDelay'), N('20'), { en: 'The time a radio needs to detect that an incoming preamble has started.', zh: '电台检测到一个前导码已经开始所需的时间。' }],
+      [N('CW = 15'), N('770'), N('7.15')],
+      [N('CW = 31'), N('89'), N('16.07')],
+      [N('CW = 63'), N('5'), N('23.80')],
     ] },
-    { kind: 'formula', text: {
-      en: 'ACK timeout = 16 + 9 + 20 = 45 µs',
-      zh: 'ACK 超时 = 16 + 9 + 20 = 45 µs',
+    { heading: { en: 'What a slot is worth', zh: '一个时隙值多少' }, text: {
+      en: 'Every slot on that counter is 9 µs of waiting, so the mean wait roughly doubles with the window: about 64 µs at the smallest, 145 µs after one failure.',
+      zh: '计数器上每一个时隙都是 9 µs 的等待，所以平均等待随窗口大致翻倍：最小窗口下约 64 µs，失败一次之后约 145 µs。',
     } },
-    { text: {
-      en: 'If an ACK were really on its way, its preamble would have been detected within those 45 µs. Silence past that point is proof of death — the station doubles its CW and redraws.',
-      zh: '如果 ACK 真的在路上，它的前导码一定会在这 45 µs 之内被检测到。过了这个期限仍是沉默，就等于宣告帧已阵亡——终端随即把 CW 翻倍并重新抽取。',
+    { kind: 'table', heading: { en: 'Why the deadline falls where it does', zh: '那个期限为什么落在这里' }, head: [
+      { en: 'Piece', zh: '组成' }, N('µs'), { en: 'What it covers', zh: '它盖住了什么' }, { en: 'Where', zh: '出处' },
+    ], rows: [
+      [N('SIFS'), N('16'), { en: 'the pause the receiver legitimately takes before answering', zh: '接收端在回答之前理应先停的那一段' }, N('§17.4.4')],
+      [{ en: 'one slot', zh: '一个时隙' }, N('9'), { en: 'margin', zh: '余量' }, N('§17.4.4')],
+      [{ en: 'signal-detect delay', zh: '信号检测时延' }, N('20'), { en: 'the time a radio needs to spot a signal beginning', zh: '无线电察觉到“有信号开始了”所需的时间' }, N('§17.4.4')],
+      [{ en: 'ACK timeout', zh: 'ACK 超时' }, N('45'), { en: 'past this, the frame is lost', zh: '过了这里，这一帧就算丢了' }, N('§10.3.2.9')],
+    ] },
+    { heading: { en: 'The first collision, timed', zh: '第一次碰撞的时刻表' }, text: {
+      en: 'Both find the channel idle at the start and send at once, with no draw at all. The overlap is reported at 248 µs, the deadline expires at 293 µs, both windows double to 31, and the fresh draws come at 327 µs.',
+      zh: '一开始两台终端都发现信道空闲，于是根本没抽签就同时发了出去。重叠在 248 µs 被报出来，期限在 293 µs 到期，两边的窗口都翻倍到 31，新的抽取在 327 µs 完成。',
     } },
-    { text: {
-      en: 'Notice where the new countdown starts. The collided transmissions end at 248 µs, but the stations cannot count that silence as idle time yet: until the timeout expires, each is still waiting for its response. So the retry’s DIFS is counted from the end of the timeout — 293 µs — and the fresh backoff is drawn only at 327 µs, a full 34 µs later.',
-      zh: '注意新一轮倒数从哪里开始。碰撞的传输在 248 µs 就结束了，但终端还不能把这段安静算作空闲时间：超时到来之前，它们仍在等待自己的响应。所以重传前的 DIFS 要从超时结束的那一刻——293 µs——开始计，新的退避要到 327 µs 才抽取，整整晚了 34 µs。',
+    { heading: { en: 'How often it goes wrong', zh: '出错的频率' }, text: {
+      en: 'Across 300 ms these two stations send 864 frames and collide 47 times — roughly one attempt in twenty. Doubling works: only five draws in the run come from a window as wide as 63.',
+      zh: '在 300 ms 里，这两台终端一共发出 864 帧，碰撞 47 次——大约二十次里错一次。翻倍是管用的：整轮下来，只有五次抽取来自宽达 63 的窗口。',
     } },
-    { heading: { en: 'And the AP? It detects neither frame', zh: '那 AP 呢？它哪一帧都没检测到' }, text: {
-      en: 'The AP experienced this collision differently. It was not transmitting, but it did not receive a garbled frame either. A radio locks onto a frame only if its preamble stands at least 4 dB above everything else on the air. Here both preambles arrive in the same instant at about the same strength, so each buries the other: the AP detects neither, starts no reception, and hears only energy on the channel.',
-      zh: 'AP 经历这场碰撞的方式不一样。它当时并没有发送，但也没有收到一帧乱码。电台只有在一个前导码比空中其他一切信号至少高出 4 dB 时，才会锁定这一帧。这里两个前导码在同一瞬间、以差不多的强度到达，彼此淹没：AP 哪个都没检测到，没有开始任何接收，只感到信道上有能量。',
+  ],
+  deeper: [
+    { heading: { en: 'Why the access point sees nothing at all', zh: '为什么 AP 什么都没看到' }, text: {
+      en: 'The access point was not transmitting, yet it did not receive a garbled frame either. A radio locks onto a frame only when its preamble stands clear of everything else on the air by a margin. Here the two preambles begin in the same instant at similar strength and bury each other, so the access point starts no reception at all and records only energy on the channel.',
+      zh: 'AP 当时并没有在发送，可它也没有收到一帧乱码。无线电只有在某个前导比空中其余一切都高出一定余量时，才会锁定那一帧。这里两个前导在同一瞬间、以相近的强度开始，互相淹没，于是 AP 根本没有启动任何接收，只记录下信道上有能量。',
     } },
-    { heading: { en: 'EIFS — the wait after a frame that was received but broken', zh: 'EIFS——收到了、却是坏帧之后的等待' }, text: {
-      en: 'That matters, because the longer penalty wait, EIFS, is armed only by a reception that actually started and then failed its check. A station that locked onto a preamble but could not decode the frame must stay quiet for EIFS instead of DIFS before its next access. A frame whose preamble was never detected leaves nothing to fail, so it arms no EIFS.',
-      zh: '这一点很关键，因为更长的惩罚等待 EIFS，只有在一次真正开始了的接收最终校验失败时才会启动。站点锁定了前导码、却没能解出这一帧，那么下一次接入前必须保持安静一个 EIFS，而不是一个 DIFS。前导码根本没被检测到的帧，没有留下任何可以失败的接收，所以不会启动 EIFS。',
+    { heading: { en: 'So no EIFS is ever armed here', zh: '所以这里从来不会有 EIFS' }, text: {
+      en: 'That matters, because the long penalty wait is armed only by a reception that actually started and then failed its check. A station that never locked onto a preamble has nothing that failed, so it owes nothing extra. Across this whole run not a single EIFS is ever started, and the retry’s DIFS is counted from the end of the timeout at 293 µs rather than from the end of the collided frames at 248 µs.',
+      zh: '这一点很关键：那段长长的惩罚等待，只有在“接收真的开始了、随后校验失败”时才会启动。压根没锁定过任何前导的站点，没有任何东西可以失败，也就不欠这一段。整轮仿真里一个 EIFS 都没有启动过；重传前的 DIFS 是从 293 µs 超时结束那一刻起算的，而不是从 248 µs 碰撞帧结束那一刻。',
     } },
-    { kind: 'formula', text: {
-      en: 'EIFS = SIFS + ACK at the lowest rate + DIFS = 16 + 44 + 34 = 94 µs',
-      zh: 'EIFS = SIFS + 以最低速率发完一个 ACK + DIFS = 16 + 44 + 34 = 94 µs',
-    } },
-    { text: {
-      en: 'The logic: that broken frame may have been meant for someone else who is about to answer it with an ACK. Having failed to decode the frame, the listener also missed its Duration field, so it holds back long enough not to trample a reply it cannot anticipate.',
-      zh: '道理在于：那帧损坏的数据也许本来是发给别人的，对方马上就要回 ACK。侦听者既然没解出这帧，也就错过了它的 Duration 字段，所以多等这一段，才不会踩到那个自己“预料不到”的 ACK。',
-    } },
-    { text: {
-      en: 'You will not see an EIFS block on the AP’s lane here. At the same-slot collisions nothing was received, so there is no EIFS at all. And even after a broken reception, a defer block is drawn only when a station is waiting in order to send, and this AP has nothing to transmit. A real, visible EIFS appears in lesson 6 — hovering the far station’s defer block even shows the EIFS being cut short into a DIFS the moment a healthy frame arrives (§10.3.2.3.7).',
-      zh: '在本场景里，你不会在 AP 的泳道上看到 EIFS 色块。同一时隙的碰撞里 AP 什么都没收到，所以根本没有 EIFS；而且即使在收到坏帧之后，也只有当站点是“为了发送”而等待时才会画出等待色块，而这台 AP 无东西可发。想看真实可见的 EIFS，请到第 6 课——悬停远处终端的等待色块，还能看到 EIFS 在一帧健康的帧到来时被截短成 DIFS（§10.3.2.3.7）。',
-    } },
-    { text: {
-      en: 'This scenario saturates two legacy stations. Use “first collision”: the red tick marks two overlapping transmissions. That first one happens at the very start — both stations find the medium already idle at t = 0 and transmit at once, with no backoff at all. The next one, at about 8.1 ms, is the classic kind: step backwards from it and watch both backoff counters reach zero in the same slot — the collision was fully determined a moment earlier.',
-      zh: '本场景让两台传统终端处于饱和状态。点“第一次碰撞”：红色刻度处两次传输重叠。这第一次发生在一开始——t = 0 时两台终端都发现介质早已空闲，于是不做任何退避、同时发送。下一次碰撞（约 8.1 ms）才是经典情形：从那里往回步进，会看到两个退避计数器在同一时隙同时清零——碰撞在片刻之前就已注定。',
-    } },
+  ],
+  sources: [
+    { en: 'The backoff procedure is §10.3.4.3 of IEEE Std 802.11-2024; aCWmin 15 and aCWmax 1023 are §17.4.4, and the window doubles 15 → 31 → 63 → … → 1023 on each failure.',
+      zh: '退避过程见 IEEE Std 802.11-2024 的 §10.3.4.3；aCWmin 15 与 aCWmax 1023 见 §17.4.4，每失败一次窗口翻倍：15 → 31 → 63 → … → 1023。' },
+    { en: 'The acknowledgement deadline is §10.3.2.9: aSIFSTime + aSlotTime + aRxPHYStartDelay, which is 16 + 9 + 20 µs here.',
+      zh: '确认帧的期限见 §10.3.2.9：aSIFSTime + aSlotTime + aRxPHYStartDelay，在这里就是 16 + 9 + 20 µs。' },
+    { en: 'The capture margin that decides which of two overlapping preambles a radio locks onto is a model choice of this simulator, as are the seed, the two saturated stations and the 1528-byte frame.',
+      zh: '“两个重叠前导里无线电锁住哪一个”所用的捕获余量，是本仿真器的模型取值；随机种子、两台饱和终端与 1528 字节的帧同样如此。' },
   ],
   scenario: () => sc(oneRoom(), [
     node('ap', 'AP', 'ap', 5, 4, 'eht', 'idle'),
@@ -75,35 +126,44 @@ export const backoff: Lesson = {
     J('first CW doubling', '第一次 CW 翻倍', (r) => r.type === 'CW_CHANGE' && r.cw > 15),
   ],
   observe: [
-    { en: 'Backoff counters (bo:n) decrement only while the medium is idle; they freeze when the other station transmits and resume at the same value.', zh: '退避计数（bo:n）只在介质空闲时递减；对方发送时冻结，之后从同一数值继续。' },
-    { en: 'At the red tick the AP’s lane shows the overlap hatched red and marked “not detected”: the two preambles started together at similar strength and buried each other, so the AP never locked onto either frame. Hover it to see who else was on the air.', zh: '红色刻度处 AP 泳道上的重叠部分打着红色斜线，并标着“未检测到”：两个前导码同时开始、强度相近，彼此淹没，AP 一帧也没有锁定。悬停可见另一位发送者。' },
-    { en: 'After a collision, both stations show CW → 31 in the inspector, and the retry frame carries the Retry flag.', zh: '碰撞后检视器里双方的 CW 都变成 31，重传帧带有 Retry 标志。' },
-    { en: 'Retries draw from the doubled window: gaps before retransmissions are visibly longer on average.', zh: '重传从翻倍后的窗口抽取：重传前的等待间隙平均明显更长。' },
+    { en: 'The counters (bo:n) drop only while the channel is idle. When the other station transmits they freeze and resume at the same value — 770 pairs here, not one losing a slot.', zh: '计数器（bo:n）只在信道空闲时递减。对方一发送就冻结，之后从同一个值继续——本轮共有 770 组冻结与恢复，没有一组丢掉过一个时隙。' },
+    { en: 'At the red tick the access point’s lane shows the overlap hatched and marked “not detected”. Afterwards both stations show CW 31 in the inspector, and each retry frame carries the Retry flag.', zh: '红色刻度处，AP 泳道上的重叠部分打着斜线并标着“未检测到”。之后检视器里两台终端的 CW 都变成 31，而每一个重传帧都带着 Retry 标志。' },
+    { en: 'Jump to the second collision, at about 8.1 ms, and step backwards: both counters reach zero in the very same slot. It was settled a moment before it happened.', zh: '跳到大约 8.1 ms 处的第二次碰撞，从那里往回步进：两个计数器在同一个时隙同时归零。碰撞在发生之前的那一刻就已经注定了。' },
   ],
   tryThis: [
-    { en: 'Count the idle slots between DIFS end and TX start — it always equals the drawn backoff value.', zh: '数一数 DIFS 结束到发送开始之间的空闲时隙数——永远等于抽到的退避值。' },
-    { en: 'Change the seed in the editor and reload: different draws, different collision times, same physics.', zh: '在编辑器中改个种子再载入：抽值不同、碰撞时刻不同，但规律完全一致。' },
+    { en: 'Count the idle slots between the end of a DIFS and the frame that follows it. It always equals the number that station drew.', zh: '数一数从一个 DIFS 结束到紧随其后那一帧开始之间的空闲时隙。它永远等于那台终端抽到的数。' },
+    { en: 'Change the seed in the editor and reload: different draws, different collision times, still roughly one attempt in twenty going wrong.', zh: '在编辑器里换一个随机种子再载入。抽到的数不同，碰撞的时刻不同——但出错的比例依旧是大约二十次里一次。' },
   ],
   quiz: [
     {
-      q: { en: 'How does a station discover that its frame collided?', zh: '终端如何发现自己的帧发生了碰撞？' },
+      q: { en: 'How does a station discover that its frame collided?', zh: '终端是怎么发现自己那一帧碰撞了的？' },
       options: [
-        { en: 'It hears the interference while transmitting', zh: '发送时听到了干扰' },
-        { en: 'The ACK never arrives (timeout after 45 µs)', zh: 'ACK 一直没来（45 µs 后超时）' },
-        { en: 'The AP broadcasts a collision notification', zh: 'AP 广播碰撞通知' },
+        { en: 'It hears the interference while it is transmitting', zh: '它在发送时听到了干扰' },
+        { en: 'The answer never arrives, and the deadline for it expires', zh: '回答一直没来，等它的那个期限到期了' },
+        { en: 'The access point broadcasts a collision notice', zh: 'AP 广播了一条碰撞通知' },
       ],
       answer: 1,
-      explain: { en: 'Half-duplex radios cannot listen while talking — collision *avoidance*, not detection.', zh: '半双工的无线电边说边听做不到——所以是碰撞“避免”而非“检测”。' },
+      explain: { en: 'A half-duplex radio cannot listen while it talks. Hence collision avoidance rather than collision detection.', zh: '半双工的无线电边说边听是做不到的。正因如此，这套机制是“碰撞避免”，而不是“碰撞检测”。' },
     },
     {
-      q: { en: 'Why double CW after each failure?', zh: '为什么每次失败后 CW 都要翻倍？' },
+      q: { en: 'Why double the window after each failure?', zh: '为什么每失败一次就要把窗口翻倍？' },
       options: [
-        { en: 'To punish misbehaving stations', zh: '惩罚行为不端的终端' },
-        { en: 'More contenders ⇒ more collisions ⇒ spreading draws over a wider range separates them', zh: '竞争者越多碰撞越多⇒把抽值范围拉大能把它们分开' },
-        { en: 'To save battery', zh: '为了省电' },
+        { en: 'To punish stations that misbehave', zh: '为了惩罚行为不端的终端' },
+        { en: 'More contenders mean more collisions; spreading the draws over a wider range separates them again', zh: '竞争者越多碰撞越多；把抽值摊到更宽的范围上，能把它们重新分开' },
+        { en: 'To save the station’s battery', zh: '为了给终端省电' },
       ],
       answer: 1,
-      explain: { en: 'Binary exponential backoff adapts the contention window to the (unknown) number of active stations.', zh: '二进制指数退避让竞争窗口自适应于（未知的）活跃终端数量。' },
+      explain: { en: 'Nobody knows how many stations are active, so the window learns it the hard way: wider after each failure, smallest again after each success.', zh: '没人知道到底有多少台终端在抢，所以窗口只能用笨办法去学：每失败一次就变宽，每成功一次就弹回去。' },
+    },
+    {
+      q: { en: 'A counter freezes at 7 while another station transmits. What value does it resume at?', zh: '别的终端在发送时，一个计数器冻结在 7。恢复时它从几开始？' },
+      options: [
+        { en: 'A freshly drawn number', zh: '重新抽一个数' },
+        { en: '7 — exactly where it stopped', zh: '7——正是它停下的那个数' },
+        { en: '0, because the wait is over', zh: '0，因为等待已经结束了' },
+      ],
+      answer: 1,
+      explain: { en: 'Waiting already done is never thrown away — which stops a long-waiting station from being overtaken by one that has just arrived.', zh: '已经等过的时间从不作废。正是这一点，让等了很久的站点不至于被刚到的站点后来居上。' },
     },
   ],
 }
