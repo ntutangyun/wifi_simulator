@@ -18,6 +18,7 @@ import type { AmpApCfg, TamperCfg } from '../model/scenario'
 import type { Ns } from '../model/types'
 import type { TxopProtection } from '../model/scenario'
 import { AmpApRound } from './ampAp'
+import { AmpInventoryRound } from './ampReader'
 import type { Channel, PhyListener } from './channel'
 import { EventQueue } from './events'
 import {
@@ -80,6 +81,26 @@ export interface WifiMacCfg {
   timing?: PhyTiming
   /** AP only: ambient-power (AMP) polling of P802.11bp tags on this link. */
   ampAp?: AmpApCfg
+  /**
+   * AP only: which AMP tiers actually have tags on this link. Absent means Active Tx alone,
+   * which is what every scenario that predates the backscatter tier is.
+   */
+  ampTiers?: AmpTiers
+  /**
+   * AP only: the backscatter tags on this link, for the reader's energy detection inside its own
+   * BST-Excitation. It is not addressing — the inventory exists precisely because the reader does
+   * not know who is out there — only "is anything reflecting at this instant", which is how a real
+   * EPC Gen2 reader tells a collided slot from an empty one.
+   */
+  ampBsTagIds?: string[]
+}
+
+/** The two kinds of AMP tag a reader may find on its link, and whether either is present. */
+export interface AmpTiers {
+  /** Tags that answer on a carrier of their own, in slots an AMP Trigger opens. */
+  active: boolean
+  /** Tags with no transmitter, inventoried by reflecting the reader's own excitation. */
+  backscatter: boolean
 }
 
 /** The parameter set a (possibly tampered) station actually contends with. */
@@ -187,9 +208,15 @@ export class WifiMac implements PhyListener {
   private staMuAwait: StaMuAwait | null = null
   private wantTrigger = false
   private muGidCounter = 0
-  /** AP with AMP tags: the polling round, and whether the next AC_BK TXOP is one. */
+  /** AP with Active Tx AMP tags: the polling round. */
   readonly ampRound: AmpApRound | null
+  /** AP with backscatter tags: the EPC Gen2 inventory the reader runs instead. */
+  readonly ampInventory: AmpInventoryRound | null
+  /** Whether the next AC_BK TXOP is a poll, and which of the two rounds it runs. */
   private ampPending = false
+  private ampNext: AmpApRound | AmpInventoryRound | null = null
+  /** Polls taken so far, which is what two tiers sharing one reader alternate on. */
+  private ampPolls = 0
   private readonly T: PhyTiming
 
   constructor(
@@ -209,20 +236,46 @@ export class WifiMac implements PhyListener {
       params, cw: params.cwMin, backoff: null, needDraw: false,
       qsrc: 0, ifsHandle: 0, tickHandle: 0,
     }))
-    this.ampRound = cfg.ampAp
-      ? new AmpApRound(cfg.ampAp, {
-          nodeId, q, now, emit, timing: this.T,
-          transmit: (f) => this.transmitFrame(f, false),
-          done: () => this.onAmpDone(),
-        })
+    const ampDeps = {
+      nodeId, q, now, emit, timing: this.T,
+      transmit: (f: FrameDesc) => this.transmitFrame(f, false),
+      done: () => this.onAmpDone(),
+      bstEnergy: () => (cfg.ampBsTagIds ?? []).some((id) => ch.currentTx(id) !== null),
+    }
+    // Which tiers exist decides which rounds this MAC owns. An unstated `ampTiers` is Active Tx
+    // alone: that is every AMP scenario written before the backscatter tier.
+    const tiers = cfg.ampTiers ?? { active: true, backscatter: false }
+    this.ampRound = cfg.ampAp && tiers.active ? new AmpApRound(cfg.ampAp, ampDeps) : null
+    this.ampInventory = cfg.ampAp?.backscatter && tiers.backscatter
+      ? new AmpInventoryRound({ ...cfg.ampAp, backscatter: cfg.ampAp.backscatter }, ampDeps)
       : null
-    if (this.ampRound) this.scheduleAmpPoll(0)
+    if (this.ampRound || this.ampInventory) this.scheduleAmpPoll(0)
+  }
+
+  /**
+   * Which round the next poll TXOP runs.
+   *
+   * With one tier of tag on the link there is no choice. With both — Active Tx tags and
+   * backscatter tags under one reader — the poll **alternates strictly**: even polls run the
+   * Active Tx round, odd polls the RFID inventory. The draft says nothing about sharing a reader
+   * between the two tiers, and alternation is the one rule that is fair, deterministic and
+   * legible straight off a timeline. `model`
+   */
+  private pickAmpRound(): AmpApRound | AmpInventoryRound | null {
+    if (this.ampInventory === null) return this.ampRound
+    if (this.ampRound === null) return this.ampInventory
+    return this.ampPolls++ % 2 === 0 ? this.ampRound : this.ampInventory
   }
 
   /** The AMP poll clock: every pollIntervalMs the AP wants one AC_BK TXOP for a round. */
   private scheduleAmpPoll(at: Ns): void {
     const cfg = this.cfg.ampAp!
     this.q.schedule(at, () => {
+      const round = this.pickAmpRound()
+      // A poll of the backscatter tier is a *new* inventory, whatever the last one left behind:
+      // a new session number is what clears the tags' inventoried flags.
+      if (round !== null && round === this.ampInventory) round.newInventory()
+      this.ampNext = round
       this.ampPending = true
       this.startAccessAc(this.edcafs[this.efIndex(0)])
       this.scheduleAmpPoll(at + cfg.pollIntervalMs * 1_000_000)
@@ -233,6 +286,12 @@ export class WifiMac implements PhyListener {
   private onAmpDone(): void {
     const e = this.edcafs[this.efIndex(0)]
     this.endTxop()
+    // An inventory that ran out of TXOP before it ran out of slots asks for another one straight
+    // away, with the same session: the tags are holding their counters for it.
+    if (this.ampInventory?.resumable) {
+      this.ampNext = this.ampInventory
+      this.ampPending = true
+    }
     e.backoff = null
     // A completed round is a successful exchange sequence: CW and QSRC go back
     // to their minimum, exactly as an acknowledged frame does (§10.23.2.2).
@@ -293,10 +352,15 @@ export class WifiMac implements PhyListener {
     return this.ch.isCcaBusy(this.nodeId) || this.now() < this.navUntil
   }
 
+  /** Is either AMP round on the air? Both hold the medium on their own timers. */
+  private get ampActive(): boolean {
+    return (this.ampRound?.active ?? false) || (this.ampInventory?.active ?? false)
+  }
+
   private inExchange(): boolean {
     return this.awaiting !== null || this.muState !== null || this.staMuAwait !== null ||
       this.pendingResp !== null || this.respHandle !== 0 || this.ch.isTransmitting(this.nodeId) ||
-      (this.ampRound?.active ?? false)
+      this.ampActive
   }
 
   /** Destination filter for the shared queue: only peers on this MAC's link. */
@@ -482,9 +546,11 @@ export class WifiMac implements PhyListener {
 
     // AMP: this AC_BK TXOP is a polling round, not a queued frame. It is one
     // exchange the round itself times out, exempt from the AC's TXOP limit.
-    if (this.cfg.isAp && this.ampRound && this.ampPending && ei === this.efIndex(0) && !inTxopBurst) {
+    if (this.cfg.isAp && this.ampNext && this.ampPending && ei === this.efIndex(0) && !inTxopBurst) {
+      const round = this.ampNext
       this.ampPending = false
-      this.ampRound.start()
+      this.ampNext = null
+      round.start()
       return
     }
 
@@ -948,9 +1014,10 @@ export class WifiMac implements PhyListener {
       this.setState('waitAck') // MU exchanges resolve on their own timers
       return
     }
-    if (this.ampRound?.active) {
+    if (this.ampActive) {
       // An AMP round runs on its own timers too; the AP holds the medium
-      // between its trigger, the tags' slots and each slot's Ack.
+      // between its trigger, the tags' slots and each slot's Ack — or, for an
+      // inventory, between each command and the answer inside its excitation.
       this.setState('waitAck')
       return
     }
@@ -1180,12 +1247,18 @@ export class WifiMac implements PhyListener {
     // frame is never the response we awaited, so the attempt must be failed
     // here — before the AMP-only branches return — or the MAC would sit in
     // waitCts/waitAck forever with no timer left to wake it.
-    if (frame.kind === 'ampResp' || frame.kind === 'ampTrigger' || frame.kind === 'ampAck') {
+    if (frame.kind === 'ampResp' || frame.kind === 'ampTrigger' || frame.kind === 'ampAck'
+      || frame.kind === 'ampRfid' || frame.kind === 'ampBsReply') {
       if (this.awaiting !== null) this.failAttempt()
       if (frame.kind === 'ampResp') {
         // A tag's slotted response: only the round cares, and it never answers
         // one frame at a time (the slot's Ack closes it).
         this.ampRound?.onRxOk(frame, from)
+      }
+      if (frame.kind === 'ampBsReply') {
+        // A backscattered reflection, heard inside the reader's own excitation. Like an AMP
+        // response it is never answered frame by frame: the next command is the acknowledgement.
+        this.ampInventory?.onRxOk(frame, from)
       }
       // A Wi-Fi station overhearing an AMP DL PPDU has nothing to answer and no
       // Duration to take a NAV from; `corruptLast` was already cleared above.
@@ -1217,7 +1290,10 @@ export class WifiMac implements PhyListener {
   onRxCorrupt(_t: Ns): void {
     // An empty or collided AMP slot is not a reason to arm EIFS: the AP owns
     // the medium until the round's last Ack and answers on AMP SIFS.
-    if (!this.ampRound?.active) this.corruptLast = true
+    if (!this.ampActive) this.corruptLast = true
+    // A reflection that did not decode is the inventory's business: it is the difference
+    // between a slot two tags answered in and one nobody did.
+    this.ampInventory?.onRxFail()
     if (this.awaiting !== null) this.failAttempt()
   }
 
@@ -1423,7 +1499,7 @@ export class WifiMac implements PhyListener {
     // Inside an AMP round the AP owns the medium and its radio is committed to
     // the round's own SIFS schedule (the next slot's Ack): a Wi-Fi frame that
     // talked over a slot gets no response and is retried by its sender.
-    if (this.ampRound?.active) return
+    if (this.ampActive) return
     this.cancelAllContention()
     // A frame we must answer arrived while our own SIFS-chained transmission
     // (TXOP continuation) was pending: the radio was receiving, so that
@@ -1512,7 +1588,7 @@ export class WifiMac implements PhyListener {
     let s: MacStateName
     if (this.ch.isTransmitting(this.nodeId)) s = 'tx'
     else if (this.awaiting?.kind === 'cts') s = 'waitCts'
-    else if (this.awaiting || this.staMuAwait || this.muState || this.ampRound?.active) s = 'waitAck'
+    else if (this.awaiting || this.staMuAwait || this.muState || this.ampActive) s = 'waitAck'
     else if (this.pendingResp || this.respHandle) s = 'sifsResp'
     else if (this.edcafs.some((e) => e.tickHandle)) s = 'backoff'
     else if (this.edcafs.some((e) => e.ifsHandle) || this.edcafs.some((e) => this.hasWork(e))) s = 'defer'

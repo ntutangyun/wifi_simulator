@@ -17,7 +17,7 @@ function StateBadge({ nv, t }: { nv: NodeView; t: number }) {
   const colors: Record<string, string> = {
     idle: '#555', defer: '#eab308', backoff: '#f59e0b', tx: '#3b82f6',
     rx: '#8b5cf6', waitAck: '#06b6d4', waitCts: '#06b6d4', sifsResp: '#06b6d4',
-    ampWait: '#0d9488', uwbWait: '#d97706',
+    ampWait: '#0d9488', bsWait: '#5eead4', uwbWait: '#d97706',
   }
   return (
     <span style={{
@@ -55,10 +55,21 @@ function NodeSection({ vid, nv, t, L, U, nameOf, serverName }: { vid: string; nv
 
       {nv.amp ? (
         <>
+          {!nv.amp.bs && <>
           <div style={row}><Lbl hint={L.abocHint}>{L.aboc}</Lbl><span>{nv.amp.aboc ?? '—'} / [0, {nv.amp.acw}]</span></div>
           <div style={row}><Lbl hint={L.slotHint}>{L.slot}</Lbl><span>{nv.amp.slot ?? '—'}</span></div>
           <div style={row}><Lbl hint={L.ampCountsHint}>{L.ampCounts}</Lbl><span>{nv.amp.sent} / {nv.amp.acked} / {nv.amp.lost}</span></div>
-          <div style={row}><span style={dim}>{L.satOut}</span><span>{nv.amp.roundsSatOut} / {nv.amp.roundsHeard}</span></div>
+          </>}
+          {nv.amp.bs ? (
+            <>
+              <div style={row}><Lbl hint={L.bsCounterHint}>{L.bsCounter}</Lbl><span>{nv.amp.bs.counter ?? '—'}</span></div>
+              <div style={row}><Lbl hint={L.bsInventoriedHint}>{L.bsInventoried}</Lbl><span>{nv.amp.bs.inventoried ? L.bsYes : L.bsNo}</span></div>
+              <div style={row}><Lbl hint={L.bsRepliesHint}>{L.bsReplies}</Lbl><span>{nv.amp.bs.replies} / {nv.amp.bs.collisions}</span></div>
+              <div style={row}><Lbl hint={L.bsSnrHint}>{L.bsSnr}</Lbl><span>{nv.amp.bs.lastSnrDb === null ? '—' : `${nv.amp.bs.lastSnrDb.toFixed(1)} dB`}</span></div>
+            </>
+          ) : (
+            <div style={row}><span style={dim}>{L.satOut}</span><span>{nv.amp.roundsSatOut} / {nv.amp.roundsHeard}</span></div>
+          )}
         </>
       ) : nv.acs ? (
         <table style={{ width: '100%', fontSize: 11.5, borderCollapse: 'collapse', marginBottom: 4 }}>
@@ -88,8 +99,9 @@ function NodeSection({ vid, nv, t, L, U, nameOf, serverName }: { vid: string; nv
         </>
       )}
 
-      {nv.ampRound && (
-        <div style={row}><Lbl hint={L.ampRoundHint}>{L.ampRound}</Lbl><span>{L.ampPhase[nv.ampRound.phase]} · {L.slot} {nv.ampRound.slot}/{nv.ampRound.slots} · {nv.ampRound.received.map(nameOf).join(', ') || '—'}</span></div>
+      {nv.ampRound && (nv.ampRound.inventory
+        ? <div style={row}><Lbl hint={L.inventoryHint}>{L.inventory}</Lbl><span>{L.session} {nv.ampRound.inventory.session} · {L.slot} {nv.ampRound.inventory.slot}{nv.ampRound.slots ? `/${nv.ampRound.slots}` : ''} · {nv.ampRound.inventory.read} / {nv.ampRound.inventory.collisions} / {nv.ampRound.inventory.empties}</span></div>
+        : <div style={row}><Lbl hint={L.ampRoundHint}>{L.ampRound}</Lbl><span>{L.ampPhase[nv.ampRound.phase]} · {L.slot} {nv.ampRound.slot}/{nv.ampRound.slots} · {nv.ampRound.received.map(nameOf).join(', ') || '—'}</span></div>
       )}
 
       {!nv.amp && <>

@@ -29,6 +29,9 @@ export function haloColor(state: MacStateName, navActive: boolean): number {
     case 'waitCts':
     case 'sifsResp': return 0x06b6d4
     case 'ampWait': return 0x0d9488
+    // A backscatter tag waiting for its slot is alive on the reader's carrier and nothing else:
+    // the AMP teal, lightened, to read as "the same thing, powered from outside".
+    case 'bsWait': return 0x5eead4
     case 'uwbWait': return 0xd97706
   }
 }

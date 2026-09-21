@@ -6,6 +6,7 @@ import { DEFAULT_AMP_AP, defaultScenario, type Scenario } from '../../src/model/
 import { physicalId } from '../../src/model/caps'
 import { LESSONS } from '../../src/course/lessons'
 import { Simulation } from '../../src/engine/simulation'
+import { bsScenario, bsTag } from '../engine/amp-bs-helpers'
 
 const frame: FrameDesc = {
   kind: 'data', src: 'sta-1', dst: 'ap', bytes: 1428, mbps: 54,
@@ -394,5 +395,52 @@ describe('AMP records in the view', () => {
     rec({ t: 2_034_000, type: 'AMP_SLOT', node: 'ap#2g', slot: 2, untilNs: 2_562_000 })
     rec({ t: 2_562_000, type: 'RX_OK', node: 'ap#2g', from: 'tag-2', frame: resp('tag-2', 2) })
     expect(vs.nodes['ap#2g'].ampRound!.received).toEqual(['tag-1', 'tag-2'])
+  })
+
+  it('a backscatter tag lane tracks its counter, its session flag and its margin; the AP lane the inventory', () => {
+    const sc = bsScenario({}, [bsTag('tag-1', 0.2)])
+    const vs = initViewState(sc)
+    // An Active Tx tag never grows the `bs` block; a backscatter one starts with it empty.
+    expect(vs.nodes['tag-1#2g'].amp!.bs).toEqual({ counter: null, inventoried: false, replies: 0, collisions: 0, lastSnrDb: null })
+    let n = 0
+    const rec = (r: Parameters<EmitFn>[0]) => applyRecord(vs, { ...r, seq: n++ } as TLRecord)
+
+    rec({ t: 0, type: 'AMP_RFID', node: 'ap#2g', cmd: 'query', session: 1, q: 2, slot: 1, bstNs: 142_400, untilNs: 1_516_400 })
+    expect(vs.nodes['ap#2g'].ampRound).toMatchObject({ slot: 1, slots: 4, inventory: { session: 1, slot: 1, read: 0, collisions: 0, empties: 0 } })
+    rec({ t: 1_368_000, type: 'AMP_BS_BOOT', node: 'tag-1#2g', powered: true, incidentDbm: -16.2 })
+    rec({ t: 1_368_000, type: 'AMP_BS_COUNTER', node: 'tag-1#2g', counter: 0, q: 2 })
+    expect(vs.nodes['tag-1#2g'].amp!.bs!.counter).toBe(0)
+    rec({ t: 1_384_000, type: 'AMP_BS_REPLY', node: 'tag-1#2g', kind: 'rn16', slot: 1, rxDbmAtAp: -58.4, snrDb: 11.6 })
+    expect(vs.nodes['tag-1#2g'].amp!.bs).toMatchObject({ counter: null, replies: 1, lastSnrDb: 11.6, inventoried: false })
+    rec({ t: 2_600_000, type: 'AMP_BS_REPLY', node: 'tag-1#2g', kind: 'epc', slot: 1, rxDbmAtAp: -58.4, snrDb: 11.6 })
+    expect(vs.nodes['tag-1#2g'].amp!.bs!.inventoried).toBe(true)
+    rec({ t: 2_600_001, type: 'COLLISION', nodes: ['tag-1#2g'] })
+    expect(vs.nodes['tag-1#2g'].amp!.bs!.collisions).toBe(1)
+
+    // A QueryRep of the same session keeps the announced slot count and moves the slot on.
+    rec({ t: 3_000_000, type: 'AMP_RFID', node: 'ap#2g', cmd: 'queryRep', session: 1, slot: 2, bstNs: 142_400, untilNs: 3_452_400 })
+    expect(vs.nodes['ap#2g'].ampRound).toMatchObject({ slot: 2, slots: 4, untilNs: 3_452_400 })
+    rec({ t: 3_700_000, type: 'AMP_INVENTORY', node: 'ap#2g', session: 1, slotsOffered: 2, read: ['aa'.repeat(12)], collisions: 0, empties: 1, txopNs: 3_697_200, complete: false })
+    expect(vs.nodes['ap#2g'].ampRound!.inventory).toMatchObject({ read: 1, collisions: 0, empties: 1 })
+    // A new session starts a fresh inventory block rather than adding to the old one.
+    rec({ t: 9_000_000, type: 'AMP_RFID', node: 'ap#2g', cmd: 'query', session: 2, q: 2, slot: 1, bstNs: 142_400, untilNs: 10_516_400 })
+    expect(vs.nodes['ap#2g'].ampRound!.inventory).toMatchObject({ session: 2, slot: 1, read: 0, empties: 0 })
+  })
+
+  it('live and replayed views agree over a whole backscatter inventory', () => {
+    const sim = new Simulation(bsScenario({ pollIntervalMs: 20 }, [bsTag('tag-1', 0.15), bsTag('tag-2', 0.25, 'y')]))
+    const batches = [30, 60, 90].map((ms) => sim.runUntil(ms * 1_000_000))
+    const records = batches.flatMap((b) => b.records)
+    const snapshots = batches.flatMap((b) => b.snapshots)
+    const target = 70 * 1_000_000
+    const snap = [...snapshots].reverse().find((s) => s.t <= target)!
+    const rebuilt = cloneView(snap.view)
+    for (const r of records) if (r.t > snap.t && r.t <= target) applyRecord(rebuilt, r)
+    const live = new Simulation(bsScenario({ pollIntervalMs: 20 }, [bsTag('tag-1', 0.15), bsTag('tag-2', 0.25, 'y')]))
+    live.runUntil(target)
+    const lv = cloneView(live.view)
+    lv.t = rebuilt.t
+    expect(rebuilt).toEqual(lv)
+    expect(lv.nodes['tag-1#2g'].amp!.bs!.replies).toBeGreaterThan(0)
   })
 })

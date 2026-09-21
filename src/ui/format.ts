@@ -1,3 +1,4 @@
+import { GEN2_CMD_NAME, GEN2_REPLY_NAME } from '../engine/ampBs'
 import type { FrameDesc } from '../model/frames'
 import type { TLRecord } from '../model/records'
 import type { Ns } from '../model/types'
@@ -67,6 +68,14 @@ export function fmtRecord(r: TLRecord): string {
     case 'AMP_SLOT': return `${r.node} AMP slot ${r.slot} until ${fmtNs(r.untilNs)}`
     case 'AMP_ABOC': return `${r.node} ABOC ${r.aboc} of [0, ${r.acw}] → ${r.slot === null ? 'sits out' : `slot ${r.slot}`}`
     case 'AMP_RESULT': return `${r.node} slot ${r.slot}: ${!r.sent ? 'missed its cue' : r.acked ? 'acknowledged' : 'not acknowledged'}`
+    // Backscatter: the reader's commands, and what the tags reflect back out of them.
+    case 'AMP_RFID': return `${r.node} ${GEN2_CMD_NAME[r.cmd]} (session ${r.session}, slot ${r.slot}${r.q === undefined ? '' : `, Q ${r.q}`}) — BST ${fmtUs(r.bstNs)} until ${fmtNs(r.untilNs)}`
+    case 'AMP_BS_COUNTER': return `${r.node} slot counter ${r.counter} of [0, ${2 ** r.q - 1}] (Q ${r.q})`
+    case 'AMP_BS_REPLY': return `${r.node} backscatters ${GEN2_REPLY_NAME[r.kind]} in slot ${r.slot} — ${r.rxDbmAtAp.toFixed(1)} dBm at the reader, ${r.snrDb.toFixed(1)} dB over its floor`
+    case 'AMP_INVENTORY': return `${r.node} inventory session ${r.session}: ${r.slotsOffered} slots, ${r.read.length} read, ${r.collisions} collided, ${r.empties} empty in ${fmtUs(r.txopNs)}${r.complete ? ' (complete)' : ' (to be continued)'}`
+    case 'AMP_BS_BOOT': return r.powered
+      ? `${r.node} boots on ${r.incidentDbm.toFixed(1)} dBm of excitation`
+      : `${r.node} heard a command with no wake-up preamble: no power to answer it`
     // The fourteen UWB types keep their vocabulary beside the ranging engine.
     case 'UWB_ROUND':
     case 'UWB_SLOT':
@@ -123,6 +132,22 @@ export function decodeFrame(f: FrameDesc, S: Strings['frameDetail']['fields'] = 
     } else if (f.kind === 'ampResp') {
       rows.push({ field: 'Slot', value: String(f.amp.slot) })
       rows.push({ field: 'ABOC', value: String(f.amp.aboc) })
+    } else if (f.amp.rfid) {
+      const r = f.amp.rfid
+      rows.push({ field: 'EPC Gen2 command', value: GEN2_CMD_NAME[r.cmd] })
+      rows.push({ field: 'Session / slot', value: `${r.session} / ${r.slot}` })
+      if (r.q !== undefined) rows.push({ field: 'Q', value: `${r.q} (${2 ** r.q} slots)` })
+      if (r.rn16 !== undefined) rows.push({ field: 'RN16', value: r.rn16.toString(16).padStart(4, '0') })
+      rows.push({ field: 'WUP-Excitation', value: r.wupNs === 0 ? '—' : fmtUs(r.wupNs) })
+      rows.push({ field: 'BST-Excitation', value: fmtUs(r.bstNs) })
+      rows.push({ field: 'Excitation power', value: `${r.chargeDbm} dBm charge / ${r.bsDbm} dBm backscatter` })
+    } else if (f.amp.bs) {
+      const b = f.amp.bs
+      rows.push({ field: 'Gen2 reply', value: GEN2_REPLY_NAME[b.reply] })
+      rows.push({ field: 'Slot', value: String(b.slot) })
+      if (b.rn16 !== undefined) rows.push({ field: 'RN16', value: b.rn16.toString(16).padStart(4, '0') })
+      if (b.epc !== undefined) rows.push({ field: 'EPC', value: b.epc })
+      if (b.incidentDbm !== undefined) rows.push({ field: 'Incident excitation', value: `${b.incidentDbm.toFixed(1)} dBm` })
     }
   }
   return rows

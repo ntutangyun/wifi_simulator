@@ -60,6 +60,8 @@ const SPAN_COLORS: Record<LaneSpan['kind'], string> = {
 }
 /** A ranging slot, in the amber of the UWB frames rather than the AMP teal. */
 const UWB_SLOT_COLOR = '#78350f'
+/** A backscatter tag holding a slot counter: the AMP teal, dark enough to sit under the lane. */
+const BS_SLOT_COLOR = '#134e4a'
 /** Slot boundary ticks: AMP teal on the AP's lane, UWB amber on a ranging lane. */
 const AMP_TICK_COLOR = '#2dd4bf'
 const UWB_TICK_COLOR = '#f59e0b'
@@ -225,7 +227,9 @@ export function TimelineStrip() {
         ctx.fillStyle = SPAN_COLORS.nav
         ctx.fillRect(x0, y + laneH * 0.82, w, laneH * 0.1)
       } else {
-        ctx.fillStyle = s.kind === 'slot' && s.state === 'uwbWait' ? UWB_SLOT_COLOR : SPAN_COLORS[s.kind]
+        ctx.fillStyle = s.kind === 'slot' && s.state === 'uwbWait' ? UWB_SLOT_COLOR
+          : s.kind === 'slot' && s.state === 'bsWait' ? BS_SLOT_COLOR
+          : SPAN_COLORS[s.kind]
         ctx.globalAlpha = s.kind === 'defer' ? 0.6 : 0.9
         ctx.fillRect(x0, y + laneH * 0.35, w, laneH * 0.3)
         ctx.globalAlpha = 1

@@ -169,6 +169,14 @@ export interface Strings {
     ampTag: string; aboc: string; abocHint: string; slot: string; slotHint: string
     ampCounts: string; ampCountsHint: string; ampRound: string; ampRoundHint: string; satOut: string
     ampPhase: Record<'random' | 'scheduled', string>
+    /** Backscatter tag rows: its Gen2 slot counter, its session flag, its reflections and the
+     * margin the last one had over the reader's own leakage floor. */
+    bsCounter: string; bsCounterHint: string
+    bsInventoried: string; bsInventoriedHint: string; bsYes: string; bsNo: string
+    bsReplies: string; bsRepliesHint: string
+    bsSnr: string; bsSnrHint: string
+    /** The reader's row: the inventory session it is running and how its slots are going. */
+    inventory: string; inventoryHint: string; session: string
   }
   /** UWB ranging inspector (uwb/ui/UwbInspector.tsx). */
   uwb: {
@@ -294,6 +302,8 @@ export interface Strings {
     /** Backscatter: the Gen2 command name, and the Gen2 reply name with the slot it came back in. */
     ampRfid: (cmd: string) => string; ampBsReply: (reply: string, slot: number) => string
     ampWait: string; ampWaitNote: string
+    /** A backscatter tag counting down the reader's slots — powered, but not its turn. */
+    bsWait: string; bsWaitNote: string
     uwbPoll: (anchors: number) => string; uwbResp: (slot: number) => string
     uwbFinal: string; uwbReport: (dst: string) => string; uwbBlink: string
     /** P802.15.4ab: one fragment of a train ("RSF 3 of 8"), and the three narrowband messages. */
@@ -548,6 +558,16 @@ export const STRINGS: Record<Lang, Strings> = {
       ampRound: 'AMP round', ampRoundHint: 'the polling round in progress on this link and who has answered so far',
       ampPhase: { random: 'random access', scheduled: 'scheduled' },
       satOut: 'sat out / heard',
+      bsCounter: 'slot counter',
+      bsCounterHint: 'EPC Gen2 slot counter drawn uniformly in [0, 2^Q − 1] on a Query; each QueryRep decrements it, and the tag reflects its RN16 when it reaches 0',
+      bsInventoried: 'inventoried', bsYes: 'yes', bsNo: 'no',
+      bsInventoriedHint: 'the reader has read this tag’s EPC in the current session, so it stays silent until the next session number',
+      bsReplies: 'reflections / collided',
+      bsRepliesHint: 'answers this tag has backscattered, and how many of them shared a slot with another tag',
+      bsSnr: 'margin at the reader',
+      bsSnrHint: 'how far the last reflection stood above the reader’s own self-leakage floor; under 3 dB at 250 kb/s it is not decoded',
+      inventory: 'RFID inventory', session: 'session',
+      inventoryHint: 'the EPC Gen2 inventory in progress: the session, the slot being offered, and this TXOP’s tags read / collided slots / empty slots',
     },
     uwb: {
       anchor: 'anchor', tag: 'tag', role: 'role',
@@ -813,6 +833,8 @@ export const STRINGS: Record<Lang, Strings> = {
       ampBsReply: (reply, slot) => `${reply} backscattered in slot ${slot} — the reader’s own carrier, reflected`,
       ampWait: 'waiting for its slot',
       ampWaitNote: 'A tag has no carrier sense: it counts the AP’s Acks and transmits one AMP SIFS (10 µs) after the Ack that opens its slot.',
+      bsWait: 'counting down its slot',
+      bsWaitNote: 'A backscatter tag has no clock and no transmitter: it is alive only while the reader’s carrier is up, and it counts the reader’s QueryReps down to its own slot.',
       uwbPoll: (n) => `UWB Poll — the tag opens a ranging round over ${n} anchors`,
       uwbResp: (slot) => `UWB Response in ranging slot ${slot}`,
       uwbFinal: 'UWB Final — the tag broadcasts the times it measured (DS-TWR)',
@@ -1067,6 +1089,16 @@ export const STRINGS: Record<Lang, Strings> = {
       ampRound: 'AMP 轮次', ampRoundHint: '该链路上正在进行的轮询轮次，以及目前已应答的标签',
       ampPhase: { random: '随机接入', scheduled: '调度' },
       satOut: '弃权 / 已听到',
+      bsCounter: '时隙计数器',
+      bsCounterHint: 'EPC Gen2 时隙计数器：收到 Query 时从 [0, 2^Q − 1] 均匀抽取；每收到一个 QueryRep 减一，减到 0 时标签反射自己的 RN16',
+      bsInventoried: '已盘点', bsYes: '是', bsNo: '否',
+      bsInventoriedHint: '读写器已在本会话中读到该标签的 EPC，因此它会保持沉默，直到出现新的会话号',
+      bsReplies: '反射次数 / 碰撞次数',
+      bsRepliesHint: '该标签已反射出的应答数，以及其中有多少次与另一个标签落在同一时隙',
+      bsSnr: '读写器处余量',
+      bsSnrHint: '上一次反射高出读写器自身泄漏底噪多少；在 250 kb/s 下低于 3 dB 就无法解调',
+      inventory: 'RFID 盘点', session: '会话',
+      inventoryHint: '正在进行的 EPC Gen2 盘点：会话号、正在开放的时隙，以及本次 TXOP 读到的标签数 / 碰撞时隙数 / 空时隙数',
     },
     uwb: {
       anchor: '锚点', tag: '标签', role: '角色',
@@ -1333,6 +1365,8 @@ export const STRINGS: Record<Lang, Strings> = {
       ampBsReply: (reply, slot) => `时隙 ${slot} 内反向散射回来的 ${reply} —— 读写器自己的载波被反射回来`,
       ampWait: '等待自己的时隙',
       ampWaitNote: '标签没有载波侦听：它靠数 AP 发出的 Ack 来计时，并在打开自己时隙的那个 Ack 之后一个 AMP SIFS（10 µs）发送。',
+      bsWait: '正在倒数自己的时隙',
+      bsWaitNote: '反向散射标签既没有时钟也没有发射机：只有读写器的载波在空中时它才活着，它靠数读写器发出的 QueryRep 一路倒数到自己的时隙。',
       uwbPoll: (n) => `UWB 轮询帧——标签对 ${n} 个锚点开启一轮测距`,
       uwbResp: (slot) => `测距时隙 ${slot} 内的 UWB 响应帧`,
       uwbFinal: 'UWB 终结帧——标签广播它测得的时间（DS-TWR）',

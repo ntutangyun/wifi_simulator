@@ -76,7 +76,7 @@ const STATE_SPAN: Record<string, SpanKind | null> = {
   idle: null, tx: null, rx: null,
   defer: 'defer', backoff: 'backoff',
   waitAck: 'sifs', waitCts: 'sifs', sifsResp: 'sifs',
-  ampWait: 'slot', uwbWait: 'slot',
+  ampWait: 'slot', bsWait: 'slot', uwbWait: 'slot',
 }
 
 interface OpenSpan {
@@ -378,9 +378,13 @@ export function spanTooltip(s: LaneSpan, T: Strings['tooltips'], t?: Ns, nameOf:
     case 'sifs':
       return [`${T.sifsWait} · ${dur}`]
     case 'slot':
+      // One span kind, three meanings: a UWB device holding a scheduled slot, an Active Tx tag
+      // counting the AP's Acks, and a backscatter tag counting the reader's QueryReps.
       return s.state === 'uwbWait'
         ? [`${T.uwbWait} · ${dur}`, T.uwbWaitNote]
-        : [`${T.ampWait} · ${dur}`, T.ampWaitNote]
+        : s.state === 'bsWait'
+          ? [`${T.bsWait} · ${dur}`, T.bsWaitNote]
+          : [`${T.ampWait} · ${dur}`, T.ampWaitNote]
   }
 }
 

@@ -10,6 +10,7 @@ import { hasFeature } from '../../src/model/caps'
 import { decodeFrame, type DecodeCtx, type DecodedFrame, type FrameField } from '../../src/model/frameFields'
 import type { FrameDesc, FrameKind } from '../../src/model/frames'
 import type { Scenario } from '../../src/model/scenario'
+import { bsScenario, bsTag } from '../engine/amp-bs-helpers'
 
 const MS = 1_000_000
 
@@ -265,4 +266,39 @@ describe('backscatter frames decode to their EPC Gen2 fields and excitation layo
     // A broadcast command addresses no tag, so it carries no id to decode.
     expect(idOf(decodeFrame(rfid('query', 250, 1_000_000), ctx))).toBe('broadcast (inventory)')
   })
+
+  it('every backscatter frame a real inventory puts on the air decodes to its own sizes', () => {
+    const sc = bsScenario({ pollIntervalMs: 20, write: true, txopMs: 10 }, [bsTag('tag-1', 0.15), bsTag('tag-2', 0.25, 'y')])
+    const sim = new Simulation(sc)
+    const frames: FrameDesc[] = []
+    for (let t = 20 * MS; t <= 200 * MS; t += 20 * MS) {
+      for (const r of sim.runUntil(t).records) {
+        if (r.type === 'TX_START' && (r.frame.kind === 'ampRfid' || r.frame.kind === 'ampBsReply')) frames.push(r.frame)
+      }
+    }
+    const bsCtx: DecodeCtx = { apId: 'ap', isEdca: true }
+    expect(frames.some((f) => f.kind === 'ampRfid')).toBe(true)
+    expect(frames.some((f) => f.kind === 'ampBsReply')).toBe(true)
+    // …and every Gen2 message the round can produce really passed through here
+    const cmds = new Set(frames.flatMap((f) => (f.amp?.rfid ? [f.amp.rfid.cmd] : [])))
+    const replies = new Set(frames.flatMap((f) => (f.amp?.bs ? [f.amp.bs.reply] : [])))
+    expect([...cmds].sort()).toEqual(['ack', 'query', 'queryRep', 'read', 'write'])
+    expect([...replies].sort()).toEqual(['epc', 'read', 'rn16', 'write'])
+    for (const f of frames) {
+      const d = decodeFrame(f, bsCtx)
+      const label = `${f.kind} ${f.amp?.rfid?.cmd ?? f.amp?.bs?.reply}`
+      expect(d.bytes, label).toBe(f.bytes)
+      expect(d.ppdu.reduce((sum, x) => sum + x.durNs, 0), label).toBe(f.txTimeNs)
+      expect(d.ppdu.every((x) => x.durNs > 0), label).toBe(true)
+    }
+    // Only the first PPDU of each TXOP carries a WUP-Excitation segment.
+    const wups = frames.filter((f) => d1(f)).length
+    expect(wups).toBeGreaterThan(0)
+    expect(wups).toBeLessThan(frames.filter((f) => f.kind === 'ampRfid').length)
+  })
 })
+
+/** Does this downlink PPDU carry a WUP-Excitation at all? */
+function d1(f: FrameDesc): boolean {
+  return (f.amp?.rfid?.wupNs ?? 0) > 0
+}

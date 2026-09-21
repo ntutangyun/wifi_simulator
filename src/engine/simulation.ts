@@ -23,8 +23,10 @@ import { nbListOverlapsSixGhz } from '../uwb/nb'
 import { UwbNetwork } from '../uwb/network'
 import { uwbBandOverlap } from '../uwb/phy'
 import { AMP_TAG_DL_SENS_DBM, ampId16 } from './amp'
+import { epcOf } from './ampBs'
+import { AmpBsStaMac } from './ampBsSta'
 import { AmpStaMac } from './ampSta'
-import { Channel, type ChannelSpectrum } from './channel'
+import { Channel, type BsGeometry, type ChannelSpectrum } from './channel'
 import { EventQueue } from './events'
 import { hashStr } from './hash'
 import { WifiMac } from './mac'
@@ -53,6 +55,12 @@ export function timingFor(link: LinkId): PhyTiming {
   return link === '2g' ? ERP_2G : OFDM_5G
 }
 
+/** An AMP tag with no transmitter of its own. A tag saved before the tier existed states no
+ * mode at all and is an Active Tx one, which is what the schema's default says too. */
+function isBsTag(n: NodeCfg): boolean {
+  return n.kind === 'amp' && n.ampTag?.mode === 'backscatter'
+}
+
 export class Simulation {
   private q = new EventQueue()
   private nowNs: Ns = 0
@@ -62,8 +70,10 @@ export class Simulation {
   private hash = 0x811c9dc5
   /** MACs keyed by virtual id. */
   readonly macs = new Map<string, WifiMac>()
-  /** AMP tag MACs keyed by virtual id (tags are not Wi-Fi stations: they never appear in `macs`). */
+  /** Active Tx AMP tag MACs keyed by virtual id (tags are not Wi-Fi stations: they never appear in `macs`). */
   readonly tags = new Map<string, AmpStaMac>()
+  /** Backscatter AMP tag MACs keyed by virtual id — tags with no transmitter of their own. */
+  readonly bsTags = new Map<string, AmpBsStaMac>()
   /** The UWB ranging engine, when the scenario holds UWB nodes and a session. */
   readonly uwb?: UwbNetwork
   /**
@@ -174,10 +184,28 @@ export class Simulation {
             }
           }
         }
-        const ch = new Channel(this.q, () => this.nowNs, table, linkEmit, hook)
+        // A backscatter link is metred in centimetres and travels the free-space law, which the
+        // 5 GHz-referenced link table cannot express: the channel computes it from the geometry
+        // instead, and needs the geometry only when such a tag is on the link.
+        const bsGeometry: BsGeometry | undefined = members.some(isBsTag)
+          ? { posOf: (id) => byId.get(id)!.pos, walls: sc.walls }
+          : undefined
+        const ch = new Channel(this.q, () => this.nowNs, table, linkEmit, hook, bsGeometry)
 
         for (const n of members) {
           const vid = vname(n.id)
+          if (isBsTag(n)) {
+            // A backscatter tag: no oscillator and no clock either. Its radio decodes only the
+            // reader's downlink RFID PPDUs, under the backscatter law and the −20 dBm floor that
+            // *is* its activation threshold, and it answers by reflecting the reader's carrier.
+            const bsMac = new AmpBsStaMac(
+              n.id, this.q, () => this.nowNs, ch, root.fork(hashStr(vid)), linkEmit,
+              { apId: ap.id, epc: n.ampTag?.epc?.toLowerCase() ?? epcOf(n.id) },
+            )
+            ch.register(n.id, bsMac, { kind: 'bsTag', cca: false })
+            this.bsTags.set(vid, bsMac)
+            continue
+          }
           if (n.kind === 'amp') {
             // An ambient-power tag: no carrier sense, no NAV, a radio that only
             // ever decodes the AP's downlink AMP PPDUs.
@@ -193,7 +221,9 @@ export class Simulation {
           // This MAC runs AMP polling: the AP, on the 2.4 GHz link, configured
           // for it, with at least one tag to poll. Its radio decodes the tags'
           // uplink for exactly as long as it polls them.
-          const polls = n.kind === 'ap' && link === '2g' && !!n.ampAp && members.some((m) => m.kind === 'amp')
+          const activeTags = members.some((m) => m.kind === 'amp' && !isBsTag(m))
+          const bsTags = members.some(isBsTag)
+          const polls = n.kind === 'ap' && link === '2g' && !!n.ampAp && (activeTags || bsTags)
           const rate = new RateControl()
           const mac = new WifiMac(
             n.id, this.q, () => this.nowNs, ch,
@@ -206,6 +236,8 @@ export class Simulation {
               isAp: n.kind === 'ap',
               timing: timingFor(link),
               ampAp: polls ? n.ampAp : undefined,
+              ampTiers: polls ? { active: activeTags, backscatter: bsTags && !!n.ampAp!.backscatter } : undefined,
+              ampBsTagIds: polls ? members.filter(isBsTag).map((m) => m.id) : undefined,
               modeForPeer: (peer) => modeFor(n, peer),
               mcsForPeer: (peer) => {
                 const rssi = table.get(n.id)?.get(peer) ?? -200

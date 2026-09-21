@@ -72,6 +72,24 @@ function addLatency(l: LatencyStats, dtNs: Ns): void {
   if (dtNs > l.maxNs) l.maxNs = dtNs
 }
 
+/**
+ * A backscatter tag's live state: where it is in the reader's inventory, and how well the
+ * reader can hear it. Present only on a tag whose scenario says `mode: 'backscatter'`.
+ */
+export interface AmpBsTagView {
+  /** Gen2 slot counter: how many more slots before this tag answers. null = not in a round. */
+  counter: number | null
+  /** Read in this session, and silent for the rest of it (Gen2's A/B flag). */
+  inventoried: boolean
+  /** Reflections this tag has put on the air. */
+  replies: number
+  /** …and how many of them shared a slot with another tag's answer (from the COLLISION record:
+   * the tag itself has no receiver and cannot know). */
+  collisions: number
+  /** The margin the last reflection had over the reader's own leakage floor, in dB. */
+  lastSnrDb: number | null
+}
+
 /** A tag's live AMP state: its drawn backoff and this round's tally. */
 export interface AmpTagView {
   aboc: number | null
@@ -84,6 +102,19 @@ export interface AmpTagView {
   roundsHeard: number
   /** Rounds where the tag sat out (no slot: it deferred or lost random contention). */
   roundsSatOut: number
+  /** Backscatter tags only: the inventory state an Active Tx tag has no equivalent of. */
+  bs?: AmpBsTagView
+}
+
+/** The reader's live inventory, on the AP lane, beside the Active Tx round's own fields. */
+export interface AmpInventoryView {
+  session: number
+  /** The slot the reader is offering, 1-based within the session. */
+  slot: number
+  /** EPCs read, slots two tags answered in, and slots nobody answered in — this TXOP. */
+  read: number
+  collisions: number
+  empties: number
 }
 
 /** The AP lane's live AMP round: the poll's shape and which tags have replied so far. */
@@ -94,6 +125,8 @@ export interface AmpRoundView {
   untilNs: Ns
   /** Tag ids (physical) whose AMP response has been received this round. */
   received: string[]
+  /** Set instead of the slotted fields when the round is an EPC Gen2 inventory. */
+  inventory?: AmpInventoryView
 }
 
 export interface AcView {
@@ -191,6 +224,11 @@ export function initViewState(sc: Scenario): ViewState {
     }
     if (cfg.kind === 'amp') {
       nodes[vid].amp = { aboc: null, acw: 0, slot: null, sent: 0, acked: 0, lost: 0, roundsHeard: 0, roundsSatOut: 0 }
+      // A backscatter tag never draws an ABOC and never sits in a slot; it gets the inventory
+      // fields instead. An Active Tx tag keeps exactly the shape it had before this slice.
+      if (cfg.ampTag?.mode === 'backscatter') {
+        nodes[vid].amp!.bs = { counter: null, inventoried: false, replies: 0, collisions: 0, lastSnrDb: null }
+      }
     }
     if (cfg.kind === 'ap') {
       nodes[vid].ampRound = null
@@ -526,7 +564,11 @@ export function applyRecord(vs: ViewState, r: TLRecord): void {
     case 'COLLISION':
       for (const id of r.nodes) {
         const n = vs.nodes[id]
-        if (n) n.stats.collisions += 1
+        if (!n) continue
+        n.stats.collisions += 1
+        // A backscatter tag learns nothing itself — it has no receiver for its own reflection —
+        // but the lane can say how often this tag's answer was one of two in a slot.
+        if (n.amp?.bs) n.amp.bs.collisions += 1
       }
       break
     case 'AMP_ROUND': {
@@ -557,6 +599,58 @@ export function applyRecord(vs: ViewState, r: TLRecord): void {
       else a.lost++
       a.aboc = null
       a.slot = null
+      break
+    }
+    case 'AMP_RFID': {
+      const n = vs.nodes[r.node]
+      // Only a lane that can hold a round (an AP's) has the field at all.
+      if (n.ampRound === undefined) break
+      const prev = n.ampRound?.inventory
+      if (n.ampRound !== null && prev !== undefined && prev.session === r.session) {
+        prev.slot = r.slot
+        n.ampRound.slot = r.slot
+        n.ampRound.untilNs = r.untilNs
+        // Only a Query announces Q; a QueryRep resuming a session keeps what it announced.
+        if (r.q !== undefined) n.ampRound.slots = 2 ** r.q
+      } else {
+        n.ampRound = {
+          phase: 'random', slot: r.slot, slots: r.q === undefined ? 0 : 2 ** r.q,
+          untilNs: r.untilNs, received: [],
+          inventory: { session: r.session, slot: r.slot, read: 0, collisions: 0, empties: 0 },
+        }
+      }
+      break
+    }
+    case 'AMP_INVENTORY': {
+      const inv = vs.nodes[r.node].ampRound?.inventory
+      if (!inv || inv.session !== r.session) break
+      inv.read = r.read.length
+      inv.collisions = r.collisions
+      inv.empties = r.empties
+      break
+    }
+    case 'AMP_BS_COUNTER': {
+      const bs = vs.nodes[r.node].amp?.bs
+      if (!bs) break
+      bs.counter = r.counter
+      bs.inventoried = false
+      break
+    }
+    case 'AMP_BS_REPLY': {
+      const bs = vs.nodes[r.node].amp?.bs
+      if (!bs) break
+      bs.replies++
+      bs.lastSnrDb = r.snrDb
+      // The EPC is what gets a tag inventoried; after it the tag is silent for the session.
+      if (r.kind === 'epc') bs.inventoried = true
+      // Answering uses the slot up, whether or not the reader could read it.
+      if (r.kind === 'rn16') bs.counter = null
+      break
+    }
+    case 'AMP_BS_BOOT': {
+      const bs = vs.nodes[r.node].amp?.bs
+      // An unpowered tag is out of the round: it holds no counter it can act on.
+      if (bs && !r.powered) bs.counter = null
       break
     }
   }
