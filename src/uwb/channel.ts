@@ -85,6 +85,10 @@ interface Reception {
   /** Why it will fail: 'capture' when a fragment train that led it by the capture margin took
    * the radio, 'collision' when the two spoiled each other. */
   failReason: 'collision' | 'capture'
+  /** The reception that captured this one, when `failReason` is 'capture'. A third arrival can
+   * still spoil *that* one inside the margin, and then nothing was decoded in this millisecond
+   * after all — so the reason is settled at the end of the reception, not when it was taken. */
+  capturedBy: Reception | null
   /** The only receiver this reception competes for a radio at, or null when it is on the air
    * for everyone — `Emission.rxId`, carried through the medium. */
   rxScope: string | null
@@ -112,13 +116,19 @@ interface Arrival {
 /**
  * The one receiver a transmission competes for, or null when it competes everywhere.
  *
- * Only an MMS **fragment** is ever scoped, and only when it is addressed to a single device.
- * P802.15.4ab's one-to-many round puts N responder trains on the air in the same milliseconds,
- * each unicast to the initiator; at the initiator they do compete — that is the capture rule
- * this whole scope exists to keep honest — but at responder j, which is accumulating the
- * initiator's own broadcast train, responder k's fragment is not a frame its radio was ever
- * trying to decode, and must not doom the train it is building. Every 4z frame, every
- * narrowband message and every broadcast train is unscoped and behaves exactly as before.
+ * Only an MMS **fragment** is ever scoped, and only when it is addressed to a single device. In
+ * P802.15.4ab's one-to-many round the N responder trains are all unicast to the initiator, so at
+ * the initiator they would compete under the capture rule, while at responder j — which is
+ * accumulating the initiator's own broadcast train — responder k's fragment is not something its
+ * radio was ever trying to decode and must not doom what it is building.
+ *
+ * Be clear about what that guards. In this engine's interleave every device owns a slot of its
+ * own inside each millisecond (`mmsLayout`), a fragment is at most 82 µs and the shortest legal
+ * MMS slot is 250 µs — so two scheduled fragments never overlap in time at all, and neither this
+ * scope nor the per-fragment capture below is reached from any round the scheduler lays out.
+ * They are cheap defence against a layout that packs a millisecond tighter, and what
+ * `tests/uwb/mms-one-to-many.test.ts` exercises by driving the medium directly. Every 4z frame,
+ * every narrowband message and every broadcast train is unscoped and behaves exactly as before.
  */
 function rxScopeOf(frame: FrameDesc): string | null {
   if (!frame.uwb?.mms) return null
@@ -370,7 +380,8 @@ export class UwbChannel {
     const band = this.bandFor(a.frame)
     const rx: Reception = {
       from: a.from, frame: a.frame, rssiDbm: a.rssiDbm, info: a.info,
-      endNs: t + a.frame.txTimeNs, doomed: false, failReason: 'collision', rxScope: a.rxScope,
+      endNs: t + a.frame.txTimeNs, doomed: false, failReason: 'collision', capturedBy: null,
+      rxScope: a.rxScope,
       maxForeignMw: this.spectrum
         ? this.spectrum.foreignMw('uwb', this.posOf(a.rxId), band.lo, band.hi)
         : 0,
@@ -385,6 +396,8 @@ export class UwbChannel {
     // is strongest in each of them rather than deciding once for the whole train. A fragment
     // that lost to a train leading it by the margin is reported as a capture and not as a
     // collision: something was decoded in that millisecond, and the log should say which.
+    // (See `rxScopeOf`: the slot grid already keeps scheduled fragments apart in time, so this
+    // is defence against a tighter layout, not the path any scene takes.)
     for (const other of r.open) {
       if (!competes(rx, other, a.rxId)) continue
       const strong = rx.rssiDbm >= other.rssiDbm ? rx : other
@@ -393,9 +406,15 @@ export class UwbChannel {
       if (strong.rssiDbm - weak.rssiDbm < UWB_CAPTURE_DB) {
         strong.doomed = true
         strong.failReason = 'collision'
+        strong.capturedBy = null
         weak.failReason = 'collision'
-      } else if (!strong.doomed) {
-        weak.failReason = weak.frame.uwb?.mms ? 'capture' : 'collision'
+        weak.capturedBy = null
+      } else if (weak.frame.uwb?.mms) {
+        weak.failReason = 'capture'
+        weak.capturedBy = strong
+      } else {
+        weak.failReason = 'collision'
+        weak.capturedBy = null
       }
     }
 
@@ -415,7 +434,10 @@ export class UwbChannel {
     const foreignDbm = rx.maxForeignMw > 0 ? 10 * Math.log10(rx.maxForeignMw) : -Infinity
     rx.info.foreignDbm = foreignDbm
     if (rx.doomed) {
-      const reason: RxFailReason = rx.failReason
+      // A capture whose captor was itself spoiled afterwards decoded nothing at all, so the log
+      // says collision — which is what that millisecond came to.
+      const captured = rx.failReason === 'capture' && rx.capturedBy !== null && !rx.capturedBy.doomed
+      const reason: RxFailReason = captured ? 'capture' : 'collision'
       this.emit({ t, type: 'RX_FAIL', node: rxId, from: rx.from, reason })
       r.radio.onRxFail(rx.from, reason)
       return

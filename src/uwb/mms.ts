@@ -129,8 +129,8 @@ export const MS_RCTU = MS_CHIPS * RCTU_PER_CHIP
  * leading fragment at 20 ppm.
  *
  * `gapRctu` is how far apart this round actually spaces the fragments, in the receiver's counter
- * units — `MS_RCTU`, a true millisecond, whenever the round's ranging phase gives one millisecond
- * to each (R + 1)-slot group (see `mmsLayout`), and longer when it does not.
+ * units — `MS_RCTU`, a true millisecond, in the pairwise round at the draft's 600 RSTU slot, and
+ * longer in every other round the schema allows (see `MmsRoundPlan.fragGapNs`).
  *
  * `ratio` is null when fewer than two fragments were heard and there was no span to measure it
  * over. The receiver's own nominal millisecond is then all it has, and that residual stands —

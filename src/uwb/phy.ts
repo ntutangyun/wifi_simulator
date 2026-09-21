@@ -405,10 +405,13 @@ export function uwbSlotFitNs(
  * fragment — 608 µs against 82 µs — and the draft gives each of them two slots (RcpPollSlot,
  * RcpResponseSlot, MrpFirstSlot, MrpSecondSlot are all 2), so this is what two slots together
  * have to hold. 4ab draft 15-22/0381r5 §1.1 */
-export function uwbNbSlotFitNs(responders = 1): Ns {
+export function uwbNbSlotFitNs(mms?: MmsRoundShape, responders = 1): Ns {
   // A one-to-many POLL names its responders — two content octets plus three per address — and
-  // overtakes the REPORT as the round's longest narrowband message from four responders up.
-  const octets = Math.max(NB_REPORT_BYTES, responders > 1 ? nbOtmPollBytes(responders) : 0)
+  // overtakes the REPORT as the round's longest narrowband message from four responders up. It is
+  // the *mode* that decides whether that POLL is sent, never the responder count: a one-to-many
+  // round with a single anchor still broadcasts a one-to-many POLL, and measuring that round
+  // against the REPORT would let a 17-octet message outlive the window this guard defends.
+  const octets = Math.max(NB_REPORT_BYTES, mms?.oneToMany ? nbOtmPollBytes(responders) : 0)
   return nbPpduNs(octets) + UWB_SLOT_GUARD_NS
 }
 

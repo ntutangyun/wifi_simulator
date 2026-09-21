@@ -714,7 +714,7 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
           // narrowband message of the round grows with the anchor count even though no fragment
           // does. At the draft's 600 RSTU slot that caps a one-to-many round at three responders.
           const responders = mmsResponders(mms, uwbNodes.filter((n) => n.uwb?.role === 'anchor').length)
-          const nbNs = uwbNbSlotFitNs(responders)
+          const nbNs = uwbNbSlotFitNs(mms, responders)
           if (2 * slotNs < nbNs) {
             ctx.addIssue({
               code: z.ZodIssueCode.custom,

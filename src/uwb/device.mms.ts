@@ -11,6 +11,10 @@
  * 15-22/0381r5 Table 1.6.3.1, messages 0x10/0x11/0x12/0x13; the slot interleave itself is this
  * engine's — see `mmsLayout`). Everything below is written for R responders and takes the
  * pairwise path as the R = 1 case, which is what keeps a pair round byte-identical.
+ *
+ * Every device still owns a slot of its own inside each millisecond, so the round's trains never
+ * overlap on the air. What a responder gains is that it hears the initiator's one train instead
+ * of waiting for a round of its own — not that N trains are transmitted at once.
  */
 import type { FrameDesc } from '../model/frames'
 import type { UwbRxInfo } from './channel'
@@ -347,6 +351,11 @@ export function onMmsRx(
   const u = frame.uwb
   if (!m || !mp || !u) return
   const isTag = dev.cfg.role === 'tag'
+  // A responder's only peer is the initiator. Nothing else in the round is addressed to it, and
+  // taking a frame from another responder would open a peer state the control exchange never
+  // primed — which `anyPrimed` would then read as permission to transmit a train of its own.
+  // The listen windows already make that unreachable; this makes it so without depending on them.
+  if (!isTag && from !== r.tagId) return
   // The peer's index in the round: a responder's own when this device is the initiator, and
   // this device's own when the peer is the initiator.
   const index = isTag ? m.responders.indexOf(from) : m.responders.indexOf(dev.id)

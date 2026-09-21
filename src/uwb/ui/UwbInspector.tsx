@@ -14,6 +14,7 @@ import type { NodeView } from '../../model/view'
 import { useStrings } from '../../ui/i18n'
 import {
   uwbAoaRows, uwbContendText, uwbFixRow, uwbLbtText, uwbNbChannelText, uwbRangeRows, uwbTdoaRows,
+  uwbRespondersText,
   uwbTrainRows,
 } from './rows'
 
@@ -37,6 +38,8 @@ export function UwbInspector({ nv, nameOf }: { nv: NodeView; nameOf: (id: string
   // P802.15.4ab: one row per peer whose fragment train this device has closed out, and the two
   // lines of its narrowband control radio. All three are empty in every other mode.
   const trains = uwbTrainRows(u, U)
+  // One-to-many round only: the anchors this node's train was shared with.
+  const responders = uwbRespondersText(u, U, nameOf)
   const nbChannel = uwbNbChannelText(u, U)
   const lbt = uwbLbtText(u, U)
 
@@ -52,6 +55,11 @@ export function UwbInspector({ nv, nameOf }: { nv: NodeView; nameOf: (id: string
       <div style={row}><span style={dim}>{U.interfered}</span><span>{u.interfered}</span></div>
       {contend !== null && (
         <div style={row} title={U.contendHint}><span style={dim}>{U.contend}</span><span>{contend}</span></div>
+      )}
+      {responders !== null && (
+        <div style={row} title={U.respondersHint}>
+          <span style={dim}>{U.responders}</span><span>{responders}</span>
+        </div>
       )}
       {nbChannel !== null && (
         <div style={row} title={U.nbChannelHint}><span style={dim}>{U.nbChannel}</span><span>{nbChannel}</span></div>

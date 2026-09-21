@@ -425,11 +425,15 @@ export function EditorGuideEn() {
         with a range to every anchor, where the pairwise cycle needs one round per pair. Two
         things follow and are worth knowing before you switch it on. A millisecond of the ranging
         phase becomes one slot per device instead of two, so with three responders at the
-        draft&rsquo;s 600 RSTU slot the fragments really are 2 ms apart, not 1 ms — the ruler the
-        train hands the receiver is that span, and the engine measures the clock ratio over it
-        rather than over a nominal millisecond. And the POLL grows by three octets per responder,
-        so at that slot the round holds at most three of them before the message outlives its
-        two-slot window; the section&rsquo;s red line says so when it does.
+        draft&rsquo;s 600 RSTU slot the fragments really are 2 ms apart, not 1 ms — and there
+        is no slot that would make them a millisecond again. An MMS slot has to be a multiple of
+        300 RSTU and two of them have to hold the 608 &micro;s report, so 600 RSTU is the shortest
+        slot this editor will accept, and a true millisecond between fragments belongs to the
+        pairwise round it was designed for. Nothing breaks: the ruler the train hands the receiver
+        is simply that longer span, and the engine measures the clock ratio and walks the timestamp
+        back over it rather than over a nominal millisecond. And the POLL grows by three octets per
+        responder, so at that slot the round holds at most three of them before the message
+        outlives its two-slot window; the section&rsquo;s red line says so when it does.
       </D>
 
       <h4 style={h}>Wall properties</h4>
@@ -800,9 +804,12 @@ export function EditorGuideZh() {
         测距时隙和属于自己的那一对报告窗口里回应——于是标签只用一个轮次就能得到到每个锚点的距离，而成对
         轮次需要每一对各跑一个轮次。开启之前有两点值得先知道。测距阶段的一毫秒会变成「每台设备一个时隙」
         而不是两个，所以在草案默认的 600 RSTU 时隙下、带三个响应方时，片段之间真正的间隔是 2 ms 而不是
-        1 ms——片段序列交给接收端的那把尺子就是这段间隔，引擎也按它来测时钟比率，而不是按名义上的一毫秒。
-        另外，POLL 每多一个响应方就多三个字节，因此在该时隙下一个轮次最多容纳三个响应方，再多这条消息就
-        装不进它那两个时隙的窗口；真到那一步，本节下方的红色提示会直接说出来。
+        1 ms——而且没有任何一种时隙长度能把它拉回一毫秒：MMS 时隙必须是 300 RSTU 的整数倍，而两个时隙还得
+        装得下 608 µs 的报告消息，因此 600 RSTU 就是本编辑器能接受的最短时隙，真正的「一毫秒间隔」只属于
+        它本来就是为之设计的成对轮次。这并不会出问题：片段序列交给接收端的那把尺子就是这段更长的间隔，
+        引擎也按它来测时钟比率、按它把时间戳往回推，而不是按名义上的一毫秒。另外，POLL 每多一个响应方就多
+        三个字节，因此在该时隙下一个轮次最多容纳三个响应方，再多这条消息就装不进它那两个时隙的窗口；真到
+        那一步，本节下方的红色提示会直接说出来。
       </D>
 
       <h4 style={h}>墙体属性</h4>

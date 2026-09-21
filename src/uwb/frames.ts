@@ -127,7 +127,10 @@ export interface UwbInfo {
 export const UWB_MBPS = 6.81
 
 /** The destination of a frame addressed to the whole round rather than to one device — the Poll,
- * the Final, a blink, and the two one-to-many narrowband broadcasts. */
+ * the Final, a blink, the one-to-many narrowband POLL and a one-to-many initiator's fragment
+ * train. It is an addressing convention of this engine, not an address the standard defines:
+ * 802.15.4 would carry a broadcast short address in the MHR, and the decoder reads the leading
+ * `*` to know there is no one peer to name. model */
 export const UWB_BROADCAST = '*'
 
 function uwbFrame(kind: UwbFrameKind, src: string, dst: string, bytes: number, uwb: UwbInfo): FrameDesc {

@@ -29,9 +29,11 @@ import { UwbNetwork } from '../../src/uwb/network'
 import { UwbChannel, type UwbRadio, type UwbRxInfo } from '../../src/uwb/channel'
 import { UWB_BROADCAST } from '../../src/uwb/frames'
 import { makeRsf } from '../../src/uwb/frames'
-import { mmsLayout, type MmsPhy } from '../../src/uwb/mms'
-import { mmsResponders, UWB_CAPTURE_DB, UWB_TX_POWER_DBM } from '../../src/uwb/phy'
-import { roundPlan } from '../../src/uwb/session'
+import { mmsLayout, ratioSigma, type MmsPhy } from '../../src/uwb/mms'
+import { mmsResponders, uwbNbSlotFitNs, UWB_CAPTURE_DB, UWB_TX_POWER_DBM } from '../../src/uwb/phy'
+import { roundPlan, rstuNs } from '../../src/uwb/session'
+import { uwbRespondersText } from '../../src/uwb/ui/rows'
+import { applyRecord, initViewState, type ViewState } from '../../src/model/view'
 
 const MS = 1_000_000
 
@@ -117,6 +119,13 @@ function harness(nodes: NodeCfg[]) {
     now = t
   }
   return { ch, records, runUntil, setNow: (t: Ns) => { now = t }, of: (id: string) => radios.get(id)! }
+}
+
+/** Replay a run into the view the inspector reads. */
+function viewOf(sc: Scenario, records: TLRecord[]): ViewState {
+  const vs = initViewState(sc)
+  for (const r of records) applyRecord(vs, r)
+  return vs
 }
 
 const TRAIN: MmsPhy = { ...DEFAULT_UWB_SESSION.mms }
@@ -402,5 +411,85 @@ describe('oneToMany: false is the cycle that shipped', () => {
     expect(mmsLayout(DEFAULT_UWB_SESSION.mms).slots).toBe(28)
     expect(mmsResponders(DEFAULT_UWB_SESSION.mms, 4)).toBe(1)
     expect(mmsResponders({ ...DEFAULT_UWB_SESSION.mms, oneToMany: true }, 4)).toBe(4)
+  })
+
+  /**
+   * The pairwise round at a slot other than the draft's 600 RSTU. Its fragments are 2 × slot
+   * apart — 2 ms here, not the nominal millisecond — and the receiver has to measure its clock
+   * ratio over *that*. It did not before this slice: it divided by `MS_RCTU` whatever the slot,
+   * which at 1200 RSTU read a ratio of two and a range of tens of kilometres. No shipped scene
+   * uses such a slot, so no fixture moves; this is the pin that keeps the fix honest.
+   */
+  it('measures a pairwise round at a 1200 RSTU slot over its own fragment spacing', () => {
+    const tagPpm = -15
+    const ancPpm = 5
+    const sc = mmsScene(
+      [{ ...RING[0], ppm: ancPpm }], [{ ...TAG, ppm: tagPpm }], false, [],
+    )
+    sc.uwb!.slotRstu = 1200
+    const plan = roundPlan(sc.uwb!, 1)
+    expect(plan.mms!.fragGapNs).toBe(2 * rstuNs(1200))
+    expect(plan.mms!.fragGapNs).toBe(2_000_000)
+    const rs = run(sc, 400 * MS)
+    // The tag's counter per the anchor's, as the two configured crystals make it — the analytic
+    // value the train is supposed to recover, and what it does recover to well inside the
+    // estimator's own 1-σ (√2 · tsNoisePs over the train's span).
+    const expectedPpm = ((1 + tagPpm * 1e-6) / (1 + ancPpm * 1e-6) - 1) * 1e6
+    const trains = of(rs, 'UWB_MMS_TRAIN', 'tag-1')
+    expect(trains.length).toBeGreaterThan(0)
+    const spanNs = (DEFAULT_UWB_SESSION.mms.rsfs - 1) * plan.mms!.fragGapNs
+    const sigmaPpm = ratioSigma(DEFAULT_UWB_SESSION.tsNoisePs, spanNs / 1e6) * 1e6
+    for (const t of trains) {
+      expect(t.ratioPpm).not.toBeNull()
+      expect(Math.abs(t.ratioPpm! - expectedPpm)).toBeLessThan(4 * sigmaPpm)
+    }
+    // …and the ranges are ranges, not the tens of kilometres a nominal millisecond would give.
+    const ranges = of(rs, 'UWB_RANGE', 'tag-1')
+    expect(ranges.length).toBeGreaterThan(0)
+    for (const r of ranges) expect(Math.abs(r.distM - r.trueDistM)).toBeLessThan(0.3)
+  })
+
+  it('measures the one-to-many POLL against its own window, even at one responder', () => {
+    // A one-to-many round with a single anchor still broadcasts a 17-octet one-to-many POLL, so
+    // the guard has to size it as one — not as the 13-octet REPORT a pair round's longest
+    // message is. The mode decides, never the responder count.
+    const pair = { ...DEFAULT_UWB_SESSION.mms }
+    const otm = { ...DEFAULT_UWB_SESSION.mms, oneToMany: true }
+    expect(uwbNbSlotFitNs()).toBe(608_200)
+    expect(uwbNbSlotFitNs(pair, 1)).toBe(608_200)
+    expect(uwbNbSlotFitNs(otm, 1)).toBe(736_200)
+    expect(uwbNbSlotFitNs(otm, 3)).toBeLessThan(2 * rstuNs(600))
+    expect(uwbNbSlotFitNs(otm, 4)).toBeGreaterThan(2 * rstuNs(600))
+  })
+})
+
+// --- 6. what the inspector and the medium say afterwards ---------------------------------
+
+describe('what a one-to-many round shows', () => {
+  it('renders the responder list on the node inspector, and nothing in a pair round', () => {
+    const strings = { respondersOf: (ids: string[]) => ids.join(', ') }
+    const otmSc = mmsScene(RING, [TAG], true)
+    const otm = viewOf(otmSc, run(otmSc, 400 * MS))
+    expect(uwbRespondersText(otm.nodes['tag-1']!.uwb!, strings)).toBe('anc-1, anc-2, anc-3')
+    // The anchors are in the round too, and each of them heard the same shared train.
+    expect(uwbRespondersText(otm.nodes['anc-2']!.uwb!, strings)).toBe('anc-1, anc-2, anc-3')
+    // A pair round has nobody else in it, so the line is not shown at all.
+    const pairSc = mmsScene(RING, [TAG], false)
+    const pair = viewOf(pairSc, run(pairSc, 400 * MS))
+    expect(uwbRespondersText(pair.nodes['tag-1']!.uwb!, strings)).toBeNull()
+  })
+
+  it('calls a capture a collision when the capturing train is itself spoiled', () => {
+    // `near` captures `far` (12 dB), and `mid` then arrives within the margin of `near`: nothing
+    // is decoded in this millisecond at all, so no fragment may claim it was captured.
+    const h = harness([bare('i', 0, 0), bare('near', 1, 0), bare('mid', 1.3, 0), bare('far', 4, 0)])
+    h.ch.transmit('near', rsf('near', 'i', 0))
+    h.ch.transmit('far', rsf('far', 'i', 0))
+    h.ch.transmit('mid', rsf('mid', 'i', 0))
+    h.runUntil(MS)
+    const i = h.of('i')
+    expect(i.oks).toHaveLength(0)
+    expect(new Set(i.fails.map((f) => f.reason))).toEqual(new Set(['collision']))
+    expect(i.fails.map((f) => f.from).sort()).toEqual(['far', 'mid', 'near'])
   })
 })

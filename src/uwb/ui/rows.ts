@@ -122,6 +122,27 @@ export function uwbTrainRows(u: UwbNodeView, S: UwbTrainStrings): UwbTrainRow[] 
   }))
 }
 
+/** The phrase the one-to-many line needs: the round's responders, in slot order. */
+export interface UwbRespondersStrings {
+  respondersOf: (ids: string[]) => string
+}
+
+/**
+ * P802.15.4ab, one-to-many round: who this node's last fragment train was shared with, in slot
+ * order — the `responders` list of `UWB_MMS_TRAIN`, which a pair round does not carry at all.
+ * Null in a pair round and in every other mode, so the inspector shows the line only where it
+ * means something.
+ *
+ * One line rather than a column: every train of one round carries the same list, and a seventh
+ * column repeating it on every row would say the same thing R times.
+ */
+export function uwbRespondersText(u: UwbNodeView, S: UwbRespondersStrings, name: (id: string) => string = (id) => id): string | null {
+  for (const t of Object.values(u.mms.trains)) {
+    if (t.responders && t.responders.length > 0) return S.respondersOf(t.responders.map(name))
+  }
+  return null
+}
+
 /** The two phrases the narrowband control rows need. */
 export interface UwbNbStrings {
   nbChannelAt: (channel: number, centerMhz: number) => string

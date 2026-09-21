@@ -56,9 +56,14 @@ export interface MmsRoundPlan {
   oneToMany: boolean
   /**
    * How far apart this round actually spaces one train's fragments, in nanoseconds: the
-   * (R + 1) slots one "millisecond" of the ranging phase is made of. At the draft's 600 RSTU
-   * slot and one responder it is a true millisecond (`MS_NS`), which is the case every shipped
-   * scene runs; a one-to-many round stretches it unless the slot is shortened to 1 ms / (R + 1).
+   * (R + 1) slots one "millisecond" of the ranging phase is made of.
+   *
+   * A true millisecond (`MS_NS`) is the **pairwise round at the draft's 600 RSTU slot** — which
+   * every shipped scene runs — and nothing else: an MMS slot must be a multiple of 300 RSTU and
+   * two of them must hold the 608.2 µs REPORT, so 600 RSTU is the shortest legal slot and no
+   * legal slot makes (R + 1) of them a millisecond for R > 1. A one-to-many round's fragments
+   * are therefore always further apart than the draft's millisecond, and the answer is to say so
+   * rather than to look for a slot that fixes it.
    *
    * The receiver measures its clock ratio and walks its RMARKER back over *this* span rather
    * than over the nominal millisecond, because this is the span the schedule really produced —

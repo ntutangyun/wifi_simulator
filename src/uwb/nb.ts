@@ -64,8 +64,9 @@ export const NB_REPORT_TIME_BYTES = 5
  * 4ab draft 15-22/0381r5 Table 1.6.3.1 */
 export const NB_ADDR_BYTES = 3
 /** The one-to-many POLL's own content beyond the address list: Number of Responders and
- * SlotsPerResponder, one octet each. 4ab draft 15-22/0381r5 Table 1.6.3.1 (0x10, MessageControl
- * 0x10) */
+ * SlotsPerResponder, one octet each. 4ab draft 15-22/0381r5 Table 1.6.3.1, message 0x10 at
+ * MessageControl 0x10 — or at 0x30 / 0x40, which carry the same content and are the variants
+ * where both ends report, which is what this engine's default `report: 'bi'` does. */
 export const NB_OTM_POLL_BYTES = 2
 
 /** A one-to-many POLL: the pairwise POLL plus the responder list it has to carry, because a

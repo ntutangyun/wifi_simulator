@@ -90,7 +90,7 @@ export class UwbNetwork {
     // An MMS round has a second frame rule the schema checks too: the draft gives each
     // narrowband message two slots, and a 608 µs REPORT has to fit inside them.
     if (mms) {
-      const nbNs = uwbNbSlotFitNs(mmsPlan.layout.responders)
+      const nbNs = uwbNbSlotFitNs(cfg.mms, mmsPlan.layout.responders)
       if (2 * this.plan.slotNs < nbNs) {
         throw new Error(
           `UwbNetwork: two ${this.plan.slotNs} ns ranging slots cannot carry a narrowband message of a `

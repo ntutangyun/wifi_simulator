@@ -248,6 +248,8 @@ export interface Strings {
     trainKind: (kind: 'rsf' | 'rif', fragments: number) => string
     /** A train nothing was heard of has no received power and no margin at all. */
     trainNothing: string
+    /** P802.15.4ab one-to-many round: the anchors this node's fragment train was shared with. */
+    responders: string; respondersHint: string; respondersOf: (ids: string[]) => string
     /** The narrowband control radio: the channel this block hopped to, and what listen before
      * talk has cost this node. */
     nbChannel: string; nbChannelHint: string
@@ -571,7 +573,7 @@ export const STRINGS: Record<Lang, Strings> = {
         bi: 'both report',
       },
       uwbOneToMany: 'One-to-many round',
-      uwbOneToManyHint: 'one round, one initiator and every anchor of the session as its responders (4ab draft 15-22/0381r5 Table 1.6.3.1: the one-to-many POLL 0x10 carries Number of Responders, SlotsPerResponder and the responder address list, and 0x12/0x13 are its reports). The tag’s fragment train goes out once and every anchor hears it; each anchor answers in a narrowband window and ranging slots of its own, so a millisecond of the ranging phase is one slot per device rather than two, and the tag comes out of a single round with a range to every anchor. Off — the default — a round is one tag–anchor pair and a block holds one round per pair. The slot interleave inside a millisecond is this engine’s (model); the messages and the per-responder allocation are the draft’s.',
+      uwbOneToManyHint: 'one round, one initiator and every anchor of the session as its responders (4ab draft 15-22/0381r5 Table 1.6.3.1: the one-to-many POLL 0x10 carries Number of Responders, SlotsPerResponder and the responder address list, and 0x12/0x13 are its reports). The tag’s fragment train goes out once and every anchor hears it; each anchor answers in a narrowband window and ranging slots of its own, so a millisecond of the ranging phase is one slot per device rather than two, and the tag comes out of a single round with a range to every anchor. Off — the default — a round is one tag–anchor pair and a block holds one round per pair. Note that a one-to-many round’s fragments end up *more* than a millisecond apart at every slot the schema allows — 600 RSTU is the shortest legal MMS slot — so the engine measures the clock ratio over the round’s real fragment spacing rather than over a nominal millisecond. The slot interleave inside a millisecond is this engine’s (model); the messages and the per-responder allocation are the draft’s.',
       uwbMmsSsOnly: 'MMS ranges single-sided and corrects it with the clock ratio the fragment train itself measures — a millisecond-long ruler leaves nothing for a double-sided round to cancel, so there is no MMS DS-TWR to pick',
       uwbMmsDerived: (rsfUs, longestUs, fragDbm, slots, roundMs) =>
         `RSF ${rsfUs} µs · longest fragment ${longestUs} µs at ${fragDbm} dBm · round ${slots} slots · ${roundMs} ms`,
@@ -657,6 +659,12 @@ export const STRINGS: Record<Lang, Strings> = {
       trainYes: 'detected', trainNo: 'lost',
       trainKind: (kind, fragments) => `${fragments} × ${kind.toUpperCase()}`,
       trainNothing: '—',
+      responders: 'one-to-many',
+      respondersHint: 'the responders this round holds, in slot order — the list the initiator’s '
+        + 'one-to-many POLL names. The initiator’s fragment train goes out once and every one of them '
+        + 'hears it, and each answers in narrowband and ranging slots of its own, so the tag leaves a '
+        + 'single round with a range to each. A pairwise round holds one responder and shows no line.',
+      respondersOf: (ids) => ids.join(', '),
       nbChannel: 'narrowband channel',
       nbChannelHint: 'the 2.5 MHz channel this session’s control plane — poll, response and measurement report — is on. It hops from one ranging block to the next over the session’s allow list.',
       nbChannelAt: (channel, centerMhz) => `${channel} · ${centerMhz.toFixed(2)} MHz`,
@@ -1125,7 +1133,7 @@ export const STRINGS: Record<Lang, Strings> = {
       uwbReport: '报告方式',
       uwbReportHint: '成对轮次结束时由哪一方发送窄带测量报告：响应方用第一个报告时隙、发起方用第二个，或者两方都发（4ab 草案 15-22/0381r5 Table 1.1.4.1）。算一次距离需要往返时间和回复时间，而每一方各自只能测到其中之一——因此只有收到报告的一方才算得出距离。用来修正的时钟比率则来自它自己那列片段序列；若序列只给了它一个片段，就改用窄带载波频偏估计。',
       uwbOneToMany: '一对多轮次',
-      uwbOneToManyHint: '一个轮次里只有一个发起方，而会话中的每个锚点都是它的响应方（4ab 草案 15-22/0381r5 Table 1.6.3.1：一对多 POLL 0x10 携带响应方数量、每响应方时隙数以及响应方地址列表，0x12/0x13 则是它的报告消息）。标签的片段序列只发一次，所有锚点同时收听；每个锚点在自己的窄带窗口和自己的测距时隙里回应，于是测距阶段的一毫秒是「每台设备一个时隙」而不是两个，标签只用一个轮次就能得到到每个锚点的距离。关闭（默认）时一个轮次只是一对标签–锚点，一个测距块要装下每一对各一个轮次。一毫秒内各时隙的交错顺序是本引擎的取值（模型）；消息格式与「每响应方分配时隙」则来自草案。',
+      uwbOneToManyHint: '一个轮次里只有一个发起方，而会话中的每个锚点都是它的响应方（4ab 草案 15-22/0381r5 Table 1.6.3.1：一对多 POLL 0x10 携带响应方数量、每响应方时隙数以及响应方地址列表，0x12/0x13 则是它的报告消息）。标签的片段序列只发一次，所有锚点同时收听；每个锚点在自己的窄带窗口和自己的测距时隙里回应，于是测距阶段的一毫秒是「每台设备一个时隙」而不是两个，标签只用一个轮次就能得到到每个锚点的距离。关闭（默认）时一个轮次只是一对标签–锚点，一个测距块要装下每一对各一个轮次。需要注意：在 schema 允许的任何时隙长度下，一对多轮次的片段间隔都会大于一毫秒（600 RSTU 已是最短的合法 MMS 时隙），因此引擎按该轮次真实的片段间隔来测时钟比率，而不是按名义上的一毫秒。一毫秒内各时隙的交错顺序是本引擎的取值（模型）；消息格式与「每响应方分配时隙」则来自草案。',
       uwbReports: {
         responder: '响应方发报告——由发起方测距',
         initiator: '发起方发报告——由响应方测距',
@@ -1215,6 +1223,11 @@ export const STRINGS: Record<Lang, Strings> = {
       trainKindCol: '序列', trainHeard: '听到', trainMargin: '余量', trainDetected: '合成结果',
       trainRatio: '时钟比例',
       trainYes: '检出', trainNo: '丢失',
+      responders: '一对多',
+      respondersHint: '本轮次包含的响应方，按时隙顺序排列——也就是发起方那条一对多 POLL '
+        + '点名的列表。发起方的片段序列只发一次，这些响应方全都能听到；每一个又在属于自己的窄带窗口和测距时隙里回应，'
+        + '因此标签只用一个轮次就能得到到每一个锚点的距离。成对轮次只有一个响应方，不显示这一行。',
+      respondersOf: (ids) => ids.join('、'),
       trainKind: (kind, fragments) => `${fragments} × ${kind.toUpperCase()}`,
       trainNothing: '—',
       nbChannel: '窄带信道',
