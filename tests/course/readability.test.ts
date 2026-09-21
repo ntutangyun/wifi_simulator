@@ -25,7 +25,7 @@ import { effectiveMigrating } from './kit'
 
 /** Lessons still in the old shape. Each migration task removes its ids; the list only shrinks. */
 export const MIGRATING: string[] = [
-  'txop-protect', 'rate',
+  
   'ofdma-dl', 'ofdma-ul', 'mumimo', 'mlo', 'amp-slots', 'amp-coexist', 'capstone',
 ]
 /**
