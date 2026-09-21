@@ -1,7 +1,13 @@
 /**
- * Every empirical claim in the "Retries, drops and queues" lesson, measured
- * against the lesson's own scenarios. Each assertion quotes the sentence it
- * guards; standard constants are checked against the engine's exports.
+ * Every empirical claim in "Retries, drops and queues", measured against the
+ * lesson's own scenarios. Each assertion quotes the sentence it guards;
+ * standard constants are checked against the engine's exports.
+ *
+ * The contract of the rewritten lesson (shape, budgets, jumps, the bilingual
+ * walk) comes from `lessonShapeSuite`; everything below it is this lesson's
+ * own empirical pins, which survived the rewrite sentence for sentence. The
+ * scenario builder and both variants are unchanged, so the recorded timeline
+ * hashes are the ones already in tests/fixtures/lesson-hashes.json.
  */
 import { describe, it, expect } from 'vitest'
 import { retriesQueues } from '../../src/course/tier1/retries-queues'
@@ -10,8 +16,8 @@ import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
 import { CW_MAX, CW_MIN, SHORT_RETRY_LIMIT } from '../../src/engine/phy'
 import { DEFAULT_MSDU_LIFETIME_NS, DEFAULT_QUEUE_LIMIT } from '../../src/engine/queues'
 import type { TLRecord } from '../../src/model/records'
-import { OBSERVE_MINUTES, TRY_MINUTES, lessonMinutes, lessonWords } from '../../src/course/curriculum'
 import { decodeFrame, fmtRecord } from '../../src/ui/format'
+import { lessonShapeSuite } from './kit'
 
 const MS = 1_000_000
 const RUN_NS = 3000 * MS
@@ -59,23 +65,20 @@ function apDelays(rs: TLRecord[]): { atNs: number; ms: number }[] {
 }
 const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length
 
-describe('retries-queues · lesson shape', () => {
+// The prose window: `why` + `outcomes` + `terms` + `picture` + `numbers`.
+lessonShapeSuite(retriesQueues, { proseMax: 950, runNs: RUN_NS })
+
+describe('retries-queues · the scene', () => {
   it('scenario and variants pass the scenario schema', () => {
     expect(() => ScenarioSchema.parse(retriesQueues.scenario())).not.toThrow()
     for (const v of retriesQueues.variants!) expect(() => ScenarioSchema.parse(v.scenario())).not.toThrow()
   })
 
-  it('the computed study time follows the formula and stays inside the 15–25 minute target', () => {
-    const raw = lessonWords(retriesQueues) / 150
-      + OBSERVE_MINUTES * retriesQueues.observe.length + TRY_MINUTES * retriesQueues.tryThis.length
-    expect(lessonMinutes(retriesQueues)).toBe(Math.max(5, Math.round(raw / 5) * 5))
-    expect(lessonMinutes(retriesQueues)).toBeGreaterThanOrEqual(15)
-    expect(lessonMinutes(retriesQueues)).toBeLessThanOrEqual(25)
-  })
-
-  it('every jump target occurs in the base run', () => {
-    const rs = recs()
-    for (const j of retriesQueues.jumps) expect(rs.some(j.find), j.label.en).toBe(true)
+  it('names the lessons whose words it uses', () => {
+    // `retry` leans on the backoff lesson's window and deadline; `queue` on the
+    // airtime lesson's ACK and payload.
+    expect(retriesQueues.needs).toEqual(['airtime', 'backoff'])
+    expect(retriesQueues.terms!.map((t) => t.term)).toEqual(['retry', 'retry limit', 'queue', 'lifetime'])
   })
 })
 
@@ -325,5 +328,36 @@ describe('retries-queues · the two knobs', () => {
       Math.round(mean(apDelays(rs).filter((x) => x.atNs >= 2000 * MS).map((x) => x.ms)))
     expect([lastSecond(base), lastSecond(q100), lastSecond(life100)]).toEqual([472, 117, 88])
     for (const rs of [base, q100, life100]) expect(delivered(rs)['ap']).toBe(2644)
+  })
+})
+
+describe('retries-queues · the drop table in the numbers', () => {
+  const base = recs(), q100 = recs(0), life100 = recs(1)
+
+  /** One row of "The same three seconds, three settings", read off a run. */
+  const row = (rs: TLRecord[]) => [
+    drops(rs, 'queueFull', 'ap').length,
+    drops(rs, 'lifetime', 'ap').length,
+    drops(rs, 'retryLimit', 'sta-1').length + drops(rs, 'retryLimit', 'sta-2').length,
+    delivered(rs)['ap'],
+  ]
+
+  it('defaults: 213 turned away, 194 stale at the AP, 123 uploads given up, 2644 delivered', () => {
+    expect(row(base)).toEqual([213, 194, 123, 2644])
+  })
+
+  it('short queue: 797 turned away, none stale at the AP, the same 123 and 2644', () => {
+    expect(row(q100)).toEqual([797, 0, 123, 2644])
+  })
+
+  it('short lifetime: nothing turned away, 770 stale at the AP, only 40 uploads given up, still 2644', () => {
+    expect(row(life100)).toEqual([0, 770, 40, 2644])
+  })
+
+  it('under the short lifetime the two uploaders lose 987 frames to age that the defaults never lose', () => {
+    // "the uploaders then lose 987 frames of their own to age"
+    const aged = (rs: TLRecord[]) => drops(rs, 'lifetime', 'sta-1').length + drops(rs, 'lifetime', 'sta-2').length
+    expect(aged(life100)).toBe(987)
+    expect(aged(base)).toBeLessThan(20)
   })
 })

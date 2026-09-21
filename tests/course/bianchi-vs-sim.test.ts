@@ -1,7 +1,11 @@
 /**
- * Pins "Where the model and the simulator part company": the rate-adaptation
- * artefact, the T_c convention, the EIFS restart times, the per-station
- * spread, the CW = 0 corner, the computed study time and the jump targets.
+ * Pins "The prediction against the run": the four-row model-against-run table
+ * (which moved here from the Bianchi lesson in the rewrite, with its pins),
+ * the rate-adaptation artefact, the cost of a pile-up, the restart times, the
+ * per-station spread and the no-window corner.
+ *
+ * The contract of the lesson (shape, budgets, jumps, the bilingual walk) comes
+ * from `lessonShapeSuite`.
  *
  * The busy-slot experiment the lesson quotes (n = 20 rising from 45.83 % to
  * ≈ 47.9 % when the backoff is decremented across a busy period) is a one-off
@@ -12,11 +16,13 @@ import { describe, it, expect } from 'vitest'
 import { bianchiVsSim } from '../../src/course/tier1/bianchi-vs-sim'
 import { bianchi } from '../../src/course/tier1/bianchi'
 import { dcfTimes, saturationThroughput, solveBianchi } from '../../src/course/tier1/bianchiModel'
-import { COURSE_ORDER, OBSERVE_MINUTES, TRY_MINUTES, lessonMinutes, lessonWords } from '../../src/course/curriculum'
+import { COURSE_ORDER } from '../../src/course/curriculum'
 import { Simulation } from '../../src/engine/simulation'
 import { TAMPER_PRESETS, type Scenario } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
-import type { Block, L10n } from '../../src/course/lessonKit'
+import type { L10n } from '../../src/course/lessonKit'
+import { lessonStrings } from '../../src/course/readability'
+import { lessonShapeSuite } from './kit'
 import { SLOT_NS, dataRateFor, noiseDbm } from '../../src/engine/phy'
 import { buildLinkTable } from '../../src/engine/propagation'
 
@@ -82,19 +88,14 @@ const near = () => measure('near', bianchiVsSim.scenario())
 const arc5 = () => measure('arc5', bianchiVsSim.variants![0].scenario())
 const arc20 = () => measure('arc20', bianchiVsSim.variants![1].scenario())
 
+/**
+ * Every string a learner reads in this lesson, concatenated: the one walk of
+ * `src/course/readability.ts`. `.body` is gone; this is what replaced it.
+ */
 function allText(): string {
   const parts: string[] = []
-  const push = (l?: L10n) => { if (l) parts.push(l.en, l.zh) }
-  for (const b of bianchiVsSim.body as Block[]) {
-    push(b.heading)
-    if ('text' in b) push(b.text)
-    if (b.kind === 'formula') push(b.note)
-    if (b.kind === 'list' || b.kind === 'steps') b.items.forEach(push)
-    if (b.kind === 'table') { b.head.forEach(push); b.rows.forEach((row) => row.forEach(push)) }
-  }
-  bianchiVsSim.observe.forEach(push)
-  bianchiVsSim.tryThis.forEach(push)
-  for (const q of bianchiVsSim.quiz) { push(q.q); q.options.forEach(push); push(q.explain) }
+  const push = (l: L10n) => { parts.push(l.en, l.zh) }
+  lessonStrings(bianchiVsSim).forEach(push)
   return parts.join(' ')
 }
 
@@ -113,7 +114,6 @@ describe('1 · the rate-adaptation artefact', () => {
     const level = table.get('sta-1')!.get('ap')!
     expect(dataRateFor(level)).toBe(54)
     expect(level - noiseDbm(20)).toBeCloseTo(57.8, 1)
-    quotes('57.8 dB')
   })
 
   it('67.7 % of frames leave at 6 Mb/s, 1.1 % at 54, and S is 5.53 against the model’s 29.52', () => {
@@ -128,7 +128,7 @@ describe('1 · the rate-adaptation artefact', () => {
     const model = saturationThroughput({ n: 5, tau: sol.tau, slotNs: SLOT_NS, tsNs: t54.tsNs, tcNs: t54.tcNs, payloadBits: PAYLOAD_BITS })
     expect(model.mbps.toFixed(2)).toBe('29.52')
     expect(model.mbps / s.mbps).toBeGreaterThan(5) // "disagree by a factor of five"
-    quotes('6,248 data frames', '67.7%', '1.1%', '29.52 Mb/s', '5.53')
+    quotes('6248 frames', '67.7 %', '1.1 %', '29.52 Mb/s', '5.53')
   })
 
   it('the MAC is innocent: 26.17 % close in against 25.84 % on the arc, both near the model’s 27.22 %', () => {
@@ -136,7 +136,7 @@ describe('1 · the rate-adaptation artefact', () => {
     expect(pct(arc5().p)).toBe('25.84 %')
     expect(pct(solveBianchi({ n: 5, ...PARAMS }).p)).toBe('27.22 %')
     for (const p of [near().p, arc5().p]) expect(Math.abs(p - solveBianchi({ n: 5, ...PARAMS }).p)).toBeLessThan(0.015)
-    quotes('26.17%', '25.84%', '27.22%')
+    quotes('26.17 %', '25.84 %', '27.22 %')
   })
 
   it('the arc pins the rate; the close-in run spreads over the whole ladder', () => {
@@ -145,7 +145,7 @@ describe('1 · the rate-adaptation artefact', () => {
     // the block lengths the "observe" item quotes
     expect(dcfTimes(1500, 54).dataNs).toBe(248_000)
     expect(dcfTimes(1500, 6).dataNs).toBe(2_064_000)
-    quotes('248 µs at 54 Mb/s, 2,064 µs at 6 Mb/s')
+    quotes('248 µs at the fast rate, 2064 µs at the slow one')
   })
 
   it('the try-this numbers: 5.534 against 4.717 Mb/s, model 29.52 against 4.679', () => {
@@ -170,7 +170,7 @@ describe('2 · the T_c convention', () => {
     const paperTc = t.dataNs + 34_000
     expect(paperTc).toBe(2_098_000)
     expect(((S(t.tcNs) - S(paperTc)) / S(paperTc) * 100).toFixed(1)).toBe('-0.6')
-    quotes('2143 µs', '2158 µs', '0.7%', '0.2% of throughput', '2098 µs', '0.6%')
+    quotes('15 µs sooner', '0.7 %', '0.2 % of throughput', '0.6 %')
   })
 })
 
@@ -178,7 +178,7 @@ describe('3–6 · restart times, small n and fairness', () => {
   it('the n = 5 arc run logs 1,029 EIFS deferrals; the colliders wait 45 µs and the deaf wait 34', () => {
     expect(arc5().eifs).toBe(1029)
     expect(94 - 34).toBe(60) // "60 µs longer than its neighbours"
-    quotes('1,029 EIFS deferrals', 'EIFS = 94 µs', 'DIFS = 34 µs', '45 µs ACK timeout')
+    quotes('1029 long penalty waits', '60 µs', '94 µs', '34 µs')
   })
 
   it('n = 2 is the sign flip: 11.20 % measured against 10.46 % predicted', () => {
@@ -186,7 +186,7 @@ describe('3–6 · restart times, small n and fairness', () => {
     expect(pct(s.p)).toBe('11.20 %')
     expect(pct(solveBianchi({ n: 2, ...PARAMS }).p)).toBe('10.46 %')
     expect(s.p).toBeGreaterThan(solveBianchi({ n: 2, ...PARAMS }).p)
-    quotes('11.20%', '10.46%')
+    quotes('11.20 %', '10.46 %')
   })
 
   it('n = 20 per-station collision rates spread from 42.9 % to 52.1 % around the pooled 45.83 %', () => {
@@ -194,7 +194,7 @@ describe('3–6 · restart times, small n and fairness', () => {
     expect(Math.min(...s.perStationP)).toBeCloseTo(0.429, 3)
     expect(Math.max(...s.perStationP)).toBeCloseTo(0.521, 3)
     expect(pct(s.p)).toBe('45.83 %')
-    quotes('42.9%', '52.1%', '45.83%')
+    quotes('42.9 %', '52.1 %', '45.83 %')
   })
 
   it('the finite-retry direction quoted in the quiz: the retry limit pushes p up', () => {
@@ -202,7 +202,6 @@ describe('3–6 · restart times, small n and fairness', () => {
     const fin = solveBianchi({ n: 20, ...PARAMS })
     expect(fin.p).toBeGreaterThan(inf.p)
     expect(`${pct(inf.p, 2)} → ${pct(fin.p, 2)}`.replace(/ %/g, '%')).toBe('48.09% → 49.59%')
-    quotes('48.09% → 49.59%')
   })
 })
 
@@ -238,37 +237,71 @@ describe('try this · the CW = 0 corner', () => {
     expect(s.mbps.toFixed(3)).toBe('5.557')
     const t = dcfTimes(1500, 6)
     expect((PAYLOAD_BITS / (t.tsNs * 1e-9) / 1e6).toFixed(3)).toBe('5.561') // 12,000 bits / T_s
-    quotes('4,634', '4,639', '5.557 Mb/s', '12,000 bits / T_s')
+    quotes('4,634', '4,639', '5.557 Mb/s')
   })
 })
 
-describe('lesson contract', () => {
-  it('study time follows the curriculum formula and lands inside the 15–25 minute band', () => {
-    const raw = lessonWords(bianchiVsSim) / 150 + OBSERVE_MINUTES * bianchiVsSim.observe.length + TRY_MINUTES * bianchiVsSim.tryThis.length
-    expect(lessonMinutes(bianchiVsSim)).toBe(Math.max(5, Math.round(raw / 5) * 5))
-    expect(lessonMinutes(bianchiVsSim)).toBeGreaterThanOrEqual(15)
-    expect(lessonMinutes(bianchiVsSim)).toBeLessThanOrEqual(25)
-  })
+// The prose window: `why` + `outcomes` + `terms` + `picture` + `numbers`.
+lessonShapeSuite(bianchiVsSim, { proseMax: 900, runNs: RUN_NS })
 
-  it('is bilingual, numbered by position, and follows the model lesson in the reading order', () => {
+describe('lesson contract', () => {
+  it('follows the model lesson in the reading order and names it as its one prerequisite', () => {
     expect(bianchiVsSim.id).toBe('bianchi-vs-sim')
     expect(COURSE_ORDER.indexOf('bianchi-vs-sim')).toBe(COURSE_ORDER.indexOf('bianchi') + 1)
-    expect(bianchiVsSim.title.en).not.toMatch(/^\d+\s*·/)
+    expect(bianchiVsSim.needs).toEqual(['bianchi'])
+    expect(bianchiVsSim.terms!.map((t) => t.term)).toEqual(['rate control', 'capture', 'residual'])
     expect(bianchiVsSim.observe.length).toBe(3)
     expect(bianchiVsSim.tryThis.length).toBe(2)
-    expect(bianchiVsSim.quiz.length).toBeGreaterThanOrEqual(2)
     for (const q of bianchiVsSim.quiz) {
       expect(q.answer).toBeGreaterThanOrEqual(0)
       expect(q.answer).toBeLessThan(q.options.length)
-      expect(q.explain.zh.length).toBeGreaterThan(20)
     }
-    for (const v of bianchiVsSim.variants!) expect(v.label.zh.length).toBeGreaterThan(3)
-    // it says out loud what it is teaching
-    quotes('reading a disagreement between an analysis and a measurement')
   })
 
-  it('every jump target occurs in the base scenario', () => {
-    const records = near().records
-    for (const j of bianchiVsSim.jumps) expect(records.some(j.find), j.label.en).toBe(true)
+  it('says out loud what it is teaching', () => {
+    quotes('report a residual instead of tuning a constant until the curves meet')
+  })
+})
+
+describe('the model-against-run table (moved here from the Bianchi lesson)', () => {
+  const t6 = dcfTimes(1500, 6)
+  const arcN = (n: number): Stats => n === 5
+    ? arc5()
+    : n === 20
+      ? arc20()
+      : measure(`n${n}`, bianchi.variants![n === 2 ? 0 : 1].scenario())
+
+  /** One row: n, predicted collide, measured collide, predicted S, measured S. */
+  const rows: [number, string, string, string, string, number, number, number][] = [
+    [2, '10.46 %', '11.20 %', '5.169', '5.136', 4821, 540, 4280],
+    [5, '27.22 %', '25.84 %', '4.679', '4.717', 5302, 1370, 3931],
+    [10, '38.92 %', '35.08 %', '4.275', '4.421', 5678, 1992, 3684],
+    [20, '49.59 %', '45.83 %', '3.857', '4.027', 6197, 2840, 3356],
+  ]
+
+  for (const [n, p, pHat, sModel, sHat, attempts, collided, acks] of rows) {
+    it(`n = ${n}: ${p} against ${pHat}, ${sModel} against ${sHat} Mb/s`, () => {
+      const s = arcN(n)
+      expect(s.attempts, 'attempts').toBe(attempts)
+      expect(s.collided, 'collided').toBe(collided)
+      expect(s.acks, 'answers').toBe(acks)
+      expect(pct(s.p)).toBe(pHat)
+      expect(s.mbps.toFixed(3)).toBe(sHat)
+      const sol = solveBianchi({ n, ...PARAMS })
+      const model = saturationThroughput({ n, tau: sol.tau, slotNs: SLOT_NS, tsNs: t6.tsNs, tcNs: t6.tcNs, payloadBits: PAYLOAD_BITS })
+      expect(pct(sol.p)).toBe(p)
+      expect(model.mbps.toFixed(3)).toBe(sModel)
+      // "Every collision figure lands within 10 % of the prediction and every throughput within 5 %"
+      expect(Math.abs(s.p - sol.p) / sol.p, 'collide within 10 %').toBeLessThan(0.10)
+      expect(Math.abs(s.mbps - model.mbps) / model.mbps, 'throughput within 5 %').toBeLessThan(0.05)
+      quotes(p, pHat, sModel, sHat)
+    })
+  }
+
+  it('from five stations upward the run always collides less than predicted; two flips the sign', () => {
+    // "from five stations upward the run always collides less than predicted, and only the
+    //  two-station row flips sign"
+    for (const n of [5, 10, 20]) expect(arcN(n).p, `n=${n}`).toBeLessThan(solveBianchi({ n, ...PARAMS }).p)
+    expect(arcN(2).p).toBeGreaterThan(solveBianchi({ n: 2, ...PARAMS }).p)
   })
 })

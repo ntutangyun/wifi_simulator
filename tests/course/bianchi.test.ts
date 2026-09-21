@@ -1,18 +1,25 @@
 /**
- * Pins the Bianchi lesson: the solver against an independently derived fixed
- * point, the engine constants T_s and T_c are built from, every number quoted
- * in the prose, the stated model-vs-simulator tolerance, the computed study
- * time and the jump targets. The companion lesson's numbers (where model and
- * simulator part company) are pinned in tier1-bianchi-vs-sim.test.ts.
+ * Pins "Predicting collisions on paper": the solver against an independently
+ * derived fixed point, the engine constants T_s and T_c are built from, and
+ * every number the rewritten lesson quotes.
+ *
+ * The contract of the lesson (shape, budgets, jumps, the bilingual walk) comes
+ * from `lessonShapeSuite`. The four-row model-against-run table moved to the
+ * companion lesson in the rewrite, and its pins moved with it, to
+ * tests/course/bianchi-vs-sim.test.ts; what stays here is the one measured
+ * sentence this lesson still makes ("5302 attempts, of which 1370 met somebody
+ * else") plus the runs the observations and experiments name.
  */
 import { describe, it, expect } from 'vitest'
 import { bianchi } from '../../src/course/tier1/bianchi'
 import { dcfTimes, saturationThroughput, solveBianchi, tauOf } from '../../src/course/tier1/bianchiModel'
-import { COURSE_ORDER, OBSERVE_MINUTES, TRY_MINUTES, lessonMinutes, lessonWords } from '../../src/course/curriculum'
+import { COURSE_ORDER } from '../../src/course/curriculum'
 import { Simulation } from '../../src/engine/simulation'
 import type { Scenario } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
-import type { Block, L10n } from '../../src/course/lessonKit'
+import type { L10n } from '../../src/course/lessonKit'
+import { lessonStrings } from '../../src/course/readability'
+import { lessonShapeSuite } from './kit'
 import { SLOT_NS, dataRateFor, noiseDbm } from '../../src/engine/phy'
 import { buildLinkTable } from '../../src/engine/propagation'
 
@@ -72,20 +79,15 @@ function measure(key: string, scenario: Scenario): Stats {
 const base = () => measure('n5', bianchi.scenario())
 const variant = (i: number, key: string) => measure(key, bianchi.variants![i].scenario())
 
-/** Every string a learner reads in this lesson, concatenated. */
+/**
+ * Every string a learner reads in this lesson, concatenated: the one walk of
+ * `src/course/readability.ts`, so a field added to the contract is covered the
+ * moment it is added there. `.body` is gone; this is what replaced it.
+ */
 function allText(): string {
   const parts: string[] = []
-  const push = (l?: L10n) => { if (l) parts.push(l.en, l.zh) }
-  for (const b of bianchi.body as Block[]) {
-    push(b.heading)
-    if ('text' in b) push(b.text)
-    if (b.kind === 'formula') push(b.note)
-    if (b.kind === 'list' || b.kind === 'steps') b.items.forEach(push)
-    if (b.kind === 'table') { b.head.forEach(push); b.rows.forEach((row) => row.forEach(push)) }
-  }
-  bianchi.observe.forEach(push)
-  bianchi.tryThis.forEach(push)
-  for (const q of bianchi.quiz) { push(q.q); q.options.forEach(push); push(q.explain) }
+  const push = (l: L10n) => { parts.push(l.en, l.zh) }
+  lessonStrings(bianchi).forEach(push)
   return parts.join(' ')
 }
 
@@ -167,7 +169,7 @@ describe('the exchange times quoted in the lesson', () => {
     expect(t.ackNs).toBe(44_000)
     expect(t.tsNs).toBe(2_158_000)
     expect(t.tcNs).toBe(2_143_000)
-    quotes('T_s = 2064 + SIFS 16 + ACK 44 + DIFS 34 = 2158 µs', 'T_c = 2064 + ACKTimeout 45 + DIFS 34 = 2143 µs', '1528 octets')
+    quotes('T_s = 2064 + 16 + 44 + 34 = 2158 µs', 'T_c = 2064 + 45 + 34 = 2143 µs', '1528 octets')
   })
 
   it('54 Mb/s: 248 µs data, 28 µs ACK at 24 Mb/s', () => {
@@ -187,7 +189,6 @@ describe('the exchange times quoted in the lesson', () => {
     expect(noiseDbm(20)).toBeCloseTo(-94.0, 1)
     expect(levels[0] - noiseDbm(20)).toBeCloseTo(12.3, 1)
     expect(dataRateFor(levels[0])).toBe(6)
-    quotes('−81.7 dBm', '12.3 dB of SNR')
   })
 })
 
@@ -225,7 +226,6 @@ describe('the model table', () => {
     expect((two - twenty) / two).toBeCloseTo(0.204, 3) // "only a further 20%"
     expect(two / 54).toBeGreaterThan(0.55) // "well under two thirds of the nominal rate"
     expect(two / 54).toBeLessThan(0.66)
-    quotes('31.3 Mb/s', '20%')
   })
 
   it('the finite-retry correction at n = 20: p 48.09 % → 49.59 %', () => {
@@ -233,7 +233,7 @@ describe('the model table', () => {
     const fin = solveBianchi({ n: 20, ...PARAMS })
     expect(pct(inf.p)).toBe('48.09 %')
     expect(pct(fin.p)).toBe('49.59 %')
-    quotes('48.09%', '49.59%')
+    quotes('48.09 %', '49.59 %')
   })
 
   it('the 6 Mb/s and 54 Mb/s contention costs quoted in the text', () => {
@@ -242,7 +242,7 @@ describe('the model table', () => {
     expect(s(20, t6).toFixed(2)).toBe('3.86')
     expect(s(2, t54).toFixed(1)).toBe('31.3')
     expect(s(20, t54).toFixed(1)).toBe('24.9')
-    quotes('5.17 → 3.86 Mb/s', '31.3 → 24.9')
+    quotes('5.17 down to 3.86 Mb/s', '31.3 down to 24.9')
   })
 })
 
@@ -250,52 +250,40 @@ describe('the model table', () => {
 // the simulator, and the stated tolerance
 // ---------------------------------------------------------------------------
 
-describe('model vs simulator', () => {
+describe('the one measured sentence, and the runs the practice names', () => {
   const t6 = dcfTimes(1500, 6)
-  const cases: { n: number; stats: () => Stats; attempts: number; collided: number; acks: number }[] = [
-    { n: 2, stats: () => variant(0, 'n2'), attempts: 4821, collided: 540, acks: 4280 },
-    { n: 5, stats: base, attempts: 5302, collided: 1370, acks: 3931 },
-    { n: 10, stats: () => variant(1, 'n10'), attempts: 5678, collided: 1992, acks: 3684 },
-    { n: 20, stats: () => variant(2, 'n20'), attempts: 6197, collided: 2840, acks: 3356 },
-  ]
 
-  for (const c of cases) {
-    it(`n = ${c.n}: ${c.attempts} attempts, ${c.collided} collided, ${c.acks} ACKs — within the stated tolerance`, () => {
-      const s = c.stats()
-      expect(s.attempts).toBe(c.attempts)
-      expect(s.collided).toBe(c.collided)
-      expect(s.acks).toBe(c.acks)
-      // every frame goes at 6 Mb/s: the rate is pinned, as the lesson says
-      expect([...s.rateMix.keys()]).toEqual([6])
-      expect(s.drops.queueFull).toBeUndefined()
-      expect(s.drops.lifetime).toBeUndefined()
+  it('n = 5: 5302 attempts, 1370 of them collided — 25.84 % against a predicted 27.22 %', () => {
+    // "5302 attempts, of which 1370 met somebody else. That is 25.84 % against a predicted 27.22 %"
+    const s = base()
+    expect(s.attempts).toBe(5302)
+    expect(s.collided).toBe(1370)
+    expect(pct(s.p)).toBe('25.84 %')
+    expect(pct(solveBianchi({ n: 5, ...PARAMS }).p)).toBe('27.22 %')
+    quotes('5302 attempts', '1370', '25.84 %', '27.22 %')
+  })
 
-      const sol = solveBianchi({ n: c.n, ...PARAMS })
-      const model = saturationThroughput({ n: c.n, tau: sol.tau, slotNs: SLOT_NS, tsNs: t6.tsNs, tcNs: t6.tcNs, payloadBits: PAYLOAD_BITS })
-      // "every p within 10% of the prediction and every throughput within 5%"
-      expect(Math.abs(s.p - sol.p) / sol.p).toBeLessThan(0.10)
-      expect(Math.abs(s.mbps - model.mbps) / model.mbps).toBeLessThan(0.05)
-    })
-  }
-
-  it('the comparison table’s simulator column is what the runs produce', () => {
-    const quoted: [string, () => Stats, string, string, string, string][] = [
-      ['2', () => variant(0, 'n2'), '11.20 %', '5.136', '+7.1 %', '−0.6 %'],
-      ['5', base, '25.84 %', '4.717', '−5.1 %', '+0.8 %'],
-      ['10', () => variant(1, 'n10'), '35.08 %', '4.421', '−9.9 %', '+3.4 %'],
-      ['20', () => variant(2, 'n20'), '45.83 %', '4.027', '−7.6 %', '+4.4 %'],
-    ]
-    const signed = (x: number) => `${x >= 0 ? '+' : '−'}${Math.abs(100 * x).toFixed(1)} %`
-    for (const [n, stats, p, mbps, deltaP, deltaS] of quoted) {
-      const s = stats()
-      expect(pct(s.p)).toBe(p)
-      expect(s.mbps.toFixed(3)).toBe(mbps)
-      const sol = solveBianchi({ n: Number(n), ...PARAMS })
-      const model = saturationThroughput({ n: Number(n), tau: sol.tau, slotNs: SLOT_NS, tsNs: t6.tsNs, tcNs: t6.tcNs, payloadBits: PAYLOAD_BITS })
-      expect(signed((s.p - sol.p) / sol.p)).toBe(deltaP)
-      expect(signed((s.mbps - model.mbps) / model.mbps)).toBe(deltaS)
-      quotes(p, mbps, deltaP, deltaS)
+  it('every frame on the arc goes at 6 Mb/s and nothing is discarded, at every n', () => {
+    // the scene note: the rate is pinned and saturation holds for the whole run
+    for (const s of [() => variant(0, 'n2'), base, () => variant(1, 'n10'), () => variant(2, 'n20')]) {
+      const st = s()
+      expect([...st.rateMix.keys()]).toEqual([6])
+      expect(st.drops.queueFull).toBeUndefined()
+      expect(st.drops.lifetime).toBeUndefined()
     }
+  })
+
+  it('the ten-station experiment: 5678 attempts, 1992 collided, 3684 answers, 4.421 against 4.275 Mb/s', () => {
+    // tryThis: "5678 attempts, 1992 collided, 3684 answers — 4.421 Mb/s against a predicted 4.275"
+    const s = variant(1, 'n10')
+    expect(s.attempts).toBe(5678)
+    expect(s.collided).toBe(1992)
+    expect(s.acks).toBe(3684)
+    expect(s.mbps.toFixed(3)).toBe('4.421')
+    const sol = solveBianchi({ n: 10, ...PARAMS })
+    const model = saturationThroughput({ n: 10, tau: sol.tau, slotNs: SLOT_NS, tsNs: t6.tsNs, tcNs: t6.tcNs, payloadBits: PAYLOAD_BITS })
+    expect(model.mbps.toFixed(3)).toBe('4.275')
+    quotes('5678 attempts', '1992', '3684 answers', '4.421 Mb/s', '4.275')
   })
 
   it('the run opens with an n-way collision at t = 0 that clears at 2.064 ms', () => {
@@ -329,7 +317,7 @@ describe('model vs simulator', () => {
     expect(scen.queue).toEqual({ limit: 500, lifetimeMs: 600_000 })
     const enq = base().records.filter((r) => r.type === 'ENQUEUE' && r.t === 0)
     expect(enq.length).toBe(5 * 20)
-    quotes('twenty queued MSDUs', 'ten minutes')
+    quotes('ten-minute MSDU lifetime')
   })
 })
 
@@ -337,32 +325,28 @@ describe('model vs simulator', () => {
 // lesson contract
 // ---------------------------------------------------------------------------
 
-describe('lesson contract', () => {
-  it('study time follows the curriculum formula and lands inside the 15–25 minute band', () => {
-    const raw = lessonWords(bianchi) / 150 + OBSERVE_MINUTES * bianchi.observe.length + TRY_MINUTES * bianchi.tryThis.length
-    expect(lessonMinutes(bianchi)).toBe(Math.max(5, Math.round(raw / 5) * 5))
-    expect(lessonMinutes(bianchi)).toBeGreaterThanOrEqual(15)
-    expect(lessonMinutes(bianchi)).toBeLessThanOrEqual(25)
-  })
+// The prose window: `why` + `outcomes` + `terms` + `picture` + `numbers`.
+lessonShapeSuite(bianchi, { proseMax: 850, runNs: RUN_NS })
 
-  it('is bilingual, numbered by position, and part of the reading order', () => {
+describe('lesson contract', () => {
+  it('is part of the reading order and names the lessons whose words it uses', () => {
     expect(bianchi.id).toBe('bianchi')
     expect(COURSE_ORDER).toContain('bianchi')
-    expect(bianchi.title.en).not.toMatch(/^\d+\s*·/)
-    expect(bianchi.title.zh).not.toMatch(/^\d+\s*·/)
+    expect(bianchi.needs).toEqual(['backoff', 'retries-queues'])
+    expect(bianchi.terms!.map((t) => t.term))
+      .toEqual(['saturation', 'transmit probability', 'collision probability'])
     expect(bianchi.observe.length).toBe(3)
     expect(bianchi.tryThis.length).toBe(2)
-    expect(bianchi.quiz.length).toBeGreaterThanOrEqual(2)
     for (const q of bianchi.quiz) {
       expect(q.answer).toBeGreaterThanOrEqual(0)
       expect(q.answer).toBeLessThan(q.options.length)
-      expect(q.explain.zh.length).toBeGreaterThan(20)
     }
-    for (const v of bianchi.variants!) expect(v.label.zh.length).toBeGreaterThan(3)
   })
 
-  it('every jump target occurs in the base scenario', () => {
-    const records = base().records
-    for (const j of bianchi.jumps) expect(records.some(j.find), j.label.en).toBe(true)
+  it('the equations and the exchange costs are in the numbers, the derivations in the depth', () => {
+    // the rewrite's contract with the reader: one table, two formulas, no §
+    expect(bianchi.numbers!.filter((b) => b.kind === 'table').length).toBe(1)
+    expect(bianchi.numbers!.filter((b) => b.kind === 'formula').length).toBe(2)
+    quotes('Σ_{k<m}(2p)^k')
   })
 })

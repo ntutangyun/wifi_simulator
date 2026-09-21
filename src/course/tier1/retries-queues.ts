@@ -1,11 +1,17 @@
 /**
- * Tier 1 · M2 · Retries, drops and queues.
+ * Wi-Fi Tier 1 · M2 · Channel access · Retries, drops and queues.
  *
- * The hidden-node house again, all legacy (DCF): two saturated uploaders that
- * cannot hear each other lose frames at the retry limit, and a TV streaming
- * ~13 Mb/s of video from the AP offers more than the shared channel carries,
- * so the AP's queue grows until the queue limit and the MSDU lifetime bite.
- * Every number quoted below is pinned in tests/course/tier1-retries-queues.test.ts.
+ * Rewritten to the zero-to-hero contract
+ * (docs/superpowers/specs/2026-09-21-course-readability-design.md): what
+ * happens to a frame nobody acknowledged — try again with a longer wait, then
+ * give up — the line that builds up behind it, and why an old frame is worth
+ * throwing away. The dense material that used to open the lesson (the two
+ * counters that move on every failure, duplicate detection, the Block Ack
+ * exception) lives in `deeper`; the clause numbers live in `sources`.
+ *
+ * The scene and both variants are unchanged, so the recorded timeline hashes
+ * stay identical. Every number quoted below is pinned in
+ * tests/course/retries-queues.test.ts.
  */
 import type { Scenario } from '../../model/scenario'
 import { J, N, firstRetry, hallwayHouse, node, sc, txOf, type Lesson } from '../lessonKit'
@@ -28,22 +34,68 @@ export const retriesQueues: Lesson = {
   id: 'retries-queues',
   module: 1,
   title: { en: 'Retries, drops and queues', zh: '重传、丢帧与队列' },
-  body: [
-    { text: {
-      en: 'A MAC can neither retry nor queue forever. Three limits decide when a frame is given up, each with its own DROP reason. The scene: the hidden-node house, all legacy (DCF), Hidden A and Hidden B uploading flat out without hearing each other while a TV streams video from the AP.',
-      zh: 'MAC 既不能无限重传，也不能无限排队。有三个上限决定一帧何时被放弃，各自留下不同的 DROP 原因。场景是隐藏节点户型，全部为传统设备（DCF）：Hidden A 与 Hidden B 互相听不见却都在满负荷上传，同时一台电视从 AP 接收视频流。',
+  why: {
+    en: 'A frame nobody answered is not lost yet: the sender simply sends it again. But sending it again is never free, and it cannot go on for ever. While one stubborn frame is being tried and tried, everything behind it waits. This lesson watches a link that keeps failing and a line that keeps growing, and asks when the kindest thing a device can do is throw a frame away.',
+    zh: '一帧没人回答，并不等于它已经丢了：发送方再发一次就是了。但“再发一次”从来不是免费的，也不可能一直发下去。当一帧死活发不出去、被一次次重来时，排在它后面的一切都在等。这一课我们看着一条老是失败的链路，和一条越排越长的队，然后问一个问题：什么时候，把一帧扔掉才是这台设备能做的最厚道的事。',
+  },
+  outcomes: [
+    { en: 'name the three reasons a frame is given up, and what each one tells you', zh: '说出一帧被放弃的三种原因，以及每一种告诉了你什么' },
+    { en: 'explain why the real cost of a retry falls on the frames behind it', zh: '解释为什么一次重传真正的代价，落在它后面那些帧身上' },
+    { en: 'say why a bigger buffer does not deliver one more frame', zh: '说清为什么把缓冲区改大，一帧也不会多送到' },
+  ],
+  needs: ['airtime', 'backoff'],
+  terms: [
+    { term: 'retry', plain: {
+      en: 'the same frame sent again after no answer came, marked so a receiver can spot the repeat',
+      zh: '没等到回答之后，把同一帧再发一次；帧上带着标记，好让接收端认出这是重复的',
     } },
-    { kind: 'list', heading: { en: 'Two counters move on every failure (802.11-2020/2024 §10.23.2.2)', zh: '每次失败都有两个计数器在动（802.11-2020/2024 §10.23.2.2）' }, items: [
-      { en: 'Each MSDU keeps its own retry count; at dot11ShortRetryLimit = 7 it is discarded — DROP, reason retryLimit.', zh: '每个 MSDU 都有自己的重传计数；达到 dot11ShortRetryLimit = 7 时被丢弃——DROP，原因 retryLimit。' },
-      { en: 'Each access category keeps one QSRC: a failure adds one and doubles CW = min(2·CW + 1, CWmax), 15 → 31 → … → 1023. A success resets both, as does QSRC reaching the limit.', zh: '每个接入类别有一个 QSRC：失败一次加一并把 CW 翻倍——CW = min(2·CW + 1, CWmax)，即 15 → 31 → … → 1023。成功一次会让二者复位，QSRC 达到上限时也一样。' },
-      { en: 'DCF has one queue and one counter, EDCA four. 802.11-2016 also had SSRC/SLRC and dot11LongRetryLimit = 4 above the RTS threshold; 802.11-2020 removed it.', zh: 'DCF 只有一个队列、一个计数器，EDCA 则有四套。802.11-2016 还有 SSRC/SLRC 以及超过 RTS 门限时适用的 dot11LongRetryLimit = 4；802.11-2020 已删除它。' },
-    ] },
-    { text: {
-      en: 'A retransmission is the same MPDU again: same sequence number, Retry bit set. If only the ACK was lost, the receiver recognises the copy by transmitter address, sequence number and Retry = 1, re-acknowledges and discards it (§10.3.2.14 duplicate detection).',
-      zh: '重传就是把同一个 MPDU 再发一遍：序列号不变，Retry 位置位。如果丢的只是 ACK，接收方会凭发送地址、序列号和 Retry = 1 认出副本，重新回 ACK 并丢弃它（§10.3.2.14 重复帧检测）。',
+    { term: 'retry limit', plain: {
+      en: 'how many times one frame may be sent before the sender gives up on it',
+      zh: '同一帧最多能发几次；发满了，发送方就放弃它',
     } },
-    { kind: 'table', heading: { en: 'Hidden B’s first frame: seven attempts, then DROP', zh: 'Hidden B 的第一帧：七次尝试，然后 DROP' }, head: [
-      { en: 'Attempt', zh: '尝试' }, { en: 'TX start', zh: '发送开始' }, { en: 'Rate', zh: '速率' }, { en: 'Retry bit', zh: 'Retry 位' }, { en: 'Failure recorded', zh: '记录失败' }, { en: 'CW after', zh: '之后的 CW' },
+    { term: 'queue', plain: {
+      en: 'the line of frames waiting their turn to be sent, oldest at the front',
+      zh: '等着轮到自己被发出去的那一列帧，最老的排在最前面',
+    } },
+    { term: 'lifetime', plain: {
+      en: 'how long a frame may wait in the line before it is thrown away unsent',
+      zh: '一帧在队列里最多能等多久；超过了，就不发了，直接扔掉',
+    } },
+  ],
+  picture: [
+    { heading: { en: 'Nobody answered', zh: '没人回答' }, text: {
+      en: 'A sender cannot hear whether its own frame arrived. All it knows is that the ACK it was waiting for never came. So it sends the very same frame again — a retry — still from the front of the line, with one bit set so the receiver can tell a repeat from something new.',
+      zh: '发送方听不见自己那一帧有没有到。它只知道，自己等的那个 ACK 一直没来。于是它把同一帧原样再发一次——这就是重传——位置仍在队列最前面，只是置上一个比特，好让接收端分得清这是重复的还是新的。',
+    } },
+    { heading: { en: 'Each attempt costs more than the last', zh: '每一次尝试都比上一次贵' }, text: {
+      en: 'A retry is not simply the frame over again. The sender reads the silence as a sign of a crowd, doubles its CW and draws a longer backoff, so each further attempt starts later than the one before. The frame also tends to go out slower: after repeated failures the radio steps down to a sturdier, slower way of sending, so it lies on the air longer — a bigger target for the next collision.',
+      zh: '重传不只是“把那一帧再来一遍”。发送方把这份沉默当成人多的信号，于是把 CW 翻倍、抽一个更长的退避值，结果每一次新的尝试都比上一次开始得更晚。帧本身往往也发得更慢：连着失败几次之后，无线电会降到一种更结实、也更慢的发法上，帧在空中拉得更长，也就成了下一次碰撞更大的靶子。',
+    } },
+    { kind: 'watch', jump: 0, heading: { en: 'Follow one frame', zh: '盯住一帧' }, text: {
+      en: 'Load the simulation and jump to the first retry. Follow one frame from the uploader on the left: the same frame going out again, and again, each attempt further from the last — until it stops.',
+      zh: '载入仿真，跳到第一次重传。盯住左边那台上传终端的某一帧：同一帧一次、又一次地发出去，每次尝试都比上次隔得更远——直到它不再出现。',
+    } },
+    { heading: { en: 'Seven tries, then let it go', zh: '七次之后，放手' }, text: {
+      en: 'No frame is tried for ever. Each one carries a count of how often it has been sent, and when that count reaches the retry limit — seven here — the frame is given up and the next one moves to the front. That is the rule working, not failing: a link that cannot push a frame through in seven tries will not push it through in seventy.',
+      zh: '没有哪一帧可以永远重来。每一帧都记着自己已经被发过多少次，一旦这个数达到重传上限——这里是七——这一帧就被放弃，后面那一帧挪到队首。这不是规则出了问题，正是规则在起作用：一条七次都推不过去的链路，七十次也推不过去。',
+    } },
+    { heading: { en: 'The line behind it', zh: '它身后的队伍' }, text: {
+      en: 'Frames keep arriving from the application above, and they wait their turn in a queue. They wait for the channel — and they wait for every attempt the frame in front of them makes. One stubborn frame at the head holds up a hundred healthy ones behind it. The real cost of a retry is never the airtime it burns; it is the delay it hands to everything else.',
+      zh: '上面的应用还在不停地交下新的帧，它们在队列里等着轮到自己。它们要等信道——也要等排在前面那一帧的每一次尝试。队首一帧发不动，后面一百帧都跟着卡住。一次重传真正的代价，从来不是它烧掉的那点空口时间，而是它塞给其余所有帧的那段等待。',
+    } },
+    { heading: { en: 'Stale data is worse than none', zh: '过时的数据不如没有' }, text: {
+      en: 'So a frame carries a clock as well as a count. Once it has waited in the queue past its lifetime — half a second here — the MAC throws it away without ever sending it. For a video frame or a voice sample that is exactly right: the moment it belonged to has gone, and delivering it late costs airtime and helps nobody.',
+      zh: '所以一帧身上除了计数，还有一只钟。一旦它在队列里等过了自己的生存期——这里是半秒——MAC 就把它扔掉，连发都不发。对一个视频帧或一段语音采样来说，这么做完全正确：它本该属于的那一刻已经过去了，迟到地送达只会花掉空口时间，对谁都没有好处。',
+    } },
+    { heading: { en: 'And when the line is full', zh: '当队伍满了' }, text: {
+      en: 'The queue also has a ceiling. When it is full, an arriving frame is turned away at the door and never joins the line at all. This is the one loss that says nothing about the link and everything about the load: more traffic is being offered than the channel can carry, and only less traffic or more airtime cures it.',
+      zh: '队列还有一个上限。队列一满，新到的帧就在门口被挡回去，根本进不了队。这是唯一一种与链路无关、只与负载有关的损失：交下来的流量超过了信道能搬走的量，只有减少流量或腾出更多空口时间才治得了。',
+    } },
+  ],
+  numbers: [
+    { kind: 'table', heading: { en: 'One frame, seven attempts', zh: '一帧，七次尝试' }, head: [
+      { en: 'Attempt', zh: '第几次' }, { en: 'Sent at', zh: '发送于' }, { en: 'Rate', zh: '速率' },
+      { en: 'Repeat bit', zh: '重复标志' }, { en: 'Failure recorded', zh: '记录失败' }, { en: 'CW after', zh: '之后的 CW' },
     ], rows: [
       [N('1'), N('0 µs'), N('48 Mb/s'), N('0'), N('321 µs'), N('31')],
       [N('2'), N('526 µs'), N('48 Mb/s'), N('1'), N('847 µs'), N('63')],
@@ -51,27 +103,33 @@ export const retriesQueues: Lesson = {
       [N('4'), N('4544 µs'), N('36 Mb/s'), N('1'), N('4953 µs'), N('255')],
       [N('5'), N('6999 µs'), N('24 Mb/s'), N('1'), N('7576 µs'), N('511')],
       [N('6'), N('13 632 µs'), N('24 Mb/s'), N('1'), N('14 209 µs'), N('1023')],
-      [N('7'), N('26 940 µs'), N('18 Mb/s'), N('1'), { en: '27 689 µs — DROP retryLimit', zh: '27 689 µs——DROP retryLimit' }, N('15')],
+      [N('7'), N('26 940 µs'), N('18 Mb/s'), N('1'), { en: '27 689 µs — given up', zh: '27 689 µs——放弃' }, N('15')],
     ] },
-    { text: {
-      en: 'All seven carry sequence number 0, each failure is recorded at its ACK timeout, and the rate controller steps down every second failure, so each retry is a longer target (276 → 704 µs). The next frame, sequence number 1, leaves at 27 741 µs, Retry bit clear. Such a drop means the link failed. Decoding here is deterministic until the PHY tier adds a PER model, so every failure comes from collisions or interference. Over 3 s Hidden A gets 76 frames through and loses 62 this way; Hidden B, 69 and 61.',
-      zh: '七次发送的序列号都是 0，每次失败都在各自 ACK 超时处记录；速率控制每失败两次降一档，于是每次重传都是更长的“靶子”（276 → 704 µs）。下一帧（序列号 1）在 27 741 µs 发出，Retry 位清零。这种丢帧意味着链路失败了。在 PHY 阶段引入 PER 模型之前，这里的解码是确定性的，所以每次失败都来自碰撞或干扰。3 s 内 Hidden A 送达 76 帧、以此方式丢掉 62 帧；Hidden B 则是 69 与 61。',
+    { heading: { en: 'Reading that table', zh: '这张表怎么读' }, text: {
+      en: 'All seven attempts carry the same sequence number. The rate steps down after every second failure, so the first attempt is 276 µs of air and the seventh 704 µs. The frame behind it leaves at 27 741 µs, with a fresh number and the repeat bit clear.',
+      zh: '七次尝试的序列号都是同一个。速率每失败两次降一档，于是第一次尝试占 276 µs 空口时间，第七次要 704 µs。排在它后面那一帧直到 27 741 µs 才发出去，序列号是新的，重复标志清零。',
     } },
-    { heading: { en: 'When the retry count and QSRC disagree', zh: '当重传计数与 QSRC 不一致时' }, text: {
-      en: 'Both counters move in lockstep — until 504 465 µs, when Hidden B’s head frame (sequence number 17, five failures behind it) and the two behind it are found older than 500 ms and dropped for lifetime. The next frame, sequence number 18, then fails with retries = 1 but QSRC = 6, CW 1023; its second failure takes QSRC to 7, so CW resets to 15 although the frame has used two of its seven attempts; its third reads retries = 3, QSRC = 1. All three expired frames had waited since t = 0 — head-of-line delay: a frame waits for every retry of every frame ahead of it.',
-      zh: '同一队列只处理一帧时，两个计数器步调一致——直到 504 465 µs：Hidden B 的队头帧（序列号 17，已失败五次）连同其后两帧被发现排队超过 500 ms，一起因生存期到期被丢弃。接着下一帧（序列号 18）失败时 retries = 1 而 QSRC = 6，CW 为 1023；它第二次失败使 QSRC 达到 7，于是 CW 复位为 15，尽管这一帧七次机会才用掉两次；第三次失败则是 retries = 3、QSRC = 1。这三帧从 t = 0 起就在排队——这就是队头阻塞时延：一帧不仅要等信道，还要等排在它前面的每一帧的每一次重传。',
-    } },
-    { kind: 'list', heading: { en: 'Queues: how much, how long', zh: '队列：能放多少，能放多久' }, items: [
-      { en: 'One transmit queue per access category; defaults follow ns-3’s WifiMacQueue.', zh: '每个接入类别一个发送队列；默认值沿用 ns-3 的 WifiMacQueue。' },
-      { en: 'Queue limit 500 MSDUs: an arrival finding it full is dropped, never queued (DROP_NEWEST) — DROP queueFull, no ENQUEUE record.', zh: '队列上限 500 个 MSDU：到达时队列已满的帧直接被丢弃、从不入队（DROP_NEWEST）——DROP queueFull，没有 ENQUEUE 记录。' },
-      { en: 'MSDU lifetime 500 ms (dot11EDCATableMSDULifetime): an older MSDU goes when the MAC next builds a transmission from that queue — DROP lifetime, then DEQUEUE. Frames expire in batches.', zh: 'MSDU 生存期 500 ms（dot11EDCATableMSDULifetime）：更老的 MSDU 会在 MAC 下一次从该队列组织发送时被丢弃——DROP lifetime，随后 DEQUEUE。帧因此成批过期。' },
+    { kind: 'table', heading: { en: 'Three reasons a frame is given up', zh: '一帧被放弃的三种原因' }, head: [
+      { en: 'What the log says', zh: '日志里写的' }, { en: 'It fires when', zh: '什么时候触发' }, { en: 'It means', zh: '它的含义' },
+    ], rows: [
+      [N('retryLimit'), { en: 'the seventh attempt at one frame fails', zh: '同一帧的第七次尝试失败了' }, { en: 'the link is failing — fix the link', zh: '链路在失败——要修的是链路' }],
+      [N('lifetime'), { en: 'it has waited over 500 ms in the line', zh: '它在队列里等了超过 500 ms' }, { en: 'the data is stale, and dropping it is right', zh: '数据已经过时，丢掉它是对的' }],
+      [N('queueFull'), { en: 'a new frame finds 500 already waiting', zh: '新帧到达时已有 500 帧在等' }, { en: 'overload — less load, or more capacity', zh: '过载——要么减负，要么扩容' }],
     ] },
-    { heading: { en: 'Offered load above capacity: the queue fills', zh: '供给负载超过容量：队列被填满' }, text: {
-      en: 'In 3 s the video offers the AP 3541 MSDUs of 1400 B (13.2 Mb/s); sharing the channel with two stations stuck at long, colliding frames, it gets 2644 acknowledged (9.9 Mb/s):',
-      zh: '3 s 内视频向 AP 供给 3541 个 1400 B 的 MSDU（13.2 Mb/s）；AP 要与两台卡在又长又爱碰撞的帧上的终端共享信道，最终只有 2644 帧被确认（9.9 Mb/s）：',
+    { kind: 'table', heading: { en: 'The same three seconds, three settings', zh: '同样的三秒，三种设置' }, head: [
+      { en: 'Run', zh: '运行' }, { en: 'Turned away', zh: '门口挡回' }, { en: 'Stale at the AP', zh: 'AP 处过时' },
+      { en: 'Uploads given up', zh: '上传被放弃' }, { en: 'Delivered by the AP', zh: 'AP 送达' },
+    ], rows: [
+      [{ en: 'Defaults: 500 frames, 500 ms', zh: '默认：500 帧、500 ms' }, N('213'), N('194'), N('123'), N('2644')],
+      [{ en: 'Short queue: 100 frames', zh: '短队列：100 帧' }, N('797'), N('0'), N('123'), N('2644')],
+      [{ en: 'Short lifetime: 100 ms', zh: '短生存期：100 ms' }, N('0'), N('770'), N('40'), N('2644')],
+    ] },
+    { heading: { en: 'What the knobs cannot do', zh: '旋钮做不到的事' }, text: {
+      en: 'All three runs deliver the AP’s same 2644 video frames: a buffer cannot make airtime. A short queue moves the loss to the door; a short lifetime moves it to the clock, and the uploaders then lose 987 frames of their own to age.',
+      zh: '三次运行里 AP 送达的都是同样的 2644 个视频帧：缓冲区变不出空口时间。短队列把损失挪到门口；短生存期把它挪到钟上，两台上传终端因此有 987 帧老死在队列里。',
     } },
-    { kind: 'table', head: [
-      { en: 'Delivered during', zh: '送达时段' }, { en: 'Mean queue-to-ACK delay', zh: '入队到 ACK 的平均时延' },
+    { kind: 'table', heading: { en: 'How long a delivered frame had waited', zh: '送达的帧等了多久' }, head: [
+      { en: 'Delivered during', zh: '送达时段' }, { en: 'Mean wait, defaults', zh: '平均等待，默认' },
     ], rows: [
       [N('0–0.5 s'), N('19 ms')],
       [N('0.5–1 s'), N('149 ms')],
@@ -80,40 +138,28 @@ export const retriesQueues: Lesson = {
       [N('2–2.5 s'), N('472 ms')],
       [N('2.5–3 s'), N('472 ms')],
     ] },
-    { text: {
-      en: 'At 1 963 852 µs the queue holds 500 MSDUs and the next video frame is refused — the first queueFull drop. At 2 182 806 µs the lifetime bites too: four frames aged 500.2 to 502.6 ms go at once, and the delay stops growing there.',
-      zh: '在 1 963 852 µs，队列已存有 500 个 MSDU，下一个视频帧被拒之门外——第一次 queueFull 丢帧。到 2 182 806 µs 生存期也开始起作用：四个已排队 500.2 至 502.6 ms 的帧同时被丢，时延到此不再增长。',
+  ],
+  deeper: [
+    { heading: { en: 'Two counters, not one', zh: '两个计数器，不是一个' }, text: {
+      en: 'The decision to give a frame up uses that frame’s own count of attempts. The decision to widen the window uses a second counter, one per queue rather than per frame, which any success resets. They move in step while one frame is being hammered, and come apart the moment frames are dropped for age: at 504 465 µs Hidden B loses three aged frames at once, and the next frame’s first failure reads retries = 1 against a queue counter of 6, then 2 against 7 — at which point the window snaps back to 15 although the frame has spent only two of its seven attempts.',
+      zh: '“是否放弃这一帧”看的是这一帧自己的尝试计数。“是否把窗口加宽”看的是另一个计数器：它属于队列而不是某一帧，任何一次成功都会让它复位。当同一帧被反复捶打时，两者步调一致；而一旦有帧因为年龄被丢掉，它们就分道扬镳：504 465 µs 处 Hidden B 一次丢掉三个老帧，紧接着那一帧第一次失败时读数是 retries = 1，而队列计数器已经是 6；第二次是 2 对 7——到这里窗口弹回 15，尽管这一帧七次机会才用掉两次。',
     } },
-    { kind: 'table', heading: { en: 'Three drop reasons, three diagnoses', zh: '三种丢帧原因，三种诊断' }, head: [
-      { en: 'reason', zh: 'reason' }, { en: 'Fires when', zh: '触发条件' }, { en: 'It means', zh: '含义' },
-    ], rows: [
-      [N('retryLimit'), { en: 'one MSDU’s 7th attempt fails', zh: '同一 MSDU 第 7 次尝试失败' }, { en: 'Link failure. Fix the link: RTS/CTS, placement, rate.', zh: '链路失败。要修的是链路：RTS/CTS、摆放位置、速率。' }],
-      [N('lifetime'), { en: 'it has waited over 500 ms', zh: '它已等待超过 500 ms' }, { en: 'Stale data — a late voice or game packet is worthless, so dropping it is right.', zh: '数据已过时——迟到的语音或游戏包毫无价值，丢掉它是对的。' }],
-      [N('queueFull'), { en: 'an arrival finds 500 queued', zh: '到达时队列里已有 500 帧' }, { en: 'Overload. Only less load or more capacity helps.', zh: '过载。只有减负或扩容才有用。' }],
-    ] },
-    { heading: { en: 'The knobs move losses, not capacity', zh: '旋钮只挪动损失，不增加容量' }, text: {
-      en: 'The variants change only the queue settings — a short queue is the quick way to watch overload, since the default takes almost two seconds to fill. The AP delivers the same 2644 frames in every run:',
-      zh: '两个变体只改队列设置——想快速看到过载就把队列改短，因为默认队列要将近两秒才填满。三次运行中 AP 送达的都是同样的 2644 帧：',
+    { heading: { en: 'Head-of-line delay', zh: '队头阻塞' }, text: {
+      en: 'Those three aged frames had been queued since the very first instant of the run. Nothing was wrong with them. They waited behind predecessors that each burned several attempts, and the age limit found them before the channel did — the cleanest picture of head-of-line delay this scene offers.',
+      zh: '那三个老帧从仿真的第一个瞬间起就在队列里了。它们本身没有任何问题。它们排在一群各自烧掉好几次尝试的前辈后面，结果是年龄上限先找到了它们，而不是信道。这就是本场景里最干净的一幅队头阻塞图景。',
     } },
-    { kind: 'table', head: [
-      { en: 'Run', zh: '运行' }, { en: 'First queueFull', zh: '首次 queueFull' }, { en: 'First AP lifetime drop', zh: 'AP 首次 lifetime 丢帧' }, { en: 'Mean delay, last second', zh: '最后一秒平均时延' },
-    ], rows: [
-      [{ en: 'Defaults (500, 500 ms)', zh: '默认（500，500 ms）' }, N('1 963 852 µs'), N('2 182 806 µs'), N('472 ms')],
-      [{ en: 'Short queue (100)', zh: '短队列（100）' }, N('529 728 µs'), { en: 'never', zh: '从未' }, { en: '117 ms (max 213 ms)', zh: '117 ms（最大 213 ms）' }],
-      [{ en: 'Short lifetime (100 ms)', zh: '短生存期（100 ms）' }, { en: 'never', zh: '从未' }, N('588 851 µs'), { en: '88 ms (max 101 ms)', zh: '88 ms（最大 101 ms）' }],
-    ] },
-    { text: {
-      en: '100 frames at 881 delivered per second is about 113 ms of traffic. With the short lifetime a delivered frame can still be 101 ms old: the age is checked before a transmission, so its ACK lands just past the limit.',
-      zh: '按每秒送达 881 帧计，100 帧约合 113 ms 的流量。短生存期下，送达的帧仍可能已有 101 ms：年龄在发送前检查，ACK 会稍越过上限才到。',
+    { heading: { en: 'Under a Block Ack agreement', zh: '在块确认协议下' }, text: {
+      en: 'When many frames are sent as one burst and acknowledged together, the sender repeats only the pieces the bitmap reports missing, each still bound by its own attempt count and age limit. This simulator does not model that yet: an aggregate succeeds or fails whole. The Tier 2 aggregation lesson adds it.',
+      zh: '当许多帧作为一次突发发出、并被一起确认时，发送方只重发位图报告缺失的那几块，每一块仍受自己的尝试计数与年龄上限约束。本仿真器还没有建模这件事：一个聚合帧要么整体成功、要么整体失败。第二阶段的聚合课会补上它。',
     } },
-    { text: {
-      en: 'Under a Block Ack agreement the rules differ: the originator retransmits only the MPDUs the BlockAck bitmap reports missing, each still bound by its retry count and lifetime. This simulator does not model Block Ack agreements yet — an A-MPDU succeeds or fails as a whole; the Tier 2 aggregation lesson adds them.',
-      zh: '在 Block Ack 协议下规则不同：发起方只重传 BlockAck 位图报告缺失的 MPDU，每个仍受自己的重传计数与生存期约束。本模拟器尚未建模 Block Ack 协议——这里的 A-MPDU 要么整体成功、要么整体失败；第二阶段的聚合课会加入它。',
-    } },
-    { kind: 'list', heading: { en: 'Where to read it', zh: '在哪里看' }, items: [
-      { en: 'The log prints “retry #id (retries=7 QSRC=7)” and “DROP #id (reason)”; frame detail shows Sequence number and Retry flag.', zh: '日志显示“retry #id (retries=7 QSRC=7)”与“DROP #id (reason)”；帧详情显示 Sequence number 与 Retry flag。' },
-      { en: 'Inspector: the QSRC row is the live per-access-category retry counter, “retries / drops” counts all three reasons, and the queue list shows each frame’s age.', zh: '检视器：QSRC 一行是该接入类别当前的重传计数器，“重传 / 丢弃”统计三种原因的丢帧总数，队列列表显示每帧已排队多久。' },
-    ] },
+  ],
+  sources: [
+    { en: 'The two counters are §10.23.2.2 of IEEE Std 802.11-2024: dot11ShortRetryLimit = 7 governs the per-MSDU discard, while the per-access-category QSRC drives CW = min(2·CW + 1, CWmax). 802.11-2016 also had a long-frame pair (SLRC, dot11LongRetryLimit = 4) above the RTS threshold; 802.11-2020 removed it.',
+      zh: '两个计数器见 IEEE Std 802.11-2024 §10.23.2.2：dot11ShortRetryLimit = 7 决定每个 MSDU 何时被丢弃，而每个接入类别一个的 QSRC 驱动 CW = min(2·CW + 1, CWmax)。802.11-2016 还有一套用于长帧的 SLRC 与 dot11LongRetryLimit = 4（超过 RTS 门限时适用），802.11-2020 已删除。' },
+    { en: 'Duplicate detection — transmitter address, sequence number and Retry = 1 — is §10.3.2.14; the MSDU lifetime is dot11EDCATableMSDULifetime.',
+      zh: '重复帧检测（凭发送地址、序列号与 Retry = 1）见 §10.3.2.14；MSDU 生存期即 dot11EDCATableMSDULifetime。' },
+    { en: 'The queue limit of 500 MSDUs, the 500 ms lifetime and the drop-newest policy are this simulator’s model choices, following ns-3’s WifiMacQueue; so are the seed, the hidden-node house and the 13.2 Mb/s video source.',
+      zh: '500 个 MSDU 的队列上限、500 ms 的生存期与“丢弃新到者”的策略，都是本仿真器的模型取值，沿用 ns-3 的 WifiMacQueue；随机种子、隐藏节点户型与 13.2 Mb/s 的视频源同样如此。' },
   ],
   scenario: () => retriesScenario({ limit: 500, lifetimeMs: 500 }),
   variants: [
@@ -135,44 +181,44 @@ export const retriesQueues: Lesson = {
     J('first lifetime drop at the AP', 'AP 第一次因生存期丢帧', dropOf('lifetime', 'ap')),
   ],
   observe: [
-    { en: 'At the first retry-limit drop (27 689 µs) Hidden B logs retries=7 QSRC=7, DROP (retryLimit) and CW → 15 together, and its next frame shows sequence number 1 with Retry flag 0.', zh: '第一次因重传上限丢帧（27 689 µs）处，Hidden B 同时记下 retries=7 QSRC=7、DROP (retryLimit) 和 CW → 15；它的下一帧序列号为 1、Retry flag 为 0。' },
-    { en: 'Jump to Hidden B’s first lifetime drop and step forward: three DROP (lifetime) lines at one instant, then RETRY records reading retries=1 QSRC=6, retries=2 QSRC=7, retries=3 QSRC=1 — the per-MSDU counter and QSRC apart.', zh: '跳到 Hidden B 第一次因生存期丢帧并往后步进：同一瞬间三条 DROP (lifetime)，随后的 RETRY 记录依次是 retries=1 QSRC=6、retries=2 QSRC=7、retries=3 QSRC=1——每帧计数与 QSRC 就此分道扬镳。' },
-    { en: 'Select the AP and play: the queue count climbs, the head frame’s age approaches 500 ms, and after the first queue-full drop at 1 963 852 µs both drop reasons alternate.', zh: '选中 AP 并播放：队列计数不断上涨，队头帧的等待时间逼近 500 ms；1 963 852 µs 第一次队列满丢帧之后，两种丢帧原因交替出现。' },
+    { en: 'At the give-up at 27 689 µs, Hidden B logs the drop and a window reset to 15 in one instant; its next frame carries sequence number 1 and a clear repeat bit.', zh: '27 689 µs 放弃那一帧时，Hidden B 同一瞬间记下丢弃与窗口复位为 15；它的下一帧序列号是 1，重复标志清零。' },
+    { en: 'Select the AP and play. The queue count climbs for two seconds and the head frame ages towards 500 ms; after the first queue-full drop at 1 963 852 µs the two losses alternate.', zh: '选中 AP 并播放。队列计数涨了两秒，队首帧的年龄逼近 500 ms；1 963 852 µs 第一次队列满丢帧后，两种损失交替出现。' },
+    { en: 'Jump to Hidden B’s first lifetime drop: three frames go at one instant, all queued since the start of the run, none of them ever sent.', zh: '跳到 Hidden B 第一次因生存期丢帧：三帧在同一瞬间被丢掉，它们从仿真开始就在队列里，一次都没发出去过。' },
   ],
   tryThis: [
-    { en: 'Load each variant and jump to the AP’s first queue-full and first lifetime drop. Predict which one each variant lacks, and why the AP still delivers the same 2644 frames.', zh: '依次载入两个变体，跳到 AP 第一次队列满丢帧与第一次生存期丢帧。先预测每个变体缺了哪一种、以及为什么 AP 送达的仍是同样的 2644 帧。' },
-    { en: 'In the editor set the RTS threshold to 500 B — the cure from the hidden-node lesson — and reload. Watch the stations’ retry-limit drops and the AP’s queue.', zh: '在编辑器中把 RTS 门限设为 500 B——隐藏节点课里的解法——后重新载入。观察两台终端的重传上限丢帧与 AP 的队列。' },
+    { en: 'Load each variant and look for the AP’s first queue-full and first lifetime drop. Predict which one each variant lacks, and why all three runs still deliver 2644 frames.', zh: '依次载入两个变体，去找 AP 第一次队列满丢帧与第一次生存期丢帧。先预测每个变体缺哪一种，以及为什么三次运行送达的都是 2644 帧。' },
+    { en: 'In the editor set the RTS threshold to 500 B — the cure the hidden-node lesson gave you — and reload. Watch the uploaders’ give-ups and the AP’s queue.', zh: '在编辑器里把 RTS 门限设为 500 B——隐藏节点那一课给你的解法——再重新载入。看看两台上传终端的“放弃”和 AP 的队列。' },
   ],
   quiz: [
     {
-      q: { en: 'A station’s QSRC has just reached 7, but its head frame has failed only twice. What happens?', zh: '某终端的 QSRC 刚达到 7，但其队头帧只失败过两次。会发生什么？' },
+      q: { en: 'A frame has been sent seven times and still has no answer. What happens to it?', zh: '一帧已经发了七次，还是没有回答。它会怎么样？' },
       options: [
-        { en: 'The frame is dropped for reaching the retry limit', zh: '该帧因达到重传上限被丢弃' },
-        { en: 'QSRC and CW reset (CW = 15); the frame stays queued, with five attempts left', zh: 'QSRC 与 CW 复位（CW = 15）；该帧留在队列中，还剩五次尝试' },
-        { en: 'CW stays at 1023 until the frame succeeds', zh: 'CW 保持 1023，直到该帧成功' },
+        { en: 'It waits at the front of the line until the channel is quieter', zh: '它留在队首，等信道安静一些' },
+        { en: 'It is given up, and the frame behind it moves to the front', zh: '它被放弃，后面那一帧挪到队首' },
+        { en: 'It is sent once more at the lowest rate', zh: '它再以最低速率发一次' },
       ],
       answer: 1,
-      explain: { en: 'The drop decision uses the MSDU’s own retry count; QSRC only drives CW. Hidden B shows exactly this at retries=2 QSRC=7.', zh: '是否丢帧看的是 MSDU 自己的重传计数；QSRC 只驱动 CW。Hidden B 在 retries=2 QSRC=7 处正是如此。' },
+      explain: { en: 'Seven is the retry limit, and the queue behind has already paid for every one of those attempts.', zh: '七就是重传上限，而后面整条队列已经为这七次尝试买了单。' },
     },
     {
-      q: { en: 'Your AP’s log fills with DROP (queueFull). What is the diagnosis?', zh: 'AP 的日志里满是 DROP (queueFull)。诊断是什么？' },
+      q: { en: 'Your AP’s log fills with queueFull. What is the diagnosis?', zh: 'AP 的日志里满是 queueFull。诊断是什么？' },
       options: [
-        { en: 'The link to the client is failing', zh: '到客户端的链路在失败' },
-        { en: 'The frames are stale', zh: '帧已经过时' },
-        { en: 'Offered load exceeds what the channel carries for that queue', zh: '供给负载超过信道能为该队列承载的量' },
+        { en: 'The link to that client is failing', zh: '到那个客户端的链路在失败' },
+        { en: 'The frames are stale', zh: '这些帧已经过时' },
+        { en: 'More traffic is offered than the channel can carry', zh: '交下来的流量超过了信道能搬走的量' },
       ],
       answer: 2,
-      explain: { en: 'Arrivals outpace departures. Link failure shows up as retryLimit, staleness as lifetime.', zh: '到达快于离开。链路失败表现为 retryLimit，数据过时表现为 lifetime。' },
+      explain: { en: 'Arrivals outpace departures. A failing link shows up as retryLimit instead, staleness as lifetime.', zh: '到达的速度快过离开的速度。链路失败表现为 retryLimit，数据过时表现为 lifetime。' },
     },
     {
-      q: { en: 'The TV stream is overloaded. You raise the queue limit from 100 to 500 MSDUs. What changes?', zh: '电视视频流过载。你把队列上限从 100 提高到 500 个 MSDU。会有什么变化？' },
+      q: { en: 'You raise the queue from 100 frames to 500. What changes?', zh: '你把队列从 100 帧加大到 500 帧。会有什么变化？' },
       options: [
-        { en: 'The AP delivers more frames', zh: 'AP 送达的帧更多' },
-        { en: 'The same 2644 frames get through, later, and the losses move from queueFull to lifetime', zh: '送达的仍是那 2644 帧，但到得更晚，损失也从 queueFull 转移到 lifetime' },
-        { en: 'Nothing at all', zh: '没有任何变化' },
+        { en: 'The AP delivers more frames', zh: 'AP 送达的帧更多了' },
+        { en: 'The same 2644 get through, later, and the loss moves from the door to the clock', zh: '送达的还是那 2644 帧，只是更晚，损失从门口挪到了钟上' },
+        { en: 'Nothing at all', zh: '什么都不会变' },
       ],
       answer: 1,
-      explain: { en: 'A bigger buffer cannot create airtime; it only holds frames longer — the mean delay over the last second rises from 117 ms to 472 ms.', zh: '更大的缓冲区造不出空口时间，只会让帧等得更久——最后一秒的平均时延从 117 ms 升到 472 ms。' },
+      explain: { en: 'A bigger buffer cannot make airtime, only hold frames longer: the mean wait over the last second rises from 117 ms to 472 ms.', zh: '更大的缓冲区造不出空口时间，只会让帧等得更久。最后一秒的平均等待从 117 ms 升到 472 ms。' },
     },
   ],
 }
