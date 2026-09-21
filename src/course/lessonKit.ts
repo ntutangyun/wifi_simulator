@@ -9,6 +9,7 @@ import { DEFAULT_AMP_AP, DEFAULT_UWB_SESSION } from '../model/scenario'
 import type { TLRecord } from '../model/records'
 import type { Generation } from '../model/types'
 import { UWB_TX_POWER_DBM } from '../uwb/phy'
+import { oneRoom, hallwayHouse, longApartment, sc } from './wifiScenes'
 
 export interface L10n {
   en: string
@@ -109,55 +110,13 @@ export const brick = (x1: number, y1: number, x2: number, y2: number): Wall =>
 export const drywallDoor = (x1: number, y1: number, x2: number, y2: number, from: number): Wall =>
   ({ x1, y1, x2, y2, material: 'drywall', openings: [{ from, to: from + 0.9 }] })
 
-/** Single 10×8 room with a brick shell. */
-export function oneRoom(): { rooms: Room[]; walls: Wall[] } {
-  return {
-    rooms: [{ x: 0, y: 0, w: 10, h: 8, name: 'Lab' }],
-    walls: [brick(0, 0, 10, 0), brick(10, 0, 10, 8), brick(10, 8, 0, 8), brick(0, 8, 0, 0)],
-  }
-}
-
 /**
- * Room A | brick hallway (AP) | Room B. The stations' ray crosses TWO brick
- * walls (~24 dB) at ~8.4 m, landing below the −82 dBm preamble threshold —
- * genuinely hidden — while each station reaches the AP through one wall.
+ * `oneRoom`, `hallwayHouse`, `longApartment` and `sc` live in `./wifiScenes`
+ * now (they are Wi-Fi-lesson scene builders); re-exported here so every
+ * existing `from './lessonKit'` import keeps working unchanged. `sc` is also
+ * used locally below (the UWB scenario helpers build on it too).
  */
-export function hallwayHouse(): { rooms: Room[]; walls: Wall[] } {
-  return {
-    rooms: [
-      { x: 0, y: 0, w: 4, h: 8, name: 'Room A' },
-      { x: 4, y: 0, w: 2, h: 8, name: 'Hallway' },
-      { x: 6, y: 0, w: 4, h: 8, name: 'Room B' },
-    ],
-    walls: [
-      brick(0, 0, 10, 0), brick(10, 0, 10, 8), brick(10, 8, 0, 8), brick(0, 8, 0, 0),
-      brick(4, 0, 4, 8), brick(6, 0, 6, 8),
-    ],
-  }
-}
-
-/**
- * Long 16×8 apartment: a study (0–6) and a far living room (6–16) split by
- * brick. Wide enough that the far station is genuinely far — ~11.5 m plus one
- * wall lands it at ~−75 dBm (12 Mb/s), 40 dB under the near station, so the
- * near frame's capture clears its 30 dB decode threshold by ~10 dB instead of
- * sitting on the edge of it.
- */
-export function longApartment(): { rooms: Room[]; walls: Wall[] } {
-  return {
-    rooms: [
-      { x: 0, y: 0, w: 6, h: 8, name: 'Study' },
-      { x: 6, y: 0, w: 10, h: 8, name: 'Living room' },
-    ],
-    walls: [
-      brick(0, 0, 16, 0), brick(16, 0, 16, 8), brick(16, 8, 0, 8), brick(0, 8, 0, 0),
-      brick(6, 0, 6, 8),
-    ],
-  }
-}
-
-
-
+export { oneRoom, hallwayHouse, longApartment, sc }
 
 export function node(
   id: string, name: string, kind: 'ap' | 'sta', x: number, y: number,
@@ -168,17 +127,6 @@ export function node(
     id, kind, name, pos: { x, y, z: z ?? (kind === 'ap' ? 2.0 : 1.0) },
     txPowerDbm: kind === 'ap' ? 20 : 15, profiles: Array.isArray(profile) ? profile : [profile],
     caps: { generation: gen, features: features ?? defaultFeatures(gen) },
-  }
-}
-
-export function sc(house: { rooms: Room[]; walls: Wall[] }, nodes: NodeCfg[], extra: Partial<Scenario> = {}): Scenario {
-  return {
-    ...house, nodes,
-    // Lessons are about the Wi-Fi MAC: no cloud servers, so no WAN delay and
-    // every quoted timestamp stays where it is.
-    servers: [],
-    seed: 7, rtsThresholdBytes: 3000, snapshotIntervalMs: 10,
-    ...extra,
   }
 }
 

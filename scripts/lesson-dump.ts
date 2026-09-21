@@ -3,10 +3,11 @@
  *
  *   npx tsx scripts/lesson-dump.ts <lessonId> <en|zh>
  *
- * or, for the budget line of every UWB lesson at once — the one screen that
- * shows a batch's word counts against the spec's windows:
+ * or, for the budget line of every UWB (or Wi-Fi) lesson at once — the one
+ * screen that shows a batch's word counts against the spec's windows:
  *
  *   npx tsx scripts/lesson-dump.ts --all-uwb
+ *   npx tsx scripts/lesson-dump.ts --all-wifi
  *
  * The novice read of the readability programme
  * (docs/superpowers/specs/2026-09-21-course-readability-design.md, "Reviewing
@@ -46,12 +47,17 @@ if (id === '--all-uwb') {
   for (const l of LESSONS.filter((x) => trackOf(x) === 'uwb')) console.log(budgetLine(l))
   process.exit(0)
 }
+if (id === '--all-wifi') {
+  for (const l of LESSONS.filter((x) => trackOf(x) === 'wifi')) console.log(budgetLine(l))
+  process.exit(0)
+}
 
 const lang: 'en' | 'zh' = langArg === 'zh' ? 'zh' : 'en'
 
 if (!id || (langArg !== undefined && langArg !== 'en' && langArg !== 'zh')) {
   console.error('usage: npx tsx scripts/lesson-dump.ts <lessonId> <en|zh>')
   console.error('       npx tsx scripts/lesson-dump.ts --all-uwb')
+  console.error('       npx tsx scripts/lesson-dump.ts --all-wifi')
   console.error(`lessons: ${LESSONS.map((l) => l.id).join(' ')}`)
   process.exit(2)
 }
