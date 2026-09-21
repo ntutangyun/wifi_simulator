@@ -154,9 +154,10 @@ describe('a scene whose links are all above the reference', () => {
   })
 
   it('leaves the pairwise MMS lesson scene alone: its trains combine past the reference', () => {
-    // uwb-mms's second variant is the pairwise round whose eight fragments combine well over
+    // uwb-mms's second variant (rsf-1, X = 16) is a pair round whose fragments combine well over
     // the reference, which is why its entry in tests/fixtures/uwb-record-hashes.json — the
-    // hash it had before any of this existed — still matches. Here is the reason, in the run:
+    // hash it had before any of this existed — still matches. (The lesson's pairwise base scene,
+    // now variant 3 / uwb-mms#3, sits at 19.84–20.02 dB and did move.) The reason, in the run:
     // every detected train of it is timed at scale 1, so not one counter of it could move.
     const lesson = LESSONS.find((l) => l.id === 'uwb-mms')!
     const variant = lesson.variants![1]

@@ -299,8 +299,8 @@ export interface UwbSessionCfg {
    * decision — and so that a scenario saved before this slice reads back unchanged. */
   mms: UwbMmsCfg
   /**
-   * Model: an attacker sitting between the two radios that relays every ranging frame of this
-   * session so that its RMARKER appears to arrive `advanceNs` earlier than light allows — the
+   * Model: an attacker sitting between the two radios that relays every two-way and TDoA ranging frame of
+   * this session (MMS fragment trains are outside the model's reach) so that its RMARKER appears to arrive `advanceNs` earlier than light allows — the
    * distance-reduction relay the scrambled timestamp sequence exists to stop.
    *
    * Absent — the default — there is no attacker at all, and no scenario that never named one

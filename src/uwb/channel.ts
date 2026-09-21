@@ -123,8 +123,9 @@ interface Arrival {
  * radio was ever trying to decode and must not doom what it is building.
  *
  * Be clear about what that guards. In this engine's interleave every device owns a slot of its
- * own inside each millisecond (`mmsLayout`), a fragment is at most 82 µs and the shortest legal
- * MMS slot is 250 µs — so two scheduled fragments never overlap in time at all, and neither this
+ * own inside each millisecond (`mmsLayout`), and the longest fragment (a 256-unit RIF, 262.8 µs)
+ * is shorter than the shortest legal MMS slot (600 RSTU = 500 µs) — so two scheduled fragments
+ * never overlap in time at all, and neither this
  * scope nor the per-fragment capture below is reached from any round the scheduler lays out.
  * They are cheap defence against a layout that packs a millisecond tighter, and what
  * `tests/uwb/mms-one-to-many.test.ts` exercises by driving the medium directly. Every 4z frame,
