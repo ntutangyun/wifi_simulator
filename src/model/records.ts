@@ -81,6 +81,14 @@ export type TLRecord = { t: Ns; seq: number } & (
    * `read.length + collisions + empties === slotsOffered` holds for every record: the reader
    * never opens a slot it has not reserved the air to finish.
    *
+   * `complete` is the session's own state at this instant and nothing else's: a poll tick that
+   * lands mid-round asks for a new inventory but does not end this one, so it can never make a
+   * truncated round report itself finished.
+   *
+   * The reader emits this and goes straight back to deferring, in the same instant — so anything
+   * reading the tally off a live round will find the round already cleared and must keep the
+   * closed one beside it, which is what `NodeView.ampInventoryLast` is for.
+   *
    * `collisions` is a slot the reader *heard* something in and could not read — two reflections
    * on top of each other, or one spoiled by Wi-Fi. `empties` is a slot with no answer the reader
    * could hear, which covers both silence and a tag that booted and answered from beyond the

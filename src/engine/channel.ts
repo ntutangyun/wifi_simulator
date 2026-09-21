@@ -96,6 +96,16 @@ export interface ChannelSpectrum {
 export interface BsGeometry {
   posOf: (id: string) => Vec3
   walls: Wall[]
+  /**
+   * A node's own transmit power (dBm EIRP) — the one the link table was built from.
+   *
+   * A downlink RFID PPDU is the one thing on this link that does not radiate it, so a receiver
+   * that *does* read the link table (every Wi-Fi radio in the room) has to be told the
+   * difference. It sits here because the backscatter tier is the only thing that needs it on a
+   * 2.4 GHz link; it belongs with `spectrum` in one options object, which is the channel's own
+   * carry.
+   */
+  txPowerOf: (id: string) => number
 }
 
 /** A PPDU a node has on the air right now, and where in it we are. */
@@ -413,6 +423,14 @@ export class Channel {
    * backscatter tag (Friis, at the charge power the PPDU itself carries), and a backscattered
    * reply, which has no transmitter — it is the excitation that reached the tag, `AMP_BS_LOSS_DB`
    * down for the modulation, travelling the same path back.
+   *
+   * A Wi-Fi radio hearing that same RFID PPDU is a third case, and only half of it. The law is
+   * the link table's, because metres across a room are what that law is for; the *power* is not,
+   * because the table holds the node's own EIRP and this PPDU radiates the charge power instead.
+   * So the table's answer is shifted by the difference, which at the default 10 dBm charge from
+   * a 20 dBm AP is 10 dB. One power for the whole PPDU, the loudest it reaches — the excitation
+   * behind the command is quieter still, and taking the maximum is the conservative reading for
+   * carrier sense and for deferral.
    */
   private rxDbmOf(tx: ActiveTx, rxId: string): number {
     const frame = tx.frame
@@ -422,8 +440,15 @@ export class Channel {
       if (incidentDbm === undefined) return -200
       return incidentDbm - AMP_BS_LOSS_DB - this.bsLossDb(tx.txId, rxId)
     }
-    if (frame.kind === 'ampRfid' && this.radios.get(rxId)?.kind === 'bsTag') {
-      return txDbmAt(frame, 0)! - this.bsLossDb(tx.txId, rxId)
+    if (frame.kind === 'ampRfid') {
+      const ppduDbm = txDbmAt(frame, 0)!
+      if (this.radios.get(rxId)?.kind === 'bsTag') {
+        return ppduDbm - this.bsLossDb(tx.txId, rxId)
+      }
+      // The geometry is present wherever a reader is (an inventory round exists only on a link
+      // that has a backscatter tag on it); without it there is nothing to shift against.
+      const g = this.bsGeometry
+      if (g !== undefined) return this.linkDbm(tx.txId, rxId) - (g.txPowerOf(tx.txId) - ppduDbm)
     }
     return this.linkDbm(tx.txId, rxId)
   }

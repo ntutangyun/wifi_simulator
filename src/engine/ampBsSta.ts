@@ -159,7 +159,6 @@ export class AmpBsStaMac implements PhyListener {
   /** The reader read this tag's handle out of the noise: answer with the EPC itself. */
   private onAck(t: Ns, frame: FrameDesc, r: Rfid): void {
     if (this.rn16 === null || r.rn16 !== this.rn16 || frame.dst !== this.nodeId) { this.settle(); return }
-    this.inventoried = true
     this.answer(t, r, 'epc')
   }
 
@@ -196,6 +195,10 @@ export class AmpBsStaMac implements PhyListener {
   private backscatter(reply: Gen2Reply, slot: number, kbps: AmpBsUlKbps, bsDbm: number): void {
     this.txHandle = 0
     if (!this.powered) return
+    // What inventories a tag is its EPC going out, not the ACK that asked for it: a tag whose
+    // reply never leaves is still answerable in this session, and this is the same instant the
+    // view sets its flag from the record.
+    if (reply === 'epc') this.inventoried = true
     const t = this.now()
     const frame = ampBsReplyFrame({
       src: this.nodeId, dst: this.cfg.apId, reply, kbps, slot,

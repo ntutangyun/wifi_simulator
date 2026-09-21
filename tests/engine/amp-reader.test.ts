@@ -2,13 +2,17 @@ import { describe, it, expect } from 'vitest'
 import {
   AMP_BS_REQ_SNR_DB, AMP_BS_T1_NS, AMP_BS_T2_NS, AMP_BS_WRITE_T3_NS, epcOf,
 } from '../../src/engine/ampBs'
+import { AmpInventoryRound } from '../../src/engine/ampReader'
 import { bsDataEndNs } from '../../src/engine/channel'
+import { EventQueue } from '../../src/engine/events'
 import { hashStr } from '../../src/engine/hash'
+import { CCA_ED_DBM, ERP_2G } from '../../src/engine/phy'
+import { PL0_DB, PL_EXP } from '../../src/engine/propagation'
 import { Rng } from '../../src/engine/rng'
 import { Simulation } from '../../src/engine/simulation'
-import type { TLRecord } from '../../src/model/records'
+import { makeEmitter, type TLRecord } from '../../src/model/records'
 import { DEFAULT_AMP_AP, DEFAULT_AMP_BS, type NodeCfg, type Scenario } from '../../src/model/scenario'
-import { bsScenario, bsTag, ofType } from './amp-bs-helpers'
+import { AP_POS, bsScenario, bsTag, ofType } from './amp-bs-helpers'
 
 const MS = 1_000_000
 /**
@@ -62,7 +66,7 @@ describe('the reader’s RFID inventory round', () => {
     expect(inv.read).toEqual([epcOf('tag-1')])
     expect(inv.session).toBe(1)
     expect(inv.collisions).toBe(0)
-    expect(inv.slotsOffered).toBeGreaterThanOrEqual(1)
+    expect(inv.slotsOffered).toBe(1) // the 4 ms TXOP holds one slot with a Read in it
     expect(inv.txopNs).toBeLessThanOrEqual(DEFAULT_AMP_BS.txopMs * MS)
   })
 
@@ -227,6 +231,29 @@ describe('the reader’s RFID inventory round', () => {
     }
   })
 
+  it('a poll tick inside a running TXOP does not truncate the inventory, and no cut session claims to be complete', () => {
+    // The editor allows a 10 ms poll with a 4 ms TXOP, and then a tick lands inside almost every
+    // TXOP. A tick that cleared the reader's remaining slots there ended the round after two or
+    // three of the four and stamped the record `complete` — a false statement in the log, and
+    // four tags abandoned mid-round with counters drawn.
+    const tags = [bsTag('tag-1', 0.1), bsTag('tag-2', 0.2), bsTag('tag-3', 0.3), bsTag('tag-4', 0.1, 'y')]
+    const rs = new Simulation(bsScenario({ pollIntervalMs: 10, txopMs: 4 }, tags)).runUntil(400 * MS).records
+    const invs = ofType(rs, 'AMP_INVENTORY', 'ap#2g')
+    expect(invs.length).toBeGreaterThan(20)
+    for (const i of invs) {
+      // Every slot offered still lands in exactly one column.
+      expect(i.read.length + i.collisions + i.empties, `slots tallied at ${i.t}`).toBe(i.slotsOffered)
+    }
+    const done = invs.filter((i) => i.complete)
+    expect(done.length).toBeGreaterThan(0)
+    for (const d of done) {
+      const offered = invs
+        .filter((i) => i.session === d.session && i.t <= d.t)
+        .reduce((n, i) => n + i.slotsOffered, 0)
+      expect(offered, `session ${d.session}, complete at ${d.t}, offered all 2^Q slots`).toBe(4)
+    }
+  })
+
   it('a Wi-Fi station on 2.4 GHz defers for every RFID PPDU, excitation included', () => {
     const rs = new Simulation(bsScenario({}, [bsTag('tag-1', 0.2)], [camera()])).runUntil(40 * MS).records
     const ppdus = ofType(rs, 'TX_START', 'ap#2g').filter((r) => r.frame.kind === 'ampRfid')
@@ -248,39 +275,161 @@ describe('the reader’s RFID inventory round', () => {
   })
 
   /**
-   * The spec's `none` variant expects Wi-Fi to land inside a BST-Excitation. In this engine it
-   * cannot, and the reason is the tier's own physics: inside a TXOP the reader never stops
-   * transmitting for longer than T2 = 16 µs, which is shorter than any AIFS, so a station that
-   * deferred once can never get back in — and a station loud enough at the reader to spoil a
-   * reflection is, by the symmetry of the path loss, loud enough to hear the reader and defer.
-   * The excitation is its own protection. `AMP_BS_REPLY` losses to Wi-Fi are pinned at the
-   * channel instead, in `amp-bs-sta.test.ts`.
+   * The spec's `none` variant expects Wi-Fi to land inside a BST-Excitation. In this room it
+   * never does, and the two halves of the reason are not equally general.
+   *
+   * The half that is a law: inside a TXOP the reader never stops transmitting for longer than
+   * T2 = 16 µs, which is shorter than any AIFS, so a station that once deferred to an RFID PPDU
+   * cannot get back in before the next one has started.
+   *
+   * The half that is this room: the only way in is to miss the preamble — to have been
+   * transmitting already when the PPDU began — and what keeps such a station out afterwards is
+   * plain energy detection of the command, which radiates `chargeDbm` and not the AP's 20 dBm.
+   * That reaches `edReachM` below, about 7 m under the indoor law, and no corner of a 10 × 8 m
+   * room with the reader in the middle is that far from it. The next test moves the same station
+   * into a hall, where it does get in and the reflection is lost: a geometry result, not a law,
+   * and the lesson must not state it as one.
+   *
+   * `AMP_BS_REPLY` losses to Wi-Fi are pinned at the channel too, in `amp-bs-sta.test.ts`.
    */
-  it('protection none with a saturated station: the excitation still protects every BST window', () => {
-    const sc = bsScenario({ pollIntervalMs: 10 }, [bsTag('tag-1', 0.2)], [camera(5.5, 20)])
-    sc.nodes[0].ampAp!.protection = 'none'
-    const rs = new Simulation(sc).runUntil(400 * MS).records
-    expect(ofType(rs, 'NAV_SET', 'cam#2g').filter((r) => r.source.startsWith('cts')).length).toBe(0)
+  it('protection none with a saturated station: nowhere in this room can Wi-Fi reach a BST window', () => {
+    // The command is heard as energy out to here, whoever misses its preamble.
+    expect(edReachM).toBeCloseTo(6.97, 2)
+    // …and the farthest a station can stand from a reader in the middle of this room is less.
+    expect(Math.hypot(5, 4)).toBeLessThan(edReachM)
+
+    for (const at of [{ x: 5.5, y: 2 }, { x: 0.2, y: 0.2 }, { x: 9.8, y: 7.8 }]) {
+      const where = `${at.x},${at.y}`
+      const sc = bsScenario({ pollIntervalMs: 10 }, [bsTag('tag-1', 0.2)], [camera(at.x, 20, at.y)])
+      sc.nodes[0].ampAp!.protection = 'none'
+      const rs = new Simulation(sc).runUntil(400 * MS).records
+      expect(ofType(rs, 'NAV_SET', 'cam#2g').filter((r) => r.source.startsWith('cts')).length).toBe(0)
+      const camTx = ofType(rs, 'TX_START', 'cam#2g')
+      expect(camTx.length, where).toBeGreaterThan(100)
+      const ppdus = ofType(rs, 'TX_START', 'ap#2g').filter((r) => r.frame.kind === 'ampRfid')
+      expect(inBstWindow(ppdus, camTx), where).toEqual([])
+      const sent = ofType(rs, 'AMP_BS_REPLY', 'tag-1#2g').length
+      const heard = ofType(rs, 'RX_OK', 'ap#2g').filter((r) => r.frame.kind === 'ampBsReply').length
+      expect(sent, where).toBeGreaterThan(0)
+      expect(heard, where).toBe(sent)
+    }
+  })
+
+  it('a station beyond the command’s energy-detection reach does get in, and the reflection is lost', () => {
+    // The same reader and tag in a 40 m hall, with the saturated station 12 m away — past the
+    // ~7 m the command holds its CCA busy, and still close enough that its 15 dBm arrives at the
+    // reader above the reply. Every slot answered (Q = 0, no Read), so a frame that starts
+    // inside a BST-Excitation lands on a reflection rather than on silence.
+    expect(HALL_CAM_M).toBeGreaterThan(edReachM)
+    const rs = new Simulation(hall()).runUntil(300 * MS).records
     const camTx = ofType(rs, 'TX_START', 'cam#2g')
-    expect(camTx.length).toBeGreaterThan(100)
     const ppdus = ofType(rs, 'TX_START', 'ap#2g').filter((r) => r.frame.kind === 'ampRfid')
-    const inBst = ppdus.filter((p) => {
-      const from = p.t + bsDataEndNs(p.frame)!
-      const to = from + p.frame.amp!.rfid!.bstNs
-      return camTx.some((c) => c.t < to && c.t + c.frame.txTimeNs > from)
-    })
-    expect(inBst).toEqual([])
-    const sent = ofType(rs, 'AMP_BS_REPLY', 'tag-1#2g').length
+    expect(inBstWindow(ppdus, camTx).length).toBeGreaterThan(0)
+
+    const replies = ofType(rs, 'TX_START', 'tag-1#2g').filter((r) => r.frame.kind === 'ampBsReply')
+    const spoiled = replies.filter((r) =>
+      camTx.some((c) => c.t < r.t + r.frame.txTimeNs && c.t + c.frame.txTimeNs > r.t))
+    expect(replies.length).toBeGreaterThan(20)
+    expect(spoiled.length, 'reflections a Wi-Fi frame lay across').toBeGreaterThan(0)
+    // …and those are exactly the ones the reader never read: nothing else was lost.
     const heard = ofType(rs, 'RX_OK', 'ap#2g').filter((r) => r.frame.kind === 'ampBsReply').length
-    expect(sent).toBeGreaterThan(0)
-    expect(heard).toBe(sent)
+    expect(heard).toBe(replies.length - spoiled.length)
+  })
+})
+
+/** The BST-Excitations of `ppdus` that a frame of `others` was on the air inside. */
+function inBstWindow(
+  ppdus: Extract<TLRecord, { type: 'TX_START' }>[], others: Extract<TLRecord, { type: 'TX_START' }>[],
+) {
+  return ppdus.filter((p) => {
+    const from = p.t + bsDataEndNs(p.frame)!
+    const to = from + p.frame.amp!.rfid!.bstNs
+    return others.some((c) => c.t < to && c.t + c.frame.txTimeNs > from)
+  })
+}
+
+/**
+ * How far a command is still energy at a Wi-Fi station: `chargeDbm` down the indoor law to
+ * `CCA_ED_DBM`. This is the distance the "Wi-Fi never lands inside a BST window" result rests
+ * on, and it moves with the charge power — which is why it is computed here rather than quoted.
+ */
+const edReachM = 10 ** ((DEFAULT_AMP_BS.chargeDbm - CCA_ED_DBM - PL0_DB) / (10 * PL_EXP))
+
+/** The saturated station's distance from the reader in the hall scene, well past `edReachM`. */
+const HALL_CAM_M = 12
+
+/** The same reader and tag in a 40 m hall: the station is out of the command's energy reach. */
+function hall(): Scenario {
+  const sc = bsScenario(
+    { pollIntervalMs: 10, q: 0, read: false }, [bsTag('tag-1', 0.2)],
+    [camera(AP_POS.x + HALL_CAM_M, 15, AP_POS.y)],
+  )
+  sc.rooms = [{ x: 0, y: 0, w: 40, h: 8, name: 'Hall' }]
+  sc.nodes[0].ampAp!.protection = 'none'
+  return sc
+}
+
+/**
+ * The round with no medium under it and no tags in front of it: the commands go nowhere and
+ * nothing ever answers, so every slot is an empty and each TXOP is pure bookkeeping. This is
+ * where the poll clock can be ticked by hand at an instant EDCA would never leave open.
+ */
+function readerBench(over: Partial<typeof DEFAULT_AMP_BS> = {}) {
+  const q = new EventQueue()
+  let now = 0
+  const invs: Extract<TLRecord, { type: 'AMP_INVENTORY' }>[] = []
+  const emit = makeEmitter((r) => { if (r.type === 'AMP_INVENTORY') invs.push(r) })
+  const round = new AmpInventoryRound(
+    { ...DEFAULT_AMP_AP, protection: 'none', backscatter: { ...DEFAULT_AMP_BS, ...over } },
+    {
+      nodeId: 'ap', q, now: () => now, emit, timing: ERP_2G,
+      transmit: () => {}, done: () => {}, bstEnergy: () => false,
+    },
+  )
+  /** One TXOP, run to its end: the MAC would win this access and then close it. */
+  const txop = (): Extract<TLRecord, { type: 'AMP_INVENTORY' }> => {
+    round.start()
+    for (;;) {
+      const pt = q.peekTime()
+      if (pt === null) break
+      const e = q.pop()!
+      now = e.t
+      e.fn()
+    }
+    now += 1 * MS // the gap before the next access, where a poll tick can land
+    return invs[invs.length - 1]
+  }
+  return { round, invs, txop }
+}
+
+describe('the poll clock against a session that is not finished', () => {
+  it('a tick between TXOPs leaves the resumable session alone, and starts its own after it', () => {
+    // A 3 ms TXOP holds one slot and its reserve, so the session waits between TXOPs with the tags
+    // holding the counters they drew under it. A tick landing in that gap used to clear the
+    // reader's remaining slots there and then, abandoning those counters mid-session.
+    const b = readerBench({ txopMs: 3 })
+    const first = b.txop()
+    expect(first.complete).toBe(false)
+    expect(b.round.resumable).toBe(true)
+
+    b.round.newInventory() // the poll clock ticks while the reader is between TXOPs
+    expect(b.round.resumable, 'the session is still worth another TXOP').toBe(true)
+    for (let i = 0; i < 6 && !b.invs[b.invs.length - 1].complete; i++) b.txop()
+    const finished = b.invs[b.invs.length - 1]
+    expect(finished.complete).toBe(true)
+    expect(new Set(b.invs.map((i) => i.session)).size, 'one session throughout').toBe(1)
+    expect(b.invs.reduce((n, i) => n + i.slotsOffered, 0)).toBe(4)
+
+    // …and only now does the tick take effect: the next TXOP is a new session.
+    expect(b.round.resumable).toBe(false)
+    expect(b.txop().session).toBe(first.session + 1)
   })
 })
 
 /** A saturated 2.4 GHz Wi-Fi station `x` metres along +x from the reader. */
-function camera(x = 5, txPowerDbm = 15): NodeCfg {
+function camera(x = 5, txPowerDbm = 15, y = 2): NodeCfg {
   return {
-    id: 'cam', kind: 'sta', name: 'Camera', pos: { x, y: 2, z: 1 }, txPowerDbm,
+    id: 'cam', kind: 'sta', name: 'Camera', pos: { x, y, z: 1 }, txPowerDbm,
     profiles: ['saturated'], caps: { generation: 'he', features: { edca: true } }, linkId: '2g',
   }
 }

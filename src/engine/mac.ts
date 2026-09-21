@@ -289,6 +289,10 @@ export class WifiMac implements PhyListener {
    * Active Tx round, odd polls the RFID inventory. The draft says nothing about sharing a reader
    * between the two tiers, and alternation is the one rule that is fair, deterministic and
    * legible straight off a timeline. `model`
+   *
+   * The parity counts poll *ticks*, not rounds run: a tick whose TXOP is still queued when the
+   * next tick arrives has spent its turn all the same, so under a busy medium two inventories
+   * can follow one another.
    */
   private pickAmpRound(): AmpApRound | AmpInventoryRound | null {
     if (this.ampInventory === null) return this.ampRound
@@ -301,8 +305,10 @@ export class WifiMac implements PhyListener {
     const cfg = this.cfg.ampAp!
     this.q.schedule(at, () => {
       const round = this.pickAmpRound()
-      // A poll of the backscatter tier is a *new* inventory, whatever the last one left behind:
-      // a new session number is what clears the tags' inventoried flags.
+      // A poll of the backscatter tier asks for a *new* inventory, whatever the last one left
+      // behind: a new session number is what clears the tags' inventoried flags. A session still
+      // owed slots — on the air, or waiting for the TXOP that resumes it — is let finish first;
+      // the round itself holds the request until then.
       if (round !== null && round === this.ampInventory) round.newInventory()
       this.ampNext = round
       this.ampPending = true

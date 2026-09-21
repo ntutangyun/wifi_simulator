@@ -203,6 +203,8 @@ export interface Strings {
     bsSnr: string; bsSnrHint: string
     /** The reader's row: the inventory session it is running and how its slots are going. */
     inventory: string; inventoryHint: string; session: string
+    /** The same three columns after the TXOP: the round is cleared the instant it reports them. */
+    inventoryLast: string; inventoryLastHint: string
   }
   /** UWB ranging inspector (uwb/ui/UwbInspector.tsx). */
   uwb: {
@@ -497,7 +499,7 @@ export const STRINGS: Record<Lang, Strings> = {
       ampBsBs: 'BS power', ampBsBsHint: 'power radiated while a reply is expected; raising it does not add reach, because the reader’s own leakage floor rises just as much — reply reach stays 32.8 cm at 250 kb/s and 23.2 cm at 1 Mb/s whatever this is set to',
       ampBsTxop: 'TXOP (ms)', ampBsTxopHint: 'how long one inventory burst may hold the medium; an inventory too big for one TXOP resumes in the next, from the same session and slot',
       ampBsRead: 'read after ACK', ampBsReadHint: 'an 8-octet Read follows a successful EPC reply',
-      ampBsWrite: 'write after read', ampBsWriteHint: 'a 2 ms Write follows the read; its reply lands 2 ms later still',
+      ampBsWrite: 'write after read', ampBsWriteHint: 'a Write follows the read, and the tag answers it 2 ms later — the reader holds the carrier open across that wait, so the Write PPDU on the lane is about 3 ms long',
       uwbNode: 'UWB ranging (802.15.4-2024)', uwbRole: 'Role', uwbRoles: { anchor: 'anchor (fixed, answers)', tag: 'tag (ranges and solves its position)' },
       uwbPpm: 'Crystal offset', uwbPpmHint: 'error of this device’s ranging clock in parts per million; the standard allows ±20 ppm. Leave it blank to have the run draw one from the seed.',
       uwbPpmDrawn: 'drawn from the seed', uwbPpmRange: '±100 ppm; real crystals stay within ±20',
@@ -614,9 +616,11 @@ export const STRINGS: Record<Lang, Strings> = {
       bsReplies: 'reflections / collided',
       bsRepliesHint: 'answers this tag has backscattered, and how many of them shared a slot with another tag',
       bsSnr: 'margin at the reader',
-      bsSnrHint: 'how far the last reflection stood above the reader’s own self-leakage floor; under 3 dB at 250 kb/s it is not decoded',
+      bsSnrHint: 'how far the last reflection stood above the reader’s own self-leakage floor; it is decoded only from 3 dB up at 250 kb/s, and the faster 1 Mb/s answer needs 9 dB',
       inventory: 'RFID inventory', session: 'session',
       inventoryHint: 'the EPC Gen2 inventory in progress: the session, the slot being offered, and this TXOP’s tags read / collided slots / empty slots',
+      inventoryLast: 'last inventory',
+      inventoryLastHint: 'the tally of the TXOP that just ended — tags read / collided slots / empty slots — and how far into its 2^Q slots the session had got; the reader is back to listening to the room until the next poll',
     },
     uwb: {
       anchor: 'anchor', tag: 'tag', role: 'role',
@@ -1051,7 +1055,7 @@ export const STRINGS: Record<Lang, Strings> = {
       ampBsBs: '散射窗功率', ampBsBsHint: '等待应答期间辐射的功率；调高它并不会增加距离，因为阅读器自身的泄漏底噪也会同样升高——无论如何设置，应答距离在 250 kb/s 时都是 32.8 cm，1 Mb/s 时都是 23.2 cm',
       ampBsTxop: 'TXOP（ms）', ampBsTxopHint: '一次盘点突发最多占用信道多久；装不下的盘点会在下一个 TXOP 中继续，沿用同一个会话与同一个时隙',
       ampBsRead: 'ACK 后读取', ampBsReadHint: 'EPC 应答成功后跟一次 8 字节的 Read',
-      ampBsWrite: '读取后写入', ampBsWriteHint: 'Read 之后跟一次 2 ms 的 Write，其应答在 2 ms 后到达',
+      ampBsWrite: '读取后写入', ampBsWriteHint: 'Read 之后跟一次 Write，标签在 2 ms 后才应答——阅读器要在这段等待中一直保持载波，所以泳道上的 Write PPDU 长约 3 ms',
       uwbNode: 'UWB 测距（802.15.4-2024）', uwbRole: '角色', uwbRoles: { anchor: '锚点（位置固定，负责应答）', tag: '标签（测距并解算自身位置）' },
       uwbPpm: '晶振偏差', uwbPpmHint: '该设备测距时钟的频率偏差，单位 ppm；标准允许 ±20 ppm。留空则由本次仿真按随机种子抽取。',
       uwbPpmDrawn: '由种子抽取', uwbPpmRange: '±100 ppm；真实晶振通常在 ±20 以内',
@@ -1168,9 +1172,11 @@ export const STRINGS: Record<Lang, Strings> = {
       bsReplies: '反射次数 / 碰撞次数',
       bsRepliesHint: '该标签已反射出的应答数，以及其中有多少次与另一个标签落在同一时隙',
       bsSnr: '读写器处余量',
-      bsSnrHint: '上一次反射高出读写器自身泄漏底噪多少；在 250 kb/s 下低于 3 dB 就无法解调',
+      bsSnrHint: '上一次反射高出读写器自身泄漏底噪多少；在 250 kb/s 下要有 3 dB 才能解调，更快的 1 Mb/s 应答则要 9 dB',
       inventory: 'RFID 盘点', session: '会话',
       inventoryHint: '正在进行的 EPC Gen2 盘点：会话号、正在开放的时隙，以及本次 TXOP 读到的标签数 / 碰撞时隙数 / 空时隙数',
+      inventoryLast: '上一次盘点',
+      inventoryLastHint: '刚刚结束的那次 TXOP 的统计——读到的标签数 / 碰撞时隙数 / 空时隙数，以及这次会话在 2^Q 个时隙中走到了第几个；在下一次轮询之前，读写器只是在听着整个房间',
     },
     uwb: {
       anchor: '锚点', tag: '标签', role: '角色',

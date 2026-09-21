@@ -422,9 +422,43 @@ describe('AMP records in the view', () => {
     expect(vs.nodes['ap#2g'].ampRound).toMatchObject({ slot: 2, slots: 4, untilNs: 3_452_400 })
     rec({ t: 3_700_000, type: 'AMP_INVENTORY', node: 'ap#2g', session: 1, slotsOffered: 2, read: ['aa'.repeat(12)], collisions: 0, empties: 1, txopNs: 3_697_200, complete: false })
     expect(vs.nodes['ap#2g'].ampRound!.inventory).toMatchObject({ read: 1, collisions: 0, empties: 1 })
+    // …and the reader defers in that same instant, which is what clears the round: the tally
+    // has to be kept beside it or it could never be read.
+    rec({ t: 3_700_000, type: 'MAC_STATE', node: 'ap#2g', state: 'defer' })
+    expect(vs.nodes['ap#2g'].ampRound).toBeNull()
+    expect(vs.nodes['ap#2g'].ampInventoryLast).toMatchObject({ session: 1, slot: 2, read: 1, collisions: 0, empties: 1 })
     // A new session starts a fresh inventory block rather than adding to the old one.
     rec({ t: 9_000_000, type: 'AMP_RFID', node: 'ap#2g', cmd: 'query', session: 2, q: 2, slot: 1, bstNs: 142_400, untilNs: 10_516_400 })
     expect(vs.nodes['ap#2g'].ampRound!.inventory).toMatchObject({ session: 2, slot: 1, read: 0, empties: 0 })
+  })
+
+  it('the tally survives the reader’s own defer, which lands in the same instant', () => {
+    // The hand-fed stream above stops at the AMP_INVENTORY. The engine does not: the reader
+    // reports the tally and the MAC resumes everything else at that same instant, and that
+    // MAC_STATE clears `ampRound`. Read off the live round alone, the three columns would
+    // therefore never be visible — they arrive and are cleared together.
+    const sc = bsScenario({ pollIntervalMs: 20 }, [bsTag('tag-1', 0.15), bsTag('tag-2', 0.25, 'y')])
+    const records = new Simulation(sc).runUntil(60 * 1_000_000).records
+    const inv = records.find((r) => r.type === 'AMP_INVENTORY')
+    expect(inv).toBeDefined()
+    const invIdx = records.indexOf(inv!)
+    const vs = initViewState(sc)
+    for (const r of records.slice(0, invIdx + 1)) applyRecord(vs, r)
+    const tally = vs.nodes['ap#2g'].ampInventoryLast
+    expect(tally).toBeDefined()
+
+    const sameInstant = records.slice(invIdx + 1).filter((r) => r.t === inv!.t)
+    expect(sameInstant.some((r) => r.type === 'MAC_STATE' && r.node === 'ap#2g')).toBe(true)
+    for (const r of sameInstant) applyRecord(vs, r)
+    // The round is gone — and the tally the Inspector shows in its place is still there.
+    expect(vs.nodes['ap#2g'].ampRound).toBeNull()
+    expect(vs.nodes['ap#2g'].ampInventoryLast).toEqual(tally)
+    const closed = inv as Extract<TLRecord, { type: 'AMP_INVENTORY' }>
+    expect(tally).toMatchObject({
+      session: closed.session, read: closed.read.length,
+      collisions: closed.collisions, empties: closed.empties,
+    })
+    expect(tally!.read + tally!.collisions + tally!.empties).toBe(closed.slotsOffered)
   })
 
   it('live and replayed views agree over a whole backscatter inventory', () => {

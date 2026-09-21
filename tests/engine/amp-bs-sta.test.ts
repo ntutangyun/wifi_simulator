@@ -28,7 +28,7 @@ function bench(tags: Record<string, number>, seed = 7) {
   const table = new Map(ids.map((tx) => [tx, new Map(ids.filter((rx) => rx !== tx).map((rx) => [rx, -50]))]))
   const records: TLRecord[] = []
   const emit = makeEmitter((r) => records.push(r))
-  const ch = new Channel(q, () => now, table, emit, undefined, { posOf: (id) => pos[id], walls: [] })
+  const ch = new Channel(q, () => now, table, emit, undefined, { posOf: (id) => pos[id], walls: [], txPowerOf: () => 20 })
   const heard: { t: number; from: string; frame: FrameDesc }[] = []
   const ap: PhyListener = {
     onCcaBusy() {}, onCcaIdle() {}, onRxStart() {}, onRxCorrupt() {},
@@ -220,8 +220,10 @@ describe('AmpBsStaMac — a tag with no radio', () => {
     b.run(end + 5 * MS)
     expect(b.recs('AMP_BS_BOOT', 't1').map((r) => r.powered)).toEqual([true, false])
     // … and the counter it drew survives the power cut (11-25/0061r0's "Extend", model)
+    // Replayed from the tag's own stream, forked the way the bench forks it: the counter is the
+    // same one it drew before the power cut, and it is still the only one it ever drew.
     const drawn = b.recs('AMP_BS_COUNTER', 't1')[0].counter
-    expect(drawn).toBeGreaterThanOrEqual(0)
+    expect(drawn).toBe(new Rng(3).fork(1).int(3))
     expect(b.recs('AMP_BS_COUNTER', 't1').length).toBe(1)
   })
 

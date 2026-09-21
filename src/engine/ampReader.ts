@@ -85,6 +85,9 @@ export class AmpInventoryRound {
   private txopEmpties = 0
   /** Did the last TXOP get anywhere? A TXOP too short for one command must not be retried forever. */
   private progressed = false
+  /** A poll tick asked for a new inventory while this one still owed slots: it starts once this
+   * session has been let finish, so that no record of it reports a truncated round as complete. */
+  private restartPending = false
   /** The first reply decoded inside the command on the air, and whether one failed to decode. */
   private lastReply: { frame: FrameDesc; from: string } | null = null
   /** Something answered in this slot, whether or not the reader could read it. */
@@ -108,9 +111,19 @@ export class AmpInventoryRound {
    * The poll clock ticked: whatever the last inventory left behind, the next TXOP starts a fresh
    * one under a new session number — which is what clears every tag's inventoried flag (Gen2's
    * A/B flag, model).
+   *
+   * A tick that arrives while a session is still owed slots does not take them away, because a
+   * poll interval shorter than a session is a common setting and the session is not the tick's
+   * to cut short: a round cut mid-slot would report fewer outcomes than it offered, and a round
+   * cut at a slot boundary would report itself `complete` after two of its four slots. The
+   * restart is remembered instead and applied where the session really ends — at `endTxop` for a
+   * round on the air, and after the resumption for one waiting for its next TXOP with the tags
+   * holding their counters for it.
    */
   newInventory(): void {
+    if (this.running || this.resumable) { this.restartPending = true; return }
     this.remaining = 0
+    this.restartPending = false
   }
 
   private get bs(): AmpBackscatterCfg {
@@ -298,11 +311,21 @@ export class AmpInventoryRound {
     this.queued = []
     this.running = false
     this.progressed = this.txopSlots > 0
+    // `complete` is read before any pending restart is applied: it says whether this session
+    // offered all 2^Q of its slots, which a poll tick cannot make true by asking for a new one.
+    const complete = this.remaining === 0
     this.deps.emit({
       t, type: 'AMP_INVENTORY', node: this.deps.nodeId, session: this.session,
       slotsOffered: this.txopSlots, read: this.txopRead, collisions: this.txopCollisions,
-      empties: this.txopEmpties, txopNs: t - this.txopStartNs, complete: this.remaining === 0,
+      empties: this.txopEmpties, txopNs: t - this.txopStartNs, complete,
     })
+    // A tick that arrived during the round takes effect now — unless the session it interrupted
+    // is still resumable, in which case it waits for that resumption too: the tags are holding
+    // the counters they drew, and the next TXOP is owed to them before it is owed to the tick.
+    if (this.restartPending && !this.resumable) {
+      this.remaining = 0
+      this.restartPending = false
+    }
     this.deps.done()
   }
 

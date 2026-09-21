@@ -571,8 +571,8 @@ export const GLOSSARY: GlossaryGroup[] = [
         term: 'Backscatter',
         alt: { en: 'mono-static modeled; bistatic a future slice', zh: '单站式已建模；双站式留待后续切片' },
         def: {
-          en: 'A tag that answers by reflecting an illuminator\'s own carrier instead of generating one, 6 dB down for the switch (AMP_BS_LOSS_DB, TGbp 11-24/0537r0). Mono-static — the AP itself illuminates and listens — is modeled in this slice; bistatic (a separate energizer) is a later one.',
-          zh: '标签不产生自己的载波，而是反射照射源的载波来应答，反射损耗 6 dB（AMP_BS_LOSS_DB，TGbp 11-24/0537r0）。单站式——由 AP 自己照射并聆听——已在本切片建模；双站式（由独立的 Energizer 照射）留待后续切片。',
+          en: 'A tag that answers by reflecting an illuminator\'s own carrier instead of generating one, 6 dB down for the switch (TGbp 11-24/0537r0). Mono-static — the AP itself illuminates and listens — is modeled in this slice; bistatic (a separate energizer) is a later one.',
+          zh: '标签不产生自己的载波，而是反射照射源的载波来应答，反射损耗 6 dB（TGbp 11-24/0537r0）。单站式——由 AP 自己照射并聆听——已在本切片建模；双站式（由独立的 Energizer 照射）留待后续切片。',
         },
       },
       {
@@ -587,8 +587,8 @@ export const GLOSSARY: GlossaryGroup[] = [
         term: 'WUP-Excitation',
         alt: { en: 'wake-up carrier, ≥ 1 ms', zh: '唤醒载波，≥ 1 ms' },
         def: {
-          en: 'The carrier at the front of the first downlink PPDU of a TXOP, `wupMs` (default 1 ms, the framework\'s own minimum, SFD PM-72/PM-73). A tag needs the whole millisecond above −20 dBm (AMP_BS_ACTIVATION_DBM) to charge up and boot — 30.9 cm of reach at the model default 10 dBm charge power, 97.8 cm at 20 dBm. A tag beyond that reach never boots: no lane, no record.',
-          zh: '一个 TXOP 第一个下行 PPDU 前端的载波，即 `wupMs`（默认 1 ms，框架自身的下限，SFD PM-72/PM-73）。标签需要在 −20 dBm（AMP_BS_ACTIVATION_DBM）以上持续整整这一毫秒才能充能并启动——默认 10 dBm 充能功率时可达 30.9 cm，20 dBm 时可达 97.8 cm。超出这个距离的标签永远不会启动：没有泳道，也没有记录。',
+          en: 'The carrier at the front of the first downlink PPDU of a TXOP, a millisecond by default (the framework\'s own minimum, SFD PM-72/PM-73) and settable per reader. A tag needs the whole millisecond above −20 dBm to charge up and boot — 30.9 cm of reach at the model default 10 dBm charge power, 97.8 cm at 20 dBm. A tag beyond that reach never boots: no lane, no record.',
+          zh: '一个 TXOP 第一个下行 PPDU 前端的载波，默认 1 ms（框架自身的下限，SFD PM-72/PM-73），每个阅读器可自行设置。标签需要在 −20 dBm 以上持续整整这一毫秒才能充能并启动——默认 10 dBm 充能功率时可达 30.9 cm，20 dBm 时可达 97.8 cm。超出这个距离的标签永远不会启动：没有泳道，也没有记录。',
         },
       },
       {
@@ -627,24 +627,24 @@ export const GLOSSARY: GlossaryGroup[] = [
         term: 'EPC',
         alt: { en: '96-bit code, 24 hex characters', zh: '96 位编码，24 个十六进制字符' },
         def: {
-          en: 'The Electronic Product Code a tag reports after its ACK — 24 hex characters in the scenario (`AmpTagCfg.epc`), derived from the node id when left blank.',
-          zh: '标签在收到 ACK 后报告的电子产品编码——在场景中是 24 个十六进制字符（`AmpTagCfg.epc`），留空时由节点 id 派生。',
+          en: 'The Electronic Product Code a tag reports after its ACK — 24 hex characters, set on the tag in the editor and derived from the node id when left blank.',
+          zh: '标签在收到 ACK 后报告的电子产品编码——24 个十六进制字符，可在编辑器中为标签设置，留空时由节点 id 派生。',
         },
       },
       {
         term: 'Reader dynamic range',
         alt: { en: '50 dB, after digital cancellation', zh: '50 dB，数字对消之后' },
         def: {
-          en: 'AMP_BS_READER_DR_DB, 50 dB (TGbp 11-25/0307r0): how far the reader\'s own leaked excitation can sit above the weakest reflection it can still decode. The reader\'s noise floor is leakDbm − 50 dB, so turning the excitation up raises the floor exactly as much as it raises the reply — reach does not move; only isolation or dynamic range would.',
-          zh: 'AMP_BS_READER_DR_DB，50 dB（TGbp 11-25/0307r0）：阅读器自身泄漏的激励信号，最多能比它仍可解出的最弱反射高出多少。阅读器的底噪即 leakDbm − 50 dB，因此把激励功率调高，底噪也同样升高——距离并不会因此变远；只有隔离度或动态范围才能做到。',
+          en: '50 dB (TGbp 11-25/0307r0): how far the reader\'s own leaked excitation can sit above the weakest reflection it can still decode. Its noise floor is that leak 50 dB down, so turning the excitation up raises the floor exactly as much as it raises the reply — reach does not move; only better isolation or a wider dynamic range would.',
+          zh: '50 dB（TGbp 11-25/0307r0）：阅读器自身泄漏的激励信号，最多能比它仍可解出的最弱反射高出多少。阅读器的底噪就是这份泄漏再往下 50 dB，因此把激励功率调高，底噪也同样升高——距离并不会因此变远；只有隔离度或动态范围才能做到。',
         },
       },
       {
         term: 'Self-leakage',
         alt: { en: '20 dB TX-to-RX isolation', zh: '20 dB 收发隔离度' },
         def: {
-          en: 'The reader\'s own transmitted excitation reaching its own receiver, 20 dB down (AMP_BS_ISOLATION_DB — a 2×2 Wi-Fi radio in 1TX+1RX mode, TGbp 11-25/0058r1): monoLeakDbm = excitationDbm − 20. The mono-static reader\'s fundamental problem — hearing a whisper over its own shout.',
-          zh: '阅读器自己发射的激励信号泄漏进自己的接收机，衰减 20 dB（AMP_BS_ISOLATION_DB——一部工作在 1 发 1 收模式下的 2×2 Wi-Fi 设备，TGbp 11-25/0058r1）：monoLeakDbm = excitationDbm − 20。这正是单站式阅读器最根本的难题——要在自己的喊声里听清一声耳语。',
+          en: 'The reader\'s own transmitted excitation reaching its own receiver, 20 dB down (a 2×2 Wi-Fi radio in 1TX+1RX mode, TGbp 11-25/0058r1): whatever it radiates, a hundredth of that power is sitting in its own receiver. The mono-static reader\'s fundamental problem — hearing a whisper over its own shout.',
+          zh: '阅读器自己发射的激励信号泄漏进自己的接收机，衰减 20 dB（一部工作在 1 发 1 收模式下的 2×2 Wi-Fi 设备，TGbp 11-25/0058r1）：无论它辐射多大功率，都有低 20 dB 的那一份留在自己的接收机里。这正是单站式阅读器最根本的难题——要在自己的喊声里听清一声耳语。',
         },
       },
       {

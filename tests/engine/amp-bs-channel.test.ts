@@ -28,7 +28,10 @@ interface NodeSpec { id: string; pos: Vec3; opts?: RadioOpts }
 
 /** A room of nodes at known coordinates: Wi-Fi links are the explicit `links` matrix (the engine's
  * own law, as today), backscatter links are the geometry the channel measures for itself. */
-function world(nodes: NodeSpec[], links: Record<string, number> = {}, walls: Wall[] = []) {
+function world(
+  nodes: NodeSpec[], links: Record<string, number> = {}, walls: Wall[] = [],
+  txPowerDbm: Record<string, number> = {},
+) {
   const q = new EventQueue()
   let now = 0
   const ids = nodes.map((n) => n.id)
@@ -36,7 +39,13 @@ function world(nodes: NodeSpec[], links: Record<string, number> = {}, walls: Wal
     tx, new Map(ids.filter((rx) => rx !== tx).map((rx) => [rx, links[`${tx}>${rx}`] ?? -200])),
   ]))
   const records: TLRecord[] = []
-  const geo: BsGeometry = { posOf: (id) => nodes.find((n) => n.id === id)!.pos, walls }
+  const geo: BsGeometry = {
+    posOf: (id) => nodes.find((n) => n.id === id)!.pos,
+    walls,
+    // The EIRP the link table was built from: what a PPDU carrying a power of its own is
+    // measured against. 20 dBm is the AP of every scene in this file unless stated.
+    txPowerOf: (id) => txPowerDbm[id] ?? 20,
+  }
   const ch = new Channel(q, () => now, table, makeEmitter((r) => records.push(r)), undefined, geo)
   const heard: Record<string, { what: string; t: Ns }[]> = {}
   for (const n of nodes) {
@@ -97,6 +106,31 @@ describe('a downlink RFID PPDU on the medium', () => {
     // Nothing else declares a power of its own.
     expect(txDbmAt(reply('t'), 0)).toBeNull()
     expect(bsDataEndNs(reply('t'))).toBeNull()
+  })
+
+  it('is heard by a Wi-Fi station at the power it radiates, not at the AP’s own EIRP', () => {
+    // The link table is built from a node's `txPowerDbm` — 20 dBm for this reader. A downlink
+    // RFID PPDU does not radiate that: it charges at `chargeDbm`, 10 dBm by default, which is
+    // the loudest it ever gets. So a station hears a Query exactly 10 dB under anything else
+    // the same AP sends, and its preamble-detect boundary (−82 dBm) moves by exactly that.
+    const acquires = (frame: FrameDesc, linkDbm: number): boolean => {
+      const w = world(
+        [{ id: 'ap', pos: at(0), opts: reader }, { id: 'sta', pos: at(3) }],
+        { 'ap>sta': linkDbm }, [], { ap: 20 },
+      )
+      w.at(0, () => w.ch.startTx('ap', frame))
+      w.run(3_000_000)
+      return w.recs('RX_START', 'sta').length > 0
+    }
+    const cts = (): FrameDesc =>
+      ({ kind: 'cts', src: 'ap', dst: 'ap', bytes: 14, mbps: 6, durationFieldNs: 0, txTimeNs: 50_000 })
+    expect(acquires(cts(), -82)).toBe(true)
+    expect(acquires(cts(), -82.001)).toBe(false)
+    expect(acquires(query(10, 0), -72)).toBe(true)
+    expect(acquires(query(10, 0), -72.001)).toBe(false)
+    // …and a reader that charges at its full 20 dBm is heard like any other PPDU it sends.
+    expect(acquires(query(20, 0), -82)).toBe(true)
+    expect(acquires(query(20, 0), -82.001)).toBe(false)
   })
 
   it('a Wi-Fi station defers for the whole PPDU, excitation included', () => {

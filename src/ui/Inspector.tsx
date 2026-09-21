@@ -103,6 +103,11 @@ function NodeSection({ vid, nv, t, L, U, nameOf, serverName }: { vid: string; nv
         ? <div style={row}><Lbl hint={L.inventoryHint}>{L.inventory}</Lbl><span>{L.session} {nv.ampRound.inventory.session} · {L.slot} {nv.ampRound.inventory.slot}{nv.ampRound.slots ? `/${nv.ampRound.slots}` : ''} · {nv.ampRound.inventory.read} / {nv.ampRound.inventory.collisions} / {nv.ampRound.inventory.empties}</span></div>
         : <div style={row}><Lbl hint={L.ampRoundHint}>{L.ampRound}</Lbl><span>{L.ampPhase[nv.ampRound.phase]} · {L.slot} {nv.ampRound.slot}/{nv.ampRound.slots} · {nv.ampRound.received.map(nameOf).join(', ') || '—'}</span></div>
       )}
+      {/* Between TXOPs there is no round — and that is exactly when the reader's own tally is
+          worth reading, because it is reported in the instant the round is cleared. */}
+      {!nv.ampRound && nv.ampInventoryLast && (
+        <div style={row}><Lbl hint={L.inventoryLastHint}>{L.inventoryLast}</Lbl><span>{L.session} {nv.ampInventoryLast.session} · {L.slot} {nv.ampInventoryLast.slot} · {nv.ampInventoryLast.read} / {nv.ampInventoryLast.collisions} / {nv.ampInventoryLast.empties}</span></div>
+      )}
 
       {!nv.amp && <>
       <div style={row}><Lbl hint={L.ssrcHint}>{L.ssrcSlrc}</Lbl><span>{nv.qsrc}</span></div>

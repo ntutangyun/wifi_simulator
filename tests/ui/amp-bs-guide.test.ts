@@ -11,7 +11,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, it, expect } from 'vitest'
 import {
   AMP_BS_ACTIVATION_DBM, AMP_BS_ISOLATION_DB, AMP_BS_LOSS_DB, AMP_BS_READER_DR_DB,
-  activationReachM, bsReplyNs, monoReachM,
+  AMP_BS_REQ_SNR_DB, activationReachM, bsReplyNs, monoReachM,
 } from '../../src/engine/ampBs'
 import { EditorGuideEn, EditorGuideZh } from '../../src/editor/EditorGuide'
 import { GuideEn, GuideZh } from '../../src/ui/Guide'
@@ -111,6 +111,23 @@ describe('AMP glossary group: the new backscatter terms', () => {
       'q / slot counter', 'rn16', 'epc', 'reader dynamic range', 'self-leakage',
     ]) {
       expect(terms, `missing glossary term: ${t}`).toContain(t)
+    }
+  })
+
+  it('reads in plain words: no engine identifiers anywhere in the group', () => {
+    // The Guide and the README carry the provenance, and the document tags stay here too
+    // (TGbp 11-25/0307r0 is a citation, not a symbol). What does not belong on the learner's
+    // plain-words surface is the engine's own spelling of a number. Names the standard itself
+    // uses — AC_BK, aSIFSTime, ISO/IEC — are vocabulary a learner will meet again; these two
+    // patterns are ours and only ours: every constant of this tier is AMP_…, and every field or
+    // helper of it ends in the unit or the type it carries.
+    const ENGINE_CONSTANT = /\bAMP_[A-Z0-9_]+\b/
+    const ENGINE_SYMBOL = /\b([a-z][A-Za-z0-9]*(Dbm|Ns|Ms|Kbps|Db|Cfg)|Amp[A-Z][A-Za-z]*)\b/
+    for (const item of group?.items ?? []) {
+      for (const text of [item.term, item.alt.en, item.alt.zh, item.def.en, item.def.zh]) {
+        expect(text.match(ENGINE_CONSTANT)?.[0], `${item.term}: engine constant`).toBeUndefined()
+        expect(text.match(ENGINE_SYMBOL)?.[0], `${item.term}: engine identifier`).toBeUndefined()
+      }
     }
   })
 
@@ -243,6 +260,16 @@ describe('i18n hints quote the reach and activation figures, pinned to the engin
       const E = STRINGS[lang].editor
       expect(E.ampBsBsHint).toContain(`${REACH_250_CM} cm`)
       expect(E.ampBsBsHint).toContain(`${REACH_1000_CM} cm`)
+    }
+  })
+
+  it('bsSnrHint names the margin each uplink rate needs, both of them', () => {
+    // The hint used to quote the 250 kb/s bar alone, which reads as *the* threshold; the faster
+    // answer needs 6 dB more, and that is the whole reason the rate is a knob.
+    for (const lang of ['en', 'zh'] as const) {
+      const hint = STRINGS[lang].inspector.bsSnrHint
+      expect(hint).toContain(`${AMP_BS_REQ_SNR_DB[250]} dB`)
+      expect(hint).toContain(`${AMP_BS_REQ_SNR_DB[1000]} dB`)
     }
   })
 })

@@ -188,7 +188,7 @@ export class Simulation {
         // 5 GHz-referenced link table cannot express: the channel computes it from the geometry
         // instead, and needs the geometry only when such a tag is on the link.
         const bsGeometry: BsGeometry | undefined = members.some(isBsTag)
-          ? { posOf: (id) => byId.get(id)!.pos, walls: sc.walls }
+          ? { posOf: (id) => byId.get(id)!.pos, walls: sc.walls, txPowerOf: (id) => byId.get(id)!.txPowerDbm }
           : undefined
         const ch = new Channel(this.q, () => this.nowNs, table, linkEmit, hook, bsGeometry)
 

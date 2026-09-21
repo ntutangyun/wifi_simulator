@@ -118,6 +118,9 @@ export interface AmpInventoryView {
    * running and lands complete when it closes; `slot` is what moves live. Deriving `read` early
    * from the ACK commands would fill one column of three and leave the other two at zero, which
    * reads as a result rather than as "not yet".
+   *
+   * Which is why the closed tally is also kept on the lane as `ampInventoryLast`: the reader
+   * reports it and goes back to deferring in the same instant, and the defer clears the round.
    */
   read: number
   collisions: number
@@ -173,6 +176,13 @@ export interface NodeView {
   amp?: AmpTagView
   /** AMP AP lanes only: the round in progress, or null between rounds. */
   ampRound?: AmpRoundView | null
+  /**
+   * Reader lanes only: the last inventory TXOP's tally, which outlives the round it belongs to.
+   * The reader emits `AMP_INVENTORY` and defers in the same instant, so `ampRound` is null by
+   * the time anything could read the three columns off it; this is where they stay legible
+   * until the next inventory replaces them.
+   */
+  ampInventoryLast?: AmpInventoryView
   /** UWB lanes only: this anchor's or tag's live ranging state. */
   uwb?: UwbNodeView
 }
@@ -629,11 +639,19 @@ export function applyRecord(vs: ViewState, r: TLRecord): void {
       break
     }
     case 'AMP_INVENTORY': {
-      const inv = vs.nodes[r.node].ampRound?.inventory
-      if (!inv || inv.session !== r.session) break
-      inv.read = r.read.length
-      inv.collisions = r.collisions
-      inv.empties = r.empties
+      const n = vs.nodes[r.node]
+      const inv = n.ampRound?.inventory
+      if (inv && inv.session === r.session) {
+        inv.read = r.read.length
+        inv.collisions = r.collisions
+        inv.empties = r.empties
+      }
+      // Kept beside the round, because the reader's own defer clears the round at this instant.
+      // The slot is where the session had got to: a TXOP that ran out of air stops short of 2^Q.
+      n.ampInventoryLast = {
+        session: r.session, slot: inv?.slot ?? r.slotsOffered,
+        read: r.read.length, collisions: r.collisions, empties: r.empties,
+      }
       break
     }
     case 'AMP_BS_COUNTER': {
