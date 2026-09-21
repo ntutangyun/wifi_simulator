@@ -87,7 +87,7 @@ export const COURSE_ORDER: string[] = [
   // UWB Tier 1 — M11 time of flight
   'uwb-intro', 'uwb-frame', 'uwb-sstwr', 'uwb-dstwr',
   // UWB Tier 1 — M12 sessions and positioning
-  'uwb-blocks', 'uwb-position',
+  'uwb-blocks', 'uwb-position', 'uwb-geometry',
   // UWB Tier 2 — M13 coexistence
   'uwb-coexist', 'uwb-contention',
   // UWB Tier 2 — M14 other ranging modes

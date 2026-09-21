@@ -33,6 +33,7 @@ import { uwbSstwr } from './uwb/uwb-sstwr'
 import { uwbDstwr } from './uwb/uwb-dstwr'
 import { uwbBlocks } from './uwb/uwb-blocks'
 import { uwbPosition } from './uwb/uwb-position'
+import { uwbGeometry } from './uwb/uwb-geometry'
 import { uwbCoexist } from './uwb/uwb-coexist'
 import { uwbContention } from './uwb/uwb-contention'
 import { uwbDlTdoa } from './uwb/uwb-dl-tdoa'
@@ -128,6 +129,7 @@ const AUTHORED: Lesson[] = [
   uwbDstwr,
   uwbBlocks,
   uwbPosition,
+  uwbGeometry,
   uwbCoexist,
   uwbContention,
   uwbDlTdoa,
