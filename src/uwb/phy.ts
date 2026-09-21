@@ -2,7 +2,7 @@ import type { Material, UwbMode } from '../model/scenario'
 import type { Ns } from '../model/types'
 import { mmsLayout, mmsLongestFragmentNs, type MmsPhy } from './mms'
 import { NB_REPORT_BYTES, nbPpduNs } from './nb'
-import { chipsToNs, freeSpacePl0Db, UWB_CHIP_HZ, UWB_CHIP_NS } from './units'
+import { chipsToNs, freeSpacePl0Db, UWB_CHIP_HZ, UWB_CHIP_NS, UWB_RX_SENS_DBM } from './units'
 
 // --- Chip, RCTU, RSTU units -------------------------------------------------
 
@@ -103,6 +103,65 @@ export function uwbBandOverlapMhz(centerMhz: number, widthMhz: number, ch: UwbCh
 /** Fraction (0…1) of the Wi-Fi channel that overlaps UWB channel `ch`'s band. */
 export function uwbBandOverlap(centerMhz: number, widthMhz: number, ch: UwbChannelNo): number {
   return uwbBandOverlapMhz(centerMhz, widthMhz, ch) / widthMhz
+}
+
+// --- Timestamp precision against the link -------------------------------------
+
+/**
+ * The gain a leading-edge estimator has over the packet detector it shares an antenna with: it
+ * accumulates the whole SYNC field — `SYNC_SYMBOLS` repetitions of one preamble symbol — before
+ * it reads a first path, and coherent accumulation of N repetitions is 10·log10(N). It is
+ * derived from the SHR this file already sizes rather than written out, so a different preamble
+ * length moves the timestamp's noise floor with it. model
+ */
+export const UWB_TS_ACCUM_GAIN_DB = 10 * Math.log10(SYNC_SYMBOLS) // 18.1 dB
+
+/**
+ * The floor a reception's signal-to-noise ratio is measured against, for the purpose of timing
+ * it: the receiver's sensitivity — the power at which a *packet* decodes — less the
+ * accumulation gain above, because a timestamp is formed from the whole preamble and not from
+ * one bit's worth of energy. A frame at sensitivity therefore times at `UWB_TS_ACCUM_GAIN_DB`,
+ * not at 0 dB, which is what lets a link stay at its quoted precision well past the range a
+ * thermal floor would allow. model
+ */
+export const UWB_NOISE_FLOOR_DBM = UWB_RX_SENS_DBM - UWB_TS_ACCUM_GAIN_DB
+
+/** The SNR a session's `tsNoisePs` is quoted at. At or above it a receive timestamp is exactly
+ * as good as the configuration says; below it the leading-edge estimator degrades. model */
+export const TS_SNR_REF_DB = 20
+
+/** The worst the estimator is allowed to get, as a multiple of `tsNoisePs`. The shape below
+ * reaches it at 0 dB and holds it beneath: a receiver that far down does not produce a usable
+ * leading edge at all, and without the cap one frame would carry kilometres of range. model */
+export const TS_SIGMA_MAX = 10
+
+/**
+ * How much worse than its quoted 1-σ a receive timestamp taken at `snrDb` is:
+ * `sqrt(SNR_ref / SNR)`, the Cramér-Rao shape of a leading-edge estimator — the variance of a
+ * time-of-arrival estimate goes as 1/SNR, so its 1-σ goes as 1/√SNR — floored at 1 (a loud
+ * link is no better than the receiver's own quoted precision) and capped at `TS_SIGMA_MAX`.
+ * model
+ */
+export function tsNoiseScale(snrDb: number): number {
+  const scale = Math.sqrt(10 ** ((TS_SNR_REF_DB - snrDb) / 10))
+  return Math.min(TS_SIGMA_MAX, Math.max(1, scale))
+}
+
+/**
+ * The SNR — SINR, when a Wi-Fi neighbour shares the band — one reception is stamped at: its
+ * received power over the receiver's noise floor plus whatever foreign power the mediator
+ * reported over it. With nothing foreign on the air (`-Infinity`) this is the plain SNR. model
+ */
+export function uwbSinrDb(rxDbm: number, foreignDbm: number): number {
+  const noiseMw = 10 ** (UWB_NOISE_FLOOR_DBM / 10)
+    + (Number.isFinite(foreignDbm) ? 10 ** (foreignDbm / 10) : 0)
+  return rxDbm - 10 * Math.log10(noiseMw)
+}
+
+/** The 1-σ, in nanoseconds, of a receive timestamp taken at `snrDb` in a session that quotes
+ * `tsNoisePs`. One definition: every mode's draw is scaled through this. model */
+export function tsSigmaNs(tsNoisePs: number, snrDb: number): number {
+  return (tsNoisePs / 1000) * tsNoiseScale(snrDb)
 }
 
 export const UWB_SIR_MIN_DB = -12 // model

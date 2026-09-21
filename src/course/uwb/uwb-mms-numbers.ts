@@ -131,7 +131,7 @@ export const uwbMmsNumbers: Lesson = {
       [{ en: 'A crystal at its limit', zh: '晶振偏到极限' }, N('1.5 m')],
       [{ en: 'A 4z carrier estimate', zh: '4z 的载波估计' }, N('1.5 cm')],
       [{ en: 'The train’s 0.0202 ppm', zh: '这一串的 0.0202 ppm' }, N('1.5 mm')],
-      [{ en: 'The noise floor under all of them', zh: '它们脚下的噪声地板' }, N('2.05 cm over 21 ranges')],
+      [{ en: 'The noise floor under all of them', zh: '它们脚下的噪声地板' }, N('2.10 cm over 21 ranges')],
     ] },
     { text: {
       en: 'The last row is the point: two receive stamps alone are worth 2.1 cm, so the train’s millimetre of clock leftover is invisible.',

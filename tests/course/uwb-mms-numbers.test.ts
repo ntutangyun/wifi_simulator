@@ -351,7 +351,7 @@ describe('uwb-mms-numbers · the ruler a millisecond long', () => {
     expect(Math.sign(atAnchor.ratioPpm!)).toBe(-Math.sign(firstTrains('base')[0].ratioPpm!))
   })
 
-  it('the correction table: 3.00 m, 1.5 m, 1.5 cm, 1.5 mm, over a 2.05 cm floor', () => {
+  it('the correction table: 3.00 m, 1.5 m, 1.5 cm, 1.5 mm, over a 2.10 cm floor', () => {
     // the reply is one slot, 0.5 ms, and the raw range minus the corrected one is
     // ½ · T_reply · 40 ppm · c = 3.00 m
     const reply = ofType(recs('base'), 'TX_START')
@@ -374,15 +374,16 @@ describe('uwb-mms-numbers · the ruler a millisecond long', () => {
     expect(cell(2, 3, 1)).toBe('1.5 cm')
     expect((halfReplyS * sigmaPpm() * 1e-6 * cMs * 1000).toFixed(1)).toBe('1.5')
     expect(cell(2, 4, 1)).toBe('1.5 mm')
-    // the floor underneath: two receive stamps are 2.1 cm, and 21 ranges scatter by 2.05 cm
+    // the floor underneath: two receive stamps are 2.1 cm, and 21 ranges scatter by 2.10 cm — the
+    // train combines to 19.8-20.0 dB, a shade under the 20 dB the timestamp noise is quoted at
     expect((rangeSigmaM(DEFAULT_UWB_SESSION.tsNoisePs) * 100).toFixed(1)).toBe('2.1')
     const biasM = 2 * UWB_NLOS_NS.brick * C_M_PER_NS
     const errs = ofType(recs('base'), 'UWB_RANGE').map((r) => r.distM - r.trueDistM - biasM)
     expect(errs).toHaveLength(BLOCKS * ANCHORS.length)
     expect(errs).toHaveLength(21)
     const rms = Math.sqrt(mean(errs.map((e) => e * e)))
-    expect((rms * 100).toFixed(2)).toBe('2.05')
-    expect(cell(2, 5, 1)).toBe('2.05 cm over 21 ranges')
+    expect((rms * 100).toFixed(2)).toBe('2.10')
+    expect(cell(2, 5, 1)).toBe('2.10 cm over 21 ranges')
     // the 1.5 mm is invisible under it: adding it in quadrature moves nothing a reader sees
     const floor = rangeSigmaM(DEFAULT_UWB_SESSION.tsNoisePs)
     expect(rms).toBeLessThan(1.2 * floor)

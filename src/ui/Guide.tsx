@@ -278,7 +278,8 @@ export function GuideEn() {
       </p>
       <p style={p}>
         Model numbers: −14 dBm transmit, −93 dBm sensitivity, 6 dB capture, path-loss exponent 2,
-        100 ps of 1-σ timestamp noise (σ<sub>range</sub> = c·σ<sub>ts</sub>/√2 ≈ 2.1 cm), 0.2 ppm of
+        100 ps of 1-σ timestamp noise at 20 dB of SNR (σ<sub>range</sub> = c·σ<sub>ts</sub>/√2 ≈ 2.1 cm), which
+        grows as √(20 dB / SNR) on a quieter link and is capped at ten times that, 0.2 ppm of
         residual clock-offset error, and a wall's excess delay of 0.2 ns (glass) / 0.5 ns (drywall) /
         2.0 ns (brick). That NLOS delay is a bias, not noise — averaging never removes it — and a path
         through any wall is reported with the worse FoM, 75 % within 12 ns instead of 97 % within
@@ -688,7 +689,8 @@ export function GuideZh() {
       </p>
       <p style={p}>
         模型取值：发射 −14 dBm、灵敏度 −93 dBm、捕获门限 6 dB、路径损耗指数 2、
-        时间戳 1-σ 噪声 100 ps（σ<sub>range</sub> = c·σ<sub>ts</sub>/√2 ≈ 2.1 cm）、
+        信噪比 20 dB 时的时间戳 1-σ 噪声 100 ps（σ<sub>range</sub> = c·σ<sub>ts</sub>/√2 ≈ 2.1 cm）——
+        链路更弱时按 √(20 dB / SNR) 变差，最多为该值的十倍、
         残余时钟偏差 0.2 ppm，以及穿墙附加时延 0.2 ns（玻璃）/ 0.5 ns（石膏板）/ 2.0 ns（砖）。
         这个 NLOS 时延是偏差而非噪声——再多次平均也消不掉——凡是穿墙的路径都会报出更差的 FoM：
         75 % 落在 12 ns 之内，而不是视距时的 97 % 落在 0.5 ns 之内（§10.29.1.7）。

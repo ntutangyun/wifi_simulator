@@ -40,7 +40,7 @@ import {
 import { onDlRx, onDlSlot, onUlSlot, solveTdoaFix, solveUlFix as solveUlFixImpl, transmitDl, ulArrivalNs as ulArrivalNsImpl, type DlRoundState } from './device.tdoa'
 import { freshMms, onMmsRx, onMmsSlot, solveMmsFix, type MmsRoundState } from './device.mms'
 import { measureAoa, reportRange } from './device.report'
-import { UWB_RMARKER_NS, type UwbChannelNo } from './phy'
+import { tsSigmaNs, UWB_RMARKER_NS, uwbSinrDb, type UwbChannelNo } from './phy'
 import { rangeSigmaM, solvePosition, type AnchorPos } from './position'
 import { dsTwr, fomFor, ssTwrCorrected, ssTwrRaw } from './ranging'
 import type { RoundPlan, SlotAction } from './session'
@@ -467,8 +467,15 @@ export class UwbDevice implements UwbRadio {
     // The receive stamp: the RMARKER's true instant, plus the extra delay this
     // receiver actually measures — the NLOS excess of an obstructed first path,
     // and the leading-edge estimator's own noise.
+    //
+    // That noise is not one number for the session: an estimator's 1-σ goes as 1/√SNR, so
+    // `tsNoisePs` is what this receiver achieves at `TS_SNR_REF_DB` and a quieter frame is
+    // stamped worse (`tsSigmaNs`). The draw itself is one draw from this device's stream,
+    // taken here as it always was — only its scale moved — so a link at or above the
+    // reference stamps exactly the counters it stamped before.
     const trueRmarkerNs = info.txStartNs + UWB_RMARKER_NS + info.propNs
-    const extraNs = info.nlosNs + gaussian(this.rng) * (this.cfg.tsNoisePs / 1000)
+    const sigmaNs = tsSigmaNs(this.cfg.tsNoisePs, uwbSinrDb(info.rssiDbm, info.foreignDbm))
+    const extraNs = info.nlosNs + gaussian(this.rng) * sigmaNs
     const counter = this.clock.counter(trueRmarkerNs, extraNs)
     const fom = fomFor(info.nlos)
     this.emit({ t: this.now(), type: 'UWB_TS', node: this.id, dir: 'rx', peer: from, frameKind: kind, counter, fom })

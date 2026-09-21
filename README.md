@@ -94,7 +94,7 @@ The UWB side is a separate radio with its own PHY, its own schedule and its own 
 | DS-TWR deferred as the default method | FiRa | matches FiRa's default ranging round usage |
 | Tx −14 dBm, sensitivity −93 dBm, capture 6 dB | model | −14 dBm ≈ the −41.3 dBm/MHz mean EIRP mask over 499.2 MHz |
 | Path-loss exponent 2.0, free-space PL₀ | model | indoor LOS; PL₀ from the channel's centre frequency (Table 11-9) |
-| Timestamp noise 100 ps 1-σ, residual CFO 0.2 ppm | model | σ_range = c·σ_ts/√2 ≈ 2.1 cm (the conservative SS-TWR form; DS-TWR is 0.62–0.65·c·σ_ts) |
+| Timestamp noise 100 ps 1-σ at 20 dB SNR, residual CFO 0.2 ppm | model | σ_range = c·σ_ts/√2 ≈ 2.1 cm (the conservative SS-TWR form; DS-TWR is 0.62–0.65·c·σ_ts). σ_ts scales as √(SNR_ref / SNR) below the 20 dB reference — a leading-edge estimator's Cramér-Rao shape — capped at 10×; an MMS train is measured at the SNR its fragments combined to |
 | NLOS excess delay 0.2 / 0.5 / 2.0 ns | model | glass / drywall / brick per wall crossed = 0.06 / 0.15 / 0.60 m of bias |
 | 2-D position: Gauss–Newton, GDOP, 1-σ ellipse | model | residual ‖p − aᵢ‖ − dᵢ with the tag's z known; Σ = σ_r²·(JᵀJ)⁻¹; needs ≥ 3 ranges |
 | ≤ 9 anchors per round | standard §16.2.7 (consequence) | the DS-TWR Final is 14 + 12N octets and must stay under the 127-octet PSDU limit |

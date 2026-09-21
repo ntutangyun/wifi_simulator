@@ -10,7 +10,7 @@ import { counterDiff, gaussian } from './clock'
 import { makeNbPoll, makeNbReport, makeNbResp, makeRif, makeRsf, type UwbFrameKind, type UwbInfo } from './frames'
 import { combineGainDb, MS_NS, MS_RCTU, rmarkerFromFragment, trainDetected } from './mms'
 import { NB_LBT_THRESHOLD_DBM, nbLbtRequired } from './nb'
-import { UWB_RX_SENS_DBM } from './phy'
+import { tsSigmaNs, UWB_RX_SENS_DBM, uwbSinrDb } from './phy'
 import { rangeSigmaM, solvePosition } from './position'
 import { fomFor, ssTwrCorrected, ssTwrRaw } from './ranging'
 import { NOTHING_HEARD_DBM } from './records'
@@ -35,6 +35,10 @@ export interface TrainFragment {
   nlosNs: number
   nlos: boolean
   rssiDbm: number
+  /** The worst foreign in-band power the mediator reported over this fragment's own reception,
+   * in dBm; −Infinity with nothing foreign on the air. The train's combined SNR is measured
+   * against it, so a Wi-Fi neighbour costs the train precision and not only fragments. */
+  foreignDbm: number
 }
 
 /**
@@ -236,7 +240,7 @@ export function onMmsRx(
     m.frags[frag.kind].push({
       index: frag.index,
       arrivalNs: info.txStartNs + info.propNs - (frag.index * MS_NS * drift) / (1 + drift),
-      nlosNs: info.nlosNs, nlos: info.nlos, rssiDbm: info.rssiDbm,
+      nlosNs: info.nlosNs, nlos: info.nlos, rssiDbm: info.rssiDbm, foreignDbm: info.foreignDbm,
     })
     return
   }
@@ -302,7 +306,11 @@ function evaluateTrain(
   let fom = 0
   if (detected) {
     const first = frags[0]
-    const sigmaNs = dev.cfg.tsNoisePs / 1000
+    // The train is stamped at what it *combined* to, not at one fragment's power: the whole
+    // point of the mode is that N fragments buy 10·log10(N) dB, and those decibels buy timestamp
+    // precision exactly as distance would (`tsSigmaNs`). Both stamps below are taken at this
+    // one 1-σ — they are two reads of the same accumulated train.
+    const sigmaNs = tsSigmaNs(dev.cfg.tsNoisePs, uwbSinrDb(rxDbm + gainDb, first.foreignDbm))
     const firstExtraNs = first.nlosNs + gaussian(dev.rng) * sigmaNs
     const firstCounter = dev.clock.counter(first.arrivalNs, firstExtraNs)
     fom = fomFor(first.nlos)

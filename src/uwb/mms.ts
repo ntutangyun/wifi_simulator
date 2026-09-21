@@ -157,7 +157,27 @@ export interface MmsPhy {
   nMsr: NMsr
   gap: number
   stsLen: StsLen
+  /** Z, the RSF-to-RIF gap, in milliseconds — the draft's RpRifOffset. See `rifStartMs`. */
   gapMs: 1 | 2
+}
+
+/**
+ * Which millisecond of the ranging phase RIF number `index` (counted from 0) starts in, for a
+ * train of `rsfs` RSFs and an RSF-to-RIF gap of `gapMs`: the first RIF starts RpRifOffset after
+ * the **start of the last RSF**, and the last RSF started at millisecond X − 1, so the first RIF
+ * is at X − 1 + Z and every further one a millisecond later. With no RSF at all (X = 0) the
+ * offset is zero and the RIFs open the phase.
+ *
+ * P802.15.4ab §10.38.5 (the UWB MMS ranging phase; §10.35.5 before the clause was renumbered):
+ * a device "may start transmitting a first RIF fragment at RpRifOffset into the ranging phase
+ * if no RSF fragments are present, or RpRifOffset after the start of its last RSF fragment
+ * transmission otherwise", with RpRifOffset 2 ms when RSFs were sent and 0 ms otherwise. The
+ * balloted D5.0 is not in the corpus this repository was checked against; the clause text above
+ * is the editor's instruction carried by the comment resolution 15-24/0235r2 (from the proposed
+ * clause text of 15-23/0371r1 and 15-23/0412r0), which is the latest form available here.
+ */
+export function rifStartMs(rsfs: number, gapMs: number, index: number): number {
+  return rsfs > 0 ? rsfs + gapMs - 1 + index : index
 }
 
 export type MmsSetId =
@@ -255,7 +275,9 @@ export function mmsLayout(phy: MmsPhy): MmsLayout {
   const x = phy.rsfs
   const y = phy.rifs
   const z = phy.gapMs
-  const rp = Math.max(MMS_RP_MIN_SLOTS, 2 * (x + (y > 0 ? z - 1 + y : 0)))
+  // The phase has to hold every fragment: the RSFs' X milliseconds, and — when the train has
+  // RIFs — up to the last one, which `rifStartMs` puts at X + Z − 1 + (Y − 1).
+  const rp = Math.max(MMS_RP_MIN_SLOTS, 2 * (y > 0 ? rifStartMs(x, z, y - 1) + 1 : x))
   const count = (kind: 'rsf' | 'rif'): number => (kind === 'rsf' ? x : y)
   return {
     controlSlots: MMS_CONTROL_SLOTS,
@@ -266,8 +288,8 @@ export function mmsLayout(phy: MmsPhy): MmsLayout {
       if (!Number.isInteger(index) || index < 0 || index >= count(kind)) {
         throw new Error(`mmsLayout: this train has ${count(kind)} ${kind.toUpperCase()} fragments, asked for ${index}`)
       }
-      // RSF-m starts m ms into the ranging phase; RIF-y starts (X + Z − 1 + y) ms into it.
-      const ms = kind === 'rsf' ? index : x + z - 1 + index
+      // RSF-m starts m ms into the ranging phase; the RIFs follow `rifStartMs` (§10.38.5).
+      const ms = kind === 'rsf' ? index : rifStartMs(x, z, index)
       return MMS_CONTROL_SLOTS + 2 * ms + (side === 'responder' ? 1 : 0)
     },
     slotFragment(slot) {
@@ -278,7 +300,7 @@ export function mmsLayout(phy: MmsPhy): MmsLayout {
       const side = off % 2 === 0 ? 'initiator' : 'responder'
       const ms = (off - (side === 'responder' ? 1 : 0)) / 2
       if (ms < x) return { side, kind: 'rsf', index: ms }
-      const firstRif = x + z - 1
+      const firstRif = rifStartMs(x, z, 0)
       if (y > 0 && ms >= firstRif && ms < firstRif + y) return { side, kind: 'rif', index: ms - firstRif }
       return null
     },
