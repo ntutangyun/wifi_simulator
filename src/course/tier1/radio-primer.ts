@@ -85,8 +85,8 @@ export const radioPrimer: Lesson = {
       en: 'N(W) = −174 dBm/Hz + 10·log10(W) + 7 dB   →   N(20 MHz) = −93.99 dBm',
       zh: 'N(W) = −174 dBm/Hz + 10·log10(W) + 7 dB   →   N(20 MHz) = −93.99 dBm',
     }, note: {
-      en: 'A receiver takes in noise across its whole width, so each doubling of the channel adds 3 dB, and on the widest channel here the floor has risen to −84.96 dBm. The signal does not grow to match: wide channels reach less far.',
-      zh: '接收端把整个监听带宽里的噪声都收了进来，所以信道每宽一倍，噪声就多 3 dB；到本课程用到的最宽信道时，地板已抬到 −84.96 dBm。信号却不会跟着长大——宽信道覆盖更近，原因就在这里。',
+      en: 'A receiver takes in noise across its whole width, so each doubling of the channel adds 3 dB: at 160 MHz the floor has risen to −84.96 dBm. The signal does not grow to match, so wide channels reach less far.',
+      zh: '接收端把整个监听带宽里的噪声都收了进来，所以信道每宽一倍，噪声就多 3 dB：到 160 MHz 时，地板已抬到 −84.96 dBm。信号却不会跟着长大，所以宽信道覆盖更近。',
     } },
     { kind: 'widget', widget: 'linkBudget',
       params: { txDbm: 15, distanceM: 9, drywall: 0, brick: 1, glass: 0, mode: 'eht', widthMhz: 20 },

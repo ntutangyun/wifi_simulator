@@ -108,8 +108,9 @@ describe('decode-thresholds · the three questions', () => {
   }
 
   it('quiz 2: a −70 dBm frame missed during our own transmission leaves CCA idle', () => {
-    // "the preamble was missed, so only raw power counts, and −70 dBm is below −62 dBm";
-    // had the radio been listening, the same frame would have held it off.
+    // "the preamble was missed, so only raw power counts, and −70 dBm is below −62 dBm", and the
+    // explanation's closing sentence, which both languages now carry: "Had you been listening
+    // when it began, −70 dBm would have held you off."
     expect(ccaAfter(true)).toBe(false)
     expect(ccaAfter(false)).toBe(true)
   })
@@ -135,6 +136,26 @@ describe('decode-thresholds · the ladder', () => {
     // the picture's "Going up a rung loads each sub-carrier with more bits" — half a bit at the
     // bottom, ten at the top, for 36 dB more
     expect((rows[13].reqSinrDb - rows[0].reqSinrDb).toFixed(0)).toBe('36')
+  })
+
+  it('the modulation names count symbols, and a name plus its fraction gives the bits', () => {
+    // the gloss under the table: "Each modulation name says how many symbols the sender chooses
+    //  between: two (BPSK), four (QPSK), then the 16, 64, 1024 and 4096 of the QAM (a grid of
+    //  signal levels) family. The fraction after it is the coding rate." — and `deeper`'s "MCS 3
+    //  and MCS 7 use the same 16-QAM and 64-QAM families their names give, at different fractions."
+    // Each printed cell is `<symbols>-QAM <rate>` (or BPSK/QPSK), and log2(symbols) × rate is the
+    // row's own bits per sub-carrier, so a name that stopped matching the ladder fails here.
+    const printed: [number, string, number, number][] = [
+      [0, 'BPSK', 2, 1 / 2], [1, 'QPSK', 4, 1 / 2], [3, '16-QAM', 16, 1 / 2],
+      [7, '64-QAM', 64, 5 / 6], [10, '1024-QAM', 1024, 3 / 4], [13, '4096-QAM', 4096, 5 / 6],
+    ]
+    for (const [mcs, name, symbols, rate] of printed) {
+      // the two names without a number in front are the two- and four-symbol rungs
+      if (name === 'BPSK') expect(symbols).toBe(2)
+      if (name === 'QPSK') expect(symbols).toBe(4)
+      if (name.includes('-QAM')) expect(Number(name.split('-')[0])).toBe(symbols)
+      expect(Math.log2(symbols) * rate, `bits/tone MCS ${mcs}`).toBeCloseTo(PHY_MODES.eht.ndbps[mcs] / 234, 9)
+    }
   })
 
   it('deeper: the requirement is the sensitivity table with the assumed noise taken back out', () => {

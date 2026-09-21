@@ -49,7 +49,7 @@ export const decodeThresholds: Lesson = {
       zh: '还是回到说话。安静的屋里凑得近，你可以连珠炮似的说，对方照样听懂；屋里吵、人又远，你就得放慢、咬清楚。无线电完全照做。它有一把速率的阶梯，每一级都要求信号高出其余一切某个幅度。选了这条链路撑不住的一级，什么也过不去；选得远低于它，又白白浪费空口时间。这一级，就是 MCS。',
     } },
     { heading: { en: 'Many narrow voices at once', zh: '许多个窄嗓门一起说' }, text: {
-      en: 'What does a higher rung actually change? Wi-Fi does not push one fast stream down the channel. It splits the channel into hundreds of narrow sub-carriers and sends a slow stream on every one of them at the same time — that is OFDM. Going up a rung loads each sub-carrier with more bits, which means more signal levels to tell apart, packed closer together. Telling them apart needs a cleaner signal. That is the whole trade.',
+      en: 'What does a higher rung change? Wi-Fi does not push one fast stream down the channel. It splits the channel into hundreds of narrow sub-carriers and sends a slow stream on every one of them at the same time — that is OFDM. Going up a rung loads each sub-carrier with more bits, which means more signal levels to tell apart, packed closer together. Telling them apart needs a cleaner signal. That is the whole trade.',
       zh: '上一级到底改变了什么？Wi-Fi 并不是把一路高速数据硬塞进信道。它把信道切成几百个很窄的子载波，在每一个上同时发一路慢的数据——这就是 OFDM。往上一级，就是让每个子载波多驮几个比特；这意味着要分辨的电平更多、挨得更近，而要分得开，就得有更干净的信号。整笔交易就是这么回事。',
     } },
     { kind: 'watch', jump: 0, heading: { en: 'Go and look', zh: '去看一眼' }, text: {
@@ -77,11 +77,11 @@ export const decodeThresholds: Lesson = {
        { en: 'CCA busy, nothing to decode. The one rule left for non-Wi-Fi energy.', zh: 'CCA 置忙，但没有可解的内容。对不是 Wi-Fi 的能量，这是仅剩的判据。' }],
       [{ en: 'Can I decode it?', zh: '我解得出来吗？' },
        { en: 'Worst SINR during the frame ≥ what its MCS requires', zh: '整帧期间最差的 SINR ≥ 该 MCS 的要求' },
-       { en: 'RX_OK and an acknowledgement. Below it, RX_FAIL and a timeout at the sender.', zh: 'RX_OK 并回确认帧。低于要求则 RX_FAIL，发送方则等到超时。' }],
+       { en: 'RX_OK and an acknowledgement; below it, RX_FAIL and a timeout.', zh: 'RX_OK 并回确认帧；低于要求则 RX_FAIL，发送方等到超时。' }],
     ] },
     { text: {
-      en: 'The two clear-channel figures are not interchangeable. The −82 dBm one applies only to a frame whose preamble this radio was listening for; −62 dBm, twenty decibels higher, is all that is left when it was not.',
-      zh: '这两个空闲判断的数不能混用。−82 dBm 只适用于本机正在侦听、并且抓到了前导的那一帧；高二十分贝的 −62 dBm，是抓不到前导时仅剩的判据。',
+      en: 'The two figures are not interchangeable: −82 dBm applies only to a frame whose preamble this radio was listening for, and −62 dBm is all that is left when it was not.',
+      zh: '这两个数不能混用：−82 dBm 只适用于本机正在侦听、并且抓到了前导的那一帧；抓不到前导时，仅剩高二十分贝的 −62 dBm 这条判据。',
     } },
     { kind: 'table', heading: { en: 'Six of the fourteen rungs, 20 MHz, one stream', zh: '十四级中的六级，20 MHz、单流' }, head: [
       N('MCS'), { en: 'Modulation', zh: '调制' }, { en: 'Bits per sub-carrier', zh: '每子载波比特' }, N('Mbps'),
@@ -94,14 +94,18 @@ export const decodeThresholds: Lesson = {
       [N('10'), N('1024-QAM 3/4'), N('7.5'), N('129.0'), N('−54 dBm'), N('36.99 dB')],
       [N('13'), N('4096-QAM 5/6'), N('10'), N('172.1'), N('−46 dBm'), N('44.99 dB')],
     ] },
+    { text: {
+      en: 'Each modulation name says how many symbols the sender chooses between: two (BPSK), four (QPSK), then the 16, 64, 1024 and 4096 of the QAM (a grid of signal levels) family. The fraction after it is the coding rate.',
+      zh: '调制的名字说的是发送端在多少个符号之间做选择：两个（BPSK）、四个（QPSK），再往后是 QAM（一张信号电平的方格）家族的 16、64、1024 和 4096。名字后面的那个分数，是编码率。',
+    } },
     { kind: 'widget', widget: 'mcsLadder', params: { mode: 'eht', snrDb: 21.5 },
       caption: {
-        en: 'The whole ladder, with the marker at the living-room laptop\'s SNR rounded down to 21.5 dB. The rungs it lights are the ones that fit: requirement plus the margin kept in hand.',
-        zh: '整把阶梯，标记落在客厅那台笔记本的 SNR 上（向下取整到 21.5 dB）。被点亮的就是放得下的那些级：要求再加上发送端留的余量。',
+        en: 'The whole ladder, marker at the living-room laptop\'s SNR rounded down to 21.5 dB. The rungs it lights are those that fit, margin included.',
+        zh: '整把阶梯，标记落在客厅那台笔记本的 SNR 上（向下取整到 21.5 dB）。被点亮的就是放得下的那些级，余量已经算在内。',
       } },
     { heading: { en: 'The ladder as a contract', zh: '把阶梯当作一份契约' }, text: {
-      en: 'The sender picks the highest rung whose requirement, plus 3 dB kept in hand, still fits the link; decoding then compares against the bare requirement. At 20 MHz the choice is head arithmetic: the rung is the highest one whose sensitivity the RSSI meets.',
-      zh: '发送端选的是这样一级：它的要求再加上留在手里的 3 dB，仍然放得进这条链路。而解码时比的是不含余量的那个要求。在 20 MHz 上这笔账可以口算：最高的那一级，就是 RSSI 达到其灵敏度的那一级。',
+      en: 'The sender picks the highest rung whose requirement, plus 3 dB kept in hand, still fits; decoding then compares against the bare requirement. At 20 MHz that is head arithmetic: the rung is the highest one whose sensitivity the RSSI meets.',
+      zh: '发送端选的是这样一级：它的要求再加上手里留的 3 dB，仍然放得进这条链路；而解码时比的是不含余量的那个要求。在 20 MHz 上这笔账可以口算：最高的那一级，就是 RSSI 达到其灵敏度的那一级。',
     } },
     { kind: 'table', heading: { en: 'One 1530-octet frame, by position', zh: '同一个 1530 字节帧，按位置' }, head: [
       { en: 'Where it sits', zh: '它在哪儿' }, N('RSSI'), N('SNR'), N('MCS'), { en: 'Needs + 3 dB', zh: '所需 + 3 dB' }, { en: 'Airtime', zh: '空口时间' },
@@ -121,12 +125,16 @@ export const decodeThresholds: Lesson = {
       en: 'required SINR = sensitivity − kTB(20 MHz) − 10 dB = sensitivity + 90.99 dB',
       zh: '所需 SINR = 灵敏度 − kTB(20 MHz) − 10 dB = 灵敏度 + 90.99 dB',
     }, note: {
-      en: 'MCS 0 at −82 dBm needs 8.99 dB. The 5 dB implementation margin stays inside the requirement, because an impairment hurts against interference exactly as it does against noise. The requirement never depends on channel width: a wider channel costs range only through its noise floor. And the simulator\'s own 7 dB noise figure beats the assumed 10 dB by 3 dB, which the 3 dB rate margin gives straight back — which is why the 20 MHz shortcut works.',
-      zh: 'MCS 0 的灵敏度是 −82 dBm，所需 8.99 dB。5 dB 实现余量留在要求之内，因为接收机损伤对干扰和对噪声一样起作用。这个要求与信道带宽无关：更宽的信道只通过抬高噪声地板来缩短覆盖。另外，仿真器自己的 7 dB 噪声系数比假设的 10 dB 好 3 dB，而 3 dB 的速率余量又原样还了回去——20 MHz 上的那套口算，正是这么来的。',
+      en: 'kTB is the thermal-noise formula the numbers section already used, so this is the sensitivity with the noise the tables assumed taken back out: MCS 0 at −82 dBm needs 8.99 dB. The 5 dB implementation margin stays inside the requirement, because an impairment hurts against interference exactly as it does against noise. The requirement never depends on channel width: a wider channel costs range only through its noise floor. And the simulator\'s own 7 dB noise figure beats the assumed 10 dB by 3 dB, which the 3 dB rate margin gives straight back — which is why the 20 MHz shortcut works.',
+      zh: 'kTB 就是"现在的数字"一节用过的那条热噪声公式，所以这一步就是把标准假设的噪声从灵敏度里减回去：MCS 0 的灵敏度是 −82 dBm，所需 8.99 dB。5 dB 实现余量留在要求之内，因为接收机损伤对干扰和对噪声一样起作用。这个要求与信道带宽无关：更宽的信道只通过抬高噪声地板来缩短覆盖。另外，仿真器自己的 7 dB 噪声系数比假设的 10 dB 好 3 dB，而 3 dB 的速率余量又原样还了回去——20 MHz 上的那套口算，正是这么来的。',
     } },
     { heading: { en: 'Audible and useless', zh: '听得见，却没有用' }, text: {
       en: 'Put the far-wall laptop on 80 MHz: the noise floor rises to −87.97 dBm and the SNR falls to 9.89 dB — under MCS 0\'s 11.99 dB with the margin, but over its bare 8.99 dB requirement — and every frame is still acknowledged. At 160 MHz the SNR is 6.87 dB. The preamble is still detected, so the receiver starts and waits, but nothing decodes: every reception ends in RX_FAIL and every transmission in a timeout. A link can be perfectly audible and completely useless.',
       zh: '把远端墙边的笔记本换到 80 MHz：噪声地板升到 −87.97 dBm，SNR 掉到 9.89 dB——低于 MCS 0 含余量的 11.99 dB，却仍高于它 8.99 dB 的裸要求——于是每一帧照样被确认。换到 160 MHz，SNR 只剩 6.87 dB：前导依然检测得到，接收照样开始、照样等待，可什么也解不出来，每次接收都以 RX_FAIL 收场，每次发送都以超时收场。一条链路可以听得清清楚楚，却完全不能用。',
+    } },
+    { heading: { en: 'What the coding rate buys', zh: '编码率买到的是什么' }, text: {
+      en: 'The fraction beside each modulation — 1/2, 3/4, 5/6 — is the share of what goes out that is message; the rest is redundancy the receiver uses to repair what the noise damaged. A rung is therefore two choices at once: how many symbols the grid holds, and how much repair rides along. MCS 3 and MCS 7 use the same 16-QAM and 64-QAM families their names give, at different fractions.',
+      zh: '每个调制名字旁边的那个分数——1/2、3/4、5/6——是发出去的东西里真正是消息的那一份；其余是冗余，接收端拿它来修补被噪声打坏的部分。所以一级其实是两个选择合在一起：方格里有多少个符号，以及随行的修补有多少。MCS 3 与 MCS 7 各自用名字里写着的 16-QAM 与 64-QAM，只是分数不同。',
     } },
     { kind: 'list', heading: { en: 'Simplifications, named plainly', zh: '简化之处，明说' }, items: [
       { en: 'Decoding is a hard threshold: at or above the requirement a frame always decodes, below it never does. A real receiver has an error-rate curve that falls steeply over a few dB.', zh: '解码是一道硬门限：达到要求就一定解得出，低于就一定失败。真实接收机是一条在几个 dB 内陡降的误码率曲线。' },
@@ -149,7 +157,7 @@ export const decodeThresholds: Lesson = {
     J('first ACK', '第一个 ACK', firstAck),
   ],
   observe: [
-    { en: 'Read the MCS of the first data frame in each of the four variants: 13, 10, 3 and 1 — exactly the rungs the ladder lights for the four ratios in the table above.', zh: '读出四个变体里第一个数据帧的 MCS：13、10、3、1——正是上表那四个比值在阶梯上点亮的级。' },
+    { en: 'Read the MCS of the first data frame in each of the four variants: 13, 10, 3 and 1 — the rungs the ladder lights for the four ratios in the table above.', zh: '读出四个变体里第一个数据帧的 MCS：13、10、3、1——上表那四个比值在阶梯上点亮的级。' },
     { en: 'Now read the airtime of that frame: 129.6, 143.2, 415.2 and 768.8 µs. Twelve rungs down costs nearly six times the air for the very same 1530 octets.', zh: '再读这一帧的空口时间：129.6、143.2、415.2、768.8 µs。往下走十二级，同样的 1530 个字节要多花近六倍的空口时间。' },
     { en: 'No variant shows a retry, a timeout or a failed reception. A lone link at its ceiling still keeps 3 dB in hand — against a hard threshold, enough never to lose a frame.', zh: '四个变体里都没有重传、没有超时、也没有接收失败。一条孤零零的链路停在上限时，手里仍留着 3 dB，而面对一道硬门限，这就足以一帧不丢。' },
   ],
@@ -176,7 +184,7 @@ export const decodeThresholds: Lesson = {
         { en: 'Yes: CCA is always busy for a while after a transmission', zh: '忙：发送结束后 CCA 总要忙上一阵' },
       ],
       answer: 1,
-      explain: { en: '−82 dBm applies only to a frame whose preamble the radio detected. One that started during your own transmission counts as energy, and energy has to reach −62 dBm.', zh: '−82 dBm 只适用于本机检测到了前导的那一帧。在你自己发送期间开始的帧只算能量，而能量要达到 −62 dBm 才算数。如果它开始时你正在侦听，−70 dBm 就足以把你按住。' },
+      explain: { en: '−82 dBm applies only to a frame whose preamble the radio detected. One that started during your own transmission counts as energy, and energy has to reach −62 dBm. Had you been listening when it began, −70 dBm would have held you off.', zh: '−82 dBm 只适用于本机检测到了前导的那一帧。在你自己发送期间开始的帧只算能量，而能量要达到 −62 dBm 才算数。如果它开始时你正在侦听，−70 dBm 就足以把你按住。' },
     },
   ],
 }

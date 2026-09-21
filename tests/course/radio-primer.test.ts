@@ -139,14 +139,15 @@ describe('radio-primer · the floor of the room', () => {
     expect(noiseDbm(20).toFixed(2)).toBe('-93.99')
   })
 
-  it('each doubling of the channel adds 3 dB, and the widest floor is −84.96 dBm', () => {
-    // the note "each doubling of the channel adds 3 dB, and on the widest channel here the
-    //  floor has risen to −84.96 dBm", and the deeper table of every width
+  it('each doubling of the channel adds 3 dB, and at 160 MHz the floor is −84.96 dBm', () => {
+    // the note "each doubling of the channel adds 3 dB: at 160 MHz the floor has risen to
+    //  −84.96 dBm", and the deeper table of every width. The note names its width rather than
+    //  calling it the widest, because `deeper` goes on to print 320 MHz at −81.95 dBm.
     expect([20, 40, 80, 160, 320].map((w) => noiseDbm(w).toFixed(2)))
       .toEqual(['-93.99', '-90.98', '-87.97', '-84.96', '-81.95'])
     expect((noiseDbm(40) - noiseDbm(20)).toFixed(2)).toBe('3.01')
-    // "the widest channel here": the lessons' own scene runs at 20 MHz, and 160 MHz is the
-    // width the quiz moves it to
+    expect(noiseDbm(160).toFixed(2)).toBe('-84.96')
+    // the scene runs at 20 MHz, and 160 MHz is the width the quiz moves it to
     expect((noiseDbm(160) - noiseDbm(20)).toFixed(2)).toBe('9.03')
   })
 
