@@ -443,6 +443,7 @@ export const MECHANISM_DONE: string[] = [
   'decode-thresholds', 'roles-stack',
   'hidden', 'anomaly', 'retries-queues',
   'airtime', 'ifs', 'backoff', 'nav',
+  'radio-primer', 'frame-anatomy', 'frame-anatomy-bytes',
 ]
 
 /**
