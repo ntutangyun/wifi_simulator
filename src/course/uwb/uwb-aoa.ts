@@ -123,8 +123,12 @@ export const uwbAoa: Lesson = {
   ],
   picture: [
     { heading: { en: 'Two antennas, one arrival', zh: '两根天线，一次到达' }, text: {
-      en: 'A wavefront coming straight at the anchor reaches both of its receive antennas at once. One from off to the side has further to go to the far antenna and arrives a sliver later. That sliver shows up in the carrier as a phase difference, and the angle behind it is that frame’s angle of arrival, AoA.',
-      zh: '正对着锚点扑过来的波前，同时到达它的两根接收天线。而从侧面来的波前，到较远那根天线要多走一段，于是晚到一丝丝。这一丝丝在载波上表现为相位差，而它背后的那个角度，就是这一帧的到达角，AoA。',
+      en: 'A wavefront coming straight at the anchor reaches both of its receive antennas at once. One from off to the side has further to go to the far antenna and arrives a sliver later. That sliver shows up in the carrier as a lag in the cycle; that is called the phase difference, and the angle behind it is the frame’s angle of arrival (AoA).',
+      zh: '正对着锚点扑过来的波前，同时到达它的两根接收天线。而从侧面来的波前，到较远那根天线要多走一段，于是晚到一丝丝。这一丝丝在载波上表现为周期上的一点滞后，这就叫相位差；而它背后的那个角度，就是这一帧的到达角（AoA）。',
+    } },
+    { heading: { en: 'What the model actually does', zh: '模型实际做的事' }, text: {
+      en: 'Real hardware has two receive chains and compares them. The simulator has neither: it works out the phase a pair of antennas half a wavelength apart would see at the badge’s true angle, adds one draw of receiver noise, and inverts that single number. Spacing, wavelength and the array live in that one line and nowhere else.',
+      zh: '真实硬件有两路接收，再把两路拿来比。仿真器两路都没有：它算出一对相距半波长的天线在胸牌真实角度上会看到的相位，加上一次接收机噪声的抽样，再把这一个数反解回去。天线间距、波长与阵列，全在这一行里，别处再也找不到。',
     } },
     { kind: 'watch', jump: 1, heading: { en: 'Watch one arrive', zh: '看一个方位角到来' }, text: {
       en: 'Load the simulation and jump to the first bearing. It comes off the badge’s opening frame, long before the round has measured any distance, and the line names both the angle the anchor read and the truth.',
@@ -135,7 +139,7 @@ export const uwbAoa: Lesson = {
       zh: '双向测距本来就在每轮末尾把一个距离交给这个锚点。距离是绕着它画出的圆，方位角是从它射出的一条射线，两者恰好交于一处。于是这个锚点谁也不需要：它自己就把胸牌的位置解了出来。',
     } },
     { heading: { en: 'The same noise costs more degrees off to the side', zh: '同样的噪声，越偏越贵' }, text: {
-      en: 'The antennas sit half a wavelength apart, the widest spacing that still gives every direction in front its own phase; that span is the field of view. Near the boresight a degree of azimuth moves the phase a lot; near the edge it hardly moves it, because phase follows the sine of the angle and a sine flattens.',
+      en: 'The antennas sit half a wavelength apart, the widest spacing that still gives every direction in front its own phase; that span is the field of view. Near the direction the anchor faces — that is the boresight — a degree of azimuth moves the phase a lot; near the edge it hardly moves it, because phase follows the sine of the angle and a sine flattens.',
       zh: '两根天线相距半个波长，这是仍能让正前方每个方向各有自己相位的最大间距；这段范围就是视场。靠近正前方时，方位角动一度，相位就动得明显；到了边缘，它几乎不动，因为相位跟着角度的正弦走，而正弦越往边上越平。噪声一样大，疑虑却大得多。',
     } },
     { heading: { en: 'An ellipse across the line of sight', zh: '一个横在视线上的椭圆' }, text: {
@@ -163,8 +167,8 @@ export const uwbAoa: Lesson = {
       en: 'σ_θ = σ_φ / (π·cos θ)',
       zh: 'σ_θ = σ_φ / (π·cos θ)',
     }, note: {
-      en: 'σ_φ is the model’s phase noise, 0.15 rad or about 8.6°. Straight ahead it inverts to 2.74° of bearing noise; off to the side the cosine shrinks, the quotient grows, and at the edge it diverges.',
-      zh: 'σ_φ 是模型里的相位噪声，0.15 rad，约合 8.6°。正前方它反解出 2.74° 的方位角噪声；往侧面走，余弦变小、商就变大，到视场边缘处发散。',
+      en: 'σ_φ is the model’s phase noise, 0.15 rad or about 8.6°. Straight ahead it inverts to 2.74° of bearing noise; off to the side it grows, and at the edge it diverges.',
+      zh: 'σ_φ 是模型里的相位噪声，0.15 rad，约合 8.6°。正前方它反解出 2.74° 的方位角噪声；往侧面走它就变大，到视场边缘处发散。',
     } },
     { kind: 'table', heading: { en: 'Three spots, seven rounds each', zh: '三个位置，各七轮' }, head: [
       { en: 'Where the badge stands', zh: '胸牌站在哪里' }, { en: 'True bearing', zh: '真实方位角' },
@@ -180,7 +184,7 @@ export const uwbAoa: Lesson = {
         { en: '10.4–87.7 cm, mean 48.2', zh: '10.4–87.7 cm，平均 48.2' }, N('43.1 × 2.1 cm')],
     ] },
     { text: {
-      en: 'Read that table across, not down. The range error is the same in all three rows, while the cross-range error rh·σ_θ grows fivefold and takes the fix error with it. The ellipse is those two measurements as semi-axes, a quarter turn from the bearing; its short axis never moves.',
+      en: 'Read it across, not down. The range error is the same in all three rows, while the cross-range error rh·σ_θ grows fivefold and takes the fix error with it. The ellipse is those two measurements as semi-axes, a quarter turn from the bearing; its short axis never moves.',
       zh: '这张表要横着读，不要竖着读。三行的测距误差一模一样，而横向误差 rh·σ_θ 涨了五倍，并把定位误差一起带上去。椭圆的两条半轴就是那两次测量，与方位角相差四分之一圈；它的短轴从不移动。',
     } },
     { kind: 'table', heading: { en: 'One round of the base scene, as the log prints it', zh: '基准场景的一轮，日志怎么印' }, head: [
@@ -199,7 +203,39 @@ export const uwbAoa: Lesson = {
     ] },
     { text: {
       en: 'The height correction in figures: at the middle spot the radio measures 4.176 m where the plan shows 4.000. Walked out flat that would plant the point 17.6 cm too far; the fix walks out √(r² − Δz²) instead.',
-      zh: '把高度修正换成数字：中间那个位置上，射频量到 4.176 m，平面图上是 4.000 m。原样平着走出去，会把点钉远 17.6 cm；定位走出的是 √(r² − Δz²)。',
+      zh: '把高度修正换成数字：中间那个位置上，射频量到 4.176 m，平面图上是 4.000 m。原样平着走出去，会把点钉远 17.6 cm。',
+    } },
+    { kind: 'steps', heading: { en: 'One bearing and one fix, step by step', zh: '一个方位角、一次定位，一步一步' }, items: [
+      { en: 'The badge opens a DS-TWR round with its Poll. The anchor stamps the RMARKER, draws the timestamp noise, then the carrier-offset residual, and only then an angle.',
+        zh: '胸牌用 Poll 开启一轮 DS-TWR。锚点给 RMARKER 打戳，抽出时间戳噪声，抽出载波偏差残差，最后才去量角度。' },
+      { en: 'It takes the badge’s true azimuth from its own position and its Facing: 0.000° here, the badge being on the boresight.',
+        zh: '它先由自己的坐标和“朝向”算出胸牌的真实方位角：本场景是 0.000°，因为胸牌正站在正前方那条线上。' },
+      { en: 'It computes the phase two antennas λ/2 apart would see at that angle, π·sin θ, and adds one draw of receiver phase noise, σ_φ = 0.15 rad. That draw is the whole of the hardware.',
+        zh: '它算出相距 λ/2 的两根天线在这个角度上会看到的相位，π·sin θ，再加上一次接收机相位噪声的抽样，σ_φ = 0.15 rad。硬件的全部，就是这一次抽样。' },
+      { en: 'Invert: θ̂ = asin(φ/π), clamped to ±90°. Out comes a UWB_AOA line, the truth beside it — one per frame from the badge, so two a round.',
+        zh: '再反解回去：θ̂ = asin(φ/π)，截断在 ±90°。于是印出一行 UWB_AOA，旁边写着真值——胸牌每发一帧就有一行，所以一轮两行。' },
+      { en: 'At the end of the round the anchor completes its range and pairs it with the later bearing. The range is a slant, the bearing is flat, so what is walked out is √(r² − Δz²).',
+        zh: '这一轮末尾，锚点算完距离，并把它和靠后的那个方位角配成一对。距离是斜距，方位角是平面上的角，所以真正走出去的那一段是 √(r² − Δz²)。' },
+      { en: 'Walk that leg from the anchor along Facing + θ̂: the position line, one anchor, GDOP 1.00 by construction. Its ellipse is 2.1 cm along the ray and the leg times σ_φ/(π·cos θ̂) across it.',
+        zh: '从锚点沿“朝向 + θ̂”把这一段走出去，就得到那一行定位：只用一个锚点，GDOP 按构造恒为 1.00。它的椭圆由两项组成：沿射线是距离的 2.1 cm，横过射线是这一段乘以 σ_φ/(π·cos θ̂)。' },
+    ] },
+    { kind: 'table', heading: { en: 'badge-1, the base scene, round 0', zh: 'badge-1，基准场景，第 0 轮' }, head: [
+      { en: 'Step', zh: '步骤' }, { en: 'Value', zh: '数值' },
+    ], rows: [
+      [{ en: 'true azimuth of the badge', zh: '胸牌的真实方位角' }, N('0.000°')],
+      [{ en: 'the phase it would produce', zh: '它会产生的相位' }, N('π·sin 0° = 0.000 rad')],
+      [{ en: 'plus one draw of σ_φ', zh: '加上一次 σ_φ 抽样' }, N('0.0984 rad')],
+      [{ en: 'θ̂ = asin(φ/π)', zh: 'θ̂ = asin(φ/π)' }, N('1.796°')],
+      [{ en: 'the range the round completes', zh: '这一轮算出的距离' }, N('2.3048 m, true 2.3324')],
+      [{ en: 'take out Δz = 1.20 m', zh: '扣掉 Δz = 1.20 m' }, N('√(2.3048² − 1.20²) = 1.9678 m')],
+      [{ en: 'walk it out along 90° + θ̂', zh: '沿 90° + θ̂ 走出去' }, N('(4.938, 2.467) m, true (5.000, 2.500)')],
+      [{ en: 'the ellipse it carries', zh: '它带的那个椭圆' }, N('across 9.4 cm, along 2.1 cm')],
+    ] },
+  ],
+  deeper: [
+    { heading: { en: 'Where the clamps are, and when they bite', zh: '两处截断在哪里，何时起作用' }, text: {
+      en: 'Two clamps live in this model, and neither fires anywhere the lesson sends the badge. The arc sine’s argument is clamped to ±π, so a reading pinned at ±90.0° means noise pushed the phase past a full turn. And σ_θ itself is clamped at 45°, which the formula reaches at about ±86.5° off boresight and past which the linearisation describes nothing. Drag the badge to (8.94, 1.19) — 80° off at 4 m — and both begin to matter: σ_θ is 15.75°, six of the fourteen bearings come back pinned at −90.0°, and the worst ellipse has a semi-major axis of 3.16 m.',
+      zh: '这个模型里有两处截断，而本课把胸牌放的任何位置都碰不到它们。反正弦的自变量截断在 ±π，所以读数被钉在 ±90.0° 时，说明噪声把相位推过了一整圈。σ_θ 本身也截断在 45°，公式大约在偏离正前方 ±86.5° 处到达这个值，再往外这套线性化什么也描述不了。把胸牌拖到 (8.94, 1.19)——4 m 处偏 80°——两者就都开始起作用：σ_θ 是 15.75°，十四个方位角里有六个被钉在 −90.0°，最差的那个椭圆半长轴达 3.16 m。',
     } },
     { heading: { en: 'Behind the anchor', zh: '锚点背后' }, text: {
       en: 'Facing the wall, the badge is 180.0° off boresight, and the fourteen bearings come back as the base scene’s, to every digit.',
@@ -208,12 +244,6 @@ export const uwbAoa: Lesson = {
     { text: {
       en: 'The seven fixes then land near (5.06, −1.47) m, 3.97 to 4.03 m from the badge — twice the floor distance, outside the room.',
       zh: '于是七次定位落在 (5.06, −1.47) m 一带，离胸牌 3.97 到 4.03 m——正是平面距离的两倍，已在房间之外。',
-    } },
-  ],
-  deeper: [
-    { heading: { en: 'Where the clamps are, and when they bite', zh: '两处截断在哪里，何时起作用' }, text: {
-      en: 'Two clamps live in this model, and neither fires anywhere the lesson sends the badge. The arc sine’s argument is clamped to ±π, so a reading pinned at ±90.0° means noise pushed the phase past a full turn. And σ_θ itself is clamped at 45°, which the formula reaches at about ±86.5° off boresight and past which the linearisation describes nothing. Drag the badge to (8.94, 1.19) — 80° off at 4 m — and both begin to matter: σ_θ is 15.75°, six of the fourteen bearings come back pinned at −90.0°, and the worst ellipse has a semi-major axis of 3.16 m.',
-      zh: '这个模型里有两处截断，而本课把胸牌放的任何位置都碰不到它们。反正弦的自变量截断在 ±π，所以读数被钉在 ±90.0° 时，说明噪声把相位推过了一整圈。σ_θ 本身也截断在 45°，公式大约在偏离正前方 ±86.5° 处到达这个值，再往外这套线性化什么也描述不了。把胸牌拖到 (8.94, 1.19)——4 m 处偏 80°——两者就都开始起作用：σ_θ 是 15.75°，十四个方位角里有六个被钉在 −90.0°，最差的那个椭圆半长轴达 3.16 m。',
     } },
     { heading: { en: 'Only the ratio matters', zh: '起作用的只是比值' }, text: {
       en: 'Nothing above depends on the channel. Channel 9’s carrier is 3.75 cm with antennas 1.88 cm apart; channel 5’s are 4.62 cm and 2.31 cm. Because the spacing is always half the wavelength, the same true angle produces the same phase on either: 2.221 rad at 45° off boresight, 2.721 rad at 60°, and π at the edge of the field of view — which is exactly why nothing wraps. Behind the anchor the sine repeats, sin(180° − θ) = sin θ, and that is the mirror.',

@@ -172,12 +172,12 @@ export const uwbDlTdoa: Lesson = {
       en: 'r = (rx_F − rx_P)_badge ÷ (tx_F − tx_P)_anchor-1\nΔ_i = (rx_i − rx_P)_badge ÷ r − ( tof(a₁ → a_i) + T_reply,i · (1 − coff_i) )',
       zh: 'r = (rx_F − rx_P)_胸牌 ÷ (tx_F − tx_P)_anchor-1\nΔ_i = (rx_i − rx_P)_胸牌 ÷ r − ( tof(a₁ → a_i) + T_reply,i · (1 − coff_i) )',
     }, note: {
-      en: 'The first line is the rate: the flight from anchor 1 sits in both of the badge’s arrivals and cancels. The second takes out what is not geometry — anchor i waited T_reply,i on its own clock, and the Poll crossed the surveyed baseline first. What is left is a difference of distances divided by c.',
-      zh: '第一行求的是速率：从 anchor-1 飞来的那段路程同时落在胸牌的两个到达时刻里，一减即消。第二行扣掉不属于几何的部分——锚点 i 按自己的钟等了 T_reply,i，再用它测得的偏差换算过来；而 Poll 还得先跨过那段已勘测的锚点基线。剩下的，就是一个距离之差除以 c。',
+      en: 'The first line is the rate; the second takes out what is not geometry. The steps below run both on one badge.',
+      zh: '第一行求的是速率，第二行扣掉不属于几何的部分。本节末尾的步骤，会拿一个胸牌把这两行各走一遍。',
     } },
     { text: {
-      en: 'A badge’s crystal may be built as far out as 20 ppm, and the last responder answers a whole 6 ms after the Poll. That much of that long is 120 ns, or 36 m — what the clock correction has to remove.',
-      zh: '胸牌的晶振最多可以偏到 20 ppm，而最后一个应答锚点在 Poll 之后整整 6 ms 才作答。这么大的偏差乘上这么长的间隔，是 120 ns，折合 36 m——正是时钟修正要除掉的东西。',
+      en: 'A badge’s crystal may be built as far out as 20 ppm, and the last responder answers a whole 6 ms after the Poll. That much of that long is 120 ns, or 36 m.',
+      zh: '胸牌的晶振最多可以偏到 20 ppm，而最后一个应答锚点在 Poll 之后整整 6 ms 才作答。这么大的偏差乘上这么长的间隔，是 120 ns，折合 36 m。',
     } },
     { kind: 'table', heading: { en: 'What the correction is worth', zh: '这次修正值多少' }, head: [
       { en: 'Responder', zh: '应答锚点' }, { en: 'It waited', zh: '它等了' },
@@ -189,7 +189,7 @@ export const uwbDlTdoa: Lesson = {
       [N('anchor-4'), N('6 ms'), N('65.81 m'), N('0.51 m'), N('1.08 m')],
     ] },
     { text: {
-      en: 'The uncorrected column is that badge’s gap to the reference crystal, 36.69 ppm, times the wait beside it. What survives is each responder’s clock-offset leftover, 0.2 ppm of the reply time it corrects — 0.12 m per slot, so the last to answer is the worst. All 63 differences fall inside the last column.',
+      en: 'The uncorrected column is that badge’s gap to the reference crystal, 36.69 ppm, times the wait beside it. The leftover is 0.2 ppm of the reply time it corrects — 0.12 m per slot, so the last to answer is the worst. All 63 differences fall inside the last column.',
       zh: '未修正那一列，正是这个胸牌与参考晶振之间 36.69 ppm 的差距，乘上旁边那段等待。剩下的是每个应答锚点自己那一点时钟偏差残差，为它所修正的那段应答时延的 0.2 ppm——每个时隙 0.12 m，所以最后作答的锚点最差。63 个时间差全部落在最后一列之内。',
     } },
     { kind: 'table', heading: { en: 'The three scenes, seven blocks each', zh: '三个场景，各七个块' }, head: [
@@ -211,6 +211,35 @@ export const uwbDlTdoa: Lesson = {
         N('badge-1 position (3.90, 3.74) m, true (4.00, 3.50), error 0.26 m, GDOP 0.84, 4 anchors (DL-TDoA)')],
       [{ en: 'Badge 1 after seven blocks', zh: '七个块之后的 badge-1' },
         N('error 19.6 cm, GDOP 0.85, ellipse 19.8 × 10.3 cm, DL-TDoA')],
+    ] },
+    { kind: 'steps', heading: { en: 'One difference, step by step', zh: '一个时间差，一步一步' }, items: [
+      { en: 'Slot 0. anchor-1 broadcasts the Poll, its own transmit counter inside. Every badge stamps the arrival — a UWB_TS line — and keeps both numbers.',
+        zh: '时隙 0。anchor-1 广播 Poll，帧里带着它自己的发送计数值。每个胸牌用自己的计数器给这次到达打戳——日志上的一行 UWB_TS——两个数都留下。' },
+      { en: 'Slots 1–3. The other three answer in turn. Each Response carries its own transmit counter, its counter for the Poll, and its clock offset to anchor-1, off the Poll’s carrier.',
+        zh: '时隙 1 至 3。其余三个依次作答。每一帧 Response 里带着：它自己的发送计数值、它给 Poll 到达打下的计数值，以及它从 Poll 载波上读出的、相对 anchor-1 的时钟偏差。' },
+      { en: 'Slot 4. anchor-1 closes with the Final and its transmit counter. The badge now holds one span twice: its own two arrivals, and anchor-1’s two departures.',
+        zh: '时隙 4。anchor-1 发出 Final 收尾，帧里同样带着发送计数值。至此同一段跨度，胸牌手里有了两份：它自己的两个到达时刻，以及 anchor-1 的两个发出时刻。' },
+      { en: 'Divide the first span by the second. The flight from anchor-1 is in both arrivals and cancels, so anchor-1’s crystal leaves the ratio too, at whatever ppm it runs.',
+        zh: '前一段跨度除以后一段。从 anchor-1 飞来的那段路程同时落在两个到达时刻里，一减即消，于是 anchor-1 自己的晶振也退出了这个比值——它跑多少 ppm 都不影响。' },
+      { en: 'Per responder: divide the badge’s arrival gap by that ratio, then subtract what is not geometry — the reply time it reported, scaled by its clock offset, and the Poll’s flight along the surveyed baseline.',
+        zh: '再逐个应答锚点来算：先把胸牌两次到达之间的间隔除以那个比值，再扣掉不属于几何的部分——它报出的应答时延，按它的时钟偏差换算过来，加上 Poll 沿那段已勘测锚点基线飞行的时间。' },
+      { en: 'What is left is a difference of distances over c: a UWB_TDOA line, truth beside it, 1-σ of √2·c·σ_ts against 0.2 ppm of the reply time.',
+        zh: '剩下的就是一个距离之差除以 c，以一行 UWB_TDOA 印出来，旁边写着真值。它的 1σ 由两项合成：√2·c·σ_ts，以及刚才所修正的那段应答时延的 0.2 ppm——所以最后作答的那个锚点量得最差。' },
+      { en: 'Three differences are three hyperbolae, focal points anchor-1 and one responder each. The solver crosses them at the badge’s height and emits the position line. No crossing, no line.',
+        zh: '三个时间差就是三条双曲线，每一条以 anchor-1 和一个应答锚点为焦点。解算器在胸牌预设的高度上把它们相交，再发出那一行定位。交不出来，就一行也没有。' },
+    ] },
+    { kind: 'table', heading: { en: 'badge-1, block 0, against anchor-2', zh: 'badge-1，第 0 块，对 anchor-2' }, head: [
+      { en: 'Step', zh: '步骤' }, { en: 'Value', zh: '数值' },
+    ], rows: [
+      [{ en: 'Poll arrives, Final arrives', zh: 'Poll 到达、Final 到达' }, N('1 055 768 250 362, 1 056 279 432 185')],
+      [{ en: 'anchor-1 sent them at', zh: 'anchor-1 发出它们的时刻' }, N('827 981 809 319, 828 492 980 386')],
+      [{ en: 'the two spans, and their ratio', zh: '两段跨度，以及它们的比值' }, N('511 181 823 ÷ 511 171 067 = 1.000 021 04')],
+      [{ en: 'anchor-2’s Response arrives', zh: 'anchor-2 的 Response 到达' }, N('1 055 896 046 160')],
+      [{ en: 'gap since the Poll, then ÷ ratio', zh: '距 Poll 的间隔，再除以比值' }, N('127 795 798 → 127 793 109')],
+      [{ en: 'it waited, at +2.330 ppm', zh: '它等了，偏差 +2.330 ppm' }, N('127 791 127 → 127 790 829')],
+      [{ en: 'plus 9.00 m of baseline', zh: '再加 9.00 m 基线' }, N('+1918 = 127 792 747')],
+      [{ en: 'what is left', zh: '剩下的' }, N('361.5 · 5.66 ns · 1.70 m')],
+      [{ en: 'the truth', zh: '真值' }, N('5.39 ns · 1.62 m')],
     ] },
   ],
   deeper: [

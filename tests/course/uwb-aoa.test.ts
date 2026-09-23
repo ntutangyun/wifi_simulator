@@ -108,7 +108,7 @@ const ALL: UwbAoaVariant[] = ['base', 'off45', 'off60', 'behind']
 // minutes, the jump targets, the bilingual walk and the first watch. The window is what
 // `npx tsx scripts/lesson-dump.ts uwb-aoa en` reports for why + outcomes + terms + picture
 // + numbers.
-lessonShapeSuite(uwbAoa, { proseMax: 950 })
+lessonShapeSuite(uwbAoa, { proseMax: 1195 })
 
 describe('uwb-aoa · the lesson', () => {
   it('sits in module 14, needs the double-sided and the geometry lesson, and names four new words', () => {
@@ -638,5 +638,104 @@ describe('uwb-aoa · the half it cannot see', () => {
     // the reader is told which control to reach for, in both languages
     expect(uwbAoa.tryThis[1].en).toContain('Facing')
     expect(uwbAoa.tryThis[1].zh).toContain('朝向')
+  })
+})
+
+/**
+ * The procedure the 2026-09-23 amendment asks for ("mechanism before metaphor"):
+ * the steps `measureAoa` and `emitAoaFix` take, in device.report.ts's order, and
+ * the worked example that runs them on the base scene's first round. Every row
+ * is recomputed here from `src/uwb/aoa.ts`'s own functions and the run's own
+ * records — the bearing, the range, the height correction and the ellipse — so
+ * the table is the engine's arithmetic and not a transcript of it.
+ */
+describe('uwb-aoa · the procedure, step by step', () => {
+  /** The lesson's steps block of `numbers`. */
+  const steps = (): Extract<Block, { kind: 'steps' }> =>
+    uwbAoa.numbers!.find((b): b is Extract<Block, { kind: 'steps' }> => b.kind === 'steps')!
+  /** The worked example's table is the last of `numbers`. */
+  const wcell = (row: number, col: number): string => {
+    const ts = uwbAoa.numbers!.filter((b): b is Extract<Block, { kind: 'table' }> => b.kind === 'table')
+    return ts[ts.length - 1].rows[row][col].en
+  }
+  /** Round 0 of the base scene: two bearings, one range, one fix. */
+  const round0 = () => {
+    const rs = recs('base')
+    const bearings = ofType(rs, 'UWB_AOA').slice(0, 2)
+    const range = ofType(rs, 'UWB_RANGE')[0]
+    const fix = ofType(rs, 'UWB_POSITION')[0]
+    // the fix is solved from the LATER bearing of the round (device.report.ts keeps the last)
+    const theta = bearings[1].thetaDeg
+    const dz = ANCHOR_Z - TAG_Z
+    const horiz = Math.sqrt(range.distM * range.distM - dz * dz)
+    return { bearings, range, fix, theta, dz, horiz }
+  }
+
+  it('is a steps block on the main path, not in `deeper`, and runs in the engine’s own order', () => {
+    expect(uwbAoa.numbers!.filter((b) => b.kind === 'steps')).toHaveLength(1)
+    expect((uwbAoa.deeper ?? []).filter((b) => b.kind === 'steps')).toHaveLength(0)
+    expect(steps().items.length).toBeGreaterThanOrEqual(3)
+    // device.ts stamps, draws the timestamp noise, draws the carrier offset and only then calls
+    // measureAoa; measureAoa takes the true azimuth, turns it into a phase, adds one draw of
+    // AOA_SIGMA_PHI_RAD and inverts it; reportRange then pairs the bearing with the range and
+    // emitAoaFix takes the height out before walking the leg
+    const order = ['stamps the RMARKER', 'true azimuth', 'phase', 'asin', 'slant', 'Walk that leg']
+    order.forEach((token, i) => expect(steps().items[i].en, token).toContain(token))
+    for (const s of steps().items) expect(s.zh.length).toBeGreaterThan(0)
+  })
+
+  it('the worked example’s bearing is a phase plus one draw, inverted by the engine’s arc sine', () => {
+    const r = round0()
+    // the badge stands on the boresight, so the phase the model computes is exactly zero
+    const truth = trueAzimuthDeg(
+      { x: ANCHOR_X, y: ANCHOR_Y, z: ANCHOR_Z }, YAW_IN, { ...tagXY('base'), z: TAG_Z },
+    )
+    expect(wcell(0, 1)).toBe(`${truth.toFixed(3)}°`)
+    expect(pdoaRad(truth, 9)).toBe(0)
+    expect(wcell(1, 1)).toBe('π·sin 0° = 0.000 rad')
+    // the draw is the whole of the hardware: the phase the record implies, back through π·sin θ̂
+    const phi = Math.PI * Math.sin(r.theta * (Math.PI / 180))
+    expect(wcell(2, 1)).toBe(`${phi.toFixed(4)} rad`)
+    expect(azimuthFromPdoaDeg(phi, 9)).toBeCloseTo(r.theta, 9)
+    expect(wcell(3, 1)).toBe(`${r.theta.toFixed(3)}°`)
+    expect(AOA_SIGMA_PHI_RAD).toBe(0.15)
+  })
+
+  it('the height comes out of the range before the leg is walked, exactly as emitAoaFix does', () => {
+    const r = round0()
+    expect(wcell(4, 1)).toBe(`${r.range.distM.toFixed(4)} m, true ${r.range.trueDistM.toFixed(4)}`)
+    expect(r.dz.toFixed(2)).toBe('1.20')
+    expect(wcell(5, 1)).toBe(`√(${r.range.distM.toFixed(4)}² − 1.20²) = ${r.horiz.toFixed(4)} m`)
+    // walking the leg out along the anchor's Facing plus the bearing lands on the record's fix
+    const bearing = (YAW_IN + r.theta) * (Math.PI / 180)
+    expect(ANCHOR_X + r.horiz * Math.cos(bearing)).toBeCloseTo(r.fix.x, 9)
+    expect(ANCHOR_Y + r.horiz * Math.sin(bearing)).toBeCloseTo(r.fix.y, 9)
+    expect(wcell(6, 1)).toBe(
+      `(${r.fix.x.toFixed(3)}, ${r.fix.y.toFixed(3)}) m, true (${r.fix.trueX.toFixed(3)}, ${r.fix.trueY.toFixed(3)})`,
+    )
+  })
+
+  it('the reported error is the range one way and the leg times the bearing sigma the other', () => {
+    const r = round0()
+    const across = r.horiz * aoaSigmaDeg(r.theta) * (Math.PI / 180)
+    const along = rangeSigmaM(DEFAULT_UWB_SESSION.tsNoisePs)
+    // the ellipse the record carries is those two, major first
+    expect(r.fix.ellipse.a).toBeCloseTo(Math.max(across, along), 12)
+    expect(r.fix.ellipse.b).toBeCloseTo(Math.min(across, along), 12)
+    expect(wcell(7, 1)).toBe(`across ${(across * 100).toFixed(1)} cm, along ${(along * 100).toFixed(1)} cm`)
+    // and the across term is the one that grows: it is the leg, not the range, that carries the angle
+    expect(across).toBeGreaterThan(along)
+    expect(r.fix.gdop).toBe(1)
+  })
+
+  it('the picture says the model has one receive chain, where the reader first meets the two antennas', () => {
+    // the amendment asks for a simplification to be named where the reader meets it, not in `deeper`
+    const pic = uwbAoa.picture!.filter((b) => (b.kind ?? 'p') === 'p')
+      .map((b) => (b as Extract<Block, { kind?: 'p' }>).text)
+    const en = pic.map((t) => t.en).join('\n')
+    expect(en).toContain('The simulator has neither')
+    expect(pic.some((t) => t.zh.includes('仿真器两路都没有'))).toBe(true)
+    // it is said in the picture, and the first two paragraphs are where the antennas are introduced
+    expect(pic.slice(0, 2).some((t) => t.en.includes('The simulator has neither'))).toBe(true)
   })
 })

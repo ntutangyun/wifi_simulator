@@ -128,7 +128,7 @@ const deepCell = (table: number, row: number, col: number): string =>
 
 // The contract every migrated lesson owes, written once in tests/course/kit.ts. The jump
 // targets close the first slot at 2 ms, so the shape suite shares these tests' long run.
-lessonShapeSuite(uwbUlTdoa, { proseMax: 900, runNs: RUN_NS })
+lessonShapeSuite(uwbUlTdoa, { proseMax: 1155, runNs: RUN_NS })
 
 describe('uwb-ul-tdoa · the lesson’s own place in the track', () => {
   it('asks for the listen-only lesson and adds four words', () => {
@@ -648,5 +648,91 @@ describe('uwb-ul-tdoa · blink, or listen', () => {
       const again = [...new Simulation(scenarioOf(v)).runUntil(RUN_NS).records]
       expect(again, v).toEqual(recs(v))
     }
+  })
+})
+
+/**
+ * The procedure the 2026-09-23 amendment asks for ("mechanism before metaphor"):
+ * the steps `solveUlFix` takes, in the order device.ts and network.ts take them,
+ * and the worked example that runs them on badge-1's first block against
+ * anchor-2. Every row is recomputed from the scene's own geometry and the
+ * UWB_TDOA / UWB_POSITION records the engine emitted — the point of the table is
+ * that a UL difference is two instants on one timebase and nothing else.
+ */
+describe('uwb-ul-tdoa · the procedure, step by step', () => {
+  /** The lesson's steps block of `numbers`. */
+  const steps = (): Extract<Block, { kind: 'steps' }> =>
+    uwbUlTdoa.numbers!.find((b): b is Extract<Block, { kind: 'steps' }> => b.kind === 'steps')!
+  /** The worked example's table is the last of `numbers`. */
+  const wcell = (row: number, col: number): string => {
+    const ts = tablesOf(uwbUlTdoa.numbers!)
+    return ts[ts.length - 1].rows[row][col].en
+  }
+  /** True 3-D separation of badge-1 from an anchor, in the scene's own coordinates. */
+  const distTo = (a: { x: number; y: number }): number =>
+    Math.hypot(a.x - TAG_SPOTS[0].x, a.y - TAG_SPOTS[0].y, ANCHOR_Z - TAG_Z)
+  const first = () => ofType(recs('base'), 'UWB_TDOA')
+    .filter((r) => r.of === 'badge-1' && r.peer === 'anchor-2')[0]
+
+  it('is a steps block on the main path, not in `deeper`, and runs in the engine’s own order', () => {
+    expect(uwbUlTdoa.numbers!.filter((b) => b.kind === 'steps')).toHaveLength(1)
+    expect((uwbUlTdoa.deeper ?? []).filter((b) => b.kind === 'steps')).toHaveLength(0)
+    expect(steps().items.length).toBeGreaterThanOrEqual(3)
+    // the order is the engine's: the blink is sent, each anchor stamps a counter for the log,
+    // the fix is built from the common-timebase arrival instead, the residual was drawn once
+    // at build time, the network collects the arrivals for the reference anchor, it subtracts,
+    // and it solves (device.ts `onRx`, network.ts `endRound`, device.tdoa.ts `solveUlFix`)
+    const order = ['one blink', 'UWB_TS', 'shared timebase', 'drawn once', 'reference', 'subtracts', 'hyperbolae']
+    order.forEach((token, i) => expect(steps().items[i].en, token).toContain(token))
+    for (const s of steps().items) expect(s.zh.length).toBeGreaterThan(0)
+  })
+
+  it('the worked example’s two flights are the scene’s geometry, and their difference the truth', () => {
+    const d1 = distTo(UL_ANCHORS[0]), d2 = distTo(UL_ANCHORS[1])
+    expect(wcell(1, 1)).toBe(`${d1.toFixed(4)} m · ${(d1 / C_M_PER_NS).toFixed(3)} ns`)
+    expect(wcell(2, 1)).toBe(`${d2.toFixed(4)} m · ${(d2 / C_M_PER_NS).toFixed(3)} ns`)
+    const td = first()
+    // the record's own truth is exactly that difference of flights
+    expect(td.trueDtNs).toBeCloseTo((d2 - d1) / C_M_PER_NS, 9)
+    expect(wcell(3, 1)).toBe(`${td.trueDtNs.toFixed(4)} ns · ${(td.trueDtNs * C_M_PER_NS).toFixed(4)} m`)
+    // the transmit instant is never measured, so nothing in the table stands for it
+    expect(wcell(0, 1)).toContain('unknown')
+  })
+
+  it('the difference, the leftover and the σ are the engine’s, with no clock correction anywhere', () => {
+    const td = first()
+    // the base scene's anchors are perfectly calibrated: every drawn residual is exactly zero
+    expect(DEFAULT_UWB_SESSION.syncErrorNs).toBe(0)
+    for (const a of UL_ANCHORS) expect(Math.abs(drawnOffsetNs(a.id, DEFAULT_UWB_SESSION.syncErrorNs))).toBe(0)
+    expect(wcell(4, 1)).toBe('0 ns')
+    expect(wcell(5, 1)).toBe(`${td.dtNs.toFixed(4)} ns`)
+    // what is left is the two receivers' timestamp noise, and nothing else
+    const left = td.dtNs - td.trueDtNs
+    expect(wcell(6, 1)).toBe(`${left.toFixed(4).replace('-', '−')} ns · ${(left * C_M_PER_NS * 100).toFixed(2).replace('-', '−')} cm`)
+    expect(wcell(7, 1)).toContain(`= ${(ulSigmaM(0) * 100).toFixed(1)} cm`)
+  })
+
+  it('the fix the worked example ends on is the UWB_POSITION record the reference anchor emitted', () => {
+    const f = ofType(recs('base'), 'UWB_POSITION').filter((p) => p.of === 'badge-1')[0]
+    expect(f.node).toBe(REF)
+    const err = Math.hypot(f.x - f.trueX, f.y - f.trueY)
+    expect(wcell(8, 1)).toBe(
+      `(${f.x.toFixed(2)}, ${f.y.toFixed(2)}) m, true (${f.trueX.toFixed(2)}, ${f.trueY.toFixed(2)}), error ${err.toFixed(2)} m`,
+    )
+  })
+
+  it('a language-neutral cell of this lesson is a value, never an English sentence', () => {
+    // the CELL_RULE_CARRIES entry this lesson owed: "1 slot of 2 ms, 1 frame" was one string
+    // rendered to both readers, so the Chinese table read English. It now has a Chinese half.
+    const prosey = /\b[a-z]{2,}\s+[a-z]{2,}\b|\b[a-z]{4,}\b[^A-Za-z\n]{1,12}\b[a-z]{4,}\b/
+    const logLine = /^[a-z][a-z0-9]*-\d+\b/
+    for (const b of [...uwbUlTdoa.numbers!, ...uwbUlTdoa.picture!]) {
+      if (b.kind !== 'table') continue
+      for (const c of [...b.head, ...b.rows.flat()]) {
+        if (c.en !== c.zh || logLine.test(c.en)) continue
+        expect(prosey.test(c.en), c.en).toBe(false)
+      }
+    }
+    expect(tablesOf(uwbUlTdoa.numbers!)[0].rows[1][1].zh).toBe('1 个 2 ms 时隙，1 帧')
   })
 })

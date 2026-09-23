@@ -93,7 +93,7 @@ export const uwbUlTdoa: Lesson = {
   outcomes: [
     { en: 'say what one short frame costs a tag and what it buys the building', zh: '说清一帧短短的信号，标签付出什么，楼里换来什么' },
     { en: 'explain why this tag’s crystal does not matter at all', zh: '解释这里标签的晶振为什么完全不要紧' },
-    { en: 'tell a calibration bias from noise by the way the fixes move', zh: '从定位挪动的方式，把校准偏差和噪声区分开' },
+    { en: 'tell a calibration bias (an error drawn once and then repeated) from noise by the way the fixes move', zh: '从定位挪动的方式，把校准偏差（只抽一次、此后重复出现的误差）和噪声区分开' },
   ],
   needs: ['uwb-dl-tdoa'],
   terms: [
@@ -120,8 +120,8 @@ export const uwbUlTdoa: Lesson = {
       zh: '还是上一课那个房间：锚点在四角，胸牌在胸口高度。把轮次再翻一次，于是只有胸牌在发送。它每个块占一个时隙，用来发一帧闪发（blink）——一小段广播，里面没有任何时间——发完，它的射频就关到下一个块。',
     } },
     { heading: { en: 'Positioned by somebody else', zh: '由别人来定位' }, text: {
-      en: 'Nothing answers a blink. Every anchor that hears it stamps the arrival on the timebase they all share, and when the slot ends the reference anchor subtracts its own stamp from each of the other three and solves the same hyperbolae as before. This uplink form, UL-TDoA, tells the badge nothing: it has no receiver open, and not one record travels back to it.',
-      zh: '闪发帧没有任何回应。每个听到它的锚点，都在大家共用的那条时基上记下到达时刻；时隙结束时，参考锚点用其余三个时刻各减去自己的那个，再解出和上一课一样的双曲线。这种上行形态 UL-TDoA 什么也不告诉胸牌：它根本没开接收机，也没有任何一条记录回到它那里。',
+      en: 'Nothing answers a blink. Every anchor that hears it stamps the arrival on the timebase they all share, and when the slot ends the reference anchor subtracts its own stamp from each of the other three and solves the same hyperbolae as before. This uplink form is called UL-TDoA, and it tells the badge nothing: it has no receiver open, and not one record travels back to it.',
+      zh: '闪发帧没有任何回应。每个听到它的锚点，都在大家共用的那条时基上记下到达时刻；时隙结束时，参考锚点用其余三个时刻各减去自己的那个，再解出和上一课一样的双曲线。这种上行形态就是 UL-TDoA，它什么也不告诉胸牌：它根本没开接收机，也没有任何一条记录回到它那里。',
     } },
     { kind: 'watch', jump: 4, heading: { en: 'Watch it happen to someone else', zh: '看它发生在别人身上' }, text: {
       en: 'Load the simulation and jump to the fix. It leaves the reference anchor’s lane, not the badge’s, and the line names the badge it is about.',
@@ -149,7 +149,7 @@ export const uwbUlTdoa: Lesson = {
       { en: 'Quantity', zh: '项目' }, { en: 'Value', zh: '数值' },
     ], rows: [
       [{ en: 'One blink', zh: '一帧闪发' }, N('14 B (9 + 3 + 2), 181.218 µs')],
-      [{ en: 'One badge, one block', zh: '一个胸牌，一个块' }, N('1 slot of 2 ms, 1 frame')],
+      [{ en: 'One badge, one block', zh: '一个胸牌，一个块' }, { en: '1 slot of 2 ms, 1 frame', zh: '1 个 2 ms 时隙，1 帧' }],
       [{ en: 'Ten badges, one block', zh: '十个胸牌，一个块' }, N('1.812 180 ms, 0.906 %')],
       [{ en: 'The block’s ceiling', zh: '一个块的上限' }, N('100 badges (240 000 ÷ 2 400 RSTU), 9.06 %')],
     ] },
@@ -161,8 +161,8 @@ export const uwbUlTdoa: Lesson = {
       zh: '发送时刻 t_闪发 未知，但它在两项里完全相同，一减即消。把十个胸牌全部钉到晶振容差的两端，整段运行依旧原样：每一条记录都在同一时刻、是同一类型，七十次定位的误差也一模一样。唯一会变的，是胸牌写进自己那条发送时间戳里的计数值，而这里没有谁会去读它。',
     } },
     { text: {
-      en: 'One nanosecond is 29.98 cm of pseudo-range, and every difference carries two anchors’ worth of it. Each anchor draws one fixed residual of the session’s sync error, once and for the whole run; the default of 0 ns makes the anchors perfect, and the variant sets 1 ns.',
-      zh: '1 ns 就是 29.98 cm 的伪距，而每个时间差里都装着两个锚点的份额。每个锚点按会话里的同步误差一次性抽出一个固定残差，整段运行不再改变；默认的 0 ns 意味着锚点完美无缺，而变体把它设成 1 ns。',
+      en: 'One nanosecond is 29.98 cm of pseudo-range, and every difference carries two anchors’ worth of it; the default of 0 ns makes the anchors perfect, and the variant sets 1 ns.',
+      zh: '1 ns 就是 29.98 cm 的伪距，而每个时间差里都装着两个锚点的份额；默认的 0 ns 意味着锚点完美无缺，而变体把它设成 1 ns。',
     } },
     { kind: 'table', heading: { en: 'Two scenes, seven blocks, 70 fixes each', zh: '两个场景，各七个块、各 70 次定位' }, head: [
       { en: 'Scene', zh: '场景' }, { en: 'σ per difference', zh: '每个时间差的 σ' },
@@ -191,6 +191,36 @@ export const uwbUlTdoa: Lesson = {
         N('anchor-1 position of badge-1 (4.02, 3.46) m, true (4.00, 3.50), error 0.05 m, GDOP 0.85, 4 anchors (UL-TDoA)')],
       [{ en: 'Badge 1 after seven blocks', zh: '七个块之后的 badge-1' },
         N('error 2.1 cm, GDOP 0.85, ellipse 3.2 × 1.7 cm, UL-TDoA')],
+    ] },
+    { kind: 'steps', heading: { en: 'One fix, step by step', zh: '一次定位，一步一步' }, items: [
+      { en: 'The session hands badge-1 one slot of the block and nothing else. It sends one blink, then its radio is off until the next block. Nothing answers it.',
+        zh: '会话只给 badge-1 一个时隙，别的什么也没有。它发出一帧闪发，射频就关到下一个块。没有任何回应，也没有任何一条记录回到它这里。' },
+      { en: 'Every anchor that hears the blink stamps its RMARKER and writes a counter on its own crystal for the log — the UWB_TS line. The fix is not built from that counter.',
+        zh: '听到这帧闪发的每个锚点，都给它的 RMARKER 打戳。它会用自己的晶振写下一个计数值供日志显示——就是你能读到的那行 UWB_TS——但定位并不是用这个计数值算的。' },
+      { en: 'What the fix uses is the arrival on the anchors’ shared timebase: true flight, plus this receiver’s timestamp noise, plus this anchor’s residual calibration error. Wired sync already removed its crystal.',
+        zh: '定位用的是锚点公共时基上的那个到达时刻：真实飞行时间，加上这台接收机的时间戳噪声，再加上这个锚点自己的校准残差。有线同步已经把它的晶振除掉了。' },
+      { en: 'That residual was drawn once, when the network was built, from the session’s sync error — 0 ns here, 1 ns in the variant — and never again. Hence a bias, not noise.',
+        zh: '那个残差只在建网时按会话的同步误差抽过一次——本场景是 0 ns，变体里是 1 ns——此后再不重抽。这正是它是偏差而不是噪声的原因。' },
+      { en: 'When the slot closes the network collects the four arrivals and hands them to anchor-1, the reference. An anchor that missed the blink is left out; if anchor-1 missed it, nothing is produced.',
+        zh: '时隙结束时，网络把四个到达时刻收齐，交给参考锚点 anchor-1。没听到闪发的锚点直接不算；而如果 anchor-1 自己没听到，这一轮就什么也不产出。' },
+      { en: 'anchor-1 subtracts its own arrival from each of the other three. No rate needs correcting: no interval was measured on anybody’s crystal, and the unknown instant the blink left cancels.',
+        zh: 'anchor-1 用其余三个到达时刻各减去自己的那个。这里没有速率要修正：没有任何一段间隔量在谁的晶振上，而闪发离开的那个未知时刻同时出现在两项里，一减即消。' },
+      { en: 'Three UWB_TDOA lines, each naming the badge, become three hyperbolae. The solver crosses them at the badge’s configured height, with one σ for all three, and emits the position line from anchor-1’s lane.',
+        zh: '三行 UWB_TDOA——每一行都写明它说的是哪个胸牌——就是三条双曲线。解算器在胸牌预设的高度上把它们相交，三条共用同一个 σ，再从 anchor-1 那条泳道发出那一行定位。' },
+    ] },
+    { kind: 'table', heading: { en: 'badge-1, block 0, against anchor-2', zh: 'badge-1，第 0 块，对 anchor-2' }, head: [
+      { en: 'Step', zh: '步骤' }, { en: 'Value', zh: '数值' },
+    ], rows: [
+      [{ en: 'the blink leaves badge-1', zh: '闪发离开 badge-1' },
+        { en: 'unknown, and the same in both terms', zh: '未知，而且在两项里完全相同' }],
+      [{ en: 'true flight to anchor-1', zh: '到 anchor-1 的真实飞行' }, N('4.7634 m · 15.889 ns')],
+      [{ en: 'true flight to anchor-2', zh: '到 anchor-2 的真实飞行' }, N('6.3789 m · 21.278 ns')],
+      [{ en: 'the difference the geometry holds', zh: '几何本身给出的那个差' }, N('5.3886 ns · 1.6155 m')],
+      [{ en: 'each anchor’s calibration residual', zh: '每个锚点的校准残差' }, N('0 ns')],
+      [{ en: 'what anchor-1 differences', zh: 'anchor-1 相减得到的' }, N('5.3267 ns')],
+      [{ en: 'left over: two receivers’ noise', zh: '残差：两台接收机的噪声' }, N('−0.0619 ns · −1.86 cm')],
+      [{ en: 'σ of one difference', zh: '一个时间差的 σ' }, N('√2·c·√(0.1² + 0²) ns = 4.2 cm')],
+      [{ en: 'the fix it feeds', zh: '它喂出来的那次定位' }, N('(4.02, 3.46) m, true (4.00, 3.50), error 0.05 m')],
     ] },
   ],
   deeper: [

@@ -32,8 +32,9 @@ import { LESSONS } from '../../src/course/lessons'
 import { lessonStrings } from '../../src/course/readability'
 import { fmtRecord } from '../../src/ui/format'
 import {
-  C_M_PER_NS, UWB_PPM_MAX, rstuNs, uwbDlFinalBytes, uwbDlPollBytes, uwbDlRespBytes, uwbPpduNs,
+  C_M_PER_NS, RCTU_NS, UWB_PPM_MAX, rstuNs, uwbDlFinalBytes, uwbDlPollBytes, uwbDlRespBytes, uwbPpduNs,
 } from '../../src/uwb/phy'
+import { counterDiff } from '../../src/uwb/clock'
 import { roundPlan } from '../../src/uwb/session'
 import { solvePosition, solveTdoa } from '../../src/uwb/position'
 import { applyRecord, initViewState } from '../../src/model/view'
@@ -152,7 +153,7 @@ const formulas = (): Extract<Block, { kind: 'formula' }>[] =>
 
 // The contract every migrated lesson owes, written once in tests/course/kit.ts. The jump
 // targets live in the round at 10 ms, so the shape suite shares these tests' long run.
-lessonShapeSuite(uwbDlTdoa, { proseMax: 900, runNs: RUN_NS })
+lessonShapeSuite(uwbDlTdoa, { proseMax: 1120, runNs: RUN_NS })
 
 describe('uwb-dl-tdoa · the lesson’s own place in the track', () => {
   it('asks for the geometry lesson and adds four words', () => {
@@ -754,5 +755,92 @@ describe('uwb-dl-tdoa · what ten listeners cost', () => {
       const again = [...new Simulation(scenarioOf(v)).runUntil(RUN_NS).records]
       expect(again, v).toEqual(recs(v))
     }
+  })
+})
+
+/**
+ * The procedure the 2026-09-23 amendment asks for ("mechanism before metaphor"):
+ * the steps `solveTdoaFix` takes, in its order, and the worked example that runs
+ * them on badge-1's first block against anchor-2. Nothing in the table is
+ * transcribed — every row is recomputed here from the run's own records (the
+ * five arrivals badge-1 stamped, the instants anchor-1 wrote into its Poll and
+ * Final, the reply time and clock offset anchor-2 wrote into its Response) and
+ * the answer is checked against the UWB_TDOA record the engine emitted.
+ */
+describe('uwb-dl-tdoa · the procedure, step by step', () => {
+  /** The lesson's steps block of `numbers`. */
+  const steps = (): Extract<Block, { kind: 'steps' }> =>
+    uwbDlTdoa.numbers!.find((b): b is Extract<Block, { kind: 'steps' }> => b.kind === 'steps')!
+  /** A counter as the worked example prints it: thousands separated by a thin space. */
+  const fmt = (n: number): string => n.toLocaleString('en-US').replace(/,/g, ' ')
+  /** The worked example's table is the last of `numbers`. */
+  const wcell = (row: number, col: number): string => {
+    const ts = tablesOf(uwbDlTdoa.numbers!)
+    return ts[ts.length - 1].rows[row][col].en
+  }
+  /** Block 0 of the base run, as the badge and the anchors recorded it. */
+  const block0 = () => {
+    const rs = recs('base')
+    const rx = ofType(rs, 'UWB_TS').filter((r) => r.node === 'badge-1' && r.dir === 'rx').slice(0, 5)
+    const dl = ofType(rs, 'TX_START').filter((r) => r.frame.uwb?.dl !== undefined).slice(0, 5)
+    const poll = dl[0].frame.uwb!.dl!, final = dl[4].frame.uwb!.dl!, resp2 = dl[1].frame.uwb!.dl!
+    const rxSpan = counterDiff(rx[4].counter, rx[0].counter)
+    const txSpan = counterDiff(final.txCounter, poll.txCounter)
+    const rate = rxSpan / txSpan
+    const replyTime = counterDiff(resp2.txCounter, resp2.rxCounters[REF])
+    const a1 = DL_ANCHORS[0], a2 = DL_ANCHORS[1]
+    const tofRctu = Math.hypot(a2.x - a1.x, a2.y - a1.y, 0) / C_M_PER_NS / RCTU_NS
+    const scaled = replyTime * (1 - resp2.coffs!)
+    const arrivalGap = counterDiff(rx[1].counter, rx[0].counter)
+    const leftover = arrivalGap / rate - (tofRctu + scaled)
+    return {
+      rx, poll, final, resp2, rxSpan, txSpan, rate, replyTime, tofRctu, scaled, arrivalGap, leftover,
+      txOffset: tofRctu + scaled,
+    }
+  }
+
+  it('is a steps block on the main path, not in `deeper`, and runs in the engine’s own order', () => {
+    expect(uwbDlTdoa.numbers!.filter((b) => b.kind === 'steps')).toHaveLength(1)
+    expect((uwbDlTdoa.deeper ?? []).filter((b) => b.kind === 'steps')).toHaveLength(0)
+    expect(steps().items.length).toBeGreaterThanOrEqual(3)
+    // the order is device.tdoa.ts's: the Poll opens the rate interval, the Responses carry
+    // the reply times and the offsets, the Final closes it, the ratio is taken, each
+    // responder's transmit offset is subtracted, a difference is emitted, the fix is solved
+    const order = ['Slot 0', 'Slots 1–3', 'Slot 4', 'Divide', 'Per responder', 'UWB_TDOA', 'hyperbolae']
+    order.forEach((token, i) => expect(steps().items[i].en, token).toContain(token))
+    for (const s of steps().items) expect(s.zh.length).toBeGreaterThan(0)
+  })
+
+  it('the worked example’s counters are the run’s own, and its ratio is the engine’s rate', () => {
+    const b = block0()
+    expect(wcell(0, 1)).toBe(`${fmt(b.rx[0].counter)}, ${fmt(b.rx[4].counter)}`)
+    expect(wcell(1, 1)).toBe(`${fmt(b.poll.txCounter)}, ${fmt(b.final.txCounter)}`)
+    // the ratio is exactly (rxFinal − rxPoll) ÷ (txFinal − txPoll), as solveTdoaFix takes it
+    expect(wcell(2, 1)).toBe(`${fmt(b.rxSpan)} ÷ ${fmt(b.txSpan)} = 1.000 021 04`)
+    expect(b.rate.toFixed(8)).toBe('1.00002104')
+    expect(wcell(3, 1)).toBe(fmt(b.rx[1].counter))
+  })
+
+  it('the two subtractions of the worked example are the engine’s two corrections', () => {
+    const b = block0()
+    // the badge's own crystal, divided out by the ratio
+    expect(wcell(4, 1)).toBe(`${fmt(b.arrivalGap)} → ${fmt(Math.round(b.arrivalGap / b.rate))}`)
+    // the responder's reply time, put on anchor-1's timebase by its own clock offset
+    expect((b.resp2.coffs! * 1e6).toFixed(3)).toBe('2.330')
+    expect(wcell(5, 1)).toBe(`${fmt(b.replyTime)} → ${fmt(Math.round(b.scaled))}`)
+    // plus the Poll's flight across the surveyed baseline: 9.00 m between anchor-1 and anchor-2
+    expect(Math.hypot(DL_ANCHORS[1].x - DL_ANCHORS[0].x, DL_ANCHORS[1].y - DL_ANCHORS[0].y).toFixed(2)).toBe('9.00')
+    expect(wcell(6, 1)).toBe(`+${Math.round(b.tofRctu)} = ${fmt(Math.round(b.txOffset))}`)
+  })
+
+  it('what is left is the UWB_TDOA record the engine emitted, and the truth beside it', () => {
+    const b = block0()
+    const td = ofType(recs('base'), 'UWB_TDOA').filter((r) => r.node === 'badge-1' && r.peer === 'anchor-2')[0]
+    // the hand-run arithmetic reproduces the record to the picosecond
+    expect(b.leftover * RCTU_NS).toBeCloseTo(td.dtNs, 9)
+    expect(wcell(7, 1)).toBe(`${b.leftover.toFixed(1)} · ${td.dtNs.toFixed(2)} ns · ${(td.dtNs * C_M_PER_NS).toFixed(2)} m`)
+    expect(wcell(8, 1)).toBe(`${td.trueDtNs.toFixed(2)} ns · ${(td.trueDtNs * C_M_PER_NS).toFixed(2)} m`)
+    // and it is the line the log prints, to the two digits the lesson quotes
+    expect(cell(4, 1, 1)).toContain(`${td.dtNs.toFixed(2)} ns (true ${td.trueDtNs.toFixed(2)} ns)`)
   })
 })
