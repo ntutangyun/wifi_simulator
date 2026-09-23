@@ -79,7 +79,6 @@ const RECORD_NAME = /^[A-Z0-9_]+$/
  * `uwb-dstwr` and `uwb-blocks` print `Treply1` and `SP1` unglossed.
  */
 const CELL_RULE_CARRIES: Record<string, string> = {
-  'uwb-ul-tdoa': 'uwb fix wave: English prose in a language-neutral cell',
   'uwb-mms-numbers': 'uwb fix wave: English prose in a language-neutral cell',
 }
 
