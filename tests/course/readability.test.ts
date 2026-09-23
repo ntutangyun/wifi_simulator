@@ -368,7 +368,7 @@ describe('readability · one name per thing, across the Wi-Fi track', () => {
   it.each(tier2.map((l) => [l.id, l] as const))('%s calls the access point by the name on its own screen', (_id, l) => {
     for (const s of lessonStrings(l)) {
       if (!ROUTER_LABELLED.includes(l.id)) {
-        expect(/routers?/i.test(s.en), `${l.id}: this scene labels the node AP — say access point — "${s.en.slice(0, 60)}…"`).toBe(false)
+        expect(/\brouters?\b/i.test(s.en), `${l.id}: this scene labels the node AP — say access point — "${s.en.slice(0, 60)}…"`).toBe(false)
         expect(/路由器/.test(s.zh), `${l.id}: this scene labels the node AP — say 接入点 — "${s.zh.slice(0, 40)}…"`).toBe(false)
       }
       // One exception, added with the 2026-09-23 amendment: the name may ride in
@@ -449,6 +449,7 @@ export const MECHANISM_DONE: string[] = [
   'hidden', 'anomaly', 'retries-queues',
   'airtime', 'ifs', 'backoff', 'nav',
   'radio-primer', 'frame-anatomy', 'frame-anatomy-bytes',
+  'edca', 'ampdu', 'txop', 'txop-protect',
 ]
 
 /**
@@ -487,10 +488,10 @@ const STAND_INS: { name: string; en: RegExp; zh: RegExp }[] = [
 ]
 
 const QUANTITIES: { name: string; re: RegExp }[] = [
-  { name: 'margin', re: /margins?|余量/ },
-  { name: 'sensitivity', re: /sensitivit(?:y|ies)|灵敏度/ },
-  { name: 'threshold', re: /thresholds?|门限/ },
-  { name: 'noise floor', re: /noise floors?|噪声地板/ },
+  { name: 'margin', re: /\bmargins?\b|余量/ },
+  { name: 'sensitivity', re: /\bsensitivit(?:y|ies)\b|灵敏度/ },
+  { name: 'threshold', re: /\bthresholds?\b|门限/ },
+  { name: 'noise floor', re: /\bnoise floors?\b|噪声地板/ },
 ]
 
 /** Everything the `terms` tables up to and including this lesson put into words. */
