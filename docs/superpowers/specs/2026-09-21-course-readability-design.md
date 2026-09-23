@@ -317,3 +317,60 @@ slice A2, and everything after) are written to this contract from the start.
   learner asks).
 - Audio, video or illustrations beyond the existing widgets.
 - A reading-level metric (Flesch or similar); the rules above are the metric.
+
+## Amendment, 2026-09-23 — mechanism before metaphor
+
+The contract above made lessons readable and left them unable to teach a
+procedure. A reader stopped at this sentence of `decode-thresholds`:
+
+> 发送端会挑这样一级：它的要求再加上留在手里的 3 dB，这条链路仍然撑得住；而
+> 解码时比的，是不含余量的那个要求。在 20 MHz 上这笔账可以口算……
+
+Every claim in it is true and pinned by a test. It is still unreadable, because
+留在手里的 / 不含余量 / 这笔账 / 灵敏度 each point at something the lesson never
+says. Three causes, all of them in this document rather than in any one lesson:
+
+1. **The ceiling paid for metaphor and not for mechanism.** 1300 words and 20
+   minutes, with `picture` holding 650 of them and `deeper` uncapped. When a
+   lesson reached the ceiling the cheapest way to keep a claim was to compress
+   its mechanism into a pointer phrase, and the analogy — which sits in the
+   biggest budget — survived intact.
+2. **Chinese written against English clauses inherits English anaphora.** "plus
+   3 dB kept in hand", "the bare requirement", "head arithmetic" work in
+   English because the reader accepts pointing backwards. As 留在手里的 /
+   不含余量的那个要求 / 这笔账 they stop resolving, and they sound fluent while
+   failing, so a reviewer reading only the Chinese does not catch them.
+3. **Nothing required a defined quantity.** The acronym rule glosses every
+   capitalised token; 余量, 灵敏度, 门限, 噪声地板 had no such rule, and none of
+   them was ever defined.
+
+### What changes
+
+- **Length.** Main path 500–1 800 words (`BUDGETS` in `src/course/readability.ts`,
+  the one place both test suites and the dump read): `picture` ≤ 900,
+  `numbers` ≤ 550, practice ≤ 450, ≤ 30 minutes. A track's opener stays ≤ 1 000.
+  A lesson that still does not fit **splits** under "Splitting" above — the
+  ceiling buys explanation, not padding.
+- **No pointer phrases.** A quantity is named and sized where it is used, never
+  gestured at. The test carries the list of phrases that failed, in both
+  languages, and it grows as readers find more.
+- **Quantities are glossed like acronyms.** A quantity the main path asks the
+  reader to use (`margin`/余量, `sensitivity`/灵敏度, `threshold`/门限,
+  `noise floor`/噪声地板) appears in the `terms` of that lesson or of an earlier
+  one, term or plain words, in either language.
+- **A rule is written as a procedure.** A lesson whose main path states how
+  something is chosen or decided carries a `steps` block of at least three
+  steps, on the main path, in the order the machine does it — and, where the
+  lesson has a scene, one worked example table that runs the procedure on one
+  real link. Not in `deeper`: `deeper` is for provenance and corner cases.
+- **The balance the rules serve.** The analogy opens a lesson and the procedure
+  closes it. Neither substitutes for the other: a lesson that only gestures is
+  unreadable by the second page, and one that only computes is unreadable on
+  the first.
+
+### Scope
+
+`MECHANISM_DONE` in `tests/course/readability.test.ts` lists the lessons the
+amendment has reached; the rules grade those and the list only grows. Pilot:
+`decode-thresholds`. Then the rest of the Wi-Fi track, then UWB; AMP when its
+own revision is asked for.

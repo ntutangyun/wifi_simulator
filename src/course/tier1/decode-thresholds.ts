@@ -39,8 +39,16 @@ export const decodeThresholds: Lesson = {
       zh: 'Wi-Fi 的发送方式：几百个很窄的子载波并排，每个同时带走这一帧的一小部分',
     } },
     { term: 'CCA', plain: {
-      en: 'clear channel assessment: the test a radio runs to decide whether it may start talking',
-      zh: '空闲信道评估：电台开口之前先做的一道检查——现在能不能发',
+      en: 'clear channel assessment: the two power thresholds a radio holds the air against before it may start talking',
+      zh: '空闲信道评估：电台开口之前，拿空中的功率去比两条门限，看现在能不能发',
+    } },
+    { term: 'sensitivity', plain: {
+      en: 'the weakest arriving power at which one rung still decodes — one figure per rung, read against the noise floor the standard assumes in its tables',
+      zh: '灵敏度：某一级还能被解出来的最弱到达功率——每级一个数，按标准表格假设的噪声地板（接收端始终听得见的那点底噪）给出',
+    } },
+    { term: 'rate margin', plain: {
+      en: 'the 3 dB a sender holds back above what its rung requires, so an ordinary dip in the signal does not break the link',
+      zh: '速率余量：发送端在所选那一级的要求之上，多留出的 3 dB，免得信号稍有起伏这条链路就断',
     } },
   ],
   picture: [
@@ -103,10 +111,28 @@ export const decodeThresholds: Lesson = {
         en: 'The whole ladder, marker at the living-room laptop\'s SNR rounded down to 21.5 dB. Lit rungs fit, margin included.',
         zh: '完整的速率阶梯，标记停在客厅那台笔记本的 SNR 上（向下取整到 21.5 dB）。点亮的级就是放得下的，余量已经算进去了。',
       } },
-    { heading: { en: 'The ladder as a contract', zh: '把阶梯当作一份契约' }, text: {
-      en: 'The sender picks the highest rung whose requirement, plus 3 dB kept in hand, still fits; decoding then compares against the bare requirement. At 20 MHz that is head arithmetic: the rung is the highest one whose sensitivity the RSSI meets.',
-      zh: '发送端会挑这样一级：它的要求再加上留在手里的 3 dB，这条链路仍然撑得住；而解码时比的，是不含余量的那个要求。在 20 MHz 上这笔账可以口算：能用的最高一级，就是 RSSI 刚好够得上其灵敏度的那一级。',
-    } },
+    { kind: 'steps', heading: { en: 'Choosing a rung, step by step', zh: '选级的算法，一步一步' }, items: [
+      { en: 'Take the RSSI of this link and subtract the noise floor at the channel width in use. The difference is the SNR.',
+        zh: '把这条链路的 RSSI 减去当前信道带宽下的噪声地板，差就是 SNR。' },
+      { en: 'Give every rung its required SINR: at 20 MHz that is its sensitivity plus 90.99 dB, which is the noise the standard assumed in those tables, taken back out.',
+        zh: '给每一级算出它的所需 SINR：在 20 MHz 上，就是它的灵敏度加 90.99 dB——把标准表格假设的那份噪声再减回去。' },
+      { en: 'Walk up the ladder and keep the last rung where required SINR + 3 dB ≤ SNR. Those 3 dB are the rate margin, and they are why a link at its ceiling still survives an ordinary dip.',
+        zh: '从底下往上走，留住最后一个满足“所需 SINR + 3 dB ≤ SNR”的级。这 3 dB 就是速率余量，也正是一条顶到上限的链路还能扛住寻常起伏的原因。' },
+      { en: 'Send at that rung. While the frame is in the air the receiver holds its worst SINR against the required SINR alone — the margin belongs to the sender, not to the decoder.',
+        zh: '就用这一级发。帧在空中时，接收端拿全程最差的那个 SINR 去比所需 SINR——余量是发送端留的，解码时并不算它。' },
+      { en: 'At 20 MHz steps 1 to 3 collapse into one look-up: the highest rung whose sensitivity is at or below the RSSI. The shortcut works because this simulator hears 3 dB better than the tables assume, which is exactly the margin.',
+        zh: '在 20 MHz 上，第 1 到 3 步可以并成一次查表：灵敏度不高于 RSSI 的那个最高级。这条捷径成立，是因为本仿真器比表格的假设多听见 3 dB，恰好与那份余量相抵。' },
+    ] },
+    { kind: 'table', heading: { en: 'The living-room laptop, run through the steps', zh: '客厅那台笔记本，照着步骤走一遍' }, head: [
+      { en: 'Step', zh: '步骤' }, { en: 'Value', zh: '数值' },
+    ], rows: [
+      [{ en: 'RSSI of the link', zh: '这条链路的 RSSI' }, N('−72.3 dBm')],
+      [{ en: 'less the noise floor, 20 MHz', zh: '减去 20 MHz 的噪声地板' }, N('−93.99 dBm')],
+      [{ en: '= SNR', zh: '= SNR' }, N('21.7 dB')],
+      [{ en: 'MCS 3 requires, with the margin', zh: 'MCS 3 的要求，加上余量' }, N('16.99 + 3 = 19.99 dB ✓')],
+      [{ en: 'MCS 7 requires, with the margin', zh: 'MCS 7 的要求，加上余量' }, N('26.99 + 3 = 29.99 dB ✗')],
+      [{ en: 'so the frame goes out at', zh: '于是这一帧发出去时用的是' }, N('MCS 3')],
+    ] },
     { kind: 'table', heading: { en: 'One 1530-byte frame, by position', zh: '同一个 1530 字节帧，按位置' }, head: [
       { en: 'Where it sits', zh: '它在哪儿' }, N('RSSI'), N('SNR'), N('MCS'), { en: 'Needs + 3 dB', zh: '所需 + 3 dB' }, { en: 'Airtime', zh: '空口时间' },
     ], rows: [

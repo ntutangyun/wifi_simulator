@@ -51,14 +51,15 @@ const TABLE = [
   { rssi: '-78.1', snr: '15.9', mcs: 1, reqPlus: '14.99', airtime: 768_800 },
 ]
 
-lessonShapeSuite(decodeThresholds, { proseMax: 900, runNs: RUN_NS })
+lessonShapeSuite(decodeThresholds, { proseMax: 1200, runNs: RUN_NS })
 
 describe('decode-thresholds · the second lesson of the Wi-Fi track', () => {
   it('follows radio-primer, needs it, and owns the three words of the owner table', () => {
     expect(decodeThresholds.module).toBe(0)
     expect(COURSE_ORDER.indexOf('decode-thresholds')).toBe(COURSE_ORDER.indexOf('radio-primer') + 1)
     expect(decodeThresholds.needs).toEqual(['radio-primer'])
-    expect(decodeThresholds.terms!.map((t) => t.term)).toEqual(['MCS', 'OFDM', 'CCA'])
+    // the amendment of 2026-09-23 adds the two quantities the rung procedure asks the reader to use
+    expect(decodeThresholds.terms!.map((t) => t.term)).toEqual(['MCS', 'OFDM', 'CCA', 'sensitivity', 'rate margin'])
   })
 
   it('loads radio-primer’s own scene, variant for variant', () => {
@@ -188,6 +189,50 @@ describe('decode-thresholds · the ladder', () => {
     expect(mcsLadder('eht').filter((r) => snr >= r.reqSinrDb + RATE_MARGIN_DB).map((r) => r.mcs)).toEqual([0, 1, 2, 3])
     expect((reqSinrDb('eht', 3) + RATE_MARGIN_DB).toFixed(2)).toBe('19.99')
     expect((reqSinrDb('eht', 4) + RATE_MARGIN_DB).toFixed(2)).toBe('23.99')
+  })
+})
+
+/**
+ * The rung procedure and the worked example beside it (amendment of
+ * 2026-09-23): every line of the "living-room laptop" table is the step it
+ * names, run against the engine rather than quoted from it.
+ */
+describe('decode-thresholds · choosing a rung, step by step', () => {
+  const RSSI = -72.3
+  const steps = decodeThresholds.numbers!.find((b) => b.kind === 'steps')
+
+  it('states the procedure as five steps on the main path', () => {
+    expect(steps).toBeDefined()
+    expect((steps as Extract<Block, { kind: 'steps' }>).items).toHaveLength(5)
+  })
+
+  it('step 1: RSSI − the 20 MHz noise floor is the SNR the table prints', () => {
+    expect(noiseDbm(20)).toBeCloseTo(-93.99, 2)
+    expect(RSSI - noiseDbm(20)).toBeCloseTo(21.7, 1)
+  })
+
+  it('step 2: a required SINR is its sensitivity plus 90.99 dB', () => {
+    for (let mcs = 0; mcs < PHY_MODES.eht.sensDbm.length; mcs++) {
+      expect(reqSinrDb('eht', mcs)).toBeCloseTo(PHY_MODES.eht.sensDbm[mcs]! + 90.99, 2)
+    }
+  })
+
+  it('step 3: MCS 3 fits with the margin and MCS 7 does not, so the rung is 3', () => {
+    const snr = RSSI - noiseDbm(20)
+    expect(reqSinrDb('eht', 3)).toBeCloseTo(16.99, 2)
+    expect(reqSinrDb('eht', 3) + RATE_MARGIN_DB).toBeCloseTo(19.99, 2)
+    expect(reqSinrDb('eht', 3) + RATE_MARGIN_DB).toBeLessThanOrEqual(snr)
+    expect(reqSinrDb('eht', 7)).toBeCloseTo(26.99, 2)
+    expect(reqSinrDb('eht', 7) + RATE_MARGIN_DB).toBeCloseTo(29.99, 2)
+    expect(reqSinrDb('eht', 7) + RATE_MARGIN_DB).toBeGreaterThan(snr)
+    expect(mcsForRssi('eht', RSSI, undefined, 20)).toBe(3)
+  })
+
+  it('step 5: at 20 MHz the shortcut picks the same rung as the arithmetic', () => {
+    for (let dbm = -90; dbm <= -30; dbm += 0.5) {
+      const bySensitivity = PHY_MODES.eht.sensDbm.reduce((best, sens, i) => (dbm >= sens ? i : best), 0)
+      expect(mcsForRssi('eht', dbm, undefined, 20), `${dbm} dBm`).toBe(bySensitivity)
+    }
   })
 })
 

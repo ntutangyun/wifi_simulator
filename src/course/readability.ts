@@ -297,15 +297,41 @@ export function wordsIn(x: unknown): number {
  * the stated minutes are the minutes of the main path.
  */
 export interface LessonBudget {
-  /** `why` + `outcomes` + `terms` + `picture`: everything before "Now the numbers". ≤ 650. */
+  /** `why` + `outcomes` + `terms` + `picture`: everything before "Now the numbers". */
   picture: number
-  /** `numbers`. ≤ 350. */
+  /** `numbers`. */
   numbers: number
-  /** `observe` + `tryThis` + `quiz`: what the reader does at the simulator. ≤ 400. */
+  /** `observe` + `tryThis` + `quiz`: what the reader does at the simulator. */
   practice: number
-  /** All three, plus an unmigrated lesson's flat `body`. 500–1300; ≤ 1000 for a track's first lesson. */
+  /** All three, plus an unmigrated lesson's flat `body`. */
   total: number
 }
+
+/**
+ * The length budget, in the English words `lessonWords` counts.
+ *
+ * Raised 2026-09-23 (spec amendment "Mechanism before metaphor"): under the
+ * first ceiling — 1300 words, 20 minutes — the cheapest way to keep a claim
+ * inside the budget was to compress its mechanism into a pointer phrase ("plus
+ * 3 dB kept in hand", "that is head arithmetic"), which is exactly the reading
+ * failure the programme exists to prevent. Explaining costs words, so the
+ * ceiling pays for it; a lesson that still does not fit splits.
+ */
+export const BUDGETS = {
+  /** `why` + `outcomes` + `terms` + `picture`. */
+  picture: 900,
+  /** `numbers`, where the procedures live. */
+  numbers: 550,
+  /** `observe` + `tryThis` + `quiz`. */
+  practice: 450,
+  /** Main path, floor and ceiling. */
+  totalMin: 500,
+  totalMax: 1800,
+  /** A track's first lesson stays short: the point of the programme. */
+  openerMax: 1000,
+  /** `lessonMinutes`, which counts reading plus time at the simulator. */
+  minutes: 30,
+} as const
 
 /** The four counts of {@link LessonBudget}: the contract test, the lesson tests and the dump share them. */
 export function lessonBudget(l: Partial<Lesson>): LessonBudget {

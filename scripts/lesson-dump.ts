@@ -26,15 +26,15 @@
  */
 import { LESSONS } from '../src/course/lessons'
 import { lessonMinutes, lessonWords, trackOf } from '../src/course/curriculum'
-import { lessonBudget } from '../src/course/readability'
+import { BUDGETS, lessonBudget } from '../src/course/readability'
 import type { Block, L10n, Lesson } from '../src/course/lessonKit'
 
 /** The spec's "Length and pace" section budgets, one lesson to a line. */
 function budgetLine(l: Lesson): string {
   const b = lessonBudget(l)
-  return `${l.id.padEnd(16)} picture ${String(b.picture).padStart(4)}/650`
-    + ` · numbers ${String(b.numbers).padStart(4)}/350`
-    + ` · practice ${String(b.practice).padStart(4)}/400`
+  return `${l.id.padEnd(16)} picture ${String(b.picture).padStart(4)}/${BUDGETS.picture}`
+    + ` · numbers ${String(b.numbers).padStart(4)}/${BUDGETS.numbers}`
+    + ` · practice ${String(b.practice).padStart(4)}/${BUDGETS.practice}`
     + ` · total ${String(b.total).padStart(4)} (${lessonWords(l)} words, ${lessonMinutes(l)} min)`
 }
 

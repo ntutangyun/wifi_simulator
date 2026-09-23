@@ -29,7 +29,7 @@ import type { Scenario } from '../../src/model/scenario'
 import { isMigrated, type L10n, type Lesson } from '../../src/course/lessonKit'
 import { LESSONS } from '../../src/course/lessons'
 import { OBSERVE_MINUTES, TRY_MINUTES, lessonBlocks, lessonMinutes, lessonWords } from '../../src/course/curriculum'
-import { CITATION, lessonBudget, lessonStrings, paragraphTexts } from '../../src/course/readability'
+import { BUDGETS, CITATION, lessonBudget, lessonStrings, paragraphTexts } from '../../src/course/readability'
 
 const MS = 1_000_000
 /** Long enough for a UWB ranging block and a Wi-Fi round; an AMP lesson asks for 1000 ms. */
@@ -104,7 +104,7 @@ export interface LessonShapeOptions {
    * `tryThis` and `quiz` — what the reader reads before the simulator.
    */
   proseMax: number
-  /** Main-path words. The spec's 1300, or 1000 for a track's first lesson. */
+  /** Main-path words. `BUDGETS.totalMax`, or `BUDGETS.openerMax` for a track's first lesson. */
   totalMax?: number
   /** The lesson whose scene this one is the second half of: their hashes must be equal. */
   sameSceneAs?: string
@@ -143,22 +143,22 @@ export function lessonShapeSuite(l: Lesson, o: LessonShapeOptions): void {
       }
     })
 
-    it('fits one sitting: the section budgets, the prose window and 20 minutes', () => {
+    it('fits one sitting: the section budgets, the prose window and the minutes ceiling', () => {
       // The spec's "Length and pace", printed by `npx tsx scripts/lesson-dump.ts <id> en`.
       const b = lessonBudget(l)
-      expect(b.picture, 'why + outcomes + terms + picture').toBeLessThanOrEqual(650)
-      expect(b.numbers, 'numbers').toBeLessThanOrEqual(350)
-      expect(b.practice, 'observe + tryThis + quiz').toBeLessThanOrEqual(400)
+      expect(b.picture, 'why + outcomes + terms + picture').toBeLessThanOrEqual(BUDGETS.picture)
+      expect(b.numbers, 'numbers').toBeLessThanOrEqual(BUDGETS.numbers)
+      expect(b.practice, 'observe + tryThis + quiz').toBeLessThanOrEqual(BUDGETS.practice)
       expect(b.total).toBe(lessonWords(l))
-      expect(lessonWords(l)).toBeGreaterThanOrEqual(500)
-      expect(lessonWords(l)).toBeLessThanOrEqual(o.totalMax ?? 1300)
+      expect(lessonWords(l)).toBeGreaterThanOrEqual(BUDGETS.totalMin)
+      expect(lessonWords(l)).toBeLessThanOrEqual(o.totalMax ?? BUDGETS.totalMax)
       const prose = lessonWords({ ...l, observe: [], tryThis: [], quiz: [] })
       expect(prose, 'why + outcomes + terms + picture + numbers').toBeLessThanOrEqual(o.proseMax)
       expect(lessonBlocks(l).length).toBe(l.picture!.length + l.numbers!.length)
       // the stated minutes are the formula's, and the formula fits a sitting
       const raw = lessonWords(l) / 150 + OBSERVE_MINUTES * l.observe.length + TRY_MINUTES * l.tryThis.length
       expect(lessonMinutes(l)).toBe(Math.max(5, Math.round(raw / 5) * 5))
-      expect(lessonMinutes(l)).toBeLessThanOrEqual(20)
+      expect(lessonMinutes(l)).toBeLessThanOrEqual(BUDGETS.minutes)
     })
 
     it('every jump target occurs in the base run', () => {

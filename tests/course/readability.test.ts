@@ -17,7 +17,7 @@ import { LESSONS } from '../../src/course/lessons'
 import { COURSE_ORDER, MODULES, lessonMinutes, lessonWords, trackOf } from '../../src/course/curriculum'
 import { isMigrated, type Block, type L10n, type Lesson } from '../../src/course/lessonKit'
 import {
-  CITATION, KNOWN_WORDS, LOG_NAMES, acronyms, cellTexts, definedInPlace, densityTexts, enWords,
+  BUDGETS, CITATION, KNOWN_WORDS, LOG_NAMES, acronyms, cellTexts, definedInPlace, densityTexts, enWords,
   firstTermUses, lessonBudget, lessonStrings, neutralCellTexts, numericQuantities, paragraphTexts,
   zhChars,
 } from '../../src/course/readability'
@@ -311,16 +311,16 @@ if (migrated.length) {
       // depth may be dense, but its provenance still belongs in `sources`
       for (const s of paragraphTexts(l.deeper ?? [])) expect(CITATION.test(s.en) || CITATION.test(s.zh), `deeper: ${s.en.slice(0, 80)}`).toBe(false)
     })
-    it('fits the main path: the section budgets, 500–1300 words, at most 20 minutes', () => {
+    it('fits the main path: the section budgets, the word window and the minutes ceiling', () => {
       const b = lessonBudget(l)
-      expect(b.picture, 'why + outcomes + terms + picture').toBeLessThanOrEqual(650)
-      expect(b.numbers, 'numbers').toBeLessThanOrEqual(350)
-      expect(b.practice, 'observe + tryThis + quiz').toBeLessThanOrEqual(400)
+      expect(b.picture, 'why + outcomes + terms + picture').toBeLessThanOrEqual(BUDGETS.picture)
+      expect(b.numbers, 'numbers').toBeLessThanOrEqual(BUDGETS.numbers)
+      expect(b.practice, 'observe + tryThis + quiz').toBeLessThanOrEqual(BUDGETS.practice)
       expect(b.total).toBe(lessonWords(l))
-      expect(lessonWords(l)).toBeGreaterThanOrEqual(500)
+      expect(lessonWords(l)).toBeGreaterThanOrEqual(BUDGETS.totalMin)
       // the point of the programme is that a track's first lesson is short
-      expect(lessonWords(l)).toBeLessThanOrEqual(firstOfTrack(l) ? 1000 : 1300)
-      expect(lessonMinutes(l)).toBeLessThanOrEqual(20)
+      expect(lessonWords(l)).toBeLessThanOrEqual(firstOfTrack(l) ? BUDGETS.openerMax : BUDGETS.totalMax)
+      expect(lessonMinutes(l)).toBeLessThanOrEqual(BUDGETS.minutes)
     })
   })
 }
@@ -422,5 +422,86 @@ describe('readability · needs is honest about what the picture leans on', () =>
         expect(hit, `${l.id}: "${term}" is ${ownerId}'s word, and ${ownerId} is not in the needs closure — "${hit?.slice(0, 60)}…"`).toBe(null)
       }
     }
+  })
+})
+
+/**
+ * Amendment 2026-09-23, "mechanism before metaphor"
+ * (docs/superpowers/specs/2026-09-21-course-readability-design.md).
+ *
+ * The first contract asked every claim to be pinned by a test and every
+ * acronym to be glossed, and it capped the main path at 1300 words. Nothing
+ * in it asked that the reader be able to REDO the computation, and under the
+ * cap the cheapest way to keep a claim was to compress its mechanism into a
+ * pointer phrase — "plus 3 dB kept in hand", "that is head arithmetic",
+ * 留在手里的 3 dB, 这笔账 — each of which points at something that is either
+ * in `deeper` or nowhere. Three rules close that hole, on lessons revised to
+ * the amendment; the list only grows.
+ */
+export const MECHANISM_DONE: string[] = [
+  'decode-thresholds',
+]
+
+/**
+ * Rule 1 — no pointer phrases. Each of these names a quantity by gesturing at
+ * it rather than saying what it is; every one is taken from a sentence a
+ * reader stopped at.
+ */
+const SHORTHAND: { re: RegExp; why: string }[] = [
+  { re: /kept in hand|keeps? in hand|留在手里|手里留/, why: 'name the margin and its size instead' },
+  { re: /head arithmetic|这笔账|那笔账/, why: 'write the arithmetic out as steps' },
+  { re: /the bare requirement|不含余量的那个要求/, why: 'say which requirement, and what the margin was' },
+  { re: /、之类|之类的|等等。|诸如此类/, why: 'list them, or drop the list' },
+]
+
+/**
+ * Rule 2 — a quantity the reader is asked to use is glossed like an acronym:
+ * it appears in the `terms` of this lesson or of an earlier one, term or plain
+ * words, in either language. 余量 was used four times across Tier 1 and 2 and
+ * defined nowhere.
+ */
+const QUANTITIES: { name: string; re: RegExp }[] = [
+  { name: 'margin', re: /margins?|余量/ },
+  { name: 'sensitivity', re: /sensitivit(?:y|ies)|灵敏度/ },
+  { name: 'threshold', re: /thresholds?|门限/ },
+  { name: 'noise floor', re: /noise floors?|噪声地板/ },
+]
+
+/** Everything the `terms` tables up to and including this lesson put into words. */
+function glossTextUpTo(l: Lesson): string {
+  const upto = ordered.slice(0, ordered.indexOf(l) + 1).filter((o) => !MIGRATING_NOW.includes(o.id))
+  return upto.flatMap((o) => (o.terms ?? []).flatMap((t) => [t.term, t.plain.en, t.plain.zh])).join(' | ')
+}
+
+describe('readability · mechanism before metaphor', () => {
+  const revised = migrated.filter((l) => MECHANISM_DONE.includes(l.id))
+
+  it('grades every lesson the amendment has reached', () => {
+    expect(revised.map((l) => l.id)).toEqual(MECHANISM_DONE.filter((id) => !MIGRATING_NOW.includes(id)))
+  })
+
+  it.each(revised.map((l) => [l.id, l] as const))('%s points at no quantity it has not named', (_id, l) => {
+    for (const s of lessonStrings(l)) {
+      for (const { re, why } of SHORTHAND) {
+        const hit = re.exec(s.en) ?? re.exec(s.zh)
+        expect(hit, `${l.id}: "${hit?.[0]}" — ${why} · ${s.en.slice(0, 60)}…`).toBeNull()
+      }
+    }
+  })
+
+  it.each(revised.map((l) => [l.id, l] as const))('%s glosses every quantity it asks the reader to use', (_id, l) => {
+    const gloss = glossTextUpTo(l)
+    const main = [l.why!, ...(l.outcomes ?? [])].concat(paragraphTexts(l.picture ?? []), paragraphTexts(l.numbers ?? []))
+    for (const { name, re } of QUANTITIES) {
+      const used = main.some((t) => re.test(t.en) || re.test(t.zh))
+      if (!used) continue
+      expect(re.test(gloss), `${l.id}: uses "${name}" on the main path but no terms table defines it`).toBe(true)
+    }
+  })
+
+  it.each(revised.map((l) => [l.id, l] as const))('%s writes its procedure out as steps', (_id, l) => {
+    const steps = [...(l.picture ?? []), ...(l.numbers ?? [])].filter((b) => b.kind === 'steps')
+    expect(steps.length, `${l.id}: a lesson that states a rule carries the rule as a steps block`).toBeGreaterThan(0)
+    for (const b of steps) expect((b as Extract<Block, { kind: 'steps' }>).items.length).toBeGreaterThanOrEqual(3)
   })
 })
