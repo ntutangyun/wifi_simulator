@@ -81,6 +81,42 @@ function initialScenario(): Scenario {
   return defaultScenario()
 }
 
+type Mode = UiState['mode']
+
+/**
+ * Where the user was when they last closed the tab. A refresh in the middle of
+ * a lesson used to drop the learner back into the editor, which loses both the
+ * lesson and the reason they had the page open.
+ */
+function initialMode(): Mode {
+  try {
+    const m = typeof localStorage !== 'undefined' ? localStorage.getItem('wifi-sim.mode') : null
+    if (m === 'edit' || m === 'simulate' || m === 'course') return m
+  } catch {
+    // default below
+  }
+  return 'edit'
+}
+
+/** The lesson that was open. An id the course no longer has simply shows the catalogue. */
+function initialLesson(): string | null {
+  try {
+    const id = typeof localStorage !== 'undefined' ? localStorage.getItem('wifi-sim.lesson') : null
+    return id && id.length > 0 ? id : null
+  } catch {
+    return null
+  }
+}
+
+function remember(key: string, value: string | null) {
+  try {
+    if (value === null) localStorage.removeItem(key)
+    else localStorage.setItem(key, value)
+  } catch {
+    // storage unavailable — keep in-memory only
+  }
+}
+
 function initialLang(): Lang {
   try {
     const l = typeof localStorage !== 'undefined' ? localStorage.getItem('wifi-sim.lang') : null
@@ -117,6 +153,7 @@ export const useUi = create<UiState>((set, get) => ({
   setMode(m) {
     const prev = get().mode
     if (m === prev) return
+    remember('wifi-sim.mode', m)
     // leaving course mode restores the scenario the user had before, undo depth and all
     if (prev === 'course' && courseStash !== null) {
       set({ scenario: courseStash.scenario, history: courseStash.history })
@@ -140,11 +177,12 @@ export const useUi = create<UiState>((set, get) => ({
       set({ mode: m, playing: false, view: null, playheadNs: 0, courseLoaded: false, courseLoadedFor: null, simError: null, selectedFrame: null })
     }
   },
-  courseLessonId: null,
+  courseLessonId: initialLesson(),
   courseLoaded: false,
   courseLoadedFor: null,
   simSession: 0,
   selectLesson(id) {
+    remember('wifi-sim.lesson', id)
     set({ courseLessonId: id })
   },
   loadCourseScenario(sc, lessonId) {
@@ -158,6 +196,7 @@ export const useUi = create<UiState>((set, get) => ({
   adoptCourseScenario(sc) {
     // user wants the lesson scenario in the editor: don't restore the stash
     courseStash = null
+    remember('wifi-sim.mode', 'edit')
     player.dispose()
     set({ mode: 'edit', scenario: sc, history: historyInit(sc), playing: false, view: null, playheadNs: 0, courseLoaded: false, courseLoadedFor: null, selectedFrame: null })
   },
@@ -193,3 +232,9 @@ export const useUi = create<UiState>((set, get) => ({
 }))
 
 player.onError = (msg) => useUi.setState({ simError: msg })
+
+// Restore the remembered mode through setMode itself, so the transition runs
+// exactly as it does for a click: simulate loads the player, course parks the
+// editor's document in the stash.
+const startMode = initialMode()
+if (startMode !== 'edit') useUi.getState().setMode(startMode)
