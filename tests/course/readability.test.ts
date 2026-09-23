@@ -462,7 +462,7 @@ export const MECHANISM_DONE: string[] = [
  * reader stopped at.
  */
 const SHORTHAND: { re: RegExp; why: string }[] = [
-  { re: /kept in hand|keeps? in hand|留在手里|手里留/, why: 'name the margin and its size instead' },
+  { re: /(?:dB|margin|\bspare\b)[^.]{0,24}in hand|in hand[^.]{0,16}(?:dB|margin)|留在手里|手里留|手里仍留|手里还留/, why: 'name the margin and its size instead' },
   { re: /head arithmetic|这笔账|那笔账/, why: 'write the arithmetic out as steps' },
   { re: /the bare requirement|不含余量的那个要求/, why: 'say which requirement, and what the margin was' },
   { re: /、之类|之类的|等等。|诸如此类/, why: 'list them, or drop the list' },

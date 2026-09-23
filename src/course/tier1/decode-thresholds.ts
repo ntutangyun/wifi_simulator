@@ -185,7 +185,7 @@ export const decodeThresholds: Lesson = {
   observe: [
     { en: 'Read the MCS of the first data frame in each of the four variants: 13, 10, 3 and 1 — the rungs the ladder lights for the four ratios in the table above.', zh: '读出四个变体里第一个数据帧的 MCS：13、10、3、1——上表那四个比值在阶梯上点亮的级。' },
     { en: 'Now read the airtime of that frame: 129.6, 143.2, 415.2 and 768.8 µs. Twelve rungs down costs nearly six times the air for the very same 1530 bytes.', zh: '再读这一帧的空口时间：129.6、143.2、415.2、768.8 µs。往下走十二级，同样的 1530 个字节要多花近六倍的空口时间。' },
-    { en: 'No variant shows a retry, a timeout or a failed reception. A lone link at its ceiling still keeps 3 dB in hand — against a hard threshold, enough never to lose a frame.', zh: '四个变体里都没有重传、没有超时，也没有接收失败。一条链路独占空口、又停在自己的上限上时，手里仍留着 3 dB；面对一道硬门限，这 3 dB 足以一帧不丢。' },
+    { en: 'No variant shows a retry, a timeout or a failed reception. A lone link at its ceiling still sits 3 dB of rate margin above what its rung requires — against a hard threshold, enough never to lose a frame.', zh: '四个变体里都没有重传、没有超时，也没有接收失败。一条链路独占空口、又停在自己的上限上时，它所选那一级的要求之上仍有 3 dB 的速率余量；面对一道硬门限，这 3 dB 足以一帧不丢。' },
   ],
   tryThis: [
     { en: 'Open the far-wall variant in the editor and drop the laptop\'s transmit power from 15 to 12 dBm. The received level falls just under the sensitivity of the rung it was using, so the frames drop a rung and stretch from 768.8 to 1476.0 µs.', zh: '在编辑器里打开远端墙边变体，把笔记本的发射功率从 15 dBm 降到 12 dBm。接收电平刚好跌到它原来那一级的灵敏度之下，于是帧下降一级，时长从 768.8 µs 拉到 1476.0 µs。3 dB，几乎让空口时间翻倍。' },
