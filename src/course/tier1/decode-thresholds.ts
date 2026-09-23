@@ -80,8 +80,8 @@ export const decodeThresholds: Lesson = {
        { en: 'RX_OK and an acknowledgement; below it, RX_FAIL and a timeout.', zh: 'RX_OK 并回确认帧；低于要求则 RX_FAIL，发送方等到超时。' }],
     ] },
     { text: {
-      en: 'The two figures are not interchangeable: −82 dBm applies only to a frame whose preamble this radio was listening for, and −62 dBm is all that is left when it was not.',
-      zh: '这两个数不能混着用：−82 dBm 只对本机正在侦听、并且抓到了前导的那一帧有效；没抓到前导，就只剩下高出二十分贝的 −62 dBm。',
+      en: 'The two figures are not interchangeable. −82 dBm tests a frame whose preamble this radio caught. Without that, only raw energy counts, and it trips at −62 dBm: twenty decibels higher, a hundred times the power.',
+      zh: '这两个数不能混着用。−82 dBm 判的是本机抓到了前导的那一帧；没抓到前导，就只能按能量判断，而能量的门限是 −62 dBm：比前一个高二十分贝，也就是一百倍的功率。',
     } },
     { kind: 'table', heading: { en: 'Six of the fourteen rungs, 20 MHz, one stream', zh: '十四级中的六级，20 MHz、单流' }, head: [
       N('MCS'), { en: 'Modulation', zh: '调制' }, { en: 'Bits per sub-carrier', zh: '每子载波比特' }, N('Mb/s'),
@@ -100,8 +100,8 @@ export const decodeThresholds: Lesson = {
     } },
     { kind: 'widget', widget: 'mcsLadder', params: { mode: 'eht', snrDb: 21.5 },
       caption: {
-        en: 'The whole ladder, marker at the living-room laptop\'s SNR rounded down to 21.5 dB. The rungs it lights are those that fit, margin included.',
-        zh: '完整的速率阶梯，标记停在客厅那台笔记本的 SNR 上（向下取整到 21.5 dB）。点亮的就是放得下的那些级，余量已经算进去了。',
+        en: 'The whole ladder, marker at the living-room laptop\'s SNR rounded down to 21.5 dB. Lit rungs fit, margin included.',
+        zh: '完整的速率阶梯，标记停在客厅那台笔记本的 SNR 上（向下取整到 21.5 dB）。点亮的级就是放得下的，余量已经算进去了。',
       } },
     { heading: { en: 'The ladder as a contract', zh: '把阶梯当作一份契约' }, text: {
       en: 'The sender picks the highest rung whose requirement, plus 3 dB kept in hand, still fits; decoding then compares against the bare requirement. At 20 MHz that is head arithmetic: the rung is the highest one whose sensitivity the RSSI meets.',
