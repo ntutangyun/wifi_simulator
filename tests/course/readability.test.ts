@@ -454,6 +454,7 @@ export const MECHANISM_DONE: string[] = [
   'ofdma-dl', 'ofdma-ul', 'mumimo',
   'mlo', 'capstone',
   'bianchi', 'bianchi-vs-sim', 'tier1-project', 'tier1-project-review',
+  'uwb-intro', 'uwb-frame', 'uwb-sts',
 ]
 
 /**
