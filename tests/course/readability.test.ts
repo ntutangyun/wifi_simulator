@@ -78,9 +78,7 @@ const RECORD_NAME = /^[A-Z0-9_]+$/
  * language-neutral cells ("1 slot of 2 ms, 1 frame", "2.10 cm over 21 ranges");
  * `uwb-dstwr` and `uwb-blocks` print `Treply1` and `SP1` unglossed.
  */
-const CELL_RULE_CARRIES: Record<string, string> = {
-  'uwb-mms-numbers': 'uwb fix wave: English prose in a language-neutral cell',
-}
+const CELL_RULE_CARRIES: Record<string, string> = {}
 
 /**
  * MIGRATING as this run grades it. `READABILITY_INCLUDE=uwb-sstwr,uwb-dstwr`

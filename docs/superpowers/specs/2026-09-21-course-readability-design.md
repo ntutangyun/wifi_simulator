@@ -374,3 +374,26 @@ says. Three causes, all of them in this document rather than in any one lesson:
 amendment has reached; the rules grade those and the list only grows. Pilot:
 `decode-thresholds`. Then the rest of the Wi-Fi track, then UWB; AMP when its
 own revision is asked for.
+
+### Authoring notes learned during the rollout
+
+Two shapes fall out of the rules rather than being stated by them, and every
+batch rediscovered them the hard way:
+
+- **A step carries the procedure in words; the figures go in a worked-example
+  table under it.** The "at most four numeric quantities" rule reads `steps`
+  items like any other paragraph, so a step that *contains* the arithmetic is
+  illegal — which is the right outcome. Steps say what happens and in what
+  order; the table beside them prices it. Table cells are exempt, and a reader
+  can follow a table against a run far more easily than a sentence full of
+  numbers.
+- **A heading counts as a first use.** "One fragment, then another" introduces
+  `fragment` before any sentence can gloss it, so rule 4 fails on the heading.
+  Either name the thing in the heading's own words ("One piece, then another")
+  or let the heading carry the gloss.
+
+And one rule of evidence, from `mlo`'s retry limit and `uwb-position`'s
+residual: **a claim whose evidence cannot exist in the lesson's own scene is
+pinned where its evidence does live** — a synthetic scene, or a unit-level
+test — and the lesson does not send the reader to watch for it. Never pin such
+a claim against a timeline that will never show it.
