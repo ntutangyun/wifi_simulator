@@ -20,6 +20,9 @@ import { rate } from '../../src/course/tier2/rate'
 import { rateScenario } from '../../src/course/wifiScenes'
 import { ScenarioSchema } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
+import { buildLinkTable } from '../../src/engine/propagation'
+import { negotiated } from '../../src/model/caps'
+import { RATE_MARGIN_DB, mcsForRssi, noiseDbm, reqSinrDb } from '../../src/engine/phy'
 import { lessonShapeSuite, ofType, runOf } from './kit'
 
 const MS = 1_000_000
@@ -33,7 +36,7 @@ const data = (rs: TLRecord[], node: string): Tx[] =>
   rs.filter((r): r is Tx => r.type === 'TX_START' && r.node === node && r.frame.kind === 'data')
 const pct = (a: number, b: number): number => Math.round((a / b) * 1000) / 10
 
-lessonShapeSuite(rate, { proseMax: 700, runNs: JUMP_NS })
+lessonShapeSuite(rate, { proseMax: 1050, runNs: JUMP_NS })
 
 describe('rate · the lesson’s own scene', () => {
   it('is the Tier 2 rate lesson, and names the lessons its words come from', () => {
@@ -102,6 +105,79 @@ describe('rate · the station that never has to choose', () => {
     expect(near.length).toBe(4_010)
     expect(new Set(near.map((r) => r.frame.mcs))).toEqual(new Set([11]))
     expect(ofType(rs, 'ACK_TIMEOUT').filter((r) => r.node === 'sta-1')).toHaveLength(0)
+  })
+
+  it('MCS 11 is where the agreed capabilities stop, not where the signal does', () => {
+    // "That rung is not where its signal runs out — 58.7 dB would carry the top rung — but
+    //  where the two ends' agreed capabilities stop: neither of them offered the two densest
+    //  rungs on this scene, so the ceiling is capped below them."
+    const sc = rate.scenario()
+    for (const n of sc.nodes) expect(n.caps.features?.qam4k ?? false, n.id).toBeFalsy()
+    expect(negotiated(sc.nodes.find((n) => n.id === 'sta-1')!, sc.nodes.find((n) => n.id === 'ap')!, 'qam4k')).toBe(false)
+    const rssi = buildLinkTable(sc.nodes, sc.walls).get('sta-1')!.get('ap')!
+    expect(Math.round((rssi - noiseDbm(20)) * 10) / 10).toBe(58.7)
+    // the engine's own cap: `mcsForPeer` passes 11 when the pair has not negotiated 4096-QAM
+    expect(mcsForRssi('eht', rssi, 11, 20)).toBe(11)
+    expect(mcsForRssi('eht', rssi, 13, 20)).toBe(13)
+  })
+})
+
+describe('rate · the loop, as the engine runs it', () => {
+  const rs = runOf(rate, undefined, RUN_NS)
+  const far = data(rs, 'sta-2')
+  /** An attempt failed when a RETRY or DROP of this station falls between it and the next. */
+  const bad = [...ofType(rs, 'RETRY'), ...ofType(rs, 'DROP')].filter((r) => r.node === 'sta-2').map((r) => r.t)
+  const lost = far.map((t, i) => {
+    const end = t.t + t.frame.txTimeNs
+    const next = i + 1 < far.length ? far[i + 1].t : Number.POSITIVE_INFINITY
+    return bad.some((x) => x >= end && x < next)
+  })
+
+  it('step 1: the ceiling of the far link is MCS 2, and the table’s arithmetic says why', () => {
+    // "RSSI −75.46 dBm · less the noise floor, 20 MHz −93.99 · = SNR 18.53 dB · MCS 2 asks
+    //  13.99 + 3 = 16.99 ✓ · MCS 3 asks 16.99 + 3 = 19.99 ✗ · so the ceiling is MCS 2"
+    const sc = rate.scenario()
+    const rssi = buildLinkTable(sc.nodes, sc.walls).get('sta-2')!.get('ap')!
+    const r2 = (x: number) => Math.round(x * 100) / 100
+    expect(r2(rssi)).toBe(-75.46)
+    expect(r2(noiseDbm(20))).toBe(-93.99)
+    expect(r2(rssi - noiseDbm(20))).toBe(18.53)
+    expect(RATE_MARGIN_DB).toBe(3)
+    expect([r2(reqSinrDb('eht', 2)), r2(reqSinrDb('eht', 3))]).toEqual([13.99, 16.99])
+    expect(r2(reqSinrDb('eht', 2) + RATE_MARGIN_DB)).toBe(16.99)
+    expect(r2(reqSinrDb('eht', 3) + RATE_MARGIN_DB)).toBe(19.99)
+    expect(rssi - noiseDbm(20)).toBeGreaterThan(reqSinrDb('eht', 2) + RATE_MARGIN_DB)
+    expect(rssi - noiseDbm(20)).toBeLessThan(reqSinrDb('eht', 3) + RATE_MARGIN_DB)
+    expect(mcsForRssi('eht', rssi, 11, 20)).toBe(2)
+  })
+
+  it('steps 2 and 3: the first frame goes out at the ceiling, one failure alone moves nothing', () => {
+    // "If that working rung sits above the ceiling — the first frame ever — it is pulled down
+    //  to the ceiling", and the counters: a lone failure only sets the count to one.
+    expect(far[0].frame.mcs).toBe(2)
+    expect(lost[0]).toBe(true)
+    expect(lost[1]).toBe(false)
+    expect(far[1].frame.mcs).toBe(2)
+  })
+
+  it('step 4: the first two failures in a row, and the rung the next frame goes out at', () => {
+    // the worked table: "attempt 192, no answer: failures 1 · attempt 193, no answer:
+    // failures 2 · so attempt 194 goes out at MCS 1, 768.8 µs"
+    const pair = lost.findIndex((x, i) => i > 0 && x && lost[i - 1])
+    expect(pair).toBe(192)               // 0-based: attempts 192 and 193 counting from one
+    expect([far[pair - 1].frame.mcs, far[pair].frame.mcs]).toEqual([2, 2])
+    expect(far[pair + 1].frame.mcs).toBe(1)
+    expect(far[pair + 1].frame.txTimeNs).toBe(768_800)
+    expect(far[pair - 1].frame.txTimeNs).toBe(524_000)
+  })
+
+  it('step 5: ten answered frames in a row, and not one fewer, bring the rung back', () => {
+    // "answered frames needed to get back: 10"
+    const pair = lost.findIndex((x, i) => i > 0 && x && lost[i - 1])
+    const back = far.findIndex((r, i) => i > pair && r.frame.mcs === 2)
+    expect(back - (pair + 1)).toBe(10)
+    expect(lost.slice(pair + 1, back).filter(Boolean)).toHaveLength(0)
+    for (let i = pair + 1; i < back; i++) expect(far[i].frame.mcs, `attempt ${i}`).toBe(1)
   })
 })
 

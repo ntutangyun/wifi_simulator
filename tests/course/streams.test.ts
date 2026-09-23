@@ -15,8 +15,9 @@ import { width } from '../../src/course/tier2/width'
 import { widthScenario } from '../../src/course/wifiScenes'
 import { ScenarioSchema } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
-import { nssOf } from '../../src/model/caps'
-import { PHY_MODES, noiseDbm, reqSinrDb, toneRatio, txTimeModeNs } from '../../src/engine/phy'
+import { negotiatedNss, nssOf } from '../../src/model/caps'
+import { PHY_MODES, mcsForRssi, noiseDbm, reqSinrDb, toneRatio, txTimeModeNs } from '../../src/engine/phy'
+import { buildLinkTable } from '../../src/engine/propagation'
 import { lessonShapeSuite, runOf } from './kit'
 
 const MS = 1_000_000
@@ -34,7 +35,7 @@ const one = <T>(xs: T[]): T => {
   return xs[0]
 }
 
-lessonShapeSuite(streams, { proseMax: 700, runNs: RUN_NS })
+lessonShapeSuite(streams, { proseMax: 1000, runNs: RUN_NS })
 
 describe('streams · the lesson’s own scene', () => {
   it('needs the width lesson, and owns two words of its own', () => {
@@ -144,6 +145,46 @@ describe('streams · the two mixed variants', () => {
     expect((61_600 - 48 * US) / PHY_MODES.eht.symNs).toBe(1)
     expect(Math.ceil((16 + 8 * OCTETS + 6) / (2340 * toneRatio('eht', 160) * 4))).toBe(1)
     expect(75_200 - 61_600).toBe(PHY_MODES.eht.symNs)
+  })
+
+  it('the worked example is the engine’s own five steps, value for value', () => {
+    // "Four streams, and the mixed pair, run through the steps": every row of that table,
+    // from the functions the steps name — negotiatedNss (step 1), mcsForRssi, which takes
+    // no stream count at all (2), the mode's N_DBPS times the stream count (3), and the
+    // symbol count and airtime of txTimeModeNs (4 and 5).
+    const ends = (v: number): [number, number] => {
+      const sc = streams.variants![v].scenario()
+      const ap = sc.nodes.find((n) => n.id === 'ap')!
+      const sta = sc.nodes.find((n) => n.id === 'sta-1')!
+      return [nssOf(ap), nssOf(sta)]
+    }
+    // step 1: "what each end can run", and "so the link runs" — the smaller of the two
+    expect(ends(2)).toEqual([4, 4])
+    expect(ends(3)).toEqual([4, 2])
+    const link = (v: number): number => {
+      const sc = streams.variants![v].scenario()
+      return negotiatedNss(sc.nodes.find((n) => n.id === 'ap')!, sc.nodes.find((n) => n.id === 'sta-1')!)
+    }
+    expect([link(2), link(3)]).toEqual([4, 2])
+    // step 2: the rung is chosen from the RSSI and the width; no stream count reaches it,
+    // and both variants run the same width, so both land on the same rung the run shows
+    const sc = streams.variants![3].scenario()
+    const rssi = buildLinkTable(sc.nodes, sc.walls).get('sta-1')!.get('ap')!
+    expect(mcsForRssi('eht', rssi, 13, 20)).toBe(13)
+    expect(mcsForRssi('eht', rssi, 13, 20)).toBe(mcsForRssi('eht', rssi, 13, 20))
+    expect(one(bigData(runOf(streams, 3, RUN_NS)).map((r) => r.frame.mcs))).toBe(13)
+    // step 3: bits per symbol, as the table prints the arithmetic
+    expect(PHY_MODES.eht.ndbps[13]).toBe(2340)
+    expect(toneRatio('eht', 20)).toBe(1)
+    expect([2340 * 4, 2340 * 2]).toEqual([9360, 4680])
+    // steps 4 and 5: the whole-symbol rounding, and the fixed opening plus 13.6 µs a symbol
+    expect(16 + 8 * OCTETS + 6).toBe(12_262)
+    expect([Math.ceil(12_262 / 9360), Math.ceil(12_262 / 4680)]).toEqual([2, 3])
+    expect([48 * US + 13_600 * 2, 48 * US + 13_600 * 3]).toEqual([75_200, 88_800])
+    expect(txTimeModeNs('eht', OCTETS, 13, { nss: 4 })).toBe(75_200)
+    expect(txTimeModeNs('eht', OCTETS, 13, { nss: 2 })).toBe(88_800)
+    // and the mixed pair really does produce the two-stream time on the timeline
+    expect(one(bigData(runOf(streams, 3, RUN_NS)).map((r) => r.frame.txTimeNs))).toBe(88_800)
   })
 
   it('the experiment: two streams here take the same 88.8 µs as 40 MHz did, for no extra signal', () => {

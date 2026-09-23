@@ -17,6 +17,7 @@ import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 import { Simulation } from '../../src/engine/simulation'
 import { buildLinkTable } from '../../src/engine/propagation'
+import { negotiatedWidth } from '../../src/model/caps'
 import {
   PHY_MODES, RATE_MARGIN_DB, mcsForRssi, noiseDbm, reqSinrDb, toneRatio, txTimeModeNs,
 } from '../../src/engine/phy'
@@ -45,7 +46,7 @@ function moved(variant: number, x: number, y: number, ns = 50 * MS): TLRecord[] 
   return [...new Simulation(sc).runUntil(ns).records]
 }
 
-lessonShapeSuite(width, { proseMax: 880, runNs: RUN_NS })
+lessonShapeSuite(width, { proseMax: 1200, runNs: RUN_NS })
 
 describe('width · the lesson’s own scene', () => {
   it('is a Tier 2 lesson that needs the two Tier 1 lessons its words come from', () => {
@@ -196,6 +197,56 @@ describe('width · the same laptop, half way into the living room', () => {
     // 160 MHz has twice 80 MHz's sub-carriers, and MCS 0 carries a third of MCS 2's bits
     expect(toneRatio('eht', 160) / toneRatio('eht', 80)).toBe(2)
     expect(PHY_MODES.eht.ndbps[2] / PHY_MODES.eht.ndbps[0]).toBe(3)
+  })
+
+  it('the worked example is the engine’s own six steps, value for value', () => {
+    // "The living-room laptop, run through the steps at the two widest settings": every row
+    // of that table, taken from the functions the steps name — negotiatedWidth (step 1),
+    // noiseDbm (2), the RSSI of this very link (3), mcsForRssi with RATE_MARGIN_DB (4),
+    // the mode's N_DBPS times toneRatio (5) and the symbol count and airtime (6).
+    const sc = width.variants![3].scenario()
+    const sta = sc.nodes.find((n) => n.id === 'sta-1')!
+    sta.pos = { x: POS.x, y: POS.y, z: 1 }
+    // step 1: both ends are set to the variant's width, and a link runs the narrower of the two
+    const ap = sc.nodes.find((n) => n.id === 'ap')!
+    expect([sta.caps.widthMhz, ap.caps.widthMhz]).toEqual([160, 160])
+    expect(negotiatedWidth(sta, ap)).toBe(160)
+    const rssi = buildLinkTable(sc.nodes, sc.walls).get('sta-1')!.get('ap')!
+    expect(Math.round(rssi * 100) / 100).toBe(-70.51)
+    const r1 = (x: number) => Math.round(x * 10) / 10
+    const r2 = (x: number) => Math.round(x * 100) / 100
+    // step 2, and the step's own two constants
+    expect(r2(noiseDbm(20))).toBe(-93.99)
+    expect(r2(noiseDbm(40) - noiseDbm(20))).toBe(3.01)
+    expect([r2(noiseDbm(80)), r2(noiseDbm(160))]).toEqual([-87.97, -84.96])
+    // step 3
+    const snr = (w: number) => rssi - noiseDbm(w)
+    expect([r2(snr(80)), r2(snr(160))]).toEqual([17.46, 14.45])
+    // step 4: the rung, what it asks for, and what the rung above it asks for
+    expect([mcsForRssi('eht', rssi, 13, 80), mcsForRssi('eht', rssi, 13, 160)]).toEqual([2, 0])
+    expect([r2(reqSinrDb('eht', 2)), r2(reqSinrDb('eht', 0))]).toEqual([13.99, 8.99])
+    expect(RATE_MARGIN_DB).toBe(3)
+    expect([r2(reqSinrDb('eht', 2) + 3), r2(reqSinrDb('eht', 0) + 3)]).toEqual([16.99, 11.99])
+    expect([r2(reqSinrDb('eht', 3) + 3), r2(reqSinrDb('eht', 1) + 3)]).toEqual([19.99, 14.99])
+    expect(snr(80)).toBeGreaterThan(reqSinrDb('eht', 2) + RATE_MARGIN_DB)
+    expect(snr(80)).toBeLessThan(reqSinrDb('eht', 3) + RATE_MARGIN_DB)
+    expect(snr(160)).toBeGreaterThan(reqSinrDb('eht', 0) + RATE_MARGIN_DB)
+    expect(snr(160)).toBeLessThan(reqSinrDb('eht', 1) + RATE_MARGIN_DB)
+    // "misses the rung above it by half a decibel"
+    expect(r2(reqSinrDb('eht', 1) + RATE_MARGIN_DB - snr(160))).toBe(0.54)
+    // step 5: the rung's bits per symbol at 20 MHz times the sub-carrier ratio, as printed
+    expect([PHY_MODES.eht.ndbps[2], PHY_MODES.eht.ndbps[0]]).toEqual([351, 117])
+    expect([r1(toneRatio('eht', 80)), r1(toneRatio('eht', 160))]).toEqual([4.2, 8.4])
+    const ndbps = (mcs: number, w: number) => PHY_MODES.eht.ndbps[mcs] * toneRatio('eht', w)
+    expect([ndbps(2, 80), ndbps(0, 160)]).toEqual([1470, 980])
+    // step 6: the frame's bits, the whole-symbol rounding and the airtime
+    expect(16 + 8 * OCTETS + 6).toBe(12_262)
+    expect([Math.ceil(12_262 / 1470), Math.ceil(12_262 / 980)]).toEqual([9, 13])
+    expect([48 * US + 13_600 * 9, 48 * US + 13_600 * 13]).toEqual([170_400, 224_800])
+    expect(txTimeModeNs('eht', OCTETS, 2, { widthMhz: 80 })).toBe(170_400)
+    expect(txTimeModeNs('eht', OCTETS, 0, { widthMhz: 160 })).toBe(224_800)
+    // and it is the airtime the run itself produces at that spot
+    expect([w80.airtimeNs, w160.airtimeNs]).toEqual([170_400, 224_800])
   })
 
   it('deeper: the window in which the inversion happens at all is about one decibel wide', () => {

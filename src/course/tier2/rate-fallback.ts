@@ -19,8 +19,8 @@ export const rateFallback: Lesson = {
   module: 3,
   title: { en: 'Rate fallback — how the sender climbs and falls', zh: '速率回退——发送端怎样往下掉、怎样爬回来' },
   why: {
-    en: 'A sender that only knows "answered or not" still has to decide when to give up a rung and when to try for a better one. The rule most textbooks start from falls fast, on a couple of unanswered frames, and climbs back slowly, only after a long unbroken run of good ones. That lopsidedness is on purpose, and it is expensive: a station knocked down by bad luck spends a long stretch sending slowly, and while it does, everyone else in the room waits longer for a turn.',
-    zh: '一台只知道“答了还是没答”的发送端，仍然得决定什么时候放弃一级、什么时候去试更高的一级。教科书通常从这样一条规则讲起：掉得快，几帧没答就往下掉；爬得慢，要连着好一长串成功才升回去。这种不对称是故意的，而且很贵：一台被坏运气打下去的站点，要用很长一段时间慢慢地发，而在这段时间里，屋里其他人每一次机会都得多等。',
+    en: 'A sender that only knows "answered or not" still has to decide when to give up a rung and when to try for a better one. The rule most textbooks start from falls fast, on a couple of unanswered frames, and climbs back slowly, only after a long unbroken run of good ones. That lopsidedness is on purpose, and it is expensive: a station (STA) knocked down by bad luck spends a long stretch sending slowly, and while it does, everyone else in the room waits longer for a turn.',
+    zh: '一台只知道“答了还是没答”的发送端，仍然得决定什么时候放弃一级、什么时候去试更高的一级。教科书通常从这样一条规则讲起：掉得快，几帧没答就往下掉；爬得慢，要连着好一长串成功才升回去。这种不对称是故意的，而且很贵：一台被坏运气打下去的站点（STA），要用很长一段时间慢慢地发，而在这段时间里，屋里其他人每一次机会都得多等。',
   },
   outcomes: [
     { en: 'step the simulator’s fallback rule by hand and say where the rung goes next', zh: '用手把仿真器的回退规则走一遍，说出下一帧的级别会落在哪里' },
@@ -39,11 +39,17 @@ export const rateFallback: Lesson = {
     } },
   ],
   picture: [
-    { kind: 'steps', heading: { en: 'The rule this simulator follows', zh: '本仿真器遵循的规则' }, items: [
-      { en: 'Start at the ceiling.', zh: '从上限开始。' },
-      { en: 'Two failed attempts in a row step the working rung down by one.', zh: '连续两次尝试失败，就把当前级别降一级。' },
-      { en: 'Ten successful attempts in a row step it back up by one.', zh: '连续十次尝试成功，就把它升回一级。' },
-      { en: 'It is never allowed above the ceiling, however long the run of successes.', zh: '无论连成多少次成功，都不允许超过上限。' },
+    { kind: 'steps', heading: { en: 'The rule this simulator follows, from the sender’s side', zh: '本仿真器遵循的规则，站在发送端这一边' }, items: [
+      { en: 'Start at the ceiling, and send. The answer is due 45 µs after the frame ends; nothing there by then counts as a failed attempt.',
+        zh: '从上限开始发。答复应当在帧结束后 45 µs 内到达；到点还没有，这次尝试就算失败。' },
+      { en: 'One failure throws the success count away and counts as one. The frame is sent again, at the same rung — a lone loss moves nothing.',
+        zh: '一次失败会把成功计数清空，自己记为 1。这一帧原样重发，级别不变——单独丢一帧，什么也挪不动。' },
+      { en: 'At the second failure in a row the rung drops by one and the failure count starts again at zero. The frame after it is longer, and the channel is busy for all of that extra time.',
+        zh: '连着第二次失败，级别就降一级，失败计数随即归零重新开始。之后那一帧更长，而多出来的这段时间里，信道一直是忙的。' },
+      { en: 'Every answered attempt zeroes the failures and counts a success. Nine in a row buy nothing; the tenth lifts the rung by one, never above the ceiling, and the count starts again at zero.',
+        zh: '每一次得到答复，都把失败计数清零，成功计数加一。连成九次什么也买不到；到第十次才升一级，且绝不超过上限，随后计数归零重来。' },
+      { en: 'One failure anywhere in that climb throws the count away, so the sender falls in pairs and climbs in tens: cheap to knock down, slow to undo.',
+        zh: '爬升途中任何一次失败都会让计数作废。于是发送端“两次掉一级、十次升一级”：打下去很便宜，爬回来很慢。' },
     ] },
     { heading: { en: 'Two down, ten up', zh: '两次下去，十次上来' }, text: {
       en: 'That rule is ARF, and it is chosen here because every step it takes is legible on the timeline. Notice how lopsided it is. A couple of draws of bad luck take a rung away; only an unbroken run of ten good ones buys it back. And one stray loss part-way up the climb resets the count to nothing, so the sender starts the climb over from the beginning.',
@@ -54,8 +60,8 @@ export const rateFallback: Lesson = {
       zh: '载入仿真，跳到第一帧没等到答复的地方，然后顺着远端站点往后看：找到连着的第二次失败，看它之后的那个方块明显变长；再数一数，要过多少帧它才重新变短。',
     } },
     { heading: { en: 'Where the failures come from', zh: '失败从哪里来' }, text: {
-      en: 'Almost every failed attempt here begins as a tie. Two backoff counters reach zero in the same slot and both stations start talking at once. What happens next is capture: at the access point the near station’s signal is far the stronger, so its frame is decoded and answered and only the far station’s dies. Nothing on this timeline is drawn as a collision, because no reception at the access point ever failed.',
-      zh: '这里几乎每一帧没等到答复，起点都是一次“撞车”：两个退避计数器在同一个时隙清零，两台站点同时开口。接下来发生的是捕获效应——在接入点处，近端站点的信号强得多，于是它的帧被解出来并得到答复，死掉的只有远端那一帧。这条时间轴上一个碰撞标记也画不出来，因为接入点那边没有任何一次接收失败过。',
+      en: 'Almost every failed attempt here begins as a tie. Two backoff counters reach zero in the same slot and both stations start talking at once. What happens next is capture: at the access point (AP) the near station’s signal is far the stronger, so its frame is decoded and answered and only the far station’s dies. Nothing on this timeline is drawn as a collision, because no reception there ever failed.',
+      zh: '这里几乎每一帧没等到答复，起点都是一次“撞车”：两个退避计数器在同一个时隙清零，两台站点同时开口。接下来发生的是捕获效应——在接入点（AP）那里，近端站点的信号强得多，于是它的帧被解出来并得到答复，死掉的只有远端那一帧。这条时间轴上一个碰撞标记也画不出来，因为那边没有任何一次接收失败过。',
     } },
     { heading: { en: 'The bill lands on the neighbours', zh: '账单落在邻居头上' }, text: {
       en: 'A station on a lower rung holds the channel longer for the very same payload, and a busy channel freezes everybody else’s backoff counter where it stands. So a fall does not only cost the station that fell: every neighbour waits longer for a turn it had already won. That is the performance anomaly again — arriving this time as a state the sender can climb out of, rather than as a fixed fact about distance.',
@@ -84,6 +90,20 @@ export const rateFallback: Lesson = {
       [{ en: 'Of those, ones reaching the bottom rung', zh: '其中一直跌到最底一级的' }, N('6')],
       [{ en: 'Frames each of those six lasted', zh: '这六次各持续了多少帧' }, N('10, 10, 10, 13, 19, 28')],
       [{ en: 'Shortest climb the rule allows', zh: '规则允许的最短爬升' }, { en: '10 frames', zh: '10 帧' }],
+    ] },
+    { kind: 'table', heading: {
+      en: 'One trip to the bottom rung, step by step, and what those frames cost',
+      zh: '一次跌到最底一级，一步一步，以及这些帧花掉了什么',
+    }, head: [
+      { en: 'What happens', zh: '发生了什么' }, { en: 'Rung after it', zh: '之后的级别' }, { en: 'A frame then takes', zh: '这时一帧要' },
+    ], rows: [
+      [{ en: 'at the ceiling, answered', zh: '在上限上，帧帧被答复' }, N('MCS 2'), N('524.0 µs')],
+      [{ en: 'two attempts in a row unanswered', zh: '连续两次尝试没有答复' }, N('MCS 1'), N('768.8 µs')],
+      [{ en: 'two more in a row unanswered', zh: '再连续两次没有答复' }, N('MCS 0'), N('1,476.0 µs')],
+      [{ en: 'ten answered in a row', zh: '连续十次得到答复' }, N('MCS 1'), N('768.8 µs')],
+      [{ en: 'ten more answered in a row', zh: '再连续十次得到答复' }, N('MCS 2'), N('524.0 µs')],
+      [{ en: 'shortest such trip in this run', zh: '本次仿真里最短的一趟' }, N('10'), N('14.8 ms')],
+      [{ en: 'the same ten frames at the ceiling', zh: '同样这十帧若跑在上限上' }, N('10'), N('5.2 ms')],
     ] },
     { heading: { en: 'What the excursions cost in air', zh: '这些跌落花掉了多少空口时间' }, text: {
       en: 'Below-ceiling frames are 20.2% of what the far station sends but 29.7% of the air it occupies: 530.3 ms, where those same frames at the ceiling would have taken 318.1 ms.',
@@ -115,8 +135,8 @@ export const rateFallback: Lesson = {
       zh: '这三秒里远端站点有 337 次尝试失败，而它们在屏幕上并不长一个样。其中 254 次以一条 ACK 超时记录收场：该来的答复没来，站点等不下去了。另外 83 次落在别人某一帧的末尾——答复该到的时候，这台站点正在接收那一帧；它把那一帧收完，发现里面没有属于自己的答复，于是重传。两种情况都恰好调用一次 `onFailure`，所以上面那条规则只有在两种都算上时，才能一次不差地复现整段仿真。',
     } },
     { heading: { en: 'What a production driver does instead', zh: '真实产品驱动改用什么做法' }, text: {
-      en: 'No shipping driver runs this rule. They estimate a packet error rate over a moving window of recent attempts and pick the rung with the best expected throughput, which lets them jump several rungs at once instead of climbing one per ten successes, and lets them weigh a rung they have not tried lately. Read the four steps above as this simulator’s rule, not as what your laptop is doing.',
-      zh: '没有哪个出货的驱动在跑这条规则。它们会在最近若干次尝试的滑动窗口上估计丢包率，再挑期望吞吐最高的那一级——这样可以一次跳好几级，而不必“十次成功爬一级”，也能对一个最近没试过的级别做出权衡。请把上面那四步读作本仿真器的规则，而不是你笔记本正在做的事。',
+      en: 'No shipping driver runs this rule. They estimate a packet error rate over a moving window of recent attempts and pick the rung with the best expected throughput, which lets them jump several rungs at once instead of climbing one per ten successes, and lets them weigh a rung they have not tried lately. Read the steps above as this simulator’s rule, not as what your laptop is doing.',
+      zh: '没有哪个出货的驱动在跑这条规则。它们会在最近若干次尝试的滑动窗口上估计丢包率，再挑期望吞吐最高的那一级——这样可以一次跳好几级，而不必“十次成功爬一级”，也能对一个最近没试过的级别做出权衡。请把上面那几步读作本仿真器的规则，而不是你笔记本正在做的事。',
     } },
   ],
   sources: [

@@ -19,6 +19,7 @@ import { rate } from '../../src/course/tier2/rate'
 import { rateFallback } from '../../src/course/tier2/rate-fallback'
 import { rateScenario } from '../../src/course/wifiScenes'
 import type { TLRecord } from '../../src/model/records'
+import { ACK_TIMEOUT_NS } from '../../src/engine/phy'
 import { lessonShapeSuite, ofType, runOf } from './kit'
 
 const MS = 1_000_000
@@ -62,7 +63,7 @@ const lostAt: boolean[] = far.map((t, i) => {
   return badTs.some((x) => x >= end && x < next)
 })
 
-lessonShapeSuite(rateFallback, { proseMax: 700, runNs: JUMP_NS, sameSceneAs: 'rate' })
+lessonShapeSuite(rateFallback, { proseMax: 950, runNs: JUMP_NS, sameSceneAs: 'rate' })
 
 describe('rate-fallback · the lesson’s own scene', () => {
   it('is the second half of the rate lesson and says so in `needs`', () => {
@@ -78,10 +79,10 @@ describe('rate-fallback · the lesson’s own scene', () => {
 })
 
 describe('rate-fallback · the rule this simulator follows', () => {
-  it('the four steps reproduce the run attempt for attempt, all 3,003 of them', () => {
-    // "Start at the ceiling. Two failed attempts in a row step the working rung down by one.
-    //  Ten successful attempts in a row step it back up by one. It is never allowed above the
-    //  ceiling" — the four steps, run over the outcomes, against what was actually sent.
+  it('the steps reproduce the run attempt for attempt, all 3,003 of them', () => {
+    // Start at the ceiling; two failed attempts in a row step the working rung down by one;
+    // the tenth answered attempt in a row steps it back up by one; it is never allowed above
+    // the ceiling — the steps, run over the outcomes, against what was actually sent.
     expect(far.length).toBe(3_003)
     let rung = CEILING, fails = 0, succ = 0
     for (let i = 0; i < far.length; i++) {
@@ -104,6 +105,34 @@ describe('rate-fallback · the rule this simulator follows', () => {
     for (let i = 0; i < far.length; i++) { if (lostAt[i]) { streaks.push(n); n = 0 } else n++ }
     streaks.push(n)
     expect(Math.max(...streaks)).toBeGreaterThan(UP_AFTER)
+  })
+
+  it('the five steps: the timeout, the lone loss that moves nothing, and the tenth success', () => {
+    // step 1: "The answer is due 45 µs after the frame ends" — the simulator's ACK timeout.
+    expect(ACK_TIMEOUT_NS).toBe(45_000)
+    // step 2: "a lone loss moves nothing" — every failure with a success on either side
+    // leaves the next frame on the rung it was already using.
+    const lone = far.map((_r, i) => i).filter((i) => lostAt[i] && !lostAt[i - 1] && i + 1 < far.length)
+    expect(lone.length).toBeGreaterThan(50)
+    for (const i of lone) expect(far[i + 1].frame.mcs, `after the lone loss at ${i}`).toBe(far[i].frame.mcs)
+    // steps 4 and 5: "nine in a row buy nothing; the tenth lifts the rung by one". Every climb
+    // in the run happens on the tenth answered frame and never before it.
+    for (let i = 1; i < far.length; i++) {
+      if (far[i].frame.mcs! <= far[i - 1].frame.mcs!) continue
+      let run = 0
+      for (let j = i - 1; j >= 0 && !lostAt[j]; j--) run++
+      expect(run % UP_AFTER, `climb at attempt ${i} after ${run} answered frames`).toBe(0)
+      expect(run).toBeGreaterThanOrEqual(UP_AFTER)
+    }
+  })
+
+  it('the worked table: one trip to the bottom rung, and what those ten frames cost', () => {
+    // "shortest such trip in this run: 10 frames, 14.8 ms · the same ten frames at the
+    //  ceiling: 5.2 ms" — the rungs and their airtimes are the three the first half pins.
+    const airAt = (mcs: number): number => far.find((r) => r.frame.mcs === mcs)!.frame.txTimeNs
+    expect([airAt(2), airAt(1), airAt(0)]).toEqual([524_000, 768_800, 1_476_000])
+    expect(round1((UP_AFTER * airAt(0)) / MS)).toBe(14.8)
+    expect(round1((UP_AFTER * airAt(2)) / MS)).toBe(5.2)
   })
 
   it('observe: "every change of length is one rung — it never skips a step"', () => {

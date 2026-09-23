@@ -25,7 +25,7 @@ export const streams: Lesson = {
   },
   outcomes: [
     { en: 'say how several antennas send different signals on the same sub-carriers at once', zh: '说出多根天线怎样在同一批子载波上同时发出不同的信号' },
-    { en: 'work out how many streams a link runs at from the two ends’ antenna counts', zh: '根据两端各有几根天线，算出这条链路实际跑几条流' },
+    { en: 'work out how many streams a link runs at, from how many antennas each end has', zh: '根据两端各有几根天线，算出这条链路实际跑几条流' },
     { en: 'say which of the two multipliers — width or streams — costs signal, and which is free', zh: '说清带宽与空间流这两个倍数里，哪个要拿信号去换，哪个是白送的' },
   ],
   needs: ['width'],
@@ -45,8 +45,8 @@ export const streams: Lesson = {
       zh: '信道变宽，是给电台在频段上更大的地方；而天线，是把同一块地方再用一遍。两端各装两根天线时，发送端就在同一瞬间、同一批子载波上放出两路不同的信号，接收端照样能把它们分开——因为两路信号是沿着屋里不同的路径过来的。这样并行的每一路就是一条空间流，它让一块信号里装的比特数翻倍，和子载波变多的效果一模一样。',
     } },
     { heading: { en: 'Both ends have a vote', zh: '两端都有发言权' }, text: {
-      en: 'It takes antennas at both ends: one end to send the separate signals, the other to hear enough different paths to separate them again. So a link runs at the smaller stream count of the two. A router with four antennas talking to a phone with two is a two-stream link, and the router’s spare pair is not wasted — it simply has to find somebody else to talk to.',
-      zh: '这事两端都得有天线：一端把几路信号分别发出去，另一端要听到足够多条不同的路径，才能把它们重新分开。所以一条链路按两端里较小的那个流数运行。四根天线的路由器对上两根天线的手机，就是一条两流链路；而路由器多出来的那一对并没有浪费——它只是得另外找个人说话。',
+      en: 'It takes radiating elements at both ends, and one such element is an antenna: a radio needs one per stream it means to send, and one per stream it means to pull apart again. So a link runs at the smaller stream count of the two ends. A router with four antennas talking to a phone with two is a two-stream link, and the router’s spare pair is not wasted — it simply has to find somebody else to talk to.',
+      zh: '这事两端都得有辐射单元，也就是天线：想发几条流就得有几根，想把几条流分开也得有几根。所以一条链路按两端里较小的那个流数运行。四根天线的路由器对上两根天线的手机，就是一条两流链路；而路由器多出来的那一对并没有浪费——它只是得另外找个人说话。',
     } },
     { kind: 'watch', jump: 0, heading: { en: 'Go and look', zh: '去看一眼' }, text: {
       en: 'Load the simulation and jump to the first data frame. The lesson opens on a single stream; the buttons above step it to two, to four, and then to the two mixed cases. Only the blue block changes.',
@@ -54,7 +54,7 @@ export const streams: Lesson = {
     } },
     { heading: { en: 'The multiplier that is free', zh: '白送的那个倍数' }, text: {
       en: 'The difference from width is the price. A wider channel makes the receiver take in more noise; another stream does not. The channel is the same size as it was, so the noise floor stays where it was and so does every rung’s sensitivity on the rate ladder. In this simulator — and nearly so in a room full of reflections — streams are the multiplier nobody charges you for. Width is the one that costs 3 dB every time it doubles.',
-      zh: '和带宽的区别在于价钱。信道变宽，接收端就要多收进一份噪声；而多加一条流不会——信道还是原来那么大，噪声底不动，速率阶梯上每一级所要的信号也不动。在本仿真器里——在一间满是反射的屋子里也差不多——空间流是没人跟你收钱的那个倍数；带宽那个倍数，每翻一倍都要付 3 dB。',
+      zh: '和带宽的区别在于价钱。信道变宽，接收端就要多收进一份噪声；而多加一条流不会——信道还是原来那么大，噪声地板不动，速率阶梯上每一级所要的信号也不动。在本仿真器里——在一间满是反射的屋子里也差不多——空间流是没人跟你收钱的那个倍数；带宽那个倍数，每翻一倍都要付 3 dB。',
     } },
     { heading: { en: 'Where the multipliers stop', zh: '倍数到头的地方' }, text: {
       en: 'A multiplier only helps while there is still something left to divide. Run the widest channel and the most streams together and the frame comes out no shorter than the widest channel managed on its own: it was already down to a single symbol, and one symbol is the floor. The streams buy nothing there — and the wide channel is still taking in every bit of its extra noise, now paid for nothing at all.',
@@ -88,6 +88,31 @@ export const streams: Lesson = {
       en: 'Eight times the sub-carriers on top of four streams buys exactly one symbol: 61.6 µs against the four-stream 75.2 µs. The frame was already two symbols long, and the second one is the last thing there was to take away.',
       zh: '在四条流之上再加八倍的子载波，只换来一个符号：61.6 µs 对四流的 75.2 µs。那一帧本来就只剩两个符号，而第二个符号，是最后还能拿走的东西。',
     } },
+    { kind: 'steps', heading: { en: 'What a stream actually changes, step by step', zh: '多一条流到底改变了什么，一步一步' }, items: [
+      { en: 'Each end declares how many streams it can run, one per antenna it has, and the link takes the smaller of the two counts.',
+        zh: '两端各自报出自己能跑几条流——有几根天线就是几条——链路取两者中较小的那个数。' },
+      { en: 'Pick the rung exactly as the last lesson did. The channel is no wider, so the noise floor has not moved and neither has any rung’s requirement: the stream count is not an input to that choice at all.',
+        zh: '照上一课的办法选级。信道并没有变宽，噪声地板没动，每一级的要求也没动：流数根本就不是这一步的输入。' },
+      { en: 'Bits per symbol = that rung’s bits per symbol at 20 MHz, times the sub-carrier ratio of the width, times the stream count. A second stream multiplies it exactly as a second set of sub-carriers would.',
+        zh: '每符号比特数 = 该级在 20 MHz 下的每符号比特数，乘以带宽的子载波倍数，再乘以流数。多一条流，效果和多一份子载波完全一样。' },
+      { en: 'Symbols = the frame’s bits divided by that, rounded up to a whole symbol. A stream that only trims the last, part-filled symbol buys nothing.',
+        zh: '符号数 = 这一帧的比特数除以它，再向上取整成整数个符号。如果多出来的那条流只是削掉最后那个没装满的符号，它就什么也没买到。' },
+      { en: 'Airtime = the 48 µs opening plus 13.6 µs per symbol. The opening is sent the same way whatever the stream count, so it never shrinks.',
+        zh: '空口时间 = 48 µs 的开场，加上每个符号 13.6 µs。无论跑几条流，开场都按同样的方式发出去，所以它从不变短。' },
+    ] },
+    { kind: 'table', heading: {
+      en: 'Four streams, and the mixed pair, run through the steps',
+      zh: '四条流，以及那个混合搭配，照着步骤走一遍',
+    }, head: [
+      { en: 'Step', zh: '步骤' }, { en: '4 streams', zh: '4 条流' }, { en: 'Router 4 · Phone 2', zh: '路由器 4 · 手机 2' },
+    ], rows: [
+      [{ en: 'what each end can run', zh: '两端各能跑几条' }, { en: '4 and 4', zh: '4 和 4' }, { en: '4 and 2', zh: '4 和 2' }],
+      [{ en: 'so the link runs', zh: '于是链路跑' }, N('4'), N('2')],
+      [{ en: 'rung, untouched by the streams', zh: '级别，不受流数影响' }, N('MCS 13'), N('MCS 13')],
+      [{ en: 'bits per symbol: 20 MHz × streams', zh: '每符号比特数：20 MHz 的值 × 流数' }, N('2340 × 4 = 9360'), N('2340 × 2 = 4680')],
+      [{ en: 'symbols: ⌈12262 ÷ that⌉', zh: '符号数：⌈12262 ÷ 它⌉' }, N('2'), N('3')],
+      [{ en: 'airtime: 48 + 13.6 × symbols', zh: '空口时间：48 + 13.6 × 符号数' }, N('75.2 µs'), N('88.8 µs')],
+    ] },
   ],
   deeper: [
     { heading: { en: 'What the spare pair is for', zh: '多出来的那一对流做什么用' }, text: {
@@ -137,7 +162,7 @@ export const streams: Lesson = {
         { en: 'The extra streams are sent on a second channel', zh: '多出来的那些流是在另一条信道上发的' },
       ],
       answer: 1,
-      explain: { en: 'Noise power follows the width of the channel. Doubling the width doubles it, which is the 3 dB; a second stream reuses the very same sub-carriers, so the noise floor does not move and neither does any rung’s sensitivity on the rate ladder.', zh: '噪声功率跟着信道宽度走。带宽翻倍，噪声也翻倍，这就是那 3 dB；而第二条流复用的是同一批子载波，噪声底不动，速率阶梯上每一级所要的信号也纹丝不动。' },
+      explain: { en: 'Noise power follows the width of the channel. Doubling the width doubles it, which is the 3 dB; a second stream reuses the very same sub-carriers, so the noise floor does not move and neither does any rung’s sensitivity on the rate ladder.', zh: '噪声功率跟着信道宽度走。带宽翻倍，噪声也翻倍，这就是那 3 dB；而第二条流复用的是同一批子载波，噪声地板不动，速率阶梯上每一级所要的信号也纹丝不动。' },
     },
     {
       q: { en: 'A router with four antennas serves a phone with two. How many streams does that link use?', zh: '一台四根天线的路由器服务一部两根天线的手机。这条链路用几条流？' },

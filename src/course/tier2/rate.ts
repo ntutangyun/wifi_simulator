@@ -26,8 +26,9 @@ export const rate: Lesson = {
   },
   outcomes: [
     { en: 'say why one fixed speed is the wrong answer in both directions', zh: '说出为什么“固定一档速率”在两个方向上都是错答案' },
-    { en: 'read a link’s ceiling off the timeline and say what set it', zh: '在时间轴上读出一条链路的上限，并说清是什么定下了它' },
+    { en: 'read off the timeline the highest rung a link can hold, and say what set it', zh: '在时间轴上读出一条链路的上限，并说清是什么定下了它' },
     { en: 'name the one thing a sender learns from a frame — and the thing it never learns', zh: '说出发送端从一帧里唯一能知道的东西，以及它永远不会知道的东西' },
+    { en: 'step the loop by hand: what it counts, and what moves the rung either way', zh: '用手把这个回路走一遍：它在数什么，以及什么会把级别往两边挪' },
   ],
   needs: ['decode-thresholds', 'retries-queues', 'bianchi-vs-sim', 'width'],
   terms: [
@@ -46,20 +47,20 @@ export const rate: Lesson = {
       zh: '选一级这条链路撑不住的，接收端听到的就是一团糊：帧发出去了，空口时间花掉了，什么也没到。选一级远低于链路能力的，帧倒是帧帧都到——可每一帧占住信道的时间是它本来需要的好几倍，而在这段时间里，屋里其他人谁也不能开口。对的那一级，是这条链路还撑得住的最高一级；而人走来走去、门开门关，这一级还会变。',
     } },
     { heading: { en: 'The lid the signal puts on', zh: '信号扣下来的那个盖子' }, text: {
-      en: 'On this scene two stations upload flat out to the same access point: one on the desk beside it, one in the far corner behind a brick wall. The far station cannot use a rung above its ceiling however it tries, because the signal in that corner will not carry a denser MCS. Distance and the wall decided that. Everything below the ceiling is the sender’s own decision, made frame by frame.',
-      zh: '这一幕里有两台站点在向同一个接入点满速上传：一台在它旁边的桌上，一台在另一头、隔着一堵砖墙的角落里。远端那台再怎么试，也用不了高于自己上限的那一级，因为那个角落的信号撑不住更密的 MCS。定下这个上限的，是距离和那堵墙。上限以下的一切，才是发送端自己一帧一帧做的决定。',
+      en: 'On this scene two stations (STA) upload flat out to the same access point (AP): one on the desk beside it, one in the far corner behind a brick wall. The highest rung a link’s own signal will carry is the ceiling, and the far station cannot get above it however it tries: that corner will not carry a denser MCS. Distance and the wall decided that. Everything below the ceiling is the sender’s own decision, made frame by frame.',
+      zh: '这一幕里有两台站点（STA）在向同一个接入点（AP）满速上传：一台在它旁边的桌上，一台在另一头、隔着一堵砖墙的角落里。一条链路的信号真正撑得住的最高一级，就是它的上限；远端那台再怎么试也越不过去，因为那个角落的信号撑不住更密的 MCS。定下这个上限的，是距离和那堵墙。上限以下的一切，才是发送端自己一帧一帧做的决定。',
     } },
     { kind: 'watch', jump: 0, heading: { en: 'Go and look', zh: '去看一眼' }, text: {
       en: 'Load the simulation and jump to the first data frame. Then follow the far station’s lane for a few seconds: its blocks keep changing length, while the near station’s never do. Nothing in the flat moved — only one sender’s choice did.',
       zh: '载入仿真，跳到第一个数据帧，然后顺着远端站点那条泳道往后看几秒：它的方块长度一直在变，而近端站点的从头到尾一个样。屋里什么都没挪动，变的只是一台发送端的选择。',
     } },
     { heading: { en: 'The only news a sender gets', zh: '发送端唯一收到的消息' }, text: {
-      en: 'A sender cannot see the signal at the far end. All it has is what came back. Each attempt ends one of two ways: the ACK arrives, or the ACK timeout does. That single scrap of news — answered, not answered — is the whole input to rate control. It cannot tell a frame killed by a weak signal from one killed because a neighbour started talking in the same slot; from here the two look exactly alike.',
-      zh: '发送端看不见对面那头的信号，它手里只有回来的那点东西。每一次尝试只有两种结局：要么 ACK 到了，要么 ACK 超时到了。就这一丁点消息——答了，没答——就是速率控制的全部输入。它分不清一帧是被弱信号打死的，还是被“邻居在同一个时隙开了口”打死的；站在它这个位置上，两者长得一模一样。',
+      en: 'A sender cannot see the signal at the far end. All it has is what came back. One sending of a frame is an attempt, and it ends one of two ways: the ACK arrives, or the ACK timeout does. That single scrap of news — answered, not answered — is the whole input to rate control. It cannot tell a frame killed by a weak signal from one killed because a neighbour started talking in the same slot; from here the two look exactly alike.',
+      zh: '发送端看不见对面那头的信号，它手里只有回来的那点东西。把一帧发出去这一次动作，就是一次尝试；它只有两种结局：要么 ACK 到了，要么 ACK 超时到了。就这一丁点消息——答了，没答——就是速率控制的全部输入。它分不清一帧是被弱信号打死的，还是被“邻居在同一个时隙开了口”打死的；站在它这个位置上，两者长得一模一样。',
     } },
     { heading: { en: 'A loop run on rumours', zh: '一个靠传闻运转的回路' }, text: {
-      en: 'So the choice is made on evidence that is always a little wrong. A run of bad luck at contention reads the same as a wall, and the sender steps down; a quiet patch reads as a better link, and it steps back up. How quickly it falls, how slowly it climbs, and what a long stretch of slow frames costs everyone else, is the next lesson.',
-      zh: '于是这个选择永远是基于有点失真的证据做出的。竞争里连着倒霉几次，读起来和“多了一堵墙”一模一样，发送端就降一级；安静一阵子，读起来就像链路变好了，它又升回去。它跌得多快、爬得多慢，以及一长段慢帧要让别人付出什么，是下一课的事。',
+      en: 'So the choice is made on evidence that is always a little wrong. A run of bad luck at contention reads the same as a wall, and the sender steps down; a quiet patch reads as a better link, and it steps back up. The procedure below is the whole of that loop. What a long stretch of slow frames costs everyone else in the room is the next lesson.',
+      zh: '于是这个选择永远是基于有点失真的证据做出的。竞争里连着倒霉几次，读起来和“多了一堵墙”一模一样，发送端就降一级；安静一阵子，读起来就像链路变好了，它又升回去。下面那套步骤，就是这个回路的全部。而一长段慢帧要让屋里其他人付出什么，是下一课的事。',
     } },
   ],
   numbers: [
@@ -79,9 +80,38 @@ export const rate: Lesson = {
       zh: '每降一级，每一块信号能装的比特数就减半或接近减半，所以同样的内容，在最底一级要花掉将近上限三倍的空口时间。而上限本身从不移动：整整三秒里，远端站点一次也没有发到 MCS 2 以上。',
     } },
     { heading: { en: 'The station that never has to choose', zh: '那台根本不用做选择的站点' }, text: {
-      en: 'A metre from the access point, the near station sends 4,010 frames in three seconds, every one of them at its own MCS 11 ceiling, and not one goes unanswered. With no failures there is nothing for rate control to react to. The choice only becomes interesting once frames start going missing.',
-      zh: '离接入点一米远的近端站点，三秒里发了 4,010 帧，帧帧都跑在它自己的上限 MCS 11 上，而且没有一帧等不到答复。一次失败都没有，速率控制也就无事可做。只有当帧开始丢失，这个选择才变得有意思。',
+      en: 'A metre from the access point, the near station sends 4,010 frames in three seconds, all at MCS 11, and not one goes unanswered. That rung is not where its signal runs out — 58.7 dB would carry the top rung — but where the two ends’ agreed capabilities stop: neither of them offered the two densest rungs on this scene, so the ceiling is capped below them.',
+      zh: '离接入点一米远的近端站点，三秒里发了 4,010 帧，帧帧都在 MCS 11 上，而且没有一帧等不到答复。停在这一级并不是因为信号不够——58.7 dB 足以撑住最高一级——而是因为两端谈定的能力到此为止：这一幕里谁也没有开出最密的那两级，上限就被压在它们下面。',
     } },
+    { kind: 'steps', heading: { en: 'The loop, as the engine runs it', zh: '这个回路，引擎是怎么跑的' }, items: [
+      { en: 'Before every frame the sender works out this link’s ceiling again: the top rung the RSSI allows at the width in use, with the 3 dB rate margin, and never above what the two ends agreed they can both do.',
+        zh: '每发一帧之前，发送端都重新算一次这条链路的上限：在当前带宽下、按 RSSI、含 3 dB 速率余量，能撑住的最高一级；而且绝不超过两端谈定的共同能力。' },
+      { en: 'It keeps one working rung per peer. If that working rung sits above the ceiling — the first frame ever, or a link that has just got worse — it is pulled down to the ceiling. The frame goes out at the working rung.',
+        zh: '它为每个对端保留一个“当前级别”。如果这个当前级别高于上限——第一帧，或者链路刚刚变差——就把它拉到上限。这一帧就用当前级别发出去。' },
+      { en: 'The attempt ends in exactly one outcome, answered or not, and the sender keeps two counters for it: successes in a row, and failures in a row. Either outcome zeroes the other counter.',
+        zh: '这次尝试只会有一个结局：答了，或没答。发送端为它记两个计数：连续成功次数，和连续失败次数。出现哪一种，就把另一种清零。' },
+      { en: 'At two failures in a row the working rung drops by one — never below the bottom rung — and the failure count starts again at zero. So four failures in a row cost two rungs, not one.',
+        zh: '连续失败到两次，当前级别就降一级——最低降到最底一级为止——失败计数随即归零重新开始。所以连着失败四次，掉的是两级，不是一级。' },
+      { en: 'At ten successes in a row it climbs by one — never above the ceiling — and the success count starts again at zero. One stray failure part-way up throws that count away, and the climb starts over.',
+        zh: '连续成功到十次，当前级别就升一级——最高升到上限为止——成功计数随即归零重新开始。爬到一半丢了一帧，这个计数就作废，只能从头再爬。' },
+    ] },
+    { kind: 'table', heading: {
+      en: 'The far link, and its first trip below the ceiling, value by value',
+      zh: '远端那条链路，以及它第一次跌破上限，一格一格看',
+    }, head: [
+      { en: 'Step', zh: '步骤' }, { en: 'Value', zh: '数值' },
+    ], rows: [
+      [{ en: 'RSSI of the far link', zh: '远端链路的 RSSI' }, N('−75.46 dBm')],
+      [{ en: 'less the noise floor, 20 MHz', zh: '减去 20 MHz 的噪声地板' }, N('−93.99 dBm')],
+      [{ en: '= SNR', zh: '= SNR' }, N('18.53 dB')],
+      [{ en: 'MCS 2 asks, margin included', zh: 'MCS 2 的要求，含余量' }, N('13.99 + 3 = 16.99 ✓')],
+      [{ en: 'MCS 3 asks, margin included', zh: 'MCS 3 的要求，含余量' }, N('16.99 + 3 = 19.99 ✗')],
+      [{ en: 'so the ceiling is', zh: '于是上限是' }, N('MCS 2')],
+      [{ en: 'attempt 192, no answer: failures', zh: '第 192 次尝试，没有答复：失败计数' }, N('1')],
+      [{ en: 'attempt 193, no answer: failures', zh: '第 193 次尝试，没有答复：失败计数' }, N('2')],
+      [{ en: 'so attempt 194 goes out at', zh: '于是第 194 次尝试用的是' }, N('MCS 1 · 768.8 µs')],
+      [{ en: 'answered frames needed to get back', zh: '要爬回去需要几帧被答复' }, N('10')],
+    ] },
   ],
   deeper: [
     { heading: { en: 'Multi-user frames report an outcome too', zh: '多用户帧同样会上报结果' }, text: {
