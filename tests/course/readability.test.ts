@@ -441,6 +441,7 @@ describe('readability · needs is honest about what the picture leans on', () =>
  */
 export const MECHANISM_DONE: string[] = [
   'decode-thresholds', 'roles-stack',
+  'hidden', 'anomaly', 'retries-queues',
 ]
 
 /**
