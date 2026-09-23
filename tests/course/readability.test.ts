@@ -453,6 +453,7 @@ export const MECHANISM_DONE: string[] = [
   'width', 'streams', 'rate', 'rate-fallback',
   'ofdma-dl', 'ofdma-ul', 'mumimo',
   'mlo', 'capstone',
+  'bianchi', 'bianchi-vs-sim', 'tier1-project', 'tier1-project-review',
 ]
 
 /**
