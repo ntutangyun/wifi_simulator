@@ -100,8 +100,8 @@ export const mlo: Lesson = {
       [{ en: 'Neighbour mean wait', zh: '邻居发送前的平均等待' }, N('2.58 ms'), N('4.18 ms')],
     ] },
     { heading: { en: 'The neighbour gained too', zh: '邻居也跟着占了便宜' }, text: {
-      en: 'Switching the second link off does not give the neighbour its band back — it takes air from it. With one lane the laptop fights for 5 GHz frame by frame, and the two stations end up level: the second radio had moved a heavy uploader aside.',
-      zh: '把第二条链路关掉，并不是把频段还给邻居，反而是从邻居那里抢走了空口时间。只剩一条泳道，笔记本就得在 5 GHz 上一帧一帧地抢，最后两台站点各自发出的帧数一样多。第二台电台把一个重载上传的家伙从大家的路上挪开了。',
+      en: 'Switching the second link off does not give the neighbour its band back; it takes air from it. With one lane the laptop fights for 5 GHz frame by frame, and the two stations (STA) end up level: the second radio had moved a heavy uploader aside.',
+      zh: '把第二条链路关掉，并不是把频段还给邻居，反而是从邻居那里抢走了空口时间。只剩一条泳道，笔记本就得在 5 GHz 上一帧一帧地抢，最后两台站点（STA）各自发出的帧数一样多。第二台电台把一个重载上传的家伙从大家的路上挪开了。',
     } },
     { kind: 'table', heading: { en: 'The neighbour gets two radios too', zh: '把两台电台也给邻居装上' }, head: [
       { en: 'Lane', zh: '泳道' }, { en: 'Laptop frames', zh: '笔记本的帧' }, { en: 'Neighbour frames', zh: '邻居的帧' },
@@ -110,7 +110,7 @@ export const mlo: Lesson = {
       [N('6 GHz'), N('136'), N('106')],
     ] },
     { heading: { en: 'When everybody has two doors', zh: '当所有人都有两扇门' }, text: {
-      en: 'The lean vanishes: the laptop splits its work almost evenly, its total falling from 307 frames to 258. A second link is worth what the second band is empty.',
+      en: 'The lean vanishes: the laptop splits its work almost evenly, its total falling from 307 to 258. A second link is worth what the second band is empty.',
       zh: '那种“偏向”消失了：笔记本把活儿几乎平均地分在两个频段上，总量从 307 帧掉到 258 帧。第二条链路值多少钱，完全取决于第二个频段有多空——这句话说的是邻居，不是这台设备。',
     } },
     { kind: 'steps', heading: { en: 'How a frame gets a link, step by step', zh: '一帧是怎么拿到链路的，一步一步' }, items: [
@@ -124,8 +124,8 @@ export const mlo: Lesson = {
         zh: '先数到零的那条链路，从共享队列里把帧领走并发出（TX_START）：开了聚合就一次领走发往同一个接收方的至多 64 个连续帧，没开就领一个。领走就是从队列里拿掉，另一条链路从此看不见它们。所谓“挑链路”，全部内容就是这一下——仿真器里没有一个负责挑的角色，也没有任何测量。' },
       { en: 'Sequence numbers come from one counter per receiver and access category, kept with the shared queue, not with either radio, so the links never number two frames alike.',
         zh: '序号取自“每个接收方、每个接入类别”一个的计数器，它跟着共享队列走，而不是跟着哪台电台走，所以两条链路绝不会把同一个序号发给两个不同的帧。' },
-      { en: 'The acknowledgement closes it. Acknowledged, the frames leave the queue and the sending lane logs a dequeue (DEQUEUE) apiece. Unacknowledged, each takes one retry against a limit of 7 and the set returns to the front of the shared queue — so the retry falls to whichever link reaches zero next, not necessarily the one that failed.',
-        zh: '确认到来，这件事就结束了。确认成功，这些帧就永远离开队列，发送它们的那条泳道为每一帧记一条出队记录（DEQUEUE）。没等到确认，每一帧记一次重传（上限 7 次），整批退回同一条共享队列的队首——于是这次重传落在下一个数到零的链路头上，未必是刚刚失败的那条。' },
+      { en: 'The acknowledgement closes it. Acknowledged, the frames leave the queue and the sending lane logs a dequeue (DEQUEUE) apiece. Unacknowledged, each frame counts one more retry: one that has reached 7 is dropped (DROP) with reason retryLimit and dequeued, the rest return to the front of the shared queue — so their retry falls to whichever link reaches zero next, not necessarily the one that failed.',
+        zh: '确认到来，这件事就结束了。确认成功，这些帧就永远离开队列，发送它们的那条泳道为每一帧记一条出队记录（DEQUEUE）。没等到确认，每一帧的重传计数加一：加到 7 的那一帧被丢弃（DROP，原因 retryLimit）并出队，其余的退回同一条共享队列的队首——于是它们的重传落在下一个数到零的链路头上，未必是刚刚失败的那条。' },
     ] },
     { kind: 'table', heading: {
       en: 'MSDU 66 through those steps',
@@ -133,11 +133,11 @@ export const mlo: Lesson = {
     }, head: [
       { en: 'When', zh: '什么时候' }, { en: 'Record', zh: '记录' }, { en: 'What it says', zh: '它说了什么' },
     ], rows: [
-      [N('4.424 ms'), N('ARRIVAL + ENQUEUE · sta-1'), { en: 'Frame 66, 1500 bytes, into the best-effort queue at depth 1 — on the 5 GHz lane, which will not send it.', zh: '第 66 帧，1500 字节，进入尽力而为队列，深度 1——记在 5 GHz 那条泳道上，而送它出去的并不是这条泳道。' }],
-      [N('4.512 ms'), N('TX_START · sta-1#6g'), { en: '6 GHz reached zero first and claimed 20 frames, ids 66–85, 30,718 bytes at MCS 13.', zh: '6 GHz 先数到零，一次领走 20 帧，编号 66–85，30,718 字节，用 MCS 13 发出。' }],
-      [N('4.512 ms'), N('BACKOFF_DEC · sta-1'), { en: '5 GHz stands at 2 that same instant: it lost by 88 µs.', zh: '同一瞬间，5 GHz 的倒数停在 2：它只是晚了 88 µs。' }],
+      [N('4.424 ms'), N('ARRIVAL + ENQUEUE · sta-1'), { en: 'Frame 66, 1500 bytes, best-effort queue, depth 1 — on the 5 GHz lane, which will not send it.', zh: '第 66 帧，1500 字节，进入尽力而为队列，深度 1——记在 5 GHz 那条泳道上，而送它出去的并不是这条泳道。' }],
+      [N('4.512 ms'), N('TX_START · sta-1#6g'), { en: '6 GHz reached zero first and claimed 20 frames, ids 66–85, 30,718 bytes, MCS 13.', zh: '6 GHz 先数到零，一次领走 20 帧，编号 66–85，30,718 字节，用 MCS 13 发出。' }],
+      [N('4.512 ms'), N('BACKOFF_DEC · sta-1'), { en: '5 GHz stands at 2 that instant: it lost by 88 µs.', zh: '同一瞬间，5 GHz 的倒数停在 2：它只是晚了 88 µs。' }],
       [N('6.0176 ms'), N('TX_START · ap#6g'), { en: 'The AP’s BlockAck, 32 bytes, answers all 20.', zh: '接入点的 BlockAck，32 字节，一次性回答这 20 帧。' }],
-      [N('6.0496 ms'), N('20 × DEQUEUE · sta-1#6g'), { en: 'All 20 leave the shared queue — and no id of 66–85 ever appears in a 5 GHz transmission.', zh: '这 20 帧全部离开共享队列——而编号 66–85 中没有任何一个在 5 GHz 的发送里出现过。' }],
+      [N('6.0496 ms'), N('20 × DEQUEUE · sta-1#6g'), { en: 'All 20 leave the shared queue — and no id of 66–85 ever appears on 5 GHz.', zh: '这 20 帧全部离开共享队列——而编号 66–85 中没有任何一个在 5 GHz 的发送里出现过。' }],
     ] },
   ],
   deeper: [

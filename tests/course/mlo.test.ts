@@ -218,6 +218,44 @@ describe('mlo · the procedure, against the engine that runs it', () => {
   })
 })
 
+describe('mlo · step 6’s other branch, which this scene never reaches', () => {
+  // `failMsdus` (src/engine/mac.ts) restores a failed set to the queue head only while its
+  // retry count is under SHORT_RETRY_LIMIT; at the limit the frame is dropped instead. The
+  // lesson's own 300 ms never gets there, so the branch is pinned against a SYNTHETIC copy
+  // of the scene with the laptop moved out of range. The lesson's scenario is untouched and
+  // no number the lesson quotes is measured here.
+  const far = view((sc) => { sc.nodes.find((n) => n.id === 'sta-1')!.pos = { x: 200, y: 200, z: 1 } })
+  const of = <T extends TLRecord['type']>(rs: TLRecord[], t: T) =>
+    rs.filter((r): r is Extract<TLRecord, { type: T }> => r.type === t)
+
+  it('the lesson’s own run reaches no retry limit at all — which is why this copy exists', () => {
+    expect(of(view().rs, 'DROP')).toHaveLength(0)
+  })
+
+  it('under the limit the set goes back to the shared queue: MSDU 1 is attempted 7 times, on both lanes', () => {
+    const attempts = [...data(far.rs, 'sta-1'), ...data(far.rs, 'sta-1#6g')]
+      .filter((r) => (r.frame.ampdu?.msduIds ?? [r.frame.msduId!]).includes(1))
+    expect(attempts).toHaveLength(SHORT_RETRY_LIMIT)
+    // and "not necessarily the one that failed": the retries alternate between the links
+    expect(new Set(attempts.map((r) => r.node))).toEqual(new Set(['sta-1', 'sta-1#6g']))
+    expect(of(far.rs, 'RETRY').filter((r) => r.msduId === 1).map((r) => r.retries))
+      .toEqual([1, 2, 3, 4, 5, 6, 7])
+  })
+
+  it('at the limit it is dropped, not restored: DROP with reason retryLimit, then its DEQUEUE', () => {
+    const drops = of(far.rs, 'DROP').filter((r) => r.node.startsWith('sta-1'))
+    expect(drops.length).toBeGreaterThan(0)
+    expect(new Set(drops.map((r) => r.reason))).toEqual(new Set(['retryLimit']))
+    // every drop is followed by the frame leaving the shared queue on the same lane
+    for (const d of drops) {
+      const gone = of(far.rs, 'DEQUEUE').find((r) => r.msduId === d.msduId && r.node === d.node && r.t === d.t)
+      expect(gone, `msdu ${d.msduId}`).toBeDefined()
+    }
+    // the first of them is MSDU 1, dropped on the 5 GHz lane after its seventh attempt
+    expect([drops[0].msduId, drops[0].node]).toEqual([1, 'sta-1'])
+  })
+})
+
 describe('mlo · the worked example: MSDU 66 through those steps', () => {
   const rs = runOf(mlo, undefined, RUN_NS)
 
