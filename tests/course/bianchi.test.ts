@@ -20,7 +20,7 @@ import type { TLRecord } from '../../src/model/records'
 import type { L10n } from '../../src/course/lessonKit'
 import { lessonStrings } from '../../src/course/readability'
 import { lessonShapeSuite } from './kit'
-import { SLOT_NS, dataRateFor, noiseDbm } from '../../src/engine/phy'
+import { CW_MAX, CW_MIN, SHORT_RETRY_LIMIT, SLOT_NS, dataRateFor, noiseDbm } from '../../src/engine/phy'
 import { buildLinkTable } from '../../src/engine/propagation'
 
 const SECS = 10
@@ -247,6 +247,89 @@ describe('the model table', () => {
 })
 
 // ---------------------------------------------------------------------------
+// the procedure, step by step, and the crowd it is worked through
+// ---------------------------------------------------------------------------
+
+/**
+ * Amendment of 2026-09-23: the lesson no longer states the fixed point, it
+ * tells the reader how to reach it with a calculator. Each step is pinned
+ * against the function that takes it in ./bianchiModel.ts or the engine
+ * constant it quotes, and the worked example is recomputed row by row rather
+ * than transcribed.
+ */
+describe('the procedure the steps block asks the reader to carry out', () => {
+  const sol = solveBianchi({ n: 5, ...PARAMS })
+
+  it('step 1: the four numbers are the engine’s own window, doublings and attempt limit', () => {
+    expect(CW_MIN + 1).toBe(PARAMS.W)
+    expect(2 ** PARAMS.m * PARAMS.W).toBe(CW_MAX + 1)
+    expect(SHORT_RETRY_LIMIT).toBe(PARAMS.attempts)
+    quotes('W = 16, the smallest window', 'L = 7, the attempts a frame gets')
+  })
+
+  it('step 2: the two sums over the stages reproduce tauOf exactly', () => {
+    for (const p of [0.05, 0.2722, 0.5, 0.8]) {
+      let num = 0
+      let den = 0
+      for (let i = 0; i < PARAMS.attempts; i++) {
+        const w = 2 ** Math.min(i, PARAMS.m) * PARAMS.W
+        num += p ** i
+        den += (p ** i * (w + 1)) / 2
+      }
+      expect(num / den, `p=${p}`).toBeCloseTo(tauOf(p, PARAMS), 12)
+    }
+    quotes('W_i = 2^min(i,m)·W')
+  })
+
+  it('steps 3 and 4: the halving converges on the p where p′ equals p, and τ falls as p rises', () => {
+    const pPrime = (p: number) => 1 - (1 - tauOf(p, PARAMS)) ** 4
+    expect(pPrime(sol.p)).toBeCloseTo(sol.p, 9) // the pair satisfies both statements
+    // "τ falls as p rises, so their difference crosses zero just once"
+    let prev = Infinity
+    for (let p = 0; p <= 1.0001; p += 0.05) {
+      const t = tauOf(p, PARAMS)
+      expect(t).toBeLessThan(prev)
+      prev = t
+    }
+    // fifty halvings of [0, 1] leave far less than the fourth decimal the lesson quotes
+    expect(2 ** -50).toBeLessThan(1e-4)
+  })
+
+  it('steps 5 to 7: P_tr, P_s, the mean slot and the payload are saturationThroughput’s own', () => {
+    const t6 = dcfTimes(1500, 6)
+    const r = saturationThroughput({ n: 5, tau: sol.tau, slotNs: SLOT_NS, tsNs: t6.tsNs, tcNs: t6.tcNs, payloadBits: PAYLOAD_BITS })
+    expect(r.ptr).toBeCloseTo(1 - (1 - sol.tau) ** 5, 12)
+    expect(r.ps).toBeCloseTo((5 * sol.tau * (1 - sol.tau) ** 4) / r.ptr, 12)
+    expect(r.slotMeanNs).toBeCloseTo((1 - r.ptr) * SLOT_NS + r.ptr * r.ps * t6.tsNs + r.ptr * (1 - r.ps) * t6.tcNs, 6)
+    expect(SLOT_NS).toBe(9_000) // "the slot time σ, 9 µs here"
+    expect(PAYLOAD_BITS).toBe(1500 * 8)
+    quotes('E[P] = 12,000 bits')
+  })
+
+  it('the worked example: every row of the five-station table, recomputed', () => {
+    let num = 0
+    let den = 0
+    for (let i = 0; i < PARAMS.attempts; i++) {
+      const w = 2 ** Math.min(i, PARAMS.m) * PARAMS.W
+      num += sol.p ** i
+      den += (sol.p ** i * (w + 1)) / 2
+    }
+    const t6 = dcfTimes(1500, 6)
+    const r = saturationThroughput({ n: 5, tau: sol.tau, slotNs: SLOT_NS, tsNs: t6.tsNs, tcNs: t6.tcNs, payloadBits: PAYLOAD_BITS })
+    expect(sol.p.toFixed(4)).toBe('0.2722')
+    expect(num.toFixed(4)).toBe('1.3738')
+    expect(den.toFixed(4)).toBe('17.9942')
+    expect((num / den).toFixed(4)).toBe('0.0763')
+    expect((1 - (1 - sol.tau) ** 4).toFixed(4)).toBe('0.2722')
+    expect(r.ptr.toFixed(4)).toBe('0.3277')
+    expect(r.ps.toFixed(4)).toBe('0.8478')
+    expect((r.slotMeanNs / 1000).toFixed(1)).toBe('712.5')
+    expect(r.mbps.toFixed(3)).toBe('4.679')
+    quotes('0.2722', '1.3738', '17.9942', '0.0763', '0.3277', '0.8478', '712.5 µs', '4.679 Mb/s')
+  })
+})
+
+// ---------------------------------------------------------------------------
 // the simulator, and the stated tolerance
 // ---------------------------------------------------------------------------
 
@@ -326,7 +409,7 @@ describe('the one measured sentence, and the runs the practice names', () => {
 // ---------------------------------------------------------------------------
 
 // The prose window: `why` + `outcomes` + `terms` + `picture` + `numbers`.
-lessonShapeSuite(bianchi, { proseMax: 850, runNs: RUN_NS })
+lessonShapeSuite(bianchi, { proseMax: 1130, runNs: RUN_NS })
 
 describe('lesson contract', () => {
   it('is part of the reading order and names the lessons whose words it uses', () => {
@@ -344,9 +427,11 @@ describe('lesson contract', () => {
   })
 
   it('the equations and the exchange costs are in the numbers, the derivations in the depth', () => {
-    // the rewrite's contract with the reader: one table, two formulas, no §
-    expect(bianchi.numbers!.filter((b) => b.kind === 'table').length).toBe(1)
+    // the rewrite's contract with the reader: the equations, the procedure that
+    // solves them, the table that runs it on one crowd, and the four-row forecast
+    expect(bianchi.numbers!.filter((b) => b.kind === 'table').length).toBe(2)
     expect(bianchi.numbers!.filter((b) => b.kind === 'formula').length).toBe(2)
+    expect(bianchi.numbers!.filter((b) => b.kind === 'steps').length).toBe(1)
     quotes('Σ_{k<m}(2p)^k')
   })
 })

@@ -85,9 +85,9 @@ export const tier1Project: Lesson = {
     zh: '在此之前的每一课，都是讲透一个机制，再让你看着它工作。这一课里它们一起到场：一户没人替你讲解过的房子，架子上一台路由器、两台拼命上传的笔记本、一部正在通话的手机。你的任务是在看到任何结果之前，先说出空口会发生什么——所以前半程到“计划”为止。',
   },
   outcomes: [
-    { en: 'turn a floor plan into each station’s arriving signal, and the coding rung it may use', zh: '把一张平面图，算成每台站点到达的信号，以及它能用的编码等级' },
+    { en: 'turn a floor plan into the signal arriving at each station (STA), and the coding rung it may use', zh: '把一张平面图，算成每台站点（STA）到达的信号，以及它能用的编码等级' },
     { en: 'price one data frame and the exchange around it, in microseconds', zh: '给一个数据帧、以及围绕它的那次交换，按微秒标价' },
-    { en: 'predict how often two saturated senders collide, and what the pair delivers', zh: '预测两台饱和发送方多久相撞一次，以及这一对能交付多少' },
+    { en: 'predict how often two senders that never run out of frames collide, and what the pair delivers', zh: '预测两台永远不缺帧的发送方多久相撞一次，以及这一对能交付多少' },
     { en: 'write four predictions down in a form somebody else could mark', zh: '把四个预测写成别人能拿去批改的样子' },
   ],
   needs: ['frame-anatomy-bytes', 'airtime', 'ifs', 'backoff', 'nav', 'hidden', 'anomaly', 'retries-queues', 'bianchi', 'bianchi-vs-sim'],
@@ -120,7 +120,7 @@ export const tier1Project: Lesson = {
     } },
     { heading: { en: 'What is switched off, and why that matters', zh: '关掉了什么，为什么要紧' }, text: {
       en: 'Every radio here shares one narrow channel and one stream, with the best coding it owns and nothing else: no priority classes, no bundling, no reserved turns. Each exchange is therefore one data frame answered by one ACK, with a wait and a countdown in front — DCF, as this tier taught it. Both laptops are saturated: a world a pencil can still describe. All four radios are Wi-Fi 7, so each frame’s front is the 48 µs the byte-counting lesson measured.',
-      zh: '这里每台设备都共用一条窄信道、一条空间流，开着自己最好的编码，此外什么都没有：没有优先级分类，不把多个帧捆在一起，也没有预留的轮次。于是每次交换就是一个数据帧加一个 ACK 回答，前面还有一段等待和一次倒数——正是本阶段讲过的 DCF。两台笔记本都是饱和的。这样的世界，纸笔还描述得动。四台设备都是 Wi-Fi 7，所以每帧的前导就是“数字节”那一课量到的 48 µs。',
+      zh: '这里每台设备都共用一条窄信道、一条空间流，开着自己最好的编码，此外什么都没有：没有优先级分类，不把多个帧捆在一起，也没有预留的轮次。于是每次交换就是一个数据帧加一个 ACK 回答，前面还有一段等待和一次倒数——这就是本阶段讲过的那套 DCF。两台笔记本都是饱和的。这样的世界，纸笔还描述得动。四台设备都是 Wi-Fi 7，所以每帧的前导就是“数字节”那一课量到的 48 µs。',
     } },
     { kind: 'watch', jump: 0, heading: { en: 'Look at the room, not at the run', zh: '看房间，先别看仿真' }, text: {
       en: 'Load the simulation and read the plan view: the walls, the four devices, where each one stands. Then leave it alone — once you have read a result you can no longer honestly predict it.',
@@ -135,8 +135,8 @@ export const tier1Project: Lesson = {
       [{ en: 'Phone', zh: '手机' }, N('(4, 6), 15 dBm'), { en: 'a call: 200 bytes every 20 ms, each way', zh: '通话：每 20 ms 上下行各 200 字节' }],
     ] },
     { heading: { en: 'Signal in, signal out', zh: '进去的信号，出来的信号' }, text: {
-      en: 'Each link has a budget. Power leaves the antenna, the distance takes a share, each wall on the straight line takes another, and what is left is what arrives. A rung may be used only when that clears its requirement with a margin to spare — the ladder never climbs to the edge of what would just about work.',
-      zh: '每条链路都有一本预算。功率从天线出发，距离拿走一份，直线上的每堵墙再拿走一份，剩下的才是到达的。只有当到达的信号在满足某一级的要求之外还留有余量时，才可以用这一级——这架阶梯从不爬到“勉强还行”的那条边上。',
+      en: 'Each link has a budget. Power leaves the antenna, the distance takes a share, each wall on the straight line takes another, and what is left is what arrives. A rung may be used only when what arrives clears its requirement with a few decibels left over; those few decibels are the margin, and they are why the ladder never climbs to the edge of what would just about work.',
+      zh: '每条链路都有一本预算。功率从天线出发，距离拿走一份，直线上的每堵墙再拿走一份，剩下的才是到达的。只有当到达的信号满足某一级的要求之外还多出几个分贝时，才可以用这一级；多出的那几个分贝就是余量，也正是它让这架阶梯从不爬到“勉强还行”的那条边上。',
     } },
     { kind: 'steps', heading: { en: 'Four things to predict', zh: '要预测的四件事' }, items: [
       { en: '(a) How strong each laptop arrives at the router, and the fastest rung that survives.', zh: '（a）每台笔记本到达路由器时有多强，以及这趟路走下来还能用的最快等级。' },
@@ -205,6 +205,20 @@ export const tier1Project: Lesson = {
       [{ en: 'Frames each', zh: '各自帧数' }, { en: 'equal', zh: '相同' }],
       [{ en: 'Airtime, study / living room', zh: '空口占比，书房 / 客厅' }, N('19.8 % / 80.2 %')],
       [{ en: 'Study laptop alone (exchange + 7.5 slots)', zh: '书房笔记本独占（交换 + 7.5 个时隙）' }, { en: '12,000 bits / 275.1 µs = 43.621 Mb/s', zh: '12,000 比特 / 275.1 µs = 43.621 Mb/s' }],
+    ] },
+    { kind: 'steps', heading: { en: 'The plan you carry out', zh: '你要执行的计划' }, items: [
+      { en: 'Set nothing up. The scene ships as the brief describes it — 20 MHz, one stream, no priority classes, no bundling, no reserved turns — and the editor is where you check that before trusting any reading.',
+        zh: '什么都不用搭。场景出厂时就是题面描述的样子——20 MHz、单流，没有优先级分类，不捆帧，也没有预留的轮次——你只需在编辑器里核实这一点，再去信任任何读数。' },
+      { en: 'From the floor plan alone, do (a) for both uploaders: distance, walls, what arrives, the SNR, and the rung whose requirement plus margin still fits underneath. Write both levels down to a decibel.',
+        zh: '只看平面图，把（a）对两台上传设备各做一遍：距离、隔墙、到达电平、SNR，以及“要求加余量”仍然装得下的那一级。两个电平都写到一个分贝。' },
+      { en: 'From each rung do (b): bits per symbol, the symbols 1528 bytes need, the airtime, the answer’s own rate, and the exchange with the wait behind it.',
+        zh: '从各自的等级做（b）：每符号几个比特、1528 字节要几个符号、空口时间、回答自己的速率，以及一次交换加上它后面那段等待。' },
+      { en: 'From the two exchange times do (c) and (d): the fixed point for two contenders, a generic exchange as the mean of the two, and the airtime each uploader ends up holding.',
+        zh: '从两个交换时长做（c）和（d）：两个竞争者下的不动点、按两者平均定价的“通用交换”，以及每台上传设备最终占住的空口时间。' },
+      { en: 'Only now run ten seconds. Read each laptop’s rung and block length off its first data frame, its losses off the retry records, its successes and its airtime off its own counters.',
+        zh: '到这一步才跑十秒。每台笔记本的等级与帧长，从它的第一个数据帧读；丢帧从重传记录读；成功次数和空口时间，从它自己的计数器读。' },
+      { en: 'Write four lines — quantity, units, value, and the reading on screen you will check it against — then predict the three variants the same way, before running any of them.',
+        zh: '写下四行——量、单位、数值，以及你要拿屏幕上哪个读数去核它——然后用同样的办法预测三个变体，且都要在跑之前写完。' },
     ] },
     { kind: 'table', heading: { en: 'The three variants, predicted', zh: '三个变体的预测' }, head: [
       { en: 'Variant', zh: '变体' }, { en: 'The study laptop’s link', zh: '书房笔记本那条链路' }, { en: 'Frame / exchange', zh: '帧 / 交换' },

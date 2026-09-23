@@ -58,12 +58,12 @@ export const tier1ProjectReview: Lesson = {
       zh: '载入这户人家，跑一遍，再把三个变体各跑一遍，把每个结果写到纸上它对应的那个预测旁边。先别急着改任何东西。四个量里有两个几乎分毫不差地回来了；另外两个差得足够多，多到必须指名道姓地说出计划里哪一处错了。',
     } },
     { kind: 'watch', jump: 1, heading: { en: 'Watch the first collision', zh: '看第一次碰撞' }, text: {
-      en: 'Jump to the first collision and then step backwards through the first millisecond. Both laptops start together, the short frame finishes long before the long one, and then the short-frame station comes back — on top of a frame that is still running.',
-      zh: '跳到第一次碰撞，然后在第一毫秒里往回步进。两台笔记本一起起跑，短帧远早于长帧结束；接着发短帧的那台又回来了——踩在一个还在进行中的帧上。',
+      en: 'Jump to the first collision and then step backwards through the first millisecond. Both laptops start together, the short frame finishes long before the long one, and then the short-frame station (STA) comes back — on top of a frame that is still running.',
+      zh: '跳到第一次碰撞，然后在第一毫秒里往回步进。两台笔记本一起起跑，短帧远早于长帧结束；接着发短帧的那台站点（STA）又回来了——踩在一个还在进行中的帧上。',
     } },
     { heading: { en: 'When agreement is not agreement', zh: '“一致”不一定是一致' }, text: {
-      en: 'Your collision figure and the retry figure on screen look close enough to shake hands. They are not the same thing. A retry counts a frame that was lost; an overlap counts two frames that met. Where one laptop arrives far stronger than the other, capture pulls it through most of those meetings, so the screen counts fewer losses than there were meetings. Name your estimator before you compare it.',
-      zh: '你算出的碰撞数，和屏幕上的重传数，看上去近得可以握手言和。但它们不是同一件事。重传数的是“丢掉的帧”，重叠数的是“撞在一起的两个帧”。在一户两台笔记本到达强度相差悬殊的房子里，捕获会把强的那一方从大多数相遇里拉出来，于是屏幕数到的损失，远少于实际发生的相遇。比较之前，先说清你用的是哪个估计量。',
+      en: 'Your collision figure and the retry figure on screen look close enough to shake hands. They are not the same thing. A retry counts a frame that was lost; an overlap counts two frames that met. Where one laptop arrives far stronger than the other, the stronger frame is decoded anyway — that is capture — so the screen counts fewer losses than there were meetings. Name the thing you are counting — that is the estimator — before you compare anything.',
+      zh: '你算出的碰撞数，和屏幕上的重传数，看上去近得可以握手言和。但它们不是同一件事。重传数的是“丢掉的帧”，重叠数的是“撞在一起的两个帧”。在一户两台笔记本到达强度相差悬殊的房子里，较强的那一帧照样被解了出来——这就是捕获——于是屏幕数到的损失，远少于实际发生的相遇。把你正在数的那样东西点名——这就是估计量——然后再去比较。',
     } },
     { heading: { en: 'An assumption that fails one way round', zh: '一个只在一个方向上失效的假设' }, text: {
       en: 'The plan assumed both laptops hear each other. They do — faintly, and only while they are listening. A station that was transmitting when the other’s preamble arrived never caught it, and what is left is energy far too weak to hold CCA busy. So it finishes its wait, counts down and starts again, on top of a frame it can no longer hear.',
@@ -126,6 +126,20 @@ export const tier1ProjectReview: Lesson = {
       [{ en: 'A collider', zh: '碰撞的一方' }, { en: 'its answer never came', zh: '回答没有来' }, N('45 µs')],
       [{ en: 'The living-room laptop', zh: '客厅笔记本' }, { en: '21.35 dB, against the 44.99 dB the frame asks', zh: '21.35 dB，而这一帧要求 44.99 dB' }, { en: 'EIFS, 94 µs — 9,499 times', zh: 'EIFS，94 µs——共 9,499 次' }],
       [{ en: 'One that heard nothing', zh: '什么也没听见的' }, { en: 'no preamble at all', zh: '完全没有前导' }, N('DIFS, 34 µs')],
+    ] },
+    { kind: 'steps', heading: { en: 'How to mark a sheet', zh: '怎么批一张答题纸' }, items: [
+      { en: 'Mark (a) first. Both arriving levels should sit within a decibel of −40.73 and −75.15 dBm, and each rung be justified by its requirement plus the margin. The first data frame of each laptop carries the rung.',
+        zh: '先批（a）。两个到达电平都应落在 −40.73 与 −75.15 dBm 的一个分贝之内，而每个等级都要用“要求加余量”说清。等级就写在每台笔记本的第一个数据帧上。' },
+      { en: 'Mark (b) on those same two frames: 129.6 and 524.0 µs on screen. A wrong answer here usually dropped the header and the check bytes, or rounded the symbol count down instead of up.',
+        zh: '（b）就拿同两个帧来批：屏幕上是 129.6 与 524.0 µs。这里答错的人，通常是漏掉了帧头与校验字节，或者把符号数向下取整而不是向上。' },
+      { en: 'Mark (c) by asking which estimator was used. An answer that calls the measured retry rate agreement with the predicted collision chance has not compared the same thing twice.',
+        zh: '（c）先问用的是哪个估计量。把实测的重传率和预测的碰撞概率当成“对上了”的答案，根本没有把同一件事比两遍。' },
+      { en: 'Mark (d) from the durations, not the turns: the two laptops send near enough the same number of frames and still take 21.2 % and 78.8 % of the air. A wrong answer splits the air evenly.',
+        zh: '（d）看时长，不看轮次：两台笔记本发出的帧数差不多，占空口却是 21.2% 与 78.8%。把空口平均分的答案，就是错的。' },
+      { en: 'Mark the gaps last. Two mechanisms, each named, sized in the model’s own units and pointing at a record: overlaps against retries for capture, the collision times for the deaf late start.',
+        zh: '差距放到最后批。两个机制，都要点名、都要用模型自己的单位定量、且都要指得出记录：捕获看重叠数对重传数，“聋掉的迟到起跑”看碰撞发生的时刻。' },
+      { en: 'Then look for the residual. A sheet that ends with two unexplained points, stated plainly, marks above one whose columns agree because a constant was tuned.',
+        zh: '最后找残差。一张最后写着“还剩两个百分点没能解释”的答题纸，比一张靠调常数让两列重合的答题纸分数更高。' },
     ] },
     { kind: 'table', heading: { en: 'What a good answer contains', zh: '好答案长什么样' }, head: [
       { en: 'Part', zh: '部分' }, { en: 'A good answer', zh: '好答案' },

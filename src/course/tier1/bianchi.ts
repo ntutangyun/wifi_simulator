@@ -59,13 +59,13 @@ export const bianchi: Lesson = {
     zh: '在纸上预测碰撞',
   },
   why: {
-    en: 'So far you have watched collisions happen and counted them afterwards. There is another way. Given nothing but the access rules — draw a number, count down, widen the window after a failure — you can work out in advance how often a room full of busy stations will talk over each other, and how much they will get through. This lesson builds that prediction.',
-    zh: '到目前为止，我们都是先看着碰撞发生，再回头去数。还有另一条路。只凭接入规则本身——抽一个数、倒着数完、失败之后把窗口加宽——你可以提前算出：一屋子都想说话的站点，彼此打断的频率会是多少，最终又能送出去多少。这一课我们就把这个预测做出来。',
+    en: 'So far you have watched collisions happen and counted them afterwards. There is another way. Given nothing but the access rules — draw a number, count down, widen the window after a failure — you can work out in advance how often a room full of busy stations (STA) will talk over each other, and how much they will get through. This lesson builds that prediction, and shows you how to redo it with a calculator.',
+    zh: '到目前为止，我们都是先看着碰撞发生，再回头去数。还有另一条路。只凭接入规则本身——抽一个数、倒着数完、失败之后把窗口加宽——你可以提前算出：一屋子都想说话的站点（STA），彼此打断的频率会是多少，最终又能送出去多少。这一课我们把这个预测做出来，并且教你怎么拿一只计算器把它重算一遍。',
   },
   outcomes: [
     { en: 'say what a saturated network is and why the prediction needs one', zh: '说清什么是饱和网络，以及这个预测为什么非要它不可' },
     { en: 'explain why the two unknowns can only be found together', zh: '解释这两个未知数为什么只能一起求出来' },
-    { en: 'read a collision probability off the table for any crowd size', zh: '对任意规模的人群，从表里读出它的碰撞概率' },
+    { en: 'read off the table how often attempts run into each other, for any crowd size', zh: '对任意规模的人群，从表里读出尝试之间多久撞上一次' },
   ],
   needs: ['backoff', 'retries-queues'],
   terms: [
@@ -88,16 +88,16 @@ export const bianchi: Lesson = {
       zh: '此前的一切，都是看着它发生。这一次，我们先把它算出来。给定一群同时都想要信道的站点，光是接入规则本身，就已经钉死了它们彼此打断的频率。房间、射频、业务、距离——这些都不进入答案。纸上两个方程，数就出来了。',
     } },
     { heading: { en: 'Everybody always has something to send', zh: '每个人手里都还有话要说' }, text: {
-      en: 'The prediction needs one strong assumption: saturation. The instant a frame leaves, the next one is already waiting, so no station is ever quiet because it has run out of things to say. That is not a normal network. It is the worst case — and it is the case worth knowing, because it is what the channel does when it is asked for everything it has.',
-      zh: '这个预测需要一个很强的假设：饱和。一帧刚离开，下一帧已经在等着了，于是没有哪台站点是因为“没话可说”才安静下来的。这不是一个正常的网络。它是最坏的情况——也正是值得算清楚的那一种，因为它刻画的是：当你向信道索取它的全部时，它会怎么回答。',
+      en: 'The prediction needs one strong assumption. The instant a frame leaves, the next one is already waiting, so no station is ever quiet because it has run out of things to say — that is saturation. It is not a normal network. It is the worst case, and it is the case worth knowing, because it is what the channel does when it is asked for everything it has.',
+      zh: '这个预测需要一个很强的假设。一帧刚离开，下一帧已经在等着了，于是没有哪台站点是因为“没话可说”才安静下来的——这就是饱和。这不是一个正常的网络。它是最坏的情况，也正是值得算清楚的那一种，因为它刻画的是：当你向信道索取它的全部时，它会怎么回答。',
     } },
     { kind: 'watch', jump: 1, heading: { en: 'The events being counted', zh: '要数的就是这种事件' }, text: {
       en: 'Load the simulation and jump to the first collision. Five stations, all saturated, all within earshot of one another. Every overlap from here on is one of the events the two equations are about to count.',
       zh: '载入仿真，跳到第一次碰撞。五台站点，都处于饱和，彼此都在听力范围内。从这里往后的每一次重叠，都是接下来那两个方程要数的事件。',
     } },
     { heading: { en: 'Two unknowns, each defined by the other', zh: '两个未知数，各自由对方定义' }, text: {
-      en: 'Call the chance that one station opens its mouth in a given idle slot its transmit probability. Call the chance that an attempt runs into somebody else’s its collision probability. The first depends on the second: more collisions mean wider windows, so each station attempts less often. The second depends on the first: the more often the others attempt, the likelier a clash. Neither can be worked out on its own.',
-      zh: '把“某一台站点在给定的空闲时隙里开口”的概率叫作它的发送概率。把“一次尝试撞上别人的尝试”的概率叫作碰撞概率。前者取决于后者：碰撞越多，窗口越宽，于是每台站点出手越稀。后者又取决于前者：其余人出手越勤，撞上的可能就越大。两个数，谁都没法单独算出来。',
+      en: 'The chance that one station opens its mouth in a given idle slot is called the transmit probability, written τ. The chance that an attempt runs into somebody else’s is called the collision probability, written p. The first depends on the second: more collisions mean wider windows, so each station attempts less often. The second depends on the first: the more often the others attempt, the likelier a clash. Neither can be worked out on its own.',
+      zh: '“某一台站点在给定的空闲时隙里开口”的概率，叫作发送概率，记作 τ。“一次尝试撞上别人的尝试”的概率，叫作碰撞概率，记作 p。前者取决于后者：碰撞越多，窗口越宽，于是每台站点出手越稀。后者又取决于前者：其余人出手越勤，撞上的可能就越大。两个数，谁都没法单独算出来。',
     } },
     { heading: { en: 'One pair of values fits both', zh: '只有一对数能同时成立' }, text: {
       en: 'So you go looking for the pair that makes both statements true at once. Guess a collision probability; work out what the backoff rules would then make a station do; ask what collision probability that behaviour would in turn produce. One quantity falls as the other rises, so the two meet at exactly one place, and halving the interval over and over walks you to it.',
@@ -113,8 +113,8 @@ export const bianchi: Lesson = {
       en: 'τ = 2(1−2p) / [(1−2p)(W+1) + pW(1−(2p)^m)]        p = 1 − (1−τ)^(n−1)',
       zh: 'τ = 2(1−2p) / [(1−2p)(W+1) + pW(1−(2p)^m)]        p = 1 − (1−τ)^(n−1)',
     }, note: {
-      en: 'τ is the transmit probability, p the collision probability, n the number of stations. W = 16 is the smallest window and m = 6 the number of doublings above it, so the window runs 15 up to 1023. The left equation is the backoff rules solved; the right one is the definition of a clash.',
-      zh: 'τ 是发送概率，p 是碰撞概率，n 是站点数。W = 16 是最小的窗口，m = 6 是它之上还能翻几倍，于是窗口从 15 一路走到 1023。左边那个方程是退避规则的解，右边那个是“撞上”的定义。',
+      en: 'n is the number of stations, W = 16 the smallest window and m = 6 the doublings above it, so the window runs 15 up to 1023. The left equation is the backoff rules solved, the right one the definition of a clash. The steps below solve the finite-retry version this MAC uses.',
+      zh: 'n 是站点数，W = 16 是最小的窗口，m = 6 是它之上还能翻几倍，于是窗口从 15 一路走到 1023。左边那个方程是退避规则的解，右边那个是“撞上”的定义。下面的步骤解的，是本 MAC 真正在用的有限重传版本。',
     } },
     { kind: 'table', heading: { en: 'What the equations predict', zh: '方程预测出什么' }, head: [
       N('n'), { en: 'Transmits per slot', zh: '每时隙发送概率' }, { en: 'Collides', zh: '碰撞概率' },
@@ -126,18 +126,48 @@ export const bianchi: Lesson = {
       [N('20'), N('0.0354'), N('49.59 %'), N('24.91'), N('3.857 Mb/s')],
     ] },
     { heading: { en: 'What the collision probability ignores', zh: '碰撞概率与什么无关' }, text: {
-      en: 'Frame size, data rate and airtime are all absent: only the crowd and the window enter. Counters do not tick while somebody is transmitting, so a long frame hands nobody an extra chance to clash. Note too how little the crowd costs at the slow rate, 5.17 down to 3.86 Mb/s, against 31.3 down to 24.9 at the fast one.',
+      en: 'Frame size, rate and airtime are all absent: only the crowd and the window enter. Counters freeze while somebody is transmitting, so a long frame hands nobody an extra chance to clash. The crowd costs little at the slow rate, 5.17 down to 3.86 Mb/s, against 31.3 down to 24.9 at the fast one.',
       zh: '帧长、数据速率、空口时间统统缺席：进入方程的只有人数和窗口。有人在发送时计数器不走，所以长帧不会给任何人多一次撞上的机会。也请留意，在慢速率上人群的代价有多小——5.17 掉到 3.86 Mb/s——而在快速率上是 31.3 掉到 24.9。',
     } },
     { kind: 'formula', heading: { en: 'What a success and a pile-up cost', zh: '一次成功与一次撞车各值多少' }, text: {
       en: 'T_s = 2064 + 16 + 44 + 34 = 2158 µs        T_c = 2064 + 45 + 34 = 2143 µs',
       zh: 'T_s = 2064 + 16 + 44 + 34 = 2158 µs        T_c = 2064 + 45 + 34 = 2143 µs',
     }, note: {
-      en: 'A 1500-byte frame is 2064 µs of air at the slow rate. A success adds a SIFS, the ACK and a DIFS — and at this rate the ACK itself is 44 µs, not the 28 µs of the earlier rooms. A collision adds the ACK timeout and a DIFS instead, because this MAC starts the retry’s wait only when the deadline expires. Every one of those constants is the engine’s own, not fitted.',
-      zh: '1500 字节的帧在慢速率上占 2064 µs 空口时间。一次成功要再加一个 SIFS、一个 ACK 和一个 DIFS——在这个速率上，ACK 本身是 44 µs，而不是前面几个房间里的 28 µs。一次碰撞加的则是 ACK 超时和一个 DIFS，因为本 MAC 要等期限到期才开始计重传前的等待。这些常数没有一个是拟合来的，全都取自引擎自身。',
+      en: 'A 1500-byte frame is 2064 µs of air at the slow rate. A success adds a SIFS, the ACK — 44 µs here, not the 28 µs of earlier rooms — and a DIFS. A collision adds the ACK timeout and a DIFS instead: this MAC starts the retry’s wait when the deadline expires.',
+      zh: '1500 字节的帧在慢速率上占 2064 µs 空口时间。一次成功要再加一个 SIFS、一个 ACK——在这个速率上是 44 µs，而不是前面几个房间里的 28 µs——以及一个 DIFS。一次碰撞加的则是 ACK 超时和一个 DIFS，因为本 MAC 要等期限到期才开始计重传前的等待。',
     } },
+    { kind: 'steps', heading: { en: 'Working the pair out with a calculator', zh: '拿一只计算器把这一对数算出来' }, items: [
+      { en: 'Write the room down as four numbers: n, the saturated stations contending; W = 16, the smallest window; m = 6, how often it may double; L = 7, the attempts a frame gets.',
+        zh: '先把这个房间写成四个数：n，正在竞争的饱和站点有几台；W = 16，最小的窗口；m = 6，这个窗口最多还能翻几倍；L = 7，一帧被丢掉之前拿到几次机会。' },
+      { en: 'Guess a collision probability p. A frame that has failed i times draws from W_i = 2^min(i,m)·W values. Sum p^i over the L stages for the top line, p^i(W_i + 1)/2 for the bottom, and divide: the quotient is τ.',
+        zh: '先猜一个碰撞概率 p。已经失败过 i 次的那一帧，从 W_i = 2^min(i,m)·W 个取值里抽签。把 p^i 在这 L 个阶段上加起来作分子，把 p^i(W_i + 1)/2 加起来作分母，一除，商就是 τ。' },
+      { en: 'Feed τ back. The other stations toss that same coin in the same slot, so an attempt survives with probability (1 − τ) to the power n − 1. What is left is the collision probability that behaviour produces: p′.',
+        zh: '再把 τ 送回去。其余站点在同一个时隙里抛同一枚硬币，所以一次尝试毫发无损通过的概率是 (1 − τ) 的 n − 1 次方。剩下的那部分，就是这种行为造出的碰撞概率；记作 p′。' },
+      { en: 'Compare p′ with p. τ falls as p rises, so their difference crosses zero just once. Halve the interval between zero and one fifty times, keeping the half where p′ is larger.',
+        zh: '把 p′ 和 p 比一比。p 越大 τ 越小，所以两者之差只在唯一一处穿过零。把 0 到 1 这个区间对半砍上五十次，每次留下 p′ 更大的那一半，这一对数就不再动了。' },
+      { en: 'Price an average slot. Somebody sends in it with probability P_tr = 1 − (1 − τ)^n; exactly one does, given somebody did, with P_s = n·τ·(1 − τ)^(n−1) ÷ P_tr.',
+        zh: '给“平均一个信道时隙”标价。这个时隙里有人发送的概率是 P_tr = 1 − (1 − τ)^n；在确实有人发送的前提下恰好只有一台发送的概率是 P_s = n·τ·(1 − τ)^(n−1) ÷ P_tr。' },
+      { en: 'An empty slot costs the slot time σ, 9 µs here; one holding a frame costs T_s, one holding a pile-up costs T_c. The mean slot weighs the three by how often each happens: (1 − P_tr)σ + P_tr·P_s·T_s + P_tr(1 − P_s)T_c.',
+        zh: '空时隙的代价是时隙长度 σ，这里 9 µs；装着一帧的是 T_s，装着一堆撞在一起的帧的是 T_c。平均时隙把这三者按各自发生的频率加权：(1 − P_tr)σ + P_tr·P_s·T_s + P_tr(1 − P_s)T_c。' },
+      { en: 'Divide: throughput is P_s·P_tr·E[P] over that mean slot, where E[P] = 12,000 bits is the 1500-byte payload one success carries.',
+        zh: '最后一除。一次成功送走的净荷 E[P] = 12,000 比特，也就是 1500 字节；于是吞吐等于 P_s·P_tr·E[P] 除以平均时隙长度。' },
+    ] },
+    { kind: 'table', heading: { en: 'Five stations, run through the steps', zh: '五台站点，照着步骤走一遍' }, head: [
+      { en: 'Step', zh: '步骤' }, { en: 'Value', zh: '数值' },
+    ], rows: [
+      [{ en: 'n, W, m, L', zh: 'n、W、m、L' }, N('5, 16, 6, 7')],
+      [{ en: 'the p that satisfies both', zh: '同时满足两句话的 p' }, N('0.2722')],
+      [{ en: 'top line, Σ p^i', zh: '分子，p^i 之和' }, N('1.3738')],
+      [{ en: 'bottom line, Σ p^i(W_i + 1)/2', zh: '分母，p^i(W_i + 1)/2 之和' }, N('17.9942')],
+      [{ en: '= τ', zh: '= τ' }, N('0.0763')],
+      [N('1 − (1 − τ)^4'), N('0.2722 ✓')],
+      [N('P_tr'), N('0.3277')],
+      [N('P_s'), N('0.8478')],
+      [{ en: 'mean slot', zh: '平均时隙' }, N('712.5 µs')],
+      [{ en: 'throughput', zh: '吞吐' }, N('4.679 Mb/s')],
+    ] },
     { heading: { en: 'The prediction against one run', zh: '预测对上一次实跑' }, text: {
-      en: 'Run the five-station scene for ten seconds and count what happens: 5302 attempts, of which 1370 met somebody else. That is 25.84 % against a predicted 27.22 % — close, and wrong in a direction that repeats. Reading that direction is the next lesson.',
+      en: 'Run the five-station scene for ten seconds: 5302 attempts, 1370 of which met somebody else — 25.84 % against a predicted 27.22 %, wrong in a direction that repeats. The next lesson reads it.',
       zh: '把五台站点的场景跑十秒，数一数发生了什么：5302 次尝试，其中 1370 次撞上了别人。也就是 25.84%，而预测是 27.22%——很接近，但偏差的方向每次都一样。读懂这个方向，是下一课的事。',
     } },
   ],

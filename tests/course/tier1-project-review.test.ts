@@ -141,7 +141,7 @@ const quotes = (...needles: string[]): void => {
 // The contract every migrated lesson owes, written once in tests/course/kit.ts.
 // `sameSceneAs` is the split rule: this lesson loads tier1-project's scene and
 // its variants, so its recorded hashes are tier1-project's, value for value.
-lessonShapeSuite(tier1ProjectReview, { proseMax: 1000, runNs: 30 * MS, sameSceneAs: 'tier1-project' })
+lessonShapeSuite(tier1ProjectReview, { proseMax: 1200, runNs: 30 * MS, sameSceneAs: 'tier1-project' })
 
 describe('tier1-project-review · the lesson itself', () => {
   it('is the second half of the project and owns the three words it marks with', () => {
@@ -151,13 +151,71 @@ describe('tier1-project-review · the lesson itself', () => {
     expect(tier1ProjectReview.terms!.map((t) => t.term)).toEqual(['estimator', 'capture', 'residual'])
     // it is a review, not exposition: a rubric the learner marks their own sheet against
     quotes('What a good answer contains', '好答案长什么样', 'Predicted', 'Measured',
-      'Name your estimator before you compare it')
+      'Name the thing you are counting — that is the estimator — before you compare anything')
   })
 
   it('loads tier1-project’s own scene and its three variants, object for object', () => {
     expect(tier1ProjectReview.scenario()).toEqual(projectFlat())
     expect(tier1ProjectReview.variants).toBe(projectVariants)
     expect(tier1ProjectReview.jumps).toBe(projectJumps)
+  })
+})
+
+/**
+ * Amendment of 2026-09-23: the marking guide is now a procedure — what each
+ * result should look like, which record proves it, and what a wrong answer
+ * usually looks like. Each step is pinned against the same run the rubric
+ * marks, so a mark scheme cannot drift from the thing being marked.
+ */
+describe('tier1-project-review · how to mark a sheet', () => {
+  it('step (a): the two levels a marker checks against, and the record that carries the rung', () => {
+    const scen = projectFlat()
+    const table = buildLinkTable(scen.nodes, scen.walls)
+    expect(table.get('sta-1')!.get('ap')!.toFixed(2)).toBe('-40.73')
+    expect(table.get('sta-2')!.get('ap')!.toFixed(2)).toBe('-75.15')
+    expect(base().firstMcs.get('sta-1')).toBe(13)
+    expect(base().firstMcs.get('sta-2')).toBe(2)
+    quotes('−40.73 and −75.15 dBm', 'The first data frame of each laptop carries the rung')
+  })
+
+  it('step (b): the two block lengths on screen, and the two ways an answer gets them wrong', () => {
+    expect(times(13).dataNs).toBe(129_600)
+    expect(times(2).dataNs).toBe(524_000)
+    // the header and check bytes the wrong answer drops, and the rounding it gets backwards
+    expect(MSDU + MAC_HDR_BYTES + FCS_BYTES).toBe(1528)
+    quotes('129.6 and 524.0 µs on screen', 'rounded the symbol count down instead of up')
+  })
+
+  it('step (c): the retry rate and the collision chance are not the same quantity', () => {
+    const ids = ['sta-1', 'sta-2']
+    const retryRate = pooled(base(), ids, base().retries)
+    const overlapRate = pooled(base(), ids, base().overlaps)
+    const { p } = solveBianchi({ n: 2, ...PARAMS })
+    expect(Math.abs(retryRate - p)).toBeLessThan(Math.abs(overlapRate - p)) // the trap the step names
+    expect(overlapRate).toBeGreaterThan(2 * p)
+    quotes('which estimator was used')
+  })
+
+  it('step (d): near enough equal turns, and an air split that is not equal', () => {
+    const s = base()
+    expect(Math.abs(s.txOk.get('sta-1')! - s.txOk.get('sta-2')!) / s.txOk.get('sta-1')!).toBeLessThan(0.07)
+    const air = (id: string): number => s.airtimeNs.get(id)! / (s.airtimeNs.get('sta-1')! + s.airtimeNs.get('sta-2')!)
+    expect((100 * air('sta-1')).toFixed(1)).toBe('21.2')
+    expect((100 * air('sta-2')).toFixed(1)).toBe('78.8')
+    quotes('21.2 % and 78.8 % of the air', 'A wrong answer splits the air evenly')
+  })
+
+  it('steps 5 and 6: both mechanisms point at a record, and the residual is stated not fitted', () => {
+    const s = base()
+    // capture: the overlap count against the retry count, both read off the log
+    expect(s.overlaps.get('sta-1')! + s.overlaps.get('sta-2')!).toBe(4990)
+    expect(s.retries.get('sta-1')! + s.retries.get('sta-2')!).toBe(2713)
+    // the deaf late start: collision records whose two starts are far apart in time
+    expect(s.pairLate.get('sta-1+sta-2')).toBe(1342)
+    expect(s.pairTotal.get('sta-1+sta-2')).toBe(2399)
+    quotes('overlaps against retries for capture', 'the collision times for the deaf late start',
+      'because a constant was tuned')
+    expect(tier1ProjectReview.numbers!.filter((b) => b.kind === 'steps').length).toBe(1)
   })
 })
 

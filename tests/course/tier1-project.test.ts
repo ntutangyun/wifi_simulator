@@ -18,6 +18,7 @@ import { projectFlat, projectJumps, projectVariants, tier1Project } from '../../
 import { dcfTimes, saturationThroughput, solveBianchi } from '../../src/course/tier1/bianchiModel'
 import { COURSE_ORDER } from '../../src/course/curriculum'
 import { ScenarioSchema } from '../../src/model/scenario'
+import { Simulation } from '../../src/engine/simulation'
 import { lessonStrings } from '../../src/course/readability'
 import {
   ACK_BYTES, DIFS_NS, FCS_BYTES, MAC_HDR_BYTES, SIFS_NS, SLOT_NS, ACK_TIMEOUT_NS,
@@ -64,7 +65,7 @@ const quotes = (...needles: string[]): void => {
 }
 
 // The contract every migrated lesson owes, written once in tests/course/kit.ts.
-lessonShapeSuite(tier1Project, { proseMax: 1000, runNs: RUN_NS })
+lessonShapeSuite(tier1Project, { proseMax: 1200, runNs: RUN_NS })
 
 describe('tier1-project · the lesson itself', () => {
   it('is the tier’s project, module 1, with the second half right behind it', () => {
@@ -238,6 +239,60 @@ describe('tier1-project · the three variants, predicted', () => {
     const tc = mix([times(13).tcNs, times(13).tcNs, times(2).tcNs])
     expect(modelS(3, ts, tc).toFixed(3)).toBe('29.574')
     quotes('17.81 %', '29.574 Mb/s', '43.621 Mb/s', '129.6 / 207.6 µs')
+  })
+})
+
+/**
+ * Amendment of 2026-09-23: the brief now carries the plan itself as steps —
+ * what is already set up, what to work out in which order, when to run, which
+ * records to read each figure off, and what to write down. Every reading the
+ * plan sends the learner to has to exist in the run they are told to make.
+ */
+describe('tier1-project · the plan, step by step', () => {
+  const records = runOf(tier1Project, undefined, RUN_NS)
+
+  it('step 1: the scene already is the brief — nothing for the learner to set up', () => {
+    const scen = projectFlat()
+    for (const n of scen.nodes) {
+      expect(n.caps.widthMhz).toBe(20)
+      expect(n.caps.nss ?? 1).toBe(1)
+      expect(n.caps.features.edca ?? false).toBe(false)
+      expect(n.caps.features.ampdu ?? false).toBe(false)
+      expect(n.caps.features.txop ?? false).toBe(false)
+    }
+    quotes('Set nothing up', '20 MHz, one stream, no priority classes, no bundling, no reserved turns')
+  })
+
+  it('steps 2 to 4: the order is the order the predictions depend on each other in', () => {
+    // (a) fixes the rung; (b) prices the exchange from that rung; (c) and (d) take
+    // the two exchange times as their only input — so no step can be taken early.
+    const scen = projectFlat()
+    const rssi = buildLinkTable(scen.nodes, scen.walls).get('sta-1')!.get('ap')!
+    const mcs = mcsForRssi('eht', rssi, undefined, 20)
+    expect(times(mcs).dataNs).toBe(129_600)
+    expect(mix([times(13).tsNs, times(2).tsNs]) / 1000).toBeCloseTo(406.8, 1)
+    expect(MSDU + MAC_HDR_BYTES + FCS_BYTES).toBe(1528)
+    quotes('the symbols 1528 bytes need', 'the fixed point for two contenders')
+  })
+
+  it('step 5: every reading the plan names is in the run — rung, block length, retries, counters', () => {
+    const firstData = ofType(records, 'TX_START').find((r) => r.node === 'sta-1' && r.frame.kind === 'data')!
+    expect(firstData.frame.mcs).toBe(13)
+    expect(firstData.frame.txTimeNs).toBe(129_600)
+    expect(ofType(records, 'RETRY').length).toBeGreaterThan(0)
+    const sim = new Simulation(projectFlat())
+    sim.runUntil(RUN_NS)
+    for (const id of ['sta-1', 'sta-2']) {
+      expect(sim.view.nodes[id].stats.txOk).toBeGreaterThan(0)
+      expect(sim.view.nodes[id].stats.airtimeNs).toBeGreaterThan(0)
+    }
+    quotes('off the retry records', 'off its own counters')
+  })
+
+  it('step 6: the four lines are the four questions, and they are written before the run', () => {
+    quotes('quantity, units, value', 'once you have read a result you can no longer honestly predict it')
+    expect(tier1Project.numbers!.filter((b) => b.kind === 'steps').length).toBe(1)
+    expect(tier1Project.picture!.filter((b) => b.kind === 'steps').length).toBe(1)
   })
 })
 

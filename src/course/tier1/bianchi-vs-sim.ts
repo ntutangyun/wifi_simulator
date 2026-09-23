@@ -34,7 +34,7 @@ export const bianchiVsSim: Lesson = {
   outcomes: [
     { en: 'check an estimate against the quantity a model actually defines', zh: '核对你的估计量，是不是模型真正定义的那个量' },
     { en: 'tell an assumption that was broken from a mechanism that was missing', zh: '分清“假设被破坏了”和“机制没被建模”这两件事' },
-    { en: 'report a residual instead of tuning a constant until the curves meet', zh: '把残差如实报出来，而不是调一个常数直到两条曲线重合' },
+    { en: 'report the part you cannot explain — the residual — instead of tuning a constant until the curves meet', zh: '把你解释不了的那一部分——残差——如实报出来，而不是调一个常数直到两条曲线重合' },
   ],
   needs: ['bianchi'],
   terms: [
@@ -53,20 +53,20 @@ export const bianchiVsSim: Lesson = {
   ],
   picture: [
     { heading: { en: 'Two answers, side by side', zh: '两个答案，并排放' }, text: {
-      en: 'On the arc — every station the same distance from the access point, every frame the same length — the prediction and the run agree closely. That is the good case, and it is good on purpose: the scene was built so that each assumption the paper makes is actually true. Move one thing, and the agreement can vanish.',
-      zh: '在圆弧上——每台站点到 AP 的距离相同，每一帧的长度也相同——预测与实跑吻合得相当好。这是好的那一种情况，而且是刻意布置出来的：整个场景就是为了让论文的每一条假设真的成立。只要挪动其中一件事，这份吻合就可能消失。',
+      en: 'On the arc — every station (STA) the same distance from the access point (the AP), every frame the same length — the prediction and the run agree closely. That is the good case, and it is good on purpose: the scene was built so that each assumption the paper makes is actually true. Move one thing, and the agreement can vanish.',
+      zh: '在圆弧上——每台站点（STA）到接入点（AP）的距离相同，每一帧的长度也相同——预测与实跑吻合得相当好。这是好的那一种情况，而且是刻意布置出来的：整个场景就是为了让论文的每一条假设真的成立。只要挪动其中一件事，这份吻合就可能消失。',
     } },
     { heading: { en: 'A sender that changes its mind', zh: '一个会改主意的发送方' }, text: {
-      en: 'Move the same five stations close in, where the link can carry frames nine times faster, and the run delivers a fifth of what the paper says. The rules did not break. Rate control did: a sender that loses frames slows down, and it cannot tell a collision from a weak signal. So it slows down into a crowd, making every frame longer and every clash more likely.',
-      zh: '把同样这五台站点挪到近处——链路在那里能把帧发快九倍——实跑却只交付了纸上说法的五分之一。规则没坏，坏的是速率控制：丢帧的发送方会降速，而它分不清“碰撞”和“信号弱”。于是它在人多的时候越降越慢，让每一帧都更长、每一次相撞都更容易发生。',
+      en: 'Move the same five stations close in, where the link can carry frames nine times faster, and the run delivers a fifth of what the paper says. The rules did not break. What broke is the sender’s automatic choice of how fast to talk — that is rate control: a sender that loses frames slows down, and it cannot tell a collision from a weak signal. So it slows down into a crowd, making every frame longer and every clash more likely.',
+      zh: '把同样这五台站点挪到近处——链路在那里能把帧发快九倍——实跑却只交付了纸上说法的五分之一。规则没坏。坏的是发送方“自己决定发多快”的那一套——这就是速率控制：丢帧的发送方会降速，而它分不清“碰撞”和“信号弱”。于是它在人多的时候越降越慢，让每一帧都更长、每一次相撞都更容易发生。',
     } },
     { kind: 'watch', jump: 1, heading: { en: 'Watch the blocks change length', zh: '看那些色块的长度在变' }, text: {
       en: 'Load the simulation and jump to the first collision. The coloured blocks keep changing length as the senders step up and down. Then load the arc variant: every block is the same length again. That is the fixed-rate assumption, switched off and on.',
       zh: '载入仿真，跳到第一次碰撞。发送方在阶梯上上下下，彩色色块的长度也一直跟着变。再载入圆弧变体：每个色块又都一样长了。这就是固定速率假设的关与开。',
     } },
-    { heading: { en: 'Near and far: capture', zh: '远近之别：捕获' }, text: {
-      en: 'Distance changes the collisions themselves. Close in, two overlapping frames rarely arrive at the same strength, and the access point sometimes locks onto the louder one and reads it: capture. On the arc nobody is louder, so nothing is ever locked onto and an overlap really does destroy every frame in it — which is exactly what the paper assumes. Real rooms sit somewhere between.',
-      zh: '距离本身会改变碰撞的样子。在近处，两个重叠的帧很少以相同的强度到达，AP 有时会锁住更响的那一个并把它读出来：这就是捕获。而在圆弧上没有谁更响，于是什么都锁不住，一次重叠真的会把其中每一帧都毁掉——这恰恰是论文的假设。真实的房间落在两者之间。',
+    { heading: { en: 'Near and far: the stronger frame survives', zh: '远近之别：活下来的是较强的那一帧' }, text: {
+      en: 'Distance changes the collisions themselves. Close in, two overlapping frames rarely arrive at the same strength, and the access point sometimes locks onto the louder one and reads it anyway — that is capture. On the arc nobody is louder, so nothing is ever locked onto and an overlap really does destroy every frame in it — which is exactly what the paper assumes. Real rooms sit somewhere between.',
+      zh: '距离本身会改变碰撞的样子。在近处，两个重叠的帧很少以相同的强度到达，接入点有时会锁住更响的那一个，照样把它读出来——这就是捕获。而在圆弧上没有谁更响，于是什么都锁不住，一次重叠真的会把其中每一帧都毁掉——这恰恰是论文的假设。真实的房间落在两者之间。',
     } },
     { heading: { en: 'One event, three clocks', zh: '一次事件，三只钟' }, text: {
       en: 'The paper restarts everybody at the same instant. Real stations do not. The two that collided wait out their own deadline. A neighbour that locked onto one of the overlapping frames and failed to read it owes the long penalty wait, EIFS. A neighbour that locked onto neither owes only the short one, DIFS. Three different restart times, from one event — and the chain has no state for that.',
@@ -78,6 +78,20 @@ export const bianchiVsSim: Lesson = {
     } },
   ],
   numbers: [
+    { kind: 'steps', heading: { en: 'How the two columns were made', zh: '两列数字是怎么做出来的' }, items: [
+      { en: 'Load the arc scene at one crowd size, keep its own seed, and run it for ten seconds of simulated time. Everything counted below happened inside that window; nothing is averaged over repeats.',
+        zh: '载入某一个人数下的圆弧场景，用它自带的种子，跑满十秒仿真时间。下面数到的一切，都发生在这扇窗口之内；没有任何量是多次重跑取平均的。' },
+      { en: 'Count one attempt for every TX_START record carrying a data frame, and one meeting for every retry record (RETRY), which the MAC writes when an attempt goes unanswered. The second count over the first is the measured collision rate.',
+        zh: '每一条携带数据帧的 TX_START 记录算一次尝试；每一条重传记录（RETRY）算一次相遇——MAC 在一次尝试没等到回答时写下它。后者除以前者，就是实测的碰撞率。' },
+      { en: 'Count one delivery for every acknowledgement sent back. Multiply by the 12,000 bits of one payload and divide by ten seconds: the measured throughput.',
+        zh: '每发回一个确认帧，算一次成功交付。乘上一个净荷的 12,000 比特，再除以那十秒，就是实测的吞吐。' },
+      { en: 'Set the model’s inputs from the scene, never from the measurement: n is how many saturated stations stand on the arc; W = 16, m = 6 and L = 7 are the engine’s; a success and a pile-up are priced at 6 Mb/s, the only rate this arc allows.',
+        zh: '模型的输入一律取自场景，绝不取自实测：n 是圆弧上站了几台饱和的站点；W = 16、m = 6、L = 7 取自引擎；一次成功与一次撞车的代价，按 6 Mb/s 定价——这条圆弧只允许这一种速率。' },
+      { en: 'Subtract, crowd size by crowd size, and change nothing in either column afterwards.',
+        zh: '把两列数字并排放好，按人数逐行相减。之后两边都不再动。' },
+      { en: 'Write down what the method cannot control. A retry counts a lost frame, not two frames that met, so the two part company wherever capture works. A seed moves the measured rate by tenths of a point, and the arc arranges the paper’s assumptions to be true rather than testing them.',
+        zh: '把这套方法管不了的事写下来。重传数的是丢掉的帧，而不是撞在一起的两个帧，所以只要捕获起作用，两者就分道扬镳。换一个种子，实测值会动上几分之一个百分点。而圆弧是把论文的假设布置成真，而不是去检验它们。' },
+    ] },
     { kind: 'table', heading: { en: 'On the arc: prediction against ten seconds of run', zh: '圆弧场景：预测对上十秒实跑' }, head: [
       N('n'), { en: 'Collides, predicted', zh: '碰撞，预测' }, { en: 'Collides, measured', zh: '碰撞，实测' },
       { en: 'Throughput, predicted', zh: '吞吐，预测' }, { en: 'Throughput, measured', zh: '吞吐，实测' },
@@ -99,16 +113,16 @@ export const bianchiVsSim: Lesson = {
       [{ en: 'Frames at the slowest rate: 67.7 %', zh: '以最慢速率发出的帧：67.7%' }, N('100 %'), { en: 'none, by assumption', zh: '按假设为零' }],
     ] },
     { heading: { en: 'Reading that table', zh: '这张表怎么读' }, text: {
-      en: 'The middle column is the alibi: close in the stations collide just as the paper says, so contention is not the suspect — what collapsed is the rate. Of 6248 frames sent close in, only 1.1 % used the fast rate the link could carry.',
+      en: 'The middle column is the alibi: close in the stations collide just as the paper says, so contention is not the suspect — what collapsed is the rate. Of 6248 frames sent close in, only 1.1 % used the fast rate.',
       zh: '中间那一列就是不在场证明：近处的站点碰撞得和论文说的一样多，竞争不是嫌疑人——崩掉的是速率。近处发出的 6248 帧里，只有 1.1% 用上了链路扛得住的快速率。',
     } },
     { kind: 'list', heading: { en: 'The smaller differences, sized', zh: '较小的差异，各值多少' }, items: [
-      { en: 'The slot clock. The chain lets a waiting counter tick down across a busy period; the standard freezes it. Force the engine to tick and the twenty-station figure climbs from 45.83 % towards 47.9 % — half the gap to the predicted 49.59 %.', zh: '时隙时钟。链会让等待中的计数器在忙周期上继续减一，而标准是把它冻住。把引擎改成继续减一，二十台站点的实测值就从 45.83% 升到 47.9% 左右——大约是它与预测值 49.59% 之间差距的一半。' },
+      { en: 'The slot clock. The chain lets a waiting counter tick down across a busy period; the standard freezes it. Force the engine to tick and the twenty-station figure climbs from 45.83 % towards 47.9 % — half the gap to 49.59 %.', zh: '时隙时钟。链会让等待中的计数器在忙周期上继续减一，而标准是把它冻住。把引擎改成继续减一，二十台站点的实测值就从 45.83% 升到 47.9% 左右——大约是它与预测值 49.59% 之间差距的一半。' },
       { en: 'Restart times. The five-station arc run logs 1029 long penalty waits, each keeping one neighbour out of the contention 60 µs longer than the others. The chain has no state for that.', zh: '重启时刻。五台站点的圆弧仿真记录了 1029 次长惩罚等待，每一次都让某个邻居比其他人多被挡在竞争之外 60 µs。而那条链里没有描述“人群失去同步”的状态。' },
       { en: 'The cost of a pile-up. A collision here ends 15 µs sooner than a success, 0.7 % of one exchange and worth 0.2 % of throughput at twenty stations. The paper’s own figure would move the prediction 0.6 % the other way.', zh: '撞车的代价。在这里，一次碰撞比一次成功早结束 15 µs，约占一次交互的 0.7%，在二十台站点时值 0.2% 的吞吐。改用论文自己的取值，预测反而会往另一边挪 0.6%。' },
     ] },
     { heading: { en: 'The residual', zh: '残差' }, text: {
-      en: 'Add the named causes up and about two points of collision rate at the larger crowds are still unaccounted for. Say so. The prediction earns its keep anyway: two equations, no fitted parameter, throughput right to a few percent across a tenfold change in crowd size.',
+      en: 'Add the named causes up and about two points of collision rate at the larger crowds are still unaccounted for. Say so. The prediction earns its keep anyway: two equations, no fitted parameter, throughput right to a few percent across a tenfold crowd.',
       zh: '把点过名的原因加总，人多时仍有大约两个百分点的碰撞率没有着落。就这么说出来。这个预测依然物有所值：两个方程、零个拟合参数，而在人数变化十倍的范围里，吞吐都预测到了几个百分点以内。',
     } },
   ],
@@ -151,7 +165,7 @@ export const bianchiVsSim: Lesson = {
   ],
   observe: [
     { en: 'In the close-in run the green blocks keep changing length: 248 µs at the fast rate, 2064 µs at the slow one. On the arc variant every block is the same length.', zh: '在近处那次仿真里，绿色色块的长度一直在变：快速率下 248 µs，慢速率下 2064 µs。而在圆弧变体里，每个色块都一样长。' },
-    { en: 'Close in, the access point sometimes locks onto one of two overlapping frames and logs a failed reception. On the arc, where every station arrives at the same strength, it never does. Capture is a distance effect.', zh: '在近处，AP 有时会锁住两个重叠帧中的一个，并记下一次接收失败。而在圆弧上，每台站点到达的强度都一样，这种事从不发生。捕获是距离带来的效应。' },
+    { en: 'Close in, the access point sometimes locks onto one of two overlapping frames and logs a failed reception. On the arc, where every station arrives at the same strength, it never does. Capture is a distance effect.', zh: '在近处，接入点有时会锁住两个重叠帧中的一个，并记下一次接收失败。而在圆弧上，每台站点到达的强度都一样，这种事从不发生。捕获是距离带来的效应。' },
     { en: 'After a collision, step forward through the waiting blocks: the two that collided are still inside their own deadline while one neighbour is in EIFS and another in DIFS. Three clocks, one event.', zh: '碰撞之后，逐步向前翻那些等待色块：碰撞的两台还在各自的期限里，一个邻居已经进入 EIFS，另一个只在 DIFS。一次事件，三只钟。' },
   ],
   tryThis: [

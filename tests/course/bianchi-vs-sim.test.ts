@@ -23,7 +23,7 @@ import type { TLRecord } from '../../src/model/records'
 import type { L10n } from '../../src/course/lessonKit'
 import { lessonStrings } from '../../src/course/readability'
 import { lessonShapeSuite } from './kit'
-import { SLOT_NS, dataRateFor, noiseDbm } from '../../src/engine/phy'
+import { CW_MAX, CW_MIN, SHORT_RETRY_LIMIT, SLOT_NS, dataRateFor, noiseDbm } from '../../src/engine/phy'
 import { buildLinkTable } from '../../src/engine/propagation'
 
 const SECS = 10
@@ -106,6 +106,58 @@ const quotes = (...needles: string[]) => {
 const pct = (x: number, d = 2) => `${(100 * x).toFixed(d)} %`
 
 // ---------------------------------------------------------------------------
+
+/**
+ * Amendment of 2026-09-23: the lesson now writes the comparison out as a
+ * method — which run, which records, over what window, and where the model's
+ * inputs come from. Each step is pinned against the harness above, which
+ * counts exactly what the step tells the reader to count.
+ */
+describe('0 · the method the steps block sets out', () => {
+  it('step 1: one scene, its own seed, ten seconds of simulated time', () => {
+    expect(RUN_NS).toBe(10e9)
+    expect(bianchiVsSim.variants![0].scenario().seed).toBe(7)
+    quotes('ten seconds of simulated time')
+  })
+
+  it('step 2: an attempt is a data TX_START, a meeting is a RETRY, and their quotient is the measured rate', () => {
+    const s = arc5()
+    const txData = s.records.filter((r) => r.type === 'TX_START' && r.frame.kind === 'data').length
+    const retries = s.records.filter((r) => r.type === 'RETRY').length
+    expect(txData).toBe(s.attempts)
+    expect(retries).toBe(s.collided)
+    expect(s.collided / s.attempts).toBeCloseTo(s.p, 12)
+    quotes('TX_START', 'RETRY')
+  })
+
+  it('step 3: a delivery is an acknowledgement, and throughput is deliveries × 12,000 bits ÷ ten seconds', () => {
+    const s = arc5()
+    const acks = s.records.filter((r) => r.type === 'TX_START' && r.frame.kind === 'ack').length
+    expect(acks).toBe(s.acks)
+    expect(PAYLOAD_BITS).toBe(12_000)
+    expect((acks * PAYLOAD_BITS) / SECS / 1e6).toBeCloseTo(s.mbps, 12)
+    quotes('12,000 bits')
+  })
+
+  it('step 4: the model’s inputs are the scene’s and the engine’s, never the measurement’s', () => {
+    const scen = bianchiVsSim.variants![0].scenario()
+    expect(scen.nodes.filter((n) => n.kind === 'sta').length).toBe(5)
+    expect(CW_MIN + 1).toBe(PARAMS.W)
+    expect(2 ** PARAMS.m * PARAMS.W).toBe(CW_MAX + 1)
+    expect(SHORT_RETRY_LIMIT).toBe(PARAMS.attempts)
+    expect([...arc5().rateMix.keys()]).toEqual([6]) // the one rate the arc allows
+    quotes('W = 16, m = 6 and L = 7')
+  })
+
+  it('step 6: a seed moves the measured rate by tenths of a point, and no further', () => {
+    const scen = bianchiVsSim.variants![0].scenario()
+    scen.seed = 8
+    const other = measure('arc5-seed8', scen)
+    expect(pct(other.p)).toBe('25.53 %')
+    expect(Math.abs(100 * (other.p - arc5().p))).toBeLessThan(1)
+    quotes('tenths of a point')
+  })
+})
 
 describe('1 · the rate-adaptation artefact', () => {
   it('the close-in link has a 54 Mb/s ceiling and 57.8 dB of SNR', () => {
@@ -242,7 +294,7 @@ describe('try this · the CW = 0 corner', () => {
 })
 
 // The prose window: `why` + `outcomes` + `terms` + `picture` + `numbers`.
-lessonShapeSuite(bianchiVsSim, { proseMax: 900, runNs: RUN_NS })
+lessonShapeSuite(bianchiVsSim, { proseMax: 1130, runNs: RUN_NS })
 
 describe('lesson contract', () => {
   it('follows the model lesson in the reading order and names it as its one prerequisite', () => {
@@ -259,7 +311,7 @@ describe('lesson contract', () => {
   })
 
   it('says out loud what it is teaching', () => {
-    quotes('report a residual instead of tuning a constant until the curves meet')
+    quotes('report the part you cannot explain — the residual — instead of tuning a constant')
   })
 })
 
