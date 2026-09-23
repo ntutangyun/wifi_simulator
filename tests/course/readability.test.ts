@@ -81,8 +81,6 @@ const RECORD_NAME = /^[A-Z0-9_]+$/
 const CELL_RULE_CARRIES: Record<string, string> = {
   'uwb-ul-tdoa': 'uwb fix wave: English prose in a language-neutral cell',
   'uwb-mms-numbers': 'uwb fix wave: English prose in a language-neutral cell',
-  'uwb-dstwr': 'uwb fix wave: `Treply1` unglossed in a numbers cell',
-  'uwb-blocks': 'uwb fix wave: `SP1` unglossed in a numbers cell',
 }
 
 /**
@@ -455,6 +453,7 @@ export const MECHANISM_DONE: string[] = [
   'mlo', 'capstone',
   'bianchi', 'bianchi-vs-sim', 'tier1-project', 'tier1-project-review',
   'uwb-intro', 'uwb-frame', 'uwb-sts',
+  'uwb-sstwr', 'uwb-dstwr', 'uwb-blocks',
 ]
 
 /**
