@@ -18,6 +18,7 @@ import {
   frameAnatomy, frameAnatomyScenario, firstLegacyData, firstQosSingle, firstLegacyRetry,
 } from '../../src/course/tier1/frame-anatomy'
 import { Simulation } from '../../src/engine/simulation'
+import type { Block } from '../../src/course/lessonKit'
 import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
 import { decodeFrame, TID_FOR_AC, type Mpdu } from '../../src/model/frameFields'
 import { hasFeature } from '../../src/model/caps'
@@ -56,8 +57,10 @@ const legacy = find(firstLegacyData)
 const qos = find(firstQosSingle)
 const retry = find(firstLegacyRetry)
 
-// The contract every migrated lesson owes, written once in tests/course/kit.ts.
-lessonShapeSuite(frameAnatomy, { proseMax: 1000, runNs: RUN_NS })
+// The contract every migrated lesson owes, written once in tests/course/kit.ts. The prose
+// window is 1200, as decode-thresholds' is: the 2026-09-23 amendment put a six-step procedure
+// and its worked frame into `numbers`, and a mechanism is never compressed back out to fit.
+lessonShapeSuite(frameAnatomy, { proseMax: 1200, runNs: RUN_NS })
 
 describe('frame-anatomy · the lesson itself', () => {
   it('is the fourth lesson of Wi-Fi Tier 1 and owns the six frame words', () => {
@@ -139,6 +142,54 @@ describe('frame-anatomy · the first legacy data frame', () => {
     const am = firstMpdu(ack.frame)
     expect(am.fields.map((x) => x.key)).toEqual(['fc', 'duration', 'addr1', 'fcs'])
     expect(field(am, 'addr1').roles).toEqual(['RA'])
+  })
+})
+
+describe('frame-anatomy · building one frame, step by step', () => {
+  it('the six steps are the order the MAC and the decoder take, with the old laptop’s own values', () => {
+    // "Building one frame, step by step" and the table beside it, "The old laptop's first frame,
+    //  built that way". The steps follow buildDataFrame (src/engine/mac.ts) and dataMpdu
+    //  (src/model/frameFields.ts): kind, direction bits, Duration, addresses, sequence, then
+    //  the QoS bytes, the body and the FCS.
+    const steps = frameAnatomy.numbers!.find((b): b is Extract<Block, { kind: 'steps' }> => b.kind === 'steps')!
+    expect(steps.items.length).toBe(6)
+    const m = firstMpdu(legacy.frame)
+    // 1. "a plain Data frame, or QoS Data when both ends mark their traffic"
+    expect(m.subtypeName).toBe('Data')
+    expect(hasFeature(frameAnatomyScenario().nodes.find((n) => n.id === 'sta-1')!, 'edca')).toBe(false)
+    // 2. "going up to the access point they read 1 and 0"
+    expect([bitOf(m, 'toDs'), bitOf(m, 'fromDs')]).toEqual(['1', '0'])
+    // 3. "the silence and the answer, 16 + 28 = 44 µs"
+    expect(SIFS_NS / 1000 + txTimeNs(ACK_BYTES, 24) / 1000).toBe(44)
+    expect(field(m, 'duration').value).toBe('44 µs')
+    // 4. "Address 1 is the access point (RA), Address 2 the radio that sent it (TA), Address 3
+    //     the far end of the journey (DA)" — the Router, the Old laptop and the Router
+    expect(field(m, 'addr1').node).toBe('ap')
+    expect(field(m, 'addr2').node).toBe('sta-1')
+    expect(field(m, 'addr3').node).toBe('ap')
+    expect([field(m, 'addr1'), field(m, 'addr2'), field(m, 'addr3')].map((x) => x.roles![0])).toEqual(['RA', 'TA', 'DA'])
+    // 5. "a counter … gives out the next value on the first attempt only": the first frame is 0
+    expect(legacy.frame.seqNo).toBe(0)
+    expect(field(m, 'seqCtl').value).toBe('SN 0 · FN 0')
+    expect(bitOf(m, 'retry')).toBe('0')
+    // 6. "Then the payload, and last the FCS … 24 + 1500 + 4 = 1528 B"
+    expect(m.fields.map((x) => x.key).slice(-2)).toEqual(['body', 'fcs'])
+    expect(field(m, 'body').bytes).toBe(1500)
+    expect(MAC_HDR_BYTES + field(m, 'body').bytes + FCS_BYTES).toBe(1528)
+    expect(legacy.frame.bytes).toBe(1528)
+  })
+
+  it('step 2 holds in the other direction too, and step 6 on a marked frame', () => {
+    // Proving the two steps rather than the one row: every data frame of the run reads its
+    // direction bits off who sent it, and a marked frame is exactly two bytes longer.
+    for (const r of txs.filter((x) => x.frame.kind === 'data' && x.frame.ampdu === undefined)) {
+      const m = firstMpdu(r.frame)
+      const up = r.frame.src !== 'ap'
+      expect([bitOf(m, 'toDs'), bitOf(m, 'fromDs')]).toEqual(up ? ['1', '0'] : ['0', '1'])
+      const hdr = m.fields.some((x) => x.key === 'qos') ? QOS_HDR_BYTES : MAC_HDR_BYTES
+      expect(hdr + field(m, 'body').bytes + FCS_BYTES).toBe(r.frame.bytes)
+    }
+    expect(QOS_HDR_BYTES - MAC_HDR_BYTES).toBe(2)
   })
 })
 

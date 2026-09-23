@@ -13,7 +13,7 @@ import { nav } from '../../src/course/tier1/nav'
 import { ScenarioSchema } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 import { lessonShapeSuite, ofType, runOf } from './kit'
-import { DIFS_NS, SIFS_NS } from '../../src/engine/phy'
+import { DIFS_NS, SIFS_NS, SLOT_NS } from '../../src/engine/phy'
 
 const MS = 1_000_000
 /** 200 ms: the window the "576 data frames" and "513 countdowns" sentences are counted over. */
@@ -24,7 +24,7 @@ const txs = (kind: string) => ofType(recs(), 'TX_START').filter((r) => r.frame.k
 
 // The mechanism-before-metaphor amendment puts the Duration-to-timer procedure in
 // `numbers`; the amended BUDGETS (picture 900, numbers 550, total 1800) carry it.
-lessonShapeSuite(nav, { proseMax: 1000, runNs: RUN_NS })
+lessonShapeSuite(nav, { proseMax: 1050, runNs: RUN_NS })
 
 describe('nav · the lesson’s own scene', () => {
   it('follows backoff and owns the reservation', () => {
@@ -146,6 +146,18 @@ describe('nav · one long freeze, taken apart', () => {
     expect(resume.value).toBe(3)
     expect(resume.t - freeze.t).toBe(326_000)
     expect(248_000 + 44_000 + 34_000).toBe(326_000)
+  })
+
+  it('the 3 is idle slots owed: A sends three slots after it resumes', () => {
+    // the table's last cell, "A resumes its backoff counter at 3 — the idle slots it still
+    //  owed when the air went busy". The gloss is only true if those three are counted off
+    //  as slots and the frame follows immediately, so that is what is checked.
+    const resume = ofType(recs(), 'BACKOFF_RESUME').find((r) => r.node === 'sta-1' && r.t === 824_000)!
+    expect(resume.value).toBe(3)
+    const tx = ofType(recs(), 'TX_START').find((r) => r.node === 'sta-1' && r.t > resume.t)!
+    expect(tx.t - resume.t).toBe(resume.value * SLOT_NS)
+    const decs = ofType(recs(), 'BACKOFF_DEC').filter((r) => r.node === 'sta-1' && r.t > resume.t && r.t <= tx.t)
+    expect(decs.map((r) => r.value)).toEqual([2, 1, 0])
   })
 
   it('three quarters of the wait is over before its length can be worked out', () => {

@@ -9,6 +9,11 @@
  * width and the router's reply moved into `deeper` during the readability
  * rewrite; each one is still pinned below, with the sentence it guards quoted.
  * The old `.body!` widget lookup is retired: the widget lives in `numbers`.
+ *
+ * The 2026-09-23 amendment ("mechanism before metaphor") put the link budget
+ * back on the main path as a six-step procedure. "The budget as a procedure"
+ * below holds each step against the engine function it names, then re-runs
+ * steps 1 to 5 at all four places: what is pinned is the rule, not one row.
  */
 import { describe, it, expect } from 'vitest'
 import { radioPrimer } from '../../src/course/tier1/radio-primer'
@@ -17,7 +22,7 @@ import { COURSE_ORDER } from '../../src/course/curriculum'
 import type { Block } from '../../src/course/lessonKit'
 import { linkBudget, BAND_EXTRA_LOSS_DB } from '../../src/course/widgetModel'
 import { NOISE_FIGURE_DB, noiseDbm } from '../../src/engine/phy'
-import { WALL_LOSS_DB, buildLinkTable, pathLossDb } from '../../src/engine/propagation'
+import { WALL_LOSS_DB, buildLinkTable, pathLossDb, wallsCrossed } from '../../src/engine/propagation'
 import { Simulation } from '../../src/engine/simulation'
 import type { TLRecord } from '../../src/model/records'
 import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
@@ -74,16 +79,16 @@ describe('radio-primer · the opener of the Wi-Fi track', () => {
 })
 
 describe('radio-primer · what arrives', () => {
-  it('the formula is the engine’s own path loss, and its note prices every wall', () => {
-    // "RSSI = P_tx − (46.7 + 30·log10(d / 1 m)) − Σ walls" and the note "plasterboard 5 dB,
-    //  brick 12 dB, glass 3 dB. Doubling the distance costs 9.0 dB, so one brick wall is
-    //  worth moving two and a half times further away."
+  it('the formula is the engine’s own path loss, and the steps price every wall', () => {
+    // "RSSI = P_tx − (46.7 + 30·log10(d / 1 m)) − Σ walls"; the note "Doubling the distance
+    //  costs 9.0 dB, so one brick wall is worth moving two and a half times further away";
+    //  and step 3 of the procedure, "plasterboard 5 dB, brick 12, glass 3".
     expect(pathLossDb(1)).toBeCloseTo(46.7, 12)
     expect((pathLossDb(2) - pathLossDb(1)).toFixed(1)).toBe('9.0')
     expect(pathLossDb(10) - pathLossDb(1)).toBeCloseTo(30, 9)
     expect(WALL_LOSS_DB).toEqual({ drywall: 5, brick: 12, glass: 3 })
     expect((pathLossDb(2.5) - pathLossDb(1)).toFixed(0)).toBe('12')
-    // the picture's "plasterboard costs a little, glass a little, brick a lot"
+    // the picture's "plasterboard a little, brick a lot"
     expect(WALL_LOSS_DB.brick).toBeGreaterThan(WALL_LOSS_DB.drywall)
     expect(WALL_LOSS_DB.drywall).toBeGreaterThan(WALL_LOSS_DB.glass)
   })
@@ -234,6 +239,53 @@ describe('radio-primer · try this', () => {
     const data = txs([...new Simulation(s).runUntil(50 * MS).records], 'sta-1', 'data')
     expect(data.length).toBeGreaterThan(0)
     expect(data.every((r) => r.frame.mbps === 86.0)).toBe(true)
+  })
+})
+
+describe('radio-primer · the budget as a procedure', () => {
+  it('the steps are rxPowerDbm, noiseDbm and the interference sum, in the engine’s own order', () => {
+    // "The whole budget, step by step": transmit power, path loss, walls, noise floor, SNR,
+    //  and the neighbour added to the floor as power. Each step is checked against the engine
+    //  function it names, and the first three together against the link table the engine builds.
+    const steps = radioPrimer.numbers!.find((b): b is Extract<Block, { kind: 'steps' }> => b.kind === 'steps')!
+    expect(steps.items.length).toBe(6)
+    const s = primerScenario(9)
+    const sta = s.nodes.find((n) => n.id === 'sta-1')!
+    const ap = s.nodes.find((n) => n.id === 'ap')!
+    // 1. "Start at the sender's transmit power: the laptop's 15 dBm."
+    expect(sta.txPowerDbm).toBe(15)
+    // 2. "46.7 dB in the first metre, 30 dB more for every tenfold — 75.3 dB at 9 m."
+    expect(pathLossDb(1)).toBeCloseTo(46.7, 12)
+    expect((pathLossDb(90) - pathLossDb(9)).toFixed(0)).toBe('30')
+    expect(pathLossDb(9).toFixed(1)).toBe('75.3')
+    // 3. "Take off each wall the straight line crosses … One brick wall leaves the RSSI, −72.3 dBm."
+    expect(wallsCrossed(sta.pos, ap.pos, s.walls)).toEqual(['brick'])
+    const rssi = sta.txPowerDbm - pathLossDb(9) - WALL_LOSS_DB.brick
+    expect(rssi).toBeCloseTo(buildLinkTable(s.nodes, s.walls).get('sta-1')!.get('ap')!, 9)
+    expect(rssi.toFixed(1)).toBe('-72.3')
+    // 4. "−174 dBm per hertz, plus the width in hertz, plus the receiver's 7 dB — −93.99 dBm at 20 MHz."
+    const floor = noiseDbm(20)
+    expect(floor.toFixed(2)).toBe('-93.99')
+    expect((floor - NOISE_FIGURE_DB).toFixed(2)).toBe('-100.99')
+    // 5. "RSSI minus that floor is the SNR: −72.3 − (−93.99) = 21.66 dB."
+    expect((rssi - floor).toFixed(2)).toBe('21.66')
+    // 6. "−85 dBm makes the floor −84.48 dBm, and the SNR becomes a SINR of 12.16 dB."
+    const withNeighbour = dbm(mw(floor) + mw(-85))
+    expect(withNeighbour.toFixed(2)).toBe('-84.48')
+    expect((rssi - withNeighbour).toFixed(2)).toBe('12.16')
+  })
+
+  it('the procedure holds at all four places, not only the one it is worked at', () => {
+    // Proving the rule rather than the row: run steps 1–5 by hand at each distance and land
+    // on the link table and on the four-place table, so the order is the engine's everywhere.
+    PRIMER_DISTANCES.forEach((d, i) => {
+      const s = radioPrimer.variants![i].scenario()
+      const walls = [...wallsFor(d)].reduce((n, m) => n + WALL_LOSS_DB[m], 0)
+      const rssi = 15 - pathLossDb(d) - walls
+      expect(rssi).toBeCloseTo(buildLinkTable(s.nodes, s.walls).get('sta-1')!.get('ap')!, 9)
+      expect(rssi.toFixed(1)).toBe(TABLE[i].rssi)
+      expect((rssi - noiseDbm(20)).toFixed(1)).toBe(TABLE[i].snr)
+    })
   })
 })
 

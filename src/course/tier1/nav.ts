@@ -85,7 +85,9 @@ export const nav: Lesson = {
       [{ en: 'The rest of Talker B’s frame', zh: 'B 那一帧的剩余部分' }, N('248'), { en: 'the channel is audibly busy', zh: '信道听得出是忙的' }],
       [{ en: 'The reservation B announced', zh: 'B 预告的那份预约' }, N('44'), { en: 'silence, but spoken for', zh: '虽然安静，但已被预订' }],
       [{ en: 'One real DIFS', zh: '一个货真价实的 DIFS' }, N('34'), { en: 'genuinely idle', zh: '真正的空闲' }],
-      [{ en: 'Total', zh: '合计' }, N('326'), { en: 'and then A resumes at 3', zh: '之后 A 从 3 继续数' }],
+      [{ en: 'Total', zh: '合计' }, N('326'),
+       { en: 'and then A resumes its backoff counter at 3 — the idle slots it still owed when the air went busy',
+         zh: '之后 A 的退避计数从 3 继续——那是空口变忙时它还欠着的空闲时隙数' }],
     ] },
     { heading: { en: 'When A learns the total', zh: 'A 什么时候才算得出总数' }, text: {
       en: 'A freezes at 498 µs knowing only that the channel is busy. B’s frame ends at 746 µs and passes its check; only then can the reservation be trusted, running to 790 µs, with the last wait carrying A to 824 µs.',

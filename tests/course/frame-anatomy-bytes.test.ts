@@ -15,6 +15,7 @@ import {
   firstBlockAck,
 } from '../../src/course/tier1/frame-anatomy'
 import { Simulation } from '../../src/engine/simulation'
+import type { Block } from '../../src/course/lessonKit'
 import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
 import { decodeFrame, ppduLayout, type Mpdu } from '../../src/model/frameFields'
 import { hasFeature } from '../../src/model/caps'
@@ -56,7 +57,9 @@ const cts = txs.find((r) => r.frame.kind === 'cts')!
 // The contract every migrated lesson owes, written once in tests/course/kit.ts.
 // `sameSceneAs` is the split rule: this lesson loads frame-anatomy's scene, so
 // its recorded timeline hash is frame-anatomy's, value for value.
-lessonShapeSuite(frameAnatomyBytes, { proseMax: 1000, runNs: RUN_NS, sameSceneAs: 'frame-anatomy' })
+// The prose window is 1200, as decode-thresholds' is: the 2026-09-23 amendment put the byte
+// and airtime arithmetic into `numbers` as a procedure with its worked frame beside it.
+lessonShapeSuite(frameAnatomyBytes, { proseMax: 1200, runNs: RUN_NS, sameSceneAs: 'frame-anatomy' })
 
 describe('frame-anatomy-bytes · the lesson itself', () => {
   it('is the second half of frame-anatomy and owns the four preamble words', () => {
@@ -133,6 +136,52 @@ describe('frame-anatomy-bytes · counting the bytes', () => {
     expect(Math.ceil((16 + 8 * ACK_BYTES + 6) / 96)).toBe(2)
     expect(txTimeNs(ACK_BYTES, 24)).toBe(28_000)
     expect(20_000 + 2 * 4_000).toBe(28_000)
+  })
+})
+
+describe('frame-anatomy-bytes · from bytes to microseconds', () => {
+  it('the six steps are txTimeModeNs itself, with the old laptop’s frame in them', () => {
+    // "From bytes to microseconds, step by step" and the table beside it. The steps are the
+    // body of txTimeModeNs (src/engine/phy.ts): bytes → bits + 16 + 6 → ÷ N_DBPS, rounded up
+    // → preamble + symbols × symNs.
+    const steps = frameAnatomyBytes.numbers!.find((b): b is Extract<Block, { kind: 'steps' }> => b.kind === 'steps')!
+    expect(steps.items.length).toBe(6)
+    // 1. "24 + 1500 + 4 = 1528 B for the old laptop"
+    const bytes = MAC_HDR_BYTES + 1500 + FCS_BYTES
+    expect(bytes).toBe(1528)
+    expect(legacy.frame.bytes).toBe(bytes)
+    // 2. "16 + 8 × 1528 + 6 bits" — the table's 12 246
+    const bits = 16 + 8 * bytes + 6
+    expect(bits).toBe(12_246)
+    // 3. "216 bits at 54 Mb/s … 57 symbols"
+    expect(PHY_MODES.nonht.ndbps[PHY_MODES.nonht.mbps.indexOf(54)]).toBe(216)
+    expect(Math.ceil(bits / 216)).toBe(57)
+    // 4. "20 µs, then 57 × 4 µs, which is 248 µs"
+    expect(PHY_MODES.nonht.preambleNs + 57 * PHY_MODES.nonht.symNs).toBe(248_000)
+    expect(legacy.frame.txTimeNs).toBe(248_000)
+    // 5. "a 44 or 48 µs front, and a symbol of 13.6 µs"
+    expect([PHY_MODES.he.preambleNs, PHY_MODES.eht.preambleNs]).toEqual([44_000, 48_000])
+    expect(PHY_MODES.he.symNs).toBe(13_600)
+    // 6. "1530 B, and step 3 still rounds up to 57 symbols"
+    expect(QOS_HDR_BYTES + 1500 + FCS_BYTES).toBe(1530)
+    expect(Math.ceil((16 + 8 * 1530 + 6) / 216)).toBe(57)
+    expect(txTimeNs(1530, 54)).toBe(248_000)
+  })
+
+  it('the procedure reproduces the airtime of every frame the run puts on the air', () => {
+    // Proving the steps rather than the one row: run 1 to 4 by hand for each PPDU, in the mode
+    // and at the MCS it was sent with, and land on the txTimeNs the engine recorded.
+    const seen = new Set<string>()
+    for (const r of txs) {
+      const f = r.frame
+      const mode = f.mode ?? 'nonht'
+      const m = PHY_MODES[mode]
+      const mcs = f.mcs ?? m.mbps.indexOf(f.mbps)
+      const nsym = Math.ceil((16 + 8 * f.bytes + 6) / m.ndbps[mcs])
+      expect(m.preambleNs + nsym * m.symNs, `${f.kind} ${f.bytes} B at ${f.mbps} Mb/s`).toBe(f.txTimeNs)
+      seen.add(mode)
+    }
+    expect([...seen].sort()).toEqual(['he', 'nonht', 'vht'])
   })
 })
 

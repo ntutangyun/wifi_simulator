@@ -14,6 +14,11 @@
  * The airtime derivation and how the newer preambles grow are in `deeper`; the
  * clause numbers and the model choices are in `sources`.
  *
+ * Amendment of 2026-09-23: the sentence that used to promise to "count it" and
+ * then point at the count now leads into the count itself — `numbers` carries
+ * the six steps of `txTimeModeNs` (src/engine/phy.ts), bytes to bits to
+ * symbols to microseconds, with the old laptop's first frame run through them.
+ *
  * Every number quoted below is pinned in tests/course/frame-anatomy-bytes.test.ts.
  */
 import { J, N, type Lesson } from '../lessonKit'
@@ -28,7 +33,7 @@ export const frameAnatomyBytes: Lesson = {
   title: { en: 'What a frame costs on the air', zh: '一帧在空口上要花多少' },
   why: {
     en: 'The last lesson opened a frame and named its fields. None of that is free: every byte in front of your data is air nobody else can use, and in front of the frame itself the radio puts something longer still. This lesson counts it — what goes in front, what the header and the check add, and why sending many frames behind one front is the cheapest trick in the standard.',
-    zh: '上一课把一帧打开、把字段都点了名。可这些都不是白来的：你的数据前面每多一个字节，就多一段别人用不了的空口时间；而在这一帧本身之前，射频还要放上更长的一段东西。这一课来算这笔账——前面放的是什么，帧头和校验各添了多少，以及为什么"多帧共用一个前脸"是标准里最划算的一招。',
+    zh: '上一课把一帧打开、把字段都点了名。可这些都不是白来的：你的数据前面每多一个字节，就多一段别人用不了的空口时间；而在这一帧本身之前，射频还要放上更长的一段东西。这一课就把字节数到微秒——前面放的是什么，帧头和校验各添了多少，以及为什么“多帧共用一个前脸”是标准里最划算的一招。',
   },
   outcomes: [
     { en: 'name the parts a radio puts in front of every frame and say what each one buys', zh: '说出射频放在每一帧前面的那几段是什么，以及每一段换来了什么' },
@@ -40,7 +45,7 @@ export const frameAnatomyBytes: Lesson = {
   terms: [
     { term: 'L-STF', plain: {
       en: 'the very first stretch of any frame: a plain repeating pattern that says "something is starting"',
-      zh: '任何一帧最前面的那一小段：一串朴素的重复图案，宣告"有东西开始了"',
+      zh: '任何一帧最前面的那一小段：一串朴素的重复图案，宣告“有东西开始了”',
     } },
     { term: 'L-LTF', plain: {
       en: 'the stretch after it, long enough for a receiver to measure the channel before a single bit arrives',
@@ -66,7 +71,7 @@ export const frameAnatomyBytes: Lesson = {
     } },
     { kind: 'watch', jump: 0, heading: { en: 'Look at the bars', zh: '看看那几条' }, text: {
       en: 'Load the simulation and jump to the old laptop\'s first frame, then to the phone\'s, opening "Fields on the air" on each. Both blocks split into a front and a body; compare how much of each is front.',
-      zh: '载入仿真，先跳到旧笔记本的第一帧，再跳到手机的那一帧，各自展开"空中字段"。两个块都会分成"前脸"和"正身"两截；比一比各自的前脸占了多少。',
+      zh: '载入仿真，先跳到旧笔记本的第一帧，再跳到手机的那一帧，各自展开“空中字段”。两个块都会分成“前脸”和“正身”两截；比一比各自的前脸占了多少。',
     } },
     { heading: { en: 'A new radio still starts the old way', zh: '新射频，照样按老规矩开场' }, text: {
       en: 'A Wi-Fi 7 frame could have opened with something better suited to it. It does not. It opens with exactly those three, so that every device in the building can read its length, and only afterwards adds the U-SIG, which says what the newer format behind it really is. Backwards compatibility is not politeness here; it is the only thing stopping neighbours from talking over each other.',
@@ -77,8 +82,8 @@ export const frameAnatomyBytes: Lesson = {
       zh: '帧本身很好加：帧头，加上你的载荷，再加上校验。帧头是固定长度的，而那个业务类别标记会让它长两个字节。可空口不是按字节卖的，是按整个符号卖的：一帧要向上凑成整数个符号，于是多出来的那两个字节，常常就消失在本来就要付的那点凑整里。',
     } },
     { heading: { en: 'Many frames, one front', zh: '很多帧，共用一个前脸' }, text: {
-      en: 'Now look at the front again beside a short frame. Sending one small frame at a time means paying that front every time. So a station may line up many finished frames, each still with its own header and check, and send them behind a single front as one PPDU — and get back one answer covering them all. Before a burst that long it first asks for the room, with a short reservation frame and a go-ahead.',
-      zh: '再把那个前脸和一个短帧放在一起看。一次只发一个小帧，就意味着每次都要付一遍前脸。于是站点可以把许多造好的帧排成一队——每一帧仍有自己的帧头和校验——跟在同一个前脸后面作为一个 PPDU 发出；回来的也是一个覆盖全部的回复。而在这么长的一个突发之前，它会先用一个短的预约帧把房间要下来，等到放行帧再发。',
+      en: 'Now look at the front again beside a short frame. Sending one small frame at a time means paying that front every time. So a client radio (a station, STA) may line up many finished frames, each still with its own header and check, and send them behind a single front as one PPDU — and get back one answer covering them all. Before a burst that long it first asks for the room, with a short reservation frame and a go-ahead.',
+      zh: '再把那个前脸和一个短帧放在一起看。一次只发一个小帧，就意味着每次都要付一遍前脸。于是客户端设备——站点（STA）——可以把许多造好的帧排成一队，每一帧仍有自己的帧头和校验，跟在同一个前脸后面作为一个 PPDU 发出；回来的也是一个覆盖全部的回复。而在这么长的一个突发之前，它会先用一个短的预约帧把房间要下来，等到放行帧再发。',
     } },
   ],
   numbers: [
@@ -101,9 +106,33 @@ export const frameAnatomyBytes: Lesson = {
       en: '24 + 1500 + 4 = 1528 B      ·      26 + 1500 + 4 = 1530 B with the mark',
       zh: '24 + 1500 + 4 = 1528 B      ·      带标记时 26 + 1500 + 4 = 1530 B',
     }, note: {
-      en: 'Both fill 57 symbols at 54 Mb/s, so both take 248 µs of air: the two extra bytes buy no extra symbol, and cost nothing here.',
-      zh: '两者在 54 Mb/s 下都占满 57 个符号，所以都要 248 µs 空口时间：多出的那两个字节没换来一个新符号，在这里白送。',
+      en: 'The two extra bytes buy no extra symbol here, so they cost nothing.',
+      zh: '多出的那两个字节没有换来一个新符号，所以在这里是白送的。',
     } },
+    { kind: 'steps', heading: { en: 'From bytes to microseconds, step by step', zh: '从字节到微秒，一步一步算' }, items: [
+      { en: 'Count the bytes of the frame: the header, the payload as it came down, and the four-byte check — 24 + 1500 + 4 = 1528 B for the old laptop.',
+        zh: '先数这一帧的字节：帧头、交下来的载荷，再加四个字节的校验——旧笔记本这一帧是 24 + 1500 + 4 = 1528 B。' },
+      { en: 'Turn those bytes into bits, and add the short field the radio sends in front of them and the tail bits behind: 16 + 8 × 1528 + 6 bits.',
+        zh: '把这些字节换成比特，再加上射频放在它们前面的那个短字段和后面的尾比特：16 + 8 × 1528 + 6 个比特。' },
+      { en: 'Divide by what one symbol carries at the rate in use — 216 bits at 54 Mb/s — and round up, because a part-filled symbol is sent whole: 57 symbols.',
+        zh: '除以当前速率下一个符号能装的比特数——54 Mb/s 时是 216——然后向上取整，因为没装满的符号也要整个发出去：57 个符号。' },
+      { en: 'Pay for the front this generation always sends, then for the symbols: 20 µs, then 57 × 4 µs, which is 248 µs of air.',
+        zh: '先付这一代必发的那个前脸，再付符号：20 µs，加上 57 × 4 µs，一共 248 µs 空口时间。' },
+      { en: 'A newer radio changes only the two sizes: a 44 or 48 µs front, and a symbol of 13.6 µs that carries many more bits.',
+        zh: '更新的射频只改这两个尺寸：前脸变成 44 或 48 µs，符号变成 13.6 µs，而一个符号能装的比特多得多。' },
+      { en: 'Now redo step 1 with the traffic mark: 1530 B, and step 3 still rounds up to 57 symbols. That is why two bytes can cost no airtime at all.',
+        zh: '再带上业务标记把第 1 步重做一遍：1530 B；到第 3 步，向上取整得到的仍是 57 个符号。这就是两个字节有可能一点空口时间都不花的原因。' },
+    ] },
+    { kind: 'table', heading: { en: 'The old laptop\'s first frame, run through the steps', zh: '旧笔记本的第一帧，照着步骤走一遍' }, head: [
+      { en: 'Step', zh: '步骤' }, { en: 'Value', zh: '数值' },
+    ], rows: [
+      [{ en: 'Bytes of the frame', zh: '这一帧的字节' }, N('24 + 1500 + 4 = 1528 B')],
+      [{ en: 'Bits to send', zh: '要发的比特' }, N('16 + 8 × 1528 + 6 = 12 246')],
+      [{ en: 'Bits in one symbol, 54 Mb/s', zh: '54 Mb/s 下一个符号的比特' }, N('216')],
+      [{ en: 'Symbols, rounded up', zh: '向上取整后的符号数' }, N('57')],
+      [{ en: 'Front, then symbols', zh: '先前脸，后符号' }, N('20 + 57 × 4 µs')],
+      [{ en: 'so the frame is on the air for', zh: '于是这一帧占用空口' }, N('248 µs')],
+    ] },
     { kind: 'table', heading: { en: 'The small frames carry only what they need', zh: '小帧只带非带不可的东西' }, head: [
       { en: 'Frame', zh: '帧' }, { en: 'What is in it', zh: '里面有什么' }, { en: 'Size', zh: '大小' },
     ], rows: [

@@ -14,6 +14,13 @@
  * The bit-by-bit breakdown of Frame Control, the mesh four-address case and
  * the management frames are in `deeper`; the clause numbers are in `sources`.
  *
+ * Amendment of 2026-09-23: `numbers` closes with the order the MAC actually
+ * builds a frame in — kind, direction bits, Duration, addresses, sequence
+ * number, then the QoS bytes, the body and the FCS — which is
+ * `buildDataFrame` (src/engine/mac.ts) followed by `dataMpdu`
+ * (src/model/frameFields.ts), and a table running it on the old laptop's
+ * first frame.
+ *
  * Every number quoted below is pinned in tests/course/frame-anatomy.test.ts.
  */
 import type { TLRecord } from '../../model/records'
@@ -50,7 +57,7 @@ export const frameAnatomy: Lesson = {
   title: { en: 'What a frame says before it says anything', zh: '一帧在开口之前先说了什么' },
   why: {
     en: 'A frame is not your data with a label stuck on it. In front of the data sits a small run of fields: what kind of frame this is, which radio must catch it, who sent it, how much longer the room is spoken for, and where it sits in a numbered run. Nearly everything a network decides, it decides from those.',
-    zh: '一帧并不是"你的数据外面贴了张标签"。数据前面有一小串字段：这是哪一类帧、哪台射频必须接住它、是谁发的、这个房间还要被占用多久、以及它在一串编号里排第几。网络所做的几乎每一个决定，依据的都是它们。',
+    zh: '一帧并不是“你的数据外面贴了张标签”。数据前面有一小串字段：这是哪一类帧、哪台射频必须接住它、是谁发的、这个房间还要被占用多久、以及它在一串编号里排第几。网络所做的几乎每一个决定，依据的都是它们。',
   },
   outcomes: [
     { en: 'read the header of any frame in the simulator and say what kind it is', zh: '读懂仿真里任意一帧的帧头，说出它是哪一类' },
@@ -92,19 +99,19 @@ export const frameAnatomy: Lesson = {
     } },
     { heading: { en: 'And then the radio puts a front on it', zh: '再由射频给它加个前脸' }, text: {
       en: 'The frame goes down to the PHY, which cannot just start sending bytes: a receiver has to notice that something began. So the PHY puts a known pattern in front, and what leaves the antenna — pattern first, frame behind — is the PPDU. One block on the timeline is one of those.',
-      zh: '帧接着交给 PHY，而 PHY 不能直接开始发字节：接收端得先察觉"有东西开始了"。所以 PHY 会在最前面放一段已知的图案；离开天线的这整个东西——先图案、后帧——就是 PPDU。时间轴上的一个块，就是其中一个。',
+      zh: '帧接着交给 PHY，而 PHY 不能直接开始发字节：接收端得先察觉“有东西开始了”。所以 PHY 会在最前面放一段已知的图案；离开天线的这整个东西——先图案、后帧——就是 PPDU。时间轴上的一个块，就是其中一个。',
     } },
     { kind: 'watch', jump: 0, heading: { en: 'Open one and look', zh: '打开一帧看看' }, text: {
       en: 'Load the simulation, jump to the old laptop\'s first frame and open "Fields on the air". Every field named below is in that list, in the order the lesson takes them.',
-      zh: '载入仿真，跳到旧笔记本的第一帧，展开"空中字段"。下面提到的每一个字段都在那张列表里，顺序和这一课讲的一样。',
+      zh: '载入仿真，跳到旧笔记本的第一帧，展开“空中字段”。下面提到的每一个字段都在那张列表里，顺序和这一课讲的一样。',
     } },
     { heading: { en: 'The first two bytes say what this is', zh: '头两个字节先说清这是什么' }, text: {
       en: 'A receiver reads the front of the header first, so the first two bytes tell it what to do at all: which family this frame belongs to — data, control or management — and the exact kind within it. Two more bits give the direction, into the network or out of it, and one says "this is a repeat".',
-      zh: '接收端最先读到的是帧头前端，所以头两个字节要让它能决定接下来做什么：这一帧属于哪一大类——数据、控制还是管理——以及在这一类里具体是哪一种。另有两个比特给出方向，是进网还是出网；还有一个比特说"这是重发的"。',
+      zh: '接收端最先读到的是帧头前端，所以头两个字节要让它能决定接下来做什么：这一帧属于哪一大类——数据、控制还是管理——以及在这一类里具体是哪一种。另有两个比特给出方向，是进网还是出网；还有一个比特说“这是重发的”。',
     } },
     { heading: { en: 'Who must catch it', zh: '谁必须接住它' }, text: {
-      en: 'Then three addresses, six bytes each: the radio that must catch this frame and answer it, the radio that sent it, and the far end of the journey the payload is really making. Keeping them apart is what lets a message to the phone next door be addressed to the access point.',
-      zh: '接下来是三个地址，每个六字节：必须接住这一帧并作答的那台射频、发出它的那台射频，以及这份载荷真正要走完那段路的终点。正是把它们分开写，才使得"发给隔壁那部手机"的消息，收件人可以是接入点。',
+      en: 'Then three addresses, six bytes each: the radio that must catch this frame and answer it, the radio that sent it, and the far end of the journey the payload is really making. Keeping them apart is what lets a message to the phone next door be addressed to the router everything goes through (the access point, AP).',
+      zh: '接下来是三个地址，每个六字节：必须接住这一帧并作答的那台射频、发出它的那台射频，以及这份载荷真正要走完那段路的终点。正是把它们分开写，才使得“发给隔壁那部手机”的消息，收件人可以是大家都经过的那台路由器——接入点（AP）。',
     } },
     { heading: { en: 'How long, and which one in the run', zh: '还要多久，以及这是第几个' }, text: {
       en: 'Two small fields follow: one says how much longer the exchange needs after this frame, so the neighbours stay quiet for the answer too; the other numbers each payload, and a repeat keeps its number, which is how a duplicate is recognised.',
@@ -115,8 +122,8 @@ export const frameAnatomy: Lesson = {
       zh: '最后四个字节是 FCS，并不属于消息本身。发送端把前面的所有内容过一遍固定的算术，也就是 CRC，把结果写下来；接收端照样算一遍再比对。两者对不上，它就什么都不说；发送端于是把这一帧再发一次。',
     } },
     { heading: { en: 'A mark for the kind of traffic', zh: '给业务类别打的那个标记' }, text: {
-      en: 'A voice call and a file upload want different things from a network, so a modern station adds two more header bytes carrying a QoS mark: which of four kinds of traffic this frame is, and how it wants to be answered. Those two bytes are the whole difference between a plain data frame and a marked one.',
-      zh: '一通语音通话和一次文件上传，对网络的要求并不相同，所以现代站点会在帧头再加两个字节，写上一个 QoS 标记：这一帧属于四类业务中的哪一类，以及它希望被怎样确认。这两个字节，就是普通数据帧与带标记数据帧的全部差别。',
+      en: 'A voice call and a file upload want different things from a network, so a modern client radio (a station, STA) adds two more header bytes carrying a QoS mark: which of four kinds of traffic this frame is, and how it wants to be answered. Those two bytes are the whole difference between a plain data frame and a marked one.',
+      zh: '一通语音通话和一次文件上传，对网络的要求并不相同，所以现在的客户端设备——站点（STA）——会在帧头再加两个字节，写上一个 QoS 标记：这一帧属于四类业务中的哪一类，以及它希望被怎样确认。这两个字节，就是普通数据帧与带标记数据帧的全部差别。',
     } },
   ],
   numbers: [
@@ -163,6 +170,30 @@ export const frameAnatomy: Lesson = {
       en: 'The numbers are names, not an order: background is 1 and best effort is 0, yet background is the one that yields. The phone in this room is on a call, so its frames are marked 6.',
       zh: '这些数字是名字，不是次序：背景是 1、尽力而为是 0，可该让路的偏偏是背景。这个房间里的手机正在通话，所以它的帧标的是 6。',
     } },
+    { kind: 'steps', heading: { en: 'Building one frame, step by step', zh: '造出一帧，一步一步来' }, items: [
+      { en: 'Choose the kind: a plain Data frame, or QoS Data when both ends mark their traffic. That choice is the first two bytes — the family, and the exact kind within it.',
+        zh: '先定这是哪一种：普通 Data 帧；两端都给业务打标记时，则是 QoS Data 帧。这个选择写在头两个字节里——大类，以及类里具体的那一种。' },
+      { en: 'Set the two direction bits in those same bytes from who is sending to whom: going up to the access point they read 1 and 0, coming back down 0 and 1.',
+        zh: '在同样这两个字节里，按“谁发给谁”置好两个方向比特：上行发往接入点是 1 和 0，下行回来是 0 和 1。' },
+      { en: 'Write the Duration: what is still to come after this frame. For a lone data frame that is the silence and the answer, 16 + 28 = 44 µs.',
+        zh: '写入持续时间：这一帧之后还要发生的事情。对单独一个数据帧来说，就是那段静默加上那个回复，16 + 28 = 44 µs。' },
+      { en: 'Fill the three addresses from those two bits. Going up, Address 1 is the access point (RA), Address 2 the radio that sent it (TA), Address 3 the far end of the journey (DA).',
+        zh: '按那两个比特填三个地址。上行时，地址 1 是接入点（RA），地址 2 是发出这一帧的射频（TA），地址 3 是这段路程的远端（DA）。' },
+      { en: 'Number the payload: a counter per peer and per traffic class gives out the next value on the first attempt only, so a repeat carries the same number with the repeat bit set.',
+        zh: '给载荷编号：每个对端、每个业务类别各有一个计数器，只在第一次发送时取下一个值；重发沿用同一个号，并把重发比特置 1。' },
+      { en: 'A marked frame adds two more header bytes here, the traffic identifier and the answer policy. Then the payload, and last the FCS over everything in front of it: 24 + 1500 + 4 = 1528 B.',
+        zh: '带标记的帧在这里再加两个字节：业务标识和确认策略。然后是载荷，最后是对它前面所有内容算出的 FCS：24 + 1500 + 4 = 1528 B。' },
+    ] },
+    { kind: 'table', heading: { en: 'The old laptop\'s first frame, built that way', zh: '旧笔记本的第一帧，就是这么造出来的' }, head: [
+      { en: 'Step', zh: '步骤' }, { en: 'What it writes', zh: '它写进去的' },
+    ], rows: [
+      [{ en: 'Kind', zh: '种类' }, { en: 'Data, no QoS Control', zh: 'Data，没有 QoS 控制字段' }],
+      [{ en: 'Direction bits', zh: '方向比特' }, N('1 / 0')],
+      [{ en: 'Duration', zh: '持续时间' }, N('44 µs')],
+      [{ en: 'Address 1, 2, 3', zh: '地址 1、2、3' }, { en: 'Router, Old laptop, Router', zh: '路由器、旧笔记本、路由器' }],
+      [{ en: 'Sequence Control', zh: '序列控制' }, { en: 'counter 0, fragment 0', zh: '计数 0，分片 0' }],
+      [{ en: 'Bytes on the air', zh: '空口上的字节' }, N('24 + 1500 + 4 = 1528 B')],
+    ] },
   ],
   deeper: [
     { kind: 'table', heading: { en: 'Frame Control, bit by bit', zh: '帧控制，逐位拆解' }, head: [
@@ -206,7 +237,7 @@ export const frameAnatomy: Lesson = {
   observe: [
     {
       en: 'Jump to the old laptop\'s first frame, at 0 µs, then to the first QoS data frame, at 20.452 ms, opening "Fields on the air" on each. Same direction, same address roles, Duration 44 µs — but the second has a QoS Control field whose traffic identifier (TID) reads 6.',
-      zh: '跳到旧笔记本的第一帧（0 µs），再跳到第一个 QoS 数据帧（20.452 ms），各自展开"空中字段"。方向相同，地址角色相同，持续时间都是 44 µs——但后者多了一个 QoS 控制字段，它的业务标识（TID）写着 6。',
+      zh: '跳到旧笔记本的第一帧（0 µs），再跳到第一个 QoS 数据帧（20.452 ms），各自展开“空中字段”。方向相同，地址角色相同，持续时间都是 44 µs——但后者多了一个 QoS 控制字段，它的业务标识（TID）写着 6。',
     },
     {
       en: 'Jump to the first retransmission, at 12.013 ms. The old laptop\'s frame collided, so it goes again with the repeat bit set and the same counter value, 11. Find the original at 11.650 ms: same number, repeat bit clear.',
