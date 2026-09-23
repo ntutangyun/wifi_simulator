@@ -79,7 +79,7 @@ export const ofdmaUl: Lesson = {
         { en: '40 bytes, sent slowly at 24 Mb/s so every device can read it', zh: '40 字节，用 24 Mb/s 慢慢发，好让每台设备都读得懂' }],
       [{ en: 'Gap', zh: '间隔' }, N('16 µs'), { en: 'the usual pause inside an exchange', zh: '一次交互内部常规的停顿' }],
       [{ en: 'Two TB PPDU answers, side by side', zh: '两个 TB PPDU 并排' }, N('1988.8 µs'),
-        { en: '16,894 bytes from each uploader on half the channel each: eleven whole frames and 531 bytes of padding', zh: '每台上传设备 16,894 字节，各占半条信道：十一个完整的帧，外加 531 字节填充' }],
+        { en: 'each uploader on half the channel: 16,894 bytes of frames — eleven of them — plus 531 bytes of padding, 17,425 in all', zh: '每台上传设备各占半条信道：16,894 字节是帧，共十一个；在这之外再填 531 字节，合计 17,425 字节' }],
       [{ en: 'Gap', zh: '间隔' }, N('16 µs'), { en: 'the same pause again', zh: '同样的那段停顿' }],
       [{ en: 'One multi-station BlockAck', zh: '接入点发一个多站点 BlockAck' }, N('36 µs'),
         { en: 'both answers acknowledged at once', zh: '一次把两个回答都确认掉' }],

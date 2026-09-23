@@ -4,7 +4,7 @@
  * Rewritten to the zero-to-hero contract
  * (docs/superpowers/specs/2026-09-21-course-readability-design.md): a wider
  * channel is more lanes, not a faster car; what the extra lanes cost in noise
- * and in neighbours; why the opening of a frame never shrinks. The one-decibel
+ * and in neighbours; why the preamble of a frame never shrinks. The one-decibel
  * inversion window and the legacy fallback are in `deeper`; the numerology and
  * the clause numbers are in `sources`.
  *
@@ -91,8 +91,8 @@ export const width: Lesson = {
       en: 'airtime = 48 µs + 13.6 µs × ⌈(16 + 8·bytes + 6) ÷ (bits per symbol at 20 MHz × sub-carrier ratio)⌉',
       zh: '空口时间 = 48 µs + 13.6 µs × ⌈(16 + 8·字节数 + 6) ÷ (20 MHz 下每符号比特数 × 子载波倍数)⌉',
     }, note: {
-      en: 'The opening never moves; the 16 and the 6 are the service and tail bits every frame adds to its payload; the brackets round a leftover up to a whole symbol. 80 MHz gives slightly more than four times the sub-carriers of 20 MHz, because a channel’s quiet edges are paid once across the whole block.',
-      zh: '开场那一段永远不动；式子里的 16 和 6，是每一帧都要在负载之外添上的服务位与尾位；向上取整的括号把零头凑成一个完整符号。80 MHz 给的子载波比 20 MHz 的四倍还多一点点，因为信道两端那截安静的边沿是整块频段只付一次。',
+      en: 'The preamble never moves; the 16 and the 6 are the service and tail bits every frame adds to its payload; the brackets round a leftover up to a whole symbol. 80 MHz gives slightly more than four times the sub-carriers of 20 MHz, because a channel’s quiet edges are paid once across the whole block.',
+      zh: '前导那一段永远不动；式子里的 16 和 6，是每一帧都要在负载之外添上的服务位与尾位；向上取整的括号把零头凑成一个完整符号。80 MHz 给的子载波比 20 MHz 的四倍还多一点点，因为信道两端那截安静的边沿是整块频段只付一次。',
     } },
     { heading: { en: 'What the width costs in noise', zh: '带宽在噪声上的代价' }, text: {
       en: 'Each doubling of the width takes in twice the noise power — 3 dB — so the widest channel here needs about 9 dB more signal than the narrowest. On this desk that is affordable: the link holds the top rung with 48.7 dB of signal against noise where that rung asks for 48.0.',
@@ -121,8 +121,8 @@ export const width: Lesson = {
         zh: '沿着速率阶梯往上走，留住最后一个满足“所需 SINR + 3 dB 速率余量 ≤ SNR”的级。每一级的要求与带宽无关——变的只有噪声地板。' },
       { en: 'Bits per symbol = that rung’s bits per symbol at 20 MHz, times the sub-carrier ratio of the width in the first table.',
         zh: '每符号比特数 = 该级在 20 MHz 下的每符号比特数，乘以第一张表里那个带宽的子载波倍数。' },
-      { en: 'Symbols = the frame’s bits divided by that, rounded up to a whole symbol — the formula above. Airtime is then the 48 µs opening plus 13.6 µs per symbol.',
-        zh: '符号数 = 这一帧的比特数除以它，再向上取整成整数个符号——就是上面那条式子。空口时间就是 48 µs 的开场，加上每个符号 13.6 µs。' },
+      { en: 'Symbols = the frame’s bits divided by that, rounded up to a whole symbol — the formula above. Airtime is then the 48 µs preamble plus 13.6 µs per symbol.',
+        zh: '符号数 = 这一帧的比特数除以它，再向上取整成整数个符号——就是上面那条式子。空口时间就是 48 µs 的前导，加上每个符号 13.6 µs。' },
     ] },
     { kind: 'table', heading: {
       en: 'The living-room laptop, run through the steps at the two widest settings',
@@ -175,8 +175,8 @@ export const width: Lesson = {
     J('first ACK', '第一个 ACK', firstAck),
   ],
   observe: [
-    { en: 'Step through the four widths and watch one blue block: 129.6 µs, 88.8, 75.2, 61.6. Doubling the width never halves the frame — the fixed opening inside each scales with nothing.', zh: '把四种带宽逐档切过去，盯住同一个蓝色数据块：129.6 µs、88.8、75.2、61.6。带宽翻倍从来不会让一帧减半——每一帧里那段固定的开场，不随任何东西缩短。' },
-    { en: 'Take the fixed 48 µs opening off those four and what is left is 81.6, 40.8, 27.2 and 13.6 µs of data. Only that part ever moved, and at the widest setting it is one symbol.', zh: '把这四个数字各减掉固定的 48 µs 开场，剩下的数据分别是 81.6、40.8、27.2 和 13.6 µs。从头到尾只有这一段在动，而到了最宽的一档，它只剩一个符号。' },
+    { en: 'Step through the four widths and watch one blue block: 129.6 µs, 88.8, 75.2, 61.6. Doubling the width never halves the frame — the preamble inside each scales with nothing.', zh: '把四种带宽逐档切过去，盯住同一个蓝色数据块：129.6 µs、88.8、75.2、61.6。带宽翻倍从来不会让一帧减半——每一帧里那段前导，不随任何东西缩短。' },
+    { en: 'Take the fixed 48 µs preamble off those four and what is left is 81.6, 40.8, 27.2 and 13.6 µs of data. Only that part ever moved, and at the widest setting it is one symbol.', zh: '把这四个数字各减掉固定的 48 µs 前导，剩下的数据分别是 81.6、40.8、27.2 和 13.6 µs。从头到尾只有这一段在动，而到了最宽的一档，它只剩一个符号。' },
     { en: 'The white ACK is identical in all four, and the rate line never moves either: 172.1 Mb/s at every width, because it names what one 20 MHz sub-carrier set carries. Width lives in the airtime, never in the rate line.', zh: '四档里白色的 ACK 完全一样，“速率”那一行也从不动：四种带宽都是 172.1 Mb/s，因为它报的是一组 20 MHz 子载波能装多少。带宽体现在空口时间里，从不体现在速率那一行。' },
   ],
   tryThis: [
@@ -188,11 +188,11 @@ export const width: Lesson = {
       q: { en: 'This frame takes 129.6 µs at the narrowest width and 61.6 µs at the widest, with eight times the sub-carriers. Why not an eighth of the time?', zh: '这一帧在最窄的一档要 129.6 µs；到最宽的一档，子载波是八倍，却仍要 61.6 µs。为什么不是八分之一？' },
       options: [
         { en: 'The ACK grows as the data frame shrinks', zh: '数据帧变短，ACK 就会变长' },
-        { en: 'A fixed opening sits in front of the data, and the data itself cannot be shorter than one whole symbol', zh: '数据前面有一段固定的开场，而数据本身最短也不能少于一个完整符号' },
+        { en: 'A fixed preamble sits in front of the data, and the data itself cannot be shorter than one whole symbol', zh: '数据前面有一段固定的前导，而数据本身最短也不能少于一个完整符号' },
         { en: 'Wide channels are transmitted at lower power', zh: '宽信道的发射功率更低' },
       ],
       answer: 1,
-      explain: { en: 'Only the data part scales: 81.6 µs of symbols becomes one 13.6 µs symbol. The 48 µs opening does not move, and is now more than three quarters of the frame.', zh: '按比例缩短的只有数据部分：81.6 µs 的符号最后只剩一个 13.6 µs 的符号。48 µs 的开场纹丝不动，此时已占了整帧四分之三以上。' },
+      explain: { en: 'Only the data part scales: 81.6 µs of symbols becomes one 13.6 µs symbol. The 48 µs preamble does not move, and is now more than three quarters of the frame.', zh: '按比例缩短的只有数据部分：81.6 µs 的符号最后只剩一个 13.6 µs 的符号。48 µs 的前导纹丝不动，此时已占了整帧四分之三以上。' },
     },
     {
       q: { en: 'Your phone is at the edge of range. Does moving it from the widest channel to a narrower one make it faster or slower?', zh: '手机在覆盖边缘。把它从最宽的信道换到窄一些的，是更快还是更慢？' },

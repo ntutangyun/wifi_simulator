@@ -15,7 +15,7 @@ import type { Scenario } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 import { Simulation } from '../../src/engine/simulation'
 import { lessonShapeSuite, ofType, runOf } from './kit'
-import { PHY_MODES, RATES, SIFS_NS, txTimeModeNs, txTimeNs } from '../../src/engine/phy'
+import { MANDATORY_MBPS, PHY_MODES, RATES, SIFS_NS, ctrlRespRateFor, ctrlRespRateForMode, txTimeModeNs, txTimeNs } from '../../src/engine/phy'
 
 const MS = 1_000_000
 const US = 1_000
@@ -33,13 +33,14 @@ lessonShapeSuite(airtime, { proseMax: 1000, totalMax: 1300, runNs: RUN_NS })
 describe('airtime · the lesson’s own scene', () => {
   it('is a Tier 1 lesson that names the lessons its words come from', () => {
     expect(airtime.module).toBe(0)
-    // Step review, Minor "front / pattern / preamble": the `preamble` term now says it is
-    // the front whose bytes frame-anatomy-bytes counted, so that lesson joins `needs`.
+    // Whole-track review I5, "the preamble has three names": `preamble` is now a term of
+    // frame-anatomy-bytes, the lesson that counts its microseconds, and that lesson stays
+    // in `needs` — this lesson uses the word and does not own it.
     expect(airtime.needs).toEqual(['radio-primer', 'decode-thresholds', 'frame-anatomy', 'frame-anatomy-bytes'])
     // the owner table of the readability programme gives this lesson ACK; it is also
     // held to the opening rules (at most four new words) while it may be the first
     // migrated Wi-Fi lesson a reader meets.
-    expect(airtime.terms!.map((t) => t.term)).toEqual(['ACK', 'preamble', 'payload'])
+    expect(airtime.terms!.map((t) => t.term)).toEqual(['ACK', 'payload'])
     expect(airtime.terms!.length).toBeLessThanOrEqual(4)
     expect(airtime.picture!.some((b) => b.kind === 'table')).toBe(false)
   })
@@ -95,8 +96,25 @@ describe('airtime · one exchange in this room', () => {
     }
   })
 
+  it('the rate of the answer is the rule step 5 now states, not a fixed 24 Mb/s', () => {
+    // Whole-track review I4: step 5 used to say the ACK goes out at 24 Mb/s "so that every
+    // radio in the room can read it", which is neither the engine's rule nor true (the rate
+    // every radio can read is 6). The rule is ctrlRespRateFor: the highest of 6, 12 and 24
+    // that does not exceed the eliciting frame's non-HT reference rate.
+    expect(MANDATORY_MBPS).toEqual([6, 12, 24])
+    expect(ctrlRespRateFor(54)).toBe(24)
+    expect(ctrlRespRateFor(24)).toBe(24)
+    expect(ctrlRespRateFor(18)).toBe(12)
+    expect(ctrlRespRateFor(6)).toBe(6)
+    // "24 Mb/s on this link": the data frames of this scene read back as 24 through the
+    // same function the engine calls for a control response.
+    const data = txs('data')
+    expect(data.length).toBeGreaterThan(0)
+    for (const r of data) expect(ctrlRespRateForMode(r.frame.mode!, r.frame.mcs!, r.frame.mbps)).toBe(24)
+  })
+
   it('the answer is timed by the same formula, two symbols at 24 Mb/s', () => {
-    // the last two steps: "the ACK is 14 bytes and goes out at 24 Mb/s" and "two symbols
+    // the last two steps: "the ACK is 14 bytes" at that rate and "two symbols
     //  of 4 µs behind a 20 µs preamble — 28 µs"
     expect(new Set(txs('ack').map((r) => r.frame.mbps))).toEqual(new Set([24]))
     const nonht = PHY_MODES.nonht

@@ -51,8 +51,8 @@ export const mumimo: Lesson = {
       zh: '切片的做法，是把子载波分给每个成员一部分，于是每个成员也只拿到速率的一部分。但可以切的不止这一个维度。换成：每个成员都拿到整条信道，只是给每台瞄准不同的一组空间流——这样谁也不必让出带宽，区分成员靠的是它们在哪儿，而不是它们用哪些音调。这就是 MU-MIMO。',
     } },
     { heading: { en: 'Which means knowing where everyone is', zh: '但这要求知道每个人在哪儿' }, text: {
-      en: 'Aiming is not pointing a dish. The same signal leaves several antennas with small delays chosen so that it adds up at one phone and cancels itself at the next — beamforming. To choose those delays the router first has to measure the room: it sends a known pattern and every phone reports back what it heard, which is sounding. Furniture moves, people move, and a stale measurement aims at where a phone used to be.',
-      zh: '所谓“瞄准”，并不是转动一口天线锅。同一个信号从多根天线发出去，彼此错开一点点，而这个“一点点”被挑得恰到好处：让它在某部手机处叠加，在另一部手机处互相抵消——这就是波束成形。而要挑出这些延迟，路由器得先把房间量一遍：它发出一段已知的图案，每部手机把听到的样子报回来，这就是探测。家具会挪，人会走动，量得太旧的结果，瞄准的只是手机从前待过的地方。',
+      en: 'The same signal leaves several antennas with small delays chosen so that it adds up at one phone and cancels itself at the next — beamforming. To choose those delays the router first has to measure the room: it sends a known pattern and every phone reports back what it heard, which is sounding. Furniture moves, people move, and a stale measurement aims at where a phone used to be. This simulator runs none, and charges nothing for it: the aim is assumed perfect.',
+      zh: '同一个信号从多根天线发出去，彼此错开一点点，而这个“一点点”被挑得恰到好处：让它在某部手机处叠加，在另一部手机处互相抵消——这就是波束成形。而要挑出这些延迟，路由器得先把房间量一遍：它发出一段已知的图案，每部手机把听到的样子报回来，这就是探测。家具会挪，人会走动，量得太旧的结果，瞄准的只是手机从前待过的地方。而本仿真器一次探测也不发，也不为它收空口时间：它直接假定瞄得够准。',
     } },
     { kind: 'watch', jump: 0, heading: { en: 'Go and look', zh: '去看一眼' }, text: {
       en: 'Load the simulation and jump to the first send that carries more than one phone. Step between the two variants above the timeline: the same house, the same traffic, the same phones — and a wide block that holds three parts in one and two in the other.',
@@ -63,8 +63,8 @@ export const mumimo: Lesson = {
       zh: '瞄准是要拿天线换的。每个成员的空间流都得由路由器自己的天线扛着，所以一个组能有多大，上限就是它的天线数：这台路由器有四根，每部手机协商到两条流，两部手机就把四根占满了。第三部还得再要六条。切片没有这道坎——三部手机各占一片都塞得下——所以空间用尽的地方，频率还走得下去。',
     } },
     { heading: { en: 'Which one wins', zh: '谁赢' }, text: {
-      en: 'Space multiplies the rate, which only pays when there are enough data symbols to multiply. Frequency divides the fixed opening of a send, which pays most when there are hardly any. So many small frames belong in slices, a few large ones belong in beams — and the fixed opening, which neither trick shortens, quietly dilutes whatever either of them wins.',
-      zh: '空间是把速率乘上去，只有当数据符号本来就够多时，这一乘才划算。频率是把一次发送里那段固定开场摊薄，而在数据符号本来就没几个时，这一摊最划算。所以许多小帧该去分片，少数几个大帧该去分波束——而那段谁也缩不短的固定开场，则在背后默默稀释着两边各自赢来的东西。',
+      en: 'Space multiplies the rate, which only pays when there are enough data symbols to multiply. Frequency divides the preamble of a send, which pays most when there are hardly any. So many small frames belong in slices, a few large ones belong in beams — and the preamble, which neither shortens, quietly dilutes whatever either wins.',
+      zh: '空间是把速率乘上去，只有当数据符号本来就够多时，这一乘才划算。频率是把一次发送里那段前导摊薄，而在数据符号本来就没几个时，这一摊最划算。所以许多小帧该去分片，少数几个大帧该去分波束——而那段谁也缩不短的前导，则在背后默默稀释着两边各自赢来的东西。',
     } },
   ],
   numbers: [
@@ -82,8 +82,8 @@ export const mumimo: Lesson = {
       en: 'send length = 52 µs + 13.6 µs × data symbols',
       zh: '整帧长度 = 52 µs + 13.6 µs × 数据符号数',
     }, note: {
-      en: 'The 52 µs is a Wi-Fi 7 frame’s 48 µs front plus the same 4 µs map. On its third of the sub-carriers an OFDMA member needs three data symbols where a MU-MIMO member needs one — exactly the threefold gain of the group MU-MIMO gave up. End to end it is only 1.41 times, because the opening never shrinks.',
-      zh: '这里的 52 µs，是 Wi-Fi 7 帧的 48 µs 开场加上同样那张 4 µs 的“这一发里有谁”分配表。OFDMA 的成员只占三分之一子载波，同样的负载要三个数据符号；MU-MIMO 的成员独占整条信道，只要一个——干净的三倍增益，正好等于 MU-MIMO 放弃掉的那个组的大小。可整帧算下来只差 1.41 倍，因为开场那一段从不缩短。',
+      en: 'The 52 µs is a Wi-Fi 7 frame’s 48 µs preamble plus the same 4 µs map. On its third of the sub-carriers an OFDMA member needs three data symbols where a MU-MIMO member needs one — exactly the threefold gain of the group MU-MIMO gave up. End to end it is only 1.41 times, because the preamble never shrinks.',
+      zh: '这里的 52 µs，是 Wi-Fi 7 帧的 48 µs 前导加上同样那张 4 µs 的“这一发里有谁”分配表。OFDMA 的成员只占三分之一子载波，同样的负载要三个数据符号；MU-MIMO 的成员独占整条信道，只要一个——干净的三倍增益，正好等于 MU-MIMO 放弃掉的那个组的大小。可整帧算下来只差 1.41 倍，因为前导那一段从不缩短。',
     } },
     { heading: { en: 'The combined load is the other way round', zh: '合起来交付的量，方向正相反' }, text: {
       en: 'Both sends carry the same payload per member — three video frames the router had saved up for that phone. Three members deliver 12,918 bytes in one send against two members’ 8,612, so the wider group moves more in one go while the narrower one serves each member faster. Which of those you want depends on whether anybody is waiting.',

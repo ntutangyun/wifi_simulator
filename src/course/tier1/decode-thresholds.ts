@@ -53,8 +53,8 @@ export const decodeThresholds: Lesson = {
   ],
   picture: [
     { heading: { en: 'Talking fast needs a better line', zh: '说得快，就要求线路更好' }, text: {
-      en: 'Speech again. Close up in a quiet room you can gabble and still be understood; across a noisy one you slow down and over-pronounce. A radio does exactly this. It has a ladder of speeds, and each rung needs the signal to stand a certain distance above everything else. Choose a rung the link cannot support and nothing gets through; choose one far below it and you waste air. The rung is the MCS.',
-      zh: '还是拿说话打比方。屋里安静、人又挨得近，你可以连珠炮似的说，对方照样听懂；屋里吵、人又远，你就得放慢、咬清楚。无线电也是这样。它的速率是一级一级的，每升一级，都要求信号比其余一切多高出一截。选了这条链路撑不住的一级，什么也过不去；选得太低，又白白浪费空口时间。这一级，就是 MCS。',
+      en: 'Speech again. Close up in a quiet room you can gabble and still be understood; across a noisy one you slow down and over-pronounce. A radio does exactly this. It has a ladder of speeds, and each rung needs the signal to stand a certain distance above everything else. Choose a rung the link cannot support and nothing gets through; choose one far below it and you waste airtime — the microseconds a frame holds the channel. The rung is the MCS.',
+      zh: '还是拿说话打比方。屋里安静、人又挨得近，你可以连珠炮似的说，对方照样听懂；屋里吵、人又远，你就得放慢、咬清楚。无线电也是这样。它的速率是一级一级的，每升一级，都要求信号比其余一切多高出一截。选了这条链路撑不住的一级，什么也过不去；选得太低，又白白浪费空口时间——也就是一帧占住信道的那些微秒。这一级，就是 MCS。',
     } },
     { heading: { en: 'Many narrow voices at once', zh: '许多个窄嗓门一起说' }, text: {
       en: 'What does a higher rung change? Wi-Fi does not push one fast stream down the channel. It splits the channel into hundreds of narrow sub-carriers and sends a slow stream on every one of them at the same time — that is OFDM. Going up a rung loads each sub-carrier with more bits, which means more signal levels to tell apart, packed closer together. Telling them apart needs a cleaner signal. That is the whole trade.',
@@ -188,7 +188,7 @@ export const decodeThresholds: Lesson = {
     { en: 'No variant shows a retry, a timeout or a failed reception. A lone link at its ceiling still sits 3 dB of rate margin above what its rung requires — against a hard threshold, enough never to lose a frame.', zh: '四个变体里都没有重传、没有超时，也没有接收失败。一条链路独占空口、又停在自己的上限上时，它所选那一级的要求之上仍有 3 dB 的速率余量；面对一道硬门限，这 3 dB 足以一帧不丢。' },
   ],
   tryThis: [
-    { en: 'Open the far-wall variant in the editor and drop the laptop\'s transmit power from 15 to 12 dBm. The received level falls just under the sensitivity of the rung it was using, so the frames drop a rung and stretch from 768.8 to 1476.0 µs.', zh: '在编辑器里打开远端墙边变体，把笔记本的发射功率从 15 dBm 降到 12 dBm。接收电平刚好跌到它原来那一级的灵敏度之下，于是帧下降一级，时长从 768.8 µs 拉到 1476.0 µs。3 dB，几乎让空口时间翻倍。' },
+    { en: 'Open the far-wall variant in the editor and drop the laptop\'s transmit power from 15 to 12 dBm. The received level falls just under the sensitivity of the rung it was using, so the frames drop a rung and stretch from 768.8 to 1476.0 µs: 3 dB, and the airtime nearly doubles.', zh: '在编辑器里打开远端墙边变体，把笔记本的发射功率从 15 dBm 降到 12 dBm。接收电平刚好跌到它原来那一级的灵敏度之下，于是帧下降一级，时长从 768.8 µs 拉到 1476.0 µs。3 dB，几乎让空口时间翻倍。' },
     { en: 'In the ladder above, set the slider to 15.9 dB and then to 62.3 dB: the top usable rung moves from MCS 1 to MCS 13, twelve rungs for 46 dB. Then press the HE (Wi-Fi 6) button: the two fastest rungs disappear.', zh: '在上面的阶梯里，把滑杆先调到 15.9 dB，再调到 62.3 dB：最高可用级从 MCS 1 变成 MCS 13——46 dB 换来十二级。再按下 HE（Wi-Fi 6）那个模式按钮，最快的两级就消失了。' },
   ],
   quiz: [

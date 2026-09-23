@@ -22,7 +22,7 @@ export const airtime: Lesson = {
   },
   outcomes: [
     { en: 'read a frame’s duration off the timeline and say which part of it is payload', zh: '在时间轴上读出一帧的时长，并说出其中哪一段才是净荷' },
-    { en: 'explain why every frame pays the same fixed opening cost', zh: '解释为什么每一帧都要付同样的固定开场费' },
+    { en: 'explain why every frame pays the same preamble, whatever it carries', zh: '解释为什么每一帧都要付同样长的前导，不管它装了什么' },
     { en: 'say why the acknowledgement is worth the air it costs', zh: '说清确认帧为什么值得它占掉的那点空口时间' },
   ],
   needs: ['radio-primer', 'decode-thresholds', 'frame-anatomy', 'frame-anatomy-bytes'],
@@ -30,10 +30,6 @@ export const airtime: Lesson = {
     { term: 'ACK', plain: {
       en: 'acknowledgement: the tiny frame a receiver sends straight back to say the frame arrived intact',
       zh: '确认帧：接收方立刻回发的一个小帧，意思是“这帧我完整收到了”',
-    } },
-    { term: 'preamble', plain: {
-      en: 'the front of every frame: the fixed, already-known signal whose bytes the last lesson counted, there so the receiver can lock on before the data starts',
-      zh: '每一帧的开头，也就是上一课数过字节的那段“前面”：固定的、双方早已约好的信号，用处是让接收端在数据开始之前先锁住这一帧',
     } },
     { term: 'payload', plain: {
       en: 'the part of a frame that carries what was actually being sent',
@@ -54,16 +50,16 @@ export const airtime: Lesson = {
       zh: '载入仿真，跳到第一个数据帧。把鼠标悬在它上面：提示框会给出帧的大小、速率和精确时长。房间里其他人付的，就是这个时长。蓝色是接入点（AP）的泳道，绿色是站点的。',
     } },
     { heading: { en: 'Only the middle part grows', zh: '会变长的只有中间那段' }, text: {
-      en: 'After the preamble come the data symbols: equal-length chunks of signal, each carrying a fixed number of bits. Double the payload and you double the symbols; choose a faster coding and each symbol holds more, so fewer are needed. A big frame spends most of its airtime on the message; a small one spends most of it on the opening.',
-      zh: '前导之后是数据符号：一段段等长的信号，每段装固定数量的比特。净荷翻倍，符号数就翻倍；换一档更快的编码，每个符号装得更多，需要的符号就更少。大帧的空口时间大头花在消息上，小帧的大头却花在开场上。',
+      en: 'After the preamble come the data symbols: equal-length chunks of signal, each carrying a fixed number of bits. Double the payload and you double the symbols; choose a faster coding and each symbol holds more, so fewer are needed. A big frame spends most of its airtime on the message; a small one spends most of it on the preamble.',
+      zh: '前导之后是数据符号：一段段等长的信号，每段装固定数量的比特。净荷翻倍，符号数就翻倍；换一档更快的编码，每个符号装得更多，需要的符号就更少。大帧的空口时间大头花在消息上，小帧的大头却花在前导上。',
     } },
     { heading: { en: 'And the air is paid for twice', zh: '而且这段空口要付两遍' }, text: {
       en: 'The sender cannot hear a collision: while it transmits, its own signal deafens it. Silence tells it nothing, and only the receiver can report that the frame survived. That report is the ACK — a few bytes, sent back after a short fixed pause. It is tiny, never optional, and charged to every exchange.',
       zh: '发送方听不见碰撞：发送的时候，自己的信号把耳朵震聋了。所以安静对它毫无信息量，只有接收方才能报告这一帧活着到达。这份报告就是 ACK——只有几个字节，在一段固定的短暂停顿之后回过来。它很小，却永远不是可选项；而且这段停顿加上 ACK，每一次交互都要记账。',
     } },
     { heading: { en: 'So what does an exchange cost?', zh: '那么一次交互到底花多少？' }, text: {
-      en: 'One exchange is three things: a fixed opening, the payload, a fixed closing. Only the middle depends on what you sent. That is why a network of many small frames can be busy all day and move almost nothing, and why nearly every later trick spreads those fixed costs over more data.',
-      zh: '所以一次交互由三样东西组成：固定的开场、净荷、固定的收尾。只有中间那样取决于你发了什么。这就是为什么一个净发小帧的网络可以整天忙得不可开交却几乎没搬动什么；也是为什么后面几乎每一招，都是把这些固定开销摊到更多数据上去。',
+      en: 'One exchange is three things: the preamble in front, the payload, and the pause and answer behind. Only the middle depends on what you sent. That is why a network of many small frames can be busy all day and move almost nothing, and why nearly every later trick spreads those fixed costs over more data.',
+      zh: '所以一次交互由三样东西组成：前面的前导、净荷，以及后面那段停顿加回答。只有中间那样取决于你发了什么。这就是为什么一个净发小帧的网络可以整天忙得不可开交却几乎没搬动什么；也是为什么后面几乎每一招，都是把这些固定开销摊到更多数据上去。',
     } },
   ],
   numbers: [
@@ -74,7 +70,7 @@ export const airtime: Lesson = {
       [{ en: '6 data symbols × 13.6 µs', zh: '6 个数据符号 × 13.6 µs' }, N('81.6 µs'), { en: 'the 1430-byte payload', zh: '那 1430 字节的净荷' }, N('§27.3.10')],
       [{ en: 'The whole data frame', zh: '整个数据帧' }, N('125.6 µs'), { en: 'what the timeline block measures', zh: '时间轴上那个色块量的就是它' }, N('§27.3.10')],
       [{ en: 'The pause before the answer', zh: '回答之前的停顿' }, N('16 µs'), { en: 'the same for every exchange', zh: '每一次交互都一样' }, N('§17.4.4')],
-      [{ en: 'The ACK', zh: 'ACK' }, N('28 µs'), { en: '14 bytes at a rate every station can read', zh: '14 个字节，用人人都解得出的低速率发' }, N('§17.4.3')],
+      [{ en: 'The ACK', zh: 'ACK' }, N('28 µs'), { en: '14 bytes at the highest of the mandatory 6, 12 and 24 Mb/s not above the frame’s own: 24 Mb/s here', zh: '14 个字节，速率在 6、12、24 Mb/s 这三个强制速率里取不超过本帧参考速率的最高一个：这里是 24 Mb/s' }, N('§17.4.3')],
       [{ en: 'The whole exchange', zh: '整次交互' }, N('169.6 µs'), { en: '88.0 µs of it fixed, 81.6 µs payload', zh: '其中固定开销 88.0 µs，净荷 81.6 µs' }, N('—')],
     ] },
     { kind: 'formula', heading: { en: 'Where the time goes', zh: '时间花在哪儿' }, text: {
@@ -93,8 +89,8 @@ export const airtime: Lesson = {
         zh: '拿这个比特数去除以所用那一级里一个符号能装的比特数——本链路在 20 MHz、单流下是 1950——然后向上取整。正因为向上取整，最后一个符号里总有一段是填充。' },
       { en: 'Multiply the symbol count by the symbol time, 13.6 µs, and add the preamble, 44.0 µs. The preamble is fixed for this generation of radio and never depends on what the frame carries. The sum is the block you measured on the timeline.',
         zh: '把符号数乘以符号时长 13.6 µs，再加上前导的 44.0 µs。前导对这一代电台是定值，与帧里装了什么无关。这两项之和，就是你在时间轴上量到的那个色块。' },
-      { en: 'Then run the identical formula for the answer, at its own much slower rate: the ACK is 14 bytes and goes out at 24 Mb/s, so that every radio in the room can read it.',
-        zh: '再拿同一条公式去算那个回答，只是它用的速率慢得多：ACK 是 14 个字节，以 24 Mb/s 发出去，好让屋里每一台电台都解得出来。' },
+      { en: 'Then run the identical formula for the answer. The ACK is 14 bytes, and its rate is not a fixed one: it is the highest mandatory rate that does not exceed the data frame’s own reference rate — 24 Mb/s on this link.',
+        zh: '再拿同一条公式去算那个回答。ACK 是 14 个字节，而它的速率并不是一个定值：取不超过数据帧自身参考速率的那个最高强制速率——在这条链路上是 24 Mb/s。' },
       { en: 'At that rate the answer needs two symbols of 4 µs behind a 20 µs preamble — 28 µs — and the 16 µs pause in front of it closes the exchange.',
         zh: '在这个速率上，回答需要两个 4 µs 的符号，前面挂一段 20 µs 的前导，合计 28 µs；再补上它前面那 16 µs 的停顿，这次交互就算走完了。' },
     ] },
@@ -109,8 +105,8 @@ export const airtime: Lesson = {
       [{ en: 'Plus the pause and the answer', zh: '再加上停顿与回答' }, N('125.6 + 16 + 28 = 169.6 µs')],
     ] },
     { heading: { en: 'The tax, in one number', zh: '这笔税，用一个数说清' }, text: {
-      en: 'Of the 169.6 µs this exchange holds the channel, 88.0 µs is opening, pause and answer. The payload is the other 81.6 µs — under half.',
-      zh: '这次交互一共占住信道 169.6 µs，其中 88.0 µs 是开场、停顿和回答。净荷只占剩下的 81.6 µs——还不到一半。',
+      en: 'Of the 169.6 µs this exchange holds the channel, 88.0 µs is preamble, pause and answer. The payload is the other 81.6 µs — under half.',
+      zh: '这次交互一共占住信道 169.6 µs，其中 88.0 µs 是前导、停顿和回答。净荷只占剩下的 81.6 µs——还不到一半。',
     } },
     { heading: { en: 'How busy is the room?', zh: '这个房间有多忙？' }, text: {
       en: 'In the first 100 ms the access point sends 117 such frames and gets 116 answers — about 18 % of the time. The rest is silence.',
@@ -171,7 +167,7 @@ export const airtime: Lesson = {
         { en: 'It does not change', zh: '完全不变' },
       ],
       answer: 1,
-      explain: { en: 'Only the symbols shrink, six to three. Opening, pause and answer are unchanged, so the exchange lands at 128.8 µs.', zh: '缩水的只有符号，从六个变成三个。开场、停顿和回答都没变，所以整次交互落在 128.8 µs。' },
+      explain: { en: 'Only the symbols shrink, six to three. Preamble, pause and answer are unchanged, so the exchange lands at 128.8 µs.', zh: '缩水的只有符号，从六个变成三个。前导、停顿和回答都没变，所以整次交互落在 128.8 µs。' },
     },
   ],
 }

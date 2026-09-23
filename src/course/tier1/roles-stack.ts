@@ -177,7 +177,7 @@ export const rolesStack: Lesson = {
   ],
   observe: [
     { en: 'Hover the data blocks at hop 1 and hop 2: the same payload number, addressed first to the access point and then sent by it to Phone A. No data frame here goes station to station.', zh: '悬停第一跳与第二跳的数据块：载荷编号相同，先发往接入点，再由它发给手机 A。这里没有任何数据帧是站点直发站点的。' },
-    { en: 'At the first uplink frame the Laptop sends a short reservation frame, then one burst carrying 50 payloads. The TV\'s lane holds no data frame at all: a device that only receives still transmits, but only to answer. Run a second and its receive figure settles near 0.7 ms, against 1.3 ms phone to phone.', zh: '在第一个上行帧处，笔记本先发一个短的预约帧，接着是承载 50 份载荷的一个突发。电视那条泳道上一个数据帧也没有：只收不发的设备仍然要发送，但只是为了作答。跑满一秒，它的接收数值稳定在约 0.7 ms，而手机互传是 1.3 ms。' },
+    { en: 'At the first uplink frame the Laptop sends a short reservation frame, then one burst: 50 payloads behind one preamble. The TV\'s lane holds no data frame at all: a device that only receives still transmits, but only to answer. Run a second and its receive figure settles near 0.7 ms, against 1.3 ms phone to phone.', zh: '在第一个上行帧处，笔记本先发一个短的预约帧，接着是一个突发：50 份载荷跟在同一个前导后面。电视那条泳道上一个数据帧也没有：只收不发的设备仍然要发送，但只是为了作答。跑满一秒，它的接收数值稳定在约 0.7 ms，而手机互传是 1.3 ms。' },
   ],
   tryThis: [
     { en: 'Drag Phone B across the room to sit next to Phone A. Every payload still goes by way of the access point, still about 1.3 ms: the path follows the network, not the distance.', zh: '把手机 B 拖到手机 A 旁边。每一份载荷仍要绕经接入点，仍约 1.3 ms：路径跟着这张网走，而不是跟着距离走。' },

@@ -38,7 +38,7 @@ export const anomaly: Lesson = {
       en: 'the drop in everybody’s throughput caused by one station that has to send slowly',
       zh: '因为有一台站点只能慢慢发，导致所有人的吞吐量都掉下来的现象',
     } },
-    { term: 'rate adaptation', plain: {
+    { term: 'rate control', plain: {
       en: 'a sender stepping down to a slower, sturdier coding after its frames keep failing',
       zh: '发送方在帧接连失败之后，退到更慢、更结实的编码上去',
     } },
@@ -49,8 +49,8 @@ export const anomaly: Lesson = {
       zh: '两台站点，队列都永远排不空，轮流上空口。每一台都先熬过规定的空闲时间，再数完自己抽到的那个随机的时隙数，数到零就发。这套流程里没有任何一步去问帧有多大、要发多久。跑得久了，两台抢到空口的次数差不多相等——规则承诺的，恰恰就是这个。',
     } },
     { heading: { en: 'But a turn is not a fixed length', zh: '可一轮的长短并不固定' }, text: {
-      en: 'One of the two sits across the apartment, behind a wall. Its signal arrives at the access point weak, so it cannot use the quick, delicate coding the near station uses; it must fall back to a slower, sturdier one that packs fewer bits into each symbol. Same bytes, same frame — several times the airtime. And when its frames start failing, it steps down another rung — that is rate adaptation — making each turn longer still.',
-      zh: '两台之中有一台在公寓的另一头，隔着一堵墙。它的信号到达接入点时已经很弱，用不了近端那种又快又娇气的编码，只能退到更慢、更结实的一档，每个符号装的比特更少。字节一样，帧也一样——空口时间却是好几倍。而当它的帧开始失败，它又会自己往下退一档——这就是速率自适应——于是每一轮更长了。',
+      en: 'One of the two sits across the apartment, behind a wall. Its signal arrives at the access point weak, so it cannot use the quick, delicate coding the near station uses; it must fall back to a slower, sturdier one that packs fewer bits into each symbol. Same bytes, same frame — several times the airtime. And when its frames start failing, it steps down another rung — that is rate control — making each turn longer still.',
+      zh: '两台之中有一台在公寓的另一头，隔着一堵墙。它的信号到达接入点时已经很弱，用不了近端那种又快又娇气的编码，只能退到更慢、更结实的一档，每个符号装的比特更少。字节一样，帧也一样——空口时间却是好几倍。而当它的帧开始失败，它又会自己往下退一档——这就是速率控制——于是每一轮更长了。',
     } },
     { kind: 'watch', jump: 0, heading: { en: 'Put the two turns side by side', zh: '把两种轮次摆在一起看' }, text: {
       en: 'Load the simulation and jump to the first data frame. Both lanes start at the same instant. Now look at how far each green block reaches: the two carry the same number of bytes.',
@@ -155,7 +155,7 @@ export const anomaly: Lesson = {
     J('first data frame', '第一个数据帧', firstData),
   ],
   observe: [
-    { en: 'The far station’s green blocks are much longer than the near one’s, and they come in three lengths — 704, 1044 and 1384 µs — as rate adaptation steps it down. Same bytes every time.', zh: '远端站点的绿色块比近端的长得多，而且有三种长度——704、1044、1384 µs——那是速率自适应一档档把它调下去的结果。字节数每次都一样。' },
+    { en: 'The far station’s green blocks are much longer than the near one’s, and they come in three lengths — 704, 1044 and 1384 µs — as rate control steps it down. Same bytes every time.', zh: '远端站点的绿色块比近端的长得多，而且有三种长度——704、1044、1384 µs——那是速率控制一档档把它调下去的结果。字节数每次都一样。' },
     { en: 'Inspector: the two take a comparable number of turns in the first 200 ms, 209 and 154, yet the far station holds more than twice the airtime the near one does.', zh: '检视器：前 200 ms 里两者拿到的轮次相当，209 次与 154 次，可远端占用的空口时间是近端的两倍多。' },
     { en: 'The near station’s throughput is far below what it gets alone: 209 frames delivered in 200 ms here, 510 with the far station removed. Together the two hold the air more than nine tenths of the time, and still deliver less than the near station did by itself.', zh: '近端站点的吞吐量远低于它独占信道时的水平：这里 200 ms 送达 209 帧，把远端删掉则是 510 帧。两台加在一起把空口占住了九成以上的时间，送达的量却还不如近端自己一台的时候。' },
   ],

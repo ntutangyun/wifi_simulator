@@ -62,7 +62,7 @@ export const frameAnatomy: Lesson = {
   outcomes: [
     { en: 'read the header of any frame in the simulator and say what kind it is', zh: '读懂仿真里任意一帧的帧头，说出它是哪一类' },
     { en: 'work out which address must answer and which is the far end', zh: '判断哪个地址必须作答，哪个才是远端' },
-    { en: 'say what the four bytes at the end do, and what happens when they disagree', zh: '说出帧尾那四个字节的作用，以及对不上时会怎样' },
+    { en: 'say what the four bytes at the end are for, and what happens when one does not come through', zh: '说出帧尾那四个字节是干什么的，以及一帧没能收下来时会怎样' },
     { en: 'tell a plain data frame from one carrying a traffic mark', zh: '把普通数据帧和带业务标记的数据帧区分开' },
   ],
   needs: ['roles-stack'],
@@ -97,8 +97,8 @@ export const frameAnatomy: Lesson = {
       en: 'The layer above hands a payload to the MAC — the part of the radio that wraps and addresses it. That payload is the MSDU. The MAC puts a header in front and a check behind, and the parcel is the MPDU — one frame. Everything in this lesson sits inside that parcel, in front of your data.',
       zh: '上面那一层把一份载荷交给 MAC——射频里负责加头、写地址的那一部分。这份载荷就是 MSDU。MAC 在它前面加一段头、后面加一个校验，做成的这个包裹就是 MPDU——也就是一帧。这一课讲的全部内容，都在这个包裹里、在你的数据前面。',
     } },
-    { heading: { en: 'And then the radio puts a front on it', zh: '再由射频给它加个前脸' }, text: {
-      en: 'The frame goes down to the PHY — the radio\'s signal-making part — which cannot just start sending bytes: a receiver has to notice that something began. So it puts a known pattern in front, and what leaves the antenna — pattern first, frame behind — is the PPDU. One block on the timeline is one of those.',
+    { heading: { en: 'And then the radio puts a pattern in front', zh: '再由射频在它前面加一段图案' }, text: {
+      en: 'The frame goes down to the PHY — the radio\'s signal-making part — which cannot just start sending bytes: a receiver has to notice that something began. So it puts a known pattern in front, and what leaves the antenna — pattern first, frame behind — is the PPDU. One timeline block is one of those.',
       zh: '帧接着交给 PHY——射频里把它变成信号的那一部分——而 PHY 不能直接开始发字节：接收端得先察觉“有东西开始了”。所以 PHY 会在最前面放一段已知的图案；离开天线的这整个东西——先图案、后帧——就是 PPDU。时间轴上的一个块，就是其中一个。',
     } },
     { kind: 'watch', jump: 0, heading: { en: 'Open one and look', zh: '打开一帧看看' }, text: {
@@ -106,7 +106,7 @@ export const frameAnatomy: Lesson = {
       zh: '载入仿真，跳到旧笔记本的第一帧，展开“空中字段”。下面提到的每一个字段都在那张列表里，顺序和这一课讲的一样。',
     } },
     { heading: { en: 'The first two bytes say what this is', zh: '头两个字节先说清这是什么' }, text: {
-      en: 'A receiver reads the front of the header first, so the first two bytes tell it what to do at all: which family this frame belongs to — data, control or management — and the exact kind within it. Two more bits give the direction, into the network or out of it, and one says "this is a repeat".',
+      en: 'A receiver reads the front of the header first, so the first two bytes tell it what to do at all: which family this frame belongs to — data, control or management — and the exact kind within it. Two bits give the direction, into the network or out, and one says "this is a repeat".',
       zh: '接收端最先读到的是帧头前端，所以头两个字节要让它能决定接下来做什么：这一帧属于哪一大类——数据、控制还是管理——以及在这一类里具体是哪一种。另有两个比特给出方向，是进网还是出网；还有一个比特说“这是重发的”。',
     } },
     { heading: { en: 'Who must catch it', zh: '谁必须接住它' }, text: {
@@ -114,12 +114,12 @@ export const frameAnatomy: Lesson = {
       zh: '接下来是三个地址，每个六字节：必须接住这一帧并作答的那台射频、发出它的那台射频，以及这份载荷真正要走完那段路的终点。正是把它们分开写，才使得“发给隔壁那部手机”的消息，收件人可以是大家都经过的那台路由器——接入点（AP）。',
     } },
     { heading: { en: 'How long, and which one in the run', zh: '还要多久，以及这是第几个' }, text: {
-      en: 'Two small fields follow: one says how much longer the exchange needs after this frame, so the neighbours stay quiet for the answer too; the other numbers each payload, and a repeat keeps its number, which is how a duplicate is recognised.',
+      en: 'Two small fields follow: one says how much longer the exchange needs after this frame, so the neighbours stay quiet for the answer; the other numbers each payload, and a repeat keeps its number — how a duplicate is recognised.',
       zh: '随后是两个小字段：一个说明这一帧之后交互还要多久，好让邻居连回复也一并让出来；另一个给每份载荷编号，重发沿用原号——重复帧正是这样被认出来的。',
     } },
     { heading: { en: 'A check at the end', zh: '末尾的那个校验' }, text: {
-      en: 'The last four bytes are the FCS, and they are not part of the message. The sender runs everything in front of them through a fixed piece of arithmetic that is the CRC, and writes the result down; the receiver does the same and compares. If the two disagree it says nothing at all, and the sender sends the frame again.',
-      zh: '末尾的那四个字节就是 FCS，它并不属于消息本身。发送端把前面的所有内容过一遍固定的算术，也就是 CRC，把结果写下来；接收端照样算一遍再比对。两者对不上，它就什么都不说；发送端于是把这一帧再发一次。',
+      en: 'The last four bytes are the FCS. In the standard the receiver tests the frame against them, recomputing the arithmetic that is the CRC and comparing. This simulator never computes them: what decides a reception here is the ratio the frame arrived at, for the whole frame, against what its rung required. Either way, a frame that does not come through gets no answer at all, and the sender sends it again.',
+      zh: '末尾的那四个字节就是 FCS。在标准里，接收端拿它来检验这一帧：发送端把前面所有内容过一遍固定的算术，也就是 CRC，接收端照样算一遍再比对。本仿真器从不去算它——这里判定一次接收成不成的，是这一帧到达时的比值：整帧都要够它那一级的要求。不论哪条路，没能收下来的帧得到的回应都是什么都没有，发送端于是把它再发一次。',
     } },
     { heading: { en: 'A mark for the kind of traffic', zh: '给业务类别打的那个标记' }, text: {
       en: 'A voice call and a file upload want different things from a network, so a modern client radio (a station, STA) adds two more header bytes carrying a traffic mark (the QoS field): which of four kinds of traffic this frame is, and how it wants to be answered. Those two bytes are the whole difference between a plain data frame and a marked one.',
@@ -155,7 +155,7 @@ export const frameAnatomy: Lesson = {
       [{ en: 'Neither, or management', zh: '两者皆非，或管理帧' }, N('RA = DA'), N('TA = SA'), N('BSSID')],
     ] },
     { text: {
-      en: 'RA (the radio that must answer) and TA (the one that sent it) are the two ends of this hop; SA (the source) and DA (the destination) are the two ends of the payload\'s own journey. This room has no server behind the router, so an uplink frame names the router in all three.',
+      en: 'RA (the radio that must answer) and TA (the one that sent it) are the two ends of this hop; SA (the source) and DA (the destination) are the two ends of the payload\'s own journey. This room has no server behind the router, so an uplink frame names it in all three.',
       zh: 'RA（必须作答的那台射频）与 TA（发出它的那台）是这一跳的两头；SA（源）与 DA（目的）则是这份载荷自己那段路程的两头。这个房间里路由器背后没有服务器，所以上行帧的三个地址指的都是路由器。',
     } },
     { kind: 'table', heading: { en: 'Four kinds of traffic, four marks', zh: '四类业务，四个标记' }, head: [
@@ -167,7 +167,7 @@ export const frameAnatomy: Lesson = {
       [{ en: 'Voice', zh: '语音' }, N('6, 7'), N('6')],
     ] },
     { text: {
-      en: 'The numbers are names, not an order: background is 1 and best effort is 0, yet background is the one that yields. The phone in this room is on a call, so its frames are marked 6.',
+      en: 'The numbers are names, not an order: background is 1 and best effort is 0, yet background yields. The phone here is on a call, so its frames are marked 6.',
       zh: '这些数字是名字，不是次序：背景是 1、尽力而为是 0，可该让路的偏偏是背景。这个房间里的手机正在通话，所以它的帧标的是 6。',
     } },
     { kind: 'steps', heading: { en: 'Building one frame, step by step', zh: '造出一帧，一步一步来' }, items: [
@@ -266,14 +266,14 @@ export const frameAnatomy: Lesson = {
       explain: { en: 'Address 1 is always the radio that must catch the frame; going uphill that is the access point, which is also the BSSID. Address 3 is where the payload is really headed.', zh: '地址 1 永远是必须接住这一帧的那台射频；朝上走时那就是接入点，它同时也是 BSSID。地址 3 才是这份载荷真正要去的地方。' },
     },
     {
-      q: { en: 'A frame arrives and the receiver\'s arithmetic does not match the four bytes at the end. What does it do?', zh: '一帧到了，接收端算出来的结果和帧尾那四个字节对不上。它会怎么做？' },
+      q: { en: 'A frame arrives too weak against the interference around it, and the receiver cannot read it. What does it do?', zh: '一帧到了，可它比周围的干扰弱得太多，接收端读不出来。它会怎么做？' },
       options: [
         { en: 'Answers anyway, and lets the layer above notice', zh: '照样作答，让上层自己去发现' },
         { en: 'Sends back a complaint naming the damaged field', zh: '回一条抱怨，指明是哪个字段坏了' },
         { en: 'Nothing at all — and the sender, hearing no answer, sends it again', zh: '什么也不做——发送端等不到回复，就会再发一次' },
       ],
       answer: 2,
-      explain: { en: 'A damaged frame may have a damaged address too, so answering it would be guesswork. Silence is the whole mechanism: no answer means resend.', zh: '一个坏掉的帧，地址也可能是坏的，回它就成了瞎猜。沉默本身就是全部机制：没有回复，就重发。' },
+      explain: { en: 'A frame that did not come through may have an unreadable address too, so answering it would be guesswork. Silence is the whole mechanism: no answer means resend.', zh: '没能收下来的帧，地址那几个字节也一样读不出，回它就成了瞎猜。沉默本身就是全部机制：没有回复，就重发。' },
     },
     {
       q: { en: 'A lone data frame writes 44 µs into its Duration field. What is that protecting?', zh: '一个单独的数据帧在持续时间字段里写了 44 µs。它保护的是什么？' },

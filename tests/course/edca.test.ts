@@ -150,6 +150,16 @@ describe('edca · what the three stations actually did', () => {
     expect(ifsLens(rs, 'sta-1', 'EIFS')).toEqual([])
     expect(ifsLens(rs, 'sta-3', 'EIFS')).toEqual([])
     expect((OFDM_5G.eifsNs - OFDM_5G.difsNs + aifsNs(3, OFDM_5G)) / US).toBe(103)
+    // Whole-track review I2: what earns that longer wait is a reception the ratio did not
+    // carry — RX_FAIL, with one of the reasons channel.ts can produce — never a failed
+    // checksum. `ifs` and `nav` now say so in the same words this step does.
+    const eifs = ofType(rs, 'IFS_START').filter((r) => r.node === 'sta-2' && r.kind === 'EIFS')
+    expect(eifs.length).toBeGreaterThan(0)
+    for (const e of eifs) {
+      const fail = ofType(rs, 'RX_FAIL').filter((r) => r.node === 'sta-2' && r.t <= e.t).at(-1)!
+      expect(fail, 'an EIFS with no failed reception behind it').toBeDefined()
+      expect(['collision', 'lowSinr', 'txDuringRx', 'capture']).toContain(fail.reason)
+    }
   })
 })
 
@@ -170,6 +180,11 @@ describe('edca · the caller’s first voice frame, run through the steps', () =
     const decs = ofType(rs, 'BACKOFF_DEC').filter((r) => r.node === 'sta-1' && r.t >= draw.t && r.t <= tx.t)
     expect(decs.map((d) => [d.t / MS, d.value])).toEqual([[23.1156, 1], [23.1246, 0]])
     expect(decs[1].t - decs[0].t).toBe(OFDM_5G.slotNs)
+    // "a counter already at zero waits one more boundary, 9 µs" — the row the whole-track
+    // review found missing: without it the table went 23.1156 + 9 µs = 23.1246 and the
+    // reader's arithmetic could not reach the answer. The closure, not just the endpoints:
+    expect(tx.t - decs[1].t).toBe(OFDM_5G.slotNs)
+    expect((decs[1].t + OFDM_5G.slotNs) / MS).toBe(23.1336)
     // "the voice frame goes out at"
     expect(tx.t / MS).toBe(23.1336)
     // "a background queue starting at the same instant would still owe 27 µs"

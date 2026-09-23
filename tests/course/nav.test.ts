@@ -136,6 +136,12 @@ describe('nav · one long freeze, taken apart', () => {
     expect(bEnd.t).toBe(746_000)
     expect(bEnd.t - freeze.t).toBe(248_000)
     const navSet = ofType(recs(), 'NAV_SET').find((r) => r.node === 'sta-1' && r.t === 746_000)!
+    // Whole-track review I2: the lesson used to say the reservation is trusted once the frame
+    // "passes its check". What the engine emits at that instant is RX_OK — the decode that
+    // channel.ts grants on the reception's worst SINR — and the NAV follows from it.
+    const rxOk = ofType(recs(), 'RX_OK').find((r) => r.node === 'sta-1' && r.t === 746_000)!
+    expect(rxOk.from).toBe('sta-2')
+    expect(ofType(recs(), 'RX_FAIL').some((r) => r.node === 'sta-1' && r.t === 746_000)).toBe(false)
     expect(navSet.untilNs).toBe(790_000)
     expect(navSet.untilNs - navSet.t).toBe(44_000)
     const difs = ofType(recs(), 'IFS_START').find((r) => r.node === 'sta-1' && r.t === 790_000)!

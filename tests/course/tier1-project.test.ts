@@ -72,7 +72,9 @@ describe('tier1-project · the lesson itself', () => {
     expect(tier1Project.module).toBe(1)
     expect(COURSE_ORDER.indexOf('tier1-project')).toBe(COURSE_ORDER.indexOf('bianchi-vs-sim') + 1)
     expect(COURSE_ORDER.indexOf('tier1-project-review')).toBe(COURSE_ORDER.indexOf('tier1-project') + 1)
-    expect(tier1Project.terms!.map((t) => t.term)).toEqual(['brief', 'link budget', 'margin', 'DCF', 'saturated'])
+    // Whole-track review M2: `margin` restated decode-thresholds' `rate margin` and `saturated`
+    // restated bianchi's `saturation`; both are dropped, and both owners are in `needs`.
+    expect(tier1Project.terms!.map((t) => t.term)).toEqual(['brief', 'link budget', 'DCF'])
     // it is a brief, not exposition: the four questions and the discipline that goes with them
     quotes('(a) How strong each laptop arrives', '(b) How long one data frame', '(c) How often two saturated senders',
       '(d) How the air divides', 'once you have read a result you can no longer honestly predict it')

@@ -43,14 +43,6 @@ export const tier1ProjectReview: Lesson = {
       en: 'the thing you actually count on screen, standing in for the quantity you meant',
       zh: '你在屏幕上真正数的那样东西，用来代替你心里想要的那个量',
     } },
-    { term: 'capture', plain: {
-      en: 'two frames overlap, but one arrives so much stronger that it is decoded anyway',
-      zh: '两个帧重叠了，但其中一个到达得强得多，于是照样被解了出来',
-    } },
-    { term: 'residual', plain: {
-      en: 'the part of a gap no named mechanism explains: reported, not fitted away',
-      zh: '一段差距里没有任何已点名机制能解释的部分：如实报出，而不是拟合掉',
-    } },
   ],
   picture: [
     { heading: { en: 'Four runs, one sheet', zh: '四次实跑，一张纸' }, text: {
@@ -74,8 +66,8 @@ export const tier1ProjectReview: Lesson = {
       zh: '同一个瞬间，屋里每个人给它的定价都不一样。回答没等到的那台，要熬完自己的 ACK 超时。锁上了前导却解不出这一帧的那台，必须假定有一个它听不见的回答正在路上，于是要等更长的 EIFS。而什么也没听见的那台，等一个普通的 DIFS 就接着走。',
     } },
     { heading: { en: 'What is still missing, and the write-up', zh: '还差的那一点，以及写报告' }, text: {
-      en: 'Two named mechanisms account for most of the gap, and rate adaptation for most of what is left: every frame on screen is longer than the one you priced, because a sender that keeps failing steps down and cannot tell a collision from a fading link. A couple of points still remain. Report them as a residual — saying so is part of the answer, not a failure of it.',
-      zh: '两个点了名的机制解释了大部分差距，而剩下的大部分要记在速率自适应头上：屏幕上每个帧都比你定价的那个略长，因为接连失败的发送方会往下降档，而它分不清碰撞与衰落。把这些都算完，还剩下两个百分点左右。把它们当作残差报出来。说出这一点是答案的一部分，而不是答案的缺陷。',
+      en: 'Two named mechanisms account for most of the gap, and rate control for most of what is left: every frame on screen is longer than the one you priced, because a sender that keeps failing steps down and cannot tell a collision from a fading link. A couple of points still remain. Report them as a residual — saying so is part of the answer, not a failure of it.',
+      zh: '两个点了名的机制解释了大部分差距，而剩下的大部分要记在速率控制头上：屏幕上每个帧都比你定价的那个略长，因为接连失败的发送方会往下降档，而它分不清碰撞与衰落。把这些都算完，还剩下两个百分点左右。把它们当作残差报出来。说出这一点是答案的一部分，而不是答案的缺陷。',
     } },
   ],
   numbers: [
@@ -111,7 +103,7 @@ export const tier1ProjectReview: Lesson = {
         { en: 'about 46 % of losers survive; the two differ by 34 dB', zh: '约 46 % 的输家活了下来；两台相差 34 dB' }],
       [{ en: 'The deaf late start', zh: '聋掉的迟到起跑' }, { en: '1,342 of 2,399 laptop-against-laptop collisions', zh: '2,399 次笔记本互撞中有 1,342 次' },
         N('10.46 % → 23.15 %')],
-      [{ en: 'Frames grow under rate adaptation', zh: '帧在速率自适应下变长' }, N('148.1 vs 129.6 µs · 600.9 vs 524.0 µs'),
+      [{ en: 'Frames grow under rate control', zh: '帧在速率控制下变长' }, N('148.1 vs 129.6 µs · 600.9 vs 524.0 µs'),
         { en: 'most of the 11.6 % shortfall', zh: '吞吐少掉的 11.6 % 的大部分' }],
       [{ en: 'Residual', zh: '残差' }, { en: 'nothing in the log names it', zh: '日志里没有东西指认它' },
         { en: 'a couple of points, reported not fitted', zh: '两个百分点左右，如实报出而不拟合掉' }],
@@ -157,8 +149,8 @@ export const tier1ProjectReview: Lesson = {
       zh: '重传率看上去与预测的碰撞概率很接近，而其中的原因应当令人不安：两个符号相反的误差。真实的重叠率是预测的两倍多，那是“聋掉的迟到起跑”造成的；捕获随后又把其中约 46 % 从重传计数器前面藏了起来。两者一乘，就落回到模型附近——可模型的两半，没有一半是对的。',
     } },
     { heading: { en: 'Why the moved variant agrees so well', zh: '为什么搬走之后的变体吻合得那么好' }, text: {
-      en: 'Move the study laptop behind the same wall and the two frames become long and nearly equal. A station that finishes a 415 µs frame and waits out its timeout no longer finds the other one still going, so the deaf late start has almost nothing left to catch — and the measured overlap rate lands within a point of the model. The throughput still falls short, because rate adaptation is untouched by any of this.',
-      zh: '把书房笔记本挪到同一堵墙之后，两个帧都变得又长又几乎相等。一台发完 415 µs 的帧、又等完超时的站点，不再会发现对方仍在发，于是“聋掉的迟到起跑”几乎无从下手——实测的重叠率也就落在模型一个百分点之内。吞吐依旧偏低，因为速率自适应完全不受这些影响。',
+      en: 'Move the study laptop behind the same wall and the two frames become long and nearly equal. A station that finishes a 415 µs frame and waits out its timeout no longer finds the other one still going, so the deaf late start has almost nothing left to catch — and the measured overlap rate lands within a point of the model. The throughput still falls short, because rate control is untouched by any of this.',
+      zh: '把书房笔记本挪到同一堵墙之后，两个帧都变得又长又几乎相等。一台发完 415 µs 的帧、又等完超时的站点，不再会发现对方仍在发，于是“聋掉的迟到起跑”几乎无从下手——实测的重叠率也就落在模型一个百分点之内。吞吐依旧偏低，因为速率控制完全不受这些影响。',
     } },
   ],
   sources: [
@@ -167,7 +159,7 @@ export const tier1ProjectReview: Lesson = {
     { en: 'EIFS after a failed reception, and the rule that a station may not treat such a medium as simply idle, are §10.3.2.3; the ACK timeout is §10.3.2.9.',
       zh: '接收失败之后的 EIFS，以及“不得把这样的介质径直当作空闲”这条规则，见 §10.3.2.3；ACK 超时见 §10.3.2.9。' },
     { en: 'Every count, ratio and timestamp above is this simulator’s, reproducible from the scene’s own seed: a ten-second run of the project flat and of its three variants. The capture rule and the rate-adaptation algorithm behind them are model choices, and the residual is what they do not explain.',
-      zh: '上面每一个计数、比值和时刻都是本仿真器的取值，靠场景自己的种子即可复现：对项目那户人家及其三个变体各跑十秒。其背后的捕获规则与速率自适应算法都是模型取值，而残差正是它们解释不掉的那一部分。' },
+      zh: '上面每一个计数、比值和时刻都是本仿真器的取值，靠场景自己的种子即可复现：对项目那户人家及其三个变体各跑十秒。其背后的捕获规则与速率控制算法都是模型取值，而残差正是它们解释不掉的那一部分。' },
   ],
   scenario: () => projectFlat(),
   variants: projectVariants,

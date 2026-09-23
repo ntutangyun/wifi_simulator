@@ -62,8 +62,8 @@ export const nav: Lesson = {
       zh: '注意这个数没把什么算进去：它自己所在的那一帧。这本来也没必要——那一帧还在空中时，所有人的耳朵本来就报“忙”。所以数据帧预告的，只是那段停顿加上那个回答；而同一次交互里越靠后的帧，带的剩余量就越小。',
     } },
     { heading: { en: 'Frozen, and not knowing for how long', zh: '冻住了，却不知道要冻多久' }, text: {
-      en: 'A station part-way through counting down its own wait simply stops when a frame starts, and at that moment it has no idea how long the interruption will last. It learns the frame’s length from the header; only when the frame has arrived whole and passed its check may it trust the announcement and set its countdown. Most of the wait is spent not knowing when the wait will end.',
-      zh: '一个正数着自己那份等待的站点，在有帧开始时就地停住，而那一刻它根本不知道这次打断会持续多久。它从帧头里得知这一帧有多长；只有当整帧完整到达、校验通过之后，它才可以相信那句预告，并装上自己的倒计时。这段等待的大部分时间，它都不知道等待何时结束。',
+      en: 'A station part-way through counting down its own wait simply stops when a frame starts, and at that moment it has no idea how long the interruption will last. It learns the frame’s length from the header; only when the whole frame has been decoded — its ratio good enough, end to end, for the rung it was sent at — may it trust the announcement and set its countdown. Most of the wait is spent not knowing when the wait will end.',
+      zh: '一个正数着自己那份等待的站点，在有帧开始时就地停住，而那一刻它根本不知道这次打断会持续多久。它从帧头里得知这一帧有多长；只有当整帧都被解了出来——从头到尾，比值都够它所用那一级速率的要求——它才可以相信那句预告，并装上自己的倒计时。这段等待的大部分时间，它都不知道等待何时结束。',
     } },
   ],
   numbers: [
@@ -71,7 +71,7 @@ export const nav: Lesson = {
       { en: 'Piece', zh: '组成' }, { en: 'Duration', zh: '时长' }, { en: 'Where', zh: '出处' },
     ], rows: [
       [{ en: 'The pause before the answer', zh: '回答之前的停顿' }, N('16 µs'), N('§17.4.4')],
-      [{ en: 'The answer itself: 14 bytes at the safe rate', zh: '回答本身：14 个字节，用保底速率发' }, N('28 µs'), N('§17.4.3')],
+      [{ en: 'The answer itself: 14 bytes at the control-response rate of airtime’s step 5, 24 Mb/s here', zh: '回答本身：14 个字节，速率按“空口时间”第 5 步那条控制回应规则定，这里是 24 Mb/s' }, N('28 µs'), N('§17.4.3')],
       [{ en: 'What the data frame announces', zh: '数据帧预告的量' }, N('44 µs'), N('§9.2.4.2')],
       [{ en: 'What the answer announces', zh: '回答预告的量' }, N('0 µs'), { en: 'the exchange is over', zh: '交互到此结束' }],
     ] },
@@ -90,16 +90,16 @@ export const nav: Lesson = {
          zh: '之后 A 的退避计数从 3 继续——那是空口变忙时它还欠着的空闲时隙数' }],
     ] },
     { heading: { en: 'When A learns the total', zh: 'A 什么时候才算得出总数' }, text: {
-      en: 'A freezes at 498 µs knowing only that the channel is busy. B’s frame ends at 746 µs and passes its check; only then can the reservation be trusted, running to 790 µs, with the last wait carrying A to 824 µs.',
-      zh: 'A 在 498 µs 冻结，当时它只知道信道忙。B 的帧在 746 µs 结束并通过校验；直到这时那份预约才可信，它一直管到 790 µs，最后那段等待再把 A 送到 824 µs。',
+      en: 'A freezes at 498 µs knowing only that the channel is busy. B’s frame ends at 746 µs and decodes; only then can the reservation be trusted, running to 790 µs, with the last wait carrying A to 824 µs.',
+      zh: 'A 在 498 µs 冻结，当时它只知道信道忙。B 的帧在 746 µs 结束，并且被解了出来；直到这时那份预约才可信，它一直管到 790 µs，最后那段等待再把 A 送到 824 µs。',
     } },
     { kind: 'steps', heading: { en: 'From a field in a header to a frozen station', zh: '从帧头里的一个字段，到一台冻住的站点' }, items: [
       { en: 'Before it sends, the sender works out what is still to come after this frame has ended — one pause plus the answer’s airtime, 16 + 28 = 44 µs here — and writes that number into the Duration field of the header.',
         zh: '发送方在发出去之前先算清楚：这一帧结束之后还剩些什么——一段停顿加上回答的空口时间，这里是 16 + 28 = 44 µs——再把这个数写进帧头的 Duration 字段。' },
       { en: 'A frame that ends an exchange announces nothing to come. An acknowledgement carries 0 µs, and a Duration of zero sets nobody’s timer.',
         zh: '结束一次交互的那一帧，预告的是“后面没有了”。确认帧带的就是 0 µs；而写着零的 Duration，谁的计时器也装不上。' },
-      { en: 'A station that receives the frame whole, passes its check, and finds the addressee is somebody else computes one instant: the moment this frame ended, plus the Duration it announced.',
-        zh: '一台把这一帧完整收下、校验也通过、再发现收件人是别人的站点，会算出一个时刻：这一帧结束的那一刻，加上它预告的 Duration。' },
+      { en: 'A station that decodes the frame whole and finds the addressee is somebody else computes one instant: the moment this frame ended, plus the Duration it announced.',
+        zh: '一台把这一帧整个解了出来、再发现收件人是别人的站点，会算出一个时刻：这一帧结束的那一刻，加上它预告的 Duration。' },
       { en: 'It adopts that instant only if it is later than the countdown it already holds. A frame can push a reservation further out; it can never pull one back in.',
         zh: '只有当这个时刻比它手里已经挂着的那个倒计时更晚时，它才采用。一帧可以把一份预约往后推，却永远不能把它往回拉。' },
       { en: 'Setting the countdown does what sensed energy does: a running backoff counter freezes at the value it stands on, and a gap in progress is thrown away, with the attempt marked as deferred.',
@@ -155,7 +155,7 @@ export const nav: Lesson = {
         { en: 'A random hold-off time', zh: '一个随机的等待时间' },
       ],
       answer: 1,
-      explain: { en: 'The frame has to arrive whole and pass its check first — an announcement that might be corrupted is worth nothing. Being the addressee is not required.', zh: '这一帧必须先完整到达、通过校验——一句可能已经损坏的预告毫无价值。至于是不是收件人，并不要求。' },
+      explain: { en: 'The frame has to be decoded whole first — an announcement a receiver could not read is worth nothing. Being the addressee is not required.', zh: '这一帧必须先被整个解出来——一句接收端根本没读出来的预告毫无价值。至于是不是收件人，并不要求。' },
     },
     {
       q: { en: 'Why does a data frame’s announcement not cover the data frame itself?', zh: '数据帧的预告为什么不把这一帧自己算进去？' },

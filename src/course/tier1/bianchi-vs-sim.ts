@@ -36,12 +36,8 @@ export const bianchiVsSim: Lesson = {
     { en: 'tell an assumption that was broken from a mechanism that was missing', zh: '分清“假设被破坏了”和“机制没被建模”这两件事' },
     { en: 'report the part you cannot explain — the residual — instead of tuning a constant until the curves meet', zh: '把你解释不了的那一部分——残差——如实报出来，而不是调一个常数直到两条曲线重合' },
   ],
-  needs: ['bianchi'],
+  needs: ['bianchi', 'anomaly'],
   terms: [
-    { term: 'rate control', plain: {
-      en: 'the sender’s automatic choice of how fast to send, made from whether recent frames got through',
-      zh: '发送方自动决定“发多快”：依据是最近几帧有没有送到',
-    } },
     { term: 'capture', plain: {
       en: 'a receiver locking onto the stronger of two overlapping frames and reading it anyway',
       zh: '两帧重叠时，接收端锁住其中更强的那一帧，照样把它读了出来',
@@ -57,8 +53,8 @@ export const bianchiVsSim: Lesson = {
       zh: '在圆弧上——每台站点（STA）到接入点（AP）的距离相同，每一帧的长度也相同——预测与实跑吻合得相当好。这是好的那一种情况，而且是刻意布置出来的：整个场景就是为了让论文的每一条假设真的成立。只要挪动其中一件事，这份吻合就可能消失。',
     } },
     { heading: { en: 'A sender that changes its mind', zh: '一个会改主意的发送方' }, text: {
-      en: 'Move the same five stations close in, where the link can carry frames nine times faster, and the run delivers a fifth of what the paper says. The rules did not break. What broke is the sender’s automatic choice of how fast to talk — that is rate control: a sender that loses frames slows down, and it cannot tell a collision from a weak signal. So it slows down into a crowd, making every frame longer and every clash more likely.',
-      zh: '把同样这五台站点挪到近处——链路在那里能把帧发快九倍——实跑却只交付了纸上说法的五分之一。规则没坏。坏的是发送方“自己决定发多快”的那一套——这就是速率控制：丢帧的发送方会降速，而它分不清“碰撞”和“信号弱”。于是它在人多的时候越降越慢，让每一帧都更长、每一次相撞都更容易发生。',
+      en: 'Move the same five stations close in, where the link can carry frames nine times faster, and the run delivers a fifth of what the paper says. The rules did not break. What broke is the rate control of the anomaly lesson — the sender’s automatic choice of how fast to talk: a sender that loses frames slows down, and it cannot tell a collision from a weak signal. So it slows down into a crowd, making every frame longer and every clash more likely.',
+      zh: '把同样这五台站点挪到近处——链路在那里能把帧发快九倍——实跑却只交付了纸上说法的五分之一。规则没坏。坏的是“性能异常”那一课说过的速率控制——发送方自己决定发多快的那一套：丢帧的发送方会降速，而它分不清“碰撞”和“信号弱”。于是它在人多的时候越降越慢，让每一帧都更长、每一次相撞都更容易发生。',
     } },
     { kind: 'watch', jump: 1, heading: { en: 'Watch the blocks change length', zh: '看那些色块的长度在变' }, text: {
       en: 'Load the simulation and jump to the first collision. The coloured blocks keep changing length as the senders step up and down. Then load the arc variant: every block is the same length again. That is the fixed-rate assumption, switched off and on.',

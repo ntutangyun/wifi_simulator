@@ -100,17 +100,9 @@ export const tier1Project: Lesson = {
       en: 'power out, minus what the distance takes, minus what each wall takes',
       zh: '发出去的功率，减去距离拿走的，再减去每堵墙拿走的',
     } },
-    { term: 'margin', plain: {
-      en: 'the extra decibels a station insists on before trusting a faster rung',
-      zh: '站点在敢用更快的等级之前，坚持要多留的那几个分贝',
-    } },
     { term: 'DCF', plain: {
       en: 'the plain take-turns access of this tier: wait, count down, send, be answered',
       zh: '本阶段讲的那套朴素轮流接入：先等，再倒数，发一个，等一个回答',
-    } },
-    { term: 'saturated', plain: {
-      en: 'a station whose queue never empties, so the next frame is always ready',
-      zh: '队列永远排不空的站点，下一个帧总是备好的',
     } },
   ],
   picture: [
@@ -119,7 +111,7 @@ export const tier1Project: Lesson = {
       zh: '路由器放在书房的架子上。两台笔记本在拼命上传——一台就在旁边的书桌上，一台在房子另一头、隔着一堵砖墙——还有一部手机正在通话。本课余下的部分是一份题面：在任何人打开仿真之前，关于这个房间要先算清哪些事。',
     } },
     { heading: { en: 'What is switched off, and why that matters', zh: '关掉了什么，为什么要紧' }, text: {
-      en: 'Every radio here shares one narrow channel and one stream, with the best coding it owns and nothing else: no priority classes, no bundling, no reserved turns. Each exchange is therefore one data frame answered by one ACK, with a wait and a countdown in front — DCF, as this tier taught it. Both laptops are saturated: a world a pencil can still describe. All four radios are Wi-Fi 7, so each frame’s front is the 48 µs the byte-counting lesson measured.',
+      en: 'Every radio here shares one narrow channel and one stream, with the best coding it owns and nothing else: no priority classes, no bundling, no reserved turns. Each exchange is therefore one data frame answered by one ACK, with a wait and a countdown in front — DCF, as this tier taught it. Both laptops are saturated: a world a pencil can still describe. All four radios are Wi-Fi 7, so each frame’s preamble is the 48 µs the byte-counting lesson measured.',
       zh: '这里每台设备都共用一条窄信道、一条空间流，开着自己最好的编码，此外什么都没有：没有优先级分类，不把多个帧捆在一起，也没有预留的轮次。于是每次交换就是一个数据帧加一个 ACK 回答，前面还有一段等待和一次倒数——这就是本阶段讲过的那套 DCF。两台笔记本都是饱和的。这样的世界，纸笔还描述得动。四台设备都是 Wi-Fi 7，所以每帧的前导就是“数字节”那一课量到的 48 µs。',
     } },
     { kind: 'watch', jump: 0, heading: { en: 'Look at the room, not at the run', zh: '看房间，先别看仿真' }, text: {
@@ -182,8 +174,8 @@ export const tier1Project: Lesson = {
         N('12 Mb/s, 32 µs'), N('524.0 + 16 + 32 + 34 = 606.0 µs'), N('603.0 µs')],
     ] },
     { heading: { en: 'The answer has its own rate', zh: '回答有它自己的速率' }, text: {
-      en: 'An ACK travels not at the data frame’s rate but at the fastest mandatory rate at or below it: 24 Mb/s behind the fast frame, 12 Mb/s behind the slow one. A collision pays the ACK timeout instead.',
-      zh: 'ACK 并不以数据帧的速率发送。它用的是不超过该帧参考速率的最高强制速率：快帧之后是 24 Mb/s，慢帧之后是 12 Mb/s。而一次碰撞付的是 ACK 超时。',
+      en: 'Airtime’s step 5 again: an ACK goes out at the highest mandatory rate at or below the data frame’s own — 24 Mb/s behind the fast frame, 12 Mb/s behind the slow one. A collision pays the ACK timeout instead.',
+      zh: '还是“空口时间”第 5 步那条规则：ACK 用的是不超过数据帧自身参考速率的那个最高强制速率——快帧之后是 24 Mb/s，慢帧之后是 12 Mb/s。而一次碰撞付的是 ACK 超时。',
     } },
     { kind: 'table', heading: { en: '(c) Predicted: two saturated stations', zh: '（c）预测：两台饱和站点' }, head: [
       { en: 'Quantity', zh: '量' }, { en: 'Predicted', zh: '预测' },

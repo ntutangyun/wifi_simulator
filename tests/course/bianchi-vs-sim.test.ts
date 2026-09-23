@@ -300,8 +300,12 @@ describe('lesson contract', () => {
   it('follows the model lesson in the reading order and names it as its one prerequisite', () => {
     expect(bianchiVsSim.id).toBe('bianchi-vs-sim')
     expect(COURSE_ORDER.indexOf('bianchi-vs-sim')).toBe(COURSE_ORDER.indexOf('bianchi') + 1)
-    expect(bianchiVsSim.needs).toEqual(['bianchi'])
-    expect(bianchiVsSim.terms!.map((t) => t.term)).toEqual(['rate control', 'capture', 'residual'])
+    // Whole-track review M3: the picture leans on the rate loop `anomaly` names, so anomaly
+    // joins `needs` and `rate` inherits it through this lesson.
+    expect(bianchiVsSim.needs).toEqual(['bianchi', 'anomaly'])
+    // Whole-track review M3: `rate control` is anomaly's term; this lesson points back to it
+    // rather than introducing the same word again.
+    expect(bianchiVsSim.terms!.map((t) => t.term)).toEqual(['capture', 'residual'])
     expect(bianchiVsSim.observe.length).toBe(3)
     expect(bianchiVsSim.tryThis.length).toBe(2)
     for (const q of bianchiVsSim.quiz) {

@@ -67,7 +67,9 @@ describe('frame-anatomy-bytes · the lesson itself', () => {
     expect(frameAnatomyBytes.needs).toEqual(['frame-anatomy'])
     // the baseline owner table of the readability programme: the preamble fields, taught as
     // "the part every radio can read".
-    expect(frameAnatomyBytes.terms!.map((t) => t.term)).toEqual(['L-STF', 'L-LTF', 'L-SIG', 'U-SIG'])
+    // Whole-track review I5: one name for the fixed head of a frame, owned by the lesson
+    // that counts its microseconds. `preamble` was a term of airtime and is now here.
+    expect(frameAnatomyBytes.terms!.map((t) => t.term)).toEqual(['L-STF', 'L-LTF', 'L-SIG', 'preamble', 'U-SIG'])
   })
 
   it('loads frame-anatomy\'s own scene, with no variant of its own', () => {

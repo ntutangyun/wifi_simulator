@@ -75,7 +75,7 @@ export const ampdu: Lesson = {
       [{ en: 'Frames sent', zh: '发出的帧数' }, N('14'), N('1')],
       [{ en: 'The transmission', zh: '这次传输' }, N('21 502 B · 2 248 µs'), N('1 530 B · 200 µs')],
       [{ en: 'The answer', zh: '回答' }, N('BlockAck · 32 B · 32 µs'), N('ACK · 14 B · 28 µs')],
-      [{ en: 'Opened by', zh: '开场' }, N('RTS + CTS · 28 µs each'), N('—')],
+      [{ en: 'Opened by', zh: '开场交互' }, N('RTS + CTS · 28 µs each'), N('—')],
       [{ en: 'Transmission time per delivered frame', zh: '每成功一帧的发送时间' }, N('166.9 µs'), N('228.0 µs')],
     ] },
     { kind: 'formula', heading: { en: 'That last row, worked out', zh: '最后一行是怎么算的' }, text: {

@@ -50,7 +50,9 @@ describe('anomaly · the lesson’s own scene', () => {
   it('leans on airtime and backoff, and names the anomaly itself', () => {
     expect(anomaly.module).toBe(1)
     expect(anomaly.needs).toEqual(['airtime', 'backoff'])
-    expect(anomaly.terms!.map((t) => t.term)).toEqual(['airtime share', 'performance anomaly', 'rate adaptation'])
+    // Whole-track review M3: one name for the loop of src/engine/rate.ts. `rate adaptation`
+    // was a third name beside `rate control` (bianchi-vs-sim, and the title of `rate`).
+    expect(anomaly.terms!.map((t) => t.term)).toEqual(['airtime share', 'performance anomaly', 'rate control'])
   })
 
   it('the scenario is unchanged: a near station and a far one across the apartment', () => {

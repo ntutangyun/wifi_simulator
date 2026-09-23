@@ -20,8 +20,8 @@ export const ofdmaDl: Lesson = {
   module: 6,
   title: { en: 'OFDMA downlink — one send, several phones', zh: 'OFDMA 下行——一次发送，好几台设备' },
   why: {
-    en: 'A television streaming a film does not need much of the air at a time, but it does need a turn: its own opening, its own answer, its own wait beforehand. Put three of them in one room and the access point (AP) spends much of its evening on those wrappers rather than on film. This lesson watches an access point stop serving one device per turn and start serving several inside a single send.',
-    zh: '一台正在放片子的电视，每次并不需要占多少空口，但它需要一个“轮次”：自己的开场、自己的回执、之前还要自己等一轮。同一个房间里放三台，接入点（AP）整晚花在这些包装上的工夫，就多过花在片子上。这一课要看的是：接入点如何不再一轮只服务一台设备，而是在一次发送里同时服务好几台。',
+    en: 'A television streaming a film does not need much of the air at a time, but it does need a turn: its own preamble, its own answer, its own wait beforehand. Put three of them in one room and the access point (AP) spends much of its evening on those wrappers rather than on film. This lesson watches an access point stop serving one device per turn and start serving several inside a single send.',
+    zh: '一台正在放片子的电视，每次并不需要占多少空口，但它需要一个“轮次”：自己的前导、自己的回执、之前还要自己等一轮。同一个房间里放三台，接入点（AP）整晚花在这些包装上的工夫，就多过花在片子上。这一课要看的是：接入点如何不再一轮只服务一台设备，而是在一次发送里同时服务好几台。',
   },
   outcomes: [
     { en: 'say what an access point divides up when it serves several devices in one send', zh: '说出接入点在一次发送里服务多台设备时，被切分的到底是什么' },
@@ -61,8 +61,8 @@ export const ofdmaDl: Lesson = {
       zh: '切片不是谈出来的。赢下这一轮之后，由接入点一个人决定：它看一眼此刻有哪些设备的东西正等着发，最多挑四台，给每台分一个同样大的资源单元（RU），然后发出去。没被挑中的设备不是被拒绝了——只是它们的队列里此刻根本没有东西可装。发出去的这一帧，记录里叫作 MU PPDU。',
     } },
     { heading: { en: 'What the slices buy', zh: '切片买来了什么' }, text: {
-      en: 'Every send starts with a fixed opening the receiver locks on to, and ends in an answer. Two frames sent one after the other pay for two openings and two answers; the same two frames inside one send pay for one opening, and the two answers come back together instead of in a queue. Each part is on a narrower slice, so it needs more symbols than it would alone — but the wrappers are paid once.',
-      zh: '每一次发送，开头都有一段固定的开场让接收端锁定，结尾都要收一个回执。两帧一前一后地发，就要付两段开场、两个回执；同样这两帧装进一次发送，只付一段开场，而两个回执是一起回来的，不必排队。每一片都更窄，所以同一帧要用比单独发时更多的符号——但包装只付一次。',
+      en: 'Every send starts with a preamble the receiver locks on to, and ends in an answer. Two frames sent one after the other pay for two preambles and two answers; the same two frames inside one send pay for one preamble, and the two answers come back together instead of in a queue. Each part is on a narrower slice, so it needs more symbols than it would alone — but the wrappers are paid once.',
+      zh: '每一次发送，开头都有一段前导让接收端锁定，结尾都要收一个回执。两帧一前一后地发，就要付两段前导、两个回执；同样这两帧装进一次发送，只付一段前导，而两个回执是一起回来的，不必排队。每一片都更窄，所以同一帧要用比单独发时更多的符号——但包装只付一次。',
     } },
     { heading: { en: 'And what they cannot buy', zh: '切片买不来的东西' }, text: {
       en: 'Slicing makes no link faster. A television asks for the film it asks for, so it receives exactly the frames it would have received anyway; what it saves is air, and the air it saves belongs to whoever else wants the room. Nor can the access point group devices with empty queues: two of them must have something waiting in the same instant, which in a room of steady streams is not most instants.',
@@ -74,7 +74,7 @@ export const ofdmaDl: Lesson = {
       en: 'Two video frames to Wi-Fi 6 televisions, two ways',
       zh: '同样两个视频帧发给 Wi-Fi 6 电视，两种发法',
     }, head: [
-      { en: 'Way', zh: '发法' }, { en: 'Opening', zh: '开场' }, { en: 'Data symbols each', zh: '每帧数据符号' },
+      { en: 'Way', zh: '发法' }, { en: 'Preamble', zh: '前导' }, { en: 'Data symbols each', zh: '每帧数据符号' },
       { en: 'On the air', zh: '占用空口' }, { en: 'Answer', zh: '回执' },
     ], rows: [
       [{ en: 'One at a time', zh: '一帧一帧发' }, N('44 µs × 2'), N('6 + 6'), N('125.6 µs × 2'),
@@ -86,8 +86,8 @@ export const ofdmaDl: Lesson = {
       en: 'symbols = ⌈(16 + 8·bytes + 6) ÷ (bits per symbol × RU share)⌉',
       zh: '符号数 = ⌈(16 + 8·字节数 + 6) ÷ (每符号比特数 × RU 占比)⌉',
     }, note: {
-      en: 'Half the sub-carriers, twice the symbols. 44 µs is a Wi-Fi 6 frame’s front (a Wi-Fi 7 frame’s is the 48 of the width lesson); the map of who is in the send adds four microseconds. The pair still leaves in 211.2 µs against 251.2.',
-      zh: '子载波少一半，符号数就翻一倍。44 µs 是一个 Wi-Fi 6 帧的开场——Wi-Fi 7 帧的开场则是带宽那一课里的 48——而“这一发里有谁”的分配表又添了四微秒。即便如此，两帧一起走只要 211.2 µs，而一前一后地发要 251.2 µs。',
+      en: 'Half the sub-carriers, twice the symbols. 44 µs is a Wi-Fi 6 frame’s preamble (a Wi-Fi 7 frame’s is the 48 of the width lesson); the map of who is in the send adds four microseconds. The pair still leaves in 211.2 µs against 251.2.',
+      zh: '子载波少一半，符号数就翻一倍。44 µs 是一个 Wi-Fi 6 帧的前导——Wi-Fi 7 帧的前导则是带宽那一课里的 48——而“这一发里有谁”的分配表又添了四微秒。即便如此，两帧一起走只要 211.2 µs，而一前一后地发要 251.2 µs。',
     } },
     { kind: 'table', heading: {
       en: 'The whole run: three televisions, 300 ms',
@@ -104,8 +104,8 @@ export const ofdmaDl: Lesson = {
       [{ en: 'Time the air was busy', zh: '空口忙碌的总时间' }, N('161.5 ms'), N('163.0 ms')],
     ] },
     { heading: { en: 'The same film, less air', zh: '同样的片子，更少的空口' }, text: {
-      en: 'Every television receives exactly the frames it received before, so nothing on any screen changes. What changes is the air. Each pair saves 40 µs of opening and hands 8 µs of it back on the larger answers, and the 45 pairs of this run come to 1.44 ms handed back to everybody else in the room.',
-      zh: '每台电视收到的帧和原来一模一样，所以屏幕上什么也不会变。变的是空口。每凑成一对，就省下 40 µs 的开场，又因为回执变大而还回去 8 µs；这段仿真里的 45 对，合起来是 1.44 ms，还给了房间里其他所有人。',
+      en: 'Every television receives exactly the frames it received before, so nothing on any screen changes. What changes is the air. Each pair saves 40 µs of preamble and hands 8 µs of it back on the larger answers, and the 45 pairs of this run come to 1.44 ms handed back to everybody else in the room.',
+      zh: '每台电视收到的帧和原来一模一样，所以屏幕上什么也不会变。变的是空口。每凑成一对，就省下 40 µs 的前导，又因为回执变大而还回去 8 µs；这段仿真里的 45 对，合起来是 1.44 ms，还给了房间里其他所有人。',
     } },
     { kind: 'steps', heading: { en: 'Building one multi-user send, step by step', zh: '一次多用户发送是怎么攒出来的，一步一步' }, items: [
       { en: 'The access point wins a turn and lists the devices that have something queued for them right now and have negotiated OFDMA with it. Fewer than two on that list and it sends the ordinary way, to one device.',
@@ -116,8 +116,8 @@ export const ofdmaDl: Lesson = {
         zh: '接着为每个成员算出一个符号能驮多少比特：先取它那一级在 20 MHz 信道、单流下的比特数——这几台电视是 1950——再乘上它分到的子载波占比，这里正好折半，得到 975。' },
       { en: 'It fills each member from that device’s queue and counts its symbols: ⌈(16 + 8 × bytes + 6) ÷ bits per symbol⌉. A member whose first frame alone would not fit the turn is dropped instead.',
         zh: '然后从这台设备的队列里往它那一份里装，并数出符号数：⌈(16 + 8 × 字节数 + 6) ÷ 每符号比特数⌉。要是某个成员连第一帧都塞不进这一轮，就把它整个去掉。' },
-      { en: 'The send lasts as long as its longest member needs: 44 µs of opening, 4 µs more for the map of who is inside, then 13.6 µs a symbol. The opening and the map are paid once for the whole group, which is the entire saving.',
-        zh: '整次发送的长度，取最长的那个成员所需的长度：44 µs 开场，再加 4 µs 装“这一发里有谁”的分配表，然后每个符号 13.6 µs。开场和分配表整组只付一次——省下来的就是这一笔。' },
+      { en: 'The send lasts as long as its longest member needs: 44 µs of preamble, 4 µs more for the map of who is inside, then 13.6 µs a symbol. The preamble and the map are paid once for the whole group, which is the entire saving.',
+        zh: '整次发送的长度，取最长的那个成员所需的长度：44 µs 前导，再加 4 µs 装“这一发里有谁”的分配表，然后每个符号 13.6 µs。前导和分配表整组只付一次——省下来的就是这一笔。' },
       { en: 'One 16 µs gap after it ends, every member answers with a 32 µs BlockAck on its own resource unit, all in the same instant. The exchange counts as done if any member answered; whatever the others were sent is queued again.',
         zh: '结束后隔 16 µs，每个成员各在自己的资源单元上回一个 32 µs 的 BlockAck，全都落在同一瞬间。只要有一个成员答了，这次交互就算成，其余成员那一份重新排队。' },
     ] },
@@ -140,7 +140,7 @@ export const ofdmaDl: Lesson = {
     } },
     { heading: { en: 'Where the extra four microseconds go', zh: '多出来的那四微秒去哪儿了' }, text: {
       en: 'A single-user send opens with 44 µs of preamble; a multi-user one opens with 48. The difference carries the per-user map: which resource unit belongs to which device, and at which modulation each part was sent. Without it a receiver could not know which part of the channel to read, so the map is the price of the whole idea — and it is a flat price, which is why grouping pays better the more members share it.',
-      zh: '单用户发送的开场是 44 µs 的前导，多用户是 48 µs。差出来的这一段装的是每用户分配表：哪个资源单元属于哪台设备、每一片用的是哪一档调制。没有它，接收端就不知道该去读信道的哪一段，所以这张表是整个想法的价钱——而且是一口价，成员越多越划算，道理就在这里。',
+      zh: '单用户发送的前导是 44 µs，多用户是 48 µs。差出来的这一段装的是每用户分配表：哪个资源单元属于哪台设备、每一片用的是哪一档调制。没有它，接收端就不知道该去读信道的哪一段，所以这张表是整个想法的价钱——而且是一口价，成员越多越划算，道理就在这里。',
     } },
   ],
   sources: [

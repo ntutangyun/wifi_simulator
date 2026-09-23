@@ -27,6 +27,7 @@ import {
   ACK_BYTES, FCS_BYTES, MAC_HDR_BYTES, QOS_HDR_BYTES, SIFS_NS, txTimeNs,
 } from '../../src/engine/phy'
 import { lessonShapeSuite, ofType, runOf } from './kit'
+import { readFileSync, readdirSync } from 'node:fs'
 
 const MS = 1_000_000
 const RUN_NS = 30 * MS
@@ -288,5 +289,30 @@ describe('frame-anatomy · the experiments', () => {
     expect(m.subtypeName).toBe('QoS Data')
     expect(field(m, 'qos').value).toContain('TID 0')
     expect(TID_FOR_AC[1]).toBe(0)
+  })
+})
+
+describe('frame-anatomy · the FCS is a field, not a test this engine runs', () => {
+  // Whole-track review I2: the picture used to say "the receiver does the same and compares",
+  // and quiz 2 asked what the receiver does when "the arithmetic does not match" — an event
+  // this simulator cannot produce. Nothing in the engine computes a CRC over an MPDU;
+  // channel.ts decides a reception by its worst SINR against the rung's requirement, and the
+  // only failure reasons a reader can ever see are the ones that ratio produces.
+  it('no engine file computes a CRC, and FCS_BYTES is only a byte count', () => {
+    const dir = new URL('../../src/engine/', import.meta.url)
+    for (const f of readdirSync(dir)) {
+      // ampBs.ts carries crc16Epc for AMP tag ids, which is not an 802.11 MPDU check.
+      if (!f.endsWith('.ts') || f === 'ampBs.ts') continue
+      // Comments stripped: amp.ts names a CRC-8 when it counts the bytes of an AMP-ACK,
+      // which is a byte count in a note, not arithmetic this engine ever runs.
+      const src = readFileSync(new URL(f, dir), 'utf8').replace(/\/\/[^\n]*|\/\*[\s\S]*?\*\//g, '')
+      expect(src.match(/crc/gi), `${f} computes a CRC`).toBeNull()
+    }
+    expect(FCS_BYTES).toBe(4)
+  })
+
+  it('every reception that fails in this run failed on the ratio, not on a check', () => {
+    const reasons = new Set(ofType(records, 'RX_FAIL').map((r) => r.reason))
+    for (const r of reasons) expect(['collision', 'lowSinr', 'txDuringRx', 'capture']).toContain(r)
   })
 })

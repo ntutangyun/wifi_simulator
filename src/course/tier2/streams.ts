@@ -97,8 +97,8 @@ export const streams: Lesson = {
         zh: '每符号比特数 = 该级在 20 MHz 下的每符号比特数，乘以带宽的子载波倍数，再乘以流数。多一条流，效果和多一份子载波完全一样。' },
       { en: 'Symbols = the frame’s bits divided by that, rounded up to a whole symbol. A stream that only trims the last, part-filled symbol buys nothing.',
         zh: '符号数 = 这一帧的比特数除以它，再向上取整成整数个符号。如果多出来的那条流只是削掉最后那个没装满的符号，它就什么也没买到。' },
-      { en: 'Airtime = the 48 µs opening plus 13.6 µs per symbol. The opening is sent the same way whatever the stream count, so it never shrinks.',
-        zh: '空口时间 = 48 µs 的开场，加上每个符号 13.6 µs。无论跑几条流，开场都按同样的方式发出去，所以它从不变短。' },
+      { en: 'Airtime = the 48 µs preamble plus 13.6 µs per symbol. The preamble is sent the same way whatever the stream count, so it never shrinks.',
+        zh: '空口时间 = 48 µs 的前导，加上每个符号 13.6 µs。无论跑几条流，前导都按同样的方式发出去，所以它从不变短。' },
     ] },
     { kind: 'table', heading: {
       en: 'Four streams, and the mixed pair, run through the steps',

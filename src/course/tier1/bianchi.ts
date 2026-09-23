@@ -133,8 +133,8 @@ export const bianchi: Lesson = {
       en: 'T_s = 2064 + 16 + 44 + 34 = 2158 µs        T_c = 2064 + 45 + 34 = 2143 µs',
       zh: 'T_s = 2064 + 16 + 44 + 34 = 2158 µs        T_c = 2064 + 45 + 34 = 2143 µs',
     }, note: {
-      en: 'A 1500-byte frame is 2064 µs of air at the slow rate. A success adds a SIFS, the ACK — 44 µs here, not the 28 µs of earlier rooms — and a DIFS. A collision adds the ACK timeout and a DIFS instead: this MAC starts the retry’s wait when the deadline expires.',
-      zh: '1500 字节的帧在慢速率上占 2064 µs 空口时间。一次成功要再加一个 SIFS、一个 ACK——在这个速率上是 44 µs，而不是前面几个房间里的 28 µs——以及一个 DIFS。一次碰撞加的则是 ACK 超时和一个 DIFS，因为本 MAC 要等期限到期才开始计重传前的等待。',
+      en: 'A 1500-byte frame is 2064 µs of air at the slow rate. A success adds a SIFS, the ACK — 44 µs here, at that same rate by airtime’s rule, not 28 — and a DIFS. A collision adds the ACK timeout and a DIFS instead: the retry’s wait starts when the deadline expires.',
+      zh: '1500 字节的帧在慢速率上占 2064 µs 空口时间。一次成功要再加一个 SIFS、一个 ACK——这里是 44 µs：按“空口时间”那条规则，回答走的也是同一档速率，而不是 28 µs——以及一个 DIFS。一次碰撞加的则是 ACK 超时和一个 DIFS，因为重传前的等待要等期限到期才开始计。',
     } },
     { kind: 'steps', heading: { en: 'Working the pair out with a calculator', zh: '拿一只计算器把这一对数算出来' }, items: [
       { en: 'Write the room down as four numbers: n, the saturated stations contending; W = 16, the smallest window; m = 6, how often it may double; L = 7, the attempts a frame gets.',

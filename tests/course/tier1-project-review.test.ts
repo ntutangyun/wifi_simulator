@@ -148,7 +148,9 @@ describe('tier1-project-review · the lesson itself', () => {
     expect(tier1ProjectReview.module).toBe(1)
     expect(tier1ProjectReview.needs).toEqual(['tier1-project', 'hidden', 'anomaly'])
     expect(COURSE_ORDER.indexOf('tier1-project-review')).toBe(COURSE_ORDER.indexOf('tier1-project') + 1)
-    expect(tier1ProjectReview.terms!.map((t) => t.term)).toEqual(['estimator', 'capture', 'residual'])
+    // Whole-track review M2: `capture` and `residual` are terms of bianchi-vs-sim, two lessons
+    // earlier; a word cannot be new twice, so this lesson owns only `estimator`.
+    expect(tier1ProjectReview.terms!.map((t) => t.term)).toEqual(['estimator'])
     // it is a review, not exposition: a rubric the learner marks their own sheet against
     quotes('What a good answer contains', '好答案长什么样', 'Predicted', 'Measured',
       'Name the thing you are counting — that is the estimator — before you compare anything')
