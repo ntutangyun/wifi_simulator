@@ -119,7 +119,7 @@ const cell = (n: number, row: number, col: number): string => table(n).rows[row]
 const ROW: Record<UwbContentionVariant, number> = { slots4: 0, base: 1, slots16: 2 }
 
 // The contract every migrated lesson owes, written once in tests/course/kit.ts.
-lessonShapeSuite(uwbContention, { proseMax: 950, runNs: RUN_NS })
+lessonShapeSuite(uwbContention, { proseMax: 1250, runNs: RUN_NS })
 
 describe('uwb-contention · the lesson’s own place in the track', () => {
   it('opens module 14 and asks only for the coexistence lesson', () => {
@@ -572,5 +572,128 @@ describe('uwb-contention · what it costs', () => {
     expect(fixes).toHaveLength(7)
     expect(new Set(fixes.map((f) => f.anchors.length))).toEqual(new Set([3]))
     expect(prose()).toContain('all seven fixes are on the bare minimum of three anchors')
+  })
+})
+
+/**
+ * The 2026-09-23 amendment ("mechanism before metaphor"): the contention rule is
+ * written out as a procedure, graded against `UwbDevice.drawContentionSlot` and the
+ * round-boundary feedback — reached through the records they emit — rather than
+ * against the old prose. The worked example is anchor-2's first four rounds of the
+ * base run, which is where the attempt budget runs out and a sit-out follows.
+ */
+describe('uwb-contention · the procedure, against the device', () => {
+  const steps = (): Extract<Block, { kind: 'steps' }> =>
+    uwbContention.numbers!.find((b): b is Extract<Block, { kind: 'steps' }> => b.kind === 'steps')!
+  const stepsText = (): string => steps().items.map((i) => i.en).join('\n')
+  const SLOTS = CONTENTION_SLOTS.base
+  const ATTEMPTS = DEFAULT_UWB_SESSION.maxAttempts
+  /** Every UWB_CONTEND of one anchor in the base run, in time order. */
+  const contendsOf = (id: string) => ofType(recs('base'), 'UWB_CONTEND').filter((r) => r.node === id)
+
+  it('is a steps block on the main path, not in `deeper`', () => {
+    expect(uwbContention.numbers!.some((b) => b.kind === 'steps')).toBe(true)
+    expect((uwbContention.deeper ?? []).some((b) => b.kind === 'steps')).toBe(false)
+    expect(steps().items.length).toBeGreaterThanOrEqual(3)
+    for (const i of steps().items) expect(i.zh).not.toBe(i.en)
+  })
+
+  it('step 1: the two figures the poll advertises are the session’s own', () => {
+    // "the window holds 8 response slots, and a responder may make 3 tries"
+    expect(stepsText()).toContain('the window holds 8 response slots')
+    expect(stepsText()).toContain('may make 3 tries')
+    expect(SLOTS).toBe(8)
+    expect(ATTEMPTS).toBe(3)
+    expect(uwbContentionScenario('base').uwb!.contentionSlots).toBe(SLOTS)
+    expect(uwbContentionScenario('base').uwb!.maxAttempts).toBe(ATTEMPTS)
+    // poll and responder cannot disagree: no attempt number in the whole run exceeds the budget
+    for (const r of ofType(recs('base'), 'UWB_CONTEND')) expect(r.attempt).toBeLessThanOrEqual(ATTEMPTS)
+  })
+
+  it('steps 3 and 4: the draw is uniform over the window, and the poll’s own slot is never drawn', () => {
+    // "one plus a uniform integer below S": every value of 1…S occurs and 0 never does
+    expect(stepsText()).toContain('one plus a uniform integer below S')
+    const drawn = draws(recs('base')).map((r) => r.slot!)
+    expect(Math.min(...drawn)).toBe(1)
+    expect(Math.max(...drawn)).toBe(SLOTS)
+    expect(new Set(drawn).size).toBe(SLOTS)
+    expect(drawn).not.toContain(0)
+    // and over three windows the bound follows the window, not the anchor count
+    for (const v of VARIANTS) {
+      const d = draws(recs(v)).map((r) => r.slot!)
+      expect(Math.max(...d)).toBe(CONTENTION_SLOTS[v])
+    }
+  })
+
+  it('step 5: an empty response slot writes no timeout, in any of the three scenes', () => {
+    expect(stepsText()).toContain('no timeout record is written for it')
+    for (const v of VARIANTS) {
+      // most slots of every window are empty, and still not one timeout is emitted
+      const empty = rounds(v).reduce((a, r) => a + CONTENTION_SLOTS[v] - new Set(r.drew.values()).size, 0)
+      expect(empty).toBeGreaterThan(0)
+      expect(ofType(recs(v), 'UWB_TIMEOUT')).toHaveLength(0)
+    }
+  })
+
+  it('step 6: no answer can capture another here, and a collision is recorded once per slot', () => {
+    expect(stepsText()).toContain('6 dB')
+    expect(UWB_CAPTURE_DB).toBe(6)
+    // every anchor is the same distance from the tag at the same power, so no pair can lead by 6 dB
+    for (const n of uwbContentionScenario('base').nodes) expect(n.txPowerDbm).toBe(UWB_TX_POWER_DBM)
+    for (const id of ANCHOR_IDS) {
+      const a = uwbContentionScenario('base').nodes.find((n) => n.id === id)!
+      expect(Math.hypot(a.pos.x - RING_CENTER.x, a.pos.y - RING_CENTER.y, a.pos.z - RING_CENTER.z))
+        .toBeCloseTo(RING_RADIUS_M, 6)
+    }
+    // one record per shared slot, not one per answer lost in it, and nothing decodes there
+    for (const r of rounds('base')) {
+      const shared = new Set<number>()
+      const seen = new Map<number, number>()
+      for (const s of r.drew.values()) { seen.set(s, (seen.get(s) ?? 0) + 1) }
+      for (const [s, n] of seen) if (n > 1) shared.add(s)
+      expect([...r.collidedSlots].sort()).toEqual([...shared].sort())
+      for (const s of shared) expect([...r.ranged.values()]).not.toContain(s)
+    }
+  })
+
+  it('step 7: the budget is spent and refilled at the round boundary, with nothing on the air', () => {
+    expect(stepsText()).toContain('with nothing sent over the air')
+    const rs = rounds('base')
+    const by = contendsOf('anchor-2')
+    // the worked example, round by round: the table's own cells
+    expect(cell(4, 0, 1)).toBe(`slot ${by[0].slot}, attempt ${by[0].attempt}`)
+    expect(cell(4, 1, 1)).toBe(`slot ${by[1].slot}, attempt ${by[1].attempt}`)
+    expect(cell(4, 2, 1)).toBe(`slot ${by[2].slot}, attempt ${by[2].attempt}`)
+    expect(cell(4, 3, 1)).toBe(`no slot, attempt ${by[3].attempt}`)
+    expect(by[3].slot).toBeNull()
+    expect(by[3].attempt).toBe(0)
+    // three rounds of not being heard, then the sit-out, then a full budget again
+    for (const i of [0, 1, 2]) expect(rs[i].ranged.has('anchor-2')).toBe(false)
+    expect(by.slice(0, 3).map((r) => r.attempt)).toEqual([1, 2, 3])
+    expect(rs[3].sat).toContain('anchor-2')
+    expect(by[4].attempt).toBe(1)
+    // the loop really is closed at the boundary: an anchor that WAS ranged starts at attempt 1 again
+    const heardAgain = ANCHOR_IDS.filter((id) => rs[0].ranged.has(id))
+    expect(heardAgain.length).toBeGreaterThan(0)
+    for (const id of heardAgain) expect(contendsOf(id)[1].attempt).toBe(1)
+    // and nothing is transmitted to say so: the only frames in a round are the poll and answers
+    const kinds = new Set(ofType(recs('base'), 'TX_START').map((r) => r.frame.kind))
+    expect([...kinds].sort()).toEqual(['uwbPoll', 'uwbResp'])
+  })
+
+  it('step 8: the drawn slot is the reply time, at 2 ms a slot and 6.0 cm of error per slot', () => {
+    expect(stepsText()).toContain('k slots of 2 ms')
+    expect(stepsText()).toContain('6.0 cm of range error per slot')
+    expect(rstuNs(DEFAULT_UWB_SESSION.slotRstu) / MS).toBe(2)
+    // the error really does climb with the slot the answer was decoded in
+    const bySlot = new Map<number, number[]>()
+    for (const r of rounds('base')) {
+      for (const [id, s] of r.ranged) bySlot.set(s, [...(bySlot.get(s) ?? []), r.errCm.get(id)!])
+    }
+    const lowSlots = [...bySlot].filter(([s]) => s <= 3).flatMap(([, e]) => e)
+    const highSlots = [...bySlot].filter(([s]) => s >= 6).flatMap(([, e]) => e)
+    expect(lowSlots.length).toBeGreaterThan(3)
+    expect(highSlots.length).toBeGreaterThan(3)
+    expect(rms(highSlots)).toBeGreaterThan(rms(lowSlots))
   })
 })

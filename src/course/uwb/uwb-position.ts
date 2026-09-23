@@ -72,7 +72,7 @@ export const uwbPosition: Lesson = {
   outcomes: [
     { en: 'say why four rings do not meet at a point, and what the solver does instead', zh: '说清为什么四个圆环交不到一点，以及解算器改做了什么' },
     { en: 'read a fix off the log and check it against the truth beside it', zh: '从日志里读出一次定位，并对照旁边的真值检查它' },
-    { en: 'use the residual to tell a good round from a spoiled one', zh: '用残差把一轮好的测距和一轮出了问题的区分开' },
+    { en: 'use what the fit cannot explain — the residual — to tell a good round from a spoiled one', zh: '用拟合解释不掉的那一部分（残差），把一轮好的测距和一轮出了问题的区分开' },
   ],
   needs: ['uwb-blocks', 'uwb-dstwr'],
   terms: [
@@ -99,8 +99,8 @@ export const uwbPosition: Lesson = {
       zh: '载入仿真，跳到定位那一行。在手机这一轮的末尾，解算器落脚的地方出现一个十字，产生它的那四个圆环则在周围慢慢淡去。',
     } },
     { heading: { en: 'The fourth ring is the check', zh: '第四个圆环是那道检查' }, text: {
-      en: 'Three ranges would already give an answer. The fourth is what tells you the answer is any good. With more measurements than unknowns no point can satisfy them all, and what is left over — the residual — is the solver’s own opinion of the fit. A clean round leaves a residual too small to print. A range that lies leaves centimetres, and you can see it without knowing which range lied.',
-      zh: '三个距离就已经能给出答案了，第四个的用处是告诉你这个答案好不好。测量比未知数多的时候，没有哪一点能把它们全部满足，剩下的那一点点——也就是残差——正是解算器对这次拟合的自我评价。干净的一轮，残差小到印不出来；而只要有一条距离在说谎，残差就是几厘米，你不必知道是哪一条在说谎，也看得出来。',
+      en: 'Three ranges would already give an answer. The fourth is what tells you the answer is any good. With more measurements than unknowns no point can satisfy them all, and what is left over — the residual — is the solver’s own opinion of the fit. A clean round leaves a residual under a micrometre. A range that lies leaves centimetres — and the solver knows that without being told which range lied.',
+      zh: '三个距离就已经能给出答案了，第四个的用处是告诉你这个答案好不好。测量比未知数多的时候，没有哪一点能把它们全部满足，剩下的那一点点——也就是残差——正是解算器对这次拟合的自我评价。干净的一轮，残差不到一微米；而只要有一条距离在说谎，残差就是几厘米——不必有人告诉解算器是哪一条在说谎，它已经知道了。',
     } },
     { heading: { en: 'Two unknowns, not three', zh: '两个未知数，不是三个' }, text: {
       en: 'Only the floor coordinates are solved for; the phone’s height is handed to the solver as something already known. That is not a simplification the standard asked for — it is what makes four ranges comfortable rather than barely enough, and it is why every anchor being near the ceiling costs so little here.',
@@ -116,8 +116,8 @@ export const uwbPosition: Lesson = {
       en: 'r_i = ‖p − a_i‖ − d_i      J_i = (p − a_i) / ‖p − a_i‖      (JᵀJ) δ = −Jᵀ r',
       zh: 'r_i = ‖p − a_i‖ − d_i      J_i = (p − a_i) / ‖p − a_i‖      (JᵀJ) δ = −Jᵀ r',
     }, note: {
-      en: 'Anchor i’s residual at a trial point p is how much further p is from it than the measurement claims; the best place minimises the four squared residuals. The gradient of a distance is the unit vector from anchor to point, so one step is a small two-by-two system. The engine starts at the anchors’ centroid and stops when a step falls under 1 mm, or after 20 iterations.',
-      zh: '锚点 i 在试探点 p 处的残差，就是 p 比测量所说的离它远了多少；最优位置让这四个残差的平方和最小。距离的梯度正是从锚点指向该点的单位向量，所以一次迭代不过是解一个二乘二的小方程组。引擎从锚点形心出发，直到某一步小于 1 mm、或迭代满 20 次为止。',
+      en: 'Anchor i’s residual at a trial point p is how much further p is from it than the measurement claims; the best place minimises the four squared residuals. The engine starts at the anchors’ centroid and stops when a step falls under 1 mm, or after 20 iterations.',
+      zh: '锚点 i 在试探点 p 处的残差，就是 p 比测量所说的离它远了多少；最优位置让这四个残差的平方和最小。引擎从锚点形心出发，直到某一步小于 1 mm、或迭代满 20 次为止。',
     } },
     { text: {
       en: 'Rows carry only the horizontal part, because the height is not solved for. Fed exact distances the solver converges to within a micrometre; fed fewer than three, or anchors standing in a line, it refuses to answer at all.',
@@ -141,6 +141,34 @@ export const uwbPosition: Lesson = {
       en: 'One fix per block, seven of them in this run, each a whole block after the last. The error runs from half a centimetre to a little over three — a few times σ_r, which is exactly what four noisy rings should produce. The fix line prints a GDOP (the price the anchors’ own layout puts on that error) beside it; the next lesson is about nothing else.',
       zh: '每个块一次定位，本次运行共七次，每一次都比上一次晚整整一个块。误差在半厘米到三厘米出头之间——不过是 σ_r 的几倍，而这正是四个带噪声的圆环应该给出的结果。定位行里还并排印着一个 GDOP（锚点自身的摆放给这份误差开出的价码）；下一课讲的就只有它。',
     } },
+    { kind: 'steps', heading: { en: 'From four ranges to one point, step by step', zh: '从四个距离到一个点，一步一步' }, items: [
+      { en: 'Gather the ranges this round finished and match each to an anchor whose coordinates the tag holds. Fewer than three matched, and the round emits nothing.',
+        zh: '把这一轮算完的距离收齐，逐条对上标签手里存有坐标的那个锚点。能对上的不足三条，这一轮什么也不发出。' },
+      { en: 'Put the trial point at the mean of the x and of the y of those anchors — here the centre of the four corners, (5.00, 4.00) m.',
+        zh: '把试探点放在这些锚点 x 的平均值与 y 的平均值上——在本场景里就是四个角的中心，(5.00, 4.00) m。' },
+      { en: 'At the trial point take each anchor’s three-dimensional distance, the tag’s height held at its configured 1.00 m, and subtract the measured range: that difference is the anchor’s residual r_i.',
+        zh: '在试探点上算出到每个锚点的三维距离——标签高度按配置值 1.00 m 固定不动——再减去实测的距离：这个差就是该锚点的残差 r_i。' },
+      { en: 'Take the unit vector from anchor to trial point and keep its horizontal (x, y) part: that pair is the anchor’s row of J.',
+        zh: '取从锚点指向试探点的单位向量，只留它的水平 (x, y) 分量：这一对数就是该锚点在 J 里的那一行。' },
+      { en: 'Solve (JᵀJ) δ = −Jᵀ r and move the trial point by δ. A determinant under 1e-9 means the layout cannot fix a point, and the round ends with nothing.',
+        zh: '解出 (JᵀJ) δ = −Jᵀ r，把试探点挪动 δ。行列式小于 1e-9，说明这套布局定不出点来，这一轮就空手结束。' },
+      { en: 'Repeat the last three steps until δ is shorter than 1 mm, or twenty iterations have gone by.',
+        zh: '把上面三步重复下去，直到 δ 短于 1 mm，或者迭代满二十次。' },
+      { en: 'At the point it stopped on, build r once more: √(Σ r_i² / n) is what the fit could not explain. The record goes out as UWB_POSITION, which does not carry that figure.',
+        zh: '在它停下的那个点上把 r 再算一遍：√(Σ r_i² / n) 就是拟合解释不掉的那一部分。记录以 UWB_POSITION 发出，而这个数并不在记录里。' },
+      { en: 'The error in the log is the formatter’s, not the solver’s: the record carries estimate and true place side by side, and the distance between them is printed. A tag in a real room has no truth column.',
+        zh: '日志里那个误差是格式化时算的，不是解算器算的：记录把估计值与真实位置并排带着，印出的是两者之间的距离。真实房间里的标签没有“真值”这一栏。' },
+    ] },
+    { kind: 'table', heading: { en: 'Block 0 of the run, through those steps', zh: '本次运行的第 0 块，照着这些步骤走一遍' }, head: [
+      { en: 'Step', zh: '步骤' }, { en: 'Value', zh: '数值' },
+    ], rows: [
+      [{ en: 'The four ranges it matched', zh: '对上的那四条距离' }, N('4.7368, 6.3831, 5.4439, 6.8922 m')],
+      [{ en: 'Trial point starts at', zh: '试探点起于' }, N('(5.00, 4.00) m')],
+      [{ en: 'Where the iteration stopped', zh: '迭代停在' }, N('(3.9933, 3.4981) m')],
+      [{ en: 'Root mean square residual there', zh: '该处残差的均方根' }, N('1.44 cm')],
+      [{ en: 'The tag’s true place', zh: '标签的真实位置' }, N('(4.00, 3.50) m')],
+      [{ en: 'So the formatter prints', zh: '于是格式化后印出' }, N('error 0.01 m — 0.69 cm')],
+    ] },
   ],
   deeper: [
     { heading: { en: 'Why Gauss–Newton and not something cleverer', zh: '为什么是高斯－牛顿，而不是更聪明的办法' }, text: {

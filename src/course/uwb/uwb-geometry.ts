@@ -47,8 +47,8 @@ export const uwbGeometry: Lesson = {
   ],
   picture: [
     { heading: { en: 'The same radio, a different answer', zh: '同一台射频，不同的答案' }, text: {
-      en: 'An error on one range pushes the fix along the line from that anchor to the phone. When the anchors are spread evenly around the phone those pushes point every which way and largely cancel; when they bunch up on one side, the pushes agree and add. GDOP is that multiplier, boiled down to a single number for the whole layout.',
-      zh: '某一条距离上的误差，会把定位沿着“该锚点指向手机”的那条线推一把。当锚点均匀地散在手机四周时，这些推力朝向各异，大体相互抵消；而当它们挤在一侧时，推力方向一致，便叠加起来。GDOP 就是这个放大倍数，把整套布局归结成一个数。',
+      en: 'An error on one range pushes the fix along the line from that anchor to the phone. When the anchors are spread evenly around the phone those pushes point every which way and largely cancel; when they bunch up on one side, the pushes agree and add. That multiplier, boiled down to one number for the whole layout, is the GDOP.',
+      zh: '某一条距离上的误差，会把定位沿着“该锚点指向手机”的那条线推一把。当锚点均匀地散在手机四周时，这些推力朝向各异，大体相互抵消；而当它们挤在一侧时，推力方向一致，便叠加起来。把整套布局归结成一个数的这个放大倍数，就是 GDOP。',
     } },
     { text: {
       en: 'So a fix is not equally uncertain in every direction. What the solver hands back is not a dot but an ellipse: long in the direction the anchors leave thin, short where they crowd. The scene draws it around the cross, blown up so that it is visible at all beside rings metres across, while the inspector prints its true size.',
@@ -67,8 +67,8 @@ export const uwbGeometry: Lesson = {
       zh: '最小二乘无法同时满足四条距离，于是它取了折中。定位朝着远离那个被挡住的锚点的方向滑开，位移大约是那条距离误差的一半，而残差也从“几乎没有”跳到了几厘米。检查生效了：确实出了问题，而且不必有人告诉拟合该怀疑哪一条。',
     } },
     { heading: { en: 'What the ellipse will not tell you', zh: '椭圆不会告诉你的事' }, text: {
-      en: 'And here is the expensive part: GDOP and the ellipse do not move. Both are built from directions and an assumed noise, so they describe the scatter of honest ranges and say nothing whatever about a range that is simply wrong. The residual notices, and so does the FoM byte the receiver attaches to each range.',
-      zh: '真正昂贵的地方在这里：GDOP 和椭圆一动不动。两者都是由方向和一个假定的噪声拼出来的，因此它们描述的是诚实距离的散布，而对一条干脆就是错的距离无话可说。察觉到它的是残差，以及接收端附在每条距离上的那个 FoM 字节。',
+      en: 'And here is the expensive part: GDOP and the ellipse do not move. Both are built from directions and an assumed noise, so they describe the scatter of honest ranges and say nothing whatever about a range that is simply wrong. The residual notices, and so does the quality byte the receiver attaches to each range, which is the FoM.',
+      zh: '真正昂贵的地方在这里：GDOP 和椭圆一动不动。两者都是由方向和一个假定的噪声拼出来的，因此它们描述的是诚实距离的散布，而对一条干脆就是错的距离无话可说。察觉到它的是残差，以及接收端附在每条距离上的那个品质字节，也就是 FoM。',
     } },
   ],
   numbers: [
@@ -76,8 +76,8 @@ export const uwbGeometry: Lesson = {
       en: 'GDOP = √trace((JᵀJ)⁻¹) = 1.05      Σ = σ_r² (JᵀJ)⁻¹',
       zh: 'GDOP = √trace((JᵀJ)⁻¹) = 1.05      Σ = σ_r² (JᵀJ)⁻¹',
     }, note: {
-      en: 'JᵀJ holds directions only, so its inverse is what the layout charges for a metre of range error; its eigenvectors are the ellipse. With four anchors whose bearings are spread evenly around the point, GDOP would be exactly 1.00. This room misses that twice over: the anchors are above the phone, and they span a rectangle rather than a square.',
-      zh: 'JᵀJ 里只有方向，所以它的逆就是布局为每一米测距误差开出的价码；它的特征向量就是那个椭圆。若四个锚点的方位角绕待测点均匀分布，GDOP 会恰好是 1.00。这个房间在两件事上都没做到：锚点比手机高，而且它们张成的是长方形而不是正方形。',
+      en: 'With four anchors whose bearings are spread evenly around the point, GDOP would be exactly 1.00. This room misses that twice over: the anchors are above the phone, and they span a rectangle rather than a square.',
+      zh: '若四个锚点的方位角绕待测点均匀分布，GDOP 会恰好是 1.00。这个房间在两件事上都没做到：锚点比手机高，而且它们张成的是长方形而不是正方形。',
     } },
     { kind: 'table', heading: { en: 'Three scenes, the same radio', zh: '三个场景，同一台射频' }, head: [
       { en: 'Scene', zh: '场景' }, { en: 'GDOP', zh: 'GDOP' }, { en: '1-σ ellipse', zh: '1σ 椭圆' },
@@ -104,19 +104,45 @@ export const uwbGeometry: Lesson = {
       zh: '而定位只挪了 30.9 cm，不是 60。扣掉噪声，位移是 0.316 m，即偏差的 53 %，方向背离那个被挡住的锚点。',
     } },
     { text: {
-      en: 'It leaves a 21 cm residual where a clean round leaves a micrometre — and nothing else on screen moves. That 30.9 cm is three and a half times the 8.9 cm envelope the geometry promises.',
-      zh: '它留下 21 cm 的残差，而干净的一轮只留下一微米——屏幕上别的什么都没动。那 30.9 cm 是几何所许诺的 8.9 cm 包络的三倍半。',
+      en: 'Inside the solver it leaves a 21 cm residual where a clean round leaves a micrometre, and no record carries that figure — on screen, nothing moves. That 30.9 cm is three and a half times the 8.9 cm envelope the geometry promises.',
+      zh: '在解算器内部，它留下 21 cm 的残差，而干净的一轮只留下一微米；这个数不写进任何记录——屏幕上什么也没动。那 30.9 cm 是几何所许诺的 8.9 cm 包络的三倍半。',
     } },
     { kind: 'table', heading: { en: 'The byte on each range, walled scene', zh: '有墙的场景里每条距离上的字节' }, head: [
       { en: 'Range', zh: '距离' }, { en: 'Error', zh: '误差' }, { en: 'FoM', zh: 'FoM' },
     ], rows: [
       [N('anchor-1'), N('57.1 cm'), N('0x7b — 75 % within 12 ns')],
-      [{ en: 'the other three', zh: '另外三条' }, N('under 1.4 cm'), N('0x16 — 97 % within 0.5 ns')],
+      [{ en: 'the other three', zh: '另外三条' }, { en: 'under 1.4 cm', zh: '不到 1.4 cm' }, N('0x16 — 97 % within 0.5 ns')],
     ] },
     { text: {
       en: 'The byte reports geometry, not the delay: clear the session’s NLOS switch and the range returns to centimetres while the byte reads the same. And this solver never looks at it — all four ranges weigh alike.',
       zh: '这个字节报告的是几何，而不是那段时延：把会话的 NLOS 开关关掉，距离会回到厘米级，而字节读出来还是原样。而且本解算器根本不看它——四条距离一视同仁。',
     } },
+    { kind: 'steps', heading: { en: 'How the layout gets priced, step by step', zh: '布局是怎样被定价的，一步一步' }, items: [
+      { en: 'Wait for the fit of the last lesson to stop, and take the point it stopped on. Everything below is computed there and nowhere else.',
+        zh: '等上一课那套拟合停下来，取它停住的那个点。以下每一步都在这个点上算，别处不算。' },
+      { en: 'For each anchor used, take the unit vector from anchor to that point and keep its horizontal (x, y) part. That row holds a direction only: the measured distance has already divided itself out of it.',
+        zh: '对用到的每个锚点，取从锚点指向该点的单位向量，只留水平 (x, y) 分量。这一行里只有方向：实测的距离已经在相除时约掉了。' },
+      { en: 'Sum the rows into the two-by-two JᵀJ — Σuₓ², Σuₓu_y, Σu_y² — and take its determinant. Under 1e-9 there is no answer at all: those directions cannot pin a point down.',
+        zh: '把各行累加成二乘二的 JᵀJ——Σuₓ²、Σuₓu_y、Σu_y²——再取它的行列式。小于 1e-9 就根本没有答案：这些方向钉不住一个点。' },
+      { en: 'Invert JᵀJ. The inverse is what this layout charges for a metre of range error.',
+        zh: '把 JᵀJ 求逆。这个逆矩阵就是本布局为每一米测距误差开出的价码。' },
+      { en: 'Add the two diagonal entries of the inverse and take the square root. That is the GDOP the fix line prints, rounded to two places.',
+        zh: '把逆矩阵对角线上的两项相加，再开平方。这就是定位那一行印出的 GDOP，保留两位小数。' },
+      { en: 'Multiply the inverse by σ_r², the 2.12 cm range noise squared. The square roots of that matrix’s two eigenvalues are the ellipse’s semi-axes; ½·atan2(2Σ_xy, Σ_xx − Σ_yy) is its long axis’s angle.',
+        zh: '再把整个逆矩阵乘以 σ_r²，也就是 2.12 cm 测距噪声的平方。所得矩阵两个特征值的平方根，就是椭圆的两条半轴，而 ½·atan2(2Σ_xy, Σ_xx − Σ_yy) 就是它长轴的倾角。' },
+      { en: 'Notice what never entered: no step after the first read a measured range. A merely noisy range and a simply wrong one give the identical GDOP and ellipse — only the point of step 1 moves.',
+        zh: '请注意什么自始至终没有进来：第一步之后，没有哪一步读过实测的距离。一条只是带噪声的距离，和一条干脆就是错的距离，给出的 GDOP 与椭圆一模一样——动的只有第一步那个点。' },
+    ] },
+    { kind: 'table', heading: { en: 'The four corners, run through those steps', zh: '四个角，照着这些步骤走一遍' }, head: [
+      { en: 'Step', zh: '步骤' }, { en: 'Value', zh: '数值' },
+    ], rows: [
+      [N('anchor-1, anchor-2'), N('(0.7348, 0.6298) · (−0.8622, 0.4703)')],
+      [N('anchor-3, anchor-4'), N('(0.6423, −0.7341) · (−0.7964, −0.5792)')],
+      [N('JᵀJ'), N('2.3302, 0.0470, 1.4922 · det 3.4750')],
+      [N('(JᵀJ)⁻¹'), N('0.4294, −0.0135, 0.6706')],
+      [N('GDOP'), N('√(0.4294 + 0.6706) = √1.1000 = 1.0488')],
+      [N('Σ = σ_r²(JᵀJ)⁻¹'), { en: '1.74 × 1.39 cm, −86.8°', zh: '1.74 × 1.39 cm，−86.8°' }],
+    ] },
   ],
   deeper: [
     { heading: { en: 'Why evenly spread anchors give exactly 1.00', zh: '为什么均匀分布的锚点恰好给出 1.00' }, text: {

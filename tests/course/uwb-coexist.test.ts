@@ -75,7 +75,7 @@ const recs = (variant?: number): TLRecord[] => runOf(uwbCoexist, variant, RUN_NS
 // The contract every migrated lesson owes, written once in tests/course/kit.ts.
 // The prose window is the content contract's: `why` + `outcomes` + `terms` +
 // `picture` + `numbers`, which `npx tsx scripts/lesson-dump.ts uwb-coexist en` prints.
-lessonShapeSuite(uwbCoexist, { proseMax: 1000, runNs: RUN_NS })
+lessonShapeSuite(uwbCoexist, { proseMax: 1250, runNs: RUN_NS })
 
 const interfered = (variant?: number) => ofType(recs(variant), 'UWB_INTERFERED')
 const fixes = (variant?: number) => ofType(recs(variant), 'UWB_POSITION')
@@ -710,5 +710,117 @@ describe('uwb-coexist · the three cures', () => {
     expect(ofType(clear, 'UWB_INTERFERED')).toEqual([])
     expect(ofType(clear, 'UWB_RANGE').filter((r) => r.node === 'uwb-1')).toHaveLength(100)
     expect(deepCell(0, 2, 2)).toBe('yes — the losses stop dead')
+  })
+})
+
+/**
+ * The 2026-09-23 amendment ("mechanism before metaphor"): the lesson writes the
+ * sharing out as a procedure, and each step is graded against the mediator and the
+ * UWB channel — `bandOverlapMhz`, the in-band arithmetic, `UWB_SIR_MIN_DB`,
+ * `CCA_ED_DBM` — rather than against the old prose. The worked example is the
+ * first loss of the base run, at 418.191 ms, value by value.
+ */
+describe('uwb-coexist · the procedure, against the mediator', () => {
+  const steps = (): Extract<Block, { kind: 'steps' }> =>
+    uwbCoexist.numbers!.find((b): b is Extract<Block, { kind: 'steps' }> => b.kind === 'steps')!
+  const stepsText = (): string => steps().items.map((i) => i.en).join('\n')
+  const firstLoss = () => interfered()[0]
+  /** A fixed-point string with the typographic minus the lesson prints. */
+  const mn = (x: string): string => x.replace('-', '−')
+
+  it('is a steps block on the main path, not in `deeper`', () => {
+    expect(uwbCoexist.numbers!.some((b) => b.kind === 'steps')).toBe(true)
+    expect((uwbCoexist.deeper ?? []).some((b) => b.kind === 'steps')).toBe(false)
+    expect(steps().items.length).toBeGreaterThanOrEqual(3)
+    for (const i of steps().items) expect(i.zh).not.toBe(i.en)
+  })
+
+  it('step 2: the band the phone reads the foreign power over is UWB channel 5’s own', () => {
+    // "over its own 6240.0 to 6739.2 MHz"
+    expect(stepsText()).toContain('6240.0 to 6739.2 MHz')
+    expect(UWB_BAND_MHZ[5].lo.toFixed(1)).toBe('6240.0')
+    expect(UWB_BAND_MHZ[5].hi.toFixed(1)).toBe('6739.2')
+    // the Wi-Fi channel lies wholly inside it, so the overlap is its whole width
+    expect(uwbBandOverlapMhz(WIFI_6G_CENTER_MHZ, WIDTH_MHZ, 5)).toBe(WIDTH_MHZ)
+  })
+
+  it('step 3: the worked example’s foreign level is the laptop’s, through the mediator’s own arithmetic', () => {
+    // "its power plus ten times the log of overlapping width over its own width, less its path
+    //  loss at that distance and the walls between" — rebuilt here, and equal to the record's
+    const f = firstLoss()
+    expect(cell(3, 1, 1)).toBe(`${mn(f.foreignDbm.toFixed(2))} dBm`)
+    const laptopEirp = uwbCoexistScenario().nodes.find((n) => n.id === 'laptop')!.txPowerDbm
+    expect(wifiAt(LAPTOP, laptopEirp, TAG)).toBeCloseTo(f.foreignDbm, 6)
+    // and it is the laptop, not the router: the router's own level is a different number
+    expect(wifiAt(AP, laptopEirp, TAG)).not.toBeCloseTo(f.foreignDbm, 2)
+  })
+
+  it('step 4: SIR is the frame’s own level minus that, against the engine’s −12 dB floor', () => {
+    const f = firstLoss()
+    const rssi = anchorAtTag(9.5, 7.5)
+    expect(f.from).toBe('anchor-4')
+    expect(cell(3, 0, 1)).toBe(`${mn(rssi.toFixed(2))} dBm`)
+    expect(cell(3, 2, 1)).toBe(`${mn(rssi.toFixed(2))} − (${mn(f.foreignDbm.toFixed(2))}) = ${mn(f.sirDb.toFixed(2))} dB`)
+    expect(rssi - f.foreignDbm).toBeCloseTo(f.sirDb, 6)
+    // "At or above −12 dB it decodes; below, it is lost" — the floor is the engine's constant,
+    // and every loss in the run is under it
+    expect(stepsText()).toContain('−12 dB')
+    expect(UWB_SIR_MIN_DB).toBe(-12)
+    for (const r of interfered()) expect(r.sirDb).toBeLessThan(UWB_SIR_MIN_DB)
+  })
+
+  it('step 5: each loss is an RX_FAIL, a UWB_INTERFERED and then a timeout, in that order', () => {
+    expect(cell(3, 3, 1)).toBe('RX_FAIL · UWB_INTERFERED · UWB_TIMEOUT')
+    const rs = recs()
+    const f = firstLoss()
+    const i = rs.indexOf(f)
+    const before = rs[i - 1]
+    expect(before.type).toBe('RX_FAIL')
+    expect((before as Extract<TLRecord, { type: 'RX_FAIL' }>).reason).toBe('lowSinr')
+    expect((before as Extract<TLRecord, { type: 'RX_FAIL' }>).node).toBe('uwb-1')
+    // the slot the answer should have filled then times out, naming the same anchor
+    const to = ofType(rs, 'UWB_TIMEOUT').find((r) => r.t > f.t)!
+    expect(to.peer).toBe(f.from)
+    expect(to.node).toBe('uwb-1')
+    // one timeout per loss over the whole run
+    expect(ofType(rs, 'UWB_TIMEOUT')).toHaveLength(interfered().length)
+    // "Nothing is retried inside the block": the anchor answers once a block and no more
+    expect(stepsText()).toContain('Nothing is retried inside the block')
+    const lostBlock = fixes().find((p2) => p2.t > f.t)!.block
+    expect(tagRanges().filter((r) => r.peer === 'anchor-4' && r.block === lostBlock)).toHaveLength(0)
+  })
+
+  it('step 6: the block still fixes, on three anchors, and the table says so', () => {
+    const f = firstLoss()
+    const after = fixes().find((p) => p.t > f.t)!
+    expect(after.anchors).toHaveLength(3)
+    expect(after.anchors).not.toContain('anchor-4')
+    expect(cell(3, 4, 1)).toBe(`GDOP ${after.gdop.toFixed(2)}, ${after.anchors.length} anchors`)
+    expect(fmtRecord(after)).toContain(`GDOP ${after.gdop.toFixed(2)}, 3 anchors`)
+    // every block of the run still produces one
+    expect(fixes()).toHaveLength(BLOCKS)
+  })
+
+  it('step 7: the other direction stops at the noise — nothing reaches the energy-detect threshold', () => {
+    // "the loudest one here sits 18.57 dB under the energy-detect threshold of −62 dBm"
+    const loudest = Math.max(...[TAG, ...CORNERS.map(([, x, y]) => ({ x, y, z: ANCHOR_Z }))]
+      .flatMap((p) => [uwbAt(p, AP), uwbAt(p, LAPTOP)]))
+    expect(CCA_ED_DBM).toBe(-62)
+    expect((CCA_ED_DBM - loudest).toFixed(2)).toBe('18.57')
+    expect(stepsText()).toContain('18.57 dB under the energy-detect threshold of −62 dBm')
+    // and the run bears it out: the Wi-Fi side's records are the no-UWB run's, field for field
+    expect(wifiSide(recs())).toEqual(wifiSide(recs(NO_UWB)))
+  })
+
+  it('step 8: the boundary — only power crosses, and it crosses both ways', () => {
+    expect(stepsText()).toContain('That is the boundary')
+    expect(stepsText()).toContain('only power crosses')
+    // the UWB side never emits a Wi-Fi record and vice versa: no shared MAC state at all
+    const uwbTypes = new Set(recs().filter(isUwbSide).map((r) => r.type))
+    expect(uwbTypes.has('CCA_BUSY')).toBe(false)
+    // and with the bands disjoint the mediator is never built: the ranging side is the
+    // channel-9 run's, so nothing but the overlap ever did anything
+    expect(interfered(WIFI7)).toEqual([])
+    expect(interfered(CH9)).toEqual([])
   })
 })

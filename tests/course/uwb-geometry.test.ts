@@ -49,7 +49,7 @@ const recs = (variant?: number): TLRecord[] => runOf(uwbGeometry, variant, RUN_N
 // uwb-position's own scene, so its recorded timeline hashes are uwb-position's, value
 // for value. (Until the controller registers this lesson, the readability suite does
 // not see it; the window below is what `lessonBudget` reports, and the kit enforces it.)
-lessonShapeSuite(uwbGeometry, { proseMax: 850, sameSceneAs: 'uwb-position' })
+lessonShapeSuite(uwbGeometry, { proseMax: 1050, sameSceneAs: 'uwb-position' })
 
 const fixes = (variant?: number) => ofType(recs(variant), 'UWB_POSITION')
 const fixErr = (f: Extract<TLRecord, { type: 'UWB_POSITION' }>) => Math.hypot(f.x - f.trueX, f.y - f.trueY)
@@ -59,6 +59,8 @@ const tagRanges = (variant?: number) => ofType(recs(variant), 'UWB_RANGE').filte
 const table = (n: number): Extract<Block, { kind: 'table' }> =>
   uwbGeometry.numbers!.filter((b): b is Extract<Block, { kind: 'table' }> => b.kind === 'table')[n]
 const cell = (n: number, row: number, col: number): string => table(n).rows[row][col].en
+/** A cell with the lesson's typographic minus put back to the one `toFixed` writes. */
+const cellAscii = (n: number, row: number, col: number): string => cell(n, row, col).replace(/−/g, '-')
 const formulas = (): Extract<Block, { kind: 'formula' }>[] =>
   uwbGeometry.numbers!.filter((b): b is Extract<Block, { kind: 'formula' }> => b.kind === 'formula')
 
@@ -472,5 +474,100 @@ describe('uwb-geometry · three anchors', () => {
     // with all four anchors the same spot is unremarkable, still under the band's 1.26
     expect(exactFix(here[0], here[1]).gdop.toFixed(2)).toBe('1.24')
     expect(exactFix(here[0], here[1]).gdop).toBeLessThan(1.26)
+  })
+})
+
+/**
+ * The 2026-09-23 amendment ("mechanism before metaphor"): the lesson writes the
+ * pricing out as a procedure, and each step is graded against `fixFrom` — reached
+ * through `solvePosition`, which is the only way in — rather than against prose.
+ * The worked-example table is the base scene's four corners at the tag's true
+ * place, noise-free, so that every row is geometry and nothing else.
+ */
+describe('uwb-geometry · the procedure, against the solver', () => {
+  const steps = (): Extract<Block, { kind: 'steps' }> =>
+    uwbGeometry.numbers!.find((b): b is Extract<Block, { kind: 'steps' }> => b.kind === 'steps')!
+  const stepsText = (): string => steps().items.map((i) => i.en).join('\n')
+  /** The four rows of J at the tag's true place, which is where the noise-free fit stops. */
+  const jRows = (): [number, number][] => CORNERS.map(([, x, y]) => jRow(TAG.x, TAG.y, x, y))
+  const normal = (rs: [number, number][]) => {
+    let xx = 0, xy = 0, yy = 0
+    for (const [ux, uy] of rs) { xx += ux * ux; xy += ux * uy; yy += uy * uy }
+    return { xx, xy, yy, det: xx * yy - xy * xy }
+  }
+  const allAnchors = (): AnchorPos[] => CORNERS.map(([id, x, y]) => ({ id, x, y, z: ANCHOR_Z }))
+  const exactRanges = () => allAnchors().map((a) => ({ id: a.id, distM: Math.hypot(TAG.x - a.x, TAG.y - a.y, TAG.z - a.z) }))
+
+  it('is a steps block on the main path, not in `deeper`', () => {
+    expect(uwbGeometry.numbers!.some((b) => b.kind === 'steps')).toBe(true)
+    expect((uwbGeometry.deeper ?? []).some((b) => b.kind === 'steps')).toBe(false)
+    expect(steps().items.length).toBeGreaterThanOrEqual(3)
+    for (const i of steps().items) expect(i.zh).not.toBe(i.en)
+  })
+
+  it('step 2: a row is a direction — its length never exceeds one, and it carries no metres', () => {
+    expect(stepsText()).toContain('divided itself out')
+    for (const [ux, uy] of jRows()) expect(Math.hypot(ux, uy)).toBeLessThanOrEqual(1)
+    // rows built at one point are the same rows however long the ranges to it were: put the
+    // solver at the tag's place with exact ranges, and the four rows are the table's own
+    const f = exactFix(TAG.x, TAG.y)
+    expect(Math.hypot(f.x - TAG.x, f.y - TAG.y)).toBeLessThan(1e-6)
+    expect(Math.sqrt(normal(jRows()).yy / normal(jRows()).det + normal(jRows()).xx / normal(jRows()).det))
+      .toBeCloseTo(f.gdop, 12)
+  })
+
+  it('steps 3 to 5: the worked table is JᵀJ, its inverse and the GDOP, in that order', () => {
+    const r = jRows()
+    const n = normal(r)
+    expect(cellAscii(2, 0, 1)).toBe(`(${r[0][0].toFixed(4)}, ${r[0][1].toFixed(4)}) · (${r[1][0].toFixed(4)}, ${r[1][1].toFixed(4)})`)
+    expect(cellAscii(2, 1, 1)).toBe(`(${r[2][0].toFixed(4)}, ${r[2][1].toFixed(4)}) · (${r[3][0].toFixed(4)}, ${r[3][1].toFixed(4)})`)
+    expect(cellAscii(2, 2, 1)).toBe(`${n.xx.toFixed(4)}, ${n.xy.toFixed(4)}, ${n.yy.toFixed(4)} · det ${n.det.toFixed(4)}`)
+    expect(cellAscii(2, 3, 1)).toBe(`${(n.yy / n.det).toFixed(4)}, ${(-n.xy / n.det).toFixed(4)}, ${(n.xx / n.det).toFixed(4)}`)
+    const trace = n.yy / n.det + n.xx / n.det
+    expect(cellAscii(2, 4, 1)).toBe(`√(${(n.yy / n.det).toFixed(4)} + ${(n.xx / n.det).toFixed(4)}) = √${trace.toFixed(4)} = ${Math.sqrt(trace).toFixed(4)}`)
+    expect(Math.sqrt(trace)).toBeCloseTo(exactFix(TAG.x, TAG.y).gdop, 12)
+    expect(exactFix(TAG.x, TAG.y).gdop.toFixed(4)).toBe('1.0488')
+    // "Under 1e-9 there is no answer at all"
+    expect(stepsText()).toContain('1e-9')
+    const line: AnchorPos[] = [1, 2, 3].map((i) => ({ id: `a${i}`, x: i, y: 4, z: ANCHOR_Z }))
+    expect(solvePosition(line, line.map((a) => ({ id: a.id, distM: Math.hypot(TAG.x - a.x, TAG.y - a.y, TAG.z - a.z) })), TAG.z, SIGMA_R)).toBeNull()
+  })
+
+  it('step 6: the ellipse is σ_r² times the inverse — eigenvalues, angle and scale', () => {
+    const f = exactFix(TAG.x, TAG.y)
+    const n = normal(jRows())
+    const s2 = SIGMA_R * SIGMA_R
+    const sxx = s2 * (n.yy / n.det), sxy = s2 * (-n.xy / n.det), syy = s2 * (n.xx / n.det)
+    const tr = sxx + syy, d2 = sxx * syy - sxy * sxy
+    const sq = Math.sqrt(Math.max(tr * tr / 4 - d2, 0))
+    expect(Math.sqrt(tr / 2 + sq)).toBeCloseTo(f.ellipse.a, 12)
+    expect(Math.sqrt(tr / 2 - sq)).toBeCloseTo(f.ellipse.b, 12)
+    expect(0.5 * Math.atan2(2 * sxy, sxx - syy)).toBeCloseTo(f.ellipse.thetaRad, 12)
+    expect(cellAscii(2, 5, 1)).toBe(`${(f.ellipse.a * 100).toFixed(2)} × ${(f.ellipse.b * 100).toFixed(2)} cm, ${(f.ellipse.thetaRad * 180 / Math.PI).toFixed(1)}°`)
+    // "σ_r², the 2.12 cm range noise squared": the axes scale with σ_r and the GDOP does not
+    expect(stepsText()).toContain('2.12 cm')
+    expect((SIGMA_R * 100).toFixed(2)).toBe('2.12')
+    const doubled = solvePosition(allAnchors(), exactRanges(), TAG.z, 2 * SIGMA_R)!
+    expect(doubled.ellipse.a / f.ellipse.a).toBeCloseTo(2, 9)
+    expect(doubled.gdop).toBeCloseTo(f.gdop, 12)
+  })
+
+  it('step 7: a wrong range moves the point and leaves every figure after it alone', () => {
+    const ranges = exactRanges()
+    const clean = solvePosition(allAnchors(), ranges, TAG.z, SIGMA_R)!
+    const lied = solvePosition(
+      allAnchors(),
+      ranges.map((r, i) => (i === 0 ? { ...r, distM: r.distM + C_M_PER_NS * UWB_NLOS_NS.brick } : r)),
+      TAG.z, SIGMA_R,
+    )!
+    expect(Math.hypot(lied.x - clean.x, lied.y - clean.y)).toBeGreaterThan(0.3)
+    // the figures after step 1 are rebuilt at the moved point, so they stir in the last
+    // digits — but not by anything the fix line or the inspector shows
+    expect(lied.gdop.toFixed(2)).toBe(clean.gdop.toFixed(2))
+    expect((lied.ellipse.a * 100).toFixed(1)).toBe((clean.ellipse.a * 100).toFixed(1))
+    expect((lied.ellipse.b * 100).toFixed(1)).toBe((clean.ellipse.b * 100).toFixed(1))
+    // what does move is the residual, the one figure that is built from the ranges
+    expect(clean.residualM).toBeLessThan(1e-6)
+    expect((lied.residualM * 100).toFixed(0)).toBe('21')
   })
 })

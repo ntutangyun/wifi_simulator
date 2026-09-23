@@ -101,8 +101,8 @@ export const uwbCoexist: Lesson = {
   ],
   picture: [
     { heading: { en: 'Two radios, one slice of spectrum', zh: '两种射频，同一片频谱' }, text: {
-      en: 'The earlier lessons put the ranging session on a channel nobody else used. Move it into the band a 6 GHz router works in and the two share spectrum. Here the router’s whole channel sits inside the ranging channel: the overlap is total, and every Wi-Fi burst lands on top of the session.',
-      zh: '此前几课把测距会话放在了一条没人用的信道上。把它挪进 6 GHz 路由器工作的那个频段，两者就共用起频谱来。在本课的房间里，路由器的整条信道都躺在测距信道之内：重叠是完全的，每一次 Wi-Fi 猝发都不偏不倚地压在会话头上。',
+      en: 'The earlier lessons put the ranging session on a channel nobody else used. Move it into the band a 6 GHz router works in and the two share spectrum. Here the router’s whole channel sits inside the ranging channel: the share of one band that falls inside the other — the overlap — is all of it, and every Wi-Fi burst lands on top of the session.',
+      zh: '此前几课把测距会话放在了一条没人用的信道上。把它挪进 6 GHz 路由器工作的那个频段，两者就共用起频谱来。在本课的房间里，路由器的整条信道都躺在测距信道之内：一个频带落进另一个频带的那一部分（重叠）是全部，每一次 Wi-Fi 猝发都不偏不倚地压在会话头上。',
     } },
     { heading: { en: 'A shout and a whisper', zh: '一声吼，一声耳语' }, text: {
       en: 'The router transmits thousands of times more power than a ranging device, all of it in a narrow channel. The ranging device spreads its tiny power across a channel many times wider, so only a slice of it reaches the router. And the geometry helps the router too: it and the laptop sit close to the phone, the anchors out in the corners.',
@@ -117,8 +117,8 @@ export const uwbCoexist: Lesson = {
       zh: '在手机这一侧，最强的“想要”是从房间对角作答的那个锚点，最响的“不想要”是几步之外的那台笔记本。两者之间的差距就是 SIR——信干比——这里的它是一个很深的负数，远远低于接收机还解得出来的下限。',
     } },
     { heading: { en: 'What the router hears', zh: '路由器听到了什么' }, text: {
-      en: 'Turn it round. A ranging frame reaching the router is weaker than the router’s own noise: it lifts the noise floor a few decibels and does nothing else. Wi-Fi calls a channel busy by energy detect, and a ranging frame this far off is nowhere near that threshold. The router never defers; only its demodulator meets the session.',
-      zh: '反过来看。一帧测距帧到达路由器时比路由器自己的噪声还弱：它把噪声底抬高几个分贝，除此之外什么也没做。Wi-Fi 判断信道忙不忙靠的是能量检测，而这样距离上的测距帧离那个门限差得很远。于是路由器从不为它退让，与这个会话打照面的只有解调器。',
+      en: 'Turn it round. A ranging frame reaching the router is weaker than the router’s own noise: it lifts the noise floor a few decibels and does nothing else. Wi-Fi’s only busy test here is raw power on the channel — energy detect — and a ranging frame this far off is nowhere near its threshold. The router never defers; only its demodulator meets the session.',
+      zh: '反过来看。一帧测距帧到达路由器时比路由器自己的噪声还弱：它把噪声底抬高几个分贝，除此之外什么也没做。Wi-Fi 在这里判忙只看信道上的原始功率，这就是能量检测（energy detect），而这样距离上的测距帧离它的门限差得很远。于是路由器从不为它退让，与这个会话打照面的只有解调器。',
     } },
     { heading: { en: 'A spare anchor absorbs it', zh: '一个备用锚点把损失吃了下来' }, text: {
       en: 'The session survives an office backup because it carries a spare. Three anchors would do and four answer, and the losses all fall on the same far one, so the phone still fixes its position in every block — a little worse conditioned, a little further out.',
@@ -150,8 +150,8 @@ export const uwbCoexist: Lesson = {
       en: 'in-band EIRP = EIRP + 10·log10(W_overlap / W_own)      Wi-Fi: 20 + 10·log10(80/80) = 20 dBm      UWB: −14 + 10·log10(80/499.2) = −21.95 dBm',
       zh: 'in-band EIRP = EIRP + 10·log10(W_overlap / W_own)      Wi-Fi: 20 + 10·log10(80/80) = 20 dBm      UWB: −14 + 10·log10(80/499.2) = −21.95 dBm',
     }, note: {
-      en: 'The router loses nothing, its channel lying wholly inside the ranging one. A ranging frame’s power is spread over 499.2 MHz and only 80 of those reach an 80 MHz receiver — 7.95 dB gone before the path loss starts.',
-      zh: '路由器这一侧一点也没损失：它的信道整个落在测距信道里面。而一帧测距帧的功率摊在 499.2 MHz 上，能进到一个 80 MHz 接收机里的只有其中 80 MHz——路径损耗还没开始，就先丢掉 7.95 dB。',
+      en: 'The router loses nothing, its channel lying wholly inside the ranging one. A ranging frame’s power is spread over 499.2 MHz, of which 80 reach an 80 MHz receiver — 7.95 dB gone before the path loss starts.',
+      zh: '路由器这一侧一点也没损失：它的信道整个落在测距信道里面。而一帧测距帧的功率摊在 499.2 MHz 上，进到 80 MHz 接收机里的只有 80 MHz——路径损耗还没开始，就先丢掉 7.95 dB。',
     } },
     { kind: 'table', heading: { en: 'What each side hears', zh: '两边各自听到什么' }, head: [
       { en: 'Heard by', zh: '谁听到' }, { en: 'What', zh: '听到的是' }, { en: 'Level', zh: '电平' },
@@ -165,8 +165,8 @@ export const uwbCoexist: Lesson = {
       [N('ap'), { en: 'the energy-detect threshold', zh: '能量检测门限' }, N('−62 dBm · 18.57 dB above')],
     ] },
     { text: {
-      en: 'The gap runs one way. Against the laptop the weakest anchor leaves the phone 18.8 dB short of what it can decode. Reverse it: the loudest ranging frame any Wi-Fi radio here sees is 18.57 dB under the energy-detect threshold — carrier sense never calls busy.',
-      zh: '这条鸿沟是单向的。对上笔记本，最弱的那个锚点让手机差了 18.8 dB 才够得着可解调的程度。反过来：本房间任何一台 Wi-Fi 收发机能听到的最强测距帧，比能量检测门限还低 18.57 dB，于是载波侦听从不判定信道忙。',
+      en: 'The gap runs one way. Against the laptop the weakest anchor leaves the phone 18.8 dB short of what it can decode.',
+      zh: '这条鸿沟是单向的。对上笔记本，最弱的那个锚点让手机差了 18.8 dB 才够得着可解调的程度。',
     } },
     { kind: 'table', heading: { en: 'Five seconds, twenty-five blocks', zh: '五秒，二十五个块' }, head: [
       { en: 'Run', zh: '运行' }, { en: 'Wi-Fi air', zh: 'Wi-Fi 占空' }, { en: 'Lost to Wi-Fi', zh: '被 Wi-Fi 干扰丢失' },
@@ -181,12 +181,35 @@ export const uwbCoexist: Lesson = {
       en: 'The backup run loses one ranging frame every third block, always the far anchor’s report, and the slot times out 1.8 ms later. Eight ranges of a hundred go — yet all twenty-five fixes are made, eight on three anchors, the error still inside 4.2 cm.',
       zh: '备份那次运行每三个块丢一帧测距帧，每次都是最远那个锚点的报告丢了，而 1.8 ms 之后那个时隙超时。一百次测距丢了八次——可二十五次定位一次也没少，其中八次只用三个锚点，误差依然在 4.2 cm 以内。',
     } },
+    { kind: 'steps', heading: { en: 'What the two radios do to each other, step by step', zh: '两种射频之间究竟发生了什么，一步一步' }, items: [
+      { en: 'Each live transmission of either radio registers with one shared mediator: a power spread evenly over its own band, its transmitter’s position, its transmitter’s own path-loss law. Nothing else crosses.',
+        zh: '两种射频的每一次在发传输，都向同一个中介登记：在自己频带上均匀铺开的功率、发射端的位置、发射端自己的路径损耗公式。别的什么也不越界。' },
+      { en: 'While a ranging frame arrives, the phone re-reads the foreign power over its own 6240.0 to 6739.2 MHz at every change the mediator reports, and keeps the largest reading of that reception.',
+        zh: '测距帧到达期间，中介每报一次变动，手机就在自己的 6240.0 至 6739.2 MHz 上重读外来功率，并保留这次接收里最大的读数。' },
+      { en: 'One transmission’s share of that reading: its power plus ten times the log of overlapping width over its own width, less its path loss at that distance and the walls between. Several add up in milliwatts, not decibels.',
+        zh: '某一次传输在这个读数里占的份额：功率加上“重叠带宽比自身带宽”的对数的十倍，减去这段距离上的路径损耗和中间的墙。多路相加按毫瓦，不按分贝。' },
+      { en: 'At the end of the frame take SIR = its own arriving level minus that worst foreign level. At or above −12 dB it decodes; below, it is lost as an RX_FAIL, and a UWB_INTERFERED line names the anchor, the foreign level and the SIR.',
+        zh: '这一帧收完时取 SIR = 本帧到达电平 − 刚才那个最坏的外来电平。达到或高于 −12 dB 就照常解出；低于就丢，记一条 RX_FAIL，再记一条 UWB_INTERFERED，写明锚点、外来电平与 SIR。' },
+      { en: 'Nothing is retried inside the block. The slot times out and prints UWB_TIMEOUT, and the fix is solved from the ranges that did arrive: three still solve it, and the line ends in three anchors.',
+        zh: '这个块之内不做任何重传。那个时隙超时，打印出 UWB_TIMEOUT，而定位就用已经到齐的距离来解：三条仍然解得出，那一行末尾写的是三个锚点。' },
+      { en: 'The other way round the same mediator is read, and the story stops sooner: a ranging frame only adds to a Wi-Fi receiver’s noise, and the loudest one here sits 18.57 dB under the energy-detect threshold of −62 dBm. That is the boundary — neither radio’s carrier sense sees the other, and only power crosses.',
+        zh: '反方向读的是同一个中介，而故事早一步就结束：一帧测距帧只给 Wi-Fi 接收机添点噪声，而这里没有哪一帧能摸到 −62 dBm 能量检测门限的 18.57 dB 以内。界线就在这里——两种射频的载波侦听都看不见对方，越界的只有功率。' },
+    ] },
+    { kind: 'table', heading: { en: 'The first loss, value by value', zh: '第一次丢失，逐值走一遍' }, head: [
+      { en: 'Step', zh: '步骤' }, { en: 'Value', zh: '数值' },
+    ], rows: [
+      [{ en: 'anchor-4’s Report arrives at', zh: 'anchor-4 的报告帧到达电平' }, N('−79.48 dBm')],
+      [{ en: 'Worst foreign level during it', zh: '其间最坏的外来电平' }, N('−48.67 dBm')],
+      [{ en: 'So the ratio is', zh: '于是比值是' }, N('−79.48 − (−48.67) = −30.81 dB')],
+      [{ en: 'Under the −12 dB floor, so', zh: '低于 −12 dB 门限，于是' }, N('RX_FAIL · UWB_INTERFERED · UWB_TIMEOUT')],
+      [{ en: 'And the block still fixes', zh: '而这个块照样解出定位' }, N('GDOP 1.26, 3 anchors')],
+    ] },
+  ],
+  deeper: [
     { heading: { en: 'When the spare runs out', zh: '余量用尽的时候' }, text: {
       en: 'Saturate the upload and it runs out. Every ranging frame meets a burst, 200 are lost in five seconds, and not one position is solved. The link notices this time — throughput falls from 276.816 to 274.128 Mb/s — but that is 0.97 %, against a session that has stopped existing.',
       zh: '把上传灌满，这个备份件就用尽了。每一帧测距帧都会撞上一次猝发，五秒里丢掉 200 帧，一次定位也解不出来。这回链路确实察觉到了——吞吐从 276.816 Mb/s 掉到 274.128 Mb/s——但那只是 0.97 %，而对面那个会话已经不存在了。',
     } },
-  ],
-  deeper: [
     { kind: 'table', heading: { en: 'Three cures, measured', zh: '三种办法，各自量一量' }, head: [
       { en: 'Cure', zh: '办法' }, { en: 'What it gives', zh: '换来什么' }, { en: 'Enough?', zh: '够不够？' },
     ], rows: [

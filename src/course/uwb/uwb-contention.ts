@@ -83,7 +83,7 @@ export const uwbContention: Lesson = {
   },
   outcomes: [
     { en: 'say why a poll that names nobody produces collisions, and roughly how many', zh: '说清一个不点名的轮询帧为什么会引起碰撞，以及大致会有多少' },
-    { en: 'read a draw, a collision and a sit-out off the log', zh: '从日志里读出一次抽取、一次碰撞和一次空过' },
+    { en: 'read off the log a draw, a collision, and a round a device spends silent — a sit-out', zh: '从日志里读出一次抽取、一次碰撞，以及一台设备整轮不出声的那一次（空过）' },
     { en: 'weigh a wider answering window against the range error it buys', zh: '在“更宽的应答窗口”与“它换来的测距误差”之间做权衡' },
   ],
   needs: ['uwb-coexist'],
@@ -111,8 +111,8 @@ export const uwbContention: Lesson = {
       zh: 'UWB 第一阶段里的每一轮都是点名：轮询帧点出每个锚点和它的时隙，于是没有东西会碰撞——因为没有东西需要挑选。可这一切都建立在“控制器已经知道场上有谁”之上——而很多时候，它并不知道。',
     } },
     { heading: { en: 'So the poll names nobody', zh: '于是轮询帧谁也不点' }, text: {
-      en: 'Instead it opens a response window: a run of slots that belong to nobody in particular. A short list inside the poll, the RCPS, says how many there are. Every device that decodes the poll picks one at random and answers there, and the controller learns who is present by hearing them.',
-      zh: '取而代之的是开出一段应答窗口：一串不属于任何特定设备的时隙。轮询帧里有一张短清单，叫 RCPS，写明这里一共有几个时隙。每一台解出这个轮询帧的设备都从中随机挑一个，在那里作答；控制器则靠听见他们，来知道场上有谁。',
+      en: 'Instead it opens a run of slots that belong to nobody in particular — a response window. A short list inside the poll (the RCPS) says how many there are. Every device that decodes the poll picks one at random and answers there, and the controller learns who is present by hearing them.',
+      zh: '取而代之的是开出一串不属于任何特定设备的时隙，这就是应答窗口。轮询帧里有一张短清单（RCPS），写明这里一共有几个时隙。每一台解出这个轮询帧的设备都从中随机挑一个，在那里作答；控制器则靠听见他们，来知道场上有谁。',
     } },
     { kind: 'watch', jump: 1, heading: { en: 'Watch six anchors draw', zh: '看六个锚点各抽一个' }, text: {
       en: 'Load the simulation and press play, then jump to the first anchor to draw. All six draw at the same instant, off the same poll, and the log prints six lines at once. Read the slot numbers: look for two that match.',
@@ -123,8 +123,8 @@ export const uwbContention: Lesson = {
       zh: '两个锚点在同一个时隙里作答，碰上的是介质那条寻常的规则：若一路明显比另一路响，就解出较响的那一路，否则两路皆失。而在这个房间里，每个锚点离手机的距离相同、发射功率也相同，于是谁也压不过谁。每一个被共用的时隙，都要赔上两路应答。',
     } },
     { heading: { en: 'Nobody tells a loser', zh: '没有谁会去通知失败者' }, text: {
-      en: 'The measurement finishes at the phone and nothing goes back to the anchor, so an anchor whose answer died is never told. The model closes that loop at the round boundary: an anchor the phone did not range comes back next round and tries again. Its RCMA budget says how many tries it gets; when they run out it takes a sit-out.',
-      zh: '在这种模式里，测量在手机那一侧就结束了，没有任何东西回到锚点，所以应答死掉的锚点永远不会被告知。模型改为在轮次边界上把这个回路闭上：手机没有测到的锚点，下一轮回来再试一次。它能试几次由 RCMA 的预算说了算；次数用完，它就空过一轮，连时隙也不抽。',
+      en: 'The measurement finishes at the phone and nothing goes back to the anchor, so an anchor whose answer died is never told. The model closes that loop at the round boundary: an anchor the phone did not range comes back next round and tries again. How many tries it gets is set by a second list in the poll (the RCMA); when they run out it stays silent for a whole round — a sit-out.',
+      zh: '在这种模式里，测量在手机那一侧就结束了，没有任何东西回到锚点，所以应答死掉的锚点永远不会被告知。模型改为在轮次边界上把这个回路闭上：手机没有测到的锚点，下一轮回来再试一次。它能试几次，由轮询帧里的另一张清单（RCMA）说了算；次数用完，它就整整一轮不出声，这就是空过。',
     } },
     { kind: 'watch', jump: 3, heading: { en: 'Watch one anchor give up', zh: '看一个锚点放弃' }, text: {
       en: 'Jump to the first anchor to run out of tries. Three rounds running it drew a slot and was never heard; in the fourth it stays quiet. Its lane shows nothing that round — no draw, no answer, no failure.',
@@ -187,15 +187,41 @@ export const uwbContention: Lesson = {
       [{ en: 'roll call, 6 anchors', zh: '点名，6 个锚点' }, { en: 'set by the schedule', zh: '由日程表定死' }, N('20.4 cm')],
     ] },
     { text: {
-      en: 'A single-sided measurement keeps a residual of 3.0 cm for every millisecond the answer waits, so 6.0 cm a slot. That is the whole of the table above: the drawn slot is the reply time, and a wider window is a longer wait.',
-      zh: '单边测距会留下一项残差：应答每多等一毫秒，就是 3.0 cm，于是每个时隙 6.0 cm。上面那张表讲的就是这一件事：抽到的时隙就是应答时延，而窗口越宽，等得越久。',
+      en: 'A single-sided measurement keeps a residual of 3.0 cm for every millisecond the answer waits, so 6.0 cm a slot.',
+      zh: '单边测距会留下一项残差：应答每多等一毫秒，就是 3.0 cm，于是每个时隙 6.0 cm。',
     } },
+    { kind: 'steps', heading: { en: 'Getting a turn without being named, step by step', zh: '没被点名也能拿到发言权，一步一步' }, items: [
+      { en: 'The tag’s poll opens the round and advertises two figures taken from the session: the window holds 8 response slots, and a responder may make 3 tries.',
+        zh: '标签的轮询帧开启这一轮，并通告两个取自会话的数：应答窗口里有 8 个时隙，一个应答者可以尝试 3 次。' },
+      { en: 'An anchor that decodes the poll looks at the tries it has left. None left, and it draws no slot: it prints that it sits out, and refills its budget to three.',
+        zh: '解出轮询帧的锚点，先看自己还剩几次尝试。一次不剩，就一个时隙也不抽：打印出“本轮空过”，并把预算重新填满到三次。' },
+      { en: 'Otherwise it draws a slot: one plus a uniform integer below S. The draw lands anywhere from the window’s first slot to its last, each equally likely.',
+        zh: '否则它抽一个时隙：1 加上一个小于 S 的均匀整数。抽到的位置从窗口的第一个时隙到最后一个都有可能，机会均等。' },
+      { en: 'The poll’s own opening slot is never among them. The anchor prints the slot it drew and the number of this attempt, then answers there.',
+        zh: '轮询帧自己占的那个开头时隙，永远不在其中。锚点把抽到的时隙和这是第几次尝试打印出来，随后就在那里作答。' },
+      { en: 'The tag listens through every slot of the window without naming a peer, so an empty slot is simply silence: no timeout record is written for it.',
+        zh: '标签逐个时隙听过去，不指名任何对端，所以空的时隙就只是安静：不会为它写下超时记录。' },
+      { en: 'Two answers in one slot overlap at the tag. The medium lets the stronger through only if it leads by 6 dB; every anchor here is 3.50 m away at the same power, so both are lost. One collision record per slot, not per answer.',
+        zh: '同一个时隙里的两个回答在标签处相叠。介质只有在较强的一路领先 6 dB 时才放它过去；而这里每个锚点都在 3.50 m 处、功率相同，于是两路皆失。碰撞记录一个时隙一条，不是每丢一路一条。' },
+      { en: 'At the round’s end every anchor that drew a slot learns whether the tag ranged it — from the model, at the round boundary, with nothing sent over the air. Heard: budget back to three. Not heard: one try gone.',
+        zh: '这一轮结束时，每个抽过时隙的锚点都会得知标签有没有测到自己——由模型在轮次边界上告知，空中不发送任何东西。被听见：预算恢复成三次；没被听见：少掉一次尝试。' },
+      { en: 'And the slot drawn is the reply time: drawing slot k means waiting k slots of 2 ms, which a single-sided measurement turns into 6.0 cm of range error per slot.',
+        zh: '而抽到的时隙就是应答时延：抽到第 k 个时隙，就要等 k 个 2 ms 的时隙，这在单边测距里折合成每个时隙 6.0 cm 的测距误差。' },
+    ] },
+    { kind: 'table', heading: { en: 'anchor-2’s first four rounds', zh: 'anchor-2 的头四轮' }, head: [
+      { en: 'Round', zh: '轮次' }, { en: 'It drew', zh: '它抽到' }, { en: 'Outcome', zh: '结果' },
+    ], rows: [
+      [N('0'), { en: 'slot 7, attempt 1', zh: '第 7 号时隙，第 1 次尝试' }, { en: 'shared with anchor-6, lost', zh: '与 anchor-6 撞在一起，丢失' }],
+      [N('1'), { en: 'slot 5, attempt 2', zh: '第 5 号时隙，第 2 次尝试' }, { en: 'shared, lost', zh: '撞在一起，丢失' }],
+      [N('2'), { en: 'slot 3, attempt 3', zh: '第 3 号时隙，第 3 次尝试' }, { en: 'shared, lost', zh: '撞在一起，丢失' }],
+      [N('3'), { en: 'no slot, attempt 0', zh: '不抽时隙，第 0 次尝试' }, { en: 'sits out, budget back to three', zh: '空过，预算恢复成三次' }],
+    ] },
+  ],
+  deeper: [
     { heading: { en: 'Latency', zh: '时延' }, text: {
       en: 'Latency lands on the same side. The base scene needs six rounds before one holds three ranges, so its first position is at 1.218 s; the roll call has one from the first round, in a round 4 ms shorter.',
       zh: '时延也站在同一边。基准场景要等六轮，才有某一轮凑齐三次测距，所以它的第一次定位落在 1.218 s；而点名从第一轮起就每轮都有，而且每轮还短 4 ms。',
     } },
-  ],
-  deeper: [
     { heading: { en: 'What thirty rounds actually deliver', zh: '三十轮到底交出了什么' }, text: {
       en: 'The base scene delivers 79 of a possible 180 responses and 15 fixes in thirty rounds, six of those fifteen on only three anchors, and the first not until block 6 at 1.218 s. The same six anchors on a roll call deliver 180 responses and 30 fixes. At four slots all seven fixes are on the bare minimum of three anchors. Doubling the window from 8 slots to 16 buys 1.27 more responses a round and costs 16 ms. All three totals sit inside a 4σ binomial envelope of the printed formula, and none is the number it printed.',
       zh: '基准场景在三十轮里交出 79 次应答（满打满算本可有 180 次）与 15 次定位，这十五次里有六次只用上三个锚点，而第一次要等到第 6 个块、1.218 s 才出现。同样六个锚点改用点名，则是 180 次应答、30 次定位。四个时隙时，七次定位全都只勉强用上三个锚点。窗口从 8 个时隙翻倍到 16 个，每轮只多换来 1.27 个应答，却要多付 16 ms。三个总数都落在所印公式的 4σ 二项包络之内，而没有一个等于公式印出来的那个数。',
