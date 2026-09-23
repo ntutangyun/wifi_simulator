@@ -454,6 +454,7 @@ export const MECHANISM_DONE: string[] = [
   'bianchi', 'bianchi-vs-sim', 'tier1-project', 'tier1-project-review',
   'uwb-intro', 'uwb-frame', 'uwb-sts',
   'uwb-sstwr', 'uwb-dstwr', 'uwb-blocks',
+  'uwb-position', 'uwb-geometry', 'uwb-coexist', 'uwb-contention',
 ]
 
 /**
