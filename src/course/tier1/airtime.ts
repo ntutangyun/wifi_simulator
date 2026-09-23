@@ -23,7 +23,7 @@ export const airtime: Lesson = {
   outcomes: [
     { en: 'read a frame’s duration off the timeline and say which part of it is payload', zh: '在时间轴上读出一帧的时长，并说出其中哪一段才是净荷' },
     { en: 'explain why every frame pays the same preamble, whatever it carries', zh: '解释为什么每一帧都要付同样长的前导，不管它装了什么' },
-    { en: 'say why the acknowledgement is worth the air it costs', zh: '说清确认帧为什么值得它占掉的那点空口时间' },
+    { en: 'say why the acknowledgement is worth the air it costs', zh: '说清确认帧（ACK）为什么值得它占掉的那点空口时间' },
   ],
   needs: ['radio-primer', 'decode-thresholds', 'frame-anatomy', 'frame-anatomy-bytes'],
   terms: [

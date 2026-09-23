@@ -38,16 +38,16 @@ export const backoff: Lesson = {
     } },
     { term: 'ACK timeout', plain: {
       en: 'the deadline after which a sender stops expecting an answer and calls the frame lost',
-      zh: '一个期限：过了它，发送方就不再指望回答，判这一帧已经丢了',
+      zh: '过了这个期限，发送方就不再指望回答，判这一帧已经丢了',
     } },
   ],
   picture: [
     { heading: { en: 'Two stations, one instant', zh: '两台站点，同一瞬间' }, text: {
-      en: 'Both stations here are busy, both are waiting for the channel, and both follow the same rule. The moment the required silence is over they are in identical states — so a rule with no randomness in it would have them start in the same microsecond, every time, for ever. Something has to make two identical stations behave differently.',
+      en: 'Both stations here are busy, both waiting for the channel, both following the same rule. The moment the required silence is over they are in identical states — so a rule with no randomness would have them start in the same microsecond, every time, for ever. Something has to make two identical stations behave differently.',
       zh: '这里的两台站点都很忙，都在等信道，遵守的也是同一条规则。要求的那段安静一走完，它们的状态一模一样——也就是说，一条不带随机性的规则，会让它们在同一微秒开口，每一次都这样，永远这样。讲礼貌是不够的。必须有点什么，让两台一模一样的站点做出不一样的事。',
     } },
     { heading: { en: 'Roll, then count down', zh: '先掷骰子，再倒着数' }, text: {
-      en: 'So each one draws a random whole number and treats it as a count of idle slots to sit through; that count is the backoff. Every slot the channel stays quiet, the count drops by one; at zero the station sends. The lower draw wins, and since the draws are independent, the winner changes from round to round. If a frame starts mid-count the counter freezes and later picks up where it stopped, so nobody loses the waiting already done.',
+      en: 'So each one draws a random whole number and treats it as a count of idle slots to sit through; that count is the backoff. Every slot the channel stays quiet, the count drops by one; at zero the station sends. The lower draw wins, and since the draws are independent, the winner changes from round to round. If a frame starts mid-count the counter freezes and resumes where it stopped, so no waiting is wasted.',
       zh: '于是每台站点抽一个随机整数，把它当作“要熬过的空闲时隙数”：这就是它的退避值。信道每安静一个时隙，这个数就减一；减到零就发。抽得小的赢，而由于两边各抽各的，赢家每一轮都可能换人。若中途有帧开始，计数就地冻结，之后从停下的那个数继续，谁都不会把已经等过的时间白等。',
     } },
     { kind: 'watch', jump: 0, heading: { en: 'Look at a collision', zh: '去看一次碰撞' }, text: {
@@ -59,8 +59,8 @@ export const backoff: Lesson = {
       zh: '没有任何机制能阻止两台站点抽到同一个数。一旦抽到，两边的计数在同一个时隙同时归零，两帧一起发出去，彼此重叠。两个发送方什么都没察觉：无线电在发送时听不见。它们最先得知的事情，是自己等的那个回答没来。',
     } },
     { heading: { en: 'Silence needs a deadline', zh: '沉默需要一个期限' }, text: {
-      en: 'So the sender starts a clock the moment its frame ends. If an answer were on its way it would have been noticed by now: the receiver’s own short pause, one slot of margin, and the time a radio needs to spot a signal beginning. Past that point silence is a verdict — the ACK timeout expires, the frame is lost, and the station must try again.',
-      zh: '于是发送方在自己这帧结束的那一刻起表。如果回答真在路上，到这时候早该被察觉了：接收端理应先停的那一小段、一个时隙的余量、再加上无线电察觉“有信号开始了”所需的时间。过了这个点，沉默就是判决。ACK 超时到期，这一帧被判丢失，站点必须重来。',
+      en: 'So the sender starts a clock the moment its frame ends. If an answer were on its way it would have been noticed by now: the receiver’s own short pause, one idle slot in case the answer is late, and the time a radio needs to spot a signal beginning. Past that point silence is a verdict — the ACK timeout expires, the frame is lost, and the station must try again.',
+      zh: '于是发送方在自己这帧结束的那一刻起表。如果回答真在路上，到这时候早该被察觉了：接收端理应先停的那一小段、再多给一个空闲时隙以防回答开口晚了一点、再加上无线电察觉“有信号开始了”所需的时间。过了这个点，沉默就是判决。ACK 超时到期，这一帧被判丢失，站点必须重来。',
     } },
     { heading: { en: 'Doubling the window', zh: '把窗口翻倍' }, text: {
       en: 'Trying again with the same die would be foolish: a collision is evidence that too many stations are drawing from too small a range. So a station that has failed doubles the top of the range it draws from (its contention window, CW), and doubles it again with every further failure. Waits get longer, which costs airtime — but the chance of two draws landing on the same number falls fast. On the next success the window snaps back to its smallest value.',
@@ -99,7 +99,7 @@ export const backoff: Lesson = {
       { en: 'Piece', zh: '组成' }, N('µs'), { en: 'What it covers', zh: '它盖住了什么' }, { en: 'Where', zh: '出处' },
     ], rows: [
       [N('SIFS'), N('16'), { en: 'the pause the receiver legitimately takes before answering', zh: '接收端在回答之前理应先停的那一段' }, N('§17.4.4')],
-      [{ en: 'one slot', zh: '一个时隙' }, N('9'), { en: 'margin', zh: '余量' }, N('§17.4.4')],
+      [{ en: 'one slot', zh: '一个时隙' }, N('9'), { en: 'an answer that begins late', zh: '开口晚了一点的回答' }, N('§17.4.4')],
       [{ en: 'signal-detect delay', zh: '信号检测时延' }, N('20'), { en: 'the time a radio needs to spot a signal beginning', zh: '无线电察觉到“有信号开始了”所需的时间' }, N('§17.4.4')],
       [{ en: 'ACK timeout', zh: 'ACK 超时' }, N('45'), { en: 'past this, the frame is lost', zh: '过了这里，这一帧就算丢了' }, N('§10.3.2.9')],
     ] },

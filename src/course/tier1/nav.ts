@@ -59,7 +59,7 @@ export const nav: Lesson = {
     } },
     { heading: { en: 'Only the remainder', zh: '只算剩下的部分' }, text: {
       en: 'Notice what the number leaves out: the frame carrying it. There is no need for it — while that frame is on the air, everybody’s ears already report busy. So a data frame’s announcement covers just the pause and the answer, and each later frame of the same exchange carries a smaller remainder than the one before it.',
-      zh: '注意这个数没把什么算进去：它自己所在的那一帧。这本来也没必要——那一帧还在空中时，所有人的耳朵本来就报“忙”。所以数据帧预告的，只是那段停顿加上那个回答；而同一次交互里越靠后的帧，带的剩余量就越小。',
+      zh: '注意这个数没把什么算进去：它自己所在的那一帧。这本来也没必要——那一帧还在空中时，所有人的耳朵本来就报“忙”。所以数据帧预告的，只是那段停顿加上那个回答；而同一次交互里越靠后的帧，预告的剩余时长就越短。',
     } },
     { heading: { en: 'Frozen, and not knowing for how long', zh: '冻住了，却不知道要冻多久' }, text: {
       en: 'A station part-way through counting down its own wait simply stops when a frame starts, and at that moment it has no idea how long the interruption will last. It learns the frame’s length from the header; only when the whole frame has been decoded — its ratio good enough, end to end, for the rung it was sent at — may it trust the announcement and set its countdown. Most of the wait is spent not knowing when the wait will end.',

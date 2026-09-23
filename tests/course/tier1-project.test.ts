@@ -72,9 +72,14 @@ describe('tier1-project · the lesson itself', () => {
     expect(tier1Project.module).toBe(1)
     expect(COURSE_ORDER.indexOf('tier1-project')).toBe(COURSE_ORDER.indexOf('bianchi-vs-sim') + 1)
     expect(COURSE_ORDER.indexOf('tier1-project-review')).toBe(COURSE_ORDER.indexOf('tier1-project') + 1)
-    // Whole-track review M2: `margin` restated decode-thresholds' `rate margin` and `saturated`
-    // restated bianchi's `saturation`; both are dropped, and both owners are in `needs`.
-    expect(tier1Project.terms!.map((t) => t.term)).toEqual(['brief', 'link budget', 'DCF'])
+    // Whole-track review M2 dropped `margin` and `saturated` as restatements of
+    // decode-thresholds' `rate margin` and bianchi's `saturation`, on the grounds that both
+    // owners were reachable through `needs`. `margin` is back (2026-09-23): the repaired
+    // rule-2 pool is a lesson's own terms plus its DIRECT prerequisites, and
+    // decode-thresholds is eight lessons back, not the one the reader has just read. The
+    // brief asks the reader to add 3 dB by hand four times over, so this lesson owes the
+    // word itself. `saturated` stays dropped — bianchi IS a direct need.
+    expect(tier1Project.terms!.map((t) => t.term)).toEqual(['brief', 'link budget', 'margin', 'DCF'])
     // it is a brief, not exposition: the four questions and the discipline that goes with them
     quotes('(a) How strong each laptop arrives', '(b) How long one data frame', '(c) How often two saturated senders',
       '(d) How the air divides', 'once you have read a result you can no longer honestly predict it')

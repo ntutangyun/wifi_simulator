@@ -100,6 +100,10 @@ export const tier1Project: Lesson = {
       en: 'power out, minus what the distance takes, minus what each wall takes',
       zh: '发出去的功率，减去距离拿走的，再减去每堵墙拿走的',
     } },
+    { term: 'margin', plain: {
+      en: 'the decibels a rung’s requirement has to be cleared by before it may be used — 3 dB here, so no link is run at the very edge',
+      zh: '余量：取用某一级之前，到达的信号必须高出这一级要求的那几个分贝——这里是 3 dB，好让链路不贴着边跑',
+    } },
     { term: 'DCF', plain: {
       en: 'the plain take-turns access of this tier: wait, count down, send, be answered',
       zh: '本阶段讲的那套朴素轮流接入：先等，再倒数，发一个，等一个回答',

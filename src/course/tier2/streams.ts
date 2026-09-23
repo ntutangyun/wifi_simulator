@@ -53,7 +53,7 @@ export const streams: Lesson = {
       zh: '载入仿真，跳到第一个数据帧。这一课打开的是单流；上面的按钮把它切到两条流、四条流，再切到两个混合的情形。变的只有那个蓝色数据块。',
     } },
     { heading: { en: 'The multiplier that is free', zh: '白送的那个倍数' }, text: {
-      en: 'The difference from width is the price. A wider channel makes the receiver take in more noise; another stream does not. The channel is the same size as it was, so the noise floor stays where it was and so does every rung’s sensitivity on the rate ladder. In this simulator — and nearly so in a room full of reflections — streams are the multiplier nobody charges you for. Width is the one that costs 3 dB every time it doubles.',
+      en: 'The difference from width is the price. A wider channel makes the receiver take in more noise; another stream does not. The channel is the same size as it was, so the noise floor stays where it was and so does the signal every rung on the rate ladder asks for. In this simulator — and nearly so in a room full of reflections — streams are the multiplier nobody charges you for. Width is the one that costs 3 dB every time it doubles.',
       zh: '和带宽的区别在于价钱。信道变宽，接收端就要多收进一份噪声；而多加一条流不会——信道还是原来那么大，噪声地板不动，速率阶梯上每一级所要的信号也不动。在本仿真器里——在一间满是反射的屋子里也差不多——空间流是没人跟你收钱的那个倍数；带宽那个倍数，每翻一倍都要付 3 dB。',
     } },
     { heading: { en: 'Where the multipliers stop', zh: '倍数到头的地方' }, text: {
@@ -155,14 +155,14 @@ export const streams: Lesson = {
   ],
   quiz: [
     {
-      q: { en: 'Why does adding a spatial stream cost no sensitivity, when doubling the channel width does?', zh: '为什么加一条空间流不用付灵敏度的代价，而带宽翻倍就要付？' },
+      q: { en: 'Why does adding a spatial stream ask the sender for no extra signal, when doubling the channel width does?', zh: '为什么加一条空间流不必向发送端多要信号，而带宽翻倍就要？' },
       options: [
         { en: 'Streams are transmitted at higher power', zh: '空间流的发射功率更高' },
         { en: 'The channel is still the same width, so the receiver takes in the same noise — the streams are kept apart by space, not by frequency', zh: '信道宽度没变，接收端收进的噪声也没变——两条流靠空间区分，不靠频率' },
         { en: 'The extra streams are sent on a second channel', zh: '多出来的那些流是在另一条信道上发的' },
       ],
       answer: 1,
-      explain: { en: 'Noise power follows the width of the channel. Doubling the width doubles it, which is the 3 dB; a second stream reuses the very same sub-carriers, so the noise floor does not move and neither does any rung’s sensitivity on the rate ladder.', zh: '噪声功率跟着信道宽度走。带宽翻倍，噪声也翻倍，这就是那 3 dB；而第二条流复用的是同一批子载波，噪声地板不动，速率阶梯上每一级所要的信号也纹丝不动。' },
+      explain: { en: 'Noise power follows the width of the channel. Doubling the width doubles it, which is the 3 dB; a second stream reuses the very same sub-carriers, so the noise floor does not move and neither does the signal any rung on the rate ladder asks for.', zh: '噪声功率跟着信道宽度走。带宽翻倍，噪声也翻倍，这就是那 3 dB；而第二条流复用的是同一批子载波，噪声地板不动，速率阶梯上每一级所要的信号也纹丝不动。' },
     },
     {
       q: { en: 'A router with four antennas serves a phone with two. How many streams does that link use?', zh: '一台四根天线的路由器服务一部两根天线的手机。这条链路用几条流？' },

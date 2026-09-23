@@ -25,7 +25,7 @@ export const ofdmaDl: Lesson = {
   },
   outcomes: [
     { en: 'say what an access point divides up when it serves several devices in one send', zh: '说出接入点在一次发送里服务多台设备时，被切分的到底是什么' },
-    { en: 'read one multi-user PPDU off the timeline: who is inside it, how long it took, how it was answered', zh: '在时间轴上读出一个多用户 PPDU：里面有谁、花了多久、怎么被确认的' },
+    { en: 'read one multi-user PPDU off the timeline: who is inside it, how long it took, how it was answered', zh: '在时间轴上读出一个多用户（MU）PPDU：里面有谁、花了多久、怎么被确认的' },
     { en: 'say when cutting the channel into slices saves air, and when it saves nothing at all', zh: '说出把信道切成小片什么时候省空口，什么时候一点也省不下' },
   ],
   needs: ['width', 'txop'],
@@ -36,7 +36,7 @@ export const ofdmaDl: Lesson = {
     } },
     { term: 'resource unit', plain: {
       en: 'one slice: the block of sub-carriers handed to one device inside one send',
-      zh: '一片：一次发送里分给某一台设备的那一组子载波',
+      zh: '资源单元：一次发送里分给某一台设备的那一组子载波，也就是切出来的一片',
     } },
     { term: 'RU', plain: {
       en: 'the short name for a resource unit, and the one the trace prints',
