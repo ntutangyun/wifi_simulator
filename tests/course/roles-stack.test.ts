@@ -44,7 +44,9 @@ lessonShapeSuite(rolesStack, { proseMax: 1000, runNs: RUN_NS })
 describe('roles-stack · the lesson itself', () => {
   it('is the third lesson of Wi-Fi Tier 1 and owns the architecture words', () => {
     expect(rolesStack.module).toBe(0)
-    expect(rolesStack.needs).toEqual(['radio-primer'])
+    // decode-thresholds joined when rule 2 stopped grading vacuously: the opening
+    // sentence uses its `rate margin`, so the lesson has to declare it.
+    expect(rolesStack.needs).toEqual(['radio-primer', 'decode-thresholds'])
     // the baseline owner table of the readability programme: BSS, BSSID and SSID are this
     // lesson's to introduce, and DS comes with them because "everything goes through the
     // middle" cannot be told without it.

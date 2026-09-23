@@ -55,7 +55,9 @@ export const rolesStack: Lesson = {
     { en: 'follow one payload from the layer above it down onto the air and up again at the far end', zh: '跟着一份载荷走完全程：从上层交下来，发到空口，再在对端交上去' },
     { en: 'explain why a message between two phones in one room crosses the air twice', zh: '解释同一个房间里两部手机之间的消息，为什么要在空口上传两次' },
   ],
-  needs: ['radio-primer'],
+  // decode-thresholds owns `rate margin`, which this lesson's opening sentence uses
+  // to recall where the last one ended: naming it in `needs` is what makes that honest.
+  needs: ['radio-primer', 'decode-thresholds'],
   terms: [
     { term: 'BSS', plain: {
       en: 'one access point and the devices that have joined it — your router and everything on it',

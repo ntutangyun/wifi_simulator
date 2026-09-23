@@ -498,10 +498,30 @@ const QUANTITIES: { name: string; re: RegExp }[] = [
   { name: 'noise floor', re: /\bnoise floors?\b|噪声地板/ },
 ]
 
-/** Everything the `terms` tables up to and including this lesson put into words. */
+/**
+ * The `terms` a lesson may lean on for rule 2: its own, and those of the
+ * lessons in the transitive closure of its `needs`.
+ *
+ * It used to be every earlier lesson in COURSE_ORDER, which made the rule
+ * unfailable from lesson 3 onward — `decode-thresholds` alone puts margin,
+ * sensitivity, threshold and noise floor into the pool, so every later lesson
+ * inherited all four whether or not it had told the reader anything (Wi-Fi
+ * track review, 2026-09-23: the third vacuous rule found in this suite).
+ * `needs` is the honest boundary — what the lesson itself claims the reader
+ * has read — and a separate test keeps `needs` honest.
+ */
 function glossTextUpTo(l: Lesson): string {
-  const upto = ordered.slice(0, ordered.indexOf(l) + 1).filter((o) => !MIGRATING_NOW.includes(o.id))
-  return upto.flatMap((o) => (o.terms ?? []).flatMap((t) => [t.term, t.plain.en, t.plain.zh])).join(' | ')
+  const seen = new Set<string>()
+  const walk = (x: Lesson): Lesson[] => {
+    if (seen.has(x.id)) return []
+    seen.add(x.id)
+    const from = (x.needs ?? []).flatMap((id) => { const o = byId.get(id); return o ? walk(o) : [] })
+    return [...from, x]
+  }
+  return walk(l)
+    .filter((o) => !MIGRATING_NOW.includes(o.id))
+    .flatMap((o) => (o.terms ?? []).flatMap((t) => [t.term, t.plain.en, t.plain.zh]))
+    .join(' | ')
 }
 
 /**
