@@ -442,6 +442,7 @@ describe('readability · needs is honest about what the picture leans on', () =>
 export const MECHANISM_DONE: string[] = [
   'decode-thresholds', 'roles-stack',
   'hidden', 'anomaly', 'retries-queues',
+  'airtime', 'ifs', 'backoff', 'nav',
 ]
 
 /**
@@ -539,14 +540,20 @@ describe('readability · mechanism before metaphor', () => {
     // a reader meeting 几台跟它说话的设备 needs STA in the same breath, or the log
     // they are sent to look at is a different subject.
     const names = [...(l.terms ?? []).map((t) => t.term), ...BORROWED]
+    // Collected, not asserted one by one: an `expect` per name stops at the
+    // first failure, which sends an author back for one fix at a time while
+    // the rest of the lesson's unnamed terms stay hidden behind it. A fix
+    // round found five more waiting behind the six that were reported.
+    const unnamed: string[] = []
     for (const name of names) {
-      expect(namedInPlace(en, name), `${l.id}: first use of "${name}" in the English picture names nothing`).toBe(true)
-      expect(namedInPlace(zh, name), `${l.id}: 中文首次出现 ${name} 时没有把它和所比喻的东西接上`).toBe(true)
+      if (!namedInPlace(en, name)) unnamed.push(`${name} (en)`)
+      if (!namedInPlace(zh, name)) unnamed.push(`${name} (zh)`)
     }
     for (const si of STAND_INS) {
-      expect(namedAtStandIn(en, si.en, si.name), `${l.id}: the first "${si.en.source}" does not carry (${si.name})`).toBe(true)
-      expect(namedAtStandIn(zh, si.zh, si.name), `${l.id}: 首次出现 ${si.zh.source} 时没有带上（${si.name}）`).toBe(true)
+      if (!namedAtStandIn(en, si.en, si.name)) unnamed.push(`${si.name} at "${si.en.source}" (en)`)
+      if (!namedAtStandIn(zh, si.zh, si.name)) unnamed.push(`${si.name} at ${si.zh.source} (zh)`)
     }
+    expect(unnamed, `${l.id}: named nowhere near the picture that introduces them`).toEqual([])
   })
 
   it.each(revised.map((l) => [l.id, l] as const))('%s writes its procedure out as steps', (_id, l) => {
