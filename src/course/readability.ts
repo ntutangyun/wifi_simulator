@@ -402,3 +402,47 @@ export function firstTermUses(blocks: Block[], terms: readonly string[]): string
     return fresh
   })
 }
+
+/**
+ * Naming markers: the ways a sentence can name the thing it has just pictured
+ * without parentheses — "这一级，就是 MCS", "that is the BSS".
+ */
+const NAMING = /就是|叫做|叫作|称为|名叫|即|这就是|that is|this is|it is|is called|are called|known as|we call|the name for|名字是/i
+
+/**
+ * Whether a term is NAMED where it is pictured (amendment of 2026-09-23).
+ *
+ * A reader meets "几台跟它说话的设备" and has no way to connect it to the STA
+ * they will see in the log, unless the sentence carries the name at that spot:
+ * either in parentheses — 几台跟它说话的设备（STA）— or with a naming clause.
+ * The check is on the FIRST use in a text; later uses are just the word.
+ *
+ * A term that does not appear in the text at all is vacuously fine: this rule
+ * is about how a name is introduced, not about where it must appear.
+ */
+export function namedInPlace(text: string, term: string): boolean {
+  const re = new RegExp(`\b${escapeRe(term)}\b`, 'i')
+  const m = re.exec(text)
+  if (!m) return true
+  const before = text.slice(Math.max(0, m.index - 28), m.index)
+  if (/[（(]\s*$/.test(before)) return true
+  return NAMING.test(before)
+}
+
+/**
+ * Whether a plain-words stand-in carries its name where it first appears:
+ * 几台跟它说话的设备（STA）, "one box everyone talks to (the access point, AP)".
+ *
+ * `standIn` is the everyday phrase a lesson uses for the thing; `name` is what
+ * the log, the inspector and the standard call it. The reader has to join the
+ * two, and the place to join them is the first sentence that pictures the
+ * thing — not a glossary three screens away.
+ */
+export function namedAtStandIn(text: string, standIn: RegExp, name: string): boolean {
+  const m = new RegExp(standIn.source, standIn.flags.replace(/g/g, '')).exec(text)
+  if (!m) return true
+  // The parenthesis may open before the stand-in — "(the access point, AP)" —
+  // or after it — 接入点（AP）— so the window starts a little ahead of the match.
+  const window = text.slice(Math.max(0, m.index - 10), m.index + m[0].length + 24)
+  return new RegExp(`[（(][^）)]{0,28}\\b${escapeRe(name)}\\b`).test(window)
+}

@@ -18,7 +18,8 @@ import { COURSE_ORDER, MODULES, lessonMinutes, lessonWords, trackOf } from '../.
 import { isMigrated, type Block, type L10n, type Lesson } from '../../src/course/lessonKit'
 import {
   BUDGETS, CITATION, KNOWN_WORDS, LOG_NAMES, acronyms, cellTexts, definedInPlace, densityTexts, enWords,
-  firstTermUses, lessonBudget, lessonStrings, neutralCellTexts, numericQuantities, paragraphTexts,
+  firstTermUses, lessonBudget, lessonStrings, namedAtStandIn, namedInPlace, neutralCellTexts, numericQuantities,
+  paragraphTexts,
   zhChars,
 } from '../../src/course/readability'
 import { effectiveMigrating } from './kit'
@@ -439,7 +440,7 @@ describe('readability · needs is honest about what the picture leans on', () =>
  * the amendment; the list only grows.
  */
 export const MECHANISM_DONE: string[] = [
-  'decode-thresholds',
+  'decode-thresholds', 'roles-stack',
 ]
 
 /**
@@ -460,6 +461,23 @@ const SHORTHAND: { re: RegExp; why: string }[] = [
  * words, in either language. 余量 was used four times across Tier 1 and 2 and
  * defined nowhere.
  */
+/**
+ * Words a lesson uses without owning them: the reader sees them in the log and
+ * in the inspector, so a lesson that pictures one of them names it where it
+ * pictures it, however many lessons ago it was introduced.
+ */
+const BORROWED = ['MAC', 'PHY']
+
+/**
+ * The two actors every lesson pictures in plain words. Wherever a lesson first
+ * says "the access point" / 接入点, it carries the name the log prints beside
+ * it, so the reader can join the picture to the screen: 接入点（AP）.
+ */
+const STAND_INS: { name: string; en: RegExp; zh: RegExp }[] = [
+  { name: 'AP', en: /access point/i, zh: /接入点/ },
+  { name: 'STA', en: /\bstations?\b/i, zh: /站点/ },
+]
+
 const QUANTITIES: { name: string; re: RegExp }[] = [
   { name: 'margin', re: /margins?|余量/ },
   { name: 'sensitivity', re: /sensitivit(?:y|ies)|灵敏度/ },
@@ -473,11 +491,22 @@ function glossTextUpTo(l: Lesson): string {
   return upto.flatMap((o) => (o.terms ?? []).flatMap((t) => [t.term, t.plain.en, t.plain.zh])).join(' | ')
 }
 
+/**
+ * MECHANISM_DONE as this run grades it. `MECHANISM_INCLUDE=roles-stack,nav`
+ * adds those ids for one run, so a batch implementer can hold a rewritten
+ * lesson to the amendment before the controller has registered it — without
+ * editing this file, which is the controller's. The switch only ever adds.
+ */
+const MECHANISM_NOW = [...new Set([
+  ...MECHANISM_DONE,
+  ...(process.env.MECHANISM_INCLUDE ?? '').split(',').map((s) => s.trim()).filter(Boolean),
+])]
+
 describe('readability · mechanism before metaphor', () => {
-  const revised = migrated.filter((l) => MECHANISM_DONE.includes(l.id))
+  const revised = migrated.filter((l) => MECHANISM_NOW.includes(l.id))
 
   it('grades every lesson the amendment has reached', () => {
-    expect(revised.map((l) => l.id)).toEqual(MECHANISM_DONE.filter((id) => !MIGRATING_NOW.includes(id)))
+    expect(revised.map((l) => l.id).sort()).toEqual(MECHANISM_NOW.filter((id) => !MIGRATING_NOW.includes(id)).sort())
   })
 
   it.each(revised.map((l) => [l.id, l] as const))('%s points at no quantity it has not named', (_id, l) => {
@@ -496,6 +525,26 @@ describe('readability · mechanism before metaphor', () => {
       const used = main.some((t) => re.test(t.en) || re.test(t.zh))
       if (!used) continue
       expect(re.test(gloss), `${l.id}: uses "${name}" on the main path but no terms table defines it`).toBe(true)
+    }
+  })
+
+  it.each(revised.map((l) => [l.id, l] as const))('%s names each term where it pictures it', (_id, l) => {
+    // The analogy and the name travel together: 几台跟它说话的设备（STA）, not one
+    // paragraph of picture and the name three paragraphs later.
+    const main = [l.why!, ...(l.outcomes ?? [])].concat(paragraphTexts(l.picture ?? []))
+    const en = main.map((x) => x.en).join(' ')
+    const zh = main.map((x) => x.zh).join(' ')
+    // The lesson's own terms, and the words every lesson borrows without owning:
+    // a reader meeting 几台跟它说话的设备 needs STA in the same breath, or the log
+    // they are sent to look at is a different subject.
+    const names = [...(l.terms ?? []).map((t) => t.term), ...BORROWED]
+    for (const name of names) {
+      expect(namedInPlace(en, name), `${l.id}: first use of "${name}" in the English picture names nothing`).toBe(true)
+      expect(namedInPlace(zh, name), `${l.id}: 中文首次出现 ${name} 时没有把它和所比喻的东西接上`).toBe(true)
+    }
+    for (const si of STAND_INS) {
+      expect(namedAtStandIn(en, si.en, si.name), `${l.id}: the first "${si.en.source}" does not carry (${si.name})`).toBe(true)
+      expect(namedAtStandIn(zh, si.zh, si.name), `${l.id}: 首次出现 ${si.zh.source} 时没有带上（${si.name}）`).toBe(true)
     }
   })
 

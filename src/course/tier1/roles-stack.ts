@@ -46,8 +46,8 @@ export const rolesStack: Lesson = {
   module: 0,
   title: { en: 'Who is who in one network', zh: '一张网里，谁是谁' },
   why: {
-    en: 'The last lesson treated a link as two radios and a margin. A home is not two radios: it is one box everyone talks to, several devices that talk to it, and a name they all joined. This lesson says who plays which part, how a network is named and how it is addressed, and why a message between two phones in the same room still goes round by way of the box.',
-    zh: '上一课把链路看成两台设备加一个余量。可一个家里并不是两台设备：是一个大家都在跟它说话的盒子、几台跟它说话的设备，外加一个大家都加入了的名字。这一课讲清楚谁扮演哪个角色、一张网怎么起名、又怎么被寻址，以及为什么同一个房间里两部手机之间的消息，仍要绕着那个盒子走一圈。',
+    en: 'The last lesson treated a link as two radios and a rate margin. A home is not two radios: it is one box everyone talks to (the access point, AP), several devices that talk to it (stations, STA in the log), and a name they all joined (the SSID). This lesson says who plays which part, how a network is named and how it is addressed, and why a message between two phones in the same room still goes round by way of the box.',
+    zh: '上一课把链路看成两台设备加一份速率余量。可一个家里并不是两台设备：是一个大家都在跟它说话的盒子（接入点，AP）、几台跟它说话的设备（站点，日志里写作 STA），外加一个大家都加入了的名字（SSID）。这一课讲清楚谁扮演哪个角色、一张网怎么起名、又怎么被寻址，以及为什么同一个房间里两部手机之间的消息，仍要绕着那个盒子走一圈。',
   },
   outcomes: [
     { en: 'name the two roles in a home network and say what the access point does that a station does not', zh: '说出家庭网络里的两种角色，并讲清接入点做了哪些站点不做的事' },
@@ -92,8 +92,8 @@ export const rolesStack: Lesson = {
       zh: '加入一张网的时候，你从来不用去输入什么地址。你是在一个列表里挑一个名字，这个名字就是 SSID。名字和地址是有意分开的：楼上一台路由器、楼下一台路由器的屋子，是两张网、两个地址、一个名字；于是被拿着下楼的笔记本，谁都没选，就已经换到了第二张网上。',
     } },
     { heading: { en: 'Everything goes through the middle', zh: '一切都从中间过' }, text: {
-      en: 'A station has exactly one peer it may send data to: its access point. Even when the device it is talking to sits beside it, the frame goes to the access point first, which hands the payload to the DS, gets it straight back, and sends it a second time. The path follows the network, not the distance across the room.',
-      zh: '一个站点能发送数据的对端只有一个：它的接入点。哪怕要找的那台设备就在旁边，帧也要先发给接入点；接入点把载荷交给 DS，又原样拿回来，于是第二次把它发出去。走哪条路，取决于这张网，而不是屋里的直线距离。',
+      en: 'A station has exactly one peer it may send data to: its access point. Even when the device it is talking to sits beside it, the frame goes to the access point first, which hands the payload to whatever joins networks up behind it (the distribution system, DS), gets it straight back, and sends it a second time. The path follows the network, not the distance across the room.',
+      zh: '一个站点能发送数据的对端只有一个：它的接入点。哪怕要找的那台设备就在旁边，帧也要先发给接入点；接入点把载荷交给背后那套把几张网连起来的东西（分发系统，DS），又原样拿回来，于是第二次把它发出去。走哪条路，取决于这张网，而不是屋里的直线距离。',
     } },
     { heading: { en: 'Envelopes inside envelopes', zh: '一层套一层的信封' }, text: {
       en: 'None of that is visible to the layer above, which just hands the MAC a payload and expects it delivered. The MAC puts a header in front and a check behind — that parcel is a frame. The PHY takes the frame, or a batch, puts a pattern in front for any nearby radio to lock on to, and only then is anything on the air.',
