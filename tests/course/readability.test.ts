@@ -371,7 +371,12 @@ describe('readability · one name per thing, across the Wi-Fi track', () => {
         expect(/routers?/i.test(s.en), `${l.id}: this scene labels the node AP — say access point — "${s.en.slice(0, 60)}…"`).toBe(false)
         expect(/路由器/.test(s.zh), `${l.id}: this scene labels the node AP — say 接入点 — "${s.zh.slice(0, 40)}…"`).toBe(false)
       }
-      expect(/AP/.test(s.zh), `${l.id}: write 接入点 in Chinese, not a bare AP — "${s.zh.slice(0, 40)}…"`).toBe(false)
+      // One exception, added with the 2026-09-23 amendment: the name may ride in
+      // brackets on the Chinese word, \u63a5\u5165\u70b9\uff08AP\uff09, which is the point of
+      // rule 4: it lets a reader join \u63a5\u5165\u70b9 to the AP the log prints. Anywhere else
+      // a bare AP is still a word the reader must translate back first.
+      const bare = s.zh.replace(/\u63a5\u5165\u70b9\uff08[^\uff09]{0,12}AP[^\uff09]{0,12}\uff09/g, '\u63a5\u5165\u70b9')
+      expect(/AP/.test(bare), `${l.id}: write \u63a5\u5165\u70b9 in Chinese, or \u63a5\u5165\u70b9\uff08AP\uff09 at first use`).toBe(false)
     }
   })
 })
