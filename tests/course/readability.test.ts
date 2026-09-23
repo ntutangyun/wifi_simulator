@@ -68,16 +68,17 @@ const LOG_LINE = /^[a-z][a-z0-9]*-\d+\b/
 const RECORD_NAME = /^[A-Z0-9_]+$/
 
 /**
- * TEMPORARY — step 5's tightened cell rules (rule-gaps 1 and 2 of
- * .superpowers/sdd/2026-09-22-course-readability-wifi/tier1-review.md) turn red on
- * lessons outside the Wi-Fi Tier 1 fix wave that introduced them. The rule stays on;
- * these ids are excused until their own wave rewrites the offending cells.
+ * Step 5's tightened cell rules (rule-gaps 1 and 2 of
+ * .superpowers/sdd/2026-09-22-course-readability-wifi/tier1-review.md) turned red on lessons
+ * outside the wave that introduced them, and this list excused those ids until their own wave
+ * reached the file.
  *
- * The Wi-Fi ids are gone: the Tier 2 fix wave glossed `edca`'s and `txop`'s four
- * access-category short names in the cell itself (`VO (voice)` / `VO（语音）`).
- * TODO(uwb-fix-wave): `uwb-ul-tdoa` and `uwb-mms-numbers` print English phrases into
- * language-neutral cells ("1 slot of 2 ms, 1 frame", "2.10 cm over 21 ranges");
- * `uwb-dstwr` and `uwb-blocks` print `Treply1` and `SP1` unglossed.
+ * It is empty, and every id that was in it was fixed rather than re-excused: `edca` and `txop`
+ * glossed their access-category short names in the cell (`VO (voice)` / `VO（语音）`);
+ * `uwb-dstwr` and `uwb-blocks` glossed `Treply1` and `SP1`; `uwb-ul-tdoa` and
+ * `uwb-mms-numbers` gave their English-only cells real Chinese halves, which is what takes a
+ * cell out of the language-neutral set in the first place. Kept, empty, because the next
+ * tightened rule will want it — and because an empty allow-list is a claim worth stating.
  */
 const CELL_RULE_CARRIES: Record<string, string> = {}
 

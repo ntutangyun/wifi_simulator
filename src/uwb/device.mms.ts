@@ -457,9 +457,10 @@ function evaluateTrain(
       const last = frags[heard - 1]
       const lastExtraNs = last.nlosNs + gaussian(dev.rng) * sigmaNs
       const spanRctu = counterDiff(dev.clock.counter(last.arrivalNs, lastExtraNs), firstCounter)
-      // The fragments are a millisecond apart on the transmitter's clock, so the span this
-      // receiver measured over them is its own counter per the peer's — a ruler milliseconds
-      // long, where the narrowband carrier offers only its own residual.
+      // The fragments are `fragGapRctu(mp)` apart on the transmitter's clock — a millisecond
+      // only in the pairwise round, (responders + 1) slots otherwise — so the span this
+      // receiver measured over them is its own counter per the peer's: a ruler as long as the
+      // whole train, where the narrowband carrier offers only its own residual.
       ratio = spanRctu / ((last.index - first.index) * fragGapRctu(mp))
     }
     // …and that same ruler is what the walk-back to the RMARKER is measured with when the

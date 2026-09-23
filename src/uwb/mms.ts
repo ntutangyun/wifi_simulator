@@ -2,11 +2,14 @@
  * The multi-millisecond (MMS) packet of IEEE P802.15.4ab: the PHY model behind `mode: 'mms'`.
  *
  * A 4z frame spends one burst of energy and is heard as far as that burst reaches. An MMS
- * device instead splits its ranging signal into short *fragments* sent one millisecond apart —
- * a *train* — and the receiver adds them up. Two things follow, and they are the whole point of
+ * device instead splits its ranging signal into short *fragments* sent a slot or more apart —
+ * a *train* — and the receiver adds them up. (One millisecond apart is the pairwise round at
+ * the draft's 600 RSTU slot; a one-to-many round spaces them (responders + 1) slots, so the
+ * train is that much longer. `MmsRoundPlan.fragGapNs` is what a round actually uses.) Two things follow, and they are the whole point of
  * the slice: each fragment may spend a full millisecond's regulatory energy budget in its own
  * (much shorter) length, and N fragments combine for another 10·log10(N) dB. The same train also
- * hands the receiver a millisecond-long ruler to measure the transmitter's clock rate against.
+ * hands the receiver a ruler as long as the whole train to measure the transmitter's clock
+ * rate against.
  *
  * Two fragment kinds: an **RSF** (ranging sequence fragment) is N_MSR repetitions of one MMRS
  * symbol and carries the ranging timestamp; an **RIF** (ranging integrity fragment) is one STS
@@ -107,8 +110,9 @@ export function trainDetected(rxDbm: number, heard: number): boolean {
   return heard > 0 && rxDbm + combineGainDb(heard) >= UWB_RX_SENS_DBM
 }
 
-/** One millisecond in nanoseconds: the spacing of two neighbouring fragments of a train, on the
- * transmitter's own clock. 4ab draft 15-23/0100r2 §2.3.2 */
+/** One millisecond in nanoseconds: the spacing of two neighbouring fragments in the PAIRWISE
+ * round, on the transmitter's own clock, and the unit the draft's timings are written in. Every
+ * other round spaces them `MmsRoundPlan.fragGapNs`. 4ab draft 15-23/0100r2 §2.3.2 */
 export const MS_NS: Ns = 1_000_000
 
 /** The same millisecond in ranging counter units — what a measured span is divided by to get a
@@ -117,16 +121,17 @@ export const MS_RCTU = MS_CHIPS * RCTU_PER_CHIP
 
 /**
  * Where a train's RMARKER fell on the receiver's own ranging counter, given the first fragment
- * of the train it actually heard: the fragments are one millisecond apart and the receiver
- * knows the train's shape from the narrowband control exchange, so fragment `index`, stamped at
- * `firstCounter`, puts fragment 0 — the RMARKER — `index` milliseconds earlier. A train whose
+ * of the train it actually heard: the fragments are `gapRctu` apart — one millisecond only in
+ * the pairwise round, (responders + 1) slots in every other, see below — and the receiver knows
+ * the train's shape from the narrowband control exchange, so fragment `index`, stamped at
+ * `firstCounter`, puts fragment 0 — the RMARKER — `index` gaps earlier. A train whose
  * first fragment was lost is therefore still timed, from whichever fragment did arrive. model
  *
- * Those milliseconds are the *transmitter's*, and this counter is the receiver's, so the
- * walk-back is scaled by `ratio` — the receiver's counter per the peer's, which the very same
- * train measured. Walking back `index` undrifted milliseconds instead would leave `index` ×
- * 1 ms × the clock offset between the two crystals: 20 ns, and so 3.0 m of range, per lost
- * leading fragment at 20 ppm.
+ * Those gaps are the *transmitter's*, and this counter is the receiver's, so the walk-back is
+ * scaled by `ratio` — the receiver's counter per the peer's, which the very same train
+ * measured. Walking back `index` undrifted gaps instead would leave `index` × the gap × the
+ * clock offset between the two crystals: 20 ns per lost leading fragment at 20 ppm on a
+ * one-millisecond gap, and so 3.0 m of range.
  *
  * `gapRctu` is how far apart this round actually spaces the fragments, in the receiver's counter
  * units — `MS_RCTU`, a true millisecond, in the pairwise round at the draft's 600 RSTU slot, and
