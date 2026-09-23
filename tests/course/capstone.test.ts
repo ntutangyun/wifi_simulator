@@ -21,6 +21,7 @@
 import { describe, it, expect } from 'vitest'
 import { Simulation } from '../../src/engine/simulation'
 import { capstone } from '../../src/course/tier2/capstone'
+import type { Block } from '../../src/course/lessonKit'
 import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 import { lessonShapeSuite } from './kit'
@@ -74,7 +75,7 @@ const tabletNew = scene((sc) => {
   n.caps.features.ofdma = true
 })
 
-lessonShapeSuite(capstone, { proseMax: 900, runNs: RUN_NS })
+lessonShapeSuite(capstone, { proseMax: 1130, runNs: RUN_NS })
 
 describe('capstone · the flat as the brief describes it', () => {
   it('is the last Wi-Fi lesson, in the real-applications module, and names what it leans on', () => {
@@ -159,6 +160,62 @@ describe('capstone · the same five seconds, four ways', () => {
   it('"every other wait falls under a millisecond" once the backup stops', () => {
     for (const id of ['sta-2', 'sta-4', 'sta-6']) expect(backupStopped.rxWait(id), id).toBeLessThan(1)
     for (const id of ['sta-3', 'sta-5']) expect(backupStopped.txWait(id), id).toBeLessThan(1)
+  })
+})
+
+describe('capstone · the method the brief asks the learner to follow', () => {
+  const steps = capstone.numbers!.find((b) => b.kind === 'steps') as Extract<Block, { kind: 'steps' }>
+  const en = steps.items.map((i) => i.en)
+
+  it('is a procedure of at least three steps, on the main path, not in "Going deeper"', () => {
+    expect(steps.items.length).toBeGreaterThanOrEqual(3)
+    expect((capstone.deeper ?? []).some((b) => b.kind === 'steps')).toBe(false)
+  })
+
+  it('step 1 — the baseline it quotes is the run’s own: 58.7%, 90.6%, and nothing else at two per cent', () => {
+    expect(en[0]).toMatch(/58\.7%[^.]*90\.6%/)
+    expect([base.air('sta-1'), base.air('sta-1#6g')]).toEqual([58.7, 90.6])
+    for (const id of ['sta-2', 'sta-3', 'sta-4', 'sta-5', 'sta-6']) expect(base.air(id), id).toBeLessThan(2)
+  })
+
+  it('step 3 — the three options are editor edits, and each is one the simulator can actually take', () => {
+    expect(capstone.variants).toBeUndefined()
+    expect(en[2]).toMatch(/None of the three is a variant you can load/i)
+    // the three edits, exactly as the four-way table measures them
+    expect(capstone.scenario().nodes.find((n) => n.id === 'sta-1')!.profiles).toEqual(['saturated'])
+    expect(backupStopped.upMb).toBe(0)
+    expect(radioOff.upMb).toBe(37.7)
+    expect(tabletNew.rxWait('sta-4')).toBe(34.31)
+  })
+
+  it('step 5 — the sensor really is the oldest radio in the flat, and the tablet is not', () => {
+    const gen = (id: string) => capstone.scenario().nodes.find((n) => n.id === id)!.caps.generation
+    expect(gen('sta-5')).toBe('nonht')
+    expect(gen('sta-4')).toBe('vht')
+    expect(capstone.scenario().nodes.filter((n) => n.caps.generation === 'nonht').map((n) => n.id)).toEqual(['sta-5'])
+    expect(data(base.rs, 'sta-5')).toHaveLength(3)
+  })
+
+  it('the comparison table names, row by row, the lane each figure is read from', () => {
+    const table = capstone.numbers!.find(
+      (b) => b.kind === 'table' && b.heading!.en.startsWith('The same five seconds'),
+    ) as Extract<Block, { kind: 'table' }>
+    expect(table.head).toHaveLength(5) // the figure, then the baseline and the three options
+    expect(table.rows.map((r) => r[0].en)).toEqual([
+      'Backup delivered, megabytes — bytes delivered on lanes ap and ap#6g',
+      'Video wait — mean receive wait, lane sta-2',
+      'Tablet wait — mean receive wait, lane sta-4',
+      'Voice wait — mean send wait, lane sta-3',
+    ])
+    // and those are the lanes and the counters this file reads them off
+    expect(table.rows[0].slice(1).map((c) => c.en)).toEqual(['78.0', '0', '37.7', '78.1'])
+    expect([base.upMb, backupStopped.upMb, radioOff.upMb, tabletNew.upMb]).toEqual([78.0, 0, 37.7, 78.1])
+    expect(table.rows[1].slice(1).map((c) => c.en))
+      .toEqual([base, backupStopped, radioOff, tabletNew].map((s) => `${s.rxWait('sta-2').toFixed(2)} ms`))
+    expect(table.rows[2].slice(1).map((c) => c.en))
+      .toEqual([base, backupStopped, radioOff, tabletNew].map((s) => `${s.rxWait('sta-4').toFixed(2)} ms`))
+    expect(table.rows[3].slice(1).map((c) => c.en))
+      .toEqual([base, backupStopped, radioOff, tabletNew].map((s) => `${s.txWait('sta-3').toFixed(2)} ms`))
   })
 })
 

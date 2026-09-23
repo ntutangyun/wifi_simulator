@@ -8,6 +8,13 @@
  * moment the neighbour has one too. The single-radio form of MLO and the other
  * band pairings are in `deeper`; the clause numbers are in `sources`.
  *
+ * Mechanism before metaphor (2026-09-23): `numbers` closes with the procedure
+ * by which a frame gets a link, read out of src/engine/ — the shared AcQueues
+ * of src/engine/simulation.ts, the sibling wake of WifiMac.pokeAccess, the
+ * claim/restore pair and the sequence counter of src/engine/queues.ts, and the
+ * MAX_AMPDU_MPDUS / SHORT_RETRY_LIMIT constants of src/engine/phy.ts — with one
+ * worked example running MSDU 66 through those steps, record by record.
+ *
  * The scenario builder is unchanged and there are no variants, so the recorded
  * timeline hash in tests/fixtures/lesson-hashes.json stays byte-identical.
  * Every number quoted below is pinned in tests/course/mlo.test.ts.
@@ -65,47 +72,73 @@ export const mlo: Lesson = {
       zh: '第二条链路并不会凭空造出空口时间。它只是让自己的主人够得着一个邻居还没进去的频段——而且只在邻居还没进去的这段时间里有效。把同样的两台电台也给邻居装上，那扇安静的门就被填满了：两台设备都把活儿摊到两个频段上，于是每一台拿到的，都比当初那台独苗 MLO 设备拿到的少。',
     } },
     { heading: { en: 'What this simulator models', zh: '本仿真器模拟的是哪一种' }, text: {
-      en: 'Here both radios may transmit at the same instant, which is the arrangement an access point, or a laptop with room for two radios inside it, actually uses. The two lanes, the ·6G mark and the wireframe spheres of the 3D view are simply those two links drawn apart, because apart is what they are.',
-      zh: '在这里，两台电台可以在同一瞬间各自发送——接入点，或者机箱里塞得下两台电台的笔记本，用的正是这种形态。时间轴上的两条泳道、那个 ·6G 标记，以及 3D 视图里的线框球，不过是把这两条链路分开画出来而已；它们本来就是分开的。',
+      en: 'Here both radios may transmit at the same instant, which is the arrangement an access point (AP), or a laptop with room for two radios inside it, actually uses. The two lanes, the ·6G mark and the wireframe spheres of the 3D view are simply those two links drawn apart, because apart is what they are.',
+      zh: '在这里，两台电台可以在同一瞬间各自发送——接入点（AP），或者机箱里塞得下两台电台的笔记本，用的正是这种形态。时间轴上的两条泳道、那个 ·6G 标记，以及 3D 视图里的线框球，不过是把这两条链路分开画出来而已；它们本来就是分开的。',
     } },
   ],
   numbers: [
     { kind: 'table', heading: {
-      en: 'Where the laptop’s work went, in the first 300 ms',
+      en: 'The laptop’s work, first 300 ms',
       zh: '最初 300 ms 里，笔记本的活儿去了哪边',
     }, head: [
       { en: 'Lane', zh: '泳道' }, { en: 'Data frames', zh: '数据帧' },
-      { en: 'Airtime of those frames', zh: '这些帧占用的空口时间' }, { en: 'Share of that band’s clock, answers included', zh: '占该频段时钟的比例（含回答）' },
+      { en: 'Airtime', zh: '占用的空口时间' }, { en: 'Share of that band’s clock', zh: '占该频段时钟的比例（含回答）' },
     ], rows: [
       [N('5 GHz'), N('67'), N('53.9 ms'), N('18.3%')],
       [N('6 GHz'), N('240'), N('249.6 ms'), N('84.2%')],
     ] },
-    { heading: { en: 'Not the faster radio — the emptier one', zh: '不是更快的那台电台，是更空的那个频段' }, text: {
-      en: 'Both links run at the same rung, MCS 13, and the same 172.1 Mb/s. The second radio is not quicker than the first; it is the one with nobody else on it. Four of every five of the laptop’s frames leave that way, and they take almost five times as much air with them as the frames that stayed behind.',
-      zh: '两条链路跑的是同一级：MCS 13，同样的 172.1 Mb/s。第二台电台并不比第一台快，它只是那个没有别人的频段。笔记本每五帧里有四帧从那边走，带走的空口时间差不多是留在原地那些帧的五倍。',
+    { heading: { en: 'Not faster — emptier', zh: '不是更快的那台电台，是更空的那个频段' }, text: {
+      en: 'Both links run at MCS 13 and 172.1 Mb/s: the second radio is not quicker, only emptier. Four of every five of the laptop’s frames leave that way, taking almost five times the air.',
+      zh: '两条链路跑的是同一级：MCS 13，172.1 Mb/s。第二台电台并不更快，它只是那个没有别人的频段。笔记本每五帧里有四帧从那边走，带走的空口时间差不多是留下那些帧的五倍。',
     } },
-    { kind: 'table', heading: { en: 'The same 300 ms with MLO switched off', zh: '同样的 300 ms，把 MLO 关掉' }, head: [
+    { kind: 'table', heading: { en: 'The same 300 ms, MLO off', zh: '同样的 300 ms，把 MLO 关掉' }, head: [
       { en: 'Measured on', zh: '测量对象' }, { en: 'MLO on', zh: 'MLO 开' }, { en: 'MLO off', zh: 'MLO 关' },
     ], rows: [
       [{ en: 'Laptop data frames', zh: '笔记本的数据帧' }, N('307'), N('116')],
-      [{ en: 'Laptop mean wait before sending (5 GHz / 6 GHz)', zh: '笔记本发送前的平均等待（5 GHz / 6 GHz）' }, N('1.29 / 1.54 ms'), N('3.25 ms')],
+      [{ en: 'Laptop mean wait, 5 GHz / 6 GHz', zh: '笔记本发送前的平均等待（5 GHz / 6 GHz）' }, N('1.29 / 1.54 ms'), N('3.25 ms')],
       [{ en: 'Neighbour data frames', zh: '邻居的数据帧' }, N('185'), N('116')],
-      [{ en: 'Neighbour mean wait before sending', zh: '邻居发送前的平均等待' }, N('2.58 ms'), N('4.18 ms')],
+      [{ en: 'Neighbour mean wait', zh: '邻居发送前的平均等待' }, N('2.58 ms'), N('4.18 ms')],
     ] },
     { heading: { en: 'The neighbour gained too', zh: '邻居也跟着占了便宜' }, text: {
-      en: 'Switching the second link off does not hand the neighbour its band back — it takes air away from it. With one lane the laptop has to fight for 5 GHz frame by frame, and the two stations end up on the same count apiece. The second radio was the cheapest thing in this room: it moved a heavy uploader out of everybody’s way.',
-      zh: '把第二条链路关掉，并不是把频段还给邻居，反而是从邻居那里抢走了空口时间。只剩一条泳道，笔记本就得在 5 GHz 上一帧一帧地抢，最后两台站点各自发出的帧数一样多。第二台电台是这个房间里最便宜的东西：它把一个重载上传的家伙从大家的路上挪开了。',
+      en: 'Switching the second link off does not give the neighbour its band back — it takes air from it. With one lane the laptop fights for 5 GHz frame by frame, and the two stations end up level: the second radio had moved a heavy uploader aside.',
+      zh: '把第二条链路关掉，并不是把频段还给邻居，反而是从邻居那里抢走了空口时间。只剩一条泳道，笔记本就得在 5 GHz 上一帧一帧地抢，最后两台站点各自发出的帧数一样多。第二台电台把一个重载上传的家伙从大家的路上挪开了。',
     } },
-    { kind: 'table', heading: { en: 'Give the neighbour two radios as well', zh: '把两台电台也给邻居装上' }, head: [
+    { kind: 'table', heading: { en: 'The neighbour gets two radios too', zh: '把两台电台也给邻居装上' }, head: [
       { en: 'Lane', zh: '泳道' }, { en: 'Laptop frames', zh: '笔记本的帧' }, { en: 'Neighbour frames', zh: '邻居的帧' },
     ], rows: [
       [N('5 GHz'), N('122'), N('132')],
       [N('6 GHz'), N('136'), N('106')],
     ] },
     { heading: { en: 'When everybody has two doors', zh: '当所有人都有两扇门' }, text: {
-      en: 'The lean vanishes: the laptop now splits its work almost evenly between the bands, and its own total falls from 307 frames to 258. A second link is worth exactly as much as the second band is empty — which is a statement about the neighbours, not about the device.',
-      zh: '那种“偏向”消失了：笔记本现在把活儿几乎平均地分在两个频段上，而它自己的总量从 307 帧掉到 258 帧。第二条链路值多少钱，完全取决于第二个频段有多空——这句话说的是邻居，不是这台设备。',
+      en: 'The lean vanishes: the laptop splits its work almost evenly, its total falling from 307 frames to 258. A second link is worth what the second band is empty.',
+      zh: '那种“偏向”消失了：笔记本把活儿几乎平均地分在两个频段上，总量从 307 帧掉到 258 帧。第二条链路值多少钱，完全取决于第二个频段有多空——这句话说的是邻居，不是这台设备。',
     } },
+    { kind: 'steps', heading: { en: 'How a frame gets a link, step by step', zh: '一帧是怎么拿到链路的，一步一步' }, items: [
+      { en: 'The frame is queued once, at the device as a whole — the MLD, whose four access-category queues both links’ radios hold. The arrival (ARRIVAL) and queue (ENQUEUE) records name the device’s first lane, 5 GHz, whichever link carries it.',
+        zh: '这一帧只入队一次，入在整台设备这一层——也就是 MLD。每台设备只有一套四条接入类别队列，两条链路的电台拿到的是同一套。到达记录（ARRIVAL）与入队记录（ENQUEUE）写的都是这台设备的第一条泳道，也就是 5 GHz 那条，不管最后是哪条链路把它送出去。' },
+      { en: 'The device wakes the other link’s radio: both links now know there is work and both begin counting down. Nothing has picked a link.',
+        zh: '接着设备会把另一条链路的电台叫醒，于是两条链路都知道有活儿了，也都开始各自倒数。到这一步为止，还没有谁挑过链路。' },
+      { en: 'Each link contends on its own channel with its own carrier sense, countdown and contention window, just as a single-radio device does; a link whose band is occupied stops counting down (BACKOFF_DEC) while the other device talks.',
+        zh: '每条链路都在自己的信道上竞争，用自己的载波侦听、自己的倒数、自己的竞争窗口，和一台只有单电台的设备一模一样。频段被占住的那条链路，在别人说话期间就停住不数（不再出 BACKOFF_DEC），等对方停了再接着数。' },
+      { en: 'The first link to reach zero takes frames off the shared queue and sends (TX_START): up to 64 consecutive frames for one receiver with aggregation on, one without. Taking them removes them, so the other link can no longer see them. That is the whole of the link decision — no chooser, no measurement.',
+        zh: '先数到零的那条链路，从共享队列里把帧领走并发出（TX_START）：开了聚合就一次领走发往同一个接收方的至多 64 个连续帧，没开就领一个。领走就是从队列里拿掉，另一条链路从此看不见它们。所谓“挑链路”，全部内容就是这一下——仿真器里没有一个负责挑的角色，也没有任何测量。' },
+      { en: 'Sequence numbers come from one counter per receiver and access category, kept with the shared queue, not with either radio, so the links never number two frames alike.',
+        zh: '序号取自“每个接收方、每个接入类别”一个的计数器，它跟着共享队列走，而不是跟着哪台电台走，所以两条链路绝不会把同一个序号发给两个不同的帧。' },
+      { en: 'The acknowledgement closes it. Acknowledged, the frames leave the queue and the sending lane logs a dequeue (DEQUEUE) apiece. Unacknowledged, each takes one retry against a limit of 7 and the set returns to the front of the shared queue — so the retry falls to whichever link reaches zero next, not necessarily the one that failed.',
+        zh: '确认到来，这件事就结束了。确认成功，这些帧就永远离开队列，发送它们的那条泳道为每一帧记一条出队记录（DEQUEUE）。没等到确认，每一帧记一次重传（上限 7 次），整批退回同一条共享队列的队首——于是这次重传落在下一个数到零的链路头上，未必是刚刚失败的那条。' },
+    ] },
+    { kind: 'table', heading: {
+      en: 'MSDU 66 through those steps',
+      zh: '一帧走完这几步：MSDU 66，6 GHz 上的第一批',
+    }, head: [
+      { en: 'When', zh: '什么时候' }, { en: 'Record', zh: '记录' }, { en: 'What it says', zh: '它说了什么' },
+    ], rows: [
+      [N('4.424 ms'), N('ARRIVAL + ENQUEUE · sta-1'), { en: 'Frame 66, 1500 bytes, into the best-effort queue at depth 1 — on the 5 GHz lane, which will not send it.', zh: '第 66 帧，1500 字节，进入尽力而为队列，深度 1——记在 5 GHz 那条泳道上，而送它出去的并不是这条泳道。' }],
+      [N('4.512 ms'), N('TX_START · sta-1#6g'), { en: '6 GHz reached zero first and claimed 20 frames, ids 66–85, 30,718 bytes at MCS 13.', zh: '6 GHz 先数到零，一次领走 20 帧，编号 66–85，30,718 字节，用 MCS 13 发出。' }],
+      [N('4.512 ms'), N('BACKOFF_DEC · sta-1'), { en: '5 GHz stands at 2 that same instant: it lost by 88 µs.', zh: '同一瞬间，5 GHz 的倒数停在 2：它只是晚了 88 µs。' }],
+      [N('6.0176 ms'), N('TX_START · ap#6g'), { en: 'The AP’s BlockAck, 32 bytes, answers all 20.', zh: '接入点的 BlockAck，32 字节，一次性回答这 20 帧。' }],
+      [N('6.0496 ms'), N('20 × DEQUEUE · sta-1#6g'), { en: 'All 20 leave the shared queue — and no id of 66–85 ever appears in a 5 GHz transmission.', zh: '这 20 帧全部离开共享队列——而编号 66–85 中没有任何一个在 5 GHz 的发送里出现过。' }],
+    ] },
   ],
   deeper: [
     { heading: { en: 'The cheaper arrangement most phones use', zh: '多数手机用的那种更便宜的形态' }, text: {

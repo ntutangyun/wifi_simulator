@@ -20,6 +20,9 @@ import { Simulation } from '../../src/engine/simulation'
 import { mlo } from '../../src/course/tier2/mlo'
 import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
+import { AcQueues } from '../../src/engine/queues'
+import { MAX_AMPDU_MPDUS, SHORT_RETRY_LIMIT } from '../../src/engine/phy'
+import type { Msdu } from '../../src/engine/traffic'
 import { lessonShapeSuite, runOf } from './kit'
 
 const MS = 1_000_000
@@ -49,7 +52,7 @@ function view(mod: (sc: Scenario) => void = () => {}): {
   }
 }
 
-lessonShapeSuite(mlo, { proseMax: 900, runNs: RUN_NS })
+lessonShapeSuite(mlo, { proseMax: 1120, runNs: RUN_NS })
 
 describe('mlo · the lesson’s own scene', () => {
   it('is the scheduled-Wi-Fi module’s last lesson, and names where its words come from', () => {
@@ -139,6 +142,122 @@ describe('mlo · the two experiments', () => {
     expect(l5 + l6).toBe(258)
     // the third table's other column
     expect([data(both.rs, 'sta-2').length, data(both.rs, 'sta-2#6g').length]).toEqual([132, 106])
+  })
+})
+
+describe('mlo · the procedure, against the engine that runs it', () => {
+  const v = view()
+
+  it('step 1 — the frame is queued once, on the device’s first lane: no ARRIVAL or ENQUEUE is ever logged on the 6 GHz lane', () => {
+    // src/engine/simulation.ts: one AcQueues per PHYSICAL node, handed to the MAC of
+    // every link; traffic is enqueued through primaryMac(), and the record is emitted
+    // against primaryVid() — the 5 GHz lane — whichever link later claims the frame.
+    for (const t of ['ARRIVAL', 'ENQUEUE'] as const) {
+      const lanes = v.rs.flatMap((r) => (r.type === t && r.node.startsWith('sta-1') ? [r.node] : []))
+      expect(lanes.length, t).toBeGreaterThan(0)
+      expect(new Set(lanes), t).toEqual(new Set(['sta-1']))
+    }
+  })
+
+  it('step 2 — both links start counting on the same access category: each lane draws its own backoff', () => {
+    type Draw = Extract<TLRecord, { type: 'BACKOFF_DRAW' }>
+    const draws = (node: string) =>
+      v.rs.filter((r): r is Draw => r.type === 'BACKOFF_DRAW' && r.node === node)
+    expect(draws('sta-1').length).toBeGreaterThan(0)
+    expect(draws('sta-1#6g').length).toBeGreaterThan(0)
+    // "its own contention window": each lane's draw is against its own CW, never a shared one
+    for (const r of [...draws('sta-1'), ...draws('sta-1#6g')]) expect(r.value).toBeLessThanOrEqual(r.cw!)
+  })
+
+  it('steps 4 and 6 — the engine’s constants are 64 frames per claim and a retry limit of 7', () => {
+    expect(MAX_AMPDU_MPDUS).toBe(64)
+    expect(SHORT_RETRY_LIMIT).toBe(7)
+    for (const r of [...data(v.rs, 'sta-1'), ...data(v.rs, 'sta-1#6g')]) {
+      expect(r.frame.ampdu?.mpduCount ?? 1).toBeLessThanOrEqual(MAX_AMPDU_MPDUS)
+    }
+  })
+
+  it('step 4 — claiming removes: no MSDU of the laptop is ever carried by both of its lanes', () => {
+    const lanes = new Map<number, Set<string>>()
+    for (const r of [...data(v.rs, 'sta-1'), ...data(v.rs, 'sta-1#6g')]) {
+      for (const id of r.frame.ampdu?.msduIds ?? [r.frame.msduId!]) {
+        const s = lanes.get(id) ?? new Set<string>()
+        s.add(r.node)
+        lanes.set(id, s)
+      }
+    }
+    expect(lanes.size).toBeGreaterThan(300)
+    expect([...lanes.values()].filter((s) => s.size > 1)).toEqual([])
+  })
+
+  it('step 4 — the claim is a queue operation, not a chooser: AcQueues.claim takes the head’s frames away', () => {
+    const q = new AcQueues()
+    const msdu = (id: number): Msdu => ({ id, bytes: 1500, ac: 1, dst: 'ap', src: 'sta-1', bornNs: 0 })
+    for (let i = 1; i <= 5; i++) q.enqueue(1, msdu(i))
+    const claimed = q.claim(1, 'ap', MAX_AMPDU_MPDUS, () => true)
+    expect(claimed.map((m) => m.id)).toEqual([1, 2, 3, 4, 5])
+    expect(q.depth(1)).toBe(0) // the other link can no longer see them
+  })
+
+  it('step 5 — the sequence counter lives with the shared queue, one per receiver and access category', () => {
+    const q = new AcQueues()
+    expect([q.nextSeq('ap', 1), q.nextSeq('ap', 1), q.nextSeq('ap', 1)]).toEqual([0, 1, 2])
+    expect(q.nextSeq('ap', 2)).toBe(0) // a different access category, its own counter
+    // and in the run: the laptop's two lanes never hand the same number to two different bursts
+    const seqs = [...data(v.rs, 'sta-1'), ...data(v.rs, 'sta-1#6g')]
+      .filter((r) => r.frame.ac === 1).map((r) => r.frame.seqNo)
+    expect(new Set(seqs).size).toBe(seqs.length)
+  })
+
+  it('step 6 — a failed set goes back to the FRONT of the same shared queue, so either link may take it', () => {
+    const q = new AcQueues()
+    const msdu = (id: number): Msdu => ({ id, bytes: 1500, ac: 1, dst: 'ap', src: 'sta-1', bornNs: 0 })
+    q.enqueue(1, msdu(9))
+    q.restore(1, [msdu(7), msdu(8)])
+    expect(q.peek(1).map((m) => m.id)).toEqual([7, 8, 9])
+  })
+})
+
+describe('mlo · the worked example: MSDU 66 through those steps', () => {
+  const rs = runOf(mlo, undefined, RUN_NS)
+
+  it('row 1 — 4.424 ms, ARRIVAL + ENQUEUE on lane sta-1: frame 66, 1500 bytes, best effort, depth 1', () => {
+    type Arrival = Extract<TLRecord, { type: 'ARRIVAL' }>
+    type Enqueue = Extract<TLRecord, { type: 'ENQUEUE' }>
+    const arrival = rs.find((r): r is Arrival => r.type === 'ARRIVAL' && r.msduId === 66)!
+    const enqueue = rs.find((r): r is Enqueue => r.type === 'ENQUEUE' && r.msduId === 66)!
+    expect([arrival.node, enqueue.node]).toEqual(['sta-1', 'sta-1'])
+    expect(arrival.t / MS).toBe(4.424)
+    expect([enqueue.bytes, enqueue.depth, enqueue.ac]).toEqual([1500, 1, 1])
+  })
+
+  it('row 2 — 4.512 ms, TX_START on lane sta-1#6g: 20 frames, ids 66–85, 30,718 bytes at MCS 13', () => {
+    const tx = data(rs, 'sta-1#6g')[0]
+    expect(tx.t / MS).toBe(4.512)
+    expect(tx.frame.ampdu!.msduIds).toEqual([...Array(20)].map((_, i) => 66 + i))
+    expect([tx.frame.bytes, tx.frame.mcs]).toEqual([30_718, 13])
+  })
+
+  it('row 3 — the 5 GHz countdown stands at 2 that same instant, 88 µs behind', () => {
+    type Dec = Extract<TLRecord, { type: 'BACKOFF_DEC' }>
+    const dec = rs.filter((r): r is Dec => r.type === 'BACKOFF_DEC' && r.node === 'sta-1' && r.t === 4_512_000)
+    expect(dec.map((r) => r.value)).toEqual([2])
+    expect((4_512_000 - 4_424_000) / 1000).toBe(88)
+  })
+
+  it('row 4 — 6.0176 ms, the access point answers all 20 with one BlockAck of 32 bytes', () => {
+    const ba = rs.find((r): r is Tx => r.type === 'TX_START' && r.node === 'ap#6g' && r.frame.kind === 'ba')!
+    expect(ba.t / MS).toBe(6.0176)
+    expect(ba.frame.bytes).toBe(32)
+  })
+
+  it('row 5 — 6.0496 ms, 20 DEQUEUEs on the sending lane, and no id of 66–85 on 5 GHz', () => {
+    type Deq = Extract<TLRecord, { type: 'DEQUEUE' }>
+    const deq = rs.filter((r): r is Deq => r.type === 'DEQUEUE' && r.t === 6_049_600 && r.node === 'sta-1#6g')
+    expect(deq.map((r) => r.msduId).sort((a, b) => a - b))
+      .toEqual([...Array(20)].map((_, i) => 66 + i))
+    const on5 = new Set(data(rs, 'sta-1').flatMap((r) => r.frame.ampdu?.msduIds ?? [r.frame.msduId!]))
+    expect([...Array(20)].map((_, i) => 66 + i).filter((id) => on5.has(id))).toEqual([])
   })
 })
 

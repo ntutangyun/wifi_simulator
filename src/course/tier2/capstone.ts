@@ -8,6 +8,12 @@
  * runs, prices and defends, with a rubric and a write-up template to hand the
  * answer in against.
  *
+ * Mechanism before metaphor (2026-09-23): the `steps` block is the method the
+ * learner carries out — baseline, the four figures and the lane each is read
+ * from, one editor edit at a time, the comparison, the ranking and the hand-in
+ * — and the four-way table is its worked example, every row naming the lane and
+ * the counter its figures come from.
+ *
  * The three candidates are edits the learner makes in the editor, not lesson
  * `variants`: the scene is one inline builder that takes no parameters, and the
  * recorded timeline hash in tests/fixtures/lesson-hashes.json is the
@@ -31,7 +37,7 @@ export const capstone: Lesson = {
     { en: 'rank the devices of a mixed household by the one resource they share', zh: '按照他们共享的那一样资源，给一个混杂家庭里的设备排序' },
     { en: 'price three candidate changes against the run instead of against intuition', zh: '用仿真结果、而不是用直觉，给三个候选改动分别标价' },
     { en: 'name the change you would reject, and the measurement that made you reject it', zh: '说出你会否决哪个改动，以及是哪一个测量让你否决它的' },
-    { en: 'hand in a write-up that states what it did not test', zh: '交出一份写明了"它没有测什么"的报告' },
+    { en: 'hand in a write-up that states what it did not test', zh: '交出一份写明了“它没有测什么”的报告' },
   ],
   needs: ['edca', 'txop', 'width', 'rate', 'anomaly', 'tier1-project', 'ofdma-dl', 'ofdma-ul', 'mumimo', 'mlo'],
   terms: [
@@ -41,13 +47,13 @@ export const capstone: Lesson = {
     } },
     { term: 'offered load', plain: {
       en: 'how much a device is trying to send, as opposed to how much it actually gets through',
-      zh: '一台设备"想发多少"，区别于它最后"真正发出去了多少"',
+      zh: '一台设备“想发多少”，区别于它最后“真正发出去了多少”',
     } },
   ],
   picture: [
     { heading: { en: 'The flat, and who is in it', zh: '这套房子，以及屋里都有谁' }, text: {
-      en: 'Three rooms with brick between them and a door in each inner wall. One access point in the living room. A Wi-Fi 7 laptop running a backup over two radios, a Wi-Fi 6 television and a projector both streaming, a phone on a voice call, an older Wi-Fi 5 tablet browsing, and an IoT sensor that wakes now and then. Everything at once, as an evening actually is.',
-      zh: '三个房间，彼此之间隔着砖墙，每道内墙上开一扇门。客厅里一个接入点。一台 Wi-Fi 7 笔记本正用两台电台做备份，一台 Wi-Fi 6 电视和一台投影仪都在推流，一部手机在通话，一台老些的 Wi-Fi 5 平板在上网，还有一个隔一阵子醒一次的 IoT 传感器。所有事情同时发生——晚上本来就是这样。',
+      en: 'Three rooms with brick between them and a door in each inner wall. One access point (AP) in the living room. A Wi-Fi 7 laptop running a backup over two radios, a Wi-Fi 6 television and a projector both streaming, a phone on a voice call, an older Wi-Fi 5 tablet browsing, and an IoT sensor that wakes now and then. Everything at once, as an evening actually is.',
+      zh: '三个房间，彼此之间隔着砖墙，每道内墙上开一扇门。客厅里一个接入点（AP）。一台 Wi-Fi 7 笔记本正用两台电台做备份，一台 Wi-Fi 6 电视和一台投影仪都在推流，一部手机在通话，一台老些的 Wi-Fi 5 平板在上网，还有一个隔一阵子醒一次的 IoT 传感器。所有事情同时发生——晚上本来就是这样。',
     } },
     { kind: 'watch', jump: 2, heading: { en: 'Look before you think', zh: '先看，再想' }, text: {
       en: 'Load the simulation and jump to the first collision. Do nothing else yet: open the inspector, rank all seven devices by airtime share, and write the ranking down. That list is the baseline every argument below is made against, and most readers guess it wrong.',
@@ -64,7 +70,7 @@ export const capstone: Lesson = {
     ] },
     { heading: { en: 'The trap in the middle', zh: '中间那个陷阱' }, text: {
       en: 'The slowest radio is the obvious suspect, and here it is innocent. The sensor speaks slowly, but it barely speaks: a handful of tiny frames across the whole run. A device is a bottleneck only if it spends the shared resource, and spending it means holding the air — offered load times the time each frame takes, not the age on the box.',
-      zh: '最慢的那台电台是最显眼的嫌疑人，而在这里它是无辜的。传感器说话确实慢，但它几乎不说话：整段仿真里只有寥寥几个很小的帧。一台设备要成为瓶颈，前提是它在花掉那份共享资源；而花掉它，意思是占着空口——是"想发多少"乘以"每帧要占多久"，不是包装盒上的年份。',
+      zh: '最慢的那台电台是最显眼的嫌疑人，而在这里它是无辜的。传感器说话确实慢，但它几乎不说话：整段仿真里只有寥寥几个很小的帧。一台设备要成为瓶颈，前提是它在花掉那份共享资源；而花掉它，意思是占着空口——是“想发多少”乘以“每帧要占多久”，不是包装盒上的年份。',
     } },
     { heading: { en: 'What counts as an answer', zh: '什么才算一个答案' }, text: {
       en: 'Three things, and the third is the one people leave out. A change, with the number it moved. A change you rejected, with the measurement that made you reject it. And a sentence on what this scene does not model — an answer that never says where it stops gets believed further than it deserves.',
@@ -76,33 +82,45 @@ export const capstone: Lesson = {
       en: 'The same five seconds, four ways',
       zh: '同样的五秒钟，四种走法',
     }, head: [
-      { en: 'Scene', zh: '场景' }, { en: 'Backup delivered, megabytes', zh: '备份送达量（兆字节）' },
-      { en: 'Video wait', zh: '视频等待' }, { en: 'Tablet wait', zh: '平板等待' }, { en: 'Voice wait', zh: '语音等待' },
+      { en: 'Figure, and where it is read', zh: '数字，以及从哪里读' },
+      { en: 'As it stands', zh: '原样' }, { en: 'Backup stopped', zh: '停掉备份' },
+      { en: 'Second radio off', zh: '关掉第二台电台' }, { en: 'Tablet on Wi-Fi 6', zh: '平板换 Wi-Fi 6' },
     ], rows: [
-      [{ en: 'As it stands', zh: '原样' }, N('78.0'), N('2.26 ms'), N('39.06 ms'), N('1.90 ms')],
-      [{ en: 'Backup stopped', zh: '停掉备份' }, N('0'), N('0.21 ms'), N('0.50 ms'), N('0.83 ms')],
-      [{ en: 'Second radio off', zh: '关掉第二台电台' }, N('37.7'), N('2.22 ms'), N('25.93 ms'), N('1.95 ms')],
-      [{ en: 'Tablet given a Wi-Fi 6 radio', zh: '给平板换上 Wi-Fi 6 电台' }, N('78.1'), N('2.18 ms'), N('34.31 ms'), N('1.82 ms')],
+      [{ en: 'Backup delivered, megabytes — bytes delivered on lanes ap and ap#6g', zh: '备份送达量（兆字节）——泳道 ap 与 ap#6g 的已送达字节' },
+        N('78.0'), N('0'), N('37.7'), N('78.1')],
+      [{ en: 'Video wait — mean receive wait, lane sta-2', zh: '视频等待——泳道 sta-2 的平均接收等待' },
+        N('2.26 ms'), N('0.21 ms'), N('2.22 ms'), N('2.18 ms')],
+      [{ en: 'Tablet wait — mean receive wait, lane sta-4', zh: '平板等待——泳道 sta-4 的平均接收等待' },
+        N('39.06 ms'), N('0.50 ms'), N('25.93 ms'), N('34.31 ms')],
+      [{ en: 'Voice wait — mean send wait, lane sta-3', zh: '语音等待——泳道 sta-3 的平均发送等待' },
+        N('1.90 ms'), N('0.83 ms'), N('1.95 ms'), N('1.82 ms')],
     ] },
     { heading: { en: 'Nothing here is about throughput', zh: '这里没有一样是关于吞吐量的' }, text: {
-      en: 'In all four scenes the television receives about 8.3 megabytes and the tablet exactly 88,200 bytes. No change alters what any of them receives. What moves — by two orders of magnitude, in one column — is how long a frame waits for its turn. The shared resource is time, and one device spends nearly all of it.',
-      zh: '四个场景里，电视拿到的都是大约 8.3 兆字节，平板拿到的都是不多不少 88,200 字节。没有哪个改动改变了它们收到的东西。变的是——其中一列变了两个数量级——一帧要等多久才轮到自己。共享的资源是时间，而其中绝大部分被一台设备花掉了。',
+      en: 'In all four scenes the television receives about 8.3 megabytes and the tablet exactly 88,200 bytes: no change alters what any of them receives. What moves — by two orders of magnitude in one row — is how long a frame waits its turn. The shared resource is time, and one device spends nearly all of it.',
+      zh: '四个场景里，电视拿到的都是大约 8.3 兆字节，平板拿到的都是不多不少 88,200 字节：没有哪个改动改变了它们收到的东西。变的是——其中一行变了两个数量级——一帧要等多久才轮到自己。共享的资源是时间，而其中绝大部分被一台设备花掉了。',
     } },
     { kind: 'table', heading: { en: 'What a good answer contains', zh: '好答案里有什么' }, head: [
       { en: 'Decision', zh: '判断' }, { en: 'A good answer', zh: '好答案长什么样' },
     ], rows: [
       [{ en: 'The bottleneck', zh: '瓶颈是谁' }, { en: 'Names the backup, not the sensor: the laptop holds 58.7% of 5 GHz and 90.6% of 6 GHz, while the sensor sends three frames in five seconds.', zh: '点名那个备份，而不是传感器：笔记本占了 5 GHz 的 58.7%、6 GHz 的 90.6%，而传感器五秒里只发三帧。' }],
-      [{ en: 'Stopping the backup', zh: '停掉备份' }, { en: 'Reports that every other wait falls under a millisecond — and that the backup itself then delivers nothing at all. Says what is being traded.', zh: '报出其他所有等待都掉到一毫秒以下——同时也报出备份自己从此一个字节也送不出去。把交换的是什么说清楚。' }],
+      [{ en: 'Stopping the backup', zh: '停掉备份' }, { en: 'Reports that every other wait falls under a millisecond — and that the backup then delivers nothing. Says what is being traded.', zh: '报出其他所有等待都掉到一毫秒以下——同时也报出备份自己从此一个字节也送不出去。把交换的是什么说清楚。' }],
       [{ en: 'The second radio', zh: '第二台电台' }, { en: 'Prices it honestly: it doubles the backup’s own delivery, and leaves the video wait where it was. It helped its owner, not the band it left.', zh: '老老实实给它标价：它让备份自己的送达量翻倍，而视频的等待原地不动。它帮的是自己的主人，不是它离开的那个频段。' }],
       [{ en: 'The tablet', zh: '那台平板' }, { en: 'Notices the upgrade barely registers: the access point never groups the tablet with the others, and its wait falls by about one part in eight.', zh: '看出这次升级几乎没什么动静：接入点从来没把平板和别人编在一组，它的等待只降了大约八分之一。' }],
-      [{ en: 'What was not tested', zh: '没有测到的东西' }, { en: 'Says plainly that nobody walks about, no door opens and the run is five seconds long. An evening is not five seconds long.', zh: '直说：没有人走动，没有门被打开，整段仿真只有五秒。而一个晚上不是五秒。' }],
+      [{ en: 'What was not tested', zh: '没有测到的东西' }, { en: 'Says plainly that nobody walks about, no door opens and the run lasts five seconds. An evening does not.', zh: '直说：没有人走动，没有门被打开，整段仿真只有五秒。而一个晚上不是五秒。' }],
     ] },
-    { kind: 'steps', heading: { en: 'The write-up', zh: '这份报告怎么写' }, items: [
-      { en: 'One sentence: which device decides what everybody else gets, and the one number that says so.', zh: '一句话：是哪台设备在决定别人能拿到多少，以及说明这一点的那一个数字。' },
-      { en: 'The change you would make, and the number you expected it to move, written before you ran it and before you look at the table above.', zh: '你打算做的改动，以及你预期它会让哪个数字怎么动——在你跑它之前、也在你看上面那张表之前，先写下来。' },
-      { en: 'What it actually moved, from the run, including the numbers that did not move.', zh: '它实际上让什么动了，数据来自仿真——包括那些没动的数字。' },
-      { en: 'One change you rejected, and the measurement that made you reject it.', zh: '一个你否决掉的改动，以及是哪个测量让你否决它的。' },
-      { en: 'What this scene does not model, so nobody reads more into your answer than it holds.', zh: '这个场景没有建模什么，好让别人不会把你的答案读得比它本身更重。' },
+    { kind: 'steps', heading: { en: 'The method, step by step', zh: '这套做法，一步一步' }, items: [
+      { en: 'Take the baseline before you touch anything. Load the scene as it stands, let the five seconds run, open the inspector and rank all seven devices by airtime share. The laptop’s two lanes come out at 58.7% and 90.6%; nothing else reaches two per cent. Write that ranking down.',
+        zh: '先取基线，什么都别动。按原样载入场景，让五秒跑完，打开检视器，把七台设备按空口占比排序。笔记本的两条泳道是 58.7% 和 90.6%，其余没有一台到得了百分之二。把这个排名写下来。' },
+      { en: 'Fix the four figures you will carry through every option: the backup’s delivery, the video and tablet waits, and the voice wait. The table above names the lane each one is read from.',
+        zh: '定下四个要贯穿每个方案的数字：备份的送达量、视频与平板的等待、语音的等待。上面那张表写明了每一个各从哪条泳道读。' },
+      { en: 'Make one change at a time, in the editor, and reload. None of the three is a variant you can load from a menu — each is an edit you make and then undo: set the laptop’s traffic to idle; or clear MLO on the laptop; or give the tablet a Wi-Fi 6 radio with OFDMA on.',
+        zh: '一次只改一样，在编辑器里改，然后重新加载。这三个方案都不是能从菜单里载入的变体——每一个都是你自己改上去、再改回来的编辑：把笔记本的流量设成空闲；或者取消笔记本的 MLO；或者给平板换一台开着 OFDMA 的 Wi-Fi 6 电台。' },
+      { en: 'Read those same four figures again after each reload and write them beside the baseline. Compare the three options column against column: a change is priced by what it moved and equally by what it left alone.',
+        zh: '每次重新加载后，再把这四个数字读一遍，写在基线旁边。三个方案按列对列地比：一个改动值多少，既看它让什么动了，也同样看它让什么没动。' },
+      { en: 'Rank the options by the wait they freed, not by the device that looks worst. The sensor is the oldest radio in the flat and is not on the list at all: it sends three frames in the five seconds.',
+        zh: '按“腾出了多少等待”给方案排序，而不是按“哪台设备看起来最惨”。传感器是屋里最旧的那台电台，而它根本不在候选名单上：五秒里它只发三帧。' },
+      { en: 'Hand in four sentences: the bottleneck and the number that says so; the option you would take and what it moved; the option you rejected and the measurement that rejected it; and what this scene does not model — nobody walks, no door opens, the run is five seconds.',
+        zh: '交四句话：瓶颈是谁、哪个数字说明的；你会选哪个方案、它让什么动了；你否决了哪个方案、是哪个测量否决的；以及这个场景没有建模什么——没有人走动，没有门被打开，整段仿真只有五秒。' },
     ] },
   ],
   deeper: [
@@ -177,7 +195,7 @@ export const capstone: Lesson = {
         { en: 'The laptop’s backup slows down to make room for it', zh: '笔记本的备份会慢下来给它让路' },
       ],
       answer: 1,
-      explain: { en: 'A newer radio shortens the tablet’s own frames; it does not give it a turn any sooner, and the access point has nothing queued for it when it forms a group. Replacing the device that looks worst is the most expensive way to change almost nothing.', zh: '更新的电台只是让平板自己的帧变短；它并不会让平板更早轮到，而接入点在组队的那一刻手里也没有给它的东西。换掉看起来最惨的那台设备，是"花最多的钱、改变最少的东西"的典型做法。' },
+      explain: { en: 'A newer radio shortens the tablet’s own frames; it does not give it a turn any sooner, and the access point has nothing queued for it when it forms a group. Replacing the device that looks worst is the most expensive way to change almost nothing.', zh: '更新的电台只是让平板自己的帧变短；它并不会让平板更早轮到，而接入点在组队的那一刻手里也没有给它的东西。换掉看起来最惨的那台设备，是“花最多的钱、改变最少的东西”的典型做法。' },
     },
   ],
 }
