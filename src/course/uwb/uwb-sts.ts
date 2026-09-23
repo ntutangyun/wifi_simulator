@@ -15,6 +15,16 @@
  * negative number — a relay steals a fixed 14.99 m whatever the true distance,
  * and at five metres that reads as nonsense instead of as a lie.
  *
+ * Two voices, kept apart on the main path (fix round, 2026-09-23): what a real
+ * radio does — generate the sequence from the key, place it in the frame,
+ * compare what arrived against its own copy — and what this simulator does,
+ * which is none of that. `onRxOk` in src/uwb/device.ts is a gate on the
+ * scenario: reject when an attacker is configured and the sequence is on,
+ * accept when it is off, and with no attacker run no check at all. The picture
+ * ("What you are actually watching") and step 3 say so where the beginner is,
+ * because a lesson that narrated a correlation here would teach the reader to
+ * see one in a log that never holds one.
+ *
  * Every number quoted below is pinned in tests/course/uwb-sts.test.ts;
  * `npx tsx scripts/lesson-dump.ts uwb-sts en` prints the section budgets.
  */
@@ -91,16 +101,20 @@ export const uwbSts: Lesson = {
       zh: '一帧测距帧的头部，按设计就是公开的。SYNC 是每个接收端本来就必须握有的图案，否则它根本锁不住信号；结束 SYNC 的那个 SFD 同样人尽皆知。攻击者当然也握着它们。于是，一个只对 RMARKER 计时、别的什么都不看的接收端，它计的正是攻击者压根不用听就能造出来的东西。',
     } },
     { heading: { en: 'A stretch of pulses only two people can write', zh: '一段只有两个人写得出的脉冲' }, text: {
-      en: 'The cure is to put something unguessable where the timing is taken. Both ends of a session hold one shared secret — a key — and both generate the same long stretch of pulses from it: the scrambled timestamp sequence (STS). The receiver knows it in advance and can time it to a fraction of a chip. The box in the middle has no key, hears noise, and has nothing to send early.',
-      zh: '解法是：在取时间的那个位置，放上一段猜不出来的东西。会话的两端共同持有一个秘密——一把密钥——并各自用它生成同一段很长的脉冲：加扰时间戳序列（STS）。接收端事先就知道它，因此能把它计到码片的零头。而中间那个盒子没有这把密钥，听到的只是噪声，也就没有任何东西可以提前发出去。',
+      en: 'The cure is to put something unguessable where the timing is taken. Both ends of a session hold one shared secret — a key — and both generate the same long stretch of pulses from it: the scrambled timestamp sequence (STS). A real receiver holds its own copy, compares it against what arrived, and keeps the stamp only if the two match. The box in the middle has no key, hears noise, and has nothing to send early.',
+      zh: '解法是：在取时间的那个位置，放上一段猜不出来的东西。会话的两端共同持有一个秘密——一把密钥——并各自用它生成同一段很长的脉冲：加扰时间戳序列（STS）。真实的接收端手里有自己的那一份，它拿它和收到的东西逐段比对，只有对得上才认下这个时间戳。而中间那个盒子没有这把密钥，听到的只是噪声，也就没有任何东西可以提前发出去。',
+    } },
+    { heading: { en: 'What you are actually watching', zh: '你实际看到的是什么' }, text: {
+      en: 'That comparison is what real hardware does, and what the standard asks for. This simulator does not do it: it holds no key, generates no pulses, and compares nothing. What it models is the outcome of the comparison — a reception is refused whenever the scene has a relay in it and the sequence is on, and accepted whenever the sequence is off. It is also why the relay’s advance is a fixed 50 ns here: nothing in this room has to detect it.',
+      zh: '上面那种比对，是真实硬件的做法，也是标准的要求。本仿真器并不这么做：它不持有密钥，不生成脉冲，也不做任何比对。它模拟的是比对的结果——只要场景里放了转发、而且序列开着，这次接收就被拒绝；序列一关，就一律接受。这也正是这里把转发的提前量写死成 50 ns 的原因：这个房间里没有谁需要去把它检测出来。',
     } },
     { kind: 'watch', jump: 3, heading: { en: 'Now switch the sequence off', zh: '现在把这段序列关掉' }, text: {
       en: 'Load the first variant. The relay is running and the sequence is off, so the stolen advance lands on both receptions of the round. Read the range line and compare it with the truth beside it.',
       zh: '载入第一个变体。这时中间的转发在工作，而那段序列是关掉的，于是被偷走的提前量落在这一轮的两次接收上。读一读测距行，再和旁边的真值比一比。',
     } },
     { heading: { en: 'The other outcome: nothing at all', zh: '另一种结局：什么也没有' }, text: {
-      en: 'Switch the sequence back on and the same relay produces no range. The receiver takes its stamp only if the pulses it expected really were there at that instant; they were not, so it throws the reading away and the slot simply runs out. A rejected round and a lost round look alike on a map. They do not look alike in the log, and the difference is the point.',
-      zh: '把序列开回来，同样的转发就一个距离也产不出来了。接收端只有在那一瞬间确实出现了它预期的脉冲时，才会认下这次读数；而脉冲并没有出现，于是它把读数丢掉，时隙就这么空过去。被拒绝的一轮和丢失的一轮，画在地图上是一个样。可在日志里它们不是一个样——而这正是要点。',
+      en: 'Switch the sequence back on and the same relay produces no range. The reception is refused before any stamp is taken, and the slot simply runs out. A rejected round and a lost round look alike on a map. They do not look alike in the log, and the difference is the point.',
+      zh: '把序列开回来，同样的转发就一个距离也产不出来了。这次接收在打时间戳之前就被拒掉，时隙也就这么空过去。被拒绝的一轮和丢失的一轮，画在地图上是一个样。可在日志里它们不是一个样——而这正是要点。',
     } },
   ],
   numbers: [
@@ -112,11 +126,11 @@ export const uwbSts: Lesson = {
       [{ en: 'Relay, sequence on', zh: '有转发，序列开启' }, N('20 m'), { en: 'none', zh: '没有' }, N('1 × UWB_STS_REJECT, 2 × UWB_TIMEOUT')],
     ] },
     { kind: 'steps', heading: { en: 'What the receiver does with the sequence', zh: '接收端拿这段序列做什么' }, items: [
-      { en: 'Before the round, both ends generate the same stretch of pulses from the one key they share, and the sender places it after the SFD, between two silent gaps of 512 chips.', zh: '这一轮开始之前，两端各自用共同持有的那把密钥生成同一段脉冲；发送端把它放在 SFD 之后，夹在两段 512 码片的静默间隔中间。' },
+      { en: 'In a real radio, both ends generate the same stretch of pulses from the one key they share before the round begins. The frame here carries the segment where they would put it — after the SFD, between two silent gaps of 512 chips — but no pulses are generated into it.', zh: '在真实的射频里，这一轮开始之前，两端各自用共同持有的那把密钥生成同一段脉冲。本仿真器的帧里留着它该在的那一段——SFD 之后，夹在两段 512 码片的静默间隔中间——但并没有真的往里面生成脉冲。' },
       { en: 'The box in the middle re-emits what it hears, so every reception of the round lands 50 ns early.', zh: '中间那个盒子把听到的东西再发一遍，于是这一轮的每一次接收都提早 50 ns 落地。' },
-      { en: 'At the instant it stamps, the receiver looks for the pulses it generated itself. With the sequence on it finds noise there, writes one UWB_STS_REJECT, and takes no reading at all.', zh: '在打时间戳的那一瞬间，接收端要去找它自己生成的那段脉冲。序列开启时，它在那儿找到的是噪声，于是写下一条 UWB_STS_REJECT，这次读数干脆不取。' },
+      { en: 'A real receiver would now compare what arrived against its own copy. This one reads the scene instead: a relay is configured and the sequence is on, so it writes one UWB_STS_REJECT and takes no reading at all.', zh: '真实的接收端到这一步会拿收到的东西和自己那一份比对。本仿真器读的却是场景本身：场景里配了转发、序列又开着，于是它写下一条 UWB_STS_REJECT，这次读数干脆不取。' },
       { en: 'Nothing then goes out in the answer’s slot: the slot deadline reports the miss instead, and the round ends with two UWB_TIMEOUT lines and no range.', zh: '这样一来，应答那个时隙里也就没有东西发出去：缺席改由时隙超时来报，这一轮以两条 UWB_TIMEOUT 收场，一个距离也没有。' },
-      { en: 'With the sequence off there is nothing to check: the receiver subtracts the 50 ns from the arrival it measured and stamps 3195 ticks low — on both receptions of the round.', zh: '序列关闭时就没什么可校验的了：接收端把这 50 ns 从自己测到的到达时刻里减掉，时间戳因此偏低 3195 格——这一轮的两次接收都如此。' },
+      { en: 'With the sequence switched off that same gate accepts: the receiver subtracts the 50 ns from the arrival it measured and stamps 3195 ticks low — on both receptions of the round.', zh: '序列一关，同一道闸门就放行了：接收端把这 50 ns 从自己测到的到达时刻里减掉，时间戳因此偏低 3195 格——这一轮的两次接收都如此。' },
       { en: 'The round trip falls by 3195 ticks and the reply time rises by 3195, so halving their difference hands the whole advance back: 14.99 m the phone never travelled.', zh: '往返时间降了 3195 格，作答时间升了 3195 格；两者之差折半，正好把整个提前量还了回来：凭空少掉手机从未走过的 14.99 m。' },
     ] },
     { kind: 'formula', heading: { en: 'What 50 ns is worth', zh: '50 ns 值多少' }, text: {
@@ -225,7 +239,7 @@ export const uwbSts: Lesson = {
         { en: 'A range that is 15 m too long instead of too short', zh: '一个偏长 15 m 而不是偏短 15 m 的距离' },
       ],
       answer: 1,
-      explain: { en: 'There is nothing to repair a stamp with. The receiver only knows the pulses it expected were absent, so it declines to range at all.', zh: '没有任何东西可以拿来修一个时间戳。接收端只知道它预期的脉冲没有出现，于是干脆拒绝测这一次距离。' },
+      explain: { en: 'There is nothing to repair a stamp with: the reception is refused outright, and the round ends with a rejection and two timeouts instead of a range.', zh: '没有任何东西可以拿来修一个时间戳：这次接收被直接拒掉，这一轮以一条拒绝和两条超时收场，而不是一个距离。' },
     },
   ],
 }

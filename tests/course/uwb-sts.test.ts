@@ -21,6 +21,7 @@ import { counterDiff } from '../../src/uwb/clock'
 import { rctuToMetres, ssTwrRaw } from '../../src/uwb/ranging'
 import { fmtRecord } from '../../src/ui/format'
 import type { Block } from '../../src/course/lessonKit'
+import { paragraphTexts } from '../../src/course/readability'
 import { lessonShapeSuite, ofType, runOf } from './kit'
 
 const MS = 1_000_000
@@ -34,10 +35,11 @@ const V_HONEST_20 = 2
 const recs = (variant?: number): TLRecord[] => runOf(uwbSts, variant, RUN_NS)
 
 // The contract every migrated lesson owes, written once in tests/course/kit.ts.
-// The prose window is 1050 rather than 820 since the 2026-09-23 amendment
+// The prose window is 1200 rather than 820 since the 2026-09-23 amendment
 // ("mechanism before metaphor"): `numbers` now carries what the receiver does
-// with the sequence, step by step, in the order src/uwb/device.ts does it.
-lessonShapeSuite(uwbSts, { proseMax: 1050, runNs: RUN_NS })
+// with the sequence, step by step, in the order src/uwb/device.ts does it, and
+// the picture separates what real hardware does from what this simulator does.
+lessonShapeSuite(uwbSts, { proseMax: 1200, runNs: RUN_NS })
 
 describe('uwb-sts · the lesson', () => {
   it('follows uwb-frame in module 11 and names its three new words', () => {
@@ -214,6 +216,47 @@ describe('uwb-sts · what the receiver does with the sequence', () => {
     const stamped = layout.findIndex((s) => s.rmarkerNs !== undefined)
     expect(layout.slice(0, stamped).map((s) => s.key)).toEqual(['sync', 'sfd'])
     expect(layout.findIndex((s) => s.key === 'sts')).toBeGreaterThan(stamped)
+  })
+
+  it('the lesson says the check is a gate on the scene, because that is what onRxOk is', () => {
+    // src/uwb/device.ts, the receive path: `if (atk !== undefined && atk.advanceNs > 0 &&
+    // !this.cfg.stsOff) { emit UWB_STS_REJECT; return }`. No sequence is generated, nothing is
+    // compared, and with no attacker configured no check runs at all. The picture and the steps
+    // say so where the beginner meets them, instead of narrating a correlation that never happens.
+    const said = uwbSts.picture!.find((b) => b.heading?.en === 'What you are actually watching') as
+      Extract<Block, { kind?: 'p' }>
+    expect(said).toBeDefined()
+    expect(said.text.en).toContain('compares nothing')
+    expect(said.text.en).toContain('models is the outcome')
+    expect(said.text.en).toContain('fixed 50 ns')
+    expect(said.text.zh).toContain('不做任何比对')
+    expect(said.text.zh).toContain('模拟的是比对的结果')
+    // the step that rejects names the scene, not a comparison
+    expect(steps.items[2].en).toContain('reads the scene instead')
+    expect(steps.items[2].zh).toContain('读的却是场景本身')
+    // and the sentences that described the imaginary correlation are gone from the main path
+    const main = [uwbSts.why!, ...uwbSts.outcomes!]
+      .concat(paragraphTexts(uwbSts.picture!), paragraphTexts(uwbSts.numbers!))
+    for (const s of main) {
+      expect(/looks for the pulses it generated itself|finds noise there/.test(s.en), s.en).toBe(false)
+      expect(/takes its stamp only if the pulses it expected/.test(s.en), s.en).toBe(false)
+      expect(/它在那儿找到的是噪声|才会认下这次读数/.test(s.zh), s.zh).toBe(false)
+    }
+  })
+
+  it('no attacker, no check: the honest scene is never verified against anything', () => {
+    // The gate's other half, and the reason the prose cannot say "the check passed": with no
+    // relay configured the branch never runs, so an honest round is accepted without any
+    // sequence being looked at. Both the 5 m base scene and the honest 20 m variant carry the
+    // sequence switched ON.
+    for (const [label, v] of [['base', undefined], ['honest 20 m', V_HONEST_20]] as const) {
+      const sc = v === undefined ? uwbSts.scenario() : uwbSts.variants![v].scenario()
+      expect(sc.uwb!.stsOff, label).toBeUndefined()
+      expect(sc.uwb!.attacker, label).toBeUndefined()
+      const rs = recs(v)
+      expect(ofType(rs, 'UWB_STS_REJECT'), label).toHaveLength(0)
+      expect(ofType(rs, 'UWB_RANGE'), label).toHaveLength(1)
+    }
   })
 
   it('step 2: the relay makes every reception of the round land 50 ns early', () => {
