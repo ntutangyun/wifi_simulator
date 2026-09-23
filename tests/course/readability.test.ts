@@ -454,6 +454,7 @@ export const MECHANISM_DONE: string[] = [
   'uwb-position', 'uwb-geometry', 'uwb-coexist', 'uwb-contention',
   'uwb-dl-tdoa', 'uwb-ul-tdoa', 'uwb-aoa',
   'uwb-mms', 'uwb-mms-numbers', 'uwb-nba', 'uwb-nba-coexist',
+  'uwb-capstone',
 ]
 
 /**
