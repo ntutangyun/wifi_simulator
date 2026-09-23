@@ -407,7 +407,7 @@ export function firstTermUses(blocks: Block[], terms: readonly string[]): string
  * Naming markers: the ways a sentence can name the thing it has just pictured
  * without parentheses — "这一级，就是 MCS", "that is the BSS".
  */
-const NAMING = /就是|叫做|叫作|称为|名叫|即|这就是|that is|this is|it is|is called|are called|known as|we call|the name for|名字是/i
+const NAMING = /就是|叫做|叫作|称为|名叫|即|这就是|名字是|is called|are called|known as|we call|the name for|(?:is|are)\s+(?:an?|the)?\s*$|[—–]\s*(?:an?|the)?\s*$/i
 
 /**
  * Whether a term is NAMED where it is pictured (amendment of 2026-09-23).
@@ -421,11 +421,17 @@ const NAMING = /就是|叫做|叫作|称为|名叫|即|这就是|that is|this is
  * is about how a name is introduced, not about where it must appear.
  */
 export function namedInPlace(text: string, term: string): boolean {
-  const re = new RegExp(`\b${escapeRe(term)}\b`, 'i')
+  // `\\b`, not `\b`: inside a template literal `\b` is the backspace character,
+  // which matches nothing — the rule graded vacuously until this was fixed.
+  const re = new RegExp(`\\b${escapeRe(term)}\\b`, 'i')
   const m = re.exec(text)
   if (!m) return true
   const before = text.slice(Math.max(0, m.index - 28), m.index)
-  if (/[（(]\s*$/.test(before)) return true
+  // An open bracket that has not closed yet: "(the SSID", （接入点，AP.
+  if (/[（(][^）)]{0,30}$/.test(before)) return true
+  // Or the gloss follows the name instead of preceding it: "the MAC — the part
+  // of the radio that decides when to send —", DS（分发系统）.
+  if (/^\s*[—–(（]/.test(text.slice(m.index + m[0].length, m.index + m[0].length + 6))) return true
   return NAMING.test(before)
 }
 

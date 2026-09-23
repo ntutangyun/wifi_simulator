@@ -76,8 +76,8 @@ export const rolesStack: Lesson = {
   ],
   picture: [
     { heading: { en: 'Two parts, one set of rules', zh: '两种角色，同一套规则' }, text: {
-      en: 'Every device in a home network runs the same MAC and the same PHY, and obeys the same rules about when it may speak. Each of them is a station: the laptop, the phone, the TV — and the access point too. What sets the access point apart is not a stronger radio, nor a right to talk whenever it likes. It is a job the others do not have, and every other station may address it.',
-      zh: '家里这张网上的每台设备，跑的都是同一套 MAC 和同一套 PHY，什么时候可以开口，守的也是同一套规则。它们每一台都是站点：笔记本、手机、电视——接入点也是。接入点特殊在哪儿？不是射频更强，也不是想说就能说，而是它多了一份别人没有的差事，而且每个别的站点都可以直接寻址到它。',
+      en: 'Every device in a home network runs the same two layers: the part that decides when it may speak (the MAC) and the part that turns a frame into a signal on the air (the PHY). Each of them is a station: the laptop, the phone, the TV — and the access point too. What sets the access point apart is not a stronger radio, nor a right to talk whenever it likes. It is a job the others do not have, and every other station may address it.',
+      zh: '家里这张网上的每台设备，跑的都是同样两层：决定什么时候可以开口的那一层（MAC），和把一帧变成空口上信号的那一层（PHY）。它们每一台都是站点：笔记本、手机、电视——接入点也是。接入点特殊在哪儿？不是射频更强，也不是想说就能说，而是它多了一份别人没有的差事，而且每个别的站点都可以直接寻址到它。',
     } },
     { heading: { en: 'One access point, one network', zh: '一个接入点，一张网' }, text: {
       en: 'An access point and the devices that joined it are one network — a BSS. It needs an address of its own, so that a station can say which network a frame belongs to and a neighbour\'s frames can be told apart from this one\'s. That address is not invented: it is the access point\'s own MAC address, and used this way it is called the BSSID. One access point, one network, one address.',
