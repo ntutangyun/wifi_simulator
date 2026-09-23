@@ -15,7 +15,10 @@ import { uwbSts, uwbStsScenario, RELAY_ADVANCE_NS } from '../../src/course/uwb/u
 import { uwbIntro, uwbIntroScenario } from '../../src/course/uwb/uwb-intro'
 import { ScenarioSchema } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
-import { C_M_PER_NS, PSYM_CHIPS, RCTU_NS, STS_ACTIVE_CHIPS, SYNC_SYMBOLS } from '../../src/uwb/phy'
+import { C_M_PER_NS, PSYM_CHIPS, RCTU_NS, STS_ACTIVE_CHIPS, STS_GAP_CHIPS, SYNC_SYMBOLS } from '../../src/uwb/phy'
+import { uwbPpduLayout } from '../../src/uwb/frameFields'
+import { counterDiff } from '../../src/uwb/clock'
+import { rctuToMetres, ssTwrRaw } from '../../src/uwb/ranging'
 import { fmtRecord } from '../../src/ui/format'
 import type { Block } from '../../src/course/lessonKit'
 import { lessonShapeSuite, ofType, runOf } from './kit'
@@ -31,7 +34,10 @@ const V_HONEST_20 = 2
 const recs = (variant?: number): TLRecord[] => runOf(uwbSts, variant, RUN_NS)
 
 // The contract every migrated lesson owes, written once in tests/course/kit.ts.
-lessonShapeSuite(uwbSts, { proseMax: 820, runNs: RUN_NS })
+// The prose window is 1050 rather than 820 since the 2026-09-23 amendment
+// ("mechanism before metaphor"): `numbers` now carries what the receiver does
+// with the sequence, step by step, in the order src/uwb/device.ts does it.
+lessonShapeSuite(uwbSts, { proseMax: 1050, runNs: RUN_NS })
 
 describe('uwb-sts · the lesson', () => {
   it('follows uwb-frame in module 11 and names its three new words', () => {
@@ -186,6 +192,78 @@ describe('uwb-sts · with the sequence on, nothing is measured', () => {
   })
 })
 
+describe('uwb-sts · what the receiver does with the sequence', () => {
+  // The steps block of `numbers` is the receive path of src/uwb/device.ts, in its order: the
+  // attacker branch fires first (a UWB_STS_REJECT and no reading at all when the sequence is on),
+  // then `advanceNs` is subtracted from the measured RMARKER instant when it is off, then the
+  // counter is taken, and `onResponse` halves the difference of the two subtractions.
+  const steps = uwbSts.numbers!.find((b) => b.kind === 'steps') as Extract<Block, { kind: 'steps' }>
+
+  it('the lesson states the procedure as six steps, in the numbers', () => {
+    expect(steps).toBeDefined()
+    expect(steps.items).toHaveLength(6)
+  })
+
+  it('step 1: the sequence sits after the SFD, between two gaps of 512 chips', () => {
+    // "the sender places it after the SFD, between two silent gaps of 512 chips"
+    const poll = ofType(recs(), 'TX_START').find((r) => r.frame.kind === 'uwbPoll')!
+    const layout = uwbPpduLayout(poll.frame)
+    expect(layout.map((s) => s.key)).toEqual(['sync', 'sfd', 'stsGap', 'sts', 'stsGap', 'phr', 'psdu'])
+    expect(STS_GAP_CHIPS).toBe(512)
+    // the RMARKER is the first chip after the SFD, so the sequence follows the instant it defends
+    const stamped = layout.findIndex((s) => s.rmarkerNs !== undefined)
+    expect(layout.slice(0, stamped).map((s) => s.key)).toEqual(['sync', 'sfd'])
+    expect(layout.findIndex((s) => s.key === 'sts')).toBeGreaterThan(stamped)
+  })
+
+  it('step 2: the relay makes every reception of the round land 50 ns early', () => {
+    // "The box in the middle re-emits what it hears, so every reception of the round lands
+    //  50 ns early." Both receptions move, by the same amount, and nothing else does.
+    const rx = (rs: TLRecord[]) => ofType(rs, 'UWB_TS').filter((r) => r.dir === 'rx').map((r) => r.counter)
+    const honest = rx(recs(V_HONEST_20))
+    const spoofed = rx(recs(V_OFF))
+    expect(honest).toHaveLength(2)
+    expect(spoofed).toHaveLength(2)
+    for (const [i, h] of honest.entries()) expect(((h - spoofed[i]) * RCTU_NS).toFixed(1)).toBe('50.0')
+    // the transmit stamps, which no relay can touch, do not move at all
+    const tx = (rs: TLRecord[]) => ofType(rs, 'UWB_TS').filter((r) => r.dir === 'tx').map((r) => r.counter)
+    expect(tx(recs(V_OFF))).toEqual(tx(recs(V_HONEST_20)))
+  })
+
+  it('steps 3 and 4: with the sequence on, one rejection, no reading, and the slots run out', () => {
+    // "it finds noise there, writes one UWB_STS_REJECT, and takes no reading at all" /
+    // "the round ends with two UWB_TIMEOUT lines and no range"
+    const rs = recs(V_ON)
+    expect(ofType(rs, 'UWB_STS_REJECT')).toHaveLength(1)
+    expect(ofType(rs, 'UWB_TS').filter((r) => r.dir === 'rx')).toEqual([])
+    expect(ofType(rs, 'UWB_TIMEOUT')).toHaveLength(2)
+    expect(ofType(rs, 'UWB_RANGE')).toHaveLength(0)
+    // the rejection precedes both timeouts: it is what leaves the slots empty
+    expect(ofType(rs, 'UWB_STS_REJECT')[0].t)
+      .toBeLessThan(Math.min(...ofType(rs, 'UWB_TIMEOUT').map((r) => r.t)))
+  })
+
+  it('steps 5 and 6: 3195 ticks low on both sides, and the halving hands one advance back', () => {
+    // "the receiver subtracts the 50 ns from the arrival it measured and stamps 3195 ticks low" /
+    // "The round trip falls by 3195 ticks and the reply time rises by 3195, so halving their
+    //  difference hands the whole advance back: 14.99 m"
+    const stamps = (rs: TLRecord[]) => ofType(rs, 'UWB_TS').map((r) => r.counter)
+    const [hTxPoll, hRxPoll, hTxResp, hRxResp] = stamps(recs(V_HONEST_20))
+    const [sTxPoll, sRxPoll, sTxResp, sRxResp] = stamps(recs(V_OFF))
+    const hRound = counterDiff(hRxResp, hTxPoll)
+    const sRound = counterDiff(sRxResp, sTxPoll)
+    const hReply = counterDiff(hTxResp, hRxPoll)
+    const sReply = counterDiff(sTxResp, sRxPoll)
+    expect(hRound - sRound).toBe(3195)
+    expect(sReply - hReply).toBe(3195)
+    // the difference therefore moves by twice the advance, and the halving leaves exactly one
+    expect((hRound - hReply) - (sRound - sReply)).toBe(2 * 3195)
+    expect(ssTwrRaw(hRound, hReply) - ssTwrRaw(sRound, sReply)).toBe(3195)
+    expect(rctuToMetres(3195).toFixed(2)).toBe('14.99')
+    expect((RELAY_ADVANCE_NS * C_M_PER_NS).toFixed(2)).toBe('14.99')
+  })
+})
+
 describe('uwb-sts · what the try-this experiments ask for', () => {
   it('the relay at 5 m would take the range below zero', () => {
     // the second experiment: "It steals the same 14.99 m, so the range comes out below zero."
@@ -193,6 +271,17 @@ describe('uwb-sts · what the try-this experiments ask for', () => {
     expect(honest - RELAY_ADVANCE_NS * C_M_PER_NS).toBeLessThan(0)
     expect(uwbSts.tryThis[1].en).toContain('the range comes out below zero')
     expect(uwbSts.tryThis[0].en).toContain('3195 RCTU')
+  })
+
+  it('the counter table tags the advance itself as the simulator’s own number', () => {
+    // "The advance itself | — | 50 ns | scenario.uwb.attacker, a model choice": the steps say
+    // what the relay does, and the table says whose number it is.
+    const counters = uwbSts.numbers!.filter((b) => b.kind === 'table')[1]
+    const row = counters.rows.find((r) => r[0].en === 'The advance itself')!
+    expect(row[2].en).toBe('50 ns')
+    expect(row[3].en).toContain('scenario.uwb.attacker')
+    expect(row[3].en).toContain('model choice')
+    expect(uwbStsScenario(true).uwb!.attacker!.advanceNs).toBe(RELAY_ADVANCE_NS)
   })
 
   it('names the standard, the model choices and the units in `sources`', () => {

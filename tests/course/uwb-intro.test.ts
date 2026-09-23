@@ -16,6 +16,7 @@ import { SLOT_NS } from '../../src/engine/phy'
 import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 import { lessonShapeSuite, ofType, runOf } from './kit'
+import type { Block } from '../../src/course/lessonKit'
 import { fmtRecord } from '../../src/ui/format'
 import { counterDiff } from '../../src/uwb/clock'
 import { rangeSigmaM } from '../../src/uwb/position'
@@ -274,9 +275,9 @@ describe('uwb-intro · the four lines to subtract', () => {
   })
 
   it('the anchor’s reply is 2 ms − Tprop and the phone’s round trip 2 ms + Tprop', () => {
-    // numbers: "The anchor answers in the next ranging slot, so Treply is 2 ms − Tprop and Tround
-    //  2 ms + Tprop: the reply dwarfs the flight by five orders of magnitude, and the formula
-    //  cancels it."
+    // step 3 of "From four counters to metres": "One slot later, 2 ms on, the anchor stamps its
+    //  answer's RMARKER" — so the reply dwarfs the flight by five orders of magnitude, and the
+    //  formula of the same section cancels it.
     const [t1, t2, t3, t4] = ts.map((r) => r.counter)
     const flightNs = 5 / C_M_PER_NS
     expect(counterDiff(t3, t2) * RCTU_NS).toBeCloseTo(2 * MS - flightNs, 0)
@@ -340,5 +341,68 @@ describe('uwb-intro · the range the log reports', () => {
     expect(Math.round((r.distM - 20) * 100)).toBe(-5)
     expect(Math.abs(r.distM - 20)).toBeLessThan(3 * Math.hypot(SIGMA_R, CFO_RESIDUAL_M))
     expect(Math.abs(rctuToMetres(r.tofRawRctu!) - 20)).toBeLessThan(3 * SIGMA_R)
+  })
+})
+
+describe('uwb-intro · the procedure, step by step', () => {
+  // The steps block "From four counters to metres" is the path src/uwb/device.ts takes, in its
+  // order: `transmitFor` stamps `clock.counter(t + UWB_RMARKER_NS)` before it sends; the receive
+  // branch of `onRx` stamps the arriving RMARKER; the anchor's uwbResp case subtracts its own two
+  // readings into `replyRctu`; `onResponse` subtracts the tag's two, calls `ssTwrRaw`, and
+  // `reportRange` turns ticks into metres with `rctuToMetres`.
+  const rs = recs()
+  const ts = ofType(rs, 'UWB_TS')
+  const steps = uwbIntro.numbers!.find((b) => b.kind === 'steps') as Extract<Block, { kind: 'steps' }>
+
+  it('the lesson states the procedure as six steps, on the main path', () => {
+    expect(steps).toBeDefined()
+    expect(steps.items).toHaveLength(6)
+    expect(uwbIntro.picture!.some((b) => b.kind === 'steps')).toBe(false)
+  })
+
+  it('steps 1 and 2: the phone stamps what it is about to send, the anchor what arrives', () => {
+    // "The phone stamps the RMARKER it is about to send, then sends the poll." /
+    // "The anchor stamps that same RMARKER as it arrives."
+    expect(ts[0]).toMatchObject({ node: 'tag-1', dir: 'tx', frameKind: 'uwbPoll', t: 0 })
+    expect(ts[1]).toMatchObject({ node: 'anchor-1', dir: 'rx', frameKind: 'uwbPoll' })
+    // the transmit stamp is taken before the frame leaves: it shares the instant of its TX_START
+    expect(ofType(rs, 'TX_START')[0].t).toBe(ts[0].t)
+    // and both name the same landmark, 17 ns apart on the timeline — five metres of air
+    expect(ofType(rs, 'RX_START')[0].t - ofType(rs, 'TX_START')[0].t).toBe(17)
+  })
+
+  it('step 3: one slot on, the anchor subtracts its own two readings into the answer', () => {
+    // "One slot later, 2 ms on, the anchor stamps its answer's RMARKER, subtracts its own two
+    //  readings, and writes that reply time into the answer."
+    expect(ts[2]).toMatchObject({ node: 'anchor-1', dir: 'tx', frameKind: 'uwbResp', t: 2 * MS })
+    expect(ts[2].t - ts[0].t).toBe(2 * MS)
+    const resp = ofType(rs, 'TX_START').find((r) => r.frame.kind === 'uwbResp')!
+    expect(resp.frame.uwb!.replyRctu).toBe(counterDiff(ts[2].counter, ts[1].counter))
+    expect(resp.frame.uwb!.replyRctu).toBe(127_794_132)
+  })
+
+  it('steps 4 to 6: round trip, halved difference, and the metres that come out', () => {
+    // "The phone stamps the answer on arrival and subtracts its own two readings: the round trip."
+    // "Reply time out of round trip, halved: one flight, still in ticks."
+    // "Ticks × 15.650 ps × 0.299792458 m/ns: the metres the range line prints."
+    expect(ts[3]).toMatchObject({ node: 'tag-1', dir: 'rx', frameKind: 'uwbResp' })
+    const tround = counterDiff(ts[3].counter, ts[0].counter)
+    const treply = ofType(rs, 'TX_START').find((r) => r.frame.kind === 'uwbResp')!.frame.uwb!.replyRctu!
+    const flight = ssTwrRaw(tround, treply)
+    expect(flight).toBe((tround - treply) / 2)
+    const range = ofType(rs, 'UWB_RANGE')[0]
+    expect(range.tofRawRctu).toBe(flight)
+    // the last step is exactly this arithmetic, with no third constant hiding in it
+    expect(rctuToMetres(flight)).toBeCloseTo(flight * (RCTU_PS / 1000) * C_M_PER_NS, 12)
+    expect((RCTU_PS / 1000) * 1000).toBeCloseTo(15.650, 3)
+    expect(rctuToMetres(flight).toFixed(2)).toBe('5.02')
+  })
+
+  it('the procedure is the whole of it: four stamps in, one range out, nothing else', () => {
+    // the steps name four stampings and one range, and the run holds exactly that
+    expect(ts).toHaveLength(4)
+    expect(ofType(rs, 'UWB_RANGE')).toHaveLength(1)
+    expect(ofType(rs, 'UWB_STS_REJECT')).toHaveLength(0)
+    expect(ofType(rs, 'UWB_TIMEOUT')).toHaveLength(0)
   })
 })

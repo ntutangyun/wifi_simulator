@@ -83,16 +83,16 @@ export const uwbSts: Lesson = {
       zh: '载入仿真，走完一轮。这里没有人在攻击：Poll 发出去，锚点作答，测距行落在离真值几厘米的地方。把这一行记住——下面的一切都拿它做对照。',
     } },
     { heading: { en: 'Standing in the middle', zh: '站在中间的人' }, text: {
-      en: 'Now put a box between the phone and the anchor. It listens to whatever is coming, and emits the same thing again towards the far end. It cannot beat light, so it cannot make a real arrival earlier. What it can do is start sending before it has finished listening — as long as it can already guess what comes next. That is the whole relay attack: guess, and send the guess early.',
-      zh: '现在在手机和锚点之间放一个盒子。它把传来的东西听住，再朝另一端把同样的东西发一遍。它跑不过光，所以没法让一次真实的到达变早。但它能做的是：还没听完就开始发——前提是它已经能猜出接下来是什么。这就是中继攻击的全部：猜，然后把猜出来的提前发出去。',
+      en: 'Now put a box between the phone and the anchor. It listens to whatever is coming, and emits the same thing again towards the far end. It cannot beat light, so it cannot make a real arrival earlier. What it can do is start sending before it has finished listening — as long as it can already guess what comes next. Guess, and send the guess early: that is a relay attack, and it is the whole of it.',
+      zh: '现在在手机和锚点之间放一个盒子。它把传来的东西听住，再朝另一端把同样的东西发一遍。它跑不过光，所以没法让一次真实的到达变早。但它能做的是：还没听完就开始发——前提是它已经能猜出接下来是什么。猜，然后把猜出来的提前发出去：这就是中继攻击（relay attack），而且它的全部内容就是这么多。',
     } },
     { heading: { en: 'Why the opening of a frame is a gift', zh: '为什么帧的开头是一份礼物' }, text: {
       en: 'The head of a ranging frame is public by design. SYNC is a pattern every receiver must already hold, or it could never lock on, and the SFD that closes it is just as well known. An attacker holds them too. So a receiver that times the RMARKER and nothing else is timing something the attacker could have produced without listening at all.',
       zh: '一帧测距帧的头部，按设计就是公开的。SYNC 是每个接收端本来就必须握有的图案，否则它根本锁不住信号；结束 SYNC 的那个 SFD 同样人尽皆知。攻击者当然也握着它们。于是，一个只对 RMARKER 计时、别的什么都不看的接收端，它计的正是攻击者压根不用听就能造出来的东西。',
     } },
     { heading: { en: 'A stretch of pulses only two people can write', zh: '一段只有两个人写得出的脉冲' }, text: {
-      en: 'The cure is to put something unguessable where the timing is taken. Both ends of a session hold one shared secret — a key — and both generate the same long stretch of pulses from it: the STS, the scrambled timestamp sequence. The receiver knows it in advance and can time it to a fraction of a chip. The box in the middle has no key, hears noise, and has nothing to send early.',
-      zh: '解法是：在取时间的那个位置，放上一段猜不出来的东西。会话的两端共同持有一个秘密——一把密钥——并各自用它生成同一段很长的脉冲：STS，也就是加扰时间戳序列。接收端事先就知道它，因此能把它计到码片的零头。而中间那个盒子没有这把密钥，听到的只是噪声，也就没有任何东西可以提前发出去。',
+      en: 'The cure is to put something unguessable where the timing is taken. Both ends of a session hold one shared secret — a key — and both generate the same long stretch of pulses from it: the scrambled timestamp sequence (STS). The receiver knows it in advance and can time it to a fraction of a chip. The box in the middle has no key, hears noise, and has nothing to send early.',
+      zh: '解法是：在取时间的那个位置，放上一段猜不出来的东西。会话的两端共同持有一个秘密——一把密钥——并各自用它生成同一段很长的脉冲：加扰时间戳序列（STS）。接收端事先就知道它，因此能把它计到码片的零头。而中间那个盒子没有这把密钥，听到的只是噪声，也就没有任何东西可以提前发出去。',
     } },
     { kind: 'watch', jump: 3, heading: { en: 'Now switch the sequence off', zh: '现在把这段序列关掉' }, text: {
       en: 'Load the first variant. The relay is running and the sequence is off, so the stolen advance lands on both receptions of the round. Read the range line and compare it with the truth beside it.',
@@ -111,6 +111,14 @@ export const uwbSts: Lesson = {
       [{ en: 'Relay, sequence off', zh: '有转发，序列关闭' }, N('20 m'), N('4.96 m'), N('1 × UWB_RANGE')],
       [{ en: 'Relay, sequence on', zh: '有转发，序列开启' }, N('20 m'), { en: 'none', zh: '没有' }, N('1 × UWB_STS_REJECT, 2 × UWB_TIMEOUT')],
     ] },
+    { kind: 'steps', heading: { en: 'What the receiver does with the sequence', zh: '接收端拿这段序列做什么' }, items: [
+      { en: 'Before the round, both ends generate the same stretch of pulses from the one key they share, and the sender places it after the SFD, between two silent gaps of 512 chips.', zh: '这一轮开始之前，两端各自用共同持有的那把密钥生成同一段脉冲；发送端把它放在 SFD 之后，夹在两段 512 码片的静默间隔中间。' },
+      { en: 'The box in the middle re-emits what it hears, so every reception of the round lands 50 ns early.', zh: '中间那个盒子把听到的东西再发一遍，于是这一轮的每一次接收都提早 50 ns 落地。' },
+      { en: 'At the instant it stamps, the receiver looks for the pulses it generated itself. With the sequence on it finds noise there, writes one UWB_STS_REJECT, and takes no reading at all.', zh: '在打时间戳的那一瞬间，接收端要去找它自己生成的那段脉冲。序列开启时，它在那儿找到的是噪声，于是写下一条 UWB_STS_REJECT，这次读数干脆不取。' },
+      { en: 'Nothing then goes out in the answer’s slot: the slot deadline reports the miss instead, and the round ends with two UWB_TIMEOUT lines and no range.', zh: '这样一来，应答那个时隙里也就没有东西发出去：缺席改由时隙超时来报，这一轮以两条 UWB_TIMEOUT 收场，一个距离也没有。' },
+      { en: 'With the sequence off there is nothing to check: the receiver subtracts the 50 ns from the arrival it measured and stamps 3195 ticks low — on both receptions of the round.', zh: '序列关闭时就没什么可校验的了：接收端把这 50 ns 从自己测到的到达时刻里减掉，时间戳因此偏低 3195 格——这一轮的两次接收都如此。' },
+      { en: 'The round trip falls by 3195 ticks and the reply time rises by 3195, so halving their difference hands the whole advance back: 14.99 m the phone never travelled.', zh: '往返时间降了 3195 格，作答时间升了 3195 格；两者之差折半，正好把整个提前量还了回来：凭空少掉手机从未走过的 14.99 m。' },
+    ] },
     { kind: 'formula', heading: { en: 'What 50 ns is worth', zh: '50 ns 值多少' }, text: {
       en: '50 ns × 0.299792458 m/ns = 14.99 m',
       zh: '50 ns × 0.299792458 m/ns = 14.99 m',
@@ -128,6 +136,7 @@ export const uwbSts: Lesson = {
       [N('anchor-1 RX RMARKER ← tag-1 poll'), N('26 381 601 449'), N('26 381 598 254'), N('UWB_TS')],
       [N('tag-1 RX RMARKER ← anchor-1 resp'), N('336 335 294 125'), N('336 335 290 930'), N('UWB_TS')],
       [{ en: 'Each one low by', zh: '各自偏低' }, N('—'), N('3195 RCTU = 50.0 ns'), N('15.650 ps per RCTU, §10.29')],
+      [{ en: 'The advance itself', zh: '提前量本身' }, N('—'), N('50 ns'), { en: 'scenario.uwb.attacker, a model choice', zh: 'scenario.uwb.attacker，模型取值' }],
       [{ en: 'Flight, raw', zh: '飞行时间，raw' }, N('4267 RCTU'), N('1072 RCTU'), N('(Tround − Treply) / 2')],
       [{ en: 'Range reported', zh: '报出的距离' }, N('19.95 m'), N('4.96 m'), N('UWB_RANGE, model')],
     ] },

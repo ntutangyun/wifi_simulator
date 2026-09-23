@@ -56,23 +56,23 @@ export const uwbFrame: Lesson = {
   ],
   picture: [
     { heading: { en: 'Locking on before listening', zh: '先锁住，再去听' }, text: {
-      en: 'A receiver cannot decode anything until it knows where the pulses are. So a ranging frame opens with a long stretch of pulses whose pattern is already known — the SYNC field — and the receiver slides its own copy along until the two line up. Then the SFD, a short different pattern whose only job is to announce that SYNC has ended. From that edge on, both ends are counting from the same instant.',
-      zh: '接收端在找到脉冲落在哪里之前，什么也解不出来。所以一帧测距帧的开头是一长串图案已知的脉冲——SYNC 字段——接收端拿自己手里的同一份副本去滑动比对，直到两者对齐。紧接着是 SFD：另一段很短、也不一样的图案，它唯一的任务就是宣布 SYNC 到此结束。从这道边沿往后，两端数的就是同一个起点了。',
+      en: 'A receiver cannot decode anything until it knows where the pulses are. So a ranging frame opens with a long stretch of pulses whose pattern is already known — the SYNC field — and the receiver slides its own copy along until the two line up. Then the start-of-frame delimiter (SFD), a short different pattern whose only job is to announce that SYNC has ended. From that edge on, both ends are counting from the same instant.',
+      zh: '接收端在找到脉冲落在哪里之前，什么也解不出来。所以一帧测距帧的开头是一长串图案已知的脉冲——SYNC 字段——接收端拿自己手里的同一份副本去滑动比对，直到两者对齐。紧接着是帧起始定界符（SFD）：另一段很短、也不一样的图案，它唯一的任务就是宣布 SYNC 到此结束。从这道边沿往后，两端数的就是同一个起点了。',
     } },
     { heading: { en: 'A sequence nobody can forge', zh: '一段谁也伪造不了的序列' }, text: {
       en: 'If an attacker could replay the part of the frame you time, they could make you believe a locked car is closer than it is. So the frame carries the STS — pulses generated from a key only the two radios in this session hold. The receiver knows what is coming and can time it; anyone else sees noise and cannot produce it early. Security here is a property of timing, not encryption of the message.',
-      zh: '如果攻击者能把你用来计时的那一段原样重放，他就能让你以为一辆锁着的车比实际更近。所以帧里还带着 STS：一段由密钥生成的脉冲，而这把密钥只有本次会话的那两台射频握有。接收端知道接下来该是什么，因此能给它计时；别人看到的只是噪声，也造不出提前的版本。这里的安全性是一种计时上的性质，而不是对消息做加密。',
+      zh: '如果攻击者能把你用来计时的那一段原样重放，他就能让你以为一辆锁着的车比实际更近。所以帧里还带着一段加扰时间戳序列（STS）：一段由密钥生成的脉冲，而这把密钥只有本次会话的那两台射频握有。接收端知道接下来该是什么，因此能给它计时；别人看到的只是噪声，也造不出提前的版本。这里的安全性是一种计时上的性质，而不是对消息做加密。',
     } },
     { kind: 'watch', jump: 0, heading: { en: 'Read the strip left to right', zh: '把这条带子从左读到右' }, text: {
-      en: 'Load the simulation, jump to the poll and open it in the frame detail view. Read the coloured strip left to right, and name each part as you reach it.',
-      zh: '载入仿真，跳到 Poll 帧，再在帧细节视图里把它打开。把那条彩色的带子从左读到右，每读到一段就说出它是什么。',
+      en: 'Load the simulation, jump to the poll and open it in the frame detail view. Read the coloured strip left to right, and name each part as you reach it. Its ruler is the chip: one pulse period, the smallest thing this radio can place in time.',
+      zh: '载入仿真，跳到 Poll 帧，再在帧细节视图里把它打开。把那条彩色的带子从左读到右，每读到一段就说出它是什么。这条带子的刻度是码片（chip）：一个脉冲的时长，也是这台射频在时间上能摆放的最小单位。',
     } },
     // "Two words, two sizes" stood here until the step-1 fix wave: 75 words reconciling a
     // table that counted some fields in symbols and others in chips. Every Field cell of
     // that table now gives its chips, so the paragraph had nothing left to explain.
     { heading: { en: 'The header and the message', zh: '头部与消息' }, text: {
-      en: 'Only now does the frame say anything at all. The PHR states how long the message is and at what rate it was coded, and the receiver needs both before it can read a bit. Then the PSDU: the message itself, thirty bytes in the poll and twenty in the answer. Nothing else is sent. A ranging frame is not a way of moving data; it is a way of being in a known place in time.',
-      zh: '到这里，这一帧才第一次真正开口说话。PHR 交代消息有多长、用多快的速率编码，这两件事接收端必须先知道，才读得懂哪怕一个比特。再往后是 PSDU：消息本身，Poll 帧里三十个字节，应答帧里二十个。再没有别的要发了。一帧测距帧不是用来搬运数据的，它是用来在时间上占住一个确定位置的。',
+      en: 'Only now does the frame say anything at all. The physical header (PHR) states how long the message is and at what rate it was coded, and the receiver needs both before it can read a bit. Then the message itself — the PSDU — thirty bytes in the poll and twenty in the answer. Nothing else is sent. A ranging frame is not a way of moving data; it is a way of being in a known place in time.',
+      zh: '到这里，这一帧才第一次真正开口说话。物理头（PHR）交代消息有多长、用多快的速率编码，这两件事接收端必须先知道，才读得懂哪怕一个比特。再往后是消息本身（PSDU）：Poll 帧里三十个字节，应答帧里二十个。再没有别的要发了。一帧测距帧不是用来搬运数据的，它是用来在时间上占住一个确定位置的。',
     } },
     { heading: { en: 'Two slots, one round', zh: '两个时隙，一轮测距' }, text: {
       en: 'The two frames could follow each other much more closely; the session does not let them. It cuts time into equal slots and gives each frame one: the poll the first, the answer the second, and the answer leaves at the top of its slot whether it was ready early or not. Most of a slot is silence, deliberately — a fixed grid is what lets many devices share the room later.',
@@ -111,6 +111,14 @@ export const uwbFrame: Lesson = {
       en: 'After the pattern and the marker that closes it, before everything else — and the response is built the same way, so its RMARKER falls at the very same offset.',
       zh: '在那串图案、以及结束它的那个标记之后，在其余一切之前——应答帧的搭法完全相同，它的 RMARKER 落在同一个偏移上。',
     } },
+    { kind: 'steps', heading: { en: 'How a stamp is taken off this frame', zh: '这一帧上的时间戳是怎么取下来的' }, items: [
+      { en: 'The sender lays the frame out in the fixed order above: 64 preamble symbols of SYNC, 8 of SFD, the STS between two 512-chip gaps, the PHR, and last the PSDU — the one part whose length the message decides.', zh: '发送端按上表那个固定顺序把帧搭起来：64 个 SYNC 前导符号、8 个 SFD 符号、夹在两段 512 码片间隔中间的 STS、PHR，最后才是 PSDU——整帧里只有这一段的长度由消息本身决定。' },
+      { en: 'It counts 73.269 µs from the frame’s first chip and reads its own ranging counter there. That reading goes out with the frame, and is the TX RMARKER line in the log.', zh: '从整帧的第一个码片起数出 73.269 µs，在那一刻读一次自己的测距计数器。这个读数随帧一起发出，也就是日志里那条 TX RMARKER。' },
+      { en: 'The receiver accumulates the whole SYNC field — all 64 repetitions of the one preamble symbol — which is worth 18.1 dB over a single symbol and is what lets it place an edge to a fraction of a chip.', zh: '接收端把整个 SYNC 字段累加起来——同一个前导符号重复的那 64 遍——相比只用一个符号，这一步值 18.1 dB，也正是它能把一道边沿定位到码片零头的原因。' },
+      { en: 'It finds the SFD, and takes the first chip after it as the RMARKER: the same instant the sender counted to.', zh: '它找到 SFD，把紧随其后的第一个码片当作 RMARKER：这和发送端数到的是同一个瞬间。' },
+      { en: 'It reads its own counter there — the true arrival, plus however far its leading-edge estimate is out, 100 ps of 1-σ on this link — and rounds it to whole ticks of 15.650 ps.', zh: '它在那一刻读自己的计数器：真实到达的时刻，加上它对首径边沿估计偏掉的那一点（本链路上 1σ 是 100 ps），再按 15.650 ps 一格取整。' },
+      { en: 'Nothing later in the frame moves that stamp. The STS, the PHR and the PSDU are still checked and read, but the timestamp is already taken.', zh: '帧里后面的内容再也动不了这个时间戳。STS、PHR、PSDU 照样要校验、要读，但时间戳已经取完了。' },
+    ] },
     { kind: 'table', heading: { en: 'The poll and the response', zh: 'Poll 帧与应答帧' }, head: [
       { en: 'Frame', zh: '帧' }, { en: 'Message', zh: '消息' }, { en: 'Payload', zh: '净荷' }, { en: 'Whole frame', zh: '整帧' },
     ], rows: [

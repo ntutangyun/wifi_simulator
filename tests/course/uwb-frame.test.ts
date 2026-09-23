@@ -21,9 +21,12 @@ import type { TLRecord } from '../../src/model/records'
 import { lessonShapeSuite, ofType, runOf } from './kit'
 import { ACK_TX_TIME_6M_NS } from '../../src/engine/phy'
 import { uwbPpduLayout } from '../../src/uwb/frameFields'
+import { UwbClock } from '../../src/uwb/clock'
+import type { Block } from '../../src/course/lessonKit'
 import {
   DATA_SYMBOL_CHIPS, PHR_SYMBOLS, PHR_SYMBOL_CHIPS, PSYM_CHIPS, RS_PARITY_BITS, SFD_SYMBOLS,
   STS_ACTIVE_CHIPS, STS_GAP_CHIPS, SYNC_SYMBOLS, TAIL_SYMBOLS, UWB_RMARKER_CHIPS,
+  RCTU_NS, RCTU_PS, UWB_RMARKER_NS, UWB_TS_ACCUM_GAIN_DB,
   chipsToNs, psduSymbols, uwbPollBytes, uwbPpduNs, uwbRespBytes,
 } from '../../src/uwb/phy'
 import { UWB_MBPS } from '../../src/uwb/frames'
@@ -39,7 +42,12 @@ const txs = (rs: TLRecord[], kind: string) => ofType(rs, 'TX_START').filter((r) 
 // The contract every migrated lesson owes, written once in tests/course/kit.ts.
 // `sameSceneAs` is the split rule: uwb-frame loads uwb-intro's scene, so its
 // recorded timeline hashes are uwb-intro's, value for value.
-lessonShapeSuite(uwbFrame, { proseMax: 1000, runNs: RUN_NS, sameSceneAs: 'uwb-intro' })
+//
+// The prose window is 1100 rather than 1000 since the 2026-09-23 amendment
+// ("mechanism before metaphor"): `numbers` now carries the procedure by which a
+// stamp is taken off this frame, which the old ceiling had no room for. It is
+// still well inside the contract's own picture + numbers (900 + 550).
+lessonShapeSuite(uwbFrame, { proseMax: 1100, runNs: RUN_NS, sameSceneAs: 'uwb-intro' })
 
 describe('uwb-frame · the lesson’s own scene', () => {
   it('is the second lesson of the UWB track', () => {
@@ -230,5 +238,79 @@ describe('uwb-frame · what 197.628 µs is made of', () => {
     expect(txs(rs, 'uwbResp')[0].t).toBe(2 * MS)
     // the poll is ready long before its slot ends: 197.628 µs of 2 ms
     expect(txs(rs, 'uwbPoll')[0].t).toBe(0)
+  })
+})
+
+describe('uwb-frame · how a stamp is taken off this frame', () => {
+  // The steps block of `numbers` is the path the engine takes: `uwbPpduLayout`
+  // (src/uwb/frameFields.ts) lays the segments out and marks the RMARKER at
+  // SYNC + SFD; `UwbDevice.transmitFor` reads `clock.counter(t + UWB_RMARKER_NS)`
+  // before it sends; the receive branch of `onRx` stamps the arriving RMARKER with
+  // the leading-edge estimator's noise, whose reference floor (`UWB_TS_ACCUM_GAIN_DB`)
+  // is the gain of accumulating the whole SYNC field.
+  const rs = recs()
+  const poll = txs(rs, 'uwbPoll')[0]
+  const layout = uwbPpduLayout(poll.frame)
+  const steps = uwbFrame.numbers!.find((b) => b.kind === 'steps') as Extract<Block, { kind: 'steps' }>
+
+  it('the lesson states the procedure as six steps, in the numbers', () => {
+    expect(steps).toBeDefined()
+    expect(steps.items).toHaveLength(6)
+  })
+
+  it('step 1: five fixed segments, and only the PSDU’s length follows the message', () => {
+    // "64 preamble symbols of SYNC, 8 of SFD, the STS between two 512-chip gaps, the PHR, and
+    //  last the PSDU — the one part whose length the message decides."
+    const resp = txs(rs, 'uwbResp')[0]
+    const rl = uwbPpduLayout(resp.frame)
+    expect(layout.map((s) => s.key)).toEqual(rl.map((s) => s.key))
+    for (const [i, seg] of layout.entries()) {
+      if (seg.key === 'psdu') expect(seg.durNs).not.toBe(rl[i].durNs)
+      else expect(seg.durNs, seg.key).toBe(rl[i].durNs)
+    }
+    expect(poll.frame.bytes).toBe(30)
+    expect(resp.frame.bytes).toBe(20)
+  })
+
+  it('step 2: the sender reads its counter 73.269 µs into the frame, not at its start', () => {
+    // "It counts 73.269 µs from the frame’s first chip and reads its own ranging counter there.
+    //  That reading goes out with the frame, and is the TX RMARKER line in the log."
+    const clock = new UwbClock(0, 0)
+    expect(clock.counter(UWB_RMARKER_NS) - clock.counter(0)).toBe(UWB_RMARKER_CHIPS * 128)
+    expect(UWB_RMARKER_CHIPS * 128).toBe(4_681_728)
+    expect(Math.round(UWB_RMARKER_NS)).toBe(73_269)
+    // and the stamp is taken at the transmission's own instant, before the frame is over
+    const tx = ofType(rs, 'UWB_TS').filter((r) => r.dir === 'tx')[0]
+    expect(tx.t).toBe(poll.t)
+    expect(tx.frameKind).toBe('uwbPoll')
+  })
+
+  it('step 3: the whole SYNC field is accumulated, which is worth 18.1 dB', () => {
+    // "The receiver accumulates the whole SYNC field — all 64 repetitions of the one preamble
+    //  symbol — which is worth 18.1 dB over a single symbol"
+    expect(UWB_TS_ACCUM_GAIN_DB).toBe(10 * Math.log10(SYNC_SYMBOLS))
+    expect(UWB_TS_ACCUM_GAIN_DB.toFixed(1)).toBe('18.1')
+    expect(SYNC_SYMBOLS).toBe(64)
+  })
+
+  it('steps 4 and 5: the stamp is the first chip after the SFD, rounded to whole ticks', () => {
+    // "It finds the SFD, and takes the first chip after it as the RMARKER" / "It reads its own
+    //  counter there … 100 ps of 1-σ on this link — and rounds it to whole ticks of 15.650 ps."
+    expect(layout.find((s) => s.rmarkerNs !== undefined)!.rmarkerNs).toBe(73_269)
+    expect(uwbFrame.scenario().uwb!.tsNoisePs).toBe(100)
+    expect(RCTU_PS.toFixed(3)).toBe('15.650')
+    expect(RCTU_NS * 1000).toBe(RCTU_PS)
+    for (const r of ofType(rs, 'UWB_TS')) expect(Number.isInteger(r.counter), `${r.node} ${r.dir}`).toBe(true)
+  })
+
+  it('step 6: nothing after that instant moves the stamp', () => {
+    // "The STS, the PHR and the PSDU are still checked and read, but the timestamp is already
+    //  taken." The two frames differ only in their PSDU, and the RMARKER sits at one offset.
+    const resp = txs(rs, 'uwbResp')[0]
+    const after = layout.slice(layout.findIndex((s) => s.rmarkerNs !== undefined)).map((s) => s.key)
+    expect(after).toEqual(['stsGap', 'sts', 'stsGap', 'phr', 'psdu'])
+    expect(uwbPpduLayout(resp.frame).find((s) => s.rmarkerNs !== undefined)!.rmarkerNs)
+      .toBe(layout.find((s) => s.rmarkerNs !== undefined)!.rmarkerNs)
+    expect(resp.frame.txTimeNs).not.toBe(poll.frame.txTimeNs)
   })
 })

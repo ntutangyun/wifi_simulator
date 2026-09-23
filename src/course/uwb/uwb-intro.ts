@@ -15,12 +15,18 @@
  * timeline belongs to it. Every number quoted below is pinned in
  * tests/course/uwb-intro.test.ts.
  *
- * As the first lesson of its track this one is held to 1000 main-path words,
- * not 1300, with `why` + `outcomes` + `terms` + `picture` ≤ 650, `numbers`
- * ≤ 350 and `observe` + `tryThis` + `quiz` ≤ 400
- * (tests/course/readability.test.ts; `npx tsx scripts/lesson-dump.ts uwb-intro
- * en` prints the four counts). Depth that will not fit belongs in `deeper`,
- * provenance in `sources`; neither is counted.
+ * As the first lesson of its track this one is held to 1000 main-path words
+ * (`BUDGETS.openerMax`), inside the section ceilings every lesson keeps:
+ * `why` + `outcomes` + `terms` + `picture` ≤ 900, `numbers` ≤ 550,
+ * `observe` + `tryThis` + `quiz` ≤ 450 (tests/course/readability.test.ts;
+ * `npx tsx scripts/lesson-dump.ts uwb-intro en` prints the four counts). Depth
+ * that will not fit belongs in `deeper`, provenance in `sources`; neither is
+ * counted.
+ *
+ * The 2026-09-23 amendment ("mechanism before metaphor") put the ranging
+ * procedure itself on the main path: `numbers` carries SS-TWR as the six steps
+ * src/uwb/device.ts takes, in its order, and the four-counter table below runs
+ * them on this scene value by value.
  */
 import type { Scenario } from '../../model/scenario'
 import {
@@ -41,8 +47,8 @@ export const uwbIntro: Lesson = {
   module: 11,
   title: { en: 'A radio that measures time', zh: '一台测量时间的射频' },
   why: {
-    en: 'Your phone can already tell you how far it is from a Wi-Fi router, roughly, from how loud the router sounds. Roughly is the problem: a wall or a hand costs more signal than ten metres of air. Ultra-wideband asks a different question — not how loud the signal is, but when it arrived, and light is a very reliable clock. This lesson shows the smallest possible measurement: one anchor, one phone, four timestamps, one distance.',
-    zh: '手机其实早就能估出自己离路由器有多远——靠的是信号听上去有多响。问题就出在这个"估"字上：一堵墙、一只挡住天线的手，吃掉的信号比十米空气还多。超宽带问的是另一个问题：不问信号有多响，只问它是什么时候到的，而光速是一把非常可靠的尺子。这一课做的是一次最小的测量：一个锚点、一部手机、四个时间戳，换来一个距离。',
+    en: 'Your phone can already tell you how far it is from a Wi-Fi router, roughly, from how loud the router sounds. Roughly is the problem: a wall or a hand costs more signal than ten metres of air. Ultra-wideband asks a different question — not how loud the signal is, but when it arrived, and light is a very reliable clock. The smallest such measurement: one anchor (a radio fixed to the wall), one phone, four timestamps, one distance.',
+    zh: '手机其实早就能估出自己离路由器有多远——靠的是信号听上去有多响。问题就出在这个“估”字上：一堵墙、一只挡住天线的手，吃掉的信号比十米空气还多。超宽带问的是另一个问题：不问信号有多响，只问它是什么时候到的，而光速是一把非常可靠的尺子。这样一次测量最小可以小到什么程度？一个锚点（固定在墙上的射频）、一部手机、四个时间戳，换来一个距离。',
   },
   outcomes: [
     { en: 'read the four timestamps of a ranging round off the event log', zh: '从事件日志里读出一轮测距的四个时间戳' },
@@ -73,28 +79,28 @@ export const uwbIntro: Lesson = {
     // at length, what `why` opens with — that a distance built on loudness inherits every
     // obstacle in the room — and a track's first lesson is held to 1000 words.
     { heading: { en: 'Clicks instead of tones', zh: '发出的是嗒，不是嗡' }, text: {
-      en: 'Most radios hold a tone steady for a long moment, and a receiver asked when that tone started can only be vague. A UWB radio does the opposite: it sends chips, pulses so short each is over almost before it began. A sharp edge gives a sharp answer, good to a fraction of a nanosecond.',
-      zh: '大多数射频会把一个音调稳稳地保持很长一段；你问接收端这个音调是从哪一刻开始的，它只能给个大概。UWB 正相反：它发出的是码片——短到几乎刚开始就已经结束的脉冲。边沿越陡，答案越利落，能答到零点几纳秒。',
+      en: 'Ask a receiver when a steady tone started and it can only be vague. An ultra-wideband (UWB) radio sends chips instead — pulses so short each is over almost before it began — and a sharp edge gives a sharp answer, good to a fraction of a nanosecond.',
+      zh: '大多数射频会把一个音调稳稳地保持很长一段；你问接收端这个音调是从哪一刻开始的，它只能给个大概。超宽带（UWB）改发码片——短到几乎刚开始就已经结束的脉冲。边沿越陡，答案越利落，能答到零点几纳秒。',
     } },
     { kind: 'watch', jump: 0, heading: { en: 'One question, one answer', zh: '一问，一答' }, text: {
-      en: 'Load the simulation and press play. The phone (`tag-1` in the log — a tag is whatever is being located) sends a poll, the frame that opens a round, and the anchor answers. Zoom in until the tiny gap between the lanes shows: that gap is the air.',
-      zh: '把仿真载入，按下播放。手机（日志里叫它 tag-1：被定位的那一端就叫标签）发出一帧 Poll，也就是开启一轮测距的那一帧，锚点随后作答。把时间线一直放大，直到你能看见两条泳道之间那道极窄的缝隙：那道缝隙就是它们之间的空气。',
+      en: 'Load the simulation and press play. The phone (`tag-1` in the log — a tag is whatever is being located) sends a poll, the frame that opens a round, and the radio fixed to the wall (the anchor, `anchor-1`) answers. Zoom in until the tiny gap between the lanes shows: that gap is the air.',
+      zh: '把仿真载入，按下播放。手机（日志里叫它 tag-1：被定位的那一端就叫标签）发出一帧 Poll，也就是开启一轮测距的那一帧；随后作答的是固定在墙上的那台射频（也就是锚点，日志里的 anchor-1）。把时间线一直放大，直到你能看见两条泳道之间那道极窄的缝隙：那道缝隙就是它们之间的空气。',
     } },
     { text: {
-      en: 'Neither radio stamps when its frame began or ended. Both stamp the same landmark inside it — the RMARKER, one agreed instant a little way into every ranging frame. The phone notes when it sent the poll and when the answer returned; the anchor notes the mirror image. Four numbers, and the round is done.',
-      zh: '两端都不去记自己这一帧的开头或结尾，它们记的是帧里同一个地标——RMARKER，在每一帧测距帧内部稍靠前一点、双方事先约定好要一起打时间戳的那个瞬间。手机记下自己何时发出 Poll、何时收到回答；锚点记的两笔正好反过来。四个数字，一轮就结束了。',
+      en: 'Neither radio stamps when its frame began or ended. Both stamp the same landmark inside it — the RMARKER, one agreed instant a little way into every ranging frame.',
+      zh: '两端都不去记自己这一帧的开头或结尾，它们记的是帧里同一个地标——RMARKER，在每一帧测距帧内部稍靠前一点、双方事先约定好要一起打时间戳的那个瞬间。',
     } },
     { heading: { en: 'Two clocks that do not agree', zh: '两只对不上的钟' }, text: {
-      en: 'The phone and the anchor count on their own crystals, and nobody aligns the two. It does not matter: each subtracts two of its own readings, so the unknown starting points cancel. The phone is left with a round trip, the anchor with a reply; the difference is two flights.',
-      zh: '手机和锚点各用各的晶振数时间，从来没有人去把这两只钟对齐。但这不要紧：每台设备减的都只是自己的两次读数，未知的起点因此被约掉。手机手里剩下一个往返时间，锚点手里剩下一个作答时间。把作答时间从往返时间里扣掉，剩下的就是两趟空中飞行。',
+      en: 'The phone and the anchor count on their own crystals, and nobody aligns the two. It does not matter: each device only ever subtracts two readings of its own, so the unknown starting points cancel.',
+      zh: '手机和锚点各用各的晶振数时间，从来没有人去把这两只钟对齐。但这不要紧：每台设备减的都只是自己的两次读数，未知的起点因此被约掉。',
     } },
     { heading: { en: 'How wrong is a few centimetres', zh: '差几厘米，算差吗' }, text: {
-      en: 'Every timestamp is a little noisy: the moment a pulse crosses the detection threshold is uncertain, and the clock counts whole ticks. Two of the four readings are receptions, so the answer carries two doses. The log’s distance lands a few centimetres either side of the truth — the radio working, not failing.',
-      zh: '每一个时间戳都带着一点噪声：脉冲越过判决门限的确切时刻本身就不确定，而时钟只能一格一格地数。四次读数里有两次是接收，所以答案里带着两份这样的噪声。日志报出的距离会落在真值两侧几厘米的范围里。这是这台射频在正常工作，不是出了毛病。',
+      en: 'Every timestamp is a little noisy: the instant a pulse is judged to have arrived is itself uncertain, and the clock counts whole ticks. Two of the four readings are receptions, so the log’s distance lands a few centimetres either side of the truth — the radio working, not failing.',
+      zh: '每一个时间戳都带着一点噪声：一个脉冲被判定为“已经到达”的那一刻本身就不确定，而时钟只能一格一格地数。四次读数里有两次是接收，日志报出的距离也就落在真值两侧几厘米的范围里。这是这台射频在正常工作，不是出了毛病。',
     } },
     { kind: 'watch', jump: 3, text: {
-      en: 'Jump to the line where the range falls out: three numbers, and the rest of this lesson is the gaps between them.',
-      zh: '跳到算出距离的那一行：一行三个数，而这一课余下的部分讲的就是它们之间的差。',
+      en: 'Jump to the line where the range falls out — three numbers, and the procedure below is how they got there.',
+      zh: '跳到算出距离的那一行——一行三个数，而下面那套步骤讲的就是它们是怎么来的。',
     } },
   ],
   numbers: [
@@ -102,13 +108,17 @@ export const uwbIntro: Lesson = {
       en: 'T̂prop = (Tround − Treply) / 2',
       zh: 'T̂prop = (Tround − Treply) / 2',
     }, note: {
-      en: 'Tround is one subtraction on the phone’s clock, from the RMARKER it sent to the RMARKER it received; Treply is the mirror at the anchor.',
-      zh: 'Tround 是手机自己时钟上的一次相减：从它发出的 RMARKER 到它收到的 RMARKER。Treply 是锚点那侧镜像的一次相减。',
+      en: 'Tround is the phone’s own subtraction, Treply the anchor’s — each on its own clock.',
+      zh: 'Tround 是手机在自己钟上做的那次相减，Treply 是锚点在自己钟上做的那次。',
     } },
-    { text: {
-      en: 'The anchor answers in the next ranging slot, so Treply is 2 ms − Tprop and Tround 2 ms + Tprop: the reply dwarfs the flight by five orders of magnitude, and the formula cancels it.',
-      zh: '锚点在下一个测距时隙作答，所以 Treply 是 2 ms − Tprop，Tround 是 2 ms + Tprop：应答时延比飞行时间大五个数量级，而这个公式正好把它抵消掉。',
-    } },
+    { kind: 'steps', heading: { en: 'From four counters to metres', zh: '从四个计数值到米' }, items: [
+      { en: 'The phone stamps the RMARKER it is about to send, then sends the poll.', zh: '手机先给自己即将发出的那个 RMARKER 打上时间戳，然后把 Poll 发出去。' },
+      { en: 'The anchor stamps that same RMARKER as it arrives.', zh: '锚点在同一个 RMARKER 到达时给它打上时间戳。' },
+      { en: 'One slot later, 2 ms on, the anchor stamps its answer’s RMARKER, subtracts its own two readings, and writes that reply time into the answer.', zh: '一个时隙之后，也就是 2 ms 后，锚点给自己应答帧的 RMARKER 打上时间戳，把自己的两次读数一减，再把这个作答时间写进应答帧里。' },
+      { en: 'The phone stamps the answer on arrival and subtracts its own two readings: the round trip.', zh: '手机在应答到达时打上时间戳，同样把自己的两次读数一减：得到往返时间。' },
+      { en: 'Reply time out of round trip, halved: one flight, still in ticks.', zh: '往返时间减去作答时间，再折半：一趟飞行，此时还是以“格”计的。' },
+      { en: 'Ticks × 15.650 ps × 0.299792458 m/ns: the metres the range line prints.', zh: '格数 × 15.650 ps × 0.299792458 m/ns：这就是测距行上写出的米数。' },
+    ] },
     { heading: { en: 'The four lines to subtract', zh: '要相减的那四行' }, text: {
       en: 'Every UWB_TS record is one counter reading; this round makes four, in this order.',
       zh: '每一条 UWB_TS 记录都是一次计数器读数；这一轮产生四条，顺序如下。',
@@ -132,8 +142,8 @@ export const uwbIntro: Lesson = {
       en: 'tag-1 range → anchor-1 (SS): 4.95 m (true 5.00 m, raw 5.02 m)',
       zh: 'tag-1 range → anchor-1 (SS): 4.95 m (true 5.00 m, raw 5.02 m)',
     }, note: {
-      en: 'Raw is the 1070 above; the figure in front of it is that same measurement, corrected for clock offset. Both crystals are perfect here, so nothing needed correcting — yet the answer moved 7 cm. Going deeper says why.',
-      zh: 'raw 就是上面那个 1070；写在前面的那个数，是同一次测量做了时钟偏差修正之后的结果。这里两个晶振都是完美的，本来无事可修——可答案还是挪动了 7 cm。原因见“再深一层”。',
+      en: 'Raw is the 1070 above; the figure in front of it is the same measurement corrected for clock offset. Both crystals are perfect here, yet the answer moved 7 cm — going deeper says why.',
+      zh: 'raw 就是上面那个 1070；写在前面的那个数，是同一次测量做了时钟偏差修正之后的结果。这里两个晶振都是完美的，可答案还是挪动了 7 cm——原因见“再深一层”。',
     } },
     { kind: 'table', heading: { en: 'Units', zh: '单位换算' }, head: [
       { en: 'Quantity', zh: '量' }, { en: 'Value', zh: '数值' }, { en: 'Where', zh: '出处' },
