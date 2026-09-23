@@ -23,8 +23,8 @@ export const hidden: Lesson = {
   module: 1,
   title: { en: 'Hidden nodes & RTS/CTS', zh: '隐藏节点与 RTS/CTS' },
   why: {
-    en: 'Listening before you talk only works if you can hear everyone in the room. Put two stations at opposite ends of a house, with the access point in the hallway between them, and each one reaches the access point easily while hearing nothing at all of the other. Both then find the air clear at the same moment, and their frames meet and die where the access point is sitting. Waiting longer cannot fix it. Asking out loud can.',
-    zh: '“先听再说”这条规矩，前提是你听得见屋里每一个人。把两台站点放在房子的两头，接入点摆在中间的走廊上：两台站点都能轻松够到接入点，却完全听不见对方。于是它们会在同一时刻都判定空口是干净的，两股信号在接入点那里相遇、同归于尽。再多等一会儿也治不了这件事，但“把请求大声说出来”可以。',
+    en: 'Listening before you talk only works if you can hear everyone in the room. Put two stations (STA) at opposite ends of a house, with the access point (AP) in the hallway between them, and each one reaches the access point easily while hearing nothing at all of the other. Both then find the air clear at the same moment, and their frames meet and die where the access point is sitting. Waiting longer cannot fix it. Asking out loud can.',
+    zh: '“先听再说”这条规矩，前提是你听得见屋里每一个人。把两台站点（STA）放在房子的两头，接入点（AP）摆在中间的走廊上：两台站点都能轻松够到接入点，却完全听不见对方。于是它们会在同一时刻都判定空口是干净的，两股信号在接入点那里相遇、同归于尽。再多等一会儿也治不了这件事，但“把请求大声说出来”可以。',
   },
   outcomes: [
     { en: 'say why listening before sending fails when two stations cannot hear each other', zh: '说清为什么两台站点互相听不见时，“先听再说”就失灵了' },
@@ -53,8 +53,8 @@ export const hidden: Lesson = {
   ],
   picture: [
     { heading: { en: 'Two rooms and a hallway', zh: '两个房间，一条走廊' }, text: {
-      en: 'The access point stands in the hallway, one wall from each end room, and a station sits in each room. Both stations reach it without trouble. Between the two stations, though, stand two brick walls, and what arrives at the far antenna is weaker than the level a radio will call a signal at all. They share one network and one channel, and to each other they are a hidden node: not quiet, simply inaudible.',
-      zh: '接入点站在走廊上，与两端的房间各隔一堵墙，每个房间里放一台站点。两台站点够到它都毫不费力。可两台站点之间隔着两堵砖墙，传到对方天线上的能量，比无线电愿意称之为“信号”的那条线还要低。它们共用一个网络、一条信道，而彼此互为隐藏节点：不是安静，是压根听不见。',
+      en: 'The access point stands in the hallway, one wall from each end room, and a station sits in each room. Both stations reach it without trouble. Between the two stations, though, stand two brick walls, and what arrives at the far antenna is weaker than the level a radio will call a signal at all. They share one network and one channel, and to each other each of them is a node that cannot be heard — that is a hidden node: not quiet, simply inaudible.',
+      zh: '接入点站在走廊上，与两端的房间各隔一堵墙，每个房间里放一台站点。两台站点够到它都毫不费力。可两台站点之间隔着两堵砖墙，传到对方天线上的能量，比无线电愿意称之为“信号”的那条线还要低。它们共用一个网络、一条信道，而对方在自己耳朵里根本不存在——这就是隐藏节点：不是安静，是压根听不见。',
     } },
     { heading: { en: 'Why listening does not save you', zh: '为什么“先听”救不了你' }, text: {
       en: 'Each station does exactly what it was told: listen, and start only when the air is clear. That is enough when everyone can hear everyone. Here it is not. One station is half-way through a long frame; the other hears nothing, decides the channel is free, and begins. The two frames overlap at the access point, which hears both, and both are lost. A wider backoff window does not help: the two never see each other to compete with.',
@@ -65,15 +65,15 @@ export const hidden: Lesson = {
       zh: '载入仿真，跳到第一次碰撞。从那里往回走：两台站点谁的计数器都没有在对方的帧里冻结过，因为它们根本没有什么可听的。',
     } },
     { heading: { en: 'Ask first, and be answered out loud', zh: '先问一句，让对方大声回答' }, text: {
-      en: 'The cure is to let the access point speak on your behalf. Before a long frame, a station sends a tiny RTS — a request for the air. The access point answers with an equally tiny CTS, and because it is the access point speaking, both rooms hear it. The CTS carries a Duration covering the rest of the exchange, so the hidden station loads a NAV and stays quiet for all of it.',
-      zh: '解法是让接入点替你说话。发长帧之前，站点先发一个很小的 RTS——一句讨要空口的请求。接入点回一个同样小的 CTS；由于说话的是接入点，两个房间都听得见。这个 CTS 带着一个覆盖本次交互剩余部分的 Duration，于是那台隐藏的站点装上 NAV，整段时间都安静下来。',
+      en: 'The cure is to let the access point speak on your behalf. Before a long frame, a station sends a tiny request for the air; that is the RTS. The access point answers with an equally tiny permission to go ahead — that is the CTS — and because the access point is the one speaking, both rooms hear it. The CTS carries a Duration covering the rest of the exchange, so the hidden station loads a NAV and stays quiet for all of it.',
+      zh: '解法是让接入点替你说话。发长帧之前，站点先发一个很小的帧，讨要一段空口，这就是 RTS。接入点回一个同样小的帧表示“可以”，这就是 CTS；由于说话的是接入点，两个房间都听得见。这个 CTS 带着一个覆盖本次交互剩余部分的 Duration，于是那台隐藏的站点装上 NAV，整段时间都安静下来。',
     } },
     { kind: 'watch', heading: { en: 'Watch a reservation land in the far room', zh: '看预约落进另一个房间' }, text: {
       en: 'Switch to the protected variant and press play. Watch the far station’s lane: an answer it had no part in arrives, and a reservation appears beneath it that lasts until the exchange is over.',
       zh: '切到受保护的那个变体，按播放。盯着远端站点的泳道：一个与它毫无关系的回答传了过来，它下方随即出现一条预约，一直管到这次交互结束。',
     } },
     { heading: { en: 'Now it is the question that collides', zh: '现在撞的是那句“请问”' }, text: {
-      en: 'Two hidden stations can still ask at the same instant, and then it is the two questions that collide. But a question is a couple of dozen bytes where a data frame is well over a thousand, so the room loses a flicker instead of a whole turn. That is the trade: every long frame pays for a short question and a short answer, and what still goes wrong is cheap. The frame size where a station starts paying is the RTS threshold.',
+      en: 'Two hidden stations can still ask at the same instant, and then it is the two questions that collide. But a question is a couple of dozen bytes where a data frame is well over a thousand, so the room loses a flicker instead of a whole turn. That is the trade: every long frame pays for a short question and a short answer, and what still goes wrong is cheap. The frame size at which a station starts paying — that is the RTS threshold.',
       zh: '两台隐藏的站点当然还可能同时开口发问，那时相撞的就是两句“请问”。可一句“请问”只有几十个字节，而一个数据帧一千多字节，于是房间损失的只是一闪，而不是一整轮。这就是那笔交易：每个长帧都要为一问一答买单，而剩下那些出岔子的事都很便宜。从多大的帧开始买单，由 RTS 门限决定。',
     } },
   ],
@@ -101,6 +101,34 @@ export const hidden: Lesson = {
       en: 'Turning the exchange on cuts the collisions that catch a data frame by about 94%. Every long frame now pays for a 20-byte question and a 14-byte answer before it may start — and the room delivers seven times as many frames as it did without them.',
       zh: '把这套交互打开，撞上数据帧的碰撞减少了约 94%。此后每个长帧开始发送之前，都要先为一个 20 字节的提问和一个 14 字节的回答买单——而整个房间送达的帧数，是不用它们时的七倍。',
     } },
+    { kind: 'steps', heading: { en: 'One protected exchange, step by step', zh: '一次受保护的交互，一步一步' }, items: [
+      { en: 'A station adds up the frame it is about to send: payload, a 24-byte header, a 4-byte checksum. Above the RTS threshold — 500 bytes in the protected variant — it asks first.',
+        zh: '站点先把要发的那一帧加起来：载荷、24 字节帧头、4 字节校验。总数高过 RTS 门限——受保护的变体里是 500 字节——它就先问一句。' },
+      { en: 'The question is an RTS of 20 bytes to the access point. Its Duration field reserves the three short gaps, the answer, the data frame and the acknowledgement, counted from the end of the RTS.',
+        zh: '这句提问是一个 20 字节的 RTS，发给接入点。它的 Duration 字段预约下三个短间隔、那个回答、那一帧数据和确认，起算点是 RTS 结束的那一刻。' },
+      { en: 'Only the radios that hear this station hear the question. Across the house it arrives under the level at which a radio calls something a signal, so the other room hears nothing and keeps counting.',
+        zh: '这句提问只有听得见这台站点的电台才收得到。它穿过房子到对面时，已低于电台肯认作信号的那条线，于是另一个房间什么也没听见，照旧往下数。' },
+      { en: 'One 16 µs gap later the access point answers with a CTS of 14 bytes. Its Duration is the time the RTS asked for, less that gap and less the CTS itself. The answer leaves the hallway, which both end rooms hear.',
+        zh: '隔 16 µs 之后，接入点回一个 14 字节的 CTS。它的 Duration，是 RTS 讨要的那段时间减去这个间隔、再减去 CTS 自己。回答是从走廊发出的，两头的房间都听得见。' },
+      { en: 'A station hearing a frame addressed to somebody else takes that frame’s end, adds the Duration it carries and sets its NAV there, if that lands later than the NAV it holds. The far station freezes its counter.',
+        zh: '站点收到不是发给自己的帧，就拿这一帧的结束时刻加上帧里的 Duration，把 NAV 设到那里——只要它比手上的 NAV 更晚。远端站点于是把计数器就地冻住。' },
+      { en: 'The data frame and the acknowledgement run inside that reservation, which expires on the microsecond the acknowledgement ends. The far station waits one DIFS and counts on from the number it froze at.',
+        zh: '数据帧与确认帧都跑在这段预约里，而预约到期的那一微秒，正是确认帧结束的那一微秒。远端站点等满一个 DIFS，从冻结时的那个数接着数。' },
+    ] },
+    { kind: 'table', heading: { en: 'The exchange that starts at 718 µs, value by value', zh: '718 µs 那次交互，逐个数值走一遍' }, head: [
+      { en: 'Step', zh: '步骤' }, { en: 'Value', zh: '数值' },
+    ], rows: [
+      [{ en: 'the frame Hidden A is holding', zh: 'Hidden A 手上那一帧' }, N('1500 + 24 + 4 = 1528 B')],
+      [{ en: 'against the threshold, so it asks at', zh: '与门限一比，于是发问于' }, N('718 µs · RTS · 20 B')],
+      [{ en: 'reserved, from the end of the RTS', zh: '预约的时长，自 RTS 结束起算' }, N('3 × 16 + 28 + 364 + 28 = 468 µs')],
+      [{ en: 'the question at Hidden B', zh: '这句提问到 Hidden B 处' }, N('−83.4 dBm < −82 dBm ✗')],
+      [{ en: 'so the access point answers at', zh: '于是接入点回答于' }, N('762 µs · CTS · 14 B')],
+      [{ en: 'its Duration', zh: '它的 Duration' }, N('468 − 16 − 28 = 424 µs')],
+      [{ en: 'the answer at Hidden B', zh: '这个回答到 Hidden B 处' }, N('−60.6 dBm > −82 dBm ✓')],
+      [{ en: 'Hidden B freezes at 13 and reserves to', zh: 'Hidden B 在 13 冻结，并预约到' }, N('790 + 424 = 1214 µs')],
+      [{ en: 'the acknowledgement ends at', zh: '确认帧结束于' }, N('1214 µs')],
+      [{ en: 'Hidden B waits a DIFS and counts on from', zh: 'Hidden B 等一个 DIFS，再从这个数接着数' }, N('1248 µs · 13')],
+    ] },
   ],
   deeper: [
     { heading: { en: 'The collisions that survive the cure', zh: '治不掉的那几次碰撞' }, text: {

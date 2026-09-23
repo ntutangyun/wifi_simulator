@@ -20,12 +20,12 @@ export const anomaly: Lesson = {
   module: 1,
   title: { en: 'Rate anomaly — fairness gone wrong', zh: '速率异常——“公平”的反面' },
   why: {
-    en: 'The rules of channel access are scrupulously fair about one thing: whose turn it is next. Every station that always has something to send wins the air about as often as its neighbours. What the rules never measure is how long a turn lasts. A station far from the access point has to send slowly, so the same frame holds the air several times longer — and because the air is one shared clock, everyone else waits through it. The fast station ends up barely faster than the slow one.',
-    zh: '信道接入的规则在一件事上一丝不苟地公平：下一轮该轮到谁。凡是手里总有东西要发的站点，抢到空口的次数和邻居差不多。规则从不过问的是：一轮能持续多久。离接入点远的站点只能慢慢发，同样一个帧要把空口占住好几倍的时间——而空口是一只共用的钟，其他人只能干等。最后，快的那台也快不到哪里去。',
+    en: 'The rules of channel access are scrupulously fair about one thing: whose turn it is next. Every station (STA) that always has something to send wins the air about as often as its neighbours. What the rules never measure is how long a turn lasts. A station far from the access point (AP) has to send slowly, so the same frame holds the air several times longer — and because the air is one shared clock, everyone else waits through it. The fast station ends up barely faster than the slow one.',
+    zh: '信道接入的规则在一件事上一丝不苟地公平：下一轮该轮到谁。凡是手里总有东西要发的站点（STA），抢到空口的次数和邻居差不多。规则从不过问的是：一轮能持续多久。离接入点（AP）远的站点只能慢慢发，同样一个帧要把空口占住好几倍的时间——而空口是一只共用的钟，其他人只能干等。最后，快的那台也快不到哪里去。',
   },
   outcomes: [
     { en: 'say which kind of fairness the channel-access rules deliver, and which they do not', zh: '说清信道接入规则给的是哪一种公平、不给的是哪一种' },
-    { en: 'read a station’s turns and its airtime share off the same run and compare them', zh: '在同一轮仿真里读出一台站点的轮次和它的空口占比，并加以对比' },
+    { en: 'read a station’s turns beside the slice of the clock it holds — that is its airtime share — and compare them', zh: '在同一轮仿真里，把一台站点的轮次和它占住的那一段时钟（也就是它的空口占比）放在一起比' },
     { en: 'predict what happens to a fast station’s throughput when a slow one joins the room', zh: '预测一台慢站点进屋之后，快站点的吞吐量会怎样' },
   ],
   needs: ['airtime', 'backoff'],
@@ -49,8 +49,8 @@ export const anomaly: Lesson = {
       zh: '两台站点，队列都永远排不空，轮流上空口。每一台都先熬过规定的空闲时间，再数完自己抽到的那个随机的时隙数，数到零就发。这套流程里没有任何一步去问帧有多大、要发多久。跑得久了，两台抢到空口的次数差不多相等——规则承诺的，恰恰就是这个。',
     } },
     { heading: { en: 'But a turn is not a fixed length', zh: '可一轮的长短并不固定' }, text: {
-      en: 'One of the two sits across the apartment, behind a wall. Its signal arrives at the access point weak, so it cannot use the quick, delicate coding the near station uses; it must fall back to a slower, sturdier one that packs fewer bits into each symbol. Same bytes, same frame — several times the airtime. And when its frames start failing, rate adaptation steps it down again, making each turn longer still.',
-      zh: '两台之中有一台在公寓的另一头，隔着一堵墙。它的信号到达接入点时已经很弱，用不了近端那种又快又娇气的编码，只能退到更慢、更结实的一档，每个符号装的比特更少。字节一样，帧也一样——空口时间却是好几倍。而当它的帧开始失败，速率自适应又把它往下调一档，于是每一轮更长了。',
+      en: 'One of the two sits across the apartment, behind a wall. Its signal arrives at the access point weak, so it cannot use the quick, delicate coding the near station uses; it must fall back to a slower, sturdier one that packs fewer bits into each symbol. Same bytes, same frame — several times the airtime. And when its frames start failing, it steps down another rung — that is rate adaptation — making each turn longer still.',
+      zh: '两台之中有一台在公寓的另一头，隔着一堵墙。它的信号到达接入点时已经很弱，用不了近端那种又快又娇气的编码，只能退到更慢、更结实的一档，每个符号装的比特更少。字节一样，帧也一样——空口时间却是好几倍。而当它的帧开始失败，它又会自己往下退一档——这就是速率自适应——于是每一轮更长了。',
     } },
     { kind: 'watch', jump: 0, heading: { en: 'Put the two turns side by side', zh: '把两种轮次摆在一起看' }, text: {
       en: 'Load the simulation and jump to the first data frame. Both lanes start at the same instant. Now look at how far each green block reaches: the two carry the same number of bytes.',
@@ -87,6 +87,34 @@ export const anomaly: Lesson = {
     { heading: { en: 'What the room costs the fast station', zh: '这间屋子让快站点付出了什么' }, text: {
       en: 'Delete the far station and the near one delivers 510 frames over the same 200 ms instead of 209. The far station is not taking its turns away — it is taking its clock. Left alone, the far station manages 234 frames of its own, which is more than either of them gets while they share the room.',
       zh: '把远端站点删掉，同样的 200 ms 里近端送出的就不是 209 帧，而是 510 帧。远端拿走的不是它的轮次，而是它的时钟。而远端若独占房间，自己能送出 234 帧——比两台共处一室时任何一台拿到的都多。',
+    } },
+    { kind: 'steps', heading: { en: 'From equal turns to unequal throughput, step by step', zh: '从“轮次相等”到“吞吐不等”，一步一步' }, items: [
+      { en: 'Both stations always have a frame queued. Each waits for the air to stay idle for one DIFS: a 16 µs gap plus two slots of 9 µs, so 34 µs. A station that has just failed to decode a reception waits the longer EIFS instead.',
+        zh: '两台站点手里永远有帧。每一台都先等空口连续安静一个 DIFS：一个 16 µs 的间隔加两个 9 µs 的时隙，合 34 µs。刚刚有一帧没能解出来的站点，等的则是更长的 EIFS。' },
+      { en: 'Each then draws a whole number of slots at random between zero and its contention window, which starts at 15, and counts one off per idle slot. Both draw from the same window, so over a long run each reaches zero about as often as the other.',
+        zh: '接着各自在 0 到自己的竞争窗口之间抽一个整数时隙数——窗口从 15 起步——每过一个空闲时隙就减一。两台抽的是同一个窗口，所以跑得久了，谁归零的次数都差不多。' },
+      { en: 'Whoever reaches zero sends one frame. It is 1528 bytes either way, and it goes out at whatever rate that station’s own link supports. Nothing in the procedure has asked what that rate is.',
+        zh: '谁先归零，谁就发一帧。两边都是 1528 字节，而用的是各自链路撑得住的那个速率。到这一步为止，流程从没问过这个速率是多少。' },
+      { en: 'The length of the turn is how long those 1528 bytes take at that station’s own rate: 248 µs near, 795 µs on average at the far end. Every other counter in the room is frozen for the whole of it.',
+        zh: '这一轮有多长，就是那 1528 字节按这台站点自己的速率发完要多久：近端 248 µs，远端平均 795 µs。这段时间里，屋里其余的计数器全都冻着。' },
+      { en: 'The access point answers with a 14-byte acknowledgement, and the whole procedure starts over. Turns are handed out evenly; the seconds each turn spends are not.',
+        zh: '接入点回一个 14 字节的确认帧，整套流程重新来过。轮次是均匀发下去的，每一轮花掉的那些秒却不是。' },
+      { en: 'So a station’s throughput is its acknowledged turns per second times 1528 bytes times 8 bits. The turns per second is whatever the other station’s long turns left room for — which is how equal turns end in unequal throughput.',
+        zh: '于是一台站点的吞吐量，就是它每秒被确认的轮次乘 1528 字节再乘 8 比特。而每秒能有几轮，取决于另一台的长轮次还给它剩下多少空当——相等的轮次，就是这样变成不等的吞吐量的。' },
+    ] },
+    { kind: 'table', heading: { en: 'The same 200 ms, run through the steps', zh: '同样的 200 ms，照着步骤算一遍' }, head: [
+      { en: 'Step', zh: '步骤' }, { en: 'Near & fast', zh: '近端·快' }, { en: 'Far & slow', zh: '远端·慢' },
+    ], rows: [
+      [{ en: 'turns won in 200 ms', zh: '200 ms 内抢到的轮次' }, N('209'), N('154')],
+      [{ en: 'airtime per turn', zh: '每轮的空口时间' }, N('248 µs'), N('795 µs')],
+      [{ en: '= airtime held', zh: '= 占住的空口时间' }, N('51.8 ms · 25.9 %'), N('122.4 ms · 61.2 %')],
+      [{ en: 'of those turns, acknowledged', zh: '这些轮次里被确认的' }, N('209'), N('135')],
+      [{ en: '= frames delivered per second', zh: '= 每秒送达的帧数' }, N('1045'), N('675')],
+      [{ en: '× 1528 bytes × 8 bits', zh: '× 1528 字节 × 8 比特' }, N('12.8 Mb/s'), N('8.3 Mb/s')],
+    ] },
+    { heading: { en: 'Why the fourth row is not the first', zh: '第四行为什么不等于第一行' }, text: {
+      en: 'The far station wins 154 turns but only 135 of them are acknowledged; the rest are destroyed outright, and the depth below takes that apart. Throughput counts what arrived, so it is the acknowledged turns that go into the last two rows.',
+      zh: '远端站点抢到 154 轮，被确认的只有 135 轮，其余的整帧报废——后面“再深一层”会拆开讲。吞吐量算的是真正到达的东西，所以进入最后两行的是被确认的那些轮次。',
     } },
   ],
   deeper: [

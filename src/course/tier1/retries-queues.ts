@@ -40,7 +40,7 @@ export const retriesQueues: Lesson = {
   },
   outcomes: [
     { en: 'name the three reasons a frame is given up, and what each one tells you', zh: '说出一帧被放弃的三种原因，以及每一种告诉了你什么' },
-    { en: 'explain why the real cost of a retry falls on the frames behind it', zh: '解释为什么一次重传真正的代价，落在它后面那些帧身上' },
+    { en: 'explain why the real cost of sending a frame again falls on the frames behind it', zh: '解释为什么“再发一次”真正的代价，落在它后面那些帧身上' },
     { en: 'say why a bigger buffer does not deliver one more frame', zh: '说清为什么把缓冲区改大，一帧也不会多送到' },
   ],
   needs: ['airtime', 'backoff'],
@@ -64,8 +64,8 @@ export const retriesQueues: Lesson = {
   ],
   picture: [
     { heading: { en: 'Nobody answered', zh: '没人回答' }, text: {
-      en: 'A sender cannot hear whether its own frame arrived. All it knows is that the ACK it was waiting for never came. So it sends the very same frame again — a retry — still from the front of the line, with one bit set so the receiver can tell a repeat from something new.',
-      zh: '发送方听不见自己那一帧有没有到。它只知道，自己等的那个 ACK 一直没来。于是它把同一帧原样再发一次——这就是重传——位置仍在队列最前面，只是置上一个比特，好让接收端分得清这是重复的还是新的。',
+      en: 'A station (STA) cannot hear whether its own frame arrived. All it knows is that the ACK it was waiting for from the access point (AP) never came. So it sends the very same frame again — that is a retry — still from the front of the line, with one bit set so the receiver can tell a repeat from something new.',
+      zh: '站点（STA）听不见自己那一帧有没有到。它只知道，自己等的那个来自接入点（AP）的 ACK 一直没来。于是它把同一帧原样再发一次——这就是重传——位置仍在队列最前面，只是置上一个比特，好让接收端分得清这是重复的还是新的。',
     } },
     { heading: { en: 'Each attempt costs more than the last', zh: '每一次尝试都比上一次贵' }, text: {
       en: 'A retry is not simply the frame over again. The sender reads the silence as a sign of a crowd, doubles its CW and draws a longer backoff, so each further attempt starts later than the one before. The frame also tends to go out slower: after repeated failures the radio steps down to a sturdier, slower way of sending, so it lies on the air longer — a bigger target for the next collision.',
@@ -76,16 +76,16 @@ export const retriesQueues: Lesson = {
       zh: '载入仿真，跳到第一次重传。盯住左边那台上传站点的某一帧：同一帧一次、又一次地发出去，每次尝试都比上次隔得更远——直到它不再出现。',
     } },
     { heading: { en: 'Seven tries, then let it go', zh: '七次之后，放手' }, text: {
-      en: 'No frame is tried for ever. Each one carries a count of how often it has been sent, and when that count reaches the retry limit — seven here — the frame is given up and the next one moves to the front. That is the rule working, not failing: a link that cannot push a frame through in seven tries will not push it through in seventy.',
-      zh: '没有哪一帧可以永远重来。每一帧都记着自己已经被发过多少次，一旦这个数达到重传上限——这里是七——这一帧就被放弃，后面那一帧挪到队首。这不是规则出了问题，正是规则在起作用：一条七次都推不过去的链路，七十次也推不过去。',
+      en: 'No frame is tried for ever. Each one carries a count of how often it has been sent, and the ceiling on that count is called the retry limit — seven here. Reach it and the frame is given up, and the next one moves to the front. That is the rule working, not failing: a link that cannot push a frame through in seven tries will not push it through in seventy.',
+      zh: '没有哪一帧可以永远重来。每一帧都记着自己已经被发过多少次，而这个数的上限叫做重传上限——这里是七。一到这个数，这一帧就被放弃，后面那一帧挪到队首。这不是规则出了问题，正是规则在起作用：一条七次都推不过去的链路，七十次也推不过去。',
     } },
     { heading: { en: 'The line behind it', zh: '它身后的队伍' }, text: {
-      en: 'Frames keep arriving from the application above, and they wait their turn in a queue. They wait for the channel — and they wait for every attempt the frame in front of them makes. One stubborn frame at the head holds up a hundred healthy ones behind it. The real cost of a retry is never the airtime it burns; it is the delay it hands to everything else.',
-      zh: '上面的应用还在不停地交下新的帧，它们在队列里等着轮到自己。它们要等信道——也要等排在前面那一帧的每一次尝试。队首一帧发不动，后面一百帧都跟着卡住。一次重传真正的代价，从来不是它烧掉的那点空口时间，而是它塞给其余所有帧的那段等待。',
+      en: 'Frames keep arriving from the application above, and they wait their turn in a line; that is the queue. They wait for the channel — and they wait for every attempt the frame in front of them makes. One stubborn frame at the head holds up a hundred healthy ones behind it. The real cost of a retry is never the airtime it burns; it is the delay it hands to everything else.',
+      zh: '上面的应用还在不停地交下新的帧，它们排成一列等着轮到自己，这就是队列。它们要等信道——也要等排在前面那一帧的每一次尝试。队首一帧发不动，后面一百帧都跟着卡住。一次重传真正的代价，从来不是它烧掉的那点空口时间，而是它塞给其余所有帧的那段等待。',
     } },
     { heading: { en: 'Stale data is worse than none', zh: '过时的数据不如没有' }, text: {
-      en: 'So a frame carries a clock as well as a count. Once it has waited in the queue past its lifetime — half a second here — the MAC throws it away without ever sending it. For a video frame or a voice sample that is exactly right: the moment it belonged to has gone, and delivering it late costs airtime and helps nobody.',
-      zh: '所以一帧身上除了计数，还有一只钟。一旦它在队列里等过了自己的生存期——这里是半秒——MAC 就把它扔掉，连发都不发。对一个视频帧或一段语音采样来说，这么做完全正确：它本该属于的那一刻已经过去了，迟到地送达只会花掉空口时间，对谁都没有好处。',
+      en: 'So a frame carries a clock as well as a count, and the ceiling on that clock is called its lifetime — half a second here. Wait longer than that in the queue and the part of the radio that decides when to send — that is the MAC — throws the frame away rather than give it another turn. For a video frame or a voice sample that is exactly right: the moment it belonged to has gone, and delivering it late costs airtime and helps nobody.',
+      zh: '所以一帧身上除了计数，还有一只钟，而这只钟的上限叫做它的生存期——这里是半秒。在队列里等得比这还久，无线电里决定什么时候开口的那一部分——也就是 MAC——就把它扔掉，不再给它上空口的机会。对一个视频帧或一段语音采样来说，这么做完全正确：它本该属于的那一刻已经过去了，迟到地送达只会花掉空口时间，对谁都没有好处。',
     } },
     { heading: { en: 'And when the line is full', zh: '当队伍满了' }, text: {
       en: 'The queue also has a ceiling. When it is full, an arriving frame is turned away at the door and never joins the line at all. This is the one loss that says nothing about the link and everything about the load: more traffic is being offered than the channel can carry, and only less traffic or more airtime cures it.',
@@ -93,6 +93,20 @@ export const retriesQueues: Lesson = {
     } },
   ],
   numbers: [
+    { kind: 'steps', heading: { en: 'What one frame goes through, step by step', zh: '一帧要走的流程，一步一步' }, items: [
+      { en: 'A frame handed down from above joins the tail of the queue, provided fewer than 500 are waiting. The 501st is turned away at the door and never queued.',
+        zh: '上面交下来的一帧，排到队尾——前提是队里等着的还不到 500 帧。第 501 帧会在门口被挡回去，根本不进队。' },
+      { en: 'Before building any transmission the MAC first throws out every queued frame that has waited longer than its lifetime, 500 ms here. At the access point (AP) 188 of the 194 it throws out had never had a turn on the air at all.',
+        zh: '每次要组一帧发出去之前，MAC 先把队列里等过了生存期（这里是 500 ms）的帧统统扔掉。接入点扔掉的 194 帧里，有 188 帧连一次空口都没轮上过。' },
+      { en: 'The head frame goes out, and the sender starts a clock: the answer must begin within 45 µs of the frame ending — a 16 µs gap, one 9 µs slot, and 20 µs for a radio to report a reception starting.',
+        zh: '队首那一帧发出去，发送方同时起一只钟：回答必须在这一帧结束后的 45 µs 之内开始——16 µs 的间隔、一个 9 µs 的时隙，再加电台报出“开始收了”所需的 20 µs。' },
+      { en: 'If the clock runs out, three counters move. This frame’s own attempt count goes up by one; the queue’s consecutive-failure count goes up by one; and the contention window widens to twice itself plus one, as far as 1023.',
+        zh: '钟走完了还没动静，就有三个计数往前走：这一帧自己的尝试次数加一；这条队列的连续失败次数加一；竞争窗口则加宽成自己的两倍再加一，最多到 1023。' },
+      { en: 'The frame then goes back to the front of the queue and is drawn again, keeping its sequence number and now carrying the repeat bit — so every attempt is the same frame, not a new one.',
+        zh: '这一帧随后被放回队首，重新排上号发送：序列号照旧，只是带上了重复标志——所以每一次尝试都是同一帧，不是新的一帧。' },
+      { en: 'When a frame’s attempt count reaches the retry limit of seven it is discarded instead, and the frame behind it moves to the head. The window snaps back to 15 on the queue’s own failure count reaching seven — the same instant, while one frame is being hammered.',
+        zh: '当一帧的尝试次数达到重传上限七次，它就被丢弃，后面那一帧挪到队首。而窗口弹回 15，靠的是队列自己的失败次数数到七——在同一帧被反复捶打时，这两件事发生在同一瞬间。' },
+    ] },
     { kind: 'table', heading: { en: 'One frame, seven attempts', zh: '一帧，七次尝试' }, head: [
       { en: 'Attempt', zh: '第几次' }, { en: 'Sent at', zh: '发送于' }, { en: 'Rate', zh: '速率' },
       { en: 'Repeat bit', zh: '重复标志' }, { en: 'Failure recorded', zh: '记录失败' }, { en: 'CW after', zh: '之后的 CW' },

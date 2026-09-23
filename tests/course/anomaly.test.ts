@@ -18,7 +18,7 @@ import { ScenarioSchema } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 import { Simulation } from '../../src/engine/simulation'
 import { buildLinkTable } from '../../src/engine/propagation'
-import { sinrThreshDb } from '../../src/engine/phy'
+import { ACK_BYTES, CW_MIN, DIFS_NS, SIFS_NS, SLOT_NS, sinrThreshDb } from '../../src/engine/phy'
 import { PREAMBLE_DETECT_SINR_DB } from '../../src/engine/channel'
 import { lessonShapeSuite, ofType, runOf } from './kit'
 
@@ -42,7 +42,9 @@ const runFor = (mod: (sc: ReturnType<typeof anomaly.scenario>) => void): TLRecor
   return [...new Simulation(sc).runUntil(RUN_NS).records]
 }
 
-lessonShapeSuite(anomaly, { proseMax: 800, runNs: RUN_NS })
+// The prose window grew with the amendment of 2026-09-23: the arithmetic that turns equal
+// turns into unequal throughput is now a procedure with a worked example beside it.
+lessonShapeSuite(anomaly, { proseMax: 1090, runNs: RUN_NS })
 
 describe('anomaly · the lesson’s own scene', () => {
   it('leans on airtime and backoff, and names the anomaly itself', () => {
@@ -147,6 +149,76 @@ describe('anomaly · what the room costs the fast station', () => {
     }
     expect(steps[steps.length - 1].turn).toBeLessThan(steps[0].turn)
     expect(steps[steps.length - 1].near).toBeGreaterThan(steps[0].near)
+  })
+})
+
+describe('anomaly · the procedure, step by step', () => {
+  it('step 1: the wait before a draw is one DIFS — 16 µs plus two 9 µs slots, 34 µs', () => {
+    // steps: "a 16 µs gap plus two slots of 9 µs, so 34 µs"
+    expect(DIFS_NS).toBe(SIFS_NS + 2 * SLOT_NS)
+    expect(DIFS_NS).toBe(34_000)
+    // Every IFS the two stations wait is a DIFS or, after a reception they could not decode,
+    // an EIFS — the step's one exception. All 166 EIFS waits belong to the far station, which
+    // is the only one whose receptions are ever wrecked.
+    const ifs = ofType(recs(), 'IFS_START').filter((r) => r.node !== 'ap')
+    expect(ifs.length).toBeGreaterThan(300)
+    for (const r of ifs) expect(['DIFS', 'EIFS']).toContain(r.kind)
+    expect(ifs.filter((r) => r.kind === 'EIFS').every((r) => r.node === 'sta-2')).toBe(true)
+    const difs = ifs.filter((r) => r.kind === 'DIFS')
+    expect(difs.length).toBeGreaterThan(ifs.length / 2)
+    expect(difs.some((r) => r.untilNs - r.t === DIFS_NS)).toBe(true)
+  })
+
+  it('step 2: both stations draw from the same window, which starts at 15', () => {
+    // steps: "between zero and its contention window, which starts at 15 … Both draw from the
+    //  same window, so over a long run each reaches zero about as often as the other."
+    const rs = recs()
+    const draws = ofType(rs, 'BACKOFF_DRAW').filter((r) => r.node !== 'ap')
+    expect(draws.length).toBeGreaterThan(300)
+    expect(Math.min(...draws.map((r) => r.cw!))).toBe(CW_MIN)
+    for (const d of draws) expect(d.value).toBeLessThanOrEqual(d.cw!)
+    // both stations meet the same smallest window, and neither is handed a different ladder
+    for (const n of ['sta-1', 'sta-2']) {
+      expect(draws.filter((r) => r.node === n && r.cw === CW_MIN).length, n).toBeGreaterThan(50)
+    }
+  })
+
+  it('steps 3–6: the arithmetic of the worked table, row by row', () => {
+    // the table: turns 209 / 154 · 248 µs / 795 µs · 51.8 ms 25.9 % / 122.4 ms 61.2 % ·
+    //  acknowledged 209 / 135 · 1045 / 675 per second · 12.8 / 8.3 Mb/s
+    const rs = recs()
+    const row = (n: string) => {
+      const turns = data(rs, n)
+      const airNs = turns.reduce((a, r) => a + r.frame.txTimeNs, 0)
+      const perTurn = Math.round(airNs / turns.length / 1000)
+      return {
+        turns: turns.length,
+        perTurn,
+        airMs: (airNs / MS).toFixed(1),
+        share: (airNs / RUN_NS * 100).toFixed(1),
+        ok: acked(rs, n),
+        perSec: acked(rs, n) / (RUN_NS / 1e9),
+        mbps: mbps(rs, n),
+      }
+    }
+    expect(row('sta-1')).toEqual({ turns: 209, perTurn: 248, airMs: '51.8', share: '25.9', ok: 209, perSec: 1045, mbps: '12.8' })
+    expect(row('sta-2')).toEqual({ turns: 154, perTurn: 795, airMs: '122.4', share: '61.2', ok: 135, perSec: 675, mbps: '8.3' })
+    // step 6 is arithmetic, not a measurement: delivered frames a second × 1528 B × 8 bits
+    for (const [n, want] of [['sta-1', 12.8], ['sta-2', 8.3]] as const) {
+      expect(Number((acked(rs, n) / 0.2 * BYTES * 8 / 1e6).toFixed(1))).toBe(want)
+    }
+    // "of those turns, acknowledged": the near station loses none, the far one 19
+    expect(data(rs, 'sta-1').length - acked(rs, 'sta-1')).toBe(0)
+    expect(data(rs, 'sta-2').length - acked(rs, 'sta-2')).toBe(19)
+  })
+
+  it('step 5: the acknowledgement is 14 bytes, and every frame of the run is 1528', () => {
+    // steps: "The access point answers with a 14-byte acknowledgement" / "It is 1528 bytes either way"
+    const rs = recs()
+    const acks = txs(rs, (r) => r.frame.kind === 'ack')
+    expect(acks.length).toBeGreaterThan(300)
+    for (const a of acks) expect(a.frame.bytes).toBe(ACK_BYTES)
+    for (const d of [...data(rs, 'sta-1'), ...data(rs, 'sta-2')]) expect(d.frame.bytes).toBe(BYTES)
   })
 })
 

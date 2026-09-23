@@ -13,7 +13,9 @@ import { describe, it, expect } from 'vitest'
 import { retriesQueues } from '../../src/course/tier1/retries-queues'
 import { Simulation } from '../../src/engine/simulation'
 import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
-import { CW_MAX, CW_MIN, SHORT_RETRY_LIMIT } from '../../src/engine/phy'
+import {
+  ACK_TIMEOUT_NS, CW_MAX, CW_MIN, RX_START_DELAY_NS, SHORT_RETRY_LIMIT, SIFS_NS, SLOT_NS,
+} from '../../src/engine/phy'
 import { DEFAULT_MSDU_LIFETIME_NS, DEFAULT_QUEUE_LIMIT } from '../../src/engine/queues'
 import type { TLRecord } from '../../src/model/records'
 import { decodeFrame, fmtRecord } from '../../src/ui/format'
@@ -66,7 +68,9 @@ function apDelays(rs: TLRecord[]): { atNs: number; ms: number }[] {
 const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length
 
 // The prose window: `why` + `outcomes` + `terms` + `picture` + `numbers`.
-lessonShapeSuite(retriesQueues, { proseMax: 950, runNs: RUN_NS })
+// The prose window grew with the amendment of 2026-09-23: the retry and queue machinery is
+// now written out as a procedure, with the seven-attempt table as its worked example.
+lessonShapeSuite(retriesQueues, { proseMax: 1230, runNs: RUN_NS })
 
 describe('retries-queues · the scene', () => {
   it('scenario and variants pass the scenario schema', () => {
@@ -294,6 +298,98 @@ describe('retries-queues · queues under overload', () => {
     expect(Math.max(...ages)).toBe(502.6)
     // "From then on the delay stops growing, because nothing older than 500 ms is ever sent."
     expect(Math.max(...apDelays(rs).map((x) => x.ms))).toBeLessThan(501)
+  })
+})
+
+describe('retries-queues · the procedure, step by step', () => {
+  const rs = recs()
+
+  it('step 1: a frame joins the queue while fewer than 500 wait; the 501st is turned away', () => {
+    // steps: "provided fewer than 500 are already waiting. The 501st is turned away at the door
+    //  and never queued at all."
+    for (const e of ofType(rs, 'ENQUEUE')) expect(e.depth).toBeLessThanOrEqual(DEFAULT_QUEUE_LIMIT)
+    expect(Math.max(...ofType(rs, 'ENQUEUE').filter((r) => r.node === 'ap').map((r) => r.depth)))
+      .toBe(DEFAULT_QUEUE_LIMIT)
+    const enq = new Set(ofType(rs, 'ENQUEUE').map((r) => r.msduId))
+    const refused = drops(rs, 'queueFull', 'ap')
+    expect(refused.length).toBeGreaterThan(200)
+    // the one turned away never joins the line: it has no ENQUEUE record anywhere in the run
+    for (const d of refused) expect(enq.has(d.msduId)).toBe(false)
+    // and the first refusal follows an ENQUEUE that had just taken the queue to 500
+    const first = refused[0]
+    expect(ofType(rs, 'ENQUEUE').filter((r) => r.node === 'ap' && r.t <= first.t).pop()!.depth)
+      .toBe(DEFAULT_QUEUE_LIMIT)
+  })
+
+  it('step 2: every frame dropped for lifetime had waited over 500 ms, and 188 of the 194 never flew', () => {
+    // steps: "throws out every queued frame that has waited longer than its lifetime, 500 ms
+    //  here. At the access point 188 of the 194 it throws out had never had a turn on the air."
+    const enq = new Map(ofType(rs, 'ENQUEUE').map((r) => [r.msduId, r.t]))
+    const sent = new Set(ofType(rs, 'TX_START').map((r) => r.frame.msduId))
+    const aged = drops(rs, 'lifetime', 'ap')
+    expect(aged.length).toBe(194)
+    for (const d of aged) expect(d.t - enq.get(d.msduId)!).toBeGreaterThan(DEFAULT_MSDU_LIFETIME_NS)
+    expect(aged.filter((d) => !sent.has(d.msduId)).length).toBe(188)
+  })
+
+  it('step 3: the answer’s deadline is 45 µs after the frame ends — SIFS + one slot + the start delay', () => {
+    // steps: "the answer must begin within 45 µs of the frame ending — a 16 µs gap, one 9 µs
+    //  slot, and 20 µs for a radio to report that a reception has started."
+    expect(ACK_TIMEOUT_NS).toBe(SIFS_NS + SLOT_NS + RX_START_DELAY_NS)
+    expect([SIFS_NS, SLOT_NS, RX_START_DELAY_NS, ACK_TIMEOUT_NS]).toEqual([16_000, 9_000, 20_000, 45_000])
+    // proved across the whole run rather than asserted for one frame: every timeout lands
+    // exactly 45 µs after the end of that node's own last transmission
+    const lastTxEnd = new Map<string, number>()
+    let checked = 0
+    for (const r of rs) {
+      if (r.type === 'TX_START') lastTxEnd.set(r.node, r.t + r.frame.txTimeNs)
+      if (r.type === 'ACK_TIMEOUT') {
+        expect(r.t - lastTxEnd.get(r.node)!, `${r.node} @ ${r.t}`).toBe(ACK_TIMEOUT_NS)
+        checked++
+      }
+    }
+    expect(checked).toBeGreaterThan(500)
+  })
+
+  it('steps 4 and 5: a failure moves both counters by one and the window to 2·CW + 1, and the frame comes back', () => {
+    // steps: "This frame's own attempt count goes up by one; the queue's consecutive-failure
+    //  count goes up by one; and the contention window widens to twice itself plus one, as far
+    //  as 1023." / "The frame then goes back to the front of the queue … keeping its sequence
+    //  number and now carrying the repeat bit."
+    const retries = ofType(rs, 'RETRY').filter((r) => r.node === 'sta-2')
+    expect(retries.length).toBeGreaterThan(300)
+    const seen = new Map<number, number>()
+    for (const r of retries) {
+      const prev = seen.get(r.msduId) ?? 0
+      expect(r.retries, `#${r.msduId} @ ${r.t}`).toBe(prev + 1)
+      seen.set(r.msduId, r.retries)
+      expect(r.retries).toBeLessThanOrEqual(SHORT_RETRY_LIMIT)
+    }
+    // the window the engine writes after each failure is exactly min(2·CW + 1, CWmax), reset at the limit
+    const cws = ofType(rs, 'CW_CHANGE').filter((r) => r.node === 'sta-2')
+    let cw = CW_MIN
+    let checked = 0
+    for (const c of cws) {
+      const expected = c.qsrc === 0 ? CW_MIN : Math.min(2 * cw + 1, CW_MAX)
+      expect(c.cw, `@ ${c.t}`).toBe(expected)
+      cw = c.cw
+      checked++
+    }
+    expect(checked).toBeGreaterThan(300)
+  })
+
+  it('step 6: the seventh attempt is the last, and the frame behind it takes the head', () => {
+    // steps: "When a frame's attempt count reaches the retry limit of seven it is discarded
+    //  instead, and the frame behind it moves to the head."
+    const attempts = new Map<number, number>()
+    for (const r of ofType(rs, 'TX_START')) {
+      if (r.frame.kind !== 'data' || r.frame.msduId === undefined) continue
+      attempts.set(r.frame.msduId, (attempts.get(r.frame.msduId) ?? 0) + 1)
+    }
+    for (const n of attempts.values()) expect(n).toBeLessThanOrEqual(SHORT_RETRY_LIMIT)
+    const given = drops(rs, 'retryLimit')
+    expect(given.length).toBeGreaterThan(100)
+    for (const d of given) expect(attempts.get(d.msduId)).toBe(SHORT_RETRY_LIMIT)
   })
 })
 

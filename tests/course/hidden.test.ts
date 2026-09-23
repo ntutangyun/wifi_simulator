@@ -23,7 +23,9 @@ import { hidden } from '../../src/course/tier1/hidden'
 import { ScenarioSchema } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 import { buildLinkTable } from '../../src/engine/propagation'
-import { CCA_PD_DBM, SLOT_NS } from '../../src/engine/phy'
+import {
+  CCA_PD_DBM, CTS_BYTES, DIFS_NS, FCS_BYTES, MAC_HDR_BYTES, RTS_BYTES, SIFS_NS, SLOT_NS,
+} from '../../src/engine/phy'
 import { lessonShapeSuite, ofType, runOf } from './kit'
 
 type Tx = Extract<TLRecord, { type: 'TX_START' }>
@@ -51,7 +53,9 @@ const collisions = (rs: TLRecord[]): { locked: Tx; others: Tx[] }[] =>
 const caughtData = (rs: TLRecord[]): { locked: Tx; others: Tx[] }[] =>
   collisions(rs).filter(({ locked, others }) => [locked, ...others].some((f) => f.frame.kind === 'data'))
 
-lessonShapeSuite(hidden, { proseMax: 860, runNs: RUN_NS })
+// The prose window grew with the amendment of 2026-09-23: the mechanism is now written
+// out as a procedure and run on one real exchange, which the old 860 could not hold.
+lessonShapeSuite(hidden, { proseMax: 1190, runNs: RUN_NS })
 
 describe('hidden · the lesson’s own scene', () => {
   it('follows nav and owns RTS and CTS', () => {
@@ -268,5 +272,110 @@ describe('hidden · the door experiment', () => {
     expect(link(6.8)).toBeGreaterThan(CCA_PD_DBM)
     expect(link(1)).toBe(link(null))
     expect(link(3.5)).toBe(link(null))
+  })
+})
+
+describe('hidden · the procedure, step by step', () => {
+  it('step 1: the frame a station holds is 1500 + 24 + 4 = 1528 B, and the threshold decides', () => {
+    // steps: "payload, a 24-byte header, a 4-byte checksum. Above the RTS threshold — 500
+    //  bytes in the protected variant — it asks first."
+    expect(MAC_HDR_BYTES + 1500 + FCS_BYTES).toBe(1528)
+    const rs = prot()
+    for (const d of txs(rs, (r) => r.frame.kind === 'data')) {
+      expect(d.frame.bytes).toBe(1528)
+      expect(d.frame.bytes).toBeGreaterThan(hidden.variants![0].scenario().rtsThresholdBytes!)
+    }
+    // and with the base scene's threshold above 1528, no question is ever asked
+    expect(txs(base(), (r) => r.frame.kind === 'rts').length).toBe(0)
+  })
+
+  it('step 2: every RTS is 20 B and reserves 3 × SIFS + the CTS + the data frame + the ACK', () => {
+    // steps: "Its Duration field reserves the three short gaps, the answer, the data frame
+    //  and the acknowledgement, counted from the end of the RTS."
+    const rs = prot()
+    for (const rts of txs(rs, (r) => r.frame.kind === 'rts')) {
+      expect(rts.frame.bytes).toBe(RTS_BYTES)
+      expect(rts.frame.dst).toBe('ap')
+      expect(rts.frame.durationFieldNs).toBeGreaterThan(3 * SIFS_NS)
+    }
+    // the exchange the worked example runs through: 3 × 16 + 28 + 364 + 28 = 468 µs
+    const rts = txs(rs, (r) => r.frame.kind === 'rts' && r.t === 718_000)[0]
+    expect([rts.node, rts.frame.bytes, rts.frame.durationFieldNs]).toEqual(['sta-1', 20, 468_000])
+    const data = txs(rs, (r) => r.node === 'sta-1' && r.frame.kind === 'data' && r.t > rts.t)[0]
+    const ack = txs(rs, (r) => r.frame.kind === 'ack' && r.frame.dst === 'sta-1' && r.t > rts.t)[0]
+    const cts = txs(rs, (r) => r.frame.kind === 'cts' && r.frame.dst === 'sta-1' && r.t > rts.t)[0]
+    expect(3 * SIFS_NS + cts.frame.txTimeNs + data.frame.txTimeNs + ack.frame.txTimeNs)
+      .toBe(rts.frame.durationFieldNs)
+    expect([data.t, data.t + data.frame.txTimeNs, data.frame.mbps]).toEqual([806_000, 1_170_000, 36])
+  })
+
+  it('step 3: the question never reaches the far room — −83.4 dBm against the −82 dBm floor', () => {
+    // steps: "Across the house it arrives under the level at which a radio calls something a
+    //  signal, so the other room hears nothing and keeps counting."
+    const sc = hidden.variants![0].scenario()
+    const lt = buildLinkTable(sc.nodes, sc.walls)
+    expect(lt.get('sta-1')!.get('sta-2')!.toFixed(1)).toBe('-83.4')
+    expect(lt.get('sta-1')!.get('sta-2')!).toBeLessThan(CCA_PD_DBM)
+    // proved over the whole run, not asserted for one frame: neither room ever starts a
+    // reception from the other, whatever kind of frame it is
+    for (const [rx, tx] of [['sta-1', 'sta-2'], ['sta-2', 'sta-1']]) {
+      expect(ofType(prot(), 'RX_START').some((r) => r.node === rx && r.from === tx), `${rx} ← ${tx}`).toBe(false)
+    }
+  })
+
+  it('step 4: every CTS is 14 B and carries the RTS figure less one SIFS and less itself', () => {
+    // steps: "its Duration the RTS figure less that gap and less the CTS itself"
+    const rs = prot()
+    const rtsAt = new Map(txs(rs, (r) => r.frame.kind === 'rts').map((r) => [r.t + r.frame.txTimeNs, r]))
+    let checked = 0
+    for (const cts of txs(rs, (r) => r.frame.kind === 'cts')) {
+      expect(cts.node).toBe('ap')
+      expect(cts.frame.bytes).toBe(CTS_BYTES)
+      const rts = rtsAt.get(cts.t - SIFS_NS)
+      if (!rts || rts.frame.dst !== 'ap' || rts.node !== cts.frame.dst) continue
+      expect(cts.frame.durationFieldNs).toBe(rts.frame.durationFieldNs - SIFS_NS - cts.frame.txTimeNs)
+      checked++
+    }
+    expect(checked).toBeGreaterThan(300)
+    // the worked example: 762 µs, 14 B, 468 − 16 − 28 = 424 µs, and both end rooms hear it
+    const cts = txs(rs, (r) => r.frame.kind === 'cts' && r.t === 762_000)[0]
+    expect([cts.frame.bytes, cts.frame.durationFieldNs]).toEqual([14, 424_000])
+    const sc = hidden.variants![0].scenario()
+    const lt = buildLinkTable(sc.nodes, sc.walls)
+    for (const n of ['sta-1', 'sta-2']) {
+      expect(lt.get('ap')!.get(n)!.toFixed(1)).toBe('-60.6')
+      expect(ofType(rs, 'RX_START').some((r) => r.node === n && r.t === cts.t && r.from === 'ap')).toBe(true)
+    }
+  })
+
+  it('step 5: a station that hears the answer freezes and sets NAV to the CTS end plus its Duration', () => {
+    // steps: "takes that frame's end, adds the Duration it carries and sets its NAV there"
+    const rs = prot()
+    const ctsEnds = new Map(txs(rs, (r) => r.frame.kind === 'cts')
+      .map((r) => [r.t + r.frame.txTimeNs, r.frame.durationFieldNs]))
+    let checked = 0
+    for (const nav of ofType(rs, 'NAV_SET').filter((r) => r.node === 'sta-2' && r.source.startsWith('cts:'))) {
+      expect(nav.untilNs - nav.t).toBe(ctsEnds.get(nav.t))
+      checked++
+    }
+    expect(checked).toBeGreaterThan(200)
+    // the worked example: freeze at 13 as the CTS arrives, NAV to 790 + 424 = 1214 µs
+    expect(ofType(rs, 'BACKOFF_FREEZE').find((r) => r.node === 'sta-2' && r.t === 762_000)!.value).toBe(13)
+    const nav = ofType(rs, 'NAV_SET').find((r) => r.node === 'sta-2' && r.t === 790_000)!
+    expect([nav.source, nav.untilNs]).toEqual(['cts:ap', 1_214_000])
+  })
+
+  it('step 6: the ACK ends on the microsecond the reservation does, and a DIFS later the count goes on', () => {
+    // steps: "which expires on the microsecond the acknowledgement ends. The far station waits
+    //  one DIFS and counts on from the number it froze at."
+    const rs = prot()
+    const ack = txs(rs, (r) => r.frame.kind === 'ack' && r.frame.dst === 'sta-1' && r.t === 1_186_000)[0]
+    expect(ack.t + ack.frame.txTimeNs).toBe(1_214_000)
+    expect(ofType(rs, 'NAV_CLEAR').some((r) => r.node === 'sta-2' && r.t === 1_214_000)).toBe(true)
+    const resume = ofType(rs, 'BACKOFF_RESUME').find((r) => r.node === 'sta-2' && r.t === 1_248_000)!
+    expect(resume.value).toBe(13)
+    expect(resume.t - 1_214_000).toBe(DIFS_NS)
+    // and the next question of the run follows at 1284 µs
+    expect(txs(rs, (r) => r.frame.kind === 'rts' && r.t > 1_214_000)[0].t).toBe(1_284_000)
   })
 })
