@@ -12,6 +12,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { bianchi } from '../../src/course/tier1/bianchi'
+import type { Block } from '../../src/course/lessonKit'
 import { dcfTimes, saturationThroughput, solveBianchi, tauOf } from '../../src/course/tier1/bianchiModel'
 import { COURSE_ORDER } from '../../src/course/curriculum'
 import { Simulation } from '../../src/engine/simulation'
@@ -265,6 +266,41 @@ describe('the procedure the steps block asks the reader to carry out', () => {
     expect(2 ** PARAMS.m * PARAMS.W).toBe(CW_MAX + 1)
     expect(SHORT_RETRY_LIMIT).toBe(PARAMS.attempts)
     quotes('W = 16, the smallest window', 'L = 7, the attempts a frame gets')
+  })
+
+  /**
+   * B4 fix round: the block used to DISPLAY Bianchi's infinite-retry closed
+   * form while the table under it listed finite-retry figures (48.09 % against
+   * 49.59 % at n = 20), so its caption was false by construction. The displayed
+   * pair is now the one `solveBianchi` actually solves, and this test keeps the
+   * two together: the formula on the page must be the finite-retry pair, the
+   * classic form must be in the depth and labelled, and the table's numbers
+   * must come from the displayed pair rather than from the classic one.
+   */
+  it('the displayed equations are the model the table comes from, and the classic form is in the depth', () => {
+    const shown = bianchi.numbers!.find((b) => b.kind === 'formula') as Extract<Block, { kind: 'formula' }>
+    for (const lang of ['en', 'zh'] as const) {
+      expect(shown.text[lang]).toContain('\u03a3_{i<L} p^i')
+      expect(shown.text[lang]).toContain('p = 1 \u2212 (1\u2212\u03c4)^(n\u22121)')
+      expect(shown.text[lang], 'the classic closed form must not stand over finite-retry figures').not.toContain('2(1\u22122p)')
+    }
+    // the classic form stays, in `deeper`, with the size of the difference it makes
+    const depth = (bianchi.deeper ?? []).flatMap((b) => {
+      const f = b as Extract<Block, { kind: 'formula' }>
+      return f.kind === 'formula' ? [f.text.en, f.note?.en ?? ''] : []
+    }).join(' ')
+    expect(depth).toContain('2(1\u22122p)')
+    expect(depth).toContain('48.09 %')
+    expect(depth).toContain('49.59 %')
+
+    // and the numbers in the table are the displayed pair's, not the classic pair's
+    for (const [n, tau, pStr] of [[2, '0.1046', '10.46 %'], [5, '0.0763', '27.22 %'],
+      [10, '0.0533', '38.92 %'], [20, '0.0354', '49.59 %']] as const) {
+      const fin = solveBianchi({ n, ...PARAMS })
+      expect(fin.tau.toFixed(4)).toBe(tau)
+      expect(pct(fin.p)).toBe(pStr)
+    }
+    expect(pct(solveBianchi({ n: 20, W: 16, m: 6 }).p)).toBe('48.09 %') // the classic pair, which the table is NOT
   })
 
   it('step 2: the two sums over the stages reproduce tauOf exactly', () => {

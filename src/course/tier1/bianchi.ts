@@ -109,14 +109,14 @@ export const bianchi: Lesson = {
     } },
   ],
   numbers: [
-    { kind: 'formula', heading: { en: 'The pair of equations', zh: '那一对方程' }, text: {
-      en: 'τ = 2(1−2p) / [(1−2p)(W+1) + pW(1−(2p)^m)]        p = 1 − (1−τ)^(n−1)',
-      zh: 'τ = 2(1−2p) / [(1−2p)(W+1) + pW(1−(2p)^m)]        p = 1 − (1−τ)^(n−1)',
+    { kind: 'formula', heading: { en: 'The equations this lesson solves', zh: '本课要解的那一对方程' }, text: {
+      en: 'τ = Σ_{i<L} p^i / Σ_{i<L} p^i (W_i + 1)/2        p = 1 − (1−τ)^(n−1)',
+      zh: 'τ = Σ_{i<L} p^i / Σ_{i<L} p^i (W_i + 1)/2        p = 1 − (1−τ)^(n−1)',
     }, note: {
-      en: 'n is the number of stations, W = 16 the smallest window and m = 6 the doublings above it, so the window runs 15 up to 1023. The left equation is the backoff rules solved, the right one the definition of a clash. The steps below solve the finite-retry version this MAC uses.',
-      zh: 'n 是站点数，W = 16 是最小的窗口，m = 6 是它之上还能翻几倍，于是窗口从 15 一路走到 1023。左边那个方程是退避规则的解，右边那个是“撞上”的定义。下面的步骤解的，是本 MAC 真正在用的有限重传版本。',
+      en: 'n is the number of stations, L = 7 the attempts one frame gets, and W_i = 2^min(i,m)·W the window at attempt i, with W = 16 and m = 6. The left equation is the backoff rules solved for a MAC that gives up after L attempts; the right one is the definition of a clash.',
+      zh: 'n 是站点数，L = 7 是一帧拿到的尝试次数，W_i = 2^min(i,m)·W 是第 i 次尝试时的窗口，其中 W = 16、m = 6。左边那个方程，是按“一帧过了 L 次就放弃”这套 MAC 解出的退避规则；右边那个是“撞上”的定义。',
     } },
-    { kind: 'table', heading: { en: 'What the equations predict', zh: '方程预测出什么' }, head: [
+    { kind: 'table', heading: { en: 'What these two equations predict', zh: '这两个方程预测出什么' }, head: [
       N('n'), { en: 'Transmits per slot', zh: '每时隙发送概率' }, { en: 'Collides', zh: '碰撞概率' },
       { en: 'Throughput at 54 Mb/s', zh: '54 Mb/s 下的吞吐' }, { en: 'Throughput at 6 Mb/s', zh: '6 Mb/s 下的吞吐' },
     ], rows: [
@@ -149,7 +149,7 @@ export const bianchi: Lesson = {
         zh: '给“平均一个信道时隙”标价。这个时隙里有人发送的概率是 P_tr = 1 − (1 − τ)^n；在确实有人发送的前提下恰好只有一台发送的概率是 P_s = n·τ·(1 − τ)^(n−1) ÷ P_tr。' },
       { en: 'An empty slot costs the slot time σ, 9 µs here; one holding a frame costs T_s, one holding a pile-up costs T_c. The mean slot weighs the three by how often each happens: (1 − P_tr)σ + P_tr·P_s·T_s + P_tr(1 − P_s)T_c.',
         zh: '空时隙的代价是时隙长度 σ，这里 9 µs；装着一帧的是 T_s，装着一堆撞在一起的帧的是 T_c。平均时隙把这三者按各自发生的频率加权：(1 − P_tr)σ + P_tr·P_s·T_s + P_tr(1 − P_s)T_c。' },
-      { en: 'Divide: throughput is P_s·P_tr·E[P] over that mean slot, where E[P] = 12,000 bits is the 1500-byte payload one success carries.',
+      { en: 'Divide: throughput is P_s·P_tr·E[P] over that mean slot, where E[P] = 12,000 bits is the 1500-byte payload.',
         zh: '最后一除。一次成功送走的净荷 E[P] = 12,000 比特，也就是 1500 字节；于是吞吐等于 P_s·P_tr·E[P] 除以平均时隙长度。' },
     ] },
     { kind: 'table', heading: { en: 'Five stations, run through the steps', zh: '五台站点，照着步骤走一遍' }, head: [
@@ -173,16 +173,23 @@ export const bianchi: Lesson = {
   ],
   deeper: [
     { heading: { en: 'Where the first equation comes from', zh: '第一个方程是怎么来的' }, text: {
-      en: 'It is the backoff chain solved for its long-run behaviour. A station that has failed i times draws uniformly from a window of 2^i·W values and walks down one step per idle slot, so the time it spends at that stage is proportional to p^i(2^i·W + 1)/2, and τ is the fraction of those slots in which its counter reads zero. The solver evaluates (1 − (2p)^m)/(1 − 2p) as the sum Σ_{k<m}(2p)^k, so p = ½ is an ordinary point rather than 0/0.',
-      zh: '它是退避链在长期行为下的解。一台已经失败 i 次的站点，从 2^i·W 个取值里均匀抽签，每个空闲时隙走一步，于是它停留在这一阶段的时间正比于 p^i(2^i·W + 1)/2，而 τ 就是其中计数读数为零的那部分时隙的比例。求解器把 (1 − (2p)^m)/(1 − 2p) 按 Σ_{k<m}(2p)^k 这个和来算，于是 p = ½ 只是一个普通点，而不是 0/0。',
+      en: 'It is the backoff chain solved for its long-run behaviour. A station that has failed i times draws uniformly from a window of W_i values and walks down one step per idle slot, so the time it spends at that stage is proportional to p^i(W_i + 1)/2 — the bottom line of the displayed quotient — while p^i alone counts how often it reaches that stage at all. τ is the fraction of those slots in which its counter reads zero, which is the one line over the other.',
+      zh: '它是退避链在长期行为下的解。一台已经失败 i 次的站点，从 W_i 个取值里均匀抽签，每个空闲时隙走一步，于是它停留在这一阶段的时间正比于 p^i(W_i + 1)/2——这正是页面上那个分式的分母；而单独的 p^i 数的是它能走到这一阶段的频率。τ 就是其中计数读数为零的那部分时隙的比例，也就是分子除以分母。',
     } },
     { heading: { en: 'The bold assumption is the second equation', zh: '大胆的是第二个方程' }, text: {
       en: 'p = 1 − (1−τ)^(n−1) treats the other n − 1 stations as coins tossed independently in every slot, with the same τ whatever stage each of them is at and whatever just happened. That is decoupling, and it is what makes a closed form possible at all. It is also the assumption that frays first, and worst when n is small: with a single opponent there is no crowd to average over.',
       zh: 'p = 1 − (1−τ)^(n−1) 把其余 n − 1 台站点当成每个时隙独立抛掷的硬币，不论它们各自处在哪个阶段、刚刚发生过什么，用的都是同一个 τ。这就是解耦，也正是闭式解得以存在的原因。它同时也是最先松动的那个假设，而且 n 越小越糟：只有一个对手时，根本没有“人群”可供平均。',
     } },
-    { heading: { en: 'The chain stops at seven', zh: '这条链在第七次停下' }, text: {
-      en: 'The original chain retries for ever. This MAC gives a frame seven attempts and then discards it, which is the finite-retry variant of Wu et al. (INFOCOM 2002): a station that has exhausted its attempts restarts at the smallest window instead of sitting at the largest one, so it attempts slightly more often. At twenty stations that lifts the predicted collision probability from 48.09 % to 49.59 %. Every number in this lesson uses the finite chain.',
-      zh: '原始的链是无限重传的。而本 MAC 给一帧七次机会，之后就把它丢掉——这就是 Wu 等人（INFOCOM 2002）的有限重传变体：用光机会的站点会从最小的窗口重新开始，而不是一直待在最大的窗口上，于是它出手略勤一些。在二十台站点时，这把预测的碰撞概率从 48.09% 抬到 49.59%。本课里的每一个数，用的都是有限链。',
+    { heading: { en: 'The classic form, and the chain that never stops', zh: '教科书上的那个式子，以及那条不会停的链' }, text: {
+      en: 'The equations on the main path are this MAC’s, because the numbers in the table are. The form you will meet everywhere else is Bianchi’s original, whose chain retries for ever and therefore collapses into a closed form. Both are the same derivation; they differ only in where the sum stops.',
+      zh: '主路上那两个方程是本 MAC 的，因为表里的数字就是它算出来的。你在别处会遇到的那个形式，是 Bianchi 的原版：那条链永远重传下去，于是能收成一个闭式解。两者是同一套推导，只差在那个和在哪里停下。',
+    } },
+    { kind: 'formula', text: {
+      en: 'τ = 2(1−2p) / [(1−2p)(W+1) + pW(1−(2p)^m)]',
+      zh: 'τ = 2(1−2p) / [(1−2p)(W+1) + pW(1−(2p)^m)]',
+    }, note: {
+      en: 'Bianchi’s own, with no attempt limit in it. Evaluate (1 − (2p)^m)/(1 − 2p) as the sum Σ_{k<m}(2p)^k and p = ½ is an ordinary point rather than 0/0. This MAC instead gives a frame seven attempts and then discards it, which is the finite-retry variant of Wu et al. (INFOCOM 2002): a station that has exhausted its attempts restarts at the smallest window instead of sitting at the largest one, so it attempts slightly more often. At twenty stations that lifts the predicted collision probability from 48.09 % to 49.59 % — the second is the figure in the table, and the gap between them is the distance between the textbook and this simulator.',
+      zh: 'Bianchi 自己的式子，里面没有尝试次数上限。把 (1 − (2p)^m)/(1 − 2p) 按 Σ_{k<m}(2p)^k 这个和来算，p = ½ 就只是一个普通点，而不是 0/0。而本 MAC 只给一帧七次机会，之后就把它丢掉——这就是 Wu 等人（INFOCOM 2002）的有限重传变体：用光机会的站点会从最小的窗口重新开始，而不是一直待在最大的窗口上，于是它出手略勤一些。在二十台站点时，这把预测的碰撞概率从 48.09% 抬到 49.59%——后一个正是表里那个数，而两者之差，就是教科书与本仿真器之间的距离。',
     } },
     { heading: { en: 'Why the stations whisper', zh: '站点为什么要低声细语' }, text: {
       en: 'The model has one data rate; this simulator’s rate controller does not. Two failures in a row step the rate down, and a collision looks exactly like a fading channel to it. The scene therefore puts every station far enough away and quiet enough that there is no rung below the slowest one to fall to, so the fixed-rate assumption holds by construction. Equal receive levels also mean neither of two overlapping frames is ever locked onto — the no-capture assumption, arranged rather than assumed.',
