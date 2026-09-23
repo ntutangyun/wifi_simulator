@@ -47,7 +47,7 @@ function without(...ids: string[]): TLRecord[] {
   return [...new Simulation(sc).runUntil(RUN_NS).records]
 }
 
-lessonShapeSuite(ofdmaDl, { proseMax: 760, runNs: RUN_NS })
+lessonShapeSuite(ofdmaDl, { proseMax: 1080, runNs: RUN_NS })
 
 describe('ofdma-dl · the lesson’s own scene', () => {
   it('is a Tier 2 lesson that needs the two lessons its words come from', () => {
@@ -145,6 +145,51 @@ describe('ofdma-dl · two video frames on the air, one way and the other', () =>
     expect(checked).toBe(45)
     // and the group is never the four the engine would allow, so the cap is not what bounds it
     expect(new Set(mu.map((r) => r.frame.muParts!.length))).toEqual(new Set([2]))
+  })
+})
+
+describe('ofdma-dl · the procedure, run against every multi-user send there is', () => {
+  const rs = runOf(ofdmaDl, undefined, RUN_NS)
+  const mu = muPpdus(rs)
+  const SIFS_NS = 16 * US
+
+  it('step 2: the group is between two and four, and each member gets 1/n of the tones', () => {
+    expect(mu.length).toBeGreaterThan(0)
+    for (const r of mu) {
+      const parts = r.frame.muParts!
+      expect(parts.length).toBeGreaterThanOrEqual(2)
+      expect(parts.length).toBeLessThanOrEqual(4)
+      for (const p of parts) expect(p.ruFraction).toBe(1 / parts.length)
+    }
+  })
+
+  it('steps 3 to 5: bits per symbol, the symbol count and the length, derived for every send', () => {
+    // "1950 for these televisions", the bits one HE symbol carries at 20 MHz on one stream
+    expect(PHY_MODES.he.ndbps[11]).toBe(1950)
+    expect(PHY_MODES.he.muExtraPreambleNs).toBe(4 * US)
+    for (const r of mu) {
+      const parts = r.frame.muParts!
+      const symbolsOf = (p: typeof parts[number]): number => {
+        const bps = PHY_MODES.he.ndbps[p.mcs] * toneRatio('he', r.frame.widthMhz ?? 20) * (p.nss ?? 1) * p.ruFraction!
+        return Math.ceil((16 + 8 * p.bytes + 6) / bps)
+      }
+      const longest = Math.max(...parts.map(symbolsOf))
+      expect(r.frame.txTimeNs).toBe(
+        PHY_MODES.he.preambleNs + PHY_MODES.he.muExtraPreambleNs + PHY_MODES.he.symNs * longest)
+    }
+    // the worked example's own row: 975 bits a symbol, 11,494 bits to carry, twelve symbols
+    expect(PHY_MODES.he.ndbps[11] * 0.5).toBe(975)
+    expect(16 + 8 * 1434 + 6).toBe(11_494)
+    expect(Math.ceil(11_494 / 975)).toBe(12)
+    expect(44 * US + 4 * US + 13.6 * US * 12).toBe(211.2 * US)
+  })
+
+  it('step 6: one 16 µs gap later every member answers, and every answer is 32 µs', () => {
+    for (const r of mu) {
+      const bas = txs(rs, (x) => x.frame.kind === 'ba' && x.t === r.t + r.frame.txTimeNs + SIFS_NS)
+      expect(bas.map((x) => x.node).sort()).toEqual(r.frame.muParts!.map((p) => p.dst).sort())
+      for (const b of bas) expect(b.frame.txTimeNs).toBe(32 * US)
+    }
   })
 })
 

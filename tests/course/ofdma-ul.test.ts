@@ -21,6 +21,8 @@ import { ofdmaUl } from '../../src/course/tier2/ofdma-ul'
 import { Simulation } from '../../src/engine/simulation'
 import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
+import { ACK_TIMEOUT_NS, PHY_MODES, multiStaBaBytes, triggerBytes } from '../../src/engine/phy'
+import { maxPsduBytesFor } from '../../src/engine/mac'
 import { lessonShapeSuite, ofType, runOf } from './kit'
 
 const MS = 1_000_000
@@ -52,7 +54,7 @@ function without(...ids: string[]): TLRecord[] {
   return [...new Simulation(sc).runUntil(RUN_NS).records]
 }
 
-lessonShapeSuite(ofdmaUl, { proseMax: 830, runNs: RUN_NS })
+lessonShapeSuite(ofdmaUl, { proseMax: 1140, runNs: RUN_NS })
 
 describe('ofdma-ul · the lesson’s own scene', () => {
   it('is a Tier 2 lesson that needs the downlink half of the idea', () => {
@@ -136,6 +138,52 @@ describe('ofdma-ul · one triggered round, end to end', () => {
     }
     expect(one(tb.map((r) => r.frame.mcs))).toBe(11)
     expect(one(tb.map((r) => r.frame.widthMhz))).toBe(20)
+  })
+})
+
+describe('ofdma-ul · the procedure, against the engine that runs it', () => {
+  const rs = runOf(ofdmaUl, undefined, RUN_NS)
+
+  it('steps 2 and 3: between two and four users, each on 1/n of the tones, one format for the round', () => {
+    for (const t of triggers(rs)) {
+      const users = t.frame.muParts!
+      expect(users.length).toBeGreaterThanOrEqual(2)
+      expect(users.length).toBeLessThanOrEqual(4)
+      // one rung and one width for the whole round, dictated by the trigger and not by the device
+      expect(t.frame.ulMode).toBe('he')
+      expect(t.frame.ulWidthMhz).toBe(20)
+      expect(new Set(users.map((p) => p.mcs))).toEqual(new Set([11]))
+    }
+    // the answers really do sit on a half each: the length they were given is the length
+    // 1/2 of a 20 MHz channel needs for the bytes that fit a 2 ms answer
+    expect(1 / 2).toBe(1 / triggers(rs)[0].frame.muParts!.length)
+  })
+
+  it('step 4: the longest backlog that fits 2 ms is 17,425 B, 143 symbols, 1988.8 µs', () => {
+    const budget = maxPsduBytesFor('he', 11, 0.5, 2 * MS, 20, 1)
+    expect(budget).toBe(17_425)
+    expect(PHY_MODES.he.ndbps[11] * 0.5).toBe(975)
+    expect(Math.ceil((16 + 8 * budget + 6) / 975)).toBe(143)
+    expect(PHY_MODES.he.preambleNs + 143 * PHY_MODES.he.symNs).toBe(1988.8 * US)
+    // and that is the one length every user of every round is given
+    for (const t of triggers(rs)) {
+      expect(new Set(t.frame.muParts!.map((p) => p.durNs))).toEqual(new Set([1988.8 * US]))
+    }
+    // a TB PPDU carries no per-user map: 44 µs of opening, not the 48 of a DL MU PPDU
+    for (const r of tbPpdus(rs)) expect(r.frame.txTimeNs).toBe(1988.8 * US)
+  })
+
+  it('steps 5 and 7: 28 + 6 per user, 32 + 8 per extra user, and a 45 µs response timeout', () => {
+    expect(triggerBytes(2)).toBe(28 + 6 * 2)
+    expect(triggerBytes(2)).toBe(40)
+    expect(multiStaBaBytes(2)).toBe(32 + 8)
+    expect(multiStaBaBytes(2)).toBe(40)
+    expect(ACK_TIMEOUT_NS).toBe(45 * US)
+    for (const m of txs(rs, (r) => r.frame.kind === 'mba')) expect(m.frame.bytes).toBe(40)
+    // step 5's Duration: the gap, the answers, the second gap and the acknowledgement
+    for (const t of triggers(rs)) {
+      expect(t.frame.durationFieldNs).toBe(SIFS_NS + 1988.8 * US + SIFS_NS + 36 * US)
+    }
   })
 })
 

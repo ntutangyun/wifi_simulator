@@ -4,8 +4,10 @@
  * Rewritten to the zero-to-hero contract
  * (docs/superpowers/specs/2026-09-21-course-readability-design.md): why the
  * uplink is the hard direction, what the trigger frame settles on the answering
- * devices' behalf, and what those devices still decide for themselves. The
- * clause numbers live in `sources`.
+ * devices' behalf, and what those devices still decide for themselves. `numbers`
+ * closes with the engine's own procedure for arranging one triggered round and
+ * the first round of the run through it row by row. The clause numbers live in
+ * `sources`.
  *
  * The scenario builder is unchanged, so the recorded timeline hash in
  * tests/fixtures/lesson-hashes.json stays byte-identical. Every number quoted
@@ -18,8 +20,8 @@ export const ofdmaUl: Lesson = {
   module: 6,
   title: { en: 'Trigger frames — the access point conducts the uplink', zh: '触发帧——接入点指挥上行' },
   why: {
-    en: 'Sending to several devices at once is one radio’s decision to make: it knows what it is sending, so it can cut the channel up as it likes. Receiving from several at once is a different problem. They would have to begin in the same instant, on slices that do not overlap, and arrive at similar strength — and no device can hear what another one is about to do. Somebody has to conduct, and only the access point is in a position to.',
-    zh: '同时发给好几台设备，是一台电台自己就能定的事：它知道自己要发什么，想怎么切信道就怎么切。同时从好几台设备那里收，则是另一回事。它们得在同一个瞬间开始，落在互不重叠的片上，到达时强弱还得相近——可谁也听不见别人下一步打算干什么。这就得有人来指挥，而有资格指挥的只有接入点。',
+    en: 'Sending to several devices at once is one radio’s decision to make: it knows what it is sending, so it can cut the channel up as it likes. Receiving from several at once — the uplink, the direction from the devices back towards the box they all talk to — is a different problem. They would have to begin in the same instant, on slices that do not overlap, and arrive at similar strength, and no device can hear what another one is about to do. Somebody has to conduct, only the access point (AP) is in a position to, and the frame it conducts with is called a trigger frame.',
+    zh: '同时发给好几台设备，是一台电台自己就能定的事：它知道自己要发什么，想怎么切信道就怎么切。反过来同时从好几台设备那里收——也就是上行，从设备指回它们共同说话的那只盒子的方向——则是另一回事。它们得在同一个瞬间开始，落在互不重叠的片上，到达时强弱还得相近，可谁也听不见别人下一步打算干什么。这就得有人来指挥，而有资格指挥的只有接入点（AP）；它用来指挥的那个帧，就叫作触发帧。',
   },
   outcomes: [
     { en: 'say why several devices cannot arrange a shared uplink send between themselves', zh: '说出几台设备为什么没法自己商量出一次共享的上行发送' },
@@ -59,7 +61,7 @@ export const ofdmaUl: Lesson = {
     ] },
     { heading: { en: 'An answer that decides nothing', zh: '一个什么都不做主的回答' }, text: {
       en: 'What comes back is a TB PPDU: trigger-based, and the one kind of send a device may make only because it was asked. Everything about it was chosen by the access point — the slice, the modulation, the length, the power, the instant. The device supplies the bytes and nothing else. That is the whole trick: simultaneity is impossible to agree on, and easy to dictate.',
-      zh: '回来的这一帧叫 TB PPDU：基于触发，是唯一一种“只因为被要求了才可以发”的发送。关于它的一切都是接入点定的——用哪一片、用哪档调制、发多长、发多响、什么时候开始。设备只负责把字节装进去，别的一概不管。诀窍就在这里：要商量出“同时”几乎不可能，要指定“同时”却很容易。',
+      zh: '回来的这一帧叫作 TB PPDU：基于触发，是唯一一种“只因为被要求了才可以发”的发送。关于它的一切都是接入点定的——用哪一片、用哪档调制、发多长、发多响、什么时候开始。设备只负责把字节装进去，别的一概不管。诀窍就在这里：要商量出“同时”几乎不可能，要指定“同时”却很容易。',
     } },
     { heading: { en: 'What the devices keep', zh: '设备保住了什么' }, text: {
       en: 'Inside a triggered round nobody counts down a backoff: the turn has already been handed out. Listening does not stop, though — a device still checks the air before it answers and stays quiet if another network has the room. And between rounds nothing is conducted at all: the same two uploaders queue up and contend exactly as they did before, because the access point only triggers when it wants the uplink organised.',
@@ -83,10 +85,6 @@ export const ofdmaUl: Lesson = {
         { en: 'both answers acknowledged at once', zh: '一次把两个回答都确认掉' }],
       [{ en: 'The whole round', zh: '整个回合' }, N('2092.8 µs'), { en: '33,788 bytes up', zh: '共上行 33,788 字节' }],
     ] },
-    { heading: { en: 'Padded to the length the trigger frame named', zh: '填充到触发帧指定的那个长度' }, text: {
-      en: 'Both uploaders here always have more to send than the round has room for, so both fill their 1988.8 µs to the byte and nothing is wasted. A device with less to say would pad the rest out with nothing: the air is spent either way, because the two answers have to end together for one acknowledgement to cover them.',
-      zh: '这里两台上传设备手上要发的东西，总是多过一个回合装得下的，所以两边都把各自的 1988.8 µs 塞得满满当当，一点没浪费。要是某台设备没那么多话可说，剩下的长度就得用空填充补齐：反正这段空口都要花掉，因为两个回答必须一起结束，一个确认才收得掉它们。',
-    } },
     { kind: 'table', heading: {
       en: 'The uplink of two uploaders over 100 ms',
       zh: '两台上传设备 100 ms 内的上行',
@@ -102,11 +100,39 @@ export const ofdmaUl: Lesson = {
       en: 'About a third of what this pair sent up went in triggered rounds; the rest went the ordinary contended way, and it collided six times doing so. Twice, a trigger frame brought nothing back at all — the access point waits out its timeout and takes the air back. Being told exactly what to do is not the same as being made to do it.',
       zh: '这两台设备发上去的东西里，大约三分之一走的是触发回合；其余的走普通竞争的老路，一路上还碰撞了六次。另有两次，触发帧什么也没换回来——接入点只好等到超时，再把空口收回去。被清清楚楚地告知该怎么做，和被迫去做，并不是一回事。',
     } },
+    { kind: 'steps', heading: { en: 'Arranging one triggered round, step by step', zh: '一次触发回合是怎么安排出来的，一步一步' }, items: [
+      { en: 'A device with something queued upward reports that backlog, and the access point starts contending for a turn of its own.',
+        zh: '设备有东西要往上发时，会把这份积压报给接入点；接入点记下“该发触发帧了”，然后开始为自己争一轮。' },
+      { en: 'When it wins that turn with nothing of its own queued downward, it lists the devices whose backlog is not empty and that have negotiated OFDMA with it. Fewer than two on that list and it drops the idea for now.',
+        zh: '等它赢下这一轮、而自己手上又没有要往下发的东西时，就列出积压非空、并且和它协商过 OFDMA 的设备。名单上不到两台，这件事就先作罢。' },
+      { en: 'It keeps the first four, cuts the tones into that many equal resource units, and fixes one format for the whole round: the rung each device may use, and the width every answer occupies — the narrowest any invited device negotiated.',
+        zh: '名单上只留前四台，把子载波切成同样多的等分资源单元，再给整个回合定死一套格式：每台可以用哪一级，以及每个回答占多宽——取受邀各台协商过的最窄的那个宽度。' },
+      { en: 'For each device it turns the backlog into airtime, capped at what fits a 2 ms answer, and takes the longest of those. Every device is then given that one length, so the answers end together and one acknowledgement can close the round.',
+        zh: '接着为每台设备把积压折算成空口时间，上限是一个 2 ms 的回答装得下的量，再取其中最长的那个。然后所有设备都被指定这同一个长度，于是几个回答一起结束，一个确认就能把整个回合收掉。' },
+      { en: 'The trigger frame goes out slowly, at 24 Mb/s, so every device in the room can read it: 28 bytes of information common to all, plus 6 more for each device named. Its Duration field covers the gap, the answers, the second gap and the acknowledgement.',
+        zh: '触发帧用 24 Mb/s 慢慢发出去，好让屋里每台设备都读得懂：28 字节是给所有人的公共信息，每点一台名再加 6 字节。它的 Duration 字段把那段间隔、那些回答、第二段间隔和最后的确认一起罩住。' },
+      { en: 'One 16 µs gap later each named device answers on the resource unit it was given, unless a NAV set by somebody other than this access point is still running. It fills its part up to the bytes that length allows, and pads out the rest.',
+        zh: '隔 16 µs，被点到名的每台设备各在分给自己的资源单元上作答——除非此刻还有一条不是这个接入点设下的 NAV 压着。它把这个长度容得下的字节装满，剩下的用填充补齐。' },
+      { en: 'Another 16 µs after the answers end together, the access point closes the round with one multi-station BlockAck: 32 bytes plus 8 more for every device after the first. If no answer has begun 45 µs after the trigger frame ended, the round failed and the air is taken back.',
+        zh: '几个回答一起结束后再隔 16 µs，接入点发一个多站点 BlockAck 把回合收掉：32 字节，此后每多一台设备再加 8 字节。要是触发帧结束后 45 µs 仍没有任何回答开始，这一回合就什么也没换回来，空口随即被收回。' },
+    ] },
+    { kind: 'table', heading: { en: 'The first triggered round, run through the steps', zh: '第一次触发回合，照着步骤走一遍' }, head: [
+      { en: 'Step', zh: '步骤' }, { en: 'Value', zh: '数值' },
+    ], rows: [
+      [{ en: 'Devices with a backlog', zh: '有积压的设备' }, N('2')],
+      [{ en: 'Share of the tones each', zh: '每台分到的子载波占比' }, N('0.5')],
+      [{ en: 'Most bytes that fit a 2 ms answer', zh: '一个 2 ms 的回答最多装得下' }, N('17,425 B')],
+      [{ en: 'Symbols for those', zh: '这么多字节要几个符号' }, N('143')],
+      [{ en: 'so every answer is given the length', zh: '于是每个回答都被指定为' }, N('44 + 13.6 × 143 = 1988.8 µs')],
+      [{ en: 'Trigger frame', zh: '触发帧' }, N('28 + 6 × 2 = 40 B, 36 µs')],
+      [{ en: 'Multi-station BlockAck', zh: '多站点 BlockAck' }, N('32 + 8 = 40 B, 36 µs')],
+      [{ en: 'The whole round', zh: '整个回合' }, N('36 + 16 + 1988.8 + 16 + 36 = 2092.8 µs')],
+    ] },
   ],
   deeper: [
     { heading: { en: 'Why the answers must arrive at similar strength', zh: '几个回答为什么必须强弱相近' }, text: {
-      en: 'A receiver listening to two slices at once is one radio with one gain setting and one converter. A very strong signal on one slice raises the noise the receiver makes for itself across all of them, and the weak slice next door is the one that suffers. That is why the trigger frame carries a power correction per device rather than leaving each to shout as loudly as it likes — the near uploader is asked to come down so the far one can be heard.',
-      zh: '同时听两片信号的接收机，只有一套增益、一个转换器。某一片上来了个特别强的信号，接收机自己产生的底噪就会在所有片上一起抬高，而吃亏的正是旁边那片弱的。所以触发帧要逐台携带功率修正，而不是任由各家想喊多响就喊多响——近处那台被要求收着点，远处那台才听得见。',
+      en: 'A receiver listening to two slices at once is one radio with one gain setting and one converter. A very strong signal on one slice raises the noise the receiver makes for itself across all of them, and the weak slice next door is the one that suffers. That is why the trigger frame carries a power correction per device rather than leaving each to shout as loudly as it likes — the near uploader is asked to come down so the far one can be heard. This simulator dictates the slice, the length, the rung and the width but not that correction: its uploaders answer at the power they always use, so the round you watch is the easy case.',
+      zh: '同时听两片信号的接收机，只有一套增益、一个转换器。某一片上来了个特别强的信号，接收机自己产生的底噪就会在所有片上一起抬高，而吃亏的正是旁边那片弱的。所以触发帧要逐台携带功率修正，而不是任由各家想喊多响就喊多响——近处那台被要求收着点，远处那台才听得见。本仿真器只指定分片、长度、级别和带宽，并不指定这份功率修正：它的上传设备照自己一贯的功率作答，所以你看到的这个回合是好办的那一种。',
     } },
     { heading: { en: 'Why a group of one is no group', zh: '一个人的“组”不算组' }, text: {
       en: 'Turn the shared-uplink capability off on one of the two uploaders and this room produces no trigger frame at all, not even for the remaining one. The engine’s rule is simply that a triggered round needs at least two members before it will be arranged at all, and the reason is the overhead: the trigger frame, its gap and its acknowledgement have to be earned back by the members who share them.',

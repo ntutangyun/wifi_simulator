@@ -20,7 +20,7 @@ import { mumimo } from '../../src/course/tier2/mumimo'
 import { mumimoScenario } from '../../src/course/wifiScenes'
 import { ScenarioSchema } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
-import { PHY_MODES } from '../../src/engine/phy'
+import { PHY_MODES, toneRatio } from '../../src/engine/phy'
 import { lessonShapeSuite, runOf } from './kit'
 
 const MS = 1_000_000
@@ -44,7 +44,7 @@ const cleanSend = (rs: TLRecord[], members: number): Tx => {
   return hit!
 }
 
-lessonShapeSuite(mumimo, { proseMax: 700, runNs: RUN_NS })
+lessonShapeSuite(mumimo, { proseMax: 1050, runNs: RUN_NS })
 
 describe('mumimo · the lesson’s own scene', () => {
   it('is a Tier 2 lesson that needs the two halves of the idea it compares', () => {
@@ -121,6 +121,49 @@ describe('mumimo · one send of each kind', () => {
     expect(mimo.frame.bytes).toBe(8_612)
     expect(3 * 4_306).toBe(12_918)
     expect(2 * 4_306).toBe(8_612)
+  })
+})
+
+describe('mumimo · the procedure, run against every multi-user send of both variants', () => {
+  const nssOf = (id: string): number => mumimo.scenario().nodes.find((n) => n.id === id)!.caps.nss ?? 1
+
+  it.each([[0, 'split by frequency'], [1, 'split by space']] as const)('variant %i (%s)', (v, _name) => {
+    const sends = muSends(runOf(mumimo, v, RUN_NS))
+    expect(sends.length).toBeGreaterThan(50)
+    for (const r of sends) {
+      const parts = r.frame.muParts!
+      // step 1: never fewer than two members, never more than the engine's four
+      expect(parts.length).toBeGreaterThanOrEqual(2)
+      expect(parts.length).toBeLessThanOrEqual(4)
+      if (r.frame.muKind === 'mumimo') {
+        // step 2: beams only above the 1,000-byte floor; step 3: streams within the router's four
+        for (const p of parts) expect(p.bytes).toBeGreaterThanOrEqual(1_000)
+        expect(parts.reduce((s, p) => s + (p.nss ?? 1), 0)).toBeLessThanOrEqual(4)
+        for (const p of parts) expect(p.ruFraction).toBeUndefined()
+      } else {
+        for (const p of parts) expect(p.ruFraction).toBe(1 / parts.length)
+      }
+      // step 5: the opening once, then 13.6 µs for as many symbols as the longest member needs.
+      // A slicing member keeps its own stream count as well: only `ruFraction` is recorded on
+      // the part, so the stream count is read back off the scenario.
+      const mode = r.frame.mode!
+      const symbolsOf = (p: typeof parts[number]): number => {
+        const bps = PHY_MODES[mode].ndbps[p.mcs] * toneRatio(mode, r.frame.widthMhz ?? 20)
+          * (p.nss ?? nssOf(p.dst)) * (p.ruFraction ?? 1)
+        return Math.ceil((16 + 8 * p.bytes + 6) / bps)
+      }
+      expect(r.frame.txTimeNs).toBe(OPENING_NS + PHY_MODES[mode].symNs * Math.max(...parts.map(symbolsOf)))
+    }
+  })
+
+  it('the worked example’s own two columns: a third of the tones against all of them', () => {
+    // 4,306 B at EHT MCS 13 on 160 MHz: three symbols on a third of the tones, one on all
+    const bps = (frac: number, nss: number): number =>
+      PHY_MODES.eht.ndbps[13] * toneRatio('eht', 160) * nss * frac
+    expect(Math.ceil((16 + 8 * 4_306 + 6) / bps(1 / 3, 2))).toBe(3)
+    expect(Math.ceil((16 + 8 * 4_306 + 6) / bps(1, 2))).toBe(1)
+    expect(OPENING_NS + 3 * PHY_MODES.eht.symNs).toBe(92.8 * US)
+    expect(OPENING_NS + 1 * PHY_MODES.eht.symNs).toBe(65.6 * US)
   })
 })
 

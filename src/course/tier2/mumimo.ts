@@ -5,8 +5,9 @@
  * (docs/superpowers/specs/2026-09-21-course-readability-design.md): dividing
  * space instead of frequency, why the access point has to learn where each
  * phone is before it can, why the group here is never three, and when one beats
- * the other. Where the trimmed phone turns up next and the engine's own
- * grouping rule live in `deeper`; the idealisations live in `sources`.
+ * the other. The rule the engine picks by is written out as a procedure in
+ * `numbers`, with the turn it picked on run through it row by row; where the
+ * trimmed phone turns up next lives in `deeper`, the idealisations in `sources`.
  *
  * The scenario builder and the two variants are unchanged, so the recorded
  * timeline hashes in tests/fixtures/lesson-hashes.json stay byte-identical.
@@ -21,8 +22,8 @@ export const mumimo: Lesson = {
   module: 6,
   title: { en: 'MU-MIMO — splitting by space instead of frequency', zh: 'MU-MIMO——按空间而不是按频率划分' },
   why: {
-    en: 'Cutting the channel into slices lets one send reach several phones, but every slice is a fraction of the channel, so each phone is served more slowly the more of them join. There is another way to fit them in, which costs nobody any bandwidth and asks for something else instead. This lesson puts the two side by side in the same house and asks which one you would want.',
-    zh: '把信道切成片，一次发送就能照顾到好几部手机，但每一片都只是整条信道的一部分，成员越多，每部手机被服务得越慢。其实还有另一种把大家塞进同一次发送的办法：它不让任何人让出带宽，而是要走别的东西。这一课把两种办法放进同一栋房子里并排比较，看看你会挑哪一种。',
+    en: 'Cutting the channel into slices lets one send reach several phones, but every slice is a fraction of the channel, so each phone is served more slowly the more of them join. There is another way to fit them in, which costs nobody any bandwidth and asks for antennas instead; it is called MU-MIMO. This lesson puts the two side by side in the same house and asks which one you would want.',
+    zh: '把信道切成片，一次发送就能照顾到好几部手机，但每一片都只是整条信道的一部分，成员越多，每部手机被服务得越慢。其实还有另一种把大家塞进同一次发送的办法：它不让任何人让出带宽，改用天线来付账——这个办法就叫作 MU-MIMO。这一课把两种办法放进同一栋房子里并排比较，看看你会挑哪一种。',
   },
   outcomes: [
     { en: 'say what MU-MIMO divides up, and what it does not', zh: '说出 MU-MIMO 切分的是什么、不切分的又是什么' },
@@ -88,17 +89,39 @@ export const mumimo: Lesson = {
       en: 'Both sends carry the same payload per member — three video frames the router had saved up for that phone. Three members deliver 12,918 bytes in one send against two members’ 8,612, so the wider group moves more in one go while the narrower one serves each member faster. Which of those you want depends on whether anybody is waiting.',
       zh: '两种发送里，每个成员的负载是一样的——都是路由器给那部手机攒下的三个视频帧。三个成员一次交付 12,918 字节，两个成员是 8,612 字节：成员多的那次一趟运得更多，成员少的那次则让每个成员更快拿到自己的东西。你要哪一个，取决于有没有人在等。',
     } },
+    { kind: 'steps', heading: { en: 'Choosing between the two, step by step', zh: '两种办法之间怎么选，一步一步' }, items: [
+      { en: 'The router wins a turn and lists the phones with something queued that have negotiated the sliced-channel capability with it. Fewer than two on that list and it serves one phone the ordinary way; otherwise it keeps the first four.',
+        zh: '路由器赢下一轮，列出此刻队列里有东西、并且和它协商过“切片信道”能力的手机。名单上不到两部，它就照老路只服务一部；否则只留前四部。' },
+      { en: 'It divides space instead of frequency only if every candidate has also negotiated MU-MIMO and every candidate has at least 1,000 bytes at the head of its queue. Below that there are too few data symbols for multiplying the rate to be worth the trouble.',
+        zh: '只有当每个候选也都协商过 MU-MIMO、而且队首都排着至少 1,000 字节时，它才改成切空间而不是切频率。低于这个量，数据符号本来就没几个，把速率乘上去不值当。' },
+      { en: 'It then trims the group from the end, one phone at a time, until the members’ negotiated streams add up to no more than its own antennas: two two-stream phones need four, and a third would need six.',
+        zh: '然后它从末尾开始一部一部地裁，直到成员协商的流数之和不超过自己的天线数：两部两流手机要四条，再加第三部就要六条。' },
+      { en: 'If fewer than two survive the trim it falls back to slices for the whole group. Otherwise each survivor gets the whole width at its own stream count, and a phone left out waits for a send of its own.',
+        zh: '裁完后幸存者不足两部，就整组退回切片。否则每个幸存者都拿到整个带宽、各用自己的流数，而被排除在外的手机则等一次属于自己的发送。' },
+      { en: 'Either way the send lasts as long as its longest member needs: 48 µs of preamble, 4 µs more for the map of who is inside, then 13.6 µs a symbol. Every member keeps its own two streams either way: on a third of the tones 4,306 bytes take three symbols, on all of them one.',
+        zh: '无论走哪条路，整次发送的长度都取最长的那个成员所需：48 µs 前导，再加 4 µs 装“这一发里有谁”的分配表，然后每个符号 13.6 µs。两条路上，每个成员都照旧用自己的两条流：只占三分之一子载波时，4,306 字节要三个符号；独占全部子载波时，只要一个。' },
+      { en: 'Every member’s part ends in the same instant, and one 16 µs gap later a single round of acknowledgement settles the group — in 162 of the 169 group sends of the slicing variant. The other seven are the sends the laptop talked over.',
+        zh: '每个成员的那一份都在同一瞬间结束，隔 16 µs，一轮确认就把整组了结——切片那个变体的 169 次分组发送里，有 162 次是这样。另外七次，是笔记本压着说了话的那几次。' },
+    ] },
+    { kind: 'table', heading: { en: 'One turn with three phones queued, run through the steps', zh: '三部手机都有排队的那一轮，照着步骤走一遍' }, head: [
+      { en: 'Step', zh: '步骤' }, { en: 'Split by frequency', zh: '按频率划分' }, { en: 'Split by space', zh: '按空间划分' },
+    ], rows: [
+      [{ en: 'Phones with something queued', zh: '队列里有东西的手机' }, N('3'), N('3')],
+      [{ en: 'MU-MIMO negotiated, and 1,000 B at every head', zh: '都协商过 MU-MIMO，且队首都有 1,000 字节' },
+        { en: 'no', zh: '否' }, { en: 'yes', zh: '是' }],
+      [{ en: 'Streams the three would need, against four', zh: '三部要的流数，对比四条' }, N('—'), N('6 > 4')],
+      [{ en: 'Members after the trim', zh: '裁完后的成员数' }, N('3'), N('2')],
+      [{ en: 'Channel each member gets', zh: '每个成员拿到的信道' }, { en: 'a third', zh: '三分之一' }, { en: 'all of it', zh: '全部' }],
+      [{ en: 'Payload each', zh: '每成员负载' }, N('4,306 B'), N('4,306 B')],
+      [{ en: 'Symbols each', zh: '每成员符号数' }, N('3'), N('1')],
+      [{ en: 'so the send lasts', zh: '于是这次发送的长度是' }, N('52 + 13.6 × 3 = 92.8 µs'), N('52 + 13.6 × 1 = 65.6 µs')],
+    ] },
   ],
   deeper: [
     { heading: { en: 'Where the trimmed phone turns up next', zh: '被裁掉的那部手机接下来去哪儿了' }, text: {
       en: 'Whenever MU-MIMO is possible the router trims the group to two candidates and serves the third separately — but "separately" is worth measuring rather than guessing. Over the 196 two-member sends of this run, the trimmed phone gets its own single-user send immediately afterwards 122 times (62%), turns up in whichever pairing forms next 65 times (33%), and neither of those 9 times (5%): the router simply reached the other two again first, and it waited another round.',
       zh: '只要 MU-MIMO 可行，路由器就把组裁到两个候选，第三部单独服务——但“单独服务”究竟是怎么个服务法，值得实测而不是猜。这段仿真里的 196 次两成员发送中，被裁掉的那部手机有 122 次（62%）紧接着就拿到属于自己的单用户发送，有 65 次（33%）出现在下一次组成的配对里，还有 9 次（5%）两样都不是：路由器又先轮到了另外那两部，它只好再等一轮。',
     } },
-    { kind: 'steps', heading: { en: 'The rule this simulator picks by', zh: '仿真器据以选择的规则' }, items: [
-      { en: 'The router and the phone must have negotiated the sliced-channel capability first: without it neither multi-user path can fire at all, and every phone is served one at a time however full the queue gets.', zh: '路由器和手机必须先协商好“切片信道”这项能力：没有它，两条多用户路径都不可能触发，无论队列多满，每部手机都只能一个一个地被服务。' },
-      { en: 'Given that, MU-MIMO fires instead only when every candidate also negotiates MU-MIMO and has at least 1,000 bytes queued at its head — a threshold big enough that dividing space is worth the trouble.', zh: '在此基础上，只有当每个候选也都协商了 MU-MIMO、并且队首至少排着 1,000 字节时，才会改用 MU-MIMO——这个门槛足够大，切分空间才值得。' },
-      { en: 'The router then trims the group from the end, one member at a time, until the survivors’ stream counts fit its own four; if fewer than two survive, it falls back to slices.', zh: '然后路由器从末尾开始一个一个地裁，直到幸存者的流数之和不超过自己的四条；如果幸存者不足两个，就整个退回切片。' },
-    ] },
     { heading: { en: 'What the two variants actually differ in', zh: '两个变体真正的差别' }, text: {
       en: 'Exactly one feature flag: MU-MIMO, on the phones and the router. The sliced-channel capability is never touched, because turning that off would not produce "more slicing" — it would produce no multi-user sends of either kind, and the comparison would have nothing left in it.',
       zh: '只差一个功能开关：MU-MIMO，手机和路由器上都是。“切片信道”那项能力从未被动过，因为把它关掉不会得到“更纯粹的切片”——那会得到两种多用户发送都没有的结果，比较也就无从谈起了。',
