@@ -42,8 +42,8 @@ export const airtime: Lesson = {
   ],
   picture: [
     { heading: { en: 'One channel, one speaker', zh: '一条信道，一个说话人' }, text: {
-      en: 'The air in a room is one channel, and a radio cannot send and listen at once. While any frame is going out, nobody within earshot can start one. So the currency of a wireless network is time on the air: a station (STA) does not buy bandwidth, it buys a slice of the clock. Everything the MAC does is about who gets the next slice.',
-      zh: '一个房间里的空气就是一条信道，而一台无线电没法一边发一边听。只要有一帧正在发出去，听力范围内的其他设备就都开不了口。所以无线网络的“货币”是空口上的时间：站点（STA）买到的不是带宽，而是时钟上的一小段。MAC 所做的一切，都是在决定下一段归谁。',
+      en: 'The air in a room is one channel, and a radio cannot send and listen at once. While any frame is going out, nobody within earshot can start one. So the currency of a wireless network is time on the air: a station (STA) does not buy bandwidth, it buys a slice of the clock. Deciding who gets the next slice is the whole job of the MAC — the part of the radio that picks the moment to send.',
+      zh: '一个房间里的空气就是一条信道，而一台无线电没法一边发一边听。只要有一帧正在发出去，听力范围内的其他设备就都开不了口。所以无线网络的“货币”是空口上的时间：站点（STA）买到的不是带宽，而是时钟上的一小段。下一段归谁，全由 MAC——射频里决定什么时候开口的那一部分——说了算。',
     } },
     { heading: { en: 'Why a frame cannot start cold', zh: '一帧为什么不能张口就来' }, text: {
       en: 'A receiver is not waiting for your bits; it is waiting for anything at all. Before it can read a single bit it must notice that a signal has begun, lock onto its rhythm, and learn how what follows is coded. That is the preamble’s job: a fixed pattern both ends already know. It carries no data, it is the same length whatever the frame holds, and it is paid every time.',

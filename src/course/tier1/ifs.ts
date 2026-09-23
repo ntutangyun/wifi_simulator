@@ -57,8 +57,8 @@ export const ifs: Lesson = {
       zh: '载入仿真，跳到第一个确认帧。用微秒按钮往回一步一步走：从数据块结束到回答开始，中间什么也没发生。把它量出来。',
     } },
     { heading: { en: 'The longer gap: asking for a turn', zh: '长间隙：请求一个发言机会' }, text: {
-      en: 'A station with something new to send is not continuing anything, so it must wait longer: a DIFS, which is the short gap plus two slots. Those two extra slots are the margin that keeps it out of the way. By the time a contender has heard enough silence to be allowed to start, an answer that was going to come has already come.',
-      zh: '手里攥着新东西要发的站点，并不是在续接什么，所以它必须等得更久：一个 DIFS，也就是短间隙再加两个时隙。多出来的这两个时隙，就是让它不碍事的余量。等一个竞争者听够了安静、终于获准开口时，本该回来的那个回答早就回来了。',
+      en: 'A station with something new to send is not continuing anything, so it must wait longer, and that longer wait is the DIFS: the short gap plus two slots. Those two extra slots are the margin that keeps it out of the way. By the time a contender has heard enough silence to be allowed to start, an answer that was going to come has already come.',
+      zh: '手里攥着新东西要发的站点，并不是在续接什么，所以它必须等得更久，而这段更长的等待就是 DIFS：短间隙再加两个时隙。多出来的这两个时隙，就是让它不碍事的余量。等一个竞争者听够了安静、终于获准开口时，本该回来的那个回答早就回来了。',
     } },
     { kind: 'watch', jump: 2, heading: { en: 'And through the longer one', zh: '再走一遍长间隙' }, text: {
       en: 'Now jump to the first backoff draw. Look at the lane just before it: the quiet after the answer ends is the DIFS, and the station only starts counting once that quiet is over.',

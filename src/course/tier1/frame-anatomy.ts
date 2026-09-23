@@ -94,12 +94,12 @@ export const frameAnatomy: Lesson = {
   ],
   picture: [
     { heading: { en: 'Three wrappings, three names', zh: '三层包装，三个名字' }, text: {
-      en: 'The layer above hands the MAC a payload to deliver. That payload is the MSDU. The MAC puts a header in front of it and a check behind it, and the parcel that results is the MPDU — one frame. Everything in this lesson sits inside that parcel, in front of your data.',
-      zh: '上面那一层把一份载荷交给 MAC，请它送到。这份载荷就是 MSDU。MAC 在它前面加一段头、后面加一个校验，做成的这个包裹就是 MPDU——也就是一帧。这一课讲的全部内容，都在这个包裹里、在你的数据前面。',
+      en: 'The layer above hands a payload to the MAC — the part of the radio that wraps and addresses it. That payload is the MSDU. The MAC puts a header in front and a check behind, and the parcel is the MPDU — one frame. Everything in this lesson sits inside that parcel, in front of your data.',
+      zh: '上面那一层把一份载荷交给 MAC——射频里负责加头、写地址的那一部分。这份载荷就是 MSDU。MAC 在它前面加一段头、后面加一个校验，做成的这个包裹就是 MPDU——也就是一帧。这一课讲的全部内容，都在这个包裹里、在你的数据前面。',
     } },
     { heading: { en: 'And then the radio puts a front on it', zh: '再由射频给它加个前脸' }, text: {
-      en: 'The frame goes down to the PHY, which cannot just start sending bytes: a receiver has to notice that something began. So the PHY puts a known pattern in front, and what leaves the antenna — pattern first, frame behind — is the PPDU. One block on the timeline is one of those.',
-      zh: '帧接着交给 PHY，而 PHY 不能直接开始发字节：接收端得先察觉“有东西开始了”。所以 PHY 会在最前面放一段已知的图案；离开天线的这整个东西——先图案、后帧——就是 PPDU。时间轴上的一个块，就是其中一个。',
+      en: 'The frame goes down to the PHY — the radio\'s signal-making part — which cannot just start sending bytes: a receiver has to notice that something began. So it puts a known pattern in front, and what leaves the antenna — pattern first, frame behind — is the PPDU. One block on the timeline is one of those.',
+      zh: '帧接着交给 PHY——射频里把它变成信号的那一部分——而 PHY 不能直接开始发字节：接收端得先察觉“有东西开始了”。所以 PHY 会在最前面放一段已知的图案；离开天线的这整个东西——先图案、后帧——就是 PPDU。时间轴上的一个块，就是其中一个。',
     } },
     { kind: 'watch', jump: 0, heading: { en: 'Open one and look', zh: '打开一帧看看' }, text: {
       en: 'Load the simulation, jump to the old laptop\'s first frame and open "Fields on the air". Every field named below is in that list, in the order the lesson takes them.',
@@ -118,12 +118,12 @@ export const frameAnatomy: Lesson = {
       zh: '随后是两个小字段：一个说明这一帧之后交互还要多久，好让邻居连回复也一并让出来；另一个给每份载荷编号，重发沿用原号——重复帧正是这样被认出来的。',
     } },
     { heading: { en: 'A check at the end', zh: '末尾的那个校验' }, text: {
-      en: 'The last four bytes are the FCS, and they are not part of the message. The sender runs everything in front of them through a fixed piece of arithmetic, a CRC, and writes the result down; the receiver does the same and compares. If the two disagree it says nothing at all, and the sender sends the frame again.',
-      zh: '最后四个字节是 FCS，并不属于消息本身。发送端把前面的所有内容过一遍固定的算术，也就是 CRC，把结果写下来；接收端照样算一遍再比对。两者对不上，它就什么都不说；发送端于是把这一帧再发一次。',
+      en: 'The last four bytes are the FCS, and they are not part of the message. The sender runs everything in front of them through a fixed piece of arithmetic that is the CRC, and writes the result down; the receiver does the same and compares. If the two disagree it says nothing at all, and the sender sends the frame again.',
+      zh: '末尾的那四个字节就是 FCS，它并不属于消息本身。发送端把前面的所有内容过一遍固定的算术，也就是 CRC，把结果写下来；接收端照样算一遍再比对。两者对不上，它就什么都不说；发送端于是把这一帧再发一次。',
     } },
     { heading: { en: 'A mark for the kind of traffic', zh: '给业务类别打的那个标记' }, text: {
-      en: 'A voice call and a file upload want different things from a network, so a modern client radio (a station, STA) adds two more header bytes carrying a QoS mark: which of four kinds of traffic this frame is, and how it wants to be answered. Those two bytes are the whole difference between a plain data frame and a marked one.',
-      zh: '一通语音通话和一次文件上传，对网络的要求并不相同，所以现在的客户端设备——站点（STA）——会在帧头再加两个字节，写上一个 QoS 标记：这一帧属于四类业务中的哪一类，以及它希望被怎样确认。这两个字节，就是普通数据帧与带标记数据帧的全部差别。',
+      en: 'A voice call and a file upload want different things from a network, so a modern client radio (a station, STA) adds two more header bytes carrying a traffic mark (the QoS field): which of four kinds of traffic this frame is, and how it wants to be answered. Those two bytes are the whole difference between a plain data frame and a marked one.',
+      zh: '一通语音通话和一次文件上传，对网络的要求并不相同，所以现在的客户端设备——站点（STA）——会在帧头再加两个字节，写上一个业务标记（QoS 字段）：这一帧属于四类业务中的哪一类，以及它希望被怎样确认。这两个字节，就是普通数据帧与带标记数据帧的全部差别。',
     } },
   ],
   numbers: [

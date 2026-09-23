@@ -62,20 +62,20 @@ export const frameAnatomyBytes: Lesson = {
   ],
   picture: [
     { heading: { en: 'The part every radio can read', zh: '人人都读得懂的那一段' }, text: {
-      en: 'A receiver cannot start in the middle. Before any of the frame, the radio sends a short repeating pattern, the L-STF, whose whole job is to be noticed: something is beginning, here is where its rhythm falls. Then the L-LTF, a longer known pattern the receiver measures the room with — how the walls smeared it on the way — so it can undo the smearing when the bits arrive.',
-      zh: '接收端没法从中间开始。在帧的任何部分之前，射频先发出一小段重复的图案，也就是 L-STF，它唯一的任务就是被察觉到：有东西开始了，节拍落在这儿。接着是 L-LTF，一段更长的已知图案，接收端拿它来量这个房间——信号一路过来被墙抹成了什么样——好在比特到达时把这份涂抹还原回去。',
+      en: 'A receiver cannot start in the middle. Before any of the frame, the radio sends a short repeating pattern (the L-STF), whose whole job is to be noticed: something is beginning, here is where its rhythm falls. Then a longer known pattern (the L-LTF), which the receiver measures the room with — how the walls smeared it on the way — so it can undo the smearing when the bits arrive.',
+      zh: '接收端没法从中间开始。在帧的任何部分之前，射频先发出一小段重复的图案，也就是 L-STF，它唯一的任务就是被察觉到：有东西开始了，节拍落在这儿。接着是一段更长的已知图案，也就是 L-LTF，接收端拿它来量这个房间——信号一路过来被墙抹成了什么样——好在比特到达时把这份涂抹还原回去。',
     } },
     { heading: { en: 'Then one field says how long', zh: '再用一个字段说清有多长' }, text: {
-      en: 'Now a receiver is locked on but still knows nothing about what follows. The L-SIG tells it two things and only two: how fast the rest was coded, and how long it runs. That is enough for a radio that cannot decode this frame at all — a neighbour, an older device — to know when the air will be free again. Every generation still sends it, unchanged, at the slowest rate there is.',
-      zh: '这时接收端已经锁住了信号，可对后面是什么仍一无所知。L-SIG 只告诉它两件事：后面这段用多快的速率编码、一共有多长。这就足够让一台根本解不出这一帧的射频——邻居的，或者更老的设备——知道空口什么时候会重新空出来。每一代都照样发它，一个字不改，而且用的是最慢的那档速率，原因就在这里。',
+      en: 'Now a receiver is locked on but still knows nothing about what follows. The next field is the L-SIG, and it tells the receiver two things and only two: how fast the rest was coded, and how long it runs. That is enough for a radio that cannot decode this frame at all — a neighbour, an older device — to know when the air will be free again. Every generation still sends it, unchanged, at the slowest rate there is.',
+      zh: '这时接收端已经锁住了信号，可对后面是什么仍一无所知。接下来那个字段就是 L-SIG，它只告诉接收端两件事：后面这段用多快的速率编码、一共有多长。这就足够让一台根本解不出这一帧的射频——邻居的，或者更老的设备——知道空口什么时候会重新空出来。每一代都照样发它，一个字不改，而且用的是最慢的那档速率，原因就在这里。',
     } },
     { kind: 'watch', jump: 0, heading: { en: 'Look at the bars', zh: '看看那几条' }, text: {
       en: 'Load the simulation and jump to the old laptop\'s first frame, then to the phone\'s, opening "Fields on the air" on each. Both blocks split into a front and a body; compare how much of each is front.',
       zh: '载入仿真，先跳到旧笔记本的第一帧，再跳到手机的那一帧，各自展开“空中字段”。两个块都会分成“前脸”和“正身”两截；比一比各自的前脸占了多少。',
     } },
     { heading: { en: 'A new radio still starts the old way', zh: '新射频，照样按老规矩开场' }, text: {
-      en: 'A Wi-Fi 7 frame could have opened with something better suited to it. It does not. It opens with exactly those three, so that every device in the building can read its length, and only afterwards adds the U-SIG, which says what the newer format behind it really is. Backwards compatibility is not politeness here; it is the only thing stopping neighbours from talking over each other.',
-      zh: '一帧 Wi-Fi 7 的帧本可以用更适合它自己的开头，但它没有。它照样用那三段开场，好让楼里每一台设备都能读出它有多长；之后才加上 U-SIG，说明后面那种新格式究竟是什么。这里的向后兼容不是客气，而是唯一能防止邻居们互相压着说话的东西。',
+      en: 'A Wi-Fi 7 frame could have opened with something better suited to it. It does not. It opens with exactly those three, so that every device in the building can read its length, and only afterwards adds one more field (the U-SIG), which says what the newer format behind it really is. Backwards compatibility is not politeness here; it is the only thing stopping neighbours from talking over each other.',
+      zh: '一帧 Wi-Fi 7 的帧本可以用更适合它自己的开头，但它没有。它照样用那三段开场，好让楼里每一台设备都能读出它有多长；之后才加上一个新字段，也就是 U-SIG，说明后面那种新格式究竟是什么。这里的向后兼容不是客气，而是唯一能防止邻居们互相压着说话的东西。',
     } },
     { heading: { en: 'Counting the bytes', zh: '把字节数出来' }, text: {
       en: 'The frame itself is easy to add up: the header, then your payload, then the check. The header is a fixed size, and the mark for the kind of traffic makes it two bytes longer. But air is not sold by the byte. It is sold in whole symbols, so a frame is rounded up, and two extra bytes often vanish into rounding already being paid for.',

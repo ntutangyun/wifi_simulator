@@ -47,7 +47,7 @@ export const backoff: Lesson = {
       zh: '这里的两台站点都很忙，都在等信道，遵守的也是同一条规则。要求的那段安静一走完，它们的状态一模一样——也就是说，一条不带随机性的规则，会让它们在同一微秒开口，每一次都这样，永远这样。讲礼貌是不够的。必须有点什么，让两台一模一样的站点做出不一样的事。',
     } },
     { heading: { en: 'Roll, then count down', zh: '先掷骰子，再倒着数' }, text: {
-      en: 'So each one draws a random whole number and treats it as a count of idle slots to sit through: its backoff. Every slot the channel stays quiet, the count drops by one; at zero the station sends. The lower draw wins, and since the draws are independent, the winner changes from round to round. If a frame starts mid-count the counter freezes and later picks up where it stopped, so nobody loses the waiting already done.',
+      en: 'So each one draws a random whole number and treats it as a count of idle slots to sit through; that count is the backoff. Every slot the channel stays quiet, the count drops by one; at zero the station sends. The lower draw wins, and since the draws are independent, the winner changes from round to round. If a frame starts mid-count the counter freezes and later picks up where it stopped, so nobody loses the waiting already done.',
       zh: '于是每台站点抽一个随机整数，把它当作“要熬过的空闲时隙数”：这就是它的退避值。信道每安静一个时隙，这个数就减一；减到零就发。抽得小的赢，而由于两边各抽各的，赢家每一轮都可能换人。若中途有帧开始，计数就地冻结，之后从停下的那个数继续，谁都不会把已经等过的时间白等。',
     } },
     { kind: 'watch', jump: 0, heading: { en: 'Look at a collision', zh: '去看一次碰撞' }, text: {
@@ -63,8 +63,8 @@ export const backoff: Lesson = {
       zh: '于是发送方在自己这帧结束的那一刻起表。如果回答真在路上，到这时候早该被察觉了：接收端理应先停的那一小段、一个时隙的余量、再加上无线电察觉“有信号开始了”所需的时间。过了这个点，沉默就是判决。ACK 超时到期，这一帧被判丢失，站点必须重来。',
     } },
     { heading: { en: 'Doubling the window', zh: '把窗口翻倍' }, text: {
-      en: 'Trying again with the same die would be foolish: a collision is evidence that too many stations are drawing from too small a range. So a station that has failed doubles its CW, and doubles again with every further failure. Waits get longer, which costs airtime — but the chance of two draws landing on the same number falls fast. On the next success the window snaps back to its smallest value.',
-      zh: '再拿同一颗骰子重来是愚蠢的：碰撞本身就是证据，说明抽签的人太多、范围太小。所以失败过的站点会把自己的 CW 翻倍，从更宽的范围里抽；再失败就再翻一倍。等待变长，要多花空口时间——但两个人抽到同一个数的概率会迅速下降。下一次成功之后，窗口立刻弹回到最小值。',
+      en: 'Trying again with the same die would be foolish: a collision is evidence that too many stations are drawing from too small a range. So a station that has failed doubles the top of the range it draws from (its contention window, CW), and doubles it again with every further failure. Waits get longer, which costs airtime — but the chance of two draws landing on the same number falls fast. On the next success the window snaps back to its smallest value.',
+      zh: '再拿同一颗骰子重来是愚蠢的：碰撞本身就是证据，说明抽签的人太多、范围太小。所以失败过的站点会把自己抽签范围的上限（竞争窗口，CW）翻倍，从更宽的范围里抽；再失败就再翻一倍。等待变长，要多花空口时间——但两个人抽到同一个数的概率会迅速下降。下一次成功之后，窗口立刻弹回到最小值。',
     } },
   ],
   numbers: [

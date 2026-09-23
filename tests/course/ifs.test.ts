@@ -44,7 +44,7 @@ describe('ifs · the lesson’s own scene', () => {
 describe('ifs · the three waits', () => {
   it('a slot is 9 µs, the short gap 16 µs, and the longer one is their sum plus a slot', () => {
     // the table's "slot … 9 µs", "SIFS … 16 µs" and "DIFS … 34 µs = SIFS + 2 slots" rows,
-    //  and the picture's "a DIFS, which is the short gap plus two slots"
+    //  and the picture's "that longer wait is the DIFS: the short gap plus two slots"
     expect(SLOT_NS).toBe(9_000)
     expect(SIFS_NS).toBe(16_000)
     expect(DIFS_NS).toBe(34_000)

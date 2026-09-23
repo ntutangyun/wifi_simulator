@@ -46,7 +46,7 @@ export const nav: Lesson = {
       zh: '侦听信道只回答一个问题：此刻空口上有没有能量？帧还在发的时候，这就够了。可帧发完之后那段停顿里就不够了——那时空口确实是空的，交互却还没完。而当下一帧将由房间另一头、你压根听不见的设备发出时，它同样不够。',
     } },
     { heading: { en: 'A promise in every header', zh: '每个帧头里的一句承诺' }, text: {
-      en: 'So each frame carries a small field near the front — the Duration — saying how much more time the exchange needs once this frame has ended. Anyone who decodes the frame takes that number and starts a countdown, the NAV, including the stations the frame was never addressed to. While the countdown runs, the station behaves exactly as if the channel were busy, however quiet it sounds.',
+      en: 'So each frame carries a small field near the front — the Duration — saying how much more time the exchange needs once this frame has ended. Anyone who decodes the frame takes that number and starts a countdown of its own (the NAV), including the stations the frame was never addressed to. While the countdown runs, the station behaves exactly as if the channel were busy, however quiet it sounds.',
       zh: '所以每一帧靠前的位置都带着一个小字段——Duration——说明这一帧结束之后，本次交互还需要多少时间。凡是解出这一帧的人，都会把这个数拿去起一个倒计时，也就是 NAV，包括那些根本不是收件人的站点。只要倒计时还在走，站点的行为就完全等同于“信道忙”，不管听上去有多安静。',
     } },
     { kind: 'watch', jump: 0, heading: { en: 'Watch a timer being set', zh: '看一次计时器被装上' }, text: {
