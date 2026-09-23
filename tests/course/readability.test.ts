@@ -452,6 +452,7 @@ export const MECHANISM_DONE: string[] = [
   'edca', 'ampdu', 'txop', 'txop-protect',
   'width', 'streams', 'rate', 'rate-fallback',
   'ofdma-dl', 'ofdma-ul', 'mumimo',
+  'mlo', 'capstone',
 ]
 
 /**
