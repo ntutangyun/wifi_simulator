@@ -42,9 +42,11 @@ const PLAN = roundPlan(SESSION, ANCHORS)
 const recs = (variant?: number): TLRecord[] => runOf(uwbBlocks, variant, RUN_NS)
 
 // The contract every migrated lesson owes, written once in tests/course/kit.ts.
-// The prose window is the content contract's: `why` + `outcomes` + `terms` +
-// `picture` + `numbers`, which `npx tsx scripts/lesson-dump.ts uwb-blocks en` prints.
-lessonShapeSuite(uwbBlocks, { proseMax: 950, runNs: RUN_NS })
+// The prose window is the content contract's: `why` + outcomes + terms + picture
+// + numbers, which the spec's own section budgets (900 + 550, as the 2026-09-23
+// amendment raised them to pay for a procedure) already bound. The ratchet below
+// sits just above what the lesson actually spends, so growth is deliberate.
+lessonShapeSuite(uwbBlocks, { proseMax: 1130, runNs: RUN_NS })
 
 /**
  * Nanoseconds a node's radio spends out of `idle` inside [fromNs, untilNs) — the
@@ -578,5 +580,126 @@ describe('uwb-blocks · the 0.5 ms variant', () => {
     // and 300 is exactly the floor the schema refuses to go under
     expect(schemaIssues(300)).toEqual([])
     expect(schemaIssues(297)).toContain('Number must be greater than or equal to 300')
+  })
+})
+
+/**
+ * The procedure the 2026-09-23 amendment asks for ("mechanism before metaphor"):
+ * the schedule as the engine builds and walks it. Each step is checked against
+ * what it names — `uwbSlotsPerTag` and `roundPlan` for the three lengths and the
+ * round count, `slotStartNs` for every slot boundary, `slotAction` for the one
+ * device a slot belongs to, and the `UWB_SLOT` / `UWB_TIMEOUT` records for what
+ * a device does with the answer.
+ */
+describe('uwb-blocks · the procedure, step by step', () => {
+  /** The lesson's steps block of `numbers`. */
+  const steps = (): Extract<Block, { kind: 'steps' }> =>
+    uwbBlocks.numbers!.find((b): b is Extract<Block, { kind: 'steps' }> => b.kind === 'steps')!
+
+  it('is a steps block on the main path, not in `deeper`, and runs in the engine’s own order', () => {
+    // amendment rule 3: the rule is written as a procedure, in `numbers`
+    expect(uwbBlocks.numbers!.filter((b) => b.kind === 'steps')).toHaveLength(1)
+    expect((uwbBlocks.deeper ?? []).filter((b) => b.kind === 'steps')).toHaveLength(0)
+    expect(steps().items.length).toBeGreaterThanOrEqual(3)
+    // the order of the engine: the plan's three lengths, the round each tag owns,
+    // the slot's start, who transmits in it, who listens, and the miss
+    const en = steps().items.map((s) => s.en)
+    const order = ['slot count', 'Round k goes to phone k', 'multiplication', 'may transmit', 'own id', 'no retry']
+    order.forEach((token, i) => expect(en[i], token).toContain(token))
+  })
+
+  it('step 1: the slot count is the method’s, two per anchor plus two', () => {
+    expect(PLAN.slots).toBe(uwbSlotsPerTag(SESSION.method, ANCHORS))
+    expect(PLAN.slots).toBe(2 * ANCHORS + 2)
+    expect(steps().items[0].en).toContain('two per anchor plus two')
+    // and the two lengths the step says are fixed are the session's own, untouched by the run
+    expect(PLAN.blockNs).toBe(rstuNs(SESSION.blockRstu))
+    expect(PLAN.slotNs).toBe(rstuNs(SESSION.slotRstu))
+  })
+
+  it('step 2: round k belongs to phone k, in every block', () => {
+    const rounds = ofType(recs(), 'UWB_ROUND')
+    for (const r of rounds) expect(r.round, `${r.node} block ${r.block}`).toBe(TAGS.indexOf(r.node))
+    // two blocks' worth, so "in every block" is measured and not assumed
+    expect(new Set(rounds.map((r) => r.block)).size).toBeGreaterThan(1)
+    expect(steps().items[1].en).toContain('rounds 0, 1 and 2')
+  })
+
+  it('step 3: every slot boundary of the run is that one multiplication', () => {
+    // block × block + round × round + slot × slot, for every UWB_SLOT the run emitted
+    const slots = ofType(recs(), 'UWB_SLOT')
+    expect(slots.length).toBeGreaterThan(50)
+    const roundOf = new Map(ofType(recs(), 'UWB_ROUND').map((r) => [`${r.node}/${r.t}`, r]))
+    for (const s of slots) {
+      const open = [...roundOf.values()].filter((r) => r.node === s.node && r.t <= s.t).pop()!
+      const at = open.block * PLAN.blockNs + open.round * PLAN.roundNs + s.slot * PLAN.slotNs
+      expect(s.t, `${s.node} slot ${s.slot}`).toBe(at)
+      expect(s.untilNs - s.t).toBe(PLAN.slotNs)
+    }
+  })
+
+  it('steps 4 and 5: one transmitter a slot, and an anchor deaf through the other anchors’ slots', () => {
+    // the schedule names the device; everyone else listens only for what is its own
+    const first = ofType(recs(), 'TX_START').filter((r) => r.t < 20 * MS)
+    expect(first.map((r) => `${r.node}/${r.frame.kind}`)).toEqual([
+      'uwb-1/uwbPoll',
+      'anchor-1/uwbResp', 'anchor-2/uwbResp', 'anchor-3/uwbResp', 'anchor-4/uwbResp',
+      'uwb-1/uwbFinal',
+      'anchor-1/uwbReport', 'anchor-2/uwbReport', 'anchor-3/uwbReport', 'anchor-4/uwbReport',
+    ])
+    // exactly one transmitter per slot, and never two at once
+    expect(new Set(first.map((r) => r.t)).size).toBe(first.length)
+    // the anchor's receiver is off through the other anchors' slots: measured, slot by
+    // slot, over phone 1's round — anchor 1 owns slots 1 and 6 and listens in 0 and 5,
+    // and its radio is off for the whole of every other slot
+    for (const s of [2, 3, 4, 7, 8, 9]) {
+      const from = s * PLAN.slotNs
+      expect(radioOnNs(recs(), 'anchor-1', from + PLAN.slotNs, from), `slot ${s}`).toBe(0)
+    }
+    for (const s of [0, 1, 5, 6]) {
+      const from = s * PLAN.slotNs
+      expect(radioOnNs(recs(), 'anchor-1', from + PLAN.slotNs, from), `slot ${s}`).toBeGreaterThan(0)
+    }
+  })
+
+  it('step 6: a missed slot is a UWB_TIMEOUT naming the slot and the frame, and nothing else happens', () => {
+    // the lesson's own scene never loses a frame, so the claim is proved on a scene
+    // that does: one anchor moved out to 40 m, past this receiver's sensitivity.
+    const sc = uwbBlocksScenario(2400)
+    const far = { ...sc, nodes: sc.nodes.map((n) => (n.id === 'anchor-1' ? { ...n, pos: { ...n.pos, x: 60 } } : n)) }
+    const rs = [...runOf({ ...uwbBlocks, id: 'uwb-blocks#far', scenario: () => far }, undefined, 60 * MS)]
+    const outs = ofType(rs, 'UWB_TIMEOUT')
+    expect(outs.length).toBeGreaterThan(0)
+    for (const t of outs) {
+      expect(t.peer, 'the record names the peer that did not answer').toBeTruthy()
+      expect(typeof t.slot).toBe('number')
+      expect(['uwbResp', 'uwbReport', 'uwbPoll', 'uwbFinal']).toContain(t.expected)
+    }
+    // no retry: the round still runs its ten slots and walks on to the next tag's
+    expect(ofType(rs, 'UWB_SLOT').filter((r) => r.node === 'uwb-1' && r.t < 20 * MS)).toHaveLength(PLAN.slots)
+    // and the Final leaves the silent anchor out, so it sends no Report
+    const finals = ofType(rs, 'TX_START').filter((r) => r.frame.kind === 'uwbFinal')
+    expect(finals[0].frame.uwb!.finalTimes!.map((e) => e.id)).not.toContain('anchor-1')
+    expect(ofType(rs, 'TX_START').some((r) => r.node === 'anchor-1' && r.frame.kind === 'uwbReport')).toBe(false)
+  })
+
+  it('the worked example is phone 2’s own round, read off the run', () => {
+    const open = ofType(recs(), 'UWB_ROUND').find((r) => r.node === 'uwb-2' && r.block === 0)!
+    expect([cell(5, 0, 1), cell(5, 1, 1)]).toEqual(['0 · 1', '1 × 20.0 ms = 20 ms'])
+    expect(open.block).toBe(0)
+    expect(open.round).toBe(1)
+    expect(open.t).toBe(open.round * PLAN.roundNs)
+    const slots = ofType(recs(), 'UWB_SLOT').filter((r) => r.node === 'uwb-2' && r.t < PLAN.blockNs)
+    expect(cell(5, 2, 1)).toBe(`${slots[0].t.toLocaleString('en-US').replace(/,/g, ' ')} ns`)
+    expect(cell(5, 3, 1)).toBe(`${slots[5].t.toLocaleString('en-US').replace(/,/g, ' ')} ns`)
+    // slot 5 is the Final's, which is where the procedure's step 4 puts it
+    expect(ofType(recs(), 'TX_START').find((r) => r.node === 'uwb-2' && r.frame.kind === 'uwbFinal')!.t)
+      .toBe(slots[5].t)
+    // the round ends, and the fix lands, at the end of its last slot
+    const end = ofType(recs(), 'UWB_ROUND_END').find((r) => r.node === 'uwb-2')!
+    const fix = ofType(recs(), 'UWB_POSITION').find((r) => r.node === 'uwb-2')!
+    expect(cell(5, 4, 1)).toBe(`${end.t.toLocaleString('en-US').replace(/,/g, ' ')} ns`)
+    expect(fix.t).toBe(end.t)
+    expect(end.t).toBe(open.t + PLAN.roundNs)
   })
 })

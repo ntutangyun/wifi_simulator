@@ -31,8 +31,10 @@ const RING_M = 3.5
 
 // The contract every migrated lesson owes, written once in tests/course/kit.ts.
 // The prose window is the content contract's: `why` + outcomes + terms + picture
-// + numbers, which the spec's own section budgets (650 + 350) already bound.
-lessonShapeSuite(uwbSstwr, { proseMax: 1000, runNs: RUN_NS })
+// + numbers, which the spec's own section budgets (900 + 550, as the 2026-09-23
+// amendment raised them to pay for a procedure) already bound. The ratchet below
+// sits just above what the lesson actually spends, so growth is deliberate.
+lessonShapeSuite(uwbSstwr, { proseMax: 1180, runNs: RUN_NS })
 
 /** The scenario each part of the lesson runs: the base, then variant 0 and variant 1. */
 const scenarioOf = (variant?: number): Scenario =>
@@ -537,5 +539,111 @@ describe('uwb-sstwr · the two variants and the crystals table', () => {
         expect(Math.abs(r.distM - RING_M), `${String(v)} ${r.peer}`).toBeLessThan(bound)
       })
     }
+  })
+})
+
+/**
+ * The procedure the 2026-09-23 amendment asks for ("mechanism before metaphor"):
+ * the steps the engine actually takes, in its order, and the worked example that
+ * runs them on anchor 1. Every step is checked against the function or the record
+ * it names — the four `UWB_TS` records for the stamps, `counterDiff` for the two
+ * subtractions, `ssTwrRaw` / `ssTwrCorrected` for the halving and `rctuToMetres`
+ * for the last multiplication.
+ */
+describe('uwb-sstwr · the procedure, step by step', () => {
+  /** The lesson's steps block of `numbers`. */
+  const steps = (): Extract<Block, { kind: 'steps' }> =>
+    uwbSstwr.numbers!.find((b): b is Extract<Block, { kind: 'steps' }> => b.kind === 'steps')!
+  /** A counter as the worked example prints it: thousands separated by a thin space. */
+  const fmt = (n: number): string => n.toLocaleString('en-US').replace(/,/g, ' ')
+  /** The four ranging-counter readings of the anchor-1 exchange, in the order they are taken. */
+  const stamps = () => {
+    const ts = ofType(recs(), 'UWB_TS')
+    const txPoll = ts.find((r) => r.node === 'tag-1' && r.dir === 'tx' && r.frameKind === 'uwbPoll')!
+    const rxPoll = ts.find((r) => r.node === 'anchor-1' && r.dir === 'rx' && r.frameKind === 'uwbPoll')!
+    const txResp = ts.find((r) => r.node === 'anchor-1' && r.dir === 'tx' && r.frameKind === 'uwbResp')!
+    const rxResp = ts.find((r) => r.node === 'tag-1' && r.dir === 'rx' && r.peer === 'anchor-1')!
+    const treply = counterDiff(txResp.counter, rxPoll.counter)
+    const tround = counterDiff(rxResp.counter, txPoll.counter)
+    // invert ssTwrCorrected: the tof the record carries names exactly one Coffs
+    const coffs = (2 * ranges()[0].tofRctu - tround + treply) / treply
+    return { txPoll, rxPoll, txResp, rxResp, treply, tround, coffs }
+  }
+
+  it('is a steps block on the main path, not in `deeper`, and runs in the engine’s own order', () => {
+    // amendment rule 3: the rule is written as a procedure, in `numbers`
+    expect(uwbSstwr.numbers!.filter((b) => b.kind === 'steps')).toHaveLength(1)
+    expect((uwbSstwr.deeper ?? []).filter((b) => b.kind === 'steps')).toHaveLength(0)
+    expect(steps().items.length).toBeGreaterThanOrEqual(3)
+    // the order the steps are written in is the order device.ts runs them in: stamp
+    // the Poll out, stamp the Response out and carry Treply, stamp it in and subtract
+    // Tround, read Coffs off the same reception, halve, scale to metres, report
+    const en = steps().items.map((s) => s.en)
+    const order = ['Poll', 'Treply', 'Tround', 'Coffs', 'Halve', 'speed of light', 'Figure of Merit']
+    order.forEach((token, i) => expect(en[i], token).toContain(token))
+  })
+
+  it('the four stamps of the worked example are the four UWB_TS counters of the run', () => {
+    const { txPoll, rxPoll, txResp, rxResp } = stamps()
+    expect([cell(3, 0, 1), cell(3, 1, 1), cell(3, 2, 1), cell(3, 4, 1)])
+      .toEqual([fmt(txPoll.counter), fmt(rxPoll.counter), fmt(txResp.counter), fmt(rxResp.counter)])
+    // two at each end, and each end subtracts only its own pair (device.ts `onResponse`)
+    expect(txPoll.node).toBe(rxResp.node)
+    expect(rxPoll.node).toBe(txResp.node)
+    expect(txPoll.node).not.toBe(rxPoll.node)
+  })
+
+  it('Treply and Tround are the two differences the engine takes, and the cells print them', () => {
+    const { treply, tround } = stamps()
+    expect(cell(3, 3, 1)).toBe(fmt(treply))
+    expect(cell(3, 5, 1)).toBe(fmt(tround))
+    // the reply is a whole 2 ms slot of waiting, and the round trip differs from it
+    // by 4056 counts — twice the flight, plus the whole of the clock error
+    expect((treply * RCTU_NS) / MS).toBeCloseTo(2, 3)
+    expect(tround - treply).toBe(4056)
+  })
+
+  it('Coffs is the crystals’ own offset, and the cell prints what the run implies', () => {
+    const { coffs } = stamps()
+    const shown = `${(coffs * 1e6).toFixed(2)} ppm`.replace('-', '−')
+    expect(cell(3, 6, 1)).toBe(shown)
+    expect(steps().items[3].en).toContain(shown)
+    // and it is the two crystals' difference, inside the estimator's own residual
+    expect(Math.abs(coffs * 1e6 - (BASE_PPM.anchors - BASE_PPM.tag))).toBeLessThan(4 * SESSION.cfoNoisePpm)
+  })
+
+  it('the two half-differences are ssTwrRaw and ssTwrCorrected, in counts and in metres', () => {
+    const { treply, tround, coffs } = stamps()
+    const range = ranges()[0]
+    const raw = ssTwrRaw(tround, treply)
+    expect(raw).toBe(range.tofRawRctu)
+    expect(cell(3, 7, 1)).toBe(`${raw} · ${rctuToMetres(raw).toFixed(2)} m`)
+    // the corrected half-difference is the record's own tof, and its metres the record's distM
+    expect(ssTwrCorrected(tround, treply, coffs)).toBeCloseTo(range.tofRctu, 9)
+    expect(cell(3, 8, 1)).toBe(`${range.tofRctu.toFixed(1)} · ${range.distM.toFixed(2)} m`)
+    expect(steps().items[5].en).toContain(`${range.distM.toFixed(2)} m`)
+    expect(steps().items[5].en).toContain(`${range.trueDistM.toFixed(2)} m`)
+  })
+
+  it('one count is 15.65 ps, and the last multiplication is by it and by c', () => {
+    expect((RCTU_NS * 1000).toFixed(2)).toBe('15.65')
+    expect(steps().items[5].en).toContain('15.65 ps')
+    // proven rather than asserted: over every range of every variant, metres are
+    // always counts × one count × c
+    for (const v of [undefined, 0, 1]) {
+      for (const r of ranges(v)) expect(r.distM, r.peer).toBeCloseTo(r.tofRctu * RCTU_NS * C_M_PER_NS, 12)
+    }
+  })
+
+  it('the record carries a Figure of Merit and no error bar; the 1-σ is computed apart', () => {
+    // last step: "a Figure of Merit byte — never an error bar"
+    for (const r of ranges()) {
+      expect(r.fom).toBe(FOM_LOS)
+      expect(Object.keys(r)).not.toContain('sigmaM')
+    }
+    // and the 1-σ the fix is weighted by is rangeSigmaM: two receive stamps, halved
+    expect(SIGMA_R).toBeCloseTo((C_M_PER_NS * SESSION.tsNoisePs) / 1000 / Math.SQRT2, 12)
+    expect(steps().items[6].en).toContain(`${(SIGMA_R * 100).toFixed(1)} cm`)
+    expect(steps().items[6].en).toContain(`${SESSION.tsNoisePs} ps`)
   })
 })

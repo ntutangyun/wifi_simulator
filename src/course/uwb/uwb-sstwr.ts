@@ -48,7 +48,7 @@ export const uwbSstwr: Lesson = {
   module: 11,
   title: { en: 'The clock inside the reply time', zh: '应答时间里藏着的那只时钟' },
   why: {
-    en: 'The lessons so far let both radios keep perfect time. No real pair does: a quartz crystal runs a little fast or a little slow, and an interval measured on a slow one comes out short. The longest interval in the exchange is the anchor’s, and the phone subtracts it as if it were its own. Here that goes wrong by metres.',
+    en: 'The lessons so far let both radios keep perfect time. No real pair does: the crystal — the sliver of quartz a radio counts its time on — runs a little fast or a little slow, and an interval measured on a slow one comes out short. The longest interval in the exchange is the anchor’s, and the phone subtracts it as if it were its own. Here that goes wrong by metres.',
     zh: '前面几课让两台射频都守着完美的时间，现实里没有哪一对是这样：石英晶体总会走得偏快或偏慢，用走得慢的钟量出来的一段时间就偏短。偏偏交互里最长的那一段是锚点量的，手机却把它当成自己量的直接减掉。这一课里，这件事会错出好几米。',
   },
   outcomes: [
@@ -89,19 +89,19 @@ export const uwbSstwr: Lesson = {
       zh: '载入仿真，跳到第一条测距行。手机离那个锚点三米半，而它自己以为是多少？读一读，再往下读接着的三行。',
     } },
     { heading: { en: 'A crystal nobody ever set', zh: '一块从没被校准过的晶体' }, text: {
-      en: 'Each radio counts time on its own crystal, and no crystal runs at exactly its stated rate — the error is quoted in ppm. This phone runs a little fast, every anchor a little slow, and neither knows it. Each end still subtracts two readings of its own counter, so the unknown starting point cancels. The rate does not cancel.',
-      zh: '每台射频都用自己那块晶体数时间，而没有哪块晶体真的走在标称速率上——这点误差用 ppm 来说。这里的手机走得偏快，每个锚点都走得偏慢，而且谁也不知道。两端减的依然是自己计数器上的两次读数，未知的起点因此被约掉；速率却没有被约掉。',
+      en: 'Each radio counts time on its own crystal, and no crystal runs at exactly its stated rate — the error is quoted in parts per million (ppm). This phone runs a little fast, every anchor a little slow, and neither knows it. Each end still subtracts two readings of its own counter, so the unknown starting point cancels. The rate does not cancel.',
+      zh: '每台射频都用自己那块晶体数时间，而没有哪块晶体真的走在标称速率上——这点误差用百万分之几（ppm）来说。这里的手机走得偏快，每个锚点都走得偏慢，而且谁也不知道。两端减的依然是自己计数器上的两次读数，未知的起点因此被约掉；速率却没有被约掉。',
     } },
     { heading: { en: 'The wait is the problem, not the flight', zh: '出问题的是等待，不是飞行' }, text: {
       en: 'The phone times a round trip on its own clock; the anchor times its reply on its own and sends that number over to be subtracted. Both are stretched, and the subtraction cancels most of the stretch. What is left is half the reply times the difference between the two rates. The flight is billionths of a second, the reply a whole slot of waiting: an error invisible on one is metres on the other.',
       zh: '手机用自己的钟量一次往返；锚点用自己的钟量自己的作答时长，再把这个数发过来让手机减掉。两个数都被拉长了，一减之下大部分拉长量互相抵消。剩下的是应答时长的一半乘以两端速率之差。而飞行时间是几十亿分之一秒，应答时长却是整整一个时隙的等待：同一个误差落在前者上看不见，落在后者上就是好几米。',
     } },
     { heading: { en: 'Wait longer, lie further', zh: '等得越久，谎话越大' }, text: {
-      en: 'That is why the scene has four anchors and not one. The anchor in the first slot waits one slot before answering, the anchor in the fourth waits four, and the leftover error is proportional to the wait. Four identical distances come back as a ramp. Uncorrected, SS-TWR measures how long the responder waited, not how far away it is.',
-      zh: '这就是场景里要摆四个锚点而不是一个的原因。第一个时隙里的锚点等一个时隙才作答，第四个要等四个，而剩下的那点误差与等待时长成正比。四个一模一样的距离，读出来却是一道斜坡。不作修正的话，SS-TWR 量的不是距离有多远，而是应答方等了多久。',
+      en: 'That is why the scene has four anchors and not one. The anchor in the first slot waits one slot before answering, the anchor in the fourth waits four, and the leftover error is proportional to the wait. Four identical distances come back as a ramp. Uncorrected, single-sided two-way ranging (SS-TWR) measures how long the responder waited, not how far away it is.',
+      zh: '这就是场景里要摆四个锚点而不是一个的原因。第一个时隙里的锚点等一个时隙才作答，第四个要等四个，而剩下的那点误差与等待时长成正比。四个一模一样的距离，读出来却是一道斜坡。不作修正的话，单边双向测距（SS-TWR）量的不是距离有多远，而是应答方等了多久。',
     } },
     { heading: { en: 'Ask the receiver how fast the other clock runs', zh: '问接收端：对面那只钟走得多快' }, text: {
-      en: 'A receiver cannot find the RMARKER until it has locked onto the incoming pulses, and the loop that locks knows, as a by-product, how fast those pulses arrive against its own crystal. That ratio is the clock offset, measured rather than assumed, and the simulator carries it on every received frame as Coffs. Scale the reply by it and the near-cancellation becomes real.',
+      en: 'A receiver cannot find the RMARKER until it has locked onto the incoming pulses, and the loop that locks knows, as a by-product, how fast those pulses arrive against its own crystal. That ratio is the clock offset, measured rather than assumed, and the simulator hangs it on every received frame as that frame’s clock-offset estimate (Coffs). Scale the reply by it and the near-cancellation becomes real.',
       zh: '接收端必须先锁住进来的脉冲，才谈得上找到 RMARKER；而完成这次锁定的环路顺带就知道：这些脉冲相对自己那块晶体跑得有多快。这个比值就是时钟偏差——是测出来的，不是假定的；仿真器把它挂在每个收到的帧上，叫作 Coffs。拿它去缩放应答时长，那次"几乎抵消"就成了真的抵消。',
     } },
     { heading: { en: 'What the correction leaves behind', zh: '修正之后还剩下什么' }, text: {
@@ -158,6 +158,35 @@ export const uwbSstwr: Lesson = {
       en: 'The last column is one draw from those distributions, which is why it does not grow: the widest of them landed nearest the truth.',
       zh: '最后一列只是从这些分布里各抽了一次，所以它并不一路变大：最宽的那个分布这次恰好落得离真值最近。',
     } },
+    { kind: 'steps', heading: { en: 'One range, step by step', zh: '一次测距，一步一步' }, items: [
+      { en: 'Slot 0. The phone stamps the RMARKER of its Poll leaving, on its own counter; every anchor stamps that same RMARKER arriving, each on its own.',
+        zh: '时隙 0。手机用自己的计数器给 Poll 帧离开时的 RMARKER 打一个戳；每个锚点也给同一个 RMARKER 的到达打戳，各用各的计数器。' },
+      { en: 'In its own slot the anchor stamps its Response leaving, subtracts its own two counts and writes the difference into that frame: Treply, the reply time, measured wholly on the anchor’s crystal.',
+        zh: '锚点在自己的时隙里给 Response 的离开打戳，把自己的两个计数值一减，再把差值写进这一帧：应答时长 Treply，完全是在锚点自己的晶体上量出来的。' },
+      { en: 'The phone stamps the Response arriving and subtracts its own two counts: Tround, the round trip. Four stamps, two at each end, and neither end subtracts the other’s.',
+        zh: '手机给 Response 的到达打戳，再减去自己的那两个计数值：往返时长 Tround。一共四个戳，两端各两个，谁也没有去减对方的那一个。' },
+      { en: 'The carrier lock of that same reception reports how much faster the anchor’s crystal runs than the phone’s: Coffs, −20.24 ppm here — 20 ppm of crystal plus 0.2 ppm the estimator gets wrong.',
+        zh: '同一次接收的载波锁定顺带报出：锚点的晶体比手机快多少。这就是 Coffs，这里是 −20.24 ppm——两块晶体本身相差的 20 ppm，再加上估计器弄错的 0.2 ppm。' },
+      { en: 'Halve the difference of the two intervals. Leave Coffs out and it is 2028 counts, the raw figure the range line prints; scale the reply by Coffs first and it is 734.6 counts.',
+        zh: '把这两段时间的差折半。不算 Coffs，得到 2028 格，就是测距行上打印的 raw 值；先用 Coffs 缩放应答时长再折半，得到 734.6 格。' },
+      { en: 'Multiply by one count, 15.65 ps, and by the speed of light: 3.45 m, against a true 3.50 m.',
+        zh: '乘以一格的 15.65 ps，再乘以光速：3.45 m，而真值是 3.50 m。' },
+      { en: 'The range line carries that figure, the raw one beside it and a Figure of Merit byte — never an error bar. The 1-σ the fix is weighted by is computed apart, from the timestamp noise alone: 100 ps ÷ √2 × c, or 2.1 cm.',
+        zh: '测距行上带的就是这个数，旁边是 raw 值，后面跟一个品质因数字节——从来没有误差棒。给定位加权用的那个 1σ 是另外算的，只由时间戳噪声决定：100 ps ÷ √2 × 光速，合 2.1 cm。' },
+    ] },
+    { kind: 'table', heading: { en: 'Anchor 1, run through the steps', zh: '锚点 1，照着步骤走一遍' }, head: [
+      { en: 'Step', zh: '步骤' }, { en: 'Value', zh: '数值' },
+    ], rows: [
+      [{ en: 'Poll leaves the phone', zh: 'Poll 离开手机' }, N('336 207 494 703')],
+      [{ en: 'it reaches anchor 1', zh: '它到达锚点 1' }, N('26 381 597 885')],
+      [{ en: 'anchor 1’s Response leaves', zh: '锚点 1 的 Response 离开' }, N('26 509 391 059')],
+      [{ en: '= Treply, the anchor’s crystal', zh: '= Treply，锚点的晶体' }, N('127 793 174')],
+      [{ en: 'it reaches the phone', zh: '它到达手机' }, N('336 335 291 933')],
+      [{ en: '= Tround, the phone’s crystal', zh: '= Tround，手机的晶体' }, N('127 797 230')],
+      [{ en: 'Coffs, off the carrier lock', zh: 'Coffs，由载波锁定得出' }, N('−20.24 ppm')],
+      [{ en: 'half-difference, no Coffs', zh: '折半的差，不算 Coffs' }, N('2028 · 9.51 m')],
+      [{ en: 'half-difference, Coffs applied', zh: '折半的差，算上 Coffs' }, N('734.6 · 3.45 m')],
+    ] },
   ],
   deeper: [
     { heading: { en: 'The two terms that survive', zh: '活下来的那两项' }, text: {

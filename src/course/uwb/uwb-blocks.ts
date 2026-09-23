@@ -57,9 +57,9 @@ export const uwbBlocks: Lesson = {
     zh: '一个房间里有好几部手机，它们想同时各自测出距离。换成一条 Wi-Fi 链路，它们会为空口争起来：先听、再等、退避、重来。测距会话反其道而行：在任何人开口之前先把时间表写好，每台射频只管读自己那一行。这一课讲的就是这张时间表——它由什么拼成、每一块归谁所有，以及它要让电池付出多少。',
   },
   outcomes: [
-    { en: 'read a round off the log and say which phone owns it', zh: '从日志里读出一轮测距，并说出它属于哪一部手机' },
+    { en: 'read one phone’s turn off the log (the ranging round) and say which phone owns it', zh: '从日志里读出属于某一部手机的那一回合（测距轮），并说出它归谁' },
     { en: 'say why nothing in a ranging session listens first, backs off or retries', zh: '说清为什么测距会话里没有谁需要先听、退避或重传' },
-    { en: 'tell what shortening a slot buys, and what it does not', zh: '讲清把时隙缩短能买到什么，又买不到什么' },
+    { en: 'tell what shortening a slot (one line of the timetable) buys, and what it does not', zh: '讲清把时隙（时间表上的一行）缩短能买到什么，又买不到什么' },
   ],
   needs: ['uwb-frame'],
   terms: [
@@ -82,7 +82,7 @@ export const uwbBlocks: Lesson = {
   ],
   picture: [
     { heading: { en: 'A timetable nobody negotiates', zh: '一张无需商量的时间表' }, text: {
-      en: 'A ranging session hands out time before anyone transmits. The whole schedule is one block, and the block repeats unchanged for as long as the session lasts. Nothing inside it listens for an idle medium, waits out a gap, draws a backoff or retries: every device knows the instant of every frame it will send before the first one flies.',
+      en: 'A ranging session hands out time before anyone transmits. The whole schedule is the block, and it repeats unchanged for as long as the session lasts. Nothing inside it listens for an idle medium, waits out a gap, draws a backoff or retries: every device knows the instant of every frame it will send before the first one flies.',
       zh: '测距会话在任何人发送之前就把时间分配完毕。整张日程就是一个块，只要会话还在，这个块就原样重复下去。它里面没有谁需要先听信道是否空闲、没有谁要等一段间隔、没有谁要取退避值、也没有谁要重传：每台设备在第一帧起飞之前，就已经知道自己要发的每一帧发生在哪一刻。',
     } },
     { text: {
@@ -112,15 +112,15 @@ export const uwbBlocks: Lesson = {
   ],
   numbers: [
     { kind: 'table', heading: { en: 'Three nested clocks', zh: '三重嵌套的节拍' }, head: [
-      { en: 'Level', zh: '层级' }, { en: 'RSTU', zh: 'RSTU' }, { en: 'Duration', zh: '时长' }, { en: 'What owns it', zh: '归谁所有' },
+      { en: 'Level', zh: '层级' }, { en: 'RSTU', zh: 'RSTU' }, { en: 'Duration', zh: '时长' },
     ], rows: [
-      [{ en: 'Ranging block', zh: '测距块' }, N('240 000'), N('200.0 ms'), { en: 'the session; it repeats forever', zh: '整个会话；无限循环' }],
-      [{ en: 'Ranging round', zh: '测距轮' }, N('24 000'), N('20.0 ms'), { en: 'one phone: phone k owns round k', zh: '一部手机：第 k 部手机占用第 k 轮' }],
-      [{ en: 'Ranging slot', zh: '测距时隙' }, N('2 400'), N('2 000.0 µs'), { en: 'one device, one frame', zh: '一台设备，一帧' }],
+      [{ en: 'Ranging block', zh: '测距块' }, N('240 000'), N('200.0 ms')],
+      [{ en: 'Ranging round', zh: '测距轮' }, N('24 000'), N('20.0 ms')],
+      [{ en: 'Ranging slot', zh: '测距时隙' }, N('2 400'), N('2 000.0 µs')],
     ] },
     { text: {
-      en: 'Ten rounds fit a block and this scene holds three phones, so the other seven — 140 ms of every block — stay empty. A fourth phone would cost nothing but the next empty round; the block breaks only at the eleventh.',
-      zh: '一个块装得下十轮，而本场景只有三部手机，余下七轮——每个块里的 140 ms——空着。再加一部手机，代价不过是下一个空轮；要到第十一部，这个块才装不下。',
+      en: 'The seven rounds nobody owns are 140 ms of every block. A fourth phone would cost nothing but the next empty round; the block breaks only at the eleventh.',
+      zh: '没有主人的那七轮，合每个块里的 140 ms。再加一部手机，代价不过是下一个空轮；要到第十一部，这个块才装不下。',
     } },
     { kind: 'table', heading: { en: 'What the log says the grid is', zh: '日志是怎么写这张网格的' }, head: [
       { en: 'What', zh: '内容' }, { en: 'It reads', zh: '写的是' },
@@ -129,8 +129,8 @@ export const uwbBlocks: Lesson = {
       [{ en: 'Where the rounds of block 0 open', zh: '第 0 块的各轮何时开启' }, N('0, 20 and 40 ms; block 1 at 200, 220 and 240 ms')],
       [{ en: 'Where the three Polls of block 0 leave', zh: '第 0 块的三帧 Poll 何时离开' }, N('0, 20 000 000 and 40 000 000 ns')],
       [{ en: 'The opening frame that carries the grid', zh: '带着这张网格的那帧开场帧' }, N('Poll, 39 octets')],
-      [{ en: 'Its first list, 10 octets', zh: '第一张清单，10 字节' }, N('SP1 · DS-TWR · block 0 · round 0 · 4 responders')],
-      [{ en: 'Its second list, 15 octets', zh: '第二张清单，15 字节' }, N('4 devices: anchor-1 slot 1, anchor-2 slot 2, anchor-3 slot 3, anchor-4 slot 4')],
+      [{ en: 'Its first list, 10 octets', zh: '第一张清单，10 字节' }, { en: 'SP1 · DS-TWR · block 0 · round 0 · 4 responders', zh: 'SP1（加扰时间戳序列分组）· DS-TWR · 块 0 · 轮 0 · 4 个应答方' }],
+      [{ en: 'Its second list, 15 octets', zh: '第二张清单，15 字节' }, { en: '4 devices: anchor-1 slot 1, anchor-2 slot 2, anchor-3 slot 3, anchor-4 slot 4', zh: '4 台设备：anchor-1 时隙 1、anchor-2 时隙 2、anchor-3 时隙 3、anchor-4 时隙 4' }],
     ] },
     { kind: 'table', heading: { en: 'One fix per phone per block', zh: '每块一部手机一次定位' }, head: [
       { en: 'Phone', zh: '手机' }, { en: 'Its fix in block 0', zh: '它在第 0 块的定位' },
@@ -151,14 +151,14 @@ export const uwbBlocks: Lesson = {
       [N('anchor-1'), N('3 of 10'), N('4 of 10 × 3'), N('2 448 546 ns'), N('1.22 %')],
     ] },
     { text: {
-      en: 'The schedule hands a phone one round in ten and an anchor three; the state lane shows what the radio was actually on for. The two shares differ tenfold and more.',
+      en: 'The schedule hands a phone one round in ten and an anchor three; the state lane shows what the radio was on for. The two shares differ tenfold and more.',
       zh: '时间表分给手机的是十轮中的一轮，分给锚点的是三轮；而状态泳道显示的，是射频真正开着的那点时间。两种占比相差十倍以上。',
     } },
     { kind: 'formula', heading: { en: 'How short a slot may be', zh: '时隙最短能有多短' }, text: {
       en: 'slot ≥ PPDU(Final, N anchors) + 200 ns = 236 603 + 200 = 236 803 ns at N = 4',
       zh: 'slot ≥ PPDU(Final, N anchors) + 200 ns = 236 603 + 200 = 236 803 ns at N = 4',
     }, note: {
-      en: 'The editor applies it before a run: a slot must hold the round’s longest frame plus a 200 ns flight guard, which is 60 m of air. So 2 ms is not a computed minimum but a profile number, and it leaves that frame on 11.8 % of its own slot.',
+      en: 'The editor applies it before a run: a slot must hold the round’s longest frame plus a 200 ns flight guard, which is 60 m of air. So 2 ms is a profile number, not a computed minimum; that frame uses 11.8 % of its own slot.',
       zh: '编辑器在运行之前就会套用它：时隙必须装得下本轮最长的那一帧，再加 200 ns 的飞行余量，相当于 60 m 空气。所以 2 ms 不是算出来的下限，而是规范档案里的取值；它让那一帧只占掉自己时隙的 11.8 %。',
     } },
     { kind: 'table', heading: { en: 'Two slot lengths, one scene', zh: '同一场景，两种时隙长度' }, head: [
@@ -169,9 +169,32 @@ export const uwbBlocks: Lesson = {
       [N('600 RSTU · 0.5 ms'), N('5.0 ms'), N('40'), N('15 ms'), N('1 934 334 ns')],
     ] },
     { text: {
-      en: 'The same ten frames, four times closer together — and the radio-on total does not move, to the nanosecond, because no frame changed length. Shortening a slot buys latency and room for more phones, not battery.',
+      en: 'The same ten frames, four times closer together — and the radio-on total does not move, to the nanosecond: no frame changed length. Shortening a slot buys latency and room for more phones, not battery.',
       zh: '还是那十帧，只是挨得紧了四倍——而射频开启的总时长一纳秒都没动，因为没有任何一帧的长度发生变化。缩短时隙买到的是时延和容纳更多手机的空间，不是电池。',
     } },
+    { kind: 'steps', heading: { en: 'How the timetable is written', zh: '这张时间表是怎么写出来的' }, items: [
+      { en: 'Those three lengths are fixed before a frame flies and never renegotiated; the slot count comes from the method, two per anchor plus two.',
+        zh: '上面那三个长度在任何一帧起飞之前就定下了，之后再不重议；一轮有多少时隙由测距方法决定——每个锚点两个，再加两个。' },
+      { en: 'Round k goes to phone k, in every block, so the three phones here take rounds 0, 1 and 2.',
+        zh: '第 k 轮归第 k 部手机，每个块都如此；这里的三部手机分到的就是第 0、1、2 轮。' },
+      { en: 'A slot’s start is one multiplication, never a negotiation: block number × block, plus round number × round, plus slot number × slot.',
+        zh: '一个时隙什么时候开始，是一次乘法，而不是一场商量：块号乘块长，加上轮号乘轮长，再加上时隙号乘时隙长。' },
+      { en: 'At each slot start the schedule names the one device that may transmit: slot 0 the phone’s Poll, the next four the anchors’ Responses in order, the sixth the Final, the last four the Reports.',
+        zh: '每个时隙一开始，时间表就点出唯一有权发送的那台设备：时隙 0 是手机的 Poll，接着四个是各锚点按名单顺序作答的 Response，第六个是 Final，最后四个是各自的 Report。' },
+      { en: 'Everyone else compares that name with its own id and listens only for what is its own; an anchor’s receiver is off through the other anchors’ slots.',
+        zh: '其余各台把这个名字与自己的 id 一比，只为属于自己的那几帧开机；在其他锚点的时隙里，一个锚点的接收机是关着的。' },
+      { en: 'A device that armed its receiver and heard nothing gets no retry: the wait expires at the slot boundary, the log records the slot and the frame it expected, and the round walks on; the Final then leaves that anchor out.',
+        zh: '打开了接收机却什么也没听到的设备，没有重传可言：等待在时隙边界到期，日志记下是哪个时隙、等的是哪种帧，这一轮照常往下走；随后的 Final 就把那个锚点漏掉了。' },
+    ] },
+    { kind: 'table', heading: { en: 'Phone 2’s round, located', zh: '第 2 部手机的那一轮，定在时间轴上' }, head: [
+      { en: 'Step', zh: '步骤' }, { en: 'Value', zh: '数值' },
+    ], rows: [
+      [{ en: 'its block and round', zh: '它的块号与轮号' }, N('0 · 1')],
+      [{ en: 'so its round opens at', zh: '于是这一轮开始于' }, N('1 × 20.0 ms = 20 ms')],
+      [{ en: 'its Poll leaves in slot 0', zh: '它的 Poll 在时隙 0 发出' }, N('20 000 000 ns')],
+      [{ en: 'its Final leaves in slot 5', zh: '它的 Final 在时隙 5 发出' }, N('30 000 000 ns')],
+      [{ en: 'its round ends, its fix lands', zh: '这一轮结束，定位随之落下' }, N('40 000 000 ns')],
+    ] },
   ],
   deeper: [
     { heading: { en: 'The floor under every slot', zh: '每个时隙脚下的那条下限' }, text: {

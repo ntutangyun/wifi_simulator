@@ -41,7 +41,11 @@ const RING_M = 3.5
 const ANCHORS = 4
 
 // The contract every migrated lesson owes, written once in tests/course/kit.ts.
-lessonShapeSuite(uwbDstwr, { proseMax: 1000, runNs: RUN_NS })
+// The prose window is the content contract's: `why` + outcomes + terms + picture
+// + numbers, which the spec's own section budgets (900 + 550, as the 2026-09-23
+// amendment raised them to pay for a procedure) already bound. The ratchet below
+// sits just above what the lesson actually spends, so growth is deliberate.
+lessonShapeSuite(uwbDstwr, { proseMax: 1150, runNs: RUN_NS })
 
 /** The scenario each part of the lesson runs: the base, then variant 0. */
 const scenarioOf = (variant?: number): Scenario =>
@@ -370,8 +374,9 @@ describe('uwb-dstwr · ten slots and the frames that fill them', () => {
   })
 
   it('the Final carries each anchor’s round trip and the phone’s own wait', () => {
-    // the steps block: "The phone sends one Final to every anchor, carrying the two intervals only
-    //  it could measure." / "Each anchor sends a Report with its own two."
+    // the procedure's steps 4 and 6: "The phone stamps one Final leaving and writes into it, per
+    //  anchor that answered, that round trip and Treply2 … the two only it could measure." /
+    //  "Each anchor then sends a Report carrying its own two."
     const u = finalFrame(recs()).uwb!
     expect(u.ies).toEqual(['RMI', 'RRTI'])
     expect(u.finalTimes).toHaveLength(ANCHORS)
@@ -754,6 +759,87 @@ describe('uwb-dstwr · the ±20 ppm variant', () => {
     expect(f).toHaveLength(1)
     expect(Math.hypot(f[0].x - f[0].trueX, f[0].y - f[0].trueY).toFixed(2)).toBe('0.02')
     expect(f[0].gdop.toFixed(2)).toBe('1.00')
+  })
+})
+
+/**
+ * The procedure the 2026-09-23 amendment asks for ("mechanism before metaphor"):
+ * the six stamps the engine takes, the four intervals they subtract to, and the
+ * one division that cancels both crystals. Every step is checked against the
+ * record or the function it names — the `UWB_TS` counters, `counterDiff`, and
+ * `dsTwr` for the arithmetic itself.
+ */
+describe('uwb-dstwr · the procedure, step by step', () => {
+  /** The lesson's steps block of `numbers`. */
+  const steps = (): Extract<Block, { kind: 'steps' }> =>
+    uwbDstwr.numbers!.find((b): b is Extract<Block, { kind: 'steps' }> => b.kind === 'steps')!
+  /** A counter as the worked example prints it: thousands separated by a thin space. */
+  const fmt = (n: number): string => n.toLocaleString('en-US').replace(/,/g, ' ')
+
+  it('is a steps block on the main path, not in `deeper`, and runs in the engine’s own order', () => {
+    // amendment rule 3: the rule is written as a procedure, in `numbers`
+    expect(uwbDstwr.numbers!.filter((b) => b.kind === 'steps')).toHaveLength(1)
+    expect((uwbDstwr.deeper ?? []).filter((b) => b.kind === 'steps')).toHaveLength(0)
+    expect(steps().items.length).toBeGreaterThanOrEqual(3)
+    // the order of device.ts: Poll out, Response out (Treply1), Response in (Tround1),
+    // Final out (Treply2), Final in (Tround2, and the anchor's own range), Report, the
+    // arithmetic both lanes share
+    const en = steps().items.map((s) => s.en)
+    const order = ['Poll', 'Treply1', 'Tround1', 'Treply2', 'Tround2', 'Report', 'divides']
+    order.forEach((token, i) => expect(en[i], token).toContain(token))
+  })
+
+  it('the six stamps of the worked example are the six UWB_TS counters of the run', () => {
+    const rs = recs()
+    const shown = [0, 1, 2, 3, 4, 5].map((i) => cell(3, i, 1))
+    expect(shown).toEqual([
+      stamp(rs, 'tag-1', 'tx', 'uwbPoll'),
+      stamp(rs, 'anchor-1', 'rx', 'uwbPoll'),
+      stamp(rs, 'anchor-1', 'tx', 'uwbResp'),
+      stamp(rs, 'tag-1', 'rx', 'uwbResp', 'anchor-1'),
+      stamp(rs, 'tag-1', 'tx', 'uwbFinal'),
+      stamp(rs, 'anchor-1', 'rx', 'uwbFinal'),
+    ].map(fmt))
+    // three at each end — the extra leg is what the lesson before did not have
+    const ts = ofType(rs, 'UWB_TS').filter((r) => r.t < 20 * MS)
+    expect(ts.filter((r) => r.node === 'anchor-1').map((r) => `${r.dir}/${r.frameKind}`))
+      .toEqual(['rx/uwbPoll', 'tx/uwbResp', 'rx/uwbFinal', 'tx/uwbReport'])
+    expect(ts.filter((r) => r.node === 'tag-1' && (r.peer === 'anchor-1' || r.peer === '*'))
+      .map((r) => `${r.dir}/${r.frameKind}`))
+      .toEqual(['tx/uwbPoll', 'rx/uwbResp', 'tx/uwbFinal', 'rx/uwbReport'])
+  })
+
+  it('the four intervals of the worked example are the four counterDiffs of the run', () => {
+    const t = fourTimes('anchor-1')
+    expect([cell(3, 6, 1), cell(3, 7, 1), cell(3, 8, 1), cell(3, 9, 1)])
+      .toEqual([t.treply1, t.tround2, t.tround1, t.treply2].map(fmt))
+    // each row names whose pair it is, and the anchor's pair is the one the Report carries
+    expect(cell(3, 6, 0)).toContain('anchor')
+    expect(cell(3, 8, 0)).toContain('phone')
+  })
+
+  it('the answer cell is dsTwr of those four, and both lanes print it', () => {
+    const t = fourTimes('anchor-1')
+    const tof = dsTwr(t.tround1, t.treply1, t.tround2, t.treply2)
+    expect(cell(3, 10, 1)).toBe(`${tof.toFixed(1)} · ${rctuToMetres(tof).toFixed(2)} m`)
+    // the two lanes: the anchor computes it at the Final, the phone at the Report,
+    // and the records agree to the last digit
+    const mine = ofType(recs(), 'UWB_RANGE').filter((r) => r.peer === 'anchor-1' || r.node === 'anchor-1')
+    expect(mine).toHaveLength(2)
+    expect(mine[0].tofRctu).toBe(mine[1].tofRctu)
+    expect(mine[0].tofRctu).toBeCloseTo(tof, 9)
+  })
+
+  it('no clock offset is read: the last step’s claim, proven over every anchor', () => {
+    // step 7: "Nothing is estimated; no clock offset is read." A DS record carries no raw
+    // figure at all — there is nothing for a correction to have been applied to.
+    for (const r of ofType(recs(), 'UWB_RANGE')) {
+      expect(r.method, r.peer).toBe('ds')
+      expect(r.tofRawRctu, r.peer).toBeUndefined()
+      // and the four times alone reproduce it, with no offset anywhere in the call
+      const t = fourTimes(r.node.startsWith('anchor') ? r.node : r.peer)
+      expect(dsTwr(t.tround1, t.treply1, t.tround2, t.treply2), r.peer).toBeCloseTo(r.tofRctu, 9)
+    }
   })
 })
 
