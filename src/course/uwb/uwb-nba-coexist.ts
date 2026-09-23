@@ -76,8 +76,8 @@ export const uwbNbaCoexist: Lesson = {
       zh: '而且“不许发”并不是一次退避。设备不会稍等片刻再试：它在本测距块余下的时间里，索性不再发出任何窄带帧。没有 Poll 就没有一轮对话，于是这个块后面几轮照样按格子跑——锚点们按时到场、干等着——而手机在每一轮里都一声不吭。',
     } },
     { heading: { en: 'Hopping averages; it does not avoid', zh: '跳变是在平均，不是在躲开' }, text: {
-      en: 'One obvious cure is not to sit still: give the session an allow list of several control channels and let it hop between them, block by block. Half that list here lies clear of the router. The session gets back the share of blocks the hop happens to put somewhere quiet, and loses the rest — the choice holds for a whole block, so a block is either whole or gone.',
-      zh: '一个显而易见的办法是别老待在原地：给会话一张写着好几个控制信道的允许列表，让它一个块一个块地在其间跳变。这里列表的一半是避开路由器的。于是会话拿回的，正是“跳变恰好把块丢到清静处”的那个比例，其余照赔——因为这个选择在整块之内不变，一个块要么完整，要么全没。',
+      en: 'One obvious cure is not to sit still: give the session a short list of the control channels it may use — an allow list — and let it change channel from one block to the next, which is a hop. Half that list here lies clear of the router. The session gets back the share of blocks the hop happens to put somewhere quiet, and loses the rest — the choice holds for a whole block, so a block is either whole or gone.',
+      zh: '一个显而易见的办法是别老待在原地：给会话一张单子，上面写着它可以用的那几个控制信道——这就是允许列表——再让它一个块一个块地换用其中另一个，这一换就叫跳变。这里列表的一半是避开路由器的。于是会话拿回的，正是“跳变恰好把块丢到清静处”的那个比例，其余照赔——因为这个选择在整块之内不变，一个块要么完整，要么全没。',
     } },
     { heading: { en: 'Where a control channel belongs', zh: '控制信道该放在哪里' }, text: {
       en: 'The other side of the bargain is uncomfortable: switch the rule off and the session works again, at the Wi-Fi link’s expense. The polite configuration is the useless one, and only a regulator decides which you may ship. Hence the real lesson: a control channel does not need the band Wi-Fi is in. It needs a thin slice nobody wants, and there are hundreds.',
@@ -89,8 +89,8 @@ export const uwbNbaCoexist: Lesson = {
       en: 'threshold = −75 dBm/MHz + 10·log10(2.5 MHz) = −71.02 dBm',
       zh: 'threshold = −75 dBm/MHz + 10·log10(2.5 MHz) = −71.02 dBm',
     }, note: {
-      en: 'A narrowband channel is 2.5 MHz wide, and the rule is written per megahertz, so the level a device compares against is −71.02 dBm. Before each transmission it assesses the channel for at least 9 µs and stays silent at that level or above.',
-      zh: '一个窄带信道宽 2.5 MHz，而规则是按每兆赫写的，所以设备真正拿来比对的电平是 −71.02 dBm。每次发射之前，它要对信道评估至少 9 µs；只要读数达到这个电平，就不许发。',
+      en: 'A narrowband channel is 2.5 MHz wide and the rule is written per megahertz, so the level a device compares against is −71.02 dBm, assessed for at least 9 µs before each transmission.',
+      zh: '一个窄带信道宽 2.5 MHz，而规则是按每兆赫写的，所以设备真正拿来比对的电平是 −71.02 dBm；每次发射之前至少评估 9 µs。',
     } },
     { kind: 'table', heading: { en: 'What the phone hears while it listens', zh: '手机在“听”的时候听到了什么' }, head: [
       { en: 'Source', zh: '来源' }, { en: 'Level at the phone', zh: '手机处的电平' },
@@ -126,10 +126,35 @@ export const uwbNbaCoexist: Lesson = {
       en: 'Listening does not make a message harmless, only rarer. With the rule on, ten of them reach the air and six Wi-Fi frames fail behind them; with it off, 108 messages and 87 failures.',
       zh: '“先听”并不能让一条消息变得无害，它只是让这样的消息变少。规则开着时，只有十条上了空口，其后有六个 Wi-Fi 帧解不出来；关掉之后，是 108 条消息与 87 次失败。',
     } },
-    { heading: { en: 'Who pays', zh: '这笔账谁付' }, text: {
-      en: 'The laptop pays for the difference. Its throughput falls from 407.215 Mb/s to 362.631, a loss of 10.95 % — the price of a session that works.',
-      zh: '这笔差额由笔记本来付：它的吞吐从 407.215 Mb/s 掉到 362.631 Mb/s，损失 10.95 %——这就是“会话能干活”的标价。',
+    { heading: { en: 'Who pays the difference', zh: '差额由谁来付' }, text: {
+      en: 'The laptop pays. Its throughput falls from 407.215 Mb/s to 362.631, which is 44.58 Mb/s gone, or 10.95 % of what it had — the price of a session that works.',
+      zh: '付账的是笔记本。它的吞吐从 407.215 Mb/s 掉到 362.631 Mb/s，少掉 44.58 Mb/s，占它原有吞吐的 10.95 %——这就是“会话能干活”的标价。',
     } },
+    { kind: 'steps', heading: { en: 'One busy check, step by step', zh: '一次判忙，一步一步来' }, items: [
+      { en: 'Before every narrowband message the device asks whether this channel obliges it to listen at all: in the upper of the two bands it must, in the lower one it need not.',
+        zh: '每发一条窄带消息之前，设备先问一句：这条信道要不要求我先听？两个频段里，上面那个要求，下面那个不要求。' },
+      { en: 'If it must, it reads the power already sitting in that channel’s 2.5 MHz — one instantaneous reading, standing in for the assessment window the rule asks for.',
+        zh: '若要求，它就读一下这条信道那 2.5 MHz 里已经有多少功率——这里只读一个瞬时值，代替规则要求的那段评估时间。' },
+      { en: 'It compares the reading with the threshold, which is the limit written per megahertz spread over the channel’s own width. Below it the message goes out; at it or above, the channel counts as busy.',
+        zh: '它把这个读数与门限相比，而门限就是那条“每兆赫多少”的限值摊到整条信道的宽度上。低于门限就发；等于或高于，这条信道就算忙。' },
+      { en: 'A busy reading is not a back-off. The device marks the whole ranging block and sends no narrowband message at all for the rest of it.',
+        zh: '判忙并不是一次退避。设备会把整个测距块记下，在这个块余下的时间里，一条窄带消息也不发。' },
+      { en: 'With no Poll there is no round. The anchors go on turning up in their slots, wait, and time out, and the block ends with nothing measured.',
+        zh: '没有 Poll 就没有一轮。锚点照样按时出现在自己的时隙里，干等，然后超时；这个块就这样在什么也没量到的情况下结束。' },
+      { en: 'The next block draws its channel from the allow list again, so a session that hops gets back exactly the share of blocks the draw puts somewhere quiet.',
+        zh: '下一个块会重新从允许列表里抽一条信道，所以会跳变的会话，拿回的恰好是“抽签把块丢到清静处”的那个比例。' },
+    ] },
+    { kind: 'table', heading: { en: 'The six steps, on this scene', zh: '这六步，落在本场景上' }, head: [
+      { en: 'Step', zh: '步骤' }, { en: 'This scene', zh: '本场景' },
+    ], rows: [
+      [{ en: 'The channel, and it does oblige', zh: '信道，而且它确实要求先听' }, N('200 · 6301.25 MHz')],
+      [{ en: 'The threshold it compares against', zh: '拿来比对的门限' }, N('−75 dBm/MHz + 10·log10(2.5) = −71.02 dBm')],
+      [{ en: 'What the phone reads', zh: '手机读到的' }, N('−63.72 dBm')],
+      [{ en: 'Reading against threshold: busy', zh: '读数对门限：忙' }, N('−63.72 ≥ −71.02 dBm')],
+      [{ en: 'Blocks skipped, of seven', zh: '七个块里被跳过的' }, N('7')],
+      [{ en: 'Ranges, and fixes', zh: '测距数，与定位数' }, N('4 · 0')],
+      [{ en: 'What the laptop pays', zh: '笔记本付的账' }, N('407.215 → 362.631 Mb/s · −44.58 · 10.95 %')],
+    ] },
   ],
   deeper: [
     { kind: 'formula', heading: { en: 'How far the check can see', zh: '这项检测能看多远' }, text: {

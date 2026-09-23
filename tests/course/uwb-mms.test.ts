@@ -24,12 +24,18 @@ import { LESSONS } from '../../src/course/lessons'
 import { lessonStrings } from '../../src/course/readability'
 import { fmtRecord } from '../../src/ui/format'
 import { STRINGS } from '../../src/ui/i18n'
-import { C_M_PER_NS, UWB_NLOS_NS, UWB_PL_EXP, UWB_RX_SENS_DBM, fomText, uwbPl0Db } from '../../src/uwb/phy'
-import { WALL_LOSS_DB } from '../../src/engine/propagation'
-import { mmsFragmentDbm, mmsLayout, mmsSet, rsfNs } from '../../src/uwb/mms'
 import {
-  NB_CHIP_US, NB_DEFAULT_CHANNELS, NB_POLL_BYTES, NB_REPORT_BYTES, NB_RESP_BYTES,
-  NB_SYMBOL_CHIPS, NB_SYMBOL_US, nbCenterMhz, nbPpduNs,
+  C_M_PER_NS, UWB_NLOS_NS, UWB_PL_EXP, UWB_RX_SENS_DBM, UWB_SLOT_GUARD_NS, fomText, rstuNs,
+  uwbNbSlotFitNs, uwbPl0Db, uwbSlotFitNs,
+} from '../../src/uwb/phy'
+import { WALL_LOSS_DB } from '../../src/engine/propagation'
+import {
+  UWB_MS_BUDGET_NJ, combineGainDb, mmrsSymbolChips, mmsFragmentDbm, mmsLayout, mmsSet, rifStartMs,
+  rsfChips, rsfNs, trainDetected,
+} from '../../src/uwb/mms'
+import {
+  NB_CHIP_US, NB_DEFAULT_CHANNELS, NB_POLL_BYTES, NB_REPORT_BYTES, NB_REPORT_TIME_BYTES,
+  NB_RESP_BYTES, NB_SYMBOL_CHIPS, NB_SYMBOL_US, nbCenterMhz, nbOtmPollBytes, nbPpduNs,
 } from '../../src/uwb/nb'
 import { rangeSigmaM } from '../../src/uwb/position'
 import { roundPlan } from '../../src/uwb/session'
@@ -65,10 +71,18 @@ const cell = (n: number, row: number, col: number): string => table(n).rows[row]
 const logLine = (row: number): string => cell(1, row, 1)
 /** One row of the one-to-many/pairwise comparison table (table 2), without its "where" cell. */
 const comparison = (row: number): string[] => [cell(2, row, 0), cell(2, row, 1), cell(2, row, 2)]
+/** The procedure the lesson closes on: "One round, step by step", the only `steps` of `numbers`. */
+const steps = (): string[] => {
+  const b = uwbMms.numbers!.filter((x): x is Extract<Block, { kind: 'steps' }> => x.kind === 'steps')
+  expect(b).toHaveLength(1)
+  return b[0].items.map((i) => i.en)
+}
+/** The worked example under it (table 3): step `row` run on this scene, as one value cell. */
+const worked = (row: number): string => cell(3, row, 1)
 
 // The contract every migrated lesson owes. The window is what `npx tsx
 // scripts/lesson-dump.ts uwb-mms en` reports for why + outcomes + terms + picture + numbers.
-lessonShapeSuite(uwbMms, { proseMax: 950 })
+lessonShapeSuite(uwbMms, { proseMax: 1200 })
 
 describe('uwb-mms · the lesson', () => {
   it('opens UWB Tier 3 and module 15, after uwb-aoa, and names its four new words', () => {
@@ -239,8 +253,6 @@ describe('uwb-mms · the scene', () => {
     const layout = mmsLayout({ ...sc.uwb!.mms }, ANCHORS.length)
     expect([layout.controlSlots, layout.rpSlots, layout.reportSlots]).toEqual([8, 32, 12])
     expect(layout.slots).toBe(52)
-    const en = prose()
-    expect(en).toContain('Eight slots open the round: the Poll, then a window per anchor. Thirty-two carry the fragments, four devices taking turns. The last twelve hold the reports.')
     // the comparison table's own row, and the rule that fixes the responder count
     expect(comparison(0)).toEqual(['Slots in a round', '52', '28'])
     expect(comparison(1)).toEqual(['A round lasts', '26 ms', '14 ms'])
@@ -514,3 +526,144 @@ describe('uwb-mms · reach is not accuracy', () => {
     expect(uwbMms.tryThis[0].en).toContain('the log fills with timeouts')
   })
 })
+
+/**
+ * The procedure the lesson closes on, step against engine, and the worked example under it row
+ * by row. The steps say in words what the engine does; the table under them says the same thing
+ * in figures on this scene, and every figure is read back out of `mmsLayout`, `mms.ts`, `nb.ts`
+ * and the run rather than re-typed — the point of writing the round out as a procedure is that a
+ * reader can redo it, and a step that drifted from the engine would be worse than the paragraph
+ * it replaced.
+ */
+describe('uwb-mms · one round, step by step', () => {
+  const base = uwbMmsScenario('base')
+  const layout = mmsLayout({ ...base.uwb!.mms }, ANCHORS.length)
+
+  it('is seven steps and a seven-row worked example, in the same order', () => {
+    expect(steps()).toHaveLength(7)
+    expect(table(3).rows).toHaveLength(8)
+    expect(uwbMms.numbers!.at(-1)).toBe(table(3))
+    expect(uwbMms.numbers!.at(-2)!.kind).toBe('steps')
+  })
+
+  it('step 1 — the Poll opens the round in its first slot, naming every anchor', () => {
+    expect(steps()[0]).toContain('draws its narrowband channel from the allow list')
+    expect(steps()[0]).toContain('the tag broadcasts one Poll naming every anchor it wants')
+    expect(worked(0)).toBe('slot 0 · 23 B · 928.0 µs')
+    expect(nbOtmPollBytes(ANCHORS.length)).toBe(23)
+    expect(nbPpduNs(23)).toBe(928_000)
+    const poll = ofType(recs('base'), 'TX_START').find((r) => r.frame.kind === 'nbPoll')!
+    expect([poll.t, poll.node, poll.frame.bytes, poll.frame.txTimeNs]).toEqual([0, TAG, 23, 928_000])
+  })
+
+  it('step 2 — a Response window an anchor, and only a primed pair listens', () => {
+    expect(steps()[1]).toContain('answers in a Response window of its own')
+    expect(steps()[1]).toContain('Only a pair that has exchanged both is primed')
+    expect(worked(1)).toBe('slots 2, 4, 6 · 12 B · 576.0 µs')
+    expect(ANCHORS.map((_, r) => layout.respSlot(r))).toEqual([2, 4, 6])
+    expect(NB_RESP_BYTES).toBe(12)
+    expect(nbPpduNs(NB_RESP_BYTES)).toBe(576_000)
+  })
+
+  it('step 3 — a millisecond of the phase is one slot for the tag and one an anchor', () => {
+    expect(steps()[2]).toContain('One millisecond of it is one slot for the tag and one for each anchor')
+    expect(worked(2)).toBe('slots 8–39 · 4/ms · 8 fragments')
+    expect(layout.controlSlots).toBe(8)
+    expect(layout.rpSlots).toBe(32)
+    expect(layout.controlSlots + layout.rpSlots - 1).toBe(39)
+    // the tag's fragment first, then one per anchor, inside each millisecond
+    expect(layout.fragmentSlot('initiator', 'rsf', 0)).toBe(8)
+    expect(ANCHORS.map((_, r) => layout.fragmentSlot('responder', 'rsf', 0, r))).toEqual([9, 10, 11])
+    expect(layout.fragmentSlot('initiator', 'rsf', 1)).toBe(12)
+    expect(layout.fragmentSlot('initiator', 'rsf', 7)).toBe(36)
+    expect(base.uwb!.mms.rsfs).toBe(8)
+  })
+
+  it('step 4 — one symbol repeated, a whole millisecond’s energy in it, one stamp a train', () => {
+    expect(steps()[3]).toContain('one short symbol repeated')
+    expect(steps()[3]).toContain('spends the whole millisecond’s energy inside its own far shorter length')
+    expect(steps()[3]).toContain('Only the first fragment of a train is stamped, and the stamp is its first pulse')
+    expect(worked(3)).toBe('40 × 1 024 = 40 960 chips · 82.051 µs · 37 nJ')
+    expect(mmrsSymbolChips(64)).toBe(1024)
+    expect(rsfChips(40, 64)).toBe(40_960)
+    expect(rsfNs(40, 64)).toBe(82_051)
+    expect(UWB_MS_BUDGET_NJ).toBe(37)
+    // one tx stamp a train, taken at the transmission instant — no preamble offset to subtract
+    const rs = recs('base')
+    const first = ofType(rs, 'TX_START').filter((r) => r.frame.kind === 'uwbRsf' && r.node === TAG)[0]
+    const stamps = ofType(rs, 'UWB_TS').filter((r) => r.dir === 'tx' && r.node === TAG && r.t < 26 * MS)
+    expect(stamps).toHaveLength(1)
+    expect(stamps[0].t).toBe(first.t)
+  })
+
+  it('step 5 — add what was heard, take the sensitivity off, detect on what is left', () => {
+    expect(steps()[4]).toContain('adds the fragments it heard, takes its own sensitivity off the sum')
+    expect(steps()[4]).toContain('detected when what is left is not negative')
+    expect(worked(4)).toBe('−100.26 + 9.03 = −91.23 dBm · +1.77 dB')
+    expect(combineGainDb(8).toFixed(2)).toBe('9.03')
+    expect(UWB_RX_SENS_DBM).toBe(-93)
+    const t = ofType(recs('base'), 'UWB_MMS_TRAIN').find((r) => r.node === TAG && r.peer === ANCHORS[0])!
+    expect(t.heard).toBe(8)
+    expect((t.rxDbm + combineGainDb(t.heard)).toFixed(2)).toBe('-91.23')
+    expect((t.rxDbm + combineGainDb(t.heard) - UWB_RX_SENS_DBM).toFixed(2)).toBe('1.77')
+    expect(trainDetected(t.rxDbm, t.heard)).toBe(true)
+    expect(t.detected).toBe(true)
+  })
+
+  it('step 6 — two report windows an anchor, and the pair of times is the distance', () => {
+    expect(steps()[5]).toContain('the report windows, two to an anchor')
+    expect(steps()[5]).toContain('the anchor sends the reply time it turned the round around in')
+    expect(worked(5)).toBe('slots 40, 44, 48 · 13 B · 608.0 µs')
+    expect(layout.reportSlots).toBe(12)
+    expect(ANCHORS.map((_, r) => layout.reportSlot('responder', r))).toEqual([40, 44, 48])
+    expect(ANCHORS.map((_, r) => layout.reportSlot('initiator', r))).toEqual([42, 46, 50])
+    expect(NB_REPORT_BYTES).toBe(13)
+    expect(nbPpduNs(NB_REPORT_BYTES)).toBe(608_000)
+    expect(NB_REPORT_TIME_BYTES).toBe(5)
+  })
+
+  it('step 7 — the three checks on the slot, and the fourth anchor the schema refuses', () => {
+    expect(steps()[6]).toContain('it divides the millisecond')
+    expect(steps()[6]).toContain('one slot holds the longest fragment plus its flight guard')
+    expect(steps()[6]).toContain('two slots hold the longest narrowband message — the Poll, which grows with every anchor it names')
+    expect(worked(6)).toBe('600 % 300 = 0 · 82.3 < 500.0 · 928.2 < 1000.0 µs')
+    expect(worked(7)).toBe('1024.2 > 1000.0 µs')
+    const mms = { ...base.uwb!.mms }
+    expect(base.uwb!.slotRstu).toBe(600)
+    expect(base.uwb!.slotRstu % 300).toBe(0)
+    const slotNs = rstuNs(base.uwb!.slotRstu)
+    expect(slotNs).toBe(500_000)
+    // one slot holds the longest fragment plus the flight guard
+    expect(UWB_SLOT_GUARD_NS).toBe(200)
+    expect(uwbSlotFitNs(0, 'mms', 'time', mms)).toBe(82_251)
+    expect(uwbSlotFitNs(0, 'mms', 'time', mms)).toBeLessThan(slotNs)
+    // two slots hold the round's longest narrowband message, which is the one-to-many Poll
+    expect(uwbNbSlotFitNs(mms, 3)).toBe(928_200)
+    expect(uwbNbSlotFitNs(mms, 3)).toBeLessThan(2 * slotNs)
+    expect(nbOtmPollBytes(4)).toBe(26)
+    expect(uwbNbSlotFitNs(mms, 4)).toBe(1_024_200)
+    expect(uwbNbSlotFitNs(mms, 4)).toBeGreaterThan(2 * slotNs)
+    // and the schema is what refuses it: a fourth anchor in this scene does not validate
+    const four: Scenario = {
+      ...base,
+      nodes: [
+        ...base.nodes.slice(0, 3),
+        { ...base.nodes[0], id: 'anchor-4', name: 'Anchor 4', pos: { ...base.nodes[0].pos, y: 2.0 } },
+        ...base.nodes.slice(3),
+      ],
+    }
+    const bad = ScenarioSchema.safeParse(four)
+    expect(bad.success).toBe(false)
+    expect(JSON.stringify(bad.error!.issues)).toContain('4 responders')
+  })
+
+  it('the integrity fragments this scene does not send start at X + Z + y − 1', () => {
+    expect(prose()).toContain('integrity fragment y — counted from zero — starts at millisecond X + Z + y − 1')
+    const x = base.uwb!.mms.rsfs
+    const z = base.uwb!.mms.gapMs
+    for (const y of [0, 1, 2, 3]) expect(rifStartMs(x, z, y)).toBe(x + z + y - 1)
+    expect(base.uwb!.mms.rifs).toBe(0)
+    expect(ofType(recs('base'), 'TX_START').filter((r) => r.frame.kind === 'uwbRif')).toEqual([])
+  })
+})
+

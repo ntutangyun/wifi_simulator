@@ -138,9 +138,9 @@ export const uwbMms: Lesson = {
       en: 'The obvious answer — shout — is not available. What the regulator caps is not a total but an average over each millisecond, so no single moment may be made louder. What it does not cap is how many milliseconds you use: a transmitter that spends this millisecond’s allowance, then the next, then the next, is as legal as one that stops after a single millisecond.',
       zh: '最顺手的办法——喊得更响——用不了。法规限住的不是总量，而是在每一毫秒上取的平均，所以任何单独的一瞬都不能更响。它没有限住的，是你用掉多少个毫秒。一台把这一毫秒的额度花掉、再花下一毫秒、再花下一毫秒的发射机，和一台只花一毫秒就收手的，同样合规。',
     } },
-    { heading: { en: 'One fragment, then another', zh: '一个片段，再来一个' }, text: {
-      en: 'So the packet is broken up. A fragment is one millisecond’s piece of it, stripped to the bone: no preamble to search for, no header, no address, no data — only the sequence a timestamp is taken from, which is why it is called a ranging sequence fragment, RSF. Each device sends one per turn, and they interleave, every one using the gaps the others leave.',
-      zh: '于是把这个分组拆开。一个片段就是其中一毫秒的那一片，而且被剥得只剩骨头：没有要搜索的前导、没有头、没有地址、没有数据——只有用来取时间戳的那段序列，所以它叫测距序列片段，RSF。每台设备每轮到一次就发一个，标签和它的锚点交错着来，谁都用得上别人留下的空隙。',
+    { heading: { en: 'One piece, then another', zh: '一个片段，再来一个' }, text: {
+      en: 'So the packet is broken up. One millisecond’s piece of it, stripped to the bone, is a fragment: no preamble to search for, no header, no address, no data — only the sequence a timestamp is taken from, which is why its full name is ranging sequence fragment (RSF). Each device sends one per turn, and they interleave, every one using the gaps the others leave.',
+      zh: '于是把这个分组拆开。一个片段就是其中一毫秒的那一片，而且被剥得只剩骨头：没有要搜索的前导、没有头、没有地址、没有数据——只有用来取时间戳的那段序列，所以它的全名叫测距序列片段（RSF）。每台设备每轮到一次就发一个，标签和它的锚点交错着来，谁都用得上别人留下的空隙。',
     } },
     { heading: { en: 'Adding up what you could not hear', zh: '把听不见的东西加起来' }, text: {
       en: 'None of those fragments is audible on its own. But the receiver already knows the shape of the train — when each fragment comes and what is in it — so it need not detect anything to start: it accumulates blind and only decides at the end. Doubling the fragments doubles the sum, and that sum can clear a threshold no part of it could.',
@@ -167,8 +167,8 @@ export const uwbMms: Lesson = {
       [{ en: 'What the receiver needs', zh: '接收机需要的门限' }, N('−93 dBm')],
     ] },
     { text: {
-      en: 'Each fragment lands about seven decibels under the receiver, and the three anchors are placed so that they are nearly equally far away: at the threshold this lesson is about, either all three are heard or none of them is.',
-      zh: '每个片段到达时比接收机门限低了约七个分贝；而三个锚点的摆法让它们与标签几乎等距：在本课要讲的那个临界点上，要么三个都被听见，要么一个也听不见。',
+      en: 'Each fragment lands about seven decibels under the receiver, and the three anchors are nearly equally far away: either all three are heard or none of them is.',
+      zh: '每个片段到达时比接收机门限低了约七个分贝；而三个锚点与标签几乎等距：要么三个都被听见，要么一个也听不见。',
     } },
     { kind: 'table', heading: { en: 'One round, as the log prints it', zh: '一轮，日志怎么印' }, head: [
       { en: 'When', zh: '何时' }, { en: 'The line', zh: '那一行' },
@@ -193,13 +193,9 @@ export const uwbMms: Lesson = {
       [{ en: 'Narrowband messages', zh: '窄带消息数' }, N('7'), N('9'), N('NBPOLL, NBRESP, NBREPORT')],
       [{ en: 'Responders the Poll window holds', zh: 'Poll 窗口装得下的应答者' }, N('3'), N('1'), { en: 'two 600 RSTU slots must hold the Poll, which grows by 3 octets per responder', zh: '两个 600 RSTU 时隙要装下 Poll，而 Poll 每多一个应答者就长 3 字节' }],
     ] },
-    { heading: { en: 'Where the slots go', zh: '时隙都花在哪里' }, text: {
-      en: 'Eight slots open the round: the Poll, then a window per anchor. Thirty-two carry the fragments, four devices taking turns. The last twelve hold the reports.',
-      zh: '开头八个时隙用来开场：一帧 Poll，再给每个锚点一个窗口。三十二个承载片段，四台设备轮流发。最后十二个装报告。',
-    } },
     { text: {
-      en: 'The narrowband side is still the slow part. Its seven messages take 4.480 ms of the round’s 7.106 ms of air, while all thirty-two fragments together take 2.626 ms — and one transmit stamp is taken per train, not per fragment.',
-      zh: '慢的依旧是窄带那一侧。它那七条消息占掉整轮 7.106 ms 空口时间里的 4.480 ms，而三十二个片段加起来才 2.626 ms——而且每串只取一个发送时间戳，不是每个片段一个。',
+      en: 'The narrowband side is still the slow part. Its seven messages take 4.480 ms of the round’s 7.106 ms of air, while all thirty-two fragments together take 2.626 ms.',
+      zh: '慢的依旧是窄带那一侧。它那七条消息占掉整轮 7.106 ms 空口时间里的 4.480 ms，而三十二个片段加起来才 2.626 ms。',
     } },
     { heading: { en: 'What the wall adds', zh: '墙加进来多少' }, text: {
       en: 'Every range is long by the same 1.199 m: brick delays a first path by 2 ns and the ray crosses two walls each way, which a two-way range keeps rather than cancels.',
@@ -209,6 +205,34 @@ export const uwbMms: Lesson = {
       en: 'The fix inherits it whole. The inspector shows the last block’s, (14.22, 4.05) m against a true (13.00, 4.00); the ellipse beside it, which knows only noise, stays at centimetres.',
       zh: '定位把它整个继承过去。检视面板显示的是最后一个块的结果：(14.22, 4.05) m，真值 (13.00, 4.00)；而旁边那个只认识噪声的椭圆，仍停在厘米量级。',
     } },
+    { kind: 'steps', heading: { en: 'One round, step by step', zh: '一轮，一步一步来' }, items: [
+      { en: 'The block draws its narrowband channel from the allow list, and the round opens in its first slot: the tag broadcasts one Poll naming every anchor it wants.',
+        zh: '这个块先从允许列表里抽出自己的窄带信道；随后一轮在它的第一个时隙里开场：标签广播一帧 Poll，把它要问的每个锚点都点上名。' },
+      { en: 'Each named anchor answers in a Response window of its own. Only a pair that has exchanged both is primed, and only a primed receiver knows the train’s shape in advance.',
+        zh: '被点到名的锚点，各自在属于自己的 Response 窗口里作答。只有一来一回都走完的那一对才算就绪；也只有就绪的接收机，才会在片段到来之前就知道这一串的形状。' },
+      { en: 'Then the ranging phase. One millisecond of it is one slot for the tag and one for each anchor, so the trains interleave, one fragment a device a millisecond.',
+        zh: '接着是测距阶段。它的每一毫秒，是标签一个时隙、每个锚点各一个时隙，于是几串片段彼此交错，每台设备每毫秒发出一个片段。' },
+      { en: 'A fragment is one short symbol repeated, and it spends the whole millisecond’s energy inside its own far shorter length. Only the first fragment of a train is stamped, and the stamp is its first pulse.',
+        zh: '一个片段就是一个短符号重复若干遍，而它把整整一毫秒的能量，花在自己短得多的那段长度里。一串里只有第一个片段留时间戳，而这个时间戳取在它的第一个脉冲上。' },
+      { en: 'At the end of the phase each receiver adds the fragments it heard, takes its own sensitivity off the sum, and calls the train detected when what is left is not negative.',
+        zh: '阶段末尾，每个接收机把自己听到的片段加起来，再从这个和里减去自己的灵敏度；剩下的不为负，就判这一串检出。' },
+      { en: 'Then the report windows, two to an anchor: the anchor sends the reply time it turned the round around in, the tag answers with the round trip it measured, and turns the pair into a distance.',
+        zh: '再往后是报告窗口，每个锚点两个：锚点发出自己掉头所用的回复时延，标签回话报出它量到的往返时间，然后由标签把这一对时间变成一个距离。' },
+      { en: 'None of it runs unless the slot passes three checks first: it divides the millisecond, one slot holds the longest fragment plus its flight guard, and two slots hold the longest narrowband message — the Poll, which grows with every anchor it names.',
+        zh: '而这一切都得先过三关，否则这个时隙根本跑不起来：它要能整除毫秒；一个时隙要装得下最长的那个片段再加飞行余隙；两个时隙要装得下最长的那条窄带消息——也就是那帧 Poll，而它每多点一个锚点就长一截。' },
+    ] },
+    { kind: 'table', heading: { en: 'The seven steps, on this scene', zh: '同样这七步，落在本场景上' }, head: [
+      { en: 'Step', zh: '步骤' }, { en: 'This round', zh: '这一轮' },
+    ], rows: [
+      [{ en: 'Poll, three anchors', zh: 'Poll，三个锚点' }, N('slot 0 · 23 B · 928.0 µs')],
+      [{ en: 'Response, per anchor', zh: 'Response，每锚点一条' }, N('slots 2, 4, 6 · 12 B · 576.0 µs')],
+      [{ en: 'The ranging phase', zh: '测距阶段' }, N('slots 8–39 · 4/ms · 8 fragments')],
+      [{ en: 'One fragment', zh: '一个片段' }, N('40 × 1 024 = 40 960 chips · 82.051 µs · 37 nJ')],
+      [{ en: 'The sum at an anchor', zh: '锚点处的那个和' }, N('−100.26 + 9.03 = −91.23 dBm · +1.77 dB')],
+      [{ en: 'Report, per anchor', zh: 'Report，每锚点一条' }, N('slots 40, 44, 48 · 13 B · 608.0 µs')],
+      [{ en: 'The three checks, 600 RSTU', zh: '三关，600 RSTU' }, N('600 % 300 = 0 · 82.3 < 500.0 · 928.2 < 1000.0 µs')],
+      [{ en: 'A fourth anchor — refused', zh: '添到第四个锚点——驳回' }, N('1024.2 > 1000.0 µs')],
+    ] },
   ],
   deeper: [
     { heading: { en: 'Why there is no preamble offset to subtract', zh: '为什么没有前导偏移要减' }, text: {
@@ -216,8 +240,8 @@ export const uwbMms: Lesson = {
       zh: '普通的测距帧带着前导，接收机得先找到它才谈得上计时，而时间戳定义在帧内某个已知位置的标记上。片段完全没有这一套：接收机本来就知道它什么时候来，于是时间戳就是这一串里第一个片段的第一个脉冲。每串一个 RMARKER，取在串的开头——发送记录和接收记录里存的都是它。',
     } },
     { heading: { en: 'The integrity fragments this scene does not send', zh: '本场景没有发的那些完整性片段' }, text: {
-      en: 'A train may carry a second kind of fragment after the ranging ones: integrity fragments, whose sequence is not known in advance and which therefore cannot be forged by replaying a recording. The session here asks for none of them, so no range in the run carries an integrity verdict at all — the log simply has no such field to print. Reach was the problem to solve; integrity is a separate bill, paid in slots.',
-      zh: '在测距片段之后，一串还可以带上第二种片段：完整性片段。它们的序列事先并不公开，因此无法靠重放录音伪造。本课的会话一个也不要，所以整段运行里没有任何一次测距带有完整性判定——日志里干脆就没有这个字段可印。这里要解决的问题是够得着；完整性是另一张账单，用时隙来付。',
+      en: 'A train may carry a second kind of fragment after the ranging ones: integrity fragments, whose sequence is not known in advance and which therefore cannot be forged by replaying a recording. The session here asks for none of them, so no range in the run carries an integrity verdict at all — the log simply has no such field to print. Their place in the phase is fixed rather than negotiated: with X ranging fragments and an idle gap of Z milliseconds after the last of them, integrity fragment y — counted from zero — starts at millisecond X + Z + y − 1. Reach was the problem to solve; integrity is a separate bill, paid in slots.',
+      zh: '在测距片段之后，一串还可以带上第二种片段：完整性片段。它们的序列事先并不公开，因此无法靠重放录音伪造。本课的会话一个也不要，所以整段运行里没有任何一次测距带有完整性判定——日志里干脆就没有这个字段可印。它们在阶段里的位置是定死的，不必商量：设 X 个测距片段，最后一个之后空出 Z 毫秒，那么第 y 个完整性片段（y 从零数起）落在第 X + Z + y − 1 毫秒上。这里要解决的问题是够得着；完整性是另一张账单，用时隙来付。',
     } },
     { heading: { en: 'Why the anchors stand where they do', zh: '锚点为什么站在那里' }, text: {
       en: 'The three anchors are 13.04, 13.04 and 12.76 m from the tag — as nearly equidistant as the first bay allows. That is deliberate: the whole lesson turns on a single threshold, and an anchor pushed up against the first partition would be 8.58 m away, 3.6 decibels louder, and would go on ranging on half a train while the other two heard nothing. Making the three fail together is what makes the threshold visible.',

@@ -16,7 +16,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   ANCHOR_Z, LAPTOP_POS, NBA_ANCHORS, NBA_CHANNELS, ROUTER_POS, TAG_POS, TAG_Z,
-  WIFI_6G_CENTER_MHZ, uwbNba, uwbNbaScenario, type UwbNbaVariant,
+  NBA_ANCHOR_COUNT, WIFI_6G_CENTER_MHZ, uwbNba, uwbNbaScenario, type UwbNbaVariant,
 } from '../../src/course/uwb/uwb-nba'
 import { DEFAULT_UWB_SESSION, ScenarioSchema, sixGhzChannelNo } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
@@ -32,6 +32,7 @@ import {
   NB_SYMBOL_CHIPS, NB_SYMBOL_US, NB_TX_DBM, nbPpduNs,
 } from '../../src/uwb/nb'
 import { UWB_CHIP_HZ } from '../../src/uwb/units'
+import { mmsLayout } from '../../src/uwb/mms'
 import { roundPlan } from '../../src/uwb/session'
 import { uwbTrainKey } from '../../src/uwb/view'
 import { lessonShapeSuite, ofType, runOf } from './kit'
@@ -50,7 +51,7 @@ const V_PAIR = 3
 
 // The contract every migrated lesson owes. The window is what `lessonBudget` reports —
 // `npx tsx scripts/lesson-dump.ts uwb-nba en` prints it — and the kit enforces it.
-lessonShapeSuite(uwbNba, { proseMax: 900 })
+lessonShapeSuite(uwbNba, { proseMax: 1200 })
 
 const recs = (variant?: number): TLRecord[] => runOf(uwbNba, variant, RUN_NS)
 const dist3 = (a: { x: number; y: number; z: number }, b: { x: number; y: number; z: number }): number =>
@@ -83,7 +84,7 @@ describe('uwb-nba · the lesson', () => {
     expect(uwbNba.terms!.map((t) => t.term)).toEqual(['narrowband', 'NB', 'NB Poll', 'NB Response', 'NB Report'])
     expect(uwbNba.terms!.at(-1)!.plain.en).toContain('not the wideband Report of DS-TWR')
     // the picture promises the log's own prefix, which the observations then quote
-    expect(prose()).toContain('the log marks everything of its own with NB')
+    expect(prose()).toContain('the log marks everything of its own with those two letters (NB)')
     expect(uwbNba.observe[0].en).toContain('NBPOLL')
   })
 
@@ -403,5 +404,98 @@ describe('uwb-nba · the quiz is answerable from the main path', () => {
     // both answers are derivable from the numbers section alone
     expect(formula().note!.en).toContain('Four bits ride on each symbol')
     expect(cell(0, 3, 3)).toContain('reply time')
+  })
+})
+
+/**
+ * The procedure the lesson closes on: which radio does what, in the order the engine does it,
+ * and the same round in microseconds under it. The slot indices are `mmsLayout`'s, the message
+ * sizes are `nb.ts`'s and the timings are the run's — a step or a cell that drifted from any of
+ * the three would send a reader to a timeline that does not match the words.
+ */
+describe('uwb-nba · how the two radios divide one round', () => {
+  const base = uwbNbaScenario('base')
+  const responders = NBA_ANCHOR_COUNT('base')
+  const layout = mmsLayout({ ...base.uwb!.mms }, responders)
+  /** The procedure in `numbers`, and its worked example (the lesson's third table). */
+  const steps = (): string[] => {
+    const b = uwbNba.numbers!.filter((x): x is Extract<Block, { kind: 'steps' }> => x.kind === 'steps')
+    expect(b).toHaveLength(1)
+    return b[0].items.map((i) => i.en)
+  }
+  const worked = (row: number): string => cell(1, row, 1)
+
+  it('is six steps closing the numbers, with the worked example last', () => {
+    expect(steps()).toHaveLength(6)
+    expect(uwbNba.numbers!.at(-1)).toBe(table(1))
+    expect(uwbNba.numbers!.at(-2)!.kind).toBe('steps')
+    expect(table(1).rows).toHaveLength(6)
+  })
+
+  it('step 1 — the small radio speaks first, and no ranging frame has gone out yet', () => {
+    expect(steps()[0]).toContain('The small radio speaks first')
+    expect(steps()[0]).toContain('No ranging frame has gone out yet')
+    expect(worked(0)).toBe('slot 0 · 23 B · 928.0 µs')
+    expect(nbPpduNs(23)).toBe(928_000)
+    const rs = recs()
+    const first = rs.find((r) => r.type === 'TX_START' && r.node === TAG)!
+    expect(first.type === 'TX_START' && first.frame.kind).toBe('nbPoll')
+    expect(first.t).toBe(0)
+  })
+
+  it('step 2 — a Response window a responder, and that answer is what primes the receiver', () => {
+    expect(steps()[1]).toContain('answers in a Response window of its own')
+    expect(steps()[1]).toContain('primes the receiver to start accumulating')
+    expect(worked(1)).toBe('slots 2, 4, 6 · 12 B · 576.0 µs')
+    expect(Array.from({ length: responders }, (_, r) => layout.respSlot(r))).toEqual([2, 4, 6])
+    expect(nbPpduNs(NB_RESP_BYTES)).toBe(576_000)
+  })
+
+  it('step 3 — the wide radio carries fragments and nothing else, one stamp a train', () => {
+    expect(steps()[2]).toContain('carries fragments and nothing else — no address, no data, no words')
+    expect(steps()[2]).toContain('one transmit stamp a train')
+    expect(worked(2)).toBe('slots 8–39 · 0 B · 0 Mbps')
+    expect(layout.controlSlots).toBe(8)
+    expect(layout.controlSlots + layout.rpSlots - 1).toBe(39)
+    const rs = recs()
+    const frags = ofType(rs, 'TX_START').filter((r) => r.frame.kind === 'uwbRsf' && r.t < 26 * MS)
+    expect(frags.length).toBeGreaterThan(0)
+    for (const f of frags) expect(f.frame.bytes).toBe(0)
+    const stamps = ofType(rs, 'UWB_TS').filter((r) => r.dir === 'tx' && r.node === TAG && r.t < 26 * MS)
+    expect(stamps).toHaveLength(1)
+  })
+
+  it('step 4 — one grid: a narrowband window is two of the slots a fragment gets', () => {
+    expect(steps()[3]).toContain('The two radios run on one grid')
+    expect(steps()[3]).toContain('two slots of exactly the length a fragment gets')
+    expect(steps()[3]).toContain('a message that will not fit its two slots makes the round illegal')
+    expect(worked(3)).toBe('52 × 500.0 µs = 26 ms')
+    const plan = roundPlan(base.uwb!, responders)
+    expect([plan.slots, plan.slotNs, plan.roundNs]).toEqual([52, 0.5 * MS, 26 * MS])
+    // the Poll and the Response windows are two slots each, which is what fixes the fit rule
+    expect(layout.respSlot(1) - layout.respSlot(0)).toBe(2)
+    expect(layout.controlSlots).toBe(2 * (1 + responders))
+  })
+
+  it('step 5 — the closing windows go back to the small radio, two an anchor', () => {
+    expect(steps()[4]).toContain('The closing windows go back to the small radio')
+    expect(steps()[4]).toContain('the reply time it turned the round around in')
+    expect(worked(4)).toBe('slots 40, 44, 48 · 13 B · 608.0 µs')
+    expect(Array.from({ length: responders }, (_, r) => layout.reportSlot('responder', r)))
+      .toEqual([40, 44, 48])
+    expect(nbPpduNs(NB_REPORT_BYTES)).toBe(608_000)
+    expect(NB_REPORT_TIME_BYTES).toBe(5)
+  })
+
+  it('step 6 — the distance follows the closing message, 608 µs behind it', () => {
+    expect(steps()[5]).toContain('takes the reply time off the round trip, halves what is left')
+    expect(steps()[5]).toContain('Until that closing message lands it has half an answer')
+    expect(worked(5)).toBe('20.608 ms')
+    const rs = recs()
+    const report = ofType(rs, 'TX_START').find((r) => r.frame.kind === 'nbReport')!
+    const range = ofType(rs, 'UWB_RANGE')[0]
+    expect(report.t).toBe(20 * MS)
+    expect(range.t).toBeGreaterThan(report.t)
+    expect((range.t / MS).toFixed(3)).toBe('20.608')
   })
 })

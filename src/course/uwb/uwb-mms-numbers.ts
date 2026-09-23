@@ -56,7 +56,7 @@ export const uwbMmsNumbers: Lesson = {
       zh: '发射机头上的那条规矩，是在每一毫秒上取的平均，所以它是一份能量额度，而不是一条功率红线。这一毫秒之内怎么花，由你决定。把它倒进一小段突发里，这段突发就更响；摊在一帧长帧上，这帧就更轻。能量一样多，响度却不同。',
     } },
     { kind: 'watch', jump: 1, heading: { en: 'Watch the sum be done', zh: '看那笔加法被算出来' }, text: {
-      en: 'Load the simulation and jump to the verdict on the first train. The line does the sum out loud: how many fragments were heard, how loud each was, what the combining gain added, what is left over as margin, and — only once that margin is positive — the clock ratio.',
+      en: 'Load the simulation and jump to the verdict on the first train. The line does the sum out loud: how many fragments were heard, how loud each was, what adding them up was worth (the combining gain), what is left over as margin, and — only once that margin is positive — the clock ratio.',
       zh: '载入仿真，跳到对第一串片段的判定。那一行把整笔加法念了出来：收到几个片段、每个多响、合成增益加了多少、余下多少作为余量，以及——只有余量为正时才有的——那个时钟比值。',
     } },
     { heading: { en: 'Adding up in decibels', zh: '用分贝相加' }, text: {
@@ -77,13 +77,6 @@ export const uwbMmsNumbers: Lesson = {
     } },
   ],
   numbers: [
-    { kind: 'formula', heading: { en: 'What one millisecond is worth', zh: '一毫秒值多少' }, text: {
-      en: '−41.3 dBm/MHz × 499.2 MHz = −14.3 dBm      −14.3 dBm for 1 ms = 37 nJ',
-      zh: '−41.3 dBm/MHz × 499.2 MHz = −14.3 dBm      −14.3 dBm 持续 1 ms = 37 nJ',
-    }, note: {
-      en: 'A mean power over a millisecond, spread across the channel, is an energy: 37 nJ, to spend as you like. The ordinary ranging transmitter does not choose: it holds one power whatever it sends.',
-      zh: '按毫秒平均的功率，摊在整条信道上，就是一份能量：37 nJ，随你怎么花。普通的测距发射机并不做选择：不管发什么，它都保持同一个功率。',
-    } },
     { kind: 'table', heading: { en: 'What a fragment is, and what it costs', zh: '一个片段是什么，花掉多少' }, head: [
       { en: 'Item', zh: '项' }, { en: 'Value', zh: '取值' },
     ], rows: [
@@ -97,8 +90,8 @@ export const uwbMmsNumbers: Lesson = {
       en: 'gain = 10·log10(X)      margin = rx + gain − (−93 dBm)',
       zh: 'gain = 10·log10(X)      margin = rx + gain − (−93 dBm)',
     }, note: {
-      en: 'The table below is that sum done three times. Every fragment in this room arrives under the threshold on its own, so the whole margin is the train’s doing.',
-      zh: '下面那张表就是这笔加法算了三遍。这个房间里每个片段单独到达时都低于门限，所以整份余量都是这一串挣来的。',
+      en: 'Every fragment in this room arrives under the threshold on its own, so the whole margin is the train’s doing.',
+      zh: '这个房间里每个片段单独到达时都低于门限，所以整份余量都是这一串挣来的。',
     } },
     { kind: 'table', heading: { en: 'Three trains in the same room', zh: '同一个房间里的三种序列' }, head: [
       { en: 'Train', zh: '序列' }, { en: 'Per fragment', zh: '每个片段' },
@@ -131,7 +124,7 @@ export const uwbMmsNumbers: Lesson = {
       [{ en: 'A crystal at its limit', zh: '晶振偏到极限' }, N('1.5 m')],
       [{ en: 'A 4z carrier estimate', zh: '4z 的载波估计' }, N('1.5 cm')],
       [{ en: 'The train’s 0.0202 ppm', zh: '这一串的 0.0202 ppm' }, N('1.5 mm')],
-      [{ en: 'The noise floor under all of them', zh: '它们脚下的噪声地板' }, N('2.10 cm over 21 ranges')],
+      [{ en: 'The noise floor under all of them, over 21 ranges', zh: '它们脚下的噪声地板，取 21 次测距' }, N('2.10 cm')],
     ] },
     { text: {
       en: 'The last row is the point: two receive stamps alone are worth 2.1 cm, so the train’s millimetre of clock leftover is invisible.',
@@ -149,6 +142,30 @@ export const uwbMmsNumbers: Lesson = {
       en: 'Two of those are about transmitters, not ideas: together 10.54 dB, and an older burst-mode radio could hold −7.41 dBm and be as legal. The honest claim is the 9.03 dB.',
       zh: '其中两项谈的是发射机，不是想法：合起来 10.54 dB，而老式的突发发射机本可保持 −7.41 dBm，一样合规。诚实的说法是那 9.03 dB。',
     } },
+    { kind: 'steps', heading: { en: 'The whole sum, symbol by symbol', zh: '整笔加法，一个符号一个符号地算' }, items: [
+      { en: 'E, a millisecond’s energy. The cap is a mean power per megahertz; multiply it by the channel’s width and hold it for one millisecond, and out comes an energy the transmitter may spend however it likes.',
+        zh: '先算 E，一毫秒的能量。上限写成“每兆赫多少平均功率”；把它乘上信道的带宽，再持续一毫秒，得到的就是一份能量——发射机爱怎么花就怎么花。' },
+      { en: 't, a fragment’s length. One symbol is the spreading factor times the sequence length plus its two gaps; repeat that symbol as many times as the parameter set says and divide by the chip rate.',
+        zh: '再算 t，一个片段的长度。一个符号是扩频因子乘以“序列长度加上两侧的间隔”；把这个符号按参数集规定的遍数重复，再除以码片速率。' },
+      { en: 'P, what one fragment is worth. The fragment spends all of E inside t, so P = 10·log10(E / t): the shorter the fragment, the louder it is.',
+        zh: '再算 P，一个片段值多少。片段把整个 E 花在 t 这么短的一段里，于是 P = 10·log10(E / t)：片段越短，它就越响。' },
+      { en: 'rx, the level on arrival. Off P come the loss at one metre, the distance term at the engine’s own path-loss exponent, and a fixed charge for each wall the ray crosses.',
+        zh: '再算 rx，到达时的电平。从 P 里依次扣掉：一米处的损耗、按引擎自己的路径损耗指数算出的距离项，以及射线每穿一道墙的固定收费。' },
+      { en: 'G, the combining gain. The receiver adds the X fragments it heard, and equal things added give G = 10·log10(X) — the only term many milliseconds bought.',
+        zh: '再算 G，合成增益。接收机把听到的 X 个片段加起来，而等量相加给出 G = 10·log10(X)——整笔加法里，只有这一项是“许多毫秒”买来的。' },
+      { en: 'The margin, and the verdict. Take the receiver’s sensitivity S off the sum: margin = rx + G − S. Zero or more is a detection; below zero the train is lost and nothing is measured at all.',
+        zh: '最后算余量，并给出判定。把接收机的灵敏度 S 从这个和里减掉：余量 = rx + G − S。不小于零就算检出；小于零，这一串就丢了，什么也量不出来。' },
+    ] },
+    { kind: 'table', heading: { en: 'The six lines, on this scene', zh: '同样这六行，落在本场景上' }, head: [
+      { en: 'Symbol', zh: '符号' }, { en: 'This scene', zh: '本场景' },
+    ], rows: [
+      [{ en: 'E, a millisecond', zh: 'E，一毫秒' }, N('−41.3 dBm/MHz × 499.2 MHz = −14.3 dBm → 37 nJ')],
+      [{ en: 't, a fragment’s length', zh: 't，一个片段的长度' }, N('40 × 4 × (128 + 2 × 64) = 40 960 chips → 82.051 µs')],
+      [{ en: 'P, one fragment', zh: 'P，一个片段' }, N('10·log10(37 / 82.051) = −3.46 dBm')],
+      [{ en: 'rx, on arrival', zh: 'rx，到达时' }, N('−3.46 − (50.50 + 22.30 + 24) = −100.26 dBm')],
+      [{ en: 'G, at eight and at four', zh: 'G，八个与四个' }, N('+9.03 dB · +6.02 dB')],
+      [{ en: 'margin, S = −93 dBm', zh: '余量，S = −93 dBm' }, N('+1.77 dB · −1.24 dB')],
+    ] },
   ],
   deeper: [
     { heading: { en: 'What a bigger parameter set costs', zh: '更大的参数集要付什么' }, text: {

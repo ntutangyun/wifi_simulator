@@ -61,7 +61,7 @@ const V_NOLBT = 2
 
 // The contract every migrated lesson owes, plus the split rule: uwb-nba-coexist loads
 // uwb-nba's own scene, so its recorded timeline hashes are uwb-nba's, value for value.
-lessonShapeSuite(uwbNbaCoexist, { proseMax: 950, sameSceneAs: 'uwb-nba' })
+lessonShapeSuite(uwbNbaCoexist, { proseMax: 1200, sameSceneAs: 'uwb-nba' })
 
 const recs = (variant?: number): TLRecord[] => runOf(uwbNbaCoexist, variant, RUN_NS)
 
@@ -489,13 +489,15 @@ describe('uwb-nba-coexist · what the narrowband radio costs Wi-Fi', () => {
     expect(prose()).toContain('with it off, 108 messages and 87 failures')
   })
 
-  it('"throughput falls from 407.215 Mb/s to 362.631, a loss of 10.95 %"', () => {
+  it('"407.215 Mb/s to 362.631, which is 44.58 Mb/s gone, or 10.95 %"', () => {
     const with_ = mbps(recs(V_NOLBT), 'laptop#6g')
     const without = mbps(recs(V_OUT), 'laptop#6g')
     expect(with_.toFixed(3)).toBe('362.631')
     expect(without.toFixed(3)).toBe('407.215')
+    // the subtraction and the division the lesson used to gesture at, both written out
+    expect((without - with_).toFixed(2)).toBe('44.58')
     expect(((without - with_) / without * 100).toFixed(2)).toBe('10.95')
-    expect(prose()).toContain('a loss of 10.95 %')
+    expect(prose()).toContain('which is 44.58 Mb/s gone, or 10.95 % of what it had')
     expect(uwbNbaCoexist.quiz[1].options[uwbNbaCoexist.quiz[1].answer].en)
       .toBe('87 failed frames and 10.95 % of the laptop’s throughput: 362.631 Mb/s against 407.215')
   })
@@ -564,5 +566,116 @@ describe('uwb-nba-coexist · the provenance is in sources and nowhere else', () 
     expect(zh).toContain('P802.15.4ab')
     expect(zh).toContain('15-22/0381r5')
     expect(zh).toContain('AES-128-CTR')
+  })
+})
+
+/**
+ * The procedure the lesson closes on: one busy check, in the order `nbClear`
+ * (src/uwb/device.mms.ts) runs it, and the same check in figures under it. The arithmetic the
+ * lesson used to gesture at — the threshold, the reading, the comparison and what the whole
+ * thing costs the laptop — is written out step by step, and every figure is read back out of
+ * `nb.ts` or out of the run.
+ */
+describe('uwb-nba-coexist \u00b7 one busy check, step by step', () => {
+  const steps = (): string[] => {
+    const b = uwbNbaCoexist.numbers!
+      .filter((x): x is Extract<Block, { kind: 'steps' }> => x.kind === 'steps')
+    expect(b).toHaveLength(1)
+    return b[0].items.map((i) => i.en)
+  }
+  /** The worked example under the procedure — the lesson's third table. */
+  const worked = (row: number): string => cell(2, row, 1)
+
+  it('closes the numbers: six steps, then the seven-row worked example', () => {
+    expect(steps()).toHaveLength(6)
+    expect(uwbNbaCoexist.numbers!.at(-1)).toBe(table(2))
+    expect(uwbNbaCoexist.numbers!.at(-2)!.kind).toBe('steps')
+    expect(table(2).rows).toHaveLength(7)
+  })
+
+  it('leaves no pointer phrase where the arithmetic used to be gestured at', () => {
+    for (const s of lessonStrings(uwbNbaCoexist)) {
+      expect(s.zh, s.en.slice(0, 50)).not.toContain('\u8fd9\u7b14\u8d26')
+      expect(s.zh, s.en.slice(0, 50)).not.toContain('\u90a3\u7b14\u8d26')
+      expect(s.en, s.en.slice(0, 50)).not.toMatch(/head arithmetic/)
+    }
+  })
+
+  it('step 1 — the upper band obliges the device to listen, the lower one does not', () => {
+    expect(steps()[0]).toContain('whether this channel obliges it to listen at all')
+    expect(steps()[0]).toContain('in the upper of the two bands it must, in the lower one it need not')
+    expect(worked(0)).toBe('200 \u00b7 6301.25 MHz')
+    expect(nbCenterMhz(200)).toBe(6301.25)
+    expect(nbLbtRequired(200, 'auto')).toBe(true)
+    // the session default sits in the lower band, where listening first is optional
+    expect(nbLbtRequired(NB_DEFAULT_CHANNELS[0], 'auto')).toBe(false)
+  })
+
+  it('step 2 — it reads the power in that channel\u2019s 2.5 MHz, one reading for the window', () => {
+    expect(steps()[1]).toContain('reads the power already sitting in that channel\u2019s 2.5 MHz')
+    expect(steps()[1]).toContain('one instantaneous reading, standing in for the assessment window')
+    expect(NB_CHANNEL_MHZ).toBe(2.5)
+    const band = nbBand(200)
+    expect(band.hi - band.lo).toBeCloseTo(NB_CHANNEL_MHZ, 9)
+    expect(NB_LBT_CCA_US).toBe(9)
+    expect(prose()).toContain('assessed for at least 9 \u00b5s before each transmission')
+  })
+
+  it('step 3 — the per-megahertz limit spread over the channel is \u221271.02 dBm', () => {
+    expect(steps()[2]).toContain('the limit written per megahertz spread over the channel\u2019s own width')
+    expect(steps()[2]).toContain('Below it the message goes out; at it or above, the channel counts as busy')
+    expect(worked(1)).toBe('\u221275 dBm/MHz + 10\u00b7log10(2.5) = \u221271.02 dBm')
+    expect(NB_LBT_EDT_DBM_PER_MHZ).toBe(-75)
+    expect(NB_LBT_THRESHOLD_DBM.toFixed(2)).toBe('-71.02')
+    expect((NB_LBT_EDT_DBM_PER_MHZ + 10 * Math.log10(NB_CHANNEL_MHZ)).toFixed(2)).toBe('-71.02')
+  })
+
+  it('step 4 — a busy reading is not a back-off: the whole block goes silent', () => {
+    expect(steps()[3]).toContain('A busy reading is not a back-off')
+    expect(steps()[3]).toContain('marks the whole ranging block and sends no narrowband message at all for the rest of it')
+    expect(worked(2)).toBe('\u221263.72 dBm')
+    expect(worked(3)).toBe('\u221263.72 \u2265 \u221271.02 dBm')
+    const rs = recs()
+    const lbts = ofType(rs, 'UWB_NB_LBT').filter((r) => r.node === TAG)
+    expect(lbts.length).toBeGreaterThan(0)
+    for (const l of lbts) {
+      expect(l.foreignDbm.toFixed(2)).toBe('-63.72')
+      expect(l.thresholdDbm).toBe(NB_LBT_THRESHOLD_DBM)
+      expect(l.foreignDbm).toBeGreaterThanOrEqual(l.thresholdDbm)
+    }
+    // after a busy check the phone sends nothing more of its own in that block
+    const first = lbts[0]
+    const after = ofType(rs, 'TX_START').filter((r) =>
+      r.node === TAG && NB_KINDS.has(r.frame.kind) && r.t > first.t && r.t < (first.block + 1) * 200 * MS)
+    expect(after).toEqual([])
+  })
+
+  it('step 5 — with no Poll there is no round: the anchors wait and time out', () => {
+    expect(steps()[4]).toContain('With no Poll there is no round')
+    expect(steps()[4]).toContain('wait, and time out, and the block ends with nothing measured')
+    expect(worked(4)).toBe('7')
+    expect(worked(5)).toBe('4 \u00b7 0')
+    const rs = recs()
+    expect(ofType(rs, 'UWB_NB_LBT').filter((r) => r.node === TAG)).toHaveLength(BLOCKS)
+    expect(ofType(rs, 'UWB_RANGE').filter((r) => r.node === TAG)).toHaveLength(4)
+    expect(ofType(rs, 'UWB_POSITION')).toEqual([])
+    expect(ofType(rs, 'UWB_TIMEOUT').length).toBeGreaterThan(0)
+  })
+
+  it('step 6 — the next block draws again, which is all that hopping buys', () => {
+    expect(steps()[5]).toContain('draws its channel from the allow list again')
+    expect(steps()[5]).toContain('gets back exactly the share of blocks the draw puts somewhere quiet')
+    const list = NBA_CHANNELS.hop
+    const drawn = Array.from({ length: BLOCKS }, (_, b) => nbChannelForBlock(list, SEED, b))
+    expect(drawn).toEqual([100, 210, 200, 150, 100, 210, 200])
+    // the share that lands clear of the router is the share of blocks that run, and no more
+    const clear = drawn.filter((c) => c === 100 || c === 150).length
+    expect(clear).toBe(3)
+    expect(ofType(recs(V_HOP), 'UWB_POSITION')).toHaveLength(clear)
+  })
+
+  it('the last row of the worked example is the bill the lesson used to point at', () => {
+    expect(worked(6)).toBe('407.215 \u2192 362.631 Mb/s \u00b7 \u221244.58 \u00b7 10.95 %')
+    expect(prose()).toContain('which is 44.58 Mb/s gone, or 10.95 % of what it had')
   })
 })
