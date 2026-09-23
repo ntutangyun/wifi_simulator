@@ -494,7 +494,9 @@ const STAND_INS: { name: string; en: RegExp; zh: RegExp }[] = [
 ]
 
 const QUANTITIES: { name: string; re: RegExp }[] = [
-  { name: 'margin', re: /\bmargins?\b|余量/ },
+  // 余量 is the quantity; 剩余量/存余量 are ordinary words that contain it, and nav
+  // was reworded once for a match inside 剩余量 before the rule learned the difference.
+  { name: 'margin', re: /\bmargins?\b|(?<![剩存养])余量/ },
   { name: 'sensitivity', re: /\bsensitivit(?:y|ies)\b|灵敏度/ },
   { name: 'threshold', re: /\bthresholds?\b|门限/ },
   { name: 'noise floor', re: /\bnoise floors?\b|噪声地板/ },
