@@ -52,20 +52,20 @@ export const txopProtect: Lesson = {
   ],
   picture: [
     { heading: { en: 'The same house, now in bursts', zh: '同一间房子，现在成串地发' }, text: {
-      en: 'This is the hallway house of the hidden-node lesson: a station in each end room, and in the hallway between them the one radio both rooms can hear, while neither station hears a whisper of the other. What is new is that the winner no longer sends one frame and stops. It holds the air and sends several frames back to back. For the far room, which hears none of it, the danger is no longer a moment. It is a long stretch of time.',
-      zh: '这还是隐藏节点那一课的走廊房子：两头的房间里各一台站点，中间的走廊里是两个房间都听得见的那台电台，而两台站点谁也听不见对方一丁点动静。新的地方在于，赢家不再发一帧就收手：它占住空口，把好几帧连着发出去。而对那个什么也听不见的远房间来说，危险不再是一瞬间，而是一大段时间。',
+      en: 'This is the hallway house of the hidden-node lesson: a station in each end room, the access point (AP) in the hallway between them, neither station able to hear a whisper of the other. What is new is that the winner no longer sends one frame and stops. It holds the air and sends several frames back to back. For the far room, which hears none of it, the danger is no longer a moment. It is a long stretch of time.',
+      zh: '这还是隐藏节点那一课的走廊房子：两头的房间里各一台站点，接入点（AP）在中间的走廊里，两台站点谁也听不见对方一丁点动静。新的地方在于，赢家不再发一帧就收手：它占住空口，把好几帧连着发出去。而对那个什么也听不见的远房间来说，危险不再是一瞬间，而是一大段时间。',
     } },
     { heading: { en: 'Announce the burst, not the next frame', zh: '预告的是整串，而不是下一帧' }, text: {
-      en: 'Before the burst the holder still sends its short question, and the radio in the hallway still answers out loud, so both rooms hear it. What matters now is how much that answer announces: only the frame about to go out, or every frame of the burst. Announcing the whole burst in one breath is this lesson’s protection — the difference between a far station that sits the burst out and one that wakes in the middle.',
-      zh: '发这一串之前，持有者照样先发出那句简短的提问，走廊里那台电台也照样大声回答，于是两个房间都听得见这个回答。现在关键在于：这个回答预告了多少——只是马上要发的那一帧，还是这一串里的每一帧。一口气把整串预告出去，就是这一课说的保护；一个远端站点是安安静静把整串等完，还是在半途中醒来，差别就在这里。',
+      en: 'Before the burst the holder still sends its short question, and the access point still answers out loud, so both rooms hear it. What matters now is how much that answer announces: only the frame about to go out, or every frame of the burst. Announcing the whole burst in one breath is this lesson’s protection — the difference between a far station that sits the burst out and one that wakes in the middle.',
+      zh: '发这一串之前，持有者照样先发出那句简短的提问，接入点也照样大声回答，于是两个房间都听得见这个回答。现在关键在于：这个回答预告了多少——只是马上要发的那一帧，还是这一串里的每一帧。一口气把整串预告出去，就是这一课说的保护；一个远端站点是安安静静把整串等完，还是在半途中醒来，差别就在这里。',
     } },
     { kind: 'watch', jump: 0, heading: { en: 'Watch the far room fall quiet', zh: '看远处那个房间安静下来' }, text: {
       en: 'Load the simulation and jump to the first question. Watch the far station’s lane: a reservation appears under it and runs to the end of a burst it cannot hear a single frame of. Then load the single-protection variant and watch that lane wake up while the burst is still going.',
       zh: '载入仿真，跳到第一次提问。盯住远端站点的泳道：它下方出现一条预约，一直延伸到那串帧的末尾——而这一串它连一帧都听不见。然后载入“单次保护”变体，再看同一条泳道：这一串还没发完，它就醒了。',
     } },
     { heading: { en: 'Giving the time back', zh: '把时间还回去' }, text: {
-      en: 'An announcement covering the whole burst is usually longer than the burst needs: the queue runs dry, or the next frame no longer fits. So the holder gives the rest back with a few bytes meaning “I have finished early” — the CF-End. Everyone who hears it drops the reservation there and then. The far room cannot hear the holder — so the radio in the hallway repeats the CF-End on its behalf: the same trick as the answer, pointing the other way.',
-      zh: '覆盖整串的预告，通常比这串帧最后真正需要的更长：队列空了，或者下一帧已经塞不下。于是持有者用几个字节把剩下的还回去，意思是“我提前结束了”——这就是 CF-End。听见的人当场把预约作废。可远处那个房间听不见持有者——于是走廊里那台电台替它把这个 CF-End 重复一遍。这和那个回答是同一个手法，只是方向反了过来。',
+      en: 'An announcement covering the whole burst is usually longer than the burst needs: the queue runs dry, or the next frame no longer fits. So the holder gives the rest back with a few bytes meaning “I have finished early” — the CF-End. Everyone who hears it drops the reservation there and then. The far room cannot hear the holder — so the access point repeats the CF-End on its behalf: the same trick as the answer, pointing the other way.',
+      zh: '覆盖整串的预告，通常比这串帧最后真正需要的更长：队列空了，或者下一帧已经塞不下。于是持有者用几个字节把剩下的还回去，意思是“我提前结束了”——这就是 CF-End。听见的人当场把预约作废。可远处那个房间听不见持有者——于是接入点替它把这个 CF-End 重复一遍。这和那个回答是同一个手法，只是方向反了过来。',
     } },
     { kind: 'list', heading: { en: 'Three ways to say it', zh: '预告的三种说法' }, items: [
       { en: 'Single: say nothing beyond the frame in hand. A far station is told of one exchange at a time, and counts on into the rest of the burst.', zh: '单次：除了手上这一帧，什么也不多说。远端站点一次只被告知一次交互，然后就径直数进了这一串剩下的部分。' },

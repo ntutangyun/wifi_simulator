@@ -18,8 +18,8 @@ export const txop: Lesson = {
   module: 2,
   title: { en: 'TXOP — own the channel, briefly', zh: 'TXOP——短暂地拥有信道' },
   why: {
-    en: 'Winning the channel is the expensive part, and so far a winner has handed it straight back after a single exchange — then queued up to pay the same price again. If a station (STA) has several frames waiting for the same neighbour, that is absurd. So a win stopped being a ticket for one exchange and became a short lease on the air. This lesson watches one winner keep the floor, and asks what stops it keeping the floor for ever.',
-    zh: '赢下信道才是贵的那一步，可到目前为止，赢家做完一次交互就把它原样交还了——然后重新排队，再付一遍同样的价钱。如果一台站点（STA）手里还攒着好几帧、都是发给同一个邻居的，这就太荒唐了。于是“赢一次”不再是一次交互的门票，而变成了对空口的一小段短租。这一课我们看赢家如何占住发言权，并追问：是什么让它不能一直占下去。',
+    en: 'Winning the channel is the expensive part, and so far a winner has handed it straight back after a single exchange — then queued up to pay the same price again. If a station (STA) has several frames waiting for the same neighbour, that is absurd. So a win stopped being a ticket for one exchange and became a short lease on the air. This lesson watches an access point (AP) keep the floor, and asks what stops it keeping the floor for ever.',
+    zh: '赢下信道才是贵的那一步，可到目前为止，赢家做完一次交互就把它原样交还了——然后重新排队，再付一遍同样的价钱。如果一台站点（STA）手里还攒着好几帧、都是发给同一个邻居的，这就太荒唐了。于是“赢一次”不再是一次交互的门票，而变成了对空口的一小段短租。这一课我们看一个接入点（AP）如何占住发言权，并追问：是什么让它不能一直占下去。',
   },
   outcomes: [
     { en: 'describe what a winner may do with the channel after its first exchange', zh: '说清赢家在第一次交互之后还能拿这条信道做什么' },
@@ -43,8 +43,8 @@ export const txop: Lesson = {
       zh: '在那么多等待和倒数之后，赢家买到的东西其实比“一次交互”值钱得多：在一小段时间里，它是唯一被允许说话的。其他人开口前依然必须先听到静默，可静默根本不出现——赢家只隔着交互内部那段短短的停顿就又上了空口，而这段停顿比任何竞争者要等的都短。这段“归我所有”的时间，就是 TXOP；而赢一次所带出去的那几帧，就是它的突发。',
     } },
     { kind: 'watch', jump: 0, heading: { en: 'Watch one burst', zh: '看一串突发' }, text: {
-      en: 'Load the simulation and jump to the first burst. The winner — the node in the middle of the room — sends to one television, takes its answer, and a moment later is already sending to the other — no required silence, no countdown anywhere in between.',
-      zh: '载入仿真，跳到第一串突发。赢家——屋子中间那个节点——发给一台电视，收下它的回答，转眼间就已经在发给另一台了——中间没有必等的静默，也没有任何倒数。',
+      en: 'Load the simulation and jump to the first burst. The access point sends to one television, takes its answer, and a moment later is already sending to the other — no required silence, no countdown anywhere in between.',
+      zh: '载入仿真，跳到第一串突发。接入点发给一台电视，收下它的回答，转眼间就已经在发给另一台了——中间没有必等的静默，也没有任何倒数。',
     } },
     { heading: { en: 'The lease has a ceiling', zh: '短租有个上限' }, text: {
       en: 'A lease with no end would be a takeover, so every win comes with a clock, and that clock is the TXOP limit. Everything the holder sends and every answer it gets must fit inside it, and when there is not enough time left for the next exchange, the holder stops and goes back to waiting and counting like everybody else. The ceiling is set per class, so the classes that carry conversation get their own size.',
