@@ -19,6 +19,7 @@ import { isMigrated, type Block, type L10n, type Lesson } from '../../src/course
 import {
   BUDGETS, CITATION, KNOWN_WORDS, LOG_NAMES, acronyms, cellTexts, definedInPlace, densityTexts, enWords,
   firstTermUses, lessonBudget, lessonStrings, namedAtStandIn, namedInPlace, neutralCellTexts, numericQuantities,
+  zhTermName,
   paragraphTexts,
   zhChars,
 } from '../../src/course/readability'
@@ -512,14 +513,16 @@ const QUANTITIES: { name: string; re: RegExp }[] = [
  * has read — and a separate test keeps `needs` honest.
  */
 function glossTextUpTo(l: Lesson): string {
-  const seen = new Set<string>()
-  const walk = (x: Lesson): Lesson[] => {
-    if (seen.has(x.id)) return []
-    seen.add(x.id)
-    const from = (x.needs ?? []).flatMap((id) => { const o = byId.get(id); return o ? walk(o) : [] })
-    return [...from, x]
-  }
-  return walk(l)
+  // DIRECT needs, not the transitive closure. The closure was the second shape
+  // this helper had, and it was vacuous too: uwb-intro needs frame-anatomy,
+  // which needs roles-stack, which needs decode-thresholds — so every UWB
+  // lesson inherited all four quantities from the one Wi-Fi lesson that made
+  // the rule vacuous in the first place (UWB track review, 2026-09-23). A
+  // quantity a lesson uses is glossed by that lesson or by one the reader was
+  // told to read immediately before it; anything further back is a reminder
+  // the lesson owes its reader itself.
+  const pool = [l, ...(l.needs ?? []).flatMap((id) => byId.get(id) ?? [])]
+  return pool
     .filter((o) => !MIGRATING_NOW.includes(o.id))
     .flatMap((o) => (o.terms ?? []).flatMap((t) => [t.term, t.plain.en, t.plain.zh]))
     .join(' | ')
@@ -580,6 +583,13 @@ describe('readability · mechanism before metaphor', () => {
     for (const name of names) {
       if (!namedInPlace(en, name)) unnamed.push(`${name} (en)`)
       if (!namedInPlace(zh, name)) unnamed.push(`${name} (zh)`)
+    }
+    // The Chinese arm, which graded only Latin tokens until the UWB track
+    // review found it: a term whose gloss opens with its own Chinese name is
+    // held to the same rule under that name.
+    for (const t of l.terms ?? []) {
+      const zhName = zhTermName(t.plain.zh)
+      if (zhName && !namedInPlace(zh, zhName)) unnamed.push(`${zhName} (zh name of ${t.term})`)
     }
     for (const si of STAND_INS) {
       if (!namedAtStandIn(en, si.en, si.name)) unnamed.push(`${si.name} at "${si.en.source}" (en)`)

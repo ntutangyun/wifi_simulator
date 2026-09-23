@@ -423,7 +423,12 @@ const NAMING = /就是|叫做|叫作|称为|名叫|即|这就是|名字是|is ca
 export function namedInPlace(text: string, term: string): boolean {
   // `\\b`, not `\b`: inside a template literal `\b` is the backspace character,
   // which matches nothing — the rule graded vacuously until this was fixed.
-  const re = new RegExp(`\\b${escapeRe(term)}\\b`, 'i')
+  // A word boundary is also meaningless between CJK characters, so a Chinese
+  // name is matched literally; without this the Chinese half of the rule sees
+  // only the Latin acronyms and passes everything else (UWB track review,
+  // 2026-09-23: 14 of 18 lessons had terms the Chinese arm never graded).
+  const cjk = new RegExp(CJK.source).test(term) // CJK carries /g/; a fresh one is stateless
+  const re = cjk ? new RegExp(escapeRe(term)) : new RegExp(`\\b${escapeRe(term)}\\b`, 'i')
   const m = re.exec(text)
   if (!m) return true
   const before = text.slice(Math.max(0, m.index - 28), m.index)
@@ -451,4 +456,20 @@ export function namedAtStandIn(text: string, standIn: RegExp, name: string): boo
   // or after it — 接入点（AP）— so the window starts a little ahead of the match.
   const window = text.slice(Math.max(0, m.index - 10), m.index + m[0].length + 24)
   return new RegExp(`[（(][^）)]{0,28}\\b${escapeRe(name)}\\b`).test(window)
+}
+
+/**
+ * The Chinese name a term's plain-words gloss opens with, when it has one:
+ * `灵敏度：某一级还能被解出来的最弱到达功率` → `灵敏度`.
+ *
+ * The naming rule is written about the lesson, not about its English half, but
+ * a `Term`'s `term` is one string shared by both languages — usually the Latin
+ * acronym — so the Chinese arm had nothing to look for and passed every term
+ * it could not find. A Chinese gloss that opens with its own name gives the
+ * rule the handle it needs; one that does not is not graded, which is the
+ * conservative direction.
+ */
+export function zhTermName(plainZh: string): string | null {
+  const m = /^([㐀-䶿一-鿿]{2,8})[：:]/.exec(plainZh.trim())
+  return m ? m[1]! : null
 }
