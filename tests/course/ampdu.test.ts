@@ -14,7 +14,8 @@ import { ampdu } from '../../src/course/tier2/ampdu'
 import { ScenarioSchema } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 import { lessonShapeSuite, ofType, runOf } from './kit'
-import { BA_BYTES, MAX_AMPDU_MPDUS } from '../../src/engine/phy'
+import { AMPDU_DELIMITER_BYTES, BA_BYTES, FCS_BYTES, MAX_AMPDU_MPDUS, MAX_PPDU_NS, OFDM_5G, QOS_HDR_BYTES } from '../../src/engine/phy'
+import { ampduPsduBytes, ampduSubframeBytes } from '../../src/model/frames'
 
 const MS = 1_000_000
 const US = 1_000
@@ -28,7 +29,7 @@ const txs = (rs: TLRecord[], kind?: string) =>
 const delivered = (rs: TLRecord[]) => ofType(rs, 'DEQUEUE').filter((r) => r.node === 'sta-1').length
 const busyAirNs = (rs: TLRecord[]) => txs(rs).reduce((a, r) => a + r.frame.txTimeNs, 0)
 
-lessonShapeSuite(ampdu, { proseMax: 1000, runNs: RUN_NS })
+lessonShapeSuite(ampdu, { proseMax: 1250, runNs: RUN_NS })
 
 describe('ampdu · the lesson’s own scene', () => {
   it('sits in Tier 2 and leans on the airtime and frame lessons', () => {
@@ -98,6 +99,54 @@ describe('ampdu · one turn, both ways', () => {
     // "(28 + 28 + 2 248 + 32) µs ÷ 14 frames = 166.9 µs" / "(200 + 28) µs ÷ 1 frame = 228.0 µs"
     expect(((28 + 28 + 2_248 + 32) / 14).toFixed(1)).toBe('166.9')
     expect((200 + 28).toFixed(1)).toBe('228.0')
+  })
+})
+
+describe('ampdu · how a batch is built and answered', () => {
+  it('step 3: the subframe layout is the engine’s own arithmetic, 13 × 1 536 + 1 534', () => {
+    // "a 4-byte delimiter carrying the length, then that frame's own QoS header, its payload
+    // and its check, padded up to a four-byte boundary. The last subframe is not padded."
+    expect(AMPDU_DELIMITER_BYTES).toBe(4)
+    expect(QOS_HDR_BYTES).toBe(26)
+    expect(FCS_BYTES).toBe(4)
+    expect(ampduSubframeBytes(1_500)).toBe(1_536)
+    expect(AMPDU_DELIMITER_BYTES + QOS_HDR_BYTES + 1_500 + FCS_BYTES).toBe(1_534)
+    expect(ampduPsduBytes(Array(14).fill(1_500))).toBe(13 * 1_536 + 1_534)
+    expect(ampduPsduBytes(Array(14).fill(1_500))).toBe(21_502)
+    expect(txs(agg(), 'data')[0].frame.bytes).toBe(ampduPsduBytes(Array(14).fill(1_500)))
+  })
+
+  it('step 2: of the three bounds it is the turn that binds, at 2 384 µs of 2 528 µs', () => {
+    const rs = agg()
+    const t0 = ofType(rs, 'TXOP_START')[0]
+    const data = txs(rs, 'data')[0]
+    const ba = txs(rs, 'ba').find((r) => r.t > data.t)!
+    expect(MAX_AMPDU_MPDUS).toBe(64)
+    expect(MAX_PPDU_NS).toBe(5_484 * US)
+    expect(data.frame.ampdu!.mpduCount).toBe(14)
+    // neither the 64-frame ceiling nor the longest PPDU is anywhere near
+    expect(data.frame.txTimeNs).toBeLessThan(MAX_PPDU_NS)
+    // "the whole exchange: question, answer, three pauses, batch, BlockAck" = 2 384 µs
+    const endNs = ba.t + ba.frame.txTimeNs
+    expect((endNs - t0.t) / US).toBe(2_384)
+    expect((t0.untilNs - t0.t) / US).toBe(2_528)
+    // "left over, where a fifteenth subframe costs about 160 µs" = 144 µs
+    expect((t0.untilNs - endNs) / US).toBe(144)
+    expect(data.frame.txTimeNs / 14 / US).toBeGreaterThan(144)
+    // and the queue had more than 14 frames in it: the clock bound the batch, not the queue
+    expect(ofType(rs, 'ENQUEUE').filter((r) => r.t <= t0.t).length).toBeGreaterThan(14)
+  })
+
+  it('steps 5 and 6: one BlockAck one SIFS later, and the batch is settled whole', () => {
+    const rs = agg()
+    const data = txs(rs, 'data')[0]
+    const ba = txs(rs, 'ba').find((r) => r.t > data.t)!
+    expect(ba.t - (data.t + data.frame.txTimeNs)).toBe(OFDM_5G.sifsNs)
+    expect(ba.frame.bytes).toBe(BA_BYTES)
+    // no per-subframe bitmap in this engine: all fourteen leave the queue at one instant
+    const deq = ofType(rs, 'DEQUEUE').filter((r) => r.node === 'sta-1' && r.t <= ba.t + ba.frame.txTimeNs)
+    expect(deq).toHaveLength(14)
+    expect(new Set(deq.map((r) => r.t)).size).toBe(1)
   })
 })
 

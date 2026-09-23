@@ -26,8 +26,8 @@ export const txopProtect: Lesson = {
   module: 2,
   title: { en: 'Protecting the burst — one answer for the whole burst', zh: '保护突发——一个回答管住整个突发' },
   why: {
-    en: 'A station that wins the air can keep it for a while and send several frames back to back. That is a good bargain when everyone can hear everyone. Where one station cannot hear the other it is a trap: a long burst is a long stretch of time for the deaf neighbour to blunder into. The cure from the hidden-node lesson still works, but it has to be aimed further — announce the whole burst at once, in a voice the far room can hear.',
-    zh: '抢到空口的站点可以多占一会儿，把好几帧连着发出去，而不是只发一帧。当屋里所有人都听得见所有人时，这是笔划算的买卖。可在一台站点听不见另一台的房子里，它就成了陷阱：一长串帧，无非就是给那位“聋着的”邻居留出了一大段可以撞进来的时间。隐藏节点那一课的解法依然管用，只是要瞄得更远——用远处那个房间听得见的声音，把整串帧一次性预告出去。',
+    en: 'A station (STA) that wins the air can keep it for a while and send several frames back to back. That is a good bargain when everyone can hear everyone. Where one station cannot hear the other it is a trap: a long burst is a long stretch of time for the deaf neighbour to blunder into. The cure from the hidden-node lesson still works, but it has to be aimed further — announce the whole burst at once, in a voice the far room can hear.',
+    zh: '抢到空口的站点（STA）可以多占一会儿，把好几帧连着发出去，而不是只发一帧。当屋里所有人都听得见所有人时，这是笔划算的买卖。可在一台站点听不见另一台的房子里，它就成了陷阱：一长串帧，无非就是给那位“聋着的”邻居留出了一大段可以撞进来的时间。隐藏节点那一课的解法依然管用，只是要瞄得更远——用远处那个房间听得见的声音，把整串帧一次性预告出去。',
   },
   outcomes: [
     { en: 'say why a burst is more dangerous than one frame when a station is hidden', zh: '说出有站点被隐藏时，为什么一串帧比单独一帧更危险' },
@@ -52,20 +52,20 @@ export const txopProtect: Lesson = {
   ],
   picture: [
     { heading: { en: 'The same house, now in bursts', zh: '同一间房子，现在成串地发' }, text: {
-      en: 'This is the hallway house of the hidden-node lesson: a station in each end room, the access point between them, neither able to hear a whisper of the other. What is new is that the winner no longer sends one frame and stops. It holds the air and sends several frames back to back. For the far room, which hears none of it, the danger is no longer a moment. It is a long stretch of time.',
-      zh: '这还是隐藏节点那一课的走廊房子：两头的房间里各一台站点，接入点在中间，两台站点谁也听不见对方一丁点动静。新的地方在于，赢家不再发一帧就收手：它占住空口，把好几帧连着发出去。而对那个什么也听不见的远房间来说，危险不再是一瞬间，而是一大段时间。',
+      en: 'This is the hallway house of the hidden-node lesson: a station in each end room, and in the hallway between them the one radio both rooms can hear, while neither station hears a whisper of the other. What is new is that the winner no longer sends one frame and stops. It holds the air and sends several frames back to back. For the far room, which hears none of it, the danger is no longer a moment. It is a long stretch of time.',
+      zh: '这还是隐藏节点那一课的走廊房子：两头的房间里各一台站点，中间的走廊里是两个房间都听得见的那台电台，而两台站点谁也听不见对方一丁点动静。新的地方在于，赢家不再发一帧就收手：它占住空口，把好几帧连着发出去。而对那个什么也听不见的远房间来说，危险不再是一瞬间，而是一大段时间。',
     } },
     { heading: { en: 'Announce the burst, not the next frame', zh: '预告的是整串，而不是下一帧' }, text: {
-      en: 'Before the burst the holder still sends its short question, and the access point still answers out loud, so both rooms hear it. What matters now is how much that answer announces: only the frame about to go out, or every frame of the burst. Announcing the whole burst in one breath is this lesson’s protection — the difference between a far station that sits the burst out and one that wakes in the middle.',
-      zh: '发这一串之前，持有者照样先发出那句简短的提问，接入点也照样大声回答，于是两个房间都听得见这个回答。现在关键在于：这个回答预告了多少——只是马上要发的那一帧，还是这一串里的每一帧。一口气把整串预告出去，就是这一课说的保护；一个远端站点是安安静静把整串等完，还是在半途中醒来，差别就在这里。',
+      en: 'Before the burst the holder still sends its short question, and the radio in the hallway still answers out loud, so both rooms hear it. What matters now is how much that answer announces: only the frame about to go out, or every frame of the burst. Announcing the whole burst in one breath is this lesson’s protection — the difference between a far station that sits the burst out and one that wakes in the middle.',
+      zh: '发这一串之前，持有者照样先发出那句简短的提问，走廊里那台电台也照样大声回答，于是两个房间都听得见这个回答。现在关键在于：这个回答预告了多少——只是马上要发的那一帧，还是这一串里的每一帧。一口气把整串预告出去，就是这一课说的保护；一个远端站点是安安静静把整串等完，还是在半途中醒来，差别就在这里。',
     } },
     { kind: 'watch', jump: 0, heading: { en: 'Watch the far room fall quiet', zh: '看远处那个房间安静下来' }, text: {
       en: 'Load the simulation and jump to the first question. Watch the far station’s lane: a reservation appears under it and runs to the end of a burst it cannot hear a single frame of. Then load the single-protection variant and watch that lane wake up while the burst is still going.',
       zh: '载入仿真，跳到第一次提问。盯住远端站点的泳道：它下方出现一条预约，一直延伸到那串帧的末尾——而这一串它连一帧都听不见。然后载入“单次保护”变体，再看同一条泳道：这一串还没发完，它就醒了。',
     } },
     { heading: { en: 'Giving the time back', zh: '把时间还回去' }, text: {
-      en: 'An announcement covering the whole burst is usually longer than the burst needs: the queue runs dry, or the next frame no longer fits. So the holder sends a CF-End, and everyone who hears it drops the reservation there and then. The far room cannot hear the holder — so the access point repeats the CF-End on its behalf: the same trick as the answer, pointing the other way.',
-      zh: '覆盖整串的预告，通常比这串帧最后真正需要的更长：队列空了，或者下一帧已经塞不下。于是持有者发出一个 CF-End，听见的人当场把预约作废。可远处那个房间听不见持有者——于是接入点替它把这个 CF-End 重复一遍。这和那个回答是同一个手法，只是方向反了过来。',
+      en: 'An announcement covering the whole burst is usually longer than the burst needs: the queue runs dry, or the next frame no longer fits. So the holder gives the rest back with a few bytes meaning “I have finished early” — the CF-End. Everyone who hears it drops the reservation there and then. The far room cannot hear the holder — so the radio in the hallway repeats the CF-End on its behalf: the same trick as the answer, pointing the other way.',
+      zh: '覆盖整串的预告，通常比这串帧最后真正需要的更长：队列空了，或者下一帧已经塞不下。于是持有者用几个字节把剩下的还回去，意思是“我提前结束了”——这就是 CF-End。听见的人当场把预约作废。可远处那个房间听不见持有者——于是走廊里那台电台替它把这个 CF-End 重复一遍。这和那个回答是同一个手法，只是方向反了过来。',
     } },
     { kind: 'list', heading: { en: 'Three ways to say it', zh: '预告的三种说法' }, items: [
       { en: 'Single: say nothing beyond the frame in hand. A far station is told of one exchange at a time, and counts on into the rest of the burst.', zh: '单次：除了手上这一帧，什么也不多说。远端站点一次只被告知一次交互，然后就径直数进了这一串剩下的部分。' },
@@ -73,7 +73,7 @@ export const txopProtect: Lesson = {
       { en: 'Multiple: the same opening, and every data frame carries the time still to come, so a station that missed the answer can pick the reservation up from the data.', zh: '多重：开头同样是一问一答，而且每个数据帧都携带剩余时间，于是错过那个回答的站点，也能从数据帧里把预约接上。' },
     ] },
     { heading: { en: 'When nobody is there to answer', zh: '没人替你回答的时候' }, text: {
-      en: 'Sometimes a holder wants the announcement without the asking. It can send the permission frame to its own address: a CTS-to-self, one frame where there were two. It costs half as much — and carries exactly as far as the holder’s own voice, which is to say, not into the far room.',
+      en: 'Sometimes a holder wants the announcement without the asking. It can send the permission frame to its own address — a CTS-to-self, one frame where there were two. It costs half as much — and carries exactly as far as the holder’s own voice, which is to say, not into the far room.',
       zh: '有时候持有者只想要预告，不想要那次问答。它可以把“允许发送”那一帧直接发给自己的地址：这就是 CTS-to-self，本来两帧，现在一帧。代价少了一半——而它传得多远，和持有者自己的嗓门一模一样，也就是说，传不进远处那个房间。',
     } },
   ],
@@ -94,17 +94,40 @@ export const txopProtect: Lesson = {
       [{ en: 'Average reservation a hidden station loads', zh: '隐藏站点装上的预约，平均有多长' }, N('1.05 ms'), N('2.45 ms'), N('2.45 ms')],
     ] },
     { heading: { en: 'The same bill, better aimed', zh: '同样的账单，瞄得更准' }, text: {
-      en: 'Protection is not the expensive part: both policies spend about a twentieth of the air on the frames that do the announcing, and boundary spends slightly less, because one opening serves a whole burst. What changes is the reach. The reservation a hidden station loads now lasts 2.45 ms instead of 1.05 ms, so it sits the burst out — and the room delivers nearly three times the frames for a third of the air each.',
-      zh: '保护本身并不是花钱的地方。两种策略花在预告帧上的空口时间都在二十分之一上下——边界还略少一点，因为一次开场就管住了一整串。变的是覆盖范围：隐藏站点装上的预约，现在平均是 2.45 ms，而不是 1.05 ms，于是它把整串等完；整个房间送达的帧数因此接近三倍，而每送达一帧所花的空口时间只有原来的三分之一。',
+      en: 'Protection is not the expensive part: either way about a twentieth of the air goes on the announcing frames, slightly less under boundary, because one opening serves a whole burst. What changes is the reach: the reservation a hidden station loads lasts 2.45 ms instead of 1.05 ms, so it sits the burst out, and the room delivers nearly three times the frames for a third of the air each.',
+      zh: '保护本身并不是花钱的地方：两种策略花在预告帧上的空口时间都在二十分之一上下，边界还略少一点，因为一次开场就管住了一整串。变的是覆盖范围：隐藏站点装上的预约平均是 2.45 ms，而不是 1.05 ms，于是它把整串等完；整个房间送达的帧数接近三倍，而每送达一帧所花的空口时间只有原来的三分之一。',
     } },
     { heading: { en: 'What the third policy adds, and what it does not', zh: '第三种策略多给了什么，又没给什么' }, text: {
-      en: 'Multiple protection puts the time still to come on every data frame: a Duration of up to 2.164 ms, where boundary protection carries 60 µs. Nobody in this house needs it — every station that could collide has already heard the answer — so the run comes out identical to boundary, collision for collision. It earns its keep where the answer itself can be missed.',
-      zh: '多重保护把“还剩多久”写进每一个数据帧：Duration 最长可达 2.164 ms，而在边界保护下这个字段只有 60 µs。这间房子里没人需要它——所有可能撞车的站点都已经听见了那个回答——所以整轮跑下来和边界保护完全一样，一帧对一帧，一次碰撞对一次碰撞。它真正派上用场，是在那种连回答本身都可能错过的房间里。',
+      en: 'Multiple protection puts the whole remainder on every data frame, up to 2.164 ms. Nobody in this house needs it — every station that could collide has already heard the answer — so its run comes out identical to boundary, collision for collision.',
+      zh: '多重保护把整个剩余时间写进每一个数据帧，最长可达 2.164 ms。这间房子里没人需要它——所有可能撞车的站点都已经听见了那个回答——所以它跑出来和边界保护完全一样，一次碰撞对一次碰撞。',
     } },
     { heading: { en: 'The collisions that are left', zh: '剩下的那些碰撞' }, text: {
-      en: 'Of the 21 collisions that survive, 18 are one question meeting another: two hidden stations starting within one short question of each other, losing 20 bytes each instead of a burst. Only 3 catch a data frame already under way. That is the bargain of the hidden-node lesson, stretched from a single frame to a whole burst.',
+      en: 'Of the 21 collisions that survive, 18 are one question meeting another: two hidden stations starting within one question of each other, losing 20 bytes each instead of a burst. Only 3 catch a data frame under way — the hidden-node bargain, stretched to a whole burst.',
       zh: '活下来的 21 次碰撞里，有 18 次是两句提问撞在一起：两台隐藏站点的起跑时刻，相差不到一句提问那么长，于是各损失 20 字节，而不是一整串帧。只有 3 次撞上了正在进行中的数据帧。这正是隐藏节点那一课里的那笔交易，从一帧扩展到了一整串。',
     } },
+    { kind: 'steps', heading: { en: 'How one question covers a whole burst', zh: '一句提问怎么管住整串' }, items: [
+      { en: 'Before its first frame the holder plans the turn: it adds up the exchanges now queued for this class that would still end inside the limit, 2 528 µs here. If more than one fits, there is a burst worth announcing.',
+        zh: '发第一帧之前，持有者先把本轮规划一遍：把这一类队列里排着的帧走一遍，把那些仍能在上限之内结束的交互加起来——这里的上限是 2 528 µs。能装下不止一次交互，就真有一串值得预告。' },
+      { en: 'It opens with the short question, an RTS of 20 bytes sent at a rate the whole room can decode. Its Duration field is the whole turn less the question’s own 28 µs: 2 500 µs.',
+        zh: '它先发出那句简短的提问：一帧 20 字节的 RTS，用全屋都解得开的速率发出。它的 Duration 字段写的是整轮减去提问自身的 28 µs：2 500 µs。' },
+      { en: 'Every radio that decodes the question loads it as a reservation. One pause later the access point answers with a CTS carrying what is left after that pause and the answer itself, 2 456 µs — the only frame the far room can hear.',
+        zh: '每一台解出这句提问的电台，都把这个值装成一条预约。隔一段停顿，接入点回一帧 CTS，里面写的是扣掉这段停顿和回答自身之后剩下的 2 456 µs——而这个回答，是本轮里远房间唯一听得见的一帧。' },
+      { en: 'The burst then runs exchange after exchange, one pause apart. Each data frame’s own Duration covers no more than its own answer — 44 µs on this one, 60 µs at most in this run — because the reservation the far room is holding already reaches the end.',
+        zh: '接下来这一串就一次接一次地交互，中间只隔一段停顿。每个数据帧自己的 Duration 只管到它自己的回答为止——这一帧是 44 µs，本轮最多也就 60 µs——因为远房间手上那条预约已经盖到了末尾。' },
+      { en: 'When the queue runs dry or the next exchange no longer fits, the holder gives the rest back: if more than a pause, a CF-End and a slot are left, it sends CF-End, the access point repeats it one pause later, and either copy drops the reservation.',
+        zh: '等到队列空了，或者下一次交互再也装不下了，持有者就把剩下的还回去：只要剩下的比“一段停顿 + 一个 CF-End + 一个时隙”还长，它就发出 CF-End，接入点隔一段停顿再重复一遍；两份里听见任一份的人，当场把预约作废。' },
+    ] },
+    { kind: 'table', heading: { en: 'The burst that starts at 0.736 ms, step by step', zh: '从 0.736 ms 开始的那一串，一步一步' }, head: [
+      { en: 'Step', zh: '步骤' }, { en: 'Value', zh: '数值' },
+    ], rows: [
+      [{ en: 'the question goes out, Duration 2 500 µs', zh: '提问发出，Duration 2 500 µs' }, N('0.736 ms')],
+      [{ en: 'the answer is in, Duration 2 456 µs', zh: '回答到手，Duration 2 456 µs' }, N('0.808 ms')],
+      [{ en: 'so the far station’s reservation runs to', zh: '于是远端站点的预约一直管到' }, N('3.264 ms')],
+      [{ en: 'five exchanges of 416 µs; the last answer lands at', zh: '五次交互，每次 416 µs；最后一个回答落在' }, N('2.888 ms')],
+      [{ en: 'left on the announced reservation', zh: '已预告的预约还剩' }, N('376 µs')],
+      [{ en: 'one more exchange would need', zh: '再做一次交互需要' }, N('416 µs ✗')],
+      [{ en: 'CF-End at 2.904 ms, repeated, so the reservation ends at', zh: 'CF-End 发于 2.904 ms，又被重复一遍，预约结束于' }, N('2.976 ms')],
+    ] },
   ],
   deeper: [
     { heading: { en: 'The turns that get no announcement at all', zh: '完全得不到预告的那些轮次' }, text: {

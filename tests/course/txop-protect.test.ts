@@ -46,7 +46,7 @@ const meanNavNs = (rs: TLRecord[]): number => {
   return set.reduce((a, r) => a + (r.untilNs - r.t), 0) / set.length
 }
 
-lessonShapeSuite(txopProtect, { proseMax: 950, runNs: RUN_NS })
+lessonShapeSuite(txopProtect, { proseMax: 1250, runNs: RUN_NS })
 
 describe('txop-protect · the lesson’s own scene', () => {
   it('is the last lesson of the QoS module and names the three lessons its words come from', () => {
@@ -147,9 +147,58 @@ describe('txop-protect · the same three hundred milliseconds, three ways', () =
   })
 })
 
+describe('txop-protect · the burst that starts at 0.736 ms, step by step', () => {
+  const rs = boundary()
+  const ms = (ns: number) => Number((ns / MS).toFixed(3))
+  const t0 = ofType(rs, 'TXOP_START').filter((r) => r.node === 'sta-1').find((r) => ms(r.t) === 0.736)!
+
+  it('steps 1 to 3: the question announces the whole turn, and the answer carries the rest', () => {
+    const rts = txs(rs, (r) => r.node === 'sta-1' && r.frame.kind === 'rts' && r.t === t0.t)[0]
+    const cts = txs(rs, (r) => r.frame.kind === 'cts' && r.t > t0.t)[0]
+    // step 1: the turn is the access category's limit, 2 528 µs
+    expect((t0.untilNs - t0.t) / US).toBe(2_528)
+    // step 2: "the whole turn less the question's own 28 µs: 2 500 µs"
+    expect(rts.frame.bytes).toBe(20)
+    expect(rts.frame.txTimeNs / US).toBe(28)
+    expect(rts.frame.durationFieldNs / US).toBe(2_500)
+    expect(rts.frame.durationFieldNs).toBe(t0.untilNs - t0.t - rts.frame.txTimeNs)
+    // step 3: the answer carries what is left after the pause and itself
+    expect(cts.node).toBe('ap')
+    expect(cts.frame.durationFieldNs / US).toBe(2_456)
+    expect(cts.frame.durationFieldNs).toBe(rts.frame.durationFieldNs - 16 * US - cts.frame.txTimeNs)
+    // "the only frame the far room can hear": the hidden station's reservation comes from it
+    const nav = ofType(rs, 'NAV_SET').find((r) => r.node === 'sta-2' && r.t >= t0.t)!
+    expect(nav.source).toBe('cts:ap')
+    expect(ms(nav.t)).toBe(0.808)
+    expect(ms(nav.untilNs)).toBe(3.264)
+  })
+
+  it('steps 4 and 5: five exchanges, then CF-End hands 376 µs back', () => {
+    const end = ofType(rs, 'TXOP_END').find((r) => r.node === 'sta-1' && r.t > t0.t)!
+    const data = txs(rs, (r) => r.node === 'sta-1' && r.frame.kind === 'data' && r.t > t0.t && r.t < end.t)
+    // "five exchanges of 416 µs; the last answer lands at 2.888 ms"
+    expect(data).toHaveLength(5)
+    for (const d of data) expect(d.frame.durationFieldNs / US).toBe(44)
+    expect(data[1].t - data[0].t).toBe(416 * US)
+    expect(ms(end.t)).toBe(2.888)
+    // "left on the announced reservation" / "one more exchange would need 416 µs"
+    const announced = t0.t + 2_500 * US + 28 * US
+    expect((announced - end.t) / US).toBe(376)
+    expect(376).toBeLessThan(416)
+    // step 5: CF-End, repeated by the access point, ends the reservation early
+    const cf = txs(rs, (r) => r.frame.kind === 'cfend' && r.t > end.t)
+    expect(ms(cf[0].t)).toBe(2.904)
+    expect(cf[0].node).toBe('sta-1')
+    expect(cf[1].node).toBe('ap')
+    const clear = ofType(rs, 'NAV_CLEAR').find((r) => r.node === 'sta-2' && r.t > end.t)!
+    expect(ms(clear.t)).toBe(2.976)
+    expect(clear.t).toBeLessThan(announced)
+  })
+})
+
 describe('txop-protect · what the data frames carry, and what is left over', () => {
   it('multiple protection puts up to 2.164 ms on a data frame where boundary carries 60 µs', () => {
-    // numbers: "a Duration of up to 2.164 ms, where boundary protection carries 60 µs", and
+    // step 4: "44 µs on this one, 60 µs at most in this run", and
     // the experiment "its Duration now reaches the end of the turn, 2.164 ms at the longest"
     const durs = (rs: TLRecord[]) => txs(rs, (r) => r.frame.kind === 'data').map((r) => r.frame.durationFieldNs)
     expect(Math.max(...durs(multiple()))).toBe(2_164 * US)

@@ -15,7 +15,7 @@ import { ScenarioSchema } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 import { Simulation } from '../../src/engine/simulation'
 import { lessonShapeSuite, ofType, runOf } from './kit'
-import { EDCA_PARAMS, OFDM_5G } from '../../src/engine/phy'
+import { EDCA_PARAMS, OFDM_5G, aifsNs } from '../../src/engine/phy'
 
 const MS = 1_000_000
 const US = 1_000
@@ -41,7 +41,7 @@ function bursts(rs: TLRecord[], node = 'ap'): { lenNs: number; frames: number }[
   return out
 }
 
-lessonShapeSuite(txop, { proseMax: 1000, runNs: RUN_NS })
+lessonShapeSuite(txop, { proseMax: 1250, runNs: RUN_NS })
 
 describe('txop · the lesson’s own scene', () => {
   it('closes the pair it builds on: EDCA won the turn, aggregation filled it', () => {
@@ -128,6 +128,53 @@ describe('txop · what the access point actually did', () => {
     expect(rs.some((r) => (r.type === 'BACKOFF_DRAW' || r.type === 'IFS_START')
       && r.node === 'ap' && r.t > t0.t && r.t < end.t)).toBe(false)
     for (const j of txop.jumps) expect(rs.some(j.find), j.label.en).toBe(true)
+  })
+})
+
+describe('txop · the first burst, run through the steps', () => {
+  const rs = recs()
+  const ms = (ns: number) => Number((ns / MS).toFixed(3))
+
+  it('every row of the worked example is that burst, record by record', () => {
+    const t0 = ofType(rs, 'TXOP_START').filter((r) => r.node === 'ap')[0]
+    const end = ofType(rs, 'TXOP_END').find((r) => r.node === 'ap' && r.t > t0.t)!
+    const data = txs(rs, 'data').filter((r) => r.node === 'ap' && r.t >= t0.t && r.t < end.t)
+    const acks = ofType(rs, 'RX_OK').filter((r) => r.node === 'ap' && r.frame.kind === 'ack' && r.t > t0.t && r.t <= end.t)
+    // step 1: "the first frame goes out at" / "so the clock ends at, 4 096 µs later"
+    expect(ms(t0.t)).toBe(0.883)
+    expect(t0.t).toBe(data[0].t)
+    expect((t0.untilNs - t0.t) / US).toBe(4_096)
+    expect(ms(t0.untilNs)).toBe(4.979)
+    // step 2: "frame to TV 2, 188 µs, then 16 + 28 µs: answer in at"
+    expect(data[0].frame.dst).toBe('sta-2')
+    expect(data[0].frame.txTimeNs / US).toBe(188)
+    expect(ms(acks[0].t)).toBe(1.115)
+    expect(acks[0].t - (data[0].t + data[0].frame.txTimeNs)).toBe(OFDM_5G.sifsNs + 28 * US)
+    // steps 3 and 4: the next exchange needs 248 µs and would end well inside the clock
+    expect(16 + 188 + 16 + 28).toBe(248)
+    expect(acks[0].t + 248 * US).toBeLessThan(t0.untilNs)
+    expect(ms(acks[0].t + 248 * US)).toBe(1.363)
+    // "so, one pause later, the frame to TV 1 goes out at"
+    expect(data[1].t - acks[0].t).toBe(OFDM_5G.sifsNs)
+    expect(ms(data[1].t)).toBe(1.131)
+    expect(data[1].frame.dst).toBe('sta-1')
+    // step 5: the answer arrives, the queue is empty, and the turn ends there
+    expect(ms(end.t)).toBe(1.363)
+    expect(end.t).toBe(acks[1].t)
+    expect((end.t - t0.t) / US).toBe(480)
+    // step 4's claim about the gap: one pause is shorter than any contender's silence
+    expect(OFDM_5G.sifsNs / US).toBe(16)
+    expect(Math.min(...EDCA_PARAMS.map((p) => aifsNs(p.aifsn, OFDM_5G))) / US).toBe(34)
+  })
+
+  it('step 6: the holder contends again from scratch, silence and countdown', () => {
+    const t0 = ofType(rs, 'TXOP_START').filter((r) => r.node === 'ap')[0]
+    const end = ofType(rs, 'TXOP_END').find((r) => r.node === 'ap' && r.t > t0.t)!
+    const ifs = ofType(rs, 'IFS_START').find((r) => r.node === 'ap' && r.t >= end.t)!
+    expect(ifs.t).toBe(end.t)
+    expect(ifs.untilNs - ifs.t).toBe(aifsNs(2, OFDM_5G))
+    const draw = ofType(rs, 'BACKOFF_DRAW').find((r) => r.node === 'ap' && r.t >= ifs.untilNs)!
+    expect(draw.t).toBe(ifs.untilNs)
   })
 })
 

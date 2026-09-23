@@ -24,7 +24,7 @@ export const edca: Lesson = {
     zh: '一通电话和一个文件上传抢的是同一片空口，但它们要的东西不一样。几毫秒的等待就能毁掉通话；同样的等待落在上传上，谁也察觉不到。可到目前为止的规则对每一帧都一视同仁，于是通话只能和上传一起碰运气，而且通常运气更差。这一课我们看一台电台如何不再以“一个竞争者”的身份参赛，而是变成四个。',
   },
   outcomes: [
-    { en: 'say what changes inside a station once its traffic is sorted into four classes', zh: '说清一台站点把自己的流量分成四类之后，内部到底变了什么' },
+    { en: 'say what changes inside a station (STA) once its traffic is sorted into four classes', zh: '说清一台站点（STA）把自己的流量分成四类之后，内部到底变了什么' },
     { en: 'read a class’s required silence and its draw width off the run, and say which one the head start came from', zh: '从仿真里读出某一类的必等静默和抽取宽度，并说出抢跑是哪一个带来的' },
     { en: 'explain what priority here cannot do, and what the lowest class pays for it', zh: '解释这里的优先级做不到什么，以及最低的那一类为此付出了什么' },
   ],
@@ -45,11 +45,11 @@ export const edca: Lesson = {
   ],
   picture: [
     { heading: { en: 'One radio, four waiting rooms', zh: '一台电台，四间候车室' }, text: {
-      en: 'On its way into the radio, every frame is filed under one of four classes by what it carries: a call, a film, ordinary traffic, or something nobody is waiting for. Each class gets its own queue, and each queue runs its own countdown as if it were a separate station in the room. Whichever of them reaches zero first is what the radio sends. That is EDCA, and each of the four queues is an access category.',
-      zh: '每一帧进入电台的时候，都会按它装的东西被归入四类之一：一通电话、一部影片、普通流量，或者压根没人在等的东西。每一类有自己的队列，每条队列各跑各的倒数，就像房间里另一台独立的站点一样。哪条先数到零，电台就发哪条的帧。这就是 EDCA，而这四条队列里的每一条，都是一个接入类别。',
+      en: 'On its way into the radio, every frame is filed under one of four classes by what it carries: a call, a film, ordinary traffic, or something nobody is waiting for. Each class gets its own queue, and each queue runs its own countdown as if it were a separate station in the room. Whichever of them reaches zero first is what the radio sends. That is EDCA, and each of those four queues is called an access category.',
+      zh: '每一帧进入电台的时候，都会按它装的东西被归入四类之一：一通电话、一部影片、普通流量，或者压根没人在等的东西。每一类有自己的队列，每条队列各跑各的倒数，就像房间里另一台独立的站点一样。哪条先数到零，电台就发哪条的帧。这就是 EDCA；而这四条队列里的每一条，标准里称为一个接入类别。',
     } },
     { heading: { en: 'Two knobs, and no referee', zh: '两个旋钮，没有裁判' }, text: {
-      en: 'Nothing new was added to decide between them — no scheduler, no permission to ask. The four queues play the same waiting game the whole room plays, with two numbers set differently for each. The first is how long the queue must hear nothing before its counter may move at all: its AIFS. The second is how wide a range it draws its countdown from. Voice waits less and draws smaller. The lottery is simply rigged.',
+      en: 'Nothing new was added to decide between them — no scheduler, no permission to ask. The four queues play the same waiting game the whole room plays, with two numbers set differently for each. The first is how long the queue must hear nothing before its counter may move at all. That silence is the AIFS. The second is how wide a range it draws its countdown from. Voice waits less and draws smaller. The lottery is simply rigged.',
       zh: '为了在它们之间分出胜负，并没有新增任何东西——没有调度器，也不用向谁请示。四条队列玩的还是整个房间都在玩的那套等待游戏，只是有两个数按类别分别设定。第一个是：这条队列必须先听到多久的“什么都没有”，它的倒数才被允许走动，这就是它的 AIFS。第二个是：它抽倒数值时的取值范围有多宽。语音等得更短，抽得更小。抽签，只不过是被做了手脚。',
     } },
     { kind: 'watch', jump: 0, heading: { en: 'Watch the call get in', zh: '看通话是怎么挤进去的' }, text: {
@@ -70,22 +70,50 @@ export const edca: Lesson = {
     } },
   ],
   numbers: [
-    { kind: 'table', heading: { en: 'What each class is given', zh: '每一类拿到的东西' }, head: [
-      { en: 'Class', zh: '类别' }, { en: 'What it carries', zh: '它装什么' },
-      { en: 'Silence first', zh: '先等的静默' }, { en: 'First draw from', zh: '第一次抽取范围' }, { en: 'Where', zh: '出处' },
+    { kind: 'table', heading: { en: 'The three constants each class is given', zh: '每一类拿到的三个常数' }, head: [
+      { en: 'Class', zh: '类别' }, { en: 'AIFSN (slots of silence)', zh: 'AIFSN（静默的时隙数）' },
+      { en: 'Silence first, its AIFS', zh: '先等的静默，即它的 AIFS' },
+      { en: 'First draw, 0 to CWmin (the smallest window)', zh: '第一次抽取：0 到 CWmin（最小窗口）' },
+      { en: 'Doubling up to CWmax (the largest)', zh: '翻倍可到 CWmax（最大窗口）' }, { en: 'Where', zh: '出处' },
     ], rows: [
-      [{ en: 'VO (voice)', zh: 'VO（语音）' }, { en: 'a call', zh: '一通电话' }, N('34 µs'), N('0–3'), N('Table 9-194')],
-      [{ en: 'VI (video)', zh: 'VI（视频）' }, { en: 'a film', zh: '一部影片' }, N('34 µs'), N('0–7'), N('Table 9-194')],
-      [{ en: 'BE (best effort)', zh: 'BE（尽力而为）' }, { en: 'ordinary traffic', zh: '普通流量' }, N('43 µs'), N('0–15'), N('Table 9-194')],
-      [{ en: 'BK (background)', zh: 'BK（后台）' }, { en: 'a backup', zh: '一次备份' }, N('79 µs'), N('0–15'), N('Table 9-194')],
+      [{ en: 'VO (voice)', zh: 'VO（语音）' }, N('2'), N('34 µs'), N('3'), N('7'), N('Table 9-194')],
+      [{ en: 'VI (video)', zh: 'VI（视频）' }, N('2'), N('34 µs'), N('7'), N('15'), N('Table 9-194')],
+      [{ en: 'BE (best effort)', zh: 'BE（尽力而为）' }, N('3'), N('43 µs'), N('15'), N('1023'), N('Table 9-194')],
+      [{ en: 'BK (background)', zh: 'BK（后台）' }, N('7'), N('79 µs'), N('15'), N('1023'), N('Table 9-194')],
     ] },
     { kind: 'formula', heading: { en: 'Where those waits come from', zh: '这些等待是怎么来的' }, text: {
-      en: 'silence = SIFS + n × slot = 16 + n × 9 µs,  n = 2, 3 or 7',
-      zh: '静默 = SIFS + n × 时隙 = 16 + n × 9 µs，n 取 2、3 或 7',
+      en: 'AIFS = SIFS + AIFSN × slot = 16 + AIFSN × 9 µs,  AIFSN = 2, 3 or 7',
+      zh: 'AIFS = SIFS + AIFSN × 时隙 = 16 + AIFSN × 9 µs，AIFSN 取 2、3 或 7',
     }, note: {
-      en: 'The old one-size-fits-all wait was this same sum with n fixed at two. Nothing was invented; a constant was made into a parameter.',
-      zh: '过去那段“一刀切”的等待，就是这同一个式子把 n 钉死在 2。什么都没有新发明，只是把一个常数改成了参数。',
+      en: 'The old one-size-fits-all wait was this same sum with AIFSN fixed at two: a constant made into a parameter.',
+      zh: '过去那段“一刀切”的等待，就是这同一个式子把 AIFSN 钉死在 2：一个常数被改成了参数。',
     } },
+    { kind: 'steps', heading: { en: 'How a frame’s wait is decided, step by step', zh: '一帧的等待是怎么定下来的，一步一步' }, items: [
+      { en: 'On its way in, the frame is filed under one access category and joins that category’s queue. Each queue keeps its own counter and window; the three constants above are all that tells the four apart.',
+        zh: '这一帧进来时被归入某一个接入类别，排进那一类自己的队列。每条队列都有自己的计数器和自己的窗口；上面那张表里的三个常数，就是这四条队列全部的区别所在。' },
+      { en: 'The queue’s required silence comes from its AIFSN (the slot count in the table), by the sum above: two slots give 34 µs, seven give 79 µs.',
+        zh: '这条队列必等的静默，由它的 AIFSN（表里那个时隙数）按上面那个和式算出：两个时隙是 34 µs，七个时隙是 79 µs。' },
+      { en: 'With a frame waiting and the air idle, the queue must hear that AIFS unbroken before its counter may move. If the last thing heard was a frame it could not decode, the wait becomes EIFS − DIFS + AIFS: 103 µs for the uploader’s class.',
+        zh: '手里有帧、空中又安静时，这条队列必须先听到完整不断的那段 AIFS，计数器才被允许走动。如果本机上一次听到的是一帧解不出来的东西，这段等待就换成 EIFS − DIFS + AIFS——对上传站点那一类来说是 103 µs。' },
+      { en: 'At the end of the AIFS the queue draws a whole number between zero and its current window, which starts at CWmin (the smallest window). For these four queues the end of the AIFS is itself a slot boundary, so the counter steps down by one right there.',
+        zh: '这段 AIFS 走完时，这条队列在零和它当前窗口之间抽一个整数；窗口从 CWmin（最小窗口）起步。对这四条队列来说，AIFS 结束的那一刻本身就是一个时隙边界，所以计数器在那里就先减一。' },
+      { en: 'Every further idle slot of 9 µs takes one more off the counter; anything on the air freezes it, and it resumes after a fresh AIFS. A counter at zero on a slot boundary is the one that transmits.',
+        zh: '此后每过一个 9 µs 的空闲时隙，计数器再减一；空中一旦有东西，它就原地冻住，等下一段 AIFS 走完再接着数。在某个时隙边界上正好停在零的那条队列，就是可以发送的那条。' },
+      { en: 'If two queues of one radio stand at zero in the same slot, the higher category transmits and the lower is treated as though its frame had been lost in the air: it counts a retry, doubles its window towards CWmax (the largest) and draws again. That is an internal collision, and it costs no airtime.',
+        zh: '如果同一台电台的两条队列在同一个时隙同时停在零，高的那一类发送，低的那一类则完全按“自己的帧在空中丢了”来处理：记一次重传，窗口朝 CWmax（最大窗口）翻倍，重新抽数。这就是内部碰撞，而它一微秒空口时间也不花。' },
+    ] },
+    { kind: 'table', heading: { en: 'The caller’s first voice frame, run through the steps', zh: '通话站点的第一帧语音，照着步骤走一遍' }, head: [
+      { en: 'Step', zh: '步骤' }, { en: 'Value', zh: '数值' },
+    ], rows: [
+      [{ en: 'the air goes idle again', zh: '空中重新安静下来' }, N('23.0816 ms')],
+      [{ en: 'AIFS for this class = 16 + 2 × 9', zh: '这一类的 AIFS = 16 + 2 × 9' }, N('34 µs')],
+      [{ en: 'so the counter may start at', zh: '于是计数器可以从这一刻开始走' }, N('23.1156 ms')],
+      [{ en: 'draw between 0 and the smallest window, 3', zh: '在 0 与最小窗口 3 之间抽取' }, N('2')],
+      [{ en: 'the end of the AIFS is a slot boundary', zh: 'AIFS 的结束本身就是一个时隙边界' }, N('2 → 1')],
+      [{ en: 'one more idle slot, 9 µs', zh: '再过一个 9 µs 的空闲时隙' }, N('1 → 0')],
+      [{ en: 'the voice frame goes out at', zh: '这一帧语音发出去的时刻' }, N('23.1336 ms')],
+      [{ en: 'a background queue starting at the same instant would still owe', zh: '同一刻起步的后台队列，此时还欠着' }, N('27 µs')],
+    ] },
     { kind: 'table', heading: { en: 'What the three stations actually did', zh: '三台站点实际的表现' }, head: [
       { en: 'Station', zh: '站点' }, { en: 'Class', zh: '类别' }, { en: 'Silence', zh: '静默' },
       { en: 'Draws', zh: '抽取次数' }, { en: 'Mean drawn', zh: '平均抽到' }, { en: 'Mean queue wait', zh: '平均排队时延' },
@@ -95,16 +123,12 @@ export const edca: Lesson = {
       [{ en: 'Backup', zh: '备份站点' }, N('BK'), N('79 µs'), N('14'), N('8.2'), N('10.23 ms')],
     ] },
     { heading: { en: 'The head start, measured', zh: '把抢跑量出来' }, text: {
-      en: 'The gap between the top row and the bottom one is 45 µs of silence — five slots in which the caller’s counter moves and the backup’s may not. Add the narrower draw, and the caller reaches zero from a mean of 2.2 slots against the backup’s 8.2.',
-      zh: '最上面一行和最下面一行之间，相差 45 µs 的静默——也就是五个时隙，在这五个时隙里通话站点的计数在走，备份站点的不许走。再加上更窄的抽取范围：通话站点平均从 2.2 个时隙数到零，备份站点则是 8.2 个。',
+      en: 'Top row against bottom row: 45 µs of silence, five slots in which the caller counts and the backup may not. Add the narrower draw — a mean of 2.2 slots against 8.2.',
+      zh: '拿最上面一行比最下面一行：45 µs 的静默，也就是五个时隙；这五个时隙里通话站点在数，备份站点不许数。再加上更窄的抽取范围——平均 2.2 个时隙比 8.2 个。',
     } },
-    { heading: { en: 'The penalty is composed, not replaced', zh: '惩罚是叠加的，不是替换的' }, text: {
-      en: 'Only the uploader ever hears a frame arrive broken here, and its punishment wait is 103 µs: the old penalty, minus the old fixed wait, plus its own class wait. The backup never collects one — a reception has to start before it can fail, and the collisions in this room bury both preambles at once.',
-      zh: '这个房间里只有上传站点听到过坏掉的帧，它的惩罚等待是 103 µs：那段旧的惩罚，减去那段旧的固定等待，再加上它自己这一类的等待。备份站点一次都没摊上过——接收得先开始，才谈得上失败，而这个房间里的碰撞往往把两个前导一起淹没。',
-    } },
-    { heading: { en: 'The collision you will not see', zh: '你看不到的那种碰撞' }, text: {
-      en: 'Two queues inside one radio can reach zero together as well, and then the higher class goes first. It never shows here: every station in this room runs a single class. `Deeper` has the rule.',
-      zh: '一台电台内部的两条队列也可能同时归零，那时候由更高的那一类先发。这一幕在本场景里一次也没出现：这个房间里每台站点都只跑一类流量。规则写在“更深一步”里。',
+    { heading: { en: 'Who ever collects the longer wait', zh: '谁摊上过那段更长的等待' }, text: {
+      en: 'Only the uploader hears a frame arrive broken here, so only the uploader ever waits the 103 µs of step 3. And no station runs two classes, so step 6 never fires either: not one internal collision in the whole run.',
+      zh: '这个房间里只有上传站点听到过坏掉的帧，所以第 3 步那段 103 µs 的等待也只有它摊上过。而没有哪台站点同时跑两类流量，于是第 6 步同样一次也没触发：整轮下来，内部碰撞一次都没有。',
     } },
   ],
   deeper: [

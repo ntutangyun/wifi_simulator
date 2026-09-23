@@ -44,7 +44,7 @@ const runSc = (sc: ReturnType<typeof edca.scenario>): TLRecord[] => [...new Simu
 
 // The contract every migrated lesson owes, written once in tests/course/kit.ts.
 // The run is 300 ms: the backup's first frame, which jump 1 finds, is 55 ms in.
-lessonShapeSuite(edca, { proseMax: 1000, runNs: RUN_NS })
+lessonShapeSuite(edca, { proseMax: 1250, runNs: RUN_NS })
 
 describe('edca · the lesson’s own scene', () => {
   it('is the first lesson of Tier 2, and leans on the two channel-access lessons', () => {
@@ -73,6 +73,20 @@ describe('edca · what each class is given', () => {
     expect([by('VO'), by('VI'), by('BE'), by('BK')].map((p) => aifsNs(p.aifsn, OFDM_5G) / US))
       .toEqual([34, 34, 43, 79])
     expect([by('VO'), by('VI'), by('BE'), by('BK')].map((p) => p.cwMin)).toEqual([3, 7, 15, 15])
+    // the two columns the mechanism rewrite added: "AIFSN (slots of silence)" and
+    // "Doubling up to CWmax (the largest)"
+    expect([by('VO'), by('VI'), by('BE'), by('BK')].map((p) => p.aifsn)).toEqual([2, 2, 3, 7])
+    expect([by('VO'), by('VI'), by('BE'), by('BK')].map((p) => p.cwMax)).toEqual([7, 15, 1023, 1023])
+  })
+
+  it('the six steps are the order the MAC takes them in, with its own constants', () => {
+    // step 2: AIFS = SIFS + AIFSN x slot, and the old fixed wait is the same sum at AIFSN 2
+    expect(aifsNs(2, OFDM_5G)).toBe(OFDM_5G.sifsNs + 2 * OFDM_5G.slotNs)
+    expect(OFDM_5G.difsNs).toBe(aifsNs(2, OFDM_5G))
+    // step 3: the longer wait after a frame that could not be decoded
+    expect((OFDM_5G.eifsNs - OFDM_5G.difsNs + aifsNs(3, OFDM_5G)) / US).toBe(103)
+    // step 4: the draw starts from CWmin, and step 6 doubles towards CWmax
+    for (const p of EDCA_PARAMS) expect(p.cwMax).toBeGreaterThanOrEqual(p.cwMin)
   })
 
   it('the formula is SIFS + n slots, with n = 2, 3 and 7 the only values in play', () => {
@@ -136,6 +150,30 @@ describe('edca · what the three stations actually did', () => {
     expect(ifsLens(rs, 'sta-1', 'EIFS')).toEqual([])
     expect(ifsLens(rs, 'sta-3', 'EIFS')).toEqual([])
     expect((OFDM_5G.eifsNs - OFDM_5G.difsNs + aifsNs(3, OFDM_5G)) / US).toBe(103)
+  })
+})
+
+describe('edca · the caller’s first voice frame, run through the steps', () => {
+  const rs = recs()
+
+  it('every row of the worked example is that access, record by record', () => {
+    const tx = firstData(rs, 'sta-1')
+    const ifs = ofType(rs, 'IFS_START').filter((r) => r.node === 'sta-1' && r.kind === 'AIFS' && r.t < tx.t).at(-1)!
+    // "the air goes idle again" / "AIFS for this class = 16 + 2 x 9" / "so the counter may start at"
+    expect(ifs.t / MS).toBe(23.0816)
+    expect((ifs.untilNs - ifs.t) / US).toBe(34)
+    expect(ifs.untilNs / MS).toBe(23.1156)
+    // "draw between 0 and the smallest window, 3" -> 2
+    const draw = draws(rs, 'sta-1').filter((d) => d.t <= tx.t).at(-1)!
+    expect([draw.t, draw.value, draw.cw]).toEqual([ifs.untilNs, 2, 3])
+    // "the end of the AIFS is a slot boundary" (2 -> 1) and "one more idle slot, 9 µs" (1 -> 0)
+    const decs = ofType(rs, 'BACKOFF_DEC').filter((r) => r.node === 'sta-1' && r.t >= draw.t && r.t <= tx.t)
+    expect(decs.map((d) => [d.t / MS, d.value])).toEqual([[23.1156, 1], [23.1246, 0]])
+    expect(decs[1].t - decs[0].t).toBe(OFDM_5G.slotNs)
+    // "the voice frame goes out at"
+    expect(tx.t / MS).toBe(23.1336)
+    // "a background queue starting at the same instant would still owe 27 µs"
+    expect((aifsNs(7, OFDM_5G) - (tx.t - ifs.t)) / US).toBe(27)
   })
 })
 

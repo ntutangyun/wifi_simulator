@@ -19,8 +19,8 @@ export const ampdu: Lesson = {
   module: 2,
   title: { en: 'A-MPDU — pay contention once', zh: 'A-MPDU——竞争一次，发一批' },
   why: {
-    en: 'Winning the channel is expensive, and the price has nothing to do with how much you then send. The waiting, the countdown, the pattern at the head of the frame and the answer at the end all cost the same whether the frame is nearly empty or as full as it can be. As radios got faster the data shrank against that fixed price, until most of a turn was ceremony. This lesson watches a station buy one turn and use it properly.',
-    zh: '赢下信道是件贵事，而这笔钱和你随后发多少毫无关系。等待、倒数、帧头那段图案、末尾那个回答，无论这一帧几乎是空的还是塞得满满当当，价钱都一样。随着电台越来越快，数据在这笔固定开销面前越缩越小，最后一轮里大半时间都花在了排场上。这一课我们看一台站点如何买下一轮，并且把它用好。',
+    en: 'Winning the channel is expensive, and the price has nothing to do with how much you then send. The waiting, the countdown, the pattern at the head of the frame and the answer at the end all cost the same whether the frame is nearly empty or as full as it can be. As radios got faster the data shrank against that fixed price, until most of a turn was ceremony. This lesson watches a station (STA) buy one turn and use it properly.',
+    zh: '赢下信道是件贵事，而这笔钱和你随后发多少毫无关系。等待、倒数、帧头那段图案、末尾那个回答，无论这一帧几乎是空的还是塞得满满当当，价钱都一样。随着电台越来越快，数据在这笔固定开销面前越缩越小，最后一轮里大半时间都花在了排场上。这一课我们看一台站点（STA）如何买下一轮，并且把它用好。',
   },
   outcomes: [
     { en: 'explain why a faster radio makes the fixed cost of a turn worse, not better', zh: '解释为什么电台越快，一轮的固定开销反而越难受' },
@@ -48,16 +48,16 @@ export const ampdu: Lesson = {
       zh: '把空口上的一轮想成“固定价 + 浮动价”。静默、倒数、让接收端锁住的那段前导、末尾那个回答，都是固定的那部分；只有净荷随你发的东西变大。换一档更快的编码，净荷会缩——可固定的那部分纹丝不动，因为前导是用人人都听得见的慢速率发的，而那段等待不管你随后说得多快，价钱都一样。',
     } },
     { heading: { en: 'Several frames, one preamble', zh: '好几帧，一个前导' }, text: {
-      en: 'So instead of spending a whole turn on one frame, the sender takes everything already queued for the same receiver, lines the frames up back to back, and sends the lot as a single transmission behind a single preamble. That batch is an A-MPDU. Nothing inside it is merged: each frame keeps its own header and its own check, and travels as a subframe behind a short marker giving its length.',
-      zh: '所以，与其把一整轮花在一帧上，发送方干脆把已经排在队列里、发往同一个接收端的帧全拿过来，首尾相接排好，作为一次传输、跟在同一个前导后面发出去。这一批就是 A-MPDU。里面的东西并没有被合并：每一帧都保留自己的帧头和自己的校验，作为一个子帧走，身前还有一小段标记报出它有多长。',
+      en: 'So instead of spending a whole turn on one frame, the sender takes everything already queued for the same receiver, lines the frames up back to back, and sends the lot as a single transmission behind a single preamble. That batch is an A-MPDU. Nothing inside it is merged: each frame keeps its own header and its own check. One member of the batch is a subframe, and in front of each one goes a short marker giving its length.',
+      zh: '所以，与其把一整轮花在一帧上，发送方干脆把已经排在队列里、发往同一个接收端的帧全拿过来，首尾相接排好，作为一次传输、跟在同一个前导后面发出去。这一批就是 A-MPDU。里面的东西并没有被合并：每一帧都保留自己的帧头和自己的校验；这一批里的一个成员，就是一个子帧，而每个子帧身前还有一小段标记报出它有多长。',
     } },
     { kind: 'watch', jump: 0, heading: { en: 'Open one batch', zh: '打开一批看看' }, text: {
       en: 'Load the simulation and jump to the first batch. It carries a badge with the number of frames in it; hover it to see that count and the total bytes, then look at how little of the turn is spent on anything else.',
       zh: '载入仿真，跳到第一批。它带着一个角标，上面是这一批里帧的数量；把鼠标悬上去，看看这个数量和总字节数，再看看这一轮里花在其他事情上的时间有多少。',
     } },
     { heading: { en: 'One answer for all of them', zh: '一个回答管住全部' }, text: {
-      en: 'Answering each member separately would rebuild the cost we just avoided: a pause and a tiny frame per member. So the receiver sends one BlockAck instead. It is barely longer than a single acknowledgement, and it carries a map with one bit per member: this one arrived, that one did not. One pause, one answer, the whole batch settled.',
-      zh: '如果一个个单独回答，刚省下来的开销就又长回来了：每个成员都要一段停顿加一个小帧。于是接收端改成只发一个 BlockAck。它比一个普通确认帧长不了多少，却带着一张位图，每个成员占一位：这个到了，那个没到。一次停顿，一个回答，整批就结清了。',
+      en: 'Answering each member separately would rebuild the cost we just avoided: a pause and a tiny frame per member. So the receiver sends one answer for the lot instead, and that answer is the BlockAck. It is barely longer than a single acknowledgement, and it carries a map with one bit per member: this one arrived, that one did not. One pause, one answer, the whole batch settled.',
+      zh: '如果一个个单独回答，刚省下来的开销就又长回来了：每个成员都要一段停顿加一个小帧。于是接收端改成整批只回一个回答，而这个回答就是 BlockAck。它比一个普通确认帧长不了多少，却带着一张位图，每个成员占一位：这个到了，那个没到。一次停顿，一个回答，整批就结清了。',
     } },
     { heading: { en: 'When one of them is bad', zh: '当其中一个坏了' }, text: {
       en: 'Because every member was checked on its own, a bad one does not condemn the rest. Its bit in the map stays clear, and only that frame is queued again — it can even ride in the next batch alongside fresh ones. This is the part this simulator does not model: here a collision anywhere in a batch loses all of it, which makes a busy room look harsher than a real one.',
@@ -96,6 +96,32 @@ export const ampdu: Lesson = {
       en: 'Almost the same number of turns is won either way — the difference is what each turn carries. The measured figures sit a little above the worked ones because a few turns are lost and repeated, and the coding is the same on both sides, so none of the gain is hiding in the rate.',
       zh: '两种打法赢下的轮数几乎一样多——差别在于每一轮装了多少。实测值比算式稍高一点，是因为有少数几轮丢了要重来；两边的编码完全相同，所以这份收益里没有一丁点藏在速率上。',
     } },
+    { kind: 'steps', heading: { en: 'How a batch is built and answered', zh: '一批是怎么攒起来、又怎么被回答的' }, items: [
+      { en: 'The radio takes the frame at the head of the queue and looks at who it is for. Everything that joins it has to be going to that same receiver, and is taken in queue order.',
+        zh: '电台先拿队列最前面那一帧，看它是发给谁的。能跟着一起走的，必须是发往同一个接收端的帧，而且按队列里的先后顺序取。' },
+      { en: 'It adds them one at a time, at most 64, and stops before the first frame that would make the transmission longer than 5.484 ms or push the whole exchange — the batch, the pause and the answer — past the end of the turn. The head frame always goes, alone if nothing else fits.',
+        zh: '它一帧一帧往里加，最多 64 帧；一旦下一帧会把这次传输拉得比 5.484 ms 还长，或者把整次交互——这一批、那段停顿、那个回答——顶到本轮末尾之外，就停在这一帧之前。队头那一帧总是能走，实在装不下别的就它一个走。' },
+      { en: 'It lays the chosen frames out end to end. Each becomes a subframe: a 4-byte delimiter carrying the length, then that frame’s own QoS header, its payload and its check, padded up to a four-byte boundary. The last subframe is not padded.',
+        zh: '然后把选中的帧首尾相接排好。每一帧都成为一个子帧：先是 4 字节的定界符，里面写着长度，接着是这一帧自己的 QoS 帧头、它的净荷和它的校验，最后补齐到四字节边界。最后一个子帧不补齐。' },
+      { en: 'The whole string of subframes goes out as one transmission, behind one preamble, at one coding.',
+        zh: '整串子帧作为一次传输发出去：一个前导，一种编码。' },
+      { en: 'One SIFS later the receiver answers with a single BlockAck of 32 bytes, which in the standard carries one bit for each subframe — set for the ones that arrived, clear for the ones that did not.',
+        zh: '一个 SIFS 之后，接收端只回一个 32 字节的 BlockAck；按标准，它为每一个子帧带一位——到了的置位，没到的置空。' },
+      { en: 'This engine is blunter: it judges the batch whole. If no answer comes back before the acknowledgement times out, every frame in the batch counts a retry, returns to the front of its queue to ride in the next one, and the window doubles as after any collision.',
+        zh: '本仿真器要粗糙些：它把这一批当成一个整体判定。若到确认超时为止都没等来回答，这一批里的每一帧都记一次重传，回到队列最前面等着搭下一批，窗口也像碰了一次那样翻倍。' },
+    ] },
+    { kind: 'table', heading: { en: 'The first batch, added up', zh: '第一批，逐项加起来' }, head: [
+      { en: 'Step', zh: '步骤' }, { en: 'Value', zh: '数值' },
+    ], rows: [
+      [{ en: 'frames taken, of the 64 allowed', zh: '取走的帧数，允许的是 64' }, N('14')],
+      [{ en: 'each of the first thirteen: 4 + 26 + 1 500 + 4, padded', zh: '前十三个每个：4 + 26 + 1 500 + 4，再补齐' }, N('1 536 B')],
+      [{ en: 'the last one, unpadded', zh: '最后一个，不补齐' }, N('1 534 B')],
+      [{ en: '13 × 1 536 + 1 534', zh: '13 × 1 536 + 1 534' }, N('21 502 B')],
+      [{ en: 'time on the air', zh: '在空中的时长' }, N('2 248 µs')],
+      [{ en: 'the whole exchange: question, answer, three pauses, batch, BlockAck', zh: '整次交互：提问、回答、三段停顿、这一批、BlockAck' }, N('2 384 µs')],
+      [{ en: 'the ceiling on this turn', zh: '本轮的上限' }, N('2 528 µs')],
+      [{ en: 'left over, where a fifteenth subframe costs about 160 µs', zh: '剩下的，而第十五个子帧要花约 160 µs' }, N('144 µs')],
+    ] },
   ],
   deeper: [
     { heading: { en: 'What sets the size of a batch', zh: '一批的大小由什么决定' }, text: {
