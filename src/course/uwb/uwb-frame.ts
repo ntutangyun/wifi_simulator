@@ -35,7 +35,7 @@ export const uwbFrame: Lesson = {
     } },
     { term: 'SFD', plain: {
       en: 'start-of-frame delimiter: a short pattern announcing that the beat ends here',
-      zh: '帧起始定界符：一小段图案，宣告"节拍到此为止"',
+      zh: '帧起始定界符：一小段图案，宣告“节拍到此为止”',
     } },
     { term: 'STS', plain: {
       en: 'scrambled timestamp sequence: pulses only the two radios of this session can predict',
@@ -189,7 +189,7 @@ export const uwbFrame: Lesson = {
         { en: 'Because the standard caps a ranging payload at thirty bytes', zh: '因为标准把测距净荷的上限定在三十个字节' },
       ],
       answer: 1,
-      explain: { en: 'The poll says who is asking and which round this is: 30 octets. The longer parts are there so one instant can be pinned down.', zh: 'Poll 帧要说的只是"谁在问、这是第几轮"，30 个字节就够了。比它长的那些部分，存在的理由是把帧里那一个瞬间钉准。' },
+      explain: { en: 'The poll says who is asking and which round this is: 30 octets. The longer parts are there so one instant can be pinned down.', zh: 'Poll 帧要说的只是“谁在问、这是第几轮”，30 个字节就够了。比它长的那些部分，存在的理由是把帧里那一个瞬间钉准。' },
     },
   ],
 }

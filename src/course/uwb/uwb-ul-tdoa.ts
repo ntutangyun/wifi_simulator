@@ -9,7 +9,7 @@
  * on the infrastructure side and never reaches the badge that caused it.
  *
  * The centrepiece is the assumption the mode rests on: that the anchors agree
- * what time it is. One nanosecond of residual calibration error per anchor is
+ * what time it is. One nanosecond of leftover calibration error per anchor is
  * 29.98 cm of pseudo-range, and because that error is drawn once and not per
  * round it is a bias — every badge in the room is pushed the same way, and no
  * number of blinks averages it away. The variant sets `syncErrorNs` to 1 and the
@@ -68,7 +68,7 @@ export const TAG_SPOTS: { x: number; y: number }[] = [
  * a badge's clock.
  *
  * 'sync' sets `syncErrorNs` to 1 and changes nothing else: each anchor then
- * draws one fixed residual calibration error of that size, once, for the whole
+ * draws one fixed leftover calibration error of that size, once, for the whole
  * session.
  */
 export function uwbUlTdoaScenario(variant: UwbUlTdoaVariant = 'base'): Scenario {
@@ -121,7 +121,7 @@ export const uwbUlTdoa: Lesson = {
     } },
     { heading: { en: 'Positioned by somebody else', zh: '由别人来定位' }, text: {
       en: 'Nothing answers a blink. Every anchor that hears it stamps the arrival on the timebase they all share, and when the slot ends the reference anchor subtracts its own stamp from each of the other three and solves the same hyperbolae as before. This uplink form is called UL-TDoA, and it tells the badge nothing: it has no receiver open, and not one record travels back to it.',
-      zh: '闪发帧没有任何回应。每个听到它的锚点，都在大家共用的那条时基上记下到达时刻；时隙结束时，参考锚点用其余三个时刻各减去自己的那个，再解出和上一课一样的双曲线。这种上行形态就是 UL-TDoA，它什么也不告诉胸牌：它根本没开接收机，也没有任何一条记录回到它那里。',
+      zh: '闪发帧没有任何回应。每个听到它的锚点，都在大家共用的那条时基上记下到达时刻；时隙结束时，参考锚点用其余三个时刻各减去自己的那个，再解出和上一课一样的双曲线。只有标签发送的这种做法，就是上行形态（UL-TDoA），它什么也不告诉胸牌：它根本没开接收机，也没有任何一条记录回到它那里。',
     } },
     { kind: 'watch', jump: 4, heading: { en: 'Watch it happen to someone else', zh: '看它发生在别人身上' }, text: {
       en: 'Load the simulation and jump to the fix. It leaves the reference anchor’s lane, not the badge’s, and the line names the badge it is about.',
@@ -197,10 +197,10 @@ export const uwbUlTdoa: Lesson = {
         zh: '会话只给 badge-1 一个时隙，别的什么也没有。它发出一帧闪发，射频就关到下一个块。没有任何回应，也没有任何一条记录回到它这里。' },
       { en: 'Every anchor that hears the blink stamps its RMARKER and writes a counter on its own crystal for the log — the UWB_TS line. The fix is not built from that counter.',
         zh: '听到这帧闪发的每个锚点，都给它的 RMARKER 打戳。它会用自己的晶振写下一个计数值供日志显示——就是你能读到的那行 UWB_TS——但定位并不是用这个计数值算的。' },
-      { en: 'What the fix uses is the arrival on the anchors’ shared timebase: true flight, plus this receiver’s timestamp noise, plus this anchor’s residual calibration error. Wired sync already removed its crystal.',
-        zh: '定位用的是锚点公共时基上的那个到达时刻：真实飞行时间，加上这台接收机的时间戳噪声，再加上这个锚点自己的校准残差。有线同步已经把它的晶振除掉了。' },
-      { en: 'That residual was drawn once, when the network was built, from the session’s sync error — 0 ns here, 1 ns in the variant — and never again. Hence a bias, not noise.',
-        zh: '那个残差只在建网时按会话的同步误差抽过一次——本场景是 0 ns，变体里是 1 ns——此后再不重抽。这正是它是偏差而不是噪声的原因。' },
+      { en: 'What the fix uses is the arrival on the anchors’ shared timebase: true flight, plus this receiver’s timestamp noise, plus this anchor’s leftover calibration error. Wired sync already removed its crystal.',
+        zh: '定位用的是锚点公共时基上的那个到达时刻：真实飞行时间，加上这台接收机的时间戳噪声，再加上这个锚点自己的校准剩余误差。有线同步已经把它的晶振除掉了。' },
+      { en: 'That leftover was drawn once, when the network was built, from the session’s sync error — 0 ns here, 1 ns in the variant — and never again. Hence a bias, not noise.',
+        zh: '那个剩余误差只在建网时按会话的同步误差抽过一次——本场景是 0 ns，变体里是 1 ns——此后再不重抽。这正是它是偏差而不是噪声的原因。' },
       { en: 'When the slot closes the network collects the four arrivals and hands them to anchor-1, the reference. An anchor that missed the blink is left out; if anchor-1 missed it, nothing is produced.',
         zh: '时隙结束时，网络把四个到达时刻收齐，交给参考锚点 anchor-1。没听到闪发的锚点直接不算；而如果 anchor-1 自己没听到，这一轮就什么也不产出。' },
       { en: 'anchor-1 subtracts its own arrival from each of the other three. No rate needs correcting: no interval was measured on anybody’s crystal, and the unknown instant the blink left cancels.',
@@ -216,9 +216,9 @@ export const uwbUlTdoa: Lesson = {
       [{ en: 'true flight to anchor-1', zh: '到 anchor-1 的真实飞行' }, N('4.7634 m · 15.889 ns')],
       [{ en: 'true flight to anchor-2', zh: '到 anchor-2 的真实飞行' }, N('6.3789 m · 21.278 ns')],
       [{ en: 'the difference the geometry holds', zh: '几何本身给出的那个差' }, N('5.3886 ns · 1.6155 m')],
-      [{ en: 'each anchor’s calibration residual', zh: '每个锚点的校准残差' }, N('0 ns')],
+      [{ en: 'each anchor’s calibration leftover', zh: '每个锚点的校准剩余误差' }, N('0 ns')],
       [{ en: 'what anchor-1 differences', zh: 'anchor-1 相减得到的' }, N('5.3267 ns')],
-      [{ en: 'left over: two receivers’ noise', zh: '残差：两台接收机的噪声' }, N('−0.0619 ns · −1.86 cm')],
+      [{ en: 'left over: two receivers’ noise', zh: '剩下的：两台接收机的噪声' }, N('−0.0619 ns · −1.86 cm')],
       [{ en: 'σ of one difference', zh: '一个时间差的 σ' }, N('√2·c·√(0.1² + 0²) ns = 4.2 cm')],
       [{ en: 'the fix it feeds', zh: '它喂出来的那次定位' }, N('(4.02, 3.46) m, true (4.00, 3.50), error 0.05 m')],
     ] },
@@ -252,8 +252,8 @@ export const uwbUlTdoa: Lesson = {
   sources: [
     { en: 'One thing here is the standard’s: IEEE Std 802.15.4-2024 §10.29.1.2.5 gives time-difference-of-arrival ranging in two forms, and this lesson is the first — a mobile node transmits, fixed nodes whose clocks are synchronised with one another receive it, and the differences between their arrival times place it. The ±20 ppm crystal tolerance the note above pins the badges at is §16.4.9.',
       zh: '本课只有一处以标准正文为依据：IEEE Std 802.15.4-2024 §10.29.1.2.5 给出了到达时间差测距的两种形态，本课讲的是第一种——移动节点发送，一组彼此时钟同步的固定节点接收，这些节点到达时刻之差就定出它在哪里。上面那条注释里把胸牌钉到的 ±20 ppm 晶振容差，出自 §16.4.9。' },
-    { en: 'The rest is the model: the fourteen octets of the blink and the fact that it carries no times; the 2 ms slot it is sent in; the anchors’ common timebase, its wired-sync calibration and the fixed residual error each anchor is left with; and every number quoted above.',
-      zh: '其余都是模型：闪发帧的十四个字节，以及它不携带任何时间这件事；发送它的那个 2 ms 时隙；锚点的公共时基、“有线同步”的校准方式，以及每个锚点身上留下的那个固定残差；还有上面引用的每一个数字。' },
+    { en: 'The rest is the model: the fourteen octets of the blink and the fact that it carries no times; the 2 ms slot it is sent in; the anchors’ common timebase, its wired-sync calibration and the fixed leftover error each anchor is left with; and every number quoted above.',
+      zh: '其余都是模型：闪发帧的十四个字节，以及它不携带任何时间这件事；发送它的那个 2 ms 时隙；锚点的公共时基、“有线同步”的校准方式，以及每个锚点身上留下的那个固定剩余误差；还有上面引用的每一个数字。' },
     { en: 'The noise figures are model choices too: 100 ps of 1-σ noise on every received timestamp, and a sync error of 0 ns by default, which is a laboratory’s answer and no installation’s. The anchors’ own positions are treated as surveyed exactly.',
       zh: '噪声取值同样是模型取值：每个接收时间戳上 100 ps 的 1σ 噪声；同步误差默认取 0 ns，那是实验室的答案，不是任何一次真实安装的答案。锚点自身的坐标同样被当作勘测得分毫不差。' },
   ],

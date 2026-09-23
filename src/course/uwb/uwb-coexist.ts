@@ -94,6 +94,14 @@ export const uwbCoexist: Lesson = {
       en: 'signal-to-interference ratio: the wanted frame’s level minus the intruder’s',
       zh: '信干比：想要的那一帧的电平，减去闯进来那一路的电平',
     } },
+    { term: 'threshold', plain: {
+      en: 'the level a reading is compared against: over it the answer is one thing, under it the other',
+      zh: '门限：一次读数要与之比较的那个电平——高过它是一种答案，低于它是另一种',
+    } },
+    { term: 'noise floor', plain: {
+      en: 'the power a receiver hears when nobody is talking — what anything must rise above to be heard',
+      zh: '器声地板：没人说话时接收机听到的那份功率，任何信号都要高过它才会被听见',
+    } },
     { term: 'energy detect', plain: {
       en: 'Wi-Fi’s blunt busy test: too much power on the channel, so do not transmit',
       zh: 'Wi-Fi 那条粗放的“忙”判据：信道上功率太大，就先别发',
@@ -113,12 +121,12 @@ export const uwbCoexist: Lesson = {
       zh: '载入仿真、按下播放，然后跳到手机丢掉的第一帧测距帧。远处那个锚点确实作答了，只是笔记本的上传恰好在那一刻占着空口，于是这个回答根本没能到达。日志会写明这次丢失，以及那路外来信号有多强。',
     } },
     { heading: { en: 'What the phone hears', zh: '手机听到了什么' }, text: {
-      en: 'At the phone the strongest wanted signal is an anchor answering from across the room; the loudest unwanted one is a laptop a few paces away. The gap between them is the SIR — the signal-to-interference ratio — and here it is deeply negative, far below what the receiver can decode through.',
-      zh: '在手机这一侧，最强的“想要”是从房间对角作答的那个锚点，最响的“不想要”是几步之外的那台笔记本。两者之间的差距就是 SIR——信干比——这里的它是一个很深的负数，远远低于接收机还解得出来的下限。',
+      en: 'At the phone the strongest wanted signal is an anchor answering from across the room; the loudest unwanted one is a laptop a few paces away. The gap between them is the SIR — the signal-to-interference ratio — and here it is deeply negative, far below the level a receiver can still decode through, that is the threshold.',
+      zh: '在手机这一侧，最强的“想要”是从房间对角作答的那个锚点，最响的“不想要”是几步之外的那台笔记本。两者之间的差距就是 SIR——信干比——这里的它是一个很深的负数，远远低于接收机还解得出来的那个电平，这就是门限。',
     } },
     { heading: { en: 'What the router hears', zh: '路由器听到了什么' }, text: {
-      en: 'Turn it round. A ranging frame reaching the router is weaker than the router’s own noise: it lifts the noise floor a few decibels and does nothing else. Wi-Fi’s only busy test here is raw power on the channel — energy detect — and a ranging frame this far off is nowhere near its threshold. The router never defers; only its demodulator meets the session.',
-      zh: '反过来看。一帧测距帧到达路由器时比路由器自己的噪声还弱：它把噪声底抬高几个分贝，除此之外什么也没做。Wi-Fi 在这里判忙只看信道上的原始功率，这就是能量检测（energy detect），而这样距离上的测距帧离它的门限差得很远。于是路由器从不为它退让，与这个会话打照面的只有解调器。',
+      en: 'Turn it round. A ranging frame reaching the router is weaker than the router’s own noise: it lifts the power the router hears when nobody is talking — the noise floor — by a few decibels and does nothing else. Wi-Fi’s only busy test here is raw power on the channel — energy detect — and a ranging frame this far off is nowhere near its threshold. The router never defers; only its demodulator meets the session.',
+      zh: '反过来看。一帧测距帧到达路由器时比路由器自己的噪声还弱：它把没人说话时路由器听到的那份功率——噪声地板——抬高几个分贝，除此之外什么也没做。Wi-Fi 在这里判忙只看信道上的原始功率，这就是能量检测（energy detect），而这样距离上的测距帧离它的门限差得很远。于是路由器从不为它退让，与这个会话打照面的只有解调器。',
     } },
     { heading: { en: 'A spare anchor absorbs it', zh: '一个备用锚点把损失吃了下来' }, text: {
       en: 'The session survives an office backup because it carries a spare. Three anchors would do and four answer, and the losses all fall on the same far one, so the phone still fixes its position in every block — a little worse conditioned, a little further out.',
@@ -128,11 +136,11 @@ export const uwbCoexist: Lesson = {
       en: 'Jump to the first position the phone solves without its fourth anchor. Nothing in the log looks wrong: the fix is there, at the usual instant, within a couple of centimetres. The only signs are the anchor count and the GDOP beside it.',
       zh: '跳到手机第一次在缺了第四个锚点的情况下解出的位置。日志里看不出哪里不对：定位就在那儿，时刻照旧，误差仍在两三厘米之内。唯一的痕迹，是那一行末尾的锚点数，以及旁边的 GDOP。',
     } },
-    { kind: 'list', heading: { en: 'Three cures, and only one works', zh: '三个办法，只有一个管用' }, items: [
+    { kind: 'list', heading: { en: 'Three cures — and what “partial” buys', zh: '三个办法，以及“部分重叠”买得到什么' }, items: [
       { en: 'Push the devices apart — the room is too small. Even the farthest corner still leaves the phone deafened.',
         zh: '把设备拉开——房间太小。哪怕挪到最远的角落，手机照样被震得听不见。' },
       { en: 'Slide the Wi-Fi channel so that only part of it overlaps — partial overlap is not partial protection, and the same frames are lost in the same blocks.',
-        zh: '把 Wi-Fi 信道挪一点，只让它一部分重叠——部分重叠并不等于部分保护，还是那些帧在还是那些块里丢掉。' },
+        zh: '把 Wi-Fi 信道挪一点，只让它一部分重叠——部分重叠并不等于部分保护：丢的仍然是同样那几帧，丢在同样那几个块里。' },
       { en: 'Move the session to the ranging channel above the whole Wi-Fi band — no Wi-Fi channel of any width can reach it there, which is why the simulator picks it by default.',
         zh: '把会话挪到整个 Wi-Fi 频段之上的那条测距信道——在那里，任何带宽的 Wi-Fi 信道都够不到它，仿真器默认选的就是它。' },
     ] },
@@ -184,12 +192,12 @@ export const uwbCoexist: Lesson = {
     { kind: 'steps', heading: { en: 'What the two radios do to each other, step by step', zh: '两种射频之间究竟发生了什么，一步一步' }, items: [
       { en: 'Each live transmission of either radio registers with one shared mediator: a power spread evenly over its own band, its transmitter’s position, its transmitter’s own path-loss law. Nothing else crosses.',
         zh: '两种射频的每一次在发传输，都向同一个中介登记：在自己频带上均匀铺开的功率、发射端的位置、发射端自己的路径损耗公式。别的什么也不越界。' },
-      { en: 'While a ranging frame arrives, the phone re-reads the foreign power over its own 6240.0 to 6739.2 MHz at every change the mediator reports, and keeps the largest reading of that reception.',
-        zh: '测距帧到达期间，中介每报一次变动，手机就在自己的 6240.0 至 6739.2 MHz 上重读外来功率，并保留这次接收里最大的读数。' },
+      { en: 'While a ranging frame arrives, the phone re-reads the foreign power over its own 6240.0 to 6739.2 MHz at every change the mediator reports, and keeps the largest reading.',
+        zh: '测距帧到达期间，中介每报一次变动，手机就在自己的 6240.0 至 6739.2 MHz 上重读外来功率，并保留其中最大的读数。' },
       { en: 'One transmission’s share of that reading: its power plus ten times the log of overlapping width over its own width, less its path loss at that distance and the walls between. Several add up in milliwatts, not decibels.',
         zh: '某一次传输在这个读数里占的份额：功率加上“重叠带宽比自身带宽”的对数的十倍，减去这段距离上的路径损耗和中间的墙。多路相加按毫瓦，不按分贝。' },
-      { en: 'At the end of the frame take SIR = its own arriving level minus that worst foreign level. At or above −12 dB it decodes; below, it is lost as an RX_FAIL, and a UWB_INTERFERED line names the anchor, the foreign level and the SIR.',
-        zh: '这一帧收完时取 SIR = 本帧到达电平 − 刚才那个最坏的外来电平。达到或高于 −12 dB 就照常解出；低于就丢，记一条 RX_FAIL，再记一条 UWB_INTERFERED，写明锚点、外来电平与 SIR。' },
+      { en: 'At the end of the frame take SIR = its own arriving level minus that worst foreign level. At or above −12 dB it decodes; below, it is lost as an RX_FAIL, and a UWB_INTERFERED line names the anchor, the foreign level and the SIR. That level also widens the timestamp noise, so a surviving frame is stamped less precisely.',
+        zh: '这一帧收完时取 SIR = 本帧到达电平 − 刚才那个最坏的外来电平。达到或高于 −12 dB 就照常解出；低于就丢，记一条 RX_FAIL，再记一条 UWB_INTERFERED，写明锚点、外来电平与 SIR。那个外来电平同时会把时间戳噪声拉宽，所以活下来的那些帧，时间戳也没那么准了。' },
       { en: 'Nothing is retried inside the block. The slot times out and prints UWB_TIMEOUT, and the fix is solved from the ranges that did arrive: three still solve it, and the line ends in three anchors.',
         zh: '这个块之内不做任何重传。那个时隙超时，打印出 UWB_TIMEOUT，而定位就用已经到齐的距离来解：三条仍然解得出，那一行末尾写的是三个锚点。' },
       { en: 'The other way round the same mediator is read, and the story stops sooner: a ranging frame only adds to a Wi-Fi receiver’s noise, and the loudest one here sits 18.57 dB under the energy-detect threshold of −62 dBm. That is the boundary — neither radio’s carrier sense sees the other, and only power crosses.',
@@ -252,6 +260,8 @@ export const uwbCoexist: Lesson = {
       zh: '标准从未规定接收机在干扰下的解调能力，于是引擎给了它一个数——−12 dB 的信干比门限，理由是 499.2 MHz 码片率带来的相关增益大致值这么多。' },
     { en: 'Both path-loss laws are the model’s, and each emission keeps its own transmitter’s: Wi-Fi travels under the indoor exponent 3 — 46.7 dB at one metre, plus 30·log10 d, plus 1.2 dB for 6 GHz — and UWB under free space, exponent 2, 48.69 dB at one metre on channel 5, plus 20·log10 d.',
       zh: '两条路径损耗公式都是模型的取值，而且每一路发射都沿用自己发射端的那一条：Wi-Fi 按室内衰减指数 3 传播——一米处 46.7 dB，加 30·log10 d，6 GHz 再加 1.2 dB；UWB 按自由空间、指数 2 传播——5 号信道一米处 48.69 dB，加 20·log10 d。' },
+    { en: 'The 100 ps of 1-σ timestamp noise every UWB lesson quotes is a floor, not a constant: the engine multiplies it by up to ten as the signal-to-interference-and-noise ratio falls below 20 dB. In this room the multiplier never leaves about 1.0, which is why every figure here is unaffected.',
+      zh: '每一课都引用的“每个接收时间戳 100 ps 的 1σ 噪声”是一个下限，不是一个常数：当信干噪比跌到 20 dB 以下时，引擎最多会把它乘上十倍。在这个房间里，这个倍数始终在 1.0 上下，所以上面的数字一个都没受影响。' },
     { en: 'The flat spectral density inside each transmitter’s own band, the −62 dBm energy-detect threshold and the 6 GHz channel numbering (802.11ax) are the model’s too.',
       zh: '“功率在发射者自己的带内均匀铺开”这一假设、−62 dBm 的能量检测门限，以及 6 GHz 的信道编号（这一条出自 802.11ax），也都属于模型。' },
   ],

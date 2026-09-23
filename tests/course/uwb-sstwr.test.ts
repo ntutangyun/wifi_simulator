@@ -19,7 +19,7 @@ import type { Block } from '../../src/course/lessonKit'
 import { paragraphTexts } from '../../src/course/readability'
 import { fmtRecord } from '../../src/ui/format'
 import { counterDiff } from '../../src/uwb/clock'
-import { rangeSigmaM } from '../../src/uwb/position'
+import { rangeSigmaM, solvePosition } from '../../src/uwb/position'
 import { metresToNs, rctuToMetres, ssTwrCorrected, ssTwrRaw } from '../../src/uwb/ranging'
 import { C_M_PER_NS, FOM_LOS, RCTU_NS, UWB_PPM_MAX, fomDecode, fomText } from '../../src/uwb/phy'
 import { lessonShapeSuite, ofType, runOf } from './kit'
@@ -641,9 +641,24 @@ describe('uwb-sstwr · the procedure, step by step', () => {
       expect(r.fom).toBe(FOM_LOS)
       expect(Object.keys(r)).not.toContain('sigmaM')
     }
-    // and the 1-σ the fix is weighted by is rangeSigmaM: two receive stamps, halved
+    // Review I4: `rangeSigmaM` enters the COVARIANCE only (Σ = σ_r²(JᵀJ)⁻¹); the Gauss–Newton
+    // normal equations are unweighted and no caller reads a per-range sigma, so the step now
+    // says the ellipse, not the fix — which is what uwb-geometry has said all along.
     expect(SIGMA_R).toBeCloseTo((C_M_PER_NS * SESSION.tsNoisePs) / 1000 / Math.SQRT2, 12)
     expect(steps().items[6].en).toContain(`${(SIGMA_R * 100).toFixed(1)} cm`)
     expect(steps().items[6].en).toContain(`${SESSION.tsNoisePs} ps`)
+    expect(steps().items[6].en).toContain('The 1-σ the error ellipse is drawn from is computed apart')
+    expect(steps().items[6].en).toContain('The fix itself weighs every range alike')
+    expect(steps().items[6].en).not.toContain('the fix is weighted by')
+    // the solver's own answer does not move when the sigma does: only the ellipse and GDOP do
+    const anchors = [
+      { id: 'a', x: 0, y: 0, z: 2 }, { id: 'b', x: 8, y: 0, z: 2 },
+      { id: 'c', x: 8, y: 6, z: 2 }, { id: 'd', x: 0, y: 6, z: 2 },
+    ]
+    const rs = anchors.map((a2) => ({ id: a2.id, distM: Math.hypot(a2.x - 3, a2.y - 2, a2.z - 1) + 0.01 }))
+    const one = solvePosition(anchors, rs, 1, SIGMA_R)!
+    const ten = solvePosition(anchors, rs, 1, SIGMA_R * 10)!
+    expect([one.x, one.y]).toEqual([ten.x, ten.y])
+    expect(one.residualM).toBe(ten.residualM)
   })
 })

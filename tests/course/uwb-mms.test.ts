@@ -82,7 +82,7 @@ const worked = (row: number): string => cell(3, row, 1)
 
 // The contract every migrated lesson owes. The window is what `npx tsx
 // scripts/lesson-dump.ts uwb-mms en` reports for why + outcomes + terms + picture + numbers.
-lessonShapeSuite(uwbMms, { proseMax: 1200 })
+lessonShapeSuite(uwbMms, { proseMax: 1220 })
 
 describe('uwb-mms · the lesson', () => {
   it('opens UWB Tier 3 and module 15, after uwb-aoa, and names its four new words', () => {
@@ -91,7 +91,7 @@ describe('uwb-mms · the lesson', () => {
     // uwb-geometry too: the picture's last paragraph leans on the quality byte each range
     // carries flagging an obstructed path, which is uwb-geometry's FoM.
     expect(uwbMms.needs).toEqual(['uwb-blocks', 'uwb-dstwr', 'uwb-geometry'])
-    expect(uwbMms.terms!.map((t) => t.term)).toEqual(['MMS', 'fragment', 'RSF', 'RIF'])
+    expect(uwbMms.terms!.map((t) => t.term)).toEqual(['MMS', 'fragment', 'RSF', 'RIF', 'sensitivity', 'margin'])
     expect(TIERS[6]).toEqual({
       track: 'uwb', en: 'UWB Tier 3 · What comes next: 802.15.4ab', zh: 'UWB 第三阶段 · 下一步：802.15.4ab',
     })
@@ -502,7 +502,7 @@ describe('uwb-mms · reach is not accuracy', () => {
     expect(uwbFixRow(vs.nodes[TAG].uwb!.position!, STRINGS.zh.uwb).method).toBe('双向测距 (TWR)')
     // M2: the inspector shows the block-6 fix, and the log table three blocks up quotes
     // block 0's — the prose now says which is which
-    expect(prose()).toContain('The inspector shows the last block’s, (14.22, 4.05) m against a true (13.00, 4.00)')
+    expect(prose()).toContain('The fix inherits it whole: the inspector shows the last block’s, (14.22, 4.05) m against a true (13.00, 4.00)')
     expect(logLine(7)).toContain('(14.24, 4.08)')
     expect(prose()).toContain('the ellipse beside it, which knows only noise, stays at centimetres')
   })
@@ -538,6 +538,8 @@ describe('uwb-mms · reach is not accuracy', () => {
 describe('uwb-mms · one round, step by step', () => {
   const base = uwbMmsScenario('base')
   const layout = mmsLayout({ ...base.uwb!.mms }, ANCHORS.length)
+  /** The round's own fragment spacing, derived — never a typed literal (UWB track review, I1). */
+  const plan = roundPlan(base.uwb!, ANCHORS.length)
 
   it('is seven steps and a seven-row worked example, in the same order', () => {
     expect(steps()).toHaveLength(7)
@@ -565,24 +567,34 @@ describe('uwb-mms · one round, step by step', () => {
     expect(nbPpduNs(NB_RESP_BYTES)).toBe(576_000)
   })
 
-  it('step 3 — a millisecond of the phase is one slot for the tag and one an anchor', () => {
-    expect(steps()[2]).toContain('One millisecond of it is one slot for the tag and one for each anchor')
-    expect(worked(2)).toBe('slots 8–39 · 4/ms · 8 fragments')
+  it('step 3 — one slot each, and a device’s own fragments four slots (2 ms) apart', () => {
+    expect(steps()[2]).toContain('One slot goes to the tag and one to each anchor')
+    expect(steps()[2]).toContain('a device’s own fragments are four slots — two milliseconds — apart')
+    expect(worked(2)).toBe('slots 8–39 · 4 per 2 ms · 8 fragments')
     expect(layout.controlSlots).toBe(8)
     expect(layout.rpSlots).toBe(32)
     expect(layout.controlSlots + layout.rpSlots - 1).toBe(39)
-    // the tag's fragment first, then one per anchor, inside each millisecond
+    // the tag's fragment first, then one per anchor, and the next round of four a gap later
     expect(layout.fragmentSlot('initiator', 'rsf', 0)).toBe(8)
     expect(ANCHORS.map((_, r) => layout.fragmentSlot('responder', 'rsf', 0, r))).toEqual([9, 10, 11])
     expect(layout.fragmentSlot('initiator', 'rsf', 1)).toBe(12)
     expect(layout.fragmentSlot('initiator', 'rsf', 7)).toBe(36)
     expect(base.uwb!.mms.rsfs).toBe(8)
+    // the gap is (responders + 1) slots — four here, not one millisecond
+    const gapSlots = layout.fragmentSlot('initiator', 'rsf', 1) - layout.fragmentSlot('initiator', 'rsf', 0)
+    expect(gapSlots).toBe(ANCHORS.length + 1)
+    expect(gapSlots).toBe(4)
+    expect(plan.mms!.fragGapNs).toBe(gapSlots * plan.slotNs)
+    expect(plan.mms!.fragGapNs).toBe(2 * MS)
+    // a millisecond is what the PAIRWISE round comes to, which is why the claim looked true
+    const pair = roundPlan(uwbMmsScenario('pairwise').uwb!, ANCHORS.length)
+    expect(pair.mms!.fragGapNs).toBe(1 * MS)
   })
 
-  it('step 4 — one symbol repeated, a whole millisecond’s energy in it, one stamp a train', () => {
+  it('step 4 — one symbol repeated, a whole millisecond’s energy in it, two stamps a train', () => {
     expect(steps()[3]).toContain('one short symbol repeated')
     expect(steps()[3]).toContain('spends the whole millisecond’s energy inside its own far shorter length')
-    expect(steps()[3]).toContain('Only the first fragment of a train is stamped, and the stamp is its first pulse')
+    expect(steps()[3]).toContain('The receiver stamps two of them — the first it heard and the last — each at its first pulse')
     expect(worked(3)).toBe('40 × 1 024 = 40 960 chips · 82.051 µs · 37 nJ')
     expect(mmrsSymbolChips(64)).toBe(1024)
     expect(rsfChips(40, 64)).toBe(40_960)
@@ -623,7 +635,7 @@ describe('uwb-mms · one round, step by step', () => {
   })
 
   it('step 7 — the three checks on the slot, and the fourth anchor the schema refuses', () => {
-    expect(steps()[6]).toContain('it divides the millisecond')
+    expect(steps()[6]).toContain('it is a whole number of 300 RSTU')
     expect(steps()[6]).toContain('one slot holds the longest fragment plus its flight guard')
     expect(steps()[6]).toContain('two slots hold the longest narrowband message — the Poll, which grows with every anchor it names')
     expect(worked(6)).toBe('600 % 300 = 0 · 82.3 < 500.0 · 928.2 < 1000.0 µs')
@@ -655,6 +667,21 @@ describe('uwb-mms · one round, step by step', () => {
     const bad = ScenarioSchema.safeParse(four)
     expect(bad.success).toBe(false)
     expect(JSON.stringify(bad.error!.issues)).toContain('4 responders')
+  })
+
+  it('an integrity verdict here is a detection outcome, not a comparison', () => {
+    // I6: the `integrity` flag on UWB_RANGE is `p.rifDetected` — whether the integrity train
+    // cleared sensitivity. Nothing generates a sequence and nothing compares one.
+    expect(prose()).toContain('This simulator does not do that: it generates no such sequence and compares nothing')
+    expect(prose()).toContain('an integrity verdict is a detection outcome')
+    // …and a relay cannot be run against an MMS round: the MMS branch returns before the
+    // attacker branch every reception of this mode would otherwise reach.
+    expect(prose()).toContain('a relay cannot be run against a multi-millisecond round at all')
+    const relayed = { ...base, uwb: { ...base.uwb!, attacker: { advanceNs: 100 } } } as Scenario
+    const rs = ofType([...new Simulation(ScenarioSchema.parse(relayed)).runUntil(RUN_NS).records], 'UWB_RANGE')
+    const plain = ofType(recs('base'), 'UWB_RANGE')
+    expect(rs).toHaveLength(plain.length)
+    expect(rs.map((r) => r.distM.toFixed(3))).toEqual(plain.map((r) => r.distM.toFixed(3)))
   })
 
   it('the integrity fragments this scene does not send start at X + Z + y − 1', () => {

@@ -47,8 +47,8 @@ export const uwbIntro: Lesson = {
   module: 11,
   title: { en: 'A radio that measures time', zh: '一台测量时间的射频' },
   why: {
-    en: 'Your phone can already tell you how far it is from a Wi-Fi router, roughly, from how loud the router sounds. Roughly is the problem: a wall or a hand costs more signal than ten metres of air. Ultra-wideband asks a different question — not how loud the signal is, but when it arrived, and light is a very reliable clock. The smallest such measurement: one anchor (a radio fixed to the wall), one phone, four timestamps, one distance.',
-    zh: '手机其实早就能估出自己离路由器有多远——靠的是信号听上去有多响。问题就出在这个“估”字上：一堵墙、一只挡住天线的手，吃掉的信号比十米空气还多。超宽带问的是另一个问题：不问信号有多响，只问它是什么时候到的，而光速是一把非常可靠的尺子。这样一次测量最小可以小到什么程度？一个锚点（固定在墙上的射频）、一部手机、四个时间戳，换来一个距离。',
+    en: 'Your phone can already tell you how far it is from a Wi-Fi router, roughly, from how loud the router sounds. Roughly is the problem: a wall or a hand costs more signal than ten metres of air. The other question a radio can ask is when the signal arrived, and that is ultra-wideband: light is a very reliable clock. The smallest such measurement: one anchor (a radio fixed to the wall), one phone, four timestamps, one distance.',
+    zh: '手机其实早就能估出自己离路由器有多远——靠的是信号听上去有多响。问题就出在这个“估”字上：一堵墙、一只挡住天线的手，吃掉的信号比十米空气还多。射频还能问的另一个问题是：信号是什么时候到的；这就是超宽带——而光速是一把非常可靠的尺子。这样一次测量最小可以小到什么程度？一个锚点（固定在墙上的射频）、一部手机、四个时间戳，换来一个距离。',
   },
   outcomes: [
     { en: 'read the four timestamps of a ranging round off the event log', zh: '从事件日志里读出一轮测距的四个时间戳' },
@@ -190,7 +190,7 @@ export const uwbIntro: Lesson = {
     { en: 'The model choices, named so you can argue with them: −14 dBm of transmit power, −93 dBm of sensitivity, 100 ps of 1-σ noise on every received timestamp, 0.2 ppm of residual error in the clock-offset estimate, and the extra delay a wall adds to an obstructed path.',
       zh: '下面这些是仿真器自己的模型取值，列出来方便你质疑：−14 dBm 发射功率、−93 dBm 接收灵敏度、每个接收时间戳上 100 ps 的 1σ 噪声、时钟偏差估计中残留的 0.2 ppm 误差，以及墙体给遮挡路径额外增加的时延。' },
     { en: 'The ±20 ppm crystal tolerance quoted under “Going deeper” is §16.4.9. The 40-bit counter is a model choice; the standard asks only for 32 bits or more.',
-      zh: '"再深一层"里引用的 ±20 ppm 晶振容差出自 §16.4.9。40 位计数器是模型取值，标准正文只要求至少 32 位。' },
+      zh: '“再深一层”里引用的 ±20 ppm 晶振容差出自 §16.4.9。40 位计数器是模型取值，标准正文只要求至少 32 位。' },
   ],
   scenario: () => uwbIntroScenario(5),
   variants: [

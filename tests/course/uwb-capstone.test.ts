@@ -19,6 +19,7 @@ import {
   uwbCapstone, uwbCapstoneScenario, CAPSTONE_ANCHORS, FAR_ANCHOR, TAG_POS, ROUTER_POS,
   LAPTOP_POS, ANCHOR_Z, TAG_Z, WIFI_6G_CENTER_MHZ, FAST_BLOCK_RSTU,
 } from '../../src/course/uwb/uwb-capstone'
+import { uwbPosition } from '../../src/course/uwb/uwb-position'
 import { DEFAULT_UWB_SESSION, ScenarioSchema } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 import { UWB_NLOS_NS, FOM_LOS, FOM_NLOS, fomText, rstuNs } from '../../src/uwb/phy'
@@ -206,6 +207,23 @@ describe('uwb-capstone · the four scenes over seven blocks', () => {
       expect(s).not.toContain('all three then suffer together')
       expect(s).not.toContain('costs every anchor at once')
     }
+  })
+
+  it('a three-range fix has one measurement to spare over TWO unknowns', () => {
+    // Review I2: `deeper` used to say "no redundancy at all: three unknowns would be two
+    // coordinates and nothing else" — self-contradictory, and the solver has two unknowns
+    // (x and y; z is held at the tag's configured height, src/uwb/position.ts).
+    const deeper = (uwbCapstone.deeper ?? []).map((b) => (b as { text: { en: string } }).text.en).join(' ')
+    expect(deeper).toContain('has one measurement to spare over its two unknowns')
+    expect(deeper).not.toContain('three unknowns')
+    expect(deeper).not.toContain('no redundancy at all')
+    // three ranges are the fewest the solver accepts, and it still computes a residual
+    const three = ofType(recs(), 'UWB_POSITION').filter((f) => f.anchors.length === 3)
+    expect(three.length).toBeGreaterThan(0)
+    expect(three[0].anchors).toHaveLength(3)
+    // and it agrees with uwb-position's quiz, which says the same thing
+    const quiz = uwbPosition.quiz.find((q) => q.options.some((o) => o.en.includes('with one measurement to spare')))!
+    expect(quiz.explain.en).toContain('Two unknowns and three measurements leave one spare')
   })
 
   it('a faster block doubles the work and leaves the accuracy alone', () => {

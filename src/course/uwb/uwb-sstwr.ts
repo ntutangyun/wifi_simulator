@@ -52,7 +52,7 @@ export const uwbSstwr: Lesson = {
     zh: '前面几课让两台射频都守着完美的时间，现实里没有哪一对是这样：石英晶体总会走得偏快或偏慢，用走得慢的钟量出来的一段时间就偏短。偏偏交互里最长的那一段是锚点量的，手机却把它当成自己量的直接减掉。这一课里，这件事会错出好几米。',
   },
   outcomes: [
-    { en: 'say why a reply measured on the other radio’s clock makes a range too long', zh: '说清为什么"用对方的钟量出来的应答时间"会把距离测长' },
+    { en: 'say why a reply measured on the other radio’s clock makes a range too long', zh: '说清为什么“用对方的钟量出来的应答时间”会把距离测长' },
     { en: 'predict how much too long, from the slot an anchor answered in', zh: '根据锚点在第几个时隙作答，预测它会测长多少' },
     { en: 'tell the corrected figure from the raw one on a range line', zh: '在测距行上分清修正值与 raw 值' },
   ],
@@ -102,7 +102,7 @@ export const uwbSstwr: Lesson = {
     } },
     { heading: { en: 'Ask the receiver how fast the other clock runs', zh: '问接收端：对面那只钟走得多快' }, text: {
       en: 'A receiver cannot find the RMARKER until it has locked onto the incoming pulses, and the loop that locks knows, as a by-product, how fast those pulses arrive against its own crystal. That ratio is the clock offset, measured rather than assumed, and the simulator hangs it on every received frame as that frame’s clock-offset estimate (Coffs). Scale the reply by it and the near-cancellation becomes real.',
-      zh: '接收端必须先锁住进来的脉冲，才谈得上找到 RMARKER；而完成这次锁定的环路顺带就知道：这些脉冲相对自己那块晶体跑得有多快。这个比值就是时钟偏差——是测出来的，不是假定的；仿真器把它挂在每个收到的帧上，叫作 Coffs。拿它去缩放应答时长，那次"几乎抵消"就成了真的抵消。',
+      zh: '接收端必须先锁住进来的脉冲，才谈得上找到 RMARKER；而完成这次锁定的环路顺带就知道：这些脉冲相对自己那块晶体跑得有多快。这个比值就是时钟偏差——是测出来的，不是假定的；仿真器把它挂在每个收到的帧上，叫作 Coffs。拿它去缩放应答时长，那次“几乎抵消”就成了真的抵消。',
     } },
     { heading: { en: 'What the correction leaves behind', zh: '修正之后还剩下什么' }, text: {
       en: 'Coffs is itself a measurement, so a little of it is wrong. The correction turns a large rate error into a tiny one, but the leftover is still half the reply times that tiny error — so it still grows with the waiting. The next lesson gets rid of the wait by arithmetic instead.',
@@ -147,7 +147,7 @@ export const uwbSstwr: Lesson = {
     } },
     { kind: 'table', heading: { en: 'What the correction leaves', zh: '修正之后留下的' }, head: [
       { en: 'Anchor', zh: '锚点' }, { en: 'Reply', zh: '应答时长' },
-      { en: 'Leftover, 1-σ', zh: '残差 1σ' }, { en: 'Error this run', zh: '本次运行的误差' },
+      { en: 'Leftover, 1-σ', zh: '剩余误差 1σ' }, { en: 'Error this run', zh: '本次运行的误差' },
     ], rows: [
       [N('anchor-1'), N('2 ms'), N('6.0 cm'), N('−5.3 cm')],
       [N('anchor-2'), N('4 ms'), N('12.0 cm'), N('−7.8 cm')],
@@ -171,8 +171,8 @@ export const uwbSstwr: Lesson = {
         zh: '把这两段时间的差折半。不算 Coffs，得到 2028 格，就是测距行上打印的 raw 值；先用 Coffs 缩放应答时长再折半，得到 734.6 格。' },
       { en: 'Multiply by one count, 15.65 ps, and by the speed of light: 3.45 m, against a true 3.50 m.',
         zh: '乘以一格的 15.65 ps，再乘以光速：3.45 m，而真值是 3.50 m。' },
-      { en: 'The range line carries that figure, the raw one beside it and a Figure of Merit byte — never an error bar. The 1-σ the fix is weighted by is computed apart, from the timestamp noise alone: 100 ps ÷ √2 × c, or 2.1 cm.',
-        zh: '测距行上带的就是这个数，旁边是 raw 值，后面跟一个品质因数字节——从来没有误差棒。给定位加权用的那个 1σ 是另外算的，只由时间戳噪声决定：100 ps ÷ √2 × 光速，合 2.1 cm。' },
+      { en: 'The range line carries that figure, the raw one beside it and a Figure of Merit byte — never an error bar. The 1-σ the error ellipse is drawn from is computed apart, from the timestamp noise alone: 100 ps ÷ √2 × c, or 2.1 cm. The fix itself weighs every range alike.',
+        zh: '测距行上带的就是这个数，旁边是 raw 值，后面跟一个品质因数字节——从来没有误差棒。画误差椭圆用的那个 1σ 是另外算的，只由时间戳噪声决定：100 ps ÷ √2 × 光速，合 2.1 cm。定位本身对每条距离一视同仁。' },
     ] },
     { kind: 'table', heading: { en: 'Anchor 1, run through the steps', zh: '锚点 1，照着步骤走一遍' }, head: [
       { en: 'Step', zh: '步骤' }, { en: 'Value', zh: '数值' },
@@ -197,11 +197,11 @@ export const uwbSstwr: Lesson = {
       en: 'Anchor 1 stamps two ranging counters, 26 381 597 885 and 26 509 391 059. Their difference, 127 793 174 RCTU, is exactly the reply time its response carries — computed on the anchor’s own clock, which is the whole trouble. The phone’s own pair differs from it by 4056 ticks.',
       zh: '锚点 1 打出两个测距计数值：26 381 597 885 与 26 509 391 059。两者之差 127 793 174 RCTU，正是它的应答帧所携带的应答时长——这个数是在锚点自己的钟上算出来的，麻烦正出在这里。手机自己那一对读数与它相差 4056 格。',
     } },
-    { heading: { en: 'How big the leftover is', zh: '残差有多大' }, text: {
+    { heading: { en: 'How big the leftover is', zh: '剩余误差有多大' }, text: {
       en: 'The correction turns 20 ppm of raw offset into 0.2 ppm of estimator noise. Half of 0.2 ppm of a millisecond is 0.1 ns, so the leftover is 3.0 cm for every millisecond the anchor waited. Anchor 3’s −9.5 cm is well inside its own 18.0 cm sigma.',
-      zh: '修正把 20 ppm 的原始偏差换成了估计器上 0.2 ppm 的噪声。1 ms 的 0.2 ppm 取一半是 0.1 ns，于是锚点每多等 1 ms，残差就多 3.0 cm。锚点 3 的 −9.5 cm 稳稳落在它自己 18.0 cm 的 σ 之内。',
+      zh: '修正把 20 ppm 的原始偏差换成了估计器上 0.2 ppm 的噪声。1 ms 的 0.2 ppm 取一半是 0.1 ns，于是锚点每多等 1 ms，剩余误差就多 3.0 cm。锚点 3 的 −9.5 cm 稳稳落在它自己 18.0 cm 的 σ 之内。',
     } },
-    { heading: { en: 'The byte that says how much to trust it', zh: '用来说明"这有多可信"的那个字节' }, text: {
+    { heading: { en: 'The byte that says how much to trust it', zh: '用来说明“这有多可信”的那个字节' }, text: {
       en: 'Every UWB_TS line for a received frame ends in "(97 % within 0.5 ns)". That is the Figure of Merit byte, 0x16 here: three bits of confidence level (6 → 97 %), two of interval (2 → 1 ns) and two of scale (0 → ×0.5). A half-nanosecond window is ±0.25 ns, about 7.5 cm of one-way flight. It travels with the measurement so a position solver can weight a confident range above a doubtful one — and it says nothing about the crystals: a timestamp of exactly this confidence produced the 27.42 m reading.',
       zh: '每一条描述接收帧的 UWB_TS 行末尾都跟着 "(97 % within 0.5 ns)"。那是品质因数字节，此处为 0x16：3 位置信水平（6 → 97 %）、2 位区间（2 → 1 ns）、2 位比例因子（0 → ×0.5）。半纳秒宽的区间就是 ±0.25 ns，约合 7.5 cm 的单向飞行距离。它随测量结果一起传递，好让定位解算器给可信的距离更高的权重；而它对晶体只字未提：上面那个 27.42 m 的读数，正出自一个置信度恰好如此的时间戳。',
     } },
@@ -210,8 +210,8 @@ export const uwbSstwr: Lesson = {
     { en: 'IEEE Std 802.15.4-2024 §10.29.1.2.2 gives the single-sided two-way ranging computation; §10.29.1.6 defines the ranging tracking offset and ranging tracking interval, the fields with which a receiver reports the transmitter’s clock rate as it measured it. The ±20 ppm crystal tolerance is §16.4.9.',
       zh: 'IEEE Std 802.15.4-2024 的 §10.29.1.2.2 给出单边双向测距的计算式；§10.29.1.6 定义了测距跟踪偏差与测距跟踪区间——接收端就是用这两个字段上报自己测到的发送端时钟速率。±20 ppm 的晶振容差来自 §16.4.9。' },
     { en: 'The Figure of Merit byte under "Going deeper" and its three lookup tables are §10.29.1.7.',
-      zh: '"再深一层"里的品质因数字节及其三张查找表出自 §10.29.1.7。' },
-    { en: 'Three numbers are the simulator’s own model choices: 100 ps of 1-σ noise on every received timestamp, 0.2 ppm of residual error in the clock-offset estimate, and the 2 ms ranging slot, which is FiRa’s rather than the standard’s.',
+      zh: '“再深一层”里的品质因数字节及其三张查找表出自 §10.29.1.7。' },
+    { en: 'Three numbers are the simulator’s own model choices: 100 ps of 1-σ noise on every received timestamp, 0.2 ppm of leftover error in the clock-offset estimate, and the 2 ms ranging slot, which is FiRa’s rather than the standard’s.',
       zh: '有三个数字是仿真器自己的模型取值：每个接收时间戳上 100 ps 的 1σ 噪声、时钟偏差估计中残留的 0.2 ppm 误差，以及 2 ms 的测距时隙——最后这个来自 FiRa，不是标准正文。' },
   ],
   scenario: () => uwbSstwrScenario({ tag: 10, anchors: -10 }),
@@ -231,8 +231,8 @@ export const uwbSstwr: Lesson = {
     { en: 'Take the differences of consecutive raw values: 5.96, 6.02, 5.93 m. Every extra slot of waiting costs six more metres — a bias, not scatter.', zh: '把相邻的 raw 值相减：5.96、6.02、5.93 m。每多等一个时隙就多付六米——这是偏差，不是散布。' },
   ],
   tryThis: [
-    { en: 'Load "Perfect crystals", which pins both ends to zero and changes nothing else. The ramp vanishes: the raw errors are centimetres either way, and the slot no longer matters. What is left is timestamp noise, whose 1-σ is 2.1 cm.', zh: '载入"理想晶振"：它把两端都钉在零，别的什么都不改。斜坡随即消失——raw 误差只剩正负几厘米，作答的时隙也不再要紧。剩下的只有时间戳噪声，它的 1σ 是 2.1 cm。' },
-    { en: 'Now load "Temperature-compensated, ±1 ppm", a tenth of the base offset and the sort of part a careful product really fits. The ramp survives at about 0.60 m a slot: better crystals buy an order of magnitude, not correctness.', zh: '再载入"±1 ppm 的温补晶振"：偏差只有基准的十分之一，也是认真的产品真会选用的器件。斜坡依然在，每个时隙约 0.60 m：更好的晶体买来的是一个数量级，不是正确性。' },
+    { en: 'Load "Perfect crystals", which pins both ends to zero and changes nothing else. The ramp vanishes: the raw errors are centimetres either way, and the slot no longer matters. What is left is timestamp noise, whose 1-σ is 2.1 cm.', zh: '载入“理想晶振”：它把两端都钉在零，别的什么都不改。斜坡随即消失——raw 误差只剩正负几厘米，作答的时隙也不再要紧。剩下的只有时间戳噪声，它的 1σ 是 2.1 cm。' },
+    { en: 'Now load "Temperature-compensated, ±1 ppm", a tenth of the base offset and the sort of part a careful product really fits. The ramp survives at about 0.60 m a slot: better crystals buy an order of magnitude, not correctness.', zh: '再载入“±1 ppm 的温补晶振”：偏差只有基准的十分之一，也是认真的产品真会选用的器件。斜坡依然在，每个时隙约 0.60 m：更好的晶体买来的是一个数量级，不是正确性。' },
   ],
   quiz: [
     {
@@ -259,11 +259,11 @@ export const uwbSstwr: Lesson = {
       q: { en: 'After the correction, anchor 4’s range is the most accurate. Is slot 4 the best place to answer from?', zh: '修正之后，锚点 4 的距离反而最准。在时隙 4 作答是不是最好？' },
       options: [
         { en: 'Yes — the longer reply gives the receiver more time to average', zh: '是——更长的应答时延让接收端有更多时间去平均' },
-        { en: 'No — slot 4 has the widest leftover, 24.0 cm of 1-σ against anchor 1’s 6.0 cm', zh: '否——时隙 4 的残差最宽，1σ 为 24.0 cm，而锚点 1 只有 6.0 cm' },
+        { en: 'No — slot 4 has the widest leftover, 24.0 cm of 1-σ against anchor 1’s 6.0 cm', zh: '否——时隙 4 的剩余误差最宽，1σ 为 24.0 cm，而锚点 1 只有 6.0 cm' },
         { en: 'No — it is real, but it comes from anchor 4’s position', zh: '否——精度是真实的，但它来自锚点 4 所在的位置' },
       ],
       answer: 1,
-      explain: { en: 'The leftover grows with the reply as the raw error did, and a sample from a wide distribution can land anywhere — including nearer the truth than a narrow one’s.', zh: '残差像 raw 误差一样随应答时长增长；而从宽分布里抽样落在哪儿都有可能，包括比窄分布的样本更靠近真值。' },
+      explain: { en: 'The leftover grows with the reply as the raw error did, and a sample from a wide distribution can land anywhere — including nearer the truth than a narrow one’s.', zh: '剩余误差像 raw 误差一样随应答时长增长；而从宽分布里抽样落在哪儿都有可能，包括比窄分布的样本更靠近真值。' },
     },
   ],
 }

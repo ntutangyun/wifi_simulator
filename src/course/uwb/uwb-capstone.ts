@@ -158,8 +158,8 @@ export const uwbCapstone: Lesson = {
       zh: '一个块就是一次测量。让块的节奏快一倍，手机的轨迹就跟得平滑一倍——代价是会话占用空口的时间也多了一倍，于是它撞上路由器的次数翻倍，被路由器打掉的帧也翻倍。单次定位的精度一点没变。翻倍的只是会话真正在发射的时间占比，也就是占空比；而为它让路的吞吐量，是别人的。',
     } },
     { heading: { en: 'Decision three: one round, or three', zh: '决定其三：一轮，还是三轮' }, text: {
-      en: 'So far the phone has asked each anchor in turn. The multi-millisecond mode lets it ask once and be answered by all three: one train goes out, every anchor hears that same one, and each answers in a slot of its own. One exchange instead of three — bought with far more time on the air, because a train is a fragment from every device in every millisecond it lasts. The variant drops the bearings too: this mode measures distance only.',
-      zh: '到目前为止，手机都是挨个去问每一个锚点。多毫秒模式让它问一次、由三个锚点一起作答：一串片段发出去，每个锚点听到的都是同一串，各自在自己的时隙里回话。一次交互顶掉三次——代价是空口时间多得多，因为这一串在它持续的每一毫秒里，都要每台设备各发一个片段。这个变体还把测向一并去掉了：这个模式只量距离。',
+      en: 'So far the phone has asked each anchor in turn. The multi-millisecond mode lets it ask once and be answered by all three: one train goes out, every anchor hears that same one, and each answers in a slot of its own. One exchange instead of three — bought with far more time on the air, because every gap in the train carries a fragment from every device in the round. The variant drops the bearings too: this mode measures distance only.',
+      zh: '到目前为止，手机都是挨个去问每一个锚点。多毫秒模式让它问一次、由三个锚点一起作答：一串片段发出去，每个锚点听到的都是同一串，各自在自己的时隙里回话。一次交互顶掉三次——代价是空口时间多得多，因为这一串每隔一个间隔，就要轮次里的每台设备各发一个片段。这个变体还把测向一并去掉了：这个模式只量距离。',
     } },
     { heading: { en: 'The one-sided error you are meant to find', zh: '你应该找出来的那个单向误差' }, text: {
       en: 'One of the three ranges in this flat is not merely noisy; it is wrong the same way every block. Look for the anchor whose straight line to the phone passes through something, and compare its reported distance with the truth printed beside it. Noise is symmetric and averages away. This does not, and a fix that averages it will sit off in one direction.',
@@ -236,8 +236,8 @@ export const uwbCapstone: Lesson = {
       zh: '一个片段的丢失只发生在某一个接收端，别处不受影响：捕获与检出都是逐接收端、逐片段判定的，所以漏掉一个片段的锚点，是唯一因此变穷的那一个。真正让三个一起受损的，是手机发出的消息——开启这一轮的那帧 Poll，或者手机自己在控制信道上的那次判忙，而后者正是窄带共存那一课的全部主题。一对多轮次该付的账是空口时间；至于“丢片段的风险大家一起担”，那不是它的账。',
     } },
     { heading: { en: 'Why the fix is barely better than the worst range', zh: '为什么定位结果并不比最差的那个距离好多少' }, text: {
-      en: 'A least-squares fix over three ranges has no redundancy at all: three unknowns would be two coordinates and nothing else, so with three ranges the residual has one degree of freedom left. A single biased range therefore moves the answer almost as much as it is biased, and nothing the inspector prints says so: the fix is consistent with the data, and the data is wrong. A fourth anchor is the cheapest thing that would let the solver notice.',
-      zh: '在三个距离上做最小二乘，几乎没有任何冗余：未知量是两个坐标，于是三个距离只留下一个自由度给残差。所以单个有偏的距离，几乎会把答案挪动它自己那么多，而检视器打出来的东西没有一样会说破这件事：结果和数据是自洽的，只是数据本身错了。要让解算器察觉到这一点，最便宜的办法就是加第四个锚点。',
+      en: 'A least-squares fix over three ranges has one measurement to spare over its two unknowns — the floor coordinates, the height being held — and one degree of freedom is not enough for the fit to notice a lie. A single biased range therefore moves the answer almost as much as it is biased, and nothing the inspector prints says so: the fix is consistent with the data, and the data is wrong. A fourth anchor is the cheapest thing that would let the solver notice.',
+      zh: '在三个距离上做最小二乘，只比两个未知量——地面上的两个坐标，高度是按住不动的——多出一个测量，而一个自由度不够让拟合看出哪条在说谎。所以单个有偏的距离，几乎会把答案挪动它自己那么多，而检视器打出来的东西没有一样会说破这件事：结果和数据是自洽的，只是数据本身错了。要让解算器察觉到这一点，最便宜的办法就是加第四个锚点。',
     } },
     { heading: { en: 'The quality byte was there all along', zh: '品质字节一直都在' }, text: {
       en: 'Every range in the log carries a figure of merit, and the obstructed one carries a worse one than its neighbours. Nothing in this simulator\'s solver reads it. A deployment that did would weight the three ranges instead of trusting them equally, which is the single change that would most improve this flat — and it costs no airtime at all.',

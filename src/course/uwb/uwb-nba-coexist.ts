@@ -45,6 +45,10 @@ export const uwbNbaCoexist: Lesson = {
       en: 'listen before talk: measure the channel first, and stay silent if it is already in use',
       zh: '先听后发：开口之前先量一量信道，若已经有人在用就保持安静',
     } },
+    { term: 'threshold', plain: {
+      en: 'the level a reading is compared against: over it the channel counts as busy, under it as free',
+      zh: '门限：一次读数要与之比较的那个电平——高过它算信道忙，低于它算空闲',
+    } },
     { term: 'allow list', plain: {
       en: 'the small set of control channels one session is permitted to use',
       zh: '一个会话获准使用的那一小组控制信道',
@@ -60,8 +64,8 @@ export const uwbNbaCoexist: Lesson = {
       zh: '这部控制射频就调在 Wi-Fi 的隔壁：两百多个窄信道，每个的宽度都只是一条 Wi-Fi 信道的一小块。于是一条 Wi-Fi 信道就能一口气盖住其中几十个——而本会话用的那个控制信道，恰好压在头顶那台路由器身下。',
     } },
     { heading: { en: 'The rule the band comes with', zh: '这个频段附带的规矩' }, text: {
-      en: 'There a device may not simply transmit. Before every narrowband message it has to measure the channel — listen before talk, LBT — and if it finds more energy there than a fixed threshold it must stay silent. The test is a power reading, nothing more: it asks whether anybody is on the air, not whether this message would have survived.',
-      zh: '在那里，设备不能想发就发。每发一条窄带消息之前，它都得先量一量信道——先听后发，即 LBT——若量到的能量超过一个固定门限，就必须保持安静。这项测试说到底只是一次功率读数：它问的是“此刻是否有人在发”，而不是“这条消息发出去能不能活下来”。',
+      en: 'There a device may not simply transmit. Before every narrowband message it has to measure the channel — listen before talk, LBT — and if it finds more energy there than a fixed level — the threshold — it must stay silent. The test is a power reading, nothing more: it asks whether anybody is on the air, not whether this message would have survived.',
+      zh: '在那里，设备不能想发就发。每发一条窄带消息之前，它都得先量一量信道——先听后发，即 LBT——若量到的能量超过一个固定的电平——门限——就必须保持安静。这项测试说到底只是一次功率读数：它问的是“此刻是否有人在发”，而不是“这条消息发出去能不能活下来”。',
     } },
     { kind: 'watch', jump: 0, heading: { en: 'Watch a block end early', zh: '看一个块提前收场' }, text: {
       en: 'Load the simulation and press play, then jump to the first busy check. The line gives the level it measured, the threshold it was compared against, and what follows: the device skips the rest of the block.',

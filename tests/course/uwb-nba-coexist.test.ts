@@ -61,7 +61,7 @@ const V_NOLBT = 2
 
 // The contract every migrated lesson owes, plus the split rule: uwb-nba-coexist loads
 // uwb-nba's own scene, so its recorded timeline hashes are uwb-nba's, value for value.
-lessonShapeSuite(uwbNbaCoexist, { proseMax: 1200, sameSceneAs: 'uwb-nba' })
+lessonShapeSuite(uwbNbaCoexist, { proseMax: 1210, sameSceneAs: 'uwb-nba' })
 
 const recs = (variant?: number): TLRecord[] => runOf(uwbNbaCoexist, variant, RUN_NS)
 
@@ -166,7 +166,7 @@ describe('uwb-nba-coexist · the lesson', () => {
     expect(MODULES[uwbNbaCoexist.module].tier).toBe(6)
     expect(uwbNbaCoexist.needs).toEqual(['uwb-nba', 'uwb-coexist'])
     for (const id of uwbNbaCoexist.needs!) expect(COURSE_ORDER, id).toContain(id)
-    expect(uwbNbaCoexist.terms!.map((t) => t.term)).toEqual(['LBT', 'allow list', 'hop'])
+    expect(uwbNbaCoexist.terms!.map((t) => t.term)).toEqual(['LBT', 'threshold', 'allow list', 'hop'])
   })
 
   it('loads uwb-nba’s scene and its three variants, labels and all', () => {

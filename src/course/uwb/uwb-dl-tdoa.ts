@@ -37,7 +37,7 @@ export type UwbDlTdoaVariant = 'base' | 'raw' | 'ten'
  * reference: it sends the Poll in slot 0 and the Final in the last slot, and
  * every time difference a badge computes is taken against its Poll. The other
  * three answer in slots 1, 2 and 3, in this order — which is why their
- * clock-offset residuals grow down the list.
+ * clock-offset leftovers grow down the list.
  *
  * The corners and the heights are `uwb-position`'s, so the two-way fixes that
  * lesson measured in this room are the comparison this one is entitled to make.
@@ -182,7 +182,7 @@ export const uwbDlTdoa: Lesson = {
     { kind: 'table', heading: { en: 'What the correction is worth', zh: '这次修正值多少' }, head: [
       { en: 'Responder', zh: '应答锚点' }, { en: 'It waited', zh: '它等了' },
       { en: 'Uncorrected, badge 2', zh: '未修正，badge-2' }, { en: 'Corrected, worst of 21', zh: '修正后，21 次里最差' },
-      { en: '3σ of the leftover', zh: '残差的 3σ' },
+      { en: '3σ of the leftover', zh: '剩余误差的 3σ' },
     ], rows: [
       [N('anchor-2'), N('2 ms'), N('22.02 m'), N('0.19 m'), N('0.36 m')],
       [N('anchor-3'), N('4 ms'), N('44.04 m'), N('0.44 m'), N('0.72 m')],
@@ -190,7 +190,7 @@ export const uwbDlTdoa: Lesson = {
     ] },
     { text: {
       en: 'The uncorrected column is that badge’s gap to the reference crystal, 36.69 ppm, times the wait beside it. The leftover is 0.2 ppm of the reply time it corrects — 0.12 m per slot, so the last to answer is the worst. All 63 differences fall inside the last column.',
-      zh: '未修正那一列，正是这个胸牌与参考晶振之间 36.69 ppm 的差距，乘上旁边那段等待。剩下的是每个应答锚点自己那一点时钟偏差残差，为它所修正的那段应答时延的 0.2 ppm——每个时隙 0.12 m，所以最后作答的锚点最差。63 个时间差全部落在最后一列之内。',
+      zh: '未修正那一列，正是这个胸牌与参考晶振之间 36.69 ppm 的差距，乘上旁边那段等待。剩下的是每个应答锚点自己那一点时钟偏差剩余误差，为它所修正的那段应答时延的 0.2 ppm——每个时隙 0.12 m，所以最后作答的锚点最差。63 个时间差全部落在最后一列之内。',
     } },
     { kind: 'table', heading: { en: 'The three scenes, seven blocks each', zh: '三个场景，各七个块' }, head: [
       { en: 'Scene', zh: '场景' }, { en: 'Differences', zh: '时间差' }, { en: 'Worst difference', zh: '最差的时间差' },
@@ -278,8 +278,8 @@ export const uwbDlTdoa: Lesson = {
       zh: '本课只有一处以标准正文为依据：IEEE Std 802.15.4-2024 §10.29.1.2.5 给出了到达时间差测距的两种形态，本课讲的是第二种——一组彼此时钟同步的节点发送，移动节点从这些消息到达时刻之差反推自己在哪里。±20 ppm 的晶振容差出自 §16.4.9。' },
     { en: 'The rest is the model: the FiRa-style content of the three messages, each carrying its sender’s own transmit counter and the receive counters it holds for the others; the 2 ms ranging slot; the badge’s clock-rate correction and each responder’s clock-offset correction; and every number quoted above.',
       zh: '其余都是模型：三种消息取 FiRa 风格的内容，每一帧携带发送者自己的发送计数器以及它为别人保存的接收计数器；2 ms 的测距时隙；胸牌的时钟速率修正与各应答锚点的时钟偏差修正；以及上面引用的每一个数字。' },
-    { en: 'The noise figures are model choices too: 100 ps of 1-σ noise on every received timestamp, and 0.2 ppm of residual on a measured clock offset. The anchors’ own positions are treated as surveyed exactly, which no installation ever is.',
-      zh: '噪声取值同样是模型取值：每个接收时间戳上 100 ps 的 1σ 噪声，以及测得的时钟偏差上 0.2 ppm 的残差。锚点自身的坐标被当作勘测得分毫不差——现实中没有哪次安装能做到。' },
+    { en: 'The noise figures are model choices too: 100 ps of 1-σ noise on every received timestamp, and 0.2 ppm of leftover on a measured clock offset. The anchors’ own positions are treated as surveyed exactly, which no installation ever is.',
+      zh: '噪声取值同样是模型取值：每个接收时间戳上 100 ps 的 1σ 噪声，以及测得的时钟偏差上 0.2 ppm 的剩余误差。锚点自身的坐标被当作勘测得分毫不差——现实中没有哪次安装能做到。' },
   ],
   scenario: () => uwbDlTdoaScenario('base'),
   variants: [

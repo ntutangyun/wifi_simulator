@@ -215,6 +215,12 @@ describe('uwb-mms-numbers · what a millisecond buys', () => {
     // rsf-1 is a pair round, so the 14 ms it is measured against is the pairwise variant's
     expect(3 * roundPlan(uwbMmsScenario('pairwise').uwb!, ANCHORS.length).roundNs).toBe(42 * MS)
     expect(prose()).toContain('the ranging phase grows from 20 slots to 32 and a pair round from 14 ms to 20, so the three of them take 60 ms of the block instead of 42')
+    // M12: the scene's own train is NOT one of the seventeen — the ranging cycle's defaults
+    const own = uwbMmsScenario('base').uwb!.mms
+    expect([own.rsfs, own.rifs, own.nMsr, own.gap]).toEqual([8, 0, 40, 64])
+    expect(Object.values(MMS_SETS).some((m) =>
+      m.rsfs === own.rsfs && m.rifs === own.rifs && m.nMsr === own.nMsr && m.gap === own.gap)).toBe(false)
+    expect(prose()).toContain('The scene’s own train is not one of the seventeen at all — X = 8 at 40 repetitions and a 64-zero gap matches no named set')
   })
 
   it('"−93 dBm" is what the receiver needs, and no fragment ever gets there alone', () => {
@@ -291,7 +297,7 @@ describe('uwb-mms-numbers · what a train adds up to', () => {
     expect(new Set(outs.map((o) => `${o.node} ${o.expected} ${o.slot} ${o.peer}`)))
       .toEqual(new Set(ANCHORS.map((a) => `${TAG} nbReport 24 ${a}`)))
     const en = prose()
-    expect(en).toContain('a verdict that flips on 3.01 dB of arithmetic — costing the run all 21 of its ranges')
+    expect(en).toContain('a verdict that flips on 3.01 dB of arithmetic — costing the run all 21 ranges')
     expect(uwbMmsNumbers.tryThis[0].en).toContain('the sum now falls a decibel short')
   })
 
@@ -330,21 +336,39 @@ describe('uwb-mms-numbers · what a train adds up to', () => {
   })
 })
 
-describe('uwb-mms-numbers · the ruler a millisecond long', () => {
+describe('uwb-mms-numbers · the ruler fourteen milliseconds long', () => {
   /** True ratio at the tag: its own ppm minus the peer's. */
   const trueRatio = (peer: string): number =>
     TAG_POS.ppm - MMS_ANCHORS.find((a) => a.id === peer)!.ppm
-  const sigmaPpm = (): number => ratioSigma(DEFAULT_UWB_SESSION.tsNoisePs, 7) * 1e6
+  /**
+   * The span the train measures the ratio over, DERIVED: `(responders + 1) × slot × (X − 1)`,
+   * which is 14 ms here and not the 7 the lesson used to claim. It was a typed literal until
+   * the UWB track review (I1) found that the pin was arithmetic about the number 7 and could
+   * not see the scene at all.
+   */
+  const plan = roundPlan(uwbMmsScenario('base').uwb!, ANCHORS.length)
+  const spanMs = ((plan.mms!.phy.rsfs - 1) * plan.mms!.fragGapNs) / MS
+  const sigmaPpm = (): number => ratioSigma(DEFAULT_UWB_SESSION.tsNoisePs, spanMs) * 1e6
 
-  it('"σ_ratio = 0.0202 ppm" over the train’s 7 ms', () => {
-    expect(sigmaPpm().toFixed(4)).toBe('0.0202')
+  it('the gap is the round’s own, so the span is 14 ms and σ_ratio = 0.0101 ppm', () => {
+    // the gap is one slot per responder plus one — two milliseconds, not one
+    expect(plan.mms!.fragGapNs).toBe((ANCHORS.length + 1) * plan.slotNs)
+    expect(plan.mms!.fragGapNs).toBe(2 * MS)
+    expect(plan.mms!.phy.rsfs).toBe(8)
+    expect(spanMs).toBe(14)
+    // …and it is a true millisecond only in the pairwise round, where the lesson's old
+    // sentence would have been right
+    expect(roundPlan(uwbMmsScenario('pairwise').uwb!, ANCHORS.length).mms!.fragGapNs).toBe(1 * MS)
+    expect(sigmaPpm().toFixed(4)).toBe('0.0101')
     expect(DEFAULT_UWB_SESSION.tsNoisePs).toBe(100)
     expect(formulas()[1].text.en)
-      .toBe('ratio = span_measured / ((j − i) × 1 ms)      σ_ratio = √2 · σ_ts / ((j − i) ms)')
-    expect(prose()).toContain('100 ps stamps give σ_ratio = 0.0202 ppm')
+      .toBe('ratio = span_measured / ((j − i) × gap)      σ_ratio = √2 · σ_ts / ((j − i) × gap)')
+    expect(prose()).toContain('The gap here is 2 ms, so the 14 ms from a train’s first fragment to its eighth gives σ_ratio = 0.0101 ppm')
+    expect(prose()).toContain('four slots, two milliseconds, here')
     // "Going deeper": the same two stamps across one 82 µs fragment would be about 1.7 ppm
     const overOneFragment = ratioSigma(DEFAULT_UWB_SESSION.tsNoisePs, rsfNs(40, 64) / MS) * 1e6
     expect(overOneFragment.toFixed(1)).toBe('1.7')
+    expect(prose()).toContain('taken 14 ms apart, give 0.0101 ppm')
     expect(overOneFragment).toBeGreaterThan(Math.abs(trueRatio('anchor-3')) / 10)
     expect(prose()).toContain('would give about 1.7 ppm')
   })
@@ -364,7 +388,7 @@ describe('uwb-mms-numbers · the ruler a millisecond long', () => {
     expect(Math.sign(atAnchor.ratioPpm!)).toBe(-Math.sign(firstTrains('base')[0].ratioPpm!))
   })
 
-  it('the correction table: 3.00 m, 1.5 m, 1.5 cm, 1.5 mm, over a 2.10 cm floor', () => {
+  it('the correction table: 3.00 m, 1.5 m, 1.5 cm, 0.76 mm, over a 2.10 cm floor', () => {
     // the reply is one slot, 0.5 ms, and the raw range minus the corrected one is
     // ½ · T_reply · 40 ppm · c = 3.00 m
     const reply = ofType(recs('base'), 'TX_START')
@@ -385,8 +409,9 @@ describe('uwb-mms-numbers · the ruler a millisecond long', () => {
     expect((halfReplyS * DEFAULT_UWB_SESSION.cfoNoisePpm * 1e-6 * cMs * 100).toFixed(1)).toBe('1.5')
     expect(DEFAULT_UWB_SESSION.cfoNoisePpm).toBe(0.2)
     expect(cell(2, 3, 1)).toBe('1.5 cm')
-    expect((halfReplyS * sigmaPpm() * 1e-6 * cMs * 1000).toFixed(1)).toBe('1.5')
-    expect(cell(2, 4, 1)).toBe('1.5 mm')
+    expect((halfReplyS * sigmaPpm() * 1e-6 * cMs * 1000).toFixed(2)).toBe('0.76')
+    expect(cell(2, 4, 1)).toBe('0.76 mm')
+    expect(cell(2, 4, 0)).toBe('The train’s 0.0101 ppm')
     // the floor underneath: two receive stamps are 2.1 cm, and 21 ranges scatter by 2.10 cm — the
     // train combines to 19.8-20.0 dB, a shade under the 20 dB the timestamp noise is quoted at
     expect((rangeSigmaM(DEFAULT_UWB_SESSION.tsNoisePs) * 100).toFixed(1)).toBe('2.1')
@@ -398,13 +423,13 @@ describe('uwb-mms-numbers · the ruler a millisecond long', () => {
     expect((rms * 100).toFixed(2)).toBe('2.10')
     // the cell is a bare value and its label carries the count, so the one string the table
     // renders to both readers is language-neutral in fact and not only in type
-    expect(cell(2, 5, 0)).toBe('The noise floor under all of them, over 21 ranges')
+    expect(cell(2, 5, 0)).toBe('The floor two receive stamps put under any range, 21 of them')
     expect(cell(2, 5, 1)).toBe('2.10 cm')
     // the 1.5 mm is invisible under it: adding it in quadrature moves nothing a reader sees
     const floor = rangeSigmaM(DEFAULT_UWB_SESSION.tsNoisePs)
     expect(rms).toBeLessThan(1.2 * floor)
     expect((Math.hypot(floor, 0.0015) * 100).toFixed(1)).toBe((floor * 100).toFixed(1))
-    expect(prose()).toContain('two receive stamps alone are worth 2.1 cm, so the train’s millimetre of clock leftover is invisible')
+    expect(prose()).toContain('two receive stamps alone are worth 2.1 cm, so the train’s sub-millimetre clock leftover is invisible')
   })
 
   it('observe 2: the range line prints the corrected range and the raw one', () => {

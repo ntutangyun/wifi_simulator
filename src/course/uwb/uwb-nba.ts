@@ -128,8 +128,8 @@ export const uwbNba: Lesson = {
       zh: '日志里凡是属于那部小射频的东西，都用这两个字母打头',
     } },
     { term: 'NB Poll', plain: {
-      en: 'the message that opens a round: the asker names the device it wants to measure against',
-      zh: '开启一轮的那条消息：发问的一方点名说它要和谁量距离',
+      en: 'the message that opens a round: the phone names the device it wants to measure against',
+      zh: '开启一轮的那条消息：手机点名说它要和谁量距离',
     } },
     { term: 'NB Response', plain: {
       en: 'the answer that says the poll was heard, so both ends know the round is really on',
@@ -146,14 +146,14 @@ export const uwbNba: Lesson = {
       zh: '一帧测距帧生来是为了在时间上占住一个位置，而不是为了捎话。若还要它顺便把话也说了，每一句都要吃掉本该留给测量的空口时间。于是设备在那部宽带射频旁边又放了一部：只占一薄片频谱，速率低，却便宜、传得远——这就是窄带射频。宽带那部管计时，小的这部管说话；日志里凡是它的东西，都以这两个字母（NB）打头。',
     } },
     { kind: 'steps', heading: { en: 'What the small radio says in one round', zh: '一轮里小射频说的话' }, items: [
-      { en: 'Poll — the asker opens the round and names the device that should answer',
-        zh: 'Poll——发问的一方开启这一轮，并点名该由谁作答' },
+      { en: 'Poll — the phone opens the round and names the device that should answer',
+        zh: 'Poll——手机开启这一轮，并点名该由谁作答' },
       { en: 'Response — the named device says it heard, so both ends know the round is on',
         zh: 'Response——被点名的一方说自己听见了，两端于是都知道这一轮成立' },
       { en: 'then the fragments, on the wide radio: the only part of the round that is measured',
         zh: '接着是那串片段，走宽带射频：整轮里唯一被真正测量的部分' },
-      { en: 'Report — the answering device sends back its reply time, and the asker turns the pair of stamps into a distance',
-        zh: 'Report——作答的一方把自己的回复时延捎回来，发问的一方据此把两个时间戳变成一个距离' },
+      { en: 'Report — the answering device sends back its reply time, and the phone turns the pair of stamps into a distance',
+        zh: 'Report——作答的一方把自己的回复时延捎回来，手机据此把两个时间戳变成一个距离' },
     ] },
     { kind: 'watch', jump: 0, heading: { en: 'Hear the round open', zh: '听这一轮怎么开场' }, text: {
       en: 'Load the simulation and press play, then jump to the first narrowband message. It goes out before any ranging frame does: a round is arranged on the small radio first and only then measured on the wide one.',
@@ -164,8 +164,8 @@ export const uwbNba: Lesson = {
       zh: '也不是不行。只是一帧测距帧的价值，在于两端都能把它的某一道边沿说到码片的零头；而往里塞进去的每一个字节，只会让帧更长，却半点也不会让那道边沿更锐利。窄带射频论字节更慢，可它反而更便宜——因为它的字节不是从测量里扣出来的。',
     } },
     { heading: { en: 'One block, from the outside', zh: '从外面看一个块' }, text: {
-      en: 'Watch one ranging block and the shape is easy to see. The poll leaves at the very start, naming every anchor it wants; each of them answers a slot later; the fragments cross the room in between; and about twenty milliseconds in the first closing message arrives and the asker finally has a distance. One round like that is all a block holds, and the rest of it is empty air.',
-      zh: '盯住一个测距块看，形状就很清楚了。Poll 在最开头出发，并在里面点名它要问的每一个锚点；一个时隙之后，它们各自作答；片段在这期间穿过房间；大约第二十毫秒上，第一条收尾消息到达，发问的一方这才终于拿到一个距离。一个块里就装这么一轮，余下的大半时间是空的。',
+      en: 'Watch one ranging block and the shape is easy to see. The poll leaves at the very start, naming every anchor it wants; each of them answers a slot later; the fragments cross the room in between; and about twenty milliseconds in the first closing message arrives and the phone finally has a distance. One round like that is all a block holds, and the rest of it is empty air.',
+      zh: '盯住一个测距块看，形状就很清楚了。Poll 在最开头出发，并在里面点名它要问的每一个锚点；一个时隙之后，它们各自作答；片段在这期间穿过房间；大约第二十毫秒上，第一条收尾消息到达，手机这才终于拿到一个距离。一个块里就装这么一轮，余下的大半时间是空的。',
     } },
     { heading: { en: 'And then the room goes quiet', zh: '然后房间就安静了' }, text: {
       en: 'In this scene that happens twice in seven blocks. The small radio is sharing its slice of spectrum with the Wi-Fi router overhead, and the rule that comes with that band takes the other five away from it. Nothing is wrong with either measurement; the talking simply stops. That is the next lesson, “The narrowband radio shares 6 GHz too”.',
@@ -200,25 +200,25 @@ export const uwbNba: Lesson = {
     } },
     { text: {
       en: 'The wide radio is never the problem here. Both answering anchors hear 8 fragments of 8, and the two trains clear what the receiver needs by 34.5 dB and 33.4 dB.',
-      zh: '在这里，宽带那一侧从来不是问题所在。两个作答的锚点都是 8 个片段收到 8 个，两串片段分别高出接收端所需的门限 34.5 dB 与 33.4 dB。',
+      zh: '在这里，宽带那一侧从来不是问题所在。两个作答的锚点都是 8 个片段收到 8 个，两串片段分别比接收端所需的电平高出 34.5 dB 与 33.4 dB。',
     } },
     { heading: { en: 'Talking is not a rounding error', zh: '“说话”不是零头' }, text: {
       en: 'And the talking is not a rounding error. A poll and a response together hold the air for 1.504 ms, while any single fragment of the train they set up is shorter than either of them on its own.',
       zh: '而“说话”这件事，绝不是个可以忽略的零头。一条 Poll 加一条 Response 合起来占住空口 1.504 ms，而它们所安排的那串片段里，任何一个片段单拿出来都比它们中的任何一条更短。',
     } },
     { kind: 'steps', heading: { en: 'How the two radios divide one round', zh: '两部射频怎么分一轮的活' }, items: [
-      { en: 'The small radio speaks first. In the round’s opening window the asker sends a Poll that names the device, or devices, it wants to measure against. No ranging frame has gone out yet.',
-        zh: '先开口的是小射频。在一轮开头的那个窗口里，发问的一方发出一帧 Poll，点名说它要和谁、或和哪几个量距离。此时还没有任何一帧测距帧出去过。' },
+      { en: 'The small radio speaks first. In the round’s opening window the phone sends a Poll that names the device, or devices, it wants to measure against. No ranging frame has gone out yet.',
+        zh: '先开口的是小射频。在一轮开头的那个窗口里，手机发出一帧 Poll，点名说它要和谁、或和哪几个量距离。此时还没有任何一帧测距帧出去过。' },
       { en: 'Each named device answers in a Response window of its own. That answer is what tells both ends the round is really on, and it is also what primes the receiver to start accumulating.',
         zh: '被点到名的设备，各自在属于自己的 Response 窗口里作答。这声回答一面让两端都确认这一轮当真开始，一面也让接收端就绪，可以开始累加。' },
       { en: 'Only then the wide radio. Its phase carries fragments and nothing else — no address, no data, no words, just the edge a timestamp is taken from, and one transmit stamp a train.',
         zh: '到这时才轮到宽带射频。它那个阶段只承载片段，别的什么也不载——没有地址、没有数据、没有话语，只有一道用来取时间戳的边沿；而且整串只取一个发送时间戳。' },
       { en: 'The two radios run on one grid. A narrowband window is two slots of exactly the length a fragment gets, so the talking and the timing are laid out with the same ruler — and a message that will not fit its two slots makes the round illegal.',
         zh: '两部射频跑在同一张格子上。一个窄带窗口，正是两个“片段那么长”的时隙，所以“说话”和“计时”是用同一把尺子量出来的——而一条塞不进自己那两个时隙的消息，会让这一轮还没开始就不成立。' },
-      { en: 'The closing windows go back to the small radio: the answering device reports the reply time it turned the round around in, and the asker answers with the round trip it measured.',
-        zh: '收尾的窗口又交回小射频：作答的一方报出自己掉头所用的回复时延，发问的一方则报出它量到的往返时间。' },
-      { en: 'The asker takes the reply time off the round trip, halves what is left and calls that a distance. Until that closing message lands it has half an answer.',
-        zh: '发问的一方把回复时延从往返时间里减掉，把余下的折半，这就是距离。而在那条收尾消息落地之前，它手里只有半个答案，一个距离也算不出。' },
+      { en: 'The closing windows go back to the small radio: the answering device reports the reply time it turned the round around in, and the phone answers with the round trip it measured.',
+        zh: '收尾的窗口又交回小射频：作答的一方报出自己掉头所用的回复时延，手机则报出它量到的往返时间。' },
+      { en: 'The phone takes the reply time off the round trip, halves what is left and calls that a distance. Until that closing message lands it has half an answer.',
+        zh: '手机把回复时延从往返时间里减掉，把余下的折半，这就是距离。而在那条收尾消息落地之前，它手里只有半个答案，一个距离也算不出。' },
     ] },
     { kind: 'table', heading: { en: 'The same round, in microseconds', zh: '同一轮，换成微秒' }, head: [
       { en: 'Step', zh: '步骤' }, { en: 'This round', zh: '这一轮' },
@@ -246,8 +246,8 @@ export const uwbNba: Lesson = {
       zh: '射频本身出自标准：IEEE Std 802.15.4-2024 第 12 章那部 250 kb/s 的 O-QPSK PHY，一个符号 32 个码片、每个码片 0.5 µs，每个符号载四个比特。一条 12 字节消息的 576 µs，正是从这几个数里直接算出来的。' },
     { en: 'Everything that turns it into a control radio for ranging — the poll/response/report cycle and the compressed message formats — is P802.15.4ab, at D5.0 in Sponsor-ballot recirculation in September 2026. That draft is members-only, so this is paraphrased from two TG4ab contributions: 15-22/0381r5 (the cycle and the message tables) and 15-23/0100r2 (the PHY configuration). The balloted draft may differ.',
       zh: '而把它变成一部测距控制射频的那些东西——轮询/响应/报告的周期，以及压缩后的消息格式——都来自 P802.15.4ab：截至 2026 年 9 月仍处于 Sponsor 投票再循环阶段，版本 D5.0。该草案仅对会员开放，所以这里是改写自 TG4ab 的两篇提案文稿：15-22/0381r5（周期与消息字段表）与 15-23/0100r2（PHY 配置）。已投票的草案可能与之不同。' },
-    { en: 'Model choices: the ten preamble-and-marker symbols and two header symbols in front of every message, the receiver’s −100 dBm sensitivity (the standard’s own floor for this PHY is −85 dBm) and the 10 dBm a control transmission goes out at. The 28-slot round and the 200 ms block are the session’s settings, not the standard’s.',
-      zh: '以下是模型取值：每条消息前面那十个前导与标记符号、两个头部符号；接收端 −100 dBm 的灵敏度（标准对这部 PHY 给出的底线是 −85 dBm）；以及一次控制发射所用的 10 dBm。28 个时隙一轮、200 ms 一个块，则是本会话的参数设置，并非标准规定。' },
+    { en: 'Model choices: the ten preamble-and-marker symbols and two header symbols in front of every message, the receiver’s −100 dBm sensitivity (the standard’s own floor for this PHY is −85 dBm) and the 10 dBm a control transmission goes out at. The 52-slot round and the 200 ms block are the session’s settings, not the standard’s.',
+      zh: '以下是模型取值：每条消息前面那十个前导与标记符号、两个头部符号；接收端 −100 dBm 的灵敏度（标准对这部 PHY 给出的底线是 −85 dBm）；以及一次控制发射所用的 10 dBm。52 个时隙一轮、200 ms 一个块，则是本会话的参数设置，并非标准规定。' },
   ],
   scenario: () => uwbNbaScenario('base'),
   variants: [
@@ -265,10 +265,10 @@ export const uwbNba: Lesson = {
   observe: [
     { en: 'The round opens on the other radio: “uwb-1 → * NBPOLL 23 B @0.25 Mbps (928.0 µs)”. It is the first thing in the whole run — no ranging frame has been sent yet.',
       zh: '这一轮是在另一部射频上开场的：“uwb-1 → * NBPOLL 23 B @0.25 Mbps (928.0 µs)”。它是整段运行里的第一件事——那时还没有任何一帧测距帧发出去。' },
-    { en: 'The first answering anchor closes its half of the round: “anchor-1 → uwb-1 NBREPORT 13 B @0.25 Mbps (608.0 µs)” at 20.000 ms. Only after that message does the asker have anything to compute a distance from.',
-      zh: '第一个作答的锚点为自己这半轮收尾：20.000 ms 处的 “anchor-1 → uwb-1 NBREPORT 13 B @0.25 Mbps (608.0 µs)”。直到这条消息落地，发问的一方手里才有了算距离的材料。' },
-    { en: 'The distance follows it: “uwb-1 range → anchor-1 (SS): 4.74 m (true 4.76 m, raw 7.51 m)”. Open the asker’s inspector beside it — its fragment rows say every fragment was heard and detected.',
-      zh: '距离紧跟在它后面：“uwb-1 range → anchor-1 (SS): 4.74 m (true 4.76 m, raw 7.51 m)”。顺手打开发问那一端的检视面板：那几行片段写着，每一个片段都收到了，也都检出了。' },
+    { en: 'The first answering anchor closes its half of the round: “anchor-1 → uwb-1 NBREPORT 13 B @0.25 Mbps (608.0 µs)” at 20.000 ms. Only after that message does the phone have anything to compute a distance from.',
+      zh: '第一个作答的锚点为自己这半轮收尾：20.000 ms 处的 “anchor-1 → uwb-1 NBREPORT 13 B @0.25 Mbps (608.0 µs)”。直到这条消息落地，手机手里才有了算距离的材料。' },
+    { en: 'The distance follows it: “uwb-1 range → anchor-1 (SS): 4.74 m (true 4.76 m, raw 7.51 m)”. Open the phone’s inspector beside it — its fragment rows say every fragment was heard and detected.',
+      zh: '距离紧跟在它后面：“uwb-1 range → anchor-1 (SS): 4.74 m (true 4.76 m, raw 7.51 m)”。顺手打开手机的检视面板：那几行片段写着，每一个片段都收到了，也都检出了。' },
   ],
   tryThis: [
     { en: 'Load “One anchor at a time” and step through one block. The same cycle runs four times over, once per anchor: a poll, a response, a train of fragments, a report and a distance, each in a round of its own.',
@@ -285,7 +285,7 @@ export const uwbNba: Lesson = {
         { en: 'Neither — each end keeps its own stamps and never sends them', zh: '两部都不是——两端各自留着自己的时间戳，从不发出来' },
       ],
       answer: 1,
-      explain: { en: 'The fragments are measured, not read: they carry an edge, not a number. The reply time travels in the report, and until it arrives the asker has half of an answer.', zh: '片段是被“量”的，不是被“读”的：它们捎的是一道边沿，不是一个数。回复时延走的是 Report，在它到达之前，发问的一方手里只有半个答案。' },
+      explain: { en: 'The fragments are measured, not read: they carry an edge, not a number. The reply time travels in the report, and until it arrives the phone has half of an answer.', zh: '片段是被“量”的，不是被“读”的：它们捎的是一道边沿，不是一个数。回复时延走的是 Report，在它到达之前，手机手里只有半个答案。' },
     },
     {
       q: { en: 'A twelve-byte message takes 576 µs on this radio. Why so long for so few bytes?', zh: '一条十二字节的消息，在这部射频上要 576 µs。这么几个字节，为什么要这么久？' },

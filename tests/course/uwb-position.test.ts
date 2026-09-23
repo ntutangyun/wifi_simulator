@@ -298,6 +298,14 @@ describe('uwb-position · the base run', () => {
     //  centimetres" — the clean half is this lesson's; the lying half is uwb-geometry's.
     expect(exactFix(TAG.x, TAG.y).residualM).toBeLessThan(1e-6)
     expect((exactFix(TAG.x, TAG.y).residualM * 100).toFixed(1)).toBe('0.0')
+    // Review I5: the picture promised a tool the scene cannot give, three sections before
+    // the disclaimer. `Fix.residualM` exists; UWB_POSITION has no such field, so the caveat
+    // now travels with the claim — uwb-geometry's own half-sentence.
+    const pic = uwbPosition.picture!.map((b) => (b as { text?: { en: string } }).text?.en ?? '').join(' ')
+    expect(pic).toContain('but no record carries the figure, so on screen nothing moves')
+    expect(uwbPosition.outcomes![2].en)
+      .toBe('say what the fit cannot explain — the residual — and why the log never prints it')
+    expect(Object.keys(fixes()[0])).not.toContain('residualM')
   })
 })
 

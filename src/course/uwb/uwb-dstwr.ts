@@ -47,8 +47,8 @@ export const uwbDstwr: Lesson = {
   module: 11,
   title: { en: 'Two round trips cancel the clock', zh: '两次往返，把时钟消掉' },
   why: {
-    en: 'Measuring the other radio’s clock works, but it leaves a residue that grows with every millisecond the anchor waited. There is a way to be rid of the waiting: send one more message, so each end has both asked and answered. Then every clock appears the same number of times on both sides of the arithmetic, and the error cancels instead of being estimated.',
-    zh: '把对方的时钟测出来确实管用，但它留下的残差会随锚点多等的每一毫秒一起变大。还有一条路能把等待甩掉：多发一条消息，让两端都既问过也答过。这样一来，每只钟在算式两边出现的次数一样多，误差是被抵消掉的，而不是被估计掉的。',
+    en: 'Measuring the other radio’s clock works, but it leaves a leftover that grows with every millisecond the anchor waited. There is a way to be rid of the waiting: send one more message, so each end has both asked and answered. Then every clock appears the same number of times on both sides of the arithmetic, and the error cancels instead of being estimated.',
+    zh: '把对方的时钟测出来确实管用，但它留下的剩余误差会随锚点多等的每一毫秒一起变大。还有一条路能把等待甩掉：多发一条消息，让两端都既问过也答过。这样一来，每只钟在算式两边出现的次数一样多，误差是被抵消掉的，而不是被估计掉的。',
   },
   outcomes: [
     { en: 'name the three messages of a double-sided exchange and who times what', zh: '说出双边交互的三条消息，以及谁在量哪一段' },
@@ -193,7 +193,7 @@ export const uwbDstwr: Lesson = {
       zh: '锚点 1 打出 26 381 597 885、26 509 391 059 与 27 020 567 485，于是 Treply1 = 127 793 174，Tround2 = 511 176 426 RCTU。手机对它的那一对是 Tround1 = 127 797 230 与 Treply2 = 511 185 160。把两对分别相减：+4056 与 −8734 RCTU，即 +63 ns 与 −137 ns——而两者本都应当是 11.675 ns 飞行时间的两倍。四者相加约为 1 277 952 000 RCTU：整场交互，被计了两遍。',
     } },
     { heading: { en: 'The same number, computed twice', zh: '同一个数，算了两遍' }, text: {
-      en: 'Two devices hold all four times, so both can do the arithmetic. An anchor finishes when the Final arrives, at 10 236 615 ns; the phone waits for that anchor’s report — 12 191 486 ns for anchor 1, almost two milliseconds later. Both lanes carry the same distance, identical to the last digit: the same four counters through the same function. That is what the reports are for — the anchor already knows the range, and the phone is the one that needs a position. At the round’s end the four ranges become a fix at (5.01, 3.98) m against a true (5.00, 4.00): 2 cm out, GDOP 1.00 for this symmetric ring.',
+      en: 'Two devices hold all four times, so both can do the arithmetic. An anchor finishes when the Final arrives, at 10 236 615 ns; the phone waits for that anchor’s report — 12 191 486 ns for anchor 1, almost two milliseconds later. Both lanes carry the same distance, identical to the last digit: the same four counters through the same function. That is what the reports are for — the anchor already knows the range, and the phone is the one that needs a position. At the round’s end the four ranges become a fix at (5.01, 3.98) m against a true (5.00, 4.00): 2 cm out, GDOP 1.00 (the price the anchors’ own layout puts on that error) for this symmetric ring.',
       zh: '有两台设备各自握齐了四个时间，因此都能把算式算一遍。锚点在 Final 到达时就算完了，时刻是 10 236 615 ns；手机要等该锚点的报告——锚点 1 是 12 191 486 ns，晚了将近两毫秒。两条泳道上的距离完全相同，连最后一位都一样：同样四个计数值，经过同一个函数。报告帧的用途正在于此——锚点早就知道这个距离，而需要定位的是手机。本轮结束时，四个距离解算出 (5.01, 3.98) m 的定位，真值 (5.00, 4.00)：偏差 2 cm，这个对称圆环的 GDOP 为 1.00。',
     } },
     { heading: { en: 'The frame that grows fastest', zh: '长得最快的那一帧' }, text: {
@@ -207,7 +207,7 @@ export const uwbDstwr: Lesson = {
   ],
   sources: [
     { en: 'IEEE Std 802.15.4-2024 §10.29.1.2.4 and Figure 10-199 give the three-message double-sided computation, its four times, and the statement that the two reply times need not be equal; §10.32.5 places that exchange in a one-to-many round, where one Final settles every anchor. The ±20 ppm crystal tolerance is §16.4.9.',
-      zh: 'IEEE Std 802.15.4-2024 的 §10.29.1.2.4 与图 10-199 给出三消息双边测距的计算式、它用到的四个时间，以及"两个应答时延不必相等"这句话；§10.32.5 把这次交互放进一对多的测距轮里：一帧 Final 结清所有锚点。±20 ppm 的晶振容差来自 §16.4.9。' },
+      zh: 'IEEE Std 802.15.4-2024 的 §10.29.1.2.4 与图 10-199 给出三消息双边测距的计算式、它用到的四个时间，以及“两个应答时延不必相等”这句话；§10.32.5 把这次交互放进一对多的测距轮里：一帧 Final 结清所有锚点。±20 ppm 的晶振容差来自 §16.4.9。' },
     { en: 'The 2 ms ranging slot is FiRa’s, not the standard’s. Three more numbers are the simulator’s own model choices: 100 ps of 1-σ noise on every received timestamp, the ranging information widths the frame table counts (the Final’s RMI is 3 + 6N octets, one reply-time field 6, a report’s RMI 13), and the 40-bit ranging counter, where the standard asks for at least 32.',
       zh: '2 ms 的测距时隙来自 FiRa，不是标准正文。另有三个数字是仿真器自己的模型取值：每个接收时间戳上 100 ps 的 1σ 噪声、帧长表所依据的测距信息宽度（Final 的 RMI 为 3 + 6N 字节，单个应答时延字段为 6 字节，报告的 RMI 为 13 字节），以及 40 位的测距计数器——标准只要求至少 32 位。' },
   ],
@@ -232,7 +232,7 @@ export const uwbDstwr: Lesson = {
   ],
   tryThis: [
     { en: 'Load "Worst-case crystals, ±20 ppm", which doubles both offsets and nothing else. The halves blow up — the first anchor reads 15.51 m and −44.47 m, not 9.51 and −20.49 — while the four results move by under 3 mm.',
-      zh: '载入"最差晶振，±20 ppm"：两端偏差翻倍，别的什么都不改。两个半场随即失控——第一个锚点读到 15.51 m 与 −44.47 m，原先是 9.51 与 −20.49——而四个结果的变化不到 3 mm。' },
+      zh: '载入“最差晶振，±20 ppm”：两端偏差翻倍，别的什么都不改。两个半场随即失控——第一个锚点读到 15.51 m 与 −44.47 m，原先是 9.51 与 −20.49——而四个结果的变化不到 3 mm。' },
     { en: 'Open the Final in the frame inspector: an RMI listing four anchors, then one short field per anchor holding the phone’s second interval. Then open a report: one RMI with the anchor’s two.',
       zh: '在帧检视器里打开 Final：一个 RMI 列出四个锚点，其后每个锚点各有一个短字段，装着手机量的第二段时间。再打开一份报告：一个 RMI，装着锚点自己量的那两段。' },
   ],
@@ -251,7 +251,7 @@ export const uwbDstwr: Lesson = {
       q: { en: 'Anchor 1’s halves read 9.51 m and −20.49 m, yet the answer is 3.51 m. What does that say?', zh: '锚点 1 的两个半场读作 9.51 m 与 −20.49 m，答案却是 3.51 m。这说明了什么？' },
       options: [
         { en: 'One round trip was corrupted and the formula discards it', zh: '有一次往返被破坏，公式把它丢掉了' },
-        { en: 'Neither half is a distance: each buries the flight under half a wait times a clock error, signed oppositely', zh: '两个半场都不是距离：每个都把飞行时间埋在"半段等待乘以时钟误差"之下，而且符号相反' },
+        { en: 'Neither half is a distance: each buries the flight under half a wait times a clock error, signed oppositely', zh: '两个半场都不是距离：每个都把飞行时间埋在“半段等待乘以时钟误差”之下，而且符号相反' },
         { en: 'The answer is the average of the two halves', zh: '答案就是两个半场的平均' },
       ],
       answer: 1,

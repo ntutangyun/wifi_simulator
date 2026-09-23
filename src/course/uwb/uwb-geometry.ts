@@ -172,7 +172,7 @@ export const uwbGeometry: Lesson = {
     { label: { en: 'Three anchors', zh: '三个锚点' }, scenario: () => uwbPositionScenario('three') },
   ],
   jumps: [
-    J('the tag’s Poll opens the round', '标签的 Poll 开启这一轮', firstUwbPoll),
+    J('the phone’s Poll opens the round', '手机的 Poll 开启这一轮', firstUwbPoll),
     J('the first finished range', '第一个算完的距离', firstUwbRange),
     J('the fix this block’s ranges make', '这个块的距离解出的定位', firstUwbPosition),
     J('the round ends', '这一轮结束', firstUwbRoundEnd),

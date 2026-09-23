@@ -294,6 +294,8 @@ describe('uwb-nba · the grid underneath and the train on top', () => {
     expect(plan.roundNs).toBe(26 * MS)
     expect(plan.roundNs / plan.slots).toBe(0.5 * MS)
     expect(plan.blockNs).toBe(200 * MS)
+    // M5: `sources` quotes this same 52, not the pairwise round's 28
+    expect(uwbNba.sources!.map((s) => s.en).join(' ')).toContain(`The ${plan.slots}-slot round`)
     // one round a block: block 6's ends at 1.226 s, inside the window
     expect(6 * plan.blockNs + plan.roundNs).toBeLessThan(RUN_NS)
     expect(7 * plan.blockNs).toBeGreaterThan(RUN_NS)
@@ -384,6 +386,10 @@ describe('uwb-nba · what the depth says', () => {
     expect(src).toContain('15-23/0100r2')
     expect(src).toContain('The balloted draft may differ')
     expect(src).toContain('Model choices')
+    // Review M5: `sources` said 28 slots, which is the PAIRWISE round. The base scene is
+    // one-to-many with three responders: control 8 + ranging 32 + report 12 = 52.
+    expect(src).toContain('The 52-slot round and the 200 ms block are the session’s settings')
+    expect(src).not.toContain('28-slot round')
     // the standard's own sensitivity floor for this PHY, named as the model's departure
     expect(src).toContain('−85 dBm')
     const zh = uwbNba.sources!.map((s) => s.zh).join('\n')

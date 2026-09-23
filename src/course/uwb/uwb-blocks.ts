@@ -75,6 +75,10 @@ export const uwbBlocks: Lesson = {
       en: 'one line of the timetable — one frame leaves in it, and nothing else',
       zh: '时间表上的一行——里面只走一帧，别无他物',
     } },
+    { term: 'margin', plain: {
+      en: 'the spare room a slot keeps beyond the frame it must hold, so what the model leaves out still fits',
+      zh: '余量：时隙在必须装下的那一帧之外多留的余地，好让模型略去的那些东西也放得下',
+    } },
     { term: 'RSTU', plain: {
       en: 'the unit the timetable is written in: a ranging slot time unit, a good deal shorter than a microsecond',
       zh: '写这张时间表所用的单位：测距时隙时间单元，比一微秒短不少',
@@ -102,8 +106,8 @@ export const uwbBlocks: Lesson = {
       zh: '一台设备付的是空口时间的账，不是时间表分给它那段时间的账。它只在“预期有帧到来”的时隙起点打开接收机，并在那一帧落地的瞬间关掉。于是，服务着十轮中三轮的锚点，射频开启时长也不过占整块的百分之一上下。',
     } },
     { heading: { en: 'Why a slot is so much longer than a frame', zh: '为什么时隙比帧长这么多' }, text: {
-      en: 'A slot must hold the longest frame of its round and that frame’s flight, with a little to spare. Past that the length is a choice, and here a generous one: most of a slot is silence. The margin pays for what this model leaves out — a receiver’s search before it can name an arrival, the turnaround from listening to transmitting, clocks drifting apart.',
-      zh: '一个时隙必须装得下本轮最长的那一帧和它的飞行时间，再留一点余量。除此之外，时隙多长是一个选择，而这里选得很宽裕：时隙里大半是静默。这份余量买的是本模型略去的东西——接收机判定一帧到达前的搜索、从收到发的转换时间，还有两端时钟的相互漂移。',
+      en: 'A slot must hold the longest frame of its round and that frame’s flight, with a little to spare — that spare room is the margin. Past that the length is a choice, and here a generous one: most of a slot is silence. The margin pays for what this model leaves out — a receiver’s search before it can name an arrival, the turnaround from listening to transmitting, clocks drifting apart.',
+      zh: '一个时隙必须装得下本轮最长的那一帧和它的飞行时间，再留一点余地；这点余地就是余量。除此之外，时隙多长是一个选择，而这里选得很宽裕：时隙里大半是静默。这份余量买的是本模型略去的东西——接收机判定一帧到达前的搜索、从收到发的转换时间，还有两端时钟的相互漂移。',
     } },
     { kind: 'watch', jump: 1, heading: { en: 'One fix, once a block', zh: '一个块，一次定位' }, text: {
       en: 'Jump to the first phone’s fix. It lands at the end of its own round, and the next one is a whole block away — this grid sets not only who speaks but how often a phone learns where it is.',
@@ -119,7 +123,7 @@ export const uwbBlocks: Lesson = {
       [{ en: 'Ranging slot', zh: '测距时隙' }, N('2 400'), N('2 000.0 µs')],
     ] },
     { text: {
-      en: 'The seven rounds nobody owns are 140 ms of every block. A fourth phone would cost nothing but the next empty round; the block breaks only at the eleventh.',
+      en: 'The seven rounds nobody owns are 140 ms of every block. A fourth phone costs the next empty round; the block breaks at the eleventh.',
       zh: '没有主人的那七轮，合每个块里的 140 ms。再加一部手机，代价不过是下一个空轮；要到第十一部，这个块才装不下。',
     } },
     { kind: 'table', heading: { en: 'What the log says the grid is', zh: '日志是怎么写这张网格的' }, head: [
@@ -140,7 +144,7 @@ export const uwbBlocks: Lesson = {
       [N('uwb-3'), N('(7.50, 6.01) m at 60 ms')],
     ] },
     { text: {
-      en: 'Five fixes a second each, whatever the other two phones do, and each one 2 cm out or better.',
+      en: 'Five fixes a second each, whatever the other two do, and each 2 cm out or better.',
       zh: '每部手机每秒五次定位，另外两部在做什么都不影响，而且每一次的误差都在 2 cm 以内。',
     } },
     { kind: 'table', heading: { en: 'What the radio actually costs', zh: '射频真正的开销' }, head: [
@@ -151,14 +155,14 @@ export const uwbBlocks: Lesson = {
       [N('anchor-1'), N('3 of 10'), N('4 of 10 × 3'), N('2 448 546 ns'), N('1.22 %')],
     ] },
     { text: {
-      en: 'The schedule hands a phone one round in ten and an anchor three; the state lane shows what the radio was on for. The two shares differ tenfold and more.',
+      en: 'The schedule hands a phone one round in ten and an anchor three; the state lane shows what the radio was on for. The two shares differ tenfold.',
       zh: '时间表分给手机的是十轮中的一轮，分给锚点的是三轮；而状态泳道显示的，是射频真正开着的那点时间。两种占比相差十倍以上。',
     } },
     { kind: 'formula', heading: { en: 'How short a slot may be', zh: '时隙最短能有多短' }, text: {
       en: 'slot ≥ PPDU(Final, N anchors) + 200 ns = 236 603 + 200 = 236 803 ns at N = 4',
       zh: 'slot ≥ PPDU(Final, N anchors) + 200 ns = 236 603 + 200 = 236 803 ns at N = 4',
     }, note: {
-      en: 'The editor applies it before a run: a slot must hold the round’s longest frame plus a 200 ns flight guard, which is 60 m of air. So 2 ms is a profile number, not a computed minimum; that frame uses 11.8 % of its own slot.',
+      en: 'The editor applies it before a run: a slot must hold the round’s longest frame plus a 200 ns flight guard, 60 m of air. So 2 ms is a profile number, not a computed minimum; that frame uses 11.8 % of its slot.',
       zh: '编辑器在运行之前就会套用它：时隙必须装得下本轮最长的那一帧，再加 200 ns 的飞行余量，相当于 60 m 空气。所以 2 ms 不是算出来的下限，而是规范档案里的取值；它让那一帧只占掉自己时隙的 11.8 %。',
     } },
     { kind: 'table', heading: { en: 'Two slot lengths, one scene', zh: '同一场景，两种时隙长度' }, head: [
@@ -169,21 +173,21 @@ export const uwbBlocks: Lesson = {
       [N('600 RSTU · 0.5 ms'), N('5.0 ms'), N('40'), N('15 ms'), N('1 934 334 ns')],
     ] },
     { text: {
-      en: 'The same ten frames, four times closer together — and the radio-on total does not move, to the nanosecond: no frame changed length. Shortening a slot buys latency and room for more phones, not battery.',
+      en: 'The same ten frames, four times closer together — and the radio-on total does not move, to the nanosecond: no frame changed length. A shorter slot buys latency and room for more phones, not battery.',
       zh: '还是那十帧，只是挨得紧了四倍——而射频开启的总时长一纳秒都没动，因为没有任何一帧的长度发生变化。缩短时隙买到的是时延和容纳更多手机的空间，不是电池。',
     } },
     { kind: 'steps', heading: { en: 'How the timetable is written', zh: '这张时间表是怎么写出来的' }, items: [
-      { en: 'Those three lengths are fixed before a frame flies and never renegotiated; the slot count comes from the method, two per anchor plus two.',
-        zh: '上面那三个长度在任何一帧起飞之前就定下了，之后再不重议；一轮有多少时隙由测距方法决定——每个锚点两个，再加两个。' },
-      { en: 'Round k goes to phone k, in every block, so the three phones here take rounds 0, 1 and 2.',
+      { en: 'Two of the three are set before a frame flies and never renegotiated: the block and the slot. The round falls out of them — the method gives the slot count, two per anchor plus two, and the round is that many slots.',
+        zh: '三个长度里只有两个是起飞之前就定下、之后再不重议的：块与时隙。轮是从它们里落出来的——测距方法给出时隙数，每个锚点两个再加两个，轮长就是这么多个时隙。' },
+      { en: 'Round k goes to phone k in every block, so the three phones take rounds 0, 1 and 2.',
         zh: '第 k 轮归第 k 部手机，每个块都如此；这里的三部手机分到的就是第 0、1、2 轮。' },
       { en: 'A slot’s start is one multiplication, never a negotiation: block number × block, plus round number × round, plus slot number × slot.',
         zh: '一个时隙什么时候开始，是一次乘法，而不是一场商量：块号乘块长，加上轮号乘轮长，再加上时隙号乘时隙长。' },
-      { en: 'At each slot start the schedule names the one device that may transmit: slot 0 the phone’s Poll, the next four the anchors’ Responses in order, the sixth the Final, the last four the Reports.',
+      { en: 'At each slot start the schedule names the one device that may transmit: slot 0 the phone’s Poll, the next four the anchors’ Responses in order, the sixth the Final, the last four Reports.',
         zh: '每个时隙一开始，时间表就点出唯一有权发送的那台设备：时隙 0 是手机的 Poll，接着四个是各锚点按名单顺序作答的 Response，第六个是 Final，最后四个是各自的 Report。' },
-      { en: 'Everyone else compares that name with its own id and listens only for what is its own; an anchor’s receiver is off through the other anchors’ slots.',
+      { en: 'Everyone else compares that name with its own id and listens only for its own; an anchor’s receiver is off through the other anchors’ slots.',
         zh: '其余各台把这个名字与自己的 id 一比，只为属于自己的那几帧开机；在其他锚点的时隙里，一个锚点的接收机是关着的。' },
-      { en: 'A device that armed its receiver and heard nothing gets no retry: the wait expires at the slot boundary, the log records the slot and the frame it expected, and the round walks on; the Final then leaves that anchor out.',
+      { en: 'A device that armed its receiver and heard nothing gets no retry: the wait expires at the slot boundary, the log records the slot and the frame expected, and the round walks on; the Final leaves that anchor out.',
         zh: '打开了接收机却什么也没听到的设备，没有重传可言：等待在时隙边界到期，日志记下是哪个时隙、等的是哪种帧，这一轮照常往下走；随后的 Final 就把那个锚点漏掉了。' },
     ] },
     { kind: 'table', heading: { en: 'Phone 2’s round, located', zh: '第 2 部手机的那一轮，定在时间轴上' }, head: [
@@ -217,8 +221,8 @@ export const uwbBlocks: Lesson = {
       zh: '开场帧携带的那两张清单是信息元素：§10.32.9.1 的 ARC IE 把本轮定位在会话之中，§10.32.9.8 的 RDM IE 则逐一安排每个应答方的座位。' },
     { en: 'The 2 ms ranging slot and the 200 ms ranging block are FiRa profile numbers, not the standard’s.',
       zh: '2 ms 的测距时隙与 200 ms 的测距块是 FiRa 规范档案里的取值，不是标准正文。' },
-    { en: 'Three numbers are the simulator’s own model choices: the 200 ns of flight guard the slot-fit rule adds to the longest frame, the floor of 300 RSTU the scenario schema puts under any slot, and the nine anchors one Final can list.',
-      zh: '有三个数字是仿真器自己的模型取值：时隙容量规则在最长帧之外追加的 200 ns 飞行余量、场景 schema 给任何时隙设下的 300 RSTU 下限，以及一帧 Final 最多能列出的九个锚点。' },
+    { en: 'Two numbers are the simulator’s own model choices: the 200 ns of flight guard the slot-fit rule adds to the longest frame, and the floor of 300 RSTU the scenario schema puts under any slot. The nine anchors one Final can list is neither — a 14 + 12N Final at ten anchors is 134 octets, past the 127-octet limit on a payload.',
+      zh: '有两个数字是仿真器自己的模型取值：时隙容量规则在最长帧之外追加的 200 ns 飞行余量，以及场景 schema 给任何时隙设下的 300 RSTU 下限。一帧 Final 最多列九个锚点则不是选出来的：14 + 12N 的 Final 在十个锚点时是 134 字节，超过了负载 127 字节的上限。' },
   ],
   scenario: () => uwbBlocksScenario(2400),
   variants: [

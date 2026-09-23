@@ -33,7 +33,7 @@ import { CCA_ED_DBM, noiseDbm, reqSinrDb } from '../../src/engine/phy'
 import { uwbToWifiPathLossDb, wifiToUwbPathLossDb } from '../../src/engine/spectrum'
 import {
   UWB_BAND_MHZ, UWB_MAX_INPUT_DBM_PER_MHZ, UWB_PL_EXP, UWB_SIR_MIN_DB, UWB_TX_POWER_DBM,
-  uwbBandOverlap, uwbBandOverlapMhz, uwbInBandDbm, uwbPl0Db,
+  tsSigmaNs, uwbBandOverlap, uwbBandOverlapMhz, uwbInBandDbm, uwbPl0Db, uwbSinrDb,
 } from '../../src/uwb/phy'
 import { applyRecord, initViewState } from '../../src/model/view'
 import { STRINGS } from '../../src/ui/i18n'
@@ -75,7 +75,7 @@ const recs = (variant?: number): TLRecord[] => runOf(uwbCoexist, variant, RUN_NS
 // The contract every migrated lesson owes, written once in tests/course/kit.ts.
 // The prose window is the content contract's: `why` + `outcomes` + `terms` +
 // `picture` + `numbers`, which `npx tsx scripts/lesson-dump.ts uwb-coexist en` prints.
-lessonShapeSuite(uwbCoexist, { proseMax: 1250, runNs: RUN_NS })
+lessonShapeSuite(uwbCoexist, { proseMax: 1270, runNs: RUN_NS })
 
 const interfered = (variant?: number) => ofType(recs(variant), 'UWB_INTERFERED')
 const fixes = (variant?: number) => ofType(recs(variant), 'UWB_POSITION')
@@ -155,7 +155,7 @@ describe('uwb-coexist · the lesson’s own place in the track', () => {
     expect(uwbCoexist.id).toBe('uwb-coexist')
     expect(uwbCoexist.needs).toEqual(['uwb-blocks', 'uwb-geometry'])
     // the three words this lesson introduces: what shares, what it costs, and what Wi-Fi does about it
-    expect(uwbCoexist.terms!.map((t) => t.term)).toEqual(['overlap', 'SIR', 'energy detect'])
+    expect(uwbCoexist.terms!.map((t) => t.term)).toEqual(['overlap', 'SIR', 'threshold', 'noise floor', 'energy detect'])
   })
 
   it('it offers five jumps, two things to observe, two experiments and two questions', () => {
@@ -767,6 +767,13 @@ describe('uwb-coexist · the procedure, against the mediator', () => {
     expect(stepsText()).toContain('−12 dB')
     expect(UWB_SIR_MIN_DB).toBe(-12)
     for (const r of interfered()) expect(r.sirDb).toBeLessThan(UWB_SIR_MIN_DB)
+    // Review M8: the step had only the hard branch. The same foreign level also enters the
+    // timestamp draw (src/uwb/device.ts -> uwbSinrDb -> tsSigmaNs), so a frame that survives
+    // is stamped at a wider sigma than the same frame in a quiet room.
+    expect(stepsText()).toContain('That level also widens the timestamp noise, so a surviving frame is stamped less precisely')
+    const quiet = tsSigmaNs(100, uwbSinrDb(-85, -Infinity))
+    const loud = tsSigmaNs(100, uwbSinrDb(-85, -80))
+    expect(loud).toBeGreaterThan(quiet)
   })
 
   it('step 5: each loss is an RX_FAIL, a UWB_INTERFERED and then a timeout, in that order', () => {

@@ -72,7 +72,7 @@ export const uwbPosition: Lesson = {
   outcomes: [
     { en: 'say why four rings do not meet at a point, and what the solver does instead', zh: '说清为什么四个圆环交不到一点，以及解算器改做了什么' },
     { en: 'read a fix off the log and check it against the truth beside it', zh: '从日志里读出一次定位，并对照旁边的真值检查它' },
-    { en: 'use what the fit cannot explain — the residual — to tell a good round from a spoiled one', zh: '用拟合解释不掉的那一部分（残差），把一轮好的测距和一轮出了问题的区分开' },
+    { en: 'say what the fit cannot explain — the residual — and why the log never prints it', zh: '说出拟合解释不掉的那一部分（残差）是什么，以及日志为什么从不把它印出来' },
   ],
   needs: ['uwb-blocks', 'uwb-dstwr'],
   terms: [
@@ -99,8 +99,8 @@ export const uwbPosition: Lesson = {
       zh: '载入仿真，跳到定位那一行。在手机这一轮的末尾，解算器落脚的地方出现一个十字，产生它的那四个圆环则在周围慢慢淡去。',
     } },
     { heading: { en: 'The fourth ring is the check', zh: '第四个圆环是那道检查' }, text: {
-      en: 'Three ranges would already give an answer. The fourth is what tells you the answer is any good. With more measurements than unknowns no point can satisfy them all, and what is left over — the residual — is the solver’s own opinion of the fit. A clean round leaves a residual under a micrometre. A range that lies leaves centimetres — and the solver knows that without being told which range lied.',
-      zh: '三个距离就已经能给出答案了，第四个的用处是告诉你这个答案好不好。测量比未知数多的时候，没有哪一点能把它们全部满足，剩下的那一点点——也就是残差——正是解算器对这次拟合的自我评价。干净的一轮，残差不到一微米；而只要有一条距离在说谎，残差就是几厘米——不必有人告诉解算器是哪一条在说谎，它已经知道了。',
+      en: 'Three ranges would already give an answer. The fourth is what tells you the answer is any good. With more measurements than unknowns no point can satisfy them all, and what is left over — the residual — is the solver’s own opinion of the fit. A clean round leaves a residual under a micrometre. A range that lies leaves centimetres, and the solver knows that without being told which range lied — but no record carries the figure, so on screen nothing moves.',
+      zh: '三个距离就已经能给出答案了，第四个的用处是告诉你这个答案好不好。测量比未知数多的时候，没有哪一点能把它们全部满足，剩下的那一点点——也就是残差——正是解算器对这次拟合的自我评价。干净的一轮，残差不到一微米；而只要有一条距离在说谎，残差就是几厘米——不必有人告诉解算器是哪一条在说谎，它已经知道了。可是没有任何记录带着这个数，所以屏幕上什么也不会动。',
     } },
     { heading: { en: 'Two unknowns, not three', zh: '两个未知数，不是三个' }, text: {
       en: 'Only the floor coordinates are solved for; the phone’s height is handed to the solver as something already known. That is not a simplification the standard asked for — it is what makes four ranges comfortable rather than barely enough, and it is why every anchor being near the ceiling costs so little here.',

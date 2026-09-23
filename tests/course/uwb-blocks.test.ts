@@ -46,7 +46,7 @@ const recs = (variant?: number): TLRecord[] => runOf(uwbBlocks, variant, RUN_NS)
 // + numbers, which the spec's own section budgets (900 + 550, as the 2026-09-23
 // amendment raised them to pay for a procedure) already bound. The ratchet below
 // sits just above what the lesson actually spends, so growth is deliberate.
-lessonShapeSuite(uwbBlocks, { proseMax: 1130, runNs: RUN_NS })
+lessonShapeSuite(uwbBlocks, { proseMax: 1150, runNs: RUN_NS })
 
 /**
  * Nanoseconds a node's radio spends out of `idle` inside [fromNs, untilNs) — the
@@ -94,7 +94,7 @@ describe('uwb-blocks · the lesson’s own place in the track', () => {
     expect(uwbBlocks.id).toBe('uwb-blocks')
     expect(uwbBlocks.needs).toEqual(['uwb-frame'])
     // the four words the grid is made of; RSTU is the unit every duration in the tables is counted in
-    expect(uwbBlocks.terms!.map((t) => t.term)).toEqual(['block', 'round', 'slot', 'RSTU'])
+    expect(uwbBlocks.terms!.map((t) => t.term)).toEqual(['block', 'round', 'slot', 'margin', 'RSTU'])
   })
 
   it('it offers five jumps, two things to observe, two experiments and two questions', () => {
@@ -140,8 +140,14 @@ describe('uwb-blocks · the lesson’s own place in the track', () => {
     expect(src).toContain('floor of 300 RSTU')
     expect(schemaIssues(297)).toContain('Number must be greater than or equal to 300')
     expect(schemaIssues(300)).toEqual([])
-    expect(src).toContain('nine anchors one Final can list')
+    expect(src).toContain('The nine anchors one Final can list is neither')
     expect(UWB_MAX_ANCHORS).toBe(9)
+    // Review M9: the cap is arithmetic, not a choice — 14 + 12N at ten anchors overruns the
+    // 127-octet payload, which is where src/uwb/phy.ts derives UWB_MAX_ANCHORS from.
+    expect(src).toContain('a 14 + 12N Final at ten anchors is 134 octets, past the 127-octet limit on a payload')
+    expect(14 + 12 * 10).toBe(134)
+    expect(14 + 12 * UWB_MAX_ANCHORS).toBeLessThanOrEqual(127)
+    expect(14 + 12 * (UWB_MAX_ANCHORS + 1)).toBeGreaterThan(127)
     // the two lists the picture describes without naming are the ARC and RDM information elements
     expect(src).toContain('ARC IE')
     expect(src).toContain('RDM IE')
@@ -202,6 +208,13 @@ describe('uwb-blocks · the grid', () => {
     expect(rstuNs(2400)).toBe(PLAN.slotNs)
     expect(PLAN.roundNs).toBe(20 * MS)
     expect(rstuNs(PLAN.slots * SESSION.slotRstu)).toBe(PLAN.roundNs)
+    // Review M6: step 1 used to call all three lengths configured. Only the block and the
+    // slot are: `roundNs = slots x slotNs` (src/uwb/session.ts), which is why the 0.5 ms
+    // variant's round falls to 5 ms with nothing else touched.
+    const steps0 = (uwbBlocks.numbers!.find((b) => b.kind === 'steps') as Extract<Block, { kind: 'steps' }>).items[0].en
+    expect(steps0).toContain('Two of the three are set before a frame flies and never renegotiated: the block and the slot')
+    expect(steps0).toContain('The round falls out of them')
+    expect(steps0).not.toContain('Those three lengths are fixed')
     const rows: [string, string, string][] = [
       ['Ranging block', '240 000', '200.0 ms'],
       ['Ranging round', '24 000', '20.0 ms'],
@@ -363,7 +376,7 @@ describe('uwb-blocks · what the radio costs', () => {
     expect(ancRatio.toFixed(1)).toBe('24.5')
     for (const r of [tagRatio, ancRatio]) expect(r).toBeGreaterThanOrEqual(10)
     expect(ancRatio).toBeGreaterThan(tagRatio)
-    expect(prose()).toContain('The two shares differ tenfold and more')
+    expect(prose()).toContain('The two shares differ tenfold')
   })
 
   it('the radio-on share of the block is 0.97 % for the phone and 1.22 % for the anchor', () => {
@@ -448,7 +461,7 @@ describe('uwb-blocks · the slot-fit rule', () => {
     expect(uwbSlotFitNs(ANCHORS)).toBe(236_803)
     // "a 200 ns flight guard, which is 60 m of air"
     expect((UWB_SLOT_GUARD_NS * 0.299792458).toFixed(0)).toBe('60')
-    expect(prose()).toContain('a 200 ns flight guard, which is 60 m of air')
+    expect(prose()).toContain('a 200 ns flight guard, 60 m of air')
     // "Going deeper": "A four-anchor Final is 62 octets and 236 603 ns on the air"
     expect(prose()).toContain('Final is 62 octets and 236 603 ns on the air')
   })

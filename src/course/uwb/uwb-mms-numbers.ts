@@ -5,7 +5,7 @@
  * door. One millisecond's energy allowance and what a fragment spends of it;
  * what X fragments add up to; the three decibels between four fragments and
  * eight, which in this room are the difference between a fix every block and
- * nothing at all; the millisecond-long ruler a train is, which measures the two
+ * nothing at all; the fourteen-millisecond ruler a train is, which measures the two
  * crystals against each other well enough that single-sided ranging needs no
  * second round trip; and the honest share of the 19.57 dB a train beats a 4z
  * Poll by in this room — 9.03 of it, the rest being a transmitter that never
@@ -60,16 +60,16 @@ export const uwbMmsNumbers: Lesson = {
       zh: '载入仿真，跳到对第一串片段的判定。那一行把整笔加法念了出来：收到几个片段、每个多响、合成增益加了多少、余下多少作为余量，以及——只有余量为正时才有的——那个时钟比值。',
     } },
     { heading: { en: 'Adding up in decibels', zh: '用分贝相加' }, text: {
-      en: 'Fragments of equal power add the way equal things do: twice as many is twice as much, which in decibels is three more. Four fragments are six decibels above one, eight are nine, sixteen are twelve. The margin is simply what is left after the receiver’s own threshold is taken off the sum, and a positive margin is a detection.',
+      en: 'Fragments of equal power add the way equal things do: twice as many is twice as much, which in decibels is three more. Four fragments are six decibels above one, eight are nine, sixteen are twelve. The margin is simply what is left after the receiver’s own sensitivity is taken off the sum, and a positive margin is a detection.',
       zh: '等功率的片段，按等量相加的规矩累加：数量翻倍，累加量也翻倍，换成分贝就是多三个。四个片段比一个高六分贝，八个高九分贝，十六个高十二分贝。而余量，不过是把接收机自己的门限从这个和里减掉以后剩下的东西；余量为正，就算检出。',
     } },
     { heading: { en: 'Three decibels between working and dead', zh: '能用与报废之间的三个分贝' }, text: {
-      en: 'Halve the train and nothing else in the room changes. Every fragment is as loud as before and every one is still heard; only the sum is smaller, by those three decibels, and it lands under the threshold instead of over it. Three anchors that ranged every block now range not at all, and every round ends in a timeout.',
+      en: 'Halve the train and nothing else in the room changes. Every fragment is as loud as before and every one is still heard; only the sum is smaller, by those three decibels, and it lands under the receiver’s sensitivity instead of over it. Three anchors that ranged every block now range not at all, and every round ends in a timeout.',
       zh: '把一串砍成一半，房间里别的什么都没变。每个片段和先前一样响，而且一个不落地都收到了；变小的只有那个和，正好小三个分贝，于是它落到了门限之下。三个原本每块都测距的锚点，如今一次也测不出，每一轮都以超时收场。',
     } },
-    { heading: { en: 'A ruler a millisecond long', zh: '一把一毫秒长的尺子' }, text: {
-      en: 'The train is also a measuring stick. Its fragments leave exactly a millisecond apart on the sender’s clock, so timing that span on your own counter compares the two crystals directly — a clock ratio, measured over the whole train rather than one frame. That is what lets a single-sided exchange here skip the second round trip.',
-      zh: '这一串片段同时也是一把尺子。它的各个片段在发送方的时钟上正好每隔一毫秒发出，于是用你自己的计数器量这段跨度，就是在直接比较两块晶振——这就是时钟比值，而且是在整串上量的，不是在一帧上。也正因为如此，这里的单边交互可以不做第二次往返。',
+    { heading: { en: 'A ruler fourteen milliseconds long', zh: '一把十四毫秒长的尺子' }, text: {
+      en: 'The train is also a measuring stick. Its fragments leave one round-gap apart on the sender’s clock — four slots, two milliseconds, here — so timing that span on your own counter compares the two crystals directly: a clock ratio, measured over the whole train, not one frame. That is what lets a single-sided exchange here skip the second round trip.',
+      zh: '这一串片段同时也是一把尺子。它的各个片段在发送方的时钟上每隔一个轮次间隔发出——在这一轮里是四个时隙、两毫秒——于是用自己的计数器量这段跨度，就是在直接比较两块晶振：这就是时钟比值，量在整串上，不是量在一帧上。也正因为如此，这里的单边交互可以不做第二次往返。',
     } },
     { heading: { en: 'Being honest about the gain', zh: '对增益要诚实' }, text: {
       en: 'Set a train against an ordinary ranging frame here and the train wins by a lot — but not all of that is the new idea. Part of it is that a fragment is shorter, so the same energy is louder. A bigger part is that the ordinary transmitter never spends its allowance. Only the combining gain is what many milliseconds bought.',
@@ -105,15 +105,15 @@ export const uwbMmsNumbers: Lesson = {
         { en: 'detected', zh: '检出' }],
     ] },
     { text: {
-      en: 'Read the first two rows against each other: the same fragments at the same level, all heard, and a verdict that flips on 3.01 dB of arithmetic — costing the run all 21 of its ranges.',
-      zh: '把前两行对着读：同样的片段、同样的电平、一个不落地都收到了，而判定在 3.01 dB 的算术上翻了面——代价是整段运行的 21 次测距全部落空。',
+      en: 'Read the first two rows against each other: the same fragments at the same level, all heard, and a verdict that flips on 3.01 dB of arithmetic — costing the run all 21 ranges.',
+      zh: '把前两行对着读：同样的片段、同样的电平、都收到了，而判定在 3.01 dB 的算术上翻了面——代价是整段运行的 21 次测距全部落空。',
     } },
     { kind: 'formula', heading: { en: 'The ruler, in figures', zh: '把那把尺子换成数字' }, text: {
-      en: 'ratio = span_measured / ((j − i) × 1 ms)      σ_ratio = √2 · σ_ts / ((j − i) ms)',
-      zh: 'ratio = 实测跨度 / ((j − i) × 1 ms)      σ_ratio = √2 · σ_ts / ((j − i) ms)',
+      en: 'ratio = span_measured / ((j − i) × gap)      σ_ratio = √2 · σ_ts / ((j − i) × gap)',
+      zh: 'ratio = 实测跨度 / ((j − i) × gap)      σ_ratio = √2 · σ_ts / ((j − i) × gap)',
     }, note: {
-      en: 'Over the 7 ms from a train’s first fragment to its eighth, 100 ps stamps give σ_ratio = 0.0202 ppm — and the crystals here are set rather than drawn, so there is a truth to check it against.',
-      zh: '从一串的第一个片段到第八个是 7 ms，100 ps 的时间戳给出 σ_ratio = 0.0202 ppm——而这里的晶振是设定的、不是抽样的，所以有真值可以对照着查。',
+      en: 'The gap here is 2 ms, so the 14 ms from a train’s first fragment to its eighth gives σ_ratio = 0.0101 ppm on 100 ps stamps — and the crystals are set rather than drawn, so there is a truth to check it against.',
+      zh: '这一轮的间隔是 2 ms，所以从一串的第一个片段到第八个是 14 ms；100 ps 的时间戳在这段跨度上给出 σ_ratio = 0.0101 ppm——而这里的晶振是设定的、不是抽样的，所以有真值可以对照着查。',
     } },
     { kind: 'table', heading: { en: 'The ratio, on a 0.5 ms reply', zh: '这个比值，作用在 0.5 ms 的回复上' }, head: [
       { en: 'Correction', zh: '修正方式' }, { en: 'What it leaves', zh: '留下多少' },
@@ -123,12 +123,12 @@ export const uwbMmsNumbers: Lesson = {
       [{ en: 'Uncorrected, 40 ppm apart', zh: '不修正，相差 40 ppm' }, N('3.00 m')],
       [{ en: 'A crystal at its limit', zh: '晶振偏到极限' }, N('1.5 m')],
       [{ en: 'A 4z carrier estimate', zh: '4z 的载波估计' }, N('1.5 cm')],
-      [{ en: 'The train’s 0.0202 ppm', zh: '这一串的 0.0202 ppm' }, N('1.5 mm')],
-      [{ en: 'The noise floor under all of them, over 21 ranges', zh: '它们脚下的噪声地板，取 21 次测距' }, N('2.10 cm')],
+      [{ en: 'The train’s 0.0101 ppm', zh: '这一串的 0.0101 ppm' }, N('0.76 mm')],
+      [{ en: 'The floor two receive stamps put under any range, 21 of them', zh: '两个接收时间戳给任何测距垫出的底，取 21 次' }, N('2.10 cm')],
     ] },
     { text: {
-      en: 'The last row is the point: two receive stamps alone are worth 2.1 cm, so the train’s millimetre of clock leftover is invisible.',
-      zh: '最后一行才是重点：光是两个接收时间戳就值 2.1 cm，所以这一串留下的那一毫米时钟残差根本看不见。',
+      en: 'The last row is the point: two receive stamps alone are worth 2.1 cm, so the train’s sub-millimetre clock leftover is invisible.',
+      zh: '最后一行才是重点：光是两个接收时间戳就值 2.1 cm，所以这一串留下的那点时钟零头根本看不见。',
     } },
     { kind: 'table', heading: { en: 'Where the 19.57 dB comes from', zh: '那 19.57 dB 从哪来' }, head: [
       { en: 'Part', zh: '组成' }, { en: 'Size', zh: '大小' },
@@ -169,8 +169,8 @@ export const uwbMmsNumbers: Lesson = {
   ],
   deeper: [
     { heading: { en: 'What a bigger parameter set costs', zh: '更大的参数集要付什么' }, text: {
-      en: 'Set rsf-1 is one of the seventeen mandatory sets: X = 16 with the same 40 repetitions but a gap of 33 zeros instead of 64, so the fragment shortens from 82.051 µs to 62.179 and the same millisecond’s energy is 1.20 dB louder inside it. Twelve decibels of combining plus that 1.20 takes the margin from +1.8 dB to +6.0. It is not free: the ranging phase grows from 20 slots to 32 and a pair round from 14 ms to 20, so the three of them take 60 ms of the block instead of 42.',
-      zh: '参数集 rsf-1 是十七个强制参数集之一：X = 16，重复次数仍是 40，但间隔是 33 个零而不是 64，于是片段从 82.051 µs 缩到 62.179 µs，同样一毫秒的能量装进去就响了 1.20 dB。十二个分贝的合成再加这 1.20，把余量从 +1.8 dB 抬到 +6.0。代价也有：测距阶段从 20 个时隙涨到 32 个，一轮成对测距从 14 ms 涨到 20 ms，于是三轮要占掉块里的 60 ms，而不是 42 ms。',
+      en: 'Set rsf-1 is one of the seventeen mandatory sets: X = 16 with the same 40 repetitions but a gap of 33 zeros instead of 64, so the fragment shortens from 82.051 µs to 62.179 and the same millisecond’s energy is 1.20 dB louder inside it. Twelve decibels of combining plus that 1.20 takes the margin from +1.8 dB to +6.0. It is not free: the ranging phase grows from 20 slots to 32 and a pair round from 14 ms to 20, so the three of them take 60 ms of the block instead of 42. The scene’s own train is not one of the seventeen at all — X = 8 at 40 repetitions and a 64-zero gap matches no named set, which is what the ranging cycle’s own defaults come to.',
+      zh: '参数集 rsf-1 是十七个强制参数集之一：X = 16，重复次数仍是 40，但间隔是 33 个零而不是 64，于是片段从 82.051 µs 缩到 62.179 µs，同样一毫秒的能量装进去就响了 1.20 dB。十二个分贝的合成再加这 1.20，把余量从 +1.8 dB 抬到 +6.0。代价也有：测距阶段从 20 个时隙涨到 32 个，一轮成对测距从 14 ms 涨到 20 ms，于是三轮要占掉块里的 60 ms，而不是 42 ms。而本场景自己那一串，根本不在这十七个之列：X = 8、重复 40 次、间隔 64 个零，对不上任何一个有名字的参数集——它是测距周期自带的那组默认值。',
     } },
     { heading: { en: 'The same line, two trains', zh: '同一行字，两串片段' }, text: {
       en: 'The verdict line is the whole sum, so the two runs differ in one term of it. At eight fragments: “anchor-1 RSF train ← tag-1: 8/8 heard, -100.3 dBm + 9.0 dB = margin 1.8 dB → detected, ratio -39.997 ppm · responders: anchor-1, anchor-2, anchor-3”. At four: “anchor-1 RSF train ← tag-1: 4/4 heard, -100.3 dBm + 6.0 dB = margin -1.2 dB → lost”. Same level, same completeness, three decibels apart — and the second line has no ratio at all, because a train that was never detected was never measured either.',
@@ -181,8 +181,8 @@ export const uwbMmsNumbers: Lesson = {
       zh: '在同一个房间里跑普通的单边双向测距，1.3 秒内一次测距也没有：42 次超时，一半是锚点在等一帧它们从没听见的 poll，另一半是标签把响应时隙等空。那帧 poll 到达时是 −110.80 dBm，比接收机低了将近十八个分贝，而那个模式里没有任何东西会累加。一台射频要么检出一帧，要么检不出；没有可供叠加的“半分”。',
     } },
     { heading: { en: 'Why the ratio is measured over the train, not over a frame', zh: '为什么比值量在整串上，而不是量在一帧上' }, text: {
-      en: 'σ_ratio falls as the span grows: two stamps 100 ps noisy, taken 7 ms apart, give 0.0202 ppm, where the same two stamps taken across a single 82 µs fragment would give about 1.7 ppm — worse than the crystal they are trying to measure. The train is long precisely where a frame is short, which is why a mode built for reach also happens to be the one that measures clocks best.',
-      zh: 'σ_ratio 随跨度变大而变小：两个带 100 ps 噪声的时间戳，相隔 7 ms 取得，给出 0.0202 ppm；而同样两个时间戳若取在一个 82 µs 的片段两端，大约是 1.7 ppm——比它想测的那块晶振还差。一串片段恰好长在帧短的地方，所以一个为“够得着”而生的模式，顺带也成了最会测时钟的那个。',
+      en: 'σ_ratio falls as the span grows: two stamps 100 ps noisy, taken 14 ms apart, give 0.0101 ppm, where the same two stamps taken across a single 82 µs fragment would give about 1.7 ppm — worse than the crystal they are trying to measure. The train is long precisely where a frame is short, which is why a mode built for reach also happens to be the one that measures clocks best.',
+      zh: 'σ_ratio 随跨度变大而变小：两个带 100 ps 噪声的时间戳，相隔 14 ms 取得，给出 0.0101 ppm；而同样两个时间戳若取在一个 82 µs 的片段两端，大约是 1.7 ppm——比它想测的那块晶振还差。一串片段恰好长在帧短的地方，所以一个为“够得着”而生的模式，顺带也成了最会测时钟的那个。',
     } },
   ],
   sources: [
@@ -243,11 +243,11 @@ export const uwbMmsNumbers: Lesson = {
       q: { en: 'Single-sided ranging usually needs a second round trip or a very good crystal. Why neither here?', zh: '单边测距通常要么再做一次往返，要么靠一块很好的晶振。这里为什么两样都不要？' },
       options: [
         { en: 'The narrowband radio estimates the offset better', zh: '窄带射频把偏差估得更准' },
-        { en: 'The fragments are a millisecond apart on the sender’s clock, so the train compares the two crystals over 7 ms', zh: '片段在发送方时钟上相隔一毫秒，于是整串用 7 ms 的跨度比较了两块晶振' },
+        { en: 'The fragments are one round-gap — two milliseconds here — apart on the sender’s clock, so the train compares the two crystals over 14 ms', zh: '片段在发送方时钟上相隔一个轮次间隔，本轮是两毫秒，于是整串用 14 ms 的跨度比较了两块晶振' },
         { en: 'The report carries the responder’s crystal offset', zh: '报告里带着响应方的晶振偏差' },
       ],
       answer: 1,
-      explain: { en: 'That span gives 1.5 mm on a half-millisecond reply — far under the 2.1 cm two receive stamps already cost.', zh: '这段跨度在半毫秒的回复上只留下 1.5 mm——远小于两个接收时间戳本身就要花掉的 2.1 cm。' },
+      explain: { en: 'That span gives 0.76 mm on a half-millisecond reply — far under the 2.1 cm two receive stamps already cost.', zh: '这段跨度在半毫秒的回复上只留下 0.76 mm——远小于两个接收时间戳本身就要花掉的 2.1 cm。' },
     },
   ],
 }

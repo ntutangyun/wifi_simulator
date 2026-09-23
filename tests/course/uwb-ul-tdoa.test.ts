@@ -173,7 +173,7 @@ describe('uwb-ul-tdoa · the lesson’s own place in the track', () => {
     expect(src).toContain('a mobile node transmits, fixed nodes whose clocks are synchronised with one another receive it')
     expect(src).toContain('The rest is the model')
     expect(src).toContain('the fourteen octets of the blink and the fact that it carries no times')
-    expect(src).toContain('its wired-sync calibration and the fixed residual error each anchor is left with')
+    expect(src).toContain('its wired-sync calibration and the fixed leftover error each anchor is left with')
     expect(src).toContain('§16.4.9')
   })
 

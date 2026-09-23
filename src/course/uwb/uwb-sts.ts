@@ -61,7 +61,7 @@ export const uwbSts: Lesson = {
   title: { en: 'A timestamp nobody can fake', zh: '一个谁也伪造不了的时间戳' },
   why: {
     en: 'A car that unlocks when your phone comes near has to believe what its radio says about distance. An attacker does not have to break any code to make it believe a lie: standing between the two radios and passing the signal on a shade sooner is enough, and the car opens while the phone is still indoors. This lesson puts exactly that attacker in the room, turns the defence off, and then turns it back on.',
-    zh: '一辆"手机走近就开锁"的车，必须相信自己的射频对距离的说法。攻击者并不需要破解任何密码，就能让它相信一个谎：只要站在收发两端之间，把信号稍微提早一点转发出去，车就会在手机还在屋里的时候打开。这一课要做的，正是把这样一个攻击者放进房间里，先把防线关掉，再把它打开。',
+    zh: '一辆“手机走近就开锁”的车，必须相信自己的射频对距离的说法。攻击者并不需要破解任何密码，就能让它相信一个谎：只要站在收发两端之间，把信号稍微提早一点转发出去，车就会在手机还在屋里的时候打开。这一课要做的，正是把这样一个攻击者放进房间里，先把防线关掉，再把它打开。',
   },
   outcomes: [
     { en: 'say why a distance measured in time can be shortened without breaking any code', zh: '说清为什么一个用时间量出来的距离，不必破解密码也能被缩短' },
@@ -178,7 +178,7 @@ export const uwbSts: Lesson = {
   ],
   sources: [
     { en: 'The scrambled timestamp sequence, its generation from an AES-128 key and counter, and the SP0…SP3 packet configurations that place it are §10.32 and Clause 16 of IEEE Std 802.15.4-2024; the RMARKER as the first chip after the SFD is §10.29.1.1. The 32 768 active chips quoted under "Going deeper" are this simulator\'s SP1 segment (64 × 512 chips), which follows the same clauses.',
-      zh: '加扰时间戳序列、它由 AES-128 密钥与计数器生成的方式，以及安放它的 SP0…SP3 分组配置，见 IEEE Std 802.15.4-2024 的 §10.32 与第 16 章；RMARKER 被定义为 SFD 之后的第一个码片，见 §10.29.1.1。"再深一层"里引用的 32 768 个有效码片，是本仿真器 SP1 段的取值（64 × 512 码片），同样依据上述条款。' },
+      zh: '加扰时间戳序列、它由 AES-128 密钥与计数器生成的方式，以及安放它的 SP0…SP3 分组配置，见 IEEE Std 802.15.4-2024 的 §10.32 与第 16 章；RMARKER 被定义为 SFD 之后的第一个码片，见 §10.29.1.1。“再深一层”里引用的 32 768 个有效码片，是本仿真器 SP1 段的取值（64 × 512 码片），同样依据上述条款。' },
     { en: 'The attacker is a model choice and is named as one: a fixed 50 ns advance applied to every reception of the session (scenario.uwb.attacker), with the sequence disabled by a second switch (scenario.uwb.stsOff). Neither is a standard parameter; the standard describes the defence, not the attack.',
       zh: '攻击者是模型取值，这里如实标明：对会话的每一次接收施加固定 50 ns 的提前量（scenario.uwb.attacker），并用第二个开关关闭那段序列（scenario.uwb.stsOff）。这两项都不是标准参数；标准描述的是防线，不是攻击。' },
     { en: 'What a rejection does to the round — the receiver drops the reading and the slot deadline reports the miss — is also a model choice. The standard requires the receiver to check the sequence and to report a figure of merit; it does not spell out a timeline record for the failure.',

@@ -629,6 +629,10 @@ describe('uwb-dstwr · the same number on two lanes', () => {
       'tag-1 position (5.01, 3.98) m, true (5.00, 4.00), error 0.02 m, GDOP 1.00, 4 anchors')
     const deep = deeperProse()
     for (const s of ['(5.01, 3.98) m', '(5.00, 4.00)', '2 cm', 'GDOP 1.00']) expect(deep, s).toContain(s)
+    // Review M10: `deeper` is exempt from the acronym rule, but this is where a reader first
+    // meets the token — uwb-geometry names it four lessons later. So it carries a gloss,
+    // the one uwb-position already uses.
+    expect(deep).toContain('GDOP 1.00 (the price the anchors’ own layout puts on that error)')
   })
 })
 
