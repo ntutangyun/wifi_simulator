@@ -17,7 +17,7 @@ import type { Scenario } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 import { Simulation } from '../../src/engine/simulation'
 import { lessonShapeSuite, ofType, runOf } from './kit'
-import { ACK_TIMEOUT_NS, CW_MIN, RX_START_DELAY_NS, SIFS_NS, SLOT_NS } from '../../src/engine/phy'
+import { ACK_TIMEOUT_NS, CW_MAX, CW_MIN, RX_START_DELAY_NS, SHORT_RETRY_LIMIT, SIFS_NS, SLOT_NS } from '../../src/engine/phy'
 
 const MS = 1_000_000
 /** 300 ms: the window every count in the "draws this run makes" table is taken over. */
@@ -32,7 +32,9 @@ const meanOf = (cw: number): number => {
   return v.reduce((a, b) => a + b, 0) / v.length
 }
 
-lessonShapeSuite(backoff, { proseMax: 800, runNs: RUN_NS })
+// The mechanism-before-metaphor amendment puts the draw-and-decrement procedure in
+// `numbers`; the amended BUDGETS (picture 900, numbers 550, total 1800) carry it.
+lessonShapeSuite(backoff, { proseMax: 1050, runNs: RUN_NS })
 
 describe('backoff · the lesson’s own scene', () => {
   it('follows ifs and owns the contention window', () => {
@@ -66,6 +68,53 @@ describe('backoff · the draws this run makes', () => {
     expect(meanOf(63).toFixed(2)).toBe('23.80')
     // every draw really does come from [0, CW]
     for (const d of draws()) expect(d.value).toBeGreaterThanOrEqual(0), expect(d.value).toBeLessThanOrEqual(d.cw)
+  })
+
+  it('the window ladder is the engine’s: floor 15, twice plus one, ceiling 1023, reset at seven', () => {
+    // the procedure's steps 1, 5, 6 and 7, against bumpQsrc and resetQsrc in
+    // src/engine/mac.ts. Proved over the whole ladder, not only the 15 → 31 this run reaches.
+    expect(CW_MIN).toBe(15)
+    expect(CW_MAX).toBe(1023)
+    expect(SHORT_RETRY_LIMIT).toBe(7)
+    const ladder = [CW_MIN]
+    while (ladder[ladder.length - 1] < CW_MAX) ladder.push(Math.min(2 * ladder[ladder.length - 1] + 1, CW_MAX))
+    expect(ladder).toEqual([15, 31, 63, 127, 255, 511, 1023])
+    // and every window change either widens by that rule or drops back to the floor
+    for (const n of BOTH) {
+      let cw = CW_MIN
+      for (const c of ofType(recs(), 'CW_CHANGE').filter((r) => r.node === n)) {
+        expect([CW_MIN, Math.min(2 * cw + 1, CW_MAX)], `${n} at ${c.t}`).toContain(c.cw)
+        cw = c.cw
+      }
+    }
+  })
+
+  it('the draw spans the whole window, both ends included', () => {
+    // the procedure's step 2, "between 0 and CW, both ends included — sixteen possible
+    //  values at CW 15, and zero is one of them"
+    const v = draws().filter((r) => r.cw === CW_MIN).map((r) => r.value)
+    expect(Math.min(...v)).toBe(0)
+    expect(Math.max(...v)).toBe(CW_MIN)
+    expect(new Set(v).size).toBe(CW_MIN + 1)
+  })
+
+  it('every transmission owes a fresh draw: no station sends twice without one', () => {
+    // the procedure's step 7, "after any transmission at all the counter is cleared and a
+    //  fresh draw is owed" — releaseTxop and failAttemptCore in src/engine/mac.ts both do it.
+    for (const n of BOTH) {
+      let owed = true // the first frame of the run goes out on an idle channel with no draw
+      let frames = 0
+      for (const r of recs()) {
+        if (!('node' in r) || r.node !== n) continue
+        if (r.type === 'BACKOFF_DRAW') { owed = true; continue }
+        if (r.type !== 'TX_START' || r.frame.kind !== 'data') continue
+        if (r.frame.retryFlag) continue // a retry of the same MSDU, not a second attempt won afresh
+        expect(owed, `${n} sent at ${r.t} without drawing`).toBe(true)
+        owed = false
+        frames++
+      }
+      expect(frames).toBeGreaterThan(300)
+    }
   })
 
   it('a slot is 9 µs, so the mean wait goes from about 64 µs to about 145 µs', () => {

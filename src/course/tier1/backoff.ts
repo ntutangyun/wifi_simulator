@@ -18,8 +18,8 @@ export const backoff: Lesson = {
   module: 1,
   title: { en: 'Random backoff & collisions', zh: '随机退避与碰撞' },
   why: {
-    en: 'Waiting cannot settle an argument on its own. If two stations are both holding back until the channel goes quiet, they will both hear it go quiet at the same instant, and both start talking. Wi-Fi breaks the tie the only way it can without a referee: every station rolls a die, and the low roll speaks first. This lesson watches the dice, and what happens when two come up equal.',
-    zh: '光是等，解决不了争端。如果两台站点都憋着、等信道安静下来，那它们会在同一瞬间听到它安静下来，然后一起开口。没有裁判的情况下，Wi-Fi 只能用唯一可行的办法来打破平局：每台站点掷一次骰子，点数小的先说。这一课我们盯着骰子看——也看看两颗骰子点数相同时会发生什么。',
+    en: 'Waiting cannot settle an argument on its own. If two stations (STA) are both holding back until the channel goes quiet, they will both hear it go quiet at the same instant, and both start talking. Wi-Fi breaks the tie the only way it can without a referee: every station rolls a die, and the low roll speaks first. This lesson watches the dice, and what happens when two come up equal.',
+    zh: '光是等，解决不了争端。如果两台站点（STA）都憋着、等信道安静下来，那它们会在同一瞬间听到它安静下来，然后一起开口。没有裁判的情况下，Wi-Fi 只能用唯一可行的办法来打破平局：每台站点掷一次骰子，点数小的先说。这一课我们盯着骰子看——也看看两颗骰子点数相同时会发生什么。',
   },
   outcomes: [
     { en: 'describe the draw-and-count-down rule in your own words', zh: '用自己的话说清“抽一个数、再倒着数下去”这条规则' },
@@ -51,8 +51,8 @@ export const backoff: Lesson = {
       zh: '于是每台站点抽一个随机整数，把它当作“要熬过的空闲时隙数”：这就是它的退避值。信道每安静一个时隙，这个数就减一；减到零就发。抽得小的赢，而由于两边各抽各的，赢家每一轮都可能换人。若中途有帧开始，计数就地冻结，之后从停下的那个数继续，谁都不会把已经等过的时间白等。',
     } },
     { kind: 'watch', jump: 0, heading: { en: 'Look at a collision', zh: '去看一次碰撞' }, text: {
-      en: 'Load the simulation and jump to the first collision. Two frames start in the same instant and lie on top of each other; at the red tick the access point reports that it locked onto neither.',
-      zh: '载入仿真，跳到第一次碰撞。两帧在同一瞬间开始，彼此叠在一起；在红色刻度处，AP 报告说这两帧它一个都没锁定。',
+      en: 'Load the simulation and jump to the first collision. Two frames start in the same instant and lie on top of each other; at the red tick the access point (AP) reports that it locked onto neither.',
+      zh: '载入仿真，跳到第一次碰撞。两帧在同一瞬间开始，彼此叠在一起；在红色刻度处，接入点（AP）报告说这两帧它一个都没锁定。',
     } },
     { heading: { en: 'When both dice agree', zh: '当两颗骰子点数相同' }, text: {
       en: 'Nothing stops two stations drawing the same number. When they do, both counters reach zero in the same slot and both frames go out together, on top of each other. Neither sender notices: a radio cannot listen while it transmits. The first thing either learns is that the answer it expected has not arrived.',
@@ -79,6 +79,22 @@ export const backoff: Lesson = {
       en: 'Every slot on that counter is 9 µs of waiting, so the mean wait roughly doubles with the window: about 64 µs at the smallest, 145 µs after one failure.',
       zh: '计数器上每一个时隙都是 9 µs 的等待，所以平均等待随窗口大致翻倍：最小窗口下约 64 µs，失败一次之后约 145 µs。',
     } },
+    { kind: 'steps', heading: { en: 'The draw and the countdown, exactly', zh: '抽数与倒数，精确版' }, items: [
+      { en: 'The contention window starts at its floor, 15, and every station on the link starts there.',
+        zh: '竞争窗口从下限 15 起步，链路上每一台站点都从这里开始。' },
+      { en: 'When the gap it owes has run out and a draw is owed, the station draws one whole number uniformly between 0 and CW, both ends included — sixteen possible values at CW 15, and zero is one of them. That number is its backoff counter.',
+        zh: '当它欠的那段间隙走完、而且这一次确实欠一个抽取时，站点在 0 与 CW 之间均匀地抽一个整数，两端都算在内——CW 为 15 时共十六个可能值，零也是其中之一。这个数就是它的退避计数。' },
+      { en: 'For every whole slot of 9 µs the medium stays idle, the counter drops by one. The slot that brings it to zero is the slot the station sends in.',
+        zh: '介质每空闲满一个 9 µs 的时隙，这个计数就减一。把它带到零的那个时隙，就是站点发送的那个时隙。' },
+      { en: 'If the medium goes busy — sensed energy, or a reservation timer set by a frame the station overheard — the next tick is cancelled and the counter freezes exactly where it stands. When the medium is quiet again it waits its gap and resumes from that same value; nothing already waited is thrown away.',
+        zh: '一旦介质变忙——可能是侦听到能量，也可能是它旁听到的某一帧给它装上了预约倒计时——下一次减一就被取消，计数原地冻住。等介质重新安静下来，它先走完该等的间隙，再从同一个数继续；已经等过的部分一点也不作废。' },
+      { en: 'A failure looks like silence: no answer before the deadline. The station counts the failure and widens the window to twice CW plus one, capped at 1023 — so 15, then 31, then 63, and on up.',
+        zh: '失败的样子就是沉默：期限之前没有回答。站点把这次失败记上一笔，并把窗口放宽到“CW 的两倍再加一”，上限是 1023——于是 15、31、63，一路往上。' },
+      { en: 'On the seventh straight failure the frame is given up: the station stops retrying it, and the window drops back to its floor for whatever comes next.',
+        zh: '连续失败到第七次，这一帧就被放弃：站点不再重传它，窗口也为接下来的事回到下限。' },
+      { en: 'On a success the failure count goes to zero and the window returns to its floor. And after any transmission at all the counter is cleared and a fresh draw is owed, so no station may send twice in a row without contending again.',
+        zh: '一次成功之后，失败计数归零，窗口回到下限。另外，只要发送过一次，计数就会清空、并欠下一次新的抽取——所以没有哪台站点能不重新竞争就连发两帧。' },
+    ] },
     { kind: 'table', heading: { en: 'Why the deadline falls where it does', zh: '那个期限为什么落在这里' }, head: [
       { en: 'Piece', zh: '组成' }, N('µs'), { en: 'What it covers', zh: '它盖住了什么' }, { en: 'Where', zh: '出处' },
     ], rows: [

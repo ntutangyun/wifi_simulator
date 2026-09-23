@@ -15,7 +15,7 @@ import type { Scenario } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 import { Simulation } from '../../src/engine/simulation'
 import { lessonShapeSuite, ofType, runOf } from './kit'
-import { PHY_MODES, SIFS_NS, txTimeModeNs } from '../../src/engine/phy'
+import { PHY_MODES, RATES, SIFS_NS, txTimeModeNs, txTimeNs } from '../../src/engine/phy'
 
 const MS = 1_000_000
 const US = 1_000
@@ -25,7 +25,10 @@ const RUN_NS = 100 * MS
 const recs = (): TLRecord[] => runOf(airtime, undefined, RUN_NS)
 const txs = (kind: string) => ofType(recs(), 'TX_START').filter((r) => r.frame.kind === kind)
 
-lessonShapeSuite(airtime, { proseMax: 750, totalMax: 1000, runNs: RUN_NS })
+// The mechanism-before-metaphor amendment buys the procedure its own room: the steps
+// block and the worked example add roughly 250 words to `numbers`, well inside the
+// amended BUDGETS (picture 900, numbers 550, total 1800).
+lessonShapeSuite(airtime, { proseMax: 1000, totalMax: 1300, runNs: RUN_NS })
 
 describe('airtime · the lesson’s own scene', () => {
   it('is a Tier 1 lesson that names the lessons its words come from', () => {
@@ -71,6 +74,40 @@ describe('airtime · one exchange in this room', () => {
     expect(6 * 13_600).toBe(81_600)
     expect(44_000 + 81_600).toBe(125_600)
     expect(txTimeModeNs('he', 1430, 11)).toBe(125_600)
+  })
+
+  it('the steps are the engine’s own: bits, bits per symbol, symbols, preamble', () => {
+    // the "How the duration is worked out, step by step" block and the "value by value"
+    // table, against txTimeModeNs in src/engine/phy.ts — the function that produced the
+    // 125.6 µs on the timeline.
+    const he = PHY_MODES.he
+    const ndbps = he.ndbps[11]
+    expect(ndbps).toBe(1950)
+    const bits = 16 + 8 * 1430 + 6
+    expect(bits).toBe(11_462)
+    expect(Math.ceil(bits / ndbps)).toBe(6)
+    expect(he.preambleNs + he.symNs * 6).toBe(125_600)
+    // proving the rule rather than the one value: the step order reproduces the engine
+    // for every frame size, padding of the last symbol included
+    for (const len of [14, 64, 300, 715, 1430, 2304, 3000]) {
+      const nsym = Math.ceil((16 + 8 * len + 6) / ndbps)
+      expect(txTimeModeNs('he', len, 11)).toBe(he.preambleNs + he.symNs * nsym)
+    }
+  })
+
+  it('the answer is timed by the same formula, two symbols at 24 Mb/s', () => {
+    // the last two steps: "the ACK is 14 bytes and goes out at 24 Mb/s" and "two symbols
+    //  of 4 µs behind a 20 µs preamble — 28 µs"
+    expect(new Set(txs('ack').map((r) => r.frame.mbps))).toEqual(new Set([24]))
+    const nonht = PHY_MODES.nonht
+    expect(nonht.preambleNs).toBe(20_000)
+    expect(nonht.symNs).toBe(4_000)
+    const ndbps = RATES.find((r) => r.mbps === 24)!.ndbps
+    expect(ndbps).toBe(96)
+    expect(Math.ceil((16 + 8 * 14 + 6) / ndbps)).toBe(2)
+    expect(txTimeNs(14, 24)).toBe(28_000)
+    expect(20_000 + 2 * 4_000).toBe(28_000)
+    expect(125_600 + SIFS_NS + 28_000).toBe(169_600)
   })
 
   it('the answer is 14 bytes and 28 µs, and follows exactly one 16 µs pause', () => {

@@ -17,8 +17,8 @@ export const nav: Lesson = {
   module: 1,
   title: { en: 'NAV — reserving with a promise', zh: 'NAV——用“预告”预约信道' },
   why: {
-    en: 'Listening tells a station only whether the air is busy right now. But a conversation has gaps in it — the small pause before the answer comes back — and the answer itself may come from a device too far away to be heard. A station that trusts its ears alone will walk into both. So every frame announces how much longer its exchange will take, and everyone who hears it holds a timer instead.',
-    zh: '光靠听，站点只知道空口此刻忙不忙。可一场对话里是有缝的——回答回来之前那一小段停顿；而回答本身，还可能来自一台远得根本听不见的设备。只相信自己耳朵的站点，这两处都会一头撞进去。于是每一帧都会预告本次交互还要多久，听到的人则改为在心里挂一个倒计时。',
+    en: 'Listening tells a station (STA) only whether the air is busy right now. But a conversation has gaps in it — the small pause before the answer comes back — and the answer itself may come from a device too far away to be heard. A station that trusts its ears alone will walk into both. So every frame announces how much longer its exchange will take, and everyone who hears it holds a timer instead.',
+    zh: '光靠听，站点（STA）只知道空口此刻忙不忙。可一场对话里是有缝的——回答回来之前那一小段停顿；而回答本身，还可能来自一台远得根本听不见的设备。只相信自己耳朵的站点，这两处都会一头撞进去。于是每一帧都会预告本次交互还要多久，听到的人则改为在心里挂一个倒计时。',
   },
   outcomes: [
     { en: 'say what a station loads into its timer, and from which frames', zh: '说清站点往自己的计时器里装的是什么、从哪些帧里装' },
@@ -91,6 +91,22 @@ export const nav: Lesson = {
       en: 'A freezes at 498 µs knowing only that the channel is busy. B’s frame ends at 746 µs and passes its check; only then can the reservation be trusted, running to 790 µs, with the last wait carrying A to 824 µs.',
       zh: 'A 在 498 µs 冻结，当时它只知道信道忙。B 的帧在 746 µs 结束并通过校验；直到这时那份预约才可信，它一直管到 790 µs，最后那段等待再把 A 送到 824 µs。',
     } },
+    { kind: 'steps', heading: { en: 'From a field in a header to a frozen station', zh: '从帧头里的一个字段，到一台冻住的站点' }, items: [
+      { en: 'Before it sends, the sender works out what is still to come after this frame has ended — one pause plus the answer’s airtime, 16 + 28 = 44 µs here — and writes that number into the Duration field of the header.',
+        zh: '发送方在发出去之前先算清楚：这一帧结束之后还剩些什么——一段停顿加上回答的空口时间，这里是 16 + 28 = 44 µs——再把这个数写进帧头的 Duration 字段。' },
+      { en: 'A frame that ends an exchange announces nothing to come. An acknowledgement carries 0 µs, and a Duration of zero sets nobody’s timer.',
+        zh: '结束一次交互的那一帧，预告的是“后面没有了”。确认帧带的就是 0 µs；而写着零的 Duration，谁的计时器也装不上。' },
+      { en: 'A station that receives the frame whole, passes its check, and finds the addressee is somebody else computes one instant: the moment this frame ended, plus the Duration it announced.',
+        zh: '一台把这一帧完整收下、校验也通过、再发现收件人是别人的站点，会算出一个时刻：这一帧结束的那一刻，加上它预告的 Duration。' },
+      { en: 'It adopts that instant only if it is later than the countdown it already holds. A frame can push a reservation further out; it can never pull one back in.',
+        zh: '只有当这个时刻比它手里已经挂着的那个倒计时更晚时，它才采用。一帧可以把一份预约往后推，却永远不能把它往回拉。' },
+      { en: 'Setting the countdown does what sensed energy does: a running backoff counter freezes at the value it stands on, and a gap in progress is thrown away, with the attempt marked as deferred.',
+        zh: '装上这个倒计时之后发生的事，和侦听到能量时一模一样：正在走的退避计数在当前那个值上冻住，正在走的那段间隙作废，这次尝试被记上“推迟过”。' },
+      { en: 'From then until the instant it set, the station’s test of the medium reads busy whatever its ears report. Busy means either that sensing is busy or that the countdown is still in the future — one of the two is enough.',
+        zh: '从这一刻起，直到它装上的那个时刻为止，站点对介质的判定一律是“忙”，不管耳朵报的是什么。忙 = 侦听为忙，或者倒计时尚未到期——两者成立一个就够了。' },
+      { en: 'At that instant the countdown clears. If sensing reports idle then, the station starts its gap and access resumes from the frozen value. A later lesson adds the two ways a reservation can be released before its instant arrives.',
+        zh: '到了那个时刻，倒计时解除。如果这时侦听报的是空闲，站点就开始走它那段间隙，并从冻住的那个值恢复接入。预约还有两种提前解除的办法，留到后面的课。' },
+    ] },
   ],
   deeper: [
     { heading: { en: 'A station never holds a schedule', zh: '站点手里从来没有时刻表' }, text: {

@@ -22,7 +22,9 @@ const RUN_NS = 100 * MS
 const recs = (): TLRecord[] => runOf(ifs, undefined, RUN_NS)
 const txs = (kind: string) => ofType(recs(), 'TX_START').filter((r) => r.frame.kind === kind)
 
-lessonShapeSuite(ifs, { proseMax: 850, runNs: RUN_NS })
+// The mechanism-before-metaphor amendment adds the access procedure to `numbers`;
+// the amended BUDGETS (picture 900, numbers 550, total 1800) carry it.
+lessonShapeSuite(ifs, { proseMax: 1150, runNs: RUN_NS })
 
 describe('ifs · the lesson’s own scene', () => {
   it('follows airtime and owns the three waiting times', () => {
@@ -90,6 +92,45 @@ describe('ifs · what that buys in this run', () => {
     const draws = ofType(recs(), 'BACKOFF_DRAW')
     expect(draws.length).toBeGreaterThan(200)
     for (const d of draws) expect(waits.some((w) => w.untilNs === d.t)).toBe(true)
+  })
+
+  it('silence already elapsed counts, so the very first gap is zero long', () => {
+    // the procedure's step 3, "a radio that has never yet heard the medium busy counts as
+    //  idle since for ever, so its gap is zero long — which is why the first frame of this
+    //  run leaves at 0 µs". `beginIfsAc` in src/engine/mac.ts ends the gap at
+    //  max(now, lastBusyEnd + gap), and lastBusyEnd starts before time itself.
+    const ifss = ofType(recs(), 'IFS_START')
+    const zero = ifss.filter((r) => r.untilNs === r.t)
+    expect(zero.length).toBe(1)
+    expect(zero[0].t).toBe(0)
+    expect(zero[0].kind).toBe('DIFS')
+    // every other gap in the run is a whole DIFS: the rule is one rule, not a special case
+    for (const r of ifss.slice(1)) expect(r.untilNs - r.t).toBe(DIFS_NS)
+  })
+
+  it('an uninterrupted first gap is basic access: the frame goes out with no draw', () => {
+    // the procedure's step 4, "the station transmits immediately and draws no random wait
+    //  at all", against step 5's "this time it must draw a random wait before it may send"
+    const first = txs('data')[0]
+    expect(first.t).toBe(0)
+    const draws = ofType(recs(), 'BACKOFF_DRAW')
+    expect(draws.length).toBeGreaterThan(200)
+    // not one draw precedes the first frame, and every later frame has one behind it
+    expect(draws[0].t).toBeGreaterThan(first.t)
+    expect(draws.every((d) => d.value >= 0)).toBe(true)
+  })
+
+  it('the answer never contends: no gap is even started between the frame and its ACK', () => {
+    // the procedure's step 6, "a receiver that owes an ACK does not contend at all: it puts
+    //  the answer on the air one SIFS after the frame ends". scheduleResponse in
+    //  src/engine/mac.ts arms a SIFS timer instead of entering the access procedure.
+    const ends = ofType(recs(), 'TX_END').filter((r) => r.frame.kind === 'data')
+    const ifss = ofType(recs(), 'IFS_START')
+    for (const a of txs('ack')) {
+      const d = ends.filter((e) => e.t <= a.t).pop()!
+      expect(a.t - d.t).toBe(SIFS_NS)
+      expect(ifss.some((r) => r.node === a.node && r.t >= d.t && r.t <= a.t)).toBe(false)
+    }
   })
 
   it('the first turn runs 0 → 248 → 264 → 292 → 326 → 425 µs', () => {

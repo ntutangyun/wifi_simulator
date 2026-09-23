@@ -16,8 +16,8 @@ export const ifs: Lesson = {
   module: 1,
   title: { en: 'SIFS, DIFS and the ACK dance', zh: 'SIFS、DIFS 与 ACK 之舞' },
   why: {
-    en: 'A shared channel needs a rule for who speaks next, and Wi-Fi’s rule is almost embarrassingly simple: wait. What makes it work is that not everybody waits the same amount. A station finishing a conversation already under way waits the shortest time of all, so nothing can cut in on it; a station merely asking for a turn waits longer. Priority here is measured in silence.',
-    zh: '共享信道需要一条“下一个谁说”的规则，而 Wi-Fi 的规则简单得近乎寒碜：等。让它真正管用的，是大家等的时间并不一样长。正在把一场对话收尾的站点等得最短，所以谁也插不进它；只是想要个发言机会的站点则要等得更久。这里的优先级，是用沉默的长短来量的。',
+    en: 'A shared channel needs a rule for who speaks next, and Wi-Fi’s rule is almost embarrassingly simple: wait. What makes it work is that not everybody waits the same amount. A station (STA) finishing a conversation already under way waits the shortest time of all, so nothing can cut in on it; a station merely asking for a turn waits longer. Priority here is measured in silence.',
+    zh: '共享信道需要一条“下一个谁说”的规则，而 Wi-Fi 的规则简单得近乎寒碜：等。让它真正管用的，是大家等的时间并不一样长。正在把一场对话收尾的站点（STA）等得最短，所以谁也插不进它；只是想要个发言机会的站点则要等得更久。这里的优先级，是用沉默的长短来量的。',
   },
   outcomes: [
     { en: 'name the three waiting times and say who may transmit after each', zh: '说出三种等待时长，并讲清每一种之后谁可以发送' },
@@ -68,7 +68,7 @@ export const ifs: Lesson = {
       en: 'There is a third wait, owed by a station that began receiving a frame and found it damaged. It cannot read who the frame was for, or how much longer the exchange needs, yet somebody may be about to answer it. So it stays quiet for an EIFS — the short gap, a whole acknowledgement’s worth of air, and a DIFS on top — and only then joins in. Nothing in this scene ever earns one.',
       zh: '还有第三种等待，欠在那些“已经开始接收、却发现帧坏了”的站点头上。它读不出这帧是发给谁的，也读不出这次交互还要多久，可偏偏可能有人马上就要回答它。于是它保持安静一个 EIFS——短间隙、加上发完一个确认帧所需的整段空口、再加上一个 DIFS——之后才参与进来。本场景里没有任何东西会挣到这样一段等待。',
     } },
-    { kind: 'steps', heading: { en: 'One ladder, three rungs', zh: '一把梯子，三级台阶' }, items: [
+    { kind: 'list', heading: { en: 'One ladder, three rungs', zh: '一把梯子，三级台阶' }, items: [
       { en: 'shortest — the answer inside an exchange that is already running', zh: '最短——已经在进行的交互里，那个回答' },
       { en: 'longer — anybody asking for a new turn', zh: '较长——任何想要一个新发言机会的人' },
       { en: 'longest — anybody who heard a frame arrive broken', zh: '最长——任何听到一帧坏着到达的人' },
@@ -82,6 +82,20 @@ export const ifs: Lesson = {
       [N('SIFS'), N('16 µs'), { en: 'only the exchange already running — its answer can never be beaten to the channel', zh: '只有已经在进行的那次交互——它的回答永远不会被抢先' }, N('§17.4.4')],
       [N('DIFS'), { en: '34 µs = SIFS + 2 slots', zh: '34 µs = SIFS + 2 个时隙' }, { en: 'any station asking for a new turn', zh: '任何想要新发言机会的站点' }, N('§10.3.2.3.5')],
       [N('EIFS'), { en: '94 µs = 16 + 44 + 34: a SIFS, an ACK at the slowest rate, a DIFS', zh: '94 µs = 16 + 44 + 34：一个 SIFS、一个以最慢速率发出的 ACK、一个 DIFS' }, { en: 'a station whose reception started and then failed its check', zh: '已经开始接收、却校验失败的站点' }, N('§10.3.2.3.7')],
+    ] },
+    { kind: 'steps', heading: { en: 'How a station decides it may start', zh: '站点怎么判定自己可以开口' }, items: [
+      { en: 'It only asks the question when it has something to send. The first test is the medium: busy means either its own sensing reports energy, or a reservation timer it is holding has not yet run out. Either one, and the attempt is deferred on the spot.',
+        zh: '只有手里有东西要发时，它才问这个问题。第一道测试是介质：忙，指的是它自己的侦听报告有能量，或者它挂着的某个预约倒计时还没走完。只要占上一条，这次尝试当场被推迟。' },
+      { en: 'If the medium is free, the station works out which gap it owes. Normally a DIFS. If the last reception it started ended in a failed check, it owes an EIFS instead, and it keeps owing it until it transmits something itself.',
+        zh: '介质空着，站点就算出自己欠哪一段间隙。通常是 DIFS。要是它上一次开始的接收以校验失败告终，欠的就换成 EIFS；而且这段额外的安静一直欠着，直到它自己发出点什么为止。' },
+      { en: 'Silence already elapsed counts. The gap ends at whichever comes later: now, or the instant the medium last went quiet plus that gap. A radio that has never yet heard the medium busy counts as idle since for ever, so its gap is zero long — which is why the first frame of this run leaves at 0 µs.',
+        zh: '已经过去的那段安静是算数的。间隙结束于两者中较晚的那一个：此刻，或者“介质上一次安静下来的时刻加上这段间隙”。一台从来没听见介质忙过的电台，算作从一开始就空闲着，于是它这段间隙的长度是零——本轮第一帧在 0 µs 就发了出去，原因就在这里。' },
+      { en: 'If the gap runs to its end without interruption, and nothing deferred this attempt along the way, the station transmits immediately and draws no random wait at all. That is basic access.',
+        zh: '如果这段间隙一路走到头、中途没被打断，而且这次尝试一次也没被推迟过，站点就立刻发送，连随机等待都不抽。这叫基本接入。' },
+      { en: 'If anything makes the medium busy while the gap is running, the gap is thrown away and the attempt is marked as deferred. When the medium next goes quiet the station waits the whole gap over again — and this time it must draw a random wait before it may send.',
+        zh: '间隙还在走时，谁把介质弄忙了，这段间隙就作废，这次尝试被记上“推迟过”。等介质下一次安静下来，站点要把整段间隙重走一遍——而且这一次，开口之前必须先抽一个随机等待。' },
+      { en: 'The answer inside an exchange skips every step above. A receiver that owes an ACK does not contend at all: it puts the answer on the air one SIFS after the frame ends, whatever anybody else is counting.',
+        zh: '交互内部的那个回答，上面每一步都不走。欠着一个 ACK 的接收端根本不参与竞争：它在帧结束后一个 SIFS 就把回答送上空口，别人数到哪儿都不管。' },
     ] },
     { heading: { en: 'What that buys in this run', zh: '这在本轮仿真里换来了什么' }, text: {
       en: 'The uploader’s frame holds the channel for 248 µs, and its answer starts exactly 16 µs after the frame ends — every one of the 254 answers in this run, never a microsecond more or less.',

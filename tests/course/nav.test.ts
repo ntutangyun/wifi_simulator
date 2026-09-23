@@ -22,7 +22,9 @@ const RUN_NS = 200 * MS
 const recs = (): TLRecord[] => runOf(nav, undefined, RUN_NS)
 const txs = (kind: string) => ofType(recs(), 'TX_START').filter((r) => r.frame.kind === kind)
 
-lessonShapeSuite(nav, { proseMax: 800, runNs: RUN_NS })
+// The mechanism-before-metaphor amendment puts the Duration-to-timer procedure in
+// `numbers`; the amended BUDGETS (picture 900, numbers 550, total 1800) carry it.
+lessonShapeSuite(nav, { proseMax: 1000, runNs: RUN_NS })
 
 describe('nav · the lesson’s own scene', () => {
   it('follows backoff and owns the reservation', () => {
@@ -72,6 +74,55 @@ describe('nav · where the 44 µs comes from', () => {
     }
     // the Listener is never the addressee: every one of them comes from somebody else's data
     expect(new Set(navs.map((r) => r.source))).toEqual(new Set(['data:sta-1', 'data:sta-2']))
+  })
+})
+
+describe('nav · the procedure, against the engine', () => {
+  it('a countdown is only ever pushed further out, and never by an answer', () => {
+    // the procedure's steps 2 and 4, against updateNav in src/engine/mac.ts: it returns
+    // early unless `t + durationFieldNs` beats the value already held and the Duration is
+    // above zero.
+    const held = new Map<string, number>()
+    let sets = 0
+    for (const r of recs()) {
+      if (r.type === 'NAV_SET') {
+        expect(r.untilNs, `${r.node} at ${r.t}`).toBeGreaterThan(held.get(r.node) ?? 0)
+        expect(r.untilNs).toBeGreaterThan(r.t)
+        held.set(r.node, r.untilNs)
+        sets++
+      }
+      if (r.type === 'NAV_CLEAR') held.set(r.node, 0)
+    }
+    expect(sets).toBeGreaterThan(500)
+    // an acknowledgement announces nothing, so it arms nobody
+    expect(ofType(recs(), 'NAV_SET').some((r) => r.source.startsWith('ack'))).toBe(false)
+  })
+
+  it('while a countdown runs the station neither counts down nor transmits', () => {
+    // the procedure's steps 5 and 6: `mediumBusy()` is CCA busy OR now < navUntil, so a
+    // physically idle channel does not release a station whose timer is still running.
+    const until = new Map<string, number>()
+    let covered = 0
+    for (const r of recs()) {
+      const node = 'node' in r ? r.node : undefined
+      if (r.type === 'NAV_SET') { until.set(r.node, r.untilNs); continue }
+      if (r.type === 'NAV_CLEAR') { until.set(r.node, 0); continue }
+      if (node === undefined || r.t >= (until.get(node) ?? 0)) continue
+      expect(r.type, `${node} at ${r.t}`).not.toBe('BACKOFF_DEC')
+      expect(r.type, `${node} at ${r.t}`).not.toBe('TX_START')
+      covered++
+    }
+    expect(covered).toBeGreaterThan(100)
+  })
+
+  it('the countdown expiring is what restarts the gap', () => {
+    // the procedure's step 7, "if sensing reports idle then, the station starts its gap and
+    //  access resumes from the frozen value"
+    const clears = ofType(recs(), 'NAV_CLEAR').filter((r) => r.node === 'sta-1')
+    expect(clears.length).toBeGreaterThan(100)
+    const ifss = ofType(recs(), 'IFS_START').filter((r) => r.node === 'sta-1')
+    const started = clears.filter((c) => ifss.some((r) => r.t === c.t))
+    expect(started.length / clears.length).toBeGreaterThan(0.5)
   })
 })
 

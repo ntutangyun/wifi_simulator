@@ -42,16 +42,16 @@ export const airtime: Lesson = {
   ],
   picture: [
     { heading: { en: 'One channel, one speaker', zh: '一条信道，一个说话人' }, text: {
-      en: 'The air in a room is one channel, and a radio cannot send and listen at once. While any frame is going out, nobody within earshot can start one. So the currency of a wireless network is time on the air: a station does not buy bandwidth, it buys a slice of the clock. Everything the MAC does is about who gets the next slice.',
-      zh: '一个房间里的空气就是一条信道，而一台无线电没法一边发一边听。只要有一帧正在发出去，听力范围内的其他设备就都开不了口。所以无线网络的“货币”是空口上的时间：站点买到的不是带宽，而是时钟上的一小段。MAC 所做的一切，都是在决定下一段归谁。',
+      en: 'The air in a room is one channel, and a radio cannot send and listen at once. While any frame is going out, nobody within earshot can start one. So the currency of a wireless network is time on the air: a station (STA) does not buy bandwidth, it buys a slice of the clock. Everything the MAC does is about who gets the next slice.',
+      zh: '一个房间里的空气就是一条信道，而一台无线电没法一边发一边听。只要有一帧正在发出去，听力范围内的其他设备就都开不了口。所以无线网络的“货币”是空口上的时间：站点（STA）买到的不是带宽，而是时钟上的一小段。MAC 所做的一切，都是在决定下一段归谁。',
     } },
     { heading: { en: 'Why a frame cannot start cold', zh: '一帧为什么不能张口就来' }, text: {
       en: 'A receiver is not waiting for your bits; it is waiting for anything at all. Before it can read a single bit it must notice that a signal has begun, lock onto its rhythm, and learn how what follows is coded. That is the preamble’s job: a fixed pattern both ends already know. It carries no data, it is the same length whatever the frame holds, and it is paid every time.',
       zh: '接收端并不是专等你的比特，它等的是“有没有信号”。在读到哪怕一个比特之前，它得先察觉到有信号开始了，锁住它的节奏，再弄清后面的东西是怎么编码的。这就是前导干的活：一段两端早已约好的固定图案。它不装数据，帧里装什么它都一样长，而且每一次都要付。',
     } },
     { kind: 'watch', jump: 0, heading: { en: 'Put a stopwatch on one frame', zh: '给一帧掐一次表' }, text: {
-      en: 'Load the simulation and jump to the first data frame. Hover it: the tooltip prints its size, its rate and its exact duration. That duration is what the room is paying for. Blue is the access point’s lane, green a station’s.',
-      zh: '载入仿真，跳到第一个数据帧。把鼠标悬在它上面：提示框会给出帧的大小、速率和精确时长。房间里其他人付的，就是这个时长。蓝色是接入点的泳道，绿色是站点的。',
+      en: 'Load the simulation and jump to the first data frame. Hover it: the tooltip prints its size, its rate and its exact duration. That duration is what the room is paying for. Blue is the lane of the access point (AP), green a station’s.',
+      zh: '载入仿真，跳到第一个数据帧。把鼠标悬在它上面：提示框会给出帧的大小、速率和精确时长。房间里其他人付的，就是这个时长。蓝色是接入点（AP）的泳道，绿色是站点的。',
     } },
     { heading: { en: 'Only the middle part grows', zh: '会变长的只有中间那段' }, text: {
       en: 'After the preamble come the data symbols: equal-length chunks of signal, each carrying a fixed number of bits. Double the payload and you double the symbols; choose a faster coding and each symbol holds more, so fewer are needed. A big frame spends most of its airtime on the message; a small one spends most of it on the opening.',
@@ -84,6 +84,30 @@ export const airtime: Lesson = {
       en: 'The first term never moves; the symbol time is the 13.6 µs above. Only the second changes with a bigger frame or a faster coding.',
       zh: '第一项永远不动；符号时长就是上表里那 13.6 µs。帧变大、编码变快，能改的只有第二项。',
     } },
+    { kind: 'steps', heading: { en: 'How the duration is worked out, step by step', zh: '这个时长是怎么算出来的，一步一步' }, items: [
+      { en: 'Start from the bytes this frame actually puts on the air — payload, headers and checksum together. In this run that is 1430.',
+        zh: '先数这一帧真正送上空口的字节：净荷、帧头和校验码加在一起。本轮里是 1430 个。' },
+      { en: 'Turn those bytes into bits, and add the two fixed fields the transmitter wraps around them: 16 service bits in front, 6 tail bits behind.',
+        zh: '把这些字节换算成比特，再加上发送机在两头各包一层的固定字段：前面 16 个服务比特，后面 6 个尾比特。' },
+      { en: 'Divide that bit count by the bits one symbol carries at the rung in use — 1950 for this link, at 20 MHz and one stream — and round the answer up. Rounding up is why part of the last symbol is always padding.',
+        zh: '拿这个比特数去除以所用那一级里一个符号能装的比特数——本链路在 20 MHz、单流下是 1950——然后向上取整。正因为向上取整，最后一个符号里总有一段是填充。' },
+      { en: 'Multiply the symbol count by the symbol time, 13.6 µs, and add the preamble, 44.0 µs. The preamble is fixed for this generation of radio and never depends on what the frame carries. The sum is the block you measured on the timeline.',
+        zh: '把符号数乘以符号时长 13.6 µs，再加上前导的 44.0 µs。前导对这一代电台是定值，与帧里装了什么无关。这两项之和，就是你在时间轴上量到的那个色块。' },
+      { en: 'Then run the identical formula for the answer, at its own much slower rate: the ACK is 14 bytes and goes out at 24 Mb/s, so that every radio in the room can read it.',
+        zh: '再拿同一条公式去算那个回答，只是它用的速率慢得多：ACK 是 14 个字节，以 24 Mb/s 发出去，好让屋里每一台电台都解得出来。' },
+      { en: 'At that rate the answer needs two symbols of 4 µs behind a 20 µs preamble — 28 µs — and the 16 µs pause in front of it closes the exchange.',
+        zh: '在这个速率上，回答需要两个 4 µs 的符号，前面挂一段 20 µs 的前导，合计 28 µs；再补上它前面那 16 µs 的停顿，这次交互就算走完了。' },
+    ] },
+    { kind: 'table', heading: { en: 'The first data frame, value by value', zh: '第一个数据帧，一个值一个值地走' }, head: [
+      { en: 'Step', zh: '步骤' }, { en: 'Value', zh: '数值' },
+    ], rows: [
+      [{ en: 'Bytes on the air', zh: '送上空口的字节' }, N('1430 B')],
+      [{ en: 'Bits, service and tail included', zh: '化成比特，含服务与尾比特' }, N('16 + 8 × 1430 + 6 = 11 462')],
+      [{ en: 'Divided by the bits one symbol holds, rounded up', zh: '除以每符号比特数，向上取整' }, N('11 462 ÷ 1950 → 6')],
+      [{ en: 'Symbols at the symbol time', zh: '符号数乘以符号时长' }, N('6 × 13.6 = 81.6 µs')],
+      [{ en: 'Plus the preamble', zh: '再加上前导' }, N('81.6 + 44.0 = 125.6 µs')],
+      [{ en: 'Plus the pause and the answer', zh: '再加上停顿与回答' }, N('125.6 + 16 + 28 = 169.6 µs')],
+    ] },
     { heading: { en: 'The tax, in one number', zh: '这笔税，用一个数说清' }, text: {
       en: 'Of the 169.6 µs this exchange holds the channel, 88.0 µs is opening, pause and answer. The payload is the other 81.6 µs — under half.',
       zh: '这次交互一共占住信道 169.6 µs，其中 88.0 µs 是开场、停顿和回答。净荷只占剩下的 81.6 µs——还不到一半。',
