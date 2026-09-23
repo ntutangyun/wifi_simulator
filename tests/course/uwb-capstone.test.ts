@@ -5,6 +5,14 @@
  * The lesson is a rubric, so most of what is pinned here is the four-scene table
  * and the three ranges of the base flat: the numbers the learner marks their own
  * three decisions against.
+ *
+ * Mechanism before metaphor (2026-09-23): the last describe pins the `steps`
+ * block, which is the learner's method rather than the engine's loop. Each step
+ * is held against the thing it sends the reader to — the inspector's own fix row
+ * and ranges rows, replayed through the player's reducer in `inspectorAfter`, the
+ * two counters of that panel, and the records the four-scene table names row by
+ * row. Nothing asks for a residual: `solvePosition` computes one, no record
+ * carries it and no row prints it, which is asserted rather than assumed.
  */
 import { describe, it, expect } from 'vitest'
 import {
@@ -13,10 +21,14 @@ import {
 } from '../../src/course/uwb/uwb-capstone'
 import { DEFAULT_UWB_SESSION, ScenarioSchema } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
-import { UWB_NLOS_NS, FOM_LOS, FOM_NLOS, rstuNs } from '../../src/uwb/phy'
+import { UWB_NLOS_NS, FOM_LOS, FOM_NLOS, fomText, rstuNs } from '../../src/uwb/phy'
 import { C_M_PER_NS } from '../../src/uwb/phy'
 import { roundPlan } from '../../src/uwb/session'
 import { solvePosition } from '../../src/uwb/position'
+import { uwbFixRow, uwbRangeRows } from '../../src/uwb/ui/rows'
+import type { UwbNodeView } from '../../src/uwb/view'
+import { applyRecord, initViewState } from '../../src/model/view'
+import { STRINGS } from '../../src/ui/i18n'
 import type { Block } from '../../src/course/lessonKit'
 import { lessonShapeSuite, ofType, runOf } from './kit'
 
@@ -37,6 +49,31 @@ const count = (variant: number | undefined, type: TLRecord['type']): number =>
 const table = (n: number): Extract<Block, { kind: 'table' }> =>
   uwbCapstone.numbers!.filter((b): b is Extract<Block, { kind: 'table' }> => b.kind === 'table')[n]
 const cell = (n: number, row: number, col: number): string => table(n).rows[row][col].en
+/** The four-scene table is transposed: a row is a figure and names where it is read, a column
+ * is a scene. `scene(0)` is the flat as it stands, then the three variants in lesson order. */
+const scene = (v: number): string[] => table(0).rows.map((r) => r[v + 1].en)
+/** The learner's method: the `steps` block that closes `numbers`. */
+const steps = (): Extract<Block, { kind: 'steps' }> => {
+  const b = uwbCapstone.numbers!.at(-1)!
+  if (b.kind !== 'steps') throw new Error('the method is the last block of `numbers`')
+  return b
+}
+const stepText = (): string => steps().items.map((i) => i.en).join(' · ')
+/** The phone's inspector after `blocks` blocks of a scene, through the player's own reducer:
+ * what the learner actually sees when the method says "open the phone's inspector". */
+const inspectorAfter = (variant: number | undefined, blocks: number): UwbNodeView => {
+  const vs = initViewState(variant === undefined ? uwbCapstone.scenario() : uwbCapstone.variants![variant].scenario())
+  const untilNs = blocks * 200 * MS + 10 * MS
+  for (const r of recs(variant)) {
+    if (r.t >= untilNs) break
+    applyRecord(vs, r)
+  }
+  return vs.nodes[TAG].uwb!
+}
+const FOM_S = {
+  fomWithin: STRINGS.en.uwb.fomWithin, noFom: STRINGS.en.uwb.noFom,
+  integrityOk: STRINGS.en.uwb.integrityOk, integrityBad: STRINGS.en.uwb.integrityBad,
+}
 const mean = (xs: number[]): number => xs.reduce((a, b) => a + b, 0) / xs.length
 /** Every UWB node of the flat: the ranging session's own transmissions, not the router's. */
 const UWB_NODES = new Set([...ANCHORS, TAG])
@@ -51,7 +88,7 @@ const threeRange = (variant?: number) => ofType(recs(variant), 'UWB_POSITION')
   .map((f) => ({ f, err: Math.hypot(f.x - f.trueX, f.y - f.trueY) }))
 
 // The contract every migrated lesson owes, written once in tests/course/kit.ts.
-lessonShapeSuite(uwbCapstone, { proseMax: 965, runNs: RUN_NS })
+lessonShapeSuite(uwbCapstone, { proseMax: 1185, runNs: RUN_NS })
 
 describe('uwb-capstone · the lesson', () => {
   it('closes the UWB track: module 16, four prerequisites, two new words', () => {
@@ -132,8 +169,8 @@ describe('uwb-capstone · the four scenes over seven blocks', () => {
         String(fixes.length), String(three.length),
         String(count(variant, 'UWB_TIMEOUT')), String(count(variant, 'UWB_INTERFERED')),
       ]
-      expect(got, `row ${i}`).toEqual(want)
-      expect([cell(0, i, 1), cell(0, i, 2), cell(0, i, 3), cell(0, i, 4)], `row ${i}`).toEqual(want)
+      expect(got, `scene ${i}`).toEqual(want)
+      expect(scene(i).slice(0, 4), `scene ${i}`).toEqual(want)
     }
   })
 
@@ -145,8 +182,8 @@ describe('uwb-capstone · the four scenes over seven blocks', () => {
     ]
     for (const [i, [variant, n, ms]] of rows.entries()) {
       const air = onAir(variant)
-      expect([String(air.n), `${air.ms} ms`], `row ${i}`).toEqual([n, ms])
-      expect([cell(0, i, 5), cell(0, i, 6)], `row ${i}`).toEqual([n, ms])
+      expect([String(air.n), `${air.ms} ms`], `scene ${i}`).toEqual([n, ms])
+      expect(scene(i).slice(4), `scene ${i}`).toEqual([n, ms])
     }
     // seven times the airtime, and more receptions buried, for the same three ranges a block
     expect(onAir(V_OTM).n).toBeGreaterThan(6 * onAir(undefined).n)
@@ -274,6 +311,83 @@ describe('uwb-capstone · the one-sided error', () => {
     expect(brief.text.en).toContain('the block lands 0.02 m out')
     expect(cell(2, 4, 0)).toBe('The brief')
     expect(cell(2, 4, 1)).toContain('no scene meets half a metre as it stands')
+    expect(stepText()).toContain('does any scene keep every fix inside half a metre?')
+  })
+})
+
+describe('uwb-capstone · the method the learner carries out', () => {
+  it('is five steps, and it closes `numbers`', () => {
+    expect(steps().items).toHaveLength(5)
+    expect(steps().heading!.en).toBe('The method, step by step')
+    // the procedure closes the lesson: it is the last block of the main path, not of `deeper`
+    expect(uwbCapstone.numbers!.at(-1)).toBe(steps())
+    expect((uwbCapstone.deeper ?? []).some((b) => b.kind === 'steps')).toBe(false)
+  })
+
+  it('step 1: every figure it sends the learner for is one the inspector prints', () => {
+    const u = inspectorAfter(undefined, 1)
+    expect(u.position, 'the phone has a fix after one block').not.toBeNull()
+    const fix = uwbFixRow(u.position!, STRINGS.en.uwb)
+    // "the latest fix, the truth and the error between them" — all three printed, and the
+    // error is the distance between the other two, which is the quality figure the method uses
+    const p = u.position!
+    expect(fix.truth).toBe('(8.00, 4.00) m')
+    expect(fix.estimate).toBe(`(${p.x.toFixed(2)}, ${p.y.toFixed(2)}) m`)
+    expect(fix.error).toBe(`${(Math.hypot(p.x - p.trueX, p.y - p.trueY) * 100).toFixed(1)} cm`)
+    expect(stepText()).toContain('prints the latest fix, the truth and the error between them')
+    // "one row an anchor — measured, true, error, quality byte"
+    const rows = uwbRangeRows(u, FOM_S)
+    expect(rows.map((r) => r.peer)).toEqual(ANCHORS)
+    for (const r of rows) {
+      expect(Object.keys(r), r.peer).toEqual(
+        expect.arrayContaining(['measured', 'trueDist', 'error', 'fom']),
+      )
+    }
+    expect(stepText()).toContain('one row an anchor — measured, true, error, quality byte')
+    // and the two counters the method's figures come from are rows of that same panel
+    expect([typeof u.timeouts, typeof u.interfered]).toEqual(['number', 'number'])
+    expect([u.timeouts, u.interfered]).toEqual([0, 0])
+  })
+
+  it('step 2: the one-sided error is visible in the ranges table, block after block', () => {
+    const errsOf = (peer: string) => ofType(recs(), 'UWB_RANGE')
+      .filter((r) => r.node === TAG && r.peer === peer).map((r) => r.distM - r.trueDistM)
+    // "Two stay within centimetres; one reads half a metre long every time"
+    for (const peer of ['anchor-1', 'anchor-2']) {
+      for (const x of errsOf(peer)) expect(Math.abs(x), peer).toBeLessThan(0.05)
+    }
+    for (const x of errsOf('anchor-3')) expect(x).toBeGreaterThan(0.5)
+    // "and its quality byte is the worse" — as the inspector's own rows read it
+    const rows = uwbRangeRows(inspectorAfter(undefined, 7), FOM_S)
+    const bad = rows.find((r) => r.peer === 'anchor-3')!
+    expect(bad.fom).toBe(fomText(FOM_NLOS))
+    for (const r of rows.filter((r) => r.peer !== 'anchor-3')) {
+      expect(r.fom, r.peer).toBe(fomText(FOM_LOS))
+    }
+    expect(fomText(FOM_NLOS)).not.toBe(fomText(FOM_LOS))
+    expect(stepText()).toContain('one reads half a metre long every time, and its quality byte is the worse')
+  })
+
+  it('step 3: the figures of the first table are records the run really carries', () => {
+    const labels = table(0).rows.map((r) => r[0].en)
+    expect(labels.map((l) => l.split(' — ')[0]))
+      .toEqual(['Fixes', 'Of them, three-range', 'Timeouts', 'Lost to Wi-Fi', 'Transmissions', 'Air'])
+    // every row names the record or the counter it is read from, and that name exists
+    const named = ['UWB_POSITION', 'UWB_TIMEOUT', 'UWB_INTERFERED', 'TX_START'] as const
+    for (const t of named) {
+      expect(labels.join(' '), t).toContain(t)
+      expect(recs().some((r) => r.type === t), t).toBe(true)
+    }
+    // "load one variant from the menu, never two": the menu is the lesson's three variants
+    expect(stepText()).toContain('load one variant from the menu, never two')
+    expect(uwbCapstone.variants).toHaveLength(3)
+  })
+
+  it('step 4: the faster block doubles the air and leaves the fix error where it was', () => {
+    const errOf = (v?: number) => mean(threeRange(v).map((x) => x.err))
+    expect(Math.abs(errOf(V_FAST) - errOf(undefined))).toBeLessThan(0.05)
+    expect(Number(onAir(V_FAST).ms) / Number(onAir(undefined).ms)).toBeGreaterThan(1.8)
+    expect(stepText()).toContain('doubling the air while the fix error stays put buys smoothness, not accuracy')
   })
 })
 
@@ -282,7 +396,14 @@ describe('uwb-capstone · the rubric and the sources', () => {
     expect(table(2).rows.map((r) => r[0].en))
       .toEqual(['Anchor 3', 'Block rate', 'One round or three', 'The bias', 'The brief'])
     expect(cell(2, 3, 1)).toContain('Names anchor-3')
-    expect(cell(2, 4, 1)).toContain('reports the residual instead of fitting it away')
+    // The rubric used to ask for the residual. `solvePosition` computes one, no record carries
+    // it and the inspector never prints it, so what the write-up quotes is the error the
+    // inspector does print, against the truth it prints beside it.
+    expect(cell(2, 4, 1)).toContain('quotes the error the inspector prints')
+    for (const t of [...uwbCapstone.numbers!, ...uwbCapstone.picture!]) {
+      expect(JSON.stringify(t)).not.toContain('residual')
+    }
+    expect(Object.keys(ofType(recs(), 'UWB_POSITION')[0])).not.toContain('residual')
     // M1: the hedge belongs on the far-anchor row (18 → 40), not on the block rate (18 → 36)
     expect(cell(2, 0, 1)).toContain('roughly doubles the timeouts')
     expect(cell(2, 1, 1)).toContain('all double exactly')
