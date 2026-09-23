@@ -56,12 +56,12 @@ export const ofdmaUl: Lesson = {
       { en: 'Who answers: the devices it names, and nobody else.', zh: '谁来回答：它点到名的那些设备，别人不许出声。' },
       { en: 'Where: which slice of the channel each one uses, so the answers sit side by side instead of on top of each other.', zh: '在哪儿答：每台各用信道的哪一片，好让几个回答并排落下，而不是叠在一起。' },
       { en: 'How long: every answer is padded out to the same length, so they all finish together and one acknowledgement can cover the lot.', zh: '答多长：每个回答都填充到同样的长度，于是它们一起结束，一个确认就能把整组收掉。' },
-      { en: 'How loudly: each device is told to correct its power, so a near one and a far one reach the access point at similar strength.', zh: '答多响：每台设备都被告知要怎样修正自己的功率，好让近的和远的到达接入点时强弱相近。' },
+      { en: 'How loudly: each device is told to correct its power, so a near one and a far one reach the access point at similar strength — an instruction this simulator writes into the frame but does not act on, so its uploaders answer at their usual power.', zh: '答多响：每台设备都被告知要怎样修正自己的功率，好让近的和远的到达接入点时强弱相近——这条指令本仿真器只写进帧里，并不执行，它的上传设备仍按自己一贯的功率作答。' },
       { en: 'When: one short gap after the trigger frame ends, aligned in time and in frequency to the access point.', zh: '什么时候答：触发帧结束后隔一小段，并且在时间和频率上都对齐到接入点。' },
     ] },
     { heading: { en: 'An answer that decides nothing', zh: '一个什么都不做主的回答' }, text: {
-      en: 'What comes back is a TB PPDU: trigger-based, and the one kind of send a device may make only because it was asked. Everything about it was chosen by the access point — the slice, the modulation, the length, the power, the instant. The device supplies the bytes and nothing else. That is the whole trick: simultaneity is impossible to agree on, and easy to dictate.',
-      zh: '回来的这一帧叫作 TB PPDU：基于触发，是唯一一种“只因为被要求了才可以发”的发送。关于它的一切都是接入点定的——用哪一片、用哪档调制、发多长、发多响、什么时候开始。设备只负责把字节装进去，别的一概不管。诀窍就在这里：要商量出“同时”几乎不可能，要指定“同时”却很容易。',
+      en: 'What comes back is a TB PPDU: trigger-based, and the one kind of send a device may make only because it was asked. Everything about it was chosen by the access point — the slice, the modulation, the length, the instant. The device supplies the bytes and nothing else. That is the whole trick: simultaneity is impossible to agree on, and easy to dictate.',
+      zh: '回来的这一帧叫作 TB PPDU：基于触发，是唯一一种“只因为被要求了才可以发”的发送。关于它的一切都是接入点定的——用哪一片、用哪档调制、发多长、什么时候开始。设备只负责把字节装进去，别的一概不管。诀窍就在这里：要商量出“同时”几乎不可能，要指定“同时”却很容易。',
     } },
     { heading: { en: 'What the devices keep', zh: '设备保住了什么' }, text: {
       en: 'Inside a triggered round nobody counts down a backoff: the turn has already been handed out. Listening does not stop, though — a device still checks the air before it answers and stays quiet if another network has the room. And between rounds nothing is conducted at all: the same two uploaders queue up and contend exactly as they did before, because the access point only triggers when it wants the uplink organised.',
@@ -79,7 +79,7 @@ export const ofdmaUl: Lesson = {
         { en: '40 bytes, sent slowly at 24 Mb/s so every device can read it', zh: '40 字节，用 24 Mb/s 慢慢发，好让每台设备都读得懂' }],
       [{ en: 'Gap', zh: '间隔' }, N('16 µs'), { en: 'the usual pause inside an exchange', zh: '一次交互内部常规的停顿' }],
       [{ en: 'Two TB PPDU answers, side by side', zh: '两个 TB PPDU 并排' }, N('1988.8 µs'),
-        { en: '16,894 bytes from each uploader, on half the channel each', zh: '每台上传设备 16,894 字节，各占半条信道' }],
+        { en: '16,894 bytes from each uploader on half the channel each: eleven whole frames and 531 bytes of padding', zh: '每台上传设备 16,894 字节，各占半条信道：十一个完整的帧，外加 531 字节填充' }],
       [{ en: 'Gap', zh: '间隔' }, N('16 µs'), { en: 'the same pause again', zh: '同样的那段停顿' }],
       [{ en: 'One multi-station BlockAck', zh: '接入点发一个多站点 BlockAck' }, N('36 µs'),
         { en: 'both answers acknowledged at once', zh: '一次把两个回答都确认掉' }],
@@ -97,7 +97,7 @@ export const ofdmaUl: Lesson = {
       [{ en: 'Ordinary contended sends', zh: '普通竞争发送' }, N('54'), N('996,756')],
     ] },
     { heading: { en: 'An invitation, not an order', zh: '这是邀请，不是命令' }, text: {
-      en: 'About a third of what this pair sent up went in triggered rounds; the rest went the ordinary contended way, and it collided six times doing so. Twice, a trigger frame brought nothing back at all — the access point waits out its timeout and takes the air back. Being told exactly what to do is not the same as being made to do it.',
+      en: 'About a third of what this pair sent up went in triggered rounds; the rest went the ordinary contended way, colliding six times. Twice a trigger frame brought nothing back — the access point waits out its timeout and takes the air back. Being told exactly what to do is not the same as being made to do it.',
       zh: '这两台设备发上去的东西里，大约三分之一走的是触发回合；其余的走普通竞争的老路，一路上还碰撞了六次。另有两次，触发帧什么也没换回来——接入点只好等到超时，再把空口收回去。被清清楚楚地告知该怎么做，和被迫去做，并不是一回事。',
     } },
     { kind: 'steps', heading: { en: 'Arranging one triggered round, step by step', zh: '一次触发回合是怎么安排出来的，一步一步' }, items: [

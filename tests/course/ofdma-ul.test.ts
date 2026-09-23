@@ -23,6 +23,7 @@ import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 import { ACK_TIMEOUT_NS, PHY_MODES, multiStaBaBytes, triggerBytes } from '../../src/engine/phy'
 import { maxPsduBytesFor } from '../../src/engine/mac'
+import { ampduPsduBytes } from '../../src/model/frames'
 import { lessonShapeSuite, ofType, runOf } from './kit'
 
 const MS = 1_000_000
@@ -54,7 +55,7 @@ function without(...ids: string[]): TLRecord[] {
   return [...new Simulation(sc).runUntil(RUN_NS).records]
 }
 
-lessonShapeSuite(ofdmaUl, { proseMax: 1140, runNs: RUN_NS })
+lessonShapeSuite(ofdmaUl, { proseMax: 1160, runNs: RUN_NS })
 
 describe('ofdma-ul · the lesson’s own scene', () => {
   it('is a Tier 2 lesson that needs the downlink half of the idea', () => {
@@ -171,6 +172,19 @@ describe('ofdma-ul · the procedure, against the engine that runs it', () => {
     }
     // a TB PPDU carries no per-user map: 44 µs of opening, not the 48 of a DL MU PPDU
     for (const r of tbPpdus(rs)) expect(r.frame.txTimeNs).toBe(1988.8 * US)
+  })
+
+  it('step 6: the 16,894 B answer is eleven whole frames, and the other 531 B is padding', () => {
+    for (const r of tbPpdus(rs)) {
+      expect(r.frame.ampdu!.mpduCount).toBe(11)
+      expect(new Set(r.frame.msduBytes!)).toEqual(new Set([1500]))
+      expect(r.frame.bytes).toBe(16_894)
+      // eleven of these frames is what the PSDU holds, and a twelfth would not fit the
+      // length the trigger named — so the rest of that length goes out as padding
+      expect(ampduPsduBytes(new Array<number>(11).fill(1500))).toBe(16_894)
+      expect(ampduPsduBytes(new Array<number>(12).fill(1500))).toBeGreaterThan(17_425)
+    }
+    expect(17_425 - 16_894).toBe(531)
   })
 
   it('steps 5 and 7: 28 + 6 per user, 32 + 8 per extra user, and a 45 µs response timeout', () => {
