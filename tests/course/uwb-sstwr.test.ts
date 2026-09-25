@@ -12,10 +12,11 @@
  * the two experiments is also tabulated in `numbers`.
  */
 import { describe, it, expect } from 'vitest'
-import { uwbSstwr, uwbSstwrScenario } from '../../src/course/uwb/uwb-sstwr'
+import { FIG, uwbSstwr, uwbSstwrScenario } from '../../src/course/uwb/uwb-sstwr'
 import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 import type { Block } from '../../src/course/lessonKit'
+import type { TimingSpec } from '../../src/course/diagram'
 import { paragraphTexts } from '../../src/course/readability'
 import { fmtRecord } from '../../src/ui/format'
 import { counterDiff } from '../../src/uwb/clock'
@@ -76,6 +77,9 @@ const formulas = (): Extract<Block, { kind: 'formula' }>[] =>
   uwbSstwr.numbers!.filter((b): b is Extract<Block, { kind: 'formula' }> => b.kind === 'formula')
 /** Every paragraph of `deeper`, joined — the depth the picture no longer carries. */
 const deeperProse = (): string => paragraphTexts(uwbSstwr.deeper!).map((p) => p).join('\n')
+/** The lesson's one `steps` block, item by item — read by two suites, so it lives up here. */
+const stepItems = (): string[] =>
+  uwbSstwr.numbers!.find((b): b is Extract<Block, { kind: 'steps' }> => b.kind === 'steps')!.items
 
 describe('uwb-sstwr · the lesson’s own place in the track', () => {
   it('is the third lesson of the UWB track and needs the frame lesson', () => {
@@ -294,10 +298,14 @@ describe('uwb-sstwr · the raw error the crystal offset buys', () => {
     const tround = counterDiff(tagRx, tagTx)
     expect(tround - treply).toBe(4056)
     expect(ranges()[0].tofRawRctu).toBe(ssTwrRaw(tround, treply))
-    const deep = deeperProse()
-    for (const s of ['26 381 597 885', '26 509 391 059', '127 793 174', '4056']) {
-      expect(deep, s).toContain(s)
+    // Re-paced 2026-09-26: §5.3 deletes the depth paragraph 「手机减掉的那个数」, which
+    // re-printed the three counters the worked table prints one screen above it. The pin
+    // moved with them: the counters are now checked against the table's own cells, and the
+    // 4056 the depth still quotes is checked where it still stands.
+    for (const [row, want] of [[1, '26 381 597 885'], [2, '26 509 391 059'], [3, '127 793 174']] as const) {
+      expect(cell(3, row, 1), want).toBe(want)
     }
+    expect(deeperProse()).toContain('4056')
   })
 })
 
@@ -407,10 +415,11 @@ describe('uwb-sstwr · what the clock-offset correction puts back', () => {
   })
 
   it('the Figure of Merit byte on every received timestamp decodes to 97 % within 0.5 ns', () => {
-    // deeper: "Every UWB_TS line for a received frame ends in "(97 % within 0.5 ns)". That is the
-    //  Figure of Merit byte, 0x16 here: three bits of confidence level (6 → 97 %), two of interval
-    //  (2 → 1 ns) and two of scale (0 → ×0.5). A half-nanosecond window is ±0.25 ns, about 7.5 cm
-    //  of one-way flight." A confidence interval is the whole window.
+    // Re-paced 2026-09-26: §5.1 · 9 makes `uwb-nlos` the single home of this byte, so the depth
+    // paragraph that decoded 0x16 bit by bit is gone from this lesson. The pin did not go with
+    // it — it now guards the ENGINE alone (`fomDecode`, `fomText`, `FOM_LOS`) plus the one claim
+    // this lesson still makes about the byte in step 7: the record carries a FoM and never an
+    // error bar. The three lookup tables are waiting for `uwb-nlos` to claim the sentences.
     expect(FOM_LOS).toBe(0x16)
     expect(FOM_LOS & 0x7).toBe(6)
     expect((FOM_LOS >> 3) & 0x3).toBe(2)
@@ -431,8 +440,83 @@ describe('uwb-sstwr · what the clock-offset correction puts back', () => {
     expect(rxTs).toHaveLength(8)
     for (const r of rxTs) expect(fmtRecord(r), r.node).toContain('(97 % within 0.5 ns)')
     for (const r of ranges()) expect(r.fom).toBe(FOM_LOS)
-    // "a timestamp of exactly this confidence produced the 27.42 m reading"
-    expect(deeperProse()).toContain('27.42 m')
+    // step 7 names the byte and says what it is NOT; nothing on the main path or in the
+    // depth decodes it any more, which is what §5.1 · 9 asked for.
+    expect(stepItems()[6]).toContain('品质因数（figure of merit, FoM）')
+    expect(stepItems()[6]).toContain('从来没有误差棒')
+    for (const s of ['0x16', '97 %', '7.5 cm', '置信']) expect(deeperProse(), s).not.toContain(s)
+  })
+})
+
+/**
+ * The `timing` figure §4 asks of this lesson (Tround 与 Treply 画在两只钟上，四个
+ * 时隙上的斜坡). Its geometry — nothing outside the viewBox, no two labels touching
+ * — is checked course-wide in tests/course/diagram.test.ts; what belongs here is
+ * that every instant and every number in it is this run's own.
+ */
+describe('uwb-sstwr · the figure', () => {
+  const fig = (): TimingSpec => {
+    const b = uwbSstwr.picture!.find((x): x is Extract<Block, { kind: 'diagram' }> => x.kind === 'diagram')!
+    expect(b.spec.kind).toBe('timing')
+    return b.spec as TimingSpec
+  }
+
+  it('is one diagram, on the main path, after the paragraph that names the crystals', () => {
+    const at = uwbSstwr.picture!.findIndex((b) => b.kind === 'diagram')
+    expect(uwbSstwr.picture!.filter((b) => b.kind === 'diagram')).toHaveLength(1)
+    expect((uwbSstwr.numbers ?? []).filter((b) => b.kind === 'diagram')).toHaveLength(0)
+    // 晶振（crystal）and ppm are named in the paragraph above it: a figure's labels are
+    // graded prose, and they come before its caption in the reader's order.
+    expect(at).toBeGreaterThan(uwbSstwr.picture!.findIndex((b) => b.heading === '一块从没被校准过的晶振'))
+  })
+
+  it('the phone’s lane is the run’s own five transmissions and receptions', () => {
+    const tx = ofType(recs(), 'TX_START')
+    const poll = tx.find((r) => r.frame.kind === 'uwbPoll')!
+    expect([FIG.pollTx * 1000, FIG.pollTxEnd * 1000]).toEqual([poll.t, poll.t + poll.frame.txTimeNs])
+    const resp = tx.filter((r) => r.frame.kind === 'uwbResp')
+    expect(resp).toHaveLength(4)
+    resp.forEach((r, i) => {
+      expect(r.t, `slot ${i + 1}`).toBe((i + 1) * FIG.slotUs * 1000)
+      expect(r.frame.txTimeNs / 1000).toBeCloseTo(FIG.respUs, 3)
+    })
+    // the flight the figure draws is the ring's own, rounded to the nanosecond the log prints
+    expect(Math.ceil(metresToNs(RING_M)) / 1000).toBeCloseTo(FIG.flightUs, 6)
+    const lanes = fig().lanes
+    expect(lanes).toHaveLength(5)
+    expect(lanes[0].label).toBe('手机 tag-1')
+    expect(lanes[0].spans).toHaveLength(5)
+    expect(lanes[0].spans[0].label).toBe('发 Poll')
+  })
+
+  it('each anchor’s grey bar is its own reply time, and its label its own raw error', () => {
+    const lanes = fig().lanes.slice(1)
+    expect(lanes.map((l) => l.label)).toEqual(['锚点 1', '锚点 2', '锚点 3', '锚点 4'])
+    const resp = ofType(recs(), 'TX_START').filter((r) => r.frame.kind === 'uwbResp')
+    lanes.forEach((l, i) => {
+      expect(l.spans, l.label).toHaveLength(1)
+      // the bar ends exactly when that anchor answers, so its length IS Treply
+      expect(l.spans[0].toUs * 1000, l.label).toBe(resp[i].t)
+      const treplyNs = resp[i].frame.uwb!.replyRctu! * RCTU_NS
+      expect(Math.abs((l.spans[0].toUs - l.spans[0].fromUs) * 1000 - treplyNs), l.label).toBeLessThan(200)
+      // and the label is the run's own raw error, to two decimals, as the table's last column
+      const want = `+${rawErr(ranges()[i]).toFixed(2)} m`
+      expect(l.spans[0].label, l.label).toBe(want)
+      expect(FIG.rawErrM[i]).toBe(want)
+      expect(cell(0, i, 4)).toBe(want.slice(1))
+    })
+    // the four bars really do ramp: each one slot longer than the last
+    const ends = lanes.map((l) => l.spans[0].toUs)
+    expect(ends).toEqual([2000, 4000, 6000, 8000])
+  })
+
+  it('the window holds the whole round and the axis ticks fall inside it', () => {
+    const round = ofType(recs(), 'UWB_ROUND')[0]
+    expect(round.slots * round.slotNs).toBe(10_000_000)
+    // the figure stops after the fourth answer rather than drawing the empty fifth slot
+    expect(FIG.windowUs * 1000).toBeGreaterThan(4 * FIG.slotUs * 1000 + FIG.respUs * 1000)
+    expect(FIG.windowUs * 1000).toBeLessThan(round.slots * round.slotNs)
+    expect(fig().axis).toEqual({ fromUs: 0, toUs: FIG.windowUs, ticks: [0, 4000, 8000], unit: 'µs' })
   })
 })
 

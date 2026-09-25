@@ -13,13 +13,14 @@
  * noise is a table in `numbers`.
  */
 import { describe, it, expect } from 'vitest'
-import { uwbDstwr, uwbDstwrScenario } from '../../src/course/uwb/uwb-dstwr'
+import { FIG, uwbDstwr, uwbDstwrScenario } from '../../src/course/uwb/uwb-dstwr'
 import { uwbSstwrScenario } from '../../src/course/uwb/uwb-sstwr'
 import { Simulation } from '../../src/engine/simulation'
 import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 import type { FrameDesc } from '../../src/model/frames'
 import type { Block } from '../../src/course/lessonKit'
+import type { SequenceSpec } from '../../src/course/diagram'
 import { paragraphTexts } from '../../src/course/readability'
 import { fmtRecord } from '../../src/ui/format'
 import { counterDiff } from '../../src/uwb/clock'
@@ -135,6 +136,73 @@ const prose = (): string => [
   ...uwbDstwr.observe.map((s) => s), ...uwbDstwr.tryThis.map((s) => s),
   ...uwbDstwr.quiz.flatMap((q) => [q.q, ...q.options.map((o) => o), q.explain]),
 ].join('\n')
+
+/**
+ * The `sequence` figure §4 asks of this lesson (Poll、四个 Response、Final、四份
+ * Report). Its geometry is checked course-wide in tests/course/diagram.test.ts;
+ * what belongs here is that every instant in its gutter and the one distance it
+ * prints are this run's own.
+ */
+describe('uwb-dstwr · the figure', () => {
+  const fig = (): SequenceSpec => {
+    const b = uwbDstwr.picture!.find((x): x is Extract<Block, { kind: 'diagram' }> => x.kind === 'diagram')!
+    expect(b.spec.kind).toBe('sequence')
+    return b.spec as SequenceSpec
+  }
+  const ms = (ns: number): string => `${(ns / 1e6).toFixed(3)} ms`
+
+  it('is the lesson’s one figure, and it sits where the walked paragraph used to', () => {
+    expect(uwbDstwr.picture!.filter((b) => b.kind === 'diagram')).toHaveLength(1)
+    expect((uwbDstwr.numbers ?? []).filter((b) => b.kind === 'diagram')).toHaveLength(0)
+    // after the watch that sends the reader to the Final, so every name on it has been met
+    expect(uwbDstwr.picture!.findIndex((b) => b.kind === 'diagram'))
+      .toBeGreaterThan(uwbDstwr.picture!.findIndex((b) => b.kind === 'watch'))
+    expect(fig().columns.map((c) => c.id)).toEqual(['tag-1', 'anchor-1', 'rest'])
+    // the two real column ids are scenario nodes; `rest` stands for the other three anchors
+    const ids = uwbDstwr.scenario().nodes.map((n) => n.id)
+    expect(ids).toContain('tag-1')
+    expect(ids).toContain('anchor-1')
+    expect(ids.filter((i) => i.startsWith('anchor')).length - 1).toBe(3)
+  })
+
+  it('every instant in the gutter is the run’s own, in the order the run produces them', () => {
+    const tx = ofType(recs(), 'TX_START')
+    const at = (kind: string, node?: string): number =>
+      tx.find((r) => r.frame.kind === kind && (node === undefined || r.node === node))!.t
+    expect(FIG.poll).toBe(`${at('uwbPoll') / 1e6} ms`)
+    expect(FIG.resp1).toBe(`${at('uwbResp', 'anchor-1') / 1e6} ms`)
+    expect(FIG.final).toBe(`${at('uwbFinal') / 1e6} ms`)
+    expect(FIG.report1).toBe(`${at('uwbReport', 'anchor-1') / 1e6} ms`)
+    // the other three answer in slots 2–4 and report in slots 7–9
+    const resp = tx.filter((r) => r.frame.kind === 'uwbResp').map((r) => r.t / 1e6)
+    const rep = tx.filter((r) => r.frame.kind === 'uwbReport').map((r) => r.t / 1e6)
+    expect(FIG.respRest).toBe(`${resp[1]}–${resp[3]} ms`)
+    expect(FIG.reportRest).toBe(`${rep[1]}–${rep[3]} ms`)
+    // the two self-messages: the anchor finishes when the Final lands, the phone at the report
+    expect(FIG.anchorRange).toBe(ms(anchorRanges().find((r) => r.node === 'anchor-1')!.t))
+    expect(FIG.tagRange).toBe(ms(tagRanges().find((r) => r.peer === 'anchor-1')!.t))
+    expect(FIG.anchorRange).toBe('10.237 ms')
+    expect(FIG.tagRange).toBe('12.191 ms')
+    // and both print the same distance, which is the one number on the figure
+    const a1 = anchorRanges().find((r) => r.node === 'anchor-1')!
+    const t1 = tagRanges().find((r) => r.peer === 'anchor-1')!
+    expect(FIG.rangeM).toBe(`${a1.distM.toFixed(2)} m`)
+    expect(a1.tofRctu).toBe(t1.tofRctu)
+  })
+
+  it('the eight messages are the ten frames of the round, grouped, in time order', () => {
+    const msgs = fig().messages
+    expect(msgs).toHaveLength(8)
+    expect(msgs.map((m) => m.label)).toEqual([
+      'Poll', 'Response', 'Response ×3', 'Final', `算出 ${FIG.rangeM}`, 'Report', `同一个 ${FIG.rangeM}`, 'Report ×3',
+    ])
+    // 1 Poll + 4 Responses + 1 Final + 4 Reports = the ten slots the round has
+    expect(1 + 4 + 1 + 4).toBe(PLAN.slots)
+    expect(ofType(recs(), 'TX_START').filter((r) => r.t < PLAN.roundNs)).toHaveLength(PLAN.slots)
+    // the accent is on the Final, which is the message this lesson exists for
+    expect(msgs.filter((m) => m.tone === 'accent').map((m) => m.label)).toEqual(['Final'])
+  })
+})
 
 describe('uwb-dstwr · the lesson’s own place in the track', () => {
   it('is the fourth lesson of the UWB track and needs the single-sided one', () => {
