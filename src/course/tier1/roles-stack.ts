@@ -98,8 +98,8 @@ export const rolesStack: Lesson = {
       zh: '一个站点能发送数据的对端只有一个：它的接入点。哪怕要找的那台设备就在旁边，帧也要先发给接入点；接入点把载荷交给背后那套把几张网连起来的东西（分发系统，DS），又原样拿回来，于是第二次把它发出去。走哪条路，取决于这张网，而不是屋里的直线距离。',
     } },
     { heading: { en: 'Envelopes inside envelopes', zh: '一层套一层的信封' }, text: {
-      en: 'None of that is visible to the layer above, which just hands the MAC a payload and expects it delivered. The MAC puts a header in front and a check behind — that parcel is a frame. The PHY takes the frame, or a batch, puts a pattern in front for any nearby radio to lock on to, and only then is anything on the air.',
-      zh: '这些事，上面那一层一概看不见：它只是把一份载荷交给 MAC，然后等着它被送到。MAC 在前面加一段头、后面加一个校验——这个包裹就是一帧。PHY 拿到一帧、或一批帧，再在最前面放上一段图案，好让附近的射频锁住；到这时，空口上才真的有东西。',
+      en: 'None of that is visible to the layer above, which just hands the MAC a payload and expects it delivered. The MAC puts a header in front and a check behind — that parcel is a frame. The PHY takes the frame, or a batch, and puts a fixed pattern in front — the preamble — for any nearby radio to lock on to. Only then is anything on the air.',
+      zh: '这些事，上面那一层一概看不见：它只是把一份载荷交给 MAC，然后等着它被送到。MAC 在前面加一段头、后面加一个校验——这个包裹就是一帧。PHY 拿到一帧、或一批帧，在最前面放上一段固定的图案——前导码（preamble）——好让附近的射频锁住它；到这时，空口上才真的有东西。',
     } },
   ],
   numbers: [
