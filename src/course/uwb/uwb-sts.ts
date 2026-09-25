@@ -27,13 +27,61 @@
  *
  * Every number quoted below is pinned in tests/course/uwb-sts.test.ts;
  * `npx tsx scripts/lesson-dump.ts uwb-sts` prints it with its length.
+ *
+ * Re-paced 2026-09-26 (docs/superpowers/plans/2026-09-25-course-repacing-proposal.md
+ * §2 · M13). It **stays whole**: a relay attack without the STS leaves the reader
+ * with a defect and no fix. What changed:
+ *  - §4 gives it a `sequence` figure — the honest round, and the round the box in
+ *    the middle forwards early — and the figure replaces the paragraph
+ *    「为什么帧的开头是一份礼物」, whose metaphor §5.2 deletes. The one clause that
+ *    paragraph carried and no figure can (a receiver that times the RMARKER and
+ *    looks at nothing else is timing what the attacker can manufacture) now opens
+ *    the paragraph about the fix, where it belongs.
+ *  - §5.6 says to keep ONE of the two honest paragraphs about what this simulator
+ *    does instead of holding a key, not neither. The one on the main path stays,
+ *    word for word, because that is where the beginner meets the rejection; the
+ *    depth paragraph that told it a second time is now only about what a real
+ *    relay can reach (SYNC and SFD, and no further).
+ *  - the paragraph that re-derived the halving in counter units went: the two
+ *    formula notes and steps 5 and 6 already say it, and the table it introduced
+ *    now carries its heading.
+ * The pin that no main-path sentence claims a correlation was performed is still
+ * here ("no attacker, no check"), and the STS is still about as long as the SYNC
+ * (32 768 chips against 32 512), never two thirds as long again.
  */
 import type { Scenario } from '../../model/scenario'
+import type { SequenceSpec } from '../diagram'
 import { J, firstUwbPoll, firstUwbRange, firstUwbResp, firstUwbRxTs, type Lesson } from '../lessonKit'
 import { uwbIntroScenario } from './uwb-intro'
 
 /** How much earlier the relay lands every leading edge, in nanoseconds. model */
 export const RELAY_ADVANCE_NS = 50
+
+/** The two ranges the figure prints, as the two runs report them. */
+export const HONEST_20_M = '19.95 m'
+export const SPOOFED_M = '4.96 m'
+
+/**
+ * The same 20 m room twice: the honest round, and the round with a box in the
+ * middle. The figure's two ranges are the two runs' own, and the middle column
+ * exists to show what the relay actually has to work with — the part of the
+ * frame that is public.
+ */
+export function uwbStsSequence(): SequenceSpec {
+  return {
+    kind: 'sequence',
+    columns: [
+      { id: 'tag-1', label: '手机 tag-1' },
+      { id: 'box', label: '中间的盒子' },
+      { id: 'anchor-1', label: '锚点 anchor-1' },
+    ],
+    messages: [
+      { from: 'tag-1', to: 'anchor-1', label: '诚实的 Poll', at: HONEST_20_M },
+      { from: 'tag-1', to: 'box', label: '公开的那两段' },
+      { from: 'box', to: 'anchor-1', label: `提早 ${RELAY_ADVANCE_NS} ns`, at: SPOOFED_M, tone: 'accent' },
+    ],
+  }
+}
 
 /**
  * The honest scene with a relay added, at 20 m: `stsOff` decides whether the receiver has
@@ -69,14 +117,17 @@ export const uwbSts: Lesson = {
     { term: 'STS', plain: '加扰时间戳序列：由那个秘密生成的那一段脉冲' },
   ],
   picture: [
-    { heading: '真正值得攻击的是什么', text: '一轮测距里没有任何秘密在传。两台设备无非报一下自己是谁、这是第几轮，真正要紧的东西全在四个计数读数的算术里。所以既没有消息可偷，也没有密码可破。唯一值得动手脚的，是某道边沿看上去是什么时候到的——而一道到得更早的边沿，会让答案变得更小。' },
+    { heading: '真正值得攻击的是什么', text: '一轮测距里没有任何秘密在传：两台设备无非报一下自己是谁、这是第几轮，要紧的东西全在四个计数读数的算术里。既没有消息可偷，也没有密码可破，唯一值得动手脚的是某道边沿看上去是什么时候到的——而一道到得更早的边沿，会让答案变小。' },
     { kind: 'watch', jump: 0, heading: '先看一轮诚实的测距', text: '载入仿真，走完一轮。这里没有人在攻击：Poll 发出去，锚点（anchor）作答，测距行落在离真值几厘米的地方。把这一行记住——下面的一切都拿它做对照。' },
     { heading: '站在中间的人', text: '现在在手机和锚点之间放一个盒子。它把传来的东西听住，再朝另一端把同样的东西发一遍。它跑不过光，所以没法让一次真实的到达变早。但它能做的是：还没听完就开始发——前提是它已经能猜出接下来是什么。猜，然后把猜出来的提前发出去：这就是中继攻击（relay attack），而且它的全部内容就是这么多。' },
-    { heading: '为什么帧的开头是一份礼物', text: '一帧测距帧的头部，按设计就是公开的。同步字段（SYNC）是每个接收端本来就必须握有的图案，否则它根本锁不住信号；结束它的那个帧起始定界符（SFD）同样人尽皆知。攻击者当然也握着它们。于是，一个只对 RMARKER（ranging marker）计时、别的什么都不看的接收端，它计的正是攻击者压根不用听就能造出来的东西。' },
-    { heading: '一段只有两个人写得出的脉冲', text: '解法是：在取时间的那个位置，放上一段猜不出来的东西。会话的两端共同持有一个秘密——一把密钥（key）——并各自用它生成同一段很长的脉冲：加扰时间戳序列（STS）。真实的接收端手里有自己的那一份，它拿它和收到的东西逐段比对，只有对得上才认下这个时间戳。而中间那个盒子没有这把密钥，听到的只是噪声，也就没有任何东西可以提前发出去。' },
+    {
+      kind: 'diagram', heading: '诚实的一轮，和被转发的一轮', spec: uwbStsSequence(),
+      caption: '同一个 20 m 的房间。上面那条是诚实的一轮：Poll 直接飞到锚点，测距行报出 19.95 m。下面是转发——中间那个盒子只要猜出一帧开头那两段公开的图案——同步字段（SYNC）和结束它的帧起始定界符（SFD）——就能提早 50 ns 把它发出去；于是同一个房间报出 4.96 m。',
+    },
+    { heading: '一段只有两个人写得出的脉冲', text: '一个只对 RMARKER（ranging marker）计时、别的什么都不看的接收端，计的正是攻击者不用听就能造出来的东西。解法是：在取时间的那个位置，放上一段猜不出来的东西。会话的两端共同持有一个秘密——一把密钥（key）——并各自用它生成同一段很长的脉冲：加扰时间戳序列（STS）。真实的接收端手里有自己的那一份，它拿它和收到的东西逐段比对，只有对得上才认下这个时间戳。而中间那个盒子没有这把密钥，听到的只是噪声，也就没有任何东西可以提前发出去。' },
     { heading: '你实际看到的是什么', text: '上面那种比对，是真实硬件的做法，也是标准的要求。本仿真器并不这么做：它不持有密钥，不生成脉冲，也不做任何比对。它模拟的是比对的结果——只要场景里放了转发、而且序列开着，这次接收就被拒绝；序列一关，就一律接受。这也正是这里把转发的提前量写死成 50 ns 的原因：这个房间里没有谁需要去把它检测出来。' },
     { kind: 'watch', jump: 3, heading: '现在把这段序列关掉', text: '载入第一个变体。这时中间的转发在工作，而那段序列是关掉的，于是被偷走的提前量落在这一轮的两次接收上。读一读测距行，再和旁边的真值比一比。' },
-    { heading: '另一种结局：什么也没有', text: '把序列开回来，同样的转发就一个距离也产不出来了。这次接收在打时间戳之前就被拒掉，时隙也就这么空过去。被拒绝的一轮和丢失的一轮，画在地图上是一个样。可在日志里它们不是一个样——而这正是要点。' },
+    { heading: '另一种结局：什么也没有', text: '把序列开回来，同样的转发就一个距离也产不出来了：这次接收在打时间戳之前就被拒掉，两个时隙空过去。被拒绝的一轮和丢失的一轮，画在地图上一个样，在日志里不一样——而这正是要点。' },
   ],
   numbers: [
     { kind: 'table', heading: '同一轮的三种结局', head: [
@@ -95,8 +146,7 @@ export const uwbSts: Lesson = {
       '往返时间降了 3195 格，作答时间升了 3195 格；两者之差折半，正好把整个提前量还了回来：凭空少掉手机从未走过的 14.99 m。',
     ] },
     { kind: 'formula', heading: '50 ns 值多少', text: '50 ns × 0.299792458 m/ns = 14.99 m', note: '不是它的一半，也不是两倍：这一轮的两次接收都被提前了，于是这 50 ns 的提前量整个地、一次性地从飞行时间里被扣掉。' },
-    { heading: '同一次相减，换成计数单位', text: '两个接收计数值都偏低了同样多。这让往返时间变短、让作答时间变长，于是两者之差降了提前量的两倍，再一折半，正好剩下一个提前量。' },
-    { kind: 'table', head: [
+    { kind: 'table', heading: '同一次相减，换成计数单位', head: [
       '读数', '诚实的 20 m（第三个变体）', '有转发时', '出处',
     ], rows: [
       ['anchor-1 RX RMARKER ← tag-1 poll', '26 381 601 449', '26 381 598 254', 'UWB_TS'],
@@ -109,7 +159,7 @@ export const uwbSts: Lesson = {
     { kind: 'formula', heading: '被偷走的是一个常数', text: '4267 − 1072 = 3195 RCTU；19.95 m − 4.96 m = 14.99 m', note: '它不随距离缩放，这也是两个变体都站在 20 m 的原因：同样的转发放在 5 m 上，测距会算成负数，而负的米数骗不了任何人。' },
   ],
   deeper: [
-    { heading: '仿真做了什么，没做什么', text: '这里的攻击者只是一个数：会话的每一次接收都提早 advanceNs 落地。真实的转发攻击是两台射频加一根线，它换来的提前量靠的是预测帧头中确定的那一段——所以它能拿到的提前量，取决于这一帧里有多少是可预测的，而不取决于攻击者的预算。对一个 SP1 分组来说，可预测的就是 SYNC 与 SFD，到 STS 的第一个码片就戛然而止。' },
+    { heading: '真实的转发能偷到多少', text: '本课里的攻击者只是一个数：会话的每一次接收都提早 advanceNs 落地。真实的转发攻击是两台射频加一根线，它换来的提前量靠的是预测帧头中确定的那一段——所以它能拿到多少，取决于这一帧里有多少是可预测的，而不取决于攻击者的预算。对一个 SP1 分组来说，可预测的就是 SYNC 与 SFD，到 STS 的第一个码片就戛然而止。' },
     { heading: '为什么说不的是锚点', text: '日志里那次拒绝出自锚点，针对的是 Poll 帧——因为 Poll 是这一轮的第一次接收，转发同样让它提早到达。标签根本没机会去判断一帧应答，因为锚点压根没发：它的时隙先超时了。于是一个有防护的会话在遭受攻击时，让攻击者白费一整轮，同时还向基础设施透露了一点情况——这比毫无防护的情形已经多得多。' },
     { heading: '在这里，长度就是安全性', text: '一个逐码片去猜这段序列的攻击者，每个码片赢的概率是二分之一，所以真正定下胜算的，是这段序列有多长。本仿真器发出的分组配置，在标记与头部之间放了 32 768 个码片——与开头那段 SYNC 差不多长（SYNC 是 32 512 个码片），而这一段却一个比特的信息也不携带。' },
   ],

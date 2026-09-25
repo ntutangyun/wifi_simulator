@@ -24,8 +24,27 @@
  * procedure itself on the main path: `numbers` carries SS-TWR as the six steps
  * src/uwb/device.ts takes, in its order, and the four-counter table below runs
  * them on this scene value by value.
+ *
+ * Re-paced 2026-09-26 (docs/superpowers/plans/2026-09-25-course-repacing-proposal.md
+ * §2 · M13). It **stays whole** — it is the track's opener and a reader may
+ * arrive knowing only Wi-Fi Tier 1 — and it sheds padding instead:
+ *  - §4 gives it a `timing` figure, 两只钟上的四个计数读数, and the figure
+ *    replaces prose: the paragraph that announced the four UWB_TS records and
+ *    their order is gone, because the figure shows which two stamps each device
+ *    owns and its caption carries the unit (RCTU) that paragraph introduced.
+ *  - §5.1 · 8 deletes the crystal-offset depth (「一次无事可修的修正」,
+ *    「换成真实的晶振要付多少代价」): both pre-played the whole of `uwb-sstwr`,
+ *    which owns the reply-time ramp, the ±20 ppm tolerance and the Coffs
+ *    correction and pins all three in tests/course/uwb-sstwr.test.ts. §2 says
+ *    "its whole `deeper` section"; §5.1 names the two paragraphs, and §5.1 is
+ *    the one that says which, so the 40-bit counter (which explains this
+ *    lesson's own table of twelve-digit readings) and the note about the Wi-Fi
+ *    half's zero propagation delay stay.
+ *  - what the correction is worth on this scene — 7 cm even at 0 ppm — is on the
+ *    main path in one clause, with a forward pointer instead of a derivation.
  */
 import type { Scenario } from '../../model/scenario'
+import type { TimingSpec } from '../diagram'
 import { J, anchor, firstUwbPoll, firstUwbRange, firstUwbResp, firstUwbRxTs, rangingLab, uwbSc, uwbTag, type Lesson } from '../lessonKit'
 
 /** The lab: one anchor, one phone, exactly dM metres apart at the same height. */
@@ -34,6 +53,44 @@ export function uwbIntroScenario(dM: 5 | 20): Scenario {
     anchor('anchor-1', 'Anchor 1', 1, 4, 2.2, 0),
     uwbTag('tag-1', 'Phone', 1 + dM, 4, 2.2, 0),
   ], { method: 'ss', nlos: false })
+}
+
+/**
+ * The four instants of the round, in microseconds, as the timeline puts them:
+ * the poll leaves at 0 and the answer at the top of the next 2 ms slot, and the
+ * two arrivals are five metres of air later. Every value is read back out of the
+ * run in tests/course/uwb-intro.test.ts, so the figure cannot drift from it.
+ */
+export const FIG = {
+  pollTx: 0, pollTxEnd: 197.628,
+  pollRx: 0.017, pollRxEnd: 197.645,
+  respTx: 2000, respTxEnd: 2187.372,
+  respRx: 2000.017, respRxEnd: 2187.389,
+  windowUs: 2200,
+} as const
+
+/**
+ * The round on two clocks: which two stamps belong to which device. The figure
+ * is drawn to scale, so what it really shows is how little of the round is a
+ * frame — the wait between the poll and the answer is five orders of magnitude
+ * bigger than the flight the lesson is after, and that wait is what the two
+ * subtractions below cancel.
+ */
+export function uwbIntroTiming(): TimingSpec {
+  return {
+    kind: 'timing',
+    lanes: [
+      { label: '手机 tag-1', spans: [
+        { label: '发 Poll', fromUs: FIG.pollTx, toUs: FIG.pollTxEnd, tone: 'accent' },
+        { label: '收应答', fromUs: FIG.respRx, toUs: FIG.respRxEnd, tone: 'accent' },
+      ] },
+      { label: '锚点 anchor-1', spans: [
+        { label: '收 Poll', fromUs: FIG.pollRx, toUs: FIG.pollRxEnd },
+        { label: '发应答', fromUs: FIG.respTx, toUs: FIG.respTxEnd },
+      ] },
+    ],
+    axis: { fromUs: 0, toUs: FIG.windowUs, ticks: [0, 1000, 2000], unit: 'µs' },
+  }
 }
 
 export const uwbIntro: Lesson = {
@@ -58,11 +115,15 @@ export const uwbIntro: Lesson = {
     // at length, what `why` opens with — that a distance built on loudness inherits every
     // obstacle in the room — and a track's first lesson is held to 1000 words.
     { heading: '发出的是嗒，不是嗡', text: '大多数射频会把一个音调稳稳地保持很长一段；你问接收端这个音调是从哪一刻开始的，它只能给个大概。超宽带改发码片（chip）——短到几乎刚开始就已经结束的脉冲。边沿越陡，答案越利落，能答到零点几纳秒。' },
-    { kind: 'watch', jump: 0, heading: '一问，一答', text: '把仿真载入，按下播放。被定位的那一端叫标签（tag），在这个场景里就是那部手机，日志里写作 tag-1；它发出一帧 Poll，也就是开启一轮测距的那一帧。随后作答的是固定在墙上的那台射频，也就是锚点，日志里写作 anchor-1。把时间线一直放大，直到你能看见两条泳道之间那道极窄的缝隙：那道缝隙就是它们之间的空气。' },
+    { kind: 'watch', jump: 0, heading: '一问，一答', text: '把仿真载入，按下播放。被定位的那一端叫标签（tag），这里就是那部手机，日志里写作 tag-1；它发出一帧 Poll，开启一轮测距。作答的是墙上那台射频，也就是锚点，日志里写作 anchor-1。把时间线一直放大，直到看见两条泳道之间那道极窄的缝隙：那就是它们之间的空气。' },
     { text: '两端都不去记自己这一帧的开头或结尾，它们记的是帧里同一个地标——RMARKER（ranging marker），在每一帧测距帧内部稍靠前一点、双方事先约定好要一起打时间戳的那个瞬间。' },
-    { heading: '两只对不上的钟', text: '手机和锚点各用各的晶振（crystal）数时间，从来没有人去把这两只钟对齐。但这不要紧：每台设备减的都只是自己的两次读数，未知的起点因此被约掉。' },
-    { heading: '差几厘米，算差吗', text: '每一个时间戳都带着一点噪声：一个脉冲被判定为“已经到达”的那一刻本身就不确定，而时钟只能一格一格地数。四次读数里有两次是接收，日志报出的距离也就落在真值两侧几厘米的范围里。这是这台射频在正常工作，不是出了毛病。' },
-    { kind: 'watch', jump: 3, text: '跳到算出距离的那一行——一行三个数，而下面那套步骤讲的就是它们是怎么来的。' },
+    {
+      kind: 'diagram', heading: '两只钟上的四个读数', spec: uwbIntroTiming(),
+      caption: '按比例画：两段帧之间那 2 ms 的等待，比要测的飞行时间大五个数量级。手机减自己的两次（发 Poll、收应答）得到往返时间，锚点减自己的两次（收 Poll、发应答）得到作答时间。四条 UWB_TS 记录就是这四个时刻的计数器读数，单位是 RCTU（ranging counter time unit）。',
+    },
+    { heading: '两只对不上的钟', text: '手机和锚点各用各的晶振（crystal）数时间，谁也没去对齐这两只钟。但这不要紧：每台设备减的都只是自己的两次读数，未知的起点因此被约掉。' },
+    { heading: '差几厘米，算差吗', text: '每一个时间戳都带着一点噪声：一个脉冲被判定为“已经到达”的那一刻本身就不确定，而计数只能一格一格地取整。所以日志报出的距离会落在真值两侧几厘米——这是这台射频在正常工作，不是出了毛病。' },
+    { kind: 'watch', jump: 3, text: '跳到算出距离的那一行——一行三个数，下面那套步骤讲的就是它们怎么来的。' },
   ],
   numbers: [
     { kind: 'formula', heading: '单边双向测距（SS-TWR）', text: 'T̂prop = (Tround − Treply) / 2', note: 'Tround 是手机在自己钟上做的那次相减，Treply 是锚点在自己钟上做的那次。' },
@@ -74,8 +135,7 @@ export const uwbIntro: Lesson = {
       '往返时间减去作答时间，再折半：一趟飞行，此时还是以“格”计的。',
       '格数 × 15.650 ps × 0.299792458 m/ns：这就是测距行上写出的米数。',
     ] },
-    { heading: '要相减的那四行', text: '每一条 UWB_TS 记录都是一次测距计数器读数，单位是 RCTU（ranging counter time unit）；这一轮产生四条，顺序如下。' },
-    { kind: 'table', head: [
+    { kind: 'table', heading: '要相减的那四行', head: [
       '日志行', '计数值（RCTU）',
     ], rows: [
       ['tag-1 TX RMARKER → * poll', '336 207 494 656'],
@@ -84,7 +144,7 @@ export const uwbIntro: Lesson = {
       ['tag-1 RX RMARKER ← anchor-1 resp', '336 335 290 928'],
     ] },
     { kind: 'formula', text: 'Tround = 336 335 290 928 − 336 207 494 656 = 127 796 272\nTreply = 26 509 392 384 − 26 381 598 252 = 127 794 132\nT̂prop = (127 796 272 − 127 794 132) / 2 = 1070 RCTU = 16.75 ns = 5.02 m', note: '两个几千亿量级的数字，差值只有 2140。真值是 1065.7 格：读数偏大 4.3 格，因为两次接收计数各带 100 ps 噪声，而计数只能取整。' },
-    { kind: 'formula', heading: '测距行是怎么写的', text: 'tag-1 range → anchor-1 (SS): 4.95 m (true 5.00 m, raw 5.02 m)', note: 'raw 就是上面那个 1070；写在前面的那个数，是同一次测量做了时钟偏差（clock offset）修正之后的结果。这里两个晶振都是完美的，可答案还是挪动了 7 cm——原因见“再深一层”。' },
+    { kind: 'formula', heading: '测距行是怎么写的', text: 'tag-1 range → anchor-1 (SS): 4.95 m (true 5.00 m, raw 5.02 m)', note: 'raw 就是上面那个 1070；写在前面的那个数，是同一次测量做了时钟偏差（clock offset）修正之后的结果。这里两个晶振都是完美的，本来无事可修，可答案还是挪动了 7 cm——因为那份修正依据的是一个自己也带噪声的估计。这个估计从哪里来、噪声有多大，本轨道后面有专门一课。' },
     { kind: 'table', heading: '单位换算', head: [
       '量', '数值', '出处',
     ], rows: [
@@ -99,19 +159,17 @@ export const uwbIntro: Lesson = {
       ['5 m', '16.678 ns', '17 ns'],
       ['20 m', '66.713 ns', '67 ns'],
     ] },
-    { text: '事件队列只数整纳秒，且一律向上取整，好让没有一帧比物理允许的更早送达。计数器不取整：它以 15.650 ps 为单位，这张网格比时间线精细 64 倍。' },
+    { text: '事件队列只数整纳秒，且一律向上取整，好让没有一帧比物理允许的更早送达。计数器不取整：它以 15.650 ps 为一格，比时间线精细 64 倍。' },
   ],
   deeper: [
-    { heading: '一次无事可修的修正', text: '时钟偏差修正的做法，是用接收端从载波上估出的相对频率误差去缩放 Treply。而估计器自身带有噪声，本模型里是 0.2 ppm；2 ms 应答时延的 0.2 ppm 就是 0.4 ns，其中一半会落到距离上。这正是藏在一个完美场景里的那一课：不管晶振有没有真的偏，这种方法的误差都随应答时长而增长。' },
     { heading: '那些巨大的计数值是怎么来的', text: '本模型里计数器是 40 位宽，标准只要求至少 32 位。每格 15.650 ps，2⁴⁰ 格就是 17.2 秒，之后回绕归零。没有任何机制去复位它、也不会把它对齐到任何基准，所以上面每一次相减都是模 2⁴⁰ 的；而你读到的那些几千亿量级的数值，不过是会话开始那一刻两只晶振碰巧停在的位置。' },
-    { heading: '换成真实的晶振要付多少代价', text: '这里两个晶振都被钉死在 0 ppm，而现实中没有哪一对设备是这样：标准允许 ±20 ppm。当相对偏差是 20 ppm 时，锚点那 2 ms 的应答会被测错 40 ns，其中一半直接落到距离上——20 ns，六米，加在一个五米的距离上。本轨道后面有一课会撤掉这份宽容。' },
     { heading: 'Wi-Fi 那一半从不让你看见的时延', text: '本仿真器的 Wi-Fi 那一半，是有意让接收端在发送的同一瞬间收到帧的。在一套住宅的尺度上，传播时延不过几十纳秒，而时隙是 9 µs，丢掉它对 MAC 毫无影响。UWB 做不了这个简化，因为在这里时延不是误差项，它就是被测量的对象。' },
   ],
   sources: [
     'IEEE Std 802.15.4-2024 是已经发布的标准，不是草案。第 16 章的 HRP UWB PHY、§10.29 的测距计数器与 RMARKER、§10.32 的 SP1 分组配置都是标准正文；本课里每一个码片数和字段时长都由它们推导而来。',
     '有两个数字不属于标准：2 ms 的测距时隙和 200 ms 的测距块，来自 FiRa 的 UWB 配置文件。',
     '下面这些是仿真器自己的模型取值，列出来方便你质疑：−14 dBm 发射功率、−93 dBm 接收灵敏度、每个接收时间戳上 100 ps 的 1σ 噪声、时钟偏差估计中残留的 0.2 ppm 误差，以及墙体给遮挡路径额外增加的时延。',
-    '“再深一层”里引用的 ±20 ppm 晶振容差出自 §16.4.9。40 位计数器是模型取值，标准正文只要求至少 32 位。',
+    '40 位计数器是模型取值，标准正文只要求至少 32 位；§16.4.9 的 ±20 ppm 晶振容差，要到讲时钟速率的那一课才用得上。',
   ],
   scenario: () => uwbIntroScenario(5),
   variants: [

@@ -14,7 +14,7 @@
  * assertion covers this experiment exactly.
  */
 import { describe, it, expect } from 'vitest'
-import { uwbFrame } from '../../src/course/uwb/uwb-frame'
+import { uwbFrame, uwbFrameFields } from '../../src/course/uwb/uwb-frame'
 import { uwbIntroScenario } from '../../src/course/uwb/uwb-intro'
 import { ScenarioSchema } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
@@ -149,10 +149,12 @@ describe('uwb-frame · what 197.628 µs is made of', () => {
   })
 
   it('the frame runs SYNC, SFD, the stamp, STS between its gaps, PHR, PSDU', () => {
-    // the steps block "The frame in order": "SYNC, the long known pattern" / "SFD, the short
-    //  marker that ends it" / "the RMARKER: the first chip after the SFD" / "the STS, between two
-    //  short gaps" / "the PHR" / "the PSDU". (An earlier wording, "everything after it is the
-    //  message", was false of this layout.)
+    // The six-item list "The frame in order" stood here until the 2026-09-26 re-pacing; §5.4
+    // gives the order to the `fields` figure, whose own boxes are pinned below in
+    // "uwb-frame · the figure of the frame". What this test still measures is the engine's
+    // layout, which is what both the figure and the caption's claim rest on: the stamp falls
+    // after SYNC and SFD and before the STS, the PHR and the PSDU. (An earlier wording,
+    // "everything after it is the message", was false of this layout.)
     expect(layout.map((s) => s.key)).toEqual(['sync', 'sfd', 'stsGap', 'sts', 'stsGap', 'phr', 'psdu'])
     // the stamp falls on the boundary between the SFD and the first STS gap — after SYNC and SFD,
     // and before the STS, the PHR and the PSDU, which is what the sentence now says
@@ -239,6 +241,43 @@ describe('uwb-frame · what 197.628 µs is made of', () => {
     expect(txs(rs, 'uwbResp')[0].t).toBe(2 * MS)
     // the poll is ready long before its slot ends: 197.628 µs of 2 ms
     expect(txs(rs, 'uwbPoll')[0].t).toBe(0)
+  })
+})
+
+describe('uwb-frame · the figure of the frame', () => {
+  // §4 gives this lesson a `fields` figure — SYNC | SFD | RMARKER | STS | PHR | PSDU with
+  // their durations — and it replaces the six-item list that used to name the order (§5.4).
+  // Every box is therefore pinned against the PPDU the engine builds, box for box.
+  const poll = txs(recs(), 'uwbPoll')[0]
+  const layout = uwbPpduLayout(poll.frame)
+  const spec = uwbFrameFields()
+
+  it('one box per segment, in the engine’s order and to the engine’s durations', () => {
+    expect(spec.unit).toBe('µs')
+    expect(spec.fields.map((f) => f.size)).toEqual(layout.map((s) => s.durNs / US))
+    expect(spec.fields).toHaveLength(7)
+    // and the labels name the segments the layout names, in its order
+    expect(spec.fields.map((f) => f.label.split(' ')[0]))
+      .toEqual(['SYNC', 'SFD', '↓RMARKER', 'STS', '间隔', 'PHR', 'PSDU'])
+  })
+
+  it('the box the stamp is drawn on is the one the RMARKER falls in', () => {
+    // The caption's claim: "the stamp is on the first chip of the third box, the first chip
+    // after the SFD". The third segment is the 512-chip silence, and the engine marks the
+    // RMARKER at its start — SYNC + SFD into the frame.
+    const stamped = layout.findIndex((s) => s.rmarkerNs !== undefined)
+    expect(stamped).toBe(2)
+    expect(spec.fields[stamped].label).toBe('↓RMARKER')
+    expect(layout[stamped].key).toBe('stsGap')
+    expect(layout[stamped].durNs).toBe(chipsToNs(STS_GAP_CHIPS))
+    expect(layout[stamped].rmarkerNs).toBe(chipsToNs(UWB_RMARKER_CHIPS))
+    expect(spec.fields.slice(0, stamped).reduce((n, f) => n + f.size, 0) * US).toBe(73_269)
+  })
+
+  it('the total under the row is the frame, split into structure and message', () => {
+    expect(spec.total).toBe('整帧 197.628 µs：结构 160.449，消息 37.179')
+    expect(spec.fields.reduce((n, f) => n + f.size, 0) * US).toBe(uwbPpduNs(30))
+    expect(spec.fields[6].size * US).toBe(layout.find((s) => s.key === 'psdu')!.durNs)
   })
 })
 

@@ -7,9 +7,65 @@
  * no new scenario and the recorded hashes of `uwb-frame` are `uwb-intro`'s.
  *
  * Every number quoted below is pinned in tests/course/uwb-frame.test.ts.
+ *
+ * Re-paced 2026-09-26 (docs/superpowers/plans/2026-09-25-course-repacing-proposal.md
+ * §2 · M13). It **stays whole** — the field walk and the RMARKER procedure are
+ * one question, "where is the time taken and why there" — and this lesson is the
+ * pair the readability programme was written against, so it is touched only
+ * where the plan requires:
+ *  - §4 gives it a `fields` figure, and the figure replaces prose: the six-item
+ *    list 「整帧的顺序」 is gone (§5.4), and the paragraph that opened
+ *    「时间戳之前的一切…之后的一切…」 with it, because the figure and its caption
+ *    carry both. What is left of that paragraph is the part no picture can show:
+ *    why not at the frame's start, and why not at its end.
+ *  - the STS teaser is one line (§5.1 · 10); `uwb-sts` owns it.
+ *  - the slot teaser is one line (§5.1 · 10); `uwb-blocks` owns the grid, and
+ *    the term is now written 测距时隙（ranging slot）, which is what 时隙 means in
+ *    this track.
+ * Nothing else moves: the durations, the two `steps`, both tables and the
+ * register are as they were.
  */
+import type { FieldsSpec } from '../diagram'
 import { J, firstUwbPoll, firstUwbResp, type Lesson } from '../lessonKit'
+import {
+  DATA_SYMBOL_CHIPS, PHR_SYMBOLS, PHR_SYMBOL_CHIPS, PSYM_CHIPS, SFD_SYMBOLS,
+  STS_ACTIVE_CHIPS, STS_GAP_CHIPS, SYNC_SYMBOLS, chipsToNs, psduSymbols, uwbPollBytes,
+} from '../../uwb/phy'
 import { uwbIntroScenario } from './uwb-intro'
+
+/** One segment of the poll, in microseconds — `chipsToNs` of the chip count the PHY gives it. */
+const us = (chips: number): number => Math.round(chipsToNs(chips)) / 1000
+
+/**
+ * The poll from left to right, each box as wide as the field is long. The chip
+ * counts are the PHY's own constants, so a figure cannot drift from the frame
+ * the engine builds, and the third box is the 512-chip silence after the SFD
+ * whose first chip is the RMARKER — which is why the stamp is drawn there.
+ */
+export function uwbFrameFields(): FieldsSpec {
+  const psdu = us(psduSymbols(uwbPollBytes(1)) * DATA_SYMBOL_CHIPS)
+  const sfd = us(SFD_SYMBOLS * PSYM_CHIPS)
+  const gap = us(STS_GAP_CHIPS)
+  const phr = us(PHR_SYMBOLS * PHR_SYMBOL_CHIPS)
+  // A box too narrow to hold its own duration carries it in the label instead, so every
+  // field in the figure states its length; the widest three print it under their name.
+  const fields = [
+    { label: 'SYNC', size: us(SYNC_SYMBOLS * PSYM_CHIPS) },
+    { label: `SFD ${sfd.toFixed(3)} µs`, size: sfd },
+    { label: '↓RMARKER', size: gap },
+    { label: 'STS', size: us(STS_ACTIVE_CHIPS) },
+    { label: `间隔 ${gap.toFixed(3)} µs`, size: gap },
+    { label: `PHR ${phr.toFixed(3)} µs`, size: phr },
+    { label: 'PSDU', size: psdu },
+  ]
+  const total = fields.reduce((n, f) => n + f.size, 0)
+  return {
+    kind: 'fields',
+    fields,
+    unit: 'µs',
+    total: `整帧 ${total.toFixed(3)} µs：结构 ${(total - psdu).toFixed(3)}，消息 ${psdu.toFixed(3)}`,
+  }
+}
 
 export const uwbFrame: Lesson = {
   id: 'uwb-frame',
@@ -32,22 +88,18 @@ export const uwbFrame: Lesson = {
   ],
   picture: [
     { heading: '先锁住，再去听', text: '接收端在找到脉冲落在哪里之前，什么也解不出来。所以一帧测距帧的开头是一长串图案已知的脉冲，也就是同步字段（SYNC）——接收端拿自己手里的同一份副本去滑动比对，直到两者对齐。紧接着是帧起始定界符（SFD）：另一段很短、也不一样的图案，它唯一的任务就是宣布 SYNC 到此结束。从这道边沿往后，两端数的就是同一个起点了。' },
-    { heading: '一段谁也伪造不了的序列', text: '如果攻击者能把你用来计时的那一段原样重放，他就能让你以为一辆锁着的车比实际更近。所以帧里还带着一段加扰时间戳序列（STS）：一段由密钥（key）生成的脉冲，而这把密钥只有本次会话的那两台射频握有。接收端知道接下来该是什么，因此能给它计时；别人看到的只是噪声，也造不出提前的版本。这里的安全性是一种计时上的性质，而不是对消息做加密。' },
+    { heading: '一段谁也伪造不了的序列', text: '帧里还有一段加扰时间戳序列（STS）：一段由密钥（key）生成、只有本次会话那两台射频预测得出的脉冲，它让这一帧被计时的那个位置没法被别人伪造。下一课整节都在讲它。' },
     { kind: 'watch', jump: 0, heading: '把这条带子从左读到右', text: '载入仿真，跳到 Poll 帧，再在帧细节视图里把它打开。把那条彩色的带子从左读到右，每读到一段就说出它是什么。这条带子的刻度是码片（chip）：一个脉冲的时长，也是这台射频在时间上能摆放的最小单位。' },
     // "Two words, two sizes" stood here until the step-1 fix wave: 75 words reconciling a
     // table that counted some fields in symbols and others in chips. Every Field cell of
     // that table now gives its chips, so the paragraph had nothing left to explain.
     { heading: '头部与消息', text: '到这里，这一帧才第一次真正开口说话。物理头（PHR）交代消息有多长、用多快的速率编码，这两件事接收端必须先知道，才读得懂哪怕一个比特。再往后是消息本身，也就是 PSDU（PHY service data unit）：Poll 帧里三十个字节，应答帧里二十个。再没有别的要发了。一帧测距帧不是用来搬运数据的，它是用来在时间上占住一个确定位置的。' },
-    { heading: '两个时隙，一轮测距', text: '这两帧本来可以挨得更近，但会话不让。它把时间切成等长的时隙，一帧给一个：Poll 在第一个，应答在第二个；哪怕应答早就准备好了，也要等到自己那个时隙的开头才出发。一个时隙里大部分时间是静默的，而这是有意为之——正是这张固定的格子，让日后许多设备能共用同一个房间。' },
-    { kind: 'steps', heading: '整帧的顺序', items: [
-      'SYNC，那一长串已知图案',
-      'SFD，结束它的那一小段标记',
-      'RMARKER：SFD 之后的第一个码片',
-      'STS，夹在两段短间隔之间',
-      'PHR',
-      'PSDU',
-    ] },
-    { heading: '时间戳打在哪里', text: '时间戳之前的一切，是为了让两台射频都锁住信号；它之后的一切，是这一帧要证明和要说的内容。把时间戳打在帧首，接收端那时还没锁住；打在帧尾，两端计的就不是同一件事了。整帧里，只有这一道边沿双方都能精确到码片零头地说清楚——所以时间戳就打在这里。' },
+    {
+      kind: 'diagram', heading: '一帧 Poll，按时长画', spec: uwbFrameFields(),
+      caption: '每一格都和它自己的时长成比例。时间戳打在第三格的第一个码片上，也就是 SFD 之后的第一个码片；它前面的两段是为了让两端锁住信号，它后面的 STS、PHR 与 PSDU 再也动不了这个时刻。',
+    },
+    { heading: '两个时隙，一轮测距', text: '这两帧本来可以挨得更近，是会话不让：它把时间切成等长的测距时隙（ranging slot），一帧一个——Poll 在第一个，应答在第二个，哪怕应答早就准备好，也要等到自己那个时隙的开头才出发。' },
+    { heading: '为什么打在那里', text: '把时间戳打在帧首，接收端那时还没锁住；打在帧尾，两端计的就不是同一件事了。整帧里，只有这一道边沿双方都能精确到码片零头地说清楚——所以时间戳就打在这里。' },
   ],
   numbers: [
     { kind: 'table', heading: '197.628 µs 由什么组成', head: [

@@ -9,7 +9,7 @@
  * round — moved with its sentences to tests/course/uwb-frame.test.ts.
  */
 import { describe, it, expect } from 'vitest'
-import { uwbIntro, uwbIntroScenario } from '../../src/course/uwb/uwb-intro'
+import { FIG, uwbIntro, uwbIntroScenario, uwbIntroTiming } from '../../src/course/uwb/uwb-intro'
 import { LESSONS } from '../../src/course/lessons'
 import { Simulation } from '../../src/engine/simulation'
 import { SLOT_NS } from '../../src/engine/phy'
@@ -143,12 +143,58 @@ describe('uwb-intro · the units', () => {
   })
 
   it('the standard allows ±20 ppm, which costs six metres on a 2 ms reply', () => {
-    // "Going deeper": "the standard allows ±20 ppm. At 20 ppm of relative offset the anchor’s 2 ms
-    //  reply is mismeasured by 40 ns, half of which lands straight on the range — 20 ns, six metres"
+    // `sources`: "the ±20 ppm crystal tolerance of §16.4.9 is not needed until the lesson about
+    //  clock rate". The depth paragraph that spent that number here — "at 20 ppm of relative
+    //  offset the anchor's 2 ms reply is mismeasured by 40 ns, half of which lands on the range"
+    //  — went with the 2026-09-26 re-pacing (§5.1 · 8), because it pre-played the whole of
+    //  `uwb-sstwr`. The claim is not lost: `uwb-sstwr` states it in the note of "what the raw
+    //  estimate really holds" and pins it in tests/course/uwb-sstwr.test.ts. What is measured
+    //  here is the tolerance this lesson's own `sources` still cites, and what it would cost
+    //  on this lesson's own 2 ms reply — which is why the forward pointer is honest.
     expect(UWB_PPM_MAX).toBe(20)
     const errNs = 2 * MS * 20e-6
     expect(errNs).toBe(40)
     expect((errNs / 2) * C_M_PER_NS).toBeCloseTo(6, 1)
+  })
+})
+
+describe('uwb-intro · the figure of the round', () => {
+  // §4 gives this lesson a `timing` figure, 两只钟上的四个计数读数. Every instant it
+  // prints is read back out of the run here, so the picture cannot drift from the
+  // timeline: the two frames each device sends, and the two it receives.
+  const rs = recs()
+  const spec = uwbIntroTiming()
+  const lane = (i: number) => spec.lanes[i].spans.map((s) => [s.fromUs * US, s.toUs * US])
+
+  it('the four spans are the run’s own two transmissions and two receptions', () => {
+    const tx = ofType(rs, 'TX_START')
+    const rx = ofType(rs, 'RX_START')
+    expect(tx).toHaveLength(2)
+    expect(rx).toHaveLength(2)
+    expect(spec.lanes.map((l) => l.label)).toEqual(['手机 tag-1', '锚点 anchor-1'])
+    // the phone sends the poll and receives the answer; the anchor the other way round
+    expect(tx.map((r) => r.node)).toEqual(['tag-1', 'anchor-1'])
+    expect(rx.map((r) => r.node)).toEqual(['anchor-1', 'tag-1'])
+    expect(lane(0)).toEqual([
+      [tx[0].t, tx[0].t + tx[0].frame.txTimeNs],
+      [rx[1].t, rx[1].t + tx[1].frame.txTimeNs],
+    ])
+    expect(lane(1)).toEqual([
+      [rx[0].t, rx[0].t + tx[0].frame.txTimeNs],
+      [tx[1].t, tx[1].t + tx[1].frame.txTimeNs],
+    ])
+  })
+
+  it('the caption’s claim: the wait between the two frames dwarfs the flight it measures', () => {
+    // "the 2 ms between the two frames is five orders of magnitude bigger than the flight"
+    const flightNs = 5 / C_M_PER_NS
+    const waitNs = FIG.respTx * US - FIG.pollTxEnd * US
+    expect(Math.round(Math.log10(waitNs / flightNs))).toBe(5)
+    // and the whole figure holds the round: the range line falls inside its window
+    expect(ofType(rs, 'UWB_RANGE')[0].t).toBeLessThanOrEqual(FIG.windowUs * US)
+    expect(ofType(rs, 'UWB_RANGE')[0].t).toBe(FIG.respRxEnd * US)
+    // four stamps, one per span
+    expect(ofType(rs, 'UWB_TS')).toHaveLength(4)
   })
 })
 
@@ -314,9 +360,10 @@ describe('uwb-intro · the range the log reports', () => {
   })
 
   it('the correction moves a perfect-crystal answer by 7 cm, the 0.2 ppm the estimator cannot see past', () => {
-    // numbers: "Both crystals are perfect here, so nothing needed correcting — yet the answer
-    //  moved 7 cm" / deeper: "the estimator is itself noisy, to 0.2 ppm in this model, and 0.2 ppm
-    //  of a 2 ms reply is 0.4 ns" / the observation "a few centimetres out, against 2.1 cm of
+    // numbers: "Both crystals are perfect here, so there was nothing to correct — yet the answer
+    //  moved 7 cm, because the correction rests on an estimate that is itself noisy". The 0.2 ppm
+    //  of that estimate is named in `sources`, and where it comes from is `uwb-sstwr`'s subject
+    //  (§5.1 · 8); the observation reads "a few centimetres out, against 2.1 cm of
     //  range-noise sigma" — a figure uwb-position quotes back as "Lesson 1’s 2.1 cm of σ_r".
     const r = ofType(recs(), 'UWB_RANGE')[0]
     const raw = rctuToMetres(r.tofRawRctu!)

@@ -11,7 +11,7 @@
 import { describe, it, expect } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
-import { uwbSts, uwbStsScenario, RELAY_ADVANCE_NS } from '../../src/course/uwb/uwb-sts'
+import { uwbSts, uwbStsScenario, uwbStsSequence, HONEST_20_M, SPOOFED_M, RELAY_ADVANCE_NS } from '../../src/course/uwb/uwb-sts'
 import { uwbIntro, uwbIntroScenario } from '../../src/course/uwb/uwb-intro'
 import { ScenarioSchema } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
@@ -125,6 +125,44 @@ describe('uwb-sts · 50 ns is 14.99 m', () => {
     expect(raw(recs(V_HONEST_20))).toBe(4267)
     expect(raw(recs(V_OFF))).toBe(1072)
     expect(4267 - 1072).toBe(3195)
+  })
+})
+
+describe('uwb-sts · the figure of the two rounds', () => {
+  // §4 gives this lesson a `sequence` figure — the honest round, and the round with the box
+  // in the middle — and it replaces the paragraph 「为什么帧的开头是一份礼物」 (§5.2 deletes that
+  // metaphor). Both ranges it prints are the runs' own, and the middle column is the relay,
+  // which is a scenario field rather than a node: the figure is the only place it is drawn.
+  const spec = uwbStsSequence()
+
+  it('three columns, and the two the log names are the scene’s own nodes', () => {
+    expect(spec.columns.map((c) => c.id)).toEqual(['tag-1', 'box', 'anchor-1'])
+    const ids = uwbSts.variants![V_OFF].scenario().nodes.map((n) => n.id)
+    expect(ids).toEqual(['anchor-1', 'tag-1'])
+    // the box is not a node: it is `scenario.uwb.attacker`, one number
+    expect(ids).not.toContain('box')
+    expect(uwbSts.variants![V_OFF].scenario().uwb!.attacker).toEqual({ advanceNs: RELAY_ADVANCE_NS })
+  })
+
+  it('the two ranges on the arrows are the honest run’s and the spoofed run’s', () => {
+    expect(HONEST_20_M).toBe(`${ofType(recs(V_HONEST_20), 'UWB_RANGE')[0].distM.toFixed(2)} m`)
+    expect(SPOOFED_M).toBe(`${ofType(recs(V_OFF), 'UWB_RANGE')[0].distM.toFixed(2)} m`)
+    expect(spec.messages.map((m) => m.at)).toEqual([HONEST_20_M, undefined, SPOOFED_M])
+    // the honest arrow goes straight across; the relayed one is the emphasised pair
+    expect(spec.messages[0]).toMatchObject({ from: 'tag-1', to: 'anchor-1' })
+    expect(spec.messages[1]).toMatchObject({ from: 'tag-1', to: 'box' })
+    expect(spec.messages[2]).toMatchObject({ from: 'box', to: 'anchor-1', tone: 'accent' })
+    expect(spec.messages[2].label).toContain(String(RELAY_ADVANCE_NS))
+  })
+
+  it('the caption’s claim: what the relay can pre-send is SYNC and SFD, and no more', () => {
+    // "the box has only to guess the two public patterns that open a frame" — in this
+    // grouping the predictable run ends at the first chip of the STS, which is what the
+    // depth says and what the layout shows.
+    const poll = ofType(recs(V_OFF), 'TX_START').find((r) => r.frame.kind === 'uwbPoll')!
+    const layout = uwbPpduLayout(poll.frame)
+    expect(layout.slice(0, 2).map((s) => s.key)).toEqual(['sync', 'sfd'])
+    expect(layout[3].key).toBe('sts')
   })
 })
 

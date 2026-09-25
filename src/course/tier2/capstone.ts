@@ -22,14 +22,96 @@
  * Every number quoted below is pinned in tests/course/capstone.test.ts; the
  * five-second figures it shares with tests/course/lesson-claims.test.ts
  * ("lesson 14 · capstone") are the same run measured the same way.
+ *
+ * Re-paced 2026-09-26 (docs/superpowers/plans/2026-09-25-course-repacing-proposal.md
+ * §2 · M12). It **stays whole**: the question cannot be answered from any single
+ * mechanism and the seven-device scene is the point. Four changes only:
+ *  - §4 gives it a `topology` figure, and the figure replaces prose: the flat's
+ *    geography — three rooms, the brick between them, the door in each inner
+ *    wall, who sits in which corner — was narrated in the picture's first
+ *    paragraph and again in `deeper`. The paragraph now names only the cast and
+ *    what each device is doing, which no figure can say; the walls, the
+ *    positions and the one lane that holds the air are in the figure.
+ *  - the tablet/OFDMA change had a column in the table and a quiz question but
+ *    no experiment, so it is now the third `tryThis` (§2).
+ *  - the second experiment re-printed four cells of the comparison table; it
+ *    now points at the column instead (§2).
+ *  - 「光线昏暗」 is gone (§5.2).
+ * The scenario moved into the named `capstoneScenario` so the figure can read
+ * the same metres the learner loads; it is the same builder with the same
+ * nodes, so the recorded timeline hash does not move.
+ *
+ * §6 asks for one more change this batch cannot make: `needs` should end
+ * …ofdma-dl, ofdma-ul, mumimo-choose, mlo-gain (`tb-round` was rejected by §8,
+ * so `ofdma-ul` stays). `mumimo-choose` and `mlo-gain` are batch 10's, and
+ * tests/course/readability.test.ts requires every `needs` id to be a
+ * registered lesson earlier in COURSE_ORDER, so the row waits for them.
  */
+import type { TopologySpec } from '../diagram'
 import { type Lesson, brick, drywallDoor, node, sc, firstMuDl, firstTrigger, first6g, firstCollision, J } from '../lessonKit'
+import type { Scenario } from '../../model/scenario'
+
+/** The flat: three rooms, a door in each inner wall, seven devices. */
+export function capstoneScenario(): Scenario {
+  return sc({
+    rooms: [
+      { x: 0, y: 0, w: 5, h: 8, name: 'Living room' },
+      { x: 5, y: 0, w: 5, h: 4, name: 'Study' },
+      { x: 5, y: 4, w: 5, h: 4, name: 'Bedroom' },
+    ],
+    walls: [
+      brick(0, 0, 10, 0), brick(10, 0, 10, 8), brick(10, 8, 0, 8), brick(0, 8, 0, 0),
+      drywallDoor(5, 0, 5, 8, 1.5),
+      drywallDoor(5, 4, 10, 4, 2.5),
+    ],
+  }, [
+    node('ap', 'AP (Wi-Fi 7)', 'ap', 2.5, 4, 'eht', 'idle'),
+    node('sta-1', 'Laptop MLO', 'sta', 7.5, 2, 'eht', 'saturated'),
+    node('sta-2', 'TV (Wi-Fi 6)', 'sta', 1.5, 6.5, 'he', 'video'),
+    node('sta-3', 'Phone (voice)', 'sta', 3.5, 2, 'he', 'voice'),
+    node('sta-4', 'Tablet (Wi-Fi 5)', 'sta', 7.5, 6.5, 'vht', 'browsing'),
+    node('sta-5', 'Sensor (legacy)', 'sta', 9.3, 7.3, 'nonht', 'iot'),
+    node('sta-6', 'Projector (Wi-Fi 6)', 'sta', 6, 1, 'he', 'video'),
+  ])
+}
+
+/** What the figure calls each lane, short enough to sit at its own scenario position. */
+const DIAGRAM_NAMES: Record<string, string> = {
+  ap: '接入点', 'sta-1': '笔记本', 'sta-2': '电视', 'sta-3': '手机',
+  'sta-4': '平板', 'sta-5': '传感器', 'sta-6': '投影仪',
+}
+
+/**
+ * Who is where, and who is holding the air. The positions are the scenario's
+ * own metres, so the figure cannot drift from the room the learner loads; the
+ * accent path is the backup, the only lane above two per cent.
+ */
+export function capstoneTopology(): TopologySpec {
+  return {
+    kind: 'topology',
+    nodes: capstoneScenario().nodes.map((n) => ({
+      id: n.id,
+      label: DIAGRAM_NAMES[n.id],
+      role: n.kind === 'ap' ? ('ap' as const) : ('sta' as const),
+      x: n.pos.x,
+      y: n.pos.y,
+    })),
+    links: [
+      { from: 'sta-1', to: 'ap', label: '备份', tone: 'accent', both: true },
+      { from: 'sta-6', to: 'ap', both: true },
+      { from: 'sta-3', to: 'ap', both: true },
+      { from: 'sta-2', to: 'ap', both: true },
+      { from: 'sta-4', to: 'ap', both: true },
+      { from: 'sta-5', to: 'ap', both: true },
+    ],
+  }
+}
 
 export const capstone: Lesson = {
   id: 'capstone',
   module: 11,
   title: '结业课——热闹的一家人',
-  why: '在此之前的每一课，都是在一个专为展示它而搭的场景里，给你看一个机制。而真实的家里是所有机制一起上演，光线昏暗，还要问你一个没有任何单独一课能回答的问题：这个网络用起来慢——你会改什么？最难的不是测量，而是在一堆看上去都可以怪罪的东西里，挑出真正决定别人能拿到多少的那一个。',
+  why: '在此之前的每一课，都是在一个专为展示它而搭的场景里，给你看一个机制。而真实的家里是所有机制一起上演，还要问你一个没有任何单独一课能回答的问题：这个网络用起来慢——你会改什么？最难的不是测量，而是在一堆看上去都可以怪罪的东西里，挑出真正决定别人能拿到多少的那一个。',
   outcomes: [
     '按照他们共享的那一样资源，给一个混杂家庭里的设备排序',
     '用仿真结果、而不是用直觉，给三个候选改动分别标价',
@@ -42,16 +124,19 @@ export const capstone: Lesson = {
     { term: 'offered load', plain: '一台设备“想发多少”，区别于它最后“真正发出去了多少”' },
   ],
   picture: [
-    { heading: '这套房子，以及屋里都有谁', text: '三个房间，彼此之间隔着砖墙，每道内墙上开一扇门。客厅里一个接入点（AP）。一台 Wi-Fi 7 笔记本正用两台电台做备份，一台 Wi-Fi 6 电视和一台投影仪都在推流，一部手机在通话，一台老些的 Wi-Fi 5 平板在上网，还有一个隔一阵子醒一次的 IoT 传感器。所有事情同时发生——晚上本来就是这样。' },
+    { heading: '屋里都有谁', text: '客厅里一个接入点（AP），全家都从它这里过。一台 Wi-Fi 7 笔记本正用两台电台做备份，一台 Wi-Fi 6 电视和一台投影仪都在推流，一部手机在通话，一台老些的 Wi-Fi 5 平板在上网，还有一个隔一阵子醒一次的 IoT 传感器。所有事情同时发生——晚上本来就是这样。' },
     { kind: 'watch', jump: 2, heading: '先看，再想', text: '载入仿真，跳到第一次碰撞。先别做别的：打开检视器，把七台设备按空口占比排个序，并把这个排名写下来。下面每一条论证都要拿这份排名来对照，而多数读者第一次都猜错。' },
-    { heading: '你要回答的那个问题', text: '只有一个问题，而且必须用数字来回答：哪一个单项改动，对这个家庭的改善最大？不是哪台设备最旧，不是哪台最慢，也不是哪台你最想换掉。空口是全家共享的同一份资源，一个改动值多少，取决于它腾出了多少。' },
+    {
+      kind: 'diagram', heading: '三个房间，七台设备', spec: capstoneTopology(),
+      caption: '位置就是场景里的米数：三个房间之间隔着砖墙，每道内墙上开一扇门，平板和传感器都在两堵墙之后的远角上。画粗的那条是笔记本的备份，屋里唯一占比超过百分之二的一条。',
+    },
+    { heading: '你要回答的那个问题', text: '只有一个问题，而且必须用数字来回答：哪一个单项改动，对这个家庭的改善最大？空口是全家共享的同一份资源，一个改动值多少，取决于它腾出了多少。' },
     { kind: 'list', heading: '你可以做的三个改动', items: [
       '把笔记本的备份停掉，或者挪到半夜再做——最粗暴的那个答案。',
       '把笔记本的多链路操作（multi-link operation, MLO）关掉，让它的备份退回一个频段。',
       '给平板换一台开着正交频分多址（orthogonal frequency-division multiple access, OFDMA）的 Wi-Fi 6 电台——屋里有人拿来上网的最旧那台，虽然它并不是屋里最旧的。',
     ] },
-    { heading: '中间那个陷阱', text: '最慢的那台电台是最显眼的嫌疑人，而在这里它是无辜的。传感器说话确实慢，但它几乎不说话：整段仿真里只有寥寥几个很小的帧。一台设备要成为瓶颈，前提是它在花掉那份共享资源；而花掉它，意思是占着空口——是“想发多少”乘以“每帧要占多久”，不是包装盒上的年份。' },
-    { heading: '什么才算一个答案', text: '三样东西，而第三样是大家最容易漏掉的。一个改动，以及它让哪个数字动了多少。一个你否决掉的改动，以及是哪个测量让你否决它的。还有一句话，说清这个场景没有建模什么——一个不肯讲清自己边界的答案，会被人信到它并不配的地方去。' },
+    { heading: '中间那个陷阱', text: '最慢的那台电台是最显眼的嫌疑人，而在这里它是无辜的。一台设备要成为瓶颈（bottleneck），前提是它在花掉那份共享资源；而花掉它，意思是占着空口——是“想发多少”乘以“每帧要占多久”，不是包装盒上的年份。' },
   ],
   numbers: [
     { kind: 'table', heading: '同样的五秒钟，四种走法', head: [
@@ -88,7 +173,7 @@ export const capstone: Lesson = {
     ] },
   ],
   deeper: [
-    { heading: '为什么平板比电视惨得多', text: '电视和投影仪是一直在被推流的，所以接入点几乎每一次发送都有东西给它们，它们也就顺带被编进了接入点组成的多用户组里。平板则是隔一阵子要一个网页，而且待在两堵墙之后的远角上，用的是屋里承载着人上网的最旧那台电台：它从来没被编进组，它的帧又长，每一帧都得自己去和一个满负荷的上传者争一次发送机会。它那 39.06 ms 不是链路慢，而是一条足够快的链路前面排了一条很慢的队。' },
+    { heading: '为什么平板比电视惨得多', text: '电视和投影仪是一直在被推流的，所以接入点几乎每一次发送都有东西给它们，它们也就顺带被编进了接入点组成的多用户组里。平板则是隔一阵子要一个网页，用的是屋里承载着人上网的最旧那台电台：它从来没被编进组，它的帧又长，每一帧都得自己去和一个满负荷的上传者争一次发送机会。它那 39.06 ms 不是链路慢，而是一条足够快的链路前面排了一条很慢的队。' },
     { heading: '真正的答案下一步会做什么', text: '这套房子里没有任何东西去调度那个备份。真实的部署不会把它停掉，而是会给它一份更小的份额：给上传限速，或者把它的流量放进优先级更低的接入类别，让其他每一条队列都排在它前面。这两样都只是一行配置，谁也不用换新电台。这一课没有把它们做成按钮，原因是本仿真器没有策略引擎，而不是因为它们不对；事实上，它们才是对的那个答案。' },
   ],
   sources: [
@@ -96,26 +181,7 @@ export const capstone: Lesson = {
     '场景里用到的每一个机制都有各自的条款：接入类别及其参数 §10.23.2，发送机会 §10.23.2.8，聚合 §10.12，下行多用户见第 27 章，多链路操作见 IEEE Std 802.11be-2024 第 35 章。',
     '流量模型——一个备份、两路视频、一通语音、一次浏览会话和一个传感器——是本仿真器自带的产生器，不是标准的流量模型；它们的包长与间隔都是模型取值，所以这些五秒钟的数字属于这个场景，而不属于某个真实家庭。',
   ],
-  scenario: () => sc({
-    rooms: [
-      { x: 0, y: 0, w: 5, h: 8, name: 'Living room' },
-      { x: 5, y: 0, w: 5, h: 4, name: 'Study' },
-      { x: 5, y: 4, w: 5, h: 4, name: 'Bedroom' },
-    ],
-    walls: [
-      brick(0, 0, 10, 0), brick(10, 0, 10, 8), brick(10, 8, 0, 8), brick(0, 8, 0, 0),
-      drywallDoor(5, 0, 5, 8, 1.5),
-      drywallDoor(5, 4, 10, 4, 2.5),
-    ],
-  }, [
-    node('ap', 'AP (Wi-Fi 7)', 'ap', 2.5, 4, 'eht', 'idle'),
-    node('sta-1', 'Laptop MLO', 'sta', 7.5, 2, 'eht', 'saturated'),
-    node('sta-2', 'TV (Wi-Fi 6)', 'sta', 1.5, 6.5, 'he', 'video'),
-    node('sta-3', 'Phone (voice)', 'sta', 3.5, 2, 'he', 'voice'),
-    node('sta-4', 'Tablet (Wi-Fi 5)', 'sta', 7.5, 6.5, 'vht', 'browsing'),
-    node('sta-5', 'Sensor (legacy)', 'sta', 9.3, 7.3, 'nonht', 'iot'),
-    node('sta-6', 'Projector (Wi-Fi 6)', 'sta', 6, 1, 'he', 'video'),
-  ]),
+  scenario: capstoneScenario,
   jumps: [
     J('第一个 MU PPDU', firstMuDl),
     J('第一个触发帧', firstTrigger),
@@ -124,12 +190,12 @@ export const capstone: Lesson = {
   ],
   observe: [
     '在检视器里把七台设备按空口占比排序。笔记本占了 5 GHz 的 58.7%、6 GHz 的 90.6%，屋里其他任何一台都到不了百分之二。这个排名和你猜的一样吗？',
-    '找到这样一个时刻：手机的语音队列（queue）抢在一条等得更久的尽力而为队列前面拿到了发送机会。那就是接入类别（access category, AC）的规则，在一屏时间轴里就看得见。',
     '传感器是屋里最慢的那台电台，而它五秒里一共发了三帧——总共 384 字节。在怪罪最慢的那台设备之前，先看看究竟是谁占着空口。',
   ],
   tryThis: [
     '在编辑器里把笔记本的备份改成空闲，然后重新加载。其他所有等待都塌到一毫秒以下：视频从 2.26 ms 到 0.21，语音通话从 1.90 到 0.83，平板的网页从 39.06 到 0.50。而备份自己从此一个字节也送不出去。',
-    '把它改回来，改成把笔记本的 MLO 关掉——也就是撤掉它的第二台电台。它自己的送达量减半，78.0 兆字节变成 37.7，而视频流的等待和原来相差不到几个百分点，2.22 ms 对 2.26。那台电台买到的是它主人的吞吐量，不是邻居的解脱。',
+    '把它改回来，改成把笔记本的 MLO 关掉——也就是撤掉它的第二台电台。对照表第三列：备份自己的送达量减半，而视频的等待原地不动。那台电台买到的是它主人的吞吐量，不是邻居的解脱。',
+    '再改回来，把平板换成一台开着 OFDMA 的 Wi-Fi 6 电台。对照表第四列：备份照样送到 78.1 兆字节，平板的等待只从 39.06 ms 降到 34.31。三个改动里，这一个花得最多、动得最少。',
   ],
   quiz: [
     {

@@ -20,7 +20,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { Simulation } from '../../src/engine/simulation'
-import { capstone } from '../../src/course/tier2/capstone'
+import { capstone, capstoneScenario, capstoneTopology } from '../../src/course/tier2/capstone'
 import type { Block } from '../../src/course/lessonKit'
 import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
@@ -99,6 +99,29 @@ describe('capstone · the flat as the brief describes it', () => {
       .toEqual(['eht', 'eht', 'he', 'he', 'vht', 'nonht', 'he'])
     expect(sc.nodes.find((n) => n.id === 'sta-1')!.caps.features.mlo).toBe(true)
     expect(sc.nodes.find((n) => n.id === 'sta-1')!.profiles).toEqual(['saturated'])
+  })
+
+  it('the topology figure is the scene’s own metres, and the accent path is the backup', () => {
+    // The figure replaces the geography the picture's first paragraph used to narrate
+    // (§4 · capstone: 三个房间、七台设备). Its positions are read out of the scenario, so a
+    // node that moves in the room moves in the figure; what is pinned here is that the
+    // walk really does read the scene, and that the one emphasised link is the one lane
+    // above two per cent — the claim the caption makes.
+    const spec = capstoneTopology()
+    const sc = capstone.scenario()
+    expect(spec.nodes.map((n) => n.id)).toEqual(sc.nodes.map((n) => n.id))
+    expect(spec.nodes.map((n) => [n.x, n.y])).toEqual(sc.nodes.map((n) => [n.pos.x, n.pos.y]))
+    expect(spec.nodes.filter((n) => n.role === 'ap').map((n) => n.id)).toEqual(['ap'])
+    for (const n of spec.nodes) expect(n.label.trim(), n.id).not.toBe('')
+    // every station reaches the air through the access point, and only through it
+    expect(spec.links.every((l) => l.to === 'ap')).toBe(true)
+    expect(spec.links).toHaveLength(6)
+    const accent = spec.links.filter((l) => l.tone === 'accent')
+    expect(accent.map((l) => l.from)).toEqual(['sta-1'])
+    expect(base.air('sta-1')).toBeGreaterThan(2)
+    for (const id of ['sta-2', 'sta-3', 'sta-4', 'sta-5', 'sta-6']) expect(base.air(id), id).toBeLessThan(2)
+    // the figure and the lesson load one and the same room
+    expect(capstone.scenario()).toEqual(capstoneScenario())
   })
 
   it('has no variants: the three candidate changes are the learner’s own edits', () => {
@@ -186,6 +209,10 @@ describe('capstone · the method the brief asks the learner to follow', () => {
     expect(backupStopped.upMb).toBe(0)
     expect(radioOff.upMb).toBe(37.7)
     expect(tabletNew.rxWait('sta-4')).toBe(34.31)
+    // and each of the three has an experiment of its own: the tablet column had a column in
+    // the table and a quiz question but nothing to run until this re-pacing (§2 · M12)
+    expect(capstone.tryThis).toHaveLength(3)
+    expect(tabletNew.upMb).toBe(78.1)
   })
 
   it('step 5 — the sensor really is the oldest radio in the flat, and the tablet is not', () => {
