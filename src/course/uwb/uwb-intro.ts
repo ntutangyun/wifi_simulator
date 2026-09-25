@@ -15,13 +15,10 @@
  * timeline belongs to it. Every number quoted below is pinned in
  * tests/course/uwb-intro.test.ts.
  *
- * As the first lesson of its track this one is held to 1000 main-path words
- * (`BUDGETS.openerMax`), inside the section ceilings every lesson keeps:
- * `why` + `outcomes` + `terms` + `picture` ≤ 900, `numbers` ≤ 550,
- * `observe` + `tryThis` + `quiz` ≤ 450 (tests/course/readability.test.ts;
- * `npx tsx scripts/lesson-dump.ts uwb-intro en` prints the four counts). Depth
- * that will not fit belongs in `deeper`, provenance in `sources`; neither is
- * counted.
+ * As the first lesson of its track this one opens the whole UWB idea, so it runs
+ * longer than most; the only length control left is the 30-minute ceiling
+ * (`npx tsx scripts/lesson-dump.ts uwb-intro` prints the estimate). Depth that
+ * will not fit belongs in `deeper`, provenance in `sources`.
  *
  * The 2026-09-23 amendment ("mechanism before metaphor") put the ranging
  * procedure itself on the main path: `numbers` carries SS-TWR as the six steps

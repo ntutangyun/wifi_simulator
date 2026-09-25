@@ -14,7 +14,7 @@
  * after it, the three cures priced in `deeper`, the clauses and the model's own
  * constants in `sources`. Every number quoted below is pinned in
  * tests/course/uwb-coexist.test.ts; `npx tsx scripts/lesson-dump.ts uwb-coexist
- * en` prints the section budgets.
+ *` prints it with its length.
  */
 import type { Scenario } from '../../model/scenario'
 import type { TLRecord } from '../../model/records'

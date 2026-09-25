@@ -4,6 +4,7 @@ import { haloColor, labelText, statusText, txopText } from '../../src/scene/node
 import { wallSolidSpans } from '../../src/scene/house'
 import type { FrameDesc } from '../../src/model/frames'
 import type { NodeView } from '../../src/model/view'
+import { STRINGS } from '../../src/ui/i18n'
 
 const mkFrame = (kind: FrameDesc['kind'], src: string): FrameDesc => ({
   kind, src, dst: 'x', bytes: 100, mbps: 6, durationFieldNs: 0, txTimeNs: 100_000,
@@ -89,7 +90,8 @@ describe('TXOP holder annotation', () => {
   })
 
   it('the 3D label stacks the TXOP line under the state', () => {
-    expect(labelText({ ...base, txopUntilNs: 2_500_000, txopAc: 2 }, 1_000_000)).toBe('wait ACK\nTXOP VI 1500µs')
+    expect(labelText({ ...base, txopUntilNs: 2_500_000, txopAc: 2 }, 1_000_000))
+      .toBe(`${STRINGS.sceneLabel.waitAck}\nTXOP VI 1500µs`)
     expect(labelText({ ...base, state: 'idle' }, 1_000_000)).toBe('')
   })
 })

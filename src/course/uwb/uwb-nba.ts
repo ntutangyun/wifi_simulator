@@ -16,7 +16,7 @@
  * sizes and the block-0 timeline after them, the compressed formats in `deeper`,
  * the clause, the contributions and the model's own constants in `sources`.
  * Every number quoted below is pinned in tests/course/uwb-nba.test.ts;
- * `npx tsx scripts/lesson-dump.ts uwb-nba en` prints the section budgets.
+ * `npx tsx scripts/lesson-dump.ts uwb-nba` prints it with its length.
  */
 import type { Scenario } from '../../model/scenario'
 import { DEFAULT_UWB_SESSION } from '../../model/scenario'

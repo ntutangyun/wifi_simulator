@@ -577,7 +577,7 @@ export function FloorPlanEditor() {
                     }}>
                     <span style={{ width: 8, height: 8, background: MATERIAL_COLORS[w.material], borderRadius: 2 }} />
                     <span style={{ flex: 1, color: '#aeb6c2' }}>
-                      ({w.x1},{w.y1})→({w.x2},{w.y2}) {w.material}{w.openings.length ? ` · ${w.openings.length} ${E.openings}` : ''}
+                      ({w.x1},{w.y1})→({w.x2},{w.y2}) {L.widgets.wallName[w.material]}{w.openings.length ? ` · ${w.openings.length} ${E.openings}` : ''}
                     </span>
                   </div>
                 ))}
@@ -957,7 +957,8 @@ export function FloorPlanEditor() {
                       walls[sel.index] = { ...walls[sel.index], material: e.target.value as Material }
                       commit({ ...scenario, walls })
                     }}>
-                      {(['drywall', 'brick', 'glass'] as Material[]).map((m) => <option key={m} value={m}>{m}</option>)}
+                      {(['drywall', 'brick', 'glass'] as Material[])
+                        .map((m) => <option key={m} value={m}>{L.widgets.wallName[m]}</option>)}
                     </select>
                   </label>
                   {selWall.openings.length > 0 && (

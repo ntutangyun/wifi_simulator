@@ -49,8 +49,8 @@ const V_OUT = 0
 /** Index into `uwbNba.variants`: the pair round this lesson ran before one-to-many existed. */
 const V_PAIR = 3
 
-// The contract every migrated lesson owes. The window is what `lessonBudget` reports —
-// `npx tsx scripts/lesson-dump.ts uwb-nba en` prints it — and the kit enforces it.
+// The contract every migrated lesson owes, as the kit enforces it. `npx tsx
+// scripts/lesson-dump.ts uwb-nba` prints the lesson and the minutes it costs.
 lessonShapeSuite(uwbNba)
 
 const recs = (variant?: number): TLRecord[] => runOf(uwbNba, variant, RUN_NS)

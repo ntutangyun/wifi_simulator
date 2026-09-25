@@ -15,7 +15,7 @@
  * after it, the slot-length arithmetic in `deeper` and the clauses in
  * `sources`. Every number quoted below is pinned in
  * tests/course/uwb-blocks.test.ts; `npx tsx scripts/lesson-dump.ts uwb-blocks
- * en` prints the section budgets.
+ *` prints it with its length.
  */
 import type { Scenario } from '../../model/scenario'
 import { J, anchor, firstUwbPoll, firstUwbPosition, firstUwbRoundEnd, oneRoom, uwbSc, uwbTag, type Lesson } from '../lessonKit'
@@ -88,7 +88,7 @@ export const uwbBlocks: Lesson = {
       ['第 0 块的各轮何时开启', '0, 20 and 40 ms; block 1 at 200, 220 and 240 ms'],
       ['第 0 块的三帧 Poll 何时离开', '0, 20 000 000 and 40 000 000 ns'],
       ['带着这张网格的那帧开场帧', 'Poll, 39 octets'],
-      ['第一张清单，10 字节', 'SP1（加扰时间戳序列分组）· DS-TWR · 块 0 · 轮 0 · 4 个应答方'],
+      ['第一张清单，10 字节', 'SP1 · DS-TWR · 块 0 · 轮 0 · 4 个应答方'],
       ['第二张清单，15 字节', '4 台设备：anchor-1 时隙 1、anchor-2 时隙 2、anchor-3 时隙 3、anchor-4 时隙 4'],
     ] },
     { kind: 'table', heading: '每块一部手机一次定位', head: [

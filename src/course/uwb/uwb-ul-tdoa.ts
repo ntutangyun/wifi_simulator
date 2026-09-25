@@ -20,7 +20,7 @@
  * offsets, the sync-error walk and the geometry are in `deeper`; the clause and
  * the model choices are in `sources`. Every number quoted below is pinned in
  * tests/course/uwb-ul-tdoa.test.ts; `npx tsx scripts/lesson-dump.ts uwb-ul-tdoa
- * en` prints the section budgets.
+ *` prints it with its length.
  */
 import type { Scenario } from '../../model/scenario'
 import { J, anchor, firstUwbBlink, firstUwbPosition, firstUwbRxTs, firstUwbTdoa, firstUwbUlRound, oneRoom, uwbSc, uwbTag, type Lesson } from '../lessonKit'

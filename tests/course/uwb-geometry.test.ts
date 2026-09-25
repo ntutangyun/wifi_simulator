@@ -48,7 +48,7 @@ const recs = (variant?: number): TLRecord[] => runOf(uwbGeometry, variant, RUN_N
 // The contract every migrated lesson owes, plus the split rule: uwb-geometry loads
 // uwb-position's own scene, so its recorded timeline hashes are uwb-position's, value
 // for value. (Until the controller registers this lesson, the readability suite does
-// not see it; the window below is what `lessonBudget` reports, and the kit enforces it.)
+// not see it; the shape checks below are the kit's.)
 lessonShapeSuite(uwbGeometry, { sameSceneAs: 'uwb-position' })
 
 const fixes = (variant?: number) => ofType(recs(variant), 'UWB_POSITION')
@@ -305,7 +305,7 @@ describe('uwb-geometry · a brick wall in one path', () => {
     expect(cell(1, 0, 2)).toBe(`0x7b — ${fomText(FOM_NLOS)}`)
     expect(cell(1, 1, 2)).toBe(`0x16 — ${fomText(FOM_LOS)}`)
     for (const r of tagRanges(0)) expect(r.fom, `${r.peer} b${r.block}`).toBe(r.peer === 'anchor-1' ? FOM_NLOS : FOM_LOS)
-    // the inspector's range table, in the reader's language
+    // the inspector's range table, as the string table words it
     const rows = uwbRangeRows(inspectorAfter(0, 1), FOM_S)
     const a1 = rows.find((r) => r.peer === 'anchor-1')!
     // the three figures are the run's; the quality byte's wording is the string table's

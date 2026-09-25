@@ -26,7 +26,7 @@
  * see one in a log that never holds one.
  *
  * Every number quoted below is pinned in tests/course/uwb-sts.test.ts;
- * `npx tsx scripts/lesson-dump.ts uwb-sts en` prints the section budgets.
+ * `npx tsx scripts/lesson-dump.ts uwb-sts` prints it with its length.
  */
 import type { Scenario } from '../../model/scenario'
 import { J, firstUwbPoll, firstUwbRange, firstUwbResp, firstUwbRxTs, type Lesson } from '../lessonKit'

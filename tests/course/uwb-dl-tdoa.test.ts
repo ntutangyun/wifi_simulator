@@ -389,12 +389,12 @@ describe('uwb-dl-tdoa · the clock correction', () => {
     expect([cell(2, 0, 0), cell(2, 1, 0), cell(2, 2, 0)]).toEqual(RESPONDERS)
   })
 
-  it('the printed formula is the rate first and the geometry second, in both languages', () => {
+  it('the printed formula is the rate first and the geometry second', () => {
     expect(formulas()).toHaveLength(1)
     const f = formulas()[0]
     expect(f.text.split('\n')).toHaveLength(2)
     for (const term of ['(rx_F − rx_P)', '(tx_F − tx_P)']) expect(f.text, term).toContain(term)
-    // a formula body is language-neutral apart from the names it labels
+    // a formula body is arithmetic apart from the names it labels
     expect(f.text.split('\n')).toHaveLength(2)
   })
 

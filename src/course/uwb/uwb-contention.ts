@@ -21,7 +21,7 @@
  * per-slot error ramp and the absent timeouts in `deeper`, the clauses and the
  * model's own defaults in `sources`. Every number quoted below is pinned in
  * tests/course/uwb-contention.test.ts; `npx tsx scripts/lesson-dump.ts
- * uwb-contention en` prints the section budgets.
+ * uwb-contention` prints it with its length.
  */
 import type { Scenario } from '../../model/scenario'
 import { J, anchor, firstUwbContend, firstUwbContendCollision, firstUwbPoll, firstUwbPosition, firstUwbSitOut, oneRoom, uwbSc, uwbTag, type Lesson } from '../lessonKit'

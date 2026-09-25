@@ -5,6 +5,7 @@ import type { Generation } from '../model/types'
 import type { AmpTagMode, NbLbt, NbReportMode, ProfileId, UwbMode } from '../model/scenario'
 import type { RxFailReason } from '../model/records'
 import type { AddrRole, FcBitKey, FieldKey, PpduSegmentKey } from '../model/frameFields'
+import type { NB_MSG_ID } from '../uwb/nb'
 import type { UwbFixMethod } from '../uwb/records'
 
 /** How a multi-user PPDU is split — absent for frames that are always OFDMA-flavored (triggers, UL TB, M-BA). */
@@ -18,6 +19,10 @@ export interface LegendItem {
 
 export interface Strings {
   header: { subtitle: string; edit: string; simulate: string; course: string }
+  /** The red banner over the scene when the worker refuses a scenario. */
+  simError: (detail: string) => string
+  /** The floating text above a device in the 3D view. */
+  sceneLabel: { slot: (n: number) => string; waitAck: string; waitCts: string }
   panel: { inspector: string; log: string; guide: string; resizeHint: string }
   guideWindow: {
     title: string; terms: string; overview: string; search: string
@@ -187,6 +192,8 @@ export interface Strings {
     ifs: string; ifsHint: string; cca: string; ccaHint: string; busy: string; idle: string
     txop: string; txopHint: string
     transmitting: string; receiving: string; queue: string; old: string; more: string; inFlight: string
+    /** "DATA 来自 sta-2" — the frame being received, and who from. */
+    receivingFrom: (kind: string, from: string) => string
     stats: string; framesDelivered: string; retriesDrops: string; collisionsL: string
     airtimeShare: string; rxThroughput: string
     txLatency: string; txLatencyHint: string; rxLatency: string; rxLatencyHint: string
@@ -306,6 +313,62 @@ export interface Strings {
       symbols: (n: number, symUs: number) => string
       /** UWB: where inside the PPDU the ranging timestamp is taken. */
       rmarker: (us: string) => string
+      /**
+       * The contents of a decoded UWB field, as `uwb/frameFields.ts` spells them out. The
+       * standard's own tokens — `SP1`, `DS-TWR`, `RCTU`, `N_MSR`, `treply1`, `CRC-16` — stay as
+       * the standard writes them; everything around them is prose and belongs here.
+       */
+      /**
+       * The rows the event log expands under a Wi-Fi frame. They name the same header the frame
+       * inspector names, so they are labels and not prose: only IEEE and EPC Gen2 tokens
+       * (`TXTIME`, `ACWE`, `ABOC`, `RN16`, `EPC`, `Q`, the excitation names) stay English.
+       */
+      row: {
+        type: string
+        ra: string; ta: string
+        psduLength: string; octets: (n: number) => string
+        dataRate: string
+        txtime: string
+        durationId: string; navRest: (us: string) => string
+        seqNo: string; retryFlag: string
+        ampRate: string; ampRateValue: (kbps: number) => string
+        slots: string; slotDuration: string; acwe: string
+        phase: string; phaseName: Record<'random' | 'scheduled', string>
+        acksSlot: string; slot: string; aboc: string
+        gen2Cmd: string; sessionSlot: string
+        q: string; qValue: (q: number, slots: number) => string
+        rn16: string; wup: string; bst: string
+        excitationPower: string; excitationValue: (charge: number, backscatter: number) => string
+        gen2Reply: string; epc: string; incident: string
+      }
+      uwbValue: {
+        fc: (sp: number) => string
+        seq: (round: number, slot: number) => string
+        arc: (sp: number, method: string, block: number, round: number, responders?: number) => string
+        rdm: (n: number, list: string) => string
+        rdmSlot: (id: string, slot: number) => string
+        rrmc: (slot: number, method: string) => string
+        rcps: (first: number, last: number) => string
+        rcma: (n: number) => string
+        replyTime: (time: string) => string
+        finalReply: (id: string, time: string) => string
+        rmiFinal: (n: number, list: string) => string
+        rmiFinalEntry: (id: string, time: string) => string
+        rmiReport: (treply1: string, tround2: string) => string
+        txTime: (time: string) => string
+        rxTimes: (n: number, list: string) => string
+        coffs: (ppm: string) => string
+        blink: (block: number, round: number) => string
+        fragment: (kind: string, index: number, of: number, msIn: number) => string
+        fragmentRsf: (nMsr: number, gap: number) => string
+        fragmentRif: (segments: number) => string
+        nbMsgId: (name: string, hex: string) => string
+        nbMsgName: Record<keyof typeof NB_MSG_ID | 'unknown', string>
+        nbChannel: (channel: number, mhz: string) => string
+        nbResponders: (n: number, ids: string) => string
+        nbTurnAround: (time: string) => string
+        nbRest: (octets: number) => string
+      }
     }
   }
   widgets: {
@@ -350,6 +413,8 @@ export interface Strings {
 
 export const STRINGS: Strings = {
   header: { subtitle: 'IEEE 802.11 DCF/EDCA · 微秒时间尺度', edit: '✎ 编辑', simulate: '▶ 仿真', course: '📚 课程' },
+  simError: (detail) => `仿真出错：${detail}`,
+  sceneLabel: { slot: (n) => `时隙 ${n}`, waitAck: '等 ACK', waitCts: '等 CTS' },
   panel: { inspector: '🔍 检视器', log: '📜 事件日志', guide: '📖 学习指南', resizeHint: '拖动调整宽度 · 双击恢复默认' },
   guideWindow: {
     title: '📖 Wi-Fi 速查手册', terms: '术语', overview: '概览',
@@ -595,6 +660,7 @@ export const STRINGS: Strings = {
     busy: '忙', idle: '空闲',
     txop: 'TXOP', txopHint: '传输机会：无需重新竞争、以 SIFS 相连的连续帧交换，上限为该 AC 的 TXOP 限值',
     transmitting: '发送中', receiving: '接收中', queue: '队列', old: '前', more: '更多',
+    receivingFrom: (kind, from) => `${kind} 来自 ${from}`,
     inFlight: '已发出',
     stats: '统计', framesDelivered: '成功交付帧数', retriesDrops: '重传 / 丢弃', collisionsL: '碰撞',
     airtimeShare: '空口占比', rxThroughput: '接收吞吐量',
@@ -839,6 +905,60 @@ export const STRINGS: Strings = {
       },
       symbols: (n, u) => `${n} 个符号 × ${u} µs`,
       rmarker: (us) => `RMARKER 位于 ${us} µs——所有测距时间戳都在这一点读取，而不是帧的起点`,
+      row: {
+        type: '类型',
+        ra: 'RA / 地址 1', ta: 'TA / 地址 2',
+        psduLength: 'PSDU 长度', octets: (n) => `${n} 字节`,
+        dataRate: '数据速率',
+        txtime: 'TXTIME',
+        durationId: '持续时间 / ID', navRest: (us) => `${us}（为本次交换剩下的部分预约介质）`,
+        seqNo: '序列号', retryFlag: '重复标志',
+        ampRate: 'AMP 速率', ampRateValue: (kbps) => `${kbps} kb/s（曼彽斯特 OOK）`,
+        slots: '时隙数', slotDuration: '时隙长度', acwe: 'ACWE',
+        phase: '阶段', phaseName: { random: '随机接入', scheduled: '调度' },
+        acksSlot: '确认的时隙', slot: '时隙', aboc: 'ABOC',
+        gen2Cmd: 'EPC Gen2 命令', sessionSlot: '会话 / 时隙',
+        q: 'Q', qValue: (q, slots) => `${q}（${slots} 个时隙）`,
+        rn16: 'RN16', wup: 'WUP-Excitation', bst: 'BST-Excitation',
+        excitationPower: '激励功率',
+        excitationValue: (charge, bs) => `${charge} dBm 充能 / ${bs} dBm 反向散射`,
+        gen2Reply: 'Gen2 应答', epc: 'EPC', incident: '入射激励',
+      },
+      uwbValue: {
+        fc: (sp) => `数据帧 · SP${sp} 测距 · PAN ID 压缩 · 16 位短地址`,
+        seq: (round, slot) => `轮 ${round}，时隙 ${slot}`,
+        arc: (sp, method, block, round, responders) =>
+          `SP${sp} · ${method} · 块 ${block} · 轮 ${round}${responders === undefined ? '' : ` · ${responders} 个应答方`}`,
+        rdm: (n, list) => `${n} 台设备：${list}`,
+        rdmSlot: (id, slot) => `${id} 时隙 ${slot}`,
+        rrmc: (slot, method) => `时隙 ${slot} · ${method}`,
+        rcps: (first, last) => `应答阶段时隙 ${first}…${last}`,
+        rcma: (n) => `最多尝试 ${n} 次`,
+        replyTime: (time) => `回复时间 ${time}`,
+        finalReply: (id, time) => `${id}：treply2 ${time}`,
+        rmiFinal: (n, list) => `${n} 个锚点：${list}`,
+        rmiFinalEntry: (id, time) => `${id} tround1 ${time}`,
+        rmiReport: (treply1, tround2) => `treply1 ${treply1} · tround2 ${tround2}`,
+        txTime: (time) => `发送时刻 ${time}`,
+        rxTimes: (n, list) => `${n} 个接收时刻：${list} RCTU`,
+        coffs: (ppm) => `时钟偏差 ${ppm} ppm——相对锚点 0`,
+        blink: (block, round) => `闪发 · 块 ${block} · 轮 ${round}`,
+        fragment: (kind, index, of, msIn) => `${kind} 第 ${index} / ${of} 个 · 序列中的第 ${msIn} ms`,
+        fragmentRsf: (nMsr, gap) => `N_MSR ${nMsr} × MMRS 符号 · 间隔 ${gap}`,
+        fragmentRif: (segments) => `STS 段 ${segments} × 512 码片`,
+        nbMsgId: (name, hex) => `${name}（${hex}）`,
+        nbMsgName: {
+          poll: 'POLL', resp: 'RESP',
+          reportInitiator: 'REPORT（发起方）', reportResponder: 'REPORT（响应方）',
+          pollOtm: 'POLL（一对多）', respOtm: 'RESP（一对多）',
+          reportInitiatorOtm: 'REPORT（发起方，一对多）', reportResponderOtm: 'REPORT（响应方，一对多）',
+          unknown: '未知消息',
+        },
+        nbChannel: (channel, mhz) => `信道 ${channel} · ${mhz} MHz`,
+        nbResponders: (n, ids) => `${n} 个应答方 · 每个 1 个时隙 · ${ids}`,
+        nbTurnAround: (time) => `周转时间 ${time}`,
+        nbRest: (octets) => `${octets} 字节的会话与调度字段`,
+      },
     },
   },
   widgets: {

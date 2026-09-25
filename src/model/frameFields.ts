@@ -52,7 +52,11 @@ export type FieldKey =
 export interface FrameField {
   key: FieldKey
   bytes: number
-  /** Display value (language-neutral: numbers, protocol names). */
+  /**
+   * What the field holds, as the inspector shows it. The Wi-Fi and AMP decoders below still
+   * write theirs in English; `uwb/frameFields.ts` renders its rows through the string table,
+   * which is where a value with prose in it belongs.
+   */
   value?: string
   /** Address fields: every role this address plays (e.g. RA and DA). */
   roles?: AddrRole[]

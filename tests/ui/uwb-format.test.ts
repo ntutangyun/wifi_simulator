@@ -159,7 +159,8 @@ describe('fmtRecord delegates every UWB record', () => {
 describe('the event log expands a UWB frame in 802.15.4 vocabulary', () => {
   const poll = makePoll('tag-1', ['anc-1', 'anc-2'], 'ds', 1, 0)
   /** Concepts an 802.15.4 ranging frame simply does not have. */
-  const WIFI_ONLY = ['RA / Address 1', 'TA / Address 2', 'Retry flag', 'Duration/ID']
+  const R = STRINGS.frameDetail.fields.row
+  const WIFI_ONLY = [R.ra, R.ta, R.retryFlag, R.durationId]
 
   it('names the MHR fields and the ranging IEs', () => {
     const S = STRINGS.frameDetail.fields
@@ -170,13 +171,14 @@ describe('the event log expands a UWB frame in 802.15.4 vocabulary', () => {
     expect(labels).toContain(S.name.ieArc)
     expect(labels).toContain(S.name.ieRdm)
     for (const wrong of WIFI_ONLY) expect(labels).not.toContain(wrong)
-    expect(rows.find((r) => r.field === S.name.ieRdm)!.value).toContain('anc-1 slot 1')
+    expect(rows.find((r) => r.field === S.name.ieRdm)!.value)
+      .toContain(S.uwbValue.rdmSlot('anc-1', 1))
     expect(rows.find((r) => r.field === S.name.dstAddr16)!.value).toContain(S.broadcast)
   })
 
   it('leaves a Wi-Fi frame on the 802.11 rows it has always had', () => {
     const data: FrameDesc = { kind: 'data', src: 'ap', dst: 'sta-1', bytes: 1428, mbps: 54, durationFieldNs: 60_000, txTimeNs: 232_000 }
-    expect(decodeFrame(data).map((r) => r.field)).toContain('RA / Address 1')
+    expect(decodeFrame(data).map((r) => r.field)).toContain(R.ra)
   })
 })
 

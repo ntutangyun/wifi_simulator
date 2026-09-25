@@ -14,7 +14,7 @@
  * the model choices are in `sources`.
  *
  * Every number the lesson prints is pinned in tests/course/uwb-dstwr.test.ts.
- * `npx tsx scripts/lesson-dump.ts uwb-dstwr en` prints the section budgets.
+ * `npx tsx scripts/lesson-dump.ts uwb-dstwr` prints it with its length.
  */
 import type { Scenario } from '../../model/scenario'
 import { J, anchor, firstUwbFinal, firstUwbPoll, firstUwbPosition, firstUwbReport, oneRoom, uwbSc, uwbTag, type Lesson } from '../lessonKit'

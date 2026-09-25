@@ -245,7 +245,7 @@ describe('uwb-mms-numbers · what a train adds up to', () => {
     const both = deeper.find((t) => t.includes('8/8 heard'))!
     expect(both).toContain(fmtRecord(trainsAt('base', 'anchor-1')[0]))
     expect(both).toContain(fmtRecord(trainsAt('four', 'anchor-1')[0]))
-    // the UWB log lines are language-neutral: the same string is what a ZH reader sees
+    // the UWB log lines are still English, so this is the string the reader sees too
     expect(both).toContain(fmtRecord(trainsAt('base', 'anchor-1')[0]))
     expect(both).toContain(fmtRecord(trainsAt('four', 'anchor-1')[0]))
     // "the second line has no ratio at all"
@@ -347,7 +347,7 @@ describe('uwb-mms-numbers · the ruler fourteen milliseconds long', () => {
     const rms = Math.sqrt(mean(errs.map((e) => e * e)))
     expect((rms * 100).toFixed(2)).toBe('2.10')
     // the cell is a bare value and its label carries the count, so the one string the table
-    // renders to both readers is language-neutral in fact and not only in type
+    // renders is a value and not a sentence — in fact and not only in type
     expect(cell(2, 5, 1)).toBe('2.10 cm')
     // the 1.5 mm is invisible under it: adding it in quadrature moves nothing a reader sees
     const floor = rangeSigmaM(DEFAULT_UWB_SESSION.tsNoisePs)

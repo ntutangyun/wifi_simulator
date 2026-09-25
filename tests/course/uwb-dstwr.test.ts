@@ -33,6 +33,7 @@ import {
   uwbPpduNs, uwbRespBytes,
 } from '../../src/uwb/phy'
 import { lessonShapeSuite, ofType, runOf } from './kit'
+import { STRINGS } from '../../src/ui/i18n'
 
 const MS = 1_000_000
 const RUN_NS = 30 * MS
@@ -41,10 +42,8 @@ const RING_M = 3.5
 const ANCHORS = 4
 
 // The contract every migrated lesson owes, written once in tests/course/kit.ts.
-// The prose window is the content contract's: `why` + outcomes + terms + picture
-// + numbers, which the spec's own section budgets (900 + 550, as the 2026-09-23
-// amendment raised them to pay for a procedure) already bound. The ratchet below
-// sits just above what the lesson actually spends, so growth is deliberate.
+// The section budgets are gone; a lesson is as long as its one topic needs, under
+// the 30-minute ceiling (docs/superpowers/specs/2026-09-25-course-pace-and-diagrams.md).
 lessonShapeSuite(uwbDstwr, { runNs: RUN_NS })
 
 /** The scenario each part of the lesson runs: the base, then variant 0. */
@@ -353,7 +352,8 @@ describe('uwb-dstwr · ten slots and the frames that fill them', () => {
     expect(ies.filter((x) => x.key === 'ieRrti')).toHaveLength(ANCHORS)
     // one reply time per row, named for the anchor it belongs to
     fields.filter((f) => f.key === 'ieRrti').forEach((f, i) => {
-      expect(f.value).toContain(`anchor-${i + 1}: treply2`)
+      const head = STRINGS.frameDetail.fields.uwbValue.finalReply(`anchor-${i + 1}`, '')
+      expect(f.value!.startsWith(head)).toBe(true)
     })
     expect(UWB_MHR_BYTES + 27 + ANCHORS * RRTI_IE_BYTES + UWB_FCS_BYTES).toBe(62)
     // "Then open a report: one RMI with the anchor’s two."

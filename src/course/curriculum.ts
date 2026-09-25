@@ -150,7 +150,7 @@ export const TRY_MINUTES = 4
 /**
  * Chinese characters a minute, as the reading-time estimate uses them.
  *
- * MEASURED, not guessed. The last bilingual commit (8859f7f) paced every lesson
+ * MEASURED, not guessed. The last bilingual commit (721984e) paced every lesson
  * at 150 English words a minute, and those estimates are the ones the course
  * was written and reviewed against. Counting both halves of that corpus gives
  *

@@ -168,16 +168,19 @@ export function buildNodeMeshes(sc: Scenario): Map<string, THREE.Group> {
   return map
 }
 
+/** The words in a node's floating label; the rest of it is counters and unit tokens. */
+const SCENE = STRINGS.sceneLabel
+
 /** Short live annotation above a node: ranging slot, backoff count, IFS kind, NAV. */
 export function statusText(nv: NodeView, tNs: number): string {
   // A UWB device has no backoff, no IFS and no NAV: what it is doing is the
   // ranging slot it holds, or nothing at all between rounds.
-  if (nv.uwb) return nv.uwb.slot !== null ? `slot ${nv.uwb.slot}` : ''
+  if (nv.uwb) return nv.uwb.slot !== null ? SCENE.slot(nv.uwb.slot) : ''
   if (nv.state === 'backoff' && nv.backoff !== null) return `bo:${nv.backoff}`
   if (nv.ifs) return `${nv.ifs.kind} ${(Math.max(0, nv.ifs.untilNs - tNs) / 1000).toFixed(0)}µs`
   if (nv.navUntilNs > tNs) return `NAV ${((nv.navUntilNs - tNs) / 1000).toFixed(0)}µs`
-  if (nv.state === 'waitAck') return 'wait ACK'
-  if (nv.state === 'waitCts') return 'wait CTS'
+  if (nv.state === 'waitAck') return SCENE.waitAck
+  if (nv.state === 'waitCts') return SCENE.waitCts
   if (nv.backoff !== null && nv.backoff > 0) return `bo:${nv.backoff}`
   return ''
 }

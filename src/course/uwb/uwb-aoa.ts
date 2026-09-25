@@ -22,8 +22,8 @@
  * the log lines and the ellipses after them, the clamp and the field-of-view
  * arithmetic in `deeper`, the one clause and the model's own constants in
  * `sources`. Every number quoted below is pinned in
- * tests/course/uwb-aoa.test.ts; `npx tsx scripts/lesson-dump.ts uwb-aoa en`
- * prints the section budgets.
+ * tests/course/uwb-aoa.test.ts; `npx tsx scripts/lesson-dump.ts uwb-aoa`
+ * prints it with its length.
  */
 import type { NodeCfg, Scenario } from '../../model/scenario'
 import { J, anchor, firstUwbAoa, firstUwbAoaFix, firstUwbFinal, firstUwbPoll, firstUwbRange, oneRoom, uwbSc, uwbTag, type Lesson } from '../lessonKit'

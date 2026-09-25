@@ -1,10 +1,10 @@
 /**
- * Print a lesson as a reader meets it, in one language:
+ * Print a lesson as a reader meets it:
  *
- *   npx tsx scripts/lesson-dump.ts <lessonId> <en|zh>
+ *   npx tsx scripts/lesson-dump.ts <lessonId>
  *
- * or, for the budget line of every UWB (or Wi-Fi) lesson at once — the one
- * screen that shows a batch's word counts against the spec's windows:
+ * or, for the length line of every UWB (or Wi-Fi) lesson at once — the one
+ * screen that shows a batch against the 30-minute ceiling:
  *
  *   npx tsx scripts/lesson-dump.ts --all-uwb
  *   npx tsx scripts/lesson-dump.ts --all-wifi
@@ -16,33 +16,29 @@
  * renders — the main path in order, tables as rows, the collapsed sections
  * last — and nothing else.
  *
- * It is built on `lessonStrings` / `paragraphTexts` / `lessonBudget` in
- * src/course/readability.ts, so the words it prints and the counts it reports
- * are the words and counts the contract test measures. The budget line at the
- * end is the spec's "Length and pace" section budgets.
+ * The section budgets are gone (docs/superpowers/specs/2026-09-25-course-pace-and-diagrams.md),
+ * so the line at the end reports what is left: the characters on the main path
+ * and the minutes `lessonMinutes` estimates from them, against the 30-minute
+ * ceiling that is now the course's only length control.
  *
  * `tsx` is a devDependency of this repo (`npx tsx --version` prints it);
- * `npx vite-node scripts/lesson-dump.ts <id> <lang>` runs it too.
+ * `npx vite-node scripts/lesson-dump.ts <id>` runs it too.
  */
 import { LESSONS } from '../src/course/lessons'
-import { lessonMinutes, lessonWords, trackOf } from '../src/course/curriculum'
-import { BUDGETS, lessonBudget } from '../src/course/readability'
+import { lessonChars, lessonMinutes, MAX_MINUTES, trackOf } from '../src/course/curriculum'
 import type { Block, Lesson } from '../src/course/lessonKit'
 
-/** The spec's "Length and pace" section budgets, one lesson to a line. */
+/** What a lesson costs a reader, one lesson to a line. */
 function budgetLine(l: Lesson): string {
-  const b = lessonBudget(l)
-  return `${l.id.padEnd(16)} picture ${String(b.picture).padStart(4)}/${BUDGETS.picture}`
-    + ` · numbers ${String(b.numbers).padStart(4)}/${BUDGETS.numbers}`
-    + ` · practice ${String(b.practice).padStart(4)}/${BUDGETS.practice}`
-    + ` · total ${String(b.total).padStart(4)} (${lessonWords(l)} words, ${lessonMinutes(l)} min)`
+  const min = lessonMinutes(l)
+  return `${l.id.padEnd(16)} ${String(lessonChars(l)).padStart(5)} chars`
+    + ` · ${String(min).padStart(2)}/${MAX_MINUTES} min${min > MAX_MINUTES ? '  OVER' : ''}`
 }
 
-const [id, langArg] = process.argv.slice(2)
+const [id] = process.argv.slice(2)
 
-// The whole UWB track's budgets, in reading order: no prose, just the line the
-// per-lesson dump ends with. An unmigrated lesson has no sections, so its words
-// land in the total alone — which is how it shows up as still to be rewritten.
+// The whole UWB track, in reading order: no prose, just the line the per-lesson
+// dump ends with.
 if (id === '--all-uwb') {
   for (const l of LESSONS.filter((x) => trackOf(x) === 'uwb')) console.log(budgetLine(l))
   process.exit(0)
@@ -52,10 +48,8 @@ if (id === '--all-wifi') {
   process.exit(0)
 }
 
-const lang: 'en' | 'zh' = langArg === 'zh' ? 'zh' : 'en'
-
-if (!id || (langArg !== undefined && langArg !== 'en' && langArg !== 'zh')) {
-  console.error('usage: npx tsx scripts/lesson-dump.ts <lessonId> <en|zh>')
+if (!id) {
+  console.error('usage: npx tsx scripts/lesson-dump.ts <lessonId>')
   console.error('       npx tsx scripts/lesson-dump.ts --all-uwb')
   console.error('       npx tsx scripts/lesson-dump.ts --all-wifi')
   console.error(`lessons: ${LESSONS.map((l) => l.id).join(' ')}`)
@@ -68,45 +62,44 @@ if (!lesson) {
   process.exit(2)
 }
 
-const t = (s: string): string => s
 const out = (s = ''): void => console.log(s)
 const rule = (label: string): void => out(`\n--- ${label} ---\n`)
 
 /** One block, in reading order, with the markers a rendered page would show. */
 function block(b: Block, l: Lesson): void {
-  if (b.heading) out(`## ${t(b.heading)}`)
+  if (b.heading) out(`## ${b.heading}`)
   switch (b.kind ?? 'p') {
     case 'p':
-      out(t((b as Extract<Block, { kind?: 'p' }>).text))
+      out((b as Extract<Block, { kind?: 'p' }>).text)
       break
     case 'watch': {
       const w = b as Extract<Block, { kind: 'watch' }>
-      const target = w.jump === undefined ? '' : ` → ${t(l.jumps[w.jump].label)}`
-      out(`[WATCH${target}] ${t(w.text)}`)
+      const target = w.jump === undefined ? '' : ` → ${l.jumps[w.jump].label}`
+      out(`[WATCH${target}] ${w.text}`)
       break
     }
     case 'formula': {
       const f = b as Extract<Block, { kind: 'formula' }>
-      for (const line of t(f.text).split('\n')) out(`    ${line}`)
-      if (f.note) out(t(f.note))
+      for (const line of f.text.split('\n')) out(`    ${line}`)
+      if (f.note) out(f.note)
       break
     }
     case 'table': {
       const tb = b as Extract<Block, { kind: 'table' }>
-      out(tb.head.map(t).join(' | '))
-      for (const row of tb.rows) out(row.map(t).join(' | '))
+      out(tb.head.join(' | '))
+      for (const row of tb.rows) out(row.join(' | '))
       break
     }
     case 'list':
-      for (const i of (b as Extract<Block, { kind: 'list' }>).items) out(`- ${t(i)}`)
+      for (const i of (b as Extract<Block, { kind: 'list' }>).items) out(`- ${i}`)
       break
     case 'steps':
-      (b as Extract<Block, { kind: 'steps' }>).items.forEach((i, n) => out(`${n + 1}. ${t(i)}`))
+      (b as Extract<Block, { kind: 'steps' }>).items.forEach((i, n) => out(`${n + 1}. ${i}`))
       break
     case 'widget': {
       const w = b as Extract<Block, { kind: 'widget' }>
       out(`[WIDGET ${w.widget}]`)
-      if (w.caption) out(t(w.caption))
+      if (w.caption) out(w.caption)
       break
     }
   }
@@ -115,10 +108,10 @@ function block(b: Block, l: Lesson): void {
 
 const titleOf = (lessonId: string): string => {
   const n = LESSONS.find((x) => x.id === lessonId)
-  return n ? t(n.title) : lessonId
+  return n ? n.title : lessonId
 }
 
-out(`# ${t(lesson.title)}   [${lesson.id}, ${lang}]`)
+out(`# ${lesson.title}   [${lesson.id}]`)
 out()
 
 if (lesson.body) {
@@ -126,14 +119,14 @@ if (lesson.body) {
   out()
   for (const b of lesson.body) block(b, lesson)
 } else {
-  out(t(lesson.why!))
+  out(lesson.why!)
   out()
   rule('after this lesson you can')
-  for (const o of lesson.outcomes!) out(`- ${t(o)}`)
+  for (const o of lesson.outcomes!) out(`- ${o}`)
   rule('you need')
   for (const n of lesson.needs!) out(`- ${titleOf(n)}`)
   rule('new words')
-  for (const term of lesson.terms!) out(`- ${term.term}: ${t(term.plain)}`)
+  for (const term of lesson.terms!) out(`- ${term.term}: ${term.plain}`)
   rule('the picture')
   for (const b of lesson.picture!) block(b, lesson)
   rule('now the numbers')
@@ -145,27 +138,27 @@ if (lesson.body) {
 }
 
 rule('load and jump')
-for (const v of lesson.variants ?? []) out(`- variant: ${t(v.label)}`)
-for (const j of lesson.jumps) out(`- jump: ${t(j.label)}`)
+for (const v of lesson.variants ?? []) out(`- variant: ${v.label}`)
+for (const j of lesson.jumps) out(`- jump: ${j.label}`)
 
 rule('observe')
-for (const o of lesson.observe) out(`- ${t(o)}`)
+for (const o of lesson.observe) out(`- ${o}`)
 
 rule('experiments')
-for (const e of lesson.tryThis) out(`- ${t(e)}`)
+for (const e of lesson.tryThis) out(`- ${e}`)
 
 rule('quiz')
 for (const q of lesson.quiz) {
-  out(t(q.q))
-  q.options.forEach((o, i) => out(`  ${i === q.answer ? '*' : ' '} ${t(o)}`))
-  out(`  → ${t(q.explain)}`)
+  out(q.q)
+  q.options.forEach((o, i) => out(`  ${i === q.answer ? '*' : ' '} ${o}`))
+  out(`  → ${q.explain}`)
   out()
 }
 
 if (lesson.sources?.length) {
   rule('sources')
-  for (const s of lesson.sources) out(`- ${t(s)}`)
+  for (const s of lesson.sources) out(`- ${s}`)
 }
 
-rule('budget')
+rule('length')
 out(budgetLine(lesson))

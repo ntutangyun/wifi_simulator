@@ -35,7 +35,7 @@
  * and it names the record or counter it is read from.
  *
  * Every number quoted below is pinned in tests/course/uwb-capstone.test.ts;
- * `npx tsx scripts/lesson-dump.ts uwb-capstone en` prints the section budgets.
+ * `npx tsx scripts/lesson-dump.ts uwb-capstone` prints it with its length.
  */
 import { DEFAULT_UWB_SESSION } from '../../model/scenario'
 import type { NodeCfg, Scenario } from '../../model/scenario'

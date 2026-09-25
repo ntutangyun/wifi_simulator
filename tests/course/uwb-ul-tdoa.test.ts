@@ -552,7 +552,7 @@ describe('uwb-ul-tdoa · what one nanosecond buys', () => {
     expect((Math.max(...fixErrM(out, 'badge-1')) * 100).toFixed(1)).toBe('45.3')
     expect(ofType(recs('sync'), 'UWB_POSITION')[0].gdop.toFixed(2)).toBe('0.85')
     // "the anchor sync error field is live in UL-TDoA only": the field's label and its
-    // disabled-elsewhere tooltip exist in both languages, and the walk stays inside the range the
+    // disabled-elsewhere tooltip exist, and the walk stays inside the range the
     // schema — and so the field — allows. (The `disabled` binding itself lives in the editor's
     // own tests; this pins the claim as far as a headless course test can reach.)
     for (const ns of [0, 1, 2, 4]) expect(() => ScenarioSchema.parse(withSync(ns)), String(ns)).not.toThrow()
@@ -658,9 +658,9 @@ describe('uwb-ul-tdoa · the procedure, step by step', () => {
     )
   })
 
-  it('a language-neutral cell of this lesson is a value, never an English sentence', () => {
+  it('a numeric cell of this lesson is a value, never a sentence', () => {
     // the CELL_RULE_CARRIES entry this lesson owed: "1 slot of 2 ms, 1 frame" was one string
-    // rendered to both readers, so the Chinese table read English. It now has a Chinese half.
+    // rendered to both readers, so the Chinese table read English. The cell is Chinese now.
     const prosey = /\b[a-z]{2,}\s+[a-z]{2,}\b|\b[a-z]{4,}\b[^A-Za-z\n]{1,12}\b[a-z]{4,}\b/
     const logLine = /^[a-z][a-z0-9]*-\d+\b/
     for (const b of [...uwbUlTdoa.numbers!, ...uwbUlTdoa.picture!]) {

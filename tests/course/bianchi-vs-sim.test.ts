@@ -4,7 +4,7 @@
  * the rate-adaptation artefact, the cost of a pile-up, the restart times, the
  * per-station spread and the no-window corner.
  *
- * The contract of the lesson (shape, budgets, jumps, the bilingual walk) comes
+ * The contract of the lesson (shape, jumps, the first watch) comes
  * from `lessonShapeSuite`.
  *
  * The busy-slot experiment the lesson quotes (n = 20 rising from 45.83 % to

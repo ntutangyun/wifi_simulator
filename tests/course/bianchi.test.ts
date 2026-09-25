@@ -3,7 +3,7 @@
  * derived fixed point, the engine constants T_s and T_c are built from, and
  * every number the rewritten lesson quotes.
  *
- * The contract of the lesson (shape, budgets, jumps, the bilingual walk) comes
+ * The contract of the lesson (shape, jumps, the first watch) comes
  * from `lessonShapeSuite`. The four-row model-against-run table moved to the
  * companion lesson in the rewrite, and its pins moved with it, to
  * tests/course/bianchi-vs-sim.test.ts; what stays here is the one measured

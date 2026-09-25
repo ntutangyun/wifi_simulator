@@ -14,7 +14,7 @@
  * Written to the zero-to-hero contract
  * (docs/superpowers/specs/2026-09-21-course-readability-design.md). Every
  * number quoted below is pinned in tests/course/uwb-position.test.ts;
- * `npx tsx scripts/lesson-dump.ts uwb-position en` prints the section budgets.
+ * `npx tsx scripts/lesson-dump.ts uwb-position` prints it with its length.
  */
 import type { Scenario } from '../../model/scenario'
 import { J, anchor, brick, firstUwbPoll, firstUwbPosition, firstUwbRange, firstUwbRoundEnd, oneRoom, uwbSc, uwbTag, type Lesson } from '../lessonKit'

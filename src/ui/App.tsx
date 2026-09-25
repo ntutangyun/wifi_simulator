@@ -111,7 +111,7 @@ export function App() {
           <div style={{ position: 'relative', minHeight: 0 }}>
             {simError && (
               <pre style={{ color: '#f87171', padding: 16, whiteSpace: 'pre-wrap', position: 'absolute', zIndex: 5 }}>
-                Simulation error: {simError}
+                {L.simError(simError)}
               </pre>
             )}
             <div style={{ position: 'absolute', inset: 0 }}>

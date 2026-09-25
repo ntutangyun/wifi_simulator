@@ -146,7 +146,7 @@ function NodeSection({ vid, nv, t, L, U, nameOf, serverName }: { vid: string; nv
       )}
       {nv.currentRx && (
         <div style={row}><span style={dim}>{L.receiving}</span>
-          <span>{nv.currentRx.frame.kind.toUpperCase()} from {nameOf(nv.currentRx.from)}</span></div>
+          <span>{L.receivingFrom(nv.currentRx.frame.kind.toUpperCase(), nameOf(nv.currentRx.from))}</span></div>
       )}
 
       {!nv.amp && <>

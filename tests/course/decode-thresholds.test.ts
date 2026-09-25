@@ -110,7 +110,7 @@ describe('decode-thresholds · the three questions', () => {
 
   it('quiz 2: a −70 dBm frame missed during our own transmission leaves CCA idle', () => {
     // "the preamble was missed, so only raw power counts, and −70 dBm is below −62 dBm", and the
-    // explanation's closing sentence, which both languages now carry: "Had you been listening
+    // explanation's closing sentence: "Had you been listening
     // when it began, −70 dBm would have held you off."
     expect(ccaAfter(true)).toBe(false)
     expect(ccaAfter(false)).toBe(true)

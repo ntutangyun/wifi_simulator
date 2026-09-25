@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { decodeFrame, fmtLatency, fmtNs, fmtRecord } from '../../src/ui/format'
 import { ampBsReplyFrame, ampRfidFrame } from '../../src/engine/ampBs'
 import type { FrameDesc } from '../../src/model/frames'
+import { STRINGS } from '../../src/ui/i18n'
 
 describe('fmtNs', () => {
   it('formats grouped nanosecond times', () => {
@@ -57,13 +58,16 @@ describe('fmtRecord', () => {
 })
 
 describe('decodeFrame', () => {
+  /** The rows are labelled from the one string table, so the pins name it. */
+  const R = STRINGS.frameDetail.fields.row
+
   it('lists MAC header fields', () => {
     const rows = decodeFrame(frame)
     const get = (f: string) => rows.find((r) => r.field === f)?.value
-    expect(get('RA / Address 1')).toBe('sta-1')
-    expect(get('Sequence number')).toBe('42')
-    expect(get('Retry flag')).toBe('1')
-    expect(get('TXTIME')).toBe('232.0 µs')
+    expect(get(R.ra)).toBe('sta-1')
+    expect(get(R.seqNo)).toBe('42')
+    expect(get(R.retryFlag)).toBe('1')
+    expect(get(R.txtime)).toBe('232.0 µs')
   })
   it('names the excitations of an RFID command and what a reflection carried', () => {
     const cmd = ampRfidFrame({
@@ -72,21 +76,21 @@ describe('decodeFrame', () => {
     })
     const get = (rows: ReturnType<typeof decodeFrame>, f: string) => rows.find((r) => r.field === f)?.value
     const dl = decodeFrame(cmd)
-    expect(get(dl, 'EPC Gen2 command')).toBe('Query')
-    expect(get(dl, 'Q')).toBe('2 (4 slots)')
-    expect(get(dl, 'WUP-Excitation')).toBe('1000.0 µs')
-    expect(get(dl, 'BST-Excitation')).toBe('142.4 µs')
-    expect(get(dl, 'Excitation power')).toBe('10 dBm charge / 0 dBm backscatter')
+    expect(get(dl, R.gen2Cmd)).toBe('Query')
+    expect(get(dl, R.q)).toBe(R.qValue(2, 4))
+    expect(get(dl, R.wup)).toBe('1000.0 µs')
+    expect(get(dl, R.bst)).toBe('142.4 µs')
+    expect(get(dl, R.excitationPower)).toBe(R.excitationValue(10, 0))
 
     const reply = ampBsReplyFrame({ src: 'tag-1', dst: 'ap', reply: 'epc', kbps: 250, slot: 1, epc: 'a'.repeat(24) })
     reply.amp!.bs!.incidentDbm = -26.2
     const ul = decodeFrame(reply)
-    expect(get(ul, 'Gen2 reply')).toBe('EPC')
-    expect(get(ul, 'EPC')).toBe('a'.repeat(24))
-    expect(get(ul, 'Incident excitation')).toBe('-26.2 dBm')
+    expect(get(ul, R.gen2Reply)).toBe('EPC')
+    expect(get(ul, R.epc)).toBe('a'.repeat(24))
+    expect(get(ul, R.incident)).toBe('-26.2 dBm')
     // a command with no WUP says so rather than printing a zero
     const rep = ampRfidFrame({ ...{ src: 'ap', dst: '*tags', cmd: 'queryRep' as const, session: 1, slot: 2, ulKbps: 250 as const, wupNs: 0, bstNs: 142_400, chargeDbm: 10, bsDbm: 0, signalExtNs: 6_000 } })
-    expect(get(decodeFrame(rep), 'WUP-Excitation')).toBe('—')
+    expect(get(decodeFrame(rep), R.wup)).toBe('—')
   })
 })
 

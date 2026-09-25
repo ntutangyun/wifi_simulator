@@ -8,12 +8,17 @@ import {
 } from '../../src/uwb/frames'
 import { mmsFragmentDbm, mmsSet } from '../../src/uwb/mms'
 import { nbCenterMhz } from '../../src/uwb/nb'
+import { STRINGS } from '../../src/ui/i18n'
 import {
   ARC_IE_BYTES, BLINK_IE_BYTES, chipsToNs, DL_COFFS_IE_BYTES, DL_TX_TIME_IE_BYTES, dlRxTimesIeBytes,
   PHR_SYMBOLS, PHR_SYMBOL_CHIPS, PSYM_CHIPS, RCMA_IE_BYTES, RCPS_IE_BYTES, rdmIeBytes,
   rmiFinalIeBytes, RMI_REPORT_IE_BYTES, RRMC_IE_BYTES, RRTI_IE_BYTES, SFD_SYMBOLS, STS_ACTIVE_CHIPS, STS_GAP_CHIPS,
   SYNC_SYMBOLS, UWB_BLINK_BYTES, uwbDlFinalBytes, uwbDlPollBytes, uwbDlRespBytes, uwbRespBytes,
 } from '../../src/uwb/phy'
+
+/** The decoder renders every row through this table, so the pins below name it rather than
+ * re-typing its Chinese: what is under test is which number lands in which row. */
+const V = STRINGS.frameDetail.fields.uwbValue
 
 const FINAL_TIMES = [
   { id: 'a1', tround1: 1_278_030, treply2: 1_277_900 },
@@ -88,12 +93,14 @@ describe('uwbFrameFields', () => {
   })
 
   it('spells the IE contents out in words', () => {
-    expect(keyed(RESP, 'ieRrti')!.value).toBe('reply time 127 803 RCTU = 2.000 µs')
-    expect(keyed(POLL, 'ieRdm')!.value).toBe('4 devices: a1 slot 1, a2 slot 2, a3 slot 3, a4 slot 4')
+    expect(keyed(RESP, 'ieRrti')!.value).toBe(V.replyTime('127 803 RCTU = 2.000 µs'))
+    expect(keyed(POLL, 'ieRdm')!.value)
+      .toBe(V.rdm(4, [1, 2, 3, 4].map((i) => V.rdmSlot(`a${i}`, i)).join('、')))
     expect(keyed(REPORT, 'ieRmi')!.value).toContain('treply1')
     expect(keyed(FINAL, 'ieRmi')!.value).toContain('a1')
     expect(keyed(FINAL, 'ieRmi')!.value).not.toContain('treply2') // that is the RRTI IEs' job
-    expect(fields(FINAL).filter((x) => x.key === 'ieRrti').map((x) => x.value!.split(':')[0])).toEqual(['a1', 'a2', 'a3', 'a4'])
+    expect(fields(FINAL).filter((x) => x.key === 'ieRrti').map((x) => x.value!.split('：')[0]))
+      .toEqual(['a1', 'a2', 'a3', 'a4'])
   })
 
   it('is what decodeFrame returns for a UWB frame', () => {
@@ -111,7 +118,7 @@ describe('uwbFrameFields', () => {
     expect(fields(blink).map((x) => x.key))
       .toEqual(['fc', 'seqNo', 'dstPan', 'dstAddr16', 'srcAddr16', 'ieBlink', 'fcs'])
     expect(keyed(blink, 'ieBlink')!.bytes).toBe(BLINK_IE_BYTES)
-    expect(keyed(blink, 'ieBlink')!.value).toBe('blink · block 3 · round 7')
+    expect(keyed(blink, 'ieBlink')!.value).toBe(V.blink(3, 7))
     // The shortest frame the simulator puts on the air, and the cheapest position there is.
     expect(blink.bytes).toBeLessThan(uwbRespBytes('ds') + 1)
     expect(ppduLayout(blink).reduce((s, p) => s + p.durNs, 0)).toBe(blink.txTimeNs)
@@ -158,8 +165,10 @@ describe('uwbFrameFields', () => {
     expect(keyed(dlFinal, 'ieRxTimes')!.bytes).toBe(dlRxTimesIeBytes(3))
     // Four octets per ranging time, exactly as an RRTI IE sizes one.
     expect(dlRxTimesIeBytes(3) - dlRxTimesIeBytes(2)).toBe(4)
-    expect(keyed(dlResp, 'ieCoffs')!.value).toBe('clock offset 1.50 ppm to anchor 0')
-    expect(keyed(dlFinal, 'ieRxTimes')!.value).toContain('3 RX times: anc-1 1 300 000')
+    expect(keyed(dlResp, 'ieCoffs')!.value).toBe(V.coffs('1.50'))
+    // the row's header and its first entry; the other two anchors follow in the same row
+    expect(keyed(dlFinal, 'ieRxTimes')!.value)
+      .toContain(`${V.rxTimes(3, '').replace(/ RCTU$/, '')}anc-1 1 300 000`)
 
     // One definition per frame: the builders size at the same phy.ts functions the schema's
     // slot-fit rule measures, content for content — a message that grew an RX time would grow in
@@ -189,8 +198,8 @@ describe('uwbFrameFields', () => {
       .toEqual(['ieArc', 'ieRcps', 'ieRcma', 'ieRrmc'])
     expect(keyed(cPoll, 'ieRcps')!.bytes).toBe(RCPS_IE_BYTES)
     expect(keyed(cPoll, 'ieRcma')!.bytes).toBe(RCMA_IE_BYTES)
-    expect(keyed(cPoll, 'ieRcps')!.value).toBe('response phase slots 1…8')
-    expect(keyed(cPoll, 'ieRcma')!.value).toBe('max attempts 3')
+    expect(keyed(cPoll, 'ieRcps')!.value).toBe(V.rcps(1, 8))
+    expect(keyed(cPoll, 'ieRcma')!.value).toBe(V.rcma(3))
   })
 })
 
@@ -267,30 +276,30 @@ describe('uwbFrameFields — the 4ab PHYs are not 4z frames', () => {
   it('a fragment carries no octets at all — it is a sequence, not a PSDU', () => {
     expect(RSF.bytes).toBe(0)
     expect(fields(RSF).every((x) => x.bytes === 0)).toBe(true)
-    expect(keyed(RSF, 'mmsFragment')?.value).toBe('RSF 2 of 2 · 1 ms into the train')
-    expect(keyed(RSF, 'mmsShape')?.value).toBe('N_MSR 64 × MMRS symbol · gap 25')
+    expect(keyed(RSF, 'mmsFragment')?.value).toBe(V.fragment('RSF', 2, 2, 1))
+    expect(keyed(RSF, 'mmsShape')?.value).toBe(V.fragmentRsf(64, 25))
     expect(keyed(RSF, 'mmsLength')?.value).toBe(`${(RSF.txTimeNs / 1000).toFixed(2)} µs`)
     // The fragment's own EIRP, not the node's: it spends a whole millisecond's budget here.
     expect(keyed(RSF, 'mmsPower')?.value).toBe(`${mmsFragmentDbm(RSF.txTimeNs).toFixed(2)} dBm EIRP`)
   })
 
   it('an integrity fragment names its STS segment instead', () => {
-    expect(keyed(RIF, 'mmsFragment')?.value).toBe('RIF 1 of 2 · 0 ms into the train')
-    expect(keyed(RIF, 'mmsShape')?.value).toBe('STS segment 64 × 512 chips')
+    expect(keyed(RIF, 'mmsFragment')?.value).toBe(V.fragment('RIF', 1, 2, 0))
+    expect(keyed(RIF, 'mmsShape')?.value).toBe(V.fragmentRif(64))
   })
 
   it('a narrowband message names itself, its channel and its centre', () => {
-    expect(keyed(NB_POLL, 'nbMsgId')?.value).toBe('POLL (0x04)')
-    expect(keyed(NB_RESP, 'nbMsgId')?.value).toBe('RESP (0x05)')
-    expect(keyed(NB_REPORT_R, 'nbMsgId')?.value).toBe('REPORT (responder) (0x07)')
-    expect(keyed(NB_REPORT_I, 'nbMsgId')?.value).toBe('REPORT (initiator) (0x06)')
-    expect(keyed(NB_POLL, 'nbChannel')?.value).toBe(`channel 3 · ${nbCenterMhz(3).toFixed(2)} MHz`)
+    expect(keyed(NB_POLL, 'nbMsgId')?.value).toBe(V.nbMsgId(V.nbMsgName.poll, '0x04'))
+    expect(keyed(NB_RESP, 'nbMsgId')?.value).toBe(V.nbMsgId(V.nbMsgName.resp, '0x05'))
+    expect(keyed(NB_REPORT_R, 'nbMsgId')?.value).toBe(V.nbMsgId(V.nbMsgName.reportResponder, '0x07'))
+    expect(keyed(NB_REPORT_I, 'nbMsgId')?.value).toBe(V.nbMsgId(V.nbMsgName.reportInitiator, '0x06'))
+    expect(keyed(NB_POLL, 'nbChannel')?.value).toBe(V.nbChannel(3, nbCenterMhz(3).toFixed(2)))
   })
 
   it('shows the one time the report actually carries, and only it', () => {
-    expect(keyed(NB_REPORT_R, 'nbTime')?.value).toContain('reply time 31 948 044 RCTU')
+    expect(keyed(NB_REPORT_R, 'nbTime')?.value).toContain(V.replyTime('31 948 044 RCTU'))
     expect(keyed(NB_REPORT_R, 'nbTime')?.value).toContain('499.988 µs')
-    expect(keyed(NB_REPORT_I, 'nbTime')?.value).toContain('turn-around time')
+    expect(keyed(NB_REPORT_I, 'nbTime')?.value).toContain(V.nbTurnAround(''))
     expect(keyed(NB_POLL, 'nbTime')).toBeUndefined()
     expect(keyed(NB_RESP, 'nbTime')).toBeUndefined()
     // …and the CRC-16 the compressed PSDU closes with, on all three.

@@ -3,7 +3,7 @@
  * lesson's own scenarios. Each assertion quotes the sentence it guards;
  * standard constants are checked against the engine's exports.
  *
- * The contract of the rewritten lesson (shape, budgets, jumps, the bilingual
+ * The contract of the rewritten lesson (shape, jumps, the first
  * walk) comes from `lessonShapeSuite`; everything below it is this lesson's
  * own empirical pins, which survived the rewrite sentence for sentence. The
  * scenario builder and both variants are unchanged, so the recorded timeline
@@ -20,6 +20,7 @@ import { DEFAULT_MSDU_LIFETIME_NS, DEFAULT_QUEUE_LIMIT } from '../../src/engine/
 import type { TLRecord } from '../../src/model/records'
 import { decodeFrame, fmtRecord } from '../../src/ui/format'
 import { lessonShapeSuite } from './kit'
+import { STRINGS } from '../../src/ui/i18n'
 
 const MS = 1_000_000
 const RUN_NS = 3000 * MS
@@ -223,12 +224,13 @@ describe('retries-queues · what the UI shows', () => {
     expect(fmtRecord(drops(rs, 'lifetime', 'ap')[0])).toMatch(/^ap DROP #\d+ \(lifetime\)$/)
   })
 
-  it('the frame detail of a data frame has Sequence number and Retry flag rows', () => {
-    // "Frame detail of a data frame: Sequence number and Retry flag."
+  it('the frame detail of a data frame has a sequence-number row and a retry-flag row', () => {
+    // "序列号照旧，只是带上了重复标志" — the two rows the reader is sent to look at.
+    const R = STRINGS.frameDetail.fields.row
     const retryTx = ofType(rs, 'TX_START').find((r) => r.frame.kind === 'data' && r.frame.retryFlag)!
     const fields = decodeFrame(retryTx.frame)
-    expect(fields.find((f) => f.field === 'Sequence number')!.value).toBe(String(retryTx.frame.seqNo))
-    expect(fields.find((f) => f.field === 'Retry flag')!.value).toBe('1')
+    expect(fields.find((f) => f.field === R.seqNo)!.value).toBe(String(retryTx.frame.seqNo))
+    expect(fields.find((f) => f.field === R.retryFlag)!.value).toBe('1')
   })
 })
 

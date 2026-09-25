@@ -8,7 +8,7 @@ import type { Ns } from './types'
  *
  * `FrameKind` is derived from it, so the list cannot fall behind the union: a kind added to the
  * type has to be added here, and anything that walks the list — `tests/ui/i18n.test.ts` checks
- * that each one has a non-empty name, description and follow-on in both languages — covers it
+ * that each one has a non-empty name, description and follow-on — covers it
  * from the moment it exists. A hand-written copy of this array had gone six kinds stale.
  */
 export const FRAME_KINDS = [

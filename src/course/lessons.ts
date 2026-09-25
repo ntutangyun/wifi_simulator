@@ -1,5 +1,5 @@
 /**
- * Wi-Fi MAC course: bilingual lessons, each with a deterministic preset
+ * Wi-Fi MAC course: one lesson a file, each with a deterministic preset
  * scenario, jump-to targets over the recorded timeline, an observation
  * checklist, experiments and a self-check quiz.
  *

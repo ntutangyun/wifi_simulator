@@ -10,14 +10,14 @@ import type { UwbNodeView, UwbPositionView } from '../view'
 import { aoaSigmaDeg } from '../aoa'
 
 /** The two phrases the confidence column needs, as the i18n table (Strings['uwb']) supplies them.
- * The event log keeps the engine's English `fomText`, like every other log line; the inspector
- * is chrome and follows the reader's language. */
+ * The event log still uses the engine's English `fomText`, like every other log line — a defect
+ * the log's own pass owes; the inspector is chrome and reads from the table. */
 export interface UwbFomStrings {
   fomWithin: (pct: number, intervalNs: number) => string
   noFom: string
 }
 
-/** The Figure of Merit byte as a phrase in the reader's language. An all-zero byte is the
+/** The Figure of Merit byte as a phrase from the string table. An all-zero byte is the
  * standard's "not available" (standard §10.29.1.7), not 0 % within 0.05 ns. */
 export function uwbFomText(fom: number, S: UwbFomStrings): string {
   if (fom === 0) return S.noFom
@@ -25,7 +25,7 @@ export function uwbFomText(fom: number, S: UwbFomStrings): string {
   return S.fomWithin(levelPct, intervalNs)
 }
 
-/** The two phrases an anchor's contention draw reads as, in the reader's language. */
+/** The two phrases an anchor's contention draw reads as, from the string table. */
 export interface UwbContendStrings {
   contendDraw: (slot: number, attempt: number) => string
   contendSitOut: string
@@ -78,7 +78,7 @@ export function uwbRangeRows(u: UwbNodeView, S: UwbFomStrings & UwbIntegrityStri
   }))
 }
 
-/** The two phrases an integrity flag reads as, in the reader's language. */
+/** The two phrases an integrity flag reads as, from the string table. */
 export interface UwbIntegrityStrings {
   integrityOk: string
   integrityBad: string
@@ -207,7 +207,7 @@ export function uwbAoaRows(u: UwbNodeView): UwbAoaRow[] {
   }))
 }
 
-/** How a fix was solved, in the reader's language (Strings['uwb'] supplies the map). */
+/** How a fix was solved, in words (Strings['uwb'] supplies the map). */
 export interface UwbMethodStrings {
   method: Record<UwbFixMethod, string>
 }

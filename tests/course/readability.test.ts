@@ -8,7 +8,8 @@
  * ceilings, paragraph length, term density, the acronym-introduction walks, the
  * first-use naming shapes, the quantity-glossing rule, the pointer-phrase
  * blocklist, the one-name-per-thing sheet, the cell rules, and everything left
- * of the bilingual machinery. `721984e` is the last commit that held them.
+ * of the bilingual machinery. `721984e` is the last commit that held them, and nothing here
+ * asks about a language pair any more.
  *
  * What is left is four things:
  *  - the migration bookkeeping, so a lesson cannot quietly leave the contract;

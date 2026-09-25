@@ -21,7 +21,7 @@
  * Written to the zero-to-hero contract
  * (docs/superpowers/specs/2026-09-21-course-readability-design.md). Every
  * number quoted below is pinned in tests/course/uwb-mms.test.ts;
- * `npx tsx scripts/lesson-dump.ts uwb-mms en` prints the section budgets.
+ * `npx tsx scripts/lesson-dump.ts uwb-mms` prints it with its length.
  */
 import type { Scenario } from '../../model/scenario'
 import { DEFAULT_UWB_SESSION } from '../../model/scenario'

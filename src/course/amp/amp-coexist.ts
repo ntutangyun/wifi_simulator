@@ -9,10 +9,9 @@
  * camera's throughput, and why the 5 GHz lane never notices. Every number
  * quoted below is pinned in tests/course/amp-coexist.test.ts.
  *
- * CAUTION — word budget: the English prose sits within ~45 words of the ceiling at
- * which `lessonMinutes` rounds up from 25 to 30 minutes (2025 English words across
- * body + observe + tryThis + quiz). Adding a sentence here means removing one
- * elsewhere, or the lesson's own study-time test fails.
+ * CAUTION — this lesson sits close to the minute at which `lessonMinutes` rounds
+ * up from 25 to 30. Adding a section means checking the estimate again
+ * (`npx tsx scripts/lesson-dump.ts amp-coexist`), or the study-time test fails.
  */
 import type { NodeCfg, Scenario } from '../../model/scenario'
 import { J, ampAp, firstAmpLost, longApartment, node, sc, tag, txOf, type Lesson } from '../lessonKit'

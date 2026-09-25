@@ -73,8 +73,8 @@ const scenarioOf = (variant?: number): Scenario =>
 const recs = (variant?: number): TLRecord[] => runOf(uwbCoexist, variant, RUN_NS)
 
 // The contract every migrated lesson owes, written once in tests/course/kit.ts.
-// The prose window is the content contract's: `why` + `outcomes` + `terms` +
-// `picture` + `numbers`, which `npx tsx scripts/lesson-dump.ts uwb-coexist en` prints.
+// The section budgets are gone; a lesson is as long as its one topic needs, under
+// the 30-minute ceiling (docs/superpowers/specs/2026-09-25-course-pace-and-diagrams.md).
 lessonShapeSuite(uwbCoexist, { runNs: RUN_NS })
 
 const interfered = (variant?: number) => ofType(recs(variant), 'UWB_INTERFERED')
@@ -385,7 +385,7 @@ describe('uwb-coexist · what each side hears', () => {
     // at that distance the in-band power really is the threshold, and 1 cm inside it is above
     expect(uwbAt({ ...TAG, x: TAG.x + crossoverM }, TAG).toFixed(4)).toBe(CCA_ED_DBM.toFixed(4))
     expect(uwbAt({ ...TAG, x: TAG.x + crossoverM - 0.01 }, TAG)).toBeGreaterThan(CCA_ED_DBM)
-    // both languages carry the cutoff, and neither claims CCA can never trip at all
+    // the lesson carries the cutoff, and does not claim CCA can never trip at all
     expect(proseZh()).toContain('40 cm')
     // the room's own nearest Wi-Fi radio is nowhere near it
     const nearest = Math.min(...[TAG, ...CORNERS.map(([, x, y]) => ({ x, y, z: ANCHOR_Z }))]

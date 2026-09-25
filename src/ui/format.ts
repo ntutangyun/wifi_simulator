@@ -101,54 +101,55 @@ export interface FieldRow {
 }
 
 /**
- * The little table the event log expands under a frame. `S` names the fields of
- * a ranging frame; it defaults to the one string table, for the call sites that
- * only ever pass Wi-Fi frames, whose labels are not translated.
+ * The little table the event log expands under a frame. `S` names its rows — the
+ * 802.11 header on `S.row`, a ranging frame's MHR and IEs on `S.name` — and
+ * defaults to the one string table, which is the only one there is.
  */
 export function decodeFrame(f: FrameDesc, S: Strings['frameDetail']['fields'] = STRINGS.frameDetail.fields): FieldRow[] {
   // An 802.15.4 ranging frame has no RA/TA, no Duration and no Retry bit; naming
   // those here would contradict the frame inspector two panels away. Reuse the
   // one UWB decode instead, so the log shows the MHR and the ranging IEs.
   if (f.uwb) return uwbFieldRows(f, S)
+  const R = S.row
   const rows: FieldRow[] = [
-    { field: 'Type', value: f.kind.toUpperCase() },
-    { field: 'RA / Address 1', value: f.dst },
-    { field: 'TA / Address 2', value: f.src },
-    { field: 'PSDU length', value: `${f.bytes} octets` },
-    { field: 'Data rate', value: `${f.mbps} Mbps` },
-    { field: 'TXTIME', value: fmtUs(f.txTimeNs) },
-    { field: 'Duration/ID', value: `${fmtUs(f.durationFieldNs)} (NAV for rest of exchange)` },
+    { field: R.type, value: f.kind.toUpperCase() },
+    { field: R.ra, value: f.dst },
+    { field: R.ta, value: f.src },
+    { field: R.psduLength, value: R.octets(f.bytes) },
+    { field: R.dataRate, value: `${f.mbps} Mbps` },
+    { field: R.txtime, value: fmtUs(f.txTimeNs) },
+    { field: R.durationId, value: R.navRest(fmtUs(f.durationFieldNs)) },
   ]
-  if (f.seqNo !== undefined) rows.push({ field: 'Sequence number', value: String(f.seqNo) })
-  rows.push({ field: 'Retry flag', value: f.retryFlag ? '1' : '0' })
+  if (f.seqNo !== undefined) rows.push({ field: R.seqNo, value: String(f.seqNo) })
+  rows.push({ field: R.retryFlag, value: f.retryFlag ? '1' : '0' })
   if (f.amp) {
-    rows.push({ field: 'AMP rate', value: `${f.amp.kbps} kb/s (Manchester OOK)` })
+    rows.push({ field: R.ampRate, value: R.ampRateValue(f.amp.kbps) })
     if (f.kind === 'ampTrigger') {
-      rows.push({ field: 'Slots', value: String(f.amp.slots) })
-      rows.push({ field: 'Slot duration', value: fmtUs(f.amp.slotNs ?? 0) })
-      rows.push({ field: 'ACWE', value: String(f.amp.acwe) })
-      rows.push({ field: 'Phase', value: String(f.amp.phase) })
+      rows.push({ field: R.slots, value: String(f.amp.slots) })
+      rows.push({ field: R.slotDuration, value: fmtUs(f.amp.slotNs ?? 0) })
+      rows.push({ field: R.acwe, value: String(f.amp.acwe) })
+      rows.push({ field: R.phase, value: f.amp.phase ? R.phaseName[f.amp.phase] : '' })
     } else if (f.kind === 'ampAck') {
-      rows.push({ field: 'Acknowledges slot', value: String(f.amp.ackFor) })
+      rows.push({ field: R.acksSlot, value: String(f.amp.ackFor) })
     } else if (f.kind === 'ampResp') {
-      rows.push({ field: 'Slot', value: String(f.amp.slot) })
-      rows.push({ field: 'ABOC', value: String(f.amp.aboc) })
+      rows.push({ field: R.slot, value: String(f.amp.slot) })
+      rows.push({ field: R.aboc, value: String(f.amp.aboc) })
     } else if (f.amp.rfid) {
       const r = f.amp.rfid
-      rows.push({ field: 'EPC Gen2 command', value: GEN2_CMD_NAME[r.cmd] })
-      rows.push({ field: 'Session / slot', value: `${r.session} / ${r.slot}` })
-      if (r.q !== undefined) rows.push({ field: 'Q', value: `${r.q} (${2 ** r.q} slots)` })
-      if (r.rn16 !== undefined) rows.push({ field: 'RN16', value: r.rn16.toString(16).padStart(4, '0') })
-      rows.push({ field: 'WUP-Excitation', value: r.wupNs === 0 ? '—' : fmtUs(r.wupNs) })
-      rows.push({ field: 'BST-Excitation', value: fmtUs(r.bstNs) })
-      rows.push({ field: 'Excitation power', value: `${r.chargeDbm} dBm charge / ${r.bsDbm} dBm backscatter` })
+      rows.push({ field: R.gen2Cmd, value: GEN2_CMD_NAME[r.cmd] })
+      rows.push({ field: R.sessionSlot, value: `${r.session} / ${r.slot}` })
+      if (r.q !== undefined) rows.push({ field: R.q, value: R.qValue(r.q, 2 ** r.q) })
+      if (r.rn16 !== undefined) rows.push({ field: R.rn16, value: r.rn16.toString(16).padStart(4, '0') })
+      rows.push({ field: R.wup, value: r.wupNs === 0 ? '—' : fmtUs(r.wupNs) })
+      rows.push({ field: R.bst, value: fmtUs(r.bstNs) })
+      rows.push({ field: R.excitationPower, value: R.excitationValue(r.chargeDbm, r.bsDbm) })
     } else if (f.amp.bs) {
       const b = f.amp.bs
-      rows.push({ field: 'Gen2 reply', value: GEN2_REPLY_NAME[b.reply] })
-      rows.push({ field: 'Slot', value: String(b.slot) })
-      if (b.rn16 !== undefined) rows.push({ field: 'RN16', value: b.rn16.toString(16).padStart(4, '0') })
-      if (b.epc !== undefined) rows.push({ field: 'EPC', value: b.epc })
-      if (b.incidentDbm !== undefined) rows.push({ field: 'Incident excitation', value: `${b.incidentDbm.toFixed(1)} dBm` })
+      rows.push({ field: R.gen2Reply, value: GEN2_REPLY_NAME[b.reply] })
+      rows.push({ field: R.slot, value: String(b.slot) })
+      if (b.rn16 !== undefined) rows.push({ field: R.rn16, value: b.rn16.toString(16).padStart(4, '0') })
+      if (b.epc !== undefined) rows.push({ field: R.epc, value: b.epc })
+      if (b.incidentDbm !== undefined) rows.push({ field: R.incident, value: `${b.incidentDbm.toFixed(1)} dBm` })
     }
   }
   return rows

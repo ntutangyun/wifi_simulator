@@ -21,7 +21,7 @@
  * geometry — GDOP, the ellipse, where the hyperbolae go soft — and the pinned
  * crystals are in `deeper`; the clauses and the model choices are in `sources`.
  * Every number quoted below is pinned in tests/course/uwb-dl-tdoa.test.ts;
- * `npx tsx scripts/lesson-dump.ts uwb-dl-tdoa en` prints the section budgets.
+ * `npx tsx scripts/lesson-dump.ts uwb-dl-tdoa` prints it with its length.
  */
 import type { Scenario } from '../../model/scenario'
 import { J, anchor, firstUwbDlRound, firstUwbFinal, firstUwbPoll, firstUwbPosition, firstUwbRxTs, firstUwbTdoa, oneRoom, uwbSc, uwbTag, type Lesson } from '../lessonKit'

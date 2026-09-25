@@ -13,7 +13,7 @@
  * scene's fourteen bearings exactly while the fixes land outside the room.
  *
  * The lesson is written to the zero-to-hero contract, so the shape — the sections, the
- * budgets, the bilingual walk, the first watch — is the kit's `lessonShapeSuite`, and the
+ * the first watch — is the kit's `lessonShapeSuite`, and the
  * log lines a reader is shown live in a table of `numbers` rather than in an observe item.
  */
 import { describe, it, expect } from 'vitest'
@@ -104,10 +104,9 @@ const formulas = (): Extract<Block, { kind: 'formula' }>[] =>
 
 const ALL: UwbAoaVariant[] = ['base', 'off45', 'off60', 'behind']
 
-// The contract every migrated lesson owes: the sections, the section budgets, the stated
-// minutes, the jump targets, the bilingual walk and the first watch. The window is what
-// `npx tsx scripts/lesson-dump.ts uwb-aoa en` reports for why + outcomes + terms + picture
-// + numbers.
+// The contract every migrated lesson owes: the sections, the stated minutes, the jump
+// targets and the first watch. `npx tsx scripts/lesson-dump.ts uwb-aoa` prints the lesson
+// and the minutes it costs.
 lessonShapeSuite(uwbAoa)
 
 describe('uwb-aoa · the lesson', () => {
@@ -579,7 +578,7 @@ describe('uwb-aoa · the half it cannot see', () => {
     expect(fs.map((f) => f.ellipse.a)).toEqual(ofType(recs('base'), 'UWB_POSITION').map((f) => f.ellipse.a))
   })
 
-  it('"the editor’s Facing field" exists in both languages, and yaw stays inside the schema', () => {
+  it('"the editor’s Facing field" exists, and yaw stays inside the schema', () => {
     for (const v of ALL) expect(Math.abs(scenarioOf(v).nodes[0].uwb!.yawDeg!), v).toBeLessThanOrEqual(180)
     const behind = uwbAoaScenario('behind')
     const outOfRange = {

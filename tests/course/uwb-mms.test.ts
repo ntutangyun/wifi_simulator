@@ -81,8 +81,8 @@ const steps = (): string[] => {
 /** The worked example under it (table 3): step `row` run on this scene, as one value cell. */
 const worked = (row: number): string => cell(3, row, 1)
 
-// The contract every migrated lesson owes. The window is what `npx tsx
-// scripts/lesson-dump.ts uwb-mms en` reports for why + outcomes + terms + picture + numbers.
+// The contract every migrated lesson owes. `npx tsx scripts/lesson-dump.ts uwb-mms`
+// prints the lesson and the minutes it costs.
 lessonShapeSuite(uwbMms)
 
 describe('uwb-mms · the lesson', () => {

@@ -41,10 +41,8 @@ const PLAN = roundPlan(SESSION, ANCHORS)
 const recs = (variant?: number): TLRecord[] => runOf(uwbBlocks, variant, RUN_NS)
 
 // The contract every migrated lesson owes, written once in tests/course/kit.ts.
-// The prose window is the content contract's: `why` + outcomes + terms + picture
-// + numbers, which the spec's own section budgets (900 + 550, as the 2026-09-23
-// amendment raised them to pay for a procedure) already bound. The ratchet below
-// sits just above what the lesson actually spends, so growth is deliberate.
+// The section budgets are gone; a lesson is as long as its one topic needs, under
+// the 30-minute ceiling (docs/superpowers/specs/2026-09-25-course-pace-and-diagrams.md).
 lessonShapeSuite(uwbBlocks, { runNs: RUN_NS })
 
 /**
@@ -329,14 +327,13 @@ describe('uwb-blocks · the grid', () => {
     const rdm = fields.find((f) => f.key === 'ieRdm')!
     expect(arc.bytes).toBe(ARC_IE_BYTES)
     expect(arc.bytes).toBe(10)
-    // NOTE: the lesson's table cells for these two IEs were translated by the Chinese-only
-    // codemod while `uwbFrameFields` still renders the IE in English, so cell and decoder no
-    // longer agree. The octet counts below are the engine claim; the cell text is the course
-    // owner's to reconcile.
-    expect(arc.value!.startsWith('SP1')).toBe(true)
+    // The two cells print what the inspector prints, so they are pinned to the decoder itself
+    // and not to a re-typed copy of it.
+    expect(cell(1, 4, 1)).toBe(arc.value)
     expect(rdm.bytes).toBe(rdmIeBytes(ANCHORS))
     expect(rdm.bytes).toBe(15)
-    for (const a of ['anchor-1 slot 1', 'anchor-2 slot 2', 'anchor-3 slot 3', 'anchor-4 slot 4']) {
+    expect(cell(1, 5, 1)).toBe(rdm.value)
+    for (const a of ['anchor-1 时隙 1', 'anchor-2 时隙 2', 'anchor-3 时隙 3', 'anchor-4 时隙 4']) {
       expect(rdm.value!, a).toContain(a)
     }
     // "each anchor and the slot it is to answer in": three octets per device, an address and an index
@@ -552,7 +549,7 @@ describe('uwb-blocks · the 0.5 ms variant', () => {
     expect(uwbFinalBytes(ANCHORS) - uwbFinalBytes(ANCHORS - 1)).toBe(12)
   })
 
-  it('each language quotes the plan line its own editor prints, word for word', () => {
+  it('the lesson quotes the plan line the editor prints, word for word', () => {
     // The sentence tells the learner to read the session section, so it has to quote what that
     // section renders — `E.uwbPlan(slots, rounds)` — in the language they are reading it in.
     // A Chinese learner never sees the English string, and a relabel must break this test.

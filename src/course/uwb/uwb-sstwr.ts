@@ -15,7 +15,7 @@
  * counters behind the reply time are in `deeper`.
  *
  * Every number the lesson prints is pinned in tests/course/uwb-sstwr.test.ts.
- * `npx tsx scripts/lesson-dump.ts uwb-sstwr en` prints the section budgets.
+ * `npx tsx scripts/lesson-dump.ts uwb-sstwr` prints it with its length.
  */
 import type { Scenario } from '../../model/scenario'
 import { J, anchor, firstUwbPoll, firstUwbRange, firstUwbResp, oneRoom, uwbSc, uwbTag, type Lesson } from '../lessonKit'

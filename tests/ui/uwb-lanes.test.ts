@@ -118,7 +118,7 @@ describe('a UWB node in the 3-D scene', () => {
   })
 
   it('annotates the node with the slot it is in', () => {
-    expect(statusText(nv(3), 0)).toBe('slot 3')
+    expect(statusText(nv(3), 0)).toBe(STRINGS.sceneLabel.slot(3))
     expect(statusText(nv(null), 0)).toBe('')
   })
 })
