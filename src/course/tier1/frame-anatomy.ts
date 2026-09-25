@@ -1,18 +1,26 @@
 /**
- * Wi-Fi Tier 1 · M1 · lesson 4: the header of a frame. What the first two
- * bytes say, whom the addresses name, how long the room is spoken for, where
- * the frame sits in a numbered run, and what the four bytes at the end are for.
+ * Wi-Fi Tier 1 · M3 · lesson 1: the header of a frame. What the first two
+ * bytes say, whom the addresses name, how long the room is spoken for, and
+ * where the frame sits in a numbered run.
  *
  * Written to the zero-to-hero contract
- * (docs/superpowers/specs/2026-09-21-course-readability-design.md). The old
- * lesson was 1 542 words and carried two ideas a reader wants to stop between,
- * so it is split per the spec's table: this half keeps the header, the
- * addresses and what each field is for, and `frame-anatomy-bytes` takes the
- * byte budget, the decoder and the aggregation hooks. The second half loads
- * this lesson's own scene, so the split adds no scenario.
+ * (docs/superpowers/specs/2026-09-21-course-readability-design.md). The
+ * bit-by-bit breakdown of Frame Control, the mesh four-address case and the
+ * management frames are in `deeper`; the clause numbers are in `sources`.
  *
- * The bit-by-bit breakdown of Frame Control, the mesh four-address case and
- * the management frames are in `deeper`; the clause numbers are in `sources`.
+ * Re-paced on 2026-09-25 (docs/superpowers/plans/2026-09-25-course-repacing-proposal.md
+ * §2 · M3, §4, §5.3 and §5.4). This is the FIRST half of what was one lesson:
+ * the traffic mark and the check at the end are `frame-qos-fcs`, which loads
+ * this lesson's own scene. Two figures replace prose rather than decorate it:
+ *  - the `fields` figure walks the 24 octets, so the three paragraphs that used
+ *    to walk them one at a time (头两个字节… / 谁必须接住它 / 还要多久…) are gone,
+ *    and the table under it keeps the exact widths;
+ *  - the `stack` figure — MSDU inside MPDU inside PPDU — arrives from
+ *    `roles-stack`, where it pre-taught this lesson's own opening (§5.1 item 2),
+ *    rebuilt on THIS lesson's frame so its octets are this run's octets.
+ * Also gone: the sentence under the direction table that walked its cells
+ * (§5.3). The management-frame disclaimer stays here — it is the copy §5.1
+ * item 6 keeps.
  *
  * Amendment of 2026-09-23: `numbers` closes with the order the MAC actually
  * builds a frame in — kind, direction bits, Duration, addresses, sequence
@@ -23,7 +31,9 @@
  *
  * Every number quoted below is pinned in tests/course/frame-anatomy.test.ts.
  */
+import { FCS_BYTES, MAC_HDR_BYTES, QOS_HDR_BYTES } from '../../engine/phy'
 import type { TLRecord } from '../../model/records'
+import type { FieldsSpec, StackSpec } from '../diagram'
 import { J, node, oneRoom, sc, txOf, type Lesson } from '../lessonKit'
 
 /**
@@ -51,6 +61,72 @@ export const firstBlockAck = txOf((r) => r.frame.kind === 'ba')
 export const firstLegacyRetry = (r: TLRecord): boolean =>
   r.type === 'TX_START' && r.frame.kind === 'data' && r.frame.src === 'sta-1' && r.frame.retryFlag === true
 
+
+/** The old laptop's payload, in octets: every one of its arrivals carries this many. */
+export const FA_PAYLOAD_BYTES = 1500
+/** What the MAC makes of it: the header and the check are the engine's own constants. */
+export const FA_FRAME_BYTES = MAC_HDR_BYTES + FA_PAYLOAD_BYTES + FCS_BYTES
+/** What that frame costs on the air at 54 Mb/s, in microseconds: the run's `frame.txTimeNs`. */
+export const FA_PPDU_US = 248
+
+/**
+ * The 24 octets of a plain Data header, field by field, drawn to the octet.
+ * The sizes are the decoder's own (`dataMpdu` in src/model/frameFields.ts) and
+ * the test reads each one back out of this spec and compares it with the
+ * decoded first frame of the run, so a box that drifts fails the suite.
+ */
+export function frameAnatomyHeaderFields(): FieldsSpec {
+  return {
+    kind: 'fields',
+    unit: 'B',
+    fields: [
+      { label: '帧控制', size: 2 },
+      { label: '持续时间', size: 2 },
+      { label: '地址 1', size: 6 },
+      { label: '地址 2', size: 6 },
+      { label: '地址 3', size: 6 },
+      { label: '序列控制', size: 2 },
+    ],
+    total: `帧头 ${MAC_HDR_BYTES} B；带标记的帧多 2 B，共 ${QOS_HDR_BYTES} B`,
+  }
+}
+
+/**
+ * What wraps what, on this lesson's own frame. Not one figure here is typed
+ * twice: the header and the check come from `engine/phy`, the payload and the
+ * airtime from the recorded run, the overhead is arithmetic over those two.
+ *
+ * It arrives from `roles-stack`, where the same picture stood one lesson too
+ * early; there it was built on a phone's 1400 B payload, here on the old
+ * laptop's 1500 B one, which is the frame this lesson takes apart.
+ */
+export function frameAnatomyStack(): StackSpec {
+  const overhead = FA_FRAME_BYTES - FA_PAYLOAD_BYTES
+  return {
+    kind: 'stack',
+    mode: 'nested',
+    label: '同一份载荷，三层包装',
+    layers: [
+      {
+        label: '空口上的那一包（PPDU）',
+        bytes: FA_FRAME_BYTES,
+        note: `前导码（preamble）在最前，54 Mb/s 下整包 ${FA_PPDU_US} µs`,
+      },
+      {
+        label: `MAC 造出来的帧 ${FA_FRAME_BYTES} B（MPDU）`,
+        bytes: FA_FRAME_BYTES,
+        note: `${MAC_HDR_BYTES} B 头 + ${FA_PAYLOAD_BYTES} B 载荷 + ${FCS_BYTES} B 校验`,
+      },
+      {
+        label: `上层交下来的载荷 ${FA_PAYLOAD_BYTES} B（MSDU）`,
+        bytes: FA_PAYLOAD_BYTES,
+        note: '旧笔记本的上传，每一份都是这么大',
+      },
+    ],
+    total: `包装共 ${overhead} B，占载荷的 ${((overhead / FA_PAYLOAD_BYTES) * 100).toFixed(1)} %`,
+  }
+}
+
 export const frameAnatomy: Lesson = {
   id: 'frame-anatomy',
   module: 2,
@@ -59,34 +135,37 @@ export const frameAnatomy: Lesson = {
   outcomes: [
     '读懂仿真里任意一帧的帧头（MAC header），说出它是哪一类',
     '判断哪个地址必须作答，哪个才是远端',
-    '说出帧尾那四个字节是干什么的，以及一帧没能收下来时会怎样',
-    '把普通数据帧（data frame）和带业务标记的数据帧区分开',
+    '说出持续时间（Duration/ID）字段替谁留了多少时间，以及序列号是怎么认出重发的',
+    '按发送端造一帧的顺序，把旧笔记本的第一帧从头写到尾',
   ],
   needs: ['roles-stack'],
   terms: [
     { term: 'MSDU', plain: '上层交下来的那份载荷，也就是你的数据包' },
     { term: 'MPDU', plain: '一个造好的帧：帧头、载荷、校验' },
     { term: 'PPDU', plain: '离开天线的东西：先一段用来锁住的图案，然后是那个帧' },
-    { term: 'FCS', plain: '帧校验序列：说明这一帧完好到达的那四个字节' },
+    { term: 'FCS', plain: '帧校验序列：帧尾那四个字节，说明这一帧完好到达' },
     { term: 'CRC', plain: '算出那四个字节的那套算术' },
-    { term: 'QOS', plain: '服务质量：帧头里说明业务类别的那两个字节' },
   ],
   picture: [
-    { heading: '三层包装，三个名字', text: '上面那一层把一份载荷（payload）交给媒体访问控制（MAC）——射频里负责加头、写地址的那一部分。这份载荷就是 MSDU（MAC service data unit）。MAC 在它前面加一段头、后面加一个校验，做成的这个包裹就是 MPDU（MAC protocol data unit）——也就是一帧。这一课讲的全部内容，都在这个包裹里、在你的数据前面。' },
-    { heading: '再由射频在它前面加一段图案', text: '帧接着交给物理层（PHY）——射频里把它变成信号的那一部分——而 PHY 不能直接开始发字节：接收端得先察觉“有东西开始了”。所以 PHY 会在最前面放一段已知的图案——前导码（preamble）；离开天线（antenna）的这整个东西——先前导码、后帧——就是 PPDU（PHY protocol data unit）。时间轴上的一个块，就是其中一个。' },
-    { kind: 'watch', jump: 0, heading: '打开一帧看看', text: '载入仿真，跳到旧笔记本的第一帧，展开“空中字段”。下面提到的每一个字段都在那张列表里，顺序和这一课讲的一样。' },
-    { heading: '头两个字节先说清这是什么', text: '接收端最先读到的是帧头前端，所以头两个字节要让它能决定接下来做什么：这一帧属于哪一大类——数据、控制还是管理——以及在这一类里具体是哪一种。另有两个比特给出方向，是进网还是出网；还有一个比特说“这是重发的”。' },
-    { heading: '谁必须接住它', text: '接下来是三个地址，每个六字节：必须接住这一帧并作答的那台射频、发出它的那台射频，以及这份载荷真正要走完那段路的终点。正是把它们分开写，才使得“发给隔壁那部手机”的消息，收件人可以是大家都经过的那台路由器——接入点（AP）。' },
-    { heading: '还要多久，以及这是第几个', text: '随后是两个小字段：一个说明这一帧之后交互还要多久——持续时间（Duration/ID）——好让邻居连回复也一并让出来；另一个给每份载荷编号，重发沿用原号——重复帧正是这样被认出来的。' },
-    { heading: '末尾的那个校验', text: '末尾的那四个字节就是帧校验序列（FCS）。在标准里，接收端拿它来检验这一帧：发送端把前面所有内容过一遍固定的算术，也就是循环冗余校验（CRC），接收端照样算一遍再比对。本仿真器从不去算它——这里判定一次接收成不成的，是这一帧到达时的比值：整帧都要够它那一级的要求。不论哪条路，没能收下来的帧得到的回应都是什么都没有，发送端于是把它再发一次。' },
-    { heading: '给业务类别打的那个标记', text: '一通语音通话和一次文件上传，对网络的要求并不相同，所以现在的客户端设备——站点（STA）——会在帧头再加两个字节，写上一个业务标记——服务质量（QoS）字段：这一帧属于四类业务中的哪一类，以及它希望被怎样确认。这两个字节，就是普通数据帧与带标记数据帧的全部差别。' },
+    { heading: '三层包装，三个名字', text: '上面那一层把一份载荷（payload）交给媒体访问控制（medium access control, MAC），这份载荷就叫 MSDU（MAC service data unit）；MAC 在它前面加一段头、后面加一个校验，做成的包裹叫 MPDU（MAC protocol data unit）——也就是一帧；物理层（PHY）再在最前面加一段用来锁住信号的图案，整个离开天线（antenna）的东西才叫 PPDU（PHY protocol data unit）。这一课讲的全部内容，都在中间那一层里——那一帧是旧笔记本的一个数据帧（data frame）。' },
+    {
+      kind: 'diagram', spec: frameAnatomyStack(),
+      caption: '旧笔记本的一帧：1500 B 的载荷，外面 24 B 的头和 4 B 的校验，一共 1528 B。最外面那一层加的是时间，不是字节——那一段值多少微秒，等这个模块讲空口时间（airtime）的那一课再数。',
+    },
+    { kind: 'watch', jump: 0, heading: '打开一帧看看', text: '载入仿真，跳到旧笔记本的第一帧，展开“空中字段”：帧控制（Frame Control）、持续时间（Duration/ID）、地址 1（Address 1）到地址 3、序列控制（Sequence Control）。下面那张图里的每一个字段都在那张列表里，顺序一模一样。' },
+    {
+      kind: 'diagram', heading: '帧头，按接收端读到的顺序', spec: frameAnatomyHeaderFields(),
+      caption: '接收端最先读到的是帧头前端，所以这个顺序就是它做决定的顺序：先弄清这是什么帧、往哪个方向走，再弄清这次交互还要多久，然后才是三个地址和这份载荷的编号。下面那张表给出每个字段确切说明什么。',
+    },
+    { heading: '三个地址，为什么不是两个', text: '一个站点（station, STA）发出的一帧，一跳的两头只要两个地址就够了：必须接住并作答的那台射频，和发出它的那台。第三个是这份载荷自己那段路程的终点。正是把它们分开写，才使得“发给隔壁那部手机”的消息，收件人可以是大家都经过的那台路由器——接入点（AP）。' },
+    { heading: '还有两个字节，和最后四个字节', text: '带业务标记的帧在序列控制之后再插两个字节：服务质量（quality of service, QoS）控制。而每一帧的末尾都是四个字节的帧校验序列（frame check sequence, FCS），也就是对前面所有内容算出的循环冗余校验（cyclic redundancy check, CRC）。这两处在做什么，是下一课的事。' },
   ],
   numbers: [
     { kind: 'table', heading: '帧头，逐个字段', head: [
       '字段', '字节', '它说明什么',
     ], rows: [
       ['帧控制（Frame Control）', '2', '大类、具体类型、方向、重发比特，另有九个比特'],
-      ['持续时间', '2', '本帧之后，这次交互还需要多少 µs'],
+      ['持续时间（Duration/ID）', '2', '本帧之后，这次交互还需要多少 µs'],
       ['地址 1', '6', '必须接住它并作答的那台射频'],
       ['地址 2', '6', '发出它的那台射频'],
       ['地址 3', '6', '这份载荷那段路程的远端'],
@@ -103,19 +182,10 @@ export const frameAnatomy: Lesson = {
       ['接入点 → 站点', 'RA = DA', 'TA = BSSID', 'SA'],
       ['两者皆非，或管理帧（management frame）', 'RA = DA', 'TA = SA', 'BSSID'],
     ] },
-    { text: '接收端地址（receiver address, RA）是必须作答的那台射频，发送端地址（transmitter address, TA）是发出它的那台，两者合起来是这一跳的两头；SA（源）与 DA（目的）则是这份载荷自己那段路程的两头。这个房间里路由器背后没有服务器，所以上行（uplink, UL）帧的三个地址指的都是路由器。' },
-    { kind: 'table', heading: '四类业务，四个标记', head: [
-      '业务类别', '它涵盖的优先级', 'TID',
-    ], rows: [
-      ['背景', '1, 2', '1'],
-      ['尽力而为', '0, 3', '0'],
-      ['视频', '4, 5', '5'],
-      ['语音', '6, 7', '6'],
-    ] },
-    { text: '这些数字是名字，不是次序：背景是 1、尽力而为是 0，可该让路的偏偏是背景。这个房间里的手机正在通话，所以它的帧标的是 6。' },
+    { text: '接收端地址（receiver address, RA）是必须作答的那台射频，发送端地址（transmitter address, TA）是发出它的那台，两者合起来是这一跳的两头；SA（源）与 DA（目的）则是这份载荷自己那段路程的两头。' },
     { kind: 'steps', heading: '造出一帧，一步一步来', items: [
       '先定这是哪一种：普通 Data 帧；两端都给业务打标记时，则是 QoS Data 帧。这个选择写在头两个字节里——大类，以及类里具体的那一种。',
-      '在同样这两个字节里，按“谁发给谁”置好两个方向比特：上行发往接入点是 1 和 0，下行（downlink, DL）回来是 0 和 1。',
+      '在同样这两个字节里，按“谁发给谁”置好两个方向比特：上行（uplink, UL）发往接入点是 1 和 0，下行（downlink, DL）回来是 0 和 1。',
       '写入持续时间：这一帧之后还要发生的事情。对单独一个数据帧来说，就是那段静默加上那个回复，16 + 28 = 44 µs。',
       '按那两个比特填三个地址。上行时，地址 1（Address 1）是接入点（RA），地址 2 是发出这一帧的射频（TA），地址 3 是这段路程的远端（DA）。',
       '给载荷编号：每个对端、每个业务类别各有一个计数器，只在第一次发送时取下一个值；重发沿用同一个号，并把重发比特（Retry bit）置 1。',
@@ -159,16 +229,14 @@ export const frameAnatomy: Lesson = {
   scenario: frameAnatomyScenario,
   jumps: [
     J('第一个传统数据帧', firstLegacyData),
-    J('第一个 QoS 数据帧', firstQosSingle),
     J('第一次重传（Retry = 1）', firstLegacyRetry),
   ],
   observe: [
-    '跳到旧笔记本的第一帧（0 µs），再跳到第一个 QoS 数据帧（20.452 ms），各自展开“空中字段”。方向相同，地址角色相同，持续时间都是 44 µs——但后者多了一个 QoS 控制字段，它的业务标识（TID）写着 6。',
+    '跳到旧笔记本的第一帧（0 µs），展开“空中字段”：帧控制里方向比特是 1 和 0、重发比特是 0，持续时间 44 µs，三个地址分别是路由器、旧笔记本、路由器，序列控制是 SN 0 · FN 0，末尾四个字节的校验——整帧 1528 B。',
     '跳到第一次重传（retry，12.013 ms）。旧笔记本的那一帧撞了，于是带着置位的重发比特、以及同一个计数值 11 再发一次。回头找 11.650 ms 的原帧：号码相同，重发比特是 0。',
   ],
   tryThis: [
-    '在编辑器里打开本场景，把手机的增强型分布式信道接入（EDCA）开关关掉，也就是那个服务质量标记。它的帧变成普通 Data 帧：QoS 控制字段没有了，业务标记也跟着没有了。',
-    '把旧笔记本改成 Wi-Fi 5。它的上传现在是带标记的帧了，标记写的是 0——尽力而为，因为备份不是通话。帧头的其他部分则纹丝不动。',
+    '在编辑器里把路由器和旧笔记本的位置对调再载入，跳到旧笔记本的第一帧。地址 1 仍是路由器、地址 2 仍是旧笔记本，整帧仍是 1528 B：地址写的是角色，不是位置。',
   ],
   quiz: [
     {
@@ -180,16 +248,6 @@ export const frameAnatomy: Lesson = {
       ],
       answer: 0,
       explain: '地址 1 永远是必须接住这一帧的那台射频；朝上走时那就是接入点，它同时也是基本服务集标识（BSSID）。地址 3 才是这份载荷真正要去的地方。',
-    },
-    {
-      q: '一帧到了，可它比周围的干扰弱得太多，接收端读不出来。它会怎么做？',
-      options: [
-        '照样作答，让上层自己去发现',
-        '回一条抱怨，指明是哪个字段坏了',
-        '什么也不做——发送端等不到回复，就会再发一次',
-      ],
-      answer: 2,
-      explain: '没能收下来的帧，地址那几个字节也一样读不出，回它就成了瞎猜。沉默本身就是全部机制：没有回复，就重发。',
     },
     {
       q: '一个单独的数据帧在持续时间字段里写了 44 µs。它保护的是什么？',

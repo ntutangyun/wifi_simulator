@@ -1,39 +1,86 @@
 /**
- * Wi-Fi Tier 1 · M1 · The network and the frame · Frames cost airtime.
+ * Wi-Fi Tier 1 · M3 · lesson 5: one exchange, and how much of it is not your
+ * payload.
  *
  * Rewritten to the zero-to-hero contract
- * (docs/superpowers/specs/2026-09-21-course-readability-design.md): why one
- * shared channel makes time the thing worth counting, what a frame is made of
- * in plain words, and only then the microseconds of the run.
+ * (docs/superpowers/specs/2026-09-21-course-readability-design.md), and
+ * re-paced on 2026-09-25 (docs/superpowers/plans/2026-09-25-course-repacing-proposal.md
+ * §2 · M3, §4, §5.1 item 1, §5.2 and §5.3). It stays ONE lesson and gets
+ * materially smaller, because it was carrying another lesson's procedure:
+ *  - the six-step bytes→microseconds derivation and its worked table are
+ *    `frame-anatomy-bytes`'s, taught there in full. What is left here is the
+ *    answer's own rate and the pause before it, and a citation for the rest.
+ *  - the two paragraphs that restated the exchange table's totals are gone, and
+ *    a `timing` figure draws the exchange to scale instead (§4).
+ *  - the voice metaphors the re-pacing named are gone with them.
  *
  * Every number quoted below is pinned in tests/course/airtime.test.ts, against
  * the lesson's own scene. The scenario builder is unchanged, so the recorded
  * timeline hash in tests/fixtures/lesson-hashes.json is byte-identical.
  */
+import { PHY_MODES, SIFS_NS } from '../../engine/phy'
+import type { TimingSpec } from '../diagram'
 import { type Lesson, oneRoom, node, sc, firstData, firstAck, J } from '../lessonKit'
+
+/**
+ * The one exchange this lesson times, in microseconds. The data frame and the
+ * answer are measured in the run; the preamble and the pause are the engine's
+ * own constants, read from `PHY_MODES` and `SIFS_NS` rather than typed again.
+ */
+export const DATA_US = 125.6
+export const PREAMBLE_US = PHY_MODES.he.preambleNs / 1000
+export const SIFS_US = SIFS_NS / 1000
+export const ACK_US = 28
+export const EXCHANGE_US = DATA_US + SIFS_US + ACK_US
+
+/**
+ * The exchange, drawn to scale: the preamble, the payload's symbols, the gap
+ * that is the pause, and the answer. The gap is the SIFS — a timing figure
+ * shows a pause by the absence of a span — and every duration here comes from
+ * `PHY_MODES` or from the run, so the test reads them back out of this spec.
+ */
+export function exchangeTiming(): TimingSpec {
+  return {
+    kind: 'timing',
+    lanes: [
+      { label: '接入点', spans: [
+        { label: '前导码', fromUs: 0, toUs: PREAMBLE_US },
+        { label: '6 个符号', fromUs: PREAMBLE_US, toUs: DATA_US, tone: 'accent' },
+      ] },
+      { label: '电视', spans: [
+        { label: '确认帧', fromUs: DATA_US + SIFS_US, toUs: EXCHANGE_US },
+      ] },
+    ],
+    // 141.6 — the instant the answer starts — is not a tick: its label collides with
+    // 125.6's at every panel width, and the 16 µs gap is what the figure draws anyway.
+    axis: { fromUs: 0, toUs: EXCHANGE_US, ticks: [0, PREAMBLE_US, DATA_US, EXCHANGE_US], unit: 'µs' },
+  }
+}
 
 export const airtime: Lesson = {
   id: 'airtime',
   module: 2,
   title: '帧要花“空口时间”',
-  why: '一个房间，一条信道，同一时刻只能有一个人说话。视频流、文件上传、手机收邮件，全都得挤进同一片空气里，一帧接着一帧。所以真正值得数的不是字节，而是时间：每一帧把信道占住多久，其中又有多少根本没在搬运谁想要的东西。这一课，我们给一次收发交互掐一次秒表。',
+  why: '一个房间，一条信道，同一时刻只能有一台设备在发。视频流、文件上传、手机收邮件，全都得挤进同一片空气里，一帧接着一帧。所以真正值得数的不是字节，而是时间：一次收发交互把信道占住多久，其中又有多少根本没在搬运谁想要的东西。这一课就给一次交互掐一次秒表。',
   outcomes: [
-    '在时间轴上读出一帧的时长，并说出其中哪一段才是载荷（payload）',
-    '解释为什么每一帧都要付同样长的前导码（preamble），不管它装了什么',
+    '把一次交互拆成四段，并说出其中哪一段才是载荷（payload）',
     '说清确认帧（ACK）为什么值得它占掉的那点空口时间（airtime）',
+    '说出确认帧的速率是怎么定下来的，以及它为什么不是一个固定值',
   ],
-  needs: ['radio-primer', 'decode-thresholds', 'frame-anatomy', 'frame-anatomy-bytes'],
+  needs: ['decode-thresholds', 'frame-anatomy-bytes'],
   terms: [
     { term: 'ACK', plain: '确认帧：接收方立刻回发的一个小帧，意思是“这帧我完整收到了”' },
     { term: 'payload', plain: '帧里真正装着“要发的东西”的那一段' },
   ],
   picture: [
-    { heading: '一条信道，一个说话人', text: '一个房间里的空气就是一条信道，而一台无线电没法一边发一边听。只要有一帧正在发出去，听力范围内的其他设备就都开不了口。所以无线网络的“货币”是空口上的时间：站点（STA）买到的不是带宽，而是时钟上的一小段。下一段归谁，全由媒体访问控制（MAC）——射频里决定什么时候开口的那一部分——说了算。' },
-    { heading: '一帧为什么不能张口就来', text: '接收端并不是专等你的比特，它等的是“有没有信号”。在读到哪怕一个比特之前，它得先察觉到有信号开始了，锁住它的节奏，再弄清后面的东西是怎么编码的。这就是前导码干的活：一段两端早已约好的固定图案。它不装数据，帧里装什么它都一样长，而且每一次都要付。' },
+    { heading: '这张网的货币是时间', text: '一个房间里的空气就是一条信道，而一台无线电没法一边发一边听。只要有一帧正在发出去，听力范围内的其他设备就都开不了口。所以无线网络真正在分的是空口上的时间：站点（STA）买到的不是带宽，而是时钟上的一小段。下一段归谁，全由媒体访问控制（MAC）——射频里决定什么时候开口的那一部分——说了算。' },
     { kind: 'watch', jump: 0, heading: '给一帧掐一次表', text: '载入仿真，跳到第一个数据帧（data frame）。把鼠标悬在它上面：提示框会给出帧的大小、速率和精确时长。房间里其他人付的，就是这个时长。蓝色是接入点（AP）的泳道，绿色是站点的。' },
-    { heading: '会变长的只有中间那段', text: '前导码之后是数据符号（symbol）：一段段等长的信号，每段装固定数量的比特。载荷翻倍，符号数就翻倍；换一档更快的编码，每个符号装得更多，需要的符号就更少。大帧的空口时间大头花在消息上，小帧的大头却花在前导码上。' },
-    { heading: '而且这段空口要付两遍', text: '发送方听不见碰撞：发送的时候，自己的信号把耳朵震聋了。所以安静对它毫无信息量，只有接收方才能报告这一帧活着到达。这份报告就是 ACK——只有几个字节，在一段固定的短暂停顿之后回过来。它很小，却永远不是可选项；而且这段停顿加上 ACK，每一次交互都要记账。' },
-    { heading: '那么一次交互到底花多少？', text: '所以一次交互由三样东西组成：前面的前导码、载荷，以及后面那段停顿加回答。只有中间那样取决于你发了什么。这就是为什么一个净发小帧的网络可以整天忙得不可开交却几乎没搬动什么；也是为什么后面几乎每一招，都是把这些固定开销摊到更多数据上去。' },
+    { heading: '会变长的只有中间那段', text: '讲字节数的那一课已经把这笔账算过：一帧的时长 = 固定的前导码（preamble）+ 整数个数据符号（symbol）。这个房间里的视频帧走完那六步是 125.6 µs，其中 44.0 µs 是前导码。载荷翻倍，符号数就翻倍；前导码一动不动。' },
+    { heading: '而且这段空口要付两遍', text: '发送方检测不到碰撞：它发的时候，自己的信号盖住了一切。所以安静对它毫无信息量，只有接收方才能报告这一帧活着到达。这份报告就是 ACK——只有十四个字节，在一段固定的短暂停顿之后回过来。它很小，却永远不是可选项；而且这段停顿加上 ACK，每一次交互都要记账。' },
+    {
+      kind: 'diagram', heading: '一次交互，按比例画', spec: exchangeTiming(),
+      caption: '中间那道空白就是 16 µs 的停顿。169.6 µs 里，只有 81.6 µs 在搬运载荷——其余 88.0 µs 是前导码、停顿和确认。一个净发小帧的网络可以整天忙得不可开交却几乎没搬动什么，后面几乎每一招都是把这些固定开销摊到更多数据上去。',
+    },
   ],
   numbers: [
     { kind: 'table', heading: '这个房间里的一次交互', head: [
@@ -47,26 +94,11 @@ export const airtime: Lesson = {
       ['整次交互', '169.6 µs', '其中固定开销 88.0 µs，载荷 81.6 µs', '—'],
     ] },
     { kind: 'formula', heading: '时间花在哪儿', text: '空口时间 = 前导码 + 符号时长 × ⌈载荷比特数 ÷ 每符号比特数⌉', note: '第一项永远不动；符号时长就是上表里那 13.6 µs。帧变大、编码变快，能改的只有第二项。' },
-    { kind: 'steps', heading: '这个时长是怎么算出来的，一步一步', items: [
-      '先数这一帧真正送上空口的字节：载荷、帧头（MAC header）和校验码加在一起。本轮里是 1430 个。',
-      '把这些字节换算成比特，再加上发送机在两头各包一层的固定字段：前面是 16 比特的服务字段（SERVICE field），后面是 6 个尾比特（tail bits）。',
-      '拿这个比特数去除以所用那一级里一个符号能装的比特数——本链路（link）在 20 MHz、单流下是 1950——然后向上取整。正因为向上取整，最后一个符号里总有一段是填充（padding）。',
-      '把符号数乘以符号时长 13.6 µs，再加上前导码的 44.0 µs。前导码对这一代电台是定值，与帧里装了什么无关。这两项之和，就是你在时间轴上量到的那个色块。',
-      '再拿同一条公式去算那个回答。ACK 是 14 个字节，而它的速率并不是一个定值：取不超过数据帧自身参考速率的那个最高强制速率（mandatory rate）；标准把这条规则叫作控制回应速率（control response rate）——在这条链路上是 24 Mb/s。',
-      '在这个速率上，回答需要两个 4 µs 的符号，前面挂一段 20 µs 的前导码，合计 28 µs；再补上它前面那 16 µs 的停顿，这次交互就算走完了。',
+    { kind: 'steps', heading: '那个回答的时长是怎么定下来的', items: [
+      '数据帧的 125.6 µs 不必再算一遍：讲字节数那一课的六步已经给出了它——1430 B，6 个符号，加 44.0 µs 的前导码。',
+      '回答的速率并不是一个定值：取不超过数据帧自身参考速率的那个最高强制速率（mandatory rate）。标准把这条规则叫作控制回应速率（control response rate）——在这条链路（link）上是 24 Mb/s，而不是数据帧的那一档。',
+      '同一套算术用在 14 个字节上：在 24 Mb/s 下是两个 4 µs 的符号，前面挂一段 20 µs 的前导码，合计 28 µs。再补上它前面那 16 µs 的停顿，这次交互就走完了：125.6 + 16 + 28 = 169.6 µs。',
     ] },
-    { kind: 'table', heading: '第一个数据帧，一个值一个值地走', head: [
-      '步骤', '数值',
-    ], rows: [
-      ['送上空口的字节', '1430 B'],
-      ['化成比特，含服务与尾比特', '16 + 8 × 1430 + 6 = 11 462'],
-      ['除以每符号比特数，向上取整', '11 462 ÷ 1950 → 6'],
-      ['符号数乘以符号时长', '6 × 13.6 = 81.6 µs'],
-      ['再加上前导码', '81.6 + 44.0 = 125.6 µs'],
-      ['再加上停顿与回答', '125.6 + 16 + 28 = 169.6 µs'],
-    ] },
-    { heading: '这笔税，用一个数说清', text: '这次交互一共占住信道 169.6 µs，其中 88.0 µs 是前导码、停顿和回答。载荷只占剩下的 81.6 µs——还不到一半。' },
-    { heading: '这个房间有多忙？', text: '前 100 ms 里，AP 发出 117 个这样的帧，收到 116 个回答——合起来约占 18 % 的时间。其余都是静默。' },
   ],
   sources: [
     '空口时间公式出自 IEEE Std 802.11-2024 的 §17.4.3（TXTIME）；44 µs 的高效率前导码与 13.6 µs 的符号，是本仿真器为第 27 章 PPDU 取的单一代表值，并非逐个训练字段加出来的结果。',

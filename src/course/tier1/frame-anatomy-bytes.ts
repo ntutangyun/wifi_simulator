@@ -1,42 +1,72 @@
 /**
- * Wi-Fi Tier 1 · M1 · lesson 5: the byte budget of a frame. What the radio
- * puts in front of every frame and why even a Wi-Fi 7 radio still starts the
- * way an 802.11a one did, what a header and a check really cost once the air
- * is counted in symbols, and what it buys to send many frames behind one preamble.
+ * Wi-Fi Tier 1 - M3 - lesson 3: what the radio puts in front of every frame,
+ * and the arithmetic that turns a byte count into microseconds.
  *
- * The second half of the old `frame-anatomy`, split per the spec's table
- * (docs/superpowers/specs/2026-09-21-course-readability-design.md): the first
- * half keeps the header, the addresses and what each field is for. This half
- * loads exactly the scene `frame-anatomy` loads — the same builder, no variant
- * — so the split adds no scenario and the recorded hash of this lesson is
- * `frame-anatomy`'s.
+ * The second half of the old `frame-anatomy`, and after the re-pacing of
+ * 2026-09-25 (docs/superpowers/plans/2026-09-25-course-repacing-proposal.md
+ * §2 · M3, §4, §5.1 item 1 and §5.4) the SOLE owner of that arithmetic: the
+ * same six steps used to be taught again, in full, in `airtime`, which now
+ * keeps only the answer's own rate and the pause and cites the result.
  *
- * The airtime derivation and how the newer preambles grow are in `deeper`; the
- * clause numbers and the model choices are in `sources`.
+ * The cost of a small frame and what one preamble buys a burst of fourteen are
+ * `small-frames`, which loads this lesson's own scene — the same builder that
+ * `frame-anatomy` loads, no variant — so the split adds no scenario and the
+ * recorded hash is the same run three times.
  *
- * Amendment of 2026-09-23: the sentence that used to promise to "count it" and
- * then point at the count now leads into the count itself — `numbers` carries
- * the six steps of `txTimeModeNs` (src/engine/phy.ts), bytes to bits to
- * symbols to microseconds, with the old laptop's first frame run through them.
+ * §4 gives this lesson a `timing` figure, and it replaces prose: the
+ * per-generation table is gone, and the figure draws the two frames the run
+ * itself puts on the air, a fixed front and the symbols that stretch behind it.
+ *
+ * How the newer preambles grow is in `deeper`; the clause numbers and the model
+ * choices are in `sources`.
  *
  * Every number quoted below is pinned in tests/course/frame-anatomy-bytes.test.ts.
  */
+import { PHY_MODES } from '../../engine/phy'
+import type { TimingSpec } from '../diagram'
 import { J, type Lesson } from '../lessonKit'
-import {
-  frameAnatomyScenario, firstLegacyData, firstQosSingle, firstRtsFrame, firstAmpduFrame,
-  firstBlockAck,
-} from './frame-anatomy'
+import { frameAnatomyScenario, firstLegacyData, firstQosSingle } from './frame-anatomy'
+
+/** The two frames the figure draws, in microseconds: both are measured in the run. */
+export const LEGACY_FRAME_US = 248
+export const HE_FRAME_US = 57.6
+
+/**
+ * The same two blocks the timeline shows, drawn to scale against each other:
+ * the old laptop's 1528 B frame at 802.11a, and the phone's 230 B frame at
+ * Wi-Fi 6. Every duration comes from `PHY_MODES` or from the run, and the test
+ * reads each one back out of this spec, so the picture cannot drift.
+ */
+export function preambleTiming(): TimingSpec {
+  const a = PHY_MODES.nonht
+  const he = PHY_MODES.he
+  const us = (ns: number): number => ns / 1000
+  return {
+    kind: 'timing',
+    lanes: [
+      { label: '802.11a', spans: [
+        { label: '前导码', fromUs: 0, toUs: us(a.preambleNs) },
+        { label: `57 个符号 × ${us(a.symNs)} µs`, fromUs: us(a.preambleNs), toUs: LEGACY_FRAME_US, tone: 'accent' },
+      ] },
+      { label: 'Wi-Fi 6', spans: [
+        { label: '前导码', fromUs: 0, toUs: us(he.preambleNs) },
+        { label: '1 个符号', fromUs: us(he.preambleNs), toUs: HE_FRAME_US, tone: 'accent' },
+      ] },
+    ],
+    axis: { fromUs: 0, toUs: LEGACY_FRAME_US, ticks: [0, 50, 100, 150, 200, 248], unit: 'µs' },
+  }
+}
 
 export const frameAnatomyBytes: Lesson = {
   id: 'frame-anatomy-bytes',
   module: 2,
   title: '一帧在空口上要花多少',
-  why: '上一课把一帧打开、把字段都点了名。可这些都不是白来的：你的数据前面每多一个字节，就多一段别人用不了的空口时间（airtime）；而在这一帧本身之前，射频还要放上更长的一段东西——前导码（preamble）。这一课就把字节数到微秒——前面放的是什么，帧头（MAC header）和校验各添了多少，以及为什么“多帧共用一个前导码”是标准里最划算的一招。',
+  why: '前面两课把一帧打开、把字段都点了名。可这些都不是白来的：你的数据前面每多一个字节，就多一段别人用不了的空口时间（airtime）；而在这一帧本身之前，射频还要放上更长的一段东西——前导码（preamble）。这一课把字节数成微秒：前面放的是什么，为什么每一代都照旧发它，以及一帧的字节数怎么一步步变成时间轴上那个色块的宽度。',
   outcomes: [
     '说出射频放在每一帧前面的那几段是什么，以及每一段换来了什么',
-    '从载荷（payload）、帧头和校验，把一帧的字节数加出来',
+    '从载荷（payload）、帧头（MAC header）和校验，把一帧的字节数加出来',
+    '把字节数一步步算成微秒，并说出向上取整发生在哪一步',
     '解释为什么帧头多两个字节，空口时间却可能一点都不多花',
-    '说出十四帧一起走时，一个前导码买到了什么',
   ],
   needs: ['frame-anatomy'],
   terms: [
@@ -52,17 +82,12 @@ export const frameAnatomyBytes: Lesson = {
     { kind: 'watch', jump: 0, heading: '看看那几条', text: '载入仿真，先跳到旧笔记本的第一帧，再跳到手机的那一帧，各自展开“空中字段”。两个块都会分成“前导码”和“正身”两截；比一比各自的前导码占了多少。' },
     { heading: '新射频，前导码照样按老规矩', text: '一帧 Wi-Fi 7 的帧本可以用更适合它自己的开头，但它没有。它的前导码照样是那三段，好让楼里每一台设备都能读出它有多长；之后才加上一个新字段，也就是 U-SIG（universal signal field），说明后面那种新格式究竟是什么。这里的向后兼容不是客气，而是唯一能防止邻居们互相压着说话的东西。' },
     { heading: '把字节数出来', text: '帧本身很好加：帧头，加上你的载荷，再加上校验。帧头是固定长度的，而那个业务类别标记会让它长两个字节。可空口不是按字节卖的，是按整个符号（symbol）卖的：一帧要向上凑成整数个符号，于是多出来的那两个字节，常常就消失在本来就要付的那点凑整里。' },
-    { heading: '很多帧，共用一个前导码', text: '再把那个前导码和一个短帧放在一起看。一次只发一个小帧，就意味着每次都要付一遍前导码。于是客户端设备——站点（STA）——可以把许多造好的帧排成一队，每一帧仍有自己的帧头和校验，跟在同一个前导码后面作为一个 PPDU（PHY protocol data unit）发出；回来的也是一个覆盖全部的回复。而在这么长的一个突发之前，它会先用一个短的预约帧把房间要下来，等到放行帧再发。' },
+    {
+      kind: 'diagram', heading: '两帧，画在同一把尺子上', spec: preambleTiming(),
+      caption: '上面是旧笔记本 1528 B 的一帧：20 µs 的前导码，后面 57 个符号。下面是手机 230 B 的一帧：前导码 44 µs，后面只有一个符号。前导码不随装了什么变长——换一代只改两个尺寸：前导码 20 → 40 → 44 → 48 µs，符号 4 → 4 → 13.6 → 13.6 µs（多设备共享的帧再多 4 µs）。',
+    },
   ],
   numbers: [
-    { kind: 'table', heading: '各代射频，前面放的是什么', head: [
-      '代际', '帧前面的部分', '一个数据符号',
-    ], rows: [
-      ['802.11a', '20 µs：L-STF 与 L-LTF 共 16 µs，再加 L-SIG 4 µs', '4 µs'],
-      ['Wi-Fi 5', '40 µs', '4 µs'],
-      ['Wi-Fi 6', '44 µs；多设备共享的帧再多 4 µs', '13.6 µs'],
-      ['Wi-Fi 7', '48 µs；多设备共享的帧再多 4 µs', '13.6 µs'],
-    ] },
     { kind: 'formula', heading: '一个传统帧要占多久', text: 'TXTIME = 16 + 4 + 4 × ⌈(16 + 8 × LENGTH + 6) ÷ N_DBPS⌉ µs', note: 'N_DBPS 是一个符号能装的数据比特数：54 Mb/s 时是 216，24 Mb/s 时是 96。那个向上取整就是凑整——空口按整符号付费。' },
     { kind: 'formula', heading: '数一帧的字节', text: '24 + 1500 + 4 = 1528 B      ·      带标记时 26 + 1500 + 4 = 1530 B', note: '多出的那两个字节没有换来一个新符号，所以在这里是白送的。' },
     { kind: 'steps', heading: '从字节到微秒，一步一步算', items: [
@@ -83,49 +108,29 @@ export const frameAnatomyBytes: Lesson = {
       ['先前导码，后符号', '20 + 57 × 4 µs'],
       ['于是这一帧占用空口', '248 µs'],
     ] },
-    { kind: 'table', heading: '小帧只带非带不可的东西', head: [
-      '帧', '里面有什么', '大小',
-    ], rows: [
-      ['Ack, CTS', '帧控制（Frame Control）、持续时间（Duration/ID）、地址 1（Address 1）、帧校验序列（FCS）', '14 B'],
-      ['RTS', '同样的内容，再加地址 2——回复得找得到它', '20 B'],
-      ['BlockAck', '块确认（BlockAck）：一整串帧只换一个回答，里面是两个地址、一个起始序号（sequence number）、一张 64 位位图（bitmap）', '32 B'],
-    ] },
-    { heading: '一个小帧要花多少', text: '一个 14 B 的回复在 24 Mb/s 下占两个符号，要 28 µs 空口时间，其中 20 µs 是前导码。' },
-    { kind: 'formula', heading: '把它们排在一个前导码后面', text: '队列里的一个位置 = 4 B 的分隔符 + 那一帧 + 补齐到 4 的倍数的填充', note: 'Wi-Fi 5 笔记本的十四帧一起走：13 × 1536 + 1534 = 21 502 B，全都跟在同一个前导码后面。只有最后一个不必填充（padding）。' },
-    { kind: 'table', heading: '那个突发外面的预约写了什么', head: [
-      '帧', '它写的持续时间', '这段覆盖了什么',
-    ], rows: [
-      ['RTS', '2356 µs', '放行帧、突发、回复，外加三个间隔'],
-      ['CTS', '2312 µs', '同一个预约，减去一个间隔和它自己'],
-      ['那个突发', '48 µs', '一个间隔，加上随后的那个回复'],
-      ['那个回复', '0', '它后面什么都没有了'],
-    ] },
+    { heading: '一个小帧要花多少', text: '同一套算术用在一个 14 B 的回复上：它在 24 Mb/s 下只占两个符号，一共 28 µs 空口时间——其中 20 µs 是前导码。小帧的账单几乎全在前面那一段上，这正是下一课的题目。' },
   ],
   deeper: [
     { heading: '空口时长公式是怎么来的', text: '那 16 µs 是 L-STF 加 L-LTF，4 µs 是 L-SIG；再往后的数据符号里装着 16 比特的 SERVICE 字段、PSDU、6 个尾比特，以及补齐到整符号的填充——取整式里的 16 和 6 就是它们。54 Mb/s 下，1528 B 的一帧需要 ⌈(16 + 12 224 + 6) ÷ 216⌉ = 57 个符号，20 + 57 × 4 = 248 µs。' },
     { heading: '为什么更新的前导码只是代表值', text: '上面的 40、44、48 µs 是 20 MHz、单空间流下的单用户取值。真实的 VHT、HE 或 EHT 前导码会随空间流数增长——每条流都要有自己的训练字段——也会随多用户帧所服务的用户数增长，多出的那 4 µs HE-SIG-B 或 EHT-SIG 正是为此付的。仿真器没有建模这种增长，每一代只给一个代表值。' },
-    { heading: '聚合帧里的确认策略', text: 'QoS 控制里的两个确认策略比特，在单独一帧上读作 Normal Ack；同样这两个比特放在 A-MPDU 里，含义是 Implicit Block Ack Request。这正是十四帧只换回一个带 64 位位图、32 B 的 BlockAck，而不是十四个 14 B 的 Ack 的原因。' },
   ],
   sources: [
     '非 HT 前导码与空口时长公式见 IEEE Std 802.11-2024 §17.3.2 与 §17.4.3；L-STF、L-LTF、L-SIG 这几个名字也出自第 17 章。20 µs 的前导码与 4 µs 的符号是标准里的数值，不是模型取值。',
     '40、44、48 µs 的前导码与 13.6 µs 的符号，是本仿真器在 20 MHz、单流下的代表性单用户取值；真实值会随空间流数与用户数增长（第 21、27、36 章）。Wi-Fi 7 帧里跟在传统字段之后的 U-SIG 见 §36.3.12。',
-    '控制帧的大小见 §9.3.1；A-MPDU 子帧——4 个八位组的分隔符、MPDU，再补齐到 4 字节边界（最后一个不补）——见 §9.8。上面每一个时长和字节数，都是在本课场景里实测出来的。',
+    '控制帧的大小见 §9.3.1。上面每一个时长和字节数，都是在本课场景里实测出来的。',
   ],
   scenario: frameAnatomyScenario,
   jumps: [
     J('第一个传统数据帧', firstLegacyData),
     J('第一个 QoS 数据帧', firstQosSingle),
-    J('第一个 RTS', firstRtsFrame),
-    J('第一个 A-MPDU', firstAmpduFrame),
-    J('第一个 BlockAck', firstBlockAck),
   ],
   observe: [
     '对比这两条。旧笔记本那一帧是 16 µs 的 L-STF 与 L-LTF、加 4 µs 的 L-SIG，之后才是 57 个数据符号；手机那一帧（Wi-Fi 6）是 44 µs 的前导码加一个 13.6 µs 的符号——几乎全是前导码。',
-    '跳到第一次预约（2.298 ms），再跳到它后面的那个突发：14 帧、21 502 B，全都是一个块。覆盖全部的那一个回复出现在 4.650 ms，写的持续时间是 0——它后面什么都没有了。',
+    '两帧的帧头差着两个字节，色块却都停在整数个符号上：旧笔记本那一帧 248 µs，带不带那两个字节都一样。',
   ],
   tryThis: [
-    '在编辑器里把预约门限抬到 21 502 B 以上。突发前面就什么都没有了：那两个小帧、以及它们带来的间隔都省掉了。',
-    '把旧笔记本改成 Wi-Fi 5。它原本一帧一帧地发，变成许多帧共用一个前导码的突发，每个突发前还有一次预约；那条泳道也从许多小块变成几个长块。',
+    '拿手机那一帧自己走一遍六步：230 B → 16 + 8 × 230 + 6 = 1862 比特 → 除以 1950（Wi-Fi 6 在这一级上一个符号装的比特）向上取整得 1 个符号 → 44 + 1 × 13.6 = 57.6 µs。悬停那个色块，读数就是 57.6 µs。',
+    '在编辑器里把旧笔记本改成 Wi-Fi 5 再载入。它的前导码从 20 µs 变成 40 µs，符号仍是 4 µs：换一代改的就是这两个尺寸。',
   ],
   quiz: [
     {
@@ -149,14 +154,14 @@ export const frameAnatomyBytes: Lesson = {
       explain: '两者都向上凑成 57 个符号，都是 248 µs。只有当那两个字节把帧顶进下一个符号时，才真的要花时间。',
     },
     {
-      q: '十四帧共用一个前导码，真正省下的是什么？',
+      q: '把载荷从 1500 B 减到 1400 B，旧笔记本这一帧的空口时间会怎样？',
       options: [
-        '省下帧头和校验：十四帧变成了一帧',
-        '省下十三个前导码、十三次排队，以及十三个各自的回复',
-        '空口上什么也没省；省的只是发送端的活儿',
+        '按比例缩短：少 6.7 % 的字节，就少 6.7 % 的时间',
+        '少掉几个整符号——跨过整符号的那一步才算数',
+        '完全不变：前导码是固定的',
       ],
       answer: 1,
-      explain: '每一帧都保留自己的帧头和校验——突发之所以是 21 502 B，原因就在这里。省掉的是它们外面那些重复。',
+      explain: '空口按整符号付费。少 100 B 就是少 800 比特，54 Mb/s 下一个符号装 216 比特，于是少 4 个符号、16 µs；前导码那 20 µs 一点没动。',
     },
   ],
 }

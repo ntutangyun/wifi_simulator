@@ -4,25 +4,31 @@
  * scenario — the same scene `frame-anatomy` loads, so the split costs the
  * reader nothing and the recorded hashes are the same run twice.
  *
- * The preamble table, the airtime formula, the byte sums, the control-frame
- * sizes, the aggregate and the reservation durations moved here from
- * tests/course/frame-anatomy.test.ts, each with the sentence it guards.
+ * The preamble fields, the airtime formula, the byte sums and the
+ * bytes→microseconds procedure are this lesson's, and after the re-pacing of
+ * 2026-09-25 it is their SOLE owner: `airtime` used to teach the same six steps
+ * again and now cites the result.
+ *
+ * Gone next door with the sentences that carried them: the control-frame sizes,
+ * the aggregate, the reservation durations and the burst observation are
+ * `small-frames`', pinned in tests/course/small-frames.test.ts. The
+ * per-generation table became a `timing` figure, pinned below against
+ * `PHY_MODES` and the two frames the run puts on the air.
  */
 import { describe, it, expect } from 'vitest'
-import { frameAnatomyBytes } from '../../src/course/tier1/frame-anatomy-bytes'
 import {
-  frameAnatomyScenario, firstLegacyData, firstQosSingle, firstRtsFrame, firstAmpduFrame,
-  firstBlockAck,
-} from '../../src/course/tier1/frame-anatomy'
+  frameAnatomyBytes, preambleTiming, HE_FRAME_US, LEGACY_FRAME_US,
+} from '../../src/course/tier1/frame-anatomy-bytes'
+import { frameAnatomyScenario, firstLegacyData, firstQosSingle } from '../../src/course/tier1/frame-anatomy'
 import { Simulation } from '../../src/engine/simulation'
 import type { Block } from '../../src/course/lessonKit'
+import type { TimingSpec } from '../../src/course/diagram'
 import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
 import { decodeFrame, ppduLayout, type Mpdu } from '../../src/model/frameFields'
 import { hasFeature } from '../../src/model/caps'
 import type { TLRecord } from '../../src/model/records'
 import {
-  ACK_BYTES, BA_BYTES, CTS_BYTES, FCS_BYTES, MAC_HDR_BYTES, PHY_MODES, QOS_HDR_BYTES,
-  RTS_BYTES, SIFS_NS, txTimeNs,
+  ACK_BYTES, FCS_BYTES, MAC_HDR_BYTES, PHY_MODES, QOS_HDR_BYTES, txTimeNs, txTimeModeNs,
 } from '../../src/engine/phy'
 import { lessonShapeSuite, ofType, runOf } from './kit'
 import { MODULES } from '../../src/course/curriculum'
@@ -45,15 +51,10 @@ function decode(f: Tx['frame'], sc = frameAnatomyScenario()) {
   return decodeFrame(f, { apId: ap.id, isEdca: hasFeature(src, 'edca') && hasFeature(ap, 'edca') })
 }
 const firstMpdu = (f: Tx['frame'], sc?: Scenario): Mpdu => decode(f, sc ?? frameAnatomyScenario()).users[0].subframes[0].mpdu
-const field = (m: Mpdu, key: string) => m.fields.find((x) => x.key === key)!
 const runEdited = (sc: Scenario, ns: number): TLRecord[] => [...new Simulation(sc).runUntil(ns).records]
 
 const legacy = find(firstLegacyData)
 const qos = find(firstQosSingle)
-const rts = find(firstRtsFrame)
-const ampdu = find(firstAmpduFrame)
-const ba = find(firstBlockAck)
-const cts = txs.find((r) => r.frame.kind === 'cts')!
 
 // The contract every migrated lesson owes, written once in tests/course/kit.ts.
 // `sameSceneAs` is the split rule: this lesson loads frame-anatomy's scene, so
@@ -61,7 +62,7 @@ const cts = txs.find((r) => r.frame.kind === 'cts')!
 lessonShapeSuite(frameAnatomyBytes, { runNs: RUN_NS, sameSceneAs: 'frame-anatomy' })
 
 describe('frame-anatomy-bytes · the lesson itself', () => {
-  it('is the second half of frame-anatomy and owns the four preamble words', () => {
+  it('is the sole owner of the byte count, and owns the preamble words', () => {
     expect(MODULES[frameAnatomyBytes.module].title).toBe('帧与空口时间')
     expect(frameAnatomyBytes.needs).toEqual(['frame-anatomy'])
     // the baseline owner table of the readability programme: the preamble fields, taught as
@@ -69,6 +70,13 @@ describe('frame-anatomy-bytes · the lesson itself', () => {
     // Whole-track review I5: one name for the fixed head of a frame, owned by the lesson
     // that counts its microseconds. `preamble` was a term of airtime and is now here.
     expect(frameAnatomyBytes.terms!.map((t) => t.term)).toEqual(['L-STF', 'L-LTF', 'L-SIG', 'preamble', 'U-SIG'])
+  })
+
+  it('keeps the two jumps its own text walks through', () => {
+    // §2 · M3: the RTS, the A-MPDU and the BlockAck are `small-frames`' jumps now, with the
+    // table and the durations that read them.
+    expect(frameAnatomyBytes.jumps.length).toBe(2)
+    expect(frameAnatomyBytes.jumps.map((j) => records.find(j.find))).toEqual([legacy, qos])
   })
 
   it('loads frame-anatomy\'s own scene, with no variant of its own', () => {
@@ -110,6 +118,52 @@ describe('frame-anatomy-bytes · what goes in front', () => {
     expect(segs.map((s) => [s.key, s.durNs])).toEqual([['preamble', 44_000], ['data', 13_600]])
     expect(segs[1].symbols).toBe(1)
     expect(qos.frame.txTimeNs).toBe(57_600)
+  })
+})
+
+/**
+ * The figure, pinned against the same run as the prose: the durations are read
+ * back OUT of the spec the panel paints and compared with `PHY_MODES` and with
+ * the two frames the run put on the air.
+ */
+describe('frame-anatomy-bytes · the figure is the run', () => {
+  const isDiagram = (b: Block): b is Extract<Block, { kind: 'diagram' }> => b.kind === 'diagram'
+  const diagrams = [...frameAnatomyBytes.picture!, ...frameAnatomyBytes.numbers!].filter(isDiagram)
+
+  it('draws the one figure §4 gives this lesson, and no others', () => {
+    expect(diagrams.map((b) => b.spec.kind)).toEqual(['timing'])
+  })
+
+  it('both lanes are a frame of the run, split where the preamble ends', () => {
+    const spec = diagrams[0].spec as TimingSpec
+    expect(spec).toEqual(preambleTiming())
+    const [a, he] = spec.lanes
+    // the old laptop's 802.11a frame: 20 µs in front, 57 symbols behind, 248 µs in all
+    expect(a.spans[0].toUs).toBe(PHY_MODES.nonht.preambleNs / 1000)
+    expect(a.spans[1].fromUs).toBe(PHY_MODES.nonht.preambleNs / 1000)
+    expect(a.spans[1].toUs).toBe(LEGACY_FRAME_US)
+    expect(LEGACY_FRAME_US * 1000).toBe(legacy.frame.txTimeNs)
+    expect((a.spans[1].toUs - a.spans[1].fromUs) / (PHY_MODES.nonht.symNs / 1000)).toBe(57)
+    expect(a.spans[1].label).toContain('57')
+    // the phone's Wi-Fi 6 frame: 44 µs in front, one 13.6 µs symbol behind
+    expect(he.spans[0].toUs).toBe(PHY_MODES.he.preambleNs / 1000)
+    expect(he.spans[1].toUs).toBe(HE_FRAME_US)
+    expect(HE_FRAME_US * 1000).toBe(qos.frame.txTimeNs)
+    expect(he.spans[1].toUs - he.spans[1].fromUs).toBeCloseTo(PHY_MODES.he.symNs / 1000, 9)
+    // the axis covers the longer of the two, and the ticks stay inside it
+    expect(spec.axis.fromUs).toBe(0)
+    expect(spec.axis.toUs).toBe(LEGACY_FRAME_US)
+    for (const t of spec.axis.ticks) expect(t).toBeLessThanOrEqual(spec.axis.toUs)
+  })
+
+  it('the caption’s four preambles and two symbol lengths are PHY_MODES itself', () => {
+    const caption = diagrams[0].caption!
+    for (const ns of [PHY_MODES.nonht.preambleNs, PHY_MODES.vht.preambleNs, PHY_MODES.he.preambleNs, PHY_MODES.eht.preambleNs]) {
+      expect(caption, `${ns} ns`).toContain(String(ns / 1000))
+    }
+    expect(caption).toContain(String(PHY_MODES.he.symNs / 1000))
+    expect(caption).toContain(String(PHY_MODES.he.muExtraPreambleNs / 1000))
+    expect(PHY_MODES.eht.muExtraPreambleNs).toBe(PHY_MODES.he.muExtraPreambleNs)
   })
 })
 
@@ -186,103 +240,37 @@ describe('frame-anatomy-bytes · from bytes to microseconds', () => {
   })
 })
 
-describe('frame-anatomy-bytes · the small frames', () => {
-  it('an answer and a go-ahead are 14 B and carry no sender address', () => {
-    const am = firstMpdu(txs.find((r) => r.frame.kind === 'ack')!.frame)
-    expect(am.fields.map((x) => x.key)).toEqual(['fc', 'duration', 'addr1', 'fcs'])
-    expect(am.bytes).toBe(ACK_BYTES)
-    expect(cts.frame.bytes).toBe(CTS_BYTES)
-    expect(CTS_BYTES).toBe(14)
-    const cm = firstMpdu(cts.frame)
-    expect(cm.fields.map((x) => x.key)).toEqual(['fc', 'duration', 'addr1', 'fcs'])
-  })
-
-  it('a reservation is 20 B and does carry one, because the answer must find it', () => {
-    expect(rts.frame.bytes).toBe(RTS_BYTES)
-    expect(RTS_BYTES).toBe(20)
-    const m = firstMpdu(rts.frame)
-    expect(m.subtypeName).toBe('RTS')
-    expect(m.fields.map((x) => x.key)).toEqual(['fc', 'duration', 'addr1', 'addr2', 'fcs'])
-    expect(field(m, 'addr1').roles).toEqual(['RA'])
-    expect(field(m, 'addr2').roles).toEqual(['TA'])
-    expect(m.bytes).toBe(20)
-  })
-
-  it('the one reply covering a burst is 32 B: both addresses, a starting number and a 64-bit map', () => {
-    expect(ba.frame.bytes).toBe(BA_BYTES)
-    expect(BA_BYTES).toBe(32)
-    const m = firstMpdu(ba.frame)
-    expect(m.fields.map((x) => x.key)).toEqual(['fc', 'duration', 'addr1', 'addr2', 'baControl', 'baInfo', 'fcs'])
-    expect(field(m, 'baControl').bytes).toBe(2)
-    expect(field(m, 'baInfo').bytes).toBe(10) // a 2 B starting sequence number + an 8 B (64-bit) bitmap
-    expect(field(m, 'baControl').value).toBe('Compressed')
-    expect(m.bytes).toBe(32)
-  })
-})
-
-describe('frame-anatomy-bytes · many frames behind one front', () => {
-  it('fourteen frames: 13 × 1536 + 1534 = 21 502 B, one 4 B delimiter each, padding but the last', () => {
-    expect(ampdu.frame.retryFlag).toBeFalsy()
-    expect(ampdu.frame.ampdu!.mpduCount).toBe(14)
-    expect(ampdu.frame.bytes).toBe(21_502)
-    expect(13 * 1536 + 1534).toBe(21_502)
-    const u = decode(ampdu.frame).users[0]
-    expect(u.subframes.length).toBe(14)
-    expect(u.bytes).toBe(21_502)
-    for (const [i, sf] of u.subframes.entries()) {
-      expect(sf.delimiterBytes).toBe(4)
-      expect(sf.mpdu.bytes).toBe(1530)
-      expect(sf.padBytes).toBe(i === 13 ? 0 : 2)
-    }
-    expect(ampdu.frame.txTimeNs).toBe(2_248_000)
-  })
-
-  it('the reservation table: 2356, 2312, 48 and 0 µs, each covering what it says', () => {
-    // "the go-ahead, the burst, the reply and three gaps" · "the same reservation, less one gap
-    //  and itself" · "one gap and the reply that follows it" · "nothing follows it"
-    expect(rts.t).toBe(2_298_000)
-    expect(rts.frame.durationFieldNs).toBe(2_356_000)
-    expect(28_000 + ampdu.frame.txTimeNs + 32_000 + 3 * SIFS_NS).toBe(2_356_000)
-    expect(cts.frame.durationFieldNs).toBe(2_312_000)
-    expect(rts.frame.durationFieldNs - SIFS_NS - cts.frame.txTimeNs).toBe(2_312_000)
-    expect(cts.frame.txTimeNs).toBe(28_000)
-    expect(ampdu.frame.durationFieldNs).toBe(48_000)
-    expect(SIFS_NS + 32_000).toBe(48_000)
-    expect(ba.t).toBe(4_650_000)
-    expect(ba.frame.durationFieldNs).toBe(0)
-    expect(ba.frame.txTimeNs).toBe(32_000)
-  })
-
-  it('the deeper note: inside an aggregate the same two bits mean Implicit BAR', () => {
-    const m = decode(ampdu.frame).users[0].subframes[0].mpdu
-    expect(field(m, 'qos').value).toBe('TID 1 · Implicit BAR')
-    // against 'Normal Ack' on a lone frame, pinned next door on the phone's QoS Data
-    expect(field(firstMpdu(qos.frame), 'qos').value).toContain('Normal Ack')
-  })
-})
-
 describe('frame-anatomy-bytes · the experiments', () => {
-  it('with the reservation threshold above 21 502 B the bursts go out with nothing in front', () => {
-    const sc = frameAnatomyScenario()
-    sc.rtsThresholdBytes = 30_000
-    const rs = runEdited(sc, RUN_NS)
-    const agg = rs.find((r): r is Tx => r.type === 'TX_START' && r.frame.ampdu !== undefined)!
-    expect(agg.frame.bytes).toBeGreaterThan(21_000)
-    expect(agg.frame.bytes).toBeLessThan(sc.rtsThresholdBytes!)
-    expect(rs.some((r) => r.type === 'TX_START' && r.frame.kind === 'rts')).toBe(false)
-    expect(rs.some((r) => r.type === 'TX_START' && r.frame.kind === 'cts')).toBe(false)
+  it('the phone\'s own frame through the six steps: 230 B, 1862 bits, one symbol, 57.6 µs', () => {
+    // tryThis 1: "拿手机那一帧自己走一遍六步：230 B → 16 + 8 × 230 + 6 = 1862 比特 → 除以 1950
+    //  … 向上取整得 1 个符号 → 44 + 1 × 13.6 = 57.6 µs"
+    expect(qos.frame.bytes).toBe(230)
+    const bits = 16 + 8 * qos.frame.bytes + 6
+    expect(bits).toBe(1862)
+    const ndbps = PHY_MODES.he.ndbps[qos.frame.mcs!]
+    expect(ndbps).toBe(1950)
+    expect(Math.ceil(bits / ndbps)).toBe(1)
+    expect(PHY_MODES.he.preambleNs + PHY_MODES.he.symNs).toBe(57_600)
+    expect(txTimeModeNs('he', qos.frame.bytes, qos.frame.mcs!)).toBe(qos.frame.txTimeNs)
+    expect(qos.frame.txTimeNs).toBe(HE_FRAME_US * 1000)
   })
 
-  it('as a Wi-Fi 5 device the old laptop\'s lone frames become bursts opened by a reservation', () => {
+  it('as a Wi-Fi 5 device the old laptop\'s front grows from 20 µs to 40 µs, the symbol stays 4 µs', () => {
+    // tryThis 2: "它的前导码从 20 µs 变成 40 µs，符号仍是 4 µs：换一代改的就是这两个尺寸"
     const sc = frameAnatomyScenario()
     const old = sc.nodes.find((n) => n.id === 'sta-1')!
     old.caps.generation = 'vht'
     old.caps.features = { edca: true, ampdu: true, txop: true }
     const rs = runEdited(sc, 40 * MS)
-    const agg = rs.find((r): r is Tx => r.type === 'TX_START' && r.frame.src === 'sta-1' && r.frame.ampdu !== undefined)!
-    expect(agg.frame.ampdu!.mpduCount).toBeGreaterThan(1)
-    expect(agg.frame.bytes).toBeGreaterThan(sc.rtsThresholdBytes!)
-    const before = rs.filter((r): r is Tx => r.type === 'TX_START' && r.t < agg.t && r.frame.src === 'sta-1')
-    expect(before[before.length - 1].frame.kind).toBe('rts')
+    const after = rs.find((r): r is Tx => r.type === 'TX_START' && r.frame.src === 'sta-1' && r.frame.mode === 'vht')!
+    const segs = ppduLayout(after.frame)
+    expect(segs[0].durNs).toBe(PHY_MODES.vht.preambleNs)
+    expect(PHY_MODES.vht.preambleNs).toBe(40_000)
+    expect(PHY_MODES.nonht.preambleNs).toBe(20_000)
+    expect(PHY_MODES.vht.symNs).toBe(PHY_MODES.nonht.symNs)
+    expect(PHY_MODES.vht.symNs).toBe(4_000)
+    // and the old laptop's own frame before the edit really was a 20 µs front
+    expect(ppduLayout(legacy.frame)[0].durNs).toBe(16_000)
+    expect(ppduLayout(legacy.frame)[1].durNs).toBe(4_000)
   })
 })

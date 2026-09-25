@@ -1,6 +1,15 @@
 /**
- * Every empirical claim in "Frames cost airtime", measured against the lesson's
- * own scene (the oneRoom access point and the video TV).
+ * Every empirical claim in "One exchange, and how much of it is not your
+ * payload", measured against the lesson's own scene (the oneRoom access point
+ * and the video TV).
+ *
+ * Re-paced on 2026-09-25: the lesson stays one lesson and gives up the
+ * bytes→microseconds derivation it shared with `frame-anatomy-bytes` (§5.1
+ * item 1), so what used to be a six-step procedure and a worked table is now
+ * three steps — the answer's own rate and the pause — over a cited result. Not
+ * one pin went with the prose: the arithmetic below still guards the 125.6 µs
+ * the lesson quotes, and the two paragraphs that restated the exchange table
+ * are replaced by a `timing` figure, pinned here against the same run.
  *
  * The two claims this lesson used to share with tests/course/lesson-claims.test.ts
  * — "the ACK follows exactly one SIFS after every data block" and "the video
@@ -9,7 +18,11 @@
  * is lost. The lesson never had a `.body!` site in any test.
  */
 import { describe, it, expect } from 'vitest'
-import { airtime } from '../../src/course/tier1/airtime'
+import {
+  airtime, exchangeTiming, ACK_US, DATA_US, EXCHANGE_US, PREAMBLE_US, SIFS_US,
+} from '../../src/course/tier1/airtime'
+import type { Block } from '../../src/course/lessonKit'
+import type { TimingSpec } from '../../src/course/diagram'
 import { ScenarioSchema } from '../../src/model/scenario'
 import type { Scenario } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
@@ -34,7 +47,11 @@ describe('airtime · the lesson’s own scene', () => {
     // Whole-track review I5, "the preamble has three names": `preamble` is now a term of
     // frame-anatomy-bytes, the lesson that counts its microseconds, and that lesson stays
     // in `needs` — this lesson uses the word and does not own it.
-    expect(airtime.needs).toEqual(['radio-primer', 'decode-thresholds', 'frame-anatomy', 'frame-anatomy-bytes'])
+    // §6 of the re-pacing plan moves this to mcs-ladder / frame-anatomy-bytes / small-frames.
+    // Two of those three are unregistered while the batches land, and `needs` is graded
+    // against COURSE_ORDER, so the edge that names the byte count is the one that matters
+    // here and the controller finishes the row when it registers the new ids.
+    expect(airtime.needs).toEqual(['decode-thresholds', 'frame-anatomy-bytes'])
     // the owner table of the readability programme gives this lesson ACK; it is also
     // held to the opening rules (at most four new words) while it may be the first
     // migrated Wi-Fi lesson a reader meets.
@@ -75,10 +92,12 @@ describe('airtime · one exchange in this room', () => {
     expect(txTimeModeNs('he', 1430, 11)).toBe(125_600)
   })
 
-  it('the steps are the engine’s own: bits, bits per symbol, symbols, preamble', () => {
-    // the "How the duration is worked out, step by step" block and the "value by value"
-    // table, against txTimeModeNs in src/engine/phy.ts — the function that produced the
-    // 125.6 µs on the timeline.
+  it('the cited 125.6 µs is the engine’s own arithmetic, step for step', () => {
+    // Step 1 of the steps block now CITES this instead of deriving it — "数据帧的 125.6 µs
+    // 不必再算一遍：上一课的六步已经给出了它" — and `frame-anatomy-bytes` owns the derivation.
+    // The pin stays here, because the lesson still quotes the number: it is checked against
+    // txTimeModeNs in src/engine/phy.ts, the function that produced the 125.6 µs on the
+    // timeline.
     const he = PHY_MODES.he
     const ndbps = he.ndbps[11]
     expect(ndbps).toBe(1950)
@@ -145,9 +164,9 @@ describe('airtime · one exchange in this room', () => {
   })
 
   it('the whole exchange is 169.6 µs, of which 88.0 µs is fixed', () => {
-    // the table's "The whole exchange … 169.6 µs … 88.0 µs of it fixed, 81.6 µs payload"
-    //  and the paragraph "Of the 169.6 µs this exchange holds the channel, 88.0 µs is
-    //  opening, pause and answer. The payload is the other 81.6 µs — under half."
+    // the table's "整次交互 … 169.6 µs … 其中固定开销 88.0 µs，载荷 81.6 µs" and the figure's
+    //  caption, "169.6 µs 里，只有 81.6 µs 在搬运载荷——其余 88.0 µs 是前导码、停顿和确认"
+    //  (the paragraph that used to say the same thing a third time is gone)
     const exchange = 125_600 + SIFS_NS + 28_000
     expect(exchange).toBe(169_600)
     const fixed = 44_000 + SIFS_NS + 28_000
@@ -159,15 +178,63 @@ describe('airtime · one exchange in this room', () => {
   })
 
   it('the room is busy about 18 % of the time, and idle for the rest', () => {
-    // "In the first 100 ms the access point sends 117 such frames and gets 116 answers —
-    //  about 18 % of the time" and the observation "the channel is busy under a fifth of
-    //  the time, though the stream never stops"
+    // observation 3, "在前 100 ms 里，信道忙的时间不到五分之一，尽管这路视频流一刻也没停"
+    //  — the paragraph that printed the 117 frames and the 18 % is gone (§5.3); the counts
+    //  are still pinned above, and the share is still pinned here
     const air = ofType(recs(), 'TX_START').reduce((a, r) => a + r.frame.txTimeNs, 0)
     expect(air).toBe(117 * 125_600 + 116 * 28_000)
     const share = air / RUN_NS
     expect(Math.round(share * 100)).toBe(18)
     expect(share).toBeLessThan(0.2)
     expect(share).toBeGreaterThan(0.1)
+  })
+})
+
+/**
+ * The figure, pinned against the same run as the prose: the spans are read back
+ * OUT of the spec the panel paints and compared with the engine's constants and
+ * the run's own frames, so a figure that drifts fails here rather than
+ * misleading a reader.
+ */
+describe('airtime · the figure is the run', () => {
+  const isDiagram = (b: Block): b is Extract<Block, { kind: 'diagram' }> => b.kind === 'diagram'
+  const diagrams = [...airtime.picture!, ...airtime.numbers!].filter(isDiagram)
+
+  it('draws the one figure §4 gives this lesson, and no others', () => {
+    expect(diagrams.map((b) => b.spec.kind)).toEqual(['timing'])
+  })
+
+  it('the four parts of the exchange are the four the run measures, in place and to scale', () => {
+    const spec = diagrams[0].spec as TimingSpec
+    expect(spec).toEqual(exchangeTiming())
+    const data = txs('data')[0]
+    const ack = txs('ack')[0]
+    const [ap, tv] = spec.lanes
+    // the data lane: a fixed preamble, then the symbols, ending on the frame's own airtime
+    expect(ap.spans[0].toUs).toBe(PHY_MODES.he.preambleNs / 1000)
+    expect(PREAMBLE_US).toBe(44)
+    expect(ap.spans[1].fromUs).toBe(PREAMBLE_US)
+    expect(ap.spans[1].toUs).toBe(DATA_US)
+    expect(DATA_US * 1000).toBe(data.frame.txTimeNs)
+    expect((ap.spans[1].toUs - ap.spans[1].fromUs) / (PHY_MODES.he.symNs / 1000)).toBe(6)
+    // the gap between the lanes is the pause, and it is aSIFSTime
+    expect(tv.spans[0].fromUs - ap.spans[1].toUs).toBe(SIFS_US)
+    expect(SIFS_US * 1000).toBe(SIFS_NS)
+    // the answer's own span is the answer's own airtime, and the axis is the whole exchange
+    expect(tv.spans[0].toUs - tv.spans[0].fromUs).toBe(ACK_US)
+    expect(ACK_US * 1000).toBe(ack.frame.txTimeNs)
+    expect(spec.axis.toUs).toBe(EXCHANGE_US)
+    expect(EXCHANGE_US).toBe(169.6)
+    expect(spec.axis.ticks.at(-1)).toBe(EXCHANGE_US)
+  })
+
+  it('the caption’s share is the run’s: 81.6 µs of 169.6, the rest fixed', () => {
+    const caption = diagrams[0].caption!
+    expect(caption).toContain('81.6')
+    expect(caption).toContain('88.0')
+    expect(caption).toContain(`${SIFS_US} µs`)
+    expect(PREAMBLE_US + SIFS_US + ACK_US).toBe(88)
+    expect(DATA_US - PREAMBLE_US).toBe(81.6)
   })
 })
 
