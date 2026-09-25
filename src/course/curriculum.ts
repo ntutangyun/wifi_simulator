@@ -12,6 +12,13 @@ import { mainPathChars } from './readability'
 /** The radio the tier teaches. Tracks are listed in this order, Wi-Fi first. */
 export type Track = 'wifi' | 'uwb'
 
+/**
+ * The climb a lesson is read as, for the prerequisite and acronym rules. It is
+ * the radio of the lesson's tier, except where a module declares otherwise:
+ * the AMP lessons sit in a Wi-Fi tier but teach their own radio.
+ */
+export type LessonTrack = Track | 'amp'
+
 export const TRACKS: Record<Track, string> = {
   wifi: 'Wi-Fi',
   uwb: 'UWB 测距',
@@ -45,6 +52,13 @@ export const TIERS: Tier[] = [
 export interface CourseModule {
   tier: number
   title: string
+  /**
+   * The climb this module's lessons are read as, when that is not the radio of
+   * its tier. Only a module that teaches a different radio from the tier it is
+   * shown under sets this; everything else inherits, so the two can never
+   * disagree by accident. See {@link trackOf}.
+   */
+  track?: LessonTrack
 }
 
 export const MODULES: CourseModule[] = [
@@ -55,7 +69,7 @@ export const MODULES: CourseModule[] = [
   { tier: 1, title: '链路生命周期、安全与节能' },
   { tier: 1, title: '邻居网络与空间复用' },
   { tier: 1, title: '被调度的 Wi-Fi 6/7' },
-  { tier: 1, title: '环境能量物联网（802.11bp）' },
+  { tier: 1, title: '环境能量物联网（802.11bp）', track: 'amp' },
   { tier: 1, title: '真实应用' },
   { tier: 2, title: '信号、调制与编码' },
   { tier: 3, title: 'Wi-Fi 8 与研究方法' },
@@ -114,9 +128,16 @@ export function orderLessons(authored: Lesson[]): Lesson[] {
  * The pseudo-track a lesson belongs to for the prerequisite and acronym rules.
  * The AMP lessons are a module of the Wi-Fi tiers, but they teach their own
  * radio and are read as their own climb, so they get a track of their own.
+ *
+ * The answer comes from the module the lesson names, never from what that
+ * module's index happens to be: the module says which climb it is, and only a
+ * module whose radio differs from its tier's has to say anything. Reading
+ * `l.module === 7` here was a coincidence of ordering, and the first module
+ * inserted above the AMP one would have silently handed 'amp' to a DCF lesson.
  */
-export function trackOf(l: Lesson): 'wifi' | 'amp' | 'uwb' {
-  return l.module === 7 ? 'amp' : TIERS[MODULES[l.module].tier].track
+export function trackOf(l: Lesson): LessonTrack {
+  const m = MODULES[l.module]
+  return m.track ?? TIERS[m.tier].track
 }
 
 /**

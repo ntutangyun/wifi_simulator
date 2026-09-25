@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { LESSONS, MODULES } from '../../src/course/lessons'
-import { CHARS_PER_MINUTE, COURSE_ORDER, OBSERVE_MINUTES, TIERS, TRY_MINUTES, lessonBlocks, lessonChars, lessonMinutes, trackHeadings } from '../../src/course/curriculum'
+import { CHARS_PER_MINUTE, COURSE_ORDER, OBSERVE_MINUTES, TIERS, TRY_MINUTES, lessonBlocks, lessonChars, lessonMinutes, trackHeadings, trackOf, type LessonTrack } from '../../src/course/curriculum'
 import { diagramTexts, layoutDiagram, type DiagramSpec } from '../../src/course/diagram'
 import { ScenarioSchema } from '../../src/model/scenario'
 import { Simulation } from '../../src/engine/simulation'
@@ -425,3 +425,90 @@ describe('course structure (tiers, order, study time)', () => {
   })
 })
 
+
+describe("a lesson's track", () => {
+  /**
+   * Pinned, one line a lesson. `trackOf` decides the prerequisite rule and the
+   * acronym rule in readability.test.ts and what `lesson-dump --all-wifi` and
+   * `--all-uwb` print, and it used to read `l.module === 7` for the AMP track —
+   * a coincidence of ordering, under which inserting one module above the AMP
+   * one would have handed 'amp' to a DCF lesson without a test noticing. These
+   * are the values the course had before the track became module data; a lesson
+   * may not change track, and a new lesson must be listed here on purpose.
+   */
+  const TRACK: Record<string, LessonTrack> = {
+    "radio-primer":             "wifi",
+    "decode-thresholds":        "wifi",
+    "roles-stack":              "wifi",
+    "frame-anatomy":            "wifi",
+    "frame-anatomy-bytes":      "wifi",
+    "airtime":                  "wifi",
+    "ifs":                      "wifi",
+    "backoff":                  "wifi",
+    "nav":                      "wifi",
+    "hidden":                   "wifi",
+    "anomaly":                  "wifi",
+    "retries-queues":           "wifi",
+    "bianchi":                  "wifi",
+    "bianchi-vs-sim":           "wifi",
+    "tier1-project":            "wifi",
+    "tier1-project-review":     "wifi",
+    "edca":                     "wifi",
+    "ampdu":                    "wifi",
+    "txop":                     "wifi",
+    "txop-protect":             "wifi",
+    "width":                    "wifi",
+    "streams":                  "wifi",
+    "rate":                     "wifi",
+    "rate-fallback":            "wifi",
+    "ofdma-dl":                 "wifi",
+    "ofdma-ul":                 "wifi",
+    "mumimo":                   "wifi",
+    "mlo":                      "wifi",
+    "amp-intro":                "amp",
+    "amp-ppdu":                 "amp",
+    "amp-slots":                "amp",
+    "amp-coexist":              "amp",
+    "capstone":                 "wifi",
+    "uwb-intro":                "uwb",
+    "uwb-frame":                "uwb",
+    "uwb-sts":                  "uwb",
+    "uwb-sstwr":                "uwb",
+    "uwb-dstwr":                "uwb",
+    "uwb-blocks":               "uwb",
+    "uwb-position":             "uwb",
+    "uwb-geometry":             "uwb",
+    "uwb-coexist":              "uwb",
+    "uwb-contention":           "uwb",
+    "uwb-dl-tdoa":              "uwb",
+    "uwb-ul-tdoa":              "uwb",
+    "uwb-aoa":                  "uwb",
+    "uwb-mms":                  "uwb",
+    "uwb-mms-numbers":          "uwb",
+    "uwb-nba":                  "uwb",
+    "uwb-nba-coexist":          "uwb",
+    "uwb-capstone":             "uwb",
+  }
+
+  it('every lesson reads the track pinned for it', () => {
+    for (const l of LESSONS) {
+      expect(TRACK[l.id], `${l.id} has no pinned track — add a line to TRACK`).toBeDefined()
+      expect(trackOf(l), l.id).toBe(TRACK[l.id])
+    }
+    expect(LESSONS.map((l) => l.id).sort()).toEqual(Object.keys(TRACK).sort())
+  })
+
+  it('comes from the module, and only a module whose radio differs from its tier declares one', () => {
+    for (const m of MODULES) {
+      if (m.track === undefined) continue
+      // a module that merely repeats its tier's radio is data that can drift out of agreement
+      expect(m.track, m.title).not.toBe(TIERS[m.tier].track)
+    }
+    // the AMP module is the only one today, and its lessons follow it to whatever index it lands on
+    const amp = MODULES.map((m, i) => ({ m, i })).filter(({ m }) => m.track === 'amp')
+    expect(amp).toHaveLength(1)
+    const ampLessons = LESSONS.filter((l) => l.module === amp[0].i)
+    expect(ampLessons.length).toBeGreaterThan(0)
+    for (const l of ampLessons) expect(trackOf(l), l.id).toBe('amp')
+  })
+})
