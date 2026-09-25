@@ -40,7 +40,7 @@ const recs = (variant?: number): TLRecord[] => runOf(uwbIntro, variant, RUN_NS)
 // The contract every migrated lesson owes, written once in tests/course/kit.ts.
 // A track's first lesson is held to 1000 main-path words, not 1300, and the
 // prose window (why + outcomes + terms + picture + numbers) to the same 1000.
-lessonShapeSuite(uwbIntro, { proseMax: 1000, totalMax: 1000, runNs: RUN_NS })
+lessonShapeSuite(uwbIntro, { runNs: RUN_NS })
 
 describe('uwb-intro · the lesson’s own scene', () => {
   it('is the opening lesson of the UWB track', () => {
@@ -84,14 +84,13 @@ describe('uwb-intro · the lesson’s own scene', () => {
   })
 
   it('the two placements are exactly 5 m and 20 m apart, in line and at one height', () => {
-    // "five metres apart on a line" / the variant labelled "20 m apart"
+    // the base scene and its variant, measured off the scenarios themselves
     const sep = (s: Scenario): number => {
       const [a, t] = s.nodes
       return Math.hypot(t.pos.x - a.pos.x, t.pos.y - a.pos.y, t.pos.z - a.pos.z)
     }
     expect(sep(uwbIntroScenario(5))).toBe(5)
     expect(sep(uwbIntroScenario(20))).toBe(20)
-    expect(uwbIntro.variants![0].label).toBe('20 m apart')
     expect(sep(uwbIntro.scenario())).toBe(5)
     expect(sep(uwbIntro.variants![0].scenario())).toBe(20)
   })

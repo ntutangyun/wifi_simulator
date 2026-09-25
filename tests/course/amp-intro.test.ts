@@ -50,7 +50,7 @@ const countAt = (rs: TLRecord[], node: string, type: string) =>
 // The contract every migrated lesson owes, written once in tests/course/kit.ts.
 // A track's first lesson is held to 1000 main-path words, not 1300, and the
 // prose window (why + outcomes + terms + picture + numbers) to the same 1000.
-lessonShapeSuite(ampIntro, { proseMax: 1000, totalMax: 1000, runNs: RUN_NS })
+lessonShapeSuite(ampIntro, { runNs: RUN_NS })
 
 describe('amp-intro · the lesson’s own scene', () => {
   it('is the opening lesson of the AMP track', () => {

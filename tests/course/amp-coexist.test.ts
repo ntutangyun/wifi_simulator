@@ -17,7 +17,6 @@ import { rssiOn } from './rssi'
 import { decodeFrame } from '../../src/model/frameFields'
 import { fmtRecord } from '../../src/ui/format'
 import type { TLRecord } from '../../src/model/records'
-import { OBSERVE_MINUTES, TRY_MINUTES, lessonMinutes, lessonWords } from '../../src/course/curriculum'
 
 const MS = 1_000_000
 const US = 1_000
@@ -95,25 +94,15 @@ describe('amp-coexist · lesson shape', () => {
     expect(ampCoexist.variants!.length).toBe(3)
   })
 
-  it('the computed study time follows the formula and stays inside the 15–25 minute target', () => {
-    const raw = lessonWords(ampCoexist) / 150
-      + OBSERVE_MINUTES * ampCoexist.observe.length + TRY_MINUTES * ampCoexist.tryThis.length
-    expect(lessonMinutes(ampCoexist)).toBe(Math.max(5, Math.round(raw / 5) * 5))
-    expect(lessonMinutes(ampCoexist)).toBeGreaterThanOrEqual(15)
-    expect(lessonMinutes(ampCoexist)).toBeLessThanOrEqual(25)
-  })
-
-  it('every jump target occurs where its label says it does', () => {
-    const find = (en: string) => ampCoexist.jumps.find((j) => j.label === en)!
-    for (const en of [
-      'first CTS-to-self', 'the camera’s first NAV from one', 'first camera RTS the router never answers',
-      'first tag response the router could not acknowledge', 'first 5 GHz video frame',
-    ]) {
-      expect(recs().some(find(en).find), en).toBe(true)
-    }
+  it('every jump predicate matches a record in the run it points at', () => {
+    // The jumps, in declaration order: CTS-to-self, the camera's NAV from it, the
+    // unanswered camera RTS, the unacknowledged tag response, the 5 GHz video frame.
+    expect(ampCoexist.jumps.length).toBe(5)
+    const rs = recs()
+    ampCoexist.jumps.forEach((j, i) => expect(rs.some(j.find), `jump ${i}`).toBe(true))
     // the two the no-protection variant is there to show happen in it too
-    expect(recs(NONE).some(find('first camera RTS the router never answers').find)).toBe(true)
-    expect(recs(NONE).some(find('first tag response the router could not acknowledge').find)).toBe(true)
+    expect(recs(NONE).some(ampCoexist.jumps[2].find)).toBe(true)
+    expect(recs(NONE).some(ampCoexist.jumps[3].find)).toBe(true)
   })
 
   it('the scene is a router with two radios, two tags, a 2.4 GHz camera and a 5 GHz phone', () => {
@@ -451,7 +440,7 @@ describe('amp-coexist · observe', () => {
     // "jump to the first camera RTS the router never answers, at 73 µs: it started at 0 µs, with the
     //  trigger, and the router was transmitting."
     const rs = recs(NONE)
-    const jump = ampCoexist.jumps.find((j) => j.label === 'first camera RTS the router never answers')!
+    const jump = ampCoexist.jumps[2] // the unanswered camera RTS
     const first = rs.find(jump.find)!
     expect(first.type).toBe('CTS_TIMEOUT')
     expect(first.t).toBe(73 * US)

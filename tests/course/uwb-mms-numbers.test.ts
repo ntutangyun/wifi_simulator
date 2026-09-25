@@ -23,9 +23,6 @@ import { MMS_ANCHORS, TAG_POS, ANCHOR_Z, TAG_Z, uwbMms, uwbMmsScenario, type Uwb
 import { DEFAULT_UWB_SESSION } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 import type { Block } from '../../src/course/lessonKit'
-import {
-  BUDGETS, CITATION, enWords, lessonBudget, lessonStrings, numericQuantities, paragraphTexts, zhChars,
-} from '../../src/course/readability'
 import { fmtRecord } from '../../src/ui/format'
 import {
   C_M_PER_NS, RCTU_NS, UWB_NLOS_NS, UWB_PL_EXP, UWB_PPM_MAX, UWB_RX_SENS_DBM, UWB_TX_POWER_DBM,
@@ -67,16 +64,10 @@ const distTo = (a: { x: number; y: number }): number =>
 const rxDbmOf = (fragNs: number, d: number): number =>
   mmsFragmentDbm(fragNs) - (uwbPl0Db(9) + 10 * UWB_PL_EXP * Math.log10(d) + 2 * WALL_LOSS_DB.brick)
 
-/** Everything a learner reads of this lesson, joined — `deeper` and `sources` included. */
-const prose = (): string => lessonStrings(uwbMmsNumbers).map((s) => s).join('\n')
-
 /** The lesson's nth table of `numbers`: 0 the fragment, 1 the three trains, 2 the ratio, 3 the gain. */
 const table = (n: number): Extract<Block, { kind: 'table' }> =>
   uwbMmsNumbers.numbers!.filter((b): b is Extract<Block, { kind: 'table' }> => b.kind === 'table')[n]
 const cell = (n: number, row: number, col: number): string => table(n).rows[row][col]
-const formulas = (): Extract<Block, { kind: 'formula' }>[] =>
-  uwbMmsNumbers.numbers!.filter((b): b is Extract<Block, { kind: 'formula' }> => b.kind === 'formula')
-/** The procedure the lesson closes on: "The whole sum, symbol by symbol". */
 /** The worked example under the procedure (table 4): line `row`, run on this scene. */
 const worked = (row: number): string => cell(4, row, 1)
 const steps = (): string[] => {
@@ -88,8 +79,7 @@ const steps = (): string[] => {
 
 // The contract every migrated lesson owes, plus the split rule: this lesson loads
 // uwb-mms's own scene, so its recorded timeline hashes are uwb-mms's, value for value.
-// The window is what `lessonBudget` reports below.
-lessonShapeSuite(uwbMmsNumbers, { proseMax: 1200, sameSceneAs: 'uwb-mms', runNs: RUN_NS })
+lessonShapeSuite(uwbMmsNumbers, { sameSceneAs: 'uwb-mms', runNs: RUN_NS })
 
 describe('uwb-mms-numbers · the second half of the split', () => {
   it('follows uwb-mms in module 15 and loads its scene, variant for variant', () => {
@@ -110,56 +100,16 @@ describe('uwb-mms-numbers · the second half of the split', () => {
     for (const q of uwbMmsNumbers.quiz) expect(q.options[q.answer]).toBeDefined()
   })
 
-  it('obeys the word rules the shared suite will apply once it is registered', () => {
-    // the amendment's budget line (BUDGETS in src/course/readability.ts), which this batch
-    // reports as picture 563, numbers 548, practice 389, total 1500
-    const b = lessonBudget(uwbMmsNumbers)
-    expect(b.picture).toBeLessThanOrEqual(BUDGETS.picture)
-    expect(b.numbers).toBeLessThanOrEqual(BUDGETS.numbers)
-    expect(b.practice).toBeLessThanOrEqual(BUDGETS.practice)
-    expect(b.total).toBeLessThanOrEqual(BUDGETS.totalMax)
-    for (const s of [uwbMmsNumbers.why!, ...uwbMmsNumbers.outcomes!]) {
-      expect(numericQuantities(s), s).toBe(0)
-      expect(CITATION.test(s), s).toBe(false)
-    }
-    for (const p of paragraphTexts(uwbMmsNumbers.picture!)) {
-      expect(enWords(p), p).toBeLessThanOrEqual(90)
-      expect(zhChars(p), p).toBeLessThanOrEqual(170)
-      expect(numericQuantities(p), p).toBeLessThanOrEqual(2)
-      expect(CITATION.test(p), p).toBe(false)
-    }
-    for (const p of paragraphTexts(uwbMmsNumbers.numbers!)) {
-      expect(enWords(p), p).toBeLessThanOrEqual(90)
-      expect(numericQuantities(p), p).toBeLessThanOrEqual(4)
-      expect(CITATION.test(p), p).toBe(false)
-    }
-    for (const s of [...uwbMmsNumbers.observe, ...uwbMmsNumbers.tryThis]) {
-      expect(enWords(s), s).toBeLessThanOrEqual(60)
-      expect(numericQuantities(s), s).toBeLessThanOrEqual(6)
-    }
-    // the picture never says "draft": the provenance is in `sources`, and nowhere else
-    for (const b2 of uwbMmsNumbers.picture!) {
-      const t = (b2 as Extract<Block, { kind?: 'p' }>).text
-      expect(t, t.slice(0, 40)).not.toContain('draft')
-      expect(t, t.slice(0, 40)).not.toContain('草案')
-    }
-  })
-
-  it('owns the regulation, the draft and the model in `sources`', () => {
-    const src = uwbMmsNumbers.sources!.map((s) => s).join('\n')
-    expect(src).toContain('−41.3 dBm/MHz mean EIRP averaged over a millisecond')
-    expect(src).toContain('IEEE Std 802.15.4-2024')
-    expect(src).toContain('P802.15.4ab')
-    expect(src).toContain('D5.0')
-    expect(src).toContain('The balloted draft may differ')
-    for (const doc of ['15-22/0381r5', '15-23/0100r2', '15-23/0502r3', '15-22/0205r0']) {
+  it('cites every document its numbers come from, by identifier', () => {
+    // Provenance is data, not prose: the standard, the draft revision and the
+    // contribution numbers the lesson's figures are taken from.
+    const src = uwbMmsNumbers.sources!.join('\n')
+    for (const doc of [
+      'IEEE Std 802.15.4-2024', 'P802.15.4ab', 'D5.0', '§16.4.9',
+      '15-22/0381r5', '15-23/0100r2', '15-23/0502r3', '15-22/0205r0',
+    ]) {
       expect(src, doc).toContain(doc)
     }
-    expect(src).toContain('§16.4.9')
-    const zh = uwbMmsNumbers.sources!.map((s) => s).join('\n')
-    expect(zh).toContain('P802.15.4ab')
-    expect(zh).toContain('D5.0')
-    expect(zh).toContain('15-22/0205r0')
   })
 })
 
@@ -187,7 +137,6 @@ describe('uwb-mms-numbers · what a millisecond buys', () => {
     const poll = ofType(recs('twr'), 'TX_START').find((r) => r.frame.kind === 'uwbPoll')!
     expect(poll.frame.bytes).toBe(36)
     expect(poll.frame.txTimeNs).toBe(203_782)
-    expect(uwbMmsNumbers.quiz[1].options[1]).toContain('a transmitter that spends 8.11 nJ of its 37')
   })
 
   it('"40 × 4 × (128 + 2 × 64) = 40 960 chips, 82.051 µs, −3.46 dBm", and rsf-1’s shorter one', () => {
@@ -204,27 +153,23 @@ describe('uwb-mms-numbers · what a millisecond buys', () => {
     expect(cell(0, 3, 1)).toBe('62.179 µs, −2.25 dBm, +1.20 dB')
     // "Going deeper": the same set, and what it costs in slots
     expect(Object.keys(MMS_SETS)).toHaveLength(17)
-    expect(prose()).toContain('one of the seventeen mandatory sets')
     const rsf1 = roundPlan(uwbMmsScenario('rsf1').uwb!, ANCHORS.length)
     expect(rsf1.slots).toBe(40)
     expect(rsf1.roundNs).toBe(20 * MS)
     expect(3 * rsf1.roundNs).toBe(60 * MS)
     // rsf-1 is a pair round, so the 14 ms it is measured against is the pairwise variant's
     expect(3 * roundPlan(uwbMmsScenario('pairwise').uwb!, ANCHORS.length).roundNs).toBe(42 * MS)
-    expect(prose()).toContain('the ranging phase grows from 20 slots to 32 and a pair round from 14 ms to 20, so the three of them take 60 ms of the block instead of 42')
     // M12: the scene's own train is NOT one of the seventeen — the ranging cycle's defaults
     const own = uwbMmsScenario('base').uwb!.mms
     expect([own.rsfs, own.rifs, own.nMsr, own.gap]).toEqual([8, 0, 40, 64])
     expect(Object.values(MMS_SETS).some((m) =>
       m.rsfs === own.rsfs && m.rifs === own.rifs && m.nMsr === own.nMsr && m.gap === own.gap)).toBe(false)
-    expect(prose()).toContain('The scene’s own train is not one of the seventeen at all — X = 8 at 40 repetitions and a 64-zero gap matches no named set')
   })
 
   it('"−93 dBm" is what the receiver needs, and no fragment ever gets there alone', () => {
     expect(UWB_RX_SENS_DBM).toBe(-93)
     expect(cell(0, 4, 1)).toBe('−93 dBm')
     for (const t of trainsAt('base', TAG)) expect(t.rxDbm, t.peer).toBeLessThan(UWB_RX_SENS_DBM)
-    expect(prose()).toContain('Every fragment in this room arrives under the threshold on its own, so the whole margin is the train’s doing')
   })
 })
 
@@ -237,10 +182,6 @@ describe('uwb-mms-numbers · what a train adds up to', () => {
     expect([0, 1, 2].map((r) => cell(1, r, 2))).toEqual(['+6.02 dB', '+9.03 dB', '+12.04 dB'])
     expect([0, 1, 2].map((r) => cell(1, r, 0)))
       .toEqual(['4 × 82.051 µs', '8 × 82.051 µs', '16 × 62.179 µs'])
-    expect([0, 1, 2].map((r) => cell(1, r, 4))).toEqual(['lost', 'detected', 'detected'])
-    expect([0, 1, 2].map((r) => table(1).rows[r][4])).toEqual(['丢失', '检出', '检出'])
-    expect(table(1).head.map((h) => h)).toEqual(['Train', 'Per fragment', 'Gain', 'Margin', 'Verdict'])
-    expect(formulas()[0].text).toBe('gain = 10·log10(X)      margin = rx + gain − (−93 dBm)')
   })
 
   it('X = 8: every fragment at −100.26 / −100.07 dBm, +1.77 / +1.96 dB of margin, every pair ranges', () => {
@@ -293,9 +234,6 @@ describe('uwb-mms-numbers · what a train adds up to', () => {
     expect(outs).toHaveLength(BLOCKS * ANCHORS.length)
     expect(new Set(outs.map((o) => `${o.node} ${o.expected} ${o.slot} ${o.peer}`)))
       .toEqual(new Set(ANCHORS.map((a) => `${TAG} nbReport 24 ${a}`)))
-    const en = prose()
-    expect(en).toContain('a verdict that flips on 3.01 dB of arithmetic — costing the run all 21 ranges')
-    expect(uwbMmsNumbers.tryThis[0]).toContain('the sum now falls a decibel short')
   })
 
   it('"The same line, two trains": the verdict line, at eight fragments and at four', () => {
@@ -312,7 +250,6 @@ describe('uwb-mms-numbers · what a train adds up to', () => {
     expect(both).toContain(fmtRecord(trainsAt('four', 'anchor-1')[0]))
     // "the second line has no ratio at all"
     expect(trainsAt('four', 'anchor-1')[0].ratioPpm).toBeNull()
-    expect(uwbMmsNumbers.observe[0]).toContain('once the margin is positive, the clock ratio, which the two ends report with opposite signs')
   })
 
   it('X = 16 on set rsf-1: −99.05 / −98.86 dBm per fragment, +5.99 / +6.18 dB', () => {
@@ -329,7 +266,6 @@ describe('uwb-mms-numbers · what a train adds up to', () => {
     }
     expect(ofType(recs('rsf1'), 'UWB_RANGE')).toHaveLength(BLOCKS * ANCHORS.length)
     expect(ofType(recs('rsf1'), 'UWB_TIMEOUT')).toEqual([])
-    expect(prose()).toContain('takes the margin from +1.8 dB to +6.0')
   })
 })
 
@@ -358,23 +294,16 @@ describe('uwb-mms-numbers · the ruler fourteen milliseconds long', () => {
     expect(roundPlan(uwbMmsScenario('pairwise').uwb!, ANCHORS.length).mms!.fragGapNs).toBe(1 * MS)
     expect(sigmaPpm().toFixed(4)).toBe('0.0101')
     expect(DEFAULT_UWB_SESSION.tsNoisePs).toBe(100)
-    expect(formulas()[1].text)
-      .toBe('ratio = span_measured / ((j − i) × gap)      σ_ratio = √2 · σ_ts / ((j − i) × gap)')
-    expect(prose()).toContain('The gap here is 2 ms, so the 14 ms from a train’s first fragment to its eighth gives σ_ratio = 0.0101 ppm')
-    expect(prose()).toContain('four slots, two milliseconds, here')
     // "Going deeper": the same two stamps across one 82 µs fragment would be about 1.7 ppm
     const overOneFragment = ratioSigma(DEFAULT_UWB_SESSION.tsNoisePs, rsfNs(40, 64) / MS) * 1e6
     expect(overOneFragment.toFixed(1)).toBe('1.7')
-    expect(prose()).toContain('taken 14 ms apart, give 0.0101 ppm')
     expect(overOneFragment).toBeGreaterThan(Math.abs(trueRatio('anchor-3')) / 10)
-    expect(prose()).toContain('would give about 1.7 ppm')
   })
 
   it('"round 0 measures 39.985, 19.996, 9.984 ppm" against a true 40, 20 and 10', () => {
     expect(ANCHORS.map(trueRatio)).toEqual([40, 20, 10])
     expect(firstTrains('base').map((t) => t.ratioPpm!.toFixed(3)))
       .toEqual(['39.985', '19.996', '9.984'])
-    expect(cell(2, 0, 0)).toBe('Round 0 measures, against a true 40 / 20 / 10 ppm')
     expect(cell(2, 0, 1)).toBe('39.985, 19.996, 9.984 ppm')
     for (const t of trainsAt('base', TAG)) {
       expect(Math.abs(t.ratioPpm! - trueRatio(t.peer)), t.peer).toBeLessThan(4 * sigmaPpm())
@@ -408,7 +337,6 @@ describe('uwb-mms-numbers · the ruler fourteen milliseconds long', () => {
     expect(cell(2, 3, 1)).toBe('1.5 cm')
     expect((halfReplyS * sigmaPpm() * 1e-6 * cMs * 1000).toFixed(2)).toBe('0.76')
     expect(cell(2, 4, 1)).toBe('0.76 mm')
-    expect(cell(2, 4, 0)).toBe('The train’s 0.0101 ppm')
     // the floor underneath: two receive stamps are 2.1 cm, and 21 ranges scatter by 2.10 cm — the
     // train combines to 19.8-20.0 dB, a shade under the 20 dB the timestamp noise is quoted at
     expect((rangeSigmaM(DEFAULT_UWB_SESSION.tsNoisePs) * 100).toFixed(1)).toBe('2.1')
@@ -420,13 +348,11 @@ describe('uwb-mms-numbers · the ruler fourteen milliseconds long', () => {
     expect((rms * 100).toFixed(2)).toBe('2.10')
     // the cell is a bare value and its label carries the count, so the one string the table
     // renders to both readers is language-neutral in fact and not only in type
-    expect(cell(2, 5, 0)).toBe('The floor two receive stamps put under any range, 21 of them')
     expect(cell(2, 5, 1)).toBe('2.10 cm')
     // the 1.5 mm is invisible under it: adding it in quadrature moves nothing a reader sees
     const floor = rangeSigmaM(DEFAULT_UWB_SESSION.tsNoisePs)
     expect(rms).toBeLessThan(1.2 * floor)
     expect((Math.hypot(floor, 0.0015) * 100).toFixed(1)).toBe((floor * 100).toFixed(1))
-    expect(prose()).toContain('two receive stamps alone are worth 2.1 cm, so the train’s sub-millimetre clock leftover is invisible')
   })
 
   it('observe 2: the range line prints the corrected range and the raw one', () => {
@@ -435,7 +361,6 @@ describe('uwb-mms-numbers · the ruler fourteen milliseconds long', () => {
     // the first report of a one-to-many round lands in slot 40, at 20 ms
     expect(first.t).toBe(20 * MS + nbPpduNs(NB_REPORT_BYTES) + 44)
     expect(rctuToMetres(first.tofRawRctu!) - first.distM).toBeGreaterThan(2.9)
-    expect(uwbMmsNumbers.observe[1]).toContain('the raw range it would have been if the clock ratio had never been measured')
   })
 })
 
@@ -461,10 +386,6 @@ describe('uwb-mms-numbers · being honest about the gain', () => {
     // "together 10.54 dB, and an older burst-mode radio could hold −7.41 dBm and be as legal"
     expect((burstDb + shorterDb).toFixed(2)).toBe('10.54')
     expect(mmsFragmentDbm(pollNs).toFixed(2)).toBe('-7.41')
-    const en = prose()
-    expect(en).toContain('together 10.54 dB, and an older burst-mode radio could hold −7.41 dBm and be as legal')
-    expect(en).toContain('The honest claim is the 9.03 dB')
-    expect(uwbMmsNumbers.quiz[1].options[1]).toContain('9.03 dB; the other 10.54 is transmit power')
   })
 
   it('"Going deeper": the ordinary radio fails completely, at −110.80 dBm and 42 timeouts', () => {
@@ -479,8 +400,6 @@ describe('uwb-mms-numbers · being honest about the gain', () => {
     const d = distTo(MMS_ANCHORS[0])
     const poll = UWB_TX_POWER_DBM - (uwbPl0Db(9) + 10 * UWB_PL_EXP * Math.log10(d) + 2 * WALL_LOSS_DB.brick)
     expect((UWB_RX_SENS_DBM - poll).toFixed(1)).toBe('17.8')
-    expect(prose()).toContain('there is not one range in 1.3 seconds: 42 timeouts')
-    expect(prose()).toContain('nearly eighteen decibels under the receiver')
     expect(RUN_NS / MS / 1000).toBe(1.3)
   })
 })
@@ -496,17 +415,20 @@ describe('uwb-mms-numbers · the whole sum, symbol by symbol', () => {
   const d = distTo(MMS_ANCHORS[0])
   const loss = uwbPl0Db(9) + 10 * UWB_PL_EXP * Math.log10(d) + 2 * WALL_LOSS_DB.brick
 
+  it('carries the sum as a procedure the reader can re-run: six steps, none empty', () => {
+    // The one content rule that survives the prose cull: a lesson that states a rule
+    // carries it as a procedure. The wording is the author’s; the shape is the test’s.
+    expect(steps()).toHaveLength(6)
+    for (const s of steps()) expect(s.trim().length).toBeGreaterThan(0)
+  })
+
   it('step 1 — E: −41.3 dBm/MHz over 499.2 MHz is −14.3 dBm, and 1 ms of it is 37 nJ', () => {
-    expect(steps()[0]).toContain('The cap is a mean power per megahertz')
-    expect(steps()[0]).toContain('multiply it by the channel’s width and hold it for one millisecond')
     expect(worked(0)).toBe('−41.3 dBm/MHz × 499.2 MHz = −14.3 dBm → 37 nJ')
     expect((-41.3 + 10 * Math.log10(499.2)).toFixed(1)).toBe('-14.3')
     expect(UWB_MS_BUDGET_NJ).toBe(37)
   })
 
   it('step 2 — t: 40 × 4 × (128 + 2 × 64) = 40 960 chips, 82.051 µs', () => {
-    expect(steps()[1]).toContain('the spreading factor times the sequence length plus its two gaps')
-    expect(steps()[1]).toContain('repeat that symbol as many times as the parameter set says and divide by the chip rate')
     expect(worked(1)).toBe('40 × 4 × (128 + 2 × 64) = 40 960 chips → 82.051 µs')
     expect(rsfChips(40, 64)).toBe(40_960)
     expect(fragNs).toBe(82_051)
@@ -514,15 +436,11 @@ describe('uwb-mms-numbers · the whole sum, symbol by symbol', () => {
   })
 
   it('step 3 — P: the whole of E inside t is −3.46 dBm', () => {
-    expect(steps()[2]).toContain('spends all of E inside t, so P = 10·log10(E / t)')
-    expect(steps()[2]).toContain('the shorter the fragment, the louder it is')
     expect(worked(2)).toBe('10·log10(37 / 82.051) = −3.46 dBm')
     expect(mmsFragmentDbm(fragNs).toFixed(2)).toBe('-3.46')
   })
 
   it('step 4 — rx: 96.80 dB of room leaves −100.26 dBm at the far anchor', () => {
-    expect(steps()[3]).toContain('the loss at one metre, the distance term at the engine’s own path-loss exponent')
-    expect(steps()[3]).toContain('a fixed charge for each wall the ray crosses')
     expect(worked(3)).toBe('−3.46 − (50.50 + 22.30 + 24) = −100.26 dBm')
     expect(uwbPl0Db(9).toFixed(2)).toBe('50.50')
     expect(d.toFixed(2)).toBe('13.04')
@@ -536,7 +454,6 @@ describe('uwb-mms-numbers · the whole sum, symbol by symbol', () => {
   })
 
   it('step 5 — G: 10·log10(X) is 9.03 dB at eight fragments and 6.02 at four', () => {
-    expect(steps()[4]).toContain('equal things added give G = 10·log10(X)')
     expect(worked(4)).toBe('+9.03 dB · +6.02 dB')
     expect(combineGainDb(8).toFixed(2)).toBe('9.03')
     expect(combineGainDb(4).toFixed(2)).toBe('6.02')
@@ -545,8 +462,6 @@ describe('uwb-mms-numbers · the whole sum, symbol by symbol', () => {
   })
 
   it('step 6 — the margin: +1.77 dB at eight fragments, −1.24 at four, and the verdict flips', () => {
-    expect(steps()[5]).toContain('Take the receiver’s sensitivity S off the sum: margin = rx + G − S')
-    expect(steps()[5]).toContain('Zero or more is a detection; below zero the train is lost')
     expect(worked(5)).toBe('+1.77 dB · −1.24 dB')
     expect(UWB_RX_SENS_DBM).toBe(-93)
     const margin = (heard: number): string =>

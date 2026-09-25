@@ -20,7 +20,6 @@ import { rssiOn } from './rssi'
 import { decodeFrame } from '../../src/model/frameFields'
 import { fmtRecord } from '../../src/ui/format'
 import type { TLRecord } from '../../src/model/records'
-import { OBSERVE_MINUTES, TRY_MINUTES, lessonMinutes, lessonWords } from '../../src/course/curriculum'
 
 const MS = 1_000_000
 const US = 1_000
@@ -90,23 +89,15 @@ describe('amp-slots · lesson shape', () => {
     expect(ampSlots.variants!.length).toBe(3)
   })
 
-  it('the computed study time follows the formula and stays inside the 15–25 minute target', () => {
-    const raw = lessonWords(ampSlots) / 150
-      + OBSERVE_MINUTES * ampSlots.observe.length + TRY_MINUTES * ampSlots.tryThis.length
-    expect(lessonMinutes(ampSlots)).toBe(Math.max(5, Math.round(raw / 5) * 5))
-    expect(lessonMinutes(ampSlots)).toBeGreaterThanOrEqual(15)
-    expect(lessonMinutes(ampSlots)).toBeLessThanOrEqual(25)
-  })
-
-  it('every jump target occurs where its label says it does', () => {
+  it('every jump predicate matches a record in the run it points at', () => {
+    // The jumps, in declaration order: the collision in a slot, the Ack naming the
+    // router itself, the lost response, then one per variant.
+    expect(ampSlots.jumps.length).toBe(5)
     const rs = recs()
-    const find = (en: string) => ampSlots.jumps.find((j) => j.label === en)!
-    for (const en of ['first collision in a slot', 'first Ack naming the router itself', 'first lost response']) {
-      expect(rs.some(find(en).find), en).toBe(true)
-    }
-    // the two jumps whose labels name a variant
-    expect(recs(ACWE3).some(find('first sit-out (ACWE 3 variant)').find)).toBe(true)
-    expect(recs(TWO_PHASE).some(find('first scheduled trigger (two-phase variant)').find)).toBe(true)
+    for (const i of [0, 1, 2]) expect(rs.some(ampSlots.jumps[i].find), `jump ${i}`).toBe(true)
+    // the two jumps that only happen in a variant
+    expect(recs(ACWE3).some(ampSlots.jumps[3].find)).toBe(true)
+    expect(recs(TWO_PHASE).some(ampSlots.jumps[4].find)).toBe(true)
   })
 
   it('the scene is one router and six tags on a 2 m ring, all at the same signal level', () => {

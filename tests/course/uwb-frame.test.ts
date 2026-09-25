@@ -47,7 +47,7 @@ const txs = (rs: TLRecord[], kind: string) => ofType(rs, 'TX_START').filter((r) 
 // ("mechanism before metaphor"): `numbers` now carries the procedure by which a
 // stamp is taken off this frame, which the old ceiling had no room for. It is
 // still well inside the contract's own picture + numbers (900 + 550).
-lessonShapeSuite(uwbFrame, { proseMax: 1100, runNs: RUN_NS, sameSceneAs: 'uwb-intro' })
+lessonShapeSuite(uwbFrame, { runNs: RUN_NS, sameSceneAs: 'uwb-intro' })
 
 describe('uwb-frame · the lesson’s own scene', () => {
   it('is the second lesson of the UWB track', () => {

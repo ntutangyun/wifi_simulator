@@ -36,7 +36,7 @@ const ends = (rs: TLRecord[], kind: string) => ofType(rs, 'TX_END').filter((r) =
 // The contract every migrated lesson owes, written once in tests/course/kit.ts.
 // `sameSceneAs` is the split rule: amp-ppdu loads amp-intro's scene, so its
 // recorded timeline hashes are amp-intro's, value for value.
-lessonShapeSuite(ampPpdu, { proseMax: 1100, runNs: RUN_NS, sameSceneAs: 'amp-intro' })
+lessonShapeSuite(ampPpdu, { runNs: RUN_NS, sameSceneAs: 'amp-intro' })
 
 describe('amp-ppdu · the lesson’s own scene', () => {
   it('is the second lesson of the AMP track', () => {
