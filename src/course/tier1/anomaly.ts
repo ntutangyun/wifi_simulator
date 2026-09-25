@@ -1,52 +1,99 @@
 /**
- * Wi-Fi Tier 1 · M2 · Channel access · Rate anomaly — fairness gone wrong.
+ * Wi-Fi Tier 1 · M5 · 听不见的邻居与损失 · Rate anomaly — fairness gone wrong.
  *
- * Rewritten to the zero-to-hero contract
- * (docs/superpowers/specs/2026-09-21-course-readability-design.md): the rules
- * hand out turns, not time; one slow talker takes about as many turns as the
- * fast one but holds the air far longer on each, so every station's throughput
- * sinks towards the slow one's. The capture-effect material — the decibel
- * table, the destroyed frame and the unexplained retry — is professional depth
- * and now lives in `deeper`.
+ * Re-paced on 2026-09-25
+ * (docs/superpowers/plans/2026-09-25-course-repacing-proposal.md, §2 M5). This
+ * lesson **stays whole**: equal turns and unequal airtime are one claim read two
+ * ways, and every observe line and quiz already serves it. What went:
+ *
+ *  - §5.3, the same figures printed three times. 209/154 turns, 248/795 µs and
+ *    the airtime shares appeared in the intro prose, in a summary table and in
+ *    the step-by-step table. The summary table is gone; the worked table (which
+ *    carries every one of its columns and four more) and the new timing figure
+ *    stay, and the prose no longer restates either.
+ *  - §5.2, two metaphors doing no work: 「被分掉的其实是时钟」, the shared clock in
+ *    its fourth outing, and the whole 「没有谁在耍赖」 section, which is moralising
+ *    with no mechanism in it.
+ *  - §7, the capture-effect depth — the decibel table, why the stronger preamble
+ *    wins, and the fifteen silent losses. It is a DIFFERENT mechanism with
+ *    nothing to watch here (no jump anchors it, and the timeline records no
+ *    collision at all), so it moves to `rate-vs-model`, which already explains
+ *    capture and has the scene for it. What stays is the one sentence that makes
+ *    the fourth row of the worked table honest, pointing forward.
+ *
+ * The timing figure replaces the deleted summary table's job: three turns each,
+ * the far station's blocks nearly three times as long, drawn to scale from the
+ * run's own TX_STARTs.
+ *
+ * Two engine truths established here survive unchanged and stay pinned: a
+ * station that has just failed to decode a reception waits an EIFS rather than a
+ * DIFS (`MacSim.armIfs` in src/engine/mac.ts; 166 of this scene's 833 station
+ * waits, every one of them at the far station), and the far station's turns are
+ * not all acknowledged.
  *
  * Every number quoted below is pinned in tests/course/anomaly.test.ts. The
  * scenario builder is unchanged, so the recorded timeline hash in
  * tests/fixtures/lesson-hashes.json stays byte-identical.
  */
+import type { TimingSpec } from '../diagram'
 import { type Lesson, longApartment, node, sc, firstData, J } from '../lessonKit'
+
+/**
+ * A 3.6 ms window of the run in which each station takes exactly three turns,
+ * to scale. Every span is one TX_START and its own `txTimeNs` — the near
+ * station's 248 µs three times, the far station's 704 µs three times — and
+ * `anomaly.test.ts` reads each one back out of this spec.
+ *
+ * Three against three is the whole argument: the turns are equal and the blocks
+ * are not, so what the far station takes is not turns but the clock they run on.
+ */
+export function anomalyTiming(): TimingSpec {
+  return {
+    kind: 'timing',
+    lanes: [
+      { label: '近端·快', spans: [
+        { fromUs: 4322, toUs: 4570, label: '248 µs' },
+        { fromUs: 5542, toUs: 5790 },
+        { fromUs: 6735, toUs: 6983 },
+      ] },
+      { label: '远端·慢', spans: [
+        { fromUs: 3491, toUs: 4195, label: '704 µs', tone: 'accent' },
+        { fromUs: 4738, toUs: 5442, tone: 'accent' },
+        { fromUs: 5913, toUs: 6617, tone: 'accent' },
+      ] },
+    ],
+    axis: { fromUs: 3400, toUs: 7000, ticks: [3400, 4400, 5400, 6400], unit: 'µs' },
+  }
+}
 
 export const anomaly: Lesson = {
   id: 'anomaly',
   module: 4,
   title: '速率异常——“公平”的反面',
-  why: '信道接入的规则在一件事上一丝不苟地公平：下一轮该轮到谁。凡是手里总有东西要发的站点（STA），抢到空口的次数和邻居差不多。规则从不过问的是：一轮能持续多久。离接入点（AP）远的站点只能慢慢发，同样一个帧要把空口占住好几倍的时间——而空口是一只共用的钟，其他人只能干等。最后，快的那台也快不到哪里去。',
+  why: '信道接入的规则在一件事上一丝不苟地公平：下一轮该轮到谁。手里总有东西要发的站点（STA），抢到空口的次数和邻居差不多。规则从不过问的是：一轮能持续多久。离接入点（AP）远的站点只能慢慢发，同样一个帧要把空口占住好几倍的时间——而空口是一只共用的钟。最后，快的那台也快不到哪里去。',
   outcomes: [
     '说清信道接入规则给的是哪一种公平、不给的是哪一种',
-    '在同一轮仿真里，把一台站点的轮次和它占住的那一段时钟（也就是它的空口占比）放在一起比',
+    '把一台站点的轮次和它的空口占比放在一起比',
     '预测一台慢站点进屋之后，快站点的吞吐量会怎样',
   ],
-  needs: ['airtime', 'backoff'],
+  needs: ['airtime', 'collisions-cw'],
   terms: [
-    { term: 'airtime share', plain: '整段时钟里，被某一台站点自己的发送占掉的那一部分' },
-    { term: 'performance anomaly', plain: '因为有一台站点只能慢慢发，导致所有人的吞吐量都掉下来的现象' },
-    { term: 'rate control', plain: '发送方在帧接连失败之后，退到更慢、更结实的编码上去' },
+    { term: 'airtime share', plain: '整段时间里被某一台站点自己的发送占掉的那一部分' },
+    { term: 'performance anomaly', plain: '一台站点只能慢慢发，于是所有人的吞吐量都掉下来' },
+    { term: 'rate control', plain: '帧接连失败之后，发送方退到更慢、更结实的编码上去' },
   ],
   picture: [
-    { heading: '公平的是轮次', text: '两台站点，队列（queue）都永远排不空，轮流上空口。每一台都先熬过规定的空闲时间，再数完自己抽到的那个随机的时隙（slot time）数，数到零就发。这套流程里没有任何一步去问帧有多大、要发多久。跑得久了，两台抢到空口的次数差不多相等——规则承诺的，恰恰就是这个。' },
-    { heading: '可一轮的长短并不固定', text: '两台之中有一台在公寓的另一头，隔着一堵墙。它的信号到达接入点时已经很弱，用不了近端那种又快又娇气的编码，只能退到更慢、更结实的一档，每个符号（symbol）装的比特更少。字节一样，帧也一样——空口时间（airtime）却是好几倍。而当它的帧开始失败，它又会自己往下退一档——这就是速率控制——于是每一轮更长了。' },
+    { heading: '公平的是轮次', text: '两台站点，队列（queue）都永远排不空，轮流上空口。每一台都先熬过规定的空闲时间，再数完自己抽到的那个随机的时隙（slot time）数，数到零就发。这套流程没有任何一步去问帧有多大。跑得久了，两台抢到空口的次数差不多相等——规则承诺的就是这个。' },
+    { heading: '可一轮的长短并不固定', text: '两台之中有一台在公寓的另一头，隔着一堵墙。它的信号到达接入点时已经很弱，用不了近端那种又快又娇气的编码，只能退到更慢、更结实的一档，每个符号（symbol）装的比特更少。字节一样，空口时间（airtime）却是好几倍。帧一开始失败，它又自己往下退一档——这就是速率控制。' },
     { kind: 'watch', jump: 0, heading: '把两种轮次摆在一起看', text: '载入仿真，跳到第一个数据帧（data frame）。两条泳道在同一瞬间起跑。现在看两个绿色块各自伸到哪里：它们装的字节数是一样的。' },
-    { heading: '被分掉的其实是时钟', text: '轮次是均匀发下去的，可每一轮花掉的都是大家共用的那一样东西：空口上的时间。慢站点那些长长的轮次把时钟填满了，于是一秒钟里装得下的轮次总数变少——本可以跑很多个短轮次的快站点，拿到的轮次就少得多。它自己的链路（link）什么都没变，吞吐量却掉了下来。' },
-    { heading: '所有人都被拉向慢的那一个', text: '不数轮次而数空口时间，画面就翻了过来：慢站点占住了时钟的大头，快站点只剩一个小角。这时快站点送出去的东西，并不比慢站点多多少，离它独占房间时的水平更是差了一大截。这就是性能异常——它不是谁家无线电的毛病，而是“分轮次而不分时间”这件事的必然结果。' },
-    { heading: '没有谁在耍赖', text: '有必要说清这事怪谁，因为答案是：不怪谁。慢站点并不贪心，它拿到的轮次一点没多，而且它自己也巴不得快一些。快站点也没有被少分轮次。不公平藏在单位里：一条按“轮次”写成的规则，看不见自己花掉的秒。' },
+    { heading: '所有人都被拉向慢的那一个', text: '不数轮次而数空口时间，画面就翻了过来：慢站点占住大头，快站点只剩一个小角，而它自己的链路（link）毫发无损。这就是性能异常——不是哪家无线电的毛病，而是“分轮次而不分时间”的必然结果。' },
   ],
   numbers: [
-    { kind: 'table', heading: '这套公寓里的 200 ms', head: [
-      '站点', '拿到的轮次', '平均每轮',
-      '空口占比', '送达',
-    ], rows: [
-      ['近端·快', '209', '248 µs', '25.9 %', '12.8 Mb/s'],
-      ['远端·慢', '154', '795 µs', '61.2 %', '8.3 Mb/s'],
-    ] },
+    {
+      kind: 'diagram', heading: '同一段 3.6 ms 里，两台各三轮',
+      spec: anomalyTiming(),
+      caption: '轮数一样，块长不一样：近端每轮 248 µs，远端每轮 704 µs，两边装的都是 1528 字节。近端只能挤进远端块之间的空当——一秒钟挤得进几次，由远端剩下多少空当决定。',
+    },
     { heading: '一轮的长短是怎么来的', kind: 'table', head: [
       '帧', '速率', '字节', '空口时间',
     ], rows: [
@@ -54,14 +101,14 @@ export const anomaly: Lesson = {
       ['远端站点，最好的一档', '18 Mb/s', '1528', '704 µs'],
       ['远端站点，连降两档之后', '9 Mb/s', '1528', '1384 µs'],
     ] },
-    { heading: '这间屋子让快站点付出了什么', text: '把远端站点删掉，同样的 200 ms 里近端送出的就不是 209 帧，而是 510 帧。远端拿走的不是它的轮次，而是它的时钟。而远端若独占房间，自己能送出 234 帧——比两台共处一室时任何一台拿到的都多。' },
+    { heading: '这间屋子让快站点付出了什么', text: '把远端删掉，同样的 200 ms 里近端送出的就不是 209 帧，而是 510 帧：远端拿走的不是它的轮次，而是那些轮次能落脚的空口时间。远端若独占房间，自己能送出 234 帧——比两台共处一室时任何一台都多。' },
     { kind: 'steps', heading: '从“轮次相等”到“吞吐不等”，一步一步', items: [
-      '两台站点手里永远有帧。每一台都先等空口连续安静一个分布式帧间间隔（DCF interframe space, DIFS）：一个 16 µs 的间隔加两个 9 µs 的时隙，合 34 µs。刚刚有一帧没能解出来的站点，等的则是更长的扩展帧间间隔（extended interframe space, EIFS）。',
-      '接着各自在 0 到自己的竞争窗口（contention window, CW）之间抽一个整数时隙数——窗口从 15 起步——每过一个空闲时隙就减一。两台抽的是同一个窗口，所以跑得久了，谁归零的次数都差不多。',
-      '谁先归零，谁就发一帧。两边都是 1528 字节，而用的是各自链路撑得住的那个速率。到这一步为止，流程从没问过这个速率是多少。',
-      '这一轮有多长，就是那 1528 字节按这台站点自己的速率发完要多久：近端 248 µs，远端平均 795 µs。这段时间里，屋里其余的计数器全都冻着。',
-      '接入点回一个 14 字节的确认帧（ACK），整套流程重新来过。轮次是均匀发下去的，每一轮花掉的那些秒却不是。',
-      '于是一台站点的吞吐量，就是它每秒被确认的轮次乘 1528 字节再乘 8 比特。而每秒能有几轮，取决于另一台的长轮次还给它剩下多少空当——相等的轮次，就是这样变成不等的吞吐量的。',
+      '两台站点手里永远有帧。每一台先等空口连续安静一个分布式帧间间隔（DCF interframe space, DIFS）：16 µs 的间隔加两个 9 µs 的时隙，合 34 µs。刚刚有一帧没能解出来的站点，等的是更长的扩展帧间间隔（extended interframe space, EIFS）。',
+      '接着各自在 0 到自己的竞争窗口（contention window, CW）之间抽一个整数时隙数——窗口从 15 起步——每过一个空闲时隙减一。两台抽的是同一个窗口，所以跑得久了归零的次数差不多。',
+      '谁先归零谁就发一帧。两边都是 1528 字节，用的是各自链路撑得住的那个速率——到这一步为止，流程从没问过这个速率是多少。',
+      '这一轮有多长，就是那 1528 字节按它自己的速率发完要多久：近端 248 µs，远端平均 795 µs。这段时间里屋里其余的计数器全都冻着。',
+      '接入点回一个 14 字节的确认帧（ACK），流程重新来过。轮次是均匀发下去的，每一轮花掉的那些秒却不是。',
+      '于是它的吞吐量就是每秒被确认的轮次乘 1528 字节再乘 8 比特；而每秒能有几轮，取决于另一台的长轮次剩下多少空当——相等的轮次就是这样变成不等的吞吐量的。',
     ] },
     { kind: 'table', heading: '同样的 200 ms，照着步骤算一遍', head: [
       '步骤', '近端·快', '远端·慢',
@@ -73,24 +120,12 @@ export const anomaly: Lesson = {
       ['= 每秒送达的帧数', '1045', '675'],
       ['× 1528 字节 × 8 比特', '12.8 Mb/s', '8.3 Mb/s'],
     ] },
-    { heading: '第四行为什么不等于第一行', text: '远端站点抢到 154 轮，被确认的只有 135 轮，其余的整帧报废——后面“再深一层”会拆开讲。吞吐量算的是真正到达的东西，所以进入最后两行的是被确认的那些轮次。' },
-  ],
-  deeper: [
-    { heading: '近端站点还赢下了每一次同时起跑', text: '看第一个微秒。两台站点一开始就发现介质空闲，于是谁也没有抽退避，都在 t = 0 开始发送——一次教科书式的碰撞。可接入点把近端的帧完好地解了出来并回了确认，远端却颗粒无收。这就是捕获效应，下面的分贝数解释了原因。' },
-    { kind: 'table', head: [
-      '接收', '目标信号', '干扰',
-      '余量', '所需',
-    ], rows: [
-      ['接入点收近端数据', '−35 dBm', '远端站点，−75 dBm', '40 dB', '54 Mb/s 需 26 dB'],
-      ['近端收 ACK', '−30 dBm', '远端仍在发，−74 dBm', '44 dB', '24 Mb/s 的 ACK 需 17 dB'],
-    ] },
-    { heading: '为什么赢的是更强的前导码，而不是更早的', text: '这 40 dB 是 11 m 的房长加一道砖墙拉开的。接收机在检测到前导码之前什么也解不出来，而前导码只有比空中其他一切高出至少 4 dB 才会被检测到。近端的前导码以 40 dB 的富余越过这道门槛，于是接入点锁定了它；远端的前导码根本没被检测到，只是添了一份干扰。一旦锁定，接收机把此后到达的一切都当作噪声——不过在它还在捕获阶段时，一个明显更强的前导码会让它丢掉手上的接收、改去同步新来者。' },
-    { heading: '时间轴上不留痕迹的一次损失', text: '远端站点那 704 µs 的帧被整帧毁掉。它要等到 749 µs 确认超时才知情，然后带着翻倍的窗口重传。时间轴上不会画出任何碰撞，因为在接入点看来没有任何一次接收失败：整轮跑下来一次都没记。200 ms 里远端挨了 15 次这样无声的损失，近端一次也没有——所以慢站点要付两遍：每轮占用的空口更长，还输掉它参与的每一次同时起跑。' },
+    { heading: '第四行为什么不等于第一行', text: '远端抢到 154 轮，被确认的只有 135 轮，其余整帧报废——所以进入最后两行的是被确认的那些轮次。原因在这里看不出来：时间轴上一次碰撞都没记，因为两帧同时开始时接入点只锁住了更强的那个前导码（preamble）。后面把速率和模型对起来的那一课会用自己的场景拆开讲它。' },
   ],
   sources: [
     '802.11 的性能异常出自 Heusse、Rousseau、Berger-Sabbatel 与 Duda 的《Performance anomaly of 802.11b》（IEEE INFOCOM 2003）；它作为前提的“每站公平”，即 IEEE Std 802.11-2024 §10.3.4 的 DCF 接入流程。',
+    'EIFS 的长度与“接收失败之后才欠这一段”见 §10.3.2.3.6；DIFS 见 §10.3.2.3.5。',
     '这里的速率、1528 字节的帧长与各自的空口时间，出自本仿真器自己的 OFDM 模型；−82 dBm 的检测底、4 dB 的前导检测余量和墙体损耗都是模型取值，上面每一个计数都可由场景的随机种子复现。',
-    '捕获效应——接收机守住它锁定的第一个前导码，只有遇到明显更强的前导码才改同步——并非标准强制规定，而是真实接收机的行为，本仿真器把它显式建模了出来。',
   ],
   scenario: () => sc(longApartment(), [
     node('ap', 'AP', 'ap', 4, 4, 'eht', 'idle'),
@@ -101,13 +136,13 @@ export const anomaly: Lesson = {
     J('第一个数据帧', firstData),
   ],
   observe: [
-    '远端站点的绿色块比近端的长得多，而且有三种长度——704、1044、1384 µs——那是速率控制一档档把它调下去的结果。字节数每次都一样。',
-    '检视器：前 200 ms 里两者拿到的轮次相当，209 次与 154 次，可远端占用的空口时间是近端的两倍多。',
-    '近端站点的吞吐量远低于它独占信道时的水平：这里 200 ms 送达 209 帧，把远端删掉则是 510 帧。两台加在一起把空口占住了九成以上的时间，送达的量却还不如近端自己一台的时候。',
+    '远端的绿色块比近端长得多，而且有三种长度——704、1044、1384 µs——那是速率控制一档档调下去的结果。字节数每次都一样。',
+    '检视器：前 200 ms 里两者的轮次相当，可远端占用的空口时间是近端的两倍多。',
+    '两台加在一起把空口占住了九成以上的时间，送达的量却还不如近端自己一台的时候。',
   ],
   tryThis: [
-    '在编辑器里删掉远端站点后重新载入。近端在 200 ms 内送达的帧数从 209 跳到 510——它多得到的只有原先干等掉的那段时钟。',
-    '把远端站点一米一米地往接入点挪，看它的绿色块随着速率爬升而一级级变短——近端的帧数也跟着一起涨。',
+    '在编辑器里删掉远端站点后重新载入：近端 200 ms 内送达的帧数从 209 跳到 510。',
+    '把远端一米一米地往接入点挪：它的绿色块随速率爬升一级级变短，近端的帧数跟着涨。',
   ],
   quiz: [
     {
@@ -118,7 +153,7 @@ export const anomaly: Lesson = {
         '轮次数量',
       ],
       answer: 2,
-      explain: '每台站点都从同一个窗口里抽数，抢到轮次的频率彼此相当。至于一轮要花掉多少时间，那完全取决于各自的速率。',
+      explain: '每台站点都从同一个窗口里抽数，抢到轮次的频率彼此相当；一轮花掉多少时间则取决于各自的速率。',
     },
     {
       q: '远端站点一进屋，近端的吞吐量为什么会掉？',

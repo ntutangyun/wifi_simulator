@@ -1,19 +1,31 @@
 /**
- * Every empirical claim in "Rate anomaly — fairness gone wrong", measured
- * against the lesson's own scene: a long apartment with one station beside the
- * access point and one behind a wall at the far end, both saturated.
+ * Every empirical claim in "速率异常——“公平”的反面", measured against the lesson's
+ * own scene: a long apartment with one station beside the access point and one
+ * behind a wall at the far end, both saturated.
  *
- * The claims this lesson shares with tests/course/lesson-claims.test.ts — the
- * comparable turn counts against the lopsided airtime, the 510 frames the near
- * station manages alone, the capture table's decibels, the destroyed 704 µs
- * frame, the deadline at 749 µs and the fifteen silent losses — are
- * re-asserted here beside the sentences that now carry them (the two tables of
- * `numbers`, and the capture material in `deeper`); the originals stay where
- * they are, so no pin is lost. The lesson never had a `.body!` site in any
- * test.
+ * Re-paced on 2026-09-25 (§2 M5): the lesson stays whole, its summary table is
+ * gone (the worked table below carries every column it had) and a timing figure
+ * took its place. No pin was deleted — the figures the summary table used to
+ * print are asserted here against the worked table, and the figure's own spans
+ * are asserted against the TX_STARTs they are drawn from.
+ *
+ * ONE GROUP OF PINS IS BEING HELD HERE, not kept: §7 of the plan moves the
+ * capture-effect material — the decibel table, the 4 dB a preamble needs, the
+ * t = 0 start, the destroyed 704 µs frame and the fifteen silent losses — to
+ * `rate-vs-model`, which batch 5 writes. That lesson does not exist yet, so its
+ * pins stay in this file, asserted against the same run they always were, under
+ * the describe marked HOLDING below. They must move to
+ * tests/course/rate-vs-model.test.ts with the prose; what `anomaly` still says
+ * about them is one forward-pointing sentence, and the pin that guards that
+ * sentence (154 turns, 135 acknowledged, and no COLLISION recorded anywhere) is
+ * in the worked-table test, where it belongs.
+ *
+ * The engine truth established here survives: a station that has just failed to
+ * decode a reception waits an EIFS rather than a DIFS, and all of this scene's
+ * EIFS waits belong to the far station. It is pinned in step 1.
  */
 import { describe, it, expect } from 'vitest'
-import { anomaly } from '../../src/course/tier1/anomaly'
+import { anomaly, anomalyTiming } from '../../src/course/tier1/anomaly'
 import { ScenarioSchema } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 import { Simulation } from '../../src/engine/simulation'
@@ -46,9 +58,11 @@ const runFor = (mod: (sc: ReturnType<typeof anomaly.scenario>) => void): TLRecor
 lessonShapeSuite(anomaly, { runNs: RUN_NS })
 
 describe('anomaly · the lesson’s own scene', () => {
-  it('leans on airtime and backoff, and names the anomaly itself', () => {
+  it('leans on airtime and the collision lesson, and names the anomaly itself', () => {
     expect(MODULES[anomaly.module].title).toBe('听不见的邻居与损失')
-    expect(anomaly.needs).toEqual(['airtime', 'backoff'])
+    // §6 of the re-pacing plan: `backoff`'s second half owns the deadline and the
+    // doubling this lesson's step 2 and its unacknowledged turns lean on.
+    expect(anomaly.needs).toEqual(['airtime', 'collisions-cw'])
     // Whole-track review M3: one name for the loop of src/engine/rate.ts. `rate adaptation`
     // was a third name beside `rate control` (bianchi-vs-sim, and the title of `rate`).
     expect(anomaly.terms!.map((t) => t.term)).toEqual(['airtime share', 'performance anomaly', 'rate control'])
@@ -67,8 +81,8 @@ describe('anomaly · the lesson’s own scene', () => {
 
 describe('anomaly · two hundred milliseconds in this apartment', () => {
   it('the turns, the mean turn, the airtime share and the delivered rate of each station', () => {
-    // the table: Near & fast · 209 · 248 µs · 25.9 % · 12.8 Mb/s
-    //            Far & slow  · 154 · 795 µs · 61.2 % ·  8.3 Mb/s
+    // the worked table's rows 1-3 and 6, which is the one table the re-pacing kept:
+    //   209 / 154 turns · 248 µs / 795 µs · 25.9 % / 61.2 % · 12.8 / 8.3 Mb/s
     const rs = recs()
     const near = data(rs, 'sta-1'), far = data(rs, 'sta-2')
     expect([near.length, far.length]).toEqual([209, 154])
@@ -162,12 +176,16 @@ describe('anomaly · the procedure, step by step', () => {
     // an EIFS — the step's one exception. All 166 EIFS waits belong to the far station, which
     // is the only one whose receptions are ever wrecked.
     const ifs = ofType(recs(), 'IFS_START').filter((r) => r.node !== 'ap')
-    expect(ifs.length).toBeGreaterThan(300)
+    expect(ifs.length).toBe(833)
     for (const r of ifs) expect(['DIFS', 'EIFS']).toContain(r.kind)
-    expect(ifs.filter((r) => r.kind === 'EIFS').every((r) => r.node === 'sta-2')).toBe(true)
+    const eifs = ifs.filter((r) => r.kind === 'EIFS')
+    expect(eifs.length).toBe(166)
+    expect(eifs.every((r) => r.node === 'sta-2')).toBe(true)
     const difs = ifs.filter((r) => r.kind === 'DIFS')
-    expect(difs.length).toBeGreaterThan(ifs.length / 2)
+    expect(difs.length).toBe(667)
     expect(difs.some((r) => r.untilNs - r.t === DIFS_NS)).toBe(true)
+    // and every EIFS really is longer than the DIFS the step describes
+    for (const r of eifs) expect(r.untilNs - r.t, `EIFS @ ${r.t}`).toBeGreaterThan(DIFS_NS)
   })
 
   it('step 2: both stations draw from the same window, which starts at 15', () => {
@@ -223,7 +241,48 @@ describe('anomaly · the procedure, step by step', () => {
   })
 })
 
-describe('anomaly · the capture effect in `deeper`', () => {
+describe('anomaly · the timing figure is the run', () => {
+  it('three turns each, every span a TX_START, the far one nearly three times as long', () => {
+    // the figure: 「同一段 3.6 ms 里，两台各三轮」, and its caption's 248 µs / 704 µs
+    const sp = anomalyTiming()
+    expect(sp.lanes.map((l) => l.label)).toEqual(['近端·快', '远端·慢'])
+    // equal turns is the claim the figure exists to make
+    expect(sp.lanes[0].spans.length).toBe(3)
+    expect(sp.lanes[1].spans.length).toBe(3)
+    const rs = recs()
+    for (const [lane, nodeId] of [[sp.lanes[0], 'sta-1'], [sp.lanes[1], 'sta-2']] as const) {
+      for (const span of lane.spans) {
+        const tx = data(rs, nodeId).find((r) => Math.round(r.t / 1000) === span.fromUs)
+        expect(tx, `${nodeId} @ ${span.fromUs}`).toBeDefined()
+        expect(Math.round((tx!.t + tx!.frame.txTimeNs) / 1000), `${nodeId} @ ${span.fromUs}`).toBe(span.toUs)
+        expect(tx!.frame.bytes).toBe(BYTES)
+      }
+    }
+    // every span of the window really is inside the axis it declares
+    for (const lane of sp.lanes) {
+      for (const span of lane.spans) {
+        expect(span.fromUs).toBeGreaterThanOrEqual(sp.axis.fromUs)
+        expect(span.toUs).toBeLessThanOrEqual(sp.axis.toUs)
+      }
+    }
+    // 248 µs against 704 µs: the near lane's blocks are the short ones, throughout
+    const len = (l: typeof sp.lanes[0]): number[] => l.spans.map((x) => x.toUs - x.fromUs)
+    expect(new Set(len(sp.lanes[0]))).toEqual(new Set([248]))
+    expect(new Set(len(sp.lanes[1]))).toEqual(new Set([704]))
+    expect(704 / 248).toBeGreaterThan(2.8)
+    // and no third station's turn hides in the window
+    const inWindow = [...data(rs, 'sta-1'), ...data(rs, 'sta-2')]
+      .filter((r) => r.t >= 3400 * 1000 && r.t + r.frame.txTimeNs <= 7000 * 1000)
+    expect(inWindow.length).toBe(6)
+  })
+})
+
+/**
+ * HOLDING — these pins guard material §7 moves to `rate-vs-model` (batch 5). They
+ * assert the run, not the prose, so they pass either way; they must travel to
+ * tests/course/rate-vs-model.test.ts with the capture material.
+ */
+describe('anomaly · the capture effect (HOLDING for rate-vs-model)', () => {
   it('both start at t = 0 with no draw at all, and only the near one is decoded', () => {
     // "Both stations find the medium idle from the start, so neither draws a backoff at all,
     //  and both transmit at t = 0 … the access point decodes the near station’s frame

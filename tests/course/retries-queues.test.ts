@@ -1,25 +1,32 @@
 /**
- * Every empirical claim in "Retries, drops and queues", measured against the
- * lesson's own scenarios. Each assertion quotes the sentence it guards;
- * standard constants are checked against the engine's exports.
+ * Every empirical claim in "一帧的七次尝试", the first half of the old
+ * `retries-queues` (2026-09-25 re-pacing, §2 M5), measured against the lesson's
+ * own scenario. Each assertion quotes the sentence it guards; standard constants
+ * are checked against the engine's exports.
  *
- * The contract of the rewritten lesson (shape, jumps, the first
- * walk) comes from `lessonShapeSuite`; everything below it is this lesson's
- * own empirical pins, which survived the rewrite sentence for sentence. The
- * scenario builder and both variants are unchanged, so the recorded timeline
- * hashes are the ones already in tests/fixtures/lesson-hashes.json.
+ * Fifteen pins left this file for tests/course/queues.test.ts with the material
+ * they guard: the queue defaults, the three-drop-reason table, the three-setting
+ * comparison, the waiting times, the 2644 frames all three runs deliver, the 987
+ * aged uploads, the queue-full and lifetime instants, the two queue procedure
+ * steps, and the head-of-line depth. Nothing was deleted — every one of them is
+ * asserted next door against the same three runs — and both variants stay
+ * declared here, because the kit requires both halves of a split to carry the
+ * same variant list.
+ *
+ * The scene and both variants are unchanged, so the recorded timeline hashes are
+ * the ones already in tests/fixtures/lesson-hashes.json.
  */
 import { describe, it, expect } from 'vitest'
-import { retriesQueues } from '../../src/course/tier1/retries-queues'
+import { retriesQueues, retryFanTiming } from '../../src/course/tier1/retries-queues'
 import { Simulation } from '../../src/engine/simulation'
 import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
 import {
   ACK_TIMEOUT_NS, CW_MAX, CW_MIN, RX_START_DELAY_NS, SHORT_RETRY_LIMIT, SIFS_NS, SLOT_NS,
 } from '../../src/engine/phy'
-import { DEFAULT_MSDU_LIFETIME_NS, DEFAULT_QUEUE_LIMIT } from '../../src/engine/queues'
 import type { TLRecord } from '../../src/model/records'
 import { decodeFrame, fmtRecord } from '../../src/ui/format'
 import { lessonShapeSuite } from './kit'
+import { MODULES } from '../../src/course/curriculum'
 import { STRINGS } from '../../src/ui/i18n'
 
 const MS = 1_000_000
@@ -53,45 +60,47 @@ function delivered(rs: TLRecord[]): Record<string, number> {
   return out
 }
 
-/** Queue-to-ACK delay (ms) of every frame the AP delivered, with its delivery time. */
-function apDelays(rs: TLRecord[]): { atNs: number; ms: number }[] {
-  const dropped = new Set(ofType(rs, 'DROP').map((r) => r.msduId))
-  const enq = new Map<number, number>()
-  const out: { atNs: number; ms: number }[] = []
-  for (const r of rs) {
-    if (r.type === 'ENQUEUE') enq.set(r.msduId, r.t)
-    if (r.type === 'DEQUEUE' && r.node === 'ap' && !dropped.has(r.msduId) && enq.has(r.msduId)) {
-      out.push({ atNs: r.t, ms: (r.t - enq.get(r.msduId)!) / MS })
-    }
-  }
-  return out
-}
-const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length
-
 lessonShapeSuite(retriesQueues, { runNs: RUN_NS })
 
 describe('retries-queues · the scene', () => {
   it('scenario and variants pass the scenario schema', () => {
     expect(() => ScenarioSchema.parse(retriesQueues.scenario())).not.toThrow()
     for (const v of retriesQueues.variants!) expect(() => ScenarioSchema.parse(v.scenario())).not.toThrow()
+    expect(retriesQueues.variants!.length).toBe(2)
   })
 
   it('names the lessons whose words it uses', () => {
-    // `retry` leans on the backoff lesson's window and deadline; `queue` on the
-    // airtime lesson's ACK and payload.
-    expect(retriesQueues.needs).toEqual(['airtime', 'backoff'])
-    expect(retriesQueues.terms!.map((t) => t.term)).toEqual(['retry', 'retry limit', 'queue', 'lifetime'])
+    expect(MODULES[retriesQueues.module].title).toBe('听不见的邻居与损失')
+    // §6 of the re-pacing plan: the deadline and the doubling this lesson leans on are
+    // `collisions-cw`'s, not `backoff`'s, after the split of M4.
+    expect(retriesQueues.needs).toEqual(['airtime', 'collisions-cw'])
+    // `queue` and `lifetime` went to `queues` with the line and the clock they name.
+    expect(retriesQueues.terms!.map((t) => t.term)).toEqual(['retry', 'retry limit'])
+  })
+
+  it('keeps the three jumps about one frame, and each occurs in the run', () => {
+    expect(retriesQueues.jumps.map((j) => j.label)).toEqual([
+      '第一次重传', '第一次重发（Retry 位置位）', '第一次因重传上限丢帧',
+    ])
+    for (const j of retriesQueues.jumps) expect(recs().some(j.find), j.label).toBe(true)
+  })
+
+  it('Hidden A and Hidden B never hear each other', () => {
+    // the scene is the corridor house: two uploaders in rooms that cannot hear each other
+    const rs = recs()
+    const hears = (rx: string, tx: string) => rs.some((r) => r.type === 'RX_START' && r.node === rx && r.from === tx)
+    expect(hears('sta-1', 'sta-2')).toBe(false)
+    expect(hears('sta-2', 'sta-1')).toBe(false)
   })
 })
 
 describe('retries-queues · standard constants', () => {
   it('dot11ShortRetryLimit is 7', () => {
-    // "when the count reaches dot11ShortRetryLimit = 7 the MSDU is discarded"
     expect(SHORT_RETRY_LIMIT).toBe(7)
   })
 
   it('the CW ladder is 15 → 31 → … → 1023, then back to 15 at the limit', () => {
-    // "CW after k consecutive failures: 15 → 31 → 63 → 127 → 255 → 511 → 1023, then back to 15 at k = 7"
+    // the table's "之后的 CW" column: 15 → 31 → 63 → 127 → 255 → 511 → 1023, then back to 15
     const ladder: number[] = []
     let cw = CW_MIN
     for (let k = 1; k <= SHORT_RETRY_LIMIT; k++) {
@@ -100,16 +109,6 @@ describe('retries-queues · standard constants', () => {
     }
     expect([CW_MIN, ...ladder]).toEqual([15, 31, 63, 127, 255, 511, 1023, 15])
   })
-
-  it('the queue defaults are 500 MSDUs and a 500 ms MSDU lifetime', () => {
-    // "Queue limit: 500 MSDUs" / "MSDU lifetime: 500 ms (dot11EDCATableMSDULifetime)"
-    expect(DEFAULT_QUEUE_LIMIT).toBe(500)
-    expect(DEFAULT_MSDU_LIFETIME_NS).toBe(500 * MS)
-    const base = retriesQueues.scenario()
-    expect(base.queue).toEqual({ limit: DEFAULT_QUEUE_LIMIT, lifetimeMs: 500 })
-    expect(retriesQueues.variants![0].scenario().queue).toEqual({ limit: 100, lifetimeMs: 500 })
-    expect(retriesQueues.variants![1].scenario().queue).toEqual({ limit: 500, lifetimeMs: 100 })
-  })
 })
 
 describe('retries-queues · the retry model', () => {
@@ -117,24 +116,23 @@ describe('retries-queues · the retry model', () => {
   const firstRl = drops(rs, 'retryLimit')[0]
 
   it("Hidden B's first frame is dropped at the retry limit at 27 689 µs after seven attempts", () => {
-    // "Hidden B’s first frame: seven attempts, then DROP … 27 689 µs — DROP retryLimit"
     expect(firstRl.node).toBe('sta-2')
     expect(firstRl.t).toBe(27_689_118)
     const attempts = ofType(rs, 'TX_START').filter((r) => r.frame.msduId === firstRl.msduId)
     expect(attempts.length).toBe(SHORT_RETRY_LIMIT)
-    // the table's TX start / rate / Retry bit columns
+    // the table's 发送于 / 速率 / 重发比特 columns
     expect(attempts.map((a) => [Math.round(a.t / 1000), a.frame.mbps, a.frame.retryFlag ? 1 : 0])).toEqual([
       [0, 48, 0], [526, 48, 1], [1683, 36, 1], [4544, 36, 1], [6999, 24, 1], [13_632, 24, 1], [26_940, 18, 1],
     ])
-    // "All seven carry sequence number 0."
+    // 「七次尝试的序列号都是同一个。」
     expect(new Set(attempts.map((a) => a.frame.seqNo))).toEqual(new Set([0]))
-    // "276 µs of airtime at 48 Mb/s, 704 µs at 18 Mb/s"
+    // 「第一次尝试占 276 µs 空口时间，第七次要 704 µs。」
     expect(attempts[0].frame.txTimeNs).toBe(276_000)
     expect(attempts[6].frame.txTimeNs).toBe(704_000)
   })
 
   it('its RETRY records count 1…7 in both counters, and CW walks the ladder before resetting', () => {
-    // the table's "Failure recorded" and "CW after" columns
+    // the table's 记录失败 and 之后的 CW columns
     const retries = ofType(rs, 'RETRY').filter((r) => r.msduId === firstRl.msduId)
     expect(retries.map((r) => [Math.round(r.t / 1000), r.retries, r.qsrc])).toEqual([
       [321, 1, 1], [847, 2, 2], [2092, 3, 3], [4953, 4, 4], [7576, 5, 5], [14_209, 6, 6], [27_689, 7, 7],
@@ -145,7 +143,7 @@ describe('retries-queues · the retry model', () => {
   })
 
   it('the next frame leaves at 27 741 µs with sequence number 1 and the Retry bit clear', () => {
-    // "The next frame, sequence number 1, leaves at 27 741 µs with the Retry bit clear and CW back at 15."
+    // the observation 「它的下一帧序列号是 1，重发比特清零」, and the figure's 下一帧 lane
     const next = ofType(rs, 'TX_START').find((r) => r.node === 'sta-2' && r.t > firstRl.t)!
     expect(Math.round(next.t / 1000)).toBe(27_741)
     expect(next.frame.seqNo).toBe(1)
@@ -153,7 +151,7 @@ describe('retries-queues · the retry model', () => {
   })
 
   it('a retransmission keeps its sequence number and sets the Retry bit', () => {
-    // "A retransmission is the same MPDU sent again: it keeps its sequence number and sets the Retry bit"
+    // steps 3: 「序列号照旧，只是带上了重发比特——所以每一次尝试都是同一帧」
     const seqOf = new Map<number, number>()
     let checked = 0
     for (const r of ofType(rs, 'TX_START')) {
@@ -172,7 +170,7 @@ describe('retries-queues · the retry model', () => {
   })
 
   it('over 3 s Hidden A delivers 76 frames and loses 62 at the retry limit; Hidden B, 69 and 61', () => {
-    // "Hidden A gets 76 frames through and loses 62 at the retry limit; Hidden B gets 69 through and loses 61."
+    // 「三秒里 Hidden A 送达 76 帧、在重传上限上丢掉 62 帧，Hidden B 是 69 与 61」
     expect(delivered(rs)['sta-1']).toBe(76)
     expect(delivered(rs)['sta-2']).toBe(69)
     expect(drops(rs, 'retryLimit', 'sta-1').length).toBe(62)
@@ -180,8 +178,8 @@ describe('retries-queues · the retry model', () => {
   })
 
   it('at 504 465 µs three of Hidden B’s frames expire at once and the two counters come apart', () => {
-    // "Hidden B’s head frame (sequence number 17) has failed five times, so QSRC is 5, when the MAC finds
-    //  it and the two frames behind it older than 500 ms and drops all three for lifetime."
+    // `deeper`: 「504 465 µs 处 Hidden B 一次丢掉三个老帧，紧接着那一帧第一次失败时读数是
+    //  retries = 1，而队列计数器已经是 6；第二次是 2 对 7——到这里窗口弹回 15」
     const life = drops(rs, 'lifetime', 'sta-2')
     expect(life[0].t).toBe(504_465_360)
     expect(life.filter((r) => r.t === life[0].t).length).toBe(3)
@@ -191,9 +189,6 @@ describe('retries-queues · the retry model', () => {
     expect(headRetries.length).toBe(5)
     const headTx = ofType(rs, 'TX_START').find((r) => r.frame.msduId === head)!
     expect(headTx.frame.seqNo).toBe(17)
-    // "The next frame, sequence number 18, fails once: its RETRY record reads retries = 1 but QSRC = 6,
-    //  and CW jumps to 1023. After its second failure QSRC reaches 7, so CW resets to 15 … Its third
-    //  failure reads retries = 3, QSRC = 1."
     const next = ofType(rs, 'TX_START').find((r) => r.node === 'sta-2' && r.t >= life[0].t)!
     expect(next.frame.seqNo).toBe(18)
     const nextRetries = ofType(rs, 'RETRY').filter((r) => r.msduId === next.frame.msduId).slice(0, 3)
@@ -202,30 +197,22 @@ describe('retries-queues · the retry model', () => {
     expect(cwAfter(nextRetries[0].t)).toBe(1023)
     expect(cwAfter(nextRetries[1].t)).toBe(15)
   })
-
-  it('the frames that expired had been queued since t = 0', () => {
-    // "Those three frames had waited since t = 0, behind predecessors that each burned several attempts."
-    const life = drops(rs, 'lifetime', 'sta-2').filter((r) => r.t === 504_465_360)
-    const enq = new Map(ofType(rs, 'ENQUEUE').map((r) => [r.msduId, r.t]))
-    for (const d of life) expect(enq.get(d.msduId)).toBe(0)
-  })
 })
 
 describe('retries-queues · what the UI shows', () => {
   const rs = recs()
 
-  it('the event log prints the RETRY and DROP lines the lesson quotes', () => {
-    // "The event log prints “retry #id (retries=7 QSRC=7)”" / "the log prints “DROP #id (reason)”"
+  it('the event log prints the retry and drop lines the lesson quotes', () => {
+    // the observation 「最后一次失败写作 “retry #id (retries=7 QSRC=7)”，紧跟着一行
+    //  “DROP #id (retryLimit)”」
     const rl = drops(rs, 'retryLimit')[0]
     const last = ofType(rs, 'RETRY').filter((r) => r.msduId === rl.msduId).pop()!
     expect(fmtRecord(last)).toBe(`sta-2 retry #${rl.msduId} (retries=7 QSRC=7)`)
     expect(fmtRecord(rl)).toBe(`sta-2 DROP #${rl.msduId} (retryLimit)`)
-    expect(fmtRecord(drops(rs, 'queueFull', 'ap')[0])).toMatch(/^ap DROP #\d+ \(queueFull\)$/)
-    expect(fmtRecord(drops(rs, 'lifetime', 'ap')[0])).toMatch(/^ap DROP #\d+ \(lifetime\)$/)
   })
 
   it('the frame detail of a data frame has a sequence-number row and a retry-flag row', () => {
-    // "序列号照旧，只是带上了重复标志" — the two rows the reader is sent to look at.
+    // tryThis: 「序列号那一行和重发比特那一行，是分辨“同一帧又来了”与“新的一帧”的唯一依据」
     const R = STRINGS.frameDetail.fields.row
     const retryTx = ofType(rs, 'TX_START').find((r) => r.frame.kind === 'data' && r.frame.retryFlag)!
     const fields = decodeFrame(retryTx.frame)
@@ -234,106 +221,10 @@ describe('retries-queues · what the UI shows', () => {
   })
 })
 
-describe('retries-queues · queues under overload', () => {
-  const rs = recs()
-
-  it('Hidden A and Hidden B never hear each other', () => {
-    // "Hidden A and Hidden B upload flat out from rooms that cannot hear each other"
-    const hears = (rx: string, tx: string) => rs.some((r) => r.type === 'RX_START' && r.node === rx && r.from === tx)
-    expect(hears('sta-1', 'sta-2')).toBe(false)
-    expect(hears('sta-2', 'sta-1')).toBe(false)
-  })
-
-  it('after the first queue-full drop both reasons keep firing at the AP', () => {
-    // "after the first queue-full drop at 1 963 852 µs, queueFull and lifetime drops alternate"
-    const t0 = drops(rs, 'queueFull', 'ap')[0].t
-    expect(drops(rs, 'queueFull', 'ap').filter((r) => r.t > t0).length).toBeGreaterThan(100)
-    expect(drops(rs, 'lifetime', 'ap').filter((r) => r.t > t0).length).toBeGreaterThan(100)
-  })
-
-  it('a queueFull drop has no ENQUEUE record (DROP_NEWEST) and a lifetime drop has a DEQUEUE', () => {
-    // "An arrival that finds the queue full is dropped and never queued (DROP_NEWEST) … with no ENQUEUE record."
-    const enq = new Set(ofType(rs, 'ENQUEUE').map((r) => r.msduId))
-    const deq = new Set(ofType(rs, 'DEQUEUE').map((r) => r.msduId))
-    for (const d of drops(rs, 'queueFull')) expect(enq.has(d.msduId)).toBe(false)
-    for (const d of drops(rs, 'lifetime')) expect(deq.has(d.msduId)).toBe(true)
-  })
-
-  it('the video offers the AP 3541 MSDUs of 1400 B (13.2 Mb/s) and 2644 are acknowledged (9.9 Mb/s)', () => {
-    // "In 3 s the video offers the AP 3541 MSDUs of 1400 B, about 13.2 Mb/s … the AP gets 2644 of them
-    //  acknowledged, about 9.9 Mb/s."
-    const offered = ofType(rs, 'ENQUEUE').filter((r) => r.node === 'ap').length + drops(rs, 'queueFull', 'ap').length
-    expect(offered).toBe(3541)
-    expect(ofType(rs, 'ENQUEUE').filter((r) => r.node === 'ap').every((r) => r.bytes === 1400)).toBe(true)
-    expect(delivered(rs)['ap']).toBe(2644)
-    expect(((offered * 1400 * 8) / 3 / 1e6).toFixed(1)).toBe('13.2')
-    expect(((2644 * 1400 * 8) / 3 / 1e6).toFixed(1)).toBe('9.9')
-    // "881 delivered per second"
-    expect(Math.round(2644 / 3)).toBe(881)
-  })
-
-  it('the mean queue-to-ACK delay grows 19 → 149 → 228 → 324 → 472 → 472 ms', () => {
-    // the "Delivered during / Mean queue-to-ACK delay" table
-    const d = apDelays(rs)
-    const windows = [0, 1, 2, 3, 4, 5].map((w) =>
-      Math.round(mean(d.filter((x) => x.atNs >= w * 500 * MS && x.atNs < (w + 1) * 500 * MS).map((x) => x.ms))))
-    expect(windows).toEqual([19, 149, 228, 324, 472, 472])
-  })
-
-  it('the queue fills at 1 963 852 µs and the lifetime bites at 2 182 806 µs, four frames at once', () => {
-    // "At 1 963 852 µs the queue holds 500 MSDUs and the next video frame is refused … At 2 182 806 µs
-    //  the lifetime bites as well: four frames aged 500.2 to 502.6 ms are dropped at once."
-    const qf = drops(rs, 'queueFull', 'ap')[0]
-    expect(qf.t).toBe(1_963_851_557)
-    const depthBefore = ofType(rs, 'ENQUEUE').filter((r) => r.node === 'ap' && r.t <= qf.t).pop()!.depth
-    expect(depthBefore).toBe(500)
-    const life = drops(rs, 'lifetime', 'ap')
-    expect(life[0].t).toBe(2_182_806_360)
-    const atOnce = life.filter((r) => r.t === life[0].t)
-    expect(atOnce.length).toBe(4)
-    const enq = new Map(ofType(rs, 'ENQUEUE').map((r) => [r.msduId, r.t]))
-    const ages = atOnce.map((r) => Number(((r.t - enq.get(r.msduId)!) / MS).toFixed(1)))
-    expect(Math.min(...ages)).toBe(500.2)
-    expect(Math.max(...ages)).toBe(502.6)
-    // "From then on the delay stops growing, because nothing older than 500 ms is ever sent."
-    expect(Math.max(...apDelays(rs).map((x) => x.ms))).toBeLessThan(501)
-  })
-})
-
 describe('retries-queues · the procedure, step by step', () => {
   const rs = recs()
 
-  it('step 1: a frame joins the queue while fewer than 500 wait; the 501st is turned away', () => {
-    // steps: "provided fewer than 500 are already waiting. The 501st is turned away at the door
-    //  and never queued at all."
-    for (const e of ofType(rs, 'ENQUEUE')) expect(e.depth).toBeLessThanOrEqual(DEFAULT_QUEUE_LIMIT)
-    expect(Math.max(...ofType(rs, 'ENQUEUE').filter((r) => r.node === 'ap').map((r) => r.depth)))
-      .toBe(DEFAULT_QUEUE_LIMIT)
-    const enq = new Set(ofType(rs, 'ENQUEUE').map((r) => r.msduId))
-    const refused = drops(rs, 'queueFull', 'ap')
-    expect(refused.length).toBeGreaterThan(200)
-    // the one turned away never joins the line: it has no ENQUEUE record anywhere in the run
-    for (const d of refused) expect(enq.has(d.msduId)).toBe(false)
-    // and the first refusal follows an ENQUEUE that had just taken the queue to 500
-    const first = refused[0]
-    expect(ofType(rs, 'ENQUEUE').filter((r) => r.node === 'ap' && r.t <= first.t).pop()!.depth)
-      .toBe(DEFAULT_QUEUE_LIMIT)
-  })
-
-  it('step 2: every frame dropped for lifetime had waited over 500 ms, and 188 of the 194 never flew', () => {
-    // steps: "throws out every queued frame that has waited longer than its lifetime, 500 ms
-    //  here. At the access point 188 of the 194 it throws out had never had a turn on the air."
-    const enq = new Map(ofType(rs, 'ENQUEUE').map((r) => [r.msduId, r.t]))
-    const sent = new Set(ofType(rs, 'TX_START').map((r) => r.frame.msduId))
-    const aged = drops(rs, 'lifetime', 'ap')
-    expect(aged.length).toBe(194)
-    for (const d of aged) expect(d.t - enq.get(d.msduId)!).toBeGreaterThan(DEFAULT_MSDU_LIFETIME_NS)
-    expect(aged.filter((d) => !sent.has(d.msduId)).length).toBe(188)
-  })
-
-  it('step 3: the answer’s deadline is 45 µs after the frame ends — SIFS + one slot + the start delay', () => {
-    // steps: "the answer must begin within 45 µs of the frame ending — a 16 µs gap, one 9 µs
-    //  slot, and 20 µs for a radio to report that a reception has started."
+  it('step 1: the answer’s deadline is 45 µs after the frame ends — SIFS + one slot + the start delay', () => {
     expect(ACK_TIMEOUT_NS).toBe(SIFS_NS + SLOT_NS + RX_START_DELAY_NS)
     expect([SIFS_NS, SLOT_NS, RX_START_DELAY_NS, ACK_TIMEOUT_NS]).toEqual([16_000, 9_000, 20_000, 45_000])
     // proved across the whole run rather than asserted for one frame: every timeout lands
@@ -350,11 +241,7 @@ describe('retries-queues · the procedure, step by step', () => {
     expect(checked).toBeGreaterThan(500)
   })
 
-  it('steps 4 and 5: a failure moves both counters by one and the window to 2·CW + 1, and the frame comes back', () => {
-    // steps: "This frame's own attempt count goes up by one; the queue's consecutive-failure
-    //  count goes up by one; and the contention window widens to twice itself plus one, as far
-    //  as 1023." / "The frame then goes back to the front of the queue … keeping its sequence
-    //  number and now carrying the repeat bit."
+  it('steps 2 and 3: a failure moves both counters by one and the window to 2·CW + 1, and the frame comes back', () => {
     const retries = ofType(rs, 'RETRY').filter((r) => r.node === 'sta-2')
     expect(retries.length).toBeGreaterThan(300)
     const seen = new Map<number, number>()
@@ -377,9 +264,22 @@ describe('retries-queues · the procedure, step by step', () => {
     expect(checked).toBeGreaterThan(300)
   })
 
-  it('step 6: the seventh attempt is the last, and the frame behind it takes the head', () => {
-    // steps: "When a frame's attempt count reaches the retry limit of seven it is discarded
-    //  instead, and the frame behind it moves to the head."
+  it('step 4: the rate steps down as the attempts pile up, so the same frame costs more air', () => {
+    // steps 4: 「失败累积到一定次数，下一次尝试就换一档更慢更结实的发法，于是同一帧占的空口
+    //  时间反而更长。」 Proved on the run's first seven-attempt frame.
+    const rl = drops(rs, 'retryLimit')[0]
+    const attempts = ofType(rs, 'TX_START').filter((r) => r.frame.msduId === rl.msduId)
+    const rates = attempts.map((a) => a.frame.mbps!)
+    const times = attempts.map((a) => a.frame.txTimeNs)
+    for (let i = 1; i < rates.length; i++) {
+      expect(rates[i], `attempt ${i + 1}`).toBeLessThanOrEqual(rates[i - 1])
+      expect(times[i], `attempt ${i + 1}`).toBeGreaterThanOrEqual(times[i - 1])
+    }
+    expect(rates[0]).toBe(48)
+    expect(rates[rates.length - 1]).toBe(18)
+  })
+
+  it('step 5: the seventh attempt is the last, and the frame behind it takes the head', () => {
     const attempts = new Map<number, number>()
     for (const r of ofType(rs, 'TX_START')) {
       if (r.frame.kind !== 'data' || r.frame.msduId === undefined) continue
@@ -392,67 +292,47 @@ describe('retries-queues · the procedure, step by step', () => {
   })
 })
 
-describe('retries-queues · the two knobs', () => {
-  const base = recs(), q100 = recs(0), life100 = recs(1)
-
-  it('a 100-MSDU queue overflows at 529 728 µs and never drops for lifetime at the AP', () => {
-    // "With a 100-MSDU queue, overflow starts at 529 728 µs instead of after almost two seconds … the AP
-    //  never drops for lifetime, and no delivered frame waits longer than 213 ms"
-    expect(drops(q100, 'queueFull', 'ap')[0].t).toBe(529_728_227)
-    expect(drops(q100, 'lifetime', 'ap').length).toBe(0)
-    expect(Math.max(...apDelays(q100).map((x) => x.ms))).toBeLessThan(213)
-    // "near the 113 ms that 100 frames at 881 delivered per second represent"
-    expect(Math.round((100 / (delivered(q100)['ap'] / 3)) * 1000)).toBe(113)
-  })
-
-  it('a 100 ms lifetime never fills the queue; drops start at 588 851 µs and no frame waits over 101 ms', () => {
-    // "With a 100 ms lifetime the queue never fills, lifetime drops start at 588 851 µs, and no delivered
-    //  frame waits more than 101 ms"
-    expect(drops(life100, 'queueFull').length).toBe(0)
-    expect(drops(life100, 'lifetime', 'ap')[0].t).toBe(588_851_360)
-    const max = Math.max(...apDelays(life100).map((x) => x.ms))
-    expect(max).toBeGreaterThan(100)
-    expect(max).toBeLessThan(101)
-  })
-
-  it('the mean delay over the last second is 472 / 117 / 88 ms, and all three runs deliver 2644 frames', () => {
-    // "Over the last second of the run the mean queue-to-ACK delay is 472 ms at the defaults, 117 ms with
-    //  the short queue and 88 ms with the short lifetime — and in all three runs the AP delivers exactly
-    //  2644 frames."
-    const lastSecond = (rs: TLRecord[]) =>
-      Math.round(mean(apDelays(rs).filter((x) => x.atNs >= 2000 * MS).map((x) => x.ms)))
-    expect([lastSecond(base), lastSecond(q100), lastSecond(life100)]).toEqual([472, 117, 88])
-    for (const rs of [base, q100, life100]) expect(delivered(rs)['ap']).toBe(2644)
-  })
-})
-
-describe('retries-queues · the drop table in the numbers', () => {
-  const base = recs(), q100 = recs(0), life100 = recs(1)
-
-  /** One row of "The same three seconds, three settings", read off a run. */
-  const row = (rs: TLRecord[]) => [
-    drops(rs, 'queueFull', 'ap').length,
-    drops(rs, 'lifetime', 'ap').length,
-    drops(rs, 'retryLimit', 'sta-1').length + drops(rs, 'retryLimit', 'sta-2').length,
-    delivered(rs)['ap'],
-  ]
-
-  it('defaults: 213 turned away, 194 stale at the AP, 123 uploads given up, 2644 delivered', () => {
-    expect(row(base)).toEqual([213, 194, 123, 2644])
-  })
-
-  it('short queue: 797 turned away, none stale at the AP, the same 123 and 2644', () => {
-    expect(row(q100)).toEqual([797, 0, 123, 2644])
-  })
-
-  it('short lifetime: nothing turned away, 770 stale at the AP, only 40 uploads given up, still 2644', () => {
-    expect(row(life100)).toEqual([0, 770, 40, 2644])
-  })
-
-  it('under the short lifetime the two uploaders lose 987 frames to age that the defaults never lose', () => {
-    // "the uploaders then lose 987 frames of their own to age"
-    const aged = (rs: TLRecord[]) => drops(rs, 'lifetime', 'sta-1').length + drops(rs, 'lifetime', 'sta-2').length
-    expect(aged(life100)).toBe(987)
-    expect(aged(base)).toBeLessThan(20)
+describe('retries-queues · the timing figure is the run', () => {
+  it('seven spans, each one an attempt of the same frame, and the next frame behind them', () => {
+    const sp = retryFanTiming()
+    expect(sp.lanes.map((l) => l.label)).toEqual(['同一帧', '下一帧'])
+    const rs = recs()
+    const rl = drops(rs, 'retryLimit')[0]
+    const attempts = ofType(rs, 'TX_START').filter((r) => r.frame.msduId === rl.msduId)
+    expect(sp.lanes[0].spans.length).toBe(SHORT_RETRY_LIMIT)
+    expect(attempts.length).toBe(SHORT_RETRY_LIMIT)
+    sp.lanes[0].spans.forEach((span, i) => {
+      expect(span.fromUs, `attempt ${i + 1}`).toBe(Math.round(attempts[i].t / 1000))
+      expect(span.toUs, `attempt ${i + 1}`)
+        .toBe(Math.round((attempts[i].t + attempts[i].frame.txTimeNs) / 1000))
+    })
+    // the two labelled spans are the figures the caption prints
+    expect(sp.lanes[0].spans[0].label).toBe('第一次 276 µs')
+    expect(sp.lanes[0].spans[0].toUs - sp.lanes[0].spans[0].fromUs).toBe(276)
+    expect(sp.lanes[0].spans[6].label).toBe('第七次 704 µs')
+    expect(sp.lanes[0].spans[6].toUs - sp.lanes[0].spans[6].fromUs).toBe(704)
+    // the second lane is the frame behind it, at 27 741 µs
+    const next = ofType(rs, 'TX_START').find((r) => r.node === 'sta-2' && r.t > rl.t)!
+    const behind = sp.lanes[1].spans[0]
+    expect(behind.fromUs).toBe(Math.round(next.t / 1000))
+    expect(behind.toUs).toBe(Math.round((next.t + next.frame.txTimeNs) / 1000))
+    // 「间隔总体在拉大——但不是每次都拉大」. THE ENGINE CONTRADICTED THE FIRST DRAFT of
+    // this caption, which said the gaps grow every time: the backoff is a draw from a
+    // widening window, not a ramp, so gap 4 is SHORTER than gap 3. Both halves of the
+    // corrected sentence are pinned.
+    const gaps = sp.lanes[0].spans.slice(1).map((s, i) => s.fromUs - sp.lanes[0].spans[i].toUs)
+    expect(gaps).toEqual([250, 881, 2497, 2091, 6101, 12_776])
+    expect(gaps[gaps.length - 1]).toBeGreaterThan(20 * gaps[0])
+    const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length
+    expect(mean(gaps.slice(3))).toBeGreaterThan(mean(gaps.slice(0, 3)))
+    // the one exception the caption names, so a change to it turns this red
+    expect(gaps[3]).toBeLessThan(gaps[2])
+    // and every span is inside the axis the figure declares
+    for (const lane of sp.lanes) {
+      for (const s of lane.spans) {
+        expect(s.fromUs).toBeGreaterThanOrEqual(sp.axis.fromUs)
+        expect(s.toUs).toBeLessThanOrEqual(sp.axis.toUs)
+      }
+    }
   })
 })
