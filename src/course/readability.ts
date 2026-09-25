@@ -18,6 +18,7 @@
  *    English name, and its abbreviation where the standard has one, at its
  *    first use in a lesson. That is the reader's own requirement.
  */
+import { diagramTexts, isDiagramSpec } from './diagram'
 import type { Block, Lesson } from './lessonKit'
 
 /** CJK ideographs — the characters a Chinese lesson is measured in. */
@@ -60,6 +61,16 @@ export function paragraphTexts(blocks: Block[]): string[] {
       case 'widget': {
         const caption = (b as Extract<Block, { kind: 'widget' }>).caption
         if (caption) out.push(caption)
+        break
+      }
+      case 'diagram': {
+        // Every label inside the figure, then its caption — the order a reader
+        // meets them. A diagram's labels are prose: the terminology rule reads
+        // this walk, so a term first named inside a picture has to carry its
+        // English name exactly as a term first named in a sentence does.
+        const d = b as Extract<Block, { kind: 'diagram' }>
+        out.push(...diagramTexts(d.spec))
+        if (d.caption) out.push(d.caption)
         break
       }
       default:
@@ -118,7 +129,14 @@ export function lessonStrings(l: Partial<Lesson>): string[] {
     if (Array.isArray(x)) { x.forEach(walk); return }
     if (typeof x !== 'object') return
     const o = x as Record<string, unknown>
-    for (const [k, v] of Object.entries(o)) if (!NOT_PROSE.has(k)) walk(v)
+    for (const [k, v] of Object.entries(o)) {
+      if (NOT_PROSE.has(k)) continue
+      // A diagram's figure is read by `diagramTexts` rather than walked: the
+      // generic walk cannot tell a label from a node id or a link's two ends,
+      // and only the labels are text a learner reads.
+      if (k === 'spec' && isDiagramSpec(v)) out.push(...diagramTexts(v))
+      else walk(v)
+    }
   }
   walk({
     why: l.why, outcomes: l.outcomes, terms: l.terms, picture: l.picture, numbers: l.numbers,

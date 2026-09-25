@@ -21,6 +21,16 @@ const blocks: Block[] = [
   { kind: 'formula', heading: '空口时间', text: 'T = L / R', note: 'L 是比特长度。' },
   { kind: 'table', heading: '取值出处', head: ['是什么', '在哪里'], rows: [['16 µs', '§9.3.7']] },
   { kind: 'widget', widget: 'linkBudget', caption: '拖动距离滑块。' },
+  {
+    kind: 'diagram', heading: '谁跟谁说话',
+    spec: {
+      kind: 'topology',
+      nodes: [{ id: 'ap', label: '接入点', role: 'ap', x: 0, y: 0 }, { id: 't', label: '标签', role: 'sta', x: 1, y: 1 }],
+      links: [{ from: 't', to: 'ap', label: '一跳' }],
+      ring: { nodes: ['ap', 't'], label: '一张网' },
+    },
+    caption: '虚线那条走不通。',
+  },
 ]
 
 describe('lesson text walks', () => {
@@ -38,6 +48,10 @@ describe('lesson text walks', () => {
       '空口时间', 'L 是比特长度。',
       '取值出处',
       '拖动距离滑块。',
+      // a diagram's labels are prose: the heading, then every label inside the
+      // figure in reading order, then the caption. That is what puts a term
+      // first named in a picture in front of the terminology rule.
+      '谁跟谁说话', '一张网', '接入点', '标签', '一跳', '虚线那条走不通。',
     ])
   })
 
@@ -56,6 +70,10 @@ describe('lesson text walks', () => {
     })).toEqual(['为什么', '学会一件事', '一串帧', '看这里', '出处'])
     // `scenario` and `find` are engine functions, and `kind` is a discriminant
     expect(lessonStrings({ picture: [{ kind: 'p', text: '一句' }] })).toEqual(['一句'])
+    // a diagram: every label inside the spec, and never a node id or a link's ends
+    expect(lessonStrings({ picture: [blocks[7]] })).toEqual([
+      '谁跟谁说话', '一张网', '接入点', '标签', '一跳', '虚线那条走不通。',
+    ])
   })
 
   it('measures the main path only: deeper and sources are not read at reading speed', () => {

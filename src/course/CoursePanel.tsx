@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useStrings } from '../ui/i18n'
 import { player, useUi } from '../ui/store'
 import { LESSONS, isMigrated, lessonIndex, type Block, type Lesson } from './lessons'
+import { layoutDiagram, type Paint, type Shape } from './diagram'
 import { MODULES, TIERS, TRACKS, lessonBlocks, lessonMinutes, trackHeadings } from './curriculum'
 import { LinkBudget } from './widgets/LinkBudget'
 import { McsLadder } from './widgets/McsLadder'
@@ -64,6 +65,90 @@ const watchStyle: React.CSSProperties = {
 /** `deeper` and `sources`: present but out of the way until the reader wants them. */
 const summaryStyle: React.CSSProperties = { ...h4, cursor: 'pointer', listStyle: 'revert' }
 
+/**
+ * A paint role as a colour: one of the app's own CSS variables, never a literal.
+ * That is the whole of the diagram's theming — a figure is as readable as the
+ * panel around it because it is painted in the panel's own tokens.
+ */
+const PAINT: Record<Paint, string> = {
+  none: 'none',
+  panel: 'var(--panel)',
+  panel2: 'var(--panel2)',
+  border: 'var(--border)',
+  text: 'var(--text)',
+  dim: 'var(--dim)',
+  accent: 'var(--accent)',
+}
+
+/** The dash pattern every dashed shape uses, in viewBox units. */
+const DASH = '4 3'
+
+/** One primitive shape. The component paints; `layoutDiagram` did the thinking. */
+function ShapeView({ sh }: { sh: Shape }) {
+  switch (sh.s) {
+    case 'rect':
+      return (
+        <rect
+          x={sh.x} y={sh.y} width={sh.w} height={sh.h} rx={sh.r ?? 0}
+          style={{ fill: PAINT[sh.fill], stroke: PAINT[sh.stroke], strokeWidth: 1, fillOpacity: sh.opacity ?? 1 }}
+          strokeDasharray={sh.dash ? DASH : undefined}
+        />
+      )
+    case 'line':
+      return (
+        <line
+          x1={sh.x1} y1={sh.y1} x2={sh.x2} y2={sh.y2}
+          style={{ stroke: PAINT[sh.stroke], strokeWidth: 1 }}
+          strokeDasharray={sh.dash ? DASH : undefined}
+        />
+      )
+    case 'poly':
+      return (
+        <polygon
+          points={sh.points.map(([x, y]) => `${x},${y}`).join(' ')}
+          style={{ fill: PAINT[sh.fill], stroke: PAINT[sh.stroke] }}
+        />
+      )
+    default:
+      return (
+        <text
+          x={sh.x} y={sh.y} textAnchor={sh.anchor}
+          style={{ fill: PAINT[sh.fill], fontSize: sh.size, fontWeight: sh.bold ? 600 : 400, fontFamily: 'inherit' }}
+        >
+          {sh.text}
+        </text>
+      )
+  }
+}
+
+/**
+ * A lesson figure as inline SVG: no image, no canvas, no library, nothing to
+ * click. The viewBox is what makes it scale with the course column, which the
+ * reader can drag between 240 and 900 px; `maxWidth` stops a wide column from
+ * blowing the type up, and `width: 100%` lets a narrow one shrink it. The
+ * geometry — and the proof that no two labels collide at either end — is in
+ * `src/course/diagram.ts` and its test.
+ */
+function DiagramView({ b }: { b: Extract<Block, { kind: 'diagram' }> }) {
+  const { width, height, shapes } = layoutDiagram(b.spec)
+  // what the figure is, in as few words as it is titled with: its own heading,
+  // else the label a `stack` already draws over itself, else its caption
+  const label = b.heading ?? ('label' in b.spec ? b.spec.label : undefined) ?? b.caption ?? ''
+  return (
+    <>
+      <svg
+        viewBox={`0 0 ${width} ${height}`}
+        role="img"
+        aria-label={label}
+        style={{ display: 'block', width: '100%', maxWidth: 320, height: 'auto', margin: '6px 0' }}
+      >
+        {shapes.map((sh, i) => <ShapeView key={i} sh={sh} />)}
+      </svg>
+      {b.caption && <p style={{ ...prose, ...dim, fontSize: 11.5 }}>{b.caption}</p>}
+    </>
+  )
+}
+
 /** Render one lesson body block. */
 function BlockView({ b }: { b: Block }) {
   switch (b.kind ?? 'p') {
@@ -105,6 +190,8 @@ function BlockView({ b }: { b: Block }) {
       const l = b as Extract<Block, { kind: 'steps' }>
       return <ol style={listStyle}>{l.items.map((it, i) => <li key={i}>{it}</li>)}</ol>
     }
+    case 'diagram':
+      return <DiagramView b={b as Extract<Block, { kind: 'diagram' }>} />
     case 'widget': {
       const w = b as Extract<Block, { kind: 'widget' }>
       return (

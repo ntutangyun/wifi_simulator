@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { LESSONS, MODULES } from '../../src/course/lessons'
 import { CHARS_PER_MINUTE, COURSE_ORDER, OBSERVE_MINUTES, TIERS, TRY_MINUTES, lessonBlocks, lessonChars, lessonMinutes, trackHeadings } from '../../src/course/curriculum'
+import { diagramTexts, layoutDiagram, type DiagramSpec } from '../../src/course/diagram'
 import { ScenarioSchema } from '../../src/model/scenario'
 import { Simulation } from '../../src/engine/simulation'
 import { buildLinkTable } from '../../src/engine/propagation'
@@ -222,6 +223,22 @@ describe('lesson body blocks', () => {
             const w = b as { widget: string; params?: Record<string, number | string>; caption?: string }
             expect(['linkBudget', 'mcsLadder'], `${where} widget`).toContain(w.widget)
             if (w.caption) written(w.caption, `${where} caption`)
+            break
+          }
+          case 'diagram': {
+            // The figure as data: one of the five kinds, every label a reader sees
+            // written, and a layout that fits the viewBox it declares. The geometry
+            // itself is tests/course/diagram.test.ts's.
+            const d = b as { spec: DiagramSpec; caption?: string }
+            expect(['topology', 'stack', 'timing', 'sequence', 'fields'], `${where} spec kind`).toContain(d.spec.kind)
+            const labels = diagramTexts(d.spec)
+            expect(labels.length, `${where} labels`).toBeGreaterThan(0)
+            labels.forEach((t, j) => written(t, `${where} label[${j}]`))
+            if (d.caption) written(d.caption, `${where} caption`)
+            const { width, height, shapes } = layoutDiagram(d.spec)
+            expect(shapes.length, `${where} shapes`).toBeGreaterThan(0)
+            expect(width, `${where} width`).toBeGreaterThan(0)
+            expect(height, `${where} height`).toBeGreaterThan(0)
             break
           }
           case 'list':

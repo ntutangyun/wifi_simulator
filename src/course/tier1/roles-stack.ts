@@ -10,12 +10,21 @@
  * the service primitives and the multi-link preview are in `deeper`, and the
  * clause numbers are in `sources`.
  *
+ * It is also the pilot for the diagram block
+ * (docs/superpowers/specs/2026-09-25-course-pace-and-diagrams.md): the two
+ * things this lesson used to describe and a picture settles — who talks to whom,
+ * and what wraps what — are now a `topology` figure and a `stack` figure, both
+ * built from the run. The four-row wrapping table and the two clauses they say
+ * better went with them.
+ *
  * The scenario builder and the jump predicates are untouched, so the recorded
  * timeline hash of this lesson is the one the fixture already holds.
  *
  * Every number quoted below is pinned in tests/course/roles-stack.test.ts.
  */
+import { FCS_BYTES, QOS_HDR_BYTES } from '../../engine/phy'
 import type { Scenario } from '../../model/scenario'
+import type { StackSpec, TopologySpec } from '../diagram'
 import { J, node, oneRoom, sc, txOf, type Lesson } from '../lessonKit'
 
 /**
@@ -41,6 +50,88 @@ export const firstDownlinkData = txOf((r) => r.frame.kind === 'data' && r.node =
 export const firstRelayHop1 = txOf((r) => r.frame.kind === 'data' && isPhone(r.node) && r.frame.dst === 'ap')
 export const firstRelayHop2 = txOf((r) => r.frame.kind === 'data' && r.node === 'ap' && isPhone(r.frame.dst))
 
+/** The Chinese name the figures give each device of the scene. */
+const DIAGRAM_NAMES: Record<string, string> = {
+  ap: '接入点（AP）', 'sta-1': '笔记本', 'sta-2': '电视',
+  'sta-3': '手机 A', 'sta-4': '手机 B',
+}
+
+/**
+ * Who talks to whom, read out of the lesson's own scenario: the ids, the roles
+ * and the positions all come from `rolesStackScenario()`, so a device moved in
+ * the scene moves in the figure, and the test compares the two node for node.
+ *
+ * The two labelled hops are the relay the `watch` call-out jumps to, and the
+ * dashed line is the one path the run refuses: Phone A cannot decode Phone B
+ * across the room, which is an RX_FAIL in the timeline and a pin in the test.
+ */
+export function rolesStackTopology(): TopologySpec {
+  const nodes = rolesStackScenario().nodes.map((n) => ({
+    id: n.id,
+    label: DIAGRAM_NAMES[n.id],
+    role: n.kind === 'ap' ? ('ap' as const) : ('sta' as const),
+    x: n.pos.x,
+    y: n.pos.y,
+  }))
+  return {
+    kind: 'topology',
+    nodes,
+    links: [
+      { from: 'sta-1', to: 'ap', both: true },
+      { from: 'sta-2', to: 'ap', both: true },
+      { from: 'sta-4', to: 'ap', label: '第一跳', tone: 'accent' },
+      { from: 'ap', to: 'sta-3', label: '第二跳', tone: 'accent' },
+      { from: 'sta-4', to: 'sta-3', label: '直发不通', tone: 'muted' },
+    ],
+    ring: { nodes: nodes.map((n) => n.id), label: '一张网（BSS）' },
+  }
+}
+
+/**
+ * The payload one phone hands down, in octets: measured in the run, where every
+ * p2pvideo arrival carries exactly this many.
+ */
+export const ROLES_PAYLOAD_BYTES = 1400
+/** What the MAC makes of it: the QoS header and the frame check are the engine's own constants. */
+export const ROLES_FRAME_BYTES = QOS_HDR_BYTES + ROLES_PAYLOAD_BYTES + FCS_BYTES
+/** What that frame costs on the air at 20 MHz, in microseconds: the run's `frame.txTimeNs`. */
+export const ROLES_PPDU_US = 125.6
+
+/**
+ * What wraps what. Not one figure here is typed twice: the header and the frame
+ * check come from `engine/phy`, the payload and the airtime from the recorded
+ * run, the overhead is arithmetic over those two — and `roles-stack.test.ts`
+ * reads each number back out of this spec and compares it with the run, so a
+ * figure that drifts from the engine fails the suite rather than misleading a
+ * reader.
+ */
+export function rolesStackStack(): StackSpec {
+  const overhead = ROLES_FRAME_BYTES - ROLES_PAYLOAD_BYTES
+  return {
+    kind: 'stack',
+    mode: 'nested',
+    label: '同一份载荷，三层包装',
+    layers: [
+      {
+        label: '空口上的那一包',
+        bytes: ROLES_FRAME_BYTES,
+        note: `前导码在最前，20 MHz 下整包 ${ROLES_PPDU_US} µs`,
+      },
+      {
+        label: `MAC 造出来的帧 ${ROLES_FRAME_BYTES} B`,
+        bytes: ROLES_FRAME_BYTES,
+        note: `${QOS_HDR_BYTES} B 头 + ${ROLES_PAYLOAD_BYTES} B 载荷 + ${FCS_BYTES} B 校验`,
+      },
+      {
+        label: `上层交下来的载荷 ${ROLES_PAYLOAD_BYTES} B`,
+        bytes: ROLES_PAYLOAD_BYTES,
+        note: '每 1.4–1.7 ms 交下来一份的视频',
+      },
+    ],
+    total: `包装共 ${overhead} B，占载荷的 ${((overhead / ROLES_PAYLOAD_BYTES) * 100).toFixed(1)} %`,
+  }
+}
+
 export const rolesStack: Lesson = {
   id: 'roles-stack',
   module: 0,
@@ -65,19 +156,19 @@ export const rolesStack: Lesson = {
     { heading: '两种角色，同一套规则', text: '家里这张网上的每台设备，跑的都是同样两层：决定什么时候可以开口的那一层——媒体访问控制（MAC），和把一帧变成空口上信号的那一层——物理层（PHY）。它们每一台都是站点：笔记本、手机、电视——接入点也是。接入点特殊在哪儿？不是射频更强，也不是想说就能说，而是它多了一份别人没有的差事，而且每个别的站点都可以直接寻址到它。' },
     { heading: '一个接入点，一张网', text: '一个接入点，连同加入它的那些设备，合起来是一张网——也就是基本服务集（BSS）。这张网需要一个自己的地址：站点得说清楚某一帧属于哪张网，而邻居发的帧也要能和这张网的帧分得开。这个地址不是另起的，它就是接入点自己的 MAC 地址；用在这个位置上时，它被叫作基本服务集标识（BSSID）。一个接入点，一张网，一个地址。' },
     { kind: 'watch', jump: 2, heading: '去看一眼', text: '载入仿真，跳到一部手机发给另一部手机的第一帧。它的收件人是接入点，而不是对面那部手机。再跳到下一个目标，看接入点把同一份载荷又发了一次。' },
+    {
+      kind: 'diagram', heading: '谁跟谁说话', spec: rolesStackTopology(),
+      caption: '图里的位置就是本场景里的位置。每一条实线的另一端都是接入点；手机到手机那条虚线从来没走通过——隔着 6 m，第一帧就解不出来，所以载荷只能走第一跳、第二跳。',
+    },
     { heading: '你真正挑的是那个名字', text: '加入一张网的时候，你从来不用去输入什么地址。你是在一个列表里挑一个名字，这个名字就是 SSID。名字和地址是有意分开的：楼上一台路由器、楼下一台路由器的屋子，是两张网、两个地址、一个名字；于是被拿着下楼的笔记本，谁都没选，就已经换到了第二张网上。' },
-    { heading: '一切都从中间过', text: '一个站点能发送数据的对端只有一个：它的接入点。哪怕要找的那台设备就在旁边，帧也要先发给接入点；接入点把载荷交给背后那套把几张网连起来的东西——分发系统（distribution system, DS），又原样拿回来，于是第二次把它发出去。走哪条路，取决于这张网，而不是屋里的直线距离。' },
-    { heading: '一层套一层的信封', text: '这些事，上面那一层一概看不见：它只是把一份载荷交给 MAC，然后等着它被送到。MAC 在前面加一段头、后面加一个校验——这个包裹就是一帧。PHY 拿到一帧、或一批帧，在最前面放上一段固定的图案——前导码（preamble）——好让附近的射频锁住它；到这时，空口上才真的有东西。' },
+    { heading: '一切都从中间过', text: '一个站点能发送数据的对端只有一个：它的接入点。接入点把载荷交给背后那套把几张网连起来的东西——分发系统（distribution system, DS），又原样拿回来，于是第二次把它发出去。走哪条路，取决于这张网，而不是屋里的直线距离。' },
+    { heading: '一层套一层的信封', text: '这些事，上面那一层一概看不见：它只是把一份载荷交给 MAC，然后等着它被送到。PHY 拿到一帧、或一批帧，在最前面放上一段固定的图案——前导码（preamble）——好让附近的射频锁住它；到这时，空口上才真的有东西。' },
   ],
   numbers: [
-    { kind: 'table', heading: '同一份载荷，四层包装', head: [
-      '这是什么', '在哪儿交接', '本场景里的值',
-    ], rows: [
-      ['上层交下来的载荷', '交给 MAC', '1400 B 的视频'],
-      ['MAC 造出来的帧', '头 + 载荷 + 校验', '26 + 1400 + 4 = 1430 B'],
-      ['交给 PHY 的东西', '一帧，或者一批', '1430 B；笔记本一次交 50 个'],
-      ['空口上传的东西', '先一段前导码，再是那个帧', '20 MHz 下 125.6 µs'],
-    ] },
+    {
+      kind: 'diagram', spec: rolesStackStack(),
+      caption: '最外面那一层加的是时间，不是字节：前导码之后，整包在 20 MHz 上占 125.6 µs。笔记本更狠，一次把 50 个这样的帧跟在同一个前导码后面交给 PHY，时间轴上因此只有一个块。',
+    },
     { kind: 'table', heading: '每台设备在干什么', head: [
       '设备', '它在发什么', '多大、多久一次',
     ], rows: [

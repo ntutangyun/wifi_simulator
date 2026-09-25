@@ -7,6 +7,7 @@ import { defaultFeatures, linkOfVirtual, type ChannelWidth } from '../model/caps
 import type { AmpApCfg, NodeCfg, ProfileId, Room, Scenario, UwbSessionCfg, Wall } from '../model/scenario'
 import { DEFAULT_AMP_AP, DEFAULT_UWB_SESSION } from '../model/scenario'
 import type { TLRecord } from '../model/records'
+import type { DiagramSpec } from './diagram'
 import type { Generation } from '../model/types'
 import { UWB_TX_POWER_DBM } from '../uwb/phy'
 import { oneRoom, hallwayHouse, longApartment, sc } from './wifiScenes'
@@ -42,6 +43,14 @@ export type Block =
   | { kind: 'steps'; heading?: string; items: string[] }
   /** An interactive view computed from the engine's own functions; params preset its controls. */
   | { kind: 'widget'; heading?: string; widget: 'linkBudget' | 'mcsLadder'; params?: Record<string, number | string>; caption?: string }
+  /**
+   * A still figure, painted as inline SVG from a declarative spec: who talks to
+   * whom, what wraps what, what happens when, who says what to whom, what the
+   * octets are. The spec's figures come from the engine or from a recorded run
+   * (see `src/course/diagram.ts`), and a test pins them, so a picture cannot
+   * drift from the simulator. Nothing here is interactive.
+   */
+  | { kind: 'diagram'; heading?: string; spec: DiagramSpec; caption?: string }
   /** A call-out that sends the reader to the simulator: loads the lesson scenario, or jumps to jumps[jump] once loaded. */
   | { kind: 'watch'; heading?: string; text: string; jump?: number }
 
