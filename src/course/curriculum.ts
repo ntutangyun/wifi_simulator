@@ -102,7 +102,7 @@ export const COURSE_ORDER: string[] = [
   // Tier 2 — M4 capacity knobs and rate control
   'width', 'streams', 'rate', 'rate-fallback', 'rate-cost',
   // Tier 2 — M7 scheduled Wi-Fi 6/7
-  'ofdma-dl', 'ofdma-ul', 'mumimo', 'mlo',
+  'ofdma-dl', 'ofdma-ul', 'mumimo', 'mumimo-choose', 'mlo', 'mlo-gain',
   // Tier 2 — M8 ambient power IoT
   'amp-intro', 'amp-ppdu', 'amp-slots', 'amp-coexist',
   // Tier 2 — M9 real applications

@@ -82,7 +82,10 @@ describe('capstone · the flat as the brief describes it', () => {
   it('is the last Wi-Fi lesson, in the real-applications module, and names what it leans on', () => {
     expect(MODULES[capstone.module].title).toBe('真实应用')
     expect(capstone.needs).toEqual([
-      'edca', 'txop', 'width', 'rate', 'anomaly', 'tier1-project', 'ofdma-dl', 'ofdma-ul', 'mumimo', 'mlo',
+      // M10's halves replaced their parents here: the project leans on choosing a group
+      // and on what a second radio buys, which is what those two lessons teach.
+      'edca', 'txop', 'width', 'rate', 'anomaly', 'tier1-project', 'ofdma-dl', 'ofdma-ul',
+      'mumimo-choose', 'mlo-gain',
     ])
     expect(capstone.terms!.map((t) => t.term)).toEqual(['bottleneck', 'offered load'])
   })

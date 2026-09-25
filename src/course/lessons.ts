@@ -70,10 +70,12 @@ import { protectPolicies } from './tier2/protect-policies'
 import { ofdmaDl } from './tier2/ofdma-dl'
 import { ofdmaUl } from './tier2/ofdma-ul'
 import { mlo } from './tier2/mlo'
+import { mloGain } from './tier2/mlo-gain'
 import { capstone } from './tier2/capstone'
 import { width } from './tier2/width'
 import { streams } from './tier2/streams'
 import { mumimo } from './tier2/mumimo'
+import { mumimoChoose } from './tier2/mumimo-choose'
 import { rate } from './tier2/rate'
 import { rateFallback } from './tier2/rate-fallback'
 import { rateCost } from './tier2/rate-cost'
@@ -149,12 +151,14 @@ const AUTHORED: Lesson[] = [
   ofdmaDl,
   ofdmaUl,
   mlo,
+  mloGain,
   capstone,
 
   // ======================= MODULE 4 =======================
   width,
   streams,
   mumimo,
+  mumimoChoose,
   rate,
   rateFallback,
   rateCost,

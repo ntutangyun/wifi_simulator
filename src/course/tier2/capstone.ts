@@ -118,7 +118,7 @@ export const capstone: Lesson = {
     '说出你会否决哪个改动，以及是哪一个测量让你否决它的',
     '交出一份写明了“它没有测什么”的报告',
   ],
-  needs: ['edca', 'txop', 'width', 'rate', 'anomaly', 'tier1-project', 'ofdma-dl', 'ofdma-ul', 'mumimo', 'mlo'],
+  needs: ['edca', 'txop', 'width', 'rate', 'anomaly', 'tier1-project', 'ofdma-dl', 'ofdma-ul', 'mumimo-choose', 'mlo-gain'],
   terms: [
     { term: 'bottleneck', plain: '不管你把别的修得多好，都由它来决定其他人能拿到多少的那一台设备或那一个选择' },
     { term: 'offered load', plain: '一台设备“想发多少”，区别于它最后“真正发出去了多少”' },
