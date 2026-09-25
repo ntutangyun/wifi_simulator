@@ -100,7 +100,7 @@ export const tier1Project: Lesson = {
     '预测两台永远不缺帧的发送方多久相撞一次，以及这一对能交付多少',
     '把四个预测写成别人能拿去批改的样子',
   ],
-  needs: ['frame-anatomy-bytes', 'airtime', 'ifs', 'backoff', 'nav', 'hidden', 'anomaly', 'retries-queues', 'bianchi', 'bianchi-vs-sim'],
+  needs: ['frame-anatomy-bytes', 'airtime', 'ifs', 'backoff', 'nav', 'hidden', 'anomaly', 'retries-queues', 'bianchi', 'rate-vs-model'],
   terms: [
     { term: 'brief', plain: '这里要回答哪些问题，以及什么才算一个回答' },
     { term: 'link budget', plain: '发出去的功率，减去距离拿走的，再减去每堵墙拿走的' },

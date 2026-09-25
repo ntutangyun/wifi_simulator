@@ -484,6 +484,7 @@ describe("a lesson's track", () => {
     "queues":                   "wifi",
     "bianchi":                  "wifi",
     "bianchi-vs-sim":           "wifi",
+    "rate-vs-model":            "wifi",
     "tier1-project":            "wifi",
     "tier1-project-review":     "wifi",
     "edca":                     "wifi",

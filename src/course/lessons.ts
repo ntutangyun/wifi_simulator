@@ -27,6 +27,7 @@ import { retriesQueues } from './tier1/retries-queues'
 import { queues } from './tier1/queues'
 import { bianchi } from './tier1/bianchi'
 import { bianchiVsSim } from './tier1/bianchi-vs-sim'
+import { rateVsModel } from './tier1/rate-vs-model'
 import { tier1Project } from './tier1/tier1-project'
 import { tier1ProjectReview } from './tier1/tier1-project-review'
 import { ampIntro } from './amp/amp-intro'
@@ -97,6 +98,7 @@ const AUTHORED: Lesson[] = [
   queues,
   bianchi,
   bianchiVsSim,
+  rateVsModel,
   tier1Project,
   tier1ProjectReview,
   ampIntro,
