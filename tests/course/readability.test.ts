@@ -22,6 +22,7 @@ import {
   zhTermName,
   paragraphTexts,
   zhChars,
+  ZH_TERMS, ZH_TERMS_EXCLUDED, bracketedAtFirstZhUse, zhAkaViolations, zhTermFailure, type ZhTerm,
 } from '../../src/course/readability'
 import { effectiveMigrating } from './kit'
 
@@ -605,5 +606,199 @@ describe('readability · mechanism before metaphor', () => {
     const steps = [...(l.picture ?? []), ...(l.numbers ?? [])].filter((b) => b.kind === 'steps')
     expect(steps.length, `${l.id}: a lesson that states a rule carries the rule as a steps block`).toBeGreaterThan(0)
     for (const b of steps) expect((b as Extract<Block, { kind: 'steps' }>).items.length).toBeGreaterThanOrEqual(3)
+  })
+})
+
+/**
+ * Amendment 2026-09-25, "every official term carries its English name in the
+ * Chinese" (.superpowers/sdd/2026-09-23-mechanism-before-metaphor/
+ * zh-term-inventory.md, section 6).
+ *
+ * The reader's requirement: in the Chinese text, every official IEEE 802.11 /
+ * 802.15.4 term carries its standard English name — and its common
+ * abbreviation where one exists — in brackets at its first use, in that order:
+ * 前导码（preamble）, 确认帧（ACK）, 仲裁帧间间隔（arbitration interframe space,
+ * AIFS）. A bare `EDCA` teaches the reader an acronym and no term; a bare
+ * 分布式帧间间隔 leaves them unable to look anything up.
+ *
+ * What is graded, per lesson, is the reader's own order over `why`, `outcomes`,
+ * `picture`, `numbers`, `observe`, `tryThis` and `quiz`. `deeper` and `sources`
+ * are collapsed professional depth — `sources` is where the clause numbers and
+ * the English names already live — and a language-neutral table cell
+ * (`en === zh`) is left out because editing its Chinese half alone would break
+ * that neutrality and move the English word count (inventory section 5).
+ */
+const zhMainTexts = (l: Lesson): L10n[] => [l.why!, ...(l.outcomes ?? [])]
+  .concat(paragraphTexts(l.picture ?? []), cellTexts(l.picture ?? []))
+  .concat(paragraphTexts(l.numbers ?? []), cellTexts(l.numbers ?? []))
+  .concat(l.observe, l.tryThis, l.quiz.flatMap((q) => [q.q, ...q.options, q.explain]))
+
+/** One joined Chinese string per lesson, in reading order: what "first use" is first in. */
+const zhMainText = (l: Lesson): string => zhMainTexts(l).map((s) => s.zh).join(' ')
+
+/**
+ * Every failure of one lesson: the bracket arm, then the `aka` arm. Collected
+ * rather than asserted term by term — an `expect` inside the loop stops a
+ * lesson at its first failure and hides the rest, which has already cost this
+ * programme one round trip (see the same note on the naming rule above).
+ */
+/**
+ * The glossary rows graded in one lesson: all of them, minus the three whose
+ * Chinese word means something else in the other track (`ZhTerm.track` says
+ * which, and why each one is there).
+ */
+const zhTermsFor = (l: Lesson): ZhTerm[] => ZH_TERMS.filter((t) => !t.track || t.track === trackOf(l))
+
+function zhTermFailures(l: Lesson): string[] {
+  const zh = zhMainText(l)
+  const out: string[] = []
+  for (const t of zhTermsFor(l)) {
+    const why = zhTermFailure(zh, t)
+    if (why) out.push(`${l.id}: ${why}`)
+    for (const a of zhAkaViolations(zh, t)) out.push(`${l.id}: ${a}`)
+  }
+  return out
+}
+
+describe('readability · every official term carries its English name in the Chinese', () => {
+  const revised = migrated.filter((l) => MECHANISM_NOW.includes(l.id))
+
+  it.each(revised.map((l) => [l.id, l] as const))('%s brackets every official term at its first Chinese use', (_id, l) => {
+    expect(zhTermFailures(l), `${l.id}: official terms the Chinese never names in English`).toEqual([])
+  })
+
+  /**
+   * Guard 1 of section 6.4 — the coverage floor. `bracketedAtFirstZhUse`
+   * returns null when it did not grade, and three rules in this suite have
+   * reported success while grading nothing: the pattern stopped matching, the
+   * loop body never ran, and `expect([]).toEqual([])` passed. A matcher that
+   * has quietly stopped matching — a `\b` in front of a CJK pattern, a stateful
+   * `/g` regex, a broken escape — turns the suite red here instead of green.
+   *
+   * The floor is TWO, not the three section 6.4 guessed at: the first corpus
+   * run found `uwb-position`, which names only 锚点 and 标签 on its main path
+   * (三边定位 and GDOP are section 2.6 rows, and its 首径 is in `deeper`). A
+   * floor that a healthy lesson cannot clear is a rule the next author edits
+   * away, and two still turns all 47 lessons red the moment the matcher stops
+   * matching. The corpus total below is the sharper number.
+   */
+  it.each(revised.map((l) => [l.id, l] as const))('%s has its terminology actually graded', (_id, l) => {
+    const zh = zhMainText(l)
+    const graded = zhTermsFor(l).filter((t) => bracketedAtFirstZhUse(zh, t) !== null)
+    expect(graded.length, `${l.id}: the term rule graded nothing`).toBeGreaterThanOrEqual(2)
+  })
+
+  /**
+   * The same guard summed over the course, where a partial regression shows.
+   * A per-lesson floor of two survives a matcher that has lost, say, every
+   * abbreviation; the total does not. It stood at 582 when this rule landed, on
+   * a course no lesson of which had been fixed yet.
+   */
+  it('grades hundreds of terms across the course, not a handful', () => {
+    const graded = revised.reduce((n, l) => {
+      const zh = zhMainText(l)
+      return n + zhTermsFor(l).filter((t) => bracketedAtFirstZhUse(zh, t) !== null).length
+    }, 0)
+    expect(graded, 'terms graded across the whole course').toBeGreaterThanOrEqual(450)
+  })
+
+  /**
+   * Guard 2 of section 6.4 — the corpus-wide total. A glossary row no lesson
+   * exercises is a row that could be wrong for ever, and this is the test that
+   * catches a typo in ZH_TERMS itself: a misspelled `zh` matches nothing
+   * anywhere, so it is ungraded everywhere, so it is named here.
+   *
+   * Until the fix wave lands, this test also names the kind-(b) rows whose
+   * Chinese name the course has never written at all (视轴, 每用户分配表): that
+   * is the same work order, from the other end.
+   */
+  it('grades every glossary row somewhere in the course', () => {
+    const ungraded = ZH_TERMS.filter((t) => revised
+      .filter((l) => !t.track || t.track === trackOf(l))
+      .every((l) => bracketedAtFirstZhUse(zhMainText(l), t) === null))
+    expect(ungraded.map((t) => t.zh ?? t.abbr), 'glossary rows no lesson ever uses').toEqual([])
+  })
+
+  /** Section 2.6 is the exclusion list, and it stays out of the glossary. */
+  it('demands nothing for the words that are not IEEE terms', () => {
+    const readded = ZH_TERMS.filter((t) => ZH_TERMS_EXCLUDED.some((x) => x.zh === t.zh))
+    expect(readded.map((t) => t.zh), 'section 2.6 rows re-added to ZH_TERMS').toEqual([])
+    // Section 2.6's 24 rows, a couple of which name two words and are split here.
+    expect(ZH_TERMS_EXCLUDED.length).toBeGreaterThanOrEqual(24)
+    for (const x of ZH_TERMS_EXCLUDED) expect(x.why, `${x.zh} is excluded with no reason given`).toMatch(/model choice|literature|statistics|engineering|regulatory/)
+  })
+})
+
+/**
+ * The probes of section 6.5, as tests rather than as a procedure somebody has
+ * to remember to run. Each one is a lesson-shaped violation written out in
+ * full, so a future reader can see what the rule is looking at; each one is
+ * also the mutation that would make the rule vacuous, pinned from the other
+ * side.
+ */
+describe('readability · the term rule can fail', () => {
+  const PREAMBLE: ZhTerm = { zh: '前导码', en: 'preamble', aka: ['前导'] }
+  const SIFS: ZhTerm = { zh: '短帧间间隔', en: 'short interframe space', abbr: 'SIFS' }
+  const EDCA: ZhTerm = { zh: '增强型分布式信道接入', en: 'enhanced distributed channel access', abbr: 'EDCA' }
+
+  /** The three outcomes pinned apart, so `false` can never be reported as `null`. */
+  it('tells a good bracket, a missing bracket and an absent term apart', () => {
+    expect(bracketedAtFirstZhUse('一帧开头那段前导码（preamble）', PREAMBLE)).toBe(true)
+    expect(bracketedAtFirstZhUse('一帧开头那段前导码', PREAMBLE)).toBe(false)
+    expect(bracketedAtFirstZhUse('没有这个词', PREAMBLE)).toBe(null)
+  })
+
+  /** P1 — kind (a): the Chinese name is there, the English is not. */
+  it('P1: reports a Chinese name used with no English beside it', () => {
+    const violating = '一次交互内部的那一小会儿就是短帧间间隔，回答就在这之后过来。'
+    expect(zhTermFailure(violating, SIFS)).toBe('短帧间间隔 first used without （short interframe space, SIFS）')
+    const fixed = '一次交互内部的那一小会儿就是短帧间间隔（short interframe space, SIFS），回答就在这之后过来。'
+    expect(zhTermFailure(fixed, SIFS)).toBe(null)
+    // The abbreviation alone is not enough when the standard spells the term out.
+    expect(zhTermFailure('这就是短帧间间隔（SIFS）', SIFS)).toBe(null)
+  })
+
+  /** P2 — kind (c): the abbreviation leads and the Chinese name never appears. */
+  it('P2: reports a bare abbreviation with no Chinese name leading', () => {
+    expect(zhTermFailure('这就是 EDCA。', EDCA))
+      .toBe('EDCA used with no Chinese name leading, 增强型分布式信道接入（enhanced distributed channel access, EDCA）')
+    const fixed = '这就是增强型分布式信道接入（enhanced distributed channel access, EDCA）。'
+    expect(zhTermFailure(fixed, EDCA)).toBe(null)
+    // An acronym-only term carries its expansion in the bracket instead.
+    const msdu: ZhTerm = { en: 'MAC service data unit', abbr: 'MSDU' }
+    expect(zhTermFailure('这份载荷就是 MSDU。', msdu)).toBe('MSDU used without （MAC service data unit）')
+    expect(zhTermFailure('这份载荷就是 MSDU（MAC service data unit）。', msdu)).toBe(null)
+  })
+
+  /** P3 — the `aka` arm: section 3's inconsistent renderings. */
+  it('P3: reports an alternative rendering of a term the course has already named', () => {
+    expect(zhAkaViolations('这三段合起来，就是前导。', PREAMBLE))
+      .toEqual(['前导 is an alternative rendering of 前导码'])
+    // 前导码 CONTAINS 前导, and so do 前导符号 and 前导检测: a correct sentence is
+    // not an `aka` violation, which is the masking arm of firstUseIndex.
+    expect(zhAkaViolations('就是前导码（preamble），由 64 个前导符号组成，靠前导检测锁定。', PREAMBLE)).toEqual([])
+    expect(zhAkaViolations('噪声地板（noise floor）以上 3 dB', { zh: '噪声地板', en: 'noise floor', aka: ['底噪', '器声地板'] }))
+      .toEqual([])
+    expect(zhAkaViolations('屋里那点底噪', { zh: '噪声地板', en: 'noise floor', aka: ['底噪', '器声地板'] }))
+      .toEqual(['底噪 is an alternative rendering of 噪声地板'])
+  })
+
+  /**
+   * P4 — the historical mutation: `\b` in front of a CJK pattern (inside a
+   * template literal it is the backspace character, and between two ideographs
+   * a word boundary matches nothing either way). It made two earlier rules in
+   * this suite grade every lesson vacuously.
+   *
+   * Pinned from both sides: the matcher finds a CJK name in running text, and
+   * the `\b` form finds nothing at all — so the coverage floor above, which
+   * counts what was graded, goes from "at least three" to zero the moment
+   * somebody reintroduces it.
+   */
+  it('P4: matches a CJK name literally, which a word boundary never would', () => {
+    const text = '这三段合起来，就是前导码（preamble）；一次交互内部是短帧间间隔（short interframe space, SIFS）。'
+    const graded = [PREAMBLE, SIFS, EDCA].filter((t) => bracketedAtFirstZhUse(text, t) !== null)
+    expect(graded.length, 'a literal CJK match grades the terms that are there').toBe(2)
+    expect(new RegExp('\\b前导码').test(text), 'the historical bug: \\b matches nothing between ideographs').toBe(false)
+    expect(new RegExp('\b前导码').test(text), 'and \\b in a template literal is a backspace').toBe(false)
   })
 })

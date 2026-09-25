@@ -35,7 +35,7 @@ export const ifs: Lesson = {
       zh: '短帧间间隔：一次交互内部的短暂停顿，回答就在这之后过来',
     } },
     { term: 'DIFS', plain: {
-      en: 'distributed interframe space: the longer quiet a station must hear before it may start something new',
+      en: 'DCF interframe space: the longer quiet a station must hear before it may start something new',
       zh: '分布式帧间间隔：站点在开启一件新事之前，必须先听到的那段更长的安静',
     } },
     { term: 'EIFS', plain: {
