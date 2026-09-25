@@ -24,6 +24,7 @@ import { frameQosFcs } from './tier1/frame-qos-fcs'
 import { frameAnatomyBytes } from './tier1/frame-anatomy-bytes'
 import { smallFrames } from './tier1/small-frames'
 import { retriesQueues } from './tier1/retries-queues'
+import { queues } from './tier1/queues'
 import { bianchi } from './tier1/bianchi'
 import { bianchiVsSim } from './tier1/bianchi-vs-sim'
 import { tier1Project } from './tier1/tier1-project'
@@ -57,6 +58,7 @@ import { backoff } from './tier1/backoff'
 import { collisionsCw } from './tier1/collisions-cw'
 import { nav } from './tier1/nav'
 import { hidden } from './tier1/hidden'
+import { rtsCts } from './tier1/rts-cts'
 import { anomaly } from './tier1/anomaly'
 import { edca } from './tier2/edca'
 import { ampdu } from './tier2/ampdu'
@@ -92,6 +94,7 @@ const AUTHORED: Lesson[] = [
   frameAnatomyBytes,
   smallFrames,
   retriesQueues,
+  queues,
   bianchi,
   bianchiVsSim,
   tier1Project,
@@ -126,6 +129,7 @@ const AUTHORED: Lesson[] = [
   collisionsCw,
   nav,
   hidden,
+  rtsCts,
   anomaly,
 
   // ======================= MODULE 2 =======================

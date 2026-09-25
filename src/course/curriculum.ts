@@ -96,7 +96,7 @@ export const COURSE_ORDER: string[] = [
   // Tier 1 — M1 the network and the frame
   'radio-primer', 'noise-floor', 'decode-thresholds', 'mcs-ladder', 'roles-stack', 'relay-hops', 'frame-anatomy', 'frame-qos-fcs', 'frame-anatomy-bytes', 'small-frames', 'airtime',
   // Tier 1 — M2 channel access
-  'ifs', 'cca', 'backoff', 'collisions-cw', 'nav', 'hidden', 'anomaly', 'retries-queues', 'bianchi', 'bianchi-vs-sim', 'tier1-project', 'tier1-project-review',
+  'ifs', 'cca', 'backoff', 'collisions-cw', 'nav', 'hidden', 'rts-cts', 'anomaly', 'retries-queues', 'queues', 'bianchi', 'bianchi-vs-sim', 'tier1-project', 'tier1-project-review',
   // Tier 2 — M3 QoS and efficiency
   'edca', 'ampdu', 'txop', 'txop-protect',
   // Tier 2 — M4 capacity knobs and rate control
