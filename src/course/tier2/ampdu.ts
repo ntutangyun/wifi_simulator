@@ -1,18 +1,63 @@
 /**
- * Wi-Fi Tier 2 · M3 · QoS and efficiency · A-MPDU, paying the ceremony once.
+ * Wi-Fi Tier 2 · M8 · QoS 与效率 · A-MPDU, paying the ceremony once.
  *
  * Rewritten to the zero-to-hero contract
  * (docs/superpowers/specs/2026-09-21-course-readability-design.md) and grown
  * from the 240-word original: what a batch under one preamble looks like, the
  * one answer that covers all of it, and what happens to a bad member of the
- * batch. The ceiling, the delimiters and the simulator's own bluntness live in
- * `deeper`; the clause numbers in `sources`.
+ * batch. The ceiling and the simulator's own bluntness live in `deeper`; the
+ * clause numbers in `sources`.
+ *
+ * **Stays whole** in the 2026-09-25 re-pacing
+ * (docs/superpowers/plans/2026-09-25-course-repacing-proposal.md, §2 M8 and
+ * §7.2): the BlockAck half would own one jump and one observe line, which is the
+ * bad split the user warned about. What it loses instead:
+ *  - the ADDBA aside 「必须先存在的那份约定」(§5.5) — a handshake this simulator
+ *    assumes and never puts on the timeline;
+ *  - the `deeper` note 「成员之间的那段标记」, whose delimiter-and-padding walk the
+ *    new fields figure now shows (§4);
+ *  - 「它没有改变的东西」(§5.3-class): "the coding did not change" was made three
+ *    times — that paragraph, the measured-versus-worked note and the first quiz
+ *    explanation. It is made twice now, once as a clause and once as an answer;
+ *  - the third observe line, which restated the table's own right-hand column.
+ *
+ * Step 6 of the procedure is the engine's real rule, read out of
+ * `failMsdus`/`bumpQsrc` in src/engine/mac.ts: this engine decodes an aggregate
+ * as ONE unit — there is no per-subframe bitmap — so a timeout counts a retry on
+ * every subframe of the attempt, sends them back to the queue head and doubles
+ * the window. It is a paragraph of the lesson, not a parenthesis.
  *
  * The scenario builder and the variant are unchanged, so the recorded timeline
  * hashes stay identical. Every number quoted below is pinned in
  * tests/course/ampdu.test.ts.
  */
+import type { FieldsSpec } from '../diagram'
 import { type Lesson, oneRoom, node, sc, firstBa, firstAmpdu, J } from '../lessonKit'
+
+/**
+ * One subframe of this run's first batch, to scale: the engine's own
+ * `ampduSubframeBytes(1500)` broken into the four parts it sums and the padding
+ * it rounds up with. 4 + 26 + 1500 + 4 = 1534, padded to 1536, which is why the
+ * batch is 21 502 bytes and not 14 × 1 530 — the sentence this figure replaces.
+ *
+ * The payload is 97.7 % of the row, so four of the five labels are drawn on
+ * callout rows above it. That IS the figure's point: the fixed part of a
+ * subframe is 36 bytes against 1 500 of payload, which is why aggregation pays.
+ */
+export function ampduSubframeFields(): FieldsSpec {
+  return {
+    kind: 'fields',
+    fields: [
+      { label: '定界符', size: 4 },
+      { label: '帧头', size: 26 },
+      { label: '载荷', size: 1500 },
+      { label: '校验', size: 4 },
+      { label: '填充', size: 2 },
+    ],
+    unit: 'B',
+    total: '一个子帧 1 536 B；十四个首尾相接是 21 502 B',
+  }
+}
 
 export const ampdu: Lesson = {
   id: 'ampdu',
@@ -24,7 +69,10 @@ export const ampdu: Lesson = {
     '说清一个前导码下面那一批里装着什么，以及它是怎么被回答的',
     '读出一帧成功送达要花多少空口时间（airtime）——打批和不打批各是多少',
   ],
-  needs: ['airtime', 'frame-anatomy', 'retries-queues'],
+  // §6 of the re-pacing plan moves this row to the halves that now own the material:
+  // `small-frames` owns "many frames share one preamble" and `frame-qos-fcs` the QoS
+  // header and the per-frame check a subframe keeps.
+  needs: ['small-frames', 'frame-qos-fcs', 'retries-queues'],
   terms: [
     { term: 'A-MPDU', plain: '一批帧首尾相接打成一包，在同一个前导码下面作为一次传输发出去' },
     { term: 'subframe', plain: '这一批里的其中一帧：它保留自己的帧头和自己的校验，也单独接受判决' },
@@ -32,11 +80,10 @@ export const ampdu: Lesson = {
   ],
   picture: [
     { heading: '排场的价钱两边一样', text: '把空口上的一轮想成“固定价 + 浮动价”。静默、倒数、让接收端锁住的那段前导码、末尾那个回答，都是固定的那部分；只有载荷（payload）随你发的东西变大。换一档更快的编码，载荷会缩——可固定的那部分纹丝不动，因为前导码是用人人都听得见的慢速率发的，而那段等待不管你随后说得多快，价钱都一样。' },
-    { heading: '好几帧，一个前导码', text: '所以，与其把一整轮花在一帧上，发送方干脆把已经排在队列（queue）里、发往同一个接收端的帧全拿过来，首尾相接排好，作为一次传输、跟在同一个前导码后面发出去。这一批就是聚合 MPDU（aggregate MPDU, A-MPDU）。里面的东西并没有被合并：每一帧都保留自己的帧头和自己的校验；这一批里的一个成员，就是一个子帧（subframe），而每个子帧身前还有一小段标记报出它有多长。' },
+    { heading: '好几帧，一个前导码', text: '所以，与其把一整轮花在一帧上，发送方干脆把已经排在队列（queue）里、发往同一个接收端的帧全拿过来，首尾相接排好，作为一次传输、跟在同一个前导码后面发出去。这一批就是聚合 MPDU（aggregate MPDU, A-MPDU）。里面的东西并没有被合并：每一帧都保留自己的帧头和自己的校验；这一批里的一个成员，就是一个子帧（subframe）；每个子帧身前还有一小段定界符（MPDU delimiter）报出它有多长，身后再补几个字节的填充（padding），让下一个成员从整齐的边界开始。' },
     { kind: 'watch', jump: 0, heading: '打开一批看看', text: '载入仿真，跳到第一批。它带着一个角标，上面是这一批里帧的数量；把鼠标悬上去，看看这个数量和总字节数，再看看这一轮里花在其他事情上的时间有多少。' },
     { heading: '一个回答管住全部', text: '如果一个个单独回答，刚省下来的开销就又长回来了：每个成员都要一段停顿加一个小帧。于是接收端改成整批只回一个回答，而这个回答就是块确认（block acknowledgement, BlockAck）。它比一个普通确认帧（acknowledgement, ACK）长不了多少，却带着一张位图（bitmap），每个成员占一位：这个到了，那个没到。一次停顿，一个回答，整批就结清了。' },
-    { heading: '当其中一个坏了', text: '正因为每个成员都是单独校验的，坏掉一个并不连累其余。它在位图里的那一位保持为空，只有这一帧重新排队——它甚至可以搭上下一批，和新来的帧一起走。这一点恰恰是本仿真器没有建模的：在这里，一批里任何位置发生碰撞，整批都会丢，所以繁忙房间看起来会比真实情况更难堪一些。' },
-    { heading: '它没有改变的东西', text: '这里没有任何东西被发得更快。编码没变，距离没变，字节还是那些字节。变的只有一个比例：房间为一轮付出的代价，和这一轮真正送到的东西之间的比例——这也是为什么聚合是现代 Wi-Fi 里最便宜的一笔大收益，为什么每台设备都不用谁吩咐就这么做。' },
+    { heading: '当其中一个坏了', text: '正因为每个成员都是单独校验的，坏掉一个并不连累其余。它在位图里的那一位保持为空，只有这一帧重新排队——它甚至可以搭上下一批，和新来的帧一起走。这一点恰恰是本仿真器没有建模的：在这里，一批里任何位置发生碰撞，整批都会丢，所以繁忙房间看起来会比真实情况更难堪一些。下面第 6 步写的就是它真正做的事。' },
   ],
   numbers: [
     { kind: 'table', heading: '同一轮，两种打法', head: [
@@ -56,14 +103,19 @@ export const ampdu: Lesson = {
       ['成功送达的帧数', '1 120', '738'],
       ['每成功一帧的发送时间', '168.9 µs', '228.3 µs'],
     ] },
-    { heading: '为什么实测和算式不完全一致', text: '两种打法赢下的轮数几乎一样多——差别在于每一轮装了多少。实测值比算式稍高一点，是因为有少数几轮丢了要重来；两边的编码完全相同，所以这份收益里没有一丁点藏在速率上。' },
+    { heading: '为什么实测和算式不完全一致', text: '两种打法赢下的轮数几乎一样多——差别在于每一轮装了多少。实测值比算式稍高一点，原因很朴素：200 ms 到点时最后一轮才刚开场，它的提问、回答和那一批都算进了分子，可它的十四帧还没有送达。这一轮里没有任何重传（retry）——80 轮全部成功。两边的编码、距离和字节完全相同，所以这份收益里没有一丁点藏在速率上：变的只有“排场”与“载货”的比例。' },
+    {
+      kind: 'diagram', heading: '一批里的一个子帧',
+      spec: ampduSubframeFields(),
+      caption: '本轮第一批里的一个子帧：固定的那 36 字节（定界符、帧头、校验）加上 1 500 字节载荷，再补齐到 1 536。十四个这样的子帧首尾相接就是 21 502 字节——不是 14 × 1 530，差额正是这些定界符与补齐。',
+    },
     { kind: 'steps', heading: '一批是怎么攒起来、又怎么被回答的', items: [
       '电台先拿队列最前面那一帧，看它是发给谁的。能跟着一起走的，必须是发往同一个接收端的帧，而且按队列里的先后顺序取。',
       '它一帧一帧往里加，最多 64 帧；一旦下一帧会把这次传输拉得比 5.484 ms 还长，或者把整次交互——这一批、那段停顿、那个回答——顶到本轮末尾之外，就停在这一帧之前。队头那一帧总是能走，实在装不下别的就它一个走。',
-      '然后把选中的帧首尾相接排好。每一帧都成为一个子帧：先是 4 字节的定界符（MPDU delimiter），里面写着长度，接着是这一帧自己的服务质量（quality of service, QoS）帧头、它的载荷和它的校验，最后补齐到四字节边界。最后一个子帧不补齐。',
+      '然后把选中的帧首尾相接排好，每一帧都成为一个子帧：上图那五段，先是 4 字节的定界符（MPDU delimiter），里面写着长度，接着是这一帧自己的服务质量（quality of service, QoS）帧头、它的载荷和它的校验，最后补齐到四字节边界。最后一个子帧不补齐，所以它是 1 534 字节。',
       '整串子帧作为一次传输发出去：一个前导码，一种编码。',
       '一个短帧间间隔（short interframe space, SIFS）之后，接收端只回一个 32 字节的 BlockAck；按标准，它为每一个子帧带一位——到了的置位，没到的置空。',
-      '本仿真器要粗糙些：它把这一批当成一个整体判定。若到确认超时为止都没等来回答，这一批里的每一帧都记一次重传（retry），回到队列最前面等着搭下一批，窗口也像碰了一次那样翻倍。',
+      '本仿真器要粗糙些：它把这一批当成一个整体判定，不生成逐子帧的位图。一次尝试只要失败——这一批没等来 BlockAck，或者开场那句提问没等来回答——这次尝试里的每一帧都记一次重传（retry），一起回到队列最前面等着搭下一批，窗口也像碰了一次那样翻倍。本场景只有一台上传站点，没人和它抢，所以整轮 200 ms 里一次失败都没有发生。',
     ] },
     { kind: 'table', heading: '第一批，逐项加起来', head: [
       '步骤', '数值',
@@ -80,8 +132,7 @@ export const ampdu: Lesson = {
   ],
   deeper: [
     { heading: '一批的大小由什么决定', text: '两个上限碰在一起，低的那个说了算。一个是结构上的：这里一个聚合最多容纳 64 个成员，总长度还受接收端答应缓存多少的约束。另一个是时钟：这一批、它的开场交互和它的回答，必须全部装进获胜者被允许占用信道的那段时间里。本场景中先顶到的是时钟，所以这一批是 14 帧，而不是 64 帧。' },
-    { heading: '成员之间的那段标记', text: '每个成员前面都有一小段定界符，里面写着它的长度以及对这个长度的校验，后面还要补齐，让下一个成员从四字节边界开始。正是这一点，让漏掉某个成员开头的接收端可以直接跳到下一个，而不是把这一批剩下的全都丢掉；也正因为如此，这里的一批是 21 502 字节，而不是 14 × 1 530。' },
-    { heading: '必须先存在的那份约定', text: '接收端不可能为一批它从未答应缓存的帧回一张位图。在这一切之前，两端要先交换一次简短的请求与响应，把这份块确认协定（Block Ack agreement, ADDBA）谈好：覆盖哪一类流量、最多允许多少帧在途、窗口从哪里开始。本仿真器假定这份约定早已谈妥，所以你在时间轴上看不到它。' },
+    { heading: '定界符还有一个用处', text: '每段定界符里除了长度，还带着对这个长度的校验。正是这一点，让漏掉某个成员开头的接收端可以照着长度直接跳到下一个成员，而不是把这一批剩下的全都丢掉。本仿真器不建模这种“跳过去接着解”，所以它比真实接收机更容易整批放弃。' },
   ],
   sources: [
     'A-MPDU 聚合、定界符、补齐到四字节边界，以及这里用的 64 个子帧上限，见 IEEE Std 802.11-2024 的 §10.12 与 §9.7；BlockAck 帧及其位图见 §9.3.1.9，先于它的那份约定见 §10.25。',
@@ -107,7 +158,6 @@ export const ampdu: Lesson = {
   observe: [
     '这里的每一批都带着 ×14 的角标。悬停其中一个：十四帧、21 502 字节在同一个前导码下面发出去，是一次时长 2 248 µs 的传输。',
     '一个淡紫色的 BlockAck，32 字节、32 µs，就把这一轮收尾了——它顶替的是十四个独立回答，以及每个回答前面的那段停顿。',
-    '载入“关闭聚合”的变体：同一台设备、同样的编码，现在改成一帧一发的 1 530 字节帧，每一帧都要自己那个 28 µs 的回答。',
   ],
   tryThis: [
     '在检视器里看队列每赢一次信道就清掉 14 帧，而不是 1 帧。14 是“一次获胜允许持续的时间”装得下的数量，并不是聚合的上限——上限是 64 帧。',

@@ -1,45 +1,89 @@
 /**
- * Wi-Fi Tier 2 · M3 · QoS and efficiency · EDCA, four queues in one radio.
+ * Wi-Fi Tier 2 · M8 · QoS 与效率 · EDCA: four queues, and the two numbers that
+ * decide between them.
  *
- * Rewritten to the zero-to-hero contract
- * (docs/superpowers/specs/2026-09-21-course-readability-design.md): one radio
- * sorts its traffic into four queues, each queue contends on its own, and the
- * two knobs that decide who wins are the silence before counting and the width
- * of the draw. The dense material that used to open the lesson — the xIFS
- * ladder, the 2ⁿ − 1 series, the internal collision — lives in `deeper`, and
- * the clause numbers in `sources`.
+ * Re-paced on 2026-09-25
+ * (docs/superpowers/plans/2026-09-25-course-repacing-proposal.md, §2 M8): the
+ * first half of the old lesson. What this half owns is how a win is decided —
+ * the four access categories, the AIFS each one must hear and the width of its
+ * first draw, with the procedure the MAC actually runs. What the head start
+ * COSTS, who pays it, and the one station in this room that ever owes an EIFS
+ * are `edca-cost`, which loads this same scene (`sameSceneAs: 'edca'`).
+ *
+ * Cut here, as §5 names them:
+ *  - 「窗口为什么是翻倍而不是加一」and 「等待的整把梯子」(§5.1.5): `collisions-cw`
+ *    owns the doubling and `ifs` owns the ladder, and this lesson points at them
+ *    rather than teaching them again.
+ *  - 「把抢跑量出来」(§5.3): it re-derived the 45 µs the table above it prints;
+ *    the figure now shows it and the caption states it once.
+ *  - the waiting-room metaphor 「一台电台，四间候车室」and 「两个旋钮，没有裁判」
+ *    (§5.2), and 抢跑 is down from eight uses to one.
+ *  - the `deeper` note 「当自己的两条队列打平」, which restated step 6 of the
+ *    procedure in the same words.
  *
  * The scenario builder and the jump-zero predicate are unchanged, so the
  * recorded timeline hash stays identical. Every number quoted below is pinned
  * in tests/course/edca.test.ts.
  */
+import type { TimingSpec } from '../diagram'
 import { type Lesson, oneRoom, node, sc, firstVo, J } from '../lessonKit'
+
+/**
+ * The four categories' AIFS, drawn from one frame end to scale.
+ *
+ * The zero point is a real instant of this run — 23.0816 ms, the moment the air
+ * goes idle before the caller's first voice frame, which is the first row of the
+ * worked table below the figure — and the first lane is the frame that ended
+ * there: the access point's 32 µs answer, from 23.0496.
+ *
+ * Two of the four AIFS lanes are records at that instant, 34 µs on the caller
+ * and 43 µs on the uploader; 79 µs is the same sum, `aifsNs(AIFSN)`, for the
+ * category that had nothing to send just then, and the caption says which is
+ * which. The five slots between the top lane and the bottom one are the whole
+ * mechanism of this lesson: 79 − 34 = 45 µs in which voice counts and background
+ * may not.
+ */
+export function edcaAifsTiming(): TimingSpec {
+  return {
+    kind: 'timing',
+    lanes: [
+      { label: '空口', spans: [{ fromUs: -32, toUs: 0, label: '回答' }] },
+      { label: 'VO 语音', spans: [{ fromUs: 0, toUs: 34, label: '34 µs', tone: 'accent' }] },
+      { label: 'VI 视频', spans: [{ fromUs: 0, toUs: 34, label: '34 µs' }] },
+      { label: 'BE 尽力', spans: [{ fromUs: 0, toUs: 43, label: '43 µs' }] },
+      { label: 'BK 后台', spans: [{ fromUs: 0, toUs: 79, label: '79 µs' }] },
+    ],
+    axis: { fromUs: -40, toUs: 110, ticks: [0, 50, 100], unit: 'µs（0 是帧尾）' },
+  }
+}
 
 export const edca: Lesson = {
   id: 'edca',
   module: 7,
-  title: 'EDCA——四条队列，四种性格',
-  why: '一通电话和一个文件上传抢的是同一片空口，但它们要的东西不一样。几毫秒的等待就能毁掉通话；同样的等待落在上传上，谁也察觉不到。可到目前为止的规则对每一帧都一视同仁，于是通话只能和上传一起碰运气，而且通常运气更差。这一课我们看一台电台如何不再以“一个竞争者”的身份参赛，而是变成四个。',
+  title: 'EDCA——四条队列，两个数',
+  why: '一通电话和一个文件上传抢的是同一片空口，但它们要的东西不一样。几毫秒的等待就能毁掉通话；同样的等待落在上传上，谁也察觉不到。可到目前为止的规则对每一帧都一视同仁，于是通话只能和上传一起碰运气，而且通常运气更差。这一课我们看一台电台如何不再以“一个竞争者”的身份参赛，而是变成四个——以及分出胜负的，是哪两个数。',
   outcomes: [
     '说清一台站点（STA）把自己的流量分成四类之后，内部到底变了什么',
-    '从仿真里读出某一类的必等静默和抽取宽度，并说出抢跑是哪一个带来的',
-    '解释这里的优先级做不到什么，以及最低的那一类为此付出了什么',
+    '从仿真里读出某一类必等的静默和抽取宽度，并说出优势主要是哪一个带来的',
   ],
-  needs: ['ifs', 'backoff', 'retries-queues'],
+  needs: ['ifs', 'backoff', 'collisions-cw'],
   terms: [
     { term: 'EDCA', plain: '增强型分布式信道接入：这条规则让一台站点拥有四条等待队列，而不是一条，每一条各自去竞争' },
     { term: 'access category', plain: '一帧进入电台时被归入的那一类：语音、视频、尽力而为、后台' },
     { term: 'AIFS', plain: '仲裁帧间间隔：一条队列的倒数开始走动之前必须听到的那段安静——就是那段固定的长等待，只是按类别做成了可调的' },
   ],
   picture: [
-    { heading: '一台电台，四间候车室', text: '每一帧进入电台的时候，都会按它装的东西被归入四类之一：一通电话、一部影片、普通流量，或者压根没人在等的东西。每一类有自己的队列（queue），每条队列各跑各的倒数，就像房间里另一台独立的站点一样。哪条先数到零，电台就发哪条的帧。这就是增强型分布式信道接入（enhanced distributed channel access, EDCA）；而这四条队列里的每一条，标准里称为一个接入类别（access category, AC）。' },
-    { heading: '两个旋钮，没有裁判', text: '为了在它们之间分出胜负，并没有新增任何东西——没有调度器，也不用向谁请示。四条队列玩的还是整个房间都在玩的那套等待游戏，只是有两个数按类别分别设定。第一个是：这条队列必须先听到多久的“什么都没有”，它的倒数才被允许走动，这就是它的仲裁帧间间隔（arbitration interframe space, AIFS）。第二个是：它抽倒数值时的取值范围有多宽。语音等得更短，抽得更小。抽签，只不过是被做了手脚。' },
+    { heading: '一台电台，四个竞争者', text: '每一帧进入电台的时候，都会按它装的东西被归入四类之一：一通电话、一部影片、普通流量，或者压根没人在等的东西。每一类有自己的队列（queue），每条队列各跑各的倒数，就像房间里另一台独立的站点一样。哪条先数到零，电台就发哪条的帧。这就是增强型分布式信道接入（enhanced distributed channel access, EDCA）；而这四条队列里的每一条，标准里称为一个接入类别（access category, AC）。' },
+    { heading: '分出胜负的两个数', text: '为了在它们之间分出胜负，并没有新增任何东西：没有调度器，也不用向谁请示。四条队列玩的还是退避（backoff）那一课里的同一套等待游戏，只有两个数按类别分别设定。第一个是：这条队列必须先听到多久的“什么都没有”，它的倒数才被允许走动，这就是它的仲裁帧间间隔（arbitration interframe space, AIFS）。第二个是：它抽倒数值时的取值范围有多宽，也就是它那两个竞争窗口（contention window, CW）。语音等得更短，抽得更小。' },
     { kind: 'watch', jump: 0, heading: '看通话是怎么挤进去的', text: '载入仿真，跳到通话站点的第一帧。旁边的上传站点从来没停过，可通话依然上了空口。把鼠标悬在通话站点的倒数色块上，再悬在备份站点的色块上，比一比这两个块上的数。' },
-    { heading: '每一轮都要兑现的抢跑', text: '这两个旋钮给的优势并不是同一种。抽取范围更窄，只是把概率往一边拨了拨——后台队列照样可能抽到很小的数然后赢。更短的静默要硬得多：当后台队列还在熬它那段必等的安静时，语音队列已经在倒数了，而在这些时隙（slot time）里，后台队列连开始的资格都没有。这是抢跑，而且每一轮都要兑现一次。' },
-    { heading: '优先级做不到的事', text: '这一切都不会打断任何东西。已经在空中的帧就是在空中；一帧语音如果赶上别人正发着一长串突发，它就得等那串突发整个结束，和其他任何帧一样。优先级买到的，是在“下一轮归谁”这场争论里站得更靠前，而绝不是从这一轮里脱身的办法。所以这里的语音平均而言很快，却照样会有几次很难看的时刻。' },
-    { heading: '总得有人排在最后', text: '抢跑的额度是从别人兜里掏出来的。后台这一类——备份、更新，以及任何没人在等的东西——拿到的是最长的静默和最宽的抽取范围，于是它最晚、也最少地摸到空口。在一个繁忙的房间里，它的帧待在队列里的时间是通话的好几倍。这不是设计上的缺陷，这正是设计本身，也正是这一类存在的理由。' },
+    { heading: '更短的静默，每一轮都要兑现一次', text: '这两个数给的优势并不是同一种。抽取范围更窄，只是把概率往一边拨了拨——后台队列照样可能抽到很小的数然后赢。更短的静默要硬得多：当后台队列还在熬它那段必等的安静时，语音队列已经在倒数了，而在这些时隙（slot time）里，后台队列连开始的资格都没有。这是抢跑，而且每一轮都要兑现一次。' },
   ],
   numbers: [
+    {
+      kind: 'diagram', heading: '同一个帧尾出发，四类各等多久',
+      spec: edcaAifsTiming(),
+      caption: '零点取本轮的 23.0816 ms：接入点（access point, AP）那个 32 µs 的回答刚刚结束，空口重新安静下来。这一刻真的在跑的是 34 µs 和 43 µs 两条（通话站点一条，上传站点一条）；79 µs 那条是同一个和式按后台的时隙数算出来的。最上和最下相差 45 µs，正好五个时隙——这五个时隙里语音在数，后台不许数。',
+    },
     { kind: 'table', heading: '每一类拿到的三个常数', head: [
       '类别', 'AIFSN（静默的时隙数）',
       '先等的静默，即它的 AIFS',
@@ -51,14 +95,14 @@ export const edca: Lesson = {
       ['BE（尽力而为）', '3', '43 µs', '15', '1023', 'Table 9-194'],
       ['BK（后台）', '7', '79 µs', '15', '1023', 'Table 9-194'],
     ] },
-    { kind: 'formula', heading: '这些等待是怎么来的', text: 'AIFS = SIFS + AIFSN × 时隙 = 16 + AIFSN × 9 µs，AIFSN 取 2、3 或 7', note: '过去那段“一刀切”的等待，就是这同一个式子把仲裁帧间间隔数（arbitration interframe space number, AIFSN）钉死在 2：一个常数被改成了参数。' },
+    { kind: 'formula', heading: '这些等待是怎么来的', text: 'AIFS = SIFS + AIFSN × 时隙 = 16 + AIFSN × 9 µs，AIFSN 取 2、3 或 7', note: '过去那段“一刀切”的等待，就是这同一个式子把仲裁帧间间隔数（arbitration interframe space number, AIFSN）钉死在 2：一个常数被改成了参数。至于窗口失败一次为什么翻倍、整个帧间间隔家族还有哪几级，分别是“沉默、期限，和被拉宽的窗口”与“两种等待”那两课的事。' },
     { kind: 'steps', heading: '一帧的等待是怎么定下来的，一步一步', items: [
       '这一帧进来时被归入某一个接入类别，排进那一类自己的队列。每条队列都有自己的计数器和自己的窗口；上面那张表里的三个常数，就是这四条队列全部的区别所在。',
-      '这条队列必等的静默，由它的 AIFSN（表里那个时隙数）按上面那个和式算出：两个时隙是 34 µs，七个时隙是 79 µs。',
-      '手里有帧、空中又安静时，这条队列必须先听到完整不断的那段 AIFS，计数器才被允许走动。如果本机上一次听到的是一帧解不出来的东西，这段等待就换成扩展帧间间隔（extended interframe space, EIFS）减去分布式帧间间隔（DCF interframe space, DIFS）再加上这条队列的 AIFS——对上传站点那一类来说是 103 µs。',
-      '这段 AIFS 走完时，这条队列在零和它当前窗口之间抽一个整数；窗口从最小竞争窗口（minimum contention window, CWmin）起步。对这四条队列来说，AIFS 结束的那一刻本身就是一个时隙边界，所以计数器在那里就先减一——比退避（backoff）那一课里的朴素倒数早一个边界，而数过的时隙一样多。',
+      '这条队列必等的静默，由它的 AIFSN 按上面那个和式算出：两个时隙是 34 µs，七个时隙是 79 µs。',
+      '手里有帧、空中又安静时，这条队列必须先听到完整不断的那段 AIFS，计数器才被允许走动。',
+      '这段 AIFS 走完时，这条队列在零和它当前窗口之间抽一个整数；窗口从最小竞争窗口（minimum contention window, CWmin）起步。对这四条队列来说，AIFS 结束的那一刻本身就是一个时隙边界，所以计数器在那里就先减一——比退避那一课里的朴素倒数早一个边界，而数过的时隙一样多。',
       '此后每过一个 9 µs 的空闲时隙，计数器再减一；空中一旦有东西，它就原地冻住，等下一段 AIFS 走完再接着数。已经停在零的计数器，在下一个时隙边界上发送，也就是再过 9 µs。',
-      '如果同一台电台的两条队列在同一个时隙同时停在零，高的那一类发送，低的那一类则完全按“自己的帧在空中丢了”来处理：记一次重传（retry），窗口朝最大竞争窗口（maximum contention window, CWmax）翻倍，重新抽数。这就是内部碰撞（internal collision），而它一微秒空口时间（airtime）也不花。',
+      '如果同一台电台的两条队列在同一个时隙同时停在零，高的那一类发送，低的那一类则完全按“自己的帧在空中丢了”来处理：记一次重传（retry），窗口朝最大竞争窗口（maximum contention window, CWmax）翻倍，重新抽数。这就是内部碰撞（internal collision），而它一微秒空口时间（airtime）也不花。本场景里每台站点只跑一类流量，所以这一步一次也没触发。',
     ] },
     { kind: 'table', heading: '通话站点的第一帧语音，照着步骤走一遍', head: [
       '步骤', '数值',
@@ -73,26 +117,11 @@ export const edca: Lesson = {
       ['这一帧语音发出去的时刻', '23.1336 ms'],
       ['同一刻起步的后台队列，此时还欠着', '27 µs'],
     ] },
-    { kind: 'table', heading: '三台站点实际的表现', head: [
-      '站点', '类别', '静默',
-      '抽取次数', '平均抽到', '平均排队时延',
-    ], rows: [
-      ['通话站点', 'VO', '34 µs', '33', '2.2', '1.49 ms'],
-      ['上传站点', 'BE', '43 µs', '107', '7.9', '2.23 ms'],
-      ['备份站点', 'BK', '79 µs', '14', '8.2', '10.23 ms'],
-    ] },
-    { heading: '把抢跑量出来', text: '拿最上面一行比最下面一行：45 µs 的静默，也就是五个时隙；这五个时隙里通话站点在数，备份站点不许数。再加上更窄的抽取范围——平均 2.2 个时隙比 8.2 个。' },
-    { heading: '谁摊上过那段更长的等待', text: '这个房间里只有上传站点碰到过解不出来的帧，所以第 3 步那段 103 µs 的等待也只有它摊上过。而没有哪台站点同时跑两类流量，于是第 6 步同样一次也没触发。' },
-  ],
-  deeper: [
-    { heading: '当自己的两条队列打平', text: '一台电台里的四个倒数，完全可能在同一个时隙同时归零，而能发出去的只有一帧。设备会提前把这件事解决掉：高的那一类发送，低的那一类把窗口翻倍、重新抽取，完全当作自己的帧在空中丢了一样——这叫内部碰撞，代价付了，却没浪费一微秒的空口时间。本场景里不会出现这种情况，因为这里每台站点都只跑一类流量。' },
-    { heading: '等待的整把梯子', text: '协议里的每一种等待都是同一个和式：SIFS 加上 n 个时隙，整个家族可以读成一把梯子。n = 0 是一次交互内部的停顿，n = 1 留给接入点自己的调度接入，n = 2 是那段旧的固定竞争等待，而 n = 2、3、7 就是四个类别。收到坏帧之后的惩罚等待不是梯子上的一级，而是叠加在梯子上的一层，所以它与类别等待相加，而不是把它替换掉。' },
-    { heading: '窗口为什么是翻倍而不是加一', text: '每一类都有一个最小竞争窗口和一个最大竞争窗口，中间每失败一次，就沿着 2ⁿ − 1 这个序列往上走：3、7、15、31……语音故意只有两级，3 和 7——一通退避到几百个时隙的电话，其实已经失败了——而后台可以一路爬到 1023。' },
   ],
   sources: [
     '四个接入类别及其默认参数见 IEEE Std 802.11-2024 的 Table 9-194（EDCA 参数集元素，§9.4.2.28）；AIFS[AC] = aSIFSTime + AIFSN × aSlotTime 见 §10.23.2.4，其中 16 µs 与 9 µs 取自 §17.4.4。',
-    '内部碰撞的规则——高优先级类别发送，低优先级类别按外部碰撞进入退避——见 §10.23.2.2；收到坏帧之后的等待写作 EIFS − DIFS + AIFS[AC]，同样出自该条。',
-    '随机种子、三台站点、它们的业务模型，以及决定“两个重叠前导里锁住哪一个”的捕获余量，都是本仿真器的模型取值，而非标准中的数值。',
+    '内部碰撞的规则——高优先级类别发送，低优先级类别按外部碰撞进入退避——见 §10.23.2.2。',
+    '随机种子、三台站点及它们的业务模型，都是本仿真器的模型取值，而非标准中的数值。',
   ],
   scenario: () => sc(oneRoom(), [
     node('ap', 'AP', 'ap', 5, 4, 'eht', 'idle'),
@@ -100,18 +129,16 @@ export const edca: Lesson = {
     node('sta-2', 'Uploader (BE)', 'sta', 6.5, 5, 'he', 'saturated'),
     node('sta-3', 'Backup (BK)', 'sta', 5, 6.5, 'he', 'backup'),
   ]),
+  // The other two jumps of the old list — the background station's first frame and the
+  // uploader's first EIFS — went to `edca-cost` with the material they anchor.
   jumps: [
     J('第一次 VO 接入', firstVo),
-    J('后台站点的第一帧', (r) => r.type === 'TX_START' && r.node === 'sta-3' && r.frame.kind === 'data'),
-    J('上传站点的第一次 EIFS', (r) => r.type === 'IFS_START' && r.node === 'sta-2' && r.kind === 'EIFS'),
   ],
   observe: [
     '把鼠标悬在通话站点的倒数色块上：它们标着 AC_VO，块上的窗口从不宽过 7。备份站点的块标着 AC_BK，从不窄于 15，而且上面那段静默是 79 µs。',
-    '跳到备份站点的第一帧：它落在整轮的第 55 ms。上传站点从 0.088 ms 起就一直在发，而通话站点第一次开口是在 23 ms。',
-    '在 300 ms 里，通话站点抽了 33 次倒数，备份站点只抽了 14 次——可备份站点的帧在队列里等的时间，依然是通话的约七倍。',
+    '悬在色块之前那段等待上：通话站点的每一段都是 34 µs，标着 AIFS；上传站点的每一段是 43 µs。整轮下来，这两个数一次也没变过。',
   ],
   tryThis: [
-    '在功能面板里关掉通话站点的 EDCA 再载入。它退回成单队列，用回那段旧的固定等待和旧的宽窗口，它的帧要多等大约两倍半的时间。',
     '把上传站点的业务也改成语音再载入：两条语音队列现在从同一个极小的范围里抽数，它们互相碰撞的频率比之前高得多。',
   ],
   quiz: [
@@ -126,24 +153,14 @@ export const edca: Lesson = {
       explain: '两个数，没有调度器：一个能更早开始数、又从更小的数开始数的类别，多数时候会更早数到零。',
     },
     {
-      q: '一帧语音入队时，邻居正发到一串长突发的一半。它会怎么样？',
+      q: '后台这一类的 AIFSN 是 7。它每一轮必须先听到多久的安静？',
       options: [
-        '它打断那串突发，因为语音有优先级',
-        '它等那串突发结束，然后带着抢跑的优势去争下一轮',
-        '它被丢掉，因为信道忙',
+        '7 µs',
+        '63 µs',
+        '79 µs',
       ],
-      answer: 1,
-      explain: '优先级完全是在帧与帧之间的静默里决出来的。这套机制里没有任何东西能动一下已经开始的传输。',
-    },
-    {
-      q: '为了别人的抢跑，后台这一类付出了什么？',
-      options: [
-        '更低的数据速率',
-        '最长的静默和最宽的抽取范围，于是它的帧在队列里待得久得多',
-        '什么都没付：四个类别互不干扰',
-      ],
-      answer: 1,
-      explain: '信道只有一条。给了某一类的东西，必然是从另一类身上拿的——而一次备份，本来就该让出这些。',
+      answer: 2,
+      explain: '16 + 7 × 9 = 79 µs。同一个式子换一个 AIFSN，就得到四类各自的静默；语音的 2 个时隙给出 34 µs。',
     },
   ],
 }

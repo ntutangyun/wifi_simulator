@@ -10,13 +10,14 @@
  * arithmetic and the two experiments. There was never a `.body!` site to retire.
  */
 import { describe, it, expect } from 'vitest'
-import { txop } from '../../src/course/tier2/txop'
+import { txop, txopBurstTiming } from '../../src/course/tier2/txop'
 import { ScenarioSchema } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 import { Simulation } from '../../src/engine/simulation'
 import { lessonShapeSuite, ofType, runOf } from './kit'
 import { EDCA_PARAMS, OFDM_5G, aifsNs } from '../../src/engine/phy'
 import { MODULES } from '../../src/course/curriculum'
+import { W, layoutDiagram, textBox, type Shape, type TimingLane } from '../../src/course/diagram'
 
 const MS = 1_000_000
 const US = 1_000
@@ -116,8 +117,9 @@ describe('txop · what the access point actually did', () => {
   })
 
   it('the first burst, at 0.88 ms, serves one television then the other one pause later', () => {
-    // the first observation, and the jump "first TXOP start". The same burst is pinned in
-    // lesson-claims.test.ts; here it guards the sentence as this lesson now writes it.
+    // the figure and its caption, and the jump "first TXOP start". (This was the first observe
+    // line until the 2026-09-25 re-pacing; the figure says it to scale now.) The same burst is
+    // pinned in lesson-claims.test.ts; here it guards the sentence as this lesson now writes it.
     const t0 = ofType(rs, 'TXOP_START')[0]
     expect(Math.round(t0.t / 10_000) / 100).toBe(0.88)
     const end = ofType(rs, 'TXOP_END').find((r) => r.t > t0.t)!
@@ -129,6 +131,53 @@ describe('txop · what the access point actually did', () => {
     expect(rs.some((r) => (r.type === 'BACKOFF_DRAW' || r.type === 'IFS_START')
       && r.node === 'ap' && r.t > t0.t && r.t < end.t)).toBe(false)
     for (const j of txop.jumps) expect(rs.some(j.find), j.label).toBe(true)
+  })
+})
+
+describe('txop · the burst against its clock, as the figure draws it', () => {
+  const rs = recs()
+  const lane = (label: string): TimingLane => txopBurstTiming().lanes.find((l) => l.label === label)!
+
+  it('every span is that burst’s own record, taken from the TXOP start', () => {
+    const t0 = ofType(rs, 'TXOP_START').filter((r) => r.node === 'ap')[0]
+    const end = ofType(rs, 'TXOP_END').find((r) => r.node === 'ap' && r.t > t0.t)!
+    const rel = (t: number) => (t - t0.t) / US
+    const data = txs(rs, 'data').filter((r) => r.node === 'ap' && r.t >= t0.t && r.t < end.t)
+    const acks = txs(rs, 'ack').filter((r) => r.t > t0.t && r.t <= end.t)
+    // the access point's lane: two frames of 188 µs at 0 and 248
+    expect(lane('接入点').spans.map((s) => [s.fromUs, s.toUs]))
+      .toEqual(data.map((d) => [rel(d.t), rel(d.t + d.frame.txTimeNs)]))
+    // the televisions' lane: two answers of 28 µs at 204 and 452
+    expect(lane('两台电视').spans.map((s) => [s.fromUs, s.toUs]))
+      .toEqual(acks.map((a) => [rel(a.t), rel(a.t + a.frame.txTimeNs)]))
+    // the clock: 4 096 µs from the same zero, which is the lease the record carries
+    const clock = lane('上限').spans[0]
+    expect([clock.fromUs, clock.toUs]).toEqual([0, (t0.untilNs - t0.t) / US])
+    expect(clock.toUs).toBe(4_096)
+    expect(clock.label).toBe('4 096 µs')
+    // and the caption's "480 µs, of the 4 096 it was allowed"
+    expect(rel(end.t)).toBe(480)
+    expect(acks[1].t + acks[1].frame.txTimeNs).toBe(end.t)
+  })
+
+  it('lays out inside the viewBox, legibly, with no two labels touching', () => {
+    const lay = layoutDiagram(txopBurstTiming())
+    const ts = lay.shapes.filter((s): s is Extract<Shape, { s: 'text' }> => s.s === 'text')
+    expect(ts.length).toBeGreaterThan(6)
+    for (const t of ts) {
+      const b = textBox(t)
+      expect(b.x0, t.text).toBeGreaterThanOrEqual(-0.01)
+      expect(b.x1, t.text).toBeLessThanOrEqual(W + 0.01)
+      expect(b.y1, t.text).toBeLessThanOrEqual(lay.height + 0.01)
+      expect(t.size, t.text).toBeGreaterThanOrEqual(9.5)
+    }
+    const bs = ts.map(textBox)
+    for (let i = 0; i < bs.length; i++) {
+      for (let j = i + 1; j < bs.length; j++) {
+        const hit = bs[i].x0 < bs[j].x1 && bs[j].x0 < bs[i].x1 && bs[i].y0 < bs[j].y1 && bs[j].y0 < bs[i].y1
+        expect(hit, `${ts[i].text} / ${ts[j].text}`).toBe(false)
+      }
+    }
   })
 })
 

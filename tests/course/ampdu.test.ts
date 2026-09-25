@@ -10,13 +10,14 @@
  * frame, and the three observations. There was never a `.body!` site to retire.
  */
 import { describe, it, expect } from 'vitest'
-import { ampdu } from '../../src/course/tier2/ampdu'
+import { ampdu, ampduSubframeFields } from '../../src/course/tier2/ampdu'
 import { ScenarioSchema } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 import { lessonShapeSuite, ofType, runOf } from './kit'
 import { AMPDU_DELIMITER_BYTES, BA_BYTES, FCS_BYTES, MAX_AMPDU_MPDUS, MAX_PPDU_NS, OFDM_5G, QOS_HDR_BYTES } from '../../src/engine/phy'
 import { ampduPsduBytes, ampduSubframeBytes } from '../../src/model/frames'
 import { MODULES } from '../../src/course/curriculum'
+import { W, layoutDiagram, textBox, type Shape } from '../../src/course/diagram'
 
 const MS = 1_000_000
 const US = 1_000
@@ -35,7 +36,9 @@ lessonShapeSuite(ampdu, { runNs: RUN_NS })
 describe('ampdu · the lesson’s own scene', () => {
   it('sits in Tier 2 and leans on the airtime and frame lessons', () => {
     expect(MODULES[ampdu.module].title).toBe('QoS 与效率')
-    expect(ampdu.needs).toEqual(['airtime', 'frame-anatomy', 'retries-queues'])
+    // §6 of the re-pacing plan moves this row to the halves that own the material: the shared
+    // preamble to `small-frames`, the QoS header and the per-frame check to `frame-qos-fcs`.
+    expect(ampdu.needs).toEqual(['small-frames', 'frame-qos-fcs', 'retries-queues'])
     expect(ampdu.terms!.map((t) => t.term)).toEqual(['A-MPDU', 'subframe', 'BlockAck'])
   })
 
@@ -78,7 +81,8 @@ describe('ampdu · one turn, both ways', () => {
   })
 
   it('one at a time: 1 530-byte frames of 200 µs, each with its own 28 µs answer', () => {
-    // the table's right-hand column and the third observation
+    // the table's right-hand column. (The observe line that restated this column went with
+    // the 2026-09-25 re-pacing; the column itself still states it.)
     const rs = plain()
     const data = txs(rs, 'data')
     expect(data.every((r) => r.frame.ampdu === undefined)).toBe(true)
@@ -100,6 +104,49 @@ describe('ampdu · one turn, both ways', () => {
     // "(28 + 28 + 2 248 + 32) µs ÷ 14 frames = 166.9 µs" / "(200 + 28) µs ÷ 1 frame = 228.0 µs"
     expect(((28 + 28 + 2_248 + 32) / 14).toFixed(1)).toBe('166.9')
     expect((200 + 28).toFixed(1)).toBe('228.0')
+  })
+})
+
+describe('ampdu · the subframe figure', () => {
+  it('its five boxes are the engine’s own subframe, byte for byte', () => {
+    // the figure and its caption: "the fixed 36 bytes (delimiter, header, check) plus 1 500
+    // of payload, padded up to 1 536" — every size is a constant of src/engine/phy.ts, and
+    // the sum is `ampduSubframeBytes(1500)`.
+    const f = ampduSubframeFields()
+    expect(f.unit).toBe('B')
+    expect(f.fields.map((x) => [x.label, x.size])).toEqual([
+      ['定界符', AMPDU_DELIMITER_BYTES], ['帧头', QOS_HDR_BYTES], ['载荷', 1_500],
+      ['校验', FCS_BYTES], ['填充', 2],
+    ])
+    const sum = f.fields.reduce((n, x) => n + x.size, 0)
+    expect(sum).toBe(ampduSubframeBytes(1_500))
+    expect(sum).toBe(1_536)
+    // "the fixed part of a subframe is 36 bytes against 1 500 of payload"
+    expect(sum - 1_500).toBe(36)
+    // and the total line is the batch this run really sends
+    expect(f.total).toContain('21 502')
+    expect(ampduPsduBytes(Array(14).fill(1_500))).toBe(21_502)
+    expect(txs(agg(), 'data')[0].frame.bytes).toBe(21_502)
+  })
+
+  it('lays out inside the viewBox, legibly, with no two labels touching', () => {
+    const lay = layoutDiagram(ampduSubframeFields())
+    const ts = lay.shapes.filter((s): s is Extract<Shape, { s: 'text' }> => s.s === 'text')
+    expect(ts.length).toBeGreaterThan(5)
+    for (const t of ts) {
+      const b = textBox(t)
+      expect(b.x0, t.text).toBeGreaterThanOrEqual(-0.01)
+      expect(b.x1, t.text).toBeLessThanOrEqual(W + 0.01)
+      expect(b.y1, t.text).toBeLessThanOrEqual(lay.height + 0.01)
+      expect(t.size, t.text).toBeGreaterThanOrEqual(9.5)
+    }
+    const bs = ts.map(textBox)
+    for (let i = 0; i < bs.length; i++) {
+      for (let j = i + 1; j < bs.length; j++) {
+        const hit = bs[i].x0 < bs[j].x1 && bs[j].x0 < bs[i].x1 && bs[i].y0 < bs[j].y1 && bs[j].y0 < bs[i].y1
+        expect(hit, `${ts[i].text} / ${ts[j].text}`).toBe(false)
+      }
+    }
   })
 })
 
@@ -148,6 +195,28 @@ describe('ampdu · how a batch is built and answered', () => {
     const deq = ofType(rs, 'DEQUEUE').filter((r) => r.node === 'sta-1' && r.t <= ba.t + ba.frame.txTimeNs)
     expect(deq).toHaveLength(14)
     expect(new Set(deq.map((r) => r.t)).size).toBe(1)
+  })
+
+  it('step 6’s closing sentence: nothing fails in this scene, so nothing is retried', () => {
+    // 「本场景只有一台上传站点，没人和它抢，所以整轮 200 ms 里一次失败都没有发生」and the
+    // note under the run table. THE ENGINE CONTRADICTED THE OLD PROSE HERE: it said the
+    // measured 168.9 µs was above the worked 166.9 because "a few turns were lost and had to
+    // be redone", and this run loses none. The excess is arithmetic, not loss — the last turn
+    // is still open when the 200 ms window ends, so its air counts and its fourteen frames do
+    // not. The sentence now says that, and this pin is why.
+    const rs = agg()
+    expect(ofType(rs, 'RETRY')).toHaveLength(0)
+    expect(ofType(rs, 'ACK_TIMEOUT')).toHaveLength(0)
+    expect(ofType(rs, 'DROP')).toHaveLength(0)
+    // 81 turns started, 80 finished, and 80 × 14 frames were delivered
+    expect(ofType(rs, 'TXOP_START')).toHaveLength(81)
+    expect(ofType(rs, 'TXOP_END')).toHaveLength(80)
+    expect(delivered(rs)).toBe(80 * 14)
+    // and the air of those 81 turns over the 1 120 frames the first 80 delivered is the
+    // 168.9 µs the table prints, against the 166.86 µs of one complete turn
+    expect((busyAirNs(rs) / 81 / US).toFixed(0)).toBe('2336')
+    expect(((28 + 28 + 2_248 + 32) / 14).toFixed(2)).toBe('166.86')
+    expect((busyAirNs(rs) / delivered(rs) / US).toFixed(1)).toBe('168.9')
   })
 })
 

@@ -1,27 +1,70 @@
 /**
- * Wi-Fi Tier 2 · M3 · QoS and efficiency · TXOP, the lease on the channel.
+ * Wi-Fi Tier 2 · M8 · QoS 与效率 · TXOP, the lease on the channel.
  *
  * Rewritten to the zero-to-hero contract
  * (docs/superpowers/specs/2026-09-21-course-readability-design.md) and grown
  * from the 193-word original: winning once and keeping the floor, the ceiling
- * that bounds it, and why a bounded lease is fair enough. The per-class limits
- * and what actually stops a burst are in `numbers`; the reverse direction and
- * the protection question are in `deeper`.
+ * that bounds it, and why a bounded lease is fair enough.
+ *
+ * **Stays whole** in the 2026-09-25 re-pacing
+ * (docs/superpowers/plans/2026-09-25-course-repacing-proposal.md, §2 M8): one
+ * mechanism with one measurable payoff. What it loses:
+ *  - 「告诉整个房间要躲多久」(§5.1.4) — the Duration that telegraphs a burst is
+ *    `txop-protect`'s own procedure, taught there properly with the numbers;
+ *    one forward-pointing clause is left in `deeper`;
+ *  - 「把发言权借回去」(§5.5) — reverse-direction TXOP, which this simulator
+ *    never puts on the timeline, cut to one sentence;
+ *  - 「这里的每一串突发是被什么结束的」(§5.3) — it restated 「多数时候拦住你的不是
+ *    上限」using the table between them. The new figure carries it instead: the
+ *    480 µs the longest burst used, drawn against the 4 096 µs it was allowed;
+ *  - the 短租 metaphor, which ran four times; the standard's own words (占住发言权,
+ *    上限) do the work (§5.2).
  *
  * The scenario builder is unchanged, so the recorded timeline hash stays
  * identical. Every number quoted below is pinned in tests/course/txop.test.ts.
  */
+import type { TimingSpec } from '../diagram'
 import { type Lesson, oneRoom, node, sc, firstTxop, J } from '../lessonKit'
+
+/**
+ * This run's first burst against the clock it was given, to scale. Every figure
+ * is a record of the base run, taken relative to the TXOP_START at 0.883 ms: the
+ * two data frames at 0–188 and 248–436 µs, the two answers at 204–232 and
+ * 452–480, the TXOP_END at 480, and the lease itself, 4 096 µs from `EDCA_PARAMS`
+ * for AC_VI.
+ *
+ * The slivers are meant to be slivers. The whole finding of the lesson is that
+ * the ceiling is not what stops a burst here — 480 µs of 4 096 — and a figure
+ * drawn to scale says that in one look, which is why the paragraph that said it
+ * in words is gone.
+ */
+export function txopBurstTiming(): TimingSpec {
+  return {
+    kind: 'timing',
+    lanes: [
+      { label: '接入点', spans: [
+        { fromUs: 0, toUs: 188, label: '两帧视频，各 188 µs', tone: 'accent' },
+        { fromUs: 248, toUs: 436, tone: 'accent' },
+      ] },
+      { label: '两台电视', spans: [
+        { fromUs: 204, toUs: 232, label: '各一个确认' },
+        { fromUs: 452, toUs: 480 },
+      ] },
+      { label: '上限', spans: [{ fromUs: 0, toUs: 4096, label: '4 096 µs' }] },
+    ],
+    axis: { fromUs: 0, toUs: 4200, ticks: [0, 1000, 2000, 3000, 4000], unit: 'µs（0 是本轮开始）' },
+  }
+}
 
 export const txop: Lesson = {
   id: 'txop',
   module: 7,
-  title: 'TXOP——短暂地拥有信道',
-  why: '赢下信道才是贵的那一步，可到目前为止，赢家做完一次交互就把它原样交还了——然后重新排队，再付一遍同样的价钱。如果一台站点（STA）手里还攒着好几帧、都是发给同一个邻居的，这就太荒唐了。于是“赢一次”不再是一次交互的门票，而变成了对空口的一小段短租。这一课我们看一个接入点（AP）如何占住发言权，并追问：是什么让它不能一直占下去。',
+  title: 'TXOP——赢一次，占住发言权',
+  why: '赢下信道才是贵的那一步，可到目前为止，赢家做完一次交互就把它原样交还了——然后重新排队，再付一遍同样的价钱。如果一台站点（STA）手里还攒着好几帧、都是发给同一个邻居的，这就太荒唐了。于是“赢一次”不再是一次交互的门票，而变成了对空口的一段独占时间。这一课我们看一个接入点（AP）如何占住发言权，并追问：是什么让它不能一直占下去。',
   outcomes: [
     '说清赢家在第一次交互之后还能拿这条信道做什么',
     '说出是什么给一串突发划了界，并从仿真里读出每一串究竟是被什么结束的',
-    '解释为什么“有上限的短租”算得上公平，以及这个上限在保护什么',
+    '解释为什么“有上限的独占”算得上公平，以及这个上限在保护什么',
   ],
   needs: ['edca', 'ampdu'],
   terms: [
@@ -31,11 +74,16 @@ export const txop: Lesson = {
   picture: [
     { heading: '赢一次，占住发言权', text: '在那么多等待和倒数之后，赢家买到的东西其实比“一次交互”值钱得多：在一小段时间里，它是唯一被允许说话的。其他人开口前依然必须先听到静默，可静默根本不出现——赢家只隔着交互内部那段短短的停顿就又上了空口，而这段停顿比任何竞争者要等的都短。这段“归我所有”的时间，就是传输机会（transmit opportunity, TXOP）；而赢一次所带出去的那几帧，就是它的突发。' },
     { kind: 'watch', jump: 0, heading: '看一串突发', text: '载入仿真，跳到第一串突发。接入点发给一台电视，收下它的回答，转眼间就已经在发给另一台了——中间没有必等的静默，也没有任何倒数。' },
-    { heading: '短租有个上限', text: '一段没有终点的短租等于直接接管，所以每一次获胜都配着一只钟，这只钟就是 TXOP 上限（TXOP limit）。持有者发出去的每样东西、收到的每个回答，都必须装进这只钟里；一旦剩下的时间不够做下一次交互，持有者就停手，回去和别人一样等待、倒数。这个上限是按类别设的，所以承载对话的那些类别有自己的尺码。' },
-    { heading: '多数时候拦住你的不是上限', text: '实际上，持有者很少真的顶到自己的上限。它停下来，是因为发往那个邻居的队列（queue）已经空了——手里攒着两帧就赢下空口的站点，发完两帧就把空口还回去。只有当发送方手里攒的东西远远超过这段短租装得下的量时，上限才真正起作用，而这正是当初写下它的那种情形。' },
+    { heading: '这段独占有个上限', text: '一段没有终点的独占等于直接接管，所以每一次获胜都配着一只钟，这只钟就是 TXOP 上限（TXOP limit）。持有者发出去的每样东西、收到的每个回答，都必须装进这只钟里；一旦剩下的时间不够做下一次交互，持有者就停手，回去和别人一样等待、倒数。这个上限是按类别设的，所以承载对话的那些类别有自己的尺码。' },
+    { heading: '多数时候拦住你的不是上限', text: '实际上，持有者很少真的顶到自己的上限。它停下来，是因为发往那个邻居的队列（queue）已经空了——手里攒着两帧就赢下空口的站点，发完两帧就把空口还回去。只有当发送方手里攒的东西远远超过这只钟装得下的量时，上限才真正起作用，而这正是当初写下它的那种情形。' },
     { heading: '为什么这算得上公平', text: '大家守的是同一条规则：你赢了，你也可以照样占住发言权。没有人因此赢得更频繁——争抢那一段一点没变。变的是每一次获胜值多少钱，于是房间把更少的时间花在排场上、更多的时间用来运东西。代价是耐心：一台刚好在别人获胜之后到场的站点，得把整串突发等完，所以那个上限，其实是给“任何人最多要等多久”封的顶。' },
   ],
   numbers: [
+    {
+      kind: 'diagram', heading: '第一串突发，对着它那只钟',
+      spec: txopBurstTiming(),
+      caption: '本轮第一串突发：两帧视频、两个确认帧（ACK），480 µs 就结束了，而它被允许占到 4 096 µs。拦住它的不是这只钟，是发往那台电视的队列见底了。',
+    },
     { kind: 'table', heading: '按类别看上限', head: [
       '类别', '上限', '为什么是这个尺码', '出处',
     ], rows: [
@@ -75,12 +123,10 @@ export const txop: Lesson = {
       ['回答到达，队列空了，本轮结束于', '1.363 ms'],
       ['实际占用，而允许的是 4 096 µs', '480 µs'],
     ] },
-    { heading: '这里的每一串突发是被什么结束的', text: '不是上限：最长的一次占用是 480 µs，而它被允许的是 4 096 µs。只有两路不大的视频流时，接入点手里根本没有更多东西要发给那台电视，所以它大约一半的获胜只带着一帧。短租很慷慨，队列并不。' },
   ],
   deeper: [
-    { heading: '告诉整个房间要躲多久', text: '一个只听到突发里某一帧的邻居，没法知道后面还有东西要来。所以突发里的每一帧都在自己的帧头里声明：它所属的这次交互还需要多久，邻居们据此各自维护自己的计时器。因此一串突发之所以安静，靠的不是运气，而是每个听者都在更新的一个数——这也正是为什么中途才醒来的站点不会破坏这串突发。' },
-    { heading: '把发言权借回去', text: '持有者不一定非得自己把这段短租用完。它可以把剩下的时间交给正在对话的那台站点，让对方的回答里捎上自己的数据；它也可以要求对方回一个比确认帧更大的东西。这两种做法，都是把一次来之不易的获胜花在双向的流量上，而且都关在同一个上限之内。' },
-    { heading: '越长的突发，赌注越大', text: '一口气占住好几毫秒，只有在房间对持有者而言真的安静时才是安全的。一个听不见这串突发的隐藏邻居会一头撞进来，从那一刻到租期结束的所有时间都白费了。这正是为什么长突发通常要先用一次简短的保护性交互开场——那是下一课的主题。' },
+    { heading: '把发言权借回去', text: '持有者不一定非得自己把这段时间用完：它可以把剩下的交给正在对话的那台站点，让对方的回答里捎上自己的数据。本仿真器不做这件事，时间轴上也就看不到它。' },
+    { heading: '越长的突发，赌注越大', text: '一口气占住好几毫秒，只有在房间对持有者而言真的安静时才是安全的。一个听不见这串突发的隐藏邻居会一头撞进来，从那一刻到本轮结束的所有时间都白费了。所以长突发通常要先用一次简短的保护性交互开场，并且在开场那一帧里就把整串要占多久预告出去——那两件事都是下一课的主题。' },
   ],
   sources: [
     '传输机会、“一个 PPDU 连同它的响应必须装进上限之内”的规定，以及反向传输与多帧突发的规则，见 IEEE Std 802.11-2024 的 §10.23.2.8；各接入类别的 TXOP 上限见 Table 9-194。',
@@ -96,8 +142,7 @@ export const txop: Lesson = {
     J('接入点的第一次退避抽取', (r) => r.type === 'BACKOFF_DRAW' && r.node === 'ap'),
   ],
   observe: [
-    '第一串突发落在 0.88 ms，它一次服务了两台电视：发给其中一台、收到回答，再隔一段短停顿就发给另一台。突发内部既没有必等的静默，也没有任何倒数。',
-    '突发进行时，检视器会显示它属于哪一类，以及这段短租还剩多少时间。这里显示的是 AC_VI，因为两路流都是视频。',
+    '突发进行时，检视器会显示它属于哪一类，以及这只钟还剩多少时间。这里显示的是 AC_VI，因为两路流都是视频。',
     '整轮下来接入点赢下 463 串突发：其中 219 串只带一帧，243 串带两帧。决定是哪一种的是队列，不是上限。',
   ],
   tryThis: [
@@ -118,7 +163,7 @@ export const txop: Lesson = {
     {
       q: '在本轮仿真里，多数突发是被什么结束的？',
       options: [
-        '短租的上限用完了',
+        '那只钟走完了',
         '持有者手里没有更多发往那个邻居的东西了',
         '另一台站点把信道抢走了',
       ],
