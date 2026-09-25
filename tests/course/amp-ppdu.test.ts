@@ -23,6 +23,7 @@ import {
 } from '../../src/engine/amp'
 import { ACK_TX_TIME_6M_NS, CTS_BYTES, ERP_2G, txTimeNs } from '../../src/engine/phy'
 import { decodeFrame, ppduLayout } from '../../src/model/frameFields'
+import { MODULES } from '../../src/course/curriculum'
 
 const MS = 1_000_000
 const US = 1_000
@@ -40,7 +41,7 @@ lessonShapeSuite(ampPpdu, { runNs: RUN_NS, sameSceneAs: 'amp-intro' })
 
 describe('amp-ppdu · the lesson’s own scene', () => {
   it('is the second lesson of the AMP track', () => {
-    expect(ampPpdu.module).toBe(7)
+    expect(MODULES[ampPpdu.module].title).toBe('环境能量物联网（802.11bp）')
     expect(ampPpdu.needs).toEqual(['amp-intro'])
     // the second lesson of the AMP track may use a table in the picture, and gets up to six new
     // words. `preamble` is one of them although the reader met it in Wi-Fi Tier 1: this lesson

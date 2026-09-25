@@ -292,8 +292,32 @@ describe('module 4 lessons', () => {
     // four Wi-Fi tiers, then the UWB track's three
     expect(TIERS).toHaveLength(7)
     expect(TIERS.map((t) => t.track)).toEqual(['wifi', 'wifi', 'wifi', 'wifi', 'uwb', 'uwb', 'uwb'])
-    expect(MODULES.map((m) => m.tier)).toEqual([0, 0, 1, 1, 1, 1, 1, 1, 1, 2, 3, 4, 4, 5, 5, 6, 6])
-    for (const m of MODULES) expect(m.title.length).toBeGreaterThan(0)
+    // The whole module list, in order: seven modules of Tier 1, five of Tier 2, then the
+    // UWB tiers. Tiers 3 and 4 (PHY, research) have no module yet — a module arrives with
+    // its first lesson, so an index is never a promise about a lesson that is not written.
+    // This is the pin a batch trips over when it adds a module under the wrong tier.
+    expect(MODULES.map((m) => m.tier)).toEqual([
+      0, 0, 0, 0, 0, 0, 0,
+      1, 1, 1, 1, 1,
+      4, 4, 4, 4,
+      5, 5, 5, 5,
+      6, 6, 6,
+    ])
+    expect(MODULES.map((m) => m.title)).toEqual([
+      '信号与链路', '一张网里的角色', '帧与空口时间', '等待与退避',
+      '听不见的邻居与损失', '在纸上预测 DCF', '第一阶段项目',
+      'QoS 与效率', '容量旋钮与速率控制', '被调度的 Wi-Fi 6/7',
+      '环境能量物联网（802.11bp）', '真实应用',
+      '飞行时间', '两只钟', '会话网格', '定位',
+      '共存', '竞争式测距', '单向测距', '角度',
+      '多毫秒片段', '窄带控制面', '测距综合实践',
+    ])
+    // every module shown carries at least one lesson: an empty entry would make every
+    // index after it a statement about a course that does not exist
+    for (const [i, m] of MODULES.entries()) {
+      expect(m.title.length).toBeGreaterThan(0)
+      expect(LESSONS.some((l) => l.module === i), m.title).toBe(true)
+    }
   })
 
   it('a track heading opens the first tier and every change of radio', () => {
@@ -310,7 +334,7 @@ describe('module 4 lessons', () => {
 
   it('lesson 15 is about channel width and offers one variant per width', () => {
     const l = LESSONS.find((x) => x.id === 'width')!
-    expect(l.module).toBe(3) // zero-based module index
+    expect(MODULES[l.module].title).toBe('容量旋钮与速率控制')
     expect(l.variants?.length).toBe(4)
     const widths = l.variants!.map((v) => widthOf(v.scenario().nodes.find((n) => n.id === 'sta-1')!))
     expect(widths).toEqual([20, 40, 80, 160])
@@ -328,7 +352,7 @@ describe('module 4 lessons', () => {
 
   it('lesson 16 is about spatial streams and its link runs at the smaller end', () => {
     const l = LESSONS.find((x) => x.id === 'streams')!
-    expect(l.module).toBe(3)
+    expect(MODULES[l.module].title).toBe('容量旋钮与速率控制')
     expect(l.variants!.length).toBeGreaterThanOrEqual(3)
   })
 
@@ -345,7 +369,7 @@ describe('module 4 lessons', () => {
 describe('lessons 17 and 18', () => {
   it('the MU-MIMO lesson contrasts OFDMA with MU-MIMO as two variants of the same house', () => {
     const l = LESSONS.find((x) => x.id === 'mumimo')!
-    expect(l.module).toBe(6)
+    expect(MODULES[l.module].title).toBe('被调度的 Wi-Fi 6/7')
     expect(l.variants?.length).toBe(2)
     // the two variants differ in the MU-MIMO flag alone; tests/course/mumimo.test.ts walks it
     const [a, b] = l.variants!.map((v) => v.scenario())
@@ -362,7 +386,7 @@ describe('lessons 17 and 18', () => {
 
   it('lesson 18 shows the modulation moving', () => {
     const l = LESSONS.find((x) => x.id === 'rate')!
-    expect(l.module).toBe(3)
+    expect(MODULES[l.module].title).toBe('容量旋钮与速率控制')
     const recs = new Simulation(l.scenario()).runUntil(3_000 * 1_000_000).records
     const mcss = recs
       .filter((r) => r.type === 'TX_START' && r.node === 'sta-2' && r.frame.kind === 'data')

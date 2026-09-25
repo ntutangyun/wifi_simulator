@@ -23,7 +23,7 @@ import { type Lesson, hallwayHouse, node, sc, firstRts, firstCfEnd, firstCfEndRe
 
 export const txopProtect: Lesson = {
   id: 'txop-protect',
-  module: 2,
+  module: 7,
   title: '保护突发——一个回答管住整个突发',
   why: '抢到空口的站点（STA）可以多占一会儿，把好几帧连着发出去，而不是只发一帧。当屋里所有人都听得见所有人时，这是笔划算的买卖。可在一台站点听不见另一台的房子里，它就成了陷阱：一长串帧，无非就是给那位“聋着的”邻居留出了一大段可以撞进来的时间。隐藏节点（hidden station）那一课的解法依然管用，只是要瞄得更远——用远处那个房间听得见的声音，把整串帧一次性预告出去。',
   outcomes: [

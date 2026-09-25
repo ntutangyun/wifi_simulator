@@ -28,6 +28,7 @@ import {
 } from '../../src/engine/phy'
 import { lessonShapeSuite, ofType, runOf } from './kit'
 import { readFileSync, readdirSync } from 'node:fs'
+import { MODULES } from '../../src/course/curriculum'
 
 const MS = 1_000_000
 const RUN_NS = 30 * MS
@@ -65,7 +66,7 @@ lessonShapeSuite(frameAnatomy, { runNs: RUN_NS })
 
 describe('frame-anatomy · the lesson itself', () => {
   it('is the fourth lesson of Wi-Fi Tier 1 and owns the six frame words', () => {
-    expect(frameAnatomy.module).toBe(0)
+    expect(MODULES[frameAnatomy.module].title).toBe('帧与空口时间')
     expect(frameAnatomy.needs).toEqual(['roles-stack'])
     // the baseline owner table of the readability programme, exactly: six words, so the
     // lesson introduces no other. RA/TA/SA/DA are glossed where they are used instead.

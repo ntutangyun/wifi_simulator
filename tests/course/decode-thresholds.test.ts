@@ -12,7 +12,7 @@ import { describe, it, expect } from 'vitest'
 import { decodeThresholds } from '../../src/course/tier1/decode-thresholds'
 import { primerScenario, PRIMER_DISTANCES } from '../../src/course/tier1/radioLink'
 import { radioPrimer } from '../../src/course/tier1/radio-primer'
-import { COURSE_ORDER } from '../../src/course/curriculum'
+import { COURSE_ORDER, MODULES } from '../../src/course/curriculum'
 import type { Block } from '../../src/course/lessonKit'
 import { linkBudget, mcsLadder } from '../../src/course/widgetModel'
 import { Channel, PREAMBLE_DETECT_SINR_DB, type PhyListener } from '../../src/engine/channel'
@@ -55,8 +55,8 @@ lessonShapeSuite(decodeThresholds, { runNs: RUN_NS })
 
 describe('decode-thresholds · the second lesson of the Wi-Fi track', () => {
   it('follows radio-primer, needs it, and owns the three words of the owner table', () => {
-    expect(decodeThresholds.module).toBe(0)
-    expect(COURSE_ORDER.indexOf('decode-thresholds')).toBe(COURSE_ORDER.indexOf('radio-primer') + 1)
+    expect(MODULES[decodeThresholds.module].title).toBe('信号与链路')
+    expect(COURSE_ORDER.indexOf('radio-primer')).toBeLessThan(COURSE_ORDER.indexOf('decode-thresholds'))
     expect(decodeThresholds.needs).toEqual(['radio-primer'])
     // the amendment of 2026-09-23 adds the two quantities the rung procedure asks the reader to use
     expect(decodeThresholds.terms!.map((t) => t.term)).toEqual(['MCS', 'OFDM', 'CCA', 'sensitivity', 'rate margin'])

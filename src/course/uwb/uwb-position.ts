@@ -60,7 +60,7 @@ export function uwbPositionScenario(variant: UwbPositionVariant = 'base'): Scena
 
 export const uwbPosition: Lesson = {
   id: 'uwb-position',
-  module: 12,
+  module: 15,
   title: '从四个距离到一个点',
   why: '到某个锚点（anchor）有多远，并不等于人在哪儿。手机手里有四个这样的距离，彼此只差几毫秒测得，每一个都差着一两厘米，而它要回答的只有用户真正问的那个问题：我现在站在哪里？这一课做的就是这笔算术，并且说清这个答案本身如何告诉你该不该相信它。',
   outcomes: [

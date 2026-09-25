@@ -16,7 +16,7 @@ import { type Lesson, oneRoom, node, sc, firstBa, firstAmpdu, J } from '../lesso
 
 export const ampdu: Lesson = {
   id: 'ampdu',
-  module: 2,
+  module: 7,
   title: 'A-MPDU——竞争一次，发一批',
   why: '赢下信道是件贵事，而这笔钱和你随后发多少毫无关系。等待、倒数、前导码（preamble）与帧头（MAC header）、末尾那个回答，无论这一帧几乎是空的还是塞得满满当当，价钱都一样。随着电台越来越快，数据在这笔固定开销面前越缩越小，最后一轮里大半时间都花在了排场上。这一课我们看一台站点（STA）如何买下一轮，并且把它用好。',
   outcomes: [

@@ -17,7 +17,7 @@ import { type Lesson, longApartment, node, sc, firstData, J } from '../lessonKit
 
 export const anomaly: Lesson = {
   id: 'anomaly',
-  module: 1,
+  module: 4,
   title: '速率异常——“公平”的反面',
   why: '信道接入的规则在一件事上一丝不苟地公平：下一轮该轮到谁。凡是手里总有东西要发的站点（STA），抢到空口的次数和邻居差不多。规则从不过问的是：一轮能持续多久。离接入点（AP）远的站点只能慢慢发，同样一个帧要把空口占住好几倍的时间——而空口是一只共用的钟，其他人只能干等。最后，快的那台也快不到哪里去。',
   outcomes: [

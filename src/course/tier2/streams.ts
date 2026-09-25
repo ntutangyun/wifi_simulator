@@ -17,7 +17,7 @@ import { widthScenario } from '../wifiScenes'
 
 export const streams: Lesson = {
   id: 'streams',
-  module: 3,
+  module: 8,
   title: '空间流——同一瞬间说出好几句话',
   why: '上一课是用“地方”换速度：给一块更宽的频段，同样一车比特就多了几条车道。还有第二种买法，而且一点额外的频段都不用花。给链路（link）的两端各装上更多天线（antenna），它们就能在同一瞬间、频段上的同一个位置说出不同的话，接收端照样分得开。这一课讲的是：这样买到了什么，它对两端各有什么要求，以及它到什么地方就买不到东西了。',
   outcomes: [

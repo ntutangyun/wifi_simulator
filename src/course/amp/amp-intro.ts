@@ -36,7 +36,7 @@ export function ampIntroScenario(rates: { dlKbps: 250 | 1000; ulKbps: 250 | 1000
 
 export const ampIntro: Lesson = {
   id: 'amp-intro',
-  module: 7,
+  module: 10,
   title: '没有电池的标签',
   why: '设想牛奶盒上贴着一张标签，把冰箱里的温度报给你的路由器——永远不用装电池。它活着靠的，是从空气里捡来的那么几微瓦。这么穷的一台射频，做不了每台 Wi-Fi 终端整天都在做的那件事：听一听空档，然后轮到自己时开口。于是只能反过来，由路由器来问；这一课看的就是这样一轮问答。',
   outcomes: [

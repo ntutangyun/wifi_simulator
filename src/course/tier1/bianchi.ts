@@ -53,7 +53,7 @@ export const nLabel = (n: number): string => (`n = ${n} 台站点`)
 
 export const bianchi: Lesson = {
   id: 'bianchi',
-  module: 1,
+  module: 5,
   title: '在纸上预测碰撞',
   why: '到目前为止，我们都是先看着碰撞发生，再回头去数。还有另一条路。只凭接入规则本身——抽一个数、倒着数完、失败之后把窗口加宽——你可以提前算出：一屋子都想说话的站点（STA），彼此打断的频率会是多少，最终又能送出去多少。这一课我们把这个预测做出来，并且教你怎么拿一只计算器把它重算一遍。',
   outcomes: [

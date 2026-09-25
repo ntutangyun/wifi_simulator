@@ -20,7 +20,7 @@ import { type Lesson, hallwayHouse, node, sc, firstCollision, J } from '../lesso
 
 export const hidden: Lesson = {
   id: 'hidden',
-  module: 1,
+  module: 4,
   title: '隐藏节点与 RTS/CTS',
   why: '“先听再说”这条规矩，前提是你听得见屋里每一个人。把两台站点（STA）放在房子的两头，接入点（AP）摆在中间的走廊上：两台站点都能轻松够到接入点，却完全听不见对方。于是它们会在同一时刻都判定空口是干净的，两股信号在接入点那里相遇、同归于尽。再多等一会儿也治不了这件事，但“把请求大声说出来”可以。',
   outcomes: [

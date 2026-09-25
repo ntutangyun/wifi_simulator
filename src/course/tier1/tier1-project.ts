@@ -75,7 +75,7 @@ export const projectJumps = [
 
 export const tier1Project: Lesson = {
   id: 'tier1-project',
-  module: 1,
+  module: 6,
   title: '项目——题面与计划',
   why: '在此之前的每一课，都是讲透一个机制，再让你看着它工作。这一课里它们一起到场：一户没人替你讲解过的房子，架子上一台路由器、两台拼命上传的笔记本、一部正在通话的手机。你的任务是在看到任何结果之前，先说出空口会发生什么——所以前半程到“计划”为止。',
   outcomes: [

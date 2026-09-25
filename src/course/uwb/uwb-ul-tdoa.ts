@@ -81,7 +81,7 @@ export function uwbUlTdoaScenario(variant: UwbUlTdoaVariant = 'base'): Scenario 
 
 export const uwbUlTdoa: Lesson = {
   id: 'uwb-ul-tdoa',
-  module: 14,
+  module: 18,
   title: '每个标签一次闪发',
   why: '只听的标签（tag，也就是被定位的那一端），仍然要有接收机、要有自己的钟、还要跑一套解算。挂在医院工牌带上的胸牌，这三样一个都不想要；而给这栋楼布网的人，也宁愿在屏幕上直接读出每个胸牌在哪儿，而不是挨个去问。那就把这条链路（link）再翻一次：标签说话，楼来听。',
   outcomes: [

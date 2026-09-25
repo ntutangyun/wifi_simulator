@@ -153,7 +153,7 @@ lessonShapeSuite(uwbDlTdoa, { runNs: RUN_NS })
 
 describe('uwb-dl-tdoa · the lesson’s own place in the track', () => {
   it('asks for the geometry lesson and adds four words', () => {
-    expect(uwbDlTdoa.module).toBe(14)
+    expect(MODULES[uwbDlTdoa.module].title).toBe('单向测距')
     expect(uwbDlTdoa.id).toBe('uwb-dl-tdoa')
     // uwb-geometry, not uwb-position: the numbers table prints GDOP and an error ellipse and
     // the deeper section compares the two GDOP columns, and those are uwb-geometry's words.
@@ -196,13 +196,12 @@ describe('uwb-dl-tdoa · the lesson’s own place in the track', () => {
     expect(src).toContain('§16.4.9')
   })
 
-  it('it is the second lesson of module 14, after uwb-contention in the course order', () => {
-    expect(MODULES[14].tier).toBe(5)
+  it('it is read after uwb-contention in the course order', () => {
     expect(MODULES[uwbDlTdoa.module].tier).toBe(5)
     expect(TIERS[5].track).toBe('uwb')
     const ids = LESSONS.map((l) => l.id)
-    expect(ids[ids.indexOf('uwb-dl-tdoa') - 1]).toBe('uwb-contention')
-    expect(COURSE_ORDER[COURSE_ORDER.indexOf('uwb-contention') + 1]).toBe('uwb-dl-tdoa')
+    expect(ids.indexOf('uwb-contention')).toBeLessThan(ids.indexOf('uwb-dl-tdoa'))
+    expect(COURSE_ORDER.indexOf('uwb-contention')).toBeLessThan(COURSE_ORDER.indexOf('uwb-dl-tdoa'))
     // and the lesson its `needs` names really does come before it
     expect(COURSE_ORDER.indexOf('uwb-geometry')).toBeLessThan(COURSE_ORDER.indexOf('uwb-dl-tdoa'))
   })

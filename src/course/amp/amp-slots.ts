@@ -30,7 +30,7 @@ export function ampSlotsScenario(o: { acwe: number; readMode: 'inline' | 'twoPha
 
 export const ampSlots: Lesson = {
   id: 'amp-slots',
-  module: 7,
+  module: 10,
   title: '时隙化随机接入：ABOC、ACW 与碰撞',
   body: [
     { text: 'IEEE P802.11bp 仍是草案：D0.5 于 2026 年 5 月发布，D1.0 将于 2026 年 9 月进入 letter ballot。本课拆解的上行接入来自提案草案文本 11-26/1889r4 第 39.4 节，触发过程见 11-26/1519r5。最初那一课里每个标签都有自己的时隙，根本不必问“时隙该给谁”。这一课要问的是更难的问题：当想要时隙的标签比时隙还多时，会发生什么？' },

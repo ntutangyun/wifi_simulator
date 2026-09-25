@@ -24,6 +24,7 @@ import { applyRecord, initViewState } from '../../src/model/view'
 import { fmtRecord } from '../../src/ui/format'
 import type { TLRecord } from '../../src/model/records'
 import { lessonShapeSuite, ofType, runOf } from './kit'
+import { MODULES } from '../../src/course/curriculum'
 
 const MS = 1_000_000
 const US = 1_000
@@ -54,7 +55,7 @@ lessonShapeSuite(ampIntro, { runNs: RUN_NS })
 
 describe('amp-intro · the lesson’s own scene', () => {
   it('is the opening lesson of the AMP track', () => {
-    expect(ampIntro.module).toBe(7)
+    expect(MODULES[ampIntro.module].title).toBe('环境能量物联网（802.11bp）')
     // at most four new words, and no table in the picture
     expect(ampIntro.terms!.map((t) => t.term)).toEqual(['AMP', 'tag', 'slot', 'ABOC'])
     expect(ampIntro.picture!.some((b) => b.kind === 'table')).toBe(false)

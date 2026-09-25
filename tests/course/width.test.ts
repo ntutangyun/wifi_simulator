@@ -22,6 +22,7 @@ import {
   PHY_MODES, RATE_MARGIN_DB, mcsForRssi, noiseDbm, reqSinrDb, toneRatio, txTimeModeNs,
 } from '../../src/engine/phy'
 import { lessonShapeSuite, ofType, runOf } from './kit'
+import { MODULES } from '../../src/course/curriculum'
 
 const MS = 1_000_000
 const US = 1_000
@@ -50,7 +51,7 @@ lessonShapeSuite(width, { runNs: RUN_NS })
 
 describe('width · the lesson’s own scene', () => {
   it('is a Tier 2 lesson that needs the two Tier 1 lessons its words come from', () => {
-    expect(width.module).toBe(3)
+    expect(MODULES[width.module].title).toBe('容量旋钮与速率控制')
     expect(width.needs).toEqual(['decode-thresholds', 'airtime'])
     // `sub-carrier`, `symbol` and `noise floor` are this lesson's own words; MCS, OFDM,
     // preamble and payload come from the two lessons in `needs`.

@@ -30,6 +30,7 @@ import {
   chipsToNs, psduSymbols, uwbPollBytes, uwbPpduNs, uwbRespBytes,
 } from '../../src/uwb/phy'
 import { UWB_MBPS } from '../../src/uwb/frames'
+import { MODULES } from '../../src/course/curriculum'
 
 const MS = 1_000_000
 const US = 1_000
@@ -51,7 +52,7 @@ lessonShapeSuite(uwbFrame, { runNs: RUN_NS, sameSceneAs: 'uwb-intro' })
 
 describe('uwb-frame · the lesson’s own scene', () => {
   it('is the second lesson of the UWB track', () => {
-    expect(uwbFrame.module).toBe(11)
+    expect(MODULES[uwbFrame.module].title).toBe('飞行时间')
     expect(uwbFrame.needs).toEqual(['uwb-intro'])
     // the second lesson of the track may use a table in the picture, and gets up to six new words.
     // `chip` is one of them: it is the unit every duration in this lesson is counted in, and

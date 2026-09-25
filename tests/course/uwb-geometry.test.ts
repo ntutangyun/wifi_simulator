@@ -29,6 +29,7 @@ import type { UwbNodeView } from '../../src/uwb/view'
 import { applyRecord, initViewState } from '../../src/model/view'
 import { STRINGS } from '../../src/ui/i18n'
 import { lessonShapeSuite, ofType, runOf } from './kit'
+import { MODULES } from '../../src/course/curriculum'
 
 const MS = 1_000_000
 /** Seven ranging blocks, as next door: "over seven blocks the bias averages 59.4 cm". */
@@ -123,7 +124,7 @@ const FOM_S = {
 describe('uwb-geometry · the second half of the split', () => {
   it('follows uwb-position in the sessions module and loads its scene', () => {
     expect(uwbGeometry.id).toBe('uwb-geometry')
-    expect(uwbGeometry.module).toBe(12)
+    expect(MODULES[uwbGeometry.module].title).toBe('定位')
     expect(uwbGeometry.module).toBe(uwbPosition.module)
     expect(uwbGeometry.needs).toEqual(['uwb-position'])
     // the three words this half adds

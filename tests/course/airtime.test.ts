@@ -16,6 +16,7 @@ import type { TLRecord } from '../../src/model/records'
 import { Simulation } from '../../src/engine/simulation'
 import { lessonShapeSuite, ofType, runOf } from './kit'
 import { MANDATORY_MBPS, PHY_MODES, RATES, SIFS_NS, ctrlRespRateFor, ctrlRespRateForMode, txTimeModeNs, txTimeNs } from '../../src/engine/phy'
+import { MODULES } from '../../src/course/curriculum'
 
 const MS = 1_000_000
 const US = 1_000
@@ -29,7 +30,7 @@ lessonShapeSuite(airtime, { runNs: RUN_NS })
 
 describe('airtime · the lesson’s own scene', () => {
   it('is a Tier 1 lesson that names the lessons its words come from', () => {
-    expect(airtime.module).toBe(0)
+    expect(MODULES[airtime.module].title).toBe('帧与空口时间')
     // Whole-track review I5, "the preamble has three names": `preamble` is now a term of
     // frame-anatomy-bytes, the lesson that counts its microseconds, and that lesson stays
     // in `needs` — this lesson uses the word and does not own it.

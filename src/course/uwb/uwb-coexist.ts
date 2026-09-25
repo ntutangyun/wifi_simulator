@@ -70,7 +70,7 @@ export function uwbCoexistScenario(variant: UwbCoexistVariant = 'base'): Scenari
 
 export const uwbCoexist: Lesson = {
   id: 'uwb-coexist',
-  module: 13,
+  module: 16,
   title: '共享 6 GHz',
   why: '到目前为止，测距会话一直独占着整个房间。可真实的房间里有一台 Wi-Fi 路由器，而在最新的那个 Wi-Fi 频段上，它和超宽带（UWB）完全可能用着同一段兆赫。它们谁也听不懂对方：在路由器耳里，一帧测距帧只是微弱的噪声；在手机耳里，一次 Wi-Fi 猝发却是一声吼。这一课要算清两个方向上各自的损失，并看看那几个一眼就能想到的办法里，究竟哪一个真的管用。',
   outcomes: [

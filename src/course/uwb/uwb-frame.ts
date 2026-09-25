@@ -13,7 +13,7 @@ import { uwbIntroScenario } from './uwb-intro'
 
 export const uwbFrame: Lesson = {
   id: 'uwb-frame',
-  module: 11,
+  module: 12,
   title: '一帧测距帧由什么组成',
   why: '一帧测距帧几乎不携带数据，却很长——比一个 Wi-Fi 的确认帧（ACK）长得多。它的每一段都有自己存在的理由：有的段让接收端先锁住信号，有一段钉死了到底该在哪一刻打时间戳，还有一段让这个时刻无法被伪造。把这些段认全了，你也就知道 RMARKER（ranging marker）在哪儿、为什么在那儿。',
   outcomes: [

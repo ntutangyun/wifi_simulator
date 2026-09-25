@@ -112,7 +112,7 @@ lessonShapeSuite(uwbAoa)
 describe('uwb-aoa · the lesson', () => {
   it('sits in module 14, needs the double-sided and the geometry lesson, and names four new words', () => {
     expect(uwbAoa.id).toBe('uwb-aoa')
-    expect(uwbAoa.module).toBe(14)
+    expect(MODULES[uwbAoa.module].title).toBe('角度')
     // uwb-geometry as well as uwb-dstwr: a whole picture section is "An ellipse across the
     // line of sight", the numbers table carries an Ellipse column and the log line a GDOP.
     expect(uwbAoa.needs).toEqual(['uwb-dstwr', 'uwb-geometry'])
@@ -155,13 +155,14 @@ describe('uwb-aoa · the lesson', () => {
     // "DS is not optional here" is a scene choice, so it is owned in `sources` too
   })
 
-  it('it is the last lesson of module 14, and UWB Tier 3 follows it', () => {
-    expect(MODULES[14].tier).toBe(5)
+  it('it closes its module, and UWB Tier 3 follows it', () => {
     expect(MODULES[uwbAoa.module].tier).toBe(5)
     expect(TIERS[5].track).toBe('uwb')
     const ids = LESSONS.map((l) => l.id)
-    expect(ids[ids.indexOf('uwb-aoa') - 1]).toBe('uwb-ul-tdoa')
-    expect(COURSE_ORDER[COURSE_ORDER.indexOf('uwb-aoa') + 1]).toBe('uwb-mms')
+    // read after uwb-ul-tdoa and before uwb-mms - a precedence, not an offset, so a
+    // lesson added between them does not break a claim that is still true
+    expect(ids.indexOf('uwb-ul-tdoa')).toBeLessThan(ids.indexOf('uwb-aoa'))
+    expect(COURSE_ORDER.indexOf('uwb-aoa')).toBeLessThan(COURSE_ORDER.indexOf('uwb-mms'))
     expect(COURSE_ORDER.filter((id) => !ids.includes(id))).toEqual([])
   })
 })

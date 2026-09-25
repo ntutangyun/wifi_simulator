@@ -21,6 +21,7 @@ import { buildLinkTable } from '../../src/engine/propagation'
 import { ACK_BYTES, CW_MIN, DIFS_NS, SIFS_NS, SLOT_NS, sinrThreshDb } from '../../src/engine/phy'
 import { PREAMBLE_DETECT_SINR_DB } from '../../src/engine/channel'
 import { lessonShapeSuite, ofType, runOf } from './kit'
+import { MODULES } from '../../src/course/curriculum'
 
 type Tx = Extract<TLRecord, { type: 'TX_START' }>
 
@@ -46,7 +47,7 @@ lessonShapeSuite(anomaly, { runNs: RUN_NS })
 
 describe('anomaly · the lesson’s own scene', () => {
   it('leans on airtime and backoff, and names the anomaly itself', () => {
-    expect(anomaly.module).toBe(1)
+    expect(MODULES[anomaly.module].title).toBe('听不见的邻居与损失')
     expect(anomaly.needs).toEqual(['airtime', 'backoff'])
     // Whole-track review M3: one name for the loop of src/engine/rate.ts. `rate adaptation`
     // was a third name beside `rate control` (bianchi-vs-sim, and the title of `rate`).

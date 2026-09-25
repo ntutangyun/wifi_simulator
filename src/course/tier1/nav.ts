@@ -14,7 +14,7 @@ import { type Lesson, oneRoom, node, sc, firstNav, J } from '../lessonKit'
 
 export const nav: Lesson = {
   id: 'nav',
-  module: 1,
+  module: 3,
   title: 'NAV——用“预告”预约信道',
   why: '光靠听，站点（STA）只知道空口此刻忙不忙。可一场对话里是有缝的——回答回来之前那一小段停顿；而回答本身，还可能来自一台远得根本听不见的设备。只相信自己耳朵的站点，这两处都会一头撞进去。于是每一帧都会预告本次交互还要多久，听到的人则改为在心里挂一个倒计时。',
   outcomes: [

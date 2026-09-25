@@ -19,6 +19,7 @@ import { negotiatedNss, nssOf } from '../../src/model/caps'
 import { PHY_MODES, mcsForRssi, noiseDbm, reqSinrDb, toneRatio, txTimeModeNs } from '../../src/engine/phy'
 import { buildLinkTable } from '../../src/engine/propagation'
 import { lessonShapeSuite, runOf } from './kit'
+import { MODULES } from '../../src/course/curriculum'
 
 const MS = 1_000_000
 const US = 1_000
@@ -39,7 +40,7 @@ lessonShapeSuite(streams, { runNs: RUN_NS })
 
 describe('streams · the lesson’s own scene', () => {
   it('needs the width lesson, and owns two words of its own', () => {
-    expect(streams.module).toBe(3)
+    expect(MODULES[streams.module].title).toBe('容量旋钮与速率控制')
     expect(streams.needs).toEqual(['width'])
     // `sub-carrier`, `symbol` and `noise floor` are width's words; this lesson adds the two
     // the picture is built on.

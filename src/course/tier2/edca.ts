@@ -17,7 +17,7 @@ import { type Lesson, oneRoom, node, sc, firstVo, J } from '../lessonKit'
 
 export const edca: Lesson = {
   id: 'edca',
-  module: 2,
+  module: 7,
   title: 'EDCA——四条队列，四种性格',
   why: '一通电话和一个文件上传抢的是同一片空口，但它们要的东西不一样。几毫秒的等待就能毁掉通话；同样的等待落在上传上，谁也察觉不到。可到目前为止的规则对每一帧都一视同仁，于是通话只能和上传一起碰运气，而且通常运气更差。这一课我们看一台电台如何不再以“一个竞争者”的身份参赛，而是变成四个。',
   outcomes: [

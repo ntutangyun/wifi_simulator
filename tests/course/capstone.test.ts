@@ -25,6 +25,7 @@ import type { Block } from '../../src/course/lessonKit'
 import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 import { lessonShapeSuite } from './kit'
+import { MODULES } from '../../src/course/curriculum'
 
 const MS = 1_000_000
 /** The five seconds every number in this lesson is measured over; the Trigger jump needs them. */
@@ -79,7 +80,7 @@ lessonShapeSuite(capstone, { runNs: RUN_NS })
 
 describe('capstone · the flat as the brief describes it', () => {
   it('is the last Wi-Fi lesson, in the real-applications module, and names what it leans on', () => {
-    expect(capstone.module).toBe(8)
+    expect(MODULES[capstone.module].title).toBe('真实应用')
     expect(capstone.needs).toEqual([
       'edca', 'txop', 'width', 'rate', 'anomaly', 'tier1-project', 'ofdma-dl', 'ofdma-ul', 'mumimo', 'mlo',
     ])

@@ -41,7 +41,7 @@ export function uwbDstwrScenario(ppm: { tag: number; anchors: number }): Scenari
 
 export const uwbDstwr: Lesson = {
   id: 'uwb-dstwr',
-  module: 11,
+  module: 13,
   title: '两次往返，把时钟消掉',
   why: '把对方的时钟测出来确实管用，但它留下的剩余误差会随锚点（anchor）多等的每一毫秒一起变大。还有一条路能把等待甩掉：多发一条消息，让两端都既问过也答过。这样一来，每只钟在算式两边出现的次数一样多，误差是被抵消掉的，而不是被估计掉的。',
   outcomes: [

@@ -32,7 +32,7 @@ const dropOf = (reason: 'retryLimit' | 'queueFull' | 'lifetime', at?: string) =>
 
 export const retriesQueues: Lesson = {
   id: 'retries-queues',
-  module: 1,
+  module: 4,
   title: '重传、丢帧与队列',
   why: '一帧没人回答，并不等于它已经丢了：发送方再发一次就是了。但“再发一次”从来不是免费的，也不可能一直发下去。当一帧死活发不出去、被一次次重来时，排在它后面的一切都在等。这一课我们看着一条老是失败的链路（link），和一条越排越长的队，然后问一个问题：什么时候，把一帧扔掉才是这台设备能做的最厚道的事。',
   outcomes: [

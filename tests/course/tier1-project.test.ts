@@ -16,7 +16,7 @@
 import { describe, it, expect } from 'vitest'
 import { projectFlat, tier1Project } from '../../src/course/tier1/tier1-project'
 import { dcfTimes, saturationThroughput, solveBianchi } from '../../src/course/tier1/bianchiModel'
-import { COURSE_ORDER } from '../../src/course/curriculum'
+import { COURSE_ORDER, MODULES } from '../../src/course/curriculum'
 import { ScenarioSchema } from '../../src/model/scenario'
 import { Simulation } from '../../src/engine/simulation'
 import {
@@ -63,8 +63,8 @@ lessonShapeSuite(tier1Project, { runNs: RUN_NS })
 
 describe('tier1-project · the lesson itself', () => {
   it('is the tier’s project, module 1, with the second half right behind it', () => {
-    expect(tier1Project.module).toBe(1)
-    expect(COURSE_ORDER.indexOf('tier1-project')).toBe(COURSE_ORDER.indexOf('bianchi-vs-sim') + 1)
+    expect(MODULES[tier1Project.module].title).toBe('第一阶段项目')
+    expect(COURSE_ORDER.indexOf('bianchi-vs-sim')).toBeLessThan(COURSE_ORDER.indexOf('tier1-project'))
     expect(COURSE_ORDER.indexOf('tier1-project-review')).toBe(COURSE_ORDER.indexOf('tier1-project') + 1)
     // Whole-track review M2 dropped `margin` and `saturated` as restatements of
     // decode-thresholds' `rate margin` and bianchi's `saturation`, on the grounds that both

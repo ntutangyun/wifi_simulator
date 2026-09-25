@@ -42,7 +42,7 @@ export function uwbSstwrScenario(ppm: { tag: number; anchors: number }): Scenari
 
 export const uwbSstwr: Lesson = {
   id: 'uwb-sstwr',
-  module: 11,
+  module: 13,
   title: '应答时间里藏着的那只时钟',
   why: '前面几课让两台射频都守着完美的时间，现实里没有哪一对是这样：石英晶振（crystal）总会走得偏快或偏慢，用走得慢的钟量出来的一段时间就偏短。偏偏交互里最长的那一段是锚点（anchor）量的，手机却把它当成自己量的直接减掉。这一课里，这件事会错出好几米。',
   outcomes: [

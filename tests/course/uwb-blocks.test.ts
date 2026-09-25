@@ -27,6 +27,7 @@ import {
   uwbPollBytes, uwbPpduNs, uwbSlotFitNs, uwbSlotsPerTag,
 } from '../../src/uwb/phy'
 import { lessonShapeSuite, ofType, runOf } from './kit'
+import { MODULES } from '../../src/course/curriculum'
 
 const MS = 1_000_000
 /** Two blocks and a little more, so the repeat is visible and the second block's rounds all close. */
@@ -84,7 +85,7 @@ function schemaIssues(slotRstu: number, extraTags = 0): string[] {
 
 describe('uwb-blocks · the lesson’s own place in the track', () => {
   it('opens the sessions module and asks only for the frame lesson', () => {
-    expect(uwbBlocks.module).toBe(12)
+    expect(MODULES[uwbBlocks.module].title).toBe('会话网格')
     expect(uwbBlocks.id).toBe('uwb-blocks')
     expect(uwbBlocks.needs).toEqual(['uwb-frame'])
     // the four words the grid is made of; RSTU is the unit every duration in the tables is counted in

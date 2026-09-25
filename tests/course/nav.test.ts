@@ -14,6 +14,7 @@ import { ScenarioSchema } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 import { lessonShapeSuite, ofType, runOf } from './kit'
 import { DIFS_NS, SIFS_NS, SLOT_NS } from '../../src/engine/phy'
+import { MODULES } from '../../src/course/curriculum'
 
 const MS = 1_000_000
 /** 200 ms: the window the "576 data frames" and "513 countdowns" sentences are counted over. */
@@ -26,7 +27,7 @@ lessonShapeSuite(nav, { runNs: RUN_NS })
 
 describe('nav · the lesson’s own scene', () => {
   it('follows backoff and owns the reservation', () => {
-    expect(nav.module).toBe(1)
+    expect(MODULES[nav.module].title).toBe('等待与退避')
     expect(nav.needs).toEqual(['backoff'])
     // the owner table of the readability programme gives this lesson NAV; `Duration` and
     // `virtual carrier sense` are the field it reads and the name for what it does.

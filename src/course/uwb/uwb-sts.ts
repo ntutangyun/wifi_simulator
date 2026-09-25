@@ -54,7 +54,7 @@ export function uwbStsScenario(stsOff: boolean): Scenario {
 
 export const uwbSts: Lesson = {
   id: 'uwb-sts',
-  module: 11,
+  module: 12,
   title: '一个谁也伪造不了的时间戳',
   why: '一辆“手机走近就开锁”的车，必须相信自己的射频对距离的说法。攻击者并不需要破解任何密码，就能让它相信一个谎：只要站在收发两端之间，把信号稍微提早一点转发出去，车就会在手机还在屋里的时候打开。这一课要做的，正是把这样一个攻击者放进房间里，先把防线关掉，再把它打开。',
   outcomes: [

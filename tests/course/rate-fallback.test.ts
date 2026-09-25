@@ -21,6 +21,7 @@ import { rateScenario } from '../../src/course/wifiScenes'
 import type { TLRecord } from '../../src/model/records'
 import { ACK_TIMEOUT_NS } from '../../src/engine/phy'
 import { lessonShapeSuite, ofType, runOf } from './kit'
+import { MODULES } from '../../src/course/curriculum'
 
 const MS = 1_000_000
 const RUN_NS = 3_000 * MS
@@ -67,7 +68,7 @@ lessonShapeSuite(rateFallback, { runNs: JUMP_NS, sameSceneAs: 'rate' })
 
 describe('rate-fallback · the lesson’s own scene', () => {
   it('is the second half of the rate lesson and says so in `needs`', () => {
-    expect(rateFallback.module).toBe(3)
+    expect(MODULES[rateFallback.module].title).toBe('容量旋钮与速率控制')
     expect(rateFallback.needs).toEqual(['rate', 'anomaly'])
     expect(rateFallback.terms!.map((t) => t.term)).toEqual(['ARF', 'excursion'])
   })

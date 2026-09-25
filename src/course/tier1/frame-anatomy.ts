@@ -53,7 +53,7 @@ export const firstLegacyRetry = (r: TLRecord): boolean =>
 
 export const frameAnatomy: Lesson = {
   id: 'frame-anatomy',
-  module: 0,
+  module: 2,
   title: '一帧在开口之前先说了什么',
   why: '一帧并不是“你的数据外面贴了张标签”。数据前面有一小串字段：这是哪一类帧、哪台射频必须接住它、是谁发的、这个房间还要被占用多久、以及它在一串编号里排第几。网络所做的几乎每一个决定，依据的都是它们。',
   outcomes: [

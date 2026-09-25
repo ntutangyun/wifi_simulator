@@ -16,6 +16,7 @@ import type { TLRecord } from '../../src/model/records'
 import { Simulation } from '../../src/engine/simulation'
 import { lessonShapeSuite, ofType, runOf } from './kit'
 import { EDCA_PARAMS, OFDM_5G, aifsNs } from '../../src/engine/phy'
+import { MODULES } from '../../src/course/curriculum'
 
 const MS = 1_000_000
 const US = 1_000
@@ -48,7 +49,7 @@ lessonShapeSuite(edca, { runNs: RUN_NS })
 
 describe('edca · the lesson’s own scene', () => {
   it('is the first lesson of Tier 2, and leans on the two channel-access lessons', () => {
-    expect(edca.module).toBe(2)
+    expect(MODULES[edca.module].title).toBe('QoS 与效率')
     expect(edca.needs).toEqual(['ifs', 'backoff', 'retries-queues'])
     expect(edca.terms!.map((t) => t.term)).toEqual(['EDCA', 'access category', 'AIFS'])
   })

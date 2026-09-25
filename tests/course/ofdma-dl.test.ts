@@ -21,6 +21,7 @@ import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 import { PHY_MODES, toneRatio } from '../../src/engine/phy'
 import { lessonShapeSuite, runOf } from './kit'
+import { MODULES } from '../../src/course/curriculum'
 
 const MS = 1_000_000
 const US = 1_000
@@ -51,7 +52,7 @@ lessonShapeSuite(ofdmaDl, { runNs: RUN_NS })
 
 describe('ofdma-dl · the lesson’s own scene', () => {
   it('is a Tier 2 lesson that needs the two lessons its words come from', () => {
-    expect(ofdmaDl.module).toBe(6)
+    expect(MODULES[ofdmaDl.module].title).toBe('被调度的 Wi-Fi 6/7')
     expect(ofdmaDl.needs).toEqual(['width', 'txop'])
     expect(ofdmaDl.terms!.map((t) => t.term)).toEqual(['OFDMA', 'resource unit', 'RU', 'MU'])
   })

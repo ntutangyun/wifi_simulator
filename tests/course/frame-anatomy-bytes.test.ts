@@ -25,6 +25,7 @@ import {
   RTS_BYTES, SIFS_NS, txTimeNs,
 } from '../../src/engine/phy'
 import { lessonShapeSuite, ofType, runOf } from './kit'
+import { MODULES } from '../../src/course/curriculum'
 
 const MS = 1_000_000
 const RUN_NS = 30 * MS
@@ -61,7 +62,7 @@ lessonShapeSuite(frameAnatomyBytes, { runNs: RUN_NS, sameSceneAs: 'frame-anatomy
 
 describe('frame-anatomy-bytes · the lesson itself', () => {
   it('is the second half of frame-anatomy and owns the four preamble words', () => {
-    expect(frameAnatomyBytes.module).toBe(0)
+    expect(MODULES[frameAnatomyBytes.module].title).toBe('帧与空口时间')
     expect(frameAnatomyBytes.needs).toEqual(['frame-anatomy'])
     // the baseline owner table of the readability programme: the preamble fields, taught as
     // "the part every radio can read".

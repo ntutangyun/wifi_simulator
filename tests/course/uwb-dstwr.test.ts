@@ -34,6 +34,7 @@ import {
 } from '../../src/uwb/phy'
 import { lessonShapeSuite, ofType, runOf } from './kit'
 import { STRINGS } from '../../src/ui/i18n'
+import { MODULES } from '../../src/course/curriculum'
 
 const MS = 1_000_000
 const RUN_NS = 30 * MS
@@ -137,7 +138,7 @@ const prose = (): string => [
 
 describe('uwb-dstwr · the lesson’s own place in the track', () => {
   it('is the fourth lesson of the UWB track and needs the single-sided one', () => {
-    expect(uwbDstwr.module).toBe(11)
+    expect(MODULES[uwbDstwr.module].title).toBe('两只钟')
     expect(uwbDstwr.id).toBe('uwb-dstwr')
     expect(uwbDstwr.needs).toEqual(['uwb-sstwr'])
     expect(uwbDstwr.terms!.map((t) => t.term)).toEqual(['DS-TWR', 'Final', 'Report', 'RMI'])

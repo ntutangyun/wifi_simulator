@@ -22,6 +22,7 @@ import { rctuToMetres, ssTwrRaw } from '../../src/uwb/ranging'
 import { fmtRecord } from '../../src/ui/format'
 import type { Block } from '../../src/course/lessonKit'
 import { lessonShapeSuite, ofType, runOf } from './kit'
+import { MODULES } from '../../src/course/curriculum'
 
 const MS = 1_000_000
 const RUN_NS = 30 * MS
@@ -43,7 +44,7 @@ lessonShapeSuite(uwbSts, { runNs: RUN_NS })
 describe('uwb-sts · the lesson', () => {
   it('follows uwb-frame in module 11 and names its three new words', () => {
     expect(uwbSts.id).toBe('uwb-sts')
-    expect(uwbSts.module).toBe(11)
+    expect(MODULES[uwbSts.module].title).toBe('飞行时间')
     expect(uwbSts.needs).toEqual(['uwb-frame'])
     expect(uwbSts.terms!.map((t) => t.term)).toEqual(['relay attack', 'key', 'STS'])
     expect(uwbSts.jumps).toHaveLength(4)

@@ -18,7 +18,7 @@ import { rateScenario } from '../wifiScenes'
 
 export const rate: Lesson = {
   id: 'rate',
-  module: 3,
+  module: 8,
   title: '速率控制——决定说多快',
   why: '发送端必须先决定说多快，然后才开口，而两边的错答案都要付代价。说得太快，帧到了对面只是一团糊，什么也过不去；说得太慢，帧倒是都送到了，可每一帧在空口上趴的时间远比它需要的长，而这段时间里所有人都在等。没有谁会告诉发送端哪一档才对，它只能从回来的答复里自己琢磨。',
   outcomes: [

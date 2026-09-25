@@ -17,7 +17,7 @@ import { uwbPositionScenario } from './uwb-position'
 
 export const uwbGeometry: Lesson = {
   id: 'uwb-geometry',
-  module: 12,
+  module: 15,
   title: '锚点站在哪里',
   why: '把锚点（anchor）挪个位置，射频本身什么也没变，可给出的答案却会变好或变坏。一个由电工按“哪儿好走线就装哪儿”布置出来的房间，测距一样准，定位却一样糟。这一课要给这件事定价：一种布局要为每一厘米的测距误差收多少钱，以及它压根无法向你预警的是什么。',
   outcomes: [

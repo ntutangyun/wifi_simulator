@@ -92,7 +92,7 @@ export function uwbMmsScenario(variant: UwbMmsVariant = 'base'): Scenario {
 
 export const uwbMms: Lesson = {
   id: 'uwb-mms',
-  module: 15,
+  module: 20,
   title: '十六毫秒的能量',
   why: '把同样的标签（tag）和同样的锚点（anchor）摆好，中间隔上两道砖墙。每一帧测距帧其实都到了——只是到达时比接收机能听见的还轻，于是什么也量不出来。这一课讲的就是仍然把测量做成的那个办法：不发一帧，改发一串短的、摊在好几毫秒里的片段（fragment），让对端把它们加起来。',
   outcomes: [

@@ -71,7 +71,7 @@ const formula = (): Extract<Block, { kind: 'formula' }> =>
 describe('uwb-nba · the lesson', () => {
   it('is the narrowband half of module 15, needing the fragment lesson before it', () => {
     expect(uwbNba.id).toBe('uwb-nba')
-    expect(uwbNba.module).toBe(15)
+    expect(MODULES[uwbNba.module].title).toBe('窄带控制面')
     expect(TIERS[6].track).toBe('uwb')
     expect(MODULES[uwbNba.module].tier).toBe(6)
     expect(uwbNba.needs).toEqual(['uwb-mms'])

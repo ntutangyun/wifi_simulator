@@ -14,7 +14,7 @@ import { type Lesson, oneRoom, node, sc, firstData, firstAck, J } from '../lesso
 
 export const airtime: Lesson = {
   id: 'airtime',
-  module: 0,
+  module: 2,
   title: '帧要花“空口时间”',
   why: '一个房间，一条信道，同一时刻只能有一个人说话。视频流、文件上传、手机收邮件，全都得挤进同一片空气里，一帧接着一帧。所以真正值得数的不是字节，而是时间：每一帧把信道占住多久，其中又有多少根本没在搬运谁想要的东西。这一课，我们给一次收发交互掐一次秒表。',
   outcomes: [

@@ -17,7 +17,7 @@ import { widthScenario } from '../wifiScenes'
 
 export const width: Lesson = {
   id: 'width',
-  module: 3,
+  module: 8,
   title: '信道带宽——多开几条车道，而不是换一辆快车',
   why: '到目前为止的每一课讲的都是怎么分享空口。这一课讲的是：轮到自己发的时候，一帧能从空口里拿到多少。可以给一条链路（link）划一块更宽的频段，同一帧发完所需的时间就更短。这是最简单的一个提速旋钮，但它带着一张账单：频段越宽，混进来的噪声也越多。同一个旋钮，在书桌旁能把帧变短，到了远端墙边却可能把链路整个弄断。',
   outcomes: [

@@ -22,7 +22,7 @@ import { bianchiScenario, nLabel } from './bianchi'
 
 export const bianchiVsSim: Lesson = {
   id: 'bianchi-vs-sim',
-  module: 1,
+  module: 5,
   title: '预测对上实跑',
   why: '一个预测，只有在你知道它从哪里开始失效之后才真正有用。把纸上的答案和实测放在一起，它们永远不会严丝合缝——而接下来你怎么做，正是工程师与“会用表格的人”之间的区别。这一课我们诚实地读一次分歧：先查什么、该怪谁、每个原因有多大，以及对那部分解释不了的东西该怎么说。',
   outcomes: [

@@ -16,6 +16,7 @@ import type { TLRecord } from '../../src/model/records'
 import { lessonShapeSuite, ofType, runOf } from './kit'
 import { AMPDU_DELIMITER_BYTES, BA_BYTES, FCS_BYTES, MAX_AMPDU_MPDUS, MAX_PPDU_NS, OFDM_5G, QOS_HDR_BYTES } from '../../src/engine/phy'
 import { ampduPsduBytes, ampduSubframeBytes } from '../../src/model/frames'
+import { MODULES } from '../../src/course/curriculum'
 
 const MS = 1_000_000
 const US = 1_000
@@ -33,7 +34,7 @@ lessonShapeSuite(ampdu, { runNs: RUN_NS })
 
 describe('ampdu · the lesson’s own scene', () => {
   it('sits in Tier 2 and leans on the airtime and frame lessons', () => {
-    expect(ampdu.module).toBe(2)
+    expect(MODULES[ampdu.module].title).toBe('QoS 与效率')
     expect(ampdu.needs).toEqual(['airtime', 'frame-anatomy', 'retries-queues'])
     expect(ampdu.terms!.map((t) => t.term)).toEqual(['A-MPDU', 'subframe', 'BlockAck'])
   })

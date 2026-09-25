@@ -88,7 +88,7 @@ export function uwbDlTdoaScenario(variant: UwbDlTdoaVariant = 'base'): Scenario 
 
 export const uwbDlTdoa: Lesson = {
   id: 'uwb-dl-tdoa',
-  module: 14,
+  module: 18,
   title: '只听不发的定位',
   why: '一栋楼里挂满了胸牌，双向测距就顶不住了：每个标签（tag，也就是被定位的那一端）都要独占一轮，楼还没覆盖完，空口先用光了。那就把这次交互翻过来。让锚点（anchor）之间按固定的时间表互相说话，而胸牌只凭听到的先后与间隔，把自己放到地图上。',
   outcomes: [

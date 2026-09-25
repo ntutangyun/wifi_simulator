@@ -25,6 +25,7 @@ import {
   COUNTER_BITS, COUNTER_MOD, C_M_PER_NS, RCTU_NS, RCTU_PS, RSTU_NS, UWB_CHIP_HZ, UWB_CHIP_NS,
   UWB_PPM_MAX, UWB_RX_SENS_DBM, UWB_TX_POWER_DBM,
 } from '../../src/uwb/phy'
+import { MODULES } from '../../src/course/curriculum'
 
 const MS = 1_000_000
 const US = 1_000
@@ -50,7 +51,7 @@ describe('uwb-intro · the lesson’s own scene', () => {
     // it assumes Wi-Fi Tier 1 and nothing else
     expect(uwbIntro.needs).toEqual(['radio-primer', 'frame-anatomy'])
     // the module the lesson opens: UWB Tier 1, "Time of flight"
-    expect(uwbIntro.module).toBe(11)
+    expect(MODULES[uwbIntro.module].title).toBe('飞行时间')
   })
 
   it('the scenario and the variant pass the scenario schema', () => {

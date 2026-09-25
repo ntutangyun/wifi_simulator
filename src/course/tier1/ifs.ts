@@ -13,7 +13,7 @@ import { type Lesson, oneRoom, node, sc, firstData, firstAck, firstBackoffDraw, 
 
 export const ifs: Lesson = {
   id: 'ifs',
-  module: 1,
+  module: 3,
   title: 'SIFS、DIFS 与 ACK 之舞',
   why: '共享信道需要一条“下一个谁说”的规则，而 Wi-Fi 的规则简单得近乎寒碜：等。让它真正管用的，是大家等的时间并不一样长。正在把一场对话收尾的站点（STA）等得最短，所以谁也插不进它；只是想要个发言机会的站点则要等得更久。这里的优先级，是用沉默的长短来量的。',
   outcomes: [

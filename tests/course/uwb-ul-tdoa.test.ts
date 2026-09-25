@@ -128,7 +128,7 @@ lessonShapeSuite(uwbUlTdoa, { runNs: RUN_NS })
 
 describe('uwb-ul-tdoa · the lesson’s own place in the track', () => {
   it('asks for the listen-only lesson and adds four words', () => {
-    expect(uwbUlTdoa.module).toBe(14)
+    expect(MODULES[uwbUlTdoa.module].title).toBe('单向测距')
     expect(uwbUlTdoa.id).toBe('uwb-ul-tdoa')
     expect(uwbUlTdoa.needs).toEqual(['uwb-dl-tdoa'])
     expect(uwbUlTdoa.terms!.map((t) => t.term)).toEqual(['blink', 'UL-TDoA', 'sync error', 'bias'])
@@ -166,16 +166,15 @@ describe('uwb-ul-tdoa · the lesson’s own place in the track', () => {
     expect(src).toContain('§16.4.9')
   })
 
-  it('it is the third lesson of module 14, after uwb-dl-tdoa in the course order', () => {
-    expect(MODULES[14].tier).toBe(5)
+  it('it is read after uwb-dl-tdoa in the course order', () => {
     expect(MODULES[uwbUlTdoa.module].tier).toBe(5)
     expect(TIERS[5].track).toBe('uwb')
     const ids = LESSONS.map((l) => l.id)
-    expect(ids[ids.indexOf('uwb-ul-tdoa') - 1]).toBe('uwb-dl-tdoa')
-    expect(COURSE_ORDER[COURSE_ORDER.indexOf('uwb-dl-tdoa') + 1]).toBe('uwb-ul-tdoa')
-    // and the last lesson of the tier follows it
-    expect(COURSE_ORDER[COURSE_ORDER.indexOf('uwb-ul-tdoa') + 1]).toBe('uwb-aoa')
-    expect(ids[ids.indexOf('uwb-ul-tdoa') + 1]).toBe('uwb-aoa')
+    expect(ids.indexOf('uwb-dl-tdoa')).toBeLessThan(ids.indexOf('uwb-ul-tdoa'))
+    expect(COURSE_ORDER.indexOf('uwb-dl-tdoa')).toBeLessThan(COURSE_ORDER.indexOf('uwb-ul-tdoa'))
+    // and the last lesson of the tier is read after it
+    expect(COURSE_ORDER.indexOf('uwb-ul-tdoa')).toBeLessThan(COURSE_ORDER.indexOf('uwb-aoa'))
+    expect(ids.indexOf('uwb-ul-tdoa')).toBeLessThan(ids.indexOf('uwb-aoa'))
   })
 })
 

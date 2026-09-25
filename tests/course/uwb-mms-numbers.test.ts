@@ -37,6 +37,7 @@ import { rangeSigmaM } from '../../src/uwb/position'
 import { rctuToMetres } from '../../src/uwb/ranging'
 import { roundPlan } from '../../src/uwb/session'
 import { lessonShapeSuite, ofType, runOf } from './kit'
+import { MODULES } from '../../src/course/curriculum'
 
 const MS = 1_000_000
 const RUN_NS = 1300 * MS
@@ -84,7 +85,7 @@ lessonShapeSuite(uwbMmsNumbers, { sameSceneAs: 'uwb-mms', runNs: RUN_NS })
 describe('uwb-mms-numbers · the second half of the split', () => {
   it('follows uwb-mms in module 15 and loads its scene, variant for variant', () => {
     expect(uwbMmsNumbers.id).toBe('uwb-mms-numbers')
-    expect(uwbMmsNumbers.module).toBe(15)
+    expect(MODULES[uwbMmsNumbers.module].title).toBe('多毫秒片段')
     expect(uwbMmsNumbers.module).toBe(uwbMms.module)
     expect(uwbMmsNumbers.needs).toEqual(['uwb-mms'])
     expect(uwbMmsNumbers.terms!.map((t) => t.term)).toEqual(['combining gain', 'clock ratio', 'parameter set'])

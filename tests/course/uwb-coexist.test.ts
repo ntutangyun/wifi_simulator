@@ -151,7 +151,7 @@ function inspectorAfter(variant: number | undefined, id: string) {
 
 describe('uwb-coexist · the lesson’s own place in the track', () => {
   it('opens the coexistence module and asks for the sessions and geometry lessons', () => {
-    expect(uwbCoexist.module).toBe(13)
+    expect(MODULES[uwbCoexist.module].title).toBe('共存')
     expect(uwbCoexist.id).toBe('uwb-coexist')
     expect(uwbCoexist.needs).toEqual(['uwb-blocks', 'uwb-geometry'])
     // the three words this lesson introduces: what shares, what it costs, and what Wi-Fi does about it
@@ -191,17 +191,21 @@ describe('uwb-coexist · the lesson’s own place in the track', () => {
     expect(src).toContain(`${minus(UWB_SIR_MIN_DB)} dB`)
   })
 
-  it('the course seam puts it first in a second UWB tier, in module 13', () => {
+  it('the course seam puts it first in a second UWB tier', () => {
     expect(TIERS[5].track).toBe('uwb')
-    expect(MODULES[13].tier).toBe(5)
-    expect(MODULES[14].tier).toBe(5)
+    const tierOf = (id: string) => MODULES[LESSONS.find((l) => l.id === id)!.module].tier
     expect(MODULES[uwbCoexist.module].tier).toBe(5)
-    // the five tier-2 ids follow uwb-geometry (tier 3's follow them), and every one of them
-    // now has a lesson
-    const after = COURSE_ORDER.slice(COURSE_ORDER.indexOf('uwb-geometry') + 1, COURSE_ORDER.indexOf('uwb-mms'))
-    expect(after).toEqual(['uwb-coexist', 'uwb-contention', 'uwb-dl-tdoa', 'uwb-ul-tdoa', 'uwb-aoa'])
+    // the modules of the second UWB tier are read through the lessons in them, never through
+    // an index: uwb-contention opens the module after this one and is in the same tier
+    expect(tierOf('uwb-contention')).toBe(5)
+    // the tier-2 lessons are read after uwb-geometry and before uwb-mms, and every one of
+    // them has a lesson. A membership claim, not a slice: the tier gains lessons.
     const ids = LESSONS.map((l) => l.id)
-    for (const id of after) expect(ids, id).toContain(id)
+    for (const id of ['uwb-coexist', 'uwb-contention', 'uwb-dl-tdoa', 'uwb-ul-tdoa', 'uwb-aoa']) {
+      expect(ids, id).toContain(id)
+      expect(COURSE_ORDER.indexOf('uwb-geometry'), id).toBeLessThan(COURSE_ORDER.indexOf(id))
+      expect(COURSE_ORDER.indexOf(id), id).toBeLessThan(COURSE_ORDER.indexOf('uwb-mms'))
+    }
   })
 })
 

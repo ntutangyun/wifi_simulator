@@ -22,6 +22,7 @@ import { ScenarioSchema } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 import { PHY_MODES, toneRatio } from '../../src/engine/phy'
 import { lessonShapeSuite, runOf } from './kit'
+import { MODULES } from '../../src/course/curriculum'
 
 const MS = 1_000_000
 const US = 1_000
@@ -48,7 +49,7 @@ lessonShapeSuite(mumimo, { runNs: RUN_NS })
 
 describe('mumimo · the lesson’s own scene', () => {
   it('is a Tier 2 lesson that needs the two halves of the idea it compares', () => {
-    expect(mumimo.module).toBe(6)
+    expect(MODULES[mumimo.module].title).toBe('被调度的 Wi-Fi 6/7')
     expect(mumimo.needs).toEqual(['streams', 'ofdma-dl'])
     expect(mumimo.terms!.map((t) => t.term)).toEqual(['MU-MIMO', 'beamforming', 'sounding'])
   })

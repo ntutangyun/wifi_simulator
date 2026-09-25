@@ -31,6 +31,7 @@ import { applyRecord, initViewState } from '../../src/model/view'
 import { STRINGS } from '../../src/ui/i18n'
 import type { Block } from '../../src/course/lessonKit'
 import { lessonShapeSuite, ofType, runOf } from './kit'
+import { MODULES } from '../../src/course/curriculum'
 
 const MS = 1_000_000
 /** The window every UWB lesson measures over: seven 200 ms blocks. */
@@ -92,7 +93,7 @@ lessonShapeSuite(uwbCapstone, { runNs: RUN_NS })
 describe('uwb-capstone · the lesson', () => {
   it('closes the UWB track: module 16, four prerequisites, two new words', () => {
     expect(uwbCapstone.id).toBe('uwb-capstone')
-    expect(uwbCapstone.module).toBe(16)
+    expect(MODULES[uwbCapstone.module].title).toBe('测距综合实践')
     expect(uwbCapstone.needs).toEqual(['uwb-position', 'uwb-aoa', 'uwb-mms', 'uwb-coexist'])
     expect(uwbCapstone.terms!.map((t) => t.term)).toEqual(['brief', 'duty cycle'])
     expect(uwbCapstone.outcomes).toHaveLength(4)

@@ -86,19 +86,18 @@ const worked = (row: number): string => cell(3, row, 1)
 lessonShapeSuite(uwbMms)
 
 describe('uwb-mms · the lesson', () => {
-  it('opens UWB Tier 3 and module 15, after uwb-aoa, and names its four new words', () => {
+  it('opens UWB Tier 3, after uwb-aoa, and names its four new words', () => {
     expect(uwbMms.id).toBe('uwb-mms')
-    expect(uwbMms.module).toBe(15)
+    expect(MODULES[uwbMms.module].title).toBe('多毫秒片段')
     // uwb-geometry too: the picture's last paragraph leans on the quality byte each range
     // carries flagging an obstructed path, which is uwb-geometry's FoM.
     expect(uwbMms.needs).toEqual(['uwb-blocks', 'uwb-dstwr', 'uwb-geometry'])
     expect(uwbMms.terms!.map((t) => t.term)).toEqual(['MMS', 'fragment', 'RSF', 'RIF', 'sensitivity', 'margin'])
     expect(TIERS[6].track).toBe('uwb')
-    expect(MODULES[15].tier).toBe(6)
     expect(MODULES[uwbMms.module].tier).toBe(6)
-    expect(COURSE_ORDER[COURSE_ORDER.indexOf('uwb-aoa') + 1]).toBe('uwb-mms')
+    expect(COURSE_ORDER.indexOf('uwb-aoa')).toBeLessThan(COURSE_ORDER.indexOf('uwb-mms'))
     const ids = LESSONS.map((l) => l.id)
-    expect(ids[ids.indexOf('uwb-mms') - 1]).toBe('uwb-aoa')
+    expect(ids.indexOf('uwb-aoa')).toBeLessThan(ids.indexOf('uwb-mms'))
     // the reader is sent to the verdict on a train, which is what the lesson is about
   })
 

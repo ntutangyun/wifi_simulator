@@ -24,6 +24,7 @@ import { buildLinkTable } from '../../src/engine/propagation'
 import { negotiated } from '../../src/model/caps'
 import { RATE_MARGIN_DB, mcsForRssi, noiseDbm, reqSinrDb } from '../../src/engine/phy'
 import { lessonShapeSuite, ofType, runOf } from './kit'
+import { MODULES } from '../../src/course/curriculum'
 
 const MS = 1_000_000
 /** The three seconds every number in this lesson is measured over. */
@@ -40,7 +41,7 @@ lessonShapeSuite(rate, { runNs: JUMP_NS })
 
 describe('rate · the lesson’s own scene', () => {
   it('is the Tier 2 rate lesson, and names the lessons its words come from', () => {
-    expect(rate.module).toBe(3)
+    expect(MODULES[rate.module].title).toBe('容量旋钮与速率控制')
     expect(rate.needs).toEqual(['decode-thresholds', 'retries-queues', 'bianchi-vs-sim', 'width'])
     // MCS is decode-thresholds' word, ACK and ACK timeout come through retries-queues;
     // these three are this lesson's own.

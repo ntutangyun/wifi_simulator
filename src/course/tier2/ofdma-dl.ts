@@ -17,7 +17,7 @@ import { type Lesson, oneRoom, node, sc, txOf, firstMuDl, J } from '../lessonKit
 
 export const ofdmaDl: Lesson = {
   id: 'ofdma-dl',
-  module: 6,
+  module: 9,
   title: 'OFDMA 下行——一次发送，好几台设备',
   why: '一台正在放片子的电视，每次并不需要占多少空口，但它需要一个“轮次”：自己的前导码（preamble）、自己的回执、之前还要自己等一轮。同一个房间里放三台，接入点（AP）整晚花在这些包装上的工夫，就多过花在片子上。这一课要看的是：接入点如何不再一轮只服务一台设备，而是在一次发送里同时服务好几台。',
   outcomes: [

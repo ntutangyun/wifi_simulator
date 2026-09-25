@@ -162,7 +162,7 @@ const reachFormula = (): Extract<Block, { kind: 'formula' }> =>
 describe('uwb-nba-coexist · the lesson', () => {
   it('is the second half of module 15, needing its own first half and the coexistence lesson', () => {
     expect(uwbNbaCoexist.id).toBe('uwb-nba-coexist')
-    expect(uwbNbaCoexist.module).toBe(15)
+    expect(MODULES[uwbNbaCoexist.module].title).toBe('窄带控制面')
     expect(MODULES[uwbNbaCoexist.module].tier).toBe(6)
     expect(uwbNbaCoexist.needs).toEqual(['uwb-nba', 'uwb-coexist'])
     for (const id of uwbNbaCoexist.needs!) expect(COURSE_ORDER, id).toContain(id)

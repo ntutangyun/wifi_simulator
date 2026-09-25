@@ -134,7 +134,7 @@ export function rolesStackStack(): StackSpec {
 
 export const rolesStack: Lesson = {
   id: 'roles-stack',
-  module: 0,
+  module: 1,
   title: '一张网里，谁是谁',
   why: '上一课把链路（link）看成两台设备加一份速率余量。可一个家里并不是两台设备：是一个大家都在跟它说话的盒子——接入点（access point, AP）、几台跟它说话的设备——站点（station, STA），外加一个大家都加入了的名字——服务集标识（SSID）。这一课讲清楚谁扮演哪个角色、一张网怎么起名、又怎么被寻址，以及为什么同一个房间里两部手机之间的消息，仍要绕着那个盒子走一圈。',
   outcomes: [

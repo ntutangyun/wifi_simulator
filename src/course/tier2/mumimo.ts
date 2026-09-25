@@ -19,7 +19,7 @@ import { mumimoScenario } from '../wifiScenes'
 
 export const mumimo: Lesson = {
   id: 'mumimo',
-  module: 6,
+  module: 9,
   title: 'MU-MIMO——按空间而不是按频率划分',
   why: '把信道切成片，一次发送就能照顾到好几部手机，但每一片都只是整条信道的一部分，成员越多，每部手机被服务得越慢。其实还有另一种把大家塞进同一次发送的办法：它不让任何人让出带宽，改用天线（antenna）来付账——这个办法就叫作多用户 MIMO（multi-user MIMO, MU-MIMO）。这一课把两种办法放进同一栋房子里并排比较，看看你会挑哪一种。',
   outcomes: [

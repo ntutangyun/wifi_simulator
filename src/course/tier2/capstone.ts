@@ -27,7 +27,7 @@ import { type Lesson, brick, drywallDoor, node, sc, firstMuDl, firstTrigger, fir
 
 export const capstone: Lesson = {
   id: 'capstone',
-  module: 8,
+  module: 11,
   title: '结业课——热闹的一家人',
   why: '在此之前的每一课，都是在一个专为展示它而搭的场景里，给你看一个机制。而真实的家里是所有机制一起上演，光线昏暗，还要问你一个没有任何单独一课能回答的问题：这个网络用起来慢——你会改什么？最难的不是测量，而是在一堆看上去都可以怪罪的东西里，挑出真正决定别人能拿到多少的那一个。',
   outcomes: [

@@ -27,6 +27,7 @@ import {
   CCA_PD_DBM, CTS_BYTES, DIFS_NS, FCS_BYTES, MAC_HDR_BYTES, RTS_BYTES, SIFS_NS, SLOT_NS,
 } from '../../src/engine/phy'
 import { lessonShapeSuite, ofType, runOf } from './kit'
+import { MODULES } from '../../src/course/curriculum'
 
 type Tx = Extract<TLRecord, { type: 'TX_START' }>
 
@@ -57,7 +58,7 @@ lessonShapeSuite(hidden, { runNs: RUN_NS })
 
 describe('hidden · the lesson’s own scene', () => {
   it('follows nav and owns RTS and CTS', () => {
-    expect(hidden.module).toBe(1)
+    expect(MODULES[hidden.module].title).toBe('听不见的邻居与损失')
     expect(hidden.needs).toEqual(['backoff', 'nav'])
     // the owner table of the readability programme gives this lesson RTS and CTS; the
     // hidden node itself and the size at which a station starts asking come with them.

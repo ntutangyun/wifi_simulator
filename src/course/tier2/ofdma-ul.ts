@@ -17,7 +17,7 @@ import { type Lesson, oneRoom, node, sc, firstTrigger, firstMba, J } from '../le
 
 export const ofdmaUl: Lesson = {
   id: 'ofdma-ul',
-  module: 6,
+  module: 9,
   title: '触发帧——接入点指挥上行',
   why: '同时发给好几台设备，是一台电台自己就能定的事：它知道自己要发什么，想怎么切信道就怎么切。反过来同时从好几台设备那里收——也就是上行（uplink, UL），从设备指回它们共同说话的那只盒子的方向——则是另一回事。它们得在同一个瞬间开始，落在互不重叠的片上，到达时强弱还得相近，可谁也听不见别人下一步打算干什么。这就得有人来指挥，而有资格指挥的只有接入点（AP）；它用来指挥的那个帧，就叫作触发帧（Trigger frame）。',
   outcomes: [

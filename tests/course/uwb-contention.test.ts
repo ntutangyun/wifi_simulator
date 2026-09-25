@@ -118,7 +118,7 @@ lessonShapeSuite(uwbContention, { runNs: RUN_NS })
 
 describe('uwb-contention · the lesson’s own place in the track', () => {
   it('opens module 14 and asks only for the coexistence lesson', () => {
-    expect(uwbContention.module).toBe(14)
+    expect(MODULES[uwbContention.module].title).toBe('竞争式测距')
     expect(uwbContention.id).toBe('uwb-contention')
     expect(uwbContention.needs).toEqual(['uwb-coexist'])
     // the four words a contention round is made of
@@ -161,13 +161,12 @@ describe('uwb-contention · the lesson’s own place in the track', () => {
     expect(src).toContain(String(DEFAULT_UWB_SESSION.maxAttempts))
   })
 
-  it('it is the first lesson of module 14, after uwb-coexist in the course order', () => {
-    expect(MODULES[14].tier).toBe(5)
+  it('it opens its module, after uwb-coexist in the course order', () => {
     expect(MODULES[uwbContention.module].tier).toBe(5)
     expect(TIERS[5].track).toBe('uwb')
     const ids = LESSONS.map((l) => l.id)
-    expect(ids[ids.indexOf('uwb-contention') - 1]).toBe('uwb-coexist')
-    expect(COURSE_ORDER[COURSE_ORDER.indexOf('uwb-coexist') + 1]).toBe('uwb-contention')
+    expect(ids.indexOf('uwb-coexist')).toBeLessThan(ids.indexOf('uwb-contention'))
+    expect(COURSE_ORDER.indexOf('uwb-coexist')).toBeLessThan(COURSE_ORDER.indexOf('uwb-contention'))
   })
 })
 

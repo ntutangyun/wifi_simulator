@@ -18,6 +18,7 @@ import type { TLRecord } from '../../src/model/records'
 import { Simulation } from '../../src/engine/simulation'
 import { lessonShapeSuite, ofType, runOf } from './kit'
 import { ACK_TIMEOUT_NS, CW_MAX, CW_MIN, RX_START_DELAY_NS, SHORT_RETRY_LIMIT, SIFS_NS, SLOT_NS } from '../../src/engine/phy'
+import { MODULES } from '../../src/course/curriculum'
 
 const MS = 1_000_000
 /** 300 ms: the window every count in the "draws this run makes" table is taken over. */
@@ -36,7 +37,7 @@ lessonShapeSuite(backoff, { runNs: RUN_NS })
 
 describe('backoff · the lesson’s own scene', () => {
   it('follows ifs and owns the contention window', () => {
-    expect(backoff.module).toBe(1)
+    expect(MODULES[backoff.module].title).toBe('等待与退避')
     expect(backoff.needs).toEqual(['ifs'])
     // the owner table of the readability programme gives this lesson CW; `backoff` and
     // `ACK timeout` come with it, because they are the other two words the mechanism needs.

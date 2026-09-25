@@ -88,7 +88,7 @@ export function uwbAoaScenario(variant: UwbAoaVariant = 'base'): Scenario {
 
 export const uwbAoa: Lesson = {
   id: 'uwb-aoa',
-  module: 14,
+  module: 19,
   title: '一个锚点就够了',
   why: '到这里为止的做法都要三四个锚点（anchor），因为单一个距离只能说明胸牌落在某个圆上。可一道门、一个店铺入口，往往只够装一个锚点。给这一个锚点添上第二根天线（antenna），它就既能说出胸牌有多远，也能说出它在哪个方向——单凭自己，就能在平面图上钉出一个点。',
   outcomes: [

@@ -28,6 +28,7 @@ import type { UwbNodeView } from '../../src/uwb/view'
 import { applyRecord, initViewState } from '../../src/model/view'
 import { STRINGS } from '../../src/ui/i18n'
 import { lessonShapeSuite, ofType, runOf } from './kit'
+import { MODULES } from '../../src/course/curriculum'
 
 const MS = 1_000_000
 /** Seven ranging blocks: enough that "seven blocks" and the error list are a sample, not an anecdote. */
@@ -100,7 +101,7 @@ function inspectorAfter(variant: number | undefined, blocks: number): UwbNodeVie
 
 describe('uwb-position · the lesson’s own place in the track', () => {
   it('sits in the sessions module and asks for the schedule and the double-sided round', () => {
-    expect(uwbPosition.module).toBe(12)
+    expect(MODULES[uwbPosition.module].title).toBe('定位')
     expect(uwbPosition.id).toBe('uwb-position')
     expect(uwbPosition.needs).toEqual(['uwb-blocks', 'uwb-dstwr'])
     // the two words the lesson adds; GDOP, NLOS and the FoM byte belong to uwb-geometry

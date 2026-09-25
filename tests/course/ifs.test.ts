@@ -14,6 +14,7 @@ import { ScenarioSchema } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 import { lessonShapeSuite, ofType, runOf } from './kit'
 import { ACK_TX_TIME_6M_NS, DIFS_NS, EIFS_NS, SIFS_NS, SLOT_NS } from '../../src/engine/phy'
+import { MODULES } from '../../src/course/curriculum'
 
 const MS = 1_000_000
 /** 100 ms: the window the "254 answers" sentence is counted over. */
@@ -26,7 +27,7 @@ lessonShapeSuite(ifs, { runNs: RUN_NS })
 
 describe('ifs · the lesson’s own scene', () => {
   it('follows airtime and owns the three waiting times', () => {
-    expect(ifs.module).toBe(1)
+    expect(MODULES[ifs.module].title).toBe('等待与退避')
     expect(ifs.needs).toEqual(['airtime'])
     // the owner table of the readability programme gives this lesson SIFS, DIFS and EIFS;
     // `slot` comes with them, because it is the unit the other two are built from.

@@ -21,7 +21,7 @@ import { ampIntroScenario } from './amp-intro'
 
 export const ampPpdu: Lesson = {
   id: 'amp-ppdu',
-  module: 7,
+  module: 10,
   title: '一帧标签听得懂的帧',
   why: 'Wi-Fi 射频和无电池标签，谁也听不懂对方的信号。一个说的是精雕细琢的波形，另一个只分得出响和静。可它们共用同一片空气，而路由器必须一口气同时对两者说话。能做到这件事的帧分成两半，而它有多长，跟里面装了多少数据几乎没什么关系。',
   outcomes: [

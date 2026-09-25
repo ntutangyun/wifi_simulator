@@ -19,7 +19,7 @@ import { describe, it, expect } from 'vitest'
 import { tier1ProjectReview } from '../../src/course/tier1/tier1-project-review'
 import { projectFlat, projectJumps, projectVariants } from '../../src/course/tier1/tier1-project'
 import { saturationThroughput, solveBianchi } from '../../src/course/tier1/bianchiModel'
-import { COURSE_ORDER } from '../../src/course/curriculum'
+import { COURSE_ORDER, MODULES } from '../../src/course/curriculum'
 import { Simulation } from '../../src/engine/simulation'
 import type { Scenario } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
@@ -142,7 +142,7 @@ lessonShapeSuite(tier1ProjectReview, { runNs: 30 * MS, sameSceneAs: 'tier1-proje
 
 describe('tier1-project-review · the lesson itself', () => {
   it('is the second half of the project and owns the three words it marks with', () => {
-    expect(tier1ProjectReview.module).toBe(1)
+    expect(MODULES[tier1ProjectReview.module].title).toBe('第一阶段项目')
     expect(tier1ProjectReview.needs).toEqual(['tier1-project', 'hidden', 'anomaly'])
     expect(COURSE_ORDER.indexOf('tier1-project-review')).toBe(COURSE_ORDER.indexOf('tier1-project') + 1)
     // Whole-track review M2: `capture` and `residual` are terms of bianchi-vs-sim, two lessons

@@ -22,7 +22,7 @@ import { projectFlat, projectJumps, projectVariants } from './tier1-project'
 
 export const tier1ProjectReview: Lesson = {
   id: 'tier1-project-review',
-  module: 1,
+  module: 6,
   title: '项目——读懂结果',
   why: '现在可以打开仿真了。你的四个预测有的会命中，有的不会；而没中的那些，比中了的更值钱。这后半程把计划和实跑并排摆开，点名造成大部分差距的两个机制，并用仿真器自己的单位把它们各自定量。剩下的那一部分，如实报出来，而不是辩过去——这恰恰是这次练习里能带到真实测量中去的那一半。',
   outcomes: [

@@ -72,7 +72,7 @@ export function uwbContentionScenario(variant: UwbContentionVariant = 'base'): S
 
 export const uwbContention: Lesson = {
   id: 'uwb-contention',
-  module: 14,
+  module: 17,
   title: '控制器不知道有谁在场',
   why: '到目前为止，每一轮测距都是一次点名：轮询帧点出每个锚点（anchor）的名字和它该作答的时隙，于是从来不会发生碰撞——因为从来没有谁需要挑选。可这一套成立的前提，是控制器手里有一份“谁在场”的名单。而一部刚走进陌生仓库的手机，根本没有名单。这一课讲的是另一种模式：轮询帧谁的名字也不点，只开出一段窗口，让听见它的人自己抽一个时隙。',
   outcomes: [

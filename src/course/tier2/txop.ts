@@ -15,7 +15,7 @@ import { type Lesson, oneRoom, node, sc, firstTxop, J } from '../lessonKit'
 
 export const txop: Lesson = {
   id: 'txop',
-  module: 2,
+  module: 7,
   title: 'TXOP——短暂地拥有信道',
   why: '赢下信道才是贵的那一步，可到目前为止，赢家做完一次交互就把它原样交还了——然后重新排队，再付一遍同样的价钱。如果一台站点（STA）手里还攒着好几帧、都是发给同一个邻居的，这就太荒唐了。于是“赢一次”不再是一次交互的门票，而变成了对空口的一小段短租。这一课我们看一个接入点（AP）如何占住发言权，并追问：是什么让它不能一直占下去。',
   outcomes: [

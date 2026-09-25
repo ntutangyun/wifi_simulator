@@ -18,7 +18,7 @@
 import { describe, it, expect } from 'vitest'
 import { radioPrimer } from '../../src/course/tier1/radio-primer'
 import { primerScenario, PRIMER_DISTANCES } from '../../src/course/tier1/radioLink'
-import { COURSE_ORDER } from '../../src/course/curriculum'
+import { COURSE_ORDER, MODULES } from '../../src/course/curriculum'
 import type { Block } from '../../src/course/lessonKit'
 import { linkBudget, BAND_EXTRA_LOSS_DB } from '../../src/course/widgetModel'
 import { NOISE_FIGURE_DB, noiseDbm } from '../../src/engine/phy'
@@ -57,7 +57,7 @@ describe('radio-primer · the opener of the Wi-Fi track', () => {
   it('opens the course, needs nothing, and owns the three ratio words', () => {
     expect(radioPrimer.id).toBe('radio-primer')
     expect(COURSE_ORDER[0]).toBe('radio-primer')
-    expect(radioPrimer.module).toBe(0)
+    expect(MODULES[radioPrimer.module].title).toBe('信号与链路')
     // the one lesson the contract lets have an empty `needs`
     expect(radioPrimer.needs).toEqual([])
     // the baseline owner table of the readability programme: these three words are this

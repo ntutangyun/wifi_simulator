@@ -22,7 +22,7 @@ import { uwbMmsScenario } from './uwb-mms'
 
 export const uwbMmsNumbers: Lesson = {
   id: 'uwb-mms-numbers',
-  module: 15,
+  module: 20,
   title: '片段、预算，和那 12 dB',
   why: '多毫秒测距（multi-millisecond, MMS）里，一串片段（fragment）要么越过了接收机的门限，要么没有，而决定这件事的，是一笔在信封背面就能算完的算术。这一课就来算它：一毫秒的能量值多少，一个片段花掉其中多少，一串片段加起来是多少——以及这份改善里，有多少真正属于那个新想法，又有多少只是因为老式发射机浪费惯了。',
   outcomes: [

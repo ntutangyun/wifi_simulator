@@ -46,7 +46,7 @@ export function ampCoexistScenario(o: {
 
 export const ampCoexist: Lesson = {
   id: 'amp-coexist',
-  module: 7,
+  module: 10,
   title: 'AMP 与 Wi-Fi 共享 2.4 GHz',
   body: [
     { text: 'IEEE P802.11bp 仍是草案：D0.5 于 2026 年 5 月发布，D1.0 将于 2026 年 9 月进入 letter ballot。本课拆解的轮来自提案草案文本 11-26/1889r4 第 39.4 节与 11-26/1519r5；AP 用 AC_BK 发起这个轮出自 PAR，而轮前面那帧 CTS-to-self 是仿真器的模型选择——规范框架 11-24/1613r20 只对双基地反向散射强制要求保护（FM-48）。前面几课里标签独占一条信道。这一课给它们安排了邻居。' },

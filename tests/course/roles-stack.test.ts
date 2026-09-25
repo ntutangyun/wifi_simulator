@@ -24,6 +24,7 @@ import type { TLRecord } from '../../src/model/records'
 import type { LatencyStats } from '../../src/model/view'
 import { ACK_BYTES, FCS_BYTES, QOS_HDR_BYTES, SIFS_NS } from '../../src/engine/phy'
 import { lessonShapeSuite, runOf } from './kit'
+import { MODULES } from '../../src/course/curriculum'
 
 type Tx = Extract<TLRecord, { type: 'TX_START' }>
 const MS = 1_000_000
@@ -46,7 +47,7 @@ lessonShapeSuite(rolesStack, { runNs: RUN_NS })
 
 describe('roles-stack · the lesson itself', () => {
   it('is the third lesson of Wi-Fi Tier 1 and owns the architecture words', () => {
-    expect(rolesStack.module).toBe(0)
+    expect(MODULES[rolesStack.module].title).toBe('一张网里的角色')
     // decode-thresholds joined when rule 2 stopped grading vacuously: the opening
     // sentence uses its `rate margin`, so the lesson has to declare it.
     expect(rolesStack.needs).toEqual(['radio-primer', 'decode-thresholds'])

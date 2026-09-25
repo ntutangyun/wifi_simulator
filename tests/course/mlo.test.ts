@@ -24,6 +24,7 @@ import { AcQueues } from '../../src/engine/queues'
 import { MAX_AMPDU_MPDUS, SHORT_RETRY_LIMIT } from '../../src/engine/phy'
 import type { Msdu } from '../../src/engine/traffic'
 import { lessonShapeSuite, runOf } from './kit'
+import { MODULES } from '../../src/course/curriculum'
 
 const MS = 1_000_000
 /** The 300 ms every number in this lesson is measured over — and the window the jumps need. */
@@ -56,7 +57,7 @@ lessonShapeSuite(mlo, { runNs: RUN_NS })
 
 describe('mlo · the lesson’s own scene', () => {
   it('is the scheduled-Wi-Fi module’s last lesson, and names where its words come from', () => {
-    expect(mlo.module).toBe(6)
+    expect(MODULES[mlo.module].title).toBe('被调度的 Wi-Fi 6/7')
     expect(mlo.needs).toEqual(['retries-queues', 'txop-protect', 'width'])
     // "queue" is retries-queues' word, the shared air is txop-protect's, the band is width's;
     // these three are this lesson's own.

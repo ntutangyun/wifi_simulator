@@ -20,6 +20,7 @@ import { ScenarioSchema } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 import { Simulation } from '../../src/engine/simulation'
 import { lessonShapeSuite, ofType, runOf } from './kit'
+import { MODULES } from '../../src/course/curriculum'
 
 const MS = 1_000_000
 const US = 1_000
@@ -50,7 +51,7 @@ lessonShapeSuite(txopProtect, { runNs: RUN_NS })
 
 describe('txop-protect · the lesson’s own scene', () => {
   it('is the last lesson of the QoS module and names the three lessons its words come from', () => {
-    expect(txopProtect.module).toBe(2)
+    expect(MODULES[txopProtect.module].title).toBe('QoS 与效率')
     // `nav` owns NAV, `hidden` owns RTS and CTS, `txop` owns the burst this lesson protects.
     expect(txopProtect.needs).toEqual(['nav', 'hidden', 'txop'])
     // `protection`, `CF-End` and `CTS-to-self` are this lesson's own three words.

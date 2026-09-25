@@ -29,7 +29,7 @@ import {
 
 export const frameAnatomyBytes: Lesson = {
   id: 'frame-anatomy-bytes',
-  module: 0,
+  module: 2,
   title: '一帧在空口上要花多少',
   why: '上一课把一帧打开、把字段都点了名。可这些都不是白来的：你的数据前面每多一个字节，就多一段别人用不了的空口时间（airtime）；而在这一帧本身之前，射频还要放上更长的一段东西——前导码（preamble）。这一课就把字节数到微秒——前面放的是什么，帧头（MAC header）和校验各添了多少，以及为什么“多帧共用一个前导码”是标准里最划算的一招。',
   outcomes: [

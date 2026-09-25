@@ -25,6 +25,7 @@ import { ACK_TIMEOUT_NS, PHY_MODES, multiStaBaBytes, triggerBytes } from '../../
 import { maxPsduBytesFor } from '../../src/engine/mac'
 import { ampduPsduBytes } from '../../src/model/frames'
 import { lessonShapeSuite, ofType, runOf } from './kit'
+import { MODULES } from '../../src/course/curriculum'
 
 const MS = 1_000_000
 const US = 1_000
@@ -59,7 +60,7 @@ lessonShapeSuite(ofdmaUl, { runNs: RUN_NS })
 
 describe('ofdma-ul · the lesson’s own scene', () => {
   it('is a Tier 2 lesson that needs the downlink half of the idea', () => {
-    expect(ofdmaUl.module).toBe(6)
+    expect(MODULES[ofdmaUl.module].title).toBe('被调度的 Wi-Fi 6/7')
     expect(ofdmaUl.needs).toEqual(['ofdma-dl'])
     expect(ofdmaUl.terms!.map((t) => t.term)).toEqual(['uplink', 'trigger frame', 'TB'])
   })

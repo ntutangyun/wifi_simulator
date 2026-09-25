@@ -25,7 +25,7 @@ import { uwbNbaScenario } from './uwb-nba'
 
 export const uwbNbaCoexist: Lesson = {
   id: 'uwb-nba-coexist',
-  module: 15,
+  module: 21,
   title: '窄带射频也共享 6 GHz',
   why: '那部小小的控制射频总得住在某个地方，而分给它的，正是最新的那个 Wi-Fi 频段。想用这个频段，就得守一条规矩：先听，若空口上已经有人在说话，就闭嘴。在一间摆着忙碌路由器的屋子里，这条规矩几乎从不放行——而一个说不出话的超宽带（UWB）测距会话，什么也量不出来。这一课要把这笔交易的两面都算清楚。',
   outcomes: [

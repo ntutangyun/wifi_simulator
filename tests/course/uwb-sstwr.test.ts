@@ -23,6 +23,7 @@ import { rangeSigmaM, solvePosition } from '../../src/uwb/position'
 import { metresToNs, rctuToMetres, ssTwrCorrected, ssTwrRaw } from '../../src/uwb/ranging'
 import { C_M_PER_NS, FOM_LOS, RCTU_NS, UWB_PPM_MAX, fomDecode, fomText } from '../../src/uwb/phy'
 import { lessonShapeSuite, ofType, runOf } from './kit'
+import { MODULES } from '../../src/course/curriculum'
 
 const MS = 1_000_000
 const RUN_NS = 30 * MS
@@ -78,7 +79,7 @@ const deeperProse = (): string => paragraphTexts(uwbSstwr.deeper!).map((p) => p)
 
 describe('uwb-sstwr · the lesson’s own place in the track', () => {
   it('is the third lesson of the UWB track and needs the frame lesson', () => {
-    expect(uwbSstwr.module).toBe(11)
+    expect(MODULES[uwbSstwr.module].title).toBe('两只钟')
     expect(uwbSstwr.id).toBe('uwb-sstwr')
     expect(uwbSstwr.needs).toEqual(['uwb-frame'])
     // the five new words, in the order the "New words" table lists them

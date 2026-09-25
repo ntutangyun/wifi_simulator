@@ -16,6 +16,7 @@ import type { TLRecord } from '../../src/model/records'
 import { Simulation } from '../../src/engine/simulation'
 import { lessonShapeSuite, ofType, runOf } from './kit'
 import { EDCA_PARAMS, OFDM_5G, aifsNs } from '../../src/engine/phy'
+import { MODULES } from '../../src/course/curriculum'
 
 const MS = 1_000_000
 const US = 1_000
@@ -45,7 +46,7 @@ lessonShapeSuite(txop, { runNs: RUN_NS })
 
 describe('txop · the lesson’s own scene', () => {
   it('closes the pair it builds on: EDCA won the turn, aggregation filled it', () => {
-    expect(txop.module).toBe(2)
+    expect(MODULES[txop.module].title).toBe('QoS 与效率')
     expect(txop.needs).toEqual(['edca', 'ampdu'])
     expect(txop.terms!.map((t) => t.term)).toEqual(['TXOP', 'TXOP limit'])
   })

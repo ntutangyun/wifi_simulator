@@ -15,7 +15,7 @@ import { type Lesson, oneRoom, node, sc, firstCollision, firstRetry, firstFreeze
 
 export const backoff: Lesson = {
   id: 'backoff',
-  module: 1,
+  module: 3,
   title: '随机退避与碰撞',
   why: '光是等，解决不了争端。如果两台站点（STA）都憋着、等信道安静下来，那它们会在同一瞬间听到它安静下来，然后一起开口。没有裁判的情况下，Wi-Fi 只能用唯一可行的办法来打破平局：每台站点掷一次骰子，点数小的先说。这一课我们盯着骰子看——也看看两颗骰子点数相同时会发生什么。',
   outcomes: [

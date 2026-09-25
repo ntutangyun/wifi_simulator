@@ -16,7 +16,7 @@ import { rateScenario } from '../wifiScenes'
 
 export const rateFallback: Lesson = {
   id: 'rate-fallback',
-  module: 3,
+  module: 8,
   title: '速率回退——发送端怎样往下掉、怎样爬回来',
   why: '一台只知道“答了还是没答”的发送端，仍然得决定什么时候放弃一级、什么时候去试更高的一级。教科书通常从这样一条规则讲起：掉得快，几帧没答就往下掉；爬得慢，要连着好一长串成功才升回去。这种不对称是故意的，而且很贵：一台被坏运气打下去的站点（STA），要用很长一段时间慢慢地发，而在这段时间里，屋里其他人每一次机会都得多等。',
   outcomes: [
