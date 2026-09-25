@@ -883,3 +883,56 @@ Two more, decided rather than asked:
 R0's recount also corrects §6: the fixtures gain **74 + 42 = 116** lines, not
 121. The difference is exactly the two splits §8 rejected, which is the kind of
 arithmetic agreement that makes the rest of the count believable.
+
+## 10. Two things the batches had to work out for themselves
+
+Both found by batch I; recorded here so the remaining batches are told rather
+than made to rediscover them.
+
+- **Which number a lesson is held to.** §2's "now" column is `mainPathChars`,
+  but its "length" target is defined as `why` + `picture` + `numbers`. Those
+  are different measures, and read the plan's own way two UWB lessons were
+  already at or under target before anyone touched them. **The target is
+  `mainPathChars`** — the number `lesson-dump` prints — because that is what
+  the minutes estimate is computed from and what a reader actually reads.
+- **A figure constrains where it can sit.** A diagram's labels are graded prose
+  and they come *before* its caption in reading order, so a caption frequently
+  has to carry a term's first-use bracket, and the figure cannot be placed
+  above the paragraph that introduces what it names. Plan the figure's position
+  and its caption together; batch I had to move one below the paragraph naming
+  the fields it draws.
+
+A third, from the same batch and worth keeping in mind generally: a caption
+usually does more work than the paragraph it replaces, so a lesson that gains
+a figure does not always get shorter. That is fine. The figure is there because
+it teaches better, not because it saves characters.
+
+## 11. §2's length column is an estimate, not a target (controller)
+
+Two batches have now reported the same thing independently, and they are
+right: §2's "length" numbers cannot be reached for a lesson the plan keeps
+whole. `uwb-dstwr` is marked whole, §5 names **no cut in it at all**, §4 adds a
+figure, and the target is 1400 against a present 2293. After the figure, the
+seven-step procedure, the eleven-row worked example, three tables, a formula,
+five terms, three observations, two experiments and three quiz questions, the
+free prose left is about 650 characters. The only lever that reaches 1400 is a
+third split, which §2 itself rejects.
+
+**The ruling: §2's length column is an estimate made before the procedure rule
+and before diagrams existed. It is not a number to hit.** What binds is §1 —
+one topic, one procedure, one scene; the 30-minute ceiling; and never
+compressing a mechanism to reach a figure. A batch that has made every cut §5
+names and is still above the estimate has finished, and should say so rather
+than cut into a procedure.
+
+Two related facts, also from the batches, worth knowing before anyone compares
+a sum against a parent:
+
+- **A split pays its overhead twice.** `uwb-blocks`' two halves total 3100
+  characters against the parent's 2380, and about 560 of that is structural:
+  two `why`s, two sets of outcomes, two glossaries, a term re-bracketed for a
+  reader arriving cold, and two captions doing the work of the prose they
+  replaced. The course gets longer in total. That is the intended trade — a
+  reader meets one idea at a time — not a regression.
+- **A caption usually does more work than the paragraph it replaces**, so a
+  lesson that gains a figure does not reliably get shorter.

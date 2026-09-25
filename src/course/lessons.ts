@@ -40,6 +40,7 @@ import { uwbSts } from './uwb/uwb-sts'
 import { uwbSstwr } from './uwb/uwb-sstwr'
 import { uwbDstwr } from './uwb/uwb-dstwr'
 import { uwbBlocks } from './uwb/uwb-blocks'
+import { uwbSlotBudget } from './uwb/uwb-slot-budget'
 import { uwbPosition } from './uwb/uwb-position'
 import { uwbGeometry } from './uwb/uwb-geometry'
 import { uwbCoexist } from './uwb/uwb-coexist'
@@ -116,6 +117,7 @@ const AUTHORED: Lesson[] = [
   uwbSstwr,
   uwbDstwr,
   uwbBlocks,
+  uwbSlotBudget,
   uwbPosition,
   uwbGeometry,
   uwbCoexist,
