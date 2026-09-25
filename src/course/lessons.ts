@@ -62,9 +62,11 @@ import { hidden } from './tier1/hidden'
 import { rtsCts } from './tier1/rts-cts'
 import { anomaly } from './tier1/anomaly'
 import { edca } from './tier2/edca'
+import { edcaCost } from './tier2/edca-cost'
 import { ampdu } from './tier2/ampdu'
 import { txop } from './tier2/txop'
 import { txopProtect } from './tier2/txop-protect'
+import { protectPolicies } from './tier2/protect-policies'
 import { ofdmaDl } from './tier2/ofdma-dl'
 import { ofdmaUl } from './tier2/ofdma-ul'
 import { mlo } from './tier2/mlo'
@@ -136,9 +138,11 @@ const AUTHORED: Lesson[] = [
 
   // ======================= MODULE 2 =======================
   edca,
+  edcaCost,
   ampdu,
   txop,
   txopProtect,
+  protectPolicies,
 
   // ======================= MODULE 3 =======================
   ofdmaDl,

@@ -98,7 +98,7 @@ export const COURSE_ORDER: string[] = [
   // Tier 1 — M2 channel access
   'ifs', 'cca', 'backoff', 'collisions-cw', 'nav', 'hidden', 'rts-cts', 'anomaly', 'retries-queues', 'queues', 'bianchi', 'bianchi-vs-sim', 'rate-vs-model', 'tier1-project', 'tier1-project-review',
   // Tier 2 — M3 QoS and efficiency
-  'edca', 'ampdu', 'txop', 'txop-protect',
+  'edca', 'edca-cost', 'ampdu', 'txop', 'txop-protect', 'protect-policies',
   // Tier 2 — M4 capacity knobs and rate control
   'width', 'streams', 'rate', 'rate-fallback',
   // Tier 2 — M7 scheduled Wi-Fi 6/7

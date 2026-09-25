@@ -76,12 +76,10 @@ describe('ifs · the two waits', () => {
   })
 
   it('the penalty wait is 94 µs: the short gap, a whole answer and a DIFS', () => {
-    // MOVED CLAIM, PIN HELD. The lesson no longer prints 94 µs — the figure went to
-    // `edca-cost` with the EIFS paragraph, table row and quiz question (§2, §7.3) — and
-    // `edca-cost` is not registered yet. The pin stays here so nothing is unpinned in the
-    // meantime; `sources` still names §10.3.2.3.7, which is the sentence it guards.
-    expect(ACK_TX_TIME_6M_NS).toBe(44_000)
-    expect(EIFS_NS).toBe(94_000)
+    // The 94 µs sum moved to `edca-cost` with the EIFS material and is pinned there,
+    // beside the run that actually arms an EIFS. What stays here is the claim this
+    // lesson still makes: `sources` names §10.3.2.3.7, so the constant it cites has
+    // to be the engine's.
     expect(EIFS_NS).toBe(SIFS_NS + ACK_TX_TIME_6M_NS + DIFS_NS)
   })
 })
