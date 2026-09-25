@@ -2,22 +2,25 @@
  * Every empirical claim in "MLO — one queue, two radios", measured against the
  * lesson's own scene.
  *
- * The lesson was 233 words of assertion and is now the picture of a second
- * door: what the two links keep apart, what the shared pile buys its owner,
- * what it buys the neighbour it left behind, and what is left of it once the
- * neighbour has two radios too. The scenario builder is untouched and there
- * are still no variants, so the recorded timeline hash is the same run.
+ * Re-paced 2026-09-26: this half keeps the mechanism — one pile of frames, two
+ * radios that contend on their own — the procedure by which a frame gets a link,
+ * the worked example, and both branches of step 6's failure path. The price tag
+ * (the three tables, the MCS, the neighbour's share and the two experiments)
+ * moved to tests/course/mlo-gain.test.ts with the prose.
  *
- * The old lesson had no test file of its own. Its pins lived in
+ * The drop branch is still pinned against a SYNTHETIC copy of the scene, because
+ * the lesson's own 300 ms never reaches a retry limit — and the lesson now says
+ * so in as many words, so the reader is not sent looking for a DROP that is not
+ * there.
+ *
  * tests/course/lesson-claims.test.ts ("lesson 13 · MLO": both links carry data
  * and the traffic leans to 6 GHz) and tests/course/lessons.test.ts (the jump
- * targets, and the simultaneous RTS on the access point's lane); both files
- * are untouched and stay green — they read `l.scenario()` only, never prose.
- * There was never a `.body!` site to retire.
+ * targets, and the simultaneous RTS on the access point's lane) keep their own
+ * pins; both read `l.scenario()` only, never prose.
  */
 import { describe, it, expect } from 'vitest'
 import { Simulation } from '../../src/engine/simulation'
-import { mlo } from '../../src/course/tier2/mlo'
+import { mlo, mloStack, LANE_FRAMES } from '../../src/course/tier2/mlo'
 import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 import { AcQueues } from '../../src/engine/queues'
@@ -33,33 +36,22 @@ const RUN_NS = 300 * MS
 type Tx = Extract<TLRecord, { type: 'TX_START' }>
 const data = (rs: TLRecord[], node: string): Tx[] =>
   rs.filter((r): r is Tx => r.type === 'TX_START' && r.node === node && r.frame.kind === 'data')
-const airMs = (xs: Tx[]): number => Math.round(xs.reduce((a, r) => a + r.frame.txTimeNs, 0) / MS * 10) / 10
 
-/** One run of a modified copy of the scene, with the per-node counters the panel shows. */
-function view(mod: (sc: Scenario) => void = () => {}): {
-  rs: TLRecord[]
-  air: (id: string) => number
-  wait: (id: string) => number
-} {
+/** One run of a modified copy of the scene. */
+function view(mod: (sc: Scenario) => void = () => {}): { rs: TLRecord[] } {
   const sc = mlo.scenario()
   mod(sc)
-  const sim = new Simulation(sc)
-  const rs = [...sim.runUntil(RUN_NS).records]
-  const st = (id: string) => sim.view.nodes[id].stats
-  return {
-    rs,
-    air: (id) => Math.round(st(id).airtimeNs / RUN_NS * 1000) / 10,
-    wait: (id) => Math.round(st(id).txLatency.sumNs / st(id).txLatency.n / MS * 100) / 100,
-  }
+  return { rs: [...new Simulation(sc).runUntil(RUN_NS).records] }
 }
 
 lessonShapeSuite(mlo, { runNs: RUN_NS })
 
 describe('mlo · the lesson’s own scene', () => {
-  it('is the scheduled-Wi-Fi module’s last lesson, and names where its words come from', () => {
+  it('is the scheduled-Wi-Fi module’s lesson on the mechanism, and names where its words come from', () => {
     expect(MODULES[mlo.module].title).toBe('被调度的 Wi-Fi 6/7')
-    expect(mlo.needs).toEqual(['retries-queues', 'txop-protect', 'width'])
-    // "queue" is retries-queues' word, the shared air is txop-protect's, the band is width's;
+    // protect-policies replaces txop-protect: the shared-air material moved there in the re-pacing
+    expect(mlo.needs).toEqual(['retries-queues', 'protect-policies', 'width'])
+    // "queue" is retries-queues' word, the shared air is protect-policies', the band is width's;
     // these three are this lesson's own.
     expect(mlo.terms!.map((t) => t.term)).toEqual(['link', 'MLO', 'MLD'])
   })
@@ -82,67 +74,17 @@ describe('mlo · the lesson’s own scene', () => {
   })
 })
 
-describe('mlo · where the laptop’s work went', () => {
-  const v = view()
-  const on5 = data(v.rs, 'sta-1'), on6 = data(v.rs, 'sta-1#6g')
-
-  it('the first table is that run: 67 frames and 53.9 ms on 5 GHz, 240 and 249.6 ms on 6 GHz', () => {
-    expect([on5.length, on6.length]).toEqual([67, 240])
-    expect([airMs(on5), airMs(on6)]).toEqual([53.9, 249.6])
-    // the "Share of that band's clock" column
-    expect([v.air('sta-1'), v.air('sta-1#6g')]).toEqual([18.3, 84.2])
-  })
-
-  it('"not the faster radio": both links run at MCS 13 and 172.1 Mb/s', () => {
-    for (const r of [...on5, ...on6]) {
-      expect(r.frame.mcs).toBe(13)
-      expect(r.frame.mbps).toBe(172.1)
-    }
-  })
-
-  it('"four of every five" frames leave by the quiet door, taking "almost five times" the air', () => {
-    expect(Math.round(on6.length / (on5.length + on6.length) * 10) / 10).toBe(0.8)
-    expect(Math.round(airMs(on6) / airMs(on5) * 10) / 10).toBe(4.6)
-  })
-
-  it('the neighbour holds 5 GHz for 69.9% of the clock, at 2.58 ms of mean wait', () => {
-    expect(data(v.rs, 'sta-2').length).toBe(185)
-    expect(v.air('sta-2')).toBe(69.9)
-    expect(v.wait('sta-2')).toBe(2.58)
-  })
-
-  it('the laptop’s own mean waits are the 1.29 and 1.54 ms of the second table', () => {
-    expect([v.wait('sta-1'), v.wait('sta-1#6g')]).toEqual([1.29, 1.54])
-  })
-})
-
-describe('mlo · the two experiments', () => {
-  const off = view((sc) => { sc.nodes.find((n) => n.id === 'sta-1')!.caps.features.mlo = false })
-  const both = view((sc) => {
-    const n = sc.nodes.find((x) => x.id === 'sta-2')!
-    n.caps.generation = 'eht'
-    n.caps.features.mlo = true
-  })
-
-  it('MLO off: one lane, 116 frames instead of 307, and the wait more than doubles', () => {
-    expect(new Set(data(off.rs, 'sta-1').map((r) => r.node))).toEqual(new Set(['sta-1']))
-    expect(data(off.rs, 'sta-1#6g')).toHaveLength(0)
-    expect(data(off.rs, 'sta-1').length).toBe(116)
-    expect(off.wait('sta-1')).toBe(3.25)
-    expect(3.25).toBeGreaterThan(2 * 1.54)
-  })
-
-  it('"the neighbour does not gain": it drops from 185 frames to 116, and waits 4.18 ms', () => {
-    expect(data(off.rs, 'sta-2').length).toBe(116)
-    expect(off.wait('sta-2')).toBe(4.18)
-  })
-
-  it('give the neighbour two radios and the lean vanishes: 122 against 136, 258 in all', () => {
-    const l5 = data(both.rs, 'sta-1').length, l6 = data(both.rs, 'sta-1#6g').length
-    expect([l5, l6]).toEqual([122, 136])
-    expect(l5 + l6).toBe(258)
-    // the third table's other column
-    expect([data(both.rs, 'sta-2').length, data(both.rs, 'sta-2#6g').length]).toEqual([132, 106])
+describe('mlo · the figure is drawn from the run', () => {
+  it('the two boxes are the two lanes’ own frame counts, 67 against 240', () => {
+    const rs = runOf(mlo, undefined, RUN_NS)
+    const on5 = data(rs, 'sta-1').length, on6 = data(rs, 'sta-1#6g').length
+    expect([on5, on6]).toEqual([LANE_FRAMES.g5, LANE_FRAMES.g6])
+    const spec = mloStack()
+    expect(spec.layers.map((l) => l.bytes)).toEqual([on5, on6])
+    expect(spec.mode).toBe('sequential')
+    // the closing figure is the sum, which is the 307 the next lesson prices
+    expect(spec.total).toContain(String(on5 + on6))
+    expect(on5 + on6).toBe(307)
   })
 })
 
@@ -222,9 +164,9 @@ describe('mlo · the procedure, against the engine that runs it', () => {
 describe('mlo · step 6’s other branch, which this scene never reaches', () => {
   // `failMsdus` (src/engine/mac.ts) restores a failed set to the queue head only while its
   // retry count is under SHORT_RETRY_LIMIT; at the limit the frame is dropped instead. The
-  // lesson's own 300 ms never gets there, so the branch is pinned against a SYNTHETIC copy
-  // of the scene with the laptop moved out of range. The lesson's scenario is untouched and
-  // no number the lesson quotes is measured here.
+  // lesson's own 300 ms never gets there — which the lesson says out loud — so the branch is
+  // pinned against a SYNTHETIC copy of the scene with the laptop moved out of range. The
+  // lesson's scenario is untouched and no number the lesson quotes is measured here.
   const far = view((sc) => { sc.nodes.find((n) => n.id === 'sta-1')!.pos = { x: 200, y: 200, z: 1 } })
   const of = <T extends TLRecord['type']>(rs: TLRecord[], t: T) =>
     rs.filter((r): r is Extract<TLRecord, { type: T }> => r.type === t)

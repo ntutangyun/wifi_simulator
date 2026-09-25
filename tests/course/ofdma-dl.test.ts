@@ -15,7 +15,7 @@
  * site in any test.
  */
 import { describe, it, expect } from 'vitest'
-import { ofdmaDl } from '../../src/course/tier2/ofdma-dl'
+import { ofdmaDl, muPpduFields, MU_SYMBOLS } from '../../src/course/tier2/ofdma-dl'
 import { Simulation } from '../../src/engine/simulation'
 import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
@@ -146,6 +146,33 @@ describe('ofdma-dl · two video frames on the air, one way and the other', () =>
     expect(checked).toBe(45)
     // and the group is never the four the engine would allow, so the cap is not what bounds it
     expect(new Set(mu.map((r) => r.frame.muParts!.length))).toEqual(new Set([2]))
+  })
+})
+
+describe('ofdma-dl · the figure of one MU PPDU', () => {
+  // The `fields` diagram replaced the paragraph that narrated the preamble accounting
+  // (re-pacing §4), so the boxes have to be the run's own send, box for box.
+  const spec = muPpduFields()
+  const rs = runOf(ofdmaDl, undefined, RUN_NS)
+
+  it('the three boxes are the preamble, the per-user map and the members’ payload', () => {
+    expect(spec.unit).toBe('µs')
+    expect(spec.fields.map((f) => f.size)).toEqual([44, 4, 163.2])
+    expect(PHY_MODES.he.preambleNs).toBe(44 * US)
+    expect(PHY_MODES.he.muExtraPreambleNs).toBe(4 * US)
+    expect(MU_SYMBOLS * PHY_MODES.he.symNs).toBe(163.2 * US)
+  })
+
+  it('and they add up to the length of every multi-user send of the run', () => {
+    const sum = spec.fields.reduce((n, f) => n + f.size, 0)
+    expect(Math.round(sum * 10) / 10).toBe(211.2)
+    expect(spec.total).toBe('共 211.2 µs')
+    expect(one(muPpdus(rs).map((r) => r.frame.txTimeNs))).toBe(sum * US)
+    // the 12 symbols the payload box is drawn from are the members' own
+    for (const r of muPpdus(rs)) {
+      const opening = PHY_MODES.he.preambleNs + PHY_MODES.he.muExtraPreambleNs
+      expect((r.frame.txTimeNs - opening) / PHY_MODES.he.symNs).toBe(MU_SYMBOLS)
+    }
   })
 })
 

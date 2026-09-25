@@ -1,26 +1,30 @@
 /**
- * Every empirical claim of "MU-MIMO — splitting by space instead of
- * frequency", measured against the lesson's own two variants.
+ * Every empirical claim of "MU-MIMO — splitting by space instead of frequency",
+ * measured against the lesson's own two variants.
  *
- * What is pinned here is what this lesson's own sentences say: the two rows of
- * the comparison table (members, payload each, data symbols, send length and
- * per-member rate), the formula behind those lengths and the 1.41 it comes to,
- * the combined 12,918 against 8,612 bytes, the antenna arithmetic behind "the
- * group is never three", and the acknowledgement round that settles a whole
- * group at once.
+ * Re-paced 2026-09-26: this half keeps what dividing space means, the antenna
+ * arithmetic that caps the group, the trim procedure and the acknowledgement
+ * round. What each way costs — the comparison table, the length formula, the
+ * combined bytes and the 1,000-byte threshold the engine picks by — moved to
+ * tests/course/mumimo-choose.test.ts with the prose, and is not duplicated here.
  *
- * `tests/course/quoted-timestamps.test.ts` owns the deeper section's 196 / 122
- * / 65 / 9 split and the added-phones experiment, and
- * `tests/course/lesson-claims.test.ts` owns the backup-off experiment; this
- * file does not duplicate them. The lesson never had a `.body!` site in any
- * test.
+ * Two corrections this file exists to hold:
+ *  - "one round of acknowledgement settles the group" is 162 of 169 sends in the
+ *    slicing variant, and the test pins the count rather than a bound;
+ *  - the figure is the run's own first MU-MIMO send, so the phone drawn outside
+ *    the group is the phone the engine trimmed — not a phone the simulator
+ *    cannot reach, and not a sounding exchange, which it never runs at all.
+ *
+ * `tests/course/quoted-timestamps.test.ts` owns the two quoted sends'
+ * timestamps, the 196 / 122 / 65 / 9 split and the added-phones experiment, and
+ * `tests/course/lesson-claims.test.ts` owns the backup-off experiment; this file
+ * does not duplicate them.
  */
 import { describe, it, expect } from 'vitest'
-import { mumimo } from '../../src/course/tier2/mumimo'
+import { mumimo, mumimoTopology } from '../../src/course/tier2/mumimo'
 import { mumimoScenario } from '../../src/course/wifiScenes'
 import { ScenarioSchema } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
-import { PHY_MODES, toneRatio } from '../../src/engine/phy'
 import { lessonShapeSuite, runOf } from './kit'
 import { MODULES } from '../../src/course/curriculum'
 
@@ -29,26 +33,16 @@ const US = 1_000
 const RUN_NS = 500 * MS
 const SIFS_NS = 16 * US
 const PHONES = ['sta-1', 'sta-2', 'sta-3']
-/** The fixed opening of a multi-user send: the EHT preamble plus the per-user map. */
-const OPENING_NS = PHY_MODES.eht.preambleNs + PHY_MODES.eht.muExtraPreambleNs
 
 type Tx = Extract<TLRecord, { type: 'TX_START' }>
 const txs = (rs: TLRecord[], pred: (r: Tx) => boolean = () => true): Tx[] =>
   rs.filter((r): r is Tx => r.type === 'TX_START' && pred(r))
 const muSends = (rs: TLRecord[]): Tx[] => txs(rs, (r) => r.frame.kind === 'data' && r.frame.muParts !== undefined)
-/** The first send of a variant in which every member carries the same 4,306 B: the table's row. */
-const cleanSend = (rs: TLRecord[], members: number): Tx => {
-  const hit = muSends(rs).find((r) => r.frame.muParts!.length === members
-    && new Set(r.frame.muParts!.map((p) => p.bytes)).size === 1
-    && r.frame.muParts![0].bytes === 4_306)
-  expect(hit, `a clean ${members}-member send`).toBeDefined()
-  return hit!
-}
 
 lessonShapeSuite(mumimo, { runNs: RUN_NS })
 
 describe('mumimo · the lesson’s own scene', () => {
-  it('is a Tier 2 lesson that needs the two halves of the idea it compares', () => {
+  it('is a Tier 2 lesson that needs the two halves of the idea it builds on', () => {
     expect(MODULES[mumimo.module].title).toBe('被调度的 Wi-Fi 6/7')
     expect(mumimo.needs).toEqual(['streams', 'ofdma-dl'])
     expect(mumimo.terms!.map((t) => t.term)).toEqual(['MU-MIMO', 'beamforming', 'sounding'])
@@ -84,94 +78,73 @@ describe('mumimo · the lesson’s own scene', () => {
   })
 })
 
-describe('mumimo · one send of each kind', () => {
-  const ofdma = cleanSend(runOf(mumimo, 0, RUN_NS), 3)
-  const mimo = cleanSend(runOf(mumimo, 1, RUN_NS), 2)
+describe('mumimo · the figure is the run’s own first send by space', () => {
+  const spec = mumimoTopology()
 
-  it('the table’s two rows: 3 and 2 members, 4,306 B each, 92.8 µs and 65.6 µs', () => {
-    expect(ofdma.frame.muParts!.length).toBe(3)
-    expect(mimo.frame.muParts!.length).toBe(2)
-    expect(ofdma.frame.txTimeNs).toBe(92.8 * US)
-    expect(mimo.frame.txTimeNs).toBe(65.6 * US)
-    expect(ofdma.frame.muKind).toBe('ofdma')
-    expect(mimo.frame.muKind).toBe('mumimo')
-    // each OFDMA member is on a third of the channel; each MU-MIMO member on all of it
-    expect(new Set(ofdma.frame.muParts!.map((p) => p.ruFraction))).toEqual(new Set([1 / 3]))
-    expect(new Set(mimo.frame.muParts!.map((p) => p.nss))).toEqual(new Set([2]))
+  it('draws the scene node for node, at the scene’s own positions', () => {
+    const sc = mumimoScenario(true)
+    expect(spec.nodes.map((n) => n.id)).toEqual(sc.nodes.map((n) => n.id))
+    for (const n of spec.nodes) {
+      const src = sc.nodes.find((x) => x.id === n.id)!
+      expect([n.x, n.y], n.id).toEqual([src.pos.x, src.pos.y])
+      expect(n.role, n.id).toBe(src.kind === 'ap' ? 'ap' : 'sta')
+      expect(n.label.trim(), n.id).not.toBe('')
+    }
+    // every link starts at the router: this is one send, not a topology of peers
+    for (const l of spec.links) expect(l.from).toBe('ap')
   })
 
-  it('"Rate per member": 371.2 and 525.1 Mb/s, payload over the length of the send', () => {
-    const rate = (r: Tx): number => Math.round(((r.frame.muParts![0].bytes * 8) / (r.frame.txTimeNs / 1000)) * 10) / 10
-    expect(rate(ofdma)).toBe(371.2)
-    expect(rate(mimo)).toBe(525.1)
-    expect(rate(mimo)).toBeGreaterThan(rate(ofdma))
-  })
-
-  it('the formula: a fixed 52 µs opening plus three data symbols against one', () => {
-    expect(OPENING_NS).toBe(52 * US)
-    expect(PHY_MODES.eht.symNs).toBe(13.6 * US)
-    expect((ofdma.frame.txTimeNs - OPENING_NS) / PHY_MODES.eht.symNs).toBe(3)
-    expect((mimo.frame.txTimeNs - OPENING_NS) / PHY_MODES.eht.symNs).toBe(1)
-    // "a clean threefold gain" on the data, "only 1.41 times" end to end
-    expect((ofdma.frame.txTimeNs - OPENING_NS) / (mimo.frame.txTimeNs - OPENING_NS)).toBe(3)
-    expect(Math.round((ofdma.frame.txTimeNs / mimo.frame.txTimeNs) * 100) / 100).toBe(1.41)
-  })
-
-  it('"Three members deliver 12,918 bytes against two members’ 8,612"', () => {
-    expect(ofdma.frame.bytes).toBe(12_918)
-    expect(mimo.frame.bytes).toBe(8_612)
-    expect(3 * 4_306).toBe(12_918)
-    expect(2 * 4_306).toBe(8_612)
-  })
-})
-
-describe('mumimo · the procedure, run against every multi-user send of both variants', () => {
-  const nssOf = (id: string): number => mumimo.scenario().nodes.find((n) => n.id === id)!.caps.nss ?? 1
-
-  it.each([[0, 'split by frequency'], [1, 'split by space']] as const)('variant %i (%s)', (v, _name) => {
-    const sends = muSends(runOf(mumimo, v, RUN_NS))
-    expect(sends.length).toBeGreaterThan(50)
-    for (const r of sends) {
-      const parts = r.frame.muParts!
-      // step 1: never fewer than two members, never more than the engine's four
-      expect(parts.length).toBeGreaterThanOrEqual(2)
-      expect(parts.length).toBeLessThanOrEqual(4)
-      if (r.frame.muKind === 'mumimo') {
-        // step 2: beams only above the 1,000-byte floor; step 3: streams within the router's four
-        for (const p of parts) expect(p.bytes).toBeGreaterThanOrEqual(1_000)
-        expect(parts.reduce((s, p) => s + (p.nss ?? 1), 0)).toBeLessThanOrEqual(4)
-        for (const p of parts) expect(p.ruFraction).toBeUndefined()
-      } else {
-        for (const p of parts) expect(p.ruFraction).toBe(1 / parts.length)
-      }
-      // step 5: the opening once, then 13.6 µs for as many symbols as the longest member needs.
-      // A slicing member keeps its own stream count as well: only `ruFraction` is recorded on
-      // the part, so the stream count is read back off the scenario.
-      const mode = r.frame.mode!
-      const symbolsOf = (p: typeof parts[number]): number => {
-        const bps = PHY_MODES[mode].ndbps[p.mcs] * toneRatio(mode, r.frame.widthMhz ?? 20)
-          * (p.nss ?? nssOf(p.dst)) * (p.ruFraction ?? 1)
-        return Math.ceil((16 + 8 * p.bytes + 6) / bps)
-      }
-      expect(r.frame.txTimeNs).toBe(OPENING_NS + PHY_MODES[mode].symNs * Math.max(...parts.map(symbolsOf)))
+  it('the two phones inside the ring, and the dashed one outside it, are that send’s members', () => {
+    const first = muSends(runOf(mumimo, 1, RUN_NS))[0]
+    const members = new Set(first.frame.muParts!.map((p) => p.dst))
+    // the ring holds the router and exactly the members
+    expect(new Set(spec.ring!.nodes)).toEqual(new Set(['ap', ...members]))
+    expect(members).toEqual(new Set(['sta-2', 'sta-3']))
+    // the accented links are the members', the dashed one is the phone that was trimmed
+    const accent = spec.links.filter((l) => l.tone === 'accent').map((l) => l.to)
+    expect(new Set(accent)).toEqual(members)
+    const muted = spec.links.filter((l) => l.tone === 'muted').map((l) => l.to)
+    expect(muted).toEqual(['sta-1'])
+    expect(PHONES.filter((p) => !members.has(p))).toEqual(['sta-1'])
+    // and it really is a full-width member each, not a slice each
+    for (const p of first.frame.muParts!) {
+      expect(p.ruFraction).toBeUndefined()
+      expect(p.nss).toBe(2)
     }
   })
 
-  it('the worked example’s own two columns: a third of the tones against all of them', () => {
-    // 4,306 B at EHT MCS 13 on 160 MHz: three symbols on a third of the tones, one on all
-    const bps = (frac: number, nss: number): number =>
-      PHY_MODES.eht.ndbps[13] * toneRatio('eht', 160) * nss * frac
-    expect(Math.ceil((16 + 8 * 4_306 + 6) / bps(1 / 3, 2))).toBe(3)
-    expect(Math.ceil((16 + 8 * 4_306 + 6) / bps(1, 2))).toBe(1)
-    expect(OPENING_NS + 3 * PHY_MODES.eht.symNs).toBe(92.8 * US)
-    expect(OPENING_NS + 1 * PHY_MODES.eht.symNs).toBe(65.6 * US)
+  it('"which phone is trimmed is not fixed": all three pairings occur over the run', () => {
+    const pairs = new Set(muSends(runOf(mumimo, 1, RUN_NS))
+      .map((r) => r.frame.muParts!.map((p) => p.dst).sort().join('+')))
+    expect(pairs).toEqual(new Set(['sta-1+sta-2', 'sta-1+sta-3', 'sta-2+sta-3']))
+  })
+})
+
+describe('mumimo · the trim procedure, run against every send by space', () => {
+  it('steps 1, 3 and 4: two to four members, streams within the router’s four, full width each', () => {
+    const sends = muSends(runOf(mumimo, 1, RUN_NS))
+    expect(sends.length).toBeGreaterThan(50)
+    for (const r of sends) {
+      const parts = r.frame.muParts!
+      expect(r.frame.muKind).toBe('mumimo')
+      expect(parts.length).toBeGreaterThanOrEqual(2)
+      expect(parts.length).toBeLessThanOrEqual(4)
+      // step 3: the group is trimmed until the members' streams fit the antennas
+      expect(parts.reduce((s, p) => s + (p.nss ?? 1), 0)).toBeLessThanOrEqual(4)
+      // step 4: each survivor gets the whole width at its own stream count
+      for (const p of parts) expect(p.ruFraction).toBeUndefined()
+    }
+  })
+
+  it('step 4’s other branch: fewer than two survivors falls back, so no send by space is ever one member', () => {
+    for (const r of muSends(runOf(mumimo, 1, RUN_NS))) expect(r.frame.muParts!.length).not.toBe(1)
   })
 })
 
 describe('mumimo · one round of acknowledgement settles the whole group', () => {
   // the counts the observation was written from, pinned rather than bounded (tier-2 review,
   // Minor 20): the OFDMA variant settles 162 of 169 sends, the MU-MIMO one 190 of 196, and the
-  // rest are the sends the laptop talked over — "which happens to a few of them".
+  // rest are the sends the laptop talked over. Step 6 of this lesson quotes 162 of 169.
   it.each([[0, 'OFDMA', 169, 162], [1, 'MU-MIMO', 196, 190]] as const)('variant %i (%s)', (v, _name, total, ok) => {
     const rs = runOf(mumimo, v, RUN_NS)
     const sends = muSends(rs)

@@ -1,25 +1,55 @@
 /**
- * Wi-Fi Tier 2 · M7 · Scheduled Wi-Fi 6/7 · OFDMA on the downlink.
+ * Wi-Fi Tier 2 · M10 · Scheduled Wi-Fi 6/7 · OFDMA on the downlink.
  *
- * Rewritten to the zero-to-hero contract
- * (docs/superpowers/specs/2026-09-21-course-readability-design.md): the
- * channel cut into slices so one send carries data for several devices at
- * once; who decides the slices; what that buys when the frames are small and
- * what it cannot buy at all. `numbers` closes with the engine's own procedure
- * for building one such send, and the first one of the run through it row by
- * row. The clause numbers live in `sources`.
+ * Re-paced 2026-09-26 (docs/superpowers/plans/2026-09-25-course-repacing-proposal.md,
+ * §2 M10): the lesson stays whole — one topic, one procedure, one scene — and
+ * loses the paragraph that narrated the preamble accounting, because the
+ * `fields` figure of the MU PPDU now draws it (§4). What it must never claim is
+ * a throughput win: with this fixed video load the frames delivered are
+ * identical with OFDMA and without, and the whole gain is 1.44 ms of air over
+ * 300 ms.
  *
  * The scenario builder is unchanged, so the recorded timeline hash in
  * tests/fixtures/lesson-hashes.json stays byte-identical. Every number quoted
- * below is pinned in tests/course/ofdma-dl.test.ts.
+ * below — and every figure in the diagram — is pinned in
+ * tests/course/ofdma-dl.test.ts.
  */
 import { type Lesson, oneRoom, node, sc, txOf, firstMuDl, J } from '../lessonKit'
+import type { FieldsSpec } from '../diagram'
+import { PHY_MODES } from '../../engine/phy'
+
+/** The symbols each half-channel member of the run's MU PPDU needs for its 1434 B. */
+export const MU_SYMBOLS = 12
+
+/** µs, one decimal — the unit the timeline and the tables print. */
+const us = (ns: number): number => Math.round(ns / 100) / 10
+
+/**
+ * One multi-user PPDU of this run, drawn from the PHY's own constants: the
+ * preamble, the per-user map that is the price of the whole idea, and the two
+ * members' payload. Sized in microseconds, so the boxes are the picture of
+ * where the 211.2 µs goes — and a PHY change moves the figure with the lesson.
+ */
+export function muPpduFields(): FieldsSpec {
+  const m = PHY_MODES.he
+  const payloadNs = m.symNs * MU_SYMBOLS
+  return {
+    kind: 'fields',
+    fields: [
+      { label: '前导码', size: us(m.preambleNs) },
+      { label: '每用户分配表', size: us(m.muExtraPreambleNs) },
+      { label: '各 RU 的载荷', size: us(payloadNs) },
+    ],
+    unit: 'µs',
+    total: `共 ${us(m.preambleNs + m.muExtraPreambleNs + payloadNs)} µs`,
+  }
+}
 
 export const ofdmaDl: Lesson = {
   id: 'ofdma-dl',
   module: 9,
   title: 'OFDMA 下行——一次发送，好几台设备',
-  why: '一台正在放片子的电视，每次并不需要占多少空口，但它需要一个“轮次”：自己的前导码（preamble）、自己的回执、之前还要自己等一轮。同一个房间里放三台，接入点（AP）整晚花在这些包装上的工夫，就多过花在片子上。这一课要看的是：接入点如何不再一轮只服务一台设备，而是在一次发送里同时服务好几台。',
+  why: '一台正在放片子的电视，每次并不需要占多少空口，但它需要一个“轮次”：自己的前导码（preamble）、自己的回执，之前还要自己等一轮。同一个房间里放三台，接入点（AP）整晚花在这些包装上的工夫，就多过花在片子上。这一课要看的是：接入点如何不再一轮只服务一台设备，而是在一次发送里同时服务好几台。',
   outcomes: [
     '说出接入点在一次发送里服务多台设备时，被切分的到底是什么',
     '在时间轴上读出一次多用户（multi-user, MU）发送：里面有谁、花了多久、怎么被确认的',
@@ -33,11 +63,14 @@ export const ofdmaDl: Lesson = {
     { term: 'MU', plain: '多用户：形容一次发送里的各个分片分别属于不同的设备' },
   ],
   picture: [
-    { heading: '一次发送，切成几片', text: '信道本来就是由一根根很窄的子载波（sub-carrier）拼起来的，而且谁也没规定它们必须都为同一段对话服务。换个分法：把它们成块地分出去——这一块给那部手机，那一块给电视——于是一次发送就能同时装着发给好几台设备的数据。每台设备只读属于自己的那一块，其余的一概不管。这就是正交频分多址（orthogonal frequency-division multiple access, OFDMA），而其中的一块，就是一个资源单元（resource unit, RU）。' },
+    { heading: '一次发送，切成几片', text: '信道本来就是一根根很窄的子载波（sub-carrier）拼起来的，而且谁也没规定它们必须都为同一段对话服务。换个分法：把它们成块地分出去——这一块给那部手机，那一块给电视——于是一次发送就能同时装着发给好几台设备的载荷（payload）。每台设备只读属于自己的那一块，其余的一概不管。这就是正交频分多址（orthogonal frequency-division multiple access, OFDMA），而其中的一块，就是一个资源单元（resource unit, RU）。' },
     { kind: 'watch', jump: 0, heading: '去看一眼', text: '载入仿真，跳到第一次多用户发送。把鼠标停在那个宽蓝块上：一帧里点着两台电视的名字。它结束之后隔一小段，两个回执在同一个瞬间一起开始，并排落在不同的泳道上。' },
-    { heading: '谁来决定怎么切', text: '切片不是谈出来的。赢下这一轮之后，由接入点一个人决定：它看一眼此刻有哪些设备的东西正等着发，最多挑四台，给每台分一个同样大的资源单元（RU），然后发出去。没被挑中的设备不是被拒绝了——只是它们的队列（queue）里此刻根本没有东西可装。发出去的这一帧，记录里叫作多用户 PPDU（multi-user PPDU, MU PPDU）。' },
-    { heading: '切片买来了什么', text: '每一次发送，开头都有一段前导码让接收端锁定，结尾都要收一个回执。两帧一前一后地发，就要付两段前导码、两个回执；同样这两帧装进一次发送，只付一段前导码，而两个回执是一起回来的，不必排队。每一片都更窄，所以同一帧要用比单独发时更多的符号（symbol）——但包装只付一次。' },
-    { heading: '切片买不来的东西', text: '切片不会让任何一条链路（link）变快。电视要多少片子就是多少，它收到的帧和本来会收到的一模一样；省下来的是空口，而省下的这点空口属于房间里其他想说话的人。接入点也没法把队列是空的设备凑成一组：必须有两台设备在同一瞬间都有东西等着发，而在一屋子平稳的视频流里，这样的瞬间并不多。' },
+    { heading: '谁来决定怎么切', text: '切片不是谈出来的。赢下这一轮之后，由接入点一个人决定：它看一眼此刻有哪些设备的东西正等着发，最多挑四台，给每台分一个同样大的资源单元（RU），然后发出去。没被挑中的设备不是被拒绝了——只是它们的队列（queue）里此刻根本没有东西可装。发出去的这一帧，记录里叫作多用户 PPDU（multi-user PPDU, MU PPDU），它的开头比平常多带一张每用户分配表（per-user info field），写明哪一片属于谁。' },
+    {
+      kind: 'diagram', heading: '这一发的时间花在哪儿', spec: muPpduFields(),
+      caption: '两台电视各装 1434 字节，各占半条信道，所以各要十二个符号（symbol）。而前导码和那张分配表，整组只付一次——省下来的就是这一笔，成员越多越划算，道理也就在这里。',
+    },
+    { heading: '切片买不来的东西', text: '切片不会让任何一条链路（link）变快。电视要多少片子就是多少，它收到的帧和本来会收到的一模一样；省下来的是空口时间（airtime），而省下的这点属于房间里其他想说话的人。接入点也没法把队列是空的设备凑成一组：必须有两台设备在同一瞬间都有东西等着发，而在一屋子平稳的视频流里，这样的瞬间并不多。' },
   ],
   numbers: [
     { kind: 'table', heading: '同样两个视频帧发给 Wi-Fi 6 电视，两种发法', head: [
@@ -47,9 +80,9 @@ export const ofdmaDl: Lesson = {
       ['一帧一帧发', '44 µs × 2', '6 + 6', '125.6 µs × 2',
         '两个确认帧（acknowledgement, ACK），各 28 µs，一前一后'],
       ['一个 MU PPDU', '48 µs', '12', '211.2 µs',
-        '两个 BlockAck 帧，各 32 µs，同一瞬间'],
+        '两个块确认帧，各 32 µs，同一瞬间'],
     ] },
-    { kind: 'formula', heading: '为什么是十二个符号而不是六个', text: '符号数 = ⌈(16 + 8·字节数 + 6) ÷ (每符号比特数 × RU 占比)⌉', note: '子载波少一半，符号数就翻一倍。44 µs 是一个 Wi-Fi 6 帧的前导码——Wi-Fi 7 帧的前导码则是带宽那一课里的 48——而“这一发里有谁”的每用户分配表（per-user info field）又添了四微秒。即便如此，两帧一起走只要 211.2 µs，而一前一后地发要 251.2 µs。' },
+    { kind: 'formula', heading: '为什么是十二个符号而不是六个', text: '符号数 = ⌈(16 + 8·字节数 + 6) ÷ (每符号比特数 × RU 占比)⌉', note: '子载波少一半，符号数就翻一倍。即便如此，两帧一起走只要 211.2 µs，而一前一后地发要 251.2 µs。' },
     { kind: 'table', heading: '整段仿真：三台电视，300 ms', head: [
       '测量项', '开 OFDMA', '关 OFDMA',
     ], rows: [
@@ -61,13 +94,13 @@ export const ofdmaDl: Lesson = {
         '13.1 / 13.3 / 13.2 Mb/s', '13.1 / 13.3 / 13.2 Mb/s'],
       ['空口忙碌的总时间', '161.5 ms', '163.0 ms'],
     ] },
-    { heading: '同样的片子，更少的空口', text: '每台电视收到的帧和原来一模一样，所以屏幕上什么也不会变。变的是空口。每凑成一对，就省下 40 µs 的前导码，又因为回执变大而还回去 8 µs；这段仿真里的 45 对，合起来是 1.44 ms，还给了房间里其他所有人。' },
+    { heading: '同样的片子，更少的空口', text: '每台电视收到的帧和原来一模一样，所以屏幕上什么也不会变。变的是空口：每凑成一对，就省下 40 µs 的前导码，又因为回执变大而还回去 8 µs；这段仿真里的 45 对，合起来是 1.44 ms，还给了房间里其他所有人。' },
     { kind: 'steps', heading: '一次多用户发送是怎么攒出来的，一步一步', items: [
       '接入点赢下一轮，先列出此刻队列里有东西、并且和它协商过 OFDMA 的设备。名单上不到两台，它就走老路，只发给一台。',
       '名单上只留前四台，再把子载波切成同样多的等分资源单元：两个成员就一人一半，三个成员就一人三分之一。',
       '接着为每个成员算出一个符号能驮多少比特：先取它那一级在 20 MHz 信道、单流下的比特数——这几台电视是 1950——再乘上它分到的子载波占比，这里正好折半，得到 975。',
       '然后从这台设备的队列里往它那一份里装，并数出符号数：⌈(16 + 8 × 字节数 + 6) ÷ 每符号比特数⌉。要是某个成员连第一帧都塞不进这一轮，就把它整个去掉。',
-      '整次发送的长度，取最长的那个成员所需的长度：44 µs 前导码，再加 4 µs 装“这一发里有谁”的分配表，然后每个符号 13.6 µs。前导码和分配表整组只付一次——省下来的就是这一笔。',
+      '整次发送的长度，取最长的那个成员所需的长度：44 µs 前导码，再加 4 µs 装“这一发里有谁”的分配表，然后每个符号 13.6 µs。',
       '结束后隔 16 µs，每个成员各在自己的资源单元上回一个 32 µs 的块确认（block acknowledgement, BlockAck），全都落在同一瞬间。只要有一个成员答了，这次交互就算成，其余成员那一份重新排队。',
     ] },
     { kind: 'table', heading: '第一次多用户发送，照着步骤走一遍', head: [
@@ -84,7 +117,7 @@ export const ofdmaDl: Lesson = {
   ],
   deeper: [
     { heading: '为什么一组是两台而不是三台', text: '引擎一组最多收四个成员，这里的三台电视其实都塞得下——再加一个成员，无非是每片从半条信道变成三分之一条。可它从来没发生过：平稳的视频流发一帧、等一会儿，于是在接入点恰好赢下这一轮的那个瞬间，第三条队列非空的概率很小。分组是见机行事的，而机会在队列里，不在电台里。' },
-    { heading: '多出来的那四微秒去哪儿了', text: '单用户发送的前导码是 44 µs，多用户是 48 µs。差出来的这一段装的是每用户分配表：哪个资源单元属于哪台设备、每一片用的是哪一档调制。没有它，接收端就不知道该去读信道的哪一段，所以这张表是整个想法的价钱——而且是一口价，成员越多越划算，道理就在这里。' },
+    { heading: '那张分配表里装的是什么', text: '单用户发送的前导码是 44 µs，多用户是 48 µs，差出来的这一段就是每用户分配表：哪个资源单元属于哪台设备、每一片用的是哪一档调制。没有它，接收端就不知道该去读信道的哪一段，所以这张表是整个想法的价钱，而且是一口价。' },
   ],
   sources: [
     '下行 OFDMA 的 PPDU、其每用户字段与资源单元尺寸，出自 IEEE Std 802.11-2024 第 27 章（802.11ax 的 HE PPDU）；本房间里的电视是 Wi-Fi 6 站点，所以接入点发的是 HE MU PPDU，而不是 802.11be 的那种。',
@@ -104,8 +137,7 @@ export const ofdmaDl: Lesson = {
   ],
   observe: [
     '跳到第一次多用户发送。那个宽蓝块长 211.2 µs，为两台电视各装了 1434 字节；第三台不在里面，因为那个瞬间没有东西在等着发给它。',
-    '隔一小段之后，两个 32 µs 的 BlockAck 在不同泳道的同一瞬间开始。它们不会碰撞：各自在自己那片信道上作答，接入点两个都听得见。',
-    '大多数发送仍然是普通的。整段仿真里接入点向下发了 1016 次，其中只有 45 次装着两台电视——凑成一组，需要两条队列在同一瞬间都有东西。',
+    '隔一小段之后，两个 32 µs 的回执在不同泳道的同一瞬间开始，各自在自己那片信道上作答。整段仿真里接入点向下发了 1016 次，其中只有 45 次装着两台电视。',
   ],
   tryThis: [
     '点“在编辑器中打开”，关掉电视 1 的 OFDMA。它立刻退出所有分组：另外两台照样凑成一组，整段仿真里凑了 11 次，而电视 1 从此只被单独服务。',
@@ -113,7 +145,7 @@ export const ofdmaDl: Lesson = {
   ],
   quiz: [
     {
-      q: '两个 BlockAck 帧在同一瞬间开始。它们为什么不会碰撞？',
+      q: '两个回执在同一瞬间开始。它们为什么不会碰撞？',
       options: [
         '它们足够短，能互相挤过去',
         '各自在自己的资源单元上作答，于是它们在频率上并排，而不是叠在一起',

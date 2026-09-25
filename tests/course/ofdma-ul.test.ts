@@ -17,7 +17,7 @@
  * any test.
  */
 import { describe, it, expect } from 'vitest'
-import { ofdmaUl } from '../../src/course/tier2/ofdma-ul'
+import { ofdmaUl, triggeredRound, ROUND, ROUND_AT } from '../../src/course/tier2/ofdma-ul'
 import { Simulation } from '../../src/engine/simulation'
 import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
@@ -143,6 +143,45 @@ describe('ofdma-ul · one triggered round, end to end', () => {
   })
 })
 
+describe('ofdma-ul · the figure of one round', () => {
+  // The `sequence` diagram (re-pacing §4) carries the shape of the exchange, so its
+  // columns must be the scene's own devices and its instants the run's own.
+  const spec = triggeredRound()
+  const rs = runOf(ofdmaUl, undefined, RUN_NS)
+  const trig = triggers(rs)[0]
+  const answers = tbPpdus(rs).filter((r) => r.frame.orthogonalGroup === trig.frame.orthogonalGroup)
+
+  it('draws the three devices of the scene, with the access point between the two uploaders', () => {
+    expect(spec.columns.map((c) => c.id)).toEqual(['sta-1', 'ap', 'sta-2'])
+    expect(ofdmaUl.scenario().nodes.map((n) => n.id).sort()).toEqual([...spec.columns.map((c) => c.id)].sort())
+    for (const c of spec.columns) expect(c.label.trim()).not.toBe('')
+  })
+
+  it('the access point’s two arrows each way are one frame naming both uploaders', () => {
+    const fromAp = spec.messages.filter((m) => m.from === 'ap')
+    expect(fromAp.map((m) => m.to)).toEqual(['sta-1', 'sta-2', 'sta-1', 'sta-2'])
+    expect(trig.frame.muParts!.map((p) => p.dst)).toEqual(UPLOADERS)
+    const mba = txs(rs, (r) => r.frame.kind === 'mba')[0]
+    expect(mba.frame.muParts!.map((p) => p.dst)).toEqual(UPLOADERS)
+    // and the two answers are the uploaders' own, one arrow each
+    expect(spec.messages.filter((m) => m.to === 'ap').map((m) => m.from)).toEqual(UPLOADERS)
+  })
+
+  it('its instants are the run’s: 0, one gap to the answers, and the acknowledgement at 2057 µs', () => {
+    expect(ROUND).toEqual({ trigger: 36, gap: 16, answers: 1988.8, mba: 36 })
+    expect(trig.frame.txTimeNs).toBe(ROUND.trigger * US)
+    expect(SIFS_NS).toBe(ROUND.gap * US)
+    expect(one(answers.map((r) => r.frame.txTimeNs))).toBe(ROUND.answers * US)
+    // the gutter values the figure prints, against the same instants relative to the trigger
+    expect(ROUND_AT.answers).toBe(52)
+    expect(one(answers.map((r) => r.t - trig.t))).toBe(ROUND_AT.answers * US)
+    const mba = txs(rs, (r) => r.frame.kind === 'mba').find((m) => m.t > trig.t)!
+    expect(Math.round(ROUND_AT.mba)).toBe(2057)
+    expect(mba.t - trig.t).toBe(Math.round(ROUND_AT.mba * US))
+    expect(spec.messages.filter((m) => m.at !== undefined).map((m) => m.at)).toEqual(['0', '52 µs', '2057 µs'])
+  })
+})
+
 describe('ofdma-ul · the procedure, against the engine that runs it', () => {
   const rs = runOf(ofdmaUl, undefined, RUN_NS)
 
@@ -198,6 +237,43 @@ describe('ofdma-ul · the procedure, against the engine that runs it', () => {
     // step 5's Duration: the gap, the answers, the second gap and the acknowledgement
     for (const t of triggers(rs)) {
       expect(t.frame.durationFieldNs).toBe(SIFS_NS + 1988.8 * US + SIFS_NS + 36 * US)
+    }
+  })
+})
+
+describe('ofdma-ul · the two qualifications the lesson carries in the same breath as the claim', () => {
+  const rs = runOf(ofdmaUl, undefined, RUN_NS)
+
+  it('"it looks at its own NAV": the trigger’s own reservation does not silence the stations it invited', () => {
+    // mac.ts, `case 'trigger'`: answer only if the NAV is idle — and a NAV set by the
+    // triggering access point itself does not count (`this.navSetBy !== from`). The
+    // Duration of every trigger covers the answers, so a naive "any NAV" check would
+    // mean no invited station could ever answer. They all do, one SIFS later.
+    for (const t of triggers(rs)) {
+      expect(t.frame.durationFieldNs).toBe(SIFS_NS + 1988.8 * US + SIFS_NS + 36 * US)
+      const answers = tbPpdus(rs).filter((r) => r.frame.orthogonalGroup === t.frame.orthogonalGroup)
+      if (answers.length === 0) continue
+      for (const a of answers) expect(a.t).toBe(t.t + t.frame.txTimeNs + SIFS_NS)
+    }
+    expect(tbPpdus(rs).length).toBe(28)
+  })
+
+  it('"a device given a slice keeps its own stream count" — on a SYNTHETIC copy, because both uploaders here negotiate one', () => {
+    // The lesson's own scene cannot show this: its two uploaders negotiate a single
+    // stream each, so the claim of step 3 is pinned against a copy of the scene in which
+    // the access point and uploader A have two. Same slice, same length the trigger names,
+    // different bytes — which is the stream count still being the device's own.
+    for (const n of ofdmaUl.scenario().nodes) expect(n.caps.nss ?? 1).toBe(1)
+    const sc: Scenario = ofdmaUl.scenario()
+    for (const id of ['ap', 'sta-1']) sc.nodes.find((n) => n.id === id)!.caps.nss = 2
+    const two = [...new Simulation(sc).runUntil(RUN_NS).records]
+    const answers = tbPpdus(two)
+    expect(answers.length).toBeGreaterThan(4)
+    for (const a of answers) {
+      expect(a.frame.txTimeNs).toBe(1988.8 * US) // the one length the trigger named
+      expect(a.frame.widthMhz).toBe(20) // the one width it named
+      expect(a.frame.bytes).toBe(a.node === 'sta-1' ? 30_718 : 16_894)
+      expect(a.frame.ampdu!.mpduCount).toBe(a.node === 'sta-1' ? 20 : 11)
     }
   })
 })
