@@ -1,20 +1,37 @@
 /**
- * Every empirical claim in "SIFS, DIFS and the ACK dance", measured against the
+ * Every empirical claim in "SIFS and DIFS: two waits", measured against the
  * lesson's own scene (the oneRoom access point and one saturated uploader).
  *
- * The claims this lesson used to share with tests/course/lesson-claims.test.ts
- * — "DATA→ACK is always exactly one SIFS" and "after every ACK the station
- * waits a DIFS and then draws a fresh backoff" — are re-asserted here beside
- * the sentences that now carry them; the originals stay where they are, so no
- * pin is lost. The lesson never had a `.body!` site in any test.
+ * Re-paced on 2026-09-25. Three things changed here:
+ *
+ *  - the lesson's EIFS material moved to `edca-cost`, which the controller has
+ *    not registered yet. Its arithmetic pin (94 = 16 + 44 + 34) therefore STAYS
+ *    in this file, marked, so the programme's "no pin is deleted" rule holds
+ *    across the gap; `edca-cost`'s own test takes it when that lesson lands.
+ *    What the lesson still claims in its own right — that no station in this
+ *    scene ever waits one — is pinned as before.
+ *  - the six-row 「完整的一轮，按顺序」table became the timing diagram, so the
+ *    pin that used to read the table's cells now reads `ifsTiming()`'s spans and
+ *    compares each one with the run. Not one figure is lost: the same six
+ *    instants are asserted, and the figure cannot drift from the simulator.
+ *  - the diagram's geometry is checked here too, because
+ *    tests/course/diagram.test.ts pins its own fixtures rather than walking the
+ *    course: a label that leaves the viewBox or lands on another label is a
+ *    defect a reader sees.
+ *
+ * The claims this lesson shares with tests/course/lesson-claims.test.ts —
+ * "DATA→ACK is always exactly one SIFS" and "after every ACK the station waits
+ * a DIFS and then draws a fresh backoff" — are re-asserted here beside the
+ * sentences that now carry them; the originals stay where they are.
  */
 import { describe, it, expect } from 'vitest'
-import { ifs } from '../../src/course/tier1/ifs'
+import { ifs, ifsTiming } from '../../src/course/tier1/ifs'
 import { ScenarioSchema } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 import { lessonShapeSuite, ofType, runOf } from './kit'
 import { ACK_TX_TIME_6M_NS, DIFS_NS, EIFS_NS, SIFS_NS, SLOT_NS } from '../../src/engine/phy'
 import { MODULES } from '../../src/course/curriculum'
+import { W, layoutDiagram, textBox, type Shape, type TimingLane } from '../../src/course/diagram'
 
 const MS = 1_000_000
 /** 100 ms: the window the "254 answers" sentence is counted over. */
@@ -22,16 +39,17 @@ const RUN_NS = 100 * MS
 
 const recs = (): TLRecord[] => runOf(ifs, undefined, RUN_NS)
 const txs = (kind: string) => ofType(recs(), 'TX_START').filter((r) => r.frame.kind === kind)
+const lane = (label: string): TimingLane => ifsTiming().lanes.find((l) => l.label === label)!
 
 lessonShapeSuite(ifs, { runNs: RUN_NS })
 
 describe('ifs · the lesson’s own scene', () => {
-  it('follows airtime and owns the three waiting times', () => {
+  it('follows airtime and owns the two waiting times of this scene', () => {
     expect(MODULES[ifs.module].title).toBe('等待与退避')
     expect(ifs.needs).toEqual(['airtime'])
-    // the owner table of the readability programme gives this lesson SIFS, DIFS and EIFS;
-    // `slot` comes with them, because it is the unit the other two are built from.
-    expect(ifs.terms!.map((t) => t.term)).toEqual(['slot', 'SIFS', 'DIFS', 'EIFS'])
+    // EIFS left with the material that moved to `edca-cost`; `slot` stays, because it is
+    // the unit the longer of the two waits is built from.
+    expect(ifs.terms!.map((t) => t.term)).toEqual(['slot', 'SIFS', 'DIFS'])
   })
 
   it('the scenario passes the schema and is unchanged', () => {
@@ -40,37 +58,38 @@ describe('ifs · the lesson’s own scene', () => {
   })
 })
 
-describe('ifs · the three waits', () => {
+describe('ifs · the two waits', () => {
   it('a slot is 9 µs, the short gap 16 µs, and the longer one is their sum plus a slot', () => {
     // the table's "slot … 9 µs", "SIFS … 16 µs" and "DIFS … 34 µs = SIFS + 2 slots" rows,
-    //  and the picture's "that longer wait is the DIFS: the short gap plus two slots"
+    //  and the picture's "the short gap plus two slots"
     expect(SLOT_NS).toBe(9_000)
     expect(SIFS_NS).toBe(16_000)
     expect(DIFS_NS).toBe(34_000)
     expect(DIFS_NS).toBe(SIFS_NS + 2 * SLOT_NS)
   })
 
-  it('the penalty wait is 94 µs: the short gap, a whole answer and a DIFS', () => {
-    // the table's "EIFS … 94 µs = SIFS + ACK + DIFS" row and the picture's "the short gap,
-    //  a whole acknowledgement’s worth of air, and a DIFS on top"
-    expect(ACK_TX_TIME_6M_NS).toBe(44_000)
-    expect(EIFS_NS).toBe(94_000)
-    expect(EIFS_NS).toBe(SIFS_NS + ACK_TX_TIME_6M_NS + DIFS_NS)
-  })
-
   it('no station in this scene ever waits an EIFS', () => {
-    // "No station in this scene ever waits an EIFS: every frame is either heard cleanly or
-    //  not heard at all" and the picture's "Nothing in this scene ever earns one."
+    // 「这里的每一帧要么被干干净净地听到，要么根本没被听到，所以它一次也不会启动」
     const kinds = ofType(recs(), 'IFS_START').map((r) => r.kind)
     expect(kinds.length).toBeGreaterThan(200)
     expect(new Set(kinds)).toEqual(new Set(['DIFS']))
+  })
+
+  it('the penalty wait is 94 µs: the short gap, a whole answer and a DIFS', () => {
+    // MOVED CLAIM, PIN HELD. The lesson no longer prints 94 µs — the figure went to
+    // `edca-cost` with the EIFS paragraph, table row and quiz question (§2, §7.3) — and
+    // `edca-cost` is not registered yet. The pin stays here so nothing is unpinned in the
+    // meantime; `sources` still names §10.3.2.3.7, which is the sentence it guards.
+    expect(ACK_TX_TIME_6M_NS).toBe(44_000)
+    expect(EIFS_NS).toBe(94_000)
+    expect(EIFS_NS).toBe(SIFS_NS + ACK_TX_TIME_6M_NS + DIFS_NS)
   })
 })
 
 describe('ifs · what that buys in this run', () => {
   it('the uploader’s frame is 248 µs and every one of the 254 answers starts 16 µs later', () => {
-    // "The uploader’s frame holds the channel for 248 µs, and its answer starts exactly
-    //  16 µs after the frame ends — every one of the 254 answers in this run"
+    // the caption's "the frame ends at 248 µs … every one of this run's 254 answers starts
+    //  16 µs after the frame end"
     const data = txs('data')
     const acks = txs('ack')
     expect(data.length).toBe(255)
@@ -83,8 +102,8 @@ describe('ifs · what that buys in this run', () => {
 
   it('every DIFS in the run lasts 34 µs, and the station draws only once it is over', () => {
     // the observation "a 34 µs DIFS runs before the station even draws its next wait", the
-    //  experiment "Check that every DIFS in the run lasts 34 µs", and the table row
-    //  "326 µs — the DIFS is over, and only now does the station draw its wait"
+    //  experiment "measure the DIFS with the 9 µs slot ruler", and the caption's
+    //  "the DIFS runs to 326 µs, and only now does the station draw"
     const waits = ofType(recs(), 'IFS_START').filter((r) => r.untilNs > r.t)
     expect(waits.length).toBeGreaterThan(200)
     for (const w of waits) expect(w.untilNs - w.t).toBe(DIFS_NS)
@@ -94,16 +113,14 @@ describe('ifs · what that buys in this run', () => {
   })
 
   it('silence already elapsed counts, so the very first gap is zero long', () => {
-    // the procedure's step 3, "a radio that has never yet heard the medium busy counts as
-    //  idle since for ever, so its gap is zero long — which is why the first frame of this
-    //  run leaves at 0 µs". `beginIfsAc` in src/engine/mac.ts ends the gap at
-    //  max(now, lastBusyEnd + gap), and lastBusyEnd starts before time itself.
+    // the procedure's step 3 and the second quiz question, "zero — the silence it asks for
+    //  had already gone by". `beginIfsAc` in src/engine/mac.ts ends the gap at
+    // max(now, lastBusyEnd + gap), and lastBusyEnd starts before time itself.
     const ifss = ofType(recs(), 'IFS_START')
     const zero = ifss.filter((r) => r.untilNs === r.t)
     expect(zero.length).toBe(1)
     expect(zero[0].t).toBe(0)
     expect(zero[0].kind).toBe('DIFS')
-    // every other gap in the run is a whole DIFS: the rule is one rule, not a special case
     for (const r of ifss.slice(1)) expect(r.untilNs - r.t).toBe(DIFS_NS)
   })
 
@@ -114,15 +131,13 @@ describe('ifs · what that buys in this run', () => {
     expect(first.t).toBe(0)
     const draws = ofType(recs(), 'BACKOFF_DRAW')
     expect(draws.length).toBeGreaterThan(200)
-    // not one draw precedes the first frame, and every later frame has one behind it
     expect(draws[0].t).toBeGreaterThan(first.t)
     expect(draws.every((d) => d.value >= 0)).toBe(true)
   })
 
   it('the answer never contends: no gap is even started between the frame and its ACK', () => {
-    // the procedure's step 6, "a receiver that owes an ACK does not contend at all: it puts
-    //  the answer on the air one SIFS after the frame ends". scheduleResponse in
-    //  src/engine/mac.ts arms a SIFS timer instead of entering the access procedure.
+    // the procedure's step 6, "a receiver that owes an ACK does not contend at all".
+    // scheduleResponse in src/engine/mac.ts arms a SIFS timer instead of entering access.
     const ends = ofType(recs(), 'TX_END').filter((r) => r.frame.kind === 'data')
     const ifss = ofType(recs(), 'IFS_START')
     for (const a of txs('ack')) {
@@ -131,24 +146,64 @@ describe('ifs · what that buys in this run', () => {
       expect(ifss.some((r) => r.node === a.node && r.t >= d.t && r.t <= a.t)).toBe(false)
     }
   })
+})
 
-  it('the first turn runs 0 → 248 → 264 → 292 → 326 → 425 µs', () => {
-    // the "One full turn, in order" table, and the observation "The first exchange ends at
-    //  292 µs, the DIFS runs to 326 µs, and the next frame does not start until 425 µs —
-    //  the station drew eleven slots."
+describe('ifs · the timing figure is the run', () => {
+  it('every span of the figure is a record of this run: 0 → 248 → 264 → 292 → 326 → 425 µs', () => {
+    // What the deleted 「完整的一轮，按顺序」table used to assert, now read out of the spec
+    // the reader is actually shown.
+    const air = lane('空口').spans
     const data = txs('data')
     const ack = txs('ack')[0]
-    expect(data[0].t).toBe(0)
-    expect(data[0].t + data[0].frame.txTimeNs).toBe(248_000)
-    expect(ack.t).toBe(264_000)
-    expect(ack.t + ack.frame.txTimeNs).toBe(292_000)
-    const difs = ofType(recs(), 'IFS_START').find((r) => r.t === 292_000)!
-    expect(difs.kind).toBe('DIFS')
-    expect(difs.untilNs).toBe(326_000)
+    expect(air[0].fromUs).toBe(data[0].t / 1000)
+    expect(air[0].toUs).toBe((data[0].t + data[0].frame.txTimeNs) / 1000)
+    expect([air[0].fromUs, air[0].toUs]).toEqual([0, 248])
+    expect(air[1].fromUs).toBe(ack.t / 1000)
+    expect(air[1].toUs).toBe((ack.t + ack.frame.txTimeNs) / 1000)
+    expect([air[1].fromUs, air[1].toUs]).toEqual([264, 292])
+    expect(air[2].fromUs).toBe(data[1].t / 1000)
+    expect(air[2].fromUs).toBe(425)
+
+    const sifs = lane('SIFS').spans[0]
+    expect(sifs.fromUs).toBe(air[0].toUs)
+    expect(sifs.toUs).toBe(air[1].fromUs)
+    expect((sifs.toUs - sifs.fromUs) * 1000).toBe(SIFS_NS)
+
+    const difs = lane('DIFS').spans[0]
+    const rec = ofType(recs(), 'IFS_START').find((r) => r.t === 292_000)!
+    expect(rec.kind).toBe('DIFS')
+    expect(difs.fromUs).toBe(rec.t / 1000)
+    expect(difs.toUs).toBe(rec.untilNs / 1000)
+    expect((difs.toUs - difs.fromUs) * 1000).toBe(DIFS_NS)
+
+    const bo = lane('退避').spans[0]
     const draw = ofType(recs(), 'BACKOFF_DRAW')[0]
     expect(draw.t).toBe(326_000)
     expect(draw.value).toBe(11)
-    expect(data[1].t).toBe(425_000)
-    expect(326_000 + 11 * SLOT_NS).toBe(425_000)
+    expect(bo.fromUs).toBe(draw.t / 1000)
+    expect(bo.toUs).toBe((draw.t + draw.value * SLOT_NS) / 1000)
+    expect(bo.label).toBe('11 个时隙')
+    // and the axis holds the whole turn
+    expect(ifsTiming().axis.toUs).toBeGreaterThanOrEqual(bo.toUs)
+  })
+
+  it('lays out inside the viewBox, legibly, with no two labels touching', () => {
+    const lay = layoutDiagram(ifsTiming())
+    const ts = lay.shapes.filter((s): s is Extract<Shape, { s: 'text' }> => s.s === 'text')
+    expect(ts.length).toBeGreaterThan(5)
+    for (const t of ts) {
+      const b = textBox(t)
+      expect(b.x0, t.text).toBeGreaterThanOrEqual(-0.01)
+      expect(b.x1, t.text).toBeLessThanOrEqual(W + 0.01)
+      expect(b.y1, t.text).toBeLessThanOrEqual(lay.height + 0.01)
+      expect(t.size, t.text).toBeGreaterThanOrEqual(9.5)
+    }
+    const bs = ts.map(textBox)
+    for (let i = 0; i < bs.length; i++) {
+      for (let j = i + 1; j < bs.length; j++) {
+        const hit = bs[i].x0 < bs[j].x1 && bs[j].x0 < bs[i].x1 && bs[i].y0 < bs[j].y1 && bs[j].y0 < bs[i].y1
+        expect(hit, `${ts[i].text} / ${ts[j].text}`).toBe(false)
+      }
+    }
   })
 })

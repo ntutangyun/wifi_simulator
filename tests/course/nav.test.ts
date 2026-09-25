@@ -1,20 +1,30 @@
 /**
- * Every empirical claim in "NAV — reserving with a promise", measured against
- * the lesson's own scene (two saturated talkers, one browsing listener).
+ * Every empirical claim in "NAV — reserving the channel with one field",
+ * measured against the lesson's own scene (two saturated talkers, one browsing
+ * listener).
+ *
+ * Re-paced on 2026-09-25, and kept whole (§2 M4). One pin changed shape: the
+ * three-row 「把一段长长的冻结拆开」table became the timing figure, so the
+ * assertion that used to read the table's cells now reads `navTiming()`'s spans
+ * and compares each with the run. The same four instants and the same
+ * 248 + 44 + 34 = 326 are asserted; what is gained is that the figure the reader
+ * sees cannot drift from the simulator. The diagram's geometry is checked here
+ * too, because tests/course/diagram.test.ts pins its own fixtures rather than
+ * walking the course.
  *
  * The claims this lesson shares with tests/course/lesson-claims.test.ts — the
  * 248 + 44 + 34 = 326 µs freeze, and "NAV ends exactly when the ACK ends, and
  * data Duration = SIFS + ACK airtime" — are re-asserted here beside the
- * sentences that now carry them; the originals stay where they are, so no pin
- * is lost. The lesson never had a `.body!` site in any test.
+ * sentences that now carry them; the originals stay where they are.
  */
 import { describe, it, expect } from 'vitest'
-import { nav } from '../../src/course/tier1/nav'
+import { nav, navTiming } from '../../src/course/tier1/nav'
 import { ScenarioSchema } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 import { lessonShapeSuite, ofType, runOf } from './kit'
 import { DIFS_NS, SIFS_NS, SLOT_NS } from '../../src/engine/phy'
 import { MODULES } from '../../src/course/curriculum'
+import { W, layoutDiagram, textBox, type Shape, type TimingLane } from '../../src/course/diagram'
 
 const MS = 1_000_000
 /** 200 ms: the window the "576 data frames" and "513 countdowns" sentences are counted over. */
@@ -22,6 +32,7 @@ const RUN_NS = 200 * MS
 
 const recs = (): TLRecord[] => runOf(nav, undefined, RUN_NS)
 const txs = (kind: string) => ofType(recs(), 'TX_START').filter((r) => r.frame.kind === kind)
+const lane = (label: string): TimingLane => navTiming().lanes.find((l) => l.label === label)!
 
 lessonShapeSuite(nav, { runNs: RUN_NS })
 
@@ -42,9 +53,8 @@ describe('nav · the lesson’s own scene', () => {
 
 describe('nav · where the 44 µs comes from', () => {
   it('a data frame announces the pause plus the answer, and the answer announces nothing', () => {
-    // the "Where the 44 µs comes from" table: pause 16 µs, answer 28 µs, data frame
-    //  announces 44 µs, answer announces 0 µs — and the observation "44 µs on every one of
-    //  them, the pause plus the answer it is expecting"
+    // the "where the 44 µs comes from" table: pause 16 µs, answer 28 µs, data frame writes
+    //  44 µs, answer writes 0 µs — and 「576 个数据帧写下的都是同一个 44 µs」
     const data = txs('data')
     const acks = txs('ack')
     expect(data.length).toBe(576)
@@ -61,9 +71,8 @@ describe('nav · where the 44 µs comes from', () => {
   })
 
   it('the Listener’s 513 countdowns end at the exact nanosecond the answer ends', () => {
-    // "the Listener’s countdown ends at the exact nanosecond the answer ends — 513 times
-    //  over" and the observation "They end at the exact instant the answer ends — check any
-    //  of the Listener’s 513 of them."
+    // 「旁听者的倒计时恰好在回答结束的那一纳秒到期——513 次无一例外」and the observation
+    //  "check any of the Listener's 513 of them"
     const navs = ofType(recs(), 'NAV_SET').filter((r) => r.node === 'sta-3')
     expect(navs.length).toBe(513)
     for (const n of navs) {
@@ -126,37 +135,63 @@ describe('nav · the procedure, against the engine', () => {
 })
 
 describe('nav · one long freeze, taken apart', () => {
-  it('248 + 44 + 34 = 326 µs, and Talker A resumes at 3', () => {
-    // the "One long freeze, taken apart" table, and the paragraph "A freezes at 498 µs …
-    //  B’s frame ends at 746 µs … running to 790 µs … carrying A to 824 µs"
+  it('the figure’s three spans are 248 + 44 + 34 = 326 µs, and Talker A resumes at 3', () => {
+    // What the deleted 「把一段长长的冻结拆开」table used to assert, now read out of the
+    // spec the reader is actually shown, plus the caption's four instants.
+    const air = lane('空口').spans
+    const dur = lane('Duration').spans[0]
+    const a = lane('A 在熬的').spans
+
     const freeze = ofType(recs(), 'BACKOFF_FREEZE').find((r) => r.node === 'sta-1' && r.t === 498_000)!
     expect(freeze.value).toBe(3)
+    expect(a[0].fromUs).toBe(freeze.t / 1000)
+
+    // segment 1: B's frame, which A's own ear can account for
+    const bTx = ofType(recs(), 'TX_START').find((r) => r.node === 'sta-2' && r.t === 498_000)!
     const bEnd = ofType(recs(), 'TX_END').find((r) => r.node === 'sta-2' && r.t > 498_000)!
     expect(bEnd.t).toBe(746_000)
-    expect(bEnd.t - freeze.t).toBe(248_000)
-    const navSet = ofType(recs(), 'NAV_SET').find((r) => r.node === 'sta-1' && r.t === 746_000)!
-    // Whole-track review I2: the lesson used to say the reservation is trusted once the frame
-    // "passes its check". What the engine emits at that instant is RX_OK — the decode that
-    // channel.ts grants on the reception's worst SINR — and the NAV follows from it.
+    expect(air[0].fromUs).toBe(bTx.t / 1000)
+    expect(air[0].toUs).toBe(bEnd.t / 1000)
+    expect(a[0].toUs).toBe(bEnd.t / 1000)
+    expect((a[0].toUs - a[0].fromUs) * 1000).toBe(248_000)
+
+    // segment 2: the reservation, trusted only once the frame decoded
     const rxOk = ofType(recs(), 'RX_OK').find((r) => r.node === 'sta-1' && r.t === 746_000)!
     expect(rxOk.from).toBe('sta-2')
     expect(ofType(recs(), 'RX_FAIL').some((r) => r.node === 'sta-1' && r.t === 746_000)).toBe(false)
+    const navSet = ofType(recs(), 'NAV_SET').find((r) => r.node === 'sta-1' && r.t === 746_000)!
     expect(navSet.untilNs).toBe(790_000)
-    expect(navSet.untilNs - navSet.t).toBe(44_000)
+    expect(dur.fromUs).toBe(navSet.t / 1000)
+    expect(dur.toUs).toBe(navSet.untilNs / 1000)
+    expect((dur.toUs - dur.fromUs) * 1000).toBe(44_000)
+    expect([a[1].fromUs, a[1].toUs]).toEqual([dur.fromUs, dur.toUs])
+    expect(a[1].tone).toBe('muted')
+    // the answer really is on the air inside that span, from the access point
+    const ack = txs('ack').find((r) => r.t > 746_000)!
+    expect(air[1].fromUs).toBe(ack.t / 1000)
+    expect(air[1].toUs).toBe((ack.t + ack.frame.txTimeNs) / 1000)
+    expect([air[1].fromUs, air[1].toUs]).toEqual([762, 790])
+
+    // segment 3: a real DIFS, and the resume at the same 3
     const difs = ofType(recs(), 'IFS_START').find((r) => r.node === 'sta-1' && r.t === 790_000)!
     expect(difs.kind).toBe('DIFS')
     expect(difs.untilNs).toBe(824_000)
-    expect(difs.untilNs - difs.t).toBe(DIFS_NS)
+    expect(a[2].fromUs).toBe(difs.t / 1000)
+    expect(a[2].toUs).toBe(difs.untilNs / 1000)
+    expect((a[2].toUs - a[2].fromUs) * 1000).toBe(DIFS_NS)
     const resume = ofType(recs(), 'BACKOFF_RESUME').find((r) => r.node === 'sta-1' && r.t === 824_000)!
     expect(resume.value).toBe(3)
     expect(resume.t - freeze.t).toBe(326_000)
+
+    // and the three spans really do add to the total the caption prints
+    expect((a[2].toUs - a[0].fromUs) * 1000).toBe(326_000)
     expect(248_000 + 44_000 + 34_000).toBe(326_000)
   })
 
   it('the 3 is idle slots owed: A sends three slots after it resumes', () => {
-    // the table's last cell, "A resumes its backoff counter at 3 — the idle slots it still
-    //  owed when the air went busy". The gloss is only true if those three are counted off
-    //  as slots and the frame follows immediately, so that is what is checked.
+    // the caption's last clause, "A's backoff counter carries on from 3 — the idle slots it
+    //  still owed when the air went busy". The gloss is only true if those three are counted
+    //  off as slots and the frame follows immediately, so that is what is checked.
     const resume = ofType(recs(), 'BACKOFF_RESUME').find((r) => r.node === 'sta-1' && r.t === 824_000)!
     expect(resume.value).toBe(3)
     const tx = ofType(recs(), 'TX_START').find((r) => r.node === 'sta-1' && r.t > resume.t)!
@@ -166,11 +201,31 @@ describe('nav · one long freeze, taken apart', () => {
   })
 
   it('three quarters of the wait is over before its length can be worked out', () => {
-    // `deeper`: "The 326 µs total first becomes computable at 746 µs, by which point
-    //  248 µs — about three quarters of the wait — has already gone by", and the last
-    //  ingredient being the 34 µs that could still be extended
+    // `deeper`: "the 326 µs total first becomes computable at 746 µs, by which point 248 µs
+    //  — about three quarters of the wait — has already gone by", and the last ingredient
+    //  being the 34 µs that could still be extended
     expect(248_000 / 326_000).toBeGreaterThan(0.7)
     expect(248_000 / 326_000).toBeLessThan(0.8)
     expect(326_000 - 248_000 - 44_000).toBe(DIFS_NS)
+  })
+
+  it('the figure lays out inside the viewBox, legibly, with no two labels touching', () => {
+    const lay = layoutDiagram(navTiming())
+    const ts = lay.shapes.filter((s): s is Extract<Shape, { s: 'text' }> => s.s === 'text')
+    expect(ts.length).toBeGreaterThan(5)
+    for (const t of ts) {
+      const b = textBox(t)
+      expect(b.x0, t.text).toBeGreaterThanOrEqual(-0.01)
+      expect(b.x1, t.text).toBeLessThanOrEqual(W + 0.01)
+      expect(b.y1, t.text).toBeLessThanOrEqual(lay.height + 0.01)
+      expect(t.size, t.text).toBeGreaterThanOrEqual(9.5)
+    }
+    const bs = ts.map(textBox)
+    for (let i = 0; i < bs.length; i++) {
+      for (let j = i + 1; j < bs.length; j++) {
+        const hit = bs[i].x0 < bs[j].x1 && bs[j].x0 < bs[i].x1 && bs[i].y0 < bs[j].y1 && bs[j].y0 < bs[i].y1
+        expect(hit, `${ts[i].text} / ${ts[j].text}`).toBe(false)
+      }
+    }
   })
 })
