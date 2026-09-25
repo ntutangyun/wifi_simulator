@@ -3,7 +3,10 @@ import { useStrings } from '../ui/i18n'
 import { player, useUi } from '../ui/store'
 import { LESSONS, isMigrated, lessonIndex, type Block, type Lesson } from './lessons'
 import { layoutDiagram, type Paint, type Shape } from './diagram'
-import { MODULES, TIERS, TRACKS, lessonBlocks, lessonMinutes, trackHeadings } from './curriculum'
+import {
+  BASES, MODULES, TIERS, TRACKS, basisOf, lessonBlocks, lessonMinutes, teachesDraft, trackHeadings,
+  type StandardBasis,
+} from './curriculum'
 import { LinkBudget } from './widgets/LinkBudget'
 import { McsLadder } from './widgets/McsLadder'
 
@@ -211,6 +214,15 @@ function BlockView({ b }: { b: Block }) {
 export function CoursePanel() {
   const { courseLessonId, selectLesson, loadCourseScenario, adoptCourseScenario, courseLoaded, courseLoadedFor } = useUi()
   const L = useStrings().course
+
+  /**
+   * The documents a section is checked against. A reader deciding how much to
+   * trust a number needs to know whether it came from a ratified standard or
+   * from a contribution to a draft still in ballot, and that is a property of
+   * the section, not of a sentence buried in the lesson's sources.
+   */
+  const basisLine = (bases: StandardBasis[]): string =>
+    L.basis(bases.map((b) => `${BASES[b].label}（${BASES[b].status}）`).join(' · '))
   const [progress, setProgress] = useState<Progress>(loadProgress)
   const [jumpMsg, setJumpMsg] = useState('')
   const [quizPick, setQuizPick] = useState<Record<number, number>>({})
@@ -263,12 +275,27 @@ export function CoursePanel() {
                 {TRACKS[tier.track]}
               </div>
             )}
-            <div style={{ fontSize: 12, fontWeight: 600, color: '#d5dae3', marginBottom: 6 }}>{tier.label}</div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: '#d5dae3', marginBottom: 2 }}>{tier.label}</div>
+            <div style={{
+              fontSize: 10.5, marginBottom: 6, lineHeight: 1.45,
+              color: tier.basis.some((b) => BASES[b].draft) ? '#e0a83a' : 'var(--dim)',
+            }}>
+              {basisLine(tier.basis)}
+            </div>
         {mods.map(({ m, mi }, mNo) => (
           <div key={mi} style={{ marginBottom: 12 }}>
             <div style={{ fontSize: 11, color: 'var(--dim)', letterSpacing: 0.5, marginBottom: 4 }}>
               {L.module} {mNo + 1} · {m.title}
             </div>
+            {/* only a module whose documents differ from its tier's repeats them */}
+            {m.basis && (
+              <div style={{
+                fontSize: 10.5, marginBottom: 4, lineHeight: 1.45,
+                color: teachesDraft(mi) ? '#e0a83a' : 'var(--dim)',
+              }}>
+                {basisLine(m.basis)}
+              </div>
+            )}
             {LESSONS.filter((l) => l.module === mi).map((l) => (
               <div
                 key={l.id}
@@ -360,6 +387,15 @@ export function CoursePanel() {
 
       <div style={{ ...dim, fontSize: 11 }}>
         {TIERS[MODULES[lesson.module].tier].label} · {MODULES[lesson.module].title} · {L.minutes(lessonMinutes(lesson))}
+      </div>
+      {/* Inside a lesson the section heading is off screen, so the basis is
+          repeated here: a draft's numbers are not a standard's numbers. */}
+      <div style={{
+        fontSize: 10.5, marginTop: 2, lineHeight: 1.45,
+        color: teachesDraft(lesson.module) ? '#e0a83a' : 'var(--dim)',
+      }}>
+        {basisLine(basisOf(lesson.module))}
+        {teachesDraft(lesson.module) && ` · ${L.draftMark}`}
       </div>
       <h3 style={{ margin: '4px 0 8px', fontSize: 14 }}>{idx + 1} · {lesson.title}</h3>
 

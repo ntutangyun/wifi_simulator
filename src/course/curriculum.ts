@@ -19,6 +19,36 @@ export type Track = 'wifi' | 'uwb'
  */
 export type LessonTrack = Track | 'amp'
 
+/**
+ * The document a module's numbers are checked against — and, just as important,
+ * whether that document can still change under the reader's feet. A lesson that
+ * teaches a published standard makes a different promise from one that teaches
+ * an unratified draft, and the course panel says which out loud rather than
+ * leaving it buried in each lesson's sources.
+ */
+export type StandardBasis = 'ieee-802-11' | 'ieee-802-15-4-2024' | 'p802-15-4ab' | 'p802-11bp'
+
+export interface BasisNote {
+  /** The document, as the panel names it. */
+  label: string
+  /** Where the document stands, one short phrase. */
+  status: string
+  /**
+   * True when the text taught here is not ratified: the numbers are read off
+   * public contributions, the clause numbers move between drafts, and the
+   * balloted version may differ. See
+   * docs/superpowers/specs/2026-09-26-uwb-standard-basis.md.
+   */
+  draft: boolean
+}
+
+export const BASES: Record<StandardBasis, BasisNote> = {
+  'ieee-802-11': { label: 'IEEE Std 802.11', status: '已发布', draft: false },
+  'ieee-802-15-4-2024': { label: 'IEEE Std 802.15.4-2024', status: '已发布，含 802.15.4z', draft: false },
+  'p802-15-4ab': { label: 'P802.15.4ab', status: '草案，SA 投票复审中', draft: true },
+  'p802-11bp': { label: 'P802.11bp', status: '草案', draft: true },
+}
+
 export const TRACKS: Record<Track, string> = {
   wifi: 'Wi-Fi',
   uwb: 'UWB 测距',
@@ -28,6 +58,13 @@ export interface Tier {
   track: Track
   /** The tier's own name, as the course panel prints it. */
   label: string
+  /**
+   * The documents this tier's lessons are checked against, unless a module says
+   * otherwise. A list, not one value: a capstone legitimately draws on both a
+   * published standard and a draft, and saying so is more honest than picking
+   * the more flattering of the two. See {@link basisOf}.
+   */
+  basis: StandardBasis[]
 }
 
 /**
@@ -40,13 +77,13 @@ export function trackHeadings(tiers: Tier[]): boolean[] {
 }
 
 export const TIERS: Tier[] = [
-  { track: 'wifi', label: '第一阶段 · MAC 基础' },
-  { track: 'wifi', label: '第二阶段 · MAC 实战' },
-  { track: 'wifi', label: '第三阶段 · 底层 PHY' },
-  { track: 'wifi', label: '第四阶段 · 研究' },
-  { track: 'uwb', label: 'UWB 第一阶段 · 测距基础' },
-  { track: 'uwb', label: 'UWB 第二阶段 · 真实环境中的会话' },
-  { track: 'uwb', label: 'UWB 第三阶段 · 下一步：802.15.4ab' },
+  { track: 'wifi', label: '第一阶段 · MAC 基础', basis: ['ieee-802-11'] },
+  { track: 'wifi', label: '第二阶段 · MAC 实战', basis: ['ieee-802-11'] },
+  { track: 'wifi', label: '第三阶段 · 底层 PHY', basis: ['ieee-802-11'] },
+  { track: 'wifi', label: '第四阶段 · 研究', basis: ['ieee-802-11'] },
+  { track: 'uwb', label: 'UWB 第一阶段 · 测距基础', basis: ['ieee-802-15-4-2024'] },
+  { track: 'uwb', label: 'UWB 第二阶段 · 真实环境中的会话', basis: ['ieee-802-15-4-2024'] },
+  { track: 'uwb', label: 'UWB 第三阶段 · 下一步的草案', basis: ['ieee-802-15-4-2024', 'p802-15-4ab'] },
 ]
 
 export interface CourseModule {
@@ -59,6 +96,12 @@ export interface CourseModule {
    * disagree by accident. See {@link trackOf}.
    */
   track?: LessonTrack
+  /**
+   * The documents this module's lessons are checked against, when they are not
+   * the tier's. Only a module that departs from its tier says anything, so the
+   * two can never disagree by accident — the same shape as {@link track}.
+   */
+  basis?: StandardBasis[]
 }
 
 export const MODULES: CourseModule[] = [
@@ -72,13 +115,15 @@ export const MODULES: CourseModule[] = [
   { tier: 1, title: 'QoS 与效率' },
   { tier: 1, title: '容量旋钮与速率控制' },
   { tier: 1, title: '被调度的 Wi-Fi 6/7' },
-  { tier: 1, title: '环境能量物联网（802.11bp）', track: 'amp' },
+  { tier: 1, title: '环境能量物联网（802.11bp）', track: 'amp', basis: ['p802-11bp'] },
   { tier: 1, title: '真实应用' },
   { tier: 4, title: '飞行时间' },
   { tier: 4, title: '两只钟' },
   { tier: 4, title: '会话网格' },
   { tier: 4, title: '定位' },
-  { tier: 5, title: '共存' },
+  // The only module where both radios are in the room: it reads a UWB round
+  // against a Wi-Fi transmitter, so it is checked against both standards.
+  { tier: 5, title: '共存', basis: ['ieee-802-15-4-2024', 'ieee-802-11'] },
   { tier: 5, title: '竞争式测距' },
   { tier: 5, title: '单向测距' },
   { tier: 5, title: '角度' },
@@ -144,6 +189,53 @@ export function orderLessons(authored: Lesson[]): Lesson[] {
 export function trackOf(l: Lesson): LessonTrack {
   const m = MODULES[l.module]
   return m.track ?? TIERS[m.tier].track
+}
+
+/**
+ * The documents a module's lessons are checked against: the module's own list
+ * when it declares one, otherwise its tier's. Takes an index into MODULES, not
+ * a lesson, because the panel asks the question of a section heading before it
+ * has a lesson in hand.
+ */
+export function basisOf(mi: number): StandardBasis[] {
+  const m = MODULES[mi]
+  return m.basis ?? TIERS[m.tier].basis
+}
+
+/** True when any document a module is checked against is still a draft. */
+export function teachesDraft(mi: number): boolean {
+  return basisOf(mi).some((b) => BASES[b].draft)
+}
+
+/**
+ * Which documents a lesson's `sources` actually cite, read off the prose.
+ *
+ * This is the probe behind the consistency rule in tests/course/basis.test.ts:
+ * a module declares what it is checked against, and the lessons under it must
+ * cite exactly that set — no draft number smuggled into a published-standard
+ * lesson, and no declared document that no lesson actually uses. The recurring
+ * defect in this repository is stated-versus-actual drift; provenance drifts
+ * the same way prose does.
+ *
+ * Order matters, and each probe strips what it matched: `802.11bp` contains
+ * `802.11`, and `802.15.4-2024` contains neither but sits beside contribution
+ * numbers that do, so a longer name is matched and removed before a shorter one
+ * that is a prefix of it is looked for.
+ */
+export function citedBases(l: Lesson): StandardBasis[] {
+  let text = (l.sources ?? []).join('\n')
+  const found = new Set<StandardBasis>()
+  const probes: [StandardBasis, RegExp][] = [
+    ['p802-11bp', /802\.11bp/g],
+    ['p802-15-4ab', /802\.15\.4ab|15-2\d\/\d{4}r\d+/g],
+    ['ieee-802-15-4-2024', /802\.15\.4-2024/g],
+    ['ieee-802-11', /802\.11/g],
+  ]
+  for (const [basis, re] of probes) {
+    if (new RegExp(re.source).test(text)) found.add(basis)
+    text = text.replace(re, '')
+  }
+  return [...found]
 }
 
 /**

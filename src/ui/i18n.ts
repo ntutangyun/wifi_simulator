@@ -62,6 +62,10 @@ export interface Strings {
     back: string
     openInEditor: string
     loadHint: string
+    /** The documents a section's lessons are checked against, and how firm they are. */
+    basis: (docs: string) => string
+    /** Appended to a draft document's name wherever it is printed. */
+    draftMark: string
   }
   transport: {
     play: string; pause: string; speed: string; simulating: string
@@ -453,6 +457,8 @@ export const STRINGS: Strings = {
     back: '☰ 课程目录',
     openInEditor: '✎ 在编辑器中打开本课场景',
     loadHint: '载入预设场景（会替换当前场景；离开课程模式时会恢复你自己的场景）。',
+    basis: (docs) => `依据：${docs}`,
+    draftMark: '草案，内容可能变动',
   },
   transport: {
     play: '▶ 播放', pause: '❚❚ 暂停', speed: '速度', simulating: '⏳ 仿真中…',
