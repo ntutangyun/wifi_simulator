@@ -124,44 +124,25 @@ if (migrated.length) {
  * amendment leaves standing: a lesson that states a rule carries the rule as a
  * procedure the reader can re-run, not as a sentence about a procedure.
  *
- * The list is the lessons the amendment reached. It still earns its keep: the
- * two AMP lessons outside it (`amp-intro`, `amp-ppdu`) are a paused module, and
- * the terminology rule below would grade their untranslated prose.
+ * Both rules grade EVERY lesson in the new shape except the paused AMP track,
+ * whose prose is still untranslated. That is deliberately an opt-OUT: until
+ * 2026-09-25 it was a per-lesson allow-list, which meant a lesson added to the
+ * course was graded by neither rule until somebody remembered to add its id.
+ * A list you have to maintain is how four rules in this suite came to grade
+ * nothing while reporting success.
  */
-export const MECHANISM_DONE: string[] = [
-  'decode-thresholds', 'roles-stack',
-  'hidden', 'anomaly', 'retries-queues',
-  'airtime', 'ifs', 'backoff', 'nav',
-  'radio-primer', 'frame-anatomy', 'frame-anatomy-bytes',
-  'edca', 'ampdu', 'txop', 'txop-protect',
-  'width', 'streams', 'rate', 'rate-fallback',
-  'ofdma-dl', 'ofdma-ul', 'mumimo',
-  'mlo', 'capstone',
-  'bianchi', 'bianchi-vs-sim', 'tier1-project', 'tier1-project-review',
-  'uwb-intro', 'uwb-frame', 'uwb-sts',
-  'uwb-sstwr', 'uwb-dstwr', 'uwb-blocks',
-  'uwb-position', 'uwb-geometry', 'uwb-coexist', 'uwb-contention',
-  'uwb-dl-tdoa', 'uwb-ul-tdoa', 'uwb-aoa',
-  'uwb-mms', 'uwb-mms-numbers', 'uwb-nba', 'uwb-nba-coexist',
-  'uwb-capstone',
-]
-
-/**
- * MECHANISM_DONE as this run grades it. `MECHANISM_INCLUDE=roles-stack,nav`
- * adds those ids for one run, so a batch implementer can hold a rewritten
- * lesson to the amendment before the controller has registered it — without
- * editing this file, which is the controller's. The switch only ever adds.
- */
-const MECHANISM_NOW = [...new Set([
-  ...MECHANISM_DONE,
-  ...(process.env.MECHANISM_INCLUDE ?? '').split(',').map((s) => s.trim()).filter(Boolean),
-])]
+const graded = (l: Lesson): boolean => trackOf(l) !== 'amp'
 
 describe('readability · a rule is carried as a procedure', () => {
-  const revised = migrated.filter((l) => MECHANISM_NOW.includes(l.id))
+  const revised = migrated.filter(graded)
 
-  it('grades every lesson the amendment has reached', () => {
-    expect(revised.map((l) => l.id).sort()).toEqual(MECHANISM_NOW.filter((id) => !MIGRATING_NOW.includes(id)).sort())
+  it('grades every lesson of every live track', () => {
+    // The anti-vacuity guard in its honest form: not "the ids I listed are
+    // graded" but "nothing in a live track escapes". A new lesson is covered
+    // the moment it is registered, without anyone editing this file.
+    const live = migrated.filter((l) => trackOf(l) !== 'amp').map((l) => l.id).sort()
+    expect(revised.map((l) => l.id).sort()).toEqual(live)
+    expect(revised.length).toBeGreaterThanOrEqual(46)
   })
 
   it.each(revised.map((l) => [l.id, l] as const))('%s writes its procedure out as steps', (_id, l) => {
@@ -224,7 +205,7 @@ function zhTermFailures(l: Lesson): string[] {
 }
 
 describe('readability · every official term carries its English name in the Chinese', () => {
-  const revised = migrated.filter((l) => MECHANISM_NOW.includes(l.id))
+  const revised = migrated.filter(graded)
 
   it.each(revised.map((l) => [l.id, l] as const))('%s brackets every official term at its first Chinese use', (_id, l) => {
     expect(zhTermFailures(l), `${l.id}: official terms the Chinese never names in English`).toEqual([])

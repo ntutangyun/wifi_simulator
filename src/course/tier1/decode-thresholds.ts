@@ -35,7 +35,7 @@ export const decodeThresholds: Lesson = {
     '从标准的灵敏度（sensitivity）表算出某一级所需的信干噪比（SINR）',
     '讲清发送端多留的那 3 dB 是谁的、什么时候用',
   ],
-  needs: ['radio-primer'],
+  needs: ['radio-primer', 'noise-floor'],
   terms: [
     { term: 'MCS', plain: '调制与编码方式：发送端挑的那一级速率；下一课摊开十四级' },
     { term: 'sensitivity', plain: '灵敏度：某一级还能被解出来的最弱到达功率，标准给每一级一个数' },

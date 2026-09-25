@@ -14,7 +14,9 @@
 import type { Lesson } from './lessonKit'
 import { orderLessons } from './curriculum'
 import { radioPrimer } from './tier1/radio-primer'
+import { noiseFloor } from './tier1/noise-floor'
 import { decodeThresholds } from './tier1/decode-thresholds'
+import { mcsLadder } from './tier1/mcs-ladder'
 import { rolesStack } from './tier1/roles-stack'
 import { frameAnatomy } from './tier1/frame-anatomy'
 import { frameAnatomyBytes } from './tier1/frame-anatomy-bytes'
@@ -75,7 +77,9 @@ export { MODULES, TIERS } from './curriculum'
 
 const AUTHORED: Lesson[] = [
   radioPrimer,
+  noiseFloor,
   decodeThresholds,
+  mcsLadder,
   rolesStack,
   frameAnatomy,
   frameAnatomyBytes,

@@ -58,7 +58,9 @@ describe('decode-thresholds · the third lesson of the Wi-Fi track', () => {
     // `noise-floor` is not registered yet — `lessons.ts` and COURSE_ORDER are the
     // controller's — so `needs` still names the lesson it can name. Once the batch lands
     // it becomes ['radio-primer', 'noise-floor']: this lesson subtracts a floor.
-    expect(decodeThresholds.needs).toEqual(['radio-primer'])
+    // noise-floor joined when M1 split: this lesson's required-ratio arithmetic
+    // starts from the noise floor that lesson owns.
+    expect(decodeThresholds.needs).toEqual(['radio-primer', 'noise-floor'])
     // OFDM went to `mcs-ladder` with the rungs; MCS stays, because the decode test is
     // stated against the requirement of the rung the frame was sent at.
     expect(decodeThresholds.terms!.map((t) => t.term)).toEqual(['MCS', 'sensitivity', 'rate margin'])

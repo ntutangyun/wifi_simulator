@@ -27,6 +27,7 @@
 import { LESSONS } from '../src/course/lessons'
 import { lessonChars, lessonMinutes, MAX_MINUTES, trackOf } from '../src/course/curriculum'
 import type { Block, Lesson } from '../src/course/lessonKit'
+import { diagramTexts } from '../src/course/diagram'
 
 /** What a lesson costs a reader, one lesson to a line. */
 function budgetLine(l: Lesson): string {
@@ -100,6 +101,18 @@ function block(b: Block, l: Lesson): void {
       const w = b as Extract<Block, { kind: 'widget' }>
       out(`[WIDGET ${w.widget}]`)
       if (w.caption) out(w.caption)
+      break
+    }
+    case 'diagram': {
+      // A reviewer reads this dump to judge a lesson, so a diagram cannot show
+      // as a bare heading: its labels are prose and carry the terms the rule
+      // grades. The picture itself is SVG and belongs on screen — what a
+      // reader needs here is every word it puts in front of them, in reading
+      // order, which is exactly what `diagramTexts` returns.
+      const d = b as Extract<Block, { kind: 'diagram' }>
+      out(`[DIAGRAM ${d.spec.kind}]`)
+      for (const t of diagramTexts(d.spec)) out(`  · ${t}`)
+      if (d.caption) out(d.caption)
       break
     }
   }
