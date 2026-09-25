@@ -912,7 +912,7 @@ export const STRINGS: Strings = {
         dataRate: '数据速率',
         txtime: 'TXTIME',
         durationId: '持续时间 / ID', navRest: (us) => `${us}（为本次交换剩下的部分预约介质）`,
-        seqNo: '序列号', retryFlag: '重复标志',
+        seqNo: '序列号', retryFlag: '重发比特',
         ampRate: 'AMP 速率', ampRateValue: (kbps) => `${kbps} kb/s（曼彽斯特 OOK）`,
         slots: '时隙数', slotDuration: '时隙长度', acwe: 'ACWE',
         phase: '阶段', phaseName: { random: '随机接入', scheduled: '调度' },

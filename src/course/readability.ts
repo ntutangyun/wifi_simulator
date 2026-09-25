@@ -245,7 +245,6 @@ export const ZH_TERMS: readonly ZhTerm[] = [
   { zh: '探测', en: 'channel sounding' },
   { zh: '强制速率', en: 'mandatory rate' },
   { zh: '控制回应速率', en: 'control response rate' },
-  { zh: '等效全向辐射功率', en: 'equivalent isotropically radiated power', abbr: 'EIRP' },
 
   // --- 2.2 roles, frames, addressing ---
   { zh: '站点', en: 'station', abbr: 'STA' },
@@ -256,9 +255,6 @@ export const ZH_TERMS: readonly ZhTerm[] = [
   { zh: '基本服务集标识', en: 'basic service set identifier', abbr: 'BSSID' },
   { zh: '服务集标识', en: 'service set identifier', abbr: 'SSID' },
   { zh: '分发系统', en: 'distribution system', abbr: 'DS' },
-  { zh: '扩展服务集', en: 'extended service set', abbr: 'ESS' },
-  { zh: '独立 BSS', en: 'independent BSS', abbr: 'IBSS' },
-  { zh: '关联', en: 'association' },
   { zh: '管理帧', en: 'management frame' },
   { zh: '控制帧', en: 'control frame' },
   { zh: '数据帧', en: 'data frame' },
@@ -324,7 +320,6 @@ export const ZH_TERMS: readonly ZhTerm[] = [
   { zh: '定界符', en: 'MPDU delimiter' },
   { zh: '块确认', en: 'block acknowledgement', abbr: 'BlockAck' },
   { zh: '位图', en: 'bitmap' },
-  { zh: '块确认协定', en: 'Block Ack agreement', abbr: 'ADDBA' },
   { zh: '传输机会', en: 'transmit opportunity', abbr: 'TXOP' },
   { zh: 'TXOP 上限', en: 'TXOP limit' },
   // 保护 (protection) is NOT a row: the course writes it as the ordinary verb
@@ -386,7 +381,6 @@ export const ZH_TERMS: readonly ZhTerm[] = [
   { zh: '应答窗口', en: 'response window' },
   { en: 'ranging contention phase structure IE', abbr: 'RCPS' },
   { en: 'ranging contention MAC attempts IE', abbr: 'RCMA' },
-  { zh: '调度模式', en: 'scheduling mode' },
   { zh: '到达时间差', en: 'time difference of arrival', abbr: 'TDoA' },
   { zh: '下行形态', en: 'downlink TDoA', abbr: 'DL-TDoA' },
   { zh: '双曲线', en: 'hyperbola' },
@@ -399,17 +393,14 @@ export const ZH_TERMS: readonly ZhTerm[] = [
   { zh: '公共时基', en: 'common time base' },
   { zh: '到达角', en: 'angle of arrival', abbr: 'AoA' },
   { zh: '相位差', en: 'phase difference' },
-  { zh: '视轴', en: 'boresight' },
   { zh: '视场', en: 'field of view' },
   { zh: '多毫秒', en: 'multi-millisecond', abbr: 'MMS' },
   { zh: '片段', en: 'fragment' },
   { zh: '测距序列片段', en: 'ranging sequence fragment', abbr: 'RSF' },
-  { zh: '测距完整性片段', en: 'ranging integrity fragment', abbr: 'RIF', aka: ['完整性片段'] },
   { zh: '合成增益', en: 'combining gain' },
   { zh: '时钟比值', en: 'clock ratio' },
   { zh: '参数集', en: 'parameter set' },
   { zh: '窄带', en: 'narrowband', abbr: 'NB' },
-  { en: 'offset quadrature phase-shift keying', abbr: 'O-QPSK' },
   { zh: '先听后发', en: 'listen before talk', abbr: 'LBT' },
   { zh: '允许列表', en: 'allow list' },
   { zh: '跳变', en: 'channel hopping' },
@@ -470,7 +461,13 @@ export const ZH_TERMS_EXCLUDED: readonly { zh: string; why: string }[] = [
  * reports no site an author would have to "fix" by writing 符号（symbol） into a
  * sentence about plus and minus.
  */
-const ZH_HOMONYMS: readonly string[] = ['偏差的符号', '块的符号']
+const ZH_HOMONYMS: readonly string[] = [
+  // 符号 is an OFDM/UWB symbol in this course, except where it is the SIGN of a
+  // number; beside 反 it is always a sign that flipped.
+  '偏差的符号', '块的符号', '核对符号', '符号相反', '符号反',
+  // 队列 is the MAC queue, except in the simulator's own event queue.
+  '事件队列',
+]
 
 const NUL = String.fromCharCode(0)
 const blankOut = (n: number): string => NUL.repeat(n)

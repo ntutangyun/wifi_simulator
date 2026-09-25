@@ -196,7 +196,7 @@ export const GLOSSARY: GlossaryGroup[] = [
       },
       {
         term: 'Retry bit',
-        alt: '重传标志位',
+        alt: '重发比特',
         def: '帧被再次发送时在 MAC 头中置位，使接收方能丢弃重复帧——那种“数据收到了、丢的是 ACK”的情形。',
       },
       {
