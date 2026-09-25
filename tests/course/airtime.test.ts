@@ -51,7 +51,7 @@ describe('airtime · the lesson’s own scene', () => {
     // Two of those three are unregistered while the batches land, and `needs` is graded
     // against COURSE_ORDER, so the edge that names the byte count is the one that matters
     // here and the controller finishes the row when it registers the new ids.
-    expect(airtime.needs).toEqual(['decode-thresholds', 'frame-anatomy-bytes'])
+    expect(airtime.needs).toEqual(['mcs-ladder', 'small-frames'])
     // the owner table of the readability programme gives this lesson ACK; it is also
     // held to the opening rules (at most four new words) while it may be the first
     // migrated Wi-Fi lesson a reader meets.

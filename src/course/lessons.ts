@@ -18,8 +18,11 @@ import { noiseFloor } from './tier1/noise-floor'
 import { decodeThresholds } from './tier1/decode-thresholds'
 import { mcsLadder } from './tier1/mcs-ladder'
 import { rolesStack } from './tier1/roles-stack'
+import { relayHops } from './tier1/relay-hops'
 import { frameAnatomy } from './tier1/frame-anatomy'
+import { frameQosFcs } from './tier1/frame-qos-fcs'
 import { frameAnatomyBytes } from './tier1/frame-anatomy-bytes'
+import { smallFrames } from './tier1/small-frames'
 import { retriesQueues } from './tier1/retries-queues'
 import { bianchi } from './tier1/bianchi'
 import { bianchiVsSim } from './tier1/bianchi-vs-sim'
@@ -83,8 +86,11 @@ const AUTHORED: Lesson[] = [
   decodeThresholds,
   mcsLadder,
   rolesStack,
+  relayHops,
   frameAnatomy,
+  frameQosFcs,
   frameAnatomyBytes,
+  smallFrames,
   retriesQueues,
   bianchi,
   bianchiVsSim,

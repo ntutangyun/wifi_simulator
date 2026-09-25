@@ -67,7 +67,7 @@ export const airtime: Lesson = {
     '说清确认帧（ACK）为什么值得它占掉的那点空口时间（airtime）',
     '说出确认帧的速率是怎么定下来的，以及它为什么不是一个固定值',
   ],
-  needs: ['decode-thresholds', 'frame-anatomy-bytes'],
+  needs: ['mcs-ladder', 'small-frames'],
   terms: [
     { term: 'ACK', plain: '确认帧：接收方立刻回发的一个小帧，意思是“这帧我完整收到了”' },
     { term: 'payload', plain: '帧里真正装着“要发的东西”的那一段' },
