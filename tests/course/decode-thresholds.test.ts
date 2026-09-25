@@ -1,12 +1,21 @@
 /**
- * Every empirical claim in "Fast talk, and when a frame gets through", measured
- * against the lesson's own scenario — radio-primer's walk through the flat, so
- * the two lessons share one run and one set of recorded hashes.
+ * Every empirical claim in "When does a frame decode", measured against the
+ * scene it shares with radio-primer and noise-floor — one walk through the
+ * flat, one run, one set of recorded hashes.
  *
- * The required-ratio derivation, the wide-channel corner case ("audible and
- * useless") and the model's simplifications moved into `deeper` during the
- * readability rewrite; each is still pinned below with the sentence it guards.
- * The old `.body!` widget lookup is retired: the widget lives in `numbers`.
+ * Re-paced on 2026-09-25 (batch A). The lesson is the decode test alone now, so
+ * two groups of pins left this file with the prose they guard:
+ *
+ *  - the ladder, the modulation names, the `mcsLadder` widget, the five-step
+ *    rate-picking procedure, the worked living-room column, the four-position
+ *    table and the slider experiment → `mcs-ladder.test.ts`;
+ *  - the −82/−62 dBm pair, the twenty decibels and the hand-built `Channel`
+ *    that proves a missed preamble leaves CCA idle → `cca` (M4, batch 3).
+ *
+ * The CCA constants are still asserted here, because the three-questions table
+ * still prints them; what left is the mechanism and its quiz. The two
+ * wide-channel runs came the other way, out of `deeper` and into `tryThis`, and
+ * they are now the lesson's proof that the threshold is hard.
  */
 import { describe, it, expect } from 'vitest'
 import { decodeThresholds } from '../../src/course/tier1/decode-thresholds'
@@ -15,20 +24,18 @@ import { radioPrimer } from '../../src/course/tier1/radio-primer'
 import { COURSE_ORDER, MODULES } from '../../src/course/curriculum'
 import type { Block } from '../../src/course/lessonKit'
 import { linkBudget, mcsLadder } from '../../src/course/widgetModel'
-import { Channel, PREAMBLE_DETECT_SINR_DB, type PhyListener } from '../../src/engine/channel'
-import { EventQueue } from '../../src/engine/events'
+import { PREAMBLE_DETECT_SINR_DB } from '../../src/engine/channel'
 import {
-  CCA_ED_DBM, CCA_PD_DBM, PHY_MODES, RATE_MARGIN_DB, mcsForRssi, noiseDbm, reqSinrDb, txTimeModeNs,
+  CCA_ED_DBM, CCA_PD_DBM, PHY_MODES, RATE_MARGIN_DB, mcsForRssi, noiseDbm, reqSinrDb,
 } from '../../src/engine/phy'
 import { buildLinkTable } from '../../src/engine/propagation'
 import { Simulation } from '../../src/engine/simulation'
-import type { FrameDesc } from '../../src/model/frames'
-import { makeEmitter, type TLRecord } from '../../src/model/records'
+import type { TLRecord } from '../../src/model/records'
 import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
 import { lessonShapeSuite, ofType, runOf } from './kit'
 
 const MS = 1_000_000
-/** The same run length radio-primer uses, so the two lessons share the memo. */
+/** The same run length radio-primer uses, so the four M1 lessons share the memo. */
 const RUN_NS = 100 * MS
 
 type Tx = Extract<TLRecord, { type: 'TX_START' }>
@@ -42,29 +49,24 @@ function withWidth(s: Scenario, w: 20 | 40 | 80 | 160): Scenario {
   return s
 }
 
-const wallsFor = (d: number) => (d > 5.5 ? (['brick'] as const) : ([] as const))
-/** The "One 1530-octet frame, by position" table: RSSI, SNR, MCS, needs + 3 dB, airtime. */
-const TABLE = [
-  { rssi: '-31.7', snr: '62.3', mcs: 13, reqPlus: '47.99', airtime: 129_600 },
-  { rssi: '-52.7', snr: '41.3', mcs: 10, reqPlus: '39.99', airtime: 143_200 },
-  { rssi: '-72.3', snr: '21.7', mcs: 3, reqPlus: '19.99', airtime: 415_200 },
-  { rssi: '-78.1', snr: '15.9', mcs: 1, reqPlus: '14.99', airtime: 768_800 },
-]
-
 lessonShapeSuite(decodeThresholds, { runNs: RUN_NS })
 
-describe('decode-thresholds · the second lesson of the Wi-Fi track', () => {
-  it('follows radio-primer, needs it, and owns the three words of the owner table', () => {
+describe('decode-thresholds · the third lesson of the Wi-Fi track', () => {
+  it('sits in M1, follows radio-primer, and owns the three words the decode test needs', () => {
     expect(MODULES[decodeThresholds.module].title).toBe('信号与链路')
     expect(COURSE_ORDER.indexOf('radio-primer')).toBeLessThan(COURSE_ORDER.indexOf('decode-thresholds'))
+    // `noise-floor` is not registered yet — `lessons.ts` and COURSE_ORDER are the
+    // controller's — so `needs` still names the lesson it can name. Once the batch lands
+    // it becomes ['radio-primer', 'noise-floor']: this lesson subtracts a floor.
     expect(decodeThresholds.needs).toEqual(['radio-primer'])
-    // the amendment of 2026-09-23 adds the two quantities the rung procedure asks the reader to use
-    expect(decodeThresholds.terms!.map((t) => t.term)).toEqual(['MCS', 'OFDM', 'CCA', 'sensitivity', 'rate margin'])
+    // OFDM went to `mcs-ladder` with the rungs; MCS stays, because the decode test is
+    // stated against the requirement of the rung the frame was sent at.
+    expect(decodeThresholds.terms!.map((t) => t.term)).toEqual(['MCS', 'sensitivity', 'rate margin'])
   })
 
   it('loads radio-primer’s own scene, variant for variant', () => {
-    // "It loads exactly the scene radio-primer loads": the two radio lessons are one walk
-    // through the flat, so nothing new is simulated and nothing new is recorded.
+    // "It loads exactly the scene radio-primer loads": the M1 lessons are one walk through
+    // the flat, so nothing new is simulated and nothing new is recorded.
     expect(decodeThresholds.scenario()).toEqual(radioPrimer.scenario())
     expect(decodeThresholds.variants!.map((v) => v.scenario()))
       .toEqual(radioPrimer.variants!.map((v) => v.scenario()))
@@ -75,223 +77,116 @@ describe('decode-thresholds · the second lesson of the Wi-Fi track', () => {
 
 describe('decode-thresholds · the three questions', () => {
   it('the table’s conditions are the engine’s own constants', () => {
-    // the rows "RSSI ≥ −82 dBm and SINR ≥ 4 dB as it arrives" and "Total power on the air
-    //  ≥ −62 dBm", and the paragraph "−62 dBm, twenty decibels higher"
+    // the rows "RSSI ≥ −82 dBm and SINR ≥ 4 dB as the preamble arrives" and "total power on
+    //  the air ≥ −62 dBm". The mechanism behind the pair — and the twenty decibels between
+    //  them — is `cca`'s, on backoff's scene, where a station is seen freezing.
     expect(CCA_PD_DBM).toBe(-82)
     expect(CCA_ED_DBM).toBe(-62)
-    expect(CCA_ED_DBM - CCA_PD_DBM).toBe(20)
     expect(PREAMBLE_DETECT_SINR_DB).toBe(4)
     expect(RATE_MARGIN_DB).toBe(3)
   })
 
-  /** `rx` optionally transmits 0–1 ms; `j` starts a long frame at 100 µs, heard by rx at −70 dBm. */
-  function ccaAfter(rxTransmits: boolean): boolean {
-    const q = new EventQueue()
-    let now = 0
-    const table = new Map<string, Map<string, number>>([
-      ['rx', new Map([['x', -40], ['j', -200]])],
-      ['j', new Map([['rx', -70], ['x', -200]])],
-      ['x', new Map([['rx', -200], ['j', -200]])],
-    ])
-    const ch = new Channel(q, () => now, table, makeEmitter(() => {}))
-    const nop = (): PhyListener => ({
-      onCcaBusy: () => {}, onCcaIdle: () => {}, onRxStart: () => {}, onRxOk: () => {}, onRxCorrupt: () => {},
-    })
-    for (const id of ['rx', 'j', 'x']) ch.register(id, nop())
-    const f = (src: string, dst: string, dur: number): FrameDesc =>
-      ({ kind: 'data', src, dst, bytes: 1500, mbps: 54, durationFieldNs: 0, txTimeNs: dur })
-    if (rxTransmits) q.schedule(0, () => ch.startTx('rx', f('rx', 'x', 1_000_000)))
-    q.schedule(100_000, () => ch.startTx('j', f('j', 'x', 5_000_000)))
-    let busy = false
-    q.schedule(1_500_000, () => { busy = ch.isCcaBusy('rx') }, 2)
-    for (;;) { if (q.peekTime() === null) break; const e = q.pop()!; now = e.t; e.fn() }
-    return busy
-  }
-
-  it('quiz 2: a −70 dBm frame missed during our own transmission leaves CCA idle', () => {
-    // "the preamble was missed, so only raw power counts, and −70 dBm is below −62 dBm", and the
-    // explanation's closing sentence: "Had you been listening
-    // when it began, −70 dBm would have held you off."
-    expect(ccaAfter(true)).toBe(false)
-    expect(ccaAfter(false)).toBe(true)
+  it('the third row is the rule this lesson is about, and it is the only one with a procedure', () => {
+    // "the first two together are the clear channel assessment … this lesson is about the
+    //  third one only": one steps block, three steps, and it is the decode test end to end.
+    const steps = [...decodeThresholds.picture!, ...decodeThresholds.numbers!]
+      .filter((b): b is Extract<Block, { kind: 'steps' }> => b.kind === 'steps')
+    expect(steps).toHaveLength(1)
+    expect(steps[0].items).toHaveLength(3)
   })
 })
 
-describe('decode-thresholds · the ladder', () => {
-  it('the six printed rungs are the engine’s, requirement and sensitivity alike', () => {
-    // "Six of the fourteen rungs, 20 MHz, one stream": MCS, modulation, bits per sub-carrier,
-    //  Mb/s, sensitivity, needs.
-    const rows = mcsLadder('eht')
-    expect(rows).toHaveLength(14)
-    const printed: [number, number, number, number, string][] = [
-      [0, 0.5, 8.6, -82, '8.99'], [1, 1, 17.2, -79, '11.99'], [3, 2, 34.4, -74, '16.99'],
-      [7, 5, 86.0, -64, '26.99'], [10, 7.5, 129.0, -54, '36.99'], [13, 10, 172.1, -46, '44.99'],
-    ]
-    for (const [mcs, bits, mbps, sens, req] of printed) {
-      // "Bits per sub-carrier": the ladder's own bits per data tone
-      expect(PHY_MODES.eht.ndbps[mcs] / 234, `bits/tone MCS ${mcs}`).toBe(bits)
-      expect(rows[mcs].mbps).toBe(mbps)
-      expect(rows[mcs].sensDbm).toBe(sens)
-      expect(rows[mcs].reqSinrDb.toFixed(2)).toBe(req)
-    }
-    // the picture's "Going up a rung loads each sub-carrier with more bits" — half a bit at the
-    // bottom, ten at the top, for 36 dB more
-    expect((rows[13].reqSinrDb - rows[0].reqSinrDb).toFixed(0)).toBe('36')
-  })
-
-  it('the modulation names count symbols, and a name plus its fraction gives the bits', () => {
-    // the gloss under the table: "Each modulation name says how many symbols the sender chooses
-    //  between: two (BPSK), four (QPSK), then the 16, 64, 1024 and 4096 of the QAM (a grid of
-    //  signal levels) family. The fraction after it is the coding rate." — and `deeper`'s "MCS 3
-    //  and MCS 7 use the same 16-QAM and 64-QAM families their names give, at different fractions."
-    // Each printed cell is `<symbols>-QAM <rate>` (or BPSK/QPSK), and log2(symbols) × rate is the
-    // row's own bits per sub-carrier, so a name that stopped matching the ladder fails here.
-    const printed: [number, string, number, number][] = [
-      [0, 'BPSK', 2, 1 / 2], [1, 'QPSK', 4, 1 / 2], [3, '16-QAM', 16, 1 / 2],
-      [7, '64-QAM', 64, 5 / 6], [10, '1024-QAM', 1024, 3 / 4], [13, '4096-QAM', 4096, 5 / 6],
-    ]
-    for (const [mcs, name, symbols, rate] of printed) {
-      // the two names without a number in front are the two- and four-symbol rungs
-      if (name === 'BPSK') expect(symbols).toBe(2)
-      if (name === 'QPSK') expect(symbols).toBe(4)
-      if (name.includes('-QAM')) expect(Number(name.split('-')[0])).toBe(symbols)
-      expect(Math.log2(symbols) * rate, `bits/tone MCS ${mcs}`).toBeCloseTo(PHY_MODES.eht.ndbps[mcs] / 234, 9)
-    }
-  })
-
-  it('deeper: the requirement is the sensitivity table with the assumed noise taken back out', () => {
-    // "required SINR = sensitivity − kTB(20 MHz) − 10 dB = sensitivity + 90.99 dB" and its note
-    //  "MCS 0 at −82 dBm needs 8.99 dB … the simulator's own 7 dB noise figure beats the assumed
-    //  10 dB by 3 dB, which the 3 dB rate margin gives straight back".
+describe('decode-thresholds · where the requirement comes from', () => {
+  it('a required SINR is its sensitivity with the assumed noise taken back out', () => {
+    // "required SINR = sensitivity − kTB(20 MHz) − 10 dB = sensitivity + 90.99 dB", and the
+    //  note "MCS 0's sensitivity is −82 dBm, so it needs 8.99 dB".
     const rows = mcsLadder('eht')
     for (const r of rows) expect(r.reqSinrDb).toBeCloseTo(r.sensDbm - (-174 + 10 * Math.log10(20e6)) - 10, 9)
     expect((rows[0].reqSinrDb - rows[0].sensDbm).toFixed(2)).toBe('90.99')
+    expect(rows[0].sensDbm).toBe(-82)
     expect(rows[0].reqSinrDb.toFixed(2)).toBe('8.99')
-    // "the rung is the highest one whose sensitivity the RSSI meets", at 20 MHz, for both modes
-    for (const mode of ['he', 'eht'] as const) {
-      PHY_MODES[mode].sensDbm.forEach((sens, mcs) => {
-        expect(mcsForRssi(mode, sens + 0.01)).toBeGreaterThanOrEqual(mcs)
-        if (mcs > 0) expect(mcsForRssi(mode, sens - 0.01)).toBe(mcs - 1)
-      })
-    }
   })
 
-  it('the widget marks the living-room link, and the margin picks the rung', () => {
-    // the caption "the marker at the living-room laptop's SNR rounded down to 21.5 dB. The rungs
-    //  it lights are the ones that fit: requirement plus the margin kept in hand."
-    const w = decodeThresholds.numbers!.find((b): b is Extract<Block, { kind: 'widget' }> => b.kind === 'widget')!
-    expect(w.widget).toBe('mcsLadder')
-    expect(w.params!.mode).toBe('eht')
-    const snr = Number(w.params!.snrDb)
-    expect(snr).toBe(21.5)
-    const lb = linkBudget({ txDbm: 15, distanceM: 9, walls: ['brick'], widthMhz: 20, mode: 'eht' })
-    expect(Math.floor(lb.snrDb * 2) / 2).toBe(snr)
-    expect(mcsLadder('eht').filter((r) => snr >= r.reqSinrDb + RATE_MARGIN_DB).map((r) => r.mcs)).toEqual([0, 1, 2, 3])
+  it('step by step at the living-room laptop: −74 dBm, 16.99 dB required, 21.66 dB given', () => {
+    // steps 1–3, and the "which side the 3 dB is on" table's second row.
+    expect(PHY_MODES.eht.sensDbm[3]).toBe(-74)
+    expect(reqSinrDb('eht', 3).toFixed(2)).toBe('16.99')
+    expect((PHY_MODES.eht.sensDbm[3]! + 90.99).toFixed(2)).toBe('16.99')
+    const s = primerScenario(9)
+    const rssi = buildLinkTable(s.nodes, s.walls).get('sta-1')!.get('ap')!
+    expect((rssi - noiseDbm(20)).toFixed(2)).toBe('21.66')
+    expect(rssi - noiseDbm(20)).toBeGreaterThanOrEqual(reqSinrDb('eht', 3))
+    // step 2's aside, "it does not move with the channel width": the engine's own signature
+    // says so — `reqSinrDb(mode, mcs)` takes no width, and always subtracts the 20 MHz kTB.
+    expect(reqSinrDb.length).toBe(2)
+  })
+
+  it('the "which side is the 3 dB on" table: 19.99 dB to pick it, 16.99 dB to decode it', () => {
+    // the table, and the paragraph under it: "the 3 dB is the sender's own; the receiver does
+    //  not count it when it decodes."
+    expect(RATE_MARGIN_DB).toBe(3)
     expect((reqSinrDb('eht', 3) + RATE_MARGIN_DB).toFixed(2)).toBe('19.99')
+    const snr = linkBudget({ txDbm: 15, distanceM: 9, walls: ['brick'], widthMhz: 20, mode: 'eht' }).snrDb
+    expect(snr.toFixed(2)).toBe('21.66')
+    expect(snr).toBeGreaterThanOrEqual(reqSinrDb('eht', 3) + RATE_MARGIN_DB)
+    // "were it not enough, the sender would drop a rung": that is what the margin decides
     expect((reqSinrDb('eht', 4) + RATE_MARGIN_DB).toFixed(2)).toBe('23.99')
+    expect(mcsForRssi('eht', -72.33, undefined, 20)).toBe(3)
   })
 })
 
-/**
- * The rung procedure and the worked example beside it (amendment of
- * 2026-09-23): every line of the "living-room laptop" table is the step it
- * names, run against the engine rather than quoted from it.
- */
-describe('decode-thresholds · choosing a rung, step by step', () => {
-  const RSSI = -72.3
-  const steps = decodeThresholds.numbers!.find((b) => b.kind === 'steps')
-
-  it('states the procedure as five steps on the main path', () => {
-    expect(steps).toBeDefined()
-    expect((steps as Extract<Block, { kind: 'steps' }>).items).toHaveLength(5)
-  })
-
-  it('step 1: RSSI − the 20 MHz noise floor is the SNR the table prints', () => {
-    expect(noiseDbm(20)).toBeCloseTo(-93.99, 2)
-    expect(RSSI - noiseDbm(20)).toBeCloseTo(21.7, 1)
-  })
-
-  it('step 2: a required SINR is its sensitivity plus 90.99 dB', () => {
-    for (let mcs = 0; mcs < PHY_MODES.eht.sensDbm.length; mcs++) {
-      expect(reqSinrDb('eht', mcs)).toBeCloseTo(PHY_MODES.eht.sensDbm[mcs]! + 90.99, 2)
-    }
-  })
-
-  it('step 3: MCS 3 fits with the margin and MCS 7 does not, so the rung is 3', () => {
-    const snr = RSSI - noiseDbm(20)
-    expect(reqSinrDb('eht', 3)).toBeCloseTo(16.99, 2)
-    expect(reqSinrDb('eht', 3) + RATE_MARGIN_DB).toBeCloseTo(19.99, 2)
-    expect(reqSinrDb('eht', 3) + RATE_MARGIN_DB).toBeLessThanOrEqual(snr)
-    expect(reqSinrDb('eht', 7)).toBeCloseTo(26.99, 2)
-    expect(reqSinrDb('eht', 7) + RATE_MARGIN_DB).toBeCloseTo(29.99, 2)
-    expect(reqSinrDb('eht', 7) + RATE_MARGIN_DB).toBeGreaterThan(snr)
-    expect(mcsForRssi('eht', RSSI, undefined, 20)).toBe(3)
-  })
-
-  it('step 5: at 20 MHz the shortcut picks the same rung as the arithmetic', () => {
-    for (let dbm = -90; dbm <= -30; dbm += 0.5) {
-      const bySensitivity = PHY_MODES.eht.sensDbm.reduce((best, sens, i) => (dbm >= sens ? i : best), 0)
-      expect(mcsForRssi('eht', dbm, undefined, 20), `${dbm} dBm`).toBe(bySensitivity)
-    }
-  })
-})
-
-describe('decode-thresholds · the simulation matches the ladder', () => {
-  it('the position table is the run: rung, requirement and airtime, four places', () => {
-    // "One 1530-octet frame, by position", and the observations "Read the MCS of the first data
-    //  frame in each of the four variants: 13, 10, 3 and 1" / "Now read the airtime of that
-    //  frame: 129.6, 143.2, 415.2 and 768.8 µs."
-    PRIMER_DISTANCES.forEach((d, i) => {
-      const e = TABLE[i]
-      const s = decodeThresholds.variants![i].scenario()
-      const lb = linkBudget({ txDbm: 15, distanceM: d, walls: [...wallsFor(d)], widthMhz: 20, mode: 'eht' })
-      expect(lb.rssiDbm).toBeCloseTo(buildLinkTable(s.nodes, s.walls).get('sta-1')!.get('ap')!, 9)
-      expect(lb.rssiDbm.toFixed(1)).toBe(e.rssi)
-      expect(lb.snrDb.toFixed(1)).toBe(e.snr)
-      expect(lb.mcs).toBe(e.mcs)
-      // "the rung is the highest one whose sensitivity the RSSI meets": the table's own two columns
-      expect(mcsForRssi('eht', lb.rssiDbm)).toBe(e.mcs)
-      expect((reqSinrDb('eht', e.mcs) + RATE_MARGIN_DB).toFixed(2)).toBe(e.reqPlus)
-      const data = txs(variantRecs(i), 'sta-1', 'data')
-      expect(data.length).toBeGreaterThan(0)
-      expect(data[0].t).toBe(0)
-      for (const r of data) {
-        expect(r.frame.mcs).toBe(e.mcs)
-        expect(r.frame.mode).toBe('eht')
-        expect(r.frame.widthMhz).toBe(20)
-      }
-      expect(data[0].frame.bytes).toBe(1530)
-      expect(data[0].frame.txTimeNs).toBe(e.airtime)
-    })
-    // "Twelve rungs down costs nearly six times the air for the very same 1530 octets", and the
-    // quiz's "129.6 µs at the desk and 768.8 µs at the far wall"
-    expect(TABLE[0].mcs - TABLE[3].mcs).toBe(12)
-    expect(TABLE[3].airtime / TABLE[0].airtime).toBeCloseTo(5.93, 2)
+describe('decode-thresholds · what the run shows', () => {
+  it('the living room’s first frame: rung 3, required 16.99 dB, and an ACK right behind it', () => {
+    // observe 1: "it goes out at rung 3, which needs 16.99 dB, and this link gives 21.66 dB.
+    //  The router's ACK is the very next thing on the timeline — this frame decoded."
+    const rs = variantRecs(2)
+    const data = txs(rs, 'sta-1', 'data')[0]
+    expect(data.frame.mcs).toBe(3)
+    expect(data.frame.bytes).toBe(1530)
+    const ok = ofType(rs, 'RX_OK').find((r) => r.node === 'ap')!
+    expect(ok.t).toBe(data.t + data.frame.txTimeNs)
+    const ack = txs(rs, 'ap', 'ack')[0]
+    expect(ack.t).toBe(ok.t + 16_000)
   })
 
   it('no variant shows a retry, a timeout or a failed reception', () => {
-    // "A lone link at its ceiling still keeps 3 dB in hand — against a hard threshold, enough
+    // observe 2, and the paragraph "four places, 100 ms each, and not one failed reception":
+    // "a lone link at its ceiling still keeps 3 dB in hand — against a hard threshold, enough
     //  never to lose a frame."
     for (const i of PRIMER_DISTANCES.keys()) {
       const rs = variantRecs(i)
-      expect(ofType(rs, 'RETRY')).toHaveLength(0)
-      expect(ofType(rs, 'ACK_TIMEOUT')).toHaveLength(0)
-      expect(ofType(rs, 'RX_FAIL')).toHaveLength(0)
-      expect(ofType(rs, 'RX_MISS')).toHaveLength(0)
+      expect(ofType(rs, 'RETRY'), `variant ${i}`).toHaveLength(0)
+      expect(ofType(rs, 'ACK_TIMEOUT'), `variant ${i}`).toHaveLength(0)
+      expect(ofType(rs, 'RX_FAIL'), `variant ${i}`).toHaveLength(0)
+      expect(ofType(rs, 'RX_MISS'), `variant ${i}`).toHaveLength(0)
+      // and every one of them really was at its own ceiling, not comfortably under it
+      const lb = linkBudget({
+        txDbm: 15, distanceM: PRIMER_DISTANCES[i],
+        walls: PRIMER_DISTANCES[i] > 5.5 ? ['brick'] : [], widthMhz: 20, mode: 'eht',
+      })
+      if (lb.mcs + 1 < PHY_MODES.eht.sensDbm.length) {
+        const next = reqSinrDb('eht', lb.mcs + 1) + RATE_MARGIN_DB
+        expect(lb.snrDb, `variant ${i} is at its ceiling`).toBeLessThan(next)
+      } else {
+        // the desk is on the top rung: there is nothing above it to be short of
+        expect(lb.mcs).toBe(PHY_MODES.eht.sensDbm.length - 1)
+      }
     }
   })
 })
 
-describe('decode-thresholds · deeper: audible and useless', () => {
+describe('decode-thresholds · try this: audible and useless', () => {
   it('far wall at 80 MHz: under the margin, over the requirement, every frame acknowledged', () => {
-    // "the noise floor rises to −87.97 dBm and the SNR falls to 9.89 dB — under MCS 0's 11.99 dB
-    //  with the margin, but over its bare 8.99 dB requirement — and every frame is still acknowledged."
+    // "the noise floor rises to −87.97 dBm and the ratio falls to 9.89 dB — under rung 0's
+    //  11.99 dB with the margin, but over its bare 8.99 dB requirement — and every frame is
+    //  still acknowledged." It is also quiz 2's evidence.
     const lb = linkBudget({ txDbm: 15, distanceM: 14, walls: ['brick'], widthMhz: 80, mode: 'eht' })
     expect(lb.noiseDbm.toFixed(2)).toBe('-87.97')
     expect(lb.snrDb.toFixed(2)).toBe('9.89')
     expect(lb.usable).toBe(false)
     expect(lb.snrDb).toBeGreaterThanOrEqual(reqSinrDb('eht', 0))
     expect((reqSinrDb('eht', 0) + RATE_MARGIN_DB).toFixed(2)).toBe('11.99')
+    expect(lb.snrDb).toBeLessThan(reqSinrDb('eht', 0) + RATE_MARGIN_DB)
     const rs = runSc(withWidth(primerScenario(14), 80), RUN_NS)
     const data = txs(rs, 'sta-1', 'data')
     const acks = txs(rs, 'ap', 'ack')
@@ -303,17 +198,20 @@ describe('decode-thresholds · deeper: audible and useless', () => {
   })
 
   it('far wall at 160 MHz: the preamble is detected and nothing decodes', () => {
-    // "At 160 MHz the SNR is 6.87 dB. The preamble is still detected, so the receiver starts and
-    //  waits, but nothing decodes: every reception ends in RX_FAIL and every transmission in a timeout."
+    // "the ratio is 6.87 dB. The preamble is still detected, so the receiver starts and waits,
+    //  but nothing decodes: every reception ends in RX_FAIL and every transmission in a timeout."
+    //  Quiz 1 walks the same three conditions in the same order.
     const lb = linkBudget({ txDbm: 15, distanceM: 14, walls: ['brick'], widthMhz: 160, mode: 'eht' })
     expect(lb.rssiDbm.toFixed(2)).toBe('-78.08')
     expect(lb.noiseDbm.toFixed(2)).toBe('-84.96')
     expect(lb.snrDb.toFixed(2)).toBe('6.87')
-    expect(linkBudget({ txDbm: 15, distanceM: 14, walls: ['brick'], widthMhz: 20, mode: 'eht' }).snrDb.toFixed(2)).toBe('15.91')
-    expect(noiseDbm(20).toFixed(2)).toBe('-93.99')
-    expect(lb.snrDb).toBeLessThan(reqSinrDb('eht', 0))
-    expect(lb.snrDb).toBeGreaterThanOrEqual(PREAMBLE_DETECT_SINR_DB)
+    expect(linkBudget({ txDbm: 15, distanceM: 14, walls: ['brick'], widthMhz: 20, mode: 'eht' }).snrDb.toFixed(2))
+      .toBe('15.91')
+    // quiz 1's two rejected options: it is loud enough, and clean enough, to start receiving
     expect(lb.rssiDbm).toBeGreaterThanOrEqual(CCA_PD_DBM)
+    expect(lb.snrDb).toBeGreaterThanOrEqual(PREAMBLE_DETECT_SINR_DB)
+    // and it fails the one question that is left
+    expect(lb.snrDb).toBeLessThan(reqSinrDb('eht', 0))
     const rs = runSc(withWidth(primerScenario(14), 160), RUN_NS)
     expect(txs(rs, 'sta-1', 'data').length).toBeGreaterThan(10)
     expect(txs(rs, 'ap', 'ack')).toHaveLength(0)
@@ -325,36 +223,30 @@ describe('decode-thresholds · deeper: audible and useless', () => {
   })
 })
 
-describe('decode-thresholds · try this', () => {
-  it('far wall at 12 dBm: one rung down, and 768.8 µs becomes 1476.0 µs', () => {
-    // "The received level falls just under the sensitivity of the rung it was using, so the
-    //  frames drop a rung and stretch from 768.8 to 1476.0 µs."
-    const s = primerScenario(14)
-    s.nodes.find((n) => n.id === 'sta-1')!.txPowerDbm = 12
-    const lb = linkBudget({ txDbm: 12, distanceM: 14, walls: ['brick'], widthMhz: 20, mode: 'eht' })
-    expect(lb.rssiDbm.toFixed(1)).toBe('-81.1')
-    // just under MCS 1's −79 dBm, still above MCS 0's −82 dBm: exactly one rung
-    expect(PHY_MODES.eht.sensDbm[1]).toBe(-79)
-    expect(PHY_MODES.eht.sensDbm[0]).toBe(-82)
-    expect(lb.rssiDbm).toBeLessThan(PHY_MODES.eht.sensDbm[1])
-    expect(lb.rssiDbm).toBeGreaterThanOrEqual(PHY_MODES.eht.sensDbm[0])
-    const rs = runSc(s, 50 * MS)
-    const data = txs(rs, 'sta-1', 'data')
-    expect(data.every((r) => r.frame.mcs === 0)).toBe(true)
-    expect(data[0].frame.txTimeNs).toBe(1_476_000)
-    expect(txTimeModeNs('eht', 1530, 0)).toBe(1_476_000)
-    expect(ofType(rs, 'RX_FAIL')).toHaveLength(0)
+describe('decode-thresholds · deeper', () => {
+  it('the sensitivity table also hides 5 dB, and the simulator’s 3 dB gives the margin back', () => {
+    // "the tables assume a 10 dB noise figure and have already taken 5 dB of implementation
+    //  margin off … the simulator's own 7 dB beats the assumed 10 dB by 3 dB, exactly the
+    //  rate margin, and the two cancel at 20 MHz."
+    expect(reqSinrDb('eht', 0)).toBeCloseTo(PHY_MODES.eht.sensDbm[0]! + 90.99, 2)
+    expect(10 - 7).toBe(RATE_MARGIN_DB)
+    // which is why "the highest rung whose sensitivity the RSSI meets" is the same answer
+    for (const mode of ['he', 'eht'] as const) {
+      PHY_MODES[mode].sensDbm.forEach((sens, mcs) => {
+        expect(mcsForRssi(mode, sens + 0.01)).toBeGreaterThanOrEqual(mcs)
+        if (mcs > 0) expect(mcsForRssi(mode, sens - 0.01)).toBe(mcs - 1)
+      })
+    }
   })
 
-  it('the ladder slider: MCS 1 at 15.9 dB, MCS 13 at 62.3 dB, and two rungs fewer on HE', () => {
-    // "the top usable rung moves from MCS 1 to MCS 13, twelve rungs for 46 dB. Then press the
-    //  HE (Wi-Fi 6) button: the two fastest rungs disappear."
-    const top = (mode: 'he' | 'eht', snr: number) =>
-      mcsLadder(mode).filter((r) => snr >= r.reqSinrDb + RATE_MARGIN_DB).pop()!.mcs
-    expect(top('eht', 15.9)).toBe(1)
-    expect(top('eht', 62.3)).toBe(13)
-    expect(62.3 - 15.9).toBeCloseTo(46.4, 9)
-    expect(mcsLadder('he')).toHaveLength(12)
-    expect(mcsLadder('eht').length - mcsLadder('he').length).toBe(2)
+  it('the hard threshold really is hard: the same place decodes everything or nothing', () => {
+    // "reaching the requirement always decodes and falling short always fails" — no variant
+    // sits in between, which is what the list of simplifications admits to.
+    for (const i of PRIMER_DISTANCES.keys()) {
+      const rs = variantRecs(i)
+      const data = txs(rs, 'sta-1', 'data').length
+      const ok = ofType(rs, 'RX_OK').filter((r) => r.node === 'ap').length
+      expect(ok, `variant ${i}`).toBeGreaterThanOrEqual(data - 1)
+    }
   })
 })

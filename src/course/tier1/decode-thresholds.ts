@@ -1,14 +1,24 @@
 /**
- * Wi-Fi Tier 1 · M1 · The second radio lesson: what a receiver can actually do
- * with the ratio `radio-primer` built — catch the start of a frame, call the
- * channel busy, or decode what was sent.
+ * Wi-Fi Tier 1 · M1 · lesson 3: one question, asked once — when does a frame
+ * decode? The answer is a hard threshold: the worst SINR of the whole frame
+ * against the requirement of the rung it was sent at, with the sender's 3 dB
+ * held back for the wobble.
  *
- * Written to the zero-to-hero contract
- * (docs/superpowers/specs/2026-09-21-course-readability-design.md). It loads
- * exactly the scene radio-primer loads — same builder, same variants — so the
- * two lessons are one walk through the flat. The sensitivity arithmetic, the
- * wide-channel corner case and the model's simplifications are in `deeper`;
- * the clause numbers are in `sources`.
+ * Re-paced on 2026-09-25 (docs/superpowers/plans/2026-09-25-course-repacing-proposal.md,
+ * batch A). The lesson used to carry four things: the three questions, the
+ * requirement, the fourteen-rung ladder and the rate-picking algorithm. The
+ * ladder and the algorithm are now `mcs-ladder`, which loads this lesson's own
+ * scene; the CCA thresholds — the −82/−62 dBm pair and the twenty decibels
+ * between them — go to `cca` (M4), where a station is actually seen freezing on
+ * a neighbour's frame. Nothing in these four variants ever produces a busy CCA,
+ * which is why that material could not stay: it had a table and a quiz and
+ * nothing to watch.
+ *
+ * What is left is one rule and one procedure. The requirement's derivation came
+ * up out of `deeper` onto the main path — it is the lesson's whole subject now
+ * — and the wide-channel corner case went the other way, out of `deeper` and
+ * into `tryThis`, because it is the experiment that proves the threshold is
+ * hard: at 160 MHz the far-wall link is heard perfectly and decodes nothing.
  *
  * Every number quoted below is pinned in tests/course/decode-thresholds.test.ts.
  */
@@ -18,97 +28,64 @@ import { primerScenario, primerVariants } from './radioLink'
 export const decodeThresholds: Lesson = {
   id: 'decode-thresholds',
   module: 0,
-  title: '说得多快，以及一帧什么时候能过去',
-  why: '信号能到，不等于这一帧能被听懂。发送端说得越快，就要求信号比噪声高出越多；所以同一条链路（link），在书桌旁发得快，隔着半间屋子就只能慢下来。而在这之前，电台还得先拿个主意：屋里是不是安静到可以开口。这两件事要用的，都是上一课算出来的那个比值。',
+  title: '一帧什么时候解得出来',
+  why: '信号能到，不等于这一帧能被听懂。发送端挑的那一级速率——调制与编码方式（modulation and coding scheme, MCS）——对信号比噪声高出多少提了一个要求；接收端收完整帧，拿全程最差的那个比值去对照它。这里没有“勉强听懂”：到了就整帧解出，差 0.1 dB 就整帧作废。',
   outcomes: [
-    '说清同一台笔记本为什么在书桌旁能发得快，到了远端墙边只能发得慢',
-    '仅凭接收信号强度指示（RSSI）就读出一条链路能撑住的最高速率',
-    '把接收端对一个信号要回答的三个问题分清楚',
+    '说清一帧解得出来与解不出来之间那条线画在哪里',
+    '从标准的灵敏度（sensitivity）表算出某一级所需的信干噪比（SINR）',
+    '讲清发送端多留的那 3 dB 是谁的、什么时候用',
   ],
   needs: ['radio-primer'],
   terms: [
-    { term: 'MCS', plain: '调制与编码方式：发送端敢说多快——速率阶梯上的某一级' },
-    { term: 'OFDM', plain: 'Wi-Fi 的发送方式：几百个很窄的子载波并排，每个同时带走这一帧的一小部分' },
-    { term: 'CCA', plain: '空闲信道评估：电台开口之前，拿空中的功率去比两条门限，看现在能不能发' },
-    { term: 'sensitivity', plain: '灵敏度：某一级还能被解出来的最弱到达功率——每级一个数，按标准表格假设的噪声地板（接收端始终听得见的那点底噪）给出' },
-    { term: 'rate margin', plain: '速率余量：发送端在所选那一级的要求之上，多留出的 3 dB，免得信号稍有起伏这条链路就断' },
+    { term: 'MCS', plain: '调制与编码方式：发送端挑的那一级速率；下一课摊开十四级' },
+    { term: 'sensitivity', plain: '灵敏度：某一级还能被解出来的最弱到达功率，标准给每一级一个数' },
+    { term: 'rate margin', plain: '速率余量：发送端在所选那一级的要求之上多留的 3 dB' },
   ],
   picture: [
-    { heading: '说得快，就要求线路更好', text: '还是拿说话打比方。屋里安静、人又挨得近，你可以连珠炮似的说，对方照样听懂；屋里吵、人又远，你就得放慢、咬清楚。无线电也是这样。它的速率是一级一级的，每升一级，都要求信号比其余一切多高出一截。选了这条链路撑不住的一级，什么也过不去；选得太低，又白白浪费空口时间（airtime）——也就是一帧占住信道的那些微秒。这一级，就是调制与编码方式（MCS）。' },
-    { heading: '许多个窄嗓门一起说', text: '往上升一级，到底改变了什么？Wi-Fi 不是把一路高速数据硬塞进信道，而是把信道切成几百个很窄的子载波（sub-carrier），每个上面同时发一路慢的数据——这就是正交频分复用（OFDM）。升一级，就是让每个子载波多带几个比特；这样一来，要分辨的电平更多、挨得更近，而想分得开，信号就得更干净。这笔买卖，说到底就是这么一回事。' },
-    { kind: 'watch', jump: 0, heading: '去看一眼', text: '载入仿真，跳到笔记本的第一个数据帧（data frame），先看清这一块有多长。然后依次切过四个变体：笔记本越走越远，级别一路往下掉，同一帧在时间轴上被明显拉长。' },
-    { heading: '是三个问题，不是一个', text: '接收端对一个信号要问的不是一个问题，而是三个；而媒体访问控制（MAC）——无线电里决定什么时候开口的那一部分——拿到的答案不同，做法也不同。第一，这一帧开头那段前导码（preamble），我抓得够不够干净、锁不锁得住？第二，空中的功率是不是已经大到我不该开口？第三，等整帧收完：全程的比值，够不够它所用的那一级？前两个合起来就是空闲信道评估（CCA），第三个才叫解码。' },
-    { heading: '空闲判断，和中间的那二十分贝', text: '一台电台只要检出自己锁得住的前导码——这一步叫前导检测（preamble detection）——就知道有一帧正在开始，于是按住不发——哪怕这一帧很弱。可要是它错过了前导码——也许当时它自己正在发，也许那股能量根本就不是 Wi-Fi——它就只能看功率有多大，而想靠功率把它按住，功率要高得多。这两条门限相差二十分贝；后面很多麻烦事，都出在这二十分贝上。' },
+    { heading: '一道硬门限', text: '接收端不会“听懂了一半”。它把整帧收完，取全程最差那一瞬间的信干噪比（SINR），和这一帧所用那一级的要求比一下：到了就记 RX_OK，随即回一个确认帧（ACK）；差一点就记 RX_FAIL，而发送端只看到一段等不到答复的沉默。' },
+    { kind: 'watch', jump: 0, heading: '去看一眼', text: '载入仿真，跳到笔记本的第一个数据帧（data frame），再看它右边紧跟着的那一小块：那是路由器的确认帧。四个变体里，每一个数据帧后面都跟着这么一块——这条链路（link）一帧也没丢。' },
+    { heading: '是三个问题，不是一个', text: '接收端对空中的一股能量要问三个问题：抓不抓得住它开头那段前导码（preamble）？空中是不是吵到我不该开口？整帧收完，解不解得出来？前两个合起来叫空闲信道评估（clear channel assessment, CCA），是后面讲信道接入时的事；这一课只管第三个。' },
   ],
   numbers: [
     { kind: 'table', heading: '三个问题', head: [
       '问题', '条件', '接下来会怎样',
     ], rows: [
       ['我抓到前导码了吗？',
-       '前导码到达时 RSSI ≥ −82 dBm 且 SINR ≥ 4 dB',
-       '开始接收，CCA 置忙。够响却不到 4 dB：记为 RX_MISS，根本不产生接收。'],
-      ['空中是不是本来就太吵？',
+       '接收信号强度指示（RSSI）≥ −82 dBm 且 SINR ≥ 4 dB',
+       '前导检测（preamble detection）成功，开始接收；够响却不到 4 dB 则记 RX_MISS。'],
+      ['空中是不是太吵？',
        '空中总功率 ≥ −62 dBm',
-       'CCA 置忙，但没有可解的内容。对不是 Wi-Fi 的能量，这是仅剩的判据。'],
+       '判忙，但没有可解的内容——对不是 Wi-Fi 的能量，这是仅剩的判据。'],
       ['我解得出来吗？',
        '整帧期间最差的 SINR ≥ 该 MCS 的要求',
-       'RX_OK 并回确认帧（ACK）；低于要求则 RX_FAIL，发送方等到超时。'],
+       'RX_OK 并回确认帧；不够则 RX_FAIL，发送方等到超时。'],
     ] },
-    { text: '这两个数不能混着用。−82 dBm 判的是本机抓到了前导码的那一帧；没抓到前导码，就只能按能量判断，而能量的门限是 −62 dBm：比前一个高二十分贝，也就是一百倍的功率。' },
-    { kind: 'table', heading: '十四级中的六级，20 MHz、单流', head: [
-      'MCS', '调制', '每子载波比特', 'Mb/s',
-      '灵敏度', '所需',
+    { kind: 'formula', heading: '这个要求是从哪儿来的', text: '所需 SINR = 灵敏度 − kTB(20 MHz) − 10 dB = 灵敏度 + 90.99 dB', note: '标准给的不是比值，而是每一级的最小输入灵敏度；那张表假设了 10 dB 的噪声系数，所以把它假设的噪声减回去，剩下的才是这一帧真正需要的比值。第 0 级灵敏度 −82 dBm，所需 8.99 dB。' },
+    { kind: 'steps', heading: '判一帧解不解得出来，一步一步', items: [
+      '查出这一帧所用那一级的灵敏度：客厅那台笔记本发第 3 级，标准给 −74 dBm。',
+      '加上 90.99 dB，得到所需 SINR：16.99 dB。它与信道带宽（channel width）无关——更宽的信道只靠抬高噪声地板（noise floor）来缩短覆盖。',
+      '取整帧期间最差的那个 SINR 和它比。这条链路给出 21.66 dB，够了：RX_OK，路由器回确认帧。',
+    ] },
+    { kind: 'table', heading: '那 3 dB 在哪一边', head: [
+      '这一次比较', '发送端挑级的时候', '接收端解码的时候',
     ], rows: [
-      ['0', 'BPSK 1/2', '0.5', '8.6', '−82 dBm', '8.99 dB'],
-      ['1', 'QPSK 1/2', '1', '17.2', '−79 dBm', '11.99 dB'],
-      ['3', '16-QAM 1/2', '2', '34.4', '−74 dBm', '16.99 dB'],
-      ['7', '64-QAM 5/6', '5', '86.0', '−64 dBm', '26.99 dB'],
-      ['10', '1024-QAM 3/4', '7.5', '129.0', '−54 dBm', '36.99 dB'],
-      ['13', '4096-QAM 5/6', '10', '172.1', '−46 dBm', '44.99 dB'],
-    ] },
-    { text: '调制（modulation）的名字说的是发送端在多少个符号（symbol）之间做选择：两个电平是 BPSK（binary phase-shift keying），四个是 QPSK（quadrature phase-shift keying），再往后是 QAM（quadrature amplitude modulation，一张信号电平的方格）家族的 16、64、1024 和 4096。名字后面的那个分数，是编码率（coding rate）。' },
-    { kind: 'widget', widget: 'mcsLadder', params: { mode: 'eht', snrDb: 21.5 },
-      caption: '完整的速率阶梯，标记停在客厅那台笔记本的信噪比（SNR）上（向下取整到 21.5 dB）。点亮的级就是放得下的，余量已经算进去了。' },
-    { kind: 'steps', heading: '选级的算法，一步一步', items: [
-      '把这条链路的 RSSI 减去当前信道带宽（channel width）下的噪声地板（noise floor），差就是 SNR。',
-      '给每一级算出它所需的信干噪比（SINR）：在 20 MHz 上，就是它的灵敏度（sensitivity）加 90.99 dB——把标准表格假设的那份噪声再减回去。',
-      '从底下往上走，留住最后一个满足“所需 SINR + 3 dB ≤ SNR”的级。这 3 dB 就是速率余量，也正是一条顶到上限的链路还能扛住寻常起伏的原因。',
-      '就用这一级发。帧在空中时，接收端拿全程最差的那个 SINR 去比所需 SINR——余量是发送端留的，解码时并不算它。',
-      '在 20 MHz 上，第 1 到 3 步可以并成一次查表：灵敏度不高于 RSSI 的那个最高级。这条捷径成立，是因为本仿真器比表格的假设多听见 3 dB，恰好与那份余量相抵。',
-    ] },
-    { kind: 'table', heading: '客厅那台笔记本，照着步骤走一遍', head: [
-      '步骤', '数值',
-    ], rows: [
-      ['这条链路的 RSSI', '−72.3 dBm'],
-      ['减去 20 MHz 的噪声地板', '−93.99 dBm'],
-      ['= SNR', '21.7 dB'],
-      ['MCS 3 的要求，加上余量', '16.99 + 3 = 19.99 dB ✓'],
-      ['MCS 7 的要求，加上余量', '26.99 + 3 = 29.99 dB ✗'],
-      ['于是这一帧发出去时用的是', 'MCS 3'],
-    ] },
-    { kind: 'table', heading: '同一个 1530 字节帧，按位置', head: [
-      '它在哪儿', 'RSSI', 'SNR', 'MCS', '所需 + 3 dB', '空口时间',
-    ], rows: [
-      ['书桌，1 m', '−31.7 dBm', '62.3 dB', '13', '47.99 dB', '129.6 µs'],
-      ['书房，5 m', '−52.7 dBm', '41.3 dB', '10', '39.99 dB', '143.2 µs'],
-      ['客厅，9 m + 砖墙', '−72.3 dBm', '21.7 dB', '3', '19.99 dB', '415.2 µs'],
-      ['远端墙边，14 m + 砖墙', '−78.1 dBm', '15.9 dB', '1', '14.99 dB', '768.8 µs'],
+      ['用的门槛', '所需 SINR + 3 dB = 19.99 dB', '所需 SINR = 16.99 dB'],
+      ['这条链路给出的', '21.66 dB ✓', '21.66 dB ✓'],
+      ['要是不够', '退到下一级，帧变长', '整帧作废，发送端只看到沉默'],
     ] },
   ],
   deeper: [
-    { heading: '所需比值是怎么来的', text: '标准根本没有直接给出所需比值。它给的是每个 MCS 的最小输入灵敏度：合规接收机在这个最弱的信号下，仍须把误包率压在 10% 以内。这些表假设了 10 dB 的噪声系数，还预先扣掉了 5 dB 的实现余量，用来覆盖相位噪声、信道估计误差之类。把它们假设的噪声再减回去，剩下的才是这一帧真正需要的比值。' },
-    { kind: 'formula', text: '所需 SINR = 灵敏度 − kTB(20 MHz) − 10 dB = 灵敏度 + 90.99 dB', note: 'kTB 就是“现在的数字”一节用过的那条热噪声公式，所以这一步就是把标准假设的噪声从灵敏度里减回去：MCS 0 的灵敏度是 −82 dBm，所需 8.99 dB。5 dB 实现余量留在要求之内，因为接收机损伤对干扰和对噪声一样起作用。这个要求与信道带宽无关：更宽的信道只通过抬高噪声地板来缩短覆盖。另外，仿真器自己的 7 dB 噪声系数比假设的 10 dB 好 3 dB，而 3 dB 的速率余量又原样还了回去——20 MHz 上的那套口算，正是这么来的。' },
-    { heading: '听得见，却没有用', text: '把远端墙边的笔记本换到 80 MHz：噪声地板升到 −87.97 dBm，SNR 掉到 9.89 dB——低于 MCS 0 含余量的 11.99 dB，却仍高于它 8.99 dB 的裸要求——于是每一帧照样被确认。换到 160 MHz，SNR 只剩 6.87 dB：前导码依然检测得到，接收照样开始、照样等待，可什么也解不出来，每次接收都以 RX_FAIL 收场，每次发送都以超时收场。一条链路可以听得清清楚楚，却完全不能用。' },
-    { heading: '编码率买到的是什么', text: '每个调制名字旁边的那个分数——1/2、3/4、5/6——是发出去的内容里真正属于消息的那一部分；其余是冗余，接收端靠它修补被噪声打坏的地方。所以一级其实是两个选择合在一起：方格里有多少个符号，以及随行带上多少修补。MCS 3 与 MCS 7 用的就是名字里写着的 16-QAM 与 64-QAM，只是分数不同。' },
+    { heading: '那张表里还藏着 5 dB', text: '标准的灵敏度表除了假设 10 dB 的噪声系数，还预先扣掉了 5 dB 的实现余量，用来覆盖相位噪声、信道估计误差之类。这 5 dB 留在要求之内没有减回去，因为接收机的这些损伤对干扰和对噪声一样起作用。另外，本仿真器自己的 7 dB 噪声系数比标准假设的 10 dB 好 3 dB——这个差值，正好等于发送端留的那 3 dB 速率余量，两者在 20 MHz 上相互抵消。',
+    },
     { kind: 'list', heading: '简化之处，明说', items: [
       '解码是一道硬门限：达到要求就一定解得出，低于就一定失败。真实接收机是一条在几个 dB 内陡降的误码率曲线。',
-      '没有衰落，也没有多径：RSSI 只由几何位置和墙决定，同一个位置永远得到同一个 MCS。',
+      '没有衰落，也没有多径：到达电平只由几何位置和墙决定，同一个位置永远得到同一级。',
       '所有电台共用一个噪声系数；聚合帧也是整体成败。这两点都会在后面的阶段改变。',
     ] },
   ],
   sources: [
     '最小输入灵敏度表：OFDM PHY 见 §17.3.10.2，HE 见 §27.3.19.4，EHT 有对应条款；每一处都写明了 10% 误包率的条件，以及其背后 10 dB 噪声系数与 5 dB 实现余量的假设。',
-    '−82 dBm 的前导检测门限与 −62 dBm 的能量检测门限，出自 §17.3.10.6 的空闲信道规则，并原样沿用到后来的各 PHY。',
+    '−82 dBm 的前导检测门限与 −62 dBm 的能量检测门限，出自 §17.3.10.6 的空闲信道规则，并原样沿用到后来的各 PHY；这一对门限本身是后面「空闲判断」那一课的主题。',
     '4 dB 的前导检测比值与 3 dB 的速率余量都是本仿真器的模型取值，并非标准正文；把灵敏度表换算成所需 SINR 同样如此，真实接收机只是近似遵循。',
   ],
   scenario: () => primerScenario(9),
@@ -118,34 +95,33 @@ export const decodeThresholds: Lesson = {
     J('第一个 ACK', firstAck),
   ],
   observe: [
-    '读出四个变体里第一个数据帧的 MCS：13、10、3、1——上表那四个比值在阶梯上点亮的级。',
-    '再读这一帧的空口时间：129.6、143.2、415.2、768.8 µs。往下走十二级，同样的 1530 个字节要多花近六倍的空口时间。',
-    '四个变体里都没有重传（retry）、没有超时，也没有接收失败。一条链路独占空口、又停在自己的上限上时，它所选那一级的要求之上仍有 3 dB 的速率余量；面对一道硬门限，这 3 dB 足以一帧不丢。',
+    '跳到客厅变体的第一个数据帧：它走第 3 级，所需 16.99 dB，而这条链路给出 21.66 dB。紧接着就是路由器的确认帧——这一帧解出来了。',
+    '四个变体跑满 100 ms，没有重传（retry）、没有超时，也没有一次接收失败：四条链路都停在自己的上限上，可要求之上仍留着 3 dB 速率余量。',
   ],
   tryThis: [
-    '在编辑器里打开远端墙边变体，把笔记本的发射功率（transmit power）从 15 dBm 降到 12 dBm。接收电平刚好跌到它原来那一级的灵敏度之下，于是帧下降一级，时长从 768.8 µs 拉到 1476.0 µs。3 dB，几乎让空口时间翻倍。',
-    '在上面的阶梯里，把滑杆先调到 15.9 dB，再调到 62.3 dB：最高可用级从 MCS 1 变成 MCS 13——46 dB 换来十二级。再按下 HE（Wi-Fi 6）那个模式按钮，最快的两级就消失了。',
+    '在编辑器里打开远端墙边变体，把两端的信道带宽改成 80 MHz。地板抬到 −87.97 dBm，比值掉到 9.89 dB——低于第 0 级含余量的 11.99 dB，却高于它 8.99 dB 的裸要求——于是每一帧照样被确认。',
+    '再改成 160 MHz：比值只剩 6.87 dB。前导码依然检测得到，接收照样开始、照样等待，可什么也解不出来——每次接收都以 RX_FAIL 收场。一条链路可以听得清清楚楚，却完全不能用。',
   ],
   quiz: [
     {
-      q: '同样的 1530 字节帧，为什么在书桌旁只要 129.6 µs，到远端墙边却要 768.8 µs？',
+      q: '远端墙边那台笔记本换到 160 MHz 后，路由器一个确认帧也不回。为什么？',
       options: [
-        '路由器在远处应答得更慢',
-        '远处那条链路只撑得住低的一级，每个子载波驮的比特更少，同样的字节就要用更多符号',
-        '砖墙让这一帧在路上耽搁了',
+        '太弱了，前导码根本没被检测到',
+        '前导码检测得到，接收也开始了，但整帧的比值低于这一级的要求，于是 RX_FAIL',
+        '地板抬高之后接收端会自动关掉这条链路',
       ],
       answer: 1,
-      explain: '路上并没有什么东西被拖慢：这一帧走的是 MCS 1 而不是 MCS 13，因为比值只够到这一级；而级别一低，搬同样的字节就要花更多空口时间。',
+      explain: '到达电平 −78.08 dBm 高于 −82 dBm，6.87 dB 也高于开始接收要的 4 dB，接收正常开始。卡住的是第三个问题：6.87 低于 8.99 dB。',
     },
     {
-      q: '你的电台正在发送时，邻居开始发一帧，到达功率 −70 dBm。你发完了，邻居还在发。你的 CCA 是忙吗？',
+      q: '发送端多留的那 3 dB，接收端解码时算不算？',
       options: [
-        '忙：−70 dBm 高于 −82 dBm 的前导码门限',
-        '不忙：前导码已经错过，只能按功率算，而 −70 dBm 低于 −62 dBm',
-        '忙：发送结束后 CCA 总要忙上一阵',
+        '算：接收端要所需比值再加 3 dB',
+        '不算：接收端只拿最差的比值去比裸要求，3 dB 是发送端留给起伏的',
+        '算一半：所需比值加 1.5 dB',
       ],
       answer: 1,
-      explain: '−82 dBm 只适用于本机检测到了前导码的那一帧。在你自己发送期间开始的帧只算能量，而能量要达到 −62 dBm 才算数。如果它开始时你正在侦听，−70 dBm 就足以把你按住。',
+      explain: '80 MHz 那个实验就是证据：9.89 dB 低于含余量的 11.99 dB，却高于 8.99 dB 的裸要求，每一帧仍被确认。余量决定发送端敢挑哪一级，不决定这一帧解不解得出。',
     },
   ],
 }
