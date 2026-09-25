@@ -67,10 +67,9 @@ export const txopProtect: Lesson = {
     '说出是哪一帧把整串帧的预约送进了远处那个房间',
     '在时间轴上读出一条预约，并说出它覆盖到哪里为止',
   ],
-  // §6 of the re-pacing plan moves `hidden` to `rts-cts`, the half that will own the
-  // question-and-answer exchange; that lesson is batch 4's and is not registered yet, so
-  // the edge still names the lesson that can be named.
-  needs: ['nav', 'hidden', 'txop'],
+  // §6 of the re-pacing plan: the question-and-answer exchange moved to `rts-cts`, the half
+  // that owns it, so this edge names that half rather than its parent.
+  needs: ['nav', 'rts-cts', 'txop'],
   terms: [
     { term: 'protection', plain: '事先说清自己要占用空口多久，好让那些听不见你的站点照样保持安静' },
   ],

@@ -59,9 +59,9 @@ lessonShapeSuite(txopProtect, { runNs: RUN_NS })
 describe('txop-protect · the lesson’s own scene', () => {
   it('sits in the QoS module and names the lessons its words come from', () => {
     expect(MODULES[txopProtect.module].title).toBe('QoS 与效率')
-    // `nav` owns NAV, `hidden` owns RTS and CTS (§6 moves that edge to `rts-cts` when batch 4
-    // lands), `txop` owns the burst this lesson protects.
-    expect(txopProtect.needs).toEqual(['nav', 'hidden', 'txop'])
+    // `nav` owns NAV, `rts-cts` owns the question and the answer (§6 moves the edge there
+    // from `hidden`, and that half is now registered), `txop` owns the burst it protects.
+    expect(txopProtect.needs).toEqual(['nav', 'rts-cts', 'txop'])
     // `protection` is this half's own word; CF-End and CTS-to-self went to `protect-policies`.
     expect(txopProtect.terms!.map((t) => t.term)).toEqual(['protection'])
   })
