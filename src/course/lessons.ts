@@ -49,7 +49,9 @@ import { uwbNbaCoexist } from './uwb/uwb-nba-coexist'
 import { uwbCapstone } from './uwb/uwb-capstone'
 import { airtime } from './tier1/airtime'
 import { ifs } from './tier1/ifs'
+import { cca } from './tier1/cca'
 import { backoff } from './tier1/backoff'
+import { collisionsCw } from './tier1/collisions-cw'
 import { nav } from './tier1/nav'
 import { hidden } from './tier1/hidden'
 import { anomaly } from './tier1/anomaly'
@@ -113,7 +115,9 @@ const AUTHORED: Lesson[] = [
   // ======================= MODULE 1 =======================
   airtime,
   ifs,
+  cca,
   backoff,
+  collisionsCw,
   nav,
   hidden,
   anomaly,

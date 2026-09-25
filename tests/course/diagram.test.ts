@@ -19,8 +19,8 @@ import {
   FS, W, diagramTexts, fitSize, layoutDiagram, textBox, textWidth,
   type DiagramSpec, type FieldsSpec, type SequenceSpec, type Shape, type StackSpec, type TimingSpec, type TopologySpec,
 } from '../../src/course/diagram'
-import { rolesStack } from '../../src/course/tier1/roles-stack'
-import type { Block } from '../../src/course/lessonKit'
+import { LESSONS } from '../../src/course/lessons'
+import type { Block, Lesson } from '../../src/course/lessonKit'
 
 const texts = (shapes: Shape[]): Extract<Shape, { s: 'text' }>[] =>
   shapes.filter((s): s is Extract<Shape, { s: 'text' }> => s.s === 'text')
@@ -91,9 +91,29 @@ const ALL: [string, DiagramSpec][] = [
 ]
 
 /** The lesson's own two figures, so the pilot is held to the same geometry as the fixtures. */
-const LESSON: [string, DiagramSpec][] = [...(rolesStack.picture ?? []), ...(rolesStack.numbers ?? [])]
-  .filter((b): b is Extract<Block, { kind: 'diagram' }> => b.kind === 'diagram')
-  .map((b) => [`roles-stack · ${b.spec.kind}`, b.spec])
+/**
+ * EVERY diagram in the course, not one lesson's. A per-lesson test only checks
+ * a figure if its author remembered to write the check; the two defects this
+ * found when it was first run course-wide (an axis-tick collision, a callout
+ * off the right edge) were both in lessons whose own tests were green.
+ *
+ * The count guard is the anti-vacuity half: if a refactor stops this walk from
+ * finding diagrams, the suite says so instead of passing on an empty list.
+ */
+const diagramsOf = (l: Lesson): [string, DiagramSpec][] =>
+  [...(l.picture ?? []), ...(l.numbers ?? [])]
+    .filter((b): b is Extract<Block, { kind: 'diagram' }> => b.kind === 'diagram')
+    .map((b) => [`${l.id} · ${b.spec.kind}`, b.spec])
+
+const LESSON: [string, DiagramSpec][] = LESSONS.flatMap(diagramsOf)
+
+describe('diagram layout · the course', () => {
+  it('finds the course diagrams to check', () => {
+    // Not a number to keep up to date: a floor that catches the walk breaking.
+    expect(LESSON.length).toBeGreaterThanOrEqual(2)
+    expect(new Set(LESSON.map(([n]) => n)).size).toBe(LESSON.length)
+  })
+})
 
 describe('diagram layout · pure', () => {
   it.each([...ALL, ...LESSON])('%s lays out the same way twice', (_name, spec) => {
