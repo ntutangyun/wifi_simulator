@@ -132,13 +132,13 @@ describe('uwb-mms · the lesson', () => {
     const src = uwbMms.sources!.map((s) => s).join('\n')
     expect(src).toContain('IEEE Std 802.15.4-2024')
     expect(src).toContain('P802.15.4ab')
-    expect(src).toContain('D5.0')
+    expect(src).toContain('草案')
     for (const doc of ['15-22/0381r5', '15-23/0100r2', '15-23/0502r3', '15-22/0205r0']) {
       expect(src, doc).toContain(doc)
     }
     const zh = uwbMms.sources!.map((s) => s).join('\n')
     expect(zh).toContain('P802.15.4ab')
-    expect(zh).toContain('D5.0')
+    expect(zh).toContain('草案')
     expect(zh).toContain('15-22/0205r0')
     // the narrowband radio really is Clause 12's: 32 chips a symbol at 0.5 µs, 4 bits a
     // symbol — 250 kb/s, and 576 µs for 12 octets

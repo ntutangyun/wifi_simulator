@@ -346,7 +346,7 @@ describe('uwb-nba · what the depth says', () => {
     const src = uwbNba.sources!.map((s) => s).join('\n')
     expect(src).toContain('IEEE Std 802.15.4-2024')
     expect(src).toContain('P802.15.4ab')
-    expect(src).toContain('D5.0')
+    expect(src).toContain('草案')
     expect(src).toContain('15-22/0381r5')
     expect(src).toContain('15-23/0100r2')
     // Review M5: `sources` said 28 slots, which is the PAIRWISE round. The base scene is

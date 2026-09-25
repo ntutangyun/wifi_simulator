@@ -457,11 +457,14 @@ describe('Guide section 12 (P802.15.4ab, draft)', () => {
     expect(zh).toContain('≈ 15 m')
   })
 
-  it('names the P802.15.4ab draft documents it paraphrases, and never claims to have read D5.0', () => {
+  it('names the P802.15.4ab draft documents it paraphrases, and never claims to have read the draft itself', () => {
     for (const doc of ['0381r5', '0100r2', '0502r3', '0205r0']) {
       expect(README, doc).toContain(doc)
     }
-    for (const text of [zh, README]) expect(text).toContain('D5.0')
+    // Not a version number: those move every recirculation, and pinning one here is how a
+    // stale claim survives review. What must hold is that both say it is an unratified draft.
+    expect(zh).toContain('草案')
+    expect(README).toContain('unratified draft')
     expect(README).toContain('Draft status')
   })
 })
@@ -524,7 +527,7 @@ describe('the EditorGuide MMS section', () => {
   const zhMms = section(zh, 'MMS 片段序列（802.15.4ab 草案）', '墙体属性')
 
   it('describes every MMS field inside its own section', () => {
-    for (const marker of ['参数集', 'nbChannels', 'LBT', 'RSF', 'RIF', 'N_MSR', 'D5.0', '草案']) {
+    for (const marker of ['参数集', 'nbChannels', 'LBT', 'RSF', 'RIF', 'N_MSR', '草案']) {
       expect(zhMms, marker).toContain(marker)
     }
   })

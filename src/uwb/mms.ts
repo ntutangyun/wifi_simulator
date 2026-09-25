@@ -3,9 +3,17 @@
  *
  * A 4z frame spends one burst of energy and is heard as far as that burst reaches. An MMS
  * device instead splits its ranging signal into short *fragments* sent a slot or more apart —
- * a *train* — and the receiver adds them up. (One millisecond apart is the pairwise round at
- * the draft's 600 RSTU slot; a one-to-many round spaces them (responders + 1) slots, so the
- * train is that much longer. `MmsRoundPlan.fragGapNs` is what a round actually uses.) Two things follow, and they are the whole point of
+ * a *train* — and the receiver adds them up.
+ *
+ * How far apart is a model choice, and this engine's is its own. The pairwise round spaces
+ * fragments one millisecond apart, which is 15-23/0100r2 §2.3.2's figure at the draft's 600 RSTU
+ * slot. A one-to-many round spaces them (responders + 1) slots, so three responders make it 2 ms
+ * and no legal slot length brings it back to one — see `mmsRoundPlan`. The draft additionally has
+ * an interleaved mode whose offset is 500 µs (quoted in 15-25/0388r1), which this engine does not
+ * model at all. `MmsRoundPlan.fragGapNs` is what a round actually uses, and it is the ruler the
+ * receiver is handed, so nothing downstream assumes the nominal millisecond.
+ *
+ * Two things follow, and they are the whole point of
  * the slice: each fragment may spend a full millisecond's regulatory energy budget in its own
  * (much shorter) length, and N fragments combine for another 10·log10(N) dB. The same train also
  * hands the receiver a ruler as long as the whole train to measure the transmitter's clock
@@ -18,7 +26,9 @@
  * Everything here is chips at 499.2 Mchip/s (standard §16.2.4) turned into nanoseconds by
  * `chipsToNs`, the same rounding every other PPDU in this engine is measured with. The draft
  * text is members-only: every number below is paraphrased from the TG4ab contributions named in
- * its tag, never copied, and the balloted D5.0 may differ.
+ * its tag, never copied. As of the September 2026 meeting the draft is in SA ballot
+ * recirculation, and the balloted text may differ from the contributions modelled here — see
+ * docs/superpowers/specs/2026-09-26-uwb-standard-basis.md for what was checked and what drifted.
  *
  * Everything this module needs of the engine's units comes from the leaf `units.ts`, never
  * from `phy.ts`: `phy.ts` imports *this* module to size an MMS slot, and an import the other
@@ -39,13 +49,23 @@ export const MMS_SPREAD = 4 // 4ab draft 15-23/0100r2 §2.3.2
 export const STS_UNIT_CHIPS = 512 // standard §16.2.9
 
 /** MMRS repetitions in one RSF. */
-export const N_MSR_SET = [32, 40, 48, 64, 128, 256] as const // 4ab draft 15-23/0100r2 §2.3.2
+/**
+ * Repetitions of the MMRS symbol in one RSF. Named N_MSR after 15-23/0100r2 §2.3.2, which is
+ * what the course and the editor call it; the draft has since renamed the field carrying it to
+ * **RSF Fragment Length**, in the Ranging PHY Configuration field (15-24/0506 + 15-25/0066r1).
+ * The values are unchanged.
+ */
+export const N_MSR_SET = [32, 40, 48, 64, 128, 256] as const
 /** X, the RSFs in a train. */
 export const RSF_COUNT_SET = [0, 1, 2, 4, 8, 16] as const // 4ab draft 15-22/0381r5 Table 1.6.3.2
 /** Y, the RIFs in a train. */
 export const RIF_COUNT_SET = [0, 1, 2, 4, 8] as const // 4ab draft 15-22/0381r5 Table 1.6.3.2
 /** An RIF's STS segment length, in 512-chip units. */
-export const STS_LEN_SET = [32, 64, 128, 256] as const // 4ab draft 15-23/0100r2 §2.3.2
+/**
+ * An RIF's length in 512-chip STS units. 15-23/0100r2 §2.3.2; the draft now carries it in the
+ * **RIF Fragment Length** field, beside RSF Fragment Length (15-24/0506 + 15-25/0066r1).
+ */
+export const STS_LEN_SET = [32, 64, 128, 256] as const
 
 export type NMsr = (typeof N_MSR_SET)[number]
 export type RsfCount = (typeof RSF_COUNT_SET)[number]
@@ -179,12 +199,15 @@ export interface MmsPhy {
  * is at X − 1 + Z and every further one a millisecond later. With no RSF at all (X = 0) the
  * offset is zero and the RIFs open the phase.
  *
- * P802.15.4ab §10.38.5 (the UWB MMS ranging phase; §10.35.5 before the clause was renumbered),
- * paraphrased: without RSFs the first RIF may go out RpRifOffset into the phase; with RSFs it
- * may go out RpRifOffset after the last RSF started. RpRifOffset is 2 ms when RSFs were sent and
- * 0 ms otherwise. The balloted D5.0 is not in the corpus this repository was checked against;
- * the rule is the editor's instruction carried by comment resolution 15-24/0235r2 (from the
- * proposed clause text of 15-23/0371r1 and 15-23/0412r0), the latest form available here.
+ * P802.15.4ab §10.39.5, the UWB MMS ranging phase, paraphrased: without RSFs the first RIF may
+ * go out RpRifOffset into the phase; with RSFs it may go out RpRifOffset after the last RSF
+ * started. RpRifOffset is 2 ms when RSFs were sent and 0 ms otherwise.
+ *
+ * The clause keeps moving — §10.35.5, then §10.36.5, then §10.38.5, and §10.39.5 in every 2026
+ * document — so a bare clause number here has a shelf life. The rule itself is the editor's
+ * instruction carried by comment resolution 15-24/0235r2 (from the proposed clause text of
+ * 15-23/0371r1 and 15-23/0412r0). No draft text is in the corpus this repository is checked
+ * against, only the comment resolutions that quote it, so the balloted draft may differ.
  */
 export function rifStartMs(rsfs: number, gapMs: number, index: number): number {
   return rsfs > 0 ? rsfs + gapMs - 1 + index : index
@@ -286,7 +309,17 @@ export interface MmsLayout {
 /** The two slots one narrowband window is: the draft's RcpPollSlot, RcpResponseSlot,
  * MrpFirstSlot and MrpSecondSlot are all 2. 4ab draft 15-22/0381r5 §1.1 */
 const NB_WINDOW_SLOTS = 2
-/** RpDuration, the ranging phase's default length in slots. 4ab draft 15-22/0381r5 Table 1.2.3.3 */
+/**
+ * A floor under the ranging phase, in slots (model).
+ *
+ * 15-22/0381r5 Table 1.2.3.3 gave RpDuration as a default of 20, and that is where this number
+ * came from. The draft has since changed its nature rather than its value: macMmsRpDuration
+ * "shall be set at minimum to the required duration for all RSF and RIF fragments to be
+ * transmitted and received but may be longer" (quoted in comment resolution 15-25/0282r1), so
+ * it is derived, not defaulted. `mmsRoundPlan` already computes that derived length and takes
+ * the larger of the two, which is the draft's rule; the 20 is this simulator's floor under it,
+ * and no longer a number the draft states.
+ */
 export const MMS_RP_MIN_SLOTS = 20
 
 /**
@@ -345,7 +378,7 @@ export function mmsLayout(phy: MmsPhy, responders = 1): MmsLayout {
         throw new Error(`mmsLayout: this train has ${count(kind)} ${kind.toUpperCase()} fragments, asked for ${index}`)
       }
       checkResponder(responder)
-      // RSF-m starts m ms into the ranging phase; the RIFs follow `rifStartMs` (§10.38.5).
+      // RSF-m starts m ms into the ranging phase; the RIFs follow `rifStartMs` (§10.39.5).
       const ms = kind === 'rsf' ? index : rifStartMs(x, z, index)
       return control + perMs * ms + (side === 'responder' ? 1 + responder : 0)
     },

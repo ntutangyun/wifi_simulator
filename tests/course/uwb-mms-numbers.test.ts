@@ -106,7 +106,7 @@ describe('uwb-mms-numbers · the second half of the split', () => {
     // contribution numbers the lesson's figures are taken from.
     const src = uwbMmsNumbers.sources!.join('\n')
     for (const doc of [
-      'IEEE Std 802.15.4-2024', 'P802.15.4ab', 'D5.0', '§16.4.9',
+      'IEEE Std 802.15.4-2024', 'P802.15.4ab', '草案', '§16.4.9',
       '15-22/0381r5', '15-23/0100r2', '15-23/0502r3', '15-22/0205r0',
     ]) {
       expect(src, doc).toContain(doc)
