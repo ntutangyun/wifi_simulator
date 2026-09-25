@@ -9,6 +9,18 @@
  * excursion below the ceiling costs the room, is `rate-fallback`, which loads
  * this same scene.
  *
+ * **Stays whole** in the 2026-09-25 re-pacing
+ * (docs/superpowers/plans/2026-09-25-course-repacing-proposal.md, §2 M9) — and
+ * gives up the ARF rule (§5.1.3). The two-failures-down, ten-successes-up loop
+ * and its worked excursion belong to `rate-fallback`, which teaches them in full
+ * with better support; what is left here is the ceiling and the epistemic limit.
+ * The `steps` block is therefore the procedure this lesson does own: how the
+ * ceiling itself is computed before every frame (`mcsForPeer` in
+ * src/engine/simulation.ts, then `mcsForRssi` in src/engine/phy.ts), which is
+ * also what pins the near station to MCS 11. Also cut: 「一个靠传闻运转的回路」
+ * and 「信号扣下来的那个盖子」(§5.2), and the multi-user reporting aside reduced
+ * to one sentence (§5.5).
+ *
  * The scenario builder is unchanged, so the recorded timeline hash in
  * tests/fixtures/lesson-hashes.json stays byte-identical. Every number quoted
  * below is pinned in tests/course/rate.test.ts.
@@ -25,19 +37,18 @@ export const rate: Lesson = {
     '说出为什么“固定一档速率”在两个方向上都是错答案',
     '在时间轴上读出一条链路（link）的上限，并说清是什么定下了它',
     '说出发送端从一帧里唯一能知道的东西，以及它永远不会知道的东西',
-    '用手把这个回路走一遍：它在数什么，以及什么会把级别往两边挪',
+    '用手把上限算一遍：哪些量进去，哪些量根本进不去',
   ],
-  needs: ['decode-thresholds', 'retries-queues', 'bianchi-vs-sim', 'width'],
+  needs: ['mcs-ladder', 'retries-queues', 'rate-vs-model', 'width'],
   terms: [
     { term: 'ceiling', plain: '这条链路的信号真正撑得住的最高一级；定下它的是距离和墙，不是发送端' },
     { term: 'attempt', plain: '把一帧发出去这一次动作；它算成功还是失败，取决于答复有没有回来' },
   ],
   picture: [
     { heading: '错的两种方式', text: '选一级这条链路撑不住的，接收端听到的就是一团糊：帧发出去了，空口时间（airtime）花掉了，什么也没到。选一级远低于链路能力的，帧倒是帧帧都到——可每一帧占住信道的时间是它本来需要的好几倍，而在这段时间里，屋里其他人谁也不能开口。对的那一级，是这条链路还撑得住的最高一级；而人走来走去、门开门关，这一级还会变。' },
-    { heading: '信号扣下来的那个盖子', text: '这一幕里有两台站点（STA）在向同一个接入点（AP）满速上传：一台在它旁边的桌上，一台在另一头、隔着一堵砖墙的角落里。一条链路的信号真正撑得住的最高一级，就是它的上限；远端那台再怎么试也越不过去，因为那个角落的信号撑不住更密的调制与编码方式（modulation and coding scheme, MCS）。定下这个上限的，是距离和那堵墙。上限以下的一切，才是发送端自己一帧一帧做的决定。' },
+    { heading: '这条链路的上限', text: '这一幕里有两台站点（STA）在向同一个接入点（AP）满速上传：一台在它旁边的桌上，一台在另一头、隔着一堵砖墙的角落里。一条链路的信号真正撑得住的最高一级，就是它的上限；远端那台再怎么试也越不过去，因为那个角落的信号撑不住更密的调制与编码方式（modulation and coding scheme, MCS）。定下这个上限的，是距离和那堵墙。上限以下的一切，才是发送端自己一帧一帧做的决定。' },
     { kind: 'watch', jump: 0, heading: '去看一眼', text: '载入仿真，跳到第一个数据帧（data frame），然后顺着远端站点那条泳道往后看几秒：它的方块长度一直在变，而近端站点的从头到尾一个样。屋里什么都没挪动，变的只是一台发送端的选择。' },
-    { heading: '发送端唯一收到的消息', text: '发送端看不见对面那头的信号，它手里只有回来的那点东西。把一帧发出去这一次动作，就是一次尝试；它只有两种结局：要么确认帧（acknowledgement, ACK）到了，要么 ACK 超时（ACK timeout）到了。就这一丁点消息——答了，没答——就是速率控制的全部输入。它分不清一帧是被弱信号打死的，还是被“邻居在同一个时隙（slot time）开了口”打死的；站在它这个位置上，两者长得一模一样。' },
-    { heading: '一个靠传闻运转的回路', text: '于是这个选择永远是基于有点失真的证据做出的。竞争里连着倒霉几次，读起来和“多了一堵墙”一模一样，发送端就降一级；安静一阵子，读起来就像链路变好了，它又升回去。下面那套步骤，就是这个回路的全部。而一长段慢帧要让屋里其他人付出什么，是下一课的事。' },
+    { heading: '发送端唯一收到的消息', text: '发送端看不见对面那头的信号，它手里只有回来的那点东西。把一帧发出去这一次动作，就是一次尝试；它只有两种结局：要么确认帧（acknowledgement, ACK）到了，要么 ACK 超时（ACK timeout）到了。就这一丁点消息——答了，没答——就是速率控制的全部输入。它分不清一帧是被弱信号打死的，还是被“邻居在同一个时隙（slot time）开了口”打死的；站在它这个位置上，两者长得一模一样。所以它的选择永远建立在有点失真的证据上——它拿这一点消息怎么把级别往两边挪，是下一课的事。' },
   ],
   numbers: [
     { kind: 'table', heading: '远端站点的帧：三个级别，同样的 1,530 字节，20 MHz，单流', head: [
@@ -48,32 +59,29 @@ export const rate: Lesson = {
       ['MCS 1', '17.2 Mb/s', '768.8 µs', '17.2%'],
       ['MCS 0——最底一级', '8.6 Mb/s', '1,476.0 µs', '3.0%'],
     ] },
-    { heading: '降一级要付什么', text: '每降一级，每一块信号能装的比特数就减半或接近减半，所以同样的内容，在最底一级要花掉将近上限三倍的空口时间。而上限本身从不移动：整整三秒里，远端站点一次也没有发到 MCS 2 以上。' },
+    { heading: '降一级要付什么', text: '每降一级，每一块信号能装的比特数就减半或接近减半，所以同样的内容，在最底一级要花掉将近上限三倍的空口时间。' },
     { heading: '那台根本不用做选择的站点', text: '离接入点一米远的近端站点，三秒里发了 4,010 帧，帧帧都在 MCS 11 上，而且没有一帧等不到答复。停在这一级并不是因为信号不够——58.7 dB 足以撑住最高一级——而是因为两端谈定的能力到此为止：这一幕里谁也没有开出最密的那两级，上限就被压在它们下面。' },
-    { kind: 'steps', heading: '这个回路，引擎是怎么跑的', items: [
-      '每发一帧之前，发送端都重新算一次这条链路的上限：在当前带宽下、按接收信号强度指示（received signal strength indicator, RSSI）、含 3 dB 速率余量，能撑住的最高一级；而且绝不超过两端谈定的共同能力。',
-      '它为每个对端保留一个“当前级别”。如果这个当前级别高于上限——第一帧，或者链路刚刚变差——就把它拉到上限。这一帧就用当前级别发出去。',
-      '这次尝试只会有一个结局：答了，或没答。发送端为它记两个计数：连续成功次数，和连续失败次数。出现哪一种，就把另一种清零。',
-      '连续失败到两次，当前级别就降一级——最低降到最底一级为止——失败计数随即归零重新开始。所以连着失败四次，掉的是两级，不是一级。',
-      '连续成功到十次，当前级别就升一级——最高升到上限为止——成功计数随即归零重新开始。爬到一半丢了一帧，这个计数就作废，只能从头再爬。',
+    { kind: 'steps', heading: '上限是怎么算出来的，每一帧都重算一次', items: [
+      '取这条链路此刻的接收信号强度指示（received signal strength indicator, RSSI）：它由距离和那堵墙决定，发送端只能读，不能改。',
+      '取两端谈定的带宽，算出这个带宽下的噪声地板（noise floor）；信噪比（signal-to-noise ratio, SNR）就是 RSSI 减去它。这一幕里两端都是 20 MHz，噪声地板 −93.99 dBm。',
+      '看两端谈定了哪些能力：如果没有一起开出 4096-QAM（quadrature amplitude modulation），上限先被压到 MCS 11——这一步只看能力，与信号一点关系都没有。',
+      '从最底一级往上逐级检查，留住最后一个满足“该级所需信干噪比（signal-to-interference-plus-noise ratio, SINR）+ 3 dB 速率余量 ≤ SNR”的级，并且不越过上一步那个帽子。这就是这条链路此刻的上限。',
+      '把上限交给速率控制：当前级别只要高于上限，就立刻被拉到上限——这一帧便用当前级别发出去。上限以下怎么挪，是下一课的事。',
     ] },
-    { kind: 'table', heading: '远端那条链路，以及它第一次跌破上限，一格一格看', head: [
+    { kind: 'table', heading: '远端那条链路，照着步骤走一遍', head: [
       '步骤', '数值',
     ], rows: [
       ['远端链路的 RSSI', '−75.46 dBm'],
-      ['减去 20 MHz 的噪声地板（noise floor）', '−93.99 dBm'],
+      ['减去 20 MHz 的噪声地板', '−93.99 dBm'],
       ['= SNR', '18.53 dB'],
+      ['能力上的帽子：两端都没开 4096-QAM', 'MCS 11'],
       ['MCS 2 的要求，含余量', '13.99 + 3 = 16.99 ✓'],
       ['MCS 3 的要求，含余量', '16.99 + 3 = 19.99 ✗'],
       ['于是上限是', 'MCS 2'],
-      ['第 192 次尝试，没有答复：失败计数', '1'],
-      ['第 193 次尝试，没有答复：失败计数', '2'],
-      ['于是第 194 次尝试用的是', 'MCS 1 · 768.8 µs'],
-      ['要爬回去需要几帧被答复', '10'],
     ] },
   ],
   deeper: [
-    { heading: '多用户帧同样会上报结果', text: '喂给这个回路的是每一次交换，不只是单用户的：一个下行多用户 PPDU 会为每个成员各上报一次成功或失败，和普通帧一模一样。在 MU-MIMO 那一课的 OFDMA 变体里，接入点发出 169 个多用户 PPDU，其中 492 份是发给手机的，而速率控制对每一份都收到了上报：这些手机一共产生 620 次结果上报——128 次来自单用户帧，492 次来自多用户部分，其中 597 次成功、23 次失败。所以一个只在多用户 PPDU 里用到的级别，也会像单用户的那样自适应。' },
+    { heading: '多用户帧同样会上报结果', text: '喂给速率控制的是每一次交换，不只是单用户的：一个下行多用户 PPDU 会为每个成员各上报一次成功或失败，所以一个只在多用户 PPDU 里用到的级别也照样自适应。' },
   ],
   sources: [
     '一条链路能撑住哪一级，用的是本仿真器自己的 `mcsForRssi`：把接收功率与 IEEE Std 802.11-2024 第 36 章的各级最小输入灵敏度相比，再加一个固定余量。这个余量是模型取值，标准并没有规定它。',

@@ -8,12 +8,47 @@
  * channel alone. It loads `width`'s own builder at its narrowest setting, and
  * its last variant is `width`'s widest, so the two lessons are one experiment.
  *
+ * **Stays whole** in the 2026-09-25 re-pacing
+ * (docs/superpowers/plans/2026-09-25-course-repacing-proposal.md, §2 M9): "the
+ * leanest lesson in the course already". What it loses:
+ *  - 「白送的那个倍数」(§5.2) — the multiplier is free of noise, which the
+ *    paragraph says in the engine's own terms; it does not need the phrase;
+ *  - the MU-MIMO preview cut to one sentence (§5.5) — this scene never shows it;
+ *  - 「弱的一端说了算」and 「以及它到头的地方」, which restated the worked table's
+ *    first two rows and the picture's own closing paragraph; the stack figure
+ *    (§4) carries the negotiation, and the second table's 等同于 column the rest.
+ *
  * The scenario builder and the five variants are unchanged, so the recorded
  * timeline hashes in tests/fixtures/lesson-hashes.json stay byte-identical.
  * Every number quoted below is pinned in tests/course/streams.test.ts.
  */
+import type { StackSpec } from '../diagram'
 import { type Lesson, firstData, firstAck, J } from '../lessonKit'
 import { widthScenario } from '../wifiScenes'
+
+/**
+ * The mixed variant, as three nested limits: the router's four antennas, the
+ * laptop's two, and the two streams the link therefore runs. Sized by the counts
+ * themselves, so the innermost box is visibly the smaller end's — which is the
+ * whole rule (`negotiatedNss` in src/model/caps.ts takes the minimum of the two
+ * ends, and this simulator never falls back stream by stream).
+ *
+ * It replaces the paragraph that worked the 4-against-2 example in prose and the
+ * one that restated the worked table's first two rows.
+ */
+export function streamsNegotiationStack(): StackSpec {
+  return {
+    kind: 'stack',
+    mode: 'nested',
+    label: '路由器 4 · 手机 2',
+    layers: [
+      { label: '路由器 4 根天线', bytes: 4 },
+      { label: '手机 2 根天线', bytes: 2, note: '发送的是它，两端取较小者' },
+      { label: '链路跑 2 条流', bytes: 2, note: '每符号 4680 比特' },
+    ],
+    total: '一帧 88.8 µs——两流的时间',
+  }
+}
 
 export const streams: Lesson = {
   id: 'streams',
@@ -23,7 +58,7 @@ export const streams: Lesson = {
   outcomes: [
     '说出多根天线怎样在同一批子载波（sub-carrier）上同时发出不同的信号',
     '根据两端各有几根天线，算出这条链路实际跑几条流',
-    '说清带宽与空间流（spatial stream）这两个倍数里，哪个要拿信号去换，哪个是白送的',
+    '说清带宽与空间流（spatial stream）这两个倍数里，哪个要拿信号去换，哪个不用',
   ],
   needs: ['width'],
   terms: [
@@ -32,9 +67,9 @@ export const streams: Lesson = {
   ],
   picture: [
     { heading: '同一瞬间的好几句话', text: '信道变宽，是给电台在频段上更大的地方；而天线，是把同一块地方再用一遍。两端各装两根天线时，发送端就在同一瞬间、同一批子载波上放出两路不同的信号，接收端照样能把它们分开——因为两路信号是沿着屋里不同的路径过来的。这样并行的每一路就是一条空间流，它让一块信号里装的比特数翻倍，和子载波变多的效果一模一样。' },
-    { heading: '两端都有发言权', text: '这事两端都得有辐射单元，也就是天线：想发几条流就得有几根，想把几条流分开也得有几根。所以一条链路按两端里较小的那个流数运行。四根天线的路由器对上两根天线的手机，就是一条两流链路；而路由器多出来的那一对并没有浪费——它只是得另外找个人说话。' },
+    { heading: '两端都有发言权', text: '这事两端都得有辐射单元，也就是天线：想发几条流就得有几根，想把几条流分开也得有几根。所以一条链路按两端里较小的那个流数运行——多出来的那些天线并没有浪费，它们只是得另外找个人说话。' },
     { kind: 'watch', jump: 0, heading: '去看一眼', text: '载入仿真，跳到第一个数据帧（data frame）。这一课打开的是单流；上面的按钮把它切到两条流、四条流，再切到两个混合的情形。变的只有那个蓝色数据块。' },
-    { heading: '白送的那个倍数', text: '和带宽的区别在于价钱。信道变宽，接收端就要多收进一份噪声；而多加一条流不会——信道还是原来那么大，噪声地板（noise floor）不动，速率阶梯上每一级调制与编码方式（modulation and coding scheme, MCS）所要的信号也不动。在本仿真器里——在一间满是反射的屋子里也差不多——空间流是没人跟你收钱的那个倍数；带宽那个倍数，每翻一倍都要付 3 dB。' },
+    { heading: '不必多付噪声的那个倍数', text: '和带宽的区别在于价钱。信道变宽，接收端就要多收进一份噪声；而多加一条流不会——信道还是原来那么大，噪声地板（noise floor）不动，速率阶梯上每一级调制与编码方式（modulation and coding scheme, MCS）所要的信号也不动。在本仿真器里——在一间满是反射的屋子里也差不多——空间流这个倍数不必拿信号去换；带宽那个倍数，每翻一倍都要付 3 dB。' },
     { heading: '倍数到头的地方', text: '倍数只在还有东西可分的时候才有用。把最宽的信道和最多的流一起用上，帧并不会比最宽信道单独上阵时更短：它那时就已经只剩一个符号（symbol），而一个符号就是地板。在那里空间流什么也没买到——而宽信道多收进来的噪声一分不少，只是这笔钱彻底白花了。' },
   ],
   numbers: [
@@ -46,6 +81,11 @@ export const streams: Lesson = {
       ['2', '4680', '3', '88.8 µs'],
       ['4', '9360', '2', '75.2 µs'],
     ] },
+    {
+      kind: 'diagram', heading: '混合搭配时，谁说了算',
+      spec: streamsNegotiationStack(),
+      caption: '路由器有四根，发送的这台只有两根，于是链路跑两条流：落在两流的 88.8 µs 上，而不是四流的 75.2 µs。逐帧去比，它和纯粹的两流那一次跑完全看不出区别。',
+    },
     { kind: 'table', heading: '两个混合变体', head: [
       '变体', '链路实际跑的流数',
       '空口时间', '等同于',
@@ -53,8 +93,6 @@ export const streams: Lesson = {
       ['路由器 4 · 手机 2', '2', '88.8 µs', '上表里 2 条流那一行'],
       ['160 MHz · 4 条流', '4', '61.6 µs', '上一课里单靠 160 MHz 的结果'],
     ] },
-    { heading: '弱的一端说了算', text: '所有能力都要按较弱的那一端协商，而这个混合变体正是这种搭配：它落在两流的 88.8 µs 上，而不是四流的 75.2 µs。逐帧去比，它和纯粹的两流那一次跑完全看不出区别。' },
-    { heading: '以及它到头的地方', text: '在四条流之上再加八倍的子载波，只换来一个符号：61.6 µs 对四流的 75.2 µs。那一帧本来就只剩两个符号，而第二个符号，是最后还能拿走的东西。' },
     { kind: 'steps', heading: '多一条流到底改变了什么，一步一步', items: [
       '两端各自报出自己能跑几条流——有几根天线就是几条——链路取两者中较小的那个数。',
       '照上一课的办法选级。信道并没有变宽，噪声地板没动，每一级的要求也没动：流数根本就不是这一步的输入。',
@@ -74,7 +112,7 @@ export const streams: Lesson = {
     ] },
   ],
   deeper: [
-    { heading: '多出来的那一对流做什么用', text: '四根天线的路由器对上两流的手机，并不意味着一半硬件只能闲着。它可以在同一瞬间把另外两条流指向第二部手机，给两边各发各的数据——这就是 MU-MIMO（多用户 MIMO），本模块后面有专门的一课。它需要的是“还有第二台站点正等着发东西”，所以这份好处只在热闹的房子里看得见，在这张桌子上看不见。' },
+    { heading: '多出来的那一对流做什么用', text: '路由器可以在同一瞬间把另外两条流指向第二部手机——那是 MU-MIMO（多用户 MIMO），本模块后面有专门的一课，这张只有一台站点的桌子上看不到它。' },
     { heading: '为什么路径必须不一样', text: '把几条流分开，本质是解线性方程：接收端解一个小方程组，每根接收天线给出一行。只有当这些行真的互不相同——也就是几路信号真的沿着明显不同的路径到达——方程才解得开。反射很多的房间（住宅、办公室）对空间流很友好；空旷野地上干干净净的直视路径则是最差情形，那里第二条流几乎一文不值。' },
   ],
   sources: [

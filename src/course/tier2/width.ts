@@ -1,19 +1,70 @@
 /**
- * Wi-Fi Tier 2 · M4 · Capacity knobs · Channel width.
+ * Wi-Fi Tier 2 · M9 · 容量旋钮与速率控制 · Channel width.
  *
  * Rewritten to the zero-to-hero contract
  * (docs/superpowers/specs/2026-09-21-course-readability-design.md): a wider
- * channel is more lanes, not a faster car; what the extra lanes cost in noise
- * and in neighbours; why the preamble of a frame never shrinks. The one-decibel
- * inversion window and the legacy fallback are in `deeper`; the numerology and
- * the clause numbers are in `sources`.
+ * channel is more lanes, not a faster car; what the extra lanes cost in noise;
+ * why the preamble of a frame never shrinks; and the inversion that is this
+ * topic's payoff. The one-decibel window and the legacy fallback are in
+ * `deeper`; the numerology and the clause numbers are in `sources`.
+ *
+ * **Stays whole** in the 2026-09-25 re-pacing
+ * (docs/superpowers/plans/2026-09-25-course-repacing-proposal.md, §2 M9): the
+ * inversion is not a second topic, it is this topic's payoff, and the worked
+ * 80/160 MHz table is the proof. What it loses:
+ *  - 「还有邻居」(§5.5) — a real point with no numbers and no scene here;
+ *  - the 「多开车道，不是换快车」restatement in the first paragraph (§5.2): the
+ *    metaphor is in the title, so it is not in the prose as well;
+ *  - the prose that said only the data block moves — the timing figure (§4)
+ *    shows it to scale, and the observe line that subtracted the fixed 48 µs
+ *    from each of the four airtimes is that figure's own four data spans.
+ *
+ * The arithmetic is spelled out rather than gestured at: the formula, the six
+ * steps and the worked 80/160 MHz table are the account in full.
  *
  * The scenario builder and the four variants are unchanged, so the recorded
  * timeline hashes in tests/fixtures/lesson-hashes.json stay byte-identical.
  * Every number quoted below is pinned in tests/course/width.test.ts.
  */
+import type { TimingSpec } from '../diagram'
 import { type Lesson, firstData, firstAck, J } from '../lessonKit'
 import { widthScenario } from '../wifiScenes'
+
+/**
+ * The same 1530-octet frame at the four widths, to scale. Every span is this
+ * lesson's own run: a fixed 48 µs preamble (`PHY_MODES.eht.preambleNs`) and then
+ * the data, which is all that moves — 81.6, 40.8, 27.2 and 13.6 µs, the four
+ * airtimes of the first table less that opening.
+ *
+ * Drawn to scale it says in one look what a paragraph and an observe line used
+ * to say in words: the opening is the same four times over, the widest setting's
+ * data is down to a single 13.6 µs symbol, and that is why eight times the
+ * sub-carriers is nowhere near an eighth of the airtime.
+ */
+export function widthAirtimeTiming(): TimingSpec {
+  return {
+    kind: 'timing',
+    lanes: [
+      { label: '20 MHz', spans: [
+        { fromUs: 0, toUs: 48, label: '前导码 48' },
+        { fromUs: 48, toUs: 129.6, label: '数据 81.6', tone: 'accent' },
+      ] },
+      { label: '40 MHz', spans: [
+        { fromUs: 0, toUs: 48 },
+        { fromUs: 48, toUs: 88.8, label: '40.8', tone: 'accent' },
+      ] },
+      { label: '80 MHz', spans: [
+        { fromUs: 0, toUs: 48 },
+        { fromUs: 48, toUs: 75.2, label: '27.2', tone: 'accent' },
+      ] },
+      { label: '160 MHz', spans: [
+        { fromUs: 0, toUs: 48 },
+        { fromUs: 48, toUs: 61.6, label: '13.6', tone: 'accent' },
+      ] },
+    ],
+    axis: { fromUs: 0, toUs: 136, ticks: [0, 48, 100], unit: 'µs' },
+  }
+}
 
 export const width: Lesson = {
   id: 'width',
@@ -25,7 +76,7 @@ export const width: Lesson = {
     '在时间轴上读出同一帧在四种带宽下各自的空口时间（airtime）',
     '为一台处在覆盖边缘的站点（STA），在“宽”和“稳”之间做出选择',
   ],
-  needs: ['decode-thresholds', 'airtime'],
+  needs: ['mcs-ladder', 'noise-floor', 'airtime'],
   terms: [
     { term: 'channel width', plain: '一条链路占用的频段有多宽：20、40、80 或 160 MHz' },
     { term: 'sub-carrier', plain: '信道被切成的一根根窄音调中的一根，每根每次驮几个比特' },
@@ -33,12 +84,11 @@ export const width: Lesson = {
     { term: 'noise floor', plain: '没人说话时，接收端听到的那份背景功率' },
   ],
   picture: [
-    { heading: '多开车道，不是换快车', text: '信道变宽，并不是让电台说得更快，而是让它一次有更大的地方可说。一条链路占用的频段有多宽，就是信道带宽（channel width）。Wi-Fi 把手里那块频段切成一根根很窄的音调，每一根就是一个子载波（sub-carrier），每根装的比特数都一样；所以带宽翻倍，子载波数就翻倍，每一块信号里装的比特数也翻倍。车并没有变快，是路上多了几条车道，同样一车比特用更少的块就跑完了。' },
-    { heading: '从来不会变短的那一段', text: '一帧里只有数据那一段是骑在子载波上的。它前面还有前导码（preamble）——接收端用来锁住这一帧的那段固定图案——在任何带宽下都一样长。而数据是按等长的信号块发出去的，一块就是一个符号（symbol）；装不满一块的零头，也要向上凑成一整个符号。所以信道变宽，缩短的只是能缩的那一段，其余原地不动。' },
-    { kind: 'watch', jump: 0, heading: '去看一眼', text: '载入仿真，跳到笔记本发给路由器的第一个数据帧（data frame）——屏幕上那台路由器，就是这套房子里大家都跟它说话的那一台。这一课打开的是最宽的一档；用上面的按钮逐档调窄再调回来，盯住那个蓝色数据块——只有它在变长变短，周围一切纹丝不动。' },
+    { heading: '不是说得更快，是地方更大', text: '信道变宽，并不是让电台说得更快，而是让它一次有更大的地方可说。一条链路占用的频段有多宽，就是信道带宽（channel width）。Wi-Fi 把手里那块频段切成一根根很窄的音调，每一根就是一个子载波（sub-carrier），每根装的比特数都一样；所以带宽翻倍，子载波数就翻倍，每一块信号里装的比特数也翻倍。' },
+    { heading: '从来不会变短的那一段', text: '一帧里只有数据那一段是骑在子载波上的。它前面还有前导码（preamble）——接收端用来锁住这一帧的那段固定图案——在任何带宽下都一样长。而数据是按等长的信号块发出去的，一块就是一个符号（symbol）；装不满一块的零头，也要向上凑成一整个符号。' },
+    { kind: 'watch', jump: 0, heading: '去看一眼', text: '载入仿真，跳到笔记本发给路由器的第一个数据帧（data frame）——屏幕上那台路由器，就是这套房子里大家都跟它说话的那一台。这一课打开的是最宽的一档；用上面的按钮逐档调窄再调回来，盯住那个蓝色数据块。' },
     { heading: '账单付的是噪声', text: '门开得越大，进来的东西就越多，屋里的背景嘶声也一样。没人说话时接收端听见的那份背景功率，就是噪声地板（noise floor）；带宽翻倍，它收进的噪声功率也翻倍，于是速率阶梯上的每一级，现在都要更强的信号才撑得住。它买到了什么、买不到什么要分清：对“另一台站点压着你说话”毫无帮助——对方的信号会随带宽一起变大，和你自己的一模一样。宽信道花掉的，是覆盖距离。' },
-    { heading: '更宽反而更慢的时候', text: '这张账单有时会大过货品本身。往屋子边缘走，宽信道要的信号比这个位置拿得出来的更多，于是链路掉到更慢的一级，同一帧发出来反而比在窄信道上更长。子载波翻一倍，补不回速率掉了一半还多的窟窿。' },
-    { heading: '还有邻居', text: '信道宽，在所有邻居耳朵里也一样宽：它盖住的频段更多，于是楼里更多的其它网络得等你，你也得等它们。空口很空的时候，带宽是白捡的便宜；可在一栋住宅楼里，纸面上最快的那一档，到了真实的房间里反倒最慢。' },
+    { heading: '更宽反而更慢的时候', text: '这张账单有时会大过货品本身。往屋子边缘走，宽信道要的信号比这个位置拿得出来的更多，于是链路掉到更慢的一级，同一帧发出来反而比在窄信道上更长。' },
   ],
   numbers: [
     { kind: 'table', heading: '同一个 1500 字节的帧（空口上 1530 字节），Wi-Fi 7，单流，就在书桌上', head: [
@@ -51,6 +101,11 @@ export const width: Lesson = {
       ['80 MHz', '980', '13', '172.1 Mb/s', '2', '75.2 µs'],
       ['160 MHz', '1960', '13', '172.1 Mb/s', '1', '61.6 µs'],
     ] },
+    {
+      kind: 'diagram', heading: '同一帧，四种带宽，按比例画',
+      spec: widthAirtimeTiming(),
+      caption: '四条道上的前导码是同一段 48 µs，一动也不动；变短的只有后面那截数据：81.6、40.8、27.2，到最宽的一档只剩一个 13.6 µs 的符号。八倍的子载波换来的不是八分之一的时间，而是把一段本来就不长的东西缩到了地板上。',
+    },
     { kind: 'formula', heading: '空口时间花在哪儿', text: '空口时间 = 48 µs + 13.6 µs × ⌈(16 + 8·字节数 + 6) ÷ (20 MHz 下每符号比特数 × 子载波倍数)⌉', note: '前导码那一段永远不动；式子里的 16 和 6，是每一帧都要在负载之外添上的服务位与尾位；向上取整的括号把零头凑成一个完整符号。80 MHz 给的子载波比 20 MHz 的四倍还多一点点，因为信道两端那截安静的边沿是整块频段只付一次。' },
     { heading: '带宽在噪声上的代价', text: '带宽每翻一倍，收进来的噪声功率也翻一倍——3 dB——所以这里最宽的一档要比最窄的一档多约 9 dB 信号。在这张桌子上这笔钱还付得起：链路稳稳停在最高一级，信噪比（signal-to-noise ratio, SNR）48.7 dB，而那一级要的是 48.0 dB。' },
     { kind: 'table', heading: '同一台笔记本，挪到客厅中间', head: [
@@ -107,7 +162,6 @@ export const width: Lesson = {
   ],
   observe: [
     '把四种带宽逐档切过去，盯住同一个蓝色数据块：129.6 µs、88.8、75.2、61.6。带宽翻倍从来不会让一帧减半——每一帧里那段前导码，不随任何东西缩短。',
-    '把这四个数字各减掉固定的 48 µs 前导码，剩下的数据分别是 81.6、40.8、27.2 和 13.6 µs。从头到尾只有这一段在动，而到了最宽的一档，它只剩一个符号。',
     '四档里白色的确认帧（acknowledgement, ACK）完全一样，“速率”那一行也从不动：四种带宽都是 172.1 Mb/s，因为它报的是一组 20 MHz 子载波能装多少。带宽体现在空口时间里，从不体现在速率那一行。',
   ],
   tryThis: [

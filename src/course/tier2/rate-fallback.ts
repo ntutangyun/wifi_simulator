@@ -1,48 +1,108 @@
 /**
- * Wi-Fi Tier 2 · M4 · Capacity knobs · How the sender climbs and falls.
+ * Wi-Fi Tier 2 · M9 · 容量旋钮与速率控制 · How the sender climbs and falls.
  *
  * The second half of the rate-control split (plan ruling 2): the fallback rule
- * this simulator follows, how lopsided it is, where the failures that drive it
- * actually come from, and what one station's stretch below its ceiling costs
- * its neighbours. `rate` is the first half.
+ * this simulator follows, how lopsided it is, and where the failures that drive
+ * it actually come from. `rate` is the first half.
+ *
+ * **Splits** in the 2026-09-25 re-pacing
+ * (docs/superpowers/plans/2026-09-25-course-repacing-proposal.md, §2 M9): this
+ * half is the rule — 两次失败降一级，十次成功升一级 — and `rate-cost` is the bill
+ * an excursion runs up. What moved out with the bill: 「账单落在邻居头上」, the
+ * 20.2 %/29.7 % arithmetic, the freeze table, and 「这笔税，一句话说清」 (which
+ * printed the same three figures the paragraph above it had just printed, §5.3).
+ * What arrived from `rate` (§5.1.3): the ARF rule itself, whose duplicate that
+ * lesson's `steps` block used to be.
  *
  * It reuses `rate`'s own builder with no variant, so `rate-fallback` records
  * the same timeline and its line in tests/fixtures/lesson-hashes.json is a copy
  * of `rate`'s. Every number quoted below is pinned in
  * tests/course/rate-fallback.test.ts.
  */
+import type { TimingSpec } from '../diagram'
 import { type Lesson, firstData, firstRetry, J } from '../lessonKit'
 import { rateScenario } from '../wifiScenes'
+
+/**
+ * This run's first excursion, to scale: the far station's attempts 190 to 204
+ * (counting from one), drawn from the start of the fourth-last frame that was
+ * still at the ceiling. Every span is a `TX_START` of the base run, taken
+ * relative to the one at 176.1974 ms; the two 'muted' ones are the pair that
+ * went unanswered, and the rung lane underneath is when the working rung was 2,
+ * 1 and 2 again.
+ *
+ * The gaps are real: they are the near station's own frames and the waiting
+ * between them, which is why fifteen frames of 524–768.8 µs span 15.9 ms.
+ *
+ * It replaces nothing in prose — it replaces the reader's need to take the
+ * worked table on trust. The table says two failures cost a rung and ten
+ * successes buy it back; the figure is that sentence drawn from the records, and
+ * the one thing it adds is how long the climb takes compared with the fall.
+ */
+export function fallbackExcursionTiming(): TimingSpec {
+  return {
+    kind: 'timing',
+    lanes: [
+      { label: '远端站点', spans: [
+        { fromUs: 0, toUs: 524 },
+        { fromUs: 890.2, toUs: 1414.2 },
+        { fromUs: 1541.2, toUs: 2065.2, label: '这里连丢两帧', tone: 'muted' },
+        { fromUs: 2669, toUs: 3193, tone: 'muted' },
+        { fromUs: 4108, toUs: 4876.8, tone: 'accent' },
+        { fromUs: 5721.4, toUs: 6490.2, tone: 'accent' },
+        { fromUs: 6599.2, toUs: 7368, tone: 'accent' },
+        { fromUs: 7797.2, toUs: 8566, tone: 'accent' },
+        { fromUs: 8657, toUs: 9425.8, tone: 'accent' },
+        { fromUs: 9774, toUs: 10542.8, tone: 'accent' },
+        { fromUs: 10990, toUs: 11758.8, tone: 'accent' },
+        { fromUs: 11849.8, toUs: 12618.6, tone: 'accent' },
+        { fromUs: 12763.6, toUs: 13532.4, tone: 'accent' },
+        { fromUs: 14359, toUs: 15127.8, tone: 'accent' },
+        { fromUs: 15335.8, toUs: 15859.8 },
+      ] },
+      { label: '级别', spans: [
+        { fromUs: 0, toUs: 4108, label: 'MCS 2' },
+        { fromUs: 4108, toUs: 15335.8, label: 'MCS 1' },
+        { fromUs: 15335.8, toUs: 15859.8, label: 'MCS 2' },
+      ] },
+    ],
+    axis: { fromUs: 0, toUs: 16000, ticks: [0, 4000, 8000, 12000], unit: 'µs（0 是跌落前那一帧的开头）' },
+  }
+}
 
 export const rateFallback: Lesson = {
   id: 'rate-fallback',
   module: 8,
   title: '速率回退——发送端怎样往下掉、怎样爬回来',
-  why: '一台只知道“答了还是没答”的发送端，仍然得决定什么时候放弃一级、什么时候去试更高的一级。教科书通常从这样一条规则讲起：掉得快，几帧没答就往下掉；爬得慢，要连着好一长串成功才升回去。这种不对称是故意的，而且很贵：一台被坏运气打下去的站点（STA），要用很长一段时间慢慢地发，而在这段时间里，屋里其他人每一次机会都得多等。',
+  why: '一台只知道“答了还是没答”的发送端，仍然得决定什么时候放弃一级、什么时候去试更高的一级。教科书通常从这样一条规则讲起：掉得快，几帧没答就往下掉；爬得慢，要连着好一长串成功才升回去。这种不对称是故意的：掉下去只是丢掉一点速度，而升错一级会把整帧打死。这一课把这条规则走一遍，并追问一台站点（STA）在这个房间里到底是被什么打下去的。',
   outcomes: [
     '用手把仿真器的回退规则走一遍，说出下一帧的级别会落在哪里',
     '说清为什么“掉下去”很容易，“爬回来”很慢',
-    '量出一台站点跑在上限之下的那段时间，让邻居付出了多少代价',
+    '说出这一幕里一次失败究竟是什么，以及它和帧的长短无关',
   ],
-  needs: ['rate', 'anomaly'],
   terms: [
     { term: 'ARF', plain: '自动速率回退：本仿真器遵循的那条朴素规则——连续两次失败降一级，连续十次成功升一级' },
     { term: 'excursion', plain: '一段跑在上限之下的帧，从降级那一刻起，到爬回上限为止' },
   ],
+  needs: ['rate', 'anomaly'],
   picture: [
     { kind: 'steps', heading: '本仿真器遵循的规则，站在发送端这一边', items: [
-      '从上限开始发。答复应当在帧结束后 45 µs 内到达；到点还没有，这次尝试就算失败。',
+      '从上限开始发——上限就是上一课算出来的那一级调制与编码方式（modulation and coding scheme, MCS）。答复应当在帧结束后 45 µs 内到达；到点还没有，这次尝试就算失败。',
       '一次失败会把成功计数清空，自己记为 1。这一帧原样重发，级别不变——单独丢一帧，什么也挪不动。',
-      '连着第二次失败，级别就降一级，失败计数随即归零重新开始。之后那一帧更长，而多出来的这段时间里，信道一直是忙的。',
+      '连着第二次失败，级别就降一级，失败计数随即归零重新开始。之后那一帧更长。',
       '每一次得到答复，都把失败计数清零，成功计数加一。连成九次什么也买不到；到第十次才升一级，且绝不超过上限，随后计数归零重来。',
       '爬升途中任何一次失败都会让计数作废。于是发送端“两次掉一级、十次升一级”：打下去很便宜，爬回来很慢。',
     ] },
-    { heading: '两次下去，十次上来', text: '这条规则就是 ARF，选它是因为它走的每一步都能在时间轴上看清楚。注意它有多不对称：两次坏运气就夺走一级，而要买回来，得连成十次好的，中间一次都不能断。爬到一半时随便丢一帧，成功计数就清零，发送端只能从头再爬一遍。' },
+    { heading: '两次下去，十次上来', text: '这条规则就是 ARF，选它是因为它走的每一步都能在时间轴上看清楚。注意它有多不对称：两次坏运气就夺走一级，而要买回来，得连成十次好的，中间一次都不能断。这一长段慢帧要让屋里其他人付出多少，是下一课的账。' },
     { kind: 'watch', jump: 1, heading: '去看一眼', text: '载入仿真，跳到第一帧没等到答复的地方，然后顺着远端站点往后看：找到连着的第二次失败，看它之后的那个方块明显变长；再数一数，要过多少帧它才重新变短。' },
     { heading: '失败从哪里来', text: '这里几乎每一帧没等到答复，起点都是一次“撞车”：两个退避（backoff）计数器在同一个时隙（slot time）清零，两台站点同时开口。接下来发生的是捕获效应——在接入点（AP）那里，近端站点的信号强得多，于是它的帧被解出来并得到答复，死掉的只有远端那一帧。这条时间轴上一个碰撞标记也画不出来，因为那边没有任何一次接收失败过。' },
-    { heading: '账单落在邻居头上', text: '跑在更低一级调制与编码方式（modulation and coding scheme, MCS）的站点，为同样的内容要占住信道更久；而信道一忙，其他人的退避计数器就原地冻结。所以一次跌落的代价不只由跌下去的那台站点承担：每一个邻居，为自己早就赢到的那次机会，都要多等。这正是速率异常又一次出现——只不过这一次，它是发送端能自己爬出来的一种状态，而不是距离带来的固定事实。' },
   ],
   numbers: [
+    {
+      kind: 'diagram', heading: '本轮第一次跌落，按记录画到比例',
+      spec: fallbackExcursionTiming(),
+      caption: '远端站点在上限上连着两帧没等到答复，下一帧就落到 MCS 1：每帧从 524.0 µs 变成 768.8 µs。此后十帧全部被答复，它才回到上限——两帧买断的东西，要十帧赎回来。当中的空隙是近端站点的帧和等待。',
+    },
     { kind: 'table', heading: '远端站点的三秒：尝试次数，以及其中失败了多少次', head: [
       '级别', '尝试次数',
       '失败次数', '每次尝试的失败率',
@@ -59,7 +119,7 @@ export const rateFallback: Lesson = {
       ['这六次各持续了多少帧', '10, 10, 10, 13, 19, 28'],
       ['规则允许的最短爬升', '10 帧'],
     ] },
-    { kind: 'table', heading: '一次跌到最底一级，一步一步，以及这些帧花掉了什么', head: [
+    { kind: 'table', heading: '一次跌到最底一级，一步一步', head: [
       '发生了什么', '之后的级别', '这时一帧要',
     ], rows: [
       ['在上限上，帧帧被答复', 'MCS 2', '524.0 µs'],
@@ -67,19 +127,7 @@ export const rateFallback: Lesson = {
       ['再连续两次没有答复', 'MCS 0', '1,476.0 µs'],
       ['连续十次得到答复', 'MCS 1', '768.8 µs'],
       ['再连续十次得到答复', 'MCS 2', '524.0 µs'],
-      ['本次仿真里最短的一趟', '10', '14.8 ms'],
-      ['同样这十帧若跑在上限上', '10', '5.2 ms'],
     ] },
-    { heading: '这些跌落花掉了多少时间', text: '跑在上限之下的帧，只占远端站点发出帧数的 20.2%，却占了它空口时间（airtime）的 29.7%：530.3 ms——而同样这些帧若跑在上限上，只要 318.1 ms。' },
-    { kind: 'table', heading: '近端站点的退避，被一个远端站点的帧冻结多久——从冻住算到恢复的那个时隙，而不是那帧的空口时间', head: [
-      '那一帧的级别', '退避被冻结',
-    ], rows: [
-      ['MCS 2——上限', '615.0 µs'],
-      ['MCS 1', '859.8 µs'],
-      ['MCS 0——最底一级', '1,579.0 µs'],
-      ['从上限到最底一级：每帧多等', '964.0 µs'],
-    ] },
-    { heading: '这笔税，一句话说清', text: '这些跌落多烧掉的空口时间合计 212.2 ms——占整段仿真的 7.1%，而且没有多送出一个比特。' },
   ],
   deeper: [
     { heading: '并不存在的那个死亡螺旋', text: '很容易把这个回路反过来接：帧发得越慢，在空口上待得越久，想必更容易被撞上，于是丢得更多、更慢。可一量就会发现，这个螺旋并不存在。每次尝试的失败率在三个级别上几乎不动——上限上 11.1%，MCS 1 上 11.8%，MCS 0 上 11.1%——而最长的那些帧并不是处境最差的。原因是退避那一课的冻结规则：退避计数器在别人发帧期间并不倒数。介质一转忙它就停住，空下来再从同一个数值继续——这段仿真里近端站点的 2,666 次冻结，无一例外都是以进去时的那个值出来的。所以更长的帧并不会给对方的计数器多出时间走到零，而是根本不给。决定一次失败的，是两个计数器会不会在同一个时隙清零，而这在两帧发出之前就已定下。（有一个例外恰好印证了这条规则，它来自引擎而不是标准：两帧真的同时起跑时，近端站点根本没检测到远端的前导码——那一瞬间它自己的发射机正忙着。于是它笔直地数过远端那一帧，甚至在它中间发出第二帧；但那一帧在同时起跑的那一刻就已经没了，所以并没有多丢什么。另外，MCS 0 上那九十次尝试也太少，读不出什么趋势；要紧的是，螺旋所需要的那个方向，数据里根本没有。）' },

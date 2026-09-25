@@ -8,9 +8,14 @@
  * What is pinned here is what this lesson's own sentences say: the bits per
  * symbol of the table, the negotiation down to the weaker end, the width that
  * buys one last symbol, and the two experiments.
+ *
+ * Re-paced on 2026-09-25 (§2 M9: the lesson stays whole). The negotiation down to
+ * the weaker end is now the stack figure as well as the worked table, so the
+ * figure is pinned against `negotiatedNss` and the run below, and its geometry is
+ * checked here as well as in tests/course/diagram.test.ts.
  */
 import { describe, it, expect } from 'vitest'
-import { streams } from '../../src/course/tier2/streams'
+import { streams, streamsNegotiationStack } from '../../src/course/tier2/streams'
 import { width } from '../../src/course/tier2/width'
 import { widthScenario } from '../../src/course/wifiScenes'
 import { ScenarioSchema } from '../../src/model/scenario'
@@ -20,6 +25,7 @@ import { PHY_MODES, mcsForRssi, noiseDbm, reqSinrDb, toneRatio, txTimeModeNs } f
 import { buildLinkTable } from '../../src/engine/propagation'
 import { lessonShapeSuite, runOf } from './kit'
 import { MODULES } from '../../src/course/curriculum'
+import { W, layoutDiagram, textBox, type Shape } from '../../src/course/diagram'
 
 const MS = 1_000_000
 const US = 1_000
@@ -194,5 +200,50 @@ describe('streams · the two mixed variants', () => {
     expect(txTimeModeNs('eht', OCTETS, 13, { nss: 2 })).toBe(88_800)
     expect(txTimeModeNs('eht', OCTETS, 13, { widthMhz: 40 })).toBe(88_800)
     expect(Math.round((noiseDbm(40) - noiseDbm(20)) * 100) / 100).toBe(3.01)
+  })
+})
+
+/**
+ * The stack figure (§4: "发端天线、流、收端天线，以及取较小者"), which replaced the
+ * paragraph that worked the 4-against-2 example in prose and the one that restated
+ * the worked table's first two rows.
+ */
+describe('streams · the figure is the mixed variant’s own three numbers', () => {
+  const spec = streamsNegotiationStack()
+
+  it('three nested limits: the router’s four, the sender’s two, and the two it runs', () => {
+    const sc = streams.variants![3].scenario()
+    const ap = sc.nodes.find((n) => n.id === 'ap')!
+    const sta = sc.nodes.find((n) => n.id === 'sta-1')!
+    // the boxes are sized by the counts themselves, so the innermost is the smaller end's
+    expect(spec.layers.map((l) => l.bytes)).toEqual([nssOf(ap), nssOf(sta), negotiatedNss(ap, sta)])
+    expect(spec.layers[2].bytes).toBe(Math.min(spec.layers[0].bytes, spec.layers[1].bytes))
+    // the station is the one sending in this scene, which is what the middle layer's note says
+    expect(sta.profiles).toEqual(['saturated'])
+    expect(ap.profiles).toEqual(['idle'])
+    // the innermost note and the total are the run's own bits per symbol and airtime
+    expect(spec.layers[2].note).toBe(`每符号 ${PHY_MODES.eht.ndbps[13] * 2} 比特`)
+    const data = bigData(runOf(streams, 3, RUN_NS))
+    expect(spec.total).toBe(`一帧 ${one(data.map((r) => r.frame.txTimeNs)) / US} µs——两流的时间`)
+  })
+
+  it('lays out inside the viewBox, legibly, with no two labels touching', () => {
+    const lay = layoutDiagram(spec)
+    const ts = lay.shapes.filter((x): x is Extract<Shape, { s: 'text' }> => x.s === 'text')
+    expect(ts.length).toBeGreaterThan(5)
+    for (const t of ts) {
+      const b = textBox(t)
+      expect(b.x0, t.text).toBeGreaterThanOrEqual(-0.01)
+      expect(b.x1, t.text).toBeLessThanOrEqual(W + 0.01)
+      expect(b.y1, t.text).toBeLessThanOrEqual(lay.height + 0.01)
+      expect(t.size, t.text).toBeGreaterThanOrEqual(9.5)
+    }
+    const bs = ts.map(textBox)
+    for (let i = 0; i < bs.length; i++) {
+      for (let j = i + 1; j < bs.length; j++) {
+        const hit = bs[i].x0 < bs[j].x1 && bs[j].x0 < bs[i].x1 && bs[i].y0 < bs[j].y1 && bs[j].y0 < bs[i].y1
+        expect(hit, `${ts[i].text} / ${ts[j].text}`).toBe(false)
+      }
+    }
   })
 })

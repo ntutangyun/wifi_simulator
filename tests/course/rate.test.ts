@@ -7,6 +7,15 @@
  * has to choose; `rate-fallback` owns the loop itself and what it costs the
  * room. Neither half changes `rateScenario`, so the recorded hash is untouched.
  *
+ * Re-paced on 2026-09-25 (§2 M9: the lesson stays whole and gives up its `steps`
+ * block). §5.1.3 deletes the ARF rule from this lesson, so the pins that guarded
+ * it — a lone failure moving nothing, the two failures in a row at attempts 192
+ * and 193, and the ten answered frames that climb back — moved with the prose to
+ * tests/course/rate-fallback.test.ts. What is pinned here instead is the
+ * procedure this lesson does own: the five steps of the ceiling itself, from
+ * `mcsForPeer` in src/engine/simulation.ts and `mcsForRssi` in
+ * src/engine/phy.ts, including the capability cap that is step 3.
+ *
  * The old lesson had no test file of its own: its pins lived in
  * tests/course/quoted-timestamps.test.ts (the airtimes, the excursions, the
  * loss rates, the freezes, the two experiments) and one shape check in
@@ -42,9 +51,11 @@ lessonShapeSuite(rate, { runNs: JUMP_NS })
 describe('rate · the lesson’s own scene', () => {
   it('is the Tier 2 rate lesson, and names the lessons its words come from', () => {
     expect(MODULES[rate.module].title).toBe('容量旋钮与速率控制')
-    expect(rate.needs).toEqual(['decode-thresholds', 'retries-queues', 'bianchi-vs-sim', 'width'])
-    // MCS is decode-thresholds' word, ACK and ACK timeout come through retries-queues;
-    // these three are this lesson's own.
+    // §6 of the re-pacing plan: the rung ladder and the alibi for the rate anomaly are
+    // their own lessons now, so those are the ids this lesson's words come from.
+    expect(rate.needs).toEqual(['mcs-ladder', 'retries-queues', 'rate-vs-model', 'width'])
+    // MCS is mcs-ladder's word, ACK and ACK timeout come through retries-queues;
+    // these two are this lesson's own.
     expect(rate.terms!.map((t) => t.term)).toEqual(['ceiling', 'attempt'])
   })
 
@@ -123,18 +134,11 @@ describe('rate · the station that never has to choose', () => {
   })
 })
 
-describe('rate · the loop, as the engine runs it', () => {
+describe('rate · the ceiling, as the engine computes it', () => {
   const rs = runOf(rate, undefined, RUN_NS)
   const far = data(rs, 'sta-2')
-  /** An attempt failed when a RETRY or DROP of this station falls between it and the next. */
-  const bad = [...ofType(rs, 'RETRY'), ...ofType(rs, 'DROP')].filter((r) => r.node === 'sta-2').map((r) => r.t)
-  const lost = far.map((t, i) => {
-    const end = t.t + t.frame.txTimeNs
-    const next = i + 1 < far.length ? far[i + 1].t : Number.POSITIVE_INFINITY
-    return bad.some((x) => x >= end && x < next)
-  })
 
-  it('step 1: the ceiling of the far link is MCS 2, and the table’s arithmetic says why', () => {
+  it('steps 1, 2 and 4: the ceiling of the far link is MCS 2, and the table’s arithmetic says why', () => {
     // "RSSI −75.46 dBm · less the noise floor, 20 MHz −93.99 · = SNR 18.53 dB · MCS 2 asks
     //  13.99 + 3 = 16.99 ✓ · MCS 3 asks 16.99 + 3 = 19.99 ✗ · so the ceiling is MCS 2"
     const sc = rate.scenario()
@@ -152,33 +156,26 @@ describe('rate · the loop, as the engine runs it', () => {
     expect(mcsForRssi('eht', rssi, 11, 20)).toBe(2)
   })
 
-  it('steps 2 and 3: the first frame goes out at the ceiling, one failure alone moves nothing', () => {
-    // "If that working rung sits above the ceiling — the first frame ever — it is pulled down
-    //  to the ceiling", and the counters: a lone failure only sets the count to one.
+  it('step 3: the cap is a capability, not a signal — 4096-QAM is not negotiated here', () => {
+    // "if the two ends have not both offered 4096-QAM the ceiling is capped at MCS 11 first,
+    //  and this step looks at capabilities alone": the cap `mcsForPeer` passes to mcsForRssi.
+    const sc = rate.scenario()
+    const ap = sc.nodes.find((n) => n.id === 'ap')!
+    for (const id of ['sta-1', 'sta-2']) {
+      expect(negotiated(sc.nodes.find((n) => n.id === id)!, ap, 'qam4k'), id).toBe(false)
+    }
+    // the cap binds the near link (which has signal to spare) and not the far one, which the
+    // signal stops two rungs lower — the table's own two rows
+    const table = buildLinkTable(sc.nodes, sc.walls)
+    expect(mcsForRssi('eht', table.get('sta-1')!.get('ap')!, 11, 20)).toBe(11)
+    expect(mcsForRssi('eht', table.get('sta-2')!.get('ap')!, 11, 20)).toBe(2)
+  })
+
+  it('step 5: the working rung is pulled down to the ceiling, so the first frame goes out there', () => {
+    // "the working rung is pulled down to the ceiling the moment it sits above it — the first
+    //  frame ever": RateControl.mcsFor clamps on every read, and the run's first frame shows it.
     expect(far[0].frame.mcs).toBe(2)
-    expect(lost[0]).toBe(true)
-    expect(lost[1]).toBe(false)
-    expect(far[1].frame.mcs).toBe(2)
-  })
-
-  it('step 4: the first two failures in a row, and the rung the next frame goes out at', () => {
-    // the worked table: "attempt 192, no answer: failures 1 · attempt 193, no answer:
-    // failures 2 · so attempt 194 goes out at MCS 1, 768.8 µs"
-    const pair = lost.findIndex((x, i) => i > 0 && x && lost[i - 1])
-    expect(pair).toBe(192)               // 0-based: attempts 192 and 193 counting from one
-    expect([far[pair - 1].frame.mcs, far[pair].frame.mcs]).toEqual([2, 2])
-    expect(far[pair + 1].frame.mcs).toBe(1)
-    expect(far[pair + 1].frame.txTimeNs).toBe(768_800)
-    expect(far[pair - 1].frame.txTimeNs).toBe(524_000)
-  })
-
-  it('step 5: ten answered frames in a row, and not one fewer, bring the rung back', () => {
-    // "answered frames needed to get back: 10"
-    const pair = lost.findIndex((x, i) => i > 0 && x && lost[i - 1])
-    const back = far.findIndex((r, i) => i > pair && r.frame.mcs === 2)
-    expect(back - (pair + 1)).toBe(10)
-    expect(lost.slice(pair + 1, back).filter(Boolean)).toHaveLength(0)
-    for (let i = pair + 1; i < back; i++) expect(far[i].frame.mcs, `attempt ${i}`).toBe(1)
+    expect(Math.max(...far.map((r) => r.frame.mcs!))).toBe(2)
   })
 })
 

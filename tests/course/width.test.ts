@@ -9,9 +9,16 @@
  * rounding of the formula, the noise arithmetic of "What the width costs in
  * noise", the living-room table and its inversion, the one-decibel window and
  * the legacy fallback of `deeper`, and the two experiments.
+ *
+ * Re-paced on 2026-09-25 (§2 M9: the lesson stays whole). The claim that used to
+ * be the second observe line — take the fixed 48 µs off each of the four
+ * airtimes and 81.6, 40.8, 27.2 and 13.6 µs of data are what is left — is now
+ * the timing figure, so its pin moved with it: `widthAirtimeTiming`'s four data
+ * spans are asserted against the run below, and the figure's geometry is checked
+ * here as well as in tests/course/diagram.test.ts.
  */
 import { describe, it, expect } from 'vitest'
-import { width } from '../../src/course/tier2/width'
+import { width, widthAirtimeTiming } from '../../src/course/tier2/width'
 import { widthScenario } from '../../src/course/wifiScenes'
 import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
@@ -23,6 +30,7 @@ import {
 } from '../../src/engine/phy'
 import { lessonShapeSuite, ofType, runOf } from './kit'
 import { MODULES } from '../../src/course/curriculum'
+import { W, layoutDiagram, textBox, type Shape } from '../../src/course/diagram'
 
 const MS = 1_000_000
 const US = 1_000
@@ -52,9 +60,11 @@ lessonShapeSuite(width, { runNs: RUN_NS })
 describe('width · the lesson’s own scene', () => {
   it('is a Tier 2 lesson that needs the two Tier 1 lessons its words come from', () => {
     expect(MODULES[width.module].title).toBe('容量旋钮与速率控制')
-    expect(width.needs).toEqual(['decode-thresholds', 'airtime'])
-    // `sub-carrier`, `symbol` and `noise floor` are this lesson's own words; MCS, OFDM,
-    // preamble and payload come from the two lessons in `needs`.
+    // §6 of the re-pacing plan: the rung ladder and the noise floor are their own
+    // lessons now, so the two Tier 1 ids this lesson's words come from are those.
+    expect(width.needs).toEqual(['mcs-ladder', 'noise-floor', 'airtime'])
+    // `sub-carrier`, `symbol` and `noise floor` are the words this lesson glosses; MCS,
+    // OFDM, preamble and payload come from the lessons in `needs`.
     expect(width.terms!.map((t) => t.term)).toEqual(['channel width', 'sub-carrier', 'symbol', 'noise floor'])
   })
 
@@ -118,8 +128,8 @@ describe('width · one 1500-byte frame at four widths', () => {
       expect(48 * US + 13_600 * nsym).toBe(q.airtimeNs)
       expect(txTimeModeNs('eht', OCTETS, 13, { widthMhz: q.width })).toBe(q.airtimeNs)
     }
-    // the observation "take the fixed 48 µs opening off each of those four and what is left is
-    // 81.6, 40.8, 27.2 and 13.6 µs of data"
+    // the figure's four data spans: "take the fixed 48 µs opening off each of those four
+    // and what is left is 81.6, 40.8, 27.2 and 13.6 µs of data"
     expect(quotes.map((q) => (q.airtimeNs - 48 * US) / US)).toEqual([81.6, 40.8, 27.2, 13.6])
     // "at the widest setting it is down to a single symbol", and the quiz's "more than three
     // quarters of the frame" is then the opening
@@ -323,5 +333,56 @@ describe('width · the far corner', () => {
     expect(one(data.map((r) => r.frame.mbps))).toBe(18)
     // "five and a half times the airtime the same frame took on the desk" (129.6 µs at 20 MHz)
     expect(Math.round((704_000 / 129_600) * 2) / 2).toBe(5.5)
+  })
+})
+
+/**
+ * The timing figure (§4: "同一帧在四种带宽下：前导码不动，数据段变短"), which replaced
+ * the paragraph that said only the data block moves and the observe line that
+ * subtracted the fixed opening from each of the four airtimes.
+ */
+describe('width · the figure is the run’s own four airtimes', () => {
+  const spec = widthAirtimeTiming()
+  const lane = (label: string) => spec.lanes.find((l) => l.label === label)!
+
+  it('one lane per variant, each a fixed 48 µs opening and then the data', () => {
+    expect(spec.lanes.map((l) => l.label)).toEqual(['20 MHz', '40 MHz', '80 MHz', '160 MHz'])
+    for (const [i, label] of ['20 MHz', '40 MHz', '80 MHz', '160 MHz'].entries()) {
+      const data = bigData(runOf(width, i, RUN_NS))
+      const airtimeUs = one(data.map((r) => r.frame.txTimeNs)) / US
+      const spans = lane(label).spans
+      // the opening: the same span four times over, and it is the mode's own preamble
+      expect([spans[0].fromUs, spans[0].toUs], label).toEqual([0, PHY_MODES.eht.preambleNs / US])
+      // the data: from the end of that opening to the airtime the run prints
+      expect([spans[1].fromUs, spans[1].toUs], label).toEqual([48, airtimeUs])
+      expect(spans[1].tone, label).toBe('accent')
+    }
+    // "81.6、40.8、27.2, and at the widest setting a single 13.6 µs symbol"
+    expect(spec.lanes.map((l) => Math.round((l.spans[1].toUs - l.spans[1].fromUs) * 10) / 10))
+      .toEqual([81.6, 40.8, 27.2, 13.6])
+    expect(spec.lanes[3].spans[1].toUs - spec.lanes[3].spans[1].fromUs)
+      .toBeCloseTo(PHY_MODES.eht.symNs / US, 9)
+    // the axis holds every span
+    expect(spec.axis.toUs).toBeGreaterThan(Math.max(...spec.lanes.map((l) => l.spans[1].toUs)))
+  })
+
+  it('lays out inside the viewBox, legibly, with no two labels touching', () => {
+    const lay = layoutDiagram(spec)
+    const ts = lay.shapes.filter((s): s is Extract<Shape, { s: 'text' }> => s.s === 'text')
+    expect(ts.length).toBeGreaterThan(8)
+    for (const t of ts) {
+      const b = textBox(t)
+      expect(b.x0, t.text).toBeGreaterThanOrEqual(-0.01)
+      expect(b.x1, t.text).toBeLessThanOrEqual(W + 0.01)
+      expect(b.y1, t.text).toBeLessThanOrEqual(lay.height + 0.01)
+      expect(t.size, t.text).toBeGreaterThanOrEqual(9.5)
+    }
+    const bs = ts.map(textBox)
+    for (let i = 0; i < bs.length; i++) {
+      for (let j = i + 1; j < bs.length; j++) {
+        const hit = bs[i].x0 < bs[j].x1 && bs[j].x0 < bs[i].x1 && bs[i].y0 < bs[j].y1 && bs[j].y0 < bs[i].y1
+        expect(hit, `${ts[i].text} / ${ts[j].text}`).toBe(false)
+      }
+    }
   })
 })

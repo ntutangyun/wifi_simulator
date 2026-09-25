@@ -1,6 +1,17 @@
 /**
  * Every empirical claim in "Rate fallback — how the sender climbs and falls",
- * the second half of the rate-control split (plan ruling 2).
+ * the second half of the rate-control split (plan ruling 2) and, after the
+ * 2026-09-25 re-pacing (§2 M9), the first half of a split of its own: the rule
+ * is here, the bill an excursion runs up is `rate-cost`.
+ *
+ * What moved OUT to tests/course/rate-cost.test.ts with the prose: the
+ * 20.2 %/29.7 % arithmetic, the 530.3/318.1/212.2 ms figures, the three freeze
+ * lengths and the two experiments' replacements. The freeze rule's own pin — all
+ * 2,666 of the near station's freezes come back at the value they went in at —
+ * stays here, because the sentence that states it is in this lesson's `deeper`.
+ * What moved IN from tests/course/rate.test.ts (§5.1.3 deletes `rate`'s duplicate
+ * of the ARF rule): the lone failure that moves nothing, the two failures in a
+ * row at attempts 192 and 193, and the ten answered frames that climb back.
  *
  * It loads `rate`'s own scene with no variant, so `lessonShapeSuite`'s
  * `sameSceneAs` check asserts the two scenarios are equal value for value and
@@ -16,12 +27,13 @@
 import { describe, it, expect } from 'vitest'
 import { Simulation } from '../../src/engine/simulation'
 import { rate } from '../../src/course/tier2/rate'
-import { rateFallback } from '../../src/course/tier2/rate-fallback'
+import { rateFallback, fallbackExcursionTiming } from '../../src/course/tier2/rate-fallback'
 import { rateScenario } from '../../src/course/wifiScenes'
 import type { TLRecord } from '../../src/model/records'
 import { ACK_TIMEOUT_NS } from '../../src/engine/phy'
 import { lessonShapeSuite, ofType, runOf } from './kit'
 import { MODULES } from '../../src/course/curriculum'
+import { W, layoutDiagram, textBox, type Shape } from '../../src/course/diagram'
 
 const MS = 1_000_000
 const RUN_NS = 3_000 * MS
@@ -127,13 +139,28 @@ describe('rate-fallback · the rule this simulator follows', () => {
     }
   })
 
-  it('the worked table: one trip to the bottom rung, and what those ten frames cost', () => {
-    // "shortest such trip in this run: 10 frames, 14.8 ms · the same ten frames at the
-    //  ceiling: 5.2 ms" — the rungs and their airtimes are the three the first half pins.
+  it('the worked table: one trip to the bottom rung, at the three airtimes the rungs cost', () => {
+    // The 「这时一帧要」 column. What those frames cost the room is `rate-cost`'s table now,
+    // so the 14.8/5.2 ms comparison moved to tests/course/rate-cost.test.ts with it.
     const airAt = (mcs: number): number => far.find((r) => r.frame.mcs === mcs)!.frame.txTimeNs
     expect([airAt(2), airAt(1), airAt(0)]).toEqual([524_000, 768_800, 1_476_000])
-    expect(round1((UP_AFTER * airAt(0)) / MS)).toBe(14.8)
-    expect(round1((UP_AFTER * airAt(2)) / MS)).toBe(5.2)
+  })
+
+  it('MOVED IN from `rate`: the first two failures in a row, and where the next frame goes out', () => {
+    // §5.1.3 deletes `rate`'s duplicate of this rule, so the pin that guarded its worked
+    // table comes here: "attempt 192, no answer · attempt 193, no answer · so attempt 194
+    // goes out at MCS 1, 768.8 µs", which is also the figure's own fall.
+    const pair = lostAt.findIndex((x, i) => i > 0 && x && lostAt[i - 1])
+    expect(pair).toBe(192)               // 0-based: attempts 192 and 193 counting from one
+    expect([far[pair - 1].frame.mcs, far[pair].frame.mcs]).toEqual([CEILING, CEILING])
+    expect(far[pair + 1].frame.mcs).toBe(CEILING - 1)
+    expect(far[pair + 1].frame.txTimeNs).toBe(768_800)
+    expect(far[pair - 1].frame.txTimeNs).toBe(524_000)
+    // and the climb: ten answered frames in a row, not one fewer
+    const back = far.findIndex((r, i) => i > pair && r.frame.mcs === CEILING)
+    expect(back - (pair + 1)).toBe(UP_AFTER)
+    expect(lostAt.slice(pair + 1, back).filter(Boolean)).toHaveLength(0)
+    for (let i = pair + 1; i < back; i++) expect(far[i].frame.mcs, `attempt ${i}`).toBe(CEILING - 1)
   })
 
   it('observe: "every change of length is one rung — it never skips a step"', () => {
@@ -224,47 +251,94 @@ describe('rate-fallback · the numbers tables', () => {
   })
 })
 
-describe('rate-fallback · what the excursions cost', () => {
-  const air = (xs: Tx[]): number => xs.reduce((a, r) => a + r.frame.txTimeNs, 0)
-  const below = far.filter((r) => r.frame.mcs! < CEILING)
-
-  it('20.2% of the frames, 29.7% of the air: 530.3 ms against 318.1 ms at the ceiling', () => {
-    expect(below.length).toBe(607)
-    expect(pct(below.length, far.length)).toBe(20.2)
-    expect(pct(air(below), air(far))).toBe(29.7)
-    expect(round1(air(below) / MS)).toBe(530.3)
-    expect(round1((below.length * 524_000) / MS)).toBe(318.1)
-  })
-
-  it('the tax: 212.2 ms, 7.1% of the whole run, carrying nothing at all', () => {
-    const extra = air(below) - below.length * 524_000
-    expect(round1(extra / MS)).toBe(212.2)
-    expect(pct(extra, RUN_NS)).toBe(7.1)
-  })
-
-  it('the near station’s backoff is held 615.0, 859.8 and 1,579.0 µs — 964.0 µs more', () => {
+/**
+ * MOVED CLAIMS, ONE PIN HELD. The bill these excursions run up — 20.2 % of the
+ * frames, 29.7 % of the air, 530.3/318.1/212.2 ms, and the three lengths the near
+ * station's backoff is held for — is `rate-cost`'s prose now, and is pinned in
+ * tests/course/rate-cost.test.ts beside the same run. What stays here is the one
+ * figure this lesson's own `deeper` states: the freeze rule, which is why a longer
+ * frame gives no other station's counter extra time to expire.
+ */
+describe('rate-fallback · the freeze rule the death spiral runs into', () => {
+  it('deeper: all 2,666 of the near station’s freezes come back at the value they went in at', () => {
     type Bo = Extract<TLRecord, { type: 'BACKOFF_FREEZE' | 'BACKOFF_RESUME' }>
     const evs = rs.filter((r): r is Bo =>
       (r.type === 'BACKOFF_FREEZE' || r.type === 'BACKOFF_RESUME') && r.node === 'sta-1')
-    const holds: { t: number; dur: number; same: boolean }[] = []
+    const holds: { same: boolean }[] = []
     for (let i = 0; i + 1 < evs.length; i++) {
       if (evs[i].type === 'BACKOFF_FREEZE' && evs[i + 1].type === 'BACKOFF_RESUME')
-        holds.push({ t: evs[i].t, dur: evs[i + 1].t - evs[i].t, same: evs[i].value === evs[i + 1].value })
+        holds.push({ same: evs[i].value === evs[i + 1].value })
     }
-    // deeper: "all 2,666 of the near station's freezes in this run come back at the value
-    // they went in at" — the freeze rule, and the reason a longer frame widens nobody's window
     expect(holds.length).toBe(2_666)
     expect(holds.every((h) => h.same)).toBe(true)
+  })
+})
 
-    const holdBehind = (mcs: number): number => {
-      const spans = far.filter((r) => r.frame.mcs === mcs).map((r) => [r.t, r.t + r.frame.txTimeNs] as const)
-      const hs = holds.filter((h) => spans.some(([a, b]) => h.t >= a && h.t <= b))
-      expect(hs.length, `holds behind MCS ${mcs}`).toBeGreaterThan(50)
-      expect(new Set(hs.map((h) => h.dur)).size, `one hold length behind MCS ${mcs}`).toBe(1)
-      return hs[0].dur
+/**
+ * The timing figure (§4: "一次跌落与爬回，色块随级别变长变短"): the run's own first
+ * excursion, span for span, and the geometry `diagram.test.ts` checks for every
+ * registered lesson.
+ */
+describe('rate-fallback · the figure is the run’s own first excursion', () => {
+  const spec = fallbackExcursionTiming()
+  const lane = (label: string) => spec.lanes.find((l) => l.label === label)!
+  /** The first attempt of the window: three frames before the pair that fails. */
+  const pair = lostAt.findIndex((x, i) => i > 0 && x && lostAt[i - 1])
+  const first = pair - 3
+  const rel = (ns: number): number => Math.round(((ns - far[first].t) / 1_000) * 10) / 10
+
+  it('fifteen frames, at their own times, and the two that went unanswered are the muted pair', () => {
+    const spans = lane('远端站点').spans
+    expect(spans).toHaveLength(15)
+    spans.forEach((sp, i) => {
+      const tx = far[first + i]
+      expect([sp.fromUs, sp.toUs], `attempt ${first + i}`)
+        .toEqual([rel(tx.t), rel(tx.t + tx.frame.txTimeNs)])
+    })
+    // the two muted spans are exactly the two failed attempts of this window
+    const muted = spans.map((sp, i) => (sp.tone === 'muted' ? first + i : -1)).filter((i) => i >= 0)
+    expect(muted).toEqual([pair - 1, pair])
+    for (const i of muted) expect(lostAt[i], `attempt ${i}`).toBe(true)
+    // the accent spans are the ten frames of the excursion, all of them one rung down
+    const accent = spans.map((sp, i) => (sp.tone === 'accent' ? first + i : -1)).filter((i) => i >= 0)
+    expect(accent).toHaveLength(UP_AFTER)
+    for (const i of accent) expect(far[i].frame.mcs, `attempt ${i}`).toBe(CEILING - 1)
+    // and the last span is back at the ceiling
+    expect(far[first + 14].frame.mcs).toBe(CEILING)
+  })
+
+  it('the rung lane is 2, then 1, then 2 again, changing when the next frame goes out', () => {
+    const rung = lane('级别').spans
+    expect(rung.map((sp) => sp.label)).toEqual(['MCS 2', 'MCS 1', 'MCS 2'])
+    // the rung in force from the window's start until the first frame at the lower rung
+    expect(rung[0].fromUs).toBe(0)
+    expect(rung[0].toUs).toBe(rel(far[pair + 1].t))
+    // one rung down until the frame that climbs back, which is the last span
+    expect(rung[1].toUs).toBe(rel(far[pair + UP_AFTER + 1].t))
+    expect(rung[2].fromUs).toBe(rung[1].toUs)
+    expect(rung[2].toUs).toBe(rel(far[pair + UP_AFTER + 1].t + far[pair + UP_AFTER + 1].frame.txTimeNs))
+    // the axis holds the whole window
+    expect(spec.axis.toUs).toBeGreaterThan(rung[2].toUs)
+  })
+
+  it('lays out inside the viewBox, legibly, with no two labels touching', () => {
+    const lay = layoutDiagram(spec)
+    const ts = lay.shapes.filter((x): x is Extract<Shape, { s: 'text' }> => x.s === 'text')
+    expect(ts.length).toBeGreaterThan(8)
+    for (const t of ts) {
+      const b = textBox(t)
+      expect(b.x0, t.text).toBeGreaterThanOrEqual(-0.01)
+      expect(b.x1, t.text).toBeLessThanOrEqual(W + 0.01)
+      expect(b.y1, t.text).toBeLessThanOrEqual(lay.height + 0.01)
+      expect(t.size, t.text).toBeGreaterThanOrEqual(9.5)
     }
-    expect([holdBehind(2), holdBehind(1), holdBehind(0)]).toEqual([615_000, 859_800, 1_579_000])
-    expect(holdBehind(0) - holdBehind(2)).toBe(964_000)
+    const bs = ts.map(textBox)
+    for (let i = 0; i < bs.length; i++) {
+      for (let j = i + 1; j < bs.length; j++) {
+        const hit = bs[i].x0 < bs[j].x1 && bs[j].x0 < bs[i].x1 && bs[i].y0 < bs[j].y1 && bs[j].y0 < bs[i].y1
+        expect(hit, `${ts[i].text} / ${ts[j].text}`).toBe(false)
+      }
+    }
   })
 })
 
