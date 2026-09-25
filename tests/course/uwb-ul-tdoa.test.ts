@@ -114,17 +114,17 @@ const moved = (id: string, x: number, y: number): Scenario => {
 }
 
 /** Everything a learner reads of one lesson, joined — `deeper` and `sources` included. */
-const lessonProse = (l: Lesson): string => lessonStrings(l).map((s) => s.en).join('\n')
+const lessonProse = (l: Lesson): string => lessonStrings(l).map((s) => s).join('\n')
 const prose = (): string => lessonProse(uwbUlTdoa)
 
 const tablesOf = (blocks: Block[]): Extract<Block, { kind: 'table' }>[] =>
   blocks.filter((b): b is Extract<Block, { kind: 'table' }> => b.kind === 'table')
 /** The nth table of `numbers`: what a badge spends, the two scenes, the log. */
 const cell = (table: number, row: number, col: number): string =>
-  tablesOf(uwbUlTdoa.numbers!)[table].rows[row][col].en
+  tablesOf(uwbUlTdoa.numbers!)[table].rows[row][col]
 /** The nth table of `deeper`: the sync-error walk. */
 const deepCell = (table: number, row: number, col: number): string =>
-  tablesOf(uwbUlTdoa.deeper!)[table].rows[row][col].en
+  tablesOf(uwbUlTdoa.deeper!)[table].rows[row][col]
 
 // The contract every migrated lesson owes, written once in tests/course/kit.ts. The jump
 // targets close the first slot at 2 ms, so the shape suite shares these tests' long run.
@@ -150,7 +150,7 @@ describe('uwb-ul-tdoa · the lesson’s own place in the track', () => {
     const rs = recs('base')
     const idx = uwbUlTdoa.jumps.map((j) => {
       const i = rs.findIndex(j.find)
-      expect(i, j.label.en).toBeGreaterThanOrEqual(0)
+      expect(i, j.label).toBeGreaterThanOrEqual(0)
       return i
     })
     expect(idx).toEqual([...idx].sort((a, b) => a - b))
@@ -163,11 +163,11 @@ describe('uwb-ul-tdoa · the lesson’s own place in the track', () => {
     expect(rs[idx[4]].t).toBe(2 * MS)
     // the watch call-out sends the reader to the fix, which is the point of the lesson
     const watch = uwbUlTdoa.picture!.find((b) => b.kind === 'watch') as Extract<Block, { kind: 'watch' }>
-    expect(uwbUlTdoa.jumps[watch.jump!].label.en).toBe('the fix the infrastructure solves')
+    expect(uwbUlTdoa.jumps[watch.jump!].label).toBe('the fix the infrastructure solves')
   })
 
   it('names the clause it leans on, and only in `sources`', () => {
-    const src = uwbUlTdoa.sources!.map((s) => s.en).join('\n')
+    const src = uwbUlTdoa.sources!.map((s) => s).join('\n')
     expect(src).toContain('IEEE Std 802.15.4-2024 §10.29.1.2.5')
     expect(src).toContain('this lesson is the first')
     expect(src).toContain('a mobile node transmits, fixed nodes whose clocks are synchronised with one another receive it')
@@ -302,7 +302,7 @@ describe('uwb-ul-tdoa · one frame, and then nothing', () => {
     expect(ofType(rs, 'UWB_RANGE')).toEqual([])
     expect(ofType(rs, 'UWB_TIMEOUT')).toEqual([])
     // "Every transmission in the run is a badge's — seventy in all."
-    expect(uwbUlTdoa.observe[0].en).toContain('seventy in all')
+    expect(uwbUlTdoa.observe[0]).toContain('seventy in all')
   })
 
   it('"then goes idle until the next block": tx, idle, and nothing for 199.8 ms', () => {
@@ -312,7 +312,7 @@ describe('uwb-ul-tdoa · one frame, and then nothing', () => {
     )
     // and the badge never opens a receiver: no arrival is ever stamped at a badge
     expect(ofType(rs, 'UWB_TS').filter((r) => r.node.startsWith('badge-')).every((r) => r.dir === 'tx')).toBe(true)
-    expect(uwbUlTdoa.observe[0].en).toContain('then goes idle until the next block')
+    expect(uwbUlTdoa.observe[0]).toContain('then goes idle until the next block')
     expect(prose()).toContain('then its radio is off until the next block')
   })
 
@@ -329,7 +329,7 @@ describe('uwb-ul-tdoa · one frame, and then nothing', () => {
     expect(prose()).toContain('ten blinking badges spend 12.685 260 ms of air over seven blocks')
     // the air is identical in the 1 ns scene: a calibration error changes nothing a radio does
     expect(airNs(recs('sync'))).toBe(airNs(rs))
-    expect(uwbUlTdoa.tryThis[0].en).toContain('the same blinks, the same airtime')
+    expect(uwbUlTdoa.tryThis[0]).toContain('the same blinks, the same airtime')
   })
 
   it('the log table quotes the round and the blink as fmtRecord prints them', () => {
@@ -342,7 +342,7 @@ describe('uwb-ul-tdoa · one frame, and then nothing', () => {
     // "A badge opens the one round of the block that is its own": badge 2's opens at 2 ms
     expect(ofType(rs, 'UWB_ROUND')[1].t).toBe(2 * MS)
     expect(ofType(rs, 'UWB_ROUND')[1].node).toBe('badge-2')
-    expect(uwbUlTdoa.observe[0].en).toContain('opens the one round of the block that is its own')
+    expect(uwbUlTdoa.observe[0]).toContain('opens the one round of the block that is its own')
   })
 
   it('four stamps, in distance order, eight nanoseconds apart end to end', () => {
@@ -358,7 +358,7 @@ describe('uwb-ul-tdoa · one frame, and then nothing', () => {
     }
     const byDistance = stamps.map((r) => d(r.node))
     expect(byDistance).toEqual([...byDistance].sort((a, b) => a - b))
-    const o2 = uwbUlTdoa.observe[1].en
+    const o2 = uwbUlTdoa.observe[1]
     for (const s of ['181.234', '181.237', '181.240', '181.242']) expect(o2).toContain(s)
     expect(o2).toContain('in order of each anchor’s distance from the badge')
     expect(o2).toContain('Eight nanoseconds end to end')
@@ -420,8 +420,8 @@ describe('uwb-ul-tdoa · positioned by somebody else', () => {
     expect(ref.position).toBeNull()
     expect(ref.tdoa).toEqual({})
     expect(ref.ranges).toEqual({})
-    expect(uwbUlTdoa.observe[2].en).toContain('Then open the reference anchor that did the arithmetic — its lane is empty')
-    expect(uwbUlTdoa.observe[2].en).toContain('no distances, three time differences and a fix')
+    expect(uwbUlTdoa.observe[2]).toContain('Then open the reference anchor that did the arithmetic — its lane is empty')
+    expect(uwbUlTdoa.observe[2]).toContain('no distances, three time differences and a fix')
   })
 
   it('the badges’ crystals move the counters they write and nothing else whatever', () => {
@@ -562,7 +562,7 @@ describe('uwb-ul-tdoa · what one nanosecond buys', () => {
     expect(uwbTdoaRows(u).map((r) => r.error)).toEqual(['-0.99 ns', '-0.37 ns', '-0.36 ns'])
     expect(uwbFixRow(u.position!, STRINGS.en.uwb).error).toBe('12.7 cm')
     expect(uwbFixRow(u.position!, STRINGS.en.uwb).ellipse).toBe('32.1 × 16.8 cm')
-    const t1 = uwbUlTdoa.tryThis[0].en
+    const t1 = uwbUlTdoa.tryThis[0]
     expect(t1).toContain('ellipse grows to 32.1 × 16.8 cm')
     expect(t1).toContain('the mean error goes from 3.2 cm to 16.7')
     // "its own fix is 12.7 cm out where the synchronised run had it 2.1"
@@ -594,8 +594,8 @@ describe('uwb-ul-tdoa · what one nanosecond buys', () => {
       expect(ratio, String(k)).toBeLessThan(2.2)
     }
     expect(Number(means[1]) / Number(means[0])).toBeGreaterThan(4)
-    expect(uwbUlTdoa.tryThis[1].en).toContain('through 0, 1, 2 and 4 ns')
-    expect(uwbUlTdoa.tryThis[1].en).toContain('It quadruples over the first step, then doubles with the sigma')
+    expect(uwbUlTdoa.tryThis[1]).toContain('through 0, 1, 2 and 4 ns')
+    expect(uwbUlTdoa.tryThis[1]).toContain('It quadruples over the first step, then doubles with the sigma')
     // (9.8, 0.2) is outside the anchor rectangle, and the 1 ns scene's own badge 1 is inside it
     const out = runExtra('moved-9.8-0.2', () => moved('badge-1', 9.8, 0.2))
     const fixes = ofType(out, 'UWB_POSITION').filter((f) => f.of === 'badge-1')
@@ -639,7 +639,7 @@ describe('uwb-ul-tdoa · blink, or listen', () => {
   it('quiz 3’s four hundred tags need four blocks of slots', () => {
     const perBlock = roundPlan(uwbUlTdoaScenario('base').uwb!, UL_ANCHORS.length).roundsPerBlock
     expect(400 / perBlock).toBe(4)
-    expect(uwbUlTdoa.quiz[2].explain.en).toContain('Four hundred tags need four blocks of slots')
+    expect(uwbUlTdoa.quiz[2].explain).toContain('Four hundred tags need four blocks of slots')
     expect(prose()).toContain('Four hundred tags therefore need four blocks of slots')
   })
 
@@ -666,7 +666,7 @@ describe('uwb-ul-tdoa · the procedure, step by step', () => {
   /** The worked example's table is the last of `numbers`. */
   const wcell = (row: number, col: number): string => {
     const ts = tablesOf(uwbUlTdoa.numbers!)
-    return ts[ts.length - 1].rows[row][col].en
+    return ts[ts.length - 1].rows[row][col]
   }
   /** True 3-D separation of badge-1 from an anchor, in the scene's own coordinates. */
   const distTo = (a: { x: number; y: number }): number =>
@@ -683,8 +683,8 @@ describe('uwb-ul-tdoa · the procedure, step by step', () => {
     // at build time, the network collects the arrivals for the reference anchor, it subtracts,
     // and it solves (device.ts `onRx`, network.ts `endRound`, device.tdoa.ts `solveUlFix`)
     const order = ['one blink', 'UWB_TS', 'shared timebase', 'drawn once', 'reference', 'subtracts', 'hyperbolae']
-    order.forEach((token, i) => expect(steps().items[i].en, token).toContain(token))
-    for (const s of steps().items) expect(s.zh.length).toBeGreaterThan(0)
+    order.forEach((token, i) => expect(steps().items[i], token).toContain(token))
+    for (const s of steps().items) expect(s.length).toBeGreaterThan(0)
   })
 
   it('the worked example’s two flights are the scene’s geometry, and their difference the truth', () => {
@@ -729,10 +729,10 @@ describe('uwb-ul-tdoa · the procedure, step by step', () => {
     for (const b of [...uwbUlTdoa.numbers!, ...uwbUlTdoa.picture!]) {
       if (b.kind !== 'table') continue
       for (const c of [...b.head, ...b.rows.flat()]) {
-        if (c.en !== c.zh || logLine.test(c.en)) continue
-        expect(prosey.test(c.en), c.en).toBe(false)
+        if (c !== c || logLine.test(c)) continue
+        expect(prosey.test(c), c).toBe(false)
       }
     }
-    expect(tablesOf(uwbUlTdoa.numbers!)[0].rows[1][1].zh).toBe('1 个 2 ms 时隙，1 帧')
+    expect(tablesOf(uwbUlTdoa.numbers!)[0].rows[1][1]).toBe('1 个 2 ms 时隙，1 帧')
   })
 })

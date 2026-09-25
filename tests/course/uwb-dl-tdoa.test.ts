@@ -137,17 +137,17 @@ const moved = (id: string, x: number, y: number): Scenario => {
 }
 
 /** Everything a learner reads of one lesson, joined — `deeper` and `sources` included. */
-const lessonProse = (l: Lesson): string => lessonStrings(l).map((s) => s.en).join('\n')
+const lessonProse = (l: Lesson): string => lessonStrings(l).map((s) => s).join('\n')
 const prose = (): string => lessonProse(uwbDlTdoa)
 
 const tablesOf = (blocks: Block[]): Extract<Block, { kind: 'table' }>[] =>
   blocks.filter((b): b is Extract<Block, { kind: 'table' }> => b.kind === 'table')
 /** The nth table of `numbers`: who is in the room, the five slots, the correction, the scenes, the log. */
 const cell = (table: number, row: number, col: number): string =>
-  tablesOf(uwbDlTdoa.numbers!)[table].rows[row][col].en
+  tablesOf(uwbDlTdoa.numbers!)[table].rows[row][col]
 /** The nth table of `deeper`: where badge 1 was dragged to. */
 const deepCell = (table: number, row: number, col: number): string =>
-  tablesOf(uwbDlTdoa.deeper!)[table].rows[row][col].en
+  tablesOf(uwbDlTdoa.deeper!)[table].rows[row][col]
 const formulas = (): Extract<Block, { kind: 'formula' }>[] =>
   uwbDlTdoa.numbers!.filter((b): b is Extract<Block, { kind: 'formula' }> => b.kind === 'formula')
 
@@ -178,7 +178,7 @@ describe('uwb-dl-tdoa · the lesson’s own place in the track', () => {
     const rs = recs('base')
     const idx = uwbDlTdoa.jumps.map((j) => {
       const i = rs.findIndex(j.find)
-      expect(i, j.label.en).toBeGreaterThanOrEqual(0)
+      expect(i, j.label).toBeGreaterThanOrEqual(0)
       return i
     })
     expect(idx).toEqual([...idx].sort((a, b) => a - b))
@@ -192,12 +192,12 @@ describe('uwb-dl-tdoa · the lesson’s own place in the track', () => {
     expect(rs[idx[5]].t).toBe(10 * MS)
     // the watch call-out sends the reader to the first time difference
     const watch = uwbDlTdoa.picture!.find((b) => b.kind === 'watch') as Extract<Block, { kind: 'watch' }>
-    expect(uwbDlTdoa.jumps[watch.jump!].label.en).toBe('the first time difference')
+    expect(uwbDlTdoa.jumps[watch.jump!].label).toBe('the first time difference')
   })
 
   it('names the clause it leans on, and only in `sources`', () => {
     // the provenance paragraph that used to open the lesson is now the collapsed section
-    const src = uwbDlTdoa.sources!.map((s) => s.en).join('\n')
+    const src = uwbDlTdoa.sources!.map((s) => s).join('\n')
     expect(src).toContain('IEEE Std 802.15.4-2024 §10.29.1.2.5')
     expect(src).toContain('this lesson is the second')
     expect(src).toContain('synchronised nodes transmit')
@@ -289,7 +289,7 @@ describe('uwb-dl-tdoa · the scene', () => {
     expect(plan.slotNs).toBe(2 * MS)
     expect(plan.roundNs).toBe(10 * MS)
     expect(plan.roundsPerBlock).toBe(1)
-    expect(tablesOf(uwbDlTdoa.numbers!)[1].heading!.en).toBe('Five slots of 2 ms, once a block')
+    expect(tablesOf(uwbDlTdoa.numbers!)[1].heading!).toBe('Five slots of 2 ms, once a block')
     for (const v of ['base', 'raw', 'ten'] as UwbDlTdoaVariant[]) {
       const rounds = ofType(recs(v), 'UWB_ROUND')
       // one round record per listening badge per block, all at the block boundary
@@ -322,7 +322,7 @@ describe('uwb-dl-tdoa · the round the anchors run', () => {
     expect(ofType(rs, 'UWB_TIMEOUT')).toEqual([])
     // "Every transmission in the run belongs to an anchor — thirty-five, and not one from a badge."
     expect(ofType(rs, 'TX_START')).toHaveLength(BLOCKS * 5)
-    expect(uwbDlTdoa.observe[0].en).toContain('thirty-five, and not one from a badge')
+    expect(uwbDlTdoa.observe[0]).toContain('thirty-five, and not one from a badge')
   })
 
   it('the table’s frames are the sizes and durations the engine gives them', () => {
@@ -358,7 +358,7 @@ describe('uwb-dl-tdoa · the round the anchors run', () => {
     expect(stamps.map((r) => r.dir)).toEqual(['rx', 'rx', 'rx', 'rx', 'rx'])
     expect(stamps.map((r) => r.t)).toEqual([216_106, 2_197_650, 4_197_647, 6_197_652, 8_201_747])
     expect(stamps.map((r) => r.peer)).toEqual([REF, ...RESPONDERS, REF])
-    const o2 = uwbDlTdoa.observe[1].en
+    const o2 = uwbDlTdoa.observe[1]
     expect(o2).toContain('five arrival stamps')
     for (const s of ['216.106 µs', '2.197 650 ms', '4.197 647 ms', '6.197 652 ms', '8.201 747 ms']) {
       expect(o2).toContain(s)
@@ -380,7 +380,7 @@ describe('uwb-dl-tdoa · the round the anchors run', () => {
     expect(rs.slice(0, firstTx).filter((r) => r.type !== 'MAC_STATE').map((r) => r.type))
       .toEqual(['UWB_ROUND', 'UWB_ROUND', 'UWB_ROUND', 'UWB_SLOT', 'UWB_SLOT', 'UWB_SLOT', 'UWB_TS'])
     expect(ofType(rs, 'UWB_SLOT').every((r) => r.node.startsWith('badge-'))).toBe(true)
-    expect(uwbDlTdoa.observe[0].en)
+    expect(uwbDlTdoa.observe[0])
       .toContain('a round line for each badge, then their first slots, and only then anchor 1’s Poll')
     // the difference and the fix of block 0, quoted in the same table
     const first = ofType(rs, 'UWB_TDOA').slice(0, 3)
@@ -393,7 +393,7 @@ describe('uwb-dl-tdoa · the round the anchors run', () => {
     )
     expect(fmtRecord(fix)).toBe(cell(4, 2, 1))
     // "At the end of the round come three time differences and one place, the truth beside each."
-    expect(uwbDlTdoa.observe[2].en).toContain('three time differences and one place, the truth beside each')
+    expect(uwbDlTdoa.observe[2]).toContain('three time differences and one place, the truth beside each')
   })
 })
 
@@ -415,12 +415,12 @@ describe('uwb-dl-tdoa · the clock correction', () => {
   it('the printed formula is the rate first and the geometry second, in both languages', () => {
     expect(formulas()).toHaveLength(1)
     const f = formulas()[0]
-    expect(f.heading!.en).toBe('What a badge computes')
-    expect(f.text.en.split('\n')).toHaveLength(2)
-    expect(f.text.en.startsWith('r = (rx_F − rx_P)_badge ÷ (tx_F − tx_P)_anchor-1')).toBe(true)
+    expect(f.heading!).toBe('What a badge computes')
+    expect(f.text.split('\n')).toHaveLength(2)
+    expect(f.text.startsWith('r = (rx_F − rx_P)_badge ÷ (tx_F − tx_P)_anchor-1')).toBe(true)
     // a formula body is language-neutral apart from the names it labels
-    expect(f.text.zh.split('\n')).toHaveLength(2)
-    expect(f.note!.en).toContain('The first line is the rate')
+    expect(f.text.split('\n')).toHaveLength(2)
+    expect(f.note!).toContain('The first line is the rate')
   })
 
   it('"Anchor 1 comes out at −19.04 ppm and the three badges at 1.96, 17.65 and 4.08"', () => {
@@ -480,7 +480,7 @@ describe('uwb-dl-tdoa · the clock correction', () => {
     expect(anchorGapM(REF, RESPONDERS[0]).toFixed(2)).toBe('9.00')
     expect(anchorGapM(REF, RESPONDERS[1]).toFixed(2)).toBe('7.00')
     expect(65.81).toBeGreaterThan(anchorGapM(REF, RESPONDERS[2]))
-    const t1 = uwbDlTdoa.tryThis[0].en
+    const t1 = uwbDlTdoa.tryThis[0]
     expect(t1).toContain('63 differences, 0 fixes')
     expect(t1).toContain('Larger than the gap between its two anchors, a difference lies on no hyperbola')
     // quiz 2's mechanism, at the solver and not only at the absent record: hand solveTdoa the
@@ -491,7 +491,7 @@ describe('uwb-dl-tdoa · the clock correction', () => {
     expect(solveTdoa(ANCHOR_POS, REF, asDeltas(first), TAG_Z, 0.26)).toBeNull()
     const corrected = ofType(recs('base'), 'UWB_TDOA').filter((r) => r.node === 'badge-2' && r.block === 0)
     expect(solveTdoa(ANCHOR_POS, REF, asDeltas(corrected), TAG_Z, 0.26)).not.toBeNull()
-    expect(uwbDlTdoa.quiz[1].explain.en).toContain('describes no point at all')
+    expect(uwbDlTdoa.quiz[1].explain).toContain('describes no point at all')
     // "badge 2's first block reads 65.60, 139.29 and 201.83 ns where the truth is
     //  −8.14, −6.07 and −18.17 ns" — the uncorrected readings themselves, in `deeper`
     expect(first.map((r) => r.dtNs.toFixed(2))).toEqual(['65.60', '139.29', '201.83'])
@@ -573,7 +573,7 @@ describe('uwb-dl-tdoa · the fix, the geometry and the ellipse', () => {
       expect(cell(3, row, 4), v).toBe(err)
       // the two variant rows are named exactly as their variant picker names them, so the table
       // doubles as the lookup for it
-      if (v !== 'base') expect(cell(3, row, 0), v).toBe(uwbDlTdoa.variants![row - 1].label.en)
+      if (v !== 'base') expect(cell(3, row, 0), v).toBe(uwbDlTdoa.variants![row - 1].label)
     }
   })
 
@@ -625,7 +625,7 @@ describe('uwb-dl-tdoa · the fix, the geometry and the ellipse', () => {
     // "against that lesson's 1.7 cm" of semi-major axis
     expect((ofType(twr, 'UWB_POSITION')[0].ellipse.a * 100).toFixed(1)).toBe('1.7')
     // the lesson is named by its title, which is the title that lesson ships
-    expect(uwbPosition.title.en).toBe('From four ranges to a point')
+    expect(uwbPosition.title).toBe('From four ranges to a point')
     expect(prose()).toContain('The two-way fixes of “From four ranges to a point”, in this same room')
     expect(prose()).toContain('stayed between 0.5 and 3.3 cm; these run between 11 and 36 cm')
     // an order of magnitude, in the same room with the same anchors
@@ -706,7 +706,7 @@ describe('uwb-dl-tdoa · the fix, the geometry and the ellipse', () => {
     expect(cell(4, 3, 1)).toBe('error 19.6 cm, GDOP 0.85, ellipse 19.8 × 10.3 cm, DL-TDoA')
     expect(STRINGS.en.uwb.tdoa).toBe('time differences')
     expect(uwbFixRow(u.position!, STRINGS.zh.uwb).method).toBe('下行到达时间差 (DL-TDoA)')
-    expect(uwbDlTdoa.observe[2].en).toContain('its table is headed “time differences”')
+    expect(uwbDlTdoa.observe[2]).toContain('its table is headed “time differences”')
   })
 })
 
@@ -726,13 +726,13 @@ describe('uwb-dl-tdoa · what ten listeners cost', () => {
     expect(ofType(ten, 'TX_START').map((r) => [r.t, r.node, r.frame.kind, r.frame.bytes]))
       .toEqual(ofType(base, 'TX_START').map((r) => [r.t, r.node, r.frame.kind, r.frame.bytes]))
     expect(prose()).toContain('35 frames, 7.074 935 ms of air, 0.505 % of the time')
-    expect(uwbDlTdoa.tryThis[1].en).toContain('off exactly the frames the anchors sent before')
+    expect(uwbDlTdoa.tryThis[1]).toContain('off exactly the frames the anchors sent before')
   })
 
   it('"70 places instead of 21" — one per badge per block', () => {
     const ten = recs('ten')
     expect(ofType(ten, 'UWB_POSITION')).toHaveLength(BLOCKS * 10)
-    expect(uwbDlTdoa.tryThis[1].en).toContain('70 places instead of 21')
+    expect(uwbDlTdoa.tryThis[1]).toContain('70 places instead of 21')
     for (let i = 1; i <= 10; i++) expect(fixErrM(ten, `badge-${i}`), `badge-${i}`).toHaveLength(BLOCKS)
     // the three badges of the base scene get exactly the run they got before
     for (const id of BADGES) expect(fixErrM(ten, id), id).toEqual(fixErrM(recs('base'), id))
@@ -776,7 +776,7 @@ describe('uwb-dl-tdoa · the procedure, step by step', () => {
   /** The worked example's table is the last of `numbers`. */
   const wcell = (row: number, col: number): string => {
     const ts = tablesOf(uwbDlTdoa.numbers!)
-    return ts[ts.length - 1].rows[row][col].en
+    return ts[ts.length - 1].rows[row][col]
   }
   /** Block 0 of the base run, as the badge and the anchors recorded it. */
   const block0 = () => {
@@ -807,8 +807,8 @@ describe('uwb-dl-tdoa · the procedure, step by step', () => {
     // the reply times and the offsets, the Final closes it, the ratio is taken, each
     // responder's transmit offset is subtracted, a difference is emitted, the fix is solved
     const order = ['Slot 0', 'Slots 1–3', 'Slot 4', 'Divide', 'Per responder', 'UWB_TDOA', 'hyperbolae']
-    order.forEach((token, i) => expect(steps().items[i].en, token).toContain(token))
-    for (const s of steps().items) expect(s.zh.length).toBeGreaterThan(0)
+    order.forEach((token, i) => expect(steps().items[i], token).toContain(token))
+    for (const s of steps().items) expect(s.length).toBeGreaterThan(0)
   })
 
   it('the worked example’s counters are the run’s own, and its ratio is the engine’s rate', () => {

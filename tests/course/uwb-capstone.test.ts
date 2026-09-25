@@ -49,17 +49,17 @@ const count = (variant: number | undefined, type: TLRecord['type']): number =>
 /** The lesson's nth table of `numbers`: 0 the four scenes, 1 the three ranges, 2 the rubric. */
 const table = (n: number): Extract<Block, { kind: 'table' }> =>
   uwbCapstone.numbers!.filter((b): b is Extract<Block, { kind: 'table' }> => b.kind === 'table')[n]
-const cell = (n: number, row: number, col: number): string => table(n).rows[row][col].en
+const cell = (n: number, row: number, col: number): string => table(n).rows[row][col]
 /** The four-scene table is transposed: a row is a figure and names where it is read, a column
  * is a scene. `scene(0)` is the flat as it stands, then the three variants in lesson order. */
-const scene = (v: number): string[] => table(0).rows.map((r) => r[v + 1].en)
+const scene = (v: number): string[] => table(0).rows.map((r) => r[v + 1])
 /** The learner's method: the `steps` block that closes `numbers`. */
 const steps = (): Extract<Block, { kind: 'steps' }> => {
   const b = uwbCapstone.numbers!.at(-1)!
   if (b.kind !== 'steps') throw new Error('the method is the last block of `numbers`')
   return b
 }
-const stepText = (): string => steps().items.map((i) => i.en).join(' · ')
+const stepText = (): string => steps().items.map((i) => i).join(' · ')
 /** The phone's inspector after `blocks` blocks of a scene, through the player's own reducer:
  * what the learner actually sees when the method says "open the phone's inspector". */
 const inspectorAfter = (variant: number | undefined, blocks: number): UwbNodeView => {
@@ -101,7 +101,7 @@ describe('uwb-capstone · the lesson', () => {
     expect(uwbCapstone.observe).toHaveLength(2)
     expect(uwbCapstone.tryThis).toHaveLength(2)
     expect(uwbCapstone.variants).toHaveLength(3)
-    expect(uwbCapstone.variants!.map((v) => v.label.en))
+    expect(uwbCapstone.variants!.map((v) => v.label))
       .toEqual(['Anchor 3 in the far room', 'A block every 100 ms', 'One round for all three'])
   })
 
@@ -200,7 +200,7 @@ describe('uwb-capstone · the four scenes over seven blocks', () => {
   it('a lost fragment is one receiver’s loss, and `deeper` is where that is said', () => {
     // Review I1: the rubric used to claim all three anchors suffer together when a fragment
     // is lost. Loss is decided per receiver, per fragment (tests/uwb/mms-one-to-many.test.ts).
-    const deeper = (uwbCapstone.deeper ?? []).map((b) => (b as { text: { en: string } }).text.en).join('\n')
+    const deeper = (uwbCapstone.deeper ?? []).map((b) => (b as { text: string }).text).join('\n')
     expect(deeper).toContain('A fragment is lost at one receiver and nowhere else')
     expect(deeper).toContain('the Poll that opens the round, or the phone’s own busy check')
     for (const s of [cell(2, 2, 1), ...uwbCapstone.picture!.map((b) => (b as { text?: { en: string } }).text?.en ?? '')]) {
@@ -213,7 +213,7 @@ describe('uwb-capstone · the four scenes over seven blocks', () => {
     // Review I2: `deeper` used to say "no redundancy at all: three unknowns would be two
     // coordinates and nothing else" — self-contradictory, and the solver has two unknowns
     // (x and y; z is held at the tag's configured height, src/uwb/position.ts).
-    const deeper = (uwbCapstone.deeper ?? []).map((b) => (b as { text: { en: string } }).text.en).join(' ')
+    const deeper = (uwbCapstone.deeper ?? []).map((b) => (b as { text: string }).text).join(' ')
     expect(deeper).toContain('has one measurement to spare over its two unknowns')
     expect(deeper).not.toContain('three unknowns')
     expect(deeper).not.toContain('no redundancy at all')
@@ -222,8 +222,8 @@ describe('uwb-capstone · the four scenes over seven blocks', () => {
     expect(three.length).toBeGreaterThan(0)
     expect(three[0].anchors).toHaveLength(3)
     // and it agrees with uwb-position's quiz, which says the same thing
-    const quiz = uwbPosition.quiz.find((q) => q.options.some((o) => o.en.includes('with one measurement to spare')))!
-    expect(quiz.explain.en).toContain('Two unknowns and three measurements leave one spare')
+    const quiz = uwbPosition.quiz.find((q) => q.options.some((o) => o.includes('with one measurement to spare')))!
+    expect(quiz.explain).toContain('Two unknowns and three measurements leave one spare')
   })
 
   it('a faster block doubles the work and leaves the accuracy alone', () => {
@@ -234,7 +234,7 @@ describe('uwb-capstone · the four scenes over seven blocks', () => {
     // twice the blocks, so about twice of everything the session costs
     expect(count(V_FAST, 'UWB_INTERFERED')).toBe(2 * count(undefined, 'UWB_INTERFERED'))
     expect(count(V_FAST, 'UWB_ROUND')).toBe(2 * count(undefined, 'UWB_ROUND'))
-    expect(uwbCapstone.quiz[1].explain.en).toContain('Doubling the rate doubles the fixes')
+    expect(uwbCapstone.quiz[1].explain).toContain('Doubling the rate doubles the fixes')
   })
 
   it('the far anchor leaves no three-range fix at all, and doubles the timeouts', () => {
@@ -253,7 +253,7 @@ describe('uwb-capstone · the four scenes over seven blocks', () => {
     for (const r of rounds) expect(r.mode).toBe('mms')
     const train = ofType(recs(V_OTM), 'UWB_MMS_TRAIN')[0]
     expect(train.responders).toEqual(ANCHORS)
-    expect(uwbCapstone.observe[1].en).toContain('read its responder list')
+    expect(uwbCapstone.observe[1]).toContain('read its responder list')
     // three ranges a block either way, but from one round instead of three exchanges
     expect(ofType(recs(V_OTM), 'UWB_RANGE').filter((r) => r.node === TAG)).toHaveLength(21)
     expect(ofType(recs(), 'UWB_RANGE').filter((r) => r.node === TAG)).toHaveLength(15)
@@ -281,7 +281,7 @@ describe('uwb-capstone · the one-sided error', () => {
       .find((r) => r.node === TAG && r.peer === peer)!.fom
     expect(fom('anchor-1')).toBe(FOM_LOS)
     expect(fom('anchor-3')).toBe(FOM_NLOS)
-    const deeper = (uwbCapstone.deeper ?? []).map((b) => (b as Extract<Block, { kind?: 'p' }>).text.en).join('\n')
+    const deeper = (uwbCapstone.deeper ?? []).map((b) => (b as Extract<Block, { kind?: 'p' }>).text).join('\n')
     expect(deeper).toContain('Nothing in this simulator\'s solver reads it')
   })
 
@@ -298,7 +298,7 @@ describe('uwb-capstone · the one-sided error', () => {
       expect(f.anchors).toEqual(ANCHORS)
     }
     const formula = uwbCapstone.numbers!.find((b) => b.kind === 'formula')!
-    expect(formula.text.en).toBe('three-range fix: mean error 0.55 m, worst 0.57 m, GDOP 1.25')
+    expect(formula.text).toBe('three-range fix: mean error 0.55 m, worst 0.57 m, GDOP 1.25')
   })
 
   it('the brief is closed: no scene meets half a metre, and the correction does', () => {
@@ -324,9 +324,9 @@ describe('uwb-capstone · the one-sided error', () => {
     expect(Math.hypot(fix.x - TAG_POS.x, fix.y - TAG_POS.y)).toBeLessThan(0.5)
     expect(Math.hypot(fix.x - TAG_POS.x, fix.y - TAG_POS.y).toFixed(2)).toBe('0.02')
     const brief = uwbCapstone.numbers!.find((b): b is Extract<Block, { kind?: 'p' }> =>
-      (b.kind ?? 'p') === 'p' && b.heading?.en === 'Does anything meet the brief?')!
-    expect(brief.text.en).toContain('no scene keeps every fix inside half a metre')
-    expect(brief.text.en).toContain('the block lands 0.02 m out')
+      (b.kind ?? 'p') === 'p' && b.heading === 'Does anything meet the brief?')!
+    expect(brief.text).toContain('no scene keeps every fix inside half a metre')
+    expect(brief.text).toContain('the block lands 0.02 m out')
     expect(cell(2, 4, 0)).toBe('The brief')
     expect(cell(2, 4, 1)).toContain('no scene meets half a metre as it stands')
     expect(stepText()).toContain('does any scene keep every fix inside half a metre?')
@@ -336,7 +336,7 @@ describe('uwb-capstone · the one-sided error', () => {
 describe('uwb-capstone · the method the learner carries out', () => {
   it('is five steps, and it closes `numbers`', () => {
     expect(steps().items).toHaveLength(5)
-    expect(steps().heading!.en).toBe('The method, step by step')
+    expect(steps().heading!).toBe('The method, step by step')
     // the procedure closes the lesson: it is the last block of the main path, not of `deeper`
     expect(uwbCapstone.numbers!.at(-1)).toBe(steps())
     expect((uwbCapstone.deeper ?? []).some((b) => b.kind === 'steps')).toBe(false)
@@ -387,7 +387,7 @@ describe('uwb-capstone · the method the learner carries out', () => {
   })
 
   it('step 3: the figures of the first table are records the run really carries', () => {
-    const labels = table(0).rows.map((r) => r[0].en)
+    const labels = table(0).rows.map((r) => r[0])
     expect(labels.map((l) => l.split(' — ')[0]))
       .toEqual(['Fixes', 'Of them, three-range', 'Timeouts', 'Lost to Wi-Fi', 'Transmissions', 'Air'])
     // every row names the record or the counter it is read from, and that name exists
@@ -411,7 +411,7 @@ describe('uwb-capstone · the method the learner carries out', () => {
 
 describe('uwb-capstone · the rubric and the sources', () => {
   it('the rubric names a decision per row and the honesty the write-up owes', () => {
-    expect(table(2).rows.map((r) => r[0].en))
+    expect(table(2).rows.map((r) => r[0]))
       .toEqual(['Anchor 3', 'Block rate', 'One round or three', 'The bias', 'The brief'])
     expect(cell(2, 3, 1)).toContain('Names anchor-3')
     // The rubric used to ask for the residual. `solvePosition` computes one, no record carries
@@ -430,7 +430,7 @@ describe('uwb-capstone · the rubric and the sources', () => {
   })
 
   it('says what is standard, what is draft and what is the flat’s own', () => {
-    const src = uwbCapstone.sources!.map((s) => s.en).join('\n')
+    const src = uwbCapstone.sources!.map((s) => s).join('\n')
     expect(src).toContain('IEEE Std 802.15.4-2024')
     expect(src).toContain('P802.15.4ab')
     expect(src).toContain('600 RSTU is the shortest slot this simulator allows an MMS round')

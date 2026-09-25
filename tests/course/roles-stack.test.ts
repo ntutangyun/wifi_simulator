@@ -66,7 +66,7 @@ describe('roles-stack · the base scenario', () => {
   const { view: v1s } = run(rolesStackScenario(), 1000)
 
   it('every jump target occurs, at the quoted instants', () => {
-    for (const j of rolesStack.jumps) expect(rs1s.some(j.find), j.label.en).toBe(true)
+    for (const j of rolesStack.jumps) expect(rs1s.some(j.find), j.label).toBe(true)
     const hop1 = rs1s.find(firstRelayHop1) as Tx
     const hop2 = rs1s.find(firstRelayHop2) as Tx
     expect(hop1.t).toBe(1_415_723)

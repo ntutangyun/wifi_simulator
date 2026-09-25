@@ -18,7 +18,6 @@ import { COURSE_ORDER } from '../../src/course/curriculum'
 import { Simulation } from '../../src/engine/simulation'
 import type { Scenario } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
-import type { L10n } from '../../src/course/lessonKit'
 import { lessonStrings } from '../../src/course/readability'
 import { lessonShapeSuite } from './kit'
 import { CW_MAX, CW_MIN, SHORT_RETRY_LIMIT, SLOT_NS, dataRateFor, noiseDbm } from '../../src/engine/phy'
@@ -87,7 +86,7 @@ const variant = (i: number, key: string) => measure(key, bianchi.variants![i].sc
  */
 function allText(): string {
   const parts: string[] = []
-  const push = (l: L10n) => { parts.push(l.en, l.zh) }
+  const push = (s: string) => { parts.push(s) }
   lessonStrings(bianchi).forEach(push)
   return parts.join(' ')
 }
@@ -279,15 +278,13 @@ describe('the procedure the steps block asks the reader to carry out', () => {
    */
   it('the displayed equations are the model the table comes from, and the classic form is in the depth', () => {
     const shown = bianchi.numbers!.find((b) => b.kind === 'formula') as Extract<Block, { kind: 'formula' }>
-    for (const lang of ['en', 'zh'] as const) {
-      expect(shown.text[lang]).toContain('\u03a3_{i<L} p^i')
-      expect(shown.text[lang]).toContain('p = 1 \u2212 (1\u2212\u03c4)^(n\u22121)')
-      expect(shown.text[lang], 'the classic closed form must not stand over finite-retry figures').not.toContain('2(1\u22122p)')
-    }
+    expect(shown.text).toContain('\u03a3_{i<L} p^i')
+    expect(shown.text).toContain('p = 1 \u2212 (1\u2212\u03c4)^(n\u22121)')
+    expect(shown.text, 'the classic closed form must not stand over finite-retry figures').not.toContain('2(1\u22122p)')
     // the classic form stays, in `deeper`, with the size of the difference it makes
     const depth = (bianchi.deeper ?? []).flatMap((b) => {
       const f = b as Extract<Block, { kind: 'formula' }>
-      return f.kind === 'formula' ? [f.text.en, f.note?.en ?? ''] : []
+      return f.kind === 'formula' ? [f.text, f.note ?? ''] : []
     }).join(' ')
     expect(depth).toContain('2(1\u22122p)')
     expect(depth).toContain('48.09 %')

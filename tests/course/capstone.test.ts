@@ -103,8 +103,8 @@ describe('capstone · the flat as the brief describes it', () => {
   it('has no variants: the three candidate changes are the learner’s own edits', () => {
     expect(capstone.variants).toBeUndefined()
     // the two labels tests/course/lessons.test.ts looks for by name
-    expect(capstone.jumps.map((j) => j.label.en)).toContain('first MU PPDU')
-    expect(capstone.jumps.map((j) => j.label.en)).toContain('first 6 GHz data')
+    expect(capstone.jumps.map((j) => j.label)).toContain('first MU PPDU')
+    expect(capstone.jumps.map((j) => j.label)).toContain('first 6 GHz data')
   })
 })
 
@@ -165,7 +165,7 @@ describe('capstone · the same five seconds, four ways', () => {
 
 describe('capstone · the method the brief asks the learner to follow', () => {
   const steps = capstone.numbers!.find((b) => b.kind === 'steps') as Extract<Block, { kind: 'steps' }>
-  const en = steps.items.map((i) => i.en)
+  const en = steps.items.map((i) => i)
 
   it('is a procedure of at least three steps, on the main path, not in "Going deeper"', () => {
     expect(steps.items.length).toBeGreaterThanOrEqual(3)
@@ -198,23 +198,23 @@ describe('capstone · the method the brief asks the learner to follow', () => {
 
   it('the comparison table names, row by row, the lane each figure is read from', () => {
     const table = capstone.numbers!.find(
-      (b) => b.kind === 'table' && b.heading!.en.startsWith('The same five seconds'),
+      (b) => b.kind === 'table' && b.heading!.startsWith('The same five seconds'),
     ) as Extract<Block, { kind: 'table' }>
     expect(table.head).toHaveLength(5) // the figure, then the baseline and the three options
-    expect(table.rows.map((r) => r[0].en)).toEqual([
+    expect(table.rows.map((r) => r[0])).toEqual([
       'Backup delivered, megabytes — bytes delivered on lanes ap and ap#6g',
       'Video wait — mean receive wait, lane sta-2',
       'Tablet wait — mean receive wait, lane sta-4',
       'Voice wait — mean send wait, lane sta-3',
     ])
     // and those are the lanes and the counters this file reads them off
-    expect(table.rows[0].slice(1).map((c) => c.en)).toEqual(['78.0', '0', '37.7', '78.1'])
+    expect(table.rows[0].slice(1).map((c) => c)).toEqual(['78.0', '0', '37.7', '78.1'])
     expect([base.upMb, backupStopped.upMb, radioOff.upMb, tabletNew.upMb]).toEqual([78.0, 0, 37.7, 78.1])
-    expect(table.rows[1].slice(1).map((c) => c.en))
+    expect(table.rows[1].slice(1).map((c) => c))
       .toEqual([base, backupStopped, radioOff, tabletNew].map((s) => `${s.rxWait('sta-2').toFixed(2)} ms`))
-    expect(table.rows[2].slice(1).map((c) => c.en))
+    expect(table.rows[2].slice(1).map((c) => c))
       .toEqual([base, backupStopped, radioOff, tabletNew].map((s) => `${s.rxWait('sta-4').toFixed(2)} ms`))
-    expect(table.rows[3].slice(1).map((c) => c.en))
+    expect(table.rows[3].slice(1).map((c) => c))
       .toEqual([base, backupStopped, radioOff, tabletNew].map((s) => `${s.txWait('sta-3').toFixed(2)} ms`))
   })
 })

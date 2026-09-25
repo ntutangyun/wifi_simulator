@@ -123,17 +123,17 @@ function fourTimes(anchorId: string, rs: TLRecord[] = recs()): {
 /** The lesson's nth table of `numbers`, rows kept in place so a cell is checked by position. */
 const table = (n: number): Extract<Block, { kind: 'table' }> =>
   uwbDstwr.numbers!.filter((b): b is Extract<Block, { kind: 'table' }> => b.kind === 'table')[n]
-const cell = (n: number, row: number, col: number): string => table(n).rows[row][col].en
+const cell = (n: number, row: number, col: number): string => table(n).rows[row][col]
 const formulas = (): Extract<Block, { kind: 'formula' }>[] =>
   uwbDstwr.numbers!.filter((b): b is Extract<Block, { kind: 'formula' }> => b.kind === 'formula')
-const numbersProse = (): string => paragraphTexts(uwbDstwr.numbers!).map((p) => p.en).join('\n')
-const deeperProse = (): string => paragraphTexts(uwbDstwr.deeper!).map((p) => p.en).join('\n')
+const numbersProse = (): string => paragraphTexts(uwbDstwr.numbers!).map((p) => p).join('\n')
+const deeperProse = (): string => paragraphTexts(uwbDstwr.deeper!).map((p) => p).join('\n')
 /** Everything the learner reads on the main path, joined — for "is this number printed?" checks. */
 const prose = (): string => [
   numbersProse(),
-  ...paragraphTexts(uwbDstwr.picture!).map((p) => p.en),
-  ...uwbDstwr.observe.map((s) => s.en), ...uwbDstwr.tryThis.map((s) => s.en),
-  ...uwbDstwr.quiz.flatMap((q) => [q.q.en, ...q.options.map((o) => o.en), q.explain.en]),
+  ...paragraphTexts(uwbDstwr.picture!).map((p) => p),
+  ...uwbDstwr.observe.map((s) => s), ...uwbDstwr.tryThis.map((s) => s),
+  ...uwbDstwr.quiz.flatMap((q) => [q.q, ...q.options.map((o) => o), q.explain]),
 ].join('\n')
 
 describe('uwb-dstwr · the lesson’s own place in the track', () => {
@@ -157,7 +157,7 @@ describe('uwb-dstwr · the lesson’s own place in the track', () => {
     const at: number[] = []
     for (const j of uwbDstwr.jumps) {
       const i = rs.findIndex(j.find)
-      expect(i, j.label.en).toBeGreaterThanOrEqual(0)
+      expect(i, j.label).toBeGreaterThanOrEqual(0)
       at.push(i)
     }
     expect(at).toEqual([...at].sort((a, b) => a - b))
@@ -171,7 +171,7 @@ describe('uwb-dstwr · the lesson’s own place in the track', () => {
 
   it('names the standard clauses it leans on, and the model numbers are the engine’s', () => {
     // the provenance that used to open the lesson, now in `sources`
-    const src = uwbDstwr.sources!.map((s) => s.en).join('\n')
+    const src = uwbDstwr.sources!.map((s) => s).join('\n')
     for (const s of ['IEEE Std 802.15.4-2024', '§10.29.1.2.4', 'Figure 10-199', '§10.32.5', '§16.4.9']) {
       expect(src, s).toContain(s)
     }
@@ -257,7 +257,7 @@ describe('uwb-dstwr · ten slots and the frames that fill them', () => {
     expect(round).toHaveLength(1)
     expect(round[0]).toMatchObject({ method: 'ds', slots: 10, slotNs: 2 * MS, untilNs: 20 * MS })
     expect(fmtRecord(round[0])).toBe('tag-1 UWB round 0 of block 0 (DS-TWR): 10 slots × 2000.0 µs')
-    expect(uwbDstwr.observe[0].en).toContain('10 slots × 2000.0 µs')
+    expect(uwbDstwr.observe[0]).toContain('10 slots × 2000.0 µs')
     expect(ofType(recs(), 'UWB_SLOT').map((r) => r.t))
       .toEqual([0, 2, 4, 6, 8, 10, 12, 14, 16, 18].map((ms) => ms * MS))
     expect(ofType(recs(), 'UWB_TIMEOUT')).toHaveLength(0)
@@ -279,7 +279,7 @@ describe('uwb-dstwr · ten slots and the frames that fill them', () => {
 
   it('the frame table’s cells are the engine’s own octets and airtimes, row by row', () => {
     // "Ten slots, and what fills them": Frame / Count / Octets / Airtime each
-    expect(table(1).head.map((h) => h.en)).toEqual(['Frame', 'Count', 'Octets', 'Airtime each'])
+    expect(table(1).head.map((h) => h)).toEqual(['Frame', 'Count', 'Octets', 'Airtime each'])
     const rows: [string, number, number][] = [
       ['Poll', uwbPollBytes(ANCHORS), 1],
       ['Response', uwbRespBytes('ds'), ANCHORS],
@@ -450,9 +450,9 @@ describe('uwb-dstwr · the four times', () => {
   it('the printed formula is the engine’s dsTwr, operand for operand', () => {
     // "Tprop = (Tround1·Tround2 − Treply1·Treply2) / (Tround1 + Tround2 + Treply1 + Treply2)"
     expect(formulas()).toHaveLength(1)
-    expect(formulas()[0].text.en)
+    expect(formulas()[0].text)
       .toBe('Tprop = (Tround1·Tround2 − Treply1·Treply2) / (Tround1 + Tround2 + Treply1 + Treply2)')
-    expect(formulas()[0].text.zh).toBe(formulas()[0].text.en)
+    expect(formulas()[0].text).toBe(formulas()[0].text)
     // dsTwr(tround1, treply1, tround2, treply2) computes exactly that expression
     for (const [t1, r1, t2, r2] of [[1000, 800, 900, 700], [523, 41, 6007, 55], [12, 3, 4, 5]]) {
       expect(dsTwr(t1, r1, t2, r2), `${t1} ${r1} ${t2} ${r2}`)
@@ -490,7 +490,7 @@ describe('uwb-dstwr · two wrong halves', () => {
       expect(cell(0, i - 1, 4), `row ${i} ds`).toBe(`${ds[i - 1]} m`)
     }
     expect(table(0).rows).toHaveLength(ANCHORS)
-    expect(table(0).head.map((h) => h.en)).toEqual(['Anchor', 'Treply1', 'First half', 'Second half', 'DS-TWR result'])
+    expect(table(0).head.map((h) => h)).toEqual(['Anchor', 'Treply1', 'First half', 'Second half', 'DS-TWR result'])
   })
 
   it('the first half is the previous lesson’s raw ramp: 6 m per slot of waiting', () => {
@@ -588,7 +588,7 @@ describe('uwb-dstwr · the same number on two lanes', () => {
     expect(tagRanges().map((r) => r.t)).toEqual([12_191_486, 14_191_486, 16_191_486, 18_191_486])
     expect(tagRanges()[0].t - anchorRanges()[0].t).toBeGreaterThan(1.9 * MS)
     expect(tagRanges()[0].t - anchorRanges()[0].t).toBeLessThan(2 * MS)
-    expect(uwbDstwr.observe[2].en).toContain('10 236 615 ns')
+    expect(uwbDstwr.observe[2]).toContain('10 236 615 ns')
     expect(deeperProse()).toContain('12 191 486 ns')
   })
 
@@ -675,7 +675,7 @@ describe('uwb-dstwr · what the timestamp noise leaves', () => {
     // "What the timestamp noise leaves": Anchor | Answers in | Range noise, 1-σ | Error this run,
     //  and the paragraph "the column does not ramp: the anchor that waited four times as long gets
     //  the same figure."
-    expect(table(2).head.map((h) => h.en))
+    expect(table(2).head.map((h) => h))
       .toEqual(['Anchor', 'Answers in', 'Range noise, 1-σ', 'Error this run'])
     expect(table(2).rows).toHaveLength(ANCHORS)
     const fmtCm = (m: number): string => `${m >= 0 ? '+' : '−'}${Math.abs(m * 100).toFixed(1)} cm`
@@ -788,7 +788,7 @@ describe('uwb-dstwr · the procedure, step by step', () => {
     // the order of device.ts: Poll out, Response out (Treply1), Response in (Tround1),
     // Final out (Treply2), Final in (Tround2, and the anchor's own range), Report, the
     // arithmetic both lanes share
-    const en = steps().items.map((s) => s.en)
+    const en = steps().items.map((s) => s)
     const order = ['Poll', 'Treply1', 'Tround1', 'Treply2', 'Tround2', 'Report', 'divides']
     order.forEach((token, i) => expect(en[i], token).toContain(token))
   })

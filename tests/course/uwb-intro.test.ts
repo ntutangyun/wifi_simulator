@@ -91,7 +91,7 @@ describe('uwb-intro · the lesson’s own scene', () => {
     }
     expect(sep(uwbIntroScenario(5))).toBe(5)
     expect(sep(uwbIntroScenario(20))).toBe(20)
-    expect(uwbIntro.variants![0].label.en).toBe('20 m apart')
+    expect(uwbIntro.variants![0].label).toBe('20 m apart')
     expect(sep(uwbIntro.scenario())).toBe(5)
     expect(sep(uwbIntro.variants![0].scenario())).toBe(20)
   })

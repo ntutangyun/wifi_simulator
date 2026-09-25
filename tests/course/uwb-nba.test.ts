@@ -59,12 +59,12 @@ const dist3 = (a: { x: number; y: number; z: number }, b: { x: number; y: number
 const TAG_3D = { x: TAG_POS.x, y: TAG_POS.y, z: TAG_Z }
 
 /** Everything a learner reads of this lesson, joined — `deeper` and `sources` included. */
-const prose = (): string => lessonStrings(uwbNba).map((s) => s.en).join('\n')
+const prose = (): string => lessonStrings(uwbNba).map((s) => s).join('\n')
 
 /** The lesson's nth table of `numbers`, rows kept in place so a cell can be read by position. */
 const table = (n: number): Extract<Block, { kind: 'table' }> =>
   uwbNba.numbers!.filter((b): b is Extract<Block, { kind: 'table' }> => b.kind === 'table')[n]
-const cell = (n: number, row: number, col: number): string => table(n).rows[row][col].en
+const cell = (n: number, row: number, col: number): string => table(n).rows[row][col]
 const formula = (): Extract<Block, { kind: 'formula' }> =>
   uwbNba.numbers!.find((b): b is Extract<Block, { kind: 'formula' }> => b.kind === 'formula')!
 
@@ -82,19 +82,19 @@ describe('uwb-nba · the lesson', () => {
     // the log's own prefix on all three: "Report" alone is uwb-dstwr's word for the wideband
     // message that closes a DS-TWR round, and one track may not gloss one word twice.
     expect(uwbNba.terms!.map((t) => t.term)).toEqual(['narrowband', 'NB', 'NB Poll', 'NB Response', 'NB Report'])
-    expect(uwbNba.terms!.at(-1)!.plain.en).toContain('not the wideband Report of DS-TWR')
+    expect(uwbNba.terms!.at(-1)!.plain).toContain('not the wideband Report of DS-TWR')
     // the picture promises the log's own prefix, which the observations then quote
     expect(prose()).toContain('the log marks everything of its own with those two letters (NB)')
-    expect(uwbNba.observe[0].en).toContain('NBPOLL')
+    expect(uwbNba.observe[0]).toContain('NBPOLL')
   })
 
   it('the scenario and its four variants pass the scenario schema, labels unchanged', () => {
     expect(() => ScenarioSchema.parse(uwbNba.scenario())).not.toThrow()
     expect(uwbNba.variants).toHaveLength(4)
     for (const v of uwbNba.variants!) expect(() => ScenarioSchema.parse(v.scenario())).not.toThrow()
-    expect(uwbNba.variants!.map((v) => v.label.en))
+    expect(uwbNba.variants!.map((v) => v.label))
       .toEqual(['Outside the router’s channel', 'Hop over four channels', 'No LBT', 'One anchor at a time'])
-    expect(uwbNba.variants!.map((v) => v.label.zh))
+    expect(uwbNba.variants!.map((v) => v.label))
       .toEqual(['避开路由器的信道', '在四个信道间跳变', '不先听后发', '一次只问一个锚点'])
     // only the base is one-to-many; every variant is the pair round this lesson used to run,
     // with all four corner anchors, which is why only the base's recorded hash moved
@@ -111,7 +111,7 @@ describe('uwb-nba · the lesson', () => {
     const rs = recs()
     const idx = uwbNba.jumps.map((j) => {
       const i = rs.findIndex(j.find)
-      expect(i, j.label.en).toBeGreaterThanOrEqual(0)
+      expect(i, j.label).toBeGreaterThanOrEqual(0)
       return i
     })
     expect(idx).toEqual([...idx].sort((a, b) => a - b))
@@ -174,7 +174,7 @@ describe('uwb-nba · the scene', () => {
     expect(dist3(TAG_3D, ROUTER_POS).toFixed(2)).toBe('1.50')
     expect(dist3(TAG_3D, { x: LAPTOP_POS.x, y: LAPTOP_POS.y, z: 1.0 }).toFixed(2)).toBe('3.35')
     expect(dist3(TAG_3D, { x: NBA_ANCHORS[0].x, y: NBA_ANCHORS[0].y, z: ANCHOR_Z }).toFixed(2)).toBe('4.76')
-    expect(uwbNba.observe[2].en).toContain('true 4.76 m')
+    expect(uwbNba.observe[2]).toContain('true 4.76 m')
   })
 
   it('is an MMS session on UWB channel 9, reporting both ways, and the variants move one thing each', () => {
@@ -231,14 +231,14 @@ describe('uwb-nba · the three messages of a round', () => {
     expect(nbPpduNs(12)).toBe((10 + 2 + 2 * 12) * 16 * 1000)
     expect((10 + 2 + 2 * 12)).toBe(36)
     expect((10 + 2 + 2 * 13)).toBe(38)
-    expect(formula().text.en).toContain('(10 + 2 + 2 × octets) symbols × 16 µs')
-    expect(formula().text.en).toContain('12 octets → 36 × 16 = 576 µs')
-    expect(formula().text.en).toContain('13 octets → 38 × 16 = 608 µs')
+    expect(formula().text).toContain('(10 + 2 + 2 × octets) symbols × 16 µs')
+    expect(formula().text).toContain('12 octets → 36 × 16 = 576 µs')
+    expect(formula().text).toContain('13 octets → 38 × 16 = 608 µs')
     // "Four bits ride on each symbol and a symbol lasts 16 µs, which is 250 kb/s"
     expect(NB_SYMBOL_CHIPS * NB_CHIP_US).toBe(NB_SYMBOL_US)
     expect(4 / (NB_SYMBOL_US / 1000)).toBe(250) // 4 bits per 16 µs symbol, in kb/s
-    expect(formula().note!.en).toContain('a symbol lasts 16 µs, which is 250 kb/s')
-    expect(formula().note!.en).toContain('twelve symbols of header')
+    expect(formula().note!).toContain('a symbol lasts 16 µs, which is 250 kb/s')
+    expect(formula().note!).toContain('twelve symbols of header')
     expect(NB_SHR_SYMBOLS + NB_PHR_SYMBOLS).toBe(12)
   })
 
@@ -262,7 +262,7 @@ describe('uwb-nba · one block, message by message', () => {
   it('"the poll leaves at zero, the first response answers at 1.000 ms"', () => {
     expect(fmtRecord(at(0, txKind('nbPoll')))).toBe('uwb-1 → * NBPOLL 23 B @0.25 Mbps (928.0 µs)')
     expect(at(1 * MS, txKind('nbResp'))).toBeDefined()
-    expect(uwbNba.observe[0].en).toContain('“uwb-1 → * NBPOLL 23 B @0.25 Mbps (928.0 µs)”')
+    expect(uwbNba.observe[0]).toContain('“uwb-1 → * NBPOLL 23 B @0.25 Mbps (928.0 µs)”')
     // "It is the first thing in the whole run — no ranging frame has been sent yet"
     expect(ofType(recs(), 'TX_START')[0].frame.kind).toBe('nbPoll')
     expect(prose()).toContain('the poll leaves at zero, the first response answers at 1.000 ms')
@@ -274,14 +274,14 @@ describe('uwb-nba · one block, message by message', () => {
   it('"the first report goes out at 20.000 ms, and the distance appears 608 µs behind it"', () => {
     expect(fmtRecord(at(20 * MS, txKind('nbReport'))))
       .toBe('anchor-1 → uwb-1 NBREPORT 13 B @0.25 Mbps (608.0 µs)')
-    expect(uwbNba.observe[1].en)
+    expect(uwbNba.observe[1])
       .toContain('“anchor-1 → uwb-1 NBREPORT 13 B @0.25 Mbps (608.0 µs)” at 20.000 ms')
     const r = ofType(recs(), 'UWB_RANGE')[0]
     expect(r.node).toBe(TAG)
     expect(r.t).toBe(20 * MS + nbPpduNs(NB_REPORT_BYTES) + 16)
     expect((r.t / MS).toFixed(3)).toBe('20.608')
     expect(fmtRecord(r)).toBe('uwb-1 range → anchor-1 (SS): 4.74 m (true 4.76 m, raw 7.51 m)')
-    expect(uwbNba.observe[2].en)
+    expect(uwbNba.observe[2])
       .toContain('“uwb-1 range → anchor-1 (SS): 4.74 m (true 4.76 m, raw 7.51 m)”')
     expect(prose()).toContain('the distance appears 608 µs behind it, at 20.608 ms')
   })
@@ -295,7 +295,7 @@ describe('uwb-nba · the grid underneath and the train on top', () => {
     expect(plan.roundNs / plan.slots).toBe(0.5 * MS)
     expect(plan.blockNs).toBe(200 * MS)
     // M5: `sources` quotes this same 52, not the pairwise round's 28
-    expect(uwbNba.sources!.map((s) => s.en).join(' ')).toContain(`The ${plan.slots}-slot round`)
+    expect(uwbNba.sources!.map((s) => s).join(' ')).toContain(`The ${plan.slots}-slot round`)
     // one round a block: block 6's ends at 1.226 s, inside the window
     expect(6 * plan.blockNs + plan.roundNs).toBeLessThan(RUN_NS)
     expect(7 * plan.blockNs).toBeGreaterThan(RUN_NS)
@@ -329,7 +329,7 @@ describe('uwb-nba · the grid underneath and the train on top', () => {
     expect(train.marginDb.toFixed(1)).toBe('34.5')
     expect(prose()).toContain('Both answering anchors hear 8 fragments of 8')
     expect(prose()).toContain('by 34.5 dB and 33.4 dB')
-    expect(uwbNba.observe[2].en).toContain('every fragment was heard and detected')
+    expect(uwbNba.observe[2]).toContain('every fragment was heard and detected')
   })
 
   it('the base round is one round a block; the pair variants are four', () => {
@@ -341,7 +341,7 @@ describe('uwb-nba · the grid underneath and the train on top', () => {
     // Review I3: the base yields four distances in two of the seven blocks, not one in all of them
     expect(prose()).toContain('In this scene that happens twice in seven blocks')
     expect(prose()).not.toContain('happens exactly once')
-    expect(uwbNba.jumps.map((j) => j.label.en)).toContain('the first distance the run gets out')
+    expect(uwbNba.jumps.map((j) => j.label)).toContain('the first distance the run gets out')
     const blocks = [...new Set(ofType(recs(), 'UWB_RANGE').filter((r) => r.node === TAG).map((r) => r.block))]
     expect(blocks).toEqual([0, 4])
     expect(ofType(recs(), 'UWB_RANGE').filter((r) => r.node === TAG)).toHaveLength(4)
@@ -351,7 +351,7 @@ describe('uwb-nba · the grid underneath and the train on top', () => {
     const pairBlock0 = ofType(recs(V_PAIR), 'UWB_ROUND').filter((r) => r.block === 0)
     expect(pairBlock0.map((r) => r.round)).toEqual([0, 1, 2, 3])
     expect(ofType(recs(V_OUT), 'UWB_RANGE').filter((r) => r.node === TAG)).toHaveLength(BLOCKS * 4)
-    expect(uwbNba.tryThis[0].en).toContain('One anchor at a time')
+    expect(uwbNba.tryThis[0]).toContain('One anchor at a time')
   })
 })
 
@@ -378,7 +378,7 @@ describe('uwb-nba · what the depth says', () => {
   })
 
   it('the provenance is in sources and nowhere else', () => {
-    const src = uwbNba.sources!.map((s) => s.en).join('\n')
+    const src = uwbNba.sources!.map((s) => s).join('\n')
     expect(src).toContain('IEEE Std 802.15.4-2024 Clause 12')
     expect(src).toContain('P802.15.4ab')
     expect(src).toContain('D5.0')
@@ -392,7 +392,7 @@ describe('uwb-nba · what the depth says', () => {
     expect(src).not.toContain('28-slot round')
     // the standard's own sensitivity floor for this PHY, named as the model's departure
     expect(src).toContain('−85 dBm')
-    const zh = uwbNba.sources!.map((s) => s.zh).join('\n')
+    const zh = uwbNba.sources!.map((s) => s).join('\n')
     expect(zh).toContain('P802.15.4ab')
     expect(zh).toContain('15-22/0381r5')
     expect(zh).toContain('D5.0')
@@ -403,12 +403,12 @@ describe('uwb-nba · the quiz is answerable from the main path', () => {
   it('names the radio that carries the reply time, and the 576 µs arithmetic', () => {
     expect(uwbNba.quiz).toHaveLength(2)
     for (const q of uwbNba.quiz) expect(q.options[q.answer]).toBeDefined()
-    expect(uwbNba.quiz[0].options[uwbNba.quiz[0].answer].en)
+    expect(uwbNba.quiz[0].options[uwbNba.quiz[0].answer])
       .toBe('The narrowband radio, in the Report that closes the round')
-    expect(uwbNba.quiz[1].options[uwbNba.quiz[1].answer].en)
+    expect(uwbNba.quiz[1].options[uwbNba.quiz[1].answer])
       .toContain('Four bits ride on a 16 µs symbol — 250 kb/s — and twelve header symbols go in front')
     // both answers are derivable from the numbers section alone
-    expect(formula().note!.en).toContain('Four bits ride on each symbol')
+    expect(formula().note!).toContain('Four bits ride on each symbol')
     expect(cell(0, 3, 3)).toContain('reply time')
   })
 })
@@ -427,7 +427,7 @@ describe('uwb-nba · how the two radios divide one round', () => {
   const steps = (): string[] => {
     const b = uwbNba.numbers!.filter((x): x is Extract<Block, { kind: 'steps' }> => x.kind === 'steps')
     expect(b).toHaveLength(1)
-    return b[0].items.map((i) => i.en)
+    return b[0].items.map((i) => i)
   }
   const worked = (row: number): string => cell(1, row, 1)
 

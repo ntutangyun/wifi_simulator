@@ -60,13 +60,13 @@ const tagRanges = (variant?: number) => ofType(recs(variant), 'UWB_RANGE').filte
 /** The lesson's nth table of `numbers`, rows kept in place so a cell can be checked by position. */
 const table = (n: number): Extract<Block, { kind: 'table' }> =>
   uwbPosition.numbers!.filter((b): b is Extract<Block, { kind: 'table' }> => b.kind === 'table')[n]
-const cell = (n: number, row: number, col: number): string => table(n).rows[row][col].en
+const cell = (n: number, row: number, col: number): string => table(n).rows[row][col]
 
 const formulas = (): Extract<Block, { kind: 'formula' }>[] =>
   uwbPosition.numbers!.filter((b): b is Extract<Block, { kind: 'formula' }> => b.kind === 'formula')
 
 /** Everything a learner reads of one lesson, joined — for "is this number actually printed?" checks. */
-const lessonProse = (l: Lesson): string => lessonStrings(l).map((s) => s.en).join('\n')
+const lessonProse = (l: Lesson): string => lessonStrings(l).map((s) => s).join('\n')
 /** …and this lesson's own, which is what nearly every check here reads. */
 const prose = (): string => lessonProse(uwbPosition)
 
@@ -119,7 +119,7 @@ describe('uwb-position · the lesson’s own place in the track', () => {
     const rs = recs()
     const at = uwbPosition.jumps.map((j) => {
       const i = rs.findIndex(j.find)
-      expect(i, j.label.en).toBeGreaterThanOrEqual(0)
+      expect(i, j.label).toBeGreaterThanOrEqual(0)
       return i
     })
     expect(at).toEqual([...at].sort((a, b) => a - b))
@@ -133,7 +133,7 @@ describe('uwb-position · the lesson’s own place in the track', () => {
   it('owns the arithmetic as the model’s, and cites only in `sources`', () => {
     // "The standard says nothing at all about how a phone turns ranges into a point" — the
     // provenance paragraph that used to open the lesson is now the collapsed section.
-    const src = uwbPosition.sources!.map((s) => s.en).join('\n')
+    const src = uwbPosition.sources!.map((s) => s).join('\n')
     expect(src).toContain('IEEE Std 802.15.4-2024')
     expect(src).toContain('The standard says nothing at all about how a phone turns ranges into a point')
     expect(src).toContain('Gauss–Newton least squares')
@@ -199,8 +199,8 @@ describe('uwb-position · the solver', () => {
   it('the printed formula is the solver’s own terms, and it converges to a micrometre', () => {
     // "r_i = ‖p − a_i‖ − d_i      J_i = (p − a_i) / ‖p − a_i‖      (JᵀJ) δ = −Jᵀ r"
     expect(formulas()).toHaveLength(2)
-    expect(formulas()[0].text.en).toBe('r_i = ‖p − a_i‖ − d_i      J_i = (p − a_i) / ‖p − a_i‖      (JᵀJ) δ = −Jᵀ r')
-    for (const f of formulas()) expect(f.text.zh).toBe(f.text.en)
+    expect(formulas()[0].text).toBe('r_i = ‖p − a_i‖ − d_i      J_i = (p − a_i) / ‖p − a_i‖      (JᵀJ) δ = −Jᵀ r')
+    for (const f of formulas()) expect(f.text).toBe(f.text)
     // "Fed exact distances the solver converges to within a micrometre"
     const exact = exactFix(TAG.x, TAG.y)
     expect(Math.hypot(exact.x - TAG.x, exact.y - TAG.y)).toBeLessThan(1e-6)
@@ -229,7 +229,7 @@ describe('uwb-position · the solver', () => {
     //  sigma is this same σ_r, at 100 ps of timestamp noise … It is the single-sided figure,
     //  kept as a conservative stand-in — a double-sided round scatters a little less,
     //  1.8–1.9 cm."
-    expect(formulas()[1].text.en).toBe('σ_r = c · σ_ts / √2 = 2.12 cm')
+    expect(formulas()[1].text).toBe('σ_r = c · σ_ts / √2 = 2.12 cm')
     expect(SIGMA_R).toBeCloseTo(C_M_PER_NS * 0.1 / Math.SQRT2, 12)
     expect((SIGMA_R * 100).toFixed(2)).toBe('2.12')
     // the phrase is one sentence written in two lessons: uwb-intro's observe prints the same
@@ -244,7 +244,7 @@ describe('uwb-position · the solver', () => {
     expect(SIGMA_R / (C_M_PER_NS * 0.1)).toBeGreaterThan(0.65)
     expect(SIGMA_R * 100).toBeGreaterThan(1.9)
     // and the provenance of that choice is in `sources`, where citations live
-    expect(uwbPosition.sources!.map((s) => s.en).join('\n')).toContain('0.62–0.65 · c · σ_ts')
+    expect(uwbPosition.sources!.map((s) => s).join('\n')).toContain('0.62–0.65 · c · σ_ts')
   })
 })
 
@@ -303,7 +303,7 @@ describe('uwb-position · the base run', () => {
     // now travels with the claim — uwb-geometry's own half-sentence.
     const pic = uwbPosition.picture!.map((b) => (b as { text?: { en: string } }).text?.en ?? '').join(' ')
     expect(pic).toContain('but no record carries the figure, so on screen nothing moves')
-    expect(uwbPosition.outcomes![2].en)
+    expect(uwbPosition.outcomes![2])
       .toBe('say what the fit cannot explain — the residual — and why the log never prints it')
     expect(Object.keys(fixes()[0])).not.toContain('residualM')
   })
@@ -319,7 +319,7 @@ describe('uwb-position · the base run', () => {
 describe('uwb-position · the procedure, against the solver', () => {
   const steps = (): Extract<Block, { kind: 'steps' }> =>
     uwbPosition.numbers!.find((b): b is Extract<Block, { kind: 'steps' }> => b.kind === 'steps')!
-  const stepsText = (): string => steps().items.map((i) => i.en).join('\n')
+  const stepsText = (): string => steps().items.map((i) => i).join('\n')
   /** Block 0 of the base run, as the tag measured it: the input to the worked example. */
   const block0 = () => tagRanges().filter((r) => r.block === 0)
 
@@ -327,7 +327,7 @@ describe('uwb-position · the procedure, against the solver', () => {
     expect(uwbPosition.numbers!.some((b) => b.kind === 'steps')).toBe(true)
     expect((uwbPosition.deeper ?? []).some((b) => b.kind === 'steps')).toBe(false)
     expect(steps().items.length).toBeGreaterThanOrEqual(3)
-    for (const i of steps().items) expect(i.zh).not.toBe(i.en)
+    for (const i of steps().items) expect(i).not.toBe(i)
   })
 
   it('step 1: under three matched ranges the round emits nothing', () => {

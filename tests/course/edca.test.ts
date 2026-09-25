@@ -200,7 +200,7 @@ describe('edca · the observations and the experiments', () => {
     expect(Math.round(firstData(rs, 'sta-3').t / MS)).toBe(55)
     expect(firstData(rs, 'sta-2').t / MS).toBe(0.088)
     expect(Math.round(firstData(rs, 'sta-1').t / MS)).toBe(23)
-    for (const j of edca.jumps) expect(rs.some(j.find), j.label.en).toBe(true)
+    for (const j of edca.jumps) expect(rs.some(j.find), j.label).toBe(true)
   })
 
   it('turning EDCA off on the caller drops it to one queue and about 2.5× the wait', () => {

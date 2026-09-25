@@ -11,50 +11,44 @@ import type { Generation } from '../model/types'
 import { UWB_TX_POWER_DBM } from '../uwb/phy'
 import { oneRoom, hallwayHouse, longApartment, sc } from './wifiScenes'
 
-export interface L10n {
-  en: string
-  zh: string
-}
-
-
 export interface Quiz {
-  q: L10n
-  options: L10n[]
+  q: string
+  options: string[]
   answer: number
-  explain: L10n
+  explain: string
 }
 
 export interface JumpTarget {
-  label: L10n
+  label: string
   find: (r: TLRecord) => boolean
 }
 
 export interface LessonVariant {
-  label: L10n
+  label: string
   scenario: () => Scenario
 }
 
-/** A block of lesson prose. Every string is bilingual. */
+/** A block of lesson prose. */
 export type Block =
   /** A short paragraph (default kind). */
-  | { kind?: 'p'; heading?: L10n; text: L10n }
+  | { kind?: 'p'; heading?: string; text: string }
   /** One monospace formula line, optionally followed by a short note. */
-  | { kind: 'formula'; heading?: L10n; text: L10n; note?: L10n }
+  | { kind: 'formula'; heading?: string; text: string; note?: string }
   /** A small comparison table; every row has head.length cells. */
-  | { kind: 'table'; heading?: L10n; head: L10n[]; rows: L10n[][] }
+  | { kind: 'table'; heading?: string; head: string[]; rows: string[][] }
   /** Parallel points. */
-  | { kind: 'list'; heading?: L10n; items: L10n[] }
+  | { kind: 'list'; heading?: string; items: string[] }
   /** Ordered steps. */
-  | { kind: 'steps'; heading?: L10n; items: L10n[] }
+  | { kind: 'steps'; heading?: string; items: string[] }
   /** An interactive view computed from the engine's own functions; params preset its controls. */
-  | { kind: 'widget'; heading?: L10n; widget: 'linkBudget' | 'mcsLadder'; params?: Record<string, number | string>; caption?: L10n }
+  | { kind: 'widget'; heading?: string; widget: 'linkBudget' | 'mcsLadder'; params?: Record<string, number | string>; caption?: string }
   /** A call-out that sends the reader to the simulator: loads the lesson scenario, or jumps to jumps[jump] once loaded. */
-  | { kind: 'watch'; heading?: L10n; text: L10n; jump?: number }
+  | { kind: 'watch'; heading?: string; text: string; jump?: number }
 
 /** One word the standard's own spelling, and the plain-language line that explains it. */
 export interface Term {
   term: string
-  plain: L10n
+  plain: string
 }
 
 /**
@@ -68,13 +62,13 @@ export interface Term {
 export interface Lesson {
   id: string
   module: number
-  title: L10n
+  title: string
   /** Old shape, being migrated away. A lesson has either `body` or the eight fields below. */
   body?: Block[]
   /** 2–4 plain sentences: the problem, who has it, what the lesson shows. */
-  why?: L10n
+  why?: string
   /** 2–4 verb phrases the reader can do afterwards. */
-  outcomes?: L10n[]
+  outcomes?: string[]
   /** Lesson ids this one assumes; rendered as clickable titles. */
   needs?: string[]
   /** The new words this lesson introduces, at most six (four for a track's first lesson). */
@@ -86,20 +80,17 @@ export interface Lesson {
   /** Optional professional depth, collapsed; never needed to pass the quiz. */
   deeper?: Block[]
   /** Where the numbers come from: clauses, contributions, model choices. Collapsed. */
-  sources?: L10n[]
+  sources?: string[]
   scenario: () => Scenario
   variants?: LessonVariant[]
   jumps: JumpTarget[]
-  observe: L10n[]
-  tryThis: L10n[]
+  observe: string[]
+  tryThis: string[]
   quiz: Quiz[]
 }
 
 /** True once a lesson carries the new shape. */
 export const isMigrated = (l: Lesson): boolean => l.why !== undefined
-
-/** A language-neutral cell (numbers, symbols, protocol names). */
-export const N = (s: string): L10n => ({ en: s, zh: s })
 
 // ---------------------------------------------------------------------------
 // scenario building blocks
@@ -248,8 +239,8 @@ export const firstInternal = (r: TLRecord): boolean => r.type === 'INTERNAL_COLL
 export const firstVo = (r: TLRecord): boolean =>
   (r.type === 'BACKOFF_DRAW' || r.type === 'IFS_START') && r.ac === 3
 
-export const J = (en: string, zh: string, find: (r: TLRecord) => boolean): JumpTarget =>
-  ({ label: { en, zh }, find })
+export const J = (label: string, find: (r: TLRecord) => boolean): JumpTarget =>
+  ({ label, find })
 
 export const firstAmpTrigger = txOf((r) => r.frame.kind === 'ampTrigger')
 export const firstAmpResp = txOf((r) => r.frame.kind === 'ampResp')

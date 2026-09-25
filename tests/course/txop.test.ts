@@ -127,7 +127,7 @@ describe('txop · what the access point actually did', () => {
     expect(inside[2].t).toBe(inside[1].t + inside[1].frame.txTimeNs + OFDM_5G.sifsNs)
     expect(rs.some((r) => (r.type === 'BACKOFF_DRAW' || r.type === 'IFS_START')
       && r.node === 'ap' && r.t > t0.t && r.t < end.t)).toBe(false)
-    for (const j of txop.jumps) expect(rs.some(j.find), j.label.en).toBe(true)
+    for (const j of txop.jumps) expect(rs.some(j.find), j.label).toBe(true)
   })
 })
 

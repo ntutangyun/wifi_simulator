@@ -100,7 +100,7 @@ describe('amp-slots · lesson shape', () => {
 
   it('every jump target occurs where its label says it does', () => {
     const rs = recs()
-    const find = (en: string) => ampSlots.jumps.find((j) => j.label.en === en)!
+    const find = (en: string) => ampSlots.jumps.find((j) => j.label === en)!
     for (const en of ['first collision in a slot', 'first Ack naming the router itself', 'first lost response']) {
       expect(rs.some(find(en).find), en).toBe(true)
     }

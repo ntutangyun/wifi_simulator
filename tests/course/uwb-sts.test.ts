@@ -65,7 +65,7 @@ describe('uwb-sts · the lesson', () => {
   })
 
   it('the two attacked variants are the same room at 20 m, with a relay in it', () => {
-    expect(uwbSts.variants!.map((v) => v.label.en))
+    expect(uwbSts.variants!.map((v) => v.label))
       .toEqual(['A relay, and the sequence off', 'The same relay, the sequence on', 'Honest, at 20 m'])
     const base20 = uwbIntroScenario(20)
     for (const [i, stsOff] of [[V_OFF, true], [V_ON, false]] as [number, boolean][]) {
@@ -97,8 +97,8 @@ describe('uwb-sts · the lesson', () => {
     }
     // and the prose sends the reader to it by name
     const counters = uwbSts.numbers!.filter((b) => b.kind === 'table')[1]
-    expect(counters.head[1].en).toBe('Honest, at 20 m (third variant)')
-    expect(uwbSts.tryThis[0].en).toContain('the third, the honest 20 m room')
+    expect(counters.head[1]).toBe('Honest, at 20 m (third variant)')
+    expect(uwbSts.tryThis[0]).toContain('the third, the honest 20 m room')
   })
 })
 
@@ -115,7 +115,7 @@ describe('uwb-sts · 50 ns is 14.99 m', () => {
     expect((honest.distM - spoofed.distM).toFixed(2)).toBe('14.99')
     // the formula's note: "one advance of 50 ns is subtracted from the flight once, whole"
     expect(uwbSts.numbers!.some((b) => b.kind === 'formula'
-      && b.text.en === '50 ns × 0.299792458 m/ns = 14.99 m')).toBe(true)
+      && b.text === '50 ns × 0.299792458 m/ns = 14.99 m')).toBe(true)
   })
 
   it('both receive counters come back 3195 RCTU low — 50.0 ns each', () => {
@@ -153,13 +153,13 @@ describe('uwb-sts · with the sequence on, nothing is measured', () => {
   it('the numbers prose and the quiz describe the subtraction the same way', () => {
     // Review I4: the prose used to say the two halves "pull the same way"; they do not.
     const p = uwbSts.numbers!.find((b): b is Extract<Block, { kind?: 'p' }> =>
-      (b.kind ?? 'p') === 'p' && b.heading?.en === 'The same subtraction, in counter units')!
-    expect(p.text.en).toContain('makes the round trip shorter and the reply time longer')
-    expect(p.text.en).toContain('their difference falls by twice the advance')
-    expect(p.text.en).not.toContain('pull the same way')
-    expect(uwbSts.quiz[1].explain.en).toContain('One reading falls and the other rises')
+      (b.kind ?? 'p') === 'p' && b.heading === 'The same subtraction, in counter units')!
+    expect(p.text).toContain('makes the round trip shorter and the reply time longer')
+    expect(p.text).toContain('their difference falls by twice the advance')
+    expect(p.text).not.toContain('pull the same way')
+    expect(uwbSts.quiz[1].explain).toContain('One reading falls and the other rises')
     // the two say the same thing: one shorter, one longer, difference doubled, halving leaves one
-    for (const s of [p.text.en, uwbSts.quiz[1].explain.en]) {
+    for (const s of [p.text, uwbSts.quiz[1].explain]) {
       expect(/short|fall/i.test(s) && /long|rise/i.test(s), s).toBe(true)
       expect(/twice|two/i.test(s), s).toBe(true)
     }
@@ -170,18 +170,18 @@ describe('uwb-sts · with the sequence on, nothing is measured', () => {
     expect(STS_ACTIVE_CHIPS).toBe(32_768)
     expect(SYNC_SYMBOLS * PSYM_CHIPS).toBe(32_512)
     expect(STS_ACTIVE_CHIPS / (SYNC_SYMBOLS * PSYM_CHIPS)).toBeCloseTo(1.008, 3)
-    const deeper = (uwbSts.deeper ?? []).map((b) => (b as { text: { en: string } }).text.en).join('\n')
+    const deeper = (uwbSts.deeper ?? []).map((b) => (b as { text: string }).text).join('\n')
     expect(deeper).toContain('about as long as the SYNC that opens the frame, which is 32 512 chips')
     expect(deeper).not.toContain('two thirds as long again')
   })
 
   it('the observations quote the three outcomes the table lists', () => {
-    expect(uwbSts.observe[0].en).toContain('4.95 m against a true 5.00 m')
-    expect(uwbSts.observe[1].en).toContain('4.96 m against a true 20.00 m')
-    expect(uwbSts.observe[2].en).toContain('one UWB_STS_REJECT at anchor-1 on the poll')
+    expect(uwbSts.observe[0]).toContain('4.95 m against a true 5.00 m')
+    expect(uwbSts.observe[1]).toContain('4.96 m against a true 20.00 m')
+    expect(uwbSts.observe[2]).toContain('one UWB_STS_REJECT at anchor-1 on the poll')
     const table = uwbSts.numbers!.find((b) => b.kind === 'table')!
-    expect(table.rows.map((row) => row[2].en)).toEqual(['4.95 m', '4.96 m', 'none'])
-    expect(table.rows[2][3].en).toBe('1 × UWB_STS_REJECT, 2 × UWB_TIMEOUT')
+    expect(table.rows.map((row) => row[2])).toEqual(['4.95 m', '4.96 m', 'none'])
+    expect(table.rows[2][3]).toBe('1 × UWB_STS_REJECT, 2 × UWB_TIMEOUT')
   })
 
   it('the base scene is honest: one range, within centimetres, and no rejection', () => {
@@ -223,24 +223,24 @@ describe('uwb-sts · what the receiver does with the sequence', () => {
     // !this.cfg.stsOff) { emit UWB_STS_REJECT; return }`. No sequence is generated, nothing is
     // compared, and with no attacker configured no check runs at all. The picture and the steps
     // say so where the beginner meets them, instead of narrating a correlation that never happens.
-    const said = uwbSts.picture!.find((b) => b.heading?.en === 'What you are actually watching') as
+    const said = uwbSts.picture!.find((b) => b.heading === 'What you are actually watching') as
       Extract<Block, { kind?: 'p' }>
     expect(said).toBeDefined()
-    expect(said.text.en).toContain('compares nothing')
-    expect(said.text.en).toContain('models is the outcome')
-    expect(said.text.en).toContain('fixed 50 ns')
-    expect(said.text.zh).toContain('不做任何比对')
-    expect(said.text.zh).toContain('模拟的是比对的结果')
+    expect(said.text).toContain('compares nothing')
+    expect(said.text).toContain('models is the outcome')
+    expect(said.text).toContain('fixed 50 ns')
+    expect(said.text).toContain('不做任何比对')
+    expect(said.text).toContain('模拟的是比对的结果')
     // the step that rejects names the scene, not a comparison
-    expect(steps.items[2].en).toContain('reads the scene instead')
-    expect(steps.items[2].zh).toContain('读的却是场景本身')
+    expect(steps.items[2]).toContain('reads the scene instead')
+    expect(steps.items[2]).toContain('读的却是场景本身')
     // and the sentences that described the imaginary correlation are gone from the main path
     const main = [uwbSts.why!, ...uwbSts.outcomes!]
       .concat(paragraphTexts(uwbSts.picture!), paragraphTexts(uwbSts.numbers!))
     for (const s of main) {
-      expect(/looks for the pulses it generated itself|finds noise there/.test(s.en), s.en).toBe(false)
-      expect(/takes its stamp only if the pulses it expected/.test(s.en), s.en).toBe(false)
-      expect(/它在那儿找到的是噪声|才会认下这次读数/.test(s.zh), s.zh).toBe(false)
+      expect(/looks for the pulses it generated itself|finds noise there/.test(s), s).toBe(false)
+      expect(/takes its stamp only if the pulses it expected/.test(s), s).toBe(false)
+      expect(/它在那儿找到的是噪声|才会认下这次读数/.test(s), s).toBe(false)
     }
   })
 
@@ -312,23 +312,23 @@ describe('uwb-sts · what the try-this experiments ask for', () => {
     // the second experiment: "It steals the same 14.99 m, so the range comes out below zero."
     const honest = ofType(recs(), 'UWB_RANGE')[0].distM
     expect(honest - RELAY_ADVANCE_NS * C_M_PER_NS).toBeLessThan(0)
-    expect(uwbSts.tryThis[1].en).toContain('the range comes out below zero')
-    expect(uwbSts.tryThis[0].en).toContain('3195 RCTU')
+    expect(uwbSts.tryThis[1]).toContain('the range comes out below zero')
+    expect(uwbSts.tryThis[0]).toContain('3195 RCTU')
   })
 
   it('the counter table tags the advance itself as the simulator’s own number', () => {
     // "The advance itself | — | 50 ns | scenario.uwb.attacker, a model choice": the steps say
     // what the relay does, and the table says whose number it is.
     const counters = uwbSts.numbers!.filter((b) => b.kind === 'table')[1]
-    const row = counters.rows.find((r) => r[0].en === 'The advance itself')!
-    expect(row[2].en).toBe('50 ns')
-    expect(row[3].en).toContain('scenario.uwb.attacker')
-    expect(row[3].en).toContain('model choice')
+    const row = counters.rows.find((r) => r[0] === 'The advance itself')!
+    expect(row[2]).toBe('50 ns')
+    expect(row[3]).toContain('scenario.uwb.attacker')
+    expect(row[3]).toContain('model choice')
     expect(uwbStsScenario(true).uwb!.attacker!.advanceNs).toBe(RELAY_ADVANCE_NS)
   })
 
   it('names the standard, the model choices and the units in `sources`', () => {
-    const src = uwbSts.sources!.map((s) => s.en).join('\n')
+    const src = uwbSts.sources!.map((s) => s).join('\n')
     expect(src).toContain('IEEE Std 802.15.4-2024')
     expect(src).toContain('scenario.uwb.attacker')
     expect(src).toContain('scenario.uwb.stsOff')

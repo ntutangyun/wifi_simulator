@@ -121,9 +121,9 @@ it('lesson 15’s far-corner experiment breaks the widest channel and only the w
     }
   }
   // 20, 40 and 80 MHz still deliver from that corner…
-  for (const i of [0, 1, 2]) expect(far(i).acks, `variant ${l.variants![i].label.en}`).toBeGreaterThan(50)
+  for (const i of [0, 1, 2]) expect(far(i).acks, `variant ${l.variants![i].label}`).toBeGreaterThan(50)
   // …160 MHz delivers nothing at all: "not one ACK comes back".
-  expect(far(3).acks, `variant ${l.variants![3].label.en} must be dead in the corner`).toBe(0)
+  expect(far(3).acks, `variant ${l.variants![3].label} must be dead in the corner`).toBe(0)
   expect(far(3).drops).toBeGreaterThan(0)
   // "80 MHz delivers at 401.6 µs a frame, 20 MHz at 524.0, and 40 MHz … 768.8"
   const airtime = (i: number) => {

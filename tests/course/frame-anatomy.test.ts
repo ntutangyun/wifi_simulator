@@ -82,7 +82,7 @@ describe('frame-anatomy · the lesson itself', () => {
     // Step review, Minor: the RTS / A-MPDU / BlockAck buttons are frame-anatomy-bytes'
     // — three acronyms of later lessons on the jump bar of lesson 4. This half keeps
     // only the frames its own text walks the reader through.
-    expect(frameAnatomy.jumps.map((j) => j.label.en)).toEqual([
+    expect(frameAnatomy.jumps.map((j) => j.label)).toEqual([
       'first legacy data frame', 'first QoS data frame', 'first retransmission (Retry = 1)',
     ])
   })

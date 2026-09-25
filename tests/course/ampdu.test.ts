@@ -185,6 +185,6 @@ describe('ampdu · the whole 200 ms run, both ways', () => {
   })
 
   it('every jump target occurs in the batched run', () => {
-    for (const j of ampdu.jumps) expect(agg().some(j.find), j.label.en).toBe(true)
+    for (const j of ampdu.jumps) expect(agg().some(j.find), j.label).toBe(true)
   })
 })

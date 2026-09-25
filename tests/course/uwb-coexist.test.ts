@@ -115,17 +115,17 @@ function mbps(rs: TLRecord[], node: string): number {
 }
 
 /** Everything a learner reads of this lesson, `deeper` and `sources` included, joined. */
-const prose = (): string => lessonStrings(uwbCoexist).map((s) => s.en).join('\n')
-const proseZh = (): string => lessonStrings(uwbCoexist).map((s) => s.zh).join('\n')
+const prose = (): string => lessonStrings(uwbCoexist).map((s) => s).join('\n')
+const proseZh = (): string => lessonStrings(uwbCoexist).map((s) => s).join('\n')
 
 const tablesOf = (bs: Block[]): Extract<Block, { kind: 'table' }>[] =>
   bs.filter((b): b is Extract<Block, { kind: 'table' }> => b.kind === 'table')
 /** The nth table of `numbers`; rows kept in place so a cell can be checked by position. */
 const table = (n: number) => tablesOf(uwbCoexist.numbers!)[n]
-const cell = (n: number, row: number, col: number): string => table(n).rows[row][col].en
+const cell = (n: number, row: number, col: number): string => table(n).rows[row][col]
 /** The nth table of `deeper` — the cures table and the two position lines. */
 const deepTable = (n: number) => tablesOf(uwbCoexist.deeper!)[n]
-const deepCell = (n: number, row: number, col: number): string => deepTable(n).rows[row][col].en
+const deepCell = (n: number, row: number, col: number): string => deepTable(n).rows[row][col]
 
 /** In-band level (dBm) a Wi-Fi transmitter of `eirpDbm` puts into the UWB band at `at`. */
 const wifiAt = (from: { x: number; y: number; z: number }, eirpDbm: number, at: typeof TAG): number =>
@@ -170,7 +170,7 @@ describe('uwb-coexist · the lesson’s own place in the track', () => {
     const rs = recs()
     const at = uwbCoexist.jumps.map((j) => {
       const i = rs.findIndex(j.find)
-      expect(i, j.label.en).toBeGreaterThanOrEqual(0)
+      expect(i, j.label).toBeGreaterThanOrEqual(0)
       return i
     })
     expect(at).toEqual([...at].sort((a, b) => a - b))
@@ -182,7 +182,7 @@ describe('uwb-coexist · the lesson’s own place in the track', () => {
   })
 
   it('names the one standard clause it leans on and owns the rest as the model’s, in `sources`', () => {
-    const src = uwbCoexist.sources!.map((s) => s.en).join('\n')
+    const src = uwbCoexist.sources!.map((s) => s).join('\n')
     // "§16.4.10 sets a UWB receiver’s maximum input at −45 dBm/MHz"
     expect(src).toContain('IEEE Std 802.15.4-2024')
     expect(src).toContain('§16.4.10')
@@ -246,7 +246,7 @@ describe('uwb-coexist · the scene', () => {
     expect(uwbCoexist.variants![CH9].label).toEqual({ en: 'UWB on channel 9', zh: 'UWB 使用 9 号信道' })
     expect(scenarioOf(CH9)).toEqual({ ...base, uwb: { ...base.uwb!, channel: 9 } })
     // "Wi-Fi on channel 7 (5 985 MHz)" — the 6 GHz centre, which is also the engine's default
-    expect(uwbCoexist.variants![WIFI7].label.en).toBe('Wi-Fi on channel 7 (5 985 MHz)')
+    expect(uwbCoexist.variants![WIFI7].label).toBe('Wi-Fi on channel 7 (5 985 MHz)')
     expect(CLEAR_6G_CENTER_MHZ).toBe(DEFAULT_SIX_GHZ_CENTER_MHZ)
     expect(sixGhzChannelNo(CLEAR_6G_CENTER_MHZ)).toBe(7)
     expect(scenarioOf(WIFI7)).toEqual({ ...base, sixGhzCenterMhz: CLEAR_6G_CENTER_MHZ })
@@ -290,15 +290,15 @@ describe('uwb-coexist · the band arithmetic', () => {
   it('the in-band formula is the mediator’s own: 20 dBm against −21.95 dBm', () => {
     const f = uwbCoexist.numbers!.filter((b): b is Extract<Block, { kind: 'formula' }> => b.kind === 'formula')
     expect(f).toHaveLength(1)
-    expect(f[0].text.en).toBe(
+    expect(f[0].text).toBe(
       'in-band EIRP = EIRP + 10·log10(W_overlap / W_own)      Wi-Fi: 20 + 10·log10(80/80) = 20 dBm      UWB: −14 + 10·log10(80/499.2) = −21.95 dBm')
-    expect(f[0].text.zh).toBe(f[0].text.en)
+    expect(f[0].text).toBe(f[0].text)
     const uwbInBand = uwbInBandDbm(UWB_TX_POWER_DBM, uwbBandOverlapMhz(WIFI_6G_CENTER_MHZ, WIDTH_MHZ, 5))
     expect(uwbInBand.toFixed(2)).toBe('-21.95')
     expect(UWB_TX_POWER_DBM).toBe(-14)
     // "7.95 dB gone before the path loss starts"
     expect((UWB_TX_POWER_DBM - uwbInBand).toFixed(2)).toBe('7.95')
-    expect(f[0].note!.en).toContain('7.95 dB gone before the path loss starts')
+    expect(f[0].note!).toContain('7.95 dB gone before the path loss starts')
     // the router loses nothing: overlap 1.00 is 0 dB
     expect(10 * Math.log10(uwbBandOverlap(WIFI_6G_CENTER_MHZ, WIDTH_MHZ, 5))).toBe(0)
   })
@@ -310,7 +310,7 @@ describe('uwb-coexist · the band arithmetic', () => {
     expect((wifiToUwbPathLossDb(10, 0) - wifiToUwbPathLossDb(1, 0)).toFixed(6)).toBe('30.000000')
     expect(uwbPl0Db(5).toFixed(2)).toBe('48.69')
     expect((uwbToWifiPathLossDb(10, 0, 5) - uwbToWifiPathLossDb(1, 0, 5)).toFixed(6)).toBe('20.000000')
-    const src = uwbCoexist.sources!.map((s) => s.en).join('\n')
+    const src = uwbCoexist.sources!.map((s) => s).join('\n')
     expect(src).toContain('46.7 dB at one metre, plus 30·log10 d, plus 1.2 dB for 6 GHz')
     expect(src).toContain('48.69 dB at one metre on channel 5, plus 20·log10 d')
   })
@@ -511,7 +511,7 @@ describe('uwb-coexist · the base run', () => {
     // the eight are 600 ms apart — the backup's own burst period, as observe 1 says
     const gaps = hit.slice(1).map((r, i) => r.t - hit[i].t)
     expect(new Set(gaps)).toEqual(new Set([600 * MS]))
-    expect(uwbCoexist.observe[0].en).toContain('every 600 ms')
+    expect(uwbCoexist.observe[0]).toContain('every 600 ms')
     // every third block loses one, counted off the blocks with a three-anchor fix
     expect(fixes().filter((f) => f.anchors.length === 3).map((f) => f.block))
       .toEqual([2, 5, 8, 11, 14, 17, 20, 23])
@@ -544,7 +544,7 @@ describe('uwb-coexist · the base run', () => {
     expect([Math.min(...cm).toFixed(1), Math.max(...cm).toFixed(1)]).toEqual(['0.1', '4.2'])
     expect(prose()).toContain('the error still inside 4.2 cm')
     // quiz 2: "GDOP rises from 1.05 to 1.26"
-    expect(uwbCoexist.quiz[1].options[1].en).toContain('GDOP rises from 1.05 to 1.26')
+    expect(uwbCoexist.quiz[1].options[1]).toContain('GDOP rises from 1.05 to 1.26')
     // the channel-9 run is the clean reference
     const clean = fixes(CH9).map((f) => fixErr(f) * 100)
     expect([Math.min(...clean).toFixed(1), Math.max(...clean).toFixed(1)]).toEqual(['0.3', '3.5'])
@@ -555,10 +555,9 @@ describe('uwb-coexist · the base run', () => {
     // observe 1, word for word
     const line = 'uwb-1 UWB frame from anchor-4 lost to Wi-Fi: SIR -30.8 dB (foreign -48.7 dBm)'
     expect(fmtRecord(interfered()[0])).toBe(line)
-    expect(uwbCoexist.observe[0].en).toContain(line)
-    expect(uwbCoexist.observe[0].zh).toContain(line)
+    expect(uwbCoexist.observe[0]).toContain(line)
     expect((interfered()[0].t / 1e6).toFixed(3)).toBe('418.191')
-    expect(uwbCoexist.observe[0].en).toContain('At 418.191 ms')
+    expect(uwbCoexist.observe[0]).toContain('At 418.191 ms')
     // the two position lines of the deeper table
     expect(fmtRecord(fixes()[0])).toBe(deepCell(1, 0, 1))
     expect(deepCell(1, 0, 1))
@@ -568,7 +567,7 @@ describe('uwb-coexist · the base run', () => {
       .toBe('uwb-1 position (4.01, 3.50) m, true (4.00, 3.50), error 0.01 m, GDOP 1.26, 3 anchors')
     // observe 2: the tag's row reaches 8 and every anchor's stays 0
     expect(STRINGS.en.uwb.interfered).toBe('lost to Wi-Fi')
-    expect(uwbCoexist.observe[1].en).toContain(`a “${STRINGS.en.uwb.interfered}” row`)
+    expect(uwbCoexist.observe[1]).toContain(`a “${STRINGS.en.uwb.interfered}” row`)
     const tag = inspectorAfter(undefined, 'uwb-1')
     expect([tag.interfered, tag.timeouts]).toEqual([8, 8])
     for (const [id] of CORNERS) expect(inspectorAfter(undefined, id).interfered, id).toBe(0)
@@ -601,7 +600,7 @@ describe('uwb-coexist · the variants', () => {
     expect(uwbRaw(recs(CH9)).length).toBeGreaterThan(1000)
     expect(wifiSide(recs(CH9))).toEqual(wifiSide(recs(WIFI7)))
     expect(wifiSide(recs(CH9))).toEqual(wifiSide(recs()))
-    expect(uwbCoexist.tryThis[0].en).toContain('those of the channel-9 run to the last field')
+    expect(uwbCoexist.tryThis[0]).toContain('those of the channel-9 run to the last field')
     expect(prose()).toContain('the session produces exactly the records it produces on channel 9')
   })
 
@@ -723,7 +722,7 @@ describe('uwb-coexist · the three cures', () => {
 describe('uwb-coexist · the procedure, against the mediator', () => {
   const steps = (): Extract<Block, { kind: 'steps' }> =>
     uwbCoexist.numbers!.find((b): b is Extract<Block, { kind: 'steps' }> => b.kind === 'steps')!
-  const stepsText = (): string => steps().items.map((i) => i.en).join('\n')
+  const stepsText = (): string => steps().items.map((i) => i).join('\n')
   const firstLoss = () => interfered()[0]
   /** A fixed-point string with the typographic minus the lesson prints. */
   const mn = (x: string): string => x.replace('-', '−')
@@ -732,7 +731,7 @@ describe('uwb-coexist · the procedure, against the mediator', () => {
     expect(uwbCoexist.numbers!.some((b) => b.kind === 'steps')).toBe(true)
     expect((uwbCoexist.deeper ?? []).some((b) => b.kind === 'steps')).toBe(false)
     expect(steps().items.length).toBeGreaterThanOrEqual(3)
-    for (const i of steps().items) expect(i.zh).not.toBe(i.en)
+    for (const i of steps().items) expect(i).not.toBe(i)
   })
 
   it('step 2: the band the phone reads the foreign power over is UWB channel 5’s own', () => {

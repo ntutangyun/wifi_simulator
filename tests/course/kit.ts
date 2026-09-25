@@ -26,7 +26,7 @@ import { describe, it, expect } from 'vitest'
 import { Simulation } from '../../src/engine/simulation'
 import type { TLRecord } from '../../src/model/records'
 import type { Scenario } from '../../src/model/scenario'
-import { isMigrated, type L10n, type Lesson } from '../../src/course/lessonKit'
+import { isMigrated, type Lesson } from '../../src/course/lessonKit'
 import { LESSONS } from '../../src/course/lessons'
 import { OBSERVE_MINUTES, TRY_MINUTES, lessonBlocks, lessonMinutes, lessonWords } from '../../src/course/curriculum'
 import { BUDGETS, CITATION, lessonBudget, lessonStrings, paragraphTexts } from '../../src/course/readability'
@@ -139,7 +139,7 @@ export function lessonShapeSuite(l: Lesson, o: LessonShapeOptions): void {
       expect(firstWatch).toBeLessThan(3)
       // depth may be dense, but its provenance still belongs in `sources`
       for (const p of paragraphTexts(l.deeper ?? [])) {
-        expect(CITATION.test(p.en) || CITATION.test(p.zh), `deeper: ${p.en.slice(0, 80)}`).toBe(false)
+        expect(CITATION.test(p), `deeper: ${p.slice(0, 80)}`).toBe(false)
       }
     })
 
@@ -163,18 +163,16 @@ export function lessonShapeSuite(l: Lesson, o: LessonShapeOptions): void {
 
     it('every jump target occurs in the base run', () => {
       const rs = runOf(l, undefined, ns)
-      for (const j of l.jumps) expect(rs.some(j.find), j.label.en).toBe(true)
+      for (const j of l.jumps) expect(rs.some(j.find), j.label).toBe(true)
       for (const b of l.picture!) {
         if (b.kind === 'watch' && b.jump !== undefined) expect(l.jumps[b.jump]).toBeDefined()
       }
     })
 
-    it('every string a learner reads exists in both languages', () => {
-      // A cell of numbers, log lines or protocol names reads the same in both (N());
-      // anything holding two consecutive English words is prose and must be translated.
+    it('every string a learner reads is there', () => {
       // One walk for every lesson test: src/course/readability.ts. `title`, the variant
       // labels and the jump labels are the chrome around a lesson, so they are added here.
-      const seen: L10n[] = [
+      const seen: string[] = [
         ...lessonStrings(l), l.title,
         ...(l.variants ?? []).map((v) => v.label), ...l.jumps.map((j) => j.label),
       ]
@@ -186,9 +184,7 @@ export function lessonShapeSuite(l: Lesson, o: LessonShapeOptions): void {
         + 3 * l.quiz.length + (l.variants?.length ?? 0) + l.jumps.length
       expect(seen.length).toBeGreaterThanOrEqual(floor)
       for (const s of seen) {
-        expect(s.en.trim().length, s.en).toBeGreaterThan(0)
-        expect(s.zh.trim().length, s.en).toBeGreaterThan(0)
-        if (/[a-z]{3,}\s+[a-z]{3,}/.test(s.en)) expect(s.zh, s.en).not.toBe(s.en)
+        expect(s.trim().length, s).toBeGreaterThan(0)
       }
     })
 

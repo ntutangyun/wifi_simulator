@@ -9,7 +9,7 @@ import {
   acronyms, numericQuantities, CITATION, countedWords, definedInPlace, densityTexts, enWords,
   firstTermUses, KNOWN_WORDS, lessonBudget, paragraphTexts, wordsIn, zhChars,
 } from '../../src/course/readability'
-import { N, type Block } from '../../src/course/lessonKit'
+import { type Block } from '../../src/course/lessonKit'
 
 describe('readability rules', () => {
   it('finds acronyms and leaves protocol names, units and record names alone', () => {
@@ -44,15 +44,15 @@ describe('readability rules', () => {
   })
   it('reads headings and list items as prose, and leaves table cells and formula bodies out', () => {
     const blocks: Block[] = [
-      { heading: N('What the tag does'), text: N('A tag with no battery cannot listen.') },
-      { kind: 'watch', text: N('Press play and watch the second slot.') },
-      { kind: 'list', heading: N('Three things happen'), items: [N('the reader asks'), N('the tag answers')] },
-      { kind: 'steps', items: [N('arm the slot'), N('send the answer')] },
-      { kind: 'formula', heading: N('Airtime'), text: N('T = L / R'), note: N('L is the length in bits.') },
-      { kind: 'table', heading: N('Where the values come from'), head: [N('what'), N('where')], rows: [[N('16 µs'), N('§9.3.7')]] },
-      { kind: 'widget', widget: 'linkBudget', caption: N('Drag the distance slider.') },
+      { heading: 'What the tag does', text: 'A tag with no battery cannot listen.' },
+      { kind: 'watch', text: 'Press play and watch the second slot.' },
+      { kind: 'list', heading: 'Three things happen', items: ['the reader asks', 'the tag answers'] },
+      { kind: 'steps', items: ['arm the slot', 'send the answer'] },
+      { kind: 'formula', heading: 'Airtime', text: 'T = L / R', note: 'L is the length in bits.' },
+      { kind: 'table', heading: 'Where the values come from', head: ['what', 'where'], rows: [['16 µs', '§9.3.7']] },
+      { kind: 'widget', widget: 'linkBudget', caption: 'Drag the distance slider.' },
     ]
-    expect(paragraphTexts(blocks).map((l) => l.en)).toEqual([
+    expect(paragraphTexts(blocks).map((l) => l)).toEqual([
       'What the tag does', 'A tag with no battery cannot listen.',
       'Press play and watch the second slot.',
       'Three things happen', 'the reader asks', 'the tag answers',
@@ -64,11 +64,11 @@ describe('readability rules', () => {
   })
   it('so a citation hiding in a list item or a heading is caught', () => {
     const sneaky: Block[] = [
-      { kind: 'list', items: [N('the anchor answers'), N('the reply time is fixed per §10.29.1.1')] },
-      { kind: 'p', heading: N('Clause 16 in one picture'), text: N('The tag answers in its slot.') },
+      { kind: 'list', items: ['the anchor answers', 'the reply time is fixed per §10.29.1.1'] },
+      { kind: 'p', heading: 'Clause 16 in one picture', text: 'The tag answers in its slot.' },
     ]
-    expect(paragraphTexts(sneaky).some((l) => CITATION.test(l.en))).toBe(true)
-    expect(paragraphTexts(sneaky).filter((l) => CITATION.test(l.en)).map((l) => l.en))
+    expect(paragraphTexts(sneaky).some((l) => CITATION.test(l))).toBe(true)
+    expect(paragraphTexts(sneaky).filter((l) => CITATION.test(l)).map((l) => l))
       .toEqual(['the reply time is fixed per §10.29.1.1', 'Clause 16 in one picture'])
   })
   it('the baseline knows units and everyday words only', () => {
@@ -79,29 +79,29 @@ describe('readability rules', () => {
 
 describe('readability rules · the word count', () => {
   it('counts a language-neutral cell and a formula body as one glance each', () => {
-    expect(countedWords({ en: 'four words in here', zh: '四个词' })).toBe(4)
-    expect(countedWords(N('336 207 494 656'))).toBe(1)
-    expect(wordsIn([{ kind: 'formula', heading: N('T'), text: N('a = b + c + d'), note: { en: 'two words', zh: '两个词' } }]))
+    expect(countedWords('四个词')).toBe(4)
+    expect(countedWords('336 207 494 656')).toBe(1)
+    expect(wordsIn([{ kind: 'formula', heading: 'T', text: 'a = b + c + d', note: '两个词' }]))
       .toBe(1 + 1 + 2)
   })
 
   it('counts a term’s own word, and never a function or a foreign-language half', () => {
-    expect(wordsIn([{ term: 'A-MPDU', plain: { en: 'a bundle of frames', zh: '一串帧' } }])).toBe(1 + 4)
-    expect(wordsIn({ scenario: () => 1, find: () => true, text: { en: 'one two', zh: '二' } })).toBe(2)
+    expect(wordsIn([{ term: 'A-MPDU', plain: '一串帧' }])).toBe(1 + 4)
+    expect(wordsIn({ scenario: () => 1, find: () => true, text: '二' })).toBe(2)
   })
 
   it('splits the main path into the spec’s three section budgets, and leaves deeper and sources out', () => {
     const b = lessonBudget({
-      why: { en: 'one two three', zh: '三' },
-      outcomes: [{ en: 'four five', zh: '二' }],
-      terms: [{ term: 'OOK', plain: { en: 'on off keying', zh: '通断键控' } }],
-      picture: [{ text: { en: 'a picture sentence', zh: '一句' } }],
-      numbers: [{ text: { en: 'two numbers here now', zh: '四个词' } }],
-      observe: [{ en: 'look at this', zh: '看' }],
-      tryThis: [{ en: 'try it', zh: '试' }],
+      why: '三',
+      outcomes: ['二'],
+      terms: [{ term: 'OOK', plain: '通断键控' }],
+      picture: [{ text: '一句' }],
+      numbers: [{ text: '四个词' }],
+      observe: ['看'],
+      tryThis: ['试'],
       quiz: [],
-      deeper: [{ text: { en: 'depth is never counted at all', zh: '深' } }],
-      sources: [{ en: 'provenance is never counted either', zh: '出处' } ],
+      deeper: [{ text: '深' }],
+      sources: ['出处' ],
     })
     expect(b).toEqual({ picture: 3 + 2 + (1 + 3) + 3, numbers: 4, practice: 3 + 2, total: 12 + 4 + 5 })
   })
@@ -109,15 +109,15 @@ describe('readability rules · the word count', () => {
 
 describe('readability rules · density and definition in place', () => {
   const strip: Block[] = [
-    { heading: N('Read the strip'), text: { en: 'The frame opens with the SYNC field and the SFD.', zh: '帧头是 SYNC 与 SFD。' } },
-    { kind: 'steps', heading: N('In order'), items: [
-      { en: 'SYNC, then SFD', zh: '先 SYNC，再 SFD' },
-      { en: 'the STS, the PHR and the PSDU', zh: 'STS、PHR、PSDU' },
+    { heading: 'Read the strip', text: '帧头是 SYNC 与 SFD。' },
+    { kind: 'steps', heading: 'In order', items: [
+      '先 SYNC，再 SFD',
+      'STS、PHR、PSDU',
     ] },
   ]
 
   it('leaves the items of a steps block out of the density rule, keeping its heading', () => {
-    expect(densityTexts(strip).map((l) => l.en))
+    expect(densityTexts(strip).map((l) => l))
       .toEqual(['Read the strip', 'The frame opens with the SYNC field and the SFD.', 'In order'])
     // the citation rule still reads every item
     expect(paragraphTexts(strip).length).toBe(5)
@@ -127,19 +127,19 @@ describe('readability rules · density and definition in place', () => {
     expect(firstTermUses(strip, ['SYNC', 'SFD', 'STS', 'PHR', 'PSDU']))
       .toEqual([[], ['SYNC', 'SFD'], []])
     // a term is met as a word prefix: "chips" introduces `chip`
-    expect(firstTermUses([{ text: { en: 'counted in chips, and in tags', zh: '码片' } }], ['chip', 'tag', 'slot']))
+    expect(firstTermUses([{ text: '码片' }], ['chip', 'tag', 'slot']))
       .toEqual([['chip', 'tag']])
   })
 
   it('exempts an acronym the paragraph spells out where it uses it', () => {
-    const p = { en: 'Its window exponent ACWE is 2, so ACW = 3.', zh: '触发帧把窗口指数 ACWE 设成 2。' }
+    const p = '触发帧把窗口指数 ACWE 设成 2。'
     expect(definedInPlace(p, 'ACWE')).toBe(true)
     expect(definedInPlace(p, 'ACW')).toBe(false)
-    const glossed = { en: 'The AMP-SIG (two octets) says what follows.', zh: 'AMP-SIG（两个字节）说明后面是什么。' }
+    const glossed = 'AMP-SIG（两个字节）说明后面是什么。'
     expect(definedInPlace(glossed, 'AMP-SIG')).toBe(true)
     // a name introducing its own short form, in either language's parentheses
-    const short = { en: 'Single-sided two-way ranging (SS-TWR)', zh: '单边双向测距（SS-TWR）' }
+    const short = '单边双向测距（SS-TWR）'
     expect(definedInPlace(short, 'SS-TWR')).toBe(true)
-    expect(definedInPlace({ en: 'The STS cannot be forged.', zh: 'STS 无法伪造。' }, 'STS')).toBe(false)
+    expect(definedInPlace('STS 无法伪造。', 'STS')).toBe(false)
   })
 })

@@ -20,7 +20,6 @@ import { COURSE_ORDER } from '../../src/course/curriculum'
 import { Simulation } from '../../src/engine/simulation'
 import { TAMPER_PRESETS, type Scenario } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
-import type { L10n } from '../../src/course/lessonKit'
 import { lessonStrings } from '../../src/course/readability'
 import { lessonShapeSuite } from './kit'
 import { CW_MAX, CW_MIN, SHORT_RETRY_LIMIT, SLOT_NS, dataRateFor, noiseDbm } from '../../src/engine/phy'
@@ -94,7 +93,7 @@ const arc20 = () => measure('arc20', bianchiVsSim.variants![1].scenario())
  */
 function allText(): string {
   const parts: string[] = []
-  const push = (l: L10n) => { parts.push(l.en, l.zh) }
+  const push = (s: string) => { parts.push(s) }
   lessonStrings(bianchiVsSim).forEach(push)
   return parts.join(' ')
 }

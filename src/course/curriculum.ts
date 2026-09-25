@@ -6,19 +6,21 @@
  *
  * See docs/superpowers/specs/2026-09-18-zero-to-hero-curriculum-design.md.
  */
-import type { Block, L10n, Lesson } from './lessonKit'
+import type { Block, Lesson } from './lessonKit'
 import { lessonBudget } from './readability'
 
 /** The radio the tier teaches. Tracks are listed in this order, Wi-Fi first. */
 export type Track = 'wifi' | 'uwb'
 
-export const TRACKS: Record<Track, L10n> = {
-  wifi: { en: 'Wi-Fi', zh: 'Wi-Fi' },
-  uwb: { en: 'UWB ranging', zh: 'UWB 测距' },
+export const TRACKS: Record<Track, string> = {
+  wifi: 'Wi-Fi',
+  uwb: 'UWB 测距',
 }
 
-export interface Tier extends L10n {
+export interface Tier {
   track: Track
+  /** The tier's own name, as the course panel prints it. */
+  label: string
 }
 
 /**
@@ -31,38 +33,38 @@ export function trackHeadings(tiers: Tier[]): boolean[] {
 }
 
 export const TIERS: Tier[] = [
-  { track: 'wifi', en: 'Tier 1 · MAC foundations', zh: '第一阶段 · MAC 基础' },
-  { track: 'wifi', en: 'Tier 2 · MAC practitioner', zh: '第二阶段 · MAC 实战' },
-  { track: 'wifi', en: 'Tier 3 · The PHY underneath', zh: '第三阶段 · 底层 PHY' },
-  { track: 'wifi', en: 'Tier 4 · Researcher', zh: '第四阶段 · 研究' },
-  { track: 'uwb', en: 'UWB Tier 1 · Ranging foundations', zh: 'UWB 第一阶段 · 测距基础' },
-  { track: 'uwb', en: 'UWB Tier 2 · Sessions in the real world', zh: 'UWB 第二阶段 · 真实环境中的会话' },
-  { track: 'uwb', en: 'UWB Tier 3 · What comes next: 802.15.4ab', zh: 'UWB 第三阶段 · 下一步：802.15.4ab' },
+  { track: 'wifi', label: '第一阶段 · MAC 基础' },
+  { track: 'wifi', label: '第二阶段 · MAC 实战' },
+  { track: 'wifi', label: '第三阶段 · 底层 PHY' },
+  { track: 'wifi', label: '第四阶段 · 研究' },
+  { track: 'uwb', label: 'UWB 第一阶段 · 测距基础' },
+  { track: 'uwb', label: 'UWB 第二阶段 · 真实环境中的会话' },
+  { track: 'uwb', label: 'UWB 第三阶段 · 下一步：802.15.4ab' },
 ]
 
 export interface CourseModule {
   tier: number
-  title: L10n
+  title: string
 }
 
 export const MODULES: CourseModule[] = [
-  { tier: 0, title: { en: 'The network and the frame', zh: '网络与帧' } },
-  { tier: 0, title: { en: 'Channel access (DCF)', zh: '信道接入（DCF）' } },
-  { tier: 1, title: { en: 'QoS and efficiency', zh: 'QoS 与效率' } },
-  { tier: 1, title: { en: 'Capacity knobs and rate control', zh: '容量旋钮与速率控制' } },
-  { tier: 1, title: { en: 'Link lifecycle, security and power', zh: '链路生命周期、安全与节能' } },
-  { tier: 1, title: { en: 'Neighbours and spatial reuse', zh: '邻居网络与空间复用' } },
-  { tier: 1, title: { en: 'Scheduled Wi-Fi 6/7', zh: '被调度的 Wi-Fi 6/7' } },
-  { tier: 1, title: { en: 'Ambient power IoT (802.11bp)', zh: '环境能量物联网（802.11bp）' } },
-  { tier: 1, title: { en: 'Real applications', zh: '真实应用' } },
-  { tier: 2, title: { en: 'Signals, modulation and coding', zh: '信号、调制与编码' } },
-  { tier: 3, title: { en: 'Wi-Fi 8 and research craft', zh: 'Wi-Fi 8 与研究方法' } },
-  { tier: 4, title: { en: 'Time of flight', zh: '飞行时间' } },
-  { tier: 4, title: { en: 'Ranging sessions and positioning', zh: '测距会话与定位' } },
-  { tier: 5, title: { en: 'Coexistence', zh: '共存' } },
-  { tier: 5, title: { en: 'Other ranging modes', zh: '其他测距模式' } },
-  { tier: 6, title: { en: 'Narrowband-assisted multi-millisecond UWB', zh: '窄带辅助的多毫秒 UWB' } },
-  { tier: 6, title: { en: 'The ranging capstone', zh: '测距综合实践' } },
+  { tier: 0, title: '网络与帧' },
+  { tier: 0, title: '信道接入（DCF）' },
+  { tier: 1, title: 'QoS 与效率' },
+  { tier: 1, title: '容量旋钮与速率控制' },
+  { tier: 1, title: '链路生命周期、安全与节能' },
+  { tier: 1, title: '邻居网络与空间复用' },
+  { tier: 1, title: '被调度的 Wi-Fi 6/7' },
+  { tier: 1, title: '环境能量物联网（802.11bp）' },
+  { tier: 1, title: '真实应用' },
+  { tier: 2, title: '信号、调制与编码' },
+  { tier: 3, title: 'Wi-Fi 8 与研究方法' },
+  { tier: 4, title: '飞行时间' },
+  { tier: 4, title: '测距会话与定位' },
+  { tier: 5, title: '共存' },
+  { tier: 5, title: '其他测距模式' },
+  { tier: 6, title: '窄带辅助的多毫秒 UWB' },
+  { tier: 6, title: '测距综合实践' },
 ]
 
 /**

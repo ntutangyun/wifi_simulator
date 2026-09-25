@@ -148,12 +148,12 @@ const dist3 = (a: { x: number; y: number; z: number }, b: { x: number; y: number
 const TAG_3D = { x: TAG_POS.x, y: TAG_POS.y, z: TAG_Z }
 
 /** Everything a learner reads of this lesson, joined — `deeper` and `sources` included. */
-const prose = (): string => lessonStrings(uwbNbaCoexist).map((s) => s.en).join('\n')
+const prose = (): string => lessonStrings(uwbNbaCoexist).map((s) => s).join('\n')
 
 /** The lesson's nth table of `numbers`, rows kept in place so a cell can be read by position. */
 const table = (n: number): Extract<Block, { kind: 'table' }> =>
   uwbNbaCoexist.numbers!.filter((b): b is Extract<Block, { kind: 'table' }> => b.kind === 'table')[n]
-const cell = (n: number, row: number, col: number): string => table(n).rows[row][col].en
+const cell = (n: number, row: number, col: number): string => table(n).rows[row][col]
 const thresholdFormula = (): Extract<Block, { kind: 'formula' }> =>
   uwbNbaCoexist.numbers!.find((b): b is Extract<Block, { kind: 'formula' }> => b.kind === 'formula')!
 const reachFormula = (): Extract<Block, { kind: 'formula' }> =>
@@ -171,8 +171,8 @@ describe('uwb-nba-coexist · the lesson', () => {
 
   it('loads uwb-nba’s scene and its three variants, labels and all', () => {
     expect(uwbNbaCoexist.scenario()).toEqual(uwbNba.scenario())
-    expect(uwbNbaCoexist.variants!.map((v) => v.label.en))
-      .toEqual(uwbNba.variants!.map((v) => v.label.en))
+    expect(uwbNbaCoexist.variants!.map((v) => v.label))
+      .toEqual(uwbNba.variants!.map((v) => v.label))
     expect(uwbNbaCoexist.variants!.map((v) => v.scenario()))
       .toEqual(uwbNba.variants!.map((v) => v.scenario()))
     expect(NBA_CHANNELS.hop).toEqual([100, 150, 200, 210])
@@ -183,7 +183,7 @@ describe('uwb-nba-coexist · the lesson', () => {
     const rs = recs()
     const idx = uwbNbaCoexist.jumps.map((j) => {
       const i = rs.findIndex(j.find)
-      expect(i, j.label.en).toBeGreaterThanOrEqual(0)
+      expect(i, j.label).toBeGreaterThanOrEqual(0)
       return i
     })
     expect(rs[idx[0]].t).toBe(2 * MS) // the busy check that ends the block
@@ -200,8 +200,8 @@ describe('uwb-nba-coexist · the threshold and the channel it applies to', () =>
     expect(NB_LBT_CCA_US).toBe(9)
     expect(NB_LBT_THRESHOLD_DBM).toBeCloseTo(-75 + 10 * Math.log10(2.5), 12)
     expect(NB_LBT_THRESHOLD_DBM.toFixed(2)).toBe('-71.02')
-    expect(thresholdFormula().text.en).toContain('threshold = −75 dBm/MHz + 10·log10(2.5 MHz) = −71.02 dBm')
-    expect(thresholdFormula().note!.en).toContain('at least 9 µs')
+    expect(thresholdFormula().text).toContain('threshold = −75 dBm/MHz + 10·log10(2.5 MHz) = −71.02 dBm')
+    expect(thresholdFormula().note!).toContain('at least 9 µs')
     // every busy record the run emits carries that same threshold
     for (const l of lbt()) expect(l.thresholdDbm).toBe(NB_LBT_THRESHOLD_DBM)
   })
@@ -268,9 +268,9 @@ describe('uwb-nba-coexist · the threshold and the channel it applies to', () =>
     expect(inBand.toFixed(2)).toBe('4.95')
     const d = crossingM((m) => wifiInNbDbm(20, LESSON_6G_WIDTH_MHZ, m), NB_LBT_THRESHOLD_DBM)
     expect(d.toFixed(2)).toBe('8.62')
-    expect(reachFormula().text.en).toContain('20 + 10·log10(2.5 / 80) = 4.95 dBm')
-    expect(reachFormula().text.en).toContain('4.95 − (46.7 + 30·log10 d + 1.2) = −71.02  →  d = 8.62 m')
-    expect(reachFormula().note!.en).toContain('Arithmetic, not a measurement')
+    expect(reachFormula().text).toContain('20 + 10·log10(2.5 / 80) = 4.95 dBm')
+    expect(reachFormula().text).toContain('4.95 − (46.7 + 30·log10 d + 1.2) = −71.02  →  d = 8.62 m')
+    expect(reachFormula().note!).toContain('Arithmetic, not a measurement')
     // the Wi-Fi law the lesson prints is the engine's own
     expect(wifiToUwbPathLossDb(1, 0)).toBeCloseTo(46.7 + 1.2, 12)
     expect(wifiToUwbPathLossDb(10, 0) - wifiToUwbPathLossDb(1, 0)).toBeCloseTo(30, 12)
@@ -326,15 +326,15 @@ describe('uwb-nba-coexist · the base scene, inside the router’s channel', () 
     expect([cell(1, 0, 3), cell(1, 0, 4)]).toEqual(['4', '0'])
     expect(prose()).toContain('Two blocks in seven get anything out')
     // Review I3: the quiz questions were re-based too, so pin their text, not only the answers
-    expect(uwbNbaCoexist.quiz[0].q.en).toContain('four distances in seven blocks')
-    expect(uwbNbaCoexist.quiz[1].q.en).toContain('21 distances instead of four')
-    expect(uwbNbaCoexist.quiz[0].explain.en).toContain('never a fix’s three')
+    expect(uwbNbaCoexist.quiz[0].q).toContain('four distances in seven blocks')
+    expect(uwbNbaCoexist.quiz[1].q).toContain('21 distances instead of four')
+    expect(uwbNbaCoexist.quiz[0].explain).toContain('never a fix’s three')
     for (const s of [uwbNbaCoexist.quiz[0].q, uwbNbaCoexist.quiz[1].q, uwbNbaCoexist.quiz[0].explain]) {
-      expect(s.en, s.en).not.toContain('one distance')
-      expect(s.zh, s.en).not.toContain('只量出一个距离')
+      expect(s, s).not.toContain('one distance')
+      expect(s, s).not.toContain('只量出一个距离')
     }
     expect(prose()).toContain('Four distances between them, and still no position, because a position needs three in one block')
-    expect(uwbNbaCoexist.observe[2].en).toContain('21 timeouts')
+    expect(uwbNbaCoexist.observe[2]).toContain('21 timeouts')
   })
 
   it('the busy check, the line it prints, and the silence the anchors then report', () => {
@@ -346,15 +346,15 @@ describe('uwb-nba-coexist · the base scene, inside the router’s channel', () 
     expect(lbt()[0].t).toBe(2 * MS)
     expect(fmtRecord(lbt()[0])).toBe('anchor-2 NB LBT busy on ch 200: -69.6 dBm ≥ -71.0 — skipping the block')
     expect(fmtRecord(busy)).toBe('uwb-1 NB LBT busy on ch 200: -63.7 dBm ≥ -71.0 — skipping the block')
-    expect(uwbNbaCoexist.observe[0].en)
+    expect(uwbNbaCoexist.observe[0])
       .toContain('“uwb-1 NB LBT busy on ch 200: -63.7 dBm ≥ -71.0 — skipping the block”')
-    expect(uwbNbaCoexist.observe[0].en).toContain('At 21.000 ms')
+    expect(uwbNbaCoexist.observe[0]).toContain('At 21.000 ms')
     // "the block's later rounds still run on the grid — the anchors turn up and wait"
     const to = ofType(recs(), 'UWB_TIMEOUT')
     expect(fmtRecord(to.find((r) => r.t === 22 * MS && r.node === 'anchor-1')!)).toBe('anchor-1 UWB slot 42: no nb-report from uwb-1')
     expect(fmtRecord(to.find((r) => r.t === 201 * MS && r.node === 'anchor-1')!)).toBe('anchor-1 UWB slot 0: no nb-poll from uwb-1')
-    expect(uwbNbaCoexist.observe[1].en).toContain('“anchor-1 UWB slot 42: no nb-report from uwb-1”')
-    expect(uwbNbaCoexist.observe[1].en).toContain('“anchor-1 UWB slot 0: no nb-poll from uwb-1”')
+    expect(uwbNbaCoexist.observe[1]).toContain('“anchor-1 UWB slot 42: no nb-report from uwb-1”')
+    expect(uwbNbaCoexist.observe[1]).toContain('“anchor-1 UWB slot 0: no nb-poll from uwb-1”')
     const block0 = ofType(recs(), 'UWB_ROUND').filter((r) => r.block === 0)
     // one one-to-many round a block now, where the pair round had one per anchor
     expect(block0.map((r) => r.round)).toEqual([0])
@@ -374,9 +374,9 @@ describe('uwb-nba-coexist · the base scene, inside the router’s channel', () 
     expect(uwbLbtText(u, STRINGS.zh.uwb)).toBe('7 次忙 · 跳过 7 个块')
     expect(STRINGS.en.uwb.lbtBusy).toBe('listen before talk')
     expect(STRINGS.zh.uwb.lbtBusy).toBe('先听后发')
-    expect(uwbNbaCoexist.observe[2].en).toContain('“200 · 6301.25 MHz”')
-    expect(uwbNbaCoexist.observe[2].en).toContain('“7 busy · 7 blocks skipped”')
-    expect(uwbNbaCoexist.observe[2].zh).toContain('“7 次忙 · 跳过 7 个块”')
+    expect(uwbNbaCoexist.observe[2]).toContain('“200 · 6301.25 MHz”')
+    expect(uwbNbaCoexist.observe[2]).toContain('“7 busy · 7 blocks skipped”')
+    expect(uwbNbaCoexist.observe[2]).toContain('“7 次忙 · 跳过 7 个块”')
     // "Its fragment rows are untouched" — the wide radio never fails here
     for (const t of Object.values(u.mms.trains)) {
       expect(`${t.heard} / ${t.fragments}`).toBe('8 / 8')
@@ -394,7 +394,7 @@ describe('uwb-nba-coexist · the other three placements', () => {
     for (const f of fixes(V_OUT)) expect(f.anchors).toHaveLength(4)
     expect(ofType(recs(V_OUT), 'UWB_TIMEOUT')).toHaveLength(0)
     expect([cell(1, 1, 2), cell(1, 1, 3), cell(1, 1, 4)]).toEqual(['0', '28', '7'])
-    expect(uwbNbaCoexist.tryThis[0].en).toContain('not one busy check, 28 distances, a fix in every block')
+    expect(uwbNbaCoexist.tryThis[0]).toContain('not one busy check, 28 distances, a fix in every block')
   })
 
   it('"a Wi-Fi side identical to a run with no ranging session": 407.215 Mb/s, not one failure', () => {
@@ -408,7 +408,7 @@ describe('uwb-nba-coexist · the other three placements', () => {
       rs.filter((r) => !UWB_IDS.has((r as { node?: string }).node ?? '')).map((r) => ({ ...r, seq: 0 })),
     )
     expect(wifiSide(recs(V_OUT))).toBe(wifiSide(noSessionRecs()))
-    expect(uwbNbaCoexist.tryThis[0].en).toContain('a Wi-Fi side identical to a run with no ranging session')
+    expect(uwbNbaCoexist.tryThis[0]).toContain('a Wi-Fi side identical to a run with no ranging session')
     expect(prose()).toContain('from 407.215 Mb/s to 362.631')
   })
 
@@ -436,7 +436,7 @@ describe('uwb-nba-coexist · the other three placements', () => {
     expect([cell(1, 2, 2), cell(1, 2, 3), cell(1, 2, 4)]).toEqual(['4 of 7', '13', '3'])
     expect(prose()).toContain('though block 5 gets one distance out before its report slot is stopped')
     expect(prose()).toContain('Three fixes instead of seven')
-    expect(uwbNbaCoexist.tryThis[0].en).toContain('three blocks clear, three fixes')
+    expect(uwbNbaCoexist.tryThis[0]).toContain('three blocks clear, three fixes')
     // the picture's claim that a block is all or nothing
     expect(prose()).toContain('a block is either whole or gone')
   })
@@ -448,8 +448,8 @@ describe('uwb-nba-coexist · the other three placements', () => {
     expect(fixes(V_NOLBT).map((f) => f.block)).toEqual([1, 2, 3, 4, 5])
     expect(nbFrames(V_NOLBT)).toHaveLength(108)
     expect([cell(1, 3, 2), cell(1, 3, 3), cell(1, 3, 4)]).toEqual(['0', '21', '5'])
-    expect(uwbNbaCoexist.tryThis[0].en).toContain('21 distances, 5 fixes')
-    expect(uwbNbaCoexist.quiz[1].q.en).toContain('the session gets 21 distances instead of four')
+    expect(uwbNbaCoexist.tryThis[0]).toContain('21 distances, 5 fixes')
+    expect(uwbNbaCoexist.quiz[1].q).toContain('the session gets 21 distances instead of four')
   })
 })
 
@@ -462,7 +462,7 @@ describe('uwb-nba-coexist · what the narrowband radio costs Wi-Fi', () => {
     expect(radius.toFixed(2)).toBe('15.07')
     expect(radius).toBeGreaterThan(oneRoom().rooms[0].w) // "longer than this room"
     expect(prose()).toContain('reaches Wi-Fi’s energy-detect threshold 15.07 m away')
-    expect(uwbNbaCoexist.quiz[1].explain.en).toContain('reaches the threshold 15.07 m out')
+    expect(uwbNbaCoexist.quiz[1].explain).toContain('reaches the threshold 15.07 m out')
   })
 
   it('"a ranging frame’s −14 dBm, spread over 499.2 MHz, only trips … within about 40 cm"', () => {
@@ -498,7 +498,7 @@ describe('uwb-nba-coexist · what the narrowband radio costs Wi-Fi', () => {
     expect((without - with_).toFixed(2)).toBe('44.58')
     expect(((without - with_) / without * 100).toFixed(2)).toBe('10.95')
     expect(prose()).toContain('which is 44.58 Mb/s gone, or 10.95 % of what it had')
-    expect(uwbNbaCoexist.quiz[1].options[uwbNbaCoexist.quiz[1].answer].en)
+    expect(uwbNbaCoexist.quiz[1].options[uwbNbaCoexist.quiz[1].answer])
       .toBe('87 failed frames and 10.95 % of the laptop’s throughput: 362.631 Mb/s against 407.215')
   })
 
@@ -550,7 +550,7 @@ describe('uwb-nba-coexist · what the narrowband radio costs Wi-Fi', () => {
 
 describe('uwb-nba-coexist · the provenance is in sources and nowhere else', () => {
   it('names the regulation, the contributions and the model’s own reconstructions', () => {
-    const src = uwbNbaCoexist.sources!.map((s) => s.en).join('\n')
+    const src = uwbNbaCoexist.sources!.map((s) => s).join('\n')
     expect(src).toContain('ETSI EN 303 687')
     expect(src).toContain('−75 dBm/MHz')
     expect(src).toContain('9 µs')
@@ -562,7 +562,7 @@ describe('uwb-nba-coexist · the provenance is in sources and nowhere else', () 
     expect(src).toContain('the channel-centre formula is reconstructed from the published channel counts and band edges')
     expect(src).toContain('AES-128-CTR')
     expect(src).toContain('one instantaneous power reading stands in for the 9 µs assessment')
-    const zh = uwbNbaCoexist.sources!.map((s) => s.zh).join('\n')
+    const zh = uwbNbaCoexist.sources!.map((s) => s).join('\n')
     expect(zh).toContain('P802.15.4ab')
     expect(zh).toContain('15-22/0381r5')
     expect(zh).toContain('AES-128-CTR')
@@ -581,7 +581,7 @@ describe('uwb-nba-coexist \u00b7 one busy check, step by step', () => {
     const b = uwbNbaCoexist.numbers!
       .filter((x): x is Extract<Block, { kind: 'steps' }> => x.kind === 'steps')
     expect(b).toHaveLength(1)
-    return b[0].items.map((i) => i.en)
+    return b[0].items.map((i) => i)
   }
   /** The worked example under the procedure — the lesson's third table. */
   const worked = (row: number): string => cell(2, row, 1)
@@ -595,9 +595,9 @@ describe('uwb-nba-coexist \u00b7 one busy check, step by step', () => {
 
   it('leaves no pointer phrase where the arithmetic used to be gestured at', () => {
     for (const s of lessonStrings(uwbNbaCoexist)) {
-      expect(s.zh, s.en.slice(0, 50)).not.toContain('\u8fd9\u7b14\u8d26')
-      expect(s.zh, s.en.slice(0, 50)).not.toContain('\u90a3\u7b14\u8d26')
-      expect(s.en, s.en.slice(0, 50)).not.toMatch(/head arithmetic/)
+      expect(s, s.slice(0, 50)).not.toContain('\u8fd9\u7b14\u8d26')
+      expect(s, s.slice(0, 50)).not.toContain('\u90a3\u7b14\u8d26')
+      expect(s, s.slice(0, 50)).not.toMatch(/head arithmetic/)
     }
   })
 

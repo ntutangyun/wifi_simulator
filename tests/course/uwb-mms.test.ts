@@ -61,12 +61,12 @@ const distTo = (a: { x: number; y: number }): number =>
   Math.hypot(a.x - TAG_POS.x, a.y - TAG_POS.y, ANCHOR_Z - TAG_Z)
 
 /** Everything a learner reads of this lesson, joined — `deeper` and `sources` included. */
-const prose = (): string => lessonStrings(uwbMms).map((s) => s.en).join('\n')
+const prose = (): string => lessonStrings(uwbMms).map((s) => s).join('\n')
 
 /** The lesson's nth table of `numbers`: 0 is the room, 1 is the round's log lines. */
 const table = (n: number): Extract<Block, { kind: 'table' }> =>
   uwbMms.numbers!.filter((b): b is Extract<Block, { kind: 'table' }> => b.kind === 'table')[n]
-const cell = (n: number, row: number, col: number): string => table(n).rows[row][col].en
+const cell = (n: number, row: number, col: number): string => table(n).rows[row][col]
 /** The right-hand column of the log table, which is the line the log prints. */
 const logLine = (row: number): string => cell(1, row, 1)
 /** One row of the one-to-many/pairwise comparison table (table 2), without its "where" cell. */
@@ -75,7 +75,7 @@ const comparison = (row: number): string[] => [cell(2, row, 0), cell(2, row, 1),
 const steps = (): string[] => {
   const b = uwbMms.numbers!.filter((x): x is Extract<Block, { kind: 'steps' }> => x.kind === 'steps')
   expect(b).toHaveLength(1)
-  return b[0].items.map((i) => i.en)
+  return b[0].items.map((i) => i)
 }
 /** The worked example under it (table 3): step `row` run on this scene, as one value cell. */
 const worked = (row: number): string => cell(3, row, 1)
@@ -104,7 +104,7 @@ describe('uwb-mms · the lesson', () => {
     expect(ids[ids.indexOf('uwb-mms') - 1]).toBe('uwb-aoa')
     // the reader is sent to the verdict on a train, which is what the lesson is about
     const watch = uwbMms.picture!.find((b) => b.kind === 'watch') as Extract<Block, { kind: 'watch' }>
-    expect(uwbMms.jumps[watch.jump!].label.en).toBe('what the far end made of that train')
+    expect(uwbMms.jumps[watch.jump!].label).toBe('what the far end made of that train')
   })
 
   it('it offers five jumps, three things to observe, two experiments and two questions', () => {
@@ -120,7 +120,7 @@ describe('uwb-mms · the lesson', () => {
     const idx: number[] = []
     for (const j of uwbMms.jumps) {
       const i = rs.findIndex(j.find)
-      expect(i, j.label.en).toBeGreaterThanOrEqual(0)
+      expect(i, j.label).toBeGreaterThanOrEqual(0)
       idx.push(i)
     }
     expect(idx).toEqual([...idx].sort((a, b) => a - b))
@@ -135,7 +135,7 @@ describe('uwb-mms · the lesson', () => {
   })
 
   it('says what is standard, what is draft and what is the room’s own — all of it in `sources`', () => {
-    const src = uwbMms.sources!.map((s) => s.en).join('\n')
+    const src = uwbMms.sources!.map((s) => s).join('\n')
     expect(src).toContain('IEEE Std 802.15.4-2024')
     expect(src).toContain('RSTU, RCTU, the block and its slots')
     expect(src).toContain('the Clause 12 O-QPSK PHY at 250 kb/s')
@@ -145,7 +145,7 @@ describe('uwb-mms · the lesson', () => {
     for (const doc of ['15-22/0381r5', '15-23/0100r2', '15-23/0502r3', '15-22/0205r0']) {
       expect(src, doc).toContain(doc)
     }
-    const zh = uwbMms.sources!.map((s) => s.zh).join('\n')
+    const zh = uwbMms.sources!.map((s) => s).join('\n')
     expect(zh).toContain('P802.15.4ab')
     expect(zh).toContain('D5.0')
     expect(zh).toContain('15-22/0205r0')
@@ -158,8 +158,8 @@ describe('uwb-mms · the lesson', () => {
     expect(prose().includes('P802.15.4ab')).toBe(true)
     for (const b of uwbMms.picture!) {
       const t = (b as Extract<Block, { kind?: 'p' }>).text
-      expect(t.en, t.en.slice(0, 40)).not.toContain('draft')
-      expect(t.zh, t.en.slice(0, 40)).not.toContain('草案')
+      expect(t, t.slice(0, 40)).not.toContain('draft')
+      expect(t, t.slice(0, 40)).not.toContain('草案')
     }
   })
 })
@@ -230,9 +230,9 @@ describe('uwb-mms · the scene', () => {
     expect(u.mms.gap).toBe(64)
     expect(u.mms.nbChannels).toEqual(NB_DEFAULT_CHANNELS)
     // the variants move one thing each, and the labels a reader picks them by
-    expect(uwbMms.variants!.map((v) => v.label.en))
+    expect(uwbMms.variants!.map((v) => v.label))
       .toEqual(['Four fragments', 'Set rsf-1', '4z for comparison', 'One anchor at a time'])
-    expect(uwbMms.variants!.map((v) => v.label.zh)).toEqual(['四个片段', '参数集 rsf-1', '拿 4z 作对照', '一次只问一个锚点'])
+    expect(uwbMms.variants!.map((v) => v.label)).toEqual(['四个片段', '参数集 rsf-1', '拿 4z 作对照', '一次只问一个锚点'])
     const pair = { ...u.mms, oneToMany: false }
     expect(uwbMmsScenario('four').uwb!.mms).toEqual({ ...pair, rsfs: 4 })
     expect(uwbMmsScenario('rsf1').uwb!.mms).toEqual({ ...pair, ...mmsSet('rsf-1') })
@@ -331,8 +331,8 @@ describe('uwb-mms · a room one frame cannot cross', () => {
     expect(txStamps[0].t).toBe(4 * MS)
     expect(logLine(3)).toBe(fmtRecord(frags[0]))
     expect(logLine(3)).toBe('tag-1 → * UWBRSF 0 B @0 Mbps (82.1 µs)')
-    expect(uwbMms.observe[1].en).toContain('each of zero octets at no data rate — a fragment carries nothing')
-    expect(uwbMms.observe[1].en).toContain('four interleaved trains')
+    expect(uwbMms.observe[1]).toContain('each of zero octets at no data rate — a fragment carries nothing')
+    expect(uwbMms.observe[1]).toContain('four interleaved trains')
     expect(prose()).toContain('no preamble to search for, no header, no address, no data')
   })
 
@@ -366,7 +366,7 @@ describe('uwb-mms · a room one frame cannot cross', () => {
     expect((range.t / MS).toFixed(3)).toBe('20.608')
     // "only then does a receive stamp appear": the verdict comes first, in the same slot
     expect(ofType(rs, 'UWB_TS').filter((r) => r.dir === 'rx' && r.t < 18.5 * MS)).toEqual([])
-    expect(uwbMms.observe[1].en).toContain('each side rules on what it accumulated, and only then does a receive stamp appear')
+    expect(uwbMms.observe[1]).toContain('each side rules on what it accumulated, and only then does a receive stamp appear')
   })
 
   it('"Going deeper": the timestamp is the first pulse of the first fragment', () => {
@@ -403,7 +403,7 @@ describe('uwb-mms · who does the talking', () => {
       expect(r.frame.txTimeNs, r.frame.kind).toBe(want)
     }
     // "each answers in a slot of its own" — one response window per responder
-    expect(uwbMms.observe[0].en).toContain('each answers in a slot of its own')
+    expect(uwbMms.observe[0]).toContain('each answers in a slot of its own')
     // three reports per round now, one from each responder, instead of one per pair round
     expect(ofType(rs(), 'TX_START').filter((r) => r.frame.kind === 'nbReport').map((r) => r.node))
       .toEqual(Array.from({ length: BLOCKS }, () => ANCHORS).flat())
@@ -441,7 +441,7 @@ describe('uwb-mms · who does the talking', () => {
     expect(uwbNbChannelText(u, STRINGS.zh.uwb)).toBe('3 · 5733.75 MHz')
     expect(u.mms.lbtBusy).toBe(0)
     expect(ofType(rs(), 'UWB_NB_LBT')).toEqual([])
-    expect(uwbMms.sources!.map((s) => s.en).join('\n'))
+    expect(uwbMms.sources!.map((s) => s).join('\n'))
       .toContain('the narrowband control channel in UNII-3, where nothing else in this scene is talking')
   })
 
@@ -456,7 +456,7 @@ describe('uwb-mms · who does the talking', () => {
     ])
     expect(uwbTrainRows(vs.nodes[TAG].uwb!, STRINGS.zh.uwb)[0].detected).toBe('检出')
     // the third observation is what sends the reader to the responder list
-    expect(uwbMms.observe[2].en).toContain('it ends with a responder list')
+    expect(uwbMms.observe[2]).toContain('it ends with a responder list')
   })
 })
 
@@ -475,7 +475,7 @@ describe('uwb-mms · reach is not accuracy', () => {
     }
     expect(prose()).toContain('Every range is long by the same 1.199 m')
     expect(prose()).toContain('which the quality byte on each range flags as an obstructed path')
-    expect(uwbMms.sources!.map((s) => s.en).join('\n')).toContain('an NLOS excess delay of 2.0 ns per brick wall')
+    expect(uwbMms.sources!.map((s) => s).join('\n')).toContain('an NLOS excess delay of 2.0 ns per brick wall')
   })
 
   it('"(14.22, 4.05) m against a true (13.00, 4.00)", and the ellipse stays at centimetres', () => {
@@ -522,8 +522,8 @@ describe('uwb-mms · reach is not accuracy', () => {
     expect(ofType(rsTwr, 'UWB_ROUND')).toHaveLength(BLOCKS)
     expect(ofType(rsTwr, 'UWB_ROUND')[0].slots).toBe(4)
     expect(ofType(rsTwr, 'UWB_MMS_TRAIN')).toEqual([])
-    expect(uwbMms.tryThis[0].en).toContain('Not one range comes back')
-    expect(uwbMms.tryThis[0].en).toContain('the log fills with timeouts')
+    expect(uwbMms.tryThis[0]).toContain('Not one range comes back')
+    expect(uwbMms.tryThis[0]).toContain('the log fills with timeouts')
   })
 })
 

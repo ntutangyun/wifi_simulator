@@ -133,7 +133,7 @@ const pooled = (s: Stats, ids: string[], m: Map<string, number>): number =>
 
 const prose = [...lessonStrings(tier1ProjectReview), tier1ProjectReview.title,
   ...projectVariants.map((v) => v.label), ...projectJumps.map((j) => j.label)]
-  .flatMap((s) => [s.en, s.zh]).join(' ')
+  .map((s) => s).join(' ')
 const quotes = (...needles: string[]): void => {
   for (const s of needles) expect(prose, `prose is missing "${s}"`).toContain(s)
 }

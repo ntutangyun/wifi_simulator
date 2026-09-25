@@ -15,7 +15,7 @@
 import { describe, it, expect } from 'vitest'
 import { LESSONS } from '../../src/course/lessons'
 import { COURSE_ORDER, MODULES, lessonMinutes, lessonWords, trackOf } from '../../src/course/curriculum'
-import { isMigrated, type Block, type L10n, type Lesson } from '../../src/course/lessonKit'
+import { isMigrated, type Block, type Lesson } from '../../src/course/lessonKit'
 import {
   BUDGETS, CITATION, KNOWN_WORDS, LOG_NAMES, acronyms, cellTexts, definedInPlace, densityTexts, enWords,
   firstTermUses, lessonBudget, lessonStrings, namedAtStandIn, namedInPlace, neutralCellTexts, numericQuantities,
@@ -98,7 +98,7 @@ const ordered = COURSE_ORDER.flatMap((id) => byId.get(id) ?? [])
 const migrated = ordered.filter((l) => !MIGRATING_NOW.includes(l.id))
 
 /** Every bilingual string of one lesson field — `lessonStrings`, asked for a single field. */
-const textsOf = (l: Lesson, f: keyof Lesson): L10n[] =>
+const textsOf = (l: Lesson, f: keyof Lesson): string[] =>
   lessonStrings({ [f]: l[f] } as unknown as Partial<Lesson>)
 /**
  * True for the first MIGRATED lesson of a track, which is the one held to the
@@ -156,7 +156,7 @@ describe('readability · migration bookkeeping', () => {
 if (migrated.length) {
   describe.each(migrated.map((l) => [l.id, l] as const))('readability · %s', (_id, l) => {
     it('has every section, well-formed', () => {
-      expect(l.why!.en.trim()).not.toBe(''); expect(l.why!.zh.trim()).not.toBe('')
+      expect(l.why!.trim()).not.toBe(''); expect(l.why!.trim()).not.toBe('')
       expect(l.outcomes!.length).toBeGreaterThanOrEqual(2); expect(l.outcomes!.length).toBeLessThanOrEqual(4)
       expect(l.terms!.length).toBeLessThanOrEqual(firstOfTrack(l) ? 4 : 6)
       expect(l.picture!.length).toBeGreaterThan(0); expect(l.numbers!.length).toBeGreaterThan(0)
@@ -165,20 +165,17 @@ if (migrated.length) {
       expect(l.sources!.length).toBeGreaterThan(0)
       for (const b of l.picture!) if (b.kind === 'watch' && b.jump !== undefined) expect(l.jumps[b.jump]).toBeDefined()
     })
-    it('says everything in both languages', () => {
+    it('says everything it has to say', () => {
       // every string a learner reads, `sources`, `outcomes` and each term's plain line included
       const seen = lessonStrings(l)
       // a structural floor: one string per outcome, term, block, source, observation,
       // experiment and (question + options + explanation) of a quiz, plus `why` itself,
-      // so deleting a section cannot pass as "still bilingual".
+      // so deleting a section cannot pass as "still written".
       const floor = 1 + l.outcomes!.length + l.terms!.length + l.picture!.length + l.numbers!.length
         + (l.deeper?.length ?? 0) + l.sources!.length + l.observe.length + l.tryThis.length + 3 * l.quiz.length
       expect(seen.length).toBeGreaterThanOrEqual(floor)
       for (const x of seen) {
-        expect(x.en.trim(), x.en).not.toBe('')
-        expect(x.zh.trim(), x.en).not.toBe('')
-        // anything that is a sentence of English must have been written in Chinese too
-        if (/[a-z]{3,}\s+[a-z]{3,}/.test(x.en)) expect(x.zh, x.en).not.toBe(x.en)
+        expect(x.trim(), x).not.toBe('')
       }
     })
     it('names prerequisites that exist, precede it, and respect the track rule', () => {
@@ -190,7 +187,7 @@ if (migrated.length) {
       }
     })
     it('why: plain words, no digits, no citations', () => {
-      for (const s of [l.why!.en, l.why!.zh]) {
+      for (const s of [l.why!]) {
         expect(numericQuantities(s), s).toBe(0)
         expect(CITATION.test(s), s).toBe(false)
       }
@@ -200,37 +197,35 @@ if (migrated.length) {
       const texts = [l.why!, ...paragraphTexts(l.picture!), ...l.outcomes!]
       // both languages: a Chinese paragraph borrows the same Latin acronyms
       for (const s of texts) {
-        for (const a of acronyms(s.en)) expect(known.has(a), `${l.id} EN: "${a}" in "${s.en.slice(0, 60)}…"`).toBe(true)
-        for (const a of acronyms(s.zh)) expect(known.has(a), `${l.id} ZH: "${a}" in "${s.zh.slice(0, 30)}…"`).toBe(true)
+        for (const a of acronyms(s)) expect(known.has(a), `${l.id} EN: "${a}" in "${s.slice(0, 60)}…"`).toBe(true)
+        for (const a of acronyms(s)) expect(known.has(a), `${l.id} ZH: "${a}" in "${s.slice(0, 30)}…"`).toBe(true)
       }
     })
     it('keeps the picture light: short paragraphs, at most two quantities each, no citations', () => {
       for (const p of paragraphTexts(l.picture!)) {
-        expect(enWords(p.en), p.en).toBeLessThanOrEqual(90)
-        expect(zhChars(p.zh), p.zh).toBeLessThanOrEqual(170)
-        expect(numericQuantities(p.en), p.en).toBeLessThanOrEqual(2)
-        expect(numericQuantities(p.zh), p.zh).toBeLessThanOrEqual(2)
-        expect(CITATION.test(p.en) || CITATION.test(p.zh), p.en).toBe(false)
+        expect(enWords(p), p).toBeLessThanOrEqual(90)
+        expect(zhChars(p), p).toBeLessThanOrEqual(170)
+        expect(numericQuantities(p), p).toBeLessThanOrEqual(2)
+        expect(CITATION.test(p), p).toBe(false)
       }
     })
     it('keeps the picture uncrowded: two new words and four acronyms to a paragraph', () => {
       const paragraphs = densityTexts(l.picture!)
       const fresh = firstTermUses(l.picture!, l.terms!.map((t) => t.term))
       for (const [i, p] of paragraphs.entries()) {
-        expect(fresh[i].length, `${l.id}: ${fresh[i].join(', ')} all first used in "${p.en.slice(0, 60)}…"`).toBeLessThanOrEqual(2)
-        const distinct = new Set([...acronyms(p.en), ...acronyms(p.zh)])
-        expect(distinct.size, `${l.id}: ${[...distinct].join(', ')} in "${p.en.slice(0, 60)}…"`).toBeLessThanOrEqual(4)
+        expect(fresh[i].length, `${l.id}: ${fresh[i].join(', ')} all first used in "${p.slice(0, 60)}…"`).toBeLessThanOrEqual(2)
+        const distinct = new Set([...acronyms(p), ...acronyms(p)])
+        expect(distinct.size, `${l.id}: ${[...distinct].join(', ')} in "${p.slice(0, 60)}…"`).toBeLessThanOrEqual(4)
       }
     })
     it('keeps the numbers prose short: ≤ 90 words, ≤ 4 quantities, acronyms known or defined in place', () => {
       const known = knownFor(l)
       for (const p of paragraphTexts(l.numbers!)) {
-        expect(enWords(p.en), p.en).toBeLessThanOrEqual(90)
-        expect(zhChars(p.zh), p.en).toBeLessThanOrEqual(170)
-        expect(numericQuantities(p.en), p.en).toBeLessThanOrEqual(4)
-        expect(numericQuantities(p.zh), p.en).toBeLessThanOrEqual(4)
-        for (const a of new Set([...acronyms(p.en), ...acronyms(p.zh)])) {
-          expect(known.has(a) || definedInPlace(p, a), `${l.id} numbers: "${a}" in "${p.en.slice(0, 60)}…"`).toBe(true)
+        expect(enWords(p), p).toBeLessThanOrEqual(90)
+        expect(zhChars(p), p).toBeLessThanOrEqual(170)
+        expect(numericQuantities(p), p).toBeLessThanOrEqual(4)
+        for (const a of new Set([...acronyms(p), ...acronyms(p)])) {
+          expect(known.has(a) || definedInPlace(p, a), `${l.id} numbers: "${a}" in "${p.slice(0, 60)}…"`).toBe(true)
         }
       }
     })
@@ -242,16 +237,16 @@ if (migrated.length) {
       // paragraph or the item defines where it uses it.
       const known = knownFor(l)
       const quiz = l.quiz.flatMap((q) => [q.q, ...q.options, q.explain])
-      const texts: [string, L10n][] = [
-        ...cellTexts(l.numbers!).map((c) => ['numbers cell', c] as [string, L10n]),
-        ...cellTexts(l.picture!).map((c) => ['picture cell', c] as [string, L10n]),
-        ...l.observe.map((s) => ['observe', s] as [string, L10n]),
-        ...l.tryThis.map((s) => ['tryThis', s] as [string, L10n]),
-        ...quiz.map((s) => ['quiz', s] as [string, L10n]),
+      const texts: [string, string][] = [
+        ...cellTexts(l.numbers!).map((c) => ['numbers cell', c] as [string, string]),
+        ...cellTexts(l.picture!).map((c) => ['picture cell', c] as [string, string]),
+        ...l.observe.map((s) => ['observe', s] as [string, string]),
+        ...l.tryThis.map((s) => ['tryThis', s] as [string, string]),
+        ...quiz.map((s) => ['quiz', s] as [string, string]),
       ]
       for (const [where, s] of texts) {
-        for (const a of new Set([...acronyms(s.en), ...acronyms(s.zh)])) {
-          expect(known.has(a) || definedInPlace(s, a), `${l.id} ${where}: "${a}" in "${s.en.slice(0, 60)}…"`).toBe(true)
+        for (const a of new Set([...acronyms(s), ...acronyms(s)])) {
+          expect(known.has(a) || definedInPlace(s, a), `${l.id} ${where}: "${a}" in "${s.slice(0, 60)}…"`).toBe(true)
         }
       }
     })
@@ -262,8 +257,8 @@ if (migrated.length) {
       // name and a provenance cell are all fine — none of them is two English words in a row.
       if (CELL_RULE_CARRIES[l.id]) return
       for (const c of [...neutralCellTexts(l.numbers!), ...neutralCellTexts(l.picture!)]) {
-        if (CITATION.test(c.en) || LOG_LINE.test(c.en) || RECORD_NAME.test(c.en) || LOG_NAMES.has(c.en.toUpperCase())) continue
-        expect(CELL_PROSE.test(c.en), `${l.id}: language-neutral cell reads as English prose — "${c.en}"`).toBe(false)
+        if (CITATION.test(c) || LOG_LINE.test(c) || RECORD_NAME.test(c) || LOG_NAMES.has(c.toUpperCase())) continue
+        expect(CELL_PROSE.test(c), `${l.id}: language-neutral cell reads as English prose — "${c}"`).toBe(false)
       }
     })
     it('introduces the acronyms of a language-neutral cell as well', () => {
@@ -276,10 +271,10 @@ if (migrated.length) {
       for (const bs of [l.numbers!, l.picture!]) {
         const around = [...paragraphTexts(bs), ...cellTexts(bs)]
         for (const c of neutralCellTexts(bs)) {
-          if (CITATION.test(c.en)) continue
-          for (const a of acronyms(c.en)) {
+          if (CITATION.test(c)) continue
+          for (const a of acronyms(c)) {
             const ok = known.has(a) || definedInPlace(c, a) || around.some((p) => definedInPlace(p, a))
-            expect(ok, `${l.id} neutral cell: "${a}" in "${c.en}" is glossed nowhere in that section`).toBe(true)
+            expect(ok, `${l.id} neutral cell: "${a}" in "${c}" is glossed nowhere in that section`).toBe(true)
           }
         }
       }
@@ -294,21 +289,20 @@ if (migrated.length) {
         if ((b.kind ?? 'p') !== 'p' || b.heading) continue
         const prev = l.numbers![i - 1]
         const bare = prev !== undefined && (prev.kind ?? 'p') === 'p' && !prev.heading
-        expect(bare, `${l.id} numbers[${i}]: "${(b as Extract<Block, { kind?: 'p' }>).text.en.slice(0, 60)}…" follows a heading-less paragraph`).toBe(false)
+        expect(bare, `${l.id} numbers[${i}]: "${(b as Extract<Block, { kind?: 'p' }>).text.slice(0, 60)}…" follows a heading-less paragraph`).toBe(false)
       }
     })
     it('keeps an observe or try-this item to one thing to do: ≤ 60 words, ≤ 6 quantities', () => {
       for (const s of [...l.observe, ...l.tryThis]) {
-        expect(enWords(s.en), s.en).toBeLessThanOrEqual(60)
-        expect(numericQuantities(s.en), s.en).toBeLessThanOrEqual(6)
-        expect(numericQuantities(s.zh), s.en).toBeLessThanOrEqual(6)
+        expect(enWords(s), s).toBeLessThanOrEqual(60)
+        expect(numericQuantities(s), s).toBeLessThanOrEqual(6)
       }
     })
     it('cites only in sources and in table cells of the numbers', () => {
-      for (const f of CITED_FIELDS) for (const s of textsOf(l, f)) expect(CITATION.test(s.en) || CITATION.test(s.zh), `${f}: ${s.en.slice(0, 80)}`).toBe(false)
-      for (const s of paragraphTexts(l.numbers!)) expect(CITATION.test(s.en) || CITATION.test(s.zh), s.en).toBe(false)
+      for (const f of CITED_FIELDS) for (const s of textsOf(l, f)) expect(CITATION.test(s), `${f}: ${s.slice(0, 80)}`).toBe(false)
+      for (const s of paragraphTexts(l.numbers!)) expect(CITATION.test(s), s).toBe(false)
       // depth may be dense, but its provenance still belongs in `sources`
-      for (const s of paragraphTexts(l.deeper ?? [])) expect(CITATION.test(s.en) || CITATION.test(s.zh), `deeper: ${s.en.slice(0, 80)}`).toBe(false)
+      for (const s of paragraphTexts(l.deeper ?? [])) expect(CITATION.test(s), `deeper: ${s.slice(0, 80)}`).toBe(false)
     })
     it('fits the main path: the section budgets, the word window and the minutes ceiling', () => {
       const b = lessonBudget(l)
@@ -339,12 +333,12 @@ describe('readability · one name per thing, across the Wi-Fi track', () => {
   const wifi = migrated.filter((l) => trackOf(l) === 'wifi')
   it.each(wifi.map((l) => [l.id, l] as const))('%s says Mb/s, and calls a station 站点', (_id, l) => {
     for (const s of lessonStrings(l)) {
-      expect(/Mbps/.test(s.en) || /Mbps/.test(s.zh), `${l.id}: write Mb/s, not Mbps — "${s.en.slice(0, 60)}…"`).toBe(false)
+      expect(/Mbps/.test(s) || /Mbps/.test(s), `${l.id}: write Mb/s, not Mbps — "${s.slice(0, 60)}…"`).toBe(false)
       // 终端 is the ZH word Tier 1 settled against: roles-stack teaches 站点 and every
       // lesson after it has to keep calling the same actor by the same name.
-      expect(/终端/.test(s.zh), `${l.id}: a station is 站点, not 终端 — "${s.zh.slice(0, 40)}…"`).toBe(false)
+      expect(/终端/.test(s), `${l.id}: a station is 站点, not 终端 — "${s.slice(0, 40)}…"`).toBe(false)
       // 模拟器 against 仿真器 (Tier 2 review, Minor 15): the tool has one ZH name.
-      expect(/模拟器/.test(s.zh), `${l.id}: this tool is 仿真器, not 模拟器 — "${s.zh.slice(0, 40)}…"`).toBe(false)
+      expect(/模拟器/.test(s), `${l.id}: this tool is 仿真器, not 模拟器 — "${s.slice(0, 40)}…"`).toBe(false)
     }
   })
 
@@ -366,14 +360,14 @@ describe('readability · one name per thing, across the Wi-Fi track', () => {
   it.each(tier2.map((l) => [l.id, l] as const))('%s calls the access point by the name on its own screen', (_id, l) => {
     for (const s of lessonStrings(l)) {
       if (!ROUTER_LABELLED.includes(l.id)) {
-        expect(/\brouters?\b/i.test(s.en), `${l.id}: this scene labels the node AP — say access point — "${s.en.slice(0, 60)}…"`).toBe(false)
-        expect(/路由器/.test(s.zh), `${l.id}: this scene labels the node AP — say 接入点 — "${s.zh.slice(0, 40)}…"`).toBe(false)
+        expect(/\brouters?\b/i.test(s), `${l.id}: this scene labels the node AP — say access point — "${s.slice(0, 60)}…"`).toBe(false)
+        expect(/路由器/.test(s), `${l.id}: this scene labels the node AP — say 接入点 — "${s.slice(0, 40)}…"`).toBe(false)
       }
       // One exception, added with the 2026-09-23 amendment: the name may ride in
       // brackets on the Chinese word, \u63a5\u5165\u70b9\uff08AP\uff09, which is the point of
       // rule 4: it lets a reader join \u63a5\u5165\u70b9 to the AP the log prints. Anywhere else
       // a bare AP is still a word the reader must translate back first.
-      const bare = s.zh.replace(/\u63a5\u5165\u70b9\uff08[^\uff09]{0,12}AP[^\uff09]{0,12}\uff09/g, '\u63a5\u5165\u70b9')
+      const bare = s.replace(/\u63a5\u5165\u70b9\uff08[^\uff09]{0,12}AP[^\uff09]{0,12}\uff09/g, '\u63a5\u5165\u70b9')
       expect(/AP/.test(bare), `${l.id}: write \u63a5\u5165\u70b9 in Chinese, or \u63a5\u5165\u70b9\uff08AP\uff09 at first use`).toBe(false)
     }
   })
@@ -422,7 +416,7 @@ describe('readability · needs is honest about what the picture leans on', () =>
         // a whole word with an optional plural, as `firstTermUses` matches: "chips" is
         // `chip`, but "essentially" is no longer `ESS` (step 5 review, rule-gap 3)
         const re = new RegExp(`\\b${escapeRe(term)}(e?s)?\\b`, 'i')
-        const hit = re.test(p.en) ? p.en : null
+        const hit = re.test(p) ? p : null
         expect(hit, `${l.id}: "${term}" is ${ownerId}'s word, and ${ownerId} is not in the needs closure — "${hit?.slice(0, 60)}…"`).toBe(null)
       }
     }
@@ -528,7 +522,7 @@ function glossTextUpTo(l: Lesson): string {
   const pool = [l, ...(l.needs ?? []).flatMap((id) => byId.get(id) ?? [])]
   return pool
     .filter((o) => !MIGRATING_NOW.includes(o.id))
-    .flatMap((o) => (o.terms ?? []).flatMap((t) => [t.term, t.plain.en, t.plain.zh]))
+    .flatMap((o) => (o.terms ?? []).flatMap((t) => [t.term, t.plain, t.plain]))
     .join(' | ')
 }
 
@@ -553,8 +547,8 @@ describe('readability · mechanism before metaphor', () => {
   it.each(revised.map((l) => [l.id, l] as const))('%s points at no quantity it has not named', (_id, l) => {
     for (const s of lessonStrings(l)) {
       for (const { re, why } of SHORTHAND) {
-        const hit = re.exec(s.en) ?? re.exec(s.zh)
-        expect(hit, `${l.id}: "${hit?.[0]}" — ${why} · ${s.en.slice(0, 60)}…`).toBeNull()
+        const hit = re.exec(s) ?? re.exec(s)
+        expect(hit, `${l.id}: "${hit?.[0]}" — ${why} · ${s.slice(0, 60)}…`).toBeNull()
       }
     }
   })
@@ -563,7 +557,7 @@ describe('readability · mechanism before metaphor', () => {
     const gloss = glossTextUpTo(l)
     const main = [l.why!, ...(l.outcomes ?? [])].concat(paragraphTexts(l.picture ?? []), paragraphTexts(l.numbers ?? []))
     for (const { name, re } of QUANTITIES) {
-      const used = main.some((t) => re.test(t.en) || re.test(t.zh))
+      const used = main.some((t) => re.test(t) || re.test(t))
       if (!used) continue
       expect(re.test(gloss), `${l.id}: uses "${name}" on the main path but no terms table defines it`).toBe(true)
     }
@@ -573,8 +567,8 @@ describe('readability · mechanism before metaphor', () => {
     // The analogy and the name travel together: 几台跟它说话的设备（STA）, not one
     // paragraph of picture and the name three paragraphs later.
     const main = [l.why!, ...(l.outcomes ?? [])].concat(paragraphTexts(l.picture ?? []))
-    const en = main.map((x) => x.en).join(' ')
-    const zh = main.map((x) => x.zh).join(' ')
+    const en = main.map((x) => x).join(' ')
+    const zh = main.map((x) => x).join(' ')
     // The lesson's own terms, and the words every lesson borrows without owning:
     // a reader meeting 几台跟它说话的设备 needs STA in the same breath, or the log
     // they are sent to look at is a different subject.
@@ -592,7 +586,7 @@ describe('readability · mechanism before metaphor', () => {
     // review found it: a term whose gloss opens with its own Chinese name is
     // held to the same rule under that name.
     for (const t of l.terms ?? []) {
-      const zhName = zhTermName(t.plain.zh)
+      const zhName = zhTermName(t.plain)
       if (zhName && !namedInPlace(zh, zhName)) unnamed.push(`${zhName} (zh name of ${t.term})`)
     }
     for (const si of STAND_INS) {
@@ -628,13 +622,13 @@ describe('readability · mechanism before metaphor', () => {
  * (`en === zh`) is left out because editing its Chinese half alone would break
  * that neutrality and move the English word count (inventory section 5).
  */
-const zhMainTexts = (l: Lesson): L10n[] => [l.why!, ...(l.outcomes ?? [])]
+const zhMainTexts = (l: Lesson): string[] => [l.why!, ...(l.outcomes ?? [])]
   .concat(paragraphTexts(l.picture ?? []), cellTexts(l.picture ?? []))
   .concat(paragraphTexts(l.numbers ?? []), cellTexts(l.numbers ?? []))
   .concat(l.observe, l.tryThis, l.quiz.flatMap((q) => [q.q, ...q.options, q.explain]))
 
 /** One joined Chinese string per lesson, in reading order: what "first use" is first in. */
-const zhMainText = (l: Lesson): string => zhMainTexts(l).map((s) => s.zh).join(' ')
+const zhMainText = (l: Lesson): string => zhMainTexts(l).map((s) => s).join(' ')
 
 /**
  * Every failure of one lesson: the bracket arm, then the `aka` arm. Collected

@@ -104,7 +104,7 @@ describe('amp-coexist · lesson shape', () => {
   })
 
   it('every jump target occurs where its label says it does', () => {
-    const find = (en: string) => ampCoexist.jumps.find((j) => j.label.en === en)!
+    const find = (en: string) => ampCoexist.jumps.find((j) => j.label === en)!
     for (const en of [
       'first CTS-to-self', 'the camera’s first NAV from one', 'first camera RTS the router never answers',
       'first tag response the router could not acknowledge', 'first 5 GHz video frame',
@@ -451,7 +451,7 @@ describe('amp-coexist · observe', () => {
     // "jump to the first camera RTS the router never answers, at 73 µs: it started at 0 µs, with the
     //  trigger, and the router was transmitting."
     const rs = recs(NONE)
-    const jump = ampCoexist.jumps.find((j) => j.label.en === 'first camera RTS the router never answers')!
+    const jump = ampCoexist.jumps.find((j) => j.label === 'first camera RTS the router never answers')!
     const first = rs.find(jump.find)!
     expect(first.type).toBe('CTS_TIMEOUT')
     expect(first.t).toBe(73 * US)

@@ -58,14 +58,14 @@ const tagRanges = (variant?: number) => ofType(recs(variant), 'UWB_RANGE').filte
 /** The lesson's nth table of `numbers`, rows kept in place so a cell can be checked by position. */
 const table = (n: number): Extract<Block, { kind: 'table' }> =>
   uwbGeometry.numbers!.filter((b): b is Extract<Block, { kind: 'table' }> => b.kind === 'table')[n]
-const cell = (n: number, row: number, col: number): string => table(n).rows[row][col].en
+const cell = (n: number, row: number, col: number): string => table(n).rows[row][col]
 /** A cell with the lesson's typographic minus put back to the one `toFixed` writes. */
 const cellAscii = (n: number, row: number, col: number): string => cell(n, row, col).replace(/−/g, '-')
 const formulas = (): Extract<Block, { kind: 'formula' }>[] =>
   uwbGeometry.numbers!.filter((b): b is Extract<Block, { kind: 'formula' }> => b.kind === 'formula')
 
 /** Everything a learner reads of this lesson, joined — `deeper` and `sources` included. */
-const prose = (): string => lessonStrings(uwbGeometry).map((s) => s.en).join('\n')
+const prose = (): string => lessonStrings(uwbGeometry).map((s) => s).join('\n')
 
 /** The solver run on exact geometry: what GDOP and the ellipse are before any noise. */
 function exactFix(px: number, py: number, drop?: string): Fix {
@@ -146,7 +146,7 @@ describe('uwb-geometry · the second half of the split', () => {
   it('names the one standard clause it leans on and owns the rest as the model’s', () => {
     // "§10.29.1.7, with Tables 10-146, 10-147 and 10-148, defines the Figure of Merit byte" —
     // in `sources`, which is the only place the contract allows a citation.
-    const src = uwbGeometry.sources!.map((s) => s.en).join('\n')
+    const src = uwbGeometry.sources!.map((s) => s).join('\n')
     for (const s of ['IEEE Std 802.15.4-2024', '§10.29.1.7', '10-146', '10-147', '10-148']) {
       expect(src, s).toContain(s)
     }
@@ -164,8 +164,8 @@ describe('uwb-geometry · what the geometry charges', () => {
   it('GDOP at the tag is 1.05, and √trace((JᵀJ)⁻¹) is what the engine reports', () => {
     // "GDOP = √trace((JᵀJ)⁻¹) = 1.05      Σ = σ_r² (JᵀJ)⁻¹"
     expect(formulas()).toHaveLength(1)
-    expect(formulas()[0].text.en).toBe('GDOP = √trace((JᵀJ)⁻¹) = 1.05      Σ = σ_r² (JᵀJ)⁻¹')
-    expect(formulas()[0].text.zh).toBe(formulas()[0].text.en)
+    expect(formulas()[0].text).toBe('GDOP = √trace((JᵀJ)⁻¹) = 1.05      Σ = σ_r² (JᵀJ)⁻¹')
+    expect(formulas()[0].text).toBe(formulas()[0].text)
     const exact = exactFix(TAG.x, TAG.y)
     expect(exact.gdop).toBeCloseTo(1.0488, 4)
     expect(exact.gdop.toFixed(2)).toBe('1.05')
@@ -367,7 +367,7 @@ describe('uwb-geometry · a brick wall in one path', () => {
     // one number for the shift, everywhere it is quoted
     expect(prose()).toContain('The fix moves 30.9 cm, not 60')
     expect(prose()).toContain('the shift is 0.316 m')
-    expect(uwbGeometry.quiz[0].q.en).toContain('0.316 m noise-free')
+    expect(uwbGeometry.quiz[0].q).toContain('0.316 m noise-free')
     expect(prose()).not.toContain('0.32 m')
   })
 
@@ -487,7 +487,7 @@ describe('uwb-geometry · three anchors', () => {
 describe('uwb-geometry · the procedure, against the solver', () => {
   const steps = (): Extract<Block, { kind: 'steps' }> =>
     uwbGeometry.numbers!.find((b): b is Extract<Block, { kind: 'steps' }> => b.kind === 'steps')!
-  const stepsText = (): string => steps().items.map((i) => i.en).join('\n')
+  const stepsText = (): string => steps().items.map((i) => i).join('\n')
   /** The four rows of J at the tag's true place, which is where the noise-free fit stops. */
   const jRows = (): [number, number][] => CORNERS.map(([, x, y]) => jRow(TAG.x, TAG.y, x, y))
   const normal = (rs: [number, number][]) => {
@@ -502,7 +502,7 @@ describe('uwb-geometry · the procedure, against the solver', () => {
     expect(uwbGeometry.numbers!.some((b) => b.kind === 'steps')).toBe(true)
     expect((uwbGeometry.deeper ?? []).some((b) => b.kind === 'steps')).toBe(false)
     expect(steps().items.length).toBeGreaterThanOrEqual(3)
-    for (const i of steps().items) expect(i.zh).not.toBe(i.en)
+    for (const i of steps().items) expect(i).not.toBe(i)
   })
 
   it('step 2: a row is a direction — its length never exceeds one, and it carries no metres', () => {

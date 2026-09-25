@@ -27,7 +27,7 @@
 import { LESSONS } from '../src/course/lessons'
 import { lessonMinutes, lessonWords, trackOf } from '../src/course/curriculum'
 import { BUDGETS, lessonBudget } from '../src/course/readability'
-import type { Block, L10n, Lesson } from '../src/course/lessonKit'
+import type { Block, Lesson } from '../src/course/lessonKit'
 
 /** The spec's "Length and pace" section budgets, one lesson to a line. */
 function budgetLine(l: Lesson): string {
@@ -68,7 +68,7 @@ if (!lesson) {
   process.exit(2)
 }
 
-const t = (s: L10n): string => s[lang]
+const t = (s: string): string => s
 const out = (s = ''): void => console.log(s)
 const rule = (label: string): void => out(`\n--- ${label} ---\n`)
 

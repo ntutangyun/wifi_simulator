@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useStrings } from '../ui/i18n'
 import { player, useUi } from '../ui/store'
-import { LESSONS, isMigrated, lessonIndex, type Block, type L10n, type Lesson } from './lessons'
+import { LESSONS, isMigrated, lessonIndex, type Block, type Lesson } from './lessons'
 import { MODULES, TIERS, TRACKS, lessonBlocks, lessonMinutes, trackHeadings } from './curriculum'
 import { LinkBudget } from './widgets/LinkBudget'
 import { McsLadder } from './widgets/McsLadder'
@@ -64,15 +64,15 @@ const watchStyle: React.CSSProperties = {
 /** `deeper` and `sources`: present but out of the way until the reader wants them. */
 const summaryStyle: React.CSSProperties = { ...h4, cursor: 'pointer', listStyle: 'revert' }
 
-/** Render one lesson body block in the current language. */
-function BlockView({ b, t }: { b: Block; t: (l: L10n) => string }) {
+/** Render one lesson body block. */
+function BlockView({ b }: { b: Block }) {
   switch (b.kind ?? 'p') {
     case 'formula': {
       const f = b as Extract<Block, { kind: 'formula' }>
       return (
         <>
-          <div style={formulaBox}>{t(f.text)}</div>
-          {f.note && <p style={{ ...prose, ...dim, fontSize: 11.5 }}>{t(f.note)}</p>}
+          <div style={formulaBox}>{f.text}</div>
+          {f.note && <p style={{ ...prose, ...dim, fontSize: 11.5 }}>{f.note}</p>}
         </>
       )
     }
@@ -82,12 +82,12 @@ function BlockView({ b, t }: { b: Block; t: (l: L10n) => string }) {
         <div style={tableWrap}>
           <table style={tableStyle}>
             <thead>
-              <tr>{tb.head.map((c, i) => <th key={i} style={th}>{t(c)}</th>)}</tr>
+              <tr>{tb.head.map((c, i) => <th key={i} style={th}>{c}</th>)}</tr>
             </thead>
             <tbody>
               {tb.rows.map((r, ri) => (
                 <tr key={ri}>{r.map((c, ci) => {
-                  const s = t(c)
+                  const s = c
                   // short cells (numbers, "34 µs") stay on one line in the narrow panel
                   return <td key={ci} style={s.length <= 14 ? { ...td, whiteSpace: 'nowrap' } : td}>{s}</td>
                 })}</tr>
@@ -99,11 +99,11 @@ function BlockView({ b, t }: { b: Block; t: (l: L10n) => string }) {
     }
     case 'list': {
       const l = b as Extract<Block, { kind: 'list' }>
-      return <ul style={listStyle}>{l.items.map((it, i) => <li key={i}>{t(it)}</li>)}</ul>
+      return <ul style={listStyle}>{l.items.map((it, i) => <li key={i}>{it}</li>)}</ul>
     }
     case 'steps': {
       const l = b as Extract<Block, { kind: 'steps' }>
-      return <ol style={listStyle}>{l.items.map((it, i) => <li key={i}>{t(it)}</li>)}</ol>
+      return <ol style={listStyle}>{l.items.map((it, i) => <li key={i}>{it}</li>)}</ol>
     }
     case 'widget': {
       const w = b as Extract<Block, { kind: 'widget' }>
@@ -112,24 +112,22 @@ function BlockView({ b, t }: { b: Block; t: (l: L10n) => string }) {
           {w.widget === 'linkBudget'
             ? <LinkBudget key={JSON.stringify(w.params ?? {})} params={w.params} />
             : <McsLadder key={JSON.stringify(w.params ?? {})} params={w.params} />}
-          {w.caption && <p style={{ ...prose, ...dim, fontSize: 11.5 }}>{t(w.caption)}</p>}
+          {w.caption && <p style={{ ...prose, ...dim, fontSize: 11.5 }}>{w.caption}</p>}
         </>
       )
     }
     default:
-      return <p style={prose}>{t((b as Extract<Block, { kind?: 'p' }>).text)}</p>
+      return <p style={prose}>{(b as Extract<Block, { kind?: 'p' }>).text}</p>
   }
 }
 
 export function CoursePanel() {
-  const { lang, courseLessonId, selectLesson, loadCourseScenario, adoptCourseScenario, courseLoaded, courseLoadedFor } = useUi()
+  const { courseLessonId, selectLesson, loadCourseScenario, adoptCourseScenario, courseLoaded, courseLoadedFor } = useUi()
   const L = useStrings().course
   const [progress, setProgress] = useState<Progress>(loadProgress)
   const [jumpMsg, setJumpMsg] = useState('')
   const [quizPick, setQuizPick] = useState<Record<number, number>>({})
   const [quizResult, setQuizResult] = useState<Record<number, boolean>>({})
-
-  const t = (l: { en: string; zh: string }) => l[lang]
 
   const save = (p: Progress) => {
     setProgress(p)
@@ -175,14 +173,14 @@ export function CoursePanel() {
           <div key={ti} style={{ marginBottom: 14 }}>
             {newTrack && (
               <div style={{ fontSize: 13.5, fontWeight: 600, color: '#e6eaf2', margin: shown === 0 ? '0 0 8px' : '18px 0 8px' }}>
-                {t(TRACKS[tier.track])}
+                {TRACKS[tier.track]}
               </div>
             )}
-            <div style={{ fontSize: 12, fontWeight: 600, color: '#d5dae3', marginBottom: 6 }}>{t(tier)}</div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: '#d5dae3', marginBottom: 6 }}>{tier.label}</div>
         {mods.map(({ m, mi }, mNo) => (
           <div key={mi} style={{ marginBottom: 12 }}>
             <div style={{ fontSize: 11, color: 'var(--dim)', letterSpacing: 0.5, marginBottom: 4 }}>
-              {L.module} {mNo + 1} · {t(m.title)}
+              {L.module} {mNo + 1} · {m.title}
             </div>
             {LESSONS.filter((l) => l.module === mi).map((l) => (
               <div
@@ -197,7 +195,7 @@ export function CoursePanel() {
                   {progress[l.id]?.done ? '✓' : '○'}
                 </span>
                 <span style={{ ...dim, width: 18, textAlign: 'right' }}>{lessonIndex(l.id) + 1}</span>
-                <span style={{ flex: 1 }}>{t(l.title)}</span>
+                <span style={{ flex: 1 }}>{l.title}</span>
                 <span style={{ ...dim, fontSize: 10.5 }}>{L.minutes(lessonMinutes(l))}</span>
               </div>
             ))}
@@ -242,14 +240,14 @@ export function CoursePanel() {
     const target = b.jump === undefined ? undefined : lesson.jumps[b.jump]
     return (
       <div style={watchStyle}>
-        <p style={{ ...prose, margin: 0 }}>{t(b.text)}</p>
+        <p style={{ ...prose, margin: 0 }}>{b.text}</p>
         {!loaded && (
           <button style={{ marginTop: 6, fontSize: 11.5 }} onClick={() => loadCourseScenario(lesson.scenario(), lesson.id)}>
             {L.watchLoad}
           </button>
         )}
         {loaded && target && (
-          <button style={{ marginTop: 6, fontSize: 11.5 }} onClick={() => jump(target.find, t(target.label))}>
+          <button style={{ marginTop: 6, fontSize: 11.5 }} onClick={() => jump(target.find, target.label)}>
             {L.watchJump}
           </button>
         )}
@@ -260,8 +258,8 @@ export function CoursePanel() {
   /** One run of blocks, each with its optional heading. */
   const blocks = (bs: Block[], key: string) => bs.map((b, i) => (
     <div key={`${lesson.id}:${key}:${i}`}>
-      {b.heading && <h4 style={h4}>{t(b.heading)}</h4>}
-      {b.kind === 'watch' ? watchCallout(b) : <BlockView b={b} t={t} />}
+      {b.heading && <h4 style={h4}>{b.heading}</h4>}
+      {b.kind === 'watch' ? watchCallout(b) : <BlockView b={b} />}
     </div>
   ))
 
@@ -274,21 +272,21 @@ export function CoursePanel() {
       </div>
 
       <div style={{ ...dim, fontSize: 11 }}>
-        {t(TIERS[MODULES[lesson.module].tier])} · {t(MODULES[lesson.module].title)} · {L.minutes(lessonMinutes(lesson))}
+        {TIERS[MODULES[lesson.module].tier].label} · {MODULES[lesson.module].title} · {L.minutes(lessonMinutes(lesson))}
       </div>
-      <h3 style={{ margin: '4px 0 8px', fontSize: 14 }}>{idx + 1} · {t(lesson.title)}</h3>
+      <h3 style={{ margin: '4px 0 8px', fontSize: 14 }}>{idx + 1} · {lesson.title}</h3>
 
       {!isMigrated(lesson) && blocks(lessonBlocks(lesson), 'body')}
 
       {isMigrated(lesson) && (
         <>
-          <p style={whyStyle}>{t(lesson.why!)}</p>
+          <p style={whyStyle}>{lesson.why!}</p>
 
           {(lesson.outcomes ?? []).length > 0 && (
             <>
               <h4 style={h4}>{L.outcomes}</h4>
               <ul style={listStyle}>
-                {lesson.outcomes!.map((o, i) => <li key={i}>{t(o)}</li>)}
+                {lesson.outcomes!.map((o, i) => <li key={i}>{o}</li>)}
               </ul>
             </>
           )}
@@ -299,7 +297,7 @@ export function CoursePanel() {
               <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                 {lesson.needs!.map((id) => (
                   <button key={id} style={{ fontSize: 11.5 }} onClick={() => selectLesson(id)}>
-                    {t(LESSONS.find((x) => x.id === id)?.title ?? { en: id, zh: id })}
+                    {LESSONS.find((x) => x.id === id)?.title ?? id}
                   </button>
                 ))}
               </div>
@@ -315,7 +313,7 @@ export function CoursePanel() {
                     {lesson.terms!.map((term) => (
                       <tr key={term.term}>
                         <td style={{ ...td, whiteSpace: 'nowrap', color: '#e6eaf2' }}>{term.term}</td>
-                        <td style={td}>{t(term.plain)}</td>
+                        <td style={td}>{term.plain}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -353,7 +351,7 @@ export function CoursePanel() {
         </button>
         {lesson.variants?.map((v, i) => (
           <button key={i} onClick={() => loadCourseScenario(v.scenario(), lesson.id)}>
-            {L.variants}: {t(v.label)}
+            {L.variants}: {v.label}
           </button>
         ))}
         <button onClick={() => adoptCourseScenario(lesson.scenario())} style={{ fontSize: 11.5 }}>
@@ -366,8 +364,8 @@ export function CoursePanel() {
           <div style={{ ...dim, fontSize: 11, marginBottom: 3 }}>{L.jumps}</div>
           <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
             {lesson.jumps.map((j, i) => (
-              <button key={i} style={{ fontSize: 11.5 }} onClick={() => jump(j.find, t(j.label))}>
-                ⚡ {t(j.label)}
+              <button key={i} style={{ fontSize: 11.5 }} onClick={() => jump(j.find, j.label)}>
+                ⚡ {j.label}
               </button>
             ))}
           </div>
@@ -380,7 +378,7 @@ export function CoursePanel() {
         <label key={i} style={{ display: 'flex', gap: 6, alignItems: 'flex-start', margin: '3px 0', cursor: 'pointer' }}>
           <input type="checkbox" checked={obs.has(i)} onChange={() => toggleObs(i)} style={{ marginTop: 3 }} />
           <span style={{ color: obs.has(i) ? '#8a93a3' : '#c3c9d4', textDecoration: obs.has(i) ? 'line-through' : 'none' }}>
-            {t(o)}
+            {o}
           </span>
         </label>
       ))}
@@ -388,14 +386,14 @@ export function CoursePanel() {
       <h4 style={h4}>{L.tryThis}</h4>
       <ul style={{ margin: '2px 0', paddingLeft: 18, color: '#c3c9d4' }}>
         {lesson.tryThis.map((x, i) => (
-          <li key={i} style={{ marginBottom: 3 }}>{t(x)}</li>
+          <li key={i} style={{ marginBottom: 3 }}>{x}</li>
         ))}
       </ul>
 
       <h4 style={h4}>{L.quiz}</h4>
       {lesson.quiz.map((q, qi) => (
         <div key={qi} style={{ margin: '6px 0 10px', padding: 8, background: 'var(--panel2)', borderRadius: 5 }}>
-          <div style={{ marginBottom: 4 }}>{t(q.q)}</div>
+          <div style={{ marginBottom: 4 }}>{q.q}</div>
           {q.options.map((o, oi) => (
             <label key={oi} style={{ display: 'flex', gap: 6, alignItems: 'flex-start', margin: '2px 0', cursor: 'pointer', fontSize: 12 }}>
               <input
@@ -405,7 +403,7 @@ export function CoursePanel() {
                 onChange={() => setQuizPick({ ...quizPick, [qi]: oi })}
                 style={{ marginTop: 3 }}
               />
-              <span>{t(o)}</span>
+              <span>{o}</span>
             </label>
           ))}
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 4 }}>
@@ -415,8 +413,8 @@ export function CoursePanel() {
             >
               {L.check}
             </button>
-            {quizResult[qi] === true && <span style={{ color: '#22c55e', fontSize: 12 }}>{L.correct} {t(q.explain)}</span>}
-            {quizResult[qi] === false && <span style={{ color: '#f87171', fontSize: 12 }}>{L.incorrect} {t(q.explain)}</span>}
+            {quizResult[qi] === true && <span style={{ color: '#22c55e', fontSize: 12 }}>{L.correct} {q.explain}</span>}
+            {quizResult[qi] === false && <span style={{ color: '#f87171', fontSize: 12 }}>{L.incorrect} {q.explain}</span>}
           </div>
         </div>
       ))}
@@ -425,7 +423,7 @@ export function CoursePanel() {
         <details style={{ margin: '10px 0 4px' }}>
           <summary style={summaryStyle}>{L.sources}</summary>
           <ul style={{ ...listStyle, fontSize: 11.5 }}>
-            {lesson.sources.map((s, i) => <li key={i}>{t(s)}</li>)}
+            {lesson.sources.map((s, i) => <li key={i}>{s}</li>)}
           </ul>
         </details>
       )}

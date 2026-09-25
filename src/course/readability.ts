@@ -8,7 +8,7 @@
  * does, and so each rule can be pinned on its own.
  */
 import { FRAME_KINDS } from '../model/frames'
-import type { Block, L10n, Lesson } from './lessonKit'
+import type { Block, Lesson } from './lessonKit'
 
 /**
  * Acronyms and everyday words a reader is assumed to know before lesson one:
@@ -144,8 +144,8 @@ export function zhChars(text: string): number {
  * formula bodies are where the exact values live, and (inside `numbers`) a
  * table cell is the one place the contract allows provenance.
  */
-export function paragraphTexts(blocks: Block[]): L10n[] {
-  const out: L10n[] = []
+export function paragraphTexts(blocks: Block[]): string[] {
+  const out: string[] = []
   for (const b of blocks) {
     if (b.heading) out.push(b.heading)
     switch (b.kind ?? 'p') {
@@ -186,11 +186,13 @@ export function paragraphTexts(blocks: Block[]): L10n[] {
  * The acronym rule reads these: `GDOP 1.06` in a cell is a word the learner
  * meets whether or not the sentence around it is prose.
  */
-export function cellTexts(blocks: Block[]): L10n[] {
-  const out: L10n[] = []
+export function cellTexts(blocks: Block[]): string[] {
+  const out: string[] = []
   for (const b of blocks) {
     if (b.kind !== 'table') continue
-    for (const c of [...b.head, ...b.rows.flat()]) if (c.en !== c.zh) out.push(c)
+    // A cell with Chinese in it is a cell read as language. It used to be the cell
+    // whose two halves differed; with one string left, the Chinese is the test.
+    for (const c of [...b.head, ...b.rows.flat()]) if (HAS_CJK.test(c)) out.push(c)
   }
   return out
 }
@@ -209,14 +211,17 @@ export function cellTexts(blocks: Block[]): L10n[] {
  *    has to be glossed somewhere in that section, exactly as `GDOP 1.06` in a
  *    bilingual cell already had to be.
  */
-export function neutralCellTexts(blocks: Block[]): L10n[] {
-  const out: L10n[] = []
+export function neutralCellTexts(blocks: Block[]): string[] {
+  const out: string[] = []
   for (const b of blocks) {
     if (b.kind !== 'table') continue
-    for (const c of [...b.head, ...b.rows.flat()]) if (c.en === c.zh) out.push(c)
+    for (const c of [...b.head, ...b.rows.flat()]) if (!HAS_CJK.test(c)) out.push(c)
   }
   return out
 }
+
+/** Chinese in a string: what a cell being read as language now looks like. */
+const HAS_CJK = /[㐀-䶿一-鿿]/
 
 /**
  * Every bilingual string a learner can read in a lesson: the one walk that all
@@ -238,15 +243,15 @@ export function neutralCellTexts(blocks: Block[]): L10n[] {
  * `lessonStrings({ picture })`, which is how the citation rule is applied
  * field by field.
  */
-export function lessonStrings(l: Partial<Lesson>): L10n[] {
-  const out: L10n[] = []
+export function lessonStrings(l: Partial<Lesson>): string[] {
+  const out: string[] = []
   const walk = (x: unknown): void => {
     if (x == null || typeof x === 'function') return
+    if (typeof x === 'string') { out.push(x); return }
     if (Array.isArray(x)) { x.forEach(walk); return }
     if (typeof x !== 'object') return
     const o = x as Record<string, unknown>
-    if (typeof o.en === 'string' && typeof o.zh === 'string') { out.push(o as unknown as L10n); return }
-    for (const [k, v] of Object.entries(o)) if (k !== 'scenario' && k !== 'find') walk(v)
+    for (const [k, v] of Object.entries(o)) if (!NOT_PROSE.has(k)) walk(v)
   }
   walk({
     why: l.why, outcomes: l.outcomes, terms: l.terms, picture: l.picture, numbers: l.numbers,
@@ -261,7 +266,15 @@ export function lessonStrings(l: Partial<Lesson>): L10n[] {
  * protocol name) counts ONE — it is a glance, not something read at 150 words
  * a minute — which is what the spec's "Length and pace" says counts.
  */
-export const countedWords = (s: L10n): number => (s.en === s.zh ? 1 : enWords(s.en))
+export const countedWords = (s: string): number => enWords(s)
+
+/**
+ * Keys of a lesson object that hold a string which is not prose a learner reads:
+ * a block's discriminant, a widget's name and its preset controls, and a
+ * `Term`'s own word (the standard's own spelling, counted by `wordsIn` itself).
+ * With `L10n` gone, a walk that did not skip these would read them as text.
+ */
+const NOT_PROSE = new Set(['scenario', 'find', 'kind', 'widget', 'params', 'term'])
 
 /**
  * English words a learner reads in anything a lesson field can hold: a string,
@@ -274,17 +287,17 @@ export const countedWords = (s: L10n): number => (s.en === s.zh ? 1 : enWords(s.
  */
 export function wordsIn(x: unknown): number {
   if (x == null || typeof x === 'function') return 0
+  if (typeof x === 'string') return countedWords(x)
   if (Array.isArray(x)) return x.reduce<number>((n, v) => n + wordsIn(v), 0)
   if (typeof x !== 'object') return 0
   const o = x as Record<string, unknown>
-  if (typeof o.en === 'string' && typeof o.zh === 'string') return countedWords(o as unknown as L10n)
   let n = 0
   // A formula's body is one glance whatever language its units are in; its
   // heading and its note are prose and are walked like anything else.
   if (o.kind === 'formula' && o.text !== undefined) n += 1
   if (typeof o.term === 'string' && o.plain !== undefined) n += enWords(o.term)
   for (const [k, v] of Object.entries(o)) {
-    if (k === 'scenario' || k === 'find') continue
+    if (NOT_PROSE.has(k)) continue
     if (k === 'text' && o.kind === 'formula') continue
     n += wordsIn(v)
   }
@@ -348,7 +361,7 @@ export function lessonBudget(l: Partial<Lesson>): LessonBudget {
  * exempt from the density cap by the spec, and is the shape a pile-up should
  * be rewritten into; the citation rule still reads every one of its items.
  */
-export function densityTexts(blocks: Block[]): L10n[] {
+export function densityTexts(blocks: Block[]): string[] {
   return blocks.flatMap((b) => (b.kind === 'steps'
     ? (b.heading ? [b.heading] : [])
     : paragraphTexts([b])))
@@ -370,13 +383,13 @@ const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\-]/g, '\\$&'
  * The two languages share one verdict because they are one sentence written
  * twice: a half that spells the word out has introduced it for either reader.
  */
-export function definedInPlace(p: L10n, token: string): boolean {
+export function definedInPlace(p: string, token: string): boolean {
   const t = escapeRe(token)
   const parenthesised = new RegExp(`[(（]\\s*${t}\\s*[)）]`)
   const gloss = new RegExp(`${t}\\s*[(（]`, 'i')
   const spelledOut = new RegExp(`\\b(?:[Tt]he|[Ii]ts|[Tt]heir|[Tt]his|[Aa]n?)\\s+(?:[a-z]+\\s+){1,4}${t}\\b`)
   const defines = (s: string): boolean => parenthesised.test(s) || gloss.test(s) || spelledOut.test(s)
-  return defines(p.en) || defines(p.zh)
+  return defines(p)
 }
 
 /**
@@ -397,7 +410,7 @@ export function firstTermUses(blocks: Block[], terms: readonly string[]): string
     for (const term of terms) {
       if (seen.has(term)) continue
       const re = new RegExp(`\\b${escapeRe(term)}(e?s)?\\b`, 'i')
-      if (re.test(p.en) || re.test(p.zh)) { seen.add(term); fresh.push(term) }
+      if (re.test(p)) { seen.add(term); fresh.push(term) }
     }
     return fresh
   })

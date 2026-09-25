@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { LESSONS, MODULES, type L10n } from '../../src/course/lessons'
+import { LESSONS, MODULES } from '../../src/course/lessons'
 import { COURSE_ORDER, OBSERVE_MINUTES, TIERS, TRY_MINUTES, lessonBlocks, lessonMinutes, lessonWords, trackHeadings } from '../../src/course/curriculum'
 import { ScenarioSchema } from '../../src/model/scenario'
 import { Simulation } from '../../src/engine/simulation'
@@ -66,7 +66,7 @@ describe('jump targets occur in their lesson simulations', () => {
       const lesson = LESSONS.find((l) => l.id === c.id)!
       const records = recordsFor(lesson.scenario(), c.ms)
       for (const j of lesson.jumps) {
-        expect(records.some(j.find), `${c.id} → ${j.label.en}`).toBe(true)
+        expect(records.some(j.find), `${c.id} → ${j.label}`).toBe(true)
       }
     })
   }
@@ -176,56 +176,55 @@ describe('jump targets occur in their lesson simulations', () => {
   it('capstone: MU, trigger and 6 GHz activity all present', () => {
     const lesson = LESSONS.find((l) => l.id === 'capstone')!
     const records = recordsFor(lesson.scenario(), 500)
-    const find = (en: string) => lesson.jumps.find((j) => j.label.en === en)!
+    const find = (en: string) => lesson.jumps.find((j) => j.label === en)!
     expect(records.some(find('first MU PPDU').find)).toBe(true)
     expect(records.some(find('first 6 GHz data').find)).toBe(true)
   })
 })
 
 describe('lesson body blocks', () => {
-  const bilingual = (l: { en: string; zh: string } | undefined, where: string) => {
+  const written = (l: string | undefined, where: string) => {
     expect(l, where).toBeDefined()
-    expect(l!.en.trim().length, `${where} en`).toBeGreaterThan(0)
-    expect(l!.zh.trim().length, `${where} zh`).toBeGreaterThan(0)
+    expect(l!.trim().length, where).toBeGreaterThan(0)
   }
 
-  it('every block is bilingual and well-formed for its kind', () => {
+  it('every block is written and well-formed for its kind', () => {
     for (const l of LESSONS) {
       // `deeper` is off the main path, so lessonBlocks leaves it out — but the
       // panel renders it, so it is held to the same shape as everything else.
       const all = [...lessonBlocks(l), ...(l.deeper ?? [])]
       all.forEach((b, i) => {
         const where = `${l.id} body[${i}]`
-        if (b.heading) bilingual(b.heading, `${where} heading`)
+        if (b.heading) written(b.heading, `${where} heading`)
         switch (b.kind ?? 'p') {
           case 'p':
           case 'formula':
           case 'watch':
-            bilingual((b as { text: L10n }).text, `${where} text`)
-            if ('note' in b && b.note) bilingual(b.note, `${where} note`)
+            written((b as { text: string }).text, `${where} text`)
+            if ('note' in b && b.note) written(b.note, `${where} note`)
             break
           case 'table': {
-            const t = b as { head: L10n[]; rows: L10n[][] }
+            const t = b as { head: string[]; rows: string[][] }
             expect(t.head.length, `${where} head`).toBeGreaterThan(1)
             expect(t.rows.length, `${where} rows`).toBeGreaterThan(0)
-            t.head.forEach((c, j) => bilingual(c, `${where} head[${j}]`))
+            t.head.forEach((c, j) => written(c, `${where} head[${j}]`))
             t.rows.forEach((r, ri) => {
               expect(r.length, `${where} row ${ri} width`).toBe(t.head.length)
-              r.forEach((c, j) => bilingual(c, `${where} row ${ri}[${j}]`))
+              r.forEach((c, j) => written(c, `${where} row ${ri}[${j}]`))
             })
             break
           }
           case 'widget': {
-            const w = b as { widget: string; params?: Record<string, number | string>; caption?: L10n }
+            const w = b as { widget: string; params?: Record<string, number | string>; caption?: string }
             expect(['linkBudget', 'mcsLadder'], `${where} widget`).toContain(w.widget)
-            if (w.caption) bilingual(w.caption, `${where} caption`)
+            if (w.caption) written(w.caption, `${where} caption`)
             break
           }
           case 'list':
           case 'steps': {
-            const items = (b as { items: L10n[] }).items
+            const items = (b as { items: string[] }).items
             expect(items.length, `${where} items`).toBeGreaterThan(1)
-            items.forEach((c, j) => bilingual(c, `${where} item[${j}]`))
+            items.forEach((c, j) => written(c, `${where} item[${j}]`))
             break
           }
           default:
@@ -273,7 +272,7 @@ describe('module 4 lessons', () => {
     expect(TIERS).toHaveLength(7)
     expect(TIERS.map((t) => t.track)).toEqual(['wifi', 'wifi', 'wifi', 'wifi', 'uwb', 'uwb', 'uwb'])
     expect(MODULES.map((m) => m.tier)).toEqual([0, 0, 1, 1, 1, 1, 1, 1, 1, 2, 3, 4, 4, 5, 5, 6, 6])
-    for (const m of MODULES) expect(m.title.zh.length).toBeGreaterThan(0)
+    for (const m of MODULES) expect(m.title.length).toBeGreaterThan(0)
   })
 
   it('a track heading opens the first tier and every change of radio', () => {
@@ -317,7 +316,7 @@ describe('module 4 lessons', () => {
       expect(l.quiz.length).toBeGreaterThan(0)
       expect(l.observe.length).toBeGreaterThan(0)
       expect(l.tryThis.length).toBeGreaterThan(0)
-      expect(l.title.zh.length).toBeGreaterThan(0)
+      expect(l.title.length).toBeGreaterThan(0)
     }
   })
 })
@@ -325,9 +324,9 @@ describe('module 4 lessons', () => {
 describe('lessons 17 and 18', () => {
   it('the MU-MIMO lesson contrasts OFDMA with MU-MIMO as two variants of the same house', () => {
     const l = LESSONS.find((x) => x.id === 'mumimo')!
-    expect(MODULES[l.module].title.en).toBe('Scheduled Wi-Fi 6/7')
+    expect(MODULES[l.module].title).toBe('Scheduled Wi-Fi 6/7')
     expect(l.variants?.length).toBe(2)
-    expect(l.variants!.map((v) => v.label.en)).toEqual(['OFDMA (split by frequency)', 'MU-MIMO (split by space)'])
+    expect(l.variants!.map((v) => v.label)).toEqual(['OFDMA (split by frequency)', 'MU-MIMO (split by space)'])
   })
 
   it('lesson 17 actually produces a MU-MIMO PPDU in its second variant', () => {
@@ -388,8 +387,7 @@ describe('course structure (tiers, order, study time)', () => {
 
   it('no title carries a hard-coded lesson number — the panel numbers lessons by position', () => {
     for (const l of LESSONS) {
-      expect(l.title.en, l.id).not.toMatch(/^\d+\s*·/)
-      expect(l.title.zh, l.id).not.toMatch(/^\d+\s*·/)
+      expect(l.title, l.id).not.toMatch(/^\d+\s*·/)
     }
   })
 

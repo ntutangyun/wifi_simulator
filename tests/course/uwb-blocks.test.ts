@@ -72,10 +72,10 @@ function radioOnNs(rs: TLRecord[], node: string, untilNs: number, fromNs = 0): n
 /** The lesson's nth table of `numbers`, rows kept in place so a cell can be checked by position. */
 const table = (n: number): Extract<Block, { kind: 'table' }> =>
   uwbBlocks.numbers!.filter((b): b is Extract<Block, { kind: 'table' }> => b.kind === 'table')[n]
-const cell = (n: number, row: number, col: number): string => table(n).rows[row][col].en
+const cell = (n: number, row: number, col: number): string => table(n).rows[row][col]
 
 /** Everything the learner reads, joined — for "is this number actually printed?" checks. */
-const prose = (): string => lessonStrings(uwbBlocks).map((s) => s.en).join('\n')
+const prose = (): string => lessonStrings(uwbBlocks).map((s) => s).join('\n')
 
 /** What the scenario schema says about this scene, optionally with extra tags in it. */
 function schemaIssues(slotRstu: number, extraTags = 0): string[] {
@@ -112,7 +112,7 @@ describe('uwb-blocks · the lesson’s own place in the track', () => {
     const rs = recs()
     const at = uwbBlocks.jumps.map((j) => {
       const i = rs.findIndex(j.find)
-      expect(i, j.label.en).toBeGreaterThanOrEqual(0)
+      expect(i, j.label).toBeGreaterThanOrEqual(0)
       return i
     })
     expect(at).toEqual([...at].sort((a, b) => a - b))
@@ -124,7 +124,7 @@ describe('uwb-blocks · the lesson’s own place in the track', () => {
   it('names the standard clauses it leans on in `sources`, and the model numbers are the engine’s', () => {
     // The provenance paragraph that used to open the lesson is now the collapsed
     // "Where these numbers come from", which is where the contract puts citations.
-    const src = uwbBlocks.sources!.map((s) => s.en).join('\n')
+    const src = uwbBlocks.sources!.map((s) => s).join('\n')
     for (const s of ['IEEE Std 802.15.4-2024', '§10.32.2', '§10.29.1.5', 'Table 10-145', '§10.32.9.1', '§10.32.9.8']) {
       expect(src, s).toContain(s)
     }
@@ -211,7 +211,7 @@ describe('uwb-blocks · the grid', () => {
     // Review M6: step 1 used to call all three lengths configured. Only the block and the
     // slot are: `roundNs = slots x slotNs` (src/uwb/session.ts), which is why the 0.5 ms
     // variant's round falls to 5 ms with nothing else touched.
-    const steps0 = (uwbBlocks.numbers!.find((b) => b.kind === 'steps') as Extract<Block, { kind: 'steps' }>).items[0].en
+    const steps0 = (uwbBlocks.numbers!.find((b) => b.kind === 'steps') as Extract<Block, { kind: 'steps' }>).items[0]
     expect(steps0).toContain('Two of the three are set before a frame flies and never renegotiated: the block and the slot')
     expect(steps0).toContain('The round falls out of them')
     expect(steps0).not.toContain('Those three lengths are fixed')
@@ -452,9 +452,9 @@ describe('uwb-blocks · the slot-fit rule', () => {
     // "slot ≥ PPDU(Final, N anchors) + 200 ns = 236 603 + 200 = 236 803 ns at N = 4"
     const formulas = uwbBlocks.numbers!.filter((b): b is Extract<Block, { kind: 'formula' }> => b.kind === 'formula')
     expect(formulas).toHaveLength(1)
-    expect(formulas[0].text.en)
+    expect(formulas[0].text)
       .toBe('slot ≥ PPDU(Final, N anchors) + 200 ns = 236 603 + 200 = 236 803 ns at N = 4')
-    expect(formulas[0].text.zh).toBe(formulas[0].text.en)
+    expect(formulas[0].text).toBe(formulas[0].text)
     expect(uwbFinalBytes(ANCHORS)).toBe(62)
     expect(uwbPpduNs(uwbFinalBytes(ANCHORS))).toBe(236_603)
     expect(uwbSlotFitNs(ANCHORS)).toBe(236_603 + UWB_SLOT_GUARD_NS)
@@ -575,9 +575,9 @@ describe('uwb-blocks · the 0.5 ms variant', () => {
     // A Chinese learner never sees the English string, and a relabel must break this test.
     const three = roundPlan(SESSION, ANCHORS - 1)
     const quoted = (s: string): string => `“${s}”`
-    expect(uwbBlocks.tryThis[1].en)
+    expect(uwbBlocks.tryThis[1])
       .toContain(quoted(STRINGS.en.editor.uwbPlan(three.slots, three.roundsPerBlock)))
-    expect(uwbBlocks.tryThis[1].zh)
+    expect(uwbBlocks.tryThis[1])
       .toContain(quoted(STRINGS.zh.editor.uwbPlan(three.slots, three.roundsPerBlock)))
     // and the base scene's own plan is what the lesson quotes in the grid table
     expect(prose()).toContain(`${PLAN.slots} slots × 2000.0 µs`)
@@ -616,7 +616,7 @@ describe('uwb-blocks · the procedure, step by step', () => {
     expect(steps().items.length).toBeGreaterThanOrEqual(3)
     // the order of the engine: the plan's three lengths, the round each tag owns,
     // the slot's start, who transmits in it, who listens, and the miss
-    const en = steps().items.map((s) => s.en)
+    const en = steps().items.map((s) => s)
     const order = ['slot count', 'Round k goes to phone k', 'multiplication', 'may transmit', 'own id', 'no retry']
     order.forEach((token, i) => expect(en[i], token).toContain(token))
   })
@@ -624,7 +624,7 @@ describe('uwb-blocks · the procedure, step by step', () => {
   it('step 1: the slot count is the method’s, two per anchor plus two', () => {
     expect(PLAN.slots).toBe(uwbSlotsPerTag(SESSION.method, ANCHORS))
     expect(PLAN.slots).toBe(2 * ANCHORS + 2)
-    expect(steps().items[0].en).toContain('two per anchor plus two')
+    expect(steps().items[0]).toContain('two per anchor plus two')
     // and the two lengths the step says are fixed are the session's own, untouched by the run
     expect(PLAN.blockNs).toBe(rstuNs(SESSION.blockRstu))
     expect(PLAN.slotNs).toBe(rstuNs(SESSION.slotRstu))
@@ -635,7 +635,7 @@ describe('uwb-blocks · the procedure, step by step', () => {
     for (const r of rounds) expect(r.round, `${r.node} block ${r.block}`).toBe(TAGS.indexOf(r.node))
     // two blocks' worth, so "in every block" is measured and not assumed
     expect(new Set(rounds.map((r) => r.block)).size).toBeGreaterThan(1)
-    expect(steps().items[1].en).toContain('rounds 0, 1 and 2')
+    expect(steps().items[1]).toContain('rounds 0, 1 and 2')
   })
 
   it('step 3: every slot boundary of the run is that one multiplication', () => {

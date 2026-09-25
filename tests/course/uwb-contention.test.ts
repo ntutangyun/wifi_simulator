@@ -108,13 +108,13 @@ const rms = (xs: number[]): number => Math.sqrt(xs.reduce((a, x) => a + x * x, 0
 const round2 = (x: number): number => Math.round(x * 100) / 100
 
 /** Everything a learner reads of this lesson, `deeper` and `sources` included, joined. */
-const prose = (): string => lessonStrings(uwbContention).map((s) => s.en).join('\n')
+const prose = (): string => lessonStrings(uwbContention).map((s) => s).join('\n')
 
 const tablesOf = (bs: Block[]): Extract<Block, { kind: 'table' }>[] =>
   bs.filter((b): b is Extract<Block, { kind: 'table' }> => b.kind === 'table')
 /** numbers' tables: 0 the three windows, 1 the contenders, 2 round 0's draws, 3 what width costs. */
 const table = (n: number) => tablesOf(uwbContention.numbers!)[n]
-const cell = (n: number, row: number, col: number): string => table(n).rows[row][col].en
+const cell = (n: number, row: number, col: number): string => table(n).rows[row][col]
 /** Row index of a variant in the tables that list the three windows in 4 · 8 · 16 order. */
 const ROW: Record<UwbContentionVariant, number> = { slots4: 0, base: 1, slots16: 2 }
 
@@ -143,7 +143,7 @@ describe('uwb-contention · the lesson’s own place in the track', () => {
     const rs = recs('base')
     const at = uwbContention.jumps.map((j) => {
       const i = rs.findIndex(j.find)
-      expect(i, j.label.en).toBeGreaterThanOrEqual(0)
+      expect(i, j.label).toBeGreaterThanOrEqual(0)
       return i
     })
     expect(at).toEqual([...at].sort((a, b) => a - b))
@@ -157,7 +157,7 @@ describe('uwb-contention · the lesson’s own place in the track', () => {
   })
 
   it('names the clauses it leans on and owns the defaults and the feedback loop as the model’s', () => {
-    const src = uwbContention.sources!.map((s) => s.en).join('\n')
+    const src = uwbContention.sources!.map((s) => s).join('\n')
     expect(src).toContain('IEEE Std 802.15.4-2024')
     expect(src).toContain('§10.32.2')
     expect(src).toContain('schedule mode 0')
@@ -222,10 +222,10 @@ describe('uwb-contention · the scene', () => {
   })
 
   it('the variants are labelled by their window and change only that', () => {
-    expect(uwbContention.variants![V4].label.en).toBe('4 response slots')
-    expect(uwbContention.variants![V4].label.zh).toBe('4 个应答时隙')
-    expect(uwbContention.variants![V16].label.en).toBe('16 response slots')
-    expect(uwbContention.variants![V16].label.zh).toBe('16 个应答时隙')
+    expect(uwbContention.variants![V4].label).toBe('4 response slots')
+    expect(uwbContention.variants![V4].label).toBe('4 个应答时隙')
+    expect(uwbContention.variants![V16].label).toBe('16 response slots')
+    expect(uwbContention.variants![V16].label).toBe('16 个应答时隙')
     const strip = (s: Scenario) => JSON.stringify({ ...s, uwb: { ...s.uwb!, contentionSlots: 0 } })
     expect(strip(scenarioOf('slots4'))).toBe(strip(scenarioOf('base')))
     expect(strip(scenarioOf('slots16'))).toBe(strip(scenarioOf('base')))
@@ -265,14 +265,14 @@ describe('uwb-contention · the scene', () => {
 describe('uwb-contention · the analytic model', () => {
   it('"N = 6 anchors: S = 4 → 1.42, S = 8 → 3.08, S = 16 → 4.35" follows from the printed formula', () => {
     const formula = uwbContention.numbers!.find((b): b is Extract<Block, { kind: 'formula' }> => b.kind === 'formula')!
-    expect(formula.text.en).toContain('P(alone in your slot) = (1 − 1/S)^(N−1)')
-    expect(formula.text.en).toContain('expected responses = N·(1 − 1/S)^(N−1)')
+    expect(formula.text).toContain('P(alone in your slot) = (1 − 1/S)^(N−1)')
+    expect(formula.text).toContain('expected responses = N·(1 − 1/S)^(N−1)')
     expect(CONTENTION_ANCHORS).toBe(6)
     const at = (s: number) => expectedResponses(CONTENTION_ANCHORS, s).toFixed(2)
     expect(at(4)).toBe('1.42')
     expect(at(8)).toBe('3.08')
     expect(at(16)).toBe('4.35')
-    expect(formula.text.en).toContain(`S = 4 → ${at(4)}      S = 8 → ${at(8)}      S = 16 → ${at(16)}`)
+    expect(formula.text).toContain(`S = 4 → ${at(4)}      S = 8 → ${at(8)}      S = 16 → ${at(16)}`)
     // the table's Formula column quotes the same three numbers
     expect([cell(0, 0, 2), cell(0, 1, 2), cell(0, 2, 2)]).toEqual([at(4), at(8), at(16)])
     // and the roll call's row is the trivial one: six of six, every round
@@ -398,9 +398,9 @@ describe('uwb-contention · the draw, the collisions and the sit-outs', () => {
     // marks "ranged"
     expect([...r0.collidedSlots].sort((a, b) => a - b)).toEqual([4, 7])
     expect([...r0.ranged.keys()].sort()).toEqual(['anchor-3', 'anchor-5'])
-    expect(table(2).rows.filter((r) => r[2].en === 'ranged').map((r) => r[0].en))
+    expect(table(2).rows.filter((r) => r[2] === 'ranged').map((r) => r[0]))
       .toEqual(['anchor-3', 'anchor-5'])
-    expect(uwbContention.observe[0].en).toContain('Two pairs picked the same slot')
+    expect(uwbContention.observe[0]).toContain('Two pairs picked the same slot')
     // every draw is inside the advertised window, in every round of every scene
     for (const v of VARIANTS) {
       for (const r of rounds(v)) for (const [id, s] of r.drew) {
@@ -415,8 +415,7 @@ describe('uwb-contention · the draw, the collisions and the sit-outs', () => {
     expect(first.map((r) => r.t)).toEqual(new Array(CONTENTION_ANCHORS).fill(198_666))
     expect(first.map((r) => r.attempt)).toEqual(new Array(CONTENTION_ANCHORS).fill(1))
     expect(fmtRecord(first[0])).toBe('anchor-1 contends: slot 4 (attempt 1)')
-    expect(uwbContention.observe[0].en).toContain('anchor-1 contends: slot 4 (attempt 1)')
-    expect(uwbContention.observe[0].zh).toContain('anchor-1 contends: slot 4 (attempt 1)')
+    expect(uwbContention.observe[0]).toContain('anchor-1 contends: slot 4 (attempt 1)')
   })
 
   it('"not one range was decoded in a slot that also recorded a collision" — no capture at equal distances', () => {
@@ -460,12 +459,12 @@ describe('uwb-contention · the draw, the collisions and the sit-outs', () => {
     expect(vs.nodes[TAG].uwb!.contendCollisions).toBe(43)
     expect(cell(0, ROW.base, 4)).toBe('43')
     expect(STRINGS.en.uwb.contendCollisions).toBe('slots collided')
-    expect(uwbContention.observe[0].en).toContain(`the inspector’s “${STRINGS.en.uwb.contendCollisions}” row`)
+    expect(uwbContention.observe[0]).toContain(`the inspector’s “${STRINGS.en.uwb.contendCollisions}” row`)
     // the two editor labels tryThis[1] quotes, so a rename cannot leave the lesson naming a
     // caption that no longer exists
     expect(STRINGS.en.editor.uwbContentionSlots).toBe('Response slots')
     expect(STRINGS.en.editor.uwbMaxAttempts).toBe('Attempts')
-    expect(uwbContention.tryThis[1].en)
+    expect(uwbContention.tryThis[1])
       .toContain(`${STRINGS.en.editor.uwbContentionSlots} and ${STRINGS.en.editor.uwbMaxAttempts} grey out`)
   })
 
@@ -486,13 +485,13 @@ describe('uwb-contention · the draw, the collisions and the sit-outs', () => {
     expect(firstOut.node).toBe('anchor-2')
     expect(firstOut.attempt).toBe(0)
     expect(fmtRecord(firstOut)).toBe('anchor-2 sits out this round')
-    expect(uwbContention.observe[1].en).toContain('anchor-2 sits out this round')
+    expect(uwbContention.observe[1]).toContain('anchor-2 sits out this round')
     // the inspector row observe 2 quotes
     const vs = initViewState(uwbContention.scenario())
     for (const r of recs('base')) { applyRecord(vs, r); if (r === firstOut) break }
     expect(uwbContendText(vs.nodes['anchor-2'].uwb!, STRINGS.en.uwb)).toBe('sitting this round out')
     expect(STRINGS.en.uwb.contend).toBe('contention draw')
-    expect(uwbContention.observe[1].en).toContain('contention draw · sitting this round out')
+    expect(uwbContention.observe[1]).toContain('contention draw · sitting this round out')
   })
 })
 
@@ -504,7 +503,7 @@ describe('uwb-contention · what it costs', () => {
     expect(perSlotCm.toFixed(1)).toBe('6.0')
     expect((perSlotCm / slotMs).toFixed(1)).toBe('3.0')
     expect(prose()).toContain('3.0 cm for every millisecond the answer waits, so 6.0 cm a slot')
-    expect(uwbContention.quiz[1].options[0].en).toContain('6.0 cm of 1-σ per slot')
+    expect(uwbContention.quiz[1].options[0]).toContain('6.0 cm of 1-σ per slot')
     // the base run's per-slot RMS, quoted in `deeper`
     const bySlot = new Map<number, number[]>()
     for (const r of rounds('base')) for (const [id, slot] of r.ranged) {
@@ -527,7 +526,7 @@ describe('uwb-contention · what it costs', () => {
     // try-this 1: "waits eight and a half slots instead of four and a half"
     expect((CONTENTION_SLOTS.slots16 + 1) / 2).toBe(8.5)
     expect((CONTENTION_SLOTS.base + 1) / 2).toBe(4.5)
-    expect(uwbContention.tryThis[0].en).toContain('waits eight and a half slots instead of four and a half')
+    expect(uwbContention.tryThis[0]).toContain('waits eight and a half slots instead of four and a half')
   })
 
   it('"14.6 cm at 4 slots, 26.8 at 8 and 51.4 at 16 — against 20.4 cm" for the roll call', () => {
@@ -542,7 +541,7 @@ describe('uwb-contention · what it costs', () => {
     expect(cell(3, 3, 2)).toBe('20.4 cm')
     // "three and a half times worse": 51.4 / 14.6 = 3.52
     expect(rms(errsOf('slots16')) / rms(errsOf('slots4'))).toBeCloseTo(3.5, 1)
-    expect(uwbContention.quiz[1].q.en).toContain('three and a half times worse')
+    expect(uwbContention.quiz[1].q).toContain('three and a half times worse')
     expect(prose()).toContain('51.4 / 14.6 is three and a half')
     // "a 4-slot window never gets past slot 4", while a roll call of six must reach slot 6
     expect(Math.max(...rounds('slots4').flatMap((r) => [...r.drew.values()]))).toBe(4)
@@ -585,7 +584,7 @@ describe('uwb-contention · what it costs', () => {
 describe('uwb-contention · the procedure, against the device', () => {
   const steps = (): Extract<Block, { kind: 'steps' }> =>
     uwbContention.numbers!.find((b): b is Extract<Block, { kind: 'steps' }> => b.kind === 'steps')!
-  const stepsText = (): string => steps().items.map((i) => i.en).join('\n')
+  const stepsText = (): string => steps().items.map((i) => i).join('\n')
   const SLOTS = CONTENTION_SLOTS.base
   const ATTEMPTS = DEFAULT_UWB_SESSION.maxAttempts
   /** Every UWB_CONTEND of one anchor in the base run, in time order. */
@@ -595,7 +594,7 @@ describe('uwb-contention · the procedure, against the device', () => {
     expect(uwbContention.numbers!.some((b) => b.kind === 'steps')).toBe(true)
     expect((uwbContention.deeper ?? []).some((b) => b.kind === 'steps')).toBe(false)
     expect(steps().items.length).toBeGreaterThanOrEqual(3)
-    for (const i of steps().items) expect(i.zh).not.toBe(i.en)
+    for (const i of steps().items) expect(i).not.toBe(i)
   })
 
   it('step 1: the two figures the poll advertises are the session’s own', () => {

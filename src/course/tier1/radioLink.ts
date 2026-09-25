@@ -25,8 +25,8 @@ export function primerScenario(distanceM: number): Scenario {
 export const PRIMER_DISTANCES = [1, 5, 9, 14]
 
 export const primerVariants: LessonVariant[] = [
-  { label: { en: 'Desk (1 m)', zh: '书桌（1 m）' }, scenario: () => primerScenario(1) },
-  { label: { en: 'Study (5 m)', zh: '书房（5 m）' }, scenario: () => primerScenario(5) },
-  { label: { en: 'Living room (9 m, brick)', zh: '客厅（9 m，砖墙）' }, scenario: () => primerScenario(9) },
-  { label: { en: 'Far wall (14 m, brick)', zh: '远端墙边（14 m，砖墙）' }, scenario: () => primerScenario(14) },
+  { label: '书桌（1 m）', scenario: () => primerScenario(1) },
+  { label: '书房（5 m）', scenario: () => primerScenario(5) },
+  { label: '客厅（9 m，砖墙）', scenario: () => primerScenario(9) },
+  { label: '远端墙边（14 m，砖墙）', scenario: () => primerScenario(14) },
 ]
