@@ -11,7 +11,8 @@
  * else") plus the runs the observations and experiments name.
  */
 import { describe, it, expect } from 'vitest'
-import { bianchi } from '../../src/course/tier1/bianchi'
+import { bianchi, bianchiSlotTiming } from '../../src/course/tier1/bianchi'
+import type { TimingLane } from '../../src/course/diagram'
 import type { Block } from '../../src/course/lessonKit'
 import { dcfTimes, saturationThroughput, solveBianchi, tauOf } from '../../src/course/tier1/bianchiModel'
 import { COURSE_ORDER } from '../../src/course/curriculum'
@@ -419,7 +420,10 @@ describe('lesson contract', () => {
   it('is part of the reading order and names the lessons whose words it uses', () => {
     expect(bianchi.id).toBe('bianchi')
     expect(COURSE_ORDER).toContain('bianchi')
-    expect(bianchi.needs).toEqual(['backoff', 'retries-queues'])
+    // Re-pacing 2026-09-25 §6, in full now that batch 4 has landed: the deadline and the
+    // doubled window are `collisions-cw`'s, and the deep queue that keeps a station
+    // saturated is `queues`', which itself needs `retries-queues` (where L = 7 lives).
+    expect(bianchi.needs).toEqual(['collisions-cw', 'queues'])
     expect(bianchi.terms!.map((t) => t.term))
       .toEqual(['saturation', 'transmit probability', 'collision probability'])
     expect(bianchi.observe.length).toBe(3)
@@ -435,6 +439,59 @@ describe('lesson contract', () => {
     // solves them, the table that runs it on one crowd, and the four-row forecast
     expect(bianchi.numbers!.filter((b) => b.kind === 'table').length).toBe(2)
     expect(bianchi.numbers!.filter((b) => b.kind === 'formula').length).toBe(2)
+    // §8 rejected the split, so this lesson owns the pricing too — and therefore
+    // ONE procedure, not two: solve the fixed point, then price a slot with it.
     expect(bianchi.numbers!.filter((b) => b.kind === 'steps').length).toBe(1)
+    expect(bianchi.numbers!.filter((b) => b.kind === 'diagram').length).toBe(1)
+  })
+})
+
+/**
+ * The timing figure the 2026-09-25 re-pacing added (§8: a whole `bianchi` "loses
+ * padding and gains a diagram"; §4 assigns exactly this figure — the three kinds
+ * of slot and what each is worth — to the pricing material, which is now this
+ * lesson's). It replaced the three-sentence enumeration of the slot kinds in
+ * 「从一个概率，到一个比特数」.
+ *
+ * What is pinned is that the picture is the engine: every boundary in it comes
+ * from `dcfTimes` and `SLOT_NS`, not from a typed-in number, so the figure cannot
+ * drift from the formula above it. The geometry (viewBox, collisions, legibility)
+ * is checked course-wide by tests/course/diagram.test.ts.
+ */
+describe('the three kinds of slot, as a figure', () => {
+  const t = dcfTimes(1500, 6)
+  const lane = (label: string): TimingLane => bianchiSlotTiming().lanes.find((l) => l.label === label)!
+
+  it('draws σ, T_s and T_c from the engine, to scale on one axis', () => {
+    const spec = bianchiSlotTiming()
+    expect(spec.lanes.map((l) => l.label)).toEqual(['空的', '成功的', '撞车的'])
+
+    // the empty slot is the slot time itself
+    expect(lane('空的').spans).toEqual([{ label: '9 µs', fromUs: 0, toUs: SLOT_NS / 1000 }])
+    expect(SLOT_NS / 1000).toBe(9)
+
+    // a successful slot: the frame, then everything the frame does not pay for
+    const ok = lane('成功的').spans
+    expect(ok[0].toUs).toBe(t.dataNs / 1000)
+    expect(ok[1].toUs).toBe(t.tsNs / 1000)
+    expect(ok[1].toUs - ok[1].fromUs).toBe((t.tsNs - t.dataNs) / 1000)
+    expect(ok[1].label).toBe('回答与等待 94 µs')
+
+    // a collided slot ends 15 µs earlier, which is the lesson's own T_c − T_s
+    const bad = lane('撞车的').spans
+    expect(bad[0].toUs).toBe(t.dataNs / 1000)
+    expect(bad[1].toUs).toBe(t.tcNs / 1000)
+    expect(bad[1].label).toBe('期限与等待 79 µs')
+    expect(t.tsNs - t.tcNs).toBe(15_000)
+
+    // the axis holds every span, so nothing in the figure is clipped by its own scale
+    const spec2 = bianchiSlotTiming()
+    for (const l of spec2.lanes) for (const s of l.spans) expect(s.toUs).toBeLessThanOrEqual(spec2.axis.toUs)
+  })
+
+  it('the caption is true of the figure: the empty slot is under 1 % of a successful one', () => {
+    // 「空的那一条几乎看不见，而撞车的那一条几乎和成功的一样长」
+    expect(SLOT_NS / t.tsNs).toBeLessThan(0.01)
+    expect(t.tcNs / t.tsNs).toBeGreaterThan(0.99)
   })
 })

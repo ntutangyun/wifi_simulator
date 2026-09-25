@@ -15,6 +15,22 @@
  *
  * The scenario builder and its three variants are unchanged from the flat
  * shape, so tests/fixtures/lesson-hashes.json keeps its recorded values.
+ *
+ * Re-paced 2026-09-25 (docs/superpowers/plans/2026-09-25-course-repacing-proposal.md
+ * §2 M7, §5.5, §7). It stays ONE lesson — a brief whose four questions are one
+ * exercise — and it lost the wider-channel aside, which taught a scenario no
+ * variant can load and which §7 rules out by name. The four questions are now a
+ * `list` rather than a second `steps` block: they are four deliverables, not an
+ * ordered procedure, and the lesson's one procedure is the plan the learner
+ * carries out.
+ *
+ * NO DIAGRAM, against §4, and the reason is arithmetic rather than taste. A
+ * topology figure maps the scene's x range onto about 184 viewBox units, so this
+ * flat's 11 m of span gives 16.7 units per metre, while a node box is at least 40
+ * units wide. The router (3, 4) and the study laptop (5, 4) are 2.0 m apart on the
+ * same row, so their boxes overlap by about 6.5 units and the arrow between them
+ * is drawn backwards. A faithful plan of THIS flat cannot be drawn by this
+ * renderer; see the batch E report.
  */
 import type { Scenario } from '../../model/scenario'
 import { J, firstBackoffDraw, firstCollision, firstData, firstRetry, longApartment, node, sc, type Lesson } from '../lessonKit'
@@ -92,9 +108,9 @@ export const tier1Project: Lesson = {
     { term: 'DCF', plain: '本阶段讲的那套朴素轮流接入：先等，再倒数，发一个，等一个回答' },
   ],
   picture: [
-    { heading: '一户你没见过的房子', text: '路由器放在书房的架子上。两台笔记本在拼命上传——一台就在旁边的书桌上，一台在房子另一头、隔着一堵砖墙——还有一部手机正在通话。本课余下的部分是一份题面：在任何人打开仿真之前，关于这个房间要先算清哪些事。' },
-    { heading: '关掉了什么，为什么要紧', text: '这里每台设备都共用一条窄信道、一条空间流（spatial stream），开着自己最好的编码，此外什么都没有：没有优先级分类，不把多个帧捆在一起，也没有预留的轮次。于是每次交换就是一个数据帧加一个确认帧（ACK）回答，前面还有一段等待和一次倒数——这就是本阶段讲过的那套分布式协调功能（distributed coordination function, DCF）。两台笔记本都是饱和的。这样的世界，纸笔还描述得动。四台设备都是 Wi-Fi 7，所以每帧的前导码（preamble）就是“数字节”那一课量到的 48 µs。' },
-    { kind: 'watch', jump: 0, heading: '看房间，先别看仿真', text: '载入仿真，只读平面图：墙在哪里、四台设备在哪里、各自站在什么位置。然后就别动它了——只要你读到了结果，就再也没法诚实地预测它了。' },
+    { heading: '一户你没见过的房子', text: '一台路由器、两台拼命上传的笔记本、一部正在通话的手机，位置见下面那张题面表。本课余下的部分就是一份题面：在任何人打开仿真之前，关于这个房间要先算清哪些事。' },
+    { heading: '关掉了什么，为什么要紧', text: '这里每台设备都共用一条窄信道、一条空间流（spatial stream），开着自己最好的编码，此外什么都没有：没有优先级分类，不把多个帧捆在一起，也没有预留的轮次。于是每次交换就是一个数据帧加一个确认帧（ACK）回答，前面还有一段等待和一次倒数——这就是本阶段讲过的那套分布式协调功能（distributed coordination function, DCF）。两台笔记本都是饱和的，这样的世界纸笔还描述得动。四台设备都是 Wi-Fi 7，所以每帧的前导码（preamble）就是“数字节”那一课量到的 48 µs。' },
+    { kind: 'watch', jump: 0, heading: '看房间，先别看仿真', text: '载入仿真，只读平面图：墙在哪里、四台设备各自站在什么位置。然后就别动它了——只要你读到了结果，就再也没法诚实地预测它。' },
     { kind: 'table', heading: '题面', head: [
       '设备', '位置', '业务',
     ], rows: [
@@ -103,14 +119,14 @@ export const tier1Project: Lesson = {
       ['客厅笔记本', '(14, 6), 15 dBm', '饱和上传，1500 字节载荷'],
       ['手机', '(4, 6), 15 dBm', '通话：每 20 ms 上行（uplink, UL）与下行（downlink, DL）各 200 字节'],
     ] },
-    { heading: '进去的信号，出来的信号', text: '每条链路（link）都有一本预算。功率从天线（antenna）出发，距离拿走一份，直线上的每堵墙再拿走一份，剩下的才是到达的。只有当到达的信号满足某一级的要求之外还多出几个分贝时，才可以用这一级；多出的那几个分贝就是余量，也正是它让这架阶梯从不爬到“勉强还行”的那条边上。' },
-    { kind: 'steps', heading: '要预测的四件事', items: [
+    { heading: '进去的信号，出来的信号', text: '每条链路（link）都有一本预算：功率从天线（antenna）出发，距离拿走一份，直线上的每堵墙再拿走一份，剩下的才是到达的。而只有当到达的信号在某一级的要求之外还多出几个分贝时，才可以用这一级——多出的那几个分贝就是余量。' },
+    { kind: 'list', heading: '要预测的四件事', items: [
       '（a）每台笔记本到达路由器时有多强，以及这趟路走下来还能用的最快等级。',
       '（b）一个数据帧在空口上多久，以及围绕它的整次交换持续多久。',
       '（c）两台饱和的发送方多久会挑中同一个时刻，以及它们合起来交付多少。',
       '（d）空口在两者之间怎么分，以及快的那台向慢的那台让出了多少。',
     ] },
-    { heading: '你可以动的三件事', text: '题面附了三个变体，每个只动一件事：书房笔记本沿着房子走到墙的另一侧；一台平板加入，就摆在路由器旁；客厅笔记本直接离线。三个都要先预测，再去跑。四个答案里有两个几乎不动——知道是哪两个，就是这一课的大半。' },
+    { heading: '你可以动的三件事', text: '题面附了三个变体，每个只动一件事：书房笔记本走到墙的另一侧；一台平板加入，就摆在路由器旁；客厅笔记本离线。三个都要先预测，再去跑。四个答案里有两个几乎不动——知道是哪两个，就是这一课的大半。' },
   ],
   numbers: [
     { kind: 'table', heading: '（a）预测：到达了多少，买得起哪一级', head: [
@@ -123,7 +139,7 @@ export const tier1Project: Lesson = {
       ['客厅笔记本', '11.180 m，一堵砖墙', '78.15 dB',
         '−75.15 dBm', '18.84 dB', 'MCS 2, 25.8 Mb/s', '13.99 + 3 = 16.99 dB ✓ · 16.99 + 3 = 19.99 dB ✗'],
     ] },
-    { heading: '一切都以它为底', text: '一条 20 MHz 信道上的噪声是 −93.99 dBm，而信噪比（SNR）就是到达电平减去这个底。只有当某一级所需的信干噪比（SINR）再加 3 dB 余量仍装得下时，这一级才可以用。' },
+    { heading: '一切都以它为底', text: '一条 20 MHz 信道上的噪声是 −93.99 dBm，信噪比（SNR）就是到达电平减去这个底。只有当某一级所需的信干噪比（SINR）再加 3 dB 余量仍装得下时，这一级才可以用。' },
     { kind: 'formula', heading: '（b）预测：先数符号（symbol），再算微秒', text: '符号数 = ⌈(16 + 8·L + 6) / 每符号比特数⌉        空口时间 = 前导码 + 符号数 × 13.6 µs', note: 'L 是真正上到空口的东西：1500 字节载荷、24 字节媒体访问控制（MAC）头、4 字节帧校验序列（FCS）——合计 1528 字节。' },
     { kind: 'table', head: [
       '上传设备', '每符号比特', '符号数',
@@ -177,7 +193,6 @@ export const tier1Project: Lesson = {
   deeper: [
     { heading: '一个可批改的预测长什么样', text: '四件事各写成一行：量、单位、数值，以及你打算拿屏幕上的哪一样东西去对照它——一个计数、一段时长，还是一个占比。“差不多”不是预测；一个没有说明怎样才算错的数字，也不是预测。这四行只要五分钟，而后半程批改的就是它们。' },
     { heading: '为什么取两次交换的平均是对的定价', text: '不动点给出的是“每个时隙里发送的概率”，两台站点共用这一个值，所以一个成功的时隙属于谁的机会均等。于是它的期望长度就是两次交换时长的平均，碰撞也用同样的道理定价。如果两者抢到空口的比例不同，这个平均就得加权——而一旦加入第三个用着不同等级的竞争者，正是这种情况。' },
-    { heading: '同一户人家，换到宽得多的信道上', text: '把信道加宽到八倍，收进来的噪声也是八倍：噪声底从 −93.99 升到 −84.96 dBm。客厅笔记本 18.84 dB 的 SNR 变成 9.81 dB；再加上 3 dB 余量，连最低一级 8.99 dB 的要求都够不着——这条链路整个跌出了阶梯。而碰撞概率和空口的分法，对带宽的变化毫无察觉。' },
   ],
   sources: [
     '本项目所跑的这套轮流接入——一个帧、一个 ACK、几段等待和一次倒数——即 IEEE Std 802.11-2024 §10.3.4 的 DCF；ACK 的速率规则（不超过数据帧参考速率的最高强制速率）见 §10.7.6。',

@@ -1,22 +1,33 @@
 /**
- * Wi-Fi Tier 1 · M2 · Channel access · Predicting collisions on paper.
+ * Wi-Fi Tier 1 · M6 · Predicting DCF on paper.
  *
- * Rewritten to the zero-to-hero contract
- * (docs/superpowers/specs/2026-09-21-course-readability-design.md): the idea
- * first — two unknowns that each depend on the other, and the one pair of
- * values that satisfies both — then the equations in `numbers`, then the
- * derivations and the paper's own history in `deeper` and `sources`.
+ * Re-paced 2026-09-25 (docs/superpowers/plans/2026-09-25-course-repacing-proposal.md).
+ * §2 proposed splitting this lesson at the throughput step; §8 rejected the
+ * split and I kept the ruling: the fixed point and the price of a slot are one
+ * method, and the seven-step calculator cannot be cut in two without leaving
+ * the first half on a probability the reader cannot use. What the lesson lost
+ * instead is padding — the three-kinds-of-slot enumeration is now the timing
+ * figure below, and the scene-setting prose is half its old length.
+ *
+ * The one thing that must not drift back: the equations on the MAIN PATH are
+ * the FINITE-retry pair `solveBianchi` actually solves. Bianchi's classic
+ * infinite-retry closed form lives in `deeper`, labelled as his, carrying the
+ * 48.09 % against 49.59 % at twenty stations that is the difference it makes.
+ * tests/course/bianchi.test.ts keeps the two apart by assertion.
  *
  * The analytic values quoted below come from ./bianchiModel.ts and are
  * recomputed, together with every measured number, by
  * tests/course/bianchi.test.ts. Where the model and the simulator disagree is
- * the next lesson (bianchi-vs-sim.ts), which also owns the comparison table.
+ * the next lesson (bianchi-vs-sim.ts), which owns the comparison table.
  *
  * The scenario builder and its three variants are unchanged, so the recorded
  * timeline hashes stay identical.
  */
 import type { Scenario } from '../../model/scenario'
+import type { TimingSpec } from '../diagram'
+import { SLOT_NS } from '../../engine/phy'
 import { J, firstBackoffDraw, firstCollision, firstData, firstRetry, node, oneRoom, sc, type Lesson } from '../lessonKit'
+import { dcfTimes } from './bianchiModel'
 
 /**
  * n saturated legacy stations on a 3 m arc around the AP, every one of them
@@ -51,32 +62,68 @@ export function bianchiScenario(n: number, opts: { near?: boolean } = {}): Scena
 
 export const nLabel = (n: number): string => (`n = ${n} 台站点`)
 
+/**
+ * The three kinds of channel slot the last three steps price, drawn to scale
+ * from the engine's own constants: an empty slot is `SLOT_NS`, a successful one
+ * `dcfTimes(1500, 6).tsNs`, a collided one `tcNs`. The figure and the formula
+ * above it read the same two sources, so neither can drift from the other, and
+ * the picture is what shows the thing a table cannot: nine microseconds against
+ * two thousand is why a crowd pays so little for its empty slots.
+ */
+export function bianchiSlotTiming(): TimingSpec {
+  const t = dcfTimes(1500, 6)
+  const us = (ns: number): number => ns / 1000
+  const slot = us(SLOT_NS)
+  const data = us(t.dataNs)
+  return {
+    kind: 'timing',
+    lanes: [
+      { label: '空的', spans: [{ label: `${slot} µs`, fromUs: 0, toUs: slot }] },
+      {
+        label: '成功的',
+        spans: [
+          { label: `数据 ${data} µs`, fromUs: 0, toUs: data, tone: 'accent' },
+          { label: `回答与等待 ${us(t.tsNs) - data} µs`, fromUs: data, toUs: us(t.tsNs) },
+        ],
+      },
+      {
+        label: '撞车的',
+        spans: [
+          { label: `两帧重叠 ${data} µs`, fromUs: 0, toUs: data, tone: 'muted' },
+          { label: `期限与等待 ${us(t.tcNs) - data} µs`, fromUs: data, toUs: us(t.tcNs) },
+        ],
+      },
+    ],
+    axis: { fromUs: 0, toUs: 2200, ticks: [0, 1000, 2000], unit: 'µs' },
+  }
+}
+
 export const bianchi: Lesson = {
   id: 'bianchi',
   module: 5,
   title: '在纸上预测碰撞',
-  why: '到目前为止，我们都是先看着碰撞发生，再回头去数。还有另一条路。只凭接入规则本身——抽一个数、倒着数完、失败之后把窗口加宽——你可以提前算出：一屋子都想说话的站点（STA），彼此打断的频率会是多少，最终又能送出去多少。这一课我们把这个预测做出来，并且教你怎么拿一只计算器把它重算一遍。',
+  why: '到目前为止我们都是先看着碰撞发生，再回头去数。还有另一条路：只凭接入规则本身——抽一个数、倒着数完、失败之后把窗口加宽——就能提前算出一屋子想说话的站点（STA）彼此打断得多频繁，以及最终能送出去多少。这一课把这个预测做出来，并教你拿一只计算器重算一遍。',
   outcomes: [
     '说清什么是饱和网络，以及这个预测为什么非要它不可',
     '解释这两个未知数为什么只能一起求出来',
     '对任意规模的人群，从表里读出尝试之间多久撞上一次',
   ],
-  needs: ['backoff', 'retries-queues'],
+  needs: ['collisions-cw', 'queues'],
   terms: [
     { term: 'saturation', plain: '一种状态：每台站点手里永远还有下一帧等着发，于是没有谁是“自己不想说”才安静的' },
     { term: 'transmit probability', plain: '某一台站点在任意一个空闲时隙里开口发送的概率' },
     { term: 'collision probability', plain: '一次尝试撞上别人某次尝试的概率' },
   ],
   picture: [
-    { heading: '从看，到算', text: '此前的一切，都是看着它发生。这一次，我们先把它算出来。给定一群同时都想要信道的站点，光是接入规则本身，就已经钉死了它们彼此打断的频率。房间、射频、业务、距离——这些都不进入答案。纸上两个方程，数就出来了。' },
-    { heading: '每个人手里都还有话要说', text: '这个预测需要一个很强的假设。一帧刚离开，下一帧已经在等着了，于是没有哪台站点是因为“没话可说”才安静下来的——这就是饱和。这不是一个正常的网络。它是最坏的情况，也正是值得算清楚的那一种，因为它刻画的是：当你向信道索取它的全部时，它会怎么回答。' },
-    { kind: 'watch', jump: 1, heading: '要数的就是这种事件', text: '载入仿真，跳到第一次碰撞。五台站点，都处于饱和，彼此都在听力范围内。从这里往后的每一次重叠，都是接下来那两个方程要数的事件。' },
-    { heading: '两个未知数，各自由对方定义', text: '“某一台站点在给定的空闲时隙（slot time）里开口”的概率，叫作发送概率，记作 τ。“一次尝试撞上别人的尝试”的概率，叫作碰撞概率，记作 p。前者取决于后者：碰撞越多，窗口越宽，于是每台站点出手越稀。后者又取决于前者：其余人出手越勤，撞上的可能就越大。两个数，谁都没法单独算出来。' },
-    { heading: '只有一对数能同时成立', text: '于是你去找那一对能让两句话同时成立的数。先猜一个碰撞概率；算出在这个前提下退避（backoff）规则会让站点怎么做；再问这种行为反过来会造出多大的碰撞概率。一个量随另一个量上升而下降，所以两者只在唯一一处相遇；不断把区间对半砍，就能一步步走到那里。' },
-    { heading: '从一个概率，到一个比特数', text: '概率还不是吞吐。要得到吞吐，就得给“平均一个信道时隙”标个价。大多数时隙是空的，代价只有它自己。有些时隙里装着一帧和对它的回答。还有些时隙里是一堆撞在一起的帧，最后只换来一段白等。按各自发生的频率给这三种情况加权，用送出去的量除以花掉的时间，预测就以每秒多少兆比特的形式出现了。' },
+    { heading: '从看，到算', text: '此前的一切都是看着它发生。这一次先把它算出来：给定一群同时都想要信道的站点，光是接入规则本身就钉死了它们彼此打断的频率。房间、射频、业务、距离都不进入答案。' },
+    { heading: '每个人手里都还有话要说', text: '这个预测要一个很强的假设：一帧刚离开，下一帧已经在等着，于是没有哪台站点是因为“没话可说”才安静的——这就是饱和。它不是一个正常的网络，而是最坏的那一种，也正因此值得算清楚：你向信道索取它的全部时，它会怎么回答。' },
+    { kind: 'watch', jump: 1, heading: '要数的就是这种事件', text: '载入仿真，跳到第一次碰撞。五台饱和的站点，彼此都在听力范围内；从这里往后的每一次重叠，都是那两个方程要数的事件。' },
+    { heading: '两个未知数，各自由对方定义', text: '“某一台站点在给定的空闲时隙（slot time）里开口”的概率叫发送概率，记作 τ；“一次尝试撞上别人”的概率叫碰撞概率，记作 p。前者取决于后者：碰撞越多，窗口越宽，出手越稀。后者又取决于前者：其余人出手越勤，撞上的可能越大。两个数，谁都没法单独算出来。' },
+    { heading: '只有一对数能同时成立', text: '所以要找那一对能让两句话同时成立的数——这一对数叫作不动点。τ 随 p 上升而下降，于是两者只在唯一一处相遇，把区间对半砍就能走到那里——下面的步骤就是这件事。' },
+    { heading: '从一个概率，到一个比特数', text: '概率还不是吞吐。要得到吞吐，就得给“平均一个信道时隙”标个价——而一个时隙只有三种长相。按各自发生的频率加权，用送出去的量除以花掉的时间，预测就以每秒多少兆比特的形式出现。' },
   ],
   numbers: [
-    { kind: 'formula', heading: '本课要解的那一对方程', text: 'τ = Σ_{i<L} p^i / Σ_{i<L} p^i (W_i + 1)/2        p = 1 − (1−τ)^(n−1)', note: 'n 是站点数，L = 7 是一帧拿到的尝试次数，W_i = 2^min(i,m)·W 是第 i 次尝试时的窗口，其中 W = 16、m = 6。左边那个方程，是按“一帧过了 L 次就放弃”这套媒体访问控制（MAC）解出的退避规则；右边那个是“撞上”的定义。' },
+    { kind: 'formula', heading: '本课要解的那一对方程', text: 'τ = Σ_{i<L} p^i / Σ_{i<L} p^i (W_i + 1)/2        p = 1 − (1−τ)^(n−1)', note: 'n 是站点数，L = 7 是一帧拿到的尝试次数，W_i = 2^min(i,m)·W 是第 i 次尝试时的窗口，其中 W = 16、m = 6。左边那个方程，是按“一帧过了 L 次就放弃”这套媒体访问控制（MAC）解出的退避（backoff）规则；右边那个是“撞上”的定义。' },
     { kind: 'table', heading: '这两个方程预测出什么', head: [
       'n', '每时隙发送概率', '碰撞概率',
       '54 Mb/s 下的吞吐', '6 Mb/s 下的吞吐',
@@ -86,16 +133,20 @@ export const bianchi: Lesson = {
       ['10', '0.0533', '38.92 %', '27.36', '4.275 Mb/s'],
       ['20', '0.0354', '49.59 %', '24.91', '3.857 Mb/s'],
     ] },
-    { heading: '碰撞概率与什么无关', text: '帧长、数据速率、空口时间（airtime）统统缺席：进入方程的只有人数和窗口。有人在发送时计数器不走，所以长帧不会给任何人多一次撞上的机会。也请留意，在慢速率上人群的代价有多小——5.17 掉到 3.86 Mb/s——而在快速率上是 31.3 掉到 24.9。' },
-    { kind: 'formula', heading: '一次成功与一次撞车各值多少', text: 'T_s = 2064 + 16 + 44 + 34 = 2158 µs        T_c = 2064 + 45 + 34 = 2143 µs', note: '1500 字节的帧在慢速率上占 2064 µs 空口时间。一次成功要再加一个短帧间间隔（SIFS）、一个确认帧（ACK）——这里是 44 µs：按“空口时间”那条规则，回答走的也是同一档速率，而不是 28 µs——以及一个分布式帧间间隔（DIFS）。一次碰撞加的则是 ACK 超时（ACK timeout）和一个 DIFS，因为重传（retry）前的等待要等期限到期才开始计。' },
+    { heading: '碰撞概率与什么无关', text: '帧长、数据速率、空口时间（airtime）统统缺席：进入方程的只有人数和窗口。有人在发送时计数器不走，所以长帧不会给谁多一次撞上的机会。' },
+    { kind: 'formula', heading: '一次成功与一次撞车各值多少', text: 'T_s = 2064 + 16 + 44 + 34 = 2158 µs        T_c = 2064 + 45 + 34 = 2143 µs', note: '1500 字节的帧在慢速率上占 2064 µs 空口时间。一次成功再加一个短帧间间隔（SIFS）、一个确认帧（ACK）——这里 44 µs，按“空口时间”那条规则回答走同一档速率——以及一个分布式帧间间隔（DIFS）。一次碰撞加的是 ACK 超时（ACK timeout）与一个 DIFS：重传（retry）前的等待要等期限到期才开始计。' },
+    {
+      kind: 'diagram', heading: '一个时隙的三种长相', spec: bianchiSlotTiming(),
+      caption: '按真实比例画：空的那一条几乎看不见，而撞车的那一条几乎和成功的一样长。这就是要点——空时隙近乎免费，撞车却几乎和成功一样贵，所以人越多，账坏在“撞”上而不是“等”上。',
+    },
     { kind: 'steps', heading: '拿一只计算器把这一对数算出来', items: [
-      '先把这个房间写成四个数：n，正在竞争的饱和站点有几台；W = 16，最小的窗口；m = 6，这个窗口最多还能翻几倍；L = 7，一帧被丢掉之前拿到几次机会。',
-      '先猜一个碰撞概率 p。已经失败过 i 次的那一帧，从 W_i = 2^min(i,m)·W 个取值里抽签。把 p^i 在这 L 个阶段上加起来作分子，把 p^i(W_i + 1)/2 加起来作分母，一除，商就是 τ。',
-      '再把 τ 送回去。其余站点在同一个时隙里抛同一枚硬币，所以一次尝试毫发无损通过的概率是 (1 − τ) 的 n − 1 次方。剩下的那部分，就是这种行为造出的碰撞概率；记作 p′。',
-      '把 p′ 和 p 比一比。p 越大 τ 越小，所以两者之差只在唯一一处穿过零。把 0 到 1 这个区间对半砍上五十次，每次留下 p′ 更大的那一半，这一对数就不再动了。',
-      '给“平均一个信道时隙”标价。这个时隙里有人发送的概率是 P_tr = 1 − (1 − τ)^n；在确实有人发送的前提下恰好只有一台发送的概率是 P_s = n·τ·(1 − τ)^(n−1) ÷ P_tr。',
-      '空时隙的代价是时隙长度 σ，这里 9 µs；装着一帧的是 T_s，装着一堆撞在一起的帧的是 T_c。平均时隙把这三者按各自发生的频率加权：(1 − P_tr)σ + P_tr·P_s·T_s + P_tr(1 − P_s)T_c。',
-      '最后一除。一次成功送走的载荷（payload）E[P] = 12,000 比特，也就是 1500 字节；于是吞吐等于 P_s·P_tr·E[P] 除以平均时隙长度。',
+      '把这个房间写成四个数：n，正在竞争的饱和站点有几台；W = 16，最小的窗口；m = 6，窗口最多还能翻几倍；L = 7，一帧被丢掉之前拿到几次机会。',
+      '先猜一个碰撞概率 p。已经失败过 i 次的那一帧从 W_i = 2^min(i,m)·W 个取值里抽签。把 p^i 在这 L 个阶段上加起来作分子，把 p^i(W_i + 1)/2 加起来作分母，一除就是 τ。',
+      '把 τ 送回去。其余站点在同一个时隙里抛同一枚硬币，所以一次尝试毫发无损通过的概率是 (1 − τ) 的 n − 1 次方；剩下的那部分就是这种行为造出的碰撞概率，记作 p′。',
+      '把 p′ 和 p 比一比。p 越大 τ 越小，所以两者之差只在唯一一处穿过零。把 0 到 1 对半砍五十次，每次留下 p′ 更大的那一半，这一对数就不再动了。',
+      '给平均时隙标价，先算两个概率：这个时隙里有人发送的概率 P_tr = 1 − (1 − τ)^n，以及在确实有人发送的前提下恰好只有一台的概率 P_s = n·τ·(1 − τ)^(n−1) ÷ P_tr。',
+      '再按频率加权那三种长相：(1 − P_tr)σ + P_tr·P_s·T_s + P_tr(1 − P_s)T_c，其中 σ 是时隙长度，这里 9 µs。',
+      '最后一除。一次成功送走的载荷（payload）E[P] = 12,000 比特；吞吐等于 P_s·P_tr·E[P] 除以平均时隙长度。',
     ] },
     { kind: 'table', heading: '五台站点，照着步骤走一遍', head: [
       '步骤', '数值',
@@ -111,7 +162,7 @@ export const bianchi: Lesson = {
       ['平均时隙', '712.5 µs'],
       ['吞吐', '4.679 Mb/s'],
     ] },
-    { heading: '预测对上一次实跑', text: '把五台站点的场景跑十秒，数一数发生了什么：5302 次尝试，其中 1370 次撞上了别人。也就是 25.84%，而预测是 27.22%——很接近，但偏差的方向每次都一样。读懂这个方向，是下一课的事。' },
+    { heading: '预测对上一次实跑', text: '把五台站点的场景跑十秒：5302 次尝试，其中 1370 次撞上了别人，也就是 25.84%，而预测是 27.22%。很接近，但偏差的方向每次都一样——读懂这个方向是下一课的事。' },
   ],
   deeper: [
     { heading: '第一个方程是怎么来的', text: '它是退避链在长期行为下的解。一台已经失败 i 次的站点，从 W_i 个取值里均匀抽签，每个空闲时隙走一步，于是它停留在这一阶段的时间正比于 p^i(W_i + 1)/2——这正是页面上那个分式的分母；而单独的 p^i 数的是它能走到这一阶段的频率。τ 就是其中计数读数为零的那部分时隙的比例，也就是分子除以分母。' },
@@ -138,13 +189,13 @@ export const bianchi: Lesson = {
     J('第一次退避抽签', firstBackoffDraw),
   ],
   observe: [
-    '仿真以它最糟的一次碰撞开场。介质（medium）从开始之前就一直空闲，于是五台站点在 t = 0 同时发送，这堆叠加直到 2.064 ms 才结束。',
-    '每个数据帧（data frame）都是同样的长度，2064 µs，每个回答都在一个 SIFS 之后到来。正是这种一致性，让一次成功可以用一个数来定价，而不是一个分布。',
-    '接入点（AP）在一次碰撞里根本没有启动接收，而不是收到了乱码：两个前导码（preamble）以同样的强度到达，哪个都没被锁住。这就是“无捕获”假设的可见形态。',
+    '仿真以它最糟的一次碰撞开场：介质（medium）从一开始就空闲，五台站点在 t = 0 同时发送，这堆叠加直到 2.064 ms 才结束。',
+    '每个数据帧（data frame）都是 2064 µs，每个回答都在一个 SIFS 之后到来。正是这种一致性，让一次成功可以用一个数定价，而不是一个分布。',
+    '一次碰撞里接入点（AP）根本没有启动接收，而不是收到乱码：两个前导码（preamble）强度相同，哪个都没被锁住——这就是“无捕获”假设的可见形态。',
   ],
   tryThis: [
-    '先预测，再切换。从表里读出十台站点那一行，把该变体跑十秒再数：5678 次尝试，其中 1992 次碰撞，3684 个回答——4.421 Mb/s，而预测是 4.275。',
-    '在编辑器里换一个种子，把五台站点的场景再跑一遍。种子 7、8、12345 给出 25.84%、25.53%、25.71%：抽到的数变了，统计量没变。',
+    '先预测，再切换。从表里读出十台站点那一行，把该变体跑十秒再数：5678 次尝试、1992 次碰撞、3684 个回答——4.421 Mb/s，预测是 4.275。',
+    '换一个种子把五台站点的场景再跑一遍。种子 7、8、12345 给出 25.84%、25.53%、25.71%：抽到的数变了，统计量没变。',
   ],
   quiz: [
     {
@@ -155,7 +206,7 @@ export const bianchi: Lesson = {
         '上升：一秒里塞得下更多次发送',
       ],
       answer: 1,
-      explain: '有人在发送时计数器不走，所以空口时间不会给谁多一次撞上的机会。每秒的碰撞次数确实上升；而“每次尝试”的概率不变。',
+      explain: '有人在发送时计数器不走，所以空口时间不会给谁多一次撞上的机会。每秒的碰撞次数确实上升，而“每次尝试”的概率不变。',
     },
     {
       q: '这两个未知数为什么不能一个一个地算？',
@@ -165,7 +216,7 @@ export const bianchi: Lesson = {
         '因为站点数本身也是未知的',
       ],
       answer: 1,
-      explain: '一台站点出手多勤，取决于它失败得多频繁；而它失败得多频繁，又取决于其余人出手多勤。两者同时成立的那一对数，是唯一自洽的说法。',
+      explain: '出手多勤取决于失败得多频繁，而失败得多频繁又取决于其余人出手多勤。同时成立的那一对数，是唯一自洽的说法。',
     },
     {
       q: '饱和这个假设，给预测换来了什么？',
@@ -175,7 +226,7 @@ export const bianchi: Lesson = {
         '它保证不会有任何一帧被放弃',
       ],
       answer: 1,
-      explain: '没有它，你就得去建模“每台站点什么时候有话要说”。有了它，答案只取决于接入规则。',
+      explain: '没有它就得去建模“每台站点什么时候有话要说”；有了它，答案只取决于接入规则。',
     },
   ],
 }

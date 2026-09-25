@@ -1,11 +1,20 @@
 /**
  * Pins "The prediction against the run": the four-row model-against-run table
- * (which moved here from the Bianchi lesson in the rewrite, with its pins),
- * the rate-adaptation artefact, the cost of a pile-up, the restart times, the
- * per-station spread and the no-window corner.
+ * (which moved here from the Bianchi lesson in the rewrite, with its pins), the
+ * cost of a pile-up, the restart times, the per-station spread and the no-window
+ * corner.
  *
- * The contract of the lesson (shape, jumps, the first watch) comes
- * from `lessonShapeSuite`.
+ * The contract of the lesson (shape, jumps, the first watch) comes from
+ * `lessonShapeSuite`.
+ *
+ * Re-paced 2026-09-25: the rate-adaptation artefact — the close-in run, the rate
+ * histogram, the alibi table and the 5.53-against-29.52 factor of five — moved to
+ * the second half with its prose, and its pins moved with it, to
+ * tests/course/rate-vs-model.test.ts. What arrived in exchange is the pin the old
+ * lesson needed and never had: on this scene the access point's RX_MISS count and
+ * the RETRY count are the SAME number, so nothing is ever captured and the
+ * measured retry rate really is the collision rate the model defines. The prose
+ * it replaces claimed the opposite for the close-in run.
  *
  * The busy-slot experiment the lesson quotes (n = 20 rising from 45.83 % to
  * ≈ 47.9 % when the backoff is decremented across a busy period) is a one-off
@@ -13,7 +22,7 @@
  * pinned here — see the probe path in the lesson file's header comment.
  */
 import { describe, it, expect } from 'vitest'
-import { bianchiVsSim } from '../../src/course/tier1/bianchi-vs-sim'
+import { bianchiVsSim, bianchiVsSimJumps, bianchiVsSimVariants } from '../../src/course/tier1/bianchi-vs-sim'
 import { bianchi } from '../../src/course/tier1/bianchi'
 import { dcfTimes, saturationThroughput, solveBianchi } from '../../src/course/tier1/bianchiModel'
 import { COURSE_ORDER } from '../../src/course/curriculum'
@@ -142,50 +151,53 @@ describe('0 · the method the steps block sets out', () => {
   })
 })
 
-describe('1 · the rate-adaptation artefact', () => {
-  it('the close-in link has a 54 Mb/s ceiling and 57.8 dB of SNR', () => {
-    const scen = bianchiVsSim.scenario()
-    const table = buildLinkTable(scen.nodes, scen.walls)
-    const level = table.get('sta-1')!.get('ap')!
+/**
+ * The claim the picture block 「这里没有捕获，于是两个计数是同一个数」 and step 2 of the
+ * method now rest on, and the one the old lesson got backwards. Both scenes put
+ * every station at the SAME distance from the access point — the arc at 3 m, the
+ * close-in variant on a 1 m circle — so no frame is ever louder than another, the
+ * access point locks nothing during an overlap, and every destroyed frame is
+ * retried. The equality below is exact, not approximate, which is what makes the
+ * measured column comparable with the model's p at all.
+ */
+describe('1 · no capture anywhere on this scene', () => {
+  const misses = (s: Stats): number => s.records.filter((r) => r.type === 'RX_MISS' && r.node === 'ap').length
+  const rxOk = (s: Stats): number => s.records.filter((r) => r.type === 'RX_OK' && r.node === 'ap').length
+
+  it('every station arrives at the access point at the same level, close in and on the arc', () => {
+    for (const [name, scen] of [
+      ['arc', bianchiVsSim.variants![0].scenario()], ['close in', bianchiVsSim.scenario()],
+    ] as const) {
+      const table = buildLinkTable(scen.nodes, scen.walls)
+      const levels = scen.nodes.filter((n) => n.kind === 'sta').map((n) => table.get(n.id)!.get('ap')!)
+      expect(Math.max(...levels) - Math.min(...levels), name).toBeLessThan(0.01)
+    }
+    // and close in that level is 36 dB above the arc's, with the top rung in reach
+    const near5 = buildLinkTable(bianchiVsSim.scenario().nodes, bianchiVsSim.scenario().walls)
+    const level = near5.get('sta-1')!.get('ap')!
+    expect(level.toFixed(3)).toBe('-36.215')
     expect(dataRateFor(level)).toBe(54)
     expect(level - noiseDbm(20)).toBeCloseTo(57.8, 1)
   })
 
-  it('67.7 % of frames leave at 6 Mb/s, 1.1 % at 54, and S is 5.53 against the model’s 29.52', () => {
-    const s = near()
-    expect(s.attempts).toBe(6248)
-    expect((s.rateMix.get(6)! / s.attempts).toFixed(3)).toBe('0.677')
-    expect((s.rateMix.get(54)! / s.attempts).toFixed(3)).toBe('0.011')
-    expect(s.mbps.toFixed(3)).toBe('5.534')
-    expect(s.mbps.toFixed(2)).toBe('5.53')
-    const t54 = dcfTimes(1500, 54)
-    const sol = solveBianchi({ n: 5, ...PARAMS })
-    const model = saturationThroughput({ n: 5, tau: sol.tau, slotNs: SLOT_NS, tsNs: t54.tsNs, tcNs: t54.tcNs, payloadBits: PAYLOAD_BITS })
-    expect(model.mbps.toFixed(2)).toBe('29.52')
-    expect(model.mbps / s.mbps).toBeGreaterThan(5) // "disagree by a factor of five"
+  it('the access point’s missed receptions and the retries are the same number, exactly', () => {
+    // the observation 「十秒里 1370 次错失，恰好对应 1370 次重传」, and its n = 20 twin
+    expect([misses(arc5()), arc5().collided]).toEqual([1370, 1370])
+    expect([misses(arc20()), arc20().collided]).toEqual([2840, 2840])
+    expect([misses(near()), near().collided]).toEqual([1635, 1635])
+    // a miss is not a failed decode: the access point never started a reception it lost
+    expect(arc5().records.some((r) => r.type === 'RX_FAIL' && r.node === 'ap')).toBe(false)
+    // and its good receptions are exactly the answers it sent
+    expect(rxOk(arc5())).toBe(arc5().acks)
   })
 
-  it('the MAC is innocent: 26.17 % close in against 25.84 % on the arc, both near the model’s 27.22 %', () => {
-    expect(pct(near().p)).toBe('26.17 %')
+  it('so the measured retry rate IS the model’s collision rate here: 25.84 % against 27.22 %', () => {
     expect(pct(arc5().p)).toBe('25.84 %')
     expect(pct(solveBianchi({ n: 5, ...PARAMS }).p)).toBe('27.22 %')
-    for (const p of [near().p, arc5().p]) expect(Math.abs(p - solveBianchi({ n: 5, ...PARAMS }).p)).toBeLessThan(0.015)
-  })
-
-  it('the arc pins the rate; the close-in run spreads over the whole ladder', () => {
+    expect(Math.abs(arc5().p - solveBianchi({ n: 5, ...PARAMS }).p)).toBeLessThan(0.015)
+    // the arc pins the rate, which is the other half of what makes it comparable
     expect([...arc5().rateMix.keys()]).toEqual([6])
-    expect(near().rateMix.size).toBeGreaterThan(5)
-    // the block lengths the "observe" item quotes
-    expect(dcfTimes(1500, 54).dataNs).toBe(248_000)
     expect(dcfTimes(1500, 6).dataNs).toBe(2_064_000)
-  })
-
-  it('the try-this numbers: 5.534 against 4.717 Mb/s, model 29.52 against 4.679', () => {
-    expect(near().mbps.toFixed(3)).toBe('5.534')
-    expect(arc5().mbps.toFixed(3)).toBe('4.717')
-    const t6 = dcfTimes(1500, 6)
-    const sol = solveBianchi({ n: 5, ...PARAMS })
-    expect(saturationThroughput({ n: 5, tau: sol.tau, slotNs: SLOT_NS, tsNs: t6.tsNs, tcNs: t6.tcNs, payloadBits: PAYLOAD_BITS }).mbps.toFixed(3)).toBe('4.679')
   })
 })
 
@@ -278,8 +290,12 @@ describe('lesson contract', () => {
     // Whole-track review M3: `rate control` is anomaly's term; this lesson points back to it
     // rather than introducing the same word again.
     expect(bianchiVsSim.terms!.map((t) => t.term)).toEqual(['capture', 'residual'])
-    expect(bianchiVsSim.observe.length).toBe(3)
+    // Re-pacing 2026-09-25: the third observation went with the close-in prose to
+    // `rate-vs-model`, which loads this same scene and these same variants.
+    expect(bianchiVsSim.observe.length).toBe(2)
     expect(bianchiVsSim.tryThis.length).toBe(2)
+    expect(bianchiVsSim.variants).toBe(bianchiVsSimVariants)
+    expect(bianchiVsSim.jumps).toBe(bianchiVsSimJumps)
     for (const q of bianchiVsSim.quiz) {
       expect(q.answer).toBeGreaterThanOrEqual(0)
       expect(q.answer).toBeLessThan(q.options.length)

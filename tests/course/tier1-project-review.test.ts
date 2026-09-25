@@ -24,10 +24,11 @@ import { Simulation } from '../../src/engine/simulation'
 import type { Scenario } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 import {
-  ACK_BYTES, DIFS_NS, FCS_BYTES, MAC_HDR_BYTES, SIFS_NS, SLOT_NS, ACK_TIMEOUT_NS,
+  ACK_BYTES, CCA_ED_DBM, CCA_PD_DBM, DIFS_NS, FCS_BYTES, MAC_HDR_BYTES, SIFS_NS, SLOT_NS, ACK_TIMEOUT_NS,
   ctrlRespRateForMode, mcsForRssi, mcsRateMbps, noiseDbm, reqSinrDb, txTimeModeNs, txTimeNs,
 } from '../../src/engine/phy'
 import { buildLinkTable } from '../../src/engine/propagation'
+import { PREAMBLE_DETECT_SINR_DB } from '../../src/engine/channel'
 import { lessonShapeSuite } from './kit'
 
 const MS = 1_000_000
@@ -143,7 +144,10 @@ lessonShapeSuite(tier1ProjectReview, { runNs: 30 * MS, sameSceneAs: 'tier1-proje
 describe('tier1-project-review · the lesson itself', () => {
   it('is the second half of the project and owns the three words it marks with', () => {
     expect(MODULES[tier1ProjectReview.module].title).toBe('第一阶段项目')
-    expect(tier1ProjectReview.needs).toEqual(['tier1-project', 'hidden', 'anomaly'])
+    // Re-pacing 2026-09-25 §7: the two clear-channel thresholds moved to `cca`, which
+    // shows them against a run, so this lesson points there and names it as a need.
+    expect(tier1ProjectReview.needs).toEqual(['tier1-project', 'cca', 'hidden', 'anomaly'])
+    expect(COURSE_ORDER.indexOf('cca')).toBeLessThan(COURSE_ORDER.indexOf('tier1-project-review'))
     expect(COURSE_ORDER.indexOf('tier1-project-review')).toBe(COURSE_ORDER.indexOf('tier1-project') + 1)
     // Whole-track review M2: `capture` and `residual` are terms of bianchi-vs-sim, two lessons
     // earlier; a word cannot be new twice, so this lesson owns only `estimator`.
@@ -296,9 +300,14 @@ describe('tier1-project-review · where the gap comes from', () => {
     expect(mutual.toFixed(2)).toBe('-72.64')
     expect((mutual - noiseDbm(20)).toFixed(2)).toBe('21.35')
     expect(reqSinrDb('eht', 13).toFixed(2)).toBe('44.99')
-    // above preamble detection, far below energy detection
-    expect(mutual).toBeGreaterThan(-82)
-    expect(mutual).toBeLessThan(-62)
+    // Above preamble detection, far below energy detection. The two constants are the
+    // `cca` lesson's own material now (re-pacing §7), and they stay pinned there and in
+    // tests/course/cca.test.ts against CCA_PD_DBM / CCA_ED_DBM; what this file keeps is
+    // the claim the deaf late start rests on — that THIS pair of laptops falls between
+    // them — which is why the pin stays here with the sentence it guards.
+    expect(mutual).toBeGreaterThan(CCA_PD_DBM)
+    expect(mutual).toBeLessThan(CCA_ED_DBM)
+    expect([CCA_PD_DBM, CCA_ED_DBM]).toEqual([-82, -62])
   })
 
   it('the three waits after one frame: 45, 94 and 34 µs, and 9,499 of the middle one', () => {
@@ -306,6 +315,30 @@ describe('tier1-project-review · where the gap comes from', () => {
     expect(ACK_TIMEOUT_NS).toBe(45_000)
     expect(DIFS_NS).toBe(34_000)
     expect(SIFS_NS + DIFS_NS + txTimeNs(ACK_BYTES, 6)).toBe(94_000)
+  })
+
+  /**
+   * The capture depth that arrived here from `anomaly` in the re-pacing. §2 sent it
+   * to `rate-vs-model`; it could not go there, because every station in that scene
+   * arrives at the same level and no frame is ever captured (see that lesson's test).
+   * This run is where capture is measured — 4,990 overlaps, 2,713 retries, 34.4 dB
+   * between the two laptops — so the mechanism is taught beside its own figures.
+   */
+  it('the capture depth: a preamble needs 4 dB, and this flat gives the near one 34.4', () => {
+    expect(PREAMBLE_DETECT_SINR_DB).toBe(4)
+    const scen = projectFlat()
+    const table = buildLinkTable(scen.nodes, scen.walls)
+    const gap = table.get('sta-1')!.get('ap')! - table.get('sta-2')!.get('ap')!
+    expect(gap.toFixed(1)).toBe('34.4')
+    expect(gap).toBeGreaterThan(PREAMBLE_DETECT_SINR_DB)
+    // and that is what turns 4,990 overlaps into only 2,713 retries
+    const s = base()
+    expect(s.overlaps.get('sta-1')! + s.overlaps.get('sta-2')!).toBe(4990)
+    expect(s.retries.get('sta-1')! + s.retries.get('sta-2')!).toBe(2713)
+    // the access point really does decode a frame it was colliding with: the winner
+    // is read out while the loser leaves no RX_OK of its own
+    expect(s.txOk.get('sta-1')!).toBeGreaterThan(0)
+    expect(s.txOk.get('sta-2')!).toBeGreaterThan(0)
   })
 
   it('rate adaptation: the mean frame is 148.1 µs against 129.6, and 600.9 against 524.0', () => {

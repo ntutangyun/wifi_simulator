@@ -25,6 +25,7 @@ import {
 } from '../../src/engine/phy'
 import { buildLinkTable, pathLossDb } from '../../src/engine/propagation'
 import { lessonShapeSuite, ofType, runOf } from './kit'
+import type { Block } from '../../src/course/lessonKit'
 
 const MS = 1_000_000
 const RUN_NS = 30 * MS
@@ -136,15 +137,15 @@ describe('tier1-project · (a) the link budget the learner predicts', () => {
 
   })
 
-  it('the deeper note: a channel eight times as wide takes the far link off the ladder', () => {
-    expect(noiseDbm(160).toFixed(2)).toBe('-84.96')
-    const scen = projectFlat()
-    const far = buildLinkTable(scen.nodes, scen.walls).get('sta-2')!.get('ap')!
-    expect((far - noiseDbm(160)).toFixed(2)).toBe('9.81')
-    expect(reqSinrDb('eht', 0).toFixed(2)).toBe('8.99')
-    expect(far - noiseDbm(160)).toBeLessThan(reqSinrDb('eht', 0) + 3)
-    expect(noiseDbm(160) - noiseDbm(20)).toBeCloseTo(9.03, 2)
-  })
+  /*
+   * The wider-channel depth this lesson used to carry, and the pin that guarded
+   * it, are both gone (re-pacing 2026-09-25 §5.5 and §7: it taught a scenario no
+   * variant can load, so a reader could not watch a word of it). Deleted rather
+   * than moved — the plan deletes exactly one passage, and this is it. The three
+   * engine facts it rested on are still pinned elsewhere: `noiseDbm` against width
+   * in tests/course/noise-floor.test.ts and tests/course/width.test.ts, and
+   * `reqSinrDb('eht', 0)` in tests/course/decode-thresholds.test.ts.
+   */
 })
 
 describe('tier1-project · (b) the airtime the learner predicts', () => {
@@ -274,8 +275,18 @@ describe('tier1-project · the plan, step by step', () => {
   })
 
   it('step 6: the four lines are the four questions, and they are written before the run', () => {
+    // Re-pacing 2026-09-25: ONE procedure in the lesson, and it is the plan. The four
+    // questions used to be a second `steps` block, which is §1's tell for two topics;
+    // they are four deliverables rather than an order, so they are a `list` now.
+    const blocks = [...tier1Project.picture!, ...tier1Project.numbers!]
+    expect(blocks.filter((b) => b.kind === 'steps').length).toBe(1)
     expect(tier1Project.numbers!.filter((b) => b.kind === 'steps').length).toBe(1)
-    expect(tier1Project.picture!.filter((b) => b.kind === 'steps').length).toBe(1)
+    const four = tier1Project.picture!.find((b) => b.kind === 'list') as Extract<Block, { kind: 'list' }>
+    expect(four.items.length).toBe(4)
+    expect(four.items.map((s) => s.slice(0, 3))).toEqual(['（a）', '（b）', '（c）', '（d）'])
+    // and no diagram: a to-scale plan of this flat overlaps two node boxes (see the
+    // lesson file's header comment and the batch E report)
+    expect(blocks.filter((b) => b.kind === 'diagram').length).toBe(0)
   })
 })
 

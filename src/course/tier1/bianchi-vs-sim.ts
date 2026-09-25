@@ -1,34 +1,66 @@
 /**
- * Wi-Fi Tier 1 · M2 · Channel access · The prediction against the run.
+ * Wi-Fi Tier 1 · M6 · The prediction against the run — first half.
  *
- * Rewritten to the zero-to-hero contract
- * (docs/superpowers/specs/2026-09-21-course-readability-design.md): the
- * companion to bianchi.ts, cut from 1472 words to fit one lesson. The picture
- * is now the skill — put the two side by side, name what differs, size it,
- * and say what is left — while the derivations, the slot-clock probe, the
- * per-station spread and the single-cheat corner live in `deeper`.
+ * Re-paced 2026-09-25 (docs/superpowers/plans/2026-09-25-course-repacing-proposal.md
+ * §2, M6). This lesson keeps the arc: how the two columns are made, how closely
+ * they agree, the three smaller differences that explain the sign, and the
+ * residual that is reported rather than fitted. The close-in run — where the
+ * prediction misses by a factor of five and the culprit is rate control, not
+ * contention — is the second half, `rate-vs-model.ts`, which loads this scene and
+ * these variants, so the two ids replay to the same recorded hashes.
  *
- * The busy-slot experiment quoted under "the slot clock" is a one-off probe,
- * not something the engine does: it patches WifiMac.prototype.onIfsEndAc to
- * decrement the backoff across each busy period (Bianchi's convention) and
- * re-measures n = 20. Probe script (session scratchpad, run with npx tsx):
- * <session scratchpad>/lesson-bianchi/probe3dec.mts (patch + re-measure).
+ * ONE FINDING CORRECTED HERE, and it is why the split moved more prose than the
+ * plan expected. Both halves of this scene put every station at the SAME distance
+ * from the access point (the arc at 3 m, the close-in variant on a 1 m circle), so
+ * both arrive at exactly equal levels and CAPTURE NEVER HAPPENS IN EITHER. The old
+ * lesson said the opposite — "close in, two overlapping frames rarely arrive at the
+ * same strength, and the access point sometimes locks the louder one" — and a 10 s
+ * run refutes it: the access point's RX_MISS count and the RETRY count are the same
+ * number, exactly, in all three scenarios (1635 close in, 1370 on the arc at n = 5,
+ * 2840 at n = 20). What that buys is a better claim than the one it replaces: on
+ * this scene the retry counter IS the collision counter, which is what makes the
+ * comparison legitimate at all. Capture itself is taught where a run shows it —
+ * `anomaly`'s near/far pair and the project's flat, both of which really do span
+ * tens of decibels.
+ *
+ * The busy-slot experiment quoted under the slot clock is a one-off probe, not
+ * something the engine does: it patches WifiMac.prototype.onIfsEndAc to decrement
+ * the backoff across each busy period (Bianchi's convention) and re-measures
+ * n = 20.
  *
  * Numbers are pinned by tests/course/bianchi-vs-sim.test.ts. The scenarios are
  * unchanged, so the recorded timeline hashes stay identical.
  */
-import { J, firstCollision, firstData, firstRetry, type Lesson } from '../lessonKit'
+import { J, firstCollision, firstData, firstRetry, type Lesson, type LessonVariant } from '../lessonKit'
 import { bianchiScenario, nLabel } from './bianchi'
+
+/**
+ * The two variants both halves of this scene list, in this order. The second half
+ * reuses this array rather than rebuilding it, so the two ids replay to the same
+ * recorded timeline hashes, variant for variant.
+ */
+export const bianchiVsSimVariants: LessonVariant[] = [
+  { label: 'n = 5 在圆弧上（速率钉在 6 Mb/s）', scenario: () => bianchiScenario(5) },
+  { label: nLabel(20), scenario: () => bianchiScenario(20) },
+]
+
+/** The four jumps both halves offer over that same run. */
+export const bianchiVsSimJumps = [
+  J('第一个数据帧', firstData),
+  J('第一次碰撞', firstCollision),
+  J('第一次重传', firstRetry),
+  J('第一次 CW 翻倍', (r) => r.type === 'CW_CHANGE' && r.cw > 15),
+]
 
 export const bianchiVsSim: Lesson = {
   id: 'bianchi-vs-sim',
   module: 5,
   title: '预测对上实跑',
-  why: '一个预测，只有在你知道它从哪里开始失效之后才真正有用。把纸上的答案和实测放在一起，它们永远不会严丝合缝——而接下来你怎么做，正是工程师与“会用表格的人”之间的区别。这一课我们诚实地读一次分歧：先查什么、该怪谁、每个原因有多大，以及对那部分解释不了的东西该怎么说。',
+  why: '一个预测，只有在你知道它从哪里开始失效之后才真正有用。纸上的答案和实测并排放，永远不会严丝合缝——接下来你怎么做，正是工程师与“会用表格的人”的区别。这一课在圆弧上诚实地读一次分歧：两列数字怎么做出来、差在哪儿、每个原因有多大。',
   outcomes: [
+    '把一次比较写成方法：哪一次跑、数哪些记录、模型的输入从哪里来',
     '核对你的估计量，是不是模型真正定义的那个量',
-    '分清“假设被破坏了”和“机制没被建模”这两件事',
-    '把你解释不了的那一部分——残差——如实报出来，而不是调一个常数直到两条曲线重合',
+    '把解释不了的那一部分——残差——如实报出来，而不是调一个常数直到两条曲线重合',
   ],
   needs: ['bianchi', 'anomaly'],
   terms: [
@@ -36,21 +68,20 @@ export const bianchiVsSim: Lesson = {
     { term: 'residual', plain: '把你找到的每个原因都算进去之后，分歧里仍然解释不了的那一部分' },
   ],
   picture: [
-    { heading: '两个答案，并排放', text: '在圆弧上——每台站点（STA）到接入点（AP）的距离相同，每一帧的长度也相同——预测与实跑吻合得相当好。这是好的那一种情况，而且是刻意布置出来的：整个场景就是为了让论文的每一条假设真的成立。只要挪动其中一件事，这份吻合就可能消失。' },
-    { heading: '一个会改主意的发送方', text: '把同样这五台站点挪到近处——链路（link）在那里能把帧发快九倍——实跑却只交付了纸上说法的五分之一。规则没坏。坏的是“性能异常”那一课说过的速率控制——发送方自己决定发多快的那一套：丢帧的发送方会降速，而它分不清“碰撞”和“信号弱”。于是它在人多的时候越降越慢，让每一帧都更长、每一次相撞都更容易发生。' },
-    { kind: 'watch', jump: 1, heading: '看那些色块的长度在变', text: '载入仿真，跳到第一次碰撞。发送方在阶梯上上下下，彩色色块的长度也一直跟着变。再载入圆弧变体：每个色块又都一样长了。这就是固定速率假设的关与开。' },
-    { heading: '远近之别：活下来的是较强的那一帧', text: '距离本身会改变碰撞的样子。在近处，两个重叠的帧很少以相同的强度到达，接入点有时会锁住更响的那一个，照样把它读出来——这就是捕获。而在圆弧上没有谁更响，于是什么都锁不住，一次重叠真的会把其中每一帧都毁掉——这恰恰是论文的假设。真实的房间落在两者之间。' },
-    { heading: '一次事件，三只钟', text: '论文让所有人在同一瞬间重启，真实的站点不会。碰撞的那两台各自等满自己的期限。锁上了重叠帧之一却没能读出来的邻居，欠的是那段长长的惩罚等待——扩展帧间间隔（extended interframe space, EIFS）。两个都没锁上的邻居，只欠短的那个分布式帧间间隔（DCF interframe space, DIFS）。一次事件，三种重启时刻——而那条链里根本没有描述这件事的状态。' },
-    { heading: '剩下的那部分怎么办', text: '把每个原因点名，用模型自己的单位给它定量，核对符号——然后说出还有多少没算清。剩下的那一块就是残差，如实报出它本身就是一个结果。而把某个常数一路调到曲线重合，不是：那会毁掉这个预测唯一的价值。' },
+    { heading: '两个答案，并排放', text: '在圆弧上——每台站点（STA）到接入点（AP）的距离相同，每一帧的长度也相同——预测与实跑吻合得相当好。这是刻意布置出来的：整个场景就是为了让论文的每一条假设真的成立。只要挪动其中一件事，这份吻合就可能消失，而下一课挪的正是那一件。' },
+    { kind: 'watch', jump: 1, heading: '先切到圆弧，再看一次碰撞', text: '载入仿真之后先切到「n = 5 在圆弧上」这个变体，再跳到第一次碰撞。每个绿色色块都一样长，而接入点一帧也没锁住——这就是两条假设同时成立的样子。' },
+    { heading: '这里没有捕获，于是两个计数是同一个数', text: '重传（retry）数的是丢掉的帧，重叠数的是撞在一起的帧。两者只在接收端谁也锁不住时才相等，而圆弧上正是如此：五台站点到达强度分毫不差，一次重叠把每一帧都毁掉，于是接入点每一次错失都恰好对应一次重传。强弱悬殊的房子里不是这样——较强的那一帧照样被解出来，这就是捕获。' },
+    { heading: '一次事件，三只钟', text: '论文让所有人在同一瞬间重启，真实的站点不会：碰撞的两台各自等满期限；锁上了重叠帧之一却没读出来的邻居欠一段长惩罚等待——扩展帧间间隔（extended interframe space, EIFS）；什么也没锁上的邻居只欠分布式帧间间隔（DCF interframe space, DIFS）。那条链里没有这个状态。' },
+    { heading: '剩下的那部分怎么办', text: '把每个原因点名，用模型自己的单位定量，核对符号——然后说出还有多少没算清。那一块就是残差，如实报出它本身就是一个结果；而把某个常数调到曲线重合不是。' },
   ],
   numbers: [
     { kind: 'steps', heading: '两列数字是怎么做出来的', items: [
-      '载入某一个人数下的圆弧场景，用它自带的种子，跑满十秒仿真时间。下面数到的一切，都发生在这扇窗口之内；没有任何量是多次重跑取平均的。',
-      '每一条携带数据帧（data frame）的 TX_START 记录算一次尝试；每一条重传记录（RETRY）算一次相遇——媒体访问控制（MAC）在一次尝试没等到回答时写下它。后者除以前者，就是实测的碰撞率。',
-      '每发回一个确认帧（ACK），算一次成功交付。乘上一个载荷（payload）的 12,000 比特，再除以那十秒，就是实测的吞吐。',
-      '模型的输入一律取自场景，绝不取自实测：n 是圆弧上站了几台饱和的站点；W = 16、m = 6、L = 7 取自引擎；一次成功与一次撞车的代价，按 6 Mb/s 定价——这条圆弧只允许这一种速率。',
+      '载入某一个人数下的圆弧场景，用它自带的种子，跑满十秒仿真时间。下面数到的一切都发生在这扇窗口之内，没有任何量是多次重跑取平均的。',
+      '每一条携带数据帧（data frame）的 TX_START 记录算一次尝试；每一条重传记录（RETRY）算一次相遇——媒体访问控制（MAC）在一次尝试没等到回答时写下它。后者除以前者即实测碰撞率。',
+      '每发回一个确认帧（ACK）算一次成功交付。乘上一个载荷（payload）的 12,000 比特，再除以那十秒，就是实测吞吐。',
+      '模型的输入一律取自场景，绝不取自实测：n 是圆弧上有几台饱和的站点；W = 16、m = 6、L = 7 取自引擎；一次成功与一次撞车的代价按 6 Mb/s 定价——这条圆弧只允许这一种速率。',
       '把两列数字并排放好，按人数逐行相减。之后两边都不再动。',
-      '把这套方法管不了的事写下来。重传数的是丢掉的帧，而不是撞在一起的两个帧，所以只要捕获起作用，两者就分道扬镳。换一个种子，实测值会动上几分之一个百分点。而圆弧是把论文的假设布置成真，而不是去检验它们。',
+      '把这套方法管不了的事写下来：捕获一起作用，重传数就不再等于重叠数（圆弧上不会，换一户房子就会）；换一个种子，实测值会动上几分之一个百分点；而圆弧是把论文的假设布置成真，不是去检验它们。',
     ] },
     { kind: 'table', heading: '圆弧场景：预测对上十秒实跑', head: [
       'n', '碰撞，预测', '碰撞，实测',
@@ -61,70 +92,52 @@ export const bianchiVsSim: Lesson = {
       ['10', '38.92 %', '35.08 %', '4.275', '4.421 Mb/s'],
       ['20', '49.59 %', '45.83 %', '3.857', '4.027 Mb/s'],
     ] },
-    { heading: '很接近，但每次都错向同一边', text: '每一个碰撞数都落在预测的 10% 以内，每一个吞吐都在 5% 以内，而且全程没有任何拟合参数。但从五台站点往上，实跑的碰撞总是少于预测，只有两台站点那一行符号反了过来。既然是系统性的，就是可以解释的。' },
-    { kind: 'table', heading: '同样五台站点，挪到近处', head: [
-      '近处实测', '圆弧上', '预测',
-    ], rows: [
-      ['碰撞：26.17%', '25.84 %', '27.22 %'],
-      ['吞吐：5.53 Mb/s', '4.717 Mb/s', '29.52 Mb/s'],
-      ['以最慢速率发出的帧：67.7%', '100 %', '按假设为零'],
-    ] },
-    { heading: '这张表怎么读', text: '中间那一列就是不在场证明：近处的站点碰撞得和论文说的一样多，竞争不是嫌疑人——崩掉的是速率。近处发出的 6248 帧里，只有 1.1% 用上了链路扛得住的快速率。' },
+    { heading: '很接近，但每次都错向同一边', text: '每个碰撞数都落在预测的 10% 以内，每个吞吐都在 5% 以内，全程没有任何拟合参数。但从五台站点往上，实跑的碰撞总是少于预测，只有两台那一行符号反了过来。既然是系统性的，就是可以解释的。' },
     { kind: 'list', heading: '较小的差异，各值多少', items: [
-      '时隙（slot time）时钟。链会让等待中的计数器在忙周期上继续减一，而标准是把它冻住。把引擎改成继续减一，二十台站点的实测值就从 45.83% 升到 47.9% 左右——大约是它与预测值 49.59% 之间差距的一半。',
-      '重启时刻。五台站点的圆弧仿真记录了 1029 次长惩罚等待，每一次都让某个邻居比其他人多被挡在竞争之外 60 µs。而那条链里没有描述“人群失去同步”的状态。',
-      '撞车的代价。在这里，一次碰撞比一次成功早结束 15 µs，约占一次交互的 0.7%，在二十台站点时值 0.2% 的吞吐。改用论文自己的取值，预测反而会往另一边挪 0.6%。',
+      '时隙（slot time）时钟。链会让等待中的计数器在忙周期上继续减一，而标准是把它冻住。改成继续减一，二十台站点的实测值就从 45.83% 升到 47.9% 左右——约是它与 49.59% 之间差距的一半。',
+      '重启时刻。五台站点的圆弧记录了 1029 次长惩罚等待，每一次都让某个邻居比其他人多被挡在竞争之外 60 µs。',
+      '撞车的代价。这里一次碰撞比一次成功早结束 15 µs，约占一次交互的 0.7%，二十台时值 0.2% 的吞吐。改用论文自己的取值，预测反而往另一边挪 0.6%。',
     ] },
-    { heading: '残差', text: '把点过名的原因加总，人多时仍有大约两个百分点的碰撞率没有着落。就这么说出来。这个预测依然物有所值：两个方程、零个拟合参数，而在人数变化十倍的范围里，吞吐都预测到了几个百分点以内。' },
+    { heading: '残差', text: '把点过名的原因加总，人多时仍有大约两个百分点的碰撞率没有着落。就这么说出来。这个预测依然物有所值：两个方程、零个拟合参数，人数变化十倍，吞吐都预测到了几个百分点以内。' },
   ],
   deeper: [
     { heading: '为什么人少反而是难的情形', text: '两台站点就是那个符号反转的行：实测 11.20%，预测 10.46%。链把其余站点当成每个时隙独立抛掷的硬币，而只有一个对手时根本无从平均——某台站点赢下一轮之后，对方计数器上剩下的数怎么看都不是一次全新的均匀抽签。精度随人群变大而变好，这与“小网络更简单”的直觉恰好相反。' },
     { heading: '有些问题不能问这个模型', text: '碰撞概率是整个网络一个数。在二十台站点的圆弧仿真里，各站点自己的碰撞率从 42.9% 铺到 52.1%，而这没有任何问题：那只是同一场共享抽奖在有限样本上的离散。但公平性、时延长尾与饿死现象，根本不在这个模型的词汇表里；而一个模型悄悄回答了你没问它的问题，是本课中代价最高的错误。' },
-    { heading: '这个病症是有文献的', text: '把碰撞读成衰落的速率控制器，正是“碰撞感知速率自适应”被发明出来要治的东西：CARA（Kim 等，INFOCOM 2006）在降档前先用一个请求发送帧探一探，RRAA（Wong 等，MobiCom 2006）用短窗口的丢失率估计代替“连续失败计数”。这里两者都没有建模；近处那次仿真的意义，就是让你看见它们为什么存在。' },
     { heading: '在模型的极端角落考它', text: '给圆弧上五台站点全挂上“根本没有窗口”的篡改驱动，方程会说：每台站点在每个时隙都发送，每次尝试都碰撞，吞吐为零。实跑给出的正是如此：23,335 次尝试，其中 23,330 次碰撞，一个回答也没有，3,330 帧被放弃。只给一台挂上作弊，它就拿走 4,639 次尝试中的 4,634 次，四台守规矩的站点十秒里一共只发出五帧，而信道仍跑出 5.557 Mb/s——正是单站点的天花板：一个载荷除以一次干净交互的代价。' },
   ],
   sources: [
     '确认期限与重传前的等待见 IEEE Std 802.11-2024 §10.3.2.9（mac.ts 的 onRespTimeout）；忙周期内计数器冻结见 §10.23.2.4；接收失败后的长惩罚等待是 EIFS，见 §10.3.2.3.7，这里是 94 µs，而 DIFS 是 34 µs。',
     '时隙时钟那个约 47.9% 的数字，来自一次一次性探针：它给 MAC 打补丁，让退避在每个忙周期上递减。这不是本仿真器的某种模式，也有意不被测试钉住；引擎遵循的是标准。',
-    '15 dBm 的近处场景、−20 dBm 的圆弧、种子 7、十秒采样，以及决定捕获与否的前导检测余量，都是本仿真器的模型取值。上面提到的碰撞感知速率方案是 CARA（Kim 等，INFOCOM 2006）与 RRAA（Wong 等，MobiCom 2006）。',
+    '−20 dBm 的圆弧、种子 7、十秒采样，以及决定捕获与否的前导检测余量，都是本仿真器的模型取值。这条圆弧上每台站点到达强度相同，所以捕获在这里从不发生——它被看见的地方是“性能异常”与第一阶段项目。',
   ],
   scenario: () => bianchiScenario(5, { near: true }),
-  variants: [
-    { label: 'n = 5 在圆弧上（速率钉在 6 Mb/s）', scenario: () => bianchiScenario(5) },
-    { label: nLabel(20), scenario: () => bianchiScenario(20) },
-  ],
-  jumps: [
-    J('第一个数据帧', firstData),
-    J('第一次碰撞', firstCollision),
-    J('第一次重传', firstRetry),
-    J('第一次 CW 翻倍', (r) => r.type === 'CW_CHANGE' && r.cw > 15),
-  ],
+  variants: bianchiVsSimVariants,
+  jumps: bianchiVsSimJumps,
   observe: [
-    '在近处那次仿真里，绿色色块的长度一直在变：快速率下 248 µs，慢速率下 2064 µs。而在圆弧变体里，每个色块都一样长。',
-    '在近处，接入点有时会锁住两个重叠帧中的一个，并记下一次接收失败。而在圆弧上，每台站点到达的强度都一样，这种事从不发生。捕获是距离带来的效应。',
-    '碰撞之后，逐步向前翻那些等待色块：碰撞的两台还在各自的期限里，一个邻居已经进入 EIFS，另一个只在 DIFS。一次事件，三只钟。',
+    '在圆弧变体里，每个绿色色块都是同样的 2064 µs；碰撞过后看接入点那一侧，记下的是“错失”而不是“接收失败”——两个前导码（preamble）强度相同，哪个都没被锁住。十秒里 1370 次错失，恰好对应 1370 次重传。',
+    '逐步向前翻那些等待色块：碰撞的两台还在各自的期限里，一个邻居已经进入 EIFS，另一个只在 DIFS。一次事件，三只钟。',
   ],
   tryThis: [
-    '把两个变体各跑十秒，把四个数并排放：近处 26.17%、圆弧 25.84%，然后是 5.534 对 4.717 Mb/s。把缺掉的那部分吞吐归因于速率控制而不是竞争，就是这道练习的全部。',
+    '把 n = 20 的圆弧跑十秒，把实测的 45.83% 放到预测的 49.59% 旁边，再回到那三条差异里找方向：哪一条会把实测往下压？',
     '在预测的极端角落考它。给圆弧上五台站点都挂上“没有窗口”的篡改驱动：实跑在 23,335 次尝试里碰撞 23,330 次，什么也没送到，放弃 3,330 帧——与方程说的分毫不差。',
   ],
   quiz: [
     {
-      q: '近处实跑只交付了预测的约五分之一。哪一项测量最快能定位原因？',
+      q: '在这条圆弧上，为什么可以直接拿“重传比例”去对预测的碰撞概率？',
       options: [
-        '有多少帧被放弃了',
-        '实际发出的帧在各数据速率上的分布',
-        '各站点的队列（queue）排到多深',
+        '因为一帧只有七次机会，误差可以忽略',
+        '因为这里谁也锁不住重叠的帧，于是每一次重叠都恰好变成一次重传',
+        '因为十秒的样本已经足够长',
       ],
       answer: 1,
-      explain: '实测的碰撞率已经与预测吻合，所以竞争不是嫌疑人。速率分布用一张直方图就点出了机制。',
+      explain: '五台站点到达强度相同，捕获无从发生：十秒里接入点的 1370 次错失对应 1370 次重传。换一户强弱悬殊的房子，这两个数立刻分道扬镳。',
     },
     {
       q: '圆弧上五台及以上时，实跑的碰撞比预测少。哪一项差异指向这个方向？',
       options: [
         '一帧七次之后就被放弃',
         '标准在忙周期里把等待中的计数器冻住，而链会让它继续减一',
-        '把同时起始变成干净碰撞的那条前导码（preamble）规则',
+        '把同时起始变成干净碰撞的那条前导码规则',
       ],
       answer: 1,
       explain: '重传上限（retry limit）是把碰撞率往上推而不是往下压，而前导码规则恰恰让“无捕获”假设成立。冻结则让每台等待中的站点晚一个时隙。',

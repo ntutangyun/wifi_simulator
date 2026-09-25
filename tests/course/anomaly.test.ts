@@ -9,16 +9,23 @@
  * print are asserted here against the worked table, and the figure's own spans
  * are asserted against the TX_STARTs they are drawn from.
  *
- * ONE GROUP OF PINS IS BEING HELD HERE, not kept: §7 of the plan moves the
- * capture-effect material — the decibel table, the 4 dB a preamble needs, the
- * t = 0 start, the destroyed 704 µs frame and the fifteen silent losses — to
- * `rate-vs-model`, which batch 5 writes. That lesson does not exist yet, so its
- * pins stay in this file, asserted against the same run they always were, under
- * the describe marked HOLDING below. They must move to
- * tests/course/rate-vs-model.test.ts with the prose; what `anomaly` still says
- * about them is one forward-pointing sentence, and the pin that guards that
- * sentence (154 turns, 135 acknowledged, and no COLLISION recorded anywhere) is
- * in the worked-table test, where it belongs.
+ * THE CAPTURE PINS STAY HERE, and batch E (M6/M7) decided that rather than
+ * dropping them. §7 of the plan sends the capture-effect material to
+ * `rate-vs-model`; it could not go there. Every station in that lesson's scene
+ * sits on a 1 m circle round the access point and arrives at exactly
+ * −36.215 dBm, so no frame is ever louder than another and capture never fires:
+ * over 10 s the access point's RX_MISS count equals the RETRY count exactly
+ * (1635), and tests/course/rate-vs-model.test.ts pins that. A mechanism whose
+ * own lesson's run refutes it is the bad move §7 exists to prevent, so the
+ * MECHANISM went to `tier1-project-review` instead, whose flat really does span
+ * 34.4 dB and whose run really does rescue 46 % of the losers; it is pinned
+ * there against that run.
+ *
+ * What is left in this file is what it always was: three facts about THIS scene,
+ * which is still the scene that shows a simultaneous start with nothing to
+ * separate the winners but signal strength. They guard the sentence `anomaly`
+ * kept — 时间轴上一次碰撞都没记，因为两帧同时开始时接入点只锁住了更强的那个前导码 —
+ * and its worked table's fourth row (154 turns, 135 acknowledged).
  *
  * The engine truth established here survives: a station that has just failed to
  * decode a reception waits an EIFS rather than a DIFS, and all of this scene's
@@ -278,11 +285,18 @@ describe('anomaly · the timing figure is the run', () => {
 })
 
 /**
- * HOLDING — these pins guard material §7 moves to `rate-vs-model` (batch 5). They
- * assert the run, not the prose, so they pass either way; they must travel to
- * tests/course/rate-vs-model.test.ts with the capture material.
+ * Why no collision is ever recorded in this scene, in three facts about this run.
+ *
+ * These are the pins batch 4 parked for `rate-vs-model` and batch 5 sent back
+ * (see the file header): they are measured off THIS scenario — 40 dB between the
+ * two stations, a 704 µs frame destroyed in silence — and `rate-vs-model`'s own
+ * scene has no capture in it at all, so re-aiming them there would have asserted
+ * the opposite of what that lesson shows. The capture mechanism is taught and
+ * pinned in `tier1-project-review`, whose run has a 34.4 dB spread; these three
+ * stay where the run is, guarding the one sentence `anomaly` kept and the fourth
+ * row of its worked table.
  */
-describe('anomaly · the capture effect (HOLDING for rate-vs-model)', () => {
+describe('anomaly · why the timeline records no collision', () => {
   it('both start at t = 0 with no draw at all, and only the near one is decoded', () => {
     // "Both stations find the medium idle from the start, so neither draws a backoff at all,
     //  and both transmit at t = 0 … the access point decodes the near station’s frame
