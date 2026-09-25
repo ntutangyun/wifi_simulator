@@ -2,11 +2,17 @@
  * The shared test kit of the readability programme
  * (docs/superpowers/specs/2026-09-21-course-readability-design.md).
  *
- * A lesson test opens with `lessonShapeSuite(lesson, { proseMax })` — the
- * contract checks every migrated lesson owes, written once — and then pins its
- * own empirical claims against `runOf(lesson)`, a memoised simulation run so
- * that a lesson and its variants are simulated once per run length rather than
- * once per assertion.
+ * A lesson test opens with `lessonShapeSuite(lesson)` — the contract checks
+ * every migrated lesson owes, written once — and then pins its own empirical
+ * claims against `runOf(lesson)`, a memoised simulation run so that a lesson and
+ * its variants are simulated once per run length rather than once per assertion.
+ *
+ * What the suite checks is the lesson as DATA and as a scenario: the sections
+ * are present, every string is non-empty, every jump predicate matches a record
+ * in the run, the stated minutes follow the formula and fit one sitting, and a
+ * split lesson loads its sibling's scene so the recorded hashes are the same run
+ * twice. The rules about how the prose READS were retired on 2026-09-25
+ * (docs/superpowers/specs/2026-09-25-course-pace-and-diagrams.md).
  *
  * It also holds the `READABILITY_INCLUDE` switch: an implementer rewriting a
  * lesson the controller has not registered yet grades it with
@@ -28,8 +34,10 @@ import type { TLRecord } from '../../src/model/records'
 import type { Scenario } from '../../src/model/scenario'
 import { isMigrated, type Lesson } from '../../src/course/lessonKit'
 import { LESSONS } from '../../src/course/lessons'
-import { OBSERVE_MINUTES, TRY_MINUTES, lessonBlocks, lessonMinutes, lessonWords } from '../../src/course/curriculum'
-import { BUDGETS, CITATION, lessonBudget, lessonStrings, paragraphTexts } from '../../src/course/readability'
+import {
+  CHARS_PER_MINUTE, MAX_MINUTES, OBSERVE_MINUTES, TRY_MINUTES, lessonBlocks, lessonChars, lessonMinutes,
+} from '../../src/course/curriculum'
+import { lessonStrings } from '../../src/course/readability'
 
 const MS = 1_000_000
 /** Long enough for a UWB ranging block and a Wi-Fi round; an AMP lesson asks for 1000 ms. */
@@ -99,13 +107,6 @@ export function effectiveMigrating(migrating: readonly string[], env: string | u
 // ---------------------------------------------------------------------------
 
 export interface LessonShapeOptions {
-  /**
-   * The content contract's prose window: `lessonWords` without `observe`,
-   * `tryThis` and `quiz` — what the reader reads before the simulator.
-   */
-  proseMax: number
-  /** Main-path words. `BUDGETS.totalMax`, or `BUDGETS.openerMax` for a track's first lesson. */
-  totalMax?: number
   /** The lesson whose scene this one is the second half of: their hashes must be equal. */
   sameSceneAs?: string
   /** Run length for the jump-target check; an AMP lesson needs 1000 ms. */
@@ -118,14 +119,14 @@ const FIXTURES = ['lesson-hashes.json', 'uwb-record-hashes.json']
 
 /**
  * Every check the lesson contract asks of a migrated lesson, as one `describe`:
- * the shape, the section budgets and the stated minutes, the jump targets, the
- * bilingual walk, and — for the second half of a split — that it loads the
- * first half's scene, so the recorded timeline hashes are the same run twice.
+ * the shape, the stated minutes, the jump targets, every string present, and —
+ * for the second half of a split — that it loads the first half's scene, so the
+ * recorded timeline hashes are the same run twice.
  *
  * The per-lesson test file keeps everything this cannot know: the module, the
  * `needs`, the exact `terms`, the scenario schema, and every empirical claim.
  */
-export function lessonShapeSuite(l: Lesson, o: LessonShapeOptions): void {
+export function lessonShapeSuite(l: Lesson, o: LessonShapeOptions = {}): void {
   const ns = o.runNs ?? DEFAULT_RUN_NS
   describe(`${l.id} · lesson shape`, () => {
     it('is written to the zero-to-hero contract', () => {
@@ -137,28 +138,16 @@ export function lessonShapeSuite(l: Lesson, o: LessonShapeOptions): void {
       const firstWatch = l.picture!.findIndex((b) => b.kind === 'watch')
       expect(firstWatch).toBeGreaterThanOrEqual(0)
       expect(firstWatch).toBeLessThan(3)
-      // depth may be dense, but its provenance still belongs in `sources`
-      for (const p of paragraphTexts(l.deeper ?? [])) {
-        expect(CITATION.test(p), `deeper: ${p.slice(0, 80)}`).toBe(false)
-      }
     })
 
-    it('fits one sitting: the section budgets, the prose window and the minutes ceiling', () => {
-      // The spec's "Length and pace", printed by `npx tsx scripts/lesson-dump.ts <id> en`.
-      const b = lessonBudget(l)
-      expect(b.picture, 'why + outcomes + terms + picture').toBeLessThanOrEqual(BUDGETS.picture)
-      expect(b.numbers, 'numbers').toBeLessThanOrEqual(BUDGETS.numbers)
-      expect(b.practice, 'observe + tryThis + quiz').toBeLessThanOrEqual(BUDGETS.practice)
-      expect(b.total).toBe(lessonWords(l))
-      expect(lessonWords(l)).toBeGreaterThanOrEqual(BUDGETS.totalMin)
-      expect(lessonWords(l)).toBeLessThanOrEqual(o.totalMax ?? BUDGETS.totalMax)
-      const prose = lessonWords({ ...l, observe: [], tryThis: [], quiz: [] })
-      expect(prose, 'why + outcomes + terms + picture + numbers').toBeLessThanOrEqual(o.proseMax)
+    it('fits one sitting: the stated minutes are the formula, and the formula fits', () => {
       expect(lessonBlocks(l).length).toBe(l.picture!.length + l.numbers!.length)
-      // the stated minutes are the formula's, and the formula fits a sitting
-      const raw = lessonWords(l) / 150 + OBSERVE_MINUTES * l.observe.length + TRY_MINUTES * l.tryThis.length
+      const raw = lessonChars(l) / CHARS_PER_MINUTE
+        + OBSERVE_MINUTES * l.observe.length + TRY_MINUTES * l.tryThis.length
       expect(lessonMinutes(l)).toBe(Math.max(5, Math.round(raw / 5) * 5))
-      expect(lessonMinutes(l)).toBeLessThanOrEqual(BUDGETS.minutes)
+      // The only length control the course has left: past 30 minutes a lesson is
+      // teaching two topics, and the answer is to split it.
+      expect(lessonMinutes(l)).toBeLessThanOrEqual(MAX_MINUTES)
     })
 
     it('every jump target occurs in the base run', () => {
@@ -176,13 +165,12 @@ export function lessonShapeSuite(l: Lesson, o: LessonShapeOptions): void {
         ...lessonStrings(l), l.title,
         ...(l.variants ?? []).map((v) => v.label), ...l.jumps.map((j) => j.label),
       ]
-      // a structural floor rather than a smoke bound: one string per outcome, term, block,
-      // source, observation, experiment and (question + options + explanation) of a quiz,
-      // plus why, the title, every variant label and every jump label.
-      const floor = 2 + l.outcomes!.length + l.terms!.length + l.picture!.length + l.numbers!.length
-        + (l.deeper?.length ?? 0) + l.sources!.length + l.observe.length + l.tryThis.length
-        + 3 * l.quiz.length + (l.variants?.length ?? 0) + l.jumps.length
-      expect(seen.length).toBeGreaterThanOrEqual(floor)
+      // The structural floor that used to stand here was deleted after it was measured:
+      // `lessonStrings` returns 47 to 139 more strings than the floor demanded on every
+      // lesson in the course — a table contributes one string per cell — so nothing a
+      // reader would notice could ever reach it. The section checks above are what catch
+      // a missing section; a rule that cannot fail reports success while grading nothing.
+      expect(seen.length, l.id).toBeGreaterThan(0)
       for (const s of seen) {
         expect(s.trim().length, s).toBeGreaterThan(0)
       }

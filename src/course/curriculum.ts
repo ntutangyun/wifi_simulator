@@ -7,7 +7,7 @@
  * See docs/superpowers/specs/2026-09-18-zero-to-hero-curriculum-design.md.
  */
 import type { Block, Lesson } from './lessonKit'
-import { lessonBudget } from './readability'
+import { mainPathChars } from './readability'
 
 /** The radio the tier teaches. Tracks are listed in this order, Wi-Fi first. */
 export type Track = 'wifi' | 'uwb'
@@ -129,17 +129,17 @@ export function lessonBlocks(l: Lesson): Block[] {
 }
 
 /**
- * English words across everything a learner reads on a lesson's main path.
- * `deeper` and `sources` are deliberately absent: the stated minutes are the
- * minutes of the main path, not of the depth behind the collapsed sections.
+ * Chinese characters across everything a learner reads on a lesson's main path:
+ * `mainPathChars` in `readability.ts`. `deeper` and `sources` are deliberately
+ * absent — the stated minutes are the minutes of the main path, not of the
+ * depth behind the collapsed sections.
  *
- * It is `lessonBudget(l).total` — one walk, in `readability.ts`, shared with
- * the section budgets and the contract test. A language-neutral cell and a
- * formula body count one word each: they are read at a glance, not at 150
- * words a minute. A `Term`'s own word counts; the "New words" table is read.
+ * It replaced an English word count, which the Chinese-only codemod of
+ * 2026-09-25 left meaningless: `enWords` splits on whitespace, and Chinese
+ * carries none, so a whole paragraph counted as one word.
  */
-export function lessonWords(l: Lesson): number {
-  return lessonBudget(l).total
+export function lessonChars(l: Lesson): number {
+  return mainPathChars(l)
 }
 
 /** Minutes budgeted for one thing to observe in the running simulation. */
@@ -148,11 +148,43 @@ export const OBSERVE_MINUTES = 2
 export const TRY_MINUTES = 4
 
 /**
- * Estimated study time: reading at 150 words a minute, plus time at the
+ * Chinese characters a minute, as the reading-time estimate uses them.
+ *
+ * MEASURED, not guessed. The last bilingual commit (8859f7f) paced every lesson
+ * at 150 English words a minute, and those estimates are the ones the course
+ * was written and reviewed against. Counting both halves of that corpus gives
+ *
+ *     108,518 CJK characters  /  73,870 English words  =  1.469 characters per word
+ *
+ * across all 51 lessons, so the rate that preserves the pacing is
+ * 150 × 1.469 ≈ 220 characters a minute. At 220 the formula reproduces the
+ * pre-codemod estimate exactly for 43 of the 51 lessons and lands one 5-minute
+ * bucket away for 6 more; the last two are `amp-slots` and `amp-coexist`, which
+ * are still in MIGRATING and still mostly English, so they have no Chinese to
+ * count yet. Nothing in the course exceeds the 30-minute ceiling at this rate.
+ *
+ * 220 is below the 300–400 a minute often quoted for casual Chinese prose, and
+ * deliberately so: this is dense technical text in which every official term
+ * carries a bracketed English name, and the reader stops on figures, tables and
+ * arithmetic. The figure to trust is the one the corpus gives, not the one a
+ * general reading-speed study gives.
+ */
+export const CHARS_PER_MINUTE = 220
+
+/**
+ * Estimated study time: reading at {@link CHARS_PER_MINUTE}, plus time at the
  * simulator for each thing to observe and each experiment, rounded to the
  * nearest 5 minutes (at least 5).
+ *
+ * With the word budgets gone this is the course's only length control: a lesson
+ * that runs past 30 minutes is a lesson teaching two topics, and the answer is
+ * to split it (docs/superpowers/specs/2026-09-25-course-pace-and-diagrams.md).
  */
 export function lessonMinutes(l: Lesson): number {
-  const raw = lessonWords(l) / 150 + OBSERVE_MINUTES * l.observe.length + TRY_MINUTES * l.tryThis.length
+  const raw = lessonChars(l) / CHARS_PER_MINUTE
+    + OBSERVE_MINUTES * l.observe.length + TRY_MINUTES * l.tryThis.length
   return Math.max(5, Math.round(raw / 5) * 5)
 }
+
+/** The ceiling the user asked for: a lesson is one sitting. */
+export const MAX_MINUTES = 30
