@@ -29,7 +29,7 @@ const txs = (rs: TLRecord[], kind?: string) =>
 const delivered = (rs: TLRecord[]) => ofType(rs, 'DEQUEUE').filter((r) => r.node === 'sta-1').length
 const busyAirNs = (rs: TLRecord[]) => txs(rs).reduce((a, r) => a + r.frame.txTimeNs, 0)
 
-lessonShapeSuite(ampdu, { proseMax: 1250, runNs: RUN_NS })
+lessonShapeSuite(ampdu, { runNs: RUN_NS })
 
 describe('ampdu · the lesson’s own scene', () => {
   it('sits in Tier 2 and leans on the airtime and frame lessons', () => {

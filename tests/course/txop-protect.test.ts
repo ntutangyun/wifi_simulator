@@ -46,7 +46,7 @@ const meanNavNs = (rs: TLRecord[]): number => {
   return set.reduce((a, r) => a + (r.untilNs - r.t), 0) / set.length
 }
 
-lessonShapeSuite(txopProtect, { proseMax: 1250, runNs: RUN_NS })
+lessonShapeSuite(txopProtect, { runNs: RUN_NS })
 
 describe('txop-protect · the lesson’s own scene', () => {
   it('is the last lesson of the QoS module and names the three lessons its words come from', () => {

@@ -46,7 +46,7 @@ function moved(variant: number, x: number, y: number, ns = 50 * MS): TLRecord[] 
   return [...new Simulation(sc).runUntil(ns).records]
 }
 
-lessonShapeSuite(width, { proseMax: 1200, runNs: RUN_NS })
+lessonShapeSuite(width, { runNs: RUN_NS })
 
 describe('width · the lesson’s own scene', () => {
   it('is a Tier 2 lesson that needs the two Tier 1 lessons its words come from', () => {

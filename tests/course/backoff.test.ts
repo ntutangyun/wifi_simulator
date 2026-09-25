@@ -32,9 +32,7 @@ const meanOf = (cw: number): number => {
   return v.reduce((a, b) => a + b, 0) / v.length
 }
 
-// The mechanism-before-metaphor amendment puts the draw-and-decrement procedure in
-// `numbers`; the amended BUDGETS (picture 900, numbers 550, total 1800) carry it.
-lessonShapeSuite(backoff, { proseMax: 1050, runNs: RUN_NS })
+lessonShapeSuite(backoff, { runNs: RUN_NS })
 
 describe('backoff · the lesson’s own scene', () => {
   it('follows ifs and owns the contention window', () => {

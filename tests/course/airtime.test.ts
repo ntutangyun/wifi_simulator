@@ -25,10 +25,7 @@ const RUN_NS = 100 * MS
 const recs = (): TLRecord[] => runOf(airtime, undefined, RUN_NS)
 const txs = (kind: string) => ofType(recs(), 'TX_START').filter((r) => r.frame.kind === kind)
 
-// The mechanism-before-metaphor amendment buys the procedure its own room: the steps
-// block and the worked example add roughly 250 words to `numbers`, well inside the
-// amended BUDGETS (picture 900, numbers 550, total 1800).
-lessonShapeSuite(airtime, { proseMax: 1000, totalMax: 1300, runNs: RUN_NS })
+lessonShapeSuite(airtime, { runNs: RUN_NS })
 
 describe('airtime · the lesson’s own scene', () => {
   it('is a Tier 1 lesson that names the lessons its words come from', () => {

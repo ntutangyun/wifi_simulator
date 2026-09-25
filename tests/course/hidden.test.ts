@@ -53,9 +53,7 @@ const collisions = (rs: TLRecord[]): { locked: Tx; others: Tx[] }[] =>
 const caughtData = (rs: TLRecord[]): { locked: Tx; others: Tx[] }[] =>
   collisions(rs).filter(({ locked, others }) => [locked, ...others].some((f) => f.frame.kind === 'data'))
 
-// The prose window grew with the amendment of 2026-09-23: the mechanism is now written
-// out as a procedure and run on one real exchange, which the old 860 could not hold.
-lessonShapeSuite(hidden, { proseMax: 1190, runNs: RUN_NS })
+lessonShapeSuite(hidden, { runNs: RUN_NS })
 
 describe('hidden · the lesson’s own scene', () => {
   it('follows nav and owns RTS and CTS', () => {

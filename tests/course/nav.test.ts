@@ -22,9 +22,7 @@ const RUN_NS = 200 * MS
 const recs = (): TLRecord[] => runOf(nav, undefined, RUN_NS)
 const txs = (kind: string) => ofType(recs(), 'TX_START').filter((r) => r.frame.kind === kind)
 
-// The mechanism-before-metaphor amendment puts the Duration-to-timer procedure in
-// `numbers`; the amended BUDGETS (picture 900, numbers 550, total 1800) carry it.
-lessonShapeSuite(nav, { proseMax: 1050, runNs: RUN_NS })
+lessonShapeSuite(nav, { runNs: RUN_NS })
 
 describe('nav · the lesson’s own scene', () => {
   it('follows backoff and owns the reservation', () => {

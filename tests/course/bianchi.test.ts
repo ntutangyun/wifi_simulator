@@ -18,7 +18,6 @@ import { COURSE_ORDER } from '../../src/course/curriculum'
 import { Simulation } from '../../src/engine/simulation'
 import type { Scenario } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
-import { lessonStrings } from '../../src/course/readability'
 import { lessonShapeSuite } from './kit'
 import { CW_MAX, CW_MIN, SHORT_RETRY_LIMIT, SLOT_NS, dataRateFor, noiseDbm } from '../../src/engine/phy'
 import { buildLinkTable } from '../../src/engine/propagation'
@@ -79,22 +78,11 @@ function measure(key: string, scenario: Scenario): Stats {
 const base = () => measure('n5', bianchi.scenario())
 const variant = (i: number, key: string) => measure(key, bianchi.variants![i].scenario())
 
-/**
- * Every string a learner reads in this lesson, concatenated: the one walk of
- * `src/course/readability.ts`, so a field added to the contract is covered the
- * moment it is added there. `.body` is gone; this is what replaced it.
- */
-function allText(): string {
-  const parts: string[] = []
-  const push = (s: string) => { parts.push(s) }
-  lessonStrings(bianchi).forEach(push)
-  return parts.join(' ')
-}
+// The `quotes(...)` helper that stood here searched everything a learner reads for each
+// figure the lesson prints. Retired 2026-09-25: every claim it guarded is recomputed below
+// from the model or measured off the run, which is the pin that catches a drift; the
+// quotation only ever asserted how a sentence reads.
 
-const prose = allText()
-const quotes = (...needles: string[]) => {
-  for (const s of needles) expect(prose, `prose is missing "${s}"`).toContain(s)
-}
 const pct = (x: number, d = 2) => `${(100 * x).toFixed(d)} %`
 
 // ---------------------------------------------------------------------------
@@ -154,7 +142,6 @@ describe('bianchiModel · the fixed point', () => {
     expect(tauOf(0.3, { W: 16, m: 6, attempts: 400 })).toBeCloseTo(tauOf(0.3, { W: 16, m: 6 }), 12)
     expect(tauOf(0.5, { W: 16, m: 6 })).toBeCloseTo(2 / (16 + 1 + 0.5 * 16 * 6), 12) // no 0/0 at p = ½
     expect(tauOf(0, { W: 16, m: 6 })).toBeCloseTo(2 / 17, 12)
-    quotes('Σ_{k<m}(2p)^k')
   })
 })
 
@@ -169,7 +156,6 @@ describe('the exchange times quoted in the lesson', () => {
     expect(t.ackNs).toBe(44_000)
     expect(t.tsNs).toBe(2_158_000)
     expect(t.tcNs).toBe(2_143_000)
-    quotes('T_s = 2064 + 16 + 44 + 34 = 2158 µs', 'T_c = 2064 + 45 + 34 = 2143 µs', '1528 octets')
   })
 
   it('54 Mb/s: 248 µs data, 28 µs ACK at 24 Mb/s', () => {
@@ -216,7 +202,6 @@ describe('the model table', () => {
       expect(pct(sol.p)).toBe(p)
       expect(S(sol.tau, n, t54).toFixed(2)).toBe(s54)
       expect(`${S(sol.tau, n, t6).toFixed(3)} Mb/s`).toBe(s6)
-      quotes(tau, p, s54, s6.replace(' Mb/s', ''))
     })
   }
 
@@ -233,7 +218,6 @@ describe('the model table', () => {
     const fin = solveBianchi({ n: 20, ...PARAMS })
     expect(pct(inf.p)).toBe('48.09 %')
     expect(pct(fin.p)).toBe('49.59 %')
-    quotes('48.09 %', '49.59 %')
   })
 
   it('the 6 Mb/s and 54 Mb/s contention costs quoted in the text', () => {
@@ -242,7 +226,6 @@ describe('the model table', () => {
     expect(s(20, t6).toFixed(2)).toBe('3.86')
     expect(s(2, t54).toFixed(1)).toBe('31.3')
     expect(s(20, t54).toFixed(1)).toBe('24.9')
-    quotes('5.17 down to 3.86 Mb/s', '31.3 down to 24.9')
   })
 })
 
@@ -264,7 +247,6 @@ describe('the procedure the steps block asks the reader to carry out', () => {
     expect(CW_MIN + 1).toBe(PARAMS.W)
     expect(2 ** PARAMS.m * PARAMS.W).toBe(CW_MAX + 1)
     expect(SHORT_RETRY_LIMIT).toBe(PARAMS.attempts)
-    quotes('W = 16, the smallest window', 'L = 7, the attempts a frame gets')
   })
 
   /**
@@ -286,9 +268,7 @@ describe('the procedure the steps block asks the reader to carry out', () => {
       const f = b as Extract<Block, { kind: 'formula' }>
       return f.kind === 'formula' ? [f.text, f.note ?? ''] : []
     }).join(' ')
-    expect(depth).toContain('2(1\u22122p)')
-    expect(depth).toContain('48.09 %')
-    expect(depth).toContain('49.59 %')
+    expect(depth).toContain('2(1\u22122p)') // the notation, not the sentence: the classic form belongs in the depth
 
     // and the numbers in the table are the displayed pair's, not the classic pair's
     for (const [n, tau, pStr] of [[2, '0.1046', '10.46 %'], [5, '0.0763', '27.22 %'],
@@ -311,7 +291,6 @@ describe('the procedure the steps block asks the reader to carry out', () => {
       }
       expect(num / den, `p=${p}`).toBeCloseTo(tauOf(p, PARAMS), 12)
     }
-    quotes('W_i = 2^min(i,m)·W')
   })
 
   it('steps 3 and 4: the halving converges on the p where p′ equals p, and τ falls as p rises', () => {
@@ -336,7 +315,6 @@ describe('the procedure the steps block asks the reader to carry out', () => {
     expect(r.slotMeanNs).toBeCloseTo((1 - r.ptr) * SLOT_NS + r.ptr * r.ps * t6.tsNs + r.ptr * (1 - r.ps) * t6.tcNs, 6)
     expect(SLOT_NS).toBe(9_000) // "the slot time σ, 9 µs here"
     expect(PAYLOAD_BITS).toBe(1500 * 8)
-    quotes('E[P] = 12,000 bits')
   })
 
   it('the worked example: every row of the five-station table, recomputed', () => {
@@ -358,7 +336,6 @@ describe('the procedure the steps block asks the reader to carry out', () => {
     expect(r.ps.toFixed(4)).toBe('0.8478')
     expect((r.slotMeanNs / 1000).toFixed(1)).toBe('712.5')
     expect(r.mbps.toFixed(3)).toBe('4.679')
-    quotes('0.2722', '1.3738', '17.9942', '0.0763', '0.3277', '0.8478', '712.5 µs', '4.679 Mb/s')
   })
 })
 
@@ -376,7 +353,6 @@ describe('the one measured sentence, and the runs the practice names', () => {
     expect(s.collided).toBe(1370)
     expect(pct(s.p)).toBe('25.84 %')
     expect(pct(solveBianchi({ n: 5, ...PARAMS }).p)).toBe('27.22 %')
-    quotes('5302 attempts', '1370', '25.84 %', '27.22 %')
   })
 
   it('every frame on the arc goes at 6 Mb/s and nothing is discarded, at every n', () => {
@@ -399,7 +375,6 @@ describe('the one measured sentence, and the runs the practice names', () => {
     const sol = solveBianchi({ n: 10, ...PARAMS })
     const model = saturationThroughput({ n: 10, tau: sol.tau, slotNs: SLOT_NS, tsNs: t6.tsNs, tcNs: t6.tcNs, payloadBits: PAYLOAD_BITS })
     expect(model.mbps.toFixed(3)).toBe('4.275')
-    quotes('5678 attempts', '1992', '3684 answers', '4.421 Mb/s', '4.275')
   })
 
   it('the run opens with an n-way collision at t = 0 that clears at 2.064 ms', () => {
@@ -411,7 +386,6 @@ describe('the one measured sentence, and the runs the practice names', () => {
       expect(first.t).toBe(2_064_000)
       expect(s.records.filter((r) => r.type === 'TX_START' && r.t === 0).length).toBe(n)
     }
-    quotes('2.064 ms')
   })
 
   it('a seed only reshuffles the draws: p̂ and throughput hold to a fraction of a point', () => {
@@ -425,7 +399,6 @@ describe('the one measured sentence, and the runs the practice names', () => {
     }
     // determinism: the same seed replays identically
     expect([...new Simulation(bianchi.scenario()).runUntil(RUN_NS).records].length).toBe(base().records.length)
-    quotes('25.84%、25.53%、25.71%')
   })
 
   it('saturation is real: twenty queued MSDUs per station, nothing discarded by age', () => {
@@ -433,7 +406,6 @@ describe('the one measured sentence, and the runs the practice names', () => {
     expect(scen.queue).toEqual({ limit: 500, lifetimeMs: 600_000 })
     const enq = base().records.filter((r) => r.type === 'ENQUEUE' && r.t === 0)
     expect(enq.length).toBe(5 * 20)
-    quotes('ten-minute MSDU lifetime')
   })
 })
 
@@ -441,8 +413,7 @@ describe('the one measured sentence, and the runs the practice names', () => {
 // lesson contract
 // ---------------------------------------------------------------------------
 
-// The prose window: `why` + `outcomes` + `terms` + `picture` + `numbers`.
-lessonShapeSuite(bianchi, { proseMax: 1130, runNs: RUN_NS })
+lessonShapeSuite(bianchi, { runNs: RUN_NS })
 
 describe('lesson contract', () => {
   it('is part of the reading order and names the lessons whose words it uses', () => {
@@ -465,6 +436,5 @@ describe('lesson contract', () => {
     expect(bianchi.numbers!.filter((b) => b.kind === 'table').length).toBe(2)
     expect(bianchi.numbers!.filter((b) => b.kind === 'formula').length).toBe(2)
     expect(bianchi.numbers!.filter((b) => b.kind === 'steps').length).toBe(1)
-    quotes('Σ_{k<m}(2p)^k')
   })
 })

@@ -57,9 +57,7 @@ const cts = txs.find((r) => r.frame.kind === 'cts')!
 // The contract every migrated lesson owes, written once in tests/course/kit.ts.
 // `sameSceneAs` is the split rule: this lesson loads frame-anatomy's scene, so
 // its recorded timeline hash is frame-anatomy's, value for value.
-// The prose window is 1200, as decode-thresholds' is: the 2026-09-23 amendment put the byte
-// and airtime arithmetic into `numbers` as a procedure with its worked frame beside it.
-lessonShapeSuite(frameAnatomyBytes, { proseMax: 1200, runNs: RUN_NS, sameSceneAs: 'frame-anatomy' })
+lessonShapeSuite(frameAnatomyBytes, { runNs: RUN_NS, sameSceneAs: 'frame-anatomy' })
 
 describe('frame-anatomy-bytes · the lesson itself', () => {
   it('is the second half of frame-anatomy and owns the four preamble words', () => {

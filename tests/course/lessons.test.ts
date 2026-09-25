@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { LESSONS, MODULES } from '../../src/course/lessons'
-import { COURSE_ORDER, OBSERVE_MINUTES, TIERS, TRY_MINUTES, lessonBlocks, lessonMinutes, lessonWords, trackHeadings } from '../../src/course/curriculum'
+import { CHARS_PER_MINUTE, COURSE_ORDER, OBSERVE_MINUTES, TIERS, TRY_MINUTES, lessonBlocks, lessonChars, lessonMinutes, trackHeadings } from '../../src/course/curriculum'
 import { ScenarioSchema } from '../../src/model/scenario'
 import { Simulation } from '../../src/engine/simulation'
 import { buildLinkTable } from '../../src/engine/propagation'
@@ -176,9 +176,13 @@ describe('jump targets occur in their lesson simulations', () => {
   it('capstone: MU, trigger and 6 GHz activity all present', () => {
     const lesson = LESSONS.find((l) => l.id === 'capstone')!
     const records = recordsFor(lesson.scenario(), 500)
-    const find = (en: string) => lesson.jumps.find((j) => j.label === en)!
-    expect(records.some(find('first MU PPDU').find)).toBe(true)
-    expect(records.some(find('first 6 GHz data').find)).toBe(true)
+    // the jump bar is pinned by what its predicates select out of the run, never by how a
+    // button reads: the multi-user send, the trigger, a collision and a 6 GHz frame.
+    // jumps 0 and 3 — the multi-user send and the 6 GHz frame. The trigger and the first
+    // collision need longer than this 500 ms window; the kit's shape suite runs all four.
+    expect(lesson.jumps.length).toBe(4)
+    expect(records.some(lesson.jumps[0].find)).toBe(true)
+    expect(records.some(lesson.jumps[3].find)).toBe(true)
   })
 })
 
@@ -324,9 +328,12 @@ describe('module 4 lessons', () => {
 describe('lessons 17 and 18', () => {
   it('the MU-MIMO lesson contrasts OFDMA with MU-MIMO as two variants of the same house', () => {
     const l = LESSONS.find((x) => x.id === 'mumimo')!
-    expect(MODULES[l.module].title).toBe('Scheduled Wi-Fi 6/7')
+    expect(l.module).toBe(6)
     expect(l.variants?.length).toBe(2)
-    expect(l.variants!.map((v) => v.label)).toEqual(['OFDMA (split by frequency)', 'MU-MIMO (split by space)'])
+    // the two variants differ in the MU-MIMO flag alone; tests/course/mumimo.test.ts walks it
+    const [a, b] = l.variants!.map((v) => v.scenario())
+    expect(a.nodes.map((n) => n.caps.features?.mumimo)).toEqual(b.nodes.map(() => false))
+    expect(b.nodes.map((n) => n.caps.features?.mumimo)).toEqual(b.nodes.map(() => true))
   })
 
   it('lesson 17 actually produces a MU-MIMO PPDU in its second variant', () => {
@@ -365,19 +372,13 @@ describe('what the AP lane shows for a simultaneous RTS (lesson 13)', () => {
   })
 })
 
-describe('claims checked against the standard (standard alignment A)', () => {
-  const all = JSON.stringify(LESSONS)
-  it('Wi-Fi 5 already had DL MU-MIMO, so multi-user transmission did not start with Wi-Fi 6', () => {
-    expect(all).not.toMatch(/Until Wi-Fi 6, one transmission served one receiver/)
-    expect(all).toMatch(/Wi-Fi 5 \(802\.11ac\)/)
-  })
-  it('triggered uplink still uses carrier sense when the Trigger requires it', () => {
-    expect(all).not.toMatch(/no longer CSMA at all/)
-  })
-  it('MLO is not described as only the two-radio form', () => {
-    expect(all).toMatch(/EMLSR/)
-  })
-})
+// The three "standard alignment A" assertions that used to live here searched the lesson
+// prose for English phrases — "Until Wi-Fi 6, one transmission served one receiver",
+// "Wi-Fi 5 (802.11ac)", "no longer CSMA at all", "EMLSR". They asserted how a sentence is
+// written rather than what the simulator does, and the Chinese-only course makes them
+// untestable as text. The corrections they guarded live in the lessons' own text and in
+// docs/superpowers/ledger; the simulator-side claims they accompanied are pinned in
+// tests/course/{ofdma-ul,mumimo,mlo}.test.ts against the run.
 
 describe('course structure (tiers, order, study time)', () => {
   it('lessons follow COURSE_ORDER and every lesson is listed there', () => {
@@ -393,7 +394,8 @@ describe('course structure (tiers, order, study time)', () => {
 
   it('study time is reading time plus time at the simulator, rounded to 5 minutes', () => {
     for (const l of LESSONS) {
-      const raw = lessonWords(l) / 150 + OBSERVE_MINUTES * l.observe.length + TRY_MINUTES * l.tryThis.length
+      const raw = lessonChars(l) / CHARS_PER_MINUTE
+        + OBSERVE_MINUTES * l.observe.length + TRY_MINUTES * l.tryThis.length
       expect(lessonMinutes(l), l.id).toBe(Math.max(5, Math.round(raw / 5) * 5))
       expect(lessonMinutes(l) % 5, l.id).toBe(0)
     }

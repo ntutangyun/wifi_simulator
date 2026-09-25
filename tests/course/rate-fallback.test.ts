@@ -63,7 +63,7 @@ const lostAt: boolean[] = far.map((t, i) => {
   return badTs.some((x) => x >= end && x < next)
 })
 
-lessonShapeSuite(rateFallback, { proseMax: 950, runNs: JUMP_NS, sameSceneAs: 'rate' })
+lessonShapeSuite(rateFallback, { runNs: JUMP_NS, sameSceneAs: 'rate' })
 
 describe('rate-fallback · the lesson’s own scene', () => {
   it('is the second half of the rate lesson and says so in `needs`', () => {

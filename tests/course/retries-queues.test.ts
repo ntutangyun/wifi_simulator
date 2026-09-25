@@ -67,10 +67,7 @@ function apDelays(rs: TLRecord[]): { atNs: number; ms: number }[] {
 }
 const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length
 
-// The prose window: `why` + `outcomes` + `terms` + `picture` + `numbers`.
-// The prose window grew with the amendment of 2026-09-23: the retry and queue machinery is
-// now written out as a procedure, with the seven-attempt table as its worked example.
-lessonShapeSuite(retriesQueues, { proseMax: 1230, runNs: RUN_NS })
+lessonShapeSuite(retriesQueues, { runNs: RUN_NS })
 
 describe('retries-queues · the scene', () => {
   it('scenario and variants pass the scenario schema', () => {

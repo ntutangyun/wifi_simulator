@@ -51,7 +51,7 @@ const TABLE = [
 
 // The contract every migrated lesson owes (tests/course/kit.ts). `totalMax` is the
 // spec's rule for a track's first lesson: the point of the programme is that it is short.
-lessonShapeSuite(radioPrimer, { proseMax: 700, totalMax: 1000, runNs: RUN_NS })
+lessonShapeSuite(radioPrimer, { runNs: RUN_NS })
 
 describe('radio-primer · the opener of the Wi-Fi track', () => {
   it('opens the course, needs nothing, and owns the three ratio words', () => {

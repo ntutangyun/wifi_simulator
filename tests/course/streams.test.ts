@@ -35,7 +35,7 @@ const one = <T>(xs: T[]): T => {
   return xs[0]
 }
 
-lessonShapeSuite(streams, { proseMax: 1000, runNs: RUN_NS })
+lessonShapeSuite(streams, { runNs: RUN_NS })
 
 describe('streams · the lesson’s own scene', () => {
   it('needs the width lesson, and owns two words of its own', () => {

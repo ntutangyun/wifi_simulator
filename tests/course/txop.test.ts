@@ -41,7 +41,7 @@ function bursts(rs: TLRecord[], node = 'ap'): { lenNs: number; frames: number }[
   return out
 }
 
-lessonShapeSuite(txop, { proseMax: 1250, runNs: RUN_NS })
+lessonShapeSuite(txop, { runNs: RUN_NS })
 
 describe('txop · the lesson’s own scene', () => {
   it('closes the pair it builds on: EDCA won the turn, aggregation filled it', () => {

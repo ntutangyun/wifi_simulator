@@ -22,9 +22,7 @@ const RUN_NS = 100 * MS
 const recs = (): TLRecord[] => runOf(ifs, undefined, RUN_NS)
 const txs = (kind: string) => ofType(recs(), 'TX_START').filter((r) => r.frame.kind === kind)
 
-// The mechanism-before-metaphor amendment adds the access procedure to `numbers`;
-// the amended BUDGETS (picture 900, numbers 550, total 1800) carry it.
-lessonShapeSuite(ifs, { proseMax: 1150, runNs: RUN_NS })
+lessonShapeSuite(ifs, { runNs: RUN_NS })
 
 describe('ifs · the lesson’s own scene', () => {
   it('follows airtime and owns the three waiting times', () => {

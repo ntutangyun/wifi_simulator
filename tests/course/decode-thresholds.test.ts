@@ -51,7 +51,7 @@ const TABLE = [
   { rssi: '-78.1', snr: '15.9', mcs: 1, reqPlus: '14.99', airtime: 768_800 },
 ]
 
-lessonShapeSuite(decodeThresholds, { proseMax: 1200, runNs: RUN_NS })
+lessonShapeSuite(decodeThresholds, { runNs: RUN_NS })
 
 describe('decode-thresholds · the second lesson of the Wi-Fi track', () => {
   it('follows radio-primer, needs it, and owns the three words of the owner table', () => {

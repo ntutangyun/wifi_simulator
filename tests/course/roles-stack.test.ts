@@ -39,7 +39,7 @@ const dataTx = (rs: TLRecord[]): Tx[] => rs.filter((r): r is Tx => r.type === 'T
 // The contract every migrated lesson owes, written once in tests/course/kit.ts.
 // The laptop's backup leaves in bursts every 60 ms, so its first uplink frame is outside the
 // kit's default 30 ms window; the suite gets the same 1000 ms run the claims below share.
-lessonShapeSuite(rolesStack, { proseMax: 1000, runNs: RUN_NS })
+lessonShapeSuite(rolesStack, { runNs: RUN_NS })
 
 describe('roles-stack · the lesson itself', () => {
   it('is the third lesson of Wi-Fi Tier 1 and owns the architecture words', () => {

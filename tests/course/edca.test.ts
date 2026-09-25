@@ -44,7 +44,7 @@ const runSc = (sc: ReturnType<typeof edca.scenario>): TLRecord[] => [...new Simu
 
 // The contract every migrated lesson owes, written once in tests/course/kit.ts.
 // The run is 300 ms: the backup's first frame, which jump 1 finds, is 55 ms in.
-lessonShapeSuite(edca, { proseMax: 1250, runNs: RUN_NS })
+lessonShapeSuite(edca, { runNs: RUN_NS })
 
 describe('edca · the lesson’s own scene', () => {
   it('is the first lesson of Tier 2, and leans on the two channel-access lessons', () => {

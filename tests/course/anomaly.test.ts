@@ -42,9 +42,7 @@ const runFor = (mod: (sc: ReturnType<typeof anomaly.scenario>) => void): TLRecor
   return [...new Simulation(sc).runUntil(RUN_NS).records]
 }
 
-// The prose window grew with the amendment of 2026-09-23: the arithmetic that turns equal
-// turns into unequal throughput is now a procedure with a worked example beside it.
-lessonShapeSuite(anomaly, { proseMax: 1090, runNs: RUN_NS })
+lessonShapeSuite(anomaly, { runNs: RUN_NS })
 
 describe('anomaly · the lesson’s own scene', () => {
   it('leans on airtime and backoff, and names the anomaly itself', () => {

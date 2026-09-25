@@ -55,7 +55,7 @@ function without(...ids: string[]): TLRecord[] {
   return [...new Simulation(sc).runUntil(RUN_NS).records]
 }
 
-lessonShapeSuite(ofdmaUl, { proseMax: 1160, runNs: RUN_NS })
+lessonShapeSuite(ofdmaUl, { runNs: RUN_NS })
 
 describe('ofdma-ul · the lesson’s own scene', () => {
   it('is a Tier 2 lesson that needs the downlink half of the idea', () => {

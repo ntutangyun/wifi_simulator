@@ -52,7 +52,7 @@ function view(mod: (sc: Scenario) => void = () => {}): {
   }
 }
 
-lessonShapeSuite(mlo, { proseMax: 1120, runNs: RUN_NS })
+lessonShapeSuite(mlo, { runNs: RUN_NS })
 
 describe('mlo · the lesson’s own scene', () => {
   it('is the scheduled-Wi-Fi module’s last lesson, and names where its words come from', () => {
@@ -299,9 +299,7 @@ describe('mlo · the worked example: MSDU 66 through those steps', () => {
   })
 })
 
-describe('mlo · the depth and the provenance', () => {
-  it('"Going deeper" still names the single-radio form the standard also allows', () => {
-    // pinned because tests/course/lessons.test.ts asserts the course as a whole says so
-    expect(JSON.stringify(mlo.deeper)).toMatch(/EMLSR/)
-  })
-})
+// The one assertion that used to stand here searched `mlo.deeper` for the string "EMLSR" —
+// a claim about how a sentence is written, and the course-wide companion to it in
+// tests/course/lessons.test.ts has gone the same way (2026-09-25). What the simulator does
+// with a single-radio multi-link station is pinned above, against the run.

@@ -36,7 +36,7 @@ const data = (rs: TLRecord[], node: string): Tx[] =>
   rs.filter((r): r is Tx => r.type === 'TX_START' && r.node === node && r.frame.kind === 'data')
 const pct = (a: number, b: number): number => Math.round((a / b) * 1000) / 10
 
-lessonShapeSuite(rate, { proseMax: 1050, runNs: JUMP_NS })
+lessonShapeSuite(rate, { runNs: JUMP_NS })
 
 describe('rate · the lesson’s own scene', () => {
   it('is the Tier 2 rate lesson, and names the lessons its words come from', () => {

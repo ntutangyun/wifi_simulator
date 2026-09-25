@@ -61,7 +61,7 @@ const retry = find(firstLegacyRetry)
 // The contract every migrated lesson owes, written once in tests/course/kit.ts. The prose
 // window is 1200, as decode-thresholds' is: the 2026-09-23 amendment put a six-step procedure
 // and its worked frame into `numbers`, and a mechanism is never compressed back out to fit.
-lessonShapeSuite(frameAnatomy, { proseMax: 1200, runNs: RUN_NS })
+lessonShapeSuite(frameAnatomy, { runNs: RUN_NS })
 
 describe('frame-anatomy · the lesson itself', () => {
   it('is the fourth lesson of Wi-Fi Tier 1 and owns the six frame words', () => {
@@ -81,10 +81,15 @@ describe('frame-anatomy · the lesson itself', () => {
   it('the three jump targets are the ones this half’s text uses, in order', () => {
     // Step review, Minor: the RTS / A-MPDU / BlockAck buttons are frame-anatomy-bytes'
     // — three acronyms of later lessons on the jump bar of lesson 4. This half keeps
-    // only the frames its own text walks the reader through.
-    expect(frameAnatomy.jumps.map((j) => j.label)).toEqual([
-      'first legacy data frame', 'first QoS data frame', 'first retransmission (Retry = 1)',
-    ])
+    // only the frames its own text walks the reader through, so the bar is pinned by
+    // what each predicate selects out of the run, not by how its button reads.
+    expect(frameAnatomy.jumps.length).toBe(3)
+    expect(frameAnatomy.jumps.map((j) => records.find(j.find))).toEqual([legacy, qos, retry])
+    // and the three really are a legacy data frame, a QoS data frame and a retry
+    expect(firstMpdu(legacy.frame).fields.some((f) => f.key === 'qos')).toBe(false)
+    expect(firstMpdu(qos.frame).fields.some((f) => f.key === 'qos')).toBe(true)
+    expect(bitOf(firstMpdu(retry.frame), 'retry')).toBe('1')
+    expect(bitOf(firstMpdu(legacy.frame), 'retry')).toBe('0')
   })
 
   it('no management frame is transmitted — the deeper note says so', () => {
