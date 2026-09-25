@@ -64,7 +64,6 @@ export function FloorPlanEditor() {
   const redo = useUi((s) => s.redo)
   const L = useStrings()
   const E = L.editor
-  const lang = useUi((s) => s.lang)
   const [tool, setTool] = useState<Tool>('select')
   const [sel, setSel] = useState<Sel>(null)
   const [dragRect, setDragRect] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null)
@@ -384,7 +383,7 @@ export function FloorPlanEditor() {
           setIoMsg(E.loaded)
         }}>
           <option value="">{E.households}</option>
-          {HOUSEHOLDS.map((h) => <option key={h.id} value={h.id}>{h.title[lang]}</option>)}
+          {HOUSEHOLDS.map((h) => <option key={h.id} value={h.id}>{h.title}</option>)}
         </select>
         <span style={menuDivider} />
         <label style={{ display: 'flex', gap: 4, alignItems: 'center' }} title={E.rtsHint}>

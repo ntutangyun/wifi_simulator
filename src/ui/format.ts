@@ -102,10 +102,10 @@ export interface FieldRow {
 
 /**
  * The little table the event log expands under a frame. `S` names the fields of
- * a ranging frame in the reader's language; it defaults to English for the call
- * sites that only ever pass Wi-Fi frames, whose labels are not translated.
+ * a ranging frame; it defaults to the one string table, for the call sites that
+ * only ever pass Wi-Fi frames, whose labels are not translated.
  */
-export function decodeFrame(f: FrameDesc, S: Strings['frameDetail']['fields'] = STRINGS.en.frameDetail.fields): FieldRow[] {
+export function decodeFrame(f: FrameDesc, S: Strings['frameDetail']['fields'] = STRINGS.frameDetail.fields): FieldRow[] {
   // An 802.15.4 ranging frame has no RA/TA, no Duration and no Retry bit; naming
   // those here would contradict the frame inspector two panels away. Reuse the
   // one UWB decode instead, so the log shows the MHR and the ranging IEs.

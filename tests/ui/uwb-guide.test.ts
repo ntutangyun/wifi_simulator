@@ -10,8 +10,8 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, it, expect } from 'vitest'
 import { CCA_ED_DBM } from '../../src/engine/phy'
 import { DEFAULT_UWB_SESSION } from '../../src/model/scenario'
-import { EditorGuideEn, EditorGuideZh } from '../../src/editor/EditorGuide'
-import { GuideEn, GuideZh } from '../../src/ui/Guide'
+import { EditorGuide } from '../../src/editor/EditorGuide'
+import { Guide } from '../../src/ui/Guide'
 import { STRINGS } from '../../src/ui/i18n'
 import { GLOSSARY } from '../../src/ui/glossary'
 import { AOA_SIGMA_CLAMP_DEG, AOA_SIGMA_PHI_RAD, aoaSigmaDeg, antennaSpacingM } from '../../src/uwb/aoa'
@@ -31,8 +31,8 @@ import { rangeSigmaM } from '../../src/uwb/position'
 import { ELLIPSE_DRAW_SCALE } from '../../src/uwb/scene'
 
 const README = readFileSync(new URL('../../README.md', import.meta.url), 'utf8')
-/** EditorGuideEn/Zh are not exported (they read the store's lang), so pinning their prose against
- * the engine's live constants reads the source text directly, the same way README is read raw. */
+/** Pinning the panel's prose against the engine's live constants reads the source text
+ * directly, the same way README is read raw. */
 const EDITOR_GUIDE = readFileSync(new URL('../../src/editor/EditorGuide.tsx', import.meta.url), 'utf8')
 
 /** The prose writes a Unicode minus, not an ASCII hyphen. */
@@ -45,10 +45,9 @@ const ms = (rstu: number): string => `${rstuNs(rstu) / 1e6} ms`
 const SIGMA_CM = `${(rangeSigmaM(DEFAULT_UWB_SESSION.tsNoisePs) * 100).toFixed(1)} cm`
 const COUNTER_WRAP_S = `${((COUNTER_MOD * RCTU_NS) / 1e9).toFixed(1)} s`
 
-/** zustand's SSR snapshot is the store's *initial* state, so a server render cannot be
- * steered by `setLang`: render the two language bodies the `Guide` switch chooses between. */
-function renderGuide(lang: 'en' | 'zh'): string {
-  return renderToStaticMarkup(createElement(lang === 'zh' ? GuideZh : GuideEn))
+/** The Guide body, rendered. */
+function renderGuide(): string {
+  return renderToStaticMarkup(createElement(Guide))
 }
 
 /** A string that carries at least one CJK ideograph. */
@@ -57,11 +56,10 @@ const hasCjk = (s: string): boolean => /[一-鿿]/.test(s)
 describe('UWB glossary group', () => {
   const group = GLOSSARY.find((g) => g.id === 'uwb')
 
-  it('exists and is titled in both languages', () => {
+  it('exists and is titled in Chinese', () => {
     expect(group).toBeDefined()
-    expect(group?.title.en).toBeTruthy()
-    expect(group?.title.zh).toBeTruthy()
-    expect(hasCjk(group?.title.zh ?? '')).toBe(true)
+    expect(group?.title).toBeTruthy()
+    expect(hasCjk(group?.title ?? '')).toBe(true)
   })
 
   it('carries at least 18 terms', () => {
@@ -80,19 +78,16 @@ describe('UWB glossary group', () => {
     }
   })
 
-  it('is bilingual in every item, with real Chinese', () => {
+  it('has a name and a definition in every item, with real Chinese', () => {
     for (const item of group?.items ?? []) {
-      expect(item.alt.en, `${item.term}.alt.en`).toBeTruthy()
-      expect(item.alt.zh, `${item.term}.alt.zh`).toBeTruthy()
-      expect(item.def.en, `${item.term}.def.en`).toBeTruthy()
-      expect(item.def.zh, `${item.term}.def.zh`).toBeTruthy()
-      expect(hasCjk(item.def.zh), `${item.term}.def.zh is not Chinese`).toBe(true)
-      expect(item.def.zh, `${item.term}.def.zh is the English text`).not.toBe(item.def.en)
+      expect(item.alt, `${item.term}.alt`).toBeTruthy()
+      expect(item.def, `${item.term}.def`).toBeTruthy()
+      expect(hasCjk(item.def), `${item.term}.def is not Chinese`).toBe(true)
     }
   })
 
   it('quotes the engine values a learner would otherwise have to guess', () => {
-    const text = (group?.items ?? []).map((i) => `${i.alt.en} ${i.def.en}`).join(' ')
+    const text = (group?.items ?? []).map((i) => `${i.alt} ${i.def}`).join(' ')
     expect(text).toContain('15.650 ps')
     expect(text).toContain('833.333 ns')
     expect(text).toContain('73.269 µs')
@@ -100,19 +95,14 @@ describe('UWB glossary group', () => {
 })
 
 describe('Guide section 11', () => {
-  it('renders the EN heading', () => {
-    expect(renderGuide('en')).toContain('11 · UWB ranging')
-  })
-
-  it('renders the ZH heading', () => {
-    expect(renderGuide('zh')).toContain('11 · UWB 测距')
+  it('renders the heading', () => {
+    expect(renderGuide()).toContain('11 · UWB 测距')
   })
 
   it('states the ellipse draw factor and that the inspector shows the true axes', () => {
-    const en = renderGuide('en')
-    expect(en).toContain(`${ELLIPSE_DRAW_SCALE}×`)
-    expect(en.toLowerCase()).toContain('inspector')
-    expect(renderGuide('zh')).toContain(`${ELLIPSE_DRAW_SCALE}×`)
+    const guide = renderGuide()
+    expect(guide).toContain(`${ELLIPSE_DRAW_SCALE}×`)
+    expect(guide).toContain('检视面板（Inspector）')
   })
 
   it('the glossary and the README quote the same factor, so it is never retyped stale', () => {
@@ -121,7 +111,7 @@ describe('Guide section 11', () => {
       .filter((i) => i.term.toLowerCase().includes('ellipse'))
     expect(ellipse.length).toBeGreaterThan(0)
     for (const i of ellipse) {
-      for (const text of [i.alt.en, i.alt.zh, i.def.en, i.def.zh]) {
+      for (const text of [i.alt, i.def]) {
         expect(text, i.term).toContain(`${ELLIPSE_DRAW_SCALE}×`)
       }
     }
@@ -135,9 +125,8 @@ describe('Guide section 11', () => {
  * and the doc test fails instead of the text quietly becoming false.
  */
 describe('figures pinned to the engine', () => {
-  const en = renderGuide('en')
-  const zh = renderGuide('zh')
-  const all = [en, zh, README]
+  const zh = renderGuide()
+  const all = [zh, README]
 
   it('quotes the session defaults from DEFAULT_UWB_SESSION', () => {
     for (const text of all) {
@@ -160,14 +149,12 @@ describe('figures pinned to the engine', () => {
   })
 
   it('quotes the FoM texts the engine decodes', () => {
-    // English prose quotes fomText verbatim; the Chinese translates the sentence, so there only
+    // The README quotes fomText verbatim; the Chinese prose translates the sentence, so there only
     // the two decoded numbers — the parts that rot when a table entry moves — are pinned.
     expect(fomText(FOM_LOS)).toBe('97 % within 0.5 ns')
     expect(fomText(FOM_NLOS)).toBe('75 % within 12 ns')
-    for (const text of [en, README]) {
-      expect(text).toContain(fomText(FOM_LOS))
-      expect(text).toContain(fomText(FOM_NLOS))
-    }
+    expect(README).toContain(fomText(FOM_LOS))
+    expect(README).toContain(fomText(FOM_NLOS))
     for (const fom of [FOM_LOS, FOM_NLOS]) {
       const { levelPct, intervalNs } = fomDecode(fom)
       expect(zh).toContain(`${levelPct} %`)
@@ -215,18 +202,15 @@ describe('README', () => {
 })
 
 describe('6 GHz coexistence', () => {
-  const en = renderGuide('en')
-  const zh = renderGuide('zh')
+  const zh = renderGuide()
 
   it('the Guide states the SIR floor and the UWB channel-5 band edges from the engine constants', () => {
-    for (const text of [en, zh]) {
-      expect(text).toContain(db(UWB_SIR_MIN_DB)) // −12 dB
-      expect(text).toContain(`${UWB_BAND_MHZ[5].lo}`) // 6240
-      expect(text).toContain(`${UWB_BAND_MHZ[5].hi}`) // 6739.2
-    }
+    expect(zh).toContain(db(UWB_SIR_MIN_DB)) // −12 dB
+    expect(zh).toContain(`${UWB_BAND_MHZ[5].lo}`) // 6240
+    expect(zh).toContain(`${UWB_BAND_MHZ[5].hi}`) // 6739.2
   })
 
-  it('the glossary carries the four coexistence terms, bilingual', () => {
+  it('the glossary carries the four coexistence terms', () => {
     const group = GLOSSARY.find((g) => g.id === 'uwb')
     const terms = (group?.items ?? []).map((i) => i.term.toLowerCase())
     for (const t of ['in-band interference', 'sir', 'noise rise', '6 ghz channel']) {
@@ -234,13 +218,11 @@ describe('6 GHz coexistence', () => {
     }
     const sirItem = group?.items.find((i) => i.term.toLowerCase() === 'sir')
     expect(sirItem).toBeDefined()
-    for (const text of [sirItem?.alt.en, sirItem?.alt.zh, sirItem?.def.en, sirItem?.def.zh]) {
+    for (const text of [sirItem?.alt, sirItem?.def]) {
       expect(text).toContain(db(UWB_SIR_MIN_DB))
     }
-    for (const text of [sirItem?.def.en, sirItem?.def.zh]) {
-      expect(text).toContain(`${UWB_MAX_INPUT_DBM_PER_MHZ}`.replace('-', '−'))
-      expect(text).toContain('§16.4.10')
-    }
+    expect(sirItem?.def).toContain(`${UWB_MAX_INPUT_DBM_PER_MHZ}`.replace('-', '−'))
+    expect(sirItem?.def).toContain('§16.4.10')
   })
 
   it('the README carries the §16.4.10 row for the receiver maximum input', () => {
@@ -265,11 +247,11 @@ describe('6 GHz coexistence', () => {
   })
 
   it('qualifies "CCA never fires on UWB power" by distance, in the Guide, glossary and README', () => {
-    for (const text of [en, zh]) expect(text).toContain('40 cm')
+    expect(zh).toContain('40 cm')
     const noiseRise = (GLOSSARY.find((g) => g.id === 'uwb')?.items ?? [])
       .find((i) => i.term.toLowerCase() === 'noise rise')
     expect(noiseRise).toBeDefined()
-    for (const text of [noiseRise?.alt.en, noiseRise?.alt.zh, noiseRise?.def.en, noiseRise?.def.zh]) {
+    for (const text of [noiseRise?.alt, noiseRise?.def]) {
       expect(text).toContain('40 cm')
     }
     const sirRow = README.split('\n').find((l) => l.includes('UWB SIR floor under in-band Wi-Fi')) ?? ''
@@ -278,15 +260,14 @@ describe('6 GHz coexistence', () => {
 })
 
 describe('Contention-based rounds (schedule mode 0)', () => {
-  it('quotes the contention defaults and the capture margin, bilingual, from the engine constants', () => {
-    for (const text of [renderGuide('en'), renderGuide('zh')]) {
-      expect(text).toContain('§10.32.9.5')
-      expect(text).toContain('§10.32.9.6')
-      expect(text).toContain(`${DEFAULT_UWB_SESSION.contentionSlots}`)
-      expect(text).toContain(`${DEFAULT_UWB_SESSION.maxAttempts}`)
-      expect(text).toContain(`${UWB_CAPTURE_DB} dB`)
-      expect(text).toContain('UWB_CONTEND_COLLISION')
-    }
+  it('quotes the contention defaults and the capture margin from the engine constants', () => {
+    const text = renderGuide()
+    expect(text).toContain('§10.32.9.5')
+    expect(text).toContain('§10.32.9.6')
+    expect(text).toContain(`${DEFAULT_UWB_SESSION.contentionSlots}`)
+    expect(text).toContain(`${DEFAULT_UWB_SESSION.maxAttempts}`)
+    expect(text).toContain(`${UWB_CAPTURE_DB} dB`)
+    expect(text).toContain('UWB_CONTEND_COLLISION')
   })
 
   it('the glossary carries the three contention terms with their clauses, and the README documents schedule mode 0', () => {
@@ -298,14 +279,11 @@ describe('Contention-based rounds (schedule mode 0)', () => {
     const rcps = group?.items.find((i) => i.term.toLowerCase() === 'rcps ie')
     const rcma = group?.items.find((i) => i.term.toLowerCase() === 'rcma ie')
     for (const item of [rcps, rcma]) {
-      expect(item?.alt.en, `${item?.term}.alt.en`).toBeTruthy()
-      expect(item?.alt.zh, `${item?.term}.alt.zh`).toBeTruthy()
-      expect(hasCjk(item?.alt.zh ?? ''), `${item?.term}.alt.zh is not Chinese`).toBe(true)
+      expect(item?.alt, `${item?.term}.alt`).toBeTruthy()
+      expect(hasCjk(item?.alt ?? ''), `${item?.term}.alt is not Chinese`).toBe(true)
     }
-    expect(rcps?.def.en).toContain('§10.32.9.5')
-    expect(rcps?.def.zh).toContain('§10.32.9.5')
-    expect(rcma?.def.en).toContain('§10.32.9.6')
-    expect(rcma?.def.zh).toContain('§10.32.9.6')
+    expect(rcps?.def).toContain('§10.32.9.5')
+    expect(rcma?.def).toContain('§10.32.9.6')
 
     expect(README).toContain('schedule mode 0')
     expect(README).toContain('§10.32.9.5')
@@ -316,28 +294,26 @@ describe('Contention-based rounds (schedule mode 0)', () => {
 
 describe('TDoA modes (one-way ranging, §10.29.1.2.5)', () => {
   it('the Guide states DL-TDoA and UL-TDoA with the engine\'s blink size and default sync error', () => {
-    for (const text of [renderGuide('en'), renderGuide('zh')]) {
-      expect(text).toContain('§10.29.1.2.5')
-      expect(text).toContain('DL-TDoA')
-      expect(text).toContain('UL-TDoA')
-      expect(text).toContain(`${UWB_BLINK_BYTES}`) // the 14-octet blink
-      expect(text).toContain(`${DEFAULT_UWB_SESSION.syncErrorNs} ns`) // 0 ns, wired sync by default
-    }
+    const text = renderGuide()
+    expect(text).toContain('§10.29.1.2.5')
+    expect(text).toContain('DL-TDoA')
+    expect(text).toContain('UL-TDoA')
+    expect(text).toContain(`${UWB_BLINK_BYTES}`) // the 14-octet blink
+    expect(text).toContain(`${DEFAULT_UWB_SESSION.syncErrorNs} ns`) // 0 ns, wired sync by default
   })
 
-  it('the glossary carries the six TDoA terms, bilingual, cited against §10.29.1.2.5 or model', () => {
+  it('the glossary carries the six TDoA terms, cited against §10.29.1.2.5 or model', () => {
     const group = GLOSSARY.find((g) => g.id === 'uwb')
     const terms = (group?.items ?? []).map((i) => i.term.toLowerCase())
     for (const t of ['tdoa', 'dl-tdoa', 'ul-tdoa', 'blink', 'hyperbolic positioning', 'clock-rate correction']) {
       expect(terms, `missing glossary term: ${t}`).toContain(t)
     }
     const tdoa = group?.items.find((i) => i.term.toLowerCase() === 'tdoa')
-    expect(tdoa?.def.en).toContain('§10.29.1.2.5')
-    expect(tdoa?.def.zh).toContain('§10.29.1.2.5')
+    expect(tdoa?.def).toContain('§10.29.1.2.5')
     const blink = group?.items.find((i) => i.term.toLowerCase() === 'blink')
-    for (const text of [blink?.alt.en, blink?.def.en]) expect(text).toContain(`${UWB_BLINK_BYTES}`)
+    for (const text of [blink?.alt, blink?.def]) expect(text).toContain(`${UWB_BLINK_BYTES}`)
     const ulTdoa = group?.items.find((i) => i.term.toLowerCase() === 'ul-tdoa')
-    for (const text of [ulTdoa?.def.en, ulTdoa?.def.zh]) expect(text).toContain('syncErrorNs')
+    expect(ulTdoa?.def).toContain('syncErrorNs')
 
     expect(README).toContain('| standard §10.29.1.2.5 |')
   })
@@ -349,37 +325,34 @@ describe('AoA (angle of arrival, §10.29.1.1)', () => {
   const SIGMA_60_DEG = `${aoaSigmaDeg(60).toFixed(1)}°`
 
   it('the Guide states the phase-difference model and its bearing error from the engine constants', () => {
-    for (const text of [renderGuide('en'), renderGuide('zh')]) {
-      expect(text).toContain('§10.29.1.1')
-      expect(text).toContain(ANTENNA_SPACING_CM)
-      expect(text).toContain(`${AOA_SIGMA_PHI_RAD}`)
-      expect(text).toContain(SIGMA_BORESIGHT_DEG)
-      expect(text).toContain(SIGMA_60_DEG)
-      expect(text).toContain(`${AOA_SIGMA_CLAMP_DEG}°`)
-    }
+    const text = renderGuide()
+    expect(text).toContain('§10.29.1.1')
+    expect(text).toContain(ANTENNA_SPACING_CM)
+    expect(text).toContain(`${AOA_SIGMA_PHI_RAD}`)
+    expect(text).toContain(SIGMA_BORESIGHT_DEG)
+    expect(text).toContain(SIGMA_60_DEG)
+    expect(text).toContain(`${AOA_SIGMA_CLAMP_DEG}°`)
   })
 
-  it('the cross-range error is the horizontal range times theta, not the slant range, in both languages', () => {
+  it('the cross-range error is the horizontal range times theta, not the slant range', () => {
     // emitAoaFix (src/uwb/device.ts) walks out horizM = sqrt(r^2 - dz^2) before multiplying by
     // aoaSigmaDeg, because an anchor off the tag's height measures a slant range, not a horizontal
     // one; the Guide's teaching paragraph must say the same thing the engine and the Cross-range
     // error glossary term (horizM·aoaSigmaDeg(θ)) do, not the slant range r·θ.
-    for (const text of [renderGuide('en'), renderGuide('zh')]) {
-      expect(text).toContain('r<sub>h</sub>·θ')
-      expect(text).toContain('r<sub>h</sub> = √(r² − Δz²)')
-    }
+    const text = renderGuide()
+    expect(text).toContain('r<sub>h</sub>·θ')
+    expect(text).toContain('r<sub>h</sub> = √(r² − Δz²)')
   })
 
-  it('the glossary carries the four AoA terms, bilingual, and the README documents AoA as standard plus the PDoA model', () => {
+  it('the glossary carries the four AoA terms, and the README documents AoA as standard plus the PDoA model', () => {
     const group = GLOSSARY.find((g) => g.id === 'uwb')
     const terms = (group?.items ?? []).map((i) => i.term.toLowerCase())
     for (const t of ['aoa', 'pdoa', 'boresight / yaw', 'cross-range error']) {
       expect(terms, `missing glossary term: ${t}`).toContain(t)
     }
     const aoaItem = group?.items.find((i) => i.term.toLowerCase() === 'aoa')
-    expect(aoaItem?.alt.en, 'aoa.alt.en').toContain('§10.29.1.1')
-    expect(aoaItem?.def.en, 'aoa.def.en').toContain('§10.29.1.1')
-    expect(aoaItem?.def.zh, 'aoa.def.zh').toContain('§10.29.1.1')
+    expect(aoaItem?.alt, 'aoa.alt').toContain('§10.29.1.1')
+    expect(aoaItem?.def, 'aoa.def').toContain('§10.29.1.1')
 
     expect(README).toContain('§10.29.1.1')
     expect(README).toContain(`${AOA_SIGMA_PHI_RAD} rad`)
@@ -393,16 +366,11 @@ describe('AoA (angle of arrival, §10.29.1.1)', () => {
     const group = GLOSSARY.find((g) => g.id === 'uwb')
     const aoaItem = group?.items.find((i) => i.term.toLowerCase() === 'aoa')
     const pdoaItem = group?.items.find((i) => i.term.toLowerCase() === 'pdoa')
-    for (const text of [aoaItem?.def.en, aoaItem?.def.zh]) {
-      expect(text, 'aoa def').toContain(SIGMA_BORESIGHT_DEG)
-      expect(text, 'aoa def').toContain(SIGMA_60_DEG)
-      expect(text, 'aoa def').toContain(`${AOA_SIGMA_CLAMP_DEG}°`)
-    }
-    for (const text of [pdoaItem?.def.en, pdoaItem?.def.zh]) {
-      expect(text, 'pdoa def').toContain(ANTENNA_SPACING_CM)
-    }
-    expect(pdoaItem?.def.en, 'pdoa.def.en').toContain(`${AOA_SIGMA_PHI_RAD}`)
-    expect(pdoaItem?.def.zh, 'pdoa.def.zh').toContain(`${AOA_SIGMA_PHI_RAD}`)
+    expect(aoaItem?.def, 'aoa def').toContain(SIGMA_BORESIGHT_DEG)
+    expect(aoaItem?.def, 'aoa def').toContain(SIGMA_60_DEG)
+    expect(aoaItem?.def, 'aoa def').toContain(`${AOA_SIGMA_CLAMP_DEG}°`)
+    expect(pdoaItem?.def, 'pdoa def').toContain(ANTENNA_SPACING_CM)
+    expect(pdoaItem?.def, 'pdoa.def').toContain(`${AOA_SIGMA_PHI_RAD}`)
 
     expect(EDITOR_GUIDE, 'EditorGuide AoA checkbox').toContain(SIGMA_BORESIGHT_DEG)
   })
@@ -410,25 +378,20 @@ describe('AoA (angle of arrival, §10.29.1.1)', () => {
 
 /**
  * Section 12 is the one section of the Guide built on an *unratified* draft, so two things are
- * pinned that no other section needs: that the word "draft" is on the heading in both languages,
+ * pinned that no other section needs: that the word "draft" is on the heading,
  * and that every fragment length and LBT figure the prose quotes is the number `src/uwb/mms.ts`
  * and `src/uwb/nb.ts` actually compute — paraphrased draft numbers rot silently otherwise.
  */
 describe('Guide section 12 (P802.15.4ab, draft)', () => {
-  const en = renderGuide('en')
-  const zh = renderGuide('zh')
+  const zh = renderGuide()
   const us = (ns: number): string => (ns / 1000).toFixed(2)
 
-  it('renders the heading in both languages, marked as a draft', () => {
-    expect(en).toContain('12 · ')
-    expect(en).toContain('multi-millisecond')
-    expect(en).toContain('(draft)')
+  it('renders the heading, marked as a draft', () => {
     expect(zh).toContain('12 · ')
     expect(zh).toContain('多毫秒')
     expect(zh).toContain('草案')
     // the mode name the editor's select shows carries the same qualifier
-    expect(STRINGS.en.editor.uwbModes.mms).toContain('802.15.4ab draft')
-    expect(STRINGS.zh.editor.uwbModes.mms).toContain('802.15.4ab 草案')
+    expect(STRINGS.editor.uwbModes.mms).toContain('802.15.4ab 草案')
   })
 
   it('quotes the fragment lengths mms.ts computes, not retyped draft numbers', () => {
@@ -442,13 +405,13 @@ describe('Guide section 12 (P802.15.4ab, draft)', () => {
       ['the session default RSF', rsfNs(DEFAULT_UWB_SESSION.mms.nMsr, DEFAULT_UWB_SESSION.mms.gap)],
     ]
     expect(cases.map(([, ns]) => us(ns))).toEqual(['62.18', '65.64', '91.28', '65.64', '82.05'])
-    for (const text of [en, zh, README]) {
+    for (const text of [zh, README]) {
       for (const [what, ns] of cases) expect(text, what).toContain(`${us(ns)} µs`)
     }
   })
 
   it('quotes the millisecond budget and the combining gain from the engine', () => {
-    for (const text of [en, zh, README]) {
+    for (const text of [zh, README]) {
       expect(text).toContain(`${UWB_MS_BUDGET_NJ} nJ`)
       expect(text).toContain('10·log10(X)')
       expect(text).toContain(`${MMS_COMBINE_MAX_DB.toFixed(2)} dB`) // 12.04 dB, X = 16
@@ -457,16 +420,14 @@ describe('Guide section 12 (P802.15.4ab, draft)', () => {
     const defaultDbm = mmsFragmentDbm(rsfNs(DEFAULT_UWB_SESSION.mms.nMsr, DEFAULT_UWB_SESSION.mms.gap))
     const setDbm = mmsFragmentDbm(rsfNs(MMS_SETS['rsf-1'].nMsr, MMS_SETS['rsf-1'].gap))
     expect([defaultDbm.toFixed(2), setDbm.toFixed(2)]).toEqual(['-3.46', '-2.25'])
-    for (const text of [en, zh]) {
-      expect(text).toContain(dbm(Number(defaultDbm.toFixed(2))))
-      expect(text).toContain(dbm(Number(setDbm.toFixed(2))))
-    }
+    expect(zh).toContain(dbm(Number(defaultDbm.toFixed(2))))
+    expect(zh).toContain(dbm(Number(setDbm.toFixed(2))))
   })
 
   it('quotes the narrowband PHY, the channel plan and the LBT threshold from nb.ts', () => {
     const lbt = NB_LBT_THRESHOLD_DBM.toFixed(2) // −71.02 dBm over 2.5 MHz
     expect(lbt).toBe('-71.02')
-    for (const text of [en, zh, README]) {
+    for (const text of [zh, README]) {
       // A bare "250" also matches the schema's "1…250", so the count is asserted as a phrase.
       expect(text).toContain(text === zh ? `${NB_CHANNELS} 个信道` : `${NB_CHANNELS} channels`)
       expect(text).toContain(`${NB_LBT_CCA_US} µs`) // the 9 µs CCA
@@ -478,7 +439,7 @@ describe('Guide section 12 (P802.15.4ab, draft)', () => {
       expect(text).toContain(`${(nbPpduNs(NB_REPORT_BYTES) / 1000).toFixed(0)} µs`) // 608 µs
     }
     // the reconstructed centre formula's two anchors, in the Guide and the README
-    for (const text of [en, zh, README]) {
+    for (const text of [zh, README]) {
       expect(text).toContain(`${nbCenterMhz(0)}`) // 5726.25
       expect(text).toContain(`${nbCenterMhz(50)}`) // 5926.25
     }
@@ -488,21 +449,19 @@ describe('Guide section 12 (P802.15.4ab, draft)', () => {
     const layout = mmsLayout(DEFAULT_UWB_SESSION.mms)
     expect(layout.slots).toBe(28)
     expect(layout.controlSlots + layout.rpSlots + layout.reportSlots).toBe(layout.slots)
-    for (const text of [en, README]) expect(text).toContain(`${layout.slots} slots`)
+    expect(README).toContain(`${layout.slots} slots`)
     expect(zh).toContain(`${layout.slots} 个时隙`)
-    for (const text of [en, zh, README]) expect(text).toContain('0.5 ms')
+    for (const text of [zh, README]) expect(text).toContain('0.5 ms')
     // the two coexistence radii the coupling model pins
-    for (const text of [en, zh]) {
-      expect(text).toContain('≈ 8.6 m')
-      expect(text).toContain('≈ 15 m')
-    }
+    expect(zh).toContain('≈ 8.6 m')
+    expect(zh).toContain('≈ 15 m')
   })
 
   it('names the P802.15.4ab draft documents it paraphrases, and never claims to have read D5.0', () => {
     for (const doc of ['0381r5', '0100r2', '0502r3', '0205r0']) {
       expect(README, doc).toContain(doc)
     }
-    for (const text of [en, zh, README]) expect(text).toContain('D5.0')
+    for (const text of [zh, README]) expect(text).toContain('D5.0')
     expect(README).toContain('Draft status')
   })
 })
@@ -510,12 +469,11 @@ describe('Guide section 12 (P802.15.4ab, draft)', () => {
 describe('the 802.15.4ab glossary group', () => {
   const group = GLOSSARY.find((g) => g.id === 'uwb-mms')
 
-  it('exists, titled in both languages and marked a draft', () => {
+  it('exists, titled in Chinese and marked a draft', () => {
     expect(group).toBeDefined()
-    expect(group?.title.en).toContain('802.15.4ab')
-    expect(group?.title.en).toContain('draft')
-    expect(hasCjk(group?.title.zh ?? '')).toBe(true)
-    expect(group?.title.zh).toContain('草案')
+    expect(group?.title).toContain('802.15.4ab')
+    expect(hasCjk(group?.title ?? '')).toBe(true)
+    expect(group?.title).toContain('草案')
   })
 
   it('carries every term the MMS engine exposes', () => {
@@ -528,40 +486,32 @@ describe('the 802.15.4ab glossary group', () => {
     }
   })
 
-  it('is bilingual in every item, with real Chinese and a CJK-free English side', () => {
+  it('has a name and a definition in every item, in real Chinese', () => {
     expect(group?.items.length ?? 0).toBeGreaterThanOrEqual(11)
     for (const item of group?.items ?? []) {
-      for (const text of [item.alt.en, item.alt.zh, item.def.en, item.def.zh]) expect(text, item.term).toBeTruthy()
-      expect(hasCjk(item.alt.en), `${item.term}.alt.en`).toBe(false)
-      expect(hasCjk(item.def.en), `${item.term}.def.en`).toBe(false)
-      expect(hasCjk(item.def.zh), `${item.term}.def.zh`).toBe(true)
-      expect(item.def.zh, item.term).not.toBe(item.def.en)
+      for (const text of [item.alt, item.def]) expect(text, item.term).toBeTruthy()
+      expect(hasCjk(item.def), `${item.term}.def`).toBe(true)
     }
   })
 
   it('pins its numbers to the engine, so a moved constant fails here', () => {
     const find = (term: string) => group?.items.find((i) => i.term.toLowerCase() === term)
     const budget = find('millisecond energy budget')
-    for (const text of [budget?.def.en, budget?.def.zh]) expect(text).toContain(`${UWB_MS_BUDGET_NJ} nJ`)
+    expect(budget?.def).toContain(`${UWB_MS_BUDGET_NJ} nJ`)
     const combining = find('coherent combining')
-    for (const text of [combining?.def.en, combining?.def.zh]) {
-      expect(text).toContain(`${MMS_COMBINE_MAX_DB.toFixed(2)} dB`)
-    }
+    expect(combining?.def).toContain(`${MMS_COMBINE_MAX_DB.toFixed(2)} dB`)
     const lbt = group?.items.find((i) => i.term.toLowerCase().startsWith('lbt'))
-    for (const text of [lbt?.def.en, lbt?.def.zh]) {
-      expect(text).toContain(`${NB_LBT_THRESHOLD_DBM.toFixed(2)}`.replace('-', '−'))
-      expect(text).toContain(`${NB_LBT_CCA_US} µs`)
-    }
+    expect(lbt?.def).toContain(`${NB_LBT_THRESHOLD_DBM.toFixed(2)}`.replace('-', '−'))
+    expect(lbt?.def).toContain(`${NB_LBT_CCA_US} µs`)
     const rif = find('rif')
-    for (const text of [rif?.def.en, rif?.def.zh]) expect(text).toContain(`${(rifNs(64) / 1000).toFixed(2)} µs`)
+    expect(rif?.def).toContain(`${(rifNs(64) / 1000).toFixed(2)} µs`)
   })
 })
 
 describe('the EditorGuide MMS section', () => {
   // Rendered, not read off the source: a marker that matched a comment would pass while the
   // panel showed nothing, and every string below is meant to reach the user's screen.
-  const en = renderToStaticMarkup(createElement(EditorGuideEn))
-  const zh = renderToStaticMarkup(createElement(EditorGuideZh))
+  const zh = renderToStaticMarkup(createElement(EditorGuide))
   /** The section, from its own heading to the next one — so a marker cannot be satisfied by
    * some other part of a very long panel. */
   const section = (html: string, from: string, to: string): string => {
@@ -571,33 +521,16 @@ describe('the EditorGuide MMS section', () => {
     expect(end, `next heading not rendered: ${to}`).toBeGreaterThan(start)
     return html.slice(start, end)
   }
-  const enMms = section(en, 'MMS train (802.15.4ab draft)', 'Wall properties')
   const zhMms = section(zh, 'MMS 片段序列（802.15.4ab 草案）', '墙体属性')
 
-  it('describes every MMS field in both languages, inside its own section', () => {
-    for (const marker of ['Parameter set', 'nbChannels', 'LBT', 'RSF', 'RIF', 'N_MSR', 'D5.0']) {
-      expect(enMms, `EN: ${marker}`).toContain(marker)
-    }
+  it('describes every MMS field inside its own section', () => {
     for (const marker of ['参数集', 'nbChannels', 'LBT', 'RSF', 'RIF', 'N_MSR', 'D5.0', '草案']) {
-      expect(zhMms, `ZH: ${marker}`).toContain(marker)
+      expect(zhMms, marker).toContain(marker)
     }
   })
 
   it('marks the section a draft and says the method select is off for a reason', () => {
-    expect(enMms).toContain('802.15.4ab')
-    expect(enMms.toLowerCase()).toContain('single-sided')
+    expect(zhMms).toContain('802.15.4ab')
     expect(zhMms).toContain('单边')
-  })
-})
-
-describe('glossary · language separation', () => {
-  it('every glossary term keeps alt.en and def.en free of Chinese characters', () => {
-    const cjk = /[一-鿿]/
-    for (const g of GLOSSARY) {
-      for (const i of g.items) {
-        expect(cjk.test(i.alt.en), `${i.term} alt.en`).toBe(false)
-        expect(cjk.test(i.def.en), `${i.term} def.en`).toBe(false)
-      }
-    }
   })
 })

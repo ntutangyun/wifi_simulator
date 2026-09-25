@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import type { MacStateName } from '../model/records'
 import type { NodeCfg, ProfileId, Scenario } from '../model/scenario'
 import type { NodeView } from '../model/view'
-import { STRINGS, type Lang } from '../ui/i18n'
+import { STRINGS } from '../ui/i18n'
 
 /** Icon per app for the label line under a station's name. */
 const APP_ICON: Record<ProfileId, string> = {
@@ -10,9 +10,9 @@ const APP_ICON: Record<ProfileId, string> = {
 }
 
 /** "🎮 game · 📺 video" for a station; empty for the AP and idle stations. */
-export function appLine(n: NodeCfg, lang: Lang): string {
+export function appLine(n: NodeCfg): string {
   if (n.kind !== 'sta') return ''
-  const names = STRINGS[lang].appShort
+  const names = STRINGS.appShort
   return n.profiles.filter((p) => p !== 'idle').map((p) => `${APP_ICON[p]} ${names[p]}`).join(' · ')
 }
 
@@ -94,7 +94,7 @@ function updateSpriteText(sprite: THREE.Sprite, text: string, color = '#e5e9f0')
   tex.needsUpdate = true
 }
 
-export function buildNodeGroup(n: NodeCfg, lang: Lang = 'en'): THREE.Group {
+export function buildNodeGroup(n: NodeCfg): THREE.Group {
   const g = new THREE.Group()
   g.name = `node:${n.id}`
   g.position.set(n.pos.x, n.pos.z, n.pos.y)
@@ -149,7 +149,7 @@ export function buildNodeGroup(n: NodeCfg, lang: Lang = 'en'): THREE.Group {
   halo.position.y = -n.pos.z + 0.02 // ring sits on the floor
   g.add(halo)
 
-  const label = makeTextSprite(n.name, '#e5e9f0', 48, appLine(n, lang))
+  const label = makeTextSprite(n.name, '#e5e9f0', 48, appLine(n))
   label.name = 'label'
   label.position.set(0, 0.55, 0)
   g.add(label)
@@ -162,9 +162,9 @@ export function buildNodeGroup(n: NodeCfg, lang: Lang = 'en'): THREE.Group {
   return g
 }
 
-export function buildNodeMeshes(sc: Scenario, lang: Lang = 'en'): Map<string, THREE.Group> {
+export function buildNodeMeshes(sc: Scenario): Map<string, THREE.Group> {
   const map = new Map<string, THREE.Group>()
-  for (const n of sc.nodes) map.set(n.id, buildNodeGroup(n, lang))
+  for (const n of sc.nodes) map.set(n.id, buildNodeGroup(n))
   return map
 }
 

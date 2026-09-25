@@ -13,8 +13,8 @@ import {
   AMP_BS_ACTIVATION_DBM, AMP_BS_ISOLATION_DB, AMP_BS_LOSS_DB, AMP_BS_READER_DR_DB,
   AMP_BS_REQ_SNR_DB, activationReachM, bsReplyNs, monoReachM,
 } from '../../src/engine/ampBs'
-import { EditorGuideEn, EditorGuideZh } from '../../src/editor/EditorGuide'
-import { GuideEn, GuideZh } from '../../src/ui/Guide'
+import { EditorGuide } from '../../src/editor/EditorGuide'
+import { Guide } from '../../src/ui/Guide'
 import { GLOSSARY } from '../../src/ui/glossary'
 import { STRINGS } from '../../src/ui/i18n'
 
@@ -30,10 +30,9 @@ const REACH_1000_CM = (monoReachM(0, 1000) * 100).toFixed(1)
 const ACTIVATION_10_CM = (activationReachM(10) * 100).toFixed(1)
 const ACTIVATION_20_CM = (activationReachM(20) * 100).toFixed(1)
 
-/** zustand's SSR snapshot is the store's *initial* state, so a server render cannot be steered by
- * setLang: render the two language bodies the Guide switch chooses between, as uwb-guide.test.ts does. */
-function renderGuide(lang: 'en' | 'zh'): string {
-  return renderToStaticMarkup(createElement(lang === 'zh' ? GuideZh : GuideEn))
+/** The Guide body, rendered (as uwb-guide.test.ts does). */
+function renderGuide(): string {
+  return renderToStaticMarkup(createElement(Guide))
 }
 
 describe('reach and activation figures, computed fresh from ampBs.ts', () => {
@@ -46,20 +45,11 @@ describe('reach and activation figures, computed fresh from ampBs.ts', () => {
 })
 
 describe('Guide: Backscatter (mono-static) subsection', () => {
-  const en = renderGuide('en')
-  const zh = renderGuide('zh')
+  const zh = renderGuide()
 
-  it('renders the EN heading, after the Ambient power heading', () => {
+  it('renders the heading, after the Ambient power heading', () => {
     // toContain first on every heading the ordering check leans on — otherwise a heading that
     // silently disappeared would leave indexOf at -1 and the "-1 < n" comparison would still pass.
-    expect(en).toContain('10 · Ambient power')
-    expect(en).toContain('Backscatter (mono-static)')
-    expect(en).toContain('11 · UWB ranging')
-    expect(en.indexOf('10 · Ambient power')).toBeLessThan(en.indexOf('Backscatter (mono-static)'))
-    expect(en.indexOf('Backscatter (mono-static)')).toBeLessThan(en.indexOf('11 · UWB ranging'))
-  })
-
-  it('renders the ZH heading, after the Ambient power heading', () => {
     expect(zh).toContain('10 · 环境能量')
     expect(zh).toContain('反向散射（单站式）')
     expect(zh).toContain('11 · UWB 测距')
@@ -67,36 +57,29 @@ describe('Guide: Backscatter (mono-static) subsection', () => {
     expect(zh.indexOf('反向散射（单站式）')).toBeLessThan(zh.indexOf('11 · UWB 测距'))
   })
 
-  it('states the reply reach and the activation reach, in both languages, pinned to the engine', () => {
-    for (const text of [en, zh]) {
-      expect(text).toContain(`${REACH_250_CM} cm`)
-      expect(text).toContain(`${REACH_1000_CM} cm`)
-      expect(text).toContain(`${ACTIVATION_10_CM} cm`)
-      expect(text).toContain(`${ACTIVATION_20_CM} cm`)
-      expect(text).toContain(dbm(AMP_BS_ACTIVATION_DBM))
-    }
+  it('states the reply reach and the activation reach, pinned to the engine', () => {
+    expect(zh).toContain(`${REACH_250_CM} cm`)
+    expect(zh).toContain(`${REACH_1000_CM} cm`)
+    expect(zh).toContain(`${ACTIVATION_10_CM} cm`)
+    expect(zh).toContain(`${ACTIVATION_20_CM} cm`)
+    expect(zh).toContain(dbm(AMP_BS_ACTIVATION_DBM))
   })
 
-  it('states that a tag beyond activation reach never boots, in both languages', () => {
-    expect(en.toLowerCase()).toContain('never boots')
+  it('states that a tag beyond activation reach never boots', () => {
     expect(zh).toContain('永远不会启动')
   })
 
   it('states the self-leakage and dynamic-range figures the reader model uses', () => {
-    for (const text of [en, zh]) {
-      expect(text).toContain(`${AMP_BS_ISOLATION_DB} dB`)
-      expect(text).toContain(`${AMP_BS_READER_DR_DB} dB`)
-      expect(text).toContain(`${AMP_BS_LOSS_DB} dB`)
-    }
+    expect(zh).toContain(`${AMP_BS_ISOLATION_DB} dB`)
+    expect(zh).toContain(`${AMP_BS_READER_DR_DB} dB`)
+    expect(zh).toContain(`${AMP_BS_LOSS_DB} dB`)
   })
 
   it('names the Gen2 inventory terms', () => {
-    for (const text of [en, zh]) {
-      expect(text).toContain('EPC Gen2')
-      expect(text).toContain('RN16')
-      expect(text).toContain('WUP-Excitation')
-      expect(text).toContain('BST-Excitation')
-    }
+    expect(zh).toContain('EPC Gen2')
+    expect(zh).toContain('RN16')
+    expect(zh).toContain('WUP-Excitation')
+    expect(zh).toContain('BST-Excitation')
   })
 })
 
@@ -124,7 +107,7 @@ describe('AMP glossary group: the new backscatter terms', () => {
     const ENGINE_CONSTANT = /\bAMP_[A-Z0-9_]+\b/
     const ENGINE_SYMBOL = /\b([a-z][A-Za-z0-9]*(Dbm|Ns|Ms|Kbps|Db|Cfg)|Amp[A-Z][A-Za-z]*)\b/
     for (const item of group?.items ?? []) {
-      for (const text of [item.term, item.alt.en, item.alt.zh, item.def.en, item.def.zh]) {
+      for (const text of [item.term, item.alt, item.def]) {
         expect(text.match(ENGINE_CONSTANT)?.[0], `${item.term}: engine constant`).toBeUndefined()
         expect(text.match(ENGINE_SYMBOL)?.[0], `${item.term}: engine identifier`).toBeUndefined()
       }
@@ -133,11 +116,11 @@ describe('AMP glossary group: the new backscatter terms', () => {
 
   it('the Backscatter entry no longer says it is unmodeled', () => {
     const item = group?.items.find((i) => i.term.toLowerCase() === 'backscatter')
-    expect(item?.def.en.toLowerCase()).not.toContain('not modeled')
-    expect(item?.def.zh).not.toContain('尚未建模')
+    expect(item?.def.toLowerCase()).not.toContain('not modeled')
+    expect(item?.def).not.toContain('尚未建模')
   })
 
-  it('every new term has alt and def text in both languages, with real Chinese', () => {
+  it('every new term has alt and def text, in real Chinese', () => {
     const newTerms = [
       'backscatter', 'mono-static', 'wup-excitation', 'bst-excitation', 'epc gen2',
       'q / slot counter', 'rn16', 'epc', 'reader dynamic range', 'self-leakage',
@@ -145,53 +128,41 @@ describe('AMP glossary group: the new backscatter terms', () => {
     for (const t of newTerms) {
       const item = group?.items.find((i) => i.term.toLowerCase() === t)
       expect(item, t).toBeDefined()
-      expect(item!.alt.en, `${t}.alt.en`).toBeTruthy()
-      expect(item!.alt.zh, `${t}.alt.zh`).toBeTruthy()
-      expect(item!.def.en, `${t}.def.en`).toBeTruthy()
-      expect(item!.def.zh, `${t}.def.zh`).toBeTruthy()
-      expect(hasCjk(item!.def.zh), `${t}.def.zh is not Chinese`).toBe(true)
-      expect(item!.def.zh, `${t}.def.zh is the English text`).not.toBe(item!.def.en)
-      expect(hasCjk(item!.alt.en), `${t}.alt.en carries Chinese`).toBe(false)
-      expect(hasCjk(item!.def.en), `${t}.def.en carries Chinese`).toBe(false)
+      expect(item!.alt, `${t}.alt`).toBeTruthy()
+      expect(item!.def, `${t}.def`).toBeTruthy()
+      expect(hasCjk(item!.def), `${t}.def is not Chinese`).toBe(true)
     }
   })
 
   it('quotes the reach and activation figures where the terms discuss them', () => {
     const wup = group?.items.find((i) => i.term.toLowerCase() === 'wup-excitation')
-    for (const text of [wup?.def.en, wup?.def.zh]) {
-      expect(text).toContain(`${ACTIVATION_10_CM} cm`)
-      expect(text).toContain(`${ACTIVATION_20_CM} cm`)
-    }
+    expect(wup?.def).toContain(`${ACTIVATION_10_CM} cm`)
+    expect(wup?.def).toContain(`${ACTIVATION_20_CM} cm`)
   })
 
   it('pins the RN16 entry\'s airtime to bsReplyNs, not a retyped literal', () => {
     const rn16Ns = bsReplyNs('rn16', 250)
     expect(rn16Ns).toBe(112_000) // 48 µs sync + 64 µs data
     const item = group?.items.find((i) => i.term.toLowerCase() === 'rn16')
-    for (const text of [item?.alt.en, item?.def.en, item?.alt.zh, item?.def.zh]) {
+    for (const text of [item?.alt, item?.def]) {
       expect(text).toContain(`${rn16Ns / 1000} µs`)
     }
   })
 
   it('the BST-Excitation entry is plain words: no bare T1/T3/T4 symbols, and states how long in prose', () => {
     const item = group?.items.find((i) => i.term.toLowerCase() === 'bst-excitation')
-    for (const text of [item?.def.en, item?.def.zh]) {
-      expect(text).not.toMatch(/T1|T3|T4/)
-    }
-    expect(item?.def.en).toContain('2 milliseconds')
-    expect(item?.def.zh).toContain('2 毫秒')
+    expect(item?.def).not.toMatch(/T1|T3|T4/)
+    expect(item?.def).toContain('2 毫秒')
   })
 
   it('the EPC Gen2 entry expands SFD on first use', () => {
     const item = group?.items.find((i) => i.term.toLowerCase() === 'epc gen2')
-    expect(item?.def.en).toContain('framework document (SFD)')
-    expect(item?.def.zh).toContain('框架文档（SFD）')
+    expect(item?.def).toContain('框架文档（SFD）')
   })
 })
 
 describe('EditorGuide: one entry per new control', () => {
-  const en = renderToStaticMarkup(createElement(EditorGuideEn))
-  const zh = renderToStaticMarkup(createElement(EditorGuideZh))
+  const zh = renderToStaticMarkup(createElement(EditorGuide))
   /** The section, from its own heading to the next one — so a marker cannot be satisfied by some
    * other part of a very long panel (same helper as tests/ui/uwb-guide.test.ts). */
   const section = (html: string, from: string, to: string): string => {
@@ -201,41 +172,27 @@ describe('EditorGuide: one entry per new control', () => {
     expect(end, `next heading not rendered: ${to}`).toBeGreaterThan(start)
     return html.slice(start, end)
   }
-  const enSection = section(en, 'AMP backscatter (RFID inventory)', 'UWB session')
   const zhSection = section(zh, 'AMP 反向散射（RFID 盘点）', 'UWB 测距会话')
 
-  it('documents every new control in English, inside its own section', () => {
-    for (const marker of [
-      'Mode', 'EPC', 'RFID inventory', '>Q<', 'UL rate', 'WUP', 'Charge power', 'BS power',
-      'TXOP', 'read after ACK', 'write after read',
-    ]) {
-      expect(enSection, `EN: ${marker}`).toContain(marker)
-    }
-  })
-
-  it('documents every new control in Chinese, inside its own section', () => {
+  it('documents every new control, inside its own section', () => {
     for (const marker of [
       '模式', 'EPC', 'RFID 盘点', '>Q<', '上行速率', '唤醒载波', '充能功率', '散射窗功率',
       'TXOP', 'ACK 后读取', '读取后写入',
     ]) {
-      expect(zhSection, `ZH: ${marker}`).toContain(marker)
+      expect(zhSection, marker).toContain(marker)
     }
   })
 
-  it('reuses the mode select\'s own EN/ZH strings from i18n', () => {
-    expect(STRINGS.en.editor.ampModes.active).toBe('Active Tx')
-    expect(STRINGS.en.editor.ampModes.backscatter).toBe('Backscatter')
-    expect(STRINGS.zh.editor.ampModes.active).toContain('主动发射')
-    expect(STRINGS.zh.editor.ampModes.backscatter).toContain('反向散射')
+  it('reuses the mode select\'s own strings from i18n', () => {
+    expect(STRINGS.editor.ampModes.active).toContain('主动发射')
+    expect(STRINGS.editor.ampModes.backscatter).toContain('反向散射')
   })
 
   it('the Charge power / BS power entries quote the reach and activation figures, pinned to the engine', () => {
-    for (const text of [enSection, zhSection]) {
-      expect(text).toContain(`${ACTIVATION_10_CM} cm`)
-      expect(text).toContain(`${ACTIVATION_20_CM} cm`)
-      expect(text).toContain(`${REACH_250_CM}`)
-      expect(text).toContain(`${REACH_1000_CM}`)
-    }
+    expect(zhSection).toContain(`${ACTIVATION_10_CM} cm`)
+    expect(zhSection).toContain(`${ACTIVATION_20_CM} cm`)
+    expect(zhSection).toContain(`${REACH_250_CM}`)
+    expect(zhSection).toContain(`${REACH_1000_CM}`)
   })
 })
 
@@ -247,30 +204,24 @@ describe('EditorGuide: one entry per new control', () => {
  * covered above (Guide) or in the README describe block below.
  */
 describe('i18n hints quote the reach and activation figures, pinned to the engine', () => {
-  it('ampBsChargeHint and ampBsWupHint (activation), in both languages', () => {
-    for (const lang of ['en', 'zh'] as const) {
-      const E = STRINGS[lang].editor
-      expect(E.ampBsChargeHint).toContain(`${ACTIVATION_10_CM} cm`)
-      expect(E.ampBsChargeHint).toContain(`${ACTIVATION_20_CM} cm`)
-    }
+  it('ampBsChargeHint and ampBsWupHint (activation)', () => {
+    const E = STRINGS.editor
+    expect(E.ampBsChargeHint).toContain(`${ACTIVATION_10_CM} cm`)
+    expect(E.ampBsChargeHint).toContain(`${ACTIVATION_20_CM} cm`)
   })
 
-  it('ampBsBsHint (reply reach), in both languages', () => {
-    for (const lang of ['en', 'zh'] as const) {
-      const E = STRINGS[lang].editor
-      expect(E.ampBsBsHint).toContain(`${REACH_250_CM} cm`)
-      expect(E.ampBsBsHint).toContain(`${REACH_1000_CM} cm`)
-    }
+  it('ampBsBsHint (reply reach)', () => {
+    const E = STRINGS.editor
+    expect(E.ampBsBsHint).toContain(`${REACH_250_CM} cm`)
+    expect(E.ampBsBsHint).toContain(`${REACH_1000_CM} cm`)
   })
 
   it('bsSnrHint names the margin each uplink rate needs, both of them', () => {
     // The hint used to quote the 250 kb/s bar alone, which reads as *the* threshold; the faster
     // answer needs 6 dB more, and that is the whole reason the rate is a knob.
-    for (const lang of ['en', 'zh'] as const) {
-      const hint = STRINGS[lang].inspector.bsSnrHint
-      expect(hint).toContain(`${AMP_BS_REQ_SNR_DB[250]} dB`)
-      expect(hint).toContain(`${AMP_BS_REQ_SNR_DB[1000]} dB`)
-    }
+    const hint = STRINGS.inspector.bsSnrHint
+    expect(hint).toContain(`${AMP_BS_REQ_SNR_DB[250]} dB`)
+    expect(hint).toContain(`${AMP_BS_REQ_SNR_DB[1000]} dB`)
   })
 })
 

@@ -25,16 +25,16 @@ describe('spanTooltip names the peer, not its id', () => {
   const rx: LaneSpan = { kind: 'rx', nodeId: 'sta-1', startNs: 0, endNs: 44_000, fullStartNs: 0, fullEndNs: 44_000, frameKind: 'cts', frameSrc: 'ap', ifs: [], openStart: false, openEnded: false }
 
   it('tx: CTS → Laptop (MLO)', () => {
-    const line = spanTooltip(tx, STRINGS.en.tooltips, undefined, nameOf)[0]
+    const line = spanTooltip(tx, STRINGS.tooltips, undefined, nameOf)[0]
     expect(line).toContain('Laptop (MLO)')
     expect(line).not.toContain('sta-1')
   })
   it('rx: receiving CTS from Router', () => {
-    const line = spanTooltip(rx, STRINGS.en.tooltips, undefined, nameOf)[0]
+    const line = spanTooltip(rx, STRINGS.tooltips, undefined, nameOf)[0]
     expect(line).toContain('Router')
     expect(line).not.toMatch(/\bap\b/)
   })
   it('without a name map the id is shown unchanged', () => {
-    expect(spanTooltip(tx, STRINGS.en.tooltips)[0]).toContain('sta-1')
+    expect(spanTooltip(tx, STRINGS.tooltips)[0]).toContain('sta-1')
   })
 })

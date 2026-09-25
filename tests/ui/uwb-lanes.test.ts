@@ -65,18 +65,13 @@ describe('a uwbWait state draws a slot span', () => {
   })
 
   it('tells the learner it is a ranging slot, not an AMP one', () => {
-    const uwb = spanTooltip(spans[0], STRINGS.en.tooltips)
+    const uwb = spanTooltip(spans[0], STRINGS.tooltips)
     const amp: LaneSpan = { ...spans[0], state: 'ampWait' }
-    expect(uwb[0]).toBe(`${STRINGS.en.tooltips.uwbWait} · 500.0 µs`)
-    expect(uwb[1]).toBe(STRINGS.en.tooltips.uwbWaitNote)
-    expect(spanTooltip(amp, STRINGS.en.tooltips)[0]).not.toBe(uwb[0])
+    expect(uwb[0]).toBe(`${STRINGS.tooltips.uwbWait} · 500.0 µs`)
+    expect(uwb[1]).toBe(STRINGS.tooltips.uwbWaitNote)
+    expect(spanTooltip(amp, STRINGS.tooltips)[0]).not.toBe(uwb[0])
   })
 
-  it('has Chinese text of its own', () => {
-    const zh = spanTooltip(spans[0], STRINGS.zh.tooltips)
-    expect(zh[0]).not.toBe(spanTooltip(spans[0], STRINGS.en.tooltips)[0])
-    expect(zh[1]).toBe(STRINGS.zh.tooltips.uwbWaitNote)
-  })
 })
 
 describe('UWB frames on a lane', () => {
@@ -87,9 +82,9 @@ describe('UWB frames on a lane', () => {
     frameKind: f.kind, frameSrc: f.src, frame: f, ifs: [], openStart: false, openEnded: false,
   })
 
-  it.each(['en', 'zh'] as const)('%s tooltips name each UWB frame', (lang) => {
+  it('tooltips name each UWB frame', () => {
     for (const f of [poll, resp]) {
-      const lines = spanTooltip(txSpan(f), STRINGS[lang].tooltips)
+      const lines = spanTooltip(txSpan(f), STRINGS.tooltips)
       expect(lines[0]).toBeTruthy()
       expect(lines[0]).not.toContain('undefined')
       expect(lines[1]).toContain('6.81 Mbps')
@@ -141,20 +136,20 @@ describe('P802.15.4ab frames on a lane', () => {
     frameKind: f.kind, frameSrc: f.src, frame: f, ifs: [], openStart: false, openEnded: false,
   })
 
-  it.each(['en', 'zh'] as const)('%s labels each of the five kinds on its own', (lang) => {
-    const heads = all.map((f) => spanTooltip(txSpan(f), STRINGS[lang].tooltips)[0])
+  it('labels each of the five kinds on its own', () => {
+    const heads = all.map((f) => spanTooltip(txSpan(f), STRINGS.tooltips)[0])
     for (const h of heads) {
       expect(h).toBeTruthy()
       expect(h).not.toContain('undefined')
     }
     // Five kinds, five labels: none of them falls through to the CTS line any more.
     expect(new Set(heads).size).toBe(5)
-    for (const h of heads) expect(h).not.toBe(STRINGS[lang].tooltips.cts('anc-1'))
+    for (const h of heads) expect(h).not.toBe(STRINGS.tooltips.cts('anc-1'))
   })
 
   it('names the fragment’s place in its train, and quotes its own power instead of a rate', () => {
-    const [head, second] = spanTooltip(txSpan(rsf), STRINGS.en.tooltips)
-    expect(head).toContain('RSF 2 of 2')
+    const [head, second] = spanTooltip(txSpan(rsf), STRINGS.tooltips)
+    expect(head).toContain('RSF 第 2 / 2 个')
     // A fragment has no data rate at all — it is a sequence — so the rate column is its EIRP.
     expect(second).toContain('dBm')
     expect(second).not.toContain('Mbps')
@@ -162,22 +157,15 @@ describe('P802.15.4ab frames on a lane', () => {
 
   it('quotes the narrowband radio’s own O-QPSK, never the HRP UWB PSDU rate', () => {
     for (const f of [poll, resp, report]) {
-      const line = spanTooltip(txSpan(f), STRINGS.en.tooltips)[1]
+      const line = spanTooltip(txSpan(f), STRINGS.tooltips)[1]
       expect(line, f.kind).toContain('0.25 Mbps O-QPSK')
       // It is a second radio altogether: the 4z PSDU's own line would be a lie on it.
       expect(line, f.kind).not.toContain('HRP UWB')
       expect(line, f.kind).not.toContain('BPRF')
     }
     // …while a 4z ranging frame still reads as the SP1 PPDU it is.
-    expect(spanTooltip(txSpan(makePoll('tag-1', ['anc-1'], 'ss', 0, 0)), STRINGS.en.tooltips)[1])
+    expect(spanTooltip(txSpan(makePoll('tag-1', ['anc-1'], 'ss', 0, 0)), STRINGS.tooltips)[1])
       .toContain('HRP UWB')
-  })
-
-  it('says the same in Chinese, and not by leaving the English in', () => {
-    const zh = spanTooltip(txSpan(poll), STRINGS.zh.tooltips)[1]
-    expect(zh).toContain('0.25 Mbps O-QPSK')
-    expect(zh).not.toContain('HRP UWB')
-    expect(zh).not.toBe(spanTooltip(txSpan(poll), STRINGS.en.tooltips)[1])
   })
 
   it('paints both trains one colour and the control plane another, neither the ranging amber', () => {

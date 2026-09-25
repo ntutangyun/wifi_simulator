@@ -8,7 +8,6 @@ import { rangeSigmaM } from '../../src/uwb/position'
 /** Every kind the engine can emit, from the one list `FrameKind` itself is derived from — a
  * hand-written copy here had gone stale by six kinds before it was noticed. */
 const KINDS = FRAME_KINDS
-const LANGS = ['en', 'zh'] as const
 
 describe('frameDetail strings', () => {
   it('walks every frame kind the engine can emit, not a hand-kept subset', () => {
@@ -18,8 +17,8 @@ describe('frameDetail strings', () => {
     expect(new Set(KINDS).size).toBe(KINDS.length)
   })
 
-  it.each(LANGS)('%s covers every frame kind with non-empty text', (lang) => {
-    const fd = STRINGS[lang].frameDetail
+  it('covers every frame kind with non-empty text', () => {
+    const fd = STRINGS.frameDetail
     for (const k of KINDS) {
       expect(fd.kindName[k], `kindName.${k}`).toBeTruthy()
       expect(fd.whatIs[k], `whatIs.${k}`).toBeTruthy()
@@ -29,10 +28,10 @@ describe('frameDetail strings', () => {
 })
 
 describe('band strings', () => {
-  it.each(LANGS)('%s names every link in the editor and the inspector', (lang) => {
+  it('names every link in the editor and the inspector', () => {
     for (const l of ['2g', '5g', '6g'] as const) {
-      expect(STRINGS[lang].editor.bands[l]).toBeTruthy()
-      expect(STRINGS[lang].inspector.linkName[l]).toBeTruthy()
+      expect(STRINGS.editor.bands[l]).toBeTruthy()
+      expect(STRINGS.inspector.linkName[l]).toBeTruthy()
     }
   })
 })
@@ -44,8 +43,8 @@ describe('UWB editor hints', () => {
   /** …against the raw flight distance of the same timing error, which is not the same number. */
   const flight = `${(C_M_PER_NS * (ps / 1000) * 100).toFixed(0)} cm`
 
-  it.each(LANGS)('%s quotes the range sigma beside the flight distance, not instead of it', (lang) => {
-    const hint = STRINGS[lang].editor.uwbTsNoiseHint
+  it('quotes the range sigma beside the flight distance, not instead of it', () => {
+    const hint = STRINGS.editor.uwbTsNoiseHint
     expect(range).toBe('2.1 cm')
     expect(flight).toBe('3 cm')
     expect(hint, 'flight').toContain(flight)

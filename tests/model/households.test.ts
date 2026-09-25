@@ -14,13 +14,12 @@ const byId = (id: string) => {
 }
 
 describe('household scenarios', () => {
-  it('there are at least six, with unique ids and bilingual titles', () => {
+  it('there are at least six, with unique ids and a title and blurb each', () => {
     expect(HOUSEHOLDS.length).toBeGreaterThanOrEqual(6)
     expect(new Set(HOUSEHOLDS.map((h) => h.id)).size).toBe(HOUSEHOLDS.length)
     for (const h of HOUSEHOLDS) {
-      expect(h.title.en.length).toBeGreaterThan(0)
-      expect(h.title.zh.length).toBeGreaterThan(0)
-      expect(h.blurb.en.length).toBeGreaterThan(0)
+      expect(h.title.length).toBeGreaterThan(0)
+      expect(h.blurb.length).toBeGreaterThan(0)
     }
   })
 

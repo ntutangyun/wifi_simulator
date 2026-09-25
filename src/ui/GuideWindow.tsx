@@ -7,7 +7,6 @@ import { useEffect, useRef, useState } from 'react'
 import { GLOSSARY } from './glossary'
 import { Guide } from './Guide'
 import { useStrings } from './i18n'
-import { useUi } from './store'
 
 const W = 620
 const H_MAX = 680
@@ -15,7 +14,6 @@ const H_MAX = 680
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v))
 
 export function GuideWindow({ onClose }: { onClose: () => void }) {
-  const lang = useUi((s) => s.lang)
   const L = useStrings()
   const G = L.guideWindow
   const [tab, setTab] = useState<'terms' | 'overview'>('terms')
@@ -41,9 +39,8 @@ export function GuideWindow({ onClose }: { onClose: () => void }) {
       items: g.items.filter((it) =>
         !needle ||
         it.term.toLowerCase().includes(needle) ||
-        it.alt[lang].toLowerCase().includes(needle) ||
-        it.def[lang].toLowerCase().includes(needle) ||
-        it.alt.en.toLowerCase().includes(needle),
+        it.alt.toLowerCase().includes(needle) ||
+        it.def.toLowerCase().includes(needle),
       ),
     }))
     .filter((g) => g.items.length > 0)
@@ -101,14 +98,14 @@ export function GuideWindow({ onClose }: { onClose: () => void }) {
             {groups.length === 0 && <div style={{ color: 'var(--dim)', padding: '10px 0', fontSize: 11.5 }}>{G.empty}</div>}
             {groups.map((g) => (
               <div key={g.id}>
-                <h4 style={{ margin: '10px 0 4px', fontSize: 12.5, color: '#d5dae3' }}>{g.title[lang]}</h4>
+                <h4 style={{ margin: '10px 0 4px', fontSize: 12.5, color: '#d5dae3' }}>{g.title}</h4>
                 {g.items.map((it) => (
                   <div key={it.term} style={{ margin: '0 0 7px', fontSize: 11.5, lineHeight: 1.5 }}>
                     <div>
                       <b style={{ color: '#c3cad6' }}>{it.term}</b>{' '}
-                      <span style={{ color: '#6f7787' }}>· {it.alt[lang]}</span>
+                      <span style={{ color: '#6f7787' }}>· {it.alt}</span>
                     </div>
-                    <div style={{ color: 'var(--dim)' }}>{it.def[lang]}</div>
+                    <div style={{ color: 'var(--dim)' }}>{it.def}</div>
                   </div>
                 ))}
               </div>

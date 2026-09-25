@@ -65,7 +65,7 @@ function SidePanel() {
 }
 
 export function App() {
-  const { mode, setMode, simError, lang, setLang, courseLoaded, simSession } = useUi()
+  const { mode, setMode, simError, courseLoaded, simSession } = useUi()
   const L = useStrings()
   const [guideOpen, setGuideOpen] = useState(false)
   const [courseW, setCourseW] = useColumnWidth('wifi-sim.courseWidth', COURSE_COL_DEFAULT, COURSE_COL_LIMITS)
@@ -89,9 +89,6 @@ export function App() {
           <button className={mode === 'edit' ? 'active' : ''} onClick={() => setMode('edit')}>{L.header.edit}</button>
           <button className={mode === 'simulate' ? 'active' : ''} onClick={() => setMode('simulate')}>{L.header.simulate}</button>
           <button className={mode === 'course' ? 'active' : ''} onClick={() => setMode('course')}>{L.header.course}</button>
-          <span style={{ width: 1, height: 18, background: 'var(--border)', margin: '0 4px' }} />
-          <button className={lang === 'en' ? 'active' : ''} style={{ padding: '3px 6px' }} onClick={() => setLang('en')}>EN</button>
-          <button className={lang === 'zh' ? 'active' : ''} style={{ padding: '3px 6px' }} onClick={() => setLang('zh')}>中文</button>
         </div>
       </header>
 

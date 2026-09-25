@@ -101,12 +101,11 @@ it('a TXOP with no state text still lands on line two', () => {
 })
 
 describe('appLine: the apps shown under a station’s name in the 3D view', () => {
-  it('lists each stream with an icon in the chosen language; AP and idle stations show nothing', async () => {
+  it('lists each stream with an icon; AP and idle stations show nothing', async () => {
     const { appLine } = await import('../../src/scene/nodes')
     const sta = { id: 's', kind: 'sta', name: 'P', pos: { x: 0, y: 0, z: 1 }, txPowerDbm: 15, profiles: ['gaming', 'video'], caps: { generation: 'he', features: {} } } as const
-    expect(appLine({ ...sta, profiles: ['gaming', 'video'] }, 'en')).toBe('🎮 game · 📺 video')
-    expect(appLine({ ...sta, profiles: ['gaming', 'video'] }, 'zh')).toBe('🎮 游戏 · 📺 视频')
-    expect(appLine({ ...sta, profiles: ['idle'] }, 'en')).toBe('')
-    expect(appLine({ ...sta, kind: 'ap', profiles: ['idle'] }, 'en')).toBe('')
+    expect(appLine({ ...sta, profiles: ['gaming', 'video'] })).toBe('🎮 游戏 · 📺 视频')
+    expect(appLine({ ...sta, profiles: ['idle'] })).toBe('')
+    expect(appLine({ ...sta, kind: 'ap', profiles: ['idle'] })).toBe('')
   })
 })

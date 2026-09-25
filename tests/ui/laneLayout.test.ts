@@ -46,7 +46,7 @@ describe('recordsToSpans', () => {
     expect(defer.startNs).toBe(200_000) // drawn from the window edge…
     expect(defer.fullStartNs).toBe(100_000) // …but the real span is known
     // tooltip duration = 500-100 = 400 µs, not the visible 300 µs
-    expect(spanTooltip(defer, STRINGS.en.tooltips)[0]).toContain('400.0 µs')
+    expect(spanTooltip(defer, STRINGS.tooltips)[0]).toContain('400.0 µs')
   })
 
   it('keeps every IFS in a defer block and labels the one under the cursor', () => {
@@ -65,9 +65,9 @@ describe('recordsToSpans', () => {
     expect(ifsAt(defer, 1_426_000)?.kind).toBe('EIFS')
     expect(ifsAt(defer, 1_480_000)?.kind).toBe('DIFS')
     // …and the tooltip must agree with the 3D view at each instant.
-    expect(spanTooltip(defer, STRINGS.en.tooltips, 1_426_000)[0]).toContain('EIFS')
-    expect(spanTooltip(defer, STRINGS.en.tooltips, 1_480_000)[0]).toContain('DIFS')
-    expect(spanTooltip(defer, STRINGS.en.tooltips, 1_426_000)).toContainEqual(
+    expect(spanTooltip(defer, STRINGS.tooltips, 1_426_000)[0]).toContain('EIFS')
+    expect(spanTooltip(defer, STRINGS.tooltips, 1_480_000)[0]).toContain('DIFS')
+    expect(spanTooltip(defer, STRINGS.tooltips, 1_426_000)).toContainEqual(
       expect.stringContaining('EIFS → DIFS'),
     )
   })
@@ -82,7 +82,7 @@ describe('recordsToSpans', () => {
     ]), ['sta-2'], 0, 2_000_000)
     const defer = spans.find((s) => s.kind === 'defer')!
     expect(defer.ifs.map((x) => x.kind)).toEqual(['DIFS'])
-    expect(spanTooltip(defer, STRINGS.en.tooltips, 1_100_000)[0]).toContain('DIFS')
+    expect(spanTooltip(defer, STRINGS.tooltips, 1_100_000)[0]).toContain('DIFS')
   })
 
   it('reports the true duration when a span crosses the right window edge', () => {
@@ -94,7 +94,7 @@ describe('recordsToSpans', () => {
     expect(defer.endNs).toBe(300_000) // drawn to the window edge…
     expect(defer.fullEndNs).toBe(500_000) // …but the real end is known
     expect(defer.openEnded).toBe(false)
-    expect(spanTooltip(defer, STRINGS.en.tooltips)[0]).toContain('400.0 µs')
+    expect(spanTooltip(defer, STRINGS.tooltips)[0]).toContain('400.0 µs')
   })
 
   it('seeds spans whose opening record predates the fetched records', () => {
@@ -110,7 +110,7 @@ describe('recordsToSpans', () => {
     expect(defer.fullStartNs).toBe(700_000)
     expect(defer.fullEndNs).toBe(900_000)
     expect(defer.openStart).toBe(true) // real start unknown — only "at least"
-    expect(spanTooltip(defer, STRINGS.en.tooltips)[0]).toContain('≥')
+    expect(spanTooltip(defer, STRINGS.tooltips)[0]).toContain('≥')
   })
 
   it('marks spans still open at the horizon as in progress', () => {
@@ -119,7 +119,7 @@ describe('recordsToSpans', () => {
     ]), ['sta-1'], 0, 300_000, 600_000)
     const defer = spans.find((s) => s.kind === 'defer')!
     expect(defer.openEnded).toBe(true)
-    expect(spanTooltip(defer, STRINGS.en.tooltips)[0]).toContain('≥')
+    expect(spanTooltip(defer, STRINGS.tooltips)[0]).toContain('≥')
   })
 
   it('drops the span-wide AC tag when several ACs shared the block', () => {
@@ -132,8 +132,8 @@ describe('recordsToSpans', () => {
     const defer = spans.find((s) => s.kind === 'defer')!
     expect(defer.ac).toBeUndefined() // no single AC owns this block
     // …but each instant still knows its own AC via the segment under the cursor.
-    expect(spanTooltip(defer, STRINGS.en.tooltips, 5_000)[0]).toContain('AC_VO')
-    expect(spanTooltip(defer, STRINGS.en.tooltips, 50_000)[0]).toContain('AC_BE')
+    expect(spanTooltip(defer, STRINGS.tooltips, 5_000)[0]).toContain('AC_VO')
+    expect(spanTooltip(defer, STRINGS.tooltips, 50_000)[0]).toContain('AC_BE')
   })
 
   it('tracks simultaneous receptions separately (UL OFDMA at the AP)', () => {
@@ -185,11 +185,9 @@ describe('recordsToSpans', () => {
     ]), ['ap'], 0, 100_000)
     const rx = spans.find((s) => s.kind === 'rx')!
     const names: Record<string, string> = { 'sta-1': 'Laptop', 'sta-2': 'Neighbor' }
-    const lines = spanTooltip(rx, STRINGS.en.tooltips, undefined, (id) => names[id] ?? id)
-    expect(lines[0]).toContain('receiving RTS from Laptop')
-    expect(lines.some((l) => /corrupted/i.test(l) && l.includes('Neighbor'))).toBe(true)
-    const zh = spanTooltip(rx, STRINGS.zh.tooltips, undefined, (id) => names[id] ?? id)
-    expect(zh.some((l) => l.includes('Neighbor'))).toBe(true)
+    const lines = spanTooltip(rx, STRINGS.tooltips, undefined, (id) => names[id] ?? id)
+    expect(lines[0]).toContain('正在接收来自 Laptop 的 RTS')
+    expect(lines.some((l) => l.includes('已损坏') && l.includes('Neighbor'))).toBe(true)
   })
 
   it('tooltip of a successful reception has no corruption line', () => {
@@ -197,8 +195,8 @@ describe('recordsToSpans', () => {
       { t: 0, type: 'RX_START', node: 'ap', from: 'sta-1', frame },
       { t: 232_000, type: 'RX_OK', node: 'ap', from: 'sta-1', frame },
     ]), ['ap'], 0, 300_000)
-    const lines = spanTooltip(spans.find((s) => s.kind === 'rx')!, STRINGS.en.tooltips)
-    expect(lines.some((l) => /corrupted/i.test(l))).toBe(false)
+    const lines = spanTooltip(spans.find((s) => s.kind === 'rx')!, STRINGS.tooltips)
+    expect(lines.some((l) => l.includes('已损坏'))).toBe(false)
   })
 
   it('only a collision earns the alarm tone; other failures stay in the receive tone', () => {
@@ -257,8 +255,8 @@ describe('topSpanAt', () => {
     ]
     const spans = recordsToSpans(recs, ['tag-1#2g'], 0, 200_000)
     expect(spans[0]).toMatchObject({ kind: 'slot', startNs: 0, endNs: 100_000 })
-    const lines = spanTooltip(spans[0], STRINGS.en.tooltips)
-    expect(lines[0]).toContain(STRINGS.en.tooltips.ampWait)
+    const lines = spanTooltip(spans[0], STRINGS.tooltips)
+    expect(lines[0]).toContain(STRINGS.tooltips.ampWait)
   })
 
   it('a bsWait state opens its own slot span, and the two backscatter frames get their own names', () => {
@@ -268,10 +266,10 @@ describe('topSpanAt', () => {
     ]
     const spans = recordsToSpans(recs, ['tag-1#2g'], 0, 600_000)
     expect(spans[0]).toMatchObject({ kind: 'slot', state: 'bsWait', startNs: 0, endNs: 452_400 })
-    const lines = spanTooltip(spans[0], STRINGS.en.tooltips)
-    expect(lines[0]).toContain(STRINGS.en.tooltips.bsWait)
-    expect(lines[0]).not.toContain(STRINGS.en.tooltips.ampWait)
-    expect(lines[1]).toBe(STRINGS.en.tooltips.bsWaitNote)
+    const lines = spanTooltip(spans[0], STRINGS.tooltips)
+    expect(lines[0]).toContain(STRINGS.tooltips.bsWait)
+    expect(lines[0]).not.toContain(STRINGS.tooltips.ampWait)
+    expect(lines[1]).toBe(STRINGS.tooltips.bsWaitNote)
 
     // …and the reader's command and the tag's reflection each name their Gen2 message
     const cmd = ampRfidFrame({
@@ -279,11 +277,11 @@ describe('topSpanAt', () => {
       wupNs: 0, bstNs: 142_400, chargeDbm: 10, bsDbm: 0, signalExtNs: 6_000,
     })
     const dl: LaneSpan = { ...spans[0], kind: 'tx', frame: cmd, frameKind: cmd.kind }
-    expect(spanTooltip(dl, STRINGS.en.tooltips)[0]).toContain('QueryRep')
-    expect(spanTooltip(dl, STRINGS.zh.tooltips)[0]).toContain('QueryRep')
+    expect(spanTooltip(dl, STRINGS.tooltips)[0]).toContain('QueryRep')
+    expect(spanTooltip(dl, STRINGS.tooltips)[0]).toContain('QueryRep')
     const rep = ampBsReplyFrame({ src: 'tag-1', dst: 'ap', reply: 'rn16', kbps: 250, slot: 2, rn16: 0x1234 })
     const ul: LaneSpan = { ...spans[0], kind: 'tx', frame: rep, frameKind: rep.kind }
-    expect(spanTooltip(ul, STRINGS.en.tooltips)[0]).toContain('RN16')
-    expect(spanTooltip(ul, STRINGS.en.tooltips)[1]).toContain('250 kb/s OOK')
+    expect(spanTooltip(ul, STRINGS.tooltips)[0]).toContain('RN16')
+    expect(spanTooltip(ul, STRINGS.tooltips)[1]).toContain('250 kb/s OOK')
   })
 })

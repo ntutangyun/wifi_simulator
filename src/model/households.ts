@@ -11,8 +11,8 @@ import type { Generation } from './types'
 
 export interface Household {
   id: string
-  title: { en: string; zh: string }
-  blurb: { en: string; zh: string }
+  title: string
+  blurb: string
   scenario: () => Scenario
 }
 
@@ -109,11 +109,8 @@ function sc(house: { rooms: Room[]; walls: Wall[] }, nodes: NodeCfg[], srv: Serv
 export const HOUSEHOLDS: Household[] = [
   {
     id: 'three-gamers',
-    title: { en: 'Three gamers, one match', zh: '三人开黑' },
-    blurb: {
-      en: 'A Huawei Mate 80 Pro, a Xiaomi 17 Pro Max and an iPhone 17 play the same game on one server while the TV streams. Compare their pings, then turn on the router’s game acceleration.',
-      zh: '华为 Mate 80 Pro、小米 17 Pro Max 和 iPhone 17 在同一台游戏服务器上开黑，电视同时在播视频。比较三部手机的 ping，再打开路由器的游戏加速。',
-    },
+    title: '三人开黑',
+    blurb: '华为 Mate 80 Pro、小米 17 Pro Max 和 iPhone 17 在同一台游戏服务器上开黑，电视同时在播视频。比较三部手机的 ping，再打开路由器的游戏加速。',
     scenario: () => sc(twoRooms(), [
       ap(3, 4),
       phone('huawei-mate-80-pro', 'sta-1', 1.5, 2, ['gaming']),
@@ -124,11 +121,8 @@ export const HOUSEHOLDS: Household[] = [
   },
   {
     id: 'two-gamers',
-    title: { en: 'Two gamers, two servers', zh: '两名玩家，两台服务器' },
-    blurb: {
-      en: 'An iPhone 17 on the 25 ms domestic game server, a Redmi K90 Pro Max on an 80 ms overseas one with 20 ms of jitter. The Wi-Fi is the same; the WAN is not.',
-      zh: 'iPhone 17 连接 25 ms 的国内游戏服务器，Redmi K90 Pro Max 连接 80 ms、抖动 20 ms 的海外服务器。Wi-Fi 相同，广域网不同。',
-    },
+    title: '两名玩家，两台服务器',
+    blurb: 'iPhone 17 连接 25 ms 的国内游戏服务器，Redmi K90 Pro Max 连接 80 ms、抖动 20 ms 的海外服务器。Wi-Fi 相同，广域网不同。',
     scenario: () => sc(twoRooms(), [
       ap(3, 4),
       phone('apple-iphone-17', 'sta-1', 1.5, 2, ['gaming']),
@@ -137,11 +131,8 @@ export const HOUSEHOLDS: Household[] = [
   },
   {
     id: 'movie-night',
-    title: { en: 'Movie night', zh: '电影之夜' },
-    blurb: {
-      en: 'The TV streams a film, two phones browse on the sofa, and someone in the bedroom is on a call. Voice should win every contention.',
-      zh: '电视在播电影，沙发上两部手机在刷网页，卧室里有人在通话。语音应当赢得每一次竞争。',
-    },
+    title: '电影之夜',
+    blurb: '电视在播电影，沙发上两部手机在刷网页，卧室里有人在通话。语音应当赢得每一次竞争。',
     scenario: () => sc(twoRooms(), [
       ap(3, 4),
       device('sta-1', 'TV (Wi-Fi 6)', 5, 7, 'he', ['video']),
@@ -152,11 +143,8 @@ export const HOUSEHOLDS: Household[] = [
   },
   {
     id: 'work-from-home',
-    title: { en: 'Working from home', zh: '居家办公' },
-    blurb: {
-      en: 'A laptop in the study on a video call (voice up, video down) while a NAS backup runs in the living room and a phone browses.',
-      zh: '书房的笔记本在开视频会议（语音上行、视频下行），客厅里 NAS 在做备份，一部手机在刷网页。',
-    },
+    title: '居家办公',
+    blurb: '书房的笔记本在开视频会议（语音上行、视频下行），客厅里 NAS 在做备份，一部手机在刷网页。',
     scenario: () => sc(threeRooms(), [
       ap(4, 4),
       device('sta-1', 'Laptop (Wi-Fi 7)', 10.5, 4, 'eht', ['voice', 'video']),
@@ -166,11 +154,8 @@ export const HOUSEHOLDS: Household[] = [
   },
   {
     id: 'smart-home',
-    title: { en: 'Smart home', zh: '智能家居' },
-    blurb: {
-      en: 'Six legacy IoT sensors scattered through the flat, a phone and a TV. Watch how much airtime a 100-byte reading at 6 Mb/s costs.',
-      zh: '六个传统 IoT 传感器散布在各个房间，加一部手机和一台电视。看看 6 Mb/s 下一条 100 字节的读数要占多少空口时间。',
-    },
+    title: '智能家居',
+    blurb: '六个传统 IoT 传感器散布在各个房间，加一部手机和一台电视。看看 6 Mb/s 下一条 100 字节的读数要占多少空口时间。',
     scenario: () => sc(threeRooms(), [
       ap(4, 4),
       device('sta-1', 'TV (Wi-Fi 6)', 5, 7, 'he', ['video']),
@@ -185,11 +170,8 @@ export const HOUSEHOLDS: Household[] = [
   },
   {
     id: 'video-share',
-    title: { en: 'Phone-to-phone video', zh: '手机互传视频' },
-    blurb: {
-      en: 'A Xiaomi 17 Ultra casts 8 Mb/s of video to an Honor Magic8 Pro across the flat: every frame goes up to the AP and back down. Meanwhile the TV streams and someone is on a call. Watch the receiver’s phone-to-phone latency.',
-      zh: '小米 17 Ultra 向另一房间的荣耀 Magic8 Pro 投送 8 Mb/s 视频：每一帧先上行到 AP 再下行。同时电视在播视频，有人在通话。观察接收方的"手机互传"时延。',
-    },
+    title: '手机互传视频',
+    blurb: '小米 17 Ultra 向另一房间的荣耀 Magic8 Pro 投送 8 Mb/s 视频：每一帧先上行到 AP 再下行。同时电视在播视频，有人在通话。观察接收方的"手机互传"时延。',
     scenario: () => sc(threeRooms(), [
       ap(4, 4),
       { ...phone('xiaomi-17-ultra', 'sta-1', 1.5, 2, ['p2pvideo']), p2pTarget: 'sta-2' },
@@ -200,11 +182,8 @@ export const HOUSEHOLDS: Household[] = [
   },
   {
     id: 'full-house',
-    title: { en: 'Full house', zh: '满屋子人' },
-    blurb: {
-      en: 'Three rooms, six phones from every brand, a TV and a sensor: gaming, calls, browsing and video at once. The capstone with real phones.',
-      zh: '三个房间、六部各品牌手机、一台电视和一个传感器：游戏、通话、网页和视频同时进行。用真实机型重演结业课。',
-    },
+    title: '满屋子人',
+    blurb: '三个房间、六部各品牌手机、一台电视和一个传感器：游戏、通话、网页和视频同时进行。用真实机型重演结业课。',
     scenario: () => sc(threeRooms(), [
       ap(4, 4),
       phone('huawei-mate-80-pro', 'sta-1', 1.5, 2, ['gaming']),

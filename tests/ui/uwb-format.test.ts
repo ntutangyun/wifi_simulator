@@ -161,8 +161,8 @@ describe('the event log expands a UWB frame in 802.15.4 vocabulary', () => {
   /** Concepts an 802.15.4 ranging frame simply does not have. */
   const WIFI_ONLY = ['RA / Address 1', 'TA / Address 2', 'Retry flag', 'Duration/ID']
 
-  it.each(['en', 'zh'] as const)('%s names the MHR fields and the ranging IEs', (lang) => {
-    const S = STRINGS[lang].frameDetail.fields
+  it('names the MHR fields and the ranging IEs', () => {
+    const S = STRINGS.frameDetail.fields
     const rows = decodeFrame(poll, S)
     const labels = rows.map((r) => r.field)
     expect(labels).toContain(S.name.srcAddr16)

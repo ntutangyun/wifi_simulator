@@ -353,18 +353,16 @@ describe('why a field is greyed out', () => {
   })
 
   it('does not tell an MMS user that the tag never transmits or that the range is one-way', () => {
-    for (const lang of ['en', 'zh'] as const) {
-      const E = STRINGS[lang].editor
-      for (const key of ['uwbAoaMms', 'uwbScheduleMms'] as const) {
-        expect(E[key], `${lang}.${key}`).toBeTruthy()
-        // The claims the one-way strings make, which are what made them wrong here.
-        expect(E[key], `${lang}.${key}`).not.toMatch(/one-way|单向/)
-        expect(E[key], `${lang}.${key}`).not.toMatch(/never transmits|从不发射|根本不发射/)
-      }
-      // …and each says the thing that is actually true of MMS.
-      expect(E.uwbAoaMms).toMatch(lang === 'en' ? /two-way/ : /双向/)
-      expect(E.uwbScheduleMms).toMatch(lang === 'en' ? /before the block starts/ : /块开始之前/)
+    const E = STRINGS.editor
+    for (const key of ['uwbAoaMms', 'uwbScheduleMms'] as const) {
+      expect(E[key], key).toBeTruthy()
+      // The claims the one-way strings make, which are what made them wrong here.
+      expect(E[key], key).not.toMatch(/one-way|单向/)
+      expect(E[key], key).not.toMatch(/never transmits|从不发射|根本不发射/)
     }
+    // …and each says the thing that is actually true of MMS.
+    expect(E.uwbAoaMms).toMatch(/双向/)
+    expect(E.uwbScheduleMms).toMatch(/块开始之前/)
   })
 })
 

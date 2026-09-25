@@ -36,11 +36,10 @@ const listener: UwbNodeView = {
   position: { ...tag.position!, gdop: 0.87, method: 'dl-tdoa' },
 }
 
-const EN = STRINGS.en.uwb
-const ZH = STRINGS.zh.uwb
+const S = STRINGS.uwb
 
 describe('uwbRangeRows', () => {
-  const rows = uwbRangeRows(tag, EN)
+  const rows = uwbRangeRows(tag, S)
 
   it('gives one row per peer, in insertion order', () => {
     expect(rows.map((r) => r.peer)).toEqual(['anc-1', 'anc-2'])
@@ -52,11 +51,11 @@ describe('uwbRangeRows', () => {
   })
 
   it('carries the figure of merit PER ROW: a wall behind one anchor must not be reported for the other', () => {
-    expect(rows[0].fom).toBe(fomText(FOM_LOS))
-    expect(rows[1].fom).toBe(fomText(FOM_NLOS))
+    expect(rows[0].fom).toBe('97 % 的误差落在 0.5 ns 内')
+    expect(rows[1].fom).toBe('75 % 的误差落在 12 ns 内')
     expect(rows[0].fom).not.toBe(rows[1].fom)
-    // and the column follows the reader's language, unlike the event-log line
-    expect(uwbRangeRows(tag, ZH)[0].fom).toBe('97 % 的误差落在 0.5 ns 内')
+    // The column is the reader's phrase, not the engine's own English one on the event-log line.
+    expect(rows[0].fom).not.toBe(fomText(FOM_LOS))
   })
 
   it('names the TWR method for the row title', () => {
@@ -64,26 +63,25 @@ describe('uwbRangeRows', () => {
   })
 
   it('has no rows before the first range lands', () => {
-    expect(uwbRangeRows({ ...tag, ranges: {} }, EN)).toEqual([])
+    expect(uwbRangeRows({ ...tag, ranges: {} }, S)).toEqual([])
   })
 })
 
 describe('uwbFixRow', () => {
   it('shows the estimate, the truth, the error, the GDOP and the ellipse axes', () => {
-    expect(uwbFixRow(tag.position!, EN)).toEqual({
+    expect(uwbFixRow(tag.position!, S)).toEqual({
       estimate: '(0.03, -0.04) m',
       truth: '(0.00, 0.00) m',
       error: '5.0 cm',
       gdop: '1.41',
       ellipse: '6.2 × 4.1 cm',
-      method: 'two-way ranging',
+      method: '双向测距 (TWR)',
     })
   })
 
-  it('names what solved the fix, in the reader’s language', () => {
-    expect(uwbFixRow(listener.position!, EN).method).toBe('DL-TDoA')
-    expect(uwbFixRow(listener.position!, ZH).method).toBe('下行到达时间差 (DL-TDoA)')
-    expect(uwbFixRow(tag.position!, ZH).method).toBe('双向测距 (TWR)')
+  it('names what solved the fix', () => {
+    expect(uwbFixRow(listener.position!, S).method).toBe('下行到达时间差 (DL-TDoA)')
+    expect(uwbFixRow(tag.position!, S).method).toBe('双向测距 (TWR)')
   })
 })
 
@@ -126,14 +124,12 @@ describe('uwbContendText', () => {
   const withDraw = (contend: UwbNodeView['contend']): UwbNodeView => ({ ...tag, role: 'anchor', contend })
 
   it('shows no row at all in a time-scheduled session, where nothing is ever drawn', () => {
-    expect(uwbContendText(tag, EN)).toBeNull()
+    expect(uwbContendText(tag, S)).toBeNull()
   })
 
-  it('names the slot and the attempt, and the sit-out in both languages', () => {
-    expect(uwbContendText(withDraw({ slot: 5, attempt: 2 }), EN)).toBe('slot 5 · attempt 2')
-    expect(uwbContendText(withDraw({ slot: 5, attempt: 2 }), ZH)).toBe('时隙 5 · 第 2 次尝试')
-    expect(uwbContendText(withDraw({ slot: null, attempt: 0 }), EN)).toBe('sitting this round out')
-    expect(uwbContendText(withDraw({ slot: null, attempt: 0 }), ZH)).toBe('本轮空过')
+  it('names the slot and the attempt, and the sit-out', () => {
+    expect(uwbContendText(withDraw({ slot: 5, attempt: 2 }), S)).toBe('时隙 5 · 第 2 次尝试')
+    expect(uwbContendText(withDraw({ slot: null, attempt: 0 }), S)).toBe('本轮空过')
   })
 })
 
@@ -143,12 +139,10 @@ describe('fomText', () => {
     expect(fomText(FOM_LOS)).toBe('97 % within 0.5 ns')
   })
 
-  it('the localised phrase says the same thing in both languages, the zero byte included', () => {
-    expect(uwbFomText(FOM_LOS, EN)).toBe(fomText(FOM_LOS))
-    expect(uwbFomText(FOM_NLOS, EN)).toBe(fomText(FOM_NLOS))
-    expect(uwbFomText(0, EN)).toBe('no FoM')
-    expect(uwbFomText(0, ZH)).toBe('无 FoM')
-    expect(uwbFomText(FOM_NLOS, ZH)).toBe('75 % 的误差落在 12 ns 内')
+  it('the localised phrase says the same thing as the engine’s, the zero byte included', () => {
+    expect(uwbFomText(FOM_LOS, S)).toBe('97 % 的误差落在 0.5 ns 内')
+    expect(uwbFomText(0, S)).toBe('无 FoM')
+    expect(uwbFomText(FOM_NLOS, S)).toBe('75 % 的误差落在 12 ns 内')
   })
 })
 
@@ -180,7 +174,7 @@ const mmsTag: UwbNodeView = {
 }
 
 describe('the fragment-train table', () => {
-  const rows = uwbTrainRows(mmsTag, EN)
+  const rows = uwbTrainRows(mmsTag, S)
 
   it('gives one row per peer and kind, with the train and how much of it arrived', () => {
     expect(rows.map((r) => [r.peer, r.kind, r.heard])).toEqual([
@@ -195,9 +189,9 @@ describe('the fragment-train table', () => {
 
   it('signs the margin, and shows a dash where nothing was heard at all', () => {
     expect(rows.map((r) => [r.margin, r.detected])).toEqual([
-      ['+1.8 dB', 'detected'],
-      ['—', 'lost'],
-      ['-1.2 dB', 'lost'],
+      ['+1.8 dB', S.trainYes],
+      ['—', S.trainNo],
+      ['-1.2 dB', S.trainNo],
     ])
     // The record's "nothing heard" sentinel never reaches the reader.
     expect(rows.map((r) => r.margin).join(' ')).not.toContain('999')
@@ -208,46 +202,40 @@ describe('the fragment-train table', () => {
   })
 
   it('is empty in every other mode, where no train is ever evaluated', () => {
-    expect(uwbTrainRows(tag, EN)).toEqual([])
+    expect(uwbTrainRows(tag, S)).toEqual([])
   })
 
-  it('reads in Chinese too', () => {
-    const zh = uwbTrainRows(mmsTag, ZH)
-    expect(zh[0].detected).toBe(ZH.trainYes)
-    expect(zh[1].detected).toBe(ZH.trainNo)
-    expect(zh[0].detected).not.toBe(rows[0].detected)
-  })
 })
 
 describe('the narrowband control rows', () => {
   it('names the channel and its centre frequency', () => {
-    expect(uwbNbChannelText(mmsTag, EN)).toBe('3 · 5733.75 MHz')
+    expect(uwbNbChannelText(mmsTag, S)).toBe('3 · 5733.75 MHz')
   })
 
   it('counts the busy checks and the blocks they cost', () => {
-    expect(uwbLbtText(mmsTag, EN)).toBe('2 busy · 2 blocks skipped')
+    expect(uwbLbtText(mmsTag, S)).toBe('2 次忙 · 跳过 2 个块')
   })
 
   it('shows neither row outside an MMS session', () => {
-    expect(uwbNbChannelText(tag, EN)).toBeNull()
-    expect(uwbLbtText(tag, EN)).toBeNull()
+    expect(uwbNbChannelText(tag, S)).toBeNull()
+    expect(uwbLbtText(tag, S)).toBeNull()
     // …nor the listen-before-talk row when every check this run was clear.
-    expect(uwbLbtText({ ...mmsTag, mms: { ...mmsTag.mms, lbtBusy: 0 } }, EN)).toBeNull()
+    expect(uwbLbtText({ ...mmsTag, mms: { ...mmsTag.mms, lbtBusy: 0 } }, S)).toBeNull()
   })
 })
 
 describe('the range row carries an integrity flag when the session has one', () => {
   it('says whether the integrity train vouched for the range', () => {
-    const row = uwbRangeRows(mmsTag, EN)[0]
-    expect(row.integrity).toBe(EN.integrityBad)
+    const row = uwbRangeRows(mmsTag, S)[0]
+    expect(row.integrity).toBe(S.integrityBad)
     const ok: UwbNodeView = {
       ...mmsTag,
       ranges: { 'anc-1': { ...mmsTag.ranges['anc-1'], integrity: true } },
     }
-    expect(uwbRangeRows(ok, EN)[0].integrity).toBe(EN.integrityOk)
+    expect(uwbRangeRows(ok, S)[0].integrity).toBe(S.integrityOk)
   })
 
   it('leaves it off a 4z range, which has no integrity train behind it', () => {
-    expect(uwbRangeRows(tag, EN).every((r) => r.integrity === undefined)).toBe(true)
+    expect(uwbRangeRows(tag, S).every((r) => r.integrity === undefined)).toBe(true)
   })
 })

@@ -6,8 +6,6 @@ import { ScenarioSchema, defaultScenario, type Scenario } from '../model/scenari
 import type { Ns } from '../model/types'
 import type { ViewState } from '../model/view'
 
-export type Lang = 'en' | 'zh'
-
 /** A frame block the user clicked on the timeline. */
 export interface FrameSelection {
   frame: FrameDesc
@@ -21,8 +19,6 @@ export interface FrameSelection {
 
 export interface UiState {
   mode: 'edit' | 'simulate' | 'course'
-  lang: Lang
-  setLang(l: Lang): void
   scenario: Scenario
   /** Edit history of `scenario`. Read it for canUndo/canRedo; write it only through the actions. */
   history: History<Scenario>
@@ -117,29 +113,10 @@ function remember(key: string, value: string | null) {
   }
 }
 
-function initialLang(): Lang {
-  try {
-    const l = typeof localStorage !== 'undefined' ? localStorage.getItem('wifi-sim.lang') : null
-    if (l === 'zh' || l === 'en') return l
-  } catch {
-    // default below
-  }
-  return 'zh'
-}
-
 const startScenario = initialScenario()
 
 export const useUi = create<UiState>((set, get) => ({
   mode: 'edit',
-  lang: initialLang(),
-  setLang(l) {
-    try {
-      localStorage.setItem('wifi-sim.lang', l)
-    } catch {
-      // storage unavailable — keep in-memory only
-    }
-    set({ lang: l })
-  },
   scenario: startScenario,
   history: historyInit(startScenario),
   playheadNs: 0,
