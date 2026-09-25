@@ -497,6 +497,7 @@ describe("a lesson's track", () => {
     "streams":                  "wifi",
     "rate":                     "wifi",
     "rate-fallback":            "wifi",
+    "rate-cost":                "wifi",
     "ofdma-dl":                 "wifi",
     "ofdma-ul":                 "wifi",
     "mumimo":                   "wifi",

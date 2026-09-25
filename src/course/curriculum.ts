@@ -100,7 +100,7 @@ export const COURSE_ORDER: string[] = [
   // Tier 2 — M3 QoS and efficiency
   'edca', 'edca-cost', 'ampdu', 'txop', 'txop-protect', 'protect-policies',
   // Tier 2 — M4 capacity knobs and rate control
-  'width', 'streams', 'rate', 'rate-fallback',
+  'width', 'streams', 'rate', 'rate-fallback', 'rate-cost',
   // Tier 2 — M7 scheduled Wi-Fi 6/7
   'ofdma-dl', 'ofdma-ul', 'mumimo', 'mlo',
   // Tier 2 — M8 ambient power IoT

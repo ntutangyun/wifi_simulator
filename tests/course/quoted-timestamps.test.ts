@@ -74,7 +74,7 @@ function checkVariant(sc: ReturnType<(typeof LESSONS)[0]['scenario']>, q: PhyQuo
   expect(one(acks.map((r) => r.frame.txTimeNs)), `${q.label}: ACK airtime`).toBe(28_000)
 }
 
-it('lesson 15 quotes the airtimes, symbol counts and MCS its own variants produce', () => {
+it('`width` quotes the airtimes, symbol counts and MCS its own variants produce', () => {
   const l = LESSONS.find((x) => x.id === 'width')!
   const quotes: PhyQuote[] = [
     { label: '20 MHz', widthMhz: 20, mcs: 13, mbps: 172.1, airtimeNs: 129_600, symbols: 6 },
@@ -89,7 +89,7 @@ it('lesson 15 quotes the airtimes, symbol counts and MCS its own variants produc
   checkVariant(l.scenario(), quotes[3])
 })
 
-it('lesson 16 quotes the airtimes its own variants produce, and negotiates down', () => {
+it('`streams` quotes the airtimes its own variants produce, and negotiates down', () => {
   const l = LESSONS.find((x) => x.id === 'streams')!
   const quotes: PhyQuote[] = [
     { label: '1 stream', widthMhz: 20, mcs: 13, mbps: 172.1, airtimeNs: 129_600, symbols: 6 },
@@ -108,7 +108,7 @@ it('lesson 16 quotes the airtimes its own variants produce, and negotiates down'
   expect(nssOf(mixed.nodes.find((n) => n.id === 'sta-1')!)).toBe(2)
 })
 
-it('lesson 15’s far-corner experiment breaks the widest channel and only the widest', () => {
+it('`width`’s far-corner experiment breaks the widest channel and only the widest', () => {
   const l = LESSONS.find((x) => x.id === 'width')!
   // "drag the laptop into the far corner of the living room, through the brick wall"
   const far = (i: number) => {
@@ -149,7 +149,7 @@ it('lesson 15’s far-corner experiment breaks the widest channel and only the w
  * either edge. A silent drift of half a decibel would turn the paragraph into a
  * lie, so the whole ladder is pinned, MCS included.
  */
-it('lesson 15’s second experiment position really inverts 80 → 160 MHz, with every frame delivered', () => {
+it('`width`’s second experiment position really inverts 80 → 160 MHz, with every frame delivered', () => {
   const l = LESSONS.find((x) => x.id === 'width')!
   const walk = (i: number) => {
     const sc = l.variants![i].scenario()
@@ -205,7 +205,7 @@ it('lesson 15’s second experiment position really inverts 80 → 160 MHz, with
  * 65.6 µs figures (fix round 1, F2), and the measured share of trimmed members
  * that get their own single-user PPDU immediately after (fix round 1, F1).
  */
-it('lesson 17 quotes the OFDMA and MU-MIMO PPDUs its own variants produce', () => {
+it('the scheduled-Wi-Fi lessons quote the OFDMA and MU-MIMO PPDUs its own variants produce', () => {
   const l = LESSONS.find((x) => x.id === 'mumimo')!
   type MuTx = Extract<TLRecord, { type: 'TX_START' }> & { frame: { muParts: NonNullable<Extract<TLRecord, { type: 'TX_START' }>['frame']['muParts']> } }
   const muRecords = (v: NonNullable<(typeof l)['variants']>[number]): MuTx[] => {
@@ -283,7 +283,7 @@ it('lesson 17 quotes the OFDMA and MU-MIMO PPDUs its own variants produce', () =
  * absorbing them with ever-thinner slices: the group stops at four and no slice goes below a
  * quarter, while MU-MIMO stays at two however many phones there are (fix round 2, I1).
  */
-it('lesson 17’s added-phones experiment caps the OFDMA group at four and MU-MIMO at two', () => {
+it('the added-phones experiment caps the OFDMA group at four and MU-MIMO at two', () => {
   const l = LESSONS.find((x) => x.id === 'mumimo')!
   const withPhones = (variant: number, extra: number) => {
     const base = l.variants![variant].scenario()
@@ -312,12 +312,14 @@ it('lesson 17’s added-phones experiment caps the OFDMA group at four and MU-MI
 })
 
 /**
- * `rate` and `rate-fallback` quote the far station's per-MCS airtime, its MCS 2 ceiling, the
- * shape of its excursions below that ceiling over a 3 s run, and the near station's unmoving
- * MCS 11. Pinned here so a PHY or traffic drift breaks this test, not a reader's trust in the
- * prose; each of the two lessons also holds its own claims in its own test file.
+ * `rate`, `rate-fallback` and `rate-cost` quote the far station's per-MCS airtime, its MCS 2
+ * ceiling, the shape of its excursions below that ceiling over a 3 s run, and the near
+ * station's unmoving MCS 11. The airtime tax below belongs to `rate-cost` since M9 was
+ * re-paced; the scene is unchanged, so the assertions are too. Pinned here so a PHY or traffic
+ * drift breaks this test, not a reader's trust in the prose; each lesson also holds its own
+ * claims in its own test file.
  */
-it('lesson 18 quotes the far station\u2019s airtimes/excursions and the near station\u2019s unmoving ceiling', () => {
+it('the rate lessons quote the far station\u2019s airtimes/excursions and the near station\u2019s unmoving ceiling', () => {
   const l = LESSONS.find((x) => x.id === 'rate')!
   const recs = [...new Simulation(l.scenario()).runUntil(3_000_000_000).records]
   const far = recs.filter((r): r is Extract<TLRecord, { type: 'TX_START' }> =>
@@ -385,7 +387,7 @@ it('lesson 18 quotes the far station\u2019s airtimes/excursions and the near sta
  * point, a same-slot tie is not a mutual collision: the access point decodes the near preamble
  * and only the far frame dies, so the run contains no COLLISION record at all.
  */
-it('lesson 18\u2019s per-attempt loss rates, the backoff freeze and the airtime tax', () => {
+it('the rate lessons\u2019 per-attempt loss rates, the backoff freeze and the airtime tax', () => {
   const l = LESSONS.find((x) => x.id === 'rate')!
   const recs = [...new Simulation(l.scenario()).runUntil(3_000_000_000).records]
   type Tx = Extract<TLRecord, { type: 'TX_START' }>
@@ -474,7 +476,7 @@ it('lesson 18\u2019s per-attempt loss rates, the backoff freeze and the airtime 
  * nothing at all (the run is frame-for-frame identical); two metres raises the ceiling. Both
  * halves of the bullet, and the third-uploader experiment, are pinned here.
  */
-it('lesson 18\u2019s try-this really needs two metres, and a third uploader really floors the rate', () => {
+it('`rate-cost`\u2019s try-this really needs two metres, and a third uploader really floors the rate', () => {
   const l = LESSONS.find((x) => x.id === 'rate')!
   const RUN = 3_000_000_000
   type Tx = Extract<TLRecord, { type: 'TX_START' }>
@@ -547,7 +549,7 @@ it('lesson 18\u2019s try-this really needs two metres, and a third uploader real
  * addition to the two single-user call sites). Measured by counting what the rate controller
  * is actually told during lesson 17's OFDMA run (followups: symmetric MU downlink reporting).
  */
-it('lesson 18’s claim that multi-user PPDUs report an outcome to the rate controller', () => {
+it('the rate lessons’ claim that multi-user PPDUs report an outcome to the rate controller', () => {
   const l = LESSONS.find((x) => x.id === 'mumimo')!
   const PHONES = new Set(['sta-1', 'sta-2', 'sta-3'])
   const reports: { peer: string; ok: boolean }[] = []

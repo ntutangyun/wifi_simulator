@@ -84,6 +84,7 @@
   "streams#4": "e08ab163",
   "rate": "3e219398",
   "rate-fallback": "3e219398",
+  "rate-cost": "3e219398",
   "ofdma-dl": "9fc8e9a3",
   "ofdma-ul": "ef39d8e1",
   "mumimo": "f763c72b",
