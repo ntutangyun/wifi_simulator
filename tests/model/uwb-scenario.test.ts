@@ -465,6 +465,10 @@ describe('the MMS draft-feature fields', () => {
   // uwbdControl defaults to 'sp0'; under control: 'nba' it is ignored, and the schema
   // refuses 'none' there rather than silently carrying a setting that does nothing.
   const mms = (over: Record<string, unknown>) => ({ ...base, ...over })
+  // Config 1 has no narrowband radio, so a UWB-driven object carries neither a channel allow
+  // list nor a listen-before-talk setting — the rule at the end of this block.
+  const uwbd = (over: Record<string, unknown> = {}) =>
+    mms({ control: 'uwbd', nbChannels: [], nbLbt: 'off', ...over })
 
   it('defaults reproduce todays session', () => {
     const p = UwbMmsSchema.parse(base)
@@ -481,7 +485,7 @@ describe('the MMS draft-feature fields', () => {
   })
 
   it('accepts a zero-length control phase under UWB-driven control', () => {
-    expect(UwbMmsSchema.safeParse(mms({ control: 'uwbd', uwbdControl: 'none' })).success).toBe(true)
+    expect(UwbMmsSchema.safeParse(uwbd({ uwbdControl: 'none' })).success).toBe(true)
   })
 
   it('refuses rsfSfd outside UWB-driven control', () => {
@@ -489,12 +493,12 @@ describe('the MMS draft-feature fields', () => {
   })
 
   it('refuses rsfSfd at an RSF length the draft does not allow', () => {
-    expect(UwbMmsSchema.safeParse(mms({ control: 'uwbd', rsfSfd: true, nMsr: 128 })).success).toBe(false)
+    expect(UwbMmsSchema.safeParse(uwbd({ rsfSfd: true, nMsr: 128 })).success).toBe(false)
   })
 
   it('accepts rsfSfd at 32 and 64 under UWB-driven control', () => {
     for (const nMsr of [32, 64]) {
-      expect(UwbMmsSchema.safeParse(mms({ control: 'uwbd', rsfSfd: true, nMsr })).success).toBe(true)
+      expect(UwbMmsSchema.safeParse(uwbd({ rsfSfd: true, nMsr })).success).toBe(true)
     }
   })
 
@@ -516,6 +520,19 @@ describe('the MMS draft-feature fields', () => {
 
   it('refuses reversed order in interleaved mode', () => {
     expect(UwbMmsSchema.safeParse(mms({ reversedOrder: true })).success).toBe(false)
+  })
+
+  it('refuses a narrowband channel list or a listen-before-talk setting under UWB-driven control', () => {
+    expect(UwbMmsSchema.safeParse(mms({ control: 'uwbd', nbChannels: [3], nbLbt: 'off' })).success).toBe(false)
+    expect(UwbMmsSchema.safeParse(mms({ control: 'uwbd', nbChannels: [], nbLbt: 'auto' })).success).toBe(false)
+    expect(UwbMmsSchema.safeParse(mms({ control: 'uwbd', nbChannels: [], nbLbt: 'on' })).success).toBe(false)
+    expect(UwbMmsSchema.safeParse(uwbd()).success).toBe(true)
+  })
+
+  it('still needs the narrowband settings under narrowband-assisted control', () => {
+    // The list is judged in the scenario's own refinement (1…250 distinct channels); what this
+    // rule must not do is let Config 2 drop the radio its control plane runs on.
+    expect(UwbMmsSchema.safeParse(mms({ nbChannels: [3], nbLbt: 'auto' })).success).toBe(true)
   })
 
   it('carries the drafts own bounds for the two RSTU constants', () => {

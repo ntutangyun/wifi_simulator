@@ -6,7 +6,9 @@
  */
 import type { FrameDesc, FrameKind } from '../model/frames'
 import type { Ns } from '../model/types'
-import { mmsFragmentDbm, rifNs, rsfNs, type MmsPhy } from './mms'
+import {
+  mmsFragmentDbm, MMS_SP0_MBPS, MMS_SP0_NS, MMS_SP0_PSDU_BYTES, rifNs, rsfNs, type MmsPhy,
+} from './mms'
 import {
   NB_MSG_ID, NB_POLL_BYTES, NB_REPORT_BYTES, NB_RESP_BYTES, nbCenterMhz, nbOtmPollBytes, nbPpduNs,
 } from './nb'
@@ -20,6 +22,10 @@ export type UwbFrameKind =
   // P802.15.4ab: the two multi-millisecond fragment kinds and the three narrowband messages of
   // the control plane. 4ab draft 15-23/0100r2 §2.3.2 / 15-22/0381r5 Table 1.6.3.1
   | 'uwbRsf' | 'uwbRif' | 'nbPoll' | 'nbResp' | 'nbReport'
+  // …and the same three messages under Config 1, where there is no narrowband radio to carry
+  // them: one SP0 (BASIC_PACKET) frame format on the HRP UWB PHY, with the role in its content.
+  // 4ab draft 15-25/0194r0
+  | 'uwbSp0'
 
 // Both predicates take the whole `FrameKind` union, not just the UWB half: their callers hold a
 // `FrameDesc.kind` (a lane, the timeline, a decoder), and narrowing at the call site would only
@@ -91,6 +97,24 @@ export interface UwbNbMsg {
   responders?: string[]
 }
 
+/**
+ * An SP0 (BASIC_PACKET) control message of the UWB-driven control plane: which of the three
+ * messages it is, and whichever time it carries. 4ab draft 15-25/0194r0
+ *
+ * There is no channel field, because there is no second radio: an SP0 frame goes out on the
+ * session's own UWB channel, at the UWB transmit power and against the UWB sensitivity. And
+ * there is no message-ID octet, because the draft's message ids belong to the narrowband
+ * compressed PSDUs (15-22/0381r5 Table 1.6.3.1) and nothing this engine has read gives the SP0
+ * content's own layout — the role is carried here as the role it is.
+ */
+export interface UwbSp0Msg {
+  role: 'poll' | 'resp' | 'report'
+  /** Responder's REPORT: the ReplyTime it measured, in RCTU. */
+  replyRctu?: number
+  /** Initiator's REPORT: the TurnAroundTime it measured, in RCTU. */
+  roundTripRctu?: number
+}
+
 /** The ranging fields of a UWB frame; present on the UWB kinds only. */
 export interface UwbInfo {
   sp: 1
@@ -117,6 +141,8 @@ export interface UwbInfo {
   mms?: UwbMmsFrag
   /** Narrowband message (`nbPoll` / `nbResp` / `nbReport`): the control-plane fields. */
   nb?: UwbNbMsg
+  /** SP0 control frame (`uwbSp0`): the same control plane, on the UWB PHY. */
+  sp0?: UwbSp0Msg
 }
 
 /**
@@ -395,3 +421,72 @@ export function makeNbReport(
   })
 }
 
+// --- P802.15.4ab: the UWB-driven control plane -------------------------------------
+
+/**
+ * One SP0 control frame: the POLL, the RESP or the REPORT of a Config 1 round, carried on the
+ * HRP UWB PHY because Config 1 has no narrowband radio at all.
+ *
+ * Its airtime is the packet format's own — `MMS_SP0_NS`, the draft's short-packet total — and
+ * never bytes ÷ rate: an SP0 packet's length is its SYNC, SFD, PHR and PSDU fields, which is
+ * what `uwbPpduLayout` draws. Its octets are `MMS_SP0_PSDU_BYTES`, the same for all three
+ * messages, which is why one duration serves them all.
+ *
+ * It carries no `nb` block, and that is load-bearing rather than tidy: the channel model reads
+ * `uwb.nb` to decide which radio a frame is on, so an SP0 frame priced as a narrowband message
+ * would be transmitted at 10 dBm against a −100 dBm receiver and the whole point of Config 1 —
+ * that the control plane now lives inside the UWB link budget — would be gone.
+ * 4ab draft 15-25/0194r0
+ */
+function sp0Frame(
+  src: string, dst: string, block: number, round: number, slot: number, sp0: UwbSp0Msg,
+): FrameDesc {
+  return {
+    kind: 'uwbSp0', src, dst, bytes: MMS_SP0_PSDU_BYTES, mbps: MMS_SP0_MBPS,
+    durationFieldNs: 0, txTimeNs: MMS_SP0_NS,
+    uwb: {
+      // As for a fragment and a narrowband message: the TWR flavour lives on the ranging side,
+      // and this only carries the shape `UwbInfo` asks of every ranging frame.
+      sp: 1, method: 'ss', block, round, slot, ies: [], sp0,
+    },
+  }
+}
+
+/** The initiator's SP0 POLL, which opens a UWB-driven round.
+ *
+ * A one-to-many round broadcasts it, and — unlike the narrowband one-to-many POLL — it names no
+ * responders: the table gives the SP0 packet one PSDU length, and stretching it by three octets
+ * per address would be this engine's invention. A responder acts on the POLL because the round
+ * it was given lists it, which is the same check `onMmsSlot` already makes of every slot it
+ * touches. 4ab draft 15-25/0194r0 */
+export function makeSp0Poll(
+  tag: string, dst: string, block: number, round: number, slot: number,
+): FrameDesc {
+  return sp0Frame(tag, dst, block, round, slot, { role: 'poll' })
+}
+
+/** The responder's SP0 RESP: it acquired the POLL and will range. 4ab draft 15-25/0194r0 */
+export function makeSp0Resp(
+  anchor: string, tag: string, block: number, round: number, slot: number,
+): FrameDesc {
+  return sp0Frame(anchor, tag, block, round, slot, { role: 'resp' })
+}
+
+/** An SP0 measurement report, in the report window its sender owns — the responder's ReplyTime
+ * or the initiator's TurnAroundTime, exactly as the narrowband REPORT carries them and for the
+ * same reason: the ranging phase transmits nothing but fragments, so the times have to travel in
+ * a frame of their own. 4ab draft 15-25/0194r0 */
+export function makeSp0Report(
+  src: string, dst: string, block: number, round: number, slot: number,
+  times: { replyRctu?: number; roundTripRctu?: number },
+): FrameDesc {
+  if (times.replyRctu === undefined && times.roundTripRctu === undefined) {
+    throw new Error(`makeSp0Report: ${src} built a REPORT with neither a reply nor a round-trip time`)
+  }
+  return sp0Frame(src, dst, block, round, slot, {
+    role: 'report',
+    // Absent, not undefined, so a REPORT compares equal to a hand-built one.
+    ...(times.replyRctu !== undefined ? { replyRctu: times.replyRctu } : {}),
+    ...(times.roundTripRctu !== undefined ? { roundTripRctu: times.roundTripRctu } : {}),
+  })
+}

@@ -17,7 +17,8 @@ import type { DecodedFrame, FieldKey, FrameField, PpduSegment } from '../model/f
 import { STRINGS } from '../ui/i18n'
 import type { FrameDesc } from '../model/frames'
 import type { Ns } from '../model/types'
-import type { UwbFrameKind, UwbInfo, UwbMmsFrag, UwbNbMsg } from './frames'
+import type { UwbFrameKind, UwbInfo, UwbMmsFrag, UwbNbMsg, UwbSp0Msg } from './frames'
+import { MMS_SP0_SEGMENT_NS } from './mms'
 import {
   NB_ADDR_BYTES, NB_CRC_BYTES, NB_MSG_ID, NB_MSG_ID_BYTES, NB_OTM_POLL_BYTES, NB_PHR_SYMBOLS,
   NB_REPORT_TIME_BYTES, NB_SHR_SYMBOLS,
@@ -40,10 +41,16 @@ const SUBTYPE: Record<UwbFrameKind, string> = {
   uwbBlink: 'UWB Blink',
   uwbRsf: 'MMS Ranging Fragment', uwbRif: 'MMS Integrity Fragment',
   nbPoll: 'Narrowband POLL', nbResp: 'Narrowband RESP', nbReport: 'Narrowband REPORT',
+  uwbSp0: 'SP0 Control Frame',
 }
 
 /** The prose half of every row below: standard tokens stay, the words around them are Chinese. */
 const V = STRINGS.frameDetail.fields.uwbValue
+
+/** The SP0 content's leading octet: which of the control plane's three messages this is. The
+ * narrowband messages spend one octet on a message ID (`NB_MSG_ID_BYTES`) and the SP0 content has
+ * the same job to do, so it is charged the same one octet. model */
+const SP0_ROLE_BYTES = NB_MSG_ID_BYTES
 
 const hex16 = (v: number) => `0x${v.toString(16).padStart(4, '0')}`
 const hex8 = (v: number) => `0x${v.toString(16).padStart(2, '0')}`
@@ -239,15 +246,42 @@ function nbFields(nb: UwbNbMsg, bytes: number): FrameField[] {
   ]
 }
 
+/**
+ * One SP0 control frame (P802.15.4ab Config 1). It is the same control plane as the narrowband
+ * trio — the role, and on a REPORT the one time the range is computed from — carried in a
+ * BASIC_PACKET on the UWB PHY. There is no channel row, because there is no second radio to
+ * name; the rest of the PSDU is modelled as the octets it costs, as the narrowband messages'
+ * table fields are. 4ab draft 15-25/0194r0
+ */
+function sp0Fields(sp0: UwbSp0Msg, bytes: number): FrameField[] {
+  const time = sp0.replyRctu ?? sp0.roundTripRctu
+  const timeBytes = time === undefined ? 0 : NB_REPORT_TIME_BYTES
+  const rest = bytes - SP0_ROLE_BYTES - timeBytes - NB_CRC_BYTES
+  return [
+    { key: 'sp0Role', bytes: SP0_ROLE_BYTES, value: V.sp0Role[sp0.role] },
+    ...(time !== undefined
+      ? [{
+        key: 'nbTime' as const, bytes: timeBytes,
+        value: sp0.replyRctu !== undefined ? V.replyTime(rctuText(time)) : V.nbTurnAround(rctuText(time)),
+      }]
+      : []),
+    { key: 'sp0Fields', bytes: rest, value: V.sp0Rest(rest) },
+    { key: 'fcs', bytes: NB_CRC_BYTES, value: 'CRC-16' },
+  ]
+}
+
 /** MHR + payload IEs + FCS of one ranging frame. */
 export function uwbFrameFields(f: FrameDesc): DecodedFrame {
   const u = f.uwb!
   const kind = f.kind as UwbFrameKind
   // P802.15.4ab: neither of the two new PHYs carries a 4z MAC header, so neither goes through
   // the MHR + IE decoder below.
-  if (u.mms || u.nb) {
+  if (u.mms || u.nb || u.sp0) {
     const nb = u.nb
-    const fields = u.mms ? mmsFields(u.mms, f.txTimeNs) : nb ? nbFields(nb, f.bytes) : []
+    const fields = u.mms ? mmsFields(u.mms, f.txTimeNs)
+      : nb ? nbFields(nb, f.bytes)
+      : u.sp0 ? sp0Fields(u.sp0, f.bytes)
+      : []
     const bytes = fields.reduce((sum, x) => sum + x.bytes, 0)
     if (bytes !== f.bytes) throw new Error(`uwbFrameFields: ${bytes} B decoded, engine size ${f.bytes} B`)
     return {
@@ -326,6 +360,7 @@ export function uwbPpduLayout(f: FrameDesc): PpduSegment[] {
   // every UWB frame here, so the dispatch belongs here and not at each caller.
   if (f.uwb?.mms) return mmsPpduLayout(f)
   if (f.uwb?.nb) return nbPpduLayout(f)
+  if (f.uwb?.sp0) return sp0PpduLayout()
   const head = SYNC_NS + SFD_NS + 2 * STS_GAP_NS + STS_NS + PHR_NS
   return [
     { key: 'sync', durNs: SYNC_NS },
@@ -347,6 +382,25 @@ export function uwbPpduLayout(f: FrameDesc): PpduSegment[] {
  */
 export function mmsPpduLayout(f: FrameDesc): PpduSegment[] {
   return [{ key: 'mmsFrag', durNs: f.txTimeNs, rmarkerNs: 0 }]
+}
+
+/**
+ * The SP0 (BASIC_PACKET) PPDU of Config 1, drawn from the four cells of the draft's own
+ * acquisition table: SYNC 46.7 µs, SFD 5.8 µs, PHR 12.8 µs, PSDU 52.3 µs. It takes no
+ * `FrameDesc`, because every SP0 control frame is the same length — which is the point being
+ * shown here, next to a SYNC+SFD fragment four times shorter and 6.3 dB louder.
+ *
+ * The RMARKER sits where it does in any packet with a preamble: at the first chip after the SFD.
+ * 4ab draft 15-25/0194r0
+ */
+export function sp0PpduLayout(): PpduSegment[] {
+  const s = MMS_SP0_SEGMENT_NS
+  return [
+    { key: 'sync', durNs: s.sync },
+    { key: 'sfd', durNs: s.sfd },
+    { key: 'phr', durNs: s.phr, rmarkerNs: s.sync + s.sfd },
+    { key: 'psdu', durNs: s.psdu },
+  ]
 }
 
 /** The narrowband PPDU: 10 SHR symbols, 2 PHR symbols, then two symbols an octet, all at

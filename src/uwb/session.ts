@@ -82,7 +82,9 @@ export interface MmsRoundPlan {
    */
   fragGapNs: Ns
   report: NbReportMode
-  /** The session's narrowband allow list; the block's own channel is drawn from it per block. */
+  /** The session's narrowband allow list; the block's own channel is drawn from it per block.
+   * **Empty under Config 1**, which has no narrowband radio at all — so no channel is drawn and
+   * `nbLbt` has nothing to sense. 4ab draft 15-25/0194r0 */
   nbChannels: number[]
   nbLbt: NbLbt
 }
@@ -150,6 +152,12 @@ export type SlotAction =
   | { kind: 'nbResp'; tx: 'anchor'; anchor: number }
   | { kind: 'uwbRsf' | 'uwbRif'; tx: 'tag' | 'anchor'; anchor: number; index: number }
   | { kind: 'nbReport'; tx: 'tag' | 'anchor'; anchor: number }
+  // …and the same three messages under Config 1, which has no narrowband radio: one SP0 packet
+  // format on the UWB PHY, with the role that names it. The slot is the same slot — it is the
+  // radio underneath that changed. 4ab draft 15-25/0194r0
+  | { kind: 'uwbSp0'; role: 'poll'; tx: 'tag' }
+  | { kind: 'uwbSp0'; role: 'resp'; tx: 'anchor'; anchor: number }
+  | { kind: 'uwbSp0'; role: 'report'; tx: 'tag' | 'anchor'; anchor: number }
   /** Nobody transmits: the second slot of each two-slot narrowband window, a ranging slot the
    * train does not reach, and a report slot the session's report mode does not use. */
   | { kind: 'idle' }
@@ -207,15 +215,31 @@ function mmsSlotAction(p: RoundPlan, slot: number): SlotAction {
     throw new Error(`slotAction: MMS round has ${p.slots} slots, asked for ${slot}`)
   }
   const { layout, report } = m
+  // Which radio the round's three control messages ride. Config 2's are narrowband frames;
+  // Config 1 has no narrowband radio, so the same three are SP0 packets on the UWB PHY. The slot
+  // table below does not change with it — only what is put in the slot. 4ab draft 15-25/0194r0
+  const sp0 = m.phy.control === 'uwbd'
   // --- control ---
   // The initiator's POLL opens the round, and every responder then answers in a RESP window of
   // its own — one window in a pair round, N in a one-to-many one, in responder order (4ab draft
   // 15-22/0381r5 Table 1.6.3.1, POLL 0x10 carries the responder list its slots follow). Where
   // those windows are is the layout's business: gathered at the top of an interleaved round, one
   // at the head of each sub-round otherwise.
-  if (slot === layout.pollSlot()) return { kind: 'nbPoll', tx: 'tag' }
-  for (let k = 0; k < layout.responders; k++) {
-    if (slot === layout.respSlot(k)) return { kind: 'nbResp', tx: 'anchor', anchor: k }
+  //
+  // …and whether there are any is the control plane's: a zero-length control phase has no POLL
+  // and no RESP window at all, so the layout is not asked where they are. The ranging packet's
+  // own leading SYNC+SFD fragment is doing their work, and it is a fragment slot like any other.
+  if (layout.controlSlots > 0) {
+    if (slot === layout.pollSlot()) {
+      return sp0 ? { kind: 'uwbSp0', role: 'poll', tx: 'tag' } : { kind: 'nbPoll', tx: 'tag' }
+    }
+    for (let k = 0; k < layout.responders; k++) {
+      if (slot === layout.respSlot(k)) {
+        return sp0
+          ? { kind: 'uwbSp0', role: 'resp', tx: 'anchor', anchor: k }
+          : { kind: 'nbResp', tx: 'anchor', anchor: k }
+      }
+    }
   }
   // --- ranging ---
   // The one map, read backwards: `mmsLayout.slotFragment` is built from the same arithmetic as
@@ -234,12 +258,23 @@ function mmsSlotAction(p: RoundPlan, slot: number): SlotAction {
     }
   }
   // --- report ---
-  for (let k = 0; k < layout.responders; k++) {
-    if (slot === layout.reportSlot('responder', k)) {
-      return report === 'initiator' ? { kind: 'idle' } : { kind: 'nbReport', tx: 'anchor', anchor: k }
-    }
-    if (slot === layout.reportSlot('initiator', k)) {
-      return report === 'responder' ? { kind: 'idle' } : { kind: 'nbReport', tx: 'tag', anchor: k }
+  // Gone with the control phase when that is zero-length: with the poll and the response being
+  // the packet itself there is no compact frame left for a time to travel in, so the draft's
+  // figure has neither phase. 4ab draft 15-25/0194r0
+  if (layout.reportSlots > 0) {
+    for (let k = 0; k < layout.responders; k++) {
+      if (slot === layout.reportSlot('responder', k)) {
+        if (report === 'initiator') return { kind: 'idle' }
+        return sp0
+          ? { kind: 'uwbSp0', role: 'report', tx: 'anchor', anchor: k }
+          : { kind: 'nbReport', tx: 'anchor', anchor: k }
+      }
+      if (slot === layout.reportSlot('initiator', k)) {
+        if (report === 'responder') return { kind: 'idle' }
+        return sp0
+          ? { kind: 'uwbSp0', role: 'report', tx: 'tag', anchor: k }
+          : { kind: 'nbReport', tx: 'tag', anchor: k }
+      }
     }
   }
   return { kind: 'idle' }

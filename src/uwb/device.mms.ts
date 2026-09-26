@@ -1,8 +1,14 @@
 /**
- * P802.15.4ab narrowband-assisted multi-millisecond (MMS) ranging for `UwbDevice`: the narrowband
- * control exchange, the RSF/RIF fragment trains and their combining detector, and the block fix
- * they feed. Split out of device.ts (pure move); every function here takes the device as its
- * first argument.
+ * P802.15.4ab multi-millisecond (MMS) ranging for `UwbDevice`: the control exchange, the RSF/RIF
+ * fragment trains and their combining detector, and the block fix they feed. Split out of
+ * device.ts (pure move); every function here takes the device as its first argument.
+ *
+ * The control exchange has three shapes, and which one runs is the session's `control` /
+ * `uwbdControl` (4ab draft 15-25/0194r0). Config 2 sends its POLL, RESP and REPORT on the
+ * narrowband radio. Config 1 has no narrowband radio: the same three messages become SP0 packets
+ * on the UWB PHY, or — with the control phase zero-length — are not sent at all, and the ranging
+ * packet's own leading SYNC+SFD fragment is the poll and the response. Everything below asks the
+ * round which shape it is rather than assuming the narrowband one.
  *
  * A round has one initiator and R responders. R = 1 is the pairwise cycle — one tag, one anchor,
  * one round per pair in a block — and R = N is the draft's **one-to-many** round, where the
@@ -21,7 +27,8 @@ import type { UwbRxInfo } from './channel'
 import { counterDiff, gaussian } from './clock'
 import {
   makeNbPoll, makeNbPollOtm, makeNbReport, makeNbResp, makeRif, makeRsf,
-  UWB_BROADCAST, type UwbFrameKind, type UwbInfo,
+  makeSp0Poll, makeSp0Report, makeSp0Resp,
+  UWB_BROADCAST, type UwbFrameKind, type UwbInfo, type UwbSp0Msg,
 } from './frames'
 import {
   acquired, combineGainDb, MS_NS, MS_RCTU, rmarkerFromFragment, trainDetected,
@@ -69,8 +76,21 @@ export interface MmsPeerState {
   /** This peer's index in the round's responder list — the slots it owns. At a responder it is
    * that responder's own index, because the peer there is the initiator. */
   responder: number
-  /** Initiator: this responder's RESP arrived. Responder: it answered the POLL. Only a primed
-   * peer transmits fragments to, or listens for fragments from, the other end. */
+  /**
+   * This device knows there is a peer at the other end of the round. Only a primed peer's train
+   * is closed out and turned into times.
+   *
+   * Where that knowledge comes from is the whole of the difference between the draft's two
+   * configurations, and it is the causal chain the course teaches. Config 2: the narrowband
+   * exchange — the initiator's RESP arrived, or the responder answered a POLL — so both ends hold
+   * the same time base before a fragment goes out and the receiver accumulates blind. Config 1
+   * with SP0: the same exchange, but the frame that carried it was an SP0 packet on the UWB PHY,
+   * so being primed *is* having acquired that packet, inside the UWB link budget and 4 dB worse
+   * than the ranging packet's own SYNC+SFD. Config 1 with no control phase at all: there is no
+   * message to be primed by, so **acquiring the packet is the priming** — the first fragment this
+   * device hears is the poll and the response, and a device that hears none never learns the peer
+   * was there. 4ab draft 15-25/0194r0
+   */
   primed: boolean
   /** The peer's fragments, per kind, in the order they arrived (which is index order). */
   frags: { rsf: TrainFragment[]; rif: TrainFragment[] }
@@ -90,13 +110,16 @@ export interface MmsPeerState {
 /**
  * What one device holds for one MMS round (P802.15.4ab). Null in every other mode.
  *
- * The round has two halves and a device may reach neither: the narrowband control exchange
- * *primes* it (the initiator when its POLL is answered, the responder when it answers one), and
- * only a primed device transmits fragments or listens for them.
+ * The round has two halves and a device may reach neither: the control exchange *primes* it (the
+ * initiator when its POLL is answered, the responder when it answers one), and only a primed
+ * device transmits fragments or listens for them — unless there is no control exchange, where
+ * the packet itself does that job (`MmsPeerState.primed`).
  */
 export interface MmsRoundState {
-  /** The narrowband channel this block hops to; the network draws it and both ends are told. */
-  nbChannel: number
+  /** The narrowband channel this block hops to; the network draws it and both ends are told.
+   * **Null under Config 1**, which has no narrowband radio to hop — and nothing here reads it
+   * there, because nothing of that round goes out on the narrowband side. */
+  nbChannel: number | null
   /** The round's POLL happened at this device: the initiator transmitted one, or the responder
    * received one. An initiator whose listen-before-talk check was busy never polled, and so has
    * no cycle to wait for a RESP of — the draft's discontinuation, on the initiator's side. */
@@ -112,7 +135,7 @@ export interface MmsRoundState {
   responders: string[]
 }
 
-export function freshMms(_plan: MmsRoundPlan, nbChannel: number): MmsRoundState {
+export function freshMms(_plan: MmsRoundPlan, nbChannel: number | null): MmsRoundState {
   return { nbChannel, polled: false, txRmarker: null, peers: new Map(), responders: [] }
 }
 
@@ -140,6 +163,54 @@ function anyPrimed(m: MmsRoundState): boolean {
   return false
 }
 
+/**
+ * Whether this round has a control exchange to be permitted by.
+ *
+ * With one — Config 2's narrowband messages, or Config 1's SP0 packets — an unprimed device
+ * neither transmits a fragment nor listens for one: that is the draft's discontinuation rule, and
+ * what makes a busy listen-before-talk check cost the whole cycle rather than one message.
+ *
+ * With a zero-length control phase there is nothing to wait for. Each device simply transmits in
+ * the slots the schedule gave it, and listens in the others, because the packet's own leading
+ * SYNC+SFD fragment is the poll and the response — there is no earlier moment at which anything
+ * could have been learnt. Priming still happens, on the receiving side, and it happens by
+ * acquiring that fragment. 4ab draft 15-25/0194r0
+ */
+function controlPrimes(mp: MmsRoundPlan): boolean {
+  return mp.layout.controlSlots > 0
+}
+
+/**
+ * With no control exchange, whether this device is the one that transmits without having been
+ * told anything.
+ *
+ * Somebody has to go first, and the draft says who: the initiator sends its MMS packet without
+ * waiting for a compact frame from the responder, and the responder starts its own sub-round only
+ * after receiving that packet. So the opener's leading SYNC+SFD fragment IS the poll the other
+ * side is waiting for, and the other side — having been told nothing else, ever — transmits only
+ * once it has heard one. `reversedOrder` hands the opening to the responders, and this follows it.
+ * 4ab draft 15-25/0292r1 for the order, 15-25/0194r0 for the fragment doing the poll's work.
+ *
+ * False in every round that has a control exchange: there, permission comes from the exchange and
+ * nobody opens on their own.
+ */
+function opensRound(dev: UwbDevice, mp: MmsRoundPlan): boolean {
+  if (controlPrimes(mp)) return false
+  return (dev.cfg.role === 'tag') !== mp.phy.reversedOrder
+}
+
+/** Whether this round's control messages ride the UWB PHY as SP0 packets rather than the
+ * narrowband radio. 4ab draft 15-25/0194r0 */
+function sp0Control(mp: MmsRoundPlan): boolean {
+  return mp.phy.control === 'uwbd'
+}
+
+/** The frame kind this round's control messages arrive as — what a listen window is armed for. */
+function controlKind(mp: MmsRoundPlan, role: 'poll' | 'resp' | 'report'): UwbFrameKind {
+  if (sp0Control(mp)) return 'uwbSp0'
+  return role === 'poll' ? 'nbPoll' : role === 'resp' ? 'nbResp' : 'nbReport'
+}
+
 /** The round's fragment spacing in ranging counter units — `MmsRoundPlan.fragGapNs`, in the
  * units a counter difference is measured in. A true millisecond is `MS_RCTU` exactly, which is
  * what every pairwise round at the draft's 600 RSTU slot comes to. */
@@ -163,7 +234,8 @@ function timingKind(mp: MmsRoundPlan): 'uwbRsf' | 'uwbRif' {
  * Two rules run through all of it. **Priming**: the control exchange is what tells a device
  * there is a peer to range with, and an unprimed pair neither transmits a fragment nor listens
  * for one — the draft's discontinuation rule, and what makes a busy listen-before-talk check
- * cost the whole cycle rather than one message. **Evaluation at the end of a train**: a fragment
+ * cost the whole cycle rather than one message. A round with no control exchange has no such
+ * permission to give and asks for none (`controlPrimes`). **Evaluation at the end of a train**: a fragment
  * is never stamped on arrival (see `onMmsRx`); a train is closed out in the slot after its last
  * fragment, which is where every draw and every record of it happens.
  */
@@ -182,20 +254,50 @@ export function onMmsSlot(
   const mine = isTag ? -1 : responders.indexOf(dev.id)
   if (!isTag && mine < 0) return
   closeDueTrains(dev, r, m, mp, peers, slot)
+  // Whether this device may act on a peer in a fragment slot. With a control exchange it is what
+  // that exchange said; with none, the schedule alone decides, and the packet primes the
+  // receiving end as it arrives (`controlPrimes`).
+  const open = (id: string): boolean => !controlPrimes(mp) || m.peers.get(id)?.primed === true
+  // One control window's width, and so the width of a wait inside it: two slots for a narrowband
+  // message, one for an SP0 packet. Read off the layout, never assumed.
+  const win = mp.layout.windowSlots
   switch (action.kind) {
     case 'nbPoll':
-      if (isTag) txNbPoll(dev, r, m, mp, responders)
-      // The responder's window is two slots long, so its wait is too.
-      else dev.listenFor(slot, peers.tag, 'nbPoll', slot + 2)
-      return
-    case 'nbResp': {
-      const id = responders[action.anchor]
-      if (id === undefined) return
-      if (!isTag) {
-        if (action.anchor === mine) txNbResp(dev, r, m, mp, peers.tag, slot, mine)
+    case 'nbResp':
+    case 'nbReport':
+    case 'uwbSp0': {
+      const role = action.kind === 'uwbSp0' ? action.role
+        : action.kind === 'nbPoll' ? 'poll' : action.kind === 'nbResp' ? 'resp' : 'report'
+      const kind = controlKind(mp, role)
+      if (role === 'poll') {
+        if (isTag) txControlPoll(dev, r, m, mp, responders)
+        else dev.listenFor(slot, peers.tag, kind, slot + win)
         return
       }
-      if (m.polled) dev.listenFor(slot, id, 'nbResp', slot + 2)
+      // Past the POLL, every control action names the responder whose window this is. (A POLL
+      // does not, which is why it is handled above and not here.)
+      const anchor = 'anchor' in action ? action.anchor : 0
+      const id = responders[anchor]
+      if (id === undefined) return
+      if (role === 'resp') {
+        if (!isTag) {
+          if (anchor === mine) txControlResp(dev, r, m, mp, peers.tag, slot, mine)
+          return
+        }
+        if (m.polled) dev.listenFor(slot, id, kind, slot + win)
+        return
+      }
+      if (action.tx === 'tag') {
+        // The initiator's answer to responder `anchor`, in that responder's own window.
+        if (isTag) txControlReport(dev, r, m, mp, id, slot)
+        else if (anchor === mine && open(peers.tag)) dev.listenFor(slot, peers.tag, kind, slot + win)
+        return
+      }
+      if (!isTag) {
+        if (anchor === mine) txControlReport(dev, r, m, mp, peers.tag, slot)
+        return
+      }
+      if (open(id)) dev.listenFor(slot, id, kind, slot + win)
       return
     }
     case 'uwbRsf':
@@ -203,7 +305,7 @@ export function onMmsSlot(
       if (action.tx === 'tag') {
         if (isTag) txOwnTrainFragment(dev, r, m, mp, responders, action.kind, action.index, slot)
         // A lost fragment is counted by the train, not reported: `silent`.
-        else if (m.peers.get(peers.tag)?.primed) dev.listenFor(slot, peers.tag, action.kind, slot + 1, true)
+        else if (open(peers.tag)) dev.listenFor(slot, peers.tag, action.kind, slot + 1, true)
         return
       }
       const id = responders[action.anchor]
@@ -212,25 +314,7 @@ export function onMmsSlot(
         if (action.anchor === mine) txOwnTrainFragment(dev, r, m, mp, [peers.tag], action.kind, action.index, slot)
         return
       }
-      if (m.peers.get(id)?.primed) dev.listenFor(slot, id, action.kind, slot + 1, true)
-      return
-    }
-    case 'nbReport': {
-      const id = responders[action.anchor]
-      if (id === undefined) return
-      if (action.tx === 'tag') {
-        // The initiator's answer to responder `action.anchor`, in that responder's own window.
-        if (isTag) txNbReport(dev, r, m, mp, id, slot)
-        else if (action.anchor === mine && m.peers.get(peers.tag)?.primed) {
-          dev.listenFor(slot, peers.tag, 'nbReport', slot + 2)
-        }
-        return
-      }
-      if (!isTag) {
-        if (action.anchor === mine) txNbReport(dev, r, m, mp, peers.tag, slot)
-        return
-      }
-      if (m.peers.get(id)?.primed) dev.listenFor(slot, id, 'nbReport', slot + 2)
+      if (open(id)) dev.listenFor(slot, id, action.kind, slot + 1, true)
       return
     }
     default:
@@ -248,6 +332,10 @@ export function onMmsSlot(
  * clear check would be one per narrowband slot of every round.
  */
 function nbClear(dev: UwbDevice, r: RoundState, m: MmsRoundState, mp: MmsRoundPlan): boolean {
+  // Config 1 has no narrowband radio, so there is no channel to sense and no rule to obey: its
+  // control frames go out on the UWB PHY, where the draft imposes no listen-before-talk. Asking
+  // the question at all would be asking about a radio that is not there. 4ab draft 15-25/0194r0
+  if (m.nbChannel === null) return true
   if (dev.nbSkipBlock === r.block) return false
   if (!nbLbtRequired(m.nbChannel, mp.nbLbt)) return true
   const { busy, foreignDbm } = dev.ch.lbtBusy(dev.id, m.nbChannel)
@@ -260,32 +348,47 @@ function nbClear(dev: UwbDevice, r: RoundState, m: MmsRoundState, mp: MmsRoundPl
   return false
 }
 
-/** Initiator, slot 0: open the cycle. A pair round polls its one responder by name; a
- * one-to-many round broadcasts one POLL that lists every responder it is for. */
-function txNbPoll(
+/** Initiator, its POLL window: open the cycle. A pair round polls its one responder by name; a
+ * one-to-many round broadcasts one POLL — the narrowband one lists every responder it is for,
+ * the SP0 one cannot (`makeSp0Poll`) and does not need to. */
+function txControlPoll(
   dev: UwbDevice, r: RoundState, m: MmsRoundState, mp: MmsRoundPlan, responders: string[],
 ): void {
   if (!nbClear(dev, r, m, mp)) return
   m.polled = true
+  if (sp0Control(mp)) {
+    const dst = mp.oneToMany ? UWB_BROADCAST : responders[0]
+    if (dst === undefined) return
+    dev.send(makeSp0Poll(dev.id, dst, r.block, r.round, mp.layout.pollSlot()), null)
+    return
+  }
+  const nbChannel = m.nbChannel as number
   dev.send(
     mp.oneToMany
-      ? makeNbPollOtm(dev.id, responders, m.nbChannel, r.block, r.round)
-      : makeNbPoll(dev.id, responders[0], m.nbChannel, r.block, r.round),
+      ? makeNbPollOtm(dev.id, responders, nbChannel, r.block, r.round)
+      : makeNbPoll(dev.id, responders[0], nbChannel, r.block, r.round),
     null,
   )
 }
 
-/** Responder, its own RESP window: answer a POLL it heard — and only then is either end primed. */
-function txNbResp(
+/** Responder, its own RESP window: answer a POLL it heard — and only then is either end primed.
+ * The POLL it heard was a narrowband message or an SP0 packet, and the answer follows it onto the
+ * same radio. */
+function txControlResp(
   dev: UwbDevice, r: RoundState, m: MmsRoundState, mp: MmsRoundPlan, peer: string, slot: number, mine: number,
 ): void {
   if (!m.polled) return
   if (!nbClear(dev, r, m, mp)) return
   peerState(m, mp, peer, mine).primed = true
+  if (sp0Control(mp)) {
+    dev.send(makeSp0Resp(dev.id, peer, r.block, r.round, slot), null)
+    return
+  }
+  const nbChannel = m.nbChannel as number
   dev.send(
     mp.oneToMany
-      ? makeNbResp(dev.id, peer, m.nbChannel, r.block, r.round, slot, true)
-      : makeNbResp(dev.id, peer, m.nbChannel, r.block, r.round),
+      ? makeNbResp(dev.id, peer, nbChannel, r.block, r.round, slot, true)
+      : makeNbResp(dev.id, peer, nbChannel, r.block, r.round),
     null,
   )
 }
@@ -303,7 +406,10 @@ function txOwnTrainFragment(
   dev: UwbDevice, r: RoundState, m: MmsRoundState, mp: MmsRoundPlan, to: string[],
   kind: 'uwbRsf' | 'uwbRif', index: number, slot: number,
 ): void {
-  if (!anyPrimed(m)) return
+  // Somebody has to have answered the control exchange — or, where there is none, this has to be
+  // the device that opens the round, whose own leading fragment is the poll the far end is
+  // waiting for. A device that is neither has been told nothing and says nothing.
+  if (!anyPrimed(m) && !opensRound(dev, mp)) return
   const dst = mp.oneToMany && dev.cfg.role === 'tag' ? UWB_BROADCAST : to[0]
   if (dst === undefined) return
   const counter = dev.clock.counter(dev.now())
@@ -315,10 +421,11 @@ function txOwnTrainFragment(
 }
 
 /**
- * A narrowband measurement report, in the report window this device owns for this peer. The
- * responder sends the reply time it turned the round around in and the initiator the round trip
- * it measured — the two halves of one single-sided exchange, carried on the control radio
- * because the UWB side of an MMS cycle transmits nothing but fragments. A one-to-many round
+ * A measurement report, in the report window this device owns for this peer — a narrowband
+ * message under Config 2 and an SP0 packet under Config 1. The responder sends the reply time it
+ * turned the round around in and the initiator the round trip it measured — the two halves of one
+ * single-sided exchange, carried in a control frame because the ranging phase of an MMS cycle
+ * transmits nothing but fragments. A one-to-many round
  * gives every responder a pair of windows of its own, so the initiator answers each of them
  * separately and no message ever has to carry more than the one time its sender measured (4ab
  * draft 15-22/0381r5 Table 1.6.3.1, REPORT 0x12 / 0x13).
@@ -326,7 +433,7 @@ function txOwnTrainFragment(
  * A device whose own train of this peer was never detected has no RMARKER of it and so no time
  * to report; it stays silent, and the other end's wait reports the gap.
  */
-function txNbReport(
+function txControlReport(
   dev: UwbDevice, r: RoundState, m: MmsRoundState, mp: MmsRoundPlan, peer: string, slot: number,
 ): void {
   const p = m.peers.get(peer)
@@ -335,7 +442,11 @@ function txNbReport(
   const times = dev.cfg.role === 'tag'
     ? { roundTripRctu: counterDiff(p.rxRmarker, m.txRmarker) }
     : { replyRctu: counterDiff(m.txRmarker, p.rxRmarker) }
-  dev.send(makeNbReport(dev.id, peer, m.nbChannel, r.block, r.round, slot, times, mp.oneToMany), null)
+  if (sp0Control(mp)) {
+    dev.send(makeSp0Report(dev.id, peer, r.block, r.round, slot, times), null)
+    return
+  }
+  dev.send(makeNbReport(dev.id, peer, m.nbChannel as number, r.block, r.round, slot, times, mp.oneToMany), null)
 }
 
 /**
@@ -364,33 +475,54 @@ export function onMmsRx(
   if (index < 0) return
   const frag = u.mms
   if (frag) {
+    const p = peerState(m, mp, from, index)
+    // With no control exchange, THIS is the priming: the packet's own leading SYNC+SFD fragment
+    // is the poll and the response, so a device that hears a fragment has been told everything a
+    // POLL would have told it, and a device that hears none never learns the peer was there at
+    // all. 4ab draft 15-25/0194r0
+    if (!controlPrimes(mp)) p.primed = true
     // The schedule fires a fragment on true time; a real transmitter cuts its train on its
     // own crystal, and that difference IS the clock ratio the train measures. Re-space the
     // arrival by the transmitter's ppm here — at most 300 ns over the longest train (model).
     const drift = info.txPpm * 1e-6
-    peerState(m, mp, from, index).frags[frag.kind].push({
+    p.frags[frag.kind].push({
       index: frag.index,
       arrivalNs: info.txStartNs + info.propNs - (frag.index * mp.fragGapNs * drift) / (1 + drift),
       nlosNs: info.nlosNs, nlos: info.nlos, rssiDbm: info.rssiDbm, foreignDbm: info.foreignDbm,
     })
     return
   }
-  switch (kind) {
-    case 'nbPoll':
-      // A one-to-many POLL is a broadcast: it opens the round only for the responders it names.
+  // The control plane's three messages, whichever radio brought them: `role` is what they are,
+  // and `kind` only says which of the two PHYs carried them here. 4ab draft 15-25/0194r0
+  const role = controlRole(kind, u.sp0)
+  switch (role) {
+    case 'poll':
+      // A one-to-many POLL is a broadcast: the narrowband one opens the round only for the
+      // responders it names. An SP0 POLL names none — it has no room for a list — so the round's
+      // own responder list is what a device checked itself against, in `onMmsSlot`.
       if (u.nb?.responders && !u.nb.responders.includes(dev.id)) return
       m.polled = true
       return
-    case 'nbResp':
+    case 'resp':
       // The initiator learns here, and only here, that this responder is in the round.
       peerState(m, mp, from, index).primed = true
       return
-    case 'nbReport':
-      onNbReport(dev, r, m, mp, from, u, info)
+    case 'report':
+      onControlReportRx(dev, r, m, mp, from, u, info)
       return
     default:
       return
   }
+}
+
+/** Which of the control plane's three messages a reception is, or null if it is not one of them.
+ * Config 2's three frame kinds say it on their own; Config 1's one frame kind says it in its
+ * content, because SP0 is one packet format carrying all three. 4ab draft 15-25/0194r0 */
+function controlRole(kind: UwbFrameKind, sp0: UwbSp0Msg | undefined): 'poll' | 'resp' | 'report' | null {
+  if (kind === 'uwbSp0') return sp0?.role ?? null
+  if (kind === 'nbPoll') return 'poll'
+  if (kind === 'nbResp') return 'resp'
+  return kind === 'nbReport' ? 'report' : null
 }
 
 /** Close out every train whose last fragment was due in the slot just gone — one per primed
@@ -424,9 +556,10 @@ function closeDueTrains(
  * `marginDb` is how far it cleared the receiver's sensitivity.
  *
  * Under Config 1 there is one question in front of that one: nothing was primed over a
- * narrowband exchange there, so the receiver has to find the packet before it can accumulate
- * anything, and `acquired` decides that on a SINGLE fragment with no combining. Fail it and the
- * train counts as undetected however loud it was — the fragments are all there and not one of
+ * narrowband exchange there — the time base came out of an SP0 packet on the UWB PHY, or, with no
+ * control phase at all, out of this very packet's leading SYNC+SFD fragment — so the receiver has
+ * to find the packet before it can accumulate anything, and `acquired` decides that on a SINGLE
+ * fragment with no combining. Fail it and the train counts as undetected however loud it was — the fragments are all there and not one of
  * them can be timestamped — so the round produces no range. Config 2 never fails it, which is
  * why every scenario that has not asked for Config 1 runs exactly as it did.
  *
@@ -522,17 +655,18 @@ function evaluateTrain(
  * one) the device falls back on what the 4z path has always used — the carrier-frequency
  * offset its receiver estimated, with the estimator's residual drawn here, once.
  */
-function onNbReport(
+function onControlReportRx(
   dev: UwbDevice, r: RoundState, m: MmsRoundState, mp: MmsRoundPlan, from: string, u: UwbInfo,
   info: UwbRxInfo,
 ): void {
-  const nb = u.nb
+  // The same two times, from whichever of the two control PHYs carried them.
+  const msg = u.nb ?? u.sp0
   const p = m.peers.get(from)
-  if (!nb || !p || m.txRmarker === null || p.rxRmarker === null) return
+  if (!msg || !p || m.txRmarker === null || p.rxRmarker === null) return
   const isTag = dev.cfg.role === 'tag'
   const own = isTag ? counterDiff(p.rxRmarker, m.txRmarker) : counterDiff(m.txRmarker, p.rxRmarker)
-  const roundTripRctu = isTag ? own : nb.roundTripRctu
-  const replyRctu = isTag ? nb.replyRctu : own
+  const roundTripRctu = isTag ? own : msg.roundTripRctu
+  const replyRctu = isTag ? msg.replyRctu : own
   if (roundTripRctu === undefined || replyRctu === undefined) return
   let coffs: number
   if (p.ratio !== null) {

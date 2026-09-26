@@ -60,7 +60,11 @@ export function frameColor(frame: FrameDesc, apId: string): number {
     case 'uwbRif': return 0xa3e635
     case 'nbPoll':
     case 'nbResp':
-    case 'nbReport': return 0x818cf8
+    case 'nbReport':
+    // Config 1's SP0 control frames are the same control plane on the UWB radio, so they keep
+    // the control plane's indigo: what the colour has always meant on this scene is "this is
+    // the negotiation, not the measurement", and that is still what they are.
+    case 'uwbSp0': return 0x818cf8
   }
 }
 

@@ -625,6 +625,16 @@ export const UwbMmsSchema = z.object({
       message: `固定回复时间要落在 ${MMS_FIXED_REPLY_RSTU_MIN}…${MMS_FIXED_REPLY_RSTU_MAX} RSTU（约 0.25…510 ms）：这是草案给 macMmsFixedReplyTime 的取值范围，下界正是一个 MMS 测距时隙的最小长度（15-25/0224r2）`,
     })
   }
+  // UWB 驱动配置（配置 1）那一侧根本没有窄带电台：控制面的三条消息改成 UWB PHY 上的 SP0 包，
+  // 于是信道允许列表与先听后发都没有可作用的对象。宁可拒绝，也不要让计划里留着一份
+  // 给不存在的电台的设置——引擎在这种配置下也确实一个窄带信道都不抽。
+  if (mms.control === 'uwbd' && (mms.nbChannels.length > 0 || mms.nbLbt !== 'off')) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['nbChannels'],
+      message: 'UWB 驱动配置没有窄带电台：窄带信道列表要留空、先听后发要设为 off，这两项在这里没有任何东西可以作用（15-25/0194r0）',
+    })
+  }
   // 反序的意义是“响应方先发”，而交织模式里两端本来就在同一毫秒里各发一片，没有先后可换。
   if (mms.reversedOrder && !mms.nonInterleaved) {
     ctx.addIssue({
@@ -742,10 +752,15 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
           if (!Number.isInteger(mms.gap) || mms.gap < 0 || mms.gap > 64) {
             ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['uwb'], message: 'MMRS gap must be an integer 0…64' })
           }
+          // The narrowband allow list, and only where there is a narrowband radio to use it:
+          // Config 1's list is empty by the rule in `UwbMmsSchema`, and demanding a channel of a
+          // session that has no second radio would leave no legal UWB-driven plan at all.
+          // 4ab draft 15-25/0194r0
           const channels = mms.nbChannels
           const distinct = new Set(channels).size === channels.length
           const inRange = channels.every((c) => Number.isInteger(c) && c >= 0 && c < NB_CHANNELS)
-          if (channels.length < 1 || channels.length > NB_CHANNELS || !distinct || !inRange) {
+          if (mms.control === 'nba'
+            && (channels.length < 1 || channels.length > NB_CHANNELS || !distinct || !inRange)) {
             ctx.addIssue({
               code: z.ZodIssueCode.custom,
               path: ['uwb'],
@@ -779,9 +794,12 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
           // …and a one-to-many POLL names every responder, three octets each, so the longest
           // narrowband message of the round grows with the anchor count even though no fragment
           // does. At the draft's 600 RSTU slot that caps a one-to-many round at three responders.
+          // …and only Config 2 sends one. Config 1's control frames are SP0 packets, whose
+          // length is the packet format's and fits one slot at every legal slot length
+          // (`MMS_SP0_WINDOW_SLOTS`), so there is no window to outgrow here.
           const responders = mmsResponders(mms, uwbNodes.filter((n) => n.uwb?.role === 'anchor').length)
           const nbNs = uwbNbSlotFitNs(mms, responders)
-          if (2 * slotNs < nbNs) {
+          if (mms.control === 'nba' && 2 * slotNs < nbNs) {
             ctx.addIssue({
               code: z.ZodIssueCode.custom,
               path: ['uwb'],

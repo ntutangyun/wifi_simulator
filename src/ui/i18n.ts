@@ -372,6 +372,9 @@ export interface Strings {
         nbMsgName: Record<keyof typeof NB_MSG_ID | 'unknown', string>
         nbChannel: (channel: number, mhz: string) => string
         nbResponders: (n: number, ids: string) => string
+        /** P802.15.4ab Config 1: which of the control plane's three messages an SP0 frame is. */
+        sp0Role: Record<'poll' | 'resp' | 'report', string>
+        sp0Rest: (octets: number) => string
         nbTurnAround: (time: string) => string
         nbRest: (octets: number) => string
       }
@@ -412,9 +415,18 @@ export interface Strings {
      * HRP UWB PSDU rate the line above quotes. */
     nbRate: (mbps: number) => string
     nbPoll: (dst: string) => string; nbResp: (dst: string) => string; nbReport: (dst: string) => string
+    /** P802.15.4ab Config 1: the same three messages as one SP0 packet on the UWB PHY. */
+    uwbSp0: (role: 'poll' | 'resp' | 'report', dst: string) => string
     uwbRate: (mbps: number) => string
     uwbWait: string; uwbWaitNote: string
   }
+}
+
+/** The three SP0 control messages, as the timeline's one-line tooltip names them — the draft's
+ * own message names, which stay English tokens the way every other IEEE token here does.
+ * 4ab draft 15-25/0194r0 */
+const SP0_ROLE_SHORT: Record<'poll' | 'resp' | 'report', string> = {
+  poll: 'POLL', resp: 'RESP', report: 'REPORT',
 }
 
 export const STRINGS: Strings = {
@@ -779,6 +791,7 @@ export const STRINGS: Strings = {
       nbPoll: '窄带 POLL',
       nbResp: '窄带 RESP',
       nbReport: '窄带 REPORT',
+      uwbSp0: 'SP0 控制帧',
     },
     whatIs: {
       cfend: 'TXOP 持有者把时间还回去。它的 RTS/CTS 已把信道预约到 TXOP 结束，但突发提前发完了，于是用这一帧告诉所有解出它的站点：现在就可以撤销那段预约。若发送者是终端，AP 会在一个 SIFS 后重复一遍，让小区另一侧也听到释放。',
@@ -804,6 +817,7 @@ export const STRINGS: Strings = {
       nbPoll: '发起方开启一次窄带辅助测距轮（802.15.4ab 草案）。围绕测量的一切——谁和谁测距、什么时候测——都走 5–6 GHz 上那个 250 kb/s 的慢速窄带电台，而不是 UWB 电台。',
       nbResp: '响应方对窄带 POLL 的答复（802.15.4ab 草案）：它听到了轮询，并将在随后的测距阶段发出自己的片段序列。',
       nbReport: '一份窄带测量报告（802.15.4ab 草案）：响应方测得的回复时间，或发起方测得的周转时间——计算距离所需的数字，由控制电台而非 UWB 电台携带。',
+      uwbSp0: '同一套控制消息——轮询、响应、测量报告——但这台设备没有窄带电台（802.15.4ab 草案的配置 1）。于是它们改成 SP0 基本包，走 UWB 电台本身。代价写在链路预算里：SP0 比测距包自带的那段 SYNC+SFD 更长、峰值功率更低，捕获门槛要差约 4 dB，所以有它在的时候，是它决定这一轮能不能建立起来。',
     },
     next: {
       cfend: '所有解出它的站点都会清零 NAV，安静一个 DIFS/AIFS 后即可重新竞争。听不到它的站点则要一直等到自己听到的那段预约自然结束。',
@@ -829,6 +843,7 @@ export const STRINGS: Strings = {
       nbPoll: '两个时隙之后响应方以窄带 RESP 作答，紧接着就是 UWB 测距阶段——两串片段序列。',
       nbResp: '测距阶段开始：两台设备各自发出片段序列，每毫秒各一个，在同一毫秒内交错排列。',
       nbReport: '接收一方用片段序列给出的时钟比例完成单边飞行时间计算并记录距离；下一轮在下一个测距块开始。',
+      uwbSp0: '这条消息扮演哪个角色，就接哪一段：轮询之后是响应方的 SP0 应答，应答之后是 UWB 测距阶段的两串片段，测量报告之后这一轮结束。整轮都在同一个 UWB 电台上，没有第二个电台可退。',
     },
     nextTitle: '接下来会发生什么',
     from: '发送方', to: '接收方', everyone: '多个终端（多用户）',
@@ -892,6 +907,8 @@ export const STRINGS: Strings = {
         nbFields: '消息字段·草案表格中的其余字段，按字节计',
         nbTime: '测距时间·计算距离所用的那个数',
         nbResponders: '响应方列表·这一轮一对多测距是发给谁的',
+        sp0Role: '消息角色·这是控制面的哪一条消息',
+        sp0Fields: '消息字段·SP0 载荷里的其余字节',
       },
       bit: {
         protocolVersion: '协议版本', type: '类型', subtype: '子类型', toDs: 'To DS', fromDs: 'From DS',
@@ -965,6 +982,8 @@ export const STRINGS: Strings = {
         },
         nbChannel: (channel, mhz) => `信道 ${channel} · ${mhz} MHz`,
         nbResponders: (n, ids) => `${n} 个应答方 · 每个 1 个时隙 · ${ids}`,
+        sp0Role: { poll: 'POLL（轮询）', resp: 'RESP（响应）', report: 'REPORT（测量报告）' },
+        sp0Rest: (octets) => `${octets} B · 草案未逐字段给出 SP0 载荷的排布`,
         nbTurnAround: (time) => `周转时间 ${time}`,
         nbRest: (octets) => `${octets} 字节的会话与调度字段`,
       },
@@ -1034,6 +1053,7 @@ export const STRINGS: Strings = {
     uwbFragment: (kind, index, of) => `${kind} 第 ${index} / ${of} 个 — 多毫秒序列中的一个片段`,
     uwbFragmentRate: (dbm) => `序列 · ${dbm.toFixed(2)} dBm`,
     nbRate: (mbps) => `${mbps} Mbps O-QPSK · 窄带控制面（802.15.4ab 草案）`,
+    uwbSp0: (role, dst) => `SP0 ${SP0_ROLE_SHORT[role]} → ${dst} — 控制面跑在 UWB 电台上，没有窄带那一侧`,
     nbPoll: (dst) => `窄带 POLL → ${dst} — 在控制电台上开启一次测距周期`,
     nbResp: (dst) => `窄带 RESP → ${dst} — 它听到了轮询，将参与测距`,
     nbReport: (dst) => `窄带 REPORT → ${dst} — 计算距离所用的那个时间`,

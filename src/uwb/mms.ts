@@ -163,6 +163,43 @@ export function trainDetected(rxDbm: number, heard: number): boolean {
 export const MMS_SP0_PENALTY_DB = 4
 
 /**
+ * The SP0 (BASIC_PACKET) control frame, segment by segment, in nanoseconds: the **short packet**
+ * column of the draft's own acquisition table — SYNC 46.7 µs (PSR64), SFD 5.8 µs, PHR 12.8 µs,
+ * PSDU 52.3 µs. The four cells are what `uwbPpduLayout` draws, so the picture and the airtime
+ * come from the same four numbers. 4ab draft 15-25/0194r0
+ */
+export const MMS_SP0_SEGMENT_NS = { sync: 46_700, sfd: 5_800, phr: 12_800, psdu: 52_300 } as const
+
+/**
+ * How long one SP0 control frame is on the air: the same table's **total** cell for the short
+ * packet, 117.6 µs.
+ *
+ * The table's other column is the long packet (PSR128) at 170.1 µs, and the engine takes the
+ * short one for every SP0 message rather than choosing between them. Nothing in an `MmsPhy`
+ * decides it: `nMsr` is the RSF fragment's length, and the SP0 packet's preamble symbol
+ * repetitions are a PHY setting of their own that this engine does not carry. Taking the short
+ * packet is also the conservative reading of what SP0 costs — it is the *shorter* of the two, so
+ * the round it lengthens is lengthened by as little as the draft allows, and nothing about the
+ * schedule is flattered by the choice. 4ab draft 15-25/0194r0 (short-packet total; model for
+ * taking one of the two columns)
+ */
+export const MMS_SP0_NS: Ns = MMS_SP0_SEGMENT_NS.sync + MMS_SP0_SEGMENT_NS.sfd
+  + MMS_SP0_SEGMENT_NS.phr + MMS_SP0_SEGMENT_NS.psdu
+
+/** The SP0 PSDU's data rate. 4ab draft 15-25/0194r0 */
+export const MMS_SP0_MBPS = 1.95
+
+/**
+ * What the SP0 packet's PSDU holds, in octets: the table's 52.3 µs at 1.95 Mbit/s is 102 bits,
+ * so twelve whole octets. That is the size of the draft's own compressed control PSDUs (POLL and
+ * RESP are 12 octets, the REPORT 13), which is why **one** duration serves all three SP0
+ * messages and why this engine does not grow an SP0 packet with a one-to-many responder list:
+ * the table gives one PSDU length, and a packet stretched past it would be this model's
+ * invention. derived from 4ab draft 15-25/0194r0
+ */
+export const MMS_SP0_PSDU_BYTES = 12
+
+/**
  * Whether the receiver ever found the packet — the question `trainDetected` does not have to ask.
  *
  * Config 2 is spared it: the narrowband POLL/RESP exchange hands both ends the same time base
@@ -388,12 +425,21 @@ export function mmsLongestFragmentNs(phy: MmsPhy): Ns {
 export interface MmsLayout {
   /** How many responders this round holds: 1 in a pair round, N in a one-to-many one. */
   responders: number
+  /** What one control or report window of this round costs, in slots: `mmsWindowSlots` of the
+   * session's control plane. Two for a narrowband window, one for an SP0 window, and **zero**
+   * when the control phase is zero-length — which is what every number below is derived from,
+   * rather than each of them knowing which control plane the round runs. */
+  windowSlots: number
   /** Slots 0–1 the initiator's narrowband POLL, then two slots per responder's RESP.
    * 4ab draft 0381r5 §1.1 (RcpPollSlot 2 + RcpResponseSlot 2 per responder)
    *
-   * It counts the round's narrowband control windows whichever shape the round has, but only
-   * the interleaved round gathers them into a phase at the top: non-interleaved scatters one
-   * into the head of each sub-round, so there `controlSlots` is a total and not a prefix. */
+   * It counts the round's control windows whichever shape the round has, but only the interleaved
+   * round gathers them into a phase at the top: non-interleaved scatters one into the head of
+   * each sub-round, so there `controlSlots` is a total and not a prefix.
+   *
+   * `mmsControlSlots` is the one place the length is decided, so a UWB-driven round's control
+   * phase is one slot per device and a zero-length one is **0** — a round with no control phase
+   * at all, whose POLL and RESP are the ranging packet's own leading SYNC+SFD fragment. */
   controlSlots: number
   /** The ranging phase: the draft's RpDuration default of 20 slots, grown to fit the train.
    * Non-interleaved, this is **one sub-round's** phase — the same phase every sub-round gets,
@@ -424,10 +470,13 @@ export interface MmsLayout {
    * control window, with its ranging phase `NB_WINDOW_SLOTS` later. Interleaved there is one
    * sub-round and it begins at 0. */
   subRoundStart(i: number): number
-  /** Two narrowband report windows per responder: the responder's own, then the initiator's
-   * answer to it. A pair round is the R = 1 case — the draft's MrpFirstSlot + MrpSecondSlot.
+  /** Two report windows per responder: the responder's own, then the initiator's answer to it.
+   * A pair round is the R = 1 case — the draft's MrpFirstSlot + MrpSecondSlot.
    * 4ab draft 0381r5 §1.1; 15-22/0381r5 Table 1.6.3.1 gives one-to-many ranging a REPORT from
-   * each end (0x12, 0x13), each carrying the one time its sender measured. */
+   * each end (0x12, 0x13), each carrying the one time its sender measured.
+   *
+   * `mmsReportSlots` decides it, so a UWB-driven round reports in SP0 windows of one slot and a
+   * zero-length control phase has no report phase either. */
   reportSlots: number
   slots: number
   /**
@@ -438,6 +487,10 @@ export interface MmsLayout {
    * device's control window is the head of its own sub-round, so `respSlot(r)` is
    * `subRoundStart` of the sub-round responder `r` owns — which under `reversedOrder` can be
    * slot 0 of the round, ahead of the initiator's own window. 4ab draft 15-25/0292r1
+   *
+   * It **throws** when `controlSlots` is 0: a round whose control phase is zero-length has no
+   * RESP window, and answering with the slot the first fragment sits in would hand the schedule
+   * a narrowband message to put on the air where the packet itself belongs.
    */
   respSlot(responder: number): number
   /**
@@ -449,6 +502,8 @@ export interface MmsLayout {
    * it is cut into: the initiator opens the round once, and the other sub-rounds' windows are
    * RESPs that `respSlot` names. The schedule asks for it rather than assuming slot 0, which is
    * only the initiator's when nothing reversed the order. 4ab draft 15-25/0556r2
+   *
+   * It throws when `controlSlots` is 0, for the reason `respSlot` gives.
    */
   pollSlot(): number
   /** Slot index, within the round, of fragment `index` of `kind` for `side`. Each millisecond of
@@ -475,14 +530,57 @@ export interface MmsLayout {
   slotFragment(slot: number): {
     side: 'initiator' | 'responder'; kind: 'rsf' | 'rif'; index: number; responder: number
   } | null
-  /** Slot index of the narrowband REPORT: responder `responder`'s own window, or the
-   * initiator's answer to that responder two slots later. */
+  /** Slot index of the REPORT: responder `responder`'s own window, or the initiator's answer to
+   * that responder one window later. It throws when `reportSlots` is 0 — the round has no report
+   * phase, so there is no window to name. */
   reportSlot(side: 'initiator' | 'responder', responder?: number): number
 }
 
 /** The two slots one narrowband window is: the draft's RcpPollSlot, RcpResponseSlot,
  * MrpFirstSlot and MrpSecondSlot are all 2. 4ab draft 15-22/0381r5 §1.1 */
 const NB_WINDOW_SLOTS = 2
+
+/**
+ * The one slot an SP0 window is.
+ *
+ * A narrowband window is two slots because a 608 µs REPORT does not fit one. An SP0 packet is
+ * `MMS_SP0_NS` — 117.6 µs — and the shortest ranging slot the draft's own rule allows is
+ * 300 RSTU (250 µs), so one slot holds it plus the flight guard at **every** slot length an MMS
+ * session may legally use. The UWB-driven control plane is therefore cheaper in slots than the
+ * narrowband one, and dearer in decibels (`MMS_SP0_PENALTY_DB`) — which is the trade the draft
+ * is making. derived (4ab draft 15-25/0194r0 for the frame, 15-22/0381r5 §1.1.1 for the slot)
+ */
+export const MMS_SP0_WINDOW_SLOTS = 1
+
+/**
+ * How many ranging slots one control- or report-phase window of this round takes.
+ *
+ * Config 2's windows are narrowband, Config 1's are SP0 packets on the UWB PHY, and Config 1 at
+ * a zero-length control phase has no window at all: the draft zeroes both of its slot counts,
+ * the SP0 frames are skipped, and the ranging packet's own leading SYNC+SFD fragment is the poll
+ * and the response. Zero is the honest answer there, and everything the layout derives from a
+ * window — where a RESP sits, where the ranging phase starts, how long the round is — falls out
+ * of it. 4ab draft 15-25/0194r0
+ */
+export function mmsWindowSlots(phy: MmsPhy): number {
+  if (phy.control === 'nba') return NB_WINDOW_SLOTS
+  return phy.uwbdControl === 'sp0' ? MMS_SP0_WINDOW_SLOTS : 0
+}
+
+/** The round's control phase, in slots: the initiator's POLL window and one RESP window per
+ * responder, at whatever a window costs this control plane — and nothing at all when the control
+ * phase is zero-length. `mmsLayout` reads this; nobody recomputes it. */
+export function mmsControlSlots(phy: MmsPhy, responders = 1): number {
+  return mmsWindowSlots(phy) * (1 + responders)
+}
+
+/** The round's report phase, in slots: a pair of windows per responder — its own REPORT, then the
+ * initiator's answer to it — and nothing at all when there is no report phase. With the control
+ * phase zero-length the report goes with it: a round whose poll and response are the packet
+ * itself has no compact frame left to carry a time in. 4ab draft 15-25/0194r0 */
+export function mmsReportSlots(phy: MmsPhy, responders = 1): number {
+  return 2 * mmsWindowSlots(phy) * responders
+}
 /**
  * A floor under the ranging phase, in slots (model).
  *
@@ -518,6 +616,14 @@ export const MMS_RP_MIN_SLOTS = 20
  * One narrowband window is two slots whatever the round, so the **POLL has to fit two of them**:
  * it grows by three octets per responder, and `uwbNbSlotFitNs` is where that rule is checked.
  *
+ * How wide a window is, and whether there is one at all, is the *control plane's* business and
+ * not this function's: `mmsWindowSlots` answers it once and everything here counts in that unit.
+ * Config 2's narrowband window is two slots; Config 1 carries the same three messages as SP0
+ * packets on the UWB PHY, which fit one; and Config 1 at a zero-length control phase has no
+ * control phase and no report phase at all, so the round is nothing but its ranging phase and the
+ * ranging packet's own leading SYNC+SFD fragment does the work the POLL and the RESP did.
+ * 4ab draft 15-25/0194r0
+ *
  * All of that is the *interleaved* round, and `phy.nonInterleaved` asks for the other shape the
  * draft defines (§10.39.7): sub-rounds, one per device, each with its own control window and its
  * own ranging phase, and only its owner transmitting. The two branches below share nothing but
@@ -539,12 +645,27 @@ export function mmsLayout(phy: MmsPhy, responders = 1, slotsPerMs = MMS_SLOTS_PE
   const x = phy.rsfs
   const y = phy.rifs
   const z = phy.gapMs
-  const report = 2 * NB_WINDOW_SLOTS * responders
+  // One window's width, and the two phase lengths built from it. Every slot index below is
+  // counted in `win`s rather than in the narrowband two, so the UWB-driven control plane's
+  // one-slot windows — and the zero-length control phase's absence of them — move the whole
+  // round without a second reading of `phy.control` anywhere in here.
+  const win = mmsWindowSlots(phy)
+  const control = mmsControlSlots(phy, responders)
+  const report = mmsReportSlots(phy, responders)
   const count = (kind: 'rsf' | 'rif'): number => (kind === 'rsf' ? x : y)
   const checkResponder = (r: number): void => {
     if (!Number.isInteger(r) || r < 0 || r >= responders) {
       throw new Error(`mmsLayout: this round has ${responders} responders, asked for ${r}`)
     }
+  }
+  /** A round whose control phase is zero-length has no POLL and no RESP window to name, and a
+   * round with no report phase has no REPORT window: the caller asked for a slot that does not
+   * exist, which is a bug in the caller and not a slot index to invent. */
+  const needControl = (what: string): void => {
+    if (control === 0) throw new Error(`mmsLayout: this round has no control phase, asked for its ${what}`)
+  }
+  const needReport = (): void => {
+    if (report === 0) throw new Error('mmsLayout: this round has no report phase, asked for a REPORT slot')
   }
   if (phy.nonInterleaved) {
     // §10.39.7: a sub-round is one device's own control window plus its own ranging phase, and
@@ -565,7 +686,7 @@ export function mmsLayout(phy: MmsPhy, responders = 1, slotsPerMs = MMS_SLOTS_PE
     const trainMs = y > 0 ? rifStartMs(x, z, y - 1) + 1 : x
     const rpOne = Math.max(MMS_RP_MIN_SLOTS, slotsPerMs * trainMs)
     const subRounds = 1 + responders
-    const subRound = NB_WINDOW_SLOTS + rpOne
+    const subRound = win + rpOne
     /** Which sub-round a device owns: the initiator opens the round and the responders follow in
      * responder order, unless `reversedOrder` sends the responders' packets first and leaves the
      * initiator's sub-round last. 4ab draft 15-25/0556r2 */
@@ -589,9 +710,11 @@ export function mmsLayout(phy: MmsPhy, responders = 1, slotsPerMs = MMS_SLOTS_PE
     const ranging = subRounds * subRound
     return {
       responders,
-      // Still one narrowband window per device, but scattered one to a sub-round rather than
-      // gathered into a phase at the top of the round.
-      controlSlots: NB_WINDOW_SLOTS * subRounds,
+      windowSlots: win,
+      // Still one control window per device, but scattered one to a sub-round rather than
+      // gathered into a phase at the top of the round — and `mmsControlSlots` counts the same
+      // 1 + R windows, so the two agree by construction rather than by arithmetic repeated here.
+      controlSlots: control,
       rpSlots: rpOne,
       reportSlots: report,
       slotsPerMs,
@@ -602,12 +725,14 @@ export function mmsLayout(phy: MmsPhy, responders = 1, slotsPerMs = MMS_SLOTS_PE
       slots: ranging + report,
       subRoundStart: start,
       respSlot(responder) {
+        needControl(`responder ${responder}'s RESP`)
         checkResponder(responder)
         // No shared control phase to sit in: this responder's window is the head of its own
         // sub-round, which under `reversedOrder` can be slot 0 of the whole round.
         return start(devOf('responder', responder))
       },
       pollSlot() {
+        needControl('POLL')
         return start(devOf('initiator', 0))
       },
       fragmentSlot(side, kind, index, responder = 0) {
@@ -618,16 +743,16 @@ export function mmsLayout(phy: MmsPhy, responders = 1, slotsPerMs = MMS_SLOTS_PE
         // The same millisecond arithmetic as interleaved — RSF-m at m, the RIFs at `rifStartMs`
         // (§10.39.5) — counted in the sub-round's own slots per millisecond.
         const ms = kind === 'rsf' ? index : rifStartMs(x, z, index)
-        return start(devOf(side, responder)) + NB_WINDOW_SLOTS + slotsPerMs * ms
+        return start(devOf(side, responder)) + win + slotsPerMs * ms
       },
       slotFragment(slot) {
         if (!Number.isInteger(slot) || slot < 0 || slot >= ranging) return null
         const off = slot % subRound
-        if (off < NB_WINDOW_SLOTS) return null // the sub-round's own control window
+        if (off < win) return null // the sub-round's own control window
         // A fragment sits on a millisecond boundary of the phase; the slots between two of them
         // belong to nobody, which is what `slotsPerMs` > 1 buys the regulator.
-        if ((off - NB_WINDOW_SLOTS) % slotsPerMs !== 0) return null
-        const ms = (off - NB_WINDOW_SLOTS) / slotsPerMs
+        if ((off - win) % slotsPerMs !== 0) return null
+        const ms = (off - win) / slotsPerMs
         const { side, responder } = sideOf((slot - off) / subRound)
         if (ms < x) return { side, kind: 'rsf', index: ms, responder }
         const firstRif = rifStartMs(x, z, 0)
@@ -637,20 +762,21 @@ export function mmsLayout(phy: MmsPhy, responders = 1, slotsPerMs = MMS_SLOTS_PE
         return null
       },
       reportSlot(side, responder = 0) {
+        needReport()
         checkResponder(responder)
         // The report phase is the interleaved one, after the last sub-round: §10.39.7's figure
         // marks it optional but does not move it. 4ab draft 15-25/0194r0
-        return ranging + 2 * NB_WINDOW_SLOTS * responder + (side === 'initiator' ? NB_WINDOW_SLOTS : 0)
+        return ranging + 2 * win * responder + (side === 'initiator' ? win : 0)
       },
     }
   }
   const perMs = responders + 1
-  const control = NB_WINDOW_SLOTS * (1 + responders)
   // The phase has to hold every fragment: the RSFs' X milliseconds, and — when the train has
   // RIFs — up to the last one, which `rifStartMs` puts at X + Z − 1 + (Y − 1).
   const rp = Math.max(MMS_RP_MIN_SLOTS, perMs * (y > 0 ? rifStartMs(x, z, y - 1) + 1 : x))
   return {
     responders,
+    windowSlots: win,
     controlSlots: control,
     rpSlots: rp,
     reportSlots: report,
@@ -667,10 +793,12 @@ export function mmsLayout(phy: MmsPhy, responders = 1, slotsPerMs = MMS_SLOTS_PE
       return 0
     },
     respSlot(responder) {
+      needControl(`responder ${responder}'s RESP`)
       checkResponder(responder)
-      return NB_WINDOW_SLOTS * (1 + responder)
+      return win * (1 + responder)
     },
     pollSlot() {
+      needControl('POLL')
       return 0
     },
     fragmentSlot(side, kind, index, responder = 0) {
@@ -699,8 +827,9 @@ export function mmsLayout(phy: MmsPhy, responders = 1, slotsPerMs = MMS_SLOTS_PE
       return null
     },
     reportSlot(side, responder = 0) {
+      needReport()
       checkResponder(responder)
-      return control + rp + 2 * NB_WINDOW_SLOTS * responder + (side === 'initiator' ? NB_WINDOW_SLOTS : 0)
+      return control + rp + 2 * win * responder + (side === 'initiator' ? win : 0)
     },
   }
 }

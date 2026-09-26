@@ -284,10 +284,14 @@ export class UwbDevice implements UwbRadio {
     // would run its twenty-eight slots in silence — no control exchange, no fragments, no
     // range, and nothing said about why. Say it here instead, as `uwbSlotsPerTag` does for the
     // train shape: a caller that plans an MMS round and forgets the channel is a bug.
-    if (mp && nbChannel === null) {
+    //
+    // …unless the round has no narrowband radio to hop. Config 1 carries its whole control plane
+    // on the UWB PHY, so null is the right answer there rather than a missing one, and the round
+    // runs with nothing narrowband in it. 4ab draft 15-25/0194r0
+    if (mp && mp.phy.control === 'nba' && nbChannel === null) {
       throw new Error("UwbDevice.beginRound: mode 'mms' needs the block's narrowband channel")
     }
-    const mms = mp && nbChannel !== null ? freshMms(mp, nbChannel) : null
+    const mms = mp ? freshMms(mp, nbChannel) : null
     this.round = freshRound(block, round, plan, tagId, anchors, mms)
     if (this.cfg.role !== 'tag') return
     this.emit({

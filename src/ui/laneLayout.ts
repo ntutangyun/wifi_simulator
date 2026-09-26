@@ -332,6 +332,8 @@ export function spanTooltip(s: LaneSpan, T: Strings['tooltips'], t?: Ns, nameOf:
         f.kind === 'uwbBlink' ? T.uwbBlink :
         f.kind === 'uwbRsf' || f.kind === 'uwbRif'
           ? T.uwbFragment(f.kind === 'uwbRsf' ? 'RSF' : 'RIF', (f.uwb?.mms?.index ?? 0) + 1, f.uwb?.mms?.of ?? 0) :
+        // Config 1's control plane: one SP0 packet format, the role in its content.
+        f.kind === 'uwbSp0' ? T.uwbSp0(f.uwb?.sp0?.role ?? 'poll', dst) :
         f.kind === 'nbPoll' ? T.nbPoll(dst) :
         f.kind === 'nbResp' ? T.nbResp(dst) :
         f.kind === 'nbReport' ? T.nbReport(dst) :

@@ -240,7 +240,12 @@ export class UwbNetwork {
         // scenario's seed (4ab draft 15-22/0381r5 §1.5.3): drawn once, here, and handed to every
         // round of the block, so no device re-derives it and the two ends of a round cannot land
         // on different channels.
-        const nbChannel = nbChannelForBlock(mmsPlan.nbChannels, this.seed, block)
+        // …and only when there is a narrowband radio to hop it. Config 1's allow list is empty
+        // because that side has no radio at all, so there is no channel for the block and every
+        // round of it is told so. 4ab draft 15-25/0194r0
+        const nbChannel = mmsPlan.phy.control === 'nba'
+          ? nbChannelForBlock(mmsPlan.nbChannels, this.seed, block)
+          : null
         if (oneToMany) {
           // One round per tag, and every anchor is in it: the tag's POLL names them all, its
           // train goes out once for all of them, and each answers in slots of its own (4ab draft

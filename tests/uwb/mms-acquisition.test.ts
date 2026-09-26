@@ -172,6 +172,11 @@ const rangesOf = (rs: TLRecord[]): Extract<TLRecord, { type: 'UWB_RANGE' }>[] =>
 /** Far enough that one fragment is inaudible and eight of them are not — see `QUIET_M`. */
 const QUIET_M = 140
 
+/** Config 1 carries no narrowband settings at all — there is no radio on that side for a channel
+ * list or a listen-before-talk rule to act on, and `UwbMmsSchema` refuses a plan that keeps
+ * them. 4ab draft 15-25/0194r0 */
+const UWBD = { control: 'uwbd', nbChannels: [] as number[], nbLbt: 'off' } as const
+
 describe('the gate, in a round that is actually running', () => {
   it('narrowband-assisted ranges a peer no single fragment of whose train was audible', () => {
     const trains = trainsOf(run(pairScene(QUIET_M), 400 * MS))
@@ -186,10 +191,12 @@ describe('the gate, in a round that is actually running', () => {
   })
 
   it('UWB-driven loses the same round outright, because nothing opened the packet', () => {
-    const rs = run(pairScene(QUIET_M, { control: 'uwbd', uwbdControl: 'none' }), 400 * MS)
+    const rs = run(pairScene(QUIET_M, { ...UWBD, uwbdControl: 'none' }), 400 * MS)
     expect(trainsOf(rs).length).toBeGreaterThan(0)
     // The fragments arrived and were counted; what is missing is the time base to stamp them
-    // against, so the train is reported undetected and the round yields no range at all.
+    // against, so the train is reported undetected. `detected` is what this test pins: a
+    // zero-length control phase has no report phase either, so the absent range below is
+    // over-determined and would be absent even if the gate had passed.
     for (const t of trainsOf(rs)) {
       expect(t.heard).toBeGreaterThan(0)
       expect(t.detected).toBe(false)
@@ -198,10 +205,20 @@ describe('the gate, in a round that is actually running', () => {
   })
 
   it('leaves a UWB-driven round alone when the leading fragment is loud enough', () => {
-    // The gate is not a tax on Config 1: close in, the packet opens on its own SYNC+SFD and the
-    // round runs exactly as the narrowband-assisted one does.
-    const rs = run(pairScene(6, { control: 'uwbd', uwbdControl: 'none' }), 400 * MS)
-    expect(rangesOf(rs).length).toBeGreaterThan(0)
-    expect(rangesOf(rs).length).toBe(rangesOf(run(pairScene(6), 400 * MS)).length)
+    // The gate is not a tax on Config 1: close in, the packet opens on its own SYNC+SFD and
+    // every train of the round is detected exactly as a narrowband-assisted one is.
+    //
+    // It no longer ranges, and that is not the gate's doing: a zero-length control phase has no
+    // report phase (`mmsReportSlots`), so there is no frame left to carry the reply time back to
+    // the initiator. The draft's own answer to that is the fixed reply time — a pre-agreed
+    // constant the initiator already holds — which this engine does not yet read. So what is
+    // compared against the narrowband-assisted round here is the detector's verdict, which is
+    // what the gate decides, and not a range the round no longer produces.
+    const rs = run(pairScene(6, { ...UWBD, uwbdControl: 'none' }), 400 * MS)
+    const uwbd = trainsOf(rs)
+    const nba = trainsOf(run(pairScene(6), 400 * MS))
+    expect(uwbd.length).toBeGreaterThan(0)
+    expect(uwbd.every((t) => t.detected)).toBe(true)
+    expect(nba.every((t) => t.detected)).toBe(true)
   })
 })

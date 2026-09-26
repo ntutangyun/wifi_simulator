@@ -48,6 +48,10 @@ export type FieldKey =
   // none of the 802.15.4 MAC header the UWB ranging frames carry.
   | 'mmsFragment' | 'mmsShape' | 'mmsLength' | 'mmsPower'
   | 'nbMsgId' | 'nbChannel' | 'nbFields' | 'nbTime' | 'nbResponders'
+  // …and the SP0 control frame of Config 1, which is the same control plane on the UWB PHY: one
+  // packet format, the role in its content, and no channel field because there is no second
+  // radio to name one.
+  | 'sp0Role' | 'sp0Fields'
 
 export interface FrameField {
   key: FieldKey

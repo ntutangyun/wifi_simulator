@@ -15,7 +15,7 @@ export const FRAME_KINDS = [
   'data', 'ack', 'rts', 'cts', 'ba', 'trigger', 'mba', 'cfend',
   'ampTrigger', 'ampAck', 'ampResp', 'ampRfid', 'ampBsReply',
   'uwbPoll', 'uwbResp', 'uwbFinal', 'uwbReport', 'uwbBlink',
-  'uwbRsf', 'uwbRif', 'nbPoll', 'nbResp', 'nbReport',
+  'uwbRsf', 'uwbRif', 'nbPoll', 'nbResp', 'nbReport', 'uwbSp0',
 ] as const
 
 export type FrameKind = typeof FRAME_KINDS[number]
