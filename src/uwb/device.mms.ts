@@ -91,6 +91,13 @@ export interface MmsPeerState {
    * message to be primed by, so **acquiring the packet is the priming** — the first fragment this
    * device hears is the poll and the response, and a device that hears none never learns the peer
    * was there. 4ab draft 15-25/0194r0
+   *
+   * All of that is *when* the exchange happens, and the non-interleaved round happens in the
+   * opposite order: there the initiator transmits its packet **without waiting** for a response and
+   * the responder answers **after receiving** it (4ab draft 15-25/0292r1, restated in
+   * 15-25/0331r1). So a responder primed by answering — the interleaved rule — would be primed
+   * only once the packet it was meant to hear had gone by. Hearing the POLL is what primes it
+   * there (`onMmsRx`), and the initiator waits for nobody (`opensRound`).
    */
   primed: boolean
   /** The peer's fragments, per kind, in the order they arrived (which is index order). */
@@ -111,10 +118,12 @@ export interface MmsPeerState {
 /**
  * What one device holds for one MMS round (P802.15.4ab). Null in every other mode.
  *
- * The round has two halves and a device may reach neither: the control exchange *primes* it (the
- * initiator when its POLL is answered, the responder when it answers one), and only a primed
- * device transmits fragments or listens for them — unless there is no control exchange, where
- * the packet itself does that job (`MmsPeerState.primed`).
+ * The round has two halves and a device may reach neither: the control exchange *primes* it, and
+ * only a primed device transmits fragments or listens for them — unless there is no control
+ * exchange, where the packet itself does that job (`MmsPeerState.primed`). Which message of the
+ * exchange does the priming is the round's shape: interleaved, the RESP — the initiator when its
+ * POLL is answered, the responder when it answers one; non-interleaved, the POLL, because the
+ * RESP comes after the packet it would have permitted.
  */
 export interface MmsRoundState {
   /** The narrowband channel this block hops to; the network draws it and both ends are told.
@@ -196,22 +205,45 @@ function controlPrimes(mp: MmsRoundPlan): boolean {
 }
 
 /**
- * With no control exchange, whether this device is the one that transmits without having been
- * told anything.
+ * Whether this device is the one that puts its packet on the air without having been told
+ * anything first.
  *
- * Somebody has to go first, and the draft says who: the initiator sends its MMS packet without
- * waiting for a compact frame from the responder, and the responder starts its own sub-round only
- * after receiving that packet. So the opener's leading SYNC+SFD fragment IS the poll the other
- * side is waiting for, and the other side — having been told nothing else, ever — transmits only
- * once it has heard one. `reversedOrder` hands the opening to the responders, and this follows it.
- * 4ab draft 15-25/0292r1 for the order, 15-25/0194r0 for the fragment doing the poll's work.
+ * Somebody has to go first, and the draft says who: **in a non-interleaved sub-round the
+ * initiator transmits its MMS packet without waiting for a response compact frame, and the
+ * responder sends its response after receiving that packet** — the opposite way round from the
+ * interleaved round, where the response comes first and is what primes both ends before a single
+ * fragment goes out. 4ab draft 15-25/0292r1, restated in 15-25/0331r1.
  *
- * False in every round that has a control exchange: there, permission comes from the exchange and
- * nobody opens on their own.
+ * Everything below follows from that one sentence, and it makes two shapes in which the opener has
+ * nothing to wait for:
+ *
+ * - a **zero-length control phase**, where there is no response frame anywhere in the round, so
+ *   the opener's leading SYNC+SFD fragment IS the poll the other side is waiting for and the
+ *   other side — told nothing else, ever — transmits only once it has heard one
+ *   (4ab draft 15-25/0194r0);
+ * - a **non-interleaved** round that does have a control phase, where the response exists but is
+ *   scheduled at the head of the responder's own sub-round, after the whole of the opener's
+ *   ranging phase. Waiting for it there is waiting for something that cannot arrive until the
+ *   packet it answers has been sent.
+ *
+ * What the opener does wait for is its own control window: it polled, so `m.polled`. That is the
+ * initiator's half of the draft's discontinuation rule — a busy listen-before-talk check costs the
+ * cycle, and a round whose POLL never went out has no cycle to transmit a packet into. A
+ * zero-length control phase has no such window and asks for none.
+ *
+ * `reversedOrder` hands the opening to the responders, and this follows it — but only a reversed
+ * round with no control phase gets anywhere: with one, the opening responder's own window is a RESP
+ * sitting ahead of the POLL that `txControlResp` answers, so that round has no opening message to
+ * pass and none of this rescues it. Where its two control messages should go is the schedule's
+ * question, not this one's.
+ *
+ * False in an interleaved round with a control exchange: there, permission comes from the exchange
+ * and nobody opens on their own.
  */
-function opensRound(dev: UwbDevice, mp: MmsRoundPlan): boolean {
-  if (controlPrimes(mp)) return false
-  return (dev.cfg.role === 'tag') !== mp.phy.reversedOrder
+function opensRound(dev: UwbDevice, m: MmsRoundState, mp: MmsRoundPlan): boolean {
+  if ((dev.cfg.role === 'tag') === mp.phy.reversedOrder) return false
+  if (!controlPrimes(mp)) return true
+  return mp.phy.nonInterleaved && m.polled
 }
 
 /** Whether this round's control messages ride the UWB PHY as SP0 packets rather than the
@@ -399,7 +431,9 @@ function timingKind(mp: MmsRoundPlan): 'uwbRsf' | 'uwbRif' {
  * there is a peer to range with, and an unprimed pair neither transmits a fragment nor listens
  * for one — the draft's discontinuation rule, and what makes a busy listen-before-talk check
  * cost the whole cycle rather than one message. A round with no control exchange has no such
- * permission to give and asks for none (`controlPrimes`). **Evaluation at the end of a train**: a fragment
+ * permission to give and asks for none (`controlPrimes`), and a non-interleaved round gives it in
+ * the POLL rather than the RESP, because there the RESP answers the packet instead of permitting
+ * it (`opensRound`, `onMmsRx`). **Evaluation at the end of a train**: a fragment
  * is never stamped on arrival (see `onMmsRx`); a train is closed out in the slot after its last
  * fragment, which is where every draw and every record of it happens.
  */
@@ -547,7 +581,10 @@ function txControlPoll(
   )
 }
 
-/** Responder, its own RESP window: answer a POLL it heard — and only then is either end primed.
+/** Responder, its own RESP window: answer a POLL it heard. Interleaved, this is also the moment
+ * either end is primed — the answer comes before any fragment. Non-interleaved it is the other way
+ * round: the window is at the head of this responder's own sub-round, after the initiator's whole
+ * packet, so the POLL primed it long before this (`onMmsRx`) and the line below is a no-op there.
  * The POLL it heard was a narrowband message or an SP0 packet, and the answer follows it onto the
  * same radio. */
 function txControlResp(
@@ -582,10 +619,11 @@ function txOwnTrainFragment(
   dev: UwbDevice, r: RoundState, m: MmsRoundState, mp: MmsRoundPlan, to: string[],
   kind: 'uwbRsf' | 'uwbRif', index: number, slot: number,
 ): void {
-  // Somebody has to have answered the control exchange — or, where there is none, this has to be
-  // the device that opens the round, whose own leading fragment is the poll the far end is
-  // waiting for. A device that is neither has been told nothing and says nothing.
-  if (!anyPrimed(m) && !opensRound(dev, mp)) return
+  // Somebody has to have answered the control exchange — or this has to be the device that opens
+  // the round, which in the non-interleaved shape transmits before any answer exists and whose own
+  // leading fragment is what the far end answers. A device that is neither has been told nothing
+  // and says nothing.
+  if (!anyPrimed(m) && !opensRound(dev, m, mp)) return
   const dst = mp.oneToMany && dev.cfg.role === 'tag' ? UWB_BROADCAST : to[0]
   if (dst === undefined) return
   const counter = dev.clock.counter(dev.now())
@@ -705,6 +743,18 @@ export function onMmsRx(
       // own responder list is what a device checked itself against, in `onMmsSlot`.
       if (u.nb?.responders && !u.nb.responders.includes(dev.id)) return
       m.polled = true
+      // Non-interleaved, the POLL is also the priming, and it has to be: the initiator transmits
+      // its whole packet without waiting for a response, so all of it has arrived before this
+      // responder's own response window at the head of its sub-round. A responder primed by
+      // answering — the interleaved rule, in `txControlResp` — would still be deaf when the
+      // fragments went past, and this is the last thing it is told before they do.
+      // 4ab draft 15-25/0292r1, restated in 15-25/0331r1
+      //
+      // The discontinuation rule survives it: a responder whose own listen-before-talk check is
+      // busy never sends that response, so the initiator never learns it is there, never listens
+      // for its train and never reports — the cycle is lost exactly as it was, and what is left is
+      // a train radiated in the sub-round's own slots, where nothing else was going to be.
+      if (mp.phy.nonInterleaved) peerState(m, mp, from, index).primed = true
       return
     case 'resp':
       // The initiator learns here, and only here, that this responder is in the round.
