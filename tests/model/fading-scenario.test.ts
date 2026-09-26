@@ -12,7 +12,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { ScenarioSchema, defaultScenario, type Scenario } from '../../src/model/scenario'
-import { FADING_DEFAULTS } from '../../src/engine/fading'
+import { FADING_DEFAULTS, RICIAN_K_DEFAULT_DB } from '../../src/engine/fading'
 
 /** A plain two-room house with no fading section — the shape of every scenario in the repo today. */
 const base = (): Scenario => defaultScenario()
@@ -39,32 +39,45 @@ describe('Scenario.fading is absent by default, not defaulted', () => {
   })
 })
 
-describe('Scenario.fading, once written, gets the four defaults', () => {
-  it('an empty section fills all four fields from FADING_DEFAULTS', () => {
-    expect(parseWith({}).fading).toEqual(FADING_DEFAULTS)
+describe('Scenario.fading, once written, gets its defaults', () => {
+  /**
+   * The three fields every distribution has. `ricianKdB` is deliberately not
+   * among them: it is filled only for rician, so that this schema parses its
+   * own output. Filling it always made the transform emit a K factor beside
+   * `rayleigh`, which the cross-field rule then refused, so saving a faded plan
+   * and loading it back threw.
+   */
+  const COMMON = {
+    shadowSigmaDb: FADING_DEFAULTS.shadowSigmaDb,
+    coherenceMs: FADING_DEFAULTS.coherenceMs,
+    smallScale: FADING_DEFAULTS.smallScale,
+  }
+
+  it('an empty section fills the three common fields, and no K factor', () => {
+    expect(parseWith({}).fading).toEqual(COMMON)
   })
 
   it('a field that is written wins over its default', () => {
     expect(parseWith({ shadowSigmaDb: 7, coherenceMs: 250 }).fading).toEqual({
-      ...FADING_DEFAULTS, shadowSigmaDb: 7, coherenceMs: 250,
+      ...COMMON, shadowSigmaDb: 7, coherenceMs: 250,
     })
   })
 
   it('choosing rician without a K factor gets the default K', () => {
     expect(parseWith({ smallScale: 'rician' }).fading).toEqual({
-      ...FADING_DEFAULTS, smallScale: 'rician',
+      ...COMMON, smallScale: 'rician', ricianKdB: RICIAN_K_DEFAULT_DB,
     })
   })
 
   it('accepts an explicit K factor under rician', () => {
     expect(parseWith({ smallScale: 'rician', ricianKdB: 10 }).fading).toEqual({
-      ...FADING_DEFAULTS, smallScale: 'rician', ricianKdB: 10,
+      ...COMMON, smallScale: 'rician', ricianKdB: 10,
     })
   })
 
   it('shadowSigmaDb 0 and smallScale none are both legal: fading on, but flat', () => {
     expect(parseWith({ shadowSigmaDb: 0, smallScale: 'none' }).fading).toEqual({
-      ...FADING_DEFAULTS, shadowSigmaDb: 0, smallScale: 'none',
+      ...COMMON, shadowSigmaDb: 0, smallScale: 'none',
     })
   })
 
@@ -102,5 +115,36 @@ describe('Scenario.fading cross-field and range rules', () => {
 
   it('rejects a negative coherence time', () => {
     expect(() => parseWith({ coherenceMs: -100 })).toThrow()
+  })
+})
+
+describe('the schema parses its own output', () => {
+  // A schema whose output is not valid input is a save/load bug waiting for the
+  // first person who saves. Found by Task 3 while wiring the engine: the
+  // transform filled `ricianKdB` unconditionally, the cross-field rule then
+  // refused it beside `rayleigh`, and reloading a saved faded plan threw.
+  const each = ['none', 'rayleigh', 'rician'] as const
+
+  it.each(each)('round-trips a %s scenario through the whole schema', (smallScale) => {
+    const sc = { ...base(), fading: { smallScale } }
+    const once = ScenarioSchema.parse(sc)
+    const twice = ScenarioSchema.safeParse(once)
+    const why = twice.success ? '' : twice.error.issues.map((i) => i.message).join(' | ')
+    expect(twice.success, why).toBe(true)
+  })
+
+  it.each(each)('%s reaches the same fading both times', (smallScale) => {
+    const sc = { ...base(), fading: { smallScale } }
+    const once = ScenarioSchema.parse(sc)
+    const twice = ScenarioSchema.parse(once)
+    expect(twice.fading).toEqual(once.fading)
+  })
+
+  it('carries a K factor only where a K factor means something', () => {
+    const k = (smallScale: 'none' | 'rayleigh' | 'rician') =>
+      ScenarioSchema.parse({ ...base(), fading: { smallScale } }).fading?.ricianKdB
+    expect(k('rician')).toBe(RICIAN_K_DEFAULT_DB)
+    expect(k('rayleigh')).toBeUndefined()
+    expect(k('none')).toBeUndefined()
   })
 })

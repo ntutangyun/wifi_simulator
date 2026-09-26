@@ -9,7 +9,7 @@ import {
 // `src/engine/fading.ts` takes only `./hash` (no imports of its own) and this folder's `types`,
 // so the schema can hold the fading defaults the sampling functions were written against
 // without a cycle — one figure for each knob, in one place.
-import { FADING_DEFAULTS, type FadingCfg } from '../engine/fading'
+import { FADING_DEFAULTS, RICIAN_K_DEFAULT_DB, type FadingCfg } from '../engine/fading'
 import { NB_CHANNELS } from '../uwb/nb'
 import { mmsResponders, rstuNs, UWB_MAX_ANCHORS, uwbNbSlotFitNs, uwbSlotFitNs, uwbSlotsPerTag } from '../uwb/phy'
 import type { LinkId } from './caps'
@@ -733,7 +733,17 @@ const FadingSchema = z.object({
       message: `莱斯 K 因子只属于 smallScale 为 rician 的场景：K 是直射径功率与散射功率之比，瑞利分布按定义没有直射径，none 连小尺度衰落都不抽，这里写下的数引擎一个字都不会读（smallScale 缺省是 ${FADING_DEFAULTS.smallScale}，所以不写分布也算不上 rician）。这是本仿真器的自洽规则，不是标准的禁令`,
     })
   }
-}).transform((f): FadingCfg => ({ ...f, ricianKdB: f.ricianKdB ?? FADING_DEFAULTS.ricianKdB }))
+}).transform((f): FadingCfg => ({
+  ...f,
+  // Filled only for rician, so this schema parses its own output. Filling it
+  // unconditionally made the transform emit a K factor beside `rayleigh`, which
+  // the rule above then refused — so saving a faded plan and loading it back
+  // threw. A schema whose output is not valid input is a save/load bug waiting
+  // for the first person who saves.
+  ...(f.smallScale === 'rician'
+    ? { ricianKdB: f.ricianKdB ?? RICIAN_K_DEFAULT_DB }
+    : {}),
+}))
 
 export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
   .object({

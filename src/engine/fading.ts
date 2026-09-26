@@ -36,8 +36,13 @@ export interface FadingCfg {
   coherenceMs: number
   /** Distribution of the small-scale fade. */
   smallScale: 'none' | 'rayleigh' | 'rician'
-  /** Rician K factor, dB; meaningful only when `smallScale` is `'rician'`. */
-  ricianKdB: number
+  /**
+   * Rician K factor, dB. Optional, and absent in every other distribution —
+   * the schema fills it only for `'rician'` so that its output parses as its own
+   * input; a K factor beside `'rayleigh'` is refused, so emitting one there made
+   * saving and reloading a faded plan throw.
+   */
+  ricianKdB?: number
 }
 
 /**
@@ -53,11 +58,19 @@ export interface FadingCfg {
  * enough to be visible across many frames, and Rayleigh is the pessimistic case
  * (no line-of-sight component at all). model
  */
+/**
+ * The K factor a rician fade takes when a scenario asks for one without saying
+ * how strong. Its own constant rather than a field of `FADING_DEFAULTS`, because
+ * `FadingCfg.ricianKdB` is optional — absent in every distribution but rician —
+ * and a default has to be a number whatever the config left out. model
+ */
+export const RICIAN_K_DEFAULT_DB = 6
+
 export const FADING_DEFAULTS: FadingCfg = {
   shadowSigmaDb: 4,
   coherenceMs: 100,
   smallScale: 'rayleigh',
-  ricianKdB: 6,
+  ricianKdB: RICIAN_K_DEFAULT_DB,
 }
 
 /**
@@ -142,7 +155,7 @@ export function smallScaleDb(
   let re = x / Math.SQRT2
   let im = y / Math.SQRT2
   if (cfg.smallScale === 'rician') {
-    const k = 10 ** (cfg.ricianKdB / 10)
+    const k = 10 ** ((cfg.ricianKdB ?? RICIAN_K_DEFAULT_DB) / 10)
     const scatter = Math.sqrt(1 / (k + 1))
     re = Math.sqrt(k / (k + 1)) + re * scatter
     im *= scatter
