@@ -101,6 +101,13 @@ export const smallFrames: Lesson = {
     { heading: '聚合帧里的确认策略', text: 'QoS 控制里的两个确认策略（Ack Policy）比特，在单独一帧上读作 Normal Ack；同样这两个比特放在 A-MPDU 里，含义是 Implicit Block Ack Request。这正是十四帧只换回一个带 64 位位图、32 B 的 BlockAck，而不是十四个 14 B 的 Ack 的原因。' },
     { heading: '这一课没讲的那一半', text: '一串帧里如果有一两帧没被收下，那张位图会把它们点出来，发送端只补发那几帧——这件事、以及“赢一次可以发多久”，是第二阶段 A-MPDU 与 TXOP 两课的题目。这里只数它们的字节。' },
   ],
+  limits: [
+    { kind: 'threshold', text: '十四帧是一个整体：它们合成一个 PSDU，一个比值决定全部十四帧的命运，引擎里没有逐子帧的校验（mac.ts 里写明了这是整包解码模型）。于是那张 64 位位图从不会出现「只有第三帧坏了」，BlockAck 要么全是 1 要么这一串整个报废。真实的 A-MPDU 逐子帧校验，只补发坏掉的那几个——这也是它敢一次排十四帧的底气。' },
+    { kind: 'unmodelled', text: '4 个字节的分隔符只贡献长度：里面的 CRC-8 与 EOF 位都没有建模（frames.ts 的 ampduSubframeBytes）。真实接收端正是靠分隔符自己的那个校验在一串里重新找齐帧边界，所以一个坏掉的子帧不至于把它后面的都毁掉；本课算出的 21 502 B 里，这 56 个字节买到的东西在这里一点作用也没有。' },
+    { kind: 'model-value', text: '预约门限 2000 B 是场景直接给的参数（Scenario.rtsThresholdBytes），标准把 dot11RTSThreshold 留给实现。真实驱动多半按帧长、最近的重试历史、甚至邻居的密度动态开关保护，而不是照一个写死的字节数一刀切。' },
+    { kind: 'model-value', text: 'RTS 与 CTS 在这里也走「不超过本帧参考速率的最高强制速率」那条规则（mac.ts 的 rtsRate 用 ctrlRespRateForMode），所以本课两个小帧恒为 24 Mb/s、恒为 28 µs。标准只要求 RTS 取自本网络的基本速率集，真实设备常把保护帧压到最低的那一档发，好让更远的站点也听得见——那会让这笔开销明显更贵。' },
+    { kind: 'model-value', text: '一个突发最多 64 个子帧、最长 5.484 ms（phy.ts 的 MAX_AMPDU_MPDUS 与 MAX_PPDU_NS），实际装几个由队列里当时有多少决定。真实设备还要看两端协商出来的 BlockAck 窗口与聚合上限，能力不同的两台设备对同一队帧会切出不同长度的突发。' },
+  ],
   sources: [
     '控制帧的大小见 IEEE Std 802.11-2024 §9.3.1；A-MPDU 子帧——4 个八位组的分隔符、MPDU，再补齐到 4 字节边界（最后一个不补）——见 §9.8。',
     'RTS/CTS 交换与它们写入的持续时间见 §10.3.2.7；块确认见 §9.3.1.9 与 §10.25。预约门限（本场景 2000 B）是本仿真器的场景参数，标准把它留给实现。',

@@ -63,6 +63,12 @@ export const frameQosFcs: Lesson = {
     { heading: '这台引擎里没有一次 CRC', text: 'src/engine 下没有任何一个文件去算 MPDU 的校验：FCS_BYTES 只是一个字节数，参与的是长度，不是判定。一次接收的成败在 channel.ts 里由最差的那个比值对上该级的要求决定，所以整个课程里，一个读者能看到的失败原因只有 collision、lowSinr、txDuringRx 和 capture 四种。这门课把这件事说破，是因为“校验不过所以重发”听上去太顺了，而这个房间里从来没发生过。' },
     { heading: '聚合之后，同样这两个比特换了意思', text: 'QoS 控制里的确认策略，在单独一帧上读作 Normal Ack；同样这两个比特放进一串聚合帧里，含义是 Implicit Block Ack Request——十四帧只换回一个回复，靠的就是它。那是再往后两课的事。' },
   ],
+  limits: [
+    { kind: 'unmodelled', text: 'src/engine 下没有任何一处计算 MPDU 的校验：FCS_BYTES 只是一个字节数，参与的是长度而不是判定。一次接收的成败由整帧最差的那个信干噪比对上该级的要求决定，所以读者能看到的失败原因只有 collision、lowSinr、txDuringRx 与 capture 四种。真实接收端会遇到「比值够了、校验却不过」的帧——射频损伤、相位噪声、突发干扰都会造成，而这个房间里一次也没有。' },
+    { kind: 'threshold', text: '整帧共用一个判决：引擎拿这一帧全程最差那一瞬间的干扰去对门限（channel.ts 的 resolveLock 用 maxInterfMw），所以只被打扰了几微秒的一帧，和整段都被压住的一帧结局完全一样。真实的纠错编码配上交织，正是为了让短暂的一击还能被纠回来；门限附近因此是概率，不是定论。' },
+    { kind: 'unmodelled', text: '那两个字节里只有两样东西是活的：TID 与确认策略（frameFields.ts）。同一个字段里的 TXOP 时长请求、队列长度、EOSP 与 A-MSDU 存在位都没有对应的模型。真实设备正是靠队列长度那一格让接入点知道自己还积压着多少上行，接入点的上行调度才有依据。' },
+    { kind: 'model-value', text: '四类业务各写哪个 TID（背景 1、尽力而为 0、视频 5、语音 6）是本仿真器在标准给的区间里各挑了一个（frameFields.ts 的 TID_FOR_AC）。标准规定的是用户优先级到接入类别的映射区间，具体写哪个数由实现决定，所以同一段业务在别家设备上可能标成 2 或 4。' },
+  ],
   sources: [
     'QoS 控制字段见 IEEE Std 802.11-2024 §9.2.4.5，确认策略见其中的表 9-16；FCS 见 §9.2.4.7，它是对帧头与帧体计算的 CRC-32。',
     '用户优先级到接入类别的映射、以及各自写入的 TID，见表 10-1；本仿真器写入的取值是：背景 1、尽力而为 0、视频 5、语音 6。',
