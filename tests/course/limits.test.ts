@@ -28,9 +28,6 @@ const graded = (l: Lesson): boolean => trackOf(l) !== 'amp'
  * moment it gains `limits` — the expectation below will tell you when.
  */
 const NOT_YET: readonly string[] = [
-  // Tier 2 — M8's QoS lessons went with batch B; the capacity knobs are batch C
-  'width', 'streams', 'rate', 'rate-fallback', 'rate-cost',
-  'ofdma-dl', 'ofdma-ul', 'mumimo', 'mumimo-choose', 'mlo', 'mlo-gain', 'capstone',
   // UWB
   'uwb-intro', 'uwb-frame', 'uwb-sts', 'uwb-sstwr', 'uwb-dstwr', 'uwb-blocks',
   'uwb-slot-budget', 'uwb-position', 'uwb-geometry', 'uwb-coexist', 'uwb-contention',
