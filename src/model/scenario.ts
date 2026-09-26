@@ -3,7 +3,8 @@ import { z } from 'zod'
 // determinism hash, which in turn take nothing from here but types), so the schema can measure
 // a ranging slot with the very functions the ranging engine uses, without a cycle.
 import {
-  MMS_DRAFT_DEFAULTS, MMS_FIXED_REPLY_RSTU_MAX, MMS_FIXED_REPLY_RSTU_MIN, mmsSlotsPerMs, type MmsPhy,
+  MMS_DRAFT_DEFAULTS, MMS_FIXED_REPLY_RSTU_MAX, MMS_FIXED_REPLY_RSTU_MIN, MMS_RSF_SFD_N_MSR,
+  mmsSlotsPerMs, type MmsPhy,
 } from '../uwb/mms'
 import { NB_CHANNELS } from '../uwb/nb'
 import { mmsResponders, rstuNs, UWB_MAX_ANCHORS, uwbNbSlotFitNs, uwbSlotFitNs, uwbSlotsPerTag } from '../uwb/phy'
@@ -602,11 +603,13 @@ export const UwbMmsSchema = z.object({
       message: 'RSF 带 SFD 只在 UWB 驱动配置下有意义：窄带辅助模式里没有包首 SYNC+SFD 可丢',
     })
   }
-  if (mms.rsfSfd && mms.nMsr !== 32 && mms.nMsr !== 64) {
+  // 这两个长度来自 `MMS_RSF_SFD_N_MSR`：编辑器的置灰规则读的是同一份清单，
+  // 免得校验与控件各自抄一遍草案。
+  if (mms.rsfSfd && !MMS_RSF_SFD_N_MSR.includes(mms.nMsr)) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ['rsfSfd'],
-      message: '草案只在 RSF 片段长度为 32 或 64 时允许 RSF 带 SFD（15-25/0066r1）',
+      message: `草案只在 RSF 片段长度为 ${MMS_RSF_SFD_N_MSR.join(' 或 ')} 时允许 RSF 带 SFD（15-25/0066r1）`,
     })
   }
   // 固定回复时间是从“收完对方整个 MMS 包”起算的（较晚的修订如此），

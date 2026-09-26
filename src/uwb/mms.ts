@@ -80,6 +80,12 @@ export const STS_UNIT_CHIPS = 512 // standard §16.2.9
  * The values are unchanged.
  */
 export const N_MSR_SET = [32, 40, 48, 64, 128, 256] as const
+/**
+ * The two RSF fragment lengths an SFD may follow (`MmsPhy.rsfSfd`): the draft specifies the
+ * SFD-carrying RSF at these and no others, so the schema refuses the pair elsewhere and the
+ * editor greys the checkbox out there. One list, read by both. 4ab draft 15-25/0066r1
+ */
+export const MMS_RSF_SFD_N_MSR: readonly NMsr[] = [32, 64]
 /** X, the RSFs in a train. */
 export const RSF_COUNT_SET = [0, 1, 2, 4, 8, 16] as const // 4ab draft 15-22/0381r5 Table 1.6.3.2
 /** Y, the RIFs in a train. */

@@ -1,15 +1,24 @@
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, it, expect } from 'vitest'
 import { canDeleteNode, hasAp, newAnchor, newAp, newUwbTag, removeNode, uwbSessionIssue } from '../../src/editor/planOps'
 import { GEN_FEATURES } from '../../src/model/caps'
-import { DEFAULT_UWB_SESSION, ScenarioSchema, defaultScenario, type Scenario, type UwbMode, type UwbSessionCfg } from '../../src/model/scenario'
+import {
+  DEFAULT_UWB_MMS, DEFAULT_UWB_SESSION, ScenarioSchema, defaultScenario,
+  type Scenario, type UwbMmsCfg, type UwbMode, type UwbSessionCfg,
+} from '../../src/model/scenario'
 import { STRINGS } from '../../src/ui/i18n'
-import { MMS_SETS, mmsSet, type MmsSetId } from '../../src/uwb/mms'
+import {
+  MMS_FIXED_REPLY_RSTU_DEFAULT, MMS_FIXED_REPLY_RSTU_MAX, MMS_FIXED_REPLY_RSTU_MIN, MMS_SETS,
+  mmsLayout, mmsSet, mmsSlotsPerMs, type MmsSetId,
+} from '../../src/uwb/mms'
 import { NB_CHANNELS } from '../../src/uwb/nb'
-import { UWB_TX_POWER_DBM } from '../../src/uwb/phy'
+import { UWB_TX_POWER_DBM, rstuNs } from '../../src/uwb/phy'
 import { roundPlan } from '../../src/uwb/session'
 import {
-  mmsSetIdOf, mmsSetPatch, parseNbChannels, uwbAoaHintKey, uwbMethodPatch, uwbModePatch,
-  uwbScheduleHintKey,
+  UwbSessionFields, mmsDraftLive, mmsFieldPatch, mmsFixedReplyHintKey, mmsReversedHintKey,
+  mmsRsfSfdHintKey, mmsSetIdOf, mmsSetPatch, mmsUwbdControlHintKey, parseFixedReplyRstu,
+  parseNbChannels, uwbAoaHintKey, uwbMethodPatch, uwbModePatch, uwbScheduleHintKey,
 } from '../../src/uwb/ui/UwbSessionFields'
 
 /** A scenario carrying `n` anchors and one tag on top of the default house. */
@@ -402,6 +411,276 @@ describe('parseNbChannels', () => {
       expect(uwbSessionIssue(session(bad)), JSON.stringify(bad))
         .toContain('the narrowband allow list needs 1…250 distinct channels 0…249')
     }
+  })
+})
+
+/**
+ * The six P802.15.4ab draft-feature controls. Every one of them is legal only beside certain
+ * values of the others, and the schema is the authority on which — so these tests ask the schema
+ * rather than a written-out expectation: what the editor greys out is exactly what the schema
+ * refuses, and every state the controls can reach is a state the schema takes. Wording is not
+ * tested anywhere here; the strings only have to exist.
+ */
+describe('the MMS draft-feature controls', () => {
+  const cfg = (patch: Partial<UwbMmsCfg> = {}): UwbMmsCfg => ({ ...DEFAULT_UWB_SESSION.mms, ...patch })
+  /**
+   * An MMS plan at the draft's own 600 RSTU slot with one anchor and one tag, so the only thing
+   * the schema can object to is the MMS settings themselves. The block is the default 240 000
+   * RSTU, which holds even the non-interleaved round (48 slots against the interleaved 28).
+   */
+  const plan = (patch: Partial<UwbMmsCfg> = {}): Scenario => withUwb(1, {
+    ...uwbModePatch('mms'), slotRstu: 600, blockRstu: 240_000, mms: cfg(patch),
+  })
+
+  /** The narrowband pair as Config 1 has to leave them — nothing for them to act on there. */
+  const UWBD: Partial<UwbMmsCfg> = { control: 'uwbd', nbChannels: [], nbLbt: 'off' }
+
+  it('greys out exactly what the schema refuses, on every combination of the fields involved', () => {
+    /** What switching each gated control on would write. */
+    const ON: [keyof ReturnType<typeof mmsDraftLive>, Partial<UwbMmsCfg>][] = [
+      ['rsfSfd', { rsfSfd: true }],
+      ['fixedReply', { fixedReplyRstu: MMS_FIXED_REPLY_RSTU_DEFAULT }],
+      ['reversedOrder', { reversedOrder: true }],
+      ['uwbdControl', { uwbdControl: 'none' }],
+    ]
+    let checked = 0
+    for (const control of ['nba', 'uwbd'] as const) {
+      for (const nonInterleaved of [false, true]) {
+        for (const reversedOrder of [false, true]) {
+          for (const oneToMany of [false, true]) {
+            for (const nMsr of [32, 40] as const) {
+              const base: Partial<UwbMmsCfg> = {
+                control, nonInterleaved, reversedOrder, oneToMany, nMsr,
+                ...(control === 'uwbd'
+                  ? { nbChannels: [], nbLbt: 'off' as const }
+                  : { nbChannels: [3], nbLbt: 'auto' as const }),
+              }
+              // A base the schema already refuses would make the comparison below meaningless:
+              // the issue it returns would be the base's, not the switched-on control's.
+              if (uwbSessionIssue(plan(base)) !== null) continue
+              const live = mmsDraftLive(cfg(base))
+              for (const [name, on] of ON) {
+                const taken = uwbSessionIssue(plan({ ...base, ...on })) === null
+                expect(live[name], `${name} @ ${JSON.stringify(base)}`).toBe(taken)
+                checked++
+              }
+            }
+          }
+        }
+      }
+    }
+    expect(checked).toBeGreaterThan(50)
+  })
+
+  it('greys out the fixed reply time and the reversed order in an interleaved round', () => {
+    // Interleaved, the two ends put a fragment each into the same millisecond: there is no
+    // "finished receiving the packet" to time a reply from and no "who goes first" to swap.
+    const interleaved = cfg({ nonInterleaved: false })
+    expect(mmsDraftLive(interleaved).fixedReply).toBe(false)
+    expect(mmsDraftLive(interleaved).reversedOrder).toBe(false)
+    const both = cfg({ nonInterleaved: true })
+    expect(mmsDraftLive(both).fixedReply).toBe(true)
+    expect(mmsDraftLive(both).reversedOrder).toBe(true)
+  })
+
+  it('greys out RSF-with-SFD outside the UWB-driven control plane and away from N_MSR 32/64', () => {
+    expect(mmsDraftLive(cfg({ nMsr: 32 })).rsfSfd).toBe(false) // Config 2: no packet SYNC+SFD to drop
+    for (const nMsr of [32, 64] as const) expect(mmsDraftLive(cfg({ ...UWBD, nMsr })).rsfSfd).toBe(true)
+    for (const nMsr of [40, 48, 128, 256] as const) expect(mmsDraftLive(cfg({ ...UWBD, nMsr })).rsfSfd).toBe(false)
+  })
+
+  it('gives every greyed-out control the reason it is greyed out, and every reason a string', () => {
+    const keys = [
+      mmsRsfSfdHintKey(cfg({ nMsr: 32 })),
+      mmsRsfSfdHintKey(cfg({ ...UWBD, nMsr: 40 })),
+      mmsRsfSfdHintKey(cfg({ ...UWBD, nMsr: 32 })),
+      mmsFixedReplyHintKey(cfg({ nonInterleaved: false })),
+      mmsFixedReplyHintKey(cfg({ nonInterleaved: true, oneToMany: true })),
+      mmsFixedReplyHintKey(cfg({ nonInterleaved: true, reversedOrder: true })),
+      mmsFixedReplyHintKey(cfg({ nonInterleaved: true })),
+      mmsReversedHintKey(cfg({ nonInterleaved: false })),
+      mmsReversedHintKey(cfg({ nonInterleaved: true, fixedReplyRstu: MMS_FIXED_REPLY_RSTU_DEFAULT })),
+      mmsReversedHintKey(cfg({ nonInterleaved: true })),
+      mmsUwbdControlHintKey(cfg()),
+      mmsUwbdControlHintKey(cfg(UWBD)),
+    ]
+    // Each control distinguishes its reasons: a wrong reason is worse than none, which is what
+    // `uwbAoaHintKey` above pins for the modes.
+    expect(new Set(keys).size).toBe(keys.length)
+    for (const k of keys) expect(STRINGS.editor[k], k).toBeTruthy()
+  })
+
+  it('never lets the controls reach a plan the schema rejects', () => {
+    /** Every value each control can write. */
+    const EDITS: Partial<UwbMmsCfg>[] = [
+      { control: 'nba' }, { control: 'uwbd' },
+      { uwbdControl: 'sp0' }, { uwbdControl: 'none' },
+      { nonInterleaved: true }, { nonInterleaved: false },
+      { reversedOrder: true }, { reversedOrder: false },
+      { rsfSfd: true }, { rsfSfd: false },
+      { fixedReplyRstu: MMS_FIXED_REPLY_RSTU_DEFAULT }, { fixedReplyRstu: null },
+      { oneToMany: true }, { oneToMany: false },
+      { nMsr: 32 }, { nMsr: 40 },
+      { nbLbt: 'auto' }, { nbLbt: 'off' },
+      { nbChannels: [3] }, { nbChannels: [3, 4] },
+    ]
+    /** Which greying gate each edit sits behind, or null for a control that is always live. */
+    const GATE: Record<string, keyof ReturnType<typeof mmsDraftLive> | null> = {
+      uwbdControl: 'uwbdControl', reversedOrder: 'reversedOrder', rsfSfd: 'rsfSfd',
+      fixedReplyRstu: 'fixedReply', nbLbt: 'narrowband', nbChannels: 'narrowband',
+      control: null, nonInterleaved: null, oneToMany: null, nMsr: null,
+    }
+    const start = cfg()
+    const seen = new Set([JSON.stringify(start)])
+    const queue = [start]
+    while (queue.length > 0) {
+      const state = queue.shift()!
+      expect(uwbSessionIssue(plan(state)), JSON.stringify(state)).toBeNull()
+      const live = mmsDraftLive(state)
+      for (const edit of EDITS) {
+        const gate = GATE[Object.keys(edit)[0]]
+        if (gate !== null && !live[gate]) continue // the user cannot click a greyed-out control
+        const next = { ...state, ...mmsFieldPatch(state, edit) }
+        const key = JSON.stringify(next)
+        if (seen.has(key)) continue
+        seen.add(key)
+        queue.push(next)
+      }
+    }
+    // …and the walk is only worth something if it does reach all six features switched on.
+    expect(seen.size).toBeGreaterThan(50)
+    const states = [...seen].map((s) => JSON.parse(s) as UwbMmsCfg)
+    expect(states.some((s) => s.control === 'uwbd')).toBe(true)
+    expect(states.some((s) => s.uwbdControl === 'none')).toBe(true)
+    expect(states.some((s) => s.nonInterleaved)).toBe(true)
+    expect(states.some((s) => s.reversedOrder)).toBe(true)
+    expect(states.some((s) => s.rsfSfd)).toBe(true)
+    expect(states.some((s) => s.fixedReplyRstu !== null)).toBe(true)
+  })
+
+  it('takes the narrowband fields out of a plan whose control plane has no narrowband radio', () => {
+    const nba = cfg({ nbChannels: [7, 8], nbLbt: 'auto' })
+    expect(mmsDraftLive(nba).narrowband).toBe(true)
+    const uwbd = { ...nba, ...mmsFieldPatch(nba, { control: 'uwbd' }) }
+    expect(uwbd).toMatchObject({ control: 'uwbd', nbChannels: [], nbLbt: 'off' })
+    expect(mmsDraftLive(uwbd).narrowband).toBe(false)
+    expect(uwbSessionIssue(plan(uwbd))).toBeNull()
+    // …and coming back needs a list again, which only the draft's own default can supply: an
+    // empty allow list is a plan Config 2 refuses, and the control keeps no memory of its own.
+    const back = { ...uwbd, ...mmsFieldPatch(uwbd, { control: 'nba' }) }
+    expect(back).toMatchObject({
+      control: 'nba', nbChannels: DEFAULT_UWB_MMS.nbChannels, nbLbt: DEFAULT_UWB_MMS.nbLbt,
+    })
+    expect(uwbSessionIssue(plan(back))).toBeNull()
+  })
+
+  it('drops the UWB-driven-only settings when the control plane goes back to Config 2', () => {
+    const uwbd = cfg({ ...UWBD, uwbdControl: 'none', nMsr: 32, rsfSfd: true })
+    expect(uwbSessionIssue(plan(uwbd))).toBeNull()
+    const nba = { ...uwbd, ...mmsFieldPatch(uwbd, { control: 'nba' }) }
+    expect(nba).toMatchObject({ control: 'nba', uwbdControl: 'sp0', rsfSfd: false })
+    expect(uwbSessionIssue(plan(nba))).toBeNull()
+  })
+
+  it('drops RSF-with-SFD when a fragment length that cannot carry it is written', () => {
+    const on = cfg({ ...UWBD, nMsr: 32, rsfSfd: true })
+    expect(uwbSessionIssue(plan(on))).toBeNull()
+    // the N_MSR select…
+    expect({ ...on, ...mmsFieldPatch(on, { nMsr: 40 }) }.rsfSfd).toBe(false)
+    // …and the parameter-set select, which writes N_MSR too (rsf-1 is N_MSR 40).
+    const set = { ...on, ...mmsFieldPatch(on, mmsSetPatch('rsf-1')) }
+    expect(mmsSet('rsf-1').nMsr).toBe(40)
+    expect(set.rsfSfd).toBe(false)
+    expect(uwbSessionIssue(plan(set))).toBeNull()
+  })
+
+  it('clears the fixed reply time when the round shape it needs is taken away', () => {
+    const fixed = cfg({ nonInterleaved: true, fixedReplyRstu: MMS_FIXED_REPLY_RSTU_DEFAULT })
+    expect(uwbSessionIssue(plan(fixed))).toBeNull()
+    for (const edit of [{ nonInterleaved: false }, { oneToMany: true }] as Partial<UwbMmsCfg>[]) {
+      const next = { ...fixed, ...mmsFieldPatch(fixed, edit) }
+      expect(next.fixedReplyRstu, JSON.stringify(edit)).toBeNull()
+      expect(uwbSessionIssue(plan(next)), JSON.stringify(edit)).toBeNull()
+    }
+    // Reversed order goes the same way, and takes the fixed reply time with it.
+    const reversed = cfg({ nonInterleaved: true, reversedOrder: true })
+    expect({ ...reversed, ...mmsFieldPatch(reversed, { nonInterleaved: false }) }.reversedOrder).toBe(false)
+  })
+})
+
+/**
+ * The fixed reply time is the one draft feature the user types rather than picks, so it is the one
+ * that can be typed wrong. Same contract as `parseNbChannels`: a value the schema would refuse
+ * never reaches the session at all.
+ */
+describe('parseFixedReplyRstu', () => {
+  it('takes a whole RSTU count inside the bounds the draft gives macMmsFixedReplyTime', () => {
+    expect(parseFixedReplyRstu('600')).toBe(600)
+    expect(parseFixedReplyRstu(' 300 ')).toBe(MMS_FIXED_REPLY_RSTU_MIN)
+    expect(parseFixedReplyRstu('612000')).toBe(MMS_FIXED_REPLY_RSTU_MAX)
+    expect(parseFixedReplyRstu(String(MMS_FIXED_REPLY_RSTU_DEFAULT))).toBe(MMS_FIXED_REPLY_RSTU_DEFAULT)
+  })
+
+  it('refuses anything the schema would refuse, so the field can keep the last value that worked', () => {
+    for (const bad of ['', '   ', '299', '612001', '600.5', '-600', '6e2', '600,600', 'x', '0']) {
+      expect(parseFixedReplyRstu(bad), bad).toBeNull()
+    }
+  })
+
+  it('agrees with the schema on the bounds, and has a message to leave on screen', () => {
+    const at = (fixedReplyRstu: number): Scenario => withUwb(1, {
+      ...uwbModePatch('mms'), slotRstu: 600, blockRstu: 240_000,
+      mms: { ...DEFAULT_UWB_SESSION.mms, nonInterleaved: true, fixedReplyRstu },
+    })
+    for (const good of [MMS_FIXED_REPLY_RSTU_MIN, MMS_FIXED_REPLY_RSTU_DEFAULT, MMS_FIXED_REPLY_RSTU_MAX]) {
+      expect(uwbSessionIssue(at(good)), String(good)).toBeNull()
+    }
+    for (const bad of [MMS_FIXED_REPLY_RSTU_MIN - 1, MMS_FIXED_REPLY_RSTU_MAX + 1]) {
+      expect(uwbSessionIssue(at(bad)), String(bad)).not.toBeNull()
+      expect(parseFixedReplyRstu(String(bad)), String(bad)).toBeNull()
+    }
+    expect(STRINGS.editor.uwbFixedReplyBad).toBeTruthy()
+  })
+})
+
+/**
+ * What the panel's own read-only line says the round is. A non-interleaved ranging phase costs
+ * `slotsPerMs` slots per millisecond of train, so the line has to be measured at the session's
+ * slot length — printing the draft's default instead would state a round the run does not have.
+ */
+describe('the MMS derived line', () => {
+  it('measures the round at the session’s own slot length', () => {
+    // Config 1, where a 300 RSTU slot is legal (no narrowband message to fit into two of them).
+    const mms: UwbMmsCfg = {
+      ...DEFAULT_UWB_SESSION.mms, control: 'uwbd', nbChannels: [], nbLbt: 'off', nonInterleaved: true,
+    }
+    const session: UwbSessionCfg = {
+      ...DEFAULT_UWB_SESSION, ...uwbModePatch('mms'), slotRstu: 300, blockRstu: 240_000, mms,
+    }
+    const real = mmsLayout(mms, 1, mmsSlotsPerMs(300)).slots
+    const nominal = mmsLayout(mms, 1).slots // …at the draft's 600 RSTU slot, which this is not
+    expect(real).toBeGreaterThan(nominal)
+    const sc = { ...withUwb(1), uwb: session }
+    expect(uwbSessionIssue(sc)).toBeNull()
+    const markup = renderToStaticMarkup(createElement(UwbSessionFields, {
+      session, anchors: 1, tags: 1, issue: null, onChange: () => {}, onRemove: () => {},
+    }))
+    const msOf = (slots: number): string => `${(rstuNs(slots * 300) / 1e6).toFixed(1)} ms`
+    expect(markup).toContain(msOf(real))
+    expect(markup).not.toContain(msOf(nominal))
+  })
+
+  it('leaves the block-fit rule measuring the same round it prints', () => {
+    // Three responders, non-interleaved: four sub-rounds of a whole train each, 100 slots at the
+    // draft's 600 RSTU slot against the interleaved round's 52 — so the block refuses it sooner,
+    // and says so with the number the panel shows.
+    const mms: UwbMmsCfg = { ...DEFAULT_UWB_SESSION.mms, oneToMany: true, nonInterleaved: true }
+    expect(mmsLayout(mms, 3, mmsSlotsPerMs(600)).slots).toBe(100)
+    expect(mmsLayout({ ...mms, nonInterleaved: false }, 3, mmsSlotsPerMs(600)).slots).toBe(52)
+    const tight = withUwb(3, { ...uwbModePatch('mms'), slotRstu: 600, blockRstu: 30_000, mms })
+    expect(uwbSessionIssue(tight)).toContain('100 slots')
+    // …and one that does hold it is accepted, so the warning is about the block and not the mode.
+    expect(uwbSessionIssue(withUwb(3, { ...uwbModePatch('mms'), slotRstu: 600, blockRstu: 240_000, mms }))).toBeNull()
   })
 })
 

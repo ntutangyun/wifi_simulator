@@ -6,6 +6,7 @@ import type { AmpTagMode, NbLbt, NbReportMode, ProfileId, UwbMode } from '../mod
 import type { RxFailReason } from '../model/records'
 import type { AddrRole, FcBitKey, FieldKey, PpduSegmentKey } from '../model/frameFields'
 import type { NB_MSG_ID } from '../uwb/nb'
+import type { MmsPhy } from '../uwb/mms'
 import type { UwbFixMethod } from '../uwb/records'
 
 /** How a multi-user PPDU is split — absent for frames that are always OFDMA-flavored (triggers, UL TB, M-BA). */
@@ -179,6 +180,24 @@ export interface Strings {
     uwbNbLbt: string; uwbNbLbtHint: string; uwbNbLbts: Record<NbLbt, string>
     uwbReport: string; uwbReportHint: string; uwbReports: Record<NbReportMode, string>
     uwbOneToMany: string; uwbOneToManyHint: string
+    /**
+     * The six P802.15.4ab draft features (`MmsDraftPhy`). Each is legal only beside certain values
+     * of the others, so each carries its own description *and* the schema's reason for being
+     * greyed out — one key per reason, picked by the `mms…HintKey` functions of
+     * `uwb/ui/UwbSessionFields.tsx`, which derive the greying from the very same answer.
+     */
+    uwbMmsControl: string; uwbMmsControlHint: string
+    uwbMmsControls: Record<MmsPhy['control'], string>
+    uwbUwbdControl: string; uwbUwbdControlHint: string; uwbUwbdNbaOnly: string
+    uwbUwbdControls: Record<MmsPhy['uwbdControl'], string>
+    uwbRsfSfd: string; uwbRsfSfdHint: string; uwbRsfSfdUwbdOnly: string; uwbRsfSfdNMsr: string
+    uwbNonInterleaved: string; uwbNonInterleavedHint: string
+    uwbFixedReply: string; uwbFixedReplyHint: string; uwbFixedReplyBad: string
+    uwbFixedReplyInterleaved: string; uwbFixedReplyOneToMany: string; uwbFixedReplyReversed: string
+    uwbReversed: string; uwbReversedHint: string
+    uwbReversedInterleaved: string; uwbReversedFixedReply: string
+    /** Why the allow list and the LBT select are dead: Config 1 has no narrowband radio at all. */
+    uwbNbNoRadio: string
     /** Why the SS/DS select is greyed out in MMS mode. */
     uwbMmsSsOnly: string
     /** The read-only line under the MMS fields: fragment length, its power and the round. */
@@ -657,6 +676,30 @@ export const STRINGS: Strings = {
       initiator: '发起方发报告——由响应方测距',
       bi: '双方都发报告',
     },
+    uwbMmsControl: '控制面配置',
+    uwbMmsControlHint: '草案给 MMS 定义了两套控制面。配置 2（Config 2）是窄带辅助（narrowband-assisted, NBA）：POLL、RESP、REPORT 三条消息都跑在一套 2.5 MHz 的窄带电台上，每个窗口占两个测距时隙。配置 1（Config 1）是 UWB 驱动（UWB-driven, UWBD）：设备只有一个电台，同样这三条消息改成 UWB 物理层上的 SP0（BASIC_PACKET）包，窗口缩到一个时隙（4ab 草案 15-25/0194r0）。切到配置 1 时下面的窄带信道与先听后发会置灰并清空——那里已经没有窄带电台可供它们作用，引擎在这种配置下也确实一个窄带信道都不抽；切回配置 2 会写回草案的默认窄带设置（信道 3、LBT 自动），因为一份空的允许列表是配置 2 不接受的，而本控件不替你记住上一份列表。',
+    uwbMmsControls: { nba: '配置 2 · 窄带辅助（NBA）', uwbd: '配置 1 · UWB 驱动（UWBD）' },
+    uwbUwbdControl: '控制相位',
+    uwbUwbdControlHint: 'UWB 驱动配置下控制相位的形态。草案用轮询与响应两个时隙数来描述它：取 1–15 时控制相位里发 SP0 控制帧；两者都取 0 时控制相位长度为零——一条控制帧都不发，测距包自己的包首 SYNC+SFD 同时充当轮询与响应，整个轮次只剩测距相位与报告相位（4ab 草案 15-25/0194r0）。选零长度省掉的正是那两个控制窗口，代价是两端都得事先知道这一轮的形状。',
+    uwbUwbdNbaOnly: '零长度控制相位只属于 UWB 驱动配置：窄带辅助配置的 POLL/RESP 窗口排在窄带电台上，在这里选什么都不改变任何东西（4ab 草案 15-25/0194r0）',
+    uwbUwbdControls: { sp0: 'SP0 控制帧', none: '零长度——由包首 SYNC+SFD 代劳' },
+    uwbRsfSfd: 'RSF 带 SFD',
+    uwbRsfSfdHint: '让每个 RSF 片段后面都跟一个帧起始定界符（start-of-frame delimiter, SFD），于是任何一个片段都能充当整包的开头。默认只有包首那一个片段带 SYNC+SFD，它一丢，后面的片段再全部收到也打不开这个包；带上 SFD 后接收机从听到的第一个片段起就能接管——这恰恰是把片段摊进好几个毫秒之后最需要防的那件事（4ab 草案 15-25/0066r1）。代价是每个片段都多花一段 SFD 的时间。',
+    uwbRsfSfdUwbdOnly: 'RSF 带 SFD 只在 UWB 驱动配置下有意义：窄带辅助配置里没有包首 SYNC+SFD 可丢，也就没有「哪个片段能开包」这个问题（4ab 草案 15-25/0066r1）',
+    uwbRsfSfdNMsr: '草案只在 RSF 片段长度（N_MSR）为 32 或 64 时定义了带 SFD 的 RSF：SFD 要塞进片段自己那段长度里，更长的片段没有给出这种形态（4ab 草案 15-25/0066r1）。先把 N_MSR 改成 32 或 64',
+    uwbNonInterleaved: '非交织子轮',
+    uwbNonInterleavedHint: '把一个轮次拆成若干子轮（sub-round），每台设备一个：子轮里只有它自己在发，它那列片段连续发完，下一台设备的子轮才开始（4ab 草案 15-25/0292r1，拟编为 §10.39.7）。默认的交织（interleaved）形态相反——同一毫秒里每台设备各发一个片段。非交织换来的是一个明确的时刻「对方整个包收完了」，固定回复时间与反序都建立在它之上；代价是轮次长得多：一个子轮就是一整列片段的长度，设备数直接乘上去，草案默认的 600 RSTU 时隙下，三个响应方的一对多轮次要 100 个时隙（50 ms），而交织形态是 52 个。测距块装不下时，本节下方会用红字说出来。',
+    uwbFixedReply: '固定回复时间',
+    uwbFixedReplyHint: 'macMmsFixedReplyTime：应答方不再等到自己子轮的开头才发，而是在收完对方整个 MMS 包之后，固定这么久再发（4ab 草案 15-25/0224r2、15-25/0681r1）。取值 300…612000 RSTU（约 0.25…510 ms），下界 300 RSTU 正是一个 MMS 测距时隙的最小长度；按回车或移开焦点生效，越界的值不会被保存。它把回复时间从「排定的」改成「约定的」：两端各自从同一个常量算出同一个时刻，发起方不必再等时隙边界。',
+    uwbFixedReplyBad: '固定回复时间需要一个 300…612000 RSTU 之间的整数（约 0.25…510 ms）',
+    uwbFixedReplyInterleaved: '固定回复时间只属于非交织模式：它从收完对方整个 MMS 包起算，而交织时两端在同一毫秒里各发一个片段，根本没有这样一个「收完了」的起点（4ab 草案 15-25/0224r2、15-25/0556r2）',
+    uwbFixedReplyOneToMany: '固定回复时间是一对一的：草案把它放在 One-to-one Response Compact 帧里，而一对多时一个共用的常量会让每个应答方在同一时刻一起发（4ab 草案 15-25/0224r2）',
+    uwbFixedReplyReversed: '反序下应答方就是开场先发包的那一方，而固定回复时间要的正是「收完对方的包」这个起点——一台设备同时当不了这两个角色。这是本仿真器的自洽规则，不是草案的禁令：草案把这两个位放在同一个八位组里，并没有禁止同时置位',
+    uwbReversed: '反序轮次',
+    uwbReversedHint: '让应答方先发自己的 MMS 包，发起方随后（4ab 草案 15-25/0556r2）——发起方自进入测距阶段起偏移 600 RSTU 再发，本引擎把这个偏移放在它自己的子轮内。它换的是角色：先发的那一方量到的是往返时间，后发的量到的是回复时间，于是「谁算得出距离」也跟着换到另一边。',
+    uwbReversedInterleaved: '反序只属于非交织模式：交织时两端在同一毫秒里各发一个片段，没有「谁先发」可以调换（4ab 草案 15-25/0556r2）',
+    uwbReversedFixedReply: '固定回复时间已经打开：它要的起点是「收完对方的包」，而反序会让应答方成为开场先发的那一方，两者在同一台设备上互相排斥。要用反序，先关掉固定回复时间',
+    uwbNbNoRadio: 'UWB 驱动配置（配置 1）没有窄带电台：三条控制消息都改成了 UWB 物理层上的 SP0 包，窄带信道列表与先听后发在这里没有任何东西可以作用（4ab 草案 15-25/0194r0）',
     uwbMmsSsOnly: 'MMS 采用单边测距，再用片段序列自己量出的时钟比率加以修正——有了这把长达毫秒的“尺子”，双边测距已无可抵消之物，因此没有 MMS 版的 DS-TWR 可选',
     uwbMmsDerived: (rsfUs, longestUs, fragDbm, slots, roundMs) =>
       `RSF ${rsfUs} µs · 最长片段 ${longestUs} µs，${fragDbm} dBm · 每轮 ${slots} 个时隙 · ${roundMs} ms`,

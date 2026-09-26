@@ -6,12 +6,15 @@
  * the schema's own complaint when the numbers do not add up.
  */
 import { useState } from 'react'
+import { DEFAULT_UWB_MMS } from '../../model/scenario'
 import type { NbLbt, NbReportMode, UwbMmsCfg, UwbMode, UwbSessionCfg } from '../../model/scenario'
 import { roundPlan } from '../session'
 import { mmsResponders, rstuNs } from '../phy'
 import {
-  MMS_SETS, N_MSR_SET, RIF_COUNT_SET, RSF_COUNT_SET, STS_LEN_SET,
-  mmsFragmentDbm, mmsLayout, mmsLongestFragmentNs, mmsSet, rsfNs, type MmsPhy, type MmsSetId,
+  MMS_FIXED_REPLY_RSTU_DEFAULT, MMS_FIXED_REPLY_RSTU_MAX, MMS_FIXED_REPLY_RSTU_MIN,
+  MMS_RSF_SFD_N_MSR, MMS_SETS, N_MSR_SET, RIF_COUNT_SET, RSF_COUNT_SET, STS_LEN_SET,
+  mmsFragmentDbm, mmsLayout, mmsLongestFragmentNs, mmsSet, mmsSlotsPerMs, rsfNs,
+  type MmsPhy, type MmsSetId,
 } from '../mms'
 import { NB_CHANNELS } from '../nb'
 import { useStrings } from '../../ui/i18n'
@@ -103,6 +106,133 @@ export function mmsSetPatch(id: MmsSetId): MmsSetFields {
  */
 export function parseNbChannels(raw: string): number[] | null {
   return parseIntList(raw, 0, NB_CHANNELS - 1, NB_CHANNELS)
+}
+
+/**
+ * The fixed reply time as its field takes it: one whole RSTU count inside the bounds the draft
+ * gives macMmsFixedReplyTime (300…612 000 RSTU, `UwbMmsSchema`), or null for anything else —
+ * exactly `parseNbChannels`'s contract, and the same strictness, since `parseIntList` capped at
+ * one entry *is* "a single whole number in range". A value the schema would refuse never reaches
+ * the session; the field keeps the last one that worked and says what it wanted instead.
+ *
+ * null therefore means "refused" here, never "off". Whether the feature is on at all is the
+ * checkbox's business (`fixedReplyRstu === null` in the session), and the two never meet: the
+ * field is only asked to parse while the checkbox is ticked.
+ */
+export function parseFixedReplyRstu(raw: string): number | null {
+  const one = parseIntList(raw, MMS_FIXED_REPLY_RSTU_MIN, MMS_FIXED_REPLY_RSTU_MAX, 1)
+  return one === null ? null : one[0]
+}
+
+/**
+ * Every MMS edit goes through here, and comes out carrying whatever the schema's cross-field
+ * rules make of it.
+ *
+ * The draft's five features are legal only beside certain values of the fields around them — a
+ * fixed reply time needs the non-interleaved shape, an SFD-carrying RSF needs Config 1 and a
+ * fragment length of `MMS_RSF_SFD_N_MSR` — so *taking that value away* is what would leave a plan
+ * the schema rejects. Greying out the dependent control stops the user reaching the illegal pair
+ * from one side; this stops it from the other, where the control being edited is a legal one and
+ * the casualty is somewhere else on the panel. Between them there is no sequence of clicks that
+ * builds a session `UwbMmsSchema` refuses, which is what `uwbModePatch` does for the mode.
+ *
+ * It is written as "what the merged session would be, then what has to give", rather than as one
+ * branch per control: a rule of the schema is about a *state*, and checking states is what keeps
+ * this in step with `UwbMmsSchema` as the draft moves.
+ */
+export function mmsFieldPatch(mms: UwbMmsCfg, edit: Partial<UwbMmsCfg>): Partial<UwbMmsCfg> {
+  const next = { ...mms, ...edit }
+  const out: Partial<UwbMmsCfg> = { ...edit }
+  if (next.control === 'uwbd') {
+    // Config 1 has no second radio at all: its POLL, RESP and REPORT are SP0 packets on the UWB
+    // PHY, so an allow list and a listen-before-talk setting have nothing to act on and the
+    // schema refuses to carry them. The two fields are greyed out as well — this is what empties
+    // them on the way in.
+    if (next.nbChannels.length > 0) out.nbChannels = []
+    if (next.nbLbt !== 'off') out.nbLbt = 'off'
+  } else {
+    // …and Config 2 needs an allow list again (1…250 channels), which nothing can supply but the
+    // draft's own default: the fields were held at Config 1's only legal values while it was on,
+    // and remembering the user's earlier list would mean storing a second copy of a field that is
+    // already in the session — the very thing `mmsSetIdOf` above refuses to do.
+    if (mms.control === 'uwbd') {
+      out.nbChannels = [...DEFAULT_UWB_MMS.nbChannels]
+      out.nbLbt = DEFAULT_UWB_MMS.nbLbt
+    }
+    // Both of Config 1's own settings go with it: a zero-length control phase changes nothing on
+    // a narrowband control plane, and there is no packet SYNC+SFD there for an RSF to carry.
+    if (next.uwbdControl !== 'sp0') out.uwbdControl = 'sp0'
+    if (next.rsfSfd) out.rsfSfd = false
+  }
+  // The fragment-length select and the parameter-set select both write N_MSR, and only two of its
+  // values may carry an SFD.
+  if (next.rsfSfd && !MMS_RSF_SFD_N_MSR.includes(next.nMsr)) out.rsfSfd = false
+  if (!next.nonInterleaved) {
+    // Interleaved, the two ends put a fragment each into the same millisecond: there is no
+    // "finished receiving the packet" to time a reply from, and no "who goes first" to swap.
+    if (next.fixedReplyRstu !== null) out.fixedReplyRstu = null
+    if (next.reversedOrder) out.reversedOrder = false
+  }
+  // The fixed reply time is one-to-one (the draft puts it in a One-to-one Response Compact frame)
+  // and forward-order (its starting point is the packet the reversed responder has not received
+  // yet), so either of those two controls takes it away when it is switched on.
+  if (next.fixedReplyRstu !== null && (next.oneToMany || next.reversedOrder)) out.fixedReplyRstu = null
+  return out
+}
+
+/**
+ * Why the UWB-driven control phase select shows what it shows. Same shape as `uwbAoaHintKey`: the
+ * key names the control's own description when nothing is stopping it, and the schema's reason
+ * when something is — and `mmsDraftLive` below derives the greying from these same functions, so
+ * a tooltip and a disabled attribute cannot disagree about which rule is in force.
+ */
+export function mmsUwbdControlHintKey(mms: UwbMmsCfg): 'uwbUwbdControlHint' | 'uwbUwbdNbaOnly' {
+  return mms.control === 'uwbd' ? 'uwbUwbdControlHint' : 'uwbUwbdNbaOnly'
+}
+
+/** Why the RSF-with-SFD checkbox is live or not: the control plane first, then the fragment
+ * length, because a Config 2 session has no packet SYNC+SFD to drop at any length. */
+export function mmsRsfSfdHintKey(mms: UwbMmsCfg): 'uwbRsfSfdHint' | 'uwbRsfSfdUwbdOnly' | 'uwbRsfSfdNMsr' {
+  if (mms.control !== 'uwbd') return 'uwbRsfSfdUwbdOnly'
+  return MMS_RSF_SFD_N_MSR.includes(mms.nMsr) ? 'uwbRsfSfdHint' : 'uwbRsfSfdNMsr'
+}
+
+/** Why the fixed reply time is live or not. Three separate refusals, and saying the wrong one
+ * would send the user to the wrong field: the round shape, the round's membership, and the one
+ * this simulator refuses for its own consistency (reversed order). */
+export function mmsFixedReplyHintKey(
+  mms: UwbMmsCfg,
+): 'uwbFixedReplyHint' | 'uwbFixedReplyInterleaved' | 'uwbFixedReplyOneToMany' | 'uwbFixedReplyReversed' {
+  if (!mms.nonInterleaved) return 'uwbFixedReplyInterleaved'
+  if (mms.oneToMany) return 'uwbFixedReplyOneToMany'
+  if (mms.reversedOrder) return 'uwbFixedReplyReversed'
+  return 'uwbFixedReplyHint'
+}
+
+/** Why the reversed-order checkbox is live or not — the other side of the pair above. */
+export function mmsReversedHintKey(
+  mms: UwbMmsCfg,
+): 'uwbReversedHint' | 'uwbReversedInterleaved' | 'uwbReversedFixedReply' {
+  if (!mms.nonInterleaved) return 'uwbReversedInterleaved'
+  return mms.fixedReplyRstu === null ? 'uwbReversedHint' : 'uwbReversedFixedReply'
+}
+
+/**
+ * Which of the settings-dependent controls the current session leaves live. Each answer is read
+ * off the hint key above it — `disabled` and `title` are then two views of one decision, not two
+ * copies of one rule — and `narrowband` covers the allow list and the listen-before-talk select
+ * together, since Config 1 takes the radio they both configure away.
+ */
+export function mmsDraftLive(mms: UwbMmsCfg): {
+  uwbdControl: boolean; rsfSfd: boolean; fixedReply: boolean; reversedOrder: boolean; narrowband: boolean
+} {
+  return {
+    uwbdControl: mmsUwbdControlHintKey(mms) === 'uwbUwbdControlHint',
+    rsfSfd: mmsRsfSfdHintKey(mms) === 'uwbRsfSfdHint',
+    fixedReply: mmsFixedReplyHintKey(mms) === 'uwbFixedReplyHint',
+    reversedOrder: mmsReversedHintKey(mms) === 'uwbReversedHint',
+    narrowband: mms.control === 'nba',
+  }
 }
 
 /**
@@ -274,11 +404,17 @@ export function UwbSessionFields(
  * round it builds runs — because none of that is visible in the parameters themselves.
  */
 function MmsFields(
-  { mms, slotRstu, anchors, onChange }:
+  { mms, slotRstu, anchors, onChange: commit }:
   { mms: UwbMmsCfg; slotRstu: number; anchors: number; onChange: (patch: Partial<UwbMmsCfg>) => void },
 ) {
   const E = useStrings().editor
   const setId = mmsSetIdOf(mms)
+  // Every edit in this section goes through `mmsFieldPatch`, so an edit that would leave one of
+  // the draft features stranded takes that feature with it rather than saving a plan the schema
+  // refuses. Nothing below calls `commit` directly.
+  const onChange = (patch: Partial<UwbMmsCfg>): void => commit(mmsFieldPatch(mms, patch))
+  // Which controls the current settings leave live, and the reason each greyed-out one shows.
+  const live = mmsDraftLive(mms)
   // The RSF the fragment parameters describe, whether or not this train carries one — it is the
   // arithmetic the N_MSR and gap fields drive, so it is worth showing either way.
   const rsfFragNs = rsfNs(mms.nMsr, mms.gap)
@@ -289,10 +425,30 @@ function MmsFields(
   const longestNs = mmsLongestFragmentNs(mms) || rsfFragNs
   // The round the derived line below measures is the one this scenario would actually run:
   // a one-to-many round grows with the anchors, and with none of them there is only a pair.
-  const layout = mmsLayout(mms, mmsResponders(mms, anchors))
+  // …and at this session's own slots per millisecond, because a non-interleaved ranging phase is
+  // that many slots per millisecond of train: measured at the draft's 600 RSTU default instead,
+  // this line would print a round the run does not have (the schema's block-fit rule already
+  // reads the session's own slot, and the two have to be the same round).
+  const layout = mmsLayout(mms, mmsResponders(mms, anchors), mmsSlotsPerMs(slotRstu))
   return (
     <div style={{ marginTop: 6, paddingTop: 5, borderTop: '1px solid var(--border)' }}>
       <div style={{ color: 'var(--dim)', marginBottom: 4 }} title={E.uwbMmsHint}>{E.uwbMms}</div>
+      <label style={label} title={E.uwbMmsControlHint}>
+        {E.uwbMmsControl}{' '}
+        <select value={mms.control}
+          onChange={(e) => onChange({ control: e.target.value as MmsPhy['control'] })}>
+          <option value="nba">{E.uwbMmsControls.nba}</option>
+          <option value="uwbd">{E.uwbMmsControls.uwbd}</option>
+        </select>
+      </label>
+      <label style={label} title={E[mmsUwbdControlHintKey(mms)]}>
+        {E.uwbUwbdControl}{' '}
+        <select value={mms.uwbdControl} disabled={!live.uwbdControl}
+          onChange={(e) => onChange({ uwbdControl: e.target.value as MmsPhy['uwbdControl'] })}>
+          <option value="sp0">{E.uwbUwbdControls.sp0}</option>
+          <option value="none">{E.uwbUwbdControls.none}</option>
+        </select>
+      </label>
       <label style={label} title={E.uwbMmsSetHint}>
         {E.uwbMmsSet}{' '}
         <select value={setId ?? 'custom'}
@@ -330,10 +486,17 @@ function MmsFields(
         {E.uwbGapMs}{' '}
         <NumSelect value={mms.gapMs} options={GAP_MS_SET} onPick={(gapMs) => onChange({ gapMs })} />
       </label>
-      <NbChannelsInput value={mms.nbChannels} onCommit={(nbChannels) => onChange({ nbChannels })} />
-      <label style={label} title={E.uwbNbLbtHint}>
+      <label style={label} title={E[mmsRsfSfdHintKey(mms)]}>
+        <input type="checkbox" checked={mms.rsfSfd} disabled={!live.rsfSfd}
+          onChange={(e) => onChange({ rsfSfd: e.target.checked })} />
+        {' '}{E.uwbRsfSfd}
+      </label>
+      <NbChannelsInput value={mms.nbChannels} live={live.narrowband}
+        onCommit={(nbChannels) => onChange({ nbChannels })} />
+      <label style={label} title={live.narrowband ? E.uwbNbLbtHint : E.uwbNbNoRadio}>
         {E.uwbNbLbt}{' '}
-        <select value={mms.nbLbt} onChange={(e) => onChange({ nbLbt: e.target.value as NbLbt })}>
+        <select value={mms.nbLbt} disabled={!live.narrowband}
+          onChange={(e) => onChange({ nbLbt: e.target.value as NbLbt })}>
           <option value="auto">{E.uwbNbLbts.auto}</option>
           <option value="on">{E.uwbNbLbts.on}</option>
           <option value="off">{E.uwbNbLbts.off}</option>
@@ -351,6 +514,18 @@ function MmsFields(
         <input type="checkbox" checked={mms.oneToMany}
           onChange={(e) => onChange({ oneToMany: e.target.checked })} />
         {' '}{E.uwbOneToMany}
+      </label>
+      <label style={label} title={E.uwbNonInterleavedHint}>
+        <input type="checkbox" checked={mms.nonInterleaved}
+          onChange={(e) => onChange({ nonInterleaved: e.target.checked })} />
+        {' '}{E.uwbNonInterleaved}
+      </label>
+      <FixedReplyInput value={mms.fixedReplyRstu} live={live.fixedReply} hint={E[mmsFixedReplyHintKey(mms)]}
+        onCommit={(fixedReplyRstu) => onChange({ fixedReplyRstu })} />
+      <label style={label} title={E[mmsReversedHintKey(mms)]}>
+        <input type="checkbox" checked={mms.reversedOrder} disabled={!live.reversedOrder}
+          onChange={(e) => onChange({ reversedOrder: e.target.checked })} />
+        {' '}{E.uwbReversed}
       </label>
       <div style={note}>
         {E.uwbMmsDerived(
@@ -383,8 +558,13 @@ function NumSelect<T extends number>(
  * Enter. A list the schema would refuse is not committed at all: the session keeps the last one
  * that worked and the field says, in the schema's own words, what a list has to be. Committing
  * the bad list instead would hand the user a plan that fails on run, with the fix one field away.
+ *
+ * `live` is false under the UWB-driven control plane, which has no narrowband radio for a list to
+ * name: the field then shows the empty list `mmsFieldPatch` wrote and says why it is empty.
  */
-function NbChannelsInput({ value, onCommit }: { value: number[]; onCommit: (v: number[]) => void }) {
+function NbChannelsInput(
+  { value, live, onCommit }: { value: number[]; live: boolean; onCommit: (v: number[]) => void },
+) {
   const E = useStrings().editor
   const [draft, setDraft] = useState<string | null>(null)
   const [bad, setBad] = useState(false)
@@ -401,14 +581,68 @@ function NbChannelsInput({ value, onCommit }: { value: number[]; onCommit: (v: n
   }
   return (
     <div style={label}>
-      <label title={E.uwbNbChannelsHint}>
+      <label title={live ? E.uwbNbChannelsHint : E.uwbNbNoRadio}>
         {E.uwbNbChannels}{' '}
-        <input type="text" style={{ width: 132 }} value={draft ?? value.join(', ')}
+        <input type="text" style={{ width: 132 }} value={draft ?? value.join(', ')} disabled={!live}
           onChange={(e) => { setDraft(e.target.value); setBad(false) }}
           onBlur={commit}
           onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }} />
       </label>
       {bad && <div style={issueStyle}>{E.uwbNbChannelsBad}</div>}
+    </div>
+  )
+}
+
+/**
+ * The fixed reply time: a checkbox for the draft's own on/off (macMmsFixedReplyTime is disabled by
+ * default) and, beside it, the interval in RSTU.
+ *
+ * The session stores one field for both — `null` is off — so the checkbox writes the draft's 600
+ * RSTU ranging slot when it is ticked and `null` when it is not, and the number field is only
+ * reachable while it is on. The interval itself is validated exactly as the allow list is: a value
+ * outside the draft's bounds is not committed at all, the typed text stays on screen because it is
+ * what the user has to fix, and the red line says what the bounds are. Clamping instead would
+ * commit 300 the moment the field was cleared and then re-clamp every further digit under the
+ * cursor, which is why `RstuInput` below buffers too.
+ */
+function FixedReplyInput(
+  { value, live, hint, onCommit }:
+  { value: number | null; live: boolean; hint: string; onCommit: (v: number | null) => void },
+) {
+  const E = useStrings().editor
+  const [draft, setDraft] = useState<string | null>(null)
+  const [bad, setBad] = useState(false)
+  const commit = (): void => {
+    if (draft === null) return
+    const parsed = parseFixedReplyRstu(draft)
+    if (parsed === null) {
+      setBad(true) // the draft stays on screen: it is what the user has to fix
+      return
+    }
+    setBad(false)
+    setDraft(null)
+    onCommit(parsed)
+  }
+  // What the number field shows while the feature is off: the value ticking the box would write.
+  const shown = value ?? MMS_FIXED_REPLY_RSTU_DEFAULT
+  return (
+    <div style={label}>
+      <label title={hint}>
+        <input type="checkbox" checked={value !== null} disabled={!live}
+          onChange={(e) => {
+            setDraft(null) // a refused draft is not the user's problem once the feature is off
+            setBad(false)
+            onCommit(e.target.checked ? MMS_FIXED_REPLY_RSTU_DEFAULT : null)
+          }} />
+        {' '}{E.uwbFixedReply}{' '}
+        <input type="number" min={MMS_FIXED_REPLY_RSTU_MIN} max={MMS_FIXED_REPLY_RSTU_MAX} step={300}
+          style={{ width: 74 }} disabled={!live || value === null} value={draft ?? shown}
+          onChange={(e) => { setDraft(e.target.value); setBad(false) }}
+          onBlur={commit}
+          onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }} />
+        <span style={suffix}>RSTU · {ms(shown)} ms</span>
+      </label>
+      {bad && <div style={issueStyle}>{E.uwbFixedReplyBad}</div>}
     </div>
   )
 }
