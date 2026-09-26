@@ -29,8 +29,6 @@ const graded = (l: Lesson): boolean => trackOf(l) !== 'amp'
  */
 const NOT_YET: readonly string[] = [
   // UWB
-  'uwb-intro', 'uwb-frame', 'uwb-sts', 'uwb-sstwr', 'uwb-dstwr', 'uwb-blocks',
-  'uwb-slot-budget', 'uwb-position', 'uwb-geometry', 'uwb-coexist', 'uwb-contention',
   'uwb-dl-tdoa', 'uwb-ul-tdoa', 'uwb-aoa', 'uwb-mms', 'uwb-mms-numbers', 'uwb-nba',
   'uwb-nba-coexist', 'uwb-uwbd', 'uwb-acquisition', 'uwb-subrounds', 'uwb-capstone',
 ]
