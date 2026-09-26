@@ -28,11 +28,7 @@ const graded = (l: Lesson): boolean => trackOf(l) !== 'amp'
  * moment it gains `limits` — the expectation below will tell you when.
  */
 const NOT_YET: readonly string[] = [
-  // Tier 1 — M1 is the pilot; M2–M5 (the frame, airtime and channel access) are batch A
-  'retries-queues', 'queues', 'bianchi', 'bianchi-vs-sim',
-  'rate-vs-model', 'tier1-project', 'tier1-project-review',
-  // Tier 2
-  'edca', 'edca-cost', 'ampdu', 'txop', 'txop-protect', 'protect-policies',
+  // Tier 2 — M8's QoS lessons went with batch B; the capacity knobs are batch C
   'width', 'streams', 'rate', 'rate-fallback', 'rate-cost',
   'ofdma-dl', 'ofdma-ul', 'mumimo', 'mumimo-choose', 'mlo', 'mlo-gain', 'capstone',
   // UWB
