@@ -222,6 +222,43 @@ export function teachesDraft(mi: number): boolean {
  * numbers that do, so a longer name is matched and removed before a shorter one
  * that is a prefix of it is looked for.
  */
+/**
+ * Every TG4ab contribution this course models, and what each one provides.
+ *
+ * A draft lesson's honesty rests on naming the document behind each number, and
+ * a bare `15-22/0381r5` tells a reader nothing. The registry turns the number
+ * into a sentence and, just as usefully, gives the tests something to check a
+ * citation against: a mistyped revision is otherwise indistinguishable from a
+ * real one, and it would send anyone trying to verify a number to a document
+ * that does not exist.
+ *
+ * Keys are the mentor document number without the group suffix, exactly as the
+ * lessons write it. See docs/superpowers/specs/2026-09-26-uwb-standard-basis.md.
+ */
+export const CONTRIBUTIONS: Record<string, string> = {
+  // P802.15.4ab (TG4ab), the UWB draft
+  '15-22/0205r0': '每毫秒的能量预算，以及片段为何存在',
+  '15-22/0381r5': '成对测距周期、阶段划分、时隙/轮/块默认值、先听后发与窄带信道表',
+  '15-23/0100r2': 'RSF/RIF/MMRS 的定义、N_MSR 取值、片段间隔与窄带物理层配置',
+  '15-23/0502r3': '必选操作参数集（提案为 16.2.11.4）',
+  // P802.11bp (TGbp), the ambient-power draft
+  '11-24/1613r20': 'TGbp 规范框架',
+  '11-26/1519r5': '触发过程与 AMP PPDU 格式',
+  '11-26/1889r4': '上行信道接入与时隙规则',
+}
+
+/**
+ * The TG4ab contributions a lesson's `sources` name, deduplicated and sorted.
+ *
+ * A lesson may rest on several and usually does — the four MMS documents split
+ * by layer, not by lesson — so this is a list and the panel prints all of it.
+ */
+export function citedDocs(l: Lesson): string[] {
+  // Both drafts' numbering: 15-YY/NNNNrR for TG4ab, 11-YY/NNNNrR for TGbp.
+  const ids = (l.sources ?? []).join('\n').match(/1[15]-2\d\/\d{4}r\d+/g) ?? []
+  return [...new Set(ids)].sort()
+}
+
 export function citedBases(l: Lesson): StandardBasis[] {
   let text = (l.sources ?? []).join('\n')
   const found = new Set<StandardBasis>()

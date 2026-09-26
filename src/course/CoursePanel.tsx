@@ -4,8 +4,8 @@ import { player, useUi } from '../ui/store'
 import { LESSONS, isMigrated, lessonIndex, type Block, type Lesson } from './lessons'
 import { layoutDiagram, type Paint, type Shape } from './diagram'
 import {
-  BASES, MODULES, TIERS, TRACKS, basisOf, lessonBlocks, lessonMinutes, teachesDraft, trackHeadings,
-  type StandardBasis,
+  BASES, CONTRIBUTIONS, MODULES, TIERS, TRACKS, basisOf, citedDocs, lessonBlocks, lessonMinutes,
+  teachesDraft, trackHeadings, type StandardBasis,
 } from './curriculum'
 import { LinkBudget } from './widgets/LinkBudget'
 import { McsLadder } from './widgets/McsLadder'
@@ -397,6 +397,19 @@ export function CoursePanel() {
         {basisLine(basisOf(lesson.module))}
         {teachesDraft(lesson.module) && ` · ${L.draftMark}`}
       </div>
+      {/* Which contributions this particular lesson rests on. The basis above says
+          which standard; this says which documents, because a draft lesson's
+          numbers are only checkable if the reader knows where to go. */}
+      {citedDocs(lesson).length > 0 && (
+        <div style={{ ...dim, fontSize: 10.5, marginTop: 2, lineHeight: 1.5 }}>
+          {L.contributions}
+          {citedDocs(lesson).map((d) => (
+            <div key={d} style={{ paddingLeft: 8 }}>
+              {d}{CONTRIBUTIONS[d] ? ` — ${CONTRIBUTIONS[d]}` : ''}
+            </div>
+          ))}
+        </div>
+      )}
       <h3 style={{ margin: '4px 0 8px', fontSize: 14 }}>{idx + 1} · {lesson.title}</h3>
 
       {!isMigrated(lesson) && blocks(lessonBlocks(lesson), 'body')}

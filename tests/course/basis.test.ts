@@ -15,7 +15,7 @@ import { describe, expect, it } from 'vitest'
 import { GLOSSARY } from '../../src/ui/glossary'
 import { LESSONS } from '../../src/course/lessons'
 import {
-  BASES, MODULES, TIERS, basisOf, citedBases, teachesDraft,
+  BASES, CONTRIBUTIONS, MODULES, TIERS, basisOf, citedBases, citedDocs, teachesDraft,
   type StandardBasis,
 } from '../../src/course/curriculum'
 
@@ -111,6 +111,52 @@ describe('a glossary section about a draft says so on every entry', () => {
       marks.some((m) => text.includes(m)),
       `glossary entry "${item.term}" names no provenance`,
     ).toBe(true)
+  })
+})
+
+describe('a draft lesson names the contributions behind its numbers', () => {
+  // The AMP track is paused, and two of its lessons carry no `sources` field at
+  // all — a real gap, pinned below rather than skipped, so resuming AMP trips it.
+  const SOURCELESS_AMP = ['amp-slots', 'amp-coexist']
+  const draftLessons = LESSONS.filter(
+    (l) => teachesDraft(l.module) && !SOURCELESS_AMP.includes(l.id),
+  )
+
+  it('has draft lessons to check', () => {
+    expect(draftLessons.length).toBeGreaterThan(0)
+  })
+
+  it('still knows about the two AMP lessons that have no sources at all', () => {
+    // Not an allowance: a standing note of work owed. When AMP resumes and these
+    // gain sources, this expectation fails and the two join the rule above.
+    const actual = LESSONS.filter((l) => teachesDraft(l.module) && !l.sources?.length).map((l) => l.id)
+    expect(actual.sort()).toEqual([...SOURCELESS_AMP].sort())
+  })
+
+  // A lesson under a draft module whose numbers trace to no document is a number
+  // with nowhere to check it. One document or several — the four MMS papers split
+  // by layer, not by lesson — but never none.
+  it.each(draftLessons)('$id cites at least one contribution', (l) => {
+    expect(citedDocs(l).length, `${l.id} cites no draft contribution`).toBeGreaterThan(0)
+  })
+
+  // A mistyped revision reads exactly like a real one and sends anyone trying to
+  // verify a number to a document that does not exist.
+  it.each(LESSONS)('$id cites only registered contributions', (l) => {
+    const unknown = citedDocs(l).filter((d) => !CONTRIBUTIONS[d])
+    expect(unknown, `${l.id} cites unregistered ${unknown.join(', ')}`).toEqual([])
+  })
+
+  it('registers no contribution the course has stopped using', () => {
+    const used = new Set(LESSONS.flatMap(citedDocs))
+    const stale = Object.keys(CONTRIBUTIONS).filter((d) => !used.has(d))
+    expect(stale, `unused registry entries: ${stale.join(', ')}`).toEqual([])
+  })
+
+  it('describes every contribution it registers', () => {
+    for (const [doc, what] of Object.entries(CONTRIBUTIONS)) {
+      expect(what.length, `${doc} has no description`).toBeGreaterThan(8)
+    }
   })
 })
 

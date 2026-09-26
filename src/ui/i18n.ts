@@ -66,6 +66,8 @@ export interface Strings {
     basis: (docs: string) => string
     /** Appended to a draft document's name wherever it is printed. */
     draftMark: string
+    /** Heading over the list of contributions a draft lesson models. */
+    contributions: string
   }
   transport: {
     play: string; pause: string; speed: string; simulating: string
@@ -459,6 +461,7 @@ export const STRINGS: Strings = {
     loadHint: '载入预设场景（会替换当前场景；离开课程模式时会恢复你自己的场景）。',
     basis: (docs) => `依据：${docs}`,
     draftMark: '草案，内容可能变动',
+    contributions: '本课依据的提案文稿：',
   },
   transport: {
     play: '▶ 播放', pause: '❚❚ 暂停', speed: '速度', simulating: '⏳ 仿真中…',
