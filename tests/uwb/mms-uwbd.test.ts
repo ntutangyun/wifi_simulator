@@ -42,7 +42,7 @@ describe('the control and report phases are as long as the control plane makes t
     expect([one.controlSlots, one.reportSlots]).toEqual([4, 4])
     const three = mmsLayout(phy(), 3)
     expect([three.controlSlots, three.reportSlots]).toEqual([8, 12])
-    expect(one.windowSlots).toBe(2)
+    expect([one.windowSlots, one.reportWindowSlots]).toEqual([2, 2])
   })
 
   it('a UWB-driven round with SP0 still has both phases, in one-slot windows', () => {
@@ -56,21 +56,26 @@ describe('the control and report phases are as long as the control plane makes t
     expect(l.fragmentSlot('initiator', 'rsf', 0)).toBe(2)
   })
 
-  it('a UWB-driven round without SP0 has no control phase and no report phase', () => {
+  it('a UWB-driven round without SP0 loses its control phase and KEEPS its report phase', () => {
+    // The two phases have their own pair of parameters in the draft, and its own figures
+    // disagree about the interleaved case (slide 13 draws no Report, slide 17 does) — so the
+    // report phase is not the control phase's dependent. 4ab draft 15-25/0194r0
     const l = mmsLayout(phy({ control: 'uwbd', uwbdControl: 'none' }), 1)
     expect(l.controlSlots).toBe(0)
-    expect(l.reportSlots).toBe(0)
     expect(l.windowSlots).toBe(0)
-    // Nothing is left but the ranging phase, and the first fragment opens the round.
-    expect(l.slots).toBe(l.rpSlots)
+    expect(l.reportSlots).toBe(2)
+    expect(l.reportWindowSlots).toBe(MMS_SP0_WINDOW_SLOTS)
+    // The ranging phase opens the round, and the two report windows close it.
+    expect(l.slots).toBe(l.rpSlots + 2)
     expect(l.fragmentSlot('initiator', 'rsf', 0)).toBe(0)
+    expect(l.reportSlot('responder')).toBe(l.rpSlots)
+    expect(l.reportSlot('initiator')).toBe(l.rpSlots + 1)
   })
 
   it('asking a round with no control phase where its POLL is is a bug, not slot 0', () => {
     const l = mmsLayout(phy({ control: 'uwbd', uwbdControl: 'none' }), 1)
     expect(() => l.pollSlot()).toThrow(/no control phase/)
     expect(() => l.respSlot(0)).toThrow(/no control phase/)
-    expect(() => l.reportSlot('responder')).toThrow(/no report phase/)
   })
 
   it('the two phase lengths are one function each, and the layout reads them', () => {
@@ -87,12 +92,15 @@ describe('the control and report phases are as long as the control plane makes t
     }
   })
 
-  it('the non-interleaved shape drops its scattered windows too', () => {
+  it('the non-interleaved shape drops its scattered windows too, report phase aside', () => {
     const sp0 = mmsLayout(phy({ control: 'uwbd', uwbdControl: 'sp0', nonInterleaved: true }), 2)
     expect(sp0.controlSlots).toBe(sp0.subRounds * MMS_SP0_WINDOW_SLOTS)
     const none = mmsLayout(phy({ control: 'uwbd', uwbdControl: 'none', nonInterleaved: true }), 2)
     expect(none.controlSlots).toBe(0)
     expect(none.subRoundStart(1)).toBe(none.rpSlots)
+    // …and the report phase is still there, after the last sub-round.
+    expect(none.reportSlots).toBe(4)
+    expect(none.reportSlot('responder', 0)).toBe(none.subRounds * none.rpSlots)
   })
 })
 
@@ -135,10 +143,13 @@ describe('the schedule puts SP0 packets where the narrowband messages were', () 
     expect(at(p, l.reportSlot('initiator', 0))).toBe('uwbSp0/report/tag/0')
   })
 
-  it('schedules nothing but fragments and idle when there is no control phase', () => {
+  it('schedules fragments and the two SP0 report windows when there is no control phase', () => {
     const p = plan({ ...UWBD, uwbdControl: 'none' })
     const kinds = new Set(Array.from({ length: p.slots }, (_, s) => slotAction(p, s).kind))
-    expect([...kinds].sort()).toEqual(['idle', 'uwbRsf'])
+    expect([...kinds].sort()).toEqual(['idle', 'uwbRsf', 'uwbSp0'])
+    const l = p.mms!.layout
+    expect(at(p, l.reportSlot('responder', 0))).toBe('uwbSp0/report/anchor/0')
+    expect(at(p, l.reportSlot('initiator', 0))).toBe('uwbSp0/report/tag/0')
   })
 
   it('leaves Config 2’s round exactly as it was', () => {
@@ -222,11 +233,19 @@ describe('a UWB-driven round transmits no narrowband message at all', () => {
     expect(rs.some((r) => r.type === 'UWB_RANGE')).toBe(true)
   })
 
-  it('sends nothing but fragments when there is no control phase', () => {
-    const s = sent(run(scene({ ...UWBD, uwbdControl: 'none' }), BLOCK_NS))
-    expect(s.uwbSp0 ?? 0).toBe(0)
+  it('sends fragments and the two reports when there is no control phase', () => {
+    // No POLL and no RESP — the packet's own leading fragment does their work — but the report
+    // phase survives, which is what lets a zero-length control phase still produce a range.
+    const rs = run(scene({ ...UWBD, uwbdControl: 'none' }), BLOCK_NS)
+    const s = sent(rs)
     expect(s.nbPoll ?? 0).toBe(0)
     expect(s.uwbRsf).toBeGreaterThan(0)
+    expect(s.uwbSp0).toBeGreaterThan(0)
+    const roles = new Set(rs
+      .filter((r) => r.type === 'TX_START' && r.frame.kind === 'uwbSp0')
+      .map((r) => (r as Extract<TLRecord, { type: 'TX_START' }>).frame.uwb?.sp0?.role))
+    expect([...roles]).toEqual(['report'])
+    expect(rs.some((r) => r.type === 'UWB_RANGE')).toBe(true)
   })
 
   it('leaves Config 2 sending the narrowband trio and no SP0 packet', () => {

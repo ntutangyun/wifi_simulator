@@ -458,7 +458,17 @@ function sp0Frame(
  * responders: the table gives the SP0 packet one PSDU length, and stretching it by three octets
  * per address would be this engine's invention. A responder acts on the POLL because the round
  * it was given lists it, which is the same check `onMmsSlot` already makes of every slot it
- * touches. 4ab draft 15-25/0194r0 */
+ * touches. 4ab draft 15-25/0194r0
+ *
+ * **So a one-to-many round under Config 1 is an approximation, and here is exactly where.** The
+ * draft's one-to-many POLL works by naming its responders (15-22/0381r5 Table 1.6.3.1, message
+ * 0x10, with `Number of Responders`, `SlotsPerResponder` and the address list); a twelve-octet
+ * SP0 PSDU has no room for that list, so nothing in this engine's SP0 POLL tells a responder
+ * which slots are its own. The round's responder list stands in for the missing addresses, which
+ * is a piece of out-of-band knowledge a real device would not have. The combination is not
+ * forbidden — the draft prohibits neither one-to-many nor a UWB-driven control plane, and
+ * refusing it here would be inventing a prohibition, just as growing the PSDU would be inventing
+ * a frame. It is modelled, and named. model */
 export function makeSp0Poll(
   tag: string, dst: string, block: number, round: number, slot: number,
 ): FrameDesc {

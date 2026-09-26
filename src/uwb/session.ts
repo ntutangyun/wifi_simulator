@@ -258,9 +258,11 @@ function mmsSlotAction(p: RoundPlan, slot: number): SlotAction {
     }
   }
   // --- report ---
-  // Gone with the control phase when that is zero-length: with the poll and the response being
-  // the packet itself there is no compact frame left for a time to travel in, so the draft's
-  // figure has neither phase. 4ab draft 15-25/0194r0
+  // Present in every round, whatever became of the control phase: the draft sizes the two from
+  // separate pairs of parameters, and its own non-interleaved figure draws a Report over a
+  // zero-length control phase. So a round whose poll and response are the packet itself still
+  // carries its measured times back in a frame — which is what lets it range at all.
+  // 4ab draft 15-25/0194r0
   if (layout.reportSlots > 0) {
     for (let k = 0; k < layout.responders; k++) {
       if (slot === layout.reportSlot('responder', k)) {

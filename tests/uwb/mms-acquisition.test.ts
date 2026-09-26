@@ -24,7 +24,8 @@ import {
 } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 import {
-  acquired, combineGainDb, trainDetected, MMS_DRAFT_DEFAULTS, MMS_SP0_PENALTY_DB, type MmsPhy,
+  acquired, combineGainDb, trainDetected, MMS_DRAFT_DEFAULTS, MMS_SP0_PENALTY_DB,
+  MMS_SP0_RX_SENS_DBM, type MmsPhy,
 } from '../../src/uwb/mms'
 import { UWB_TX_POWER_DBM } from '../../src/uwb/phy'
 import { UWB_RX_SENS_DBM } from '../../src/uwb/units'
@@ -77,20 +78,30 @@ describe('UWB-driven acquisition is one fragment on its own', () => {
   })
 })
 
-describe('what an SP0 control frame costs', () => {
-  it('SP0 costs 4 dB against the packets own SYNC+SFD', () => {
-    const justUnder = UWB_RX_SENS_DBM + MMS_SP0_PENALTY_DB - 0.1
-    const sp0 = phy({ control: 'uwbd', uwbdControl: 'sp0' })
-    expect(acquired(sp0, f(justUnder))).toBe(false)
-    expect(acquired(sp0, f(justUnder + 0.2))).toBe(true)
-    // The same level acquires fine without SP0 in the way.
-    expect(acquired(uwbd(), f(justUnder))).toBe(true)
+describe('what an SP0 control frame costs, and where that cost is charged', () => {
+  it('lives on the SP0 frame own reception threshold, 4 dB above the fragments', () => {
+    // One threshold, one place. The SP0 packet really crosses the channel in this engine, so
+    // the 4 dB is the sensitivity that packet is delivered against — and nowhere else.
+    expect(MMS_SP0_RX_SENS_DBM).toBe(UWB_RX_SENS_DBM + MMS_SP0_PENALTY_DB)
   })
 
   it('gets the direction right: SP0 is the harder thing to acquire', () => {
     // Longer and at a lower peak power, so it is SP0 that defines the link budget when it is
     // there — never the other way round.
     expect(MMS_SP0_PENALTY_DB).toBeGreaterThan(0)
+  })
+
+  it('is not charged a second time on the fragments that follow it', () => {
+    // With SP0 in front of the packet the receiver was primed by receiving that packet, so it
+    // accumulates blind exactly as Config 2 does and `acquired` has nothing left to judge.
+    // Charging the 4 dB here as well would be one threshold decided in two places.
+    const sp0 = phy({ control: 'uwbd', uwbdControl: 'sp0' })
+    expect(acquired(sp0, f(UWB_RX_SENS_DBM - 50))).toBe(true)
+    expect(acquired(sp0, [])).toBe(true)
+    // …and the zero-length control phase, which has no SP0 packet to have been primed by, is
+    // judged at the plain sensitivity with no penalty at all.
+    expect(acquired(uwbd(), f(UWB_RX_SENS_DBM))).toBe(true)
+    expect(acquired(uwbd(), f(UWB_RX_SENS_DBM - 0.1))).toBe(false)
   })
 })
 
@@ -123,12 +134,13 @@ describe('an SFD after every RSF is what saves the round', () => {
     expect(acquired(uwbd({ rsfSfd: true, nMsr: 64 }), train)).toBe(false)
   })
 
-  it('charges SP0 its 4 dB whichever fragment opens the packet', () => {
-    // The penalty is the control frame's, not the fragment's: with SP0 in front of the packet
-    // every candidate is judged against the same raised bar.
+  it('has nothing to give back when an SP0 packet already opened the round', () => {
+    // The SFD buys extra chances to find the packet, and with SP0 in front there was never a
+    // chance to lose: the control packet handed over the time base, so the train is accumulated
+    // blind whichever fragment arrived. That is the SP0 path's own trade, not this one's.
     const train = f(-120, UWB_RX_SENS_DBM + 1)
-    expect(acquired(phy({ control: 'uwbd', uwbdControl: 'sp0', rsfSfd: true, nMsr: 64 }), train))
-      .toBe(false)
+    expect(acquired(phy({ control: 'uwbd', uwbdControl: 'sp0', rsfSfd: false }), train)).toBe(true)
+    expect(acquired(uwbd({ rsfSfd: false }), train)).toBe(false)
     expect(acquired(uwbd({ rsfSfd: true, nMsr: 64 }), train)).toBe(true)
   })
 })
@@ -177,6 +189,31 @@ const QUIET_M = 140
  * them. 4ab draft 15-25/0194r0 */
 const UWBD = { control: 'uwbd', nbChannels: [] as number[], nbLbt: 'off' } as const
 
+/** The same pair, ranging in the two-way mode instead: a 4z Poll at the node's own power, judged
+ * at the plain `UWB_RX_SENS_DBM`. It is the control for the SP0 threshold below. */
+function twrPairScene(apartM: number): Scenario {
+  const sc = pairScene(apartM)
+  return { ...sc, uwb: { ...sc.uwb!, mode: 'twr' } }
+}
+
+describe('where the SP0 4 dB is really charged', () => {
+  it('costs an SP0 packet the last stretch of link a 4z frame still has', () => {
+    // `MMS_SP0_RX_SENS_DBM` runs out just under 17 m at this power on channel 9; the plain
+    // sensitivity a 4z frame is judged at reaches past 26 m. So 14 m and 22 m bracket the SP0
+    // threshold, and the 4 dB between the two is the whole of what separates them.
+    const near = run(pairScene(14, { ...UWBD, uwbdControl: 'sp0' }), 400 * MS)
+    expect(near.some((r) => r.type === 'RX_OK' && r.frame.kind === 'uwbSp0')).toBe(true)
+    const far = run(pairScene(22, { ...UWBD, uwbdControl: 'sp0' }), 400 * MS)
+    expect(far.some((r) => r.type === 'RX_OK' && r.frame.kind === 'uwbSp0')).toBe(false)
+    // …and the round goes with it, because under Config 1 with SP0 being primed IS having
+    // received that packet: nobody was told there was a peer, so no train goes out.
+    expect(far.some((r) => r.type === 'TX_START' && r.frame.kind === 'uwbRsf')).toBe(false)
+    // The control: the same 22 m carries a two-way Poll of the same transmitter perfectly well.
+    const twr = run(twrPairScene(22), 400 * MS)
+    expect(twr.some((r) => r.type === 'RX_OK' && r.frame.kind === 'uwbPoll')).toBe(true)
+  })
+})
+
 describe('the gate, in a round that is actually running', () => {
   it('narrowband-assisted ranges a peer no single fragment of whose train was audible', () => {
     const trains = trainsOf(run(pairScene(QUIET_M), 400 * MS))
@@ -194,9 +231,8 @@ describe('the gate, in a round that is actually running', () => {
     const rs = run(pairScene(QUIET_M, { ...UWBD, uwbdControl: 'none' }), 400 * MS)
     expect(trainsOf(rs).length).toBeGreaterThan(0)
     // The fragments arrived and were counted; what is missing is the time base to stamp them
-    // against, so the train is reported undetected. `detected` is what this test pins: a
-    // zero-length control phase has no report phase either, so the absent range below is
-    // over-determined and would be absent even if the gate had passed.
+    // against, so the train is reported undetected — and with no timestamp there is no time to
+    // put in the report the round does still have a window for, so no range either.
     for (const t of trainsOf(rs)) {
       expect(t.heard).toBeGreaterThan(0)
       expect(t.detected).toBe(false)
@@ -205,20 +241,16 @@ describe('the gate, in a round that is actually running', () => {
   })
 
   it('leaves a UWB-driven round alone when the leading fragment is loud enough', () => {
-    // The gate is not a tax on Config 1: close in, the packet opens on its own SYNC+SFD and
-    // every train of the round is detected exactly as a narrowband-assisted one is.
-    //
-    // It no longer ranges, and that is not the gate's doing: a zero-length control phase has no
-    // report phase (`mmsReportSlots`), so there is no frame left to carry the reply time back to
-    // the initiator. The draft's own answer to that is the fixed reply time — a pre-agreed
-    // constant the initiator already holds — which this engine does not yet read. So what is
-    // compared against the narrowband-assisted round here is the detector's verdict, which is
-    // what the gate decides, and not a range the round no longer produces.
+    // The gate is not a tax on Config 1: close in, the packet opens on its own SYNC+SFD, every
+    // train of the round is detected exactly as a narrowband-assisted one is, and the round
+    // ranges — the report phase does not go with the control phase, so there is still a frame
+    // to carry the reply time back to the initiator. 4ab draft 15-25/0194r0
     const rs = run(pairScene(6, { ...UWBD, uwbdControl: 'none' }), 400 * MS)
     const uwbd = trainsOf(rs)
     const nba = trainsOf(run(pairScene(6), 400 * MS))
     expect(uwbd.length).toBeGreaterThan(0)
     expect(uwbd.every((t) => t.detected)).toBe(true)
     expect(nba.every((t) => t.detected)).toBe(true)
+    expect(rangesOf(rs).length).toBeGreaterThan(0)
   })
 })

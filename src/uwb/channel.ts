@@ -31,7 +31,7 @@ import type { FrameDesc } from '../model/frames'
 import type { EmitFn, RxFailReason } from '../model/records'
 import type { NodeCfg, Wall } from '../model/scenario'
 import type { Ns, Vec3 } from '../model/types'
-import { MMS_COMBINE_MAX_DB } from './mms'
+import { MMS_COMBINE_MAX_DB, MMS_SP0_RX_SENS_DBM } from './mms'
 import {
   NB_LBT_THRESHOLD_DBM, NB_RX_SENS_DBM, NB_SIR_MIN_DB, NB_TX_DBM, nbBand, nbPl0Db,
 } from './nb'
@@ -207,10 +207,18 @@ export class UwbChannel {
 
   /** The floor this frame has to clear to reach its device at all. A fragment is handed over
    * `MMS_COMBINE_MAX_DB` below 4z sensitivity, because the largest train this model allows adds
-   * exactly that much back; quieter than that, no train can rescue it. */
+   * exactly that much back; quieter than that, no train can rescue it.
+   *
+   * An SP0 control frame goes the other way: it is longer than the packet's own SYNC+SFD fragment
+   * and spends its energy at a lower peak power, so it is the harder of the two to find, and the
+   * draft's own comparison prices the difference (`MMS_SP0_RX_SENS_DBM`). This is the one place
+   * that difference is charged. Under Config 1 with an SP0 control phase, receiving that packet
+   * IS being primed — so the threshold belongs on its delivery here, and `acquired` adds nothing
+   * to the fragments that follow. 4ab draft 15-25/0194r0 */
   private sensFor(frame: FrameDesc): number {
     if (frame.uwb?.nb) return NB_RX_SENS_DBM
     if (frame.uwb?.mms) return UWB_RX_SENS_DBM - MMS_COMBINE_MAX_DB
+    if (frame.uwb?.sp0) return MMS_SP0_RX_SENS_DBM
     return UWB_RX_SENS_DBM
   }
 

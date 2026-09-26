@@ -258,9 +258,13 @@ export function onMmsSlot(
   // that exchange said; with none, the schedule alone decides, and the packet primes the
   // receiving end as it arrives (`controlPrimes`).
   const open = (id: string): boolean => !controlPrimes(mp) || m.peers.get(id)?.primed === true
-  // One control window's width, and so the width of a wait inside it: two slots for a narrowband
-  // message, one for an SP0 packet. Read off the layout, never assumed.
+  // One window's width, and so the width of a wait inside it: two slots for a narrowband message,
+  // one for an SP0 packet. Read off the layout, never assumed — and read twice, because the draft
+  // sizes the control phase and the report phase from separate pairs of parameters, so a round
+  // whose control windows are gone still has report windows of their own width.
+  // 4ab draft 15-25/0194r0
   const win = mp.layout.windowSlots
+  const rwin = mp.layout.reportWindowSlots
   switch (action.kind) {
     case 'nbPoll':
     case 'nbResp':
@@ -290,14 +294,14 @@ export function onMmsSlot(
       if (action.tx === 'tag') {
         // The initiator's answer to responder `anchor`, in that responder's own window.
         if (isTag) txControlReport(dev, r, m, mp, id, slot)
-        else if (anchor === mine && open(peers.tag)) dev.listenFor(slot, peers.tag, kind, slot + win)
+        else if (anchor === mine && open(peers.tag)) dev.listenFor(slot, peers.tag, kind, slot + rwin)
         return
       }
       if (!isTag) {
         if (anchor === mine) txControlReport(dev, r, m, mp, peers.tag, slot)
         return
       }
-      if (open(id)) dev.listenFor(slot, id, kind, slot + win)
+      if (open(id)) dev.listenFor(slot, id, kind, slot + rwin)
       return
     }
     case 'uwbRsf':
