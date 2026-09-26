@@ -190,6 +190,61 @@ export interface MmsPhy {
   stsLen: StsLen
   /** Z, the RSF-to-RIF gap, in milliseconds — the draft's RpRifOffset. See `rifStartMs`. */
   gapMs: 1 | 2
+  /** Config 2 (narrowband-assisted) or Config 1 (UWB-driven), which carries its control
+   * phase on the HRP UWB PHY itself. 4ab draft 15-25/0194r0 */
+  control: 'nba' | 'uwbd'
+  /** Each side sends its whole train contiguously, in its own sub-round, rather than
+   * interleaving a fragment per millisecond. 4ab draft 15-25/0292r1 (§10.39.7) */
+  nonInterleaved: boolean
+  /** macMmsFixedReplyTime in RSTU: the responder replies this long after it RECEIVES the
+   * first fragment, not at the phase start. null is the draft's default (disabled).
+   * 4ab draft 15-25/0224r2 */
+  fixedReplyRstu: number | null
+  /** The responder transmits its MMS packet first. 4ab draft 15-25/0556r2 */
+  reversedOrder: boolean
+  /** phyUwbMmsRsfSfd: an SFD after every RSF, so any RSF can open the packet.
+   * 4ab draft 15-25/0066r1 */
+  rsfSfd: boolean
+  /** UWB-driven only: whether the control phase carries an SP0 (BASIC_PACKET) frame.
+   * The draft makes the control phase zero-length when the poll and response slot
+   * counts are zero, and puts SP0 in use when they are 1-15; this is that choice.
+   * Ignored under `control: 'nba'`. 4ab draft 15-25/0194r0 */
+  uwbdControl: 'sp0' | 'none'
+}
+
+/** Just the five draft features of `MmsPhy`, without the train they sit beside. */
+export type MmsDraftPhy = Pick<
+  MmsPhy, 'control' | 'nonInterleaved' | 'fixedReplyRstu' | 'reversedOrder' | 'rsfSfd' | 'uwbdControl'
+>
+
+/** The bounds macMmsFixedReplyTime is written between, in RSTU: one MMS ranging slot at the
+ * short end, and 612 000 RSTU (510 ms) at the long end. 4ab draft 15-25/0224r2 */
+export const MMS_FIXED_REPLY_RSTU_MIN = 300
+export const MMS_FIXED_REPLY_RSTU_MAX = 612_000
+/** What a session that switches the fixed reply time on starts from: the draft's own 600 RSTU
+ * ranging slot, so the responder answers one slot after the fragment it heard.
+ * 4ab draft 15-25/0224r2 */
+export const MMS_FIXED_REPLY_RSTU_DEFAULT = 600
+/** How far the reversed-order round shifts the two packets against each other, in RSTU — the
+ * draft's 600 RSTU ranging slot again. 4ab draft 15-25/0556r2 */
+export const MMS_REVERSED_OFFSET_RSTU = 600
+
+/**
+ * The five draft features at the settings that reproduce the session this engine has always
+ * run: Config 2 with its narrowband control plane, interleaved trains, no fixed reply time,
+ * the initiator first, no SFD after an RSF, and an SP0 control phase.
+ *
+ * Every place that builds an `MmsPhy` spreads this, so a feature the draft added is off
+ * everywhere until a scenario names it — which is what keeps every stored plan replaying
+ * chip for chip. model
+ */
+export const MMS_DRAFT_DEFAULTS: MmsDraftPhy = {
+  control: 'nba',
+  nonInterleaved: false,
+  fixedReplyRstu: null,
+  reversedOrder: false,
+  rsfSfd: false,
+  uwbdControl: 'sp0',
 }
 
 /**
@@ -218,13 +273,17 @@ export type MmsSetId =
   | 'rsf-6' | 'rsf-7' | 'rsf-8' | 'rsf-9' | 'rsf-10'
   | 'mixed-1' | 'mixed-2' | 'mixed-3' | 'mixed-4' | 'mixed-5' | 'mixed-6' | 'mixed-7'
 
-const rsfOnly = (nMsr: NMsr, gap: number): MmsPhy => ({ rsfs: 16, rifs: 0, nMsr, gap, stsLen: 64, gapMs: 1 })
-const mixed = (rsfs: RsfCount, rifs: RifCount): MmsPhy => ({ rsfs, rifs, nMsr: 64, gap: 25, stsLen: 64, gapMs: 1 })
+const rsfOnly = (nMsr: NMsr, gap: number): MmsPhy =>
+  ({ rsfs: 16, rifs: 0, nMsr, gap, stsLen: 64, gapMs: 1, ...MMS_DRAFT_DEFAULTS })
+const mixed = (rsfs: RsfCount, rifs: RifCount): MmsPhy =>
+  ({ rsfs, rifs, nMsr: 64, gap: 25, stsLen: 64, gapMs: 1, ...MMS_DRAFT_DEFAULTS })
 
 /** The mandatory operating parameter sets: ten RSF-only trains (X = 16, Y = 0, at five gaps of
  * N_MSR 40 and five of N_MSR 32) and seven mixed ones (N_MSR 64, gap 25, STS 64, at seven
  * (X, Y) pairs). The UWB-only sets of the same table — an SHR and one RIF — are 4z SP3 in all
- * but name and are not modelled. 4ab draft 15-23/0502r3 (proposed 16.2.11.4) */
+ * but name and are not modelled. A set fixes the *fragment* parameters only: the five draft
+ * features come from `MMS_DRAFT_DEFAULTS`, so picking a set never turns one on.
+ * 4ab draft 15-23/0502r3 (proposed 16.2.11.4) */
 export const MMS_SETS: Record<MmsSetId, MmsPhy> = {
   'rsf-1': rsfOnly(40, 33),
   'rsf-2': rsfOnly(40, 37),

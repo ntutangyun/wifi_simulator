@@ -10,11 +10,11 @@ import { describe, expect, it } from 'vitest'
 import {
   isMmsFragment, isNbFrame, makeNbPoll, makeNbReport, makeNbResp, makeRif, makeRsf, NB_MBPS,
 } from '../../src/uwb/frames'
-import { mmsFragmentDbm, rifNs, rsfNs, type MmsPhy } from '../../src/uwb/mms'
+import { MMS_DRAFT_DEFAULTS, mmsFragmentDbm, rifNs, rsfNs, type MmsPhy } from '../../src/uwb/mms'
 import { NB_MSG_ID, NB_POLL_BYTES, NB_REPORT_BYTES, NB_RESP_BYTES, nbCenterMhz, nbPpduNs } from '../../src/uwb/nb'
 
 /** The draft's own ranging-cycle default train. 4ab draft 15-22/0381r5 Table 1.2.3.3 */
-const PHY: MmsPhy = { rsfs: 8, rifs: 2, nMsr: 40, gap: 64, stsLen: 64, gapMs: 1 }
+const PHY: MmsPhy = { rsfs: 8, rifs: 2, nMsr: 40, gap: 64, stsLen: 64, gapMs: 1, ...MMS_DRAFT_DEFAULTS }
 
 describe('MMS fragment frames', () => {
   it('carries no octets, no rate, its own airtime and its own burst power', () => {

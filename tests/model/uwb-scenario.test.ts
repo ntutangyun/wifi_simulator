@@ -1,10 +1,13 @@
 import { describe, it, expect } from 'vitest'
 import {
-  DEFAULT_UWB_MMS, DEFAULT_UWB_SESSION, ScenarioSchema, nonht, sixGhzChannelNo,
+  DEFAULT_UWB_MMS, DEFAULT_UWB_SESSION, ScenarioSchema, UwbMmsSchema, nonht, sixGhzChannelNo,
   type NodeCfg, type Scenario, type UwbMmsCfg, type UwbSessionCfg,
 } from '../../src/model/scenario'
 import { LESSONS } from '../../src/course/lessons'
-import { N_MSR_SET, RIF_COUNT_SET, RSF_COUNT_SET, STS_LEN_SET } from '../../src/uwb/mms'
+import {
+  MMS_FIXED_REPLY_RSTU_DEFAULT, MMS_FIXED_REPLY_RSTU_MAX, MMS_FIXED_REPLY_RSTU_MIN,
+  MMS_REVERSED_OFFSET_RSTU, N_MSR_SET, RIF_COUNT_SET, RSF_COUNT_SET, STS_LEN_SET,
+} from '../../src/uwb/mms'
 import { EventQueue } from '../../src/engine/events'
 import { Rng } from '../../src/engine/rng'
 import { makeEmitter } from '../../src/model/records'
@@ -285,6 +288,11 @@ describe('the P802.15.4ab MMS session in the schema', () => {
       rsfs: 8, rifs: 0, nMsr: 40, gap: 64, stsLen: 64, gapMs: 1, nbChannels: [3], nbLbt: 'auto', report: 'bi',
       // A plan saved before one-to-many rounds existed reads back pairwise, which is what it was.
       oneToMany: false,
+      // …and one saved before the draft's five features reads back with every one of them off,
+      // which is the session it ran. Written out rather than spread: this is the assertion that
+      // a new default cannot quietly change what a stored plan replays as.
+      control: 'nba', nonInterleaved: false, fixedReplyRstu: null, reversedOrder: false,
+      rsfSfd: false, uwbdControl: 'sp0',
     })
     // Two such scenarios must not share the one allow-list array the default is written from.
     const again = ScenarioSchema.parse(sc)
@@ -437,5 +445,86 @@ describe('Scenario.sixGhzCenterMhz', () => {
     const sc = base()
     expect(() => ScenarioSchema.parse(sc)).not.toThrow()
     expect(sc.sixGhzCenterMhz).toBeUndefined()
+  })
+})
+
+/**
+ * The five draft features of `MmsPhy`. These rules read nothing but the MMS object's own
+ * fields, so they live on `UwbMmsSchema` itself rather than in the scenario's `superRefine`
+ * (where `gap` and `nbChannels` are checked, because those two need the whole session): a
+ * setting that contradicts another setting of the same object is wrong in any mode, and the
+ * tests parse that object directly.
+ */
+describe('the MMS draft-feature fields', () => {
+  // The narrowband trio carries no default — the schema only ever sees a whole MMS object —
+  // so the base below is the smallest object `UwbMmsSchema` accepts, not just the train.
+  const base = {
+    rsfs: 8, rifs: 0, nMsr: 40, gap: 64, stsLen: 64, gapMs: 1 as const,
+    nbChannels: [3], nbLbt: 'auto', report: 'bi',
+  }
+  // uwbdControl defaults to 'sp0'; under control: 'nba' it is ignored, and the schema
+  // refuses 'none' there rather than silently carrying a setting that does nothing.
+  const mms = (over: Record<string, unknown>) => ({ ...base, ...over })
+
+  it('defaults reproduce todays session', () => {
+    const p = UwbMmsSchema.parse(base)
+    expect(p.control).toBe('nba')
+    expect(p.nonInterleaved).toBe(false)
+    expect(p.fixedReplyRstu).toBeNull()
+    expect(p.reversedOrder).toBe(false)
+    expect(p.rsfSfd).toBe(false)
+    expect(p.uwbdControl).toBe('sp0')
+  })
+
+  it('refuses a UWB-driven control choice under narrowband-assisted control', () => {
+    expect(UwbMmsSchema.safeParse(mms({ uwbdControl: 'none' })).success).toBe(false)
+  })
+
+  it('accepts a zero-length control phase under UWB-driven control', () => {
+    expect(UwbMmsSchema.safeParse(mms({ control: 'uwbd', uwbdControl: 'none' })).success).toBe(true)
+  })
+
+  it('refuses rsfSfd outside UWB-driven control', () => {
+    expect(UwbMmsSchema.safeParse(mms({ rsfSfd: true })).success).toBe(false)
+  })
+
+  it('refuses rsfSfd at an RSF length the draft does not allow', () => {
+    expect(UwbMmsSchema.safeParse(mms({ control: 'uwbd', rsfSfd: true, nMsr: 128 })).success).toBe(false)
+  })
+
+  it('accepts rsfSfd at 32 and 64 under UWB-driven control', () => {
+    for (const nMsr of [32, 64]) {
+      expect(UwbMmsSchema.safeParse(mms({ control: 'uwbd', rsfSfd: true, nMsr })).success).toBe(true)
+    }
+  })
+
+  it('refuses a fixed reply time in interleaved mode', () => {
+    expect(UwbMmsSchema.safeParse(mms({ fixedReplyRstu: 600 })).success).toBe(false)
+  })
+
+  it('refuses a fixed reply time outside 300-612000 RSTU', () => {
+    for (const v of [299, 612_001]) {
+      expect(UwbMmsSchema.safeParse(mms({ nonInterleaved: true, fixedReplyRstu: v })).success).toBe(false)
+    }
+  })
+
+  it('accepts a fixed reply time at both ends of the drafts range', () => {
+    for (const v of [300, 612_000]) {
+      expect(UwbMmsSchema.safeParse(mms({ nonInterleaved: true, fixedReplyRstu: v })).success).toBe(true)
+    }
+  })
+
+  it('refuses reversed order in interleaved mode', () => {
+    expect(UwbMmsSchema.safeParse(mms({ reversedOrder: true })).success).toBe(false)
+  })
+
+  it('carries the drafts own bounds for the two RSTU constants', () => {
+    expect(MMS_FIXED_REPLY_RSTU_MIN).toBe(300)
+    expect(MMS_FIXED_REPLY_RSTU_MAX).toBe(612_000)
+    expect(MMS_FIXED_REPLY_RSTU_DEFAULT).toBe(600)
+    expect(MMS_REVERSED_OFFSET_RSTU).toBe(600)
+    // The default sits inside the range the schema enforces.
+    expect(MMS_FIXED_REPLY_RSTU_DEFAULT).toBeGreaterThanOrEqual(MMS_FIXED_REPLY_RSTU_MIN)
+    expect(MMS_FIXED_REPLY_RSTU_DEFAULT).toBeLessThanOrEqual(MMS_FIXED_REPLY_RSTU_MAX)
   })
 })

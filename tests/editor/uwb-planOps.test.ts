@@ -304,7 +304,12 @@ describe('MMS parameter-set select', () => {
 
   it('writes the set’s five PHY fields plus Z = 1, and the result is a session the schema takes', () => {
     const patch = mmsSetPatch('rsf-1')
-    expect(patch).toEqual({ ...mmsSet('rsf-1'), gapMs: 1 })
+    // The set's train and nothing else: a set fixes the fragment parameters, so picking one
+    // must leave the five draft features of the session it is written into alone.
+    const set = mmsSet('rsf-1')
+    expect(patch).toEqual({
+      rsfs: set.rsfs, rifs: set.rifs, nMsr: set.nMsr, gap: set.gap, stsLen: set.stsLen, gapMs: 1,
+    })
     expect(patch).toMatchObject({ rsfs: 16, rifs: 0, nMsr: 40, gap: 33, stsLen: 64, gapMs: 1 })
     // What the field actually saves: the patch over the session's own narrowband settings.
     const sc = withUwb(1, {

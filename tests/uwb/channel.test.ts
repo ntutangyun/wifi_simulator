@@ -6,7 +6,7 @@ import type { NodeCfg, Wall } from '../../src/model/scenario'
 import type { Ns } from '../../src/model/types'
 import { UwbChannel, type UwbRadio, type UwbRxInfo } from '../../src/uwb/channel'
 import { makeNbPoll, makePoll, makeRif, makeRsf } from '../../src/uwb/frames'
-import { MMS_COMBINE_MAX_DB, type MmsPhy } from '../../src/uwb/mms'
+import { MMS_COMBINE_MAX_DB, MMS_DRAFT_DEFAULTS, type MmsPhy } from '../../src/uwb/mms'
 import { NB_RX_SENS_DBM, NB_TX_DBM, nbPl0Db } from '../../src/uwb/nb'
 import { C_M_PER_NS, UWB_PL_EXP, UWB_RX_SENS_DBM, uwbPl0Db } from '../../src/uwb/phy'
 
@@ -224,7 +224,7 @@ describe('UwbChannel capture and collision', () => {
 // --- P802.15.4ab: one medium, three PHYs -------------------------------------------
 
 /** The draft's own ranging-cycle default train. 4ab draft 15-22/0381r5 Table 1.2.3.3 */
-const MMS_PHY: MmsPhy = { rsfs: 8, rifs: 2, nMsr: 40, gap: 64, stsLen: 64, gapMs: 1 }
+const MMS_PHY: MmsPhy = { rsfs: 8, rifs: 2, nMsr: 40, gap: 64, stsLen: 64, gapMs: 1, ...MMS_DRAFT_DEFAULTS }
 
 /** How far a transmitter of `txDbm`, on a band whose 1 m loss is `pl0`, is heard at exactly
  * `rxDbm` \u2014 the channel's own law solved for distance. */

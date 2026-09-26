@@ -30,7 +30,7 @@ import {
 } from '../../src/uwb/phy'
 import { WALL_LOSS_DB } from '../../src/engine/propagation'
 import {
-  MMS_SETS, UWB_MS_BUDGET_NJ, combineGainDb, mmsFragmentDbm, mmsSet, ratioSigma, rsfChips, rsfNs,
+  MMS_DRAFT_DEFAULTS, MMS_SETS, UWB_MS_BUDGET_NJ, combineGainDb, mmsFragmentDbm, mmsSet, ratioSigma, rsfChips, rsfNs,
 } from '../../src/uwb/mms'
 import { NB_REPORT_BYTES, nbPpduNs } from '../../src/uwb/nb'
 import { rangeSigmaM } from '../../src/uwb/position'
@@ -147,7 +147,8 @@ describe('uwb-mms-numbers · what a millisecond buys', () => {
     expect(mmsFragmentDbm(rsfNs(40, 64)).toFixed(2)).toBe('-3.46')
     expect(cell(0, 2, 1)).toBe('40 × 4 × (128 + 2 × 64) = 40 960 chips, 82.051 µs, −3.46 dBm')
     // set rsf-1's shorter fragment, and the 1.20 dB it buys
-    expect(mmsSet('rsf-1')).toEqual({ rsfs: 16, rifs: 0, nMsr: 40, gap: 33, stsLen: 64, gapMs: 1 })
+    expect(mmsSet('rsf-1'))
+      .toEqual({ rsfs: 16, rifs: 0, nMsr: 40, gap: 33, stsLen: 64, gapMs: 1, ...MMS_DRAFT_DEFAULTS })
     expect(rsfNs(MMS_SETS['rsf-1'].nMsr, MMS_SETS['rsf-1'].gap)).toBe(62_179)
     expect(mmsFragmentDbm(62_179).toFixed(2)).toBe('-2.25')
     expect((mmsFragmentDbm(62_179) - mmsFragmentDbm(82_051)).toFixed(2)).toBe('1.20')

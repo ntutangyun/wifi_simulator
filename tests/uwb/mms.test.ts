@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  MMRS_LEN, MMS_COMBINE_MAX_DB, MMS_SETS, MMS_SPREAD, MS_CHIPS, MS_RSTU,
+  MMRS_LEN, MMS_COMBINE_MAX_DB, MMS_DRAFT_DEFAULTS, MMS_SETS, MMS_SPREAD, MS_CHIPS, MS_RSTU,
   UWB_MS_BUDGET_NJ, combineGainDb, mmsFragmentDbm, mmsLayout, mmsLongestFragmentNs, mmsSet,
   mmrsSymbolChips, MS_NS, MS_RCTU, ratioSigma, rifChips, rifNs, rmarkerFromFragment, rsfChips,
   rsfNs, trainDetected,
@@ -15,7 +15,7 @@ import { WALL_LOSS_DB } from '../../src/engine/propagation'
 
 /** A train of X RSFs and Y RIFs at the session default fragment shape. */
 function train(rsfs: MmsPhy['rsfs'], rifs: MmsPhy['rifs'], gapMs: MmsPhy['gapMs']): MmsPhy {
-  return { rsfs, rifs, nMsr: 40, gap: 64, stsLen: 64, gapMs }
+  return { rsfs, rifs, nMsr: 40, gap: 64, stsLen: 64, gapMs, ...MMS_DRAFT_DEFAULTS }
 }
 
 describe('the multi-millisecond fragment', () => {
@@ -69,7 +69,7 @@ describe('the multi-millisecond fragment', () => {
       ['mixed-5', 2, 2], ['mixed-6', 4, 4], ['mixed-7', 8, 8],
     ]
     for (const [id, x, y] of mixed) {
-      expect(pairs[id], id).toEqual({ rsfs: x, rifs: y, nMsr: 64, gap: 25, stsLen: 64, gapMs: 1 })
+      expect(pairs[id], id).toEqual({ rsfs: x, rifs: y, nMsr: 64, gap: 25, stsLen: 64, gapMs: 1, ...MMS_DRAFT_DEFAULTS })
     }
     expect(Object.keys(MMS_SETS)).toHaveLength(17)
     // `mmsSet` hands out a copy: a caller that spreads it into a session config cannot edit the table.
@@ -203,7 +203,8 @@ describe('the slot layout of one MMS pair round', () => {
   it('sizes a slot by the longest fragment the train carries', () => {
     expect(mmsLongestFragmentNs(train(8, 0, 1))).toBe(rsfNs(40, 64))
     expect(mmsLongestFragmentNs(train(0, 1, 1))).toBe(rifNs(64))
-    expect(mmsLongestFragmentNs({ rsfs: 1, rifs: 1, nMsr: 32, gap: 0, stsLen: 256, gapMs: 1 })).toBe(rifNs(256))
+    expect(mmsLongestFragmentNs({ rsfs: 1, rifs: 1, nMsr: 32, gap: 0, stsLen: 256, gapMs: 1, ...MMS_DRAFT_DEFAULTS }))
+      .toBe(rifNs(256))
     // A 256-unit RIF is 262.6 µs and is why the 300 RSTU slot rule can still fail.
     expect(rifNs(256) / 1000).toBeCloseTo(262.56, 2)
   })

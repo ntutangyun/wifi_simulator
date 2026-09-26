@@ -2,7 +2,9 @@ import { z } from 'zod'
 // src/uwb/phy.ts imports nothing of the model at run time (only `mms.ts`, `nb.ts` and the
 // determinism hash, which in turn take nothing from here but types), so the schema can measure
 // a ranging slot with the very functions the ranging engine uses, without a cycle.
-import type { MmsPhy } from '../uwb/mms'
+import {
+  MMS_DRAFT_DEFAULTS, MMS_FIXED_REPLY_RSTU_MAX, MMS_FIXED_REPLY_RSTU_MIN, type MmsPhy,
+} from '../uwb/mms'
 import { NB_CHANNELS } from '../uwb/nb'
 import { mmsResponders, rstuNs, UWB_MAX_ANCHORS, uwbNbSlotFitNs, uwbSlotFitNs, uwbSlotsPerTag } from '../uwb/phy'
 import type { LinkId } from './caps'
@@ -327,6 +329,8 @@ export interface UwbSessionCfg {
 export const DEFAULT_UWB_MMS: UwbMmsCfg = {
   rsfs: 8, rifs: 0, nMsr: 40, gap: 64, stsLen: 64, gapMs: 1,
   nbChannels: [3], nbLbt: 'auto', report: 'bi', oneToMany: false,
+  // Every draft feature off, which is the session that shipped before any of them existed.
+  ...MMS_DRAFT_DEFAULTS,
 }
 
 export const DEFAULT_UWB_SESSION: UwbSessionCfg = {
@@ -553,8 +557,14 @@ const NodeCfgSchema = z.preprocess(
  * instead, because their rules belong to the ranging session as a whole — `path: ['uwb']`, in
  * the wording the editor shows — and an issue raised on the field would stop that refinement
  * running at all.
+ *
+ * The five draft features go the other way: each rule below reads nothing but this object's own
+ * fields, so a setting that contradicts another setting of the same object is wrong whatever the
+ * session does with it, and it is refused here rather than only in MMS mode.
+ *
+ * Exported because `tests/model/uwb-scenario.test.ts` parses it directly.
  */
-const UwbMmsSchema = z.object({
+export const UwbMmsSchema = z.object({
   rsfs: z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(4), z.literal(8), z.literal(16)]),
   rifs: z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(4), z.literal(8)]),
   nMsr: z.union([z.literal(32), z.literal(40), z.literal(48), z.literal(64), z.literal(128), z.literal(256)]),
@@ -567,6 +577,62 @@ const UwbMmsSchema = z.object({
   // A scenario saved before one-to-many rounds existed reads back pairwise, which is what it
   // was: the field has to carry a default or the editor would refuse every such plan.
   oneToMany: z.boolean().default(false),
+  // The five draft features, every one defaulted to the behaviour that shipped, so a plan saved
+  // before them reads back as the session it was.
+  control: z.enum(['nba', 'uwbd']).default('nba'),
+  nonInterleaved: z.boolean().default(false),
+  fixedReplyRstu: z.number().int().nullable().default(null),
+  reversedOrder: z.boolean().default(false),
+  rsfSfd: z.boolean().default(false),
+  uwbdControl: z.enum(['sp0', 'none']).default('sp0'),
+}).superRefine((mms, ctx) => {
+  // 控制相位的长度只有 UWB 驱动配置才自己决定；窄带辅助配置的 POLL/RESP 窗口由窄带一侧排定，
+  // 'none' 在那里是一个什么都不做的设置，所以宁可拒绝，也不要让它静静地留在计划里。
+  if (mms.uwbdControl === 'none' && mms.control !== 'uwbd') {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['uwbdControl'],
+      message: '零长度控制相位只属于 UWB 驱动配置：窄带辅助配置的控制相位跑在窄带电台上，这里选 none 不改变任何东西（15-25/0194r0）',
+    })
+  }
+  if (mms.rsfSfd && mms.control !== 'uwbd') {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['rsfSfd'],
+      message: 'RSF 带 SFD 只在 UWB 驱动配置下有意义：窄带辅助模式里没有包首 SYNC+SFD 可丢',
+    })
+  }
+  if (mms.rsfSfd && mms.nMsr !== 32 && mms.nMsr !== 64) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['rsfSfd'],
+      message: '草案只在 RSF 片段长度为 32 或 64 时允许 RSF 带 SFD（15-25/0066r1）',
+    })
+  }
+  // 固定回复时间是从“收到第一个片段”起算的，交织模式里两端的片段互相穿插，没有这样一个起点。
+  if (mms.fixedReplyRstu !== null && !mms.nonInterleaved) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['fixedReplyRstu'],
+      message: '固定回复时间只属于非交织模式：交织的两列片段没有“收完第一个片段再回复”这个起点（15-25/0224r2）',
+    })
+  }
+  if (mms.fixedReplyRstu !== null
+    && (mms.fixedReplyRstu < MMS_FIXED_REPLY_RSTU_MIN || mms.fixedReplyRstu > MMS_FIXED_REPLY_RSTU_MAX)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['fixedReplyRstu'],
+      message: `固定回复时间要落在 ${MMS_FIXED_REPLY_RSTU_MIN}…${MMS_FIXED_REPLY_RSTU_MAX} RSTU：短于一个测距时隙回复不完，长过这个上限就超出草案给这个字段的位宽（15-25/0224r2）`,
+    })
+  }
+  // 反序的意义是“响应方先发”，而交织模式里两端本来就在同一毫秒里各发一片，没有先后可换。
+  if (mms.reversedOrder && !mms.nonInterleaved) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['reversedOrder'],
+      message: '反序只属于非交织模式：交织时两端在同一毫秒里各发一个片段，没有“谁先发”可以调换（15-25/0556r2）',
+    })
+  }
 })
 
 const ServerSchema = z.object({
