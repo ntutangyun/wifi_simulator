@@ -25,6 +25,15 @@ export interface Strings {
   /** The floating text above a device in the 3D view. */
   sceneLabel: { slot: (n: number) => string; waitAck: string; waitCts: string }
   panel: { inspector: string; log: string; guide: string; resizeHint: string }
+  /** Controls that exist only when the viewport is too small for the desktop shell. */
+  compact: {
+    openSide: string
+    closeSide: string
+    showCourse: string
+    showView: string
+    collapseTimeline: string
+    expandTimeline: string
+  }
   guideWindow: {
     title: string; terms: string; overview: string; search: string
     empty: string; close: string; dragHint: string
@@ -453,6 +462,14 @@ export const STRINGS: Strings = {
   simError: (detail) => `仿真出错：${detail}`,
   sceneLabel: { slot: (n) => `时隙 ${n}`, waitAck: '等 ACK', waitCts: '等 CTS' },
   panel: { inspector: '🔍 检视器', log: '📜 事件日志', guide: '📖 学习指南', resizeHint: '拖动调整宽度 · 双击恢复默认' },
+  compact: {
+    openSide: '🔍 检视器 / 日志',
+    closeSide: '关闭',
+    showCourse: '课文',
+    showView: '视图',
+    collapseTimeline: '收起时间轴',
+    expandTimeline: '展开时间轴',
+  },
   guideWindow: {
     title: '📖 Wi-Fi 速查手册', terms: '术语', overview: '概览',
     search: '搜索术语…', empty: '没有匹配的术语',

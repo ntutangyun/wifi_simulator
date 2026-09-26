@@ -16,5 +16,15 @@ button, select, input {
   background: var(--panel2); color: var(--text); border: 1px solid var(--border);
   border-radius: 4px; padding: 3px 8px; font: inherit; cursor: pointer;
 }
+/* A control in a flex row must not have its own label wrapped to make it fit:
+   at phone width the header did exactly that, one character per line. */
+button, select { flex-shrink: 0; white-space: nowrap; }
 button:hover { border-color: var(--accent); }
+
+/* Touch. A finger is not a mouse pointer, and 3px of vertical padding is not a
+   target it can hit. `pointer: coarse` is true on a phone or tablet and false on
+   a desktop, so nothing here changes the desktop layout. */
+@media (pointer: coarse) {
+  button, select, input { min-height: 34px; padding: 6px 10px; }
+}
 button.active { background: var(--accent); color: #fff; border-color: var(--accent); }

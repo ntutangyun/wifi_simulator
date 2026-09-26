@@ -87,7 +87,17 @@ interface Tip {
   lines: string[]
 }
 
-export function TimelineStrip() {
+export interface TimelineStripProps {
+  /** The strip's height in px. The shell decides it — a 190 px strip is a third
+   *  of a foldable's screen — and passes what this size can afford. */
+  height?: number
+  /** False when the reader has folded the strip away; only the handle shows. */
+  open?: boolean
+  /** Fold and unfold. Absent on a desktop, where the strip is never folded. */
+  onToggle?: () => void
+}
+
+export function TimelineStrip({ height = 190, open = true, onToggle }: TimelineStripProps = {}) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const wheelRef = useRef<HTMLDivElement>(null)
   const [spanNs, setSpanNs] = useState(5_000_000) // 5 ms window
@@ -124,7 +134,8 @@ export function TimelineStrip() {
     const ro = new ResizeObserver(() => setSizeTick((t) => t + 1))
     ro.observe(parent)
     return () => ro.disconnect()
-  }, [])
+    // `open`: folding unmounts the canvas, so unfolding gives a new parent to observe
+  }, [open])
 
   // Wheel moves the playhead; Ctrl+wheel zooms. Native non-passive listener so
   // preventDefault can stop page scroll / browser zoom (React's onWheel is passive).
@@ -145,11 +156,15 @@ export function TimelineStrip() {
     }
     el.addEventListener('wheel', onWheel, { passive: false })
     return () => el.removeEventListener('wheel', onWheel)
-  }, [spanNs])
+    // `open`: the element this listens on is unmounted while the strip is folded
+  }, [spanNs, open])
 
   useEffect(() => {
-    const canvas = canvasRef.current!
-    const ctx = canvas.getContext('2d')!
+    // Null while the strip is folded away: the canvas is unmounted, not hidden,
+    // and this effect still runs on every store change behind it.
+    const canvas = canvasRef.current
+    const ctx = canvas?.getContext('2d')
+    if (!canvas || !ctx) return
     const parent = canvas.parentElement!
     const dpr = window.devicePixelRatio || 1
     const W = parent.clientWidth
@@ -304,7 +319,9 @@ export function TimelineStrip() {
   }, [playheadNs, spanNs, scenario, sizeTick, selectedFrame])
 
   const hitSpan = (e: React.PointerEvent): { span: LaneSpan; t: number } | null => {
-    const rect = canvasRef.current!.getBoundingClientRect()
+    const c = canvasRef.current
+    if (!c) return null
+    const rect = c.getBoundingClientRect()
     const { spans, a, b, laneW, laneH, nodeIds: ids } = drawn.current
     const x = e.clientX - rect.left
     const y = e.clientY - rect.top
@@ -319,7 +336,9 @@ export function TimelineStrip() {
   const tipFor = (e: React.PointerEvent): Tip | null => {
     const hit = hitSpan(e)
     if (!hit) return null
-    const rect = canvasRef.current!.getBoundingClientRect()
+    const c = canvasRef.current
+    if (!c) return null
+    const rect = c.getBoundingClientRect()
     return {
       x: e.clientX - rect.left + 12, y: e.clientY - rect.top - 8,
       lines: [
@@ -330,7 +349,22 @@ export function TimelineStrip() {
   }
 
   return (
-    <div style={{ height: 190, borderTop: '1px solid var(--border)', position: 'relative' }}>
+    <div style={{ height, borderTop: '1px solid var(--border)', position: 'relative' }}>
+      {/* The fold handle. It sits above the canvas rather than beside the legend so
+          it is reachable whether the strip is open or shut. */}
+      {onToggle && (
+        <button
+          onClick={onToggle}
+          title={open ? L.compact.collapseTimeline : L.compact.expandTimeline}
+          style={{
+            position: 'absolute', top: 2, right: 8, zIndex: 3, fontSize: 11,
+            padding: '2px 10px', minHeight: 22, lineHeight: 1.2,
+          }}
+        >
+          {open ? '▾' : '▴'}
+        </button>
+      )}
+      {open && (<>
       <div ref={wheelRef} style={{ position: 'relative', height: `calc(100% - ${LEGEND_H}px)`, cursor: 'crosshair' }}
         onPointerDown={(e) => {
           const s = hitSpan(e)?.span ?? null
@@ -361,7 +395,14 @@ export function TimelineStrip() {
             ))}
           </div>
         )}
-        <div style={{ position: 'absolute', right: 8, top: 2, color: 'var(--dim)', fontSize: 10 }}>
+        <div style={{
+          position: 'absolute', top: 2, color: 'var(--dim)', fontSize: 10,
+          // The fold handle owns the corner, so the hint stops short of it. It also
+          // truncates rather than wrapping: at 939 px it used to run under both the
+          // handle and the time reading.
+          right: onToggle ? 52 : 8, left: '45%', textAlign: 'right',
+          whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+        }} title={L.strip.windowHint}>
           {fmtNs(spanNs)} s · {L.strip.windowHint}
         </div>
       </div>
@@ -371,12 +412,15 @@ export function TimelineStrip() {
         overflowX: 'auto', whiteSpace: 'nowrap',
       }}>
         {L.legend.map((l) => (
-          <span key={l.label} title={l.hint} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'help' }}>
+          // flexShrink 0, or the row shrinks its items to fit instead of scrolling
+          // and the labels paint over each other — which is what it did at 939 px
+          <span key={l.label} title={l.hint} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'help', flexShrink: 0 }}>
             <span style={{ width: 10, height: 10, background: l.color, borderRadius: 2, display: 'inline-block' }} />
             {l.label}
           </span>
         ))}
       </div>
+      </>)}
     </div>
   )
 }

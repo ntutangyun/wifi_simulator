@@ -10,6 +10,8 @@ import { Inspector } from './Inspector'
 import { useUi } from './store'
 import { TimelineStrip } from './TimelineStrip'
 import { Transport } from './Transport'
+import { layoutFor, mainColumns, TIMELINE_H_COLLAPSED, type MainPane } from './layout'
+import { useViewport } from './useViewport'
 
 const tabBar: React.CSSProperties = {
   display: 'flex', gap: 2, padding: '4px 6px 0', borderBottom: '1px solid var(--border)',
@@ -73,15 +75,57 @@ export function App() {
   /** Course mode keeps the player under the viewport so the lesson and side columns run full height. */
   const stackPlayer = mode === 'course'
 
+  // How the shell arranges itself for this viewport. See `layout.ts` — the
+  // decision is a pure function of the two numbers so it can be tested, and the
+  // hook exists because a foldable changes them without reloading the page.
+  const vp = useViewport()
+  const layout = layoutFor(vp.w, vp.h)
+  /** Which of the lesson and the viewport the single-column shell shows. */
+  const [pane, setPane] = useState<MainPane>('course')
+  /** The side panel, when it is a drawer rather than a column. Closed by default:
+   *  on a small screen the content is what the reader came for. */
+  const [sideOpen, setSideOpen] = useState(false)
+  /** The timeline can be folded away entirely — 190 px of a 511 px screen is a
+   *  lot to spend on it, and a reader following a lesson often wants the room. */
+  const [timelineOpen, setTimelineOpen] = useState(true)
+  const timelineH = timelineOpen ? layout.timelineH : TIMELINE_H_COLLAPSED
+  /** In one column, course mode shows the lesson or the viewport, never both. */
+  const showCourseCol = mode === 'course' && (!layout.singleColumn || pane === 'course')
+  const showViewCol = !(mode === 'course' && layout.singleColumn && pane === 'course')
+
   return (
     <div style={{ display: 'grid', gridTemplateRows: 'auto 1fr auto auto', gridTemplateColumns: ONE_COLUMN, height: '100%' }}>
       <header style={{
-        display: 'flex', alignItems: 'center', gap: 12, padding: '6px 12px',
+        display: 'flex', alignItems: 'center', gap: layout.singleColumn ? 6 : 12,
+        padding: layout.singleColumn ? '6px 8px' : '6px 12px',
         background: 'var(--panel)', borderBottom: '1px solid var(--border)',
+        // Without these the row wraps its own words into vertical strips at phone
+        // width and pushes the page into a horizontal scroll.
+        whiteSpace: 'nowrap', minWidth: 0,
       }}>
-        <strong>Wi-Fi Airtime Simulator</strong>
-        <span style={{ color: 'var(--dim)', fontSize: 12 }}>{L.header.subtitle}</span>
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 4, alignItems: 'center' }}>
+        <strong style={{ flexShrink: 0 }}>{layout.singleColumn ? 'Wi-Fi Sim' : 'Wi-Fi Airtime Simulator'}</strong>
+        {/* The subtitle is the first thing to go: it is context, not a control. */}
+        {!layout.compact && <span style={{ color: 'var(--dim)', fontSize: 12 }}>{L.header.subtitle}</span>}
+        {/* One column: the reader chooses which pane is on screen. It sits outside
+            the scrolling group on the left, because on the right it scrolled out of
+            sight — and it is the control this layout needs most. */}
+        {mode === 'course' && layout.singleColumn && (
+          <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+            <button className={pane === 'course' ? 'active' : ''} onClick={() => setPane('course')}>{L.compact.showCourse}</button>
+            <button className={pane === 'view' ? 'active' : ''} onClick={() => setPane('view')}>{L.compact.showView}</button>
+          </div>
+        )}
+        <div style={{
+          marginLeft: 'auto', display: 'flex', gap: 4, alignItems: 'center',
+          // The controls scroll among themselves rather than widening the page.
+          minWidth: 0, overflowX: 'auto',
+        }}>
+          {/* The side panel has no column of its own at this width, so it needs a way in. */}
+          {layout.sideAsDrawer && mode !== 'edit' && (
+            <button className={sideOpen ? 'active' : ''} onClick={() => setSideOpen((v) => !v)}>
+              {sideOpen ? L.compact.closeSide : L.compact.openSide}
+            </button>
+          )}
           <button className={guideOpen ? 'active' : ''} title={L.guideWindow.title} onClick={() => setGuideOpen((v) => !v)}>
             {L.panel.guide}
           </button>
@@ -94,19 +138,22 @@ export function App() {
 
       <main style={{
         position: 'relative', overflow: 'hidden', display: 'grid', minHeight: 0,
-        gridTemplateColumns:
-          mode === 'simulate' ? 'minmax(0, 1fr) minmax(320px, 400px)' :
-          mode === 'course' ? `${courseW}px minmax(0, 1fr) minmax(300px, 360px)` : '1fr',
+        gridTemplateColumns: mainColumns(mode, layout, courseW, pane),
       }}>
-        {mode === 'course' && (
+        {showCourseCol && (
           <div style={{ position: 'relative', borderRight: '1px solid var(--border)', background: 'var(--panel)', overflow: 'hidden', display: 'grid', gridTemplateColumns: ONE_COLUMN, minHeight: 0, minWidth: 0 }}>
-            <ColumnResizeHandle
-              edge="right" width={courseW} onWidth={setCourseW}
-              onReset={() => setCourseW(COURSE_COL_DEFAULT)} title={L.panel.resizeHint}
-            />
+            {/* The handle drags a px width. In the compact shell the column is a
+                fraction of the row, so there is no width to drag. */}
+            {!layout.sideAsDrawer && (
+              <ColumnResizeHandle
+                edge="right" width={courseW} onWidth={setCourseW}
+                onReset={() => setCourseW(COURSE_COL_DEFAULT)} title={L.panel.resizeHint}
+              />
+            )}
             <CoursePanel />
           </div>
         )}
+        {showViewCol && (
         <div style={{ display: 'grid', gridTemplateRows: 'minmax(0, 1fr) auto auto', gridTemplateColumns: ONE_COLUMN, minHeight: 0, minWidth: 0 }}>
           <div style={{ position: 'relative', minHeight: 0 }}>
             {simError && (
@@ -126,13 +173,30 @@ export function App() {
               )}
             </div>
           </div>
-          {stackPlayer && simActive && <TimelineStrip />}
+          {stackPlayer && simActive && <TimelineStrip height={timelineH} open={timelineOpen} onToggle={() => setTimelineOpen((v) => !v)} />}
           {stackPlayer && simActive && <Transport />}
         </div>
-        {mode !== 'edit' && <SidePanel />}
+        )}
+        {/* A column when there is room for one, a drawer over the content when there is not. */}
+        {mode !== 'edit' && !layout.sideAsDrawer && <SidePanel />}
+        {mode !== 'edit' && layout.sideAsDrawer && sideOpen && (
+          <>
+            <div
+              onClick={() => setSideOpen(false)}
+              style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 20 }}
+            />
+            <div style={{
+              position: 'absolute', top: 0, right: 0, bottom: 0, zIndex: 21,
+              width: `min(420px, 88%)`, display: 'grid', gridTemplateColumns: ONE_COLUMN,
+              minHeight: 0, minWidth: 0, boxShadow: '-8px 0 24px rgba(0,0,0,0.5)',
+            }}>
+              <SidePanel />
+            </div>
+          </>
+        )}
       </main>
 
-      {!stackPlayer && simActive && <TimelineStrip />}
+      {!stackPlayer && simActive && <TimelineStrip height={timelineH} open={timelineOpen} onToggle={() => setTimelineOpen((v) => !v)} />}
       {!stackPlayer && simActive && <Transport />}
 
       {guideOpen && <GuideWindow onClose={() => setGuideOpen(false)} />}
