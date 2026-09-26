@@ -31,8 +31,8 @@ import {
   UWB_BROADCAST, type UwbFrameKind, type UwbInfo, type UwbSp0Msg,
 } from './frames'
 import {
-  acquired, combineGainDb, mmsPacketFragments, mmsPacketSpanNs, MS_NS, MS_RCTU,
-  rmarkerFromFragment, trainDetected,
+  acquired, combineGainDb, mmsPacketFragments, mmsPacketSpanNs, MMS_REVERSED_OFFSET_RSTU, MS_NS,
+  MS_RCTU, rmarkerFromFragment, trainDetected,
 } from './mms'
 
 import { NB_LBT_THRESHOLD_DBM, nbLbtRequired } from './nb'
@@ -98,6 +98,10 @@ export interface MmsPeerState {
    * 15-25/0331r1). So a responder primed by answering — the interleaved rule — would be primed
    * only once the packet it was meant to hear had gone by. Hearing the POLL is what primes it
    * there (`onMmsRx`), and the initiator waits for nobody (`opensRound`).
+   *
+   * `reversedOrder` turns that round about as well: the responder transmits first, so its own RESP
+   * is the round's opening message and sending it is what primes it, while the initiator is primed
+   * by that RESP arriving ahead of its own POLL window. 4ab draft 15-25/0556r2
    */
   primed: boolean
   /** The peer's fragments, per kind, in the order they arrived (which is index order). */
@@ -226,24 +230,70 @@ function controlPrimes(mp: MmsRoundPlan): boolean {
  *   ranging phase. Waiting for it there is waiting for something that cannot arrive until the
  *   packet it answers has been sent.
  *
- * What the opener does wait for is its own control window: it polled, so `m.polled`. That is the
- * initiator's half of the draft's discontinuation rule — a busy listen-before-talk check costs the
- * cycle, and a round whose POLL never went out has no cycle to transmit a packet into. A
- * zero-length control phase has no such window and asks for none.
+ * What the opener does wait for is its own control window having gone out — forward, the POLL, so
+ * `m.polled`. That is the initiator's half of the draft's discontinuation rule: a busy
+ * listen-before-talk check costs the cycle, and a round whose POLL never went out has no cycle to
+ * transmit a packet into. A zero-length control phase has no such window and asks for none.
  *
- * `reversedOrder` hands the opening to the responders, and this follows it — but only a reversed
- * round with no control phase gets anywhere: with one, the opening responder's own window is a RESP
- * sitting ahead of the POLL that `txControlResp` answers, so that round has no opening message to
- * pass and none of this rescues it. Where its two control messages should go is the schedule's
- * question, not this one's.
+ * `reversedOrder` hands the opening to the responders, and this follows it (`txFirst`) — control
+ * phase or none, because the opening responder's own window is its RESP and that RESP answers
+ * nothing (`txControlResp`).
  *
  * False in an interleaved round with a control exchange: there, permission comes from the exchange
  * and nobody opens on their own.
  */
 function opensRound(dev: UwbDevice, m: MmsRoundState, mp: MmsRoundPlan): boolean {
-  if ((dev.cfg.role === 'tag') === mp.phy.reversedOrder) return false
+  if (!txFirst(dev, mp)) return false
   if (!controlPrimes(mp)) return true
-  return mp.phy.nonInterleaved && m.polled
+  // Which message that window holds is the order's doing: forward it is the POLL, and reversed it
+  // is the opening responder's RESP — whose going out is exactly what primed this device
+  // (`txControlResp`). So `anyPrimed` answers yes once it went out, and no when a busy
+  // listen-before-talk check kept it in, which is the discontinuation rule on that side.
+  return mp.phy.nonInterleaved && (mp.phy.reversedOrder ? anyPrimed(m) : m.polled)
+}
+
+/**
+ * Which side of the round puts its MMS packet on the air first: the initiator, unless
+ * `reversedOrder` sends the responders' packets first and leaves the initiator to follow
+ * `MMS_REVERSED_OFFSET_RSTU` into the ranging phase. 4ab draft 15-25/0556r2
+ *
+ * One sentence, read by everything the order touches, so no two places can answer it differently:
+ * who may open the round having been told nothing (`opensRound`, `txControlResp`), whose packet
+ * is the one held back (`reversedOffsetNs`), and — because single-sided two-way ranging measures
+ * its round trip at whichever end transmitted first — who owns which of its two times
+ * (`txControlReport`, `onControlReportRx`).
+ */
+function txFirst(dev: UwbDevice, mp: MmsRoundPlan): boolean {
+  return (dev.cfg.role === 'tag') !== mp.phy.reversedOrder
+}
+
+/**
+ * How long the initiator holds its own packet back, in nanoseconds: `MMS_REVERSED_OFFSET_RSTU`
+ * in a reversed round — 600 RSTU, half a millisecond — and nothing at all in a forward one.
+ *
+ * The draft counts that offset from the initiator entering the ranging phase, with the
+ * responders' packets already on the air (4ab draft 15-25/0556r2). This engine's non-interleaved
+ * round gives each device a sub-round of its own, so what the offset delays here is the
+ * initiator's packet inside its **own** sub-round rather than sliding it into the responder's —
+ * the draft's half-millisecond interleaving of the two packets is a shape this engine does not
+ * model at all (see the head of src/uwb/mms.ts). What survives is the number, and the fact that
+ * reversed it is the initiator that waits.
+ */
+function reversedOffsetNs(mp: MmsRoundPlan): number {
+  return mp.phy.reversedOrder ? rstuNs(MMS_REVERSED_OFFSET_RSTU) : 0
+}
+
+/**
+ * The same offset in whole slots — what a receive window has to be widened by, and what a train's
+ * close-out has to be put off by, so the far end waits where the packet really is rather than
+ * where the layout would have put it.
+ *
+ * `ceil`: a packet held back by part of a slot still lands in the next one, and a window that
+ * closed at the boundary would miss the fragment it was armed for. Both ends compute it from the
+ * one constant and the round's own slot, so neither has to be told where the packet went.
+ */
+function reversedOffsetSlots(r: RoundState, mp: MmsRoundPlan): number {
+  return Math.ceil(reversedOffsetNs(mp) / r.plan.slotNs)
 }
 
 /** Whether this round's control messages ride the UWB PHY as SP0 packets rather than the
@@ -379,6 +429,11 @@ function armFixedReplyListen(
  * there is no carrier-offset fallback either — the frame that fallback used to ride on is the frame
  * this option exists to not send. So a train too thin to measure a ratio over produces no range
  * here, which is the honest answer rather than a reply time left at nominal rate.
+ *
+ * The role is read directly rather than through `txFirst`, and may be: the schema refuses the fixed
+ * reply time together with `reversedOrder`, because the end that replies a fixed interval after
+ * receiving a packet cannot also be the end that opened the round. So the initiator here is always
+ * the end that transmitted first, and the round trip below is always its own.
  * 4ab draft 15-25/0224r2, 15-25/0376r2, 15-25/0556r2
  */
 function rangeFromKnownReply(
@@ -433,7 +488,8 @@ function timingKind(mp: MmsRoundPlan): 'uwbRsf' | 'uwbRif' {
  * cost the whole cycle rather than one message. A round with no control exchange has no such
  * permission to give and asks for none (`controlPrimes`), and a non-interleaved round gives it in
  * the POLL rather than the RESP, because there the RESP answers the packet instead of permitting
- * it (`opensRound`, `onMmsRx`). **Evaluation at the end of a train**: a fragment
+ * it (`opensRound`, `onMmsRx`) — or, reversed, in that RESP, which is then the round's first
+ * message and answers nothing. **Evaluation at the end of a train**: a fragment
  * is never stamped on arrival (see `onMmsRx`); a train is closed out in the slot after its last
  * fragment, which is where every draw and every record of it happens.
  */
@@ -486,7 +542,11 @@ export function onMmsSlot(
           if (anchor === mine) txControlResp(dev, r, m, mp, peers.tag, slot, mine)
           return
         }
-        if (m.polled) dev.listenFor(slot, id, kind, slot + win)
+        // A round trip the initiator never opened has no RESP to wait for — that is its own half
+        // of the discontinuation rule. Reversed, it has not had its POLL window yet when this one
+        // runs, and the RESP sitting in front of it is the very message that primes it, so asking
+        // for `polled` there would deafen the initiator to the whole round. 4ab draft 15-25/0556r2
+        if (m.polled || !txFirst(dev, mp)) dev.listenFor(slot, id, kind, slot + win)
         return
       }
       if (action.tx === 'tag') {
@@ -511,9 +571,14 @@ export function onMmsSlot(
       // listen in it, because it has opened windows of its own where the packet really is.
       const fixedReply = fixedReplyNs(mp) !== null
       if (action.tx === 'tag') {
-        if (isTag) txOwnTrainFragment(dev, r, m, mp, responders, action.kind, action.index, slot)
+        // Reversed, the initiator's packet is held back `MMS_REVERSED_OFFSET_RSTU` from the slots
+        // the layout gave it: it transmits that much late, and the far end waits that much longer
+        // in the same slot. One constant, read at both ends (`reversedOffsetNs`).
+        if (isTag) txPacketFragment(dev, r, m, mp, responders, action.kind, action.index, slot)
         // A lost fragment is counted by the train, not reported: `silent`.
-        else if (open(peers.tag)) dev.listenFor(slot, peers.tag, action.kind, slot + 1, true)
+        else if (open(peers.tag)) {
+          dev.listenFor(slot, peers.tag, action.kind, slot + 1 + reversedOffsetSlots(r, mp), true)
+        }
         return
       }
       const id = responders[action.anchor]
@@ -586,11 +651,17 @@ function txControlPoll(
  * round: the window is at the head of this responder's own sub-round, after the initiator's whole
  * packet, so the POLL primed it long before this (`onMmsRx`) and the line below is a no-op there.
  * The POLL it heard was a narrowband message or an SP0 packet, and the answer follows it onto the
- * same radio. */
+ * same radio.
+ *
+ * …unless this responder is the one that opens the round (`txFirst`): reversed, its window is slot
+ * 0 and the POLL is at the head of the initiator's sub-round, a whole packet later, so there is no
+ * POLL yet to have heard. Its RESP answers nothing and is the round's first message, and the line
+ * below is what primes this side of it — which is why insisting on a POLL here left a reversed
+ * round with a control phase ranging zero times. 4ab draft 15-25/0556r2 */
 function txControlResp(
   dev: UwbDevice, r: RoundState, m: MmsRoundState, mp: MmsRoundPlan, peer: string, slot: number, mine: number,
 ): void {
-  if (!m.polled) return
+  if (!m.polled && !txFirst(dev, mp)) return
   if (!nbClear(dev, r, m, mp)) return
   peerState(m, mp, peer, mine).primed = true
   if (sp0Control(mp)) {
@@ -604,6 +675,33 @@ function txControlResp(
       : makeNbResp(dev.id, peer, nbChannel, r.block, r.round),
     null,
   )
+}
+
+/**
+ * One fragment of this device's own train, at the instant the order puts it at: here and now in
+ * every forward round, and `MMS_REVERSED_OFFSET_RSTU` after this slot began when the reversal made
+ * this device the one that follows (`reversedOffsetNs`).
+ *
+ * That delayed instant is off the slot grid, so the fragment is stamped with the slot it really
+ * went out in rather than the one the layout named — exactly as a fixed reply's column is
+ * (`armFixedReply`). The far end is not told: it derives the same wait from the same constant and
+ * holds its window open for it.
+ */
+function txPacketFragment(
+  dev: UwbDevice, r: RoundState, m: MmsRoundState, mp: MmsRoundPlan, to: string[],
+  kind: 'uwbRsf' | 'uwbRif', index: number, slot: number,
+): void {
+  const lateNs = reversedOffsetNs(mp)
+  if (lateNs === 0) {
+    txOwnTrainFragment(dev, r, m, mp, to, kind, index, slot)
+    return
+  }
+  const at = dev.now() + lateNs
+  const real = Math.floor((at - slotStartNs(r.plan, r.block, r.round, 0)) / r.plan.slotNs)
+  dev.at(at, () => {
+    if (dev.round !== r) return
+    txOwnTrainFragment(dev, r, m, mp, to, kind, index, real)
+  })
 }
 
 /**
@@ -677,14 +775,35 @@ function txControlReport(
   const p = m.peers.get(peer)
   if (m.txRmarker === null || !p || !p.primed || p.rxRmarker === null) return
   if (!nbClear(dev, r, m, mp)) return
-  const times = dev.cfg.role === 'tag'
+  // Which of the exchange's two times this device holds is **one decision, taken here**: whoever
+  // transmitted first measured a round trip — out to the far end and back in its packet — and
+  // whoever answered measured the reply it turned the round around in. Forward that is the
+  // initiator and the responder respectively; `reversedOrder` swaps which packet went first, so it
+  // swaps these with it, and the same two counters are subtracted the other way round.
+  //
+  // Reading it off the role instead would hand `counterDiff` an interval that ran backwards, and
+  // `counterDiff` cannot say so: it wraps, and returns very nearly the counter's whole 2^40
+  // modulus. Times the crystal offset the correction then applies to it, that is a range of tens
+  // of kilometres — emitted as a UWB_RANGE, with the true distance beside it. 4ab draft
+  // 15-25/0556r2
+  const first = txFirst(dev, mp)
+  const times = first
     ? { roundTripRctu: counterDiff(p.rxRmarker, m.txRmarker) }
     : { replyRctu: counterDiff(m.txRmarker, p.rxRmarker) }
   if (sp0Control(mp)) {
     dev.send(makeSp0Report(dev.id, peer, r.block, r.round, slot, times), null)
     return
   }
-  dev.send(makeNbReport(dev.id, peer, m.nbChannel as number, r.block, r.round, slot, times, mp.oneToMany), null)
+  // …and the message id is the *sender's*, not the time's: 0x12 is the responder's REPORT and 0x13
+  // the initiator's, which coincides with the time carried only while the order is forward.
+  // 4ab draft 15-22/0381r5 Table 1.6.3.1
+  dev.send(
+    makeNbReport(
+      dev.id, peer, m.nbChannel as number, r.block, r.round, slot, times, mp.oneToMany,
+      dev.cfg.role === 'tag' ? 'initiator' : 'responder',
+    ),
+    null,
+  )
 }
 
 /**
@@ -779,13 +898,20 @@ function controlRole(kind: UwbFrameKind, sp0: UwbSp0Msg | undefined): 'poll' | '
 }
 
 /** Close out every train whose last fragment was due in the slot just gone — one per primed
- * peer, in responder order, which is the order their slots run in. */
+ * peer, in responder order, which is the order their slots run in.
+ *
+ * "Due" is the layout's slot plus the wait the order put in front of it: a reversed round holds the
+ * initiator's packet back `MMS_REVERSED_OFFSET_RSTU`, so a responder that closed the train at the
+ * nominal slot would close it while the last fragment was still on its way and throw away the one
+ * fragment it was waiting for. Only the initiator's packet is ever held back, which is why the
+ * shift is on the initiator side alone. */
 function closeDueTrains(
   dev: UwbDevice, r: RoundState, m: MmsRoundState, mp: MmsRoundPlan,
   peers: { tag: string; anchors: string[] }, slot: number,
 ): void {
   const isTag = dev.cfg.role === 'tag'
   const peerSide = isTag ? 'responder' : 'initiator'
+  const late = peerSide === 'initiator' ? reversedOffsetSlots(r, mp) : 0
   const ids = isTag ? peers.anchors : [peers.tag]
   for (const id of ids) {
     const p = m.peers.get(id)
@@ -793,7 +919,7 @@ function closeDueTrains(
     for (const kind of ['rsf', 'rif'] as const) {
       if (p.done[kind]) continue
       const n = kind === 'rsf' ? mp.phy.rsfs : mp.phy.rifs
-      if (slot !== mp.layout.fragmentSlot(peerSide, kind, n - 1, p.responder) + 1) continue
+      if (slot !== mp.layout.fragmentSlot(peerSide, kind, n - 1, p.responder) + 1 + late) continue
       p.done[kind] = true
       evaluateTrain(dev, r, m, mp, p, id, kind, n)
     }
@@ -903,13 +1029,21 @@ function evaluateTrain(
  * The peer's half of the exchange has arrived: this device now holds a round trip and a reply
  * time, and turns them into a range.
  *
- * The clock correction of single-sided TWR is always the *responder's* rate against the
- * *initiator's*, whoever is computing — the reply is measured on one clock and the round trip
- * on the other, and only their ratio matters. A train hands that over directly: the ratio it
- * measured is this device's counter per the peer's, so the responder uses it as it stands and
- * the initiator inverts it. Without a train (one fragment heard, or none but the integrity
- * one) the device falls back on what the 4z path has always used — the carrier-frequency
- * offset its receiver estimated, with the estimator's residual drawn here, once.
+ * Which of the two times this device measured itself and which one arrived is the same single
+ * decision `txControlReport` took: the end that transmitted first measured the round trip, the
+ * end that answered measured the reply (`txFirst`). Forward that is the initiator and the
+ * responder; reversed it is the other way about, and every line below follows it rather than the
+ * role.
+ *
+ * The clock correction of single-sided TWR is always the *replying* end's rate against the end
+ * that measured the *round trip* — the reply is counted on one crystal and the round trip on the
+ * other, and only their ratio matters. Forward those two ends are the responder and the initiator,
+ * which is the way the correction is usually written down; reversed they trade places, so the
+ * ratio is inverted at the other end of the round. A train hands it over directly: the ratio it
+ * measured is this device's counter per the peer's, so the end holding the reply uses it as it
+ * stands and the end holding the round trip inverts it. Without a train (one fragment heard, or
+ * none but the integrity one) the device falls back on what the 4z path has always used — the
+ * carrier-frequency offset its receiver estimated, with the estimator's residual drawn here, once.
  */
 function onControlReportRx(
   dev: UwbDevice, r: RoundState, m: MmsRoundState, mp: MmsRoundPlan, from: string, u: UwbInfo,
@@ -919,18 +1053,18 @@ function onControlReportRx(
   const msg = u.nb ?? u.sp0
   const p = m.peers.get(from)
   if (!msg || !p || m.txRmarker === null || p.rxRmarker === null) return
-  const isTag = dev.cfg.role === 'tag'
-  const own = isTag ? counterDiff(p.rxRmarker, m.txRmarker) : counterDiff(m.txRmarker, p.rxRmarker)
-  const roundTripRctu = isTag ? own : msg.roundTripRctu
-  const replyRctu = isTag ? msg.replyRctu : own
+  const first = txFirst(dev, mp)
+  const own = first ? counterDiff(p.rxRmarker, m.txRmarker) : counterDiff(m.txRmarker, p.rxRmarker)
+  const roundTripRctu = first ? own : msg.roundTripRctu
+  const replyRctu = first ? msg.replyRctu : own
   if (roundTripRctu === undefined || replyRctu === undefined) return
   let coffs: number
   if (p.ratio !== null) {
-    coffs = isTag ? 1 / p.ratio - 1 : p.ratio - 1
+    coffs = first ? 1 / p.ratio - 1 : p.ratio - 1
   } else {
-    const responderPpm = isTag ? info.txPpm : dev.clock.ppm
-    const initiatorPpm = isTag ? dev.clock.ppm : info.txPpm
-    coffs = (responderPpm - initiatorPpm) * 1e-6 + gaussian(dev.rng) * dev.cfg.cfoNoisePpm * 1e-6
+    const replyPpm = first ? info.txPpm : dev.clock.ppm
+    const roundTripPpm = first ? dev.clock.ppm : info.txPpm
+    coffs = (replyPpm - roundTripPpm) * 1e-6 + gaussian(dev.rng) * dev.cfg.cfoNoisePpm * 1e-6
   }
   reportRange(
     dev, r, from, 'ss',

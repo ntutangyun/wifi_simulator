@@ -625,13 +625,15 @@ export class UwbDevice implements UwbRadio {
    * Do something at an instant the slot grid does not name.
    *
    * Every other action of a ranging round is a slot's: the schedule calls `onSlot` and the device
-   * transmits or listens there and then. P802.15.4ab's fixed reply time is the one thing that is
-   * not — the responder starts its own MMS packet a pre-agreed interval after it **finished
-   * receiving** the initiator's, and where that lands depends on the flight time, so it is known
-   * only at run time and cannot be a slot (see `armFixedReply` in ./device.mms). The queue's MAC
-   * phase is the same phase a slot tick runs in, so an action scheduled here and a slot boundary
-   * at the same instant keep the order they were queued in; a delivery at that instant is phase 1
-   * and therefore still lands after both.
+   * transmits or listens there and then. Two things of P802.15.4ab are not, and both are MMS
+   * packets that start somewhere inside a slot rather than at its edge (see ./device.mms): the
+   * **fixed reply time**, where the responder starts its own packet a pre-agreed interval after it
+   * finished receiving the initiator's — which depends on the flight time and so is known only at
+   * run time (`armFixedReply`) — and the **reversed order**'s 600 RSTU, which the initiator holds
+   * its packet back by inside the sub-round the layout gave it (`txPacketFragment`). The queue's
+   * MAC phase is the same phase a slot tick runs in, so an action scheduled here and a slot
+   * boundary at the same instant keep the order they were queued in; a delivery at that instant is
+   * phase 1 and therefore still lands after both.
    *
    * The callback must check that the round it was armed for is still the current one: the queue
    * outlives a round, and a fragment radiated into the next one would be a transmitter nobody

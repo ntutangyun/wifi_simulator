@@ -392,9 +392,10 @@ export function makeNbResp(
 }
 
 /**
- * A narrowband REPORT, in the report slot its sender owns. The responder's carries the
- * ReplyTime it measured and the initiator's the TurnAroundTime, and that is what names the
- * message: the two differ only in their message-ID octet and in which time is present.
+ * A narrowband REPORT, in the report slot its sender owns: the two differ only in their
+ * message-ID octet, which names the end that sent it, and in which of the exchange's two times is
+ * present. Ordinarily the responder's carries the ReplyTime it measured and the initiator's the
+ * TurnAroundTime — see `sender` for the round where that pairing comes apart.
  * 4ab draft 15-22/0381r5 Table 1.6.3.1 / 1.6.3.2
  */
 export function makeNbReport(
@@ -403,16 +404,27 @@ export function makeNbReport(
   /** One-to-many round: the same message, under the message ids the draft gives it (0x12 from a
    * responder, 0x13 from the initiator). 4ab draft 15-22/0381r5 Table 1.6.3.1 */
   otm = false,
+  /**
+   * Which end sent it, which is what the two message ids actually name.
+   *
+   * It is not the same question as which time is inside. They coincide in a round where the
+   * initiator transmits first — the responder replies, so the responder's REPORT carries the reply
+   * time — and the draft's reversed order breaks that: there the responder measures the round trip
+   * and the initiator the reply, while 0x12 is still the responder's message and 0x13 still the
+   * initiator's. So the sender says, and the time it happens to carry is the default for every
+   * caller that never reversed anything. 4ab draft 15-22/0381r5 Table 1.6.3.1, 15-25/0556r2
+   */
+  sender: 'initiator' | 'responder' = times.replyRctu !== undefined ? 'responder' : 'initiator',
 ): FrameDesc {
-  // A REPORT exists to carry one of the two times, and which one is there is what names the
-  // message. With neither, the message id would be a guess and the receiver would have nothing
-  // to range with, so the caller is told at the call site rather than in the ranging arithmetic.
+  // A REPORT exists to carry one of the two times. With neither, the message would have nothing
+  // for the receiver to range with, so the caller is told at the call site rather than in the
+  // ranging arithmetic.
   if (times.replyRctu === undefined && times.roundTripRctu === undefined) {
     throw new Error(`makeNbReport: ${src} built a REPORT with neither a reply nor a round-trip time`)
   }
   return nbFrame('nbReport', src, dst, NB_REPORT_BYTES, block, round, slot, {
     channel,
-    msgId: times.replyRctu !== undefined
+    msgId: sender === 'responder'
       ? (otm ? NB_MSG_ID.reportResponderOtm : NB_MSG_ID.reportResponder)
       : (otm ? NB_MSG_ID.reportInitiatorOtm : NB_MSG_ID.reportInitiator),
     // Absent, not undefined, so a REPORT compares equal to a hand-built one.
