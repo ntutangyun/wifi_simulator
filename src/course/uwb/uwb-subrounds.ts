@@ -143,7 +143,7 @@ export const firstResponderFragment = (r: TLRecord): boolean =>
 
 export const uwbSubrounds: Lesson = {
   id: 'uwb-subrounds',
-  module: 21,
+  module: 22,
   title: '轮流发，还是穿插发',
   why: '到现在为止，一轮多毫秒（multi-millisecond, MMS）测距里两端的片段（fragment）是交错着来的：这一毫秒标签（tag）发一个，下一个时隙锚点（anchor）发一个。房间里只有一个锚点时这样很紧凑，可锚点一多，一毫秒就得摊给更多人——同一列片段里相邻两个的间隔于是被撑开，而这个间隔本该正好是一毫秒。草案给了另一种排法：一方把自己整列发完，再换下一方。这一课要算这笔交易：它换来什么，付出什么。',
   outcomes: [

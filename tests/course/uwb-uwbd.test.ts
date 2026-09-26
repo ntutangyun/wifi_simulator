@@ -33,7 +33,7 @@ const NONE = 1
 
 describe('uwb-uwbd · where it sits', () => {
   it('is the first lesson of the UWB-driven half, right after the narrowband pair', () => {
-    expect(MODULES[uwbUwbd.module].title).toBe('窄带控制面')
+    expect(MODULES[uwbUwbd.module].title).toBe('另一种控制面与子轮')
     expect(COURSE_ORDER.indexOf('uwb-uwbd')).toBe(COURSE_ORDER.indexOf('uwb-nba-coexist') + 1)
     expect(COURSE_ORDER.indexOf('uwb-uwbd')).toBeLessThan(COURSE_ORDER.indexOf('uwb-capstone'))
     expect(uwbUwbd.needs).toEqual(['uwb-mms', 'uwb-nba'])

@@ -32,7 +32,7 @@ const CLEAR = 2
 
 describe('uwb-acquisition · where it sits, and what its scenes are', () => {
   it('follows uwb-uwbd and needs it', () => {
-    expect(MODULES[uwbAcquisition.module].title).toBe('窄带控制面')
+    expect(MODULES[uwbAcquisition.module].title).toBe('另一种控制面与子轮')
     expect(COURSE_ORDER.indexOf('uwb-acquisition')).toBe(COURSE_ORDER.indexOf('uwb-uwbd') + 1)
     expect(uwbAcquisition.needs).toEqual(['uwb-uwbd', 'uwb-mms-numbers'])
   })

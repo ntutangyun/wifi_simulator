@@ -114,7 +114,7 @@ export function uwbCapstoneScenario(variant: UwbCapstoneVariant = 'base'): Scena
 
 export const uwbCapstone: Lesson = {
   id: 'uwb-capstone',
-  module: 22,
+  module: 23,
   title: '在这套房子里把手机定位出来',
   why: '在此之前的每一课，都是先给你一个场景，再让你去读懂它。这一课给你的是一套房子和三个决定，而场景取决于你怎么决定。要求是：在一套走廊里放着路由器、房间之间隔着砖墙的住宅里，把一部手机定位到半米以内。第三个锚点（anchor）摆在哪儿、会话多久量一次、锚点是一个一个作答还是一起作答，都由你来定——然后，你要用日志来为自己的选择辩护。',
   outcomes: [

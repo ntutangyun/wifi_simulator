@@ -129,6 +129,12 @@ export const MODULES: CourseModule[] = [
   { tier: 5, title: '角度' },
   { tier: 6, title: '多毫秒片段' },
   { tier: 6, title: '窄带控制面' },
+  // The three lessons on the draft's other control planes do not belong under
+  // 「窄带控制面」: one of them is about doing without the narrowband radio
+  // altogether. The mode itself was renamed away from 「窄带辅助」 for the same
+  // reason — leaving the module name behind would be the same untruth one level
+  // down. See docs/superpowers/specs/2026-09-26-mms-draft-features-design.md.
+  { tier: 6, title: '另一种控制面与子轮' },
   { tier: 6, title: '测距综合实践' },
 ]
 

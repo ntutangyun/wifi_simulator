@@ -109,7 +109,7 @@ export function uwbUwbdHeadFields(): FieldsSpec {
 
 export const uwbUwbd: Lesson = {
   id: 'uwb-uwbd',
-  module: 21,
+  module: 22,
   title: '不靠那部窄带电台',
   why: '这一层课里说话的一直是旁边那部窄带（narrowband, NB）电台：它开场、它接受、它报告。草案还给了另一套配置，把这三件事搬回超宽带（ultra-wideband, UWB）自己这条信道上，设备于是可以少带一部电台。这一课要算清这笔账：省掉那部电台以后，谁来告诉接收机这一列片段（fragment）长什么样——以及为什么这个问题会把一段本来够得着的链路（link）砍掉一大半。',
   outcomes: [

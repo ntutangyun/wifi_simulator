@@ -40,7 +40,7 @@ const planOf = (variant: Parameters<typeof uwbSubroundsScenario>[0]) =>
 
 describe('uwb-subrounds · where it sits, and what its scenes are', () => {
   it('closes the UWB-driven trio and needs the first of it', () => {
-    expect(MODULES[uwbSubrounds.module].title).toBe('窄带控制面')
+    expect(MODULES[uwbSubrounds.module].title).toBe('另一种控制面与子轮')
     expect(COURSE_ORDER.indexOf('uwb-subrounds')).toBe(COURSE_ORDER.indexOf('uwb-acquisition') + 1)
     expect(COURSE_ORDER.indexOf('uwb-subrounds')).toBeLessThan(COURSE_ORDER.indexOf('uwb-capstone'))
     expect(uwbSubrounds.needs).toEqual(['uwb-uwbd', 'uwb-slot-budget'])

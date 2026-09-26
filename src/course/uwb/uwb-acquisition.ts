@@ -108,7 +108,7 @@ export function uwbAcquisitionTiming(): TimingSpec {
 
 export const uwbAcquisition: Lesson = {
   id: 'uwb-acquisition',
-  module: 21,
+  module: 22,
   title: '首片段丢了，整轮就废',
   why: '上一课留下了一个单点：超宽带（ultra-wideband, UWB）驱动那套配置里，接收机的时基只能从包里来，而包里只有一处可以用来开场——包首那一个片段（fragment）。它要是恰好撞上一次干扰，后面七个片段再响也没有用，这一轮什么也量不出来。草案为此加了一个属性，把每个测距序列片段（ranging sequence fragment, RSF）后面都补上一个帧起始定界符（start-of-frame delimiter, SFD），于是任何一个片段都能开场。这一课要把这条因果在仿真里跑出来。',
   outcomes: [
