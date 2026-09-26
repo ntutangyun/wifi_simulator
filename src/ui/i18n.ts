@@ -25,6 +25,12 @@ export interface Strings {
   /** The floating text above a device in the 3D view. */
   sceneLabel: { slot: (n: number) => string; waitAck: string; waitCts: string }
   panel: { inspector: string; log: string; guide: string; resizeHint: string }
+  /** The 3-D view's on-screen camera buttons. A finger can orbit and pinch the
+   *  view directly; these are for precise moves and for getting back. */
+  view: {
+    panUp: string; panDown: string; panLeft: string; panRight: string
+    zoomIn: string; zoomOut: string; home: string
+  }
   /** Controls that exist only when the viewport is too small for the desktop shell. */
   compact: {
     openSide: string
@@ -85,7 +91,7 @@ export interface Strings {
     minusSlot: string; plusSlot: string; minusUs: string; plusUs: string
     speeds: { us: number; label: string }[]
   }
-  strip: { windowHint: string; legendCollision: string }
+  strip: { windowHint: string; legendCollision: string; zoomIn: string; zoomOut: string }
   legend: LegendItem[]
   editor: {
     tools: { select: string; room: string; door: string; window: string; ap: string; sta: string; tag: string; anchor: string; uwbTag: string; fit: string; undo: string; redo: string }
@@ -462,6 +468,11 @@ export const STRINGS: Strings = {
   simError: (detail) => `仿真出错：${detail}`,
   sceneLabel: { slot: (n) => `时隙 ${n}`, waitAck: '等 ACK', waitCts: '等 CTS' },
   panel: { inspector: '🔍 检视器', log: '📜 事件日志', guide: '📖 学习指南', resizeHint: '拖动调整宽度 · 双击恢复默认' },
+  view: {
+    panUp: '向前移动视角', panDown: '向后移动视角',
+    panLeft: '向左移动视角', panRight: '向右移动视角',
+    zoomIn: '拉近', zoomOut: '拉远', home: '回到初始视角',
+  },
   compact: {
     openSide: '🔍 检视器 / 日志',
     closeSide: '关闭',
@@ -525,7 +536,14 @@ export const STRINGS: Strings = {
       { us: 1_000_000, label: '实时' },
     ],
   },
-  strip: { windowHint: '滚轮移动时间 · Ctrl+滚轮缩放 · 点击帧查看详情', legendCollision: '碰撞' },
+  strip: {
+    // The hint names both ways in, because the same strip is read with a mouse
+    // on a desktop and with a finger on a phone.
+    windowHint: '滚轮或拖动移时间 · Ctrl+滚轮或双指捏合缩放 · 点击帧看详情',
+    legendCollision: '碰撞',
+    zoomIn: '放大（看更短的时间）',
+    zoomOut: '缩小（看更长的时间）',
+  },
   legend: [
     { color: '#3b82f6', label: '下行数据', hint: 'AP 发出的数据 PPDU（下行）。长度即真实占用空口时间。' },
     { color: '#22c55e', label: '上行数据', hint: '终端（STA）发出的数据 PPDU（上行）。' },

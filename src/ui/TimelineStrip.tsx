@@ -12,8 +12,17 @@ const GUTTER = 118
 const LABEL_PAD = 6
 const AXIS_H = 18
 const LEGEND_H = 22
-const MIN_SPAN = 100_000 // 100 µs visible
-const MAX_SPAN = 1_000_000_000 // 1 s visible
+
+/** The strip's corner buttons: small, but still a target a finger can hit. */
+const stripBtn: React.CSSProperties = {
+  fontSize: 12, padding: '2px 9px', minHeight: 24, lineHeight: 1.2,
+  background: 'rgba(20,22,28,0.85)',
+}
+// The window's bounds and every gesture's arithmetic live in `timelineGestures`,
+// so they can be tested without a pointer. See that file.
+import {
+  MAX_SPAN, MIN_SPAN, ZOOM_STEP, distance, dragNs, isTap, pinchSpan, zoomedSpan,
+} from './timelineGestures'
 const MARGIN = 50_000_000 // fetch 50 ms of records before the window
 /** Narrowest block that still gets a '5G'/'6G' tag drawn inside it. */
 const BAND_TAG_MIN_W = 30
@@ -99,6 +108,24 @@ export interface TimelineStripProps {
 
 export function TimelineStrip({ height = 190, open = true, onToggle }: TimelineStripProps = {}) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  /**
+   * Touch gestures. A finger has no wheel and no Ctrl key, so the strip's two
+   * wheel actions arrive as a drag (move time) and a pinch (zoom), and a tap
+   * still selects a frame. Held in a ref rather than state: these change on
+   * every pointer event and none of them should re-render anything on their own.
+   */
+  const touch = useRef<{
+    /** Live touch pointers by id, at their latest position. */
+    points: Map<number, { x: number; y: number }>
+    /** Where the first finger went down, to tell a tap from a drag. */
+    startX: number
+    startY: number
+    /** The pinch's opening distance and the window it started from. */
+    pinchDist: number
+    pinchSpan: number
+    /** True once a finger has travelled far enough that this is not a tap. */
+    moved: boolean
+  }>({ points: new Map(), startX: 0, startY: 0, pinchDist: 0, pinchSpan: 0, moved: false })
   const wheelRef = useRef<HTMLDivElement>(null)
   const [spanNs, setSpanNs] = useState(5_000_000) // 5 ms window
   const [tip, setTip] = useState<Tip | null>(null)
@@ -145,8 +172,8 @@ export function TimelineStrip({ height = 190, open = true, onToggle }: TimelineS
     const onWheel = (e: WheelEvent) => {
       e.preventDefault()
       if (e.ctrlKey || e.metaKey) {
-        const f = e.deltaY > 0 ? 1.4 : 1 / 1.4
-        setSpanNs((s) => Math.round(Math.max(MIN_SPAN, Math.min(MAX_SPAN, s * f))))
+        const f = e.deltaY > 0 ? ZOOM_STEP : 1 / ZOOM_STEP
+        setSpanNs((s) => zoomedSpan(s, f))
       } else {
         let d = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY
         if (e.deltaMode === 1) d *= 33 // line-scroll browsers report ~3 lines per notch
@@ -348,34 +375,112 @@ export function TimelineStrip({ height = 190, open = true, onToggle }: TimelineS
     }
   }
 
+  /** Select the frame under a pointer, or clear the selection. A click and a tap
+   *  both end here, which is what keeps them the same action. */
+  const selectAt = (e: React.PointerEvent): void => {
+    const s = hitSpan(e)?.span ?? null
+    const sel = useUi.getState().selectFrame
+    if (s?.frame && (s.kind === 'tx' || s.kind === 'rx')) {
+      sel({ frame: s.frame, nodeId: s.nodeId, side: s.kind, startNs: s.fullStartNs, endNs: s.fullEndNs })
+    } else {
+      sel(null)
+    }
+  }
+
   return (
     <div style={{ height, borderTop: '1px solid var(--border)', position: 'relative' }}>
       {/* The fold handle. It sits above the canvas rather than beside the legend so
           it is reachable whether the strip is open or shut. */}
-      {onToggle && (
+      {/* Zoom and fold, one cluster in the corner. A pinch is the gesture, but a
+          pair of buttons works every time and with one hand — and it is what was
+          asked for. They live on the right because the left of the strip is the
+          lane labels, which they sat on top of. */}
+      <div style={{ position: 'absolute', top: 2, right: 8, zIndex: 3, display: 'flex', gap: 4 }}>
         <button
-          onClick={onToggle}
-          title={open ? L.compact.collapseTimeline : L.compact.expandTimeline}
-          style={{
-            position: 'absolute', top: 2, right: 8, zIndex: 3, fontSize: 11,
-            padding: '2px 10px', minHeight: 22, lineHeight: 1.2,
-          }}
-        >
-          {open ? '▾' : '▴'}
-        </button>
-      )}
+          onClick={() => setSpanNs((v) => zoomedSpan(v, ZOOM_STEP))}
+          disabled={spanNs >= MAX_SPAN}
+          title={L.strip.zoomOut}
+          style={stripBtn}
+        >－</button>
+        <button
+          onClick={() => setSpanNs((v) => zoomedSpan(v, 1 / ZOOM_STEP))}
+          disabled={spanNs <= MIN_SPAN}
+          title={L.strip.zoomIn}
+          style={stripBtn}
+        >＋</button>
+        {onToggle && (
+          <button
+            onClick={onToggle}
+            title={open ? L.compact.collapseTimeline : L.compact.expandTimeline}
+            style={stripBtn}
+          >
+            {open ? '▾' : '▴'}
+          </button>
+        )}
+      </div>
       {open && (<>
-      <div ref={wheelRef} style={{ position: 'relative', height: `calc(100% - ${LEGEND_H}px)`, cursor: 'crosshair' }}
+      <div ref={wheelRef} style={{
+        position: 'relative', height: `calc(100% - ${LEGEND_H}px)`, cursor: 'crosshair',
+        // Without this the browser takes the drag and the pinch for its own
+        // scrolling and page zoom, and neither gesture ever reaches this element.
+        touchAction: 'none',
+      }}
         onPointerDown={(e) => {
-          const s = hitSpan(e)?.span ?? null
-          const sel = useUi.getState().selectFrame
-          if (s?.frame && (s.kind === 'tx' || s.kind === 'rx')) {
-            sel({ frame: s.frame, nodeId: s.nodeId, side: s.kind, startNs: s.fullStartNs, endNs: s.fullEndNs })
-          } else {
-            sel(null)
+          if (e.pointerType !== 'touch') {
+            // Mouse: unchanged — press selects the frame under the cursor.
+            selectAt(e)
+            return
+          }
+          const t = touch.current
+          // Capture keeps the gesture alive when a finger slides off the strip.
+          // It throws for a pointer the element does not own, which is not worth
+          // losing the gesture over.
+          try { e.currentTarget.setPointerCapture(e.pointerId) } catch { /* not capturable */ }
+          t.points.set(e.pointerId, { x: e.clientX, y: e.clientY })
+          if (t.points.size === 1) {
+            t.startX = e.clientX
+            t.startY = e.clientY
+            t.moved = false
+          } else if (t.points.size === 2) {
+            const [a, b] = [...t.points.values()]
+            t.pinchDist = distance(a.x, a.y, b.x, b.y)
+            t.pinchSpan = spanNs
+            // A second finger means this was never a tap.
+            t.moved = true
           }
         }}
-        onPointerMove={(e) => setTip(tipFor(e))}
+        onPointerMove={(e) => {
+          if (e.pointerType !== 'touch') {
+            setTip(tipFor(e))
+            return
+          }
+          const t = touch.current
+          const prev = t.points.get(e.pointerId)
+          if (!prev) return
+          t.points.set(e.pointerId, { x: e.clientX, y: e.clientY })
+          if (t.points.size >= 2) {
+            const [a, b] = [...t.points.values()]
+            setSpanNs(pinchSpan(t.pinchSpan, t.pinchDist, distance(a.x, a.y, b.x, b.y)))
+            return
+          }
+          if (!isTap(e.clientX - t.startX, e.clientY - t.startY)) t.moved = true
+          if (!t.moved) return
+          // One finger, and it is a drag: move time under it.
+          const w = wheelRef.current?.clientWidth ?? 0
+          player.pause()
+          player.seek(player.playheadNs + dragNs(e.clientX - prev.x, w, spanNs))
+        }}
+        onPointerUp={(e) => {
+          if (e.pointerType !== 'touch') return
+          const t = touch.current
+          t.points.delete(e.pointerId)
+          // A tap selects, the same thing a click does. A drag or a pinch does not.
+          if (t.points.size === 0 && !t.moved) selectAt(e)
+          if (t.points.size < 2) t.pinchDist = 0
+        }}
+        onPointerCancel={(e) => {
+          touch.current.points.delete(e.pointerId)
+        }}
         onPointerLeave={() => setTip(null)}
       >
         {/* Absolute so the canvas's own inline width can't prop its column open —
@@ -400,7 +505,7 @@ export function TimelineStrip({ height = 190, open = true, onToggle }: TimelineS
           // The fold handle owns the corner, so the hint stops short of it. It also
           // truncates rather than wrapping: at 939 px it used to run under both the
           // handle and the time reading.
-          right: onToggle ? 52 : 8, left: '45%', textAlign: 'right',
+          right: onToggle ? 132 : 92, left: '45%', textAlign: 'right',
           whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
         }} title={L.strip.windowHint}>
           {fmtNs(spanNs)} s · {L.strip.windowHint}
