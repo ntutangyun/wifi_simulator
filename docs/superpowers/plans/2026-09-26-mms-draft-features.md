@@ -318,7 +318,7 @@ Task 2 把片段排成相隔**一个时隙**,即 0.5 ms。
 把时隙 0 写死成 POLL。Task 2 之后 `controlSlots` 在非交织下是一个**总数而不是前缀**,
 所以这两条都不再成立。而 `UwbMmsSchema` 已经接受 `nonInterleaved: true`,
 也就是说现在就能造出一个「schema 放行、排程却算错」的场景。这个口子必须在
-Task 7 把控件暴露给用户之前堵上。
+Task 9 把控件暴露给用户之前堵上。
 
 **Files:**
 - Modify: `src/uwb/mms.ts`(`mmsLayout` 的非交织分支改用 `slotsPerMs`;
@@ -663,7 +663,151 @@ fixedReplyRstu × RSTU」,而不是子轮边界。(b) 应答方的窄带 REPORT 
 
 ---
 
-### Task 7: 编辑器控件与说明
+### Task 7: 非交织下的 priming
+
+Task 6 交付后发现的缺陷,而且是个硬缺陷:**非交织只要带控制阶段就完全测不出距离**。
+实测 Config 2 零次、Config 1 带 SP0 零次,只有 Config 1 零长控制阶段那一种能跑。
+Task 2 与 Task 3 的测试查的是布局算术,查不到这个;要跑一整轮才看得见。
+
+**根因**,两半都在 `src/uwb/device.mms.ts`:
+
+- `opensRound()` 不让发起方在被 RESP 预热之前发送。可非交织把那条 RESP 排在了
+  发起方整个测距阶段**之后**,所以它永远等不到。
+- 应答方是在**自己发出** RESP 时才被标记 primed。可非交织里它必须先听完发起方的包
+  才谈得上回应,于是它根本没在听。
+
+**草案对此有直接的一句**(15-25/0292r1,15-25/0331r1 重述):非交织子轮里,
+发起方**不等**应答方的 compact 帧就发 MMS 包——这一点与交织模式正相反;
+应答方**收到发起方的 MMS 包之后**才发响应。
+
+**因此非交织的 priming 规则**(交织一个字不改):
+
+| 角色 | 何时 primed |
+| --- | --- |
+| 发起方 | 自己的控制窗口过去即可,不等任何人;控制阶段为零长时,进入测距阶段即可 |
+| 应答方 | 听到发起方的 POLL;控制阶段为零长时,捕获到发起方的包(即 `acquired()`) |
+
+零长那一行与 Task 4、Task 5 已经建的东西正好接上:那种配置下,包本身既是 poll
+也是预热来源。
+
+**Files:**
+- Modify: `src/uwb/device.mms.ts`(`opensRound`、`controlPrimes`、priming 的设置点)
+- Test: `tests/uwb/mms-nonint-ranging.test.ts`(新建)
+
+**Interfaces:**
+- Consumes: Task 5 的 `sp0Control`、Task 4 的 `acquired`、Task 2/3 的 `subRoundStart`。
+
+- [ ] **Step 1: 先写失败的测试**
+
+端到端,不是布局算术——这正是既有测试漏掉它的原因:
+
+```ts
+it('non-interleaved ranges in every configuration, not just the zero-length one', () => {
+  for (const cfg of [
+    { control: 'nba' },
+    { control: 'uwbd', uwbdControl: 'sp0' },
+    { control: 'uwbd', uwbdControl: 'none' },
+  ]) {
+    // 跑一个确定性场景，断言 UWB_RANGE 记录数 > 0
+  }
+})
+
+it('the non-interleaved initiator does not wait for a response compact frame', () => {
+  // 发起方的第一个片段早于应答方的 RESP
+})
+
+it('the non-interleaved responder listens before it answers', () => {
+  // 应答方在发出 RESP 之前就已经收下了发起方的片段
+})
+
+it('interleaved priming is unchanged', () => {
+  // 逐条覆盖交织的两种角色，断言与改动前一致
+})
+```
+
+数值先跑一次读出来再写死,不要在测试里重算实现的算术。
+
+- [ ] **Step 2: 跑测试,确认它们失败**(前三条应失败,第四条应通过)
+- [ ] **Step 3: 实现**
+- [ ] **Step 4: 跑测试,确认全过**
+- [ ] **Step 5: 全量测试 + fixture 零 diff**
+- [ ] **Step 6: 提交**
+
+顺带处理一条 Task 6 留下的判断题:它加的
+`fixedReplyRstu` + `reversedOrder` 互斥规则,是本仿真器的自洽规则,不是草案的禁令
+(草案把两个位放在同一个八位组里,并没有禁止同时置位)。规则**保留**——反序时
+应答方是开场的那一方,"收到之后固定时间再回复"对它无意义,这不是罕见组合而是
+自相矛盾——但消息要改成明说这是本仿真器的自洽规则,不要写得像草案的禁令。
+
+---
+
+### Task 8: 反序真的能用
+
+五样功能里的最后一样。schema 放行它,布局排列它,但一整轮跑下来它是坏的——
+Task 7 验证过,两处都是既有缺陷,与 Task 7 的改动无关:
+
+1. **反序 + 任何控制阶段 ⇒ 测距零次。** 开场的那个应答方把 RESP 放在时隙 0,
+   而 `txControlResp` 要求先有 POLL。
+2. **反序 + 零长控制阶段 ⇒ 报出约 65.9 公里。** 单边双向测距的算术假定发起方先发,
+   于是 `counterDiff` 回绕了。
+
+第二条比第一条严重得多:**一个错误的数字走到了记录和界面上**。在这个仓库里,
+测不出来只是功能缺失,测出一个假数字是另一回事——整个课程的纪律就是
+"说出来的数要和仿真出来的数对得上"。
+
+**草案说了什么**(15-25/0556r2):反序为 TRUE 时,测距阶段里应答方先发 MMS 包,
+发起方自进入测距阶段起偏移 **600 RSTU**(`MMS_REVERSED_OFFSET_RSTU`,Task 1 已定义
+但至今没有 `src/` 消费者——就是这里)再发自己的。
+
+**Files:**
+- Modify: `src/uwb/device.mms.ts`(控制帧的次序、SS-TWR 算术的方向)
+- Modify: `src/uwb/device.report.ts`(谁测到哪个时间,随次序改变)
+- Test: `tests/uwb/mms-reversed.test.ts`(新建)
+
+**Interfaces:**
+- Consumes: Task 1 的 `reversedOrder`、`MMS_REVERSED_OFFSET_RSTU`;Task 7 的 priming 规则。
+
+- [ ] **Step 1: 先写失败的测试**
+
+端到端,并且**先钉住那个错数**——它是这个任务存在的理由:
+
+```ts
+it('reversed order ranges, and does not report a distance from orbit', () => {
+  for (const cfg of [
+    { control: 'nba' },
+    { control: 'uwbd', uwbdControl: 'sp0' },
+    { control: 'uwbd', uwbdControl: 'none' },
+  ]) {
+    const ranges = run(cfg)               // reversedOrder: true, nonInterleaved: true
+    expect(ranges.length).toBeGreaterThan(0)
+    for (const r of ranges) expect(Math.abs(r.metres - TRUE_M)).toBeLessThan(0.5)
+  }
+})
+
+it('the reversed initiator follows 600 RSTU into the ranging phase', () => {
+  // MMS_REVERSED_OFFSET_RSTU 第一次有 src/ 消费者
+})
+
+it('forward order is unchanged in all three control planes', () => { /* 守卫 */ })
+```
+
+`TRUE_M` 与容差先跑一次确定性场景读出来再写死。**不要**在测试里重算实现的算术。
+
+- [ ] **Step 2: 跑测试,确认它们失败**——第一条应当以 65.9 km 那种量级失败,
+  而不是以"没有记录"失败;若它以"没有记录"失败,说明场景没走到出数那一步,
+  先把场景修对再往下做。
+- [ ] **Step 3: 实现**
+
+SS-TWR 的两个时间——往返与回复——归属于谁,取决于谁先发。把这件事写成一处显式的
+判断而不是散在算术里,并在注释里说明为什么反序会让它反过来。
+
+- [ ] **Step 4: 跑测试,确认全过**
+- [ ] **Step 5: 全量测试 + fixture 零 diff**
+- [ ] **Step 6: 提交**
+
+---
+
+### Task 9: 编辑器控件与说明
 
 **Files:**
 - Modify: `src/uwb/ui/UwbSessionFields.tsx`
@@ -694,7 +838,7 @@ fixedReplyRstu × RSTU」,而不是子轮边界。(b) 应答方的窄带 REPORT 
 
 ---
 
-### Task 8: 指南、词汇表与文稿注册
+### Task 10: 指南、词汇表与文稿注册
 
 **Files:**
 - Modify: `src/ui/Guide.tsx`(第 12 节)
@@ -704,7 +848,7 @@ fixedReplyRstu × RSTU」,而不是子轮边界。(b) 应答方的窄带 REPORT 
 - Test: `tests/course/basis.test.ts` 与 `tests/ui/uwb-guide.test.ts` 自然覆盖
 
 **Interfaces:**
-- Consumes: 前八个 Task 的一切。
+- Consumes: 前十个 Task 的一切。
 
 - [ ] **Step 1: 注册新文稿**
 
@@ -718,7 +862,7 @@ fixedReplyRstu × RSTU」,而不是子轮边界。(b) 应答方的窄带 REPORT 
 `npx vitest run tests/course/basis.test.ts`
 
 预期:`registers no contribution the course has stopped using` 失败——还没有课引用
-它们。**这条红是对的**,它会在 Task 9 写完课之后转绿。本 Task 不要为了让它变绿
+它们。**这条红是对的**,它会在 Task 11 写完课之后转绿。本 Task 不要为了让它变绿
 而删规则、加例外或提前塞引用。把这条红写进本 Task 的报告。
 
 - [ ] **Step 3: 写指南与词汇表**
@@ -738,7 +882,7 @@ fixedReplyRstu × RSTU」,而不是子轮边界。(b) 应答方的窄带 REPORT 
 
 ---
 
-### Task 9: 三门课
+### Task 11: 三门课
 
 **Files:**
 - Create: `src/course/uwb/uwb-uwbd.ts`、`src/course/uwb/uwb-acquisition.ts`、
@@ -749,7 +893,7 @@ fixedReplyRstu × RSTU」,而不是子轮边界。(b) 应答方的窄带 REPORT 
 - Create: `tests/course/uwb-uwbd.test.ts` 等三个
 
 **Interfaces:**
-- Consumes: 前八个 Task 的一切。
+- Consumes: 前十个 Task 的一切。
 
 - [ ] **Step 1: 按规格 §7 写三课**
 
@@ -783,6 +927,6 @@ git diff tests/fixtures/
 
 - [ ] **Step 4: 全量测试**
 
-`npx vitest run` — 全过,包括 Task 8 Step 2 那条现在应该转绿的规则。
+`npx vitest run` — 全过,包括 Task 10 Step 2 那条现在应该转绿的规则。
 
 - [ ] **Step 5: 提交**
