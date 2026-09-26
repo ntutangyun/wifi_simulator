@@ -6,6 +6,10 @@ import {
   MMS_DRAFT_DEFAULTS, MMS_FIXED_REPLY_RSTU_MAX, MMS_FIXED_REPLY_RSTU_MIN, MMS_RSF_SFD_N_MSR,
   mmsSlotsPerMs, type MmsPhy,
 } from '../uwb/mms'
+// `src/engine/fading.ts` takes only `./hash` (no imports of its own) and this folder's `types`,
+// so the schema can hold the fading defaults the sampling functions were written against
+// without a cycle — one figure for each knob, in one place.
+import { FADING_DEFAULTS, type FadingCfg } from '../engine/fading'
 import { NB_CHANNELS } from '../uwb/nb'
 import { mmsResponders, rstuNs, UWB_MAX_ANCHORS, uwbNbSlotFitNs, uwbSlotFitNs, uwbSlotsPerTag } from '../uwb/phy'
 import type { LinkId } from './caps'
@@ -425,6 +429,15 @@ export interface Scenario {
   /** Centre frequency of the plan's 6 GHz Wi-Fi channel, in MHz (802.11ax channelization:
    * 5955 + 5·(channel − 1)). Absent = DEFAULT_SIX_GHZ_CENTER_MHZ (channel 7, 80 MHz). */
   sixGhzCenterMhz?: number
+  /**
+   * Time-varying link fading. **Absent means off**, and absent is what every scenario
+   * written before this section says: the link level is then the static table's number and
+   * nothing else, bit for bit as before. Unlike the other optional sections this one has no
+   * "absent = these defaults" reading, because the engine switches on the section's presence
+   * rather than on a value inside it — see `FADING_DEFAULTS`, which take effect only once a
+   * plan has written the section, even as `{}`.
+   */
+  fading?: FadingCfg
 }
 
 const OpeningSchema = z.object({ from: z.number().min(0), to: z.number().min(0) })
@@ -679,6 +692,49 @@ const ServerSchema = z.object({
   processMs: z.number().min(0).default(0),
 })
 
+/**
+ * The fading section, and the one place in this file where **where a default sits** is the
+ * whole point.
+ *
+ * The defaults are on the fields, never on the section. `fading` itself is `.optional()` with
+ * no `.default()`, so a scenario that says nothing about fading parses to an object with no
+ * `fading` property at all — not to one carrying `FADING_DEFAULTS`. The engine reads that
+ * absence as "do not enter the fading branch", which is the only reason every scenario written
+ * before this section still produces the very same link levels, down to the floating-point
+ * number, and the two hash fixtures do not move. Put a `.default()` here and every existing
+ * plan would quietly start fading.
+ *
+ * Inside the section the defaults are on the fields instead, so a plan opts in by writing
+ * `fading: {}` and gets the four figures `FADING_DEFAULTS` documents — the editor never has to
+ * make a learner name a sigma before anything happens.
+ *
+ * `ricianKdB` is the exception: it is optional *in the input* and filled by the `transform`
+ * below rather than by a `.default()` on the field, because the cross-field rule has to be able
+ * to tell "the plan wrote a K factor" from "the schema supplied one". A field default would
+ * make those two indistinguishable and the rule would refuse `fading: {}`. The parsed output
+ * still has all four fields, which is what `FadingCfg` promises its callers.
+ */
+const FadingSchema = z.object({
+  shadowSigmaDb: z.number().min(0, '阴影衰落的标准差不能为负：它是一个以 dB 为单位的标准差，0 表示不加阴影')
+    .default(FADING_DEFAULTS.shadowSigmaDb),
+  coherenceMs: z.number().positive('阴影的相干时间必须为正：这是阴影值保持不变的那段时间，取 0 等于每一纳秒都重抽一次阴影，那已经不是阴影衰落了')
+    .default(FADING_DEFAULTS.coherenceMs),
+  smallScale: z.enum(['none', 'rayleigh', 'rician']).default(FADING_DEFAULTS.smallScale),
+  ricianKdB: z.number().optional(),
+}).superRefine((f, ctx) => {
+  // 这是本仿真器的自洽规则，不是任何标准的禁令；与本文件其他几条同形：
+  // 一个不起作用的设置不该静静留在保存下来的计划里。物理上的理由是 K 因子的定义本身——
+  // K 是直射径功率与散射功率之比，瑞利分布按定义没有直射径，none 则连小尺度衰落都不抽，
+  // 两种情况下 smallScaleDb 都不会去读这个数。
+  if (f.ricianKdB !== undefined && f.smallScale !== 'rician') {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['ricianKdB'],
+      message: `莱斯 K 因子只属于 smallScale 为 rician 的场景：K 是直射径功率与散射功率之比，瑞利分布按定义没有直射径，none 连小尺度衰落都不抽，这里写下的数引擎一个字都不会读（smallScale 缺省是 ${FADING_DEFAULTS.smallScale}，所以不写分布也算不上 rician）。这是本仿真器的自洽规则，不是标准的禁令`,
+    })
+  }
+}).transform((f): FadingCfg => ({ ...f, ricianKdB: f.ricianKdB ?? FADING_DEFAULTS.ricianKdB }))
+
 export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
   .object({
     rooms: z.array(RoomSchema),
@@ -714,6 +770,8 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
       stsOff: z.boolean().optional(),
     }).optional(),
     sixGhzCenterMhz: z.number().int().min(5955).max(7115).refine((v) => v % 5 === 0, '6 GHz 中心频率要落在 5 MHz 的信道步长上').optional(),
+    // Optional with no default, deliberately: see FadingSchema. Absent is off.
+    fading: FadingSchema.optional(),
   })
   .superRefine((sc, ctx) => {
     // Wi-Fi needs its one AP; a scenario that is nothing but UWB nodes has no
