@@ -609,12 +609,32 @@ export const UwbMmsSchema = z.object({
       message: '草案只在 RSF 片段长度为 32 或 64 时允许 RSF 带 SFD（15-25/0066r1）',
     })
   }
-  // 固定回复时间是从“收到第一个片段”起算的，交织模式里两端的片段互相穿插，没有这样一个起点。
+  // 固定回复时间是从“收完对方整个 MMS 包”起算的（较晚的修订如此），
+  // 而该时刻需要的到达时间估计只在非交织模式的包末才拿得到；
+  // 交织模式里两端的片段互相穿插，根本没有这样一个“收完了”的起点。
   if (mms.fixedReplyRstu !== null && !mms.nonInterleaved) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ['fixedReplyRstu'],
-      message: '固定回复时间只属于非交织模式：交织的两列片段没有“收完第一个片段再回复”这个起点（15-25/0224r2）',
+      message: '固定回复时间只属于非交织模式：它从收完对方整个 MMS 包起算，而这个到达时间估计只在非交织的包末才拿得到（15-25/0224r2、15-25/0556r2）',
+    })
+  }
+  // 固定回复时间是一对一的：草案把回复时间放在 One-to-one Response Compact 帧里，
+  // 而一个共用的常量会让所有应答方在同一个时刻一起开发。
+  if (mms.fixedReplyRstu !== null && mms.oneToMany) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['fixedReplyRstu'],
+      message: '固定回复时间是一对一的：草案把它放在 One-to-one Response Compact 帧里，而一对多时一个共用常量会让每个应答方在同一时刻一起发（15-25/0224r2）',
+    })
+  }
+  // 反序时应答方先发，那它就没有“收完对方的包再回复”这个起点；
+  // 反序自己的偏移是从进入测距阶段算的，与这一项是两回事。
+  if (mms.fixedReplyRstu !== null && mms.reversedOrder) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['fixedReplyRstu'],
+      message: '固定回复时间与反序不能同时开：反序下应答方先发 MMS 包，根本没有“收完发起方的包”这个起点可以偏移，反序自己的 600 RSTU 偏移是从进入测距阶段算的（15-25/0224r2、15-25/0556r2）',
     })
   }
   if (mms.fixedReplyRstu !== null

@@ -31,15 +31,16 @@ import {
   UWB_BROADCAST, type UwbFrameKind, type UwbInfo, type UwbSp0Msg,
 } from './frames'
 import {
-  acquired, combineGainDb, MS_NS, MS_RCTU, rmarkerFromFragment, trainDetected,
+  acquired, combineGainDb, mmsPacketFragments, mmsPacketSpanNs, MS_NS, MS_RCTU,
+  rmarkerFromFragment, trainDetected,
 } from './mms'
 
 import { NB_LBT_THRESHOLD_DBM, nbLbtRequired } from './nb'
-import { tsSigmaNs, UWB_RX_SENS_DBM, uwbSinrDb } from './phy'
+import { RCTU_NS, rstuNs, tsSigmaNs, UWB_PPM_MAX, UWB_RX_SENS_DBM, uwbSinrDb } from './phy'
 import { rangeSigmaM, solvePosition } from './position'
 import { fomFor, ssTwrCorrected, ssTwrRaw } from './ranging'
 import { NOTHING_HEARD_DBM } from './records'
-import type { MmsRoundPlan, SlotAction } from './session'
+import { slotStartNs, type MmsRoundPlan, type SlotAction } from './session'
 import type { RoundState, UwbDevice } from './device'
 import { reportRange } from './device.report'
 
@@ -128,6 +129,20 @@ export interface MmsRoundState {
    * at (the RSFs, or the RIFs when the train carries no RSF). One train per round, whether it
    * goes to one responder or to all of them — which is the point of the one-to-many round. */
   txRmarker: number | null
+  /**
+   * How long this device's own packet was, **on its own ranging counter**: from the RMARKER it
+   * stamped to the end of its last fragment. Null until that last fragment goes out, and null for
+   * the whole of a round that named no fixed reply time — nothing else reads it.
+   *
+   * It is measured rather than looked up, and that is the point. The nominal span is a number both
+   * ends know, but the span this transmitter actually produced is a span of *its* crystal, and the
+   * fixed reply time's whole arithmetic is the initiator subtracting a reply time from a round trip
+   * it measured on that same crystal (`rangeFromKnownReply`). Taking the nominal figure instead
+   * would leave the crystal's offset over seven milliseconds of packet in the answer — some tens
+   * of nanoseconds at ±20 ppm, which at the draft's own 30 cm per nanosecond is tens of metres.
+   * 4ab draft 15-25/0556r2
+   */
+  txSpanRctu: number | null
   /** One entry per peer this device is ranging with, keyed by id. */
   peers: Map<string, MmsPeerState>
   /** The round's responders in slot order, as the schedule handed them over. Empty until the
@@ -136,7 +151,7 @@ export interface MmsRoundState {
 }
 
 export function freshMms(_plan: MmsRoundPlan, nbChannel: number | null): MmsRoundState {
-  return { nbChannel, polled: false, txRmarker: null, peers: new Map(), responders: [] }
+  return { nbChannel, polled: false, txRmarker: null, txSpanRctu: null, peers: new Map(), responders: [] }
 }
 
 /** This device's state for one peer, created on first use so that a round which never reaches a
@@ -203,6 +218,155 @@ function opensRound(dev: UwbDevice, mp: MmsRoundPlan): boolean {
  * narrowband radio. 4ab draft 15-25/0194r0 */
 function sp0Control(mp: MmsRoundPlan): boolean {
   return mp.phy.control === 'uwbd'
+}
+
+/**
+ * macMmsFixedReplyTime as a duration, or null when the session left the option off — **the one
+ * conversion**, so the instant the responder replies at and the reply time the initiator assumes
+ * cannot come out different.
+ *
+ * The option is the draft's "MMS without report". Single-sided two-way ranging needs two times:
+ * the round trip the initiator measures, and the reply time the responder measures and sends back
+ * in a compact frame. Agree the reply time beforehand and the initiator holds both already — so
+ * the responder's report carries nothing and is not sent, and what the option saves is exactly the
+ * energy of sending it. 4ab draft 15-25/0224r2 for the parameter, 15-25/0376r2 for the saving.
+ */
+function fixedReplyNs(mp: MmsRoundPlan): number | null {
+  return mp.phy.fixedReplyRstu === null ? null : rstuNs(mp.phy.fixedReplyRstu)
+}
+
+/**
+ * Responder: start its own packet a fixed interval after it finished receiving the initiator's.
+ *
+ * **From the end of the packet**, not from its first fragment. The earlier revision of the
+ * proposal said the first fragment, but 15-25/0556r2 and 15-25/0681r1 both say "from the reception
+ * of the HRP UWB PHY MMS packet", and the discussion gives the reason: an arrival estimate good
+ * enough to reply from is only available at the end of the packet in the non-interleaved shape.
+ * That is also why the option is tied to that shape at all — and why this arms on the packet's
+ * **last** fragment and on nothing else. A round whose last fragment never arrived has no such
+ * instant and so does not reply; the earlier fragments could have predicted the end from the
+ * train's known shape, and this engine does not, because the draft's own condition is about the
+ * end of the packet.
+ *
+ * The wait is counted on this device's **own crystal** — it is a MAC parameter in RSTU, and a
+ * device has no other clock to count RSTU on. That is what makes the reply time a quantity the
+ * initiator can convert with the ratio the train measured for it, rather than a nominal duration
+ * whose crystal offset nobody can remove.
+ *
+ * The cost of all of it is accuracy, and the draft says so: the range is only as good as the
+ * arrival estimate and as the responder's grip on its own transmit instant, and **1 ns of
+ * time-of-flight error is about 30 cm of range** (15-25/0556r2). This engine does not add any
+ * extra transmit-instant jitter of its own — a responder here hits the instant exactly — so what
+ * the range carries is the residue of the model: the flight time the channel rounds to a whole
+ * nanosecond, the whole nanosecond this wait is rounded to, and one fragment length of crystal
+ * offset that neither end can convert away (`txSpanRctu`). Tens of centimetres, and named here
+ * because the draft's own caveat is about a jitter this engine does not model.
+ */
+function armFixedReply(
+  dev: UwbDevice, r: RoundState, m: MmsRoundState, mp: MmsRoundPlan, peer: string,
+  frag: { kind: 'rsf' | 'rif'; index: number },
+): void {
+  const replyNs = fixedReplyNs(mp)
+  if (replyNs === null || dev.cfg.role === 'tag') return
+  const frags = mmsPacketFragments(mp.phy, mp.fragGapNs)
+  const last = frags[frags.length - 1]
+  if (last === undefined || frag.kind !== last.kind || frag.index !== last.index) return
+  // `now` is the end of that last fragment's reception: the channel delivers a frame at its end,
+  // which is exactly the instant the draft measures from.
+  const startNs = dev.now() + Math.round(replyNs / (1 + dev.clock.ppm * 1e-6))
+  const roundNs = slotStartNs(r.plan, r.block, r.round, 0)
+  // The report phase is the last thing in the round and the reply may be as long as 510 ms, so a
+  // packet that would run into it — or into the next round — is not transmitted at all. The queue
+  // would have fired it either way, and a fragment radiated over somebody else's slot is worse
+  // than a round that produced nothing.
+  const rangingEndNs = roundNs + (mp.layout.slots - mp.layout.reportSlots) * r.plan.slotNs
+  if (startNs + mmsPacketSpanNs(mp.phy, mp.fragGapNs) > rangingEndNs) return
+  for (const f of frags) {
+    const at = startNs + f.offsetNs
+    // Which slot the fragment ends up in — the frame carries it for the log and the decoder, and
+    // it is where the fragment really went out rather than where the layout would have put it.
+    const slot = Math.floor((at - roundNs) / r.plan.slotNs)
+    const kind: 'uwbRsf' | 'uwbRif' = f.kind === 'rsf' ? 'uwbRsf' : 'uwbRif'
+    dev.at(at, () => {
+      if (dev.round !== r) return
+      txOwnTrainFragment(dev, r, m, mp, [peer], kind, f.index, slot)
+    })
+  }
+}
+
+/**
+ * Initiator, fixed reply time: open a receive window at each instant the responder's packet is
+ * about to put a fragment on the air.
+ *
+ * The responder's packet is off the slot grid, so the round's own fragment slots are not where it
+ * lands and the schedule cannot arm these windows. The initiator derives them from what it knows:
+ * its own packet ends `mmsPacketSpanNs` after the RMARKER it has just stamped, and the reply
+ * follows the pre-agreed interval after that.
+ *
+ * Its reading of that instant and the responder's differ by exactly two things, and the window is
+ * opened early enough to swallow both: twice the flight time, which is always *positive* and so
+ * only ever delays the arrival, and the crystal offset over the reply itself, which can shorten
+ * the responder's count by up to `UWB_PPM_MAX` of it. Opening early costs nothing — the window
+ * closes at a slot boundary regardless, and a fragment's wait reports no miss.
+ */
+function armFixedReplyListen(
+  dev: UwbDevice, r: RoundState, mp: MmsRoundPlan, responders: string[],
+): void {
+  const replyNs = fixedReplyNs(mp)
+  if (replyNs === null) return
+  // A pair round, which is the only shape the option is written for: the draft carries the reply
+  // time in a *one-to-one* Response Compact frame, and R responders replying after one constant
+  // would all reply at once. `UwbMmsSchema` refuses the combination; this reads the one responder.
+  const id = responders[0]
+  if (id === undefined) return
+  const early = Math.ceil(replyNs * UWB_PPM_MAX * 1e-6) + 1
+  const startNs = dev.now() + mmsPacketSpanNs(mp.phy, mp.fragGapNs) + replyNs - early
+  for (const f of mmsPacketFragments(mp.phy, mp.fragGapNs)) {
+    const at = startNs + f.offsetNs
+    const kind: 'uwbRsf' | 'uwbRif' = f.kind === 'rsf' ? 'uwbRsf' : 'uwbRif'
+    dev.at(at, () => {
+      if (dev.round !== r) return
+      // Two slots, so a fragment that straddles a boundary is still the frame this wait was for.
+      // Silent: a lost fragment is counted by the train, never reported one by one.
+      dev.listenFor(r.slot, id, kind, r.slot + 2, true)
+    })
+  }
+}
+
+/**
+ * Initiator, fixed reply time: the range, from a reply time nobody sent it.
+ *
+ * This is the whole point of the option. The round trip is measured as it always was — the
+ * initiator's own RMARKER to the responder's. The reply time is not measured by anybody: it is
+ * this device's **own** packet span, which it measured on its own counter, plus the pre-agreed
+ * constant, which is a count of the **responder's** counter and so is converted by `ratio` — the
+ * receiver's counter per the peer's, which the responder's own train just handed over. Nothing
+ * arrives carrying a time, and the range comes out all the same.
+ *
+ * `ratio` is required. With fewer than two fragments heard there is none, and with the report gone
+ * there is no carrier-offset fallback either — the frame that fallback used to ride on is the frame
+ * this option exists to not send. So a train too thin to measure a ratio over produces no range
+ * here, which is the honest answer rather than a reply time left at nominal rate.
+ * 4ab draft 15-25/0224r2, 15-25/0376r2, 15-25/0556r2
+ */
+function rangeFromKnownReply(
+  dev: UwbDevice, r: RoundState, m: MmsRoundState, mp: MmsRoundPlan, p: MmsPeerState, peer: string,
+): void {
+  const replyNs = fixedReplyNs(mp)
+  if (replyNs === null || dev.cfg.role !== 'tag') return
+  if (m.txRmarker === null || m.txSpanRctu === null || p.rxRmarker === null || p.ratio === null) return
+  const roundTripRctu = counterDiff(p.rxRmarker, m.txRmarker)
+  const fixedRctu = replyNs / RCTU_NS
+  const replyRctu = m.txSpanRctu + fixedRctu * p.ratio
+  reportRange(
+    dev, r, peer, 'ss',
+    (roundTripRctu - replyRctu) / 2,
+    // The raw figure is what the same two times come to with no clock correction at all, exactly
+    // as a reported reply time's is.
+    ssTwrRaw(roundTripRctu, m.txSpanRctu + fixedRctu),
+    fomFor(p.rxNlos),
+    mp.phy.rifs > 0 ? p.rifDetected : undefined,
+  )
 }
 
 /** The frame kind this round's control messages arrive as — what a listen window is armed for. */
@@ -306,6 +470,12 @@ export function onMmsSlot(
     }
     case 'uwbRsf':
     case 'uwbRif': {
+      // With a fixed reply time the responders' column is not in these slots at all: it starts a
+      // pre-agreed interval after the initiator's packet finished arriving, which is a run-time
+      // instant and not a slot (`armFixedReply`). So the slot the layout set aside for it goes
+      // unused at both ends — the responder does not transmit in it, and the initiator does not
+      // listen in it, because it has opened windows of its own where the packet really is.
+      const fixedReply = fixedReplyNs(mp) !== null
       if (action.tx === 'tag') {
         if (isTag) txOwnTrainFragment(dev, r, m, mp, responders, action.kind, action.index, slot)
         // A lost fragment is counted by the train, not reported: `silent`.
@@ -315,10 +485,12 @@ export function onMmsSlot(
       const id = responders[action.anchor]
       if (id === undefined) return
       if (!isTag) {
-        if (action.anchor === mine) txOwnTrainFragment(dev, r, m, mp, [peers.tag], action.kind, action.index, slot)
+        if (action.anchor === mine && !fixedReply) {
+          txOwnTrainFragment(dev, r, m, mp, [peers.tag], action.kind, action.index, slot)
+        }
         return
       }
-      if (open(id)) dev.listenFor(slot, id, action.kind, slot + 1, true)
+      if (open(id) && !fixedReply) dev.listenFor(slot, id, action.kind, slot + 1, true)
       return
     }
     default:
@@ -420,7 +592,25 @@ function txOwnTrainFragment(
   const desc = kind === 'uwbRsf'
     ? makeRsf(dev.id, dst, index, mp.phy, r.block, r.round, slot)
     : makeRif(dev.id, dst, index, mp.phy, r.block, r.round, slot)
-  if (index === 0 && kind === timingKind(mp)) m.txRmarker = counter
+  if (index === 0 && kind === timingKind(mp)) {
+    m.txRmarker = counter
+    // The initiator knows when its own packet will end, and so when a fixed reply is due: it opens
+    // the windows for it now, because the responder's column will not be in the slots the layout
+    // reserved for it.
+    if (dev.cfg.role === 'tag') armFixedReplyListen(dev, r, mp, to)
+  }
+  // The last fragment of the packet closes its span, on this transmitter's own counter — the ruler
+  // the fixed reply time's arithmetic is done with (`MmsRoundState.txSpanRctu`). The fragment's own
+  // length is the nominal one: it is the same constant at both ends of the round, and the only
+  // thing in the span neither of them can convert. Taken only where something reads it, so a round
+  // without the option walks no fragment list per fragment.
+  if (fixedReplyNs(mp) !== null && m.txRmarker !== null) {
+    const frags = mmsPacketFragments(mp.phy, mp.fragGapNs)
+    const last = frags[frags.length - 1]
+    if (last !== undefined && index === last.index && kind === (last.kind === 'rsf' ? 'uwbRsf' : 'uwbRif')) {
+      m.txSpanRctu = counterDiff(counter, m.txRmarker) + last.lenNs / RCTU_NS
+    }
+  }
   dev.send(desc, index === 0 ? counter : null)
 }
 
@@ -440,6 +630,12 @@ function txOwnTrainFragment(
 function txControlReport(
   dev: UwbDevice, r: RoundState, m: MmsRoundState, mp: MmsRoundPlan, peer: string, slot: number,
 ): void {
+  // The responder's half of the exchange is the reply time, and with a fixed reply time the
+  // initiator already has it — so the frame carries nothing and is not sent. That is the whole of
+  // what the option saves: not a shorter report, no report. The initiator's own half still goes
+  // out, because the round trip it measured is the responder's only way to a range of its own.
+  // 4ab draft 15-25/0376r2 (avoiding the need to send the report), 15-25/0224r2
+  if (dev.cfg.role !== 'tag' && fixedReplyNs(mp) !== null) return
   const p = m.peers.get(peer)
   if (m.txRmarker === null || !p || !p.primed || p.rxRmarker === null) return
   if (!nbClear(dev, r, m, mp)) return
@@ -494,6 +690,9 @@ export function onMmsRx(
       arrivalNs: info.txStartNs + info.propNs - (frag.index * mp.fragGapNs * drift) / (1 + drift),
       nlosNs: info.nlosNs, nlos: info.nlos, rssiDbm: info.rssiDbm, foreignDbm: info.foreignDbm,
     })
+    // …and if this was the last fragment of the initiator's packet, the instant the draft's fixed
+    // reply time is measured from has just passed. `now` is it.
+    armFixedReply(dev, r, m, mp, from, frag)
     return
   }
   // The control plane's three messages, whichever radio brought them: `role` is what they are,
@@ -645,6 +844,9 @@ function evaluateTrain(
   p.rxRmarker = rmarker
   p.rxNlos = frags[0].nlos
   p.ratio = ratio
+  // With a fixed reply time the initiator has both halves the moment it has timed this train:
+  // there is no report on its way, and waiting for one would be waiting forever.
+  rangeFromKnownReply(dev, r, m, mp, p, peer)
 }
 
 /**

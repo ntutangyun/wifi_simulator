@@ -382,6 +382,48 @@ export function rifStartMs(rsfs: number, gapMs: number, index: number): number {
   return rsfs > 0 ? rsfs + gapMs - 1 + index : index
 }
 
+/**
+ * The fragments of one MMS packet in transmission order: what each one is, how long after the
+ * packet's own RMARKER it starts, and how long it lasts.
+ *
+ * The layout already answers this in *slots* (`fragmentSlot` / `slotFragment`); this answers it in
+ * nanoseconds from the RMARKER, which is what a device needs when the packet does **not** start on
+ * a slot boundary — the draft's fixed reply time, where the responder's packet starts a pre-agreed
+ * interval after it finished receiving the initiator's and so lands wherever the flight time put
+ * it. The two are the same arithmetic over the same milliseconds (RSF-m at m, the RIFs at
+ * `rifStartMs`); `fragGapNs` is what the round actually spaces them by, so nothing here assumes
+ * the nominal millisecond either. 4ab draft 15-25/0224r2, 15-25/0556r2
+ */
+export function mmsPacketFragments(
+  phy: MmsPhy, fragGapNs: number,
+): { kind: 'rsf' | 'rif'; index: number; offsetNs: Ns; lenNs: Ns }[] {
+  const out: { kind: 'rsf' | 'rif'; index: number; offsetNs: Ns; lenNs: Ns }[] = []
+  const rsf = rsfNs(phy.nMsr, phy.gap)
+  const rif = rifNs(phy.stsLen)
+  for (let i = 0; i < phy.rsfs; i++) out.push({ kind: 'rsf', index: i, offsetNs: i * fragGapNs, lenNs: rsf })
+  for (let j = 0; j < phy.rifs; j++) {
+    out.push({ kind: 'rif', index: j, offsetNs: rifStartMs(phy.rsfs, phy.gapMs, j) * fragGapNs, lenNs: rif })
+  }
+  return out
+}
+
+/**
+ * How long one MMS packet occupies: from the RMARKER of its first fragment to the end of its
+ * last. Zero for the empty train the schema refuses.
+ *
+ * It is the span the fixed reply time is measured *from the end of*, so both ends need it and
+ * neither may work it out for itself: the responder waits the pre-agreed interval after this span
+ * has passed at its antenna, and the initiator — which sent the packet and therefore never
+ * received it — adds the same span to the reply it already knows. One number, read from both
+ * sides of the round. 4ab draft 15-25/0556r2, 15-25/0681r1 (the reply runs from the reception of
+ * the MMS packet, not of its first fragment)
+ */
+export function mmsPacketSpanNs(phy: MmsPhy, fragGapNs: number): Ns {
+  const frags = mmsPacketFragments(phy, fragGapNs)
+  const last = frags[frags.length - 1]
+  return last === undefined ? 0 : last.offsetNs + last.lenNs
+}
+
 export type MmsSetId =
   | 'rsf-1' | 'rsf-2' | 'rsf-3' | 'rsf-4' | 'rsf-5'
   | 'rsf-6' | 'rsf-7' | 'rsf-8' | 'rsf-9' | 'rsf-10'
