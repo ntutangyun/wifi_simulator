@@ -68,6 +68,37 @@ export interface Term {
  * language, and only then reaches the numbers — with the professional depth and
  * the provenance collapsed behind `deeper` and `sources`.
  */
+/**
+ * Why a lesson's model departs from the radio it describes.
+ *
+ * Four kinds, and the split is the point: "this is simplified" is a sentence
+ * anyone can write without having thought, while naming which of these four it
+ * is forces the author to say what was actually given up. A survey on
+ * 2026-09-26 found 5 of 68 lessons declaring anything at all, under seven
+ * different headings.
+ */
+export type LimitKind =
+  /** A hard threshold stands in for a curve that is gradual in a real radio. */
+  | 'threshold'
+  /** A physical effect the engine does not model at all. */
+  | 'unmodelled'
+  /** A constant this simulator chose, where the standard fixes nothing. */
+  | 'model-value'
+  /** A class of scenario the model is not valid for, and should not be asked about. */
+  | 'out-of-scope'
+
+export interface Limit {
+  kind: LimitKind
+  /** What the simulator does, and what a real radio does instead. One or two sentences. */
+  text: string
+  /**
+   * The lesson that lifts this simplification, when one does. Checked against
+   * the course: a promise that the truth arrives later is worth nothing if the
+   * lesson it names does not exist.
+   */
+  until?: string
+}
+
 export interface Lesson {
   id: string
   module: number
@@ -90,6 +121,12 @@ export interface Lesson {
   deeper?: Block[]
   /** Where the numbers come from: clauses, contributions, model choices. Collapsed. */
   sources?: string[]
+  /**
+   * Where this lesson's model is not the radio. Every graded lesson carries at
+   * least one — a simulator that never says what it left out teaches a reader to
+   * trust it further than it deserves. See `Limit` and tests/course/limits.test.ts.
+   */
+  limits?: Limit[]
   scenario: () => Scenario
   variants?: LessonVariant[]
   jumps: JumpTarget[]

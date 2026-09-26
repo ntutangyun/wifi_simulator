@@ -78,6 +78,10 @@ export interface Strings {
     back: string
     openInEditor: string
     loadHint: string
+    /** The section naming where a lesson's model is not the radio. */
+    limits: string
+    limitKind: Record<'threshold' | 'unmodelled' | 'model-value' | 'out-of-scope', string>
+    limitUntil: (lessonTitle: string) => string
     /** The documents a section's lessons are checked against, and how firm they are. */
     basis: (docs: string) => string
     /** Appended to a draft document's name wherever it is printed. */
@@ -518,6 +522,14 @@ export const STRINGS: Strings = {
     back: '☰ 课程目录',
     openInEditor: '✎ 在编辑器中打开本课场景',
     loadHint: '载入预设场景（会替换当前场景；离开课程模式时会恢复你自己的场景）。',
+    limits: '这一课的模型在哪里不是真实的无线电',
+    limitKind: {
+      threshold: '硬门限代替曲线：',
+      unmodelled: '没有建模：',
+      'model-value': '本仿真器自选的取值：',
+      'out-of-scope': '这个模型答不了：',
+    },
+    limitUntil: (t) => `（这一条在《${t}》里会被解除）`,
     basis: (docs) => `依据：${docs}`,
     draftMark: '草案，内容可能变动',
     contributions: '本课依据的提案文稿：',

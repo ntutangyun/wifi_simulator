@@ -555,6 +555,33 @@ export function CoursePanel() {
         </div>
       ))}
 
+      {/* Where the model is not the radio. Open by default and above `sources`,
+          unlike the provenance: a reader who never opens a collapsed section
+          should still not walk away trusting the simulator further than it
+          deserves. The kind is shown, because "this is simplified" without
+          saying which of the four it is, is the sentence this replaced. */}
+      {lesson.limits && lesson.limits.length > 0 && (
+        <div style={{
+          margin: '10px 0 4px', padding: '8px 10px', borderRadius: 4,
+          background: 'var(--panel2)', borderLeft: '3px solid #e0a83a',
+        }}>
+          <div style={{ fontSize: 11.5, fontWeight: 600, marginBottom: 4 }}>{L.limits}</div>
+          <ul style={{ ...listStyle, fontSize: 11.5, marginBottom: 0 }}>
+            {lesson.limits.map((lim, i) => (
+              <li key={i}>
+                <span style={{ color: 'var(--dim)' }}>{L.limitKind[lim.kind]}　</span>
+                {lim.text}
+                {lim.until && (
+                  <span style={{ color: 'var(--dim)' }}>
+                    {' '}{L.limitUntil(LESSONS.find((x) => x.id === lim.until)?.title ?? lim.until)}
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {lesson.sources && lesson.sources.length > 0 && (
         <details style={{ margin: '10px 0 4px' }}>
           <summary style={summaryStyle}>{L.sources}</summary>
