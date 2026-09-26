@@ -19,7 +19,7 @@
  */
 import type { NbLbt, NbReportMode, UwbMode, UwbSessionCfg } from '../model/scenario'
 import type { Ns } from '../model/types'
-import { mmsLayout, type MmsLayout, type MmsPhy } from './mms'
+import { mmsLayout, mmsSlotsPerMs, type MmsLayout, type MmsPhy } from './mms'
 import { mmsResponders, rstuNs, uwbSlotsPerTag } from './phy'
 
 export { rstuNs }
@@ -55,15 +55,25 @@ export interface MmsRoundPlan {
    * ranging), rather than one tag–anchor pair. `layout.responders` is the count it implies. */
   oneToMany: boolean
   /**
-   * How far apart this round actually spaces one train's fragments, in nanoseconds: the
-   * (R + 1) slots one "millisecond" of the ranging phase is made of.
+   * How far apart this round actually spaces one train's fragments, in nanoseconds:
+   * `layout.fragGapSlots` slots of `slotNs`. The layout is the only thing that decides that
+   * count — this field is a unit conversion of it and nothing more, because the round's two
+   * readings of the spacing (the slots the fragments are placed in, and the ruler the receiver
+   * measures with) have to be the same reading.
    *
-   * A true millisecond (`MS_NS`) is the **pairwise round at the draft's 600 RSTU slot** — which
-   * every shipped scene runs — and nothing else: an MMS slot must be a multiple of 300 RSTU and
-   * two of them must hold the 608.2 µs REPORT, so 600 RSTU is the shortest legal slot and no
-   * legal slot makes (R + 1) of them a millisecond for R > 1. A one-to-many round's fragments
-   * are therefore always further apart than the draft's millisecond, and the answer is to say so
-   * rather than to look for a slot that fixes it.
+   * An interleaved round spaces them (R + 1) slots, the width of one "millisecond" of its shared
+   * ranging phase. A true millisecond (`MS_NS`) is the **pairwise round at the draft's 600 RSTU
+   * slot** — which every shipped scene runs — and nothing else: an MMS slot must be a multiple of
+   * 300 RSTU and two of them must hold the 608.2 µs REPORT, so 600 RSTU is the shortest legal slot
+   * and no legal slot makes (R + 1) of them a millisecond for R > 1. A one-to-many interleaved
+   * round's fragments are therefore always further apart than the draft's millisecond, and the
+   * answer is to say so rather than to look for a slot that fixes it.
+   *
+   * A non-interleaved round has one transmitter per sub-round, so the device count drops out and
+   * the gap is a millisecond's worth of slots whatever R is — the one thing that shape is better
+   * at. It is never *less* than a millisecond either, which matters: the gap is what earns a
+   * fragment its millisecond of regulatory energy budget, and half the gap would be twice the
+   * permitted mean power.
    *
    * The receiver measures its clock ratio and walks its RMARKER back over *this* span rather
    * than over the nominal millisecond, because this is the span the schedule really produced —
@@ -86,8 +96,12 @@ export interface MmsRoundPlan {
  * from that same round; a second copy would only cost air.
  */
 export function roundPlan(cfg: UwbSessionCfg, anchors: number): RoundPlan {
-  const slots = uwbSlotsPerTag(cfg.method, anchors, cfg.schedule, cfg.contentionSlots, cfg.mode, cfg.mms)
+  // How many slots a millisecond of the MMS cycle costs at this session's slot length: the layout
+  // needs it, and so does the slot count below, which is the same layout measured.
+  const slotsPerMs = mmsSlotsPerMs(cfg.slotRstu)
+  const slots = uwbSlotsPerTag(cfg.method, anchors, cfg.schedule, cfg.contentionSlots, cfg.mode, cfg.mms, slotsPerMs)
   const slotNs = rstuNs(cfg.slotRstu)
+  const layout = cfg.mode === 'mms' ? mmsLayout(cfg.mms, mmsResponders(cfg.mms, anchors), slotsPerMs) : null
   const roundNs = slots * slotNs
   const blockNs = rstuNs(cfg.blockRstu)
   return {
@@ -96,13 +110,15 @@ export function roundPlan(cfg: UwbSessionCfg, anchors: number): RoundPlan {
     schedule: cfg.schedule, contentionSlots: cfg.contentionSlots, mode: cfg.mode,
     // Copied, not referenced: a plan outlives the scenario object it was built from, and a
     // device reading the train's shape must not be able to see it edited underneath.
-    ...(cfg.mode === 'mms'
+    ...(layout
       ? {
         mms: {
           phy: { ...cfg.mms },
-          layout: mmsLayout(cfg.mms, mmsResponders(cfg.mms, anchors)),
+          layout,
           oneToMany: cfg.mms.oneToMany,
-          fragGapNs: (mmsResponders(cfg.mms, anchors) + 1) * slotNs,
+          // Read off the layout, never worked out again here: the layout is what placed the
+          // fragments, so it is the only thing that knows how far apart it placed them.
+          fragGapNs: layout.fragGapSlots * slotNs,
           report: cfg.mms.report,
           nbChannels: [...cfg.mms.nbChannels],
           nbLbt: cfg.mms.nbLbt,
@@ -166,15 +182,23 @@ export function slotAction(p: RoundPlan, slot: number): SlotAction {
 }
 
 /**
- * One slot of a pairwise MMS round (the table of the spec's "The ranging cycle"). Slots 0–1 are
- * the initiator's narrowband POLL window and 2–3 the responder's RESP; the ranging phase
- * alternates initiator/responder inside each millisecond; the last four slots are the two report
- * windows. 4ab draft 15-22/0381r5 §1.1
+ * One slot of an MMS round (the table of the spec's "The ranging cycle"). In the interleaved
+ * pairwise round slots 0–1 are the initiator's narrowband POLL window and 2–3 the responder's
+ * RESP; the ranging phase alternates initiator/responder inside each millisecond; the last four
+ * slots are the two report windows. 4ab draft 15-22/0381r5 §1.1
+ *
+ * Nothing below assumes that shape, because §10.39.7's sub-rounds do not have it: there each
+ * device's narrowband window is the head of its own sub-round, so `controlSlots` is a total
+ * scattered through the round rather than a prefix at the top of it, and slot 0 belongs to the
+ * initiator only when `reversedOrder` did not send the responders first. So every window is
+ * *asked for* — `pollSlot`, `respSlot`, `reportSlot` — and every other slot of the round is
+ * offered to `slotFragment`, which answers null for the ones no fragment owns.
  *
  * Every fragment slot here comes from `mmsLayout.slotFragment`, the inverse of the
  * `fragmentSlot` the devices place their own fragments with — one map, read both ways, so that
  * the schedule and the device cannot disagree about where a fragment sits. (`tests/uwb/
- * session.test.ts` walks every legal train and every slot to keep that true.)
+ * session.test.ts` walks every legal train and every slot to keep that true, and
+ * `tests/uwb/mms-schedule.test.ts` pins the interleaved answers slot for slot.)
  */
 function mmsSlotAction(p: RoundPlan, slot: number): SlotAction {
   const m = p.mms
@@ -186,22 +210,22 @@ function mmsSlotAction(p: RoundPlan, slot: number): SlotAction {
   // --- control ---
   // The initiator's POLL opens the round, and every responder then answers in a RESP window of
   // its own — one window in a pair round, N in a one-to-many one, in responder order (4ab draft
-  // 15-22/0381r5 Table 1.6.3.1, POLL 0x10 carries the responder list its slots follow).
-  if (slot === 0) return { kind: 'nbPoll', tx: 'tag' }
-  if (slot < layout.controlSlots) {
-    for (let k = 0; k < layout.responders; k++) {
-      if (slot === layout.respSlot(k)) return { kind: 'nbResp', tx: 'anchor', anchor: k }
-    }
-    return { kind: 'idle' }
+  // 15-22/0381r5 Table 1.6.3.1, POLL 0x10 carries the responder list its slots follow). Where
+  // those windows are is the layout's business: gathered at the top of an interleaved round, one
+  // at the head of each sub-round otherwise.
+  if (slot === layout.pollSlot()) return { kind: 'nbPoll', tx: 'tag' }
+  for (let k = 0; k < layout.responders; k++) {
+    if (slot === layout.respSlot(k)) return { kind: 'nbResp', tx: 'anchor', anchor: k }
   }
   // --- ranging ---
   // The one map, read backwards: `mmsLayout.slotFragment` is built from the same arithmetic as
-  // `fragmentSlot`, which is what the devices place their own fragments with. The idle
-  // milliseconds between the two trains, and the tail of a ranging phase the draft sizes at 20
-  // slots whatever the train is, are the slots it answers null for — nobody owns them.
-  if (slot < layout.controlSlots + layout.rpSlots) {
-    const frag = layout.slotFragment(slot)
-    if (!frag) return { kind: 'idle' }
+  // `fragmentSlot`, which is what the devices place their own fragments with. The second slot of
+  // every narrowband window, the slots between two fragments a millisecond apart, the idle
+  // milliseconds between the two trains, the tail of a ranging phase the draft sizes at 20 slots
+  // whatever the train is, and the whole report phase are the slots it answers null for — nobody
+  // owns them, so there is no phase bound to test here beyond its own.
+  const frag = layout.slotFragment(slot)
+  if (frag) {
     return {
       kind: frag.kind === 'rsf' ? 'uwbRsf' : 'uwbRif',
       tx: frag.side === 'initiator' ? 'tag' : 'anchor',

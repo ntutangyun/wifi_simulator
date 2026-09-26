@@ -7,8 +7,11 @@
  *
  * How far apart is a model choice, and this engine's is its own. The pairwise round spaces
  * fragments one millisecond apart, which is 15-23/0100r2 §2.3.2's figure at the draft's 600 RSTU
- * slot. A one-to-many round spaces them (responders + 1) slots, so three responders make it 2 ms
- * and no legal slot length brings it back to one — see `mmsRoundPlan`. The draft additionally has
+ * slot. A one-to-many *interleaved* round spaces them (responders + 1) slots, so three responders
+ * make it 2 ms and no legal slot length brings it back to one — see `mmsRoundPlan`. The
+ * non-interleaved round of §10.39.7 has one transmitter to a sub-round and so takes the spacing
+ * from the slot length instead (`mmsSlotsPerMs`), which is the one real advantage it has: the gap
+ * stays a millisecond however many responders are in the round. The draft additionally has
  * an interleaved mode whose offset is 500 µs (quoted in 15-25/0388r1), which this engine does not
  * model at all. `MmsRoundPlan.fragGapNs` is what a round actually uses, and it is the ruler the
  * receiver is handed, so nothing downstream assumes the nominal millisecond.
@@ -41,6 +44,27 @@ import { chipsToNs, COUNTER_MOD, RCTU_PER_CHIP, UWB_RX_SENS_DBM } from './units'
 
 export const MS_CHIPS = 499_200 // 4ab draft 15-23/0100r2 §2.3.2: one millisecond of chips
 export const MS_RSTU = 1200 // 4ab draft 15-22/0381r5 §1.1.3: the same millisecond in RSTU
+
+/** Ranging slots in one millisecond at the draft's default 600 RSTU slot: two. It is the default
+ * `mmsLayout` lays a round out at, and the only value every scene in this repository uses.
+ * derived (MS_RSTU / 600) */
+export const MMS_SLOTS_PER_MS = 2
+
+/**
+ * How many ranging slots one millisecond of the cycle takes at a slot of `slotRstu` — the one
+ * place that division is done, so the round plan, the schema's block-fit rule and the layout
+ * cannot each reach a different answer.
+ *
+ * `ceil`, not a rounded division: a slot coarser than a millisecond still costs a whole slot, so
+ * a 2400 RSTU slot spaces neighbouring fragments 2 ms apart rather than 1. That is the schedule's
+ * own truth and `MmsRoundPlan.fragGapNs` reports it; what must never happen is the other
+ * direction, a gap *under* a millisecond. 4ab draft 15-22/0381r5 §1.1.1 for the slot, model for
+ * the rounding.
+ */
+export function mmsSlotsPerMs(slotRstu: number): number {
+  return Math.max(1, Math.ceil(MS_RSTU / slotRstu))
+}
+
 /** Length of the complementary-set sequence an MMRS symbol is built from. */
 export const MMRS_LEN = 128 // 4ab draft 15-23/0100r2 §2.3.2
 /** Spreading factor L applied to the MMRS symbol. */
@@ -340,6 +364,23 @@ export interface MmsLayout {
    * Non-interleaved, this is **one sub-round's** phase — the same phase every sub-round gets,
    * not the round's whole ranging time. */
   rpSlots: number
+  /** How many ranging slots one millisecond of this round's cycle takes, at the slot length the
+   * session was laid out with — `mmsSlotsPerMs`, and 2 at the draft's 600 RSTU default. */
+  slotsPerMs: number
+  /**
+   * How many slots this round puts between two neighbouring fragments of one train. **The one
+   * place that spacing is decided**: `MmsRoundPlan.fragGapNs` is this times the slot, and the
+   * receiver walks its RMARKER back over that — a second opinion anywhere else is a receiver
+   * reading the wrong clock ratio.
+   *
+   * A millisecond is a millisecond whoever is transmitting. Interleaved, the device count happens
+   * to set it — R + 1 slots, which at the draft's 600 RSTU slot lands the pairwise round on
+   * exactly 1 ms and stretches a three-responder round to 2 ms. A non-interleaved sub-round has
+   * one transmitter, so nothing about the device count applies and the spacing comes from the
+   * slot length instead: `slotsPerMs`, steady however many responders the round holds.
+   * 4ab draft 15-23/0100r2 §2.3.2 for the millisecond; model for taking it from the slot.
+   */
+  fragGapSlots: number
   /** How many sub-rounds the round is cut into: 1 interleaved, and one per device — R + 1 —
    * in the non-interleaved shape, where each device sends its whole train in a stretch of the
    * round nobody else transmits in. 4ab draft 15-25/0292r1 (§10.39.7) */
@@ -364,6 +405,17 @@ export interface MmsLayout {
    * slot 0 of the round, ahead of the initiator's own window. 4ab draft 15-25/0292r1
    */
   respSlot(responder: number): number
+  /**
+   * Slot index, within the round, of the initiator's narrowband POLL window — slot 0 interleaved,
+   * and the head of the sub-round the initiator owns non-interleaved, which `reversedOrder` moves
+   * to the **end** of the round.
+   *
+   * It takes no sub-round argument because a round has exactly one POLL however many sub-rounds
+   * it is cut into: the initiator opens the round once, and the other sub-rounds' windows are
+   * RESPs that `respSlot` names. The schedule asks for it rather than assuming slot 0, which is
+   * only the initiator's when nothing reversed the order. 4ab draft 15-25/0556r2
+   */
+  pollSlot(): number
   /** Slot index, within the round, of fragment `index` of `kind` for `side`. Each millisecond of
    * the ranging phase is R + 1 slots: the initiator's first, then one per responder in responder
    * order, so every train of the round interleaves inside the same millisecond (model; the
@@ -436,10 +488,18 @@ export const MMS_RP_MIN_SLOTS = 20
  * own ranging phase, and only its owner transmitting. The two branches below share nothing but
  * the responder bounds check and the train's fragment counts — the interleaved arithmetic is left
  * exactly as it was, because every stored plan in `tests/fixtures/` replays off it.
+ *
+ * `slotsPerMs` is how many slots a millisecond of the cycle costs at the session's slot length —
+ * `mmsSlotsPerMs`, and the draft's 600 RSTU default is the 2 this defaults to. Only the
+ * non-interleaved branch reads it: interleaved, the device count sets the spacing instead, and a
+ * pairwise interleaved round at 600 RSTU is the case where the two agree.
  */
-export function mmsLayout(phy: MmsPhy, responders = 1): MmsLayout {
+export function mmsLayout(phy: MmsPhy, responders = 1, slotsPerMs = MMS_SLOTS_PER_MS): MmsLayout {
   if (!Number.isInteger(responders) || responders < 1) {
     throw new Error(`mmsLayout: a round needs at least one responder, asked for ${responders}`)
+  }
+  if (!Number.isInteger(slotsPerMs) || slotsPerMs < 1) {
+    throw new Error(`mmsLayout: slotsPerMs must be a whole slot or more, asked for ${slotsPerMs}`)
   }
   const x = phy.rsfs
   const y = phy.rifs
@@ -460,7 +520,15 @@ export function mmsLayout(phy: MmsPhy, responders = 1): MmsLayout {
     // up the longer of the two. That extra ranging duration, and the channel coherence time it
     // has to fit inside, are the price a (later withdrawn) comment named for this mode.
     // 4ab draft 15-25/0292r1, 15-25/0331r1
-    const rpOne = Math.max(MMS_RP_MIN_SLOTS, y > 0 ? rifStartMs(x, z, y - 1) + 1 : x)
+    //
+    // A millisecond of that phase is `slotsPerMs` slots, not one: the sub-round's sole transmitter
+    // sends a fragment per millisecond like everybody else, and it is the slot length that says
+    // how many slots a millisecond is. Spacing them one slot apart would send a fragment every
+    // half millisecond at the draft's 600 RSTU slot while each still spent a millisecond's
+    // regulatory energy budget — twice the permitted mean power, and the premise the whole
+    // multi-millisecond packet rests on gone.
+    const trainMs = y > 0 ? rifStartMs(x, z, y - 1) + 1 : x
+    const rpOne = Math.max(MMS_RP_MIN_SLOTS, slotsPerMs * trainMs)
     const subRounds = 1 + responders
     const subRound = NB_WINDOW_SLOTS + rpOne
     /** Which sub-round a device owns: the initiator opens the round and the responders follow in
@@ -491,6 +559,10 @@ export function mmsLayout(phy: MmsPhy, responders = 1): MmsLayout {
       controlSlots: NB_WINDOW_SLOTS * subRounds,
       rpSlots: rpOne,
       reportSlots: report,
+      slotsPerMs,
+      // One transmitter in a sub-round, so the device count says nothing about the spacing and
+      // the slot length says all of it.
+      fragGapSlots: slotsPerMs,
       subRounds,
       slots: ranging + report,
       subRoundStart: start,
@@ -500,21 +572,27 @@ export function mmsLayout(phy: MmsPhy, responders = 1): MmsLayout {
         // sub-round, which under `reversedOrder` can be slot 0 of the whole round.
         return start(devOf('responder', responder))
       },
+      pollSlot() {
+        return start(devOf('initiator', 0))
+      },
       fragmentSlot(side, kind, index, responder = 0) {
         if (!Number.isInteger(index) || index < 0 || index >= count(kind)) {
           throw new Error(`mmsLayout: this train has ${count(kind)} ${kind.toUpperCase()} fragments, asked for ${index}`)
         }
         checkResponder(responder)
         // The same millisecond arithmetic as interleaved — RSF-m at m, the RIFs at `rifStartMs`
-        // (§10.39.5) — only a millisecond is one slot inside a sub-round of one transmitter.
+        // (§10.39.5) — counted in the sub-round's own slots per millisecond.
         const ms = kind === 'rsf' ? index : rifStartMs(x, z, index)
-        return start(devOf(side, responder)) + NB_WINDOW_SLOTS + ms
+        return start(devOf(side, responder)) + NB_WINDOW_SLOTS + slotsPerMs * ms
       },
       slotFragment(slot) {
         if (!Number.isInteger(slot) || slot < 0 || slot >= ranging) return null
         const off = slot % subRound
         if (off < NB_WINDOW_SLOTS) return null // the sub-round's own control window
-        const ms = off - NB_WINDOW_SLOTS
+        // A fragment sits on a millisecond boundary of the phase; the slots between two of them
+        // belong to nobody, which is what `slotsPerMs` > 1 buys the regulator.
+        if ((off - NB_WINDOW_SLOTS) % slotsPerMs !== 0) return null
+        const ms = (off - NB_WINDOW_SLOTS) / slotsPerMs
         const { side, responder } = sideOf((slot - off) / subRound)
         if (ms < x) return { side, kind: 'rsf', index: ms, responder }
         const firstRif = rifStartMs(x, z, 0)
@@ -541,6 +619,12 @@ export function mmsLayout(phy: MmsPhy, responders = 1): MmsLayout {
     controlSlots: control,
     rpSlots: rp,
     reportSlots: report,
+    slotsPerMs,
+    // Interleaved, every device sends inside the same millisecond, so the millisecond is R + 1
+    // slots wide and the device count is what spaces one train's fragments. At R = 1 and the
+    // draft's 600 RSTU slot that is `slotsPerMs` and a true millisecond; above R = 1 it is longer,
+    // and no legal slot length brings it back.
+    fragGapSlots: perMs,
     subRounds: 1,
     slots: control + rp + report,
     subRoundStart(i) {
@@ -550,6 +634,9 @@ export function mmsLayout(phy: MmsPhy, responders = 1): MmsLayout {
     respSlot(responder) {
       checkResponder(responder)
       return NB_WINDOW_SLOTS * (1 + responder)
+    },
+    pollSlot() {
+      return 0
     },
     fragmentSlot(side, kind, index, responder = 0) {
       if (!Number.isInteger(index) || index < 0 || index >= count(kind)) {

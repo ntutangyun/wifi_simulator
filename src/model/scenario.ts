@@ -3,7 +3,7 @@ import { z } from 'zod'
 // determinism hash, which in turn take nothing from here but types), so the schema can measure
 // a ranging slot with the very functions the ranging engine uses, without a cycle.
 import {
-  MMS_DRAFT_DEFAULTS, MMS_FIXED_REPLY_RSTU_MAX, MMS_FIXED_REPLY_RSTU_MIN, type MmsPhy,
+  MMS_DRAFT_DEFAULTS, MMS_FIXED_REPLY_RSTU_MAX, MMS_FIXED_REPLY_RSTU_MIN, mmsSlotsPerMs, type MmsPhy,
 } from '../uwb/mms'
 import { NB_CHANNELS } from '../uwb/nb'
 import { mmsResponders, rstuNs, UWB_MAX_ANCHORS, uwbNbSlotFitNs, uwbSlotFitNs, uwbSlotsPerTag } from '../uwb/phy'
@@ -812,7 +812,13 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
           // same round, so tags cost the schedule nothing at all.
           // An MMS round is pairwise, so a block has to hold one round per tag–anchor pair
           // rather than one per tag — the count the rule below compares against `fits`.
-          const slots = uwbSlotsPerTag(sc.uwb.method, anchors, sc.uwb.schedule, sc.uwb.contentionSlots, mode, sc.uwb.mms)
+          // …at this session's own slots per millisecond, because a non-interleaved MMS ranging
+          // phase is that many slots per millisecond of train: sized at the draft's default
+          // instead, the rule would check the block against a round of the wrong length.
+          const slots = uwbSlotsPerTag(
+            sc.uwb.method, anchors, sc.uwb.schedule, sc.uwb.contentionSlots, mode, sc.uwb.mms,
+            mmsSlotsPerMs(sc.uwb.slotRstu),
+          )
           const fits = Math.floor(sc.uwb.blockRstu / (slots * sc.uwb.slotRstu))
           // One round has to fit the block in every mode, DL-TDoA included: a round that outlives
           // its block runs into the next one's slots, and nothing downstream notices — the

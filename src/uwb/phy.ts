@@ -1,6 +1,6 @@
 import type { Material, UwbMode } from '../model/scenario'
 import type { Ns } from '../model/types'
-import { mmsLayout, mmsLongestFragmentNs, type MmsPhy } from './mms'
+import { mmsLayout, mmsLongestFragmentNs, MMS_SLOTS_PER_MS, type MmsPhy } from './mms'
 import { NB_REPORT_BYTES, nbOtmPollBytes, nbPpduNs } from './nb'
 import { chipsToNs, freeSpacePl0Db, UWB_CHIP_HZ, UWB_CHIP_NS, UWB_RX_SENS_DBM } from './units'
 
@@ -344,11 +344,15 @@ export function mmsResponders(mms: MmsRoundShape, anchors: number): number {
  * window per responder at each end — `mmsResponders` is the one place that count is decided. */
 export function uwbSlotsPerTag(
   method: 'ss' | 'ds', anchors: number, schedule: 'time' | 'contention' = 'time', contentionSlots = 8,
-  mode: UwbMode = 'twr', mms?: MmsRoundShape,
+  mode: UwbMode = 'twr', mms?: MmsRoundShape, slotsPerMs = MMS_SLOTS_PER_MS,
 ): number {
   if (mode === 'mms') {
     if (!mms) throw new Error("uwbSlotsPerTag: mode 'mms' needs the session's MMS parameters")
-    return mmsLayout(mms, mmsResponders(mms, anchors)).slots
+    // `slotsPerMs` has to be the session's own (`mmsSlotsPerMs`), not the draft-default 2: a
+    // non-interleaved ranging phase is that many slots per millisecond of train, so a caller that
+    // left it at the default would size the round for a slot the session does not use, and the
+    // round `roundPlan` then lays out would run past the length the block was checked against.
+    return mmsLayout(mms, mmsResponders(mms, anchors), slotsPerMs).slots
   }
   if (mode === 'ul-tdoa') return 1
   if (mode === 'dl-tdoa') return anchors + 1
