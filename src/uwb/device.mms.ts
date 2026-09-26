@@ -23,7 +23,9 @@ import {
   makeNbPoll, makeNbPollOtm, makeNbReport, makeNbResp, makeRif, makeRsf,
   UWB_BROADCAST, type UwbFrameKind, type UwbInfo,
 } from './frames'
-import { combineGainDb, MS_NS, MS_RCTU, rmarkerFromFragment, trainDetected } from './mms'
+import {
+  acquired, combineGainDb, MS_NS, MS_RCTU, rmarkerFromFragment, trainDetected,
+} from './mms'
 
 import { NB_LBT_THRESHOLD_DBM, nbLbtRequired } from './nb'
 import { tsSigmaNs, UWB_RX_SENS_DBM, uwbSinrDb } from './phy'
@@ -421,6 +423,13 @@ function closeDueTrains(
  * add up to `rxDbm + 10·log10(heard)`. That is the whole multi-millisecond idea, and
  * `marginDb` is how far it cleared the receiver's sensitivity.
  *
+ * Under Config 1 there is one question in front of that one: nothing was primed over a
+ * narrowband exchange there, so the receiver has to find the packet before it can accumulate
+ * anything, and `acquired` decides that on a SINGLE fragment with no combining. Fail it and the
+ * train counts as undetected however loud it was — the fragments are all there and not one of
+ * them can be timestamped — so the round produces no range. Config 2 never fails it, which is
+ * why every scenario that has not asked for Config 1 runs exactly as it did.
+ *
  * The draws, in the order the spec fixes them: the first heard fragment's stamp, then — only
  * when two or more were heard — the last heard fragment's. Nothing is drawn per fragment, and
  * nothing at all for a train that was not detected. The first stamp is taken twice over, from
@@ -438,7 +447,16 @@ function evaluateTrain(
   const rxDbm = heard > 0 ? frags[0].rssiDbm : NOTHING_HEARD_DBM
   const gainDb = combineGainDb(heard)
   const marginDb = heard > 0 ? rxDbm + gainDb - UWB_RX_SENS_DBM : NOTHING_HEARD_DBM
-  const detected = heard > 0 && trainDetected(rxDbm, heard)
+  // One SYNC+SFD opens the whole packet, so acquisition is judged once — on the train that leads
+  // the packet, the RSFs when there are any and the RIFs when X = 0 — and both trains of that
+  // packet live or die by the one verdict. A fragment the channel never delivered is missing
+  // from `frags` entirely, so when the leading one did not arrive it is handed over as the
+  // inaudible thing it was, rather than letting fragment 1 slide into its place.
+  const opening = mp.phy.rsfs > 0 ? p.frags.rsf : p.frags.rif
+  const openers = opening.length > 0 && opening[0].index === 0
+    ? opening
+    : [{ rssiDbm: NOTHING_HEARD_DBM }, ...opening]
+  const detected = acquired(mp.phy, openers) && heard > 0 && trainDetected(rxDbm, heard)
   const frameKind: UwbFrameKind = kind === 'rsf' ? 'uwbRsf' : 'uwbRif'
   let ratio: number | null = null
   let rmarker: number | null = null

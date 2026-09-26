@@ -154,6 +154,41 @@ export function trainDetected(rxDbm: number, heard: number): boolean {
   return heard > 0 && rxDbm + combineGainDb(heard) >= UWB_RX_SENS_DBM
 }
 
+/** How much worse an SP0 control frame is at acquisition than the packet's own SYNC+SFD
+ * fragment: SP0 is longer and sent at a lower peak power, so when it is there it is what
+ * defines the link budget, and a worse one. The draft's own comparison gives 6.3, 5.3 or
+ * 3.8 dB depending on code length and PSR — those are ratios of pulse counts, not of
+ * duration — and its conclusion sentence rounds them to about 4 dB. The engine takes the one
+ * figure; the three are in the lesson. 4ab draft 15-25/0194r0 (model) */
+export const MMS_SP0_PENALTY_DB = 4
+
+/**
+ * Whether the receiver ever found the packet — the question `trainDetected` does not have to ask.
+ *
+ * Config 2 is spared it: the narrowband POLL/RESP exchange hands both ends the same time base
+ * before a fragment goes out, so the receiver knows where every fragment will land and
+ * accumulates blind. Config 1 has no narrowband radio, so the time base has to come out of the
+ * packet itself — the leading SYNC+SFD fragment, or the SP0 control frame when the control phase
+ * is not zero-length (`uwbdControl`, and `MMS_SP0_PENALTY_DB` for what that costs).
+ *
+ * **Nothing is combined here**, and that is the whole of what separates this from
+ * `trainDetected`: one fragment has to be audible entirely on its own, because until one is
+ * there is no time base to add the next one at. Four fragments 6 dB down are a detected train
+ * and an unacquired packet at the same time.
+ *
+ * Which fragments may try is `rsfSfd`: normally only the packet's own leading SYNC+SFD fragment,
+ * the head of `fragments`, and a burst of interference over it loses the whole round however loud
+ * the rest arrived. With an SFD after every RSF each fragment is a copy of that same SHR, so any
+ * one of them can open the packet — which is exactly the failure the PIB attribute was added to
+ * buy off. 4ab draft 15-25/0066r1, 15-25/0194r0. model
+ */
+export function acquired(phy: MmsPhy, fragments: { rssiDbm: number }[]): boolean {
+  if (phy.control === 'nba') return true
+  const need = UWB_RX_SENS_DBM + (phy.uwbdControl === 'sp0' ? MMS_SP0_PENALTY_DB : 0)
+  const openers = phy.rsfSfd ? fragments : fragments.slice(0, 1)
+  return openers.some((frag) => frag.rssiDbm >= need)
+}
+
 /** One millisecond in nanoseconds: the spacing of two neighbouring fragments in the PAIRWISE
  * round, on the transmitter's own clock, and the unit the draft's timings are written in. Every
  * other round spaces them `MmsRoundPlan.fragGapNs`. 4ab draft 15-23/0100r2 §2.3.2 */
