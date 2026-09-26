@@ -516,7 +516,7 @@ const NodeCfgSchema = z.preprocess(
       // A tag saved before the backscatter tier existed carries no mode at all and reads back as
       // an Active Tx one, so every such scenario replays unchanged.
       mode: z.enum(['active', 'backscatter']).default('active'),
-      epc: z.string().regex(/^[0-9a-fA-F]{24}$/, 'an EPC is 24 hex characters (96 bits)').optional(),
+      epc: z.string().regex(/^[0-9a-fA-F]{24}$/, 'EPC 是 24 个十六进制字符（96 位）').optional(),
     }).optional(),
     uwb: z.object({
       role: z.enum(['anchor', 'tag']),
@@ -525,25 +525,25 @@ const NodeCfgSchema = z.preprocess(
     }).optional(),
   }).superRefine((n, ctx) => {
     if (n.linkId === '2g' && n.caps.generation === 'vht') {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Wi-Fi 5 (VHT) has no 2.4 GHz mode; pick 802.11g, Wi-Fi 6 or Wi-Fi 7 for the 2.4 GHz link' })
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Wi-Fi 5（VHT）没有 2.4 GHz 模式：2.4 GHz 链路请改用 802.11g、Wi-Fi 6 或 Wi-Fi 7' })
     }
     if (n.linkId === '6g' && (n.caps.generation === 'nonht' || n.caps.generation === 'vht')) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: '6 GHz needs Wi-Fi 6 or Wi-Fi 7; 802.11a and Wi-Fi 5 (VHT) have no 6 GHz mode' })
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: '6 GHz 需要 Wi-Fi 6 或 Wi-Fi 7：802.11a 与 Wi-Fi 5（VHT）没有 6 GHz 模式' })
     }
     if (n.kind === 'amp' && n.linkId !== undefined && n.linkId !== '2g') {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'AMP tags live on the 2.4 GHz link' })
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'AMP 标签只落在 2.4 GHz 链路上' })
     }
     if (n.ampAp && !(n.kind === 'ap' && n.caps.generation === 'eht')) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'AMP polling needs a Wi-Fi 7 AP (the AMP DL PPDU carries U-SIG)' })
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'AMP 轮询需要一个 Wi-Fi 7 的 AP：AMP 下行 PPDU 携带的是 U-SIG' })
     }
     if (n.ampTag && n.kind !== 'amp') {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'only an AMP tag node carries AMP tag settings' })
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: '只有 AMP 标签节点才带 AMP 标签设置：这个节点不是 AMP 标签' })
     }
     if (n.kind === 'uwb' && !n.uwb) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'a UWB node needs UWB settings (role anchor or tag)' })
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'UWB 节点需要 UWB 设置：角色是 anchor 或 tag' })
     }
     if (n.uwb && n.kind !== 'uwb') {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'only a UWB node carries UWB settings' })
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: '只有 UWB 节点才带 UWB 设置：这个节点不是 UWB 节点' })
     }
   }),
 )
@@ -692,8 +692,8 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
     queue: z.object({ limit: z.number().int().positive(), lifetimeMs: z.number().positive() }).optional(),
     uwb: z.object({
       method: z.enum(['ss', 'ds']),
-      blockRstu: z.number().int().positive().refine((v) => v % 3 === 0, 'block must be a multiple of 3 RSTU'),
-      slotRstu: z.number().int().min(300).refine((v) => v % 3 === 0, 'slot must be a multiple of 3 RSTU'),
+      blockRstu: z.number().int().positive().refine((v) => v % 3 === 0, 'UWB 块长要是 3 RSTU 的整数倍'),
+      slotRstu: z.number().int().min(300).refine((v) => v % 3 === 0, '测距时隙要是 3 RSTU 的整数倍'),
       channel: z.union([z.literal(5), z.literal(9)]),
       tsNoisePs: z.number().min(0),
       cfoNoisePpm: z.number().min(0),
@@ -713,7 +713,7 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
       attacker: z.object({ advanceNs: z.number().min(0).max(10_000) }).optional(),
       stsOff: z.boolean().optional(),
     }).optional(),
-    sixGhzCenterMhz: z.number().int().min(5955).max(7115).refine((v) => v % 5 === 0, '6 GHz centre frequency must be a 5 MHz channel step').optional(),
+    sixGhzCenterMhz: z.number().int().min(5955).max(7115).refine((v) => v % 5 === 0, '6 GHz 中心频率要落在 5 MHz 的信道步长上').optional(),
   })
   .superRefine((sc, ctx) => {
     // Wi-Fi needs its one AP; a scenario that is nothing but UWB nodes has no
@@ -721,7 +721,7 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
     const aps = sc.nodes.filter((n) => n.kind === 'ap')
     const wifi = sc.nodes.filter((n) => n.kind === 'sta' || n.kind === 'amp')
     if ((wifi.length > 0 || aps.length > 1) && aps.length !== 1) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: `scenario must have exactly one AP (found ${aps.length})` })
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: `场景必须正好有一个 AP（现在有 ${aps.length} 个）：Wi-Fi 节点都归在同一个 BSS 下` })
     }
     // Every ranging rule is tagged `path: ['uwb']` so the editor can tell a
     // session issue from any other by its path rather than by reading its
@@ -729,13 +729,13 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
     const uwbNodes = sc.nodes.filter((n) => n.kind === 'uwb')
     if (uwbNodes.length > 0) {
       if (!sc.uwb) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['uwb'], message: 'a scenario with UWB nodes needs a UWB session (scenario.uwb)' })
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['uwb'], message: '场景里有 UWB 节点，就需要一个 UWB 测距会话（scenario.uwb）' })
       } else {
         // A contention round's response phase (schedule mode 0) has only the response frame to
         // work with: SS-TWR's; DS-TWR's report phase would need a second contention window of its
         // own, which this simulator does not model.
         if (sc.uwb.schedule === 'contention' && sc.uwb.method !== 'ss') {
-          ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['uwb'], message: 'contention-based rounds are SS-TWR only in this simulator' })
+          ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['uwb'], message: '竞争式测距轮在本仿真器里只支持 SS-TWR：DS-TWR 的报告相位还要一个自己的竞争窗口，本仿真器没有建模' })
         }
         // A contention round is a two-way exchange the tag starts; one-way ranging has no such
         // exchange to contend for (in DL-TDoA the tag never transmits, in UL-TDoA it transmits
@@ -747,7 +747,7 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             path: ['uwb'],
-            message: 'contention-based rounds are two-way ranging only; one-way and MMS ranging need a time-scheduled session',
+            message: '竞争式测距轮只属于双向测距：竞争抢的是标签发起的那一次往返交互，单向测距与 MMS 没有这样的交互可抢，请改用时间排定的会话',
           })
         }
         // An anchor measures the angle of arrival on a frame the tag sends it, and only a
@@ -760,7 +760,7 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             path: ['uwb'],
-            message: 'angle of arrival is measured on two-way responses; turn it off for TDoA and MMS modes',
+            message: 'AoA 是在双向测距的响应帧上测的：TDoA 与 MMS 模式下请把它关掉',
           })
         }
         // The P802.15.4ab rules. They read only `sc.uwb.mms`, and only in MMS mode: a two-way
@@ -771,11 +771,11 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
             ctx.addIssue({
               code: z.ZodIssueCode.custom,
               path: ['uwb'],
-              message: 'an MMS train needs at least one fragment (rsfs + rifs > 0)',
+              message: 'MMS 序列串至少要有一个片段（rsfs + rifs > 0）',
             })
           }
           if (!Number.isInteger(mms.gap) || mms.gap < 0 || mms.gap > 64) {
-            ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['uwb'], message: 'MMRS gap must be an integer 0…64' })
+            ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['uwb'], message: 'MMRS 间隔要是 0…64 的整数' })
           }
           // The narrowband allow list, and only where there is a narrowband radio to use it:
           // Config 1's list is empty by the rule in `UwbMmsSchema`, and demanding a channel of a
@@ -789,7 +789,7 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
             ctx.addIssue({
               code: z.ZodIssueCode.custom,
               path: ['uwb'],
-              message: 'the narrowband allow list needs 1…250 distinct channels 0…249',
+              message: '窄带信道允许列表要填 1…250 个互不相同的信道，编号 0…249',
             })
           }
           // The draft's ranging slot is a multiple of 300 RSTU (0.25 ms), not of the 3 RSTU the
@@ -799,7 +799,7 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
             ctx.addIssue({
               code: z.ZodIssueCode.custom,
               path: ['uwb'],
-              message: 'an MMS ranging slot must be a multiple of 300 RSTU (P802.15.4ab draft)',
+              message: 'MMS 测距时隙要是 300 RSTU 的整数倍（P802.15.4ab 草案）',
             })
           }
           // The two slot rules that replace the frame rule below: a slot holds one fragment, and
@@ -812,8 +812,8 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
             ctx.addIssue({
               code: z.ZodIssueCode.custom,
               path: ['uwb'],
-              message: `a ${sc.uwb.slotRstu} RSTU slot is ${(slotNs / 1000).toFixed(1)} µs, but the longest MMS `
-                + `fragment needs ${(fragNs / 1000).toFixed(1)} µs plus flight`,
+              message: `${sc.uwb.slotRstu} RSTU 的时隙只有 ${(slotNs / 1000).toFixed(1)} µs，而最长的 MMS `
+                + `片段要 ${(fragNs / 1000).toFixed(1)} µs 再加上飞行时间`,
             })
           }
           // …and a one-to-many POLL names every responder, three octets each, so the longest
@@ -828,16 +828,16 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
             ctx.addIssue({
               code: z.ZodIssueCode.custom,
               path: ['uwb'],
-              message: `two ${sc.uwb.slotRstu} RSTU slots are ${(2 * slotNs / 1000).toFixed(1)} µs, but a narrowband `
-                + `message of a round with ${responders} responder${responders === 1 ? '' : 's'} needs `
-                + `${(nbNs / 1000).toFixed(1)} µs plus flight`,
+              message: `两个 ${sc.uwb.slotRstu} RSTU 的时隙合起来是 ${(2 * slotNs / 1000).toFixed(1)} µs，而一轮里有 `
+                + `${responders} 个应答方时，窄带消息要 `
+                + `${(nbNs / 1000).toFixed(1)} µs 再加上飞行时间`,
             })
           }
         }
         const anchors = uwbNodes.filter((n) => n.uwb?.role === 'anchor').length
         const tags = uwbNodes.filter((n) => n.uwb?.role === 'tag').length
         if (anchors < 1 || tags < 1) {
-          ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['uwb'], message: `a UWB session needs at least one anchor and one tag (found ${anchors} and ${tags})` })
+          ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['uwb'], message: `UWB 会话至少要有一个 anchor 和一个 tag（现在是 ${anchors} 个和 ${tags} 个）` })
         } else {
           // A hyperbolic fix is solved from differences, and N anchors give N−1 of them: four
           // anchors for the three a 2-D position needs. MMS measures ranges, not differences,
@@ -846,7 +846,7 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
             ctx.addIssue({
               code: z.ZodIssueCode.custom,
               path: ['uwb'],
-              message: `one-way ranging needs at least 4 anchors for 3 time differences (found ${anchors})`,
+              message: `单向测距至少要 4 个 anchor，才凑得出定位要的 3 个时间差（现在有 ${anchors} 个）`,
             })
           }
           // Every tag gets its own slots inside the block; the block cannot be
@@ -870,14 +870,14 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
             ctx.addIssue({
               code: z.ZodIssueCode.custom,
               path: ['uwb'],
-              message: `the UWB block of ${sc.uwb.blockRstu} RSTU is too short for one round of ${slots} `
-                + `slots × ${sc.uwb.slotRstu} RSTU; lengthen blockRstu or shorten slotRstu`,
+              message: `${sc.uwb.blockRstu} RSTU 的 UWB 块装不下一轮测距的 ${slots} `
+                + `个时隙 × ${sc.uwb.slotRstu} RSTU：请加大 blockRstu 或减小 slotRstu`,
             })
           } else if (mode === 'mms' && !sc.uwb.mms.oneToMany && tags * anchors > fits) {
             ctx.addIssue({
               code: z.ZodIssueCode.custom,
               path: ['uwb'],
-              message: `the UWB block fits ${fits} tag–anchor pairs at ${slots} slots each (found ${tags * anchors}); lengthen blockRstu or shorten slotRstu`,
+              message: `每对占 ${slots} 个时隙，UWB 块只装得下 ${fits} 对 tag–anchor（现在有 ${tags * anchors} 对）：请加大 blockRstu 或减小 slotRstu`,
             })
           } else if (mode === 'mms' && sc.uwb.mms.oneToMany && tags > fits) {
             // A one-to-many round holds every anchor at once, so a block costs one round per
@@ -885,13 +885,13 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
             ctx.addIssue({
               code: z.ZodIssueCode.custom,
               path: ['uwb'],
-              message: `the UWB block fits ${fits} one-to-many rounds at ${slots} slots each (found ${tags}); lengthen blockRstu or shorten slotRstu`,
+              message: `每轮占 ${slots} 个时隙，UWB 块只装得下 ${fits} 轮一对多测距（现在有 ${tags} 轮）：请加大 blockRstu 或减小 slotRstu`,
             })
           } else if (mode !== 'dl-tdoa' && mode !== 'mms' && tags > fits) {
             ctx.addIssue({
               code: z.ZodIssueCode.custom,
               path: ['uwb'],
-              message: `the UWB block fits ${fits} tags at ${slots} slots each (found ${tags}); lengthen blockRstu or shorten slotRstu`,
+              message: `每个 tag 占 ${slots} 个时隙，UWB 块只装得下 ${fits} 个 tag（现在有 ${tags} 个）：请加大 blockRstu 或减小 slotRstu`,
             })
           }
           // …and every frame of the round has to fit its slot. A frame that outlives its
@@ -906,9 +906,9 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
               ctx.addIssue({
                 code: z.ZodIssueCode.custom,
                 path: ['uwb'],
-                message: `a ${sc.uwb.slotRstu} RSTU ranging slot is ${(slotNs / 1000).toFixed(1)} µs, but a round with `
-                  + `${anchors} anchors needs ${(needNs / 1000).toFixed(1)} µs for its longest frame plus flight; `
-                  + 'lengthen slotRstu or use fewer anchors',
+                message: `${sc.uwb.slotRstu} RSTU 的测距时隙只有 ${(slotNs / 1000).toFixed(1)} µs，而 `
+                  + `${anchors} 个 anchor 的一轮测距，最长的那一帧加上飞行时间要 ${(needNs / 1000).toFixed(1)} µs：`
+                  + '请加大 slotRstu 或减少 anchor 数量',
               })
             }
           }
@@ -918,9 +918,9 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
             ctx.addIssue({
               code: z.ZodIssueCode.custom,
               path: ['uwb'],
-              message: `a ranging round takes at most ${UWB_MAX_ANCHORS} anchors (found ${anchors}): `
-                + 'the TWR Final grows by 12 octets per anchor and must stay inside the 127-octet PSDU limit '
-                + '(the one-way modes’ frames are shorter, so the same cap is conservative for them)',
+              message: `一轮测距最多容纳 ${UWB_MAX_ANCHORS} 个 anchor（现在有 ${anchors} 个）：`
+                + 'TWR Final 每多一个 anchor 就长 12 个八位组，而它必须留在 127 个八位组的 PSDU 上限之内'
+                + '（单向模式的帧更短，同一个上限对它们只会更宽松）',
             })
           }
         }
@@ -929,22 +929,22 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
     const ids = new Set<string>()
     for (const n of sc.nodes) {
       if (ids.has(n.id)) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, message: `duplicate node id "${n.id}"` })
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: `节点 id "${n.id}" 重复了：每个节点的 id 要各不相同` })
       }
       ids.add(n.id)
     }
     const serverIds = new Set<string>()
     for (const s of sc.servers) {
-      if (serverIds.has(s.id)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `duplicate server id "${s.id}"` })
+      if (serverIds.has(s.id)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `服务器 id "${s.id}" 重复了：每个服务器的 id 要各不相同` })
       serverIds.add(s.id)
     }
     for (const n of sc.nodes) {
       if (n.p2pTarget !== undefined) {
-        if (n.p2pTarget === n.id) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `node "${n.id}" cannot stream video to itself` })
-        else if (!sc.nodes.some((m) => m.id === n.p2pTarget && m.kind === 'sta')) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `node "${n.id}" streams to unknown station "${n.p2pTarget}"` })
+        if (n.p2pTarget === n.id) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `节点 "${n.id}" 不能把点对点视频推给自己` })
+        else if (!sc.nodes.some((m) => m.id === n.p2pTarget && m.kind === 'sta')) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `节点 "${n.id}" 的点对点视频指向了并不存在的站点 "${n.p2pTarget}"` })
       }
       for (const [profile, sid] of Object.entries(n.servers ?? {})) {
-        if (!serverIds.has(sid)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `node "${n.id}" binds ${profile} to unknown server "${sid}"` })
+        if (!serverIds.has(sid)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `节点 "${n.id}" 把 ${profile} 业务绑到了并不存在的服务器 "${sid}"` })
       }
     }
     // A backscatter tag has no transmitter of its own: with no reader running inventory rounds
@@ -955,7 +955,7 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
     if (!hasReader) {
       sc.nodes.forEach((n, i) => {
         if (n.kind === 'amp' && n.ampTag?.mode === 'backscatter') {
-          ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['nodes', i], message: 'a backscatter tag needs an AP with the RFID inventory on' })
+          ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['nodes', i], message: '反向散射标签需要一个开着 RFID 点存的 AP：它自己没有发射机，没有读写器跑点存轮次就永远发不出声音' })
         }
       })
     }

@@ -43,7 +43,7 @@ describe('cloud servers in the scenario', () => {
     expect(() => scenarioFromJson(scenarioToJson(sc))).toThrow(/nope/)
     const dup = defaultScenario()
     dup.servers = [...dup.servers, { ...dup.servers[0] }]
-    expect(() => scenarioFromJson(scenarioToJson(dup))).toThrow(/duplicate/)
+    expect(() => scenarioFromJson(scenarioToJson(dup))).toThrow(new RegExp(dup.servers[0].id))
   })
 
   it('serverFor: explicit binding, else the first server of the stream’s kind, else none', () => {

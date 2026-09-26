@@ -614,7 +614,8 @@ describe('uwb-mms · one round, step by step', () => {
     }
     const bad = ScenarioSchema.safeParse(four)
     expect(bad.success).toBe(false)
-    expect(JSON.stringify(bad.error!.issues)).toContain('4 responders')
+    expect(bad.error!.issues.map((i) => i.path.join('.'))).toEqual(['uwb'])
+    expect(bad.error!.issues[0].message).toContain(`${(uwbNbSlotFitNs(mms, 4) / 1000).toFixed(1)} µs`)
   })
 
   it('an integrity verdict here is a detection outcome, not a comparison', () => {

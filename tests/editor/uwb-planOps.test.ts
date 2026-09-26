@@ -88,18 +88,18 @@ describe('uwbSessionIssue', () => {
   it('reports a ranging slot too short for the round', () => {
     // 300 RSTU is 250 µs; a 6-anchor DS round needs ~268 µs for its Final.
     const msg = uwbSessionIssue(withUwb(6, { slotRstu: 300 }))
-    expect(msg).toContain('ranging slot')
-    expect(msg).toContain('lengthen slotRstu')
+    expect(msg).toContain('300 RSTU')
+    expect(msg).toContain('slotRstu')
   })
 
   it('reports more anchors than a round can carry', () => {
-    expect(uwbSessionIssue(withUwb(10))).toContain('at most 9 anchors')
+    expect(uwbSessionIssue(withUwb(10))).toMatch(/9 .*anchor.*10/)
   })
 
   it('reports a block that cannot hold every tag', () => {
     let sc = withUwb(4, { blockRstu: 4800, slotRstu: 480 })
     sc = newUwbTag(sc, { x: 5, y: 5 }).sc
-    expect(uwbSessionIssue(sc)).toContain('tags at')
+    expect(uwbSessionIssue(sc)).toMatch(/tag.*blockRstu/)
   })
 
   it('accepts what the session fields save for a contention round', () => {
@@ -166,7 +166,7 @@ describe('uwbSessionIssue', () => {
     // time-scheduled session only, so the field changes the pair together rather than leaving
     // the user a plan it rejects, with the fix two fields away.
     const contending: Partial<UwbSessionCfg> = { method: 'ss', schedule: 'contention' }
-    expect(uwbSessionIssue(withUwb(4, { ...contending, mode: 'ul-tdoa' }))).toMatch(/one-way|two-way/i)
+    expect(uwbSessionIssue(withUwb(4, { ...contending, mode: 'ul-tdoa' }))).toBeTruthy()
     expect(uwbModePatch('ul-tdoa')).toEqual({ mode: 'ul-tdoa', schedule: 'time', aoa: false })
     expect(uwbSessionIssue(withUwb(4, { ...contending, ...uwbModePatch('ul-tdoa') }))).toBeNull()
     // Going back to two-way ranging touches the mode alone: the schedule is the user's again.
@@ -182,8 +182,7 @@ describe('uwbSessionIssue', () => {
     for (const mode of ['dl-tdoa', 'ul-tdoa', 'mms'] as const) {
       const bad = withUwb(4, { mode, aoa: true })
       expect(ScenarioSchema.safeParse(bad).success, mode).toBe(false)
-      expect(uwbSessionIssue(bad), mode)
-        .toBe('angle of arrival is measured on two-way responses; turn it off for TDoA and MMS modes')
+      expect(uwbSessionIssue(bad), mode).toContain('AoA')
     }
     // and the field the user actually touches never produces that pair
     expect(uwbModePatch('dl-tdoa')).toEqual({ mode: 'dl-tdoa', schedule: 'time', aoa: false })
@@ -243,12 +242,12 @@ describe('uwbSessionIssue', () => {
   })
 
   it('still needs four anchors for a one-way mode, which no field can patch away', () => {
-    expect(uwbSessionIssue(withUwb(3, uwbModePatch('ul-tdoa')))).toContain('at least 4 anchors')
+    expect(uwbSessionIssue(withUwb(3, uwbModePatch('ul-tdoa')))).toMatch(/4 .*anchor/)
   })
 
   it('reports a UWB node left without a session', () => {
     const sc = withUwb(2)
-    expect(uwbSessionIssue({ ...sc, uwb: undefined })).toContain('needs a UWB session')
+    expect(uwbSessionIssue({ ...sc, uwb: undefined })).toContain('scenario.uwb')
   })
 
   it('ignores an issue that has nothing to do with ranging', () => {
@@ -286,9 +285,10 @@ describe('uwbSessionIssue', () => {
       const parsed = ScenarioSchema.safeParse(sc)
       expect(parsed.success).toBe(false)
       if (parsed.success) continue
-      const worded = parsed.error.issues.filter((i) => /\bUWB\b|ranging/i.test(i.message))
-      expect(worded.length).toBeGreaterThan(0)
-      for (const i of worded) expect(i.path[0], i.message).toBe('uwb')
+      expect(parsed.error.issues.length).toBeGreaterThan(0)
+      for (const i of parsed.error.issues) expect(i.path[0], i.message).toBe('uwb')
+      // …which is how the editor finds it, whatever the sentence says
+      expect(uwbSessionIssue(sc)).toBeTruthy()
     }
   })
 })
@@ -408,8 +408,7 @@ describe('parseNbChannels', () => {
     }
     // The lists the parser refuses are exactly the ones the schema complains about.
     for (const bad of [[], [3, 3], [250], [-1], [1.5]]) {
-      expect(uwbSessionIssue(session(bad)), JSON.stringify(bad))
-        .toContain('the narrowband allow list needs 1…250 distinct channels 0…249')
+      expect(uwbSessionIssue(session(bad)), JSON.stringify(bad)).toMatch(/1…250.*0…249/)
     }
   })
 })
@@ -678,7 +677,7 @@ describe('the MMS derived line', () => {
     expect(mmsLayout(mms, 3, mmsSlotsPerMs(600)).slots).toBe(100)
     expect(mmsLayout({ ...mms, nonInterleaved: false }, 3, mmsSlotsPerMs(600)).slots).toBe(52)
     const tight = withUwb(3, { ...uwbModePatch('mms'), slotRstu: 600, blockRstu: 30_000, mms })
-    expect(uwbSessionIssue(tight)).toContain('100 slots')
+    expect(uwbSessionIssue(tight)).toContain(String(mmsLayout(mms, 3, mmsSlotsPerMs(600)).slots))
     // …and one that does hold it is accepted, so the warning is about the block and not the mode.
     expect(uwbSessionIssue(withUwb(3, { ...uwbModePatch('mms'), slotRstu: 600, blockRstu: 240_000, mms }))).toBeNull()
   })

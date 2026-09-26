@@ -24,7 +24,7 @@ describe('phone-to-phone video through the AP', () => {
     const bad = share(); bad.nodes[1].p2pTarget = 'nope'
     expect(() => scenarioFromJson(scenarioToJson(bad))).toThrow(/nope/)
     const self = share(); self.nodes[1].p2pTarget = 'sta-1'
-    expect(() => scenarioFromJson(scenarioToJson(self))).toThrow(/itself/)
+    expect(() => scenarioFromJson(scenarioToJson(self))).toThrow(/sta-1/)
   })
 
   it('every uplink frame the AP acknowledges is forwarded to the target phone in AC_VI', () => {

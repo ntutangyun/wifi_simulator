@@ -255,9 +255,9 @@ describe('uwb-blocks · the grid', () => {
     //  eleventh." The schema is the oracle, as it is for the slot lengths further down.
     expect(schemaIssues(2400, 1)).toEqual([])
     expect(schemaIssues(2400, PLAN.roundsPerBlock - TAGS.length)).toEqual([])
-    expect(schemaIssues(2400, PLAN.roundsPerBlock - TAGS.length + 1))
-      .toEqual([`the UWB block fits ${PLAN.roundsPerBlock} tags at ${PLAN.slots} slots each (found 11); `
-        + 'lengthen blockRstu or shorten slotRstu'])
+    const overfull = schemaIssues(2400, PLAN.roundsPerBlock - TAGS.length + 1)
+    expect(overfull).toHaveLength(1)
+    expect(overfull[0]).toMatch(new RegExp(`${PLAN.slots}.*${PLAN.roundsPerBlock}.*11.*blockRstu`))
     // ten tags is the ceiling and it is the round count, not the anchor count, that sets it
     expect(TAGS.length + (PLAN.roundsPerBlock - TAGS.length)).toBe(10)
   })

@@ -63,38 +63,38 @@ describe('UWB nodes and sessions in the schema', () => {
 
   it('still demands exactly one AP as soon as a Wi-Fi station is present', () => {
     const sc = uwbScenario([...twoAnchorsOneTag(), sta('sta-1')])
-    expect(() => ScenarioSchema.parse(sc)).toThrow(/exactly one AP/)
+    expect(() => ScenarioSchema.parse(sc)).toThrow(/AP/)
   })
 
   it('a UWB node must carry UWB settings', () => {
     const nodes = twoAnchorsOneTag()
     delete nodes[2].uwb
-    expect(() => ScenarioSchema.parse(uwbScenario(nodes))).toThrow(/UWB node needs/)
+    expect(() => ScenarioSchema.parse(uwbScenario(nodes))).toThrow(/anchor.*tag/)
   })
 
   it('a station must not carry UWB settings', () => {
     const wifi = sta('sta-1')
     wifi.uwb = { role: 'tag' }
     const sc = uwbScenario([...twoAnchorsOneTag(), wifi])
-    expect(() => ScenarioSchema.parse(sc)).toThrow(/only a UWB node/)
+    expect(() => ScenarioSchema.parse(sc)).toThrow(/UWB/)
   })
 
   it('UWB nodes need a session block on the scenario', () => {
     const sc = uwbScenario(twoAnchorsOneTag())
     delete sc.uwb
-    expect(() => ScenarioSchema.parse(sc)).toThrow(/UWB session/)
+    expect(() => ScenarioSchema.parse(sc)).toThrow(/scenario\.uwb/)
   })
 
   it('a session needs at least one anchor and one tag', () => {
     const onlyAnchors = [uwbNode('anc-1', 'anchor', 0, 0), uwbNode('anc-2', 'anchor', 8, 0)]
-    expect(() => ScenarioSchema.parse(uwbScenario(onlyAnchors))).toThrow(/anchor and .*tag/)
+    expect(() => ScenarioSchema.parse(uwbScenario(onlyAnchors))).toThrow(/anchor.*tag/)
     const onlyTags = [uwbNode('tag-1', 'tag', 0, 0)]
-    expect(() => ScenarioSchema.parse(uwbScenario(onlyTags))).toThrow(/anchor and .*tag/)
+    expect(() => ScenarioSchema.parse(uwbScenario(onlyTags))).toThrow(/anchor.*tag/)
   })
 
   it('the ranging slot must be a whole number of 3-RSTU units', () => {
     const bad = uwbScenario(twoAnchorsOneTag(), { ...DEFAULT_UWB_SESSION, slotRstu: 2401 })
-    expect(() => ScenarioSchema.parse(bad)).toThrow(/multiple of 3 RSTU/)
+    expect(() => ScenarioSchema.parse(bad)).toThrow(/3 RSTU/)
     const good = uwbScenario(twoAnchorsOneTag(), { ...DEFAULT_UWB_SESSION, slotRstu: 2400 })
     expect(() => ScenarioSchema.parse(good)).not.toThrow()
   })
@@ -104,7 +104,7 @@ describe('UWB nodes and sessions in the schema', () => {
     const anchors = [0, 1, 2, 3].map((i) => uwbNode(`anc-${i}`, 'anchor', i * 3, 0))
     const tags = (n: number) => Array.from({ length: n }, (_, i) => uwbNode(`tag-${i}`, 'tag', i, 4))
     expect(() => ScenarioSchema.parse(uwbScenario([...anchors, ...tags(10)]))).not.toThrow()
-    expect(() => ScenarioSchema.parse(uwbScenario([...anchors, ...tags(11)]))).toThrow(/fits 10 tags/)
+    expect(() => ScenarioSchema.parse(uwbScenario([...anchors, ...tags(11)]))).toThrow(/10 .*tag.*11/)
   })
 
   it('every frame must fit its slot: 300 RSTU carries five anchors, not six', () => {
@@ -118,7 +118,7 @@ describe('UWB nodes and sessions in the schema', () => {
     const tag = uwbNode('tag-1', 'tag', 4, 4)
     expect(() => ScenarioSchema.parse(uwbScenario([...anchors(5), tag], shortSlot))).not.toThrow()
     expect(() => ScenarioSchema.parse(uwbScenario([...anchors(6), tag], shortSlot)))
-      .toThrow(/300 RSTU ranging slot is 250.0 µs.*needs 267.6 µs/)
+      .toThrow(/300 RSTU.*250\.0 µs.*267\.6 µs/)
     // and the engine refuses the same round in nanoseconds, so the two cannot drift apart
     expect(() => network([...anchors(6), tag], shortSlot)).toThrow(/cannot carry a round of 6 anchors/)
     expect(rstuNs(DEFAULT_UWB_SESSION.slotRstu)).toBeGreaterThan(uwbSlotFitNs(UWB_MAX_ANCHORS))
@@ -130,13 +130,13 @@ describe('UWB nodes and sessions in the schema', () => {
     const anchors = (n: number) => Array.from({ length: n }, (_, i) => uwbNode(`anc-${i}`, 'anchor', i * 2, 0))
     const tag = uwbNode('tag-1', 'tag', 4, 4)
     expect(() => ScenarioSchema.parse(uwbScenario([...anchors(9), tag]))).not.toThrow()
-    expect(() => ScenarioSchema.parse(uwbScenario([...anchors(10), tag]))).toThrow(/at most 9 anchors \(found 10\)/)
+    expect(() => ScenarioSchema.parse(uwbScenario([...anchors(10), tag]))).toThrow(/9 .*anchor.*10/)
     expect(() => network([...anchors(10), tag])).toThrow(/10 anchors exceed the 9/)
   })
 
   it('contention-based rounds are SS-TWR only', () => {
     const ds = uwbScenario(twoAnchorsOneTag(), { ...DEFAULT_UWB_SESSION, schedule: 'contention', method: 'ds' })
-    expect(() => ScenarioSchema.parse(ds)).toThrow(/contention-based rounds are SS-TWR only in this simulator/)
+    expect(() => ScenarioSchema.parse(ds)).toThrow(/SS-TWR/)
     const ss = uwbScenario(twoAnchorsOneTag(), { ...DEFAULT_UWB_SESSION, schedule: 'contention', method: 'ss' })
     expect(() => ScenarioSchema.parse(ss)).not.toThrow()
   })
@@ -159,7 +159,7 @@ describe('UWB nodes and sessions in the schema', () => {
     const tags = (n: number) => Array.from({ length: n }, (_, i) => uwbNode(`tag-${i}`, 'tag', i, 4))
     const cfg: UwbSessionCfg = { ...DEFAULT_UWB_SESSION, method: 'ss', schedule: 'contention', contentionSlots: 8 }
     expect(() => ScenarioSchema.parse(uwbScenario([...anchors, ...tags(11)], cfg))).not.toThrow()
-    expect(() => ScenarioSchema.parse(uwbScenario([...anchors, ...tags(12)], cfg))).toThrow(/fits 11 tags/)
+    expect(() => ScenarioSchema.parse(uwbScenario([...anchors, ...tags(12)], cfg))).toThrow(/11 .*tag.*12/)
   })
 
   it('one-way ranging needs four anchors and a time schedule', () => {
@@ -169,10 +169,10 @@ describe('UWB nodes and sessions in the schema', () => {
       const cfg = (over: Partial<UwbSessionCfg> = {}): UwbSessionCfg => ({ ...DEFAULT_UWB_SESSION, mode, ...over })
       // Three anchors give two differences; a 2-D hyperbolic fix needs three.
       expect(() => ScenarioSchema.parse(uwbScenario([...anchors(3), tag], cfg())), mode)
-        .toThrow(/needs at least 4 anchors for 3 time differences \(found 3\)/)
+        .toThrow(/4 .*anchor.*3/)
       expect(() => ScenarioSchema.parse(uwbScenario([...anchors(4), tag], cfg())), mode).not.toThrow()
       expect(() => ScenarioSchema.parse(uwbScenario([...anchors(4), tag], cfg({ schedule: 'contention', method: 'ss' }))), mode)
-        .toThrow(/contention-based rounds are two-way ranging only/)
+        .toThrow(/MMS/)
       // One mistake, one issue: there are two schedules, so "not contention" and "needs time"
       // are the same requirement and must not be reported twice.
       const bad = ScenarioSchema.safeParse(uwbScenario([...anchors(4), tag], cfg({ schedule: 'contention', method: 'ss' })))
@@ -195,11 +195,11 @@ describe('UWB nodes and sessions in the schema', () => {
         expect(() => ScenarioSchema.parse(sc), mode).not.toThrow()
         continue
       }
-      expect(() => ScenarioSchema.parse(sc), mode).toThrow(/block of 3000 RSTU is too short for one round/)
+      expect(() => ScenarioSchema.parse(sc), mode).toThrow(/3000 RSTU.*blockRstu/)
       const bad = ScenarioSchema.safeParse(sc)
       expect(bad.success, mode).toBe(false)
-      // …and it replaces the tags-per-block message rather than doubling it.
-      if (!bad.success) expect(bad.error.issues.filter((i) => /tags at/.test(i.message)), mode).toHaveLength(0)
+      // …and it replaces the tags-per-block rule rather than doubling it: one mistake, one issue.
+      if (!bad.success) expect(bad.error.issues, mode).toHaveLength(1)
     }
   })
 
@@ -208,14 +208,14 @@ describe('UWB nodes and sessions in the schema', () => {
     const tags = (n: number) => Array.from({ length: n }, (_, i) => uwbNode(`tag-${i}`, 'tag', i % 10, 4))
     // DS-TWR fits 10 tags in the block; DL-TDoA fits any number, because they all listen to the
     // same anchor round instead of each running one of their own.
-    expect(() => ScenarioSchema.parse(uwbScenario([...anchors, ...tags(11)]))).toThrow(/fits 10 tags/)
+    expect(() => ScenarioSchema.parse(uwbScenario([...anchors, ...tags(11)]))).toThrow(/10 .*tag.*11/)
     const dl: UwbSessionCfg = { ...DEFAULT_UWB_SESSION, mode: 'dl-tdoa' }
     expect(() => ScenarioSchema.parse(uwbScenario([...anchors, ...tags(50)], dl))).not.toThrow()
     // A blink is one slot, so the block holds blockRstu / slotRstu = 100 of them.
     const ul: UwbSessionCfg = { ...DEFAULT_UWB_SESSION, mode: 'ul-tdoa' }
     expect(DEFAULT_UWB_SESSION.blockRstu / DEFAULT_UWB_SESSION.slotRstu).toBe(100)
     expect(() => ScenarioSchema.parse(uwbScenario([...anchors, ...tags(100)], ul))).not.toThrow()
-    expect(() => ScenarioSchema.parse(uwbScenario([...anchors, ...tags(101)], ul))).toThrow(/fits 100 tags at 1 slots each/)
+    expect(() => ScenarioSchema.parse(uwbScenario([...anchors, ...tags(101)], ul))).toThrow(/1 .*100 .*tag.*101/)
   })
 
   it('the slot-fit rule measures the mode’s own longest frame', () => {
@@ -237,7 +237,7 @@ describe('UWB nodes and sessions in the schema', () => {
     expect(uwbSlotFitNs(9, 'dl-tdoa')).toBeLessThan(302_500)
     expect(uwbSlotFitNs(9, 'ul-tdoa')).toBeLessThan(302_500)
     expect(() => ScenarioSchema.parse(uwbScenario([...anchors, tag], { ...DEFAULT_UWB_SESSION, ...short })))
-      .toThrow(/363 RSTU ranging slot is 302.5 µs/)
+      .toThrow(/363 RSTU.*302\.5 µs/)
     expect(() => ScenarioSchema.parse(uwbScenario([...anchors, tag], { ...DEFAULT_UWB_SESSION, ...short, mode: 'dl-tdoa' })))
       .not.toThrow()
     expect(() => ScenarioSchema.parse(uwbScenario([...anchors, tag], { ...DEFAULT_UWB_SESSION, ...short, mode: 'ul-tdoa' })))
@@ -327,7 +327,7 @@ describe('the P802.15.4ab MMS session in the schema', () => {
   it('a train needs at least one fragment', () => {
     const empty = mmsSession({}, { rsfs: 0, rifs: 0 })
     expect(() => ScenarioSchema.parse(uwbScenario(twoAnchorsOneTag(), empty)))
-      .toThrow(/an MMS train needs at least one fragment \(rsfs \+ rifs > 0\)/)
+      .toThrow(/rsfs \+ rifs > 0/)
     expect(() => ScenarioSchema.parse(uwbScenario(twoAnchorsOneTag(), mmsSession({}, { rsfs: 0, rifs: 1 }))))
       .not.toThrow()
   })
@@ -335,7 +335,7 @@ describe('the P802.15.4ab MMS session in the schema', () => {
   it('the MMRS gap is a whole number of zeros, 0 to 64', () => {
     for (const gap of [-1, 65, 33.5]) {
       expect(() => ScenarioSchema.parse(uwbScenario(twoAnchorsOneTag(), mmsSession({}, { gap }))), `gap ${gap}`)
-        .toThrow(/MMRS gap must be an integer 0…64/)
+        .toThrow(/MMRS.*0…64/)
     }
     for (const gap of [0, 33, 64]) {
       expect(() => ScenarioSchema.parse(uwbScenario(twoAnchorsOneTag(), mmsSession({}, { gap }))), `gap ${gap}`)
@@ -348,7 +348,7 @@ describe('the P802.15.4ab MMS session in the schema', () => {
       expect(
         () => ScenarioSchema.parse(uwbScenario(twoAnchorsOneTag(), mmsSession({}, { nbChannels }))),
         JSON.stringify(nbChannels).slice(0, 20),
-      ).toThrow(/the narrowband allow list needs 1…250 distinct channels 0…249/)
+      ).toThrow(/1…250.*0…249/)
     }
     expect(() => ScenarioSchema.parse(uwbScenario(twoAnchorsOneTag(), mmsSession({}, { nbChannels: [0, 3, 249] }))))
       .not.toThrow()
@@ -357,7 +357,7 @@ describe('the P802.15.4ab MMS session in the schema', () => {
   it('an MMS ranging slot is a multiple of 300 RSTU, not of the core standard’s 3', () => {
     // 2403 RSTU is a legal slot everywhere else in the simulator and is refused here.
     expect(() => ScenarioSchema.parse(uwbScenario(twoAnchorsOneTag(), mmsSession({ slotRstu: 2403 }))))
-      .toThrow(/an MMS ranging slot must be a multiple of 300 RSTU \(P802\.15\.4ab draft\)/)
+      .toThrow(/MMS.*300 RSTU.*P802\.15\.4ab/)
     expect(() => ScenarioSchema.parse(uwbScenario(twoAnchorsOneTag(), { ...DEFAULT_UWB_SESSION, slotRstu: 2403 })))
       .not.toThrow()
   })
@@ -367,10 +367,10 @@ describe('the P802.15.4ab MMS session in the schema', () => {
     // 82.1 µs default RSF does.
     const bigRif = mmsSession({ slotRstu: 300 }, { rifs: 1, stsLen: 256 })
     expect(() => ScenarioSchema.parse(uwbScenario(twoAnchorsOneTag(), bigRif)))
-      .toThrow(/a 300 RSTU slot is 250\.0 µs, but the longest MMS fragment needs 262\.8 µs plus flight/)
+      .toThrow(/300 RSTU.*250\.0 µs.*MMS.*262\.8 µs/)
     // The 608 µs REPORT is what really sets the floor: two 300 RSTU slots are 500 µs.
     expect(() => ScenarioSchema.parse(uwbScenario(twoAnchorsOneTag(), mmsSession({ slotRstu: 300 }))))
-      .toThrow(/two 300 RSTU slots are 500\.0 µs, but a narrowband message of a round with 1 responder needs 608\.2 µs plus flight/)
+      .toThrow(/300 RSTU.*500\.0 µs.*1 .*608\.2 µs/)
     // 600 RSTU — the draft's own default slot — clears both.
     expect(() => ScenarioSchema.parse(uwbScenario(twoAnchorsOneTag(), mmsSession({ slotRstu: 600 })))).not.toThrow()
     expect(uwbNbSlotFitNs()).toBe(608_200)
@@ -381,7 +381,7 @@ describe('the P802.15.4ab MMS session in the schema', () => {
     expect(uwbSlotsPerTag('ds', 4, 'time', 8, 'mms', DEFAULT_UWB_MMS)).toBe(28)
     expect(() => ScenarioSchema.parse(uwbScenario([...anchorsN(3), tag], mmsSession()))).not.toThrow()
     expect(() => ScenarioSchema.parse(uwbScenario([...anchorsN(4), tag], mmsSession())))
-      .toThrow(/the UWB block fits 3 tag–anchor pairs at 28 slots each \(found 4\); lengthen blockRstu or shorten slotRstu/)
+      .toThrow(/28 .*3 .*tag–anchor.*4 .*blockRstu/)
   })
 
   it('skips the rules that are about frames the MMS round does not send', () => {
@@ -389,23 +389,23 @@ describe('the P802.15.4ab MMS session in the schema', () => {
     // anchor count, so ten anchors are fine — the block rule is what bounds them.
     const tenPairs = mmsSession({ slotRstu: 600 })
     expect(() => ScenarioSchema.parse(uwbScenario([...anchorsN(10), tag], tenPairs))).not.toThrow()
-    expect(() => ScenarioSchema.parse(uwbScenario([...anchorsN(10), tag]))).toThrow(/at most 9 anchors/)
+    expect(() => ScenarioSchema.parse(uwbScenario([...anchorsN(10), tag]))).toThrow(/9 .*anchor.*10/)
     // The one-way four-anchor rule is about time differences; MMS measures ranges.
     expect(() => ScenarioSchema.parse(uwbScenario([...anchorsN(1), tag], mmsSession()))).not.toThrow()
     expect(() => ScenarioSchema.parse(uwbScenario([...anchorsN(1), tag], { ...DEFAULT_UWB_SESSION, mode: 'dl-tdoa' })))
-      .toThrow(/needs at least 4 anchors/)
+      .toThrow(/4 .*anchor/)
     // And the TWR frame rule: at 300 RSTU a six-anchor two-way round is refused for its Final,
     // while the MMS round of the same six anchors is judged on its fragment and its NB message.
     expect(() => ScenarioSchema.parse(uwbScenario([...anchorsN(6), tag], { ...DEFAULT_UWB_SESSION, slotRstu: 300 })))
-      .toThrow(/300 RSTU ranging slot is 250\.0 µs/)
+      .toThrow(/300 RSTU.*250\.0 µs/)
     let mmsMsg = ''
     try {
       ScenarioSchema.parse(uwbScenario([...anchorsN(6), tag], mmsSession({ slotRstu: 300 })))
     } catch (e) {
       mmsMsg = e instanceof Error ? e.message : String(e)
     }
-    expect(mmsMsg).not.toMatch(/ranging slot is 250\.0 µs/)
-    expect(mmsMsg).toMatch(/two 300 RSTU slots/)
+    expect(mmsMsg).not.toMatch(/250\.0 µs/)
+    expect(mmsMsg).toMatch(/300 RSTU.*500\.0 µs/)
     expect(() => uwbLongestFrameBytes(6, 'mms')).toThrow(/not PSDUs/)
     expect(() => uwbSlotsPerTag('ds', 6, 'time', 8, 'mms')).toThrow(/needs the session's MMS parameters/)
     expect(() => uwbSlotFitNs(6, 'mms')).toThrow(/needs the session's MMS parameters/)
@@ -413,9 +413,9 @@ describe('the P802.15.4ab MMS session in the schema', () => {
 
   it('takes the two rules the one-way modes already carry', () => {
     expect(() => ScenarioSchema.parse(uwbScenario(twoAnchorsOneTag(), mmsSession({ schedule: 'contention', method: 'ss' }))))
-      .toThrow(/contention-based rounds are two-way ranging only; one-way and MMS ranging need a time-scheduled session/)
+      .toThrow(/MMS/)
     expect(() => ScenarioSchema.parse(uwbScenario(twoAnchorsOneTag(), mmsSession({ aoa: true }))))
-      .toThrow(/angle of arrival is measured on two-way responses; turn it off for TDoA and MMS modes/)
+      .toThrow(/AoA/)
   })
 })
 

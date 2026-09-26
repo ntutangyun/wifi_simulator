@@ -181,7 +181,7 @@ describe('ampTagIssue', () => {
     const { sc, tagId } = withBsTag(false)
     expect(ampTagIssue(sc, tagId)).toBe(true)
     // and the schema agrees: this exact plan is the one the cross-node rule rejects
-    expect(() => ScenarioSchema.parse(sc)).toThrow(/a backscatter tag needs an AP with the RFID inventory on/)
+    expect(() => ScenarioSchema.parse(sc)).toThrow(/RFID/)
   })
 
   it('is false for an Active Tx tag, a missing node, and a non-amp node, regardless of the reader', () => {
