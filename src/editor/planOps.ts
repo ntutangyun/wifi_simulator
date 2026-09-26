@@ -3,6 +3,7 @@
  * openings, random STA spawning, scenario (de)serialization.
  */
 import { DEFAULT_UWB_SESSION, ScenarioSchema, SIX_GHZ_GATE_MIN_WIDTH_MHZ, type NodeCfg, type Opening, type Room, type Scenario, type UwbNodeCfg, type Wall } from '../model/scenario'
+import { FADING_DEFAULTS, RICIAN_K_DEFAULT_DB, type FadingCfg } from '../engine/fading'
 import { GEN_FEATURES, defaultFeatures, type FeatureFlag } from '../model/caps'
 import type { Generation } from '../model/types'
 import { STATION_PRESETS, presetNode } from '../model/presets'
@@ -331,6 +332,112 @@ export function ampTagIssue(sc: Scenario, id: string): boolean {
  * from this module.
  */
 export { clampField } from '../ui/inputs'
+
+// ---------------------------------------------------------------------------
+// the fading section's fields
+//
+// Every function below mirrors one rule of `FadingSchema` (src/model/scenario.ts), so the
+// panel can only ever hand the store a section that schema accepts. Nothing validates on the
+// way up — `setScenario` stores whatever it is given, and the parse happens in
+// `Simulation` — so a control that commits an illegal section would hand the user a plan
+// that fails on Run with the fix several fields away.
+// ---------------------------------------------------------------------------
+
+/**
+ * Which fading fields the panel leaves live, given the plan's section (`undefined` = off).
+ *
+ * Two separate decisions, and they nest. The section's own presence is what the switch
+ * controls, and with it off there is nothing for any field to edit. `ricianKdB` is narrower
+ * still: the schema refuses a K factor beside any distribution but rician (a ratio of
+ * line-of-sight power to scattered power means nothing where there is no line-of-sight
+ * component), so the field is live only there.
+ */
+export function fadingFieldsLive(f: FadingCfg | undefined): { fields: boolean; ricianKdB: boolean } {
+  return { fields: f !== undefined, ricianKdB: f?.smallScale === 'rician' }
+}
+
+/**
+ * The section the switch writes: `undefined` for off — the absence the engine reads as "do
+ * not enter the fading branch", which is what keeps every plan that never touched this panel
+ * returning the very same link levels — and the four defaults for on.
+ *
+ * `FADING_DEFAULTS` cannot go up as it stands: it carries a `ricianKdB` for the sake of
+ * callers that need a number whatever the config left out, while its own `smallScale` is
+ * `rayleigh`, and the schema refuses that pair. So the "on" case goes through
+ * `fadingSmallScalePatch`, the one place that decides whether the K factor belongs.
+ */
+export function fadingToggle(on: boolean): FadingCfg | undefined {
+  return on ? fadingSmallScalePatch(FADING_DEFAULTS, FADING_DEFAULTS.smallScale) : undefined
+}
+
+/**
+ * The section with a different small-scale distribution — and, the whole point, with
+ * `ricianKdB` present exactly when that distribution is rician.
+ *
+ * Switching away from rician drops the K factor rather than leaving it behind, for the reason
+ * `generationPatch` drops a 6 GHz link off a node that can no longer reach 6 GHz: a setting
+ * the engine will not read must not sit in the saved plan looking as though it does. Switching
+ * *to* rician has to add one, because `FadingCfg.ricianKdB` is absent in every other
+ * distribution and the field needs a number to show.
+ */
+export function fadingSmallScalePatch(f: FadingCfg, smallScale: FadingCfg['smallScale']): FadingCfg {
+  const { ricianKdB, ...rest } = f
+  return smallScale === 'rician'
+    ? { ...rest, smallScale, ricianKdB: ricianKdB ?? RICIAN_K_DEFAULT_DB }
+    : { ...rest, smallScale }
+}
+
+/**
+ * The plan carrying this fading section — and, for `undefined`, carrying **no `fading` key at
+ * all** rather than one holding `undefined`.
+ *
+ * `{ ...sc, fading: undefined }` would leave the key in place, and while the engine reads the
+ * two alike (it switches on the value, not on `in`), a plan whose switch has been turned off
+ * again ought to be indistinguishable from one that was never here: `'fading' in sc` is the
+ * shape the design's byte-identical guarantee is stated in, and the schema's output keeps an
+ * explicitly-undefined key it is handed.
+ */
+export function withFading(sc: Scenario, f: FadingCfg | undefined): Scenario {
+  if (f !== undefined) return { ...sc, fading: f }
+  const { fading: _off, ...rest } = sc
+  return rest
+}
+
+/**
+ * A fading number field's text, or `null` when the schema would refuse it — treated exactly
+ * like `parseEpc` and `parseIntList`: the field keeps the last value that worked, the typed
+ * text stays on screen because it is what the user has to fix, and a red line says what was
+ * wanted. Clamping instead (the `clampField` route the 6 GHz centre takes) would commit the
+ * lower bound the moment the field was cleared, which for a sigma means silently turning the
+ * shadowing off under the cursor.
+ *
+ * `Number` is lenient where this must not be: `Number('')` is 0 and `Number(' ')` is 0, so a
+ * blank field would commit a figure the user never typed.
+ */
+function parseFadingNumber(raw: string, ok: (n: number) => boolean): number | null {
+  if (raw.trim() === '') return null
+  const n = Number(raw)
+  return Number.isFinite(n) && ok(n) ? n : null
+}
+
+/** The shadowing sigma field. The schema's own bound: dB, and a standard deviation is never
+ * negative — 0 is the legal way to ask for no shadowing at all. */
+export function parseShadowSigmaDb(raw: string): number | null {
+  return parseFadingNumber(raw, (n) => n >= 0)
+}
+
+/** The coherence-time field. The schema's own bound: strictly positive, since the shadow holds
+ * one value per interval and a zero-length interval would redraw it every nanosecond. */
+export function parseCoherenceMs(raw: string): number | null {
+  return parseFadingNumber(raw, (n) => n > 0)
+}
+
+/** The Rician K factor field. The schema bounds it at neither end — K is a ratio in dB, and a
+ * negative one is the legitimate case of a line-of-sight component weaker than the scatter —
+ * so the only thing refused here is text that is not a number. */
+export function parseRicianKdB(raw: string): number | null {
+  return parseFadingNumber(raw, () => true)
+}
 
 /** The 6 GHz channel field: clamp to the schema's [5955, 7115] range, then snap to the
  * nearest 5 MHz step the schema also demands. */

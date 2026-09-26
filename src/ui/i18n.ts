@@ -3,6 +3,7 @@ import type { FeatureFlag, LinkId } from '../model/caps'
 import type { FrameDesc, FrameKind } from '../model/frames'
 import type { Generation } from '../model/types'
 import type { AmpTagMode, NbLbt, NbReportMode, ProfileId, UwbMode } from '../model/scenario'
+import type { FadingCfg } from '../engine/fading'
 import type { RxFailReason } from '../model/records'
 import type { AddrRole, FcBitKey, FieldKey, PpduSegmentKey } from '../model/frameFields'
 import type { NB_MSG_ID } from '../uwb/nb'
@@ -11,6 +12,9 @@ import type { UwbFixMethod } from '../uwb/records'
 
 /** How a multi-user PPDU is split — absent for frames that are always OFDMA-flavored (triggers, UL TB, M-BA). */
 export type MuKind = FrameDesc['muKind']
+
+/** The small-scale fading distributions, named here so a new one cannot be added without a label. */
+export type SmallScale = FadingCfg['smallScale']
 
 export interface LegendItem {
   color: string
@@ -106,6 +110,13 @@ export interface Strings {
     spawn: string; rts: string; rtsHint: string; seed: string; seedHint: string
     sixGhz: string; sixGhzHint: string; sixGhzChannel: (n: number) => string; sixGhzOverlap: (pct: number) => string
     sixGhzNbOverlap: string
+    /** The fading section of the object list: the switch, the four figures, and why a field is grey. */
+    fading: string; fadingOn: string; fadingOnHint: string; fadingOffHint: string
+    fadingSigma: string; fadingSigmaHint: string; fadingSigmaBad: string
+    fadingCoherence: string; fadingCoherenceHint: string; fadingCoherenceBad: string
+    fadingSmallScale: string; fadingSmallScaleHint: string
+    fadingSmallScales: Record<SmallScale, string>
+    fadingRicianK: string; fadingRicianKHint: string; fadingRicianKBad: string; fadingRicianOnly: string
     objects: string; properties: string; guide: string
     nodesHeader: string; rooms: string; walls: string; noRooms: string
     node: string; name: string; wifi: string; link: string; linkHint: string; bands: Record<LinkId, string>
@@ -590,6 +601,23 @@ export const STRINGS: Strings = {
     sixGhzChannel: (n) => `第 ${n} 信道`,
     sixGhzOverlap: (pct) => `与 UWB 5 信道重叠（按 80 MHz 计）：${pct} %`,
     sixGhzNbOverlap: '有一个 MMS 控制信道落在这个 Wi-Fi 信道中',
+    fading: '时变链路（衰落）',
+    fadingOn: '开启衰落',
+    fadingOnHint: '打开后，链路电平不再只由几何与墙决定，而是随时间起伏：慢的一层是阴影衰落，快的一层是小尺度衰落。场景默认不写这一节，也就没有任何衰落，既有场景的运行结果因此一个数都不变。',
+    fadingOffHint: '先勾上「开启衰落」，下面几项才可编辑',
+    fadingSigma: '阴影 σ',
+    fadingSigmaHint: '对数正态阴影衰落的标准差，dB。这是电平在其均值上下漂移的幅度：约三分之二的时间落在 ±σ 之内。0 表示不加阴影。默认 4 dB。',
+    fadingSigmaBad: '阴影 σ 要填一个不小于 0 的数（dB）；0 表示不加阴影',
+    fadingCoherence: '相干时间',
+    fadingCoherenceHint: '阴影值保持不变的那段时间，ms。时间被切成等长的区间，每个区间抽一个阴影值：区间之内恒定，跨区间才换。它是配置值而不是从速度推出来的——这里没有任何东西在动。默认 100 ms。',
+    fadingCoherenceBad: '相干时间要填一个大于 0 的数（ms）',
+    fadingSmallScale: '小尺度分布',
+    fadingSmallScaleHint: '逐帧变化的那一层，一帧之内恒定。无 = 只留阴影；瑞利 = 没有直射径的纯散射，最悲观的那一种；莱斯 = 直射径加散射，两者之比由 K 因子给出。',
+    fadingSmallScales: { none: '无', rayleigh: '瑞利（NLOS）', rician: '莱斯（LOS）' },
+    fadingRicianK: '莱斯 K',
+    fadingRicianKHint: '直射径功率与散射功率之比，dB。K 越大，能拿去起伏的能量越少：K = 0 dB 时两者相当，K 很大时这一层几乎不动，K 趋于 0（线性）就退回瑞利。默认 6 dB。',
+    fadingRicianKBad: '莱斯 K 因子要填一个数（dB）',
+    fadingRicianOnly: '只有分布选「莱斯」时才有 K 因子：瑞利按定义没有直射径，「无」连小尺度衰落都不抽',
     objects: '🗂 对象列表', properties: '⚙ 属性', guide: '📖 编辑器说明',
     nodesHeader: '节点（顺序 = 时间轴泳道）', rooms: '房间', walls: '墙体', noRooms: '暂无 — 用 ▭ 绘制一个',
     node: '节点', name: '名称', wifi: 'Wi-Fi', link: '频段',

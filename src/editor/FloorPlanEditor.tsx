@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { FADING_DEFAULTS, RICIAN_K_DEFAULT_DB, type FadingCfg } from '../engine/fading'
 import { Rng } from '../engine/rng'
 import { GEN_FEATURES, physicalId, type LinkId } from '../model/caps'
 import { DEFAULT_AMP_AP, DEFAULT_AMP_BS, DEFAULT_SIX_GHZ_CENTER_MHZ, normalizeProfiles, PROFILE_IDS, SERVER_KINDS, sixGhzChannelNo, TAMPER_KINDS, TAMPER_PRESETS, TXOP_PROTECTIONS, serverFor, serverKindFor, tamperKindOf, type AmpApCfg, type AmpBackscatterCfg, type AmpTagMode, type Material, type NodeCfg, type ProfileId, type Scenario, type ServerCfg, type ServerKind, type TamperKind, type TxopProtection, type UwbSessionCfg } from '../model/scenario'
@@ -14,8 +15,10 @@ import { canRedo, canUndo } from './history'
 import { UwbNodeFields } from '../uwb/ui/UwbNodeFields'
 import { UwbSessionFields } from '../uwb/ui/UwbSessionFields'
 import {
-  addOpening, alongWall, ampTagIssue, canDeleteNode, clampField, clampSixGhzCenterMhz, generationPatch, hasAp,
-  hitTestNode, hitTestWall, newAnchor, newAp, newTag, newUwbTag, removeNode, roomsToWalls, scenarioFromJson,
+  addOpening, alongWall, ampTagIssue, canDeleteNode, clampField, clampSixGhzCenterMhz, fadingFieldsLive,
+  fadingSmallScalePatch, fadingToggle, generationPatch, hasAp,
+  hitTestNode, hitTestWall, newAnchor, newAp, newTag, newUwbTag, parseCoherenceMs, parseRicianKdB,
+  parseShadowSigmaDb, removeNode, roomsToWalls, scenarioFromJson, withFading,
   scenarioToJson, sixGhzNbOverlaps, sixGhzOverlapPct, snap, spawnRandomStas, uwbSessionIssue,
 } from './planOps'
 
@@ -35,6 +38,8 @@ const LS_KEY = 'wifi-sim.scenario'
 const MATERIAL_COLORS: Record<Material, string> = { drywall: '#c8c2b6', brick: '#a05b48', glass: '#7fb8e0' }
 /** Streams a station can run; any combination may be ticked (none = idle). */
 const STREAMS: ProfileId[] = PROFILE_IDS.filter((p) => p !== 'idle')
+/** The small-scale distributions, in the order the select lists them (`FadingSchema`'s enum). */
+const SMALL_SCALES: FadingCfg['smallScale'][] = ['none', 'rayleigh', 'rician']
 
 interface ViewT {
   cx: number
@@ -531,6 +536,9 @@ export function FloorPlanEditor() {
                   onRemove={() => commit({ ...scenario, uwb: undefined })}
                 />
               )}
+              {/* unconditional: the switch is what opts a plan in, so it has to be reachable
+                  from a plan that has no fading section at all */}
+              <FadingFields fading={scenario.fading} onChange={(fading) => commit(withFading(scenario, fading))} />
               <div>
                 <div style={{ color: 'var(--dim)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
                   {E.servers}
@@ -1000,6 +1008,109 @@ export function FloorPlanEditor() {
           <EditorGuide />
         </div>
       </div>
+    </div>
+  )
+}
+
+/**
+ * The scenario's fading section: the switch that gives a plan time-varying links at all, and
+ * the four figures behind it.
+ *
+ * The switch is the section's own presence — ticking it writes `fading`, clearing it removes
+ * the property — because that is what the engine reads. A plan that has never been here has no
+ * section, and therefore the link levels it has always had.
+ *
+ * Which fields are live, and which section a change produces, are both decided in `planOps.ts`
+ * so the rules can be tested without rendering anything; this component only draws them. The
+ * three number fields buffer their text and refuse what the schema would refuse, exactly as
+ * `AmpEpcInput` below does — nothing illegal reaches the store, where nothing would catch it.
+ */
+function FadingFields({ fading, onChange }: { fading?: FadingCfg; onChange: (f: FadingCfg | undefined) => void }) {
+  const E = useStrings().editor
+  const live = fadingFieldsLive(fading)
+  // What the fields show while the section is absent: the figures ticking the switch would write.
+  const shown = fading ?? FADING_DEFAULTS
+  const offHint = live.fields ? null : E.fadingOffHint
+  return (
+    <div>
+      <div style={{ color: 'var(--dim)', marginBottom: 4 }}>{E.fading}</div>
+      <label style={{ display: 'block', marginBottom: 4 }} title={E.fadingOnHint}>
+        <input type="checkbox" checked={live.fields}
+          onChange={(e) => onChange(fadingToggle(e.target.checked))} />
+        {' '}{E.fadingOn}
+      </label>
+      {/* keyed by whether the field is live, so flipping the switch (or leaving rician) hands
+          back a fresh instance: a refused draft is not the user's problem once the field it
+          belonged to is grey — the same reconciliation trap `AmpEpcInput` documents below. */}
+      <FadingNumber key={`sigma-${live.fields}`}
+        label={E.fadingSigma} unit="dB" min={0} step={0.5} bad={E.fadingSigmaBad}
+        hint={offHint ?? E.fadingSigmaHint} live={live.fields} value={shown.shadowSigmaDb}
+        parse={parseShadowSigmaDb}
+        onCommit={(v) => { if (fading) onChange({ ...fading, shadowSigmaDb: v }) }} />
+      {/* no `min`: the schema's bound is *strictly* positive, which an HTML min cannot express,
+          so the parser is the only authority and 0 gets the red line like any other refusal */}
+      <FadingNumber key={`coherence-${live.fields}`}
+        label={E.fadingCoherence} unit="ms" step={10} bad={E.fadingCoherenceBad}
+        hint={offHint ?? E.fadingCoherenceHint} live={live.fields} value={shown.coherenceMs}
+        parse={parseCoherenceMs}
+        onCommit={(v) => { if (fading) onChange({ ...fading, coherenceMs: v }) }} />
+      <label style={{ display: 'block', marginBottom: 4 }} title={offHint ?? E.fadingSmallScaleHint}>
+        {E.fadingSmallScale}{' '}
+        <select value={shown.smallScale} disabled={!live.fields}
+          onChange={(e) => {
+            if (fading) onChange(fadingSmallScalePatch(fading, e.target.value as FadingCfg['smallScale']))
+          }}>
+          {SMALL_SCALES.map((s) => <option key={s} value={s}>{E.fadingSmallScales[s]}</option>)}
+        </select>
+      </label>
+      <FadingNumber key={`rician-${live.ricianKdB}`}
+        label={E.fadingRicianK} unit="dB" step={1} bad={E.fadingRicianKBad}
+        hint={live.ricianKdB ? E.fadingRicianKHint : offHint ?? E.fadingRicianOnly}
+        live={live.ricianKdB} value={shown.ricianKdB ?? RICIAN_K_DEFAULT_DB}
+        parse={parseRicianKdB}
+        onCommit={(v) => { if (fading) onChange({ ...fading, ricianKdB: v }) }} />
+    </div>
+  )
+}
+
+/**
+ * One number field of the fading section. It holds the typed text and commits on blur or
+ * Enter, and a value `parse` refuses is not committed at all: the draft stays on screen
+ * because it is what the user has to fix, and the red line says what was wanted. The same
+ * shape as `FixedReplyInput` (uwb/ui/UwbSessionFields.tsx), for the same reason — clamping per
+ * keystroke would commit the lower bound the moment the field was cleared.
+ */
+function FadingNumber(
+  { label, unit, min, step, hint, bad, live, value, parse, onCommit }: {
+    label: string; unit: string; min?: number; step: number; hint: string; bad: string
+    live: boolean; value: number; parse: (raw: string) => number | null; onCommit: (v: number) => void
+  },
+) {
+  const [draft, setDraft] = useState<string | null>(null)
+  const [refused, setRefused] = useState(false)
+  const commit = (): void => {
+    if (draft === null) return
+    const parsed = parse(draft)
+    if (parsed === null) {
+      setRefused(true)
+      return
+    }
+    setRefused(false)
+    setDraft(null)
+    onCommit(parsed)
+  }
+  return (
+    <div style={{ marginBottom: 4 }}>
+      <label title={hint}>
+        {label}{' '}
+        <input type="number" min={min} step={step} style={{ width: 74 }} disabled={!live}
+          value={draft ?? value}
+          onChange={(e) => { setDraft(e.target.value); setRefused(false) }}
+          onBlur={commit}
+          onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }} />
+        <span style={{ color: 'var(--dim)', fontSize: 11, marginLeft: 4 }}>{unit}</span>
+      </label>
+      {refused && <div style={issueStyle}>{bad}</div>}
     </div>
   )
 }
