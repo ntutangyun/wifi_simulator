@@ -296,6 +296,13 @@ export const firstUwbRsf = txOf((r) => r.frame.kind === 'uwbRsf')
 /** P802.15.4ab: the first verdict a receiver reached on a whole train — how many fragments
  * arrived, what they combined to, and whether that cleared its sensitivity. */
 export const firstUwbTrain = (r: TLRecord): boolean => r.type === 'UWB_MMS_TRAIN'
+/** P802.15.4ab Config 1: the first SP0 control packet — the POLL, the RESP or the REPORT of a
+ * UWB-driven round, carried on the HRP UWB PHY instead of on the narrowband radio. */
+export const firstUwbSp0 = txOf((r) => r.frame.kind === 'uwbSp0')
+/** P802.15.4ab Config 1: the first train a receiver threw away. Under a UWB-driven control plane
+ * that is the acquisition verdict, not the combining one — the fragments are there and the margin
+ * may be tens of decibels, and not one of them can be timestamped. */
+export const firstUwbTrainLost = (r: TLRecord): boolean => r.type === 'UWB_MMS_TRAIN' && !r.detected
 /** P802.15.4ab: the first narrowband transmission that listen-before-talk stopped, which costs
  * the device every narrowband message of that block. */
 export const firstNbLbt = (r: TLRecord): boolean => r.type === 'UWB_NB_LBT'

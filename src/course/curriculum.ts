@@ -162,6 +162,7 @@ export const COURSE_ORDER: string[] = [
   'uwb-dl-tdoa', 'uwb-ul-tdoa', 'uwb-aoa',
   // UWB Tier 3 — M15 narrowband-assisted multi-millisecond UWB
   'uwb-mms', 'uwb-mms-numbers', 'uwb-nba', 'uwb-nba-coexist',
+  'uwb-uwbd', 'uwb-acquisition', 'uwb-subrounds',
   // UWB Tier 3 — M16 the capstone of the ranging track
   'uwb-capstone',
 ]

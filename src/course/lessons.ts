@@ -52,6 +52,9 @@ import { uwbMms } from './uwb/uwb-mms'
 import { uwbMmsNumbers } from './uwb/uwb-mms-numbers'
 import { uwbNba } from './uwb/uwb-nba'
 import { uwbNbaCoexist } from './uwb/uwb-nba-coexist'
+import { uwbUwbd } from './uwb/uwb-uwbd'
+import { uwbAcquisition } from './uwb/uwb-acquisition'
+import { uwbSubrounds } from './uwb/uwb-subrounds'
 import { uwbCapstone } from './uwb/uwb-capstone'
 import { airtime } from './tier1/airtime'
 import { ifs } from './tier1/ifs'
@@ -129,6 +132,9 @@ const AUTHORED: Lesson[] = [
   uwbMmsNumbers,
   uwbNba,
   uwbNbaCoexist,
+  uwbUwbd,
+  uwbAcquisition,
+  uwbSubrounds,
   uwbCapstone,
   // ======================= MODULE 1 =======================
   airtime,
