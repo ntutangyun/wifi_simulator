@@ -122,11 +122,13 @@ export interface Lesson {
   /** Where the numbers come from: clauses, contributions, model choices. Collapsed. */
   sources?: string[]
   /**
-   * Where this lesson's model is not the radio. Every graded lesson carries at
-   * least one — a simulator that never says what it left out teaches a reader to
-   * trust it further than it deserves. See `Limit` and tests/course/limits.test.ts.
+   * Where this lesson's model is not the radio. Required, and every graded lesson
+   * carries at least one — a simulator that never says what it left out teaches a
+   * reader to trust it further than it deserves. The paused AMP track is the one
+   * place an empty array is accepted, and tests/course/limits.test.ts names those
+   * four lessons so that resuming AMP trips it. See `Limit`.
    */
-  limits?: Limit[]
+  limits: Limit[]
   scenario: () => Scenario
   variants?: LessonVariant[]
   jumps: JumpTarget[]

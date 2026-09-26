@@ -83,6 +83,9 @@ export const ampCoexist: Lesson = {
       'CTS-to-self：点开它读 Duration 字段——4140 µs，正好是后面那个轮。',
     ] },
   ],
+  // AMP 轨暂停，四课都还没写 `limits`。空数组是这个事实的如实记录：
+  // tests/course/limits.test.ts 逐一点名这四课，AMP 恢复时会失败。
+  limits: [],
   scenario: () => ampCoexistScenario(),
   variants: [
     { label: '不加保护', scenario: () => ampCoexistScenario({ protection: 'none' }) },

@@ -114,6 +114,9 @@ export const ampIntro: Lesson = {
     '草案里仍标 TBD 的数值，由仿真器自行选定并标注：标签 −72 dBm 的下行灵敏度、通断键控的 SINR 门限（下行 8 dB，250 kb/s 上行 10 dB）都是模型取值而非标准值；路由器接收 250 kb/s 作答的 −94 dBm 底线同样如此。',
     '本课里的“标签”，标准中的正式名称是 Active Tx 非 AP AMP STA。这里的路由器是 Wi-Fi 7 设备，因为下行 AMP PPDU 带有 U-SIG 字段。规范框架定义的另外两个角色在本场景中都不存在：向标签辐射射频能量的 Energizer（供能器），以及能读懂 AMP 帧的普通 Wi-Fi 终端（AMP-enabled STA）。',
   ],
+  // AMP 轨暂停，四课都还没写 `limits`。空数组是这个事实的如实记录：
+  // tests/course/limits.test.ts 逐一点名这四课，AMP 恢复时会失败。
+  limits: [],
   scenario: () => ampIntroScenario({ dlKbps: 250, ulKbps: 250 }),
   variants: [
     {

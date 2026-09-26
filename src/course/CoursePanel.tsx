@@ -560,7 +560,7 @@ export function CoursePanel() {
           should still not walk away trusting the simulator further than it
           deserves. The kind is shown, because "this is simplified" without
           saying which of the four it is, is the sentence this replaced. */}
-      {lesson.limits && lesson.limits.length > 0 && (
+      {lesson.limits.length > 0 && (
         <div style={{
           margin: '10px 0 4px', padding: '8px 10px', borderRadius: 4,
           background: 'var(--panel2)', borderLeft: '3px solid #e0a83a',

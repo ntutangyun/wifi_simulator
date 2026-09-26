@@ -92,6 +92,9 @@ export const ampPpdu: Lesson = {
     '两个字节的 AMP-SIG 以及若干别的 AMP 字段宽度都是模型取值，而不是标准值——草案里它们仍标着 TBD。收发两端使用的 OOK SINR 门限（下行 8 dB，250 kb/s 上行 10 dB）同样是模型取值。',
     '32 µs 的传统开头、6 µs 的信号扩展，以及 6 Mb/s 下 44 µs 的 CTS，都是 2.4 GHz Wi-Fi 原本就有的东西，并非 P802.11bp 的新发明。而那段开头里的 U-SIG，正是这里的路由器必须是 Wi-Fi 7 设备的原因。',
   ],
+  // AMP 轨暂停，四课都还没写 `limits`。空数组是这个事实的如实记录：
+  // tests/course/limits.test.ts 逐一点名这四课，AMP 恢复时会失败。
+  limits: [],
   scenario: () => ampIntroScenario({ dlKbps: 250, ulKbps: 250 }),
   variants: [
     {

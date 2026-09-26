@@ -71,6 +71,9 @@ export const ampSlots: Lesson = {
       '触发帧 6 个字节的帧体：“Session 1 · ACWE 2 (ACW 3) · 4 slots × 528 µs · reading”，两阶段下则是“…… 4 slots × 272 µs · id only”。',
     ] },
   ],
+  // AMP 轨暂停，四课都还没写 `limits`。空数组是这个事实的如实记录：
+  // tests/course/limits.test.ts 逐一点名这四课，AMP 恢复时会失败。
+  limits: [],
   scenario: () => ampSlotsScenario({ acwe: 2, readMode: 'inline' }),
   variants: [
     { label: 'ACWE 1（ACW 1）', scenario: () => ampSlotsScenario({ acwe: 1, readMode: 'inline' }) },
