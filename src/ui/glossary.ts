@@ -643,7 +643,7 @@ export const GLOSSARY: GlossaryGroup[] = [
   },
   {
     id: 'uwb-mms',
-    title: 'P802.15.4ab：窄带辅助的多毫秒测距（草案）',
+    title: 'P802.15.4ab：多毫秒测距 MMS（草案）',
     items: [
       {
         term: 'MMS',
@@ -672,8 +672,8 @@ export const GLOSSARY: GlossaryGroup[] = [
       },
       {
         term: 'NBA-UWB',
-        alt: '窄带辅助 UWB——第二套电台',
-        def: '本模式实现的正是 802.15.4ab 的这套架构：UWB 片段只负责测量，而一套 250 kb/s 的 O-QPSK 窄带电台承担控制交互、承担这些“素”片段不再提供的捕获，以及测量报告的传递（物理层见标准 Clause 12，具体配置见 4ab 草案 15-23/0100r2 §2.3.1）。它以 10 dBm 发射，灵敏度到 −100 dBm（两者皆为模型取值）。',
+        alt: '窄带辅助 UWB——配置 2 的那套第二电台',
+        def: '草案给 MMS 的两套控制面配置中，配置 2（Config 2，narrowband-assisted MMS, NBA-MMS）走的就是这套架构：UWB 片段只负责测量，而一套 250 kb/s 的 O-QPSK 窄带电台承担控制交互、承担这些“素”片段不再提供的捕获，以及测量报告的传递（物理层见标准 Clause 12，具体配置见 4ab 草案 15-23/0100r2 §2.3.1）。它以 10 dBm 发射，灵敏度到 −100 dBm（两者皆为模型取值）。',
       },
       {
         term: 'NB control channel',
@@ -699,6 +699,46 @@ export const GLOSSARY: GlossaryGroup[] = [
         term: 'Train-derived clock ratio',
         alt: '把片段序列当作一把毫秒长的尺子——间隔见 4ab 草案，σ 为模型取值',
         def: '同一序列中的两个片段，按发送方的时钟恰好相隔整数个毫秒（4ab 草案 15-23/0100r2 §2.3.2），因此同时听到两者的接收机只要用自己的计数器量出这段跨度，就直接读出了时钟比率，其 σ = √2·σ_ts / 跨度——默认序列跨度 7 ms，对应 0.0202 ppm。它在修正后的单边测距里留下的是 ½·T_reply·σ：回复时间 0.5 ms 时为 1.5 mm，而仅凭窄带载波频偏估计是 1.5 cm，完全不修正则是 1.5 m。这正是 MMS 不需要双边测距轮次的原因；当序列的前导片段丢失时，RMARKER 也靠它往回推：回推的毫秒属于发送方，若按未修正的毫秒回推，在 20 ppm 下每丢一个前导片段就是 3.0 m 的测距误差。只听到一个片段的设备则退回到载波频偏抽取，并只能用自己的标称毫秒。',
+      },
+      {
+        term: 'NBA-MMS / UWBD-MMS',
+        alt: '草案给 MMS 的两套控制面配置——4ab 草案 15-25/0194r0',
+        def: '配置 2（Config 2，窄带辅助 MMS，narrowband-assisted MMS, NBA-MMS）把 POLL、RESP、REPORT 三条消息放在那套 2.5 MHz 的窄带电台上，每个窗口占两个测距时隙；配置 1（Config 1，UWB 驱动 MMS，UWB-driven MMS, UWBD-MMS）里设备只有一个电台，同样这三条消息改成 UWB 物理层上的 SP0 包，窗口缩到一个时隙——草案默认的 600 RSTU 时隙下，成对轮次因此从 28 个时隙降到 24 个。会话字段是 `control`。Start of Ranging (SOR) Management 的 PHY Configuration 字段以取值 1–8 指 NBA-MMS、14–15 指 UWBD-MMS；本引擎不逐位编码管理帧，这两组编号只记在这里。',
+      },
+      {
+        term: 'SP0 (BASIC_PACKET)',
+        alt: 'UWB 驱动配置里承载控制消息的那种包——4ab 草案 15-25/0194r0',
+        def: '速率 1.95 Mbit/s。草案给出的短包是 SYNC 46.7 µs（PSR64）+ SFD 5.8 µs + PHR 12.8 µs + PSDU 52.3 µs = 117.6 µs，长包（PSR128）170.1 µs；本引擎三条控制消息一律按短包计时（模型取值），52.3 µs 的 PSDU 折合 12 个八位组，正好是草案那几个压缩 PSDU 的大小。什么时候非它不可：Poll 或 Response 的 message control 字段非零，用例需要可解析私有地址（resolvable private address, RPA）、公开地址或安全，或者要设置短期/长期操作参数；只需要 poll 与 response 时才不用它——为的是拿到最大链路预算。',
+      },
+      {
+        term: 'SYNC+SFD fragment (SHR)',
+        alt: 'MMS 包首那个片段，长度由 RSF 片段长度字段决定——4ab 草案 15-25/0194r0',
+        def: '测距包自己的同步头（synchronization header, SHR）。它比 SP0 短得多、峰值功率也高得多，因此更容易捕获：91 长码 PSR32 的它是 29.1 µs，而 SP0 短包是 117.6 µs——4 倍时长对应 4.3 倍脉冲数，10·log10(4.3) = 6.3 dB；长包一侧是 3.3 倍时长、3.4 倍脉冲数即 5.3 dB，两边同为 PSR64 时是 2.3 倍、2.4 倍即 3.8 dB（那几个分贝值是按脉冲数之比算的，不是按时长之比）。提案的结论句把它们取整为约 4 dB，引擎就用 4 dB 抬高 SP0 的投递门限（模型取值）。UWBD 配置下这个片段本来就够用来估计载波频偏（carrier frequency offset, CFO）与定时，所以在不需要携带别的东西的用例里，单独的控制包并非必需。',
+      },
+      {
+        term: 'Zero-length control phase',
+        alt: 'macMmsRcpPollNSlots 与 macMmsRcpRespNSlots 同时为零——4ab 草案 15-25/0194r0',
+        def: '两个时隙数都取 0 时控制阶段长度为零：SP0 帧被跳过，Start of Ranging (SOR) 的时间偏移直接指向测距包的 SYNC+SFD 片段，成对轮次降到 22 个时隙；取 1–15 则 SP0 在用。提案自己给的理由只有一句——比起把控制阶段做成可选，零长更实际。它只适用于配置 1，本引擎在配置 2 下拒绝这个取值。这一档也是唯一需要真正“捕获”的一档：没有在前的包可以交出时基，包首片段自己要够 −93 dBm，而捕获<i>不</i>累加。',
+      },
+      {
+        term: 'RSF with SFD (phyUwbMmsRsfSfd)',
+        alt: '每个 RSF 后都跟一个 SFD——4ab 草案 15-25/0066r1',
+        def: 'PIB 属性 `phyUwbMmsRsfSfd`，Boolean，默认 0（无）；取 1 时每个 RSF 后面都有一个帧起始定界符（start-of-frame delimiter, SFD），于是任何一个片段都能充当同步头。仅当 Sequence Code Index 为 9–32 且 RSF 片段长度为 32 或 64 时才可取 1。提案的问题陈述是：包首那个 SYNC+SFD 若因干扰未收到，就没有成功的信号捕获，整个测距轮失败。当 UWB MMS 包用 91 长码或 127 长码、且 RSF 的 MSR 值等于 SYNC 的 PSR 值时，SYNC 与 RSF 本来就是相同的序列，取 1 时 RSF+SFD 片段与同一包里在它之前的 SYNC+SFD 片段完全相同。本引擎只在零长度控制阶段下它才有事可做——有 SP0 在前面时时基已经拿到了（模型取值）。',
+      },
+      {
+        term: 'Non-interleaved sub-round',
+        alt: '非交织子轮——4ab 草案 15-25/0292r1（提案为 §10.39.7）',
+        def: '一个轮次按设备切成若干子轮（sub-round），每个子轮是「控制阶段（macMmsRcpPollNSlots 或 macMmsRcpRespNSlots，见 4ab 草案 15-25/0331r1）+ 测距阶段（macMmsRpDuration）」，子轮里只有一台设备在发，它那列片段连续发完，下一台的子轮才开始（提案的图例是 3 个子轮、4 个片段，报告阶段在图里标着 Report (optional)）。发起方不等应答方的 compact 帧就发出自己的 MMS 包，应答方收到之后才开始自己的子轮；两个时隙数都为零时每个子轮只剩测距阶段。默认的交织（interleaved）形态相反——同一毫秒里每台设备各发一个片段。代价直接写在时隙上：草案默认的 600 RSTU 时隙下，成对轮次从 28 个时隙涨到 48 个，三个响应方的一对多轮次从 52 个涨到 100 个（50 ms）。一条后来被撤回的意见（15-25/0331r1 CID #234）还指出它测距时长更长、并受信道相干时间限制——那是一条已撤回的意见，不是草案认下的缺点。',
+      },
+      {
+        term: 'MMS Fixed Reply Time',
+        alt: 'macMmsFixedReplyTime，300…612000 RSTU——4ab 草案 15-25/0224r2',
+        def: '`macMmsFixedReplyTimeEnable` 为 Boolean，默认 FALSE；`macMmsFixedReplyTime` 为整数，取值 300…612000 RSTU（约 0.25…510 ms），默认 600 RSTU。应答方不再等时隙边界，而是自收到对方的包起固定偏移这么久再发——0224r2 把起点写作 MmsRangingRxOnTime（收到第一个片段的时刻），较晚的 15-25/0681r1 改成收完整个 MMS 包之后，本引擎照后者实现。好处是回复时间（reply time, T_reply）成了双方事先约定的常量、或由 One-to-one Response Compact 帧传来的一个数，不必再塞进报告 compact 帧，省下的是能量（15-25/0556r2）。提案自述的前提：应答方要能准确估计到达时间——「这在非交织模式的 MMS 包末尾才可能」——并能精确控制自己相对到达时间的发送时刻；精度代价是测距精度取决于这个回复时间估计得有多准。它占 MMS Number of Fragments Configuration 那一字节的 bit 6。',
+      },
+      {
+        term: 'Reversed MMS order',
+        alt: '反序的轮次，偏移 600 RSTU——4ab 草案 15-25/0556r2',
+        def: '置 TRUE 时应答方先发自己的 MMS 包，发起方自进入测距阶段起偏移 600 RSTU 再发。角色随之交换：先发的一方量到的是往返时间，后发的量到回复时间，于是「谁算得出距离」换到了另一边。它占 MMS Number of Fragments Configuration 那一字节的 bit 7（bit 0–2 是 RSF 片段数、bit 3–5 是 RIF 片段数、bit 6 是固定回复时间）。它与固定回复时间在同一个八位组里，草案并没有禁止两位同时置位，但本仿真器拒绝：反序会让应答方成为开场先发的那一方，而固定回复时间要的起点正是「收完对方的包」（这是本引擎的自洽规则，模型取值，不是草案的禁令）。',
       },
     ],
   },

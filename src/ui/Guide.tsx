@@ -6,7 +6,9 @@ import {
 import { DEFAULT_SIX_GHZ_CENTER_MHZ, DEFAULT_UWB_SESSION, sixGhzChannelNo } from '../model/scenario'
 import { AOA_SIGMA_CLAMP_DEG, AOA_SIGMA_PHI_RAD, aoaSigmaDeg, antennaSpacingM } from '../uwb/aoa'
 import {
-  MMS_COMBINE_MAX_DB, MMS_SETS, UWB_MS_BUDGET_NJ, mmsFragmentDbm, mmsLayout, rifNs, rsfNs,
+  MMS_COMBINE_MAX_DB, MMS_FIXED_REPLY_RSTU_MAX, MMS_FIXED_REPLY_RSTU_MIN, MMS_SETS,
+  MMS_SLOTS_PER_MS, MMS_SP0_MBPS, MMS_SP0_NS, MMS_SP0_PENALTY_DB, MMS_SP0_SEGMENT_NS, MS_RSTU,
+  UWB_MS_BUDGET_NJ, mmsFragmentDbm, mmsLayout, rifNs, rsfNs,
 } from '../uwb/mms'
 import {
   NB_CHANNELS, NB_CHANNEL_MHZ, NB_LBT_CCA_US, NB_LBT_EDT_DBM_PER_MHZ, NB_LBT_THRESHOLD_DBM,
@@ -14,7 +16,7 @@ import {
 } from '../uwb/nb'
 import {
   UWB_BAND_MHZ, UWB_BLINK_BYTES, UWB_CAPTURE_DB, UWB_MAX_INPUT_DBM_PER_MHZ, UWB_RX_SENS_DBM,
-  UWB_SIR_MIN_DB, UWB_TX_POWER_DBM,
+  UWB_SIR_MIN_DB, UWB_TX_POWER_DBM, rstuNs,
 } from '../uwb/phy'
 import { ELLIPSE_DRAW_SCALE } from '../uwb/view'
 
@@ -58,6 +60,21 @@ const MMS_RSF1_DBM = dbmFmt(mmsFragmentDbm(rsfNs(MMS_SETS['rsf-1'].nMsr, MMS_SET
 const MMS_COMBINE_DB = MMS_COMBINE_MAX_DB.toFixed(2) // 12.04
 const MMS_SLOTS = mmsLayout(MMS).slots // 28
 const MMS_SET_COUNT = Object.keys(MMS_SETS).length // 17
+// The draft's own default ranging slot: one millisecond split into `MMS_SLOTS_PER_MS` slots.
+// Every slot count below is laid out at it, which is what the prose says it quotes.
+const MMS_DRAFT_SLOT_RSTU = MS_RSTU / MMS_SLOTS_PER_MS // 600
+const slotMs = (slots: number): string => String((slots * rstuNs(MMS_DRAFT_SLOT_RSTU)) / 1e6)
+/** The pairwise round under each of the three control planes (4ab draft 15-25/0194r0). */
+const MMS_SLOTS_SP0 = mmsLayout({ ...MMS, control: 'uwbd' }).slots // 24
+const MMS_SLOTS_NO_CTRL = mmsLayout({ ...MMS, control: 'uwbd', uwbdControl: 'none' }).slots // 22
+/** What the non-interleaved shape of §10.39.7 costs, pairwise and at three responders. */
+const MMS_SLOTS_NONINT = mmsLayout({ ...MMS, nonInterleaved: true }).slots // 48
+const MMS_SLOTS_3R = mmsLayout(MMS, 3).slots // 52
+const MMS_SLOTS_3R_NONINT = mmsLayout({ ...MMS, nonInterleaved: true }, 3).slots // 100
+/** The SP0 control packet, segment by segment and in total (4ab draft 15-25/0194r0). */
+const us1 = (ns: number): string => (ns / 1000).toFixed(1)
+const SP0 = MMS_SP0_SEGMENT_NS
+const MMS_SP0_US = us1(MMS_SP0_NS) // 117.6
 const NB_POLL_US = (nbPpduNs(NB_POLL_BYTES) / 1000).toFixed(0) // 576
 const NB_RESP_US = (nbPpduNs(NB_RESP_BYTES) / 1000).toFixed(0) // 576
 const NB_REPORT_US = (nbPpduNs(NB_REPORT_BYTES) / 1000).toFixed(0) // 608
@@ -313,12 +330,15 @@ export function Guide() {
         因此在几厘米开外的任何距离，解算出的误差椭圆都又长又扁，且与射线方向相差九十度。
       </p>
 
-      <h4 style={h}>12 · 802.15.4ab：窄带辅助的多毫秒 UWB（草案）</h4>
+      <h4 style={h}>12 · 802.15.4ab：多毫秒测距 MMS（草案）</h4>
       <p style={p}>
         本节内容全部来自 <b>IEEE P802.15.4ab</b>——一份尚未获批的草案（截至 2026 年 9 月处于
         Sponsor ballot 复审阶段）。投票稿仅对会员开放，因此本仿真器是依据该任务组的提案文稿建模的：
         15-22/0381r5（测距周期、时隙划分与先听后说规则）、15-23/0100r2（片段定义与窄带物理层）、
-        15-23/0502r3（必选参数集）以及 15-22/0205r0（毫秒能量预算）——一律转述，绝不照抄。投票稿在编号
+        15-23/0502r3（必选参数集）以及 15-22/0205r0（毫秒能量预算）；本节后半那五项特性另有五份 2025 年
+        的提案——15-25/0194r0（两套控制面配置与零长度控制阶段）、15-25/0066r1（RSF 带 SFD）、
+        15-25/0292r1 与 15-25/0331r1（非交织子轮及其控制阶段）、15-25/0224r2 与 15-25/0556r2
+        （固定回复时间与反序）——一律转述，绝不照抄。投票稿在编号
         与细节上可能与此不同；下文凡标注<i>模型取值</i>处，都是本仿真器自己的选择，而非草案规定。
       </p>
       <p style={p}>
@@ -363,7 +383,7 @@ export function Guide() {
         估计，与第 11 节一样。
       </p>
       <p style={p}>
-        <b>另一套电台。</b>现在 UWB 一侧只负责测量，其余一切都走窄带的 <b>NBA-UWB</b> 电台——O-QPSK、
+        <b>另一套电台。</b>在默认的配置 2 下，UWB 一侧只负责测量，其余一切都走窄带的 <b>NBA-UWB</b> 电台——O-QPSK、
         250 kb/s，每符号 32 个码片、16 µs，4 比特，无前向纠错（标准 Clause 12；具体配置见 4ab 草案
         0100r2 §2.3.1）。它的消息都是压缩 PSDU：一个消息 ID 字节、若干字段，再加 CRC-16——POLL{' '}
         {NB_POLL_BYTES} 字节（{NB_POLL_US} µs）、RESP {NB_RESP_BYTES} 字节（{NB_RESP_US} µs）、REPORT{' '}
@@ -376,11 +396,42 @@ export function Guide() {
         {dbFmt(NB_RX_SENS_DBM)} dBm（两者皆为模型取值）。
       </p>
       <p style={p}>
+        <b>但那套电台只是两种配置之一</b>（4ab 草案 15-25/0194r0）。草案给 MMS 定义了两套控制面。
+        <b>配置 2</b>（Config 2，窄带辅助 MMS，narrowband-assisted MMS, <b>NBA-MMS</b>）就是上面这一套：
+        POLL、RESP、REPORT 三条消息都跑在窄带电台上，每个窗口占两个测距时隙。<b>配置 1</b>
+        （Config 1，UWB 驱动 MMS，UWB-driven MMS, <b>UWBD-MMS</b>）里设备只有一个电台，同样这三条消息
+        改成 UWB 物理层上的 <b>SP0</b>（BASIC_PACKET）包，窗口缩到一个时隙——成对轮次因此从{' '}
+        {MMS_SLOTS} 个时隙降到 {MMS_SLOTS_SP0} 个。（Start of Ranging (SOR) Management 的 PHY
+        Configuration 字段用取值 1–8 指 NBA-MMS、14–15 指 UWBD-MMS；本引擎不逐位编码管理帧，这两组编号
+        只作记录。）省下来的时隙要用分贝去买：SP0 短包是 SYNC {us1(SP0.sync)} µs（PSR64）+ SFD{' '}
+        {us1(SP0.sfd)} µs + PHR {us1(SP0.phr)} µs + PSDU {us1(SP0.psdu)} µs = {MMS_SP0_US} µs
+        （速率 {MMS_SP0_MBPS} Mbit/s；长包 PSR128 为 170.1 µs，本引擎一律按短包计时，模型取值），
+        而测距包自己那个 SYNC+SFD 片段在 91 长码 PSR32 下只要 29.1 µs。<b>那几个分贝值是按脉冲数之比
+        算的，不是按时长之比</b>：4 倍时长对应 4.3 倍脉冲数，10·log10(4.3) = 6.3 dB；长包一侧 3.3 倍时长、
+        3.4 倍脉冲数即 5.3 dB；两边同为 PSR64 时 2.3 倍、2.4 倍即 3.8 dB。提案的结论句把这些取整成
+        「约 4 dB」，引擎就用 {MMS_SP0_PENALTY_DB} dB 抬高 SP0 的投递门限（模型取值）。方向别弄反：
+        SP0 更长、峰值更低，所以<i>更难</i>捕获——它在用时，是它而不是片段决定链路预算。
+      </p>
+      <p style={p}>
+        <b>于是还有第三档：零长度的控制阶段。</b>把轮询与响应两个时隙数
+        （<code>macMmsRcpPollNSlots</code>、<code>macMmsRcpRespNSlots</code>）同时置零，控制阶段长度就是零：
+        SP0 帧被跳过，SOR 的时间偏移直接指向测距包的 SYNC+SFD 片段（该片段的长度由 RSF 片段长度字段
+        决定），成对轮次降到 {MMS_SLOTS_NO_CTRL} 个时隙；取 1–15 则 SP0 在用。提案自己给出的理由只有
+        一句——比起把控制阶段做成可选，零长更实际。这一档只属于配置 1。它也是唯一真要“捕获”的一档：
+        配置 2 里窄带交互已经把时基交给了两端，配置 1 带 SP0 时时基来自那个包，而零长时前面什么都没有，
+        包首那个片段必须自己够 {dbFmt(UWB_RX_SENS_DBM)} dBm——<b>捕获不累加</b>，四个低 6 dB 的片段可以
+        同时是一列检出的序列和一个没被打开的包。这正是 <code>phyUwbMmsRsfSfd</code>（<b>RSF 带 SFD</b>，
+        4ab 草案 15-25/0066r1）要买的东西：置 1 后每个 RSF 后面都跟一个帧起始定界符
+        （start-of-frame delimiter, SFD），该片段与同一个包里在它之前的 SYNC+SFD 片段完全相同，于是任何
+        一个片段都能开包；仅当 Sequence Code Index 为 9–32 且 RSF 片段长度为 32 或 64 时才可置 1。
+      </p>
+      <p style={p}>
         <b>成对的测距周期</b>（4ab 草案 0381r5 §1.1）。一个 MMS 轮次里只有一个发起方（标签）和一个响应方
         （锚点），因此一个测距块要装下的是“每个标签–锚点配对一轮”，而不是“每个标签一轮”。MMS 要求测距时隙
         必须是 300 RSTU 的整数倍（§1.1.1），而草案自己的默认值是 600 RSTU——即 <b>0.5 ms</b>，下面所有数字
         都以此为前提；实际取值由会话的 <code>slotRstu</code> 字段决定。默认轮次为 {MMS_SLOTS} 个时隙，
-        在该时隙长度下恰好等于草案给出的示例轮次时长（Table 1.2.3.2）：
+        在该时隙长度下恰好等于草案给出的示例轮次时长（Table 1.2.3.2）。下表画的是默认形态——配置 2，
+        两列片段交织：
       </p>
       <table style={table}>
         <thead>
@@ -411,6 +462,37 @@ export function Guide() {
         以及没收到 POLL 的响应方，本轮不再有任何动作。
       </p>
       <p style={p}>
+        <b>非交织的子轮</b>（4ab 草案 15-25/0292r1，拟编为 §10.39.7）。上表那种交织
+        （interleaved）形态里，同一毫秒中每台设备各发一个片段。草案另给了一种非交织形态：一个轮次按设备
+        切成若干<b>子轮</b>（sub-round），每个子轮是「控制阶段（<code>macMmsRcpPollNSlots</code> 或{' '}
+        <code>macMmsRcpRespNSlots</code>，见 4ab 草案 15-25/0331r1）+ 测距阶段
+        （<code>macMmsRpDuration</code>）」，子轮里只有一台设备在发，它那列片段连续发完，下一台的子轮才
+        开始；发起方不等应答方的 compact 帧就发出自己的 MMS 包，应答方收到之后才开始自己的子轮。
+        两个时隙数都为零时，每个子轮就只剩测距阶段。代价直接写在时隙上：同样在 600 RSTU 的时隙下，
+        成对轮次从 {MMS_SLOTS} 个时隙涨到 {MMS_SLOTS_NONINT} 个，三个响应方的一对多轮次从{' '}
+        {MMS_SLOTS_3R} 个涨到 {MMS_SLOTS_3R_NONINT} 个，也就是 {slotMs(MMS_SLOTS_3R_NONINT)} ms，
+        于是测距块装不下的提示会比交织时来得早——那不是故障，是这个形态真实的开销。一条后来被<i>撤回</i>
+        的意见（15-25/0331r1 CID #234）还指出它测距时长更长、并受信道相干时间限制；那是一条已撤回的
+        意见，不是草案认下的缺点。
+      </p>
+      <p style={p}>
+        <b>非交织换来的是一个明确的时刻：对方整个 MMS 包收完了。</b>两项特性建立在它之上。
+        <b>固定回复时间</b>（<code>macMmsFixedReplyTimeEnable</code>，Boolean，默认 FALSE；
+        <code>macMmsFixedReplyTime</code>，整数，{MMS_FIXED_REPLY_RSTU_MIN}…{MMS_FIXED_REPLY_RSTU_MAX}{' '}
+        RSTU，默认 {MMS_DRAFT_SLOT_RSTU} RSTU——4ab 草案 15-25/0224r2）让应答方自那一刻起固定偏移这么久
+        再发，于是回复时间（reply time，T<sub>reply</sub>）成了双方事先约定的常量、或由 One-to-one
+        Response Compact 帧传来的一个数，不必再塞进报告 compact 帧——省下的是能量（15-25/0556r2）。
+        0224r2 把起点写作 MmsRangingRxOnTime，即收到第一个片段的时刻；较晚的 15-25/0681r1 改成收完整个
+        MMS 包之后，本引擎照后者实现。提案自述的前提是应答方能准确估计到达时间，而「这在非交织模式的
+        MMS 包末尾才可能」，并且能精确控制自己相对到达时间的发送时刻；精度代价是测距精度取决于这个
+        回复时间估计得有多准。<b>反序</b>（15-25/0556r2）则让应答方先发自己的 MMS 包，发起方自进入测距
+        阶段起偏移 {MMS_DRAFT_SLOT_RSTU} RSTU 再发；先发的一方量到的是往返时间、后发的量到回复时间，
+        于是「谁算得出距离」换到了另一边。两者各占 MMS Number of Fragments Configuration 那一字节的一位
+        （bit 6 与 bit 7；bit 0–2 是 RSF 片段数、bit 3–5 是 RIF 片段数）。草案并没有禁止两位同时置位，
+        但本仿真器拒绝：反序会让应答方成为开场先发的那一方，而固定回复时间要的起点正是「收完对方的包」
+        ——这是本引擎的自洽规则（模型取值），不是草案的禁令。
+      </p>
+      <p style={p}>
         <b>先听后说</b>（4ab 草案 0381r5 §1.4.2，援引 ETSI EN 303 687 的“基于帧的设备”规则）。窄带电台与
         Wi-Fi 6E 共用 6 GHz，因此每次发送前都要对信道做至少 {NB_LBT_CCA_US} µs 的评估，能量检测门限为{' '}
         {dbFmt(NB_LBT_EDT_DBM_PER_MHZ)} dBm/MHz——摊到 {NB_CHANNEL_MHZ} MHz 的整个信道上即{' '}
@@ -438,8 +520,8 @@ export function Guide() {
       </p>
       <p style={p}>
         <b>已知的简化</b>（在 README 所列各项之外）：时间戳精度不随信噪比改善，因此草案最引人注目的那项精度
-        主张<i>并未</i>建模——本仿真器只复现它带来的覆盖距离与时钟比率；没有一对多的测距周期，一个轮次就是
-        一对设备；没有初始化握手、没有公开广播、也没有捕获包——会话由场景直接配置；窄带路径损耗按自由空间
+        主张<i>并未</i>建模——本仿真器只复现它带来的覆盖距离与时钟比率；测距周期默认成对，也可以开成
+        一对多，但仅此两种；没有初始化握手、没有公开广播、也没有捕获包——会话由场景直接配置；窄带路径损耗按自由空间
         加穿墙计算；先听后说只取一次瞬时读数，而非对 {NB_LBT_CCA_US} µs 积分；窄带信道中心频率公式是由频段
         边界反推的；信道切换用哈希顶替了 AES-CTR。
       </p>
