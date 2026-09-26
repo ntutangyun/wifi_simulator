@@ -17,6 +17,7 @@ import type { EmitFn } from '../model/records'
 import type { Wall } from '../model/scenario'
 import type { Ns, Vec3 } from '../model/types'
 import { EventQueue } from './events'
+import { fadingDb, type FadingCfg } from './fading'
 import { byCodeUnit } from './hash'
 import { CCA_ED_DBM, CCA_PD_DBM, PHY_MODES, noiseDbm, reqSinrDb, sinrThreshDb } from './phy'
 import { wallLossDb } from './propagation'
@@ -62,8 +63,44 @@ interface ActiveTx {
   txId: string
   frame: FrameDesc
   endNs: Ns
+  /** When this PPDU went on the air — the instant its shadowing is sampled at. */
+  startNs: Ns
+  /**
+   * What identifies this PPDU to the fading sampler: a counter, taken once here.
+   *
+   * It has to be **stable across one frame's life and different between frames**, because
+   * `linkDbm` is asked for this frame's level several times over that life — carrier sense
+   * when it starts, the capture decision, and every SINR recomputation — and a key that
+   * moved between those asks would deliver one frame to one receiver at several levels,
+   * with which level answered which question decided by event-queue ordering.
+   *
+   * A counter is the one thing here that is exactly per-transmission. The frame *object*
+   * cannot be it: `FrameDesc` carries no identity of its own, a retransmission is a fresh
+   * object with the same fields, and a MAC may reuse one. Nor can the instant: two PPDUs
+   * from different transmitters share it, and the same PPDU is asked about at many instants
+   * after it. The counter is taken in `startTx` and never re-read, so every ask about this
+   * transmission — from any caller, in any order — hashes the same key.
+   */
+  fadeKey: string
   /** The emission registered with the Spectrum, kept so `endTx` retires the same object. */
   emission?: Emission
+}
+
+/**
+ * Time-varying fading on this link's levels, passed only when the scenario asked for it.
+ *
+ * Absent — every scenario that existed before this slice — and `linkDbm` hands back the link
+ * table's own number, reached without entering the fading branch at all rather than by adding
+ * a zero to it. That is what keeps both hash fixtures still.
+ */
+export interface ChannelFading {
+  cfg: FadingCfg
+  /**
+   * The seed a draw is a pure function of, alongside the two node ids and the key. It is the
+   * scenario seed mixed with the link id, so an MLO station does not fade identically on
+   * 2.4 and 5 GHz — two bands that far apart scatter independently. model
+   */
+  seed: number
 }
 
 /**
@@ -309,6 +346,8 @@ export class Channel {
   private pendingStarts: ActiveTx[] = []
   /** Memoised free-space losses between node pairs; nodes do not move during a run. */
   private bsLoss = new Map<string, number>()
+  /** Transmissions started so far, which is what names a frame to the fading sampler. */
+  private txSeq = 0
 
   constructor(
     private q: EventQueue,
@@ -317,6 +356,7 @@ export class Channel {
     private emit: EmitFn,
     private spectrum?: ChannelSpectrum,
     private bsGeometry?: BsGeometry,
+    private fading?: ChannelFading,
   ) {
     // The other technology's power can change between our own events, so every
     // open lock re-takes its max-over-time and carrier sense is re-evaluated.
@@ -372,7 +412,7 @@ export class Channel {
     const tx = this.active.find((a) => a.txId === nodeId)
     return tx === undefined
       ? null
-      : { frame: tx.frame, startNs: tx.endNs - tx.frame.txTimeNs, endNs: tx.endNs }
+      : { frame: tx.frame, startNs: tx.startNs, endNs: tx.endNs }
   }
 
   /**
@@ -395,9 +435,27 @@ export class Channel {
     return txDbm - this.bsLossDb(txId, rxId)
   }
 
-  private linkDbm(txId: string, rxId: string): number {
-    const v = this.linkTable.get(txId)?.get(rxId)
-    return v === undefined ? -200 : v
+  /**
+   * What the link delivers from `tx`'s transmitter to `rxId`: the table's static level, plus
+   * this PPDU's fade when the scenario turned fading on.
+   *
+   * It takes the transmission rather than a bare id precisely so that no caller can ask
+   * without saying *which* frame it is asking about — the fade is a property of a frame on a
+   * link, not of the link, and a caller that lost the frame would silently get a new draw.
+   * Both layers are keyed off the transmission and nothing else: the shadow off the instant it
+   * started (not "now", which would move the level under a frame that straddles a coherence
+   * boundary), the small-scale fade off its `fadeKey`.
+   */
+  private linkDbm(tx: ActiveTx, rxId: string): number {
+    const v = this.linkTable.get(tx.txId)?.get(rxId)
+    // Not a level but a sentinel for "these two cannot hear each other at all"; fading a
+    // sentinel would mean nothing, and it is 100 dB below any receiver's floor either way.
+    if (v === undefined) return -200
+    const f = this.fading
+    // Fading off is the common case and has to stay bit-for-bit: hand back the table's own
+    // number, untouched, rather than adding a zero to it.
+    if (f === undefined) return v
+    return v + fadingDb(f.cfg, f.seed, tx.txId, rxId, tx.startNs, tx.fadeKey)
   }
 
   /** Free space at 2.44 GHz between two nodes of this link, plus the walls in the way. */
@@ -448,9 +506,9 @@ export class Channel {
       // The geometry is present wherever a reader is (an inventory round exists only on a link
       // that has a backscatter tag on it); without it there is nothing to shift against.
       const g = this.bsGeometry
-      if (g !== undefined) return this.linkDbm(tx.txId, rxId) - (g.txPowerOf(tx.txId) - ppduDbm)
+      if (g !== undefined) return this.linkDbm(tx, rxId) - (g.txPowerOf(tx.txId) - ppduDbm)
     }
-    return this.linkDbm(tx.txId, rxId)
+    return this.linkDbm(tx, rxId)
   }
 
   /**
@@ -527,7 +585,9 @@ export class Channel {
     }
     me.locks = []
 
-    const tx: ActiveTx = { txId: nodeId, frame, endNs: t + frame.txTimeNs }
+    const tx: ActiveTx = {
+      txId: nodeId, frame, startNs: t, endNs: t + frame.txTimeNs, fadeKey: `${this.txSeq++}`,
+    }
     this.active.push(tx)
     const sp = this.spectrum
     if (sp) {

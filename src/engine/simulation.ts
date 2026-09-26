@@ -89,7 +89,12 @@ export class Simulation {
   readonly spectrum: Spectrum | null = null
 
   constructor(sc: Scenario) {
-    ScenarioSchema.parse(sc)
+    // The *parsed* fading section, not the one handed in. `fading: {}` is how a plan opts in
+    // and it is the schema that turns that into four numbers (see FadingSchema); reading the
+    // raw section would hand the sampler an undefined sigma and make every level NaN. Absence
+    // survives the parse — the section has no `.default()` — so a scenario that says nothing
+    // still gets `undefined` here, which is what keeps its levels bit-for-bit what they were.
+    const fading = ScenarioSchema.parse(sc).fading
     resetMsduIds()
     this.live = initViewState(sc)
     const emit: EmitFn = (r) => {
@@ -190,7 +195,14 @@ export class Simulation {
         const bsGeometry: BsGeometry | undefined = members.some(isBsTag)
           ? { posOf: (id) => byId.get(id)!.pos, walls: sc.walls, txPowerOf: (id) => byId.get(id)!.txPowerDbm }
           : undefined
-        const ch = new Channel(this.q, () => this.nowNs, table, linkEmit, hook, bsGeometry)
+        // Fading rides on top of the static table, per link. The seed is the scenario's mixed
+        // with the link id so the same node pair does not fade identically on 2.4 and 5 GHz:
+        // bands that far apart scatter independently, and an MLO station that saw one fade on
+        // both would make link steering look useless. model
+        const ch = new Channel(
+          this.q, () => this.nowNs, table, linkEmit, hook, bsGeometry,
+          fading === undefined ? undefined : { cfg: fading, seed: hashStr(`${sc.seed}|${link}`) },
+        )
 
         for (const n of members) {
           const vid = vname(n.id)
@@ -240,6 +252,10 @@ export class Simulation {
               ampBsTagIds: polls ? members.filter(isBsTag).map((m) => m.id) : undefined,
               modeForPeer: (peer) => modeFor(n, peer),
               mcsForPeer: (peer) => {
+                // The *mean* level, deliberately, even with fading on: this is the sender
+                // choosing a rate before the frame exists, and it cannot know the fade of a
+                // frame it has not sent yet — which is exactly why `RateControl`'s loop on
+                // failures is what answers a fade, and why a faded link moves the rate at all.
                 const rssi = table.get(n.id)?.get(peer) ?? -200
                 const mode = modeFor(n, peer)
                 const peerCfg = other(n, peer)
