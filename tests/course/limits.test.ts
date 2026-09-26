@@ -27,11 +27,7 @@ const graded = (l: Lesson): boolean => trackOf(l) !== 'amp'
  * Lessons that have not been through the rollout yet. Strike a lesson off the
  * moment it gains `limits` — the expectation below will tell you when.
  */
-const NOT_YET: readonly string[] = [
-  // UWB
-  'uwb-dl-tdoa', 'uwb-ul-tdoa', 'uwb-aoa', 'uwb-mms', 'uwb-mms-numbers', 'uwb-nba',
-  'uwb-nba-coexist', 'uwb-uwbd', 'uwb-acquisition', 'uwb-subrounds', 'uwb-capstone',
-]
+const NOT_YET: readonly string[] = []
 
 const done = LESSONS.filter((l) => graded(l) && !NOT_YET.includes(l.id))
 
