@@ -558,7 +558,7 @@ const NodeCfgSchema = z.preprocess(
  * the wording the editor shows — and an issue raised on the field would stop that refinement
  * running at all.
  *
- * The five draft features go the other way: each rule below reads nothing but this object's own
+ * The six draft-feature fields go the other way: each rule below reads nothing but this object's own
  * fields, so a setting that contradicts another setting of the same object is wrong whatever the
  * session does with it, and it is refused here rather than only in MMS mode.
  *
@@ -577,7 +577,7 @@ export const UwbMmsSchema = z.object({
   // A scenario saved before one-to-many rounds existed reads back pairwise, which is what it
   // was: the field has to carry a default or the editor would refuse every such plan.
   oneToMany: z.boolean().default(false),
-  // The five draft features, every one defaulted to the behaviour that shipped, so a plan saved
+  // The six draft-feature fields, every one defaulted to the behaviour that shipped, so a plan saved
   // before them reads back as the session it was.
   control: z.enum(['nba', 'uwbd']).default('nba'),
   nonInterleaved: z.boolean().default(false),
@@ -622,7 +622,7 @@ export const UwbMmsSchema = z.object({
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ['fixedReplyRstu'],
-      message: `固定回复时间要落在 ${MMS_FIXED_REPLY_RSTU_MIN}…${MMS_FIXED_REPLY_RSTU_MAX} RSTU：短于一个测距时隙回复不完，长过这个上限就超出草案给这个字段的位宽（15-25/0224r2）`,
+      message: `固定回复时间要落在 ${MMS_FIXED_REPLY_RSTU_MIN}…${MMS_FIXED_REPLY_RSTU_MAX} RSTU（约 0.25…510 ms）：这是草案给 macMmsFixedReplyTime 的取值范围，下界正是一个 MMS 测距时隙的最小长度（15-25/0224r2）`,
     })
   }
   // 反序的意义是“响应方先发”，而交织模式里两端本来就在同一毫秒里各发一片，没有先后可换。
