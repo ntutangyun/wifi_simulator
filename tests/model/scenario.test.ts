@@ -13,13 +13,14 @@ describe('scenario schema', () => {
   it('rejects two APs', () => {
     const sc = defaultScenario()
     sc.nodes.push({ ...sc.nodes[0], id: 'ap2' })
-    expect(() => ScenarioSchema.parse(sc)).toThrow(/AP/)
+    // the count, not just the word: /AP/ alone also matches three other rules
+    expect(() => ScenarioSchema.parse(sc)).toThrow(/现在有 2 个/)
   })
 
   it('rejects zero APs', () => {
     const sc = defaultScenario()
     sc.nodes = sc.nodes.filter((n) => n.kind !== 'ap')
-    expect(() => ScenarioSchema.parse(sc)).toThrow(/AP/)
+    expect(() => ScenarioSchema.parse(sc)).toThrow(/现在有 0 个/)
   })
 
   it('rejects duplicate node ids', () => {
@@ -103,10 +104,11 @@ describe('AMP nodes in the schema', () => {
   it('AMP tag settings belong to an AMP tag node, not to a station or an AP', () => {
     const sc = defaultScenario()
     sc.nodes[1].ampTag = { dlSensDbm: -70 }
-    expect(() => ScenarioSchema.parse(sc)).toThrow(/AMP/)
+    // /AMP/ alone also matches the 2.4 GHz rule and the Wi-Fi 7 polling rule
+    expect(() => ScenarioSchema.parse(sc)).toThrow(/只有 AMP 标签节点/)
     delete sc.nodes[1].ampTag
     sc.nodes[0].ampTag = { id16: 7 }
-    expect(() => ScenarioSchema.parse(sc)).toThrow(/AMP/)
+    expect(() => ScenarioSchema.parse(sc)).toThrow(/只有 AMP 标签节点/)
   })
 })
 

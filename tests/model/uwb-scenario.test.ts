@@ -76,7 +76,9 @@ describe('UWB nodes and sessions in the schema', () => {
     const wifi = sta('sta-1')
     wifi.uwb = { role: 'tag' }
     const sc = uwbScenario([...twoAnchorsOneTag(), wifi])
-    expect(() => ScenarioSchema.parse(sc)).toThrow(/UWB/)
+    // /UWB/ alone also matches the OPPOSITE rule — a UWB node missing its
+    // settings — so the wrong rule firing would have passed this test
+    expect(() => ScenarioSchema.parse(sc)).toThrow(/只有 UWB 节点/)
   })
 
   it('UWB nodes need a session block on the scenario', () => {
