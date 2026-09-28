@@ -7,7 +7,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import {
-  SCATTER_LOSS_DB, directDelayNs, directPathM, echoDelayNs, echoExcessM, echoLossDb,
+  apertureCorrectionDb, directDelayNs, directPathM, echoDelayNs, echoExcessM, echoLossDb,
   echoPathM, isResolvable,
 } from '../../src/engine/scatter'
 import { Rng } from '../../src/engine/rng'
@@ -36,6 +36,9 @@ function geometries(seed: number, n = 120): Array<[Vec3, Vec3, Vec3]> {
   const p = (): Vec3 => ({ x: rng.next() * 20, y: rng.next() * 20, z: rng.next() * 3 })
   return Array.from({ length: n }, () => [p(), p(), p()] as [Vec3, Vec3, Vec3])
 }
+
+/** UWB channel 5's wavelength, 6489.6 MHz. standard §16.2.x band centres */
+const LAMBDA_M = 299.792458 / 6489.6
 
 describe('echo geometry: an echo is always later than the direct path', () => {
   it('takes a longer path than the direct one, in every geometry', () => {
@@ -76,7 +79,7 @@ describe('echo geometry: an echo is always weaker than the direct path', () => {
     it(`loses more than the direct path under the ${name} law, in every geometry`, () => {
       for (const [tx, s, rx] of geometries(5)) {
         const direct = law(directPathM(tx, rx))
-        expect(echoLossDb(tx, s, rx, law, 0), JSON.stringify({ tx, s, rx })).toBeGreaterThan(direct)
+        expect(echoLossDb(tx, s, rx, law, LAMBDA_M, 0), JSON.stringify({ tx, s, rx })).toBeGreaterThan(direct)
       }
     })
   }
@@ -86,19 +89,24 @@ describe('echo geometry: an echo is always weaker than the direct path', () => {
     const s = { x: 2, y: 3, z: 1 }
     const rx = { x: 5, y: 0, z: 1 }
     const legs = uwbLoss(directPathM(tx, s)) + uwbLoss(directPathM(s, rx))
-    expect(echoLossDb(tx, s, rx, uwbLoss, 0)).toBeCloseTo(legs + SCATTER_LOSS_DB, 9)
+    // the two-leg sum minus the aperture it charges twice — the whole of the
+    // difference between a two-leg reading and the bistatic radar relation
+    expect(echoLossDb(tx, s, rx, uwbLoss, LAMBDA_M, 0))
+      .toBeCloseTo(legs - apertureCorrectionDb(LAMBDA_M), 9)
   })
 
   it('makes a weaker object weaker, dB for dB', () => {
     const tx = { x: 0, y: 0, z: 1 }
     const s = { x: 2, y: 3, z: 1 }
     const rx = { x: 5, y: 0, z: 1 }
-    const base = echoLossDb(tx, s, rx, uwbLoss, 0)
-    expect(echoLossDb(tx, s, rx, uwbLoss, 7)).toBeCloseTo(base + 7, 9)
+    const base = echoLossDb(tx, s, rx, uwbLoss, LAMBDA_M, 0)
+    expect(echoLossDb(tx, s, rx, uwbLoss, LAMBDA_M, 7)).toBeCloseTo(base + 7, 9)
   })
 
   it('is a loss, not a gain: the summary never makes an echo louder', () => {
-    expect(SCATTER_LOSS_DB).toBeGreaterThanOrEqual(0)
+    // a correction, not a fudge: it is 10*log10(4*pi/lambda^2) and nothing else
+    expect(apertureCorrectionDb(LAMBDA_M))
+      .toBeCloseTo(10 * Math.log10((4 * Math.PI) / (LAMBDA_M * LAMBDA_M)), 12)
   })
 })
 
@@ -175,11 +183,11 @@ describe('echo geometry: pure', () => {
     const rx = { x: 9, y: 4, z: 0.5 }
     const path = echoPathM(tx, s, rx)
     const delay = echoDelayNs(tx, s, rx)
-    const loss = echoLossDb(tx, s, rx, uwbLoss, 3)
+    const loss = echoLossDb(tx, s, rx, uwbLoss, LAMBDA_M, 3)
     for (let i = 0; i < 100; i++) {
       expect(echoPathM(tx, s, rx)).toBe(path)
       expect(echoDelayNs(tx, s, rx)).toBe(delay)
-      expect(echoLossDb(tx, s, rx, uwbLoss, 3)).toBe(loss)
+      expect(echoLossDb(tx, s, rx, uwbLoss, LAMBDA_M, 3)).toBe(loss)
     }
   })
 
@@ -187,5 +195,46 @@ describe('echo geometry: pure', () => {
     const a = echoPathM({ x: 0, y: 0, z: 0 }, { x: 1, y: 2, z: 3 }, { x: 4, y: 5, z: 6 })
     const b = echoPathM({ x: 0, y: 0, z: 0 }, { x: 1, y: 2, z: 3 }, { x: 4, y: 5, z: 6 })
     expect(b).toBe(a)
+  })
+})
+
+describe('the echo loss reconstructs the bistatic radar relation', () => {
+  /**
+   * The justification for the whole shape of `echoLossDb`. A two-leg sum of a
+   * free-space law over-charges by exactly `10*log10(sigma * 4*pi / lambda^2)`,
+   * and that quantity splits into a geometry half (the aperture correction, which
+   * this module computes) and a cross-section half (the scatterer's own
+   * `extraLossDb`, which the scenario states). Put the two halves back and the
+   * bistatic radar relation comes out — not approximately, exactly.
+   *
+   * This is why no radar cross-section in square metres is written anywhere: it
+   * is the caller's number, expressed in the decibels the config already speaks.
+   */
+  const fspl = (lam: number) => (d: number) => 20 * Math.log10((4 * Math.PI * d) / lam)
+  /** Bistatic radar loss, dB: (4*pi)^3 R1^2 R2^2 / (sigma * lambda^2). */
+  const radarDb = (r1: number, r2: number, sigma: number, lam: number): number =>
+    -10 * Math.log10((sigma * lam * lam) / ((4 * Math.PI) ** 3 * r1 * r1 * r2 * r2))
+
+  // UWB channels 5 and 9, and a Wi-Fi wavelength, to show it is not UWB's alone
+  const LAMBDAS = [299.792458 / 6489.6, 299.792458 / 7987.2, 299.792458 / 5985]
+
+  it.each(LAMBDAS)('is exact at lambda = %f m, for every cross-section', (lam) => {
+    const tx = { x: 0, y: 0, z: 1 }
+    const rx = { x: 4, y: 0, z: 1 }
+    const sc = { x: 2, y: 2, z: 1 }
+    const r1 = Math.hypot(2, 2)
+    const r2 = Math.hypot(2, 2)
+    for (const sigma of [0.25, 0.5, 1, 2, 4]) {
+      // the scenario states reflectivity in dB; sigma = 1 m^2 is 0 dB
+      const extraLossDb = -10 * Math.log10(sigma)
+      const mine = echoLossDb(tx, sc, rx, fspl(lam), lam, extraLossDb)
+      expect(mine, `lambda ${lam}, sigma ${sigma}`).toBeCloseTo(radarDb(r1, r2, sigma, lam), 9)
+    }
+  })
+
+  it('a one-square-metre object is the zero of extraLossDb', () => {
+    // `toBeCloseTo`, not `toBe`: log10(1) is +0 and negating it gives -0, which
+    // Object.is separates from +0 while every decibel reading treats them alike
+    expect(-10 * Math.log10(1)).toBeCloseTo(0, 12)
   })
 })

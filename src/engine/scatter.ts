@@ -54,26 +54,31 @@ export interface ScattererCfg {
 const C_M_PER_NS = 0.299792458 // physics
 
 /**
- * Everything that happens **at** the object, in one number: how much of what
- * arrives leaves again, in which direction, and how much of that the receiver's
- * aperture catches. The radar equation writes those as a cross-section and a
- * stack of `(4π)` and `λ` factors, and this simulator computes none of them, so
- * one constant stands in for the lot.
+ * How much of the two-leg sum is double-charged, in dB, for a signal of
+ * wavelength `lambdaM`.
  *
- * **It is a summary, not a derivation.** 10 dB is a round figure this simulator
- * picked. No radar cross-section in m² appears anywhere in this repository,
- * because none was used — a real echo's strength varies with an object's size,
- * material and orientation, and this engine models no one of those. Writing a σ
- * down and then not using it would be worse than having none.
+ * Charging the caller's path-loss law once per leg spends the receive aperture
+ * twice: a path loss carries the aperture in it, and an echo has one receiver,
+ * not two. The size of the error is not a guess — it is exact, and it is the
+ * whole of the difference between a two-leg sum and the bistatic radar relation:
  *
- * The direction of the error is known and worth stating rather than hiding:
- * charging the caller's path loss twice, once per leg, spends the receive
- * aperture twice too, so an echo here lands **well below** where a bistatic radar
- * budget would put it. The design (§5) accepted that rather than invent a
- * cross-section. A consumer that needs echoes to be audible at all should come
- * back and retune this one number, not work around it downstream. model
+ *     two-leg − radar = 10·log10(sigma · 4π / lambda²)
+ *
+ * which splits cleanly into a geometry half and a cross-section half. This
+ * function is the geometry half, `10·log10(4π / lambda²)`, and it is derived
+ * rather than fitted. The cross-section half is the scatterer's own
+ * `extraLossDb`, so a one-square-metre object is 0 dB and half a square metre is
+ * 3.01 dB — which is why no radar cross-section in m² appears anywhere in this
+ * repository. The scenario states an object's reflectivity; the physics here
+ * states nothing about what objects are made of.
+ *
+ * Verified against the bistatic relation at UWB channels 5 and 9 and at three
+ * cross-sections: the reconstruction is exact to four decimal places.
+ * physics (the relation), model (choosing to express it this way)
  */
-export const SCATTER_LOSS_DB = 10
+export function apertureCorrectionDb(lambdaM: number): number {
+  return 10 * Math.log10((4 * Math.PI) / (lambdaM * lambdaM))
+}
 
 function distM(a: Vec3, b: Vec3): number {
   return Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z)
@@ -122,9 +127,12 @@ export function echoDelayNs(tx: Vec3, s: Vec3, rx: Vec3): number {
 }
 
 /**
- * The echo's path loss, dB: the caller's law charged once per leg, plus the
- * scatter summary, plus whatever this particular object is worse than an ideal
- * reflector.
+ * The echo's path loss, dB: the caller's law once per leg, minus the aperture
+ * the two-leg sum charges twice, plus this object's own reflectivity.
+ *
+ * `lambdaM` is a parameter for the same reason the path-loss law is: the
+ * aperture correction is a wavelength's worth of geometry, and a Wi-Fi caller's
+ * wavelength is not a UWB caller's.
  *
  * `pathLossDb` arrives as a parameter and is the whole reason this module is not
  * UWB's. Give it `uwbPathLossDb`-with-its-pl0 bound and the echo is a UWB echo;
@@ -134,9 +142,14 @@ export function echoDelayNs(tx: Vec3, s: Vec3, rx: Vec3): number {
  * function does not take a wall list and pretend one number covers both.
  */
 export function echoLossDb(
-  tx: Vec3, s: Vec3, rx: Vec3, pathLossDb: (dM: number) => number, extraLossDb = 0,
+  tx: Vec3, s: Vec3, rx: Vec3,
+  pathLossDb: (dM: number) => number,
+  lambdaM: number,
+  extraLossDb = 0,
 ): number {
-  return pathLossDb(distM(tx, s)) + pathLossDb(distM(s, rx)) + SCATTER_LOSS_DB + extraLossDb
+  return pathLossDb(distM(tx, s)) + pathLossDb(distM(s, rx))
+    - apertureCorrectionDb(lambdaM)
+    + extraLossDb
 }
 
 /**
