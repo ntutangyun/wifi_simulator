@@ -19,6 +19,9 @@ import {
 
 export type UwbFrameKind =
   | 'uwbPoll' | 'uwbResp' | 'uwbFinal' | 'uwbReport' | 'uwbBlink'
+  // SS-TWR's deferred reply-time message (standard §10.29.6.3): its own kind, not a second use of
+  // 'uwbResp' — see `makeSsDefer` below and design §4.
+  | 'uwbSsDefer'
   // P802.15.4ab: the two multi-millisecond fragment kinds and the three narrowband messages of
   // the control plane. 4ab draft 15-23/0100r2 §2.3.2 / 15-22/0381r5 Table 1.6.3.1
   | 'uwbRsf' | 'uwbRif' | 'nbPoll' | 'nbResp' | 'nbReport'
@@ -239,11 +242,16 @@ export function makeResp(
 /** The deferred reply-time message of SS-TWR (standard §10.29.6.3): follows the Response, once
  * the anchor has read its own transmit timestamp back, carrying nothing but that one reply time —
  * MHR + RRTI IE + FCS, 17 octets (`UWB_SS_DEFER_BYTES`). It is the frame `replyTime: 'deferred'`
- * exists to send; without it the tag would never learn `Treply` at all. */
+ * exists to send; without it the tag would never learn `Treply` at all.
+ *
+ * Its own `FrameKind` (`'uwbSsDefer'`), not a second use of `'uwbResp'`: the teaching point of the
+ * deferred shape is that the reply time arrives in a message of its own, in a slot of its own —
+ * a timeline that labelled it "UWB Response" would hide the one thing the shape is there to show.
+ * design §4; task-3 Ruling 4. */
 export function makeSsDefer(
   anchor: string, tag: string, replyRctu: number, block: number, round: number, slot: number,
 ): FrameDesc {
-  return uwbFrame('uwbResp', anchor, tag, UWB_SS_DEFER_BYTES, {
+  return uwbFrame('uwbSsDefer', anchor, tag, UWB_SS_DEFER_BYTES, {
     sp: 1, method: 'ss', block, round, slot, ies: ['RRTI'], replyRctu,
   })
 }

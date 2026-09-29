@@ -15,6 +15,10 @@ export const FRAME_KINDS = [
   'data', 'ack', 'rts', 'cts', 'ba', 'trigger', 'mba', 'cfend',
   'ampTrigger', 'ampAck', 'ampResp', 'ampRfid', 'ampBsReply',
   'uwbPoll', 'uwbResp', 'uwbFinal', 'uwbReport', 'uwbBlink',
+  // SS-TWR's deferred reply-time message (standard §10.29.6.3): a slot of its own, distinct from
+  // 'uwbResp' — Ruling 4 of task-3, `docs/superpowers/specs/2026-09-29-reply-time-design.md` §4 —
+  // because it is a second message a round can put on the air, not a variant of the first.
+  'uwbSsDefer',
   'uwbRsf', 'uwbRif', 'nbPoll', 'nbResp', 'nbReport', 'uwbSp0',
 ] as const
 

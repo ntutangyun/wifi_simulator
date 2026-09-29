@@ -19,6 +19,7 @@ export type UwbTLRecord = Extract<TLRecord, { type: `UWB_${string}` }>
 /** The one-word name a ranging frame goes by in the log. */
 const KIND_SHORT: Record<UwbFrameKind, string> = {
   uwbPoll: 'poll', uwbResp: 'resp', uwbFinal: 'final', uwbReport: 'report', uwbBlink: 'blink',
+  uwbSsDefer: 'defer',
   uwbRsf: 'RSF', uwbRif: 'RIF', nbPoll: 'nb-poll', nbResp: 'nb-resp', nbReport: 'nb-report',
   uwbSp0: 'sp0',
 }

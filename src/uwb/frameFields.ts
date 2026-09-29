@@ -38,6 +38,7 @@ const BROADCAST_ADDR16 = 0xffff
 
 const SUBTYPE: Record<UwbFrameKind, string> = {
   uwbPoll: 'UWB Poll', uwbResp: 'UWB Response', uwbFinal: 'UWB Final', uwbReport: 'UWB Report',
+  uwbSsDefer: 'UWB Deferred Reply Time',
   uwbBlink: 'UWB Blink',
   uwbRsf: 'MMS Ranging Fragment', uwbRif: 'MMS Integrity Fragment',
   nbPoll: 'Narrowband POLL', nbResp: 'Narrowband RESP', nbReport: 'Narrowband REPORT',

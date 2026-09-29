@@ -49,6 +49,7 @@ export function frameColor(frame: FrameDesc, apId: string): number {
     case 'uwbBlink':
     case 'uwbFinal': return 0xf59e0b
     case 'uwbResp':
+    case 'uwbSsDefer':
     case 'uwbReport': return 0xfbbf24
     // P802.15.4ab. Both trains are one colour whoever sent them — a fragment is a member of a
     // train, not one side's message — and the narrowband control plane is a second radio

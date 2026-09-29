@@ -11,16 +11,24 @@
  * slot. One tag owns one round per block either way, so N tags need N rounds inside the block.
  *
  * A round is laid out as
- *   SS-TWR:      slot 0 Poll (tag) | slots 1..A Response (anchor 0..A-1)
+ *   SS-TWR:            slot 0 Poll (tag) | slots 1..A Response (anchor 0..A-1)
+ *   SS-TWR deferred:   … | slots A+1..2A deferred reply-time message (anchor 0..A-1)
  *   DS-TWR:      … | slot A+1 Final (tag) | slots A+2..2A+1 Report (anchor 0..A-1)
  *   contention:  slot 0 Poll (tag) | slots 1..S Response (whichever anchors drew the slot)
  *   DL-TDoA: slot 0 Poll (anchor 0) | slots 1..A-1 Response (anchor 1..A-1) | slot A Final (anchor 0)
  *   UL-TDoA: slot 0 Blink (tag)
+ *
+ * SS-TWR's slot count depends on `replyTime` (design §4): embedded and fixed both carry the reply
+ * time on the Response itself (or never put it on the air at all) and stay at `A + 1`; deferred
+ * cannot — the anchor does not yet know the Response's own send time while sending it — so it
+ * answers empty and follows up, once it has read that timestamp back, with a message of its own in
+ * a slot of its own: `2A + 1` slots in total. DS-TWR's slot count never moves with `replyTime`: a
+ * deferred Final just carries less (design §4), on the same A+2+A slots.
  */
 import type { NbLbt, NbReportMode, UwbMode, UwbSessionCfg } from '../model/scenario'
 import type { Ns } from '../model/types'
 import { mmsLayout, mmsSlotsPerMs, type MmsLayout, type MmsPhy } from './mms'
-import { mmsResponders, rstuNs, uwbSlotsPerTag } from './phy'
+import { mmsResponders, rstuNs, uwbSlotsPerTag, type UwbReplyTime } from './phy'
 
 export { rstuNs }
 
@@ -38,6 +46,19 @@ export interface RoundPlan {
   contentionSlots: number
   /** What the round measures: two-way ranges, or one-way time differences (§10.32.3). */
   mode: UwbMode
+  /** Where the two-way reply time travels (design §2/§4): embedded in the Response, carried by a
+   * deferred follow-up message of its own, or never sent at all. Read off the session's own `cfg`
+   * here, in the one place both ends of a round already have to agree — `uwbSlotsPerTag` needs it
+   * to size a deferred SS round, and `slotAction` needs it to know whether slots A+1…2A exist. */
+  replyTime: UwbReplyTime
+  /**
+   * `replyTime: 'fixed'` only: the first responder's fixed reply delay, in nanoseconds, converted
+   * from the session's `fixedReplyRstu` exactly once, here — the same reason `slotNs` and `roundNs`
+   * are converted here rather than left as RSTU for a device to redo: a round has exactly one
+   * nanosecond value for this delay, and a device converting its own copy is a second chance for
+   * the two ends of a round to disagree on it.
+   */
+  fixedReplyNs: Ns
   /** Set exactly when `mode` is 'mms': everything an MMS pair round is laid out from, resolved
    * once here so that no device re-derives it — the two ends of a round must agree on the slot
    * every fragment sits in, and a second copy of `mmsLayout` at the device would be a second
@@ -101,7 +122,9 @@ export function roundPlan(cfg: UwbSessionCfg, anchors: number): RoundPlan {
   // How many slots a millisecond of the MMS cycle costs at this session's slot length: the layout
   // needs it, and so does the slot count below, which is the same layout measured.
   const slotsPerMs = mmsSlotsPerMs(cfg.slotRstu)
-  const slots = uwbSlotsPerTag(cfg.method, anchors, cfg.schedule, cfg.contentionSlots, cfg.mode, cfg.mms, slotsPerMs)
+  const slots = uwbSlotsPerTag(
+    cfg.method, anchors, cfg.schedule, cfg.contentionSlots, cfg.mode, cfg.mms, slotsPerMs, cfg.replyTime,
+  )
   const slotNs = rstuNs(cfg.slotRstu)
   const layout = cfg.mode === 'mms' ? mmsLayout(cfg.mms, mmsResponders(cfg.mms, anchors), slotsPerMs) : null
   const roundNs = slots * slotNs
@@ -110,6 +133,7 @@ export function roundPlan(cfg: UwbSessionCfg, anchors: number): RoundPlan {
     method: cfg.method, anchors, slots, slotNs, roundNs, blockNs,
     roundsPerBlock: cfg.mode === 'dl-tdoa' ? 1 : Math.floor(blockNs / roundNs),
     schedule: cfg.schedule, contentionSlots: cfg.contentionSlots, mode: cfg.mode,
+    replyTime: cfg.replyTime, fixedReplyNs: rstuNs(cfg.fixedReplyRstu),
     // Copied, not referenced: a plan outlives the scenario object it was built from, and a
     // device reading the train's shape must not be able to see it edited underneath.
     ...(layout
@@ -142,6 +166,10 @@ export type SlotAction =
   | { kind: 'uwbPoll'; tx: 'tag' }
   | { kind: 'uwbPoll'; tx: 'anchor'; anchor: number }
   | { kind: 'uwbResp'; tx: 'anchor'; anchor: number }
+  // SS-TWR deferred only (design §4): the follow-up message that carries the reply time the
+  // Response could not, in the round's own slots A+1…2A — a kind of its own, not `'uwbResp'`
+  // again, because a round can now put two different messages on the air per anchor.
+  | { kind: 'uwbSsDefer'; tx: 'anchor'; anchor: number }
   | { kind: 'uwbFinal'; tx: 'tag' }
   | { kind: 'uwbFinal'; tx: 'anchor'; anchor: number }
   | { kind: 'uwbReport'; tx: 'anchor'; anchor: number }
@@ -183,7 +211,14 @@ export function slotAction(p: RoundPlan, slot: number): SlotAction {
     throw new Error(`slotAction: contention round has ${p.slots} slots, asked for ${slot}`)
   }
   if (slot <= p.anchors) return { kind: 'uwbResp', tx: 'anchor', anchor: slot - 1 }
-  if (p.method === 'ss') throw new Error(`slotAction: SS round has ${p.slots} slots, asked for ${slot}`)
+  if (p.method === 'ss') {
+    // Deferred only: slots A+1…2A are the follow-up messages, one per anchor, in the same
+    // anchor order as the Responses that preceded them (design §4).
+    if (p.replyTime === 'deferred' && slot <= 2 * p.anchors) {
+      return { kind: 'uwbSsDefer', tx: 'anchor', anchor: slot - p.anchors - 1 }
+    }
+    throw new Error(`slotAction: SS round has ${p.slots} slots, asked for ${slot}`)
+  }
   if (slot === p.anchors + 1) return { kind: 'uwbFinal', tx: 'tag' }
   if (slot <= 2 * p.anchors + 1) return { kind: 'uwbReport', tx: 'anchor', anchor: slot - p.anchors - 2 }
   throw new Error(`slotAction: DS round has ${p.slots} slots, asked for ${slot}`)

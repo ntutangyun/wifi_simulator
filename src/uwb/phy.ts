@@ -369,6 +369,15 @@ export function mmsResponders(mms: MmsRoundShape, anchors: number): number {
  * (`contentionSlots` 8 is a model default, the RCPS IE's response-phase window). The schema's
  * block-fit rule and `roundPlan` share this one definition.
  *
+ * `replyTime` only changes the SS branch, and only for `'deferred'`: embedded and fixed both stay
+ * at `A + 1` (the reply time either rides the Response or never goes on the air at all), but a
+ * deferred round adds one slot per anchor for the follow-up message that carries the reply time
+ * on its own (standard §10.29.6.3) — `2A + 1` in total. DS-TWR's slot count never moves: deferred
+ * there only relocates the Final's payload into the reports that already have a slot each (design
+ * §4). A time-scheduled DS round with no reply-time carried at all (contention, or a mode this
+ * function returns early for) never reaches the `replyTime` check, so `replyTime` is meaningless
+ * to it and its default of `'embedded'` is never asked to mean anything.
+ *
  * One-way ranging counts its slots differently, because the tag is not what the round is built
  * around: a DL-TDoA round is the anchors' own (Poll + N−1 Responses + Final = N + 1 slots) and
  * every tag in the scenario listens to that same round, while a UL-TDoA round is one blink slot
@@ -379,7 +388,7 @@ export function mmsResponders(mms: MmsRoundShape, anchors: number): number {
  * window per responder at each end — `mmsResponders` is the one place that count is decided. */
 export function uwbSlotsPerTag(
   method: 'ss' | 'ds', anchors: number, schedule: 'time' | 'contention' = 'time', contentionSlots = 8,
-  mode: UwbMode = 'twr', mms?: MmsRoundShape, slotsPerMs = MMS_SLOTS_PER_MS,
+  mode: UwbMode = 'twr', mms?: MmsRoundShape, slotsPerMs = MMS_SLOTS_PER_MS, replyTime: UwbReplyTime = 'embedded',
 ): number {
   if (mode === 'mms') {
     if (!mms) throw new Error("uwbSlotsPerTag: mode 'mms' needs the session's MMS parameters")
@@ -392,7 +401,8 @@ export function uwbSlotsPerTag(
   if (mode === 'ul-tdoa') return 1
   if (mode === 'dl-tdoa') return anchors + 1
   if (schedule === 'contention') return 1 + contentionSlots
-  return method === 'ss' ? anchors + 1 : 2 * anchors + 2
+  if (method === 'ss') return replyTime === 'deferred' ? 2 * anchors + 1 : anchors + 1
+  return 2 * anchors + 2
 }
 
 /** Guard between the end of a slot's PPDU and the slot boundary: 200 ns is 60 m of flight (model). */
