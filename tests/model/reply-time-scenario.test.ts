@@ -221,3 +221,37 @@ describe('UwbSessionCfg.replyTime: fixed — the §6.1 two-sided slot budget', (
     }
   })
 })
+
+describe('the block-fit rule counts the round the session will actually run', () => {
+  /**
+   * The rule at `ScenarioSchema`'s `superRefine` asks `uwbSlotsPerTag` how long a round is and
+   * refuses a block too short to hold one. Task 3 gave that function a `replyTime` argument and
+   * could not thread it through here — this file was being edited by another task at the time —
+   * so the call defaulted to `'embedded'` and an SS-deferred round was measured A slots shorter
+   * than it runs. A block sized for the embedded shape would have been accepted for the deferred
+   * one, and the round would then have run into the next block's slots with nothing noticing:
+   * the scheduler starts each block on the clock whatever the last one was still doing.
+   *
+   * Two anchors: embedded is 3 slots, deferred is 5. A 9600 RSTU block at the default 2400 RSTU
+   * slot holds exactly 4 — above one shape and below the other, which is the only block length
+   * that can tell the two apart.
+   */
+  const fourSlotBlock = (replyTime: UwbSessionCfg['replyTime']): Scenario => uwbScenario(
+    twoAnchorsOneTag(),
+    { ...DEFAULT_UWB_SESSION, method: 'ss', replyTime, blockRstu: 9600 },
+  )
+
+  it('accepts the block for the embedded round it does fit', () => {
+    expect(ScenarioSchema.safeParse(fourSlotBlock('embedded')).success).toBe(true)
+  })
+
+  it('refuses the same block for the deferred round, and says how many slots it needs', () => {
+    const r = ScenarioSchema.safeParse(fourSlotBlock('deferred'))
+    expect(r.success).toBe(false)
+    if (r.success) return
+    const message = r.error.issues.map((i) => i.message).join(' | ')
+    // 2A+1 at two anchors. The number has to be in the message: "the block is too short" without
+    // it leaves the author guessing which way to move which knob.
+    expect(message).toContain('5')
+  })
+})

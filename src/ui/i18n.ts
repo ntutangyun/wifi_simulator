@@ -462,6 +462,9 @@ export interface Strings {
     /** A backscatter tag counting down the reader's slots — powered, but not its turn. */
     bsWait: string; bsWaitNote: string
     uwbPoll: (anchors: number) => string; uwbResp: (slot: number) => string
+    /** SS-TWR with a deferred reply time (standard §10.29.6.3): the reply time in a message
+     * of its own, a slot later than the Response it describes. */
+    uwbSsDefer: (slot: number) => string
     uwbFinal: string; uwbReport: (dst: string) => string; uwbBlink: string
     /** P802.15.4ab: one fragment of a train ("RSF 3 of 8"), and the three narrowband messages. */
     uwbFragment: (kind: string, index: number, of: number) => string
@@ -1187,6 +1190,7 @@ export const STRINGS: Strings = {
     bsWaitNote: '反向散射标签既没有时钟也没有发射机：只有读写器的载波在空中时它才活着，它靠数读写器发出的 QueryRep 一路倒数到自己的时隙。',
     uwbPoll: (n) => `UWB 轮询帧——标签对 ${n} 个锚点开启一轮测距`,
     uwbResp: (slot) => `测距时隙 ${slot} 内的 UWB 响应帧`,
+    uwbSsDefer: (slot) => `测距时隙 ${slot} 内的 UWB 延后报文——锚点补上它那一次响应的回复时间`,
     uwbFinal: 'UWB 终结帧——标签广播它测得的时间（DS-TWR）',
     uwbReport: (dst) => `UWB 测量报告 → ${dst}`,
     uwbBlink: 'UWB 闪发帧 — 标签只发一次，由各锚点打时间戳（UL-TDoA）',

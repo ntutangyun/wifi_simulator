@@ -1080,9 +1080,12 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
           // …at this session's own slots per millisecond, because a non-interleaved MMS ranging
           // phase is that many slots per millisecond of train: sized at the draft's default
           // instead, the rule would check the block against a round of the wrong length.
+          // …and at this session's own reply-time shape, because an SS round with a deferred
+          // reply time is 2A+1 slots rather than A+1 (design §4): left at the default the rule
+          // would check the block against a round A slots shorter than the one it will run.
           const slots = uwbSlotsPerTag(
             sc.uwb.method, anchors, sc.uwb.schedule, sc.uwb.contentionSlots, mode, sc.uwb.mms,
-            mmsSlotsPerMs(sc.uwb.slotRstu),
+            mmsSlotsPerMs(sc.uwb.slotRstu), sc.uwb.replyTime,
           )
           const fits = Math.floor(sc.uwb.blockRstu / (slots * sc.uwb.slotRstu))
           // One round has to fit the block in every mode, DL-TDoA included: a round that outlives

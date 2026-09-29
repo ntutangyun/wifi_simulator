@@ -327,6 +327,10 @@ export function spanTooltip(s: LaneSpan, T: Strings['tooltips'], t?: Ns, nameOf:
         f.kind === 'ampBsReply' ? T.ampBsReply(GEN2_REPLY_NAME[f.amp?.bs?.reply ?? 'rn16'], f.amp?.bs?.slot ?? 0) :
         f.kind === 'uwbPoll' ? T.uwbPoll(f.uwb?.schedule?.length ?? 0) :
         f.kind === 'uwbResp' ? T.uwbResp(f.uwb?.slot ?? 0) :
+        // Standard §10.29.6.3: the reply time arrives a slot later, in a message of its own.
+        // Without this branch the chain falls through to the CTS label at the end — which is
+        // what it did until the deferred shape had a live round to appear in.
+        f.kind === 'uwbSsDefer' ? T.uwbSsDefer(f.uwb?.slot ?? 0) :
         f.kind === 'uwbFinal' ? T.uwbFinal :
         f.kind === 'uwbReport' ? T.uwbReport(dst) :
         f.kind === 'uwbBlink' ? T.uwbBlink :
