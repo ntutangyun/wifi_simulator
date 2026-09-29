@@ -4,7 +4,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { useStrings } from '../ui/i18n'
 import { useUi } from '../ui/store'
 import { buildHouse } from './house'
-import { buildNodeMeshes, updateNodeVisual } from './nodes'
+import { buildNodeMeshes, buildScattererMeshes, updateNodeVisual } from './nodes'
 import { EffectsLayer } from './effects'
 import { UwbOverlay } from '../uwb/scene'
 import { primaryLaneOf } from '../model/view'
@@ -45,6 +45,10 @@ export function Viewport() {
     scene.add(buildHouse(sc))
     const nodeMeshes = buildNodeMeshes(sc)
     for (const g of nodeMeshes.values()) scene.add(g)
+    // The reflecting objects, if the plan has the section at all. They are static: no halo, no
+    // status line, nothing the playhead updates — an object in the room does nothing, it only
+    // gives a signal a second route. A plan with no `scatterers` section adds nothing here.
+    for (const g of buildScattererMeshes(sc).values()) scene.add(g)
     const effects = new EffectsLayer(sc)
     scene.add(effects.group)
     // Range rings, fix and error ellipse: only a scenario that ranges gets them.

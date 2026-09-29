@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { flightProgress, frameColor } from '../../src/scene/effects'
-import { haloColor, labelText, statusText, txopText } from '../../src/scene/nodes'
+import { haloColor, labelText, scattererLabel, scattererList, statusText, txopText } from '../../src/scene/nodes'
 import { wallSolidSpans } from '../../src/scene/house'
 import type { FrameDesc } from '../../src/model/frames'
 import type { NodeView } from '../../src/model/view'
@@ -109,5 +109,44 @@ describe('appLine: the apps shown under a station’s name in the 3D view', () =
     expect(appLine({ ...sta, profiles: ['gaming', 'video'] })).toBe('🎮 游戏 · 📺 视频')
     expect(appLine({ ...sta, profiles: ['idle'] })).toBe('')
     expect(appLine({ ...sta, kind: 'ap', profiles: ['idle'] })).toBe('')
+  })
+})
+
+/**
+ * The reflecting objects in the 3-D view. What can be checked in a `node`
+ * environment is the decision, not the mesh: `buildScattererGroup` reaches for
+ * `document` through the label sprite, exactly as `buildNodeGroup` does, which
+ * is why neither is constructed here.
+ *
+ * The rule that matters is the absence: a plan with no `scatterers` section must
+ * add nothing to the scene graph, so it renders what it rendered before objects
+ * existed.
+ */
+describe('the reflecting objects the house draws', () => {
+  const plan = (scatterers?: { id: string; pos: { x: number; y: number; z: number }; extraLossDb: number }[]) => ({
+    rooms: [{ x: 0, y: 0, w: 4, h: 4, name: 'Lab' }], walls: [], nodes: [], servers: [],
+    seed: 1, rtsThresholdBytes: 3000, snapshotIntervalMs: 10,
+    ...(scatterers === undefined ? {} : { scatterers }),
+  }) as unknown as Parameters<typeof scattererList>[0]
+
+  const WARDROBE = { id: 'obj-1', pos: { x: 1, y: 1, z: 1 }, extraLossDb: -10 }
+
+  it('draws nothing at all for a plan with no section', async () => {
+    const { buildScattererMeshes } = await import('../../src/scene/nodes')
+    expect(scattererList(plan())).toEqual([])
+    // no group is constructed, so nothing reaches `document` either
+    expect(buildScattererMeshes(plan()).size).toBe(0)
+  })
+
+  it('draws one object per entry once the section is there', () => {
+    expect(scattererList(plan([WARDROBE, { ...WARDROBE, id: 'obj-2' }])).map((s) => s.id))
+      .toEqual(['obj-1', 'obj-2'])
+    // an empty section is legal and means "the section, with nothing in it yet"
+    expect(scattererList(plan([]))).toEqual([])
+  })
+
+  it('floats the object’s name over how strongly it reflects, minus sign and all', () => {
+    expect(scattererLabel(WARDROBE)).toEqual({ text: 'obj-1', sub: '−10 dB' })
+    expect(scattererLabel({ ...WARDROBE, extraLossDb: 3.01 }).sub).toBe('3.01 dB')
   })
 })

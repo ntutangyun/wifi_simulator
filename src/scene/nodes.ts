@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import type { ScattererCfg } from '../engine/scatter'
 import type { MacStateName } from '../model/records'
 import type { NodeCfg, ProfileId, Scenario } from '../model/scenario'
 import type { NodeView } from '../model/view'
@@ -165,6 +166,86 @@ export function buildNodeGroup(n: NodeCfg): THREE.Group {
 export function buildNodeMeshes(sc: Scenario): Map<string, THREE.Group> {
   const map = new Map<string, THREE.Group>()
   for (const n of sc.nodes) map.set(n.id, buildNodeGroup(n))
+  return map
+}
+
+// ---------------------------------------------------------------------------
+// the reflecting objects
+// ---------------------------------------------------------------------------
+
+/**
+ * The slate of a piece of furniture — the same colour the floor plan draws a
+ * reflecting object in, so the diamond on the plan and the diamond in the house
+ * are recognisably one thing.
+ */
+const SCATTERER_COLOR = 0x94a3b8
+
+/**
+ * The reflecting objects a scene draws: the section's own list, or none at all.
+ *
+ * The distinction the whole feature rests on is between a scenario that has the
+ * `scatterers` section and one that does not (src/model/scenario.ts), and this
+ * function is deliberately the *only* place the 3-D view asks. A plan with no
+ * section draws no diamonds and adds nothing to the scene graph, so it renders
+ * exactly what it rendered before this existed.
+ */
+export function scattererList(sc: Scenario): ScattererCfg[] {
+  return sc.scatterers ?? []
+}
+
+/** The two lines floating over one object: its name, and how strongly it reflects. */
+export function scattererLabel(s: ScattererCfg): { text: string; sub: string } {
+  return { text: s.id, sub: `${String(s.extraLossDb).replace('-', '−')} dB` }
+}
+
+/**
+ * One reflecting object, as the house draws it: a slate octahedron, edges drawn
+ * over it, and **no halo ring and no status line**.
+ *
+ * Those two absences are the point rather than an economy. A halo is a MAC
+ * state and a status line is what a device is *doing*; an object in the room
+ * neither transmits nor receives nor holds a slot, and it appears in no link
+ * table — all it does is give a signal a second route (src/engine/scatter.ts).
+ * A diamond that wore a ring would read as a third kind of radio. It is not in
+ * `buildNodeMeshes` for the same reason: it is not a node, it has no `NodeView`
+ * to be updated from, and nothing about it changes as the playhead moves.
+ *
+ * The shape is the floor plan's: a rhombus there, its solid of revolution here.
+ */
+export function buildScattererGroup(s: ScattererCfg): THREE.Group {
+  const g = new THREE.Group()
+  g.name = `scatterer:${s.id}`
+  g.position.set(s.pos.x, s.pos.z, s.pos.y)
+
+  const geom = new THREE.OctahedronGeometry(0.26)
+  const body = new THREE.Mesh(
+    geom,
+    new THREE.MeshStandardMaterial({ color: SCATTERER_COLOR, roughness: 0.25, metalness: 0.5, flatShading: true }),
+  )
+  body.name = 'body'
+  g.add(body)
+  // The edges are what keep it from reading as a lamp: a reflector is a surface,
+  // and the facets have to be visible for the shape to say so at this size.
+  const edges = new THREE.LineSegments(
+    new THREE.EdgesGeometry(geom),
+    new THREE.LineBasicMaterial({ color: 0xe2e8f0, transparent: true, opacity: 0.55 }),
+  )
+  edges.name = 'edges'
+  g.add(edges)
+
+  const { text, sub } = scattererLabel(s)
+  const label = makeTextSprite(text, '#c3ccd8', 42, sub)
+  label.name = 'label'
+  label.position.set(0, 0.52, 0)
+  g.add(label)
+
+  return g
+}
+
+/** Every reflecting object of a scenario, keyed by id; empty when there is no section. */
+export function buildScattererMeshes(sc: Scenario): Map<string, THREE.Group> {
+  const map = new Map<string, THREE.Group>()
+  for (const s of scattererList(sc)) map.set(s.id, buildScattererGroup(s))
   return map
 }
 
