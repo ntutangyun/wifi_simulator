@@ -48,6 +48,8 @@ import { uwbContention } from './uwb/uwb-contention'
 import { uwbDlTdoa } from './uwb/uwb-dl-tdoa'
 import { uwbUlTdoa } from './uwb/uwb-ul-tdoa'
 import { uwbAoa } from './uwb/uwb-aoa'
+import { uwbSensing } from './uwb/uwb-sensing'
+import { uwbSensingResolution } from './uwb/uwb-sensing-resolution'
 import { uwbMms } from './uwb/uwb-mms'
 import { uwbMmsNumbers } from './uwb/uwb-mms-numbers'
 import { uwbNba } from './uwb/uwb-nba'
@@ -128,6 +130,8 @@ const AUTHORED: Lesson[] = [
   uwbDlTdoa,
   uwbUlTdoa,
   uwbAoa,
+  uwbSensing,
+  uwbSensingResolution,
   uwbMms,
   uwbMmsNumbers,
   uwbNba,

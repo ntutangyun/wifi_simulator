@@ -351,3 +351,12 @@ export const firstUwbAoa = (r: TLRecord): boolean => r.type === 'UWB_AOA'
  * the only position in this simulator that one anchor produces. */
 export const firstUwbAoaFix = (r: TLRecord): boolean => r.type === 'UWB_POSITION' && r.method === 'aoa'
 
+/** Sensing: the first echo a receiver wrote down — a second arrival off one of the room's
+ * reflecting objects, which the ranging side of the same receiver never sees. */
+export const firstUwbEcho = (r: TLRecord): boolean => r.type === 'UWB_ECHO'
+/** Sensing: the first echo this receiver could actually separate from the direct path — the
+ * verdict `excessM > resolutionM`, which is the whole of what "resolution" means as a distance. */
+export const firstUwbEchoResolved = (r: TLRecord): boolean => r.type === 'UWB_ECHO' && r.resolvable
+/** Sensing: the first echo that merged into the direct path. Not a failure and not a weak
+ * signal — it may be the loudest thing in the room — just two arrivals inside one chip. */
+export const firstUwbEchoMerged = (r: TLRecord): boolean => r.type === 'UWB_ECHO' && !r.resolvable

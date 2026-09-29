@@ -127,6 +127,12 @@ export const MODULES: CourseModule[] = [
   { tier: 5, title: '竞争式测距' },
   { tier: 5, title: '单向测距' },
   { tier: 5, title: '角度' },
+  // Sensing sits in Tier 2 and not in the draft tier on purpose. What the two lessons under it
+  // teach is echo geometry plus one published figure — the 499.2 Mchip/s chip of
+  // IEEE Std 802.15.4-2024 §16.2.4 — and nothing that moves between 4ab drafts. Declaring the
+  // draft here would tell a reader that a length they can derive from the chip rate might change
+  // under them.
+  { tier: 5, title: '感知' },
   { tier: 6, title: '多毫秒片段' },
   { tier: 6, title: '窄带控制面' },
   // The three lessons on the draft's other control planes do not belong under
@@ -166,6 +172,8 @@ export const COURSE_ORDER: string[] = [
   'uwb-coexist', 'uwb-contention',
   // UWB Tier 2 — M14 other ranging modes
   'uwb-dl-tdoa', 'uwb-ul-tdoa', 'uwb-aoa',
+  // UWB Tier 2 — M20 sensing: the things in the room that never answer
+  'uwb-sensing', 'uwb-sensing-resolution',
   // UWB Tier 3 — M15 narrowband-assisted multi-millisecond UWB
   'uwb-mms', 'uwb-mms-numbers', 'uwb-nba', 'uwb-nba-coexist',
   'uwb-uwbd', 'uwb-acquisition', 'uwb-subrounds',

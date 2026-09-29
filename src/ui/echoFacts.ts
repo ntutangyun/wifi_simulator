@@ -43,6 +43,16 @@ function echoDbm(tx: Vec3, s: Vec3, rx: Vec3, extraLossDb: number): number {
  */
 export const ECHO_RESOLUTION_M = (C_M_PER_NS * UWB_CHIP_NS).toFixed(2)
 
+/**
+ * The same length unrounded, which is what the engine actually compares against:
+ * `isResolvable` asks `excessM / c > UWB_CHIP_NS`, so the threshold is 0.600558… m and not the
+ * 0.60 the prose prints. Two centimetres apart, and irrelevant to every figure below except
+ * {@link ECHO_FLIP_OFFSET_M}, which is the offset at which the comparison *turns*: rounding the
+ * threshold there would put the turning point a centimetre away from where a run puts it, and
+ * this whole file exists so that a quoted number and a recorded one cannot differ.
+ */
+const RESOLUTION_EXACT_M = C_M_PER_NS * UWB_CHIP_NS
+
 // --- the measured 2 m pair (task 4's acceptance run) ----------------------------------------
 // An anchor and a tag two metres apart at 1 m, with a wardrobe-sized object — the reflectivity
 // the 🪞 tool writes — at two distances from the line between them. This is the pair of figures
@@ -57,13 +67,32 @@ const off = (dM: number): Vec3 => ({ x: 1, y: dM, z: 1 })
 function echoAt(offsetM: number) {
   const s = off(offsetM)
   const excessM = echoExcessM(A, s, B)
+  const dbm = echoDbm(A, s, B, NEW_SCATTERER_EXTRA_LOSS_DB)
   return {
     offM: offsetM.toFixed(1),
     pathM: echoPathM(A, s, B).toFixed(2),
     excessM: excessM.toFixed(2),
-    resolvable: excessM > Number(ECHO_RESOLUTION_M),
-    dbm: echoDbm(A, s, B, NEW_SCATTERER_EXTRA_LOSS_DB).toFixed(1).replace('-', '−'),
+    resolvable: excessM > RESOLUTION_EXACT_M,
+    dbm: dbm.toFixed(1).replace('-', '−'),
+    /** When it arrives, ns after the transmission — the bistatic distance over c. */
+    propNs: (echoPathM(A, s, B) / C_M_PER_NS).toFixed(2),
+    /** How far under the direct ray this echo lands, dB. Always positive: it went further and
+     * it paid a reflection, and the sensing lessons are about which of the two costs shows. */
+    underDirectDb: (directDbm() - dbm).toFixed(1),
   }
+}
+
+/** The direct ray on the same 2 m line: one leg, no reflection, `UwbChannel`'s own arithmetic. */
+function directDbm(): number {
+  return UWB_TX_POWER_DBM - law(2)
+}
+
+/** The straight line the two lessons measure everything against: 2.00 m, 6.67 ns, and the level
+ * every echo below is quieter than. */
+export const DIRECT_2M = {
+  pathM: '2.00',
+  propNs: (2 / C_M_PER_NS).toFixed(2),
+  dbm: directDbm().toFixed(1).replace('-', '−'),
 }
 
 /** 0.2 m off the line: 0.04 m of excess against the 0.60 m needed — **not** separable — and yet
@@ -71,6 +100,24 @@ function echoAt(offsetM: number) {
 export const ECHO_NEAR_LINE = echoAt(0.2)
 /** 1 m off the line: 0.83 m of excess, separable, and 5.7 dB quieter for it. */
 export const ECHO_OFF_LINE = echoAt(1)
+
+// --- where the verdict turns ----------------------------------------------------------------
+// The resolution lesson's own experiment: walk the object away from the line and watch
+// `resolvable` flip. The offset it flips at is not a search — the geometry inverts exactly.
+
+/**
+ * How far off the 2 m line an object has to stand before this receiver can separate its echo
+ * at all, metres. `2·√(1 + d²) − 2 = c·1/B` solved for d, so it is the geometry read backwards
+ * rather than a bisection, and it is the one number here that moves if the chip rate does.
+ * physics (the inversion) · standard §16.2.4 (the chip)
+ */
+export const ECHO_FLIP_OFFSET_M =
+  Math.sqrt(((RESOLUTION_EXACT_M + 2) / 2) ** 2 - 1).toFixed(2)
+
+/** One grid step inside that: still merged into the direct path. */
+export const ECHO_FLIP_UNDER = echoAt(0.8)
+/** One grid step outside it: a second arrival, and quieter than the one that was invisible. */
+export const ECHO_FLIP_OVER = echoAt(0.9)
 
 // --- how far this reaches at all ------------------------------------------------------------
 // A perfect one square metre (0 dB) standing at the midpoint of the line, at two baselines.
