@@ -10,6 +10,10 @@ import {
 // so the schema can hold the fading defaults the sampling functions were written against
 // without a cycle — one figure for each knob, in one place.
 import { FADING_DEFAULTS, RICIAN_K_DEFAULT_DB, type FadingCfg } from '../engine/fading'
+// Type only, and deliberately so: `src/engine/scatter.ts` takes nothing at run time but this
+// folder's `types` (for `Vec3`), so the shape of a reflecting object is declared once, beside
+// the geometry that consumes it, and the schema below validates that same shape.
+import type { ScattererCfg } from '../engine/scatter'
 import { NB_CHANNELS } from '../uwb/nb'
 import { mmsResponders, rstuNs, UWB_MAX_ANCHORS, uwbNbSlotFitNs, uwbSlotFitNs, uwbSlotsPerTag } from '../uwb/phy'
 import type { LinkId } from './caps'
@@ -438,6 +442,21 @@ export interface Scenario {
    * plan has written the section, even as `{}`.
    */
   fading?: FadingCfg
+  /**
+   * Objects in the room that reflect, giving every transmission a second arrival at every
+   * receiver (`src/engine/scatter.ts`). **Absent means no echoes at all**, and absent is what
+   * every scenario written before this section says: the only arrival is the direct one, bit
+   * for bit as before.
+   *
+   * Absent is not the same as `[]`, and the difference is load-bearing rather than tidy: the
+   * engine decides whether to compute echoes at all by whether this property is here, exactly
+   * as it does for `fading`, so a plan that predates the section must not read back carrying an
+   * empty list. An empty list is a different statement — a plan that has the section and no
+   * objects in it yet — and the schema keeps the two apart in both directions.
+   *
+   * Walls are not scatterers (design §9): they still only add delay and loss to the direct ray.
+   */
+  scatterers?: ScattererCfg[]
 }
 
 const OpeningSchema = z.object({ from: z.number().min(0), to: z.number().min(0) })
@@ -745,6 +764,67 @@ const FadingSchema = z.object({
     : {}),
 }))
 
+/**
+ * A coordinate of a reflecting object, metres. `.finite()` rather than the plain `z.number()`
+ * that `Vec3Schema` uses for nodes, because these three numbers are the input to a subtraction
+ * and two square roots (`echoPathM`): an infinity anywhere in a position makes the echo's delay
+ * and its level both NaN, and a NaN level compares false against every threshold, so the echo
+ * would not be rejected — it would silently disappear. Refusing it here is the only place the
+ * mistake is still legible. Note that no *bound* is imposed: a reflector outside the drawn rooms
+ * is a legitimate thing to place, and the geometry has no opinion about where the walls are.
+ */
+const ScattererCoordSchema = z.number()
+  .finite('散射体的坐标必须是有限实数：回波的两段路程是由坐标算出来的，无穷大或 NaN 会让时延与电平一起变成 NaN，而 NaN 与任何门限比较都不成立，这条回波就会悄悄消失而不是被拒绝')
+
+/**
+ * One reflecting object. The three rules here are the three ways a plan can describe an object
+ * the echo geometry cannot use, and there is deliberately no fourth.
+ *
+ * **`extraLossDb` is not bounded below.** It is the object's reflectivity in dB, and 0 dB is one
+ * square metre — `apertureCorrectionDb` in `src/engine/scatter.ts` derives why, and half a
+ * square metre is +3.01 dB. A filing cabinet or a wardrobe is several square metres, so its
+ * figure is legitimately negative. A `min(0)` would be a bound the physics does not have.
+ *
+ * **`extraLossDb` is required, with no default.** It is the one figure the geometry cannot
+ * supply for itself: 0 dB is not a neutral value but a claim that the object is a
+ * one-square-metre reflector, so the plan states it rather than inheriting it.
+ */
+const ScattererSchema = z.object({
+  id: z.string().min(1, '散射体的 id 不能为空：回波记录靠 id 指认是哪个物体反射的，没有名字的物体在记录里认不出来'),
+  pos: z.object({ x: ScattererCoordSchema, y: ScattererCoordSchema, z: ScattererCoordSchema }),
+  extraLossDb: z.number({ required_error: '散射体要写明 extraLossDb，也就是它比一面一平方米的反射面弱多少 dB：0 dB 不是“中性值”，而是“正好一平方米”这个说法，所以这个数要由场景写出来，不由 schema 替它猜' })
+    .finite('散射体的 extraLossDb 必须是有限实数：它会直接加进回波的路径损耗，无穷大或 NaN 会让这条回波的电平变成 NaN'),
+})
+
+/**
+ * The scatterers section.
+ *
+ * As with `FadingSchema`, **where the default sits is the whole point**: there is no
+ * `.default([])` here and there must never be one. `scatterers` is `.optional()` and nothing
+ * else, so a scenario that says nothing about reflecting objects parses to an object with no
+ * `scatterers` property at all. The engine reads that absence as "do not compute echoes", which
+ * is the only reason every scenario written before this section still produces the very same
+ * arrivals and the two hash fixtures do not move. An empty list is left as an empty list for the
+ * mirror-image reason: a plan that has the section and no objects in it yet must not read back
+ * looking like a plan that predates the section.
+ *
+ * The uniqueness rule sits on the array rather than on the field so that its `path` is rooted at
+ * `scatterers` like every other issue about this section, and points at the *second* of two
+ * namesakes — the one that was just added is the one the editor should highlight.
+ */
+const ScatterersSchema = z.array(ScattererSchema).superRefine((list, ctx) => {
+  const firstAt = new Map<string, number>()
+  list.forEach((s, i) => {
+    const first = firstAt.get(s.id)
+    if (first === undefined) { firstAt.set(s.id, i); return }
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: [i, 'id'],
+      message: `散射体 id 重复：“${s.id}” 已经是第 ${first + 1} 个散射体的名字了。回波记录按 id 指认反射体，两个同名的物体在记录里分不开，看不出是哪一个反射的`,
+    })
+  })
+})
+
 export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
   .object({
     rooms: z.array(RoomSchema),
@@ -782,6 +862,9 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
     sixGhzCenterMhz: z.number().int().min(5955).max(7115).refine((v) => v % 5 === 0, '6 GHz 中心频率要落在 5 MHz 的信道步长上').optional(),
     // Optional with no default, deliberately: see FadingSchema. Absent is off.
     fading: FadingSchema.optional(),
+    // The same deliberate shape, for the same reason: see ScatterersSchema. Absent means no
+    // echoes, and `.default([])` here would put every existing scenario into the echo branch.
+    scatterers: ScatterersSchema.optional(),
   })
   .superRefine((sc, ctx) => {
     // Wi-Fi needs its one AP; a scenario that is nothing but UWB nodes has no
