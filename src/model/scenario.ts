@@ -16,8 +16,8 @@ import { FADING_DEFAULTS, RICIAN_K_DEFAULT_DB, type FadingCfg } from '../engine/
 import type { ScattererCfg } from '../engine/scatter'
 import { NB_CHANNELS } from '../uwb/nb'
 import {
-  C_M_PER_NS, mmsResponders, rstuNs, UWB_SLOT_GUARD_NS, uwbMaxAnchors, uwbNbSlotFitNs, uwbPpduNs,
-  uwbRespBytes, uwbSlotFitNs, uwbSlotsPerTag, type UwbReplyTime,
+  C_M_PER_NS, mmsResponders, rstuNs, UWB_SLOT_GUARD_NS, uwbMaxAnchors, uwbNbSlotFitNs, uwbPollBytes,
+  uwbPpduNs, uwbRespBytes, uwbSlotFitNs, uwbSlotsPerTag, type UwbReplyTime,
 } from '../uwb/phy'
 import type { LinkId } from './caps'
 import type { CapabilityProfile, NodeKind, Vec3 } from './types'
@@ -291,13 +291,19 @@ export interface UwbSessionCfg {
    * shared clock has no other reference to measure from (design §6). Responder k's own delay is
    * this plus k × `slotRstu`.
    *
-   * Default 1200 — half of `DEFAULT_UWB_SESSION.slotRstu` (2400 RSTU = 2000 µs) — is `model`,
-   * derived from the §6 slot budget rather than picked: a fixed round's slot has to hold this
-   * delay *plus* the fixed Response's own airtime (14 octets, ≈181.2 µs), twice the round's
-   * longest flight time, and the slot guard (`uwbSlotFitNs`'s rule the schema checks this
-   * against). Half the slot leaves the other half — 1000 µs — for that budget, which is enough
-   * for every scenario's node geometry this simulator has ever configured with room to spare; a
-   * value close to `slotRstu` itself is what the schema's `fixed` slot-fit rule refuses.
+   * This is a *different* setting from `UwbMmsCfg.fixedReplyRstu` (the P802.15.4ab draft's
+   * `macMmsFixedReplyTime`, nullable, 300–612 000 RSTU): the two share a name because they are
+   * the same concept — a responder's delay pinned in advance rather than measured — in two
+   * different documents (the published standard's §10.29.6.5 here, the draft's own field there),
+   * for two different round shapes. Setting one does nothing to the other.
+   *
+   * Default is one whole `slotRstu` (design §6.1 — a corrected two-sided bound, not the
+   * one-sided rule this field first shipped with): the first responder's nominal, zero-flight
+   * transmission then lands 237.2 RSTU into slot 1 — one Poll's airtime past that slot's own
+   * boundary — with room on both sides for the schema's `fixed` slot-fit rule to check against
+   * (below). Half a slot, this field's original default, sits *below* the lower bound at the
+   * default slot length: the first responder would transmit at 1.18 ms, still inside slot 0,
+   * before its own slot has even opened — the "too early" failure §6.1 added a rule for.
    */
   fixedReplyRstu: number
   /** Ranging block duration in RSTU (standard §10.32.2). */
@@ -370,9 +376,17 @@ export const DEFAULT_UWB_MMS: UwbMmsCfg = {
   ...MMS_DRAFT_DEFAULTS,
 }
 
+/** The session's own default ranging slot length: 2400 RSTU (2000 µs). `DEFAULT_UWB_SESSION`'s
+ * `slotRstu` and `fixedReplyRstu` both read from this one name, and so does the zod schema's
+ * `fixedReplyRstu` default below, so a `fixed` default that has to be "one slot's worth" (design
+ * §6.1) cannot silently drift from the slot length it is one of. Zod has no way to default one
+ * field from a sibling's own (possibly overridden) value at parse time, so this is as close to
+ * "derived from slotRstu" as a single object's per-field defaults can get. model */
+const UWB_DEFAULT_SLOT_RSTU = 2400
+
 export const DEFAULT_UWB_SESSION: UwbSessionCfg = {
-  method: 'ds', replyTime: 'embedded', fixedReplyRstu: 1200,
-  blockRstu: 240_000, slotRstu: 2400, channel: 9, tsNoisePs: 100, cfoNoisePpm: 0.2, nlos: true,
+  method: 'ds', replyTime: 'embedded', fixedReplyRstu: UWB_DEFAULT_SLOT_RSTU,
+  blockRstu: 240_000, slotRstu: UWB_DEFAULT_SLOT_RSTU, channel: 9, tsNoisePs: 100, cfoNoisePpm: 0.2, nlos: true,
   schedule: 'time', contentionSlots: 8, maxAttempts: 3,
   mode: 'twr', tdoaClockCorrection: true, syncErrorNs: 0, aoa: false,
   mms: { ...DEFAULT_UWB_MMS, nbChannels: [...DEFAULT_UWB_MMS.nbChannels] },
@@ -868,10 +882,11 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
     uwb: z.object({
       method: z.enum(['ss', 'ds']),
       // Both default: an existing scenario carries neither key and must read back byte for byte
-      // (task-2-brief.md). `fixedReplyRstu`'s default is derived, not guessed — see the field's
-      // own doc comment on `UwbSessionCfg` for the §6 arithmetic behind 1200.
+      // (task-2-brief.md). `fixedReplyRstu`'s default is `UWB_DEFAULT_SLOT_RSTU` — one whole
+      // slot's worth (design §6.1) — not guessed: see the field's own doc comment on
+      // `UwbSessionCfg` for the arithmetic.
       replyTime: z.enum(['embedded', 'deferred', 'fixed']).default('embedded'),
-      fixedReplyRstu: z.number().int().min(0).default(1200),
+      fixedReplyRstu: z.number().int().min(0).default(UWB_DEFAULT_SLOT_RSTU),
       blockRstu: z.number().int().positive().refine((v) => v % 3 === 0, 'UWB 块长要是 3 RSTU 的整数倍'),
       slotRstu: z.number().int().min(300).refine((v) => v % 3 === 0, '测距时隙要是 3 RSTU 的整数倍'),
       channel: z.union([z.literal(5), z.literal(9)]),
@@ -1118,37 +1133,69 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
                   + '请加大 slotRstu 或减少 anchor 数量',
               })
             }
-            // `fixed` is the one reply-time shape whose Response is not slot-aligned (design §6):
-            // a responder transmits at a fixed delay after *its own* reception of the Poll, so the
-            // frame lands back at the tag late by exactly twice the flight time to that
-            // responder — once delaying the Poll's own arrival, once more on the way back. The
-            // rule above already budgets the round's longest frame plus a flat 200 ns flight
-            // guard; that guard was never meant to cover a distance-dependent drift, so a `fixed`
-            // round needs its own budget, worked from this scenario's own node positions rather
-            // than the guard's flat 60 m assumption (`UWB_SLOT_GUARD_NS`'s own comment).
+            // `fixed` is the one reply-time shape whose Response is not slot-aligned (design
+            // §6/§6.1): anchor k transmits at `rxPollEnd + F + k·slotNs`, and has to land inside
+            // its own slot k+1 — not before it opens, and not so late it is still transmitting
+            // when it closes. Writing that out (round start T0, Poll airtime Ap, Response airtime
+            // Ar, anchor k's flight ToF_k):
+            //
+            //   T0 + Ap + ToF_k + F + k·S  ≥  T0 + (k+1)·S      (not before its own slot opens)
+            //   T0 + Ap + ToF_k + F + k·S  ≤  T0 + (k+2)·S − Ar − guard   (finishes before it shuts)
+            //
+            // `k·S` cancels on both sides — k drops out, which is exactly what "one Final serves
+            // every responder" buys: the same F has to work for all of them — leaving a two-sided
+            // bound on F alone:
+            //
+            //   S − Ap − ToF_k   ≤   F   ≤   2S − Ap − Ar − guard − ToF_k
+            //
+            // tightest over the anchors this scenario actually has: the lower bound is tightest at
+            // the *nearest* anchor (smallest ToF), the upper bound at the *furthest* (largest ToF).
+            // The first version of this rule was one-sided (only the upper bound, and it doubled
+            // the flight term instead of keeping the two legs separate) — it refused a frame
+            // arriving too late but let one through that arrived so early it lands in a slot that
+            // is not its own yet, which is the more dangerous mistake. Design §6.1 has the fix and
+            // the worked numbers.
+            //
+            // Flight time moves both bounds by at most one anchor's own ToF, which this simulator's
+            // scenes keep well under a microsecond — real, and kept, but not what decides the
+            // bound: the slot length and the two airtimes (Ap, Ar) are what actually bind it.
             if (mode === 'twr' && sc.uwb.replyTime === 'fixed') {
               const tagNodes = uwbNodes.filter((n) => n.uwb?.role === 'tag')
               const anchorNodes = uwbNodes.filter((n) => n.uwb?.role === 'anchor')
+              let flightMinNs = Infinity
               let flightMaxNs = 0
               for (const t of tagNodes) {
                 for (const a of anchorNodes) {
                   const distM = Math.hypot(t.pos.x - a.pos.x, t.pos.y - a.pos.y, t.pos.z - a.pos.z)
-                  flightMaxNs = Math.max(flightMaxNs, distM / C_M_PER_NS)
+                  const tofNs = distM / C_M_PER_NS
+                  flightMinNs = Math.min(flightMinNs, tofNs)
+                  flightMaxNs = Math.max(flightMaxNs, tofNs)
                 }
               }
               const fixedReplyNs = rstuNs(sc.uwb.fixedReplyRstu)
+              const pollNs = uwbPpduNs(uwbPollBytes(anchors, sc.uwb.schedule))
               const respNs = uwbPpduNs(uwbRespBytes(sc.uwb.method, 'fixed'))
-              const fixedNeedNs = fixedReplyNs + respNs + 2 * flightMaxNs + UWB_SLOT_GUARD_NS
-              if (fixedNeedNs > slotNs) {
+              const lowerNeededNs = slotNs - pollNs - flightMinNs
+              const upperAllowedNs = 2 * slotNs - pollNs - respNs - UWB_SLOT_GUARD_NS - flightMaxNs
+              if (fixedReplyNs > upperAllowedNs) {
                 ctx.addIssue({
                   code: z.ZodIssueCode.custom,
                   path: ['uwb'],
-                  message: '固定回复时间下，响应的发送时刻不再对齐时隙，会随到 anchor 的距离越漂越晚：'
-                    + `第一个响应方的固定时延 ${(fixedReplyNs / 1000).toFixed(1)} µs + 响应帧空口时间 `
-                    + `${(respNs / 1000).toFixed(1)} µs + 两倍最远飞行时间 ${(2 * flightMaxNs / 1000).toFixed(1)} µs `
-                    + `+ 时隙守卫 ${(UWB_SLOT_GUARD_NS / 1000).toFixed(1)} µs，合计 ${(fixedNeedNs / 1000).toFixed(1)} µs，`
-                    + `超过了 ${sc.uwb.slotRstu} RSTU 的时隙时长 ${(slotNs / 1000).toFixed(1)} µs：`
-                    + '请加大 slotRstu、减小 fixedReplyRstu，或者缩短 anchor 与 tag 的距离',
+                  message: `固定回复时间下，第一个响应方的固定时延 ${(fixedReplyNs / 1000).toFixed(1)} µs 超过了上限 `
+                    + `${(upperAllowedNs / 1000).toFixed(1)} µs（两个时隙 ${(2 * slotNs / 1000).toFixed(1)} µs − Poll `
+                    + `空口时间 ${(pollNs / 1000).toFixed(1)} µs − 响应帧空口时间 ${(respNs / 1000).toFixed(1)} µs − 时隙`
+                    + `守卫 ${(UWB_SLOT_GUARD_NS / 1000).toFixed(1)} µs − 最远飞行时间 ${(flightMaxNs / 1000).toFixed(1)} `
+                    + 'µs）：响应会被自己那个时隙的边界切掉，接收窗口关闭后整轮以超时收场——而 Poll 明明收到了：'
+                    + '请减小 fixedReplyRstu，或者加大 slotRstu',
+                })
+              } else if (fixedReplyNs < lowerNeededNs) {
+                ctx.addIssue({
+                  code: z.ZodIssueCode.custom,
+                  path: ['uwb'],
+                  message: `固定回复时间下，第一个响应方的固定时延 ${(fixedReplyNs / 1000).toFixed(1)} µs 低于下限 `
+                    + `${(lowerNeededNs / 1000).toFixed(1)} µs（一个时隙 ${(slotNs / 1000).toFixed(1)} µs − Poll `
+                    + `空口时间 ${(pollNs / 1000).toFixed(1)} µs − 最近飞行时间 ${(flightMinNs / 1000).toFixed(1)} µs）：`
+                    + '响应会落进还没轮到它的那个时隙——自己的时隙其实还没开始：请加大 fixedReplyRstu',
                 })
               }
             }
