@@ -35,12 +35,12 @@ import type { Ns, Vec3 } from '../model/types'
 import type { UwbChannel, UwbRadio, UwbRxInfo } from './channel'
 import { counterDiff, gaussian, type UwbClock } from './clock'
 import {
-  makeBlink, makeFinal, makePoll, makeReport, makeResp, type UwbFrameKind,
+  makeBlink, makeFinal, makePoll, makeReport, makeResp, makeSsDefer, type UwbFrameKind,
 } from './frames'
 import { onDlRx, onDlSlot, onUlSlot, solveTdoaFix, solveUlFix as solveUlFixImpl, transmitDl, ulArrivalNs as ulArrivalNsImpl, type DlRoundState } from './device.tdoa'
 import { freshMms, onMmsRx, onMmsSlot, solveMmsFix, type MmsRoundState } from './device.mms'
 import { measureAoa, reportRange } from './device.report'
-import { tsSigmaNs, UWB_RMARKER_NS, uwbSinrDb, type UwbChannelNo } from './phy'
+import { RCTU_NS, tsSigmaNs, UWB_RMARKER_NS, uwbSinrDb, type UwbChannelNo } from './phy'
 import { rangeSigmaM, solvePosition, type AnchorPos } from './position'
 import { dsTwr, fomFor, ssTwrCorrected, ssTwrRaw } from './ranging'
 import type { RoundPlan, SlotAction } from './session'
@@ -172,6 +172,15 @@ export interface RoundState {
   txFinalCounter: number | null
   peers: Map<string, PeerMeasurement>
   ranges: { id: string; distM: number }[]
+  /**
+   * The airtime of this round's Poll, in nanoseconds, or null before it has been sent (tag) or
+   * received (anchor). Both ends of the round know it — one transmitted that PPDU and the other
+   * decoded it — and exactly one thing reads it: the fixed reply time's baseline, which design
+   * §6.1 measures from the **end** of the Poll's reception rather than from its RMARKER, because
+   * a responder cannot begin transmitting before it has finished receiving (see
+   * `fixedReplyRctu`).
+   */
+  pollNs: Ns | null
   // anchor side
   rxPollCounter: number | null
   txRespCounter: number | null
@@ -206,6 +215,7 @@ function freshRound(
     block, round, plan, tagId, anchors: [...anchors],
     slot: 0, contendSlot: null, contendCollisionSlot: null,
     txPollCounter: null, txFinalCounter: null, peers: new Map(), ranges: [],
+    pollNs: null,
     rxPollCounter: null, txRespCounter: null, rxFinalCounter: null, finalListedMe: false,
     // Fresh every round: a tag that heard half a round keeps nothing of it, so a missing Poll
     // or Final can never be filled in from the round before.
@@ -216,6 +226,38 @@ function freshRound(
     ulArrivalNs: null,
     aoaThetaDeg: null,
   }
+}
+
+/**
+ * `Treply` for the responder that answers in `slot` under `replyTime: 'fixed'`, as a count of
+ * **that responder's own ranging counter** (standard §10.29.6.5, design §6/§6.1).
+ *
+ * One definition, read by both ends of the round: the responder aims its transmission at it
+ * (`UwbDevice.armFixedReply`) and the initiator subtracts it from the round trip
+ * (`UwbDevice.onResponse`). It never goes on the air — that is the whole point of the shape, and
+ * the reason the two readings have to come from one expression rather than two.
+ *
+ * Three terms, and each one is there for a reason:
+ *
+ * - `pollNs`, the Poll's airtime. The configured constant is the delay from the **end of the
+ *   Poll's reception** to the start of the Response's transmission, which is the only delay a
+ *   radio can actually honour — it cannot begin transmitting before it has finished receiving —
+ *   and it is the convention design §6.1's slot budget and the scenario schema are both written
+ *   against (`rxPollEnd + F + k·S`). `Treply`, though, is RMARKER to RMARKER, and the tail of the
+ *   Poll between its RMARKER and its last symbol falls inside that interval. Both ends know this
+ *   number: one transmitted that PPDU and the other decoded it.
+ * - `fixedReplyNs`, the configured constant `F` itself, converted from RSTU once in `roundPlan`.
+ * - `(slot − 1) · slotNs`, design §6's `k · slotRstu` stagger: responder 0 answers at the bare
+ *   constant, responder 1 one slot later, and so on. That is what lets a single configured number
+ *   serve every responder of the round, and it is also why design §6.1's bound does not depend on
+ *   `k` — the `k·S` term cancels on both sides of it.
+ *
+ * Rounded to whole RCTU here, once, rather than at each end: a slot length whose nanoseconds are
+ * not a whole number of counter units would otherwise be rounded twice, and the responder would
+ * hit a value the initiator did not subtract.
+ */
+function fixedReplyRctu(plan: RoundPlan, slot: number, pollNs: Ns): number {
+  return Math.round((pollNs + plan.fixedReplyNs + (slot - 1) * plan.slotNs) / RCTU_NS)
 }
 
 export class UwbDevice implements UwbRadio {
@@ -331,7 +373,9 @@ export class UwbDevice implements UwbRadio {
     // the tag simply listens through the whole window for whoever turns up.
     if (r.plan.schedule === 'contention' && action.kind === 'uwbResp') {
       if (this.cfg.role === 'anchor') {
-        if (r.contendSlot === slot) this.transmitFor(action, slot, r, peers)
+        if (r.contendSlot === slot && !this.repliesAtFixedDelay(r, action.kind)) {
+          this.transmitFor(action, slot, r, peers)
+        }
         return
       }
       this.listenOpen(slot)
@@ -339,14 +383,19 @@ export class UwbDevice implements UwbRadio {
     }
     const txId = action.tx === 'tag' ? peers.tag : peers.anchors[action.anchor]
     if (txId === this.id) {
-      this.transmitFor(action, slot, r, peers)
+      // …unless this round's responder answers at a fixed delay from the Poll rather than at the
+      // slot boundary (standard §10.29.6.5). Its Response was armed the instant the Poll arrived
+      // and is already sitting in the queue, so the slot must not put a second one on the air.
+      if (!this.repliesAtFixedDelay(r, action.kind)) this.transmitFor(action, slot, r, peers)
       return
     }
     // A device listens only for the frames addressed to it or broadcast to its
     // round: an anchor ignores the other anchors' slots entirely (receiver off),
-    // and a tag ignores nothing, because every answer in the round is its own.
+    // and a tag ignores nothing, because every answer in the round is its own —
+    // including, in a deferred SS round, the follow-up message that carries the reply
+    // time its Response could not (standard §10.29.6.3).
     const mine = this.cfg.role === 'tag'
-      ? action.kind === 'uwbResp' || action.kind === 'uwbReport'
+      ? action.kind === 'uwbResp' || action.kind === 'uwbSsDefer' || action.kind === 'uwbReport'
       : action.kind === 'uwbPoll' || action.kind === 'uwbFinal'
     if (!mine) return
     this.listenFor(slot, txId, action.kind)
@@ -563,13 +612,22 @@ export class UwbDevice implements UwbRadio {
         // construction, so it never needs `coffs`, and its range is scored by
         // the Final's first-path quality (the last frame of the exchange).
         r.rxPollCounter = counter
+        // The PPDU it just decoded, whose last symbol is where a fixed reply time is counted from.
+        r.pollNs = frame.txTimeNs
         // The contention draw comes after this reception's timestamp-noise, carrier-offset and
         // (when `aoa` is on) phase draws above, so it never reorders the stream a time-scheduled
         // round takes from the same generator.
         if (r.plan.schedule === 'contention' && this.cfg.role === 'anchor') this.drawContentionSlot(r)
+        // …and the fixed reply time is armed after the draw, because in a contention round the
+        // slot it answers in is what the draw just decided. It takes no draw of its own, so an
+        // embedded or deferred round's stream is untouched by its presence here.
+        this.armFixedReply(r, trueRmarkerNs, extraNs)
         break
       case 'uwbResp':
         this.onResponse(r, from, frame, counter, coffs, fom)
+        break
+      case 'uwbSsDefer':
+        this.onSsDefer(r, from, frame)
         break
       case 'uwbFinal':
         this.onFinal(r, from, frame, counter, fom)
@@ -632,6 +690,73 @@ export class UwbDevice implements UwbRadio {
     })
   }
 
+  /**
+   * True when this round's Responses do not start at a slot boundary: `replyTime: 'fixed'`
+   * (standard §10.29.6.5). `armFixedReply` has already queued the frame off the Poll's own
+   * arrival, so the slot tick must stay out of the way — and it is asked about the frame kind,
+   * not just the round, because every *other* frame of such a round (Poll, Final, Report) is
+   * still perfectly slot-aligned.
+   */
+  private repliesAtFixedDelay(r: RoundState, kind: UwbFrameKind): boolean {
+    return kind === 'uwbResp' && r.plan.mode === 'twr' && r.plan.replyTime === 'fixed'
+  }
+
+  /**
+   * Anchor, `replyTime: 'fixed'` (standard §10.29.6.5): **the one transmission in this whole UWB
+   * stack that is not aligned to a ranging slot.** Everything else here radiates at a slot start,
+   * because the schedule decided the slot before the session began. This one does not, and that
+   * is not a bug — it is the entire content of the procedure.
+   *
+   * Why it has to be this way (design §6). `Treply = T3 − T2` is the responder's own receive-to-
+   * transmit interval. If the responder answered at its **slot boundary**, then
+   * `Treply = slot start − (Poll's arrival here)`, and the Poll's arrival moves with the flight
+   * time — so `Treply` would be a *different number for every anchor*, and different again every
+   * time the tag moved. A tag that is not told `Treply` could not possibly reconstruct it. Make
+   * the responder answer a fixed interval after **its own** reception instead and the quantity
+   * stops depending on the geometry altogether: it is the configured constant, exactly, and both
+   * ends already have it. That is how this shape gets away with a Response that carries no reply
+   * time at all (14 octets against the embedded shape's 20).
+   *
+   * What moves instead is the *arrival*: the Response now leaves one flight time later at a
+   * distant anchor than at a near one, so the tag sees it drift by `2 × ToF` — which is precisely
+   * the round trip it is measuring, and precisely why the slot has to be long enough to hold the
+   * drift at both ends (design §6.1's two-sided bound, enforced by the scenario schema).
+   *
+   * The interval is counted on **this device's own crystal**, so it is converted to true time
+   * through `UwbClock.after` — a responder running fast answers early in wall-clock terms. That is
+   * what leaves `ssTwrCorrected`'s (1 − coffs) with the same job it always had (design §8), and it
+   * is why `fixedReplyRctu` is a count of counter units rather than a span of nanoseconds.
+   *
+   * `rxTrueNs`/`rxExtraNs` are the two halves of the timestamp this receiver just took of the
+   * Poll — the true RMARKER and the delay its own estimator added to it. The responder aims off
+   * the instant it *believes*, noise and all, exactly as real hardware schedules a delayed
+   * transmission off its own receive timestamp register.
+   */
+  private armFixedReply(r: RoundState, rxTrueNs: Ns, rxExtraNs: number): void {
+    if (this.cfg.role !== 'anchor' || !this.repliesAtFixedDelay(r, 'uwbResp')) return
+    // The slot this anchor answers in, which is also the stagger that keeps the responders apart:
+    // its own place in the Poll's RDM IE in a time-scheduled round, and the slot it drew in a
+    // contention one (`contention` + `fixed` is a legal pairing — design §3.1 calls it the most
+    // worth allowing, since a contention round wants the shortest frame it can get). Null means
+    // it drew none and is sitting the round out.
+    const index = r.anchors.indexOf(this.id)
+    const slot = r.plan.schedule === 'contention' ? r.contendSlot : index + 1
+    if (slot === null || slot < 1 || index < 0 || r.pollNs === null) return
+    const rmarkerNs = this.clock.after(rxTrueNs, rxExtraNs, fixedReplyRctu(r.plan, slot, r.pollNs))
+    // The queue is given the instant the *PPDU* starts; the RMARKER is what the arithmetic above
+    // aimed at, and `send` puts it one `UWB_RMARKER_NS` after the start (see `transmitFor`).
+    const startNs = rmarkerNs - UWB_RMARKER_NS
+    this.at(startNs, () => {
+      // The queue outlives a round. A fixed reply time past design §6.1's upper bound can push
+      // this instant clean out of the round it belongs to, and a Response radiated into the next
+      // round would be a transmitter nobody scheduled — so the round is checked, not assumed.
+      if (this.round !== r) return
+      this.transmitFor(
+        { kind: 'uwbResp', tx: 'anchor', anchor: index }, slot, r, { tag: r.tagId, anchors: r.anchors },
+      )
+    })
+  }
+
   /** The expected frame arrived: drop the expectation without reporting a miss. */
   clearExpectation(): void {
     this.expect = null
@@ -687,13 +812,14 @@ export class UwbDevice implements UwbRadio {
       }
       case 'uwbPoll': {
         r.txPollCounter = txCounter
-        this.send(
-          makePoll(this.id, peers.anchors, r.plan.method, r.block, r.round, {
-            schedule: r.plan.schedule, contentionSlots: r.plan.contentionSlots,
-            maxAttempts: this.cfg.maxAttempts,
-          }),
-          txCounter,
-        )
+        const poll = makePoll(this.id, peers.anchors, r.plan.method, r.block, r.round, {
+          schedule: r.plan.schedule, contentionSlots: r.plan.contentionSlots,
+          maxAttempts: this.cfg.maxAttempts,
+        })
+        // Its airtime, kept for the one thing that reads it: reconstructing a fixed reply time,
+        // which is counted from the end of this PPDU at the responder (see `fixedReplyRctu`).
+        r.pollNs = poll.txTimeNs
+        this.send(poll, txCounter)
         break
       }
       case 'uwbResp': {
@@ -701,8 +827,35 @@ export class UwbDevice implements UwbRadio {
         // stays empty, and the tag's own deadline reports the gap.
         if (r.rxPollCounter === null) return
         r.txRespCounter = txCounter
-        const replyRctu = r.plan.method === 'ss' ? counterDiff(txCounter, r.rxPollCounter) : undefined
-        this.send(makeResp(this.id, r.tagId, r.plan.method, r.block, r.round, slot, replyRctu), txCounter)
+        // Which of the three routes this round's reply time takes (design §2), decided here and
+        // sized to match by `makeResp`/`uwbRespBytes`:
+        //   embedded — it rides this very frame, which the responder can only do because the
+        //              schedule told it `txCounter` before it transmitted;
+        //   deferred — it cannot ride this frame (this frame's own send time is what it would
+        //              have to contain), so the follow-up message below carries it instead;
+        //   fixed    — it need not ride any frame: the tag already knows it from the session.
+        const embedded = r.plan.method === 'ss' && r.plan.replyTime === 'embedded'
+        const replyRctu = embedded ? counterDiff(txCounter, r.rxPollCounter) : undefined
+        this.send(
+          makeResp(
+            this.id, r.tagId, r.plan.method, r.block, r.round, slot, replyRctu, undefined, r.plan.replyTime,
+          ),
+          txCounter,
+        )
+        break
+      }
+      case 'uwbSsDefer': {
+        // SS-TWR deferred (standard §10.29.6.3), the whole reason the shape costs a second slot
+        // per anchor: the Response went out empty, and only *afterwards* could this anchor read
+        // its own transmit timestamp back off the radio. `r.txRespCounter` is that read-back, and
+        // this frame is the one place it ever reaches the tag.
+        //
+        // No Response, no follow-up: an anchor that never heard the Poll transmitted nothing to
+        // report the reply time of, and a reply time with no Response to pair with would have the
+        // tag subtract it from a round trip that does not exist.
+        if (r.rxPollCounter === null || r.txRespCounter === null) return
+        const replyRctu = counterDiff(r.txRespCounter, r.rxPollCounter)
+        this.send(makeSsDefer(this.id, r.tagId, replyRctu, r.block, r.round, slot), txCounter)
         break
       }
       case 'uwbFinal': {
@@ -714,7 +867,12 @@ export class UwbDevice implements UwbRadio {
           p.treply2 = counterDiff(txCounter, p.rxRespCounter)
           times.push({ id, tround1: p.tround1, treply2: p.treply2 })
         }
-        this.send(makeFinal(this.id, times, r.block, r.round, slot), txCounter)
+        // Deferred (standard §10.29.6.6): the same list of anchors, none of their times. The list
+        // is what the Final still exists for — `finalListedMe` at each anchor reads it to decide
+        // whether it may report at all — and dropping the times is what makes the frame 14 + 2A
+        // octets instead of 14 + 12A (design §5). The tag still holds `p.treply2` itself, so its
+        // own range is unaffected; the anchor's is gone (design §7), and `onFinal` says so.
+        this.send(makeFinal(this.id, times, r.block, r.round, slot, undefined, r.plan.replyTime), txCounter)
         break
       }
       case 'uwbReport': {
@@ -769,11 +927,52 @@ export class UwbDevice implements UwbRadio {
     const tround1 = counterDiff(counter, r.txPollCounter)
     r.peers.set(from, { id: from, rxRespCounter: counter, coffs, fom, tround1, treply2: null })
     if (r.plan.method !== 'ss') return
-    const replyRctu = frame.uwb?.replyRctu
+    // Deferred: the reply time is not here and could not have been (design §2). The round trip
+    // is banked above; `onSsDefer` finishes the range when the follow-up message lands, a whole
+    // slot later. Returning here is what makes that visible in the timeline.
+    if (r.plan.replyTime === 'deferred') return
+    // Fixed: nothing on the air carries the reply time, so the tag rebuilds it — from the session
+    // constant and this responder's place in the round, the same two things the responder itself
+    // aimed at (`fixedReplyRctu`, and `armFixedReply` on the other side). In a time-scheduled
+    // round that place is the anchor's own index in the Poll's RDM IE; in a contention round the
+    // anchor *drew* its slot, so the only thing both ends can agree on is the slot the answer
+    // actually landed in — which, inside design §6.1's bound, is the slot it drew.
+    const replyRctu = r.plan.replyTime === 'fixed'
+      ? (r.pollNs === null
+        ? undefined
+        : fixedReplyRctu(r.plan, r.plan.schedule === 'contention' ? r.slot : r.anchors.indexOf(from) + 1, r.pollNs))
+      : frame.uwb?.replyRctu
     if (replyRctu === undefined) return
     const tofRawRctu = ssTwrRaw(tround1, replyRctu)
     const tofRctu = ssTwrCorrected(tround1, replyRctu, coffs)
     reportRange(this, r, from, 'ss', tofRctu, tofRawRctu, fom)
+  }
+
+  /**
+   * Tag, on an anchor's deferred reply-time message (standard §10.29.6.3): the second half of a
+   * single-sided exchange that was split across two frames.
+   *
+   * Nothing is timed here. This message's own arrival counter is stamped like any other frame of
+   * the round — the receiver does not know which frames the arithmetic will read — but the range
+   * below uses none of it: the round trip was measured on the **Response**, a slot ago, and the
+   * reply time is the payload this frame carries. That is the teaching point of the shape, and
+   * the reason the range appears in this slot rather than the one before it.
+   *
+   * No banked Response, no range: an anchor whose Response was lost (an asymmetric link, or a
+   * collision at the tag) may still be heard here, and its reply time then has no round trip to
+   * be subtracted from. Branching on it rather than asserting it away is deliberate — the
+   * arithmetic would otherwise produce a NaN range and no error anywhere to say so.
+   */
+  private onSsDefer(r: RoundState, from: string, frame: FrameDesc): void {
+    const p = r.peers.get(from)
+    const replyRctu = frame.uwb?.replyRctu
+    if (!p || replyRctu === undefined) return
+    const tofRawRctu = ssTwrRaw(p.tround1, replyRctu)
+    // The clock offset and the first-path quality are the Response's, not this message's: they
+    // belong to the reception the round trip was measured on, which is the reading being
+    // corrected and scored.
+    const tofRctu = ssTwrCorrected(p.tround1, replyRctu, p.coffs)
+    reportRange(this, r, from, 'ss', tofRctu, tofRawRctu, p.fom)
   }
 
   /** Anchor, on the tag's Final: it now holds all four times of the double-sided exchange. */

@@ -107,11 +107,14 @@ export class UwbNetwork {
     // Nothing in an MMS round grows with the anchor count — each pair gets a round of its own,
     // and no frame lists the anchors — so the PSDU cap the round's longest frame runs into does
     // not apply to it, and `uwbMaxAnchors` refuses to be asked for an MMS round at all (it has no
-    // PSDU to size) — so `!mms` has to guard the call, not just the throw. `replyTime` is not a
-    // session field yet, so this is the cap embedded reply-time carries — the schema checks the
-    // identical thing in RSTU (see scenario.ts), and the two must not drift apart.
+    // PSDU to size) — so `!mms` has to guard the call, not just the throw. The cap moves with the
+    // reply-time shape, because which frame grows with the anchor count does (design §5): the
+    // embedded DS Final is bound at 9, a deferred DS Final or any SS round is bound by the Poll
+    // instead and reaches much further. The plan carries the session's own shape, so this reads
+    // it rather than assuming one — the schema checks the identical thing in RSTU (see
+    // scenario.ts), and the two must not drift apart.
     if (!mms) {
-      const anchorCap = uwbMaxAnchors(this.plan.mode, this.plan.method, 'embedded', this.plan.schedule)
+      const anchorCap = uwbMaxAnchors(this.plan.mode, this.plan.method, this.plan.replyTime, this.plan.schedule)
       if (anchors.length > anchorCap) {
         throw new Error(`UwbNetwork: ${anchors.length} anchors exceed the ${anchorCap} this round's longest frame allows`)
       }
