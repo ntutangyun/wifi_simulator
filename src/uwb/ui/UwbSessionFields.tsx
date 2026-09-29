@@ -64,9 +64,65 @@ export function uwbModePatch(mode: UwbMode): Partial<UwbSessionCfg> {
  * What picking a TWR method changes. Only SS-TWR has a contention schedule — DS-TWR's report
  * phase would need a second contention window this simulator does not model — so picking DS-TWR
  * takes the session back to the time schedule with it, for the same reason `uwbModePatch` does.
+ *
+ * DS-TWR also has no `'fixed'` reply-time procedure at all (standard §10.29.6.3–.7 defines only
+ * its embedded and deferred shapes, design §3.1) — a pairing the reply-time select on its own can
+ * refuse to *create*, but not one already sitting in the session when this field is the one that
+ * moves. Picking `'ds'` while `replyTime` is already `'fixed'` takes it back to the default the
+ * same way switching to MMS takes the method back to `'ss'`.
  */
-export function uwbMethodPatch(method: UwbSessionCfg['method']): Partial<UwbSessionCfg> {
-  return method === 'ds' ? { method, schedule: 'time' } : { method }
+export function uwbMethodPatch(
+  method: UwbSessionCfg['method'], replyTime: UwbSessionCfg['replyTime'],
+): Partial<UwbSessionCfg> {
+  if (method !== 'ds') return { method }
+  return replyTime === 'fixed' ? { method, schedule: 'time', replyTime: 'embedded' } : { method, schedule: 'time' }
+}
+
+/**
+ * What picking a schedule changes. A contention round's responder draws its slot at random
+ * (schedule mode 0), so a `'deferred'` follow-up message — which needs a slot of its own fixed in
+ * advance — has nowhere to go (design §3.1). The mirror of what `uwbMethodPatch` does for
+ * `'fixed'`: picking `'contention'` while `replyTime` is already `'deferred'` takes it back to the
+ * default rather than landing on the pair the schema refuses.
+ */
+export function uwbSchedulePatch(
+  schedule: UwbSessionCfg['schedule'], replyTime: UwbSessionCfg['replyTime'],
+): Partial<UwbSessionCfg> {
+  if (schedule !== 'contention') return { schedule }
+  return replyTime === 'deferred' ? { schedule, replyTime: 'embedded' } : { schedule }
+}
+
+/**
+ * What picking a reply-time shape itself commits, or `null` for a combination the schema refuses
+ * outright (design §3.1): `'fixed'` beside DS-TWR — the standard's five procedures pair DS-TWR
+ * with only its embedded and deferred time-information shapes — and `'deferred'` beside a
+ * contention schedule — its responder has no fixed slot to defer into. Returning `null` rather
+ * than a patch is what keeps the illegal pair from ever being committed: the field that calls this
+ * simply does not call `onChange` when it comes back empty, the same shape `parseFixedReplyRstu`
+ * above uses for a value the schema would refuse.
+ *
+ * The reverse pairings are `uwbMethodPatch` and `uwbSchedulePatch`'s job: this function only ever
+ * has `replyTime` to give away, never `method` or `schedule`, so a session already sitting on the
+ * illegal side of either rule (from a hand-edited or imported file) is left alone here — the red
+ * hint under the panel is what surfaces that case, not a silent rewrite of a field the user did
+ * not touch.
+ */
+export function uwbReplyTimePatch(
+  replyTime: UwbSessionCfg['replyTime'], method: UwbSessionCfg['method'], schedule: UwbSessionCfg['schedule'],
+): Partial<UwbSessionCfg> | null {
+  if (replyTime === 'fixed' && method === 'ds') return null
+  if (replyTime === 'deferred' && schedule === 'contention') return null
+  return { replyTime }
+}
+
+/**
+ * Whether the fixed reply-time RSTU field means anything: only under `replyTime: 'fixed'`
+ * (design §6/§6.1) — embedded writes the reply time into the Response itself and deferred reports
+ * it after the fact, so neither one ever reads this field. A plain predicate, not a hint key, is
+ * all this one needs: there is exactly one reason it is ever grey.
+ */
+export function uwbReplyTimeRstuLive(replyTime: UwbSessionCfg['replyTime']): boolean {
+  return replyTime === 'fixed'
 }
 
 /** The five PHY fields a mandatory parameter set fixes, and the Z every one of them is specified
@@ -300,10 +356,29 @@ export function UwbSessionFields(
       <label style={label} title={mms ? E.uwbMmsSsOnly : E.uwbMethodHint}>
         {E.uwbMethod}{' '}
         <select value={session.method} disabled={mms !== null}
-          onChange={(e) => onChange(uwbMethodPatch(e.target.value as UwbSessionCfg['method']))}>
+          onChange={(e) => onChange(uwbMethodPatch(e.target.value as UwbSessionCfg['method'], session.replyTime))}>
           <option value="ss">{E.uwbMethods.ss}</option>
           <option value="ds">{E.uwbMethods.ds}</option>
         </select>
+      </label>
+      <label style={label} title={mms ? E.uwbReplyTimeMmsOnly : E.uwbReplyTimeHint}>
+        {E.uwbReplyTime}{' '}
+        <select value={session.replyTime} disabled={mms !== null}
+          onChange={(e) => {
+            const patch = uwbReplyTimePatch(e.target.value as UwbSessionCfg['replyTime'], session.method, session.schedule)
+            if (patch) onChange(patch) // an illegal pair is never committed — see uwbReplyTimePatch
+          }}>
+          <option value="embedded">{E.uwbReplyTimes.embedded}</option>
+          <option value="deferred">{E.uwbReplyTimes.deferred}</option>
+          <option value="fixed">{E.uwbReplyTimes.fixed}</option>
+        </select>
+      </label>
+      <label style={label} title={uwbReplyTimeRstuLive(session.replyTime) ? E.uwbReplyTimeRstuHint : E.uwbReplyTimeRstuOnly}>
+        {E.uwbReplyTimeRstu}{' '}
+        <input type="number" min={0} max={60_000} step={1} value={session.fixedReplyRstu} style={{ width: 74 }}
+          disabled={!uwbReplyTimeRstuLive(session.replyTime)}
+          onChange={(e) => onChange({ fixedReplyRstu: clampField(e.target.value, 0, 60_000, true) })} />
+        <span style={suffix}>RSTU · {ms(session.fixedReplyRstu)} ms</span>
       </label>
       <label style={label} title={E.uwbModeHint}>
         {E.uwbMode}{' '}
@@ -335,7 +410,7 @@ export function UwbSessionFields(
       <label style={label} title={E[uwbScheduleHintKey(session.mode, session.method)]}>
         {E.uwbSchedule}{' '}
         <select value={session.schedule} disabled={!ssOnly || nonTwr !== null}
-          onChange={(e) => onChange({ schedule: e.target.value as UwbSessionCfg['schedule'] })}>
+          onChange={(e) => onChange(uwbSchedulePatch(e.target.value as UwbSessionCfg['schedule'], session.replyTime))}>
           <option value="time">{E.uwbSchedules.time}</option>
           <option value="contention">{E.uwbSchedules.contention}</option>
         </select>

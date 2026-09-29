@@ -24,8 +24,8 @@ import {
 } from '../../src/uwb/nb'
 import {
   COUNTER_MOD, FOM_LOS, FOM_NLOS, RCTU_NS, UWB_BAND_MHZ, UWB_BLINK_BYTES, UWB_CAPTURE_DB,
-  UWB_MAX_INPUT_DBM_PER_MHZ, UWB_PL_EXP, UWB_RX_SENS_DBM, UWB_SIR_MIN_DB, UWB_TX_POWER_DBM,
-  fomDecode, fomText, rstuNs, uwbFinalBytes, uwbInBandDbm, uwbMaxAnchors, uwbPl0Db, uwbSlotsPerTag,
+  UWB_MAX_INPUT_DBM_PER_MHZ, UWB_PL_EXP, UWB_RX_SENS_DBM, UWB_SIR_MIN_DB, UWB_SS_DEFER_BYTES, UWB_TX_POWER_DBM,
+  fomDecode, fomText, rstuNs, uwbFinalBytes, uwbInBandDbm, uwbMaxAnchors, uwbPl0Db, uwbRespBytes, uwbSlotsPerTag,
 } from '../../src/uwb/phy'
 import { rangeSigmaM } from '../../src/uwb/position'
 import { ELLIPSE_DRAW_SCALE } from '../../src/uwb/scene'
@@ -91,6 +91,93 @@ describe('UWB glossary group', () => {
     expect(text).toContain('15.650 ps')
     expect(text).toContain('833.333 ns')
     expect(text).toContain('73.269 µs')
+  })
+
+  it('covers the reply-time term and its three routes (standard §10.29.6.3–.7)', () => {
+    const terms = (group?.items ?? []).map((i) => i.term).join(' | ').toLowerCase()
+    for (const t of ['reply time', 'embedded reply time', 'deferred reply time', 'fixed reply time']) {
+      expect(terms, `missing term: ${t}`).toContain(t)
+    }
+  })
+
+  it('names a provenance on every reply-time entry, the same bar the draft sections are held to', () => {
+    const replyTimeItems = (group?.items ?? [])
+      .filter((i) => i.term.toLowerCase().includes('reply time'))
+    expect(replyTimeItems.length).toBeGreaterThanOrEqual(4)
+    const marks = ['§10.29.6', '模型取值', '标准', '法规']
+    for (const item of replyTimeItems) {
+      const text = `${item.alt} ${item.def}`
+      expect(marks.some((m) => text.includes(m)), `"${item.term}" names no provenance`).toBe(true)
+    }
+  })
+
+  it('does not blur the line with MMS’s own, differently-named fixed reply time', () => {
+    // design: `UwbSessionCfg.fixedReplyRstu` (published standard §10.29.6.5) and
+    // `UwbMmsCfg.fixedReplyRstu` (4ab draft macMmsFixedReplyTime) are a different setting for a
+    // different round shape; the published-standard entry must say so rather than silently reuse
+    // the draft group's own "Fixed reply time" name for something else.
+    const fixed = (group?.items ?? []).find((i) => i.term === 'Fixed reply time')
+    expect(fixed).toBeDefined()
+    expect(`${fixed?.alt} ${fixed?.def}`).toMatch(/SS-TWR/)
+    const draftFixed = (GLOSSARY.find((g) => g.id === 'uwb-mms')?.items ?? [])
+      .find((i) => i.term.toLowerCase().includes('fixed reply'))
+    expect(draftFixed, 'the draft group should still carry its own, separate entry').toBeDefined()
+  })
+})
+
+describe('Guide section 15: reply time / round-trip time', () => {
+  const guide = renderGuide()
+
+  it('renders the heading', () => {
+    expect(guide).toContain('15 · 回复时间走哪条路')
+  })
+
+  it('states the frame sizes off the engine’s own frame builders (design §5)', () => {
+    // SS Response: 20 embedded / 14 fixed (same octet count as deferred).
+    expect(uwbRespBytes('ss', 'embedded')).toBe(20)
+    expect(uwbRespBytes('ss', 'fixed')).toBe(14)
+    expect(uwbRespBytes('ss', 'deferred')).toBe(14)
+    expect(guide).toContain('>20<')
+    expect(guide).toContain('>14<')
+    // The deferred reply-time message: 17 octets.
+    expect(UWB_SS_DEFER_BYTES).toBe(17)
+    expect(guide).toContain('17（MHR + RRTI IE + FCS）')
+    // DS Final at nine anchors: 14 + 12A embedded (122) against 14 + 2A deferred (32).
+    expect(uwbFinalBytes(9, 'embedded')).toBe(122)
+    expect(uwbFinalBytes(9, 'deferred')).toBe(32)
+    expect(guide).toContain('14 + 12A（9 锚点 = 122）')
+    expect(guide).toContain('14 + 2A（9 锚点 = 32）')
+  })
+
+  it('derives the anchor cap rather than quoting a literal 33 anywhere in the engine', () => {
+    expect(uwbMaxAnchors('twr', 'ds', 'embedded', 'time')).toBe(9)
+    expect(uwbMaxAnchors('twr', 'ds', 'deferred', 'time')).toBe(33)
+    expect(uwbMaxAnchors('twr', 'ss', 'embedded', 'time')).toBe(33)
+    expect(uwbMaxAnchors('twr', 'ss', 'deferred', 'time')).toBe(33)
+    expect(uwbMaxAnchors('twr', 'ss', 'fixed', 'time')).toBe(33)
+    expect(guide).toContain('9')
+    expect(guide).toContain('33')
+    // `src/uwb/ranging.ts` never hard-codes the cap the design doc forbids as a literal.
+    const ranging = readFileSync(new URL('../../src/uwb/ranging.ts', import.meta.url), 'utf8')
+    expect(ranging).not.toMatch(/\b33\b/)
+  })
+
+  it('states which end holds the range in every one of the five shapes (design §7)', () => {
+    for (const row of ['SS 嵌入', 'SS 固定', 'SS 延后', 'DS 嵌入', 'DS 延后']) expect(guide).toContain(row)
+    // DS embedded alone hands the anchor a range too — the Final is what carries it.
+    expect(guide).toMatch(/只有 DS 嵌入[\s\S]{0,40}让锚点也拿到/)
+  })
+
+  it('quotes the five measured ranges and the matched-crystal control, verbatim from the brief', () => {
+    for (const r of ['4.998803', '4.998630', '4.999075', '5.001420']) expect(guide).toContain(r)
+  })
+
+  it('names the three limits design §10 requires: no control plane, no negotiation, no jitter', () => {
+    expect(guide).toContain('没有一个 MAC 原语')
+    expect(guide).toContain('不会')
+    expect(guide).toMatch(/RRTN IE/)
+    expect(guide).toContain('抖动')
+    expect(guide).toContain('15 cm')
   })
 })
 

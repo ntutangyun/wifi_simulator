@@ -17,7 +17,7 @@ import {
 } from '../uwb/nb'
 import {
   UWB_BAND_MHZ, UWB_BLINK_BYTES, UWB_CAPTURE_DB, UWB_CHIP_NS, UWB_MAX_INPUT_DBM_PER_MHZ, UWB_RX_SENS_DBM,
-  UWB_SIR_MIN_DB, UWB_TX_POWER_DBM, rstuNs,
+  UWB_SIR_MIN_DB, UWB_SS_DEFER_BYTES, UWB_TX_POWER_DBM, rstuNs, uwbFinalBytes, uwbMaxAnchors, uwbRespBytes,
 } from '../uwb/phy'
 import { ELLIPSE_DRAW_SCALE } from '../uwb/view'
 import {
@@ -47,6 +47,20 @@ const SIX_GHZ_DEFAULT_CH = sixGhzChannelNo(DEFAULT_SIX_GHZ_CENTER_MHZ)
 const AOA_ANTENNA_SPACING_CM = (antennaSpacingM(9) * 100).toFixed(1)
 const AOA_SIGMA_BORESIGHT_DEG = aoaSigmaDeg(0).toFixed(1)
 const AOA_SIGMA_60_DEG = aoaSigmaDeg(60).toFixed(1)
+
+// --- Section 15: reply time / round-trip time, standard §10.29.6.3–.7 ------------------------
+// Every frame size and every anchor cap below is read off the engine's own frame builders and
+// `uwbMaxAnchors`, so the table cannot drift from what a round actually sends.
+const RT_SS_RESP_EMBEDDED = uwbRespBytes('ss', 'embedded') // 20
+const RT_SS_RESP_FIXED = uwbRespBytes('ss', 'fixed') // 14
+const RT_SS_DEFER_MSG = UWB_SS_DEFER_BYTES // 17
+/** The anchor count the design doc's own worked example uses for the DS Final row. */
+const RT_DS_ANCHORS = 9
+const RT_DS_FINAL_EMBEDDED = uwbFinalBytes(RT_DS_ANCHORS, 'embedded') // 122
+const RT_DS_FINAL_DEFERRED = uwbFinalBytes(RT_DS_ANCHORS, 'deferred') // 32
+const RT_CAP_DS_EMBEDDED = uwbMaxAnchors('twr', 'ds', 'embedded', 'time') // 9
+const RT_CAP_DS_DEFERRED = uwbMaxAnchors('twr', 'ds', 'deferred', 'time') // 33
+const RT_CAP_SS = uwbMaxAnchors('twr', 'ss', 'embedded', 'time') // 33 — same for all three SS shapes
 
 // --- Section 12: the P802.15.4ab draft ------------------------------------------------------
 // Every figure below is computed from `src/uwb/mms.ts` and `src/uwb/nb.ts`, so the prose cannot
@@ -636,6 +650,117 @@ export function Guide() {
         把墙变成反射面需要镜像法与可见性判断，路径数会爆炸。也不建模<b>多普勒与运动</b>：
         物体是静止的，所以这里给的是「对被动物体量出一个双站距离」，而不是靠帧间差分做存在检测。
         Wi-Fi 侧也还没有接：同一套几何换一条路径损耗律就是 Wi-Fi 的多径，但一次只动一种电台。
+      </p>
+
+      <h4 style={h}>15 · 回复时间走哪条路：五种测距形态的取舍（标准 §10.29.6.3–.7）</h4>
+      <p style={p}>
+        第 11 节讲的 SS-TWR 与 DS-TWR，各自都只讲了一种走法。标准的 §10.29.6.3–.7 一共列了五种——
+        它们量的是<i>同一个距离</i>，用的是<i>同一套算术</i>（tof 的两条公式都不变），
+        不同的只有一件事：<b>回复时间（SS-TWR 的 Treply）或往返时间信息（DS-TWR 的
+        tround1/treply2）从产生它的设备走到需要它的设备，走的是哪条路</b>。这不是三个可有可无的选项，
+        而是硬件能力换空口开销、开销换精度的一张取舍表——本节把它摊开，因为只讲一种走法，
+        会让学习者以为那是唯一的走法。
+      </p>
+      <p style={p}>
+        <b>三条路。</b><b>嵌入</b>（§10.29.6.4/§10.29.6.7，本仿真默认）把这个数直接写进它自己量出来的
+        那一帧——要求硬件能预约未来的发送时刻，于是发送前就已知道自己会在何时发送。<b>延后</b>
+        （§10.29.6.3/§10.29.6.6）先把那一帧发空，量出真实发送时刻后，再用一条专门的<b>后续报文</b>补上
+        ——多花一个时隙，换掉“预约发送时刻”这个硬件要求。<b>固定</b>（§10.29.6.5，仅 SS-TWR）由双方
+        事先约定一个数，应答方在<i>收到 Poll 之后的这个固定时延处</i>发送——这个数完全不上空口，
+        帧最短，但要求转移成了“应答方必须真的踩准这个时刻”。DS-TWR 没有“固定”这一种：
+        标准的五种过程里，双边双向测距只定义了嵌入与延后两种时间信息形态。
+      </p>
+      <table style={table}>
+        <thead>
+          <tr>
+            <th style={cellHead}>帧</th>
+            <th style={cellHead}>嵌入</th>
+            <th style={cellHead}>延后</th>
+            <th style={cellHead}>固定</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td style={cell}>SS Response</td>
+            <td style={cell}>{RT_SS_RESP_EMBEDDED}</td>
+            <td style={cell}>{RT_SS_RESP_FIXED}</td>
+            <td style={cell}>{RT_SS_RESP_FIXED}</td>
+          </tr>
+          <tr>
+            <td style={cell}>SS 延后报文</td>
+            <td style={cell}>—</td>
+            <td style={cell}>{RT_SS_DEFER_MSG}（MHR + RRTI IE + FCS）</td>
+            <td style={cell}>—</td>
+          </tr>
+          <tr>
+            <td style={cell}>DS Final</td>
+            <td style={cell}>14 + 12A（{RT_DS_ANCHORS} 锚点 = {RT_DS_FINAL_EMBEDDED}）</td>
+            <td style={cell}>14 + 2A（{RT_DS_ANCHORS} 锚点 = {RT_DS_FINAL_DEFERRED}）</td>
+            <td style={cell}>—</td>
+          </tr>
+        </tbody>
+      </table>
+      <p style={p}>
+        延后的 Final <b>不是空的</b>：锚点要靠它得知标签究竟有没有收到自己的 Response，
+        因此它仍带响应方名单——RMI IE 的固定部分加每个响应方 2 字节的短地址——只是不再带那 4 字节的
+        往返时间，也完全没有 RRTI IE，于是每多一个锚点只长 2 字节而不是 12。
+        <b>127 字节的 PSDU 上限（§16.2.7）由此换来一个可以算出来的锚点上限</b>——不是写死的常数，
+        而是轮里最长的那一帧还能塞进 127 字节的最大锚点数：嵌入式 DS Final 曾经是拖住每一种形态的
+        那根绳，所以它换来的上限最紧，只有 <b>{RT_CAP_DS_EMBEDDED}</b> 个锚点；一旦 Final 不再随锚点数
+        暴涨（延后），或者轮里根本没有 Final（SS-TWR 的三种形态都是），上限跳到 Poll 帧自己的长度
+        （27 + 3A）能撑住的 <b>{RT_CAP_DS_DEFERRED}</b> 个——DS 延后与 SS 嵌入、SS 延后、SS 固定
+        这四种形态，锚点上限都是同一个 <b>{RT_CAP_SS}</b>。
+      </p>
+      <p style={p}>
+        <b>谁最后手里有距离。</b>这张表是延后形态真正的代价，也是本节最值得记住的一格：
+      </p>
+      <table style={table}>
+        <thead>
+          <tr>
+            <th style={cellHead}>形态</th>
+            <th style={cellHead}>标签得到距离</th>
+            <th style={cellHead}>锚点得到距离</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td style={cell}>SS 嵌入</td><td style={cell}>✓ 收到 Response 时</td><td style={cell}>✗</td></tr>
+          <tr><td style={cell}>SS 固定</td><td style={cell}>✓ 收到 Response 时</td><td style={cell}>✗</td></tr>
+          <tr><td style={cell}>SS 延后</td><td style={cell}>✓ 收到延后报文时</td><td style={cell}>✗</td></tr>
+          <tr><td style={cell}>DS 嵌入</td><td style={cell}>✓ 收到报告时</td><td style={cell}>✓ 收到 Final 时</td></tr>
+          <tr><td style={cell}>DS 延后</td><td style={cell}>✓ 收到报告时</td><td style={cell}>✗</td></tr>
+        </tbody>
+      </table>
+      <p style={p}>
+        标签在全部五种里都拿得到距离——毕竟它是控制方也是发起方（第 11 节）。但<b>只有 DS 嵌入</b>
+        让锚点也拿到：Final 把标签的两个时间（tround1、treply2）带给了它，锚点才能自己算出同一个
+        tof。一旦把 Final 延后，锚点就只收到一份地址名单，从没见过算距离所需的那两个数——
+        它从“测距的另一半参与者”退化成了一个单纯的<b>应答器</b>（transponder）。锚点若要知道距离，
+        只能靠标签事后再告诉它，而这条路本仿真没有建模。
+      </p>
+      <p style={p}>
+        <b>五种走法量出同一个距离。</b>同一个场景——5 m、单锚点、两端晶振相差 35 ppm
+        （锚点 +20 ppm、标签 −15 ppm）——五种 replyTime/method 组合各跑一轮，量出的距离是：
+        SS 嵌入与 SS 延后 <b>4.998803 m</b>（一模一样，因为走的是同一套算术，只是换了一条载波）；
+        SS 固定 <b>4.998630 m</b>（不一样，是因为它的时延是按<i>应答方自己的晶振</i>数的——
+        <code>ssTwrCorrected</code> 的 (1 − coffs) 修正项照样乘它——ppm 误差从另一扇门进来）；
+        DS 嵌入与 DS 延后 <b>4.999075 m</b>（五者中最接近真实值——这正是 DS-TWR 存在的全部理由）。
+        两端晶振对准时，五者在时间戳噪声之内<b>逐位相同</b>，都是 <b>5.001420 m</b>——
+        搬运路线只决定谁在何时拿到这几个时间量，不决定算出来的是哪个距离。
+      </p>
+      <p style={p}>
+        <b>固定回复时间，唯一不对齐时隙的发送。</b>其余四种形态里，每一帧都在自己时隙的边界起发；
+        固定形态里应答方却是在<i>收到 Poll 之后的一个固定时延处</i>发送，这个时刻不由时隙边界决定，
+        于是编辑器把它当成一个独立的数字框（RSTU）暴露出来——调得太小，应答方会在自己的时隙还没
+        开始时发送；调得太大，会被自己时隙的边界切掉——两种越界整轮都以超时收场，这正是这一形态
+        真实的脆弱之处，而不是一处需要修的故障。
+      </p>
+      <p style={p}>
+        <b>本节明确不做的三件事。</b>其一，本仿真器没有一个 MAC 原语能在空口上启停或重配一个测距会话
+        （标准 §10.29.6.2 的控制面），因此 <code>replyTime</code> 是<b>场景配置</b>，不是协商出来的结果。
+        其二，两端<b>不会</b>就回复时间讨价还价：真实设备可以用 RRTN IE 交换意愿，本仿真没有建模它，
+        三种形态都是场景写死的。其三，本仿真的应答方在固定形态下<b>总是精确命中</b>它自己算出的那个
+        时刻；真实设备的发送时刻有抖动，而 <code>Treply</code> 差 1 ns 就是约 15 cm 的测距误差——
+        这是固定形态一个真实的弱点，本刀没有建模它。
       </p>
 
       <h4 style={h}>动手试试</h4>

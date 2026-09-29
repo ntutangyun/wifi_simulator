@@ -9,6 +9,7 @@ import type { AddrRole, FcBitKey, FieldKey, PpduSegmentKey } from '../model/fram
 import type { NB_MSG_ID } from '../uwb/nb'
 import type { MmsPhy } from '../uwb/mms'
 import type { UwbFixMethod } from '../uwb/records'
+import type { UwbReplyTime } from '../uwb/phy'
 
 /** How a multi-user PPDU is split — absent for frames that are always OFDMA-flavored (triggers, UL TB, M-BA). */
 export type MuKind = FrameDesc['muKind']
@@ -175,6 +176,16 @@ export interface Strings {
     uwbSession: string; uwbCounts: (anchors: number, tags: number) => string
     uwbNoNodes: string; uwbRemoveSession: string; uwbRemoveSessionHint: string; uwbSessionInUse: string
     uwbMethod: string; uwbMethodHint: string; uwbMethods: Record<'ss' | 'ds', string>
+    /**
+     * Which two-way ranging procedure carries the reply time (standard §10.29.6.3–.7): a select
+     * beside the method, and a number field (RSTU) that only means anything under `'fixed'`.
+     * `uwbReplyTimeMmsOnly` is the one shared reason both are dead for, same as `uwbMethod`'s own
+     * `uwbMmsSsOnly` — MMS has its own, differently-named fixed reply time (`uwbFixedReply` above,
+     * a different field in a different clause of a different document, design §3).
+     */
+    uwbReplyTime: string; uwbReplyTimeHint: string; uwbReplyTimeMmsOnly: string
+    uwbReplyTimes: Record<UwbReplyTime, string>
+    uwbReplyTimeRstu: string; uwbReplyTimeRstuHint: string; uwbReplyTimeRstuOnly: string
     /** One-way ranging (standard §10.32.3): the mode and the two knobs only one mode each uses. */
     uwbMode: string; uwbModeHint: string; uwbModes: Record<UwbMode, string>
     uwbClockCorrection: string; uwbClockCorrectionHint: string; uwbDlOnly: string
@@ -713,6 +724,12 @@ export const STRINGS: Strings = {
     uwbSessionInUse: '场景中还有 UWB 设备时不能删除该会话；请先删除这些设备',
     uwbMethod: '测距方式', uwbMethodHint: 'SS-TWR（单边双向测距）：每个锚点只需一次轮询与一次响应，帧数减半，但两台设备之间的时钟偏差会原样进入测距结果。DS-TWR 增加终结帧与报告帧，可将其抵消。',
     uwbMethods: { ss: 'SS-TWR（单边双向）', ds: 'DS-TWR（双边双向）' },
+    uwbReplyTime: '回复时间走哪条路', uwbReplyTimeHint: '回复时间/往返时间信息从产生它的设备走到需要它的设备，走的是哪条路（标准 §10.29.6.3–.7）：嵌入——写进它自己测量的那一帧（RRTI IE），要求硬件能预约未来的发送时刻，本仿真默认走这一条；延后——先把那一帧发空，量出自己的真实发送时刻后，再用一条专门的后续报文补上；固定——两端事先约定一个数，应答方在收到之后的这个固定时延处发送，这个数完全不上空口，但换来的是应答方必须真的踩准这个时刻。DS-TWR 没有“固定”这一种（标准只定义了它的嵌入式与延后两种），竞争调度里没有“延后”这一种（抽到的时隙没有固定的后续时隙可去）。',
+    uwbReplyTimeMmsOnly: 'MMS 有它自己的“固定回复时间”（macMmsFixedReplyTime，见下方 MMS 小节）：草案不同、时机不同，与这里的三选一无关，因此在 MMS 模式下与测距方式一并置灰',
+    uwbReplyTimes: { embedded: '嵌入（今天的行为）', deferred: '延后', fixed: '固定' },
+    uwbReplyTimeRstu: '固定回复时间',
+    uwbReplyTimeRstuHint: '仅“固定”形态生效：第一个应答方在收到 Poll 之后固定这么久再发（单位 RSTU），从它自己的晶振数——第 k 个应答方在此基础上再加 k 个测距时隙。这个数从不上空口，但它同时是本仿真唯一一种发送不对齐时隙的形态：调得太小，应答方会在自己的时隙还没开始时发送；调得太大，会被自己时隙的边界切掉——两种情况整轮都以超时收场（design §6.1）。',
+    uwbReplyTimeRstuOnly: '只有“固定”形态会用到这个数：回复时间走嵌入或延后那条路时，它写进帧里或量出来，用不着事先约定',
     uwbMode: '测距模式', uwbModeHint: '双向测距为每个锚点测出一个距离，由标签自己解算位置。两种单向模式改为测量到达时间差：DL-TDoA 由锚点跑完整轮，全程不发射的标签据此自行定位；UL-TDoA 则由标签发一帧闪发，共享同一时基的锚点替它定位——这两种模式都需要四个锚点才能凑出三个时间差。多毫秒测距（multi-millisecond ranging, MMS）又回到双向测距，但它默认是成对进行的：一个轮次只含一个标签和一个锚点，测距信号是一列片段，控制交互与测量报告则走一套单独的控制面——窄带电台只是这套控制面的两种配置之一。它对锚点数量没有下限要求，要求的是测距块能装下所有配对，即“标签数 × 锚点数 ≤ 每块轮次数”。以上三种模式都必须是时间调度的会话。',
     uwbModes: {
       twr: '双向测距（TWR）', 'dl-tdoa': '单向·下行（DL-TDoA）', 'ul-tdoa': '单向·上行（UL-TDoA）',

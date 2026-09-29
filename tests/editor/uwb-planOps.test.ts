@@ -18,7 +18,8 @@ import { roundPlan } from '../../src/uwb/session'
 import {
   UwbSessionFields, mmsDraftLive, mmsFieldPatch, mmsFixedReplyHintKey, mmsReversedHintKey,
   mmsRsfSfdHintKey, mmsSetIdOf, mmsSetPatch, mmsUwbdControlHintKey, parseFixedReplyRstu,
-  parseNbChannels, uwbAoaHintKey, uwbMethodPatch, uwbModePatch, uwbScheduleHintKey,
+  parseNbChannels, uwbAoaHintKey, uwbMethodPatch, uwbModePatch, uwbReplyTimePatch,
+  uwbReplyTimeRstuLive, uwbSchedulePatch, uwbScheduleHintKey,
 } from '../../src/uwb/ui/UwbSessionFields'
 
 /** A scenario carrying `n` anchors and one tag on top of the default house. */
@@ -234,11 +235,78 @@ describe('uwbSessionIssue', () => {
     // The same invariant as the mode select, in the pure helper the field calls: the editor can
     // never leave the plan in the pair the schema rejects.
     const contending: Partial<UwbSessionCfg> = { method: 'ss', schedule: 'contention' }
-    expect(uwbMethodPatch('ds')).toEqual({ method: 'ds', schedule: 'time' })
-    expect(uwbSessionIssue(withUwb(4, { ...contending, ...uwbMethodPatch('ds') }))).toBeNull()
+    expect(uwbMethodPatch('ds', 'embedded')).toEqual({ method: 'ds', schedule: 'time' })
+    expect(uwbSessionIssue(withUwb(4, { ...contending, ...uwbMethodPatch('ds', 'embedded') }))).toBeNull()
     // going back to SS-TWR leaves the schedule alone: it is the user's field again
-    expect(uwbMethodPatch('ss')).toEqual({ method: 'ss' })
-    expect(uwbSessionIssue(withUwb(4, { ...contending, ...uwbMethodPatch('ss') }))).toBeNull()
+    expect(uwbMethodPatch('ss', 'embedded')).toEqual({ method: 'ss' })
+    expect(uwbSessionIssue(withUwb(4, { ...contending, ...uwbMethodPatch('ss', 'embedded') }))).toBeNull()
+  })
+
+  it('the method select also takes a stranded fixed reply time with it into DS-TWR', () => {
+    // Reachable through the UI without the reply-time select ever offering the illegal pair
+    // itself: pick 'fixed' while on SS-TWR (legal), then switch the method to DS-TWR. Left alone,
+    // the session would land on the one pair the standard does not define (§10.29.6.3–.7).
+    expect(uwbMethodPatch('ds', 'fixed')).toEqual({ method: 'ds', schedule: 'time', replyTime: 'embedded' })
+    expect(uwbSessionIssue(withUwb(4, { method: 'ss', replyTime: 'fixed', ...uwbMethodPatch('ds', 'fixed') })))
+      .toBeNull()
+    // 'deferred' is a legal DS-TWR shape and is left alone.
+    expect(uwbMethodPatch('ds', 'deferred')).toEqual({ method: 'ds', schedule: 'time' })
+  })
+
+  it('the schedule select takes a stranded deferred reply time with it into contention', () => {
+    // The mirror case: 'deferred' is legal on SS-TWR/time (its own extra slot per anchor), but a
+    // contention round's responder has no fixed slot to defer into (design §3.1).
+    expect(uwbSchedulePatch('contention', 'deferred')).toEqual({ schedule: 'contention', replyTime: 'embedded' })
+    expect(uwbSessionIssue(withUwb(4, { method: 'ss', replyTime: 'deferred', ...uwbSchedulePatch('contention', 'deferred') })))
+      .toBeNull()
+    // 'fixed' is the one shape contention is meant to allow, and is left alone.
+    expect(uwbSchedulePatch('contention', 'fixed')).toEqual({ schedule: 'contention' })
+    // Time scheduling never touches the reply time at all.
+    expect(uwbSchedulePatch('time', 'deferred')).toEqual({ schedule: 'time' })
+  })
+
+  describe('uwbReplyTimePatch: an illegal combination is not committed', () => {
+    it('refuses fixed beside DS-TWR', () => {
+      expect(uwbReplyTimePatch('fixed', 'ds', 'time')).toBeNull()
+      // the same shape is legal on SS-TWR
+      expect(uwbReplyTimePatch('fixed', 'ss', 'time')).toEqual({ replyTime: 'fixed' })
+    })
+
+    it('refuses deferred beside a contention schedule', () => {
+      expect(uwbReplyTimePatch('deferred', 'ss', 'contention')).toBeNull()
+      // the same shape is legal on a time-scheduled round
+      expect(uwbReplyTimePatch('deferred', 'ss', 'time')).toEqual({ replyTime: 'deferred' })
+    })
+
+    it('allows every other combination, including contention + fixed — the one contention most needs', () => {
+      expect(uwbReplyTimePatch('fixed', 'ss', 'contention')).toEqual({ replyTime: 'fixed' })
+      expect(uwbReplyTimePatch('embedded', 'ds', 'time')).toEqual({ replyTime: 'embedded' })
+      expect(uwbReplyTimePatch('deferred', 'ds', 'time')).toEqual({ replyTime: 'deferred' })
+    })
+
+    it('never returns a patch the schema refuses, for any reachable combination', () => {
+      for (const replyTime of ['embedded', 'deferred', 'fixed'] as const) {
+        for (const method of ['ss', 'ds'] as const) {
+          // ds + contention is refused for an older, unrelated reason (no contention window for
+          // DS-TWR's report phase) — not this field's business, so it is excluded here the same
+          // way the method select already keeps the pair apart in the UI.
+          for (const schedule of method === 'ds' ? (['time'] as const) : (['time', 'contention'] as const)) {
+            const patch = uwbReplyTimePatch(replyTime, method, schedule)
+            if (!patch) continue
+            expect(uwbSessionIssue(withUwb(4, { method, schedule, ...patch })), `${replyTime}/${method}/${schedule}`)
+              .toBeNull()
+          }
+        }
+      }
+    })
+  })
+
+  describe('uwbReplyTimeRstuLive: the fixed reply-time RSTU field is live only under fixed', () => {
+    it('is true for fixed and false for the other two shapes', () => {
+      expect(uwbReplyTimeRstuLive('fixed')).toBe(true)
+      expect(uwbReplyTimeRstuLive('embedded')).toBe(false)
+      expect(uwbReplyTimeRstuLive('deferred')).toBe(false)
+    })
   })
 
   it('still needs four anchors for a one-way mode, which no field can patch away', () => {
