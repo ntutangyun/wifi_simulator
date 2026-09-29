@@ -74,9 +74,18 @@ describe('echo geometry: an echo is always later than the direct path', () => {
   })
 })
 
-describe('echo geometry: an echo is always weaker than the direct path', () => {
+describe('echo geometry: a one-square-metre object is weaker in every geometry', () => {
+  /**
+   * The narrower claim, and the true one. "An echo is always weaker" was in the
+   * design and in this file's first draft, and it is false: it holds for a weak
+   * enough reflector, not for echoes as such. The counterexample is pinned in
+   * the describe below, so neither half can be forgotten without a red test.
+   *
+   * `extraLossDb: 0` is one square metre, and at that reflectivity the two-leg
+   * sum does lose more than the direct line everywhere.
+   */
   for (const [name, law] of LAWS) {
-    it(`loses more than the direct path under the ${name} law, in every geometry`, () => {
+    it(`loses more than the direct path under the ${name} law, at 0 dB reflectivity`, () => {
       for (const [tx, s, rx] of geometries(5)) {
         const direct = law(directPathM(tx, rx))
         expect(echoLossDb(tx, s, rx, law, LAMBDA_M, 0), JSON.stringify({ tx, s, rx })).toBeGreaterThan(direct)
@@ -236,5 +245,50 @@ describe('the echo loss reconstructs the bistatic radar relation', () => {
     // `toBeCloseTo`, not `toBe`: log10(1) is +0 and negating it gives -0, which
     // Object.is separates from +0 while every decibel reading treats them alike
     expect(-10 * Math.log10(1)).toBeCloseTo(0, 12)
+  })
+})
+
+describe('a strong reflector near the line beats the direct path', () => {
+  /**
+   * The counterexample to "an echo is always weaker". Two short legs past a
+   * strong object can carry more than one long direct line, and the crossover is
+   * a position rather than a rule — which is the whole hinge of the resolution
+   * lesson, where the *invisible* echo turns out to be the *loud* one.
+   *
+   * Geometry: a 2 m pair, the object at the midpoint and `off` metres aside.
+   * `extraLossDb: -10` is the wardrobe the editor's tool places.
+   */
+  const LAM = 299.792458 / 7987.2 // UWB channel 9 centre. standard §16.2.x
+  const fspl = (d: number) => 20 * Math.log10((4 * Math.PI * d) / LAM)
+  const tx = { x: 0, y: 0, z: 1 }
+  const rx = { x: 2, y: 0, z: 1 }
+  const at = (off: number, extraLossDb: number) =>
+    echoLossDb(tx, { x: 1, y: off, z: 1 }, rx, fspl, LAM, extraLossDb)
+  const direct = fspl(directPathM(tx, rx))
+
+  it('a wardrobe hugging the line arrives louder than the direct ray', () => {
+    expect(at(0.1, -10)).toBeLessThan(direct)
+  })
+
+  it('and falls behind once it stands far enough aside', () => {
+    expect(at(1.5, -10)).toBeGreaterThan(direct)
+  })
+
+  it('crosses over between those two positions, and nowhere else', () => {
+    // monotone in `off`, so one crossing: find it and pin the bracket
+    const louder = (off: number) => at(off, -10) < direct
+    expect(louder(0.1)).toBe(true)
+    expect(louder(1.5)).toBe(false)
+    let lo = 0.1, hi = 1.5
+    for (let i = 0; i < 40; i++) {
+      const mid = (lo + hi) / 2
+      if (louder(mid)) lo = mid; else hi = mid
+    }
+    expect(lo).toBeGreaterThan(0.8)
+    expect(lo).toBeLessThan(0.95)
+  })
+
+  it('a one-square-metre object never manages it in the same geometry', () => {
+    for (const off of [0.1, 0.5, 1, 2]) expect(at(off, 0)).toBeGreaterThan(direct)
   })
 })

@@ -1,8 +1,17 @@
 /**
  * Echo geometry: the second way home. An object in the room that reflects gives
- * every transmission a **second arrival** at every receiver — later than the
- * direct one, because it went further, and weaker, because it spread twice and
- * lost something at the object. This module is that geometry and nothing else.
+ * every transmission a **second arrival** at every receiver. It is **always
+ * later**, and that one is a theorem: the triangle inequality, with no
+ * reflectivity or geometry able to escape it.
+ *
+ * It is **not always weaker**, which the first draft of this file claimed. Two
+ * short legs past a strong reflector can beat one long direct line: a 10 m²
+ * object (`extraLossDb: -10`) within about 0.87 m of the straight line between a
+ * 2 m pair arrives **louder** than the direct ray, and only past that crossover
+ * does it fall behind. A one-square-metre object is weaker everywhere in the same
+ * geometry. So whether an echo is faint is a question about the object and where
+ * it stands, not a property of echoes. This module is that geometry and nothing
+ * else.
  *
  * **Why it lives beside the engine rather than inside a radio.** The delay of an
  * echo is `(|TX→S| + |S→RX|) / c` whatever sent it; carrier, modulation and frame
