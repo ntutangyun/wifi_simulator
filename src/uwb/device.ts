@@ -784,13 +784,20 @@ export class UwbDevice implements UwbRadio {
     // whether it may report at all (see transmitFor's uwbReport case).
     r.finalListedMe = entry !== undefined
     if (!entry) return // the tag never heard this anchor's Response
+    // A deferred Final (replyTime: 'deferred', frames.ts's makeFinal) lists this anchor's address
+    // — finalListedMe above is already set from that — but carries neither tround1 nor treply2:
+    // the round trip and reply time left the frame entirely (design §5). Design §7 says the
+    // anchor gets no range at all in that shape, so this is the *correct* outcome, not a failure
+    // to work around — an early return, not a throw. It must come before dsTwr either way:
+    // `dsTwr(undefined, …, undefined)` returns NaN without throwing (arithmetic on `undefined` is
+    // NaN, not an exception), and reportRange would then bank a corrupted UWB_RANGE record with
+    // no error anywhere to say so. No session built through device.ts produces a deferred Final
+    // yet — this guard is for Task 4, which wires `replyTime` into a device's own round.
+    if (entry.tround1 === undefined || entry.treply2 === undefined) return
     if (r.rxPollCounter === null || r.txRespCounter === null) return
     const treply1 = counterDiff(r.txRespCounter, r.rxPollCounter)
     const tround2 = counterDiff(counter, r.txRespCounter)
-    // entry.tround1/treply2 are only absent on a *deferred* Final (frames.ts's makeFinal), which
-    // no session built here ever produces yet — `replyTime` is not wired into a device's own round
-    // (task-1-report.md, feat/uwb-ranging): today `finalTimes` is always the embedded shape.
-    reportRange(this, r, from, 'ds', dsTwr(entry.tround1!, treply1, tround2, entry.treply2!), undefined, fom)
+    reportRange(this, r, from, 'ds', dsTwr(entry.tround1, treply1, tround2, entry.treply2), undefined, fom)
   }
 
   /** Tag, on an anchor's Report: the anchor's half of the double-sided exchange. */

@@ -6,12 +6,20 @@
  * frame content, frame sizes, and the law the cap is derived from.
  */
 import { describe, it, expect } from 'vitest'
+import { EventQueue } from '../../src/engine/events'
+import { Rng } from '../../src/engine/rng'
+import { makeEmitter, type TLRecord } from '../../src/model/records'
+import { DEFAULT_UWB_SESSION, type NodeCfg } from '../../src/model/scenario'
+import { UwbChannel } from '../../src/uwb/channel'
+import { UwbClock } from '../../src/uwb/clock'
+import { UwbDevice, type RoundState } from '../../src/uwb/device'
 import { uwbFrameFields } from '../../src/uwb/frameFields'
 import { makeFinal, makePoll, makeResp, makeSsDefer, type UwbDlTimes } from '../../src/uwb/frames'
 import {
-  UWB_MAX_PSDU_BYTES, UWB_SS_DEFER_BYTES, UWB_UL_TDOA_ANCHOR_CEILING, uwbFinalBytes,
-  uwbLongestFrameBytes, uwbMaxAnchors, uwbRespBytes,
+  UWB_ANCHOR_SEARCH_CEILING, UWB_MAX_PSDU_BYTES, UWB_SS_DEFER_BYTES, uwbFinalBytes,
+  uwbLongestFrameBytes, uwbMaxAnchors, uwbPollBytes, uwbRespBytes,
 } from '../../src/uwb/phy'
+import { roundPlan } from '../../src/uwb/session'
 
 const fieldsOf = (f: ReturnType<typeof makeResp>) => uwbFrameFields(f).users[0].subframes[0].mpdu.fields
 const fieldSum = (f: ReturnType<typeof makeResp>) => fieldsOf(f).reduce((s, x) => s + x.bytes, 0)
@@ -43,6 +51,17 @@ describe('the anchor cap is derived, not written down (design §5, Ruling 3)', (
     expect(uwbLongestFrameBytes(cap + 1, 'twr', 'time', 'ds', 'embedded')).toBeGreaterThan(UWB_MAX_PSDU_BYTES)
   })
 
+  it('pins the Poll/Final fix at one anchor: the Poll, not the Final, is the round\'s longest frame', () => {
+    // Fix-round-1 finding: the old code took uwbFinalBytes(anchors) unconditionally for a
+    // time-scheduled two-way round, even though the contention branch two lines below it already
+    // knew a one-anchor Poll can outgrow the frame that ends the round. At one anchor the embedded
+    // Final is 26 octets and the Poll is 30 — the old code under-sized that slot's PPDU budget by
+    // four octets of airtime, silently, for every DS-TWR-embedded round of exactly one anchor.
+    expect(uwbPollBytes(1)).toBe(30)
+    expect(uwbFinalBytes(1, 'embedded')).toBe(26)
+    expect(uwbLongestFrameBytes(1, 'twr', 'time', 'ds', 'embedded')).toBe(30)
+  })
+
   it('DS-TWR deferred and all three SS-TWR shapes clear the old cap: none has a Final that binds it', () => {
     const combos = [
       ['ds', 'deferred'], ['ss', 'embedded'], ['ss', 'deferred'], ['ss', 'fixed'],
@@ -61,14 +80,27 @@ describe('the anchor cap is derived, not written down (design §5, Ruling 3)', (
     }
   })
 
-  it('gives DL-TDoA its own computed cap, and UL-TDoA a chosen ceiling — neither is the old 9', () => {
+  it('gives DL-TDoA its own computed cap, and UL-TDoA the shared ceiling — neither is the old 9', () => {
     const dlCap = uwbMaxAnchors('dl-tdoa', 'ds', 'embedded', 'time')
     expect(dlCap).toBeGreaterThan(9)
     expect(uwbLongestFrameBytes(dlCap, 'dl-tdoa')).toBeLessThanOrEqual(UWB_MAX_PSDU_BYTES)
     expect(uwbLongestFrameBytes(dlCap + 1, 'dl-tdoa')).toBeGreaterThan(UWB_MAX_PSDU_BYTES)
     // UL-TDoA's only frame (the blink) never grows with the anchor count, so nothing about the
-    // PSDU stops the search: it runs to the chosen ceiling and returns that instead of a law.
-    expect(uwbMaxAnchors('ul-tdoa', 'ds', 'embedded', 'time')).toBe(UWB_UL_TDOA_ANCHOR_CEILING)
+    // PSDU stops the search: it runs to the shared ceiling and returns that instead of a law.
+    expect(uwbMaxAnchors('ul-tdoa', 'ds', 'embedded', 'time')).toBe(UWB_ANCHOR_SEARCH_CEILING)
+  })
+
+  it('gives a contention round the same ceiling, not the PSDU limit as an anchor count (fix round 1)', () => {
+    // Neither the contention Poll (a flat 31 octets — RCPS + RCMA stand in for the RDM anchor
+    // list) nor the SS Response grows with the anchor count, so nothing about the PSDU bounds a
+    // contention round either — exactly the UL-TDoA situation, and it needs the same answer for
+    // the same reason. What actually bounds a contention round is collision probability and
+    // `contentionSlots`, neither of which is a frame length, so returning the search ceiling
+    // (rather than the byte limit standing in for an anchor count) is the honest answer.
+    expect(uwbLongestFrameBytes(1, 'twr', 'contention')).toBe(31)
+    expect(uwbLongestFrameBytes(UWB_ANCHOR_SEARCH_CEILING, 'twr', 'contention')).toBe(31)
+    expect(uwbMaxAnchors('twr', 'ss', 'embedded', 'contention')).toBe(UWB_ANCHOR_SEARCH_CEILING)
+    expect(uwbMaxAnchors('twr', 'ss', 'fixed', 'contention')).toBe(UWB_ANCHOR_SEARCH_CEILING)
   })
 })
 
@@ -142,9 +174,75 @@ describe('makeResp / makeFinal / makeSsDefer carry the shapes above onto the wir
 
     expect(respAfter).toEqual(respBefore)
     expect(finalAfter).toEqual(finalBefore)
-    // The Poll's own signature never grew a replyTime argument at all — same call, sanity-checked
-    // alongside the two that did, so all three DL-TDoA builders are pinned together.
-    expect(poll.uwb!.dl).toEqual(pollDl)
+    // makePoll's own signature never grew a replyTime argument at all, so there is nothing to
+    // pin about it here beyond the frame decoding cleanly — a `poll.uwb!.dl` equality check would
+    // pass whether or not anything else in this diff were correct.
     for (const f of [poll, respBefore, finalBefore]) expect(fieldSum(f)).toBe(f.bytes)
+  })
+})
+
+describe('device.ts guards a deferred Final it cannot build yet (fix round 1, item 1)', () => {
+  /** A single anchor device, wired to a channel and clock but never scheduled through it: enough
+   * for a private handler to run against real `RoundState`, following the same construction
+   * `tests/uwb/network.test.ts`'s "UwbDevice.beginRound" group uses for the same reason. */
+  const anchorDevice = (records: TLRecord[]): UwbDevice => {
+    const q = new EventQueue()
+    const now = (): number => 0
+    const emit = makeEmitter((r) => records.push(r))
+    const nodes: NodeCfg[] = [{
+      id: 'anc-1', kind: 'uwb', name: 'anc-1', pos: { x: 1, y: 0, z: 1 }, txPowerDbm: -14,
+      profiles: ['idle'], caps: { generation: 'nonht', features: {} }, uwb: { role: 'anchor' },
+    }]
+    const ch = new UwbChannel(q, now, nodes, [], { channel: 9, nlos: false }, () => 0, emit)
+    return new UwbDevice(
+      'anc-1',
+      {
+        role: 'anchor', pos: { x: 1, y: 0, z: 1 }, tsNoisePs: 100, cfoNoisePpm: 0.2, maxAttempts: 3,
+        tdoaClockCorrection: true, syncOffsetNs: 0, syncErrorNs: 0, aoa: false, yawDeg: 0, channel: 9,
+      },
+      new UwbClock(0, 0), new Rng(1), q, now, ch, emit,
+      { trueDistM: () => 1, anchorPos: (id) => ({ id, x: 0, y: 0, z: 1 }) },
+    )
+  }
+
+  type FinalFrame = ReturnType<typeof makeFinal>
+
+  /** `onFinal` is private; this is the same "reach past the type" shape
+   * `tests/uwb/sensing.test.ts` already uses on this class, scoped to exactly the one method under
+   * test rather than casting the whole device to `any`. */
+  const callOnFinal = (dev: UwbDevice, r: RoundState, from: string, frame: FinalFrame, counter: number, fom: number): void => {
+    (dev as unknown as {
+      onFinal: (r: RoundState, from: string, frame: FinalFrame, counter: number, fom: number) => void
+    }).onFinal(r, from, frame, counter, fom)
+  }
+
+  it('a deferred Final (per-anchor times absent) produces no UWB_RANGE and no NaN anywhere', () => {
+    const records: TLRecord[] = []
+    const anchor = anchorDevice(records)
+    const plan = roundPlan(DEFAULT_UWB_SESSION, 1) // ds, time-scheduled, one anchor
+    anchor.beginRound(0, 0, plan, 'tag-1', ['anc-1'], {})
+    const r = anchor.round!
+    r.rxPollCounter = 1_000
+    r.txRespCounter = 2_000
+    // Exactly the shape frames.ts's makeFinal builds for replyTime: 'deferred' — the anchor is
+    // listed (an id), but tround1/treply2 are absent, not zero. No session built through
+    // device.ts produces this today (Task 4 wires `replyTime` into a device's own round), so this
+    // reaches past the type the same way the fix does: the field really is missing at runtime,
+    // which a `!` assertion cannot see and a real caller eventually will hand it.
+    const deferredFinal = makeFinal('tag-1', [{ id: 'anc-1', tround1: 0, treply2: 0 }], 0, 0, plan.slots - 2, undefined, 'deferred')
+    callOnFinal(anchor, r, 'tag-1', deferredFinal, 3_000, 0x16)
+    // Design §7: a deferred Final gives the anchor no range at all — that is the correct
+    // behaviour, not a failure — but the anchor is still listed, so it may still report later
+    // (transmitFor's uwbReport case reads exactly this flag).
+    expect(r.finalListedMe).toBe(true)
+    expect(records.some((x) => x.type === 'UWB_RANGE')).toBe(false)
+    // Before the fix, `dsTwr(undefined, …, undefined)` returns NaN without throwing (arithmetic on
+    // `undefined` is NaN, not an exception), and `reportRange` banks it as a UWB_RANGE record with
+    // no error anywhere — so this loop is what actually catches the bug, not just the count above.
+    for (const rec of records) {
+      for (const [k, v] of Object.entries(rec)) {
+        if (typeof v === 'number') expect(Number.isNaN(v), `${rec.type}.${k}`).toBe(false)
+      }
+    }
   })
 })

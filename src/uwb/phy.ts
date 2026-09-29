@@ -429,6 +429,11 @@ export function uwbLongestFrameBytes(
   // A contention round is SS-TWR and ends at the Response: there is no Final to size it by, and
   // the Poll carries RCPS + RCMA instead of the anchor list, so it is 31 octets whatever the
   // anchor count. At one anchor that Poll is longer than the Final the round never sends.
+  // Unlike the time-scheduled SS branch below, this one takes no `UWB_SS_DEFER_BYTES` term: it is
+  // numerically inert (the 31-octet Poll always beats the 17-octet deferred message) and the
+  // combination cannot legally occur besides — a contention responder draws its slot, and the
+  // deferred message has no fixed slot of its own to answer in, so `contention` + `deferred` is
+  // refused by the schema (design §3.1).
   if (schedule === 'contention') return Math.max(uwbPollBytes(anchors, 'contention'), uwbRespBytes('ss', replyTime))
   const pollBytes = uwbPollBytes(anchors)
   if (method === 'ss') {
@@ -447,21 +452,28 @@ export function uwbLongestFrameBytes(
  * `UWB_MAX_ANCHORS = 9` was the embedded DS-TWR Final's own number, wrongly applied to every
  * shape — including SS-TWR, whose round has no Final to overrun at all).
  *
- * UL-TDoA is the one shape the search cannot terminate on its own: its only frame, the 14-octet
- * blink, never grows with the anchor count (`uwbLongestFrameBytes` always returns
- * `UWB_BLINK_BYTES` for it), and neither does its slot cost — `uwbSlotsPerTag` gives a UL-TDoA
- * round one slot regardless of how many anchors listen to it. Nothing about the PSDU bounds it,
- * so the search is given a ceiling instead of a law (`UWB_UL_TDOA_ANCHOR_CEILING`): what actually
- * bounds a scenario's size lives elsewhere — the block-fit rule (`src/model/scenario.ts`) caps
- * how many *tags* a block holds, and DL-TDoA bounds its own anchor count structurally, one slot
- * per anchor (`uwbSlotsPerTag`'s `anchors + 1`), before the PSDU even gets a say.
+ * Two shapes have no frame that grows with the anchor count at all, so the search cannot
+ * terminate on its own in either of them: UL-TDoA's only frame, the 14-octet blink
+ * (`uwbLongestFrameBytes` always returns `UWB_BLINK_BYTES` for it), and a contention round's Poll
+ * and Response, both fixed size (RCPS + RCMA stand in for the anchor list). Fix round 1 caught
+ * that the first version of this function gave the two cases different answers by accident —
+ * UL-TDoA got a chosen ceiling, contention fell through to `UWB_MAX_PSDU_BYTES` used as the loop
+ * bound, which is a byte count standing in for an anchor count and returned 127 anchors with a
+ * straight face. Both are the same situation and get the same answer: neither the PSDU nor
+ * `uwbSlotsPerTag` (which gives UL-TDoA one slot, and a contention round `1 + contentionSlots`,
+ * regardless of anchor count) bounds them, so the search is given a ceiling instead of a law
+ * (`UWB_ANCHOR_SEARCH_CEILING`). What actually bounds each of them lives elsewhere: a contention
+ * round's real limit is collision probability against `contentionSlots`, not a frame length; a
+ * UL-TDoA round's is the block-fit rule (`src/model/scenario.ts`, which caps how many *tags* a
+ * block holds); and DL-TDoA — which does not need the ceiling at all — bounds its own anchor
+ * count structurally, one slot per anchor (`uwbSlotsPerTag`'s `anchors + 1`), before the PSDU
+ * even gets a say.
  */
 export function uwbMaxAnchors(
   mode: UwbMode, method: 'ss' | 'ds', replyTime: UwbReplyTime, schedule: 'time' | 'contention' = 'time',
 ): number {
-  const ceiling = mode === 'ul-tdoa' ? UWB_UL_TDOA_ANCHOR_CEILING : UWB_MAX_PSDU_BYTES
   let cap = 0
-  for (let a = 1; a <= ceiling; a++) {
+  for (let a = 1; a <= UWB_ANCHOR_SEARCH_CEILING; a++) {
     if (uwbLongestFrameBytes(a, mode, schedule, method, replyTime) > UWB_MAX_PSDU_BYTES) break
     cap = a
   }
@@ -469,13 +481,17 @@ export function uwbMaxAnchors(
 }
 
 /**
- * The ceiling `uwbMaxAnchors` searches up to for UL-TDoA, since nothing about that mode's frame
- * or slot cost ever stops the search on its own (see `uwbMaxAnchors`). Chosen, not derived: large
+ * The ceiling `uwbMaxAnchors` searches up to, for every mode: for UL-TDoA and a contention round
+ * this is the answer it returns outright (see `uwbMaxAnchors`), since nothing about either one's
+ * frame or slot cost ever stops the search on its own; for every other shape it is just a loop
+ * bound the real cap (9…33 for two-way, 27 for DL-TDoA — none of them close) is found well inside
+ * of, since every frame that does grow with the anchor count grows by at least 1 octet/anchor and
+ * so cannot cross the 127-octet PSDU past this many anchors either. Chosen, not derived: large
  * enough that no scenario this simulator's editor, tests or course corpus ever configures comes
  * close to it — the largest anchor count anywhere in this repository is nine, an order of
  * magnitude below — and small enough that a 64-iteration search costs nothing. model
  */
-export const UWB_UL_TDOA_ANCHOR_CEILING = 64
+export const UWB_ANCHOR_SEARCH_CEILING = 64
 
 /** The shortest ranging slot a round with N anchors fits in: the round's longest PPDU plus the
  * flight guard. In a shorter slot the receiver's deadline fires before the frame lands, and the
