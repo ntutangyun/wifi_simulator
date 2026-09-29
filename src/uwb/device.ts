@@ -426,6 +426,16 @@ export class UwbDevice implements UwbRadio {
   }
 
   // ---- radio ----------------------------------------------------------------
+  //
+  // There is **no `onEcho` here, deliberately.** `UwbRadio` offers one, and a scenario with
+  // reflecting objects in it does deliver a second arrival per object per pair — but a ranging
+  // device is not the consumer of them. A 4z/4ab receiver locks the first path and suppresses
+  // what follows it, so the receive timestamp below, the MMS train's `acquired` and the fragment
+  // accumulation must all see exactly the arrivals they saw before, and they do: the medium
+  // routes a marked arrival to `deliverEcho` instead, which opens no reception and calls a method
+  // this class does not implement. Switching the scatterers on therefore leaves every
+  // `UWB_RANGE` field-for-field what it was (sensing design §3 and §7, and
+  // tests/uwb/echo-channel.test.ts, which is the test that decides it).
 
   listening(): boolean {
     return this.state === 'uwbWait' || this.state === 'rx'

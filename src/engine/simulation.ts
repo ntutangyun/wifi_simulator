@@ -94,7 +94,14 @@ export class Simulation {
     // raw section would hand the sampler an undefined sigma and make every level NaN. Absence
     // survives the parse — the section has no `.default()` — so a scenario that says nothing
     // still gets `undefined` here, which is what keeps its levels bit-for-bit what they were.
-    const fading = ScenarioSchema.parse(sc).fading
+    const parsed = ScenarioSchema.parse(sc)
+    const fading = parsed.fading
+    // The reflecting objects, read the same way and for the same reason — by whether the section
+    // is **there**, never as `sc.scatterers ?? []`. An empty list may legally arrive and says
+    // "the section is here, with nothing to reflect off"; a scenario written before the section
+    // existed says nothing at all, and only that second case must leave the medium computing one
+    // arrival per pair (src/model/scenario.ts, `ScatterersSchema`).
+    const scatterers = 'scatterers' in parsed ? parsed.scatterers : undefined
     resetMsduIds()
     this.live = initViewState(sc)
     const emit: EmitFn = (r) => {
@@ -373,7 +380,7 @@ export class Simulation {
     if (uwbNodes.length && sc.uwb) {
       // The mediator, if the 6 GHz link built one above, is handed on here: both
       // engines then hold the same object and hear each other's emissions.
-      this.uwb = new UwbNetwork(this.q, () => this.nowNs, uwbNodes, sc.walls, sc.uwb, root, baseEmit, this.spectrum, sc.seed)
+      this.uwb = new UwbNetwork(this.q, () => this.nowNs, uwbNodes, sc.walls, sc.uwb, root, baseEmit, this.spectrum, sc.seed, scatterers)
     }
 
     // ---- snapshots ----

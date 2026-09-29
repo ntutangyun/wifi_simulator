@@ -26,6 +26,9 @@
 import { EventQueue } from '../engine/events'
 import { byCodeUnit } from '../engine/hash'
 import { wallLossDb, wallsCrossed } from '../engine/propagation'
+import {
+  echoDelayNs, echoExcessM, echoLossDb, echoPathM, isResolvable, type ScattererCfg,
+} from '../engine/scatter'
 import { uwbToWifiPathLossDb, type Emission, type Spectrum } from '../engine/spectrum'
 import type { FrameDesc } from '../model/frames'
 import type { EmitFn, RxFailReason } from '../model/records'
@@ -33,11 +36,12 @@ import type { NodeCfg, Wall } from '../model/scenario'
 import type { Ns, Vec3 } from '../model/types'
 import { MMS_COMBINE_MAX_DB, MMS_SP0_RX_SENS_DBM } from './mms'
 import {
-  NB_LBT_THRESHOLD_DBM, NB_RX_SENS_DBM, NB_SIR_MIN_DB, NB_TX_DBM, nbBand, nbPl0Db,
+  NB_CHANNEL_MHZ, NB_LBT_THRESHOLD_DBM, NB_RX_SENS_DBM, NB_SIR_MIN_DB, NB_TX_DBM,
+  nbBand, nbCenterMhz, nbPl0Db,
 } from './nb'
 import {
-  UWB_BAND_MHZ, UWB_CAPTURE_DB, UWB_NLOS_NS, UWB_RX_SENS_DBM, UWB_SIR_MIN_DB,
-  C_M_PER_NS, uwbPathLossDb, uwbPl0Db, type UwbChannelNo,
+  UWB_BAND_MHZ, UWB_CAPTURE_DB, UWB_CHANNEL_MHZ, UWB_CHIP_NS, UWB_NLOS_NS, UWB_RX_SENS_DBM,
+  UWB_SIR_MIN_DB, C_M_PER_NS, freeSpacePl0Db, uwbPathLossDb, type UwbChannelNo,
 } from './phy'
 
 export interface UwbRxInfo {
@@ -58,11 +62,50 @@ export interface UwbRxInfo {
   foreignDbm: number
 }
 
+/**
+ * A PPDU that came home the second way: off one of the scenario's reflecting objects
+ * (`src/engine/scatter.ts`), later than the direct ray and weaker.
+ *
+ * It is a **separate type from `UwbRxInfo`, and that is the point.** An echo has no first-path
+ * timestamp, no NLOS excess of the direct ray and no clock-offset estimate, because a ranging
+ * receiver has already locked the direct path and is suppressing everything after it (design
+ * §3). Giving an echo a `UwbRxInfo` would have handed every reader of one a `propNs` that is
+ * not the flight time the range is made of — so the two shapes are kept apart and nothing that
+ * stamps a counter is ever given this one.
+ */
+export interface EchoInfo {
+  /** Which object reflected it, so a sensing consumer can name it. */
+  scattererId: string
+  /** Level at the receiver, dBm: the two legs' loss, the aperture the sum double-charges, and
+   * the object's own reflectivity (`echoLossDb`), plus the walls each leg crosses. */
+  rssiDbm: number
+  /** Flight time TX→S→RX, float ns — the echo's counterpart of `UwbRxInfo.propNs`, and never
+   * smaller than it (the triangle inequality). */
+  propNs: number
+  /** Bistatic distance |TX→S| + |S→RX|, metres: the whole road travelled. */
+  pathM: number
+  /** How much further than the direct ray, metres. Zero for an object on the line. */
+  excessM: number
+  /** Whether this receiver's PHY can tell the echo from the direct path at all — the excess
+   * flight time against 1/B (design §4). False is not a failure: an object standing on the
+   * line between the two ends is invisible, to real equipment as much as to this model. */
+  resolvable: boolean
+  /** When the PPDU started at the transmitter (event-clock ns), as `UwbRxInfo` reports it. */
+  txStartNs: Ns
+}
+
 export interface UwbRadio {
   listening(): boolean
   onRxStart(from: string, frame: FrameDesc): void
   onRxOk(from: string, frame: FrameDesc, info: UwbRxInfo): void
   onRxFail(from: string, reason: RxFailReason): void
+  /**
+   * An echo landed. **Optional, and `UwbDevice` deliberately does not implement it** — that
+   * absence is how ranging stays bit-for-bit what it was with the scatterers switched on
+   * (design §3 and §7). This is the one door an echo comes through, and only a sensing
+   * consumer opens it.
+   */
+  onEcho?(from: string, frame: FrameDesc, echo: EchoInfo): void
 }
 
 /** Internal to this module: the session knobs the medium itself reads. There is no MMS entry
@@ -102,16 +145,33 @@ interface RadioState {
   open: Reception[]
 }
 
-/** One PPDU arriving at one receiver, buffered until its whole instant is known. */
-interface Arrival {
+/** What every arrival at one receiver has, buffered until its whole instant is known. */
+interface ArrivalBase {
   rxId: string
   from: string
   frame: FrameDesc
   rssiDbm: number
-  info: UwbRxInfo
-  /** See `Reception.rxScope`. */
+  /** See `Reception.rxScope`. Inert on an echo, which never competes for a radio. */
   rxScope: string | null
 }
+
+/** The arrival every transmission has always made: the direct ray, and the only one a ranging
+ * receiver is allowed to see. */
+interface DirectArrival extends ArrivalBase {
+  info: UwbRxInfo
+  echo: null
+}
+
+/** The second way home. Its `info` is `null` and its `echo` is not, which is what makes the
+ * marker impossible to ignore by accident: there is no `UwbRxInfo` on an echo to stamp, and
+ * `deliver` below routes on the discriminant rather than trusting each reader to check a flag
+ * (design §3 — the timestamp, `acquired` and the fragment train can none of them reach one). */
+interface EchoArrival extends ArrivalBase {
+  info: null
+  echo: EchoInfo
+}
+
+type Arrival = DirectArrival | EchoArrival
 
 /**
  * The one receiver a transmission competes for, or null when it competes everywhere.
@@ -160,6 +220,14 @@ export class UwbChannel {
      * Absent (or null) leaves every record exactly as it was: nothing is emitted onto
      * the spectrum, no reception ever carries foreign power, and no SIR test can bite. */
     private spectrum: Spectrum | null = null,
+    /** The room's reflecting objects, when the scenario has the section at all. `undefined` —
+     * the default, and what every scenario written before the section parses to — means no
+     * echo is computed for anything, so those scenarios deliver exactly the one arrival per
+     * pair they always did. An empty list is a **different** statement ("the section is here,
+     * with nothing to reflect off"), takes the echo branch, and finds nothing to do in it;
+     * `src/model/scenario.ts` keeps the two apart deliberately and there is no `?? []`
+     * anywhere on the way here. */
+    private scatterers: ScattererCfg[] | undefined = undefined,
   ) {
     for (const n of nodes) this.byId.set(n.id, n)
     const sp = spectrum
@@ -199,10 +267,51 @@ export class UwbChannel {
     return this.nodeOf(from).txPowerDbm
   }
 
-  /** Free-space loss at 1 m of the band the frame actually went out on. */
-  private pl0For(frame?: FrameDesc): number {
+  /**
+   * The carrier the frame actually went out on, MHz: a narrowband message's own 2.5 MHz channel
+   * (4ab draft 15-22/0381r5 §1.4.1) or the session's UWB channel (standard Table 11-9).
+   *
+   * One definition, because two quantities below are built from it — the first metre of path
+   * loss and the wavelength the echo's aperture correction needs — and a frame whose loss said
+   * "narrowband" while its wavelength said "channel 9" would be a silent 30 dB error in an echo
+   * level with nothing to point at.
+   */
+  private centreMhzFor(frame?: FrameDesc): number {
     const nb = frame?.uwb?.nb
-    return nb ? nbPl0Db(nb.channel) : uwbPl0Db(this.cfg.channel)
+    return nb ? nbCenterMhz(nb.channel) : UWB_CHANNEL_MHZ[this.cfg.channel]
+  }
+
+  /** Free-space loss at 1 m of the band the frame actually went out on. Identical to
+   * `nbPl0Db` / `uwbPl0Db` — both are `freeSpacePl0Db` of exactly this centre — and written
+   * through `centreMhzFor` so it cannot disagree with `lambdaMFor` about which band that is. */
+  private pl0For(frame?: FrameDesc): number {
+    return freeSpacePl0Db(this.centreMhzFor(frame))
+  }
+
+  /** Carrier wavelength of the frame's band, metres: c / f. `echoLossDb`'s aperture correction
+   * is a wavelength's worth of geometry, so an echo needs this and nothing else about the
+   * carrier. Computed here rather than taken from `aoa.ts`'s `wavelengthM`, which is keyed on a
+   * `UwbChannelNo` a narrowband message does not have. physics */
+  private lambdaMFor(frame?: FrameDesc): number {
+    return (C_M_PER_NS * 1e9) / (this.centreMhzFor(frame) * 1e6)
+  }
+
+  /**
+   * How much later an arrival has to be before this receiver can separate it from the direct
+   * path, ns — the resolution `isResolvable` asks for.
+   *
+   * It is 1/B of the PHY the frame went out on, which is not a tuned figure but the width of
+   * the correlation peak a bandwidth B can make. For the HRP UWB PHY B is 499.2 MHz and 1/B is
+   * the chip itself, `UWB_CHIP_NS` = 2.003205 ns, about 0.6 m of extra path — design §4's
+   * condition, and the teaching point of the lesson this slice is for. standard §16.2.4
+   *
+   * A 2.5 MHz narrowband message resolves at 400 ns instead, some 120 m of detour: a narrowband
+   * receiver cannot separate an echo from the direct ray in any room. That falls out of the same
+   * one line rather than being special-cased, which is why the line is here and not a constant.
+   * physics (1/B)
+   */
+  private resolutionNsFor(frame: FrameDesc): number {
+    return frame.uwb?.nb ? 1000 / NB_CHANNEL_MHZ : UWB_CHIP_NS
   }
 
   /** The floor this frame has to clear to reach its device at all. A fragment is handed over
@@ -351,18 +460,79 @@ export class UwbChannel {
       const nlosNs = this.nlosNs(from, rxId)
       const at = t + Math.ceil(propNs)
       const rssiDbm = this.rssiDbm(from, rxId, frame)
-      const arrival: Arrival = {
-        rxId, from, frame, rssiDbm, rxScope,
+      this.queue(at, {
+        rxId, from, frame, rssiDbm, rxScope, echo: null,
         info: {
           rssiDbm, propNs, nlosNs, nlos: this.obstructed(from, rxId),
           txStartNs: t, txPpm: this.ppmOf(from), foreignDbm: -Infinity,
         },
-      }
-      const batch = this.pending.get(at)
-      if (batch) batch.push(arrival)
-      else {
-        this.pending.set(at, [arrival])
-        this.q.schedule(at, () => this.deliver(at), 1)
+      })
+    }
+    // The echoes come after every direct arrival has been queued, never interleaved with them:
+    // the direct path then draws exactly the event-queue sequence numbers it drew before,
+    // whatever the room reflects off, so the arrival order of two transmissions at one instant
+    // cannot depend on how many objects are standing around. One extra loop for that.
+    this.scheduleEchoes(t, from, frame, rxScope)
+  }
+
+  /** Buffer one arrival into its instant's batch, opening the batch (and the phase-1 event that
+   * resolves it) the first time that instant is used. */
+  private queue(at: Ns, a: Arrival): void {
+    const batch = this.pending.get(at)
+    if (batch) batch.push(a)
+    else {
+      this.pending.set(at, [a])
+      this.q.schedule(at, () => this.deliver(at), 1)
+    }
+  }
+
+  /**
+   * One more arrival per (receiver, object): the same PPDU, off the object, later and weaker
+   * (`src/engine/scatter.ts`). Nothing happens at all when the scenario has no scatterers
+   * section — the branch is on the section's presence, exactly as `fading`'s is.
+   *
+   * Two things this does not do, both deliberate. It does not put the echo on the Spectrum: the
+   * mediator models what was **radiated**, and reflecting a signal radiates nothing new, so a
+   * Wi-Fi receiver's interference and the narrowband LBT reading are untouched by definition.
+   * And it gives the transmitter no echo of its own — the loop skips `rxId === from` as the
+   * direct loop does, so this slice models bistatic echoes only, never the monostatic radar a
+   * device listening to its own reflection would be.
+   */
+  private scheduleEchoes(t: Ns, from: string, frame: FrameDesc, rxScope: string | null): void {
+    const list = this.scatterers
+    if (list === undefined) return
+    const txPos = this.posOf(from)
+    const txDbm = this.txDbmFor(from, frame)
+    const lambdaM = this.lambdaMFor(frame)
+    const resolutionNs = this.resolutionNsFor(frame)
+    // The direct path's own law, bound once and handed to `echoLossDb` for both legs: free space
+    // at this frame's carrier and `UWB_PL_EXP` decades of spreading past the first metre, which
+    // is what `rssiDbm` charges the direct ray through the same function. The wall term is 0
+    // here and the walls are charged per leg below, because the walls between the transmitter
+    // and the object are not the walls between the object and the receiver — `echoLossDb`'s own
+    // doc says that is why it takes no wall list and one closure cannot stand for both.
+    const pl0 = this.pl0For(frame)
+    const law = (dM: number): number => uwbPathLossDb(pl0, dM, 0)
+    for (const rxId of this.radios.keys()) {
+      if (rxId === from) continue
+      const rxPos = this.posOf(rxId)
+      for (const s of list) {
+        const propNs = echoDelayNs(txPos, s.pos, rxPos)
+        const legWallsDb = wallLossDb(txPos, s.pos, this.walls) + wallLossDb(s.pos, rxPos, this.walls)
+        const echo: EchoInfo = {
+          scattererId: s.id,
+          rssiDbm: txDbm - echoLossDb(txPos, s.pos, rxPos, law, lambdaM, s.extraLossDb) - legWallsDb,
+          propNs,
+          pathM: echoPathM(txPos, s.pos, rxPos),
+          excessM: echoExcessM(txPos, s.pos, rxPos),
+          resolvable: isResolvable(txPos, s.pos, rxPos, resolutionNs),
+          txStartNs: t,
+        }
+        // The same rounding the direct path takes: the event queue runs on whole nanoseconds,
+        // and an object on the line therefore shares its instant with the ray it reflected.
+        this.queue(t + Math.ceil(propNs), {
+          rxId, from, frame, rssiDbm: echo.rssiDbm, rxScope, info: null, echo,
+        })
       }
     }
   }
@@ -375,12 +545,44 @@ export class UwbChannel {
   private deliver(at: Ns): void {
     const batch = this.pending.get(at) ?? []
     this.pending.delete(at)
+    // The fourth key is the reflecting object, empty for the direct ray. Two direct arrivals can
+    // never reach the first three ties at once (that would be one transmission delivered twice),
+    // so it settles nothing the earlier keys already decided — it only stops the order of
+    // same-instant echoes depending on the order the scenario happened to list its objects, and
+    // puts the direct ray ahead of an echo that shares its instant and its level.
     const ordered = [...batch].sort((x, y) =>
-      byCodeUnit(x.rxId, y.rxId) || y.rssiDbm - x.rssiDbm || byCodeUnit(x.from, y.from))
-    for (const a of ordered) this.startRx(at, a)
+      byCodeUnit(x.rxId, y.rxId) || y.rssiDbm - x.rssiDbm || byCodeUnit(x.from, y.from)
+      || byCodeUnit(x.echo?.scattererId ?? '', y.echo?.scattererId ?? ''))
+    // The one place the marker is read, and it is read as a route rather than as a flag: an echo
+    // goes to `deliverEcho`, which opens no reception — so nothing downstream of `startRx` (the
+    // receive timestamp, `acquired`, the fragment train, the capture contest) is even offered
+    // one to ignore. That is design §3, enforced structurally.
+    for (const a of ordered) {
+      if (a.echo !== null) this.deliverEcho(a)
+      else this.startRx(at, a)
+    }
   }
 
-  private startRx(t: Ns, a: Arrival): void {
+  /**
+   * Hand one echo to the receiver's sensing consumer, if it has one.
+   *
+   * The two gates are the direct path's own: a radio that is not listening hears nothing, and an
+   * echo below the frame's sensitivity is not there to be heard. Everything `startRx` does after
+   * those two — the capture contest, the open reception, RX_START, RX_OK — is skipped, because an
+   * echo is not something the radio was trying to decode. `UwbDevice` implements no `onEcho`, so
+   * in a ranging session this method ends here and the round is what it was.
+   */
+  private deliverEcho(a: EchoArrival): void {
+    const r = this.radios.get(a.rxId)
+    if (!r) return
+    if (!r.radio.listening()) return
+    if (a.rssiDbm < this.sensFor(a.frame)) return
+    r.radio.onEcho?.(a.from, a.frame, a.echo)
+  }
+
+  /** `DirectArrival`, not `Arrival`: the type says an echo cannot reach here, and `deliver`
+   * above is the only caller that could have tried. */
+  private startRx(t: Ns, a: DirectArrival): void {
     const r = this.radios.get(a.rxId)
     if (!r) return
     if (!r.radio.listening()) return

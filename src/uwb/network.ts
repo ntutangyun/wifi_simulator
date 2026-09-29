@@ -21,6 +21,7 @@
 import type { EventQueue } from '../engine/events'
 import { hashStr } from '../engine/hash'
 import type { Rng } from '../engine/rng'
+import type { ScattererCfg } from '../engine/scatter'
 import type { Spectrum } from '../engine/spectrum'
 import type { EmitFn } from '../model/records'
 import type { NodeCfg, UwbSessionCfg, Wall } from '../model/scenario'
@@ -52,6 +53,10 @@ export class UwbNetwork {
      * (`nbChannelForBlock`). Only `mode: 'mms'` reads it; 0 is a harmless default for the
      * callers and tests that build a network without one. */
     private readonly seed: number = 0,
+    /** The scenario's reflecting objects, when it has the section at all (`Scenario.scatterers`).
+     * `undefined` — the default, and what every scenario written before the section parses to —
+     * means the medium computes no echoes, so every such session ranges bit-for-bit as before. */
+    scatterers?: ScattererCfg[],
   ) {
     const anchors = nodes.filter((n) => n.uwb?.role === 'anchor').map((n) => n.id)
     const tags = nodes.filter((n) => n.uwb?.role === 'tag').map((n) => n.id)
@@ -111,7 +116,7 @@ export class UwbNetwork {
       // The medium reads only the session's channel and its NLOS switch; everything an MMS frame
       // needs (power, band, length) rides on the frame itself.
       { channel: cfg.channel, nlos: cfg.nlos },
-      (id) => this.devices.get(id)?.clock.ppm ?? 0, emit, spectrum,
+      (id) => this.devices.get(id)?.clock.ppm ?? 0, emit, spectrum, scatterers,
     )
     this.channel = ch
 
