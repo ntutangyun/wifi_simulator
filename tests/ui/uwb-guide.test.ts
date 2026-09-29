@@ -9,7 +9,8 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, it, expect } from 'vitest'
 import { CCA_ED_DBM } from '../../src/engine/phy'
-import { DEFAULT_UWB_SESSION } from '../../src/model/scenario'
+import { Simulation } from '../../src/engine/simulation'
+import { DEFAULT_UWB_SESSION, type NodeCfg, type Scenario } from '../../src/model/scenario'
 import { EditorGuide } from '../../src/editor/EditorGuide'
 import { Guide } from '../../src/ui/Guide'
 import { STRINGS } from '../../src/ui/i18n'
@@ -26,6 +27,7 @@ import {
   COUNTER_MOD, FOM_LOS, FOM_NLOS, RCTU_NS, UWB_BAND_MHZ, UWB_BLINK_BYTES, UWB_CAPTURE_DB,
   UWB_MAX_INPUT_DBM_PER_MHZ, UWB_PL_EXP, UWB_RX_SENS_DBM, UWB_SIR_MIN_DB, UWB_SS_DEFER_BYTES, UWB_TX_POWER_DBM,
   fomDecode, fomText, rstuNs, uwbFinalBytes, uwbInBandDbm, uwbMaxAnchors, uwbPl0Db, uwbRespBytes, uwbSlotsPerTag,
+  type UwbReplyTime,
 } from '../../src/uwb/phy'
 import { rangeSigmaM } from '../../src/uwb/position'
 import { ELLIPSE_DRAW_SCALE } from '../../src/uwb/scene'
@@ -168,8 +170,62 @@ describe('Guide section 15: reply time / round-trip time', () => {
     expect(guide).toMatch(/只有 DS 嵌入[\s\S]{0,40}让锚点也拿到/)
   })
 
-  it('quotes the five measured ranges and the matched-crystal control, verbatim from the brief', () => {
-    for (const r of ['4.998803', '4.998630', '4.999075', '5.001420']) expect(guide).toContain(r)
+  /**
+   * The five ranges in the Guide are **not** checked against a list of strings — that pins the
+   * prose against itself, which is the one thing it cannot catch. They are checked against five
+   * rounds run here, now, by the engine the reader is about to use.
+   *
+   * This project's recurring defect is stated-versus-simulated drift: a number written into the
+   * text once, and true only until the next engine change. Task 5 quoted these from a brief and
+   * said so; this is the test that makes the quotation load-bearing. Change the clock model, the
+   * frame sizes or the reply-time routing and this test names the sentence that went stale.
+   */
+  it('quotes ranges the engine actually produces, measured here rather than copied', () => {
+    const shapes: { method: 'ss' | 'ds'; replyTime: UwbReplyTime }[] = [
+      { method: 'ss', replyTime: 'embedded' },
+      { method: 'ss', replyTime: 'fixed' },
+      { method: 'ss', replyTime: 'deferred' },
+      { method: 'ds', replyTime: 'embedded' },
+      { method: 'ds', replyTime: 'deferred' },
+    ]
+    const TRUE_M = 5
+    const node = (id: string, x: number, role: 'anchor' | 'tag', ppm: number): NodeCfg => ({
+      id, kind: 'uwb', name: id, pos: { x, y: 0, z: 1 }, txPowerDbm: UWB_TX_POWER_DBM,
+      profiles: ['idle'], caps: { generation: 'nonht', features: {} }, uwb: { role, ppm },
+    })
+    const tagRange = (
+      s: { method: 'ss' | 'ds'; replyTime: UwbReplyTime }, ppm: { a: number; t: number },
+    ): number => {
+      const sc: Scenario = {
+        rooms: [{ x: 0, y: 0, w: 12, h: 10, name: 'lab' }],
+        walls: [],
+        nodes: [node('anc-1', 0, 'anchor', ppm.a), node('tag-1', TRUE_M, 'tag', ppm.t)],
+        servers: [], seed: 7, rtsThresholdBytes: 3000, snapshotIntervalMs: 10,
+        uwb: { ...DEFAULT_UWB_SESSION, ...s, tsNoisePs: 0, cfoNoisePpm: 0 },
+      }
+      const recs = new Simulation(sc).runUntil(40_000_000).records
+      const r = recs.find((x) => x.type === 'UWB_RANGE' && x.node === 'tag-1')
+      expect(r, `${s.method}/${s.replyTime} produced no range at all`).toBeDefined()
+      return (r as { distM: number }).distM
+    }
+
+    // Crystals 35 ppm apart is what separates the five shapes; matched crystals is the control.
+    const skewed = shapes.map((s) => tagRange(s, { a: 20, t: -15 }))
+    const matched = shapes.map((s) => tagRange(s, { a: 0, t: 0 }))
+
+    // Every figure the Guide prints has to be one of these, to six decimal places.
+    for (const d of [...skewed, ...matched]) expect(guide).toContain(d.toFixed(6))
+
+    // …and the three claims the prose makes about them are claims about the engine, not asides.
+    // Embedded and deferred run the same arithmetic over a different carrier, so they agree
+    // exactly; fixed counts its delay on the responder's own crystal, so it does not.
+    expect(skewed[0]).toBe(skewed[2])
+    expect(skewed[1]).not.toBe(skewed[0])
+    expect(skewed[3]).toBe(skewed[4])
+    // DS beats SS on a skewed pair, which is the whole reason DS-TWR exists.
+    expect(Math.abs(skewed[3] - TRUE_M)).toBeLessThan(Math.abs(skewed[0] - TRUE_M))
+    // Matched crystals collapse the five routes onto one answer.
+    expect(new Set(matched).size).toBe(1)
   })
 
   it('names the three limits design §10 requires: no control plane, no negotiation, no jitter', () => {
