@@ -503,20 +503,35 @@ export function uwbMaxAnchors(
  */
 export const UWB_ANCHOR_SEARCH_CEILING = 64
 
-/** The shortest ranging slot a round with N anchors fits in: the round's longest PPDU plus the
+/**
+ * The shortest ranging slot a round with N anchors fits in: the round's longest PPDU plus the
  * flight guard. In a shorter slot the receiver's deadline fires before the frame lands, and the
  * round loses every anchor to UWB_TIMEOUT with nothing to say why.
  *
  * In MMS it is the longest fragment of the train plus the same guard: a 256-unit RIF is 262.6 µs
- * and does not fit the 250 µs a 300 RSTU slot gives it. */
+ * and does not fit the 250 µs a 300 RSTU slot gives it.
+ *
+ * `method` and `replyTime` are the round's own, for the same reason `uwbMaxAnchors` takes them
+ * (design §5, Ruling 3): **which frame is the longest one moves with the shape.** Without them
+ * this function sized every two-way slot for the embedded DS-TWR Final, which at nine anchors is
+ * 122 octets — where an SS-TWR round's longest frame is the 54-octet Poll, and the Final it was
+ * being measured against does not exist in that round at all. That was the identical inaccuracy
+ * design §5 caught in the old `UWB_MAX_ANCHORS = 9`, in a second function; fixing one and leaving
+ * its twin is the inconsistency, not the fix.
+ *
+ * Both default to the embedded DS-TWR round, which is the largest of the shapes and so exactly
+ * what this function answered before they existed: a caller that passes neither gets the number it
+ * always got, conservatively rather than silently differently.
+ */
 export function uwbSlotFitNs(
   anchors: number, mode: UwbMode = 'twr', schedule: 'time' | 'contention' = 'time', mms?: MmsRoundShape,
+  method: 'ss' | 'ds' = 'ds', replyTime: UwbReplyTime = 'embedded',
 ): Ns {
   if (mode === 'mms') {
     if (!mms) throw new Error("uwbSlotFitNs: mode 'mms' needs the session's MMS parameters")
     return mmsLongestFragmentNs(mms) + UWB_SLOT_GUARD_NS
   }
-  return uwbPpduNs(uwbLongestFrameBytes(anchors, mode, schedule)) + UWB_SLOT_GUARD_NS
+  return uwbPpduNs(uwbLongestFrameBytes(anchors, mode, schedule, method, replyTime)) + UWB_SLOT_GUARD_NS
 }
 
 /** The room an MMS round's longest narrowband message needs. They are far longer than any

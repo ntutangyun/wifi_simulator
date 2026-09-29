@@ -132,6 +132,43 @@ describe('UWB nodes and sessions in the schema', () => {
     expect(rstuNs(DEFAULT_UWB_SESSION.slotRstu)).toBeGreaterThan(uwbSlotFitNs(DS_EMBEDDED_CAP))
   })
 
+  it('sizes that same slot by the round the session actually runs (fix round 1)', () => {
+    // The refusal above is the *embedded DS-TWR Final's*. An SS-TWR round has no Final at all —
+    // it ends at the Responses — so the identical six anchors in the identical 300 RSTU slot fit
+    // comfortably, and were being refused by a frame that round never sends. This is the twin of
+    // the `UWB_MAX_ANCHORS` inaccuracy design §5 caught, in the slot-fit rule rather than the
+    // anchor cap, and it is fixed the same way: by asking which frame this round's shape makes
+    // longest. See tests/uwb/reply-time-frames.test.ts for the law itself.
+    const anchors = (n: number) => Array.from({ length: n }, (_, i) => uwbNode(`anc-${i}`, 'anchor', i * 2, 0))
+    const tag = uwbNode('tag-1', 'tag', 4, 4)
+    const shortDs: UwbSessionCfg = { ...DEFAULT_UWB_SESSION, slotRstu: 300 }
+    const shortSs: UwbSessionCfg = { ...shortDs, method: 'ss' }
+    // What the round's longest frame really is decides it: the Poll at 54 octets against the
+    // Final's 122, and a 300 RSTU slot is 250 µs.
+    expect(uwbSlotFitNs(9, 'twr', 'time', undefined, 'ss', 'embedded')).toBeLessThan(rstuNs(300))
+    expect(uwbSlotFitNs(6, 'twr', 'time', undefined, 'ds', 'embedded')).toBeGreaterThan(rstuNs(300))
+    // Six anchors: refused as DS-TWR, accepted as SS-TWR, in both the schema and the engine.
+    expect(() => ScenarioSchema.parse(uwbScenario([...anchors(6), tag], shortDs))).toThrow(/300 RSTU/)
+    expect(() => ScenarioSchema.parse(uwbScenario([...anchors(6), tag], shortSs))).not.toThrow()
+    expect(() => network([...anchors(6), tag], shortSs)).not.toThrow()
+    // …and so is the whole DS-embedded cap's worth of them, which that slot could never hold as DS.
+    for (const replyTime of ['embedded', 'deferred', 'fixed'] as const) {
+      // `fixed` needs its reply constant scaled to the slot as well, and that is a *different*
+      // rule: design §6.1's two-sided bound is measured in slots, so the 2400 RSTU default — one
+      // whole 2 ms slot — cannot live inside a 250 µs one whatever the slot-fit rule says. 60 RSTU
+      // (50 µs) sits inside the bound this geometry gives, [21.6 µs, 90.1 µs].
+      const sc = uwbScenario([...anchors(9), tag], {
+        ...shortSs, replyTime, ...(replyTime === 'fixed' ? { fixedReplyRstu: 60 } : {}),
+      })
+      expect(() => ScenarioSchema.parse(sc), `ss/${replyTime}`).not.toThrow()
+    }
+    // A deferred DS Final is 32 octets at nine anchors, so that shape clears the same slot too —
+    // only the embedded DS round, whose Final really is the longest frame, is bound by it.
+    expect(() => ScenarioSchema.parse(uwbScenario([...anchors(9), tag], { ...shortDs, replyTime: 'deferred' })))
+      .not.toThrow()
+    expect(() => ScenarioSchema.parse(uwbScenario([...anchors(9), tag], shortDs))).toThrow(/300 RSTU/)
+  })
+
   it('a round takes at most nine anchors: the Final has to stay under 127 octets', () => {
     expect(uwbFinalBytes(DS_EMBEDDED_CAP)).toBe(122)
     expect(uwbFinalBytes(DS_EMBEDDED_CAP + 1)).toBe(134)

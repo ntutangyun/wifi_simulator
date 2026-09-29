@@ -86,7 +86,12 @@ export class UwbNetwork {
     }
     // The same pair of guards, in the units the scheduler runs in: a frame that outlives its
     // slot would be lost to the receiver's deadline with no diagnostic at all.
-    const needNs = uwbSlotFitNs(anchors.length, this.plan.mode, this.plan.schedule, cfg.mms)
+    // The round's own method and reply-time shape, because which of its frames is the longest one
+    // depends on both (design §5): an SS round has no Final to be sized against, and a deferred DS
+    // Final grows 2 octets an anchor rather than 12. The schema checks the identical thing in RSTU.
+    const needNs = uwbSlotFitNs(
+      anchors.length, this.plan.mode, this.plan.schedule, cfg.mms, this.plan.method, this.plan.replyTime,
+    )
     if (this.plan.slotNs < needNs) {
       throw new Error(
         `UwbNetwork: a ${this.plan.slotNs} ns ranging slot cannot carry a round of ${anchors.length} `

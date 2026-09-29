@@ -26,9 +26,9 @@ const MS = 1_000_000
 /** Anchor at the origin, tag 5 m down the x axis — the distance every test below measures. */
 const TRUE_DIST_M = 5
 
-function uwbNode(id: string, x: number, role: 'anchor' | 'tag', ppm: number): NodeCfg {
+function uwbNode(id: string, x: number, role: 'anchor' | 'tag', ppm: number, y = 0): NodeCfg {
   return {
-    id, kind: 'uwb', name: id, pos: { x, y: 0, z: 1 },
+    id, kind: 'uwb', name: id, pos: { x, y, z: 1 },
     txPowerDbm: UWB_TX_POWER_DBM, profiles: ['idle'],
     caps: { generation: 'nonht', features: {} },
     uwb: { role, ppm },
@@ -286,5 +286,102 @@ describe('the embedded shapes are byte-identical to what they were before this s
         .filter((r) => r.type.startsWith('UWB_') || r.type === 'MAC_STATE')
       expect(hashStr(JSON.stringify(rs)).toString(16), method).toBe(BEFORE[method])
     }
+  })
+})
+
+/**
+ * Fix round 1 of Task 4. `contention` + `fixed` is a pairing the schema deliberately allows —
+ * design §3.1 calls it the one most worth allowing, because a contention round is exactly where the
+ * shortest Response matters most — and Task 4 shipped it with no end-to-end coverage. A
+ * configuration the schema permits and no round exercises is one this slice has not modelled.
+ *
+ * What is genuinely different here, and all this file's other fixed-reply tests miss: the
+ * responder's answer slot came from its **own draw** (`r.contendSlot`, standard §10.32.2 schedule
+ * mode 0) rather than from the schedule, so the stagger `k` in `fixedReplyRctu` is a number the
+ * schedule never decided — and the tag, which was never told the draw, has to read `k` off the slot
+ * the answer landed in.
+ */
+describe('contention + fixed: a responder that chose its own slot (design §3.1)', () => {
+  /** A contention round, with the anchors placed where the caller asks and one tag. */
+  function contention(places: { x: number; y: number }[], tag: { x: number; y: number }): TLRecord[] {
+    return run({
+      rooms: [{ x: 0, y: 0, w: 20, h: 16, name: 'lab' }],
+      walls: [],
+      nodes: [
+        ...places.map((p, i) => uwbNode(`anc-${i + 1}`, p.x, 'anchor', 0, p.y)),
+        uwbNode('tag-1', tag.x, 'tag', 0, tag.y),
+      ],
+      servers: [],
+      seed: 7,
+      rtsThresholdBytes: 3000,
+      snapshotIntervalMs: 10,
+      uwb: { ...DEFAULT_UWB_SESSION, method: 'ss', replyTime: 'fixed', schedule: 'contention', ...QUIET },
+    })
+  }
+
+  /** The slot each anchor drew, as it announced it on the Poll — read from the round, never
+   * hard-coded: the draw comes off that anchor's own generator and is nobody's business to predict. */
+  const drawn = (rs: TLRecord[]): Map<string, number> => new Map(
+    of(rs, 'UWB_CONTEND').filter((r) => r.slot !== null).map((r) => [r.node, r.slot as number]),
+  )
+
+  describe('one anchor', () => {
+    const rs = contention([{ x: 0, y: 0 }], { x: 5, y: 0 })
+    const slot = drawn(rs).get('anc-1')!
+    const plan = roundPlan(
+      { ...DEFAULT_UWB_SESSION, method: 'ss', replyTime: 'fixed', schedule: 'contention' }, 1,
+    )
+    // A contention Poll carries RCPS + RCMA instead of the anchor list, so it is a flat 31 octets
+    // whatever the anchor count — a different airtime from the time-scheduled Poll, and the fixed
+    // reply time is counted from the end of *this* one.
+    const pollNs = uwbPpduNs(uwbPollBytes(1, 'contention'))
+
+    it('ranges it, once, to the same 5 m as every other shape', () => {
+      const ranges = of(rs, 'UWB_RANGE')
+      expect(ranges).toHaveLength(1)
+      expect(ranges[0].node).toBe('tag-1') // SS-TWR: the anchor gets nothing (design §7)
+      expect(Math.abs(ranges[0].distM - TRUE_DIST_M)).toBeLessThan(0.01)
+      expect(of(rs, 'UWB_TIMEOUT')).toHaveLength(0)
+    })
+
+    it('answers in the slot it drew, not in the slot its index would have given it', () => {
+      // This is the assertion the whole test exists for. `anc-1` is anchor index 0, so a stagger
+      // taken from the index would put its Response in slot 1. It drew a slot of its own instead,
+      // and that draw is what spaces the reply — `armFixedReply` reads `r.contendSlot`.
+      expect(slot).toBeGreaterThan(1)
+      const txResp = of(rs, 'UWB_TS').find((r) => r.node === 'anc-1' && r.dir === 'tx' && r.frameKind === 'uwbResp')
+      expect(txResp).toBeDefined()
+      const intoSlot = txResp!.t - slot * plan.slotNs
+      expect(intoSlot).toBeGreaterThan(0.9 * pollNs)
+      expect(intoSlot).toBeLessThan(1.1 * pollNs)
+    })
+
+    it('and the tag subtracts the very number the anchor aimed at', () => {
+      const rxPoll = of(rs, 'UWB_TS').find((r) => r.node === 'anc-1' && r.dir === 'rx' && r.frameKind === 'uwbPoll')
+      const txResp = of(rs, 'UWB_TS').find((r) => r.node === 'anc-1' && r.dir === 'tx' && r.frameKind === 'uwbResp')
+      // `fixedReplyRctu(plan, slot, pollNs)`, rebuilt here from the session and the announced draw:
+      // the responder hit it on its own counter, and the range above proves the tag subtracted it.
+      const expected = Math.round((pollNs + plan.fixedReplyNs + (slot - 1) * plan.slotNs) / RCTU_NS)
+      expect(txResp!.counter - rxPoll!.counter).toBe(expected)
+    })
+  })
+
+  it('gets k right per anchor when three of them draw three different slots', () => {
+    // Three anchors at three distances, each answering after a stagger of its own. Nothing tells
+    // the tag which anchor drew which slot: it reads the stagger off where each answer landed, so a
+    // single wrong `k` would come back as a range wrong by half a slot — 300 km, not 30 cm.
+    const places = [{ x: 0, y: 0 }, { x: 8, y: 0 }, { x: 0, y: 8 }]
+    const tag = { x: 3, y: 4 }
+    const rs = contention(places, tag)
+    const slots = drawn(rs)
+    expect(new Set(slots.values()).size, 'three distinct draws, so three distinct staggers').toBe(3)
+    const ranges = of(rs, 'UWB_RANGE')
+    expect(ranges).toHaveLength(3)
+    for (const r of ranges) {
+      expect(r.node).toBe('tag-1')
+      expect(Math.abs(r.distM - r.trueDistM), `${r.peer} at slot ${slots.get(r.peer)}`).toBeLessThan(0.01)
+    }
+    // …and they really were different distances, so three equal readings could not have passed.
+    expect(new Set(ranges.map((r) => Math.round(r.trueDistM * 100))).size).toBeGreaterThan(1)
   })
 })

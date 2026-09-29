@@ -1126,7 +1126,11 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
           // depend on the anchor count.
           if (mode !== 'mms') {
             const slotNs = rstuNs(sc.uwb.slotRstu)
-            const needNs = uwbSlotFitNs(anchors, mode, sc.uwb.schedule)
+            // The session's own method and reply-time shape decide which frame is the longest one
+            // (design §5): an SS-TWR round has no Final at all, so sizing its slot against the
+            // embedded DS Final refused slots that fit the round perfectly well. `UwbNetwork`
+            // computes the identical thing in nanoseconds, from the same two fields.
+            const needNs = uwbSlotFitNs(anchors, mode, sc.uwb.schedule, undefined, sc.uwb.method, sc.uwb.replyTime)
             if (slotNs < needNs) {
               ctx.addIssue({
                 code: z.ZodIssueCode.custom,

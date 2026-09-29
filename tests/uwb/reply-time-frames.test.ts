@@ -16,8 +16,8 @@ import { UwbDevice, type RoundState } from '../../src/uwb/device'
 import { uwbFrameFields } from '../../src/uwb/frameFields'
 import { makeFinal, makePoll, makeResp, makeSsDefer, type UwbDlTimes } from '../../src/uwb/frames'
 import {
-  UWB_ANCHOR_SEARCH_CEILING, UWB_MAX_PSDU_BYTES, UWB_SS_DEFER_BYTES, uwbFinalBytes,
-  uwbLongestFrameBytes, uwbMaxAnchors, uwbPollBytes, uwbRespBytes,
+  UWB_ANCHOR_SEARCH_CEILING, UWB_MAX_PSDU_BYTES, UWB_SLOT_GUARD_NS, UWB_SS_DEFER_BYTES, uwbFinalBytes,
+  uwbLongestFrameBytes, uwbMaxAnchors, uwbPollBytes, uwbPpduNs, uwbRespBytes, uwbSlotFitNs,
 } from '../../src/uwb/phy'
 import { roundPlan } from '../../src/uwb/session'
 
@@ -101,6 +101,61 @@ describe('the anchor cap is derived, not written down (design §5, Ruling 3)', (
     expect(uwbLongestFrameBytes(UWB_ANCHOR_SEARCH_CEILING, 'twr', 'contention')).toBe(31)
     expect(uwbMaxAnchors('twr', 'ss', 'embedded', 'contention')).toBe(UWB_ANCHOR_SEARCH_CEILING)
     expect(uwbMaxAnchors('twr', 'ss', 'fixed', 'contention')).toBe(UWB_ANCHOR_SEARCH_CEILING)
+  })
+})
+
+/**
+ * Fix round 1 of Task 4. `uwbMaxAnchors` was derived from the round's own shape by this slice;
+ * `uwbSlotFitNs` — the same law, measured in nanoseconds of slot instead of octets of PSDU — was
+ * left sizing every two-way slot by the embedded DS-TWR Final. Both read `uwbLongestFrameBytes`,
+ * so fixing one and leaving its twin was the inconsistency, not the fix (design §5, Ruling 3).
+ */
+describe('the slot-fit rule is derived from the round\'s own shape too (design §5, fix round 1)', () => {
+  /** The anchor count the DS-embedded cap sits at, which is where the two shapes are furthest
+   * apart — and the largest count any scene in this repository configures. */
+  const A = uwbMaxAnchors('twr', 'ds', 'embedded', 'time')
+
+  it('sizes an SS round by its Poll, not by the Final that round never sends', () => {
+    // At nine anchors the embedded DS Final is 122 octets. Every other shape's longest frame is
+    // the Poll — 54 octets — because an SS round has no Final at all and a deferred DS Final grows
+    // 2 octets an anchor instead of 12.
+    expect(uwbLongestFrameBytes(A, 'twr', 'time', 'ds', 'embedded')).toBe(uwbFinalBytes(A))
+    for (const [method, replyTime] of [
+      ['ss', 'embedded'], ['ss', 'deferred'], ['ss', 'fixed'], ['ds', 'deferred'],
+    ] as const) {
+      expect(
+        uwbLongestFrameBytes(A, 'twr', 'time', method, replyTime), `${method}/${replyTime}`,
+      ).toBe(uwbPollBytes(A))
+    }
+    // …and the slot demand follows that frame, term for term, rather than one chosen frame.
+    expect(uwbSlotFitNs(A, 'twr', 'time', undefined, 'ds', 'embedded'))
+      .toBe(uwbPpduNs(uwbFinalBytes(A)) + UWB_SLOT_GUARD_NS)
+    expect(uwbSlotFitNs(A, 'twr', 'time', undefined, 'ss', 'embedded'))
+      .toBe(uwbPpduNs(uwbPollBytes(A)) + UWB_SLOT_GUARD_NS)
+  })
+
+  it('measures the inaccuracy it removes: a third of the slot, asked of every SS round', () => {
+    const dsNs = uwbSlotFitNs(A, 'twr', 'time', undefined, 'ds', 'embedded')
+    const ssNs = uwbSlotFitNs(A, 'twr', 'time', undefined, 'ss', 'embedded')
+    // Derived from the two frames, not written down: 68 octets of PPDU that an SS round's slot was
+    // being asked to hold for a frame it does not contain.
+    expect(dsNs - ssNs).toBe(uwbPpduNs(uwbFinalBytes(A)) - uwbPpduNs(uwbPollBytes(A)))
+    expect(ssNs / dsNs).toBeLessThan(0.8)
+  })
+
+  it('defaults to the embedded DS round, so a caller that passes neither is unchanged', () => {
+    // The two new parameters are the last two, and default to the largest shape — which is exactly
+    // the frame this function measured before they existed. Every call site that has not been
+    // threaded gets the number it always got, conservatively rather than silently differently.
+    for (const a of [1, 5, A]) {
+      expect(uwbSlotFitNs(a), `anchors ${a}`).toBe(uwbSlotFitNs(a, 'twr', 'time', undefined, 'ds', 'embedded'))
+    }
+    // A contention round is SS-TWR and ends at the Response, so its reply-time shape moves nothing
+    // here either: the flat 31-octet Poll beats both the 20- and the 14-octet Response.
+    for (const replyTime of ['embedded', 'fixed'] as const) {
+      expect(uwbSlotFitNs(A, 'twr', 'contention', undefined, 'ss', replyTime))
+        .toBe(uwbPpduNs(uwbLongestFrameBytes(A, 'twr', 'contention')) + UWB_SLOT_GUARD_NS)
+    }
   })
 })
 
