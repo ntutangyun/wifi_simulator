@@ -102,7 +102,7 @@ export interface Strings {
   strip: { windowHint: string; legendCollision: string; zoomIn: string; zoomOut: string }
   legend: LegendItem[]
   editor: {
-    tools: { select: string; room: string; door: string; window: string; ap: string; sta: string; tag: string; anchor: string; uwbTag: string; fit: string; undo: string; redo: string }
+    tools: { select: string; room: string; door: string; window: string; ap: string; sta: string; tag: string; anchor: string; uwbTag: string; scatterer: string; fit: string; undo: string; redo: string }
     undoHint: string; redoHint: string
     /** Why the AP tool, the Wi-Fi device tools and 🎲 Spawn are disabled. */
     apExists: string; needApFirst: string
@@ -117,6 +117,13 @@ export interface Strings {
     fadingSmallScale: string; fadingSmallScaleHint: string
     fadingSmallScales: Record<SmallScale, string>
     fadingRicianK: string; fadingRicianKHint: string; fadingRicianKBad: string; fadingRicianOnly: string
+    /** The reflecting objects (scatterers) section: the list, and the one figure each object has.
+     * `scattererLoss` has to say which way is bigger — it is a *loss*, so the more negative the
+     * number the stronger the reflector, and 0 dB is one square metre rather than "neutral". */
+    scatterers: string; scatterersHint: string; noScatterers: string
+    scatterer: string; scattererLoss: string; scattererLossHint: string; scattererLossBad: string
+    scattererHeight: string; scattererHeightHint: string; scattererHeightBad: string
+    scattererNeedsUwb: string; deleteScatterer: string
     objects: string; properties: string; guide: string
     nodesHeader: string; rooms: string; walls: string; noRooms: string
     node: string; name: string; wifi: string; link: string; linkHint: string; bands: Record<LinkId, string>
@@ -589,7 +596,7 @@ export const STRINGS: Strings = {
     { color: '#fbbf24', label: 'UWB 锚点', hint: '锚点在自己测距时隙内的回答：响应帧，以及 DS-TWR 下的测量报告帧。' },
   ],
   editor: {
-    tools: { select: '☝ 选择', room: '▭ 房间', door: '🚪 门', window: '🪟 窗', ap: '📡 AP', sta: '📱 终端', tag: '🏷 AMP 标签', anchor: '📍 UWB 锚点', uwbTag: '📱 UWB 标签', fit: '⌂ 复位', undo: '↶ 撤销', redo: '↷ 重做' },
+    tools: { select: '☝ 选择', room: '▭ 房间', door: '🚪 门', window: '🪟 窗', ap: '📡 AP', sta: '📱 终端', tag: '🏷 AMP 标签', anchor: '📍 UWB 锚点', uwbTag: '📱 UWB 标签', scatterer: '🪞 散射体', fit: '⌂ 复位', undo: '↶ 撤销', redo: '↷ 重做' },
     undoHint: '撤销上一步编辑（Ctrl+Z）',
     redoHint: '重做已撤销的编辑（Ctrl+Shift+Z 或 Ctrl+Y）',
     apExists: '场景中已经有 AP 了——Wi-Fi 有且仅允许一个',
@@ -618,6 +625,18 @@ export const STRINGS: Strings = {
     fadingRicianKHint: '直射径功率与散射功率之比，dB。K 越大，能拿去起伏的能量越少：K = 0 dB 时两者相当，K 很大时这一层几乎不动，K 趋于 0（线性）就退回瑞利。默认 6 dB。',
     fadingRicianKBad: '莱斯 K 因子要填一个数（dB）',
     fadingRicianOnly: '只有分布选「莱斯」时才有 K 因子：瑞利按定义没有直射径，「无」连小尺度衰落都不抽',
+    scatterers: '散射体（回波）',
+    scatterersHint: '房间里会反射的物体：它给每一次发送在每个接收端添上第二个到达——比直达路径晚，因为多走了路；也比直达路径弱，因为两段路各付一次扩散损耗。场景默认没有这一节，也就没有任何回波。只有 UWB 侧读回波，Wi-Fi 链路完全不受影响；而且回波对测距是隐形的：4z 接收机锁的是第一条路径。',
+    noScatterers: '暂无 — 用 🪞 在画布上放一个',
+    scatterer: '散射体',
+    scattererLoss: '反射损耗（越小反射越强）',
+    scattererLossHint: '这个物体比一面理想反射面弱多少 dB。注意方向：这是损耗，所以数越小反射越强。0 dB 不是「中性」，而是「正好一平方米」；半平方米是 +3.01 dB；一个衣柜大约 −10 dB。没有下界——几平方米的物体本来就该是负数。放置时写入的是 −10 dB：一平方米的理想反射面在常见室内距离上根本听不到。',
+    scattererLossBad: '反射损耗要填一个有限实数（dB）；它没有下界，越小反射越强，0 dB = 一平方米',
+    scattererHeight: '高度',
+    scattererHeightHint: '反射中心离地多高，米。它连同 x、y 一起决定两段路程，也就决定回波晚多少、弱多少。放置时取 1.0 米。',
+    scattererHeightBad: '高度要填一个有限实数（米）',
+    scattererNeedsUwb: '场景里还没有 UWB 设备：散射体只在 UWB 收发之间产生回波，放好之后请再放一个锚点与一个标签',
+    deleteScatterer: '🗑 删除散射体',
     objects: '🗂 对象列表', properties: '⚙ 属性', guide: '📖 编辑器说明',
     nodesHeader: '节点（顺序 = 时间轴泳道）', rooms: '房间', walls: '墙体', noRooms: '暂无 — 用 ▭ 绘制一个',
     node: '节点', name: '名称', wifi: 'Wi-Fi', link: '频段',

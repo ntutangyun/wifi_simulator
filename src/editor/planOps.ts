@@ -4,6 +4,7 @@
  */
 import { DEFAULT_UWB_SESSION, ScenarioSchema, SIX_GHZ_GATE_MIN_WIDTH_MHZ, type NodeCfg, type Opening, type Room, type Scenario, type UwbNodeCfg, type Wall } from '../model/scenario'
 import { FADING_DEFAULTS, RICIAN_K_DEFAULT_DB, type FadingCfg } from '../engine/fading'
+import type { ScattererCfg } from '../engine/scatter'
 import { GEN_FEATURES, defaultFeatures, type FeatureFlag } from '../model/caps'
 import type { Generation } from '../model/types'
 import { STATION_PRESETS, presetNode } from '../model/presets'
@@ -403,8 +404,125 @@ export function withFading(sc: Scenario, f: FadingCfg | undefined): Scenario {
   return rest
 }
 
+// ---- reflecting objects (the scatterers section) -------------------------------------------
+
 /**
- * A fading number field's text, or `null` when the schema would refuse it — treated exactly
+ * What the 🪞 tool writes into a freshly placed object's `extraLossDb`, dB: a wardrobe.
+ *
+ * It is not 0 dB, and that is the whole point of naming it. 0 dB means "a perfect one square
+ * metre" (`apertureCorrectionDb`, src/engine/scatter.ts), and such an object is **inaudible at
+ * ordinary indoor distances**: halfway along a 10 m line it lands some ten dB under
+ * `UWB_RX_SENS_DBM` and `deliverEcho` never hands it over, so a tool that wrote 0 dB would
+ * place objects that reflect nothing anyone can hear and look broken. −10 dB is the wardrobe
+ * the engine's own scene tests and the acceptance runs use (design §5.1's consequence, measured
+ * in tasks 3 and 4), and it is what makes a first placement produce a record. model
+ */
+export const NEW_SCATTERER_EXTRA_LOSS_DB = -10 // model
+
+/** How high a freshly placed object's reflecting centre sits, metres — the same height a
+ * carried tag is placed at, since a piece of furniture reflects from about there. model */
+export const NEW_SCATTERER_Z_M = 1.0 // model
+
+/**
+ * The plan carrying this list of reflecting objects — and, for an **empty** list, carrying no
+ * `scatterers` key at all.
+ *
+ * The empty case is the whole reason this function exists, and it is not the same rule
+ * `withFading` follows even though the shape is. An empty `scatterers` is legal and means
+ * something: "this plan has the section and nothing to reflect off yet". But the editor has no
+ * switch for the section — the objects *are* the section — so within the editor there is no way
+ * to express that statement and no way to tell it from "no echoes", while a plan left holding
+ * `scatterers: []` would put every run into the echo branch to loop over nothing. So removing
+ * the last object removes the key, and a plan whose objects have all been deleted is once again
+ * the same object as a plan that never had any (`'scatterers' in sc` is false, the shape the
+ * design's byte-identical guarantee is stated in). An imported plan that deliberately carries
+ * an empty list keeps it until the panel touches it.
+ */
+export function withScatterers(sc: Scenario, list: ScattererCfg[]): Scenario {
+  if (list.length > 0) return { ...sc, scatterers: list }
+  const { scatterers: _none, ...rest } = sc
+  return rest
+}
+
+/**
+ * Append a reflecting object at `pos`; returns the new scenario and its id.
+ *
+ * Ids are unique **within the section**, which is the only thing the schema asks and the only
+ * thing a `UWB_ECHO` record needs — `scattererId` names a reflector, never a node, so an object
+ * called `obj-1` beside a node called `obj-1` is not a collision. The numbering counts the
+ * objects rather than the whole plan for the reason `newUwbNode` numbers anchors inside their
+ * own role: it is how a room gets described. The loop afterwards is what actually keeps it
+ * unique, since deleting from the middle would otherwise hand out a name twice.
+ */
+export function newScatterer(sc: Scenario, pos: { x: number; y: number }): { sc: Scenario; id: string } {
+  const list = sc.scatterers ?? []
+  const used = new Set(list.map((s) => s.id))
+  let k = list.length + 1
+  let id = `obj-${k}`
+  while (used.has(id)) id = `obj-${++k}`
+  const s: ScattererCfg = {
+    id,
+    pos: { x: snap(pos.x), y: snap(pos.y), z: NEW_SCATTERER_Z_M },
+    // Stated, never left to a default: `ScattererSchema` requires this figure precisely because
+    // 0 dB is a claim about the object rather than a neutral value.
+    extraLossDb: NEW_SCATTERER_EXTRA_LOSS_DB,
+  }
+  return { sc: withScatterers(sc, [...list, s]), id }
+}
+
+/** This object with `patch` applied. A patch that names no object leaves the plan alone. */
+export function updateScatterer(sc: Scenario, id: string, patch: Partial<ScattererCfg>): Scenario {
+  const list = sc.scatterers ?? []
+  return withScatterers(sc, list.map((s) => (s.id === id ? { ...s, ...patch } : s)))
+}
+
+/** Drag-to-move, on the same 0.1 m grid every other placement snaps to. The height is left
+ * where it was: dragging on a plan view moves an object across the floor, not up a wall. */
+export function moveScatterer(sc: Scenario, id: string, pos: { x: number; y: number }): Scenario {
+  const s = (sc.scatterers ?? []).find((x) => x.id === id)
+  if (!s) return sc
+  return updateScatterer(sc, id, { pos: { ...s.pos, x: snap(pos.x), y: snap(pos.y) } })
+}
+
+/** Delete this object — and, with the last of them, the whole section (`withScatterers`). */
+export function removeScatterer(sc: Scenario, id: string): Scenario {
+  return withScatterers(sc, (sc.scatterers ?? []).filter((s) => s.id !== id))
+}
+
+/** Which object the pointer is over, or null. The same shape as `hitTestNode`, and asked after
+ * it by the canvas: a device under the cursor wins over a piece of furniture under it. */
+export function hitTestScatterer(
+  list: ScattererCfg[] | undefined, p: { x: number; y: number }, tolM: number,
+): string | null {
+  let best: string | null = null
+  let bestD = tolM
+  for (const s of list ?? []) {
+    const d = Math.hypot(s.pos.x - p.x, s.pos.y - p.y)
+    if (d <= bestD) {
+      bestD = d
+      best = s.id
+    }
+  }
+  return best
+}
+
+/**
+ * A reflecting object's number fields — `extraLossDb` and the height — or `null` when the
+ * schema would refuse the text. Only text that is not a finite number is refused, because
+ * `ScattererSchema` bounds neither field and deliberately so: `extraLossDb` is a reflectivity
+ * where 0 dB is one square metre, so half a square metre is +3.01 dB and a wardrobe is
+ * legitimately negative (a `min(0)` would be a bound the physics does not have), and a
+ * coordinate outside the drawn rooms is a legitimate place to stand an object. What the schema
+ * does refuse is a non-finite coordinate or level, since an infinity anywhere makes the echo's
+ * delay and its level NaN and a NaN level compares false against every threshold — the echo
+ * would not be rejected, it would silently disappear.
+ */
+export function parseScattererNumber(raw: string): number | null {
+  return parseNumberField(raw, () => true)
+}
+
+/**
+ * A number field's text, or `null` when the schema would refuse it — treated exactly
  * like `parseEpc` and `parseIntList`: the field keeps the last value that worked, the typed
  * text stays on screen because it is what the user has to fix, and a red line says what was
  * wanted. Clamping instead (the `clampField` route the 6 GHz centre takes) would commit the
@@ -414,7 +532,7 @@ export function withFading(sc: Scenario, f: FadingCfg | undefined): Scenario {
  * `Number` is lenient where this must not be: `Number('')` is 0 and `Number(' ')` is 0, so a
  * blank field would commit a figure the user never typed.
  */
-function parseFadingNumber(raw: string, ok: (n: number) => boolean): number | null {
+function parseNumberField(raw: string, ok: (n: number) => boolean): number | null {
   if (raw.trim() === '') return null
   const n = Number(raw)
   return Number.isFinite(n) && ok(n) ? n : null
@@ -423,20 +541,20 @@ function parseFadingNumber(raw: string, ok: (n: number) => boolean): number | nu
 /** The shadowing sigma field. The schema's own bound: dB, and a standard deviation is never
  * negative — 0 is the legal way to ask for no shadowing at all. */
 export function parseShadowSigmaDb(raw: string): number | null {
-  return parseFadingNumber(raw, (n) => n >= 0)
+  return parseNumberField(raw, (n) => n >= 0)
 }
 
 /** The coherence-time field. The schema's own bound: strictly positive, since the shadow holds
  * one value per interval and a zero-length interval would redraw it every nanosecond. */
 export function parseCoherenceMs(raw: string): number | null {
-  return parseFadingNumber(raw, (n) => n > 0)
+  return parseNumberField(raw, (n) => n > 0)
 }
 
 /** The Rician K factor field. The schema bounds it at neither end — K is a ratio in dB, and a
  * negative one is the legitimate case of a line-of-sight component weaker than the scatter —
  * so the only thing refused here is text that is not a number. */
 export function parseRicianKdB(raw: string): number | null {
-  return parseFadingNumber(raw, () => true)
+  return parseNumberField(raw, () => true)
 }
 
 /** The 6 GHz channel field: clamp to the schema's [5955, 7115] range, then snap to the

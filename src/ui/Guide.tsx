@@ -16,10 +16,14 @@ import {
   NB_POLL_BYTES, NB_REPORT_BYTES, NB_RESP_BYTES, NB_RX_SENS_DBM, NB_TX_DBM, nbCenterMhz, nbPpduNs,
 } from '../uwb/nb'
 import {
-  UWB_BAND_MHZ, UWB_BLINK_BYTES, UWB_CAPTURE_DB, UWB_MAX_INPUT_DBM_PER_MHZ, UWB_RX_SENS_DBM,
+  UWB_BAND_MHZ, UWB_BLINK_BYTES, UWB_CAPTURE_DB, UWB_CHIP_NS, UWB_MAX_INPUT_DBM_PER_MHZ, UWB_RX_SENS_DBM,
   UWB_SIR_MIN_DB, UWB_TX_POWER_DBM, rstuNs,
 } from '../uwb/phy'
 import { ELLIPSE_DRAW_SCALE } from '../uwb/view'
+import {
+  ECHO_IDEAL_10M_UNDER_FLOOR_DB, ECHO_IDEAL_2M_OVER_FLOOR_DB, ECHO_NEAR_LINE, ECHO_OFF_LINE,
+  ECHO_RESOLUTION_M, SCATTERER_DEFAULT_DB,
+} from './echoFacts'
 
 const h: React.CSSProperties = { margin: '10px 0 3px', fontSize: 12.5, color: '#d5dae3' }
 const p: React.CSSProperties = { margin: '2px 0', fontSize: 11.5, color: 'var(--dim)', lineHeight: 1.5 }
@@ -567,6 +571,71 @@ export function Guide() {
         （载波侦听一次、捕获判定一次、信干噪比每次重算一次），有状态的流会给这几次不同的答案，
         于是同一帧在同一个接收机那里同时有几个电平，结果还取决于事件队列的顺序。哈希抽样则是
         问一百次得同一个数——打开衰落，同样的种子仍然完整复现同一次运行。
+      </p>
+
+      <h4 style={h}>14 · 回波与感知：双站几何与分辨率（默认没有）</h4>
+      <p style={p}>
+        房间里放进一个会反射的物体（✏ 编辑模式的 <b>🪞 散射体</b>），每一次发送就在每个接收端多出
+        <b>第二个到达</b>。它不走 <i>发射端 → 接收端</i>，而走 <i>发射端 → 物体 → 接收端</i> 两段路，
+        于是两件事是<b>必然</b>而不是通常：它比直达路径<b>晚</b>，因为两边之和不小于第三边；
+        它比直达路径<b>弱</b>，因为两段路各付一次扩散损耗，回头只拿回「两段相加时被重复收取的那一次
+        接收孔径」。这就是<b>双站</b>（bistatic）几何——发射与接收不在一处，所以这里没有单站雷达：
+        一台设备听不见自己的反射。
+      </p>
+      <p style={p}>
+        <b>回波说出的是一个和，不是一个距离。</b>它带回来的量是 R<sub>1</sub> + R<sub>2</sub>，
+        即两段路程之和，称作<b>双站距离</b>。知道它并不足以定出物体在哪：满足这个和的点构成一个以两端
+        为焦点的<b>椭球</b>，物体在椭球上的哪一处，一条回波不回答。要收敛到一个点，得有多对收发——
+        这也正是感知比测距难的地方。
+      </p>
+      <p style={p}>
+        <b>分辨率：把「分得开」变成一个可以算的距离。</b>接收机能不能把回波从直达路径里分出来，
+        只取决于它<i>晚多少</i>，而它能分辨的最小时延就是 1/B——带宽 B 能做出的相关峰宽度。
+        HRP UWB PHY 的 B 是 499.2 Mchip/s，1/B 就是一个码片 {UWB_CHIP_NS.toFixed(6)} ns（标准 §16.2.4），
+        折成路程约 <b>{ECHO_RESOLUTION_M} 米</b>。于是有一条可以直接算的条件：
+      </p>
+      <p style={{ ...p, paddingLeft: 10 }}>
+        （|发→物| + |物→收|） − |发→收| &gt; {ECHO_RESOLUTION_M} 米 → 分得开，是两个到达；<br />
+        小于它 → 分不开，回波并进直达路径，从记录上看就是不存在。
+      </p>
+      <p style={p}>
+        换成窄带电台，同一行算术就给出完全不同的结论：2.5 MHz 的窄带消息 1/B 是 400 ns，
+        约 120 米的额外路程——<b>任何房间里的任何物体都分不开</b>。分辨率不是一个形容词，
+        它就是 c/B 这个长度。
+      </p>
+      <p style={p}>
+        <b>量出来的一对，以及这里最值得记住的一句话。</b>一个锚点与一个标签相距 2 米，
+        房间里两个 {SCATTERER_DEFAULT_DB} dB 的衣柜级物体：离连线 {ECHO_NEAR_LINE.offM} 米的那个，
+        双站距离 {ECHO_NEAR_LINE.pathM} 米，比直达路径多走 {ECHO_NEAR_LINE.excessM} 米，
+        对 {ECHO_RESOLUTION_M} 米的门槛——<b>分不开</b>；而它的电平是 {ECHO_NEAR_LINE.dbm} dBm。
+        离连线 {ECHO_OFF_LINE.offM} 米的那个多走 {ECHO_OFF_LINE.excessM} 米，<b>分得开</b>，
+        电平只有 {ECHO_OFF_LINE.dbm} dBm。<b>贴着连线的那个物体「看不见」，不是因为它弱，
+        恰恰相反，它是两者中更响的一个——它两段腿都更短。它看不见，纯粹是因为分不开。</b>
+        真实设备面对的是同一件事：一个人站在两台设备的连线上，是最难被察觉的位置。
+      </p>
+      <p style={p}>
+        <b>测距从头到尾看不到这一切。</b>打开散射体之后，测距结果<i>逐字段不变</i>。这不是本仿真器
+        为了省事划的一条线，而是先有物理才有的建模：4z/4ab 的测距接收机锁的是<b>第一条路径</b>，
+        后面的多径正是它要抑制的东西——把回波当成直达路径去打时间戳，测出来的距离就假了。
+        所以带回波标记的到达根本进不了接收链路：时间戳、acquired、片段累加，一个都不看它。
+        读它的只有感知这一路消费者，写下的是 <code>UWB_ECHO</code> 记录：双站距离、时延、
+        多走了多少米、这台接收机需要多少米才分得开，以及判决本身——判决所依据的<i>两个长度都在记录里</i>，
+        所以这道算术是读者自己能验的，不必信。
+      </p>
+      <p style={p}>
+        <b>够不够得到：别指望远。</b>一面一平方米的理想反射面（0 dB）放在 10 米连线的中点，
+        比 {dbFmt(UWB_RX_SENS_DBM)} dBm 的接收灵敏度还低 {ECHO_IDEAL_10M_UNDER_FLOOR_DB} dB，
+        于是它<b>根本不会被交给接收端</b>，连「有个东西太弱了」这样一条记录都没有——本仿真器没有
+        单独的感知底噪（那会是发明一个数字），回波过不了直达路径自己的那道门限，就只有沉默。
+        同一个物体放在 2 米连线的中点则高出底噪 {ECHO_IDEAL_2M_OVER_FLOOR_DB} dB。要听得见回波，
+        只有两条路：缩短距离，或者换更强的反射体。这也是为什么 🪞 工具默认写的是衣柜
+        （{SCATTERER_DEFAULT_DB} dB）而不是一平方米。
+      </p>
+      <p style={p}>
+        <b>这一刀明确不做的事。</b>墙<b>不是</b>散射体——墙仍然只对直达路径加固定时延与损耗，
+        把墙变成反射面需要镜像法与可见性判断，路径数会爆炸。也不建模<b>多普勒与运动</b>：
+        物体是静止的，所以这里给的是「对被动物体量出一个双站距离」，而不是靠帧间差分做存在检测。
+        Wi-Fi 侧也还没有接：同一套几何换一条路径损耗律就是 Wi-Fi 的多径，但一次只动一种电台。
       </p>
 
       <h4 style={h}>动手试试</h4>

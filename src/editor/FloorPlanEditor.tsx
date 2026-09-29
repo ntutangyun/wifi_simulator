@@ -7,6 +7,7 @@ import { HOUSEHOLDS } from '../model/households'
 import { nonht } from '../model/scenario'
 import { BRANDS, STATION_PRESETS, applyPreset } from '../model/presets'
 import type { Generation } from '../model/types'
+import type { ScattererCfg } from '../engine/scatter'
 import { useStrings } from '../ui/i18n'
 import { parseEpc } from '../ui/inputs'
 import { useUi } from '../ui/store'
@@ -17,13 +18,14 @@ import { UwbSessionFields } from '../uwb/ui/UwbSessionFields'
 import {
   addOpening, alongWall, ampTagIssue, canDeleteNode, clampField, clampSixGhzCenterMhz, fadingFieldsLive,
   fadingSmallScalePatch, fadingToggle, generationPatch, hasAp,
-  hitTestNode, hitTestWall, newAnchor, newAp, newTag, newUwbTag, parseCoherenceMs, parseRicianKdB,
-  parseShadowSigmaDb, removeNode, roomsToWalls, scenarioFromJson, withFading,
+  hitTestNode, hitTestScatterer, hitTestWall, moveScatterer, newAnchor, newAp, newScatterer, newTag,
+  newUwbTag, parseCoherenceMs, parseRicianKdB, parseScattererNumber,
+  parseShadowSigmaDb, removeNode, removeScatterer, roomsToWalls, scenarioFromJson, updateScatterer, withFading,
   scenarioToJson, sixGhzNbOverlaps, sixGhzOverlapPct, snap, spawnRandomStas, uwbSessionIssue,
 } from './planOps'
 
-type Tool = 'select' | 'room' | 'door' | 'window' | 'ap' | 'sta' | 'tag' | 'anchor' | 'uwbTag'
-const TOOLS: Tool[] = ['select', 'room', 'door', 'window', 'ap', 'sta', 'tag', 'anchor', 'uwbTag']
+type Tool = 'select' | 'room' | 'door' | 'window' | 'ap' | 'sta' | 'tag' | 'anchor' | 'uwbTag' | 'scatterer'
+const TOOLS: Tool[] = ['select', 'room', 'door', 'window', 'ap', 'sta', 'tag', 'anchor', 'uwbTag', 'scatterer']
 /** Tools that place a Wi-Fi device, which the schema only accepts beside an AP. */
 const WIFI_TOOLS: Tool[] = ['sta', 'tag']
 
@@ -32,10 +34,18 @@ type Sel =
   | { kind: 'wall'; index: number }
   | { kind: 'room'; index: number }
   | { kind: 'server'; id: string }
+  | { kind: 'scatterer'; id: string }
   | null
 
 const LS_KEY = 'wifi-sim.scenario'
 const MATERIAL_COLORS: Record<Material, string> = { drywall: '#c8c2b6', brick: '#a05b48', glass: '#7fb8e0' }
+/** A reflecting object's colour on the canvas and in the object list. Grey, and drawn as a
+ * diamond rather than a circle or a square, because it is the one thing on the plan that is not
+ * a radio: it never transmits, never receives and appears in no link table. */
+const SCATTERER_COLOR = '#94a3b8'
+/** ASCII hyphen-minus to the Unicode minus, for a negative dB dropped straight into a label —
+ * the same helper `src/ui/Guide.tsx` keeps, for the same reason. */
+const dbFmt = (v: number): string => String(v).replace('-', '−')
 /** Streams a station can run; any combination may be ticked (none = idle). */
 const STREAMS: ProfileId[] = PROFILE_IDS.filter((p) => p !== 'idle')
 /** The small-scale distributions, in the order the select lists them (`FadingSchema`'s enum). */
@@ -73,6 +83,9 @@ export function FloorPlanEditor() {
   const [sel, setSel] = useState<Sel>(null)
   const [dragRect, setDragRect] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null)
   const [dragNode, setDragNode] = useState<string | null>(null)
+  /** The reflecting object being dragged, if any. Kept apart from `dragNode` because the two
+   * live in different lists and a scatterer is not a node — the same id could name both. */
+  const [dragScatterer, setDragScatterer] = useState<string | null>(null)
   const [spawnN, setSpawnN] = useState(3)
   const [ioMsg, setIoMsg] = useState('')
   const [view, setView] = useState<ViewT | null>(null)
@@ -150,6 +163,14 @@ export function FloorPlanEditor() {
         dragSeq.current++
         return
       }
+      // after the nodes: a device under the cursor wins over a piece of furniture under it
+      const sid = hitTestScatterer(scenario.scatterers, p, px(14))
+      if (sid) {
+        setSel({ kind: 'scatterer', id: sid })
+        setDragScatterer(sid)
+        dragSeq.current++
+        return
+      }
       const wi = hitTestWall(scenario.walls, p, px(8))
       if (wi !== null) {
         setSel({ kind: 'wall', index: wi })
@@ -190,6 +211,14 @@ export function FloorPlanEditor() {
       commit(sc)
       setTool('select')
       setSel({ kind: 'node', id })
+    } else if (tool === 'scatterer') {
+      // No AP gate and no UWB gate: an object in the room is a fact about the room, and a plan
+      // may legitimately be drawn before the devices that will hear its echoes are placed. The
+      // section's own note says so when the plan has no ranging device yet.
+      const { sc, id } = newScatterer(scenario, p)
+      commit(sc)
+      setTool('select')
+      setSel({ kind: 'scatterer', id })
     }
   }
 
@@ -207,6 +236,9 @@ export function FloorPlanEditor() {
         n.id === dragNode ? { ...n, pos: { ...n.pos, x: snap(p.x), y: snap(p.y) } } : n,
       )
       commit({ ...scenario, nodes }, `drag:${dragSeq.current}`)
+    } else if (dragScatterer) {
+      // Same undo key as a node drag: one drag is one step in the history.
+      commit(moveScatterer(scenario, dragScatterer, p), `drag:${dragSeq.current}`)
     }
   }
 
@@ -224,6 +256,7 @@ export function FloorPlanEditor() {
       setDragRect(null)
     }
     setDragNode(null)
+    setDragScatterer(null)
   }
 
   const onWheel = (e: React.WheelEvent) => {
@@ -327,6 +360,18 @@ export function FloorPlanEditor() {
     })
     commit({ ...scenario, nodes, servers: scenario.servers.filter((s) => s.id !== id) })
     if (sel?.kind === 'server' && sel.id === id) setSel(null)
+  }
+  const scatterers = scenario.scatterers ?? []
+  const selScatterer = sel?.kind === 'scatterer' ? scatterers.find((s) => s.id === sel.id) : undefined
+  /** A field of one reflecting object. Every call passes the figure explicitly: `extraLossDb`
+   * has no default anywhere in this app, because 0 dB is a claim (one square metre) and not a
+   * neutral value (`ScattererSchema`, src/model/scenario.ts). */
+  const patchScatterer = (id: string, patch: Partial<ScattererCfg>) => commit(updateScatterer(scenario, id, patch))
+  const deleteScatterer = (id: string) => {
+    // With the last object the whole section goes, so the plan is once again indistinguishable
+    // from one that never had any (`withScatterers`).
+    commit(removeScatterer(scenario, id))
+    if (sel?.kind === 'scatterer' && sel.id === id) setSel(null)
   }
   const selWall = sel?.kind === 'wall' ? scenario.walls[sel.index] : undefined
   const scaleBarM = view && view.scale > 40 ? 1 : 5
@@ -475,6 +520,23 @@ export function FloorPlanEditor() {
                     width={Math.abs(dragRect.x1 - dragRect.x0)} height={Math.abs(dragRect.y1 - dragRect.y0)}
                     fill="rgba(59,130,246,0.15)" stroke="#3b82f6" strokeWidth={0.05} strokeDasharray="0.2 0.1" />
                 )}
+                {/* the reflecting objects, under the nodes: furniture is the background a
+                    deployment is drawn on top of, and the hit test resolves the overlap the
+                    same way round */}
+                {scatterers.map((s) => {
+                  const selHere = sel?.kind === 'scatterer' && sel.id === s.id
+                  const r = 0.26
+                  return (
+                    <g key={`s:${s.id}`} style={{ cursor: 'pointer' }}>
+                      <polygon
+                        points={`${s.pos.x},${s.pos.y - r} ${s.pos.x + r},${s.pos.y} ${s.pos.x},${s.pos.y + r} ${s.pos.x - r},${s.pos.y}`}
+                        fill={SCATTERER_COLOR} stroke={selHere ? '#fff' : 'none'} strokeWidth={0.06} />
+                      <text x={s.pos.x + 0.36} y={s.pos.y + 0.12} fontSize={0.32} fill="#9aa3af">
+                        {s.id} <tspan fontSize={0.26}>{dbFmt(s.extraLossDb)} dB</tspan>
+                      </text>
+                    </g>
+                  )
+                })}
                 {scenario.nodes.map((n) => {
                   const selHere = sel?.kind === 'node' && sel.id === n.id
                   const anchor = n.kind === 'uwb' && n.uwb?.role === 'anchor'
@@ -539,6 +601,29 @@ export function FloorPlanEditor() {
               {/* unconditional: the switch is what opts a plan in, so it has to be reachable
                   from a plan that has no fading section at all */}
               <FadingFields fading={scenario.fading} onChange={(fading) => commit(withFading(scenario, fading))} />
+              {/* The reflecting objects. Unlike fading there is no switch: the objects *are* the
+                  section, so this list is only here to name what the 🪞 tool placed and to take
+                  them away again — with the last of them the section itself goes. */}
+              <div>
+                <div style={{ color: 'var(--dim)', marginBottom: 4 }} title={E.scatterersHint}>{E.scatterers}</div>
+                {scatterers.map((s) => (
+                  <div key={s.id}
+                    onClick={() => setSel({ kind: 'scatterer', id: s.id })}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 4, padding: '2px 4px', cursor: 'pointer',
+                      background: sel?.kind === 'scatterer' && sel.id === s.id ? '#2a3550' : undefined, borderRadius: 3,
+                    }}>
+                    <span style={{ width: 8, height: 8, background: SCATTERER_COLOR, transform: 'rotate(45deg)' }} />
+                    <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {s.id} <span style={{ color: 'var(--dim)' }}>{dbFmt(s.extraLossDb)} dB · {s.pos.z} m</span>
+                    </span>
+                    <button style={{ padding: '0 4px' }} title={E.deleteScatterer}
+                      onClick={(e) => { e.stopPropagation(); deleteScatterer(s.id) }}>🗑</button>
+                  </div>
+                ))}
+                {!scatterers.length && <div style={{ color: 'var(--dim)' }}>{E.noScatterers}</div>}
+                {scatterers.length > 0 && !uwbNodes.length && <div style={issueStyle}>{E.scattererNeedsUwb}</div>}
+              </div>
               <div>
                 <div style={{ color: 'var(--dim)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
                   {E.servers}
@@ -955,6 +1040,28 @@ export function FloorPlanEditor() {
                 </div>
               )}
 
+              {selScatterer && (
+                <div>
+                  <div style={{ color: 'var(--dim)', marginBottom: 4 }} title={E.scatterersHint}>
+                    {E.scatterer}: {selScatterer.id}
+                  </div>
+                  {/* Both fields are keyed by the object's id, so selecting another one hands
+                      back a fresh instance rather than reconciling a refused draft onto it —
+                      the trap `AmpEpcInput` documents below. */}
+                  <NumberField key={`loss-${selScatterer.id}`}
+                    label={E.scattererLoss} unit="dB" step={1} bad={E.scattererLossBad}
+                    hint={E.scattererLossHint} live value={selScatterer.extraLossDb}
+                    parse={parseScattererNumber}
+                    onCommit={(v) => patchScatterer(selScatterer.id, { extraLossDb: v })} />
+                  <NumberField key={`z-${selScatterer.id}`}
+                    label={E.scattererHeight} unit="m" step={0.1} bad={E.scattererHeightBad}
+                    hint={E.scattererHeightHint} live value={selScatterer.pos.z}
+                    parse={parseScattererNumber}
+                    onCommit={(v) => patchScatterer(selScatterer.id, { pos: { ...selScatterer.pos, z: v } })} />
+                  <button onClick={() => deleteScatterer(selScatterer.id)}>{E.deleteScatterer}</button>
+                </div>
+              )}
+
               {selWall && sel?.kind === 'wall' && (
                 <div>
                   <div style={{ color: 'var(--dim)', marginBottom: 4 }}>{E.wall}</div>
@@ -1042,14 +1149,14 @@ function FadingFields({ fading, onChange }: { fading?: FadingCfg; onChange: (f: 
       {/* keyed by whether the field is live, so flipping the switch (or leaving rician) hands
           back a fresh instance: a refused draft is not the user's problem once the field it
           belonged to is grey — the same reconciliation trap `AmpEpcInput` documents below. */}
-      <FadingNumber key={`sigma-${live.fields}`}
+      <NumberField key={`sigma-${live.fields}`}
         label={E.fadingSigma} unit="dB" min={0} step={0.5} bad={E.fadingSigmaBad}
         hint={offHint ?? E.fadingSigmaHint} live={live.fields} value={shown.shadowSigmaDb}
         parse={parseShadowSigmaDb}
         onCommit={(v) => { if (fading) onChange({ ...fading, shadowSigmaDb: v }) }} />
       {/* no `min`: the schema's bound is *strictly* positive, which an HTML min cannot express,
           so the parser is the only authority and 0 gets the red line like any other refusal */}
-      <FadingNumber key={`coherence-${live.fields}`}
+      <NumberField key={`coherence-${live.fields}`}
         label={E.fadingCoherence} unit="ms" step={10} bad={E.fadingCoherenceBad}
         hint={offHint ?? E.fadingCoherenceHint} live={live.fields} value={shown.coherenceMs}
         parse={parseCoherenceMs}
@@ -1063,7 +1170,7 @@ function FadingFields({ fading, onChange }: { fading?: FadingCfg; onChange: (f: 
           {SMALL_SCALES.map((s) => <option key={s} value={s}>{E.fadingSmallScales[s]}</option>)}
         </select>
       </label>
-      <FadingNumber key={`rician-${live.ricianKdB}`}
+      <NumberField key={`rician-${live.ricianKdB}`}
         label={E.fadingRicianK} unit="dB" step={1} bad={E.fadingRicianKBad}
         hint={live.ricianKdB ? E.fadingRicianKHint : offHint ?? E.fadingRicianOnly}
         live={live.ricianKdB} value={shown.ricianKdB ?? RICIAN_K_DEFAULT_DB}
@@ -1074,13 +1181,17 @@ function FadingFields({ fading, onChange }: { fading?: FadingCfg; onChange: (f: 
 }
 
 /**
- * One number field of the fading section. It holds the typed text and commits on blur or
- * Enter, and a value `parse` refuses is not committed at all: the draft stays on screen
- * because it is what the user has to fix, and the red line says what was wanted. The same
- * shape as `FixedReplyInput` (uwb/ui/UwbSessionFields.tsx), for the same reason — clamping per
- * keystroke would commit the lower bound the moment the field was cleared.
+ * One number field of a scenario section — the fading figures and a reflecting object's own two.
+ * It holds the typed text and commits on blur or Enter, and a value `parse` refuses is not
+ * committed at all: the draft stays on screen because it is what the user has to fix, and the
+ * red line says what was wanted. The same shape as `FixedReplyInput`
+ * (uwb/ui/UwbSessionFields.tsx), for the same reason — clamping per keystroke would commit the
+ * lower bound the moment the field was cleared.
+ *
+ * `live` is `false` only where a section has a switch above its fields, which the fading section
+ * has and the scatterers section does not (there the objects are the section).
  */
-function FadingNumber(
+function NumberField(
   { label, unit, min, step, hint, bad, live, value, parse, onCommit }: {
     label: string; unit: string; min?: number; step: number; hint: string; bad: string
     live: boolean; value: number; parse: (raw: string) => number | null; onCommit: (v: number) => void

@@ -2,7 +2,15 @@
  * Edit-mode reference: what every tool, control and property does, and what
  * each option means for the simulation. Protocol theory lives in 📚 Course —
  * this panel stays on the scenario's configuration surface.
+ *
+ * The one thing imported here is the set of echo figures (`src/ui/echoFacts.ts`), which are
+ * computed from the engine rather than typed in: this panel has to say how far an echo actually
+ * reaches, and a number typed into prose is a number that drifts.
  */
+import {
+  ECHO_IDEAL_10M_UNDER_FLOOR_DB, ECHO_IDEAL_2M_OVER_FLOOR_DB, ECHO_NEAR_LINE, ECHO_OFF_LINE,
+  ECHO_RESOLUTION_M, SCATTERER_DEFAULT_DB,
+} from '../ui/echoFacts'
 
 const h: React.CSSProperties = { margin: '10px 0 3px', fontSize: 12.5, color: '#d5dae3' }
 const p: React.CSSProperties = { margin: '2px 0', fontSize: 11.5, color: 'var(--dim)', lineHeight: 1.5 }
@@ -74,6 +82,13 @@ export function EditorGuide() {
         放下第一个锚点或标签时，节点列表下方会出现 <b>UWB 测距会话</b> 一节；删掉最后一个
         UWB 设备时该节随之消失。
       </D>
+      <D t="🪞 散射体">
+        点击在房间里放一个<b>会反射的物体</b>——衣柜、冰箱、一个人。它不发射、不接收、不出现在任何
+        链路表里，只是给每一次发送多开一条回家的路。放下第一个物体时，节点列表下方会出现
+        <b> 散射体（回波）</b> 一节；删掉最后一个物体时这一节<i>整体消失</i>——「没有这一节」与
+        「这一节里一个物体都没有」在引擎看来是两句不同的话，前者才是「不算回波」。
+        拖动可移动，同样对齐 0.1 米栅格。
+      </D>
       <D t="⌂ 复位">
         重新居中并适配视图。滚轮缩放，中键/右键拖动平移。
       </D>
@@ -144,6 +159,44 @@ export function EditorGuide() {
         这两层都对<b>整个信道带宽</b>是平坦的：本仿真器不建模时延扩展，也就没有频率选择性衰落，
         一条链路上所有子载波同起同落。真实的宽带室内信道不是这样——同一时刻信道的一部分深衰、
         另一部分完好，这正是 OFDM 与每子载波均衡要对付的东西。原理详见 📖 学习指南第 13 节。
+      </div>
+
+      <h4 style={h}>散射体（回波）</h4>
+      <p style={p}>
+        🗂 对象列表中、衰落一节下方的一节。房间里每个会反射的物体，都让每一次发送在每个接收端多出
+        <b>第二个到达</b>：它走 <i>发射端 → 物体 → 接收端</i> 两段路，所以一定比直达路径<b>晚</b>
+        （两边之和大于第三边），也一定比直达路径<b>弱</b>（两段路各付一次扩散损耗，只拿回两段和
+        多收的那一次接收孔径）。这一节<b>整段可缺省，默认就没有</b>，因此既有场景（含全部课程场景）
+        的运行结果一个数都不变。只有 UWB 侧读回波，Wi-Fi 链路完全不受散射体影响；而且回波对
+        <b>测距</b>是隐形的——4z/4ab 的测距接收机锁的是第一条路径，后面的多径正是它要抑制的东西。
+        那条可以算的分辨率条件见 📖 学习指南第 14 节。
+      </p>
+      <D t="反射损耗">
+        <code>extraLossDb</code>：这个物体比一面理想反射面弱多少 dB。<b>先看清方向：这是损耗，
+        数越小反射越强。</b>0 dB 不是「中性值」，而是<b>正好一平方米</b>这个说法；半平方米是 +3.01 dB；
+        一个衣柜大约 −10 dB。它<b>没有下界</b>——几平方米的物体本来就该是负数，一个 min(0) 会是
+        物理里并不存在的限制。它也<b>没有默认值</b>：0 dB 是一句关于物体的断言，不是「什么都没说」，
+        所以场景必须把这个数写出来；🪞 工具放置时写入的是 {SCATTERER_DEFAULT_DB} dB，也就是一个衣柜。
+      </D>
+      <D t="高度">
+        反射中心离地多高，米（放置时取 1.0 米）。它与 x、y 一起决定两段路程，也就决定这条回波
+        晚多少、弱多少。拖动只在地面上移动物体，不会改高度。
+      </D>
+      <div style={note}>
+        <b>不要指望它传得远。</b>一面一平方米的理想反射面（0 dB）放在 10 米连线的中点，
+        比接收机灵敏度还低 {ECHO_IDEAL_10M_UNDER_FLOOR_DB} dB，<b>根本不会被交到接收端手里</b>，
+        连一条记录都没有；同一个物体放在 2 米连线的中点，则高出底噪 {ECHO_IDEAL_2M_OVER_FLOOR_DB} dB，
+        听得见。这不是调参没调好，这就是双站雷达关系本身。想看到回波只有两条路：把距离缩短，
+        或者换一个反射更强的物体。
+      </div>
+      <div style={note}>
+        <b>最反直觉的一条：贴着连线站的物体听不见，可它偏偏是更响的那一个。</b>2 米一对、
+        两个 {SCATTERER_DEFAULT_DB} dB 的物体，量出来是这样：离连线 {ECHO_NEAR_LINE.offM} 米的那个，
+        双站距离 {ECHO_NEAR_LINE.pathM} 米，只比直达路径多走 {ECHO_NEAR_LINE.excessM} 米，
+        而分得开需要 {ECHO_RESOLUTION_M} 米——<b>分不开</b>，它并进了直达路径；它的电平是
+        {' '}{ECHO_NEAR_LINE.dbm} dBm。离连线 {ECHO_OFF_LINE.offM} 米的那个多走
+        {' '}{ECHO_OFF_LINE.excessM} 米，<b>分得开</b>，电平却只有 {ECHO_OFF_LINE.dbm} dBm。
+        <b>看不见的那个不是因为弱，纯粹是因为分不开</b>——它两段腿都更短，所以反而更响。
       </div>
 
       <h4 style={h}>节点属性</h4>
