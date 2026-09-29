@@ -15,7 +15,10 @@ import { FADING_DEFAULTS, RICIAN_K_DEFAULT_DB, type FadingCfg } from '../engine/
 // the geometry that consumes it, and the schema below validates that same shape.
 import type { ScattererCfg } from '../engine/scatter'
 import { NB_CHANNELS } from '../uwb/nb'
-import { mmsResponders, rstuNs, uwbMaxAnchors, uwbNbSlotFitNs, uwbSlotFitNs, uwbSlotsPerTag } from '../uwb/phy'
+import {
+  C_M_PER_NS, mmsResponders, rstuNs, UWB_SLOT_GUARD_NS, uwbMaxAnchors, uwbNbSlotFitNs, uwbPpduNs,
+  uwbRespBytes, uwbSlotFitNs, uwbSlotsPerTag, type UwbReplyTime,
+} from '../uwb/phy'
 import type { LinkId } from './caps'
 import type { CapabilityProfile, NodeKind, Vec3 } from './types'
 
@@ -272,6 +275,31 @@ export interface UwbMmsCfg extends MmsPhy {
  */
 export interface UwbSessionCfg {
   method: 'ss' | 'ds'
+  /**
+   * Which two-way ranging procedure carries the reply time or round-trip time, and how (standard
+   * §10.29.6.3–.7): `'embedded'` writes it into the very frame whose own send time it measures;
+   * `'deferred'` sends that frame empty of it and reports it in a later one; `'fixed'` never puts
+   * it on the air at all — both ends agree on it in advance and the responder is trusted to
+   * transmit at exactly that offset. Default `'embedded'` is today's behaviour, so a scenario
+   * saved before this field existed reads back unchanged. See `UwbReplyTime` in `uwb/phy.ts` and
+   * `docs/superpowers/specs/2026-09-29-reply-time-design.md` §2–3.
+   */
+  replyTime: UwbReplyTime
+  /**
+   * `replyTime: 'fixed'` only: the first responder's fixed reply delay, in RSTU, counted from
+   * *its own* reception of the Poll — not from when the tag sent it, because a device with no
+   * shared clock has no other reference to measure from (design §6). Responder k's own delay is
+   * this plus k × `slotRstu`.
+   *
+   * Default 1200 — half of `DEFAULT_UWB_SESSION.slotRstu` (2400 RSTU = 2000 µs) — is `model`,
+   * derived from the §6 slot budget rather than picked: a fixed round's slot has to hold this
+   * delay *plus* the fixed Response's own airtime (14 octets, ≈181.2 µs), twice the round's
+   * longest flight time, and the slot guard (`uwbSlotFitNs`'s rule the schema checks this
+   * against). Half the slot leaves the other half — 1000 µs — for that budget, which is enough
+   * for every scenario's node geometry this simulator has ever configured with room to spare; a
+   * value close to `slotRstu` itself is what the schema's `fixed` slot-fit rule refuses.
+   */
+  fixedReplyRstu: number
   /** Ranging block duration in RSTU (standard §10.32.2). */
   blockRstu: number
   /** Ranging slot duration in RSTU; a whole number of 3-RSTU units (standard §10.32.2). */
@@ -343,7 +371,8 @@ export const DEFAULT_UWB_MMS: UwbMmsCfg = {
 }
 
 export const DEFAULT_UWB_SESSION: UwbSessionCfg = {
-  method: 'ds', blockRstu: 240_000, slotRstu: 2400, channel: 9, tsNoisePs: 100, cfoNoisePpm: 0.2, nlos: true,
+  method: 'ds', replyTime: 'embedded', fixedReplyRstu: 1200,
+  blockRstu: 240_000, slotRstu: 2400, channel: 9, tsNoisePs: 100, cfoNoisePpm: 0.2, nlos: true,
   schedule: 'time', contentionSlots: 8, maxAttempts: 3,
   mode: 'twr', tdoaClockCorrection: true, syncErrorNs: 0, aoa: false,
   mms: { ...DEFAULT_UWB_MMS, nbChannels: [...DEFAULT_UWB_MMS.nbChannels] },
@@ -838,6 +867,11 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
     queue: z.object({ limit: z.number().int().positive(), lifetimeMs: z.number().positive() }).optional(),
     uwb: z.object({
       method: z.enum(['ss', 'ds']),
+      // Both default: an existing scenario carries neither key and must read back byte for byte
+      // (task-2-brief.md). `fixedReplyRstu`'s default is derived, not guessed — see the field's
+      // own doc comment on `UwbSessionCfg` for the §6 arithmetic behind 1200.
+      replyTime: z.enum(['embedded', 'deferred', 'fixed']).default('embedded'),
+      fixedReplyRstu: z.number().int().min(0).default(1200),
       blockRstu: z.number().int().positive().refine((v) => v % 3 === 0, 'UWB 块长要是 3 RSTU 的整数倍'),
       slotRstu: z.number().int().min(300).refine((v) => v % 3 === 0, '测距时隙要是 3 RSTU 的整数倍'),
       channel: z.union([z.literal(5), z.literal(9)]),
@@ -887,6 +921,28 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
         // own, which this simulator does not model.
         if (sc.uwb.schedule === 'contention' && sc.uwb.method !== 'ss') {
           ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['uwb'], message: '竞争式测距轮在本仿真器里只支持 SS-TWR：DS-TWR 的报告相位还要一个自己的竞争窗口，本仿真器没有建模' })
+        }
+        // The standard's five two-way ranging procedures pair DS-TWR with only two reply-time
+        // shapes, deferred and embedded (§10.29.6.3–.7): there is no "DS-TWR fixed" procedure at
+        // all, so asking for one is refused rather than silently run as a shape the standard
+        // never defined.
+        if (sc.uwb.method === 'ds' && sc.uwb.replyTime === 'fixed') {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['uwb'],
+            message: 'DS-TWR 没有“固定回复时间”这一种时间信息形态（标准 §10.29.6.3–.7 只定义了它的嵌入式与延后两种）：请把 replyTime 改成 embedded 或 deferred，或者把 method 改成 ss',
+          })
+        }
+        // A contention round's responder draws its slot at random (schedule mode 0, §10.32.2):
+        // a deferred follow-up message needs a slot of its own to go to, and there is none to
+        // draw for a frame the round never scheduled in the first place — the same shortfall
+        // that already keeps DS-TWR's own report phase out of a contention round above.
+        if (sc.uwb.schedule === 'contention' && sc.uwb.replyTime === 'deferred') {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['uwb'],
+            message: '竞争式测距轮里响应方是抽到时隙的，延后报文没有固定的时隙可去：请把 replyTime 改成 embedded 或 fixed，或者把 schedule 改成 time',
+          })
         }
         // A contention round is a two-way exchange the tag starts; one-way ranging has no such
         // exchange to contend for (in DL-TDoA the tag never transmits, in UL-TDoA it transmits
@@ -1062,6 +1118,40 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
                   + '请加大 slotRstu 或减少 anchor 数量',
               })
             }
+            // `fixed` is the one reply-time shape whose Response is not slot-aligned (design §6):
+            // a responder transmits at a fixed delay after *its own* reception of the Poll, so the
+            // frame lands back at the tag late by exactly twice the flight time to that
+            // responder — once delaying the Poll's own arrival, once more on the way back. The
+            // rule above already budgets the round's longest frame plus a flat 200 ns flight
+            // guard; that guard was never meant to cover a distance-dependent drift, so a `fixed`
+            // round needs its own budget, worked from this scenario's own node positions rather
+            // than the guard's flat 60 m assumption (`UWB_SLOT_GUARD_NS`'s own comment).
+            if (mode === 'twr' && sc.uwb.replyTime === 'fixed') {
+              const tagNodes = uwbNodes.filter((n) => n.uwb?.role === 'tag')
+              const anchorNodes = uwbNodes.filter((n) => n.uwb?.role === 'anchor')
+              let flightMaxNs = 0
+              for (const t of tagNodes) {
+                for (const a of anchorNodes) {
+                  const distM = Math.hypot(t.pos.x - a.pos.x, t.pos.y - a.pos.y, t.pos.z - a.pos.z)
+                  flightMaxNs = Math.max(flightMaxNs, distM / C_M_PER_NS)
+                }
+              }
+              const fixedReplyNs = rstuNs(sc.uwb.fixedReplyRstu)
+              const respNs = uwbPpduNs(uwbRespBytes(sc.uwb.method, 'fixed'))
+              const fixedNeedNs = fixedReplyNs + respNs + 2 * flightMaxNs + UWB_SLOT_GUARD_NS
+              if (fixedNeedNs > slotNs) {
+                ctx.addIssue({
+                  code: z.ZodIssueCode.custom,
+                  path: ['uwb'],
+                  message: '固定回复时间下，响应的发送时刻不再对齐时隙，会随到 anchor 的距离越漂越晚：'
+                    + `第一个响应方的固定时延 ${(fixedReplyNs / 1000).toFixed(1)} µs + 响应帧空口时间 `
+                    + `${(respNs / 1000).toFixed(1)} µs + 两倍最远飞行时间 ${(2 * flightMaxNs / 1000).toFixed(1)} µs `
+                    + `+ 时隙守卫 ${(UWB_SLOT_GUARD_NS / 1000).toFixed(1)} µs，合计 ${(fixedNeedNs / 1000).toFixed(1)} µs，`
+                    + `超过了 ${sc.uwb.slotRstu} RSTU 的时隙时长 ${(slotNs / 1000).toFixed(1)} µs：`
+                    + '请加大 slotRstu、减小 fixedReplyRstu，或者缩短 anchor 与 tag 的距离',
+                })
+              }
+            }
           }
           // Nothing in an MMS round grows with the anchor count — every pair gets a round of
           // its own — so the PSDU-length cap does not apply to it; the block rule bounds it.
@@ -1070,11 +1160,12 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
           //
           // The cap depends on which frame actually grows: DS-TWR embedded is bound by its Final,
           // every other shape (SS-TWR's three, DS-TWR deferred) by the Poll instead, since none of
-          // them has a Final that ever catches it (design §5). `replyTime` is not a scenario field
-          // yet, so this asks for the cap embedded reply-time carries — today's only shape, and the
-          // same number (9) the old flat constant gave every DS-TWR round.
+          // them has a Final that ever catches it (design §5). `replyTime` is a real scenario
+          // field now, so the session's own shape decides the cap — DS-TWR embedded still gets the
+          // Final-bound 9, but a DS-TWR deferred or any SS-TWR session (whose Poll is what grows)
+          // gets the higher, Poll-bound cap instead.
           if (mode !== 'mms') {
-            const anchorCap = uwbMaxAnchors(mode, sc.uwb.method, 'embedded', sc.uwb.schedule)
+            const anchorCap = uwbMaxAnchors(mode, sc.uwb.method, sc.uwb.replyTime, sc.uwb.schedule)
             if (anchors > anchorCap) {
               ctx.addIssue({
                 code: z.ZodIssueCode.custom,
