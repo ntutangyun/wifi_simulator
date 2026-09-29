@@ -9,9 +9,17 @@
  * and every `UWB_RANGE` record is field-for-field what it was without them". That test is
  * first in the file because it is the one that decides whether the slice may ship.
  *
- * The comparison is field-for-field rather than approximate: `serialiseRecord` below is the
- * one tests/engine/uwb-record-hashes.test.ts folds into its fixture, so a single digit moving
- * anywhere in a range record fails this file.
+ * The comparison is field-for-field rather than approximate: `serialiseMeasurement` below is the
+ * serialisation tests/engine/uwb-record-hashes.test.ts folds into its fixture, so a single digit
+ * moving anywhere in a range record fails this file.
+ *
+ * **One field is compared separately, and it is worth knowing why.** Since the sensing consumer
+ * exists (src/uwb/sensing.ts), a scenario with reflecting objects writes `UWB_ECHO` records into
+ * the same timeline — so every record after the first echo carries a higher `seq`, which is a
+ * record's position in the whole stream and no part of any measurement. `serialiseMeasurement`
+ * below therefore drops `seq` and compares everything else, and one test pins that `seq` really
+ * is the *only* difference a range record shows. Nothing else about a range may move, and the
+ * instant `t` is still compared, so a flight time cannot hide in here.
  */
 import { describe, it, expect } from 'vitest'
 import { uwbDstwrScenario } from '../../src/course/uwb/uwb-dstwr'
@@ -53,9 +61,12 @@ function serialiseValue(v: unknown): string {
   return String(v)
 }
 
-function serialiseRecord(r: TLRecord): string {
+/** tests/engine/uwb-record-hashes.test.ts's `serialiseRecord`, minus `seq` — see the note at the
+ * top of the file. Everything a range *measures* is still in here, `t` included; the one test
+ * that cares about `seq` compares it field by field with `serialiseValue` instead. */
+function serialiseMeasurement(r: TLRecord): string {
   const o = r as unknown as Record<string, unknown>
-  const keys = Object.keys(o).sort()
+  const keys = Object.keys(o).filter((k) => k !== 'seq').sort()
   return keys.map((k) => `${k}:${serialiseValue(o[k])}`).join('|')
 }
 
@@ -65,8 +76,11 @@ function runOf(sc: Scenario): { records: TLRecord[]; hash: string } {
   return { records, hash: sim.timelineHash() }
 }
 
+const rangeRecordsOf = (records: TLRecord[]): TLRecord[] =>
+  records.filter((r) => r.type === 'UWB_RANGE')
+
 const rangesOf = (records: TLRecord[]): string[] =>
-  records.filter((r) => r.type === 'UWB_RANGE').map(serialiseRecord)
+  rangeRecordsOf(records).map(serialiseMeasurement)
 
 // ---- the channel-level harness -----------------------------------------------------------
 
@@ -161,12 +175,35 @@ describe('ranging cannot see an echo', () => {
     expect(rangesOf(on.records)).toEqual(rangesOf(off.records))
   })
 
-  it('every UWB_* record is identical, not only the ranges', () => {
+  it('every UWB_* record other than the echoes is identical, not only the ranges', () => {
+    // UWB_ECHO is excluded because it is the one record the scatterers are *for* — the
+    // measurement task 4 added. Everything else the ranging session writes down, from the
+    // round and slot boundaries to the timestamps and the fixes, must be untouched.
     const uwbOf = (rs: TLRecord[]): string[] =>
-      rs.filter((r) => r.type.startsWith('UWB_')).map(serialiseRecord)
+      rs.filter((r) => r.type.startsWith('UWB_') && r.type !== 'UWB_ECHO').map(serialiseMeasurement)
     const off = runOf(uwbDstwrScenario({ tag: 10, anchors: -10 }))
     const on = runOf({ ...uwbDstwrScenario({ tag: 10, anchors: -10 }), scatterers: [LAB_SCATTERER] })
     expect(uwbOf(on.records)).toEqual(uwbOf(off.records))
+    // …and the exclusion is not vacuous: this scene really does produce echoes.
+    expect(on.records.filter((r) => r.type === 'UWB_ECHO').length).toBeGreaterThan(0)
+  })
+
+  it('the only field the scatterers move on a range record is where it sits in the stream', () => {
+    const off = rangeRecordsOf(runOf(uwbDstwrScenario({ tag: 10, anchors: -10 })).records)
+    const on = rangeRecordsOf(
+      runOf({ ...uwbDstwrScenario({ tag: 10, anchors: -10 }), scatterers: [LAB_SCATTERER] }).records,
+    )
+    expect(on).toHaveLength(off.length)
+    expect(off.length).toBeGreaterThan(0)
+    for (let i = 0; i < off.length; i++) {
+      const a = off[i] as unknown as Record<string, unknown>
+      const b = on[i] as unknown as Record<string, unknown>
+      expect(Object.keys(b).sort()).toEqual(Object.keys(a).sort())
+      const moved = Object.keys(a).filter((k) => serialiseValue(a[k]) !== serialiseValue(b[k]))
+      expect(moved).toEqual(['seq'])
+      // Later in the stream, never earlier: the echoes ahead of it took sequence numbers.
+      expect(b.seq as number).toBeGreaterThan(a.seq as number)
+    }
   })
 
   it('the timeline hash is identical when the scatterers section is absent', () => {

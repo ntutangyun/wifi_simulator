@@ -2,7 +2,7 @@
  * Event-log lines for the UWB half of the record stream. Kept beside the
  * engine rather than in ui/format.ts so the ranging vocabulary (RCTU counters,
  * TWR methods, figures of merit) lives with the code that produces it;
- * fmtRecord simply delegates the UWB types here - the fourteen `src/ui/format.ts` lists in the
+ * fmtRecord simply delegates the UWB types here - the sixteen `src/ui/format.ts` lists in the
  * switch that hands them over.
  */
 import type { TLRecord } from '../model/records'
@@ -87,6 +87,14 @@ export function fmtUwbRecord(r: UwbTLRecord): string {
     case 'UWB_STS_REJECT':
       return `${r.node} rejects the ${KIND_SHORT[r.frameKind]} from ${r.peer}: STS did not verify `
         + `(leading edge ${r.advanceNs.toFixed(0)} ns early)`
+    case 'UWB_ECHO':
+      // Both lengths, then the verdict they imply: a reader who sees 0.04 m against 0.60 m
+      // already knows the answer before the arrow, which is the point of printing both.
+      return `${r.node} echo ← ${r.from} off ${r.scattererId}: ${r.pathM.toFixed(2)} m bistatic `
+        + `(${r.propNs.toFixed(2)} ns), ${r.excessM.toFixed(2)} m further than the direct ray `
+        + `vs ${r.resolutionM.toFixed(2)} m resolved → `
+        + `${r.resolvable ? 'a separate arrival' : 'merged into the direct path'} `
+        + `(${r.rssiDbm.toFixed(1)} dBm)`
     case 'UWB_NB_LBT':
       return `${r.node} NB LBT busy on ch ${r.channel}: ${r.foreignDbm.toFixed(1)} dBm `
         + `≥ ${r.thresholdDbm.toFixed(1)} — skipping the block`

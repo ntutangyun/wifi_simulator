@@ -189,6 +189,14 @@ export function applyUwbRecord(vs: ViewState, r: TLRecord): boolean {
     case 'UWB_TS':
       // Timestamps are event-log detail: they change no lane state.
       return true
+    case 'UWB_ECHO':
+      // So is an echo. It moves no lane and no counter — a sensing measurement is not something
+      // a device *did*, it is something that arrived at it — but the record is claimed here all
+      // the same, so it never reaches the Wi-Fi reducer looking like an unhandled type. A lesson
+      // reads it from the record stream (the event log, and `watch`), which is where a
+      // measurement about a *third* place, the object, belongs: the per-node inspector has no row
+      // that is about something other than the node it names.
+      return true
     case 'UWB_RANGE': {
       const u = vs.nodes[r.node]?.uwb
       if (u) {

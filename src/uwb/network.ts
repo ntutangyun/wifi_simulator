@@ -31,6 +31,7 @@ import { gaussian, UwbClock } from './clock'
 import { UwbDevice, type UwbGeometry } from './device'
 import { nbChannelForBlock } from './nb'
 import { UWB_MAX_ANCHORS, uwbNbSlotFitNs, uwbSlotFitNs } from './phy'
+import { UwbSensor } from './sensing'
 import { roundPlan, slotAction, slotStartNs, type RoundPlan } from './session'
 
 export class UwbNetwork {
@@ -160,7 +161,15 @@ export class UwbNetwork {
         clock, rng, q, now, ch, emit, geometry,
       )
       this.devices.set(n.id, dev)
-      ch.register(n.id, dev)
+      // The one place sensing is switched on, and it is switched on by the **presence of the
+      // scatterers section** — the same branch the medium takes, so the two cannot disagree
+      // about whether this session has reflecting objects in it. With no section the device is
+      // registered bare: it implements no `onEcho`, the medium's `onEcho?.()` finds nothing to
+      // call, and no session written before this slice can emit a `UWB_ECHO`. With a section
+      // (even an empty one) the device is wrapped in a sensor that forwards every ranging call
+      // through untouched and consumes the echoes the device is not allowed to see — which is
+      // how ranging stays bit-for-bit what it was (sensing design §3 and §7).
+      ch.register(n.id, scatterers === undefined ? dev : new UwbSensor(n.id, dev, now, emit))
     }
 
     /**

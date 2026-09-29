@@ -436,6 +436,12 @@ export class UwbDevice implements UwbRadio {
   // this class does not implement. Switching the scatterers on therefore leaves every
   // `UWB_RANGE` field-for-field what it was (sensing design §3 and §7, and
   // tests/uwb/echo-channel.test.ts, which is the test that decides it).
+  //
+  // The sensing consumer is `UwbSensor` (src/uwb/sensing.ts), which **wraps** one of these
+  // rather than living inside it: src/uwb/network.ts registers the wrapper in place of the
+  // device when, and only when, the scenario has a scatterers section. Everything it forwards
+  // arrives below unchanged, and the echoes it keeps never get this far. Keep it that way — the
+  // guarantee above is a fact about which object the medium holds, not a promise about a body.
 
   listening(): boolean {
     return this.state === 'uwbWait' || this.state === 'rx'

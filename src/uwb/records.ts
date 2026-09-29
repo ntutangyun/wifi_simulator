@@ -109,3 +109,29 @@ export type UwbRecord =
    * the slot's own deadline then reports the miss as it always does. Only a session that carries
    * `uwb.attacker` and leaves `uwb.stsOff` off can produce one. model */
   | { type: 'UWB_STS_REJECT'; node: string; peer: string; frameKind: UwbFrameKind; advanceNs: number }
+  /**
+   * A PPDU came home a second way — off one of the scenario's reflecting objects — and this
+   * receiver wrote down what that second arrival implies. **Sensing**, in one record.
+   *
+   * `node` is the receiver, `from` the transmitter, and `scattererId` the object the echo
+   * bounced off: a bistatic measurement names three places, not two.
+   *
+   * `resolvable` is the interesting field, not the range. It says whether this receiver's PHY
+   * could tell the echo from the direct path at all, and it is exactly `excessM > resolutionM`
+   * — both of which the record carries so a reader can do the comparison rather than take the
+   * verdict on trust. `resolutionM` is `c / B` of the PHY the frame went out on: 0.60 m for the
+   * 499.2 MHz HRP UWB PHY, some 120 m for a 2.5 MHz narrowband message, which is why a
+   * narrowband receiver resolves nothing in any room. An object standing on the line between
+   * the two ends adds no excess path, so `excessM` is 0 and `resolvable` is false — it is
+   * **invisible**, to real equipment as much as to this model, and that is design §4's whole
+   * teaching point.
+   *
+   * `pathM` is the bistatic range |TX→S| + |S→RX| the echo implies and `propNs` its flight time,
+   * `pathM / c`, never smaller than the direct ray's (the triangle inequality).
+   *
+   * **What no record of this kind can say**: that an echo arrived but was too weak to be used.
+   * The medium hands an echo over only when it clears the direct path's own sensitivity, and
+   * this engine has no separate sensing floor to compare against — so a faint echo produces
+   * silence, not a record saying it was faint.
+   */
+  | { type: 'UWB_ECHO'; node: string; from: string; scattererId: string; pathM: number; propNs: number; excessM: number; resolutionM: number; rssiDbm: number; resolvable: boolean }

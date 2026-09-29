@@ -90,6 +90,11 @@ export interface EchoInfo {
    * flight time against 1/B (design §4). False is not a failure: an object standing on the
    * line between the two ends is invisible, to real equipment as much as to this model. */
   resolvable: boolean
+  /** The 1/B the verdict above was taken at, ns (`resolutionNsFor`): the chip for an HRP frame,
+   * 400 ns for a narrowband message. Carried so a consumer can show the reader *how narrowly*
+   * an echo was or was not separable rather than only the boolean — `excessM` against
+   * `resolutionNs × c` is the comparison, and the comparison is the lesson. */
+  resolutionNs: number
   /** When the PPDU started at the transmitter (event-clock ns), as `UwbRxInfo` reports it. */
   txStartNs: Ns
 }
@@ -103,7 +108,8 @@ export interface UwbRadio {
    * An echo landed. **Optional, and `UwbDevice` deliberately does not implement it** — that
    * absence is how ranging stays bit-for-bit what it was with the scatterers switched on
    * (design §3 and §7). This is the one door an echo comes through, and only a sensing
-   * consumer opens it.
+   * consumer opens it: `UwbSensor` (src/uwb/sensing.ts), which wraps a device and is registered
+   * in its place only when the scenario has a scatterers section at all.
    */
   onEcho?(from: string, frame: FrameDesc, echo: EchoInfo): void
 }
@@ -526,6 +532,7 @@ export class UwbChannel {
           pathM: echoPathM(txPos, s.pos, rxPos),
           excessM: echoExcessM(txPos, s.pos, rxPos),
           resolvable: isResolvable(txPos, s.pos, rxPos, resolutionNs),
+          resolutionNs,
           txStartNs: t,
         }
         // The same rounding the direct path takes: the event queue runs on whole nanoseconds,
@@ -570,7 +577,14 @@ export class UwbChannel {
    * echo below the frame's sensitivity is not there to be heard. Everything `startRx` does after
    * those two — the capture contest, the open reception, RX_START, RX_OK — is skipped, because an
    * echo is not something the radio was trying to decode. `UwbDevice` implements no `onEcho`, so
-   * in a ranging session this method ends here and the round is what it was.
+   * in a session whose scenario names no reflecting objects this method ends here and the round is
+   * what it was; with a scatterers section the registered radio is a `UwbSensor` wrapping that
+   * device, and the echo becomes a `UWB_ECHO` record.
+   *
+   * The sensitivity gate is the **direct path's own**, deliberately, and it is the reason this
+   * slice cannot record "an echo arrived but was too weak": there is no separate sensing floor in
+   * this engine and adding one would be inventing a number. A faint echo is silence, not a
+   * record about silence.
    */
   private deliverEcho(a: EchoArrival): void {
     const r = this.radios.get(a.rxId)
