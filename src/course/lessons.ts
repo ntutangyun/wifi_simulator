@@ -39,6 +39,8 @@ import { uwbFrame } from './uwb/uwb-frame'
 import { uwbSts } from './uwb/uwb-sts'
 import { uwbSstwr } from './uwb/uwb-sstwr'
 import { uwbDstwr } from './uwb/uwb-dstwr'
+import { uwbReplyTime } from './uwb/uwb-reply-time'
+import { uwbDeferredDs } from './uwb/uwb-deferred-ds'
 import { uwbBlocks } from './uwb/uwb-blocks'
 import { uwbSlotBudget } from './uwb/uwb-slot-budget'
 import { uwbPosition } from './uwb/uwb-position'
@@ -121,6 +123,8 @@ const AUTHORED: Lesson[] = [
   uwbSts,
   uwbSstwr,
   uwbDstwr,
+  uwbReplyTime,
+  uwbDeferredDs,
   uwbBlocks,
   uwbSlotBudget,
   uwbPosition,

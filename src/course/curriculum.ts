@@ -165,7 +165,7 @@ export const COURSE_ORDER: string[] = [
   // Tier 2 — M9 real applications
   'capstone',
   // UWB Tier 1 — M11 time of flight
-  'uwb-intro', 'uwb-frame', 'uwb-sts', 'uwb-sstwr', 'uwb-dstwr',
+  'uwb-intro', 'uwb-frame', 'uwb-sts', 'uwb-sstwr', 'uwb-dstwr', 'uwb-reply-time', 'uwb-deferred-ds',
   // UWB Tier 1 — M12 sessions and positioning
   'uwb-blocks', 'uwb-slot-budget', 'uwb-position', 'uwb-geometry',
   // UWB Tier 2 — M13 coexistence

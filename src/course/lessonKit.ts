@@ -302,6 +302,11 @@ export const firstUwbPoll = txOf((r) => r.frame.kind === 'uwbPoll')
 export const firstUwbResp = txOf((r) => r.frame.kind === 'uwbResp')
 export const firstUwbFinal = txOf((r) => r.frame.kind === 'uwbFinal')
 export const firstUwbReport = txOf((r) => r.frame.kind === 'uwbReport')
+/** SS-TWR with a deferred reply time (standard §10.29.6.3): the follow-up message a responder
+ * sends once it has read its own transmit timestamp back — the only frame in this simulator
+ * whose entire reason to exist is that the frame before it could not carry a number measuring
+ * its own transmit instant. */
+export const firstUwbSsDefer = txOf((r) => r.frame.kind === 'uwbSsDefer')
 export const firstUwbRange = (r: TLRecord): boolean => r.type === 'UWB_RANGE'
 export const firstUwbRoundEnd = (r: TLRecord): boolean => r.type === 'UWB_ROUND_END'
 export const firstUwbPosition = (r: TLRecord): boolean => r.type === 'UWB_POSITION'

@@ -514,6 +514,8 @@ describe("a lesson's track", () => {
     "uwb-sts":                  "uwb",
     "uwb-sstwr":                "uwb",
     "uwb-dstwr":                "uwb",
+    "uwb-reply-time":           "uwb",
+    "uwb-deferred-ds":          "uwb",
     "uwb-blocks":               "uwb",
     "uwb-slot-budget":          "uwb",
     "uwb-position":             "uwb",
