@@ -17,8 +17,8 @@ import { UwbDevice } from '../../src/uwb/device'
 import { UwbNetwork } from '../../src/uwb/network'
 import { roundPlan } from '../../src/uwb/session'
 import {
-  C_M_PER_NS, UWB_BAND_MHZ, UWB_MAX_ANCHORS, UWB_NLOS_NS, UWB_RMARKER_NS, UWB_RX_SENS_DBM,
-  UWB_SIR_MIN_DB, UWB_TX_POWER_DBM,
+  C_M_PER_NS, UWB_BAND_MHZ, UWB_NLOS_NS, UWB_RMARKER_NS, UWB_RX_SENS_DBM,
+  UWB_SIR_MIN_DB, UWB_TX_POWER_DBM, uwbMaxAnchors,
 } from '../../src/uwb/phy'
 import { aoaSigmaDeg } from '../../src/uwb/aoa'
 import { rangeSigmaM } from '../../src/uwb/position'
@@ -1659,10 +1659,12 @@ describe('UwbNetwork — MMS, the block must hold every pair', () => {
   })
 
   it('takes more anchors than a Final could ever list, because no MMS frame lists them', () => {
-    const anchors: Place[] = Array.from({ length: UWB_MAX_ANCHORS + 2 }, (_, i) => ({ x: 1 + i * 0.5, y: 1, z: 1 }))
+    // The two-way (DS-TWR embedded) cap, same number the old flat UWB_MAX_ANCHORS gave every mode.
+    const dsEmbeddedCap = uwbMaxAnchors('twr', 'ds', 'embedded', 'time')
+    const anchors: Place[] = Array.from({ length: dsEmbeddedCap + 2 }, (_, i) => ({ x: 1 + i * 0.5, y: 1, z: 1 }))
     // Eleven pairs of 14 ms need 154 ms, which one 200 ms block holds; the window stops just
     // short of the next block, so the counts below are exactly one block's.
-    expect(anchors.length).toBeGreaterThan(UWB_MAX_ANCHORS)
+    expect(anchors.length).toBeGreaterThan(dsEmbeddedCap)
     const rs = run(mmsScene(anchors, [{ x: 4, y: 4, z: 1 }], mmsCfg(), []), 199 * MS)
     expect(of(rs, 'UWB_ROUND')).toHaveLength(anchors.length)
     expect(of(rs, 'UWB_RANGE', 'tag-1')).toHaveLength(anchors.length)

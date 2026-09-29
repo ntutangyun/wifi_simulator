@@ -23,9 +23,9 @@ import {
   NB_REPORT_BYTES, NB_RX_SENS_DBM, NB_TX_DBM, nbCenterMhz, nbPpduNs,
 } from '../../src/uwb/nb'
 import {
-  COUNTER_MOD, FOM_LOS, FOM_NLOS, RCTU_NS, UWB_BAND_MHZ, UWB_BLINK_BYTES, UWB_CAPTURE_DB, UWB_MAX_ANCHORS,
+  COUNTER_MOD, FOM_LOS, FOM_NLOS, RCTU_NS, UWB_BAND_MHZ, UWB_BLINK_BYTES, UWB_CAPTURE_DB,
   UWB_MAX_INPUT_DBM_PER_MHZ, UWB_PL_EXP, UWB_RX_SENS_DBM, UWB_SIR_MIN_DB, UWB_TX_POWER_DBM,
-  fomDecode, fomText, rstuNs, uwbFinalBytes, uwbInBandDbm, uwbPl0Db, uwbSlotsPerTag,
+  fomDecode, fomText, rstuNs, uwbFinalBytes, uwbInBandDbm, uwbMaxAnchors, uwbPl0Db, uwbSlotsPerTag,
 } from '../../src/uwb/phy'
 import { rangeSigmaM } from '../../src/uwb/position'
 import { ELLIPSE_DRAW_SCALE } from '../../src/uwb/scene'
@@ -171,10 +171,12 @@ describe('figures pinned to the engine', () => {
   })
 
   it('states the Final size and the anchor limit the frame builder imposes', () => {
-    // The README writes the Final as "14 + 12N" octets; that is uwbFinalBytes.
-    for (const n of [1, 4, UWB_MAX_ANCHORS]) expect(uwbFinalBytes(n)).toBe(14 + 12 * n)
+    // The README writes the Final as "14 + 12N" octets; that is uwbFinalBytes (embedded DS-TWR,
+    // the default and the shape the README's "≤ 9 anchors" row is specifically about).
+    const dsEmbeddedCap = uwbMaxAnchors('twr', 'ds', 'embedded', 'time')
+    for (const n of [1, 4, dsEmbeddedCap]) expect(uwbFinalBytes(n)).toBe(14 + 12 * n)
     expect(README).toContain('14 + 12N')
-    expect(README).toContain(`≤ ${UWB_MAX_ANCHORS} anchors`)
+    expect(README).toContain(`≤ ${dsEmbeddedCap} anchors`)
   })
 
   it('states the counter width as a model choice, with its wrap', () => {

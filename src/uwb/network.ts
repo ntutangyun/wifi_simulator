@@ -30,7 +30,7 @@ import { UwbChannel } from './channel'
 import { gaussian, UwbClock } from './clock'
 import { UwbDevice, type UwbGeometry } from './device'
 import { nbChannelForBlock } from './nb'
-import { UWB_MAX_ANCHORS, uwbNbSlotFitNs, uwbSlotFitNs } from './phy'
+import { uwbMaxAnchors, uwbNbSlotFitNs, uwbSlotFitNs } from './phy'
 import { UwbSensor } from './sensing'
 import { roundPlan, slotAction, slotStartNs, type RoundPlan } from './session'
 
@@ -105,9 +105,16 @@ export class UwbNetwork {
       }
     }
     // Nothing in an MMS round grows with the anchor count — each pair gets a round of its own,
-    // and no frame lists the anchors — so the PSDU cap the Final runs into does not apply to it.
-    if (!mms && anchors.length > UWB_MAX_ANCHORS) {
-      throw new Error(`UwbNetwork: ${anchors.length} anchors exceed the ${UWB_MAX_ANCHORS} a Final can list`)
+    // and no frame lists the anchors — so the PSDU cap the round's longest frame runs into does
+    // not apply to it, and `uwbMaxAnchors` refuses to be asked for an MMS round at all (it has no
+    // PSDU to size) — so `!mms` has to guard the call, not just the throw. `replyTime` is not a
+    // session field yet, so this is the cap embedded reply-time carries — the schema checks the
+    // identical thing in RSTU (see scenario.ts), and the two must not drift apart.
+    if (!mms) {
+      const anchorCap = uwbMaxAnchors(this.plan.mode, this.plan.method, 'embedded', this.plan.schedule)
+      if (anchors.length > anchorCap) {
+        throw new Error(`UwbNetwork: ${anchors.length} anchors exceed the ${anchorCap} this round's longest frame allows`)
+      }
     }
 
     // The receiver's clock-offset estimate needs the transmitter's crystal, so

@@ -27,8 +27,8 @@ import {
 import {
   ARC_IE_BYTES, BLINK_IE_BYTES, chipsToNs, DL_COFFS_IE_BYTES, DL_TX_TIME_IE_BYTES, dlRxTimesIeBytes,
   PHR_SYMBOLS, PHR_SYMBOL_CHIPS, PSYM_CHIPS, rdmIeBytes, RCMA_IE_BYTES, RCPS_IE_BYTES,
-  RCTU_NS, rmiFinalIeBytes, RMI_REPORT_IE_BYTES, RRMC_IE_BYTES, RRTI_IE_BYTES, SFD_SYMBOLS, STS_ACTIVE_CHIPS,
-  STS_GAP_CHIPS, SYNC_SYMBOLS, UWB_FCS_BYTES, UWB_MHR_BYTES,
+  RCTU_NS, rmiFinalDeferredIeBytes, rmiFinalIeBytes, RMI_REPORT_IE_BYTES, RRMC_IE_BYTES, RRTI_IE_BYTES,
+  SFD_SYMBOLS, STS_ACTIVE_CHIPS, STS_GAP_CHIPS, SYNC_SYMBOLS, UWB_FCS_BYTES, UWB_MHR_BYTES,
 } from './phy'
 
 /** Model: the simulator runs a single ranging session, so a single PAN. */
@@ -116,26 +116,41 @@ function ies(u: UwbInfo): Ie[] {
           out.push({ key: 'ieRrti', bytes: RRTI_IE_BYTES, value: V.replyTime(rctuText(u.replyRctu)) })
           break
         }
+        // Only an embedded Final's ies list carries 'RRTI' at all — a deferred Final's is ['RMI']
+        // alone (frames.ts's makeFinal) — so every entry reached here has its treply2.
         for (const t of u.finalTimes ?? []) {
-          out.push({ key: 'ieRrti', bytes: RRTI_IE_BYTES, value: V.finalReply(t.id, rctuDur(t.treply2)) })
+          out.push({ key: 'ieRrti', bytes: RRTI_IE_BYTES, value: V.finalReply(t.id, rctuDur(t.treply2!)) })
         }
         break
       }
-      case 'RMI':
-        out.push(u.finalTimes
+      case 'RMI': {
+        if (!u.finalTimes) {
+          out.push({
+            key: 'ieRmi', bytes: RMI_REPORT_IE_BYTES,
+            value: V.rmiReport(rctuText(u.reportTimes?.treply1 ?? 0), rctuText(u.reportTimes?.tround2 ?? 0)),
+          })
+          break
+        }
+        // A deferred Final's entries carry an id and nothing else (Ruling 1, design §5): the round
+        // trip left with the RRTI IEs this frame no longer has. Every entry is built the same way
+        // by makeFinal, so checking the first is enough to tell the two shapes apart.
+        const deferred = u.finalTimes.length > 0 && u.finalTimes[0].tround1 === undefined
+        out.push(deferred
           ? {
+            key: 'ieRmi', bytes: rmiFinalDeferredIeBytes(u.finalTimes.length),
+            // No time rides here at all — just the responder list `finalListedMe` reads.
+            value: V.rmiFinal(u.finalTimes.length, u.finalTimes.map((t) => t.id).join('、')),
+          }
+          : {
             key: 'ieRmi', bytes: rmiFinalIeBytes(u.finalTimes.length),
             // The RMI IE's entry is address + round-trip time; each treply2 rides in its own RRTI IE.
             value: V.rmiFinal(
               u.finalTimes.length,
-              u.finalTimes.map((t) => V.rmiFinalEntry(t.id, rctuDur(t.tround1))).join(' · '),
+              u.finalTimes.map((t) => V.rmiFinalEntry(t.id, rctuDur(t.tround1!))).join(' · '),
             ),
-          }
-          : {
-            key: 'ieRmi', bytes: RMI_REPORT_IE_BYTES,
-            value: V.rmiReport(rctuText(u.reportTimes?.treply1 ?? 0), rctuText(u.reportTimes?.tround2 ?? 0)),
           })
         break
+      }
       // --- one-way ranging ---
       case 'TXT':
         // DL-TDoA: the sender's own transmit instant on its own clock (model IE).

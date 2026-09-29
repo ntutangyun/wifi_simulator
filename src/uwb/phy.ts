@@ -180,6 +180,20 @@ export function uwbInBandDbm(txPowerDbm: number, overlapMhz: number): number {
 // sum of the fields it stands for, and the frame helpers below add those constants up rather
 // than restating the arithmetic.
 
+/**
+ * Which of the standard's five two-way ranging procedures carries a reply time or round-trip
+ * time, and how (standard §10.29.6.3–.7): `'embedded'` writes it into the very frame whose own
+ * send time it measures, which only works when the hardware can pre-schedule that send time;
+ * `'deferred'` sends that frame empty of it and reports it in a later one, once the sender has
+ * read its own transmit timestamp back; `'fixed'` never puts it on the air at all — both ends
+ * agree on it in advance, and the responder is trusted to transmit at exactly that offset. See
+ * `docs/superpowers/specs/2026-09-29-reply-time-design.md` §2 for why a frame cannot carry a
+ * number that measures itself. */
+export type UwbReplyTime = 'embedded' | 'deferred' | 'fixed'
+
+/** The largest PSDU the PHR's frame-length field can express. standard §16.2.7 */
+export const UWB_MAX_PSDU_BYTES = 127
+
 /** Frame Control 2 + Sequence Number 1 + destination PAN 2 + destination short address 2
  * + source short address 2. Short (16-bit) addressing throughout is the model's choice. */
 export const UWB_MHR_BYTES = 9
@@ -204,8 +218,14 @@ export const RDM_IE_FIXED_BYTES = UWB_IE_HDR_BYTES + 1
 export const RDM_ENTRY_BYTES = 3
 /** RMI IE (§10.29.8.4) in a Final, fixed part: header + the responder count. */
 export const RMI_FINAL_FIXED_BYTES = UWB_IE_HDR_BYTES + 1
-/** One RMI entry in a Final: the responder's short address 2 + its round-trip time 4. */
+/** One RMI entry in an embedded Final: the responder's short address 2 + its round-trip time 4. */
 export const RMI_FINAL_ENTRY_BYTES = 6
+/** One RMI entry in a *deferred* Final: the responder's short address only. Ruling of design §5 —
+ * `docs/superpowers/specs/2026-09-29-reply-time-design.md` — the deferred Final is not empty: an
+ * anchor's `finalListedMe` (device.ts) reads this very list to decide whether it may report at
+ * all, so the address stays. What goes is the 4-octet round-trip time this entry also carries when
+ * embedded, and the whole RRTI IE that would need it before it exists (§10.29.6.6). */
+export const RMI_FINAL_DEFERRED_ENTRY_BYTES = 2
 /** RMI IE in a measurement report: header + control 1 + address 2 + reply time 4 + round-trip time 4. */
 export const RMI_REPORT_IE_BYTES = UWB_IE_HDR_BYTES + 11
 
@@ -214,9 +234,15 @@ export function rdmIeBytes(anchors: number): number {
   return RDM_IE_FIXED_BYTES + RDM_ENTRY_BYTES * anchors
 }
 
-/** The Final's RMI IE: one entry per responder, 3 + 6N octets. */
+/** The Final's RMI IE when embedded: one entry per responder, 3 + 6N octets. */
 export function rmiFinalIeBytes(anchors: number): number {
   return RMI_FINAL_FIXED_BYTES + RMI_FINAL_ENTRY_BYTES * anchors
+}
+
+/** The Final's RMI IE when deferred: the same fixed part, an address-only entry per responder,
+ * 3 + 2N octets. */
+export function rmiFinalDeferredIeBytes(anchors: number): number {
+  return RMI_FINAL_FIXED_BYTES + RMI_FINAL_DEFERRED_ENTRY_BYTES * anchors
 }
 
 /** MHR + ARC IE + RDM IE (3 + 3N) + RRMC IE + FCS = 27 + 3N (time-scheduled); a contention round's
@@ -229,18 +255,33 @@ export function uwbPollBytes(anchors: number, schedule: 'time' | 'contention' = 
   return UWB_MHR_BYTES + ARC_IE_BYTES + rdmIeBytes(anchors) + RRMC_IE_BYTES + UWB_FCS_BYTES
 }
 
-/** MHR + RRMC IE + FCS, plus the RRTI IE that carries the reply time in SS-TWR: 20 (SS) / 14 (DS). */
-export function uwbRespBytes(method: 'ss' | 'ds'): number {
-  return UWB_MHR_BYTES + RRMC_IE_BYTES + (method === 'ss' ? RRTI_IE_BYTES : 0) + UWB_FCS_BYTES
+/** MHR + RRMC IE + FCS, plus the RRTI IE that carries the reply time — only when SS-TWR embeds
+ * it in this very frame: 20 (SS embedded) / 14 (SS deferred or fixed, DS always). DS-TWR never
+ * carries a reply time here at all: its Final does, or its report does (design §5). */
+export function uwbRespBytes(method: 'ss' | 'ds', replyTime: UwbReplyTime = 'embedded'): number {
+  const carriesRrti = method === 'ss' && replyTime === 'embedded'
+  return UWB_MHR_BYTES + RRMC_IE_BYTES + (carriesRrti ? RRTI_IE_BYTES : 0) + UWB_FCS_BYTES
 }
 
-/** MHR + RMI IE (3 + 6N) + N × RRTI IE 6 + FCS = 14 + 12N. */
-export function uwbFinalBytes(anchors: number): number {
+/** MHR + RMI IE + FCS: embedded is 3 + 6N per-anchor (address + round trip) plus N × RRTI IE 6
+ * for treply2 = 14 + 12N; deferred drops both the round trip and the RRTI IEs and keeps only the
+ * address list = 14 + 2N (ruling of design §5 — the deferred Final is not empty, see
+ * `RMI_FINAL_DEFERRED_ENTRY_BYTES`). */
+export function uwbFinalBytes(anchors: number, replyTime: UwbReplyTime = 'embedded'): number {
+  if (replyTime === 'deferred') {
+    return UWB_MHR_BYTES + rmiFinalDeferredIeBytes(anchors) + UWB_FCS_BYTES
+  }
   return UWB_MHR_BYTES + rmiFinalIeBytes(anchors) + anchors * RRTI_IE_BYTES + UWB_FCS_BYTES
 }
 
 /** MHR + the report's RMI IE 13 + FCS. */
 export const UWB_REPORT_BYTES = UWB_MHR_BYTES + RMI_REPORT_IE_BYTES + UWB_FCS_BYTES
+
+/** The deferred reply-time message of SS-TWR (standard §10.29.6.3): an anchor whose Response
+ * could not embed `Treply` — it did not know its own future send time — follows up, once it has
+ * read that send timestamp back, with a frame carrying nothing else. MHR + RRTI IE + FCS = 17
+ * octets (`makeSsDefer` in frames.ts). */
+export const UWB_SS_DEFER_BYTES = UWB_MHR_BYTES + RRTI_IE_BYTES + UWB_FCS_BYTES
 
 // --- One-way ranging (TDoA) message content -------------------------------------
 
@@ -300,12 +341,6 @@ export function uwbDlFinalBytes(responders: number, coffs = false): number {
   return UWB_MHR_BYTES + RRMC_IE_BYTES + UWB_FCS_BYTES + dlExtraBytes(responders, coffs)
 }
 
-/** Anchors one ranging round can carry. In two-way ranging the Final is the round's longest
- * frame and grows by 12 octets per anchor; at 9 anchors it is 122 octets and at 10 it is 134,
- * past the 127-octet PSDU the PHR's frame-length field can express (standard §16.2.7). The
- * one-way modes are bounded by the same number, which is conservative for them: their longest
- * frame is the DL-TDoA Poll at 33 + 3R octets (57 at nine anchors), less than half the limit. */
-export const UWB_MAX_ANCHORS = 9
 
 // --- Ranging schedule units ----------------------------------------------------
 
@@ -363,10 +398,18 @@ export function uwbSlotsPerTag(
 /** Guard between the end of a slot's PPDU and the slot boundary: 200 ns is 60 m of flight (model). */
 export const UWB_SLOT_GUARD_NS = 200
 
-/** The round's longest frame, in octets: the Final in a time-scheduled two-way round, the Poll
- * or the SS Response in a contention round (which has no Final at all), the longer of the Poll
- * and the Final in DL-TDoA (the Poll's RDM IE grows by 3 per responder, the Final's RX times by
- * 4), and the blink — the only frame there is — in UL-TDoA.
+/** The round's longest frame, in octets: in a time-scheduled two-way round, the larger of the
+ * Poll (which lists every anchor, 27 + 3N) and whichever frame the method and reply-time carry
+ * their times in; the Poll or the SS Response in a contention round (which has no Final at all);
+ * the longer of the Poll and the Final in DL-TDoA (the Poll's RDM IE grows by 3 per responder,
+ * the Final's RX times by 4); and the blink — the only frame there is — in UL-TDoA.
+ *
+ * `method` and `replyTime` only matter to the time-scheduled two-way branch: SS-TWR has no Final
+ * at all, so its longest frame is the Poll (or, embedded, its own Response, which never catches
+ * the Poll); DS-TWR's embedded Final overtakes the Poll a few anchors in, but a deferred Final is
+ * an address list (14 + 2N, design §5) that never does, so DS-deferred is Poll-bound too — the
+ * same bug the pre-Ruling-3 constant had for every SS round, now fixed by asking rather than
+ * assuming a Final exists.
  *
  * An MMS round has no such frame: its ranging phase carries fragments, which are sequences and
  * not PSDUs at all, and its control and report phases are narrowband messages sized in `nb.ts`.
@@ -374,6 +417,7 @@ export const UWB_SLOT_GUARD_NS = 200
  * nothing — `uwbSlotFitNs` and `uwbNbSlotFitNs` measure an MMS slot instead. */
 export function uwbLongestFrameBytes(
   anchors: number, mode: UwbMode = 'twr', schedule: 'time' | 'contention' = 'time',
+  method: 'ss' | 'ds' = 'ds', replyTime: UwbReplyTime = 'embedded',
 ): number {
   if (mode === 'mms') {
     throw new Error('uwbLongestFrameBytes: an MMS round carries fragments and narrowband messages, not PSDUs')
@@ -385,9 +429,53 @@ export function uwbLongestFrameBytes(
   // A contention round is SS-TWR and ends at the Response: there is no Final to size it by, and
   // the Poll carries RCPS + RCMA instead of the anchor list, so it is 31 octets whatever the
   // anchor count. At one anchor that Poll is longer than the Final the round never sends.
-  if (schedule === 'contention') return Math.max(uwbPollBytes(anchors, 'contention'), uwbRespBytes('ss'))
-  return uwbFinalBytes(anchors)
+  if (schedule === 'contention') return Math.max(uwbPollBytes(anchors, 'contention'), uwbRespBytes('ss', replyTime))
+  const pollBytes = uwbPollBytes(anchors)
+  if (method === 'ss') {
+    // No Final exists: the round ends at the Responses (and, deferred, the follow-up messages),
+    // none of which grow with the anchor count — the Poll, which does, is what binds it.
+    return Math.max(pollBytes, uwbRespBytes('ss', replyTime), replyTime === 'deferred' ? UWB_SS_DEFER_BYTES : 0)
+  }
+  return Math.max(pollBytes, uwbFinalBytes(anchors, replyTime))
 }
+
+/**
+ * Anchors one ranging round can carry: the largest count whose longest frame (above) still fits
+ * the 127-octet PSDU (standard §16.2.7). Searched, not written down — a round's longest frame
+ * depends on the mode, the method and the reply-time shape, so no single number is "the" cap
+ * (Ruling 3 of `docs/superpowers/specs/2026-09-29-reply-time-design.md` §5: the pre-existing
+ * `UWB_MAX_ANCHORS = 9` was the embedded DS-TWR Final's own number, wrongly applied to every
+ * shape — including SS-TWR, whose round has no Final to overrun at all).
+ *
+ * UL-TDoA is the one shape the search cannot terminate on its own: its only frame, the 14-octet
+ * blink, never grows with the anchor count (`uwbLongestFrameBytes` always returns
+ * `UWB_BLINK_BYTES` for it), and neither does its slot cost — `uwbSlotsPerTag` gives a UL-TDoA
+ * round one slot regardless of how many anchors listen to it. Nothing about the PSDU bounds it,
+ * so the search is given a ceiling instead of a law (`UWB_UL_TDOA_ANCHOR_CEILING`): what actually
+ * bounds a scenario's size lives elsewhere — the block-fit rule (`src/model/scenario.ts`) caps
+ * how many *tags* a block holds, and DL-TDoA bounds its own anchor count structurally, one slot
+ * per anchor (`uwbSlotsPerTag`'s `anchors + 1`), before the PSDU even gets a say.
+ */
+export function uwbMaxAnchors(
+  mode: UwbMode, method: 'ss' | 'ds', replyTime: UwbReplyTime, schedule: 'time' | 'contention' = 'time',
+): number {
+  const ceiling = mode === 'ul-tdoa' ? UWB_UL_TDOA_ANCHOR_CEILING : UWB_MAX_PSDU_BYTES
+  let cap = 0
+  for (let a = 1; a <= ceiling; a++) {
+    if (uwbLongestFrameBytes(a, mode, schedule, method, replyTime) > UWB_MAX_PSDU_BYTES) break
+    cap = a
+  }
+  return cap
+}
+
+/**
+ * The ceiling `uwbMaxAnchors` searches up to for UL-TDoA, since nothing about that mode's frame
+ * or slot cost ever stops the search on its own (see `uwbMaxAnchors`). Chosen, not derived: large
+ * enough that no scenario this simulator's editor, tests or course corpus ever configures comes
+ * close to it — the largest anchor count anywhere in this repository is nine, an order of
+ * magnitude below — and small enough that a 64-iteration search costs nothing. model
+ */
+export const UWB_UL_TDOA_ANCHOR_CEILING = 64
 
 /** The shortest ranging slot a round with N anchors fits in: the round's longest PPDU plus the
  * flight guard. In a shorter slot the receiver's deadline fires before the frame lands, and the

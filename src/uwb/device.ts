@@ -787,7 +787,10 @@ export class UwbDevice implements UwbRadio {
     if (r.rxPollCounter === null || r.txRespCounter === null) return
     const treply1 = counterDiff(r.txRespCounter, r.rxPollCounter)
     const tround2 = counterDiff(counter, r.txRespCounter)
-    reportRange(this, r, from, 'ds', dsTwr(entry.tround1, treply1, tround2, entry.treply2), undefined, fom)
+    // entry.tround1/treply2 are only absent on a *deferred* Final (frames.ts's makeFinal), which
+    // no session built here ever produces yet — `replyTime` is not wired into a device's own round
+    // (task-1-report.md, feat/uwb-ranging): today `finalTimes` is always the embedded shape.
+    reportRange(this, r, from, 'ds', dsTwr(entry.tround1!, treply1, tround2, entry.treply2!), undefined, fom)
   }
 
   /** Tag, on an anchor's Report: the anchor's half of the double-sided exchange. */

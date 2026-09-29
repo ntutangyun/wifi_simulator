@@ -13,9 +13,15 @@ import { Rng } from '../../src/engine/rng'
 import { makeEmitter } from '../../src/model/records'
 import { UwbNetwork } from '../../src/uwb/network'
 import {
-  rstuNs, UWB_BLINK_BYTES, UWB_MAX_ANCHORS, uwbDlPollBytes, uwbFinalBytes, uwbLongestFrameBytes, uwbNbSlotFitNs,
+  rstuNs, UWB_BLINK_BYTES, uwbDlPollBytes, uwbFinalBytes, uwbLongestFrameBytes, uwbMaxAnchors, uwbNbSlotFitNs,
   uwbPollBytes, uwbRespBytes, uwbSlotFitNs, uwbSlotsPerTag,
 } from '../../src/uwb/phy'
+
+/** The old `UWB_MAX_ANCHORS = 9` was always the embedded DS-TWR Final's own number; deleted in
+ * favour of `uwbMaxAnchors`, which derives it (and gives the other shapes their own, higher, cap —
+ * see tests/uwb/reply-time-frames.test.ts). `DEFAULT_UWB_SESSION` is DS-TWR embedded/time, so this
+ * is the number every test below that used to read the constant still means. */
+const DS_EMBEDDED_CAP = uwbMaxAnchors('twr', 'ds', 'embedded', 'time')
 
 function uwbNode(id: string, role: 'anchor' | 'tag', x: number, y: number): NodeCfg {
   return {
@@ -123,12 +129,12 @@ describe('UWB nodes and sessions in the schema', () => {
       .toThrow(/300 RSTU.*250\.0 µs.*267\.6 µs/)
     // and the engine refuses the same round in nanoseconds, so the two cannot drift apart
     expect(() => network([...anchors(6), tag], shortSlot)).toThrow(/cannot carry a round of 6 anchors/)
-    expect(rstuNs(DEFAULT_UWB_SESSION.slotRstu)).toBeGreaterThan(uwbSlotFitNs(UWB_MAX_ANCHORS))
+    expect(rstuNs(DEFAULT_UWB_SESSION.slotRstu)).toBeGreaterThan(uwbSlotFitNs(DS_EMBEDDED_CAP))
   })
 
   it('a round takes at most nine anchors: the Final has to stay under 127 octets', () => {
-    expect(uwbFinalBytes(UWB_MAX_ANCHORS)).toBe(122)
-    expect(uwbFinalBytes(UWB_MAX_ANCHORS + 1)).toBe(134)
+    expect(uwbFinalBytes(DS_EMBEDDED_CAP)).toBe(122)
+    expect(uwbFinalBytes(DS_EMBEDDED_CAP + 1)).toBe(134)
     const anchors = (n: number) => Array.from({ length: n }, (_, i) => uwbNode(`anc-${i}`, 'anchor', i * 2, 0))
     const tag = uwbNode('tag-1', 'tag', 4, 4)
     expect(() => ScenarioSchema.parse(uwbScenario([...anchors(9), tag]))).not.toThrow()

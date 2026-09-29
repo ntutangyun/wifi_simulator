@@ -15,7 +15,7 @@ import { FADING_DEFAULTS, RICIAN_K_DEFAULT_DB, type FadingCfg } from '../engine/
 // the geometry that consumes it, and the schema below validates that same shape.
 import type { ScattererCfg } from '../engine/scatter'
 import { NB_CHANNELS } from '../uwb/nb'
-import { mmsResponders, rstuNs, UWB_MAX_ANCHORS, uwbNbSlotFitNs, uwbSlotFitNs, uwbSlotsPerTag } from '../uwb/phy'
+import { mmsResponders, rstuNs, uwbMaxAnchors, uwbNbSlotFitNs, uwbSlotFitNs, uwbSlotsPerTag } from '../uwb/phy'
 import type { LinkId } from './caps'
 import type { CapabilityProfile, NodeKind, Vec3 } from './types'
 
@@ -1065,14 +1065,24 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
           }
           // Nothing in an MMS round grows with the anchor count — every pair gets a round of
           // its own — so the PSDU-length cap does not apply to it; the block rule bounds it.
-          if (mode !== 'mms' && anchors > UWB_MAX_ANCHORS) {
-            ctx.addIssue({
-              code: z.ZodIssueCode.custom,
-              path: ['uwb'],
-              message: `一轮测距最多容纳 ${UWB_MAX_ANCHORS} 个 anchor（现在有 ${anchors} 个）：`
-                + 'TWR Final 每多一个 anchor 就长 12 个八位组，而它必须留在 127 个八位组的 PSDU 上限之内'
-                + '（单向模式的帧更短，同一个上限对它们只会更宽松）',
-            })
+          // `uwbMaxAnchors` refuses to be asked for an MMS round at all (it has no PSDU to size),
+          // so the guard has to come first, not just gate the issue it might raise.
+          //
+          // The cap depends on which frame actually grows: DS-TWR embedded is bound by its Final,
+          // every other shape (SS-TWR's three, DS-TWR deferred) by the Poll instead, since none of
+          // them has a Final that ever catches it (design §5). `replyTime` is not a scenario field
+          // yet, so this asks for the cap embedded reply-time carries — today's only shape, and the
+          // same number (9) the old flat constant gave every DS-TWR round.
+          if (mode !== 'mms') {
+            const anchorCap = uwbMaxAnchors(mode, sc.uwb.method, 'embedded', sc.uwb.schedule)
+            if (anchors > anchorCap) {
+              ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: ['uwb'],
+                message: `一轮测距最多容纳 ${anchorCap} 个 anchor（现在有 ${anchors} 个）：`
+                  + '这一轮里最长的那一帧随 anchor 数增长，超过就会撑破 127 个八位组的 PSDU 上限（标准 §16.2.7）',
+              })
+            }
           }
         }
       }

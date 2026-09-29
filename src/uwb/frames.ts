@@ -13,8 +13,8 @@ import {
   NB_MSG_ID, NB_POLL_BYTES, NB_REPORT_BYTES, NB_RESP_BYTES, nbCenterMhz, nbOtmPollBytes, nbPpduNs,
 } from './nb'
 import {
-  UWB_BLINK_BYTES, UWB_REPORT_BYTES, uwbDlFinalBytes, uwbDlPollBytes, uwbDlRespBytes,
-  uwbFinalBytes, uwbPollBytes, uwbPpduNs, uwbRespBytes,
+  UWB_BLINK_BYTES, UWB_REPORT_BYTES, UWB_SS_DEFER_BYTES, uwbDlFinalBytes, uwbDlPollBytes, uwbDlRespBytes,
+  uwbFinalBytes, uwbPollBytes, uwbPpduNs, uwbRespBytes, type UwbReplyTime,
 } from './phy'
 
 export type UwbFrameKind =
@@ -129,10 +129,12 @@ export interface UwbInfo {
   /** Poll (contention schedule): the response phase any anchor may answer in (RCPS IE) and its
    * retry budget (RCMA IE). */
   contention?: { firstSlot: number; lastSlot: number; maxAttempts: number }
-  /** Response (SS): RRTI reply time in RCTU. */
+  /** Response (SS, embedded) or the SS deferred reply-time message: RRTI reply time in RCTU. */
   replyRctu?: number
-  /** Final (DS): per anchor { id, tround1, treply2 } (RMI + RRTI IEs). */
-  finalTimes?: { id: string; tround1: number; treply2: number }[]
+  /** Final (DS): per anchor. Embedded carries { id, tround1, treply2 } (RMI + RRTI IEs); deferred
+   * carries { id } only — the round trip and reply time move out of this frame entirely (design
+   * §5) — so `tround1`/`treply2` are absent, not present-but-zero. */
+  finalTimes?: { id: string; tround1?: number; treply2?: number }[]
   /** Report (DS): the responder's treply1 and tround2 (RMI IE). */
   reportTimes?: { treply1: number; tround2: number }
   /** DL-TDoA (Poll, Response, Final): the sender's ranging times, for the listening tags. */
@@ -207,10 +209,14 @@ export function makePoll(
   })
 }
 
-/** An anchor's Response in its slot; SS-TWR carries the reply time (RRTI), DS-TWR does not. */
+/** An anchor's Response in its slot; SS-TWR carries the reply time (RRTI) only when it is
+ * embedded in this very frame — deferred and fixed carry neither, for opposite reasons (design
+ * §2): deferred cannot, because the anchor does not yet know this frame's own send time, and
+ * fixed has no need to, because the tag can already reconstruct `Treply` from the session config.
+ * DS-TWR never carries a reply time here, embedded or not — its two-way times live in the Final. */
 export function makeResp(
   anchor: string, tag: string, method: 'ss' | 'ds', block: number, round: number, slot: number, replyRctu?: number,
-  dl?: UwbDlTimes,
+  dl?: UwbDlTimes, replyTime: UwbReplyTime = 'embedded',
 ): FrameDesc {
   // DL-TDoA: the responder answers anchor 0 but every tag in earshot is the real audience, so
   // the caller passes a broadcast destination. It carries no reply time — a listening tag wants
@@ -220,16 +226,33 @@ export function makeResp(
       sp: 1, method, block, round, slot, ies: ['RRMC', ...dlIes(dl)], dl: copyDl(dl),
     })
   }
-  return uwbFrame('uwbResp', anchor, tag, uwbRespBytes(method), {
+  const carriesRrti = method === 'ss' && replyTime === 'embedded'
+  return uwbFrame('uwbResp', anchor, tag, uwbRespBytes(method, replyTime), {
     sp: 1, method, block, round, slot,
-    ies: method === 'ss' ? ['RRMC', 'RRTI'] : ['RRMC'],
-    // DS-TWR carries no reply time: the key is absent, not undefined, so a
-    // DS FrameDesc compares equal to a hand-built one.
-    ...(replyRctu !== undefined ? { replyRctu } : {}),
+    ies: carriesRrti ? ['RRMC', 'RRTI'] : ['RRMC'],
+    // A Response that does not carry a reply time has the key absent, not undefined, so its
+    // FrameDesc compares equal to a hand-built one.
+    ...(carriesRrti && replyRctu !== undefined ? { replyRctu } : {}),
   })
 }
 
-/** The tag's Final (DS-TWR only): broadcast, carrying tround1/treply2 per anchor.
+/** The deferred reply-time message of SS-TWR (standard §10.29.6.3): follows the Response, once
+ * the anchor has read its own transmit timestamp back, carrying nothing but that one reply time —
+ * MHR + RRTI IE + FCS, 17 octets (`UWB_SS_DEFER_BYTES`). It is the frame `replyTime: 'deferred'`
+ * exists to send; without it the tag would never learn `Treply` at all. */
+export function makeSsDefer(
+  anchor: string, tag: string, replyRctu: number, block: number, round: number, slot: number,
+): FrameDesc {
+  return uwbFrame('uwbResp', anchor, tag, UWB_SS_DEFER_BYTES, {
+    sp: 1, method: 'ss', block, round, slot, ies: ['RRTI'], replyRctu,
+  })
+}
+
+/** The tag's Final (DS-TWR only): broadcast, carrying tround1/treply2 per anchor when embedded.
+ * When deferred it carries neither (Ruling 1 of design §5): the Final is not empty even then,
+ * because `device.ts`'s `finalListedMe` reads this very responder list to decide whether an
+ * anchor may report at all — only the round trip and reply time move out, to nowhere in this
+ * frame at all (the anchor's own report carries what it needs; §10.29.6.6).
  * In DL-TDoA the Final is anchor 0's instead, and `times` is empty: it closes the round with
  * anchor 0's own TX time - which is what a listening tag measures its clock rate over - and its
  * RX time of every Response. The RX times are carried because a FiRa DL-TDoA Final carries them
@@ -237,11 +260,16 @@ export function makeResp(
  * trip); no tag in this model reads them. */
 export function makeFinal(
   tag: string, times: { id: string; tround1: number; treply2: number }[], block: number, round: number, slot: number,
-  dl?: UwbDlTimes,
+  dl?: UwbDlTimes, replyTime: UwbReplyTime = 'embedded',
 ): FrameDesc {
   if (dl) {
     return uwbFrame('uwbFinal', tag, '*', uwbDlFinalBytes(rxCount(dl), dl.coffs !== undefined), {
       sp: 1, method: 'ds', block, round, slot, ies: ['RRMC', ...dlIes(dl)], dl: copyDl(dl),
+    })
+  }
+  if (replyTime === 'deferred') {
+    return uwbFrame('uwbFinal', tag, '*', uwbFinalBytes(times.length, 'deferred'), {
+      sp: 1, method: 'ds', block, round, slot, ies: ['RMI'], finalTimes: times.map((t) => ({ id: t.id })),
     })
   }
   return uwbFrame('uwbFinal', tag, '*', uwbFinalBytes(times.length), {

@@ -31,7 +31,7 @@ import { clampField } from '../../src/editor/planOps'
 import { fmtRecord } from '../../src/ui/format'
 import { roundPlan } from '../../src/uwb/session'
 import {
-  UWB_MAX_ANCHORS, UWB_SLOT_GUARD_NS, RSTU_CHIPS, rstuNs, uwbFinalBytes, uwbPpduNs, uwbSlotFitNs,
+  UWB_SLOT_GUARD_NS, RSTU_CHIPS, rstuNs, uwbFinalBytes, uwbMaxAnchors, uwbPpduNs, uwbSlotFitNs,
   uwbSlotsPerTag,
 } from '../../src/uwb/phy'
 import { lessonShapeSuite, ofType, runOf } from './kit'
@@ -230,11 +230,15 @@ describe('uwb-slot-budget · the slot-fit rule', () => {
     for (const n of [1, 2, 3, 4, 5]) expect(uwbSlotFitNs(n), `fit ${n}`).toBeLessThanOrEqual(rstuNs(300))
     for (const s of ['267 572', '324 RSTU']) expect(deeperProse(), s).toContain(s)
     // and the nine-anchor cap is arithmetic, not a choice: 14 + 12N at ten anchors overruns the
-    // 127-octet payload, which is where src/uwb/phy.ts derives UWB_MAX_ANCHORS from.
-    expect(UWB_MAX_ANCHORS).toBe(9)
+    // 127-octet payload, which is where src/uwb/phy.ts's uwbMaxAnchors derives it from — for
+    // DS-TWR embedded, the shape this lesson's default scenario uses. (SS-TWR and deferred DS-TWR
+    // get a higher cap, bound by the Poll instead of a Final that no longer grows fast enough to
+    // matter — task-1-report.md, feat/uwb-ranging.)
+    const dsEmbeddedCap = uwbMaxAnchors('twr', 'ds', 'embedded', 'time')
+    expect(dsEmbeddedCap).toBe(9)
     expect(14 + 12 * 10).toBe(134)
-    expect(14 + 12 * UWB_MAX_ANCHORS).toBeLessThanOrEqual(127)
-    expect(14 + 12 * (UWB_MAX_ANCHORS + 1)).toBeGreaterThan(127)
+    expect(14 + 12 * dsEmbeddedCap).toBeLessThanOrEqual(127)
+    expect(14 + 12 * (dsEmbeddedCap + 1)).toBeGreaterThan(127)
     for (const s of ['134 字节', '127 字节']) expect(deeperProse(), s).toContain(s)
   })
 
