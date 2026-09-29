@@ -56,9 +56,9 @@ UWB、ranging、HRP、LRP、STS 的条款都在内。工作从那份清单出发
 
 | 本仿真器 | 行数 |
 | --- | --- |
-| 已建模 | 20 |
-| 部分建模 | 38 |
-| 未建模 | 50 |
+| 已建模 | 23 |
+| 部分建模 | 37 |
+| 未建模 | 48 |
 
 这三个数字被测试钉住，所以加一行必须同时改这里——这正是要的：一张说不出自己有多大的表，
 读者无从判断某一处空白是刻意的还是漏的。
@@ -106,12 +106,12 @@ UWB、ranging、HRP、LRP、STS 的条款都在内。工作从那份清单出发
 
 | 特性 | 标准状态 | 本仿真器 | 位置与证据 |
 | --- | --- | --- | --- |
-| 测距的控制与结果传输 §10.29.6.2 | 已发布 | 部分建模 | 结果传输建了：DS-TWR 里锚点用一条 Report 把自己那半边的时间交回给手机（`uwb/frames.ts#makeReport`，`uwb/frames.ts#UwbInfo` 的 `reportTimes`），手机据此自己算出距离。控制没建：没有任何原语或管理帧能启停、重配一次测距（见 §10.29.9 那一行）。`@uwb-dstwr` |
-| SS-TWR，回复时间延后上报 §10.29.6.3 | 已发布 | 未建模 | **未偿的债。** 引擎的 SS-TWR 只有嵌入式那一种：`uwb/frames.ts#makeResp` 在 `method === 'ss'` 时一律挂上 RRTI IE。把回复时间移到交互之后的另一条消息里，引擎没有这条路径。 |
+| 测距的控制与结果传输 §10.29.6.2 | 已发布 | 部分建模 | 结果传输**五种形态全建了**（见下面四行）：嵌入、延后、固定三条路都走得通，`uwb/session.ts#RoundPlan` 的 `replyTime` 决定走哪条。控制**仍然没建**：没有任何原语或管理帧能启停、重配一次测距（见 §10.29.9 那一行），`replyTime` 是场景配置而不是空口协商的结果。`uwb/frames.ts#makeReport`、`@uwb-dstwr`、`@uwb-reply-time` |
+| SS-TWR，回复时间延后上报 §10.29.6.3 | 已发布 | 已建模 | Response 不带 RRTI（14 字节，而嵌入式 20 字节），回复时间在**自己的时隙里、自己的一条报文里**跟上：`uwb/frames.ts#makeSsDefer`（17 字节，`ies` 恰为 `['RRTI']`）、独立的 `'uwbSsDefer'` 帧类型、`uwb/session.ts#slotAction` 给它时隙 A+1…2A，所以一轮是 2A+1 个时隙而不是 A+1。标签在延后报文落地时才算出距离。`@uwb-reply-time` |
 | SS-TWR，回复时间嵌入 §10.29.6.4 | 已发布 | 已建模 | 这是引擎 SS-TWR 的那一种：Response 携带 `['RRMC', 'RRTI']`，回复时间在 `replyRctu` 里。`uwb/frames.ts#makeResp`、`uwb/phy.ts#RRTI_IE_BYTES`。`@uwb-sstwr` |
-| SS-TWR，固定回复时间 §10.29.6.5 | 已发布 | 部分建模 | **注意这一行。** 引擎里有固定回复时间，但只长在 4ab 的 MMS 路径上：`uwb/mms.ts#MMS_FIXED_REPLY_RSTU_DEFAULT`（600 RSTU）、`uwb/mms.ts#MMS_FIXED_REPLY_RSTU_MIN`/`MAX`，由 `uwb/device.mms.ts#onMmsSlot` 排程，课程是 `@uwb-subrounds`。**已发布标准这条 §10.29.6.5 形态（SP1 帧、槽位化轮次、不走 MMS）引擎一行也没有。** 而课文把「把回复时延定成一个约定常量」说成是草案允许的事——见下文「与仓库现有说法的冲突」第 3 条。 |
-| DS-TWR，测距时间信息延后 §10.29.6.6 | 已发布 | 未建模 | **未偿的债。** 引擎的 Final 是一条测距帧并且当场带着时间（见下一行）；把全部时间挪到交互之后的一条非测距消息里，没有这条路径。 |
-| DS-TWR，测距时间信息嵌入 §10.29.6.7 | 已发布 | 已建模 | Final 携带 `['RMI', 'RRTI']`，每个锚点一组 `{tround1, treply2}`：`uwb/frames.ts#makeFinal`、`uwb/phy.ts#rmiFinalIeBytes`。锚点凑上自己的 `treply1`/`tround2` 当场解出距离。`@uwb-dstwr` |
+| SS-TWR，固定回复时间 §10.29.6.5 | 已发布 | 已建模 | 已发布标准这一条现在长在**它自己的路径上**（SP1 帧、槽位化轮次、不走 MMS）：`scenario.ts` 的 `replyTime: 'fixed'` 加 `fixedReplyRstu`，`uwb/session.ts#RoundPlan` 的 `fixedReplyNs`。回复时间一个字节都不上空口（Response 14 字节），而这是**整个 UWB 侧唯一一处不对齐时隙的发送**：应答方在 `收到 Poll 的时刻 + fixedReplyNs + k × 时隙` 发，否则 `Treply` 就会随距离变化、标签不被告知就算不出来。时隙预算因此两边都有界（`scenario.ts` 的两条拒绝规则）。4ab 的 MMS 固定回复时间是**另一个设置、另一种轮形**：`uwb/mms.ts#MMS_FIXED_REPLY_RSTU_DEFAULT`、`@uwb-subrounds`。`@uwb-reply-time` |
+| DS-TWR，测距时间信息延后 §10.29.6.6 | 已发布 | 已建模 | Final **不带时间，但带响应方名单**——名单是它在这个形态里仍然存在的全部理由：锚点得知道标签究竟有没有收到它的 Response（`uwb/device.ts` 的 `finalListedMe`），那决定它该不该在报告相位里开口。于是 `uwb/phy.ts#uwbFinalBytes` 在延后下是 `14 + 2A` 而嵌入下是 `14 + 12A`（九个锚点：32 对 122 字节）。代价写在 §10.29.6.7 那一行的对面：**锚点从此算不出距离**，只有标签算得出。收益是被算出来的锚点上限从 9 移到 33（`uwb/phy.ts#uwbMaxAnchors`）。`@uwb-deferred-ds` |
+| DS-TWR，测距时间信息嵌入 §10.29.6.7 | 已发布 | 已建模 | Final 携带 `['RMI', 'RRTI']`，每个锚点一组 `{tround1, treply2}`：`uwb/frames.ts#makeFinal`、`uwb/phy.ts#rmiFinalIeBytes`。锚点凑上自己的 `treply1`/`tround2` 当场解出距离——**五种形态里唯一两端都拿到距离的那一种**。代价是这条 Final 每多一个锚点长 12 字节，于是它是把一轮卡在 9 个锚点的那个东西（`uwb/phy.ts#uwbMaxAnchors`：这一种 9，其余四种 33）。`@uwb-dstwr`、`@uwb-deferred-ds` |
 
 ## 三、已发布标准：测距 IE（§10.29.7、§10.29.8）
 
@@ -343,14 +343,17 @@ UWB、ranging、HRP、LRP、STS 的条款都在内。工作从那份清单出发
 引用一起删掉。也就是说「非交织」这个名字底下至少有三种形态（两子轮 SS-TWR、三子轮 DS-TWR、四子轮
 DS-TWR），引擎建的是第一种，而 `@uwb-subrounds` 的 `limits` 目前只说了第二种。
 
-**3. 「草案允许把回复时延定成一个两端事先约定的常量」——固定回复时间不是草案的新发明。**
-`@uwb-subrounds` 的课文与 `src/ui/glossary.ts` 都把固定回复时间讲成 4ab 草案带来的选项。
-但 IEEE Std 802.15.4-2024 已经有 **§10.29.6.5「Ranging procedure for SS-TWR with fixed reply time」**——
-这个过程本身是**已发布标准的条款**。4ab 新加的是把它用到 MMS 包上的那两个 PIB 属性
-（`macMmsFixedReplyTimeEnable` / `macMmsFixedReplyTime`）和那个信令位。区别不小：读者现在以为
-「省掉应答方那个报告」是一个还会变的草案主意，而它的机理二十年前就在标准里了。
-顺带一说，本表第二列把那两个 PIB 属性判为**无法判定**——语料库看不出它们进了 D04/D05——
-这让这一处措辞的代价更高：课文把一件**已发布**的事说成草案，同时把一件**没证据进草案**的事说成草案。
+**3.（已解决，2026-09-30）「草案允许把回复时延定成一个两端事先约定的常量」——固定回复时间不是草案的新发明。**
+原本的问题是：`@uwb-subrounds` 的课文与 `src/ui/glossary.ts` 都把固定回复时间讲成 4ab 草案带来的
+选项，而 IEEE Std 802.15.4-2024 早已有 **§10.29.6.5「Ranging procedure for SS-TWR with fixed reply
+time」**。代价是双重的——课文把一件**已发布**的事说成草案，同时把一件**没证据进草案**的事
+（那两个 PIB 属性，本表判为无法判定）说成草案。
+
+**现在两者在仓库里是分开的两样东西**，所以这处措辞不再有歧义可言：已发布那一条是
+`UwbSessionCfg.replyTime: 'fixed'` 加 `fixedReplyRstu`，走 SP1 帧与槽位化轮次，课程是
+`@uwb-reply-time`，术语表里的条目明确写着 SS-TWR；4ab 那一条是 `UwbMmsCfg.fixedReplyRstu`
+（`macMmsFixedReplyTime`），走 MMS 包，课程是 `@uwb-subrounds`。两个字段同名、不同层，
+各自的注释都指向对方并说明它们是**两种轮形的两个设置**。
 
 另有一处不算冲突、只是补充：**9 月中间会议上两个意见决议动议全部被否**（Motion #26 的 12/13/1 与
 Motion #27 的 11/13/0），7 月全会与 7–9 月电话会也是大面积被否。仓库现有说法「仍在 SA 投票复审中」
