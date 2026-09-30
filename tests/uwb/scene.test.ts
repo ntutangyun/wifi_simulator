@@ -349,4 +349,72 @@ describe('UwbOverlay', () => {
     overlay.dispose()
     expect(overlay.group.children).toHaveLength(0)
   })
+
+  /**
+   * Many-to-many (design §2/§5): no tag, no anchor — every UWB node is a participant, and
+   * `uwb.role` decides only how it is drawn, never whether it ranges. Before Task 5 the overlay's
+   * ring gate read `u.role !== 'tag'`, which is the right rule in every other mode and the wrong
+   * one here: a participant drawn as an anchor that still holds ranges (design §2's earlier half
+   * of a pair) would have its rings silently dropped. Roles are mixed here on purpose so that bug
+   * would show.
+   */
+  describe('in many-to-many mode', () => {
+    const PLACES = [{ x: 1, y: 1 }, { x: 6, y: 2 }, { x: 3, y: 6 }]
+    const ROLES: ('anchor' | 'tag')[] = ['anchor', 'tag', 'anchor']
+    function m2mScenario(): Scenario {
+      const node = (i: number): NodeCfg => ({
+        id: `p-${i}`, kind: 'uwb', name: `p-${i}`, pos: { ...PLACES[i], z: 1 },
+        txPowerDbm: UWB_TX_POWER_DBM, profiles: ['idle'], caps: { ...nonht }, uwb: { role: ROLES[i], ppm: 0 },
+      })
+      return {
+        rooms: [{ x: 0, y: 0, w: 10, h: 8, name: 'lab' }], walls: [],
+        nodes: [0, 1, 2].map(node),
+        servers: [], seed: 7, rtsThresholdBytes: 3000, snapshotIntervalMs: 10,
+        uwb: { ...DEFAULT_UWB_SESSION, mode: 'm2m', method: 'ss', nlos: false },
+      }
+    }
+
+    it('draws a ring for every participant that holds a range, regardless of the role it is drawn as', () => {
+      const sim = new Simulation(m2mScenario())
+      sim.runUntil(25 * MS)
+      const overlay = new UwbOverlay(m2mScenario())
+      overlay.update(sim.view)
+      // p-0 (drawn as an anchor) holds the two ranges design §2 gives participant 0: to p-1 and
+      // p-2. p-1 (drawn as a tag) holds the one remaining pair, to p-2. p-2 computes none — it is
+      // the last participant, all service and no arithmetic (design §2) — so it draws no ring of
+      // its own, on either side of that name.
+      expect(names(overlay.group)).toEqual(['ring:p-0:p-1', 'ring:p-0:p-2', 'ring:p-1:p-2'].sort())
+      expect(names(overlay.group).some((n) => n.includes('p-2:'))).toBe(false)
+      overlay.dispose()
+    })
+
+    it('ages a ring by the whole participant count, not by the anchor-drawn count alone', () => {
+      // The bug this pins: reading `uwb.role === 'anchor'` to size the round (as every other mode
+      // does) would plan for 2 participants here, not 3 — a different, wrong round length.
+      const rightPlan = roundPlan(m2mScenario().uwb!, 3)
+      const wrongPlan = roundPlan(m2mScenario().uwb!, 2)
+      expect(rightPlan.slots).not.toBe(wrongPlan.slots)
+
+      const sim = new Simulation(m2mScenario())
+      sim.runUntil(25 * MS)
+      const u = sim.view.nodes['p-0'].uwb!
+      const overlay = new UwbOverlay(m2mScenario())
+      const roundEnd = u.ranges['p-1'].block * rightPlan.blockNs + (u.round + 1) * rightPlan.roundNs
+      overlay.update(at(sim.view, roundEnd))
+      expect(opacityOf(overlay.group.getObjectByName('ring:p-0:p-1')!)).toBeCloseTo(0.45, 9)
+      overlay.update(at(sim.view, roundEnd + rightPlan.blockNs))
+      expect(opacityOf(overlay.group.getObjectByName('ring:p-0:p-1')!)).toBeCloseTo(0, 9)
+      overlay.dispose()
+    })
+
+    it('draws no fix, no ellipse and no bearing — many-to-many solves no position (design §5)', () => {
+      const sim = new Simulation(m2mScenario())
+      sim.runUntil(25 * MS)
+      const overlay = new UwbOverlay(m2mScenario())
+      overlay.update(sim.view)
+      expect(names(overlay.group).some((n) => n.startsWith('fix:') || n.startsWith('ellipse:') || n.startsWith('bearing:')))
+        .toBe(false)
+      overlay.dispose()
+    })
+  })
 })

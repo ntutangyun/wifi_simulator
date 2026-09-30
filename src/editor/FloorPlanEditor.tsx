@@ -854,7 +854,7 @@ export function FloorPlanEditor() {
                     </>
                   )}
                   {selNode.kind === 'uwb' && (
-                    <UwbNodeFields node={selNode} onChange={(patch) => updateNode(selNode.id, patch)} />
+                    <UwbNodeFields node={selNode} mode={scenario.uwb?.mode} onChange={(patch) => updateNode(selNode.id, patch)} />
                   )}
                   {selNode.kind !== 'uwb' && (
                     <label style={{ display: 'block', marginBottom: 4 }}>

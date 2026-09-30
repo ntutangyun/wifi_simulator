@@ -17,8 +17,10 @@ import {
 } from '../uwb/nb'
 import {
   UWB_BAND_MHZ, UWB_BLINK_BYTES, UWB_CAPTURE_DB, UWB_CHIP_NS, UWB_MAX_INPUT_DBM_PER_MHZ, UWB_RX_SENS_DBM,
-  UWB_SIR_MIN_DB, UWB_SS_DEFER_BYTES, UWB_TX_POWER_DBM, rstuNs, uwbFinalBytes, uwbMaxAnchors, uwbRespBytes,
+  UWB_SIR_MIN_DB, UWB_SS_DEFER_BYTES, UWB_TX_POWER_DBM, rstuNs, uwbFinalBytes, uwbM2mBytes, uwbMaxAnchors,
+  uwbMaxParticipants, uwbRespBytes,
 } from '../uwb/phy'
+import { roundPlan } from '../uwb/session'
 import { ELLIPSE_DRAW_SCALE } from '../uwb/view'
 import {
   ECHO_IDEAL_10M_UNDER_FLOOR_DB, ECHO_IDEAL_2M_OVER_FLOOR_DB, ECHO_NEAR_LINE, ECHO_OFF_LINE,
@@ -61,6 +63,23 @@ const RT_DS_FINAL_DEFERRED = uwbFinalBytes(RT_DS_ANCHORS, 'deferred') // 32
 const RT_CAP_DS_EMBEDDED = uwbMaxAnchors('twr', 'ds', 'embedded', 'time') // 9
 const RT_CAP_DS_DEFERRED = uwbMaxAnchors('twr', 'ds', 'deferred', 'time') // 33
 const RT_CAP_SS = uwbMaxAnchors('twr', 'ss', 'embedded', 'time') // 33 — same for all three SS shapes
+
+// --- Section 16: many-to-many ranging, standard §10.32.6 SS / §10.32.7 DS ---------------------
+// Every slot count is `roundPlan`'s own answer — the same function the editor's plan line calls —
+// and the frame sizes and the participant cap are `uwbM2mBytes`/`uwbMaxParticipants`, never a
+// copied table. `tests/ui/uwb-guide.test.ts` runs whole rounds for N = 3/4/6 and for the
+// DS-against-SS accuracy claim, so a drift in the engine fails there rather than going unnoticed.
+const M2M_NS = [3, 4, 6] as const
+const m2mSlots = (n: number, method: 'ss' | 'ds'): number =>
+  roundPlan({ ...DEFAULT_UWB_SESSION, mode: 'm2m', method }, n).slots
+/** N one-to-many rounds, one per device taking its turn as the tag — the arrangement many-to-many
+ * replaces. Each round has `n − 1` anchors, so `roundPlan` at `n − 1` gives its length. */
+const takingTurnsSlots = (n: number): number =>
+  n * roundPlan({ ...DEFAULT_UWB_SESSION, mode: 'twr', method: 'ss', replyTime: 'embedded' }, n - 1).slots
+const pairsOf = (n: number): number => (n * (n - 1)) / 2
+const perParticipant = (n: number): number[] => Array.from({ length: n }, (_, i) => n - 1 - i)
+const M2M_CAP = uwbMaxParticipants('ss') // 27 — uwbMaxParticipants('ds') searches the same frame law
+const M2M_BYTES_N6 = Array.from({ length: 6 }, (_, i) => uwbM2mBytes(i)) // 20/26/30/34/38/42
 
 // --- Section 12: the P802.15.4ab draft ------------------------------------------------------
 // Every figure below is computed from `src/uwb/mms.ts` and `src/uwb/nb.ts`, so the prose cannot
@@ -761,6 +780,75 @@ export function Guide() {
         三种形态都是场景写死的。其三，本仿真的应答方在固定形态下<b>总是精确命中</b>它自己算出的那个
         时刻；真实设备的发送时刻有抖动，而 <code>Treply</code> 差 1 ns 就是约 15 cm 的测距误差——
         这是固定形态一个真实的弱点，本刀没有建模它。
+      </p>
+
+      <h4 style={h}>16 · 多对多测距：一次发送既问也答（标准 §10.32.6 SS-TWR/§10.32.7 DS-TWR）</h4>
+      <p style={p}>
+        第 11 节的双向测距里，要让 N 台设备两两都知道彼此的距离，得让每台设备轮流当一次标签——
+        N 轮、每轮 N 个时隙，一共 <b>N² 个时隙</b>。多对多测距（many-to-many ranging，M2M）
+        把它压成 <b>N 个时隙</b>：参与者 0…N−1 依次发送一次，谁的这一次发送，对排在它<i>后面</i>
+        的每个人是「问」，对排在它<i>前面</i>的每个人是「答」——一次发送同时干两份活，N 次发送
+        就够测出全部 N(N−1)/2 条距离。这里没有标签，也没有锚点：场景里的每一台 UWB 设备都是
+        参与者，<code>uwb.role</code> 只决定它在编辑器和场景图里画成什么样子，不影响谁跟谁测距
+        （design §5，另见节点面板的角色一节）。
+      </p>
+      <table style={table}>
+        <thead>
+          <tr>
+            <th style={cellHead}>N</th>
+            <th style={cellHead}>轮流当标签：时隙</th>
+            <th style={cellHead}>轮流当标签：距离记录</th>
+            <th style={cellHead}>多对多 SS：时隙</th>
+            <th style={cellHead}>多对多 DS：时隙</th>
+            <th style={cellHead}>两者量到的距离</th>
+          </tr>
+        </thead>
+        <tbody>
+          {M2M_NS.map((n) => (
+            <tr key={n}>
+              <td style={cell}>{n}</td>
+              <td style={cell}>{takingTurnsSlots(n)}</td>
+              <td style={cell}>{2 * pairsOf(n)}</td>
+              <td style={cell}>{m2mSlots(n, 'ss')}</td>
+              <td style={cell}>{m2mSlots(n, 'ds')}</td>
+              <td style={cell}>{pairsOf(n)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p style={p}>
+        两种时隙数之比<b>恰好是 N</b>——不是巧合，是“一次发送干两份活”的直接推论。轮流当标签
+        还不只是慢：它把每一对距离测了<b>两遍</b>（各自的那一轮各测一次，N = 6 时是 30 条记录，
+        多对多只要 15 条），却仍然要花掉 N² 个时隙。费空口的那一种，恰好也是重复测量的那一种。
+      </p>
+      <p style={p}>
+        <b>谁能把距离算出来（design §2）。</b>取一对参与者 i、j，i 排在 j 前面：i 在自己的
+        时隙发送，j 在自己的时隙发送时，帧里带着自己的发送时刻，以及它已经收到的、排在它前面
+        每一个人的接收时刻——因为 i 先发，j 发送时早已收到过 i。于是 <b>i 集齐了算距离要的
+        全部四个时间量</b>（自己测的两个，加上 j 的帧带来的两个），而 <b>j 算不出来</b>：
+        它缺的是「i 收到 j 的时刻」，可 i 发送的那一刻，这件事还没发生。<b>每一对距离，只有排在
+        前面的那一个参与者算得出来。</b>参与者 i 恰好拿到 N−1−i 条：N = 3 时依次是
+        <b> {perParticipant(3).join('、')}</b>，N = 6 时依次是 <b>{perParticipant(6).join('、')}</b>
+        ——参与者 0 拿到全部 N−1 条，<b>排在最后的参与者一条也算不出来</b>，它的那一次发送却要
+        带上前面每一个人的接收时刻，是全轮最长的一帧：它把自己的发送变成了对别人的服务，
+        自己却什么也没算到。
+      </p>
+      <p style={p}>
+        <b>DS 是两趟，不是两倍的帧。</b>DS-TWR 还需要两个时间量（tround2、treply2），它们要求
+        较早的那个参与者<b>再发一次</b>，所以多对多 DS 是两趟、每趟 N 个时隙——上表的 2N 列。
+        多花这一趟换来的是精度：六台设备、晶振拉开到接近标准允许的 ±20 ppm 时，SS-TWR 的最大
+        误差 <b>0.2175 m</b>（平均 0.0828 m），DS-TWR 只有 <b>0.001454 m</b>（平均 0.000637 m）
+        ——约 150× 的差距，原因和第 15 节一样：SS-TWR 要把对方的回复间隔按自己估计的载波频偏
+        折算过来，而多对多的回复间隔动辄好几个时隙那么长，估计的残差就被放大成了分米级；
+        DS-TWR 则直接抵消掉这个偏差，从不需要去估计它。
+      </p>
+      <p style={p}>
+        <b>帧会长多大。</b>参与者 i 的一次发送带着 i 个接收时刻：MHR + RRMC + 自己的发送时刻
+        IE + 接收时刻 IE（i = 0 时没有这个 IE）+ FCS——<code>uwbM2mBytes(i)</code>。六个参与者
+        的一轮里，六次发送依次是 <b>{M2M_BYTES_N6.join(' / ')}</b> 字节：越往后越长，因为要带的
+        接收时刻越多。127 字节的 PSDU 上限（标准 §16.2.7）换来一个可以算出来的参与者上限——
+        <code>uwbMaxParticipants</code>，从不写成字面量：一轮多对多最多容纳 <b>{M2M_CAP}</b> 个
+        参与者，SS 与 DS 算出的上限相同，因为撑爆帧长的是接收时刻的数量，不是要不要多走一趟。
       </p>
 
       <h4 style={h}>动手试试</h4>

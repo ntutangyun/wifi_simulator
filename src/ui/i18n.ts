@@ -169,6 +169,11 @@ export interface Strings {
     ampBsWrite: string; ampBsWriteHint: string
     /** UWB ranging: the per-node fields (uwb/ui/UwbNodeFields.tsx). */
     uwbNode: string; uwbRole: string; uwbRoles: Record<'anchor' | 'tag', string>
+    /** `mode: 'm2m'` only: the role line's own note that in this mode the role is drawing only —
+     * every node is a ranging participant regardless of it (design §5). Without this a reader
+     * who picked 'tag' or 'anchor' before switching to many-to-many would think the choice had
+     * gone wrong, rather than simply stopped mattering. */
+    uwbRoleM2mNote: string
     uwbPpm: string; uwbPpmHint: string; uwbPpmDrawn: string; uwbPpmRange: string
     /** Anchor only: which way its antenna array faces (angle of arrival). */
     uwbYaw: string; uwbYawHint: string
@@ -184,6 +189,10 @@ export interface Strings {
      * a different field in a different clause of a different document, design §3).
      */
     uwbReplyTime: string; uwbReplyTimeHint: string; uwbReplyTimeMmsOnly: string
+    /** `mode: 'm2m'` only: why the reply-time select is locked to 'embedded' (design §5) — a
+     * different rule from MMS's `uwbReplyTimeMmsOnly`, so it gets its own key rather than
+     * borrowing that one's wording about a draft feature many-to-many has nothing to do with. */
+    uwbReplyTimeM2mOnly: string
     uwbReplyTimes: Record<UwbReplyTime, string>
     uwbReplyTimeRstu: string; uwbReplyTimeRstuHint: string; uwbReplyTimeRstuOnly: string
     /** One-way ranging (standard §10.32.3): the mode and the two knobs only one mode each uses. */
@@ -198,6 +207,11 @@ export interface Strings {
      * `uwbTwrOnly` would both be false there. Picked by `uwbAoaHintKey` / `uwbScheduleHintKey`.
      */
     uwbAoaMms: string; uwbScheduleMms: string
+    /** Many-to-many's own reasons for the same two fields (design §5) — neither "the tag never
+     * transmits" (there is no tag) nor "the round is two-way but the signal has no frame" (MMS)
+     * describes it: there is simply no single anchor and no single tag's frame to point at or
+     * measure a bearing on, and every slot is already spoken for before the round starts. */
+    uwbAoaM2m: string; uwbScheduleM2m: string
     uwbBlock: string; uwbBlockHint: string; uwbSlot: string; uwbSlotHint: string
     uwbChannel: string; uwbChannelHint: string
     uwbTsNoise: string; uwbTsNoiseHint: string; uwbCfoNoise: string; uwbCfoNoiseHint: string
@@ -211,6 +225,10 @@ export interface Strings {
     uwbMaxAttempts: string; uwbMaxAttemptsHint: string
     /** "slots per round N · rounds per block M" under the session fields. */
     uwbPlan: (slots: number, rounds: number) => string
+    /** `mode: 'm2m'` only: how many participants the round actually holds — every UWB node, not
+     * just the ones drawn as anchors, which is what `uwbCounts` above the panel would suggest on
+     * its own (design §5). */
+    uwbM2mParticipants: (participants: number) => string
     /**
      * `mode: 'mms'` only: the P802.15.4ab fragment train and the narrowband radio its control
      * plane runs on. The "draft" qualifier lives on the mode name and on `uwbMmsHint`; every
@@ -717,6 +735,7 @@ export const STRINGS: Strings = {
     ampBsRead: 'ACK 后读取', ampBsReadHint: 'EPC 应答成功后跟一次 8 字节的 Read',
     ampBsWrite: '读取后写入', ampBsWriteHint: 'Read 之后跟一次 Write，标签在 2 ms 后才应答——阅读器要在这段等待中一直保持载波，所以泳道上的 Write PPDU 长约 3 ms',
     uwbNode: 'UWB 测距（802.15.4-2024）', uwbRole: '角色', uwbRoles: { anchor: '锚点（位置固定，负责应答）', tag: '标签（测距并解算自身位置）' },
+    uwbRoleM2mNote: '多对多测距（M2M）下角色不影响测距：这里选锚点还是标签，只决定这个节点在场景图里画成什么样子，场景里的每一台 UWB 设备都会成为参与者，两两互相测距（design §5）',
     uwbPpm: '晶振偏差', uwbPpmHint: '该设备测距时钟的频率偏差，单位 ppm；标准允许 ±20 ppm。留空则由本次仿真按随机种子抽取。',
     uwbPpmDrawn: '由种子抽取', uwbPpmRange: '±100 ppm；真实晶振通常在 ±20 以内',
     uwbYaw: '朝向',
@@ -729,18 +748,15 @@ export const STRINGS: Strings = {
     uwbMethods: { ss: 'SS-TWR（单边双向）', ds: 'DS-TWR（双边双向）' },
     uwbReplyTime: '回复时间走哪条路', uwbReplyTimeHint: '回复时间/往返时间信息从产生它的设备走到需要它的设备，走的是哪条路（标准 §10.29.6.3–.7）：嵌入——写进它自己测量的那一帧（RRTI IE），要求硬件能预约未来的发送时刻，本仿真默认走这一条；延后——先把那一帧发空，量出自己的真实发送时刻后，再用一条专门的后续报文补上；固定——两端事先约定一个数，应答方在收到之后的这个固定时延处发送，这个数完全不上空口，但换来的是应答方必须真的踩准这个时刻。DS-TWR 没有“固定”这一种（标准只定义了它的嵌入式与延后两种），竞争调度里没有“延后”这一种（抽到的时隙没有固定的后续时隙可去）。',
     uwbReplyTimeMmsOnly: 'MMS 有它自己的“固定回复时间”（macMmsFixedReplyTime，见下方 MMS 小节）：草案不同、时机不同，与这里的三选一无关，因此在 MMS 模式下与测距方式一并置灰',
+    uwbReplyTimeM2mOnly: '多对多测距没有独立的响应帧：参与者自己的那一次发送已经带着发送时刻，与它收到的每一个接收时刻，这就是嵌入式的做法——标准的多对多条款（§10.32.6/§10.32.7）没有定义延后或固定的时间信息形态',
     uwbReplyTimes: { embedded: '嵌入（今天的行为）', deferred: '延后', fixed: '固定' },
     uwbReplyTimeRstu: '固定回复时间',
     uwbReplyTimeRstuHint: '仅“固定”形态生效：第一个应答方在收到 Poll 之后固定这么久再发（单位 RSTU），从它自己的晶振数——第 k 个应答方在此基础上再加 k 个测距时隙。这个数从不上空口，但它同时是本仿真唯一一种发送不对齐时隙的形态：调得太小，应答方会在自己的时隙还没开始时发送；调得太大，会被自己时隙的边界切掉——两种情况整轮都以超时收场（design §6.1）。',
     uwbReplyTimeRstuOnly: '只有“固定”形态会用到这个数：回复时间走嵌入或延后那条路时，它写进帧里或量出来，用不着事先约定',
-    uwbMode: '测距模式', uwbModeHint: '双向测距为每个锚点测出一个距离，由标签自己解算位置。两种单向模式改为测量到达时间差：DL-TDoA 由锚点跑完整轮，全程不发射的标签据此自行定位；UL-TDoA 则由标签发一帧闪发，共享同一时基的锚点替它定位——这两种模式都需要四个锚点才能凑出三个时间差。多毫秒测距（multi-millisecond ranging, MMS）又回到双向测距，但它默认是成对进行的：一个轮次只含一个标签和一个锚点，测距信号是一列片段，控制交互与测量报告则走一套单独的控制面——窄带电台只是这套控制面的两种配置之一。它对锚点数量没有下限要求，要求的是测距块能装下所有配对，即“标签数 × 锚点数 ≤ 每块轮次数”。以上三种模式都必须是时间调度的会话。',
+    uwbMode: '测距模式', uwbModeHint: '双向测距为每个锚点测出一个距离，由标签自己解算位置。两种单向模式改为测量到达时间差：DL-TDoA 由锚点跑完整轮，全程不发射的标签据此自行定位；UL-TDoA 则由标签发一帧闪发，共享同一时基的锚点替它定位——这两种模式都需要四个锚点才能凑出三个时间差。多毫秒测距（multi-millisecond ranging, MMS）又回到双向测距，但它默认是成对进行的：一个轮次只含一个标签和一个锚点，测距信号是一列片段，控制交互与测量报告则走一套单独的控制面——窄带电台只是这套控制面的两种配置之一。它对锚点数量没有下限要求，要求的是测距块能装下所有配对，即“标签数 × 锚点数 ≤ 每块轮次数”。多对多测距（many-to-many, M2M）里没有标签也没有锚点：场景中的每一台 UWB 设备都轮流发送一次，一次发送同时是对排在它后面的人的“问”，也是对排在它前面的人的“答”，N 个参与者一轮只用 N 个时隙（SS-TWR）或 2N 个时隙（DS-TWR）就能测出全部两两距离——轮流当标签则要 N² 个时隙才做得到同一件事。以上四种模式都必须是时间调度的会话。',
     uwbModes: {
       twr: '双向测距（TWR）', 'dl-tdoa': '单向·下行（DL-TDoA）', 'ul-tdoa': '单向·上行（UL-TDoA）',
       mms: '多毫秒测距（MMS，802.15.4ab 草案）',
-      // Mechanical stub: `UwbMode` gained this value in the many-to-many schema slice
-      // (`src/model/scenario.ts`), and `Record<UwbMode, string>` above forces every key to exist
-      // for `tsc -b` to pass. Task 5 gives it its real hint text and editor treatment; this is
-      // only enough to keep the build compiling in the meantime.
       m2m: '多对多测距（M2M，标准 §10.32.6/§10.32.7）',
     },
     uwbClockCorrection: '标签时钟校正', uwbClockCorrectionHint: 'DL-TDoA：只听不发的标签先用本轮“轮询帧→终结帧”这段间隔量出自己晶振的快慢，再去做到达时间差。关掉它就能看到 ±20 ppm 的后果：误差为 20 ppm 乘以从轮询帧到被计时的那一帧之间的间隔——本系列课程那种五时隙轮次里最长 6 ms，即 36 米；若有九个锚点，最后一个应答帧在轮询帧后 16 ms，则是 96 米。',
@@ -752,7 +768,9 @@ export const STRINGS: Strings = {
     uwbAoaHint: '每个锚点在收到标签的每一帧时，都额外测量两根天线之间的相位差，并换算成方位角（视场为正前方左右各 90°，正前方 1-σ 约 2.7°，越靠边越差）。配合 DS-TWR，锚点同时握有距离和方向，仅凭自己就能定出标签的位置——一个锚点，一个定位。',
     uwbAoaTwrOnly: '只有双向测距时锚点才会收到标签发来的帧：DL-TDoA 中标签根本不发射，UL-TDoA 中标签那一帧闪发也不属于任何锚点参与应答的轮次',
     uwbAoaMms: 'MMS 中的标签确实会发射，测距也确实是双向的——它缺的不是“方向”，而是可供测方位角的那一帧。它的测距信号是一列“素”序列：没有前导、没有 SFD、没有 PHR，天线阵列根本找不到可以比较两路相位的东西。在这里让方位角无从测起的是信号本身，而不是交互的方向。',
+    uwbAoaM2m: '到达角是锚点朝着固定的天线阵列、对准标签的一次发送测出来的——而多对多测距里没有锚点，也没有标签：每个参与者的一次发送要同时回答排在它前面的好几个人，没有哪一次发送是单独朝着谁的，也就没有单独的一对可供测方位角（design §5）',
     uwbScheduleMms: 'MMS 的测距周期在块开始之前就已排定——一个标签–锚点配对独占一个轮次（打开一对多开关时则是会话中的全部锚点），轮次内每个片段又独占一个时隙，一毫秒一个——因此根本没有留下可供竞争的响应窗口。选中该模式时还会把时隙改成草案自己的 600 RSTU（4ab 草案 15-22/0381r5 Table 1.2.3.2）。',
+    uwbScheduleM2m: '多对多测距的每一个时隙都已经排给了确定的参与者，在块开始之前就定好了顺序：竞争抢的是谁能占到一个时隙，而这里时隙早就分完了，没有什么可抢的（design §5）',
     uwbBlock: '测距块', uwbBlockHint: '测距块循环往复；每个标签在块内独占一个轮次，因此块长决定了标签多久刷新一次位置',
     uwbSlot: '测距时隙', uwbSlotHint: '一个测距时隙只装一帧；它必须容得下该轮次中最长的一帧（DS-TWR 的终结帧，长度随锚点数增长）以及其飞行时间',
     uwbChannel: '信道', uwbChannelHint: '信道 5 为 6489.6 MHz，信道 9 为 7987.2 MHz。两者只有 1 米处的自由空间损耗不同（48.7 dB 对 50.5 dB），因此信道 9 在任何距离上都恒定多损耗约 1.8 dB。',
@@ -766,6 +784,7 @@ export const STRINGS: Strings = {
     uwbContentionSlots: '响应时隙数', uwbContentionSlotsHint: '轮询帧通告的响应窗口长度（RCPS IE）：每个锚点在这些时隙中均匀抽取一个。若有 N 个锚点、S 个时隙，则某个锚点独占其时隙的概率为 (1 − 1/S)^(N−1)。',
     uwbMaxAttempts: '尝试次数', uwbMaxAttemptsHint: '轮询帧通告的重试预算（RCMA IE）：连续这么多轮都没有被标签测到之后，锚点会空过一轮再重新抽取时隙',
     uwbPlan: (slots, rounds) => `每轮 ${slots} 个时隙 · 每块 ${rounds} 轮`,
+    uwbM2mParticipants: (participants) => `多对多测距：全部 ${participants} 台 UWB 设备都是参与者，按 id 排序决定发送顺序——上方的锚点/标签计数只影响画法，不影响这个数`,
     uwbMms: 'MMS 片段序列',
     uwbMmsHint: '802.15.4ab 草案中的多毫秒数据包：测距信号不再是一次突发，而是一列短片段（成对轮次里相隔一毫秒，一对多时间隔更长）。每个片段都可以把整整一毫秒的 37 nJ 能量额度（法规）花在自己那段短得多的长度里，而 X 个片段相干合并又能再换来 10·log10(X) dB。本节所有内容都是对 TG4ab 提案文稿的转述——已进入投票的 D05 在编号与细节上可能有所不同。',
     uwbMmsSet: '参数集',

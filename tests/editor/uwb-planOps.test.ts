@@ -21,6 +21,7 @@ import {
   parseNbChannels, uwbAoaHintKey, uwbMethodPatch, uwbModePatch, uwbReplyTimePatch,
   uwbReplyTimeRstuLive, uwbSchedulePatch, uwbScheduleHintKey,
 } from '../../src/uwb/ui/UwbSessionFields'
+import { UwbNodeFields } from '../../src/uwb/ui/UwbNodeFields'
 
 /** A scenario carrying `n` anchors and one tag on top of the default house. */
 function withUwb(n: number, session: Partial<UwbSessionCfg> = {}): Scenario {
@@ -418,20 +419,21 @@ describe('MMS parameter-set select', () => {
  * two languages of that key may and may not say.
  */
 describe('why a field is greyed out', () => {
-  const MODES: UwbMode[] = ['twr', 'dl-tdoa', 'ul-tdoa', 'mms']
+  const MODES: UwbMode[] = ['twr', 'dl-tdoa', 'ul-tdoa', 'mms', 'm2m']
 
   it('gives the angle-of-arrival checkbox a reason that fits the mode', () => {
     expect(MODES.map(uwbAoaHintKey))
-      .toEqual(['uwbAoaHint', 'uwbAoaTwrOnly', 'uwbAoaTwrOnly', 'uwbAoaMms'])
+      .toEqual(['uwbAoaHint', 'uwbAoaTwrOnly', 'uwbAoaTwrOnly', 'uwbAoaMms', 'uwbAoaM2m'])
   })
 
   it('gives the schedule select a reason that fits the mode and the method', () => {
     expect(MODES.map((m) => uwbScheduleHintKey(m, 'ss')))
-      .toEqual(['uwbScheduleHint', 'uwbTwrOnly', 'uwbTwrOnly', 'uwbScheduleMms'])
+      .toEqual(['uwbScheduleHint', 'uwbTwrOnly', 'uwbTwrOnly', 'uwbScheduleMms', 'uwbScheduleM2m'])
     // DS-TWR is the older reason and still wins in the modes that allow the method at all;
-    // in MMS the mode's own reason comes first, since the method select is disabled there too.
+    // in MMS and in many-to-many the mode's own reason comes first, since both disable the
+    // schedule select regardless of method.
     expect(MODES.map((m) => uwbScheduleHintKey(m, 'ds')))
-      .toEqual(['uwbSsOnly', 'uwbSsOnly', 'uwbSsOnly', 'uwbScheduleMms'])
+      .toEqual(['uwbSsOnly', 'uwbSsOnly', 'uwbSsOnly', 'uwbScheduleMms', 'uwbScheduleM2m'])
   })
 
   it('does not tell an MMS user that the tag never transmits or that the range is one-way', () => {
@@ -445,6 +447,92 @@ describe('why a field is greyed out', () => {
     // …and each says the thing that is actually true of MMS.
     expect(E.uwbAoaMms).toMatch(/双向/)
     expect(E.uwbScheduleMms).toMatch(/块开始之前/)
+  })
+
+  it('does not tell a many-to-many user that the tag never transmits or that the round is one-way', () => {
+    const E = STRINGS.editor
+    for (const key of ['uwbAoaM2m', 'uwbScheduleM2m'] as const) {
+      expect(E[key], key).toBeTruthy()
+      expect(E[key], key).not.toMatch(/one-way|单向/)
+      expect(E[key], key).not.toMatch(/never transmits|从不发射|根本不发射/)
+    }
+    // …and each says the thing that is actually true of many-to-many: no anchor, no tag, every
+    // slot already spoken for (design §5).
+    expect(E.uwbAoaM2m).toMatch(/没有锚点/)
+    expect(E.uwbAoaM2m).toMatch(/没有标签/)
+    expect(E.uwbScheduleM2m).toMatch(/已经排给了确定的参与者/)
+  })
+})
+
+/**
+ * Task 5: the `m2m` option in the mode select, and what picking it commits (design §5). The
+ * schema's own many-to-many rules (`model/scenario.ts`, Tasks 1–4) are not re-tested here — only
+ * what this file's own helpers and components do with them.
+ */
+describe('many-to-many mode in the editor (design §5)', () => {
+  it('locks the schedule, the bearing and the reply time together, like the one-way modes plus one', () => {
+    expect(uwbModePatch('m2m')).toEqual({ mode: 'm2m', schedule: 'time', aoa: false, replyTime: 'embedded' })
+  })
+
+  it('takes a contention, deferred-reply session cleanly into many-to-many', () => {
+    // Every field the schema refuses beside `mode: 'm2m'`, all stranded on the session at once —
+    // exactly what a user switching modes without touching them first would leave behind.
+    // (replyTime: 'fixed' rather than 'deferred', so the baseline itself is legal under twr: a
+    // contention round has no fixed slot for a deferred follow-up to go to — a rule of its own,
+    // independent of many-to-many's.)
+    const stranded: Partial<UwbSessionCfg> = { method: 'ss', schedule: 'contention', replyTime: 'fixed', aoa: true }
+    expect(uwbSessionIssue(withUwb(4, stranded))).toBeNull() // the stranded fields are legal under twr
+    expect(uwbSessionIssue(withUwb(4, { ...stranded, mode: 'm2m' }))).toBeTruthy()
+    expect(uwbSessionIssue(withUwb(4, { ...stranded, ...uwbModePatch('m2m') }))).toBeNull()
+    expect(ScenarioSchema.safeParse(withUwb(4, { ...stranded, ...uwbModePatch('m2m') })).success).toBe(true)
+  })
+
+  it('refuses the bearing outside two-way ranging for its own, many-to-many-specific reason', () => {
+    // Not the one-way modes' "AoA" wording (`到达角` here, never that literal string) — the schema
+    // says there is no anchor and no tag at all, which is why this is checked apart from the
+    // shared `['dl-tdoa', 'ul-tdoa', 'mms']` loop above rather than folded into it.
+    const bad = withUwb(4, { mode: 'm2m', aoa: true })
+    expect(ScenarioSchema.safeParse(bad).success).toBe(false)
+    const msg = uwbSessionIssue(bad)
+    expect(msg).toContain('到达角')
+    expect(msg).not.toContain('AoA')
+    expect(uwbSessionIssue(withUwb(4, { aoa: true, ...uwbModePatch('m2m') }))).toBeNull()
+  })
+
+  it('every UWB node is a participant, not just the ones drawn as anchors — the plan line reads all of them', () => {
+    // Two anchors and three tags: a two-way round would plan for 2 anchors, but a many-to-many
+    // round holds every device (design §5) — 5 participants, 5 SS slots.
+    let sc = defaultScenario()
+    for (let i = 0; i < 2; i++) sc = newAnchor(sc, { x: i, y: 0 }).sc
+    for (let i = 0; i < 3; i++) sc = newUwbTag(sc, { x: i, y: 1 }).sc
+    sc = { ...sc, uwb: { ...DEFAULT_UWB_SESSION, ...uwbModePatch('m2m'), method: 'ss' } }
+    expect(uwbSessionIssue(sc)).toBeNull()
+    const markup = renderToStaticMarkup(createElement(UwbSessionFields, {
+      session: sc.uwb!, anchors: 2, tags: 3, issue: null, onChange: () => {}, onRemove: () => {},
+    }))
+    // roundPlan(session, 5).slots for SS many-to-many is exactly 5 — the plan the round the network
+    // would actually run, not `roundPlan(session, 2)`'s 2 (the bug a plan line reading `anchors`
+    // alone would have shown here).
+    expect(markup).toContain(STRINGS.editor.uwbPlan(5, 1))
+    expect(markup).not.toContain(STRINGS.editor.uwbPlan(2, 1))
+    expect(markup).toContain(STRINGS.editor.uwbM2mParticipants(5))
+  })
+
+  it('locks the reply-time select to embedded, with its own reason, distinct from MMS’s', () => {
+    const sc = withUwb(4, uwbModePatch('m2m'))
+    const markup = renderToStaticMarkup(createElement(UwbSessionFields, {
+      session: sc.uwb!, anchors: 4, tags: 1, issue: null, onChange: () => {}, onRemove: () => {},
+    }))
+    expect(markup).toContain(STRINGS.editor.uwbReplyTimeM2mOnly)
+    expect(markup).not.toContain(STRINGS.editor.uwbReplyTimeMmsOnly)
+  })
+
+  it('tells the reader in UwbNodeFields that the role is drawing-only under many-to-many', () => {
+    const node = { ...withUwb(1).nodes.find((n) => n.uwb?.role === 'anchor')! }
+    const twr = renderToStaticMarkup(createElement(UwbNodeFields, { node, mode: 'twr', onChange: () => {} }))
+    const m2m = renderToStaticMarkup(createElement(UwbNodeFields, { node, mode: 'm2m', onChange: () => {} }))
+    expect(twr).not.toContain(STRINGS.editor.uwbRoleM2mNote)
+    expect(m2m).toContain(STRINGS.editor.uwbRoleM2mNote)
   })
 })
 

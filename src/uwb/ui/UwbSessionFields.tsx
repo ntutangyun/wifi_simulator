@@ -53,10 +53,19 @@ const ms = (rstu: number): string => (rstuNs(rstu) / 1e6).toFixed(rstu < 3000 ? 
  * What it deliberately does *not* touch is the anchor count — four are needed for three time
  * differences, and that is a fact about the plan the session cannot fix on its own, so it stays
  * with `uwbSessionIssue` where the user can read why.
+ *
+ * Many-to-many takes the same two as the one-way modes, for a related but distinct reason
+ * (design §5): it has no tag-initiated exchange for a contention window to arbitrate, and no
+ * single frame from "the tag" for an anchor's array to point at — there is no tag. It takes one
+ * more of its own: `replyTime` back to `'embedded'`, because a many-to-many participant's one
+ * transmission already carries its own transmit time and every arrival time it holds, which *is*
+ * embedding — the standard's many-to-many clauses define no deferred or fixed shape at all
+ * (`UwbSessionSchema`'s own refusal, mirrored here rather than left for the issue line to catch).
  */
 export function uwbModePatch(mode: UwbMode): Partial<UwbSessionCfg> {
   if (mode === 'twr') return { mode }
   if (mode === 'mms') return { mode, schedule: 'time', aoa: false, method: 'ss', slotRstu: 600 }
+  if (mode === 'm2m') return { mode, schedule: 'time', aoa: false, replyTime: 'embedded' }
   return { mode, schedule: 'time', aoa: false }
 }
 
@@ -297,22 +306,31 @@ export function mmsDraftLive(mms: UwbMmsCfg): {
  * The reason differs by mode and saying the wrong one is worse than saying nothing: in the
  * one-way modes the anchors never receive a frame *from the tag*, while in MMS the tag transmits
  * and the range is two-way — what is missing there is a frame at all, the ranging signal being a
- * bare sequence with no preamble for a two-antenna array to compare phases on.
+ * bare sequence with no preamble for a two-antenna array to compare phases on. Many-to-many is a
+ * third, different reason again (design §5): it has no anchor with a fixed array and no tag to
+ * point it at — every participant's one transmission answers several people at once, so there is
+ * no single frame's arrival to measure a bearing against either.
  */
-export function uwbAoaHintKey(mode: UwbMode): 'uwbAoaHint' | 'uwbAoaMms' | 'uwbAoaTwrOnly' {
+export function uwbAoaHintKey(mode: UwbMode): 'uwbAoaHint' | 'uwbAoaMms' | 'uwbAoaM2m' | 'uwbAoaTwrOnly' {
   if (mode === 'twr') return 'uwbAoaHint'
-  return mode === 'mms' ? 'uwbAoaMms' : 'uwbAoaTwrOnly'
+  if (mode === 'mms') return 'uwbAoaMms'
+  if (mode === 'm2m') return 'uwbAoaM2m'
+  return 'uwbAoaTwrOnly'
 }
 
 /**
  * Which hint the schedule select shows. Same care as `uwbAoaHintKey`: "the one-way modes are
  * time-scheduled only" is not why an MMS session cannot contend — its cycle is laid out pair by
  * pair and millisecond by millisecond before the block starts, so there is no window to open.
+ * Many-to-many's own reason is different again (design §5): every slot already belongs to a named
+ * participant before the round starts, so there is nothing left for a contention phase to draw
+ * for — not "no tag-initiated exchange" (there is no tag), but "no slot left unassigned at all".
  */
 export function uwbScheduleHintKey(
   mode: UwbMode, method: UwbSessionCfg['method'],
-): 'uwbScheduleHint' | 'uwbScheduleMms' | 'uwbSsOnly' | 'uwbTwrOnly' {
+): 'uwbScheduleHint' | 'uwbScheduleMms' | 'uwbScheduleM2m' | 'uwbSsOnly' | 'uwbTwrOnly' {
   if (mode === 'mms') return 'uwbScheduleMms'
+  if (mode === 'm2m') return 'uwbScheduleM2m'
   if (method !== 'ss') return 'uwbSsOnly'
   return mode === 'twr' ? 'uwbScheduleHint' : 'uwbTwrOnly'
 }
@@ -330,9 +348,14 @@ export function UwbSessionFields(
   },
 ) {
   const E = useStrings().editor
-  // With no anchor there is no round to plan; printing one built from a made-up
-  // anchor would contradict the issue line right beside it.
-  const plan = anchors > 0 ? roundPlan(session, anchors) : null
+  // Many-to-many counts every UWB node as a participant (design §5) — the anchor/tag split is a
+  // drawing choice in this mode, not a headcount for its own round, so the plan line below must
+  // not read `anchors` alone the way every other mode's round does.
+  const m2m = session.mode === 'm2m'
+  const participants = m2m ? anchors + tags : anchors
+  // With no anchor (or, in m2m, no participant at all) there is no round to plan; printing one
+  // built from a made-up anchor would contradict the issue line right beside it.
+  const plan = participants > 0 ? roundPlan(session, participants) : null
   const orphan = anchors === 0 && tags === 0
   // A contention round has only the response to place, so the schema allows it with SS-TWR
   // alone; the window and the retry budget mean nothing until it is actually chosen.
@@ -361,9 +384,9 @@ export function UwbSessionFields(
           <option value="ds">{E.uwbMethods.ds}</option>
         </select>
       </label>
-      <label style={label} title={mms ? E.uwbReplyTimeMmsOnly : E.uwbReplyTimeHint}>
+      <label style={label} title={mms ? E.uwbReplyTimeMmsOnly : m2m ? E.uwbReplyTimeM2mOnly : E.uwbReplyTimeHint}>
         {E.uwbReplyTime}{' '}
-        <select value={session.replyTime} disabled={mms !== null}
+        <select value={session.replyTime} disabled={mms !== null || m2m}
           onChange={(e) => {
             const patch = uwbReplyTimePatch(e.target.value as UwbSessionCfg['replyTime'], session.method, session.schedule)
             if (patch) onChange(patch) // an illegal pair is never committed — see uwbReplyTimePatch
@@ -387,6 +410,7 @@ export function UwbSessionFields(
           <option value="dl-tdoa">{E.uwbModes['dl-tdoa']}</option>
           <option value="ul-tdoa">{E.uwbModes['ul-tdoa']}</option>
           <option value="mms">{E.uwbModes.mms}</option>
+          <option value="m2m">{E.uwbModes.m2m}</option>
         </select>
       </label>
       <label style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 4, cursor: nonTwr === 'dl-tdoa' ? 'pointer' : 'default' }}
@@ -460,6 +484,7 @@ export function UwbSessionFields(
       </label>
       {mms && <MmsFields mms={mms} slotRstu={session.slotRstu} anchors={anchors} onChange={patchMms} />}
       {plan && <div style={note}>{E.uwbPlan(plan.slots, plan.roundsPerBlock)}</div>}
+      {m2m && <div style={note}>{E.uwbM2mParticipants(participants)}</div>}
       {orphan && <div style={note}>{E.uwbNoNodes}</div>}
       {issue && <div style={issueStyle}>{issue}</div>}
       <button style={{ marginTop: 5 }} disabled={!orphan} title={orphan ? E.uwbRemoveSessionHint : E.uwbSessionInUse}

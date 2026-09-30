@@ -90,8 +90,13 @@ export class UwbOverlay {
   private positions = new Map<string, { x: number; z: number }>()
   private blockNs: Ns
   private roundNs: Ns
+  /** `mode: 'm2m'` (design §5): every UWB node ranges, and `uwb.role` decides only how it is
+   * drawn elsewhere (the node icon) — not whether this overlay draws its rings. Read once here,
+   * from the same scenario the constructor already takes, rather than threaded through `update`. */
+  private readonly m2m: boolean
   /** Live objects, keyed by their own name: 'ring:<tag>:<anchor>', 'fix:<tag>', 'ellipse:<tag>',
-   * 'bearing:<tag>'. */
+   * 'bearing:<tag>'. In `'m2m'` mode "tag" is whichever participant holds the range — there is no
+   * tag — so the name is a map key here, never a claim about the role. */
   private objects = new Map<string, THREE.Line>()
 
   constructor(sc: Scenario) {
@@ -104,7 +109,14 @@ export class UwbOverlay {
     // is no block to age a drawing by, and a substituted one would fade at a rate
     // the engine is not running.
     if (!sc.uwb) throw new Error('UwbOverlay: a scenario with UWB nodes has no ranging session (scenario.uwb)')
-    const anchors = sc.nodes.filter((n) => n.kind === 'uwb' && n.uwb?.role === 'anchor').length
+    this.m2m = sc.uwb.mode === 'm2m'
+    // Many-to-many has no anchor/tag split to count by (design §5): every UWB node is a
+    // participant, and `roundPlan` reads that count under the name `anchors` regardless of mode
+    // (`RoundPlan.participants`'s own docblock). Reading the role-filtered count here for `'m2m'`
+    // would plan a shorter round than the one that actually runs whenever the scene mixes roles,
+    // the same drift `UwbSessionFields`'s plan line had before this task fixed it.
+    const uwbNodes = sc.nodes.filter((n) => n.kind === 'uwb')
+    const anchors = this.m2m ? uwbNodes.length : uwbNodes.filter((n) => n.uwb?.role === 'anchor').length
     const plan = roundPlan(sc.uwb, anchors)
     this.blockNs = plan.blockNs
     this.roundNs = plan.roundNs
@@ -141,7 +153,12 @@ export class UwbOverlay {
     const alive = new Set<string>()
     for (const [vid, nv] of Object.entries(vs.nodes)) {
       const u = nv.uwb
-      if (!u || u.role !== 'tag') continue
+      // Every mode but many-to-many keeps ranges on the tag's lane alone (an anchor's own lane
+      // never gets a `UWB_RANGE` there). Many-to-many has no tag to single out — up to N−1 of its
+      // participants hold ranges regardless of `uwb.role` (design §2/§5) — so the gate that draws
+      // a sensible picture in every other mode would silently drop every ring belonging to a
+      // participant drawn as an anchor here.
+      if (!u || (!this.m2m && u.role !== 'tag')) continue
       // A UWB device never runs MLO, so its lane id is its physical id; take it
       // through physicalId all the same, so the names never grow a lane suffix.
       const tag = physicalId(vid)
