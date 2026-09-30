@@ -440,7 +440,22 @@ export function mmsResponders(mms: MmsRoundShape, anchors: number): number {
  * length is the train's, not the anchor count's: `mmsLayout` counts its slots, so a tag needs
  * that many per anchor (4ab draft 15-22/0381r5 §1.1). A one-to-many MMS round instead holds
  * every anchor at once, and grows by a slot per responder per millisecond and by a narrowband
- * window per responder at each end — `mmsResponders` is the one place that count is decided. */
+ * window per responder at each end — `mmsResponders` is the one place that count is decided.
+ *
+ * A many-to-many round (`mode: 'm2m'`, standard §10.32.6 SS / §10.32.7 DS, design §3) has no tag
+ * at all — every participant transmits once per pass — so its slot count is the plainest formula
+ * here: N slots for SS (one transmission per participant answers everyone), 2N for DS (a second
+ * pass, because `tround2`/`treply2` need the earlier participant to transmit again). `anchors` is
+ * read as the participant count N in this branch, the same way it is read as the anchor count in
+ * DL-TDoA's `anchors + 1` two lines below — one parameter, meaning whatever the mode's own "how
+ * many others" count is.
+ *
+ * Ruling 4 of docs/superpowers/specs/2026-09-30-many-to-many-design.md: this function's own name
+ * predates `'m2m'` and is false for it — there is no tag to count slots "per" — but 38 call sites
+ * read `uwbSlotsPerTag`, and renaming it here would mix a mechanical sweep into this slice's
+ * behavioural change. The rename is its own commit, later, when nothing else is moving; until
+ * then, read "per tag" as "per round" for every mode this function already treats that way
+ * (DL-TDoA's `anchors + 1`, a contention round's `1 + contentionSlots`) and now for `'m2m'` too. */
 export function uwbSlotsPerTag(
   method: 'ss' | 'ds', anchors: number, schedule: 'time' | 'contention' = 'time', contentionSlots = 8,
   mode: UwbMode = 'twr', mms?: MmsRoundShape, slotsPerMs = MMS_SLOTS_PER_MS, replyTime: UwbReplyTime = 'embedded',
@@ -453,6 +468,7 @@ export function uwbSlotsPerTag(
     // round `roundPlan` then lays out would run past the length the block was checked against.
     return mmsLayout(mms, mmsResponders(mms, anchors), slotsPerMs).slots
   }
+  if (mode === 'm2m') return method === 'ss' ? anchors : 2 * anchors
   if (mode === 'ul-tdoa') return 1
   if (mode === 'dl-tdoa') return anchors + 1
   if (schedule === 'contention') return 1 + contentionSlots

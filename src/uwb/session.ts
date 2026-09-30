@@ -25,7 +25,8 @@
  * a slot of its own: `2A + 1` slots in total. DS-TWR's slot count never moves with `replyTime`: a
  * deferred Final just carries less (design §4), on the same A+2+A slots.
  */
-import type { NbLbt, NbReportMode, UwbMode, UwbSessionCfg } from '../model/scenario'
+import { byCodeUnit } from '../engine/hash'
+import type { NbLbt, NbReportMode, NodeCfg, UwbMode, UwbSessionCfg } from '../model/scenario'
 import type { Ns } from '../model/types'
 import { mmsLayout, mmsSlotsPerMs, type MmsLayout, type MmsPhy } from './mms'
 import { mmsResponders, rstuNs, uwbSlotsPerTag, type UwbReplyTime } from './phy'
@@ -35,6 +36,13 @@ export { rstuNs }
 export interface RoundPlan {
   method: 'ss' | 'ds'
   anchors: number
+  /** `mode: 'm2m'` only (design §5): the round's participant count. It is the very same count
+   * every other mode already carries in `anchors` — one caller-supplied "how many others" number,
+   * read under whichever name means something for the mode actually running — copied here under
+   * its own honest name because `anchors` is false in a mode with no anchor at all, and
+   * `slotAction`'s m2m branch needs a field to read that is not lying to it. Meaningless outside
+   * `'m2m'`; no other reader touches it. */
+  participants: number
   slots: number
   slotNs: Ns
   roundNs: Ns
@@ -130,7 +138,7 @@ export function roundPlan(cfg: UwbSessionCfg, anchors: number): RoundPlan {
   const roundNs = slots * slotNs
   const blockNs = rstuNs(cfg.blockRstu)
   return {
-    method: cfg.method, anchors, slots, slotNs, roundNs, blockNs,
+    method: cfg.method, anchors, participants: anchors, slots, slotNs, roundNs, blockNs,
     roundsPerBlock: cfg.mode === 'dl-tdoa' ? 1 : Math.floor(blockNs / roundNs),
     schedule: cfg.schedule, contentionSlots: cfg.contentionSlots, mode: cfg.mode,
     replyTime: cfg.replyTime, fixedReplyNs: rstuNs(cfg.fixedReplyRstu),
@@ -159,6 +167,27 @@ export function slotStartNs(p: RoundPlan, block: number, round: number, slot: nu
   return block * p.blockNs + round * p.roundNs + slot * p.slotNs
 }
 
+/**
+ * Many-to-many's participant order (design §5): every UWB node of the scenario, sorted by node
+ * id — not by the order the scenario's own node list happens to hold them in.
+ *
+ * `model`: the standard leaves slot ownership to a scheduling table the devices negotiate
+ * (§10.32.2), and this simulator has no such table to negotiate — it has to make the same
+ * decision some other deterministic way. Node id is that way, chosen over scenario order
+ * specifically because scenario order is not stable: the editor's own add/delete/reorder
+ * operations change it, so two floor plans that describe the same geometry — the same nodes, the
+ * same positions, added in a different order — would otherwise get a different slot assignment
+ * and a different timeline hash for no physical reason at all. Sorted with `byCodeUnit`
+ * (engine/hash.ts), the same tie-break the timeline hash's own same-instant ordering already
+ * uses, so this list and that hash cannot disagree about what "deterministic order" means.
+ *
+ * Only `kind: 'uwb'` nodes are participants: `uwb.role` decides how a node is drawn, never
+ * whether it takes part (design §5).
+ */
+export function m2mParticipants(nodes: NodeCfg[]): string[] {
+  return nodes.filter((n) => n.kind === 'uwb').map((n) => n.id).sort(byCodeUnit)
+}
+
 /** Who transmits in a slot, and what. In two-way ranging the tag opens and closes the round; in
  * DL-TDoA the anchors own every slot (anchor 0 polls and finals, anchors 1…N−1 respond) and the
  * tags only listen; in UL-TDoA the tag's single slot holds its blink. */
@@ -174,6 +203,15 @@ export type SlotAction =
   | { kind: 'uwbFinal'; tx: 'anchor'; anchor: number }
   | { kind: 'uwbReport'; tx: 'anchor'; anchor: number }
   | { kind: 'uwbBlink'; tx: 'tag' }
+  // Many-to-many (standard §10.32.6 SS / §10.32.7 DS, design §5): participant `index`'s one
+  // transmission of pass `pass`. It is a kind of its own, not `'uwbPoll'` or `'uwbResp'` again,
+  // because one transmission is both at once — the question for every later participant and the
+  // answer for every earlier one — and `transmitFor` has to be able to tell that apart from a
+  // two-way round's Poll or Response. `tx: 'peer'` for the same reason: every participant plays
+  // both roles, so neither 'tag' nor 'anchor' names it honestly. SS has one pass (`pass: 0`); DS
+  // has two (design §3) — `pass: 1` is the second pass a DS round needs so `tround2`/`treply2`
+  // have a transmission of the earlier participant's to attach to.
+  | { kind: 'uwbM2m'; tx: 'peer'; index: number; pass: 0 | 1 }
   // P802.15.4ab, the pairwise MMS cycle. The pair's anchor is always `anchor: 0` — a pair round
   // holds exactly one responder, and the network is what maps round t·A + k to anchor k.
   | { kind: 'nbPoll'; tx: 'tag' }
@@ -205,6 +243,15 @@ export function slotAction(p: RoundPlan, slot: number): SlotAction {
     throw new Error(`slotAction: UL-TDoA round has ${p.slots} slots, asked for ${slot}`)
   }
   if (p.mode === 'mms') return mmsSlotAction(p, slot)
+  if (p.mode === 'm2m') {
+    // SS: one pass of N slots, participant i in slot i. DS: two passes of N (design §3), pass 0
+    // in slots 0..N-1 and pass 1 immediately after in slots N..2N-1 — `uwbSlotsPerTag`'s own N and
+    // 2N, walked back into a (pass, index) pair rather than assumed from a second formula.
+    const n = p.participants
+    if (slot < n) return { kind: 'uwbM2m', tx: 'peer', index: slot, pass: 0 }
+    if (p.method === 'ds' && slot < 2 * n) return { kind: 'uwbM2m', tx: 'peer', index: slot - n, pass: 1 }
+    throw new Error(`slotAction: m2m round has ${p.slots} slots, asked for ${slot}`)
+  }
   if (slot === 0) return { kind: 'uwbPoll', tx: 'tag' }
   if (p.schedule === 'contention') {
     if (slot <= p.contentionSlots) return { kind: 'uwbResp', tx: 'anchor', anchor: -1 }

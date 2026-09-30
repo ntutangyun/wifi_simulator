@@ -360,6 +360,14 @@ export class UwbDevice implements UwbRadio {
     // ranging slot the train does not reach. No other mode ever schedules one, and after this
     // line every action below names a frame.
     if (action.kind === 'idle') return
+    // Many-to-many (design §5, Task 3 of docs/superpowers/specs/2026-09-30-many-to-many-design.md
+    // §3/§5): the round shape exists (`uwbSlotsPerTag`, `slotAction`), but no network path wires a
+    // device into an m2m round yet — `UwbNetwork` builds every plan from `anchors`/`tags` role
+    // counts, which m2m has neither of, so it never runs an m2m session (Task 4's job). This guard
+    // is therefore unreachable today; it exists only so the widened `SlotAction` union still
+    // type-checks past this point, where every remaining branch reads a `tx`/`anchor` shape a
+    // many-to-many action does not have.
+    if (action.kind === 'uwbM2m') return
     if (r.plan.mode === 'dl-tdoa') {
       onDlSlot(this, slot, action, r, peers)
       return

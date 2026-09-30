@@ -1127,8 +1127,9 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
           }
           // The slot has to hold that same longest frame plus the flight guard, exactly the
           // check every other mode gets below — aimed at the many-to-many frame's own size
-          // function (`uwbM2mBytes`) rather than `uwbLongestFrameBytes`, which has no
-          // many-to-many case yet (Task 3 gives `uwbSlotsPerTag` one; this file does not).
+          // function (`uwbM2mBytes`) rather than `uwbLongestFrameBytes`, which still has no
+          // many-to-many case (design §5's cap is sized off `uwbM2mBytes`/`uwbMaxParticipants`
+          // directly, not off the two-way frame chooser).
           const m2mSlotNs = rstuNs(sc.uwb.slotRstu)
           const m2mNeedNs = uwbPpduNs(uwbM2mBytes(Math.max(0, participants - 1))) + UWB_SLOT_GUARD_NS
           if (m2mSlotNs < m2mNeedNs) {
@@ -1143,8 +1144,14 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
           // One round holds the whole group, the same way a DL-TDoA round does (design §5) — not
           // one round per tag, because m2m has no tags to count rounds by. SS sends N slots, one
           // per participant; DS sends two passes of N, one per pass (design §3).
-          // standard §10.32.6/§10.32.7
-          const m2mRoundSlots = sc.uwb.method === 'ss' ? participants : 2 * participants
+          // Ruling 7 (Task 3): this used to be its own inline formula, a second copy of exactly
+          // what `uwbSlotsPerTag` now also computes for `mode: 'm2m'` — two sources of truth for
+          // how long a round is, the very drift class slice 1 was bitten by once already. Reading
+          // it from `uwbSlotsPerTag` instead — the same call `roundPlan` makes — is what
+          // `tests/model/m2m-scenario.test.ts`'s "Ruling 7" describe block pins in place.
+          const m2mRoundSlots = uwbSlotsPerTag(
+            sc.uwb.method, participants, sc.uwb.schedule, sc.uwb.contentionSlots, mode,
+          )
           const m2mFits = Math.floor(sc.uwb.blockRstu / (m2mRoundSlots * sc.uwb.slotRstu))
           if (m2mFits < 1) {
             ctx.addIssue({

@@ -3,7 +3,8 @@ import {
   DEFAULT_UWB_SESSION, ScenarioSchema, nonht,
   type NodeCfg, type Scenario, type UwbSessionCfg,
 } from '../../src/model/scenario'
-import { uwbMaxParticipants } from '../../src/uwb/phy'
+import { uwbMaxParticipants, uwbSlotsPerTag } from '../../src/uwb/phy'
+import { roundPlan } from '../../src/uwb/session'
 
 /**
  * Task 2 of docs/superpowers/specs/2026-09-30-many-to-many-design.md: the scenario schema for
@@ -236,6 +237,37 @@ describe('the block-fit rule: one round per block for the whole group (design §
       const msg = r.error.issues.map((i) => i.message).join('\n')
       expect(msg).not.toMatch(/暂不支持/)
       expect(msg).toMatch(/装不下一轮多对多测距/)
+    }
+  })
+})
+
+describe('Ruling 7: the schema’s block-fit slot count is uwbSlotsPerTag’s, not a second formula', () => {
+  // Task 2 had to write the m2m slot-count arithmetic (N for SS, 2N for DS) inline in this file,
+  // because `uwbSlotsPerTag` had no 'm2m' case yet. Task 3 gives it one and this schema now calls
+  // it instead of repeating the formula — this test pins the schema's own accept/refuse boundary
+  // to `roundPlan`'s slot count (which is `uwbSlotsPerTag` too) so the two cannot drift apart
+  // again without a test noticing: if either side ever went back to a second, independent
+  // formula, this boundary would move on one side and not the other.
+  it('accepts a block sized to exactly roundPlan’s own m2m slot count, and refuses one slot short', () => {
+    for (const method of ['ss', 'ds'] as const) {
+      const n = 5
+      const cfg: UwbSessionCfg = { ...DEFAULT_UWB_SESSION, mode: 'm2m', method }
+      const slots = roundPlan(cfg, n).slots
+      // roundPlan's own number is uwbSlotsPerTag's, read with the same arguments the schema now
+      // passes it — not assumed, so a wrong instrument here would show up as a wrong `slots` too.
+      expect(slots).toBe(uwbSlotsPerTag(method, n, cfg.schedule, cfg.contentionSlots, 'm2m'))
+      expect(slots).toBe(method === 'ss' ? n : 2 * n)
+
+      const nodes = m2mNodes(n)
+      const fits: UwbSessionCfg = { ...cfg, blockRstu: slots * cfg.slotRstu }
+      const oneShort: UwbSessionCfg = { ...cfg, blockRstu: slots * cfg.slotRstu - cfg.slotRstu }
+      expect(ScenarioSchema.safeParse(uwbScenario(nodes, fits)).success, method).toBe(true)
+      const r = ScenarioSchema.safeParse(uwbScenario(nodes, oneShort))
+      expect(r.success, method).toBe(false)
+      if (!r.success) {
+        const msg = r.error.issues.map((i) => i.message).join('\n')
+        expect(msg, method).toMatch(new RegExp(String(slots)))
+      }
     }
   })
 })
