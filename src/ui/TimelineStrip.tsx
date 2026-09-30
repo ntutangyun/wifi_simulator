@@ -203,7 +203,12 @@ export function TimelineStrip({ height = 190, open = true, onToggle }: TimelineS
     // is also the element the pointer handlers below attach to — scrolls to it
     // (overflow-y: auto, see the JSX). `getBoundingClientRect()` in hitSpan/tipFor
     // already reflects that scroll, so laneAtY needs no scroll offset of its own.
-    const viewH = parent.clientHeight - LEGEND_H
+    // `parent` is the wheel div, whose own CSS height is already
+    // `calc(100% - LEGEND_H)` (see the JSX below). Subtracting the legend again
+    // here counted it twice and left LEGEND_H worth of unpainted strip at the
+    // bottom — 22 px of a 511 px-tall foldable, where vertical space is the
+    // scarce thing. The legend is excluded exactly once, by the CSS.
+    const viewH = parent.clientHeight
     const laneCount = Math.max(1, nodeIds.length)
     const laneH = laneHeightFor(laneCount, viewH - AXIS_H)
     const H = canvasHeightFor(laneCount, laneH, AXIS_H)
