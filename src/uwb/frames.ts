@@ -330,15 +330,23 @@ export function makeReport(
  * is the question a Poll would otherwise have to send; for everyone before it, this frame is the
  * answer a Response would otherwise have to send — one transmission does both jobs, which is why
  * N participants need only N of these frames where taking turns as the tag would cost N² (design
- * §1/§2). The RX-times IE rides on every one of these frames, even participant 0's empty one
- * (`uwbM2mBytes`) — unlike a DL-TDoA message, which drops the IE outright when it would be empty.
+ * §1/§2). Participant 0, which opens the round, has heard no one yet: its frame carries no
+ * RX-times IE at all (`m2mIes`), the same way a DL-TDoA Poll carries none — a real frame does not
+ * send an IE header for zero entries, and `uwbM2mBytes` prices it accordingly.
  */
 export function makeM2m(
   src: string, method: 'ss' | 'ds', block: number, round: number, slot: number, times: UwbM2mTimes,
 ): FrameDesc {
   return uwbFrame('uwbM2m', src, UWB_BROADCAST, uwbM2mBytes(m2mRxCount(times)), {
-    sp: 1, method, block, round, slot, ies: ['RRMC', 'TXT', 'RXT'], m2m: copyM2m(times),
+    sp: 1, method, block, round, slot, ies: ['RRMC', ...m2mIes(times)], m2m: copyM2m(times),
   })
+}
+
+/** The many-to-many IEs one participant's frame carries, in order: its own TX time, always, and
+ * its RX times only when it has heard someone (empty on participant 0, which opens the round) —
+ * mirroring `dlIes`'s same rule for DL-TDoA, minus the clock-offset IE many-to-many never sends. */
+function m2mIes(times: UwbM2mTimes): string[] {
+  return ['TXT', ...(m2mRxCount(times) > 0 ? ['RXT'] : [])]
 }
 
 /** How many arrival times this participant's payload actually carries — what `makeM2m` sizes the

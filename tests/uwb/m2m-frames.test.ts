@@ -20,16 +20,27 @@ const rxCountersOf = (i: number): Record<string, number> =>
   Object.fromEntries(Array.from({ length: i }, (_, j) => [`p${j}`, 1_000_000 + j]))
 
 describe('many-to-many frame content and size (design §4)', () => {
-  it('grows by one ranging time per arrival it reports', () => {
-    for (let k = 0; k <= 8; k++) {
+  it('grows by one ranging time per arrival it reports, from the first arrival on', () => {
+    // The 0→1 step is not +4: it also pays the RX-times IE's 2-octet header, which a frame with
+    // no arrivals at all does not carry (fix round 1 — see the k=0 test below). Every step from
+    // k=1 on pays only the RRTI-sized 4 octets of the new time itself.
+    for (let k = 1; k <= 8; k++) {
       expect(uwbM2mBytes(k + 1) - uwbM2mBytes(k), `k=${k}`).toBe(4)
     }
   })
 
-  it('never omits the RX-times IE, unlike DL-TDoA, so byte 0→1 costs the same 4 octets too', () => {
-    // 9 (MHR) + 3 (RRMC) + 6 (TX time IE) + 2 (RX-times IE header, zero entries) + 2 (FCS).
-    expect(uwbM2mBytes(0)).toBe(22)
+  it('omits the RX-times IE entirely at zero arrivals — participant 0 is not an edge case', () => {
+    // 9 (MHR) + 3 (RRMC) + 6 (TX time IE) + 0 (no RX-times IE at all) + 2 (FCS): a real frame does
+    // not spend an IE header announcing zero entries. The 0→1 step therefore costs 6, not 4 — the
+    // header (2) plus the first arrival time (4) — and every step after that costs the flat 4.
+    expect(uwbM2mBytes(0)).toBe(20)
     expect(uwbM2mBytes(1)).toBe(26)
+    expect(uwbM2mBytes(1) - uwbM2mBytes(0)).toBe(6)
+    // This now coincides with the DL-TDoA Final's own formula everywhere, not just for k ≥ 1:
+    // both omit the same IE under the same rule, from the same shared `dlExtraBytes`.
+    for (let k = 0; k <= 8; k++) {
+      expect(uwbM2mBytes(k), `k=${k}`).toBe(uwbDlFinalBytes(k))
+    }
   })
 
   it('makes the last participant the longest frame of the round', () => {
@@ -42,6 +53,12 @@ describe('many-to-many frame content and size (design §4)', () => {
     const longest = Math.max(...frames.map((f) => f.bytes))
     expect(frames[n - 1].bytes).toBe(longest)
     expect(frames[n - 1].bytes).toBe(uwbM2mBytes(n - 1))
+    // Participant 0 opens the round with nothing heard yet: its own frame — not just its declared
+    // size — carries no RX-times IE at all, the same way a DL-TDoA Poll's `ies` never lists 'RXT'.
+    expect(frames[0].uwb?.ies).toEqual(['RRMC', 'TXT'])
+    expect(frames[0].bytes).toBe(20)
+    expect(fieldSum(frames[0])).toBe(frames[0].bytes)
+    expect(frames[1].uwb?.ies).toEqual(['RRMC', 'TXT', 'RXT'])
   })
 
   it('derives the participant cap from that frame, not from a literal', () => {
@@ -57,9 +74,10 @@ describe('many-to-many frame content and size (design §4)', () => {
     // SS and DS share the cap: DS repeats the same per-slot frame shape a second time (design §3)
     // rather than sending a frame that carries both passes' times at once.
     expect(uwbMaxParticipants('ds')).toBe(uwbMaxParticipants('ss'))
-    // The known boundary this file's arithmetic gives: 22 + 4k <= 127 solves to k <= 26, i.e. 27
-    // participants (indices 0..26, the last carrying 26 arrival times) — the same 27 DL-TDoA's
-    // structurally identical Final already caps at (uwb/phy.ts's uwbMaxAnchors comment).
+    // The known boundary this file's arithmetic gives: 22 + 4k <= 127 solves to k <= 26 (the cap
+    // is set at k = 26, well clear of the k = 0 discontinuity), i.e. 27 participants (indices
+    // 0..26, the last carrying 26 arrival times) — the same 27 DL-TDoA's byte-identical Final
+    // already caps at (uwb/phy.ts's uwbMaxAnchors comment).
     expect(uwbMaxParticipants('ss')).toBe(27)
   })
 

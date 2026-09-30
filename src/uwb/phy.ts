@@ -307,9 +307,9 @@ export const TX_TIME_IE_BYTES = UWB_IE_HDR_BYTES + 4
  * in the round's slot order, so no address rides along with them: a DL-TDoA message reads that
  * order from the Poll's RDM IE, and a many-to-many one from the round's own slot assignment
  * (design §5). Shared with `TX_TIME_IE_BYTES` for the same reason; renamed from
- * `dlRxTimesIeBytes`. DL-TDoA omits this IE outright when it carries no times at all (see
- * `dlExtraBytes`); many-to-many does not (see `uwbM2mBytes`) — that difference lives at each
- * caller, not in this function, which only ever prices the times themselves. */
+ * `dlRxTimesIeBytes`. Every caller of this file omits the whole IE, header included, when it
+ * carries no times at all (see `dlExtraBytes`, used by both DL-TDoA and many-to-many below) — a
+ * real frame does not spend two octets announcing an IE with nothing in it. */
 export function rxTimesIeBytes(times: number): number {
   return UWB_IE_HDR_BYTES + 4 * times
 }
@@ -319,9 +319,12 @@ export function rxTimesIeBytes(times: number): number {
  * with the existing SS-TWR path, whose `coffs` comes from `UwbRxInfo` rather than from a frame). */
 export const DL_COFFS_IE_BYTES = UWB_IE_HDR_BYTES + 2
 
-/** The DL-TDoA content a message adds to its two-way-ranging shape: the sender's TX time, the
- * RX times it holds (none on the Poll: it opens the round) and, on a Response, its clock offset.
- * One definition, so the builders and the decoder cannot size the same frame differently. */
+/** The ranging-time content a message adds to its two-way-ranging shape: the sender's TX time,
+ * the RX times it holds (none on a DL-TDoA Poll, which opens the round; none on many-to-many's
+ * opening participant, for the same reason) and, on a DL-TDoA Response, its clock offset. One
+ * definition, used by DL-TDoA's three frame-size functions below and by many-to-many's
+ * `uwbM2mBytes`, so no two of them can size the same "own TX time + RX times" content
+ * differently. */
 export function dlExtraBytes(rxTimes: number, coffs: boolean): number {
   return TX_TIME_IE_BYTES + (rxTimes > 0 ? rxTimesIeBytes(rxTimes) : 0) + (coffs ? DL_COFFS_IE_BYTES : 0)
 }
@@ -354,18 +357,17 @@ export function uwbDlFinalBytes(responders: number, coffs = false): number {
 // --- Many-to-many ranging (standard §10.32.6 SS / §10.32.7 DS) ------------------
 
 /**
- * Participant i's one transmission in a many-to-many round: MHR + RRMC + its own TX time +
- * the RX times it holds for every participant that transmitted before it + FCS. The content is
- * the DL-TDoA Final's shape — own TX time plus RX times (design §4) — but not its byte pattern at
- * zero RX times: a DL-TDoA message drops the whole RX-times IE when it is empty (`dlExtraBytes`),
- * while this one keeps the IE's 2-octet header even then, because participant 0 (`rxTimes = 0`)
- * still has to say "none yet" rather than let the row disappear along with the count. That is
- * also what makes the cost of every additional arrival time the RRTI IE's flat 4 octets at every
- * step, `k = 0` to `k = 1` included: `rxTimesIeBytes`'s header is paid once, up front, not again
- * at the first entry. 22 + 4k octets. model
+ * Participant i's one transmission in a many-to-many round: MHR + RRMC + its own TX time + the
+ * RX times it holds for every participant that transmitted before it + FCS. The content is the
+ * DL-TDoA Final's shape exactly — own TX time plus RX times, no clock offset (design §4) — so
+ * this calls the very function DL-TDoA's Final does (`dlExtraBytes(rxTimes, false)`) rather than
+ * writing a second copy of "how many octets does N arrival times cost": at `rxTimes = 0` that
+ * function omits the RX-times IE outright, the same way a DL-TDoA Poll does, and `rxTimes = 0` is
+ * not an edge case here — it is every many-to-many round's very first participant. 20 octets at
+ * `rxTimes = 0`; 22 + 4·`rxTimes` from `rxTimes = 1` on. model
  */
 export function uwbM2mBytes(rxTimes: number): number {
-  return UWB_MHR_BYTES + RRMC_IE_BYTES + TX_TIME_IE_BYTES + rxTimesIeBytes(rxTimes) + UWB_FCS_BYTES
+  return UWB_MHR_BYTES + RRMC_IE_BYTES + UWB_FCS_BYTES + dlExtraBytes(rxTimes, false)
 }
 
 /** The many-to-many frame shape one method's round actually sends, method by method. Both are
