@@ -17,6 +17,10 @@
  *   contention:  slot 0 Poll (tag) | slots 1..S Response (whichever anchors drew the slot)
  *   DL-TDoA: slot 0 Poll (anchor 0) | slots 1..A-1 Response (anchor 1..A-1) | slot A Final (anchor 0)
  *   UL-TDoA: slot 0 Blink (tag)
+ *   m2m SS:  slots 0..N-1, participant i in slot i — its one transmission asks everyone after it
+ *            and answers everyone before it (standard §10.32.6)
+ *   m2m DS:  the same N slots twice over, because tround2/treply2 need the earlier participant of
+ *            a pair to transmit again (standard §10.32.7, design §3)
  *
  * SS-TWR's slot count depends on `replyTime` (design §4): embedded and fixed both carry the reply
  * time on the Response itself (or never put it on the air at all) and stay at `A + 1`; deferred
@@ -36,12 +40,25 @@ export { rstuNs }
 export interface RoundPlan {
   method: 'ss' | 'ds'
   anchors: number
-  /** `mode: 'm2m'` only (design §5): the round's participant count. It is the very same count
-   * every other mode already carries in `anchors` — one caller-supplied "how many others" number,
-   * read under whichever name means something for the mode actually running — copied here under
-   * its own honest name because `anchors` is false in a mode with no anchor at all, and
-   * `slotAction`'s m2m branch needs a field to read that is not lying to it. Meaningless outside
-   * `'m2m'`; no other reader touches it. */
+  /**
+   * `mode: 'm2m'` only (design §5): the round's participant count, and **the field every
+   * many-to-many path reads**. It is the very same number `anchors` holds — one caller-supplied
+   * "how many others" argument, read under whichever name means something for the mode actually
+   * running — so the two alias each other in every mode, and `tests/uwb/m2m-round.test.ts` pins
+   * that (Ruling 8 of the slice ledger) rather than leaving it incidental.
+   *
+   * The aliasing is worth a name of its own because **`anchors` means two different things by
+   * mode.** In a two-way round it counts the devices *other than* the tag, so three anchors is
+   * four devices; in many-to-many it counts *everyone*, so three participants is three devices.
+   * Same number, different quantity — and anything that reads `plan.anchors` in `'m2m'` while
+   * meaning "the devices besides the initiator" is wrong by one. Renaming `anchors` to something
+   * mode-neutral is the real fix and is deliberately **not** done here: it is read across `src/`
+   * and `tests/`, and a rename landing beside a behavioural change is what this branch has twice
+   * paid for. It joins `uwbSlotsPerTag`'s own deferred rename (`phy.ts`, Ruling 4) in one later
+   * sweep commit, when nothing else is moving.
+   *
+   * Meaningless outside `'m2m'`; no other reader touches it.
+   */
   participants: number
   slots: number
   slotNs: Ns
@@ -139,7 +156,12 @@ export function roundPlan(cfg: UwbSessionCfg, anchors: number): RoundPlan {
   const blockNs = rstuNs(cfg.blockRstu)
   return {
     method: cfg.method, anchors, participants: anchors, slots, slotNs, roundNs, blockNs,
-    roundsPerBlock: cfg.mode === 'dl-tdoa' ? 1 : Math.floor(blockNs / roundNs),
+    // One round per block in the two modes whose round belongs to the whole group rather than to
+    // one tag: DL-TDoA's anchor round, which every tag positions itself from, and a many-to-many
+    // round, which holds every participant at once (design §5). In both, a second copy of the
+    // round inside the block would only cost air — and the number is read by the editor's own
+    // plan note, so answering "how many would fit" there would be a lie about what runs.
+    roundsPerBlock: cfg.mode === 'dl-tdoa' || cfg.mode === 'm2m' ? 1 : Math.floor(blockNs / roundNs),
     schedule: cfg.schedule, contentionSlots: cfg.contentionSlots, mode: cfg.mode,
     replyTime: cfg.replyTime, fixedReplyNs: rstuNs(cfg.fixedReplyRstu),
     // Copied, not referenced: a plan outlives the scenario object it was built from, and a

@@ -16,7 +16,7 @@ import { FADING_DEFAULTS, RICIAN_K_DEFAULT_DB, type FadingCfg } from '../engine/
 import type { ScattererCfg } from '../engine/scatter'
 import { NB_CHANNELS } from '../uwb/nb'
 import {
-  C_M_PER_NS, mmsResponders, rstuNs, UWB_SLOT_GUARD_NS, uwbM2mBytes, uwbMaxAnchors, uwbMaxParticipants,
+  C_M_PER_NS, mmsResponders, rstuNs, UWB_SLOT_GUARD_NS, uwbM2mSlotFitNs, uwbMaxAnchors, uwbMaxParticipants,
   uwbNbSlotFitNs, uwbPollBytes, uwbPpduNs, uwbRespBytes, uwbSlotFitNs, uwbSlotsPerTag, type UwbReplyTime,
 } from '../uwb/phy'
 import type { LinkId } from './caps'
@@ -1130,8 +1130,11 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
           // function (`uwbM2mBytes`) rather than `uwbLongestFrameBytes`, which still has no
           // many-to-many case (design §5's cap is sized off `uwbM2mBytes`/`uwbMaxParticipants`
           // directly, not off the two-way frame chooser).
+          // Read from `uwbM2mSlotFitNs`, not written out here: `UwbNetwork` enforces the identical
+          // rule in nanoseconds when it lays the round out, and two copies of it is exactly the
+          // drift Ruling 7 of this slice took out of this very function.
           const m2mSlotNs = rstuNs(sc.uwb.slotRstu)
-          const m2mNeedNs = uwbPpduNs(uwbM2mBytes(Math.max(0, participants - 1))) + UWB_SLOT_GUARD_NS
+          const m2mNeedNs = uwbM2mSlotFitNs(participants)
           if (m2mSlotNs < m2mNeedNs) {
             ctx.addIssue({
               code: z.ZodIssueCode.custom,

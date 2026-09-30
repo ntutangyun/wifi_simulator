@@ -605,6 +605,24 @@ export function uwbSlotFitNs(
   return uwbPpduNs(uwbLongestFrameBytes(anchors, mode, schedule, method, replyTime)) + UWB_SLOT_GUARD_NS
 }
 
+/**
+ * The shortest ranging slot a many-to-many round of `participants` fits in: its longest frame —
+ * the last participant's, which reports every earlier one's arrival time (design §4) — plus the
+ * same flight guard every other mode's slot pays. In a shorter slot the receivers' deadlines fire
+ * before that frame lands and the round loses its last slot entirely.
+ *
+ * It is `uwbSlotFitNs`'s job for this mode, in a function of its own rather than a branch inside
+ * it, because `uwbLongestFrameBytes` has no many-to-many case: the cap and the slot rule here are
+ * both sized off `uwbM2mBytes` directly (design §5), never off the two-way frame chooser. And it
+ * is a function rather than an expression at each caller because it has **two** callers — the
+ * scenario schema, which refuses such a scenario, and `UwbNetwork`, which refuses such a round in
+ * the nanoseconds the scheduler actually runs in — and two copies of one rule is the drift Ruling 7
+ * of this slice's ledger was written about.
+ */
+export function uwbM2mSlotFitNs(participants: number): Ns {
+  return uwbPpduNs(uwbM2mBytes(Math.max(0, participants - 1))) + UWB_SLOT_GUARD_NS
+}
+
 /** The room an MMS round's longest narrowband message needs. They are far longer than any
  * fragment — 608 µs against 82 µs — and the draft gives each of them two slots (RcpPollSlot,
  * RcpResponseSlot, MrpFirstSlot, MrpSecondSlot are all 2), so this is what two slots together

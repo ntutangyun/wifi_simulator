@@ -16,7 +16,10 @@
  * a block is back to one round per tag. DL-TDoA turns that around: the
  * anchors own the one round a block holds, and every tag in the scenario listens to it. UL-TDoA
  * keeps the round-per-tag grid but empties the round out to a single slot: the tag blinks in it,
- * every anchor listens, and the infrastructure does the arithmetic afterwards.
+ * every anchor listens, and the infrastructure does the arithmetic afterwards. Many-to-many
+ * (standard §10.32.6/§10.32.7) drops the grid's premise altogether: there is no tag to own a
+ * round, so a block holds **one** round and every UWB node of the scenario is in it, transmitting
+ * once per pass in the slot its place in the participant list gives it (design §5).
  */
 import type { EventQueue } from '../engine/events'
 import { hashStr } from '../engine/hash'
@@ -30,9 +33,9 @@ import { UwbChannel } from './channel'
 import { gaussian, UwbClock } from './clock'
 import { UwbDevice, type UwbGeometry } from './device'
 import { nbChannelForBlock } from './nb'
-import { uwbMaxAnchors, uwbNbSlotFitNs, uwbSlotFitNs } from './phy'
+import { uwbM2mSlotFitNs, uwbMaxAnchors, uwbMaxParticipants, uwbNbSlotFitNs, uwbSlotFitNs } from './phy'
 import { UwbSensor } from './sensing'
-import { roundPlan, slotAction, slotStartNs, type RoundPlan } from './session'
+import { m2mParticipants, roundPlan, slotAction, slotStartNs, type RoundPlan } from './session'
 
 export class UwbNetwork {
   readonly devices = new Map<string, UwbDevice>()
@@ -61,7 +64,20 @@ export class UwbNetwork {
   ) {
     const anchors = nodes.filter((n) => n.uwb?.role === 'anchor').map((n) => n.id)
     const tags = nodes.filter((n) => n.uwb?.role === 'tag').map((n) => n.id)
-    this.plan = roundPlan(cfg, anchors.length)
+    // Many-to-many has neither anchors nor tags (design §5): **every** UWB node is a participant,
+    // and `uwb.role` decides only how the editor draws it. So the two filters above say nothing
+    // about this mode's round, and the list below — every UWB node, ordered by node id — is what
+    // the whole m2m path is laid out over. Empty in every other mode, where nothing reads it.
+    const participants = cfg.mode === 'm2m' ? m2mParticipants(nodes) : []
+    // …and it is the participant count, not the anchor count, that sizes an m2m round: `anchors`
+    // means "the devices other than the tag" everywhere else and "everyone" here, which is one
+    // device's difference for the same word (Ruling 8 of the slice ledger — `RoundPlan.participants`
+    // carries the honest name, and this is the one place the number enters the plan).
+    this.plan = roundPlan(cfg, cfg.mode === 'm2m' ? participants.length : anchors.length)
+    // A many-to-many round belongs to the whole group at once, like a DL-TDoA one: one round per
+    // block, every participant in it. Read off the plan's own `mode` rather than off `cfg` so that
+    // the round the guards below check is the round the schedule lays out.
+    const m2m = this.plan.mode === 'm2m'
     // DL-TDoA runs one anchor round per block and every tag listens to it, so a block holds any
     // number of tags — the rule below is a two-way-ranging (and UL-TDoA) rule, and the schema
     // skips it in this mode for the same reason.
@@ -78,7 +94,17 @@ export class UwbNetwork {
     // checks in the units the scheduler actually uses, so the two definitions of "how much fits
     // in a block" — and of which modes are exempt from which rule — cannot drift apart unnoticed.
     const rounds = mms && !oneToMany ? tags.length * anchors.length : tags.length
-    if (!listenOnly && rounds > this.plan.roundsPerBlock) {
+    // …and the tag count is not what fills a many-to-many block either: one round holds everyone,
+    // so the only question is whether that round fits the block at all. Checked here in the
+    // scheduler's own nanoseconds; the schema checks the identical thing in RSTU, before rstuNs
+    // rounds (`mode === 'm2m'`'s block-fit rule in src/model/scenario.ts).
+    if (m2m && this.plan.roundNs > this.plan.blockNs) {
+      throw new Error(
+        `UwbNetwork: a many-to-many round of ${participants.length} participants is ${this.plan.slots} slots `
+        + `(${this.plan.roundNs} ns), which does not fit a ${this.plan.blockNs} ns block`,
+      )
+    }
+    if (!listenOnly && !m2m && rounds > this.plan.roundsPerBlock) {
       throw new Error(
         `UwbNetwork: ${rounds} ${mms && !oneToMany ? 'pairs' : 'tags'} need ${rounds} rounds, but a ${this.plan.blockNs} ns `
         + `block holds ${this.plan.roundsPerBlock} rounds of ${this.plan.roundNs} ns`,
@@ -89,13 +115,21 @@ export class UwbNetwork {
     // The round's own method and reply-time shape, because which of its frames is the longest one
     // depends on both (design §5): an SS round has no Final to be sized against, and a deferred DS
     // Final grows 2 octets an anchor rather than 12. The schema checks the identical thing in RSTU.
-    const needNs = uwbSlotFitNs(
-      anchors.length, this.plan.mode, this.plan.schedule, cfg.mms, this.plan.method, this.plan.replyTime,
-    )
+    // …and in many-to-many the longest frame is the last participant's, which reports every
+    // earlier one's arrival time (design §4) — a frame `uwbLongestFrameBytes` has no case for, so
+    // the rule is `uwbM2mSlotFitNs`, the same function the schema measures the slot with.
+    const needNs = m2m
+      ? uwbM2mSlotFitNs(participants.length)
+      : uwbSlotFitNs(
+        anchors.length, this.plan.mode, this.plan.schedule, cfg.mms, this.plan.method, this.plan.replyTime,
+      )
     if (this.plan.slotNs < needNs) {
       throw new Error(
-        `UwbNetwork: a ${this.plan.slotNs} ns ranging slot cannot carry a round of ${anchors.length} `
-        + `anchors, whose longest frame plus flight needs ${needNs} ns`,
+        m2m
+          ? `UwbNetwork: a ${this.plan.slotNs} ns ranging slot cannot carry a many-to-many round of `
+            + `${participants.length} participants, whose longest frame plus flight needs ${needNs} ns`
+          : `UwbNetwork: a ${this.plan.slotNs} ns ranging slot cannot carry a round of ${anchors.length} `
+            + `anchors, whose longest frame plus flight needs ${needNs} ns`,
       )
     }
     // An MMS round has a second frame rule the schema checks too: the draft gives each
@@ -118,7 +152,17 @@ export class UwbNetwork {
     // instead and reaches much further. The plan carries the session's own shape, so this reads
     // it rather than assuming one — the schema checks the identical thing in RSTU (see
     // scenario.ts), and the two must not drift apart.
-    if (!mms) {
+    // …nor to a many-to-many round, whose own cap is searched against its own frame
+    // (`uwbMaxParticipants`, design §4/§5) — asking `uwbMaxAnchors` here would measure this round
+    // against a Poll and a Final it never sends. Both caps are searched, neither is a literal.
+    if (m2m) {
+      const cap = uwbMaxParticipants(this.plan.method)
+      if (participants.length > cap) {
+        throw new Error(
+          `UwbNetwork: ${participants.length} participants exceed the ${cap} the last participant's frame allows`,
+        )
+      }
+    } else if (!mms) {
       const anchorCap = uwbMaxAnchors(this.plan.mode, this.plan.method, this.plan.replyTime, this.plan.schedule)
       if (anchors.length > anchorCap) {
         throw new Error(`UwbNetwork: ${anchors.length} anchors exceed the ${anchorCap} this round's longest frame allows`)
@@ -210,7 +254,16 @@ export class UwbNetwork {
       for (let s = 0; s < this.plan.slots; s++) {
         const at = slotStartNs(this.plan, block, round, s)
         q.schedule(at, () => {
-          if (s === 0) for (const d of crowd) d.beginRound(block, round, this.plan, tagId, anchors, { nbChannel })
+          if (s === 0) {
+            for (const d of crowd) {
+              // The participant list is handed over only in the mode that has one, and it is the
+              // *ordered* list the slots were laid out from — never rebuilt at the device from a
+              // role filter, which would not be the same list (design §5, Ruling 8).
+              d.beginRound(block, round, this.plan, tagId, anchors, {
+                nbChannel, ...(m2m ? { participants } : {}),
+              })
+            }
+          }
           const action = slotAction(this.plan, s)
           for (const d of crowd) d.onSlot(s, action, at + this.plan.slotNs, peers)
         }, 0)
@@ -220,6 +273,14 @@ export class UwbNetwork {
         // A listen-only round belongs to nobody: every tag closes its own measurement and no
         // feedback travels back to the anchors, because no anchor asked anything of a tag.
         if (listenOnly) {
+          for (const d of crowd) d.endRound(false)
+          return
+        }
+        // A many-to-many round belongs to nobody either, for the opposite reason: every device in
+        // it measured, each range was already reported in the slot that completed it (design §2),
+        // and nothing travels back — there is no tag whose ranges could tell a responder it was
+        // heard, because every participant is both.
+        if (m2m) {
           for (const d of crowd) d.endRound(false)
           return
         }
@@ -264,6 +325,13 @@ export class UwbNetwork {
         // single tag of a two-way round heads its own crowd. `tagId` is empty because no tag
         // owns this round — nothing in the round is addressed to one.
         runRound(block, 0, '', [...tags, ...anchors])
+      } else if (m2m) {
+        // One round per block, and the whole group is in it: participant i transmits in slot i of
+        // its pass, and every other participant listens (standard §10.32.6 SS / §10.32.7 DS,
+        // design §3/§5). `tagId` is empty because there is no tag — nothing in the round is
+        // addressed to one, and every frame of it is a broadcast — and the round's own peer list
+        // is the participant list, in the order the slots were laid out from.
+        runRound(block, 0, '', participants, participants)
       } else if (mmsPlan) {
         // The narrowband control plane hops channel **per block**, deterministically from the
         // scenario's seed (4ab draft 15-22/0381r5 §1.5.3): drawn once, here, and handed to every

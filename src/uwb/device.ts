@@ -24,8 +24,9 @@
  * This file holds the core state machine, config and two-way ranging (SS/DS-TWR)
  * logic, and every export the rest of the codebase imports from `./device`.
  * DL-/UL-TDoA lives in `./device.tdoa`, the P802.15.4ab MMS cycle in
- * `./device.mms`, and range/position record emission in `./device.report` —
- * each split out of this file by pure move.
+ * `./device.mms`, many-to-many ranging (standard §10.32.6/§10.32.7) in
+ * `./device.m2m`, and range/position record emission in `./device.report` —
+ * each of them reached from this file by a branch on the round's own mode.
  */
 import type { EventQueue } from '../engine/events'
 import type { Rng } from '../engine/rng'
@@ -39,6 +40,7 @@ import {
 } from './frames'
 import { onDlRx, onDlSlot, onUlSlot, solveTdoaFix, solveUlFix as solveUlFixImpl, transmitDl, ulArrivalNs as ulArrivalNsImpl, type DlRoundState } from './device.tdoa'
 import { freshMms, onMmsRx, onMmsSlot, solveMmsFix, type MmsRoundState } from './device.mms'
+import { freshM2m, onM2mRx, onM2mSlot, transmitM2m, type M2mRoundState } from './device.m2m'
 import { measureAoa, reportRange } from './device.report'
 import { RCTU_NS, tsSigmaNs, UWB_RMARKER_NS, uwbSinrDb, type UwbChannelNo } from './phy'
 import { rangeSigmaM, solvePosition, type AnchorPos } from './position'
@@ -191,6 +193,11 @@ export interface RoundState {
   dl: DlRoundState | null
   /** Narrowband-assisted multi-millisecond state; non-null exactly in an MMS round. */
   mms: MmsRoundState | null
+  /** Many-to-many state; non-null exactly in an `m2m` round (standard §10.32.6/§10.32.7). It, not
+   * `plan.anchors`, is where a many-to-many path reads the round's participants: see
+   * `M2mRoundState.participants` and the slice ledger's Ruling 8 for why the two counts are not
+   * the same quantity. */
+  m2m: M2mRoundState | null
   /**
    * UL-TDoA, anchor: when this round's blink arrived, on the **infrastructure's common
    * timebase** rather than on this anchor's own crystal — that crystal is what the calibration
@@ -209,7 +216,7 @@ export interface RoundState {
 
 function freshRound(
   block: number, round: number, plan: RoundPlan, tagId: string, anchors: string[],
-  mms: MmsRoundState | null,
+  mms: MmsRoundState | null, m2m: M2mRoundState | null,
 ): RoundState {
   return {
     block, round, plan, tagId, anchors: [...anchors],
@@ -223,6 +230,7 @@ function freshRound(
       ? { rxPoll: null, rxFinal: null, txPoll: null, txFinal: null, responses: new Map(), coffsToRef: null, rxResp: {} }
       : null,
     mms,
+    m2m,
     ulArrivalNs: null,
     aoaThetaDeg: null,
   }
@@ -311,13 +319,15 @@ export class UwbDevice implements UwbRadio {
 
   /** Tag: open its round (UWB_ROUND) — in DL-TDoA that is the anchors' round, which every tag
    * opens a lane for because every tag measures the whole of it. Anchor: note the round it is
-   * about to serve. */
+   * about to serve. In a many-to-many round there is no such split: every participant both
+   * transmits and measures, so every one of them opens a round of its own (design §5). */
   beginRound(
     block: number, round: number, plan: RoundPlan, tagId: string, anchors: string[],
     /** What the schedule knows about this round that the plan does not, because it changes from
-     * block to block: today only the narrowband channel of an MMS block. An options object
-     * rather than a sixth positional, so the next such thing costs no caller a change. */
-    opts: { nbChannel?: number | null } = {},
+     * block to block or from round to round: the narrowband channel of an MMS block, and the
+     * participant list of a many-to-many round. An options object rather than more positionals,
+     * so the next such thing costs no caller a change. */
+    opts: { nbChannel?: number | null; participants?: string[] } = {},
   ): void {
     const mp = plan.mms
     const nbChannel = opts.nbChannel ?? null
@@ -334,8 +344,24 @@ export class UwbDevice implements UwbRadio {
       throw new Error("UwbDevice.beginRound: mode 'mms' needs the block's narrowband channel")
     }
     const mms = mp ? freshMms(mp, nbChannel) : null
-    this.round = freshRound(block, round, plan, tagId, anchors, mms)
-    if (this.cfg.role !== 'tag') return
+    // The same rule as the channel above, for the same reason: a many-to-many round is laid out
+    // over an *ordered participant list* (design §5), and the order is what decides which slot
+    // each device transmits in and which half of each pair it is. A caller that plans the round
+    // and forgets the list would leave every device unable to say where it stands, so it is said
+    // here rather than guessed — and `RoundPlan.anchors` is deliberately not used as a fallback:
+    // in this mode that number counts everyone rather than everyone-but-the-initiator, and a list
+    // rebuilt from a role filter would not be the list the schedule dispatched against (Ruling 8).
+    if (plan.mode === 'm2m' && opts.participants === undefined) {
+      throw new Error("UwbDevice.beginRound: mode 'm2m' needs the round's ordered participant list")
+    }
+    const m2m = plan.mode === 'm2m' && opts.participants !== undefined
+      ? freshM2m(plan, opts.participants, this.id)
+      : null
+    this.round = freshRound(block, round, plan, tagId, anchors, mms, m2m)
+    // Many-to-many has no listener and no server: every participant measures the round it is in,
+    // so every participant opens a lane for it. `uwb.role` decides only how a node is drawn
+    // (design §5), and gating this on it would silence a whole round of all-anchor nodes.
+    if (plan.mode !== 'm2m' && this.cfg.role !== 'tag') return
     this.emit({
       t: this.now(), type: 'UWB_ROUND', node: this.id, block, round,
       slots: plan.slots, slotNs: plan.slotNs, method: plan.method, mode: plan.mode,
@@ -349,7 +375,9 @@ export class UwbDevice implements UwbRadio {
     const r = this.round
     if (!r) return
     r.slot = slot
-    if (this.cfg.role === 'tag') {
+    // …and for the same reason, every participant of a many-to-many round reports its own slot:
+    // each of them is measuring, so each of them has a lane the slot means something on.
+    if (this.cfg.role === 'tag' || r.plan.mode === 'm2m') {
       this.emit({ t: this.now(), type: 'UWB_SLOT', node: this.id, slot, untilNs: slotEndNs })
     }
     if (r.plan.mode === 'mms') {
@@ -360,14 +388,22 @@ export class UwbDevice implements UwbRadio {
     // ranging slot the train does not reach. No other mode ever schedules one, and after this
     // line every action below names a frame.
     if (action.kind === 'idle') return
-    // Many-to-many (design §5, Task 3 of docs/superpowers/specs/2026-09-30-many-to-many-design.md
-    // §3/§5): the round shape exists (`uwbSlotsPerTag`, `slotAction`), but no network path wires a
-    // device into an m2m round yet — `UwbNetwork` builds every plan from `anchors`/`tags` role
-    // counts, which m2m has neither of, so it never runs an m2m session (Task 4's job). This guard
-    // is therefore unreachable today; it exists only so the widened `SlotAction` union still
-    // type-checks past this point, where every remaining branch reads a `tx`/`anchor` shape a
-    // many-to-many action does not have.
-    if (action.kind === 'uwbM2m') return
+    // Many-to-many (standard §10.32.6/§10.32.7, design §3/§5): one transmitter per slot and
+    // everybody else listening — see ./device.m2m.
+    if (r.plan.mode === 'm2m') {
+      onM2mSlot(this, slot, action, r, peers)
+      return
+    }
+    // A `uwbM2m` action outside an m2m round. `slotAction` produces one for `mode: 'm2m'` and for
+    // nothing else, so reaching this is not a state the model can be in on purpose — it would mean
+    // the schedule and the round plan disagree about which mode is running. It **throws** rather
+    // than returning, which is the whole point: Task 3 left a silent `return` here, and a silent
+    // return is how a feature ships looking finished while doing nothing at all (slice ledger,
+    // Ruling 9). It is also what keeps the rest of this method type-checking, since every branch
+    // below reads a `tx`/`anchor` shape a many-to-many action does not have.
+    if (action.kind === 'uwbM2m') {
+      throw new Error(`UwbDevice.onSlot: a many-to-many action in a '${r.plan.mode}' round, slot ${slot}`)
+    }
     if (r.plan.mode === 'dl-tdoa') {
       onDlSlot(this, slot, action, r, peers)
       return
@@ -427,6 +463,18 @@ export class UwbDevice implements UwbRadio {
     const r = this.round
     this.round = null
     if (!r) return []
+    // Many-to-many closes at every participant and hands nothing back. Every range of the round
+    // was already reported in the slot the frame that completed it landed in (design §2: the
+    // earlier participant of each pair finishes the arithmetic on arrival), there is no fix to
+    // solve — a participant measures its peers, not its own position — and there is no contention
+    // budget for a feedback flag to refill. It comes before the role check below because in this
+    // mode `uwb.role` decides only how a node is drawn (design §5): an all-anchor round would
+    // otherwise close silently, with no UWB_ROUND_END against the UWB_ROUND each participant
+    // opened.
+    if (r.plan.mode === 'm2m') {
+      this.emit({ t: this.now(), type: 'UWB_ROUND_END', node: this.id, block: r.block, round: r.round })
+      return []
+    }
     if (this.cfg.role !== 'tag') {
       if (r.plan.schedule === 'contention' && r.contendSlot !== null) {
         this.attemptsLeft = heard ? this.cfg.maxAttempts : Math.max(0, this.attemptsLeft - 1)
@@ -614,6 +662,14 @@ export class UwbDevice implements UwbRadio {
       return
     }
 
+    // Many-to-many: one reception is both half of a round trip this device opened and the raw
+    // material of the answer it will send later, so it is routed on the mode rather than by frame
+    // kind — every frame of the round is the same kind (see ./device.m2m).
+    if (r.plan.mode === 'm2m') {
+      onM2mRx(this, r, from, frame, counter, coffs, fom)
+      return
+    }
+
     switch (kind) {
       case 'uwbPoll':
         // An anchor keeps only the counter: DS-TWR cancels the clock offset by
@@ -643,6 +699,11 @@ export class UwbDevice implements UwbRadio {
       case 'uwbReport':
         this.onReport(r, from, frame, fom)
         break
+      case 'uwbM2m':
+        // Only an m2m round ever waits for one of these, and that round returned above. A
+        // many-to-many frame accepted by a two-way round's expectation would mean the two ends
+        // disagree about the mode, which nothing can do on purpose (Ruling 9).
+        throw new Error(`UwbDevice.onRxOk: a many-to-many frame from ${from} in a '${r.plan.mode}' round`)
     }
   }
 
@@ -808,6 +869,10 @@ export class UwbDevice implements UwbRadio {
     const txCounter = this.clock.counter(t + UWB_RMARKER_NS)
     if (r.plan.mode === 'dl-tdoa') {
       transmitDl(this, action, slot, r, peers, txCounter)
+      return
+    }
+    if (r.plan.mode === 'm2m') {
+      transmitM2m(this, action, slot, r, txCounter)
       return
     }
     switch (action.kind) {
