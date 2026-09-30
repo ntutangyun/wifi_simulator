@@ -47,6 +47,7 @@ import { uwbPosition } from './uwb/uwb-position'
 import { uwbGeometry } from './uwb/uwb-geometry'
 import { uwbCoexist } from './uwb/uwb-coexist'
 import { uwbContention } from './uwb/uwb-contention'
+import { uwbM2m } from './uwb/uwb-m2m'
 import { uwbDlTdoa } from './uwb/uwb-dl-tdoa'
 import { uwbUlTdoa } from './uwb/uwb-ul-tdoa'
 import { uwbAoa } from './uwb/uwb-aoa'
@@ -131,6 +132,7 @@ const AUTHORED: Lesson[] = [
   uwbGeometry,
   uwbCoexist,
   uwbContention,
+  uwbM2m,
   uwbDlTdoa,
   uwbUlTdoa,
   uwbAoa,

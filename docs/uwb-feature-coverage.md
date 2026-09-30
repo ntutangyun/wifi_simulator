@@ -56,9 +56,9 @@ UWB、ranging、HRP、LRP、STS 的条款都在内。工作从那份清单出发
 
 | 本仿真器 | 行数 |
 | --- | --- |
-| 已建模 | 23 |
+| 已建模 | 25 |
 | 部分建模 | 37 |
-| 未建模 | 48 |
+| 未建模 | 46 |
 
 这三个数字被测试钉住，所以加一行必须同时改这里——这正是要的：一张说不出自己有多大的表，
 读者无从判断某一处空白是刻意的还是漏的。
@@ -148,9 +148,9 @@ UWB、ranging、HRP、LRP、STS 的条款都在内。工作从那份清单出发
 | 时隙化方案里的接收使能 §10.32.3.4 | 已发布 | 已建模 | 设备只在自己那个时隙开接收机，其余时间 `idle`——这正是 UWB 测距便宜的原因。`uwb/device.ts#UwbDevice`（`listenFor` / `uwbWait` 状态）。`@uwb-blocks` |
 | 一对多 SS-TWR §10.32.4 | 已发布 | 已建模 | 一条广播 Poll 点名若干锚点（RDM IE），每个锚点在自己的时隙里答：`uwb/frames.ts#makePoll`、`uwb/phy.ts#rdmIeBytes`、`uwb/phy.ts#uwbSlotsPerTag`。`@uwb-sstwr` |
 | 一对多 DS-TWR §10.32.5 | 已发布 | 已建模 | 加上广播 Final 与逐锚点的 Report：`uwb/frames.ts#makeFinal`、`uwb/frames.ts#makeReport`。`@uwb-dstwr` |
-| 多对多 SS-TWR §10.32.6 | 已发布 | 未建模 | **未偿的债。** 引擎的一轮永远只有一个发起方：`uwb/session.ts#RoundPlan` 的每一轮都属于一个 tag，`uwb/session.ts#slotAction` 里没有任何形状容得下两个发起方互测。课程里也没有一课提到多对多。 |
-| 多对多 DS-TWR §10.32.7 | 已发布 | 未建模 | **未偿的债。** 同上。 |
-| SP3 分组下的测距 §10.32.8（含 §10.32.8.2、§10.32.8.3） | 已发布 | 未建模 | **未偿的债。** 引擎只有两种分组配置：SP1（`uwb/frames.ts#UwbInfo` 的 `sp: 1` 恒为 1）与 4ab 的 SP0（`uwb/frames.ts#makeSp0Poll` 等）。SP3——只有 STS、没有 PSDU——一行也没有；`@uwb-sts` 的课文里提到过 SP0…SP3 的存在，但那是文字，不是模型。 |
+| 多对多 SS-TWR §10.32.6 | 已发布 | 已建模 | 一轮 N 个时隙，参与者 i 在第 i 个时隙发一次，那一帧对后面的人是问、对前面的人是答：`uwb/session.ts#m2mParticipants`（顺序按 id，model）、`uwb/session.ts#slotAction` 的 `uwbM2m` 分支、`uwb/device.m2m.ts#transmitM2m`、`uwb/device.m2m.ts#onM2mRx`、`uwb/frames.ts#makeM2m`、`uwb/phy.ts#uwbM2mBytes`、`uwb/phy.ts#uwbMaxParticipants`。距离仍由 `uwb/ranging.ts#ssTwrCorrected` 算，而且只有排在前面的那个参与者算得出来（N−1−i 条）。`@uwb-m2m` |
+| 多对多 DS-TWR §10.32.7 | 已发布 | 已建模 | 同一套路走两趟，每趟 N 个时隙（2N），第二趟的帧只带第二趟听到的到达时刻，所以帧长上限与 SS 相同：`uwb/session.ts#slotAction` 的 `pass`、`uwb/device.m2m.ts#onM2mRx`、`uwb/ranging.ts#dsTwr`。晶振拉开时比 SS 准约 150 倍（回复间隔是整整几个时隙，SS 要按估出来的时钟偏差折算）。`@uwb-m2m` |
+| SP3 分组下的测距 §10.32.8（含 §10.32.8.2、§10.32.8.3） | 已发布 | 未建模 | **未偿的债，理由是举证不足，不是范围决定。** 引擎只有两种分组配置：SP1（`uwb/frames.ts#UwbInfo` 的 `sp: 1` 恒为 1）与 4ab 的 SP0（`uwb/frames.ts#makeSp0Poll` 等）。SP3——只有 STS、没有 PSDU，因此带不了时间——一行也没有。本仓库只抽出了已发布标准的目录，「一组设备如何用带不了时间的包完成测距」这一步的机理无从建立，而 repo 的规矩是不抄标准正文、也不猜机理。`@uwb-sts` 的课文提到过 SP0…SP3 的存在，但那是文字，不是模型；`@uwb-m2m` 的 `limits` 把这条空缺与「范围决定」的区别写在了课里。 |
 
 ## 六、已发布标准：多节点测距 IE（§10.32.9）
 
@@ -164,7 +164,7 @@ UWB、ranging、HRP、LRP、STS 的条款都在内。工作从那份清单出发
 | RCMA IE（Ranging Contention Maximum Attempts IE）§10.32.9.6 | 已发布 | 部分建模 | 同上，重试预算进了帧：`uwb/phy.ts#RCMA_IE_BYTES`。`@uwb-contention` |
 | RCR IE（Ranging Change Request IE）§10.32.9.7 | 已发布 | 未建模 | **范围决定。** 引擎里没有任何一方能请求改变一次会话。 |
 | RDM IE（Ranging Device Management IE）§10.32.9.8 | 已发布 | 部分建模 | 时间调度 Poll 携带锚点的时隙顺序：`uwb/phy.ts#rdmIeBytes`、`uwb/phy.ts#RDM_ENTRY_BYTES`（每台 3 字节）、`uwb/frames.ts#UwbInfo` 的 `schedule`。加入/退出的管理动作未建。`@uwb-slot-budget` |
-| SRRR IE（SP3 Ranging Request Reports IE）§10.32.9.9 | 已发布 | 未建模 | **未偿的债。** 跟着 §10.32.8 的 SP3 一起缺。 |
+| SRRR IE（SP3 Ranging Request Reports IE）§10.32.9.9 | 已发布 | 未建模 | **未偿的债，同 §10.32.8：举证不足。** 跟着 SP3 分组测距一起缺，理由与它同一条。`@uwb-m2m` |
 
 ## 七、已发布标准：安全（§10.31、§10.33）
 

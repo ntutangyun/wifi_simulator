@@ -125,6 +125,10 @@ export const MODULES: CourseModule[] = [
   // against a Wi-Fi transmitter, so it is checked against both standards.
   { tier: 5, title: '共存', basis: ['ieee-802-15-4-2024', 'ieee-802-11'] },
   { tier: 5, title: '竞争式测距' },
+  // Many-to-many ranging (standard §10.32.6/§10.32.7). No `basis` of its own: the published
+  // revision is exactly what its tier declares, and a module that restates its tier is data that
+  // can only drift out of agreement with it (tests/course/basis.test.ts).
+  { tier: 5, title: '多对多测距' },
   { tier: 5, title: '单向测距' },
   { tier: 5, title: '角度' },
   // Sensing sits in Tier 2 and not in the draft tier on purpose. What the two lessons under it
@@ -170,6 +174,8 @@ export const COURSE_ORDER: string[] = [
   'uwb-blocks', 'uwb-slot-budget', 'uwb-position', 'uwb-geometry',
   // UWB Tier 2 — M13 coexistence
   'uwb-coexist', 'uwb-contention',
+  // UWB Tier 2 — M18 many-to-many ranging: one transmission that is both halves of an exchange
+  'uwb-m2m',
   // UWB Tier 2 — M14 other ranging modes
   'uwb-dl-tdoa', 'uwb-ul-tdoa', 'uwb-aoa',
   // UWB Tier 2 — M20 sensing: the things in the room that never answer

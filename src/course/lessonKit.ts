@@ -356,6 +356,13 @@ export const firstUwbAoa = (r: TLRecord): boolean => r.type === 'UWB_AOA'
  * the only position in this simulator that one anchor produces. */
 export const firstUwbAoaFix = (r: TLRecord): boolean => r.type === 'UWB_POSITION' && r.method === 'aoa'
 
+/** Many-to-many ranging (standard §10.32.6 SS / §10.32.7 DS): the first of a round's N
+ * transmissions. There is only one frame kind in this mode, because one transmission is both
+ * halves of an exchange at once — the question for every participant after it and the answer for
+ * every participant before it — so this predicate finds participant 0's, the one frame of the
+ * round that asks without answering anybody. */
+export const firstUwbM2m = txOf((r) => r.frame.kind === 'uwbM2m')
+
 /** Sensing: the first echo a receiver wrote down — a second arrival off one of the room's
  * reflecting objects, which the ranging side of the same receiver never sees. */
 export const firstUwbEcho = (r: TLRecord): boolean => r.type === 'UWB_ECHO'
