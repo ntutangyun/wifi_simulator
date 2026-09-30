@@ -19,6 +19,10 @@ export const FRAME_KINDS = [
   // 'uwbResp' — Ruling 4 of task-3, `docs/superpowers/specs/2026-09-29-reply-time-design.md` §4 —
   // because it is a second message a round can put on the air, not a variant of the first.
   'uwbSsDefer',
+  // Many-to-many ranging (standard §10.32.6 SS / §10.32.7 DS): one participant's transmission,
+  // a question to everyone after it and an answer to everyone before it — neither a Poll nor a
+  // Response. `docs/superpowers/specs/2026-09-30-many-to-many-design.md` §4.
+  'uwbM2m',
   'uwbRsf', 'uwbRif', 'nbPoll', 'nbResp', 'nbReport', 'uwbSp0',
 ] as const
 

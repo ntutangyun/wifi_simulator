@@ -51,6 +51,10 @@ export function frameColor(frame: FrameDesc, apId: string): number {
     case 'uwbResp':
     case 'uwbSsDefer':
     case 'uwbReport': return 0xfbbf24
+    // Many-to-many (standard §10.32.6/§10.32.7): a third shade of the same ranging amber, because
+    // this frame is neither a tag's question nor an anchor's answer alone — every participant's
+    // one transmission is both at once (design §2) — so it is not one of the two ambers above.
+    case 'uwbM2m': return 0xfde047
     // P802.15.4ab. Both trains are one colour whoever sent them — a fragment is a member of a
     // train, not one side's message — and the narrowband control plane is a second radio
     // altogether, so it gets a colour of its own rather than a shade of the ranging amber.

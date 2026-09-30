@@ -10,10 +10,10 @@ import { mmsFragmentDbm, mmsSet } from '../../src/uwb/mms'
 import { nbCenterMhz } from '../../src/uwb/nb'
 import { STRINGS } from '../../src/ui/i18n'
 import {
-  ARC_IE_BYTES, BLINK_IE_BYTES, chipsToNs, DL_COFFS_IE_BYTES, DL_TX_TIME_IE_BYTES, dlRxTimesIeBytes,
-  PHR_SYMBOLS, PHR_SYMBOL_CHIPS, PSYM_CHIPS, RCMA_IE_BYTES, RCPS_IE_BYTES, rdmIeBytes,
-  rmiFinalIeBytes, RMI_REPORT_IE_BYTES, RRMC_IE_BYTES, RRTI_IE_BYTES, SFD_SYMBOLS, STS_ACTIVE_CHIPS, STS_GAP_CHIPS,
-  SYNC_SYMBOLS, UWB_BLINK_BYTES, uwbDlFinalBytes, uwbDlPollBytes, uwbDlRespBytes, uwbRespBytes,
+  ARC_IE_BYTES, BLINK_IE_BYTES, chipsToNs, DL_COFFS_IE_BYTES, PHR_SYMBOLS, PHR_SYMBOL_CHIPS, PSYM_CHIPS,
+  RCMA_IE_BYTES, RCPS_IE_BYTES, rdmIeBytes, rmiFinalIeBytes, RMI_REPORT_IE_BYTES, RRMC_IE_BYTES, RRTI_IE_BYTES,
+  rxTimesIeBytes, SFD_SYMBOLS, STS_ACTIVE_CHIPS, STS_GAP_CHIPS, SYNC_SYMBOLS, TX_TIME_IE_BYTES, UWB_BLINK_BYTES,
+  uwbDlFinalBytes, uwbDlPollBytes, uwbDlRespBytes, uwbRespBytes,
 } from '../../src/uwb/phy'
 
 /** The decoder renders every row through this table, so the pins below name it rather than
@@ -159,12 +159,12 @@ describe('uwbFrameFields', () => {
       .toEqual(['ieRrmc', 'ieTxTime', 'ieRxTimes', 'ieCoffs'])
     expect(fields(dlFinal).filter((x) => x.key.startsWith('ie')).map((x) => x.key))
       .toEqual(['ieRrmc', 'ieTxTime', 'ieRxTimes'])
-    expect(keyed(dlPoll, 'ieTxTime')!.bytes).toBe(DL_TX_TIME_IE_BYTES)
-    expect(keyed(dlResp, 'ieRxTimes')!.bytes).toBe(dlRxTimesIeBytes(1))
+    expect(keyed(dlPoll, 'ieTxTime')!.bytes).toBe(TX_TIME_IE_BYTES)
+    expect(keyed(dlResp, 'ieRxTimes')!.bytes).toBe(rxTimesIeBytes(1))
     expect(keyed(dlResp, 'ieCoffs')!.bytes).toBe(DL_COFFS_IE_BYTES)
-    expect(keyed(dlFinal, 'ieRxTimes')!.bytes).toBe(dlRxTimesIeBytes(3))
+    expect(keyed(dlFinal, 'ieRxTimes')!.bytes).toBe(rxTimesIeBytes(3))
     // Four octets per ranging time, exactly as an RRTI IE sizes one.
-    expect(dlRxTimesIeBytes(3) - dlRxTimesIeBytes(2)).toBe(4)
+    expect(rxTimesIeBytes(3) - rxTimesIeBytes(2)).toBe(4)
     expect(keyed(dlResp, 'ieCoffs')!.value).toBe(V.coffs('1.50'))
     // the row's header and its first entry; the other two anchors follow in the same row
     expect(keyed(dlFinal, 'ieRxTimes')!.value)
@@ -180,7 +180,7 @@ describe('uwbFrameFields', () => {
       dl: { txCounter: 1_000_000, rxCounters: { 'anc-1': 999_000 }, coffs: 0.25e-6 },
     })
     expect(pollWithRx.bytes).toBe(uwbDlPollBytes(3, 1, true))
-    expect(pollWithRx.bytes).toBe(dlPoll.bytes + dlRxTimesIeBytes(1) + DL_COFFS_IE_BYTES)
+    expect(pollWithRx.bytes).toBe(dlPoll.bytes + rxTimesIeBytes(1) + DL_COFFS_IE_BYTES)
     expect(fieldSum(uwbFrameFields(pollWithRx))).toBe(pollWithRx.bytes)
     const respNoCoffs = makeResp('anc-1', '*', 'ds', 0, 0, 1, undefined, {
       txCounter: 1_200_000, rxCounters: { 'anc-0': 1_100_000 },

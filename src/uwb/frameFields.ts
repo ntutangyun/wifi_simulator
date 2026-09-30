@@ -25,10 +25,10 @@ import {
   NB_SYMBOL_US,
 } from './nb'
 import {
-  ARC_IE_BYTES, BLINK_IE_BYTES, chipsToNs, DL_COFFS_IE_BYTES, DL_TX_TIME_IE_BYTES, dlRxTimesIeBytes,
-  PHR_SYMBOLS, PHR_SYMBOL_CHIPS, PSYM_CHIPS, rdmIeBytes, RCMA_IE_BYTES, RCPS_IE_BYTES,
-  RCTU_NS, rmiFinalDeferredIeBytes, rmiFinalIeBytes, RMI_REPORT_IE_BYTES, RRMC_IE_BYTES, RRTI_IE_BYTES,
-  SFD_SYMBOLS, STS_ACTIVE_CHIPS, STS_GAP_CHIPS, SYNC_SYMBOLS, UWB_FCS_BYTES, UWB_MHR_BYTES,
+  ARC_IE_BYTES, BLINK_IE_BYTES, chipsToNs, DL_COFFS_IE_BYTES, PHR_SYMBOLS, PHR_SYMBOL_CHIPS, PSYM_CHIPS,
+  rdmIeBytes, RCMA_IE_BYTES, RCPS_IE_BYTES, RCTU_NS, rmiFinalDeferredIeBytes, rmiFinalIeBytes,
+  RMI_REPORT_IE_BYTES, RRMC_IE_BYTES, RRTI_IE_BYTES, rxTimesIeBytes, SFD_SYMBOLS, STS_ACTIVE_CHIPS,
+  STS_GAP_CHIPS, SYNC_SYMBOLS, TX_TIME_IE_BYTES, UWB_FCS_BYTES, UWB_MHR_BYTES,
 } from './phy'
 
 /** Model: the simulator runs a single ranging session, so a single PAN. */
@@ -39,6 +39,7 @@ const BROADCAST_ADDR16 = 0xffff
 const SUBTYPE: Record<UwbFrameKind, string> = {
   uwbPoll: 'UWB Poll', uwbResp: 'UWB Response', uwbFinal: 'UWB Final', uwbReport: 'UWB Report',
   uwbSsDefer: 'UWB Deferred Reply Time',
+  uwbM2m: 'UWB Many-to-Many',
   uwbBlink: 'UWB Blink',
   uwbRsf: 'MMS Ranging Fragment', uwbRif: 'MMS Integrity Fragment',
   nbPoll: 'Narrowband POLL', nbResp: 'Narrowband RESP', nbReport: 'Narrowband REPORT',
@@ -152,19 +153,25 @@ function ies(u: UwbInfo): Ie[] {
           })
         break
       }
-      // --- one-way ranging ---
-      case 'TXT':
-        // DL-TDoA: the sender's own transmit instant on its own clock (model IE).
-        out.push({
-          key: 'ieTxTime', bytes: DL_TX_TIME_IE_BYTES,
-          value: V.txTime(rctuText(u.dl?.txCounter ?? 0)),
-        })
+      // --- one-way ranging (DL-TDoA) and many-to-many (standard §10.32.6/§10.32.7) ---
+      // Both carry the same two times — the sender's own transmit instant and the arrival
+      // times it holds — so both read through `u.dl ?? u.m2m` rather than duplicating these two
+      // cases; only `u.dl` ever carries a clock offset (`COFF` below), which is why the two are
+      // still separate types (design §4: many-to-many's `coffs` is measured on receive, not sent,
+      // so a type that gave it one would have a field nothing ever fills in).
+      case 'TXT': {
+        const times = u.dl ?? u.m2m
+        if (!times) throw new Error('uwbFrameFields: TXT IE on a frame with neither dl nor m2m times')
+        out.push({ key: 'ieTxTime', bytes: TX_TIME_IE_BYTES, value: V.txTime(rctuText(times.txCounter)) })
         break
+      }
       case 'RXT': {
+        const times = u.dl ?? u.m2m
+        if (!times) throw new Error('uwbFrameFields: RXT IE on a frame with neither dl nor m2m times')
         // The RX counters the sender holds, in the round's slot order: 4 octets each.
-        const rx = Object.entries(u.dl?.rxCounters ?? {})
+        const rx = Object.entries(times.rxCounters)
         out.push({
-          key: 'ieRxTimes', bytes: dlRxTimesIeBytes(rx.length),
+          key: 'ieRxTimes', bytes: rxTimesIeBytes(rx.length),
           value: V.rxTimes(rx.length, rx.map(([id, c]) => `${id} ${grouped(c)}`).join(' · ')),
         })
         break

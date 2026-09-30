@@ -333,6 +333,10 @@ export function spanTooltip(s: LaneSpan, T: Strings['tooltips'], t?: Ns, nameOf:
         f.kind === 'uwbSsDefer' ? T.uwbSsDefer(f.uwb?.slot ?? 0) :
         f.kind === 'uwbFinal' ? T.uwbFinal :
         f.kind === 'uwbReport' ? T.uwbReport(dst) :
+        // Many-to-many (design §4): without this branch the chain falls through to the CTS label
+        // below, silently — the same bug the deferred shape caught above, this time for the frame
+        // that plays both the Poll's and the Response's role at once.
+        f.kind === 'uwbM2m' ? T.uwbM2m(f.uwb?.slot ?? 0, Object.keys(f.uwb?.m2m?.rxCounters ?? {}).length) :
         f.kind === 'uwbBlink' ? T.uwbBlink :
         f.kind === 'uwbRsf' || f.kind === 'uwbRif'
           ? T.uwbFragment(f.kind === 'uwbRsf' ? 'RSF' : 'RIF', (f.uwb?.mms?.index ?? 0) + 1, f.uwb?.mms?.of ?? 0) :

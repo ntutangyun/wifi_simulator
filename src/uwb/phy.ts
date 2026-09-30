@@ -296,24 +296,34 @@ export const BLINK_IE_BYTES = UWB_IE_HDR_BYTES + 1
 /** UL-TDoA blink: MHR 9 + blink IE 3 + FCS 2 = 14 octets (model). */
 export const UWB_BLINK_BYTES = UWB_MHR_BYTES + BLINK_IE_BYTES + UWB_FCS_BYTES
 
-/** DL-TDoA TX-time IE (model; the RMI-style content of §10.29.8.4): header + the sender's own
- * TX counter, one 4-octet ranging time. */
-export const DL_TX_TIME_IE_BYTES = UWB_IE_HDR_BYTES + 4
-/** DL-TDoA RX-times IE (model): header + one 4-octet RX counter per time carried. The times are
- * listed in the round's slot order — the Poll's RDM IE already says who sits in which slot — so
- * no address rides along with them. */
-export function dlRxTimesIeBytes(times: number): number {
+/** TX-time IE (model; the RMI-style content of §10.29.8.4): header + the sender's own TX
+ * counter, one 4-octet ranging time. Shared by DL-TDoA and many-to-many ranging (standard
+ * §10.32.6/§10.32.7) — both put "my own transmit time" on the air the same way — which is why
+ * this carries no `DL_` prefix: that prefix would be false on the many-to-many frame, which is
+ * not one-way at all (`uwbM2mBytes` below). Renamed from `DL_TX_TIME_IE_BYTES`; DL-TDoA's own
+ * callers (`dlExtraBytes` and its three frame-size functions) are unchanged in every other way. */
+export const TX_TIME_IE_BYTES = UWB_IE_HDR_BYTES + 4
+/** RX-times IE (model): header + one 4-octet RX counter per time carried. The times are listed
+ * in the round's slot order, so no address rides along with them: a DL-TDoA message reads that
+ * order from the Poll's RDM IE, and a many-to-many one from the round's own slot assignment
+ * (design §5). Shared with `TX_TIME_IE_BYTES` for the same reason; renamed from
+ * `dlRxTimesIeBytes`. DL-TDoA omits this IE outright when it carries no times at all (see
+ * `dlExtraBytes`); many-to-many does not (see `uwbM2mBytes`) — that difference lives at each
+ * caller, not in this function, which only ever prices the times themselves. */
+export function rxTimesIeBytes(times: number): number {
   return UWB_IE_HDR_BYTES + 4 * times
 }
 /** DL-TDoA clock-offset IE (model): header + a 16-bit carrier frequency offset, the responder's
- * clock offset to anchor 0 that puts its reply time on anchor 0's timebase. */
+ * clock offset to anchor 0 that puts its reply time on anchor 0's timebase. Many-to-many carries
+ * no such IE at all: the clock offset is measured on receive, not sent (design §4, consistent
+ * with the existing SS-TWR path, whose `coffs` comes from `UwbRxInfo` rather than from a frame). */
 export const DL_COFFS_IE_BYTES = UWB_IE_HDR_BYTES + 2
 
 /** The DL-TDoA content a message adds to its two-way-ranging shape: the sender's TX time, the
  * RX times it holds (none on the Poll: it opens the round) and, on a Response, its clock offset.
  * One definition, so the builders and the decoder cannot size the same frame differently. */
 export function dlExtraBytes(rxTimes: number, coffs: boolean): number {
-  return DL_TX_TIME_IE_BYTES + (rxTimes > 0 ? dlRxTimesIeBytes(rxTimes) : 0) + (coffs ? DL_COFFS_IE_BYTES : 0)
+  return TX_TIME_IE_BYTES + (rxTimes > 0 ? rxTimesIeBytes(rxTimes) : 0) + (coffs ? DL_COFFS_IE_BYTES : 0)
 }
 
 // The three functions below are each frame's one definition: uwb/frames.ts builds at these sizes
@@ -341,6 +351,49 @@ export function uwbDlFinalBytes(responders: number, coffs = false): number {
   return UWB_MHR_BYTES + RRMC_IE_BYTES + UWB_FCS_BYTES + dlExtraBytes(responders, coffs)
 }
 
+// --- Many-to-many ranging (standard §10.32.6 SS / §10.32.7 DS) ------------------
+
+/**
+ * Participant i's one transmission in a many-to-many round: MHR + RRMC + its own TX time +
+ * the RX times it holds for every participant that transmitted before it + FCS. The content is
+ * the DL-TDoA Final's shape — own TX time plus RX times (design §4) — but not its byte pattern at
+ * zero RX times: a DL-TDoA message drops the whole RX-times IE when it is empty (`dlExtraBytes`),
+ * while this one keeps the IE's 2-octet header even then, because participant 0 (`rxTimes = 0`)
+ * still has to say "none yet" rather than let the row disappear along with the count. That is
+ * also what makes the cost of every additional arrival time the RRTI IE's flat 4 octets at every
+ * step, `k = 0` to `k = 1` included: `rxTimesIeBytes`'s header is paid once, up front, not again
+ * at the first entry. 22 + 4k octets. model
+ */
+export function uwbM2mBytes(rxTimes: number): number {
+  return UWB_MHR_BYTES + RRMC_IE_BYTES + TX_TIME_IE_BYTES + rxTimesIeBytes(rxTimes) + UWB_FCS_BYTES
+}
+
+/** The many-to-many frame shape one method's round actually sends, method by method. Both are
+ * `uwbM2mBytes` today: DS-TWR's second pass (design §3) sends a frame of this very same shape a
+ * second time — its own second transmit time plus the arrival times heard in that second pass —
+ * not a running tally of both passes at once, so its longest frame never outgrows SS's. Kept as
+ * its own function, rather than folded into `uwbMaxParticipants` below, so the day a control IE
+ * rides only one method's round, that asymmetry has one place to land. */
+function m2mFrameBytes(method: 'ss' | 'ds', rxTimes: number): number {
+  return method === 'ss' ? uwbM2mBytes(rxTimes) : uwbM2mBytes(rxTimes)
+}
+
+/**
+ * Participants one many-to-many round can carry: the largest N whose last participant — the one
+ * that reports N−1 arrival times, and so sends the round's longest frame (design §4) — still fits
+ * the 127-octet PSDU (standard §16.2.7). Searched against `m2mFrameBytes`, exactly as
+ * `uwbMaxAnchors` searches `uwbLongestFrameBytes` for the two-way round it caps: no literal cap
+ * here either, and the same `UWB_ANCHOR_SEARCH_CEILING` loop bound, for the same reason (nothing
+ * about this frame's own arithmetic stops the search on its own if the ceiling were left out).
+ */
+export function uwbMaxParticipants(method: 'ss' | 'ds'): number {
+  let cap = 0
+  for (let n = 1; n <= UWB_ANCHOR_SEARCH_CEILING; n++) {
+    if (m2mFrameBytes(method, n - 1) > UWB_MAX_PSDU_BYTES) break
+    cap = n
+  }
+  return cap
+}
 
 // --- Ranging schedule units ----------------------------------------------------
 

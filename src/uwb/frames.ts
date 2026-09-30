@@ -14,7 +14,7 @@ import {
 } from './nb'
 import {
   UWB_BLINK_BYTES, UWB_REPORT_BYTES, UWB_SS_DEFER_BYTES, uwbDlFinalBytes, uwbDlPollBytes, uwbDlRespBytes,
-  uwbFinalBytes, uwbPollBytes, uwbPpduNs, uwbRespBytes, type UwbReplyTime,
+  uwbFinalBytes, uwbM2mBytes, uwbPollBytes, uwbPpduNs, uwbRespBytes, type UwbReplyTime,
 } from './phy'
 
 export type UwbFrameKind =
@@ -22,6 +22,11 @@ export type UwbFrameKind =
   // SS-TWR's deferred reply-time message (standard §10.29.6.3): its own kind, not a second use of
   // 'uwbResp' — see `makeSsDefer` below and design §4.
   | 'uwbSsDefer'
+  // Many-to-many ranging (standard §10.32.6 SS / §10.32.7 DS): one participant's transmission,
+  // which is a question to everyone after it and an answer to everyone before it — see `makeM2m`
+  // below and design §2/§4. Its own kind: the frame is neither a Poll nor a Response, and the two
+  // roles it plays are what the whole many-to-many slice teaches.
+  | 'uwbM2m'
   // P802.15.4ab: the two multi-millisecond fragment kinds and the three narrowband messages of
   // the control plane. 4ab draft 15-23/0100r2 §2.3.2 / 15-22/0381r5 Table 1.6.3.1
   | 'uwbRsf' | 'uwbRif' | 'nbPoll' | 'nbResp' | 'nbReport'
@@ -57,6 +62,26 @@ export interface UwbDlTimes {
    * carrier frequency offset its receiver measured on the Poll. A fraction is the form the
    * consumer wants (`replyTime * (1 - coffs)`); the frame decoder prints it in ppm. */
   coffs?: number
+}
+
+/**
+ * Many-to-many ranging content (standard §10.32.6 SS / §10.32.7 DS): what participant i puts on
+ * the air in its own slot — its own transmit time, plus its arrival time for every participant
+ * that transmitted before it (design §4). This is the same shape as `UwbDlTimes` above — the
+ * repo's DL-TDoA Final already carries "my own transmit time plus every arrival I hold" — but not
+ * the same type: `UwbDlTimes.coffs` has no counterpart here. A two-way exchange measures the
+ * clock offset on receive, exactly as the existing SS-TWR path does (`onResponse`'s `coffs`
+ * argument comes from `UwbRxInfo`, never from a frame), so nothing in a many-to-many round ever
+ * has a clock offset to put on the air in the first place. A type whose fields are not all
+ * shared is not a shared type, hence its own interface rather than a reuse of `UwbDlTimes` with
+ * `coffs` left undefined.
+ */
+export interface UwbM2mTimes {
+  /** The sender's own TX counter for this very frame (stamped at its RMARKER). */
+  txCounter: number
+  /** RX counters the sender holds, by peer id: every participant that transmitted before this
+   * one in the round's slot order. Empty for participant 0, which opens the round. */
+  rxCounters: Record<string, number>
 }
 
 /**
@@ -142,6 +167,10 @@ export interface UwbInfo {
   reportTimes?: { treply1: number; tround2: number }
   /** DL-TDoA (Poll, Response, Final): the sender's ranging times, for the listening tags. */
   dl?: UwbDlTimes
+  /** Many-to-many (`uwbM2m`, standard §10.32.6/§10.32.7): this participant's own transmit time
+   * and the arrival times it holds for everyone who transmitted before it. Never carries a clock
+   * offset — see `UwbM2mTimes`. */
+  m2m?: UwbM2mTimes
   /** MMS fragment (`uwbRsf` / `uwbRif`): its place in the train and its own transmit power. */
   mms?: UwbMmsFrag
   /** Narrowband message (`nbPoll` / `nbResp` / `nbReport`): the control-plane fields. */
@@ -292,6 +321,36 @@ export function makeReport(
   return uwbFrame('uwbReport', anchor, tag, UWB_REPORT_BYTES, {
     sp: 1, method: 'ds', block, round, slot, ies: ['RMI'], reportTimes: { treply1, tround2 },
   })
+}
+
+/**
+ * Participant i's one transmission in a many-to-many round (standard §10.32.6 SS / §10.32.7 DS):
+ * broadcast, carrying its own transmit time and its arrival time for every participant that
+ * transmitted before it in the round's slot order. For everyone after it in that order this frame
+ * is the question a Poll would otherwise have to send; for everyone before it, this frame is the
+ * answer a Response would otherwise have to send — one transmission does both jobs, which is why
+ * N participants need only N of these frames where taking turns as the tag would cost N² (design
+ * §1/§2). The RX-times IE rides on every one of these frames, even participant 0's empty one
+ * (`uwbM2mBytes`) — unlike a DL-TDoA message, which drops the IE outright when it would be empty.
+ */
+export function makeM2m(
+  src: string, method: 'ss' | 'ds', block: number, round: number, slot: number, times: UwbM2mTimes,
+): FrameDesc {
+  return uwbFrame('uwbM2m', src, UWB_BROADCAST, uwbM2mBytes(m2mRxCount(times)), {
+    sp: 1, method, block, round, slot, ies: ['RRMC', 'TXT', 'RXT'], m2m: copyM2m(times),
+  })
+}
+
+/** How many arrival times this participant's payload actually carries — what `makeM2m` sizes the
+ * frame at, so a message that grows an arrival time grows in uwb/phy.ts's arithmetic too. */
+function m2mRxCount(m2m: UwbM2mTimes): number {
+  return Object.keys(m2m.rxCounters).length
+}
+
+/** The times ride in the FrameDesc, which outlives the round that built them: copy, so a later
+ * slot cannot rewrite what a frame already said (as `copyDl` does for DL-TDoA). */
+function copyM2m(m2m: UwbM2mTimes): UwbM2mTimes {
+  return { ...m2m, rxCounters: { ...m2m.rxCounters } }
 }
 
 /** The blink of UL-TDoA: one 14-octet frame from the tag in its slot and nothing else, ever.
