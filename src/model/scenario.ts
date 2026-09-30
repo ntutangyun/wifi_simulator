@@ -16,8 +16,8 @@ import { FADING_DEFAULTS, RICIAN_K_DEFAULT_DB, type FadingCfg } from '../engine/
 import type { ScattererCfg } from '../engine/scatter'
 import { NB_CHANNELS } from '../uwb/nb'
 import {
-  C_M_PER_NS, mmsResponders, rstuNs, UWB_SLOT_GUARD_NS, uwbMaxAnchors, uwbNbSlotFitNs, uwbPollBytes,
-  uwbPpduNs, uwbRespBytes, uwbSlotFitNs, uwbSlotsPerTag, type UwbReplyTime,
+  C_M_PER_NS, mmsResponders, rstuNs, UWB_SLOT_GUARD_NS, uwbM2mBytes, uwbMaxAnchors, uwbMaxParticipants,
+  uwbNbSlotFitNs, uwbPollBytes, uwbPpduNs, uwbRespBytes, uwbSlotFitNs, uwbSlotsPerTag, type UwbReplyTime,
 } from '../uwb/phy'
 import type { LinkId } from './caps'
 import type { CapabilityProfile, NodeKind, Vec3 } from './types'
@@ -233,9 +233,14 @@ export interface UwbNodeCfg {
  * once ('ul-tdoa', it blinks and the infrastructure positions it). 'mms' is the narrowband-
  * assisted multi-millisecond ranging of IEEE P802.15.4ab: a two-way exchange again, but one
  * whose control plane rides a narrowband radio and whose ranging signal is a train of fragments
- * a millisecond apart (src/uwb/mms.ts, src/uwb/nb.ts).
+ * a millisecond apart (src/uwb/mms.ts, src/uwb/nb.ts). 'm2m' is many-to-many ranging (standard
+ * §10.32.6 SS-TWR / §10.32.7 DS-TWR): every UWB node in the scenario is a participant of one
+ * shared round, and each participant's single transmission answers every participant that sent
+ * before it and asks every participant that sends after it — no node is "the" tag or "the"
+ * anchor, so `uwb.role` only decides how a node is drawn
+ * (`docs/superpowers/specs/2026-09-30-many-to-many-design.md` §5).
  */
-export type UwbMode = 'twr' | 'dl-tdoa' | 'ul-tdoa' | 'mms'
+export type UwbMode = 'twr' | 'dl-tdoa' | 'ul-tdoa' | 'mms' | 'm2m'
 
 /** Whether a narrowband transmission listens before it talks: 'auto' follows the draft's rule
  * (mandatory in UNII-5, optional in UNII-3), 'on' and 'off' are the scenario's override. */
@@ -896,7 +901,7 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
       schedule: z.enum(['time', 'contention']).default('time'),
       contentionSlots: z.number().int().min(2).max(32).default(8),
       maxAttempts: z.number().int().min(1).max(10).default(3),
-      mode: z.enum(['twr', 'dl-tdoa', 'ul-tdoa', 'mms']).default('twr'),
+      mode: z.enum(['twr', 'dl-tdoa', 'ul-tdoa', 'mms', 'm2m']).default('twr'),
       tdoaClockCorrection: z.boolean().default(true),
       syncErrorNs: z.number().min(0).max(10).default(0),
       aoa: z.boolean().default(false),
@@ -963,13 +968,39 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
         // exchange to contend for (in DL-TDoA the tag never transmits, in UL-TDoA it transmits
         // once, in its own slot).
         // There are two schedules, so "not contention" and "time" are the same requirement: one
-        // mistake, one issue.
+        // mistake, one issue. Listed by name rather than "not twr", because 'm2m' is not 'twr'
+        // either and gets its own reason just below — this one is "no tag-initiated exchange to
+        // contend for", m2m's is "there is nothing left to contend for at all".
         const mode = sc.uwb.mode
-        if (mode !== 'twr' && sc.uwb.schedule !== 'time') {
+        if ((mode === 'dl-tdoa' || mode === 'ul-tdoa' || mode === 'mms') && sc.uwb.schedule !== 'time') {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             path: ['uwb'],
             message: '竞争式测距轮只属于双向测距：竞争抢的是标签发起的那一次往返交互，单向测距与 MMS 没有这样的交互可抢，请改用时间排定的会话',
+          })
+        }
+        // A many-to-many round's every slot already belongs to a specific participant (design
+        // §5): the whole round is laid out before it starts, so there is nothing left for a
+        // contention phase to draw for — unlike a two-way round, where it is the tag's own
+        // exchange that contention arbitrates.
+        if (mode === 'm2m' && sc.uwb.schedule === 'contention') {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['uwb'],
+            message: '多对多测距的每一个时隙都已经排给了确定的参与者：竞争抢的是谁能占到一个时隙，而这里时隙早就分完了，没有什么可抢的，请把 schedule 改成 time',
+          })
+        }
+        // Ruling 1 (design §2/§4): a many-to-many participant's one transmission answers *every*
+        // earlier participant at once. Embedded is the only shape that is not either meaningless
+        // or absent from the standard's many-to-many clauses: a participant's own frame already
+        // carries its own transmit time and the arrival times it holds, which *is* embedding.
+        if (mode === 'm2m' && sc.uwb.replyTime !== 'embedded') {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['uwb'],
+            message: sc.uwb.replyTime === 'fixed'
+              ? '多对多测距里，一个参与者的一次发送要同时回复排在它前面的好几个人：固定回复时间量的是从某一次接收算起的时延，而这里没有唯一的一次接收可言，这个组合没有意义，请把 replyTime 改成 embedded'
+              : '多对多测距没有独立的响应帧：参与者自己的那一次发送已经带着发送时刻与收到的每一个接收时刻，这就是嵌入式的做法；延后报文要再发一条单独的消息，标准的多对多条款里没有定义这样的消息，请把 replyTime 改成 embedded',
           })
         }
         // An anchor measures the angle of arrival on a frame the tag sends it, and only a
@@ -978,11 +1009,23 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
         // sequences, not a frame with a phase to compare. The engine guards on the mode, so the
         // flag would be silently inert here rather than wrong - the schema says so instead of
         // letting a hand-edited or imported plan carry a setting that does nothing.
-        if (mode !== 'twr' && sc.uwb.aoa) {
+        if ((mode === 'dl-tdoa' || mode === 'ul-tdoa' || mode === 'mms') && sc.uwb.aoa) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             path: ['uwb'],
             message: 'AoA 是在双向测距的响应帧上测的：TDoA 与 MMS 模式下请把它关掉',
+          })
+        }
+        // Many-to-many has neither a fixed anchor array nor a single tag to measure phase
+        // against (design §5: role only decides how a node is drawn) — a participant's one frame
+        // answers several people at once, so there is no one frame's arrival to point a boresight
+        // at either. Refused rather than left silently inert, for the same reason as the modes
+        // above.
+        if (mode === 'm2m' && sc.uwb.aoa) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['uwb'],
+            message: '到达角是锚点朝着固定的天线阵列、对准标签的一次发送测出来的：多对多里没有锚点也没有标签，每个参与者的一次发送回答的是好几个人，没有单独朝着谁的那一次发送可测，请把 aoa 关掉',
           })
         }
         // The P802.15.4ab rules. They read only `sc.uwb.mms`, and only in MMS mode: a two-way
@@ -1058,8 +1101,59 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
         }
         const anchors = uwbNodes.filter((n) => n.uwb?.role === 'anchor').length
         const tags = uwbNodes.filter((n) => n.uwb?.role === 'tag').length
-        if (anchors < 1 || tags < 1) {
+        // Many-to-many has neither a tag nor an anchor (design §5): every UWB node in the
+        // scenario is a participant, and `uwb.role` only decides how it is drawn — it may be
+        // anything, including all-tag, all-anchor or a mix, and none of that changes how the
+        // round ranges. The requirement below is a two-way/TDoA rule, not a UWB-session rule, so
+        // it is skipped for m2m rather than relaxed into accepting zero of either.
+        if (mode !== 'm2m' && (anchors < 1 || tags < 1)) {
           ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['uwb'], message: `UWB 会话至少要有一个 anchor 和一个 tag（现在是 ${anchors} 个和 ${tags} 个）` })
+        } else if (mode === 'm2m') {
+          // Every UWB node is a participant here (design §5) — not just the ones counted into
+          // `anchors`/`tags` above, which name roles that do not mean "participant" in this mode.
+          const participants = uwbNodes.length
+          // The participant cap (design §4): the last participant's frame carries every earlier
+          // participant's arrival time, so it is the round's longest one. Searched via
+          // `uwbMaxParticipants`, never a literal — the same discipline `uwbMaxAnchors` follows
+          // for the two-way cap below.
+          const cap = uwbMaxParticipants(sc.uwb.method)
+          if (participants > cap) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ['uwb'],
+              message: `一轮多对多测距最多容纳 ${cap} 个参与者（现在有 ${participants} 个）：`
+                + '排在最后的参与者带着前面每一个人的接收时刻，那一帧是全轮最长的，超过就会撑破 127 个八位组的 PSDU 上限（标准 §16.2.7）',
+            })
+          }
+          // The slot has to hold that same longest frame plus the flight guard, exactly the
+          // check every other mode gets below — aimed at the many-to-many frame's own size
+          // function (`uwbM2mBytes`) rather than `uwbLongestFrameBytes`, which has no
+          // many-to-many case yet (Task 3 gives `uwbSlotsPerTag` one; this file does not).
+          const m2mSlotNs = rstuNs(sc.uwb.slotRstu)
+          const m2mNeedNs = uwbPpduNs(uwbM2mBytes(Math.max(0, participants - 1))) + UWB_SLOT_GUARD_NS
+          if (m2mSlotNs < m2mNeedNs) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ['uwb'],
+              message: `${sc.uwb.slotRstu} RSTU 的测距时隙只有 ${(m2mSlotNs / 1000).toFixed(1)} µs，而 `
+                + `${participants} 个参与者的一轮多对多测距，最长的那一帧加上飞行时间要 ${(m2mNeedNs / 1000).toFixed(1)} µs：`
+                + '请加大 slotRstu 或减少参与者数量',
+            })
+          }
+          // One round holds the whole group, the same way a DL-TDoA round does (design §5) — not
+          // one round per tag, because m2m has no tags to count rounds by. SS sends N slots, one
+          // per participant; DS sends two passes of N, one per pass (design §3).
+          // standard §10.32.6/§10.32.7
+          const m2mRoundSlots = sc.uwb.method === 'ss' ? participants : 2 * participants
+          const m2mFits = Math.floor(sc.uwb.blockRstu / (m2mRoundSlots * sc.uwb.slotRstu))
+          if (m2mFits < 1) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ['uwb'],
+              message: `${sc.uwb.blockRstu} RSTU 的 UWB 块装不下一轮多对多测距的 ${m2mRoundSlots} `
+                + `个时隙 × ${sc.uwb.slotRstu} RSTU：请加大 blockRstu 或减小 slotRstu`,
+            })
+          }
         } else {
           // A hyperbolic fix is solved from differences, and N anchors give N−1 of them: four
           // anchors for the three a 2-D position needs. MMS measures ranges, not differences,

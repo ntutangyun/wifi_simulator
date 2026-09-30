@@ -37,6 +37,11 @@ function roundName(mode: UwbMode, method: 'ss' | 'ds'): string {
   // An MMS round is two-way, but naming it "SS-TWR" would hide what makes it different: the
   // narrowband control plane and the fragment train. 4ab draft 15-22/0381r5 §1.1
   if (mode === 'mms') return 'MMS'
+  // Many-to-many is two-way ranging too (standard §10.32.6/§10.32.7), but "SS-TWR" would hide
+  // what makes its round shape different: no single tag, every participant asking and answering
+  // in the same transmission. No round with this mode exists yet (Task 4 builds the device side
+  // of it), so this is mechanical completeness, not a tested code path.
+  if (mode === 'm2m') return `${method.toUpperCase()}-M2M`
   return METHOD_SHORT[mode]
 }
 

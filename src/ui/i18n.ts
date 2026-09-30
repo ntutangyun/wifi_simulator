@@ -737,6 +737,11 @@ export const STRINGS: Strings = {
     uwbModes: {
       twr: '双向测距（TWR）', 'dl-tdoa': '单向·下行（DL-TDoA）', 'ul-tdoa': '单向·上行（UL-TDoA）',
       mms: '多毫秒测距（MMS，802.15.4ab 草案）',
+      // Mechanical stub: `UwbMode` gained this value in the many-to-many schema slice
+      // (`src/model/scenario.ts`), and `Record<UwbMode, string>` above forces every key to exist
+      // for `tsc -b` to pass. Task 5 gives it its real hint text and editor treatment; this is
+      // only enough to keep the build compiling in the meantime.
+      m2m: '多对多测距（M2M，标准 §10.32.6/§10.32.7）',
     },
     uwbClockCorrection: '标签时钟校正', uwbClockCorrectionHint: 'DL-TDoA：只听不发的标签先用本轮“轮询帧→终结帧”这段间隔量出自己晶振的快慢，再去做到达时间差。关掉它就能看到 ±20 ppm 的后果：误差为 20 ppm 乘以从轮询帧到被计时的那一帧之间的间隔——本系列课程那种五时隙轮次里最长 6 ms，即 36 米；若有九个锚点，最后一个应答帧在轮询帧后 16 ms，则是 96 米。',
     uwbDlOnly: '只有 DL-TDoA 用得上：这是那个“只听”的标签自己做的校正，其他模式里没有只听的标签',
