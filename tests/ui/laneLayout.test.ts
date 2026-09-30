@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { ifsAt, recordsToSpans, rxFailTone, spanTooltip, topSpanAt, xForT, type LaneSpan } from '../../src/ui/laneLayout'
+import {
+  LANE_MIN_H, canvasHeightFor, ifsAt, laneAtY, laneHeightFor, recordsToSpans, rxFailTone, spanTooltip, topSpanAt, xForT,
+  type LaneSpan,
+} from '../../src/ui/laneLayout'
 import { STRINGS } from '../../src/ui/i18n'
 import { makeEmitter, type EmitFn, type TLRecord } from '../../src/model/records'
 import { initViewState } from '../../src/model/view'
@@ -283,5 +286,77 @@ describe('topSpanAt', () => {
     const ul: LaneSpan = { ...spans[0], kind: 'tx', frame: rep, frameKind: rep.kind }
     expect(spanTooltip(ul, STRINGS.tooltips)[0]).toContain('RN16')
     expect(spanTooltip(ul, STRINGS.tooltips)[1]).toContain('250 kb/s OOK')
+  })
+})
+
+describe('laneHeightFor', () => {
+  it('divides the available space evenly when it clears the floor', () => {
+    expect(laneHeightFor(3, 200)).toBeCloseTo(200 / 3)
+  })
+
+  it('does not shrink lanes below LANE_MIN_H, even for many lanes in little space', () => {
+    // Nine UWB ranging lanes in ~120 px, as observed on the 939x511 foldable —
+    // 120/9 ≈ 13.3 px would smear every label without the floor.
+    expect(laneHeightFor(9, 120)).toBe(LANE_MIN_H)
+  })
+
+  it('treats zero or negative lane counts as one lane, never dividing by zero', () => {
+    expect(laneHeightFor(0, 200)).toBe(200)
+  })
+})
+
+describe('canvasHeightFor', () => {
+  it('matches the viewport height when laneHeightFor divided evenly (no scroll needed)', () => {
+    const axisH = 18
+    const avail = 200
+    const laneH = laneHeightFor(3, avail)
+    expect(canvasHeightFor(3, laneH, axisH)).toBeCloseTo(axisH + avail)
+  })
+
+  it('exceeds the viewport height once the floor kicks in, which is what makes the container scroll', () => {
+    const axisH = 18
+    const avail = 120 // ~120 px of lane space, as on the foldable
+    const laneCount = 9
+    const laneH = laneHeightFor(laneCount, avail)
+    const canvasH = canvasHeightFor(laneCount, laneH, axisH)
+    expect(canvasH).toBeGreaterThan(axisH + avail)
+    expect(canvasH).toBe(axisH + laneCount * LANE_MIN_H)
+  })
+})
+
+describe('laneAtY', () => {
+  const axisH = 18
+  it('maps a y within the first lane to index 0', () => {
+    expect(laneAtY(axisH + 1, axisH, 20, 5)).toBe(0)
+  })
+
+  it('maps a y inside a later lane to its index, unscrolled', () => {
+    expect(laneAtY(axisH + 2 * 20 + 5, axisH, 20, 5)).toBe(2)
+  })
+
+  it('returns -1 above the axis and -1 past the last lane', () => {
+    expect(laneAtY(axisH - 1, axisH, 20, 5)).toBe(-1)
+    expect(laneAtY(axisH + 5 * 20 + 1, axisH, 20, 5)).toBe(-1)
+  })
+
+  it('still resolves the last lane once the floor has made the canvas taller than the old viewport — the scrolled case', () => {
+    // 9 lanes at the 18px floor: the last lane (index 8) sits at y well past
+    // where a 120px-tall unscrolled viewport would have ended (axisH + 120).
+    // getBoundingClientRect() on a scrolled canvas already reports this y
+    // correctly, so laneAtY needs no separate scroll offset of its own.
+    const laneH = laneHeightFor(9, 120)
+    const yInLastLane = axisH + 8 * laneH + 3
+    expect(yInLastLane).toBeGreaterThan(axisH + 120) // past the unscrolled viewport
+    expect(laneAtY(yInLastLane, axisH, laneH, 9)).toBe(8)
+  })
+
+  it('clicking near the top of a lane does not land in its neighbour', () => {
+    // Regression guard for the hit-test trap: a y just inside lane 4's band
+    // must not round into lane 3 or lane 5.
+    const laneH = 18
+    const yTopOfLane4 = axisH + 4 * laneH + 1
+    const yBottomOfLane4 = axisH + 5 * laneH - 1
+    expect(laneAtY(yTopOfLane4, axisH, laneH, 9)).toBe(4)
+    expect(laneAtY(yBottomOfLane4, axisH, laneH, 9)).toBe(4)
   })
 })

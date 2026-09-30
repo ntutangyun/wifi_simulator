@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { player, useUi } from './store'
-import { fitLaneLabel, recordsToSpans, spanTooltip, topSpanAt, xForT, type LaneSpan, rxFailTone } from './laneLayout'
+import {
+  canvasHeightFor, fitLaneLabel, laneAtY, laneHeightFor, recordsToSpans, spanTooltip, topSpanAt, xForT,
+  type LaneSpan, rxFailTone,
+} from './laneLayout'
 import { fmtNs } from './format'
 import { useStrings } from './i18n'
 import { BAND_LABEL, linkOfVirtual, linkPlanFor, physicalId } from '../model/caps'
@@ -195,7 +198,15 @@ export function TimelineStrip({ height = 190, open = true, onToggle }: TimelineS
     const parent = canvas.parentElement!
     const dpr = window.devicePixelRatio || 1
     const W = parent.clientWidth
-    const H = parent.clientHeight - LEGEND_H
+    // The viewport this strip has to work with. Once LANE_MIN_H can't fit every
+    // lane inside it, the canvas itself grows past `viewH` and `parent` — which
+    // is also the element the pointer handlers below attach to — scrolls to it
+    // (overflow-y: auto, see the JSX). `getBoundingClientRect()` in hitSpan/tipFor
+    // already reflects that scroll, so laneAtY needs no scroll offset of its own.
+    const viewH = parent.clientHeight - LEGEND_H
+    const laneCount = Math.max(1, nodeIds.length)
+    const laneH = laneHeightFor(laneCount, viewH - AXIS_H)
+    const H = canvasHeightFor(laneCount, laneH, AXIS_H)
     if (canvas.width !== W * dpr || canvas.height !== H * dpr) {
       canvas.width = W * dpr
       canvas.height = H * dpr
@@ -210,7 +221,6 @@ export function TimelineStrip({ height = 190, open = true, onToggle }: TimelineS
     // is coloured as downlink — which is exactly right when there is no BSS.
     const apId = scenario.nodes.find((n) => n.kind === 'ap')?.id ?? ''
     const laneW = W - GUTTER
-    const laneH = (H - AXIS_H) / Math.max(1, nodeIds.length)
 
     ctx.fillStyle = '#14161c'
     ctx.fillRect(0, 0, W, H)
@@ -352,9 +362,9 @@ export function TimelineStrip({ height = 190, open = true, onToggle }: TimelineS
     const { spans, a, b, laneW, laneH, nodeIds: ids } = drawn.current
     const x = e.clientX - rect.left
     const y = e.clientY - rect.top
-    if (x < GUTTER || y < AXIS_H) return null
-    const lane = Math.floor((y - AXIS_H) / laneH)
-    if (lane < 0 || lane >= ids.length) return null
+    if (x < GUTTER) return null
+    const lane = laneAtY(y, AXIS_H, laneH, ids.length)
+    if (lane < 0) return null
     const t = a + ((x - GUTTER) / laneW) * (b - a)
     const span = topSpanAt(spans, ids[lane], t)
     return span ? { span, t } : null
@@ -421,9 +431,19 @@ export function TimelineStrip({ height = 190, open = true, onToggle }: TimelineS
       {open && (<>
       <div ref={wheelRef} style={{
         position: 'relative', height: `calc(100% - ${LEGEND_H}px)`, cursor: 'crosshair',
-        // Without this the browser takes the drag and the pinch for its own
-        // scrolling and page zoom, and neither gesture ever reaches this element.
-        touchAction: 'none',
+        // This element owns two touch gestures of its own — a one-finger drag pans
+        // time, a two-finger pinch zooms — and now may also hold a canvas taller
+        // than itself once LANE_MIN_H floors the lanes. 'pan-y' is the coexistence:
+        // the browser is left to handle vertical panning as an ordinary native
+        // scroll (so it only ever does anything when there is overflow to scroll
+        // to), while every other default touch action — horizontal panning,
+        // pinch-zoom — stays disabled so the pointer handlers below see it first
+        // and keep doing their own thing with it, exactly as they did under
+        // 'none'. A single-finger vertical drag can therefore scroll the strip;
+        // a single-finger horizontal drag still moves the playhead.
+        touchAction: 'pan-y',
+        overflowY: 'auto',
+        overflowX: 'hidden',
       }}
         onPointerDown={(e) => {
           if (e.pointerType !== 'touch') {
@@ -500,16 +520,20 @@ export function TimelineStrip({ height = 190, open = true, onToggle }: TimelineS
             ))}
           </div>
         )}
-        <div style={{
-          position: 'absolute', top: 2, color: 'var(--dim)', fontSize: 10,
-          // The fold handle owns the corner, so the hint stops short of it. It also
-          // truncates rather than wrapping: at 939 px it used to run under both the
-          // handle and the time reading.
-          right: onToggle ? 132 : 92, left: '45%', textAlign: 'right',
-          whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-        }} title={L.strip.windowHint}>
-          {fmtNs(spanNs)} s · {L.strip.windowHint}
-        </div>
+      </div>
+      {/* Positioned against the strip's own outer div, a sibling of the wheel div
+          rather than a child of it, so the wheel div's new vertical scroll (once
+          LANE_MIN_H forces it) never carries this hint away with the lanes — the
+          same reason the zoom/fold buttons above live out here too. */}
+      <div style={{
+        position: 'absolute', top: 2, color: 'var(--dim)', fontSize: 10,
+        // The fold handle owns the corner, so the hint stops short of it. It also
+        // truncates rather than wrapping: at 939 px it used to run under both the
+        // handle and the time reading.
+        right: onToggle ? 132 : 92, left: '45%', textAlign: 'right',
+        whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+      }} title={L.strip.windowHint}>
+        {fmtNs(spanNs)} s · {L.strip.windowHint}
       </div>
       <div style={{
         height: LEGEND_H, display: 'flex', alignItems: 'center', gap: 10, padding: '0 10px',

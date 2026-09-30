@@ -274,6 +274,51 @@ export function xForT(t: Ns, a: Ns, b: Ns, widthPx: number): number {
   return ((t - a) / (b - a)) * widthPx
 }
 
+/**
+ * Floor under a lane's height, in px (model). The lane label is drawn at a fixed
+ * 11px "Segoe UI", which runs roughly 13-14px from ascender to descender, so a
+ * lane much shorter than that has neighbouring labels' vertical centres land on
+ * top of one another — observed as a full smear at ~11.5 px/lane (nine UWB
+ * ranging lanes on a 939x511 foldable) while ~17 px/lane still read cleanly.
+ * 18px sits just past that safe threshold, leaving a few px of clearance above
+ * and below the glyphs.
+ */
+export const LANE_MIN_H = 18
+
+/**
+ * The height of one lane, in px, for `laneCount` lanes sharing `availPx` of
+ * vertical space (the strip's height already minus the time axis). Shrinks with
+ * more lanes, but never below `LANE_MIN_H` — past that point the caller's canvas
+ * must grow taller than its container instead (see `canvasHeightFor`).
+ */
+export function laneHeightFor(laneCount: number, availPx: number): number {
+  return Math.max(LANE_MIN_H, availPx / Math.max(1, laneCount))
+}
+
+/**
+ * The canvas's own height, in px, once it must draw `laneCount` lanes of
+ * `laneH` each below an `axisH`-tall time axis. Equal to the viewport's
+ * available height when `laneH` came from dividing evenly; taller than it once
+ * `laneHeightFor` hit the floor, which is exactly when the caller's scrollable
+ * container needs to grow a scrollbar to reach the lanes past the fold.
+ */
+export function canvasHeightFor(laneCount: number, laneH: number, axisH: number): number {
+  return axisH + Math.max(1, laneCount) * laneH
+}
+
+/**
+ * Which lane index a y coordinate falls in, or -1 for the axis strip above the
+ * lanes or past the last one. `y` is expected relative to the canvas's own top
+ * (e.g. from `getBoundingClientRect()`), which already reflects the container's
+ * scroll position — so this needs no separate correction when the view has
+ * been scrolled to reach a lane below the fold.
+ */
+export function laneAtY(y: number, axisH: number, laneH: number, laneCount: number): number {
+  if (y < axisH) return -1
+  const lane = Math.floor((y - axisH) / laneH)
+  return lane >= 0 && lane < laneCount ? lane : -1
+}
+
 const HIT_ORDER: Record<SpanKind, number> = { tx: 0, rx: 1, backoff: 2, defer: 2, sifs: 2, slot: 2, nav: 3 }
 
 /** Topmost span (tx > rx > states > nav) covering time t on a lane, or null. */
