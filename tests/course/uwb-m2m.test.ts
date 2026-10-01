@@ -125,9 +125,14 @@ describe('uwb-m2m · where it sits in the course', () => {
     expect(text).toContain('§10.32.8')
     expect(text).toContain('SRRR')
     expect(text).toContain('solvePosition')
-    // …and the SP3 entry draws the distinction design §7 insists on.
-    expect(text).toContain('举证不足')
-    expect(text).toContain('uwb-clause-list.txt')
+    // The SP3 entry says what SP3 cannot do and why that makes it a separate road —
+    // it used to claim the clause's mechanism could not be established from the corpus,
+    // which was false: the published standard's full text is in the corpus, and only
+    // *this repo* holds the clause list. A limits entry asserting its own evidence is
+    // missing has to be checked against where the evidence actually is.
+    expect(text).toContain('带不了时间')
+    expect(text).not.toContain('举证不足')
+    expect(text).not.toContain('uwb-clause-list.txt')
     // 「不许写『本仿真器有简化』」, in both spellings.
     expect(text).not.toContain('有简化')
     expect(text).not.toContain('简化之处')
