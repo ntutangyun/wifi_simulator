@@ -17,15 +17,22 @@ import {
 const fieldsOf = (f: ReturnType<typeof makeResp>) => uwbFrameFields(f).users[0].subframes[0].mpdu.fields
 const fieldSum = (f: ReturnType<typeof makeResp>) => fieldsOf(f).reduce((s, x) => s + x.bytes, 0)
 
-describe('the initiation-only message does not grow with the anchor count (design §2)', () => {
-  it('is 14 octets at 1, 4 and 9 anchors', () => {
-    for (const a of [1, 4, 9]) expect(uwbInitBytes(a)).toBe(14)
+describe('the initiation-only message cannot grow with the anchor count: it takes no such argument (design §2)', () => {
+  it('is a flat 14 octets', () => {
+    expect(uwbInitBytes()).toBe(14)
     expect(uwbPollBytes(4)).toBe(39) // today's value, unchanged
   })
 
-  it('makeInit builds the 14-octet frame, carrying only RRMC', () => {
+  it('makeInit builds the 14-octet frame, carrying only RRMC, under its own kind', () => {
     const f = makeInit('tag', 'ss', 2, 1)
-    expect(f.kind).toBe('uwbPoll')
+    // Fix round 1: this is not a lighter Poll. The standard's own figure (§10.34) draws the
+    // control message and the ranging initiation message as two separate frames; this engine
+    // fuses them in a validity window's first round only, so a later round's message is the one
+    // of those two standard messages that remains — not a variant of the one that is gone. A
+    // distinct kind says that; reusing 'uwbPoll' would hide it, the way a second use of 'uwbResp'
+    // would have hidden the deferred reply-time message and the many-to-many frame earlier on
+    // this branch.
+    expect(f.kind).toBe('uwbInit')
     expect(f.bytes).toBe(14)
     expect(f.uwb!.ies).toEqual(['RRMC'])
     // No schedule field at all (Ruling 3): the responder's slot table comes from the still-valid
@@ -59,7 +66,7 @@ describe('an RMNR frame is a header-only IE and nothing else (standard §10.34.2
 describe('says what the first round saves against the ones after it (design §2)', () => {
   it('is 13 + 3A octets, for A = 1, 4, 9', () => {
     for (const a of [1, 4, 9]) {
-      expect(uwbPollBytes(a) - uwbInitBytes(a)).toBe(13 + 3 * a)
+      expect(uwbPollBytes(a) - uwbInitBytes()).toBe(13 + 3 * a)
     }
   })
 })

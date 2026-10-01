@@ -497,6 +497,9 @@ export interface Strings {
     /** SS-TWR with a deferred reply time (standard §10.29.6.3): the reply time in a message
      * of its own, a slot later than the Response it describes. */
     uwbSsDefer: (slot: number) => string
+    /** The initiation-only message a later round of a valid RCM carries (standard §10.32.9.1):
+     * no anchor list to quote, unlike `uwbPoll` — the slot table is still the earlier round's. */
+    uwbInit: string
     /** Many-to-many ranging (standard §10.32.6/§10.32.7): the slot this participant transmitted in
      * and how many arrival times it reported alongside its own transmit time. */
     uwbM2m: (slot: number, rxTimes: number) => string
@@ -976,6 +979,7 @@ export const STRINGS: Strings = {
       ampRfid: 'AMP RFID 命令帧', ampBsReply: '反向散射应答',
       uwbPoll: 'UWB 轮询帧', uwbResp: 'UWB 响应帧', uwbFinal: 'UWB 终结帧', uwbReport: 'UWB 测量报告帧',
       uwbSsDefer: 'UWB 延后报文',
+      uwbInit: 'UWB 测距启动帧',
       uwbM2m: 'UWB 多对多测距帧',
       uwbRmnr: 'UWB 测距消息未收到帧（RMNR）',
       uwbBlink: 'UWB 闪发帧',
@@ -1003,6 +1007,7 @@ export const STRINGS: Strings = {
       uwbPoll: '标签用它开启一轮测距：一帧广播的 UWB 帧，列出参与的锚点及其时隙顺序。它的发送时刻由标签自己的测距计数器读出，是后续所有距离计算的第一个时间戳。',
       uwbResp: '某一个锚点在它自己的测距时隙里的回答。在 SS-TWR 下，它还会带上锚点测得的回复时间，标签靠它才能从往返时间里减去锚点的处理时延。',
       uwbSsDefer: 'SS-TWR 延后回复时间下，锚点发响应帧的那一刻还不知道自己这次发送的时间戳，只能先空手作答。等它把发送时刻真正读回来，才用这一帧单独补给标签——回复时间因此是一条独立的消息，占自己的时隙，而不是响应帧的一部分。',
+      uwbInit: '标签开启每一轮测距，本来要靠一帧轮询帧同时做两件事：告诉各锚点这一轮谁在哪个时隙答（配置），并打下这一轮计时的第一个时间戳（启动）。当更早一轮轮询帧定下的时隙表还在有效期内，标签就只发这一帧——没有 ARC，没有 RDM，只剩启动这一半。标准里这两件事本来就是两帧（§10.34 的插图画的正是两帧），本仿真器只在有效期开始的那一轮把它们合成一帧；往后的几轮，这一帧才是两者之中仍然要发的那一个。',
       uwbM2m: '多对多测距里，每台设备只发这一种帧：带着自己的发送时刻，加上它听到的、排在它前面每一个参与者的到达时刻。对排在它后面的参与者，这一帧是「问」；对排在它前面的参与者，它自己就是「答」——一次发送顶两份活，N 台设备因此只需要 N 个时隙，就能量出全部 N(N−1)/2 条距离，而不必像轮流当标签那样耗费 N² 个。',
       uwbRmnr: '响应方手里还握着一条仍然有效的控制消息，却没收到这一轮的启动消息——它不像沉默超时那样把自己的时隙空出来，而是在里面发出这一帧。RMNR 信息元没有任何内容字段，它携带的两条信息全靠「发在哪、什么时候发」来传递：发出来这件事本身，就是「你的控制消息我收到了」；发的是 RMNR 而不是一次按时的回答，就是「这一轮的启动消息我没收到」。',
       uwbFinal: '标签在 DS-TWR 一轮末尾发出的帧：广播它测得的往返时间和回复时间，让每个锚点能把它们与自己的一对时间合并，把两边时钟的偏差一起抵消掉。',
@@ -1032,6 +1037,7 @@ export const STRINGS: Strings = {
       uwbPoll: '各个锚点按轮询帧分配的测距时隙依次作答。某个时隙如果一直沉默，就是一次超时：该锚点这一轮不贡献距离。',
       uwbResp: '在 SS-TWR 下，标签此时已经拿齐所需的一切，可以直接算出距离。在 DS-TWR 下，它会等所有锚点答完，再发出终结帧。',
       uwbSsDefer: '标签收到这份回复时间，从对该锚点的往返时间里减去它，就算出了到这个锚点的距离。各锚点的延后报文互不相干，谁先送到，标签就先测出到谁的距离。',
+      uwbInit: '各个锚点照着更早一轮轮询帧给出的时隙表依次作答，就像那张表刚刚又发过一遍——配置没有变，只是没有再重复它。某个时隙如果一直沉默，仍然记一次超时；若该响应方开着测距消息未收到，它会改发那一帧，而不是沉默。',
       uwbM2m: '排在它前面的每一个参与者，此刻手里已经凑齐了算这一对距离要用的全部四个时间戳，立刻能算出到它的距离；排在它后面的参与者还算不出来——要等到自己发送的那一刻才轮到它们把这一帧收进自己的时刻表。下一个参与者在下一个测距时隙接着发送，直到最后一个发完，这一轮的 N(N−1)/2 条距离才算齐。',
       uwbRmnr: '发起方由此把「这个锚点没收到启动消息」从「它不在了」或「它的回答丢了」里分出来——换作沉默超时，这三种情形在发起方看来毫无分别。这个锚点这一轮不贡献距离，但它的控制消息仍然有效：下一轮它还会照着原来的时隙表照常作答。',
       uwbFinal: '每个听到它的锚点都会在自己的时隙里回一帧测量报告；标签随即就每个锚点都集齐了四个时间戳，可以换算成距离。',
@@ -1249,6 +1255,7 @@ export const STRINGS: Strings = {
     uwbPoll: (n) => `UWB 轮询帧——标签对 ${n} 个锚点开启一轮测距`,
     uwbResp: (slot) => `测距时隙 ${slot} 内的 UWB 响应帧`,
     uwbSsDefer: (slot) => `测距时隙 ${slot} 内的 UWB 延后报文——锚点补上它那一次响应的回复时间`,
+    uwbInit: 'UWB 测距启动帧——仍沿用更早一轮的时隙表，这一轮不再重发配置',
     uwbM2m: (slot, rxTimes) => `测距时隙 ${slot} 内的 UWB 多对多帧——自己的发送时刻，外加 ${rxTimes} 个已收到的到达时刻`,
     uwbRmnr: (slot) => `测距时隙 ${slot} 内的 UWB 测距消息未收到帧——持有有效控制消息，但本轮启动消息未收到`,
     uwbFinal: 'UWB 终结帧——标签广播它测得的时间（DS-TWR）',

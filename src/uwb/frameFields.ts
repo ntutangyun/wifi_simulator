@@ -39,6 +39,7 @@ const BROADCAST_ADDR16 = 0xffff
 const SUBTYPE: Record<UwbFrameKind, string> = {
   uwbPoll: 'UWB Poll', uwbResp: 'UWB Response', uwbFinal: 'UWB Final', uwbReport: 'UWB Report',
   uwbSsDefer: 'UWB Deferred Reply Time',
+  uwbInit: 'UWB Ranging Initiation',
   uwbM2m: 'UWB Many-to-Many',
   uwbRmnr: 'UWB Ranging Message Non-Receipt',
   uwbBlink: 'UWB Blink',

@@ -292,12 +292,12 @@ export const UWB_SS_DEFER_BYTES = UWB_MHR_BYTES + RRTI_IE_BYTES + UWB_FCS_BYTES
  * message does not restate it (Ruling 3 of task 1: inventing a schedule field here would delete
  * the feature's entire saving). MHR + RRMC IE + FCS = 14 octets, independent of the anchor count.
  *
- * The anchor count is accepted and ignored, rather than left out of the signature: that
- * independence is then a property this function's own shape demonstrates, not an assumption a
- * caller has to take on faith — `tests/uwb/rmnr-frames.test.ts` pins it at several anchor counts.
- * Against the Poll's 27 + 3A (`uwbPollBytes`), each round after the first saves 13 + 3A octets:
- * exactly the ARC and RDM IEs that bought the validity window. model */
-export function uwbInitBytes(_anchors: number): number {
+ * No anchor-count parameter at all (fix round 1): a function that does not take the argument
+ * cannot depend on it, so independence from the anchor count is enforced by the type checker
+ * rather than pinned by a test that has to go looking for it. Against the Poll's 27 + 3A
+ * (`uwbPollBytes`), each round after the first saves 13 + 3A octets: exactly the ARC and RDM IEs
+ * that bought the validity window. model */
+export function uwbInitBytes(): number {
   return UWB_MHR_BYTES + RRMC_IE_BYTES + UWB_FCS_BYTES
 }
 

@@ -23,6 +23,15 @@ export type UwbFrameKind =
   // SS-TWR's deferred reply-time message (standard §10.29.6.3): its own kind, not a second use of
   // 'uwbResp' — see `makeSsDefer` below and design §4.
   | 'uwbSsDefer'
+  // The initiation-only message a later round of a valid RCM carries (standard §10.32.9.1's ARC
+  // IE, "RCM Validity Rounds"; design §2 of docs/superpowers/specs/2026-10-01-rcm-validity-
+  // design.md). Its own kind rather than a reuse of 'uwbPoll' (fix round 1 of task 1): in the
+  // standard the control message and the ranging initiation message are two separate frames —
+  // §10.34's own figure draws both — and this engine fuses them only in a validity window's first
+  // round. A later round's message is not a lighter Poll; it is the one of those two standard
+  // messages that remains, and a distinct kind says so where reusing 'uwbPoll' would hide it. See
+  // `makeInit` below.
+  | 'uwbInit'
   // Many-to-many ranging (standard §10.32.6 SS / §10.32.7 DS): one participant's transmission,
   // which is a question to everyone after it and an answer to everyone before it — see `makeM2m`
   // below and design §2/§4. Its own kind: the frame is neither a Poll nor a Response, and the two
@@ -249,9 +258,16 @@ export function makePoll(
 
 /** The tag's initiation-only message (standard §10.32.9.1's ARC IE, "RCM Validity Rounds";
  * design §2): once a round's Poll has bought `rcmValidityRounds` rounds of airtime, every round
- * after the first carries this instead — no ARC, no RDM. `kind` stays `'uwbPoll'`: this message
- * plays the same role a Poll does (it opens the round), just without the control content a still-
- * valid RCM makes redundant, and that redundancy is the whole of what tells the two apart.
+ * after the first carries this instead — no ARC, no RDM.
+ *
+ * Its own `FrameKind` (`'uwbInit'`), not a reuse of `'uwbPoll'` (fix round 1 of task 1): in the
+ * standard the control message and the ranging initiation message are two separate frames —
+ * §10.34's own figure draws both — and this engine fuses them only in a validity window's first
+ * round. A later round's message is therefore not a lighter Poll; it is the one of those two
+ * standard messages that remains, once the control message's own validity has made it unnecessary
+ * to send again. Reusing `'uwbPoll'` would say the opposite — that this is still the control
+ * message, just slimmer — and hide the one fact this slice's validity half has to show: the same
+ * reasoning `makeSsDefer` and `makeM2m` were given their own kinds for.
  *
  * It carries no schedule at all (Ruling 3 of task 1): the responder's slot table came from the
  * still-valid RCM and stays valid for the window that RCM bought, so restating it here would be
@@ -264,9 +280,7 @@ export function makePoll(
  * different content, and `makePoll`'s signature never has to grow to build either of them.
  */
 export function makeInit(tag: string, method: 'ss' | 'ds', block: number, round: number): FrameDesc {
-  // uwbInitBytes ignores its argument — this message carries no anchor list to size — so there is
-  // no anchor count to pass here at all.
-  return uwbFrame('uwbPoll', tag, '*', uwbInitBytes(0), {
+  return uwbFrame('uwbInit', tag, '*', uwbInitBytes(), {
     sp: 1, method, block, round, slot: 0, ies: ['RRMC'],
   })
 }

@@ -20,6 +20,7 @@ export type UwbTLRecord = Extract<TLRecord, { type: `UWB_${string}` }>
 const KIND_SHORT: Record<UwbFrameKind, string> = {
   uwbPoll: 'poll', uwbResp: 'resp', uwbFinal: 'final', uwbReport: 'report', uwbBlink: 'blink',
   uwbSsDefer: 'defer',
+  uwbInit: 'init',
   uwbM2m: 'm2m',
   uwbRmnr: 'rmnr',
   uwbRsf: 'RSF', uwbRif: 'RIF', nbPoll: 'nb-poll', nbResp: 'nb-resp', nbReport: 'nb-report',

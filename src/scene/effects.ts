@@ -51,6 +51,11 @@ export function frameColor(frame: FrameDesc, apId: string): number {
     case 'uwbResp':
     case 'uwbSsDefer':
     case 'uwbReport': return 0xfbbf24
+    // The initiation-only message a later round of a valid RCM carries (standard §10.32.9.1):
+    // it still opens the round, the way a Poll does, so it keeps the Poll's own amber rather than
+    // getting a shade of its own — the thing this slice needs a reader to see differently is the
+    // RMNR frame below, not this one.
+    case 'uwbInit': return 0xf59e0b
     // Many-to-many (standard §10.32.6/§10.32.7): a third shade of the same ranging amber, because
     // this frame is neither a tag's question nor an anchor's answer alone — every participant's
     // one transmission is both at once (design §2) — so it is not one of the two ambers above.

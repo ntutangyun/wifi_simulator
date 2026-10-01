@@ -371,6 +371,10 @@ export function spanTooltip(s: LaneSpan, T: Strings['tooltips'], t?: Ns, nameOf:
         f.kind === 'ampRfid' ? T.ampRfid(GEN2_CMD_NAME[f.amp?.rfid?.cmd ?? 'query']) :
         f.kind === 'ampBsReply' ? T.ampBsReply(GEN2_REPLY_NAME[f.amp?.bs?.reply ?? 'rn16'], f.amp?.bs?.slot ?? 0) :
         f.kind === 'uwbPoll' ? T.uwbPoll(f.uwb?.schedule?.length ?? 0) :
+        // Fix round 1: standard §10.32.9.1's RCM Validity Rounds. Without this branch the chain
+        // falls through to the CTS label below, silently — the same bug every other UWB shape on
+        // this chain was added to catch.
+        f.kind === 'uwbInit' ? T.uwbInit :
         f.kind === 'uwbResp' ? T.uwbResp(f.uwb?.slot ?? 0) :
         // Standard §10.29.6.3: the reply time arrives a slot later, in a message of its own.
         // Without this branch the chain falls through to the CTS label at the end — which is

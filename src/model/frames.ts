@@ -19,6 +19,13 @@ export const FRAME_KINDS = [
   // 'uwbResp' — Ruling 4 of task-3, `docs/superpowers/specs/2026-09-29-reply-time-design.md` §4 —
   // because it is a second message a round can put on the air, not a variant of the first.
   'uwbSsDefer',
+  // The initiation-only message a later round of a valid RCM carries (standard §10.32.9.1's ARC
+  // IE, "RCM Validity Rounds"). Its own kind, not a reuse of 'uwbPoll' (fix round 1 of task 1): the
+  // standard's own figure (§10.34) draws the control message and the ranging initiation message as
+  // two separate frames; this engine fuses them only in a validity window's first round, so a
+  // later round's message is the one of those two standard messages that remains — not a lighter
+  // Poll. docs/superpowers/specs/2026-10-01-rcm-validity-design.md §2
+  'uwbInit',
   // Many-to-many ranging (standard §10.32.6 SS / §10.32.7 DS): one participant's transmission,
   // a question to everyone after it and an answer to everyone before it — neither a Poll nor a
   // Response. `docs/superpowers/specs/2026-09-30-many-to-many-design.md` §4.
