@@ -1,5 +1,5 @@
 /**
- * Every empirical claim in "队列、生存期与门口丢帧", the second half of
+ * Every empirical claim in "队列、生存期与队列溢出丢弃", the second half of
  * `retries-queues` (2026-09-25 re-pacing, §2 M5).
  *
  * The scene and both variants are `retries-queues`'s, so
@@ -127,7 +127,7 @@ describe('queues · the procedure, step by step', () => {
   const rs = recs()
 
   it('step 1: a frame joins the queue while fewer than 500 wait; the 501st is turned away', () => {
-    // steps 1: 「已经有 500 帧在等，它就在门口被挡回去，连队都没进，所以永远不会有入队记录」
+    // steps 1: 「已经有 500 帧在等，它就入队失败、当场被丢弃，连队列都没进，所以永远不会有入队记录」
     for (const e of ofType(rs, 'ENQUEUE')) expect(e.depth).toBeLessThanOrEqual(DEFAULT_QUEUE_LIMIT)
     expect(Math.max(...ofType(rs, 'ENQUEUE').filter((r) => r.node === 'ap').map((r) => r.depth)))
       .toBe(DEFAULT_QUEUE_LIMIT)
@@ -196,7 +196,7 @@ describe('queues · the procedure, step by step', () => {
   })
 
   it('step 5: the four ways out of the queue are the only four the run ever uses', () => {
-    // steps 5: 「被确认；走完七次尝试被放弃；被那只钟清掉；压根没进门。」
+    // steps 5: 「被确认；走完七次尝试被放弃；在队列里超过生存期被清掉；到达时队列已满、根本没能入队。」
     const reasons = new Set(ofType(rs, 'DROP').map((r) => r.reason))
     expect([...reasons].sort()).toEqual(['lifetime', 'queueFull', 'retryLimit'])
     // and a retryLimit drop always used all seven attempts
@@ -314,7 +314,7 @@ describe('queues · the two knobs', () => {
   })
 
   it('under the short lifetime the two uploaders lose 987 frames to age that the defaults never lose', () => {
-    // 「两台上传站点因此有 987 帧老死在队列里」
+    // 「两台上传站点（STA）有 987 帧因生存期超时被丢掉」
     const aged = (rs: TLRecord[]) => drops(rs, 'lifetime', 'sta-1').length + drops(rs, 'lifetime', 'sta-2').length
     expect(aged(life100)).toBe(987)
     expect(aged(base)).toBeLessThan(20)
@@ -323,7 +323,7 @@ describe('queues · the two knobs', () => {
 
 describe('queues · head-of-line blocking in `deeper`', () => {
   it('the three frames that expired together had been queued since t = 0', () => {
-    // `deeper`: 「那三个老帧从仿真的第一个瞬间起就在队列里了……年龄上限先找到了它们，而不是信道。」
+    // `deeper`: 「那三帧从仿真的第一个瞬间起就在队列里……最后都是因为超过生存期被丢弃的，不是因为信道。」
     const rs = recs()
     const life = drops(rs, 'lifetime', 'sta-2').filter((r) => r.t === 504_465_360)
     expect(life.length).toBe(3)

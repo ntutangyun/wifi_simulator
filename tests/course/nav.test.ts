@@ -140,7 +140,7 @@ describe('nav · one long freeze, taken apart', () => {
     // spec the reader is actually shown, plus the caption's four instants.
     const air = lane('空口').spans
     const dur = lane('Duration').spans[0]
-    const a = lane('A 在熬的').spans
+    const a = lane('A 在等的').spans
 
     const freeze = ofType(recs(), 'BACKOFF_FREEZE').find((r) => r.node === 'sta-1' && r.t === 498_000)!
     expect(freeze.value).toBe(3)

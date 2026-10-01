@@ -11,7 +11,7 @@
  *
  * These pins moved here from tests/course/tier1-project.test.ts with the
  * sentences that carry them: the measured throughput and frame counts, the two
- * collision estimators, the airtime split, the deaf late start, the EIFS
+ * collision estimators, the airtime split, the late start into a frame in the air, the EIFS
  * deferrals and the three waits, and all three variants' results. The `.body!`
  * walk of the old flat shape is retired.
  */
@@ -207,7 +207,7 @@ describe('tier1-project-review · how to mark a sheet', () => {
     // capture: the overlap count against the retry count, both read off the log
     expect(s.overlaps.get('sta-1')! + s.overlaps.get('sta-2')!).toBe(4990)
     expect(s.retries.get('sta-1')! + s.retries.get('sta-2')!).toBe(2713)
-    // the deaf late start: collision records whose two starts are far apart in time
+    // the late start into a frame already in the air: collision records whose two starts are far apart
     expect(s.pairLate.get('sta-1+sta-2')).toBe(1342)
     expect(s.pairTotal.get('sta-1+sta-2')).toBe(2399)
     expect(tier1ProjectReview.numbers!.filter((b) => b.kind === 'steps').length).toBe(1)
@@ -273,7 +273,7 @@ describe('tier1-project-review · predicted against measured', () => {
 })
 
 describe('tier1-project-review · where the gap comes from', () => {
-  it('the deaf late start: 1,342 of 2,399 laptop-against-laptop collisions begin late', () => {
+  it('the late start into a frame in the air: 1,342 of 2,399 laptop-against-laptop collisions begin late', () => {
     const s = base()
     expect(s.pairTotal.get('sta-1+sta-2')).toBe(2399)
     expect(s.pairLate.get('sta-1+sta-2')).toBe(1342)
@@ -303,7 +303,7 @@ describe('tier1-project-review · where the gap comes from', () => {
     // Above preamble detection, far below energy detection. The two constants are the
     // `cca` lesson's own material now (re-pacing §7), and they stay pinned there and in
     // tests/course/cca.test.ts against CCA_PD_DBM / CCA_ED_DBM; what this file keeps is
-    // the claim the deaf late start rests on — that THIS pair of laptops falls between
+    // the claim the late start rests on — that THIS pair of laptops falls between
     // them — which is why the pin stays here with the sentence it guards.
     expect(mutual).toBeGreaterThan(CCA_PD_DBM)
     expect(mutual).toBeLessThan(CCA_ED_DBM)

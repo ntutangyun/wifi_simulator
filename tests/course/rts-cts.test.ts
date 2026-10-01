@@ -1,5 +1,5 @@
 /**
- * Every empirical claim in "让接入点大声替你预约", the second half of `hidden`
+ * Every empirical claim in "RTS/CTS：让接收方替你预约信道", the second half of `hidden`
  * (2026-09-25 re-pacing, §2 M5).
  *
  * The scene is `hidden`'s, so `lessonShapeSuite(..., { sameSceneAs: 'hidden' })`
@@ -297,9 +297,9 @@ describe('rts-cts · the sequence figure is the run', () => {
     expect([k.from, k.to, k.at]).toEqual(['ap', 'sta-1', '1186 µs'])
     expect(ack.t + ack.frame.txTimeNs).toBe(1_214_000)
 
-    // the dashed arrow: the question the other room never hears
-    const deaf = msg('听不见')
-    expect([deaf.from, deaf.to, deaf.tone]).toEqual(['sta-1', 'sta-2', 'muted'])
+    // the dashed arrow: the question the other room never receives
+    const unheard = msg('收不到')
+    expect([unheard.from, unheard.to, unheard.tone]).toEqual(['sta-1', 'sta-2', 'muted'])
     expect(ofType(rs, 'RX_START').some((r) => r.node === 'sta-2' && r.t === rts.t)).toBe(false)
     // and the reservation the answer really does put on Hidden B
     const book = msg('预约 424 µs')
