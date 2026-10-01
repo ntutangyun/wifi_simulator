@@ -1,5 +1,5 @@
 /**
- * Every empirical claim in "听见没有人回答的东西", measured against the lesson's own scene
+ * Every empirical claim in "不回话的物体留下的回波", measured against the lesson's own scene
  * and its two variants.
  *
  * The lesson quotes no number it typed: each figure comes from `src/ui/echoFacts.ts`, which

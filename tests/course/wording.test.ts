@@ -186,12 +186,6 @@ function offences(text: string, b: Ban): number {
  * When it is empty, delete it and the two tests that reference it.
  */
 const NOT_YET: readonly string[] = [
-  'uwb-contention',
-  'uwb-m2m',
-  'uwb-dl-tdoa',
-  'uwb-ul-tdoa',
-  'uwb-sensing',
-  'uwb-sensing-resolution',
   'uwb-mms',
   'uwb-mms-numbers',
   'uwb-nba-coexist',
