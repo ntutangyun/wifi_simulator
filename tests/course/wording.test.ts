@@ -157,7 +157,13 @@ const REGISTER: readonly Ban[] = [
   { bad: '辩过去' },
   { bad: '命中', allow: ['查表命中'], why: 'a table/cache hit is the ordinary term' },
   { bad: '回执' },
-  { bad: '底噪' },
+  {
+    bad: '底噪',
+    allow: ['本底噪声'],
+    why: '本底噪声 is the ordinary term for an instrument\'s or a band\'s background noise '
+      + '(uwb-nba-coexist, on what the LBT energy detect cannot hear), not the banned '
+      + 'colloquial alias of 噪声地板 that §2.1 rules out — and `ZH_TERMS` bans only 底噪 itself',
+  },
   { bad: '压根', why: 'a misspelling of 根本' },
 ]
 
@@ -176,25 +182,6 @@ function offences(text: string, b: Ban): number {
   return n
 }
 
-/**
- * The UWB track has not been swept yet — the reader asked for Wi-Fi first, then
- * UWB — so its lessons are listed here rather than left failing. The list is
- * self-checking: the assertion below says it names **exactly** the lessons that
- * still offend, so a batch cannot forget to shrink it and cannot shrink it
- * without doing the work. Same mechanism the `limits` roll-out used.
- *
- * When it is empty, delete it and the two tests that reference it.
- */
-const NOT_YET: readonly string[] = [
-  'uwb-mms',
-  'uwb-mms-numbers',
-  'uwb-nba-coexist',
-  'uwb-uwbd',
-  'uwb-acquisition',
-  'uwb-subrounds',
-  'uwb-capstone',
-]
-
 /** Which bans a lesson still breaks. */
 function broken(id: string): string[] {
   const l = LESSONS.find((x) => x.id === id)!
@@ -202,7 +189,9 @@ function broken(id: string): string[] {
 }
 
 describe('course wording · no figure of speech where a mechanism belongs', () => {
-  const swept = LESSONS.map((l) => l.id).filter((id) => !NOT_YET.includes(id))
+  // Every lesson, with no exception list. `NOT_YET` — the UWB track, which the
+  // reader asked for after Wi-Fi — is gone with the sweep that emptied it.
+  const swept = LESSONS.map((l) => l.id)
 
   // Parametrised by id, not by the lesson object: `it.each` prints every argument
   // into the test name, and a whole `Lesson` makes a failure unreadable — which
@@ -211,9 +200,16 @@ describe('course wording · no figure of speech where a mechanism belongs', () =
     expect(broken(id), `${id} still says: ${broken(id).join('、')}`).toEqual([])
   })
 
-  it('NOT_YET names exactly the lessons that still offend', () => {
-    const offenders = LESSONS.map((l) => l.id).filter((id) => broken(id).length > 0)
-    expect(offenders.sort()).toEqual([...NOT_YET].sort())
+  // What the self-checking `NOT_YET` assertion was really for, kept now that the
+  // list is gone: this rule must grade the whole course, not a shrinking subset.
+  // Three rules in this suite have reported success while grading nothing, and an
+  // exception list deleted without a floor under it is exactly how a fourth would.
+  it('grades every lesson in the course', () => {
+    expect(swept.sort()).toEqual(LESSONS.map((l) => l.id).sort())
+    // 75 when the UWB sweep landed: 44 Wi-Fi, 27 UWB, 4 AMP. A floor rather than
+    // an equality, so adding a lesson does not fail this and removing the whole
+    // track does.
+    expect(swept.length).toBeGreaterThanOrEqual(75)
   })
 })
 
@@ -229,6 +225,13 @@ describe('course wording · 捕获 names which of its two senses it means', () =
    *  - UWB: 捕获, *acquisition* — the receiver finding the packet at all and
    *    taking its timebase from it. `uwb-uwbd` glosses it in exactly those words
    *    and `uwb-acquisition` is a whole lesson about it.
+   *
+   * The UWB sweep found a third reading, and it matters here: `uwb/channel.ts`
+   * resolves two overlapping UWB receptions by LEVEL (`UWB_CAPTURE_DB`, 6 dB) and
+   * not by which preamble was locked onto first, so `uwb-contention`'s and
+   * `uwb-sensing`'s 捕获 is the capture effect without the Wi-Fi rule's
+   * order-dependence. Both lessons therefore say "到达电平明显高于" rather than
+   * repeating the 5 dB re-sync wording, which would be false about this engine.
    *
    * Both are the field's own Chinese, so neither is wrong and neither gets
    * renamed. What a reader cannot survive is meeting the second sense with no
@@ -246,9 +249,7 @@ describe('course wording · 捕获 names which of its two senses it means', () =
    * and a test asserts the two lists stay disjoint.
    */
   const SENSES = ['capture effect', 'acquisition'] as const
-  const users = LESSONS
-    .filter((l) => readerText(l).some((t) => t.includes('捕获')))
-    .filter((l) => !NOT_YET.includes(l.id))
+  const users = LESSONS.filter((l) => readerText(l).some((t) => t.includes('捕获')))
 
   it('some lesson uses it, or this rule is guarding nothing', () => {
     expect(users.length).toBeGreaterThan(0)
