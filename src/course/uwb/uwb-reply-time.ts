@@ -240,15 +240,15 @@ export const uwbReplyTime: Lesson = {
     { term: 'RSTU', plain: '测距时隙的计时单位，1 RSTU 约 833 ns' },
   ],
   picture: [
-    { heading: '一个数，和它自己测量的那一帧', text: '单边双向测距（single-sided two-way ranging, SS-TWR）里，那段等待写成 Treply = T3 − T2：T2 是锚点收到 Poll 的时刻，T3 是它发出 Response 的时刻。两个读数都取自锚点自己的计数器，一减就得，谁的钟都不用管。只有一件事不对劲——T3 是这一帧自己的发送时刻。要把 Treply 写进这一帧，发射机必须在这一帧封好之前就知道自己会在什么时候把它发出去。' },
+    { heading: '一个数，和它自己测量的那一帧', text: '单边双向测距（single-sided two-way ranging, SS-TWR）里，那段等待写成 Treply = T3 − T2：T2 是锚点收到 Poll 的时刻，T3 是它发出 Response 的时刻。两个读数都取自锚点自己的计数器，一减就得，谁的时钟都不用管。只有一件事不对劲——T3 是这一帧自己的发送时刻。要把 Treply 写进这一帧，发射机必须在这一帧封好之前就知道自己会在什么时候把它发出去。' },
     { kind: 'watch', jump: 2, heading: '那条只为一个数而发的报文', text: `载入仿真。这一轮只有三帧：${BYTES.poll} 字节的 Poll、${BYTES.respDeferred} 字节的 Response，以及一条 ${BYTES.defer} 字节的报文。跳到第三帧——它除了那个数以外什么都没装，而它存在的理由正是上一帧装不下它。` },
     {
-      kind: 'diagram', heading: '三条走法，一根时隙尺', spec: uwbReplyTimeTiming(),
+      kind: 'diagram', heading: '三条走法，同一条时隙标尺', spec: uwbReplyTimeTiming(),
       caption: `按比例画的三轮，同一把尺子。每条泳道最左边是 Poll，紧跟着的是这一轮的 Response，字节数标在条上。嵌入那一轮的 Response 最长——${BYTES.respEmbedded} 字节里有六个是那段等待；固定与延后的都只有 ${BYTES.respFixed} 字节，少掉的正是那六个。位置也不一样：延后的 Response 在第 1 个时隙的边界起发，第 2 个时隙里还要再发一条延后报文；固定的那一条却落在第 1 个时隙里面——它从 Poll 到达算起，不看时隙边界。`,
     },
     { heading: '嵌入：硬件能预约发送时刻', text: '第一条路要求发射机接受「在某个指定时刻发射」这种命令，而不是「现在就发」。能做到，T3 就在封帧之前已经是个已知数，于是那段等待可以当场算出来写进帧里，接收端收到 Response 的同时就拿到了距离。本仿真器前两课走的都是这一条。' },
     { heading: '延后：先发出去，再回头读自己的时间戳', text: '做不到预约的射频还有另一条路：Response 照发，只是不带那个数；发完之后读回自己刚才那一发的时间戳，此时 T3 已是实测值，再用一条专门的报文把它送出去。这条报文要占一个自己的时隙，所以每多一个锚点，一轮就多两个时隙而不是一个——它拿一个时隙，换掉了对硬件的那条要求。' },
-    { heading: '固定：那个数根本不上空口', text: '第三条路干脆不传：双方事先约定一个值，响应方在「收到 Poll 之后的这个固定时延处」发送。发起方知道这个值、也知道对方排在第几位，于是它自己就能把那段等待重建出来——帧里一个字节都没为它花掉。要求只是转移了：从「能预约发送时刻」变成「必须踩准那个时刻」，而踩不准有两种方式。' },
+    { heading: '固定：那个数根本不上空口', text: '第三条路干脆不传：双方事先约定一个值，响应方在「收到 Poll 之后的这个固定时延处」发送。发起方知道这个值、也知道对方排在第几位，于是它自己就能把那段等待重建出来——帧里一个字节都没为它花掉。要求只是转移了：从「能预约发送时刻」变成「必须准时发在那个时刻」，而偏离它有两种方式。' },
     { heading: '双边双向测距为什么只有两种', text: '双边双向测距（double-sided two-way ranging, DS-TWR）面对的是同一个问题的另一半：Final 要不要携带标签自己量的那两个时间。要，就是嵌入；不要，就是延后，那两个时间改由锚点的报告捎回去。标准的五种过程里，双边形态只有这两种，没有「固定」——下一课专讲这一半。' },
   ],
   numbers: [
@@ -262,7 +262,7 @@ export const uwbReplyTime: Lesson = {
       ['一轮的时隙数', 'A + 1', '2A + 1', 'A + 1'],
       [`A = ${DEMAND_ANCHORS} 时的时隙数`, ssSlots('embedded'), ssSlots('deferred'), ssSlots('fixed')],
     ] },
-    { text: `Response 相差的六个字节就是那段等待自己那一小节（RRTI IE）：两字节表头加四字节的时间。延后的那条报文是同样一小节，外加一个帧头（MAC header）与一个帧校验序列（frame check sequence, FCS）——${BYTES.defer} 字节，再加一个整时隙，比省下的六个字节贵得多。` },
+    { text: `Response 相差的六个字节就是那段等待自己那一小节（RRTI IE）：两字节表头加四字节的时间。延后的那条报文是同样一小节，外加一个帧头（MAC header）与一个帧校验序列（frame check sequence, FCS）——${BYTES.defer} 字节，再加一个整时隙，代价远大于省下的那六个字节。` },
     { kind: 'table', heading: '每种形态自己的锚点上限', head: [
       '形态', '轮里最长的一帧', '锚点上限',
     ], rows: [
@@ -283,7 +283,7 @@ export const uwbReplyTime: Lesson = {
       ['DS-TWR 嵌入', `${RANGE_M.ds} m`, `${RANGE_M.matched} m`],
       ['DS-TWR 延后', `${RANGE_M.ds} m`, `${RANGE_M.matched} m`],
     ] },
-    { text: `真值是 ${BENCH_M.toFixed(2)} m。嵌入与延后读出的字面上是同一个数：同一套算术，只是换了一辆车来运那个数——这正是本课要证的那一点。固定读出的不一样，因为它那段时延是按响应方自己的晶振数的，误差从另一扇门进来。双边的两种最接近真值，而那就是双边双向测距存在的全部理由。` },
+    { text: `真值是 ${BENCH_M.toFixed(2)} m。嵌入与延后读出的字面上是同一个数：同一套算术，只是那个数走的路径不同——这正是本课要证的那一点。固定读出的不一样，因为它那段时延是按响应方自己的晶振数的，误差的来源因此不同。双边的两种最接近真值，而那就是双边双向测距存在的全部理由。` },
     { kind: 'steps', heading: '固定形态的一轮，一步一步', items: [
       '会话里写下一个数 F，单位 RSTU。两端都有这份配置，它从此不再上空口。',
       '标签发 Poll。锚点收完整帧，给它打上到达时间戳——固定时延是从这一帧收完算起的，不是从它的第一个脉冲算起。',
@@ -291,7 +291,7 @@ export const uwbReplyTime: Lesson = {
       '标签收到 Response。它知道 F、也知道这个锚点排第几，于是把那段等待重建出来——它从来没被告知过，但它算得出。',
       '把重建出来的那段等待按时钟偏差（clock offset）缩放一下，再代进上面那条式子。距离就出来了，而空口上一个字节也没为它花过。',
     ] },
-    { heading: 'F 能取多大，两头都卡', text: `F 太大，Response 还没发完自己的时隙就到头了——接收窗口已关，整轮以超时收场，而 Poll 明明收到了。F 太小，Response 落进一个还没轮到它的时隙，那里没有人在听。所以这是一个两头都收紧的区间，而拿主意的是时隙长度与两个空口时间（airtime）：` },
+    { heading: 'F 的取值上下都有界', text: `F 太大，Response 还没发完自己的时隙就到头了——接收窗口已关，整轮以超时收场，而 Poll 明明收到了。F 太小，Response 落进一个还没轮到它的时隙，那里没有人在听。所以这是一个两头都收紧的区间，而决定它的是时隙长度与两个空口时间（airtime）：` },
     { kind: 'formula', text: '时隙 − Poll 空口时间 − 飞行时间  ≤  F  ≤  2 × 时隙 − Poll − Response − 守卫 − 飞行时间', note: `本课这一轮：时隙 ${SESSION.slotRstu} RSTU、Poll ${(uwbPpduNs(BYTES.poll) / rstuNs(1)).toFixed(1)} RSTU、Response ${(uwbPpduNs(BYTES.respFixed) / rstuNs(1)).toFixed(1)} RSTU，于是 F 只能取 ${WINDOW.lo} 到 ${WINDOW.hi} RSTU——这正是编辑器会接受的那段整数。会话的缺省值恰好是一整个时隙，${SESSION.fixedReplyRstu} RSTU，两头都留足余量。` },
     { text: `飞行时间几乎不参与：把两台设备从 ${BENCH_M} m 拉到 200 m，上界也只从 ${WINDOW.hi} 降到 ${WINDOW_FAR.hi} RSTU，整整一个 RSTU。真正会卡住人的是下界——取半个时隙、${SESSION.slotRstu / 2} RSTU，排头那个锚点就会在 ${((rstuNs(SESSION.slotRstu / 2) + uwbPpduNs(BYTES.poll)) / 1e6).toFixed(2)} ms 处发送，那时它自己的时隙还没开始。` },
   ],
@@ -302,13 +302,13 @@ export const uwbReplyTime: Lesson = {
   limits: [
     { kind: 'out-of-scope', text: '本仿真器没有任何一条空口消息能启停或重配一次测距会话（标准 §10.29.6.2 的控制与结果传输，控制那一半）：`replyTime` 是场景里写下的配置（model/scenario.ts 的 UwbSessionCfg），一轮开始之前就已定好，整场仿真都不变。真实设备要先用管理原语把会话建起来、把参数谈妥，而那条路径这里一行都没有——所以本课教的是三种形态各自的后果，不是设备怎么落到某一种形态上。' },
     { kind: 'unmodelled', text: '两端不商量这个数。真实设备可以用 RRTN IE 把「我希望的回复时延是多少」提出来，对方接受或另提一个；本仿真器里没有这个信息单元，src/uwb/frames.ts 的帧类型表里也没有一种帧承载它。三种形态是场景写死的，配置不一致的两台设备在这里不会被发现、也不会被纠正——它们只会各算各的，然后给出一个错得没有任何记录去解释的距离。' },
-    { kind: 'unmodelled', text: '固定形态下的响应方总是精确命中它自己算出的那一刻：device.ts 的 armFixedReply 把发送排在「收完 Poll 的时刻 + F + 排位」处，一纳秒不差。真实射频的收发转换、中断与排程都会让这一刻抖动，而这个抖动直接就是测距误差——Treply 错 1 ns，距离就错约 15 cm（误差是它的一半乘光速）。这是固定形态真实的弱点，本仿真器没有建模它，所以本课那张五种形态读数表里，固定那一格比真实设备上量到的干净得多。' },
+    { kind: 'unmodelled', text: '固定形态下的响应方总是精确落在它自己算出的那一刻：device.ts 的 armFixedReply 把发送排在「收完 Poll 的时刻 + F + 排位」处，一纳秒不差。真实射频的收发转换、中断与排程都会让这一刻抖动，而这个抖动直接就是测距误差——Treply 错 1 ns，距离就错约 15 cm（误差是它的一半乘光速）。这是固定形态真实的弱点，本仿真器没有建模它，所以本课那张五种形态读数表里，固定那一格比真实设备上量到的干净得多。' },
     { kind: 'model-value', text: `帧长表里每一行都是本仿真器自己的算术：帧头 ${UWB_MHR_BYTES} 字节、那一小节 ${RRTI_IE_BYTES} 字节、帧校验 ${UWB_FCS_BYTES} 字节、时隙守卫 ${UWB_SLOT_GUARD_NS} ns（uwb/phy.ts 的 UWB_MHR_BYTES、RRTI_IE_BYTES、UWB_FCS_BYTES、UWB_SLOT_GUARD_NS）。标准给的是字段清单，不是字段宽度，更没有规定守卫。所以「Response 差 ${BYTES.respEmbedded - BYTES.respFixed} 个字节」「延后报文 ${BYTES.defer} 字节」「上限从 ${CAP.dsEmbedded} 跳到 ${CAP.ssEmbedded}」这三个结论都随这些取值而定：换一种编址或另一种编码，三个数都要重算，而结论的方向不会变。` },
   ],
   sources: [
     'IEEE Std 802.15.4-2024 的 §10.29.6 列出五种双向测距过程，本课讲其中三种：§10.29.6.3 回复时间延后、§10.29.6.4 回复时间嵌入、§10.29.6.5 固定回复时间。回复时延与往返时间信息这两个信息单元在 §10.29.8.1 与 §10.29.8.4；一帧最长 127 字节的 PSDU 由 §16.2.7 的物理头字段决定；±20 ppm 的晶振容差来自 §16.4.9。这一课完全不依赖任何草案。',
     '三个取值是本仿真器自己的模型选择：2 ms 的测距时隙（来自 FiRa 的缺省配置，不是标准正文）、时隙末尾 200 ns 的飞行守卫，以及各帧信息单元的宽度——帧头 9 字节、RRTI IE 6 字节、帧校验 2 字节。固定回复时间的缺省值取一整个时隙，是从上面那条两边收紧的不等式里挑的，不是标准给的数。',
-    '本课这一轮把时间戳噪声与时钟偏差估计噪声都调成零，两端之间也没有墙。这是为了让三种形态的读数可以逐位比较——噪声打开时它们只在噪声之内一致，那件事在讲两只钟的两课里量过了。',
+    '本课这一轮把时间戳噪声与时钟偏差估计噪声都调成零，两端之间也没有墙。这是为了让三种形态的读数可以逐位比较——噪声打开时它们只在噪声之内一致，那件事在讲两端时钟的两课里量过了。',
   ],
   scenario: () => uwbReplyTimeScenario('deferred'),
   variants: [

@@ -114,7 +114,7 @@ export const uwbDeferredDs: Lesson = {
   id: 'uwb-deferred-ds',
   module: 13,
   title: '延后之后，锚点就只是一个应答器',
-  why: '上一课把单边双向测距（single-sided two-way ranging, SS-TWR）的三条走法走完了。双边双向测距（double-sided two-way ranging, DS-TWR）面对同一个问题的另一半：Final 这一帧要不要携带标签（tag）自己量的那两个时间。这不只是几十个字节的事——Final 是全轮最长的一帧，被它卡住的锚点（anchor）上限、被它撑大的时隙长度都跟着它走；而把它掏空还要多付一笔，那笔账记在锚点头上。',
+  why: '上一课把单边双向测距（single-sided two-way ranging, SS-TWR）的三条走法走完了。双边双向测距（double-sided two-way ranging, DS-TWR）面对同一个问题的另一半：Final 这一帧要不要携带标签（tag）自己量的那两个时间。这不只是几十个字节的事——Final 是全轮最长的一帧，由它决定的锚点（anchor）上限、由它决定的最短时隙都跟着它走；而让它不带时间还有一项代价，落在锚点身上。',
   outcomes: [
     '算出两种 Final 的长度，以及它们各自换来的锚点上限',
     '说清延后的 Final 为什么不能是空的、剩下那份名单是给谁用的',
@@ -128,10 +128,10 @@ export const uwbDeferredDs: Lesson = {
     { term: 'PSDU', plain: '一帧里真正装消息的那一段，最长 127 字节' },
   ],
   picture: [
-    { heading: 'Final 里那两个只有标签量得到的数', text: '双边测距的四个时间，两端各量两个。锚点量的两个（它自己的等待、它自己的往返）在它自己手里；标签量的两个却只在标签手里，而锚点非有它们不可——否则那条把两只钟消掉的式子只剩一半。嵌入形态里，这两个数逐锚点写进 Final 的测距测量信息（ranging measurement information, RMI）那一段，一帧发给所有锚点：锚点收到 Final 的同一刻就把距离算出来了。' },
+    { heading: 'Final 里那两个只有标签量得到的数', text: '双边测距的四个时间，两端各量两个。锚点量的两个（它自己的等待、它自己的往返）在它自己手里；标签量的两个却只在标签手里，而锚点非有它们不可——否则那条把两端时钟消掉的式子只剩一半。嵌入形态里，这两个数逐锚点写进 Final 的测距测量信息（ranging measurement information, RMI）那一段，一帧发给所有锚点：锚点收到 Final 的同一刻就把距离算出来了。' },
     { kind: 'watch', jump: 1, heading: `一帧 ${BYTES.finalDeferredOne} 字节的 Final`, text: `载入仿真。跳到 Final：它只有 ${BYTES.finalDeferredOne} 字节，而嵌入形态同一个场景里的 Final 有 ${BYTES.finalEmbeddedOne} 字节。再看锚点那条泳道——它这一轮里一条测距行都没有。` },
-    { heading: '那为什么不干脆发一帧空的', text: `因为锚点还要靠这一帧回答一个问题：我的 Response，标签究竟收到没有？收到了，它才该在报告相位里开口；没收到，它这一轮就该闭嘴。这个判据在引擎里就叫 finalListedMe——它读的正是 Final 里的响应方名单。所以延后的 Final 不是空的：RMI 的表头还在，每个响应方两个字节的短地址还在，收尾那两个字节的帧校验序列（frame check sequence, FCS）当然也还在，走掉的只是每个响应方四个字节的往返时间，和那一整串装着标签自己那段等待的小节。于是它每多一个锚点只长 ${RMI_FINAL_DEFERRED_ENTRY_BYTES} 个字节，而不是 ${RMI_FINAL_ENTRY_BYTES + RRTI_IE_BYTES} 个。` },
-    { heading: '锚点从此只是一个应答器', text: '这一帧一掏空，锚点手里就永远只有它自己量的那两个时间。它照样按时作答，照样把自己那两个数写进报告交回去，却再也算不出距离——它从测距的另一半参与者，退成了一个只负责作答的应答器（transponder）。标签那边什么都没少：报告一到，四个时间凑齐，距离照旧。' },
+    { heading: '那为什么不干脆发一帧空的', text: `因为锚点还要靠这一帧回答一个问题：我的 Response，标签究竟收到没有？收到了，它才该在报告相位里发送；没收到，它这一轮就该保持沉默。这个判据在引擎里就叫 finalListedMe——它读的正是 Final 里的响应方名单。所以延后的 Final 不是空的：RMI 的表头还在，每个响应方两个字节的短地址还在，收尾那两个字节的帧校验序列（frame check sequence, FCS）当然也还在，走掉的只是每个响应方四个字节的往返时间，和那一整串装着标签自己那段等待的小节。于是它每多一个锚点只长 ${RMI_FINAL_DEFERRED_ENTRY_BYTES} 个字节，而不是 ${RMI_FINAL_ENTRY_BYTES + RRTI_IE_BYTES} 个。` },
+    { heading: '锚点从此只是一个应答器', text: '这一帧一旦不带时间，锚点手里就永远只有它自己量的那两个时间。它照样按时作答，照样把自己那两个数写进报告交回去，却再也算不出距离——它从测距的另一半参与者，退成了一个只负责作答的应答器（transponder）。标签那边什么都没少：报告一到，四个时间凑齐，距离照旧。' },
   ],
   numbers: [
     {
@@ -148,8 +148,8 @@ export const uwbDeferredDs: Lesson = {
       ['锚点上限', String(CAP.dsEmbedded), String(CAP.dsDeferred)],
       [`A = ${FIG_ANCHORS} 时的最短时隙`, `${(DEMAND.dsEmbedded / 1000).toFixed(1)} µs`, `${(DEMAND.dsDeferred / 1000).toFixed(1)} µs`],
     ] },
-    { heading: '上限是算出来的，不是写下来的', text: `一帧的 PSDU（PHY service data unit）最长 ${BYTES.psdu} 字节，这是物理头（PHY header, PHR）那个长度字段能表达的极限。上限就是「轮里最长的那一帧还塞得进去」的最大锚点数：嵌入式 Final 每多一个锚点长 ${RMI_FINAL_ENTRY_BYTES + RRTI_IE_BYTES} 字节，${CAP.dsEmbedded} 个是 ${BYTES.finalEmbeddedMany} 字节，再加一个就越界，所以是 ${CAP.dsEmbedded}。延后之后它每锚点只长 ${RMI_FINAL_DEFERRED_ENTRY_BYTES} 字节，早在追上 Poll 之前就被 Poll 反超了——于是卡住这一轮的换成了 Poll（每锚点 3 字节），上限落到 ${CAP.dsDeferred}。时隙也一起松开：${FIG_ANCHORS} 个锚点时，嵌入式要 ${(DEMAND.dsEmbedded / 1000).toFixed(1)} µs 的时隙，延后的只要 ${(DEMAND.dsDeferred / 1000).toFixed(1)} µs，省下 ${((DEMAND.dsEmbedded - DEMAND.dsDeferred) / 1000).toFixed(1)} µs。` },
-    { text: `时隙数一个都没省：两种形态都是 2A + 2 个，${FIG_ANCHORS} 个锚点都是 ${uwbSlotsPerTag('ds', FIG_ANCHORS)} 个。延后没有搬走任何一个时隙，它只是把那几个时间搬了家——锚点侧的时间照旧在报告里，而报告本来就有自己的时隙。` },
+    { heading: '上限是算出来的，不是写下来的', text: `一帧的 PSDU（PHY service data unit）最长 ${BYTES.psdu} 字节，这是物理头（PHY header, PHR）那个长度字段能表达的极限。上限就是「轮里最长的那一帧还塞得进去」的最大锚点数：嵌入式 Final 每多一个锚点长 ${RMI_FINAL_ENTRY_BYTES + RRTI_IE_BYTES} 字节，${CAP.dsEmbedded} 个是 ${BYTES.finalEmbeddedMany} 字节，再加一个就越界，所以是 ${CAP.dsEmbedded}。延后之后它每锚点只长 ${RMI_FINAL_DEFERRED_ENTRY_BYTES} 字节，比 Poll 每锚点 3 字节增长得更慢，所以在 Final 触及这个极限之前，Poll 就已经成了轮里最长的一帧——于是上限由 Poll 决定，落到 ${CAP.dsDeferred}。时隙也一起松开：${FIG_ANCHORS} 个锚点时，嵌入式要 ${(DEMAND.dsEmbedded / 1000).toFixed(1)} µs 的时隙，延后的只要 ${(DEMAND.dsDeferred / 1000).toFixed(1)} µs，省下 ${((DEMAND.dsEmbedded - DEMAND.dsDeferred) / 1000).toFixed(1)} µs。` },
+    { text: `时隙数一个都没省：两种形态都是 2A + 2 个，${FIG_ANCHORS} 个锚点都是 ${uwbSlotsPerTag('ds', FIG_ANCHORS)} 个。延后没有搬走任何一个时隙，它只是把那几个时间换了一帧来携带——锚点侧的时间照旧在报告里，而报告本来就有自己的时隙。` },
     { kind: 'table', heading: '谁手里有距离', head: [
       '形态', '标签', '锚点',
     ], rows: [
@@ -164,25 +164,25 @@ export const uwbDeferredDs: Lesson = {
       '标签发 Poll，一帧问所有锚点。每个锚点给它的到达打戳。',
       `每个锚点在自己的时隙里发 ${BYTES.respOne} 字节的 Response，给自己这一发打戳。此刻它手里有自己的那段等待，但这一帧不带任何时间。`,
       '标签给每帧 Response 的到达打戳，于是它握有对每个锚点的那次往返。',
-      `标签发 Final：${BYTES.finalDeferredOne} 字节，只列出答过话的锚点，一个时间都不带。锚点收到它，知道自己被听见了，也就知道自己可以开口——但它算不出距离，因为算距离要的那两个数不在这一帧里。`,
+      `标签发 Final：${BYTES.finalDeferredOne} 字节，只列出答过话的锚点，一个时间都不带。锚点收到它，知道自己被听见了，也就知道自己该发报告——但它算不出距离，因为算距离要的那两个数不在这一帧里。`,
       `每个锚点发 ${BYTES.report} 字节的报告，把自己量的两个时间交回去。标签四个时间凑齐，算出距离。这一轮里只有它算出来了。`,
     ] },
-    { heading: '这笔账该记在谁头上', text: '如果锚点本来就不需要知道距离——它只是墙上一个替手机定位的参照点——那延后几乎是白捡的：帧短了、上限松了、时隙短了，时隙数还一个没多。如果锚点自己要用这个距离，比如它要开一扇门、或者要自己判断该不该唤醒别的东西，那延后就把这条路掐断了，除了让标签事后再告诉它一次，没有别的办法。而那条路本仿真器没有建模。' },
+    { heading: '这项代价落在谁身上', text: '如果锚点本来就不需要知道距离——它只是墙上一个替手机定位的参照点——那延后几乎没有代价：帧短了、上限松了、时隙短了，时隙数还一个没多。如果锚点自己要用这个距离，比如它要开一扇门、或者要自己判断该不该唤醒别的东西，那延后就让锚点再也拿不到这个距离，除了让标签事后再告诉它一次，没有别的办法。而那条路本仿真器没有建模。' },
   ],
   deeper: [
-    { heading: '为什么名单不能也省掉', text: `把名单也拿掉，Final 就成了一帧 ${UWB_MHR_BYTES + UWB_FCS_BYTES} 字节的纯粹标点——每个锚点都收到了它，却没有一个知道自己上一帧有没有被听见。于是要么所有锚点都在报告相位里开口（包括 Response 丢掉了的那些，它们会报出一段配不上任何往返时间的数），要么都不开口。名单是这两种坏结果之间唯一的出路，而它的代价是每个锚点两个字节。这也是这一刀设计时先定下来的一条：延后的 Final 不是空的，它是一份名单。` },
+    { heading: '为什么名单不能也省掉', text: `把名单也拿掉，Final 就成了一帧 ${UWB_MHR_BYTES + UWB_FCS_BYTES} 字节、不携带任何信息的帧——每个锚点都收到了它，却没有一个知道自己上一帧有没有被听见。于是要么所有锚点都在报告相位里发送（包括 Response 丢掉了的那些，它们会报出一段配不上任何往返时间的数），要么都不发送。名单是这两种坏结果之间唯一的出路，而它的代价是每个锚点两个字节。这也是这项设计一开始就定下的一条：延后的 Final 不是空的，它是一份名单。` },
     { heading: '一个常数，曾经压在四种形态上', text: `${CAP.dsEmbedded} 这个数从来就只属于嵌入式 Final，可它在引擎里当过所有形态的上限。单边三种形态的轮次里根本没有 Final，它们最长的一帧是 Poll，上限本该是 ${CAP.ssEmbedded}；延后的双边也一样。同样的错还有第二处：时隙长度也是按嵌入式 Final 配的，于是一个单边轮次被要求准备 ${(DEMAND.dsEmbedded / 1000).toFixed(1)} µs 的时隙，去装一帧它根本不发的帧。改法不是换一个更大的常数，而是把常数换成一个函数——问一问这一轮里最长的那一帧是哪一帧。` },
   ],
   limits: [
     { kind: 'out-of-scope', text: '本仿真器没有任何一条空口消息能启停或重配一次测距会话（标准 §10.29.6.2 那一节里控制的那一半）：Final 带不带时间是 model/scenario.ts 里 UwbSessionCfg 的一个字段，场景写死，整场仿真不变。所以本课能回答「延后之后谁手里有距离」，不能回答「两台设备怎么走到延后这一种上」；真实部署里那是会话建立时的事，而这里没有会话建立。' },
     { kind: 'unmodelled', text: '两端不商量这件事。真实设备可以用 RRTN IE 提出自己希望的回复时延、由对方接受或另议，本仿真器里没有这个信息单元，src/uwb/frames.ts 的帧类型表里也没有一种帧承载它。于是两端配置不一致这种情形在这里既不会被发现也不会被纠正：锚点会去 Final 里找两个不存在的数，然后什么都不算——而时间轴上不会有任何一行说明为什么。' },
-    { kind: 'unmodelled', text: '本仿真器的设备总是精确命中它被排定的那一刻：时隙边界由 session.ts 的 slotStartNs 算出，设备就在那一纳秒发射，所以四个时间只带接收戳那一点噪声（而本课连那点噪声也调成了零）。真实射频的收发转换、中断与排程都会让发送时刻抖动，这个抖动直接进入那段等待，而那段等待错 1 ns 就是约 15 cm 的距离误差。双边测距对它比单边宽容，因为两个乘积会抵消掉一部分，但抵消不掉的那部分仍然整个加进距离里。' },
+    { kind: 'unmodelled', text: '本仿真器的设备总是精确落在它被排定的那一刻：时隙边界由 session.ts 的 slotStartNs 算出，设备就在那一纳秒发射，所以四个时间只带接收戳那一点噪声（而本课连那点噪声也调成了零）。真实射频的收发转换、中断与排程都会让发送时刻抖动，这个抖动直接进入那段等待，而那段等待错 1 ns 就是约 15 cm 的距离误差。双边测距对它比单边宽容，因为两个乘积会抵消掉一部分，但抵消不掉的那部分仍然整个加进距离里。' },
     { kind: 'model-value', text: `这一课每一个字节数都是本仿真器自己的算术：RMI 表头 ${RMI_FINAL_FIXED_BYTES} 字节、嵌入式每响应方 ${RMI_FINAL_ENTRY_BYTES} 字节、延后每响应方 ${RMI_FINAL_DEFERRED_ENTRY_BYTES} 字节、每段回复时延一节 ${RRTI_IE_BYTES} 字节（uwb/phy.ts 里那几个常量）。标准给的是字段清单，不是字段宽度。所以「每锚点 ${RMI_FINAL_ENTRY_BYTES + RRTI_IE_BYTES} 字节对每锚点 ${RMI_FINAL_DEFERRED_ENTRY_BYTES} 字节」以及由它推出的 ${CAP.dsEmbedded} 与 ${CAP.dsDeferred} 这两个上限，都随这些取值而定——换一种编址或另一种编码，两个上限都要重算。方向不会变：延后的 Final 每锚点长得比 Poll 慢，所以上限一定落在 Poll 那一边。` },
   ],
   sources: [
     'IEEE Std 802.15.4-2024 的 §10.29.6.6 与 §10.29.6.7 是双边双向测距的两种时间信息形态——延后与嵌入；§10.29.1.2.4 给出它的计算式与用到的四个时间；§10.29.8.4 定义写这些时间段的那个信息单元，§10.29.8.1 定义写单段回复时延的那个；一帧最长 127 字节的 PSDU 由 §16.2.7 的物理头长度字段决定。这一课完全不依赖任何草案。',
     '本仿真器自己的模型取值有三类：2 ms 的测距时隙（来自 FiRa 的缺省配置，不是标准正文）、时隙末尾 200 ns 的飞行守卫，以及本课那张字节表所依据的各字段宽度（帧头 9、RMI 表头 3、嵌入式每响应方 6、延后每响应方 2、每段回复时延 6、帧校验 2）。锚点上限与最短时隙都是从这些宽度算出来的，不是标准给的数。',
-    '本课这一轮把时间戳噪声与时钟偏差估计噪声都调成零，两端之间也没有墙，所以两种形态的读数可以逐位比较。噪声打开后的散布在讲两只钟的那两课里量过。',
+    '本课这一轮把时间戳噪声与时钟偏差估计噪声都调成零，两端之间也没有墙，所以两种形态的读数可以逐位比较。噪声打开后的散布在讲两端时钟的那两课里量过。',
   ],
   scenario: () => uwbDeferredDsScenario('deferred'),
   variants: [

@@ -97,7 +97,7 @@ export const uwbIntro: Lesson = {
   id: 'uwb-intro',
   module: 12,
   title: '一台测量时间的射频',
-  why: '手机其实早就能估出自己离路由器有多远——靠的是信号听上去有多响。问题就出在这个“估”字上：一堵墙、一只挡住天线（antenna）的手，吃掉的信号比十米空气还多。射频还能问的另一个问题是：信号是什么时候到的；这就是超宽带（ultra-wideband, UWB）——而光速是一把非常可靠的尺子。这样一次测量最小可以小到什么程度？一个锚点（anchor，也就是固定在墙上的那台射频）、一部手机、四个时间戳，换来一个距离。',
+  why: '手机其实早就能估出自己离路由器有多远——靠的是接收信号的电平有多高。问题就出在这个“估”字上：一堵墙、一只挡住天线（antenna）的手，造成的衰减比十米空气还大。射频还能问的另一个问题是：信号是什么时候到的；这就是超宽带（ultra-wideband, UWB）——而光速是一把非常可靠的尺子。这样一次测量最小可以小到什么程度？一个锚点（anchor，也就是固定在墙上的那台射频）、一部手机、四个时间戳，换来一个距离。',
   outcomes: [
     '从事件日志里读出一轮测距的四个时间戳',
     '说清为什么手机量的是往返时间，锚点量的是作答时间',
@@ -114,19 +114,19 @@ export const uwbIntro: Lesson = {
     // "Loud is not the same as near" stood here until the step-1 fix wave: it said again,
     // at length, what `why` opens with — that a distance built on loudness inherits every
     // obstacle in the room — and a track's first lesson is held to 1000 words.
-    { heading: '发出的是嗒，不是嗡', text: '大多数射频会把一个音调稳稳地保持很长一段；你问接收端这个音调是从哪一刻开始的，它只能给个大概。超宽带改发码片（chip）——短到几乎刚开始就已经结束的脉冲。边沿越陡，答案越利落，能答到零点几纳秒。' },
-    { kind: 'watch', jump: 0, heading: '一问，一答', text: '把仿真载入，按下播放。被定位的那一端叫标签（tag），这里就是那部手机，日志里写作 tag-1；它发出一帧 Poll，开启一轮测距。作答的是墙上那台射频，也就是锚点，日志里写作 anchor-1。把时间线一直放大，直到看见两条泳道之间那道极窄的缝隙：那就是它们之间的空气。' },
+    { heading: '发的是短脉冲，不是持续的音调', text: '大多数射频会把一个音调稳稳地保持很长一段；你问接收端这个音调是从哪一刻开始的，它只能给个大概。超宽带改发码片（chip）——短到几乎刚开始就已经结束的脉冲。边沿越陡，到达时刻的估计就越确定，可以精确到零点几纳秒。' },
+    { kind: 'watch', jump: 0, heading: '一帧 Poll，一帧应答', text: '把仿真载入，按下播放。被定位的那一端叫标签（tag），这里就是那部手机，日志里写作 tag-1；它发出一帧 Poll，开启一轮测距。作答的是墙上那台射频，也就是锚点，日志里写作 anchor-1。把时间线一直放大，直到看见两条泳道之间那道极窄的缝隙：那就是它们之间的空气。' },
     { text: '两端都不去记自己这一帧的开头或结尾，它们记的是帧里同一个地标——RMARKER（ranging marker），在每一帧测距帧内部稍靠前一点、双方事先约定好要一起打时间戳的那个瞬间。' },
     {
-      kind: 'diagram', heading: '两只钟上的四个读数', spec: uwbIntroTiming(),
+      kind: 'diagram', heading: '两只时钟上的四个读数', spec: uwbIntroTiming(),
       caption: '按比例画：两段帧之间那 2 ms 的等待，比要测的飞行时间大五个数量级。手机减自己的两次（发 Poll、收应答）得到往返时间，锚点减自己的两次（收 Poll、发应答）得到作答时间。四条 UWB_TS 记录就是这四个时刻的计数器读数，单位是 RCTU（ranging counter time unit）。',
     },
-    { heading: '两只对不上的钟', text: '手机和锚点各用各的晶振（crystal）数时间，谁也没去对齐这两只钟。但这不要紧：每台设备减的都只是自己的两次读数，未知的起点因此被约掉。' },
+    { heading: '两只互不同步的时钟', text: '手机和锚点各用各的晶振（crystal）数时间，谁也没去对齐这两只钟。但这不要紧：每台设备减的都只是自己的两次读数，未知的起点因此被约掉。' },
     { heading: '差几厘米，算差吗', text: '两次接收的时间戳各带着一点噪声：一个脉冲被判定为“已经到达”的那一刻本身就不确定。发送端知道自己何时开火，那两个读数没有这项噪声；而所有读数都只能一格一格地取整。所以日志报出的距离会落在真值两侧几厘米——这是这台射频在正常工作，不是出了毛病。' },
     { kind: 'watch', jump: 3, text: '跳到算出距离的那一行——一行三个数，下面那套步骤讲的就是它们怎么来的。' },
   ],
   numbers: [
-    { kind: 'formula', heading: '单边双向测距（SS-TWR）', text: 'T̂prop = (Tround − Treply) / 2', note: 'Tround 是手机在自己钟上做的那次相减，Treply 是锚点在自己钟上做的那次。' },
+    { kind: 'formula', heading: '单边双向测距（SS-TWR）', text: 'T̂prop = (Tround − Treply) / 2', note: 'Tround 是手机在自己时钟上做的那次相减，Treply 是锚点在自己时钟上做的那次。' },
     { kind: 'steps', heading: '从四个计数值到米', items: [
       '手机先给自己即将发出的那个 RMARKER 打上时间戳，然后把 Poll 发出去。',
       '锚点在同一个 RMARKER 到达时给它打上时间戳。',
@@ -204,7 +204,7 @@ export const uwbIntro: Lesson = {
         'UWB 接收端读不到信号强度',
       ],
       answer: 1,
-      explain: '一扇门、一只手，吃掉的信号比好几米空气还多；而到达时间只随路径长度变化。',
+      explain: '一扇门、一只手造成的衰减，比好几米空气还大；而到达时间只随路径长度变化。',
     },
     {
       q: '一个 RCTU 是多少，它对应多长的距离？',
