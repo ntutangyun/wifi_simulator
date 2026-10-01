@@ -129,7 +129,7 @@ export const ampIntro: Lesson = {
     J('第一帧 AMP Trigger', firstAmpTrigger),
     J('标签的第一次作答', firstAmpResp),
     J('第一帧点名标签的 AMP Ack', firstAmpAckToTag),
-    J('第一次作答丢失（两个标签挤进同一时隙）', firstAmpLost),
+    J('第一次作答丢失（两个标签落在同一时隙）', firstAmpLost),
   ],
   observe: [
     '跳到第一帧 AMP Trigger，把时间条放大到能看清几十微秒：触发帧结束，隔一个 10 µs 的间隔，时隙 1 就打开。',
