@@ -23,6 +23,12 @@ export const FRAME_KINDS = [
   // a question to everyone after it and an answer to everyone before it — neither a Poll nor a
   // Response. `docs/superpowers/specs/2026-09-30-many-to-many-design.md` §4.
   'uwbM2m',
+  // The ranging message non-receipt exchange (standard §10.34): a responder that holds a valid
+  // RCM but missed this round's initiation message sends this instead of sitting silent in its
+  // slot. Its own kind, not a second use of 'uwbResp': the whole point of the lesson is that this
+  // frame appears where a response should have been, and labelling it "UWB Response" would erase
+  // exactly that. docs/superpowers/specs/2026-10-01-rcm-validity-design.md §3
+  'uwbRmnr',
   'uwbRsf', 'uwbRif', 'nbPoll', 'nbResp', 'nbReport', 'uwbSp0',
 ] as const
 

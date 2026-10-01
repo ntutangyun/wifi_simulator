@@ -14,7 +14,8 @@ import {
 } from './nb'
 import {
   UWB_BLINK_BYTES, UWB_REPORT_BYTES, UWB_SS_DEFER_BYTES, uwbDlFinalBytes, uwbDlPollBytes, uwbDlRespBytes,
-  uwbFinalBytes, uwbM2mBytes, uwbPollBytes, uwbPpduNs, uwbRespBytes, type UwbReplyTime,
+  uwbFinalBytes, uwbInitBytes, uwbM2mBytes, uwbPollBytes, uwbPpduNs, uwbRespBytes, uwbRmnrBytes,
+  type UwbReplyTime,
 } from './phy'
 
 export type UwbFrameKind =
@@ -27,6 +28,11 @@ export type UwbFrameKind =
   // below and design §2/§4. Its own kind: the frame is neither a Poll nor a Response, and the two
   // roles it plays are what the whole many-to-many slice teaches.
   | 'uwbM2m'
+  // The ranging message non-receipt exchange (standard §10.34): a responder that holds a valid
+  // RCM but missed this round's initiation message sends this instead of sitting silent in its
+  // slot. Its own kind, not a second use of 'uwbResp' — see `makeRmnr` below and design §3 of
+  // docs/superpowers/specs/2026-10-01-rcm-validity-design.md.
+  | 'uwbRmnr'
   // P802.15.4ab: the two multi-millisecond fragment kinds and the three narrowband messages of
   // the control plane. 4ab draft 15-23/0100r2 §2.3.2 / 15-22/0381r5 Table 1.6.3.1
   | 'uwbRsf' | 'uwbRif' | 'nbPoll' | 'nbResp' | 'nbReport'
@@ -241,6 +247,30 @@ export function makePoll(
   })
 }
 
+/** The tag's initiation-only message (standard §10.32.9.1's ARC IE, "RCM Validity Rounds";
+ * design §2): once a round's Poll has bought `rcmValidityRounds` rounds of airtime, every round
+ * after the first carries this instead — no ARC, no RDM. `kind` stays `'uwbPoll'`: this message
+ * plays the same role a Poll does (it opens the round), just without the control content a still-
+ * valid RCM makes redundant, and that redundancy is the whole of what tells the two apart.
+ *
+ * It carries no schedule at all (Ruling 3 of task 1): the responder's slot table came from the
+ * still-valid RCM and stays valid for the window that RCM bought, so restating it here would be
+ * this engine inventing a field the standard does not give this message. What does identify which
+ * RCM's round this is are the block and round numbers already on every frame (`UwbInfo`) — enough
+ * to ask "is my RCM still valid for this one", which is all a responder needs.
+ *
+ * Its own constructor rather than a flag on `makePoll`, for the same reason `makeSsDefer` got one
+ * instead of a flag on `makeResp` (design §4 of the reply-time slice): the two messages carry
+ * different content, and `makePoll`'s signature never has to grow to build either of them.
+ */
+export function makeInit(tag: string, method: 'ss' | 'ds', block: number, round: number): FrameDesc {
+  // uwbInitBytes ignores its argument — this message carries no anchor list to size — so there is
+  // no anchor count to pass here at all.
+  return uwbFrame('uwbPoll', tag, '*', uwbInitBytes(0), {
+    sp: 1, method, block, round, slot: 0, ies: ['RRMC'],
+  })
+}
+
 /** An anchor's Response in its slot; SS-TWR carries the reply time (RRTI) only when it is
  * embedded in this very frame — deferred and fixed carry neither, for opposite reasons (design
  * §2): deferred cannot, because the anchor does not yet know this frame's own send time, and
@@ -282,6 +312,30 @@ export function makeSsDefer(
 ): FrameDesc {
   return uwbFrame('uwbSsDefer', anchor, tag, UWB_SS_DEFER_BYTES, {
     sp: 1, method: 'ss', block, round, slot, ies: ['RRTI'], replyRctu,
+  })
+}
+
+/** The ranging message non-receipt frame (standard §10.34): a responder that holds a valid RCM but
+ * missed this round's initiation message sends this instead of sitting silent in its own slot —
+ * the slot that still-valid RCM already gave it (design §3; `uwbRmnrBytes`).
+ *
+ * `ies` carries `['RMNR']` alone — the IE has no Content field at all (§10.34.2.1) — so nothing
+ * about *what* this frame says rides in its payload: that the sender still holds the RCM, and that
+ * it did not hear this round's initiation message, are both read from the frame showing up, in
+ * this slot, instead of a timed response or silence (design §3).
+ *
+ * Its own `FrameKind` (`'uwbRmnr'`), not a second use of `'uwbResp'`, for the same reason
+ * `makeSsDefer` above got one instead of a second use of `'uwbResp'`: a timeline that labelled this
+ * frame "UWB Response" would hide the one thing it is there to show — that this is exactly where a
+ * response should have been.
+ *
+ * `method` is the shape `UwbInfo` requires of every ranging frame, filled the way `makeBlink` fills
+ * it: no ranging happens in this slot this round, so there is no TWR method behind this frame to
+ * report either.
+ */
+export function makeRmnr(anchor: string, tag: string, block: number, round: number, slot: number): FrameDesc {
+  return uwbFrame('uwbRmnr', anchor, tag, uwbRmnrBytes(), {
+    sp: 1, method: 'ss', block, round, slot, ies: ['RMNR'],
   })
 }
 

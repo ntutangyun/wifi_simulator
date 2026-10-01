@@ -382,6 +382,11 @@ export function spanTooltip(s: LaneSpan, T: Strings['tooltips'], t?: Ns, nameOf:
         // below, silently — the same bug the deferred shape caught above, this time for the frame
         // that plays both the Poll's and the Response's role at once.
         f.kind === 'uwbM2m' ? T.uwbM2m(f.uwb?.slot ?? 0, Object.keys(f.uwb?.m2m?.rxCounters ?? {}).length) :
+        // §10.34's ranging message non-receipt exchange: without this branch the chain falls
+        // through to the CTS label below, silently — the same bug the deferred and many-to-many
+        // shapes caught above, this time for the frame that stands in for a response that never
+        // came.
+        f.kind === 'uwbRmnr' ? T.uwbRmnr(f.uwb?.slot ?? 0) :
         f.kind === 'uwbBlink' ? T.uwbBlink :
         f.kind === 'uwbRsf' || f.kind === 'uwbRif'
           ? T.uwbFragment(f.kind === 'uwbRsf' ? 'RSF' : 'RIF', (f.uwb?.mms?.index ?? 0) + 1, f.uwb?.mms?.of ?? 0) :

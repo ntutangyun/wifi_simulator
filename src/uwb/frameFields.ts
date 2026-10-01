@@ -27,8 +27,8 @@ import {
 import {
   ARC_IE_BYTES, BLINK_IE_BYTES, chipsToNs, DL_COFFS_IE_BYTES, PHR_SYMBOLS, PHR_SYMBOL_CHIPS, PSYM_CHIPS,
   rdmIeBytes, RCMA_IE_BYTES, RCPS_IE_BYTES, RCTU_NS, rmiFinalDeferredIeBytes, rmiFinalIeBytes,
-  RMI_REPORT_IE_BYTES, RRMC_IE_BYTES, RRTI_IE_BYTES, rxTimesIeBytes, SFD_SYMBOLS, STS_ACTIVE_CHIPS,
-  STS_GAP_CHIPS, SYNC_SYMBOLS, TX_TIME_IE_BYTES, UWB_FCS_BYTES, UWB_MHR_BYTES,
+  RMI_REPORT_IE_BYTES, RMNR_IE_BYTES, RRMC_IE_BYTES, RRTI_IE_BYTES, rxTimesIeBytes, SFD_SYMBOLS,
+  STS_ACTIVE_CHIPS, STS_GAP_CHIPS, SYNC_SYMBOLS, TX_TIME_IE_BYTES, UWB_FCS_BYTES, UWB_MHR_BYTES,
 } from './phy'
 
 /** Model: the simulator runs a single ranging session, so a single PAN. */
@@ -40,6 +40,7 @@ const SUBTYPE: Record<UwbFrameKind, string> = {
   uwbPoll: 'UWB Poll', uwbResp: 'UWB Response', uwbFinal: 'UWB Final', uwbReport: 'UWB Report',
   uwbSsDefer: 'UWB Deferred Reply Time',
   uwbM2m: 'UWB Many-to-Many',
+  uwbRmnr: 'UWB Ranging Message Non-Receipt',
   uwbBlink: 'UWB Blink',
   uwbRsf: 'MMS Ranging Fragment', uwbRif: 'MMS Integrity Fragment',
   nbPoll: 'Narrowband POLL', nbResp: 'Narrowband RESP', nbReport: 'Narrowband REPORT',
@@ -188,6 +189,12 @@ function ies(u: UwbInfo): Ie[] {
         // UL-TDoA: the whole payload of a blink. It says who blinked and when in the schedule,
         // and nothing else — the times are the anchors' to take.
         out.push({ key: 'ieBlink', bytes: BLINK_IE_BYTES, value: V.blink(u.block, u.round) })
+        break
+      case 'RMNR':
+        // standard §10.34.2.1: "formatted without any Content field" — the row has no payload to
+        // decode, only the two things this IE conveys by being sent at all (design §3): the sender
+        // still holds the RCM, and it did not hear this round's initiation message.
+        out.push({ key: 'ieRmnr', bytes: RMNR_IE_BYTES, value: V.rmnr() })
         break
       default:
         throw new Error(`uwbFrameFields: unknown ranging IE ${ie}`)

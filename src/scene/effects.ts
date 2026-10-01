@@ -55,6 +55,12 @@ export function frameColor(frame: FrameDesc, apId: string): number {
     // this frame is neither a tag's question nor an anchor's answer alone — every participant's
     // one transmission is both at once (design §2) — so it is not one of the two ambers above.
     case 'uwbM2m': return 0xfde047
+    // The ranging message non-receipt exchange (standard §10.34): neither of the two ambers above
+    // — it is not a question or an answer at all, but a responder saying it heard the control
+    // message and missed the initiation message. A cool grey-blue marks it apart from every other
+    // ranging frame, which is the whole point of giving it a slot that would otherwise read as a
+    // silent timeout.
+    case 'uwbRmnr': return 0x94a3b8
     // P802.15.4ab. Both trains are one colour whoever sent them — a fragment is a member of a
     // train, not one side's message — and the narrowband control plane is a second radio
     // altogether, so it gets a colour of its own rather than a shade of the ranging amber.

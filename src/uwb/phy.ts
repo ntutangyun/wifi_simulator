@@ -283,6 +283,37 @@ export const UWB_REPORT_BYTES = UWB_MHR_BYTES + RMI_REPORT_IE_BYTES + UWB_FCS_BY
  * octets (`makeSsDefer` in frames.ts). */
 export const UWB_SS_DEFER_BYTES = UWB_MHR_BYTES + RRTI_IE_BYTES + UWB_FCS_BYTES
 
+// --- RCM validity window, and the non-receipt exchange it makes possible ---------------
+// standard §10.32.9.1 (ARC IE, "RCM Validity Rounds") and §10.34 (ranging message non-receipt).
+// design docs/superpowers/specs/2026-10-01-rcm-validity-design.md
+
+/** The initiation-only message a later round of a valid RCM carries (design §2): no ARC, no RDM —
+ * the responder's slot table is still the one the still-valid RCM gave it (design §2.1), so this
+ * message does not restate it (Ruling 3 of task 1: inventing a schedule field here would delete
+ * the feature's entire saving). MHR + RRMC IE + FCS = 14 octets, independent of the anchor count.
+ *
+ * The anchor count is accepted and ignored, rather than left out of the signature: that
+ * independence is then a property this function's own shape demonstrates, not an assumption a
+ * caller has to take on faith — `tests/uwb/rmnr-frames.test.ts` pins it at several anchor counts.
+ * Against the Poll's 27 + 3A (`uwbPollBytes`), each round after the first saves 13 + 3A octets:
+ * exactly the ARC and RDM IEs that bought the validity window. model */
+export function uwbInitBytes(_anchors: number): number {
+  return UWB_MHR_BYTES + RRMC_IE_BYTES + UWB_FCS_BYTES
+}
+
+/** RMNR IE (§10.34.2.1): "This IE is formatted without any Content field" — so its whole width is
+ * the two-octet element header every IE in this file carries, and nothing more. standard §10.34.2.1 */
+export const RMNR_IE_BYTES = UWB_IE_HDR_BYTES
+
+/** The ranging message non-receipt frame (standard §10.34): a responder that holds a valid RCM but
+ * missed this round's initiation message sends this instead of sitting silent in its slot.
+ * MHR + RMNR IE + FCS = 13 octets. A zero-content IE is not an empty message (design §3): showing
+ * up at all, in this responder's own slot, says both "I still hold the RCM" and "I did not hear
+ * this round's initiation message" — nothing about either claim rides in the payload. */
+export function uwbRmnrBytes(): number {
+  return UWB_MHR_BYTES + RMNR_IE_BYTES + UWB_FCS_BYTES
+}
+
 // --- One-way ranging (TDoA) message content -------------------------------------
 
 // Every ranging time below is 4 octets, exactly as the RRTI IE sizes one, and every IE

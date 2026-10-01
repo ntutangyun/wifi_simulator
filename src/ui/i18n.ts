@@ -450,6 +450,9 @@ export interface Strings {
         rxTimes: (n: number, list: string) => string
         coffs: (ppm: string) => string
         blink: (block: number, round: number) => string
+        /** §10.34's RMNR IE: no Content field at all, so there is nothing to parametrise the row
+         * with — the row names what the IE's mere presence says. */
+        rmnr: () => string
         fragment: (kind: string, index: number, of: number, msIn: number) => string
         fragmentRsf: (nMsr: number, gap: number) => string
         fragmentRif: (segments: number) => string
@@ -497,6 +500,9 @@ export interface Strings {
     /** Many-to-many ranging (standard §10.32.6/§10.32.7): the slot this participant transmitted in
      * and how many arrival times it reported alongside its own transmit time. */
     uwbM2m: (slot: number, rxTimes: number) => string
+    /** §10.34's ranging message non-receipt exchange: the slot this responder holds, standing in
+     * for the response that never came. */
+    uwbRmnr: (slot: number) => string
     uwbFinal: string; uwbReport: (dst: string) => string; uwbBlink: string
     /** P802.15.4ab: one fragment of a train ("RSF 3 of 8"), and the three narrowband messages. */
     uwbFragment: (kind: string, index: number, of: number) => string
@@ -971,6 +977,7 @@ export const STRINGS: Strings = {
       uwbPoll: 'UWB 轮询帧', uwbResp: 'UWB 响应帧', uwbFinal: 'UWB 终结帧', uwbReport: 'UWB 测量报告帧',
       uwbSsDefer: 'UWB 延后报文',
       uwbM2m: 'UWB 多对多测距帧',
+      uwbRmnr: 'UWB 测距消息未收到帧（RMNR）',
       uwbBlink: 'UWB 闪发帧',
       uwbRsf: 'MMS 测距片段（RSF）',
       uwbRif: 'MMS 完整性片段（RIF）',
@@ -997,6 +1004,7 @@ export const STRINGS: Strings = {
       uwbResp: '某一个锚点在它自己的测距时隙里的回答。在 SS-TWR 下，它还会带上锚点测得的回复时间，标签靠它才能从往返时间里减去锚点的处理时延。',
       uwbSsDefer: 'SS-TWR 延后回复时间下，锚点发响应帧的那一刻还不知道自己这次发送的时间戳，只能先空手作答。等它把发送时刻真正读回来，才用这一帧单独补给标签——回复时间因此是一条独立的消息，占自己的时隙，而不是响应帧的一部分。',
       uwbM2m: '多对多测距里，每台设备只发这一种帧：带着自己的发送时刻，加上它听到的、排在它前面每一个参与者的到达时刻。对排在它后面的参与者，这一帧是「问」；对排在它前面的参与者，它自己就是「答」——一次发送顶两份活，N 台设备因此只需要 N 个时隙，就能量出全部 N(N−1)/2 条距离，而不必像轮流当标签那样耗费 N² 个。',
+      uwbRmnr: '响应方手里还握着一条仍然有效的控制消息，却没收到这一轮的启动消息——它不像沉默超时那样把自己的时隙空出来，而是在里面发出这一帧。RMNR 信息元没有任何内容字段，它携带的两条信息全靠「发在哪、什么时候发」来传递：发出来这件事本身，就是「你的控制消息我收到了」；发的是 RMNR 而不是一次按时的回答，就是「这一轮的启动消息我没收到」。',
       uwbFinal: '标签在 DS-TWR 一轮末尾发出的帧：广播它测得的往返时间和回复时间，让每个锚点能把它们与自己的一对时间合并，把两边时钟的偏差一起抵消掉。',
       uwbReport: '锚点的测量报告：其中是只有它自己能测到的那两个时间。它们和终结帧里的数字合在一起，恰好凑齐该锚点的 DS-TWR 四时间戳等式。',
       uwbBlink: '标签的闪发帧：十四个字节，每个测距块发一次，仅此而已。它不携带任何时间——由各锚点在共享时基上给它的到达时刻打戳，这些时刻之差就定出了标签的位置。',
@@ -1025,6 +1033,7 @@ export const STRINGS: Strings = {
       uwbResp: '在 SS-TWR 下，标签此时已经拿齐所需的一切，可以直接算出距离。在 DS-TWR 下，它会等所有锚点答完，再发出终结帧。',
       uwbSsDefer: '标签收到这份回复时间，从对该锚点的往返时间里减去它，就算出了到这个锚点的距离。各锚点的延后报文互不相干，谁先送到，标签就先测出到谁的距离。',
       uwbM2m: '排在它前面的每一个参与者，此刻手里已经凑齐了算这一对距离要用的全部四个时间戳，立刻能算出到它的距离；排在它后面的参与者还算不出来——要等到自己发送的那一刻才轮到它们把这一帧收进自己的时刻表。下一个参与者在下一个测距时隙接着发送，直到最后一个发完，这一轮的 N(N−1)/2 条距离才算齐。',
+      uwbRmnr: '发起方由此把「这个锚点没收到启动消息」从「它不在了」或「它的回答丢了」里分出来——换作沉默超时，这三种情形在发起方看来毫无分别。这个锚点这一轮不贡献距离，但它的控制消息仍然有效：下一轮它还会照着原来的时隙表照常作答。',
       uwbFinal: '每个听到它的锚点都会在自己的时隙里回一帧测量报告；标签随即就每个锚点都集齐了四个时间戳，可以换算成距离。',
       uwbReport: '标签就该锚点完成 DS-TWR 计算。当足够多的锚点都报告完毕，它就解出自己的位置，这一轮结束；下一轮在下一个测距块开始。',
       uwbBlink: '标签在这个块剩下的时间里保持沉默。每个听到闪发帧的锚点把自己的到达时刻交给基础设施，由后者作差并代替标签解出位置。',
@@ -1088,6 +1097,7 @@ export const STRINGS: Strings = {
         ieRxTimes: '接收时刻信息元·发送方掌握的各到达时刻',
         ieCoffs: '时钟偏差信息元·响应锚点相对锚点 0 的偏差',
         ieBlink: '闪发信息元·单向闪发帧的内容',
+        ieRmnr: 'RMNR 信息元·测距消息未收到，无内容字段',
         mmsFragment: '片段·第几个，共几个',
         mmsShape: '序列·这个片段由什么构成',
         mmsLength: '长度·一毫秒的能量花在多长的时间里',
@@ -1159,6 +1169,7 @@ export const STRINGS: Strings = {
         rxTimes: (n, list) => `${n} 个接收时刻：${list} RCTU`,
         coffs: (ppm) => `时钟偏差 ${ppm} ppm——相对锚点 0`,
         blink: (block, round) => `闪发 · 块 ${block} · 轮 ${round}`,
+        rmnr: () => '无内容字段——仅凭出现在这个时隙本身，说明仍持有有效 RCM、但本轮启动消息未收到',
         fragment: (kind, index, of, msIn) => `${kind} 第 ${index} / ${of} 个 · 序列中的第 ${msIn} ms`,
         fragmentRsf: (nMsr, gap) => `N_MSR ${nMsr} × MMRS 符号 · 间隔 ${gap}`,
         fragmentRif: (segments) => `STS 段 ${segments} × 512 码片`,
@@ -1239,6 +1250,7 @@ export const STRINGS: Strings = {
     uwbResp: (slot) => `测距时隙 ${slot} 内的 UWB 响应帧`,
     uwbSsDefer: (slot) => `测距时隙 ${slot} 内的 UWB 延后报文——锚点补上它那一次响应的回复时间`,
     uwbM2m: (slot, rxTimes) => `测距时隙 ${slot} 内的 UWB 多对多帧——自己的发送时刻，外加 ${rxTimes} 个已收到的到达时刻`,
+    uwbRmnr: (slot) => `测距时隙 ${slot} 内的 UWB 测距消息未收到帧——持有有效控制消息，但本轮启动消息未收到`,
     uwbFinal: 'UWB 终结帧——标签广播它测得的时间（DS-TWR）',
     uwbReport: (dst) => `UWB 测量报告 → ${dst}`,
     uwbBlink: 'UWB 闪发帧 — 标签只发一次，由各锚点打时间戳（UL-TDoA）',

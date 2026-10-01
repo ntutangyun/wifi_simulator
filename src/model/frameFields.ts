@@ -41,6 +41,8 @@ export type FieldKey =
   // 802.15.4 ranging frames (uwb/frameFields.ts): MHR fields then one key per payload IE.
   | 'seqNo' | 'dstPan' | 'dstAddr16' | 'srcAddr16'
   | 'ieArc' | 'ieRdm' | 'ieRrmc' | 'ieRrti' | 'ieRmi' | 'ieRcps' | 'ieRcma'
+  // §10.34's ranging message non-receipt exchange: a header-only IE, no Content field at all.
+  | 'ieRmnr'
   // One-way ranging (model IEs): the DL-TDoA times and the UL-TDoA blink.
   | 'ieTxTime' | 'ieRxTimes' | 'ieCoffs' | 'ieBlink'
   // P802.15.4ab. A multi-millisecond fragment is a raw sequence, not a PSDU: its rows carry no
