@@ -1064,11 +1064,14 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
         // reads back unchanged.
         const { rcmValidityRounds, rmnr } = sc.uwb
         // Ruling 2 — the one refusal in this slice that exists to teach a mechanism rather than to
-        // block a misconfiguration. Scoped to 'twr' and 'dl-tdoa', the only two modes whose round
-        // ever carries the control message this rule is about (`makePoll`'s ARC + RDM + RRMC,
-        // `src/uwb/frames.ts`): the other three modes get their own reason below, because for them
-        // no value of rcmValidityRounds would ever make RMNR's state exist in the first place.
-        if ((mode === 'twr' || mode === 'dl-tdoa') && rmnr && rcmValidityRounds === 1) {
+        // block a misconfiguration. Scoped to 'twr' only: 'dl-tdoa' gets its own unconditional
+        // rmnr refusal below instead of this one, fixing a round-1 defect — this message's remedy
+        // is "raise rcmValidityRounds above 1", but DL-TDoA's own rule (also below) refuses any
+        // value above 1, so pairing the two here sent a dl-tdoa reader in a circle: rcmValidityRounds
+        // 1 + rmnr true triggered this message, rcmValidityRounds 4 + rmnr true triggered the other,
+        // and each told the reader to do what the other forbade. DL-TDoA's rmnr rule below says the
+        // one thing neither contradictory message could: rmnr cannot be used in DL-TDoA at all.
+        if (mode === 'twr' && rmnr && rcmValidityRounds === 1) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             path: ['uwb'],
@@ -1083,7 +1086,10 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
         // once and every tag in the scenario listens to that same round (see the block-fit
         // comment further down). rcmValidityRounds buys "a few more rounds under the same control
         // message", and DL-TDoA never has a next round in the same block to buy — asking for more
-        // than one is not a bigger window, it is a count with nothing left to count.
+        // than one is not a bigger window, it is a count with nothing left to count. This rule and
+        // the one right after it can both fire on the same scenario (rcmValidityRounds 4, rmnr
+        // true) without contradicting each other: each prescribes a change the other does not
+        // forbid, which is exactly what the round-1 fix restored.
         if (mode === 'dl-tdoa' && rcmValidityRounds !== 1) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
@@ -1091,6 +1097,23 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
             message: 'DL-TDoA 的一个块只有一轮：锚点们跑一次，场景里每个标签都听同一轮测距。'
               + 'rcmValidityRounds 买的是“这条控制消息还能再管几轮”的空口时间，而这里一个块里根本没有下一轮可管，'
               + '请把 rcmValidityRounds 改回 1',
+          })
+        }
+        // DL-TDoA + rmnr (round-1 fix): refused unconditionally, whatever rcmValidityRounds is set
+        // to — not "refused at 1, allowed above 1" the way 'twr' is, which is what created the loop
+        // above. RMNR only means something where a control message can still be valid in a later
+        // round than the one it arrived in; that requires a block with a later round to be valid
+        // *in*. DL-TDoA's block never has one (the rule above), so there is no value of
+        // rcmValidityRounds — 1, 2, or 64 — under which "holds a still-valid control message but
+        // missed this round's initiation" can describe a DL-TDoA round at all.
+        if (mode === 'dl-tdoa' && rmnr) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['uwb'],
+            message: 'RMNR 要求一条跨轮仍然有效的控制消息——没收到本轮的启动消息时，还能靠上一轮收到的那条控制消息'
+              + '知道自己的时隙。可“跨轮”要一个块里有不止一轮才谈得上：DL-TDoA 的一个块只有一轮，锚点们只跑这一次，'
+              + '没有“上一轮”把控制消息传过来，也就没有“仍然持有一条有效的控制消息，却没收到本轮启动消息”这种'
+              + '状态能在 DL-TDoA 里出现——不管 rcmValidityRounds 设成几都一样：请把 rmnr 关掉',
           })
         }
         // UL-TDoA (task-2-brief.md's hint: a UL-TDoA round is a single blink slot). `makeBlink`

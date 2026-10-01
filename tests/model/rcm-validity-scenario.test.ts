@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   DEFAULT_UWB_SESSION, ScenarioSchema, nonht,
-  type NodeCfg, type Scenario, type UwbSessionCfg,
+  type NodeCfg, type Scenario, type UwbMode, type UwbSessionCfg,
 } from '../../src/model/scenario'
 
 /**
@@ -132,10 +132,41 @@ describe('rcmValidityRounds / rmnr — the scenario schema (design §4)', () => 
     // rcmValidityRounds at the default 1 is fine — it is the same Poll DL-TDoA already sends.
     const at1: UwbSessionCfg = { ...DEFAULT_UWB_SESSION, mode: 'dl-tdoa', rcmValidityRounds: 1 }
     expect(ScenarioSchema.safeParse(uwbScenario(fourAnchorsOneTag(), at1)).success).toBe(true)
-    // And DL-TDoA's Poll is a real control message, so Ruling 2 still applies to it: rmnr true
-    // at rcmValidityRounds 1 is refused for the same causal reason as twr.
-    const rmnrAt1: UwbSessionCfg = { ...DEFAULT_UWB_SESSION, mode: 'dl-tdoa', rmnr: true, rcmValidityRounds: 1 }
-    expect(ScenarioSchema.safeParse(uwbScenario(fourAnchorsOneTag(), rmnrAt1)).success).toBe(false)
+  })
+
+  it('dl-tdoa: rmnr is refused unconditionally — not just at rcmValidityRounds 1 (round-1 fix)', () => {
+    // Round 1 defect: the generic Ruling 2 message (scoped to twr/dl-tdoa) told a dl-tdoa reader
+    // to raise rcmValidityRounds above 1, but the dl-tdoa-only rule just above refuses exactly
+    // that — so the two combinations below used to form a loop with no exit. Fixed by giving
+    // dl-tdoa its own rmnr refusal that fires regardless of rcmValidityRounds, instead of the
+    // generic one.
+    const atDefault: UwbSessionCfg = { ...DEFAULT_UWB_SESSION, mode: 'dl-tdoa', rmnr: true, rcmValidityRounds: 1 }
+    const r1 = ScenarioSchema.safeParse(uwbScenario(fourAnchorsOneTag(), atDefault))
+    expect(r1.success).toBe(false)
+    if (!r1.success) {
+      const msg = r1.error.issues.map((i) => i.message).join('\n')
+      // Must not be the generic twr-flavoured message — its remedy ("raise rcmValidityRounds")
+      // is exactly what the loop needed removed from the dl-tdoa case.
+      expect(msg).not.toMatch(/调到 2 以上/)
+      expect(msg).toMatch(/rmnr 关掉/)
+      expect(msg).toMatch(/一轮/)
+    }
+    // The defect's other half: raising rcmValidityRounds does not fix it either — both rules fire,
+    // and neither one's remedy contradicts the other (unlike before the fix).
+    const raised: UwbSessionCfg = { ...DEFAULT_UWB_SESSION, mode: 'dl-tdoa', rmnr: true, rcmValidityRounds: 4 }
+    const r2 = ScenarioSchema.safeParse(uwbScenario(fourAnchorsOneTag(), raised))
+    expect(r2.success).toBe(false)
+    if (!r2.success) {
+      const msg = r2.error.issues.map((i) => i.message).join('\n')
+      expect(msg).not.toMatch(/调到 2 以上/)
+      expect(msg).toMatch(/rmnr 关掉/)
+      expect(msg).toMatch(/改回 1/)
+    }
+    // The only way out: turn rmnr off. rcmValidityRounds can be anything 1…64 once it is.
+    const off1: UwbSessionCfg = { ...DEFAULT_UWB_SESSION, mode: 'dl-tdoa', rmnr: false, rcmValidityRounds: 1 }
+    const off4: UwbSessionCfg = { ...DEFAULT_UWB_SESSION, mode: 'dl-tdoa', rmnr: false, rcmValidityRounds: 4 }
+    expect(ScenarioSchema.safeParse(uwbScenario(fourAnchorsOneTag(), off1)).success).toBe(true)
+    expect(ScenarioSchema.safeParse(uwbScenario(fourAnchorsOneTag(), off4)).success).toBe(false) // still capped at 1
   })
 
   it('ul-tdoa: the blink carries no control message at all, so both fields are refused off-default', () => {
@@ -174,4 +205,77 @@ describe('rcmValidityRounds / rmnr — the scenario schema (design §4)', () => 
     const defaults: UwbSessionCfg = { ...DEFAULT_UWB_SESSION, mode: 'm2m', method: 'ss' }
     expect(ScenarioSchema.safeParse(uwbScenario(m2mNodes(), defaults)).success).toBe(true)
   })
+
+  /**
+   * Round-1 fix: not just the one dl-tdoa instance, but the shape of the problem. Two phrases are
+   * the only ones anywhere in this module that prescribe a direction for `rcmValidityRounds` —
+   * "调到 2 以上" (raise it, Ruling 2's remedy) and "改回 1" (lower it back, every mode's own-ARC-IE
+   * rule) — and a reader sent from one to the other and back is the exact defect found. A
+   * per-mode table pins the single outcome each (mode, rcmValidityRounds, rmnr) combination must
+   * produce, so a future rule that reintroduces the contradiction shows up as a changed expectation
+   * here rather than as a loop someone has to find by hand again.
+   */
+  const nodesFor = (mode: UwbMode): NodeCfg[] => {
+    if (mode === 'm2m') return m2mNodes()
+    if (mode === 'dl-tdoa' || mode === 'ul-tdoa') return fourAnchorsOneTag()
+    return twoAnchorsOneTag()
+  }
+  const cfgFor = (mode: UwbMode, rcmValidityRounds: number, rmnr: boolean): UwbSessionCfg => ({
+    ...DEFAULT_UWB_SESSION, mode, rcmValidityRounds, rmnr,
+    ...(mode === 'm2m' ? { method: 'ss' as const } : {}),
+  })
+
+  type Cell = {
+    mode: UwbMode
+    rcmValidityRounds: number
+    rmnr: boolean
+    /** 'ok', or the substrings every issue message taken together must and must not contain. */
+    expect: 'ok' | { contains: RegExp[]; notContains: RegExp[] }
+  }
+
+  const TABLE: Cell[] = [
+    // twr: the only mode where rmnr is ever legal, and only once rcmValidityRounds is above 1.
+    { mode: 'twr', rcmValidityRounds: 1, rmnr: false, expect: 'ok' },
+    // Ruling 2's own message offers "raise it, or turn rmnr off" as two alternative fixes to the
+    // *same* one issue — that is not a contradiction (nothing else fires here to forbid either
+    // choice), so only "改回 1" (a different rule's remedy) is checked absent.
+    { mode: 'twr', rcmValidityRounds: 1, rmnr: true, expect: { contains: [/调到 2 以上/], notContains: [/改回 1/] } },
+    { mode: 'twr', rcmValidityRounds: 2, rmnr: false, expect: 'ok' },
+    { mode: 'twr', rcmValidityRounds: 2, rmnr: true, expect: 'ok' },
+    { mode: 'twr', rcmValidityRounds: 4, rmnr: true, expect: 'ok' },
+    // dl-tdoa: rcmValidityRounds is capped at 1 (one round per block) and rmnr is refused
+    // unconditionally — the pair the round-1 fix is about.
+    { mode: 'dl-tdoa', rcmValidityRounds: 1, rmnr: false, expect: 'ok' },
+    { mode: 'dl-tdoa', rcmValidityRounds: 1, rmnr: true, expect: { contains: [/rmnr 关掉/], notContains: [/调到 2 以上/, /改回 1/] } },
+    { mode: 'dl-tdoa', rcmValidityRounds: 4, rmnr: false, expect: { contains: [/改回 1/], notContains: [/调到 2 以上/, /rmnr 关掉/] } },
+    { mode: 'dl-tdoa', rcmValidityRounds: 4, rmnr: true, expect: { contains: [/改回 1/, /rmnr 关掉/], notContains: [/调到 2 以上/] } },
+    // ul-tdoa / mms / m2m: no ARC IE at all, so both fields are refused off-default
+    // unconditionally — same shape as dl-tdoa's rmnr rule, for all of rcmValidityRounds.
+    ...(['ul-tdoa', 'mms', 'm2m'] as const).flatMap((mode) => [
+      { mode, rcmValidityRounds: 1, rmnr: false, expect: 'ok' as const },
+      { mode, rcmValidityRounds: 1, rmnr: true, expect: { contains: [/rmnr 关掉/], notContains: [/调到 2 以上/, /改回 1/] } },
+      { mode, rcmValidityRounds: 4, rmnr: false, expect: { contains: [/改回 1/], notContains: [/调到 2 以上/, /rmnr 关掉/] } },
+      { mode, rcmValidityRounds: 4, rmnr: true, expect: { contains: [/改回 1/, /rmnr 关掉/], notContains: [/调到 2 以上/] } },
+    ]),
+  ]
+
+  it.each(TABLE)(
+    'no contradictory advice: $mode, rcmValidityRounds=$rcmValidityRounds, rmnr=$rmnr',
+    ({ mode, rcmValidityRounds, rmnr, expect: exp }) => {
+      const cfg = cfgFor(mode, rcmValidityRounds, rmnr)
+      const r = ScenarioSchema.safeParse(uwbScenario(nodesFor(mode), cfg))
+      if (exp === 'ok') {
+        expect(r.success).toBe(true)
+        return
+      }
+      expect(r.success).toBe(false)
+      if (!r.success) {
+        const msg = r.error.issues.map((i) => i.message).join('\n')
+        for (const re of exp.contains) expect(msg).toMatch(re)
+        // The invariant itself: no issue in this one parse may advise a change ("改回 1") that
+        // another issue in the same parse forbids ("调到 2 以上"), or vice versa.
+        for (const re of exp.notContains) expect(msg).not.toMatch(re)
+      }
+    },
+  )
 })
