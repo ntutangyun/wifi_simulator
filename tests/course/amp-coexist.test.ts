@@ -510,7 +510,8 @@ describe('amp-coexist · try this', () => {
     expect(ofType(rs, 'RX_FAIL').filter((r) => r.node === AP && r.reason === 'collision').length).toBe(0)
     expect(acked(rs)).toBe(26)
     expect(acked(recs(NONE))).toBe(7)
-    // "the price is seven rounds in which a tag, deafened by the camera beside it, never answers at all"
+    // "the price is seven rounds in which a tag cannot decode the trigger because the camera beside it
+    //  is transmitting, and never answers at all"
     expect(results(rs).length).toBe(33)
     expect(2 * ROUNDS - 33).toBe(7)
   })
