@@ -105,7 +105,7 @@ export function frameAnatomyStack(): StackSpec {
   return {
     kind: 'stack',
     mode: 'nested',
-    label: '同一份载荷，三层包装',
+    label: '同一份载荷，三层封装',
     layers: [
       {
         label: '空口上的那一包（PPDU）',
@@ -123,14 +123,14 @@ export function frameAnatomyStack(): StackSpec {
         note: '旧笔记本的上传，每一份都是这么大',
       },
     ],
-    total: `包装共 ${overhead} B，占载荷的 ${((overhead / FA_PAYLOAD_BYTES) * 100).toFixed(1)} %`,
+    total: `封装共 ${overhead} B，占载荷的 ${((overhead / FA_PAYLOAD_BYTES) * 100).toFixed(1)} %`,
   }
 }
 
 export const frameAnatomy: Lesson = {
   id: 'frame-anatomy',
   module: 2,
-  title: '一帧在开口之前先说了什么',
+  title: '一帧在数据之前先写了什么',
   why: '一帧并不是“你的数据外面贴了张标签”。数据前面有一小串字段：这是哪一类帧、哪台射频必须接住它、是谁发的、这个房间还要被占用多久、以及它在一串编号里排第几。网络所做的几乎每一个决定，依据的都是它们。',
   outcomes: [
     '读懂仿真里任意一帧的帧头（MAC header），说出它是哪一类',
@@ -147,7 +147,7 @@ export const frameAnatomy: Lesson = {
     { term: 'CRC', plain: '算出那四个字节的那套算术' },
   ],
   picture: [
-    { heading: '三层包装，三个名字', text: '上面那一层把一份载荷（payload）交给媒体访问控制（medium access control, MAC），这份载荷就叫 MSDU（MAC service data unit）；MAC 在它前面加一段头、后面加一个校验，做成的包裹叫 MPDU（MAC protocol data unit）——也就是一帧；物理层（PHY）再在最前面加一段用来锁住信号的图案，整个离开天线（antenna）的东西才叫 PPDU（PHY protocol data unit）。这一课讲的全部内容，都在中间那一层里——那一帧是旧笔记本的一个数据帧（data frame）。' },
+    { heading: '三层封装，三个名字', text: '上面那一层把一份载荷（payload）交给媒体访问控制（medium access control, MAC），这份载荷就叫 MSDU（MAC service data unit）；MAC 在它前面加一段头、后面加一个校验，做成的这一个单元叫 MPDU（MAC protocol data unit）——也就是一帧；物理层（PHY）再在最前面加一段用来锁住信号的图案，整个离开天线（antenna）的东西才叫 PPDU（PHY protocol data unit）。这一课讲的全部内容，都在中间那一层里——那一帧是旧笔记本的一个数据帧（data frame）。' },
     {
       kind: 'diagram', spec: frameAnatomyStack(),
       caption: '旧笔记本的一帧：1500 B 的载荷，外面 24 B 的头和 4 B 的校验，一共 1528 B。最外面那一层加的是时间，不是字节——那一段值多少微秒，等这个模块讲空口时间（airtime）的那一课再数。',
@@ -157,7 +157,7 @@ export const frameAnatomy: Lesson = {
       kind: 'diagram', heading: '帧头，按接收端读到的顺序', spec: frameAnatomyHeaderFields(),
       caption: '接收端最先读到的是帧头前端，所以这个顺序就是它做决定的顺序：先弄清这是什么帧、往哪个方向走，再弄清这次交互还要多久，然后才是三个地址和这份载荷的编号。下面那张表给出每个字段确切说明什么。',
     },
-    { heading: '三个地址，为什么不是两个', text: '一个站点（station, STA）发出的一帧，一跳的两头只要两个地址就够了：必须接住并作答的那台射频，和发出它的那台。第三个是这份载荷自己那段路程的终点。正是把它们分开写，才使得“发给隔壁那部手机”的消息，收件人可以是大家都经过的那台路由器——接入点（AP）。' },
+    { heading: '三个地址，为什么不是两个', text: '一个站点（station, STA）发出的一帧，一跳的两头只要两个地址就够了：必须接住并作答的那台射频，和发出它的那台。第三个是这份载荷自己那段路程的终点。正是把它们分开写，才使得“发给隔壁那部手机”的消息，第一个地址可以是大家都经过的那台路由器——接入点（AP）。' },
     { heading: '还有两个字节，和最后四个字节', text: '带业务标记的帧在序列控制之后再插两个字节：服务质量（quality of service, QoS）控制。而每一帧的末尾都是四个字节的帧校验序列（frame check sequence, FCS），也就是对前面所有内容算出的循环冗余校验（cyclic redundancy check, CRC）。这两处在做什么，是下一课的事。' },
   ],
   numbers: [
@@ -174,7 +174,7 @@ export const frameAnatomy: Lesson = {
       ['帧体（Frame Body）', '就是载荷', '交下来的那个 MSDU'],
       ['FCS', '4', '对帧头与帧体算出的 CRC'],
     ] },
-    { kind: 'formula', heading: '单独一个数据帧的持续时间字段保住了什么', text: '16 µs 的静默 + 28 µs 的回复 = 44 µs', note: '它是从携带它的这一帧结束时开始算的。邻居本来就听得见这一帧；他们不能踩到的，是紧随其后的那个短回复。' },
+    { kind: 'formula', heading: '单独一个数据帧的持续时间字段保住了什么', text: '16 µs 的静默 + 28 µs 的回复 = 44 µs', note: '它是从携带它的这一帧结束时开始算的。邻居本来就听得见这一帧；需要保护的是紧随其后的那个短回复。' },
     { kind: 'table', heading: '按方向看，哪个地址是谁', head: [
       '方向', '地址 1', '地址 2', '地址 3',
     ], rows: [
@@ -264,7 +264,7 @@ export const frameAnatomy: Lesson = {
         '帧之后的那部分：先是短暂的间隔，然后是回复',
       ],
       answer: 2,
-      explain: '持续时间从携带它的那一帧结束时算起。邻居本来就听得见这一帧；他们预料不到的是那个回复，所以要预留的正是它。',
+      explain: '持续时间从携带它的那一帧结束时算起。邻居本来就听得见这一帧；它们预料不到的是那个回复，所以要预留的正是它。',
     },
   ],
 }

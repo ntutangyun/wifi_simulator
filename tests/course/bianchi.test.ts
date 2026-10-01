@@ -464,7 +464,7 @@ describe('the three kinds of slot, as a figure', () => {
 
   it('draws σ, T_s and T_c from the engine, to scale on one axis', () => {
     const spec = bianchiSlotTiming()
-    expect(spec.lanes.map((l) => l.label)).toEqual(['空的', '成功的', '撞车的'])
+    expect(spec.lanes.map((l) => l.label)).toEqual(['空的', '成功的', '碰撞的'])
 
     // the empty slot is the slot time itself
     expect(lane('空的').spans).toEqual([{ label: '9 µs', fromUs: 0, toUs: SLOT_NS / 1000 }])
@@ -478,7 +478,7 @@ describe('the three kinds of slot, as a figure', () => {
     expect(ok[1].label).toBe('回答与等待 94 µs')
 
     // a collided slot ends 15 µs earlier, which is the lesson's own T_c − T_s
-    const bad = lane('撞车的').spans
+    const bad = lane('碰撞的').spans
     expect(bad[0].toUs).toBe(t.dataNs / 1000)
     expect(bad[1].toUs).toBe(t.tcNs / 1000)
     expect(bad[1].label).toBe('期限与等待 79 µs')
@@ -490,7 +490,7 @@ describe('the three kinds of slot, as a figure', () => {
   })
 
   it('the caption is true of the figure: the empty slot is under 1 % of a successful one', () => {
-    // 「空的那一条几乎看不见，而撞车的那一条几乎和成功的一样长」
+    // 「空的那一条几乎看不见，而碰撞的那一条几乎和成功的一样长」
     expect(SLOT_NS / t.tsNs).toBeLessThan(0.01)
     expect(t.tcNs / t.tsNs).toBeGreaterThan(0.99)
   })
