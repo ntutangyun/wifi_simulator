@@ -84,6 +84,14 @@ export interface RoundPlan {
    * the two ends of a round to disagree on it.
    */
   fixedReplyNs: Ns
+  /**
+   * How many rounds this round's own control message (today's Poll) governs before a fresh one
+   * is needed — standard §10.32.9.1's ARC IE, "RCM Validity Rounds". Read off the session's own
+   * `cfg` here, for the same reason `replyTime` and `mms` are: `roundCarriesRcm` below is the one
+   * place both ends of a round decide whether *this* round carries the control content, and a
+   * device re-deriving that from a copy of this number would be a second chance to disagree.
+   */
+  rcmValidityRounds: number
   /** Set exactly when `mode` is 'mms': everything an MMS pair round is laid out from, resolved
    * once here so that no device re-derives it — the two ends of a round must agree on the slot
    * every fragment sits in, and a second copy of `mmsLayout` at the device would be a second
@@ -164,6 +172,7 @@ export function roundPlan(cfg: UwbSessionCfg, anchors: number): RoundPlan {
     roundsPerBlock: cfg.mode === 'dl-tdoa' || cfg.mode === 'm2m' ? 1 : Math.floor(blockNs / roundNs),
     schedule: cfg.schedule, contentionSlots: cfg.contentionSlots, mode: cfg.mode,
     replyTime: cfg.replyTime, fixedReplyNs: rstuNs(cfg.fixedReplyRstu),
+    rcmValidityRounds: cfg.rcmValidityRounds,
     // Copied, not referenced: a plan outlives the scenario object it was built from, and a
     // device reading the train's shape must not be able to see it edited underneath.
     ...(layout
@@ -249,6 +258,30 @@ export type SlotAction =
   /** Nobody transmits: the second slot of each two-slot narrowband window, a ranging slot the
    * train does not reach, and a report slot the session's report mode does not use. */
   | { kind: 'idle' }
+
+/**
+ * Whether round `round` carries the control content (ARC + RDM + RRMC, today's Poll) rather than
+ * the initiation message alone (standard §10.32.9.1's ARC IE, "RCM Validity Rounds"; design §2 of
+ * docs/superpowers/specs/2026-10-01-rcm-validity-design.md). True exactly on the first round of
+ * every `plan.rcmValidityRounds`-round validity window — round 0, `rcmValidityRounds`,
+ * `2 * rcmValidityRounds`, … — false on the `rcmValidityRounds − 1` rounds between them.
+ *
+ * The one place this is decided, for the same reason `replyTime` and `mms` live on the plan
+ * rather than being re-derived at a device: both ends of a round have to read the same judgement,
+ * and a device working it out again from its own copy of `rcmValidityRounds` is another chance
+ * for the two ends to disagree about which message this round carries.
+ *
+ * It does not change the slot table: slot 0 is always the round's control-or-initiation message,
+ * whichever this round turns out to carry, and every other slot's owner is unaffected — only what
+ * goes into slot 0 depends on this (`tests/uwb/rcm-validity-schedule.test.ts` pins `slotAction`
+ * identical across every `rcmValidityRounds` setting).
+ *
+ * `rcmValidityRounds: 1` — the default — makes every round its own one-round window, so this is
+ * always true: today's behaviour, byte for byte.
+ */
+export function roundCarriesRcm(plan: RoundPlan, round: number): boolean {
+  return round % plan.rcmValidityRounds === 0
+}
 
 export function slotAction(p: RoundPlan, slot: number): SlotAction {
   if (p.mode === 'dl-tdoa') {
