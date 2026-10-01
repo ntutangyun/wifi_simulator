@@ -330,6 +330,30 @@ export interface UwbSessionCfg {
   contentionSlots: number
   /** Contention round only: retries before an anchor sits out a round, RCMA IE (§10.32.9.6); 3 is a model default. */
   maxAttempts: number
+  /**
+   * How many rounds one control message governs (standard §10.32.9.1's ARC IE, "RCM Validity
+   * Rounds", Content Control bits 9–14, six bits — 0–63 in the standard; this simulator counts
+   * "how many rounds", so 1…64 here). 1 is today's behaviour: a fresh control message (ARC + RDM
+   * + RRMC, today's Poll) every round — see `makePoll` vs. `makeInit` in `src/uwb/frames.ts`
+   * and design §2. Only `mode: 'twr'` and `'dl-tdoa'` ever send that control message at all;
+   * the schema refuses a non-default value for the other three modes (design §4; see `rmnr`'s
+   * own doc comment for why `'dl-tdoa'` also caps it at 1 in practice). model (the "rounds
+   * governed" framing; the standard's own field is the raw six bits)
+   */
+  rcmValidityRounds: number
+  /**
+   * Whether a responder holding a still-valid control message, but that missed this round's own
+   * initiation message, sends the RMNR IE instead of sitting silent (standard §10.34; `makeRmnr`
+   * in `src/uwb/frames.ts`). Default false, so an existing scenario reads back unchanged.
+   *
+   * Requires `rcmValidityRounds` above 1: with one control message per round, the control message
+   * and the round's initiation message are the same frame (today's Poll), so a responder that
+   * missed it has not "lost the initiation but kept the control message" — it has kept nothing,
+   * including the slot table the control message would have given it. There is no slot for it to
+   * send an RMNR frame from, so the state RMNR reports does not exist. The schema's `superRefine`
+   * refuses `rmnr: true` with `rcmValidityRounds: 1` and says so (design §4, Ruling 2).
+   */
+  rmnr: boolean
   /** What the session measures: two-way ranges, or one-way time differences (§10.32.3). */
   mode: UwbMode
   /** DL-TDoA only: the tag corrects its own clock rate from the round's poll-to-Final interval
@@ -393,6 +417,7 @@ export const DEFAULT_UWB_SESSION: UwbSessionCfg = {
   method: 'ds', replyTime: 'embedded', fixedReplyRstu: UWB_DEFAULT_SLOT_RSTU,
   blockRstu: 240_000, slotRstu: UWB_DEFAULT_SLOT_RSTU, channel: 9, tsNoisePs: 100, cfoNoisePpm: 0.2, nlos: true,
   schedule: 'time', contentionSlots: 8, maxAttempts: 3,
+  rcmValidityRounds: 1, rmnr: false,
   mode: 'twr', tdoaClockCorrection: true, syncErrorNs: 0, aoa: false,
   mms: { ...DEFAULT_UWB_MMS, nbChannels: [...DEFAULT_UWB_MMS.nbChannels] },
 }
@@ -901,6 +926,12 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
       schedule: z.enum(['time', 'contention']).default('time'),
       contentionSlots: z.number().int().min(2).max(32).default(8),
       maxAttempts: z.number().int().min(1).max(10).default(3),
+      // Both default: an existing scenario carries neither key and must read back byte for byte,
+      // same discipline as `replyTime`/`fixedReplyRstu` above. 1…64 is this simulator's "how many
+      // rounds" count of the ARC IE's six-bit RCM Validity Rounds field (standard §10.32.9.1); see
+      // `UwbSessionCfg`'s own doc comment for the derivation. standard §10.32.9.1 / model
+      rcmValidityRounds: z.number().int().min(1).max(64).default(1),
+      rmnr: z.boolean().default(false),
       mode: z.enum(['twr', 'dl-tdoa', 'ul-tdoa', 'mms', 'm2m']).default('twr'),
       tdoaClockCorrection: z.boolean().default(true),
       syncErrorNs: z.number().min(0).max(10).default(0),
@@ -1026,6 +1057,104 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
             code: z.ZodIssueCode.custom,
             path: ['uwb'],
             message: '到达角是锚点朝着固定的天线阵列、对准标签的一次发送测出来的：多对多里没有锚点也没有标签，每个参与者的一次发送回答的是好几个人，没有单独朝着谁的那一次发送可测，请把 aoa 关掉',
+          })
+        }
+        // RCM Validity Rounds / RMNR (design §4 of 2026-10-01-rcm-validity-design.md). Both fields
+        // default to today's behaviour (rcmValidityRounds 1, rmnr false), so an existing scenario
+        // reads back unchanged.
+        const { rcmValidityRounds, rmnr } = sc.uwb
+        // Ruling 2 — the one refusal in this slice that exists to teach a mechanism rather than to
+        // block a misconfiguration. Scoped to 'twr' and 'dl-tdoa', the only two modes whose round
+        // ever carries the control message this rule is about (`makePoll`'s ARC + RDM + RRMC,
+        // `src/uwb/frames.ts`): the other three modes get their own reason below, because for them
+        // no value of rcmValidityRounds would ever make RMNR's state exist in the first place.
+        if ((mode === 'twr' || mode === 'dl-tdoa') && rmnr && rcmValidityRounds === 1) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['uwb'],
+            message: '每轮一条控制消息（rcmValidityRounds 为 1）时，这条控制消息和本轮的测距启动消息是同一帧——'
+              + '就是今天的轮询帧。这一帧一丢，响应方不是“错过了启动消息、却还留着控制消息”，它是什么都没留下：'
+              + '连自己该在哪个时隙说话都不知道，没有时隙可去，RMNR 要报告的那个状态——“控制消息收到了，'
+              + '本轮启动消息没收到”——根本不存在，也就没有什么可发：请把 rcmValidityRounds 调到 2 以上，'
+              + '让控制消息跨轮有效，或者把 rmnr 关掉',
+          })
+        }
+        // DL-TDoA (task-2-brief.md's hint): one block holds exactly one round — the anchors run it
+        // once and every tag in the scenario listens to that same round (see the block-fit
+        // comment further down). rcmValidityRounds buys "a few more rounds under the same control
+        // message", and DL-TDoA never has a next round in the same block to buy — asking for more
+        // than one is not a bigger window, it is a count with nothing left to count.
+        if (mode === 'dl-tdoa' && rcmValidityRounds !== 1) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['uwb'],
+            message: 'DL-TDoA 的一个块只有一轮：锚点们跑一次，场景里每个标签都听同一轮测距。'
+              + 'rcmValidityRounds 买的是“这条控制消息还能再管几轮”的空口时间，而这里一个块里根本没有下一轮可管，'
+              + '请把 rcmValidityRounds 改回 1',
+          })
+        }
+        // UL-TDoA (task-2-brief.md's hint: a UL-TDoA round is a single blink slot). `makeBlink`
+        // carries no ARC, no RDM, no control message at all, ever: there is nothing here for
+        // rcmValidityRounds to extend the life of. And there is no responder either — every anchor
+        // is a passive receiver of the one blink, not an answerer with a slot of its own to lose
+        // track of — so RMNR's state cannot exist here whatever rcmValidityRounds is set to.
+        if (mode === 'ul-tdoa' && rcmValidityRounds !== 1) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['uwb'],
+            message: 'UL-TDoA 里标签只发一次闪烁帧，没有 ARC IE，没有控制消息：rcmValidityRounds 管的是控制消息'
+              + '还能再管几轮，这里从来就没有控制消息可管，请把 rcmValidityRounds 改回 1',
+          })
+        }
+        if (mode === 'ul-tdoa' && rmnr) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['uwb'],
+            message: 'RMNR 要求一个“持有仍然有效的控制消息、却没收到本轮启动消息”的应答方；UL-TDoA 的闪烁帧不是'
+              + '发给谁的，也没有谁来应答——每个锚点只是被动接收——既没有应答方，也没有控制消息，请把 rmnr 关掉',
+          })
+        }
+        // MMS (design §5): its control plane is the narrowband nbPoll/nbResp/nbReport of
+        // P802.15.4ab, a different protocol on a different radio, not the ARC IE this slice reads.
+        // No MMS frame
+        // ever carries an ARC IE, so there is no control message here for rcmValidityRounds to
+        // extend, and no responder reading its slot from one for rmnr to stand in for.
+        if (mode === 'mms' && rcmValidityRounds !== 1) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['uwb'],
+            message: 'MMS 的控制面走的是窄带的 nbPoll/nbResp/nbReport（P802.15.4ab 草案），不是这里的 ARC IE：'
+              + 'rcmValidityRounds 管的是 UWB 层那条控制消息还能再管几轮，MMS 的测距帧里没有这条消息，'
+              + '请把 rcmValidityRounds 改回 1',
+          })
+        }
+        if (mode === 'mms' && rmnr) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['uwb'],
+            message: 'RMNR 说的是一个“仍然持有 ARC 控制消息、却没收到本轮启动消息”的应答方；MMS 的控制面另起'
+              + '炉灶，从来没有 ARC 控制消息，也就没有谁能“仍然持有”它，请把 rmnr 关掉',
+          })
+        }
+        // Many-to-many (design §1/§2 of the many-to-many slice): no Poll at all — every
+        // participant's one transmission is at once the question to everyone after it and the
+        // answer to everyone before it (`makeM2m`). There is no separate control message for
+        // rcmValidityRounds to extend, and no fixed responder slot handed out by one for rmnr to
+        // stand in for.
+        if (mode === 'm2m' && rcmValidityRounds !== 1) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['uwb'],
+            message: '多对多测距没有独立的控制消息：每个参与者的一次发送本身既是问也是答，rcmValidityRounds '
+              + '管的是控制消息还能再管几轮，这里没有这样一条消息，请把 rcmValidityRounds 改回 1',
+          })
+        }
+        if (mode === 'm2m' && rmnr) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['uwb'],
+            message: 'RMNR 说的是一个“仍然持有控制消息、却没收到本轮启动消息”的应答方；多对多测距里没有谁的'
+              + '时隙是从一条控制消息里分来的，也没有谁在等一条本该收到却没收到的启动消息，请把 rmnr 关掉',
           })
         }
         // The P802.15.4ab rules. They read only `sc.uwb.mms`, and only in MMS mode: a two-way
