@@ -24,6 +24,12 @@
  * The scenario builder is unchanged, so the recorded timeline hash in
  * tests/fixtures/lesson-hashes.json stays byte-identical. Every number quoted
  * below is pinned in tests/course/rate.test.ts.
+ *
+ * CAUTION — this lesson is 1 Chinese characters from `lessonMinutes`
+ * rounding up from 20 to 25. Measure before adding a sentence, and measure by
+ * importing `CHARS_PER_MINUTE`/`OBSERVE_MINUTES`/`TRY_MINUTES` from
+ * `curriculum.ts` rather than retyping them — the controller got all three
+ * wrong once and read a 484-character margin where there were four.
  */
 import { type Lesson, firstData, firstRetry, J } from '../lessonKit'
 import { rateScenario } from '../wifiScenes'

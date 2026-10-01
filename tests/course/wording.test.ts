@@ -213,7 +213,7 @@ describe('course wording · no figure of speech where a mechanism belongs', () =
   })
 })
 
-describe('course wording · 捕获 names which of its two senses it means', () => {
+describe('course wording · 捕获 names which of its three senses it means', () => {
   /**
    * `捕获` survives the sweep because it is correct engineering Chinese — but
    * writing this test turned up something worse than any metaphor: **the word

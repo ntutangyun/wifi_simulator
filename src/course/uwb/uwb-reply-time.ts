@@ -31,6 +31,12 @@
  * and every count that can be computed is computed — `uwbMaxAnchors`,
  * `uwbRespBytes`, `UWB_SS_DEFER_BYTES`, `uwbSlotFitNs` — never typed as a literal.
  * `npx tsx scripts/lesson-dump.ts uwb-reply-time` prints it with its length.
+ *
+ * CAUTION — this lesson is 4 Chinese characters from `lessonMinutes`
+ * rounding up from 25 to 30. Measure before adding a sentence, and measure by
+ * importing `CHARS_PER_MINUTE`/`OBSERVE_MINUTES`/`TRY_MINUTES` from
+ * `curriculum.ts` rather than retyping them — the controller got all three
+ * wrong once and read a 484-character margin where there were four.
  */
 import type { Scenario } from '../../model/scenario'
 import type { TimingSpec } from '../diagram'

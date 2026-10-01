@@ -23,6 +23,12 @@
  * tests/fixtures/lesson-hashes.json stays byte-identical. Every number quoted
  * below, and every figure in the diagram, is pinned in
  * tests/course/ofdma-ul.test.ts.
+ *
+ * CAUTION — this lesson is 9 Chinese characters from `lessonMinutes`
+ * rounding up from 20 to 25. Measure before adding a sentence, and measure by
+ * importing `CHARS_PER_MINUTE`/`OBSERVE_MINUTES`/`TRY_MINUTES` from
+ * `curriculum.ts` rather than retyping them — the controller got all three
+ * wrong once and read a 484-character margin where there were four.
  */
 import { type Lesson, oneRoom, node, sc, firstTrigger, firstMba, J } from '../lessonKit'
 import type { SequenceSpec } from '../diagram'
