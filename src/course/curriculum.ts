@@ -129,6 +129,10 @@ export const MODULES: CourseModule[] = [
   // revision is exactly what its tier declares, and a module that restates its tier is data that
   // can only drift out of agreement with it (tests/course/basis.test.ts).
   { tier: 5, title: '多对多测距' },
+  // RCM validity rounds and the ranging message non-receipt exchange (standard §10.32.9.1 and
+  // §10.34). No `basis` of its own for the same reason the module above has none: the published
+  // revision is exactly what its tier declares.
+  { tier: 5, title: '控制消息的有效期' },
   { tier: 5, title: '单向测距' },
   { tier: 5, title: '角度' },
   // Sensing sits in Tier 2 and not in the draft tier on purpose. What the two lessons under it
@@ -176,6 +180,9 @@ export const COURSE_ORDER: string[] = [
   'uwb-coexist', 'uwb-contention',
   // UWB Tier 2 — M18 many-to-many ranging: one transmission that is both halves of an exchange
   'uwb-m2m',
+  // UWB Tier 2 — M19 one control message for several rounds, and the frame that takes the place
+  // of silence when this round's initiation message never arrived
+  'uwb-rcm-validity',
   // UWB Tier 2 — M14 other ranging modes
   'uwb-dl-tdoa', 'uwb-ul-tdoa', 'uwb-aoa',
   // UWB Tier 2 — M20 sensing: the things in the room that never answer

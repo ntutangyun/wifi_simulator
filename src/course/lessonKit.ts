@@ -307,6 +307,16 @@ export const firstUwbReport = txOf((r) => r.frame.kind === 'uwbReport')
  * whose entire reason to exist is that the frame before it could not carry a number measuring
  * its own transmit instant. */
 export const firstUwbSsDefer = txOf((r) => r.frame.kind === 'uwbSsDefer')
+/** RCM validity (standard §10.32.9.1): the initiation message alone, which every block of a
+ * validity window after its first opens with — no ARC IE and no RDM IE, because the slot table
+ * the control message gave out is still valid. Its own frame kind rather than a shorter Poll:
+ * in the standard the control message and the ranging initiation message are two frames
+ * (§10.34's figure draws both), and this is the one of them that remains. */
+export const firstUwbInit = txOf((r) => r.frame.kind === 'uwbInit')
+/** The ranging message non-receipt frame (standard §10.34): what a responder holding a valid
+ * control message sends in its own slot when this round's initiation message never arrived —
+ * an MHR, a two-octet IE header with no Content field after it, and an FCS. */
+export const firstUwbRmnr = txOf((r) => r.frame.kind === 'uwbRmnr')
 export const firstUwbRange = (r: TLRecord): boolean => r.type === 'UWB_RANGE'
 export const firstUwbRoundEnd = (r: TLRecord): boolean => r.type === 'UWB_ROUND_END'
 export const firstUwbPosition = (r: TLRecord): boolean => r.type === 'UWB_POSITION'
