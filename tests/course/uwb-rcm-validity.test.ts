@@ -97,6 +97,10 @@ describe('uwb-rcm-validity · where it sits in the course', () => {
     // the one phrasing that is now false: this lesson must not claim §10.36 is unbuilt
     expect(text).not.toContain('§10.36 的多消息收妥确认都还没建')
     expect(text).not.toContain('§10.36 的多消息收妥确认还没建')
+    // nor may the bit-15 sentence read as "nobody built it" — the next lesson builds it, and
+    // the limit's real point survives: it is a session switch, not a parsed control bit.
+    expect(text).not.toContain('第 15 位是 §10.36 的那个请求位，本课也没有建它')
+    expect(text).toContain('不是从控制字里解出来的一位')
     // the validity window counts blocks in this engine, and the limit says whose dimension that is
     expect(text).toContain('blockCarriesRcm')
     // the banned sentence, in both spellings
