@@ -16,7 +16,8 @@ import { FADING_DEFAULTS, RICIAN_K_DEFAULT_DB, type FadingCfg } from '../engine/
 import type { ScattererCfg } from '../engine/scatter'
 import { NB_CHANNELS } from '../uwb/nb'
 import {
-  C_M_PER_NS, mmsResponders, rstuNs, srrrIeBytes, UWB_MAX_PSDU_BYTES, UWB_SLOT_GUARD_NS, uwbM2mSlotFitNs,
+  C_M_PER_NS, mmsResponders, rstuNs, srrrIeBytes, UWB_MAX_PSDU_BYTES, UWB_SLOT_GUARD_NS,
+  uwbAncillarySlots, uwbM2mSlotFitNs,
   uwbMaxAnchors, uwbMaxParticipants, uwbMmrcmSlots, uwbNbSlotFitNs, uwbPollBytes, uwbPpduNs, uwbRespBytes,
   uwbSlotFitNs, uwbSlotsPerTag, type UwbReplyTime,
 } from '../uwb/phy'
@@ -1807,7 +1808,32 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
           // two-way round needs one slot per *anchor*. The IE's one-entry-per-initiator count and
           // the slot's one-per-responder count are different numbers that coincide only in m2m.
           const mmrcrSlots = uwbMmrcmSlots(mode, anchors, sc.uwb.mmrcr)
-          const fits = Math.floor(sc.uwb.blockRstu / ((slots + mmrcrSlots) * sc.uwb.slotRstu))
+          // …and the ancillary message's own appended slots, the second such batch (standard
+          // §10.35.1, design §4.2): a window-*opening* block spends them the same way a
+          // window-closing one spends mmrcr's, and every block shares one fixed `blockRstu`, so the
+          // budget has to carry both. With `rcmValidityRounds: 1` — the default — a block both opens
+          // and closes its own one-block window and really does spend both at once. Read from
+          // `uwb/phy.ts#uwbAncillarySlots`, the one definition `session.ts#blockSlots` lays the slots
+          // out from and `UwbNetwork` guards in nanoseconds — this file cannot import `session.ts`
+          // (import cycle), which is exactly why the count lives in `phy.ts`.
+          const ancillarySlotCount = uwbAncillarySlots(
+            mode, sc.uwb.schedule, sc.uwb.contentionSlots, ancillary, ancillaryFrames,
+          )
+          // The round a block actually has to hold, extras and all — one expression, so that the
+          // divisor below and every message that quotes it cannot drift apart. A message that
+          // printed `slots + mmrcrSlots` while the division used a third term would be a number
+          // defended by nothing.
+          const roundSlots = slots + mmrcrSlots + ancillarySlotCount
+          const fits = Math.floor(sc.uwb.blockRstu / (roundSlots * sc.uwb.slotRstu))
+          // Which extras this block spends, and which switch turns each of them off, named only when
+          // it is actually spending them.
+          const extras: string[] = []
+          if (mmrcrSlots > 0) extras.push(`${mmrcrSlots} 个是 mmrcr 收妥确认的`)
+          if (ancillarySlotCount > 0) extras.push(`${ancillarySlotCount} 个是 ancillary 辅助信息消息的`)
+          const extraNote = extras.length > 0 ? `（其中 ${extras.join('，')}额外时隙）` : ''
+          const extraFix = extras.length > 0
+            ? `${extraNote}：请加大 blockRstu 或减小 slotRstu，或者把${mmrcrSlots > 0 ? ' mmrcr' : ''}${ancillarySlotCount > 0 ? ' ancillary' : ''} 关掉`
+            : '：请加大 blockRstu 或减小 slotRstu'
           // One round has to fit the block in every mode, DL-TDoA included: a round that outlives
           // its block runs into the next one's slots, and nothing downstream notices — the
           // scheduler starts each block on the clock, whatever the last one was still doing.
@@ -1815,12 +1841,13 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
             ctx.addIssue({
               code: z.ZodIssueCode.custom,
               path: ['uwb'],
-              message: `${sc.uwb.blockRstu} RSTU 的 UWB 块装不下一轮测距的 ${slots + mmrcrSlots} `
+              // `${mmrcrSlots}`, not a literal 1: this message still said "1" after the slot count
+              // was corrected to one per *responder* (uwb/phy.ts#uwbMmrcmSlots), so a four-anchor
+              // round was told four slots did not fit and that one of them was the confirmation's.
+              // `roundSlots` for the same reason, now that a second batch of extras exists.
+              message: `${sc.uwb.blockRstu} RSTU 的 UWB 块装不下一轮测距的 ${roundSlots} `
                 + `个时隙 × ${sc.uwb.slotRstu} RSTU`
-                // `${mmrcrSlots}`, not a literal 1: this message still said "1" after the slot count
-                // was corrected to one per *responder* (uwb/phy.ts#uwbMmrcmSlots), so a four-anchor
-                // round was told four slots did not fit and that one of them was the confirmation's.
-                + (mmrcrSlots > 0 ? `（其中 ${mmrcrSlots} 个是 mmrcr 收妥确认的额外时隙）：请加大 blockRstu 或减小 slotRstu，或者把 mmrcr 关掉` : '：请加大 blockRstu 或减小 slotRstu'),
+                + extraFix,
             })
           } else if (mode === 'mms' && !sc.uwb.mms.oneToMany && tags * anchors > fits) {
             ctx.addIssue({
@@ -1840,8 +1867,10 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
             ctx.addIssue({
               code: z.ZodIssueCode.custom,
               path: ['uwb'],
-              message: `每个 tag 占 ${slots + mmrcrSlots} 个时隙，UWB 块只装得下 ${fits} 个 tag（现在有 ${tags} 个）：`
-                + (mmrcrSlots > 0 ? '请加大 blockRstu 或减小 slotRstu，或者把 mmrcr 关掉' : '请加大 blockRstu 或减小 slotRstu'),
+              message: `每个 tag 占 ${roundSlots} 个时隙，UWB 块只装得下 ${fits} 个 tag（现在有 ${tags} 个）：`
+                + (extras.length > 0
+                  ? `请加大 blockRstu 或减小 slotRstu，或者把${mmrcrSlots > 0 ? ' mmrcr' : ''}${ancillarySlotCount > 0 ? ' ancillary' : ''} 关掉`
+                  : '请加大 blockRstu 或减小 slotRstu'),
             })
           }
           // …and every frame of the round has to fit its slot. A frame that outlives its

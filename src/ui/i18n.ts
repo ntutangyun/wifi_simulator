@@ -380,6 +380,18 @@ export interface Strings {
      */
     sp3: string; sp3Hint: string
     sp3Reports: string; sp3ReportsHint: string
+    /**
+     * The ranging ancillary information exchange made countable (standard §10.35), both counted at
+     * the **receiver** — which in this clause is the ranging *initiator*, because §10.35.1 inverts
+     * the two role names. See `UwbNodeView.ancillary` / `UwbNodeView.ancillaryMissing`.
+     *
+     * Unconditional, and the pair is not optional: a fragment's wait is silent (one member of a
+     * message is evaluated by the message, like a P802.15.4ab fragment), so `timeouts` above cannot
+     * move for a lost fragment. Without the second row a message that lost half of itself would
+     * read exactly like one that arrived whole.
+     */
+    ancillary: string; ancillaryHint: string
+    ancillaryMissing: string; ancillaryMissingHint: string
     /** Receptions this node lost to in-band Wi-Fi power. */
     interfered: string
     /** Contention rounds: the anchor's latest draw, and the tag's lost response slots. */
@@ -1040,6 +1052,8 @@ export const STRINGS: Strings = {
     mmrcm: '收妥确认帧', mmrcmHint: '响应方回来的收妥确认（MMRCM）帧数，记在发起方这一侧：请求只占用控制消息里本来就有的一位，不多花一个字节，花钱的是这些回答——每一帧里带着一张位图，说明本有效期窗口里你发出的那几条开场消息它收到了哪几条；哪一块丢了，位图里那一位就是 0，而超时只能说“没来”',
     sp3: 'SP3 测距标记', sp3Hint: '发起方在测距相位收到的 SP3 测距标记帧数（标准 §10.32.8.2），记在发起方这一侧：这种包只有 SYNC、SFD 与 STS，没有 PHR 也没有载荷，帧里没有任何身份字段——发起方只能按排定的时隙表反推这一帧是谁发的。打开 SP3 之后，这一面板其余各行与 SP1 轮次读起来一模一样，时隙与距离都照旧，只有这一行说得出测距相位里的帧其实什么都没带',
     sp3Reports: 'SP3 测量报告帧', sp3ReportsHint: '发起方收到的 SP3 测量报告帧数（标准 §10.32.8.1 的第三相位），同样记在发起方这一侧：标记帧没有载荷，它量到的时间、以及 SRRR 请求过的方位角与往返时间，都要靠这一相位另发的帧送回来。这两行要一起看——测距相位省下来的空口时间，是在这一相位里付掉的',
+    ancillary: '辅助信息分片', ancillaryHint: '本端收到的测距辅助信息分片数（标准 §10.35）。这一节把两个角色名反过来用了：发辅助信息的那一端叫发起方，收的那一端叫响应方——与测距里的同名词正好相反，所以这一行记在测距的发起方（标签）这一侧，而发分片的是测距里作答的那一端（锚点）',
+    ancillaryMissing: '按剩余帧数查出的缺帧', ancillaryMissingHint: '本端凭 RAICT 信息元的 Frames Remaining 字段断定从未到达的分片数（标准 §10.35.2.1）：每一个分片都报一次「这条消息还剩几帧」，所以读到 3 之后读到 1，就知道报 2 的那一帧没来——在后一帧到达的那一刻就知道，不等任何东西。分片的等待是静默的，上面的超时行不会为缺帧动，所以这两行要一起看',
     interfered: '被 Wi-Fi 干扰丢失',
     contend: '竞争抽取', contendHint: '该锚点在最近一个竞争轮次中抽到的响应时隙，以及这是它第几次尝试让标签听到自己',
     contendDraw: (slot, attempt) => `时隙 ${slot} · 第 ${attempt} 次尝试`,

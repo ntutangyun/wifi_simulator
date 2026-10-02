@@ -148,6 +148,22 @@ export interface UwbNodeView {
    * initiator. The pair of counters is the point: the ranging phase is cheaper by exactly as many
    * markers as this is dearer by report frames, and the second number is the larger one. */
   sp3Reports: number
+  /**
+   * Ancillary-message fragments that arrived here (standard §10.35), counted at the **receiver** —
+   * which in this clause is the *ranging initiator*, because §10.35.1 inverts the two role names
+   * (see `records.ts`'s `UWB_ANCILLARY`).
+   */
+  ancillary: number
+  /**
+   * Fragments this receiver **proved** never arrived, from the gap in the Frames Remaining
+   * countdown — not fragments it waited for and gave up on.
+   *
+   * It is the pair with `ancillary` above, and the pair is the feature: `timeouts` cannot move for
+   * an ancillary slot (a fragment's wait is silent, like a P802.15.4ab fragment's), so without this
+   * row a message that lost half of itself would read in the live view exactly like one that arrived
+   * whole — the same reason `rmnr` sits beside `timeouts`.
+   */
+  ancillaryMissing: number
   /** Receptions lost to in-band Wi-Fi power (UWB_INTERFERED), counted at the receiver. */
   interfered: number
   /** Contention round, anchor: its latest draw — `slot` null while it sits a round out. It is
@@ -177,6 +193,7 @@ export function initUwbNodeView(cfg: UwbNodeCfg): UwbNodeView {
   return {
     role: cfg.role, block: 0, round: 0, slot: null, rounds: 0, timeouts: 0, rmnr: 0, mmrcm: 0,
     sp3: 0, sp3Reports: 0,
+    ancillary: 0, ancillaryMissing: 0,
     interfered: 0,
     contend: null, contendCollisions: 0, ranges: {}, tdoa: {}, tdoaRef: null, aoa: {},
     mms: { trains: {}, nbChannel: null, lbtBusy: 0, skippedBlocks: 0, lastLbtBlock: null },
@@ -328,6 +345,23 @@ export function applyUwbRecord(vs: ViewState, r: TLRecord): boolean {
     case 'UWB_SP3_REPORT': {
       const u = vs.nodes[r.node]?.uwb
       if (u) u.sp3Reports += 1
+      return true
+    }
+    // …and once more, at the receiver of an ancillary message (standard §10.35). Fifth time the
+    // `default: return false` warning above was acted on rather than rediscovered — and the one that
+    // could no longer have been missed, because `tests/uwb/view.test.ts` now drives an `it.each` over
+    // a mapped type across this union, so a record type with no case fails by name.
+    //
+    // Two counters off one record, because the record has two shapes (see `UWB_ANCILLARY`): a
+    // reception carries a slot and counts as a fragment that arrived, while the record a deadline
+    // produces carries none and must not — it is the *absence* of a fragment. `missing` adds up on
+    // both, which is what makes the pair add to the fragments the sender actually sent.
+    case 'UWB_ANCILLARY': {
+      const u = vs.nodes[r.node]?.uwb
+      if (u) {
+        if (r.slot !== null) u.ancillary += 1
+        u.ancillaryMissing += r.missing.length
+      }
       return true
     }
     case 'UWB_NB_LBT': {

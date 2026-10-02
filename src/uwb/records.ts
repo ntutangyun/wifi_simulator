@@ -104,6 +104,45 @@ export type UwbRecord =
    * measures does not come back until the data report phase a slot or more later, which is the
    * other half of why the packet can be this short.
    */
+  /**
+   * Standard §10.35: one fragment of a ranging ancillary information message, **as the receiver
+   * read it** — and, when the countdown proves one, the fragment that never came.
+   *
+   * Emitted at the **receiver**, which in this clause is the *ranging initiator*: §10.35.1 defines
+   * the ancillary initiator as the device that **sends** the ancillary information and the ancillary
+   * responder as the one that receives it, the opposite way round from their ranging roles. So
+   * `node` is the tag and `peer` an anchor, and that inversion is the thing about this record a
+   * reader will first mistake for a bug.
+   *
+   * **`missing` is what the slice exists for.** `framesRemaining` is the RAICT IE's own Frames
+   * Remaining field (§10.35.2.1), carried by *every* fragment, counting down to 0 at the last one.
+   * A receiver that read 3 and now reads 1 therefore knows the fragment that would have said 2 never
+   * arrived — at this reception, with nothing waited for — and `missing` lists exactly those
+   * numbers. They are named by their own Frames Remaining value because that is the only identifier
+   * the IE gives a fragment: there is no frame index field and no total, which is also why a
+   * *leading* fragment lost before the first one that arrived cannot be named at all (there is
+   * nothing to compare against) and why `missing` is empty in that case rather than guessed at.
+   *
+   * Compare the other two granularities this engine already has, which is the comparison the lesson
+   * turns on: §10.34's RMNR reports one round, §10.36's bitmap reports a whole validity window, and
+   * both are reports *sent back afterwards*. This one is carried by the sender in every fragment, so
+   * the receiver needs no report and no timer.
+   *
+   * **Two shapes, told apart by `slot`.** A reception carries the slot it arrived in and its own
+   * `framesRemaining`. The one record a *deadline* produces — the round's end, with a message still
+   * unfinished, which is the only thing left when it was the **last** fragment that was lost —
+   * carries `null` for both, `complete: false`, and the fragments still owed in `missing`. That pair
+   * is what makes the timing measurable inside the record stream rather than argued about.
+   *
+   * It carries no measurement, because the frame carries none: an ancillary fragment is not timed
+   * at all (`src/uwb/ranging.ts` is untouched by this slice), which is also why switching the
+   * exchange on leaves every `UWB_RANGE` of the round field for field as it was.
+   *
+   * `messageKind` is the §10.35.2.1 message type the Request = 0 half also reports. This engine
+   * builds one kind of ancillary message, so it is a constant rather than a value table
+   * (`ANCILLARY_MESSAGE_KIND`, design §6). model
+   */
+  | { type: 'UWB_ANCILLARY'; node: string; peer: string; slot: number | null; block: number; round: number; messageNumber: number; messageKind: number; framesRemaining: number | null; missing: number[]; complete: boolean }
   | { type: 'UWB_SP3'; node: string; peer: string; slot: number; block: number; round: number }
   /**
    * Standard §10.32.8.1's third phase, arriving: **one frame of the data report phase, as the

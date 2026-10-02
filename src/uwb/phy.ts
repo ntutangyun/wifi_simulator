@@ -607,6 +607,46 @@ export function uwbAncillaryBytes(numberPresent: boolean, framesRemainingPresent
   return UWB_MHR_BYTES + raictIeBytes(numberPresent, framesRemainingPresent) + UWB_FCS_BYTES
 }
 
+/**
+ * How many slots a round appends for the ancillary exchange when it runs in it (standard §10.35.1,
+ * design §4.2) — **the one definition**, read by the scenario schema's block-fit rule, by
+ * `UwbNetwork`'s own guard in nanoseconds, and by `session.ts#blockSlots`, which is what lays the
+ * slots out. It lives here rather than in `session.ts` for the reason `uwbMmrcmSlots` above does:
+ * the schema cannot import `session.ts` without an import cycle, and three copies of a slot count
+ * is three chances to drift.
+ *
+ * **The two schedules answer differently, and that is the point** (§10.35.1 allows the exchange to
+ * be scheduling-based or contention-based):
+ *
+ * - `'time'` — exactly one slot per fragment. The slot table names their owner, so the message
+ *   needs no more room than it occupies.
+ * - `'contention'` — the round's **own** contention window (§10.32.2 schedule mode 0). Nothing
+ *   names an owner there, so the sender has to *draw* where its run of fragments starts, and a
+ *   window exactly as wide as the message leaves nothing to draw. The width is read off the
+ *   session's own `contentionSlots` — the one number this session already states for "how wide is
+ *   a window devices draw from" — never a literal of its own.
+ *
+ * `Math.max` rather than `contentionSlots` alone: the scenario schema caps `ancillaryFrames` at the
+ * round's own slot count, which in a contention round is `1 + contentionSlots`, so a message *one*
+ * fragment longer than the draw window is a legal configuration. There the window is the message
+ * and the draw has a single position — degenerate, documented, and not broken.
+ *
+ * 0 whenever the exchange is off, and 0 in every mode the schema refuses it for, so that a session
+ * written before this slice is laid out slot for slot as it was.
+ */
+export function uwbAncillarySlots(
+  mode: UwbMode, schedule: 'time' | 'contention', contentionSlots: number,
+  ancillary: boolean, ancillaryFrames: number,
+): number {
+  if (!ancillary) return 0
+  // Refused outright for dl-tdoa, ul-tdoa, mms and m2m in the schema, so none of them reaches here
+  // with `ancillary` on; answering 0 rather than throwing keeps this usable from a caller that has
+  // not checked the mode yet, exactly as `uwbMmrcmSlots` does.
+  if (mode !== 'twr') return 0
+  if (schedule === 'time') return ancillaryFrames
+  return Math.max(ancillaryFrames, contentionSlots)
+}
+
 // --- Ranging schedule units ----------------------------------------------------
 
 /** Ranging slot/block time units to nanoseconds: 1 RSTU = 416 chips at 499.2 Mchip/s

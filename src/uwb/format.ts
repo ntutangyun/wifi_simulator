@@ -126,6 +126,19 @@ export function fmtUwbRecord(r: UwbTLRecord): string {
       return `${r.node} slot ${r.slot}: ${r.peer} received ${bits} of its ${r.windowRounds} window `
         + `openers — ${lost} lost${also}`
     }
+    case 'UWB_ANCILLARY': {
+      // The countdown as the receiver read it, then what the countdown proves. Printed as the
+      // numbers themselves rather than as a tally, because *which* fragment is missing is the whole
+      // of what §10.35's Frames Remaining buys over a timeout — and the deadline record, which has
+      // no slot because it is not a reception, says so in words instead of printing a null.
+      const lost = r.missing.length > 0 ? ` — ${r.missing.join(', ')} never arrived` : ''
+      if (r.slot === null) {
+        return `${r.node}: ${r.peer}'s ancillary message ${r.messageNumber} never completed`
+          + `${lost || ' — nothing left to wait for'}`
+      }
+      return `${r.node} slot ${r.slot}: fragment of ${r.peer}'s ancillary message ${r.messageNumber}, `
+        + `${r.framesRemaining} frames remaining${lost}${r.complete ? ' — complete' : ''}`
+    }
     case 'UWB_ROUND_END':
       return `${r.node} UWB round ${r.round} of block ${r.block} ends`
     case 'UWB_INTERFERED':

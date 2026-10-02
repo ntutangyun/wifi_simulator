@@ -46,11 +46,17 @@ import {
   onSp3InitReport, onSp3Marker, onSp3Report, sp3ReportBearing, sp3Round, sp3SlotPeer,
   transmitSp3InitReport, transmitSp3Marker,
 } from './device.sp3'
+import {
+  closeAncillary, freshAncillary, onAncillaryRx, onAncillarySlot, type AncillaryRoundState,
+} from './device.ancillary'
 import { measureAoa, reportRange } from './device.report'
 import { RCTU_NS, tsSigmaNs, UWB_RMARKER_NS, uwbMaxMmrcmInitiators, uwbSinrDb, type UwbChannelNo } from './phy'
 import { rangeSigmaM, solvePosition, type AnchorPos } from './position'
 import { dsTwr, fomFor, ssTwrCorrected, ssTwrRaw } from './ranging'
-import { blockCarriesRcm, type MmrcmSlotAction, type RoundPlan, type SlotAction } from './session'
+import {
+  blockCarriesAncillary, blockCarriesRcm,
+  type AncillarySlotAction, type MmrcmSlotAction, type RoundPlan, type SlotAction,
+} from './session'
 
 /** Per-device settings. The TWR method is NOT here: a round's `RoundPlan` is the
  * one truth about how that round is measured, and the device reads it from there. */
@@ -254,6 +260,12 @@ export interface RoundState {
    * the same quantity. */
   m2m: M2mRoundState | null
   /**
+   * Ranging ancillary information state (standard §10.35.1); non-null exactly on a block that runs
+   * the exchange (`blockCarriesAncillary`). See `AncillaryRoundState` for why every field of it is
+   * per round with no exception, unlike `rcmBlock` and `openerReceipt` below.
+   */
+  ancillary: AncillaryRoundState | null
+  /**
    * UL-TDoA, anchor: when this round's blink arrived, on the **infrastructure's common
    * timebase** rather than on this anchor's own crystal — that crystal is what the calibration
    * removes, and what it leaves behind is the receiver's timestamp noise plus this anchor's
@@ -286,6 +298,11 @@ function freshRound(
       : null,
     mms,
     m2m,
+    // Standard §10.35.1: present exactly on the blocks the exchange runs in, which is the one
+    // expression for that question (`blockCarriesAncillary`, reading the RCM validity window). Null
+    // everywhere else, including every round of every session with the feature off — so nothing of
+    // this clause is allocated, read or drawn in a session that never asked for it.
+    ancillary: blockCarriesAncillary(plan, block) ? freshAncillary() : null,
     ulArrivalNs: null,
     aoaThetaDeg: null,
   }
@@ -496,7 +513,7 @@ export class UwbDevice implements UwbRadio {
    * for one (`uwbMmrcmSlots` answers 0 for every such mode).
    */
   onSlot(
-    slot: number, action: SlotAction | MmrcmSlotAction, slotEndNs: Ns,
+    slot: number, action: SlotAction | MmrcmSlotAction | AncillarySlotAction, slotEndNs: Ns,
     peers: { tag: string; anchors: string[] },
   ): void {
     this.closeSlot(slot)
@@ -514,6 +531,18 @@ export class UwbDevice implements UwbRadio {
     // `mmrcmAnswers` is where that difference lives.
     if (action.kind === 'uwbMmrcm') {
       this.onMmrcmSlot(slot, action, r, peers)
+      return
+    }
+    // The ancillary message's own appended slots (standard §10.35.1, ancillary design §4.2), handled
+    // here for the reason the receipt confirmation's are: the exchange is not a ranging exchange, so
+    // none of the mode branches below is about it, and the schedule only ever produces this action
+    // in the one mode that can run it (`blockCarriesAncillary` is false in every other).
+    //
+    // **The roles are inverted inside it** — §10.35.1's initiator is the device that *sends*, which
+    // is one of this round's ranging responders — so unlike every branch below, the transmitter here
+    // is not the `tx`/`anchor` pair of a slot action. See `device.ancillary.ts`'s own header.
+    if (action.kind === 'uwbAncillary') {
+      onAncillarySlot(this, slot, action.index, r, peers)
       return
     }
     if (r.plan.mode === 'mms') {
@@ -653,6 +682,17 @@ export class UwbDevice implements UwbRadio {
       }
       return []
     }
+    // Standard §10.35: the ancillary message's own deadline, which is this round's end — the
+    // ancillary window is the round's tail, so the two instants are the same one. It reports only a
+    // message that never completed, and only the case no *reception* could have reported: the loss
+    // of the last fragment, which leaves no next fragment to notice the gap in the countdown. Every
+    // other loss was already named slots earlier, at a reception (`onAncillaryRx`), and that
+    // difference is what the clause buys.
+    //
+    // At the tag, because the tag is this exchange's **receiver** (§10.35.1 inverts the two role
+    // names — see `device.ancillary.ts`), and before the fix so that the round's records read in the
+    // order the round produced them.
+    if (r.ancillary) closeAncillary(this, r)
     // Who solves the round's fix is the mode's defining question: in two-way ranging and DL-TDoA
     // the tag does, from what it measured itself; in UL-TDoA the tag measures nothing at all — it
     // blinked and went back to sleep — and the infrastructure solves for it (see `solveUlFix`).
@@ -807,6 +847,19 @@ export class UwbDevice implements UwbRadio {
           windowRounds: r.plan.rcmValidityRounds, received: [...mine.received], initiators: entries.length,
         })
       }
+      return
+    }
+
+    // One fragment of an ancillary message (standard §10.35), handled here for the third time for
+    // the identical reason: **nothing in it is timed.** The RAICT IE carries a count, not a time; no
+    // range is computed from it; and stamping it would spend this receiver's timestamp-noise and
+    // carrier-offset draws on a frame that measures nothing. So a session with the exchange on takes
+    // exactly the random stream it would have taken with the appended slots empty, which is what
+    // lets `UWB_RANGE` come out field for field identical with the feature switched on.
+    if (kind === 'uwbAncillary') {
+      this.clearExpectation()
+      this.setState('idle')
+      onAncillaryRx(this, r, from, frame)
       return
     }
 
@@ -1041,6 +1094,19 @@ export class UwbDevice implements UwbRadio {
     if (since === undefined) return false
     const age = block - since
     return age >= 0 && age < plan.rcmValidityRounds
+  }
+
+  /**
+   * Whether this device still holds a valid control message from the round's own initiator — the
+   * same question `owesRmnr` (standard §10.34) and `mayConfirmTo` (§10.36) each ask of their own
+   * exchange, asked once here so a third clause can ask it without a third copy of the arithmetic.
+   *
+   * Public because §10.35's sender lives in `device.ancillary.ts`, and the floor it has to clear is
+   * this one: the slots that message rides in are appended to this initiator's round, and which
+   * round that is was settled by that initiator's RDM IE.
+   */
+  holdsValidRcmFor(r: RoundState): boolean {
+    return this.holdsValidRcm(r.block, r.plan, r.tagId)
   }
 
   /**

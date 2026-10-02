@@ -92,6 +92,7 @@ export function fmtRecord(r: TLRecord): string {
     case 'UWB_MMRCM':
     case 'UWB_SP3':
     case 'UWB_SP3_REPORT':
+    case 'UWB_ANCILLARY':
     case 'UWB_NB_LBT':
     case 'UWB_MMS_TRAIN':
     case 'UWB_INTERFERED':

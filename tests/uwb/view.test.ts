@@ -60,7 +60,7 @@ describe('the UWB view reducer', () => {
     expect(tag.acs).toBeNull()
     expect(tag.uwb).toEqual({
       role: 'tag', block: 0, round: 0, slot: null, rounds: 0, timeouts: 0, rmnr: 0, mmrcm: 0,
-      sp3: 0, sp3Reports: 0, interfered: 0,
+      sp3: 0, sp3Reports: 0, ancillary: 0, ancillaryMissing: 0, interfered: 0,
       contend: null, contendCollisions: 0, ranges: {}, tdoa: {}, tdoaRef: null, aoa: {},
       mms: { trains: {}, nbChannel: null, lbtBusy: 0, skippedBlocks: 0, lastLbtBlock: null },
       position: null,
@@ -151,7 +151,7 @@ describe('the UWB view reducer', () => {
     // anc-2 took part in nothing of its own: untouched by the tag's records
     expect(vs.nodes['anc-2'].uwb).toEqual({
       role: 'anchor', block: 0, round: 0, slot: null, rounds: 0, timeouts: 0, rmnr: 0, mmrcm: 0,
-      sp3: 0, sp3Reports: 0, interfered: 0,
+      sp3: 0, sp3Reports: 0, ancillary: 0, ancillaryMissing: 0, interfered: 0,
       contend: null, contendCollisions: 0, ranges: {}, tdoa: {}, tdoaRef: null, aoa: {},
       mms: { trains: {}, nbChannel: null, lbtBusy: 0, skippedBlocks: 0, lastLbtBlock: null },
       position: null,
@@ -422,6 +422,7 @@ describe('applyUwbRecord claims every UWB record type', () => {
     UWB_MMRCM: { type: 'UWB_MMRCM', node: 'tag-1', peer: 'anc-2', slot: 5, block: 1, round: 0, windowRounds: 2, received: [true, false], initiators: 1 },
     UWB_SP3: { type: 'UWB_SP3', node: 'tag-1', peer: 'anc-1', slot: 2, block: 1, round: 0 },
     UWB_SP3_REPORT: { type: 'UWB_SP3_REPORT', node: 'tag-1', peer: 'anc-1', slot: 4, block: 1, round: 0 },
+    UWB_ANCILLARY: { type: 'UWB_ANCILLARY', node: 'tag-1', peer: 'anc-1', slot: 6, block: 1, round: 0, messageNumber: 1, messageKind: 1, framesRemaining: 1, missing: [2], complete: false },
     UWB_CONTEND: { type: 'UWB_CONTEND', node: 'anc-1', slot: 2, attempt: 1 },
     UWB_CONTEND_COLLISION: { type: 'UWB_CONTEND_COLLISION', node: 'tag-1', slot: 2 },
     UWB_ROUND_END: { type: 'UWB_ROUND_END', node: 'tag-1', block: 1, round: 0 },
@@ -508,6 +509,80 @@ describe('the two phases of an SP3 round, through the reducer', () => {
  * wording, so it holds the *row*, never the sentence — the wording is `docs/course-wording-contract.md`'s
  * business, and the rest of this panel has no test policing it either.
  */
+/**
+ * Standard §10.35, the ancillary exchange, in the two places a counter has to exist to be worth
+ * computing: the reducer that writes it and the panel that shows it. Written as one describe rather
+ * than two because the pair is the point — `tests/uwb/view.test.ts`'s own note above records that
+ * `sp3`/`sp3Reports` were written by the reducer and read by nothing for a whole slice.
+ */
+describe('the two halves of an ancillary message, through the reducer and into the panel', () => {
+  /** One message of four fragments, with the one that would have said 2 lost — so the third
+   * reception names it, which is exactly what `UwbNodeView.ancillaryMissing` counts. */
+  const MESSAGE: Parameters<EmitFn>[0][] = [
+    { t: 10_000_000, type: 'UWB_ANCILLARY', node: 'tag-1', peer: 'anc-1', slot: 5, block: 0, round: 0, messageNumber: 0, messageKind: 1, framesRemaining: 3, missing: [], complete: false },
+    { t: 14_000_000, type: 'UWB_ANCILLARY', node: 'tag-1', peer: 'anc-1', slot: 7, block: 0, round: 0, messageNumber: 0, messageKind: 1, framesRemaining: 1, missing: [2], complete: false },
+    { t: 16_000_000, type: 'UWB_ANCILLARY', node: 'tag-1', peer: 'anc-1', slot: 8, block: 0, round: 0, messageNumber: 0, messageKind: 1, framesRemaining: 0, missing: [], complete: true },
+  ]
+
+  it('counts the fragments that arrived and the ones the countdown proved missing, separately', () => {
+    const vs = initViewState(uwbScenario())
+    for (const r of seq([...RECORDS, ...MESSAGE])) applyRecord(vs, r)
+    const u = vs.nodes['tag-1'].uwb!
+    expect(u.ancillary, 'three fragments arrived').toBe(3)
+    expect(u.ancillaryMissing, 'and one was proved missing').toBe(1)
+    // Each is a tally of its own, and neither touches the timeout count: a fragment's wait is
+    // silent, which is why this pair has to exist at all.
+    expect(u.timeouts).toBe(1)
+    expect(u.rmnr).toBe(0)
+    expect(u.mmrcm).toBe(0)
+    // The sender counts nothing: the record is the receiver's, and in this clause the receiver is
+    // the ranging initiator (§10.35.1 inverts the two role names).
+    expect(vs.nodes['anc-1'].uwb!.ancillary).toBe(0)
+    expect(vs.nodes['anc-1'].uwb!.ancillaryMissing).toBe(0)
+    expect(applyUwbRecord(initViewState(uwbScenario()), { ...MESSAGE[1], seq: 0 })).toBe(true)
+  })
+
+  it('does not count the deadline record as a fragment that arrived, only as what it is owed', () => {
+    // The record a deadline produces carries no slot, because it is not a reception — the whole of
+    // what it reports is a fragment that never came. Counting it as an arrival would make the two
+    // rows add up to more fragments than the sender sent.
+    const vs = initViewState(uwbScenario())
+    const deadline: Parameters<EmitFn>[0] = {
+      t: 18_000_000, type: 'UWB_ANCILLARY', node: 'tag-1', peer: 'anc-1', slot: null, block: 0,
+      round: 0, messageNumber: 0, messageKind: 1, framesRemaining: null, missing: [0], complete: false,
+    }
+    for (const r of seq([...MESSAGE.slice(0, 1), deadline])) applyRecord(vs, r)
+    const u = vs.nodes['tag-1'].uwb!
+    expect([u.ancillary, u.ancillaryMissing]).toEqual([1, 1])
+  })
+
+  it('prints a row for each, with its label and its count, at zero as well', () => {
+    // The half `branch-review.md`'s C4 was about: a counter nothing reads is a counter nobody can
+    // check. Asserted against the `STRINGS` entries rather than against any wording — the wording is
+    // `docs/course-wording-contract.md`'s business.
+    const vs = initViewState(uwbScenario())
+    for (const r of seq(MESSAGE)) applyRecord(vs, r)
+    const U = STRINGS.uwb
+    const markup = renderToStaticMarkup(createElement(UwbInspector, {
+      nv: vs.nodes['tag-1'], nameOf: (id: string) => id,
+    }))
+    for (const str of [U.ancillary, U.ancillaryHint, U.ancillaryMissing, U.ancillaryMissingHint]) {
+      expect(str.length, 'the label has to exist before a row can show it').toBeGreaterThan(0)
+      expect(markup).toContain(str)
+    }
+    // 3 and 1 are distinguishable, so neither row can be showing the other's number.
+    expect(markup).toMatch(new RegExp(`${U.ancillary}</span><span>3</span>`))
+    expect(markup).toMatch(new RegExp(`${U.ancillaryMissing}</span><span>1</span>`))
+    // …and both rows are there at zero too, for the reason `rmnr` and `mmrcm` are: a hidden row
+    // would make "the message arrived whole" and "the session never ran the exchange" look alike.
+    const empty = renderToStaticMarkup(createElement(UwbInspector, {
+      nv: initViewState(uwbScenario()).nodes['tag-1'], nameOf: (id: string) => id,
+    }))
+    expect(empty).toContain(U.ancillary)
+    expect(empty).toContain(U.ancillaryMissing)
+  })
+})
+
 describe('the inspector reads both SP3 counters', () => {
   it('prints a row for each, with its label and its count', () => {
     const vs = initViewState(uwbScenario())

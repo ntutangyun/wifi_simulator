@@ -73,6 +73,19 @@ export function UwbInspector({ nv, nameOf }: { nv: NodeView; nameOf: (id: string
       <div style={row} title={U.sp3ReportsHint}>
         <span style={dim}>{U.sp3Reports}</span><span>{u.sp3Reports}</span>
       </div>
+      {/* The ranging ancillary information exchange (standard §10.35), printed as a pair and
+          unconditionally, for the reason `rmnr` is and one of its own: a fragment's wait is silent,
+          so the timeout row above cannot move when a fragment is lost. Without the second row a
+          message that lost half of itself would read exactly like one that arrived whole — and the
+          second row is the one the whole clause is about, because what it counts was *worked out
+          from the countdown in the next fragment*, not waited for. Both counted at the receiver,
+          which in this clause is the ranging initiator: §10.35.1 inverts the two role names. */}
+      <div style={row} title={U.ancillaryHint}>
+        <span style={dim}>{U.ancillary}</span><span>{u.ancillary}</span>
+      </div>
+      <div style={row} title={U.ancillaryMissingHint}>
+        <span style={dim}>{U.ancillaryMissing}</span><span>{u.ancillaryMissing}</span>
+      </div>
       <div style={row}><span style={dim}>{U.interfered}</span><span>{u.interfered}</span></div>
       {contend !== null && (
         <div style={row} title={U.contendHint}><span style={dim}>{U.contend}</span><span>{contend}</span></div>

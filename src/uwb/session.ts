@@ -33,7 +33,9 @@ import { byCodeUnit } from '../engine/hash'
 import type { NbLbt, NbReportMode, NodeCfg, UwbMode, UwbSessionCfg, UwbSrrrCfg } from '../model/scenario'
 import type { Ns } from '../model/types'
 import { mmsLayout, mmsSlotsPerMs, type MmsLayout, type MmsPhy } from './mms'
-import { mmsResponders, rstuNs, uwbMmrcmSlots, uwbSlotsPerTag, type UwbReplyTime } from './phy'
+import {
+  mmsResponders, rstuNs, uwbAncillarySlots, uwbMmrcmSlots, uwbSlotsPerTag, type UwbReplyTime,
+} from './phy'
 
 export { rstuNs }
 
@@ -404,15 +406,76 @@ export function mmrcmResponders(plan: RoundPlan): number {
   return uwbMmrcmSlots(plan.mode, plan.mode === 'm2m' ? plan.participants : plan.anchors, plan.mmrcr)
 }
 
+// --- Ranging ancillary information, Request = 0 (standard §10.35; design doc
+// 2026-10-02-ancillary-design.md, task 3) ----------------------------------------------------
+
 /**
- * How many slots block `block`'s own round actually runs, `plan.slots` plus the window-closing
- * MMRCM slots `mmrcr` adds (design §3.3): `plan.slots` on every block but the one that closes an
- * `mmrcr` window, and `plan.slots + mmrcmResponders(plan)` there. Blocks 0…R−2 of a window are
- * therefore identical to the `mmrcr: false` case, slot for slot — the one rule task-2-brief.md asks
- * to be pinned on its own — and only the window's last block ever differs.
+ * True on the blocks the ancillary exchange runs in: **the block that opens each RCM validity
+ * window** (standard §10.35.1, design §3).
+ *
+ * §10.35.1 bounds the exchange to the current ranging round plus the rounds this RCM still governs,
+ * and the field that says how many those are is the ARC IE's own Ranging Validity Rounds
+ * (§10.32.9.1) — `plan.rcmValidityRounds`. So the boundary is read off `blockCarriesRcm` above
+ * rather than given a second expression of its own: this is that window's **third** reuse, after
+ * §10.34's RMNR (`holdsValidRcm`) and §10.36's receipt bitmap (`blockCarriesMmrcm`), and a second
+ * name for one boundary is the mistake this branch's `rmnr` rules were once written around.
+ *
+ * One message per window, at the window's opening block, rather than one per block: that is what
+ * makes the window do something a reader can see. With `rcmValidityRounds: 1` — the default — every
+ * block opens its own window and the exchange runs in every one of them, so the shipped sessions
+ * see no difference from the two readings; with R = 4 the message goes out in blocks 0 and 4 and in
+ * none of the three between.
+ *
+ * It takes a **block** index, like `blockCarriesRcm` it delegates to, and for the identical reason
+ * (design §2.2): within a block the `round` index names which tag the round belongs to and never
+ * cycles, so feeding it here would answer the same thing for a tag forever.
+ *
+ * False whenever `plan.ancillary` is off (the default), and false in every mode but `'twr'` — the
+ * schema refuses the exchange in each of the others because none of them sends an ARC IE at all,
+ * and this is what makes that refusal a fact this file relies on rather than assumes.
+ */
+export function blockCarriesAncillary(plan: RoundPlan, block: number): boolean {
+  return plan.ancillary && plan.mode === 'twr' && blockCarriesRcm(plan, block)
+}
+
+/**
+ * How many slots this round appends for the ancillary message, from the one definition in
+ * `phy.ts#uwbAncillarySlots` — one per fragment under a time schedule, the round's own contention
+ * window under a contention one, and 0 whenever the exchange is off. See that function for why the
+ * two schedules differ and why the count cannot live in this file.
+ *
+ * It does **not** ask which block: the count is a property of the session's shape, and whether a
+ * given block spends it is `blockCarriesAncillary`'s question. `0` with the feature off is a
+ * documented, inert answer rather than a thrown error, exactly as `mmrcmResponders` above.
+ */
+export function ancillarySlots(plan: RoundPlan): number {
+  return uwbAncillarySlots(
+    plan.mode, plan.schedule, plan.contentionSlots, plan.ancillary, plan.ancillaryFrames,
+  )
+}
+
+/**
+ * How many slots block `block`'s own round actually runs: `plan.slots`, plus the window-closing
+ * MMRCM slots `mmrcr` adds (design §3.3 of the receipt-confirmation doc), plus the ancillary
+ * message's own slots on a window-opening block (standard §10.35.1, ancillary design §4.2).
+ *
+ * Blocks that carry neither are `plan.slots` exactly, which is every block of every session with
+ * both features off (both default off) — so an existing session is laid out instant for instant as
+ * before. Blocks 0…R−2 of an `mmrcr` window stay identical to the `mmrcr: false` case, the rule the
+ * receipt slice asked to be pinned on its own.
+ *
+ * **The two batches are ordered, here, once.** `mmrcr`'s slots come first and the ancillary
+ * message's after them. The two are independently sized and appended for unrelated reasons, so
+ * *something* has to decide; what must not happen is each caller deciding. (The schema refuses
+ * `sp3` + `ancillary` for exactly this reason — SP3's report phase is a third such batch, and that
+ * slice did not define where it sits relative to this one.) With `rcmValidityRounds > 1` the two
+ * never even meet: `mmrcr` spends its slots on the window's **closing** block and `ancillary` on its
+ * **opening** one.
  */
 export function blockSlots(plan: RoundPlan, block: number): number {
-  return plan.slots + (blockCarriesMmrcm(plan, block) ? mmrcmResponders(plan) : 0)
+  return plan.slots
+    + (blockCarriesMmrcm(plan, block) ? mmrcmResponders(plan) : 0)
+    + (blockCarriesAncillary(plan, block) ? ancillarySlots(plan) : 0)
 }
 
 /**
@@ -448,6 +511,27 @@ export interface MmrcmSlotAction {
 }
 
 /**
+ * One slot of the ancillary message's appended window (standard §10.35.1, design §4.2): `index` is
+ * the slot's place **inside that window**, 0…`ancillarySlots(plan) − 1`, not its place in the round.
+ *
+ * It names a position and **not a device**, which is the one thing that separates it from
+ * `MmrcmSlotAction` above. An MMRCM slot belongs to the responder its index names, every time. An
+ * ancillary slot belongs to whichever window index the sender's run happens to cover — under a time
+ * schedule the run starts at index 0, under a contention one wherever the sender drew (§10.32.2
+ * schedule mode 0) — so the schedule cannot name the transmitter here even in principle, and this
+ * action deliberately does not pretend to. Which device sends, and which window indices its run
+ * covers, is `device.ancillary.ts`'s decision.
+ *
+ * Kept apart from `SlotAction` rather than added as one more member of it, for the reason
+ * `MmrcmSlotAction` is: every member of that union is a ranging frame with a `tx`/`anchor` shape,
+ * and this is not one.
+ */
+export interface AncillarySlotAction {
+  kind: 'uwbAncillary'
+  index: number
+}
+
+/**
  * One slot of block `block`'s own round, `slotAction`'s own answer unchanged for every slot below
  * `plan.slots`, and one `MmrcmSlotAction` per window-closing slot above it (design §3.3). This is
  * the function that actually moves with `block`, unlike `slotAction` itself (pinned unmoved by
@@ -455,12 +539,20 @@ export interface MmrcmSlotAction {
  * about) — so it is this function, not `slotAction`, that the "blocks 0…R−2 are identical to
  * `mmrcr: false`" test actually exercises.
  */
-export function blockSlotAction(plan: RoundPlan, block: number, slot: number): SlotAction | MmrcmSlotAction {
+export function blockSlotAction(
+  plan: RoundPlan, block: number, slot: number,
+): SlotAction | MmrcmSlotAction | AncillarySlotAction {
   if (slot < plan.slots) return slotAction(plan, slot)
-  const index = slot - plan.slots
-  if (blockCarriesMmrcm(plan, block) && index < mmrcmResponders(plan)) {
-    return { kind: 'uwbMmrcm', index }
-  }
+  // The appended slots, in the one order `blockSlots` above budgets them in: the receipt
+  // confirmation's first, the ancillary message's after. Walked by subtracting each batch's width
+  // rather than compared against a running sum, so the two cannot disagree about where the second
+  // batch begins.
+  let index = slot - plan.slots
+  const mmrcm = blockCarriesMmrcm(plan, block) ? mmrcmResponders(plan) : 0
+  if (index < mmrcm) return { kind: 'uwbMmrcm', index }
+  index -= mmrcm
+  const ancillary = blockCarriesAncillary(plan, block) ? ancillarySlots(plan) : 0
+  if (index < ancillary) return { kind: 'uwbAncillary', index }
   throw new Error(`blockSlotAction: block ${block} has ${blockSlots(plan, block)} slots, asked for ${slot}`)
 }
 

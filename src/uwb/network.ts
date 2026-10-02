@@ -36,8 +36,8 @@ import { nbChannelForBlock } from './nb'
 import { uwbM2mSlotFitNs, uwbMaxAnchors, uwbMaxParticipants, uwbNbSlotFitNs, uwbSlotFitNs } from './phy'
 import { UwbSensor } from './sensing'
 import {
-  blockSlotAction, blockSlots, blockSlotStartNs, m2mParticipants, mmrcmResponders, roundPlan,
-  type RoundPlan,
+  ancillarySlots, blockSlotAction, blockSlots, blockSlotStartNs, m2mParticipants, mmrcmResponders,
+  roundPlan, type RoundPlan,
 } from './session'
 
 export class UwbNetwork {
@@ -120,15 +120,24 @@ export class UwbNetwork {
     // index — so this is a guard of its own rather than a stricter version of the one above, and it
     // can only ever fire when `mmrcmResponders` is non-zero. The scenario schema checks the identical
     // thing in RSTU, before `rstuNs` rounds (`tags × (slots + mmrcrSlots)` in src/model/scenario.ts).
+    // …and the ancillary message's own appended slots are the second such batch (standard §10.35.1,
+    // ancillary design §4.2), budgeted here beside `mmrcr`'s: a window-*opening* block spends those
+    // the same way a window-closing one spends mmrcr's, and `plan.roundsPerBlock` can see neither.
+    // The two are summed rather than taken separately because `blockRstu` is one fixed length for
+    // every block: with `rcmValidityRounds: 1` — the default — every block both opens and closes its
+    // own one-block window and really does spend both at once. The scenario schema checks the
+    // identical thing in RSTU, from the identical two functions.
     const mmrcrSlots = mmrcmResponders(this.plan)
-    const closingRoundNs = (this.plan.slots + mmrcrSlots) * this.plan.slotNs
-    if (mmrcrSlots > 0) {
+    const ancillarySlotCount = ancillarySlots(this.plan)
+    const extraSlots = mmrcrSlots + ancillarySlotCount
+    const closingRoundNs = (this.plan.slots + extraSlots) * this.plan.slotNs
+    if (extraSlots > 0) {
       const needed = m2m || listenOnly ? 1 : rounds
       if (needed * closingRoundNs > this.plan.blockNs) {
         throw new Error(
-          `UwbNetwork: with mmrcr on, the block that closes a validity window runs ${needed} round(s) of `
-          + `${this.plan.slots} + ${mmrcrSlots} slots (${closingRoundNs} ns each), which does not fit a `
-          + `${this.plan.blockNs} ns block`,
+          `UwbNetwork: a block that carries the extra slots runs ${needed} round(s) of `
+          + `${this.plan.slots} + ${mmrcrSlots} (mmrcr) + ${ancillarySlotCount} (ancillary) slots `
+          + `(${closingRoundNs} ns each), which does not fit a ${this.plan.blockNs} ns block`,
         )
       }
     }
