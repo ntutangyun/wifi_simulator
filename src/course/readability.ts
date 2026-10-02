@@ -563,14 +563,48 @@ const wantedBracket = (t: ZhTerm): string => (t.abbr ? `（${t.en}, ${t.abbr}）
  * Chinese, so it is neither the English name nor the bare abbreviation.
  */
 function bracketCarriesEnglish(text: string, start: number, end: number, t: ZhTerm, needAbbr: boolean): boolean {
-  for (const m of text.matchAll(/[（(]([^）)]{0,200})[）)]/g)) {
-    const at = m.index ?? -1
+  for (const [at, inside] of brackets(text)) {
     if (at < start || at > end + 40) continue
-    const inside = m[1] ?? ''
     if (t.abbr && inside.trim() === t.abbr) return true
     if (inside.toLowerCase().includes(t.en.toLowerCase()) && (!needAbbr || inside.includes(t.abbr!))) return true
   }
   return false
+}
+
+/**
+ * Every bracketed region of `text`, as [openIndex, contents], outermost first,
+ * nested ones included as regions of their own.
+ *
+ * This was a regex — `/[（(]([^）)]{0,200})[）)]/g` — and it is a scanner now
+ * because that regex is not nesting-aware and failed SILENTLY. On
+ * `（本振偏移（local oscillator offset）之后还有 clock drift）` it matches from the
+ * outer open bracket to the INNER close, so the outer bracket's tail is never
+ * examined and a term named there reads as unnamed. `matchAll` then resumes
+ * after that close, so the tail is not picked up as a second region either.
+ *
+ * Tracking depth fixes it, and the fix can only widen what the rule accepts:
+ * every region the regex found is still found, with the same open index and at
+ * least as much content. So no lesson that passed can start failing — which is
+ * why this lands without a sweep behind it.
+ */
+function brackets(text: string): [number, string][] {
+  const out: [number, string][] = []
+  const open: number[] = []
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i]
+    if (c === '（' || c === '(') open.push(i)
+    else if (c === '）' || c === ')') {
+      const at = open.pop()
+      // A close with no open is a stray; ignore it rather than guess where the
+      // region began. Chinese prose in this course has both widths of bracket.
+      if (at !== undefined) out.push([at, text.slice(at + 1, i)])
+    }
+  }
+  // Depth order comes out innermost-first because a region closes before its
+  // parent. The caller takes the first region that satisfies it and the open
+  // index is what decides eligibility, so order does not change the verdict —
+  // sorting by open index only makes the sequence match the reader's.
+  return out.sort((a, b) => a[0] - b[0])
 }
 
 /**

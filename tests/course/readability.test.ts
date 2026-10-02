@@ -325,6 +325,24 @@ describe('readability · the term rule can fail', () => {
     expect(zhTermFailure('这份载荷就是 MSDU（MAC service data unit）。', msdu)).toBe(null)
   })
 
+  /**
+   * The ruler's own defect, pinned. `bracketCarriesEnglish` matched brackets
+   * with a regex that is not nesting-aware, so on a bracket holding another
+   * bracket it stopped at the INNER close and never read the outer tail — a
+   * term named there read as unnamed, silently. Both halves are asserted: the
+   * tail after a nested bracket, and the nested bracket itself.
+   */
+  it('reads a bracket that contains another bracket, in both halves', () => {
+    const tail = '这一小会儿叫短帧间间隔（它在别处（见上文）也写作 short interframe space, SIFS）。'
+    expect(zhTermFailure(tail, SIFS)).toBe(null)
+    const inner = '这一小会儿叫短帧间间隔（见上文（short interframe space, SIFS）那一段）。'
+    expect(zhTermFailure(inner, SIFS)).toBe(null)
+    // And it still fails when neither bracket carries the name — the widened
+    // reader must not turn into one that accepts anything.
+    const neither = '这一小会儿叫短帧间间隔（见上文（第三节）那一段）。'
+    expect(zhTermFailure(neither, SIFS)).toBe('短帧间间隔 first used without （short interframe space, SIFS）')
+  })
+
   /** P3 — the `aka` arm: section 3's inconsistent renderings. */
   it('P3: reports an alternative rendering of a term the course has already named', () => {
     expect(zhAkaViolations('这三段合起来，就是前导。', PREAMBLE))
