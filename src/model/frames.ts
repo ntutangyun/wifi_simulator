@@ -42,6 +42,12 @@ export const FRAME_KINDS = [
   // to a request, not a measurement, and a timeline that labelled it anything else would erase
   // exactly that. docs/superpowers/specs/2026-10-02-receipt-confirmation-design.md §3.2
   'uwbMmrcm',
+  // The SP3 ranging marker (standard §10.32.8.2): SYNC + SFD + STS, no PHR, no PSDU. Its own kind,
+  // not a reuse of 'uwbResp'/'uwbBlink' — the lesson this slice teaches is that it is the physically
+  // shortest ranging frame the standard has, and a timeline that filed it under an SP1 kind would
+  // hide exactly the thing that makes it short (no PHR to decode, no PSDU to size).
+  // docs/superpowers/specs/2026-10-02-sp3-design.md §3.1
+  'uwbSp3',
 ] as const
 
 export type FrameKind = typeof FRAME_KINDS[number]

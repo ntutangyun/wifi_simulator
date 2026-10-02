@@ -38,6 +38,23 @@ export const UWB_RMARKER_NS = UWB_RMARKER_CHIPS * UWB_CHIP_NS // 73 269.23 ns, e
 export const UWB_STS_CHIPS = STS_GAP_CHIPS + STS_ACTIVE_CHIPS + STS_GAP_CHIPS // 33 792
 export const UWB_PHR_CHIPS = PHR_SYMBOLS * PHR_SYMBOL_CHIPS // 9 728
 
+/**
+ * An SP3 packet (standard §10.32.8.2): SYNC + SFD + STS and nothing else — no PHR, no PSDU. It is
+ * the physically shortest ranging frame the standard has, and precisely because it has no PSDU it
+ * cannot carry a timestamp: the time this marker measures has to come back later, in a data report
+ * phase (design §2, `docs/superpowers/specs/2026-10-02-sp3-design.md`) — the same deferred
+ * reply-time path `uwbRespBytes`/`UWB_SS_DEFER_BYTES` already built for SS-TWR (standard §10.29.6.3).
+ * standard §10.32.8.2
+ */
+export function uwbSp3Chips(): number {
+  return UWB_SHR_CHIPS + UWB_STS_CHIPS
+}
+
+/** `uwbSp3Chips()` in nanoseconds — about 141 µs, against the ~181 µs of the shortest SP1 frame. */
+export function uwbSp3Ns(): Ns {
+  return chipsToNs(uwbSp3Chips())
+}
+
 /** PSDU symbol count: 8·octets data bits, plus 48 parity bits per RS(63,55)
  * block (each block covers up to 330 data bits), plus a 2-symbol tail.
  * standard §16.3.3.2 */
@@ -212,6 +229,18 @@ export const RRTI_IE_BYTES = UWB_IE_HDR_BYTES + 4
 export const RCPS_IE_BYTES = UWB_IE_HDR_BYTES + 2
 /** RCMA IE (§10.32.9.6): header + max attempts 1. standard §10.32.9.6; content sizing model */
 export const RCMA_IE_BYTES = UWB_IE_HDR_BYTES + 1
+/** SRRR IE (§10.32.9.9): header + one control octet — the responder's own request for what the
+ * data report phase should give it back. The standard's RAOA and RRTT bits map onto things this
+ * engine already computes (the `aoa` session switch's bearing, DS-TWR's round-trip time), so the
+ * control octet's width is the only new thing here. standard §10.32.9.9; octet width model */
+export const SRRR_IE_BYTES = UWB_IE_HDR_BYTES + 1
+/** The RCM's SRRR content: one SRRR IE per responder (the standard's own example addresses one
+ * responder's request at a time) — 3A octets. A request is not free, the mirror image of §10.36's
+ * MMRCR bit, which rides in a control octet the RCM carries regardless and so costs nothing extra. */
+export function srrrIeBytes(responders: number): number {
+  return SRRR_IE_BYTES * responders
+}
+
 /** RDM IE (§10.32.9.8), fixed part: header + the device count. */
 export const RDM_IE_FIXED_BYTES = UWB_IE_HDR_BYTES + 1
 /** One RDM entry: the device's short address 2 + the slot index it is given 1. */

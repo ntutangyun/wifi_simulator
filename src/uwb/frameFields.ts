@@ -17,7 +17,7 @@ import type { DecodedFrame, FieldKey, FrameField, PpduSegment } from '../model/f
 import { STRINGS } from '../ui/i18n'
 import type { FrameDesc } from '../model/frames'
 import type { Ns } from '../model/types'
-import type { UwbFrameKind, UwbInfo, UwbMmsFrag, UwbNbMsg, UwbSp0Msg } from './frames'
+import { isSp3Frame, type UwbFrameKind, type UwbInfo, type UwbMmsFrag, type UwbNbMsg, type UwbSp0Msg } from './frames'
 import { MMS_SP0_SEGMENT_NS } from './mms'
 import {
   NB_ADDR_BYTES, NB_CRC_BYTES, NB_MSG_ID, NB_MSG_ID_BYTES, NB_OTM_POLL_BYTES, NB_PHR_SYMBOLS,
@@ -47,6 +47,7 @@ const SUBTYPE: Record<UwbFrameKind, string> = {
   nbPoll: 'Narrowband POLL', nbResp: 'Narrowband RESP', nbReport: 'Narrowband REPORT',
   uwbSp0: 'SP0 Control Frame',
   uwbMmrcm: 'UWB Multiple Message Receipt Confirmation (MMRCM)',
+  uwbSp3: 'UWB SP3 Ranging Marker',
 }
 
 /** The prose half of every row below: standard tokens stay, the words around them are Chinese. */
@@ -322,8 +323,10 @@ export function uwbFrameFields(f: FrameDesc): DecodedFrame {
   const u = f.uwb!
   const kind = f.kind as UwbFrameKind
   // P802.15.4ab: neither of the two new PHYs carries a 4z MAC header, so neither goes through
-  // the MHR + IE decoder below.
-  if (u.mms || u.nb || u.sp0) {
+  // the MHR + IE decoder below. An SP3 marker carries even less than either of those: no MAC
+  // header, no IE, not even the compressed-PSDU shape a narrowband message has — SYNC + SFD + STS
+  // and nothing else (standard §10.32.8.2) — so its row list is empty rather than absent.
+  if (u.mms || u.nb || u.sp0 || isSp3Frame(kind)) {
     const nb = u.nb
     const fields = u.mms ? mmsFields(u.mms, f.txTimeNs)
       : nb ? nbFields(nb, f.bytes)
@@ -408,6 +411,7 @@ export function uwbPpduLayout(f: FrameDesc): PpduSegment[] {
   if (f.uwb?.mms) return mmsPpduLayout(f)
   if (f.uwb?.nb) return nbPpduLayout(f)
   if (f.uwb?.sp0) return sp0PpduLayout()
+  if (isSp3Frame(f.kind)) return sp3PpduLayout()
   const head = SYNC_NS + SFD_NS + 2 * STS_GAP_NS + STS_NS + PHR_NS
   return [
     { key: 'sync', durNs: SYNC_NS },
@@ -417,6 +421,23 @@ export function uwbPpduLayout(f: FrameDesc): PpduSegment[] {
     { key: 'stsGap', durNs: STS_GAP_NS },
     { key: 'phr', durNs: PHR_NS },
     { key: 'psdu', durNs: f.txTimeNs - head },
+  ]
+}
+
+/**
+ * The SP3 marker's own PPDU (standard §10.32.8.2): SYNC, SFD, then the STS, and nothing after it —
+ * no PHR segment, no PSDU segment, because there is no PHR and no PSDU to lay out. Exactly the
+ * first five segments of `uwbPpduLayout`'s SP1 layout with the PHR and PSDU segments removed: an
+ * SP3 marker is a strict prefix of an SP1 PPDU, cut off before the part that would have let it
+ * carry anything (design §3.1, `docs/superpowers/specs/2026-10-02-sp3-design.md`).
+ */
+export function sp3PpduLayout(): PpduSegment[] {
+  return [
+    { key: 'sync', durNs: SYNC_NS },
+    { key: 'sfd', durNs: SFD_NS },
+    { key: 'stsGap', durNs: STS_GAP_NS, rmarkerNs: UWB_RMARKER_OFFSET_NS },
+    { key: 'sts', durNs: STS_NS },
+    { key: 'stsGap', durNs: STS_GAP_NS },
   ]
 }
 

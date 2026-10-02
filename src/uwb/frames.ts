@@ -15,7 +15,7 @@ import {
 import {
   UWB_BLINK_BYTES, UWB_REPORT_BYTES, UWB_SS_DEFER_BYTES, uwbDlFinalBytes, uwbDlPollBytes, uwbDlRespBytes,
   uwbFinalBytes, uwbInitBytes, uwbM2mBytes, uwbMmrcmBytes, uwbPollBytes, uwbPpduNs, uwbRespBytes, uwbRmnrBytes,
-  type UwbReplyTime,
+  uwbSp3Ns, type UwbReplyTime,
 } from './phy'
 
 export type UwbFrameKind =
@@ -57,6 +57,11 @@ export type UwbFrameKind =
   // (the ARC IE's MMRCR bit), not that it measures anything — a timeline that filed it under
   // either of those existing kinds would say it was part of the ranging itself.
   | 'uwbMmrcm'
+  // The SP3 ranging marker (standard §10.32.8.2): SYNC + SFD + STS, no PHR, no PSDU — see
+  // `makeSp3` below and design §3.1 of docs/superpowers/specs/2026-10-02-sp3-design.md. Its own
+  // kind, not a reuse of 'uwbResp' or 'uwbBlink': the lesson is that this is the physically
+  // shortest ranging frame the standard has, which a shared kind would hide.
+  | 'uwbSp3'
 
 // Both predicates take the whole `FrameKind` union, not just the UWB half: their callers hold a
 // `FrameDesc.kind` (a lane, the timeline, a decoder), and narrowing at the call site would only
@@ -69,6 +74,10 @@ export const isNbFrame = (k: FrameKind): boolean => k === 'nbPoll' || k === 'nbR
 /** True of the two multi-millisecond fragment kinds: one member of a train, not a frame that
  * stands on its own. */
 export const isMmsFragment = (k: FrameKind): boolean => k === 'uwbRsf' || k === 'uwbRif'
+
+/** True of the one bare SP3 marker (standard §10.32.8.2): SYNC + SFD + STS, no PHR, no PSDU —
+ * no MAC header and no payload IE to decode, the same way a 4ab fragment has neither. */
+export const isSp3Frame = (k: FrameKind): boolean => k === 'uwbSp3'
 
 /**
  * DL-TDoA message content (model, the RMI-style times of §10.29.8.4): what the sender did on its
@@ -185,7 +194,10 @@ export interface UwbSp0Msg {
 
 /** The ranging fields of a UWB frame; present on the UWB kinds only. */
 export interface UwbInfo {
-  sp: 1
+  /** Which STS packet configuration this frame uses: 1 for every SP1 frame this engine builds
+   * (a full PPDU, SHR + STS + PHR + PSDU), 3 for the bare SP3 marker (`makeSp3`: SHR + STS only,
+   * standard §10.32.8.2). */
+  sp: 1 | 3
   method: 'ss' | 'ds'
   block: number
   round: number
@@ -420,6 +432,28 @@ export function makeMmrcm(
     sp: 1, method: 'ss', block, round, slot, ies: ['RMMRC'],
     mmrc: entries.map((e) => ({ initiator: e.initiator, received: [...e.received] })),
   })
+}
+
+/**
+ * One SP3 marker, in its own slot (standard §10.32.8.2): SYNC + SFD + STS and nothing else — no
+ * PHR, no PSDU, so `bytes: 0` and `mbps: 0` exactly as `mmsFrame` gives a multi-millisecond
+ * fragment below, and for the same reason: its airtime is `uwbSp3Ns()`, never bytes ÷ rate.
+ *
+ * `ies: []` and no other `UwbInfo` field is filled: an SP3 marker carries no information unit at
+ * all (design §3.1/§3.2). Identity comes from the slot this frame was sent in — `slotAction`
+ * already reads it that way — not from anything inside the frame, which is the one thing this
+ * builder must never be "fixed" to add (design §3.2, the same shape as task 3's Ruling 3: a field
+ * added here for convenience would delete the lesson's entire premise, not just its saving). The
+ * time this marker measures comes back later, in the round's data report phase — the deferred
+ * reply-time path `makeSsDefer` already built for SS-TWR (standard §10.29.6.3).
+ */
+export function makeSp3(
+  src: string, dst: string, method: 'ss' | 'ds', block: number, round: number, slot: number,
+): FrameDesc {
+  return {
+    kind: 'uwbSp3', src, dst, bytes: 0, mbps: 0, durationFieldNs: 0, txTimeNs: uwbSp3Ns(),
+    uwb: { sp: 3, method, block, round, slot, ies: [] },
+  }
 }
 
 /** The tag's Final (DS-TWR only): broadcast, carrying tround1/treply2 per anchor when embedded.

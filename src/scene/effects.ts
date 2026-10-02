@@ -86,6 +86,11 @@ export function frameColor(frame: FrameDesc, apId: string): number {
     // gets neither amber. The same cool grey-blue as RMNR above marks it as a frame about the
     // *exchange itself* rather than about a range, which is also what RMNR is.
     case 'uwbMmrcm': return 0x94a3b8
+    // The SP3 marker (standard §10.32.8.2): one bare kind for every slot of the ranging phase,
+    // the initiator's own marker and every responder's alike (identity comes from the slot, not
+    // from the frame — design §3.2), so it is neither of the two ambers above any more than
+    // `uwbM2m` is. The same third shade, for the same reason: one frame playing every role at once.
+    case 'uwbSp3': return 0xfde047
   }
 }
 
