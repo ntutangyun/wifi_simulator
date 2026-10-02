@@ -45,6 +45,9 @@ export type FieldKey =
   | 'ieRmnr'
   // §10.36's receipt-confirmation answer: one entry per initiator, each an address plus a bitmap.
   | 'ieRmmrc'
+  // §10.32.9.9's SP3 ranging-request-reports IE, one per responder of an SP3 round, and the bearing
+  // the data report phase carries back when that IE's RAOA bit asked for one.
+  | 'ieSrrr' | 'ieRaoa'
   // One-way ranging (model IEs): the DL-TDoA times and the UL-TDoA blink.
   | 'ieTxTime' | 'ieRxTimes' | 'ieCoffs' | 'ieBlink'
   // P802.15.4ab. A multi-millisecond fragment is a raw sequence, not a PSDU: its rows carry no

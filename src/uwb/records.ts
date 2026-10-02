@@ -88,6 +88,38 @@ export type UwbRecord =
    * message, not part of the ranging (`src/uwb/ranging.ts` is untouched by this slice).
    */
   | { type: 'UWB_MMRCM'; node: string; peer: string; slot: number; block: number; round: number; windowRounds: number; received: boolean[]; initiators: number }
+  /**
+   * Standard §10.32.8.2: an SP3 marker arrived, and **which responder it came from was read off the
+   * slot it arrived in** — the only place that answer exists. An SP3 packet is SYNC + SFD + STS: no
+   * PHR, no PSDU, so no address field and no timestamp field either. Nothing in the frame says who
+   * sent it.
+   *
+   * So `peer` is not a fact about the frame; it is the schedule's answer, the device the round's
+   * RDM IE (§10.32.9.8) gave this slot to, as `slotAction` reads it. That is the whole of the
+   * lesson this record exists to make readable, and it is also what makes it falsifiable: shuffle
+   * the slot table and this field changes while the air does not.
+   *
+   * Emitted at the **initiator**, on the marker's arrival. It carries no measurement — the
+   * counter it was stamped with is already in this round's `UWB_TS`, and the time the marker
+   * measures does not come back until the data report phase a slot or more later, which is the
+   * other half of why the packet can be this short.
+   */
+  | { type: 'UWB_SP3'; node: string; peer: string; slot: number; block: number; round: number }
+  /**
+   * Standard §10.32.8.1's third phase, arriving: one responder's data report, and what the round's
+   * SRRR IE (§10.32.9.9) got it to carry.
+   *
+   * `replyRctu` is there whatever SRRR asked — a deferred round has no other route for the reply
+   * time (§10.29.6.3) — and `thetaDeg` is present exactly when the RAOA bit asked for a bearing.
+   * The record exists so that the request's effect is visible as something arriving rather than
+   * only as four more octets on the air: a report frame that grew and delivered nothing would be
+   * the same class of bug as a frame claiming an identity it cannot carry.
+   *
+   * `peer` is read off the slot, like `UWB_SP3`'s: the report's slot is the one the same RDM IE
+   * gave this responder, and the slot is what pairs the report with a marker that had no address to
+   * pair on.
+   */
+  | { type: 'UWB_SP3_REPORT'; node: string; peer: string; slot: number; block: number; round: number; replyRctu: number; thetaDeg?: number }
   /** Contention round (standard §10.32.2 schedule mode 0): an anchor that decoded the Poll drew
    * the response slot it will answer in — `slot` null when its retry budget ran out and it sits
    * this round out, and `attempt` counts from 1 (0 while sitting out). */

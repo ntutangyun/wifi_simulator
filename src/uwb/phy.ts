@@ -241,6 +241,12 @@ export function srrrIeBytes(responders: number): number {
   return SRRR_IE_BYTES * responders
 }
 
+/** The bearing one RAOA request puts in the data report phase: an IE header plus a 2-octet
+ * azimuth. The request bit is the standard's (§10.32.9.9); the item's own width is this engine's,
+ * the same way every other IE's Content length here is — the clause names the bit, not the report
+ * format. standard §10.32.9.9 (the bit); content sizing model */
+export const UWB_SP3_RAOA_ITEM_BYTES = UWB_IE_HDR_BYTES + 2
+
 /** RDM IE (§10.32.9.8), fixed part: header + the device count. */
 export const RDM_IE_FIXED_BYTES = UWB_IE_HDR_BYTES + 1
 /** One RDM entry: the device's short address 2 + the slot index it is given 1. */
@@ -311,6 +317,35 @@ export const UWB_REPORT_BYTES = UWB_MHR_BYTES + RMI_REPORT_IE_BYTES + UWB_FCS_BY
  * read that send timestamp back, with a frame carrying nothing else. MHR + RRTI IE + FCS = 17
  * octets (`makeSsDefer` in frames.ts). */
 export const UWB_SS_DEFER_BYTES = UWB_MHR_BYTES + RRTI_IE_BYTES + UWB_FCS_BYTES
+
+/**
+ * The RCM of an SP3 grouped round (standard §10.32.8.1's first phase): today's Poll plus one SRRR
+ * IE per responder (§10.32.9.9) — the responders' own requests for what the data report phase
+ * should give back.
+ *
+ * **A request is not free here**, and that is the point the lesson pairs against §10.36's MMRCR
+ * bit, which rides a control octet the RCM carries regardless and costs nothing extra: this one
+ * costs 3 octets a responder. A function rather than a term folded into `uwbPollBytes` so that no
+ * existing caller's number moves — every scenario with `sp3` off asks the same question it always
+ * did and gets the same answer.
+ */
+export function uwbSp3PollBytes(anchors: number): number {
+  return uwbPollBytes(anchors) + srrrIeBytes(anchors)
+}
+
+/**
+ * One responder's frame in the data report phase (§10.32.8.1's third phase): the deferred
+ * reply-time message SS-TWR already has (`UWB_SS_DEFER_BYTES`, §10.29.6.3), plus the bearing when
+ * the SRRR IE's RAOA bit asked for one.
+ *
+ * The reply time is there whatever SRRR says — a deferred round has no other route for it, and
+ * without it the initiator never learns `Treply` at all — so only the requested extra is gated.
+ * That is the measurable half of §10.32.9.9: **RAOA off makes this frame shorter, by exactly one
+ * bearing item.**
+ */
+export function uwbSp3ReportBytes(raoa: boolean): number {
+  return UWB_SS_DEFER_BYTES + (raoa ? UWB_SP3_RAOA_ITEM_BYTES : 0)
+}
 
 // --- RCM validity window, and the non-receipt exchange it makes possible ---------------
 // standard §10.32.9.1 (ARC IE, "RCM Validity Rounds") and §10.34 (ranging message non-receipt).
@@ -650,6 +685,11 @@ export const UWB_SLOT_GUARD_NS = 200
 export function uwbLongestFrameBytes(
   anchors: number, mode: UwbMode = 'twr', schedule: 'time' | 'contention' = 'time',
   method: 'ss' | 'ds' = 'ds', replyTime: UwbReplyTime = 'embedded',
+  /** SP3 grouped ranging (standard §10.32.8): the responders' ranging frames become markers, which
+   * are not PSDUs at all and so cannot be the longest *frame* — but the RCM grows by one SRRR IE a
+   * responder (§10.32.9.9) and the report frame by one bearing item, and both of those are PSDUs.
+   * Defaults false, so every caller written before this slice asks the question it always asked. */
+  sp3 = false,
 ): number {
   if (mode === 'mms') {
     throw new Error('uwbLongestFrameBytes: an MMS round carries fragments and narrowband messages, not PSDUs')
@@ -667,11 +707,18 @@ export function uwbLongestFrameBytes(
   // deferred message has no fixed slot of its own to answer in, so `contention` + `deferred` is
   // refused by the schema (design §3.1).
   if (schedule === 'contention') return Math.max(uwbPollBytes(anchors, 'contention'), uwbRespBytes('ss', replyTime))
-  const pollBytes = uwbPollBytes(anchors)
+  // SP3's RCM carries the responders' SRRR IEs, so it grows twice as fast with the anchor count as
+  // an ordinary Poll (27 + 6A rather than 27 + 3A). The schema refuses `sp3` outside a
+  // time-scheduled two-way round, which is why the contention branch above needs no term for it.
+  const pollBytes = sp3 ? uwbSp3PollBytes(anchors) : uwbPollBytes(anchors)
   if (method === 'ss') {
     // No Final exists: the round ends at the Responses (and, deferred, the follow-up messages),
     // none of which grow with the anchor count — the Poll, which does, is what binds it.
-    return Math.max(pollBytes, uwbRespBytes('ss', replyTime), replyTime === 'deferred' ? UWB_SS_DEFER_BYTES : 0)
+    // An SP3 round's report frame is the deferred message plus a bearing item at most; it is taken
+    // at its longest here rather than asked about the RAOA bit, because a slot that fits the round
+    // must fit it with the request on.
+    const deferBytes = replyTime === 'deferred' ? (sp3 ? uwbSp3ReportBytes(true) : UWB_SS_DEFER_BYTES) : 0
+    return Math.max(pollBytes, uwbRespBytes('ss', replyTime), deferBytes)
   }
   return Math.max(pollBytes, uwbFinalBytes(anchors, replyTime))
 }
@@ -748,12 +795,16 @@ export const UWB_ANCHOR_SEARCH_CEILING = 64
 export function uwbSlotFitNs(
   anchors: number, mode: UwbMode = 'twr', schedule: 'time' | 'contention' = 'time', mms?: MmsRoundShape,
   method: 'ss' | 'ds' = 'ds', replyTime: UwbReplyTime = 'embedded',
+  /** The round's `sp3` switch, handed straight to `uwbLongestFrameBytes` — SP3's RCM is 3 octets a
+   * responder longer than an ordinary Poll, which is a slot-fit question and not only a PSDU-cap
+   * one. Both callers of this function pass it: the scenario schema and `UwbNetwork`. */
+  sp3 = false,
 ): Ns {
   if (mode === 'mms') {
     if (!mms) throw new Error("uwbSlotFitNs: mode 'mms' needs the session's MMS parameters")
     return mmsLongestFragmentNs(mms) + UWB_SLOT_GUARD_NS
   }
-  return uwbPpduNs(uwbLongestFrameBytes(anchors, mode, schedule, method, replyTime)) + UWB_SLOT_GUARD_NS
+  return uwbPpduNs(uwbLongestFrameBytes(anchors, mode, schedule, method, replyTime, sp3)) + UWB_SLOT_GUARD_NS
 }
 
 /**

@@ -54,7 +54,8 @@ describe('the UWB view reducer', () => {
     const tag = vs.nodes['tag-1']
     expect(tag.acs).toBeNull()
     expect(tag.uwb).toEqual({
-      role: 'tag', block: 0, round: 0, slot: null, rounds: 0, timeouts: 0, rmnr: 0, mmrcm: 0, interfered: 0,
+      role: 'tag', block: 0, round: 0, slot: null, rounds: 0, timeouts: 0, rmnr: 0, mmrcm: 0,
+      sp3: 0, sp3Reports: 0, interfered: 0,
       contend: null, contendCollisions: 0, ranges: {}, tdoa: {}, tdoaRef: null, aoa: {},
       mms: { trains: {}, nbChannel: null, lbtBusy: 0, skippedBlocks: 0, lastLbtBlock: null },
       position: null,
@@ -144,7 +145,8 @@ describe('the UWB view reducer', () => {
     expect(a1.ranges['tag-1'].n).toBe(1)
     // anc-2 took part in nothing of its own: untouched by the tag's records
     expect(vs.nodes['anc-2'].uwb).toEqual({
-      role: 'anchor', block: 0, round: 0, slot: null, rounds: 0, timeouts: 0, rmnr: 0, mmrcm: 0, interfered: 0,
+      role: 'anchor', block: 0, round: 0, slot: null, rounds: 0, timeouts: 0, rmnr: 0, mmrcm: 0,
+      sp3: 0, sp3Reports: 0, interfered: 0,
       contend: null, contendCollisions: 0, ranges: {}, tdoa: {}, tdoaRef: null, aoa: {},
       mms: { trains: {}, nbChannel: null, lbtBusy: 0, skippedBlocks: 0, lastLbtBlock: null },
       position: null,

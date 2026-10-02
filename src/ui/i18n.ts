@@ -498,6 +498,11 @@ export interface Strings {
         rmnr: () => string
         /** §10.36's RMMRC IE: how many initiators this frame answers, and the entry list. */
         rmmrc: (n: number, list: string) => string
+        /** §10.32.9.9's SRRR IE: one responder's own request, and the two bits it is made of. One
+         * IE per responder, so the row names which responder's request it is. */
+        srrr: (id: string, raoa: boolean, rrtt: boolean) => string
+        /** The bearing an SP3 data report carries back, when RAOA asked for it. */
+        raoa: (deg: string) => string
         /** One MMRC list entry: the initiator's address and its receipt bitmap, printed as the
          * literal bits (window-round order, index 0 first) rather than a byte count — the whole
          * point of the row is which rounds were received, not how many. */
@@ -566,6 +571,12 @@ export interface Strings {
     nbPoll: (dst: string) => string; nbResp: (dst: string) => string; nbReport: (dst: string) => string
     /** P802.15.4ab Config 1: the same three messages as one SP0 packet on the UWB PHY. */
     uwbSp0: (role: 'poll' | 'resp' | 'report', dst: string) => string
+    /** §10.32.8.2's SP3 marker: the slot it sits in, which is the only thing that says whose it
+     * is — the frame has no address field to read one from. */
+    uwbSp3: (slot: number) => string
+    /** An SP3 packet has no PHR and no PSDU, so it has no data rate at all: this replaces the
+     * BPRF PSDU rate `uwbRate` quotes for every frame that does have one. */
+    uwbSp3Rate: string
     uwbRate: (mbps: number) => string
     uwbWait: string; uwbWaitNote: string
     /** §10.36's receipt-confirmation answer: how many initiators this frame lists. */
@@ -1186,6 +1197,8 @@ export const STRINGS: Strings = {
         ieBlink: '闪发信息元·单向闪发帧的内容',
         ieRmnr: 'RMNR 信息元·测距消息未收到，无内容字段',
         ieRmmrc: 'RMMRC 信息元·多消息收妥确认',
+        ieSrrr: 'SRRR 信息元·某个响应方请求报告哪几项',
+        ieRaoa: '方位角项·数据报告相位带回的那个方位角',
         mmsFragment: '片段·第几个，共几个',
         mmsShape: '序列·这个片段由什么构成',
         mmsLength: '长度·一毫秒的能量花在多长的时间里',
@@ -1259,6 +1272,8 @@ export const STRINGS: Strings = {
         blink: (block, round) => `闪发 · 块 ${block} · 轮 ${round}`,
         rmnr: () => '无内容字段——仅凭出现在这个时隙本身，说明仍持有有效 RCM、但本轮启动消息未收到',
         rmmrc: (n, list) => `${n} 个发起方：${list}`,
+        srrr: (id, raoa, rrtt) => `${id} 请求：方位角 ${raoa ? '要' : '不要'}，往返时间 ${rrtt ? '要' : '不要'}`,
+        raoa: (deg) => `${deg}——响应方自己测到的方位角，由它的报告帧带回`,
         rmmrcEntry: (id, bits) => `${id} 收妥位图 ${bits}（从左到右：窗口第一轮…最后一轮）`,
         fragment: (kind, index, of, msIn) => `${kind} 第 ${index} / ${of} 个 · 序列中的第 ${msIn} ms`,
         fragmentRsf: (nMsr, gap) => `N_MSR ${nMsr} × MMRS 符号 · 间隔 ${gap}`,
@@ -1352,6 +1367,9 @@ export const STRINGS: Strings = {
     nbPoll: (dst) => `窄带 POLL → ${dst} — 在控制电台上开启一次测距周期`,
     nbResp: (dst) => `窄带 RESP → ${dst} — 它听到了轮询，将参与测距`,
     nbReport: (dst) => `窄带 REPORT → ${dst} — 计算距离所用的那个时间`,
+    uwbSp3: (slot) => `测距时隙 ${slot} 内的 SP3 测距标记——只有 SYNC、SFD 与 STS，没有 PHR，也没有载荷；`
+      + `是哪台设备发的，由这个时隙本身说明`,
+    uwbSp3Rate: '没有载荷，也就没有数据速率 · HRP UWB（SP3 包：SYNC+SFD+STS）',
     uwbRate: (mbps) => `${mbps} Mbps BPRF · HRP UWB（SP1 PPDU）`,
     uwbWait: '持有一个测距时隙',
     uwbWaitNote: 'UWB 设备从不参与竞争：本轮的调度表已经规定了这个时隙属于谁，接收机只需保持开启到时隙截止。',

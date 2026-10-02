@@ -28,7 +28,8 @@ import {
   ARC_IE_BYTES, BLINK_IE_BYTES, chipsToNs, DL_COFFS_IE_BYTES, PHR_SYMBOLS, PHR_SYMBOL_CHIPS, PSYM_CHIPS,
   rdmIeBytes, RCMA_IE_BYTES, RCPS_IE_BYTES, RCTU_NS, rmiFinalDeferredIeBytes, rmiFinalIeBytes,
   RMI_REPORT_IE_BYTES, rmmrcIeBytes, RMNR_IE_BYTES, RRMC_IE_BYTES, RRTI_IE_BYTES, rxTimesIeBytes, SFD_SYMBOLS,
-  STS_ACTIVE_CHIPS, STS_GAP_CHIPS, SYNC_SYMBOLS, TX_TIME_IE_BYTES, UWB_FCS_BYTES, UWB_MHR_BYTES,
+  SRRR_IE_BYTES, STS_ACTIVE_CHIPS, STS_GAP_CHIPS, SYNC_SYMBOLS, TX_TIME_IE_BYTES, UWB_FCS_BYTES,
+  UWB_MHR_BYTES, UWB_SP3_RAOA_ITEM_BYTES,
 } from './phy'
 
 /** Model: the simulator runs a single ranging session, so a single PAN. */
@@ -214,6 +215,28 @@ function ies(u: UwbInfo): Ie[] {
         })
         break
       }
+      // §10.32.9.9's SRRR IE, in an SP3 round's RCM: **one IE per responder**, each 3 octets — A rows
+      // of 3, not one row of 3A, the same way `RRTI` above gives a Final N rows of 6 rather than one
+      // of 6N. That is what "a request is not free" actually looks like in the payload, and it is why
+      // this IE's cost grows with the responder count while §10.36's MMRCR bit's does not.
+      case 'SRRR': {
+        for (const id of u.schedule ?? []) {
+          out.push({
+            key: 'ieSrrr', bytes: SRRR_IE_BYTES,
+            value: V.srrr(id, u.srrr?.raoa === true, u.srrr?.rrtt === true),
+          })
+        }
+        break
+      }
+      // …and what the RAOA bit bought, arriving in the data report phase: one bearing, in the
+      // responder's own report frame (§10.32.8.1). Present only when that bit was set, which is what
+      // makes `uwbSp3ReportBytes(false)` the whole length of a report nobody asked an extra of.
+      case 'RAOA':
+        out.push({
+          key: 'ieRaoa', bytes: UWB_SP3_RAOA_ITEM_BYTES,
+          value: V.raoa(u.aoaThetaDeg === undefined ? '—' : `${u.aoaThetaDeg.toFixed(1)}°`),
+        })
+        break
       default:
         throw new Error(`uwbFrameFields: unknown ranging IE ${ie}`)
     }

@@ -15,7 +15,7 @@ import {
 import {
   UWB_BLINK_BYTES, UWB_REPORT_BYTES, UWB_SS_DEFER_BYTES, uwbDlFinalBytes, uwbDlPollBytes, uwbDlRespBytes,
   uwbFinalBytes, uwbInitBytes, uwbM2mBytes, uwbMmrcmBytes, uwbPollBytes, uwbPpduNs, uwbRespBytes, uwbRmnrBytes,
-  uwbSp3Ns, type UwbReplyTime,
+  uwbSp3Ns, uwbSp3PollBytes, uwbSp3ReportBytes, type UwbReplyTime,
 } from './phy'
 
 export type UwbFrameKind =
@@ -211,6 +211,13 @@ export interface UwbInfo {
   contention?: { firstSlot: number; lastSlot: number; maxAttempts: number }
   /** Response (SS, embedded) or the SS deferred reply-time message: RRTI reply time in RCTU. */
   replyRctu?: number
+  /** SP3 grouped ranging, RCM: the two request bits of §10.32.9.9's SRRR IE, present exactly when
+   * the frame carries those IEs at all (one per responder — see `PollOpts.srrr`). */
+  srrr?: { raoa: boolean; rrtt: boolean }
+  /** SP3 grouped ranging, data report phase: the bearing the responder measured, present exactly
+   * when the round's SRRR IE asked for it (RAOA, standard §10.32.9.9). Never on an SP3 marker —
+   * that frame has no payload at all (`makeSp3`) — only on the report frame that follows it. */
+  aoaThetaDeg?: number
   /** Final (DS): per anchor. Embedded carries { id, tround1, treply2 } (RMI + RRTI IEs); deferred
    * carries { id } only — the round trip and reply time move out of this frame entirely (design
    * §5) — so `tround1`/`treply2` are absent, not present-but-zero. */
@@ -266,6 +273,18 @@ export interface PollOpts {
   /** DL-TDoA: anchor 0's own ranging times. A Poll that carries them is a DL-TDoA Poll, and the
    * three fields above mean nothing to it - a one-way round is time-scheduled by construction. */
   dl?: UwbDlTimes
+  /**
+   * SP3 grouped ranging (standard §10.32.8.1's first phase): this RCM also carries the responders'
+   * SRRR IEs — one per responder, §10.32.9.9 — so it is `srrrIeBytes(A)` octets longer than the
+   * Poll of an SP1 round. Absent (the default) means an SP1 round, which carries none.
+   *
+   * The bits are carried as well as counted, so the frame inspector can name what each responder
+   * asked for rather than print a row it cannot read. **Every responder's IE carries the same two
+   * bits here**, because every device of a session is configured from the one session config — the
+   * same reason the Poll's own `maxAttempts` is read off the sender's config rather than per
+   * responder. The IE's *length* does not depend on the bits either way.
+   */
+  srrr?: { raoa: boolean; rrtt: boolean }
 }
 
 /**
@@ -275,7 +294,7 @@ export interface PollOpts {
  */
 export function makePoll(
   tag: string, anchors: string[], method: 'ss' | 'ds', block: number, round: number,
-  { schedule = 'time', contentionSlots = 8, maxAttempts = 3, dl }: PollOpts = {},
+  { schedule = 'time', contentionSlots = 8, maxAttempts = 3, dl, srrr }: PollOpts = {},
 ): FrameDesc {
   // DL-TDoA: anchor 0 polls, `anchors` are the responders it gives slots to, and the frame adds
   // anchor 0's own TX time so a listening tag can time the round on the anchors' clock.
@@ -291,8 +310,11 @@ export function makePoll(
       contention: { firstSlot: 1, lastSlot: contentionSlots, maxAttempts },
     })
   }
-  return uwbFrame('uwbPoll', tag, '*', uwbPollBytes(anchors.length), {
-    sp: 1, method, block, round, slot: 0, ies: ['ARC', 'RDM', 'RRMC'], schedule: [...anchors],
+  return uwbFrame('uwbPoll', tag, '*', srrr ? uwbSp3PollBytes(anchors.length) : uwbPollBytes(anchors.length), {
+    sp: 1, method, block, round, slot: 0,
+    ies: srrr ? ['ARC', 'RDM', 'RRMC', 'SRRR'] : ['ARC', 'RDM', 'RRMC'],
+    schedule: [...anchors],
+    ...(srrr ? { srrr: { ...srrr } } : {}),
   })
 }
 
@@ -363,9 +385,24 @@ export function makeResp(
  * design §4; task-3 Ruling 4. */
 export function makeSsDefer(
   anchor: string, tag: string, replyRctu: number, block: number, round: number, slot: number,
+  /**
+   * SP3 grouped ranging only (standard §10.32.8.1's data report phase): the bearing this responder
+   * measured, carried because the round's SRRR IE set the RAOA bit (§10.32.9.9). Absent — the key
+   * is not even present — when it did not, which is what makes `uwbSp3ReportBytes(false)` the
+   * honest length of the frame rather than a shorter frame with a field nobody filled.
+   *
+   * The initiator's frame is where §10.32.8.2's Figure 10-242 puts the bearing; in this engine the
+   * antenna array is on the **anchors** (`UwbDeviceCfg.aoa`, and `UWB_AOA` is emitted there), so the
+   * end that holds a bearing to report is the responder, and its own report frame is where it
+   * rides. Which end sends it follows from which end has the array; the clause names the request,
+   * not the array.
+   */
+  aoaThetaDeg?: number,
 ): FrameDesc {
-  return uwbFrame('uwbSsDefer', anchor, tag, UWB_SS_DEFER_BYTES, {
-    sp: 1, method: 'ss', block, round, slot, ies: ['RRTI'], replyRctu,
+  const raoa = aoaThetaDeg !== undefined
+  return uwbFrame('uwbSsDefer', anchor, tag, raoa ? uwbSp3ReportBytes(true) : UWB_SS_DEFER_BYTES, {
+    sp: 1, method: 'ss', block, round, slot, ies: raoa ? ['RRTI', 'RAOA'] : ['RRTI'], replyRctu,
+    ...(raoa ? { aoaThetaDeg } : {}),
   })
 }
 

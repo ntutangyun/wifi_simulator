@@ -92,6 +92,17 @@ export function fmtUwbRecord(r: UwbTLRecord): string {
         : `${r.node} contends: slot ${r.slot} (attempt ${r.attempt})`
     case 'UWB_CONTEND_COLLISION':
       return `${r.node} contention collision in slot ${r.slot}`
+    // Standard §10.32.8.2. The line says where the name came from, because that is the only thing
+    // this record reports: the frame carried no address and no time, so "from" is the slot's own
+    // answer and nothing else.
+    case 'UWB_SP3':
+      return `${r.node} slot ${r.slot}: SP3 marker, from ${r.peer} by its slot — nothing in the frame says so`
+    case 'UWB_SP3_REPORT':
+      // The reply time is there whatever SRRR asked (§10.29.6.3 is the only route it has); the
+      // bearing is there exactly when the RAOA bit asked for it (§10.32.9.9), so the line names it
+      // only when it arrived.
+      return `${r.node} slot ${r.slot}: ${r.peer} reports Treply ${r.replyRctu} RCTU`
+        + `${r.thetaDeg !== undefined ? `, AoA ${r.thetaDeg.toFixed(1)}°` : ''}`
     case 'UWB_RMNR':
       // Both halves of what a zero-content IE says, in the order the initiator learns them: the
       // responder is still there and still holds the control message, and the thing it missed is

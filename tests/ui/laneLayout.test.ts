@@ -8,11 +8,17 @@ import { makeEmitter, type EmitFn, type TLRecord } from '../../src/model/records
 import { initViewState } from '../../src/model/view'
 import { defaultScenario } from '../../src/model/scenario'
 import { ampBsReplyFrame, ampRfidFrame } from '../../src/engine/ampBs'
-import type { FrameDesc } from '../../src/model/frames'
+import { FRAME_KINDS, type FrameDesc, type FrameKind } from '../../src/model/frames'
+import type { UwbInfo } from '../../src/uwb/frames'
 
 const frame: FrameDesc = {
   kind: 'data', src: 'sta-1', dst: 'ap', bytes: 1428, mbps: 54, durationFieldNs: 60_000, txTimeNs: 232_000,
 }
+
+/** The `uwb` block every UWB branch of the tooltip chain reads. Every branch reads it through a
+ * `??` fallback, so the values do not matter — only that the block is there — and a non-UWB kind
+ * carrying one changes none of the Wi-Fi branches, which never look at it. */
+const uwbInfo: UwbInfo = { sp: 1, method: 'ss', block: 0, round: 0, slot: 1, ies: [] }
 
 function recs(rs: Parameters<EmitFn>[0][]): TLRecord[] {
   const out: TLRecord[] = []
@@ -358,5 +364,43 @@ describe('laneAtY', () => {
     const yBottomOfLane4 = axisH + 5 * laneH - 1
     expect(laneAtY(yTopOfLane4, axisH, laneH, 9)).toBe(4)
     expect(laneAtY(yBottomOfLane4, axisH, laneH, 9)).toBe(4)
+  })
+})
+
+/**
+ * The structure `tsc -b` cannot index.
+ *
+ * `spanTooltip`'s `what` is a ternary chain keyed on `FrameKind` inside a plain object-literal type
+ * (`Strings['tooltips']`), not a `Record<FrameKind, …>` — so a kind with no branch compiles, greps
+ * clean, and silently falls through to the CTS label at the end of the chain. Five frame kinds have
+ * reached a live round on this branch with that gap open (the deferred reply-time message, the
+ * many-to-many frame, the non-receipt frame, the receipt confirmation and the SP3 marker), and each
+ * of them was found by reading the chain rather than by a failing test.
+ *
+ * This is that test. It walks every kind the model has, not the ones this slice added.
+ */
+describe('spanTooltip covers every frame kind', () => {
+  const tx = (kind: FrameKind): LaneSpan => ({
+    nodeId: 'n', kind: 'tx', startNs: 0, endNs: 1000, fullStartNs: 0, fullEndNs: 1000, ifs: [],
+    openStart: false, openEnded: false, frameKind: kind,
+    frame: { ...frame, kind, src: 'n', dst: 'peer', uwb: uwbInfo },
+  })
+  const ctsLabel = STRINGS.tooltips.cts('peer')
+
+  it.each(FRAME_KINDS.filter((k) => k !== 'cts'))('%s does not fall through to the CTS label', (kind) => {
+    expect(spanTooltip(tx(kind), STRINGS.tooltips)[0]).not.toBe(ctsLabel)
+  })
+
+  it('names the CTS itself with the CTS label, so the assertion above is not vacuous', () => {
+    expect(spanTooltip(tx('cts'), STRINGS.tooltips)[0]).toBe(ctsLabel)
+  })
+
+  /** …and the second line, which quotes a data rate. An SP3 packet has no PSDU and so no rate at
+   * all (standard §10.32.8.2), and the chain's own fallthrough would have quoted the BPRF PSDU rate
+   * of a frame with no PSDU. */
+  it('does not quote an SP1 PSDU rate for a frame that has no PSDU', () => {
+    const sp3 = tx('uwbSp3')
+    sp3.frame = { ...sp3.frame!, bytes: 0, mbps: 0, uwb: { ...uwbInfo, sp: 3 } }
+    expect(spanTooltip(sp3, STRINGS.tooltips)[1]).not.toContain(STRINGS.tooltips.uwbRate(0))
   })
 })

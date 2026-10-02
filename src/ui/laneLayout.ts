@@ -402,6 +402,14 @@ export function spanTooltip(s: LaneSpan, T: Strings['tooltips'], t?: Ns, nameOf:
           ? T.uwbFragment(f.kind === 'uwbRsf' ? 'RSF' : 'RIF', (f.uwb?.mms?.index ?? 0) + 1, f.uwb?.mms?.of ?? 0) :
         // Config 1's control plane: one SP0 packet format, the role in its content.
         f.kind === 'uwbSp0' ? T.uwbSp0(f.uwb?.sp0?.role ?? 'poll', dst) :
+        // §10.32.8.2's SP3 marker. Without this branch the chain falls through to the CTS label at
+        // the end — silently, because `Strings['tooltips']` is a plain object-literal type and not a
+        // `Record<FrameKind, …>`, so neither `tsc -b` nor a grep for the kind can find the gap. Task
+        // 1 of docs/superpowers/specs/2026-10-02-sp3-design.md found it and correctly left it inert,
+        // there being no live SP3 frame to mislabel yet; this task gave the kind a round to appear
+        // in. It is told by the **slot**, not by a destination: the frame has no address field, and
+        // `dst` is this engine's broadcast placeholder.
+        f.kind === 'uwbSp3' ? T.uwbSp3(f.uwb?.slot ?? 0) :
         f.kind === 'nbPoll' ? T.nbPoll(dst) :
         f.kind === 'nbResp' ? T.nbResp(dst) :
         f.kind === 'nbReport' ? T.nbReport(dst) :
@@ -413,6 +421,10 @@ export function spanTooltip(s: LaneSpan, T: Strings['tooltips'], t?: Ns, nameOf:
         // 250 kb/s), and neither of the two is the HRP UWB PSDU rate the last line quotes.
         : f.uwb?.mms ? T.uwbFragmentRate(f.uwb.mms.txDbm)
         : f.uwb?.nb ? T.nbRate(f.mbps)
+        // An SP3 packet has no PHR and no PSDU at all, so it has no data rate either — quoting the
+        // BPRF PSDU rate of a frame with no PSDU is the same kind of wrong label the CTS fallback
+        // above would have been. Keyed on `sp`, the field that means it.
+        : f.uwb?.sp === 3 ? T.uwbSp3Rate
         : f.uwb ? T.uwbRate(f.mbps)
         : f.mcs !== undefined ? `${f.mode?.toUpperCase()} MCS${f.mcs} · ${f.mbps} Mbps` : `${f.mbps} Mbps (${T.nonHt})`
       const lines = [`${what}${ac}`, `${f.bytes} B · ${rate} · ${dur}`]

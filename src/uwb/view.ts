@@ -134,6 +134,20 @@ export interface UwbNodeView {
    * the event log prints them — the same division `UWB_ECHO` already follows.
    */
   mmrcm: number
+  /**
+   * SP3 markers this initiator took **on the slot** (standard §10.32.8.2), counted at the
+   * initiator — the end that has to work out who sent them.
+   *
+   * It exists for the same reason `rmnr` does: with `sp3` on, the live view would otherwise show a
+   * round that looks exactly like an SP1 one — the same slots, the same ranges — with nothing to
+   * say that the frames in the ranging phase carried no identity at all. This row and the one below
+   * are the two phases of §10.32.8.1 made countable.
+   */
+  sp3: number
+  /** SP3 data reports this initiator received (standard §10.32.8.1's third phase), counted at the
+   * initiator. The pair of counters is the point: the ranging phase is cheaper by exactly as many
+   * markers as this is dearer by report frames, and the second number is the larger one. */
+  sp3Reports: number
   /** Receptions lost to in-band Wi-Fi power (UWB_INTERFERED), counted at the receiver. */
   interfered: number
   /** Contention round, anchor: its latest draw — `slot` null while it sits a round out. It is
@@ -162,6 +176,7 @@ export interface UwbNodeView {
 export function initUwbNodeView(cfg: UwbNodeCfg): UwbNodeView {
   return {
     role: cfg.role, block: 0, round: 0, slot: null, rounds: 0, timeouts: 0, rmnr: 0, mmrcm: 0,
+    sp3: 0, sp3Reports: 0,
     interfered: 0,
     contend: null, contendCollisions: 0, ranges: {}, tdoa: {}, tdoaRef: null, aoa: {},
     mms: { trains: {}, nbChannel: null, lbtBusy: 0, skippedBlocks: 0, lastLbtBlock: null },
@@ -297,6 +312,22 @@ export function applyUwbRecord(vs: ViewState, r: TLRecord): boolean {
     case 'UWB_MMRCM': {
       const u = vs.nodes[r.node]?.uwb
       if (u) u.mmrcm += 1
+      return true
+    }
+    // …and the same again, at the initiator of an SP3 round (standard §10.32.8). Both cases are here
+    // because this reducer ends in `default: return false`: an unknown record type is swallowed in
+    // silence, so a missing case fails neither `tsc -b` nor a grep, and the record would simply
+    // never reach a lane. The two comments above record that this has already cost this branch
+    // once; these two are the third and fourth times the warning was acted on rather than
+    // rediscovered.
+    case 'UWB_SP3': {
+      const u = vs.nodes[r.node]?.uwb
+      if (u) u.sp3 += 1
+      return true
+    }
+    case 'UWB_SP3_REPORT': {
+      const u = vs.nodes[r.node]?.uwb
+      if (u) u.sp3Reports += 1
       return true
     }
     case 'UWB_NB_LBT': {

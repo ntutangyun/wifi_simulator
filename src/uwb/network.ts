@@ -144,6 +144,10 @@ export class UwbNetwork {
       ? uwbM2mSlotFitNs(participants.length)
       : uwbSlotFitNs(
         anchors.length, this.plan.mode, this.plan.schedule, cfg.mms, this.plan.method, this.plan.replyTime,
+        // SP3's RCM is `srrrIeBytes(A)` octets longer than an ordinary Poll (standard §10.32.9.9),
+        // and the Poll is what binds an SS round's slot. The scenario schema checks the identical
+        // thing in RSTU, from the identical function and the identical field.
+        this.plan.sp3,
       )
     if (this.plan.slotNs < needNs) {
       throw new Error(

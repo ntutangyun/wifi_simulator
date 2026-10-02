@@ -1705,7 +1705,12 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
             // (design §5): an SS-TWR round has no Final at all, so sizing its slot against the
             // embedded DS Final refused slots that fit the round perfectly well. `UwbNetwork`
             // computes the identical thing in nanoseconds, from the same two fields.
-            const needNs = uwbSlotFitNs(anchors, mode, sc.uwb.schedule, undefined, sc.uwb.method, sc.uwb.replyTime)
+            // …and `sp3`, because SP3's RCM carries one SRRR IE per responder on top of the Poll
+            // (standard §10.32.9.9): the longest frame of the round grows 6 octets an anchor rather
+            // than 3, which is a slot-fit question as much as a PSDU-cap one.
+            const needNs = uwbSlotFitNs(
+              anchors, mode, sc.uwb.schedule, undefined, sc.uwb.method, sc.uwb.replyTime, sc.uwb.sp3,
+            )
             if (slotNs < needNs) {
               ctx.addIssue({
                 code: z.ZodIssueCode.custom,

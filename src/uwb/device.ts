@@ -42,6 +42,9 @@ import {
 import { onDlRx, onDlSlot, onUlSlot, solveTdoaFix, solveUlFix as solveUlFixImpl, transmitDl, ulArrivalNs as ulArrivalNsImpl, type DlRoundState } from './device.tdoa'
 import { freshMms, onMmsRx, onMmsSlot, solveMmsFix, type MmsRoundState } from './device.mms'
 import { freshM2m, onM2mRx, onM2mSlot, transmitM2m, type M2mRoundState } from './device.m2m'
+import {
+  onSp3Marker, onSp3Report, sp3ReportBearing, sp3Round, sp3SlotPeer, transmitSp3Marker,
+} from './device.sp3'
 import { measureAoa, reportRange } from './device.report'
 import { RCTU_NS, tsSigmaNs, UWB_RMARKER_NS, uwbMaxMmrcmInitiators, uwbSinrDb, type UwbChannelNo } from './phy'
 import { rangeSigmaM, solvePosition, type AnchorPos } from './position'
@@ -139,7 +142,12 @@ export type UwbDeviceState = Extract<MacStateName, 'idle' | 'uwbWait' | 'rx' | '
  * (`UwbDeviceCfg.rmnr`), so no session that has it off can meet this clause.
  */
 function expectationAccepts(exp: Expectation, kind: UwbFrameKind): boolean {
-  return exp.kind === kind || (kind === 'uwbRmnr' && exp.kind === 'uwbResp')
+  // …and the same clause for an SP3 round, whose responder slots wait for a marker rather than a
+  // Response (standard §10.32.8.2). Without it `rmnr` + `sp3` would be a legal pair of switches in
+  // which §10.34 silently did nothing: the responder would send the frame and the initiator would
+  // throw it away as not the frame this slot is for.
+  return exp.kind === kind
+    || (kind === 'uwbRmnr' && (exp.kind === 'uwbResp' || exp.kind === 'uwbSp3'))
 }
 
 /** A slot action that names a frame — every one but the MMS layout's `idle`. Its `kind` is a
@@ -173,6 +181,19 @@ interface Expectation {
    * would bury every other record in the log.
    */
   silent: boolean
+  /**
+   * The device this slot belongs to, when the wait cannot be filtered on it.
+   *
+   * An SP3 marker carries no address at all (standard §10.32.8.2), so `from` has to be null — but
+   * the slot still belongs to exactly one responder, named by the round's own slot table, and a
+   * silent slot is still that responder's timeout. That is what separates this from a contention
+   * round's `open` slot, where nobody owes an answer and silence is the ordinary outcome: here
+   * `open` stays false and the diagnostic survives.
+   *
+   * Set only in an SP3 round. Everywhere else the sender and the slot's owner are the same string,
+   * and `from` is both.
+   */
+  peer?: string
 }
 
 /** What a tag remembers about one anchor inside the round in progress. */
@@ -564,6 +585,21 @@ export class UwbDevice implements UwbRadio {
       ? action.kind === 'uwbResp' || action.kind === 'uwbSsDefer' || action.kind === 'uwbReport'
       : action.kind === 'uwbPoll' || action.kind === 'uwbFinal'
     if (!mine) return
+    // An SP3 round's two responder phases, at the initiator (standard §10.32.8.1): the marker slots
+    // and the report slots are both waited on *by slot* rather than by sender.
+    //
+    // The marker has to be, because an SP3 packet carries no address to filter on. The report need
+    // not be — it is an ordinary PPDU with an MHR — but it is, because the slot is the only thing
+    // that can pair it with the marker it completes: the marker had no address to pair on either.
+    // One rule, read in both phases, rather than two that can disagree about whose measurement this
+    // report finishes (`sp3SlotPeer`).
+    if (
+      this.cfg.role === 'tag' && sp3Round(r.plan)
+      && (action.kind === 'uwbResp' || action.kind === 'uwbSsDefer')
+    ) {
+      this.listenOnSlot(slot, sp3SlotPeer(r, slot), action.kind === 'uwbResp' ? 'uwbSp3' : 'uwbSsDefer')
+      return
+    }
     // What slot 0 actually carries this block: the control message (today's Poll) at the head of
     // each validity window, the initiation message alone in the blocks the window covers (standard
     // §10.32.9.1, design §2). The slot table does not move with it — slot 0 is the round's opener
@@ -807,7 +843,13 @@ export class UwbDevice implements UwbRadio {
     const extraNs = info.nlosNs + gaussian(this.rng) * sigmaNs - advanceNs
     const counter = this.clock.counter(trueRmarkerNs, extraNs)
     const fom = fomFor(info.nlos)
-    this.emit({ t: this.now(), type: 'UWB_TS', node: this.id, dir: 'rx', peer: from, frameKind: kind, counter, fom })
+    // Whose frame this counter belongs to, **as this receiver knows it**. For every frame in this
+    // engine but one that is the sender the medium delivered; for an SP3 marker it cannot be, because
+    // the packet has no address field for the receiver to have read one from (standard §10.32.8.2),
+    // so the slot's own owner is what it knows. Writing `from` here would put a name in the log that
+    // the device holding it could not have worked out.
+    const tsPeer = kind === 'uwbSp3' ? sp3SlotPeer(r, r.slot) : from
+    this.emit({ t: this.now(), type: 'UWB_TS', node: this.id, dir: 'rx', peer: tsPeer, frameKind: kind, counter, fom })
     // Clock-offset estimate from the carrier (standard §16.4.9): how much faster
     // the sender's crystal runs than mine, with the estimator's residual error.
     const coffs = (info.txPpm - this.clock.ppm) * 1e-6 + gaussian(this.rng) * this.cfg.cfoNoisePpm * 1e-6
@@ -872,8 +914,16 @@ export class UwbDevice implements UwbRadio {
       case 'uwbResp':
         this.onResponse(r, from, frame, counter, coffs, fom)
         break
+      // Standard §10.32.8.2, and the one branch in this switch that does not read `from` at all:
+      // which responder this marker came from is the slot's answer (`device.sp3.ts`).
+      case 'uwbSp3':
+        onSp3Marker(this, r, r.slot, counter, coffs, fom)
+        break
       case 'uwbSsDefer':
-        this.onSsDefer(r, from, frame)
+        // The same frame in both shapes, and the same arithmetic — only who it is attributed to
+        // differs, and in an SP3 round that is the slot rather than the address (see `onSlot`).
+        if (sp3Round(r.plan)) onSp3Report(this, r, r.slot, frame)
+        else this.onSsDefer(r, from, frame)
         break
       case 'uwbFinal':
         this.onFinal(r, from, frame, counter, fom)
@@ -920,8 +970,12 @@ export class UwbDevice implements UwbRadio {
     // An open contention slot names no peer, so a silent one has nothing to report:
     // an empty slot is what most of the response window looks like by design; a fragment of a
     // train is named but not worth a record either (see `Expectation.silent`).
-    if (!exp.open && !exp.silent && exp.from !== null) {
-      this.emit({ t: this.now(), type: 'UWB_TIMEOUT', node: this.id, slot: exp.slot, peer: exp.from, expected: exp.kind })
+    // The peer the record names is the one the wait was filtered on — or, where it could not be
+    // filtered on one at all because the frame carries no address (an SP3 marker), the device the
+    // slot belongs to. `exp.open` is still what decides whether there is anything to report.
+    const peer = exp.from ?? exp.peer
+    if (!exp.open && !exp.silent && peer !== undefined) {
+      this.emit({ t: this.now(), type: 'UWB_TIMEOUT', node: this.id, slot: exp.slot, peer, expected: exp.kind })
     }
     this.setState('idle')
   }
@@ -1270,6 +1324,18 @@ export class UwbDevice implements UwbRadio {
     this.expect = { slot, from, kind, until, open: false, silent }
   }
 
+  /**
+   * Tag, SP3 round: listen through a slot the schedule has already named an owner for, without
+   * filtering on the sender's address — because the frame may not have one (standard §10.32.8.2).
+   *
+   * Not `listenOpen`: that slot belongs to nobody and reports nothing when it stays silent. This one
+   * belongs to `peer`, and a silent slot is still `peer`'s timeout (see `Expectation.peer`).
+   */
+  listenOnSlot(slot: number, peer: string, kind: UwbFrameKind): void {
+    this.setState('uwbWait')
+    this.expect = { slot, from: null, kind, until: slot + 1, open: false, silent: false, peer }
+  }
+
   /** Tag, contention round: listen through a response slot for whichever anchor drew it, if any. */
   private listenOpen(slot: number): void {
     this.setState('uwbWait')
@@ -1310,6 +1376,12 @@ export class UwbDevice implements UwbRadio {
           : makePoll(this.id, peers.anchors, r.plan.method, r.block, r.round, {
             schedule: r.plan.schedule, contentionSlots: r.plan.contentionSlots,
             maxAttempts: this.cfg.maxAttempts,
+            // SP3's RCM also carries the responders' SRRR IEs — one per responder, standard
+            // §10.32.9.9 — so a request is three octets a responder, where §10.36's MMRCR bit rides
+            // a control octet this frame carries anyway. The initiation-only message of a later
+            // round in the same validity window carries no RDM either (Ruling 3), so it carries no
+            // SRRR: the requests came with the slot table and are still in force with it.
+            srrr: sp3Round(r.plan) ? { ...r.plan.srrr } : undefined,
           })
         // Its airtime, kept for the one thing that reads it: reconstructing a fixed reply time,
         // which is counted from the end of this PPDU at the responder (see `fixedReplyRctu`). It is
@@ -1332,6 +1404,14 @@ export class UwbDevice implements UwbRadio {
         if (r.rxPollCounter === null) {
           if (this.owesRmnr(r, 'uwbResp')) this.send(makeRmnr(this.id, r.tagId, r.block, r.round, slot), null)
           return
+        }
+        // SP3 grouped ranging (standard §10.32.8.2): this slot's ranging frame is a bare marker —
+        // SYNC + SFD + STS, no PHR, no payload — and nothing about *which* responder sent it goes on
+        // the air. See `device.sp3.ts`; the schema guarantees `replyTime: 'deferred'` here, so the
+        // reply time below has a report slot of its own to arrive in.
+        if (sp3Round(r.plan)) {
+          transmitSp3Marker(this, r, slot, txCounter)
+          break
         }
         r.txRespCounter = txCounter
         // Which of the three routes this round's reply time takes (design §2), decided here and
@@ -1362,7 +1442,12 @@ export class UwbDevice implements UwbRadio {
         // tag subtract it from a round trip that does not exist.
         if (r.rxPollCounter === null || r.txRespCounter === null) return
         const replyRctu = counterDiff(r.txRespCounter, r.rxPollCounter)
-        this.send(makeSsDefer(this.id, r.tagId, replyRctu, r.block, r.round, slot), txCounter)
+        // …and in an SP3 round this is also §10.32.8.1's data report phase, so it carries whatever
+        // the round's SRRR IE asked for on top of the reply time it carries regardless
+        // (`sp3ReportBearing`; undefined everywhere else, which leaves this frame the 17 octets it
+        // has always been).
+        const bearing = sp3Round(r.plan) ? sp3ReportBearing(r) : undefined
+        this.send(makeSsDefer(this.id, r.tagId, replyRctu, r.block, r.round, slot, bearing), txCounter)
         break
       }
       case 'uwbFinal': {
@@ -1510,15 +1595,33 @@ export class UwbDevice implements UwbRadio {
    * arithmetic would otherwise produce a NaN range and no error anywhere to say so.
    */
   private onSsDefer(r: RoundState, from: string, frame: FrameDesc): void {
-    const p = r.peers.get(from)
     const replyRctu = frame.uwb?.replyRctu
-    if (!p || replyRctu === undefined) return
+    if (replyRctu === undefined) return
+    this.finishDeferredRange(r, from, replyRctu)
+  }
+
+  /**
+   * The arithmetic of the deferred shape, in one place: the round trip banked a slot (or a phase)
+   * ago, finished with the reply time that has just arrived.
+   *
+   * Public because an SP3 round reaches it from `device.sp3.ts` with a peer the **slot** named
+   * rather than one the frame did (standard §10.32.8.2) — the only difference between the two
+   * callers. Keeping the sum here rather than copying it there is what stops a deferred reply time
+   * from becoming a range in two places that could drift.
+   */
+  finishDeferredRange(r: RoundState, peer: string, replyRctu: number): void {
+    // No banked ranging frame, no range: a responder whose marker (or Response) was lost may still
+    // be heard here, and its reply time then has no round trip to be subtracted from. Branching on
+    // it rather than asserting it away is deliberate — the arithmetic would otherwise produce a NaN
+    // range and no error anywhere to say so.
+    const p = r.peers.get(peer)
+    if (!p) return
     const tofRawRctu = ssTwrRaw(p.tround1, replyRctu)
-    // The clock offset and the first-path quality are the Response's, not this message's: they
+    // The clock offset and the first-path quality are the ranging frame's, not this message's: they
     // belong to the reception the round trip was measured on, which is the reading being
     // corrected and scored.
     const tofRctu = ssTwrCorrected(p.tround1, replyRctu, p.coffs)
-    reportRange(this, r, from, 'ss', tofRctu, tofRawRctu, p.fom)
+    reportRange(this, r, peer, 'ss', tofRctu, tofRawRctu, p.fom)
   }
 
   /** Anchor, on the tag's Final: it now holds all four times of the double-sided exchange. */
