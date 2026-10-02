@@ -11,7 +11,7 @@ import { describe, expect, it } from 'vitest'
 import { makeSp3 } from '../../src/uwb/frames'
 import { uwbFrameFields } from '../../src/uwb/frameFields'
 import {
-  RRTI_IE_BYTES, SRRR_IE_BYTES, UWB_FCS_BYTES, UWB_MHR_BYTES, UWB_STS_CHIPS, UWB_SHR_CHIPS,
+  SRRR_IE_BYTES, UWB_SS_DEFER_BYTES, UWB_STS_CHIPS, UWB_SHR_CHIPS,
   srrrIeBytes, uwbPpduNs, uwbRespBytes, uwbSp3Chips, uwbSp3Ns,
 } from '../../src/uwb/phy'
 
@@ -77,36 +77,55 @@ describe('SRRR_IE_BYTES and srrrIeBytes cost the RCM, exactly opposite of §10.3
   })
 })
 
-describe('the crossover: when a whole SP3 grouped round starts costing less air time than an SP1 embedded round', () => {
-  // "A whole round" is read here as the two phases that actually differ between the two shapes:
+describe('there is no crossover: a whole SP3 grouped round costs more air time than an SP1 embedded round at every anchor count', () => {
+  // Fix round 1 (controller correction, 2026-10-02): the first version of this test batched the
+  // data report phase into one frame per round and found a crossover at A = 9. That was wrong
+  // against the published text. §10.32.8.2's own description of Figure 10-242's measurement report
+  // phase has Responder-1 and Responder-N *each separately* embed the requested reply time in an
+  // RMI IE sent back to the initiator — one report frame per reporting device, not one frame for
+  // the whole round. Under that accounting there is no crossover at all: every frame that carries
+  // any payload pays the PHY's SHR + STS + PHR floor (~160 µs) before its first payload bit, so the
+  // ~40 µs an SP3 marker saves can never buy back a whole extra frame. This is the very model this
+  // task tried first and threw out as "the ruler must be wrong" — here the ruler was fine and the
+  // batched-report model was the thing that needed throwing out instead; the published text settles
+  // it in the standard's favour.
+  //
+  // "A whole round" is read here as the two phases that differ between the two shapes:
   //
   //   SP1 embedded SS-TWR: A Responses, each `uwbRespBytes('ss', 'embedded')` (carries its own
-  //   reply time, RRTI IE included) — no report phase, because the time already rode the
-  //   Response.
+  //   reply time, RRTI IE included) — no report phase, because the time already rode the Response.
   //
   //   SP3 grouped: (A + 1) bare SP3 markers (the initiator's own plus one per responder,
-  //   `uwbSp3Ns()` each) plus ONE combined data report frame for the whole round — the deferred
-  //   reply-time message `makeSsDefer`/`UWB_SS_DEFER_BYTES` already built for one responder,
-  //   generalised to A responders by batching A RRTI IEs into one frame (MHR + A×RRTI_IE_BYTES +
-  //   FCS; at A = 1 this is exactly `UWB_SS_DEFER_BYTES`, so the batched formula is not a new
-  //   number, it is the existing one read for A = 1).
+  //   `uwbSp3Ns()` each) plus one report frame *per reporting responder* (standard §10.32.8.2,
+  //   Figure 10-242) — exactly the deferred reply-time message this engine already built for
+  //   SS-TWR (standard §10.29.6.3), `UWB_SS_DEFER_BYTES` (MHR + one RRTI IE + FCS): one device,
+  //   one reply time, one frame. At A responders that is A such frames, each its own PPDU.
   //
   // Left out of both sides: the RCM/Poll phase (ARC + RDM + RRMC, `uwbPollBytes(A)`). Both rounds
   // need the exact same schedule announcement — the same anchors, the same slots — so it is the
-  // same function of A on both sides and cancels out of the comparison exactly; including it
-  // would not move the crossover by one anchor.
-  const reportBatchBytes = (anchors: number) => UWB_MHR_BYTES + anchors * RRTI_IE_BYTES + UWB_FCS_BYTES
+  // same function of A on both sides and cancels out of the comparison exactly.
+  const reportNs = uwbPpduNs(UWB_SS_DEFER_BYTES)
   const tSp1 = (anchors: number) => anchors * uwbPpduNs(uwbRespBytes('ss', 'embedded'))
-  const tSp3 = (anchors: number) => (anchors + 1) * uwbSp3Ns() + uwbPpduNs(reportBatchBytes(anchors))
+  const tSp3 = (anchors: number) => (anchors + 1) * uwbSp3Ns() + anchors * reportNs
 
-  it('the batched report formula is UWB_SS_DEFER_BYTES itself at A = 1', () => {
-    expect(reportBatchBytes(1)).toBe(UWB_MHR_BYTES + RRTI_IE_BYTES + UWB_FCS_BYTES)
+  it('SP3 costs more air time at every anchor count in a swept range, and the gap only widens', () => {
+    let lastGap = -Infinity
+    for (let anchors = 1; anchors <= 40; anchors++) {
+      const gap = tSp3(anchors) - tSp1(anchors)
+      expect(gap).toBeGreaterThan(0)
+      expect(gap).toBeGreaterThan(lastGap)
+      lastGap = gap
+    }
   })
 
-  it('SP3 costs more air time per round below the crossover, and less at and above it', () => {
-    expect(tSp3(8)).toBeGreaterThan(tSp1(8))
-    expect(tSp3(9)).toBeLessThan(tSp1(9))
-    // Monotonic past the crossover — SP3 does not flip back expensive at some larger A.
-    for (let a = 9; a <= 20; a++) expect(tSp3(a)).toBeLessThan(tSp1(a))
+  it('the report phase eats several times the marker\'s own saving — the saving never buys the frame back', () => {
+    // The same per-frame saving pinned above (40 256 ns): what one SP3 marker buys against the
+    // shortest possible SP1 frame. One report frame (`UWB_SS_DEFER_BYTES`'s own airtime) costs
+    // several times that much, which is the arithmetic behind "the saving never buys the frame
+    // back" — computed here, not stated.
+    const savedNs = uwbPpduNs(uwbRespBytes('ds')) - uwbSp3Ns()
+    const multiple = reportNs / savedNs
+    expect(multiple).toBeGreaterThan(1)
+    expect(multiple).toBeCloseTo(4.578, 3)
   })
 })
