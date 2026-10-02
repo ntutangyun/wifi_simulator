@@ -7,7 +7,7 @@
  */
 import { useState } from 'react'
 import { DEFAULT_UWB_MMS } from '../../model/scenario'
-import type { NbLbt, NbReportMode, UwbMmsCfg, UwbMode, UwbSessionCfg } from '../../model/scenario'
+import type { NbLbt, NbReportMode, UwbMmsCfg, UwbMode, UwbSessionCfg, UwbSrrrCfg } from '../../model/scenario'
 import { roundPlan } from '../session'
 import { mmsResponders, rstuNs } from '../phy'
 import {
@@ -81,6 +81,15 @@ const ms = (rstu: number): string => (rstuNs(rstu) / 1e6).toFixed(rstu < 3000 ? 
  * answers "was I heard" for free, but a many-to-many participant has nothing else that ever does).
  * `rcmValidityRounds` and `mmrcr` are therefore read in, not just written out, the one asymmetry
  * between this function's `'twr'` branch and its other three.
+ *
+ * **`sp3` (standard §10.32.8) takes the same trip as `rmnr`, in all three non-`'twr'` branches,
+ * including `'m2m'`.** Unlike `mmrcr`, SP3 grouped ranging has no second mode it stays legal in —
+ * the schema refuses it outright for every mode but `'twr'` (sp3-design §3.2: identity comes from
+ * the slot the controller's own schedule assigns, which none of the other four modes hands out the
+ * same way), so this is the first field in this function where the `'m2m'` branch does not get to
+ * copy `'twr'`'s leniency. This is task 4's own fix to the defect task 3 named: the mode select was
+ * the one path in this file that could still hand the schema an `sp3: true` the three non-`'twr'`
+ * modes all refuse.
  */
 export function uwbModePatch(
   mode: UwbMode, rcmValidityRounds = 1, mmrcr = false,
@@ -89,15 +98,16 @@ export function uwbModePatch(
   if (mode === 'mms') {
     return {
       mode, schedule: 'time', aoa: false, method: 'ss', slotRstu: 600,
-      rcmValidityRounds: 1, rmnr: false, mmrcr: false,
+      rcmValidityRounds: 1, rmnr: false, mmrcr: false, sp3: false,
     }
   }
   if (mode === 'm2m') {
     // mmrcr deliberately untouched: design §4 keeps it legal here, the one non-two-way mode that
-    // ever answers "who heard me" at all.
-    return { mode, schedule: 'time', aoa: false, replyTime: 'embedded', rcmValidityRounds: 1, rmnr: false }
+    // ever answers "who heard me" at all. sp3 has no such exception — see this function's own
+    // comment above.
+    return { mode, schedule: 'time', aoa: false, replyTime: 'embedded', rcmValidityRounds: 1, rmnr: false, sp3: false }
   }
-  return { mode, schedule: 'time', aoa: false, rcmValidityRounds: 1, rmnr: false, mmrcr: false }
+  return { mode, schedule: 'time', aoa: false, rcmValidityRounds: 1, rmnr: false, mmrcr: false, sp3: false }
 }
 
 /**
@@ -110,12 +120,24 @@ export function uwbModePatch(
  * refuse to *create*, but not one already sitting in the session when this field is the one that
  * moves. Picking `'ds'` while `replyTime` is already `'fixed'` takes it back to the default the
  * same way switching to MMS takes the method back to `'ss'`.
+ *
+ * `srrr` takes a fifth, later trip of its own (fix round 1 of task 3, sp3-design §2.3): both of
+ * SRRR's request bits are refused outside SS-TWR — the frames that would answer them are the
+ * deferred shape's own (the responder's follow-up message for RAOA, the initiator's own report for
+ * RRTT), and a DS round's report phase already carries an unconditional round trip and nothing a
+ * bearing would lengthen, so either bit there is a request this engine accepts and never answers.
+ * `sp3` itself stays legal under DS-TWR (its ranging phase still shortens), so only the two request
+ * bits — never `sp3` — come back down when the method select is what moves them into that pair.
  */
 export function uwbMethodPatch(
   method: UwbSessionCfg['method'], replyTime: UwbSessionCfg['replyTime'],
+  sp3 = false, srrr: UwbSrrrCfg = { raoa: false, rrtt: false },
 ): Partial<UwbSessionCfg> {
-  if (method !== 'ds') return { method }
-  return replyTime === 'fixed' ? { method, schedule: 'time', replyTime: 'embedded' } : { method, schedule: 'time' }
+  const patch: Partial<UwbSessionCfg> = method !== 'ds'
+    ? { method }
+    : (replyTime === 'fixed' ? { method, schedule: 'time', replyTime: 'embedded' } : { method, schedule: 'time' })
+  if (method === 'ds' && sp3 && (srrr.raoa || srrr.rrtt)) patch.srrr = { raoa: false, rrtt: false }
+  return patch
 }
 
 /**
@@ -136,15 +158,23 @@ export function uwbMethodPatch(
  * given responder can count on, and a contention response phase hands out no such slot. This
  * schedule select only ever moves while `session.mode === 'twr'` (the panel greys it out
  * otherwise), so `mmrcr`'s own `'m2m'` legality never has to be considered here.
+ *
+ * `sp3` takes the same trip for its own reason (sp3-design §3, schema's own `sp3 && schedule ===
+ * 'contention'` refusal): a contention responder's slot is drawn fresh each round, so there is no
+ * fixed slot for the RCM's per-responder SRRR IE to name in advance. This is the second of the
+ * three resets task 3's concern 2 named — `sp3` was the field `rmnr`/`mmrcr`'s own precedent here
+ * never had to cover, because it did not exist when this function was written.
  */
 export function uwbSchedulePatch(
   schedule: UwbSessionCfg['schedule'], replyTime: UwbSessionCfg['replyTime'], rmnr: boolean, mmrcr = false,
+  sp3 = false,
 ): Partial<UwbSessionCfg> {
   if (schedule !== 'contention') return { schedule }
   const patch: Partial<UwbSessionCfg> = { schedule }
   if (replyTime === 'deferred') patch.replyTime = 'embedded'
   if (rmnr) patch.rmnr = false
   if (mmrcr) patch.mmrcr = false
+  if (sp3) patch.sp3 = false
   return patch
 }
 
@@ -240,13 +270,26 @@ export function uwbMmrcrHintKey(
  * illegal side of either rule (from a hand-edited or imported file) is left alone here — the red
  * hint under the panel is what surfaces that case, not a silent rewrite of a field the user did
  * not touch.
+ *
+ * `sp3` is the third of task 3's named resets, and it does not fit the `null`-for-illegal shape
+ * the two rules above use, because "picking `'embedded'` while `sp3` is on" is not a pairing this
+ * field should ever refuse to *create* — `'embedded'`/`'fixed'` are both legal reply-time shapes on
+ * their own, only not beside a grouped-ranging round that has no payload-bearing frame left to
+ * carry one (sp3-design §2/§3.2.1: SP3's marker is SYNC+SFD+STS only, so the measured time has to
+ * come back on the measurement-report phase `replyTime: 'deferred'` already builds). So the patch
+ * commits `replyTime` either way and only takes `sp3` down with it when the new value cannot carry
+ * it — the same "the field being edited gives away the dependent" shape `uwbRcmValidityRoundsPatch`
+ * uses for `rmnr`, not the "refuse to create" shape this function uses for `method`/`schedule`.
  */
 export function uwbReplyTimePatch(
   replyTime: UwbSessionCfg['replyTime'], method: UwbSessionCfg['method'], schedule: UwbSessionCfg['schedule'],
+  sp3 = false,
 ): Partial<UwbSessionCfg> | null {
   if (replyTime === 'fixed' && method === 'ds') return null
   if (replyTime === 'deferred' && schedule === 'contention') return null
-  return { replyTime }
+  const patch: Partial<UwbSessionCfg> = { replyTime }
+  if (sp3 && replyTime !== 'deferred') patch.sp3 = false
+  return patch
 }
 
 /**
@@ -461,6 +504,73 @@ export function uwbScheduleHintKey(
 }
 
 /**
+ * Why the SP3 grouped-ranging checkbox is live or not (standard §10.32.8). Four refusals, checked
+ * in the order a user would meet them fixing one at a time: the schema refuses the mode outright
+ * for every one-way mode and `'m2m'` (sp3-design §3.2 — identity comes from the slot the
+ * controller's own schedule assigns, which only `'twr'`'s schedule does the way SP3 needs);
+ * refuses a contention schedule, whose responder slot is drawn fresh each round with nothing fixed
+ * for the RCM's SRRR IE to name in advance; and refuses every reply-time shape but `'deferred'`,
+ * because an SP3 marker is SYNC+SFD+STS with no payload at all, so the time it measures has to come
+ * back on the measurement-report phase only the deferred shape already builds (design §2.2: this
+ * is the slice's whole point — the shortest ranging frame only wins on the road that has already
+ * paid for that report phase).
+ */
+export function uwbSp3HintKey(
+  mode: UwbMode, schedule: UwbSessionCfg['schedule'], replyTime: UwbSessionCfg['replyTime'],
+): 'uwbSp3Hint' | 'uwbSp3DlTdoa' | 'uwbSp3UlTdoa' | 'uwbSp3Mms' | 'uwbSp3M2m' | 'uwbSp3Contention' | 'uwbSp3NeedsDeferred' {
+  if (mode === 'dl-tdoa') return 'uwbSp3DlTdoa'
+  if (mode === 'ul-tdoa') return 'uwbSp3UlTdoa'
+  if (mode === 'mms') return 'uwbSp3Mms'
+  if (mode === 'm2m') return 'uwbSp3M2m'
+  if (schedule === 'contention') return 'uwbSp3Contention'
+  if (replyTime !== 'deferred') return 'uwbSp3NeedsDeferred'
+  return 'uwbSp3Hint'
+}
+
+/**
+ * Why the SRRR IE's two request-bit checkboxes (standard §10.32.9.9) are live or not. Both need
+ * `sp3` on — the SRRR IE only exists in an SP3 round's RCM — and both are refused outside SS-TWR
+ * (fix round 1 of task 3, sp3-design §2.3): the frames that would answer them are the deferred
+ * shape's own, and a DS round's report phase already carries an unconditional round trip and
+ * nothing a bearing would lengthen, so either bit there is a request this engine accepts and never
+ * answers — `uwbMethodPatch` is what takes a stranded one back down when the method select moves.
+ * RAOA carries one further refusal on top of that, the schema's own `superRefine`: it asks the
+ * report phase for a bearing no anchor without `aoa` on ever computes.
+ */
+export function uwbSrrrRaoaHintKey(
+  sp3: boolean, method: UwbSessionCfg['method'], aoa: boolean,
+): 'uwbSrrrRaoaHint' | 'uwbSrrrNeedsSp3' | 'uwbSrrrNeedsSs' | 'uwbSrrrRaoaNeedsAoa' {
+  if (!sp3) return 'uwbSrrrNeedsSp3'
+  if (method !== 'ss') return 'uwbSrrrNeedsSs'
+  return aoa ? 'uwbSrrrRaoaHint' : 'uwbSrrrRaoaNeedsAoa'
+}
+export function uwbSrrrRrttHintKey(
+  sp3: boolean, method: UwbSessionCfg['method'],
+): 'uwbSrrrRrttHint' | 'uwbSrrrNeedsSp3' | 'uwbSrrrNeedsSs' {
+  if (!sp3) return 'uwbSrrrNeedsSp3'
+  return method === 'ss' ? 'uwbSrrrRrttHint' : 'uwbSrrrNeedsSs'
+}
+
+/**
+ * What turning angle-of-arrival off commits, beyond the field itself.
+ *
+ * This is a fourth reset in the same family task 3's concern 2 named for `uwbModePatch` /
+ * `uwbSchedulePatch` / `uwbReplyTimePatch`, found while wiring SRRR into this panel rather than
+ * named in the brief: `aoa` itself gained a dependent the day `srrr.raoa` could exist, because the
+ * schema refuses `sp3 && srrr.raoa && !aoa` (the RAOA request asking for a bearing no anchor
+ * computes). `uwbAoaHintKey` only greys the checkbox when `aoa` is already off for some other
+ * mode-level reason — it was never asked to look at `sp3`/`srrr` — so without this, unticking AoA
+ * while a grouped-ranging bearing request was still on deck left the session on the illegal side of
+ * that rule with no control in this panel to surface it. Mirrors `uwbReplyTimePatch`'s shape: the
+ * field being edited commits either way, and only takes its dependent down when the new value
+ * cannot carry it.
+ */
+export function uwbAoaPatch(aoa: boolean, sp3: boolean, srrr: UwbSrrrCfg): Partial<UwbSessionCfg> {
+  if (aoa || !sp3 || !srrr.raoa) return { aoa }
+  return { aoa, srrr: { ...srrr, raoa: false } }
+}
+
+/**
  * `issue` is what `uwbSessionIssue` says about the scenario this session belongs
  * to, and `onRemove` drops the session — offered because an imported file may
  * carry one no device takes part in, and only then is removing it legal.
@@ -504,6 +614,14 @@ export function UwbSessionFields(
   // 2026-10-02-receipt-confirmation-design.md).
   const mmrcrHintKey = uwbMmrcrHintKey(session.mode, session.rcmValidityRounds, session.schedule)
   const mmrcrLive = mmrcrHintKey === 'uwbMmrcrHint'
+  // Same discipline for SP3 grouped ranging (standard §10.32.8) and its SRRR IE's two request
+  // bits (§10.32.9.9) — derived once so the checkbox and its title never disagree.
+  const sp3HintKey = uwbSp3HintKey(session.mode, session.schedule, session.replyTime)
+  const sp3Live = sp3HintKey === 'uwbSp3Hint'
+  const srrrRaoaHintKey = uwbSrrrRaoaHintKey(session.sp3, session.method, session.aoa)
+  const srrrRaoaLive = srrrRaoaHintKey === 'uwbSrrrRaoaHint'
+  const srrrRrttHintKey = uwbSrrrRrttHintKey(session.sp3, session.method)
+  const srrrRrttLive = srrrRrttHintKey === 'uwbSrrrRrttHint'
   return (
     <div>
       <div style={{ color: 'var(--dim)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -513,7 +631,9 @@ export function UwbSessionFields(
       <label style={label} title={mms ? E.uwbMmsSsOnly : E.uwbMethodHint}>
         {E.uwbMethod}{' '}
         <select value={session.method} disabled={mms !== null}
-          onChange={(e) => onChange(uwbMethodPatch(e.target.value as UwbSessionCfg['method'], session.replyTime))}>
+          onChange={(e) => onChange(
+            uwbMethodPatch(e.target.value as UwbSessionCfg['method'], session.replyTime, session.sp3, session.srrr),
+          )}>
           <option value="ss">{E.uwbMethods.ss}</option>
           <option value="ds">{E.uwbMethods.ds}</option>
         </select>
@@ -522,7 +642,9 @@ export function UwbSessionFields(
         {E.uwbReplyTime}{' '}
         <select value={session.replyTime} disabled={mms !== null || m2m}
           onChange={(e) => {
-            const patch = uwbReplyTimePatch(e.target.value as UwbSessionCfg['replyTime'], session.method, session.schedule)
+            const patch = uwbReplyTimePatch(
+              e.target.value as UwbSessionCfg['replyTime'], session.method, session.schedule, session.sp3,
+            )
             if (patch) onChange(patch) // an illegal pair is never committed — see uwbReplyTimePatch
           }}>
           <option value="embedded">{E.uwbReplyTimes.embedded}</option>
@@ -558,7 +680,7 @@ export function UwbSessionFields(
       <label style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 4, cursor: nonTwr === null ? 'pointer' : 'default' }}
         title={E[uwbAoaHintKey(session.mode)]}>
         <input type="checkbox" checked={session.aoa} disabled={nonTwr !== null}
-          onChange={(e) => onChange({ aoa: e.target.checked })} />
+          onChange={(e) => onChange(uwbAoaPatch(e.target.checked, session.sp3, session.srrr))} />
         {E.uwbAoa}
       </label>
       <label style={label} title={nonTwr === 'ul-tdoa' ? E.uwbSyncErrorHint : E.uwbUlOnly}>
@@ -571,7 +693,9 @@ export function UwbSessionFields(
         {E.uwbSchedule}{' '}
         <select value={session.schedule} disabled={!ssOnly || nonTwr !== null}
           onChange={(e) => onChange(
-            uwbSchedulePatch(e.target.value as UwbSessionCfg['schedule'], session.replyTime, session.rmnr, session.mmrcr),
+            uwbSchedulePatch(
+              e.target.value as UwbSessionCfg['schedule'], session.replyTime, session.rmnr, session.mmrcr, session.sp3,
+            ),
           )}>
           <option value="time">{E.uwbSchedules.time}</option>
           <option value="contention">{E.uwbSchedules.contention}</option>
@@ -617,6 +741,34 @@ export function UwbSessionFields(
         <input type="checkbox" checked={session.mmrcr} disabled={!mmrcrLive}
           onChange={(e) => onChange({ mmrcr: e.target.checked })} />
         {E.uwbMmrcr}
+      </label>
+      {/* SP3 grouped ranging (standard §10.32.8): legal in two-way ranging only, and only beside
+          the time schedule and the deferred reply-time shape — the three refusals `uwbSp3HintKey`
+          names in the order a user would meet them. Turning it on never needs a patch of its own
+          (the checkbox is greyed out on every combination it would otherwise conflict with);
+          turning it off is what `uwbAoaPatch`/`uwbModePatch`/`uwbSchedulePatch`/`uwbReplyTimePatch`
+          do on the user's behalf when one of those three fields moves instead. */}
+      <label style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 4, cursor: sp3Live ? 'pointer' : 'default' }}
+        title={E[sp3HintKey]}>
+        <input type="checkbox" checked={session.sp3} disabled={!sp3Live}
+          onChange={(e) => onChange({ sp3: e.target.checked })} />
+        {E.uwbSp3}
+      </label>
+      {/* The SRRR IE's own two request bits (standard §10.32.9.9), live only once sp3 is on. RAOA
+          carries a second refusal of its own — it asks the report phase for a bearing no anchor
+          without `aoa` on ever computes — which is why unticking AoA while this box is ticked has
+          to take it with it (`uwbAoaPatch`, the fourth reset this task added). */}
+      <label style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 4, cursor: srrrRaoaLive ? 'pointer' : 'default' }}
+        title={E[srrrRaoaHintKey]}>
+        <input type="checkbox" checked={session.srrr.raoa} disabled={!srrrRaoaLive}
+          onChange={(e) => onChange({ srrr: { ...session.srrr, raoa: e.target.checked } })} />
+        {E.uwbSrrrRaoa}
+      </label>
+      <label style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 4, cursor: srrrRrttLive ? 'pointer' : 'default' }}
+        title={E[srrrRrttHintKey]}>
+        <input type="checkbox" checked={session.srrr.rrtt} disabled={!srrrRrttLive}
+          onChange={(e) => onChange({ srrr: { ...session.srrr, rrtt: e.target.checked } })} />
+        {E.uwbSrrrRrtt}
       </label>
       <label style={label} title={E.uwbBlockHint}>
         {E.uwbBlock}{' '}

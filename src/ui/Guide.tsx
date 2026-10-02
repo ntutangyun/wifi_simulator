@@ -16,10 +16,12 @@ import {
   NB_POLL_BYTES, NB_REPORT_BYTES, NB_RESP_BYTES, NB_RX_SENS_DBM, NB_TX_DBM, nbCenterMhz, nbPpduNs,
 } from '../uwb/nb'
 import {
-  RMMRC_ADDR_BYTES, UWB_BAND_MHZ, UWB_BLINK_BYTES, UWB_CAPTURE_DB, UWB_CHIP_NS, UWB_IE_HDR_BYTES,
-  UWB_MAX_INPUT_DBM_PER_MHZ, UWB_RX_SENS_DBM, UWB_SIR_MIN_DB, UWB_SS_DEFER_BYTES, UWB_TX_POWER_DBM,
-  rmmrcBitmapBytes, rstuNs, uwbFinalBytes, uwbInitBytes, uwbM2mBytes, uwbMaxAnchors,
-  uwbMaxMmrcmInitiators, uwbMaxParticipants, uwbMmrcmBytes, uwbPollBytes, uwbRespBytes, uwbRmnrBytes,
+  RMMRC_ADDR_BYTES, SRRR_IE_BYTES, UWB_BAND_MHZ, UWB_BLINK_BYTES, UWB_CAPTURE_DB, UWB_CHIP_NS,
+  UWB_IE_HDR_BYTES, UWB_MAX_INPUT_DBM_PER_MHZ, UWB_RX_SENS_DBM, UWB_SIR_MIN_DB, UWB_SS_DEFER_BYTES,
+  UWB_TX_POWER_DBM, rmmrcBitmapBytes, rstuNs, uwbFinalBytes, uwbInitBytes, uwbM2mBytes,
+  uwbMaxAnchors, uwbMaxMmrcmInitiators, uwbMaxParticipants, uwbMmrcmBytes, uwbPollBytes,
+  uwbPpduNs, uwbRespBytes, uwbRmnrBytes, uwbSp3InitReportBytes, uwbSp3Ns, uwbSp3PollBytes,
+  uwbSp3ReportBytes,
 } from '../uwb/phy'
 import { roundPlan } from '../uwb/session'
 import { ELLIPSE_DRAW_SCALE } from '../uwb/view'
@@ -108,6 +110,62 @@ const MMRCM_ENTRY_BYTES = RMMRC_ADDR_BYTES + MMRCM_BITMAP_BYTES // 3
 const MMRCM_NS = [1, 3, 6] as const
 const mmrcmBytes = (n: number): number => uwbMmrcmBytes(n, MMRCM_WINDOW)
 const MMRCM_MAX_INITIATORS = uwbMaxMmrcmInitiators(MMRCM_WINDOW) // 37
+
+// --- Section 19: SP3 grouped ranging, standard §10.32.8 / SRRR IE §10.32.9.9 -------------------
+// sp3-design §2.3 (the fix round that gave the initiator its own marker and its own RRTT report):
+// the per-marker/per-report figures are per-frame primitives and did not move; the round totals
+// below are a whole round's air time, built from the same PPDU functions `tests/ui/uwb-guide.test.ts`
+// also runs as a live round for A = 1…6, so the two can never drift apart. Anchor counts above 6 are
+// read off these functions only — a live round that far out starts losing frames to the scene's own
+// geometry, which is a property of the test scene, not of the round shape.
+const SP3_MARKER_NS = uwbSp3Ns() // the initiator's own marker costs exactly the same as a responder's
+const SP1_EMBEDDED_RESP_NS = uwbPpduNs(uwbRespBytes('ss', 'embedded')) // 20-octet embedded SS Response
+const SP1_SHORTEST_RESP_NS = uwbPpduNs(uwbRespBytes('ds')) // 14-octet DS Response: the shortest SP1 frame this engine sends
+const SP3_SAVING_EMBEDDED_NS = SP1_EMBEDDED_RESP_NS - SP3_MARKER_NS
+const SP3_SAVING_SHORTEST_NS = SP1_SHORTEST_RESP_NS - SP3_MARKER_NS
+const SP3_REPORT_NS = uwbPpduNs(uwbSp3ReportBytes(false)) // the deferred reply-time message RAOA did not lengthen
+const SP3_REPORT_RAOA_NS = uwbPpduNs(uwbSp3ReportBytes(true))
+const SP3_MULTIPLE_EMBEDDED = (SP3_REPORT_NS / SP3_SAVING_EMBEDDED_NS).toFixed(3) // 3.971
+const SP3_MULTIPLE_SHORTEST = (SP3_REPORT_NS / SP3_SAVING_SHORTEST_NS).toFixed(3) // 4.578
+/** The first responder's own SRRR IE, read at the margin (0 → 1 responder) rather than divided out
+ * of a many-responder total: the RCM's PPDU time is quantised by the PHY's own code-block size, so
+ * the marginal cost of one more responder's three octets is not exactly constant across every A —
+ * only this one marginal reading is exact, and it is the one the net-saving arithmetic below needs. */
+const SP3_RCM_PER_RESPONDER_NS = uwbPpduNs(uwbSp3PollBytes(1)) - uwbPpduNs(uwbPollBytes(1))
+const SP3_NET_SAVING_NS = SP3_SAVING_SHORTEST_NS - SP3_RCM_PER_RESPONDER_NS // 37.179 µs
+const SP3_PAYBACK_RESPONDERS = (SP3_MARKER_NS / SP3_NET_SAVING_NS).toFixed(2) // 3.79
+/** A whole round's air time: the RCM, the ranging phase's A + 1 markers (the initiator's own
+ * always included, design §4.1), the report phase's A responder reports, and — only when some
+ * responder's SRRR IE asked for the round trip — the initiator's own report. */
+function sp3RoundNs(anchors: number, rrtt: boolean): number {
+  const rcm = uwbPpduNs(uwbSp3PollBytes(anchors))
+  const markers = (anchors + 1) * SP3_MARKER_NS
+  const reports = anchors * SP3_REPORT_NS
+  const initReport = rrtt ? uwbPpduNs(uwbSp3InitReportBytes(anchors)) : 0
+  return rcm + markers + reports + initReport
+}
+function sp1DeferredRoundNs(anchors: number): number {
+  return uwbPpduNs(uwbPollBytes(anchors))
+    + anchors * uwbPpduNs(uwbRespBytes('ss', 'deferred')) + anchors * uwbPpduNs(UWB_SS_DEFER_BYTES)
+}
+function sp1EmbeddedRoundNs(anchors: number): number {
+  return uwbPpduNs(uwbPollBytes(anchors)) + anchors * SP1_EMBEDDED_RESP_NS
+}
+/** The smallest anchor count at which a whole SP3 round is no longer longer than the SP1 deferred
+ * round it is built from — searched, not a literal, the same discipline `uwbMaxAnchors` already
+ * uses for its own cap: a future change to any of the frame sizes above moves this number with it
+ * instead of leaving a stale one in the prose. Throws if the search range holds no crossover, so a
+ * change that removes it entirely fails loudly here rather than silently. */
+function sp3CrossoverAnchors(rrtt: boolean): number {
+  for (let a = 1; a <= 200; a++) if (sp3RoundNs(a, rrtt) <= sp1DeferredRoundNs(a)) return a
+  throw new Error('sp3CrossoverAnchors: no crossover in range')
+}
+const SP3_CROSSOVER_A = sp3CrossoverAnchors(false) // 4
+const SP3_CROSSOVER_RRTT_A = sp3CrossoverAnchors(true) // 11
+/** The worked example table: every A from 1 through one past the no-RRTT crossover, so the reader
+ * sees the gap close and then turn negative rather than being told about a single point. */
+const SP3_TABLE_AS = Array.from({ length: SP3_CROSSOVER_A + 1 }, (_, i) => i + 1)
+const us3 = (ns: number): string => (ns / 1000).toFixed(3)
 
 // --- Section 12: the P802.15.4ab draft ------------------------------------------------------
 // Every figure below is computed from `src/uwb/mms.ts` and `src/uwb/nb.ts`, so the prose cannot
@@ -1096,6 +1154,106 @@ export function Guide() {
         不影响测距结果：</b>同一个场景打开 MMRCR 前后，每一条 UWB_RANGE 记录逐字段相同——
         它是一条额外的消息，不是测量的一部分；<b>不请求就没有回答：</b>MMRCR 为 0 时一帧
         MMRCM 也不会发。
+      </p>
+
+      <h4 style={h}>19 · 最短的测距帧不可能是一轮里的第一帧（标准 §10.32.8；SRRR IE，标准 §10.32.9.9）</h4>
+      <p style={p}>
+        SP3 包只有 SYNC、SFD 与 STS（标准 §10.32.8.1），没有 PHR，也没有载荷——是一枚纯粹的
+        时间标记。一轮 SP3 分组测距分三个相位：控制消息（RCM）里每个应答方各带一个 <b>SRRR</b> IE
+        （Ranging Request Report，标准 §10.32.9.9），声明自己想在测量报告阶段拿回哪几项；随后是
+        测距相位，发起方与每个应答方都改发 SP3 标记；最后是测量报告阶段，每个提出请求的应答方
+        各自发一帧回答，而一旦有应答方请求了往返时间（RRTT），发起方自己也发一帧，把它测到的
+        每个应答方的往返时间报回去。SP3 帧本身不带任何可以识别发送者的字段——这一帧属于谁，
+        由它所在的时隙决定，不由帧里的内容决定。
+      </p>
+      <p style={p}>
+        每个测距帧因此省下 <b>{us3(SP3_SAVING_EMBEDDED_NS)} µs</b>（对着 20 字节的嵌入式 SS
+        响应）或 <b>{us3(SP3_SAVING_SHORTEST_NS)} µs</b>（对着本仿真器里最短的 SP1
+        帧——14 字节的 DS 响应）。但测量报告阶段要求的那一帧，每个应答方要花
+        <b> {us3(SP3_REPORT_NS)} µs</b>——这笔开销是测距帧省下的时间的 <b>{SP3_MULTIPLE_EMBEDDED}</b> 倍
+        （对嵌入式响应）或 <b>{SP3_MULTIPLE_SHORTEST}</b> 倍（对最短帧），而且这两个倍数都不随
+        应答方数量变化：它们是两个单帧时长的比值，与锚点数无关。<b>课文引用倍数时要说清对着哪一个
+        基准：</b>对嵌入式响应是 {SP3_MULTIPLE_EMBEDDED}，对最短帧是 {SP3_MULTIPLE_SHORTEST}。
+      </p>
+      <p style={p}>
+        <b>对着嵌入式的 SP1，结论很干脆：每个锚点数下 SP3 分组都更长，差距随锚点数变大</b>
+        ——一个应答方时长 <code>{us3(sp3RoundNs(1, false) - sp1EmbeddedRoundNs(1))}</code> µs，
+        六个应答方时长 <code>{us3(sp3RoundNs(6, false) - sp1EmbeddedRoundNs(6))}</code> µs。
+        嵌入式的那条路从来不需要测量报告阶段，SP3 在它身上只有开销，没有收益。
+      </p>
+      <p style={p}>
+        <b>对着延后的 SP1，这笔开销要算清楚，因为这条路本来就要为测量报告阶段付出开销</b>
+        （标准 §10.29.6.3：回复时间另发一帧）。发起方自己也要发一个标记，这是一笔一次性的
+        开销，<b>{us3(SP3_MARKER_NS)} µs</b>；而每个应答方净省下的时间，是测距帧的
+        {us3(SP3_SAVING_SHORTEST_NS)} µs，减去它自己那个 SRRR 信息单元在 RCM 里添的开销——以一个
+        应答方量得 <b>{us3(SP3_RCM_PER_RESPONDER_NS)} µs</b>——合计净省
+        <b> {us3(SP3_NET_SAVING_NS)} µs</b>。<b>{us3(SP3_MARKER_NS)} ÷ {us3(SP3_NET_SAVING_NS)} ≈
+        {SP3_PAYBACK_RESPONDERS}</b>，所以要有第 {SP3_CROSSOVER_A} 个应答方，发起方垫的那个标记才还得清。
+      </p>
+      <table style={table}>
+        <thead>
+          <tr>
+            <th style={cellHead}>应答方数 A</th>
+            {SP3_TABLE_AS.map((a) => <th style={cellHead} key={a}>{a}</th>)}
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td style={cell}>SP3 分组 − SP1 延后（µs）</td>
+            {SP3_TABLE_AS.map((a) => (
+              <td style={cell} key={a}>{us3(sp3RoundNs(a, false) - sp1DeferredRoundNs(a))}</td>
+            ))}
+          </tr>
+        </tbody>
+      </table>
+      <p style={p}>
+        <b>交叉点在 A = {SP3_CROSSOVER_A}：</b>应答方少于这个数时 SP3 分组反而更长，从这个数起更短。
+        <b>一旦某个应答方请求了往返时间，交叉点挪到 A = {SP3_CROSSOVER_RRTT_A}</b>
+        ——发起方那一帧报告本身随应答方数量变长（每个应答方一条往返时间记录），它也要占空口时间。
+      </p>
+      <p style={p}>
+        <b>这就是这一课真正的题目：最短的测距帧不可能是一轮里的第一帧。</b>总得有人先把时隙分配
+        说出去，而一个 SP3 包说不出任何东西——它没有 PHR，也没有载荷。所以 SP3 先垫上发起方自己
+        那一个标记，再从每个应答方身上把测距帧压到最短赚回来；应答方不到交叉点的那个数时，
+        这笔开销还赚不回来。<b>嵌入式的那条路从不需要测量报告阶段，所以它永远摊不平这笔开销；
+        已经在走延后那条路、又凑够了应答方数量的场景，才是 SP3 真正合适的地方。</b>
+      </p>
+      <p style={p}>
+        SRRR 的两个请求位都对上引擎已有的量：<b>RAOA</b> 对应 <code>aoa</code> 会话开关算出的
+        方位角，<b>RRTT</b> 对应 DS-TWR 已经算出的往返时间——但两个请求位都只在单边双向
+        （SS-TWR）下成立：双边双向的报告相位是终结帧与报告帧自己的交换，它无条件带着一个往返
+        时间、也不会因为方位角而变长，请求放在那里没有一帧能回答它，所以本仿真把两个请求位都
+        收在单边双向之内。RAOA 关着时报告帧是 <b>{us3(SP3_REPORT_NS)}</b> µs，开着时是
+        <b> {us3(SP3_REPORT_RAOA_NS)}</b> µs——多出的正好是方位角那一项的字节数，请求确实
+        省下了东西。
+      </p>
+      <p style={p}>
+        <b>SRRR 与第 18 节的 MMRCR，正好是一组相反的例子——花钱的不是回答，是请求本身：</b>
+      </p>
+      <table style={table}>
+        <thead>
+          <tr>
+            <th style={cellHead} />
+            <th style={cellHead}>SRRR（标准 §10.32.9.9）</th>
+            <th style={cellHead}>MMRCR（标准 §10.36，第 18 节）</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td style={cell}>请求本身的开销</td>
+            <td style={cell}>每个应答方新增 {SRRR_IE_BYTES} 字节的信息单元，随应答方数量线性增长</td>
+            <td style={cell}>0 字节——借用 RCM 本来就要发送的那个控制字里的一位</td>
+          </tr>
+          <tr>
+            <td style={cell}>回答的开销</td>
+            <td style={cell}>一整帧测量报告</td>
+            <td style={cell}>一整帧 MMRCM</td>
+          </tr>
+        </tbody>
+      </table>
+      <p style={p}>
+        两者都要对端发一整帧作答，代价都落在那一帧上；不同的是促成这帧回答的请求本身——SRRR
+        每个应答方都要在 RCM 里新增一个信息单元，MMRCR 一个字节都不新增。
       </p>
 
       <h4 style={h}>动手试试</h4>

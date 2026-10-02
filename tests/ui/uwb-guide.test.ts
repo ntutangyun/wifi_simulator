@@ -27,11 +27,12 @@ import {
   NB_REPORT_BYTES, NB_RX_SENS_DBM, NB_TX_DBM, nbCenterMhz, nbPpduNs,
 } from '../../src/uwb/nb'
 import {
-  COUNTER_MOD, FOM_LOS, FOM_NLOS, RCTU_NS, UWB_BAND_MHZ, UWB_BLINK_BYTES, UWB_CAPTURE_DB,
+  COUNTER_MOD, FOM_LOS, FOM_NLOS, RCTU_NS, SRRR_IE_BYTES, UWB_BAND_MHZ, UWB_BLINK_BYTES, UWB_CAPTURE_DB,
   UWB_MAX_INPUT_DBM_PER_MHZ, UWB_PL_EXP, UWB_RX_SENS_DBM, UWB_SIR_MIN_DB, UWB_SS_DEFER_BYTES, UWB_TX_POWER_DBM,
   fomDecode, fomText, rstuNs, uwbFinalBytes, uwbInBandDbm, uwbInitBytes, uwbM2mBytes, uwbMaxAnchors,
-  uwbMaxMmrcmInitiators, uwbMaxParticipants, uwbMmrcmBytes, uwbPl0Db, uwbPollBytes, uwbRespBytes, uwbRmnrBytes,
-  uwbSlotsPerTag, type UwbReplyTime,
+  uwbMaxMmrcmInitiators, uwbMaxParticipants, uwbMmrcmBytes, uwbPl0Db, uwbPollBytes, uwbPpduNs, uwbRespBytes,
+  uwbRmnrBytes, uwbSlotsPerTag, uwbSp3InitReportBytes, uwbSp3Ns, uwbSp3PollBytes, uwbSp3ReportBytes,
+  type UwbReplyTime,
 } from '../../src/uwb/phy'
 import { rangeSigmaM } from '../../src/uwb/position'
 import { ELLIPSE_DRAW_SCALE } from '../../src/uwb/scene'
@@ -1226,5 +1227,247 @@ describe('the MMRCM / receipt-bitmap glossary terms, each with a provenance (sta
     const item = find('收妥位图')!
     expect(item.def).toContain('RX_OK')
     expect(item.def).toContain('RMNR')
+  })
+})
+
+describe('Guide section 19: SP3 grouped ranging (standard §10.32.8; SRRR IE §10.32.9.9)', () => {
+  const zh = renderGuide()
+  const us3 = (ns: number): string => (ns / 1000).toFixed(3)
+  const SP3_MARKER_NS = uwbSp3Ns()
+  const SP1_EMBEDDED_RESP_NS = uwbPpduNs(uwbRespBytes('ss', 'embedded'))
+  const SP1_SHORTEST_RESP_NS = uwbPpduNs(uwbRespBytes('ds'))
+  const SAVING_EMBEDDED_NS = SP1_EMBEDDED_RESP_NS - SP3_MARKER_NS
+  const SAVING_SHORTEST_NS = SP1_SHORTEST_RESP_NS - SP3_MARKER_NS
+  const REPORT_NS = uwbPpduNs(uwbSp3ReportBytes(false))
+  const REPORT_RAOA_NS = uwbPpduNs(uwbSp3ReportBytes(true))
+  const MULTIPLE_EMBEDDED = (REPORT_NS / SAVING_EMBEDDED_NS).toFixed(3)
+  const MULTIPLE_SHORTEST = (REPORT_NS / SAVING_SHORTEST_NS).toFixed(3)
+  const RCM_PER_RESPONDER_NS = uwbPpduNs(uwbSp3PollBytes(1)) - uwbPpduNs(uwbPollBytes(1))
+  const NET_SAVING_NS = SAVING_SHORTEST_NS - RCM_PER_RESPONDER_NS
+  const PAYBACK = (SP3_MARKER_NS / NET_SAVING_NS).toFixed(2)
+
+  // A whole round's air time, built from the engine's own PPDU functions — the same arithmetic
+  // the Guide's own module-scope constants use, so a drift in either fails here.
+  const sp3RoundNs = (anchors: number, rrtt: boolean): number => {
+    const rcm = uwbPpduNs(uwbSp3PollBytes(anchors))
+    const markers = (anchors + 1) * SP3_MARKER_NS
+    const reports = anchors * REPORT_NS
+    const initReport = rrtt ? uwbPpduNs(uwbSp3InitReportBytes(anchors)) : 0
+    return rcm + markers + reports + initReport
+  }
+  const sp1DeferredRoundNs = (anchors: number): number =>
+    uwbPpduNs(uwbPollBytes(anchors))
+      + anchors * uwbPpduNs(uwbRespBytes('ss', 'deferred')) + anchors * uwbPpduNs(UWB_SS_DEFER_BYTES)
+  const sp1EmbeddedRoundNs = (anchors: number): number =>
+    uwbPpduNs(uwbPollBytes(anchors)) + anchors * SP1_EMBEDDED_RESP_NS
+  const crossover = (rrtt: boolean): number => {
+    for (let a = 1; a <= 200; a++) if (sp3RoundNs(a, rrtt) <= sp1DeferredRoundNs(a)) return a
+    throw new Error('no crossover found')
+  }
+
+  it('renders the heading, citing both clauses', () => {
+    expect(zh).toContain('19 ·')
+    expect(zh).toContain('§10.32.8')
+    expect(zh).toContain('§10.32.9.9')
+  })
+
+  it('states the per-marker saving against both baselines, computed from the engine rather than retyped', () => {
+    expect(SAVING_SHORTEST_NS).toBe(40256)
+    expect(SAVING_EMBEDDED_NS).toBe(46410)
+    expect(SP3_MARKER_NS).toBe(140962)
+    expect(zh).toContain(`${us3(SAVING_EMBEDDED_NS)} µs`)
+    expect(zh).toContain(`${us3(SAVING_SHORTEST_NS)} µs`)
+  })
+
+  it('states the report-phase cost and the two multiples, naming which baseline each one is against', () => {
+    expect(zh).toContain(`${us3(REPORT_NS)} µs`)
+    expect(MULTIPLE_EMBEDDED).toBe('3.971')
+    expect(MULTIPLE_SHORTEST).toBe('4.578')
+    expect(Number(MULTIPLE_SHORTEST)).toBeGreaterThan(Number(MULTIPLE_EMBEDDED))
+    expect(zh).toContain(MULTIPLE_EMBEDDED)
+    expect(zh).toContain(MULTIPLE_SHORTEST)
+    const at = zh.indexOf(`${us3(REPORT_NS)} µs`)
+    const nearby = zh.slice(at, at + 400)
+    expect(nearby).toContain('嵌入式')
+    expect(nearby).toContain('最短帧')
+  })
+
+  it('against SP1 embedded, SP3 is longer at every anchor count and the gap strictly widens (sp3-design §2.3)', () => {
+    let prevGap = -Infinity
+    for (let a = 1; a <= 10; a++) {
+      const gap = sp3RoundNs(a, false) - sp1EmbeddedRoundNs(a)
+      expect(gap, `A=${a}`).toBeGreaterThan(0)
+      expect(gap, `A=${a} gap grows`).toBeGreaterThan(prevGap)
+      prevGap = gap
+    }
+  })
+
+  it('against SP1 deferred, there is a crossover at A = 4, and the pre-crossover gaps match the ones the report measured (sp3-design §2.3)', () => {
+    const gap = (a: number): number => sp3RoundNs(a, false) - sp1DeferredRoundNs(a)
+    expect(Math.round(gap(1) / 100) / 10).toBeCloseTo(103.8, 1)
+    expect(Math.round(gap(2) / 100) / 10).toBeCloseTo(66.6, 1)
+    expect(Math.round(gap(3) / 100) / 10).toBeCloseTo(35.6, 1)
+    expect(gap(1)).toBeGreaterThan(0)
+    expect(gap(2)).toBeGreaterThan(0)
+    expect(gap(3)).toBeGreaterThan(0)
+    expect(gap(4)).toBeLessThanOrEqual(0)
+    expect(crossover(false)).toBe(4)
+    expect(zh).toContain('4')
+    expect(zh).toMatch(/交叉点.{0,6}4/)
+  })
+
+  it('with an RRTT request, the crossover moves to A = 11 (sp3-design §2.3)', () => {
+    expect(crossover(true)).toBe(11)
+    expect(zh).toMatch(/交叉点.{0,20}11/)
+    // the no-RRTT crossover is unaffected by the RRTT-on search
+    expect(crossover(false)).toBe(4)
+  })
+
+  it('a live round matches the formula exactly for A = 1…6 (the scene this engine can measure cleanly)', () => {
+    const node = (id: string, x: number, role: 'anchor' | 'tag'): NodeCfg => ({
+      id, kind: 'uwb', name: id, pos: { x, y: 0, z: 1 }, txPowerDbm: UWB_TX_POWER_DBM,
+      profiles: ['idle'], caps: { generation: 'nonht', features: {} }, uwb: { role },
+    })
+    const totalNs = (anchors: number, session: Partial<UwbSessionCfg>): number => {
+      const nodes: NodeCfg[] = [
+        ...Array.from({ length: anchors }, (_, i) => node(`anc-${i + 1}`, i * 3, 'anchor')),
+        node('tag-1', 1.5, 'tag'),
+      ]
+      const sc: Scenario = {
+        rooms: [{ x: 0, y: 0, w: 40, h: 10, name: 'lab' }], walls: [], nodes, servers: [],
+        seed: 7, rtsThresholdBytes: 3000, snapshotIntervalMs: 10,
+        uwb: {
+          ...DEFAULT_UWB_SESSION, mode: 'twr', method: 'ss', schedule: 'time',
+          nlos: false, tsNoisePs: 0, cfoNoisePpm: 0, ...session,
+        },
+      }
+      const recs = new Simulation(sc).runUntil(roundPlan(sc.uwb!, anchors).blockNs - 1).records
+      return recs.filter((r) => r.type === 'TX_START')
+        .reduce((s, r) => s + (r as { frame: { txTimeNs: number } }).frame.txTimeNs, 0)
+    }
+    for (const anchors of [1, 2, 3, 4, 5, 6]) {
+      const emb = totalNs(anchors, { replyTime: 'embedded', sp3: false })
+      const defr = totalNs(anchors, { replyTime: 'deferred', sp3: false })
+      const sp3 = totalNs(anchors, { replyTime: 'deferred', sp3: true })
+      expect(emb, `A=${anchors} embedded`).toBe(sp1EmbeddedRoundNs(anchors))
+      expect(defr, `A=${anchors} deferred`).toBe(sp1DeferredRoundNs(anchors))
+      expect(sp3, `A=${anchors} sp3`).toBe(sp3RoundNs(anchors, false))
+    }
+    // and with RRTT requested, at one anchor count small enough for this scene to measure cleanly
+    const withRrtt = totalNs(4, { replyTime: 'deferred', sp3: true, srrr: { raoa: false, rrtt: true } })
+    expect(withRrtt).toBe(sp3RoundNs(4, true))
+  })
+
+  it('states the RAOA report-size difference exactly, and it is the bearing item alone', () => {
+    expect(REPORT_RAOA_NS - REPORT_NS).toBe(4102)
+    expect(zh).toContain(us3(REPORT_NS))
+    expect(zh).toContain(us3(REPORT_RAOA_NS))
+  })
+
+  it('states the net-saving arithmetic that explains the crossover: 40.256 less the RCM cost is 37.179, and the marker pays back at the fourth responder', () => {
+    expect(RCM_PER_RESPONDER_NS).toBe(3077)
+    expect(NET_SAVING_NS).toBe(37179)
+    expect(PAYBACK).toBe('3.79')
+    expect(zh).toContain(us3(SP3_MARKER_NS))
+    expect(zh).toContain(us3(NET_SAVING_NS))
+    expect(zh).toContain(PAYBACK)
+  })
+
+  it('contrasts SRRR against MMRCR: the request costs 3 octets per responder, MMRCR costs none, both are answered by a whole frame', () => {
+    expect(SRRR_IE_BYTES).toBe(3)
+    expect(zh).toContain(`${SRRR_IE_BYTES} 字节`)
+    expect(zh).toMatch(/MMRCR[\s\S]{0,350}0 字节/)
+  })
+
+  it('does not use any of the wording contract’s banned cost-framing words, even though no test polices this file by default', () => {
+    for (const w of ['更贵', '账', '买到', '省钱', '白费', '值钱']) expect(zh, w).not.toContain(w)
+  })
+})
+
+describe('the EditorGuide SP3 / SRRR sections', () => {
+  // Rendered, not read off the source — the same discipline the MMS section test above uses.
+  const zh = renderToStaticMarkup(createElement(EditorGuide))
+  const section = (html: string, from: string, to: string): string => {
+    const start = html.indexOf(from)
+    expect(start, `heading not rendered: ${from}`).toBeGreaterThan(-1)
+    const end = html.indexOf(to, start)
+    expect(end, `next heading not rendered: ${to}`).toBeGreaterThan(start)
+    return html.slice(start, end)
+  }
+  const zhSp3 = section(zh, 'SP3 分组测距', 'SRRR 请求到达角')
+  const zhSrrr = section(zh, 'SRRR 请求到达角', '到达角（AoA）</b>')
+
+  it('describes the sp3 checkbox, its mode/schedule/reply-time restrictions, and points at the Guide for the crossover', () => {
+    for (const marker of ['§10.32.8', 'SYNC', 'SFD', 'STS', '延后', '单边双向', '竞争调度', '第 19 节']) {
+      expect(zhSp3, marker).toContain(marker)
+    }
+  })
+
+  it('describes both SRRR request bits, the method restriction, and the MMRCR contrast', () => {
+    for (const marker of ['请求到达角', '请求往返时间', '单边双向', 'MMRCR', '3 个字节']) {
+      expect(zhSrrr, marker).toContain(marker)
+    }
+  })
+
+  it('does not use any of the wording contract’s banned cost-framing words', () => {
+    for (const w of ['更贵', '账', '买到', '省钱', '白费', '值钱', '划算']) {
+      expect(zhSp3, w).not.toContain(w)
+      expect(zhSrrr, w).not.toContain(w)
+    }
+  })
+})
+
+describe('the SP3 / SRRR glossary terms, each with a provenance (sp3-design, task 4)', () => {
+  const group = GLOSSARY.find((g) => g.id === 'uwb')
+  const find = (term: string) => (group?.items ?? []).find((i) => i.term.toLowerCase() === term.toLowerCase())
+  const us3 = (ns: number): string => (ns / 1000).toFixed(3)
+
+  it('carries both terms task 4 adds', () => {
+    for (const t of ['SP3 包', 'SRRR IE']) expect(find(t), t).toBeDefined()
+  })
+
+  it('names a provenance on every one of them', () => {
+    const marks = ['§10.32.8', '§10.32.9.9', '§10.36']
+    for (const t of ['SP3 包', 'SRRR IE']) {
+      const item = find(t)!
+      const text = `${item.alt} ${item.def}`
+      expect(marks.some((m) => text.includes(m)), `"${t}" names no provenance`).toBe(true)
+    }
+  })
+
+  it('the SP3 packet entry states the crossover arithmetic, matching the engine', () => {
+    const item = find('SP3 包')!
+    const sp3Ns = uwbSp3Ns()
+    const shortestNs = uwbPpduNs(uwbRespBytes('ds'))
+    const embeddedNs = uwbPpduNs(uwbRespBytes('ss', 'embedded'))
+    const reportNs = uwbPpduNs(uwbSp3ReportBytes(false))
+    const rcmPerResponder = uwbPpduNs(uwbSp3PollBytes(1)) - uwbPpduNs(uwbPollBytes(1))
+    const netSaving = (shortestNs - sp3Ns) - rcmPerResponder
+    expect(item.def).toContain(us3(sp3Ns))
+    expect(item.def).toContain(us3(netSaving))
+    expect(item.def).toContain((sp3Ns / netSaving).toFixed(2))
+    expect(item.def).toContain('四个')
+    expect(item.def).not.toContain(us3(reportNs - embeddedNs)) // sanity: not quoting an unrelated figure
+  })
+
+  it('the SRRR entry states the byte formula, the method restriction, and the exact RAOA size difference', () => {
+    const item = find('SRRR IE')!
+    expect(item.def).toMatch(/3\s*字节/)
+    expect(item.def).toMatch(/单边双向/)
+    const noRaoa = uwbPpduNs(uwbSp3ReportBytes(false))
+    const raoa = uwbPpduNs(uwbSp3ReportBytes(true))
+    expect(item.def).toContain(us3(noRaoa))
+    expect(item.def).toContain(us3(raoa))
+    expect(item.def).toContain(us3(raoa - noRaoa))
+    expect(item.def).toContain('十一')
+  })
+
+  it('does not use any of the wording contract’s banned cost-framing words', () => {
+    for (const t of ['SP3 包', 'SRRR IE']) {
+      const item = find(t)!
+      for (const w of ['更贵', '账', '买到', '省钱', '白费', '值钱']) {
+        expect(`${item.alt} ${item.def}`, `${t}: ${w}`).not.toContain(w)
+      }
+    }
   })
 })

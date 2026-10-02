@@ -5,8 +5,9 @@ import { canDeleteNode, hasAp, newAnchor, newAp, newUwbTag, removeNode, uwbSessi
 import { GEN_FEATURES } from '../../src/model/caps'
 import {
   DEFAULT_UWB_MMS, DEFAULT_UWB_SESSION, ScenarioSchema, defaultScenario,
-  type Scenario, type UwbMmsCfg, type UwbMode, type UwbSessionCfg,
+  type NodeCfg, type Scenario, type UwbMmsCfg, type UwbMode, type UwbSessionCfg,
 } from '../../src/model/scenario'
+import { Simulation } from '../../src/engine/simulation'
 import { STRINGS } from '../../src/ui/i18n'
 import {
   MMS_FIXED_REPLY_RSTU_DEFAULT, MMS_FIXED_REPLY_RSTU_MAX, MMS_FIXED_REPLY_RSTU_MIN, MMS_SETS,
@@ -18,9 +19,10 @@ import { roundPlan } from '../../src/uwb/session'
 import {
   UwbSessionFields, mmsDraftLive, mmsFieldPatch, mmsFixedReplyHintKey, mmsReversedHintKey,
   mmsRsfSfdHintKey, mmsSetIdOf, mmsSetPatch, mmsUwbdControlHintKey, parseFixedReplyRstu,
-  parseNbChannels, uwbAoaHintKey, uwbMethodPatch, uwbMmrcrHintKey, uwbModePatch, uwbRcmValidityHintKey,
-  uwbRcmValidityRoundsPatch, uwbReplyTimePatch, uwbReplyTimeRstuLive, uwbRmnrHintKey,
-  uwbSchedulePatch, uwbScheduleHintKey,
+  parseNbChannels, uwbAoaHintKey, uwbAoaPatch, uwbMethodPatch, uwbMmrcrHintKey, uwbModePatch,
+  uwbRcmValidityHintKey, uwbRcmValidityRoundsPatch, uwbReplyTimePatch, uwbReplyTimeRstuLive,
+  uwbRmnrHintKey, uwbSchedulePatch, uwbScheduleHintKey, uwbSp3HintKey, uwbSrrrRaoaHintKey,
+  uwbSrrrRrttHintKey,
 } from '../../src/uwb/ui/UwbSessionFields'
 import { UwbNodeFields } from '../../src/uwb/ui/UwbNodeFields'
 
@@ -171,7 +173,7 @@ describe('uwbSessionIssue', () => {
     const contending: Partial<UwbSessionCfg> = { method: 'ss', schedule: 'contention' }
     expect(uwbSessionIssue(withUwb(4, { ...contending, mode: 'ul-tdoa' }))).toBeTruthy()
     expect(uwbModePatch('ul-tdoa')).toEqual({
-      mode: 'ul-tdoa', schedule: 'time', aoa: false, rcmValidityRounds: 1, rmnr: false, mmrcr: false,
+      mode: 'ul-tdoa', schedule: 'time', aoa: false, rcmValidityRounds: 1, rmnr: false, mmrcr: false, sp3: false,
     })
     expect(uwbSessionIssue(withUwb(4, { ...contending, ...uwbModePatch('ul-tdoa') }))).toBeNull()
     // Going back to two-way ranging touches the mode alone: the schedule is the user's again.
@@ -191,7 +193,7 @@ describe('uwbSessionIssue', () => {
     }
     // and the field the user actually touches never produces that pair
     expect(uwbModePatch('dl-tdoa')).toEqual({
-      mode: 'dl-tdoa', schedule: 'time', aoa: false, rcmValidityRounds: 1, rmnr: false, mmrcr: false,
+      mode: 'dl-tdoa', schedule: 'time', aoa: false, rcmValidityRounds: 1, rmnr: false, mmrcr: false, sp3: false,
     })
     expect(uwbSessionIssue(withUwb(4, { aoa: true, ...uwbModePatch('dl-tdoa') }))).toBeNull()
     // two-way ranging keeps the checkbox the user's own
@@ -208,7 +210,7 @@ describe('uwbSessionIssue', () => {
     // the 28-slot, 14 ms one the Guide describes.
     expect(uwbModePatch('mms')).toEqual({
       mode: 'mms', schedule: 'time', aoa: false, method: 'ss', slotRstu: 600,
-      rcmValidityRounds: 1, rmnr: false, mmrcr: false,
+      rcmValidityRounds: 1, rmnr: false, mmrcr: false, sp3: false,
     })
     const contending: Partial<UwbSessionCfg> = { method: 'ss', schedule: 'contention', aoa: true }
     // Three anchors and one tag: an MMS round is pairwise, and the default block holds three.
@@ -495,7 +497,7 @@ describe('why a field is greyed out', () => {
 describe('many-to-many mode in the editor (design §5)', () => {
   it('locks the schedule, the bearing and the reply time together, like the one-way modes plus one', () => {
     expect(uwbModePatch('m2m')).toEqual({
-      mode: 'm2m', schedule: 'time', aoa: false, replyTime: 'embedded', rcmValidityRounds: 1, rmnr: false,
+      mode: 'm2m', schedule: 'time', aoa: false, replyTime: 'embedded', rcmValidityRounds: 1, rmnr: false, sp3: false,
     })
   })
 
@@ -1142,5 +1144,211 @@ describe('receipt confirmation (MMRCR) in the editor (receipt-confirmation-desig
       const key = { 'dl-tdoa': E.uwbMmrcrDlTdoa, 'ul-tdoa': E.uwbMmrcrUlTdoa, mms: E.uwbMmrcrMms }[mode]
       expect(markup, mode).toContain(key)
     }
+  })
+})
+
+describe('SP3 grouped ranging (standard §10.32.8) and its SRRR IE (§10.32.9.9) in the editor (sp3-design, task 4)', () => {
+  const E = STRINGS.editor
+
+  it('uwbSp3HintKey picks the refusal a user would meet first: mode, then schedule, then reply time', () => {
+    const MODES: UwbMode[] = ['twr', 'dl-tdoa', 'ul-tdoa', 'mms', 'm2m']
+    expect(MODES.map((m) => uwbSp3HintKey(m, 'time', 'deferred'))).toEqual([
+      'uwbSp3Hint', 'uwbSp3DlTdoa', 'uwbSp3UlTdoa', 'uwbSp3Mms', 'uwbSp3M2m',
+    ])
+    expect(uwbSp3HintKey('twr', 'contention', 'deferred')).toBe('uwbSp3Contention')
+    expect(uwbSp3HintKey('twr', 'time', 'embedded')).toBe('uwbSp3NeedsDeferred')
+    expect(uwbSp3HintKey('twr', 'time', 'fixed')).toBe('uwbSp3NeedsDeferred')
+    expect(uwbSp3HintKey('twr', 'time', 'deferred')).toBe('uwbSp3Hint')
+  })
+
+  it('uwbSrrrRaoaHintKey / uwbSrrrRrttHintKey need sp3 first, then SS-TWR, and RAOA needs AoA on top of that (fix round 1 of task 3: both bits refused outside SS-TWR)', () => {
+    expect(uwbSrrrRaoaHintKey(false, 'ss', false)).toBe('uwbSrrrNeedsSp3')
+    expect(uwbSrrrRaoaHintKey(true, 'ds', true)).toBe('uwbSrrrNeedsSs')
+    expect(uwbSrrrRaoaHintKey(true, 'ss', false)).toBe('uwbSrrrRaoaNeedsAoa')
+    expect(uwbSrrrRaoaHintKey(true, 'ss', true)).toBe('uwbSrrrRaoaHint')
+    expect(uwbSrrrRrttHintKey(false, 'ss')).toBe('uwbSrrrNeedsSp3')
+    expect(uwbSrrrRrttHintKey(true, 'ds')).toBe('uwbSrrrNeedsSs')
+    expect(uwbSrrrRrttHintKey(true, 'ss')).toBe('uwbSrrrRrttHint')
+  })
+
+  it('uwbModePatch clears sp3 for all three non-twr branches, including m2m, unlike mmrcr which keeps a second legal mode (task 3 concern 2)', () => {
+    for (const mode of ['dl-tdoa', 'ul-tdoa', 'mms', 'm2m'] as const) {
+      expect(uwbModePatch(mode).sp3, mode).toBe(false)
+    }
+    expect(uwbModePatch('twr').sp3).toBeUndefined()
+  })
+
+  it('uwbSchedulePatch clears a stranded sp3 under a contention schedule (task 3 concern 2)', () => {
+    expect(uwbSchedulePatch('contention', 'deferred', false, false, true))
+      .toEqual({ schedule: 'contention', replyTime: 'embedded', sp3: false })
+    expect(uwbSchedulePatch('contention', 'embedded', false, false, true))
+      .toEqual({ schedule: 'contention', sp3: false })
+    expect(uwbSchedulePatch('contention', 'embedded', false, false, false)).toEqual({ schedule: 'contention' })
+    expect(uwbSchedulePatch('time', 'embedded', false, false, true)).toEqual({ schedule: 'time' })
+  })
+
+  it('uwbReplyTimePatch clears a stranded sp3 for the two reply-time shapes it forbids, and leaves it for deferred (task 3 concern 2)', () => {
+    expect(uwbReplyTimePatch('embedded', 'ss', 'time', true)).toEqual({ replyTime: 'embedded', sp3: false })
+    expect(uwbReplyTimePatch('fixed', 'ss', 'time', true)).toEqual({ replyTime: 'fixed', sp3: false })
+    expect(uwbReplyTimePatch('deferred', 'ss', 'time', true)).toEqual({ replyTime: 'deferred' })
+    expect(uwbReplyTimePatch('embedded', 'ss', 'time', false)).toEqual({ replyTime: 'embedded' })
+    for (const replyTime of ['embedded', 'deferred', 'fixed'] as const) {
+      const patch = uwbReplyTimePatch(replyTime, 'ss', 'time', true)
+      if (!patch) continue
+      expect(uwbSessionIssue(withUwb(4, {
+        mode: 'twr', method: 'ss', schedule: 'time', replyTime: 'deferred', sp3: true, ...patch,
+      })), replyTime).toBeNull()
+    }
+  })
+
+  it('uwbMethodPatch clears a stranded srrr request under DS-TWR, and leaves sp3 itself alone — sp3 stays legal under DS, only the request bits do not (fix round 1 of task 3, sp3-design §2.3)', () => {
+    expect(uwbMethodPatch('ds', 'embedded', true, { raoa: true, rrtt: false }))
+      .toEqual({ method: 'ds', schedule: 'time', srrr: { raoa: false, rrtt: false } })
+    expect(uwbMethodPatch('ds', 'embedded', true, { raoa: false, rrtt: true }))
+      .toEqual({ method: 'ds', schedule: 'time', srrr: { raoa: false, rrtt: false } })
+    // sp3 off, or neither bit on: nothing extra to report.
+    expect(uwbMethodPatch('ds', 'embedded', false, { raoa: true, rrtt: true })).toEqual({ method: 'ds', schedule: 'time' })
+    expect(uwbMethodPatch('ds', 'embedded', true, { raoa: false, rrtt: false })).toEqual({ method: 'ds', schedule: 'time' })
+    // switching back to ss never needs a patch of srrr: it was already off, or it is legal again.
+    expect(uwbMethodPatch('ss', 'embedded', true, { raoa: true, rrtt: true })).toEqual({ method: 'ss' })
+    // the field the user actually touches never produces the pair the schema refuses
+    expect(uwbSessionIssue(withUwb(4, {
+      mode: 'twr', schedule: 'time', replyTime: 'deferred', sp3: true, method: 'ss',
+      srrr: { raoa: false, rrtt: true },
+      ...uwbMethodPatch('ds', 'embedded', true, { raoa: false, rrtt: true }),
+    }))).toBeNull()
+  })
+
+  it('uwbAoaPatch takes a stranded srrr.raoa back to false when AoA is switched off under sp3, a reset found while wiring this panel', () => {
+    expect(uwbAoaPatch(true, true, { raoa: true, rrtt: false })).toEqual({ aoa: true })
+    expect(uwbAoaPatch(false, false, { raoa: true, rrtt: false })).toEqual({ aoa: false })
+    expect(uwbAoaPatch(false, true, { raoa: false, rrtt: true })).toEqual({ aoa: false })
+    expect(uwbAoaPatch(false, true, { raoa: true, rrtt: false }))
+      .toEqual({ aoa: false, srrr: { raoa: false, rrtt: false } })
+    expect(uwbSessionIssue(withUwb(4, {
+      mode: 'twr', schedule: 'time', replyTime: 'deferred', sp3: true, aoa: true, method: 'ss',
+      srrr: { raoa: true, rrtt: false },
+      ...uwbAoaPatch(false, true, { raoa: true, rrtt: false }),
+    }))).toBeNull()
+  })
+
+  it('renders the sp3 checkbox and the two SRRR request-bit checkboxes, live when every refusal is cleared', () => {
+    const sc = withUwb(4, { mode: 'twr', method: 'ss', schedule: 'time', replyTime: 'deferred', sp3: true, aoa: true })
+    const markup = renderToStaticMarkup(createElement(UwbSessionFields, {
+      session: sc.uwb!, anchors: 4, tags: 1, issue: null, onChange: () => {}, onRemove: () => {},
+    }))
+    expect(markup).toContain(E.uwbSp3)
+    expect(markup).toContain(E.uwbSrrrRaoa)
+    expect(markup).toContain(E.uwbSrrrRrtt)
+    expect(markup).toContain(E.uwbSp3Hint)
+    expect(markup).toContain(E.uwbSrrrRaoaHint)
+    expect(markup).toContain(E.uwbSrrrRrttHint)
+  })
+
+  it('the two SRRR checkboxes are greyed under DS-TWR, with their own reason, even though sp3 itself stays on', () => {
+    const sc = withUwb(4, { mode: 'twr', method: 'ds', schedule: 'time', replyTime: 'deferred', sp3: true, aoa: true })
+    const markup = renderToStaticMarkup(createElement(UwbSessionFields, {
+      session: sc.uwb!, anchors: 4, tags: 1, issue: null, onChange: () => {}, onRemove: () => {},
+    }))
+    expect(markup).toContain(E.uwbSrrrNeedsSs)
+    expect(markup).not.toContain(E.uwbSrrrRaoaHint)
+    expect(markup).not.toContain(E.uwbSrrrRrttHint)
+    // sp3 itself is still live under DS-TWR — only the request bits are not.
+    expect(markup).toContain(E.uwbSp3Hint)
+  })
+
+  it('sp3 is greyed with its own reason under every mode and schedule/reply-time combination that forbids it', () => {
+    const cases: [Partial<UwbSessionCfg>, keyof typeof E, number][] = [
+      [{ mode: 'dl-tdoa' }, 'uwbSp3DlTdoa', 4],
+      [{ mode: 'ul-tdoa' }, 'uwbSp3UlTdoa', 4],
+      [{ mode: 'm2m', replyTime: 'embedded' }, 'uwbSp3M2m', 4],
+      [{ schedule: 'contention', method: 'ss' }, 'uwbSp3Contention', 4],
+      [{ replyTime: 'embedded' }, 'uwbSp3NeedsDeferred', 4],
+    ]
+    for (const [session, key, anchors] of cases) {
+      const sc = withUwb(anchors, { mode: 'twr', method: 'ss', schedule: 'time', replyTime: 'deferred', ...session })
+      const markup = renderToStaticMarkup(createElement(UwbSessionFields, {
+        session: sc.uwb!, anchors, tags: session.mode === 'm2m' ? 0 : 1, issue: null, onChange: () => {}, onRemove: () => {},
+      }))
+      expect(markup, String(key)).toContain(E[key] as string)
+    }
+  })
+
+  it('the two SRRR checkboxes are greyed out while sp3 is off, and RAOA alone stays greyed when AoA is off', () => {
+    const base = withUwb(4, { mode: 'twr', method: 'ss', schedule: 'time', replyTime: 'deferred' })
+    const sp3Off = renderToStaticMarkup(createElement(UwbSessionFields, {
+      session: base.uwb!, anchors: 4, tags: 1, issue: null, onChange: () => {}, onRemove: () => {},
+    }))
+    expect(sp3Off).toContain(E.uwbSrrrNeedsSp3)
+    expect(sp3Off).not.toContain(E.uwbSrrrRaoaHint)
+    expect(sp3Off).not.toContain(E.uwbSrrrRrttHint)
+
+    const sp3OnNoAoa = withUwb(4, {
+      mode: 'twr', method: 'ss', schedule: 'time', replyTime: 'deferred', sp3: true, aoa: false,
+    })
+    const markup = renderToStaticMarkup(createElement(UwbSessionFields, {
+      session: sp3OnNoAoa.uwb!, anchors: 4, tags: 1, issue: null, onChange: () => {}, onRemove: () => {},
+    }))
+    expect(markup).toContain(E.uwbSrrrRaoaNeedsAoa)
+    expect(markup).toContain(E.uwbSrrrRrttHint) // RRTT does not need AoA
+  })
+
+  // End to end: the switch set through this panel's own patch functions, a whole round, and the
+  // way back to a legal value — a feature is not done until a round has run and its output read.
+  const sp3Node = (id: string, x: number, role: 'anchor' | 'tag'): NodeCfg => ({
+    id, kind: 'uwb', name: id, pos: { x, y: 0, z: 1 }, txPowerDbm: UWB_TX_POWER_DBM,
+    profiles: ['idle'], caps: { generation: 'nonht', features: {} }, uwb: { role },
+  })
+  const sp3Scenario = (session: Partial<UwbSessionCfg>): Scenario => ({
+    rooms: [{ x: 0, y: 0, w: 20, h: 20, name: 'lab' }], walls: [],
+    nodes: [sp3Node('anc-1', 0, 'anchor'), sp3Node('anc-2', 6, 'anchor'), sp3Node('tag-1', 3, 'tag')],
+    servers: [], seed: 7, rtsThresholdBytes: 3000, snapshotIntervalMs: 10,
+    uwb: {
+      ...DEFAULT_UWB_SESSION, mode: 'twr', method: 'ss', schedule: 'time', replyTime: 'deferred',
+      nlos: false, ...session,
+    },
+  })
+
+  it('a session set up entirely through this panel onChange patches runs a real SP3 round, and switching the mode away brings sp3 back to a legal value', () => {
+    // Exactly the sequence of onChange calls the rendered panel issues: the method select first
+    // (the session starts at the DS-TWR default), then the reply-time select, the AoA checkbox,
+    // the sp3 checkbox, then the two SRRR checkboxes.
+    let session = { ...DEFAULT_UWB_SESSION, ...uwbMethodPatch('ss', DEFAULT_UWB_SESSION.replyTime) }
+    const replyPatch = uwbReplyTimePatch('deferred', session.method, session.schedule, session.sp3)
+    expect(replyPatch).not.toBeNull()
+    session = { ...session, ...replyPatch }
+    session = { ...session, ...uwbAoaPatch(true, session.sp3, session.srrr) }
+    session = { ...session, sp3: true }
+    session = { ...session, srrr: { ...session.srrr, raoa: true } }
+    session = { ...session, srrr: { ...session.srrr, rrtt: true } }
+    expect(session).toMatchObject({
+      method: 'ss', replyTime: 'deferred', aoa: true, sp3: true, srrr: { raoa: true, rrtt: true },
+    })
+
+    const sc = sp3Scenario(session)
+    expect(ScenarioSchema.safeParse(sc).success).toBe(true)
+
+    const recs = new Simulation(sc).runUntil(roundPlan(sc.uwb!, 2).blockNs - 1).records
+    const markers = recs.filter((r) => r.type === 'UWB_SP3')
+    const reports = recs.filter((r) => r.type === 'UWB_SP3_REPORT')
+    const ranges = recs.filter((r) => r.type === 'UWB_RANGE')
+    expect(markers.length, 'SP3 markers actually went on the air').toBeGreaterThan(0)
+    expect(reports.length, 'SP3 reports actually went on the air').toBeGreaterThan(0)
+    expect(ranges.length, 'the round still measured a distance').toBeGreaterThan(0)
+
+    // Now switch the method to DS-TWR: the stranded SRRR request has to come back down, through
+    // the very patch the method select calls — while sp3 itself stays on.
+    const toDs: Partial<UwbSessionCfg> = { ...session, ...uwbMethodPatch('ds', session.replyTime, session.sp3, session.srrr) }
+    expect(toDs.sp3).toBe(true)
+    expect(toDs.srrr).toEqual({ raoa: false, rrtt: false })
+    expect(ScenarioSchema.safeParse(sp3Scenario(toDs)).success).toBe(true)
+
+    // Switch the mode away, through the very patch the mode select calls, and back.
+    const toMms: Partial<UwbSessionCfg> = { ...session, ...uwbModePatch('mms') }
+    expect(toMms.sp3).toBe(false)
+    expect(ScenarioSchema.safeParse(sp3Scenario(toMms)).success).toBe(true)
+    const backToTwr: Partial<UwbSessionCfg> = { ...toMms, ...uwbModePatch('twr') }
+    expect(backToTwr.sp3).toBe(false)
+    expect(ScenarioSchema.safeParse(sp3Scenario({ ...backToTwr, replyTime: 'deferred' })).success).toBe(true)
   })
 })

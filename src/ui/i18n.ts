@@ -251,6 +251,25 @@ export interface Strings {
     uwbMmrcr: string; uwbMmrcrHint: string
     uwbMmrcrDlTdoa: string; uwbMmrcrUlTdoa: string; uwbMmrcrMms: string
     uwbMmrcrNeedsValidity: string; uwbMmrcrContention: string
+    /**
+     * SP3 grouped ranging (standard §10.32.8, design `2026-10-02-sp3-design.md`): two-way ranging
+     * only, and only beside the time schedule and the deferred reply-time shape. Seven hint keys,
+     * `uwbSp3HintKey`'s own reasons — four outright mode refusals, the contention refusal `rmnr`
+     * and `mmrcr` already carry their own versions of, and the reply-time refusal that is this
+     * field's own (an SP3 marker has no payload to carry the measured time in, so only the
+     * deferred shape's report frame can).
+     */
+    uwbSp3: string; uwbSp3Hint: string
+    uwbSp3DlTdoa: string; uwbSp3UlTdoa: string; uwbSp3Mms: string; uwbSp3M2m: string
+    uwbSp3Contention: string; uwbSp3NeedsDeferred: string
+    /**
+     * The SRRR IE's own RAOA/RRTT request bits (standard §10.32.9.9), live only once `sp3` is on.
+     * RAOA carries a second refusal (`uwbSrrrRaoaNeedsAoa`): it asks the report phase for a
+     * bearing no anchor without `aoa` on ever computes.
+     */
+    uwbSrrrRaoa: string; uwbSrrrRrtt: string
+    uwbSrrrRaoaHint: string; uwbSrrrRrttHint: string
+    uwbSrrrNeedsSp3: string; uwbSrrrNeedsSs: string; uwbSrrrRaoaNeedsAoa: string
     /** "slots per round N · rounds per block M" under the session fields. */
     uwbPlan: (slots: number, rounds: number) => string
     /** `mode: 'm2m'` only: how many participants the round actually holds — every UWB node, not
@@ -869,6 +888,21 @@ export const STRINGS: Strings = {
     uwbMmrcrMms: 'MMS 的控制面走的是窄带的 nbPoll/nbResp/nbReport，不是这里的 ARC IE，收妥确认请求的这一位没有地方可以搭',
     uwbMmrcrNeedsValidity: '每轮一条控制消息（RCM 有效轮次为 1）时，窗口只有一块，位图也只有一位，而这一位说的正是这一帧收到了没有——响应方发没发 Response，已经当场说明了同一件事，不必再发一帧去确认它：请先把 RCM 有效轮次调到 2 以上',
     uwbMmrcrContention: '收妥确认要落在一个确定属于某个应答方的时隙里，竞争式调度下响应方的时隙是抽来的，没有谁能保证占到那个时隙：请先把调度方式改回时间调度',
+    uwbSp3: 'SP3 分组测距',
+    uwbSp3Hint: 'SP3 测距帧只有 SYNC、SFD 与 STS（标准 §10.32.8），没有 PHR，也没有载荷：往返测距阶段改发这种标记帧，随后另起一个测量报告阶段，把方位角与往返时间发回来',
+    uwbSp3DlTdoa: 'DL-TDoA 里收发 Poll、Response 与 Final 的是锚点之间，标签在这个模式下从不发送，没有一次标签－锚点往返可以压成 SP3 标记',
+    uwbSp3UlTdoa: 'UL-TDoA 里标签只发一次闪烁帧，没有往返可言',
+    uwbSp3Mms: 'MMS 的控制面走窄带电台的 nbPoll/nbResp/nbReport，不是这里的 ARC/SRRR IE，也没有 SP3 这种 UWB PHY 包格式的位置',
+    uwbSp3M2m: '多对多测距没有独立的 RCM：每个参与者的一次发送本身既是问也是答，没有这样一条控制消息可以挂 SRRR IE',
+    uwbSp3Contention: '竞争式测距轮里响应方的时隙是临时抽到的，SRRR IE 要在 RCM 里按固定的应答方逐个声明它要报告哪几项，这里没有这样一条控制消息可挂：请先把调度方式改回时间调度',
+    uwbSp3NeedsDeferred: 'SP3 包没有载荷，测距帧量到的时间要靠随后的测量报告阶段另发一帧补上：请先把回复时间改成延后，或者把 SP3 关掉',
+    uwbSrrrRaoa: 'SRRR 请求到达角',
+    uwbSrrrRrtt: 'SRRR 请求往返时间',
+    uwbSrrrRaoaHint: '响应方在 RCM 里请求发起方把方位角写进测量报告阶段的那一帧（标准 §10.32.9.9）：关掉这一位，报告帧就不带这一项，字节数更少',
+    uwbSrrrRrttHint: '响应方在 RCM 里请求发起方把往返时间写进发起方自己那一帧测量报告（标准 §10.32.9.9）：置位之后发起方多占一个时隙发这一帧，关掉则没有这一帧',
+    uwbSrrrNeedsSp3: '只有 SP3 分组测距的 RCM 里才有 SRRR 这个控制字可以置位',
+    uwbSrrrNeedsSs: '这两个请求位由延后回复时间那条路上的帧来回答——方位角装在响应方的延后报文里，往返时间装在发起方自己的测量报告里；双边双向的报告相位是两端交换自己的，不会因为这两个请求而变化，请求放在这里没有一帧能回答它：请先把测距方式改成单边双向',
+    uwbSrrrRaoaNeedsAoa: '锚点没有打开到达角测量，测量报告阶段里没有方位角可以报：请先打开到达角',
     uwbPlan: (slots, rounds) => `每轮 ${slots} 个时隙 · 每块 ${rounds} 轮`,
     uwbM2mParticipants: (participants) => `多对多测距：全部 ${participants} 台 UWB 设备都是参与者，按 id 排序决定发送顺序——上方的锚点/标签计数只影响画法，不影响这个数`,
     uwbMms: 'MMS 片段序列',
