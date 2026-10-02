@@ -537,13 +537,33 @@ export function TimelineStrip({ height = 190, open = true, onToggle }: TimelineS
         // handle and the time reading.
         right: onToggle ? 132 : 92, left: '45%', textAlign: 'right',
         whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+        // A real overlap, found by looking rather than assumed from the brief: a
+        // bare label with no backdrop sits directly over the canvas's own
+        // time-axis row, and whenever a drawn tick label falls under it the two
+        // interleave into unreadable noise — confirmed at both 470 and 939 px, so
+        // it is not a folded-only defect. The same opaque panel the corner
+        // buttons already use (model: 0.85 alpha — enough to read against any
+        // span colour the canvas paints under it, not so solid it looks like a
+        // button) separates the two layers instead of narrowing the hint's box,
+        // which would not have helped: the clash is with the canvas below it,
+        // not with the buttons beside it.
+        background: 'rgba(20,22,28,0.85)', padding: '1px 6px', borderRadius: 3,
       }} title={L.strip.windowHint}>
         {fmtNs(spanNs)} s · {L.strip.windowHint}
       </div>
-      <div style={{
+      {/* `hscroll` hides this row's own horizontal scrollbar, the same fix
+          already applied to the transport and the header's control row: a
+          classic scrollbar inside a fixed 22px-tall row ate so much of it that
+          the legend's content measured 6px of clientHeight, not 22 — the labels
+          were not wrapping or clipping, they were being squeezed nearly flat.
+          `touch-action: pan-x` and the matching `overscroll-behavior-x` mirror
+          the transport's scrolling row for the same reason: a flick past either
+          end of this row must not turn into the browser's back gesture. */}
+      <div className="hscroll" style={{
         height: LEGEND_H, display: 'flex', alignItems: 'center', gap: 10, padding: '0 10px',
         background: 'var(--panel)', borderTop: '1px solid var(--border)', fontSize: 10.5, color: 'var(--dim)',
         overflowX: 'auto', whiteSpace: 'nowrap',
+        touchAction: 'pan-x', overscrollBehaviorX: 'contain',
       }}>
         {L.legend.map((l) => (
           // flexShrink 0, or the row shrinks its items to fit instead of scrolling

@@ -29,6 +29,17 @@ export const COMPACT_H = 620
  */
 export const SINGLE_W = 700
 
+/**
+ * Below this width, at `pointer: coarse` control sizes, the transport's twelve
+ * controls no longer fit in one row (model): measured in the browser at
+ * `index.css`'s coarse-pointer sizes, the row wants 947 px; 950 rounds that up
+ * with 3 px of slack rather than sitting exactly on the measured figure, which a
+ * sub-pixel layout could tip back into wrapping. At a fine (mouse) pointer the
+ * same row only wants 911 px, which is why this cannot be a plain width
+ * breakpoint — see `transportScroll` below.
+ */
+export const COARSE_TRANSPORT_MIN_W = 950
+
 /** The timeline's height on a desktop, and the floor it may not shrink past. */
 export const TIMELINE_H = 190
 export const TIMELINE_H_COMPACT = 120
@@ -60,19 +71,43 @@ export interface ShellLayout {
    * the pad covers an eighth of the view and a finger already orbits it.
    */
   rowStack: boolean
+  /**
+   * The transport is one row that scrolls sideways instead of wrapping to a
+   * second row. Always true when `rowStack` is — the folded phone's whole player
+   * is built around it — but also true, independently, on an unfolded foldable:
+   * see `layoutFor` for why that needs the pointer type and not just the width.
+   * The order of the controls does not follow from this on its own; that is
+   * still `rowStack`, because only the folded case loses enough of the row to
+   * make reordering worth the cost of moving what the reader is used to.
+   */
+  transportScroll: boolean
 }
 
 /**
- * The arrangement for a viewport of `w` x `h` CSS px.
+ * The arrangement for a viewport of `w` x `h` CSS px, and — for `transportScroll`
+ * only — whether the pointer is a touch (`pointer: coarse`) one.
  *
  * Width and height are read independently and on purpose: an unfolded foldable
  * is wide enough for two columns and far too short for a 190 px timeline, so a
- * single breakpoint on either one alone would get it wrong.
+ * single breakpoint on either one alone would get it wrong. `coarsePointer`
+ * defaults to `false` so a caller that has not measured it (tests, the server
+ * render) gets the mouse answer rather than a guess.
  */
-export function layoutFor(w: number, h: number): ShellLayout {
+export function layoutFor(w: number, h: number, coarsePointer = false): ShellLayout {
   const narrow = w < COMPACT_W
   const short = h < COMPACT_H
   const singleColumn = w < SINGLE_W
+  // Deliberately the same breakpoint as `singleColumn`, not a new one. The
+  // stack exists because the transport cannot be one row here: measured in the
+  // browser its twelve controls want 911 px side by side with a mouse pointer
+  // and 947 px at the `pointer: coarse` sizes in `index.css`. Every width that
+  // could be the dividing line was tried against the two real viewports — the
+  // foldable is 939 x 511 open and 470 x 511 shut — and a breakpoint anywhere
+  // near where the row actually overflows would catch 939 too, which is the one
+  // arrangement that must not move. Below 700 the shell is already one column,
+  // i.e. already a phone, which is the same decision about the same device; a
+  // second constant a hundred px away would be two names for it and would drift.
+  const rowStack = singleColumn
   return {
     compact: narrow || short,
     // The drawer is a width decision: a short-but-wide window still has room for
@@ -81,17 +116,20 @@ export function layoutFor(w: number, h: number): ShellLayout {
     sideAsDrawer: narrow,
     singleColumn,
     timelineH: short ? TIMELINE_H_COMPACT : TIMELINE_H,
-    // Deliberately the same breakpoint as `singleColumn`, not a new one. The
-    // stack exists because the transport cannot be one row here: measured in the
-    // browser its twelve controls want 911 px side by side with a mouse pointer
-    // and 947 px at the `pointer: coarse` sizes in `index.css`. Every width that
-    // could be the dividing line was tried against the two real viewports — the
-    // foldable is 939 x 511 open and 470 x 511 shut — and a breakpoint anywhere
-    // near where the row actually overflows would catch 939 too, which is the one
-    // arrangement that must not move. Below 700 the shell is already one column,
-    // i.e. already a phone, which is the same decision about the same device; a
-    // second constant a hundred px away would be two names for it and would drift.
-    rowStack: singleColumn,
+    rowStack,
+    // The folded phone needs this regardless (it is `rowStack`'s whole point),
+    // but the unfolded foldable needs it too and `rowStack` must not move there.
+    // The gap between the two pointer sizes (911 vs 947, see
+    // `COARSE_TRANSPORT_MIN_W`) straddles 939, so width alone cannot be the
+    // condition without either missing the real device or catching a mouse
+    // window resized to the same width — a breakpoint on `w` here would be a
+    // guess about a dimension that is not actually what overflowed. Reading the
+    // pointer type instead is the honest version of the same decision. A fine
+    // pointer is left wrapping at this width on purpose: a mouse has no
+    // comfortable gesture for a sideways scroll, so turning this on for it would
+    // swap one awkwardness for a worse one; a touchscreen already has the
+    // gesture, verified in `.superpowers/sdd/folded-layout/report.md` section 5.
+    transportScroll: rowStack || (coarsePointer && w < COARSE_TRANSPORT_MIN_W),
   }
 }
 

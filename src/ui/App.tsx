@@ -79,7 +79,7 @@ export function App() {
   // decision is a pure function of the two numbers so it can be tested, and the
   // hook exists because a foldable changes them without reloading the page.
   const vp = useViewport()
-  const layout = layoutFor(vp.w, vp.h)
+  const layout = layoutFor(vp.w, vp.h, vp.coarsePointer)
   /** Which of the lesson and the viewport the single-column shell shows. */
   const [pane, setPane] = useState<MainPane>('course')
   /** The side panel, when it is a drawer rather than a column. Closed by default:
@@ -100,16 +100,22 @@ export function App() {
    * becomes one sideways-scrolling row. Both orders are rendered from here rather
    * than at the two call sites so course mode's view pane and simulate mode
    * cannot drift into showing the same screen two different ways.
+   *
+   * The transport itself takes its scrolling and its order as two separate
+   * props: `transportScroll` can be true (unfolded, touch) without `rowStack`
+   * being true, and when that happens the row scrolls but keeps the wide order —
+   * see `layout.ts`.
    */
+  const transport = <Transport scroll={layout.transportScroll} stacked={layout.rowStack} />
   const playerRows = layout.rowStack ? (
     <>
-      <Transport rowStack />
+      {transport}
       <TimelineStrip height={timelineH} open={timelineOpen} onToggle={() => setTimelineOpen((v) => !v)} />
     </>
   ) : (
     <>
       <TimelineStrip height={timelineH} open={timelineOpen} onToggle={() => setTimelineOpen((v) => !v)} />
-      <Transport />
+      {transport}
     </>
   )
 

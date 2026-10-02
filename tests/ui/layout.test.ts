@@ -8,7 +8,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import {
-  COMPACT_H, COMPACT_W, SINGLE_W, TIMELINE_H, TIMELINE_H_COMPACT,
+  COARSE_TRANSPORT_MIN_W, COMPACT_H, COMPACT_W, SINGLE_W, TIMELINE_H, TIMELINE_H_COMPACT,
   layoutFor, mainColumns, transportOrder, type MainPane, type TransportItem,
 } from '../../src/ui/layout'
 
@@ -24,7 +24,7 @@ describe('layoutFor', () => {
     const l = layoutFor(DESKTOP.w, DESKTOP.h)
     expect(l).toEqual({
       compact: false, sideAsDrawer: false, singleColumn: false, timelineH: TIMELINE_H,
-      rowStack: false,
+      rowStack: false, transportScroll: false,
     })
   })
 
@@ -78,6 +78,40 @@ describe('layoutFor', () => {
     expect(layoutFor(1600, 500).rowStack).toBe(false)
     // and a tall phone is still a phone
     expect(layoutFor(412, 800).rowStack).toBe(true)
+  })
+})
+
+describe('transportScroll', () => {
+  it('is always true where rowStack is, no matter the pointer', () => {
+    expect(layoutFor(FOLDED.w, FOLDED.h).transportScroll).toBe(true)
+    expect(layoutFor(FOLDED.w, FOLDED.h, false).transportScroll).toBe(true)
+    expect(layoutFor(FOLDED.w, FOLDED.h, true).transportScroll).toBe(true)
+  })
+
+  it('leaves a mouse pointer wrapping at every width, including the unfolded foldable', () => {
+    // No third argument at all — the default a caller gets before it has
+    // measured anything — must read as a mouse, not as a guess either way.
+    expect(layoutFor(FOLDABLE.w, FOLDABLE.h).transportScroll).toBe(false)
+    expect(layoutFor(FOLDABLE.w, FOLDABLE.h, false).transportScroll).toBe(false)
+    // Even well below the coarse-pointer threshold, a mouse gets no scrolling
+    // row: it has no comfortable gesture for one, so wrapping is still the
+    // better of the two awkward choices for it.
+    expect(layoutFor(COARSE_TRANSPORT_MIN_W - 1, 511, false).transportScroll).toBe(false)
+  })
+
+  it('turns the unfolded foldable into a scrolling row on a real touch pointer', () => {
+    // This is the viewport and the pointer the brief measured: 939 is short of
+    // the 947 px the row wants at `pointer: coarse` sizes.
+    expect(layoutFor(FOLDABLE.w, FOLDABLE.h, true).transportScroll).toBe(true)
+  })
+
+  it('switches exactly at the coarse-pointer width and not before', () => {
+    expect(layoutFor(COARSE_TRANSPORT_MIN_W, 511, true).transportScroll).toBe(false)
+    expect(layoutFor(COARSE_TRANSPORT_MIN_W - 1, 511, true).transportScroll).toBe(true)
+  })
+
+  it('leaves a wide touchscreen alone: the row already fits', () => {
+    expect(layoutFor(1440, 900, true).transportScroll).toBe(false)
   })
 })
 
