@@ -106,20 +106,34 @@ export type UwbRecord =
    */
   | { type: 'UWB_SP3'; node: string; peer: string; slot: number; block: number; round: number }
   /**
-   * Standard §10.32.8.1's third phase, arriving: one responder's data report, and what the round's
-   * SRRR IE (§10.32.9.9) got it to carry.
+   * Standard §10.32.8.1's third phase, arriving: **one frame of the data report phase, as the
+   * device that received it read it** — and what the round's SRRR IE (§10.32.9.9) got that frame to
+   * carry.
    *
-   * `replyRctu` is there whatever SRRR asked — a deferred round has no other route for the reply
-   * time (§10.29.6.3) — and `thetaDeg` is present exactly when the RAOA bit asked for a bearing.
-   * The record exists so that the request's effect is visible as something arriving rather than
-   * only as four more octets on the air: a report frame that grew and delivered nothing would be
-   * the same class of bug as a frame claiming an identity it cannot carry.
+   * One record type for one phase, in both of its directions, because §10.32.8.2's Figure 10-242
+   * draws one phase with frames going both ways. Which fields are present says which frame this
+   * was, and each of them is present exactly when it arrived:
    *
-   * `peer` is read off the slot, like `UWB_SP3`'s: the report's slot is the one the same RDM IE
-   * gave this responder, and the slot is what pairs the report with a marker that had no address to
-   * pair on.
+   * - `replyRctu` — a **responder's** report (at the initiator). Always there in that direction: a
+   *   deferred round has no other route for the reply time at all (§10.29.6.3), so it is not
+   *   something SRRR gates.
+   * - `thetaDeg` — the bearing that responder measured, present exactly when the RAOA bit asked for
+   *   one. In this engine the antenna array is on the anchors, so the bearing travels with the
+   *   responder's report rather than with the initiator's.
+   * - `roundTripRctu` — the **initiator's** report (at a responder), present exactly when the RRTT
+   *   bit asked for it. It is this responder's own entry of that frame's RMI IE, never the whole
+   *   list: one frame answers every responder that asked, and each learns only its own round trip.
+   *
+   * The record exists so that a request's effect is visible as something *arriving* rather than
+   * only as more octets on the air. A report frame that grew and delivered nothing is the same
+   * class of defect as a request that goes on the air and is never answered — which is exactly what
+   * the RRTT bit was until the initiator's own frame was built (design §4.1).
+   *
+   * `peer` is read off the slot, like `UWB_SP3`'s, in both directions: a report's slot is the one
+   * the same RDM IE gave that device, and the slot is what pairs the report with a marker that had
+   * no address to pair on.
    */
-  | { type: 'UWB_SP3_REPORT'; node: string; peer: string; slot: number; block: number; round: number; replyRctu: number; thetaDeg?: number }
+  | { type: 'UWB_SP3_REPORT'; node: string; peer: string; slot: number; block: number; round: number; replyRctu?: number; thetaDeg?: number; roundTripRctu?: number }
   /** Contention round (standard §10.32.2 schedule mode 0): an anchor that decoded the Poll drew
    * the response slot it will answer in — `slot` null when its retry budget ran out and it sits
    * this round out, and `attempt` counts from 1 (0 while sitting out). */

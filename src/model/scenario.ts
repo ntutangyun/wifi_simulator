@@ -1464,6 +1464,24 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
         // The SRRR IE's own request bits (§10.32.9.9), checked only once sp3 is on: whatever
         // either bit says when sp3 is off describes a report phase that does not exist, the same
         // way `mms`'s own fields are only checked in `mode: 'mms'`.
+        // …and both bits are refused outside SS-TWR, because the frames that answer them are the
+        // deferred SS shape's own (§10.29.6.3's follow-up message carries the bearing; the
+        // initiator's own measurement report carries the round trip, design §4.1). A DS round's
+        // report phase is the double-sided exchange's own — its responder's report already carries
+        // a round-trip time whatever SRRR says, and nothing in it would grow by a bearing — so
+        // either bit there would be a request this engine accepts and provably never answers, which
+        // is the trap `contention` + `rmnr` was the first instance of. Fix round 1 of task 3, and
+        // the answer to task 2's own open question about `method` and `rrtt`.
+        if (sp3 && mode === 'twr' && sc.uwb.method !== 'ss' && (srrr.raoa || srrr.rrtt)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['uwb'],
+            message: 'SRRR的两个请求位，是由延后那一条路上的报告帧来回答的：方位角装在响应方的延后'
+              + '报文里，往返时间装在发起方自己那一帧测量报告里。DS-TWR的报告相位是双边交换自己的，'
+              + '它既不会因为方位角变长，也已经无条件带着一个往返时间，请求放在这里不会有任何一帧回答它'
+              + '——请把 method 改成 ss，或者把 srrr 的两个位都关掉',
+          })
+        }
         if (sp3 && mode === 'twr' && srrr.raoa && !sc.uwb.aoa) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
@@ -1640,9 +1658,15 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
           // …and at this session's own reply-time shape, because an SS round with a deferred
           // reply time is 2A+1 slots rather than A+1 (design §4): left at the default the rule
           // would check the block against a round A slots shorter than the one it will run.
+          // …and at this session's own `sp3`, because an SP3 round carries two slots an SP1 one
+          // does not — the initiator's own marker always, and its own measurement report when some
+          // responder asked for the round trip (design §4.1). Left out, this rule would check the
+          // block against a round two slots shorter than the one it will run. `UwbNetwork` computes
+          // the identical thing in nanoseconds, from the identical fields.
           const slots = uwbSlotsPerTag(
             sc.uwb.method, anchors, sc.uwb.schedule, sc.uwb.contentionSlots, mode, sc.uwb.mms,
             mmsSlotsPerMs(sc.uwb.slotRstu), sc.uwb.replyTime,
+            sc.uwb.sp3 && mode === 'twr' ? { rrtt: sc.uwb.srrr.rrtt } : undefined,
           )
           // mmrcr's own slot (design §3.3, `uwb/session.ts#blockCarriesMmrcm`/`mmrcmInitiators`):
           // one, the tag this round belongs to, on the block that closes its validity window. Every

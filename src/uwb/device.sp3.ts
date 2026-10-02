@@ -24,7 +24,7 @@
 import type { FrameDesc } from '../model/frames'
 import { counterDiff } from './clock'
 import type { RoundState, UwbDevice } from './device'
-import { makeSp3, UWB_BROADCAST } from './frames'
+import { makeSp3, makeSp3InitReport, UWB_BROADCAST } from './frames'
 import { slotAction, type RoundPlan } from './session'
 
 /**
@@ -53,9 +53,14 @@ export function sp3Round(plan: RoundPlan): boolean {
  */
 export function sp3SlotPeer(r: RoundState, slot: number): string {
   const action = slotAction(r.plan, slot)
-  if (action.kind !== 'uwbResp' && action.kind !== 'uwbSsDefer') {
-    throw new Error(`sp3SlotPeer: slot ${slot} of this round carries a '${action.kind}', not a responder's frame`)
+  if (action.kind !== 'uwbSp3' && action.kind !== 'uwbSsDefer') {
+    throw new Error(`sp3SlotPeer: slot ${slot} of this round carries a '${action.kind}', not a ranging frame`)
   }
+  // The initiator's own marker belongs to the initiator's slot, and the answer is the round's
+  // initiator. A responder reads that marker's sender off the slot for exactly the same reason the
+  // initiator reads a responder's: the frame carries no address either (Figure 10-242 draws it as
+  // the ranging initiation).
+  if (action.tx === 'tag') return r.tagId
   const peer = r.anchors[action.anchor]
   if (peer === undefined) {
     throw new Error(
@@ -78,8 +83,31 @@ export function sp3SlotPeer(r: RoundState, slot: number): string {
  * its sender is not the frame §10.32.8.2 describes and the slot would have nothing left to do.
  */
 export function transmitSp3Marker(dev: UwbDevice, r: RoundState, slot: number, txCounter: number): void {
-  r.txRespCounter = txCounter
+  // Which of the round's two kinds of marker this is. The initiator's is the **ranging
+  // initiation** of Figure 10-242 — a frame of its own, not the RCM, because the RCM carries
+  // payload and an SP3 packet cannot — so its transmit counter is what the whole round's round
+  // trips are measured from, and the RCM a slot earlier contributes no time at all.
+  if (dev.cfg.role === 'tag') r.txPollCounter = txCounter
+  else r.txRespCounter = txCounter
   dev.send(makeSp3(dev.id, UWB_BROADCAST, r.plan.method, r.block, r.round, slot), txCounter)
+}
+
+/**
+ * Initiator: the measurement report that answers the SRRR IE's **RRTT** bit (§10.32.8.2's report
+ * phase, design §4.1) — one RMI entry per responder whose marker came back, each carrying the
+ * round-trip time only the initiator measured.
+ *
+ * Nothing is sent when no marker came back at all: a frame with an empty entry list would be a
+ * report of nothing, and the responders that are not in it learn that by not being in it.
+ */
+export function transmitSp3InitReport(dev: UwbDevice, r: RoundState, slot: number, txCounter: number): void {
+  const times: { id: string; tround1: number }[] = []
+  for (const id of r.anchors) {
+    const p = r.peers.get(id)
+    if (p) times.push({ id, tround1: p.tround1 })
+  }
+  if (times.length === 0) return
+  dev.send(makeSp3InitReport(dev.id, times, r.block, r.round, slot), txCounter)
 }
 
 /**
@@ -99,12 +127,44 @@ export function transmitSp3Marker(dev: UwbDevice, r: RoundState, slot: number, t
 export function onSp3Marker(
   dev: UwbDevice, r: RoundState, slot: number, counter: number, coffs: number, fom: number,
 ): void {
-  if (r.txPollCounter === null) return
   const peer = sp3SlotPeer(r, slot)
-  const tround1 = counterDiff(counter, r.txPollCounter)
-  r.peers.set(peer, { id: peer, rxRespCounter: counter, coffs, fom, tround1, treply2: null })
+  // A responder, on the **initiator's** marker: this is the round's ranging initiation, so this is
+  // the instant its own reply time is measured from — not the RCM's arrival a slot earlier, which
+  // carries the schedule and no time at all. The RCM is still what told it which slot is its own,
+  // which is why `onInitiation` keeps every other thing it does with that frame.
+  if (dev.cfg.role !== 'tag') {
+    r.rxPollCounter = counter
+  } else {
+    // The initiator, on a responder's marker: bank the round trip against the device whose slot
+    // this is. The reply time cannot be here and could not have been — this frame's own send time
+    // is what it would have to contain — so no range is finished in this slot, in either method.
+    if (r.txPollCounter === null) return
+    const tround1 = counterDiff(counter, r.txPollCounter)
+    r.peers.set(peer, { id: peer, rxRespCounter: counter, coffs, fom, tround1, treply2: null })
+  }
   dev.emit({
     t: dev.now(), type: 'UWB_SP3', node: dev.id, peer, slot, block: r.block, round: r.round,
+  })
+}
+
+/**
+ * Responder, on the initiator's own measurement report: its own entry, and nothing else.
+ *
+ * One frame answers every responder that asked (`makeSp3InitReport` is broadcast), and each learns
+ * only the round trip written about it — the same division §10.36's receipt confirmation already
+ * follows. A frame that names none of this device's rounds is not an error; it simply produces no
+ * record here.
+ */
+export function onSp3InitReport(dev: UwbDevice, r: RoundState, slot: number, frame: FrameDesc): void {
+  const mine = frame.uwb?.finalTimes?.find((e) => e.id === dev.id)
+  if (mine === undefined || mine.tround1 === undefined) return
+  // `r.tagId`, not `sp3SlotPeer`: this frame is the one frame of an SP3 round that **is** addressed
+  // (it is an ordinary PPDU with an MHR), it completes no marker, and the responder knows perfectly
+  // well who the initiator of its round is. Reading the slot here would be the slot rule applied
+  // where it buys nothing.
+  dev.emit({
+    t: dev.now(), type: 'UWB_SP3_REPORT', node: dev.id, peer: r.tagId, slot,
+    block: r.block, round: r.round, roundTripRctu: mine.tround1,
   })
 }
 

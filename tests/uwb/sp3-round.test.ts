@@ -28,7 +28,8 @@ import { UwbNetwork } from '../../src/uwb/network'
 import { rangeSigmaM } from '../../src/uwb/position'
 import {
   UWB_SP3_RAOA_ITEM_BYTES, UWB_SS_DEFER_BYTES, UWB_TX_POWER_DBM,
-  srrrIeBytes, uwbPollBytes, uwbPpduNs, uwbRespBytes, uwbSp3Ns, uwbSp3PollBytes, uwbSp3ReportBytes,
+  srrrIeBytes, uwbPollBytes, uwbPpduNs, uwbRespBytes, uwbSp3InitReportBytes, uwbSp3Ns,
+  uwbSp3PollBytes, uwbSp3ReportBytes,
 } from '../../src/uwb/phy'
 
 const MS = 1_000_000
@@ -151,13 +152,33 @@ const sumAir = (rs: TLRecord[]): number =>
 const markerCount = (rs: TLRecord[]): number =>
   of(rs, 'TX_START').filter((r) => r.frame.kind === 'uwbSp3').length
 
-/** The ranging phase: the responders' ranging frames, whichever packet format they take. */
+/**
+ * The **responders'** ranging frames alone: A markers in an SP3 round, A Responses in an SP1 one.
+ *
+ * Deliberately not the whole ranging phase. Both shapes have A + 1 ranging transmissions, but the
+ * initiator's is a frame of its own in SP3 (a bare marker, §10.32.8.2) and the **Poll itself** in
+ * SP1, where one frame is the control message and the ranging initiation at once. So "the ranging
+ * phase" is not a like-for-like sum until you decide how much of SP1's Poll to call ranging, and
+ * this quantity needs no such decision: it is the per-frame saving, A times over.
+ */
+const responderRangingAir = (rs: TLRecord[]): number => {
+  const a = airByKind(rs)
+  return (a['uwbSp3'] ?? 0) - initiatorMarkerAir(rs) + (a['uwbResp'] ?? 0)
+}
+/** The initiator's own SP3 marker (§10.32.8.2's ranging initiation, Figure 10-242) — one frame,
+ * and a cost SP1 does not have, because SP1's initiation rides its Poll. */
+const initiatorMarkerAir = (rs: TLRecord[]): number =>
+  of(rs, 'TX_START').filter((r) => r.frame.kind === 'uwbSp3' && r.frame.src === 'tag-1')
+    .reduce((n, r) => n + r.frame.txTimeNs, 0)
+/** The whole ranging phase: every marker of an SP3 round, the Responses of an SP1 one. */
 const rangingAir = (rs: TLRecord[]): number => {
   const a = airByKind(rs)
   return (a['uwbSp3'] ?? 0) + (a['uwbResp'] ?? 0)
 }
-/** The data report phase: standard §10.32.8.1's third phase, one frame per reporting responder. */
-const reportAir = (rs: TLRecord[]): number => airByKind(rs)['uwbSsDefer'] ?? 0
+/** The data report phase: standard §10.32.8.1's third phase — one frame per reporting responder,
+ * plus the initiator's own when the SRRR IE's RRTT bit asked it for one. */
+const reportAir = (rs: TLRecord[]): number =>
+  (airByKind(rs)['uwbSsDefer'] ?? 0) + (airByKind(rs)['uwbReport'] ?? 0)
 
 /** A deferred SS-TWR round with SP3 markers in its ranging phase — the shape the slice builds. */
 const SP3: Partial<UwbSessionCfg> = { method: 'ss', replyTime: 'deferred', sp3: true }
@@ -174,44 +195,56 @@ const rangesOf = (rs: TLRecord[]): { peer: string; distM: number; trueDistM: num
 describe('SP3 grouped ranging: a whole round', () => {
   it('measures the same distances as an SP1 round', () => {
     const sp3run = run(SP3)
-    expect(markerCount(sp3run)).toBe(2)
+    // A + 1 markers (Figure 10-242): the initiator's own ranging initiation and one per responder.
+    expect(markerCount(sp3run)).toBe(3)
     const sp3 = rangesOf(sp3run)
-    const sp1 = rangesOf(run(SP1_DEFERRED))
     expect(sp3.length).toBe(2)
-    // Exactly equal, not merely close: the marker's RMARKER sits the same `UWB_RMARKER_NS` into
-    // the PPDU as the Response's did and starts at the same slot boundary, and the round takes the
-    // same draws from the same generator in the same order — so the only thing that changed is how
-    // much air time the frame spent *after* the instant that was measured.
-    expect(sp3).toEqual(sp1)
-    // …and the distances are the geometry, not just each other.
+    // Within the noise, not bit for bit — and the reason is the initiator's own marker. It is a
+    // **second** reception from the initiator at every responder (the RCM is the first), so each
+    // responder's reply time is stamped from a different draw of its own generator than the SP1
+    // round's was. The measurement is the same measurement; its noise realisation is not.
     for (const r of sp3) expect(Math.abs(r.distM - r.trueDistM)).toBeLessThan(RANGE_BUDGET_M)
-    // Against the embedded shape the draws differ (one reception per anchor instead of two), so
-    // this one is within the noise rather than identical.
+    for (const r of rangesOf(run(SP1_DEFERRED))) {
+      expect(Math.abs(r.distM - r.trueDistM)).toBeLessThan(RANGE_BUDGET_M)
+    }
     const emb = rangesOf(run(SP1_EMBEDDED))
     expect(emb.length).toBe(2)
     for (const r of emb) expect(Math.abs(r.distM - r.trueDistM)).toBeLessThan(RANGE_BUDGET_M)
+    // …and the round that measured them is §10.32.8.1's three phases, in the shape Figure 10-242
+    // draws: the RCM, A + 1 markers, A report frames. Counted, so that a missing phase cannot hide
+    // behind a correct distance.
+    const kinds = airByKind(sp3run)
+    expect(Object.keys(kinds).sort()).toEqual(['uwbPoll', 'uwbSp3', 'uwbSsDefer'])
   })
 
   it('spends less air on the ranging phase and more on the report phase', () => {
     const sp3 = run(SP3)
     const emb = run(SP1_EMBEDDED)
-    // Phase by phase, both sums read off the rounds that ran.
-    expect(rangingAir(sp3)).toBeLessThan(rangingAir(emb))
+    // The responders' ranging frames, which is the comparison that needs no decision about how much
+    // of SP1's Poll to call ranging (see `responderRangingAir`): A markers against A Responses.
+    const perFrame = uwbPpduNs(uwbRespBytes('ss', 'embedded')) - uwbSp3Ns()
+    expect(responderRangingAir(emb) - responderRangingAir(sp3)).toBeCloseTo(2 * perFrame, 6)
+    // The initiator's own marker is a cost SP1 does not have at all, and it is counted here rather
+    // than left out of the ledger: SP1's ranging initiation rides its Poll.
+    expect(initiatorMarkerAir(sp3)).toBeCloseTo(uwbSp3Ns(), 6)
+    expect(initiatorMarkerAir(emb)).toBe(0)
+    // The whole ranging phase is still the cheaper one even with that frame in it, because SP1's
+    // own initiation — its Poll — is dearer than a marker too.
+    expect(rangingAir(sp3)).toBeLessThan(rangingAir(emb) + airByKind(emb)['uwbPoll'])
     expect(reportAir(emb)).toBe(0)
     expect(reportAir(sp3)).toBeGreaterThan(0)
-    // And the report phase more than eats the saving: that is the whole of §2.1.
-    expect(reportAir(sp3)).toBeGreaterThan(rangingAir(emb) - rangingAir(sp3))
-    // The ranging phase's saving is exactly the per-frame saving, A times over — the number the
-    // lesson opens with, now measured from a round rather than from the primitives.
-    const perFrame = uwbPpduNs(uwbRespBytes('ss', 'embedded')) - uwbSp3Ns()
-    expect(rangingAir(emb) - rangingAir(sp3)).toBeCloseTo(2 * perFrame, 6)
+    // And the report phase more than eats the whole saving, the initiator's extra marker included:
+    // that is §2.2's conclusion against the embedded shape, measured.
+    expect(reportAir(sp3)).toBeGreaterThan(
+      responderRangingAir(emb) - responderRangingAir(sp3) - initiatorMarkerAir(sp3),
+    )
   })
 
   it('costs more air time than an SP1 round at every anchor count', () => {
     let lastGap = 0
     for (let a = 1; a <= ANCHOR_X.length; a++) {
       const sp3 = run(SP3, { anchors: a })
-      expect(markerCount(sp3)).toBe(a)
+      expect(markerCount(sp3)).toBe(a + 1)
       const gap = sumAir(sp3) - sumAir(run(SP1_EMBEDDED, { anchors: a }))
       expect(gap).toBeGreaterThan(0)
       expect(gap).toBeGreaterThan(lastGap)
@@ -233,7 +266,7 @@ describe('SP3 grouped ranging: a whole round', () => {
   it('pins how many times over the report phase costs what the markers saved', () => {
     const sp3 = run(SP3)
     const emb = run(SP1_EMBEDDED)
-    const saved = rangingAir(emb) - rangingAir(sp3)
+    const saved = responderRangingAir(emb) - responderRangingAir(sp3)
     const againstEmbedded = uwbPpduNs(UWB_SS_DEFER_BYTES) / (uwbPpduNs(uwbRespBytes('ss', 'embedded')) - uwbSp3Ns())
     const againstShortest = uwbPpduNs(UWB_SS_DEFER_BYTES) / (uwbPpduNs(uwbRespBytes('ds')) - uwbSp3Ns())
     expect(reportAir(sp3) / saved).toBeCloseTo(againstEmbedded, 6)
@@ -241,25 +274,31 @@ describe('SP3 grouped ranging: a whole round', () => {
   })
 
   /**
-   * …and the other half of the accounting, which §2.1's table does not say out loud: a whole SP3
-   * round is **cheaper** than the SP1 *deferred* round it is built out of.
+   * …and the other half of the accounting (§2.2): against the SP1 **deferred** round — the road SP3
+   * is built on — SP3 is the shorter one, but **not at every anchor count**, and this is the test
+   * that says where the line is.
    *
-   * There is no contradiction. The report phase is what makes an SP3 round dearer, and the deferred
-   * shape (§10.29.6.3) already pays for that phase before SP3 arrives — SP3 then shortens the
-   * ranging frame inside it. So "SP3 costs more at every anchor count" is a statement about the
-   * **embedded** shape, which is the shape §2.1 names, and this test pins the other comparison so
-   * that the lesson cannot quietly widen it into "more than any SP1 round".
+   * §2.2 was written off a measurement taken before the initiator's own marker existed, and said
+   * "每个 A 都更短". With the marker built (§4.1) SP3 pays one frame SP1 deferred does not, so the
+   * saving has to buy that frame back before anything is left over: the crossover is computed here
+   * from the primitives rather than written down, and the sweep pins both sides of it.
+   *
+   * The crossover against the deferred shape exists; the one §2.1 looked for — against the
+   * **embedded** shape — still does not, and the test above holds it at every A.
    */
-  it('is cheaper than the SP1 deferred round it is built on', () => {
+  it('is cheaper than the SP1 deferred round it is built on only above a crossover', () => {
+    // What one responder's marker saves against one deferred SP1 Response, less what that
+    // responder's SRRR IE adds to the RCM; and what the initiator's own marker costs on top.
+    const perResponder = uwbPpduNs(uwbRespBytes('ss', 'deferred')) - uwbSp3Ns()
+      - (uwbPpduNs(uwbSp3PollBytes(1)) - uwbPpduNs(uwbPollBytes(1)))
+    const crossover = Math.ceil(uwbSp3Ns() / perResponder)
+    expect(crossover).toBeGreaterThan(1)
     for (let a = 1; a <= ANCHOR_X.length; a++) {
       const sp3 = run(SP3, { anchors: a })
       const def = run(SP1_DEFERRED, { anchors: a })
-      expect(markerCount(sp3)).toBe(a)
-      expect(sumAir(sp3)).toBeLessThan(sumAir(def))
-      // The whole of the difference is the ranging phase's, less what the RCM's SRRR IEs cost.
-      const srrrCost = airByKind(sp3)['uwbPoll'] - airByKind(def)['uwbPoll']
-      expect(srrrCost).toBeGreaterThan(0)
-      expect(sumAir(def) - sumAir(sp3)).toBeCloseTo(rangingAir(def) - rangingAir(sp3) - srrrCost, 6)
+      expect(markerCount(sp3)).toBe(a + 1)
+      if (a >= crossover) expect(sumAir(sp3)).toBeLessThan(sumAir(def))
+      else expect(sumAir(sp3)).toBeGreaterThan(sumAir(def))
     }
   })
 
@@ -275,6 +314,15 @@ describe('SP3 grouped ranging: a whole round', () => {
     }
     const markers = of(honest, 'UWB_SP3').filter((r) => r.node === 'tag-1')
     expect(markers.map((m) => m.peer)).toEqual(['anc-1', 'anc-2'])
+    // The responders read the initiator's own marker off its slot the same way, and for the same
+    // reason — it carries no address either (§10.32.8.2, Figure 10-242's ranging initiation).
+    // Sorted by node: the order these land in is the medium's delivery order for one broadcast,
+    // which is not a fact this test is about.
+    const atAnchors = of(honest, 'UWB_SP3').filter((r) => r.node !== 'tag-1')
+      .map((m) => ({ node: m.node, peer: m.peer, slot: m.slot }))
+      .sort((a, b) => a.node.localeCompare(b.node))
+    expect(atAnchors)
+      .toEqual([{ node: 'anc-1', peer: 'tag-1', slot: 1 }, { node: 'anc-2', peer: 'tag-1', slot: 1 }])
     for (const r of rangesOf(honest)) expect(Math.abs(r.distM - r.trueDistM)).toBeLessThan(RANGE_BUDGET_M)
 
     // The mutation: the initiator's slot table is reversed and nothing else moves. If anything in
@@ -358,7 +406,7 @@ describe('SP3 grouped ranging: a whole round', () => {
   })
 
   it('is deterministic, and every other mode byte-identical', () => {
-    expect(markerCount(run(SP3))).toBe(2)
+    expect(markerCount(run(SP3))).toBe(3)
     expect(run(SP3)).toEqual(run(SP3))
     // `sp3` off is the default, and the SRRR bits mean nothing without it: a session that sets
     // them with the feature off runs byte-for-byte the round it always ran.
@@ -367,36 +415,59 @@ describe('SP3 grouped ranging: a whole round', () => {
   })
 
   /**
-   * The SRRR IE has two request bits and this engine's round can answer only one of them.
+   * The RRTT request bit, answered (§4.1).
    *
-   * RRTT asks the **initiator** for the round-trip time (§10.32.8.2: the initiator conveys the AOA
-   * and the round trip to the responder that requested them). In an SS-TWR round the round trip is
-   * the initiator's own measurement and the responder never holds one — and `uwbSlotsPerTag`'s
-   * `2A + 1` budgets no slot for a frame *from* the initiator in the report phase. So the request
-   * goes on the air, in the RCM's SRRR IE, and **nothing answers it**.
+   * RRTT asks the **initiator** for the round-trip time, and §10.32.8.2's Figure 10-242 has the
+   * initiator send it in a measurement report of its own. Before that frame existed the bit went on
+   * the air in the RCM's SRRR IE and the whole report phase was byte-identical with it set — a
+   * permitted configuration that provably did nothing, the second instance of that defect on this
+   * branch after `contention` + `rmnr`.
    *
-   * This test pins exactly that, rather than letting `rrtt` ship as a switch that looks wired: the
-   * request is visible in the control message, and every frame of the report phase is byte-identical
-   * with it off. A later slice that gives the initiator a report frame of its own has to make this
-   * test fail — which is the point of writing it down.
+   * So the measurement is the inverse of what it was: with the bit set the report phase gains
+   * **exactly one frame**, carrying one round-trip entry per responder, and every responder reads
+   * its own out of it. The round also gains the slot that frame needs — and only then.
    */
-  it('carries the RRTT request but has no frame that can answer it', () => {
+  it('answers the RRTT request with the initiator own report frame', () => {
     const asked = run({ ...SP3, srrr: { raoa: false, rrtt: true } })
     const silent = run(SP3)
-    expect(markerCount(silent)).toBe(2)
-    // The request reached the responders: it is in the RCM, and it is readable there.
+    // The request still reaches the responders in the RCM, and is still readable there.
     const srrrRow = (rs: TLRecord[]) =>
       rows(of(rs, 'TX_START').find((r) => r.frame.kind === 'uwbPoll')!.frame)
         .filter((f) => f.key === 'ieSrrr')
     expect(srrrRow(asked).length).toBe(2)
     expect(srrrRow(asked)).not.toEqual(srrrRow(silent))
-    // And nothing came back for it: the report phase is byte-for-byte the phase it was without it.
-    const reports = (rs: TLRecord[]) =>
-      of(rs, 'TX_START').filter((r) => r.frame.kind === 'uwbSsDefer').map((r) => r.frame)
-    expect(reports(asked)).toEqual(reports(silent))
-    expect(reportAir(asked)).toBe(reportAir(silent))
-    // …nor into the records the initiator keeps of that phase.
-    expect(of(asked, 'UWB_SP3_REPORT')).toEqual(of(silent, 'UWB_SP3_REPORT'))
+    // One more frame in the report phase, from the initiator, and nothing else moved: the
+    // responders' own reports are byte-for-byte the frames they were.
+    const byKind = (rs: TLRecord[], k: string) =>
+      of(rs, 'TX_START').filter((r) => r.frame.kind === k).map((r) => r.frame)
+    expect(byKind(silent, 'uwbReport')).toEqual([])
+    expect(byKind(asked, 'uwbReport').length).toBe(1)
+    expect(byKind(asked, 'uwbReport')[0].src).toBe('tag-1')
+    // The responders' own reports are the same frames carrying the same bytes — what moves is only
+    // *when*: the initiator's frame takes the first slot of the report phase, so each of theirs sits
+    // one slot later and says so in its own `uwb.slot`. Compared on what the request was supposed to
+    // change (nothing of theirs) rather than on the slot index, which it was supposed to change.
+    expect(byKind(asked, 'uwbSsDefer').map((f) => ({ bytes: f.bytes, src: f.src, ies: f.uwb?.ies })))
+      .toEqual(byKind(silent, 'uwbSsDefer').map((f) => ({ bytes: f.bytes, src: f.src, ies: f.uwb?.ies })))
+    expect(byKind(asked, 'uwbSsDefer').map((f) => f.uwb?.slot))
+      .toEqual(byKind(silent, 'uwbSsDefer').map((f) => (f.uwb?.slot ?? 0) + 1))
+    // Its length is one RMI entry per responder — address plus round-trip time — so the answer,
+    // like the request, grows with the responder count.
+    expect(byKind(asked, 'uwbReport')[0].bytes).toBe(uwbSp3InitReportBytes(2))
+    expect(reportAir(asked) - reportAir(silent)).toBeCloseTo(uwbPpduNs(uwbSp3InitReportBytes(2)), 6)
+    // And it arrives: each responder reads its own round trip out of the frame. Without this the
+    // extra frame would be a cost with no effect, which is the defect the other way round.
+    const got = of(asked, 'UWB_SP3_REPORT').filter((r) => r.node !== 'tag-1')
+    // Sorted: one broadcast frame reaches both, and the order it reaches them in is the medium's.
+    expect(got.map((r) => r.node).sort()).toEqual(['anc-1', 'anc-2'])
+    for (const r of got) {
+      expect(r.peer).toBe('tag-1')
+      expect(typeof r.roundTripRctu).toBe('number')
+    }
+    expect(of(silent, 'UWB_SP3_REPORT').filter((r) => r.node !== 'tag-1')).toEqual([])
+    // The round is one slot longer, and only because the frame is in it.
+    const slotsOf = (rs: TLRecord[]) => of(rs, 'UWB_ROUND')[0].slots
+    expect(slotsOf(asked)).toBe(slotsOf(silent) + 1)
   })
 
   /** DS-TWR with `sp3` on is a legal configuration, so it has to do something measurable: its
@@ -404,10 +475,14 @@ describe('SP3 grouped ranging: a whole round', () => {
   it('shortens a DS round\'s ranging phase too', () => {
     const sp3 = run({ method: 'ds', replyTime: 'deferred', sp3: true })
     const sp1 = run({ method: 'ds', replyTime: 'deferred' })
-    expect(markerCount(sp3)).toBe(2)
+    expect(markerCount(sp3)).toBe(3)
     expect(markerCount(sp1)).toBe(0)
-    expect(rangingAir(sp3)).toBeLessThan(rangingAir(sp1))
-    expect(rangingAir(sp1) - rangingAir(sp3)).toBeCloseTo(2 * (uwbPpduNs(uwbRespBytes('ds')) - uwbSp3Ns()), 6)
+    expect(responderRangingAir(sp3)).toBeLessThan(responderRangingAir(sp1))
+    expect(responderRangingAir(sp1) - responderRangingAir(sp3))
+      .toBeCloseTo(2 * (uwbPpduNs(uwbRespBytes('ds')) - uwbSp3Ns()), 6)
+    // …and the initiator's own marker is there too: a DS round gets Figure 10-242's ranging
+    // initiation for the same reason an SS one does, and `uwbSlotsPerTag` budgets its slot.
+    expect(initiatorMarkerAir(sp3)).toBeCloseTo(uwbSp3Ns(), 6)
   })
 
   /**
@@ -423,10 +498,11 @@ describe('SP3 grouped ranging: a whole round', () => {
     const rs = run(SP3, { anchors: 2, anchorX: [0, 400] })
     const timeouts = of(rs, 'UWB_TIMEOUT').filter((r) => r.node === 'tag-1')
     const expected: UwbFrameKind = 'uwbSp3'
+    // Slot 1 is the initiator's own marker, so the responders' markers start at slot 2.
     expect(timeouts.map((r) => ({ peer: r.peer, slot: r.slot, expected: r.expected })))
-      .toContainEqual({ peer: 'anc-2', slot: 2, expected })
+      .toContainEqual({ peer: 'anc-2', slot: 3, expected })
     // …and the responder that is there still ranges, in its own slot.
     expect(rangesOf(rs).map((r) => r.peer)).toEqual(['anc-1'])
-    expect(of(rs, 'UWB_SP3').filter((r) => r.node === 'tag-1').map((r) => r.slot)).toEqual([1])
+    expect(of(rs, 'UWB_SP3').filter((r) => r.node === 'tag-1').map((r) => r.slot)).toEqual([2])
   })
 })

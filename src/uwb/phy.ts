@@ -334,6 +334,24 @@ export function uwbSp3PollBytes(anchors: number): number {
 }
 
 /**
+ * The **initiator's** own frame in the data report phase (§10.32.8.1's third phase, the one
+ * Figure 10-242 draws going the other way): MHR + an RMI IE (§10.29.8.4) carrying one entry per
+ * responder — that responder's short address and the round-trip time the initiator measured for it
+ * — + FCS. 14 + 6A octets.
+ *
+ * The entry is `RMI_FINAL_ENTRY_BYTES`, reused rather than redefined, because it is literally the
+ * same two fields the embedded Final's RMI entry carries (address 2 + round trip 4). What differs
+ * is which frame they ride in and in which direction.
+ *
+ * Sent **only** when some responder's SRRR IE set the RRTT bit (§10.32.9.9). A round whose
+ * responders asked for nothing has nothing for this frame to carry, so it does not send an empty
+ * one — and `uwbSlotsPerTag` does not budget a slot for it either.
+ */
+export function uwbSp3InitReportBytes(responders: number): number {
+  return UWB_MHR_BYTES + rmiFinalIeBytes(responders) + UWB_FCS_BYTES
+}
+
+/**
  * One responder's frame in the data report phase (§10.32.8.1's third phase): the deferred
  * reply-time message SS-TWR already has (`UWB_SS_DEFER_BYTES`, §10.29.6.3), plus the bearing when
  * the SRRR IE's RAOA bit asked for one.
@@ -645,6 +663,16 @@ export function uwbMmrcmSlots(mode: UwbMode, peers: number, mmrcr: boolean): num
 export function uwbSlotsPerTag(
   method: 'ss' | 'ds', anchors: number, schedule: 'time' | 'contention' = 'time', contentionSlots = 8,
   mode: UwbMode = 'twr', mms?: MmsRoundShape, slotsPerMs = MMS_SLOTS_PER_MS, replyTime: UwbReplyTime = 'embedded',
+  /**
+   * SP3 grouped ranging (standard §10.32.8.1's three phases, §10.32.8.2's Figure 10-242), and the
+   * one SRRR request bit that changes the round's **shape** rather than a frame's length.
+   *
+   * Undefined — the default — is every round written before this slice, which asks the question it
+   * always asked. An object rather than a boolean because `rrtt` belongs here: the initiator's own
+   * measurement report (the frame that answers that bit) needs a slot of its own, and a round whose
+   * responders asked for nothing has no such frame to give one to (design §4.1).
+   */
+  sp3?: { rrtt: boolean },
 ): number {
   if (mode === 'mms') {
     if (!mms) throw new Error("uwbSlotsPerTag: mode 'mms' needs the session's MMS parameters")
@@ -658,6 +686,33 @@ export function uwbSlotsPerTag(
   if (mode === 'ul-tdoa') return 1
   if (mode === 'dl-tdoa') return anchors + 1
   if (schedule === 'contention') return 1 + contentionSlots
+  // SP3's round is Figure 10-242's three phases, and it costs **two** slots an SP1 round does not
+  // have, both of them the initiator's own (design §4.1):
+  //
+  //   slot 0          the RCM (ARC + RDM + RRMC + the responders' SRRR IEs). It carries payload, so
+  //                   it cannot itself be an SP3 packet, which is why the marker below is a frame of
+  //                   its own rather than the same slot doing both jobs.
+  //   slot 1          the initiator's own SP3 marker — the ranging initiation of the figure. SP1 has
+  //                   no such frame: there the Poll is the control message and the initiation at
+  //                   once.
+  //   slots 2…A+1     one marker per responder.
+  //   then            the data report phase: the initiator's own measurement report **only when
+  //                   some responder asked for the round-trip time** (the SRRR IE's RRTT bit), then
+  //                   one report per responder.
+  //
+  // So a deferred SS round is `2A + 2` with no RRTT request and `2A + 3` with one, against the SP1
+  // deferred round's `2A + 1`. The slice's own design doc quotes 2A + 2, which is this function's
+  // answer for the default session (both request bits off); the "A + 1 report frames" it also
+  // quotes is the RRTT-on shape. Both are right, for different SRRR settings, and the pair of them
+  // is why this count has to be asked rather than written down.
+  //
+  // A DS round is one slot longer again, because its report phase opens with the initiator's Final:
+  // SP3 replaces the ranging frames and adds the initiator's two, it does not redesign the
+  // double-sided exchange. The schema refuses both SRRR request bits outside SS, so the `rrtt` term
+  // and the `ds` term never both fire.
+  if (sp3 !== undefined) {
+    return 2 * anchors + 2 + (method === 'ds' ? 1 : 0) + (sp3.rrtt ? 1 : 0)
+  }
   if (method === 'ss') return replyTime === 'deferred' ? 2 * anchors + 1 : anchors + 1
   return 2 * anchors + 2
 }

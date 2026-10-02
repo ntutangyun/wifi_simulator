@@ -43,7 +43,8 @@ import { onDlRx, onDlSlot, onUlSlot, solveTdoaFix, solveUlFix as solveUlFixImpl,
 import { freshMms, onMmsRx, onMmsSlot, solveMmsFix, type MmsRoundState } from './device.mms'
 import { freshM2m, onM2mRx, onM2mSlot, transmitM2m, type M2mRoundState } from './device.m2m'
 import {
-  onSp3Marker, onSp3Report, sp3ReportBearing, sp3Round, sp3SlotPeer, transmitSp3Marker,
+  onSp3InitReport, onSp3Marker, onSp3Report, sp3ReportBearing, sp3Round, sp3SlotPeer,
+  transmitSp3InitReport, transmitSp3Marker,
 } from './device.sp3'
 import { measureAoa, reportRange } from './device.report'
 import { RCTU_NS, tsSigmaNs, UWB_RMARKER_NS, uwbMaxMmrcmInitiators, uwbSinrDb, type UwbChannelNo } from './phy'
@@ -583,21 +584,28 @@ export class UwbDevice implements UwbRadio {
     // time its Response could not (standard §10.29.6.3).
     const mine = this.cfg.role === 'tag'
       ? action.kind === 'uwbResp' || action.kind === 'uwbSsDefer' || action.kind === 'uwbReport'
+        || action.kind === 'uwbSp3'
       : action.kind === 'uwbPoll' || action.kind === 'uwbFinal'
+        // …and, in an SP3 round, the initiator's own two frames, which every responder listens for:
+        // the ranging initiation its reply time is measured from, and the measurement report that
+        // answers its RRTT request. Qualified by `tx`, because a responder must go on ignoring the
+        // *other* responders' markers and reports entirely — the receiver stays off in their slots,
+        // which is what keeps a responder's cost the two frames of its own.
+        || ((action.kind === 'uwbSp3' || action.kind === 'uwbReport') && action.tx === 'tag')
     if (!mine) return
-    // An SP3 round's two responder phases, at the initiator (standard §10.32.8.1): the marker slots
-    // and the report slots are both waited on *by slot* rather than by sender.
+    // An SP3 round's markers, at either end (standard §10.32.8.2), and the responders' reports at
+    // the initiator: all of them waited on *by slot* rather than by sender.
     //
-    // The marker has to be, because an SP3 packet carries no address to filter on. The report need
-    // not be — it is an ordinary PPDU with an MHR — but it is, because the slot is the only thing
-    // that can pair it with the marker it completes: the marker had no address to pair on either.
-    // One rule, read in both phases, rather than two that can disagree about whose measurement this
-    // report finishes (`sp3SlotPeer`).
-    if (
-      this.cfg.role === 'tag' && sp3Round(r.plan)
-      && (action.kind === 'uwbResp' || action.kind === 'uwbSsDefer')
-    ) {
-      this.listenOnSlot(slot, sp3SlotPeer(r, slot), action.kind === 'uwbResp' ? 'uwbSp3' : 'uwbSsDefer')
+    // The markers have to be, because an SP3 packet carries no address to filter on — in either
+    // direction. The responders' reports need not be — they are ordinary PPDUs with an MHR — but
+    // they are, because the slot is the only thing that can pair one with the marker it completes:
+    // the marker had no address to pair on either. One rule, read in both phases, rather than two
+    // that can disagree about whose measurement this report finishes (`sp3SlotPeer`).
+    //
+    // The initiator's own report falls through to the ordinary `listenFor` below: it is addressed,
+    // it completes nothing, and the responder knows perfectly well who the initiator is.
+    if (sp3Round(r.plan) && (action.kind === 'uwbSp3' || action.kind === 'uwbSsDefer')) {
+      this.listenOnSlot(slot, sp3SlotPeer(r, slot), action.kind)
       return
     }
     // What slot 0 actually carries this block: the control message (today's Poll) at the head of
@@ -929,7 +937,12 @@ export class UwbDevice implements UwbRadio {
         this.onFinal(r, from, frame, counter, fom)
         break
       case 'uwbReport':
-        this.onReport(r, from, frame, fom)
+        // The same frame kind in two directions in an SP3 round (§10.29.8.4's RMI IE both ways): a
+        // responder's report completing a double-sided exchange at the initiator, and the
+        // initiator's own answer to an RRTT request at a responder. Told apart by which end is
+        // reading it, which is the only thing that can tell them apart.
+        if (sp3Round(r.plan) && this.cfg.role !== 'tag') onSp3InitReport(this, r, r.slot, frame)
+        else this.onReport(r, from, frame, fom)
         break
       case 'uwbM2m':
         // Only an m2m round ever waits for one of these, and that round returned above. A
@@ -1362,7 +1375,11 @@ export class UwbDevice implements UwbRadio {
         break
       }
       case 'uwbPoll': {
-        r.txPollCounter = txCounter
+        // In an SP3 round this frame times nothing: the ranging initiation is the initiator's own
+        // marker, a slot later (Figure 10-242, `transmitSp3Marker`), and the RCM carries the
+        // schedule and the SRRR requests alone. Writing the counter here as well would leave the
+        // round's two ends measuring from two different frames for one slot.
+        if (!sp3Round(r.plan)) r.txPollCounter = txCounter
         // Which of the two messages this block's slot 0 carries (standard §10.32.9.1, design §2):
         // the control message at the head of each validity window, the initiation message alone in
         // the blocks that window already paid for — no ARC, no RDM, `13 + 3A` octets lighter.
@@ -1405,14 +1422,6 @@ export class UwbDevice implements UwbRadio {
           if (this.owesRmnr(r, 'uwbResp')) this.send(makeRmnr(this.id, r.tagId, r.block, r.round, slot), null)
           return
         }
-        // SP3 grouped ranging (standard §10.32.8.2): this slot's ranging frame is a bare marker —
-        // SYNC + SFD + STS, no PHR, no payload — and nothing about *which* responder sent it goes on
-        // the air. See `device.sp3.ts`; the schema guarantees `replyTime: 'deferred'` here, so the
-        // reply time below has a report slot of its own to arrive in.
-        if (sp3Round(r.plan)) {
-          transmitSp3Marker(this, r, slot, txCounter)
-          break
-        }
         r.txRespCounter = txCounter
         // Which of the three routes this round's reply time takes (design §2), decided here and
         // sized to match by `makeResp`/`uwbRespBytes`:
@@ -1450,6 +1459,21 @@ export class UwbDevice implements UwbRadio {
         this.send(makeSsDefer(this.id, r.tagId, replyRctu, r.block, r.round, slot, bearing), txCounter)
         break
       }
+      // SP3 grouped ranging (standard §10.32.8.2): a bare marker — SYNC + SFD + STS, no PHR, no
+      // payload — and nothing about *who* sent it goes on the air, at either end. The initiator's
+      // own is the round's ranging initiation; a responder's is its answer. See `device.sp3.ts`,
+      // which is also the only file that may ever decide what goes in one.
+      case 'uwbSp3': {
+        // A responder that never heard the initiation has nothing to answer: its slot stays empty
+        // and the initiator's own deadline reports the gap — or, when it still holds the control
+        // message that gave it this slot, §10.34's non-receipt frame goes out instead of silence.
+        if (action.tx === 'anchor' && r.rxPollCounter === null) {
+          if (this.owesRmnr(r, 'uwbResp')) this.send(makeRmnr(this.id, r.tagId, r.block, r.round, slot), null)
+          return
+        }
+        transmitSp3Marker(this, r, slot, txCounter)
+        break
+      }
       case 'uwbFinal': {
         r.txFinalCounter = txCounter
         const times: { id: string; tround1: number; treply2: number }[] = []
@@ -1468,6 +1492,14 @@ export class UwbDevice implements UwbRadio {
         break
       }
       case 'uwbReport': {
+        // …and in an SP3 round this slot is the **initiator's** own measurement report, going the
+        // other way: the round-trip times the SRRR IE's RRTT bit asked for (design §4.1). It is the
+        // one frame of the round only the initiator can send, because the round trip is the only
+        // time only the initiator measured.
+        if (action.tx === 'tag') {
+          transmitSp3InitReport(this, r, slot, txCounter)
+          break
+        }
         // Only an anchor the Final actually listed reports. If the tag never
         // received this anchor's Response — an asymmetric link, or a capture
         // loss at the tag — there is no half-exchange to complete, so the
@@ -1531,7 +1563,12 @@ export class UwbDevice implements UwbRadio {
     // An anchor keeps only the counter: DS-TWR cancels the clock offset by
     // construction, so it never needs `coffs`, and its range is scored by
     // the Final's first-path quality (the last frame of the exchange).
-    r.rxPollCounter = counter
+    //
+    // …except in an SP3 round, where this frame carries no time at all: the ranging initiation is
+    // the initiator's own marker, a slot later, and `onSp3Marker` is what stamps it. Everything
+    // else this method does with the RCM is unchanged — it is still the frame that bought the
+    // validity window and told this responder which slot is its own.
+    if (!sp3Round(r.plan)) r.rxPollCounter = counter
     // …and the one place both of a two-way round's openers land, which is why the receipt bit for
     // standard §10.36's bitmap is written here rather than in the two `case`s above: the control
     // message and the initiation message are the same opener as far as "did your message reach me"

@@ -184,6 +184,10 @@ export function roundPlan(cfg: UwbSessionCfg, anchors: number): RoundPlan {
   const slotsPerMs = mmsSlotsPerMs(cfg.slotRstu)
   const slots = uwbSlotsPerTag(
     cfg.method, anchors, cfg.schedule, cfg.contentionSlots, cfg.mode, cfg.mms, slotsPerMs, cfg.replyTime,
+    // SP3's round carries two slots an SP1 round does not — the initiator's own marker always, and
+    // its own measurement report when some responder asked for the round trip (design §4.1). Handed
+    // over only when the feature is on, so every other session's slot count is the one it was.
+    cfg.sp3 && cfg.mode === 'twr' ? { rrtt: cfg.srrr.rrtt } : undefined,
   )
   const slotNs = rstuNs(cfg.slotRstu)
   const layout = cfg.mode === 'mms' ? mmsLayout(cfg.mms, mmsResponders(cfg.mms, anchors), slotsPerMs) : null
@@ -258,9 +262,22 @@ export type SlotAction =
   // Response could not, in the round's own slots A+1…2A — a kind of its own, not `'uwbResp'`
   // again, because a round can now put two different messages on the air per anchor.
   | { kind: 'uwbSsDefer'; tx: 'anchor'; anchor: number }
+  // SP3 grouped ranging (standard §10.32.8.2, design §3.1/§4.1): one bare SP3 marker. Its own kind,
+  // not `'uwbResp'`/`'uwbSsDefer'` again, for the reason those two are separate from each other —
+  // the frame in this slot is a different frame, and `transmitFor` has to be able to tell it apart.
+  // **Both ends have one**: Figure 10-242 draws the initiator's own marker (the ranging initiation)
+  // as a transmission of its own, separate from the RCM, which cannot be a marker because it
+  // carries payload. The initiator's variant names no anchor, like `uwbPoll`'s.
+  | { kind: 'uwbSp3'; tx: 'tag' }
+  | { kind: 'uwbSp3'; tx: 'anchor'; anchor: number }
   | { kind: 'uwbFinal'; tx: 'tag' }
   | { kind: 'uwbFinal'; tx: 'anchor'; anchor: number }
   | { kind: 'uwbReport'; tx: 'anchor'; anchor: number }
+  // …and the measurement report going the other way, which only an SP3 round has (§10.32.8.2's own
+  // report phase, design §4.1): the initiator conveying the round-trip time to the responders that
+  // asked for it (the SRRR IE's RRTT bit). It is the same kind of frame — §10.29.8.4's RMI IE — and
+  // so the same `FrameKind`; what is new is the direction, which `tx` carries.
+  | { kind: 'uwbReport'; tx: 'tag' }
   | { kind: 'uwbBlink'; tx: 'tag' }
   // Many-to-many (standard §10.32.6 SS / §10.32.7 DS, design §5): participant `index`'s one
   // transmission of pass `pass`. It is a kind of its own, not `'uwbPoll'` or `'uwbResp'` again,
@@ -427,6 +444,24 @@ export function blockSlotAction(plan: RoundPlan, block: number, slot: number): S
   throw new Error(`blockSlotAction: block ${block} has ${blockSlots(plan, block)} slots, asked for ${slot}`)
 }
 
+/**
+ * One slot of an SP3 round's data report phase, `index` counted from the first responder's.
+ *
+ * Which frame a responder reports in is the round's own `method`, untouched by SP3: a deferred SS
+ * round sends §10.29.6.3's follow-up message, and a DS round sends its Final (the initiator's) and
+ * then one measurement report per responder. SP3 changes the *ranging* frames and adds the
+ * initiator's two; it does not redesign the double-sided exchange.
+ */
+function sp3ReportAction(p: RoundPlan, index: number, slot: number): SlotAction {
+  if (p.method === 'ss') {
+    if (index < p.anchors) return { kind: 'uwbSsDefer', tx: 'anchor', anchor: index }
+    throw new Error(`slotAction: SP3 SS round has ${p.slots} slots, asked for ${slot}`)
+  }
+  if (index === 0) return { kind: 'uwbFinal', tx: 'tag' }
+  if (index <= p.anchors) return { kind: 'uwbReport', tx: 'anchor', anchor: index - 1 }
+  throw new Error(`slotAction: SP3 DS round has ${p.slots} slots, asked for ${slot}`)
+}
+
 export function slotAction(p: RoundPlan, slot: number): SlotAction {
   if (p.mode === 'dl-tdoa') {
     // N + 1 slots: anchor 0's Poll, one Response per other anchor in its own slot, anchor 0's
@@ -452,6 +487,28 @@ export function slotAction(p: RoundPlan, slot: number): SlotAction {
     throw new Error(`slotAction: m2m round has ${p.slots} slots, asked for ${slot}`)
   }
   if (slot === 0) return { kind: 'uwbPoll', tx: 'tag' }
+  // SP3 grouped ranging: Figure 10-242's three phases, laid out slot for slot (design §4.1 and
+  // `uwbSlotsPerTag`, which counts the very same shape — one function decides how many slots there
+  // are and this one decides what is in each, and the two are written against one comment).
+  //
+  // Slot 0 above is the RCM. Then the initiator's own marker, then one marker per responder, then
+  // the report phase: the initiator's own measurement report when some responder set the SRRR IE's
+  // RRTT bit, and one report per responder.
+  //
+  // The report frames themselves are the shape the round's `method` already decides: a deferred SS
+  // round's follow-up message (§10.29.6.3), or a DS round's Final and per-responder reports. So this
+  // branch only replaces the **ranging** phase and prepends the initiator's two frames; everything
+  // after it falls through to the method's own layout below, shifted by the one marker slot.
+  if (p.sp3 && p.mode === 'twr') {
+    if (slot === 1) return { kind: 'uwbSp3', tx: 'tag' }
+    if (slot <= p.anchors + 1) return { kind: 'uwbSp3', tx: 'anchor', anchor: slot - 2 }
+    const after = slot - (p.anchors + 2)
+    if (p.srrr.rrtt) {
+      if (after === 0) return { kind: 'uwbReport', tx: 'tag' }
+      return sp3ReportAction(p, after - 1, slot)
+    }
+    return sp3ReportAction(p, after, slot)
+  }
   if (p.schedule === 'contention') {
     if (slot <= p.contentionSlots) return { kind: 'uwbResp', tx: 'anchor', anchor: -1 }
     throw new Error(`slotAction: contention round has ${p.slots} slots, asked for ${slot}`)

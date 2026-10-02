@@ -85,7 +85,9 @@ describe('sp3 / srrr — the scenario schema (design §2/§3)', () => {
   })
 
   it('round-trips: the schema can parse its own output', () => {
-    const cfg = sp3Cfg({ srrr: { raoa: false, rrtt: true } })
+    // `method: 'ss'` because fix round 1 of task 3 refuses both SRRR request bits outside SS-TWR:
+    // the frames that answer them are the deferred shape's own (design §4.1).
+    const cfg = sp3Cfg({ method: 'ss', srrr: { raoa: false, rrtt: true } })
     const once = ScenarioSchema.parse(uwbScenario(twoAnchorsOneTag(), cfg))
     // Pinned so this cannot pass vacuously by both sides simply lacking the fields.
     expect(once.uwb?.sp3).toBe(true)
@@ -235,13 +237,44 @@ describe('sp3 / srrr — the scenario schema (design §2/§3)', () => {
   })
 
   it('RAOA requested with aoa on: legal', () => {
-    const cfg = sp3Cfg({ srrr: { raoa: true, rrtt: false }, aoa: true })
+    const cfg = sp3Cfg({ method: 'ss', srrr: { raoa: true, rrtt: false }, aoa: true })
     expect(ScenarioSchema.safeParse(uwbScenario(twoAnchorsOneTag(), cfg)).success).toBe(true)
   })
 
   it('RRTT alone, aoa off: legal — RRTT does not depend on aoa', () => {
-    const cfg = sp3Cfg({ srrr: { raoa: false, rrtt: true }, aoa: false })
+    const cfg = sp3Cfg({ method: 'ss', srrr: { raoa: false, rrtt: true }, aoa: false })
     expect(ScenarioSchema.safeParse(uwbScenario(twoAnchorsOneTag(), cfg)).success).toBe(true)
+  })
+
+  it.each([
+    { raoa: true, rrtt: false, aoa: true },
+    { raoa: false, rrtt: true, aoa: false },
+    { raoa: true, rrtt: true, aoa: true },
+  ])('refuses an SRRR request outside SS-TWR: %o', (bits) => {
+    // Task 2 left `method` vs `srrr.rrtt` open; fix round 1 of task 3 is the answer, and it covers
+    // both bits. The frames that answer them are the deferred SS shape's own: the bearing rides the
+    // responder's follow-up message (§10.29.6.3) and the round trip the initiator's own measurement
+    // report (design §4.1). A DS round's report phase is the double-sided exchange's own — nothing
+    // in it grows by a bearing, and its responder's report already carries a round-trip time
+    // whatever SRRR says — so either bit there is a request the engine would accept and provably
+    // never answer, which is the `contention` + `rmnr` trap again.
+    const cfg = sp3Cfg({ method: 'ds', srrr: { raoa: bits.raoa, rrtt: bits.rrtt }, aoa: bits.aoa })
+    const r = ScenarioSchema.safeParse(uwbScenario(twoAnchorsOneTag(), cfg))
+    expect(r.success).toBe(false)
+    if (!r.success) {
+      const msg = r.error.issues.map((i) => i.message).join('\n')
+      expect(msg).toMatch(/DS-TWR/)
+      expect(msg).toMatch(/method 改成 ss/)
+    }
+    // …and the identical session in SS-TWR, which is where those frames exist, is legal.
+    expect(ScenarioSchema.safeParse(uwbScenario(twoAnchorsOneTag(), { ...cfg, method: 'ss' })).success).toBe(true)
+  })
+
+  it('srrr at both bits off is legal in both methods: nothing is requested, so nothing is unanswered', () => {
+    for (const method of ['ss', 'ds'] as const) {
+      const cfg = sp3Cfg({ method, srrr: { raoa: false, rrtt: false } })
+      expect(ScenarioSchema.safeParse(uwbScenario(twoAnchorsOneTag(), cfg)).success, method).toBe(true)
+    }
   })
 
   it('srrr at both bits off is still legal: the base reply time is reported regardless (no inert trap)', () => {

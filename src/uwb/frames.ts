@@ -15,7 +15,7 @@ import {
 import {
   UWB_BLINK_BYTES, UWB_REPORT_BYTES, UWB_SS_DEFER_BYTES, uwbDlFinalBytes, uwbDlPollBytes, uwbDlRespBytes,
   uwbFinalBytes, uwbInitBytes, uwbM2mBytes, uwbMmrcmBytes, uwbPollBytes, uwbPpduNs, uwbRespBytes, uwbRmnrBytes,
-  uwbSp3Ns, uwbSp3PollBytes, uwbSp3ReportBytes, type UwbReplyTime,
+  uwbSp3InitReportBytes, uwbSp3Ns, uwbSp3PollBytes, uwbSp3ReportBytes, type UwbReplyTime,
 } from './phy'
 
 export type UwbFrameKind =
@@ -403,6 +403,31 @@ export function makeSsDefer(
   return uwbFrame('uwbSsDefer', anchor, tag, raoa ? uwbSp3ReportBytes(true) : UWB_SS_DEFER_BYTES, {
     sp: 1, method: 'ss', block, round, slot, ies: raoa ? ['RRTI', 'RAOA'] : ['RRTI'], replyRctu,
     ...(raoa ? { aoaThetaDeg } : {}),
+  })
+}
+
+/**
+ * The **initiator's** own measurement report of an SP3 round (standard §10.32.8.2's report phase,
+ * design §4.1): one RMI IE (§10.29.8.4) carrying, per responder that asked, that responder's short
+ * address and the round-trip time the initiator measured for it.
+ *
+ * It is the frame that answers the SRRR IE's **RRTT** bit, and it exists only when some responder
+ * set it — a round that sends it with nothing requested would be a cost with no effect, which is
+ * the same defect as a request with no answer, pointing the other way.
+ *
+ * `'uwbReport'`, not a kind of its own: this *is* §10.29.8.4's measurement report, the same IE in
+ * the same shape, and what is new is only the direction it travels. Broadcast, because in this
+ * engine every responder of a session carries the same SRRR request (one session config, the same
+ * reason the Poll's `maxAttempts` is the sender's own), so one frame answers all of them and each
+ * reads its own entry out of it — exactly what the Final already does with `finalTimes`, which is
+ * why that field carries these times too.
+ */
+export function makeSp3InitReport(
+  tag: string, times: { id: string; tround1: number }[], block: number, round: number, slot: number,
+): FrameDesc {
+  return uwbFrame('uwbReport', tag, UWB_BROADCAST, uwbSp3InitReportBytes(times.length), {
+    sp: 1, method: 'ss', block, round, slot, ies: ['RMI'],
+    finalTimes: times.map((t) => ({ id: t.id, tround1: t.tround1 })),
   })
 }
 
