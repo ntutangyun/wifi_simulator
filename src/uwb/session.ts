@@ -87,7 +87,7 @@ export interface RoundPlan {
   /**
    * How many rounds this round's own control message (today's Poll) governs before a fresh one
    * is needed — standard §10.32.9.1's ARC IE, "RCM Validity Rounds". Read off the session's own
-   * `cfg` here, for the same reason `replyTime` and `mms` are: `roundCarriesRcm` below is the one
+   * `cfg` here, for the same reason `replyTime` and `mms` are: `blockCarriesRcm` below is the one
    * place both ends of a round decide whether *this* round carries the control content, and a
    * device re-deriving that from a copy of this number would be a second chance to disagree.
    */
@@ -278,9 +278,18 @@ export type SlotAction =
  *
  * `rcmValidityRounds: 1` — the default — makes every round its own one-round window, so this is
  * always true: today's behaviour, byte for byte.
+ *
+ * **It takes a block index, and the name says so on purpose.** The standard counts validity in
+ * ranging *rounds* (§10.32.9.1), and in this engine a given tag's successive ranging rounds are
+ * successive **blocks**: `network.ts`'s two-way dispatch is
+ * `tags.forEach((tagId, k) => runRound(block, k, …))`, so the within-block `round` index names
+ * *which tag* the round belongs to and stays constant for that tag forever. Feeding it here
+ * would return the same answer for a tag every block and never cycle — the feature would look
+ * finished and save nothing, which is the failure this branch has shipped twice. The parameter
+ * is named `block` so the mistake cannot be made silently.
  */
-export function roundCarriesRcm(plan: RoundPlan, round: number): boolean {
-  return round % plan.rcmValidityRounds === 0
+export function blockCarriesRcm(plan: RoundPlan, block: number): boolean {
+  return block % plan.rcmValidityRounds === 0
 }
 
 export function slotAction(p: RoundPlan, slot: number): SlotAction {
