@@ -57,8 +57,8 @@ UWB、ranging、HRP、LRP、STS 的条款都在内。工作从那份清单出发
 | 本仿真器 | 行数 |
 | --- | --- |
 | 已建模 | 28 |
-| 部分建模 | 38 |
-| 未建模 | 42 |
+| 部分建模 | 39 |
+| 未建模 | 41 |
 
 这三个数字被测试钉住，所以加一行必须同时改这里——这正是要的：一张说不出自己有多大的表，
 读者无从判断某一处空白是刻意的还是漏的。
@@ -150,7 +150,7 @@ UWB、ranging、HRP、LRP、STS 的条款都在内。工作从那份清单出发
 | 一对多 DS-TWR §10.32.5 | 已发布 | 已建模 | 加上广播 Final 与逐锚点的 Report：`uwb/frames.ts#makeFinal`、`uwb/frames.ts#makeReport`。`@uwb-dstwr` |
 | 多对多 SS-TWR §10.32.6 | 已发布 | 已建模 | 一轮 N 个时隙，参与者 i 在第 i 个时隙发一次，那一帧对后面的人是问、对前面的人是答：`uwb/session.ts#m2mParticipants`（顺序按 id，model）、`uwb/session.ts#slotAction` 的 `uwbM2m` 分支、`uwb/device.m2m.ts#transmitM2m`、`uwb/device.m2m.ts#onM2mRx`、`uwb/frames.ts#makeM2m`、`uwb/phy.ts#uwbM2mBytes`、`uwb/phy.ts#uwbMaxParticipants`。距离仍由 `uwb/ranging.ts#ssTwrCorrected` 算，而且只有排在前面的那个参与者算得出来（N−1−i 条）。`@uwb-m2m` |
 | 多对多 DS-TWR §10.32.7 | 已发布 | 已建模 | 同一套路走两趟，每趟 N 个时隙（2N），第二趟的帧只带第二趟听到的到达时刻，所以帧长上限与 SS 相同：`uwb/session.ts#slotAction` 的 `pass`、`uwb/device.m2m.ts#onM2mRx`、`uwb/ranging.ts#dsTwr`。晶振拉开时比 SS 准约 150 倍（回复间隔是整整几个时隙，SS 要按估出来的时钟偏差折算）。`@uwb-m2m` |
-| SP3 分组下的测距 §10.32.8（含 §10.32.8.2、§10.32.8.3） | 已发布 | 部分建模 | **建了的那一半**：SP3 包是 `uwb/phy.ts#uwbSp3Chips` = SHR + STS，没有 PHR 没有载荷，所以 `uwb/phy.ts#uwbSp3Ns` ≈ 141 µs，比最短的 SP1 帧短 40.256 µs；独立的 `uwbSp3` 帧类型与 `uwb/frames.ts#makeSp3`，而它**没有任何能装身份或时间的字段**——身份来自时隙（`uwb/session.ts#slotAction`），这一条由一次变异验收：把发起方的时隙表倒过来，距离会「出现而且是错的」，逐位等于另一台锚点的测量。三个相位齐全（§10.32.8.2）：RCM、SP3 测距、测量报告，而报告相位由 schema 保证而不是靠设备自觉——`sp3` 要求 `replyTime` 恰好是 `deferred`。Figure 10-242 的两帧也建了：发起方自己的标记，以及它在 RRTT 请求时才发的那一帧报告（`uwb/frames.ts#makeSp3InitReport`，`14 + 6A` 字节）。时隙预算 `uwb/phy.ts#uwbSlotsPerTag` 在 `sp3` 下是 `2A+2`，请求了 RRTT 是 `2A+3`。**整轮的账量过**：对 SP1 嵌入式每个 A 都更长且差距变大，对 SP1 延后在 **A = 4** 交叉（请求 RRTT 时 A = 11）。**仍未建**：MLME-STS 原语与 RSSD IE，因此 STS 计数器的推进也没有（本引擎没有一处密码学，`UWB_STS_CHIPS` 建的只是它占多少空口时间）；SP2；以及 §10.32.8.1 说过程可推广到的多发起方多响应方。`@uwb-sp3` |
+| SP3 分组下的测距 §10.32.8（含 §10.32.8.2、§10.32.8.3） | 已发布 | 部分建模 | **建了的那一半**：SP3 包是 `uwb/phy.ts#uwbSp3Chips` = SHR + STS，没有 PHR 没有载荷，所以 `uwb/phy.ts#uwbSp3Ns` ≈ 141 µs，比最短的 SP1 帧短 40.256 µs；独立的 `uwbSp3` 帧类型与 `uwb/frames.ts#makeSp3`，而它**没有任何能装身份或时间的字段**——身份来自时隙（`uwb/session.ts#slotAction`），这一条由一次变异验收：把发起方的时隙表倒过来，距离会「出现而且是错的」，逐位等于另一台锚点的测量。三个相位齐全（§10.32.8.2）：RCM、SP3 测距、测量报告，而报告相位由 schema 保证而不是靠设备自觉——`sp3` 要求 `replyTime` 恰好是 `deferred`。Figure 10-242 的两帧也建了：发起方自己的标记，以及它在 RRTT 请求时才发的那一帧报告（`uwb/frames.ts#makeSp3InitReport`，`14 + 6A` 字节）。时隙预算 `uwb/phy.ts#uwbSlotsPerTag` 在 `sp3` 下是 `2A+2`，请求了 RRTT 是 `2A+3`，而 `sp3` 配双边双向测距同样合法、同样再多一个（量过：6 个锚点时 77 个时隙对 70 个）。**整轮的账量过**：对 SP1 嵌入式每个 A 都更长且差距变大，对 SP1 延后在 **A = 4** 交叉（请求 RRTT 时 A = 11）。**仍未建**：MLME-STS 原语与 RSSD IE，因此 STS 计数器的推进也没有（本引擎没有一处密码学，`UWB_STS_CHIPS` 建的只是它占多少空口时间）；SP2；以及 §10.32.8.1 说过程可推广到的多发起方多响应方。`@uwb-sp3` |
 
 ## 六、已发布标准：多节点测距 IE（§10.32.9）
 
@@ -178,7 +178,7 @@ UWB、ranging、HRP、LRP、STS 的条款都在内。工作从那份清单出发
 | 特性 | 标准状态 | 本仿真器 | 位置与证据 |
 | --- | --- | --- | --- |
 | 测距消息未收到交互 §10.34，及 RMNR IE（Ranging Message Non Receipt IE）§10.34.2.1 | 已发布 | 已建模 | 响应方持有仍然有效的控制消息、却没收到本轮启动消息时，不再在自己的时隙里沉默，而是发一帧 RMNR：`uwb/frames.ts#makeRmnr`（13 字节 = MHR 9 + 一个 2 字节的单元头 + FCS 2，那个信息单元**没有内容字段**）、独立的 `'uwbRmnr'` 帧类型、`uwb/device.ts` 的 `owesRmnr`、`UWB_RMNR` 记录、以及 `view.ts` 里与 `timeouts` 配对的 `rmnr` 计数。发起方由此能把「这个锚点没听到」与「听到了但回答丢了」分开：墙后一个锚点的场景里，七条无从区分的 `UWB_TIMEOUT` 变成四条超时加三条点了名的理由。**它必须和 RCM 有效轮次一起建**，理由见 `@uwb-rcm-validity`：每轮一条控制消息时，丢了那一帧的响应方连自己该在哪个时隙发送都不知道。`@uwb-rcm-validity` |
-| 测距辅助信息 §10.35，及 RAICT IE（Ranging Ancillary Information Message Counter and Type IE）§10.35.2.1 | 已发布 | 未建模 | **未偿的债，排在下一刀，理由是切片大小不是举证不足。** 机理已读通：RAICT IE 的内容字段是 Request 位、Ranging Or Ancillary Message Number Present 位、以及 0/1 字节的消息序号与 0/1 字节的 Frames Remaining；Request 为 1 时它是**向控制器请求下一次交互排几个时隙**，而那将是本引擎第一处由设备发起的排程请求（§10.29.9 那一行说的「没有一个原语」目前仍然成立）。引擎的帧里现在除了时间与调度什么也不带。 |
+| 测距辅助信息 §10.35，及 RAICT IE（Ranging Ancillary Information Message Counter and Type IE）§10.35.2.1 | 已发布 | 部分建模 | **建了的那一半是帧，不是交互。** `uwb/phy.ts#raictIeBytes` 是本引擎第一个**长度由存在位决定**的信息单元：内容是控制 1 字节，加上消息序号 0 或 1 字节、Frames Remaining 0 或 1 字节，所以四种组合有三种长度；`uwb/phy.ts#RAICT_IE_MIN_BYTES`、`uwb/phy.ts#uwbAncillaryBytes`、`uwb/frames.ts#makeAncillary`（给了一个存在位说没留位置的计数就抛，照 `makeMmrcm` 的先例）、独立的 `uwbAncillary` 帧类型，以及它在帧检查器、时间线颜色与泳道提示里的那几行。**还没建的是这一节真正的内容**：把一条消息分装在多帧里跨时隙发出去、Frames Remaining 从 N−1 数到 0、以及接收端据此在下一帧到达时就发现缺了哪一号——那是切片 3c 的 Task 3，设备与网络一行还没接。**Request = 1 的排程请求是另一刀**（切片 3d），理由是一次该做多少不是举证不足：机理已读通（Request 位、Frames Remaining 的第二种含义、以及「发起方不是控制器时」这个条件），而本引擎的 `RoundPlan` 在 `UwbNetwork` 的构造函数里一次算定、整个会话共用，要让一个请求改变后续排程就得把轮的排布变成每块重算一次。另外这一节把**发起方与响应方的意思换了**：发辅助信息的那一端叫发起方，与测距里的角色相反。 |
 | 多消息接收确认 §10.36，及 RMMRC IE（Ranging Multiple Message Receipt Confirmation IE）§10.36.2.1 | 已发布 | 已建模 | 请求是 ARC IE 控制字里的 MMRCR 位（bit 15，`scenario.ts` 的 `mmrcr`），置位前后控制消息逐字节相同——这一位本来就在那两个字节里。回答是一帧 MMRCM：`uwb/frames.ts#makeMmrcm`、独立的 `'uwbMmrcm'` 帧类型、`uwb/phy.ts#uwbMmrcmBytes`（15 + 3N，R ≤ 8 时）与算出来的条目上限 `uwb/phy.ts#uwbMaxMmrcmInitiators`；时隙由 `uwb/phy.ts#uwbMmrcmSlots` 与 `uwb/session.ts#mmrcmResponders` 排在有效期窗口最后一块的轮之后，**每个响应方一个**；位图在 `uwb/device.ts` 的 `noteOpener` 与 `receiptIn` 里按当前有效期窗口的开场消息逐块记下，一个发起方一张，`UWB_MMRCM` 记录落在发起方这一侧。**两个计数不是同一个**：IE 的列表条目每个**发起方**一个（一个响应方可能听到好几个），时隙与帧每个**响应方**一个——「每个发起方一帧」在双向轮里读着对，在多对多里不可能。标准为它画的那张图（Figure 10-272）用的正是**多对多**，所以它接在 `@uwb-m2m` 之后。仍未建的是多播／多节点下发、长地址那一种条目，以及「哪几条消息」的别种取法（位图覆盖的窗口是本仿真器选的）。`@uwb-receipt` |
 
 ## 九、已发布标准：HRP UWB 物理层（§16）
