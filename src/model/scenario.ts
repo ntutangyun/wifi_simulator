@@ -1082,6 +1082,27 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
               + '让控制消息跨轮有效，或者把 rmnr 关掉',
           })
         }
+        // Contention (standard §10.32.2 schedule mode 0): a responder's slot is **its own draw**,
+        // and it draws on the initiation message. A responder that missed that message therefore
+        // has no slot — not because it forgot the schedule, but because the schedule never named
+        // one for it, and a still-valid control message cannot supply what it never contained.
+        // So the state RMNR reports cannot arise here either, for a different reason than the
+        // rcmValidityRounds-1 case above: there the control message was lost with the initiation,
+        // here it survives and still does not help.
+        //
+        // Found by Task 4, which measured the combination doing nothing rather than assuming it
+        // worked: the schema permitted it and no round could ever emit an RMNR frame. A permitted
+        // configuration that provably does nothing is how a feature comes to look finished.
+        if (mode === 'twr' && rmnr && sc.uwb.schedule === 'contention') {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['uwb'],
+            message: '竞争式测距轮里，响应方的时隙是它自己抽的，而它是在那条启动消息上抽的。'
+              + '没收到启动消息的响应方因此没有时隙可去——不是忘了排定表，是排定表从来没有给它指定过一个，'
+              + '而一条仍然有效的控制消息也拿不出它本来就不包含的东西。于是 RMNR 要报告的那个状态'
+              + '在竞争轮里同样不存在：请把 schedule 改成 time，或者把 rmnr 关掉',
+          })
+        }
         // DL-TDoA (task-2-brief.md's hint): one block holds exactly one round — the anchors run it
         // once and every tag in the scenario listens to that same round (see the block-fit
         // comment further down). rcmValidityRounds buys "a few more rounds under the same control

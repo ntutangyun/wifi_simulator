@@ -279,3 +279,41 @@ describe('rcmValidityRounds / rmnr — the scenario schema (design §4)', () => 
     },
   )
 })
+
+describe('contention + rmnr is refused, and for its own reason', () => {
+  /**
+   * Found by Task 4 measuring rather than assuming: the schema permitted the pair and no round
+   * could ever emit an RMNR frame. In a contention round the responder's slot is **its own draw**,
+   * made on the initiation message — so a responder that missed that message has no slot, not
+   * because it forgot the schedule but because the schedule never named one for it. A still-valid
+   * control message cannot supply what it never contained.
+   *
+   * A permitted configuration that provably does nothing is how a feature comes to look finished,
+   * which is why this is a refusal and not a comment.
+   */
+  const contention = (over: Partial<UwbSessionCfg>): Scenario => uwbScenario(
+    twoAnchorsOneTag(),
+    { ...DEFAULT_UWB_SESSION, schedule: 'contention', method: 'ss', ...over },
+  )
+
+  it('refuses it, naming the draw as the reason', () => {
+    const r = ScenarioSchema.safeParse(contention({ rmnr: true, rcmValidityRounds: 4 }))
+    expect(r.success).toBe(false)
+    if (r.success) return
+    const m = r.error.issues.map((i) => i.message).join(' | ')
+    expect(m).toContain('自己抽的')
+    // The remedy must not be one another rule forbids — Ruling 7's loop, in test form.
+    expect(m).not.toContain('调到 2 以上')
+  })
+
+  it('leaves a contention round without rmnr alone', () => {
+    expect(ScenarioSchema.safeParse(contention({ rcmValidityRounds: 4 })).success).toBe(true)
+  })
+
+  it('still allows rmnr on a time-scheduled round', () => {
+    const r = ScenarioSchema.safeParse(uwbScenario(twoAnchorsOneTag(), {
+      ...DEFAULT_UWB_SESSION, rmnr: true, rcmValidityRounds: 4,
+    }))
+    expect(r.success).toBe(true)
+  })
+})

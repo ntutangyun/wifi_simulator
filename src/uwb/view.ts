@@ -112,6 +112,16 @@ export interface UwbNodeView {
   slot: number | null
   rounds: number
   timeouts: number
+  /**
+   * Slots a responder filled with an RMNR frame instead of silence (standard §10.34),
+   * counted at the **initiator** — the end that learns something from it.
+   *
+   * It exists because `timeouts` alone would otherwise *fall* when `rmnr` is switched on, with
+   * nothing in the live view to say where those rounds went: a responder that sends RMNR is no
+   * longer silent, so it no longer times out. The pair of counters is the point of the feature
+   * made visible — how many slots went quiet, and how many came back with a reason.
+   */
+  rmnr: number
   /** Receptions lost to in-band Wi-Fi power (UWB_INTERFERED), counted at the receiver. */
   interfered: number
   /** Contention round, anchor: its latest draw — `slot` null while it sits a round out. It is
@@ -139,7 +149,7 @@ export interface UwbNodeView {
 
 export function initUwbNodeView(cfg: UwbNodeCfg): UwbNodeView {
   return {
-    role: cfg.role, block: 0, round: 0, slot: null, rounds: 0, timeouts: 0, interfered: 0,
+    role: cfg.role, block: 0, round: 0, slot: null, rounds: 0, timeouts: 0, rmnr: 0, interfered: 0,
     contend: null, contendCollisions: 0, ranges: {}, tdoa: {}, tdoaRef: null, aoa: {},
     mms: { trains: {}, nbChannel: null, lbtBusy: 0, skippedBlocks: 0, lastLbtBlock: null },
     position: null,
@@ -253,6 +263,16 @@ export function applyUwbRecord(vs: ViewState, r: TLRecord): boolean {
     case 'UWB_TIMEOUT': {
       const u = vs.nodes[r.node]?.uwb
       if (u) u.timeouts += 1
+      return true
+    }
+    // Counted at the node the record names, which is the initiator: the whole value of an RMNR
+    // frame is what the *other* end learns from it. `view.ts`'s reducer ends in
+    // `default: return false`, so a missing case here is invisible to both tsc and grep — the
+    // third structure on this branch with that property, after i18n's `tooltips` and
+    // laneLayout's `spanTooltip`.
+    case 'UWB_RMNR': {
+      const u = vs.nodes[r.node]?.uwb
+      if (u) u.rmnr += 1
       return true
     }
     case 'UWB_NB_LBT': {

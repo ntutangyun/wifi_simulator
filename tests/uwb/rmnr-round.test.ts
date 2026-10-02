@@ -361,17 +361,22 @@ describe('the same exchange in the shapes scene B does not use', () => {
     }
   })
 
-  it('stays silent in a contention round, where the slot is a draw and not the RCM\'s to give', () => {
-    // A legal configuration the schema does not refuse, and the floor of §10.34 reaches it for the
-    // same reason it reaches a device that never held a control message: in a contention round the
-    // response slot is the responder's **own draw**, and the draw is made on the initiation message
-    // it did not receive (standard §10.32.2 schedule mode 0). A still-valid control message tells it
-    // how wide the window is, not which slot inside it is its own — so it has no slot to speak in.
-    const rs = sceneB({ schedule: 'contention', contentionSlots: 8 })
-    expect(of(rs, 'TX_START').filter((r) => r.frame.kind === 'uwbRmnr')).toHaveLength(0)
-    expect(of(rs, 'UWB_RMNR')).toHaveLength(0)
-    // The round itself still works under a validity window: the anchors that heard each block's
-    // opener drew a slot off it and ranged, in blocks 1–3 as well as block 0.
+  it('still runs a contention round under a validity window, without rmnr', () => {
+    // This test used to assert a second thing as well — that a contention round with `rmnr` on
+    // emits no RMNR frame — and it was right about the physics: in a contention round the response
+    // slot is the responder's **own draw**, made on the initiation message it did not receive
+    // (standard §10.32.2 schedule mode 0), so a still-valid control message tells it how wide the
+    // window is and not which slot inside it is its own.
+    //
+    // That half is gone because the controller turned the finding into a **schema refusal**: a
+    // permitted configuration that provably does nothing is how a feature comes to look finished.
+    // The reasoning now lives in the refusal's own message, and
+    // `tests/model/rcm-validity-scenario.test.ts` pins it.
+    //
+    // What survives here is the half that is still reachable, and it is the more interesting one:
+    // **one control message governing several contention blocks.** The anchors draw their slot off
+    // each block's opener, whichever of the two messages that opener was.
+    const rs = sceneB({ schedule: 'contention', contentionSlots: 8, rmnr: false })
     const blocks = of(rs, 'UWB_RANGE').filter((r) => r.node === 'tag-1' && r.peer === 'anc-1').map((r) => r.block)
     expect(blocks).toEqual([0, 1, 2, 3])
     expect(openers(rs).map((o) => o.kind)).toEqual(['uwbPoll', 'uwbInit', 'uwbInit', 'uwbInit'])
@@ -422,5 +427,54 @@ describe('determinism, and every other mode byte-identical', () => {
     // …and a four-block validity window is not the same stream as a one-block one, so the
     // comparison above is not trivially true of everything.
     expect(JSON.stringify(sceneA(1).filter((r) => r.type.startsWith('UWB_')))).not.toBe(once)
+  })
+})
+
+describe('two tags under one validity window', () => {
+  /**
+   * Task 4 flagged this as its own untested assumption: every tag switches opener on the same
+   * blocks, which is right — `blockCarriesRcm` reads the block and nothing tag-specific — but no
+   * scene had confirmed the tags do not interfere while doing it.
+   *
+   * It is worth a test because the block is where the two tags meet: they take different rounds
+   * inside it (the round index *is* the tag index), and they switch opener together on the block
+   * boundary. If the validity state were per-block-per-device rather than per-device, or if one
+   * tag's opener leaked into the other's round, this is the scene that shows it.
+   */
+  const TWO_TAGS: NodeCfg[] = [
+    uwbNode('anc-1', 0, 0, 'anchor'),
+    uwbNode('anc-2', 8, 0, 'anchor'),
+    uwbNode('tag-1', 4, 3, 'tag'),
+    uwbNode('tag-2', 4, 5, 'tag'),
+  ]
+  const twoTags = (rcmValidityRounds: number): TLRecord[] => run(scenario(TWO_TAGS, {
+    method: 'ds', replyTime: 'embedded', nlos: false, rcmValidityRounds,
+  }))
+
+  /** Each tag's opener per block, as the air carried it. */
+  const perTag = (rs: TLRecord[], node: string): { block: number; kind: string }[] =>
+    (rs as { type: string; node?: string; frame?: { kind: string; uwb?: { block: number } } }[])
+      .filter((r) => r.type === 'TX_START' && r.node === node
+        && (r.frame?.kind === 'uwbPoll' || r.frame?.kind === 'uwbInit'))
+      .map((r) => ({ block: r.frame!.uwb!.block, kind: r.frame!.kind }))
+
+  it('switches both tags on the same blocks', () => {
+    const rs = twoTags(4)
+    const one = perTag(rs, 'tag-1')
+    const two = perTag(rs, 'tag-2')
+    expect(one.length).toBeGreaterThan(1)
+    expect(two.map((x) => x.kind)).toEqual(one.map((x) => x.kind))
+    // …and that pattern is the control message first, the initiation-only message after.
+    expect(one[0].kind).toBe('uwbPoll')
+    expect(one.slice(1).every((x) => x.kind === 'uwbInit')).toBe(true)
+  })
+
+  it('measures the same distances with two tags as with one control message each round', () => {
+    const key = (rs: TLRecord[]): string[] =>
+      of(rs, 'UWB_RANGE').map((r) => `${r.node}|${r.peer}|${r.block}|${r.distM.toFixed(9)}|${r.fom}`)
+    const a = key(twoTags(1))
+    const b = key(twoTags(4))
+    expect(a.length).toBeGreaterThan(0)
+    expect(b).toEqual(a)
   })
 })
