@@ -110,10 +110,17 @@ const NOT_PROSE = new Set(['scenario', 'find', 'kind', 'widget', 'params', 'term
  * per-lesson tests and the contract test share, so a field added to the
  * contract is covered everywhere the moment it is added here.
  *
- * Walked: `why`, `outcomes`, `terms` (each term's `plain` line), `picture`,
- * `numbers`, `deeper`, `sources`, `observe`, `tryThis` and `quiz`, including
- * table cells, formula bodies and quiz options. `scenario` and `find` are
- * skipped: they are functions of the engine, not text.
+ * Walked: `why`, `outcomes`, `terms` (each term's `plain` line), `body` (the old
+ * flat shape, in the slot `picture` and `numbers` both occupy in the new one),
+ * `picture`, `numbers`, `deeper`, `sources`, `observe`, `tryThis` and `quiz`,
+ * including table cells, formula bodies and quiz options. `scenario` and `find`
+ * are skipped: they are functions of the engine, not text.
+ *
+ * `body` was missing from this walk until 2026-10-02: a lesson still in the old
+ * flat shape was therefore almost entirely invisible to every test built on
+ * this function, and `tests/course/wording.test.ts` had to call this same
+ * function a second time, by hand, with `{ numbers: l.body }`, to see it at
+ * all. Walking it here once removes the need for that workaround.
  *
  * `title`, `variants[].label` and `jumps[].label` are deliberately outside it —
  * they are the chrome around a lesson rather than the lesson — so a caller that
@@ -139,7 +146,7 @@ export function lessonStrings(l: Partial<Lesson>): string[] {
     }
   }
   walk({
-    why: l.why, outcomes: l.outcomes, terms: l.terms, picture: l.picture, numbers: l.numbers,
+    why: l.why, outcomes: l.outcomes, terms: l.terms, body: l.body, picture: l.picture, numbers: l.numbers,
     deeper: l.deeper, sources: l.sources, observe: l.observe, tryThis: l.tryThis, quiz: l.quiz,
   })
   return out
@@ -151,13 +158,15 @@ export function lessonStrings(l: Partial<Lesson>): string[] {
  *
  * `deeper` and `sources` are deliberately absent — the stated minutes are the
  * minutes of the main path, not of the depth behind the collapsed sections —
- * and a lesson still in the old flat shape is counted through `body`.
+ * and a lesson still in the old flat shape is counted through `body`, which
+ * `lessonStrings` now walks directly (it used to need a second, hand-rolled
+ * call to reach `body` at all).
  */
 export function mainPathChars(l: Partial<Lesson>): number {
   const texts = lessonStrings({
-    why: l.why, outcomes: l.outcomes, terms: l.terms, picture: l.picture, numbers: l.numbers,
+    why: l.why, outcomes: l.outcomes, terms: l.terms, body: l.body, picture: l.picture, numbers: l.numbers,
     observe: l.observe, tryThis: l.tryThis, quiz: l.quiz,
-  }).concat(lessonStrings({ picture: l.body }))
+  })
   return texts.reduce((n, s) => n + zhChars(s), 0)
 }
 

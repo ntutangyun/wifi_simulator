@@ -31,11 +31,13 @@ import {
 } from '../../src/course/readability'
 import { effectiveMigrating } from './kit'
 
-/** Lessons still in the old shape. Each migration task removes its ids; the list only shrinks. */
-export const MIGRATING: string[] = [
-
-  'amp-slots', 'amp-coexist',
-]
+/**
+ * Lessons still in the old shape. Each migration task removes its ids; the list
+ * only shrinks. Empty since 2026-10-02: `amp-slots` and `amp-coexist` were the
+ * last two, and the AMP track's last coverage hole besides them was the term
+ * rule's own `graded` exclusion below, removed in the same pass.
+ */
+export const MIGRATING: string[] = []
 
 /**
  * MIGRATING as this run grades it. `READABILITY_INCLUDE=uwb-sstwr,uwb-dstwr`
@@ -124,28 +126,26 @@ if (migrated.length) {
  * amendment leaves standing: a lesson that states a rule carries the rule as a
  * procedure the reader can re-run, not as a sentence about a procedure.
  *
- * Both rules grade EVERY lesson in the new shape except the paused AMP track,
- * whose prose is still untranslated. That is deliberately an opt-OUT: until
- * 2026-09-25 it was a per-lesson allow-list, which meant a lesson added to the
- * course was graded by neither rule until somebody remembered to add its id.
- * A list you have to maintain is how four rules in this suite came to grade
- * nothing while reporting success.
+ * Both this rule and the term rule below graded every lesson in the new shape
+ * EXCEPT the AMP track until 2026-10-02, when the last two AMP lessons were
+ * migrated and the AMP-specific exclusion that used to stand here was deleted
+ * along with them. It was already deliberately an opt-OUT rather than an
+ * allow-list — until 2026-09-25 this was a per-lesson list, which meant a
+ * lesson added to the course was graded by neither rule until somebody
+ * remembered to add its id, which is how four rules in this suite came to
+ * grade nothing while reporting success — but an opt-out still has to be
+ * deleted once the thing it was opting out ships, or it is the same bug one
+ * remove away from mattering again.
  */
-const graded = (l: Lesson): boolean => trackOf(l) !== 'amp'
-
 describe('readability · a rule is carried as a procedure', () => {
-  const revised = migrated.filter(graded)
-
-  it('grades every lesson of every live track', () => {
+  it('grades every lesson of the course', () => {
     // The anti-vacuity guard in its honest form: not "the ids I listed are
-    // graded" but "nothing in a live track escapes". A new lesson is covered
-    // the moment it is registered, without anyone editing this file.
-    const live = migrated.filter((l) => trackOf(l) !== 'amp').map((l) => l.id).sort()
-    expect(revised.map((l) => l.id).sort()).toEqual(live)
-    expect(revised.length).toBeGreaterThanOrEqual(46)
+    // graded" but "nothing escapes". A new lesson is covered the moment it is
+    // registered, without anyone editing this file.
+    expect(migrated.length).toBeGreaterThanOrEqual(50)
   })
 
-  it.each(revised.map((l) => [l.id, l] as const))('%s writes its procedure out as steps', (_id, l) => {
+  it.each(migrated.map((l) => [l.id, l] as const))('%s writes its procedure out as steps', (_id, l) => {
     const steps = [...(l.picture ?? []), ...(l.numbers ?? [])].filter((b) => b.kind === 'steps')
     expect(steps.length, `${l.id}: a lesson that states a rule carries the rule as a steps block`).toBeGreaterThan(0)
     for (const b of steps) expect((b as Extract<Block, { kind: 'steps' }>).items.length).toBeGreaterThanOrEqual(3)
@@ -172,7 +172,18 @@ describe('readability · a rule is carried as a procedure', () => {
  * are collapsed professional depth — `sources` is where the clause numbers and
  * the English names already live.
  */
-const zhMainTexts = (l: Lesson): string[] => [l.why!, ...(l.outcomes ?? [])]
+/**
+ * `l.why` is `undefined` for a lesson still in the old flat `body` shape.
+ * `[l.why!, ...]` used to paper over that with a non-null assertion, which does
+ * not check anything at runtime: TypeScript trusts the `!` and the gap becomes
+ * the literal four-character string `"undefined"` in the joined text instead of
+ * a missing `why` failing anything. `body` is walked here too, in the slot
+ * `picture` and `numbers` occupy in the new shape, so an old-shape lesson's
+ * prose is graded rather than silently replaced by that string.
+ */
+const zhMainTexts = (l: Lesson): string[] => (l.why ? [l.why] : [])
+  .concat(l.outcomes ?? [])
+  .concat(paragraphTexts(l.body ?? []), cellTexts(l.body ?? []))
   .concat(paragraphTexts(l.picture ?? []), cellTexts(l.picture ?? []))
   .concat(paragraphTexts(l.numbers ?? []), cellTexts(l.numbers ?? []))
   .concat(l.observe, l.tryThis, l.quiz.flatMap((q) => [q.q, ...q.options, q.explain]))
@@ -205,7 +216,7 @@ function zhTermFailures(l: Lesson): string[] {
 }
 
 describe('readability · every official term carries its English name in the Chinese', () => {
-  const revised = migrated.filter(graded)
+  const revised = migrated
 
   it.each(revised.map((l) => [l.id, l] as const))('%s brackets every official term at its first Chinese use', (_id, l) => {
     expect(zhTermFailures(l), `${l.id}: official terms the Chinese never names in English`).toEqual([])

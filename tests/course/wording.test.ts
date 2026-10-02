@@ -32,23 +32,19 @@ import type { Lesson } from '../../src/course/lessonKit'
 /**
  * Everything in a lesson a reader can see.
  *
- * `lessonStrings` walks `why`/`outcomes`/`terms`/`picture`/`numbers`/`deeper`/
- * `sources`/`observe`/`tryThis`/`quiz`. It does **not** walk `limits`, the
- * lesson's title, the jump labels or the variant labels — and the sweep found
- * real offenders in three of those four: 底噪 hid in a `limits` entry,
- * 「两个标签挤进同一时隙」 in a jump label, and three titles named no mechanism
- * at all. A reader meets all of them.
+ * `lessonStrings` walks `why`/`outcomes`/`terms`/`body`/`picture`/`numbers`/
+ * `deeper`/`sources`/`observe`/`tryThis`/`quiz` — `body` for a lesson still in
+ * the old flat shape, now that `lessonStrings` sees it directly instead of
+ * needing a second, hand-rolled call to reach it (2026-10-02; it used to be
+ * `...lessonStrings({ numbers: l.body })` appended here). It does **not** walk
+ * `limits`, the lesson's title, the jump labels or the variant labels — and the
+ * sweep found real offenders in three of those four: 底噪 hid in a `limits`
+ * entry, 「两个标签挤进同一时隙」 in a jump label, and three titles named no
+ * mechanism at all. A reader meets all of them.
  */
 function readerText(l: Lesson): string[] {
   return [
     ...lessonStrings(l),
-    // …plus the old flat shape. `lessonStrings` walks only the eight new fields,
-    // so a lesson still written as one `body` — the four AMP lessons — is almost
-    // entirely invisible to it, and to every other text test in the suite. That
-    // is a real coverage hole that predates this file; this test at least does
-    // not inherit it. `lessonStrings` is reused rather than reimplemented so the
-    // walk's own rules (diagram labels, skipped non-prose keys) still apply.
-    ...lessonStrings({ numbers: l.body }),
     l.title,
     ...l.limits.map((x) => x.text),
     ...(l.jumps ?? []).map((j) => j.label),
