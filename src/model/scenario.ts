@@ -1077,7 +1077,7 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
             path: ['uwb'],
             message: '每轮一条控制消息（rcmValidityRounds 为 1）时，这条控制消息和本轮的测距启动消息是同一帧——'
               + '就是今天的轮询帧。这一帧一丢，响应方不是“错过了启动消息、却还留着控制消息”，它是什么都没留下：'
-              + '连自己该在哪个时隙说话都不知道，没有时隙可去，RMNR 要报告的那个状态——“控制消息收到了，'
+              + '连自己该在哪个时隙发送都不知道，没有时隙可去，RMNR 要报告的那个状态——“控制消息收到了，'
               + '本轮启动消息没收到”——根本不存在，也就没有什么可发：请把 rcmValidityRounds 调到 2 以上，'
               + '让控制消息跨轮有效，或者把 rmnr 关掉',
           })
