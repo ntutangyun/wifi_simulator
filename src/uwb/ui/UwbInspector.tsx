@@ -61,6 +61,18 @@ export function UwbInspector({ nv, nameOf }: { nv: NodeView; nameOf: (id: string
           anything about who heard this node (standard §10.36), so hiding it at zero would make
           "nobody confirmed" and "the session never asked" look alike. */}
       <div style={row} title={U.mmrcmHint}><span style={dim}>{U.mmrcm}</span><span>{u.mmrcm}</span></div>
+      {/* The two phases of an SP3 round (standard §10.32.8.1), printed as a pair and
+          unconditionally, for the reason `rmnr` is: with `sp3` on, every other row in this panel
+          reads exactly as it would in an SP1 round — the same slots, the same ranges — so these
+          two are the only thing here that says the ranging phase carried no identity at all, and
+          that what it stopped spending is spent in the report phase. One of them alone would show
+          half of that trade; hiding either at zero would make "the session never asked" look like
+          "the markers never arrived". `view.ts`'s own note on `UwbNodeView.sp3` calls them the two
+          phases made countable, and until this row existed that comment described nothing. */}
+      <div style={row} title={U.sp3Hint}><span style={dim}>{U.sp3}</span><span>{u.sp3}</span></div>
+      <div style={row} title={U.sp3ReportsHint}>
+        <span style={dim}>{U.sp3Reports}</span><span>{u.sp3Reports}</span>
+      </div>
       <div style={row}><span style={dim}>{U.interfered}</span><span>{u.interfered}</span></div>
       {contend !== null && (
         <div style={row} title={U.contendHint}><span style={dim}>{U.contend}</span><span>{contend}</span></div>

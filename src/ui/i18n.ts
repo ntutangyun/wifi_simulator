@@ -369,6 +369,17 @@ export interface Strings {
      * reader who cannot see the row cannot tell "nobody confirmed" from "the feature is off".
      */
     mmrcm: string; mmrcmHint: string
+    /**
+     * The two phases of an SP3 grouped-ranging round made countable (standard §10.32.8.1), both
+     * counted at the initiator — see `UwbNodeView.sp3` / `UwbNodeView.sp3Reports`. Unconditional
+     * for the reason `rmnr` is and one of its own: with `sp3` on, every other row in this panel
+     * reads exactly as it does in an SP1 round — the same slots, the same ranges — so without
+     * these two nothing in the live view says the ranging phase carried no identity at all.
+     * The pair belongs together: what the ranging phase stops spending is spent in the report
+     * phase, and one number alone shows only half of that trade.
+     */
+    sp3: string; sp3Hint: string
+    sp3Reports: string; sp3ReportsHint: string
     /** Receptions this node lost to in-band Wi-Fi power. */
     interfered: string
     /** Contention rounds: the anchor's latest draw, and the tag's lost response slots. */
@@ -1027,6 +1038,8 @@ export const STRINGS: Strings = {
     blockRound: '测距块 / 轮次', slot: '测距时隙', timeouts: '超时时隙',
     rmnr: '测距消息未收到帧', rmnrHint: '这些时隙并非沉默：响应方仍持有一条有效的控制消息，只是没收到本轮的测距启动消息，于是发了一帧 RMNR 代替沉默——打开 RMNR 后，这部分原本会计入上面“超时时隙”的轮次改记在这里',
     mmrcm: '收妥确认帧', mmrcmHint: '响应方回来的收妥确认（MMRCM）帧数，记在发起方这一侧：请求只占用控制消息里本来就有的一位，不多花一个字节，花钱的是这些回答——每一帧里带着一张位图，说明本有效期窗口里你发出的那几条开场消息它收到了哪几条；哪一块丢了，位图里那一位就是 0，而超时只能说“没来”',
+    sp3: 'SP3 测距标记', sp3Hint: '发起方在测距相位收到的 SP3 测距标记帧数（标准 §10.32.8.2），记在发起方这一侧：这种包只有 SYNC、SFD 与 STS，没有 PHR 也没有载荷，帧里没有任何身份字段——发起方只能按排定的时隙表反推这一帧是谁发的。打开 SP3 之后，这一面板其余各行与 SP1 轮次读起来一模一样，时隙与距离都照旧，只有这一行说得出测距相位里的帧其实什么都没带',
+    sp3Reports: 'SP3 测量报告帧', sp3ReportsHint: '发起方收到的 SP3 测量报告帧数（标准 §10.32.8.1 的第三相位），同样记在发起方这一侧：标记帧没有载荷，它量到的时间、以及 SRRR 请求过的方位角与往返时间，都要靠这一相位另发的帧送回来。这两行要一起看——测距相位省下来的空口时间，是在这一相位里付掉的',
     interfered: '被 Wi-Fi 干扰丢失',
     contend: '竞争抽取', contendHint: '该锚点在最近一个竞争轮次中抽到的响应时隙，以及这是它第几次尝试让标签听到自己',
     contendDraw: (slot, attempt) => `时隙 ${slot} · 第 ${attempt} 次尝试`,

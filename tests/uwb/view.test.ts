@@ -1,7 +1,12 @@
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, it, expect } from 'vitest'
 import { makeEmitter, type EmitFn, type TLRecord } from '../../src/model/records'
 import { applyRecord, cloneView, initViewState } from '../../src/model/view'
 import { makeNbPoll } from '../../src/uwb/frames'
+import type { UwbRecord } from '../../src/uwb/records'
+import { STRINGS } from '../../src/ui/i18n'
+import { UwbInspector } from '../../src/uwb/ui/UwbInspector'
 import { applyUwbRecord, uwbTrainKey } from '../../src/uwb/view'
 import { DEFAULT_UWB_SESSION, nonht, type NodeCfg, type Scenario } from '../../src/model/scenario'
 
@@ -379,5 +384,168 @@ describe('the MMS half of a node view', () => {
     expect(vs.nodes['anc-1'].uwb!.mms.nbChannel).toBe(37)
     // …and the Wi-Fi reducer still owns those two records: the transmission is in flight.
     expect(vs.nodes['tag-1'].currentTx).toBe(poll)
+  })
+})
+
+/**
+ * **The structure `tsc -b` cannot index, and grep cannot audit.**
+ *
+ * `applyUwbRecord` is a `switch` on `TLRecord['type']` that ends in `default: return false`, so a
+ * record type with no `case` compiles, greps clean, and is silently dropped: the record never
+ * reaches a lane, its counter sits at zero for a session that is busy producing it, and `applyRecord`
+ * hands it on to the Wi-Fi reducer, which does not want it either. This branch tracks three
+ * structures with that property — `i18n.ts`'s `tooltips`, `laneLayout.ts`'s `spanTooltip` chain, and
+ * this reducer. The first two are held by the `it.each(FRAME_KINDS)` in `tests/ui/laneLayout.test.ts`;
+ * this one was not held at all, which is `branch-review.md`'s C4: `UWB_MMRCM` was pinned by hand,
+ * `UWB_SP3` and `UWB_SP3_REPORT` were not, and deleting both of their `case` arms broke no test.
+ *
+ * This is that test, held the same way. `SAMPLES` is a mapped type over the record union, so
+ * **adding a record type without adding a sample is a compile error** that names the type, and the
+ * `it.each` over its keys then **fails until the reducer handles it**. Two walls, and neither of them
+ * is a grep: a new record type has to be turned away deliberately rather than by omission.
+ */
+describe('applyUwbRecord claims every UWB record type', () => {
+  /** One minimal record per type. The mapped type is what makes the list exhaustive and keeps each
+   * value's own `type` matching its key — `Record<UwbRecord['type'], UwbRecord>` would allow
+   * neither. Field values are the smallest legal thing of each kind; nothing here is asserted
+   * about, only that the reducer recognises the record. */
+  const SAMPLES: { [T in UwbRecord['type']]: Extract<UwbRecord, { type: T }> } = {
+    UWB_ROUND: { type: 'UWB_ROUND', node: 'tag-1', block: 1, round: 0, slots: 4, slotNs: 2_000_000, method: 'ss', mode: 'twr', untilNs: 8_000_000 },
+    UWB_SLOT: { type: 'UWB_SLOT', node: 'tag-1', slot: 1, untilNs: 4_000_000 },
+    UWB_TS: { type: 'UWB_TS', node: 'tag-1', dir: 'tx', peer: 'anc-1', frameKind: 'uwbPoll', counter: 1_000 },
+    UWB_RANGE: { type: 'UWB_RANGE', node: 'tag-1', peer: 'anc-1', method: 'ss', tofRctu: 1_000, distM: 5, trueDistM: 5, fom: 0x16, block: 1, round: 0 },
+    UWB_TDOA: { type: 'UWB_TDOA', node: 'tag-1', ref: 'anc-1', peer: 'anc-2', dtNs: 1, trueDtNs: 1, block: 1, round: 0 },
+    UWB_AOA: { type: 'UWB_AOA', node: 'anc-1', peer: 'tag-1', thetaDeg: 10, trueThetaDeg: 10, block: 1, round: 0 },
+    UWB_POSITION: { type: 'UWB_POSITION', node: 'tag-1', x: 4, y: 4, trueX: 4, trueY: 4, gdop: 1.8, ellipse: { a: 0.1, b: 0.1, thetaRad: 0 }, anchors: ['anc-1', 'anc-2'], block: 1, method: 'twr' },
+    UWB_TIMEOUT: { type: 'UWB_TIMEOUT', node: 'tag-1', slot: 2, peer: 'anc-2', expected: 'uwbResp' },
+    UWB_RMNR: { type: 'UWB_RMNR', node: 'tag-1', peer: 'anc-2', slot: 2, block: 1, round: 0 },
+    UWB_MMRCM: { type: 'UWB_MMRCM', node: 'tag-1', peer: 'anc-2', slot: 5, block: 1, round: 0, windowRounds: 2, received: [true, false], initiators: 1 },
+    UWB_SP3: { type: 'UWB_SP3', node: 'tag-1', peer: 'anc-1', slot: 2, block: 1, round: 0 },
+    UWB_SP3_REPORT: { type: 'UWB_SP3_REPORT', node: 'tag-1', peer: 'anc-1', slot: 4, block: 1, round: 0 },
+    UWB_CONTEND: { type: 'UWB_CONTEND', node: 'anc-1', slot: 2, attempt: 1 },
+    UWB_CONTEND_COLLISION: { type: 'UWB_CONTEND_COLLISION', node: 'tag-1', slot: 2 },
+    UWB_ROUND_END: { type: 'UWB_ROUND_END', node: 'tag-1', block: 1, round: 0 },
+    UWB_NB_LBT: { type: 'UWB_NB_LBT', node: 'tag-1', channel: 0, foreignDbm: -70, thresholdDbm: -80, block: 1, round: 0 },
+    UWB_MMS_TRAIN: { type: 'UWB_MMS_TRAIN', node: 'tag-1', peer: 'anc-1', kind: 'rsf', fragments: 4, heard: 4, rxDbm: -80, gainDb: 6, marginDb: 6, detected: true, ratioPpm: null, block: 1, round: 0 },
+    UWB_INTERFERED: { type: 'UWB_INTERFERED', node: 'tag-1', from: 'anc-1', foreignDbm: -60, sirDb: -3 },
+    UWB_STS_REJECT: { type: 'UWB_STS_REJECT', node: 'anc-1', peer: 'tag-1', frameKind: 'uwbPoll', advanceNs: 20 },
+    UWB_ECHO: { type: 'UWB_ECHO', node: 'anc-1', from: 'tag-1', scattererId: 's-1', pathM: 9, propNs: 30, excessM: 1, resolutionM: 0.3, rssiDbm: -90, resolvable: true },
+  }
+
+  /**
+   * The one record type the reducer turns away on purpose, and the reason, so the `it.each` below
+   * is a rule with one written-down exception rather than a rule with a hole.
+   *
+   * `UWB_STS_REJECT` holds no view state because there is none to hold: the record is emitted *in
+   * place of* the `UWB_TS` the receiver did not take (its own doc comment), and the miss is then
+   * reported by the slot's own deadline as a `UWB_TIMEOUT` — which this reducer does count. A
+   * second counter here would be the same event twice. It reaches the event log and a lesson's
+   * `watch` through the record stream, which is where it belongs.
+   *
+   * Adding a `case` for it is a fine thing to do; this list is then what has to change with it.
+   */
+  const NOT_VIEW_STATE: readonly UwbRecord['type'][] = ['UWB_STS_REJECT']
+
+  const claims = (r: UwbRecord): boolean =>
+    applyUwbRecord(initViewState(uwbScenario()), { ...r, t: 0, seq: 0 } as TLRecord)
+
+  const TYPES = Object.keys(SAMPLES) as UwbRecord['type'][]
+
+  it.each(TYPES.filter((t) => !NOT_VIEW_STATE.includes(t)))('%s reaches the reducer', (type) => {
+    expect(claims(SAMPLES[type])).toBe(true)
+  })
+
+  it.each(NOT_VIEW_STATE)('%s is turned away deliberately, not by a missing case', (type) => {
+    // If this one starts failing, the reducer grew a `case` for it — move the entry out of
+    // `NOT_VIEW_STATE` rather than deleting this assertion.
+    expect(claims(SAMPLES[type])).toBe(false)
+  })
+
+  it('samples every type the union has, so the walk above cannot go stale', () => {
+    // The mapped type already makes a missing sample a compile error; this says the same thing at
+    // run time, in case the union is ever widened by something `Extract` cannot see.
+    expect(TYPES.length).toBeGreaterThanOrEqual(20)
+    expect(new Set(TYPES).size).toBe(TYPES.length)
+    for (const type of TYPES) expect(SAMPLES[type].type).toBe(type)
+  })
+})
+
+describe('the two phases of an SP3 round, through the reducer', () => {
+  it('counts a marker and a data report at the initiator, and claims both records', () => {
+    // branch-review C4: both `case` arms could be deleted without a single test failing, because
+    // the only assertions touching these two fields were the initial-state snapshots, which pass
+    // either way. Pinned the way `UWB_MMRCM` is — the increment and the `true` — and the pair is
+    // pinned together, because the pair is the feature: the ranging phase stops carrying identity
+    // and the report phase is what carries it instead.
+    const vs = initViewState(uwbScenario())
+    const markers: Parameters<EmitFn>[0][] = [
+      { t: 7_000_000, type: 'UWB_SP3', node: 'tag-1', peer: 'anc-1', slot: 2, block: 3, round: 0 },
+      { t: 7_100_000, type: 'UWB_SP3', node: 'tag-1', peer: 'anc-2', slot: 3, block: 3, round: 0 },
+      { t: 8_000_000, type: 'UWB_SP3_REPORT', node: 'tag-1', peer: 'anc-1', slot: 4, block: 3, round: 0, replyRctu: 1_000 },
+    ]
+    for (const r of seq([...RECORDS, ...markers])) applyRecord(vs, r)
+    const u = vs.nodes['tag-1'].uwb!
+    expect(u.sp3).toBe(2)
+    expect(u.sp3Reports).toBe(1)
+    // …and each is a tally of its own: neither a marker nor a report touches the timeout count or
+    // the other phase's. The one UWB_TIMEOUT already in RECORDS is untouched.
+    expect(u.timeouts).toBe(1)
+    expect(u.rmnr).toBe(0)
+    // The anchor the markers came from counts nothing: both records are the initiator's.
+    expect(vs.nodes['anc-1'].uwb!.sp3).toBe(0)
+    expect(vs.nodes['anc-1'].uwb!.sp3Reports).toBe(0)
+  })
+})
+
+/**
+ * `branch-review.md`'s C4 in its other half: `UwbNodeView.sp3` and `sp3Reports` were written by
+ * the reducer and read by nothing — no row in `UwbInspector`, no label in `i18n.ts`, no reader
+ * anywhere in `src/` — while their own comment in `view.ts` called them "the two phases of
+ * §10.32.8.1 made countable". Two counters computed on every SP3 round that nothing could ever
+ * observe.
+ *
+ * This says they have a reader. It asserts against the `STRINGS` entries rather than against any
+ * wording, so it holds the *row*, never the sentence — the wording is `docs/course-wording-contract.md`'s
+ * business, and the rest of this panel has no test policing it either.
+ */
+describe('the inspector reads both SP3 counters', () => {
+  it('prints a row for each, with its label and its count', () => {
+    const vs = initViewState(uwbScenario())
+    const rounds: Parameters<EmitFn>[0][] = [
+      { t: 1_000_000, type: 'UWB_SP3', node: 'tag-1', peer: 'anc-1', slot: 2, block: 1, round: 0 },
+      { t: 1_100_000, type: 'UWB_SP3', node: 'tag-1', peer: 'anc-2', slot: 3, block: 1, round: 0 },
+      { t: 1_200_000, type: 'UWB_SP3', node: 'tag-1', peer: 'anc-1', slot: 2, block: 1, round: 1 },
+      { t: 2_000_000, type: 'UWB_SP3_REPORT', node: 'tag-1', peer: 'anc-1', slot: 4, block: 1, round: 0 },
+    ]
+    for (const r of seq(rounds)) applyRecord(vs, r)
+    const u = vs.nodes['tag-1'].uwb!
+    expect([u.sp3, u.sp3Reports]).toEqual([3, 1])
+
+    const U = STRINGS.uwb
+    const markup = renderToStaticMarkup(createElement(UwbInspector, {
+      nv: vs.nodes['tag-1'], nameOf: (id: string) => id,
+    }))
+    // Both labels and both hints are present — the row and the title a reader hovers for.
+    for (const s of [U.sp3, U.sp3Hint, U.sp3Reports, U.sp3ReportsHint]) {
+      expect(s.length, 'the label has to exist before a row can show it').toBeGreaterThan(0)
+      expect(markup).toContain(s)
+    }
+    // …and the counts themselves reach the markup, which is the half C4 was about: a label with
+    // nothing beside it would read the same as no row at all. 3 and 1 are distinguishable, so
+    // neither row can be showing the other's number.
+    expect(markup).toMatch(new RegExp(`${U.sp3}</span><span>3</span>`))
+    expect(markup).toMatch(new RegExp(`${U.sp3Reports}</span><span>1</span>`))
+  })
+
+  it('shows both rows at zero too, because a hidden row cannot say the session never asked', () => {
+    // The same reason `rmnr` and `mmrcm` are unconditional: with `sp3` on, every other row in the
+    // panel reads exactly as it would in an SP1 round, so a row that appears only once it is
+    // non-zero would make "no markers arrived" and "this is not an SP3 session" look alike.
+    const vs = initViewState(uwbScenario())
+    const markup = renderToStaticMarkup(createElement(UwbInspector, {
+      nv: vs.nodes['tag-1'], nameOf: (id: string) => id,
+    }))
+    expect(markup).toContain(STRINGS.uwb.sp3)
+    expect(markup).toContain(STRINGS.uwb.sp3Reports)
   })
 })
