@@ -1506,7 +1506,10 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
               path: ['uwb'],
               message: `${sc.uwb.blockRstu} RSTU 的 UWB 块装不下一轮测距的 ${slots + mmrcrSlots} `
                 + `个时隙 × ${sc.uwb.slotRstu} RSTU`
-                + (mmrcrSlots > 0 ? `（其中 1 个是 mmrcr 收妥确认的额外时隙）：请加大 blockRstu 或减小 slotRstu，或者把 mmrcr 关掉` : '：请加大 blockRstu 或减小 slotRstu'),
+                // `${mmrcrSlots}`, not a literal 1: this message still said "1" after the slot count
+                // was corrected to one per *responder* (uwb/phy.ts#uwbMmrcmSlots), so a four-anchor
+                // round was told four slots did not fit and that one of them was the confirmation's.
+                + (mmrcrSlots > 0 ? `（其中 ${mmrcrSlots} 个是 mmrcr 收妥确认的额外时隙）：请加大 blockRstu 或减小 slotRstu，或者把 mmrcr 关掉` : '：请加大 blockRstu 或减小 slotRstu'),
             })
           } else if (mode === 'mms' && !sc.uwb.mms.oneToMany && tags * anchors > fits) {
             ctx.addIssue({
