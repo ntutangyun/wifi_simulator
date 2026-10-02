@@ -81,6 +81,11 @@ export function frameColor(frame: FrameDesc, apId: string): number {
     // the control plane's indigo: what the colour has always meant on this scene is "this is
     // the negotiation, not the measurement", and that is still what they are.
     case 'uwbSp0': return 0x818cf8
+    // The receipt-confirmation answer (standard §10.36): it is neither a question nor a
+    // measurement — it answers a request already paid for in the Poll's own control word — so it
+    // gets neither amber. The same cool grey-blue as RMNR above marks it as a frame about the
+    // *exchange itself* rather than about a range, which is also what RMNR is.
+    case 'uwbMmrcm': return 0x94a3b8
   }
 }
 

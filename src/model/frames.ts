@@ -37,6 +37,11 @@ export const FRAME_KINDS = [
   // exactly that. docs/superpowers/specs/2026-10-01-rcm-validity-design.md §3
   'uwbRmnr',
   'uwbRsf', 'uwbRif', 'nbPoll', 'nbResp', 'nbReport', 'uwbSp0',
+  // The answer to a many-to-many receipt-confirmation request (standard §10.36): its own kind,
+  // not a reuse of 'uwbReport' or 'uwbRmnr' — the lesson's point is that this frame is an answer
+  // to a request, not a measurement, and a timeline that labelled it anything else would erase
+  // exactly that. docs/superpowers/specs/2026-10-02-receipt-confirmation-design.md §3.2
+  'uwbMmrcm',
 ] as const
 
 export type FrameKind = typeof FRAME_KINDS[number]

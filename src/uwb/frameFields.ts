@@ -27,7 +27,7 @@ import {
 import {
   ARC_IE_BYTES, BLINK_IE_BYTES, chipsToNs, DL_COFFS_IE_BYTES, PHR_SYMBOLS, PHR_SYMBOL_CHIPS, PSYM_CHIPS,
   rdmIeBytes, RCMA_IE_BYTES, RCPS_IE_BYTES, RCTU_NS, rmiFinalDeferredIeBytes, rmiFinalIeBytes,
-  RMI_REPORT_IE_BYTES, RMNR_IE_BYTES, RRMC_IE_BYTES, RRTI_IE_BYTES, rxTimesIeBytes, SFD_SYMBOLS,
+  RMI_REPORT_IE_BYTES, rmmrcIeBytes, RMNR_IE_BYTES, RRMC_IE_BYTES, RRTI_IE_BYTES, rxTimesIeBytes, SFD_SYMBOLS,
   STS_ACTIVE_CHIPS, STS_GAP_CHIPS, SYNC_SYMBOLS, TX_TIME_IE_BYTES, UWB_FCS_BYTES, UWB_MHR_BYTES,
 } from './phy'
 
@@ -46,6 +46,7 @@ const SUBTYPE: Record<UwbFrameKind, string> = {
   uwbRsf: 'MMS Ranging Fragment', uwbRif: 'MMS Integrity Fragment',
   nbPoll: 'Narrowband POLL', nbResp: 'Narrowband RESP', nbReport: 'Narrowband REPORT',
   uwbSp0: 'SP0 Control Frame',
+  uwbMmrcm: 'UWB Multiple Message Receipt Confirmation (MMRCM)',
 }
 
 /** The prose half of every row below: standard tokens stay, the words around them are Chinese. */
@@ -197,6 +198,21 @@ function ies(u: UwbInfo): Ie[] {
         // still holds the RCM, and it did not hear this round's initiation message.
         out.push({ key: 'ieRmnr', bytes: RMNR_IE_BYTES, value: V.rmnr() })
         break
+      case 'RMMRC': {
+        // standard §10.36.2.1: one entry per initiator this frame answers, each an address plus
+        // the receipt bitmap of that initiator's window-openers (design §3.2/§3.3). The window
+        // length (R) is read off the first entry's own bitmap width, which every entry shares —
+        // `makeMmrcm` is the one place that invariant is kept.
+        const entries = u.mmrc ?? []
+        const windowRounds = entries[0]?.received.length ?? 0
+        out.push({
+          key: 'ieRmmrc', bytes: rmmrcIeBytes(entries.length, windowRounds),
+          value: V.rmmrc(entries.length, entries.map((e) => V.rmmrcEntry(
+            e.initiator, e.received.map((r) => (r ? '1' : '0')).join(''),
+          )).join(' · ')),
+        })
+        break
+      }
       default:
         throw new Error(`uwbFrameFields: unknown ranging IE ${ie}`)
     }

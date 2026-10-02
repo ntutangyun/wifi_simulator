@@ -25,6 +25,7 @@ const KIND_SHORT: Record<UwbFrameKind, string> = {
   uwbRmnr: 'rmnr',
   uwbRsf: 'RSF', uwbRif: 'RIF', nbPoll: 'nb-poll', nbResp: 'nb-resp', nbReport: 'nb-report',
   uwbSp0: 'sp0',
+  uwbMmrcm: 'mmrcm',
 }
 
 /** How a fix was solved, as the log names it. */

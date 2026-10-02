@@ -428,6 +428,68 @@ export function uwbMaxParticipants(method: 'ss' | 'ds'): number {
   return cap
 }
 
+// --- Multiple-message receipt confirmation (standard §10.36) -------------------
+
+/**
+ * RMMRC IE (§10.36.2.1), fixed part: header + one flags octet (bit 0 Address Present, bit 1
+ * Address Size, bits 2-7 reserved) + one MMRC List Length octet. Neither flag bit ever varies
+ * with content in this engine — see `RMMRC_ADDR_BYTES` — so the fixed part never grows.
+ */
+export const RMMRC_FIXED_BYTES = UWB_IE_HDR_BYTES + 2
+
+/**
+ * The address width every MMRC list entry carries. The standard's Address Size bit allows two
+ * sizes; this engine always builds the shorter one, the same 2-octet short address every other
+ * IE in this file addresses with, and never the long form. model
+ */
+export const RMMRC_ADDR_BYTES = 2
+
+/**
+ * Width, in octets, of one initiator's receipt bitmap: one bit per opener the current RCM
+ * validity window carries (design §3.3), rounded up to a whole octet. The window is the one
+ * `uwb/session.ts#blockCarriesRcm` already has both ends agreeing on, so covering exactly it
+ * needs no new negotiation — a model choice, not a standard-mandated width. model
+ */
+export function rmmrcBitmapBytes(windowRounds: number): number {
+  return Math.ceil(windowRounds / 8)
+}
+
+/** One MMRC list entry: the initiator's address plus its receipt bitmap. */
+export function rmmrcEntryBytes(windowRounds: number): number {
+  return RMMRC_ADDR_BYTES + rmmrcBitmapBytes(windowRounds)
+}
+
+/** The RMMRC IE's own width: the fixed part plus one entry per initiator the MMRCM lists. */
+export function rmmrcIeBytes(initiators: number, windowRounds: number): number {
+  return RMMRC_FIXED_BYTES + initiators * rmmrcEntryBytes(windowRounds)
+}
+
+/**
+ * The MMRCM frame (standard §10.36, Figure 10-272 "Many-to-Many Messages"): MHR + RMMRC IE +
+ * FCS. At a window of eight rounds or fewer the bitmap is one octet, so each initiator costs 3
+ * octets and the whole frame is 15 + 3N (design §3.3); past eight rounds the bitmap — and so
+ * every entry — widens by one octet each time the window crosses another multiple of 8.
+ */
+export function uwbMmrcmBytes(initiators: number, windowRounds: number): number {
+  return UWB_MHR_BYTES + rmmrcIeBytes(initiators, windowRounds) + UWB_FCS_BYTES
+}
+
+/**
+ * Initiators one MMRCM frame can list: the largest N whose frame still fits the 127-octet PSDU
+ * (standard §16.2.7). Searched against `uwbMmrcmBytes`, exactly as `uwbMaxAnchors` and
+ * `uwbMaxParticipants` search their own frame-size functions above — no literal cap here either,
+ * and the same `UWB_ANCHOR_SEARCH_CEILING` loop bound, for the same reason (nothing about this
+ * frame's own arithmetic stops the search on its own if the ceiling were left out).
+ */
+export function uwbMaxMmrcmInitiators(windowRounds: number): number {
+  let cap = 0
+  for (let n = 1; n <= UWB_ANCHOR_SEARCH_CEILING; n++) {
+    if (uwbMmrcmBytes(n, windowRounds) > UWB_MAX_PSDU_BYTES) break
+    cap = n
+  }
+  return cap
+}
+
 // --- Ranging schedule units ----------------------------------------------------
 
 /** Ranging slot/block time units to nanoseconds: 1 RSTU = 416 chips at 499.2 Mchip/s

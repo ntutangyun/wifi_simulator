@@ -391,6 +391,12 @@ export function spanTooltip(s: LaneSpan, T: Strings['tooltips'], t?: Ns, nameOf:
         // shapes caught above, this time for the frame that stands in for a response that never
         // came.
         f.kind === 'uwbRmnr' ? T.uwbRmnr(f.uwb?.slot ?? 0) :
+        // §10.36's receipt-confirmation answer: without this branch the chain falls through to
+        // the CTS label below, silently — the same bug every UWB shape on this chain above was
+        // added to catch (task 1 of docs/superpowers/specs/2026-10-02-receipt-confirmation-
+        // design.md: `tsc -b` cannot find this one, since `Strings['tooltips']` is a plain
+        // object-literal type and not a Record<FrameKind, …>).
+        f.kind === 'uwbMmrcm' ? T.uwbMmrcm(f.uwb?.mmrc?.length ?? 0) :
         f.kind === 'uwbBlink' ? T.uwbBlink :
         f.kind === 'uwbRsf' || f.kind === 'uwbRif'
           ? T.uwbFragment(f.kind === 'uwbRsf' ? 'RSF' : 'RIF', (f.uwb?.mms?.index ?? 0) + 1, f.uwb?.mms?.of ?? 0) :

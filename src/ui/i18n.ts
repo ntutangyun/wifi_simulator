@@ -477,6 +477,12 @@ export interface Strings {
         /** §10.34's RMNR IE: no Content field at all, so there is nothing to parametrise the row
          * with — the row names what the IE's mere presence says. */
         rmnr: () => string
+        /** §10.36's RMMRC IE: how many initiators this frame answers, and the entry list. */
+        rmmrc: (n: number, list: string) => string
+        /** One MMRC list entry: the initiator's address and its receipt bitmap, printed as the
+         * literal bits (window-round order, index 0 first) rather than a byte count — the whole
+         * point of the row is which rounds were received, not how many. */
+        rmmrcEntry: (id: string, bits: string) => string
         fragment: (kind: string, index: number, of: number, msIn: number) => string
         fragmentRsf: (nMsr: number, gap: number) => string
         fragmentRif: (segments: number) => string
@@ -543,6 +549,8 @@ export interface Strings {
     uwbSp0: (role: 'poll' | 'resp' | 'report', dst: string) => string
     uwbRate: (mbps: number) => string
     uwbWait: string; uwbWaitNote: string
+    /** §10.36's receipt-confirmation answer: how many initiators this frame lists. */
+    uwbMmrcm: (n: number) => string
   }
 }
 
@@ -1022,6 +1030,7 @@ export const STRINGS: Strings = {
       nbResp: '窄带 RESP',
       nbReport: '窄带 REPORT',
       uwbSp0: 'SP0 控制帧',
+      uwbMmrcm: 'UWB 多消息收妥确认帧（MMRCM）',
     },
     whatIs: {
       cfend: 'TXOP 持有者把时间还回去。它的 RTS/CTS 已把信道预约到 TXOP 结束，但突发提前发完了，于是用这一帧告诉所有解出它的站点：现在就可以撤销那段预约。若发送者是终端，AP 会在一个 SIFS 后重复一遍，让小区另一侧也听到释放。',
@@ -1052,6 +1061,7 @@ export const STRINGS: Strings = {
       nbResp: '响应方对窄带 POLL 的答复（802.15.4ab 草案）：它听到了轮询，并将在随后的测距阶段发出自己的片段序列。',
       nbReport: '一份窄带测量报告（802.15.4ab 草案）：响应方测得的回复时间，或发起方测得的周转时间——计算距离所需的数字，由控制电台而非 UWB 电台携带。',
       uwbSp0: '同一套控制消息——轮询、响应、测量报告——但这台设备没有窄带电台（802.15.4ab 草案的配置 1）。于是它们改成 SP0 基本包，走 UWB 电台本身。代价写在链路预算里：SP0 比测距包自带的那段 SYNC+SFD 更长、峰值功率更低，捕获门槛要差约 4 dB，所以有它在的时候，是它决定这一轮能不能建立起来。',
+      uwbMmrcm: '多对多测距里，一个参与者只知道自己算出了到谁的距离，却不知道谁听见了自己——控制器可以在轮询帧里请求一次确认（标准 §10.36），这个请求本身不花一个字节，因为它只是 ARC IE 控制字里早就有的那两个字节中的一位。花钱的是这一帧：响应方把它在当前控制消息有效期窗口里，收到了该发起方的哪几条开场消息，逐发起方列成一张位图回送过去。',
     },
     next: {
       cfend: '所有解出它的站点都会清零 NAV，安静一个 DIFS/AIFS 后即可重新竞争。听不到它的站点则要一直等到自己听到的那段预约自然结束。',
@@ -1082,6 +1092,7 @@ export const STRINGS: Strings = {
       nbResp: '测距阶段开始：两台设备各自发出片段序列，每毫秒各一个，在同一毫秒内交错排列。',
       nbReport: '接收一方用片段序列给出的时钟比例完成单边飞行时间计算并记录距离；下一轮在下一个测距块开始。',
       uwbSp0: '这条消息扮演哪个角色，就接哪一段：轮询之后是响应方的 SP0 应答，应答之后是 UWB 测距阶段的两串片段，测量报告之后这一轮结束。整轮都在同一个 UWB 电台上，没有第二个电台可退。',
+      uwbMmrcm: '被列在位图里的每个发起方，此刻才第一次知道这个响应方到底收到了自己哪几条开场消息——这件事本来谁都不会主动告诉它。位图之外的发起方毫无所获：它们没有被问到，这一帧也没有回答关于它们的任何事。',
     },
     nextTitle: '接下来会发生什么',
     from: '发送方', to: '接收方', everyone: '多个终端（多用户）',
@@ -1137,6 +1148,7 @@ export const STRINGS: Strings = {
         ieCoffs: '时钟偏差信息元·响应锚点相对锚点 0 的偏差',
         ieBlink: '闪发信息元·单向闪发帧的内容',
         ieRmnr: 'RMNR 信息元·测距消息未收到，无内容字段',
+        ieRmmrc: 'RMMRC 信息元·多消息收妥确认',
         mmsFragment: '片段·第几个，共几个',
         mmsShape: '序列·这个片段由什么构成',
         mmsLength: '长度·一毫秒的能量花在多长的时间里',
@@ -1209,6 +1221,8 @@ export const STRINGS: Strings = {
         coffs: (ppm) => `时钟偏差 ${ppm} ppm——相对锚点 0`,
         blink: (block, round) => `闪发 · 块 ${block} · 轮 ${round}`,
         rmnr: () => '无内容字段——仅凭出现在这个时隙本身，说明仍持有有效 RCM、但本轮启动消息未收到',
+        rmmrc: (n, list) => `${n} 个发起方：${list}`,
+        rmmrcEntry: (id, bits) => `${id} 收妥位图 ${bits}（从左到右：窗口第一轮…最后一轮）`,
         fragment: (kind, index, of, msIn) => `${kind} 第 ${index} / ${of} 个 · 序列中的第 ${msIn} ms`,
         fragmentRsf: (nMsr, gap) => `N_MSR ${nMsr} × MMRS 符号 · 间隔 ${gap}`,
         fragmentRif: (segments) => `STS 段 ${segments} × 512 码片`,
@@ -1304,6 +1318,7 @@ export const STRINGS: Strings = {
     uwbRate: (mbps) => `${mbps} Mbps BPRF · HRP UWB（SP1 PPDU）`,
     uwbWait: '持有一个测距时隙',
     uwbWaitNote: 'UWB 设备从不参与竞争：本轮的调度表已经规定了这个时隙属于谁，接收机只需保持开启到时隙截止。',
+    uwbMmrcm: (n) => `UWB 多消息收妥确认帧——答复 ${n} 个发起方`,
   },
 }
 

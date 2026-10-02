@@ -14,7 +14,7 @@ import {
 } from './nb'
 import {
   UWB_BLINK_BYTES, UWB_REPORT_BYTES, UWB_SS_DEFER_BYTES, uwbDlFinalBytes, uwbDlPollBytes, uwbDlRespBytes,
-  uwbFinalBytes, uwbInitBytes, uwbM2mBytes, uwbPollBytes, uwbPpduNs, uwbRespBytes, uwbRmnrBytes,
+  uwbFinalBytes, uwbInitBytes, uwbM2mBytes, uwbMmrcmBytes, uwbPollBytes, uwbPpduNs, uwbRespBytes, uwbRmnrBytes,
   type UwbReplyTime,
 } from './phy'
 
@@ -49,6 +49,14 @@ export type UwbFrameKind =
   // them: one SP0 (BASIC_PACKET) frame format on the HRP UWB PHY, with the role in its content.
   // 4ab draft 15-25/0194r0
   | 'uwbSp0'
+  // The answer to a many-to-many receipt-confirmation request (standard §10.36, Figure 10-272
+  // "Many-to-Many Messages"): one responder confirming which of an initiator's window-openers it
+  // actually received — see `makeMmrcm` below and design §3.2/§3.3 of
+  // docs/superpowers/specs/2026-10-02-receipt-confirmation-design.md. Its own kind, not a reuse
+  // of 'uwbReport' or 'uwbRmnr': the lesson's whole point is that this frame answers a request
+  // (the ARC IE's MMRCR bit), not that it measures anything — a timeline that filed it under
+  // either of those existing kinds would say it was part of the ranging itself.
+  | 'uwbMmrcm'
 
 // Both predicates take the whole `FrameKind` union, not just the UWB half: their callers hold a
 // `FrameDesc.kind` (a lane, the timeline, a decoder), and narrowing at the call site would only
@@ -97,6 +105,23 @@ export interface UwbM2mTimes {
   /** RX counters the sender holds, by peer id: every participant that transmitted before this
    * one in the round's slot order. Empty for participant 0, which opens the round. */
   rxCounters: Record<string, number>
+}
+
+/**
+ * One MMRC list entry of an RMMRC IE (standard §10.36.2.1): the initiator this entry answers and
+ * which of that initiator's openers inside the current RCM validity window this responder
+ * actually received. `received[i]` is round i of the window in round order — index 0 the
+ * control message that opened it, indices 1.. the initiation-only messages after it
+ * (`uwb/session.ts#blockCarriesRcm`) — not a packed bitmap: `uwbMmrcmBytes`/`rmmrcEntryBytes`
+ * price the packed form separately, so this type carries the bits a device would read off the
+ * air rather than the octets that got them there.
+ */
+export interface UwbMmrcEntry {
+  /** The initiator's short address. Always 2 octets (`RMMRC_ADDR_BYTES`, model: the standard
+   * allows two address sizes and this engine builds the shorter one). */
+  initiator: string
+  /** True at index i when this responder received window-round i's opener. */
+  received: boolean[]
 }
 
 /**
@@ -192,6 +217,9 @@ export interface UwbInfo {
   nb?: UwbNbMsg
   /** SP0 control frame (`uwbSp0`): the same control plane, on the UWB PHY. */
   sp0?: UwbSp0Msg
+  /** Receipt confirmation (`uwbMmrcm`, standard §10.36): one entry per initiator this frame
+   * answers, each with the receipt bitmap of that initiator's window-openers. */
+  mmrc?: UwbMmrcEntry[]
 }
 
 /**
@@ -350,6 +378,33 @@ export function makeSsDefer(
 export function makeRmnr(anchor: string, tag: string, block: number, round: number, slot: number): FrameDesc {
   return uwbFrame('uwbRmnr', anchor, tag, uwbRmnrBytes(), {
     sp: 1, method: 'ss', block, round, slot, ies: ['RMNR'],
+  })
+}
+
+/** A responder's answer to a receipt-confirmation request (standard §10.36; design §3.2): one
+ * RMMRC IE listing, per initiator, which of that initiator's window-openers this responder
+ * actually received. `windowRounds` is the current RCM validity window's own length (R) — the
+ * same number `blockCarriesRcm` uses — and sizes every entry's bitmap alike
+ * (`uwbMmrcmBytes`/`rmmrcEntryBytes`); the caller is trusted to hand every entry a `received`
+ * array of that same length, since a bitmap narrower or wider than the window it describes would
+ * be a different window it never agreed to.
+ *
+ * `method` is the shape `UwbInfo` requires of every ranging frame, filled the way `makeRmnr` and
+ * `makeBlink` fill it: this frame answers a request, it does not range, so there is no TWR method
+ * behind it to report.
+ *
+ * Its own `FrameKind` (`'uwbMmrcm'`), not a second use of `'uwbReport'` or `'uwbRmnr'` — see the
+ * `UwbFrameKind` union above: a timeline that filed this frame under either existing kind would
+ * say it was part of the ranging itself, when the whole point of §10.36 is that it is an answer
+ * to a request (the ARC IE's MMRCR bit), bought with a frame of its own rather than for free.
+ */
+export function makeMmrcm(
+  src: string, dst: string, block: number, round: number, slot: number,
+  windowRounds: number, entries: UwbMmrcEntry[],
+): FrameDesc {
+  return uwbFrame('uwbMmrcm', src, dst, uwbMmrcmBytes(entries.length, windowRounds), {
+    sp: 1, method: 'ss', block, round, slot, ies: ['RMMRC'],
+    mmrc: entries.map((e) => ({ initiator: e.initiator, received: [...e.received] })),
   })
 }
 
