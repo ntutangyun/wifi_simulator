@@ -2,7 +2,7 @@
  * Task 2 of docs/superpowers/specs/2026-10-02-receipt-confirmation-design.md: where the MMRCM
  * frame (standard §10.36, task 1's pure frame layer) sits in the slot table. No device lands here
  * (that is a later task) — this pins `RoundPlan.mmrcr` and the three functions that describe the
- * extra slot(s) (`blockCarriesMmrcm`, `mmrcmInitiators`, `blockSlots`), plus `blockSlotAction`,
+ * extra slot(s) (`blockCarriesMmrcm`, `mmrcmResponders`, `blockSlots`), plus `blockSlotAction`,
  * which is the one function that actually varies with `block` and so is the one the "blocks
  * 0…R−2 are identical to `mmrcr: false`" requirement (task-2-brief.md) genuinely exercises —
  * `slotAction` itself never reads `mmrcr` and cannot fail this on its own.
@@ -10,7 +10,7 @@
 import { describe, it, expect } from 'vitest'
 import { DEFAULT_UWB_SESSION, type UwbSessionCfg } from '../../src/model/scenario'
 import {
-  blockCarriesMmrcm, blockSlotAction, blockSlots, mmrcmInitiators, roundPlan, slotAction,
+  blockCarriesMmrcm, blockSlotAction, blockSlots, mmrcmResponders, roundPlan, slotAction,
 } from '../../src/uwb/session'
 
 const session = (over: Partial<UwbSessionCfg> = {}): UwbSessionCfg => ({ ...DEFAULT_UWB_SESSION, ...over })
@@ -51,15 +51,20 @@ describe('blockCarriesMmrcm', () => {
   })
 })
 
-describe('mmrcmInitiators', () => {
+describe('mmrcmResponders', () => {
   it('is 0 whenever mmrcr is off, in every mode', () => {
-    expect(mmrcmInitiators(roundPlan(session({ mmrcr: false, mode: 'twr' }), 4))).toBe(0)
-    expect(mmrcmInitiators(roundPlan(session({ mmrcr: false, mode: 'm2m' }), 3))).toBe(0)
+    expect(mmrcmResponders(roundPlan(session({ mmrcr: false, mode: 'twr' }), 4))).toBe(0)
+    expect(mmrcmResponders(roundPlan(session({ mmrcr: false, mode: 'm2m' }), 3))).toBe(0)
   })
 
-  it('is 1 for a two-way round — the single tag it belongs to', () => {
+  it('is one per anchor in a two-way round, because an anchor is what sends one', () => {
+    // This test asserted 1 at first — "the single tag the round belongs to" — and that was the bug
+    // rather than the rule. §10.36 has two counts: the IE carries one entry per *initiator*, since
+    // one responder may have heard several, while the slots are one per *responder*, since each
+    // responder sends its own frame. A two-way round has one tag and A anchors, so A frames need A
+    // slots; budgeting one left every anchor answering from the same slot.
     for (const anchors of [1, 2, 4]) {
-      expect(mmrcmInitiators(roundPlan(session({ mmrcr: true, mode: 'twr' }), anchors))).toBe(1)
+      expect(mmrcmResponders(roundPlan(session({ mmrcr: true, mode: 'twr' }), anchors))).toBe(anchors)
     }
   })
 
@@ -67,7 +72,7 @@ describe('mmrcmInitiators', () => {
     for (const n of [2, 3, 6]) {
       const p = roundPlan(session({ mmrcr: true, mode: 'm2m' }), n)
       expect(p.participants).toBe(n)
-      expect(mmrcmInitiators(p)).toBe(n)
+      expect(mmrcmResponders(p)).toBe(n)
     }
   })
 })
@@ -78,10 +83,11 @@ describe('blockSlots', () => {
     for (let block = 0; block < 8; block++) expect(blockSlots(p, block)).toBe(p.slots)
   })
 
-  it('grows by mmrcmInitiators only on the window-closing block, twr', () => {
+  it('grows by mmrcmResponders only on the window-closing block, twr', () => {
     const p = roundPlan(session({ mmrcr: true, mode: 'twr', rcmValidityRounds: 4 }), 2)
     for (let block = 0; block < 8; block++) {
-      const expected = block % 4 === 3 ? p.slots + 1 : p.slots
+      // +2, one per anchor — not +1. See `mmrcmResponders`' own test above.
+      const expected = block % 4 === 3 ? p.slots + 2 : p.slots
       expect(blockSlots(p, block), `block=${block}`).toBe(expected)
     }
   })
@@ -116,13 +122,17 @@ describe("blocks 0…R−2 of a window are identical to mmrcr: false, slot for s
       const off = roundPlan(session({ mmrcr: false, rcmValidityRounds: r }), 3)
       const on = roundPlan(session({ mmrcr: true, rcmValidityRounds: r }), 3)
       const closing = r - 1
-      expect(blockSlots(on, closing), `r=${r}`).toBe(blockSlots(off, closing) + 1)
+      // Three anchors, so three new slots — one per responder.
+      expect(blockSlots(on, closing), `r=${r}`).toBe(blockSlots(off, closing) + 3)
       // Every slot below plan.slots still agrees...
       for (let slot = 0; slot < on.slots; slot++) {
         expect(blockSlotAction(on, closing, slot)).toEqual(blockSlotAction(off, closing, slot))
       }
-      // ...and the one new slot is the MMRCM answer, not present at all in the off plan.
-      expect(blockSlotAction(on, closing, on.slots)).toEqual({ kind: 'uwbMmrcm', index: 0 })
+      // ...and each new slot answers for one responder, in order, none of them present in the
+      // off plan at all.
+      for (let i = 0; i < 3; i++) {
+        expect(blockSlotAction(on, closing, on.slots + i)).toEqual({ kind: 'uwbMmrcm', index: i })
+      }
       expect(() => blockSlotAction(off, closing, off.slots)).toThrow()
     }
   })

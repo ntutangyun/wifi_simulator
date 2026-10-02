@@ -17,7 +17,8 @@ import type { ScattererCfg } from '../engine/scatter'
 import { NB_CHANNELS } from '../uwb/nb'
 import {
   C_M_PER_NS, mmsResponders, rstuNs, UWB_SLOT_GUARD_NS, uwbM2mSlotFitNs, uwbMaxAnchors, uwbMaxParticipants,
-  uwbNbSlotFitNs, uwbPollBytes, uwbPpduNs, uwbRespBytes, uwbSlotFitNs, uwbSlotsPerTag, type UwbReplyTime,
+  uwbMmrcmSlots, uwbNbSlotFitNs, uwbPollBytes, uwbPpduNs, uwbRespBytes, uwbSlotFitNs, uwbSlotsPerTag,
+  type UwbReplyTime,
 } from '../uwb/phy'
 import type { LinkId } from './caps'
 import type { CapabilityProfile, NodeKind, Vec3 } from './types'
@@ -1438,10 +1439,10 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
           // rcmValidityRounds at 1 (the rule above), so *every* block is the one block that closes
           // its own one-block window — unlike 'twr' below, there is no "blocks 0…R−2 pay nothing"
           // case to spare here. One extra slot per participant, every block, whenever mmrcr is on.
-          // Computed here rather than imported from `uwb/session.ts#mmrcmInitiators` (which this
-          // file cannot import without the exact import cycle `uwb/phy.ts`'s own header comment
-          // explains this schema avoids — session.ts imports this file's types).
-          const mmrcrSlots = sc.uwb.mmrcr ? participants : 0
+          // Read from `uwb/phy.ts#uwbMmrcmSlots`, the one definition `session.ts` also reads —
+          // this file cannot import `session.ts` (import cycle), which is exactly why the count
+          // lives in `phy.ts` rather than being computed twice.
+          const mmrcrSlots = uwbMmrcmSlots(mode, participants, sc.uwb.mmrcr)
           const m2mRoundSlots = uwbSlotsPerTag(
             sc.uwb.method, participants, sc.uwb.schedule, sc.uwb.contentionSlots, mode,
           ) + mmrcrSlots
@@ -1488,10 +1489,13 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
           // for that window-closing block even though the other `rcmValidityRounds − 1` blocks never
           // spend it — `roundPlan`'s own `blockNs` does not vary by block index. Gated on `'twr'`
           // alone (not `mode !== 'mms'`) because `mmrcr` is already refused outright for dl-tdoa,
-          // ul-tdoa and mms above; this is always 0 there regardless. Not imported from
-          // `uwb/session.ts#mmrcmInitiators`, for the same import-cycle reason `uwb/phy.ts`'s own
-          // header comment gives for why this schema reads `phy.ts` rather than `session.ts`.
-          const mmrcrSlots = mode === 'twr' && sc.uwb.mmrcr ? 1 : 0
+          // ul-tdoa and mms above; `uwbMmrcmSlots` answers 0 there regardless.
+          //
+          // **One per anchor, not one.** The first draft budgeted a single slot — the tag this
+          // round belongs to — and that was wrong: a responder is what sends an MMRCM, so a
+          // two-way round needs one slot per *anchor*. The IE's one-entry-per-initiator count and
+          // the slot's one-per-responder count are different numbers that coincide only in m2m.
+          const mmrcrSlots = uwbMmrcmSlots(mode, anchors, sc.uwb.mmrcr)
           const fits = Math.floor(sc.uwb.blockRstu / ((slots + mmrcrSlots) * sc.uwb.slotRstu))
           // One round has to fit the block in every mode, DL-TDoA included: a round that outlives
           // its block runs into the next one's slots, and nothing downstream notices — the

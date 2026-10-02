@@ -33,7 +33,7 @@ import { byCodeUnit } from '../engine/hash'
 import type { NbLbt, NbReportMode, NodeCfg, UwbMode, UwbSessionCfg } from '../model/scenario'
 import type { Ns } from '../model/types'
 import { mmsLayout, mmsSlotsPerMs, type MmsLayout, type MmsPhy } from './mms'
-import { mmsResponders, rstuNs, uwbSlotsPerTag, type UwbReplyTime } from './phy'
+import { mmsResponders, rstuNs, uwbMmrcmSlots, uwbSlotsPerTag, type UwbReplyTime } from './phy'
 
 export { rstuNs }
 
@@ -322,41 +322,49 @@ export function blockCarriesMmrcm(plan: RoundPlan, block: number): boolean {
 }
 
 /**
- * How many initiators the window-closing block's own MMRCM slots answer for (design §3.3): one —
- * the single tag a two-way round belongs to — in every mode but `'m2m'`, where it is every one of
- * the round's own participants, because a many-to-many round has no fixed initiator/responder
- * split at all (design §2 of the many-to-many slice) — every participant is itself an initiator to
- * whoever transmits after it, and `scenario.ts`'s own `superRefine` comment on why `'m2m'` is
- * supported here (not refused, unlike dl-tdoa/ul-tdoa/mms/contention) explains why that makes the
- * one-block window meaningful for this mode specifically, unlike for `'twr'`.
+ * How many MMRCM slots the window-closing block adds: **one per responder**, because a responder is
+ * what sends one.
+ *
+ * **Corrected (2026-10-02).** Design §3.3 and this plan both said "one slot per initiator", and
+ * Task 2 implemented that faithfully — one slot in a two-way round, since such a round has one tag.
+ * It is wrong, and Task 2 flagged the symptom without being able to name the cause: *N* anchors
+ * would all have had to answer from that single slot. The confusion is that §10.36 has two counts
+ * and they belong to different things —
+ *
+ *   - the **IE** carries one list entry per **initiator**, because one responder may have heard
+ *     several (`uwb/phy.ts#uwbMmrcmBytes` takes that count), and
+ *   - the **slots** are one per **responder**, because each responder sends its own frame.
+ *
+ * In a two-way round that is N anchors answering the one tag, each with a single-entry IE. In
+ * `'m2m'` every participant is both, so the two counts coincide — which is exactly why the error
+ * was invisible there and why `'m2m'` was the mode this clause was reasoned about.
  *
  * `0` when `plan.mmrcr` is off, a documented, inert answer rather than a thrown error — `plan.mode`
  * is meaningful on its own in every mode, so a caller that has not yet checked `plan.mmrcr` cannot
  * be surprised by this one refusing to answer at all.
  */
-export function mmrcmInitiators(plan: RoundPlan): number {
-  if (!plan.mmrcr) return 0
-  return plan.mode === 'm2m' ? plan.participants : 1
+export function mmrcmResponders(plan: RoundPlan): number {
+  // One definition, in `phy.ts`, because the scenario schema's block-fit rule needs the same number
+  // and cannot import this file (see `uwbMmrcmSlots`' own comment).
+  return uwbMmrcmSlots(plan.mode, plan.mode === 'm2m' ? plan.participants : plan.anchors, plan.mmrcr)
 }
 
 /**
  * How many slots block `block`'s own round actually runs, `plan.slots` plus the window-closing
  * MMRCM slots `mmrcr` adds (design §3.3): `plan.slots` on every block but the one that closes an
- * `mmrcr` window, and `plan.slots + mmrcmInitiators(plan)` there. Blocks 0…R−2 of a window are
+ * `mmrcr` window, and `plan.slots + mmrcmResponders(plan)` there. Blocks 0…R−2 of a window are
  * therefore identical to the `mmrcr: false` case, slot for slot — the one rule task-2-brief.md asks
  * to be pinned on its own — and only the window's last block ever differs.
  */
 export function blockSlots(plan: RoundPlan, block: number): number {
-  return plan.slots + (blockCarriesMmrcm(plan, block) ? mmrcmInitiators(plan) : 0)
+  return plan.slots + (blockCarriesMmrcm(plan, block) ? mmrcmResponders(plan) : 0)
 }
 
-/** One MMRCM slot (design §3.2/§3.3): `index` is which of the window's initiators, in ascending
- * order, this particular slot answers — always 0 in a two-way round (`mmrcmInitiators` is 1 there),
- * 0…N−1 in `'m2m'`. Kept apart from `SlotAction` rather than added as one more of its members: a
- * device deciding *who* actually transmits from this slot (which anchor confirms, or how several
- * anchors might share the one slot a tag's window reserves) is next task's own decision, and this
- * task's brief rules device changes out — adding a member to the union `device.ts` already
- * switches on would hand that decision to this task by default. */
+/** One MMRCM slot (design §3.2/§3.3): `index` is **which responder** this slot belongs to, in
+ * ascending order — 0…A−1 for the anchors of a two-way round, 0…N−1 for the participants of an
+ * `'m2m'` one. Kept apart from `SlotAction` rather than added as one more of its members, so that
+ * which device actually transmits from the slot stays the device task's decision rather than being
+ * handed to the schedule by the shape of the union `device.ts` already switches on. */
 export interface MmrcmSlotAction {
   kind: 'uwbMmrcm'
   index: number
@@ -373,7 +381,7 @@ export interface MmrcmSlotAction {
 export function blockSlotAction(plan: RoundPlan, block: number, slot: number): SlotAction | MmrcmSlotAction {
   if (slot < plan.slots) return slotAction(plan, slot)
   const index = slot - plan.slots
-  if (blockCarriesMmrcm(plan, block) && index < mmrcmInitiators(plan)) {
+  if (blockCarriesMmrcm(plan, block) && index < mmrcmResponders(plan)) {
     return { kind: 'uwbMmrcm', index }
   }
   throw new Error(`blockSlotAction: block ${block} has ${blockSlots(plan, block)} slots, asked for ${slot}`)

@@ -549,6 +549,35 @@ export function mmsResponders(mms: MmsRoundShape, anchors: number): number {
  * behavioural change. The rename is its own commit, later, when nothing else is moving; until
  * then, read "per tag" as "per round" for every mode this function already treats that way
  * (DL-TDoA's `anchors + 1`, a contention round's `1 + contentionSlots`) and now for `'m2m'` too. */
+/**
+ * MMRCM slots a window-closing block adds (standard §10.36, design §3.3): **one per responder**,
+ * because a responder is what sends one.
+ *
+ * It lives here rather than in `session.ts` for the reason this file's own header gives: the
+ * scenario schema reads `phy.ts` and cannot read `session.ts` without an import cycle, and the
+ * schema's block-fit rule has to budget these slots. One definition both sides read — the lesson
+ * slice 3 wrote down as a ruling after the m2m slot count ended up copied into the schema and the
+ * two copies could drift.
+ *
+ * `peers` is the anchor count in a two-way round and the participant count in `'m2m'`; the caller
+ * passes whichever its own mode means, because this function cannot see a plan.
+ *
+ * **Why per responder, when the IE counts initiators.** §10.36 has two counts and they belong to
+ * different things: the IE carries one list entry per *initiator*, since one responder may have
+ * heard several, while the slots are one per *responder*, since each responder sends its own frame.
+ * The first draft of this feature said "one slot per initiator" in both places, which gave a
+ * two-way round a single slot for all N anchors to answer from. In `'m2m'` the two counts coincide,
+ * which is why the error was invisible in the mode this clause was reasoned about.
+ */
+export function uwbMmrcmSlots(mode: UwbMode, peers: number, mmrcr: boolean): number {
+  if (!mmrcr) return 0
+  // Refused outright for dl-tdoa, ul-tdoa and mms in the schema, so those never reach here with
+  // `mmrcr` on; answering 0 rather than throwing keeps this usable from a caller that has not
+  // checked the mode yet.
+  if (mode !== 'twr' && mode !== 'm2m') return 0
+  return peers
+}
+
 export function uwbSlotsPerTag(
   method: 'ss' | 'ds', anchors: number, schedule: 'time' | 'contention' = 'time', contentionSlots = 8,
   mode: UwbMode = 'twr', mms?: MmsRoundShape, slotsPerMs = MMS_SLOTS_PER_MS, replyTime: UwbReplyTime = 'embedded',

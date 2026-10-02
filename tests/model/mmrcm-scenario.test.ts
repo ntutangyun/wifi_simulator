@@ -195,8 +195,15 @@ describe('mmrcr — the scenario schema (design §3.1/§4)', () => {
     // The same block fits fine once mmrcr is off.
     const off: UwbSessionCfg = { ...cfg, mmrcr: false }
     expect(ScenarioSchema.safeParse(uwbScenario(twoAnchorsOneTag(), off)).success).toBe(true)
-    // ...and fits again once mmrcr is on but the block has room for the extra slot.
-    const roomy: UwbSessionCfg = { ...cfg, blockRstu: (slots + 1) * DEFAULT_UWB_SESSION.slotRstu }
+    // ...and fits again once mmrcr is on but the block has room for the extra slots. **Plural, and
+    // one per anchor** — the first draft of this test gave room for a single slot, because the
+    // feature's first draft budgeted one. An MMRCM is sent by a responder, so a two-way round needs
+    // one slot per anchor; derived from the scene rather than written as a literal so it stays right
+    // if the scene gains an anchor.
+    const anchorsHere = twoAnchorsOneTag().filter((n) => n.uwb?.role === 'anchor').length
+    const roomy: UwbSessionCfg = {
+      ...cfg, blockRstu: (slots + anchorsHere) * DEFAULT_UWB_SESSION.slotRstu,
+    }
     expect(ScenarioSchema.safeParse(uwbScenario(twoAnchorsOneTag(), roomy)).success).toBe(true)
   })
 
