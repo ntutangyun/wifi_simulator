@@ -9,8 +9,16 @@
  * camera's throughput, and why the 5 GHz lane never notices. Every number
  * quoted below is pinned in tests/course/amp-coexist.test.ts.
  *
- * CAUTION — this lesson sits close to the minute at which `lessonMinutes` rounds
- * up from 25 to 30. Adding a section means checking the estimate again
+ * Migrated to the zero-to-hero contract 2026-10-02 (the readability programme's
+ * last AMP hole): why/outcomes/needs/terms/picture/numbers/sources/limits in
+ * place of the old flat `body`, every official term bracketed with its English
+ * name at first Chinese use, and a `steps` block for how a round tries to keep
+ * the rest of the BSS quiet. Every fact, number and the scenario/variants/jumps
+ * are unchanged from the pre-migration version, so the recorded timeline hashes
+ * in tests/fixtures/lesson-hashes.json did not move.
+ *
+ * CAUTION — this lesson now lands exactly on the 30-minute ceiling (raw ≈ 27.6
+ * minutes, rounds to 30). Adding a section means checking the estimate again
  * (`npx tsx scripts/lesson-dump.ts amp-coexist`), or the study-time test fails.
  */
 import type { NodeCfg, Scenario } from '../../model/scenario'
@@ -48,15 +56,37 @@ export const ampCoexist: Lesson = {
   id: 'amp-coexist',
   module: 10,
   title: 'AMP 与 Wi-Fi 共享 2.4 GHz',
-  body: [
-    { text: 'IEEE P802.11bp 仍是草案：D0.5 于 2026 年 5 月发布，D1.0 将于 2026 年 9 月进入 letter ballot。本课拆解的轮来自提案草案文本 11-26/1889r4 第 39.4 节与 11-26/1519r5；AP 用 AC_BK 发起这个轮出自 PAR，而轮前面那帧 CTS-to-self 是仿真器的模型选择——规范框架 11-24/1613r20 只对双基地反向散射强制要求保护（FM-48）。前面几课里标签独占一条信道。这一课给它们安排了邻居。' },
-    { heading: '场景：一台路由器，两个频段', text: '路由器在书房的 (3, 4)，带两套射频。两个标签——(2, 2) 的窗磁和 (4, 6) 的植物传感器——每 100 ms 回应一次轮询，用的是 2.4 GHz 这条链路：标签、摄像头和路由器的第二套射频都挤在上面。(6, 4) 有一台摄像头，在 2.4 GHz 上以 AC_BE 持续满负荷上传；客厅里还有一部手机，在 5 GHz 上看视频。下文每个数字都是在头两秒里量出来的。' },
-    { text: '这台摄像头是一个压力负载：它手里永远有下一帧待发，所以轮的代价会直接表现为吞吐损失。换成一台负载轻的摄像头，同样这些微秒就会变成时延。' },
-    { heading: 'AC_BK：轮排在摄像头后面', text: 'AMP 的一个轮就是一次帧交换序列，AP 获得它的方式和获得任何别的发送机会一样：走 EDCA 功能。PAR 把 2.4 GHz 里的 AMP 通信放在 AC_BK 上——四个接入类别里最低的那个，专门留给“应该给别人让路”的流量。摄像头的上传在 AC_BE，比它高一级。' },
-    { kind: 'formula', text: 'AIFS[AC] = SIFS + AIFSN[AC] × 时隙        2.4 GHz：SIFS 10 µs，时隙 9 µs', note: '2.4 GHz 下时隙是 9 µs，SIFS 是 10 µs，于是轮所在的 AC_BK 要等 10 + 7 × 9 = 73 µs 才有资格开始倒数，而摄像头的 AC_BE 只等 10 + 3 × 9 = 37 µs。每一段空闲都是一次竞争，而这个轮一开始就落后 36 µs。' },
-    { text: '两秒里该发二十个轮，也确实发出了二十个，但轮询间隔不是时间表：CTS-to-self 平均比“到点”晚 5.17 ms 才出去，最晚的一次晚了 12.86 ms。二十个轮里只有两个正好卡在点上：第一个轮，因为 t = 0 时谁都还没有退避值，路由器的 CTS-to-self 和摄像头的 RTS 都在 0 µs 开始发送；还有 1.8 s 那个轮，恰好赶上信道空闲、退避也已经数完。AC_BK 换来的是另一种保证：标签永远不会是视频通话卡顿的原因。' },
-    { heading: 'CTS-to-self 只能通告，不能强制', text: '标签的上行是 250 kb/s 的 OOK。没有任何 Wi-Fi 终端能解出它，而解不出 PPDU 就拿不到 Duration 字段，也就无从设置 NAV——它只能看见能量，而且只在能量持续的那段时间里看见。标签的发射功率是 0 dBm，于是在书房另一头的摄像头那里，植物标签只有 −65.7 dBm，窗磁只有 −71.7 dBm，都低于 −62 dBm 的能量检测门限。摄像头的载波侦听根本看不见这些时隙。' },
-    { text: '所以每个轮开始之前，路由器先给自己发一帧 CTS：14 个字节、6 Mb/s、占空口 50 µs，用的是 BSS 里人人都读得懂的速率。轮本身和最初那一课一样——50 + 10 + 618 + 4 × (10 + 528 + 10 + 330) = 4190 µs——其中 CTS-to-self 的 Duration 字段覆盖了它之后的 4140 µs。摄像头解出了二十帧里的十七帧，并按 Duration 的要求把 NAV 设了 4140 µs。' },
+  why: 'AMP 的标签之前独占一条信道，不必和任何人竞争。这一课把它们搬进一间真实的公寓：同一条 2.4 GHz 链路（link）上还有一台持续上传的摄像头和路由器自己的轮询，5 GHz 上另有一部手机在看视频。轮要像任何别的发送一样去竞争信道，保护它的那一帧本身也要参与竞争——这一课看这些交互怎样分摊代价，又在哪些地方落空。',
+  outcomes: [
+    '说清轮为什么要在 AC_BK 上和别的流量一起竞争，而不是另开一条专用信道',
+    '解释 CTS-to-self（CTS to self）能做到什么、做不到什么——它是通告，不是强制',
+    '读出保护这一轮要付出多少吞吐，不加保护又要付出多少',
+    '判断轮询频率的变化怎样影响摄像头和标签各自的代价',
+  ],
+  needs: ['amp-slots'],
+  terms: [
+    { term: 'AC_BK', plain: '四个接入类别里最低的那一个，留给可以让路的流量；AMP 的轮走的就是这一类' },
+    { term: 'AC_BE', plain: '默认的那个接入类别；本课里摄像头的上传走这一类，比 AC_BK 优先' },
+    { term: 'CTS-to-self', plain: '路由器发给自己的一帧 CTS，用来预留信道——解得出它的设备会照着 Duration 避让，解不出的不会' },
+    { term: 'AIFS', plain: '每个接入类别自己的那段等待；越低优先级的类别，等的时间越长' },
+  ],
+  picture: [
+    { heading: '场景：一台路由器，两个频段', text: '路由器在书房的 (3, 4)，带两套射频。两个标签——(2, 2) 的窗磁和 (4, 6) 的植物传感器——每 100 ms 回应一次轮询，用的是 2.4 GHz 这条链路（link）：标签、摄像头和路由器的第二套射频都挤在上面。(6, 4) 有一台摄像头，在 2.4 GHz 上以 AC_BE 持续满负荷上传；客厅里还有一部手机，在 5 GHz 上看视频。下文每个数字都是在头两秒里量出来的。这台摄像头是一个压力负载：它手里永远有下一帧待发，所以轮的代价会直接表现为吞吐损失。换成一台负载轻的摄像头，同样这些微秒就会变成时延。' },
+    { kind: 'watch', jump: 0, heading: '看这一轮怎么保护自己', text: '载入仿真，跳到第一帧 CTS-to-self：路由器发给自己的一帧允许发送（clear to send, CTS），提前把信道预留下来。' },
+    { heading: 'AC_BK：轮排在摄像头后面', text: 'AMP 的一个轮就是一次帧交换序列，接入点（access point, AP）获得它的方式和获得任何别的发送机会一样：走增强型分布式信道接入（enhanced distributed channel access, EDCA）功能。PAR 把 2.4 GHz 里的 AMP 通信放在 AC_BK 上——四个接入类别（access category, AC）里最低的那个，专门留给“应该给别人让路”的流量。摄像头的上传在 AC_BE，比它高一级。' },
+    { kind: 'formula', text: 'AIFS[AC] = SIFS + AIFSN[AC] × 时隙        2.4 GHz：SIFS 10 µs，时隙 9 µs', note: '2.4 GHz 下时隙是 9 µs，短帧间间隔（short interframe space, SIFS）是 10 µs，于是轮所在的 AC_BK 要等 10 + 7 × 9 = 73 µs 才有资格开始倒数，而摄像头的 AC_BE 只等 10 + 3 × 9 = 37 µs。每一段空闲都是一次竞争，而这个轮一开始就落后 36 µs。' },
+    { text: '两秒里该发二十个轮，也确实发出了二十个，但轮询间隔不是时间表：CTS-to-self 平均比“到点”晚 5.17 ms 才出去，最晚的一次晚了 12.86 ms。二十个轮里只有两个正好卡在点上：第一个轮，因为 t = 0 时谁都还没有退避（backoff）值，路由器的 CTS-to-self 和摄像头的请求发送（request to send, RTS）都在 0 µs 开始发送；还有 1.8 s 那个轮，恰好赶上信道空闲、退避也已经数完。AC_BK 换来的是另一种保证：标签永远不会是视频通话卡顿的原因。' },
+    { heading: 'CTS-to-self 只能通告，不能强制', text: '标签的上行（uplink, UL）是 250 kb/s 的 OOK。没有任何 Wi-Fi 终端能解出它，而解不出 PPDU（PHY protocol data unit）就拿不到 Duration 字段，也就无从设置网络分配向量（network allocation vector, NAV）——它只能看见能量，而且只在能量持续的那段时间里看见。标签的发射功率（transmit power）是 0 dBm，于是在书房另一头的摄像头那里，植物标签只有 −65.7 dBm，窗磁只有 −71.7 dBm，都低于 −62 dBm 的能量检测门限（energy detection threshold）。摄像头的载波侦听（carrier sense）根本看不见这些时隙。' },
+    { kind: 'steps', heading: '一个轮怎样试图让别人安静', items: [
+      '路由器先发一帧 CTS-to-self，把 Duration 字段覆盖到这一轮结束。',
+      '解得出这帧 CTS-to-self 的 Wi-Fi 设备据此设置 NAV，在 Duration 到期之前不再发送。',
+      '解不出的设备——这一瞬间恰好自己也在发送的——不会设置任何倒计时，照样可能撞进轮里。',
+      '路由器跑完轮询、读取回应，全程不理会任何闯入的帧：它正在跑一个轮，而轮是不可打断的。',
+      '闯入的帧要么等到 CTS 超时，要么被轮里一帧意外出现的 Ack 提前结束等待——两种结局都要把竞争窗口（contention window, CW）翻一倍。',
+    ] },
+  ],
+  numbers: [
+    { text: '所以每个轮开始之前，路由器先给自己发一帧 CTS：14 个字节、6 Mb/s、占空口 50 µs，用的是基本服务集（basic service set, BSS）里人人都读得懂的速率。轮本身和最初那一课一样——50 + 10 + 618 + 4 × (10 + 528 + 10 + 330) = 4190 µs——其中 CTS-to-self 的 Duration 字段覆盖了它之后的 4140 µs。摄像头解出了二十帧里的十七帧，并按 Duration 的要求把 NAV 设了 4140 µs。' },
     { text: '有意思的是漏掉的那三帧。这三次，摄像头自己的 RTS 都和 CTS-to-self 在同一纳秒开始发送：半双工的射频在发送期间无法接收，而从未收到 Duration 的终端自然不会设 NAV。802.11 的保护机制向来是尽力而为——保护帧和别的帧一样要参与竞争，而它想让其安静的那个终端，很可能正好也在发。' },
     { text: '整个运行里只有九帧摄像头的帧落进了上行时隙——无一例外都是 RTS，无一例外都发生在它没听见公告的那三个轮里。路由器一帧也没回应：它正在跑一个轮，而轮是不可打断的。九次里有八次以 CTS 超时收场；第九次结束得更早：一帧 AMP Ack 落在超时窗口之内，摄像头当场就判定这次尝试失败。两种结局一样，都要把竞争窗口翻一倍。' },
     { kind: 'table', heading: '两秒，四种跑法', head: [
@@ -70,7 +100,7 @@ export const ampCoexist: Lesson = {
       ['CTS-to-self，每 20 ms 轮询', '139 / 200 (69.5 %)', '33', '77.41 Mb/s', '13.24 Mb/s'],
     ] },
     { text: '标签一共送出 40 帧回应，29 帧拿到了确认——72.5 %。丢掉的十一帧里，八帧是两个标签抽到了同一个时隙，二十轮里发生了四次；另外三帧输给了摄像头，而且三次都落在它没听见公告的那几个轮里。两个标签分四个时隙，大部分时隙是空的：80 个时隙里 44 个安静无声，32 个装着一帧回应，4 个装着两帧。' },
-    { heading: '这个轮占用多少空口时间', text: '每个轮都要在每 100 ms 里预留 4190 µs——4.19 %——但其中真正被调制到空口上的只有 3044 µs：每秒 30 440 µs，占信道的 3.044 %。差额就是那些空时隙：一样被预留、一样要占用时间。' },
+    { heading: '这个轮占用多少空口时间（airtime）', text: '每个轮都要在每 100 ms 里预留 4190 µs——4.19 %——但其中真正被调制（modulation）到空口上的只有 3044 µs：每秒 30 440 µs，占信道的 3.044 %。差额就是那些空时隙：一样被预留、一样要占用时间。' },
     { kind: 'formula', text: '每轮：50（CTS）+ 618（触发帧）+ 4 × 330（Ack）= 1988 µs，再加 2 × 528（两帧回应）= 3044 µs' },
     { text: '轮询开着时摄像头能送出 99.89 Mb/s，把标签从同一间屋子里拿掉后是 105.29 Mb/s：为了一个只占 3.044 % 空口时间的轮，它付出了 5.13 % 的吞吐。多出来的那部分来自两处：一是预留——空时隙和满时隙一样让摄像头停止发送——二是它直接撞进去的那三个轮。' },
     { heading: '把保护拿掉', text: '把 CTS-to-self 拿掉，摄像头就彻底不知道轮的存在了：整个运行里一次 NAV 都没设，落进上行时隙的摄像头帧从九帧涨到 79 帧。40 帧回应只有 7 帧成功——17.5 %，而有 CTS-to-self 时是 72.5 %——路由器记下了 25 次原因为 collision 的接收失败，而此前只有 3 次。' },
@@ -79,13 +109,20 @@ export const ampCoexist: Lesson = {
     { heading: '另一个频段毫无察觉', text: '手机挂在路由器的 5 GHz 射频上。基础场景、无保护、20 ms 轮询、完全没有 AMP——四种跑法下它送达的视频帧都是 2365 帧，13.24 Mb/s，一帧不差。两条链路共享的是一台路由器，不是一条信道，AP 在每套射频上分别竞争。' },
     { kind: 'list', heading: '在哪里看', items: [
       '泳道：ap#2g 和 ap 是路由器的两套射频；摄像头和两个标签在第一条下面，手机在第二条下面。',
-      '日志里：每个轮之前的“AIFS wait until … [AC_BK]”，摄像头上的“NAV set until …（cts:ap）”，以及它撞进轮里时的“CTS timeout”。',
+      '日志里：每个轮之前会打印仲裁帧间间隔（arbitration interframe space, AIFS）的等待，格式是“AIFS wait until … [AC_BK]”；摄像头上是“NAV set until …（cts:ap）”，撞进轮里时是“CTS timeout”。',
       'CTS-to-self：点开它读 Duration 字段——4140 µs，正好是后面那个轮。',
     ] },
   ],
-  // AMP 轨暂停，四课都还没写 `limits`。空数组是这个事实的如实记录：
-  // tests/course/limits.test.ts 逐一点名这四课，AMP 恢复时会失败。
-  limits: [],
+  sources: [
+    'IEEE P802.11bp 仍是草案：D0.5 于 2026 年 5 月发布，D1.0 将于 2026 年 9 月进入 letter ballot。本课拆解的轮来自提案草案文本 11-26/1889r4 第 39.4 节与 11-26/1519r5；AP 用 AC_BK 发起这个轮出自 PAR。',
+    '轮前面那帧 CTS-to-self 是仿真器的模型选择，不是草案强制要求：规范框架 11-24/1613r20 的 FM-48 只对双基地反向散射模式强制要求保护。',
+  ],
+  limits: [
+    { kind: 'model-value', text: 'CTS-to-self 保护这个轮是本仿真器的设计选择（scenario.ts 的 AmpApCfg.protection），不是标准强制要求：规范框架 11-24/1613r20 的 FM-48 只对双基地反向散射模式强制要求保护，Active Tx 的轮本可以完全不发这帧 CTS，或者换一种更窄的预留方式。' },
+    { kind: 'unmodelled', text: '传播模型完全确定，不含任何快衰落（propagation.ts 不含任何随机项）：摄像头与 CTS-to-self 同时开始发送的那三个轮，是伪随机种子与轮询时钟撞在一起的确定性结果，同一个种子每次重跑都复现同样的三轮。真实世界里每一次这样的碰撞，具体时刻都会因时钟抖动而略有不同，但“发送时听不到别人”这条半双工约束本身没有被简化。' },
+    { kind: 'threshold', text: '一次接收是否失败，引擎按它全程最差的那一瞬间的干扰去判（channel.ts 的 maxInterfMw 与它的门限），所以摄像头的 RTS 只要有一瞬间被压过去就整帧判失败。真实的纠错编码配交织，短暂的重叠常常还能纠回来，碰撞因此是一条概率曲线；这里它是一个硬判决，本课测到的 3 次 collision 比真实链路更干脆、更容易复现。' },
+    { kind: 'unmodelled', text: '本仿真器把轮固定在 AC_BK 上，没有让 AP 根据观测到的时延或碰撞情况切换接入类别的机制（ampAp.ts 的轮固定走 AC_BK，没有可配置的替代项）。真实实现若把轮换到优先级更高的 AC，摄像头与手机受到的影响会和本课测到的数字完全不同。' },
+  ],
   scenario: () => ampCoexistScenario(),
   variants: [
     { label: '不加保护', scenario: () => ampCoexistScenario({ protection: 'none' }) },
@@ -101,7 +138,7 @@ export const ampCoexist: Lesson = {
   ],
   observe: [
     '跳到 0 µs 的第一帧 CTS-to-self：摄像头的 RTS 在同一瞬间开始，所以这份公告它根本没解出来。再跳到摄像头第一次设 NAV 的时刻，111.914 ms——那是第二个轮的——看它完整等满 4140 µs。',
-    '载入“不加保护”变体，跳到第一帧路由器没有回应的摄像头 RTS，时间是 73 µs：它在 0 µs 开始，和触发帧同一瞬间，而路由器当时正在发送。再走到下一次超时，890 µs——它的 RTS 从 817 µs 开始，正落在时隙 1 里、压在标签的回应上，于是路由器在 1156 µs 记下一条原因为 collision 的 RX_FAIL，收尾的 Ack 点名的是路由器自己。',
+    '载入“不加保护”变体，跳到第一帧路由器没有回应的摄像头 RTS，时间是 73 µs：它在 0 µs 开始，和触发帧（Trigger frame）同一瞬间，而路由器当时正在发送。再走到下一次超时，890 µs——它的 RTS 从 817 µs 开始，正落在时隙 1 里、压在标签的回应上，于是路由器在 1156 µs 记下一条原因为 collision 的 RX_FAIL，收尾的 Ack 点名的是路由器自己。',
     '选中手机，在四种跑法之间来回切换。它那条泳道每次都一模一样——2365 帧，第一帧在 883.111 µs。两套射频各自独立竞争，这个轮对不在 2.4 GHz 上收听的设备完全不可见。',
   ],
   tryThis: [
@@ -133,7 +170,7 @@ export const ampCoexist: Lesson = {
       q: '把轮询从 100 ms 改成 20 ms，摄像头损失了 26.49 % 的吞吐。5 GHz 的手机损失了多少？',
       options: [
         '一点也没有：四种跑法下它都送达同样的 2365 帧',
-        '大约是摄像头损失的五分之一，因为 AP 的队列是共享的',
+        '大约是摄像头损失的五分之一，因为 AP 的队列（queue）是共享的',
         '同样是 26.49 %：AP 一次只能用一套射频发送',
       ],
       answer: 0,

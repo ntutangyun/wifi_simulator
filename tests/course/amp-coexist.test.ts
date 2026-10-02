@@ -17,12 +17,16 @@ import { rssiOn } from './rssi'
 import { decodeFrame } from '../../src/model/frameFields'
 import { fmtRecord } from '../../src/ui/format'
 import type { TLRecord } from '../../src/model/records'
+import { lessonShapeSuite } from './kit'
 
 const MS = 1_000_000
 const US = 1_000
 /** 20 rounds at one round every 100 ms. Everything below is measured over these two seconds. */
 const ROUNDS = 20
 const RUN_NS = 2000 * MS
+
+// The contract every migrated lesson owes, written once in tests/course/kit.ts.
+lessonShapeSuite(ampCoexist, { runNs: RUN_NS })
 
 const AP = 'ap#2g'
 const CAM = 'cam#2g'
