@@ -239,6 +239,18 @@ export interface Strings {
      * drawn fresh every round, never read off a still-valid one.
      */
     uwbRmnr: string; uwbRmnrHint: string; uwbRmnrTwrOnly: string; uwbRmnrNeedsValidity: string; uwbRmnrContention: string
+    /**
+     * The receipt-confirmation request bit (standard §10.36's ARC IE, MMRCR, bit 15 of the same
+     * Content Control word `uwbRcmValidityRounds` already occupies — design §3.1 of
+     * 2026-10-02-receipt-confirmation-design.md): legal in two-way ranging and many-to-many, the
+     * two modes where some device never otherwise learns whether it was heard. Five hint keys,
+     * each `uwbMmrcrHintKey`'s own reason: three outright refusals, one per non-`'twr'`/non-`'m2m'`
+     * mode (each has a different reason the ARC IE never applies), plus the two `rmnr` already
+     * carries — needing a window wider than one round, and a time-scheduled slot.
+     */
+    uwbMmrcr: string; uwbMmrcrHint: string
+    uwbMmrcrDlTdoa: string; uwbMmrcrUlTdoa: string; uwbMmrcrMms: string
+    uwbMmrcrNeedsValidity: string; uwbMmrcrContention: string
     /** "slots per round N · rounds per block M" under the session fields. */
     uwbPlan: (slots: number, rounds: number) => string
     /** `mode: 'm2m'` only: how many participants the round actually holds — every UWB node, not
@@ -839,6 +851,13 @@ export const STRINGS: Strings = {
     uwbRmnrTwrOnly: '只有双向测距才有 ARC IE 携带的控制消息：这几种模式里没有这样一条消息，也就没有谁能“仍然持有”它',
     uwbRmnrNeedsValidity: '每轮一条控制消息（RCM 有效轮次为 1）时，这条控制消息和本轮的测距启动消息是同一帧：没收到这一帧的响应方，连自己的时隙都无从知道，也就没有地方可以发 RMNR——请先把 RCM 有效轮次调到 2 以上',
     uwbRmnrContention: '竞争调度下响应方的时隙是临时抽到的，不是哪一条控制消息里写定的，RMNR 在这里没有什么可确认的——请先把调度方式改回时间调度',
+    uwbMmrcr: '收妥确认请求（MMRCR）',
+    uwbMmrcrHint: '在 ARC IE 里置位 MMRCR（标准 §10.36，控制字第 15 位），请对端用一帧 MMRCM 确认它在当前 RCM 有效轮次窗口里收到了哪几条开场消息——这一位和上面的 RCM 有效轮次同属一个字，置位本身不增加控制消息的字节数，花费空口时间的是对端的那一帧回答',
+    uwbMmrcrDlTdoa: 'DL-TDoA 里能发出控制消息的只有 anchor 0，其余 anchor 有没有收到它的 Poll，已经由它自己发没发 Response 说明；真正不知道自己有没有被听见的是标签，而标签在 DL-TDoA 里从不发送，不是双方都认识的一个地址，没法替它确认',
+    uwbMmrcrUlTdoa: 'UL-TDoA 里标签只发一次闪烁帧，没有 ARC IE，也没有谁来应答，收妥确认没有地方可以请求',
+    uwbMmrcrMms: 'MMS 的控制面走的是窄带的 nbPoll/nbResp/nbReport，不是这里的 ARC IE，收妥确认请求的这一位没有地方可以搭',
+    uwbMmrcrNeedsValidity: '每轮一条控制消息（RCM 有效轮次为 1）时，窗口只有一块，位图也只有一位，而这一位说的正是这一帧收到了没有——响应方发没发 Response，已经当场说明了同一件事，不必再发一帧去确认它：请先把 RCM 有效轮次调到 2 以上',
+    uwbMmrcrContention: '收妥确认要落在一个确定属于某个应答方的时隙里，竞争式调度下响应方的时隙是抽来的，没有谁能保证占到那个时隙：请先把调度方式改回时间调度',
     uwbPlan: (slots, rounds) => `每轮 ${slots} 个时隙 · 每块 ${rounds} 轮`,
     uwbM2mParticipants: (participants) => `多对多测距：全部 ${participants} 台 UWB 设备都是参与者，按 id 排序决定发送顺序——上方的锚点/标签计数只影响画法，不影响这个数`,
     uwbMms: 'MMS 片段序列',

@@ -68,16 +68,36 @@ const ms = (rstu: number): string => (rstuNs(rstu) / 1e6).toFixed(rstu < 3000 ? 
  * either field there, the same way it refuses `aoa` outside two-way ranging. The mode select was
  * the one place in this file still able to hand the schema a combination it rejects — every other
  * field this function patches already had its reset; these two had none until now.
+ *
+ * `mmrcr` (standard §10.36's MMRCR bit, receipt-confirmation-design task 4) does **not** follow
+ * `rmnr`'s pattern here: it is legal in two modes, not one — two-way ranging and `'m2m'` both carry
+ * it (design §4 of that doc; `'m2m'` is the one mode the schema never refuses it in). So `mms`, the
+ * one-way modes and the catch-all branch below take it back to false along with `rmnr`, but the
+ * `'m2m'` branch leaves it alone. The `'twr'` branch is where the second instance of the `rmnr`
+ * defect this task's brief names would have landed: `'m2m'` always pins `rcmValidityRounds` at 1,
+ * so a session that turned `mmrcr` on while in `'m2m'` and then switched back to `'twr'` would
+ * arrive carrying `mmrcr: true` at `rcmValidityRounds: 1` — the exact pair the schema refuses for
+ * `'twr'` (it never refuses it for `'m2m'`, since a two-way responder's silence-or-Response already
+ * answers "was I heard" for free, but a many-to-many participant has nothing else that ever does).
+ * `rcmValidityRounds` and `mmrcr` are therefore read in, not just written out, the one asymmetry
+ * between this function's `'twr'` branch and its other three.
  */
-export function uwbModePatch(mode: UwbMode): Partial<UwbSessionCfg> {
-  if (mode === 'twr') return { mode }
+export function uwbModePatch(
+  mode: UwbMode, rcmValidityRounds = 1, mmrcr = false,
+): Partial<UwbSessionCfg> {
+  if (mode === 'twr') return rcmValidityRounds === 1 && mmrcr ? { mode, mmrcr: false } : { mode }
   if (mode === 'mms') {
-    return { mode, schedule: 'time', aoa: false, method: 'ss', slotRstu: 600, rcmValidityRounds: 1, rmnr: false }
+    return {
+      mode, schedule: 'time', aoa: false, method: 'ss', slotRstu: 600,
+      rcmValidityRounds: 1, rmnr: false, mmrcr: false,
+    }
   }
   if (mode === 'm2m') {
+    // mmrcr deliberately untouched: design §4 keeps it legal here, the one non-two-way mode that
+    // ever answers "who heard me" at all.
     return { mode, schedule: 'time', aoa: false, replyTime: 'embedded', rcmValidityRounds: 1, rmnr: false }
   }
-  return { mode, schedule: 'time', aoa: false, rcmValidityRounds: 1, rmnr: false }
+  return { mode, schedule: 'time', aoa: false, rcmValidityRounds: 1, rmnr: false, mmrcr: false }
 }
 
 /**
@@ -110,14 +130,21 @@ export function uwbMethodPatch(
  * there is nothing for an RMNR frame to confirm there. Turning the checkbox on is the rmnr
  * toggle's own job (it is simply greyed out under a contention schedule); taking it away when the
  * schedule is the field moving is this function's, the same division `uwbModePatch` keeps.
+ *
+ * `mmrcr` takes the same trip, for the same reason the schema refuses it under a contention
+ * schedule (receipt-confirmation-design §4, task 4): the confirmation has to land in a slot a
+ * given responder can count on, and a contention response phase hands out no such slot. This
+ * schedule select only ever moves while `session.mode === 'twr'` (the panel greys it out
+ * otherwise), so `mmrcr`'s own `'m2m'` legality never has to be considered here.
  */
 export function uwbSchedulePatch(
-  schedule: UwbSessionCfg['schedule'], replyTime: UwbSessionCfg['replyTime'], rmnr: boolean,
+  schedule: UwbSessionCfg['schedule'], replyTime: UwbSessionCfg['replyTime'], rmnr: boolean, mmrcr = false,
 ): Partial<UwbSessionCfg> {
   if (schedule !== 'contention') return { schedule }
   const patch: Partial<UwbSessionCfg> = { schedule }
   if (replyTime === 'deferred') patch.replyTime = 'embedded'
   if (rmnr) patch.rmnr = false
+  if (mmrcr) patch.mmrcr = false
   return patch
 }
 
@@ -129,9 +156,20 @@ export function uwbSchedulePatch(
  * Dropping to 1 therefore takes `rmnr` back to false with it, the direction `uwbModePatch` and
  * `uwbSchedulePatch` already take for their own dependents — the field being edited gives away the
  * one that would otherwise be left sitting on the illegal side of the schema's rule.
+ *
+ * `mmrcr` takes the same trip for its own reason (receipt-confirmation-design §4, task 4): at
+ * `rcmValidityRounds: 1` the window mmrcr would describe is exactly the round that just ran, and a
+ * two-way responder's own silence-or-Response already answers that for free — the schema refuses
+ * the pair the same way it refuses `rmnr` there. This field is greyed out outside `'twr'`
+ * (`uwbRcmValidityHintKey`), so `mmrcr`'s `'m2m'` legality is never at stake here.
  */
-export function uwbRcmValidityRoundsPatch(rcmValidityRounds: number, rmnr: boolean): Partial<UwbSessionCfg> {
-  return rcmValidityRounds === 1 && rmnr ? { rcmValidityRounds, rmnr: false } : { rcmValidityRounds }
+export function uwbRcmValidityRoundsPatch(
+  rcmValidityRounds: number, rmnr: boolean, mmrcr = false,
+): Partial<UwbSessionCfg> {
+  const patch: Partial<UwbSessionCfg> = { rcmValidityRounds }
+  if (rcmValidityRounds === 1 && rmnr) patch.rmnr = false
+  if (rcmValidityRounds === 1 && mmrcr) patch.mmrcr = false
+  return patch
 }
 
 /**
@@ -162,6 +200,30 @@ export function uwbRmnrHintKey(
   if (rcmValidityRounds === 1) return 'uwbRmnrNeedsValidity'
   if (schedule === 'contention') return 'uwbRmnrContention'
   return 'uwbRmnrHint'
+}
+
+/**
+ * Why the receipt-confirmation-request toggle is live or not (standard §10.36's MMRCR, design §4 of
+ * 2026-10-02-receipt-confirmation-design.md). Unlike `uwbRmnrHintKey`, the legal modes are two, not
+ * one — two-way ranging and `'m2m'` — because a many-to-many participant has no other frame that
+ * ever tells it who heard it (`UwbM2mTimes.rxCounters` only ever echoes receipt *forward*, to a
+ * later participant, never back to the sender), while the schema refuses `mmrcr` outright for the
+ * other three: DL-TDoA's non-controller anchors already say whether they heard the Poll by sending
+ * or not sending a Response, UL-TDoA's blink opens no exchange an ARC IE could ride on, and MMS's
+ * control plane is a different radio entirely. `'twr'` carries one further refusal `'m2m'` does
+ * not: at `rcmValidityRounds: 1` the window mmrcr would describe is exactly the round that just
+ * ran, and a two-way responder's own silence-or-Response already answers "was I heard" for free —
+ * the same gap `'m2m'` has no other way to close.
+ */
+export function uwbMmrcrHintKey(
+  mode: UwbMode, rcmValidityRounds: number, schedule: UwbSessionCfg['schedule'],
+): 'uwbMmrcrHint' | 'uwbMmrcrDlTdoa' | 'uwbMmrcrUlTdoa' | 'uwbMmrcrMms' | 'uwbMmrcrNeedsValidity' | 'uwbMmrcrContention' {
+  if (mode === 'dl-tdoa') return 'uwbMmrcrDlTdoa'
+  if (mode === 'ul-tdoa') return 'uwbMmrcrUlTdoa'
+  if (mode === 'mms') return 'uwbMmrcrMms'
+  if (mode === 'twr' && rcmValidityRounds === 1) return 'uwbMmrcrNeedsValidity'
+  if (schedule === 'contention') return 'uwbMmrcrContention'
+  return 'uwbMmrcrHint'
 }
 
 /**
@@ -438,6 +500,10 @@ export function UwbSessionFields(
   // `mmsDraftLive` uses for the MMS fields below.
   const rmnrHintKey = uwbRmnrHintKey(session.mode, session.rcmValidityRounds, session.schedule)
   const rmnrLive = rmnrHintKey === 'uwbRmnrHint'
+  // Same discipline for the receipt-confirmation-request checkbox (design §4 of
+  // 2026-10-02-receipt-confirmation-design.md).
+  const mmrcrHintKey = uwbMmrcrHintKey(session.mode, session.rcmValidityRounds, session.schedule)
+  const mmrcrLive = mmrcrHintKey === 'uwbMmrcrHint'
   return (
     <div>
       <div style={{ color: 'var(--dim)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -473,7 +539,9 @@ export function UwbSessionFields(
       </label>
       <label style={label} title={E.uwbModeHint}>
         {E.uwbMode}{' '}
-        <select value={session.mode} onChange={(e) => onChange(uwbModePatch(e.target.value as UwbMode))}>
+        <select value={session.mode} onChange={(e) => onChange(
+          uwbModePatch(e.target.value as UwbMode, session.rcmValidityRounds, session.mmrcr),
+        )}>
           <option value="twr">{E.uwbModes.twr}</option>
           <option value="dl-tdoa">{E.uwbModes['dl-tdoa']}</option>
           <option value="ul-tdoa">{E.uwbModes['ul-tdoa']}</option>
@@ -503,7 +571,7 @@ export function UwbSessionFields(
         {E.uwbSchedule}{' '}
         <select value={session.schedule} disabled={!ssOnly || nonTwr !== null}
           onChange={(e) => onChange(
-            uwbSchedulePatch(e.target.value as UwbSessionCfg['schedule'], session.replyTime, session.rmnr),
+            uwbSchedulePatch(e.target.value as UwbSessionCfg['schedule'], session.replyTime, session.rmnr, session.mmrcr),
           )}>
           <option value="time">{E.uwbSchedules.time}</option>
           <option value="contention">{E.uwbSchedules.contention}</option>
@@ -526,7 +594,7 @@ export function UwbSessionFields(
         <input type="number" min={1} max={64} step={1} value={session.rcmValidityRounds} style={{ width: 62 }}
           disabled={session.mode !== 'twr'}
           onChange={(e) => onChange(
-            uwbRcmValidityRoundsPatch(clampField(e.target.value, 1, 64, true), session.rmnr),
+            uwbRcmValidityRoundsPatch(clampField(e.target.value, 1, 64, true), session.rmnr, session.mmrcr),
           )} />
       </label>
       {/* Greying this out is one of the few places in this panel where the disabled state itself
@@ -540,6 +608,15 @@ export function UwbSessionFields(
         <input type="checkbox" checked={session.rmnr} disabled={!rmnrLive}
           onChange={(e) => onChange({ rmnr: e.target.checked })} />
         {E.uwbRmnr}
+      </label>
+      {/* Legal in two-way ranging and many-to-many, unlike every other checkbox on this panel
+          (`uwbMmrcrHintKey`) — a many-to-many participant has no other frame that ever answers
+          "who heard me", so this one is not greyed out there the way `rmnr` is. */}
+      <label style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 4, cursor: mmrcrLive ? 'pointer' : 'default' }}
+        title={E[mmrcrHintKey]}>
+        <input type="checkbox" checked={session.mmrcr} disabled={!mmrcrLive}
+          onChange={(e) => onChange({ mmrcr: e.target.checked })} />
+        {E.uwbMmrcr}
       </label>
       <label style={label} title={E.uwbBlockHint}>
         {E.uwbBlock}{' '}

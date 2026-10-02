@@ -16,9 +16,10 @@ import {
   NB_POLL_BYTES, NB_REPORT_BYTES, NB_RESP_BYTES, NB_RX_SENS_DBM, NB_TX_DBM, nbCenterMhz, nbPpduNs,
 } from '../uwb/nb'
 import {
-  UWB_BAND_MHZ, UWB_BLINK_BYTES, UWB_CAPTURE_DB, UWB_CHIP_NS, UWB_IE_HDR_BYTES, UWB_MAX_INPUT_DBM_PER_MHZ,
-  UWB_RX_SENS_DBM, UWB_SIR_MIN_DB, UWB_SS_DEFER_BYTES, UWB_TX_POWER_DBM, rstuNs, uwbFinalBytes, uwbInitBytes,
-  uwbM2mBytes, uwbMaxAnchors, uwbMaxParticipants, uwbPollBytes, uwbRespBytes, uwbRmnrBytes,
+  RMMRC_ADDR_BYTES, UWB_BAND_MHZ, UWB_BLINK_BYTES, UWB_CAPTURE_DB, UWB_CHIP_NS, UWB_IE_HDR_BYTES,
+  UWB_MAX_INPUT_DBM_PER_MHZ, UWB_RX_SENS_DBM, UWB_SIR_MIN_DB, UWB_SS_DEFER_BYTES, UWB_TX_POWER_DBM,
+  rmmrcBitmapBytes, rstuNs, uwbFinalBytes, uwbInitBytes, uwbM2mBytes, uwbMaxAnchors,
+  uwbMaxMmrcmInitiators, uwbMaxParticipants, uwbMmrcmBytes, uwbPollBytes, uwbRespBytes, uwbRmnrBytes,
 } from '../uwb/phy'
 import { roundPlan } from '../uwb/session'
 import { ELLIPSE_DRAW_SCALE } from '../uwb/view'
@@ -94,6 +95,19 @@ const RCM_R4_4BLOCKS = RCM_POLL_BYTES + RCM_INIT_BYTES * 3 // 81
 const RCM_SAVING_4BLOCKS = RCM_R1_4BLOCKS - RCM_R4_4BLOCKS // 75
 const RCM_SAVING_PER_BLOCK = (RCM_SAVING_4BLOCKS / 4).toFixed(2) // 18.75
 const RMNR_BYTES = uwbRmnrBytes() // 13
+
+// --- Section 18: receipt confirmation, standard §10.36 ------------------------------------------
+// The bitmap stays one octet for any window of eight rounds or fewer (design §3.3), so the frame
+// sizes below do not depend on which window within that range is quoted. The worked window named
+// in the text is section 17's own R = 4 (`RCM_ANCHORS` above); `tests/ui/uwb-guide.test.ts` also
+// runs a many-to-many round at R = 1 (the window `'m2m'` is always pinned to) and checks the same
+// N = 1/3/6 figures against the frames that round actually sends.
+const MMRCM_WINDOW = 4
+const MMRCM_BITMAP_BYTES = rmmrcBitmapBytes(MMRCM_WINDOW) // 1
+const MMRCM_ENTRY_BYTES = RMMRC_ADDR_BYTES + MMRCM_BITMAP_BYTES // 3
+const MMRCM_NS = [1, 3, 6] as const
+const mmrcmBytes = (n: number): number => uwbMmrcmBytes(n, MMRCM_WINDOW)
+const MMRCM_MAX_INITIATORS = uwbMaxMmrcmInitiators(MMRCM_WINDOW) // 37
 
 // --- Section 12: the P802.15.4ab draft ------------------------------------------------------
 // Every figure below is computed from `src/uwb/mms.ts` and `src/uwb/nb.ts`, so the prose cannot
@@ -950,6 +964,138 @@ export function Guide() {
         本仿真的 Poll 正是这样合二为一的。没收到这一帧的响应方，连自己的时隙都无从知道，
         也就没有地方可以发 RMNR：RMNR 要求的「持有有效控制消息、却没收到本轮启动消息」这个状态，
         只有在 <code>rcmValidityRounds</code> 大于 1、控制消息与启动消息分处不同轮次之后才存在。
+      </p>
+
+      <h4 style={h}>18 · 发起方怎么知道谁听见了自己（标准 §10.36 多消息收妥确认 MMRCM）</h4>
+      <p style={p}>
+        第 16 节留了一个问题：多对多测距里排在最后的参与者一条距离也算不出来，它的那一次发送
+        却是全轮最长的一帧——它不知道自己有没有被听见。标准给出的答案是 MMRCM
+        （multiple message receipt confirmation message）：控制器在 ARC IE 里再多置一位——
+        <b>MMRCR</b>（控制字第 15 位，就是第 17 节 RCM 有效轮次占用的同一个字），请对端
+        回一帧收妥确认。<b>这一位不增加控制消息的字节数：</b>它本来就在那两个字节里，花钱的是
+        对端的那一帧回答，不是这一位请求本身。本仿真把它建模成会话里的 <code>mmrcr</code>
+        （缺省关闭），覆盖的窗口就是上一节的 RCM 有效轮次窗口——不必另开一个窗口去协商。
+      </p>
+      <p style={p}>
+        回答的内容是一个 RMMRC IE：
+      </p>
+      <table style={table}>
+        <thead>
+          <tr>
+            <th style={cellHead}>字段</th>
+            <th style={cellHead}>宽度</th>
+            <th style={cellHead}>含义</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td style={cell}>Address Present / Address Size / 保留</td>
+            <td style={cell}>1 + 1 + 6 位</td>
+            <td style={cell}>列表条目带不带地址，带的话多长——本仿真固定带短地址（2 字节）</td>
+          </tr>
+          <tr>
+            <td style={cell}>MMRC List Length</td>
+            <td style={cell}>1 字节</td>
+            <td style={cell}>列表里有几个条目</td>
+          </tr>
+          <tr>
+            <td style={cell}>MMRC List</td>
+            <td style={cell}>变长</td>
+            <td style={cell}>每个条目：地址 + 一张收妥位图</td>
+          </tr>
+        </tbody>
+      </table>
+      <p style={p}>
+        <b>位图说的是「你发来的那几条，我收到了哪几条」，</b>而且每一位都来自响应方自己的接收
+        经历——这一轮有没有 RX_OK——不是对已有记录的复述：哪一块的开场丢了，位图里那一位就是 0。
+        窗口不超过 8 轮时位图都是 <b>{MMRCM_BITMAP_BYTES}</b> 字节（含第 17 节的 R = {MMRCM_WINDOW}
+        和多对多测距固定的 R = 1），一个条目（地址 {RMMRC_ADDR_BYTES} 字节 + 位图）是
+        <b> {MMRCM_ENTRY_BYTES}</b> 字节，整帧是 MHR + 信元头部 + 控制字节 + 列表长度字节 +
+        N 个条目 + FCS，合起来是 <b>15 + 3N</b> 字节。多对多测距里每个参与者都要在同一帧里
+        列出它这一轮听到的每一个在它之前发送的参与者，N 个发起方的帧长依次是：
+      </p>
+      <table style={table}>
+        <thead>
+          <tr>
+            <th style={cellHead}>N（发起方数）</th>
+            {MMRCM_NS.map((n) => <th style={cellHead} key={n}>{n}</th>)}
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td style={cell}>帧长（字节）</td>
+            {MMRCM_NS.map((n) => <td style={cell} key={n}>{mmrcmBytes(n)}</td>)}
+          </tr>
+        </tbody>
+      </table>
+      <p style={p}>
+        和每一个按帧长算出来的上限一样，这个上限也是搜出来的，不是写死的字面量——127 字节的
+        PSDU 上限下，窗口为 {MMRCM_WINDOW} 轮时一帧最多能列 <b>{MMRCM_MAX_INITIATORS}</b>
+        个发起方。
+      </p>
+      <p style={p}>
+        <b>这里有两种计数，混成一句话就会错——这正是本节要防的第一件事。</b>
+      </p>
+      <table style={table}>
+        <thead>
+          <tr>
+            <th style={cellHead}>数什么</th>
+            <th style={cellHead}>一个什么</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td style={cell}>RMMRC IE 的列表条目</td>
+            <td style={cell}>每个<b>发起方</b>一个——一个响应方可能听到好几个发起方</td>
+          </tr>
+          <tr>
+            <td style={cell}>测距块里额外占用的时隙 / 发出的帧</td>
+            <td style={cell}>每个<b>响应方</b>一个——各自发自己收听到的那些发起方拼成的一帧</td>
+          </tr>
+        </tbody>
+      </table>
+      <p style={p}>
+        双向测距里一个响应方只听到一个发起方（那个标签），这一帧只有一个条目，两种计数看起来
+        是同一个数；多对多测距里一个参与者可能听到好几个在它之前发送的参与者，两种计数才分开——
+        条目数仍按发起方算，而占用的时隙与发出的帧数按响应方（这里就是参与者自己）算。
+      </p>
+      <p style={p}>
+        <b>这里还有第二件容易被读成一回事的事：RMNR 和收妥位图，回答的不是同一个问题</b>
+        （第 17 节已经建过 RMNR）。
+      </p>
+      <table style={table}>
+        <thead>
+          <tr>
+            <th style={cellHead} />
+            <th style={cellHead}>RMNR（标准 §10.34）</th>
+            <th style={cellHead}>收妥位图（MMRCM，标准 §10.36）</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td style={cell}>粒度</td>
+            <td style={cell}>逐轮</td>
+            <td style={cell}>整个有效轮次窗口</td>
+          </tr>
+          <tr>
+            <td style={cell}>谁先动手</td>
+            <td style={cell}>响应方自己——没等到启动消息就主动发</td>
+            <td style={cell}>控制器——在 ARC IE 里置位 MMRCR 请求</td>
+          </tr>
+          <tr>
+            <td style={cell}>说的是什么</td>
+            <td style={cell}>本轮的测距启动消息没收到</td>
+            <td style={cell}>窗口里我发出的那几条开场消息，你收到了哪几条</td>
+          </tr>
+        </tbody>
+      </table>
+      <p style={p}>
+        两者回答的是同一件事（某一条消息收没收到）的不同粒度，而不是互相替代：第 16 节那个
+        「排在最后的参与者不知道自己有没有被听见」的问题，RMNR 答不了——多对多测距里没有
+        控制消息可以「仍然持有」，RMNR 的前提就不存在；能答的只有收妥位图。<b>打开收妥确认
+        不影响测距结果：</b>同一个场景打开 MMRCR 前后，每一条 UWB_RANGE 记录逐字段相同——
+        它是一条额外的消息，不是测量的一部分；<b>不请求就没有回答：</b>MMRCR 为 0 时一帧
+        MMRCM 也不会发。
       </p>
 
       <h4 style={h}>动手试试</h4>

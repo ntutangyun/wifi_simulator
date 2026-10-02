@@ -30,7 +30,8 @@ import {
   COUNTER_MOD, FOM_LOS, FOM_NLOS, RCTU_NS, UWB_BAND_MHZ, UWB_BLINK_BYTES, UWB_CAPTURE_DB,
   UWB_MAX_INPUT_DBM_PER_MHZ, UWB_PL_EXP, UWB_RX_SENS_DBM, UWB_SIR_MIN_DB, UWB_SS_DEFER_BYTES, UWB_TX_POWER_DBM,
   fomDecode, fomText, rstuNs, uwbFinalBytes, uwbInBandDbm, uwbInitBytes, uwbM2mBytes, uwbMaxAnchors,
-  uwbMaxParticipants, uwbPl0Db, uwbPollBytes, uwbRespBytes, uwbRmnrBytes, uwbSlotsPerTag, type UwbReplyTime,
+  uwbMaxMmrcmInitiators, uwbMaxParticipants, uwbMmrcmBytes, uwbPl0Db, uwbPollBytes, uwbRespBytes, uwbRmnrBytes,
+  uwbSlotsPerTag, type UwbReplyTime,
 } from '../../src/uwb/phy'
 import { rangeSigmaM } from '../../src/uwb/position'
 import { ELLIPSE_DRAW_SCALE } from '../../src/uwb/scene'
@@ -1065,5 +1066,165 @@ describe('the RCM-validity / RMNR glossary terms, each with a provenance (design
     expect(item.def).toContain('谁在说话')
     expect(item.def).toContain('收到了')
     expect(item.def).toContain('没收到')
+  })
+})
+
+describe('Guide section 18: receipt confirmation (standard §10.36; design §1-§6 of 2026-10-02-receipt-confirmation-design.md)', () => {
+  const zh = renderGuide()
+
+  it('renders the heading and names the frame and the request bit', () => {
+    expect(zh).toContain('18 ·')
+    expect(zh).toContain('§10.36')
+    expect(zh).toContain('MMRCM')
+    expect(zh).toContain('MMRCR')
+  })
+
+  it('states the two counts separately, and in the right order (design §6.1’s own correction)', () => {
+    expect(zh).toContain('每个<b>发起方</b>一个——一个响应方可能听到好几个发起方')
+    expect(zh).toContain('每个<b>响应方</b>一个——各自发自己收听到的那些发起方拼成的一帧')
+  })
+
+  it('distinguishes RMNR from the receipt bitmap along granularity, initiative and content — the section’s own point', () => {
+    expect(zh).toContain('逐轮')
+    expect(zh).toContain('整个有效轮次窗口')
+    expect(zh).toContain('响应方自己——没等到启动消息就主动发')
+    expect(zh).toContain('控制器——在 ARC IE 里置位 MMRCR 请求')
+    expect(zh).toContain('本轮的测距启动消息没收到')
+    expect(zh).toContain('窗口里我发出的那几条开场消息，你收到了哪几条')
+  })
+
+  // --- Measured: the N = 1/3/6 frame-size table, read off real many-to-many rounds ------------
+  //
+  // A two-way round only ever has one initiator (the tag), so N never varies there. The only mode
+  // where one responder hears several initiators is 'm2m' — every participant answers every
+  // earlier one in the same frame — so P = 2/4/7 participants give exactly N = P − 1 = 1/3/6
+  // entries in the last participant's own MMRCM. `'m2m'` always runs at rcmValidityRounds 1, and
+  // the bitmap stays one octet for any window of eight rounds or fewer (design §3.3), so these
+  // figures are the same 15 + 3N the Guide's own R = 4 worked window states.
+  const MS = 1_000_000
+  const m2mNode = (id: string, x: number, y: number): NodeCfg => ({
+    id, kind: 'uwb', name: id, pos: { x, y, z: 1 }, txPowerDbm: UWB_TX_POWER_DBM, profiles: ['idle'],
+    caps: { generation: 'nonht', features: {} }, uwb: { role: 'anchor' },
+  })
+  const m2mScenario = (participants: number): Scenario => {
+    // A tight cluster, well inside the engine's range at this power, so nothing is lost to path
+    // loss and every participant hears every other one.
+    const nodes = Array.from({ length: participants }, (_, i) => m2mNode(`p-${i}`, i, 0))
+    return {
+      rooms: [{ x: 0, y: 0, w: 20, h: 20, name: 'hall' }], walls: [], nodes, servers: [],
+      seed: 7, rtsThresholdBytes: 3000, snapshotIntervalMs: 10,
+      uwb: {
+        ...DEFAULT_UWB_SESSION, mode: 'm2m', method: 'ss', schedule: 'time', replyTime: 'embedded',
+        rcmValidityRounds: 1, mmrcr: true, nlos: false, tsNoisePs: 0, cfoNoisePpm: 0,
+      },
+    }
+  }
+  const of = <T extends TLRecord['type']>(rs: TLRecord[], type: T): Extract<TLRecord, { type: T }>[] =>
+    rs.filter((r) => r.type === type) as never
+  const PARTICIPANTS_FOR_N: Record<number, number> = { 1: 2, 3: 4, 6: 7 }
+
+  it('the last participant’s MMRCM frame is 15 + 3N octets for N = 1, 3, 6, read off a real round', () => {
+    for (const n of [1, 3, 6] as const) {
+      const p = PARTICIPANTS_FOR_N[n]
+      const sc = m2mScenario(p)
+      const runNs = roundPlan(sc.uwb!, p).blockNs - MS
+      const rs = new Simulation(sc).runUntil(runNs).records
+      const last = `p-${p - 1}`
+      const sent = of(rs, 'TX_START').filter((r) => r.node === last && r.frame.kind === 'uwbMmrcm')
+      expect(sent.length, `N=${n}: p-${p - 1} sends one MMRCM`).toBeGreaterThan(0)
+      for (const r of sent) {
+        expect(r.frame.uwb?.mmrc?.length, `N=${n}`).toBe(n)
+        expect(r.frame.bytes, `N=${n}`).toBe(uwbMmrcmBytes(n, 1))
+      }
+      // The figure this same run just measured is the one the Guide's table states.
+      expect(zh).toContain(`>${uwbMmrcmBytes(n, 1)}<`)
+    }
+    // The Guide's own constants agree with the formula at the window it names.
+    expect(uwbMmrcmBytes(1, 4)).toBe(18)
+    expect(uwbMmrcmBytes(3, 4)).toBe(24)
+    expect(uwbMmrcmBytes(6, 4)).toBe(33)
+  })
+
+  it('names the searched cap, not a literal', () => {
+    const cap = uwbMaxMmrcmInitiators(4)
+    expect(cap).toBeGreaterThan(0)
+    expect(zh).toContain(`${cap}`)
+  })
+
+  it('sends no MMRCM at all when mmrcr is off — asking buys the answer, nothing else does', () => {
+    const sc = m2mScenario(4)
+    sc.uwb!.mmrcr = false
+    const runNs = roundPlan(sc.uwb!, 4).blockNs - MS
+    const rs = new Simulation(sc).runUntil(runNs).records
+    expect(of(rs, 'TX_START').filter((r) => r.frame.kind === 'uwbMmrcm')).toHaveLength(0)
+  })
+
+  // --- Measured: requesting costs nothing, and the answer never moves a range -------------------
+  const rcmNode = (id: string, x: number, y: number, role: 'anchor' | 'tag'): NodeCfg => ({
+    id, kind: 'uwb', name: id, pos: { x, y, z: 1 }, txPowerDbm: UWB_TX_POWER_DBM, profiles: ['idle'],
+    caps: { generation: 'nonht', features: {} }, uwb: { role },
+  })
+  const twrScene: NodeCfg[] = [
+    rcmNode('anc-1', 0, 0, 'anchor'), rcmNode('anc-2', 8, 0, 'anchor'),
+    rcmNode('anc-3', 0, 6, 'anchor'), rcmNode('anc-4', 8, 6, 'anchor'),
+    rcmNode('tag-1', 4, 3, 'tag'),
+  ]
+  const twrScenario = (mmrcr: boolean): Scenario => ({
+    rooms: [{ x: 0, y: 0, w: 40, h: 30, name: 'hall' }], walls: [], nodes: twrScene, servers: [],
+    seed: 7, rtsThresholdBytes: 3000, snapshotIntervalMs: 10,
+    uwb: {
+      ...DEFAULT_UWB_SESSION, method: 'ds', replyTime: 'embedded', nlos: false,
+      rcmValidityRounds: 4, mmrcr,
+    },
+  })
+
+  it('leaves the control message the same size whether or not MMRCR is set', () => {
+    const openerBytes = (mmrcr: boolean): number[] => {
+      const rs = new Simulation(twrScenario(mmrcr)).runUntil(roundPlan(DEFAULT_UWB_SESSION, 4).blockNs - MS).records
+      return of(rs, 'TX_START')
+        .filter((r) => r.node === 'tag-1' && (r.frame.kind === 'uwbPoll' || r.frame.kind === 'uwbInit'))
+        .map((r) => r.frame.bytes)
+    }
+    expect(openerBytes(true)).toEqual(openerBytes(false))
+  })
+
+  it('leaves every UWB_RANGE record field-for-field the same whether or not MMRCR is set', () => {
+    const ranges = (mmrcr: boolean): unknown[] => {
+      const rs = new Simulation(twrScenario(mmrcr))
+        .runUntil(4 * roundPlan(DEFAULT_UWB_SESSION, 4).blockNs - MS).records
+      return of(rs, 'UWB_RANGE').map(({ seq, ...rest }) => rest)
+    }
+    expect(ranges(true)).toEqual(ranges(false))
+  })
+})
+
+describe('the MMRCM / receipt-bitmap glossary terms, each with a provenance (standard §10.36; design §3/§4)', () => {
+  const group = GLOSSARY.find((g) => g.id === 'uwb')
+  const find = (term: string) => (group?.items ?? []).find((i) => i.term.toLowerCase() === term.toLowerCase())
+
+  it('carries both terms task 4 adds', () => {
+    for (const t of ['MMRCM', '收妥位图']) expect(find(t), t).toBeDefined()
+  })
+
+  it('names a provenance on every one of them', () => {
+    const marks = ['§10.36', '模型取值']
+    for (const t of ['MMRCM', '收妥位图']) {
+      const item = find(t)!
+      const text = `${item.alt} ${item.def}`
+      expect(marks.some((m) => text.includes(m)), `"${t}" names no provenance`).toBe(true)
+    }
+  })
+
+  it('the MMRCM entry names the byte formula and the two counts', () => {
+    const item = find('MMRCM')!
+    expect(item.def).toMatch(/15 \+ 3N/)
+    expect(item.def).toContain('发起方')
+    expect(item.def).toContain('响应方')
+  })
+
+  it('the receipt-bitmap entry ties each bit to RX_OK, not to a replay of records, and separates it from RMNR', () => {
+    const item = find('收妥位图')!
+    expect(item.def).toContain('RX_OK')
+    expect(item.def).toContain('RMNR')
   })
 })

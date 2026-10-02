@@ -18,7 +18,7 @@ import { roundPlan } from '../../src/uwb/session'
 import {
   UwbSessionFields, mmsDraftLive, mmsFieldPatch, mmsFixedReplyHintKey, mmsReversedHintKey,
   mmsRsfSfdHintKey, mmsSetIdOf, mmsSetPatch, mmsUwbdControlHintKey, parseFixedReplyRstu,
-  parseNbChannels, uwbAoaHintKey, uwbMethodPatch, uwbModePatch, uwbRcmValidityHintKey,
+  parseNbChannels, uwbAoaHintKey, uwbMethodPatch, uwbMmrcrHintKey, uwbModePatch, uwbRcmValidityHintKey,
   uwbRcmValidityRoundsPatch, uwbReplyTimePatch, uwbReplyTimeRstuLive, uwbRmnrHintKey,
   uwbSchedulePatch, uwbScheduleHintKey,
 } from '../../src/uwb/ui/UwbSessionFields'
@@ -171,7 +171,7 @@ describe('uwbSessionIssue', () => {
     const contending: Partial<UwbSessionCfg> = { method: 'ss', schedule: 'contention' }
     expect(uwbSessionIssue(withUwb(4, { ...contending, mode: 'ul-tdoa' }))).toBeTruthy()
     expect(uwbModePatch('ul-tdoa')).toEqual({
-      mode: 'ul-tdoa', schedule: 'time', aoa: false, rcmValidityRounds: 1, rmnr: false,
+      mode: 'ul-tdoa', schedule: 'time', aoa: false, rcmValidityRounds: 1, rmnr: false, mmrcr: false,
     })
     expect(uwbSessionIssue(withUwb(4, { ...contending, ...uwbModePatch('ul-tdoa') }))).toBeNull()
     // Going back to two-way ranging touches the mode alone: the schedule is the user's again.
@@ -191,7 +191,7 @@ describe('uwbSessionIssue', () => {
     }
     // and the field the user actually touches never produces that pair
     expect(uwbModePatch('dl-tdoa')).toEqual({
-      mode: 'dl-tdoa', schedule: 'time', aoa: false, rcmValidityRounds: 1, rmnr: false,
+      mode: 'dl-tdoa', schedule: 'time', aoa: false, rcmValidityRounds: 1, rmnr: false, mmrcr: false,
     })
     expect(uwbSessionIssue(withUwb(4, { aoa: true, ...uwbModePatch('dl-tdoa') }))).toBeNull()
     // two-way ranging keeps the checkbox the user's own
@@ -208,7 +208,7 @@ describe('uwbSessionIssue', () => {
     // the 28-slot, 14 ms one the Guide describes.
     expect(uwbModePatch('mms')).toEqual({
       mode: 'mms', schedule: 'time', aoa: false, method: 'ss', slotRstu: 600,
-      rcmValidityRounds: 1, rmnr: false,
+      rcmValidityRounds: 1, rmnr: false, mmrcr: false,
     })
     const contending: Partial<UwbSessionCfg> = { method: 'ss', schedule: 'contention', aoa: true }
     // Three anchors and one tag: an MMS round is pairwise, and the default block holds three.
@@ -1025,5 +1025,122 @@ describe('RCM validity rounds / RMNR in the editor (design §2/§4)', () => {
     // Two-way ranging leaves both fields the user's own.
     expect(uwbModePatch('twr').rcmValidityRounds).toBeUndefined()
     expect(uwbModePatch('twr').rmnr).toBeUndefined()
+  })
+})
+
+describe('receipt confirmation (MMRCR) in the editor (receipt-confirmation-design §4, task 4)', () => {
+  const E = STRINGS.editor
+
+  it('picks the hint in the order a user would need to fix it: mode, then validity, then schedule', () => {
+    // Each one-way/MMS mode has its own refusal, outranking everything else.
+    expect(uwbMmrcrHintKey('dl-tdoa', 4, 'time')).toBe('uwbMmrcrDlTdoa')
+    expect(uwbMmrcrHintKey('ul-tdoa', 4, 'time')).toBe('uwbMmrcrUlTdoa')
+    expect(uwbMmrcrHintKey('mms', 4, 'time')).toBe('uwbMmrcrMms')
+    // Two-way ranging, but the window mmrcr would describe is exactly the round that just ran.
+    expect(uwbMmrcrHintKey('twr', 1, 'time')).toBe('uwbMmrcrNeedsValidity')
+    // Two-way ranging, validity above 1, but a contention round hands out no slot to confirm from.
+    expect(uwbMmrcrHintKey('twr', 4, 'contention')).toBe('uwbMmrcrContention')
+    // Every reason cleared: live.
+    expect(uwbMmrcrHintKey('twr', 4, 'time')).toBe('uwbMmrcrHint')
+    // Unlike rmnr, many-to-many is live too — it is the one mode with no other way to answer
+    // "who heard me" (design §4). It always carries rcmValidityRounds 1 and schedule 'time', and
+    // neither disqualifies it the way they do for 'twr'.
+    expect(uwbMmrcrHintKey('m2m', 1, 'time')).toBe('uwbMmrcrHint')
+  })
+
+  it('uwbRcmValidityRoundsPatch takes a stranded mmrcr back to false at validity 1, the same direction it already takes rmnr', () => {
+    expect(uwbRcmValidityRoundsPatch(1, false, true)).toEqual({ rcmValidityRounds: 1, mmrcr: false })
+    expect(uwbRcmValidityRoundsPatch(1, false, false)).toEqual({ rcmValidityRounds: 1 })
+    expect(uwbRcmValidityRoundsPatch(4, false, true)).toEqual({ rcmValidityRounds: 4 })
+    // Both fields at once: both come back.
+    expect(uwbRcmValidityRoundsPatch(1, true, true)).toEqual({ rcmValidityRounds: 1, rmnr: false, mmrcr: false })
+    // …and the field the user actually touches never produces the pair the schema refuses.
+    expect(uwbSessionIssue(withUwb(4, {
+      rcmValidityRounds: 4, mmrcr: true, ...uwbRcmValidityRoundsPatch(1, false, true),
+    }))).toBeNull()
+  })
+
+  it('uwbSchedulePatch takes a stranded mmrcr back to false under a contention schedule', () => {
+    expect(uwbSchedulePatch('contention', 'embedded', false, true)).toEqual({ schedule: 'contention', mmrcr: false })
+    expect(uwbSchedulePatch('contention', 'embedded', false, false)).toEqual({ schedule: 'contention' })
+    expect(uwbSchedulePatch('time', 'embedded', false, true)).toEqual({ schedule: 'time' })
+    // Both fields at once: both come back, the same way uwbRcmValidityRoundsPatch does.
+    expect(uwbSchedulePatch('contention', 'embedded', true, true))
+      .toEqual({ schedule: 'contention', rmnr: false, mmrcr: false })
+  })
+
+  it('uwbModePatch clears mmrcr for the three modes that refuse it outright, and never touches it for m2m', () => {
+    for (const mode of ['dl-tdoa', 'ul-tdoa', 'mms'] as const) {
+      const patch = uwbModePatch(mode, 4, true)
+      expect(patch.mmrcr, mode).toBe(false)
+    }
+    // m2m is deliberately left alone: design §4 keeps mmrcr legal there.
+    expect(uwbModePatch('m2m', 4, true).mmrcr).toBeUndefined()
+  })
+
+  it('switching to twr brings a stranded mmrcr back to legal — the second instance of the rmnr defect this slice already hit once (brief: "found a second instance of the same defect")', () => {
+    // m2m is the one mode that leaves mmrcr untouched and forces rcmValidityRounds to 1
+    // (uwbModePatch('m2m') above). A session that turned mmrcr on while in m2m and then switched
+    // back to twr would otherwise arrive at { mode: 'twr', rcmValidityRounds: 1, mmrcr: true } —
+    // exactly the pair the schema refuses for 'twr'.
+    expect(uwbModePatch('twr', 1, true)).toEqual({ mode: 'twr', mmrcr: false })
+    // At a legal rcmValidityRounds the pair needs no correction.
+    expect(uwbModePatch('twr', 4, true)).toEqual({ mode: 'twr' })
+    expect(uwbModePatch('twr', 1, false)).toEqual({ mode: 'twr' })
+    // The round trip through m2m and back never produces a scenario the schema refuses.
+    const strandedFromM2m: Partial<UwbSessionCfg> = { ...uwbModePatch('m2m', 1, false), mmrcr: true }
+    expect(strandedFromM2m.rcmValidityRounds).toBe(1)
+    const backToTwr = { ...strandedFromM2m, ...uwbModePatch('twr', strandedFromM2m.rcmValidityRounds!, true) }
+    expect(uwbSessionIssue(withUwb(4, backToTwr))).toBeNull()
+  })
+
+  it('the checkbox is greyed at the default rcmValidityRounds, with the needs-validity reason', () => {
+    const sc = withUwb(4) // DEFAULT_UWB_SESSION: mode twr, rcmValidityRounds 1
+    const markup = renderToStaticMarkup(createElement(UwbSessionFields, {
+      session: sc.uwb!, anchors: 4, tags: 1, issue: null, onChange: () => {}, onRemove: () => {},
+    }))
+    expect(markup).toContain(E.uwbMmrcrNeedsValidity)
+    expect(markup).not.toContain(E.uwbMmrcrHint)
+  })
+
+  it('the checkbox comes alive once validity is raised above 1, under time scheduling', () => {
+    const sc = withUwb(4, { rcmValidityRounds: 4 })
+    const markup = renderToStaticMarkup(createElement(UwbSessionFields, {
+      session: sc.uwb!, anchors: 4, tags: 1, issue: null, onChange: () => {}, onRemove: () => {},
+    }))
+    expect(markup).toContain(E.uwbMmrcrHint)
+    expect(markup).not.toContain(E.uwbMmrcrNeedsValidity)
+  })
+
+  it('the checkbox is greyed under a contention schedule, with its own reason', () => {
+    const sc = withUwb(4, { method: 'ss', schedule: 'contention', rcmValidityRounds: 4 })
+    const markup = renderToStaticMarkup(createElement(UwbSessionFields, {
+      session: sc.uwb!, anchors: 4, tags: 1, issue: null, onChange: () => {}, onRemove: () => {},
+    }))
+    expect(markup).toContain(E.uwbMmrcrContention)
+  })
+
+  it('the checkbox is live in many-to-many mode, unlike rmnr which stays greyed there', () => {
+    const sc = withUwb(4, uwbModePatch('m2m', 1, false))
+    const markup = renderToStaticMarkup(createElement(UwbSessionFields, {
+      session: sc.uwb!, anchors: 0, tags: 0, issue: null, onChange: () => {}, onRemove: () => {},
+    }))
+    expect(markup).toContain(E.uwbMmrcrHint)
+    expect(markup).not.toContain(E.uwbMmrcrDlTdoa)
+    expect(markup).not.toContain(E.uwbMmrcrUlTdoa)
+    expect(markup).not.toContain(E.uwbMmrcrMms)
+    // rmnr, by contrast, is still refused outright in m2m.
+    expect(markup).toContain(E.uwbRmnrTwrOnly)
+  })
+
+  it('each one-way/MMS mode shows its own reason, and only its own', () => {
+    for (const [mode, anchors] of [['dl-tdoa', 4], ['ul-tdoa', 4], ['mms', 3]] as const) {
+      const sc = withUwb(anchors, uwbModePatch(mode, 1, false))
+      const markup = renderToStaticMarkup(createElement(UwbSessionFields, {
+        session: sc.uwb!, anchors, tags: mode === 'mms' ? 1 : 0, issue: null, onChange: () => {}, onRemove: () => {},
+      }))
+      const key = { 'dl-tdoa': E.uwbMmrcrDlTdoa, 'ul-tdoa': E.uwbMmrcrUlTdoa, mms: E.uwbMmrcrMms }[mode]
+      expect(markup, mode).toContain(key)
+    }
   })
 })
