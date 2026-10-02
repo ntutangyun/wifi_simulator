@@ -34,8 +34,8 @@
  * the precondition in §10.34's own terms.
  *
  * `npx tsx scripts/lesson-dump.ts uwb-rcm-validity` prints it with its length. Measured, not
- * guessed: 3080 main-path characters, three things to observe and two experiments put it at 28.00
- * raw minutes, which the formula rounds to the 30-minute bucket — 990 characters below the
+ * guessed: 3099 main-path characters, three things to observe and two experiments put it at 28.09
+ * raw minutes, which the formula rounds to the 30-minute bucket — 972 characters below the
  * 32.5 raw minutes that would break the ceiling. Measure the same way before adding a sentence,
  * by IMPORTING `CHARS_PER_MINUTE`/`OBSERVE_MINUTES`/`TRY_MINUTES` from `curriculum.ts` rather than
  * retyping them: the controller retyped all three once and read a 484-character margin where there
@@ -367,10 +367,10 @@ export const uwbRcmValidity: Lesson = {
   observe: [
     `开场帧的字节数按块看：第 0 块 ${RCM_BYTES}，第 1、2、3 块各 ${INIT_BYTES}，第 ${VALIDITY} 块又回到 ${RCM_BYTES}。窄的那三帧里少掉的，正是 ARC 与 RDM。`,
     `点开第 1 块那帧开场的信息单元列：只有 RRMC。帧的名字是测距启动帧，不是轮询帧——这两件事在标准里本来就是两条消息。`,
-    `测距行照旧每个块四条，位置也照旧每个块解出来：开场帧短了 ${SAVED_PER_BLOCK} 字节，没有一次测量因此改变。`,
+    `标签这一侧的测距行照旧每个块四条，位置也照旧每个块解出来：开场帧短了 ${SAVED_PER_BLOCK} 字节，没有一次测量因此改变。`,
   ],
   tryThis: [
-    `载入「每轮一条控制消息」变体：一个窗口的四帧开场从 ${WINDOW_BYTES.shared} 字节回到 ${WINDOW_BYTES.every} 字节，差 ${SAVED_PER_WINDOW} 字节。再数两边的测距行：都是 ${RANGE_ROWS} 条，逐字段相同。`,
+    `载入「每轮一条控制消息」变体：一个窗口的四帧开场从 ${WINDOW_BYTES.shared} 字节回到 ${WINDOW_BYTES.every} 字节，差 ${SAVED_PER_WINDOW} 字节。再数这四个块里两端各自算出的测距行：两种设置都是 ${RANGE_ROWS} 条，逐字段相同。`,
     `载入「砖墙」变体：墙后那台锚点从未收到过控制消息，所以即使这个交互已经打开，它也一帧 RMNR 都不发，每个块仍然留下 ${WALLED.timeoutsPerBlock} 次超时。把那面墙挪开，它就重新作答——而要让它发出 RMNR，需要的是「收到过控制消息、偏偏这个块没收到启动消息」，这件事在一个静止的场景里出不来。`,
   ],
   quiz: [
