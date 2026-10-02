@@ -20,6 +20,7 @@ import {
   UWB_IE_HDR_BYTES, UWB_MAX_INPUT_DBM_PER_MHZ, UWB_RX_SENS_DBM, UWB_SIR_MIN_DB, UWB_SS_DEFER_BYTES,
   UWB_TX_POWER_DBM, rmmrcBitmapBytes, rstuNs, uwbFinalBytes, uwbInitBytes, uwbM2mBytes,
   uwbMaxAnchors, uwbMaxMmrcmInitiators, uwbMaxParticipants, uwbMmrcmBytes, uwbPollBytes,
+  UWB_MAX_PSDU_BYTES,
   uwbPpduNs, uwbRespBytes, uwbRmnrBytes, uwbSp3InitReportBytes, uwbSp3Ns, uwbSp3PollBytes,
   uwbSp3ReportBytes,
 } from '../uwb/phy'
@@ -66,6 +67,18 @@ const RT_DS_FINAL_DEFERRED = uwbFinalBytes(RT_DS_ANCHORS, 'deferred') // 32
 const RT_CAP_DS_EMBEDDED = uwbMaxAnchors('twr', 'ds', 'embedded', 'time') // 9
 const RT_CAP_DS_DEFERRED = uwbMaxAnchors('twr', 'ds', 'deferred', 'time') // 33
 const RT_CAP_SS = uwbMaxAnchors('twr', 'ss', 'embedded', 'time') // 33 — same for all three SS shapes
+/**
+ * The same ceiling for an SP3 session, which is a different number because the RCM is a different
+ * frame: it carries one SRRR IE per responder on top of everything a Poll already carries, and
+ * `uwbMaxAnchors` prices the Poll, not that. Searched the way `uwbMaxAnchors` searches, rather than
+ * written down — the branch review found the guide quoting 33 to a reader whose SP3 session is
+ * refused at 17.
+ */
+const RT_CAP_SP3 = ((): number => {
+  let a = 1
+  while (uwbSp3PollBytes(a + 1) <= UWB_MAX_PSDU_BYTES) a++
+  return a
+})()
 
 // --- Section 16: many-to-many ranging, standard §10.32.6 SS / §10.32.7 DS ---------------------
 // Every slot count is `roundPlan`'s own answer — the same function the editor's plan line calls —
@@ -815,6 +828,14 @@ export function Guide() {
         暴涨（延后），或者轮里根本没有 Final（SS-TWR 的三种形态都是），上限跳到 Poll 帧自己的长度
         （27 + 3A）能撑住的 <b>{RT_CAP_DS_DEFERRED}</b> 个——DS 延后与 SS 嵌入、SS 延后、SS 固定
         这四种形态，锚点上限都是同一个 <b>{RT_CAP_SS}</b>。
+      </p>
+      <p style={p}>
+        <b>打开 SP3 之后这个数会变小，而变小的不是物理上限，是那一帧。</b>上面这个
+        <b>{RT_CAP_SS}</b> 算的是轮询帧（poll）自己的长度；SP3 的控制消息在同样的内容之外，
+        还要为每个响应方挂一个 SRRR 信息单元（3 字节），于是它比轮询帧长 3A，
+        127 字节在第 <b>{RT_CAP_SP3 + 1}</b> 个锚点上被撑破——所以一个 SP3 会话的锚点上限是
+        <b>{RT_CAP_SP3}</b>，不是 <b>{RT_CAP_SS}</b>。两个数由两个不同的函数算出来，
+        场景校验用的是后一个。第 19 节讲 SP3 的那一段把这笔开销逐项算了出来。
       </p>
       <p style={p}>
         <b>谁最后手里有距离。</b>这张表是延后形态真正的代价，也是本节最值得记住的一格：

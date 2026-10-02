@@ -28,6 +28,7 @@ import {
 } from '../../src/uwb/nb'
 import {
   COUNTER_MOD, FOM_LOS, FOM_NLOS, RCTU_NS, SRRR_IE_BYTES, UWB_BAND_MHZ, UWB_BLINK_BYTES, UWB_CAPTURE_DB,
+  UWB_MAX_PSDU_BYTES,
   UWB_MAX_INPUT_DBM_PER_MHZ, UWB_PL_EXP, UWB_RX_SENS_DBM, UWB_SIR_MIN_DB, UWB_SS_DEFER_BYTES, UWB_TX_POWER_DBM,
   fomDecode, fomText, rstuNs, uwbFinalBytes, uwbInBandDbm, uwbInitBytes, uwbM2mBytes, uwbMaxAnchors,
   uwbMaxMmrcmInitiators, uwbMaxParticipants, uwbMmrcmBytes, uwbPl0Db, uwbPollBytes, uwbPpduNs, uwbRespBytes,
@@ -1382,6 +1383,24 @@ describe('Guide section 19: SP3 grouped ranging (standard §10.32.8; SRRR IE §1
   it('does not use any of the wording contract’s banned cost-framing words, even though no test polices this file by default', () => {
     for (const w of ['更贵', '账', '买到', '省钱', '白费', '值钱']) expect(zh, w).not.toContain(w)
   })
+  /**
+   * The branch review found the guide telling a reader the anchor ceiling is 33 while the schema
+   * refuses their SP3 session at 17. Both numbers are real and they belong to different frames, so
+   * the fix is to say so — and this pins the saying against the engine rather than against itself:
+   * the ceiling is searched here the same way the guide searches it, and the schema is asked
+   * directly whether it accepts the anchor count on each side of the boundary.
+   */
+  it('states the SP3 ceiling the schema actually enforces, not the poll frame’s', () => {
+    let cap = 1
+    while (uwbSp3PollBytes(cap + 1) <= UWB_MAX_PSDU_BYTES) cap++
+    expect(cap).toBeLessThan(uwbMaxAnchors('twr', 'ss', 'embedded', 'time'))
+    expect(uwbSp3PollBytes(cap)).toBeLessThanOrEqual(UWB_MAX_PSDU_BYTES)
+    expect(uwbSp3PollBytes(cap + 1)).toBeGreaterThan(UWB_MAX_PSDU_BYTES)
+    const html = renderGuide()
+    expect(html).toContain(`<b>${cap}</b>`)
+    expect(html).toContain(`<b>${cap + 1}</b>`)
+  })
+
 })
 
 describe('the EditorGuide SP3 / SRRR sections', () => {
