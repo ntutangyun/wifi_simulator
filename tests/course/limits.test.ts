@@ -9,36 +9,37 @@
  *
  * The rollout is over: `limits` is required in the type, every graded lesson
  * carries at least one, and the `NOT_YET` ledger that tracked the work owed is
- * gone because nothing is owed. One exception remains, and it announces itself:
- * the paused AMP track's four lessons declare `limits: []`, and the expectation
- * below names them, so resuming AMP and writing their limits fails this file
- * rather than quietly widening the rule.
+ * gone because nothing is owed. One exception remains, and it announces itself.
+ *
+ * It used to be the whole paused AMP track, all four lessons declaring
+ * `limits: []`. `amp-slots` and `amp-coexist` were migrated to the new shape
+ * 2026-10-02 along with the rest of the readability programme's last coverage
+ * hole, and each now carries real, engine-checked limits like any other
+ * lesson — AMP is still a paused feature, but a paused feature's lesson TEXT is
+ * live, and leaving its limits empty was never required by the pause, only by
+ * the migration not having reached it yet. `amp-intro` and `amp-ppdu` are what
+ * is left, and the expectation below names exactly them, so finishing their
+ * migration (or resuming AMP itself) fails this file rather than quietly
+ * widening the rule.
  */
 import { describe, expect, it } from 'vitest'
 import { LESSONS } from '../../src/course/lessons'
-import { trackOf } from '../../src/course/curriculum'
 import type { Lesson, LimitKind } from '../../src/course/lessonKit'
 
 const KINDS: LimitKind[] = ['threshold', 'unmodelled', 'model-value', 'out-of-scope']
 
-/** The AMP track is paused, so its lessons are not held to this yet. */
-const graded = (l: Lesson): boolean => trackOf(l) !== 'amp'
+/** The two AMP lessons not yet migrated to the new shape are not held to this yet. */
+const PAUSED_AMP = ['amp-intro', 'amp-ppdu']
+const graded = (l: Lesson): boolean => !PAUSED_AMP.includes(l.id)
 
 const done = LESSONS.filter(graded)
 
 describe('the one exception is honest about itself', () => {
-  /**
-   * Not an allowance, a standing note of work owed — the same shape the retired
-   * `NOT_YET` ledger had. These four are excluded because the track is paused,
-   * not because a paused track may skip the rule.
-   */
-  const PAUSED_AMP = ['amp-coexist', 'amp-intro', 'amp-ppdu', 'amp-slots']
-
-  it('excludes exactly the AMP lessons, and they are the only ones with no limits', () => {
+  it('excludes exactly these two AMP lessons, and they are the only ones with no limits', () => {
     const excluded = LESSONS.filter((l) => !graded(l)).map((l) => l.id).sort()
     expect(excluded).toEqual([...PAUSED_AMP].sort())
     const empty = LESSONS.filter((l) => l.limits.length === 0).map((l) => l.id).sort()
-    expect(empty, 'a lesson outside the AMP track declares no limits').toEqual([...PAUSED_AMP].sort())
+    expect(empty, 'a lesson declares no limits').toEqual([...PAUSED_AMP].sort())
   })
 
   it('has something to check, so the rules below are not vacuous', () => {

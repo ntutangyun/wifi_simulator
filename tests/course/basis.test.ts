@@ -115,22 +115,20 @@ describe('a glossary section about a draft says so on every entry', () => {
 })
 
 describe('a draft lesson names the contributions behind its numbers', () => {
-  // The AMP track is paused, and two of its lessons carry no `sources` field at
-  // all — a real gap, pinned below rather than skipped, so resuming AMP trips it.
-  const SOURCELESS_AMP = ['amp-slots', 'amp-coexist']
-  const draftLessons = LESSONS.filter(
-    (l) => teachesDraft(l.module) && !SOURCELESS_AMP.includes(l.id),
-  )
+  // `amp-slots` and `amp-coexist` used to carry no `sources` field at all — a
+  // real gap, pinned here rather than skipped — until they were migrated to the
+  // new shape 2026-10-02 along with the rest of the readability programme's
+  // last AMP coverage hole. Every draft lesson is checked now; nothing is
+  // excluded.
+  const draftLessons = LESSONS.filter((l) => teachesDraft(l.module))
 
   it('has draft lessons to check', () => {
     expect(draftLessons.length).toBeGreaterThan(0)
   })
 
-  it('still knows about the two AMP lessons that have no sources at all', () => {
-    // Not an allowance: a standing note of work owed. When AMP resumes and these
-    // gain sources, this expectation fails and the two join the rule above.
+  it('no draft lesson is left with no sources at all', () => {
     const actual = LESSONS.filter((l) => teachesDraft(l.module) && !l.sources?.length).map((l) => l.id)
-    expect(actual.sort()).toEqual([...SOURCELESS_AMP].sort())
+    expect(actual).toEqual([])
   })
 
   // A lesson under a draft module whose numbers trace to no document is a number

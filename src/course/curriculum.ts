@@ -356,9 +356,11 @@ export const TRY_MINUTES = 4
  * across all 51 lessons, so the rate that preserves the pacing is
  * 150 × 1.469 ≈ 220 characters a minute. At 220 the formula reproduces the
  * pre-codemod estimate exactly for 43 of the 51 lessons and lands one 5-minute
- * bucket away for 6 more; the last two are `amp-slots` and `amp-coexist`, which
- * are still in MIGRATING and still mostly English, so they have no Chinese to
- * count yet. Nothing in the course exceeds the 30-minute ceiling at this rate.
+ * bucket away for 6 more; the last two were `amp-slots` and `amp-coexist`,
+ * which at the time this constant was measured were still in MIGRATING and
+ * still mostly English, so they had no Chinese to count yet. Both were
+ * migrated to the new shape 2026-10-02 and are now measured at 220 like every
+ * other lesson. Nothing in the course exceeds the 30-minute ceiling at this rate.
  *
  * 220 is below the 300–400 a minute often quoted for casual Chinese prose, and
  * deliberately so: this is dense technical text in which every official term
