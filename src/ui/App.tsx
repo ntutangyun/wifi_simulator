@@ -92,6 +92,26 @@ export function App() {
   /** In one column, course mode shows the lesson or the viewport, never both. */
   const showCourseCol = mode === 'course' && (!layout.singleColumn || pane === 'course')
   const showViewCol = !(mode === 'course' && layout.singleColumn && pane === 'course')
+  /**
+   * The player's two strips, under the 3-D view, as two grid rows.
+   *
+   * `rowStack` swaps them: the controls go above the timeline so the row tapped
+   * most often is not against the bottom edge of the screen, and the transport
+   * becomes one sideways-scrolling row. Both orders are rendered from here rather
+   * than at the two call sites so course mode's view pane and simulate mode
+   * cannot drift into showing the same screen two different ways.
+   */
+  const playerRows = layout.rowStack ? (
+    <>
+      <Transport rowStack />
+      <TimelineStrip height={timelineH} open={timelineOpen} onToggle={() => setTimelineOpen((v) => !v)} />
+    </>
+  ) : (
+    <>
+      <TimelineStrip height={timelineH} open={timelineOpen} onToggle={() => setTimelineOpen((v) => !v)} />
+      <Transport />
+    </>
+  )
 
   return (
     <div style={{ display: 'grid', gridTemplateRows: 'auto 1fr auto auto', gridTemplateColumns: ONE_COLUMN, height: '100%' }}>
@@ -115,9 +135,12 @@ export function App() {
             <button className={pane === 'view' ? 'active' : ''} onClick={() => setPane('view')}>{L.compact.showView}</button>
           </div>
         )}
-        <div style={{
+        <div className="hscroll" style={{
           marginLeft: 'auto', display: 'flex', gap: 4, alignItems: 'center',
           // The controls scroll among themselves rather than widening the page.
+          // `hscroll` hides the scrollbar: at 470px wide the bar added 15px to the
+          // header, which comes straight off the 3-D view below it. At any width
+          // where this row does not overflow the class does nothing.
           minWidth: 0, overflowX: 'auto',
         }}>
           {/* The side panel has no column of its own at this width, so it needs a way in. */}
@@ -165,7 +188,7 @@ export function App() {
               {mode === 'edit' ? (
                 <FloorPlanEditor />
               ) : simActive ? (
-                <Viewport key={`vp-${mode}-${simSession}`} />
+                <Viewport key={`vp-${mode}-${simSession}`} cameraButtons={!layout.rowStack} />
               ) : (
                 <div style={{ display: 'grid', gridTemplateColumns: ONE_COLUMN, placeItems: 'center', height: '100%', color: 'var(--dim)', padding: 24, textAlign: 'center' }}>
                   {L.course.selectPrompt}
@@ -173,8 +196,7 @@ export function App() {
               )}
             </div>
           </div>
-          {stackPlayer && simActive && <TimelineStrip height={timelineH} open={timelineOpen} onToggle={() => setTimelineOpen((v) => !v)} />}
-          {stackPlayer && simActive && <Transport />}
+          {stackPlayer && simActive && playerRows}
         </div>
         )}
         {/* A column when there is room for one, a drawer over the content when there is not. */}
@@ -196,8 +218,7 @@ export function App() {
         )}
       </main>
 
-      {!stackPlayer && simActive && <TimelineStrip height={timelineH} open={timelineOpen} onToggle={() => setTimelineOpen((v) => !v)} />}
-      {!stackPlayer && simActive && <Transport />}
+      {!stackPlayer && simActive && playerRows}
 
       {guideOpen && <GuideWindow onClose={() => setGuideOpen(false)} />}
     </div>

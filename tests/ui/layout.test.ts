@@ -9,11 +9,13 @@
 import { describe, expect, it } from 'vitest'
 import {
   COMPACT_H, COMPACT_W, SINGLE_W, TIMELINE_H, TIMELINE_H_COMPACT,
-  layoutFor, mainColumns, type MainPane,
+  layoutFor, mainColumns, transportOrder, type MainPane, type TransportItem,
 } from '../../src/ui/layout'
 
 /** The viewport this module was written for. */
 const FOLDABLE = { w: 939, h: 511 }
+/** The same phone shut: half the width, the same height. */
+const FOLDED = { w: 470, h: 511 }
 /** A desktop window, which must come out exactly as it did before this module. */
 const DESKTOP = { w: 1920, h: 1080 }
 
@@ -22,6 +24,7 @@ describe('layoutFor', () => {
     const l = layoutFor(DESKTOP.w, DESKTOP.h)
     expect(l).toEqual({
       compact: false, sideAsDrawer: false, singleColumn: false, timelineH: TIMELINE_H,
+      rowStack: false,
     })
   })
 
@@ -58,6 +61,73 @@ describe('layoutFor', () => {
     expect(layoutFor(COMPACT_W - 1, 800).sideAsDrawer).toBe(true)
     expect(layoutFor(1600, COMPACT_H).timelineH).toBe(TIMELINE_H)
     expect(layoutFor(1600, COMPACT_H - 1).timelineH).toBe(TIMELINE_H_COMPACT)
+    expect(layoutFor(SINGLE_W, 511).rowStack).toBe(false)
+    expect(layoutFor(SINGLE_W - 1, 511).rowStack).toBe(true)
+  })
+
+  it('stacks the player on the folded phone and nowhere the unfolded one goes', () => {
+    expect(layoutFor(FOLDED.w, FOLDED.h).rowStack).toBe(true)
+    // The two arrangements that were tuned by hand and confirmed by the reader.
+    expect(layoutFor(FOLDABLE.w, FOLDABLE.h).rowStack).toBe(false)
+    expect(layoutFor(DESKTOP.w, DESKTOP.h).rowStack).toBe(false)
+  })
+
+  it('stacks on height alone for no viewport', () => {
+    // A short desktop window is not a phone: its transport has room for one row
+    // and a mouse has no good way to scroll one sideways.
+    expect(layoutFor(1600, 500).rowStack).toBe(false)
+    // and a tall phone is still a phone
+    expect(layoutFor(412, 800).rowStack).toBe(true)
+  })
+})
+
+describe('transportOrder', () => {
+  const ALL: TransportItem[] = [
+    'prevExch', 'prevEv', 'minusSlot', 'minusUs', 'play',
+    'plusUs', 'plusSlot', 'nextEv', 'nextExch', 'time', 'busy', 'speed',
+  ]
+
+  it('puts the time, play and the speed leftmost when stacked, in that order', () => {
+    expect(transportOrder(true).slice(0, 3)).toEqual(['time', 'play', 'speed'])
+  })
+
+  it('leaves the wide row as it was: steps around play, readouts trailing', () => {
+    expect(transportOrder(false)).toEqual([
+      'prevExch', 'prevEv', 'minusSlot', 'minusUs',
+      'play',
+      'plusUs', 'plusSlot', 'nextEv', 'nextExch',
+      'time', 'busy', 'speed',
+    ])
+  })
+
+  it('shows every control in both orders, so neither hides one', () => {
+    for (const stacked of [false, true]) {
+      const order = transportOrder(stacked)
+      expect(order).toHaveLength(ALL.length)
+      expect([...order].sort()).toEqual([...ALL].sort())
+    }
+  })
+
+  it('keeps the step buttons in time order either way', () => {
+    // −exchange … −µs … +µs … +exchange reads as one axis; a reordering that
+    // crossed them would put "back" to the right of "forward".
+    for (const stacked of [false, true]) {
+      const order = transportOrder(stacked)
+      const at = (id: TransportItem): number => order.indexOf(id)
+      expect(at('prevExch')).toBeLessThan(at('prevEv'))
+      expect(at('prevEv')).toBeLessThan(at('minusSlot'))
+      expect(at('minusSlot')).toBeLessThan(at('minusUs'))
+      expect(at('plusUs')).toBeLessThan(at('plusSlot'))
+      expect(at('plusSlot')).toBeLessThan(at('nextEv'))
+      expect(at('nextEv')).toBeLessThan(at('nextExch'))
+      expect(at('minusUs')).toBeLessThan(at('plusUs'))
+    }
+  })
+
+  it('hands back a copy, so a caller cannot reorder the next caller\'s row', () => {
+    const a = transportOrder(true)
+    a.reverse()
+    expect(transportOrder(true)[0]).toBe('time')
   })
 })
 

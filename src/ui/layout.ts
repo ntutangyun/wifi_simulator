@@ -7,7 +7,11 @@
  * together take nearly half the height. Measured on an unfolded foldable at
  * 939 x 511 CSS px, course mode gave the lesson 279 px of 939, and simulate mode
  * spent 230 px of 511 on the timeline and the transport while the 3-D view got
- * 243 px.
+ * 243 px. Those numbers are the state this module was written against; with the
+ * compact timeline in place the same viewport now gives the 3-D view 313 px.
+ *
+ * The same phone shut is 470 x 511: half the width, every bit of the height. See
+ * `rowStack` for what changes there.
  *
  * This module is the one place that decides what to do about it. It is pure and
  * takes the viewport as arguments so the decision can be tested without a
@@ -46,6 +50,16 @@ export interface ShellLayout {
    * separate decision — this is what "open" means at this size.
    */
   timelineH: number
+  /**
+   * The player is three stacked rows: the 3-D view, then the controls, then the
+   * timeline. The controls are one row that scrolls sideways instead of a block
+   * that wraps, and they sit above the timeline rather than under it, so the
+   * thing tapped most often is not against the bottom edge of the screen.
+   *
+   * It also means the 3-D view drops its on-screen camera buttons: at this width
+   * the pad covers an eighth of the view and a finger already orbits it.
+   */
+  rowStack: boolean
 }
 
 /**
@@ -67,6 +81,17 @@ export function layoutFor(w: number, h: number): ShellLayout {
     sideAsDrawer: narrow,
     singleColumn,
     timelineH: short ? TIMELINE_H_COMPACT : TIMELINE_H,
+    // Deliberately the same breakpoint as `singleColumn`, not a new one. The
+    // stack exists because the transport cannot be one row here: measured in the
+    // browser its twelve controls want 911 px side by side with a mouse pointer
+    // and 947 px at the `pointer: coarse` sizes in `index.css`. Every width that
+    // could be the dividing line was tried against the two real viewports — the
+    // foldable is 939 x 511 open and 470 x 511 shut — and a breakpoint anywhere
+    // near where the row actually overflows would catch 939 too, which is the one
+    // arrangement that must not move. Below 700 the shell is already one column,
+    // i.e. already a phone, which is the same decision about the same device; a
+    // second constant a hundred px away would be two names for it and would drift.
+    rowStack: singleColumn,
   }
 }
 
@@ -97,4 +122,42 @@ export function mainColumns(
     return pane === 'course' ? `minmax(0, 1.4fr) ${one}` : `${one} minmax(0, 1.4fr)`
   }
   return `${courseW}px ${one} minmax(300px, 360px)`
+}
+
+/**
+ * One control of the transport row, named rather than positioned.
+ *
+ * The row's contents are the same at every size and only their order changes, so
+ * the order is a value this module returns and `Transport.tsx` maps to elements.
+ * That keeps the arrangement testable here, with the rest of the arrangement.
+ */
+export type TransportItem =
+  | 'prevExch' | 'prevEv' | 'minusSlot' | 'minusUs'
+  | 'play'
+  | 'plusUs' | 'plusSlot' | 'nextEv' | 'nextExch'
+  | 'time' | 'busy' | 'speed'
+
+/** The desktop row: the steps straddle play, and the readouts trail on the right. */
+const TRANSPORT_WIDE: readonly TransportItem[] = [
+  'prevExch', 'prevEv', 'minusSlot', 'minusUs',
+  'play',
+  'plusUs', 'plusSlot', 'nextEv', 'nextExch',
+  'time', 'busy', 'speed',
+]
+
+/**
+ * The stacked row, in the order it was asked for: the time, play and the speed
+ * first, everything else to their right. Those three are what a reader reaches
+ * for while watching, and this row scrolls, so they are the three that must be
+ * on screen before it is scrolled at all.
+ */
+const TRANSPORT_STACKED: readonly TransportItem[] = [
+  'time', 'play', 'speed', 'busy',
+  'prevExch', 'prevEv', 'minusSlot', 'minusUs',
+  'plusUs', 'plusSlot', 'nextEv', 'nextExch',
+]
+
+/** The transport's controls left to right, for a stacked row or a wide one. */
+export function transportOrder(rowStack: boolean): TransportItem[] {
+  return [...(rowStack ? TRANSPORT_STACKED : TRANSPORT_WIDE)]
 }

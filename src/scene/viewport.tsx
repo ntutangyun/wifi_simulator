@@ -9,7 +9,18 @@ import { EffectsLayer } from './effects'
 import { UwbOverlay } from '../uwb/scene'
 import { primaryLaneOf } from '../model/view'
 
-export function Viewport() {
+export interface ViewportProps {
+  /**
+   * The pan / zoom / home pad in the corner. The shell turns it off in its
+   * stacked arrangement (`layout.rowStack`): the pad is a 3 x 3 grid of 32 px
+   * buttons, ~110 px square, which is an eighth of a 470 x 313 view, and a
+   * finger orbits and pinches the canvas directly. It stays on where there is a
+   * mouse, which has no gesture for `home` at all.
+   */
+  cameraButtons?: boolean
+}
+
+export function Viewport({ cameraButtons = true }: ViewportProps = {}) {
   const L = useStrings()
   const hostRef = useRef<HTMLDivElement>(null)
   /** The camera controls, so the on-screen buttons can drive the same object a
@@ -171,6 +182,7 @@ export function Viewport() {
       {/* A finger can orbit and pinch this view directly, now that the canvas
           stops the browser taking those gestures. These are for the times that is
           awkward: precise zoom, a nudge sideways, and a way back. */}
+      {cameraButtons && (
       <div style={{
         position: 'absolute', right: 8, bottom: 8, zIndex: 4,
         display: 'grid', gridTemplateColumns: 'repeat(3, auto)', gap: 4, justifyItems: 'center',
@@ -185,6 +197,7 @@ export function Viewport() {
         <button style={btn} title={L.view.panDown} onClick={() => nudge(1, 0, -1)}>▼</button>
         <button style={btn} title={L.view.zoomIn} onClick={() => nudge(0.8)}>＋</button>
       </div>
+      )}
     </div>
   )
 }
