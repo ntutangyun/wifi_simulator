@@ -57,6 +57,10 @@ export function UwbInspector({ nv, nameOf }: { nv: NodeView; nameOf: (id: string
           `UwbNodeView.rmnr`) — the pair has to be printed together, not revealed only once it is
           non-zero. */}
       <div style={row} title={U.rmnrHint}><span style={dim}>{U.rmnr}</span><span>{u.rmnr}</span></div>
+      {/* Unconditional for the same reason, and one of its own: this is the only row that ever says
+          anything about who heard this node (standard §10.36), so hiding it at zero would make
+          "nobody confirmed" and "the session never asked" look alike. */}
+      <div style={row} title={U.mmrcmHint}><span style={dim}>{U.mmrcm}</span><span>{u.mmrcm}</span></div>
       <div style={row}><span style={dim}>{U.interfered}</span><span>{u.interfered}</span></div>
       {contend !== null && (
         <div style={row} title={U.contendHint}><span style={dim}>{U.contend}</span><span>{contend}</span></div>

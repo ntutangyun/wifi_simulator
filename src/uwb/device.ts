@@ -36,17 +36,17 @@ import type { Ns, Vec3 } from '../model/types'
 import type { UwbChannel, UwbRadio, UwbRxInfo } from './channel'
 import { counterDiff, gaussian, type UwbClock } from './clock'
 import {
-  makeBlink, makeFinal, makeInit, makePoll, makeReport, makeResp, makeRmnr, makeSsDefer,
-  type UwbFrameKind,
+  makeBlink, makeFinal, makeInit, makeMmrcm, makePoll, makeReport, makeResp, makeRmnr, makeSsDefer,
+  UWB_BROADCAST, type UwbFrameKind, type UwbMmrcEntry,
 } from './frames'
 import { onDlRx, onDlSlot, onUlSlot, solveTdoaFix, solveUlFix as solveUlFixImpl, transmitDl, ulArrivalNs as ulArrivalNsImpl, type DlRoundState } from './device.tdoa'
 import { freshMms, onMmsRx, onMmsSlot, solveMmsFix, type MmsRoundState } from './device.mms'
 import { freshM2m, onM2mRx, onM2mSlot, transmitM2m, type M2mRoundState } from './device.m2m'
 import { measureAoa, reportRange } from './device.report'
-import { RCTU_NS, tsSigmaNs, UWB_RMARKER_NS, uwbSinrDb, type UwbChannelNo } from './phy'
+import { RCTU_NS, tsSigmaNs, UWB_RMARKER_NS, uwbMaxMmrcmInitiators, uwbSinrDb, type UwbChannelNo } from './phy'
 import { rangeSigmaM, solvePosition, type AnchorPos } from './position'
 import { dsTwr, fomFor, ssTwrCorrected, ssTwrRaw } from './ranging'
-import { blockCarriesRcm, type RoundPlan, type SlotAction } from './session'
+import { blockCarriesRcm, type MmrcmSlotAction, type RoundPlan, type SlotAction } from './session'
 
 /** Per-device settings. The TWR method is NOT here: a round's `RoundPlan` is the
  * one truth about how that round is measured, and the device reads it from there. */
@@ -359,6 +359,33 @@ export class UwbDevice implements UwbRadio {
    */
   private rcmBlock = new Map<string, number>()
   /**
+   * **The second piece of cross-round device state on this branch, and it copies the first one's
+   * lesson verbatim: it is keyed by initiator.** Standard §10.36: for each initiator, which of that
+   * initiator's openers inside *one* RCM validity window this device actually received — the
+   * receipt bitmap an MMRCM carries (design §3.3). `window` is the block that window opened at, and
+   * `received[i]` is window-round `i`, i.e. block `window + i`.
+   *
+   * **Why keyed, and what a single un-keyed value cost.** `rcmBlock` above was a single number
+   * first, and that made RMNR lie: an anchor that had decoded tag 1's control message answered
+   * **tag 2's** round with a frame whose whole meaning is "I did receive your control message",
+   * from a tag it had never decoded a frame of — fifteen such frames over five blocks before it was
+   * fixed. A bitmap is the same state one bit per block wider, so a single un-keyed array would
+   * make exactly the same claim about exactly the same frame: "I received your openers", filled in
+   * from somebody else's. The giveaway in that case was in the comment all along — the slot table is
+   * the RDM IE's, and the RDM IE belongs to one tag's Poll — and it applies here unchanged.
+   *
+   * **What bounds it.** `window` does. A reading for a block outside the stored window is not a
+   * stale bitmap read anyway, it is `false` everywhere (`receiptIn`), and a reception in a new
+   * window discards the old array rather than extending it (`noteOpener`). So the state cannot
+   * survive the window it describes, exactly as `rcmBlock`'s own expiry does not let a control
+   * message outlive the rounds it bought — which is what makes both of these exceptions to
+   * `freshRound`'s per-round rule rather than leaks.
+   *
+   * One entry per initiator this device has ever heard, so the map is bounded by the scenario's own
+   * initiator count and never by the run length.
+   */
+  private openerReceipt = new Map<string, { window: number; received: boolean[] }>()
+  /**
    * P802.15.4ab, tag: the ranges of the block in progress, one per anchor. An MMS round holds
    * one anchor, so a fix needs the ranges of several rounds; they are kept here, across those
    * rounds, and cleared when the block's last pair round has solved.
@@ -437,8 +464,19 @@ export class UwbDevice implements UwbRadio {
     })
   }
 
-  /** Called at every slot start of a round this device takes part in. */
-  onSlot(slot: number, action: SlotAction, slotEndNs: Ns, peers: { tag: string; anchors: string[] }): void {
+  /**
+   * Called at every slot start of a round this device takes part in.
+   *
+   * The action is `blockSlotAction`'s, not `slotAction`'s, so it may be the window-closing block's
+   * `MmrcmSlotAction` (standard §10.36) as well as any of the ranging actions — those are the only
+   * two shapes the schedule ever produces, and the union is kept explicit here rather than folded
+   * into `SlotAction` so that the receipt confirmation cannot be reached by a mode that never asked
+   * for one (`uwbMmrcmSlots` answers 0 for every such mode).
+   */
+  onSlot(
+    slot: number, action: SlotAction | MmrcmSlotAction, slotEndNs: Ns,
+    peers: { tag: string; anchors: string[] },
+  ): void {
     this.closeSlot(slot)
     const r = this.round
     if (!r) return
@@ -447,6 +485,14 @@ export class UwbDevice implements UwbRadio {
     // each of them is measuring, so each of them has a lane the slot means something on.
     if (this.cfg.role === 'tag' || r.plan.mode === 'm2m') {
       this.emit({ t: this.now(), type: 'UWB_SLOT', node: this.id, slot, untilNs: slotEndNs })
+    }
+    // The window-closing block's extra slots (standard §10.36, design §3.3), handled before every
+    // mode branch below because the exchange is the same exchange in both modes that have it: one
+    // responder transmits, every initiator of the round listens. Only the two counts differ, and
+    // `mmrcmAnswers` is where that difference lives.
+    if (action.kind === 'uwbMmrcm') {
+      this.onMmrcmSlot(slot, action, r, peers)
+      return
     }
     if (r.plan.mode === 'mms') {
       onMmsSlot(this, slot, action, r, peers)
@@ -685,6 +731,41 @@ export class UwbDevice implements UwbRadio {
       return
     }
 
+    // The receipt confirmation (standard §10.36), handled here for the identical reason and before
+    // every draw below: **nothing in it is timed either.** It carries a bitmap, not a time, no range
+    // is computed from it, and stamping it would spend this receiver's timestamp-noise and
+    // carrier-offset draws on a frame that reports on frames already long gone. So a session with
+    // `mmrcr` on takes exactly the random stream it would have taken without the extra slots, which
+    // is what lets `UWB_RANGE` come out field-for-field identical with the feature switched on.
+    //
+    // It is also handled before the mode branches, unlike every ranging frame: the exchange is the
+    // same in both modes that have it, and the only mode-dependent part — who the frame answers —
+    // was decided when it was built.
+    if (kind === 'uwbMmrcm') {
+      this.clearExpectation()
+      this.setState('idle')
+      const entries = frame.uwb?.mmrc
+      // Every `uwbMmrcm` frame is built by `makeMmrcm`, which always fills this in, and the slot's
+      // expectation has already refused every other kind — so a frame without its list is not an
+      // MMRCM with something missing, it is one this branch should never have been handed.
+      if (entries === undefined) {
+        throw new Error(`UwbDevice.onRxOk: a 'uwbMmrcm' frame from ${from} carries no MMRC list`)
+      }
+      // This device's own row of the list, and nothing else: one frame may answer several
+      // initiators, and each of them learns only what was written about it. A frame that names none
+      // of them is not an error — a broadcast confirmation in a many-to-many round reaches every
+      // participant, including ones it has nothing to say to — it simply produces no record here.
+      const mine = entries.find((e) => e.initiator === this.id)
+      if (mine !== undefined) {
+        this.emit({
+          t: this.now(), type: 'UWB_MMRCM', node: this.id, peer: from,
+          slot: r.slot, block: r.block, round: r.round,
+          windowRounds: r.plan.rcmValidityRounds, received: [...mine.received], initiators: entries.length,
+        })
+      }
+      return
+    }
+
     // P802.15.4ab: neither a fragment nor a narrowband message is stamped on arrival. A
     // fragment is one member of a train and the train is timed as a whole, at its end; a
     // narrowband message carries times but is not one. So the MMS branch comes before every
@@ -896,6 +977,55 @@ export class UwbDevice implements UwbRadio {
   }
 
   /**
+   * One of `initiator`'s openers arrived, in block `block`: write that bit down (standard §10.36,
+   * design §3.3). Called from the two places a device decodes an opener — `onInitiation`, which is
+   * where both of a two-way round's openers land (the control message and the initiation message
+   * alike), and `onM2mRx` for a many-to-many round's pass-0 transmission, which *is* that mode's
+   * opener.
+   *
+   * **This is the only writer**, and it writes only what this receiver experienced: it is called
+   * from inside a reception, after the expectation has accepted the frame, so a bit can be set here
+   * only by a frame this device actually decoded. Nothing reconstructs the bitmap from the record
+   * stream or from the sender's own account of what it transmitted — which is the one property the
+   * slice's acceptance test is built to check, by comparing the bitmap against the run's `RX_OK`
+   * records bit for bit.
+   *
+   * Called whether or not `mmrcr` is on, the same way `rcmBlock` is recorded whether or not `rmnr`
+   * is: it is a fact about the device, it costs no random draw and emits nothing, and only
+   * `receiptIn` reads it — so a session with the feature off behaves and draws exactly as before.
+   */
+  noteOpener(initiator: string, block: number, plan: RoundPlan): void {
+    const window = block - (block % plan.rcmValidityRounds)
+    const held = this.openerReceipt.get(initiator)
+    // A reception in a window this device holds nothing for yet replaces the old array outright
+    // rather than growing it: the previous window's bits describe rounds this bitmap no longer
+    // covers, and carrying them forward is what would let the state outlive its own expiry.
+    const entry = held !== undefined && held.window === window
+      ? held
+      : { window, received: Array.from({ length: plan.rcmValidityRounds }, () => false) }
+    entry.received[block - window] = true
+    this.openerReceipt.set(initiator, entry)
+  }
+
+  /**
+   * `initiator`'s receipt bitmap for the window block `block` belongs to: one bit per window round,
+   * `false` wherever this device decoded nothing. Always exactly `plan.rcmValidityRounds` long,
+   * which is what `makeMmrcm` refuses to let drift from the width the frame is priced for.
+   *
+   * All `false` when this device holds nothing for this window at all — including when what it
+   * holds belongs to an *earlier* window, which is the expiry `openerReceipt`'s own comment turns
+   * on: a bitmap from the window before is not a weaker answer, it is a false one.
+   */
+  private receiptIn(initiator: string, block: number, plan: RoundPlan): boolean[] {
+    const window = block - (block % plan.rcmValidityRounds)
+    const held = this.openerReceipt.get(initiator)
+    if (held === undefined || held.window !== window) {
+      return Array.from({ length: plan.rcmValidityRounds }, () => false)
+    }
+    return [...held.received]
+  }
+
+  /**
    * The frame slot 0 of this round carries, given the slot action it was laid out with: the control
    * message (`uwbPoll`) on the first block of each validity window, the initiation message alone
    * (`uwbInit`) on the blocks that window covers (standard §10.32.9.1, design §2). Any other action
@@ -937,6 +1067,119 @@ export class UwbDevice implements UwbRadio {
     return kind === 'uwbResp' && this.cfg.rmnr && this.cfg.role === 'anchor'
       && r.plan.mode === 'twr' && r.plan.schedule === 'time'
       && r.rxPollCounter === null && this.holdsValidRcm(r.block, r.plan, r.tagId)
+  }
+
+  /**
+   * Which initiators a given responder's MMRCM answers (standard §10.36, design §3.2) — the MMRC
+   * list's own count, which is **not** the slot count beside it: the list is one entry per
+   * *initiator*, because one responder may have heard several, while the slots are one per
+   * *responder*, because each responder sends its own frame (`uwb/phy.ts#uwbMmrcmSlots`).
+   *
+   * A two-way round has exactly one initiator — the tag the round belongs to — so an anchor's frame
+   * carries a single entry, and an N-tag block confirms each tag in that tag's *own* round. That is
+   * design §6's "one frame per initiator" read literally, and it is the reason this engine never
+   * needs the multi-node downlink §6 declines to model.
+   *
+   * A many-to-many round has no such split: every participant is initiator and responder at once
+   * (design §5), so a participant answers every *other* participant and its one frame carries N−1
+   * entries. This is the case §3.2's list and `uwbMmrcmBytes`' own `initiators` parameter exist
+   * for, and the addressing is the round's existing one — every frame of a many-to-many round is
+   * already `UWB_BROADCAST`, because the round has no tag for anything to be addressed to.
+   */
+  private mmrcmAnswers(r: RoundState, responder: string): string[] {
+    if (r.plan.mode !== 'm2m') return [r.tagId]
+    const m = r.m2m
+    if (!m) throw new Error(`mmrcmAnswers: a '${r.plan.mode}' round carries no many-to-many state`)
+    return m.participants.filter((id) => id !== responder)
+  }
+
+  /**
+   * Whether this responder may confirm receipt to `initiator` at all.
+   *
+   * In a two-way round: **only while it still holds a valid control message from that initiator**,
+   * the identical floor §10.34 puts under an RMNR frame (`owesRmnr`), and for the identical reason.
+   * The slot an MMRCM goes out in is one the window-closing block adds *to the initiator's own
+   * round*, and which round that is was settled by that initiator's RDM IE — so a responder that
+   * never decoded one has no slot of its own there, and speaking anyway would be speaking in
+   * somebody else's. This is also what makes the slice-3 defect unreachable rather than merely
+   * absent: the one thing an anchor could have answered tag 2's round with is a bitmap it holds for
+   * tag 1, and an anchor that never decoded tag 2 does not reach the frame at all.
+   *
+   * In a many-to-many round the floor is already met by construction and there is nothing to check:
+   * there is no control message in the mode at all (the schema pins `rcmValidityRounds` at 1 for
+   * it), and the slot comes from the participant list every participant was handed with the round
+   * (`m2mParticipants`, in node-id order), not from anybody's IE.
+   */
+  private mayConfirmTo(initiator: string, r: RoundState): boolean {
+    if (r.plan.mode === 'm2m') return true
+    return this.holdsValidRcm(r.block, r.plan, initiator)
+  }
+
+  /**
+   * One MMRCM slot of a window-closing block (standard §10.36; design §3.3/§6).
+   *
+   * **Which device transmits from the slot** — the decision Task 2 left to this task: the responder
+   * `action.index` names, read off the list the slots were laid out from. That is `peers.anchors` in
+   * a two-way round and the round's own participant list in a many-to-many one, which are the same
+   * two lists `uwbMmrcmSlots` counts to decide how many of these slots exist — so the slot index and
+   * the device it belongs to cannot disagree. It is **not** routed through `transmitFor`: that takes
+   * a `ScheduledAction`, every member of which is a ranging frame with a `tx`/`anchor` shape this
+   * action does not have, and an MMRCM carries no ranging counter (`send(…, null)`, exactly as an
+   * RMNR frame does) because nothing in it is timed.
+   *
+   * Everyone the frame answers listens; everyone else has nothing to hear. The wait is **not**
+   * silent: this slot belongs to one named responder, so a slot that stays empty is a slot with no
+   * answer, which is what `UWB_TIMEOUT` means everywhere else in this engine.
+   */
+  private onMmrcmSlot(
+    slot: number, action: MmrcmSlotAction, r: RoundState, peers: { tag: string; anchors: string[] },
+  ): void {
+    const responders = r.plan.mode === 'm2m'
+      ? (r.m2m?.participants ?? [])
+      : peers.anchors
+    const txId = responders[action.index]
+    // The schedule named a responder this round does not have, which would mean `uwbMmrcmSlots` and
+    // the round's own peer list disagree about how many responders there are — not a state the model
+    // can be in on purpose (slice ledger, Ruling 9).
+    if (txId === undefined) {
+      throw new Error(
+        `UwbDevice.onMmrcmSlot: slot ${slot} names responder ${action.index}, and the round has ${responders.length}`,
+      )
+    }
+    if (txId !== this.id) {
+      if (this.mmrcmAnswers(r, txId).includes(this.id)) this.listenFor(slot, txId, 'uwbMmrcm')
+      return
+    }
+    const entries: UwbMmrcEntry[] = this.mmrcmAnswers(r, this.id)
+      .filter((id) => this.mayConfirmTo(id, r))
+      .map((id) => ({ initiator: id, received: this.receiptIn(id, r.block, r.plan) }))
+    // Nothing this responder is entitled to confirm: the slot stays empty, exactly as a Response
+    // slot does for an anchor that never heard the Poll.
+    if (entries.length === 0) return
+    // **The one invariant the schema's own arithmetic cannot carry over**: the frame has to fit the
+    // 127-octet PSDU. Both of this engine's modes clear it by a wide margin today — a two-way round
+    // lists one initiator (18 octets at R ≤ 8), and a many-to-many round lists N−1 of them while
+    // `uwbMaxParticipants` already caps N at 27 by a *different* frame's arithmetic — but those two
+    // caps are not tied to each other anywhere, and `rcmValidityRounds` may be set as high as 64,
+    // which widens every entry. So it is checked rather than argued: a sentence in a comment is what
+    // this slice has already had to replace once with a throw (`makeMmrcm`'s own width guard).
+    const cap = uwbMaxMmrcmInitiators(r.plan.rcmValidityRounds)
+    if (entries.length > cap) {
+      throw new Error(
+        `UwbDevice.onMmrcmSlot: ${entries.length} initiators do not fit one MMRCM over a `
+        + `${r.plan.rcmValidityRounds}-round window (at most ${cap} do)`,
+      )
+    }
+    this.send(
+      makeMmrcm(
+        this.id,
+        // A two-way round's one initiator is an address; a many-to-many round has no tag to address
+        // anything to and every frame of it is already a broadcast (design §6).
+        r.plan.mode === 'm2m' ? UWB_BROADCAST : r.tagId,
+        r.block, r.round, slot, r.plan.rcmValidityRounds, entries,
+      ),
+      null,
+    )
   }
 
   /**
@@ -1204,6 +1447,12 @@ export class UwbDevice implements UwbRadio {
     // construction, so it never needs `coffs`, and its range is scored by
     // the Final's first-path quality (the last frame of the exchange).
     r.rxPollCounter = counter
+    // …and the one place both of a two-way round's openers land, which is why the receipt bit for
+    // standard §10.36's bitmap is written here rather than in the two `case`s above: the control
+    // message and the initiation message are the same opener as far as "did your message reach me"
+    // is concerned, and splitting that between two call sites is how one of them later gets missed.
+    // Keyed by the initiator this round belongs to, never by this device alone (`openerReceipt`).
+    this.noteOpener(r.tagId, r.block, r.plan)
     // The PPDU it just decoded, whose last symbol is where a fixed reply time is counted from. Read
     // off the frame that actually arrived, so the two messages' different airtimes need no second
     // definition at either end.

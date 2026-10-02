@@ -360,6 +360,28 @@ export function blockSlots(plan: RoundPlan, block: number): number {
   return plan.slots + (blockCarriesMmrcm(plan, block) ? mmrcmResponders(plan) : 0)
 }
 
+/**
+ * Absolute start of one slot of one round of one block, `mmrcr` included — the form the scheduler
+ * lays a block out with, and the only one that is right on a window-closing block.
+ *
+ * `slotStartNs` above strides by `plan.roundNs`, which is `plan.slots` slots and has no block index
+ * in it. On a block that carries MMRCM slots the round is `blockSlots(plan, block)` slots long, so
+ * with two tags in the block tag 0's extra slots would land exactly on tag 1's slots 0…A−1 — two
+ * transmitters in one slot, and nothing downstream able to notice. This is also the very length the
+ * scenario schema budgets a block against (`tags × (slots + mmrcrSlots)`), so the two agree about
+ * how much of a block a round takes.
+ *
+ * **Identical to `slotStartNs` wherever `blockSlots(plan, block) === plan.slots`**, which is every
+ * block of every session with `mmrcr` off (the default) and every block of the modes the schema
+ * refuses `mmrcr` for outright — `'mms'` among them, which is why `device.mms.ts` reading its round's
+ * start through `slotStartNs` stays exact. `slotStartNs` is kept rather than replaced for that
+ * reason: it is the right question wherever a round's length cannot vary, and the lesson text quotes
+ * it by name.
+ */
+export function blockSlotStartNs(p: RoundPlan, block: number, round: number, slot: number): Ns {
+  return block * p.blockNs + round * blockSlots(p, block) * p.slotNs + slot * p.slotNs
+}
+
 /** One MMRCM slot (design §3.2/§3.3): `index` is **which responder** this slot belongs to, in
  * ascending order — 0…A−1 for the anchors of a two-way round, 0…N−1 for the participants of an
  * `'m2m'` one. Kept apart from `SlotAction` rather than added as one more of its members, so that

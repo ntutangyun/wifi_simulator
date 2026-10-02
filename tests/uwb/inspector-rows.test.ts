@@ -10,7 +10,7 @@ import { uwbTrainKey, type UwbNodeView } from '../../src/uwb/view'
 
 /** A tag mid-block with two peers: one clear, one through a wall. */
 const tag: UwbNodeView = {
-  role: 'tag', block: 3, round: 0, slot: 2, rounds: 7, timeouts: 1, rmnr: 0, interfered: 0,
+  role: 'tag', block: 3, round: 0, slot: 2, rounds: 7, timeouts: 1, rmnr: 0, mmrcm: 0, interfered: 0,
   contend: null, contendCollisions: 0,
   ranges: {
     'anc-1': { distM: 5.02, trueDistM: 5, method: 'ds', fom: FOM_LOS, block: 3, n: 7 },

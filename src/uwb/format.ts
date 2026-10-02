@@ -97,6 +97,16 @@ export function fmtUwbRecord(r: UwbTLRecord): string {
       // this round's initiation message (standard §10.34).
       return `${r.node} slot ${r.slot}: ${r.peer} still holds the RCM but missed the initiation `
         + `message of round ${r.round}, block ${r.block}`
+    case 'UWB_MMRCM': {
+      // The bitmap as the window reads it, oldest round first: block `b − R + 1` on the left,
+      // this block on the right. Printed as the bits themselves rather than as a count, because
+      // *which* opener was lost is the whole thing §10.36 buys over a timeout.
+      const bits = r.received.map((b) => (b ? '1' : '0')).join('')
+      const lost = r.received.filter((b) => !b).length
+      const also = r.initiators > 1 ? ` (one of ${r.initiators} initiators in the frame)` : ''
+      return `${r.node} slot ${r.slot}: ${r.peer} received ${bits} of its ${r.windowRounds} window `
+        + `openers — ${lost} lost${also}`
+    }
     case 'UWB_ROUND_END':
       return `${r.node} UWB round ${r.round} of block ${r.block} ends`
     case 'UWB_INTERFERED':

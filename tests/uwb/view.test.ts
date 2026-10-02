@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { makeEmitter, type EmitFn, type TLRecord } from '../../src/model/records'
 import { applyRecord, cloneView, initViewState } from '../../src/model/view'
 import { makeNbPoll } from '../../src/uwb/frames'
-import { uwbTrainKey } from '../../src/uwb/view'
+import { applyUwbRecord, uwbTrainKey } from '../../src/uwb/view'
 import { DEFAULT_UWB_SESSION, nonht, type NodeCfg, type Scenario } from '../../src/model/scenario'
 
 function uwbNode(id: string, role: 'anchor' | 'tag', x: number, y: number): NodeCfg {
@@ -54,7 +54,7 @@ describe('the UWB view reducer', () => {
     const tag = vs.nodes['tag-1']
     expect(tag.acs).toBeNull()
     expect(tag.uwb).toEqual({
-      role: 'tag', block: 0, round: 0, slot: null, rounds: 0, timeouts: 0, rmnr: 0, interfered: 0,
+      role: 'tag', block: 0, round: 0, slot: null, rounds: 0, timeouts: 0, rmnr: 0, mmrcm: 0, interfered: 0,
       contend: null, contendCollisions: 0, ranges: {}, tdoa: {}, tdoaRef: null, aoa: {},
       mms: { trains: {}, nbChannel: null, lbtBusy: 0, skippedBlocks: 0, lastLbtBlock: null },
       position: null,
@@ -114,6 +114,26 @@ describe('the UWB view reducer', () => {
     expect(u.timeouts).toBe(1)
   })
 
+  it('counts a UWB_MMRCM frame at the initiator, and claims the record so it never reaches the Wi-Fi reducer', () => {
+    // Task 3 of the receipt-confirmation slice. `applyUwbRecord` ends in `default: return false`, so
+    // a missing `case 'UWB_MMRCM'` is invisible to both `tsc -b` and grep — the record would simply
+    // never reach a lane, and the counter would sit at zero for a session that was confirming
+    // happily. Both halves are pinned: the increment, and the `true` that says the record was
+    // handled here.
+    const vs = initViewState(uwbScenario())
+    const confirmation: Parameters<EmitFn>[0] = {
+      t: 8_000_000, type: 'UWB_MMRCM', node: 'tag-1', peer: 'anc-2', slot: 6, block: 3, round: 0,
+      windowRounds: 4, received: [true, false, true, true], initiators: 1,
+    }
+    for (const r of seq([...RECORDS, confirmation])) applyRecord(vs, r)
+    const u = vs.nodes['tag-1'].uwb!
+    expect(u.mmrcm).toBe(1)
+    // …and it is a tally of its own: a confirmation neither adds to nor cancels a timeout.
+    expect(u.timeouts).toBe(1)
+    expect(u.rmnr).toBe(0)
+    expect(applyUwbRecord(initViewState(uwbScenario()), { ...confirmation, seq: 0 })).toBe(true)
+  })
+
   it('an anchor takes its block and round from its own ranges, not from the tag’s records', () => {
     const vs = initViewState(uwbScenario())
     for (const r of seq(RECORDS)) applyRecord(vs, r)
@@ -124,7 +144,7 @@ describe('the UWB view reducer', () => {
     expect(a1.ranges['tag-1'].n).toBe(1)
     // anc-2 took part in nothing of its own: untouched by the tag's records
     expect(vs.nodes['anc-2'].uwb).toEqual({
-      role: 'anchor', block: 0, round: 0, slot: null, rounds: 0, timeouts: 0, rmnr: 0, interfered: 0,
+      role: 'anchor', block: 0, round: 0, slot: null, rounds: 0, timeouts: 0, rmnr: 0, mmrcm: 0, interfered: 0,
       contend: null, contendCollisions: 0, ranges: {}, tdoa: {}, tdoaRef: null, aoa: {},
       mms: { trains: {}, nbChannel: null, lbtBusy: 0, skippedBlocks: 0, lastLbtBlock: null },
       position: null,

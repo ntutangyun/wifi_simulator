@@ -67,6 +67,27 @@ export type UwbRecord =
    * `block` and `round` are those three coordinates; there is nothing else to report.
    */
   | { type: 'UWB_RMNR'; node: string; peer: string; slot: number; block: number; round: number }
+  /**
+   * Standard §10.36: a responder confirming, in one frame (the MMRCM, carrying an RMMRC IE), which
+   * of this initiator's openers inside the current RCM validity window it actually received. The
+   * request is free — bit 15 of the ARC IE's Content Control word, §10.32.9.1 — and this record is
+   * the answer arriving.
+   *
+   * Emitted at the **initiator**, on the frame's arrival, for the same reason `UWB_RMNR` is: what
+   * the exchange changes is what the initiator knows. Before it, a device knew what it had worked
+   * out and not who had heard it (design §2/§4); after it, `received[i]` says whether
+   * window-round `i`'s opener got through, and a zero bit names the block whose opener was lost —
+   * which `UWB_TIMEOUT` could only report as an absence.
+   *
+   * `received` is **this** initiator's own entry of the MMRC list, not the whole list: one frame
+   * may answer several initiators at once (`initiators` counts them), and each of them learns only
+   * its own row. `windowRounds` is the window's length R, carried so a reader can check the bitmap
+   * covers exactly the window it claims to rather than take `received.length` on trust.
+   *
+   * It carries no measurement, because the frame carries none: a receipt confirmation is an extra
+   * message, not part of the ranging (`src/uwb/ranging.ts` is untouched by this slice).
+   */
+  | { type: 'UWB_MMRCM'; node: string; peer: string; slot: number; block: number; round: number; windowRounds: number; received: boolean[]; initiators: number }
   /** Contention round (standard §10.32.2 schedule mode 0): an anchor that decoded the Poll drew
    * the response slot it will answer in — `slot` null when its retry budget ran out and it sits
    * this round out, and `attempt` counts from 1 (0 while sitting out). */

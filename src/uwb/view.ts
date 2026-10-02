@@ -122,6 +122,18 @@ export interface UwbNodeView {
    * made visible — how many slots went quiet, and how many came back with a reason.
    */
   rmnr: number
+  /**
+   * Receipt confirmations this node received (standard §10.36's MMRCM), counted at the
+   * **initiator** — the end the exchange exists for. It is the live-view answer to "who heard me",
+   * which before this nothing in the view could show: a round's silence and a round whose openers
+   * were confirmed looked the same from here.
+   *
+   * A count rather than the bitmap itself, and deliberately: a bitmap belongs to one *pair* and one
+   * *window*, so it is per-peer per-window state, while this row is about the node. The bits
+   * themselves live in the record stream, which is where a lesson's `watch` reads them and where
+   * the event log prints them — the same division `UWB_ECHO` already follows.
+   */
+  mmrcm: number
   /** Receptions lost to in-band Wi-Fi power (UWB_INTERFERED), counted at the receiver. */
   interfered: number
   /** Contention round, anchor: its latest draw — `slot` null while it sits a round out. It is
@@ -149,7 +161,8 @@ export interface UwbNodeView {
 
 export function initUwbNodeView(cfg: UwbNodeCfg): UwbNodeView {
   return {
-    role: cfg.role, block: 0, round: 0, slot: null, rounds: 0, timeouts: 0, rmnr: 0, interfered: 0,
+    role: cfg.role, block: 0, round: 0, slot: null, rounds: 0, timeouts: 0, rmnr: 0, mmrcm: 0,
+    interfered: 0,
     contend: null, contendCollisions: 0, ranges: {}, tdoa: {}, tdoaRef: null, aoa: {},
     mms: { trains: {}, nbChannel: null, lbtBusy: 0, skippedBlocks: 0, lastLbtBlock: null },
     position: null,
@@ -273,6 +286,17 @@ export function applyUwbRecord(vs: ViewState, r: TLRecord): boolean {
     case 'UWB_RMNR': {
       const u = vs.nodes[r.node]?.uwb
       if (u) u.rmnr += 1
+      return true
+    }
+    // …and the same, for the same reason, at the initiator a receipt confirmation is addressed to
+    // (standard §10.36). **This case is the one Task 3 could most easily have shipped without**:
+    // the reducer's `default: return false` swallows an unknown type silently, so a missing case
+    // here fails neither `tsc -b` nor a grep, and the record would simply never reach a lane. The
+    // comment above says this branch has already paid for that once; this is the second time the
+    // warning was acted on rather than discovered.
+    case 'UWB_MMRCM': {
+      const u = vs.nodes[r.node]?.uwb
+      if (u) u.mmrcm += 1
       return true
     }
     case 'UWB_NB_LBT': {

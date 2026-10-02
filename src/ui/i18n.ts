@@ -331,6 +331,13 @@ export interface Strings {
      * needs to ask.
      */
     rmnr: string; rmnrHint: string
+    /**
+     * Receipt confirmations this node received (standard §10.36's MMRCM), counted at the initiator
+     * — see `UwbNodeView.mmrcm`. Unconditional for the same reason `rmnr` is, and for a sharper
+     * one: this row is the only thing in the live view that ever answers "who heard me", so a
+     * reader who cannot see the row cannot tell "nobody confirmed" from "the feature is off".
+     */
+    mmrcm: string; mmrcmHint: string
     /** Receptions this node lost to in-band Wi-Fi power. */
     interfered: string
     /** Contention rounds: the anchor's latest draw, and the tag's lost response slots. */
@@ -948,6 +955,7 @@ export const STRINGS: Strings = {
     anchor: '锚点', tag: '标签', role: '角色',
     blockRound: '测距块 / 轮次', slot: '测距时隙', timeouts: '超时时隙',
     rmnr: '测距消息未收到帧', rmnrHint: '这些时隙并非沉默：响应方仍持有一条有效的控制消息，只是没收到本轮的测距启动消息，于是发了一帧 RMNR 代替沉默——打开 RMNR 后，这部分原本会计入上面“超时时隙”的轮次改记在这里',
+    mmrcm: '收妥确认帧', mmrcmHint: '响应方回来的收妥确认（MMRCM）帧数，记在发起方这一侧：请求只占用控制消息里本来就有的一位，不多花一个字节，花钱的是这些回答——每一帧里带着一张位图，说明本有效期窗口里你发出的那几条开场消息它收到了哪几条；哪一块丢了，位图里那一位就是 0，而超时只能说“没来”',
     interfered: '被 Wi-Fi 干扰丢失',
     contend: '竞争抽取', contendHint: '该锚点在最近一个竞争轮次中抽到的响应时隙，以及这是它第几次尝试让标签听到自己',
     contendDraw: (slot, attempt) => `时隙 ${slot} · 第 ${attempt} 次尝试`,

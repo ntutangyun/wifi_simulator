@@ -35,7 +35,10 @@ import { UwbDevice, type UwbGeometry } from './device'
 import { nbChannelForBlock } from './nb'
 import { uwbM2mSlotFitNs, uwbMaxAnchors, uwbMaxParticipants, uwbNbSlotFitNs, uwbSlotFitNs } from './phy'
 import { UwbSensor } from './sensing'
-import { m2mParticipants, roundPlan, slotAction, slotStartNs, type RoundPlan } from './session'
+import {
+  blockSlotAction, blockSlots, blockSlotStartNs, m2mParticipants, mmrcmResponders, roundPlan,
+  type RoundPlan,
+} from './session'
 
 export class UwbNetwork {
   readonly devices = new Map<string, UwbDevice>()
@@ -109,6 +112,25 @@ export class UwbNetwork {
         `UwbNetwork: ${rounds} ${mms && !oneToMany ? 'pairs' : 'tags'} need ${rounds} rounds, but a ${this.plan.blockNs} ns `
         + `block holds ${this.plan.roundsPerBlock} rounds of ${this.plan.roundNs} ns`,
       )
+    }
+    // …and the same question again for the one block that is longer than the others: `mmrcr` adds a
+    // slot per responder to every round of a window-closing block (standard §10.36, design §3.3), so
+    // a block that holds its rounds comfortably with the feature off can overflow with it on.
+    // `plan.roundsPerBlock` cannot see that — it is computed from `plan.roundNs`, which has no block
+    // index — so this is a guard of its own rather than a stricter version of the one above, and it
+    // can only ever fire when `mmrcmResponders` is non-zero. The scenario schema checks the identical
+    // thing in RSTU, before `rstuNs` rounds (`tags × (slots + mmrcrSlots)` in src/model/scenario.ts).
+    const mmrcrSlots = mmrcmResponders(this.plan)
+    const closingRoundNs = (this.plan.slots + mmrcrSlots) * this.plan.slotNs
+    if (mmrcrSlots > 0) {
+      const needed = m2m || listenOnly ? 1 : rounds
+      if (needed * closingRoundNs > this.plan.blockNs) {
+        throw new Error(
+          `UwbNetwork: with mmrcr on, the block that closes a validity window runs ${needed} round(s) of `
+          + `${this.plan.slots} + ${mmrcrSlots} slots (${closingRoundNs} ns each), which does not fit a `
+          + `${this.plan.blockNs} ns block`,
+        )
+      }
     }
     // The same pair of guards, in the units the scheduler runs in: a frame that outlives its
     // slot would be lost to the receiver's deadline with no diagnostic at all.
@@ -259,8 +281,17 @@ export class UwbNetwork {
     ): void => {
       const crowd = crowdIds.map((id) => this.devices.get(id)!)
       const peers = { tag: tagId, anchors: roundAnchors }
-      for (let s = 0; s < this.plan.slots; s++) {
-        const at = slotStartNs(this.plan, block, round, s)
+      // How many slots *this block's* round runs, which is the only quantity in this scheduler that
+      // moves with the block index: `plan.slots` everywhere, plus one slot per responder on the
+      // block that closes an `mmrcr` validity window (standard §10.36, design §3.3). Identical to
+      // `plan.slots` whenever `mmrcr` is off, so an existing session is laid out instant for instant
+      // as before.
+      const slots = blockSlots(this.plan, block)
+      // …and the round's own stride has to be that same length, not `plan.roundNs`:
+      // `blockSlotStartNs` is the one definition of it, and its own comment says what a
+      // `plan.roundNs` stride would collide with on a window-closing block.
+      for (let s = 0; s < slots; s++) {
+        const at = blockSlotStartNs(this.plan, block, round, s)
         q.schedule(at, () => {
           if (s === 0) {
             for (const d of crowd) {
@@ -272,11 +303,15 @@ export class UwbNetwork {
               })
             }
           }
-          const action = slotAction(this.plan, s)
+          // `blockSlotAction`, not `slotAction`: it answers the identical thing for every slot below
+          // `plan.slots` — in every block, `mmrcr` on or off — and names a responder for the extra
+          // ones the window-closing block adds. It is the one function in the schedule that varies
+          // with the block index at all.
+          const action = blockSlotAction(this.plan, block, s)
           for (const d of crowd) d.onSlot(s, action, at + this.plan.slotNs, peers)
         }, 0)
       }
-      const endNs = slotStartNs(this.plan, block, round, this.plan.slots - 1) + this.plan.slotNs
+      const endNs = blockSlotStartNs(this.plan, block, round, slots - 1) + this.plan.slotNs
       q.schedule(endNs, () => {
         // A listen-only round belongs to nobody: every tag closes its own measurement and no
         // feedback travels back to the anchors, because no anchor asked anything of a tag.

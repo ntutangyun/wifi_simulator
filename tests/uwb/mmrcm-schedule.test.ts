@@ -10,7 +10,8 @@
 import { describe, it, expect } from 'vitest'
 import { DEFAULT_UWB_SESSION, type UwbSessionCfg } from '../../src/model/scenario'
 import {
-  blockCarriesMmrcm, blockSlotAction, blockSlots, mmrcmResponders, roundPlan, slotAction,
+  blockCarriesMmrcm, blockSlotAction, blockSlots, blockSlotStartNs, mmrcmResponders, roundPlan,
+  slotAction, slotStartNs,
 } from '../../src/uwb/session'
 
 const session = (over: Partial<UwbSessionCfg> = {}): UwbSessionCfg => ({ ...DEFAULT_UWB_SESSION, ...over })
@@ -169,5 +170,44 @@ describe('blockSlotAction', () => {
   it('throws asking for any slot at all when mmrcr is off and slot >= plan.slots', () => {
     const p = roundPlan(session({ mmrcr: false, rcmValidityRounds: 4 }), 2)
     expect(() => blockSlotAction(p, 3, p.slots)).toThrow()
+  })
+})
+
+describe('blockSlotStartNs (Task 3): the round stride a window-closing block actually runs', () => {
+  it('is slotStartNs exactly, slot for slot, whenever mmrcr is off', () => {
+    for (const r of [1, 2, 4]) {
+      const p = roundPlan(session({ mmrcr: false, rcmValidityRounds: r }), 3)
+      for (let block = 0; block < 2 * r; block++) {
+        for (let round = 0; round < 3; round++) {
+          for (let slot = 0; slot < p.slots; slot++) {
+            expect(blockSlotStartNs(p, block, round, slot), `r=${r} b=${block} round=${round} s=${slot}`)
+              .toBe(slotStartNs(p, block, round, slot))
+          }
+        }
+      }
+    }
+  })
+
+  it('keeps two tags\' rounds disjoint on the window-closing block, which plan.roundNs could not', () => {
+    // The collision this function exists to prevent: with the extra slots appended to each round and
+    // the stride left at `plan.roundNs`, tag 0's MMRCM slots land exactly on tag 1's slots 0…A−1 —
+    // two transmitters in one slot, and nothing downstream able to notice. So the round *after* an
+    // extended one has to start after it ends, and that is asserted here rather than assumed.
+    const p = roundPlan(session({ mmrcr: true, rcmValidityRounds: 4 }), 3)
+    const closing = 3
+    const slots = blockSlots(p, closing)
+    expect(slots, 'three anchors, so three extra slots').toBe(p.slots + 3)
+    for (let round = 0; round + 1 < 4; round++) {
+      const endOfThis = blockSlotStartNs(p, closing, round, slots - 1) + p.slotNs
+      const startOfNext = blockSlotStartNs(p, closing, round + 1, 0)
+      expect(startOfNext, `round ${round} → ${round + 1}`).toBe(endOfThis)
+      // …and the stride a `plan.roundNs` layout would have used is *inside* this round, which is
+      // precisely the overlap.
+      expect(slotStartNs(p, closing, round + 1, 0)).toBeLessThan(endOfThis)
+    }
+    // Blocks that do not close a window are untouched: the same instants as `slotStartNs`.
+    for (const block of [0, 1, 2]) {
+      expect(blockSlotStartNs(p, block, 1, 0)).toBe(slotStartNs(p, block, 1, 0))
+    }
   })
 })
