@@ -354,6 +354,17 @@ export interface UwbSessionCfg {
    * refuses `rmnr: true` with `rcmValidityRounds: 1` and says so (design §4, Ruling 2).
    */
   rmnr: boolean
+  /**
+   * Whether a responder confirms, with a dedicated frame of its own, which of an initiator's
+   * current-window openers it actually received (standard §10.36's RMMRC IE; the request itself
+   * is the ARC IE's MMRCR bit, bit 15 of the same Content Control word `rcmValidityRounds`
+   * already occupies — standard §10.32.9.1). Default false, so an existing scenario reads back
+   * unchanged. `src/uwb/session.ts`'s `blockCarriesMmrcm`/`mmrcmInitiators`/`blockSlots` are the
+   * one place both ends of a round read it; see the schema's own `superRefine` for which modes
+   * and schedules it is refused under, and why `'m2m'` is supported rather than refused (design
+   * doc `2026-10-02-receipt-confirmation-design.md` §2–§4).
+   */
+  mmrcr: boolean
   /** What the session measures: two-way ranges, or one-way time differences (§10.32.3). */
   mode: UwbMode
   /** DL-TDoA only: the tag corrects its own clock rate from the round's poll-to-Final interval
@@ -417,7 +428,7 @@ export const DEFAULT_UWB_SESSION: UwbSessionCfg = {
   method: 'ds', replyTime: 'embedded', fixedReplyRstu: UWB_DEFAULT_SLOT_RSTU,
   blockRstu: 240_000, slotRstu: UWB_DEFAULT_SLOT_RSTU, channel: 9, tsNoisePs: 100, cfoNoisePpm: 0.2, nlos: true,
   schedule: 'time', contentionSlots: 8, maxAttempts: 3,
-  rcmValidityRounds: 1, rmnr: false,
+  rcmValidityRounds: 1, rmnr: false, mmrcr: false,
   mode: 'twr', tdoaClockCorrection: true, syncErrorNs: 0, aoa: false,
   mms: { ...DEFAULT_UWB_MMS, nbChannels: [...DEFAULT_UWB_MMS.nbChannels] },
 }
@@ -932,6 +943,10 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
       // `UwbSessionCfg`'s own doc comment for the derivation. standard §10.32.9.1 / model
       rcmValidityRounds: z.number().int().min(1).max(64).default(1),
       rmnr: z.boolean().default(false),
+      // Default false for the same reason as rmnr above: an existing scenario carries neither key
+      // and must read back byte for byte. standard §10.32.9.1 (the request bit) / §10.36 (the
+      // answer) / model (this simulator's own choice of which modes carry it; see `superRefine`)
+      mmrcr: z.boolean().default(false),
       mode: z.enum(['twr', 'dl-tdoa', 'ul-tdoa', 'mms', 'm2m']).default('twr'),
       tdoaClockCorrection: z.boolean().default(true),
       syncErrorNs: z.number().min(0).max(10).default(0),
@@ -1201,6 +1216,100 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
               + '时隙是从一条控制消息里分来的，也没有谁在等一条本该收到却没收到的启动消息，请把 rmnr 关掉',
           })
         }
+        // Multiple-message receipt confirmation (standard §10.36; design doc
+        // 2026-10-02-receipt-confirmation-design.md, task 2 — `mmrcr` defaults to today's
+        // behaviour, false, so an existing scenario reads back unchanged). The request itself (the
+        // ARC IE's MMRCR bit) is modelled the same way `rcmValidityRounds`/`rmnr` already are — a
+        // session-level setting both ends read off the one plan, not a bit toggled on the air — so
+        // the rules below are only about which modes and schedules the *answer* (an MMRCM frame,
+        // standard §3.2) ever makes sense for.
+        const mmrcr = sc.uwb.mmrcr
+        // Contention (standard §10.32.2 schedule mode 0; same shortfall as RMNR's own contention
+        // refusal above): the whole point of a confirmation frame is that the device sending it
+        // owns a slot the initiator can count on finding it in. A contention response phase hands
+        // out no such slot — anchors draw for it — so putting the confirmation there would just
+        // reintroduce, for the confirmation itself, the very collision risk it exists to resolve.
+        if (mmrcr && sc.uwb.schedule === 'contention') {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['uwb'],
+            message: '收妥确认要落在一个确定属于某个应答方的时隙里，而竞争式测距轮的响应窗口是抽来的，没有谁能'
+              + '保证自己占到那个时隙——把确认帧也塞进竞争窗口，等于把它本该解决的碰撞风险又带了回来：'
+              + '请把 schedule 改成 time，或者把 mmrcr 关掉',
+          })
+        }
+        // DL-TDoA (model): the only two parties that could stand in a request/answer pair here are
+        // anchor 0, which sends the round's one control message, and the anchors that answer it —
+        // and an anchor's own Response already tells anchor 0 whether its Poll got through, with no
+        // extra frame needed to say so again. The party that actually cannot tell whether it was
+        // heard is a tag, but DL-TDoA's tags never transmit at all (they only position themselves
+        // from the anchors' own round): they are not an address either end of this exchange can
+        // confirm receipt to or from.
+        if (mmrcr && mode === 'dl-tdoa') {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['uwb'],
+            message: 'DL-TDoA 里能发出控制消息的只有 anchor 0，其余 anchor 收没收到它的 Poll，已经由它自己'
+              + '发没发 Response 直接说明，不必再发一帧去确认同一件事；真正不知道自己有没有被听见的是标签，'
+              + '可标签在 DL-TDoA 里从不发送——它不是双方都认识的一个地址，没法问它，也没法替它确认，'
+              + '请把 mmrcr 关掉',
+          })
+        }
+        // UL-TDoA (same shortfall its own rcmValidityRounds/rmnr rules above name): a blink carries
+        // no ARC IE and opens no exchange at all, so there is nowhere for a request bit to sit and
+        // no slot a confirmation could be scheduled into.
+        if (mmrcr && mode === 'ul-tdoa') {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['uwb'],
+            message: 'UL-TDoA 里标签只发一次闪烁帧，没有 ARC IE，也没有谁来应答：收妥确认问的是“你收到了我'
+              + '开场的哪几条”，而这里连“开场”这件事都不存在，请把 mmrcr 关掉',
+          })
+        }
+        // MMS (same reasoning as its own rcmValidityRounds/rmnr rules above): the control plane
+        // that would carry the request rides a different radio entirely.
+        if (mmrcr && mode === 'mms') {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['uwb'],
+            message: 'MMS 的控制面走的是窄带的 nbPoll/nbResp/nbReport，不是这里的 ARC IE：收妥确认请求的那一位'
+              + '没有地方可以搭，请把 mmrcr 关掉',
+          })
+        }
+        // twr, rcmValidityRounds 1 (task-2-brief.md's own question: "the window is one block, the
+        // bitmap is one bit — is it still worth a frame?"). For two-way ranging, no: a window of
+        // one round covers exactly the round that just ran, and whether that one message got
+        // through is already visible for free — a responder either sent a Response or it did not.
+        // An MMRCM frame here would spend airtime re-stating what the round's own silence or
+        // Response already said.
+        if (mmrcr && mode === 'twr' && rcmValidityRounds === 1) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['uwb'],
+            message: '每轮一条控制消息时，窗口只有一块，位图也只有一位，而这一位说的正是“这一帧收到了没有”——'
+              + '响应方发没发 Response，已经当场说明了同一件事，不必再发一帧去确认它：请把 rcmValidityRounds '
+              + '调到 2 以上，让窗口真的跨出一块以上，或者把 mmrcr 关掉',
+          })
+        }
+        // m2m (task-2-brief.md's hint, checked rather than taken on faith: design §2 points at this
+        // mode as the one the standard's own Figure 10-272 is drawn over, but that figure's A1…AN
+        // answered by B1…BM is not this engine's shape — a many-to-many round has no fixed
+        // initiator/responder split, every participant is both at once). Deliberately **not**
+        // refused, and not for the figure's reason but for one specific to this mode: 'm2m' already
+        // pins rcmValidityRounds at 1 (the rule above), so the window mmrcr would describe here is
+        // always exactly the round that just ran — the very "one bit, is it worth a frame?" case
+        // 'twr' refuses just above. The two modes answer that question oppositely because the thing
+        // that makes 'twr's bit free does not exist here: a two-way responder's silence-or-Response
+        // already tells the initiator whether it was heard, at no extra cost, but a many-to-many
+        // participant's one transmission is only ever echoed *forward* — `UwbM2mTimes.rxCounters`
+        // reports receipt to whoever transmits *after* the sender in the same round, never back to
+        // the sender itself (design §2 of the many-to-many slice). So the round's last participant,
+        // and any participant whose broadcast a later one simply lost, have no other frame that
+        // ever tells them they were heard — mmrcr's one bit is the only thing in this mode that
+        // ever answers that question, which is exactly the gap design §2 of this slice opens with.
+        // `mmrcmInitiators` in `uwb/session.ts` is accordingly every one of the round's own
+        // participants here, not the single tag a two-way round has (design §3.3 below).
+        // The capacity check further down (`mmrcrSlots`/`m2mRoundSlots`) prices that directly.
         // The P802.15.4ab rules. They read only `sc.uwb.mms`, and only in MMS mode: a two-way
         // or one-way session carries the same settings untouched and must not be judged on them.
         if (mode === 'mms') {
@@ -1325,16 +1434,25 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
           // how long a round is, the very drift class slice 1 was bitten by once already. Reading
           // it from `uwbSlotsPerTag` instead — the same call `roundPlan` makes — is what
           // `tests/model/m2m-scenario.test.ts`'s "Ruling 7" describe block pins in place.
+          // mmrcr's own slots (design §3.3, `uwb/session.ts#mmrcmInitiators`): m2m pins
+          // rcmValidityRounds at 1 (the rule above), so *every* block is the one block that closes
+          // its own one-block window — unlike 'twr' below, there is no "blocks 0…R−2 pay nothing"
+          // case to spare here. One extra slot per participant, every block, whenever mmrcr is on.
+          // Computed here rather than imported from `uwb/session.ts#mmrcmInitiators` (which this
+          // file cannot import without the exact import cycle `uwb/phy.ts`'s own header comment
+          // explains this schema avoids — session.ts imports this file's types).
+          const mmrcrSlots = sc.uwb.mmrcr ? participants : 0
           const m2mRoundSlots = uwbSlotsPerTag(
             sc.uwb.method, participants, sc.uwb.schedule, sc.uwb.contentionSlots, mode,
-          )
+          ) + mmrcrSlots
           const m2mFits = Math.floor(sc.uwb.blockRstu / (m2mRoundSlots * sc.uwb.slotRstu))
           if (m2mFits < 1) {
             ctx.addIssue({
               code: z.ZodIssueCode.custom,
               path: ['uwb'],
               message: `${sc.uwb.blockRstu} RSTU 的 UWB 块装不下一轮多对多测距的 ${m2mRoundSlots} `
-                + `个时隙 × ${sc.uwb.slotRstu} RSTU：请加大 blockRstu 或减小 slotRstu`,
+                + `个时隙 × ${sc.uwb.slotRstu} RSTU`
+                + (mmrcrSlots > 0 ? `（其中 ${mmrcrSlots} 个是 mmrcr 收妥确认的额外时隙）：请加大 blockRstu 或减小 slotRstu，或者把 mmrcr 关掉` : '：请加大 blockRstu 或减小 slotRstu'),
             })
           }
         } else {
@@ -1364,7 +1482,17 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
             sc.uwb.method, anchors, sc.uwb.schedule, sc.uwb.contentionSlots, mode, sc.uwb.mms,
             mmsSlotsPerMs(sc.uwb.slotRstu), sc.uwb.replyTime,
           )
-          const fits = Math.floor(sc.uwb.blockRstu / (slots * sc.uwb.slotRstu))
+          // mmrcr's own slot (design §3.3, `uwb/session.ts#blockCarriesMmrcm`/`mmrcmInitiators`):
+          // one, the tag this round belongs to, on the block that closes its validity window. Every
+          // block shares one fixed length (`blockRstu`), so the capacity check below has to budget
+          // for that window-closing block even though the other `rcmValidityRounds − 1` blocks never
+          // spend it — `roundPlan`'s own `blockNs` does not vary by block index. Gated on `'twr'`
+          // alone (not `mode !== 'mms'`) because `mmrcr` is already refused outright for dl-tdoa,
+          // ul-tdoa and mms above; this is always 0 there regardless. Not imported from
+          // `uwb/session.ts#mmrcmInitiators`, for the same import-cycle reason `uwb/phy.ts`'s own
+          // header comment gives for why this schema reads `phy.ts` rather than `session.ts`.
+          const mmrcrSlots = mode === 'twr' && sc.uwb.mmrcr ? 1 : 0
+          const fits = Math.floor(sc.uwb.blockRstu / ((slots + mmrcrSlots) * sc.uwb.slotRstu))
           // One round has to fit the block in every mode, DL-TDoA included: a round that outlives
           // its block runs into the next one's slots, and nothing downstream notices — the
           // scheduler starts each block on the clock, whatever the last one was still doing.
@@ -1372,8 +1500,9 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
             ctx.addIssue({
               code: z.ZodIssueCode.custom,
               path: ['uwb'],
-              message: `${sc.uwb.blockRstu} RSTU 的 UWB 块装不下一轮测距的 ${slots} `
-                + `个时隙 × ${sc.uwb.slotRstu} RSTU：请加大 blockRstu 或减小 slotRstu`,
+              message: `${sc.uwb.blockRstu} RSTU 的 UWB 块装不下一轮测距的 ${slots + mmrcrSlots} `
+                + `个时隙 × ${sc.uwb.slotRstu} RSTU`
+                + (mmrcrSlots > 0 ? `（其中 1 个是 mmrcr 收妥确认的额外时隙）：请加大 blockRstu 或减小 slotRstu，或者把 mmrcr 关掉` : '：请加大 blockRstu 或减小 slotRstu'),
             })
           } else if (mode === 'mms' && !sc.uwb.mms.oneToMany && tags * anchors > fits) {
             ctx.addIssue({
@@ -1393,7 +1522,8 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
             ctx.addIssue({
               code: z.ZodIssueCode.custom,
               path: ['uwb'],
-              message: `每个 tag 占 ${slots} 个时隙，UWB 块只装得下 ${fits} 个 tag（现在有 ${tags} 个）：请加大 blockRstu 或减小 slotRstu`,
+              message: `每个 tag 占 ${slots + mmrcrSlots} 个时隙，UWB 块只装得下 ${fits} 个 tag（现在有 ${tags} 个）：`
+                + (mmrcrSlots > 0 ? '请加大 blockRstu 或减小 slotRstu，或者把 mmrcr 关掉' : '请加大 blockRstu 或减小 slotRstu'),
             })
           }
           // …and every frame of the round has to fit its slot. A frame that outlives its
