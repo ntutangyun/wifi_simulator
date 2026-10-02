@@ -97,6 +97,23 @@ describe('the UWB view reducer', () => {
     expect(vs.nodes['tag-1'].uwb!.rounds).toBe(1)
   })
 
+  it('counts a UWB_RMNR frame at the initiator, alongside (not instead of) a timeout from a different peer', () => {
+    // Task 5: `UwbNodeView.rmnr` exists so the inspector can show where a round went once `rmnr`
+    // takes it out of `timeouts` (view.ts's own comment on the field) — this pins the increment
+    // the reducer's `case 'UWB_RMNR'` does, which nothing exercised end to end before this task.
+    const vs = initViewState(uwbScenario())
+    const withRmnr: Parameters<EmitFn>[0][] = [
+      ...RECORDS,
+      { t: 7_000_000, type: 'UWB_RMNR', node: 'tag-1', peer: 'anc-2', slot: 3, block: 4, round: 0 },
+    ]
+    for (const r of seq(withRmnr)) applyRecord(vs, r)
+    const u = vs.nodes['tag-1'].uwb!
+    expect(u.rmnr).toBe(1)
+    // The one UWB_TIMEOUT already in RECORDS (anc-2, an earlier round) is untouched: the two
+    // counters are independent tallies, not one state that flips from one into the other.
+    expect(u.timeouts).toBe(1)
+  })
+
   it('an anchor takes its block and round from its own ranges, not from the tag’s records', () => {
     const vs = initViewState(uwbScenario())
     for (const r of seq(RECORDS)) applyRecord(vs, r)

@@ -16,9 +16,9 @@ import {
   NB_POLL_BYTES, NB_REPORT_BYTES, NB_RESP_BYTES, NB_RX_SENS_DBM, NB_TX_DBM, nbCenterMhz, nbPpduNs,
 } from '../uwb/nb'
 import {
-  UWB_BAND_MHZ, UWB_BLINK_BYTES, UWB_CAPTURE_DB, UWB_CHIP_NS, UWB_MAX_INPUT_DBM_PER_MHZ, UWB_RX_SENS_DBM,
-  UWB_SIR_MIN_DB, UWB_SS_DEFER_BYTES, UWB_TX_POWER_DBM, rstuNs, uwbFinalBytes, uwbM2mBytes, uwbMaxAnchors,
-  uwbMaxParticipants, uwbRespBytes,
+  UWB_BAND_MHZ, UWB_BLINK_BYTES, UWB_CAPTURE_DB, UWB_CHIP_NS, UWB_IE_HDR_BYTES, UWB_MAX_INPUT_DBM_PER_MHZ,
+  UWB_RX_SENS_DBM, UWB_SIR_MIN_DB, UWB_SS_DEFER_BYTES, UWB_TX_POWER_DBM, rstuNs, uwbFinalBytes, uwbInitBytes,
+  uwbM2mBytes, uwbMaxAnchors, uwbMaxParticipants, uwbPollBytes, uwbRespBytes, uwbRmnrBytes,
 } from '../uwb/phy'
 import { roundPlan } from '../uwb/session'
 import { ELLIPSE_DRAW_SCALE } from '../uwb/view'
@@ -80,6 +80,20 @@ const pairsOf = (n: number): number => (n * (n - 1)) / 2
 const perParticipant = (n: number): number[] => Array.from({ length: n }, (_, i) => n - 1 - i)
 const M2M_CAP = uwbMaxParticipants('ss') // 27 — uwbMaxParticipants('ds') searches the same frame law
 const M2M_BYTES_N6 = Array.from({ length: 6 }, (_, i) => uwbM2mBytes(i)) // 20/26/30/34/38/42
+
+// --- Section 17: RCM validity rounds, §10.32.9.1 / RMNR, §10.34 -------------------------------
+// The worked example is design §2.2's own: four anchors, four blocks — a tag's successive ranging
+// rounds are successive blocks in this engine (`network.ts`'s two-way dispatch keys the within-block
+// round index to the tag, not the pass), so the saving has to be read off four blocks, not one.
+// `tests/ui/uwb-guide.test.ts` runs that exact scenario and pins every figure below against it.
+const RCM_ANCHORS = 4
+const RCM_POLL_BYTES = uwbPollBytes(RCM_ANCHORS) // 39 = 27 + 3×4
+const RCM_INIT_BYTES = uwbInitBytes() // 14
+const RCM_R1_4BLOCKS = RCM_POLL_BYTES * 4 // 156
+const RCM_R4_4BLOCKS = RCM_POLL_BYTES + RCM_INIT_BYTES * 3 // 81
+const RCM_SAVING_4BLOCKS = RCM_R1_4BLOCKS - RCM_R4_4BLOCKS // 75
+const RCM_SAVING_PER_BLOCK = (RCM_SAVING_4BLOCKS / 4).toFixed(2) // 18.75
+const RMNR_BYTES = uwbRmnrBytes() // 13
 
 // --- Section 12: the P802.15.4ab draft ------------------------------------------------------
 // Every figure below is computed from `src/uwb/mms.ts` and `src/uwb/nb.ts`, so the prose cannot
@@ -849,6 +863,93 @@ export function Guide() {
         接收时刻越多。127 字节的 PSDU 上限（标准 §16.2.7）换来一个可以算出来的参与者上限——
         <code>uwbMaxParticipants</code>，从不写成字面量：一轮多对多最多容纳 <b>{M2M_CAP}</b> 个
         参与者，SS 与 DS 算出的上限相同，因为撑爆帧长的是接收时刻的数量，不是要不要多走一趟。
+      </p>
+
+      <h4 style={h}>17 · 一条控制消息管几轮，以及没收到的一方怎么说话（标准 §10.32.9.1 ARC IE RCM Validity Rounds / §10.34 测距消息未收到交互）</h4>
+      <p style={p}>
+        第 11 节的轮询帧（Poll）在本仿真里身兼两职：它既是控制消息（Ranging Control Message，RCM）——
+        携带 ARC IE 与 RDM IE，告诉每个锚点这一轮谁在哪个时隙作答——也是这一轮测距计时的起点。
+        标准允许一条控制消息管好几轮：ARC IE 的 <b>RCM Validity Rounds</b> 字段（6 位，取值 0–63）
+        规定「本轮以及其后若干轮」共用同一条控制消息，后面那几轮只需重新打一次时间戳，不必重发
+        时隙表——响应方的时隙表仍然来自那条还在有效期内的控制消息。本仿真把这个字段建模成会话里的
+        <code>rcmValidityRounds</code>（1…64，缺省 1：1 就是今天的行为，每轮都带一条控制消息）。
+      </p>
+      <table style={table}>
+        <thead>
+          <tr>
+            <th style={cellHead}>轮次</th>
+            <th style={cellHead}>发什么</th>
+            <th style={cellHead}>帧长（A 个锚点）</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td style={cell}>每 R 轮的第一轮</td>
+            <td style={cell}>控制消息 + 启动：ARC、RDM、RRMC 三个信元，就是今天的 Poll</td>
+            <td style={cell}>27 + 3A（{RCM_ANCHORS} 个锚点 = {RCM_POLL_BYTES}）</td>
+          </tr>
+          <tr>
+            <td style={cell}>其余 R−1 轮</td>
+            <td style={cell}>只有测距启动消息：没有 ARC，没有 RDM</td>
+            <td style={cell}>14（与锚点数无关）</td>
+          </tr>
+        </tbody>
+      </table>
+      <p style={p}>
+        <b>省下的空口时间要按块算，不是按块内的轮号算。</b>本仿真把双向测距安排成「标签 k 占块内
+        第 k 个轮次」，于是对某一个标签来说，它相继的测距轮，在这个引擎里就是<b>相继的块</b>，
+        而不是同一块里相邻的轮次——块内的轮号从来不为同一个标签前进。四个锚点、
+        <code>rcmValidityRounds</code> 取 4 时，连续四个块里，某个标签开场帧的字节数依次是
+        <b> {RCM_POLL_BYTES} / {RCM_INIT_BYTES} / {RCM_INIT_BYTES} / {RCM_INIT_BYTES}</b>，
+        合计 <b>{RCM_R4_4BLOCKS}</b> 字节；<code>rcmValidityRounds</code> 为 1 时四块都是完整的
+        控制消息，合计 <b>{RCM_R1_4BLOCKS}</b> 字节。每个标签每四块省下 <b>{RCM_SAVING_4BLOCKS}</b>
+        字节，换算成每块是 <b>{RCM_SAVING_PER_BLOCK}</b> 字节——不是把四块的总节省数当成一块的节省数。
+        省下的这 <code>13 + 3A</code> 字节，正是上表里 ARC IE 与 RDM IE 的宽度。<b>测距结果不受
+        影响：</b>同一个场景量出的每一条 UWB_RANGE 记录，在两种设置下逐字段相同——省掉的是控制开销，
+        不是测量本身。
+      </p>
+      <p style={p}>
+        <b>RMNR：一个零内容的信元，携带两条信息。</b>响应方手里还握着一条仍然有效的控制消息，
+        却没收到本轮的测距启动消息时，它不会在自己的时隙里保持沉默，而是发一帧测距消息未收到帧
+        （RMNR，Ranging Message Not Received，标准 §10.34）。RMNR IE（§10.34.2.1）没有 Content
+        字段，正文写得很直接：这个信元不带任何内容字段——所以它的全部宽度就是一个信元头部，
+        本仿真里是 {UWB_IE_HDR_BYTES} 字节。但它携带的信息有三条，全靠它出现在哪、什么时候出现：
+      </p>
+      <table style={table}>
+        <thead>
+          <tr>
+            <th style={cellHead}>信息</th>
+            <th style={cellHead}>从哪读出来</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td style={cell}>是谁在说话</td>
+            <td style={cell}>它发在哪个时隙——时隙表来自那条仍然有效的控制消息</td>
+          </tr>
+          <tr>
+            <td style={cell}>你的控制消息我收到了</td>
+            <td style={cell}>它发出来了这件事本身（隐含确认收到了控制消息）</td>
+          </tr>
+          <tr>
+            <td style={cell}>本轮的启动消息我没收到</td>
+            <td style={cell}>它发的是 RMNR，而不是一帧带时间的正常应答</td>
+          </tr>
+        </tbody>
+      </table>
+      <p style={p}>
+        RMNR 帧是 MHR + 信元头部 + FCS，共 <b>{RMNR_BYTES}</b> 字节。它在引擎里取代的是沉默：
+        没有它时，响应方没收到启动消息就什么都不发，发起方整轮只拿到一条 UWB_TIMEOUT，
+        分不清是「这个锚点没听到」「它回答了但回答丢了」还是「它已经不在了」——三种情形看起来
+        毫无分别。打开 RMNR 之后，发起方由此把第一种情形从另外两种里分出来：它知道这个锚点仍然
+        持有控制消息，只是这一轮没收到启动消息，下一轮它还会照着原来的时隙表照常作答。
+      </p>
+      <p style={p}>
+        <b>RMNR 要求控制消息跨轮有效，不是两个无关的特性。</b>每轮一条控制消息
+        （<code>rcmValidityRounds</code> 为 1）时，这条控制消息和本轮的启动消息是同一帧——
+        本仿真的 Poll 正是这样合二为一的。没收到这一帧的响应方，连自己的时隙都无从知道，
+        也就没有地方可以发 RMNR：RMNR 要求的「持有有效控制消息、却没收到本轮启动消息」这个状态，
+        只有在 <code>rcmValidityRounds</code> 大于 1、控制消息与启动消息分处不同轮次之后才存在。
       </p>
 
       <h4 style={h}>动手试试</h4>

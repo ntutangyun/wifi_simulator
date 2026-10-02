@@ -223,6 +223,22 @@ export interface Strings {
     uwbContentionOnly: string
     uwbContentionSlots: string; uwbContentionSlotsHint: string
     uwbMaxAttempts: string; uwbMaxAttemptsHint: string
+    /**
+     * How many rounds one control message governs (standard §10.32.9.1, ARC IE's RCM Validity
+     * Rounds field) — two-way ranging only, which is why `uwbRcmValidityTwrOnly` exists beside
+     * `uwbRcmValidityHint`, the same split `uwbAoaHintKey` uses.
+     */
+    uwbRcmValidityRounds: string; uwbRcmValidityHint: string; uwbRcmValidityTwrOnly: string
+    /**
+     * The ranging message non-receipt frame (standard §10.34): a responder's own reason not to
+     * stay silent. Three refusals, each its own hint key (`uwbRmnrHintKey`): outside two-way
+     * ranging there is no control message to hold at all; at `rcmValidityRounds: 1` the control
+     * message and the round's own initiation message are the same frame, so the state this
+     * checkbox turns on cannot exist yet (`uwbRmnrNeedsValidity` — the one hint in this panel
+     * that teaches a causal reason rather than "wrong mode"); and a contention responder's slot is
+     * drawn fresh every round, never read off a still-valid one.
+     */
+    uwbRmnr: string; uwbRmnrHint: string; uwbRmnrTwrOnly: string; uwbRmnrNeedsValidity: string; uwbRmnrContention: string
     /** "slots per round N · rounds per block M" under the session fields. */
     uwbPlan: (slots: number, rounds: number) => string
     /** `mode: 'm2m'` only: how many participants the round actually holds — every UWB node, not
@@ -307,6 +323,14 @@ export interface Strings {
   uwb: {
     anchor: string; tag: string; role: string
     blockRound: string; slot: string; timeouts: string
+    /**
+     * Slots a responder filled with an RMNR frame instead of silence (standard §10.34), counted
+     * at the initiator — see `UwbNodeView.rmnr`. Shown beside `timeouts` unconditionally, the same
+     * way `interfered` is: turning `rmnr` on makes `timeouts` fall with nothing else in the live
+     * view to say where those rounds went, so the pair has to be visible before a reader ever
+     * needs to ask.
+     */
+    rmnr: string; rmnrHint: string
     /** Receptions this node lost to in-band Wi-Fi power. */
     interfered: string
     /** Contention rounds: the anchor's latest draw, and the tag's lost response slots. */
@@ -792,6 +816,14 @@ export const STRINGS: Strings = {
     uwbContentionOnly: '时间调度的轮次里无需抽取——每个锚点本来就有自己的时隙。把“调度方式”改成竞争调度后才能使用本项。',
     uwbContentionSlots: '响应时隙数', uwbContentionSlotsHint: '轮询帧通告的响应窗口长度（RCPS IE）：每个锚点在这些时隙中均匀抽取一个。若有 N 个锚点、S 个时隙，则某个锚点独占其时隙的概率为 (1 − 1/S)^(N−1)。',
     uwbMaxAttempts: '尝试次数', uwbMaxAttemptsHint: '轮询帧通告的重试预算（RCMA IE）：连续这么多轮都没有被标签测到之后，锚点会空过一轮再重新抽取时隙',
+    uwbRcmValidityRounds: 'RCM 有效轮次',
+    uwbRcmValidityHint: '一条控制消息（RCM，Ranging Control Message）能管几轮测距（标准 §10.32.9.1，ARC IE 的 RCM Validity Rounds 字段，6 位，取值 0–63）。1 表示每轮都带一条控制消息，也就是今天的行为；调大之后，其余轮次只发测距启动消息，不再重发时隙表。',
+    uwbRcmValidityTwrOnly: '只有双向测距才有 ARC IE 携带的控制消息：两种单向模式、MMS 和多对多测距的测距帧里都没有这一帧，这个字段只能是 1',
+    uwbRmnr: 'RMNR',
+    uwbRmnrHint: '响应方手里还握着一条仍然有效的控制消息，却没收到本轮的测距启动消息时，发一帧测距消息未收到帧（RMNR，Ranging Message Not Received，标准 §10.34）代替沉默——发出这一帧本身就确认了它仍持有控制消息',
+    uwbRmnrTwrOnly: '只有双向测距才有 ARC IE 携带的控制消息：这几种模式里没有这样一条消息，也就没有谁能“仍然持有”它',
+    uwbRmnrNeedsValidity: '每轮一条控制消息（RCM 有效轮次为 1）时，这条控制消息和本轮的测距启动消息是同一帧：没收到这一帧的响应方，连自己的时隙都无从知道，也就没有地方可以发 RMNR——请先把 RCM 有效轮次调到 2 以上',
+    uwbRmnrContention: '竞争调度下响应方的时隙是临时抽到的，不是哪一条控制消息里写定的，RMNR 在这里没有什么可确认的——请先把调度方式改回时间调度',
     uwbPlan: (slots, rounds) => `每轮 ${slots} 个时隙 · 每块 ${rounds} 轮`,
     uwbM2mParticipants: (participants) => `多对多测距：全部 ${participants} 台 UWB 设备都是参与者，按 id 排序决定发送顺序——上方的锚点/标签计数只影响画法，不影响这个数`,
     uwbMms: 'MMS 片段序列',
@@ -907,6 +939,7 @@ export const STRINGS: Strings = {
   uwb: {
     anchor: '锚点', tag: '标签', role: '角色',
     blockRound: '测距块 / 轮次', slot: '测距时隙', timeouts: '超时时隙',
+    rmnr: '测距消息未收到帧', rmnrHint: '这些时隙并非沉默：响应方仍持有一条有效的控制消息，只是没收到本轮的测距启动消息，于是发了一帧 RMNR 代替沉默——打开 RMNR 后，这部分原本会计入上面“超时时隙”的轮次改记在这里',
     interfered: '被 Wi-Fi 干扰丢失',
     contend: '竞争抽取', contendHint: '该锚点在最近一个竞争轮次中抽到的响应时隙，以及这是它第几次尝试让标签听到自己',
     contendDraw: (slot, attempt) => `时隙 ${slot} · 第 ${attempt} 次尝试`,

@@ -18,8 +18,9 @@ import { roundPlan } from '../../src/uwb/session'
 import {
   UwbSessionFields, mmsDraftLive, mmsFieldPatch, mmsFixedReplyHintKey, mmsReversedHintKey,
   mmsRsfSfdHintKey, mmsSetIdOf, mmsSetPatch, mmsUwbdControlHintKey, parseFixedReplyRstu,
-  parseNbChannels, uwbAoaHintKey, uwbMethodPatch, uwbModePatch, uwbReplyTimePatch,
-  uwbReplyTimeRstuLive, uwbSchedulePatch, uwbScheduleHintKey,
+  parseNbChannels, uwbAoaHintKey, uwbMethodPatch, uwbModePatch, uwbRcmValidityHintKey,
+  uwbRcmValidityRoundsPatch, uwbReplyTimePatch, uwbReplyTimeRstuLive, uwbRmnrHintKey,
+  uwbSchedulePatch, uwbScheduleHintKey,
 } from '../../src/uwb/ui/UwbSessionFields'
 import { UwbNodeFields } from '../../src/uwb/ui/UwbNodeFields'
 
@@ -169,7 +170,9 @@ describe('uwbSessionIssue', () => {
     // the user a plan it rejects, with the fix two fields away.
     const contending: Partial<UwbSessionCfg> = { method: 'ss', schedule: 'contention' }
     expect(uwbSessionIssue(withUwb(4, { ...contending, mode: 'ul-tdoa' }))).toBeTruthy()
-    expect(uwbModePatch('ul-tdoa')).toEqual({ mode: 'ul-tdoa', schedule: 'time', aoa: false })
+    expect(uwbModePatch('ul-tdoa')).toEqual({
+      mode: 'ul-tdoa', schedule: 'time', aoa: false, rcmValidityRounds: 1, rmnr: false,
+    })
     expect(uwbSessionIssue(withUwb(4, { ...contending, ...uwbModePatch('ul-tdoa') }))).toBeNull()
     // Going back to two-way ranging touches the mode alone: the schedule is the user's again.
     expect(uwbModePatch('twr')).toEqual({ mode: 'twr' })
@@ -187,7 +190,9 @@ describe('uwbSessionIssue', () => {
       expect(uwbSessionIssue(bad), mode).toContain('AoA')
     }
     // and the field the user actually touches never produces that pair
-    expect(uwbModePatch('dl-tdoa')).toEqual({ mode: 'dl-tdoa', schedule: 'time', aoa: false })
+    expect(uwbModePatch('dl-tdoa')).toEqual({
+      mode: 'dl-tdoa', schedule: 'time', aoa: false, rcmValidityRounds: 1, rmnr: false,
+    })
     expect(uwbSessionIssue(withUwb(4, { aoa: true, ...uwbModePatch('dl-tdoa') }))).toBeNull()
     // two-way ranging keeps the checkbox the user's own
     expect(uwbModePatch('twr').aoa).toBeUndefined()
@@ -201,8 +206,10 @@ describe('uwbSessionIssue', () => {
     // hands the receiver the clock the second half of a double-sided exchange is for, and the
     // draft's own 600 RSTU slot (4ab 15-22/0381r5 Table 1.2.3.2), which is what makes the round
     // the 28-slot, 14 ms one the Guide describes.
-    expect(uwbModePatch('mms'))
-      .toEqual({ mode: 'mms', schedule: 'time', aoa: false, method: 'ss', slotRstu: 600 })
+    expect(uwbModePatch('mms')).toEqual({
+      mode: 'mms', schedule: 'time', aoa: false, method: 'ss', slotRstu: 600,
+      rcmValidityRounds: 1, rmnr: false,
+    })
     const contending: Partial<UwbSessionCfg> = { method: 'ss', schedule: 'contention', aoa: true }
     // Three anchors and one tag: an MMS round is pairwise, and the default block holds three.
     expect(uwbSessionIssue(withUwb(3, { ...contending, mode: 'mms' }))).toMatch(/MMS/)
@@ -257,13 +264,29 @@ describe('uwbSessionIssue', () => {
   it('the schedule select takes a stranded deferred reply time with it into contention', () => {
     // The mirror case: 'deferred' is legal on SS-TWR/time (its own extra slot per anchor), but a
     // contention round's responder has no fixed slot to defer into (design §3.1).
-    expect(uwbSchedulePatch('contention', 'deferred')).toEqual({ schedule: 'contention', replyTime: 'embedded' })
-    expect(uwbSessionIssue(withUwb(4, { method: 'ss', replyTime: 'deferred', ...uwbSchedulePatch('contention', 'deferred') })))
-      .toBeNull()
+    expect(uwbSchedulePatch('contention', 'deferred', false)).toEqual({ schedule: 'contention', replyTime: 'embedded' })
+    expect(uwbSessionIssue(withUwb(4, {
+      method: 'ss', replyTime: 'deferred', ...uwbSchedulePatch('contention', 'deferred', false),
+    }))).toBeNull()
     // 'fixed' is the one shape contention is meant to allow, and is left alone.
-    expect(uwbSchedulePatch('contention', 'fixed')).toEqual({ schedule: 'contention' })
+    expect(uwbSchedulePatch('contention', 'fixed', false)).toEqual({ schedule: 'contention' })
     // Time scheduling never touches the reply time at all.
-    expect(uwbSchedulePatch('time', 'deferred')).toEqual({ schedule: 'time' })
+    expect(uwbSchedulePatch('time', 'deferred', false)).toEqual({ schedule: 'time' })
+  })
+
+  it('the schedule select takes a stranded rmnr with it into contention too (design §4, Task 5)', () => {
+    // A finding of the same shape as the mode select's: rmnr + a contention schedule is one of
+    // the schema's six refusals, and nothing stopped the schedule select from landing on it before
+    // this patch — a responder's contention slot is drawn fresh every round, never read off a
+    // still-valid control message, so switching into contention takes rmnr with it, the same
+    // direction this function already takes a stranded deferred reply time.
+    expect(uwbSchedulePatch('contention', 'embedded', true)).toEqual({ schedule: 'contention', rmnr: false })
+    expect(uwbSessionIssue(withUwb(4, {
+      method: 'ss', rcmValidityRounds: 4, rmnr: true, ...uwbSchedulePatch('contention', 'embedded', true),
+    }))).toBeNull()
+    // rmnr off is left alone, and so is time scheduling.
+    expect(uwbSchedulePatch('contention', 'embedded', false)).toEqual({ schedule: 'contention' })
+    expect(uwbSchedulePatch('time', 'embedded', true)).toEqual({ schedule: 'time' })
   })
 
   describe('uwbReplyTimePatch: an illegal combination is not committed', () => {
@@ -471,7 +494,9 @@ describe('why a field is greyed out', () => {
  */
 describe('many-to-many mode in the editor (design §5)', () => {
   it('locks the schedule, the bearing and the reply time together, like the one-way modes plus one', () => {
-    expect(uwbModePatch('m2m')).toEqual({ mode: 'm2m', schedule: 'time', aoa: false, replyTime: 'embedded' })
+    expect(uwbModePatch('m2m')).toEqual({
+      mode: 'm2m', schedule: 'time', aoa: false, replyTime: 'embedded', rcmValidityRounds: 1, rmnr: false,
+    })
   })
 
   it('takes a contention, deferred-reply session cleanly into many-to-many', () => {
@@ -906,5 +931,99 @@ describe('removeNode / canDeleteNode', () => {
     const uwbOnly = removeNode(sc, 'ap')
     expect(uwbOnly.nodes.every((n) => n.kind === 'uwb')).toBe(true)
     expect(ScenarioSchema.safeParse(uwbOnly).success).toBe(true)
+  })
+})
+
+/**
+ * Task 5 (design §2/§4): the RCM-validity-rounds field and the RMNR toggle. The schema's own six
+ * refusals (`model/scenario.ts`, Tasks 1–4) are not re-tested here — only what this file's own
+ * helpers and the rendered panel do with them: the field must never be able to reach a combination
+ * `uwbSessionIssue` rejects.
+ */
+describe('RCM validity rounds / RMNR in the editor (design §2/§4)', () => {
+  const E = STRINGS.editor
+
+  it('is live only under two-way ranging — the only mode with an ARC IE to extend', () => {
+    expect(uwbRcmValidityHintKey('twr')).toBe('uwbRcmValidityHint')
+    for (const mode of ['dl-tdoa', 'ul-tdoa', 'mms', 'm2m'] as const) {
+      expect(uwbRcmValidityHintKey(mode), mode).toBe('uwbRcmValidityTwrOnly')
+    }
+  })
+
+  it('picks the RMNR hint in the order a user would need to fix it: mode, then validity, then schedule', () => {
+    // Wrong mode outranks everything else, including a session that would otherwise be fine.
+    expect(uwbRmnrHintKey('dl-tdoa', 4, 'time')).toBe('uwbRmnrTwrOnly')
+    // Two-way ranging, but the state RMNR reports cannot exist yet.
+    expect(uwbRmnrHintKey('twr', 1, 'time')).toBe('uwbRmnrNeedsValidity')
+    // Two-way ranging, validity above 1, but a contention round has no still-valid control
+    // message for RMNR to confirm.
+    expect(uwbRmnrHintKey('twr', 4, 'contention')).toBe('uwbRmnrContention')
+    // Every reason cleared: live.
+    expect(uwbRmnrHintKey('twr', 4, 'time')).toBe('uwbRmnrHint')
+  })
+
+  it('uwbRcmValidityRoundsPatch takes a stranded rmnr back to false, the direction uwbModePatch and uwbSchedulePatch already take', () => {
+    expect(uwbRcmValidityRoundsPatch(1, true)).toEqual({ rcmValidityRounds: 1, rmnr: false })
+    expect(uwbRcmValidityRoundsPatch(1, false)).toEqual({ rcmValidityRounds: 1 })
+    expect(uwbRcmValidityRoundsPatch(4, true)).toEqual({ rcmValidityRounds: 4 })
+    // …and the field the user actually touches never produces the pair the schema refuses.
+    expect(uwbSessionIssue(withUwb(4, {
+      rcmValidityRounds: 4, rmnr: true, ...uwbRcmValidityRoundsPatch(1, true),
+    }))).toBeNull()
+  })
+
+  it('the number field is greyed outside two-way ranging, with the TWR-only reason', () => {
+    const sc = withUwb(4, { mode: 'dl-tdoa', tdoaClockCorrection: true })
+    const markup = renderToStaticMarkup(createElement(UwbSessionFields, {
+      session: sc.uwb!, anchors: 4, tags: 1, issue: null, onChange: () => {}, onRemove: () => {},
+    }))
+    expect(markup).toContain(E.uwbRcmValidityTwrOnly)
+    expect(markup).not.toContain(E.uwbRcmValidityHint)
+  })
+
+  it('the RMNR checkbox is greyed at the default rcmValidityRounds, and the hint names the reason (design §4, the one hint in this panel that teaches a cause)', () => {
+    const sc = withUwb(4) // DEFAULT_UWB_SESSION: mode twr, rcmValidityRounds 1
+    expect(sc.uwb!.rcmValidityRounds).toBe(1)
+    const markup = renderToStaticMarkup(createElement(UwbSessionFields, {
+      session: sc.uwb!, anchors: 4, tags: 1, issue: null, onChange: () => {}, onRemove: () => {},
+    }))
+    expect(markup).toContain(E.uwbRmnrNeedsValidity)
+    expect(markup).not.toContain(E.uwbRmnrHint)
+  })
+
+  it('the RMNR checkbox comes alive once validity is raised above 1, under time scheduling', () => {
+    const sc = withUwb(4, { rcmValidityRounds: 4 })
+    const markup = renderToStaticMarkup(createElement(UwbSessionFields, {
+      session: sc.uwb!, anchors: 4, tags: 1, issue: null, onChange: () => {}, onRemove: () => {},
+    }))
+    expect(markup).toContain(E.uwbRmnrHint)
+    expect(markup).not.toContain(E.uwbRmnrNeedsValidity)
+  })
+
+  it('the RMNR checkbox is greyed under a contention schedule, with its own reason', () => {
+    const sc = withUwb(4, { method: 'ss', schedule: 'contention', rcmValidityRounds: 4 })
+    const markup = renderToStaticMarkup(createElement(UwbSessionFields, {
+      session: sc.uwb!, anchors: 4, tags: 1, issue: null, onChange: () => {}, onRemove: () => {},
+    }))
+    expect(markup).toContain(E.uwbRmnrContention)
+  })
+
+  it('switching to a one-way or pairwise mode clears a stranded rcmValidityRounds/rmnr (Task 5’s own finding)', () => {
+    // Exactly the shape of bug `uwbModePatch` already fixed for aoa/schedule/method: before this
+    // task neither field was reset on a mode change, so the mode select alone could hand the
+    // schema a combination it refuses.
+    // dl-tdoa/ul-tdoa need four anchors to fix a tag at all; mms is pairwise and three anchors is
+    // the count the existing MMS-mode tests above already confirm fits the default block.
+    for (const [mode, anchors] of [['dl-tdoa', 4], ['ul-tdoa', 4], ['mms', 3], ['m2m', 4]] as const) {
+      const patch = uwbModePatch(mode)
+      expect(patch.rcmValidityRounds, mode).toBe(1)
+      expect(patch.rmnr, mode).toBe(false)
+      const stranded: Partial<UwbSessionCfg> = { rcmValidityRounds: 4, rmnr: true, schedule: 'time' }
+      expect(uwbSessionIssue(withUwb(anchors, { ...stranded, mode })), mode).toBeTruthy()
+      expect(uwbSessionIssue(withUwb(anchors, { ...stranded, ...patch })), mode).toBeNull()
+    }
+    // Two-way ranging leaves both fields the user's own.
+    expect(uwbModePatch('twr').rcmValidityRounds).toBeUndefined()
+    expect(uwbModePatch('twr').rmnr).toBeUndefined()
   })
 })

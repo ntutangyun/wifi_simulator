@@ -52,6 +52,11 @@ export function UwbInspector({ nv, nameOf }: { nv: NodeView; nameOf: (id: string
       </div>
       <div style={row}><span style={dim}>{U.slot}</span><span>{u.slot ?? '—'}</span></div>
       <div style={row}><span style={dim}>{U.timeouts}</span><span>{u.timeouts}</span></div>
+      {/* Unconditional, right beside timeouts: `rmnr` switched on takes rounds out of the count
+          above with nothing else in the view to say where they went (view.ts's own note on
+          `UwbNodeView.rmnr`) — the pair has to be printed together, not revealed only once it is
+          non-zero. */}
+      <div style={row} title={U.rmnrHint}><span style={dim}>{U.rmnr}</span><span>{u.rmnr}</span></div>
       <div style={row}><span style={dim}>{U.interfered}</span><span>{u.interfered}</span></div>
       {contend !== null && (
         <div style={row} title={U.contendHint}><span style={dim}>{U.contend}</span><span>{contend}</span></div>

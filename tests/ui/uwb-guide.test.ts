@@ -10,7 +10,10 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, it, expect } from 'vitest'
 import { CCA_ED_DBM } from '../../src/engine/phy'
 import { Simulation } from '../../src/engine/simulation'
-import { DEFAULT_UWB_SESSION, type NodeCfg, type Scenario, type UwbSessionCfg } from '../../src/model/scenario'
+import {
+  DEFAULT_UWB_SESSION, ScenarioSchema, type NodeCfg, type Scenario, type UwbSessionCfg,
+} from '../../src/model/scenario'
+import type { TLRecord } from '../../src/model/records'
 import { EditorGuide } from '../../src/editor/EditorGuide'
 import { Guide } from '../../src/ui/Guide'
 import { STRINGS } from '../../src/ui/i18n'
@@ -26,8 +29,8 @@ import {
 import {
   COUNTER_MOD, FOM_LOS, FOM_NLOS, RCTU_NS, UWB_BAND_MHZ, UWB_BLINK_BYTES, UWB_CAPTURE_DB,
   UWB_MAX_INPUT_DBM_PER_MHZ, UWB_PL_EXP, UWB_RX_SENS_DBM, UWB_SIR_MIN_DB, UWB_SS_DEFER_BYTES, UWB_TX_POWER_DBM,
-  fomDecode, fomText, rstuNs, uwbFinalBytes, uwbInBandDbm, uwbM2mBytes, uwbMaxAnchors, uwbMaxParticipants,
-  uwbPl0Db, uwbRespBytes, uwbSlotsPerTag, type UwbReplyTime,
+  fomDecode, fomText, rstuNs, uwbFinalBytes, uwbInBandDbm, uwbInitBytes, uwbM2mBytes, uwbMaxAnchors,
+  uwbMaxParticipants, uwbPl0Db, uwbPollBytes, uwbRespBytes, uwbRmnrBytes, uwbSlotsPerTag, type UwbReplyTime,
 } from '../../src/uwb/phy'
 import { rangeSigmaM } from '../../src/uwb/position'
 import { ELLIPSE_DRAW_SCALE } from '../../src/uwb/scene'
@@ -881,5 +884,186 @@ describe('the many-to-many glossary terms, each with a provenance (design §1/§
     const item = find('Slot ratio (taking turns vs. many-to-many)')!
     expect(item.def).toContain('30')
     expect(item.def).toContain('15')
+  })
+})
+
+/**
+ * Section 17: RCM validity rounds (design §1/§2/§2.2) and RMNR (design §3/§3.1). Every figure
+ * the Guide states is read off a real run here, the same discipline section 15 and section 16
+ * already apply — a drift in `uwbPollBytes`/`uwbInitBytes`/`uwbRmnrBytes` or in the engine's own
+ * frame choice fails here, not just in `tests/uwb/rcm-validity-schedule.test.ts` and
+ * `tests/uwb/rmnr-round.test.ts`, which this suite deliberately mirrors rather than imports from.
+ */
+describe('Guide section 17: RCM validity rounds / RMNR (design §1/§2/§2.2/§3)', () => {
+  const zh = renderGuide()
+
+  it('renders the heading', () => {
+    expect(zh).toContain('17 ·')
+    expect(zh).toContain('RCM Validity Rounds')
+  })
+
+  const rcmNode = (id: string, x: number, y: number, role: 'anchor' | 'tag', txPowerDbm = UWB_TX_POWER_DBM): NodeCfg => ({
+    id, kind: 'uwb', name: id, pos: { x, y, z: 1 }, txPowerDbm, profiles: ['idle'],
+    caps: { generation: 'nonht', features: {} }, uwb: { role },
+  })
+  const room = { x: 0, y: 0, w: 40, h: 30, name: 'hall' }
+  const rcmScenario = (nodes: NodeCfg[], session: Partial<UwbSessionCfg>): Scenario => ({
+    rooms: [room], walls: [], nodes, servers: [], seed: 7, rtsThresholdBytes: 3000, snapshotIntervalMs: 10,
+    uwb: { ...DEFAULT_UWB_SESSION, ...session },
+  })
+  const runRcm = (sc: Scenario, untilNs: number): TLRecord[] => new Simulation(sc).runUntil(untilNs).records
+  const of = <T extends TLRecord['type']>(rs: TLRecord[], type: T): Extract<TLRecord, { type: T }>[] =>
+    rs.filter((r) => r.type === type) as never
+
+  // Design §2.2's own worked example: four anchors, four blocks — a tag's successive ranging
+  // rounds are successive blocks here, so the saving has to be read off four of them, not one.
+  const A = 4
+  const SCENE_A: NodeCfg[] = [
+    rcmNode('anc-1', 0, 0, 'anchor'), rcmNode('anc-2', 8, 0, 'anchor'),
+    rcmNode('anc-3', 0, 6, 'anchor'), rcmNode('anc-4', 8, 6, 'anchor'),
+    rcmNode('tag-1', 4, 3, 'tag'),
+  ]
+  const BLOCK_NS = roundPlan(DEFAULT_UWB_SESSION, A).blockNs
+  const RUN_NS = 4 * BLOCK_NS - 1_000_000
+  const sceneA = (rcmValidityRounds: number): TLRecord[] =>
+    runRcm(rcmScenario(SCENE_A, { method: 'ds', replyTime: 'embedded', nlos: false, rcmValidityRounds }), RUN_NS)
+  const openers = (rs: TLRecord[]): { block: number; kind: string; bytes: number }[] =>
+    of(rs, 'TX_START')
+      .filter((r) => r.node === 'tag-1' && (r.frame.kind === 'uwbPoll' || r.frame.kind === 'uwbInit'))
+      .map((r) => ({ block: r.frame.uwb?.block ?? -1, kind: r.frame.kind, bytes: r.frame.bytes }))
+
+  it('states the two opener sizes and the per-tag, per-four-block saving off whole runs (design §2)', () => {
+    const one = sceneA(1)
+    const four = sceneA(4)
+    const o1 = openers(one)
+    const o4 = openers(four)
+    expect(o1.map((o) => o.block), 'R=1: a block, an opener').toEqual([0, 1, 2, 3])
+    expect(o4.map((o) => o.block), 'R=4: a block, an opener').toEqual([0, 1, 2, 3])
+    expect(o1.map((o) => o.bytes)).toEqual([39, 39, 39, 39])
+    expect(o4.map((o) => o.bytes)).toEqual([39, 14, 14, 14])
+    // The two rulers the Guide's own constants use.
+    expect(uwbPollBytes(A)).toBe(39)
+    expect(uwbInitBytes()).toBe(14)
+
+    const total = (os: { bytes: number }[]): number => os.reduce((s, o) => s + o.bytes, 0)
+    const r1Total = total(o1)
+    const r4Total = total(o4)
+    expect(r1Total).toBe(156)
+    expect(r4Total).toBe(81)
+    expect(r1Total - r4Total).toBe(75)
+    const perBlock = ((r1Total - r4Total) / 4).toFixed(2)
+    expect(perBlock).toBe('18.75')
+
+    // Every figure the Guide's prose states, quoted back from this same run.
+    expect(zh).toContain(`${uwbPollBytes(A)} / ${uwbInitBytes()} / ${uwbInitBytes()} / ${uwbInitBytes()}`)
+    expect(zh).toContain(`>${r4Total}<`)
+    expect(zh).toContain(`>${r1Total}<`)
+    expect(zh).toContain(`>${r1Total - r4Total}<`)
+    expect(zh).toContain(`>${perBlock}<`)
+    // The table cell for the first-round frame length, and the flat 14 of the rest.
+    expect(zh).toContain(`27 + 3A（${A} 个锚点 = ${uwbPollBytes(A)}）`)
+
+    // The measurement itself is untouched: every UWB_RANGE record agrees field for field.
+    const ranges = (rs: TLRecord[]): unknown[] => of(rs, 'UWB_RANGE').map(({ seq, ...rest }) => rest)
+    expect(ranges(one).length, 'DS embedded: a range at each end of each block').toBe(2 * A * 4)
+    expect(ranges(four)).toEqual(ranges(one))
+  })
+
+  it('sends no ARC and no RDM after the first block of a validity window (design §2.1)', () => {
+    const o4 = of(sceneA(4), 'TX_START')
+      .filter((r) => r.node === 'tag-1' && (r.frame.kind === 'uwbPoll' || r.frame.kind === 'uwbInit'))
+      .map((r) => [...(r.frame.uwb?.ies ?? [])])
+    expect(o4[0]).toEqual(['ARC', 'RDM', 'RRMC'])
+    for (const ies of o4.slice(1)) {
+      expect(ies).toEqual(['RRMC'])
+      expect(ies).not.toContain('RDM')
+    }
+  })
+
+  // Design §3.1's scene: an anchor that holds block 0's control message, then moves out of the
+  // initiation message's reach but not out of the tag's receive range for its own, louder frame.
+  const TAG_DBM = -24
+  const SCENE_B: NodeCfg[] = [
+    rcmNode('anc-1', 0, 0, 'anchor'), rcmNode('anc-2', 0, 4, 'anchor'),
+    rcmNode('anc-walk', 3, 4, 'anchor'), rcmNode('anc-far', 0, 16, 'anchor'),
+    rcmNode('tag-1', 0, 0.001, 'tag', TAG_DBM),
+  ]
+  function runSceneB(rmnr: boolean): TLRecord[] {
+    const nodes = SCENE_B.map((n) => ({ ...n, pos: { ...n.pos } }))
+    const sc = rcmScenario(nodes, {
+      method: 'ss', replyTime: 'embedded', nlos: false, tsNoisePs: 0, cfoNoisePpm: 0,
+      rcmValidityRounds: 4, rmnr,
+    })
+    const sim = new Simulation(sc)
+    const before = sim.runUntil(BLOCK_NS / 2).records
+    const walker = nodes.find((n) => n.id === 'anc-walk')!
+    walker.pos.y = 16
+    walker.pos.x = 0
+    return [...before, ...sim.runUntil(RUN_NS).records]
+  }
+
+  it('puts a 13-octet RMNR frame on the air, and the Guide states that size (design §3)', () => {
+    const on = runSceneB(true)
+    const sent = of(on, 'TX_START').filter((r) => r.frame.kind === 'uwbRmnr')
+    expect(sent.length).toBeGreaterThan(0)
+    for (const r of sent) {
+      expect(r.frame.bytes).toBe(uwbRmnrBytes())
+      expect(r.frame.bytes).toBe(13)
+      expect(r.frame.uwb?.ies).toEqual(['RMNR'])
+    }
+    expect(uwbRmnrBytes()).toBe(13)
+    expect(zh).toContain(`${uwbRmnrBytes()}`)
+  })
+
+  it('turns a silent timeout into a named reason, without moving a single range (design §3/§3.1)', () => {
+    const off = runSceneB(false)
+    const on = runSceneB(true)
+    expect(of(off, 'UWB_RMNR')).toHaveLength(0)
+    expect(of(on, 'UWB_RMNR').length).toBeGreaterThan(0)
+    const timeoutsFor = (rs: TLRecord[]): number =>
+      of(rs, 'UWB_TIMEOUT').filter((r) => r.node === 'tag-1' && r.peer === 'anc-walk').length
+    expect(timeoutsFor(off)).toBeGreaterThan(0)
+    // Those slots are no longer silent once rmnr is on: they leave no timeout for anc-walk.
+    expect(timeoutsFor(on)).toBe(0)
+    const ranges = (rs: TLRecord[]): unknown[] => of(rs, 'UWB_RANGE').map(({ seq, ...rest }) => rest)
+    expect(ranges(on)).toEqual(ranges(off))
+  })
+
+  it('refuses rmnr at rcmValidityRounds 1', () => {
+    const sc = rcmScenario(SCENE_A, { rmnr: true, rcmValidityRounds: 1 })
+    expect(ScenarioSchema.safeParse(sc).success).toBe(false)
+  })
+})
+
+describe('the RCM-validity / RMNR glossary terms, each with a provenance (design §1/§2/§3/§4)', () => {
+  const group = GLOSSARY.find((g) => g.id === 'uwb')
+  const find = (term: string) => (group?.items ?? []).find((i) => i.term.toLowerCase() === term.toLowerCase())
+
+  it('carries both terms Task 5 adds', () => {
+    for (const t of ['RCM Validity Rounds', 'RMNR']) expect(find(t), t).toBeDefined()
+  })
+
+  it('names a provenance on every one of them', () => {
+    const marks = ['§10.32.9.1', '§10.34', '模型取值']
+    for (const t of ['RCM Validity Rounds', 'RMNR']) {
+      const item = find(t)!
+      const text = `${item.alt} ${item.def}`
+      expect(marks.some((m) => text.includes(m)), `"${t}" names no provenance`).toBe(true)
+    }
+  })
+
+  it('the RCM Validity Rounds entry names the field width and the model’s own counting convention', () => {
+    const item = find('RCM Validity Rounds')!
+    expect(item.alt).toContain('§10.32.9.1')
+    expect(item.def).toMatch(/0–63|0-63/)
+    expect(item.alt).toContain('rcmValidityRounds')
+  })
+
+  it('the RMNR entry states the exact frame size and the three things a zero-content IE carries', () => {
+    const item = find('RMNR')!
+    expect(item.def).toContain('13')
+    expect(item.def).toContain('谁在说话')
+    expect(item.def).toContain('收到了')
+    expect(item.def).toContain('没收到')
   })
 })

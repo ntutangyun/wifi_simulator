@@ -61,12 +61,23 @@ const ms = (rstu: number): string => (rstuNs(rstu) / 1e6).toFixed(rstu < 3000 ? 
  * transmission already carries its own transmit time and every arrival time it holds, which *is*
  * embedding — the standard's many-to-many clauses define no deferred or fixed shape at all
  * (`UwbSessionSchema`'s own refusal, mirrored here rather than left for the issue line to catch).
+ *
+ * Every non-`'twr'` branch also takes `rcmValidityRounds` back to 1 and `rmnr` back to false
+ * (design §4) — a finding from this task rather than an earlier one: none of the three one-way
+ * modes or many-to-many ever carries an ARC IE, so the schema refuses a non-default value of
+ * either field there, the same way it refuses `aoa` outside two-way ranging. The mode select was
+ * the one place in this file still able to hand the schema a combination it rejects — every other
+ * field this function patches already had its reset; these two had none until now.
  */
 export function uwbModePatch(mode: UwbMode): Partial<UwbSessionCfg> {
   if (mode === 'twr') return { mode }
-  if (mode === 'mms') return { mode, schedule: 'time', aoa: false, method: 'ss', slotRstu: 600 }
-  if (mode === 'm2m') return { mode, schedule: 'time', aoa: false, replyTime: 'embedded' }
-  return { mode, schedule: 'time', aoa: false }
+  if (mode === 'mms') {
+    return { mode, schedule: 'time', aoa: false, method: 'ss', slotRstu: 600, rcmValidityRounds: 1, rmnr: false }
+  }
+  if (mode === 'm2m') {
+    return { mode, schedule: 'time', aoa: false, replyTime: 'embedded', rcmValidityRounds: 1, rmnr: false }
+  }
+  return { mode, schedule: 'time', aoa: false, rcmValidityRounds: 1, rmnr: false }
 }
 
 /**
@@ -93,12 +104,64 @@ export function uwbMethodPatch(
  * advance — has nowhere to go (design §3.1). The mirror of what `uwbMethodPatch` does for
  * `'fixed'`: picking `'contention'` while `replyTime` is already `'deferred'` takes it back to the
  * default rather than landing on the pair the schema refuses.
+ *
+ * It takes `rmnr` the same way, for its own, unrelated reason (design §4): a contention
+ * responder's slot is drawn fresh each round, never read off a still-valid control message, so
+ * there is nothing for an RMNR frame to confirm there. Turning the checkbox on is the rmnr
+ * toggle's own job (it is simply greyed out under a contention schedule); taking it away when the
+ * schedule is the field moving is this function's, the same division `uwbModePatch` keeps.
  */
 export function uwbSchedulePatch(
-  schedule: UwbSessionCfg['schedule'], replyTime: UwbSessionCfg['replyTime'],
+  schedule: UwbSessionCfg['schedule'], replyTime: UwbSessionCfg['replyTime'], rmnr: boolean,
 ): Partial<UwbSessionCfg> {
   if (schedule !== 'contention') return { schedule }
-  return replyTime === 'deferred' ? { schedule, replyTime: 'embedded' } : { schedule }
+  const patch: Partial<UwbSessionCfg> = { schedule }
+  if (replyTime === 'deferred') patch.replyTime = 'embedded'
+  if (rmnr) patch.rmnr = false
+  return patch
+}
+
+/**
+ * What changing RCM validity rounds commits. At 1, a control message no longer outlives the round
+ * it was sent in — it and that round's initiation message are the same frame (design §1) — which
+ * is exactly the state `rmnr`'s schema refusal names: a responder that missed the Poll missed both
+ * at once and never learned which slot was its own, so there is nothing for it to send RMNR about.
+ * Dropping to 1 therefore takes `rmnr` back to false with it, the direction `uwbModePatch` and
+ * `uwbSchedulePatch` already take for their own dependents — the field being edited gives away the
+ * one that would otherwise be left sitting on the illegal side of the schema's rule.
+ */
+export function uwbRcmValidityRoundsPatch(rcmValidityRounds: number, rmnr: boolean): Partial<UwbSessionCfg> {
+  return rcmValidityRounds === 1 && rmnr ? { rcmValidityRounds, rmnr: false } : { rcmValidityRounds }
+}
+
+/**
+ * Why the RCM-validity-rounds field is live or not. The standard's ARC IE — the frame this field
+ * extends the reach of — is a two-way-ranging fixture (§10.32.9.1): none of the one-way modes or
+ * many-to-many ever carries one, so the schema refuses a non-default value there (`uwbModePatch`
+ * resets it the moment the mode select moves, the same way it resets `aoa`).
+ */
+export function uwbRcmValidityHintKey(mode: UwbMode): 'uwbRcmValidityHint' | 'uwbRcmValidityTwrOnly' {
+  return mode === 'twr' ? 'uwbRcmValidityHint' : 'uwbRcmValidityTwrOnly'
+}
+
+/**
+ * Why the RMNR toggle is live or not. Three separate reasons, in the order a user would need to
+ * fix them: outside two-way ranging there is no control message to still be holding at all (the
+ * same reason `uwbRcmValidityHintKey` greys the field above it); at `rcmValidityRounds: 1` the
+ * control message and the round's own initiation message are one frame (design §1), so a
+ * responder that missed the Poll never learned its own slot and has nowhere to send RMNR from —
+ * this is the one hint `UwbSessionFields`'s own greying usually never has to carry, a causal
+ * reason rather than "wrong mode"; and under a contention schedule a responder's slot is drawn
+ * fresh each round, not read off a still-valid control message, so there is nothing an RMNR frame
+ * would be confirming.
+ */
+export function uwbRmnrHintKey(
+  mode: UwbMode, rcmValidityRounds: number, schedule: UwbSessionCfg['schedule'],
+): 'uwbRmnrHint' | 'uwbRmnrTwrOnly' | 'uwbRmnrNeedsValidity' | 'uwbRmnrContention' {
+  if (mode !== 'twr') return 'uwbRmnrTwrOnly'
+  if (rcmValidityRounds === 1) return 'uwbRmnrNeedsValidity'
+  if (schedule === 'contention') return 'uwbRmnrContention'
+  return 'uwbRmnrHint'
 }
 
 /**
@@ -370,6 +433,11 @@ export function UwbSessionFields(
   // `session.mms`, and a two-way or one-way session carries those settings untouched.
   const mms = session.mode === 'mms' ? session.mms : null
   const patchMms = (patch: Partial<UwbMmsCfg>): void => onChange({ mms: { ...session.mms, ...patch } })
+  // Which reason (if any) keeps the RMNR toggle off — derived once so the `disabled` attribute and
+  // the title it shows cannot disagree about which rule is in force, the same discipline
+  // `mmsDraftLive` uses for the MMS fields below.
+  const rmnrHintKey = uwbRmnrHintKey(session.mode, session.rcmValidityRounds, session.schedule)
+  const rmnrLive = rmnrHintKey === 'uwbRmnrHint'
   return (
     <div>
       <div style={{ color: 'var(--dim)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -434,7 +502,9 @@ export function UwbSessionFields(
       <label style={label} title={E[uwbScheduleHintKey(session.mode, session.method)]}>
         {E.uwbSchedule}{' '}
         <select value={session.schedule} disabled={!ssOnly || nonTwr !== null}
-          onChange={(e) => onChange(uwbSchedulePatch(e.target.value as UwbSessionCfg['schedule'], session.replyTime))}>
+          onChange={(e) => onChange(
+            uwbSchedulePatch(e.target.value as UwbSessionCfg['schedule'], session.replyTime, session.rmnr),
+          )}>
           <option value="time">{E.uwbSchedules.time}</option>
           <option value="contention">{E.uwbSchedules.contention}</option>
         </select>
@@ -450,6 +520,26 @@ export function UwbSessionFields(
         <input type="number" min={1} max={10} step={1} value={session.maxAttempts} style={{ width: 62 }}
           disabled={!contending}
           onChange={(e) => onChange({ maxAttempts: clampField(e.target.value, 1, 10, true) })} />
+      </label>
+      <label style={label} title={E[uwbRcmValidityHintKey(session.mode)]}>
+        {E.uwbRcmValidityRounds}{' '}
+        <input type="number" min={1} max={64} step={1} value={session.rcmValidityRounds} style={{ width: 62 }}
+          disabled={session.mode !== 'twr'}
+          onChange={(e) => onChange(
+            uwbRcmValidityRoundsPatch(clampField(e.target.value, 1, 64, true), session.rmnr),
+          )} />
+      </label>
+      {/* Greying this out is one of the few places in this panel where the disabled state itself
+          teaches something: at rcmValidityRounds 1 the control message and this round's own
+          initiation message are one frame, so a responder that missed the Poll never learned
+          which slot was its own — the state this checkbox would turn on cannot exist yet, and
+          `uwbRmnrHintKey`'s `uwbRmnrNeedsValidity` hint says exactly that, not just "pick a
+          different mode". */}
+      <label style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 4, cursor: rmnrLive ? 'pointer' : 'default' }}
+        title={E[rmnrHintKey]}>
+        <input type="checkbox" checked={session.rmnr} disabled={!rmnrLive}
+          onChange={(e) => onChange({ rmnr: e.target.checked })} />
+        {E.uwbRmnr}
       </label>
       <label style={label} title={E.uwbBlockHint}>
         {E.uwbBlock}{' '}
