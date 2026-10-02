@@ -30,7 +30,7 @@
  * deferred Final just carries less (design §4), on the same A+2+A slots.
  */
 import { byCodeUnit } from '../engine/hash'
-import type { NbLbt, NbReportMode, NodeCfg, UwbMode, UwbSessionCfg } from '../model/scenario'
+import type { NbLbt, NbReportMode, NodeCfg, UwbMode, UwbSessionCfg, UwbSrrrCfg } from '../model/scenario'
 import type { Ns } from '../model/types'
 import { mmsLayout, mmsSlotsPerMs, type MmsLayout, type MmsPhy } from './mms'
 import { mmsResponders, rstuNs, uwbMmrcmSlots, uwbSlotsPerTag, type UwbReplyTime } from './phy'
@@ -102,6 +102,23 @@ export interface RoundPlan {
    * chance for the two ends to disagree.
    */
   mmrcr: boolean
+  /**
+   * SP3 grouped ranging (standard §10.32.8; design `docs/superpowers/specs/2026-10-02-sp3-design.md`
+   * §2/§3): run the round's SP1 frames as the physically shortest SP3 marker instead. Read off the
+   * session's own `cfg` here, for the same reason `replyTime`/`rcmValidityRounds`/`mmrcr` are — the
+   * schema already refuses `sp3` unless `replyTime` is `'deferred'`, so a device deciding what to
+   * put on the air reads one settled value rather than re-deriving the same conclusion.
+   *
+   * Carried straight through by `roundPlan` — this field by itself changes no slot count and no
+   * `slotAction` answer (`uwbSlotsPerTag`'s own `2A + 1` for a deferred SS round already is exactly
+   * the shape SP3 markers plus one report frame per responder fill; design §2). Which device reads
+   * it to choose an SP3 marker over a full frame is a later task's own decision.
+   */
+  sp3: boolean
+  /** The SRRR IE's own RAOA/RRTT request bits (standard §10.32.9.9); see `UwbSrrrCfg` in
+   * `model/scenario.ts`. Meaningful only when `sp3` is true; copied rather than referenced, the
+   * same reason `mms` below is — a plan outlives the scenario object it was built from. */
+  srrr: UwbSrrrCfg
   /** Set exactly when `mode` is 'mms': everything an MMS pair round is laid out from, resolved
    * once here so that no device re-derives it — the two ends of a round must agree on the slot
    * every fragment sits in, and a second copy of `mmsLayout` at the device would be a second
@@ -183,6 +200,7 @@ export function roundPlan(cfg: UwbSessionCfg, anchors: number): RoundPlan {
     schedule: cfg.schedule, contentionSlots: cfg.contentionSlots, mode: cfg.mode,
     replyTime: cfg.replyTime, fixedReplyNs: rstuNs(cfg.fixedReplyRstu),
     rcmValidityRounds: cfg.rcmValidityRounds, mmrcr: cfg.mmrcr,
+    sp3: cfg.sp3, srrr: { ...cfg.srrr },
     // Copied, not referenced: a plan outlives the scenario object it was built from, and a
     // device reading the train's shape must not be able to see it edited underneath.
     ...(layout

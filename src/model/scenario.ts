@@ -16,9 +16,9 @@ import { FADING_DEFAULTS, RICIAN_K_DEFAULT_DB, type FadingCfg } from '../engine/
 import type { ScattererCfg } from '../engine/scatter'
 import { NB_CHANNELS } from '../uwb/nb'
 import {
-  C_M_PER_NS, mmsResponders, rstuNs, UWB_SLOT_GUARD_NS, uwbM2mSlotFitNs, uwbMaxAnchors, uwbMaxParticipants,
-  uwbMmrcmSlots, uwbNbSlotFitNs, uwbPollBytes, uwbPpduNs, uwbRespBytes, uwbSlotFitNs, uwbSlotsPerTag,
-  type UwbReplyTime,
+  C_M_PER_NS, mmsResponders, rstuNs, srrrIeBytes, UWB_MAX_PSDU_BYTES, UWB_SLOT_GUARD_NS, uwbM2mSlotFitNs,
+  uwbMaxAnchors, uwbMaxParticipants, uwbMmrcmSlots, uwbNbSlotFitNs, uwbPollBytes, uwbPpduNs, uwbRespBytes,
+  uwbSlotFitNs, uwbSlotsPerTag, type UwbReplyTime,
 } from '../uwb/phy'
 import type { LinkId } from './caps'
 import type { CapabilityProfile, NodeKind, Vec3 } from './types'
@@ -275,6 +275,27 @@ export interface UwbMmsCfg extends MmsPhy {
 }
 
 /**
+ * The SRRR IE's own request bits (standard §10.32.9.9, SP3 Ranging Request Report): what a
+ * responder asks the measurement report phase to tell it back, one IE per responder in the RCM.
+ * Both map onto something the engine already computes — `raoa` onto the `aoa` session switch's
+ * bearing, `rrtt` onto DS-TWR's round-trip time — so the schema's own job is only the request
+ * bits, not a new quantity. Read only when `UwbSessionCfg.sp3` is on (see the schema's
+ * `superRefine`); carried in every session, at its default, for the same reason `mms` is — so a
+ * scenario saved before this slice existed reads back unchanged. standard §10.32.9.9
+ */
+export interface UwbSrrrCfg {
+  /** Request the responding anchor's angle-of-arrival bearing. */
+  raoa: boolean
+  /** Request the round-trip time. */
+  rrtt: boolean
+}
+
+/** Every bit off: a session that turns `sp3` on without asking for anything back from the
+ * report phase still gets the ranging result itself (the reply time deferred rules already
+ * require), just none of SRRR's own optional extras. */
+export const DEFAULT_UWB_SRRR: UwbSrrrCfg = { raoa: false, rrtt: false }
+
+/**
  * One ranging session (standard §10.32.2, the modes of §10.32.3): the block/slot structure every tag
  * shares, the TWR method, the channel, and the two noise knobs the engine
  * draws its timestamp and clock errors from.
@@ -380,6 +401,21 @@ export interface UwbSessionCfg {
    * (src/uwb/aoa.ts). A DS-TWR anchor that has both a range and a bearing fixes the tag on its
    * own — the one single-anchor position in the simulator. */
   aoa: boolean
+  /**
+   * SP3 grouped ranging (standard §10.32.8): run the exchange over the physically shortest
+   * ranging frame the standard has — SYNC + SFD + STS, no PHR, no payload (`uwbSp3Chips`/
+   * `uwbSp3Ns` in `uwb/phy.ts`) — instead of a normal SP1 frame. Default false, so an existing
+   * scenario reads back unchanged. Because an SP3 frame cannot carry a timestamp, the round
+   * always adds a measurement report phase after the SP3 ranging phase (design §2 of
+   * `docs/superpowers/specs/2026-10-02-sp3-design.md`) — the schema's `superRefine` only accepts
+   * it alongside `replyTime: 'deferred'`, the one existing reply-time shape that already puts the
+   * time off until a later message rather than putting it on the air at all (`'embedded'`) or
+   * never transmitting it (`'fixed'`).
+   */
+  sp3: boolean
+  /** The SRRR IE's own RAOA/RRTT request bits (standard §10.32.9.9); see `UwbSrrrCfg`. Only read
+   * when `sp3` is on. */
+  srrr: UwbSrrrCfg
   /** `mode: 'mms'` only: the fragment train and the narrowband control radio of P802.15.4ab.
    * It is carried in every session, at its default, so that switching the mode needs no second
    * decision — and so that a scenario saved before this slice reads back unchanged. */
@@ -431,6 +467,7 @@ export const DEFAULT_UWB_SESSION: UwbSessionCfg = {
   schedule: 'time', contentionSlots: 8, maxAttempts: 3,
   rcmValidityRounds: 1, rmnr: false, mmrcr: false,
   mode: 'twr', tdoaClockCorrection: true, syncErrorNs: 0, aoa: false,
+  sp3: false, srrr: { ...DEFAULT_UWB_SRRR },
   mms: { ...DEFAULT_UWB_MMS, nbChannels: [...DEFAULT_UWB_MMS.nbChannels] },
 }
 
@@ -952,6 +989,14 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
       tdoaClockCorrection: z.boolean().default(true),
       syncErrorNs: z.number().min(0).max(10).default(0),
       aoa: z.boolean().default(false),
+      // Both default: an existing scenario carries neither key and must read back byte for byte,
+      // same discipline as every other switch in this block. standard §10.32.8 (sp3) / §10.32.9.9
+      // (srrr) / model (defaulting both request bits off)
+      sp3: z.boolean().default(false),
+      srrr: z.object({
+        raoa: z.boolean().default(false),
+        rrtt: z.boolean().default(false),
+      }).default(() => ({ ...DEFAULT_UWB_SRRR })),
       // A session saved before P802.15.4ab existed here carries no MMS settings at all, and
       // reads back with the draft's defaults — so every such scenario replays unchanged.
       mms: UwbMmsSchema.default(() => ({ ...DEFAULT_UWB_MMS, nbChannels: [...DEFAULT_UWB_MMS.nbChannels] })),
@@ -1004,7 +1049,13 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
         // a deferred follow-up message needs a slot of its own to go to, and there is none to
         // draw for a frame the round never scheduled in the first place — the same shortfall
         // that already keeps DS-TWR's own report phase out of a contention round above.
-        if (sc.uwb.schedule === 'contention' && sc.uwb.replyTime === 'deferred') {
+        //
+        // `&& !sc.uwb.sp3`: sp3 forces replyTime to 'deferred' (its own rule below) and refuses
+        // both other shapes, so this rule's own remedy — "change replyTime to embedded or
+        // fixed" — is exactly what sp3's rules forbid. Offering it to an sp3 reader would be the
+        // same loop Ruling 2 of the rcm-validity slice was fixed for; sp3's own contention rule
+        // below gives the sp3-specific remedy instead (schedule to time, or sp3 off).
+        if (sc.uwb.schedule === 'contention' && sc.uwb.replyTime === 'deferred' && !sc.uwb.sp3) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             path: ['uwb'],
@@ -1311,6 +1362,116 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
         // `mmrcmInitiators` in `uwb/session.ts` is accordingly every one of the round's own
         // participants here, not the single tag a two-way round has (design §3.3 below).
         // The capacity check further down (`mmrcrSlots`/`m2mRoundSlots`) prices that directly.
+        //
+        // SP3 grouped ranging (standard §10.32.8; design docs/superpowers/specs/
+        // 2026-10-02-sp3-design.md §2/§3). `sp3` defaults false, so an existing scenario reads
+        // back unchanged; `srrr` (the SRRR IE's own RAOA/RRTT request bits, §10.32.9.9) is carried
+        // in every session, at its default, for the same reason `mms` is.
+        const sp3 = sc.uwb.sp3
+        const srrr = sc.uwb.srrr
+        // Only 'twr' ever runs the three-phase round this flag turns on (RCM with one SRRR IE per
+        // responder → SP3 ranging phase → measurement report phase, §10.32.8.1). dl-tdoa's own
+        // Poll/Response/Final is an exchange *among anchors*, not the tag–anchor one SRRR
+        // addresses — the other three never send an RCM at all, for the identical reason their own
+        // rmnr/mmrcr rules above already give.
+        if (sp3 && mode === 'dl-tdoa') {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['uwb'],
+            message: 'SP3分组测距问答的是标签这一端：DL-TDoA里收发Poll、Response与Final的是锚点之间，'
+              + '标签在这个模式下从不发送，没有一次标签-锚点的往返可以压成SP3标记，请把 sp3 关掉',
+          })
+        }
+        if (sp3 && mode === 'ul-tdoa') {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['uwb'],
+            message: 'UL-TDoA里标签只发一次闪烁帧，没有RCM，也没有应答方能在RCM之前声明自己要报告哪几'
+              + '项：请把 sp3 关掉',
+          })
+        }
+        if (sp3 && mode === 'mms') {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['uwb'],
+            message: 'MMS的控制面走窄带的nbPoll/nbResp/nbReport，测距信号是一串片段：既没有这里的'
+              + 'ARC/SRRR IE，也没有SP3这种UWB PHY包格式的位置，请把 sp3 关掉',
+          })
+        }
+        if (sp3 && mode === 'm2m') {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['uwb'],
+            message: '多对多测距没有独立的RCM：每个参与者的一次发送本身既是问也是答，SRRR IE要挂在'
+              + 'RCM里按应答方逐个声明它要报告哪几项，这里没有这样一条控制消息可挂，请把 sp3 关掉',
+          })
+        }
+        // The four rules below are scoped to `mode === 'twr'` on purpose, even though `sp3` is
+        // already refused outright for every other mode above: 'm2m' has its own unconditional
+        // "replyTime must be embedded" rule (Ruling 1), and an un-scoped sp3+embedded or
+        // sp3+fixed rule here would tell an sp3+m2m reader to set replyTime to 'deferred' in the
+        // very same parse that rule tells them to set it to 'embedded' — two remedies for the same
+        // field pointing opposite ways, the Ruling-2 loop shape, even though each rule's *other*
+        // remedy ("turn sp3 off") still resolves both at once. Scoping to 'twr' — the only mode
+        // sp3 is ever legal in anyway — keeps a non-twr scenario's sp3 complaint to the one
+        // "wrong mode" message above and nothing else.
+        //
+        // SP3's own teaching point (design §2): an SP3 packet is SYNC + SFD + STS, no PHR, no
+        // payload — it cannot carry a timestamp at all, so 'embedded' (write the reply time into
+        // the very frame that measures it) is not a configuration this round can run under: there
+        // is no field left in the frame to write it into.
+        if (sp3 && mode === 'twr' && sc.uwb.replyTime === 'embedded') {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['uwb'],
+            message: 'SP3包只有SYNC+SFD+STS，没有PHR，也就没有载荷：嵌入式要把回复时间写进测量它的'
+              + '那一帧本身，而这一帧已经没有字段可写——不是配置选不选的问题，请把 replyTime 改成 '
+              + 'deferred，或者把 sp3 关掉',
+          })
+        }
+        // 'fixed' is the one shape that never puts a reply time on the air at all, embedded or
+        // not — both ends agree on it in advance (design §6 of the reply-time slice) and no
+        // message ever carries it. SP3's marker buys exactly one thing: the round no longer has to
+        // embed the reply time in the frame that measures it, because that value instead comes
+        // back in the mandatory report phase this flag adds (design §2). Under 'fixed' that value
+        // was never going to be transmitted anyway, with or without SP3, so there is nothing for
+        // the report phase to carry back — the schema's own mandatory phase would have no reply
+        // time of its own to report.
+        if (sp3 && mode === 'twr' && sc.uwb.replyTime === 'fixed') {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['uwb'],
+            message: '固定回复时间下，回复时间从不会出现在空口上——两端早就按约定好的时延各自发送，'
+              + '不会再有哪一条消息把它随后补回来。SP3把测距帧压到最短，换的正是"这个值随后由另一条'
+              + '消息补上"这件事，而固定回复时间下根本没有这件事，SP3这里要求的测量报告相位也就没有'
+              + '回复时间可以携带：请把 replyTime 改成 deferred，或者把 sp3 关掉',
+          })
+        }
+        // Contention (standard §10.32.2 schedule mode 0): refused here with its own remedy rather
+        // than left to the generic contention+deferred rule above (now scoped away from sp3 for
+        // exactly this reason) — that rule's other remedy, "change replyTime to embedded or
+        // fixed", is what sp3's own two rules just above forbid, so leaving it in play here would
+        // reopen the same kind of loop Ruling 2 of the rcm-validity slice was fixed for.
+        if (sp3 && mode === 'twr' && sc.uwb.schedule === 'contention') {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['uwb'],
+            message: '竞争式测距轮里响应方的时隙是抽来的：SRRR IE要在RCM里按固定的应答方逐个声明它'
+              + '要报告哪几项，而竞争窗口里谁会抽到哪个时隙事先并不知道，请把 schedule 改成 time，'
+              + '或者把 sp3 关掉',
+          })
+        }
+        // The SRRR IE's own request bits (§10.32.9.9), checked only once sp3 is on: whatever
+        // either bit says when sp3 is off describes a report phase that does not exist, the same
+        // way `mms`'s own fields are only checked in `mode: 'mms'`.
+        if (sp3 && mode === 'twr' && srrr.raoa && !sc.uwb.aoa) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['uwb'],
+            message: 'RAOA请求的是锚点测到的到达角，而到达角是aoa这个会话开关算出来的；aoa关着时'
+              + '锚点从没算过这个角，报告相位里没有它可以报：请把 aoa 打开，或者把 srrr.raoa 关掉',
+          })
+        }
         // The P802.15.4ab rules. They read only `sc.uwb.mms`, and only in MMS mode: a two-way
         // or one-way session carries the same settings untouched and must not be judged on them.
         if (mode === 'mms') {
@@ -1641,6 +1802,24 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
                 message: `一轮测距最多容纳 ${anchorCap} 个 anchor（现在有 ${anchors} 个）：`
                   + '这一轮里最长的那一帧随 anchor 数增长，超过就会撑破 127 个八位组的 PSDU 上限（标准 §16.2.7）',
               })
+            }
+            // SP3's own SRRR content (§10.32.9.9): sp3 gives every responder one SRRR IE in the
+            // RCM — 3 octets each, on top of the Poll `uwbMaxAnchors` above already sized. Neither
+            // `uwbMaxAnchors` nor the generic Poll it is bound by has ever heard of SRRR, so a
+            // scenario this check alone accepts can still carry an RCM that outgrows the 127-octet
+            // PSDU cap at a *lower* anchor count than `anchorCap` names — the request is not free,
+            // the mirror image of §10.36's MMRCR bit (design §3.3).
+            if (sp3 && mode === 'twr' && sc.uwb.schedule === 'time') {
+              const rcmBytes = uwbPollBytes(anchors, sc.uwb.schedule) + srrrIeBytes(anchors)
+              if (rcmBytes > UWB_MAX_PSDU_BYTES) {
+                ctx.addIssue({
+                  code: z.ZodIssueCode.custom,
+                  path: ['uwb'],
+                  message: `SP3的RCM要给 ${anchors} 个应答方各挂一个SRRR IE，一共 ${rcmBytes} 个`
+                    + `八位组，超过了 ${UWB_MAX_PSDU_BYTES} 个八位组的PSDU上限（标准§16.2.7）：`
+                    + '请减少 anchor 数量，或者把 sp3 关掉',
+                })
+              }
             }
           }
         }
