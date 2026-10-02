@@ -9,7 +9,9 @@ import { useState } from 'react'
 import { DEFAULT_UWB_MMS } from '../../model/scenario'
 import type { NbLbt, NbReportMode, UwbMmsCfg, UwbMode, UwbSessionCfg, UwbSrrrCfg } from '../../model/scenario'
 import { roundPlan } from '../session'
-import { mmsResponders, rstuNs } from '../phy'
+import {
+  RSTU_NS, UWB_SLOT_GUARD_NS, mmsResponders, rstuNs, uwbPollBytes, uwbPpduNs, uwbRespBytes,
+} from '../phy'
 import {
   MMS_FIXED_REPLY_RSTU_DEFAULT, MMS_FIXED_REPLY_RSTU_MAX, MMS_FIXED_REPLY_RSTU_MIN,
   MMS_RSF_SFD_N_MSR, MMS_SETS, N_MSR_SET, RIF_COUNT_SET, RSF_COUNT_SET, STS_LEN_SET,
@@ -48,6 +50,111 @@ const GAP_MS_SET = [1, 2] as const
  */
 function srrrDownWithSp3(srrr: UwbSrrrCfg): Partial<UwbSessionCfg> {
   return srrr.raoa || srrr.rrtt ? { srrr: { raoa: false, rrtt: false } } : {}
+}
+
+/**
+ * The window a fixed reply time has to land in, in whole RSTU, for a time-scheduled two-way
+ * round — **the only reply-time shape whose Response is not slot-aligned** (standard §10.29.6.3,
+ * design §6/§6.1 of `docs/superpowers/specs/2026-09-29-reply-time-design.md`). Anchor k transmits
+ * at `rxPollEnd + F + k·S` and has to land inside its own slot k+1: not before it opens, and not
+ * so late that it is still transmitting when it shuts. `k·S` cancels, which is what "one Final
+ * serves every responder" buys, leaving a two-sided bound on `F` alone:
+ *
+ *     S − Ap   ≤   F   ≤   2S − Ap − Ar − guard
+ *
+ * with S the slot, Ap the Poll's airtime and Ar the Response's. `scenario.ts`'s `superRefine`
+ * checks the same two bounds **tightened by flight time** — the lower by the nearest anchor's
+ * ToF, the upper by the furthest — and only it can, because only it can see where the nodes are.
+ * This function is deliberately **geometry-free**, and that makes it the conservative reading of
+ * the same rule in both directions: flight only ever *loosens* the lower bound and only ever
+ * *tightens* the upper, so a value inside this window and near its floor is legal at any
+ * geometry whose Response fits its own slot at all.
+ *
+ * It exists so that an editor can offer a legal value rather than let the schema refuse one it
+ * had no way to avoid. Two sources for one rule is a thing this branch has a commit about, so
+ * `tests/editor/uwb-planOps.test.ts` referees this window against the schema's own refusals at
+ * every slot size it accepts, rather than against a second copy of the arithmetic.
+ *
+ * **It belongs in `uwb/phy.ts`**, beside `UWB_SLOT_GUARD_NS` and the two airtime functions it is
+ * built from, and it is here only because another session held that file when this landed. Moving
+ * it is a rename and nothing else; the referee test does not care where it lives, and only from
+ * `phy.ts` could `scenario.ts` ever adopt it and retire the second copy for good.
+ *
+ * `loRstu > hiRstu` means no fixed reply time is legal at all: the slot cannot hold the Poll, the
+ * Response and the guard together, which the slot-fit rule refuses for its own reasons first.
+ */
+export function uwbFixedReplyWindowRstu(
+  slotRstu: number, anchors: number, schedule: 'time' | 'contention', method: 'ss' | 'ds',
+): { loRstu: number; hiRstu: number } {
+  const slotNs = rstuNs(slotRstu)
+  const pollNs = uwbPpduNs(uwbPollBytes(anchors, schedule))
+  const respNs = uwbPpduNs(uwbRespBytes(method, 'fixed'))
+  // Rounded inwards on both sides: the window is in nanoseconds and the field is in whole RSTU,
+  // so ceil the floor and floor the ceiling, or the rounding itself would leave the window.
+  return {
+    loRstu: Math.ceil((slotNs - pollNs) / RSTU_NS),
+    hiRstu: Math.floor((2 * slotNs - pollNs - respNs - UWB_SLOT_GUARD_NS) / RSTU_NS),
+  }
+}
+
+
+/**
+ * The fixed reply time this session should carry: the one it already has when that is legal for
+ * the slot actually set, and otherwise the **floor** of the window
+ * (`uwbFixedReplyWindowRstu`). `null` means the window is empty — no fixed reply time is legal at
+ * this slot at all, which the slot-fit rule refuses first and for its own reasons.
+ *
+ * **The invariant: a fixed reply time cannot outlive the slot it was legal for.** C1's shape one
+ * level along — not a flag left high past the thing that justified it, but a *number* left behind
+ * by a slot that moved underneath it. `fixedReplyRstu` is read by nothing except under
+ * `replyTime: 'fixed'` (`uwbReplyTimeRstuLive`), and the session default (2400 RSTU) is legal for
+ * the session default slot and for nothing far from it: beside MMS's own 600 RSTU — which
+ * `uwbModePatch` writes and deliberately never writes back — it cannot fit two slots of that
+ * width, and once the slot is raised past roughly 2 600 RSTU the same number is too *low*
+ * instead, which is the same defect from the side nobody reported.
+ *
+ * The floor rather than the middle, for a reason worth stating: `scenario.ts` checks this window
+ * tightened by flight time, which only ever loosens the lower bound and only ever tightens the
+ * upper, so the floor is the point with the most headroom against the one edge a geometry can
+ * move. It is also the shape a fixed reply time is for — the responder transmits the instant its
+ * own slot opens.
+ */
+export function uwbFixedReplyRstuFor(session: UwbSessionCfg, anchors: number): number | null {
+  const { loRstu, hiRstu } = uwbFixedReplyWindowRstu(session.slotRstu, anchors, session.schedule, session.method)
+  if (loRstu > hiRstu) return null
+  if (session.fixedReplyRstu >= loRstu && session.fixedReplyRstu <= hiRstu) return session.fixedReplyRstu
+  return loRstu
+}
+
+/**
+ * What a session still owes after a patch has been merged into it — the panel's one
+ * reconciliation step, applied to **every** commit rather than written into each patch.
+ *
+ * This shape was arrived at the hard way, and the reason is worth keeping. The fixed-reply window
+ * is a function of `slotRstu`, `schedule`, `method` and the anchor count, and the controls that
+ * move one of those are not one or two but *six*: the reply-time select, the slot field, the
+ * reply-time field itself, **and** `uwbModePatch` (which writes `schedule: 'time'` in three
+ * branches and MMS's `slotRstu` in one), `uwbSchedulePatch` and `uwbMethodPatch` (which both write
+ * `schedule`). The first version of this fix threaded the window's inputs into the two patches the
+ * review's walk had named; the walk then found three more — which is C1's own lesson arriving a
+ * second time, a precedent applied without scanning the interface's other callers.
+ *
+ * So the invariant is not kept per patch at all. It is kept **once, after the merge**, where a
+ * patch that has never heard of `fixedReplyRstu` cannot break it. That is strictly stronger than
+ * six correct patches, and it is the only version of this fix that does not need a seventh writer
+ * to remember anything. The cost is that a patch function in isolation no longer promises a legal
+ * session — `uwbReplyTimePatch('fixed', …)` alone can leave a stale reply time — so the closure in
+ * `tests/editor/uwb-planOps.test.ts` drives the panel's **commit**, not its patches, which is what
+ * the panel actually does.
+ *
+ * It returns the empty patch when nothing is owed, so a commit carries no field it does not
+ * change — the same discipline every patch above keeps.
+ */
+export function uwbSessionRepair(session: UwbSessionCfg, anchors: number): Partial<UwbSessionCfg> {
+  if (session.replyTime !== 'fixed') return {}
+  const fixedReplyRstu = uwbFixedReplyRstuFor(session, anchors)
+  if (fixedReplyRstu === null || fixedReplyRstu === session.fixedReplyRstu) return {}
+  return { fixedReplyRstu }
 }
 
 const ms = (rstu: number): string => (rstuNs(rstu) / 1e6).toFixed(rstu < 3000 ? 3 : 1)
@@ -319,6 +426,12 @@ export function uwbMmrcrHintKey(
  *
  * And `srrr` goes down with it (`srrrDownWithSp3`), the third of the four paths that lowered `sp3`
  * while leaving the IE's own request bits up.
+ *
+ * `fixedReplyRstu` — the field `'fixed'` is the one shape that reads at all — is deliberately
+ * **not** this function's business, even though picking `'fixed'` beside MMS's 600 RSTU slot was
+ * the reachable path the walk first found. It is reconciled once, after the merge, by
+ * `uwbSessionRepair`: six controls can move that window and this is only one of them, and the
+ * comment on `uwbSessionRepair` says what happened when the fix was attempted per patch instead.
  */
 export function uwbReplyTimePatch(
   replyTime: UwbSessionCfg['replyTime'], method: UwbSessionCfg['method'], schedule: UwbSessionCfg['schedule'],
@@ -634,13 +747,29 @@ export function uwbSp3Patch(sp3: boolean, srrr: UwbSrrrCfg): Partial<UwbSessionC
  * carry one no device takes part in, and only then is removing it legal.
  */
 export function UwbSessionFields(
-  { session, anchors, tags, issue, onChange, onRemove }:
+  { session, anchors, tags, issue, onChange: emit, onRemove }:
   {
     session: UwbSessionCfg; anchors: number; tags: number; issue: string | null
     onChange: (patch: Partial<UwbSessionCfg>) => void; onRemove: () => void
   },
 ) {
   const E = useStrings().editor
+  /**
+   * Every control on this panel commits through here, and the raw `onChange` is renamed out of
+   * reach so that reaching for the obvious name gets the reconciled path. A control that calls
+   * `emit` directly would be the one hole left in this, and there is no reason for one to.
+   *
+   * What it adds is `uwbSessionRepair`: the cross-field values that no single patch owns, computed
+   * against the session the patch would actually produce rather than the one it was computed from.
+   * The repair has the last word, and that costs nothing it should not: it only ever returns a
+   * field when the merged session is one the schema would refuse, so a legal edit of the user's
+   * own is never overwritten — `uwbFixedReplyRstuFor` hands back the value it was given whenever
+   * that value is inside the window.
+   */
+  const onChange = (patch: Partial<UwbSessionCfg>): void => {
+    const next: UwbSessionCfg = { ...session, ...patch }
+    emit({ ...patch, ...uwbSessionRepair(next, anchors) })
+  }
   // Many-to-many counts every UWB node as a participant (design §5) — the anchor/tag split is a
   // drawing choice in this mode, not a headcount for its own round, so the plan line below must
   // not read `anchors` alone the way every other mode's round does.
@@ -680,6 +809,10 @@ export function UwbSessionFields(
   const srrrRaoaLive = srrrRaoaHintKey === 'uwbSrrrRaoaHint'
   const srrrRrttHintKey = uwbSrrrRrttHintKey(session.sp3, session.method)
   const srrrRrttLive = srrrRrttHintKey === 'uwbSrrrRrttHint'
+  // The window the fixed reply time has to land in, derived once: the number field's own bounds
+  // and `onChange`'s reconciliation read the same one, so the control cannot offer a value the
+  // commit would then quietly correct.
+  const fixedReplyWindow = uwbFixedReplyWindowRstu(session.slotRstu, anchors, session.schedule, session.method)
   return (
     <div>
       <div style={{ color: 'var(--dim)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -713,9 +846,17 @@ export function UwbSessionFields(
       </label>
       <label style={label} title={uwbReplyTimeRstuLive(session.replyTime) ? E.uwbReplyTimeRstuHint : E.uwbReplyTimeRstuOnly}>
         {E.uwbReplyTimeRstu}{' '}
-        <input type="number" min={0} max={60_000} step={1} value={session.fixedReplyRstu} style={{ width: 74 }}
+        {/* Clamped to the window the slot actually leaves (`uwbFixedReplyWindowRstu`), not to the
+            0…60 000 RSTU the field can hold: every value outside it is one the schema refuses, and
+            a number field whose own bounds are wider than the rule is a control that invites the
+            refusal. The bounds are computed from the slot and the two airtimes, so they move with
+            the slot rather than being written down here. */}
+        <input type="number" min={fixedReplyWindow.loRstu} max={fixedReplyWindow.hiRstu} step={1}
+          value={session.fixedReplyRstu} style={{ width: 74 }}
           disabled={!uwbReplyTimeRstuLive(session.replyTime)}
-          onChange={(e) => onChange({ fixedReplyRstu: clampField(e.target.value, 0, 60_000, true) })} />
+          onChange={(e) => onChange({
+            fixedReplyRstu: clampField(e.target.value, fixedReplyWindow.loRstu, fixedReplyWindow.hiRstu, true),
+          })} />
         <span style={suffix}>RSTU · {ms(session.fixedReplyRstu)} ms</span>
       </label>
       <label style={label} title={E.uwbModeHint}>
@@ -838,6 +979,9 @@ export function UwbSessionFields(
       </label>
       <label style={label} title={E.uwbSlotHint}>
         {E.uwbSlot}{' '}
+        {/* Plain, like every other control: the slot is one of the fixed-reply window's own terms,
+            and `onChange`'s reconciliation is what carries a stranded reply time with it rather
+            than a patch of this field's own. */}
         <RstuInput value={session.slotRstu} lo={300} hi={60_000} onCommit={(slotRstu) => onChange({ slotRstu })} />
         <span style={suffix}>RSTU · {ms(session.slotRstu)} ms</span>
       </label>

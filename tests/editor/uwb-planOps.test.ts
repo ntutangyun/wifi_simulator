@@ -21,8 +21,9 @@ import {
   mmsRsfSfdHintKey, mmsSetIdOf, mmsSetPatch, mmsUwbdControlHintKey, parseFixedReplyRstu,
   parseNbChannels, uwbAoaHintKey, uwbAoaPatch, uwbMethodPatch, uwbMmrcrHintKey, uwbModePatch,
   uwbRcmValidityHintKey, uwbRcmValidityRoundsPatch, uwbReplyTimePatch, uwbReplyTimeRstuLive,
-  uwbRmnrHintKey, uwbSchedulePatch, uwbScheduleHintKey, uwbSp3HintKey, uwbSrrrRaoaHintKey,
-  uwbSp3Patch, uwbSrrrRrttHintKey,
+  uwbRmnrHintKey, uwbSchedulePatch, uwbScheduleHintKey, uwbSessionRepair, uwbSp3HintKey,
+  uwbSrrrRaoaHintKey, uwbFixedReplyRstuFor, uwbFixedReplyWindowRstu, uwbSp3Patch,
+  uwbSrrrRrttHintKey,
 } from '../../src/uwb/ui/UwbSessionFields'
 import { UwbNodeFields } from '../../src/uwb/ui/UwbNodeFields'
 
@@ -1385,8 +1386,33 @@ describe('UwbSessionFields as a closed system: no reachable sequence of its own 
    * rather than patching it, so a smaller house would flag a complaint that is not this walk's
    * subject. (model) */
   const WALK_ANCHORS = 4
+  const WALK_TAGS = 1
   const walkBase = withUwb(WALK_ANCHORS)
   const scene = (uwb: UwbSessionCfg): Scenario => ({ ...walkBase, uwb })
+
+  /**
+   * The ranging slots the walk turns the slot control to, and the block it holds them in. Both are
+   * **fixture choices on the same footing as `WALK_ANCHORS`**, and for the same reason: the panel
+   * deliberately leaves the budget rules whose remedy is *another field* to the issue line, so a
+   * fixture that trips one would make the closure fail about something it is not testing. For the
+   * headcount that rule is "four anchors for three time differences"; for the slot it is MMS's own
+   * two — the slot must be a multiple of 300 RSTU, and the block must hold every tag–anchor pair's
+   * round — whose refusals name `blockRstu` and the headcount, not the slot.
+   *
+   * Three values, each for a reason: MMS's own slot (computed from `uwbModePatch`, and the
+   * smallest multiple of 300 whose two slots still hold the narrowband control messages), the
+   * session default, and one large enough to put the shipped fixed reply time *below* its window
+   * rather than above it — the half of the fixed-reply defect nobody had reported.
+   */
+  const WALK_SLOTS = [uwbModePatch('mms').slotRstu!, DEFAULT_UWB_SESSION.slotRstu, 4800]
+  /** Big enough for MMS's worst case at the largest walked slot: every tag–anchor pair gets a
+   * round of its own, so the block has to hold `pairs × slots-per-round` slots. Computed from
+   * `roundPlan`, never written down. */
+  const WALK_BLOCK_RSTU = (() => {
+    const maxSlot = Math.max(...WALK_SLOTS)
+    const mms: UwbSessionCfg = { ...DEFAULT_UWB_SESSION, ...uwbModePatch('mms'), slotRstu: maxSlot }
+    return WALK_TAGS * WALK_ANCHORS * roundPlan(mms, WALK_ANCHORS).slots * maxSlot
+  })()
 
   /** One control of the panel: its label for a failure trail, the panel's own live/greyed
    * predicate, and the patch its `onChange` issues. A patch of `null` is a value the control
@@ -1397,6 +1423,24 @@ describe('UwbSessionFields as a closed system: no reachable sequence of its own 
     patch: (s: UwbSessionCfg) => Partial<UwbSessionCfg> | null
   }
   const WALK_MODES: UwbMode[] = ['twr', 'dl-tdoa', 'ul-tdoa', 'mms', 'm2m']
+  /** The fixed-reply context of whatever state the walk is standing in — the same five fields the
+   * panel derives once into `fixedCtx`, read off the walked session rather than off a fixture, so
+   * the two controls that consult it see the slot that is actually set. */
+  /**
+   * **What the panel's `onChange` does with a patch**, which is what the walk has to step through
+   * rather than the bare patch: merge it, then let `uwbSessionRepair` reconcile the cross-field
+   * values no single patch owns, with the repair having the last word.
+   *
+   * This is the model's one concession to the panel's internals, and it earns its place — the
+   * fixed-reply window is a function of `slotRstu`, `schedule` and `method`, and *six* controls
+   * move one of those. Stepping the patches alone would be modelling a panel that does not exist,
+   * and the first version of the fix (the window threaded into two patch functions) is what this
+   * walk then caught: three more writers it had not been threaded into.
+   */
+  const commit = (s: UwbSessionCfg, patch: Partial<UwbSessionCfg>): UwbSessionCfg => {
+    const next: UwbSessionCfg = { ...s, ...patch }
+    return { ...next, ...uwbSessionRepair(next, WALK_ANCHORS) }
+  }
   const OPS: Op[] = [
     // The mode select is never greyed out.
     ...WALK_MODES.map((mode): Op => ({
@@ -1418,6 +1462,20 @@ describe('UwbSessionFields as a closed system: no reachable sequence of its own 
       label: `replyTime=${replyTime}`,
       live: (s) => s.mode !== 'mms' && s.mode !== 'm2m', // `disabled={mms !== null || m2m}`
       patch: (s) => uwbReplyTimePatch(replyTime, s.method, s.schedule, s.sp3, s.srrr),
+    })),
+    // The ranging slot — the control this walk did not turn until the fixed-reply defect made it
+    // matter, and the one that found that defect's other half: the window is a function of the
+    // slot, so moving the slot moves the window out from under a reply time that was legal a
+    // moment ago, downwards past its ceiling *or* upwards past its floor. The four values are here
+    // for a reason rather than as a sample: the smallest the field accepts, MMS's own (computed,
+    // not written, and the one `uwbModePatch` leaves behind), the session default, and one large
+    // enough that the default reply time is below the window rather than above it. Every one of
+    // the four is legal in all five modes at `WALK_ANCHORS`, so the walk never trips the
+    // slot-fit rule, which the panel leaves to the issue line the way it leaves the headcount.
+    ...WALK_SLOTS.map((slotRstu): Op => ({
+      label: `slotRstu=${slotRstu}`,
+      live: () => true, // a plain RstuInput, never greyed
+      patch: () => ({ slotRstu }),
     })),
     // 1 is the value the schema pins outside 'twr' and the one `rmnr`/`mmrcr` depend on; 4 stands
     // for every value above it, which the rules only ever read as "more than one". (model)
@@ -1458,18 +1516,25 @@ describe('UwbSessionFields as a closed system: no reachable sequence of its own 
     })),
   ]
 
-  /** Every session field any operation above can move. Two states with the same key are the same
-   * node of the graph; a field left out would collapse states that differ, so this list grows with
-   * `OPS`. `slotRstu` is in it because `uwbModePatch`'s MMS branch writes it. */
-  const walkKey = (s: UwbSessionCfg): string => JSON.stringify([
-    s.mode, s.method, s.schedule, s.replyTime, s.rcmValidityRounds, s.aoa, s.sp3,
-    s.srrr.raoa, s.srrr.rrtt, s.rmnr, s.mmrcr, s.slotRstu,
-  ])
+  /**
+   * Every session field a commit above can move. Two states with the same key are the same node of
+   * the graph, so a field left out would silently collapse states that differ — and a field listed
+   * that nothing moves is a dimension that never turns. Declared as data rather than written into
+   * the key function so that the test below can check both of those mechanically.
+   *
+   * `slotRstu` is here because `uwbModePatch`'s MMS branch and the slot control both write it;
+   * `fixedReplyRstu` because `uwbSessionRepair` chooses it.
+   */
+  const WALK_KEYS = [
+    'mode', 'method', 'schedule', 'replyTime', 'rcmValidityRounds', 'aoa', 'sp3', 'srrr',
+    'rmnr', 'mmrcr', 'slotRstu', 'fixedReplyRstu',
+  ] as const satisfies readonly (keyof UwbSessionCfg)[]
+  const walkKey = (s: UwbSessionCfg): string => JSON.stringify(WALK_KEYS.map((k) => s[k]))
 
   /** The closure, computed once: every reachable state with the shortest trail of control
    * labels that reaches it, so a failure names the sequence to reproduce rather than a state. */
   const reachable = ((): { s: UwbSessionCfg; trail: string[] }[] => {
-    const start: UwbSessionCfg = { ...DEFAULT_UWB_SESSION }
+    const start: UwbSessionCfg = { ...DEFAULT_UWB_SESSION, blockRstu: WALK_BLOCK_RSTU }
     const seen = new Map<string, { s: UwbSessionCfg; trail: string[] }>([[walkKey(start), { s: start, trail: [] }]])
     const queue = [walkKey(start)]
     for (let head = 0; head < queue.length; head++) {
@@ -1478,7 +1543,7 @@ describe('UwbSessionFields as a closed system: no reachable sequence of its own 
         if (!op.live(s)) continue
         const patch = op.patch(s)
         if (!patch) continue
-        const next = { ...s, ...patch }
+        const next = commit(s, patch)
         const k = walkKey(next)
         if (seen.has(k)) continue
         seen.set(k, { s: next, trail: [...trail, op.label] })
@@ -1488,6 +1553,55 @@ describe('UwbSessionFields as a closed system: no reachable sequence of its own 
     return [...seen.values()]
   })()
 
+
+  /**
+   * **The model's own consistency, checked mechanically — and the limit of what can be.**
+   *
+   * The residual risk in a walk like this is that it is only as complete as `OPS`: a control added
+   * to the panel with no row here is a dimension the walk never turns, and nothing in a test file
+   * can see a React handler that was never modelled. That half stays a stated limit rather than a
+   * fragile check — grepping the panel's JSX for `onChange` would pass for exactly as long as
+   * nobody wrote a handler in a way the grep did not expect, which is worse than no check at all.
+   *
+   * What *is* mechanical is the agreement between the two halves of the model, and it catches the
+   * failure that actually corrupts results:
+   *
+   * - **a field some commit changes that `WALK_KEYS` does not track** collapses states that
+   *   differ, so the closure silently explores less than it reports. This is not hypothetical —
+   *   `fixedReplyRstu` became exactly such a field the moment `uwbSessionRepair` started writing
+   *   it, and the walk would have gone on reporting a clean 227 states while conflating every
+   *   reply time it chose.
+   * - **a field `WALK_KEYS` tracks that nothing ever changes** is a dimension that never turns,
+   *   which is what an `OPS` row whose `live` predicate went permanently false looks like from
+   *   here.
+   *
+   * Both are checked against what the **commit** does, not against what a patch names, because
+   * the repair writes a field no patch mentions.
+   */
+  it('every field the walk tracks is one some commit moves, and no commit moves a field it does not track', () => {
+    const moved = new Set<string>()
+    const named = new Set<string>()
+    for (const { s } of reachable) {
+      for (const op of OPS) {
+        if (!op.live(s)) continue
+        const patch = op.patch(s)
+        if (!patch) continue
+        const next = commit(s, patch)
+        for (const k of WALK_KEYS) {
+          if (JSON.stringify(next[k]) !== JSON.stringify(s[k])) moved.add(k)
+        }
+        // Everything the commit *writes*, whether or not it changed anything: a patch that names a
+        // field the key does not track is the leak, even on the steps where the value happens to
+        // match what was already there.
+        for (const k of Object.keys({ ...patch, ...uwbSessionRepair({ ...s, ...patch }, WALK_ANCHORS) })) {
+          named.add(k)
+        }
+      }
+    }
+    const tracked = [...WALK_KEYS].sort()
+    expect([...moved].sort(), 'a tracked field nothing moves is a dimension that never turns').toEqual(tracked)
+    expect([...named].sort(), 'a field a commit writes but the key ignores collapses states').toEqual(tracked)
+  })
   it('reaches a state space worth calling exhaustive, from the session default alone', () => {
     // Not a magic number to pin: a floor, so the walk cannot quietly collapse to a handful of
     // states (an `OPS` row whose `live` predicate went permanently false, say) and keep passing.
@@ -1508,19 +1622,103 @@ describe('UwbSessionFields as a closed system: no reachable sequence of its own 
     expect(stranded).toEqual([])
   })
 
-  it('every reachable state is one the schema accepts, bar the one carry-over named below', () => {
-    // The one state shape this walk reaches that the schema still refuses, and it is not about
-    // sp3 at all: `uwbModePatch`'s MMS branch writes the draft's own 600 RSTU slot, nothing writes
-    // it back on the way out, and the session's default fixed reply time no longer fits in two
-    // slots of that width. Waived here by its shape, not by its message, and recorded as its own
-    // finding in `.superpowers/sdd/branch-review-fixes.md` — anything else illegal fails loudly.
-    const mmsSlotRstu = uwbModePatch('mms').slotRstu
-    const mmsSlotCarriedOver = (s: UwbSessionCfg): boolean =>
-      s.replyTime === 'fixed' && s.slotRstu === mmsSlotRstu && s.slotRstu !== DEFAULT_UWB_SESSION.slotRstu
+
+  /**
+   * **The referee.** `uwbFixedReplyWindowRstu` is a second reading of a rule `scenario.ts` already
+   * owns, and two sources with no referee between them is a thing this branch has a commit about.
+   * This is the referee, and it is deliberately not a second copy of the arithmetic: it sweeps the
+   * slot sizes the field accepts and asks the **schema** what it makes of the window's two edges
+   * and the two values just outside them.
+   *
+   * `lo` and `hi` accepted is the half the fix needs — everything `uwbFixedReplyRstuFor` can
+   * return is inside the window, so it can never offer a value the schema refuses. `lo - 1` and
+   * `hi + 1` refused is the other half: it says the window is *tight* rather than merely safe, so
+   * the chooser does not override a user's value that was legal all along. That outer half holds
+   * because the schema tightens both edges by flight time and this scene's flights are well under
+   * one RSTU (833 ns); a scene spread over hundreds of metres would move `hi` and this assertion
+   * would say so rather than let the editor quietly offer a value that no longer fits.
+   */
+  it('the window the editor computes is the window the schema enforces, at every slot size', () => {
+    // Multiples of 3 RSTU, which the schema requires of a slot, from the field's own floor to
+    // twice the session default: the range a user can actually reach with the slot control.
+    for (const slotRstu of [300, 600, 900, 1200, 2400, 3600, 4800]) {
+      for (const schedule of ['time', 'contention'] as const) {
+        const { loRstu, hiRstu } = uwbFixedReplyWindowRstu(slotRstu, WALK_ANCHORS, schedule, 'ss')
+        expect(loRstu, `slot ${slotRstu} should leave a non-empty window`).toBeLessThanOrEqual(hiRstu)
+        const verdict = (fixedReplyRstu: number): string | null => uwbSessionIssue(scene({
+          ...DEFAULT_UWB_SESSION, mode: 'twr', method: 'ss', schedule,
+          replyTime: 'fixed', slotRstu, fixedReplyRstu,
+        }))
+        const where = `slot ${slotRstu} / ${schedule}`
+        expect(verdict(loRstu), `${where}: the window floor must be legal`).toBeNull()
+        expect(verdict(hiRstu), `${where}: the window ceiling must be legal`).toBeNull()
+        expect(verdict(loRstu - 1), `${where}: one below the floor must be refused`).not.toBeNull()
+        expect(verdict(hiRstu + 1), `${where}: one above the ceiling must be refused`).not.toBeNull()
+      }
+    }
+  })
+
+  it('the chooser keeps a legal value and replaces an illegal one with the window floor', () => {
+    const ctx = (slotRstu: number, fixedReplyRstu: number): UwbSessionCfg =>
+      ({ ...DEFAULT_UWB_SESSION, mode: 'twr', method: 'ss', schedule: 'time', replyTime: 'fixed', slotRstu, fixedReplyRstu })
+    const def = DEFAULT_UWB_SESSION.slotRstu
+    const { loRstu, hiRstu } = uwbFixedReplyWindowRstu(def, WALK_ANCHORS, 'time', 'ss')
+    // A value already inside the window is the user's and is left exactly as it is — including
+    // the shipped default, which is what keeps the default session's own patch empty.
+    expect(uwbFixedReplyRstuFor(ctx(def, DEFAULT_UWB_SESSION.fixedReplyRstu), WALK_ANCHORS))
+      .toBe(DEFAULT_UWB_SESSION.fixedReplyRstu)
+    expect(uwbFixedReplyRstuFor(ctx(def, loRstu), WALK_ANCHORS)).toBe(loRstu)
+    expect(uwbFixedReplyRstuFor(ctx(def, hiRstu), WALK_ANCHORS)).toBe(hiRstu)
+    // Outside it, on either side, the floor — the point with the most headroom against the one
+    // edge flight time can move.
+    expect(uwbFixedReplyRstuFor(ctx(def, hiRstu + 1), WALK_ANCHORS)).toBe(loRstu)
+    expect(uwbFixedReplyRstuFor(ctx(def, loRstu - 1), WALK_ANCHORS)).toBe(loRstu)
+    // Both halves of the real defect, named: MMS's slot is too small for the shipped reply time,
+    // and a large slot makes the same number too small rather than too large. Neither value is
+    // written down here — both come out of the window.
+    const mmsSlot = uwbModePatch('mms').slotRstu!
+    const tooHigh = uwbFixedReplyRstuFor(ctx(mmsSlot, DEFAULT_UWB_SESSION.fixedReplyRstu), WALK_ANCHORS)!
+    expect(tooHigh).toBeLessThan(DEFAULT_UWB_SESSION.fixedReplyRstu)
+    const tooLow = uwbFixedReplyRstuFor(ctx(4800, DEFAULT_UWB_SESSION.fixedReplyRstu), WALK_ANCHORS)!
+    expect(tooLow).toBeGreaterThan(DEFAULT_UWB_SESSION.fixedReplyRstu)
+    // …and both of those really are what the schema wants.
+    for (const [slotRstu, fixedReplyRstu] of [[mmsSlot, tooHigh], [4800, tooLow]] as const) {
+      expect(uwbSessionIssue(scene({
+        ...DEFAULT_UWB_SESSION, mode: 'twr', method: 'ss', schedule: 'time',
+        replyTime: 'fixed', slotRstu, fixedReplyRstu,
+      })), `slot ${slotRstu}`).toBeNull()
+    }
+  })
+
+  it('the repair speaks only when the merged session is illegal, and only about that field', () => {
+    const at = (slotRstu: number, fixedReplyRstu: number, replyTime: UwbSessionCfg['replyTime']): UwbSessionCfg =>
+      ({ ...DEFAULT_UWB_SESSION, mode: 'twr', method: 'ss', schedule: 'time', replyTime, slotRstu, fixedReplyRstu })
+    const def = DEFAULT_UWB_SESSION.slotRstu
+    const defReply = DEFAULT_UWB_SESSION.fixedReplyRstu
+    const mmsSlot = uwbModePatch('mms').slotRstu!
+    // The shipped session owes nothing: the shipped slot and the shipped reply time are legal
+    // together, which is what keeps every scene byte-identical.
+    expect(uwbSessionRepair(at(def, defReply, 'fixed'), WALK_ANCHORS)).toEqual({})
+    // Both halves of the defect, and nothing but `fixedReplyRstu` in either patch.
+    expect(uwbSessionRepair(at(mmsSlot, defReply, 'fixed'), WALK_ANCHORS))
+      .toEqual({ fixedReplyRstu: uwbFixedReplyRstuFor(at(mmsSlot, defReply, 'fixed'), WALK_ANCHORS) })
+    expect(uwbSessionRepair(at(4800, defReply, 'fixed'), WALK_ANCHORS))
+      .toEqual({ fixedReplyRstu: uwbFixedReplyRstuFor(at(4800, defReply, 'fixed'), WALK_ANCHORS) })
+    // Under every other reply-time shape the field is read by nothing, so there is nothing to
+    // repair and the repair says nothing — the reason it is conditional rather than unconditional.
+    for (const replyTime of ['embedded', 'deferred'] as const) {
+      expect(uwbSessionRepair(at(mmsSlot, defReply, replyTime), WALK_ANCHORS), replyTime).toEqual({})
+    }
+  })
+
+  it('every reachable state is one the schema accepts — no waiver', () => {
+    // There used to be one exception here, waived by its state shape: `uwbModePatch`'s MMS branch
+    // writes the draft's own 600 RSTU slot, nothing wrote it back on the way out, and the
+    // session's default fixed reply time no longer fitted two slots of that width. It is fixed
+    // rather than waived now — `uwbSessionRepair` reconciles the reply time against the slot that
+    // is actually set — so this assertion has no exceptions left and must not grow one.
     const refused = reachable.filter((r) => uwbSessionIssue(scene(r.s)) !== null)
-    expect(refused.filter((r) => !mmsSlotCarriedOver(r.s)).map((r) => r.trail.join(' -> '))).toEqual([])
-    // and the waiver cannot quietly widen: every state it covers really is that one shape
-    expect(refused.every((r) => mmsSlotCarriedOver(r.s))).toBe(true)
+    expect(refused.map((r) => `${r.trail.join(' -> ')}  =>  ${uwbSessionIssue(scene(r.s))}`)).toEqual([])
   })
 
   it('the two sequences branch-review C1 reported, and the two shorter ones this walk found, all land legal', () => {
@@ -1535,7 +1733,7 @@ describe('UwbSessionFields as a closed system: no reachable sequence of its own 
         expect(op!.live(s), `${labelName} must be a live control at this point`).toBe(true)
         const patch = op!.patch(s)
         expect(patch, labelName).not.toBeNull()
-        s = { ...s, ...patch }
+        s = commit(s, patch!)
       }
       return s
     }
