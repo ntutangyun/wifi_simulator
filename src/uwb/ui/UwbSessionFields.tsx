@@ -29,6 +29,27 @@ const issueStyle: React.CSSProperties = { color: '#f87171', fontSize: 11, margin
 /** Z, the idle milliseconds between the last RSF and the first RIF. 4ab draft 15-23/0100r2 §2.3.2 */
 const GAP_MS_SET = [1, 2] as const
 
+/**
+ * **The invariant this panel keeps about the SRRR IE: its two request bits may never outlive
+ * `sp3`.** standard §10.32.9.9 — the IE exists only in an SP3 round's RCM, so a bit set while
+ * `sp3` is off describes a frame the session does not have.
+ *
+ * It is stated here rather than left implicit because two of this file's resets —
+ * `uwbMethodPatch`'s and `uwbAoaPatch`'s — are *gated on `sp3` being already true*, and a gate
+ * like that is sound only if a stranded bit cannot exist in the first place. It could: every
+ * path that lowered `sp3` left `srrr` alone, so the bits survived, the two gated resets stopped
+ * firing, and re-ticking `sp3` re-armed a request the session was no longer legal for — the
+ * schema then refused the result (`scenario.ts`'s `method !== 'ss'` and `srrr.raoa && !aoa`
+ * rules). Every lowering site therefore calls this, which is what makes the illegal state
+ * unrepresentable rather than merely unreachable through one particular control.
+ *
+ * Returns the empty patch when both bits are already down, so a patch carries no field it does
+ * not actually change — the same discipline the `if (rmnr) patch.rmnr = false` lines below use.
+ */
+function srrrDownWithSp3(srrr: UwbSrrrCfg): Partial<UwbSessionCfg> {
+  return srrr.raoa || srrr.rrtt ? { srrr: { raoa: false, rrtt: false } } : {}
+}
+
 const ms = (rstu: number): string => (rstuNs(rstu) / 1e6).toFixed(rstu < 3000 ? 3 : 1)
 
 /**
@@ -90,24 +111,34 @@ const ms = (rstu: number): string => (rstuNs(rstu) / 1e6).toFixed(rstu < 3000 ? 
  * copy `'twr'`'s leniency. This is task 4's own fix to the defect task 3 named: the mode select was
  * the one path in this file that could still hand the schema an `sp3: true` the three non-`'twr'`
  * modes all refuse.
+ *
+ * **And `srrr` goes down with `sp3` in all three of those branches** (`srrrDownWithSp3`): lowering
+ * `sp3` without lowering the IE's own request bits left them stranded, and this was one of the
+ * four paths that did it.
  */
 export function uwbModePatch(
-  mode: UwbMode, rcmValidityRounds = 1, mmrcr = false,
+  mode: UwbMode, rcmValidityRounds = 1, mmrcr = false, srrr: UwbSrrrCfg = { raoa: false, rrtt: false },
 ): Partial<UwbSessionCfg> {
   if (mode === 'twr') return rcmValidityRounds === 1 && mmrcr ? { mode, mmrcr: false } : { mode }
   if (mode === 'mms') {
     return {
       mode, schedule: 'time', aoa: false, method: 'ss', slotRstu: 600,
-      rcmValidityRounds: 1, rmnr: false, mmrcr: false, sp3: false,
+      rcmValidityRounds: 1, rmnr: false, mmrcr: false, sp3: false, ...srrrDownWithSp3(srrr),
     }
   }
   if (mode === 'm2m') {
     // mmrcr deliberately untouched: design §4 keeps it legal here, the one non-two-way mode that
     // ever answers "who heard me" at all. sp3 has no such exception — see this function's own
     // comment above.
-    return { mode, schedule: 'time', aoa: false, replyTime: 'embedded', rcmValidityRounds: 1, rmnr: false, sp3: false }
+    return {
+      mode, schedule: 'time', aoa: false, replyTime: 'embedded', rcmValidityRounds: 1, rmnr: false,
+      sp3: false, ...srrrDownWithSp3(srrr),
+    }
   }
-  return { mode, schedule: 'time', aoa: false, rcmValidityRounds: 1, rmnr: false, mmrcr: false, sp3: false }
+  return {
+    mode, schedule: 'time', aoa: false, rcmValidityRounds: 1, rmnr: false, mmrcr: false,
+    sp3: false, ...srrrDownWithSp3(srrr),
+  }
 }
 
 /**
@@ -136,6 +167,8 @@ export function uwbMethodPatch(
   const patch: Partial<UwbSessionCfg> = method !== 'ds'
     ? { method }
     : (replyTime === 'fixed' ? { method, schedule: 'time', replyTime: 'embedded' } : { method, schedule: 'time' })
+  // The `sp3 &&` gate is sound only because `srrrDownWithSp3` holds the invariant that a request
+  // bit cannot be up while sp3 is down: with it, "sp3 off" really does mean "no bit to strand".
   if (method === 'ds' && sp3 && (srrr.raoa || srrr.rrtt)) patch.srrr = { raoa: false, rrtt: false }
   return patch
 }
@@ -164,17 +197,20 @@ export function uwbMethodPatch(
  * fixed slot for the RCM's per-responder SRRR IE to name in advance. This is the second of the
  * three resets task 3's concern 2 named — `sp3` was the field `rmnr`/`mmrcr`'s own precedent here
  * never had to cover, because it did not exist when this function was written.
+ *
+ * And `srrr` goes down with it (`srrrDownWithSp3`), the second of the four paths that lowered
+ * `sp3` while leaving the IE's own request bits up.
  */
 export function uwbSchedulePatch(
   schedule: UwbSessionCfg['schedule'], replyTime: UwbSessionCfg['replyTime'], rmnr: boolean, mmrcr = false,
-  sp3 = false,
+  sp3 = false, srrr: UwbSrrrCfg = { raoa: false, rrtt: false },
 ): Partial<UwbSessionCfg> {
   if (schedule !== 'contention') return { schedule }
   const patch: Partial<UwbSessionCfg> = { schedule }
   if (replyTime === 'deferred') patch.replyTime = 'embedded'
   if (rmnr) patch.rmnr = false
   if (mmrcr) patch.mmrcr = false
-  if (sp3) patch.sp3 = false
+  if (sp3) Object.assign(patch, { sp3: false }, srrrDownWithSp3(srrr))
   return patch
 }
 
@@ -280,15 +316,18 @@ export function uwbMmrcrHintKey(
  * commits `replyTime` either way and only takes `sp3` down with it when the new value cannot carry
  * it — the same "the field being edited gives away the dependent" shape `uwbRcmValidityRoundsPatch`
  * uses for `rmnr`, not the "refuse to create" shape this function uses for `method`/`schedule`.
+ *
+ * And `srrr` goes down with it (`srrrDownWithSp3`), the third of the four paths that lowered `sp3`
+ * while leaving the IE's own request bits up.
  */
 export function uwbReplyTimePatch(
   replyTime: UwbSessionCfg['replyTime'], method: UwbSessionCfg['method'], schedule: UwbSessionCfg['schedule'],
-  sp3 = false,
+  sp3 = false, srrr: UwbSrrrCfg = { raoa: false, rrtt: false },
 ): Partial<UwbSessionCfg> | null {
   if (replyTime === 'fixed' && method === 'ds') return null
   if (replyTime === 'deferred' && schedule === 'contention') return null
   const patch: Partial<UwbSessionCfg> = { replyTime }
-  if (sp3 && replyTime !== 'deferred') patch.sp3 = false
+  if (sp3 && replyTime !== 'deferred') Object.assign(patch, { sp3: false }, srrrDownWithSp3(srrr))
   return patch
 }
 
@@ -566,8 +605,27 @@ export function uwbSrrrRrttHintKey(
  * cannot carry it.
  */
 export function uwbAoaPatch(aoa: boolean, sp3: boolean, srrr: UwbSrrrCfg): Partial<UwbSessionCfg> {
+  // As in `uwbMethodPatch`, the `!sp3` early return is sound only under `srrrDownWithSp3`'s
+  // invariant: sp3 off means both request bits are already off, so there is nothing to strand.
   if (aoa || !sp3 || !srrr.raoa) return { aoa }
   return { aoa, srrr: { ...srrr, raoa: false } }
+}
+
+/**
+ * What the SP3 checkbox commits (standard §10.32.8). Turning it **on** is the field alone — the
+ * three combinations the schema refuses are the three `uwbSp3HintKey` greys the box out for, so
+ * there is nothing left for a patch to fix. Turning it **off** owes `srrr` the reset
+ * `srrrDownWithSp3` describes, and this is the fourth and last path that lowers `sp3`: the other
+ * three are `uwbModePatch`, `uwbSchedulePatch` and `uwbReplyTimePatch`, which lower it as a
+ * consequence of some other field moving, while this one is the user saying so directly.
+ *
+ * It is the shortest way to the defect and the one the greying cannot help with: both SRRR
+ * checkboxes are greyed the instant `sp3` goes down, so a bit left up there is a state the panel
+ * shows the user no control for — only re-ticking `sp3` brings it back into view, by which point
+ * the session is already one the schema refuses.
+ */
+export function uwbSp3Patch(sp3: boolean, srrr: UwbSrrrCfg): Partial<UwbSessionCfg> {
+  return sp3 ? { sp3 } : { sp3, ...srrrDownWithSp3(srrr) }
 }
 
 /**
@@ -644,6 +702,7 @@ export function UwbSessionFields(
           onChange={(e) => {
             const patch = uwbReplyTimePatch(
               e.target.value as UwbSessionCfg['replyTime'], session.method, session.schedule, session.sp3,
+              session.srrr,
             )
             if (patch) onChange(patch) // an illegal pair is never committed — see uwbReplyTimePatch
           }}>
@@ -662,7 +721,7 @@ export function UwbSessionFields(
       <label style={label} title={E.uwbModeHint}>
         {E.uwbMode}{' '}
         <select value={session.mode} onChange={(e) => onChange(
-          uwbModePatch(e.target.value as UwbMode, session.rcmValidityRounds, session.mmrcr),
+          uwbModePatch(e.target.value as UwbMode, session.rcmValidityRounds, session.mmrcr, session.srrr),
         )}>
           <option value="twr">{E.uwbModes.twr}</option>
           <option value="dl-tdoa">{E.uwbModes['dl-tdoa']}</option>
@@ -695,6 +754,7 @@ export function UwbSessionFields(
           onChange={(e) => onChange(
             uwbSchedulePatch(
               e.target.value as UwbSessionCfg['schedule'], session.replyTime, session.rmnr, session.mmrcr, session.sp3,
+              session.srrr,
             ),
           )}>
           <option value="time">{E.uwbSchedules.time}</option>
@@ -744,14 +804,15 @@ export function UwbSessionFields(
       </label>
       {/* SP3 grouped ranging (standard §10.32.8): legal in two-way ranging only, and only beside
           the time schedule and the deferred reply-time shape — the three refusals `uwbSp3HintKey`
-          names in the order a user would meet them. Turning it on never needs a patch of its own
-          (the checkbox is greyed out on every combination it would otherwise conflict with);
-          turning it off is what `uwbAoaPatch`/`uwbModePatch`/`uwbSchedulePatch`/`uwbReplyTimePatch`
-          do on the user's behalf when one of those three fields moves instead. */}
+          names in the order a user would meet them. Turning it on is the field alone, because
+          those three are the only combinations it conflicts with and the box is greyed out in
+          every one of them. Turning it off goes through `uwbSp3Patch`, which owes `srrr` its
+          reset: the greying cannot carry that one, since both SRRR boxes grey out together with
+          this one and a bit left up behind them has no control left to turn it down. */}
       <label style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 4, cursor: sp3Live ? 'pointer' : 'default' }}
         title={E[sp3HintKey]}>
         <input type="checkbox" checked={session.sp3} disabled={!sp3Live}
-          onChange={(e) => onChange({ sp3: e.target.checked })} />
+          onChange={(e) => onChange(uwbSp3Patch(e.target.checked, session.srrr))} />
         {E.uwbSp3}
       </label>
       {/* The SRRR IE's own two request bits (standard §10.32.9.9), live only once sp3 is on. RAOA

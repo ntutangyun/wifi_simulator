@@ -22,7 +22,7 @@ import {
   parseNbChannels, uwbAoaHintKey, uwbAoaPatch, uwbMethodPatch, uwbMmrcrHintKey, uwbModePatch,
   uwbRcmValidityHintKey, uwbRcmValidityRoundsPatch, uwbReplyTimePatch, uwbReplyTimeRstuLive,
   uwbRmnrHintKey, uwbSchedulePatch, uwbScheduleHintKey, uwbSp3HintKey, uwbSrrrRaoaHintKey,
-  uwbSrrrRrttHintKey,
+  uwbSp3Patch, uwbSrrrRrttHintKey,
 } from '../../src/uwb/ui/UwbSessionFields'
 import { UwbNodeFields } from '../../src/uwb/ui/UwbNodeFields'
 
@@ -1314,11 +1314,11 @@ describe('SP3 grouped ranging (standard §10.32.8) and its SRRR IE (§10.32.9.9)
     // (the session starts at the DS-TWR default), then the reply-time select, the AoA checkbox,
     // the sp3 checkbox, then the two SRRR checkboxes.
     let session = { ...DEFAULT_UWB_SESSION, ...uwbMethodPatch('ss', DEFAULT_UWB_SESSION.replyTime) }
-    const replyPatch = uwbReplyTimePatch('deferred', session.method, session.schedule, session.sp3)
+    const replyPatch = uwbReplyTimePatch('deferred', session.method, session.schedule, session.sp3, session.srrr)
     expect(replyPatch).not.toBeNull()
     session = { ...session, ...replyPatch }
     session = { ...session, ...uwbAoaPatch(true, session.sp3, session.srrr) }
-    session = { ...session, sp3: true }
+    session = { ...session, ...uwbSp3Patch(true, session.srrr) }
     session = { ...session, srrr: { ...session.srrr, raoa: true } }
     session = { ...session, srrr: { ...session.srrr, rrtt: true } }
     expect(session).toMatchObject({
@@ -1343,12 +1343,232 @@ describe('SP3 grouped ranging (standard §10.32.8) and its SRRR IE (§10.32.9.9)
     expect(toDs.srrr).toEqual({ raoa: false, rrtt: false })
     expect(ScenarioSchema.safeParse(sp3Scenario(toDs)).success).toBe(true)
 
-    // Switch the mode away, through the very patch the mode select calls, and back.
-    const toMms: Partial<UwbSessionCfg> = { ...session, ...uwbModePatch('mms') }
+    // Switch the mode away, through the very patch the mode select calls, and back. The patch
+    // takes the SRRR request bits down with `sp3` (branch-review C1): leaving them up would strand
+    // a request behind a checkbox that is now greyed out, and re-ticking `sp3` would re-arm it.
+    const toMms: Partial<UwbSessionCfg> = {
+      ...session, ...uwbModePatch('mms', session.rcmValidityRounds, session.mmrcr, session.srrr),
+    }
     expect(toMms.sp3).toBe(false)
+    expect(toMms.srrr).toEqual({ raoa: false, rrtt: false })
     expect(ScenarioSchema.safeParse(sp3Scenario(toMms)).success).toBe(true)
     const backToTwr: Partial<UwbSessionCfg> = { ...toMms, ...uwbModePatch('twr') }
     expect(backToTwr.sp3).toBe(false)
     expect(ScenarioSchema.safeParse(sp3Scenario({ ...backToTwr, replyTime: 'deferred' })).success).toBe(true)
+  })
+})
+
+/**
+ * **A per-patch test cannot catch a per-path defect.** Every assertion above drives one patch
+ * from a legal session and checks the result is legal — which is the right test for what a patch
+ * promises, and blind to what a *sequence* of them can build. `branch-review.md`'s C1 was exactly
+ * that: three patches lowered `sp3` while leaving the SRRR IE's two request bits up, the two
+ * resets that would have taken them down were gated on `sp3` being already true, and re-ticking
+ * `sp3` later re-armed a request the session was no longer legal for. No single-step assertion can
+ * see it, and five earlier instances of the same class on this branch were all found by scanning
+ * callers by hand.
+ *
+ * So this closes the class instead of the instance: a breadth-first closure over **every state
+ * the panel can be driven into**, by its own exported patch functions, through its own greying
+ * rules. Each operation is one control the panel renders, paired with the predicate that decides
+ * whether it is live — the same `disabled` expression `UwbSessionFields` uses, so the walk visits
+ * states a user can actually reach and no others. Every state it reaches is parsed. The state
+ * space is small enough to exhaust (a few hundred states, a few thousand transitions), which
+ * makes this a proof over the reachable graph rather than a sample of it.
+ *
+ * **It is only as complete as `OPS`.** A control added to the panel without a row here is a
+ * dimension the walk does not turn, so `OPS` grows whenever the panel does.
+ */
+describe('UwbSessionFields as a closed system: no reachable sequence of its own patches builds an illegal session', () => {
+  /** Four anchors: the one count legal in all five modes — the one-way modes need four for three
+   * time differences, and `uwbModePatch` deliberately leaves the headcount to the issue line
+   * rather than patching it, so a smaller house would flag a complaint that is not this walk's
+   * subject. (model) */
+  const WALK_ANCHORS = 4
+  const walkBase = withUwb(WALK_ANCHORS)
+  const scene = (uwb: UwbSessionCfg): Scenario => ({ ...walkBase, uwb })
+
+  /** One control of the panel: its label for a failure trail, the panel's own live/greyed
+   * predicate, and the patch its `onChange` issues. A patch of `null` is a value the control
+   * refuses to commit at all (`uwbReplyTimePatch`), i.e. no transition. */
+  type Op = {
+    label: string
+    live: (s: UwbSessionCfg) => boolean
+    patch: (s: UwbSessionCfg) => Partial<UwbSessionCfg> | null
+  }
+  const WALK_MODES: UwbMode[] = ['twr', 'dl-tdoa', 'ul-tdoa', 'mms', 'm2m']
+  const OPS: Op[] = [
+    // The mode select is never greyed out.
+    ...WALK_MODES.map((mode): Op => ({
+      label: `mode=${mode}`,
+      live: () => true,
+      patch: (s) => uwbModePatch(mode, s.rcmValidityRounds, s.mmrcr, s.srrr),
+    })),
+    ...(['ss', 'ds'] as const).map((method): Op => ({
+      label: `method=${method}`,
+      live: (s) => s.mode !== 'mms', // `disabled={mms !== null}`
+      patch: (s) => uwbMethodPatch(method, s.replyTime, s.sp3, s.srrr),
+    })),
+    ...(['time', 'contention'] as const).map((schedule): Op => ({
+      label: `schedule=${schedule}`,
+      live: (s) => s.method === 'ss' && s.mode === 'twr', // `disabled={!ssOnly || nonTwr !== null}`
+      patch: (s) => uwbSchedulePatch(schedule, s.replyTime, s.rmnr, s.mmrcr, s.sp3, s.srrr),
+    })),
+    ...(['embedded', 'deferred', 'fixed'] as const).map((replyTime): Op => ({
+      label: `replyTime=${replyTime}`,
+      live: (s) => s.mode !== 'mms' && s.mode !== 'm2m', // `disabled={mms !== null || m2m}`
+      patch: (s) => uwbReplyTimePatch(replyTime, s.method, s.schedule, s.sp3, s.srrr),
+    })),
+    // 1 is the value the schema pins outside 'twr' and the one `rmnr`/`mmrcr` depend on; 4 stands
+    // for every value above it, which the rules only ever read as "more than one". (model)
+    ...[1, 4].map((rcmValidityRounds): Op => ({
+      label: `rcmValidityRounds=${rcmValidityRounds}`,
+      live: (s) => s.mode === 'twr', // `disabled={session.mode !== 'twr'}`
+      patch: (s) => uwbRcmValidityRoundsPatch(rcmValidityRounds, s.rmnr, s.mmrcr),
+    })),
+    ...[true, false].map((aoa): Op => ({
+      label: `aoa=${aoa}`,
+      live: (s) => s.mode === 'twr', // `disabled={nonTwr !== null}`
+      patch: (s) => uwbAoaPatch(aoa, s.sp3, s.srrr),
+    })),
+    ...[true, false].map((sp3): Op => ({
+      label: `sp3=${sp3}`,
+      live: (s) => uwbSp3HintKey(s.mode, s.schedule, s.replyTime) === 'uwbSp3Hint',
+      patch: (s) => uwbSp3Patch(sp3, s.srrr),
+    })),
+    ...[true, false].map((raoa): Op => ({
+      label: `srrr.raoa=${raoa}`,
+      live: (s) => uwbSrrrRaoaHintKey(s.sp3, s.method, s.aoa) === 'uwbSrrrRaoaHint',
+      patch: (s) => ({ srrr: { ...s.srrr, raoa } }),
+    })),
+    ...[true, false].map((rrtt): Op => ({
+      label: `srrr.rrtt=${rrtt}`,
+      live: (s) => uwbSrrrRrttHintKey(s.sp3, s.method) === 'uwbSrrrRrttHint',
+      patch: (s) => ({ srrr: { ...s.srrr, rrtt } }),
+    })),
+    ...[true, false].map((rmnr): Op => ({
+      label: `rmnr=${rmnr}`,
+      live: (s) => uwbRmnrHintKey(s.mode, s.rcmValidityRounds, s.schedule) === 'uwbRmnrHint',
+      patch: () => ({ rmnr }),
+    })),
+    ...[true, false].map((mmrcr): Op => ({
+      label: `mmrcr=${mmrcr}`,
+      live: (s) => uwbMmrcrHintKey(s.mode, s.rcmValidityRounds, s.schedule) === 'uwbMmrcrHint',
+      patch: () => ({ mmrcr }),
+    })),
+  ]
+
+  /** Every session field any operation above can move. Two states with the same key are the same
+   * node of the graph; a field left out would collapse states that differ, so this list grows with
+   * `OPS`. `slotRstu` is in it because `uwbModePatch`'s MMS branch writes it. */
+  const walkKey = (s: UwbSessionCfg): string => JSON.stringify([
+    s.mode, s.method, s.schedule, s.replyTime, s.rcmValidityRounds, s.aoa, s.sp3,
+    s.srrr.raoa, s.srrr.rrtt, s.rmnr, s.mmrcr, s.slotRstu,
+  ])
+
+  /** The closure, computed once: every reachable state with the shortest trail of control
+   * labels that reaches it, so a failure names the sequence to reproduce rather than a state. */
+  const reachable = ((): { s: UwbSessionCfg; trail: string[] }[] => {
+    const start: UwbSessionCfg = { ...DEFAULT_UWB_SESSION }
+    const seen = new Map<string, { s: UwbSessionCfg; trail: string[] }>([[walkKey(start), { s: start, trail: [] }]])
+    const queue = [walkKey(start)]
+    for (let head = 0; head < queue.length; head++) {
+      const { s, trail } = seen.get(queue[head])!
+      for (const op of OPS) {
+        if (!op.live(s)) continue
+        const patch = op.patch(s)
+        if (!patch) continue
+        const next = { ...s, ...patch }
+        const k = walkKey(next)
+        if (seen.has(k)) continue
+        seen.set(k, { s: next, trail: [...trail, op.label] })
+        queue.push(k)
+      }
+    }
+    return [...seen.values()]
+  })()
+
+  it('reaches a state space worth calling exhaustive, from the session default alone', () => {
+    // Not a magic number to pin: a floor, so the walk cannot quietly collapse to a handful of
+    // states (an `OPS` row whose `live` predicate went permanently false, say) and keep passing.
+    expect(reachable.length).toBeGreaterThan(100)
+    // The sanity check that the walk reaches the feature it was written for at all.
+    expect(reachable.some((r) => r.s.sp3 && r.s.srrr.raoa)).toBe(true)
+    expect(reachable.some((r) => r.s.sp3 && r.s.srrr.rrtt)).toBe(true)
+    expect(reachable.some((r) => r.s.mode === 'mms')).toBe(true)
+  })
+
+  it('never strands an SRRR request bit: every reachable state has both bits down whenever sp3 is', () => {
+    // The invariant `srrrDownWithSp3` exists to keep, stated over the whole reachable graph
+    // rather than per patch — this is what makes the gate in `uwbMethodPatch`/`uwbAoaPatch`
+    // ("clear srrr only when sp3 is already true") sound, and C1 was what happened without it.
+    const stranded = reachable
+      .filter((r) => !r.s.sp3 && (r.s.srrr.raoa || r.s.srrr.rrtt))
+      .map((r) => r.trail.join(' -> '))
+    expect(stranded).toEqual([])
+  })
+
+  it('every reachable state is one the schema accepts, bar the one carry-over named below', () => {
+    // The one state shape this walk reaches that the schema still refuses, and it is not about
+    // sp3 at all: `uwbModePatch`'s MMS branch writes the draft's own 600 RSTU slot, nothing writes
+    // it back on the way out, and the session's default fixed reply time no longer fits in two
+    // slots of that width. Waived here by its shape, not by its message, and recorded as its own
+    // finding in `.superpowers/sdd/branch-review-fixes.md` — anything else illegal fails loudly.
+    const mmsSlotRstu = uwbModePatch('mms').slotRstu
+    const mmsSlotCarriedOver = (s: UwbSessionCfg): boolean =>
+      s.replyTime === 'fixed' && s.slotRstu === mmsSlotRstu && s.slotRstu !== DEFAULT_UWB_SESSION.slotRstu
+    const refused = reachable.filter((r) => uwbSessionIssue(scene(r.s)) !== null)
+    expect(refused.filter((r) => !mmsSlotCarriedOver(r.s)).map((r) => r.trail.join(' -> '))).toEqual([])
+    // and the waiver cannot quietly widen: every state it covers really is that one shape
+    expect(refused.every((r) => mmsSlotCarriedOver(r.s))).toBe(true)
+  })
+
+  it('the two sequences branch-review C1 reported, and the two shorter ones this walk found, all land legal', () => {
+    // Kept beside the closure because a named defect deserves a named test: the closure proves
+    // the class is closed, these four say which paths taught us it was open. Each is a list of
+    // control labels replayed through `OPS`, so they drive the panel's real handlers.
+    const replay = (labels: string[]): UwbSessionCfg => {
+      let s: UwbSessionCfg = { ...DEFAULT_UWB_SESSION }
+      for (const labelName of labels) {
+        const op = OPS.find((o) => o.label === labelName)
+        expect(op, labelName).toBeDefined()
+        expect(op!.live(s), `${labelName} must be a live control at this point`).toBe(true)
+        const patch = op!.patch(s)
+        expect(patch, labelName).not.toBeNull()
+        s = { ...s, ...patch }
+      }
+      return s
+    }
+    const paths: [string, string[]][] = [
+      // C1 path A: srrr.raoa survives an aoa that mode=m2m took down.
+      ['C1-A', [
+        'method=ss', 'replyTime=deferred', 'aoa=true', 'sp3=true', 'srrr.raoa=true',
+        'mode=m2m', 'mode=twr', 'replyTime=deferred', 'sp3=true',
+      ]],
+      // C1 path B: srrr.rrtt survives the method going to DS while sp3 was down. One step shorter
+      // than the review's version of it, which listed a `schedule=time` the panel never offers —
+      // the schedule select is greyed out under DS-TWR, and `uwbMethodPatch` has already written
+      // that value itself. `replay` asserts every control it touches is live, which is what
+      // caught the difference.
+      ['C1-B', [
+        'method=ss', 'replyTime=deferred', 'sp3=true', 'srrr.rrtt=true',
+        'schedule=contention', 'method=ds', 'replyTime=deferred', 'sp3=true',
+      ]],
+      // Shorter, and the one the review did not name: the sp3 checkbox's own untick is a fourth
+      // path that lowers sp3, which is why `uwbSp3Patch` exists.
+      ['untick-sp3-then-ds', [
+        'method=ss', 'replyTime=deferred', 'sp3=true', 'srrr.rrtt=true', 'sp3=false', 'method=ds', 'sp3=true',
+      ]],
+      ['untick-sp3-then-aoa', [
+        'method=ss', 'replyTime=deferred', 'aoa=true', 'sp3=true', 'srrr.raoa=true', 'sp3=false',
+        'aoa=false', 'sp3=true',
+      ]],
+    ]
+    for (const [name, labels] of paths) {
+      const s = replay(labels)
+      expect(s.sp3, name).toBe(true)
+      expect(s.srrr, name).toEqual({ raoa: false, rrtt: false })
+      expect(uwbSessionIssue(scene(s)), name).toBeNull()
+    }
   })
 })
