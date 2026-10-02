@@ -13,9 +13,9 @@ import {
   NB_MSG_ID, NB_POLL_BYTES, NB_REPORT_BYTES, NB_RESP_BYTES, nbCenterMhz, nbOtmPollBytes, nbPpduNs,
 } from './nb'
 import {
-  UWB_BLINK_BYTES, UWB_REPORT_BYTES, UWB_SS_DEFER_BYTES, uwbDlFinalBytes, uwbDlPollBytes, uwbDlRespBytes,
-  uwbFinalBytes, uwbInitBytes, uwbM2mBytes, uwbMmrcmBytes, uwbPollBytes, uwbPpduNs, uwbRespBytes, uwbRmnrBytes,
-  uwbSp3InitReportBytes, uwbSp3Ns, uwbSp3PollBytes, uwbSp3ReportBytes, type UwbReplyTime,
+  UWB_BLINK_BYTES, uwbAncillaryBytes, UWB_REPORT_BYTES, UWB_SS_DEFER_BYTES, uwbDlFinalBytes, uwbDlPollBytes,
+  uwbDlRespBytes, uwbFinalBytes, uwbInitBytes, uwbM2mBytes, uwbMmrcmBytes, uwbPollBytes, uwbPpduNs, uwbRespBytes,
+  uwbRmnrBytes, uwbSp3InitReportBytes, uwbSp3Ns, uwbSp3PollBytes, uwbSp3ReportBytes, type UwbReplyTime,
 } from './phy'
 
 export type UwbFrameKind =
@@ -62,6 +62,14 @@ export type UwbFrameKind =
   // kind, not a reuse of 'uwbResp' or 'uwbBlink': the lesson is that this is the physically
   // shortest ranging frame the standard has, which a shared kind would hide.
   | 'uwbSp3'
+  // One fragment of a ranging ancillary information message (standard §10.35, Request = 0 half;
+  // design §4.1/§4.2 of docs/superpowers/specs/2026-10-02-ancillary-design.md): a RAICT IE whose
+  // length is decided by its own two presence bits — this engine's first information unit shaped
+  // that way — carrying one slice of a message too large for one frame. Its own kind, not a reuse
+  // of 'uwbReport' or 'uwbRmnr': this frame answers no request and times nothing, it only carries
+  // a piece of a message the round's actual ranging has nothing to do with. See `makeAncillary`
+  // below.
+  | 'uwbAncillary'
 
 // Both predicates take the whole `FrameKind` union, not just the UWB half: their callers hold a
 // `FrameDesc.kind` (a lane, the timeline, a decoder), and narrowing at the call site would only
@@ -239,6 +247,10 @@ export interface UwbInfo {
   /** Receipt confirmation (`uwbMmrcm`, standard §10.36): one entry per initiator this frame
    * answers, each with the receipt bitmap of that initiator's window-openers. */
   mmrc?: UwbMmrcEntry[]
+  /** Ancillary information (`uwbAncillary`, standard §10.35, Request = 0 half): the RAICT IE's two
+   * optional fields, each present exactly when the IE's own presence bit says so — `makeAncillary`
+   * is the one place that invariant is kept, the same way `makeMmrcm` keeps its bitmap width. */
+  raict?: { messageNumber?: number; framesRemaining?: number }
 }
 
 /**
@@ -493,6 +505,51 @@ export function makeMmrcm(
   return uwbFrame('uwbMmrcm', src, dst, uwbMmrcmBytes(entries.length, windowRounds), {
     sp: 1, method: 'ss', block, round, slot, ies: ['RMMRC'],
     mmrc: entries.map((e) => ({ initiator: e.initiator, received: [...e.received] })),
+  })
+}
+
+/** The optional content of one ancillary-information fragment (standard §10.35.2.1): the message
+ * number and the frames-remaining count, each present exactly when its own RAICT IE presence bit
+ * is set — `makeAncillary` checks that, it is not merely documented here. */
+export interface UwbAncillaryContent {
+  messageNumber?: number
+  framesRemaining?: number
+}
+
+/**
+ * One fragment of a ranging ancillary information message (Request = 0 half of standard §10.35;
+ * design §4.1): a RAICT IE whose two optional octets — the message number and the Frames
+ * Remaining count — are present exactly as `numberPresent`/`framesRemainingPresent` say.
+ * Segmenting a message across several of these, one per slot, with Frames Remaining counting
+ * down, is a later task's job (design §4.2); this builder prices and fills in one fragment.
+ *
+ * The two presence bits and the two content values are **checked against each other**, not
+ * silently reconciled — the same discipline `makeMmrcm` above applies to its bitmap width against
+ * `windowRounds` (standard §10.36.2.1). `uwbAncillaryBytes` prices this frame from the presence
+ * bits alone; a caller that hands this builder a value its own bits say there is no room for (or
+ * claims room it then leaves empty) has let the frame's declared size and its actual content
+ * disagree, and that has to surface here, as an exception with a reason, rather than downstream as
+ * a frame whose byte count nobody can explain.
+ */
+export function makeAncillary(
+  src: string, dst: string, block: number, round: number, slot: number,
+  numberPresent: boolean, framesRemainingPresent: boolean, content: UwbAncillaryContent = {},
+): FrameDesc {
+  if ((content.messageNumber !== undefined) !== numberPresent) {
+    throw new Error(
+      `makeAncillary: message-number presence bit is ${numberPresent} but a message number is `
+      + `${content.messageNumber === undefined ? 'not given' : 'given'} — the two must agree`,
+    )
+  }
+  if ((content.framesRemaining !== undefined) !== framesRemainingPresent) {
+    throw new Error(
+      `makeAncillary: frames-remaining presence bit is ${framesRemainingPresent} but a frames-`
+      + `remaining count is ${content.framesRemaining === undefined ? 'not given' : 'given'} — the two must agree`,
+    )
+  }
+  return uwbFrame('uwbAncillary', src, dst, uwbAncillaryBytes(numberPresent, framesRemainingPresent), {
+    sp: 1, method: 'ss', block, round, slot, ies: ['RAICT'],
+    raict: { messageNumber: content.messageNumber, framesRemaining: content.framesRemaining },
   })
 }
 

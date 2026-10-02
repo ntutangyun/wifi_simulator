@@ -26,7 +26,7 @@ import {
 } from './nb'
 import {
   ARC_IE_BYTES, BLINK_IE_BYTES, chipsToNs, DL_COFFS_IE_BYTES, PHR_SYMBOLS, PHR_SYMBOL_CHIPS, PSYM_CHIPS,
-  rdmIeBytes, RCMA_IE_BYTES, RCPS_IE_BYTES, RCTU_NS, rmiFinalDeferredIeBytes, rmiFinalIeBytes,
+  raictIeBytes, rdmIeBytes, RCMA_IE_BYTES, RCPS_IE_BYTES, RCTU_NS, rmiFinalDeferredIeBytes, rmiFinalIeBytes,
   RMI_REPORT_IE_BYTES, rmmrcIeBytes, RMNR_IE_BYTES, RRMC_IE_BYTES, RRTI_IE_BYTES, rxTimesIeBytes, SFD_SYMBOLS,
   SRRR_IE_BYTES, STS_ACTIVE_CHIPS, STS_GAP_CHIPS, SYNC_SYMBOLS, TX_TIME_IE_BYTES, UWB_FCS_BYTES,
   UWB_MHR_BYTES, UWB_SP3_RAOA_ITEM_BYTES,
@@ -49,6 +49,7 @@ const SUBTYPE: Record<UwbFrameKind, string> = {
   uwbSp0: 'SP0 Control Frame',
   uwbMmrcm: 'UWB Multiple Message Receipt Confirmation (MMRCM)',
   uwbSp3: 'UWB SP3 Ranging Marker',
+  uwbAncillary: 'UWB Ranging Ancillary Information',
 }
 
 /** The prose half of every row below: standard tokens stay, the words around them are Chinese. */
@@ -237,6 +238,19 @@ function ies(u: UwbInfo): Ie[] {
           value: V.raoa(u.aoaThetaDeg === undefined ? '—' : `${u.aoaThetaDeg.toFixed(1)}°`),
         })
         break
+      // §10.35.2.1's RAICT IE (Request = 0 half, design §4.1): the one engine-wide IE whose byte
+      // count is decided by presence bits rather than a count, so the width read back here comes
+      // from which of the two optional fields `u.raict` actually carries — not from any slot or
+      // schedule parameter, the way every other row above reads its width.
+      case 'RAICT': {
+        const r = u.raict ?? {}
+        out.push({
+          key: 'ieRaict',
+          bytes: raictIeBytes(r.messageNumber !== undefined, r.framesRemaining !== undefined),
+          value: V.raict(r.messageNumber, r.framesRemaining),
+        })
+        break
+      }
       default:
         throw new Error(`uwbFrameFields: unknown ranging IE ${ie}`)
     }

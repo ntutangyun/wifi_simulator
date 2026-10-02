@@ -91,6 +91,10 @@ export function frameColor(frame: FrameDesc, apId: string): number {
     // from the frame — design §3.2), so it is neither of the two ambers above any more than
     // `uwbM2m` is. The same third shade, for the same reason: one frame playing every role at once.
     case 'uwbSp3': return 0xfde047
+    // Ranging ancillary information (standard §10.35, Request = 0 half): like RMNR and MMRCM
+    // above, this frame is about the exchange itself rather than a range — it carries a slice of
+    // a message the round's own ranging never reads — so it gets the same cool grey-blue.
+    case 'uwbAncillary': return 0x94a3b8
   }
 }
 

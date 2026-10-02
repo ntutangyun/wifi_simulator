@@ -526,6 +526,10 @@ export interface Strings {
          * literal bits (window-round order, index 0 first) rather than a byte count — the whole
          * point of the row is which rounds were received, not how many. */
         rmmrcEntry: (id: string, bits: string) => string
+        /** §10.35.2.1's RAICT IE (Request = 0 half): whichever of the message number and the
+         * frames-remaining count the content's presence bits made room for. Neither is a required
+         * argument — the row names whichever the frame actually carries. */
+        raict: (messageNumber?: number, framesRemaining?: number) => string
         fragment: (kind: string, index: number, of: number, msIn: number) => string
         fragmentRsf: (nMsr: number, gap: number) => string
         fragmentRif: (segments: number) => string
@@ -600,6 +604,9 @@ export interface Strings {
     uwbWait: string; uwbWaitNote: string
     /** §10.36's receipt-confirmation answer: how many initiators this frame lists. */
     uwbMmrcm: (n: number) => string
+    /** §10.35.2.1's RAICT IE (Request = 0 half): the slot this fragment sits in, which is the
+     * only thing that says whose it is — like RMNR and MMRCM above, the frame carries no range. */
+    uwbAncillary: (slot: number) => string
   }
 }
 
@@ -1104,6 +1111,7 @@ export const STRINGS: Strings = {
       uwbSp0: 'SP0 控制帧',
       uwbMmrcm: 'UWB 多消息收妥确认帧（MMRCM）',
       uwbSp3: 'SP3 测距标记',
+      uwbAncillary: 'UWB 测距辅助信息帧（RAICT）',
     },
     whatIs: {
       cfend: 'TXOP 持有者把时间还回去。它的 RTS/CTS 已把信道预约到 TXOP 结束，但突发提前发完了，于是用这一帧告诉所有解出它的站点：现在就可以撤销那段预约。若发送者是终端，AP 会在一个 SIFS 后重复一遍，让小区另一侧也听到释放。',
@@ -1140,6 +1148,10 @@ export const STRINGS: Strings = {
         + '而同一个原因让它什么也装不了：既装不下身份，也装不下时间戳。'
         + '身份由时隙决定，轮询帧里的 RDM IE 事先排定哪个时隙归谁；'
         + '时间要等到随后的测量报告相位，由另一帧用 RMI IE 送回来。',
+      uwbAncillary: '测距辅助信息交换（标准 §10.35）里 Request 位为 0 的那一半：这一帧装着一枚 RAICT 信息元'
+        + '（Ranging Or Ancillary Information Counter and Type IE，标准 §10.35.2.1）。内容字段只有一个控制字节，'
+        + '外加两个可选字节——消息号和剩余帧数——各自由控制字节里的一个存在位决定在不在，所以这枚信息元的长度'
+        + '是一到三个字节，不是固定的。一条装不进一帧的消息就靠这个剩余帧数字段，一帧一帧地数下去。',
     },
     next: {
       cfend: '所有解出它的站点都会清零 NAV，安静一个 DIFS/AIFS 后即可重新竞争。听不到它的站点则要一直等到自己听到的那段预约自然结束。',
@@ -1175,6 +1187,9 @@ export const STRINGS: Strings = {
         + '设备改回能带载荷的包格式，进入测量报告相位：被 SRRR IE 请求过的那几项——'
         + '方位角、往返时间、回复时间——由请求方与被请求方各自一帧发出。'
         + '多出来的那一帧，就是这个最短的测距帧要付的代价。',
+      uwbAncillary: '接收端看剩余帧数就知道这条消息还差几帧——数字从某个值一路数到 0，到 0 的那一帧是这条消息的'
+        + '最后一帧。如果中间缺了一帧，下一帧到达时剩余帧数不会接上缺口前那一帧的数字，接收端由此发现少了哪一帧，'
+        + '不必等整条消息超时。',
     },
     nextTitle: '接下来会发生什么',
     from: '发送方', to: '接收方', everyone: '多个终端（多用户）',
@@ -1233,6 +1248,7 @@ export const STRINGS: Strings = {
         ieRmmrc: 'RMMRC 信息元·多消息收妥确认',
         ieSrrr: 'SRRR 信息元·某个响应方请求报告哪几项',
         ieRaoa: '方位角项·数据报告相位带回的那个方位角',
+        ieRaict: 'RAICT 信息元·测距辅助信息计数与类型',
         mmsFragment: '片段·第几个，共几个',
         mmsShape: '序列·这个片段由什么构成',
         mmsLength: '长度·一毫秒的能量花在多长的时间里',
@@ -1309,6 +1325,12 @@ export const STRINGS: Strings = {
         srrr: (id, raoa, rrtt) => `${id} 请求：方位角 ${raoa ? '要' : '不要'}，往返时间 ${rrtt ? '要' : '不要'}`,
         raoa: (deg) => `${deg}——响应方自己测到的方位角，由它的报告帧带回`,
         rmmrcEntry: (id, bits) => `${id} 收妥位图 ${bits}（从左到右：窗口第一轮…最后一轮）`,
+        raict: (messageNumber, framesRemaining) => {
+          const parts: string[] = []
+          if (messageNumber !== undefined) parts.push(`消息号 ${messageNumber}`)
+          if (framesRemaining !== undefined) parts.push(`剩余帧数 ${framesRemaining}`)
+          return parts.length > 0 ? parts.join(' · ') : '控制字节：两个可选字段均不在'
+        },
         fragment: (kind, index, of, msIn) => `${kind} 第 ${index} / ${of} 个 · 序列中的第 ${msIn} ms`,
         fragmentRsf: (nMsr, gap) => `N_MSR ${nMsr} × MMRS 符号 · 间隔 ${gap}`,
         fragmentRif: (segments) => `STS 段 ${segments} × 512 码片`,
@@ -1405,6 +1427,7 @@ export const STRINGS: Strings = {
       + `是哪台设备发的，由这个时隙本身说明`,
     uwbSp3Rate: '没有载荷，也就没有数据速率 · HRP UWB（SP3 包：SYNC+SFD+STS）',
     uwbRate: (mbps) => `${mbps} Mbps BPRF · HRP UWB（SP1 PPDU）`,
+    uwbAncillary: (slot) => `测距时隙 ${slot} 内的 UWB 测距辅助信息帧（RAICT）——装着这条消息的一个分片`,
     uwbWait: '持有一个测距时隙',
     uwbWaitNote: 'UWB 设备从不参与竞争：本轮的调度表已经规定了这个时隙属于谁，接收机只需保持开启到时隙截止。',
     uwbMmrcm: (n) => `UWB 多消息收妥确认帧——答复 ${n} 个发起方`,

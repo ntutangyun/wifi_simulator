@@ -27,6 +27,7 @@ const KIND_SHORT: Record<UwbFrameKind, string> = {
   uwbSp0: 'sp0',
   uwbMmrcm: 'mmrcm',
   uwbSp3: 'sp3',
+  uwbAncillary: 'ancillary',
 }
 
 /** How a fix was solved, as the log names it. */

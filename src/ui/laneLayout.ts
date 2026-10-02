@@ -410,6 +410,11 @@ export function spanTooltip(s: LaneSpan, T: Strings['tooltips'], t?: Ns, nameOf:
         // in. It is told by the **slot**, not by a destination: the frame has no address field, and
         // `dst` is this engine's broadcast placeholder.
         f.kind === 'uwbSp3' ? T.uwbSp3(f.uwb?.slot ?? 0) :
+        // §10.35.2.1's RAICT IE (Request = 0 half): without this branch the chain falls through
+        // to the CTS label below, silently — the same gap every UWB shape on this chain above was
+        // added to catch (`tests/ui/laneLayout.test.ts`'s `it.each` over the whole of
+        // `FRAME_KINDS`, task 1 of docs/superpowers/specs/2026-10-02-ancillary-design.md).
+        f.kind === 'uwbAncillary' ? T.uwbAncillary(f.uwb?.slot ?? 0) :
         f.kind === 'nbPoll' ? T.nbPoll(dst) :
         f.kind === 'nbResp' ? T.nbResp(dst) :
         f.kind === 'nbReport' ? T.nbReport(dst) :

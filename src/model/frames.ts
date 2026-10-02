@@ -48,6 +48,12 @@ export const FRAME_KINDS = [
   // hide exactly the thing that makes it short (no PHR to decode, no PSDU to size).
   // docs/superpowers/specs/2026-10-02-sp3-design.md §3.1
   'uwbSp3',
+  // One fragment of a ranging ancillary information message (standard §10.35, Request = 0 half):
+  // a RAICT IE whose length is decided by its own two presence bits, this engine's first
+  // information unit shaped that way. Its own kind, not a reuse of 'uwbReport' or 'uwbRmnr': this
+  // frame answers no request and times nothing — it only carries a slice of a message too large
+  // for one frame. docs/superpowers/specs/2026-10-02-ancillary-design.md §4.1/§4.2
+  'uwbAncillary',
 ] as const
 
 export type FrameKind = typeof FRAME_KINDS[number]

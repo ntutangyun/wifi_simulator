@@ -572,6 +572,41 @@ export function uwbMaxMmrcmInitiators(windowRounds: number): number {
   return cap
 }
 
+// --- Ranging ancillary information, Request = 0 (standard §10.35) --------------
+// design docs/superpowers/specs/2026-10-02-ancillary-design.md §4.1. Request = 1 (scheduling a
+// slot by request) is out of scope for this slice — see the design doc §6 — so every RAICT IE
+// this engine builds carries Request = 0 and nothing reads the bit back.
+
+/**
+ * RAICT IE (§10.35.2.1, Figure 10-271), smallest possible content: the one control octet alone
+ * (Request, the message-number presence bit, 6 reserved bits), with neither optional octet
+ * present. This is the one width `raictIeBytes` cannot compute from its own two booleans — it is
+ * what those booleans are counted relative to. standard §10.35.2.1
+ */
+export const RAICT_IE_MIN_BYTES = UWB_IE_HDR_BYTES + 1
+
+/**
+ * The RAICT IE's own width (§10.35.2.1): the one control octet, plus one more octet for each of
+ * the two optional fields the control octet's own presence bits claim — the Ranging Or Ancillary
+ * Message Number and the Frames Remaining count. This is this engine's first information unit
+ * whose length is **decided by presence bits** rather than fixed or carried by a count, so unlike
+ * every other `*IeBytes` function in this file it takes no numeric argument at all: there is
+ * nothing here to count, only two yes/no questions to add up. standard §10.35.2.1
+ */
+export function raictIeBytes(numberPresent: boolean, framesRemainingPresent: boolean): number {
+  return RAICT_IE_MIN_BYTES + (numberPresent ? 1 : 0) + (framesRemainingPresent ? 1 : 0)
+}
+
+/**
+ * The ancillary-information frame (Request = 0 half of standard §10.35): MHR + RAICT IE + FCS.
+ * One frame carries one fragment of a larger ancillary message — segmentation across several
+ * slots is a later task's job (design §4.2) — so this prices exactly one RAICT IE, at whichever
+ * of the four presence-bit combinations this fragment uses.
+ */
+export function uwbAncillaryBytes(numberPresent: boolean, framesRemainingPresent: boolean): number {
+  return UWB_MHR_BYTES + raictIeBytes(numberPresent, framesRemainingPresent) + UWB_FCS_BYTES
+}
+
 // --- Ranging schedule units ----------------------------------------------------
 
 /** Ranging slot/block time units to nanoseconds: 1 RSTU = 416 chips at 499.2 Mchip/s
