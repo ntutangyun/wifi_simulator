@@ -76,7 +76,7 @@ export function fmtRecord(r: TLRecord): string {
     case 'AMP_BS_BOOT': return r.powered
       ? `${r.node} boots on ${r.incidentDbm.toFixed(1)} dBm of excitation`
       : `${r.node} heard a command with no wake-up preamble: no power to answer it`
-    // The sixteen UWB types keep their vocabulary beside the ranging engine.
+    // The seventeen UWB types keep their vocabulary beside the ranging engine.
     case 'UWB_ROUND':
     case 'UWB_SLOT':
     case 'UWB_TS':
@@ -88,6 +88,7 @@ export function fmtRecord(r: TLRecord): string {
     case 'UWB_ROUND_END':
     case 'UWB_CONTEND':
     case 'UWB_CONTEND_COLLISION':
+    case 'UWB_RMNR':
     case 'UWB_NB_LBT':
     case 'UWB_MMS_TRAIN':
     case 'UWB_INTERFERED':

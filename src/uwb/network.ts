@@ -208,6 +208,14 @@ export class UwbNetwork {
         {
           role: n.uwb?.role ?? 'anchor', pos: n.pos,
           tsNoisePs: cfg.tsNoisePs, cfoNoisePpm: cfg.cfoNoisePpm, maxAttempts: cfg.maxAttempts,
+          // Standard §10.34: whether a responder holding a still-valid control message answers a
+          // round whose initiation message it missed with the RMNR frame instead of silence. It
+          // rides the device config rather than the round plan for the same reason `maxAttempts`
+          // above does — every device of a session is configured from this one `cfg`, so the two
+          // ends cannot disagree about it, and what it decides is one device's behaviour in its own
+          // slot rather than the shape of the round. `rcmValidityRounds`, which decides the shape of
+          // slot 0's *frame* at both ends, is on the plan instead (`blockCarriesRcm`).
+          rmnr: cfg.rmnr,
           tdoaClockCorrection: cfg.tdoaClockCorrection, syncOffsetNs, syncErrorNs: cfg.syncErrorNs,
           // Angle of arrival is a property of the anchor hardware, so a tag carries the flag
           // and never acts on it; an anchor with no yaw of its own faces +x.

@@ -36,7 +36,8 @@ import type { Ns, Vec3 } from '../model/types'
 import type { UwbChannel, UwbRadio, UwbRxInfo } from './channel'
 import { counterDiff, gaussian, type UwbClock } from './clock'
 import {
-  makeBlink, makeFinal, makePoll, makeReport, makeResp, makeSsDefer, type UwbFrameKind,
+  makeBlink, makeFinal, makeInit, makePoll, makeReport, makeResp, makeRmnr, makeSsDefer,
+  type UwbFrameKind,
 } from './frames'
 import { onDlRx, onDlSlot, onUlSlot, solveTdoaFix, solveUlFix as solveUlFixImpl, transmitDl, ulArrivalNs as ulArrivalNsImpl, type DlRoundState } from './device.tdoa'
 import { freshMms, onMmsRx, onMmsSlot, solveMmsFix, type MmsRoundState } from './device.mms'
@@ -45,7 +46,7 @@ import { measureAoa, reportRange } from './device.report'
 import { RCTU_NS, tsSigmaNs, UWB_RMARKER_NS, uwbSinrDb, type UwbChannelNo } from './phy'
 import { rangeSigmaM, solvePosition, type AnchorPos } from './position'
 import { dsTwr, fomFor, ssTwrCorrected, ssTwrRaw } from './ranging'
-import type { RoundPlan, SlotAction } from './session'
+import { blockCarriesRcm, type RoundPlan, type SlotAction } from './session'
 
 /** Per-device settings. The TWR method is NOT here: a round's `RoundPlan` is the
  * one truth about how that round is measured, and the device reads it from there. */
@@ -65,6 +66,20 @@ export interface UwbDeviceCfg {
    * round. Nothing shipped is affected (the contention lesson has one tag); keying `attemptsLeft`
    * by tag id is the change a multi-tag contention lesson would need. */
   maxAttempts: number
+  /**
+   * Two-way ranging, responder: when this device holds a still-valid control message but did not
+   * receive **this** round's ranging initiation message, send the ranging message non-receipt
+   * frame in its own slot instead of sitting silent there (standard §10.34; `makeRmnr`).
+   *
+   * Read from here rather than off the round plan for the same reason `maxAttempts` above is: the
+   * whole session is configured from one `UwbSessionCfg`, so the two cannot disagree today, and
+   * what this decides is a device's own behaviour in its own slot rather than the shape of the
+   * round (the slot table is untouched — `tests/uwb/rcm-validity-schedule.test.ts`).
+   *
+   * False — the default — leaves a responder that missed the initiation message exactly as silent
+   * as it always was, and not a draw of any device's random stream moves.
+   */
+  rmnr: boolean
   /** DL-TDoA only: the listening tag measures its own clock rate against the round's Poll-to-Final
    * interval before it differences its arrival times. Off, it keeps its raw counter differences —
    * and up to ±20 ppm of crystal error over a whole round is metres of position error. */
@@ -108,6 +123,24 @@ export interface UwbGeometry {
 }
 
 export type UwbDeviceState = Extract<MacStateName, 'idle' | 'uwbWait' | 'rx' | 'tx'>
+
+/**
+ * Whether the frame that just arrived is the one this slot's wait was armed for. Exactly
+ * `exp.kind === kind`, with one deliberate exception.
+ *
+ * **Standard §10.34**: the ranging message non-receipt frame arrives in the slot a Response should
+ * have occupied, from the very responder that slot belongs to — "where a response should have been"
+ * is the whole of what it says, since its IE carries no Content field at all (design §3). So the
+ * wait for that Response is what accepts it; arming a second expectation for it would mean the
+ * initiator had to know in advance which of the two was coming, which is exactly what it does not
+ * know and exactly what the frame is there to tell it.
+ *
+ * It is a frame kind the responder never sends unless the session asked for it
+ * (`UwbDeviceCfg.rmnr`), so no session that has it off can meet this clause.
+ */
+function expectationAccepts(exp: Expectation, kind: UwbFrameKind): boolean {
+  return exp.kind === kind || (kind === 'uwbRmnr' && exp.kind === 'uwbResp')
+}
 
 /** A slot action that names a frame — every one but the MMS layout's `idle`. Its `kind` is a
  * `UwbFrameKind`, which is what lets one `listenFor` serve every mode. */
@@ -291,6 +324,33 @@ export class UwbDevice implements UwbRadio {
    */
   nbSkipBlock: number | null = null
   /**
+   * **The one piece of device state in this engine that outlives a ranging round, and it is a
+   * deliberate exception.** Two-way ranging, responder: the block whose control message (today's
+   * Poll, carrying ARC + RDM + RRMC) this device last decoded, or null if it has never decoded
+   * one. Standard §10.32.9.1's ARC IE, "RCM Validity Rounds".
+   *
+   * Compare `freshRound`'s own comment, which says the opposite about everything in `RoundState`:
+   * every field there is rebuilt per round *on purpose*, so a device that heard half a round keeps
+   * nothing of it and a missing Poll can never be filled in from the round before. This feature
+   * needs exactly the opposite of that, and could not exist without it — §10.34's responder is
+   * defined as one that **holds a control message from an earlier round** and did not receive this
+   * round's initiation message (design §1). So the state cannot live in `RoundState`, and it does
+   * not: it belongs to the device, like the contention retry budget and the narrowband skip block
+   * above, both of which also outlive a round.
+   *
+   * **What bounds it is what makes it an exception rather than a leak**: it expires after
+   * `rcmValidityRounds` blocks (`holdsValidRcm`), which is the very window the control message
+   * itself bought. So it can never fill a gap in a round — it answers one question, "is a control
+   * message I decoded still valid for this block", and nothing of the round it was decoded in
+   * survives with it: no counter, no slot, no reply time. A stale block index past the window is
+   * indistinguishable from never having decoded one.
+   *
+   * It is **a block index, not a round index** (design §2.2): within a block the `round` parameter
+   * names which tag the round belongs to and never moves for that tag, so a given tag's successive
+   * ranging rounds are successive blocks.
+   */
+  private rcmBlock: number | null = null
+  /**
    * P802.15.4ab, tag: the ranges of the block in progress, one per anchor. An MMS round holds
    * one anchor, so a fix needs the ranges of several rounds; they are kept here, across those
    * rounds, and cleared when the block's last pair round has solved.
@@ -430,7 +490,15 @@ export class UwbDevice implements UwbRadio {
       // …unless this round's responder answers at a fixed delay from the Poll rather than at the
       // slot boundary (standard §10.29.6.5). Its Response was armed the instant the Poll arrived
       // and is already sitting in the queue, so the slot must not put a second one on the air.
-      if (!this.repliesAtFixedDelay(r, action.kind)) this.transmitFor(action, slot, r, peers)
+      //
+      // An RMNR frame is the exception to that exception, and for the reason the fixed shape
+      // exists at all: the delay is counted from the reception of the initiation message, and
+      // there was none. So it has no instant to aim off and goes out at the slot boundary, like
+      // every other frame in this engine. Without this clause a `fixed` session would be the one
+      // shape where §10.34 silently did nothing.
+      if (!this.repliesAtFixedDelay(r, action.kind) || this.owesRmnr(r, action.kind)) {
+        this.transmitFor(action, slot, r, peers)
+      }
       return
     }
     // A device listens only for the frames addressed to it or broadcast to its
@@ -442,7 +510,13 @@ export class UwbDevice implements UwbRadio {
       ? action.kind === 'uwbResp' || action.kind === 'uwbSsDefer' || action.kind === 'uwbReport'
       : action.kind === 'uwbPoll' || action.kind === 'uwbFinal'
     if (!mine) return
-    this.listenFor(slot, txId, action.kind)
+    // What slot 0 actually carries this block: the control message (today's Poll) at the head of
+    // each validity window, the initiation message alone in the blocks the window covers (standard
+    // §10.32.9.1, design §2). The slot table does not move with it — slot 0 is the round's opener
+    // either way — so the *action* is `uwbPoll` in both cases and only the frame differs; a
+    // responder still waiting for a `uwbPoll` would reject the initiation message as not the frame
+    // this slot is for, and the whole round would go silent behind it.
+    this.listenFor(slot, txId, this.openerKind(r, action.kind))
   }
 
   /**
@@ -581,9 +655,25 @@ export class UwbDevice implements UwbRadio {
     const kind = frame.kind as UwbFrameKind
     const exp = this.expect
     const r = this.round
-    if (!r || !exp || (exp.from !== null && exp.from !== from) || exp.kind !== kind) {
+    if (!r || !exp || (exp.from !== null && exp.from !== from) || !expectationAccepts(exp, kind)) {
       // Not the frame this slot is for: no ranging counter is taken from it.
       if (this.state === 'rx') this.setState(this.expect ? 'uwbWait' : 'idle')
+      return
+    }
+
+    // The ranging message non-receipt frame (standard §10.34), handled before every draw below
+    // because **nothing in it is timed**: its IE has no Content field, no range is computed from
+    // it, and taking a receive timestamp of it would spend this device's timestamp-noise and
+    // carrier-offset draws on a frame whose whole content is that it exists (design §3). So a
+    // session with `rmnr` on takes exactly the random stream it would have taken with the slot
+    // silent, and what the initiator learns from the slot is this record instead of a UWB_TIMEOUT.
+    if (kind === 'uwbRmnr') {
+      this.clearExpectation()
+      this.setState('idle')
+      this.emit({
+        t: this.now(), type: 'UWB_RMNR', node: this.id, peer: from,
+        slot: r.slot, block: r.block, round: r.round,
+      })
       return
     }
 
@@ -672,20 +762,21 @@ export class UwbDevice implements UwbRadio {
 
     switch (kind) {
       case 'uwbPoll':
-        // An anchor keeps only the counter: DS-TWR cancels the clock offset by
-        // construction, so it never needs `coffs`, and its range is scored by
-        // the Final's first-path quality (the last frame of the exchange).
-        r.rxPollCounter = counter
-        // The PPDU it just decoded, whose last symbol is where a fixed reply time is counted from.
-        r.pollNs = frame.txTimeNs
-        // The contention draw comes after this reception's timestamp-noise, carrier-offset and
-        // (when `aoa` is on) phase draws above, so it never reorders the stream a time-scheduled
-        // round takes from the same generator.
-        if (r.plan.schedule === 'contention' && this.cfg.role === 'anchor') this.drawContentionSlot(r)
-        // …and the fixed reply time is armed after the draw, because in a contention round the
-        // slot it answers in is what the draw just decided. It takes no draw of its own, so an
-        // embedded or deferred round's stream is untouched by its presence here.
-        this.armFixedReply(r, trueRmarkerNs, extraNs)
+        // This engine's Poll is the control message **and** the initiation message at once (design
+        // §1), so decoding it is also what buys this responder the validity window §10.34's
+        // exchange needs. `rcmBlock` is the one piece of device state that outlives a round, and its
+        // own comment says why that is a deliberate exception and what bounds it. Recorded whether
+        // or not `rmnr` is on: it is a fact about the device, nothing but `owesRmnr` reads it, and a
+        // session with the feature off therefore behaves and draws exactly as it did before.
+        this.rcmBlock = r.block
+        this.onInitiation(r, frame, counter, trueRmarkerNs, extraNs)
+        break
+      case 'uwbInit':
+        // The initiation message alone (standard §10.32.9.1): a block the control message decoded
+        // earlier already paid for. It means exactly the initiation half of a Poll and not one bit
+        // more — in particular it refreshes no validity window, which is what keeps the window the
+        // length the control message bought rather than a thing that renews itself.
+        this.onInitiation(r, frame, counter, trueRmarkerNs, extraNs)
         break
       case 'uwbResp':
         this.onResponse(r, from, frame, counter, coffs, fom)
@@ -704,6 +795,12 @@ export class UwbDevice implements UwbRadio {
         // many-to-many frame accepted by a two-way round's expectation would mean the two ends
         // disagree about the mode, which nothing can do on purpose (Ruling 9).
         throw new Error(`UwbDevice.onRxOk: a many-to-many frame from ${from} in a '${r.plan.mode}' round`)
+      // No `case 'uwbRmnr'` here, and it is not an omission: the branch above returns on that kind
+      // unconditionally, so `kind` is narrowed and tsc refuses the case outright ("not comparable")
+      // rather than accepting a throw nobody could ever reach. Ruling 9 asks for a throw where a
+      // state cannot happen on purpose; where the type checker can prove it cannot happen at all,
+      // that proof is the stronger guard. Make the branch above conditional and this switch stops
+      // compiling, which is exactly the warning a runtime throw would only have printed.
     }
   }
 
@@ -768,6 +865,68 @@ export class UwbDevice implements UwbRadio {
    */
   private repliesAtFixedDelay(r: RoundState, kind: UwbFrameKind): boolean {
     return kind === 'uwbResp' && r.plan.mode === 'twr' && r.plan.replyTime === 'fixed'
+  }
+
+  /**
+   * Whether a control message this device decoded is still valid for block `block` (standard
+   * §10.32.9.1). The window a control message buys is the `rcmValidityRounds` blocks starting with
+   * its own, and `blockCarriesRcm` is what puts one at the head of each of them — so a device that
+   * decoded block `b`'s control message holds it for blocks `b … b + R − 1` and no further.
+   *
+   * Never true with no control message decoded at all: `null` is not block 0. That is the physical
+   * floor of §10.34 and not a defensive nicety — a responder that never decoded a control message
+   * does not know which slot is its own (the slot table is the RDM IE's), so it has no slot to
+   * speak in, and speaking anyway would be speaking in somebody else's.
+   */
+  private holdsValidRcm(block: number, plan: RoundPlan): boolean {
+    const since = this.rcmBlock
+    if (since === null) return false
+    const age = block - since
+    return age >= 0 && age < plan.rcmValidityRounds
+  }
+
+  /**
+   * The frame slot 0 of this round carries, given the slot action it was laid out with: the control
+   * message (`uwbPoll`) on the first block of each validity window, the initiation message alone
+   * (`uwbInit`) on the blocks that window covers (standard §10.32.9.1, design §2). Any other action
+   * is returned untouched.
+   *
+   * One expression, read by both ends of the round — the initiator builds the frame off it
+   * (`transmitFor`) and the responders arm their wait off it (`onSlot`) — because the two deciding
+   * separately is the only way they could disagree about which message this block's slot 0 holds.
+   * `blockCarriesRcm` takes the **block** index (design §2.2): within a block the round index names
+   * which tag the round belongs to and never cycles.
+   *
+   * Only `mode: 'twr'` is asked: DL-TDoA's Poll is an anchor's and no other mode has an ARC IE at
+   * all, which is why the schema refuses a non-default `rcmValidityRounds` in each of them. With
+   * `rcmValidityRounds: 1` — the default — every block is its own window and this is the identity.
+   */
+  private openerKind(r: RoundState, kind: UwbFrameKind): UwbFrameKind {
+    if (kind !== 'uwbPoll' || r.plan.mode !== 'twr') return kind
+    return blockCarriesRcm(r.plan, r.block) ? 'uwbPoll' : 'uwbInit'
+  }
+
+  /**
+   * Responder, standard §10.34: this slot carries the ranging message non-receipt frame rather
+   * than silence. Every clause is a precondition of the exchange, not a guard bolted on:
+   *
+   * - the session asks for it (`cfg.rmnr`, off by default — see `UwbDeviceCfg.rmnr`);
+   * - this is a responder's own Response slot in a two-way round; one frame per round, so the
+   *   round's other anchor-side slots (a deferred reply time, a Report) are not it;
+   * - the round's initiation message never arrived (`rxPollCounter === null`), which is exactly the
+   *   case that used to leave the slot empty;
+   * - **and this device still holds a valid control message**, which is where its slot came from.
+   *
+   * Only a time-scheduled round can satisfy the last one. In a contention round the response slot
+   * is the responder's **own draw**, made on the initiation message it did not receive
+   * (`drawContentionSlot`), so the still-valid control message does not tell it where to answer —
+   * it has no slot, and the floor above applies to it for the same reason it applies to a device
+   * that never held a control message at all.
+   */
+  private owesRmnr(r: RoundState, kind: UwbFrameKind): boolean {
+    return kind === 'uwbResp' && this.cfg.rmnr && this.cfg.role === 'anchor'
+      && r.plan.mode === 'twr' && r.plan.schedule === 'time'
+      && r.rxPollCounter === null && this.holdsValidRcm(r.block, r.plan)
   }
 
   /**
@@ -885,20 +1044,42 @@ export class UwbDevice implements UwbRadio {
       }
       case 'uwbPoll': {
         r.txPollCounter = txCounter
-        const poll = makePoll(this.id, peers.anchors, r.plan.method, r.block, r.round, {
-          schedule: r.plan.schedule, contentionSlots: r.plan.contentionSlots,
-          maxAttempts: this.cfg.maxAttempts,
-        })
+        // Which of the two messages this block's slot 0 carries (standard §10.32.9.1, design §2):
+        // the control message at the head of each validity window, the initiation message alone in
+        // the blocks that window already paid for — no ARC, no RDM, `13 + 3A` octets lighter.
+        //
+        // It carries **no schedule** (Ruling 3): the responders' slot table came from the still-
+        // valid control message and restating it here would delete the saving, which is precisely
+        // those two IEs. The block and round numbers every frame already carries are what say which
+        // window's round this is. The two ends agree through `openerKind` and nothing else.
+        const opener = this.openerKind(r, 'uwbPoll') === 'uwbInit'
+          ? makeInit(this.id, r.plan.method, r.block, r.round)
+          : makePoll(this.id, peers.anchors, r.plan.method, r.block, r.round, {
+            schedule: r.plan.schedule, contentionSlots: r.plan.contentionSlots,
+            maxAttempts: this.cfg.maxAttempts,
+          })
         // Its airtime, kept for the one thing that reads it: reconstructing a fixed reply time,
-        // which is counted from the end of this PPDU at the responder (see `fixedReplyRctu`).
-        r.pollNs = poll.txTimeNs
-        this.send(poll, txCounter)
+        // which is counted from the end of this PPDU at the responder (see `fixedReplyRctu`). It is
+        // read off the frame this round actually sent, at both ends, which is what lets the two
+        // messages differ in length without either end assuming the other's.
+        r.pollNs = opener.txTimeNs
+        this.send(opener, txCounter)
         break
       }
       case 'uwbResp': {
         // An anchor that never heard the Poll has nothing to reply to: its slot
         // stays empty, and the tag's own deadline reports the gap.
-        if (r.rxPollCounter === null) return
+        //
+        // …unless it still holds the control message that gave it this slot (standard §10.34): then
+        // the slot carries the ranging message non-receipt frame instead of silence, and what used
+        // to be one indistinguishable `UWB_TIMEOUT` at the initiator becomes a named reason —
+        // "this responder is still here, still configured by your control message, and did not hear
+        // this round's initiation message" (design §3.1). The frame takes no ranging counter: it
+        // carries no times, and nothing in the round is measured from it.
+        if (r.rxPollCounter === null) {
+          if (this.owesRmnr(r, 'uwbResp')) this.send(makeRmnr(this.id, r.tagId, r.block, r.round, slot), null)
+          return
+        }
         r.txRespCounter = txCounter
         // Which of the three routes this round's reply time takes (design §2), decided here and
         // sized to match by `makeResp`/`uwbRespBytes`:
@@ -993,6 +1174,39 @@ export class UwbDevice implements UwbRadio {
   }
 
   // ---- measurements ---------------------------------------------------------
+
+  /**
+   * Responder, on the frame that opened the round — whichever of the two messages this block
+   * carried in slot 0 (standard §10.32.9.1, design §2): the control message, which is also an
+   * initiation, or the initiation message alone once a control message has bought the window.
+   *
+   * One body for both, because **the initiation half is all of this**: the round trip starts at
+   * this RMARKER, a fixed reply time is counted from the end of this PPDU, and a contention
+   * responder draws its slot on it. Nothing here reads the control content, which is exactly why
+   * dropping that content costs the round nothing — and the one thing the control message does
+   * extra (refreshing the validity window) is done by its own case above rather than here, so the
+   * window cannot renew itself off a message that carries no ARC IE.
+   */
+  private onInitiation(
+    r: RoundState, frame: FrameDesc, counter: number, trueRmarkerNs: Ns, extraNs: number,
+  ): void {
+    // An anchor keeps only the counter: DS-TWR cancels the clock offset by
+    // construction, so it never needs `coffs`, and its range is scored by
+    // the Final's first-path quality (the last frame of the exchange).
+    r.rxPollCounter = counter
+    // The PPDU it just decoded, whose last symbol is where a fixed reply time is counted from. Read
+    // off the frame that actually arrived, so the two messages' different airtimes need no second
+    // definition at either end.
+    r.pollNs = frame.txTimeNs
+    // The contention draw comes after this reception's timestamp-noise, carrier-offset and
+    // (when `aoa` is on) phase draws above, so it never reorders the stream a time-scheduled
+    // round takes from the same generator.
+    if (r.plan.schedule === 'contention' && this.cfg.role === 'anchor') this.drawContentionSlot(r)
+    // …and the fixed reply time is armed after the draw, because in a contention round the
+    // slot it answers in is what the draw just decided. It takes no draw of its own, so an
+    // embedded or deferred round's stream is untouched by its presence here.
+    this.armFixedReply(r, trueRmarkerNs, extraNs)
+  }
 
   /** Tag, on an anchor's Response. SS-TWR finishes the range here; DS-TWR banks it for the Final. */
   private onResponse(r: RoundState, from: string, frame: FrameDesc, counter: number, coffs: number, fom: number): void {

@@ -1682,7 +1682,7 @@ describe('UwbDevice.beginRound — an MMS round without a narrowband channel', (
     return new UwbDevice(
       'tag-1',
       {
-        role: 'tag', pos: { x: 0, y: 0, z: 1 }, tsNoisePs: 100, cfoNoisePpm: 0.2, maxAttempts: 3,
+        role: 'tag', pos: { x: 0, y: 0, z: 1 }, tsNoisePs: 100, cfoNoisePpm: 0.2, maxAttempts: 3, rmnr: false,
         tdoaClockCorrection: true, syncOffsetNs: 0, syncErrorNs: 0, aoa: false, yawDeg: 0, channel: 9,
       },
       new UwbClock(0, 0), new Rng(1), q, now, ch, emit,

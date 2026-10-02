@@ -48,6 +48,25 @@ export type UwbRecord =
   | { type: 'UWB_POSITION'; node: string; x: number; y: number; trueX: number; trueY: number; gdop: number; ellipse: { a: number; b: number; thetaRad: number }; anchors: string[]; block: number; method: UwbFixMethod; of?: string }
   /** A slot passed with no answer from the peer it was scheduled for. */
   | { type: 'UWB_TIMEOUT'; node: string; slot: number; peer: string; expected: UwbFrameKind }
+  /**
+   * Standard §10.34: a responder that **holds a still-valid control message** (the RCM an earlier
+   * block's Poll carried, kept alive by that message's RCM Validity Rounds — §10.32.9.1) but did
+   * **not** receive this round's ranging initiation message, saying so in the slot its Response
+   * would have occupied.
+   *
+   * Emitted at the **initiator**, on the frame's arrival, because what the exchange changes is
+   * what the initiator knows. A silent slot leaves one `UWB_TIMEOUT` and three explanations the
+   * initiator cannot tell apart: this responder never heard me, it answered and the answer was
+   * lost, it is gone. This record is the first of those three, named — and it says the second
+   * thing too, by existing at all: the responder still holds the control message, which is what
+   * sending the frame implicitly confirms (design §3).
+   *
+   * It carries no measurement, because the frame carries none: the RMNR IE has no Content field at
+   * all, so everything the exchange says is said by *who* transmitted, *where* (the slot the
+   * still-valid control message gave it) and *what it sent instead of* a timed response. `slot`,
+   * `block` and `round` are those three coordinates; there is nothing else to report.
+   */
+  | { type: 'UWB_RMNR'; node: string; peer: string; slot: number; block: number; round: number }
   /** Contention round (standard §10.32.2 schedule mode 0): an anchor that decoded the Poll drew
    * the response slot it will answer in — `slot` null when its retry budget ran out and it sits
    * this round out, and `attempt` counts from 1 (0 while sitting out). */

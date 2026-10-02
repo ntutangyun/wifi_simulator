@@ -90,6 +90,12 @@ export function fmtUwbRecord(r: UwbTLRecord): string {
         : `${r.node} contends: slot ${r.slot} (attempt ${r.attempt})`
     case 'UWB_CONTEND_COLLISION':
       return `${r.node} contention collision in slot ${r.slot}`
+    case 'UWB_RMNR':
+      // Both halves of what a zero-content IE says, in the order the initiator learns them: the
+      // responder is still there and still holds the control message, and the thing it missed is
+      // this round's initiation message (standard §10.34).
+      return `${r.node} slot ${r.slot}: ${r.peer} still holds the RCM but missed the initiation `
+        + `message of round ${r.round}, block ${r.block}`
     case 'UWB_ROUND_END':
       return `${r.node} UWB round ${r.round} of block ${r.block} ends`
     case 'UWB_INTERFERED':
