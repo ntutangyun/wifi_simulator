@@ -469,6 +469,49 @@ describe('two tags under one validity window', () => {
     expect(one.slice(1).every((x) => x.kind === 'uwbInit')).toBe(true)
   })
 
+  it('never answers a tag whose control message it has not decoded', () => {
+    /**
+     * The defect this test was written for, found by Task 6 while probing and measured before it
+     * was fixed: `rcmBlock` was **one block index for the device**, with no record of whose control
+     * message it held. So an anchor that decoded tag 1's control message answered **tag 2's** round
+     * with an RMNR frame — a frame whose entire meaning is "I did receive your control message" —
+     * having never decoded a single frame from tag 2.
+     *
+     * Fifteen such frames over five blocks, from three anchors, before the fix. The slot table is
+     * the RDM IE's and the RDM IE belongs to one tag's Poll, so the validity it buys belongs to
+     * that tag as well: the state is keyed by initiator.
+     *
+     * The scene puts the second tag 14 dB down so no anchor ever decodes it, which makes every
+     * RMNR frame addressed to it a provable falsehood rather than a judgement call.
+     */
+    const QUIET = UWB_TX_POWER_DBM - 14
+    const rs = run(scenario([
+      uwbNode('anc-1', 0, 0, 'anchor'),
+      uwbNode('anc-2', 10, 0, 'anchor'),
+      uwbNode('anc-3', 0, 8, 'anchor'),
+      uwbNode('tag-1', 5, 4, 'tag'),
+      uwbNode('tag-2', 5, 6, 'tag', QUIET),
+    ], { method: 'ds', replyTime: 'embedded', nlos: false, rcmValidityRounds: 4, rmnr: true }))
+
+    // Nobody decodes the quiet tag — the premise, asserted rather than assumed.
+    const decodedFrom = (src: string): Set<string> => new Set(
+      (rs as { type: string; node?: string; frame?: { src: string } }[])
+        .filter((r) => r.type === 'RX_OK' && r.frame?.src === src)
+        .map((r) => r.node!),
+    )
+    expect(decodedFrom('tag-2').size).toBe(0)
+    expect(decodedFrom('tag-1').size).toBeGreaterThan(0)
+
+    // So no RMNR frame may claim otherwise. `node` is the initiator that received it, `peer` the
+    // responder that sent it.
+    const heardByTag2 = decodedFrom('tag-2')
+    const lying = of(rs, 'UWB_RMNR').filter((r) => r.node === 'tag-2' && !heardByTag2.has(r.peer))
+    expect(lying).toEqual([])
+
+    // …and the tag that *is* heard still ranges, so the fix did not buy silence by breaking it.
+    expect(of(rs, 'UWB_RANGE').filter((r) => r.node === 'tag-1').length).toBeGreaterThan(0)
+  })
+
   it('measures the same distances with two tags as with one control message each round', () => {
     const key = (rs: TLRecord[]): string[] =>
       of(rs, 'UWB_RANGE').map((r) => `${r.node}|${r.peer}|${r.block}|${r.distM.toFixed(9)}|${r.fom}`)

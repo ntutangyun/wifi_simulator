@@ -348,8 +348,16 @@ export class UwbDevice implements UwbRadio {
    * It is **a block index, not a round index** (design §2.2): within a block the `round` parameter
    * names which tag the round belongs to and never moves for that tag, so a given tag's successive
    * ranging rounds are successive blocks.
+   *
+   * And it is **one block index per initiator**, not one for the device. A single number was the
+   * first shape, and it made the feature lie: an anchor that had decoded tag 1's control message
+   * answered **tag 2's** round with an RMNR frame, whose whole meaning is "I did receive your
+   * control message" — from a tag it had never decoded a single frame of. Measured before fixing:
+   * two tags, the second 14 dB down, `rcmValidityRounds` 4 — fifteen RMNR frames over five blocks
+   * from three anchors that never decoded anything from tag 2, ever. The slot table is the RDM
+   * IE's and the RDM IE belongs to one tag's Poll, so the validity it buys belongs to that tag too.
    */
-  private rcmBlock: number | null = null
+  private rcmBlock = new Map<string, number>()
   /**
    * P802.15.4ab, tag: the ranges of the block in progress, one per anchor. An MMS round holds
    * one anchor, so a fix needs the ranges of several rounds; they are kept here, across those
@@ -768,7 +776,9 @@ export class UwbDevice implements UwbRadio {
         // own comment says why that is a deliberate exception and what bounds it. Recorded whether
         // or not `rmnr` is on: it is a fact about the device, nothing but `owesRmnr` reads it, and a
         // session with the feature off therefore behaves and draws exactly as it did before.
-        this.rcmBlock = r.block
+        // Keyed by the initiator whose control message this is: validity is a fact about a
+        // tag-and-responder pair, never about the responder alone.
+        this.rcmBlock.set(r.tagId, r.block)
         this.onInitiation(r, frame, counter, trueRmarkerNs, extraNs)
         break
       case 'uwbInit':
@@ -878,9 +888,9 @@ export class UwbDevice implements UwbRadio {
    * does not know which slot is its own (the slot table is the RDM IE's), so it has no slot to
    * speak in, and speaking anyway would be speaking in somebody else's.
    */
-  private holdsValidRcm(block: number, plan: RoundPlan): boolean {
-    const since = this.rcmBlock
-    if (since === null) return false
+  private holdsValidRcm(block: number, plan: RoundPlan, tagId: string): boolean {
+    const since = this.rcmBlock.get(tagId)
+    if (since === undefined) return false
     const age = block - since
     return age >= 0 && age < plan.rcmValidityRounds
   }
@@ -926,7 +936,7 @@ export class UwbDevice implements UwbRadio {
   private owesRmnr(r: RoundState, kind: UwbFrameKind): boolean {
     return kind === 'uwbResp' && this.cfg.rmnr && this.cfg.role === 'anchor'
       && r.plan.mode === 'twr' && r.plan.schedule === 'time'
-      && r.rxPollCounter === null && this.holdsValidRcm(r.block, r.plan)
+      && r.rxPollCounter === null && this.holdsValidRcm(r.block, r.plan, r.tagId)
   }
 
   /**
