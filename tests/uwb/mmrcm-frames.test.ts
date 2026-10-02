@@ -182,3 +182,37 @@ describe('leaves every existing frame byte-identical', () => {
     expect(fieldSum(f)).toBe(f.bytes)
   })
 })
+
+describe('the receipt bitmap must cover exactly the window it reports on', () => {
+  /**
+   * `makeMmrcm` takes the window length *and* the arrays that fill it, so the bitmap's width has
+   * two sources: the parameter prices the frame, the arrays carry the content. The doc comment
+   * named that invariant and left it to the caller — and a frame priced for one octet of bitmap
+   * while carrying nine bits of content is wrong in the one way no test of `uwbMmrcmBytes` can
+   * see, because the size function is given the right number and returns it faithfully.
+   *
+   * So it throws, and names which initiator's entry disagreed. This branch has paid for the same
+   * shape three times over: a round plan's `anchors` meaning two quantities by mode, a validity
+   * state not keyed by initiator, and a slot count copied into the schema.
+   */
+  it('refuses a bitmap shorter than the window', () => {
+    expect(() => makeMmrcm('b1', 'ctrl', 0, 0, 0, 4, [{ initiator: 'a1', received: allReceived(2) }]))
+      .toThrow(/a1.*2 long in a 4-round window/)
+  })
+
+  it('refuses a bitmap longer than the window', () => {
+    expect(() => makeMmrcm('b1', 'ctrl', 0, 0, 0, 4, [{ initiator: 'a1', received: allReceived(9) }]))
+      .toThrow(/9 long in a 4-round window/)
+  })
+
+  it('names the offending initiator when only one of several disagrees', () => {
+    expect(() => makeMmrcm('b1', 'ctrl', 0, 0, 0, 4, [
+      { initiator: 'a1', received: allReceived(4) },
+      { initiator: 'a2', received: allReceived(3) },
+    ])).toThrow(/a2/)
+  })
+
+  it('still accepts an empty list, which belongs to a window of a known length', () => {
+    expect(() => makeMmrcm('b1', 'ctrl', 0, 0, 0, 4, [])).not.toThrow()
+  })
+})

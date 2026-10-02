@@ -385,9 +385,15 @@ export function makeRmnr(anchor: string, tag: string, block: number, round: numb
  * RMMRC IE listing, per initiator, which of that initiator's window-openers this responder
  * actually received. `windowRounds` is the current RCM validity window's own length (R) — the
  * same number `blockCarriesRcm` uses — and sizes every entry's bitmap alike
- * (`uwbMmrcmBytes`/`rmmrcEntryBytes`); the caller is trusted to hand every entry a `received`
- * array of that same length, since a bitmap narrower or wider than the window it describes would
- * be a different window it never agreed to.
+ * (`uwbMmrcmBytes`/`rmmrcEntryBytes`), so **every entry's `received` array has to be exactly that
+ * long** — a bitmap narrower or wider than the window it describes is a different window the two
+ * ends never agreed to.
+ *
+ * That invariant is **checked**, not trusted. It was a sentence in this comment first, and a
+ * sentence is what this branch has repeatedly discovered it cannot afford: the width would
+ * otherwise have two sources — this parameter, which prices the frame, and the arrays, which fill
+ * it — and nothing would notice them disagreeing. A frame priced for one octet of bitmap while
+ * carrying nine bits of content is wrong in the one way no test of the size function can see.
  *
  * `method` is the shape `UwbInfo` requires of every ranging frame, filled the way `makeRmnr` and
  * `makeBlink` fill it: this frame answers a request, it does not range, so there is no TWR method
@@ -402,6 +408,14 @@ export function makeMmrcm(
   src: string, dst: string, block: number, round: number, slot: number,
   windowRounds: number, entries: UwbMmrcEntry[],
 ): FrameDesc {
+  for (const e of entries) {
+    if (e.received.length !== windowRounds) {
+      throw new Error(
+        `makeMmrcm: ${e.initiator}'s receipt bitmap is ${e.received.length} long in a `
+        + `${windowRounds}-round window — a bitmap must cover exactly the window it reports on`,
+      )
+    }
+  }
   return uwbFrame('uwbMmrcm', src, dst, uwbMmrcmBytes(entries.length, windowRounds), {
     sp: 1, method: 'ss', block, round, slot, ies: ['RMMRC'],
     mmrc: entries.map((e) => ({ initiator: e.initiator, received: [...e.received] })),
