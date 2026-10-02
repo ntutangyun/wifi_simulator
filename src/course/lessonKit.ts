@@ -322,6 +322,12 @@ export const firstUwbRmnr = txOf((r) => r.frame.kind === 'uwbRmnr')
  * address and a bitmap of that initiator's openers inside the current validity window. Its own
  * frame kind because it answers a request rather than measuring anything. */
 export const firstUwbMmrcm = txOf((r) => r.frame.kind === 'uwbMmrcm')
+/** SP3 grouped ranging (standard §10.32.8): one SP3 packet — SYNC + SFD + STS, no PHR and no PSDU,
+ * so `bytes: 0` and an empty `ies` — which is the physically shortest ranging frame the standard
+ * has and the only frame in this simulator that can carry neither a timestamp nor an identity. The
+ * first of a round is the INITIATOR's own (§10.32.8.2's ranging initiation, in slot 1), because the
+ * round's first frame has to be the control message and a marker cannot be one. */
+export const firstUwbSp3 = txOf((r) => r.frame.kind === 'uwbSp3')
 export const firstUwbRange = (r: TLRecord): boolean => r.type === 'UWB_RANGE'
 export const firstUwbRoundEnd = (r: TLRecord): boolean => r.type === 'UWB_ROUND_END'
 export const firstUwbPosition = (r: TLRecord): boolean => r.type === 'UWB_POSITION'

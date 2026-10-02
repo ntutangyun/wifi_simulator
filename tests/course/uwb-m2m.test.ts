@@ -131,6 +131,11 @@ describe('uwb-m2m · where it sits in the course', () => {
     // *this repo* holds the clause list. A limits entry asserting its own evidence is
     // missing has to be checked against where the evidence actually is.
     expect(text).toContain('带不了时间')
+    // …and it no longer says SP3 is unbuilt: the SP3 slice (2026-10-02, `@uwb-sp3`) made that
+    // false, and the true statement is narrower — SP3 exists, and the schema refuses it in THIS
+    // mode. A limits entry the engine contradicts is the defect this course has had most often.
+    expect(text).not.toContain('还没建')
+    expect(text).toContain('拒绝 sp3')
     expect(text).not.toContain('举证不足')
     expect(text).not.toContain('uwb-clause-list.txt')
     // 「不许写『本仿真器有简化』」, in both spellings.

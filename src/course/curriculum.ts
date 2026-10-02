@@ -137,6 +137,13 @@ export const MODULES: CourseModule[] = [
   // §10.32.9.1). No `basis` of its own for the same reason the two modules above have none: the
   // published revision is exactly what its tier declares.
   { tier: 5, title: '多消息收妥确认' },
+  // SP3 grouped ranging (standard §10.32.8) and its SRRR IE (§10.32.9.9). No `basis` of its own
+  // for the same reason the three modules above have none: the published revision is exactly what
+  // its tier declares, and a module that restates its tier is data that can only drift out of
+  // agreement with it (tests/course/basis.test.ts). Inserted here rather than appended so the
+  // panel still lists tier 5's modules in COURSE_ORDER's own order; every lesson of the modules
+  // below moved up by one index with it.
+  { tier: 5, title: 'SP3 分组测距' },
   { tier: 5, title: '单向测距' },
   { tier: 5, title: '角度' },
   // Sensing sits in Tier 2 and not in the draft tier on purpose. What the two lessons under it
@@ -190,6 +197,9 @@ export const COURSE_ORDER: string[] = [
   // UWB Tier 2 — M20 the one frame that tells a device who heard it, and the request bit that
   // costs nothing to ask with
   'uwb-receipt',
+  // UWB Tier 2 — M21 the shortest ranging frame the standard has, and the round it does not make
+  // the shortest: something has to announce the slot table, and an SP3 packet announces nothing
+  'uwb-sp3',
   // UWB Tier 2 — M14 other ranging modes
   'uwb-dl-tdoa', 'uwb-ul-tdoa', 'uwb-aoa',
   // UWB Tier 2 — M20 sensing: the things in the room that never answer
