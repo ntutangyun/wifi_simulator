@@ -18,7 +18,7 @@ import { UwbNetwork } from '../../src/uwb/network'
 import { roundPlan } from '../../src/uwb/session'
 import {
   C_M_PER_NS, UWB_BAND_MHZ, UWB_NLOS_NS, UWB_RMARKER_NS, UWB_RX_SENS_DBM,
-  UWB_SIR_MIN_DB, UWB_TX_POWER_DBM, uwbMaxAnchors,
+  UWB_MAX_PSDU_BYTES, UWB_SIR_MIN_DB, UWB_TX_POWER_DBM, srrrIeBytes, uwbMaxAnchors, uwbPollBytes,
 } from '../../src/uwb/phy'
 import { aoaSigmaDeg } from '../../src/uwb/aoa'
 import { rangeSigmaM } from '../../src/uwb/position'
@@ -252,6 +252,39 @@ describe('UwbNetwork — an anchor the tag cannot hear back', () => {
       [4, 'uwbResp'], [9, 'uwbReport'],
     ])
     expect(of(rs, 'UWB_POSITION')[0].anchors).toEqual(['anc-1', 'anc-2', 'anc-3'])
+  })
+})
+
+describe('UwbNetwork — the SP3 RCM cap, on both sides of the fence', () => {
+  /**
+   * `UwbNetwork`'s cap comment says the schema checks the identical thing and the two must not
+   * drift apart. The branch review found they had: `uwbMaxAnchors` prices the Poll, and an SP3 RCM
+   * is that Poll plus one SRRR IE per responder, so it breaches the 127-octet PSDU at a lower
+   * anchor count — and only the schema knew. Nothing user-facing could reach it, because
+   * `Simulation` parses the scenario first; this drives `UwbNetwork` directly, which is the one
+   * door that was open.
+   *
+   * The boundary is asked of the engine rather than written down: the first anchor count whose
+   * RCM does not fit is computed here the same way both checks compute it.
+   */
+  it('refuses an SP3 RCM that outgrows the PSDU, the way the schema already does', () => {
+    let over = 1
+    while (uwbPollBytes(over, 'time') + srrrIeBytes(over) <= UWB_MAX_PSDU_BYTES) over++
+    const nodes = [
+      uwbNode('tag-1', { x: 1, y: 1, z: 1 }, 'tag'),
+      ...Array.from({ length: over }, (_, i) =>
+        uwbNode(`anc-${i + 1}`, { x: i * 0.5, y: 0, z: 1 }, 'anchor')),
+    ]
+    const cfg: UwbSessionCfg = {
+      ...DEFAULT_UWB_SESSION, method: 'ss', replyTime: 'deferred', schedule: 'time',
+      sp3: true, blockRstu: 2_400_000,
+    }
+    expect(() => new UwbNetwork(new EventQueue(), () => 0, nodes, [], cfg, new Rng(1), makeEmitter(() => {})))
+      .toThrow(/SP3 RCM/)
+    // And one anchor fewer is accepted, so the refusal is a boundary rather than a blanket.
+    const fits = nodes.slice(0, over)
+    expect(() => new UwbNetwork(new EventQueue(), () => 0, fits, [], cfg, new Rng(1), makeEmitter(() => {})))
+      .not.toThrow(/SP3 RCM/)
   })
 })
 

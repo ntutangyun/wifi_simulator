@@ -33,7 +33,10 @@ import { UwbChannel } from './channel'
 import { gaussian, UwbClock } from './clock'
 import { UwbDevice, type UwbGeometry } from './device'
 import { nbChannelForBlock } from './nb'
-import { uwbM2mSlotFitNs, uwbMaxAnchors, uwbMaxParticipants, uwbNbSlotFitNs, uwbSlotFitNs } from './phy'
+import {
+  srrrIeBytes, UWB_MAX_PSDU_BYTES, uwbM2mSlotFitNs, uwbMaxAnchors, uwbMaxParticipants,
+  uwbNbSlotFitNs, uwbPollBytes, uwbSlotFitNs,
+} from './phy'
 import { UwbSensor } from './sensing'
 import {
   ancillarySlots, blockSlotAction, blockSlots, blockSlotStartNs, m2mParticipants, mmrcmResponders,
@@ -201,6 +204,22 @@ export class UwbNetwork {
       const anchorCap = uwbMaxAnchors(this.plan.mode, this.plan.method, this.plan.replyTime, this.plan.schedule)
       if (anchors.length > anchorCap) {
         throw new Error(`UwbNetwork: ${anchors.length} anchors exceed the ${anchorCap} this round's longest frame allows`)
+      }
+      // The SP3 half of the same cap, which the comment above claims is checked on both sides and
+      // for a while was not. `uwbMaxAnchors` prices the Poll; an SP3 RCM is that Poll plus one
+      // SRRR IE per responder (§10.32.9.9), so it outgrows the 127-octet PSDU at a *lower* anchor
+      // count, and the schema's own check for it had no twin here. Not reachable through
+      // `Simulation`, which parses the scenario first — but "the two must not drift apart" is
+      // either true or it is not, and a comment that says it while it is false is worse than no
+      // comment. Same arithmetic as `scenario.ts`, read in octets on both sides.
+      if (this.plan.sp3 && this.plan.mode === 'twr' && this.plan.schedule === 'time') {
+        const rcmBytes = uwbPollBytes(anchors.length, this.plan.schedule) + srrrIeBytes(anchors.length)
+        if (rcmBytes > UWB_MAX_PSDU_BYTES) {
+          throw new Error(
+            `UwbNetwork: an SP3 RCM for ${anchors.length} anchors is ${rcmBytes} octets, past the `
+            + `${UWB_MAX_PSDU_BYTES}-octet PSDU cap`,
+          )
+        }
       }
     }
 
