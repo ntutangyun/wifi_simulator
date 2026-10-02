@@ -27,6 +27,12 @@ const US = 1_000
 const ROUNDS = 30
 const RUN_NS = 600 * MS
 
+// `lessonShapeSuite` (tests/course/kit.ts) is not used here: its jump check runs
+// only the BASE scenario, and two of this lesson's five jumps — the sit-out and
+// the scheduled trigger — exist only in a variant (ACWE 3 and two-phase), by
+// design, unchanged across the migration. The `lesson shape` describe below
+// covers exactly that, per variant, so nothing here is actually ungraded.
+
 const AP = 'ap#2g'
 const TAGS = [1, 2, 3, 4, 5, 6].map((i) => `tag-${i}#2g`)
 
