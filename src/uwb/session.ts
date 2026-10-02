@@ -119,6 +119,25 @@ export interface RoundPlan {
    * `model/scenario.ts`. Meaningful only when `sp3` is true; copied rather than referenced, the
    * same reason `mms` below is — a plan outlives the scenario object it was built from. */
   srrr: UwbSrrrCfg
+  /**
+   * Ranging ancillary information exchange, Request = 0 half (standard §10.35.1; RAICT IE
+   * §10.35.2.1; design doc `docs/superpowers/specs/2026-10-02-ancillary-design.md`). Read off the
+   * session's own `cfg` here, for the same reason `replyTime`/`rcmValidityRounds`/`mmrcr`/`sp3`
+   * are: whichever device later decides what to put in a round's slots reads one settled value
+   * rather than re-deriving the same conclusion from its own copy of `cfg.ancillary`.
+   *
+   * The window this exchange is bounded to is `rcmValidityRounds` above, not a field of its own —
+   * see that field's own doc comment, and `UwbSessionCfg.ancillary`'s.
+   *
+   * Carried straight through by `roundPlan`, which by itself changes nothing here: no device or
+   * network wiring reads this field yet (that is a later task's own decision, same as `sp3`'s own
+   * doc comment says of itself above).
+   */
+  ancillary: boolean
+  /** How many consecutive slots one ancillary message is segmented across; see
+   * `UwbSessionCfg.ancillaryFrames`'s own doc comment for the bound the scenario schema already
+   * checks this against (the round's own slot count). Meaningful only when `ancillary` is true. */
+  ancillaryFrames: number
   /** Set exactly when `mode` is 'mms': everything an MMS pair round is laid out from, resolved
    * once here so that no device re-derives it — the two ends of a round must agree on the slot
    * every fragment sits in, and a second copy of `mmsLayout` at the device would be a second
@@ -205,6 +224,7 @@ export function roundPlan(cfg: UwbSessionCfg, anchors: number): RoundPlan {
     replyTime: cfg.replyTime, fixedReplyNs: rstuNs(cfg.fixedReplyRstu),
     rcmValidityRounds: cfg.rcmValidityRounds, mmrcr: cfg.mmrcr,
     sp3: cfg.sp3, srrr: { ...cfg.srrr },
+    ancillary: cfg.ancillary, ancillaryFrames: cfg.ancillaryFrames,
     // Copied, not referenced: a plan outlives the scenario object it was built from, and a
     // device reading the train's shape must not be able to see it edited underneath.
     ...(layout

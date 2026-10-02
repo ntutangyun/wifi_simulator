@@ -416,6 +416,35 @@ export interface UwbSessionCfg {
   /** The SRRR IE's own RAOA/RRTT request bits (standard §10.32.9.9); see `UwbSrrrCfg`. Only read
    * when `sp3` is on. */
   srrr: UwbSrrrCfg
+  /**
+   * Ranging ancillary information exchange, Request = 0 half (standard §10.35.1; RAICT IE
+   * §10.35.2.1; design doc `docs/superpowers/specs/2026-10-02-ancillary-design.md`): a device of
+   * the round sends a message that does not fit the frames this engine already builds, segmented
+   * across `ancillaryFrames` consecutive slots of the round and reported by the RAICT IE the
+   * segments carry. Default false, so an existing scenario reads back unchanged.
+   *
+   * The window this exchange is bounded to — "the current round and the rounds this RCM governs"
+   * (§10.35.1) — is `rcmValidityRounds` above, read as-is rather than given a field of its own:
+   * the ARC IE's own Ranging Validity Rounds field (§10.32.9.1) is what the standard itself names
+   * as the boundary, and it is the same field RMNR and MMRCM already reuse for their own windows
+   * (see `rcmValidityRounds`'s own doc comment). A second field naming the same boundary would be
+   * a second name for it, exactly the mistake this branch's `rmnr` rules were once written around.
+   */
+  ancillary: boolean
+  /**
+   * How many consecutive ranging slots one ancillary message is segmented across (design §4.2):
+   * the RAICT IE's own Frames Remaining field, where present, counts down from
+   * `ancillaryFrames − 1` to 0 across them. model — a real device would size this from whatever
+   * upper-layer payload it actually has to carry, and this simulator has no MAC primitive and no
+   * upper layer at all to measure one from (the same reason `rcmValidityRounds`'s own doc comment
+   * gives for why its count is a scenario setting rather than something derived). Default 1 — one
+   * frame, not segmented — so an existing scenario reads back unchanged.
+   *
+   * The schema's `superRefine` caps this at the round's own slot count (`uwbSlotsPerTag`), never a
+   * literal: a message cannot be segmented across more slots than the round it rides in actually
+   * has.
+   */
+  ancillaryFrames: number
   /** `mode: 'mms'` only: the fragment train and the narrowband control radio of P802.15.4ab.
    * It is carried in every session, at its default, so that switching the mode needs no second
    * decision — and so that a scenario saved before this slice reads back unchanged. */
@@ -468,6 +497,7 @@ export const DEFAULT_UWB_SESSION: UwbSessionCfg = {
   rcmValidityRounds: 1, rmnr: false, mmrcr: false,
   mode: 'twr', tdoaClockCorrection: true, syncErrorNs: 0, aoa: false,
   sp3: false, srrr: { ...DEFAULT_UWB_SRRR },
+  ancillary: false, ancillaryFrames: 1,
   mms: { ...DEFAULT_UWB_MMS, nbChannels: [...DEFAULT_UWB_MMS.nbChannels] },
 }
 
@@ -997,6 +1027,15 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
         raoa: z.boolean().default(false),
         rrtt: z.boolean().default(false),
       }).default(() => ({ ...DEFAULT_UWB_SRRR })),
+      // Both default: an existing scenario carries neither key and must read back byte for byte,
+      // same discipline as every other switch in this block. standard §10.35.1 (ancillary) /
+      // §10.35.2.1 (ancillaryFrames' own RAICT IE, Frames Remaining) / model (ancillaryFrames
+      // itself: a scenario setting, not something derived — see `UwbSessionCfg`'s own doc
+      // comment). `ancillaryFrames`'s upper bound depends on the round's own slot count, which
+      // this object alone cannot compute, so it is checked in the scenario's own `superRefine`
+      // rather than with a literal `.max()` here.
+      ancillary: z.boolean().default(false),
+      ancillaryFrames: z.number().int().min(1).default(1),
       // A session saved before P802.15.4ab existed here carries no MMS settings at all, and
       // reads back with the draft's defaults — so every such scenario replays unchanged.
       mms: UwbMmsSchema.default(() => ({ ...DEFAULT_UWB_MMS, nbChannels: [...DEFAULT_UWB_MMS.nbChannels] })),
@@ -1490,6 +1529,76 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
               + '锚点从没算过这个角，报告相位里没有它可以报：请把 aoa 打开，或者把 srrr.raoa 关掉',
           })
         }
+        // Ranging ancillary information exchange, Request = 0 (standard §10.35.1; RAICT IE
+        // §10.35.2.1; design doc 2026-10-02-ancillary-design.md). `ancillary` defaults false, so
+        // an existing scenario reads back unchanged; `ancillaryFrames` is carried in every
+        // session, at its default, for the same reason `srrr`/`mms` are.
+        const ancillary = sc.uwb.ancillary
+        const ancillaryFrames = sc.uwb.ancillaryFrames
+        // DL-TDoA (model): the round's whole air interaction is anchor-to-anchor — anchor 0 sends
+        // the Poll, the other anchors answer it, anchor 0 sends the Final — and the tag never
+        // transmits and is never the addressee of any of those three frames either; it only
+        // overhears them to work out its own time differences. An ancillary exchange needs one
+        // end to send the message and the other to receive it; DL-TDoA's tag can be neither one,
+        // and there is no anchor-to-tag slot in the round for the message to travel in.
+        if (ancillary && mode === 'dl-tdoa') {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['uwb'],
+            message: 'DL-TDoA的空口交互只在锚点之间：anchor 0发Poll，其余锚点发Response，anchor 0发'
+              + 'Final，标签全程只听、不发，也从来不是这几帧里任何一帧指明的收件人——辅助信息交换要'
+              + '有发、收两端，这里没有一个锚点对标签说话的时隙能让这条消息走，请把 ancillary 关掉',
+          })
+        }
+        // UL-TDoA / MMS / m2m (same shortfall, stated once per mode, same fact their own
+        // rcmValidityRounds/rmnr rules above already establish): none of the three ever sends the
+        // ARC IE at all, so none of them has the window `ancillary` reuses — §10.35.1 bounds the
+        // exchange to the current round plus the rounds the ARC IE's own Ranging Validity Rounds
+        // field still governs, and a mode with no ARC IE has no such field to read.
+        if (ancillary && mode === 'ul-tdoa') {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['uwb'],
+            message: 'UL-TDoA里标签只发一次闪烁帧，没有ARC IE：辅助信息交换要靠ARC IE的Ranging '
+              + 'Validity Rounds字段圈出它落在哪几轮里，这里没有这个字段可读，请把 ancillary 关掉',
+          })
+        }
+        if (ancillary && mode === 'mms') {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['uwb'],
+            message: 'MMS的控制面走窄带的nbPoll/nbResp/nbReport，没有ARC IE；测距信号本身是一串'
+              + '片段，也没有能带RAICT IE的UWB帧：辅助信息交换两头都没有地方可落，请把 ancillary 关掉',
+          })
+        }
+        if (ancillary && mode === 'm2m') {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['uwb'],
+            message: '多对多测距没有独立的控制消息，也没有ARC IE：辅助信息交换沿用的正是ARC IE的'
+              + 'Ranging Validity Rounds字段圈出的那个窗口，这里没有这个字段可读，请把 ancillary 关掉',
+          })
+        }
+        // SP3 (standard §10.32.8; design docs/superpowers/specs/2026-10-02-sp3-design.md), scoped
+        // to 'twr' for the same reason the four sp3 rules above are: sp3 is already refused
+        // outright for every other mode, so a non-twr scenario gets only the one "wrong mode"
+        // complaint, not this one as well. SP3's own report phase (§10.32.8.2, design §4.1) is a
+        // batch of frames the round already appends after its ranging phase, sized purely from the
+        // SRRR IE's two request bits. Ancillary's own frames are a second, independently-sized
+        // batch (`ancillaryFrames`, a scenario setting unrelated to SRRR) appended for an unrelated
+        // reason, and this task does not say which batch goes first or how the two share whatever
+        // slots the round has left — so the two are refused together rather than left to silently
+        // pick an order nobody asked for.
+        if (ancillary && sp3 && mode === 'twr') {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['uwb'],
+            message: 'SP3的报告相位（标准§10.32.8.2，design doc §4.1）是这一轮已经追加在测距帧之后'
+              + '的一段，追加几帧由SRRR的两个请求位决定。辅助信息消息另外要追加的帧数'
+              + '（ancillaryFrames）是场景单独设置的一个数，这一刀没有规定两段追加该怎样排在一起：'
+              + '请把 sp3 关掉，或者把 ancillary 关掉',
+          })
+        }
         // The P802.15.4ab rules. They read only `sc.uwb.mms`, and only in MMS mode: a two-way
         // or one-way session carries the same settings untouched and must not be judged on them.
         if (mode === 'mms') {
@@ -1668,6 +1777,23 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
             mmsSlotsPerMs(sc.uwb.slotRstu), sc.uwb.replyTime,
             sc.uwb.sp3 && mode === 'twr' ? { rrtt: sc.uwb.srrr.rrtt } : undefined,
           )
+          // Ranging ancillary information's own upper bound (task-2-brief.md's own requirement):
+          // the message is segmented across consecutive slots *within* this round (design §4.2),
+          // so `ancillaryFrames` cannot ask for more of them than the round actually has — read
+          // off `slots` just computed above, never a literal, and the same reading both schedules
+          // give it (`slots` already reads `sc.uwb.schedule`, so a contention round's own, smaller
+          // or larger, slot count is what bounds it there, not the time-scheduled round's).
+          // Scoped to 'twr', the only mode `ancillary` is not already refused in outright (the
+          // four mode rules above) — every other mode's own refusal already tells the reader to
+          // turn `ancillary` off, so this is the one further issue a 'twr' scenario can still get.
+          if (ancillary && mode === 'twr' && ancillaryFrames > slots) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ['uwb'],
+              message: `一轮测距只有 ${slots} 个时隙，装不下 ${ancillaryFrames} 帧的辅助信息消息——`
+                + `它要连续占住本轮的 ${ancillaryFrames} 个时隙：请把 ancillaryFrames 调到 ${slots} 以内`,
+            })
+          }
           // mmrcr's own slot (design §3.3, `uwb/session.ts#blockCarriesMmrcm`/`mmrcmInitiators`):
           // one, the tag this round belongs to, on the block that closes its validity window. Every
           // block shares one fixed length (`blockRstu`), so the capacity check below has to budget
