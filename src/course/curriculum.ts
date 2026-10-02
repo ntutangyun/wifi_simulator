@@ -133,6 +133,10 @@ export const MODULES: CourseModule[] = [
   // §10.34). No `basis` of its own for the same reason the module above has none: the published
   // revision is exactly what its tier declares.
   { tier: 5, title: '控制消息的有效期' },
+  // Multiple message receipt confirmation (standard §10.36, and the MMRCR request bit of
+  // §10.32.9.1). No `basis` of its own for the same reason the two modules above have none: the
+  // published revision is exactly what its tier declares.
+  { tier: 5, title: '多消息收妥确认' },
   { tier: 5, title: '单向测距' },
   { tier: 5, title: '角度' },
   // Sensing sits in Tier 2 and not in the draft tier on purpose. What the two lessons under it
@@ -183,6 +187,9 @@ export const COURSE_ORDER: string[] = [
   // UWB Tier 2 — M19 one control message for several rounds, and the frame that takes the place
   // of silence when this round's initiation message never arrived
   'uwb-rcm-validity',
+  // UWB Tier 2 — M20 the one frame that tells a device who heard it, and the request bit that
+  // costs nothing to ask with
+  'uwb-receipt',
   // UWB Tier 2 — M14 other ranging modes
   'uwb-dl-tdoa', 'uwb-ul-tdoa', 'uwb-aoa',
   // UWB Tier 2 — M20 sensing: the things in the room that never answer

@@ -49,6 +49,7 @@ import { uwbCoexist } from './uwb/uwb-coexist'
 import { uwbContention } from './uwb/uwb-contention'
 import { uwbM2m } from './uwb/uwb-m2m'
 import { uwbRcmValidity } from './uwb/uwb-rcm-validity'
+import { uwbReceipt } from './uwb/uwb-receipt'
 import { uwbDlTdoa } from './uwb/uwb-dl-tdoa'
 import { uwbUlTdoa } from './uwb/uwb-ul-tdoa'
 import { uwbAoa } from './uwb/uwb-aoa'
@@ -135,6 +136,7 @@ const AUTHORED: Lesson[] = [
   uwbContention,
   uwbM2m,
   uwbRcmValidity,
+  uwbReceipt,
   uwbDlTdoa,
   uwbUlTdoa,
   uwbAoa,

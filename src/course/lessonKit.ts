@@ -317,6 +317,11 @@ export const firstUwbInit = txOf((r) => r.frame.kind === 'uwbInit')
  * control message sends in its own slot when this round's initiation message never arrived —
  * an MHR, a two-octet IE header with no Content field after it, and an FCS. */
 export const firstUwbRmnr = txOf((r) => r.frame.kind === 'uwbRmnr')
+/** Multiple-message receipt confirmation (standard §10.36): the one frame a responder answers a
+ * receipt request with — an RMMRC IE holding one entry per initiator it may confirm to, each an
+ * address and a bitmap of that initiator's openers inside the current validity window. Its own
+ * frame kind because it answers a request rather than measuring anything. */
+export const firstUwbMmrcm = txOf((r) => r.frame.kind === 'uwbMmrcm')
 export const firstUwbRange = (r: TLRecord): boolean => r.type === 'UWB_RANGE'
 export const firstUwbRoundEnd = (r: TLRecord): boolean => r.type === 'UWB_ROUND_END'
 export const firstUwbPosition = (r: TLRecord): boolean => r.type === 'UWB_POSITION'

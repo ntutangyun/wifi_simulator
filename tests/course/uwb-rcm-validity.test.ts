@@ -84,13 +84,19 @@ describe('uwb-rcm-validity · where it sits in the course', () => {
     expect(text).toContain('MCPS') // no primitive: both settings are scenario configuration
     expect(text).toContain('ARC_IE_BYTES') // the other control bits are sized, not laid out
     expect(text).toContain('slotAction') // and the slot table is the session's, not a parsed RDM IE
-    // §10.35 and §10.36 are a later slice, and the reason is slice size, not lack of evidence:
-    // the mechanisms are named, which is what says they were read.
+    // §10.35 is a later slice, and the reason is slice size, not lack of evidence: the
+    // mechanism is named, which is what says it was read. §10.36 of the same clause family IS
+    // built now (`uwb-receipt`), so this limit says so rather than leaving a false claim
+    // standing — the slice that changes a statement updates it.
     expect(text).toContain('§10.35')
     expect(text).toContain('§10.36')
     expect(text).toContain('RAICT')
     expect(text).toContain('RMMRC')
     expect(text).toContain('举证不足')
+    expect(text).toContain('排程能不能被请求改变')
+    // the one phrasing that is now false: this lesson must not claim §10.36 is unbuilt
+    expect(text).not.toContain('§10.36 的多消息收妥确认都还没建')
+    expect(text).not.toContain('§10.36 的多消息收妥确认还没建')
     // the validity window counts blocks in this engine, and the limit says whose dimension that is
     expect(text).toContain('blockCarriesRcm')
     // the banned sentence, in both spellings

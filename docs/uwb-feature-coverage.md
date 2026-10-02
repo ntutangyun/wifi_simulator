@@ -56,9 +56,9 @@ UWB、ranging、HRP、LRP、STS 的条款都在内。工作从那份清单出发
 
 | 本仿真器 | 行数 |
 | --- | --- |
-| 已建模 | 26 |
+| 已建模 | 27 |
 | 部分建模 | 37 |
-| 未建模 | 45 |
+| 未建模 | 44 |
 
 这三个数字被测试钉住，所以加一行必须同时改这里——这正是要的：一张说不出自己有多大的表，
 读者无从判断某一处空白是刻意的还是漏的。
@@ -156,7 +156,7 @@ UWB、ranging、HRP、LRP、STS 的条款都在内。工作从那份清单出发
 
 | 特性 | 标准状态 | 本仿真器 | 位置与证据 |
 | --- | --- | --- | --- |
-| ARC IE（Advanced Ranging Control IE）§10.32.9.1 | 已发布 | 部分建模 | 每条 Poll 都挂它，长度 `uwb/phy.ts#ARC_IE_BYTES`（头 + 控制 2 + 块 2 + 轮 2 + 时隙 2）。块/轮/时隙三个号确实在帧里（`uwb/frames.ts#UwbInfo`）。**控制字（Content Control，bit 0–15）现在建了其中一个字段**：RCM Validity Rounds（bit 9–14，六位）——`scenario.ts` 的 `rcmValidityRounds`、`uwb/session.ts#blockCarriesRcm`，一条控制消息管几个块，其余块只发 14 字节的启动消息。另外两处只是名字对上了号而不是建了：Multi-node Mode 的取值 2 就是 `mode: 'm2m'` 建的那个多对多，Ranging Round Usage 的取值 3 选的是 §10.35。**MMRCR（bit 15）与其余控制位仍未建。** `@uwb-frame`、`@uwb-rcm-validity` |
+| ARC IE（Advanced Ranging Control IE）§10.32.9.1 | 已发布 | 部分建模 | 每条 Poll 都挂它，长度 `uwb/phy.ts#ARC_IE_BYTES`（头 + 控制 2 + 块 2 + 轮 2 + 时隙 2）。块/轮/时隙三个号确实在帧里（`uwb/frames.ts#UwbInfo`）。**控制字（Content Control，bit 0–15）现在建了其中一个字段**：RCM Validity Rounds（bit 9–14，六位）——`scenario.ts` 的 `rcmValidityRounds`、`uwb/session.ts#blockCarriesRcm`，一条控制消息管几个块，其余块只发 14 字节的启动消息。另外两处只是名字对上了号而不是建了：Multi-node Mode 的取值 2 就是 `mode: 'm2m'` 建的那个多对多，Ranging Round Usage 的取值 3 选的是 §10.35。**MMRCR（bit 15）现在也建了**——`scenario.ts` 的 `mmrcr`，一次收妥确认的请求，见 §10.36 那一行；**控制字里其余的位仍未建。** `@uwb-frame`、`@uwb-rcm-validity`、`@uwb-receipt` |
 | RIU IE（Ranging Interval Update IE）§10.32.9.2 | 已发布 | 未建模 | **范围决定。** 会话的块长在整场仿真里是常数，没有任何东西能在空口上改它。 |
 | RR IE（Ranging Round IE）§10.32.9.3 | 已发布 | 未建模 | **范围决定。** 轮次的归属由 `uwb/session.ts#roundPlan` 一次算定，不在空口上分配。 |
 | RBU IE（Ranging Block Update IE）§10.32.9.4 | 已发布 | 未建模 | **范围决定。** 同 RIU。 |
@@ -179,7 +179,7 @@ UWB、ranging、HRP、LRP、STS 的条款都在内。工作从那份清单出发
 | --- | --- | --- | --- |
 | 测距消息未收到交互 §10.34，及 RMNR IE（Ranging Message Non Receipt IE）§10.34.2.1 | 已发布 | 已建模 | 响应方持有仍然有效的控制消息、却没收到本轮启动消息时，不再在自己的时隙里沉默，而是发一帧 RMNR：`uwb/frames.ts#makeRmnr`（13 字节 = MHR 9 + 一个 2 字节的单元头 + FCS 2，那个信息单元**没有内容字段**）、独立的 `'uwbRmnr'` 帧类型、`uwb/device.ts` 的 `owesRmnr`、`UWB_RMNR` 记录、以及 `view.ts` 里与 `timeouts` 配对的 `rmnr` 计数。发起方由此能把「这个锚点没听到」与「听到了但回答丢了」分开：墙后一个锚点的场景里，七条无从区分的 `UWB_TIMEOUT` 变成四条超时加三条点了名的理由。**它必须和 RCM 有效轮次一起建**，理由见 `@uwb-rcm-validity`：每轮一条控制消息时，丢了那一帧的响应方连自己该在哪个时隙发送都不知道。`@uwb-rcm-validity` |
 | 测距辅助信息 §10.35，及 RAICT IE（Ranging Ancillary Information Message Counter and Type IE）§10.35.2.1 | 已发布 | 未建模 | **未偿的债，排在下一刀，理由是切片大小不是举证不足。** 机理已读通：RAICT IE 的内容字段是 Request 位、Ranging Or Ancillary Message Number Present 位、以及 0/1 字节的消息序号与 0/1 字节的 Frames Remaining；Request 为 1 时它是**向控制器请求下一次交互排几个时隙**，而那将是本引擎第一处由设备发起的排程请求（§10.29.9 那一行说的「没有一个原语」目前仍然成立）。引擎的帧里现在除了时间与调度什么也不带。 |
-| 多消息接收确认 §10.36，及 RMMRC IE（Ranging Multiple Message Receipt Confirmation IE）§10.36.2.1 | 已发布 | 未建模 | **未偿的债，排在下一刀，理由同上。** 机理已读通：控制器在 RCM 的 ARC IE 里置 MMRCR 位（bit 15）发出请求，收方用一帧 MMRCM 回答，里面的 RMMRC IE 按**每个发起方一个条目**给出地址与一张收妥位图。标准为它画的那张图（Figure 10-272）用的正是**多对多**，所以它接在 `@uwb-m2m` 之后最顺。引擎里现在没有任何接收确认；DS-TWR 的 Final 里携带的 RX 时间只是「谁听见了谁」的副产物，没有一方读它。 |
+| 多消息接收确认 §10.36，及 RMMRC IE（Ranging Multiple Message Receipt Confirmation IE）§10.36.2.1 | 已发布 | 已建模 | 请求是 ARC IE 控制字里的 MMRCR 位（bit 15，`scenario.ts` 的 `mmrcr`），置位前后控制消息逐字节相同——这一位本来就在那两个字节里。回答是一帧 MMRCM：`uwb/frames.ts#makeMmrcm`、独立的 `'uwbMmrcm'` 帧类型、`uwb/phy.ts#uwbMmrcmBytes`（15 + 3N，R ≤ 8 时）与算出来的条目上限 `uwb/phy.ts#uwbMaxMmrcmInitiators`；时隙由 `uwb/phy.ts#uwbMmrcmSlots` 与 `uwb/session.ts#mmrcmResponders` 排在有效期窗口最后一块的轮之后，**每个响应方一个**；位图在 `uwb/device.ts` 的 `noteOpener` 与 `receiptIn` 里按当前有效期窗口的开场消息逐块记下，一个发起方一张，`UWB_MMRCM` 记录落在发起方这一侧。**两个计数不是同一个**：IE 的列表条目每个**发起方**一个（一个响应方可能听到好几个），时隙与帧每个**响应方**一个——「每个发起方一帧」在双向轮里读着对，在多对多里不可能。标准为它画的那张图（Figure 10-272）用的正是**多对多**，所以它接在 `@uwb-m2m` 之后。仍未建的是多播／多节点下发、长地址那一种条目，以及「哪几条消息」的别种取法（位图覆盖的窗口是本仿真器选的）。`@uwb-receipt` |
 
 ## 九、已发布标准：HRP UWB 物理层（§16）
 

@@ -100,7 +100,7 @@ export function uwbNbaScenario(variant: UwbNbaVariant = 'base'): Scenario {
 
 export const uwbNba: Lesson = {
   id: 'uwb-nba',
-  module: 24,
+  module: 25,
   title: '控制消息走另一部射频',
   why: '测距设备做的是量时间，它并不商量事情。可总得有人说清楚：是谁在问谁，对方到底有没有听见。若把这些消息交给那部宽带测距射频去传，它的空口时间（airtime）就会花在字句上，而不是花在测量上。于是设备在它旁边又带了一部小得多的射频。这一课要跟着这部小射频，看它在一轮测距里究竟传了哪些消息。',
   outcomes: [
