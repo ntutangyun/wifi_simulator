@@ -139,6 +139,17 @@ export function fmtUwbRecord(r: UwbTLRecord): string {
       return `${r.node} slot ${r.slot}: fragment of ${r.peer}'s ancillary message ${r.messageNumber}, `
         + `${r.framesRemaining} frames remaining${lost}${r.complete ? ' — complete' : ''}`
     }
+    case 'UWB_SSBD': {
+      // What the sensing decided, and what it cost — in that order, because the point of §10.45 is
+      // that the cost is paid before the answer is known. `clamped` prints the draw it could not
+      // afford beside the backoff it actually took: a slot whose window has no room reports a
+      // sensing that happened and a wait that did not.
+      const sensed = `${r.foreignDbm.toFixed(1)} dBm against ${r.thresholdDbm.toFixed(1)} dBm`
+      const waited = r.backoffNs === 0 ? 'no wait' : `waited ${fmtUs(r.backoffNs)}`
+      const drawn = r.outcome === 'clamped' ? ` (drew ${r.drawnUnits} units, the slot had no room)` : ''
+      return `${r.node} slot ${r.slot} ch ${r.channel}: sensed ${sensed}, backoff ${r.nb}/${r.bf}, `
+        + `${waited}${drawn} — ${r.outcome}`
+    }
     case 'UWB_ROUND_END':
       return `${r.node} UWB round ${r.round} of block ${r.block} ends`
     case 'UWB_INTERFERED':
