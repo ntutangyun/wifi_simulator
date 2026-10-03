@@ -495,6 +495,7 @@ describe("a lesson's track", () => {
     "txop-protect":             "wifi",
     "protect-policies":         "wifi",
     "width":                    "wifi",
+    "selectivity":              "wifi",
     "streams":                  "wifi",
     "rate":                     "wifi",
     "rate-fallback":            "wifi",

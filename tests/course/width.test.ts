@@ -30,7 +30,9 @@ import {
   PHY_MODES, RATE_MARGIN_DB, mcsForRssi, noiseDbm, reqSinrDb, toneRatio, txTimeModeNs,
 } from '../../src/engine/phy'
 import { lessonShapeSuite, ofType, runOf } from './kit'
-import { MODULES } from '../../src/course/curriculum'
+import { LESSONS } from '../../src/course/lessons'
+import { lessonStrings } from '../../src/course/readability'
+import { COURSE_ORDER, MODULES } from '../../src/course/curriculum'
 import { W, layoutDiagram, textBox, type Shape } from '../../src/course/diagram'
 import { selBinWidthMhz } from '../../src/engine/selectivity'
 
@@ -425,89 +427,78 @@ describe('width · the subcarrier table adds up', () => {
 })
 
 /**
- * The limit this slice is about, and the one that had to change DIRECTION.
+ * The limit this slice is about: the one that had to change DIRECTION, and then had to get
+ * SHORTER.
  *
- * It used to predict that a wider channel meets a dead patch more often. With frequency
- * selectivity built, the rounds say the opposite: the deepest bin does deepen with width
- * (12.05 → 24.09 dB, ~3 dB per doubling), but the drop RATE at comparable margin falls across all
- * five widths (14.39 → 0.52 %), because the code spans the whole channel.
+ * It used to predict that a wider channel meets a dead patch more often. Task 6 of the
+ * selectivity slice turned that around and carried the whole measurement into this one entry —
+ * five drop rates, both ends of the deepest-bin column, the margin they are pooled at, the gap
+ * between a 40 000-draw mean and a single round, and the noise floor's own rise. Task 7 then
+ * registered the `selectivity` lesson immediately after this one, which is where all of that
+ * belongs, so the entry now keeps the conclusion and hands the figures over through `until` —
+ * the shape every other `until` in this course has (`ifs` → `edca`: 「那把梯子是后面一课的题目」).
  *
- * Three things the text may therefore not do, and each is pinned here:
- *  - call it a drop COUNT: a count conflates airtime with decoding, because a wider channel puts
- *    far more PPDUs on the air in the same time. The mechanism may be stated; the counts may not,
- *    because 14/44/47/23/4 and 871/252 belong to the round sweep's four-width group and the rates
- *    the lesson prints belong to the pooled five-width group (review of 2026-10-03, finding 4d);
- *  - compare the five widths without saying the margin was held comparable — and the comparable
- *    statement is the one this group supports: all five sit at 3.62 dB, and 20 MHz is the worst of
- *    them. The earlier draft also carried a "20 MHz looks better than 40 MHz" clause, which is
- *    true of the OTHER data set (the round sweep, where 20 MHz settles at 6.62 dB) and false of
- *    the one the lesson quotes. One sentence, one data set (finding 1);
- *  - quote §4.1's open-loop 34.43 % → 7.14 %, which no lesson run produces (spec fix 124be31).
- *
- * All five rates, and the 3.62 dB margin they are pooled at, are asserted in
- * tests/engine/selectivity-inert.test.ts; both ends of the deepest-bin column and the 2.36 dB
- * median loss in tests/engine/selectivity.test.ts, on one instrument; and the shallower 10.1 dB a
- * single round shows at 20 MHz in tests/engine/selectivity-round.test.ts, which is why the text
- * says the two dB figures are means over many draws.
+ * The pins are therefore about the HANDOVER, and the rule they enforce is that a figure has
+ * exactly one home:
+ *  - the mechanism, the direction, and the prediction the next sentence contradicts stay here;
+ *  - no figure of the measurement is here, and every one of them is on `selectivity`'s main
+ *    path, where tests/course/selectivity.test.ts measures it against the scene that produced
+ *    it. Two lessons printing 14.39 % is two places to drift;
+ *  - the three sentences this slice may never write stay forbidden here too, because the reason
+ *    they are wrong does not depend on which lesson prints them: a drop COUNT (14/44/47/23/4
+ *    and 871/252 are the four-width round sweep's, the rates are the pooled five-width group's —
+ *    one sentence, one data set: review findings 1 and 4d), and §4.1's open-loop 34.43 % →
+ *    7.14 %, which no lesson run produces (spec fix 124be31).
  */
-describe('width · the flat-channel limit, and the direction it had to change', () => {
+describe('width · the flat-channel limit, the direction it changed, and the lesson it hands to', () => {
   const text = width.limits.map((l) => l.text).join('\n')
+  const entry = width.limits.find((l) => l.until === 'selectivity')
+  const sel = LESSONS.find((l) => l.id === 'selectivity')!
+  const selText = lessonStrings(sel).join('\n')
 
-  it('prints the drop rates as rates, at a margin it says is comparable', () => {
-    expect(text).toContain('14.39 %')
-    expect(text).toContain('0.52 %')
-    expect(text).toContain('余量可比')
-    expect(text).toContain('3.62 dB')
-    expect(text).toContain('掉帧率而不是掉帧数')
-    // the mechanism, without the other data set's counts
-    expect(text).toContain('按个数比会把空口时间混进来')
+  it('hands the figures to a lesson that exists and is the very next one', () => {
+    expect(entry, 'the flat-channel limit no longer points at `selectivity`').toBeDefined()
+    expect(COURSE_ORDER.indexOf('selectivity')).toBe(COURSE_ORDER.indexOf('width') + 1)
   })
 
-  it('says of this group only what this group supports: 20 MHz is its worst', () => {
-    expect(text).toContain('这一组五个带宽的余量都是 3.62 dB')
-    expect(text).toContain('在这一组里 20 MHz 正是掉帧最多的那一个')
-    // The round sweep's statement, which is about a different grouping and must not reappear here.
-    expect(text).not.toContain('20 MHz 已经先降了一级')
-    expect(text).not.toContain('不按余量分组看反倒显得它好')
-    // and no count from that sweep either
-    for (const n of ['14、44', '871', '252', '并不单调']) expect(text).not.toContain(n)
-  })
-
-  it('keeps the deepening bin, and says both figures are means over many draws', () => {
-    expect(text).toContain('12.05 dB')
-    expect(text).toContain('24.09 dB')
-    expect(text).toContain('每翻一倍深约 3 dB')
+  it('keeps the mechanism, and the prediction the next sentence contradicts', () => {
+    // the bin width is the mechanism, not a measurement, and it is computed rather than typed
+    expect(text).toContain(`${selBinWidthMhz()} MHz 一格`)
+    // the prediction has to be made before it is contradicted, or the quotation marks argue with
+    // something the text never said (review finding 6)
+    expect(text).toContain('听起来就该越糟')
+    expect(text).toContain('编码跨整条信道')
     expect(text).toContain('格间相关')
-    // 「跑一轮只有少得多的样本」: the lesson tells the reader what one round shows instead, so the
-    // 2 dB gap against a single run is explained rather than discovered
-    // (tests/engine/selectivity-round.test.ts measures that 10.1 dB).
-    expect(text).toContain('多次抽样下的均值')
-    expect(text).toContain('10.1 dB')
+    // the conclusion, stated without any of the numbers behind it
+    expect(text).toContain('可余量可比时的掉帧率是随带宽一路下降的')
+    // and it still says which of its own figures the floor's rise is
+    expect(text).toContain('噪声地板按带宽抬高的那一份')
   })
 
-  it('names the 12.04 dB as the RAISE in the floor, computed from the engine', () => {
-    // The lesson's own numbers table prints the floor itself in dBm (−93.99 / −87.97 / −84.96), so
-    // "a 12.04 dB noise floor" contradicted this very lesson. 12.04 dB is what 20 → 320 MHz adds,
-    // and this file already computes every other noise figure rather than typing it (`:147`).
-    expect(text).toContain(`噪声地板从 20 到 320 MHz 抬高的那 ${(noiseDbm(320) - noiseDbm(20)).toFixed(2)} dB`)
-    expect(text).not.toContain('12.04 dB 的噪声地板')
+  it('prints no figure of the measurement, and `selectivity` prints every one', () => {
+    for (const n of ['14.39', '12.71', '9.48', '5.09', '0.52', '12.05', '24.09', '10.08', '3.62', '2.36', '12.04']) {
+      expect(text, `width's limits still print ${n}`).not.toContain(n)
+      expect(selText, `selectivity does not print ${n}`).toContain(n)
+    }
+    // the shallower single-round figure in either spelling
+    expect(text).not.toContain('10.1 dB')
   })
 
   it('no longer predicts that the wider channel is the one that drops more', () => {
     expect(text).not.toContain('而信道越宽，踩到这种坑的机会越多')
     expect(text).not.toContain('即便在编辑器里打开衰落也补不上这一条')
-    // the prediction the next sentence contradicts has to be made first, or the quotation marks
-    // argue with something the text never said (review finding 6)
-    expect(text).toContain('听起来就该越糟')
   })
 
-  it('quotes neither open-loop figure: no lesson run produces them', () => {
-    expect(text).not.toContain('34.43')
-    expect(text).not.toContain('7.14')
+  it('quotes no count from the other data set, and neither open-loop figure', () => {
+    for (const n of ['14、44', '871', '252', '并不单调', '34.43', '7.14']) expect(text).not.toContain(n)
+    // The round sweep's own statement, which is about a different grouping: it is true of
+    // `selectivity`'s scene (where 20 MHz settles at 6.62 dB) and false of the pooled group, so
+    // it may not appear here at all.
+    expect(text).not.toContain('20 MHz 已经先降了一级')
+    expect(text).not.toContain('不按余量分组看反倒显得它好')
   })
 
   it('and the four width variants are still the flat channel the limit opens with', () => {
-    expect(text).toContain(`${selBinWidthMhz()} MHz 一格`)
     for (const sc of [width.scenario(), ...(width.variants ?? []).map((v) => v.scenario())]) {
       expect(sc.selectivity).toBeUndefined()
     }

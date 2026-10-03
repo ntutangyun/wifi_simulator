@@ -87,6 +87,7 @@ import { mlo } from './tier2/mlo'
 import { mloGain } from './tier2/mlo-gain'
 import { capstone } from './tier2/capstone'
 import { width } from './tier2/width'
+import { selectivity } from './tier2/selectivity'
 import { streams } from './tier2/streams'
 import { mumimo } from './tier2/mumimo'
 import { mumimoChoose } from './tier2/mumimo-choose'
@@ -184,6 +185,7 @@ const AUTHORED: Lesson[] = [
 
   // ======================= MODULE 4 =======================
   width,
+  selectivity,
   streams,
   mumimo,
   mumimoChoose,

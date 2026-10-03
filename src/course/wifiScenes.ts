@@ -5,6 +5,7 @@
  * share. `sc`, `oneRoom`, `hallwayHouse` and `longApartment` are re-exported
  * from `./lessonKit` so existing imports of them keep working unchanged.
  */
+import { noiseDbm } from '../engine/phy'
 import type { ChannelWidth, Nss } from '../model/caps'
 import type { NodeCfg, Room, Scenario, Wall } from '../model/scenario'
 import { brick, node } from './lessonKit'
@@ -84,6 +85,49 @@ export function widthScenario(widthMhz: ChannelWidth, nss: Nss, apNss: Nss = nss
   sta.caps.widthMhz = widthMhz
   sta.caps.nss = nss
   return sc(longApartment(), [ap, sta])
+}
+
+/**
+ * The `width` scene again, at one of the FIVE widths, with the fast fade on and the channel
+ * split into 26-tone-RU bins: the `selectivity` lesson's own scene.
+ *
+ * Three departures from `widthScenario`, and each one is the lesson's subject rather than a
+ * decoration:
+ *
+ *  - **the two sections the schema requires together.** `fading` with `smallScale: 'rayleigh'`
+ *    and `selectivity: {}`. Without both, `ScenarioSchema`'s `superRefine` refuses the plan —
+ *    a `selectivity` section over a flat channel draws the same deviation in every bin, which
+ *    is byte-identical to leaving it off. `shadowSigmaDb: 0` leaves the slow layer out: a
+ *    shadow is the whole channel together (engine/fading.ts), so it would move all five widths
+ *    by one common offset and only blur the layer this lesson re-keys per bin.
+ *  - **the station stands in the far living room**, where `width`'s own `tryThis` sends it. On
+ *    the study desk this link has more margin than any per-bin loss this feature produces, and
+ *    every width drops zero frames (tests/engine/selectivity-inert.test.ts measures exactly
+ *    that, as the feature's "legal and nothing follows" case).
+ *  - **both radios are turned up by the noise floor's own rise**, `noiseDbm(w) − noiseDbm(20)`,
+ *    computed from the engine's formula and never written down. That rise — 12.04 dB from 20 to
+ *    320 MHz — is the real cost of a wide channel and the thing `width` already teaches; left
+ *    in, it swamps the effect under test, and the five widths' drop rates would not be
+ *    comparable at all. This is the same construction the measurements the lesson quotes were
+ *    taken on (tests/engine/selectivity-round.test.ts and -inert.test.ts).
+ *
+ * 320 MHz is in the variant list although `width`'s four stop at 160: every figure this lesson
+ * prints runs to 320 MHz / 144 bins, and a number a reader cannot reach in the scene is a
+ * number they have to take on trust.
+ */
+export function selectivityScenario(widthMhz: ChannelWidth): Scenario {
+  const base = widthScenario(widthMhz, 1)
+  const liftDb = noiseDbm(widthMhz) - noiseDbm(20)
+  return {
+    ...base,
+    nodes: base.nodes.map((n) => ({
+      ...n,
+      txPowerDbm: n.txPowerDbm + liftDb,
+      ...(n.id === 'sta-1' ? { pos: { ...n.pos, x: 12.5, y: 6 } } : {}),
+    })),
+    fading: { shadowSigmaDb: 0, coherenceMs: 100, smallScale: 'rayleigh' },
+    selectivity: {},
+  }
 }
 /**
  * A four-stream router and three two-stream phones, each pulling its own
