@@ -24,7 +24,8 @@
 import { describe, it, expect } from 'vitest'
 import { selectivityRefusals, ScenarioSchema, defaultScenario, type Scenario } from '../../src/model/scenario'
 import {
-  fadingSmallScalePatch, fadingToggle, selectivitySwitch, selectivityToggle, withFading, withSelectivity,
+  fadingCausedRefusals, fadingSmallScalePatch, fadingToggle, scenarioToJson, selectivitySwitch,
+  selectivityToggle, withFading, withSelectivity,
 } from '../../src/editor/planOps'
 import { Simulation } from '../../src/engine/simulation'
 import { LESSONS } from '../../src/course/lessons'
@@ -35,11 +36,22 @@ const base = (): Scenario => defaultScenario()
 /** The stock plan with fading on, which is the only state the box can be ticked from. */
 const ready = (): Scenario => withFading(base(), fadingToggle(true))
 
-/** Every node forced to `nonht`, so the plan holds no OFDM link to subdivide. */
+/** Every node forced to `nonht`, so the plan holds no he/eht link to subdivide. */
 const nonOfdm = (sc: Scenario): Scenario => ({
   ...sc,
   nodes: sc.nodes.map((n) => ({ ...n, caps: { ...n.caps, generation: 'nonht' as const } })),
 })
+
+/**
+ * Byte-exact equality in the only spelling that is actually byte-exact: the JSON the editor
+ * saves. `toStrictEqual` compares keys as a set, and `scenarioToJson` is `JSON.stringify`,
+ * whose output follows insertion order — so a guard that rebuilt a plan with its keys reordered
+ * would pass `toStrictEqual` and still write a different file. The current ops only spread and
+ * rest-destructure, both of which preserve order, but that was inferred rather than pinned.
+ */
+const sameBytes = (a: Scenario, b: Scenario): void => {
+  expect(scenarioToJson(a)).toBe(scenarioToJson(b))
+}
 
 /** The refusal `superRefine` itself raises on this plan once it carries the section. */
 const schemaRefusals = (sc: Scenario): string[] => {
@@ -54,7 +66,7 @@ describe('when the checkbox can be ticked', () => {
   })
 
   it('is dead with one reason when fading is the only thing missing', () => {
-    // The stock plan: eht/he/vht links, no fading section. One refusal, not three.
+    // The stock plan: an eht AP and an he STA, no fading section. One refusal, not three.
     const sw = selectivitySwitch(base())
     expect(sw).toMatchObject({ on: false, live: false })
     expect(sw.refusals).toHaveLength(1)
@@ -75,7 +87,7 @@ describe('when the checkbox can be ticked', () => {
     const sw = selectivitySwitch(nonOfdm(ready()))
     expect(sw).toMatchObject({ on: false, live: false })
     expect(sw.refusals).toHaveLength(1)
-    expect(sw.refusals[0]).toContain('至少有一条 eht、he 或 vht 链路')
+    expect(sw.refusals[0]).toContain('至少有一条 eht 或 he 链路')
   })
 
   it('names both reasons when two are missing at once', () => {
@@ -85,7 +97,7 @@ describe('when the checkbox can be ticked', () => {
     expect(sw.live).toBe(false)
     expect(sw.refusals).toHaveLength(2)
     expect(sw.refusals[0]).toContain('需要场景里先写出 fading 小节')
-    expect(sw.refusals[1]).toContain('至少有一条 eht、he 或 vht 链路')
+    expect(sw.refusals[1]).toContain('至少有一条 eht 或 he 链路')
 
     // The other pair: fading present but inert, and no OFDM link either.
     const inert = nonOfdm(withFading(base(), fadingSmallScalePatch(fadingToggle(true)!, 'none')))
@@ -144,10 +156,12 @@ describe('the switch writes the section, and removes it', () => {
     expect('selectivity' in (parsed as unknown as { data: Record<string, unknown> }).data).toBe(false)
   })
 
-  it('turning the switch off again leaves the plan it started from', () => {
+  it('turning the switch off again leaves the plan it started from, byte for byte', () => {
     const start = ready()
     const on = withSelectivity(start, selectivityToggle(true))
-    expect(withSelectivity(on, selectivityToggle(false))).toStrictEqual(start)
+    const off = withSelectivity(on, selectivityToggle(false))
+    expect(off).toStrictEqual(start)
+    sameBytes(off, start)
   })
 
   it('round-trips through save and load, where an illegal section would land', () => {
@@ -169,6 +183,7 @@ describe('a fading change never leaves a section the schema would refuse', () =>
     expect(ScenarioSchema.safeParse(off).success).toBe(true)
     // And the plan is the one we started from, before fading was ever turned on.
     expect(off).toStrictEqual(base())
+    sameBytes(off, base())
   })
 
   it('drops selectivity when the distribution is turned to none under it', () => {
@@ -188,7 +203,51 @@ describe('a fading change never leaves a section the schema would refuse', () =>
 
   it('leaves a plan that never had the section untouched', () => {
     const start = base()
-    expect(withFading(withFading(start, fadingToggle(true)), fadingToggle(false))).toStrictEqual(start)
+    const back = withFading(withFading(start, fadingToggle(true)), fadingToggle(false))
+    expect(back).toStrictEqual(start)
+    sameBytes(back, start)
+  })
+
+  /**
+   * M1 of the Task 6b review. `withFading` used to drop `selectivity` whenever the edited plan
+   * carried *any* refusal, and the third refusal — no he/eht link — is a node edit's doing with
+   * nothing to do with fading. So a plan already showing that red line lost its whole
+   * `selectivity` section to an unrelated sigma nudge, and lost the red line with it: the plan
+   * read as repaired rather than emptied.
+   */
+  it('keeps selectivity across a fading edit when the only refusal is the node generations’', () => {
+    const on = nonOfdm(withSelectivity(ready(), selectivityToggle(true)))
+    // The precondition of the bug: the plan is refused, and not for anything fading did.
+    expect(selectivitySwitch(on).refusals).toHaveLength(1)
+    expect(fadingCausedRefusals(on)).toEqual([])
+    const nudged = withFading(on, { ...on.fading!, shadowSigmaDb: on.fading!.shadowSigmaDb + 1 })
+    expect(nudged.selectivity).toEqual({})
+    // and the red line is still there to be read, with the field they touched moved
+    expect(selectivitySwitch(nudged).refusals).toEqual(selectivitySwitch(on).refusals)
+    expect(nudged.fading?.shadowSigmaDb).toBe(on.fading!.shadowSigmaDb + 1)
+  })
+
+  it('still drops it for the two refusals fading itself causes, on that same plan', () => {
+    // The guard narrowed, not removed: on the very plan above, turning fading off — which is a
+    // fading-caused refusal — still takes the section with it.
+    const on = nonOfdm(withSelectivity(ready(), selectivityToggle(true)))
+    expect('selectivity' in withFading(on, fadingToggle(false))).toBe(false)
+    const none = withFading(on, fadingSmallScalePatch(on.fading!, 'none'))
+    expect('selectivity' in none).toBe(false)
+  })
+
+  it('splits the three refusals into exactly one node-caused and two fading-caused', () => {
+    // `fadingCausedRefusals` is a difference of two `selectivityRefusals` calls rather than a
+    // list of strings, so a fourth rule lands on the correct side with no edit. This pins which
+    // side each of today's three is on.
+    const noFading = nonOfdm(base())
+    expect(selectivityRefusals(noFading)).toHaveLength(2)
+    expect(fadingCausedRefusals(noFading)).toHaveLength(1)
+    expect(fadingCausedRefusals(noFading)[0]).toContain('需要场景里先写出 fading 小节')
+
+    const inert = nonOfdm(withFading(base(), fadingSmallScalePatch(fadingToggle(true)!, 'none')))
+    expect(fadingCausedRefusals(inert)).toHaveLength(1)
+    expect(fadingCausedRefusals(inert)[0]).toContain('需要 fading.smallScale 不是 none')
   })
 })
 

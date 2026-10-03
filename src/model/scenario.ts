@@ -663,8 +663,9 @@ export interface Scenario {
    * second set. So the section's presence is the entire configuration, and `superRefine` below
    * requires `fading` to be present with `smallScale !== 'none'` (otherwise every bin draws the
    * same deviation and turning this on is byte-identical to leaving it off) and requires the
-   * scene to hold at least one eht/he/vht link (the 26-tone RU is an OFDM subdivision; refusing
-   * beats silently computing a bin width at the wrong subcarrier spacing).
+   * scene to hold at least one eht/he link (the 26-tone RU is a clause 27 / 36 unit, defined at
+   * HE/EHT's subcarrier spacing and not at clause 17's or clause 21's; refusing beats silently
+   * computing a bin width at the wrong subcarrier spacing).
    */
   selectivity?: SelectivityCfg
   /**
@@ -1110,7 +1111,18 @@ const SelectivitySchema = z.object({})
  * deviation from) reached two ways. The link-generation refusal is independent of both, and
  * none of the three remedies is forbidden by either of the others (the trap this file's `rmnr`
  * rules were once broken by): "add fading", "turn smallScale away from none" and "add an
- * eht/he/vht link" never ask the reader to undo one another.
+ * eht/he link" never ask the reader to undo one another.
+ *
+ * **The third rule reads `he`/`eht` and not "OFDM".** It once accepted `vht` as well, on the
+ * reasoning that a 26-tone RU is a subdivision of an OFDM channel and VHT is OFDM. Both halves
+ * of that are true and the conclusion is not: the 26-tone RU is a clause 27 / 36 unit, defined
+ * at HE/EHT's 78.125 kHz subcarrier spacing, while clause 21's spacing is 312.5 kHz. This
+ * repo's own table is the evidence — `TONES_VHT[20] = 52` against `TONES_HE[20] = 234` for the
+ * same 20 MHz (`src/engine/phy.ts`). So VHT was itself the "wrong subcarrier spacing" the
+ * refusal's own sentence warns about, and this rule used to wave it through. Note that the rule
+ * is still "at least one", so a mixed scene legally keeps a VHT link; what that link's own
+ * PPDUs must not get is a bin, and only the engine can decide that (`isOfdmWifiPpdu`,
+ * src/engine/channel.ts).
  */
 export function selectivityRefusals(sc: Pick<Scenario, 'fading' | 'nodes'>): string[] {
   const out: string[] = []
@@ -1119,11 +1131,11 @@ export function selectivityRefusals(sc: Pick<Scenario, 'fading' | 'nodes'>): str
   } else if (sc.fading.smallScale === 'none') {
     out.push('频率选择性（selectivity）需要 fading.smallScale 不是 none：逐格偏差靠这个分布抽出来，而 smallScale 为 none 时 smallScaleDb 直接返回 0，于是每一格仍然是同一个数，这是最容易无意中写出来的空配置。请把 smallScale 改成 rayleigh 或 rician，或者把 selectivity 去掉')
   }
-  const hasOfdmLink = sc.nodes.some((n) => (
-    n.caps.generation === 'eht' || n.caps.generation === 'he' || n.caps.generation === 'vht'
+  const hasBinnableLink = sc.nodes.some((n) => (
+    n.caps.generation === 'eht' || n.caps.generation === 'he'
   ))
-  if (!hasOfdmLink) {
-    out.push('频率选择性（selectivity）需要场景里至少有一条 eht、he 或 vht 链路：26 音调资源单元是 OFDM 信道的分格单位，纯 nonht 链路上不存在这样的分格，拒绝好过悄悄按一个错误的子载波间隔算出格宽。请加一条 eht/he/vht 链路，或者把 selectivity 去掉')
+  if (!hasBinnableLink) {
+    out.push('频率选择性（selectivity）需要场景里至少有一条 eht 或 he 链路：26 音调资源单元是第 27／36 章的分格单位，只在 HE／EHT 的 78.125 kHz 子载波间隔下成立，而 nonht 与 vht 的间隔是 312.5 kHz——同样 20 MHz，HE／EHT 有 234 根数据子载波，vht 只有 52 根，所以纯 nonht／vht 的场景里不存在这样的分格，拒绝好过悄悄按一个错误的子载波间隔算出格宽。请加一条 eht/he 链路，或者把 selectivity 去掉')
   }
   return out
 }

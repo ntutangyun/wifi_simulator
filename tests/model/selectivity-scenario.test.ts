@@ -18,7 +18,7 @@ const base = (): Scenario => defaultScenario()
 /** `base()` plus a `fading` section that actually fades — the minimum selectivity can borrow. */
 const withFadingOn = (): Scenario => ({ ...base(), fading: { smallScale: 'rayleigh' } } as Scenario)
 
-/** `base()` plus fading, with every node's generation forced to `nonht` — no OFDM link at all. */
+/** `base()` plus fading, with every node's generation forced to `nonht` — nothing to subdivide. */
 const nonOfdmWithFading = (): Scenario => ({
   ...base(),
   nodes: base().nodes.map((n) => ({ ...n, caps: { ...n.caps, generation: 'nonht' as const } })),
@@ -52,7 +52,7 @@ describe('Scenario.selectivity is absent by default, not defaulted', () => {
 })
 
 describe('Scenario.selectivity carries nothing to configure', () => {
-  it('accepts an empty section once fading is on and an OFDM link exists', () => {
+  it('accepts an empty section once fading is on and an he/eht link exists', () => {
     const sc = { ...withFadingOn(), selectivity: {} }
     const parsed = ScenarioSchema.parse(sc)
     expect(parsed.selectivity).toEqual({})
@@ -94,20 +94,35 @@ describe('Scenario.selectivity refusals (design doc §6 upper table)', () => {
     expect(() => ScenarioSchema.parse(sc)).not.toThrow()
   })
 
-  it('rejects selectivity when the scene has no eht/he/vht link (all nonht)', () => {
+  it('rejects selectivity when the scene has no eht/he link (all nonht)', () => {
     expect(() => ScenarioSchema.parse({ ...nonOfdmWithFading(), selectivity: {} })).toThrow()
   })
 
-  it('accepts selectivity on a scene whose only OFDM link is vht (no eht/he present)', () => {
+  it('rejects selectivity on a scene whose only link is vht, OFDM though it is', () => {
+    // This case was accepted until Task 6c, on the reasoning that a 26-tone RU subdivides an
+    // OFDM channel and VHT is OFDM. The 26-tone RU is a clause 27 / 36 unit instead, defined at
+    // HE/EHT's 78.125 kHz subcarrier spacing; clause 21 is spaced 312.5 kHz, four times coarser.
+    // This repo's own table is the evidence: TONES_VHT[20] = 52 against TONES_HE[20] = 234 for
+    // the same 20 MHz (src/engine/phy.ts). So VHT *was* the "wrong subcarrier spacing" this
+    // refusal's own sentence warns about, and the rule used to wave it through.
     const sc = {
       ...withFadingOn(),
       nodes: base().nodes.map((n) => ({ ...n, caps: { ...n.caps, generation: 'vht' as const } })),
       selectivity: {},
     }
-    expect(() => ScenarioSchema.parse(sc)).not.toThrow()
+    expect(() => ScenarioSchema.parse(sc)).toThrow(/eht 或 he 链路/)
   })
 
-  it('selectivity without fading and with no OFDM link reports both refusals at once', () => {
+  it('accepts selectivity on a mixed scene that keeps a vht link beside an he one', () => {
+    // The rule is "at least one", not "every link": an he link does not stop being divisible
+    // because a vht station shares the scene. What that vht station's own PPDUs must not get is
+    // a bin, and only the engine can decide that (isOfdmWifiPpdu, src/engine/channel.ts) —
+    // which is why the schema is deliberately not the only gate.
+    expect(base().nodes.map((n) => n.caps.generation)).toContain('vht')
+    expect(() => ScenarioSchema.parse({ ...withFadingOn(), selectivity: {} })).not.toThrow()
+  })
+
+  it('selectivity without fading and with no he/eht link reports both refusals at once', () => {
     const sc = {
       ...nonOfdmWithFading(),
       fading: undefined,
@@ -123,7 +138,7 @@ describe('no refusal loop between the three selectivity rules', () => {
   // The brief's own warning: two refusals that each tell the reader to do what the other
   // forbids. Walked every pairwise combination of the new section against the two sections it
   // reads — fading's presence/smallScale, and the scene's node generations — and none of the
-  // three remedies ("add fading", "change smallScale", "add an OFDM link") is something either
+  // three remedies ("add fading", "change smallScale", "add an he/eht link") is something either
   // of the other two rules would then refuse.
   it('adding fading (as the first refusal asks) does not trip the smallScale refusal', () => {
     // fading: {} defaults smallScale to rayleigh (FADING_DEFAULTS), which the second rule accepts.
@@ -136,7 +151,7 @@ describe('no refusal loop between the three selectivity rules', () => {
     expect(() => ScenarioSchema.parse(sc)).not.toThrow()
   })
 
-  it('adding an OFDM link (as the third refusal asks) does not disturb the fading rules', () => {
+  it('adding an he/eht link (as the third refusal asks) does not disturb the fading rules', () => {
     const sc = { ...withFadingOn(), selectivity: {} }
     const r = ScenarioSchema.safeParse(sc)
     expect(r.success).toBe(true)

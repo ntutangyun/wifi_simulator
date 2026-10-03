@@ -1197,7 +1197,7 @@ function FadingFields({ fading, onChange }: { fading?: FadingCfg; onChange: (f: 
  *
  * It takes the whole scenario rather than the section, because every question about it is about
  * something else — is there a `fading` section, is its distribution `none`, is there an
- * eht/he/vht link. `selectivitySwitch` answers all three in `planOps.ts` and hands back the
+ * eht/he link. `selectivitySwitch` answers all three in `planOps.ts` and hands back the
  * schema's own sentences for the ones that failed, so this draws them and decides nothing.
  */
 function SelectivityField(

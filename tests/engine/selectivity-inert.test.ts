@@ -310,11 +310,18 @@ describe('selectivity §6 item 3: twenty megahertz is the most affected width, n
    * are pooled per width — one width's rate is its failures over its PPDUs across every run in
    * the group, which is the per-PPDU rate of the group and not an average of ratios.
    *
-   * Measured 2026-10-03, 100 ms per run, 45 runs: the largest group is the 3.62 dB margin with
-   * all five widths in it, and its pooled drop rates run **14.39 %, 12.71 %, 9.48 %, 5.09 %,
-   * 0.52 %** — the nine-bin channel drops frames twenty-seven times as often as the 144-bin one
-   * at the same distance above the same ladder. The three other groups (6.62, 4.62, 5.62 dB) all
-   * put 20 MHz strictly highest too.
+   * Re-measured 2026-10-03 under Task 6c's PPDU-format gate (100 ms per run, 45 runs): the
+   * largest group is still the 3.62 dB margin with all five widths in it, and its pooled drop
+   * rates run **14.66 %, 13.10 %, 9.81 %, 5.61 %, 0.75 %** — the nine-bin channel drops frames
+   * nineteen times as often as the 144-bin one at the same distance above the same ladder. The
+   * other groups put 20 MHz strictly highest too.
+   *
+   * **Before that gate the column read 14.39, 12.71, 9.48, 5.09, 0.52 %**, a ratio of 27.7
+   * rather than 19.5. The difference is the non-HT ACKs: they used to be judged on nine bins
+   * they have no 26-tone RU for, at every width, and dropping them out of the per-bin path
+   * raises every rate a little and the widest one most. These figures were re-measured against
+   * the corrected rule, not reconciled with the old ones — the lesson quotes measurements of
+   * the engine, so they follow it.
    */
   it('drops the most often of the five widths, pooled at the margin the rate loop settled at', () => {
     const rows = WIDTHS.flatMap((w) => OFFSETS_DB.map((d) => widthRow(w, d)))
@@ -364,12 +371,12 @@ describe('selectivity §6 item 3: twenty megahertz is the most affected width, n
      */
     expect(biggestMargin, label(biggest)).toBe('3.62')
     expect(biggest.map((p) => (p.rate * 100).toFixed(2)), label(biggest))
-      .toEqual(['14.39', '12.71', '9.48', '5.09', '0.52'])
-    // 14.39 / 0.52 ≈ 27.7, the "twenty-seven times" of this test's own doc comment. A bound
-    // rather than a rounded integer, because the exact rates above already fix the quotient and a
+      .toEqual(['14.66', '13.10', '9.81', '5.61', '0.75'])
+    // 14.66 / 0.75 ≈ 19.5, the "nineteen times" of this test's own doc comment. A bound rather
+    // than a rounded integer, because the exact rates above already fix the quotient and a
     // nearest-integer assertion would only be a second spelling of them that is easier to get
-    // wrong (27.7 rounds to 28, not 27).
-    expect(biggest[0].rate / biggest[biggest.length - 1].rate, label(biggest)).toBeGreaterThan(27)
+    // wrong (19.5 rounds to 20, not 19).
+    expect(biggest[0].rate / biggest[biggest.length - 1].rate, label(biggest)).toBeGreaterThan(19)
 
     // And in every group where 20 MHz can be compared with a wider channel at all, it is the
     // worst of them — so the nine-bin case being the most affected is not one group's accident.

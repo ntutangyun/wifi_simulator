@@ -36,6 +36,11 @@
  * PPDUs. The plan's acceptance criterion — that count strictly decreasing across all five
  * widths — does **not** hold there, and the reason is the two confounds above, not the
  * physics. The second test is what does hold, and how it has to be stated to be true.
+ *
+ * Those two figures predate Task 6c's PPDU-format gate, under which a non-HT ACK is no longer
+ * binned (`isOfdmWifiPpdu`). Re-measured on the corrected engine the five runs give **12, 45,
+ * 52, 30, 7** failures over 249…870 data PPDUs — still not monotone in the count, which is the
+ * only thing the paragraph above rests on.
  */
 import { describe, it, expect, vi } from 'vitest'
 import { Simulation } from '../../src/engine/simulation'
@@ -144,8 +149,9 @@ interface WidthRow {
 
 function widthRow(w: ChannelWidth): WidthRow {
   const rs = run(sweepScene(w), SWEEP_NS)
-  // The uplink is the saturated direction and the one the rate loop drives; an ACK coming the
-  // other way is a 20 MHz non-HT PPDU at every width, so it carries no width information.
+  // The uplink is the saturated direction and the one the rate loop drives. Since Task 6c the
+  // ACK coming the other way emits no `WIFI_SEL` at all — it is a non-HT PPDU, so it has no
+  // 26-tone RU to split into — but the filter stays: it is what makes these rows the uplink's.
   const sels = ofType(rs, 'WIFI_SEL').filter((s) => s.from === 'sta-1')
   expect(sels.length, `${w} MHz: no uplink reception to read`).toBeGreaterThan(50)
   const losses = sels.map((s) => s.lossDb).sort((a, b) => a - b)
@@ -171,11 +177,11 @@ describe('selectivity on whole rounds: what widening the channel actually does',
 
   /**
    * §3.3's table and §4.1's two columns, both measured in rounds rather than in draws, and
-   * they point in opposite directions — which is the whole argument of the slice. Measured
-   * 2026-10-03 at 200 ms: the deepest bin's median at 10.08, 13.58, 16.72, 19.86, 23.16 dB
-   * below the mean (the design doc's means, over far more draws, run 12.05 to 24.09), and the
-   * loss's 90th percentile at 4.68, 3.88, 3.56, 3.21, 2.93 dB. The median loss barely moves
-   * (2.03 to 2.36 dB); what the width buys is the *tail*.
+   * they point in opposite directions — which is the whole argument of the slice. Re-measured
+   * 2026-10-03 at 200 ms under Task 6c's PPDU-format gate: the deepest bin's median at 10.21,
+   * 13.58, 16.77, 19.85, 23.16 dB below the mean (the design doc's means, over far more draws,
+   * run 12.05 to 24.09), and the loss's 90th percentile at 4.69, 3.87, 3.56, 3.21, 2.93 dB.
+   * The median loss barely moves (2.07 to 2.36 dB); what the width buys is the *tail*.
    */
   it('deepens the worst bin at every doubling while tightening the loss, both strictly', () => {
     const rs = sweep()
@@ -200,12 +206,17 @@ describe('selectivity on whole rounds: what widening the channel actually does',
      * (review of 2026-10-03, finding 4b): the design doc's 12.05 dB at 20 MHz is a mean over
      * 40 000 draws (tests/engine/selectivity.test.ts), while ONE round of this scene holds far
      * fewer samples and its deepest bin sits about 2 dB shallower. A reader who runs a round and
-     * reads 10.1 against a lesson printing 12.05 must find that difference explained rather than
+     * reads 10.2 against a lesson printing 12.05 must find that difference explained rather than
      * discover it, so the number the lesson explains it with is asserted here.
+     *
+     * **It was 10.08 dB before Task 6c's PPDU-format gate** and is 10.21 dB after it: dropping
+     * the non-HT ACKs out of the per-bin path leaves this median to the data PPDUs alone. The
+     * figure is re-measured rather than the tolerance widened, so whichever number the lesson
+     * prints has to be this one.
      */
     expect(rs[0].w).toBe(20)
-    expect(rs[0].medWorstDb).toBeCloseTo(-10.08, 1) // within 0.05 dB
-    expect(Math.abs(rs[0].medWorstDb).toFixed(1)).toBe('10.1')
+    expect(rs[0].medWorstDb).toBeCloseTo(-10.21, 1) // within 0.05 dB
+    expect(Math.abs(rs[0].medWorstDb).toFixed(1)).toBe('10.2')
   }, 300_000)
 
   /**
@@ -216,15 +227,15 @@ describe('selectivity on whole rounds: what widening the channel actually does',
    * Two corrections to the plan's criterion, both forced by what the rounds measured:
    *
    *   - **rate, not count.** A wider channel puts more PPDUs on the air in the same 200 ms
-   *     (252 at 20 MHz, 871 at 320), so a count conflates airtime with decoding. Measured:
-   *     14, 44, 47, 23, 4 failures — not monotone — against drop rates of 5.56, 9.61, 7.31,
-   *     2.97, 0.46 %.
+   *     (249 at 20 MHz, 870 at 320), so a count conflates airtime with decoding. Measured:
+   *     12, 45, 52, 30, 7 failures — not monotone — against drop rates of 4.82, 9.93, 8.16,
+   *     3.90, 0.80 %.
    *   - **at equal margin.** The rate loop settles each width at its own distance above the
    *     threshold, and a width that settles a step lower has already paid for its worse
    *     channel in rate rather than in drops. Here 40 / 80 / 160 / 320 MHz all settle at
-   *     3.62 dB and form a strictly decreasing chain — 9.61 → 7.31 → 2.97 → 0.46 % — while
+   *     3.62 dB and form a strictly decreasing chain — 9.93 → 8.16 → 3.90 → 0.80 % — while
    *     20 MHz sits at 6.62 dB, a whole MCS step of extra room, and so drops fewer frames
-   *     (5.56 %) than the 40 MHz channel while running slower.
+   *     (4.82 %) than the 40 MHz channel while running slower.
    *
    * The group is picked by the margins themselves — the largest set of widths sharing one
    * median margin — not named here, so the test cannot be tuned by choosing which widths to
@@ -256,11 +267,11 @@ describe('selectivity on whole rounds: what widening the channel actually does',
     for (const s of sels) {
       expect(s.lossDb).toBeCloseTo(s.meanSinrDb - s.effSinrDb, 9)
       expect(s.worstBinDb).toBeLessThan(0)
-      // Every bin count in the run is one the standard's own arithmetic produces: 72 for the
-      // 160 MHz data PPDUs, 9 for the 20 MHz non-HT ACKs answering them.
-      expect([selBins(20), selBins(160)]).toContain(s.bins)
+      // One bin count, not two. Before Task 6c the 20 MHz non-HT ACKs answering these PPDUs
+      // were binned as well and nine turned up beside seventy-two; a non-HT PPDU has no
+      // 26-tone RU, so every record left is the 160 MHz data PPDU's own.
+      expect(s.bins).toBe(selBins(160))
     }
-    expect(sels.some((s) => s.bins === selBins(160))).toBe(true)
     expect(sels.some((s) => s.lossDb > 0)).toBe(true)
   })
 })
@@ -371,6 +382,82 @@ describe('selectivity leaves AMP’s two non-OFDM paths alone', () => {
     expect(selective).toEqual(without)
     // and nothing in the selective run claims a per-bin decision on any of it
     expect(ofType(selective, 'WIFI_SEL')).toEqual([])
+  }, 300_000)
+})
+
+describe('selectivity only bins a PPDU format that has a 26-tone RU', () => {
+  /**
+   * The defect Task 6c found. `isOfdmWifiPpdu` used to be `frame.amp === undefined`, with
+   * "non-HT is clause 17 OFDM" for its reason — true, and beside the point: the 26-tone RU is a
+   * clause 27 / 36 unit, defined at HE/EHT's 78.125 kHz subcarrier spacing, while clause 17 and
+   * clause 21 are spaced 312.5 kHz. The engine's own neighbour is the evidence:
+   * `TONES_VHT[20] = 52` against `TONES_HE[20] = 234` for the same 20 MHz (phy.ts). So a VHT
+   * PPDU was being judged on bins four times too narrow to exist in it.
+   *
+   * `ScenarioSchema` cannot be the only gate, and not because anything skips it — `Simulation`'s
+   * constructor parses before it builds (simulation.ts), so even the worker's
+   * `new Simulation(m.scenario)` surfaces a refusal rather than a run. It is that the schema's
+   * rule is "at least one he/eht link": a **mixed** scene passes it with a VHT station still in,
+   * and it should, because the HE links in it are fine. Only the PPDU can be gated.
+   *
+   * `WIFI_SEL` carries the receiver and the sender, so the claim is read straight out of the
+   * records: the he station's receptions are binned, the vht station's are not, in one run.
+   */
+  const mixedScene = (): Scenario => {
+    const sc = sweepScene(80)
+    const he = sc.nodes.find((n) => n.id === 'sta-1')!
+    const vht: NodeCfg = {
+      ...he,
+      id: 'sta-vht',
+      name: 'VHT laptop',
+      caps: { ...he.caps, generation: 'vht' },
+    }
+    return { ...sc, nodes: [...sc.nodes, vht] }
+  }
+
+  it('bins the he station’s PPDUs and leaves the vht station’s on the scalar path', () => {
+    const rs = run(mixedScene(), 60 * MS)
+    const sel = ofType(rs, 'WIFI_SEL')
+    // Non-vacuous: both stations really do get their data PPDUs decoded in this window.
+    const decodedFrom = (id: string) => ofType(rs, 'RX_OK')
+      .filter((r) => r.from === id && r.frame.kind === 'data' && r.frame.mode !== undefined)
+    expect(decodedFrom('sta-1').length, 'the he station sent no data PPDU').toBeGreaterThan(0)
+    expect(decodedFrom('sta-vht').length, 'the vht station sent no data PPDU').toBeGreaterThan(0)
+    // The he station's data PPDUs are binned, at the whole channel's bin count.
+    const fromHe = sel.filter((r) => r.from === 'sta-1')
+    expect(fromHe.length).toBeGreaterThan(0)
+    expect(new Set(fromHe.map((r) => r.bins))).toEqual(new Set([selBins(80)]))
+    // The vht station's are not binned at all — no record claims a per-bin decision on one.
+    expect(sel.filter((r) => r.from === 'sta-vht')).toEqual([])
+  }, 300_000)
+
+  /**
+   * The same rule reaching the control frames, which is where it is easiest to lose.
+   *
+   * `FrameDesc.mode` defaults to non-HT, so an ACK, a BlockAck, an RTS and a CTS all name no
+   * format — and a non-HT PPDU is no more divisible into 26-tone RUs than a VHT one. There is
+   * no version of the rule that holds for a VHT data PPDU and not for a non-HT ACK: the
+   * spacing is 312.5 kHz in both.
+   *
+   * Taking them out of the per-bin path moved this lesson's six recorded timelines and the drop
+   * rates measured off them, and the figures below were re-measured under this rule rather than
+   * the gate being relaxed to preserve them: the lesson's numbers are measurements *of* the
+   * engine, so they follow it. What this test pins is that no `WIFI_SEL` in a mixed run is ever
+   * attributable to a PPDU whose format is not he or eht.
+   */
+  it('bins no non-HT control PPDU either, whatever the two radios can do', () => {
+    const rs = run(mixedScene(), 60 * MS)
+    const binned = new Set<string>()
+    for (const r of ofType(rs, 'WIFI_SEL')) {
+      const tx = ofType(rs, 'TX_START').find((t) => t.node === r.from && t.t <= r.t)
+      if (tx) binned.add(`${tx.frame.kind}:${tx.frame.mode ?? 'unnamed'}`)
+    }
+    expect(binned.size, 'nothing was binned at all').toBeGreaterThan(0)
+    for (const k of binned) expect(k, `a ${k} PPDU was binned`).toMatch(/:(he|eht)$/)
+    // Non-vacuous in the other direction: the run really does carry control PPDUs, and they
+    // really are received — they are simply decided on the scalar level.
+    const acks = ofType(rs, 'RX_OK').filter((r) => r.frame.mode === undefined)
+    expect(acks.length, 'the run contained no control reception to exclude').toBeGreaterThan(0)
   }, 300_000)
 })
 

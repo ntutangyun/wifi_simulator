@@ -405,6 +405,20 @@ export function fadingSmallScalePatch(f: FadingCfg, smallScale: FadingCfg['small
  * panel must not commit a plan whose fix is in another section, because nothing validates on the
  * way up and the user would meet it on Run instead. The guard keeps the byte-identical
  * guarantee intact for every plan that never had the section.
+ *
+ * **Only a refusal this edit is responsible for authorises the deletion.** The third refusal —
+ * no he/eht link — is a *node* edit's doing, and dropping `selectivity` is not its repair.
+ * Testing the refusals as one list let an unrelated reason authorise the removal: a plan
+ * already showing the red "no he/eht link" line, whose owner nudges the shadow sigma from 4 dB
+ * to 5 dB, had its whole `selectivity` section silently deleted for a reason with nothing to do
+ * with the field they touched — and the red line went with it, so the plan read as repaired
+ * rather than emptied.
+ *
+ * `fadingCausedRefusals` separates them by *running the rules twice* rather than by matching
+ * their text: once on the plan as edited, once on the same nodes with a known-good fading
+ * section. What only the first run says is what this edit owns. No second copy of any wording
+ * lives here — which is the property `selectivityRefusals` was lifted into scenario.ts for —
+ * and a fourth rule added later lands on the correct side of the split with no change here.
  */
 export function withFading(sc: Scenario, f: FadingCfg | undefined): Scenario {
   let next: Scenario
@@ -414,8 +428,21 @@ export function withFading(sc: Scenario, f: FadingCfg | undefined): Scenario {
     const { fading: _off, ...rest } = sc
     next = rest
   }
-  if (next.selectivity === undefined || selectivityRefusals(next).length === 0) return next
+  if (next.selectivity === undefined) return next
+  if (fadingCausedRefusals(next).length === 0) return next
   return withSelectivity(next, undefined)
+}
+
+/**
+ * The refusals this plan's `fading` section is responsible for: the ones that go away when the
+ * very same nodes are given a fading section the schema is happy with (`fadingToggle(true)`,
+ * the panel's own "on" value), and only those.
+ */
+export function fadingCausedRefusals(sc: Scenario): string[] {
+  const withGoodFading = new Set(
+    selectivityRefusals({ fading: fadingToggle(true), nodes: sc.nodes }),
+  )
+  return selectivityRefusals(sc).filter((m) => !withGoodFading.has(m))
 }
 
 // ---- the frequency-selectivity switch ------------------------------------------------------
@@ -427,12 +454,27 @@ export function withFading(sc: Scenario, f: FadingCfg | undefined): Scenario {
  * renders these three and judges nothing further.
  *
  * `live` is not simply "no refusals". A plan can be carrying the section *and* have grown a
- * refusal since — the only OFDM link downgraded to `nonht`, say, which is a node edit this
- * section never sees — and a checkbox greyed in that state would be a trap: the plan is already
- * invalid and the one control that could rescue it is the one that stopped responding. So the
- * box stays operable while it is on, and the refusals show in red beside it either way. Grey is
- * only ever about **turning it on**, which is the case the brief's precedent (`fadingOffHint`)
- * covers: a schema refusal the user has to run into is a refusal the panel failed to say first.
+ * refusal since — the last he/eht link downgraded to `vht` or `nonht`, say, which is a node edit
+ * this section never sees — and a checkbox greyed in that state would be a trap: the plan is
+ * already invalid and the one control that could rescue it is the one that stopped responding.
+ * So the box stays operable while it is on, and the refusals show in red beside it either way.
+ * Grey is only ever about **turning it on**, which is the case the brief's precedent
+ * (`fadingOffHint`) covers: a schema refusal the user has to run into is a refusal the panel
+ * failed to say first.
+ *
+ * **Why that downgrade is not auto-repaired** — neither by deleting `selectivity` nor by putting
+ * the generation back. Not because other cross-section hints in this file do it that way: the
+ * one hint of the same shape, `ampTagIssue`/`ampBsNeedsReader`, is itself a second Chinese
+ * wording of a schema rule, which is the very defect `selectivityRefusals` was lifted into
+ * scenario.ts to remove, so it endorses nothing. The reason is that **the wrong number cannot
+ * come out either way**: with no he/eht link left the schema refuses the plan, and
+ * `Simulation`'s constructor parses before it builds anything (`src/engine/simulation.ts`), so
+ * even the worker's `new Simulation(m.scenario)` surfaces the refusal as a banner rather than a
+ * run (`src/worker/sim.worker.ts`); and in a *mixed* scene, which the schema does accept, the
+ * downgraded node's own PPDUs stop being binned at the PPDU gate (`isOfdmWifiPpdu`,
+ * src/engine/channel.ts). What is left of the mistake is an inert section plus a red line —
+ * and an inert section the user can see is a fair thing to leave them holding, where a
+ * mis-binned run would not have been.
  */
 export function selectivitySwitch(sc: Scenario): { on: boolean; live: boolean; refusals: string[] } {
   const refusals = selectivityRefusals(sc)
