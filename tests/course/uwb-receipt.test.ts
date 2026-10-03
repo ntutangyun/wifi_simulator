@@ -111,6 +111,17 @@ describe('uwb-receipt · where it sits in the course', () => {
     expect(text).toContain('roundPlan')
     expect(text).toContain('举证不足')
     expect(text).toContain('排程能不能被请求改变')
+    // …and §10.35's Request = 0 half IS built now (`@uwb-ancillary`: one message segmented across
+    // several frames, each carrying how many are left), so this limit says so rather than leaving
+    // a false claim standing — the slice that falsifies a statement is the slice that updates it.
+    // The cut itself is unchanged and still narrower than the clause: Request = 1 only, for scope
+    // rather than for lack of evidence.
+    expect(text).toContain('Request 置 0 的那一半')
+    expect(text).toContain('@uwb-ancillary')
+    expect(text).toContain('没建的是 Request 置 1 的那一半')
+    // the phrasing that is now false, in both spellings this repo has used for it
+    expect(text).not.toContain('§10.35 的测距辅助信息还没建')
+    expect(text).not.toContain('§10.35 的辅助信息交换还没建')
     // the honest limitation: neither mode exercises both dimensions of the IE
     expect(text).toContain('rcmValidityRounds')
     // the banned sentence, in both spellings

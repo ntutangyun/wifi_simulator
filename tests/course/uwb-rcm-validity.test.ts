@@ -94,6 +94,14 @@ describe('uwb-rcm-validity · where it sits in the course', () => {
     expect(text).toContain('RMMRC')
     expect(text).toContain('举证不足')
     expect(text).toContain('排程能不能被请求改变')
+    // …and §10.35's Request = 0 half IS built now (`@uwb-ancillary`), so this limit is narrowed to
+    // the half that is still out rather than left claiming the whole clause is unbuilt. The reason
+    // it is a separate cut survives the narrowing: scope, not lack of evidence.
+    expect(text).toContain('Request 置 0 的那一半')
+    expect(text).toContain('@uwb-ancillary')
+    expect(text).toContain('没建的是 Request 置 1 的那一半')
+    expect(text).not.toContain('§10.35 的辅助信息交换还没建')
+    expect(text).not.toContain('§10.35 的测距辅助信息还没建')
     // the one phrasing that is now false: this lesson must not claim §10.36 is unbuilt
     expect(text).not.toContain('§10.36 的多消息收妥确认都还没建')
     expect(text).not.toContain('§10.36 的多消息收妥确认还没建')
