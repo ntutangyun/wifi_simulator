@@ -13,10 +13,14 @@
  * draw re-entrant and order-independent instead: ask a hundred times, in any
  * order, from any caller, and get the same number.
  *
- * Two layers, both **flat across the whole channel bandwidth**. Per the design's
- * "not built" list this models no delay spread and no frequency selectivity, and
- * no Doppler — nodes do not move, so the coherence time is a configured figure
- * rather than one derived from a speed.
+ * Two layers, each **flat across the whole channel bandwidth** on its own — but that is the
+ * default, not the ceiling. `smallScaleDb`'s optional `bin` argument below is the
+ * frequency-selectivity hook: given a bin index it draws the fast layer once per 26-tone-RU bin
+ * of the same frame, and `channel.ts` combines those by capacity into one effective SINR
+ * (`selectivity.ts`, and the scenario's `selectivity` section is what switches it on). Still not
+ * modelled: **delay spread** itself — a bin's depth is drawn, not computed from any path's
+ * arrival time — **no Doppler**, since nodes do not move, so the coherence time is a configured
+ * figure rather than one derived from a speed, and **no correlation between bins**.
  *
  * | layer | model | how fast it changes |
  * | --- | --- | --- |

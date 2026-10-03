@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { FADING_DEFAULTS, RICIAN_K_DEFAULT_DB, type FadingCfg } from '../engine/fading'
 import { Rng } from '../engine/rng'
 import { GEN_FEATURES, physicalId, type LinkId } from '../model/caps'
-import { DEFAULT_AMP_AP, DEFAULT_AMP_BS, DEFAULT_SIX_GHZ_CENTER_MHZ, normalizeProfiles, PROFILE_IDS, SERVER_KINDS, sixGhzChannelNo, TAMPER_KINDS, TAMPER_PRESETS, TXOP_PROTECTIONS, serverFor, serverKindFor, tamperKindOf, type AmpApCfg, type AmpBackscatterCfg, type AmpTagMode, type Material, type NodeCfg, type ProfileId, type Scenario, type ServerCfg, type ServerKind, type TamperKind, type TxopProtection, type UwbSessionCfg } from '../model/scenario'
+import { DEFAULT_AMP_AP, DEFAULT_AMP_BS, DEFAULT_SIX_GHZ_CENTER_MHZ, normalizeProfiles, PROFILE_IDS, SERVER_KINDS, sixGhzChannelNo, TAMPER_KINDS, TAMPER_PRESETS, TXOP_PROTECTIONS, serverFor, serverKindFor, tamperKindOf, type AmpApCfg, type AmpBackscatterCfg, type AmpTagMode, type Material, type NodeCfg, type ProfileId, type Scenario, type SelectivityCfg, type ServerCfg, type ServerKind, type TamperKind, type TxopProtection, type UwbSessionCfg } from '../model/scenario'
 import { HOUSEHOLDS } from '../model/households'
 import { nonht } from '../model/scenario'
 import { BRANDS, STATION_PRESETS, applyPreset } from '../model/presets'
@@ -21,7 +21,8 @@ import {
   hitTestNode, hitTestScatterer, hitTestWall, moveScatterer, newAnchor, newAp, newScatterer, newTag,
   newUwbTag, parseCoherenceMs, parseRicianKdB, parseScattererNumber,
   parseShadowSigmaDb, removeNode, removeScatterer, roomsToWalls, scenarioFromJson, updateScatterer, withFading,
-  scenarioToJson, sixGhzNbOverlaps, sixGhzOverlapPct, snap, spawnRandomStas, uwbSessionIssue,
+  scenarioToJson, selectivitySwitch, selectivityToggle, sixGhzNbOverlaps, sixGhzOverlapPct, snap,
+  spawnRandomStas, uwbSessionIssue, withSelectivity,
 } from './planOps'
 
 type Tool = 'select' | 'room' | 'door' | 'window' | 'ap' | 'sta' | 'tag' | 'anchor' | 'uwbTag' | 'scatterer'
@@ -601,6 +602,11 @@ export function FloorPlanEditor() {
               {/* unconditional: the switch is what opts a plan in, so it has to be reachable
                   from a plan that has no fading section at all */}
               <FadingFields fading={scenario.fading} onChange={(fading) => commit(withFading(scenario, fading))} />
+              {/* Immediately under the fading section, and not anywhere else: every reason this
+                  switch can be grey is a fact about `fading` or about the links, so read three
+                  sections away the grey would be unexplainable. Unconditional for the same
+                  reason the fading switch is — it is what opts a plan in. */}
+              <SelectivityField scenario={scenario} onChange={(sel) => commit(withSelectivity(scenario, sel))} />
               {/* The reflecting objects. Unlike fading there is no switch: the objects *are* the
                   section, so this list is only here to name what the 🪞 tool placed and to take
                   them away again — with the last of them the section itself goes. */}
@@ -1176,6 +1182,41 @@ function FadingFields({ fading, onChange }: { fading?: FadingCfg; onChange: (f: 
         live={live.ricianKdB} value={shown.ricianKdB ?? RICIAN_K_DEFAULT_DB}
         parse={parseRicianKdB}
         onCommit={(v) => { if (fading) onChange({ ...fading, ricianKdB: v }) }} />
+    </div>
+  )
+}
+
+/**
+ * The scenario's frequency-selectivity section: one checkbox and nothing else.
+ *
+ * One checkbox is the whole control because the section has no fields — the bin count is the
+ * standard's arithmetic on the PPDU's width and the per-bin deviation is `fading`'s own
+ * distribution, so there is nothing here a plan could set (`SelectivityCfg`). Ticking writes
+ * the section, clearing removes the property, exactly as the fading switch above: presence is
+ * what the engine reads.
+ *
+ * It takes the whole scenario rather than the section, because every question about it is about
+ * something else — is there a `fading` section, is its distribution `none`, is there an
+ * eht/he/vht link. `selectivitySwitch` answers all three in `planOps.ts` and hands back the
+ * schema's own sentences for the ones that failed, so this draws them and decides nothing.
+ */
+function SelectivityField(
+  { scenario, onChange }: { scenario: Scenario; onChange: (s: SelectivityCfg | undefined) => void },
+) {
+  const E = useStrings().editor
+  const sw = selectivitySwitch(scenario)
+  return (
+    <div>
+      <div style={{ color: 'var(--dim)', marginBottom: 4 }}>{E.selectivity}</div>
+      <label style={{ display: 'block', marginBottom: 4 }} title={E.selectivityOnHint}>
+        <input type="checkbox" checked={sw.on} disabled={!sw.live}
+          onChange={(e) => onChange(selectivityToggle(e.target.checked))} />
+        {' '}{E.selectivityOn}
+      </label>
+      {/* The schema's wording, not a paraphrase of it, and visible rather than a tooltip: on a
+          touch screen there is nothing to hover, and a greyed checkbox with no reason beside it
+          is the shape of this bug in the first place. */}
+      {sw.refusals.map((why) => <div key={why} style={issueStyle}>{why}</div>)}
     </div>
   )
 }

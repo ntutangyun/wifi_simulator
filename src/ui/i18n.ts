@@ -118,6 +118,11 @@ export interface Strings {
     fadingSmallScale: string; fadingSmallScaleHint: string
     fadingSmallScales: Record<SmallScale, string>
     fadingRicianK: string; fadingRicianKHint: string; fadingRicianKBad: string; fadingRicianOnly: string
+    /** The frequency-selectivity switch, directly under the fading section: one checkbox, no
+     * figures of its own. Why it is grey is not here — those three sentences are the schema's
+     * (`selectivityRefusals`, src/model/scenario.ts), read straight out of it so the grey box and
+     * the refusal cannot word the same rule two ways. */
+    selectivity: string; selectivityOn: string; selectivityOnHint: string
     /** The reflecting objects (scatterers) section: the list, and the one figure each object has.
      * `scattererLoss` has to say which way is bigger — it is a *loss*, so the more negative the
      * number the stronger the reflector, and 0 dB is one square metre rather than "neutral". */
@@ -806,6 +811,9 @@ export const STRINGS: Strings = {
     fadingRicianKHint: '直射径功率与散射功率之比，dB。K 越大，能拿去起伏的能量越少：K = 0 dB 时两者相当，K 很大时这一层几乎不动，K 趋于 0（线性）就退回瑞利。默认 6 dB。',
     fadingRicianKBad: '莱斯 K 因子要填一个数（dB）',
     fadingRicianOnly: '只有分布选「莱斯」时才有 K 因子：瑞利按定义没有直射径，「无」连小尺度衰落都不抽',
+    selectivity: '频率选择性（frequency selectivity）',
+    selectivityOn: '按 26 音调资源单元分格',
+    selectivityOnHint: '打开后，快的那一层不再对整条信道同一个值：信道按 2.03125 MHz 一格（一个 26 音调资源单元）各抽一次，各格的信噪比再按容量折成一个有效信噪比，解调的判决就落在这个合成值上。格数由带宽算出，不可配：20/40/80/160/320 MHz 对应 9/18/36/72/144 格。场景默认不写这一节，整条信道因此只有一个值，既有场景的运行结果一个数都不变。它只改解调这一步：载波侦听、前导检测、捕获效应（capture effect）与选级读的仍然是那一次平坦抽样；AMP 侧那几种 OOK 的 PPDU 也不走这条路。',
     scatterers: '散射体（回波）',
     scatterersHint: '房间里会反射的物体：它给每一次发送在每个接收端添上第二个到达——比直达路径晚，因为多走了路；弱不弱则要看物体：一个很强的反射体立在连线附近时，两段短路加起来可以比一条长的直达路径还响（−10 dB 的衣柜在 2 m 连线旁 0.87 m 以内就是如此）；一平方米的物体则在同样的几何里始终更弱。场景默认没有这一节，也就没有任何回波。只有 UWB 侧读回波，Wi-Fi 链路完全不受影响；而且回波对测距是隐形的：4z 接收机锁的是第一条路径。',
     noScatterers: '暂无 — 用 🪞 在画布上放一个',

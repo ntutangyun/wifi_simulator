@@ -1091,6 +1091,44 @@ const FadingSchema = z.object({
 const SelectivitySchema = z.object({})
 
 /**
+ * Why this plan would refuse a `selectivity` section — one string per reason, empty when the
+ * section is welcome. The **single copy** of both the three predicates and their wording.
+ *
+ * `superRefine` below turns each string into an issue on `path: ['selectivity']`, and the
+ * editor's switch greys itself out with these very strings (`src/editor/planOps.ts` ·
+ * `selectivitySwitch`), so the grey checkbox explains the refusal in the words the refusal
+ * itself uses. Two copies would drift apart at the first rewording, and the one that drifted
+ * would be the one nobody runs — the schema's message only ever appears once a plan has already
+ * been committed, the editor's appears before every tick.
+ *
+ * Note what it does **not** take: `sc.selectivity`. Whether the section is there is the
+ * caller's question — `superRefine` asks only about plans that carry it, while the editor has
+ * to ask about a plan that does not yet, so that it can say whether ticking the box is even
+ * allowed.
+ *
+ * The first two are alternatives, because they are one cause (nothing to draw a per-bin
+ * deviation from) reached two ways. The link-generation refusal is independent of both, and
+ * none of the three remedies is forbidden by either of the others (the trap this file's `rmnr`
+ * rules were once broken by): "add fading", "turn smallScale away from none" and "add an
+ * eht/he/vht link" never ask the reader to undo one another.
+ */
+export function selectivityRefusals(sc: Pick<Scenario, 'fading' | 'nodes'>): string[] {
+  const out: string[] = []
+  if (!sc.fading) {
+    out.push('频率选择性（selectivity）需要场景里先写出 fading 小节：逐格的信噪比偏差就是靠 fading.smallScale 抽出来的那个值，没有 fading，每一格都会抽到完全相同的数，打开 selectivity 和关着它就逐字节相同，等于什么也没做。请加上 fading 小节，或者把 selectivity 去掉')
+  } else if (sc.fading.smallScale === 'none') {
+    out.push('频率选择性（selectivity）需要 fading.smallScale 不是 none：逐格偏差靠这个分布抽出来，而 smallScale 为 none 时 smallScaleDb 直接返回 0，于是每一格仍然是同一个数，这是最容易无意中写出来的空配置。请把 smallScale 改成 rayleigh 或 rician，或者把 selectivity 去掉')
+  }
+  const hasOfdmLink = sc.nodes.some((n) => (
+    n.caps.generation === 'eht' || n.caps.generation === 'he' || n.caps.generation === 'vht'
+  ))
+  if (!hasOfdmLink) {
+    out.push('频率选择性（selectivity）需要场景里至少有一条 eht、he 或 vht 链路：26 音调资源单元是 OFDM 信道的分格单位，纯 nonht 链路上不存在这样的分格，拒绝好过悄悄按一个错误的子载波间隔算出格宽。请加一条 eht/he/vht 链路，或者把 selectivity 去掉')
+  }
+  return out
+}
+
+/**
  * A coordinate of a reflecting object, metres. `.finite()` rather than the plain `z.number()`
  * that `Vec3Schema` uses for nodes, because these three numbers are the input to a subtraction
  * and two square roots (`echoPathM`): an infinity anywhere in a position makes the echo's delay
@@ -1238,35 +1276,13 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: `场景必须正好有一个 AP（现在有 ${aps.length} 个）：Wi-Fi 节点都归在同一个 BSS 下` })
     }
     // Frequency selectivity (design doc 2026-10-03-selectivity §3.4/§6). `selectivity` adds
-    // nothing of its own to configure — its presence is the whole switch — so every rule here is
-    // about whether the *other* sections it borrows from are even there to borrow. Three
-    // independent refusals, each with its own remedy, and none of the three remedies is
-    // forbidden by either of the others (the trap this file's `rmnr` rules were once broken by):
-    // "add fading", "turn smallScale away from none" and "add an eht/he/vht link" never ask the
-    // reader to undo one another.
+    // nothing of its own to configure — its presence is the whole switch — so every rule is
+    // about whether the *other* sections it borrows from are even there to borrow. The rules and
+    // their wording live in `selectivityRefusals` above, which the editor's switch reads too, so
+    // the grey checkbox and the schema's refusal can never explain the same rule differently.
     if (sc.selectivity !== undefined) {
-      if (!sc.fading) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['selectivity'],
-          message: '频率选择性（selectivity）需要场景里先写出 fading 小节：逐格的信噪比偏差就是靠 fading.smallScale 抽出来的那个值，没有 fading，每一格都会抽到完全相同的数，打开 selectivity 和关着它就逐字节相同，等于什么也没做。请加上 fading 小节，或者把 selectivity 去掉',
-        })
-      } else if (sc.fading.smallScale === 'none') {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['selectivity'],
-          message: '频率选择性（selectivity）需要 fading.smallScale 不是 none：逐格偏差靠这个分布抽出来，而 smallScale 为 none 时 smallScaleDb 直接返回 0，于是每一格仍然是同一个数，这是最容易无意中写出来的空配置。请把 smallScale 改成 rayleigh 或 rician，或者把 selectivity 去掉',
-        })
-      }
-      const hasOfdmLink = sc.nodes.some((n) => (
-        n.caps.generation === 'eht' || n.caps.generation === 'he' || n.caps.generation === 'vht'
-      ))
-      if (!hasOfdmLink) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['selectivity'],
-          message: '频率选择性（selectivity）需要场景里至少有一条 eht、he 或 vht 链路：26 音调资源单元是 OFDM 信道的分格单位，纯 nonht 链路上不存在这样的分格，拒绝好过悄悄按一个错误的子载波间隔算出格宽。请加一条 eht/he/vht 链路，或者把 selectivity 去掉',
-        })
+      for (const message of selectivityRefusals(sc)) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['selectivity'], message })
       }
     }
     // Every ranging rule is tagged `path: ['uwb']` so the editor can tell a

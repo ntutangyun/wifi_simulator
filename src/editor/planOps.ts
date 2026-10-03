@@ -2,7 +2,7 @@
  * Pure floor-plan operations: rooms → deduplicated walls, hit testing,
  * openings, random STA spawning, scenario (de)serialization.
  */
-import { DEFAULT_UWB_SESSION, ScenarioSchema, SIX_GHZ_GATE_MIN_WIDTH_MHZ, type NodeCfg, type Opening, type Room, type Scenario, type UwbNodeCfg, type Wall } from '../model/scenario'
+import { DEFAULT_UWB_SESSION, ScenarioSchema, SIX_GHZ_GATE_MIN_WIDTH_MHZ, selectivityRefusals, type NodeCfg, type Opening, type Room, type Scenario, type SelectivityCfg, type UwbNodeCfg, type Wall } from '../model/scenario'
 import { FADING_DEFAULTS, RICIAN_K_DEFAULT_DB, type FadingCfg } from '../engine/fading'
 import type { ScattererCfg } from '../engine/scatter'
 import { GEN_FEATURES, defaultFeatures, type FeatureFlag } from '../model/caps'
@@ -397,10 +397,70 @@ export function fadingSmallScalePatch(f: FadingCfg, smallScale: FadingCfg['small
  * again ought to be indistinguishable from one that was never here: `'fading' in sc` is the
  * shape the design's byte-identical guarantee is stated in, and the schema's output keeps an
  * explicitly-undefined key it is handed.
+ *
+ * It also carries the one cross-section consequence a fading change can have: `selectivity`
+ * borrows `fading.smallScale` for its per-bin deviation, so turning fading off — or turning the
+ * distribution to `none` — leaves a `selectivity` the schema refuses. Dropping it here is the
+ * same rule `removeNode` applies to the ranging session when the last UWB device goes: this
+ * panel must not commit a plan whose fix is in another section, because nothing validates on the
+ * way up and the user would meet it on Run instead. The guard keeps the byte-identical
+ * guarantee intact for every plan that never had the section.
  */
 export function withFading(sc: Scenario, f: FadingCfg | undefined): Scenario {
-  if (f !== undefined) return { ...sc, fading: f }
-  const { fading: _off, ...rest } = sc
+  let next: Scenario
+  if (f !== undefined) {
+    next = { ...sc, fading: f }
+  } else {
+    const { fading: _off, ...rest } = sc
+    next = rest
+  }
+  if (next.selectivity === undefined || selectivityRefusals(next).length === 0) return next
+  return withSelectivity(next, undefined)
+}
+
+// ---- the frequency-selectivity switch ------------------------------------------------------
+
+/**
+ * Everything the selectivity checkbox needs, decided here rather than in the component: whether
+ * it is ticked, whether it can be touched, and — when this plan would refuse the section — the
+ * schema's own reasons why, verbatim (`selectivityRefusals`, src/model/scenario.ts). The panel
+ * renders these three and judges nothing further.
+ *
+ * `live` is not simply "no refusals". A plan can be carrying the section *and* have grown a
+ * refusal since — the only OFDM link downgraded to `nonht`, say, which is a node edit this
+ * section never sees — and a checkbox greyed in that state would be a trap: the plan is already
+ * invalid and the one control that could rescue it is the one that stopped responding. So the
+ * box stays operable while it is on, and the refusals show in red beside it either way. Grey is
+ * only ever about **turning it on**, which is the case the brief's precedent (`fadingOffHint`)
+ * covers: a schema refusal the user has to run into is a refusal the panel failed to say first.
+ */
+export function selectivitySwitch(sc: Scenario): { on: boolean; live: boolean; refusals: string[] } {
+  const refusals = selectivityRefusals(sc)
+  const on = sc.selectivity !== undefined
+  return { on, live: on || refusals.length === 0, refusals }
+}
+
+/**
+ * The section the switch writes: `{}` for on, `undefined` for off.
+ *
+ * There is nothing inside it, and that is the design (`SelectivityCfg`): the bin count comes
+ * from the standard and the per-bin distribution is `fading`'s. So unlike `fadingToggle` this
+ * has no defaults to assemble — it exists so the component names the same thing the test does,
+ * and so the empty object has exactly one source.
+ */
+export function selectivityToggle(on: boolean): SelectivityCfg | undefined {
+  return on ? {} : undefined
+}
+
+/**
+ * The plan carrying this selectivity section — and, for `undefined`, carrying **no
+ * `selectivity` key at all**, for the reason `withFading` gives: the design's byte-identical
+ * guarantee is stated as "a plan that was never here", and an explicitly-undefined key survives
+ * the schema's output while `'selectivity' in sc` does not.
+ */
+export function withSelectivity(sc: Scenario, s: SelectivityCfg | undefined): Scenario {
+  if (s !== undefined) return { ...sc, selectivity: s }
+  const { selectivity: _off, ...rest } = sc
   return rest
 }
 
