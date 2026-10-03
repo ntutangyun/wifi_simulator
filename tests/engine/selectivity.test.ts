@@ -77,7 +77,9 @@ describe('selEffSinrDb: combines by capacity, not by the worst bin, not by EESM'
    * **The one test that is the point.** Over the *same* per-bin draws (this engine's own
    * Rayleigh fading, no new distribution), measure both numbers at 320 MHz / 144 bins and
    * assert them together — either number alone reads as a modelling choice; the pair is the
-   * refutation of "take the worst bin".
+   * refutation of "take the worst bin". The same block is then run at 20 MHz / 9 bins, because
+   * the `width` lesson quotes both ends and derives "about 3 dB per doubling" from them: two
+   * numbers a course subtracts must come off one instrument (review finding 4a).
    *
    * `worstBinDepth` is the design this slice rejects: the deepest bin's average distance below
    * the mean, i.e. what a worst-bin combiner would report as the link's loss. It is deliberately
@@ -95,31 +97,64 @@ describe('selEffSinrDb: combines by capacity, not by the worst bin, not by EESM'
    */
   it('combines by capacity, and that is an order of magnitude from the worst bin', () => {
     const TRIALS = 40_000
-    const BINS = 144 // selBins(320) — 320 MHz, the design doc's worst case
     const MEAN_SINR_DB = 20
 
-    const worstDepths: number[] = []
-    const lossesDb: number[] = []
-    for (let i = 0; i < TRIALS; i++) {
-      const devsDb: number[] = []
-      for (let bin = 0; bin < BINS; bin++) {
-        devsDb.push(smallScaleDb(RAYLEIGH, 7, 'ap', 'sta', `f${i}`, bin))
+    /** Both figures over the same per-bin draws, at whatever bin count is asked for. */
+    const block = (bins: number): { avgWorstDepth: number; medianLoss: number } => {
+      const worstDepths: number[] = []
+      const lossesDb: number[] = []
+      for (let i = 0; i < TRIALS; i++) {
+        const devsDb: number[] = []
+        for (let bin = 0; bin < bins; bin++) {
+          devsDb.push(smallScaleDb(RAYLEIGH, 7, 'ap', 'sta', `f${i}`, bin))
+        }
+        worstDepths.push(-Math.min(...devsDb))
+        lossesDb.push(MEAN_SINR_DB - selEffSinrDb(MEAN_SINR_DB, devsDb))
       }
-      worstDepths.push(-Math.min(...devsDb))
-      lossesDb.push(MEAN_SINR_DB - selEffSinrDb(MEAN_SINR_DB, devsDb))
+      const avgWorstDepth = worstDepths.reduce((a, b) => a + b, 0) / worstDepths.length
+      const sortedLosses = [...lossesDb].sort((a, b) => a - b)
+      const medianLoss = sortedLosses.length % 2
+        ? sortedLosses[(sortedLosses.length - 1) / 2]
+        : (sortedLosses[sortedLosses.length / 2 - 1] + sortedLosses[sortedLosses.length / 2]) / 2
+      return { avgWorstDepth, medianLoss }
     }
-    const avgWorstDepth = worstDepths.reduce((a, b) => a + b, 0) / worstDepths.length
-    const sortedLosses = [...lossesDb].sort((a, b) => a - b)
-    const medianLoss = sortedLosses.length % 2
-      ? sortedLosses[(sortedLosses.length - 1) / 2]
-      : (sortedLosses[sortedLosses.length / 2 - 1] + sortedLosses[sortedLosses.length / 2]) / 2
+
+    // 320 MHz, the design doc's worst case, and 20 MHz, the other end the `width` lesson quotes.
+    const wide = block(selBins(320))
+    const narrow = block(selBins(20))
+    expect([selBins(320), selBins(20)]).toEqual([144, 9])
 
     // The deepest bin, ~24 dB down — the design this slice rejects would report this as the
     // link's loss.
-    expect(avgWorstDepth).toBeCloseTo(24.09, 0) // within 0.5 dB of the design doc's converged figure
+    expect(wide.avgWorstDepth).toBeCloseTo(24.09, 0) // within 0.5 dB of the design doc's converged figure
     // Capacity's actual median loss — an order of magnitude smaller.
-    expect(medianLoss).toBeCloseTo(2.36, 1) // within 0.05 dB
+    expect(wide.medianLoss).toBeCloseTo(2.36, 1) // within 0.05 dB
     // The ratio is the argument: the worst bin is not a stand-in for the channel's loss.
-    expect(avgWorstDepth / medianLoss).toBeGreaterThan(9)
-  }, 20_000)
+    expect(wide.avgWorstDepth / wide.medianLoss).toBeGreaterThan(9)
+
+    /*
+     * The narrow end, on the SAME instrument (review of 2026-10-03, finding 4a). The `width`
+     * lesson prints 12.05 dB against 24.09 dB and concludes "about 3 dB per doubling" from the
+     * pair, so the pair has to be measured the same way: one deepest-bin average read off two bin
+     * counts of one 40 000-trial block, not two numbers from two different procedures. Measured
+     * here: 12.08 dB at 9 bins against 24.12 dB at 144, converging to the design doc's 12.05 /
+     * 24.09 at 400 000 — the same noise-vs-N gap the comment above records.
+     *
+     * The per-doubling figure is then derived rather than typed: four doublings separate 20 MHz
+     * from 320 MHz, and the measured difference over four comes out at 3.01 dB.
+     */
+    expect(narrow.avgWorstDepth).toBeCloseTo(12.05, 0) // within 0.5 dB, same tolerance as 24.09
+    expect(narrow.avgWorstDepth).toBeLessThan(wide.avgWorstDepth)
+    const DOUBLINGS = Math.log2(320 / 20)
+    expect(DOUBLINGS).toBe(4)
+    expect((wide.avgWorstDepth - narrow.avgWorstDepth) / DOUBLINGS).toBeCloseTo(3, 1) // within 0.05 dB
+    // …and the loss capacity actually charges barely moves across that whole span — measured
+    // 2.30 dB at 9 bins against 2.36 dB at 144, i.e. it rises by about a twentieth of a decibel
+    // while the deepest bin falls by 12 — which is why the lesson's headline is the drop rate and
+    // not this column. A bound on the difference rather than `toBeCloseTo`, because the two are
+    // 0.056 dB apart and the nearest `toBeCloseTo` precision either side (0.05 or 0.5) would be
+    // too tight or too loose to mean anything.
+    expect(Math.abs(wide.medianLoss - narrow.medianLoss)).toBeLessThan(0.1)
+    expect(narrow.medianLoss).toBeCloseTo(2.3, 1)
+  }, 30_000)
 })

@@ -337,8 +337,9 @@ describe('selectivity §6 item 3: twenty megahertz is the most affected width, n
       return [...byW.entries()].sort((a, b) => a[0] - b[0]).map(([w, v]) => ({ w, rate: v.f / v.p }))
     }
 
-    const sorted = [...groups.values()].sort((a, b) => b.length - a.length)
-    const biggest = pooled(sorted[0])
+    const sorted = [...groups.entries()].sort((a, b) => b[1].length - a[1].length)
+    const [biggestMargin, biggestRows] = sorted[0]
+    const biggest = pooled(biggestRows)
     const label = (ps: { w: ChannelWidth; rate: number }[]): string =>
       ps.map((p) => `${p.w}:${(p.rate * 100).toFixed(2)}%`).join(' ')
     // The largest group has to carry all five widths, or the comparison this test exists for was
@@ -352,6 +353,23 @@ describe('selectivity §6 item 3: twenty megahertz is the most affected width, n
     }
     // The headline the `width` lesson may print: an order of magnitude between the ends.
     expect(biggest[0].rate).toBeGreaterThan(10 * biggest[biggest.length - 1].rate)
+
+    /*
+     * The four figures the `width` lesson's `limits` entry prints, pinned here rather than left in
+     * a doc comment (review of 2026-10-03, finding 4c): the margin this group IS, both ends of the
+     * pooled rate column, and the end-to-end multiple. They are exact, not approximate — every
+     * run here is deterministic and a pooled rate is one integer over another — so a drift of any
+     * kind turns this red with both columns printed, which is what the lesson needs: it tells a
+     * reader to hold the margin comparable and then quotes these numbers as the result.
+     */
+    expect(biggestMargin, label(biggest)).toBe('3.62')
+    expect(biggest.map((p) => (p.rate * 100).toFixed(2)), label(biggest))
+      .toEqual(['14.39', '12.71', '9.48', '5.09', '0.52'])
+    // 14.39 / 0.52 ≈ 27.7, the "twenty-seven times" of this test's own doc comment. A bound
+    // rather than a rounded integer, because the exact rates above already fix the quotient and a
+    // nearest-integer assertion would only be a second spelling of them that is easier to get
+    // wrong (27.7 rounds to 28, not 27).
+    expect(biggest[0].rate / biggest[biggest.length - 1].rate, label(biggest)).toBeGreaterThan(27)
 
     // And in every group where 20 MHz can be compared with a wider channel at all, it is the
     // worst of them — so the nine-bin case being the most affected is not one group's accident.

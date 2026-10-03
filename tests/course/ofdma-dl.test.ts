@@ -295,7 +295,22 @@ describe('ofdma-dl · the two experiments', () => {
  * item 4), which slice 4b is meant to change. This is the course side of the same statement.
  */
 describe('ofdma-dl · a member gets the whole channel’s bins (slice 4b)', () => {
-  const lim = ofdmaDl.limits[ofdmaDl.limits.length - 1]
+  /*
+   * Selected by what it says, not by where it sits (review of 2026-10-03, finding 5): Task 7 and
+   * slice 4b both still add to this array, and a last-index lookup would silently start grading a
+   * different entry. The whole `kinds` column is asserted alongside it, the way
+   * tests/course/uwb-rcm-validity.test.ts does, so an insertion is visible here rather than
+   * absorbed.
+   */
+  const found = ofdmaDl.limits.filter((l) => l.text.includes('selCombine'))
+  const lim = found[0]
+
+  it('is the one limit about the bin count, and the lesson still declares five', () => {
+    expect(found).toHaveLength(1)
+    expect(ofdmaDl.limits).toHaveLength(5)
+    expect(ofdmaDl.limits.map((l) => l.kind))
+      .toEqual(['model-value', 'model-value', 'unmodelled', 'unmodelled', 'out-of-scope'])
+  })
 
   it('is an out-of-scope limit naming the mechanism, the size of the overestimate and the next slice', () => {
     expect(lim.kind).toBe('out-of-scope')

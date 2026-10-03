@@ -287,4 +287,15 @@ describe('noise-floor · the ratio after frequency selectivity', () => {
     expect(text).not.toContain('而且那份衰落对整个信道带宽是同一个值')
     expect(text).not.toContain('不建模时延扩展、频率选择性与多普勒')
   })
+
+  it('「衰落默认关闭」 holds for both sections, in every scene this lesson runs', () => {
+    // Both sections, every variant (review finding 7): the limit's first clause — the ratio is a
+    // constant here — is false if any of these scenes carries fading.
+    const scenes = [noiseFloor.scenario(), ...(noiseFloor.variants ?? []).map((v) => v.scenario())]
+    expect(scenes.length).toBeGreaterThan(1)
+    for (const [i, sc] of scenes.entries()) {
+      expect(sc.selectivity, `scene ${i}`).toBeUndefined()
+      expect(sc.fading, `scene ${i}`).toBeUndefined()
+    }
+  })
 })

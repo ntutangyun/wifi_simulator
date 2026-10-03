@@ -194,6 +194,18 @@ describe('selectivity on whole rounds: what widening the channel actually does',
     // The median hardly moves at all: the dispersion is what the width changes.
     const medians = rs.map((r) => r.medLossDb)
     expect(Math.max(...medians) - Math.min(...medians)).toBeLessThan(1)
+
+    /*
+     * The gap between a round and the draws, pinned because the `width` lesson now prints it
+     * (review of 2026-10-03, finding 4b): the design doc's 12.05 dB at 20 MHz is a mean over
+     * 40 000 draws (tests/engine/selectivity.test.ts), while ONE round of this scene holds far
+     * fewer samples and its deepest bin sits about 2 dB shallower. A reader who runs a round and
+     * reads 10.1 against a lesson printing 12.05 must find that difference explained rather than
+     * discover it, so the number the lesson explains it with is asserted here.
+     */
+    expect(rs[0].w).toBe(20)
+    expect(rs[0].medWorstDb).toBeCloseTo(-10.08, 1) // within 0.05 dB
+    expect(Math.abs(rs[0].medWorstDb).toFixed(1)).toBe('10.1')
   }, 300_000)
 
   /**

@@ -283,6 +283,17 @@ describe('mcs-ladder · rate selection after frequency selectivity', () => {
 
   it('no longer claims the engine models no frequency selectivity', () => {
     expect(text).not.toContain('不建模时延扩展与频率选择性')
-    expect(mcsLadderLesson.scenario().selectivity).toBeUndefined()
+  })
+
+  it('and neither section is in any scene this lesson runs', () => {
+    // Both sections, every variant (review finding 7). The lesson's other limits tell the reader
+    // to open fading in the editor to see rate control move, which is only honest if this scene
+    // has neither section.
+    const scenes = [mcsLadderLesson.scenario(), ...(mcsLadderLesson.variants ?? []).map((v) => v.scenario())]
+    expect(scenes.length).toBeGreaterThan(1)
+    for (const [i, sc] of scenes.entries()) {
+      expect(sc.selectivity, `scene ${i}`).toBeUndefined()
+      expect(sc.fading, `scene ${i}`).toBeUndefined()
+    }
   })
 })

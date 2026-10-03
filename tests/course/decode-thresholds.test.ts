@@ -282,8 +282,18 @@ describe('decode-thresholds · the hard threshold after frequency selectivity', 
     expect(text).not.toContain('不会出现“信道的一部分废了、另一部分还好”')
   })
 
-  it('and its own scene still runs the flat channel the rest of the limit describes', () => {
-    expect(decodeThresholds.scenario().selectivity).toBeUndefined()
+  it('「本课的场景两节都没有写」: both sections, in the base scene and every variant', () => {
+    // The sentence names TWO sections, so both are checked, and across the variants rather than
+    // the base scene alone (review of 2026-10-03, finding 7 — the earlier version read only
+    // `scenario().selectivity`). These variants are `primerVariants`, which this lesson shares
+    // with radio-primer, mcs-ladder and noise-floor; each lesson's own claim is graded in its own
+    // file rather than inferred from a neighbour's.
+    const scenes = [decodeThresholds.scenario(), ...(decodeThresholds.variants ?? []).map((v) => v.scenario())]
+    expect(scenes.length).toBeGreaterThan(1)
+    for (const [i, sc] of scenes.entries()) {
+      expect(sc.selectivity, `scene ${i}`).toBeUndefined()
+      expect(sc.fading, `scene ${i}`).toBeUndefined()
+    }
   })
 
   it('「少了衰落这一节，schema 会拒绝」, on this lesson’s own scene', () => {

@@ -433,15 +433,22 @@ describe('width · the subcarrier table adds up', () => {
  * five widths (14.39 → 0.52 %), because the code spans the whole channel.
  *
  * Three things the text may therefore not do, and each is pinned here:
- *  - call it a drop COUNT: by count it is 14, 44, 47, 23, 4 — not monotone, because a 320 MHz
- *    channel puts far more PPDUs on the air in the same time;
- *  - compare the five widths without saying the margin was held comparable (20 MHz has already
- *    paid by stepping a rate down, so its margin is wider and its rate flatters it);
+ *  - call it a drop COUNT: a count conflates airtime with decoding, because a wider channel puts
+ *    far more PPDUs on the air in the same time. The mechanism may be stated; the counts may not,
+ *    because 14/44/47/23/4 and 871/252 belong to the round sweep's four-width group and the rates
+ *    the lesson prints belong to the pooled five-width group (review of 2026-10-03, finding 4d);
+ *  - compare the five widths without saying the margin was held comparable — and the comparable
+ *    statement is the one this group supports: all five sit at 3.62 dB, and 20 MHz is the worst of
+ *    them. The earlier draft also carried a "20 MHz looks better than 40 MHz" clause, which is
+ *    true of the OTHER data set (the round sweep, where 20 MHz settles at 6.62 dB) and false of
+ *    the one the lesson quotes. One sentence, one data set (finding 1);
  *  - quote §4.1's open-loop 34.43 % → 7.14 %, which no lesson run produces (spec fix 124be31).
  *
- * All five rates are measured in tests/engine/selectivity-inert.test.ts, pooled by the margin the
- * closed rate loop settled at; the deepest bin and the 2.36 dB median loss in
- * tests/engine/selectivity.test.ts.
+ * All five rates, and the 3.62 dB margin they are pooled at, are asserted in
+ * tests/engine/selectivity-inert.test.ts; both ends of the deepest-bin column and the 2.36 dB
+ * median loss in tests/engine/selectivity.test.ts, on one instrument; and the shallower 10.1 dB a
+ * single round shows at 20 MHz in tests/engine/selectivity-round.test.ts, which is why the text
+ * says the two dB figures are means over many draws.
  */
 describe('width · the flat-channel limit, and the direction it had to change', () => {
   const text = width.limits.map((l) => l.text).join('\n')
@@ -452,20 +459,46 @@ describe('width · the flat-channel limit, and the direction it had to change', 
     expect(text).toContain('余量可比')
     expect(text).toContain('3.62 dB')
     expect(text).toContain('掉帧率而不是掉帧数')
-    expect(text).toContain('按个数看并不单调')
+    // the mechanism, without the other data set's counts
+    expect(text).toContain('按个数比会把空口时间混进来')
   })
 
-  it('keeps the deepening bin, and the noise floor as the real cost of a wide channel', () => {
+  it('says of this group only what this group supports: 20 MHz is its worst', () => {
+    expect(text).toContain('这一组五个带宽的余量都是 3.62 dB')
+    expect(text).toContain('在这一组里 20 MHz 正是掉帧最多的那一个')
+    // The round sweep's statement, which is about a different grouping and must not reappear here.
+    expect(text).not.toContain('20 MHz 已经先降了一级')
+    expect(text).not.toContain('不按余量分组看反倒显得它好')
+    // and no count from that sweep either
+    for (const n of ['14、44', '871', '252', '并不单调']) expect(text).not.toContain(n)
+  })
+
+  it('keeps the deepening bin, and says both figures are means over many draws', () => {
     expect(text).toContain('12.05 dB')
     expect(text).toContain('24.09 dB')
     expect(text).toContain('每翻一倍深约 3 dB')
-    expect(text).toContain('12.04 dB')
     expect(text).toContain('格间相关')
+    // 「跑一轮只有少得多的样本」: the lesson tells the reader what one round shows instead, so the
+    // 2 dB gap against a single run is explained rather than discovered
+    // (tests/engine/selectivity-round.test.ts measures that 10.1 dB).
+    expect(text).toContain('多次抽样下的均值')
+    expect(text).toContain('10.1 dB')
+  })
+
+  it('names the 12.04 dB as the RAISE in the floor, computed from the engine', () => {
+    // The lesson's own numbers table prints the floor itself in dBm (−93.99 / −87.97 / −84.96), so
+    // "a 12.04 dB noise floor" contradicted this very lesson. 12.04 dB is what 20 → 320 MHz adds,
+    // and this file already computes every other noise figure rather than typing it (`:147`).
+    expect(text).toContain(`噪声地板从 20 到 320 MHz 抬高的那 ${(noiseDbm(320) - noiseDbm(20)).toFixed(2)} dB`)
+    expect(text).not.toContain('12.04 dB 的噪声地板')
   })
 
   it('no longer predicts that the wider channel is the one that drops more', () => {
     expect(text).not.toContain('而信道越宽，踩到这种坑的机会越多')
     expect(text).not.toContain('即便在编辑器里打开衰落也补不上这一条')
+    // the prediction the next sentence contradicts has to be made first, or the quotation marks
+    // argue with something the text never said (review finding 6)
+    expect(text).toContain('听起来就该越糟')
   })
 
   it('quotes neither open-loop figure: no lesson run produces them', () => {

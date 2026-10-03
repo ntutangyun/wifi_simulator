@@ -338,7 +338,20 @@ describe('ofdma-ul · the experiments', () => {
  * large. The engine side is asserted in tests/engine/selectivity-inert.test.ts (§6 item 4).
  */
 describe('ofdma-ul · every answer gets the whole channel’s bins (slice 4b)', () => {
-  const lim = ofdmaUl.limits[ofdmaUl.limits.length - 1]
+  /*
+   * Selected by what it says, not by where it sits (review of 2026-10-03, finding 5): slice 4b
+   * will add to this array, and a last-index lookup would then grade the wrong entry. The whole
+   * `kinds` column goes with it, as in tests/course/uwb-rcm-validity.test.ts.
+   */
+  const found = ofdmaUl.limits.filter((l) => l.text.includes('selCombine'))
+  const lim = found[0]
+
+  it('is the one limit about the bin count, and the lesson still declares five', () => {
+    expect(found).toHaveLength(1)
+    expect(ofdmaUl.limits).toHaveLength(5)
+    expect(ofdmaUl.limits.map((l) => l.kind))
+      .toEqual(['unmodelled', 'unmodelled', 'unmodelled', 'model-value', 'out-of-scope'])
+  })
 
   it('is an out-of-scope limit naming the mechanism, the overestimate and the next slice', () => {
     expect(lim.kind).toBe('out-of-scope')
