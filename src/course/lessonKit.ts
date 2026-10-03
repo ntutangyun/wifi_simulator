@@ -371,6 +371,15 @@ export const firstUwbTrainLost = (r: TLRecord): boolean => r.type === 'UWB_MMS_T
 /** P802.15.4ab: the first narrowband transmission that listen-before-talk stopped, which costs
  * the device every narrowband message of that block. */
 export const firstNbLbt = (r: TLRecord): boolean => r.type === 'UWB_NB_LBT'
+/** Spectrum sensing based deferral (standard §10.45 — a P802.15.4ab **draft** clause; see
+ * `uwb/phy.ts`'s `ssbdBoundNs`): the first attempt that ran out of backoffs on a channel it had
+ * just read busy and transmitted regardless, which is what the draft's default end action does.
+ * The deferral's own point, as a jump: the algorithm is not what stops a transmission. */
+export const firstUwbSsbdTxOnEnd = (r: TLRecord): boolean => r.type === 'UWB_SSBD' && r.outcome === 'txOnEnd'
+/** …and the first attempt that read the channel clear, so it ended on its own first sensing with
+ * nothing deferred. Initiator and responder sense independently (§10.39.8.3), and these two
+ * predicates are how a reader sees the two ends of one round disagree about the channel. */
+export const firstUwbSsbdIdle = (r: TLRecord): boolean => r.type === 'UWB_SSBD' && r.outcome === 'idle'
 /** Angle of arrival: the first bearing an anchor took off a frame from a tag. */
 export const firstUwbAoa = (r: TLRecord): boolean => r.type === 'UWB_AOA'
 /** Angle of arrival: the first fix an anchor solved on its own, from its range and its bearing —

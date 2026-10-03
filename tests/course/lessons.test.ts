@@ -537,6 +537,7 @@ describe("a lesson's track", () => {
     "uwb-mms-numbers":          "uwb",
     "uwb-nba":                  "uwb",
     "uwb-nba-coexist":          "uwb",
+    "uwb-ssbd":                 "uwb",
     "uwb-uwbd":                 "uwb",
     "uwb-acquisition":          "uwb",
     "uwb-subrounds":            "uwb",

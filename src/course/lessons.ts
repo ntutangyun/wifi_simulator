@@ -61,6 +61,7 @@ import { uwbMms } from './uwb/uwb-mms'
 import { uwbMmsNumbers } from './uwb/uwb-mms-numbers'
 import { uwbNba } from './uwb/uwb-nba'
 import { uwbNbaCoexist } from './uwb/uwb-nba-coexist'
+import { uwbSsbd } from './uwb/uwb-ssbd'
 import { uwbUwbd } from './uwb/uwb-uwbd'
 import { uwbAcquisition } from './uwb/uwb-acquisition'
 import { uwbSubrounds } from './uwb/uwb-subrounds'
@@ -150,6 +151,7 @@ const AUTHORED: Lesson[] = [
   uwbMmsNumbers,
   uwbNba,
   uwbNbaCoexist,
+  uwbSsbd,
   uwbUwbd,
   uwbAcquisition,
   uwbSubrounds,

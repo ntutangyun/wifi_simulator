@@ -215,7 +215,7 @@ export const COURSE_ORDER: string[] = [
   // UWB Tier 2 — M20 sensing: the things in the room that never answer
   'uwb-sensing', 'uwb-sensing-resolution',
   // UWB Tier 3 — M15 narrowband-assisted multi-millisecond UWB
-  'uwb-mms', 'uwb-mms-numbers', 'uwb-nba', 'uwb-nba-coexist',
+  'uwb-mms', 'uwb-mms-numbers', 'uwb-nba', 'uwb-nba-coexist', 'uwb-ssbd',
   'uwb-uwbd', 'uwb-acquisition', 'uwb-subrounds',
   // UWB Tier 3 — M16 the capstone of the ranging track
   'uwb-capstone',
@@ -302,6 +302,14 @@ export const CONTRIBUTIONS: Record<string, string> = {
   '15-25/0292r1': '非交织子轮的结构（提案为 §10.39.7）',
   '15-25/0331r1': '非交织形态下的控制阶段，以及一条已撤回的反对意见给出的代价',
   '15-25/0556r2': '反序的 MMS 轮次，以及把回复时间从报告里省掉',
+  '15-22/0486r5': 'SSBD 的算法、属性表，以及附录里那两个延迟上界的例子',
+  '15-24/0010r36': '把 SSBD 整节移入第 10 章的那一次获通过的编辑',
+  '15-24/0121r2': 'CID 489/493（退避改抽一倍退避因子、取值范围放宽到 1…63）与 CID 490/495（删去 SSBD 自己的感知时长属性，改用物理层属性）',
+  '15-25/0486r1': '§10.39.8.3 先听后发的适用范围：哪些条款、哪些窄带信道、哪两段频率上的发射',
+  '15-25/0307r1': 'ETSI EN 303 687 对这一类设备的符合性推定被欧盟 2025/893 号决定撤销',
+  '15-26/0179r1': 'Annex E 的 PICS 插入项：MLF9.45 把 SSBD 记在 §10.45 名下，状态为可选',
+  '15-26/0244r1': 'D04 的评审决议表：十三条要把先听后发改成强制的意见，以及要求能量检测门限与最短感知时长的意见，全部被否决',
+  '15-26/0365r0': '频率域延后的提案正文（新增 §10.47 与它的能力位），答复的是一条已被否决的 D04 意见',
   // P802.11bp (TGbp), the ambient-power draft
   '11-24/1613r20': 'TGbp 规范框架',
   '11-26/1519r5': '触发过程与 AMP PPDU 格式',

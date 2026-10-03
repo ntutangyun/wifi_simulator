@@ -34,7 +34,11 @@ const NONE = 1
 describe('uwb-uwbd · where it sits', () => {
   it('is the first lesson of the UWB-driven half, right after the narrowband pair', () => {
     expect(MODULES[uwbUwbd.module].title).toBe('另一种控制面与子轮')
-    expect(COURSE_ORDER.indexOf('uwb-uwbd')).toBe(COURSE_ORDER.indexOf('uwb-nba-coexist') + 1)
+    // The narrowband pair became a trio when `uwb-ssbd` landed (the §10.45 deferral that closes
+    // the listen-before-talk story `uwb-nba-coexist` opens), so this names the lesson it now
+    // follows AND keeps the original claim — it is still after the narrowband lessons, not before.
+    expect(COURSE_ORDER.indexOf('uwb-uwbd')).toBe(COURSE_ORDER.indexOf('uwb-ssbd') + 1)
+    expect(COURSE_ORDER.indexOf('uwb-uwbd')).toBeGreaterThan(COURSE_ORDER.indexOf('uwb-nba-coexist'))
     expect(COURSE_ORDER.indexOf('uwb-uwbd')).toBeLessThan(COURSE_ORDER.indexOf('uwb-capstone'))
     expect(uwbUwbd.needs).toEqual(['uwb-mms', 'uwb-nba'])
   })
