@@ -90,7 +90,7 @@ function threePeaks(): TimingSpec {
 
 export const uwbSensingResolution: Lesson = {
   id: 'uwb-sensing-resolution',
-  module: 24,
+  module: 25,
   title: '贴着连线站的人看不见',
   why: `上一课那个衣柜离连线 1 米，它的回波比直达路径多走 ${ECHO_OFF_LINE.excessM} 米，记录里写得明明白白。现在把一个一模一样的物体摆到离连线 ${ECHO_NEAR_LINE.offM} 米：它成了房间里电平最高的回波，比直达路径还高出几个分贝——可同一台接收机报告说，它分不开。这一课讲的就是这条门槛：它从哪里来，怎么算，以及为什么一个东西「看不见」往往跟它强不强毫无关系。`,
   outcomes: [

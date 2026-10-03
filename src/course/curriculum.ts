@@ -144,6 +144,13 @@ export const MODULES: CourseModule[] = [
   // panel still lists tier 5's modules in COURSE_ORDER's own order; every lesson of the modules
   // below moved up by one index with it.
   { tier: 5, title: 'SP3 分组测距' },
+  // Ranging ancillary information (standard §10.35) and its RAICT IE (§10.35.2.1), the Request = 0
+  // half. No `basis` of its own for the same reason the four modules above have none: the published
+  // revision is exactly what its tier declares, and a module that restates its tier is data that
+  // can only drift out of agreement with it (tests/course/basis.test.ts). Inserted here rather than
+  // appended so the panel still lists tier 5's modules in COURSE_ORDER's own order; every lesson of
+  // the modules below moved up by one index with it.
+  { tier: 5, title: '测距辅助信息' },
   { tier: 5, title: '单向测距' },
   { tier: 5, title: '角度' },
   // Sensing sits in Tier 2 and not in the draft tier on purpose. What the two lessons under it
@@ -200,6 +207,9 @@ export const COURSE_ORDER: string[] = [
   // UWB Tier 2 — M21 the shortest ranging frame the standard has, and the round it does not make
   // the shortest: something has to announce the slot table, and an SP3 packet announces nothing
   'uwb-sp3',
+  // UWB Tier 2 — M22 one message that does not fit in one frame: the count every frame carries, so
+  // the receiver learns of a gap at the next arrival instead of at a deadline
+  'uwb-ancillary',
   // UWB Tier 2 — M14 other ranging modes
   'uwb-dl-tdoa', 'uwb-ul-tdoa', 'uwb-aoa',
   // UWB Tier 2 — M20 sensing: the things in the room that never answer

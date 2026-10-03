@@ -300,7 +300,7 @@ describe('module 4 lessons', () => {
       0, 0, 0, 0, 0, 0, 0,
       1, 1, 1, 1, 1,
       4, 4, 4, 4,
-      5, 5, 5, 5, 5, 5, 5, 5, 5,
+      5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
       6, 6, 6, 6,
     ])
     expect(MODULES.map((m) => m.title)).toEqual([
@@ -310,7 +310,7 @@ describe('module 4 lessons', () => {
       '环境能量物联网（802.11bp）', '真实应用',
       '飞行时间', '两只钟', '会话网格', '定位',
       '共存', '竞争式测距', '多对多测距', '控制消息的有效期', '多消息收妥确认', 'SP3 分组测距',
-      '单向测距', '角度', '感知',
+      '测距辅助信息', '单向测距', '角度', '感知',
       '多毫秒片段', '窄带控制面', '另一种控制面与子轮', '测距综合实践',
     ])
     // every module shown carries at least one lesson: an empty entry would make every
@@ -527,6 +527,7 @@ describe("a lesson's track", () => {
     "uwb-rcm-validity":         "uwb",
     "uwb-receipt":              "uwb",
     "uwb-sp3":                  "uwb",
+    "uwb-ancillary":            "uwb",
     "uwb-dl-tdoa":              "uwb",
     "uwb-ul-tdoa":              "uwb",
     "uwb-aoa":                  "uwb",
