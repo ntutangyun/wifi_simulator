@@ -16,6 +16,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { streams, streamsNegotiationStack } from '../../src/course/tier2/streams'
+import type { Block } from '../../src/course/lessonKit'
 import { width } from '../../src/course/tier2/width'
 import { widthScenario } from '../../src/course/wifiScenes'
 import { ScenarioSchema } from '../../src/model/scenario'
@@ -245,5 +246,32 @@ describe('streams · the figure is the mixed variant’s own three numbers', () 
         expect(hit, `${ts[i].text} / ${ts[j].text}`).toBe(false)
       }
     }
+  })
+})
+
+/**
+ * The nine-thousand-bit symbol a reader asked about. Nothing in the engine publishes the
+ * decomposition, so what this pins is that the lesson's arithmetic is the engine's: the per-stream
+ * figure is EHT's own N_DBPS for this MCS, the four-stream figure is that times the streams, and
+ * the rate it implies is the one the width lesson prints for a single stream. A table that drifts
+ * from `txTimeModeNs`'s inputs fails here.
+ */
+describe('streams · the 9360 bits in one symbol are the engine’s own', () => {
+  const rows = streams.numbers!
+    .filter((b): b is Extract<Block, { kind: 'table' }> => b.kind === 'table')
+    .find((b) => b.heading?.includes('1500 字节的帧'))!.rows
+  const n = (s: string): number => Number(s.replace(/[^0-9]/g, ''))
+  const MCS13 = PHY_MODES.eht.ndbps.length - 1
+
+  it('uses EHT’s own N_DBPS for one stream, and multiplies by the stream count', () => {
+    const perStream = PHY_MODES.eht.ndbps[MCS13]
+    expect(n(rows[0][1])).toBe(perStream)
+    for (const r of rows) expect(n(r[1]), r[0]).toBe(perStream * n(r[0]))
+  })
+
+  it('implies the single-stream rate the width lesson prints', () => {
+    const perStream = PHY_MODES.eht.ndbps[MCS13]
+    const mbps = perStream / (PHY_MODES.eht.symNs / 1000)
+    expect(Math.round(mbps * 10) / 10).toBe(172.1)
   })
 })
