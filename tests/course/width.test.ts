@@ -476,12 +476,17 @@ describe('width · the flat-channel limit, the direction it changed, and the les
   })
 
   it('prints no figure of the measurement, and `selectivity` prints every one', () => {
-    for (const n of ['14.39', '12.71', '9.48', '5.09', '0.52', '12.05', '24.09', '10.08', '3.62', '2.36', '12.04']) {
+    for (const n of ['14.66', '13.10', '9.81', '5.61', '0.75', '12.05', '24.09', '10.29', '3.62', '2.36', '12.04']) {
       expect(text, `width's limits still print ${n}`).not.toContain(n)
       expect(selText, `selectivity does not print ${n}`).toContain(n)
     }
-    // the shallower single-round figure in either spelling
+    // the shallower single-round figure in either spelling, and the column `9604fbc` retired
+    // (those five rates were measured while the non-HT ACKs were still being binned)
     expect(text).not.toContain('10.1 dB')
+    for (const stale of ['14.39', '12.71', '9.48', '5.09', '0.52', '10.08']) {
+      expect(text, `width prints the retired ${stale}`).not.toContain(stale)
+      expect(selText, `selectivity prints the retired ${stale}`).not.toContain(stale)
+    }
   })
 
   it('no longer predicts that the wider channel is the one that drops more', () => {

@@ -16,11 +16,12 @@
  */
 import { describe, it, expect } from 'vitest'
 import { ofdmaDl, muPpduFields, MU_SYMBOLS } from '../../src/course/tier2/ofdma-dl'
+import type { Block } from '../../src/course/lessonKit'
 import { Simulation } from '../../src/engine/simulation'
 import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
-import { PHY_MODES, toneRatio } from '../../src/engine/phy'
-import { lessonShapeSuite, runOf } from './kit'
+import { PHY_MODES, SIFS_NS, toneRatio } from '../../src/engine/phy'
+import { lessonShapeSuite, ofType, runOf } from './kit'
 import { MODULES } from '../../src/course/curriculum'
 import { RU26_PER_20MHZ, selBinWidthMhz, selBins } from '../../src/engine/selectivity'
 
@@ -220,6 +221,37 @@ describe('ofdma-dl · the procedure, run against every multi-user send there is'
       for (const b of bas) expect(b.frame.txTimeNs).toBe(32 * US)
     }
   })
+
+  /**
+   * **The worked table's last row, bound to the fact two assertions up.** It used to read
+   * `2 × 32 µs`, and every other cell in that column is an arithmetic expression
+   * (`1950 × 0.5 = 975`, `44 + 4 + 13.6 × 12 = 211.2 µs`), so in that position `2 × 32` could
+   * only be read as 64 µs — and a reader adding the column up would get `211.2 + 16 + 64`,
+   * which deletes the entire point of the lesson: the two answers do not add, they are side by
+   * side in frequency. The lesson says so correctly in three other places (`:83` the timing
+   * figure, `:104` the steps, `:147` the observe line); this row was the one that did not.
+   *
+   * So the row is now pinned against what the records say rather than left as unguarded prose:
+   * the two BlockAcks start at the same instant, each is 32 µs, and the time that passes is one
+   * of them — not their sum.
+   */
+  it('the worked table says 32 µs, not 2 × 32: the two answers are parallel, not summed', () => {
+    const row = (ofdmaDl.numbers!
+      .filter((b): b is Extract<Block, { kind: 'table' }> => b.kind === 'table')
+      .find((b) => b.heading?.includes('照着步骤走一遍'))!)
+      .rows.find((r) => r[0].includes('确认是'))!
+    const first = mu[0]
+    const bas = txs(rs, (x) => x.frame.kind === 'ba' && x.t === first.t + first.frame.txTimeNs + SIFS_NS)
+    // two of them, at one instant, each 32 µs: the cell may name that airtime and no multiple
+    expect(bas.length).toBe(2)
+    expect(new Set(bas.map((b) => b.t)).size).toBe(1)
+    expect(new Set(bas.map((b) => b.frame.txTimeNs))).toEqual(new Set([32 * US]))
+    expect(row[1]).toContain(`${(bas[0].frame.txTimeNs / US).toFixed(0)} µs`)
+    expect(row[1]).not.toContain('2 ×')
+    expect(row[1]).not.toContain('64')
+    // and the cell has to say why it is not a multiple, or the next editor puts the 2 back
+    expect(row[1]).toContain('不是相加')
+  })
 })
 
 describe('ofdma-dl · the whole run, with OFDMA and without', () => {
@@ -305,11 +337,45 @@ describe('ofdma-dl · a member gets the whole channel’s bins (slice 4b)', () =
   const found = ofdmaDl.limits.filter((l) => l.text.includes('selCombine'))
   const lim = found[0]
 
-  it('is the one limit about the bin count, and the lesson still declares five', () => {
+  it('is the one limit about the bin count, and the lesson declares six', () => {
     expect(found).toHaveLength(1)
-    expect(ofdmaDl.limits).toHaveLength(5)
+    // Six since the solicitation warning moved out of `sources` and into `limits`, where a
+    // reader reads a warning as one (course-fix-queue, 2026-10-03). The whole column is
+    // asserted so an insertion is visible here rather than absorbed.
+    expect(ofdmaDl.limits).toHaveLength(6)
     expect(ofdmaDl.limits.map((l) => l.kind))
-      .toEqual(['model-value', 'model-value', 'unmodelled', 'unmodelled', 'out-of-scope'])
+      .toEqual(['model-value', 'model-value', 'unmodelled', 'unmodelled', 'unmodelled', 'out-of-scope'])
+  })
+
+  /**
+   * **The solicitation the engine does not model, and the only half of it that is useful: which
+   * way it leans — which is opposite on the standard's two paths.**
+   *
+   * It used to be a line of `sources`, where a reader reads provenance rather than a warning,
+   * and it named neither direction. §26.5.2.2.4 puts the two paths side by side: the TRS Control
+   * subfield rides in an A-Control of a frame that was going out anyway (a few bytes, so the
+   * engine's shortcut is nearly exact there), while a Trigger frame is a whole extra frame that
+   * §26.5.2.2.3 additionally pads (neither of which the engine pays, so OFDMA looks better than
+   * it should against that path). Two more things are skipped entirely: a station may legitimately
+   * not answer (§26.5.2.3.2 exists for that case) while this engine's two BlockAcks are
+   * unconditional, and what comes back is an ordinary BlockAck rather than the HE TB PPDU whose
+   * TXVECTOR §26.5.2.3.3/.4 specify.
+   */
+  it('declares the solicitation it does not model, in `limits`, with both directions', () => {
+    const sol = ofdmaDl.limits.filter((l) => l.text.includes('§26.5.2.2.4'))
+    expect(sol, 'the solicitation warning is not a limit').toHaveLength(1)
+    expect(sol[0].kind).toBe('unmodelled')
+    for (const s of ['TRS Control', 'Trigger 帧', '§26.5.2.2.3', '§26.5.2.3.2', '§26.5.2.3.3/.4']) {
+      expect(sol[0].text, `the limit never names ${s}`).toContain(s)
+    }
+    // the two directions, which is the half that was missing
+    expect(sol[0].text).toContain('几乎是精确的')
+    expect(sol[0].text).toContain('显得比它该有的样子更好')
+    // …and `sources` keeps the provenance without carrying the warning
+    const src = ofdmaDl.sources!.join('\n')
+    expect(src).toContain('§26.5.2.2')
+    expect(src).toContain('代价写在 limits 里')
+    expect(src).not.toContain('按同样的空口时间计费')
   })
 
   it('is an out-of-scope limit naming the mechanism, the size of the overestimate and the next slice', () => {
@@ -328,5 +394,102 @@ describe('ofdma-dl · a member gets the whole channel’s bins (slice 4b)', () =
 
   it('and this lesson’s own scene does not turn the feature on', () => {
     expect(ofdmaDl.scenario().selectivity).toBeUndefined()
+  })
+})
+
+/**
+ * **Why only 45 of 1016 sends carry two televisions** — the question the lesson's `deeper`
+ * answers beside 「分组是见机行事的，而机会在队列里，不在电台里」, and the one a reader asks the
+ * moment they read that row.
+ *
+ * The grouping window is the gap between a frame landing in the AP's queue and the AP's next
+ * transmission, because `buildMuParts` looks at the queue at exactly that instant (mac.ts:587).
+ * Measured over this run's 1061 downlink MSDUs, keyed by `msduId` so no frame is matched to the
+ * wrong arrival: median **9.6 µs**, 506 of them out inside one microsecond, the longest wait
+ * **185.2 µs** — one exchange, never more. Each television's next frame is 747–947 µs away
+ * (`scheduleVideo`, traffic.ts), so a second television joins the group only when its own frame
+ * lands inside that window.
+ *
+ * **The ruler that makes this look impossible, pinned from the wrong side too.** The obvious
+ * measurement — how long an MSDU sits in the queue, `DEQUEUE − ENQUEUE` — cannot be the window:
+ * an MSDU stays in the queue until its ACK removes it (model/view.ts says so in those words), so
+ * its floor is the frame's own airtime plus SIFS plus the ACK, 125.6 + 16 + 28 = 169.6 µs, which
+ * is asserted below. Read that way the window looks like ~184 µs, 37.1 % of consecutive
+ * cross-television arrivals fall inside it, and the 4.4 % of sends that actually carry two looks
+ * ten times too small. It is the instrument that is wrong, not the engine — and the air being
+ * busy 161.5 ms of the 300 ms does not widen the window either, because what it is busy with is
+ * almost always the AP's own previous exchange.
+ */
+describe('ofdma-dl · why the chance to group is rare', () => {
+  const rs = runOf(ofdmaDl, undefined, RUN_NS)
+  const enqs = ofType(rs, 'ENQUEUE').filter((r) => r.node === 'ap')
+  const byId = new Map(enqs.map((e) => [e.msduId, e]))
+  const apData = txs(rs, (r) => r.node === 'ap' && r.frame.kind === 'data')
+
+  /** Every downlink MSDU's arrival-to-transmission gap, in ns, ascending. */
+  const windows = (): number[] => {
+    const out: number[] = []
+    for (const t of apData) {
+      const ids = t.frame.muParts
+        ? t.frame.muParts.flatMap((p) => p.msduIds ?? [])
+        : [t.frame.msduId!]
+      for (const id of ids) {
+        const e = byId.get(id)
+        expect(e, `MSDU ${id} was sent with no ENQUEUE`).toBeDefined()
+        out.push(t.t - e!.t)
+      }
+    }
+    return out.sort((a, b) => a - b)
+  }
+
+  it('empties the queue within 9.6 µs of a frame arriving, and 185.2 µs at the very worst', () => {
+    const w = windows()
+    expect(w.length).toBe(1061)
+    expect(w[Math.floor(w.length / 2)]).toBe(9628)
+    expect(w[w.length - 1]).toBe(185_170)
+    expect(w.filter((x) => x <= 1 * US).length).toBe(506)
+    // half of them are gone inside ten microseconds: the AP is the only station with data
+    expect(w.filter((x) => x <= 10 * US).length / w.length).toBeCloseTo(0.5, 2)
+  })
+
+  it('and the two counts that explain 45: 4.4 % of sends against 3.9 % of close arrivals', () => {
+    const arrivals = enqs.map((e) => ({ t: e.t, dst: e.dst })).sort((a, b) => a.t - b.t)
+    let close = 0, cross = 0, within184 = 0
+    for (let i = 1; i < arrivals.length; i++) {
+      if (arrivals[i].dst === arrivals[i - 1].dst) continue
+      cross++
+      const gap = arrivals[i].t - arrivals[i - 1].t
+      if (gap < 14 * US) close++
+      if (gap < 184 * US) within184++
+    }
+    expect([close, cross]).toEqual([41, 1058])
+    expect((close / cross * 100).toFixed(1)).toBe('3.9')
+    const mu = apData.filter((r) => r.frame.muParts !== undefined)
+    expect((mu.length / apData.length * 100).toFixed(1)).toBe('4.4')
+    // the wrong ruler's answer, pinned so the lesson's "ten times too big" is a measurement
+    expect((within184 / cross * 100).toFixed(1)).toBe('37.1')
+  })
+
+  it('pins the floor that makes the queue-residence time the wrong ruler', () => {
+    const deqs = ofType(rs, 'DEQUEUE').filter((r) => r.node === 'ap')
+    const held: number[] = deqs.map((d) => d.t - byId.get(d.msduId)!.t).sort((a, b) => a - b)
+    const su: number = one(suData(rs).map((r) => r.frame.txTimeNs))
+    const ack: number = one(txs(rs, (r) => r.frame.kind === 'ack').map((r) => r.frame.txTimeNs))
+    // 125.6 + 16 + 28 = 169.6 µs, and an MSDU cannot leave the queue before its ACK arrives
+    expect(su + SIFS_NS + ack).toBe(169.6 * US)
+    expect(held[0]).toBe(su + SIFS_NS + ack)
+    expect(ofdmaDl.deeper!.map((b) => JSON.stringify(b)).join('\n')).toContain('169.6 µs')
+  })
+
+  it('says all of that in `deeper`, beside the sentence it completes', () => {
+    const d = ofdmaDl.deeper!.map((b) => (b as { heading?: string; text?: string }))
+    const i = d.findIndex((b) => b.heading === '那个机会为什么稀罕')
+    expect(i, 'the explanation is missing').toBeGreaterThanOrEqual(0)
+    // right after the sentence it completes, not in a section of its own somewhere else
+    expect(d[i - 1].text).toContain('分组是见机行事的，而机会在队列里，不在电台里')
+    const t = d[i].text!
+    for (const n of ['9.6 µs', '185.2 µs', '506', '747 到 947 µs', '4.4 %', '3.9 %', '169.6 µs', '37 %']) {
+      expect(t, `the explanation never names ${n}`).toContain(n)
+    }
   })
 })

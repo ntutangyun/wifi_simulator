@@ -5,33 +5,46 @@
  * of them and the point of the split is that a reader can tell which instrument each came off:
  *
  *  - **tests/engine/selectivity.test.ts** — the 12.05 / 24.09 dB deepest-bin means and the
- *    2.36 dB median loss, over 40 000 draws. Not re-measured here.
- *  - **tests/engine/selectivity-inert.test.ts** — the five pooled drop rates (14.39 … 0.52 %)
- *    and the 3.62 dB margin they share, over 45 runs at nine power offsets. Not re-measured
- *    here; this file only checks that the lesson prints them as *rates*, says the margin was
- *    held comparable, and keeps that group's sentence apart from its own scene's.
+ *    2.30 / 2.36 dB median losses, over 40 000 draws. The 9-bin median loss is re-measured
+ *    here at a smaller N (the lesson prints it, so it gets a pin in the lesson's own file);
+ *    the two deepest-bin means are not, because 40 000 trials is that file's own runtime.
+ *  - **tests/engine/selectivity-inert.test.ts** — the five pooled drop rates
+ *    (14.66 … 0.75 %) and the 3.62 dB margin they share, over 45 runs at nine power offsets.
+ *    Not re-measured here; this file checks that the lesson prints them as *rates*, says the
+ *    margin was held comparable, and keeps that group's sentence apart from its own scene's.
  *  - **this file** — everything the lesson says about *its own five variants*: the bin counts,
  *    the deepest bin a single round shows, the loss that barely moves, the margin the rate loop
- *    settles each width at, and the rate-ladder claim its second `tryThis` makes.
+ *    settles each width at, all five of its own drop rates, the ACK half that gets no bins at
+ *    all, and the rate-ladder claim its first `tryThis` makes.
  *
  * **Why the scene needs its own pins at all.** The lesson's scene is the round sweep, not the
  * pooled group: here 20 MHz settles a whole rate step higher (6.62 dB against 3.62) and is
  * therefore *not* the width that drops the most — while in the pooled group at equal margin it
  * is. Both statements are true of their own data set and the slice's review found a draft that
  * mixed them inside one sentence (finding 1, HIGH). So the lesson states each with its
- * instrument named, and both halves are asserted below: the quoted 14.39 % stays attached to
- * 「这一组」, and the scene's own margins are measured rather than assumed.
+ * instrument named, and both halves are asserted below: the quoted 14.66 % stays attached to
+ * 「这一组」, and the scene's own margins and rates are measured rather than assumed.
+ *
+ * **Every figure here moved once, on `9604fbc`**, which stopped handing bins to non-HT PPDUs:
+ * the 26-tone RU is defined at the HE/EHT subcarrier spacing and clause 17's is four times
+ * wider, so the 167–638 ACKs of each round were being split by the wrong ruler. Taking them
+ * out moved the pooled column from 14.39 / 12.71 / 9.48 / 5.09 / 0.52 % and the end-to-end
+ * multiple from 27.7 to 19.5. The ACK half had no assertion of its own before that fix, which
+ * is why the engine could change under the lesson without a test going red; it has one now.
  */
 import { describe, it, expect } from 'vitest'
+import { readFileSync } from 'node:fs'
 import { LESSONS } from '../../src/course/lessons'
 import { COURSE_ORDER } from '../../src/course/curriculum'
 import { lessonStrings } from '../../src/course/readability'
-import { Simulation } from '../../src/engine/simulation'
-import { selBinWidthMhz, selBins } from '../../src/engine/selectivity'
+import { RU26_PER_20MHZ, selBinWidthMhz, selBins, selEffSinrDb } from '../../src/engine/selectivity'
+import { smallScaleDb, type FadingCfg } from '../../src/engine/fading'
 import { noiseDbm } from '../../src/engine/phy'
+import { Simulation } from '../../src/engine/simulation'
 import type { Block } from '../../src/course/lessonKit'
 import type { Scenario } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
+import { lessonShapeSuite, ofType, runOf } from './kit'
 
 const MS = 1_000_000
 /** The fixture's own run length, so what a reader sees first is what is measured here. */
@@ -41,9 +54,6 @@ const WIDTHS = [20, 40, 80, 160, 320] as const
 const lesson = LESSONS.find((l) => l.id === 'selectivity')!
 const variant = (i: number): Scenario => lesson.variants![i].scenario()
 
-const run = (sc: Scenario, ns: number): TLRecord[] => [...new Simulation(sc).runUntil(ns).records]
-const ofType = <K extends TLRecord['type']>(rs: TLRecord[], t: K): Extract<TLRecord, { type: K }>[] =>
-  rs.filter((r): r is Extract<TLRecord, { type: K }> => r.type === t)
 const median = (xs: number[]): number => {
   const s = [...xs].sort((a, b) => a - b)
   return s[Math.min(s.length - 1, Math.floor(s.length / 2))]
@@ -60,6 +70,9 @@ interface Row {
   fails: number
   ppdus: number
   dropRate: number
+  /** `WIFI_SEL` records for anything the AP sent back — the ACK half. */
+  downSels: number
+  acks: number
   /** Every rung the uplink's data PPDUs used, lowest first. */
   mcs: number[]
 }
@@ -77,28 +90,32 @@ const mcsUsed = (rs: TLRecord[]): number[] => [...new Set(
 )].sort((a, b) => a - b)
 
 const rowOf = (i: number): Row => {
-  const sc = variant(i)
-  const rs = run(sc, RUN_NS)
-  const sels = ofType(rs, 'WIFI_SEL').filter((s) => s.from === 'sta-1')
-  expect(sels.length, `${WIDTHS[i]} MHz: no uplink reception to read`).toBeGreaterThan(50)
+  const rs = runOf(lesson, i, RUN_NS)
+  const sels = ofType(rs, 'WIFI_SEL')
+  const up = sels.filter((s) => s.from === 'sta-1')
+  expect(up.length, `${WIDTHS[i]} MHz: no uplink reception to read`).toBeGreaterThan(50)
   const fails = ofType(rs, 'RX_FAIL').filter((r) => r.reason === 'lowSinr').length
   const ppdus = ofType(rs, 'TX_START')
     .filter((r) => r.frame.kind === 'data' && r.frame.src === 'sta-1').length
   return {
     w: WIDTHS[i],
-    bins: sels[0].bins,
-    marginDb: median(sels.map((s) => s.meanSinrDb - s.threshDb)),
-    medWorstDb: median(sels.map((s) => s.worstBinDb)),
-    medLossDb: median(sels.map((s) => s.lossDb)),
+    bins: up[0].bins,
+    marginDb: median(up.map((s) => s.meanSinrDb - s.threshDb)),
+    medWorstDb: median(up.map((s) => s.worstBinDb)),
+    medLossDb: median(up.map((s) => s.lossDb)),
     fails, ppdus, dropRate: fails / ppdus,
+    downSels: sels.length - up.length,
+    acks: ofType(rs, 'TX_START').filter((r) => r.frame.kind === 'ack').length,
     mcs: mcsUsed(rs),
   }
 }
 
 /** Every string a reader sees, `limits` included. */
 const text = [...lessonStrings(lesson), lesson.title, ...lesson.limits.map((l) => l.text)].join('\n')
-/** The main path only: what the five figures are printed in. */
+/** The main path only: what the figures are printed in. */
 const mainText = lessonStrings(lesson).join('\n')
+
+lessonShapeSuite(lesson, { runNs: RUN_NS })
 
 describe('selectivity · where it sits and what it ships', () => {
   it('follows `width` and precedes `streams`, which is the whole reason it exists there', () => {
@@ -111,8 +128,8 @@ describe('selectivity · where it sits and what it ships', () => {
 
   it('carries a scene the schema can only accept with both sections, at all five widths', () => {
     // The three refusals of `ScenarioSchema`'s superRefine, as properties of the shipped scene:
-    // a `fading` section, a distribution that is not `none`, and an OFDM link. The schema itself
-    // is run over every lesson scenario by tests/course/lessons.test.ts.
+    // a `fading` section, a distribution that is not `none`, and an he/eht link. The schema
+    // itself is run over every lesson scenario by tests/course/lessons.test.ts.
     for (const sc of [lesson.scenario(), ...WIDTHS.map((_w, i) => variant(i))]) {
       expect(sc.selectivity).toEqual({})
       expect(sc.fading?.smallScale).toBe('rayleigh')
@@ -120,35 +137,51 @@ describe('selectivity · where it sits and what it ships', () => {
     }
     expect(lesson.variants!.map((v) => v.label)).toEqual(WIDTHS.map((w) => `${w} MHz`))
     // 320 MHz is in the list although `width` stops at 160: the lesson prints 24.09 dB and
-    // 0.52 % at 144 bins, and a figure the scene cannot reach is a figure taken on trust.
+    // 0.75 % at 144 bins, and a figure the scene cannot reach is a figure taken on trust.
     expect(lesson.variants!.map((v) => v.scenario().nodes[0].caps.widthMhz)).toEqual([...WIDTHS])
   })
 
   it('prints a bin table computed from the engine, not typed into the prose', () => {
-    const table = lesson.numbers!
+    const tables = lesson.numbers!
       .filter((b): b is Extract<Block, { kind: 'table' }> => b.kind === 'table')
-      .find((b) => b.heading?.includes('格宽与格数'))!
-    expect(table.rows.map((r) => r[0])).toEqual(WIDTHS.map(String))
-    expect(table.rows.map((r) => r[1])).toEqual(WIDTHS.map((w) => String(selBins(w))))
-    for (const r of table.rows) expect(r[2]).toBe(selBinWidthMhz().toString())
+    const geometry = tables.find((b) => b.heading?.includes('格宽与格数'))!
+    expect(geometry.rows.map((r) => r[0])).toEqual(WIDTHS.map(String))
+    expect(geometry.rows.map((r) => r[1])).toEqual(WIDTHS.map((w) => String(selBins(w))))
+    for (const r of geometry.rows) expect(r[2]).toBe(selBinWidthMhz().toString())
+    // …and so is the bin column of the drop-rate table, and the two ends of the heads above it
+    const rates = tables.find((b) => b.heading?.includes('掉帧率'))!
+    expect(rates.rows.map((r) => r[0])).toEqual(WIDTHS.map(String))
+    expect(rates.rows.map((r) => r[1])).toEqual(WIDTHS.map((w) => String(selBins(w))))
+    const ends = tables.find((b) => b.heading?.includes('两端的两个量'))!
+    expect(ends.head).toEqual(['量', `20 MHz（${selBins(20)} 格）`, `320 MHz（${selBins(320)} 格）`])
     // And the width is the standard's arithmetic rather than a decorated literal.
     expect(selBinWidthMhz()).toBeCloseTo(2.03125, 5)
     expect(mainText).toContain('2.03125')
   })
 
-  it('resolves all three of its jump targets in the scene it loads', () => {
-    const rs = run(lesson.scenario(), RUN_NS)
-    for (const j of lesson.jumps) expect(rs.some(j.find), j.label).toBe(true)
+  /**
+   * The three bin counts the PROSE spells out in Chinese words rather than printing: 「每 20 MHz
+   * 就是九块」, 「从九格到一百四十四格」. A numeral in words cannot be built from a constant, so
+   * what is pinned instead is the constant those words are the spelling of — if the standard's
+   * own figure ever moved, this is the test that says the prose has to be re-read.
+   */
+  it('pins the constant the prose spells out in words', () => {
+    expect(RU26_PER_20MHZ).toBe(9)
+    expect(selBins(20)).toBe(9)
+    expect(selBins(320)).toBe(144)
   })
 })
 
 describe('selectivity · the figures the lesson reads off its own five rounds', () => {
   /**
-   * One sweep for the file: five 150 ms rounds plus their five flat controls.
+   * One sweep for the file; `runOf` memoises each 150 ms round across every suite here.
    *
-   * Measured 2026-10-03. Margins 6.62 / 3.62 / 3.62 / 3.62 / 3.62 dB; deepest bin's median
-   * −10.08 / −13.77 / −16.96 / −19.91 / −23.21 dB; median loss 2.02 / 2.27 / 2.35 / 2.34 /
-   * 2.36 dB; drop rates 6.48 / 9.38 / 7.53 / 3.09 / 0.46 %.
+   * Measured 2026-10-03 after `9604fbc`. Margins 6.62 / 3.62 / 3.62 / 3.62 / 3.62 dB; deepest
+   * bin's median −10.2926 / −13.7475 / −16.9552 / −19.9136 / −23.3380 dB; median loss 2.0291 /
+   * 2.2717 / 2.3465 / 2.3475 / 2.3566 dB; drop rates 5.61 / 9.17 / 7.77 / 4.15 / 0.92 %
+   * (12/214, 31/338, 37/476, 24/578, 6/651). Every one of those is an assertion below rather
+   * than only a line of this comment: the four rates used to be an ordering and nothing else,
+   * so the figures in a doc comment like this one could drift away from the engine in silence.
    */
   let rows: Row[] = []
   const sweep = (): Row[] => {
@@ -158,6 +191,26 @@ describe('selectivity · the figures the lesson reads off its own five rounds', 
 
   it('splits every width into the standard\'s own number of bins', () => {
     expect(sweep().map((r) => r.bins)).toEqual(WIDTHS.map(selBins))
+  })
+
+  /**
+   * **The ACK half, which had no assertion until `9604fbc` needed one.** A non-HT PPDU gets no
+   * bins at all now, and the only thing coming back the other way in this scene is the AP's
+   * ACKs — so the number of `WIFI_SEL` records for anything the AP sent is zero, against
+   * hundreds of ACKs actually on the air. Both halves are asserted: without the ACK count this
+   * would pass on a run where the AP never answered at all.
+   */
+  it('gives the non-HT ACKs no bins, which is what the steps block now says', () => {
+    for (const r of sweep()) {
+      expect(r.acks, `${r.w} MHz: no ACKs to speak of`).toBeGreaterThan(100)
+      expect(r.downSels, `${r.w} MHz: an ACK was binned`).toBe(0)
+    }
+    expect(mainText).toContain('回程的确认帧是传统帧，它整帧只有一个电平，一格也不分')
+    // and the reader is told in the watch call-out, before the steps, why only one side logs it
+    expect(mainText).toContain('回程那些确认帧（acknowledgement, ACK）不分格')
+    expect(mainText).toContain('只有 Wi-Fi 6 与 Wi-Fi 7 的 PPDU（PHY protocol data unit）分格')
+    // and the old, now false, sentence is gone
+    expect(text).not.toContain('所以它永远只有九格')
   })
 
   it('deepens the worst bin by about 3 dB a doubling — the observe line\'s 10 dB to 23 dB', () => {
@@ -175,25 +228,54 @@ describe('selectivity · the figures the lesson reads off its own five rounds', 
     }
   })
 
-  it('shows the 10.08 dB the lesson warns a round will show, against the table\'s 12.05 dB', () => {
+  it('shows the 10.29 dB the lesson warns a round will show, against the table\'s 12.05 dB', () => {
     // The gap the lesson spends a paragraph on: the table is a mean over 40 000 draws
-    // (tests/engine/selectivity.test.ts), one round of this scene is ~2 dB shallower, and a
-    // reader must find that explained rather than discover it in the event log.
-    expect(sweep()[0].medWorstDb).toBeCloseTo(-10.08, 1)
-    expect(mainText).toContain('10.08 dB')
+    // (tests/engine/selectivity.test.ts), one 150 ms round of this scene is ~1.8 dB shallower,
+    // and a reader must find that explained rather than discover it in the event log.
+    //
+    // **10.29, not 10.21.** The engine sweep in tests/engine/selectivity-round.test.ts runs
+    // 200 ms of the same scene and reads −10.2098; more draws, a deeper deepest bin. The lesson
+    // quotes the figure its own reader will see, so it quotes this file's.
+    expect(sweep()[0].medWorstDb).toBeCloseTo(-10.2926, 2)
+    expect(mainText).toContain('10.29 dB')
     expect(mainText).toContain('12.05 dB')
     expect(mainText).toContain('四万次抽样下的均值')
+    // and the figure the engine's own 200 ms sweep reads must not appear as if it were this one
+    expect(mainText).not.toContain('10.21')
+    expect(mainText).not.toContain('10.08')
   })
 
   it('holds the loss near 2 dB across the whole span, which is the second observe line', () => {
     const rs = sweep()
-    expect(rs[0].medLossDb).toBeCloseTo(2.02, 1)
-    expect(rs[4].medLossDb).toBeCloseTo(2.36, 1)
+    expect(rs[0].medLossDb).toBeCloseTo(2.03, 2)
+    expect(rs[4].medLossDb).toBeCloseTo(2.36, 2)
     // The pair is the argument: the deepest bin falls 13 dB while the loss rises a third of one.
     expect(Math.max(...rs.map((r) => r.medLossDb)) - Math.min(...rs.map((r) => r.medLossDb)))
       .toBeLessThan(1)
-    expect(mainText).toContain('2.02 dB')
+    expect(mainText).toContain('2.03 dB')
     expect(mainText).toContain('2.36 dB')
+  })
+
+  /**
+   * The 9-bin median loss the two-ended table prints beside 2.36 dB. It is the 40 000-draw
+   * instrument's figure, not this scene's, so it is measured the way that file measures it —
+   * at 4000 trials rather than 40 000, which is enough for a median and keeps this file's
+   * runtime in the same order as its five rounds. tests/engine/selectivity.test.ts holds the
+   * converged version (`narrow.medianLoss` ≈ 2.30, asserted to ±0.05).
+   */
+  it('prints the 9-bin median loss, measured on the instrument the table names', () => {
+    const RAYLEIGH: FadingCfg = { shadowSigmaDb: 0, coherenceMs: 100, smallScale: 'rayleigh' }
+    const MEAN_SINR_DB = 20
+    const losses: number[] = []
+    for (let i = 0; i < 4000; i++) {
+      const devs: number[] = []
+      for (let bin = 0; bin < selBins(20); bin++) {
+        devs.push(smallScaleDb(RAYLEIGH, 7, 'ap', 'sta', `f${i}`, bin))
+      }
+      losses.push(MEAN_SINR_DB - selEffSinrDb(MEAN_SINR_DB, devs))
+    }
+    expect(median(losses)).toBeCloseTo(2.3, 1)
+    expect(mainText).toContain('2.3 dB')
   })
 
   /**
@@ -217,13 +299,26 @@ describe('selectivity · the figures the lesson reads off its own five rounds', 
       expect(matched[i].dropRate, `${matched[i].w} against ${matched[i - 1].w} MHz`)
         .toBeLessThan(matched[i - 1].dropRate)
     }
-    // Non-vacuous at both ends: frames are actually lost at 40 MHz and nearly none at 320.
+    // Non-vacuous at both ends: frames are actually lost at 40 MHz and some still at 320.
     expect(matched[0].dropRate).toBeGreaterThan(0.05)
     expect(matched[matched.length - 1].dropRate).toBeGreaterThan(0)
   })
 
   /**
-   * The second `tryThis`'s warning, measured: unticking the box does not merely remove a loss.
+   * All five of this scene's own rates and counts, exactly — they are integers over integers in
+   * a deterministic run, so there is nothing to round. This is what the doc comment above used
+   * to be and an ordering cannot replace: the engine change that moved them (`9604fbc`) moved
+   * every one of these by a per cent or more, and an ordering survived it unchanged.
+   */
+  it('measures its own five drop rates to the hundredth of a per cent', () => {
+    expect(sweep().map((r) => `${r.fails}/${r.ppdus}`))
+      .toEqual(['12/214', '31/338', '37/476', '24/578', '6/651'])
+    expect(sweep().map((r) => (r.dropRate * 100).toFixed(2)))
+      .toEqual(['5.61', '9.17', '7.77', '4.15', '0.92'])
+  })
+
+  /**
+   * The first `tryThis`'s warning, measured: unticking the box does not merely remove a loss.
    * A flat draw fades the whole PPDU at once, so a deep one kills it outright and the rate loop
    * answers by stepping down — in the flat run every width visits the ladder's lowest rung, in
    * the per-bin run none of them does. So the two runs cannot be compared by drop count, which
@@ -231,8 +326,8 @@ describe('selectivity · the figures the lesson reads off its own five rounds', 
    */
   it('sends every width to the lowest rung with the section off, and none with it on', () => {
     for (let i = 0; i < WIDTHS.length; i++) {
-      const on = mcsUsed(run(variant(i), RUN_NS))
-      const flat = mcsUsed(run(flatOf(variant(i)), RUN_NS))
+      const on = sweep()[i].mcs
+      const flat = mcsUsed([...new Simulation(flatOf(variant(i))).runUntil(RUN_NS).records])
       expect(flat, `${WIDTHS[i]} MHz flat`).toContain(0)
       expect(on[0], `${WIDTHS[i]} MHz per-bin`).toBeGreaterThan(0)
     }
@@ -241,19 +336,40 @@ describe('selectivity · the figures the lesson reads off its own five rounds', 
 
 describe('selectivity · the three sentences this slice may not write', () => {
   it('prints drop RATES, at a margin it says is comparable, from the group that has five widths', () => {
-    for (const r of ['14.39 %', '12.71 %', '9.48 %', '5.09 %', '0.52 %']) expect(mainText).toContain(r)
+    for (const r of ['14.66 %', '13.10 %', '9.81 %', '5.61 %', '0.75 %']) expect(mainText).toContain(r)
     expect(mainText).toContain('3.62 dB')
     expect(mainText).toContain('掉帧率而不是掉帧数')
-    expect(mainText).toContain('空口时间')
+    // the mechanism, in the words the `width` entry used to carry: a count conflates airtime
+    // with decoding, and the sentence has to say so rather than merely name airtime
+    expect(mainText).toContain('按个数比会把空口时间（airtime）混进来')
+    // 「余量可比」 itself, in the `why` as well as beside the table: the direction is false
+    // without it, and this lesson's own scene is the counter-example
+    expect(mainText).toContain('余量可比')
+    expect(lesson.why).toContain('余量可比')
   })
 
   it('never prints a count from the other data set', () => {
     // 14/44/47/23/4 failures and 252/871 PPDUs are the four-width round sweep's; the rates above
-    // are the pooled five-width group's. One sentence, one data set (review finding 4d).
-    for (const n of ['14、44', '44、47', '871', '252']) expect(text).not.toContain(n)
+    // are the pooled five-width group's. One sentence, one data set (review finding 4d). The
+    // 「并不单调」 phrasing travelled with them and must not reappear either.
+    for (const n of ['14、44', '44、47', '871', '252', '并不单调']) expect(text).not.toContain(n)
   })
 
-  it('never prints the open-loop figures, which no lesson run produces', () => {
+  /**
+   * **The open-loop pair, over the FILE and not only over the lesson object** (review of
+   * 2026-10-03, HIGH). The hard constraint is zero hits in `src/`, and the earlier version of
+   * this guard read `lessonStrings`, which cannot see a comment — so it reported success while
+   * `selectivity.ts`'s own header comment quoted both figures. Reading the source text is the
+   * same technique tests/ui/uwb-guide.test.ts uses on a `.tsx`.
+   */
+  it('never prints the open-loop figures, comment included, in either lesson file', () => {
+    const files = ['selectivity.ts', 'width.ts']
+      .map((f) => [f, readFileSync(new URL(`../../src/course/tier2/${f}`, import.meta.url), 'utf8')] as const)
+    for (const [name, src] of files) {
+      for (const n of ['34.43', '7.14']) {
+        expect(src.includes(n), `${name} still quotes ${n}`).toBe(false)
+      }
+    }
     expect(text).not.toContain('34.43')
     expect(text).not.toContain('7.14')
   })
@@ -266,23 +382,30 @@ describe('selectivity · the three sentences this slice may not write', () => {
     expect(mainText).toContain('这一课的场景正是例子')
   })
 
-  /**
-   * The guard that moved here with the figure (it was tests/course/width.test.ts's until Task 7
-   * shortened that entry): 12.04 dB is what 20 → 320 MHz ADDS to the floor, and the floor itself
-   * is in dBm — "a 12.04 dB noise floor" would contradict `width`'s own table. Computed from the
-   * engine rather than typed, so the sentence cannot drift away from `noiseDbm`.
-   */
-  it('names the 12.04 dB as the RAISE in the floor, computed from the engine', () => {
-    expect(mainText).toContain(`从 20 到 320 MHz 抬高了 ${(noiseDbm(320) - noiseDbm(20)).toFixed(2)} dB`)
-    expect(text).not.toContain('12.04 dB 的噪声地板')
-  })
-
   it('does not say frequency selectivity costs a strong link extra frames', () => {
     // On a margin-rich link the per-bin path REPLACES the flat draw rather than stacking on it,
     // and it removes that draw's consequence (tests/engine/selectivity-inert.test.ts). The
     // lesson states the replacement and never the opposite.
     expect(mainText).toContain('替换那一次平坦抽样')
     expect(text).not.toContain('多掉帧')
+  })
+
+  /**
+   * The guard that moved here with the figure (it was tests/course/width.test.ts's until the
+   * `width` entry was shortened): 12.04 dB is what 20 → 320 MHz ADDS to the floor, and the floor
+   * itself is in dBm — "a 12.04 dB noise floor" would contradict `width`'s own table. Computed
+   * from the engine rather than typed, so the sentence cannot drift away from `noiseDbm`.
+   *
+   * `deeper` prints the same 12.04 for a different reason — 24.09 − 12.05, the gap between the
+   * two deepest-bin means — and says there, in so many words, that the two have nothing to do
+   * with each other. That collision is the exact misreading this pin exists for, so the
+   * disclaimer is asserted rather than trusted.
+   */
+  it('names the 12.04 dB as the RAISE in the floor, and defuses the other 12.04', () => {
+    expect(mainText).toContain(`从 20 到 320 MHz 抬高了 ${(noiseDbm(320) - noiseDbm(20)).toFixed(2)} dB`)
+    expect(text).not.toContain('12.04 dB 的噪声地板')
+    const deeper = lessonStrings({ deeper: lesson.deeper }).join('\n')
+    expect(deeper).toContain('数值相同、物理上毫无关系')
   })
 })
 
@@ -304,13 +427,26 @@ describe('selectivity · the four limits are each about this engine', () => {
     expect(byKind.get('unmodelled')).toContain('独立是分集偏多的那一边')
   })
 
-  it('threshold: capacity is an upper bound, so every loss here is a lower bound', () => {
+  it('threshold: capacity is an upper bound, so every loss here is a lower bound — and β by name', () => {
     expect(byKind.get('threshold')).toContain('下界')
     expect(byKind.get('threshold')).toContain('容量')
+    // The number this slice declined to invent, named rather than alluded to.
+    expect(byKind.get('threshold')).toContain('EESM')
+    expect(byKind.get('threshold')).toContain('β')
   })
 
-  it('out-of-scope: the other four decisions, and the multi-user bin count slice 4b owes', () => {
+  /**
+   * `out-of-scope` carries the two things a reader of a MIXED scene is never told anywhere else.
+   * The editor deliberately shows no hint for either (a prompt that is not a schema refusal is
+   * where a second wording comes from), so the lesson is the only place it is said: a `vht` or
+   * legacy link in the same scene is not binned, and a multi-user member is handed the whole
+   * channel's bins.
+   */
+  it('out-of-scope: the other four decisions, the vht links, and the bin count slice 4b owes', () => {
     const t = byKind.get('out-of-scope')!
     for (const s of ['resolveLock', '载波侦听', '前导检测', '捕获效应', '资源单元']) expect(t).toContain(s)
+    expect(t).toContain('vht')
+    expect(t).toContain('312.5 kHz')
+    expect(t).toContain('至少有一条')
   })
 })
