@@ -21,8 +21,30 @@
  *  - the 短租 metaphor, which ran four times; the mechanism's own names
  *    (信道占用时间, TXOP 上限) do the work (§5.2).
  *
- * The scenario builder is unchanged, so the recorded timeline hash stays
- * identical. Every number quoted below is pinned in tests/course/txop.test.ts.
+ * **2026-10-03 — the post-TXOP backoff.** A reader watched the access point
+ * finish its first burst with nothing left to send and then count down six
+ * slots, and asked why. The lesson's own frame made that look like a bug: it
+ * said the holder goes back to 「等待、倒数」 in order to transmit again, which is
+ * the PRE-backoff story. The countdown is item b) of §10.23.2.2 — for the
+ * EDCAF that is the TXOP holder, the transmission of the final PPDU of the TXOP
+ * has completed — and it carries no condition on having anything more to send.
+ * So the lesson now says that where the procedure's last step is, and shows the
+ * payoff the standard is after: the queue is empty at 1.363 ms and 6 slots are
+ * drawn and counted down anyway, and the frame that arrives at 1.652 ms goes
+ * out in that same nanosecond, with no silence and no countdown, because the
+ * price was already paid. 412 of this run's 463 bursts start that way. The
+ * 462 draws `tryThis` already quoted are these post-backoffs, one after each
+ * burst — true before, and read the wrong way round. Which took its own
+ * explanation down with it: 「462 比它发出的 463 串突发少一次，因为整轮的第一串根本
+ * 不需要倒数」 is the pre-backoff arithmetic, and it is wrong. The draws pair with
+ * the burst ENDS, of which this window holds 462; run the same scenario to
+ * 301 ms and starts, ends and draws are all 464. The missing draw is the one the
+ * 463rd burst has not reached yet, not one the first burst was spared — that
+ * burst is spared a draw, but being spared it never changed the count.
+ *
+ * Text, one jump label and one added jump target. The scenario builder is
+ * unchanged, so the recorded timeline hash stays identical. Every number quoted
+ * below is pinned in tests/course/txop.test.ts.
  */
 import type { TimingSpec } from '../diagram'
 import { type Lesson, oneRoom, node, sc, firstTxop, J } from '../lessonKit'
@@ -75,8 +97,9 @@ export const txop: Lesson = {
   picture: [
     { heading: '一次竞争成功，换来一段占用时间', text: '在那么多等待和倒数之后，竞争成功的站点得到的其实不止“一次交互”：在一小段时间里，它是信道上唯一可以发送的站点。其他站点在发送前依然必须先听到一段静默，可这段静默根本不出现——持有者只隔着交互内部那段短短的停顿就又开始发送，而这段停顿比任何竞争者要等的都短。这段归它独占的时间，就是传输机会（transmit opportunity, TXOP）；一次竞争成功所带出去的那几帧，就是它的突发。' },
     { kind: 'watch', jump: 0, heading: '看一串突发', text: '载入仿真，跳到第一串突发。接入点发给一台电视，收下它的回答，转眼间就已经在发给另一台了——中间没有必等的静默，也没有任何倒数。' },
-    { heading: '这段占用有个上限', text: '一段没有终点的占用等于直接接管信道，所以每一次竞争成功都同时定下一个期限，这个期限就是 TXOP 上限（TXOP limit）。持有者发出去的每样东西、收到的每个回答，都必须落在这个期限之内；一旦剩下的时间不够做下一次交互，持有者就停止发送，回去和其他站点一样等待、倒数。这个上限是按类别分别设定的，所以承载通话的那些类别有自己的取值。' },
+    { heading: '这段占用有个上限', text: '一段没有终点的占用等于直接接管信道，所以每一次竞争成功都同时定下一个期限，这个期限就是 TXOP 上限（TXOP limit）。持有者发出去的每样东西、收到的每个回答，都必须落在这个期限之内；一旦剩下的时间不够做下一次交互，持有者就停止发送，把信道交还。这个上限是按类别分别设定的，所以承载通话的那些类别有自己的取值。' },
     { heading: '多数时候拦住你的不是上限', text: '实际上，持有者很少真的顶到自己的上限。它停下来，是因为发往那个邻居的队列（queue）已经空了——手里攒着两帧就竞争成功的站点，发完两帧就把空口交还。只有当发送方手里攒的东西远远超过这段时间装得下的量时，上限才真正起作用，而这正是当初写下它的那种情形。' },
+    { kind: 'watch', jump: 1, heading: '交还之后，先把下一次的倒数付掉', text: '一串突发结束，持有者不是就此回到空闲：它立刻再听一段静默、再抽一次倒数，而队列里还有没有帧与这一步无关。跳到这里：本轮 1.363 ms 结束、队列已空，34 µs 之后它仍然抽到 6 个时隙（slot time）并数完。付掉的是下一次竞争的代价——下一帧 1.652 ms 才到，它当场就发了出去，没有静默，也没有倒数。整轮 463 串突发里，有 412 串都是在帧到达的那一纳秒就发出去的。' },
     { heading: '为什么这算得上公平', text: '大家守的是同一条规则：任何站点竞争成功之后，都可以同样连续占用信道。没有人因此更频繁地竞争成功——争抢那一段一点没变。变的是每一次竞争成功能换来多少发送量，于是房间把更少的时间花在竞争开销上、更多的时间用来传数据。代价是等待：一台刚好在别人竞争成功之后到场的站点，得把整串突发等完，所以那个上限，其实是给“任何人最多要等多久”封的顶。' },
   ],
   numbers: [
@@ -110,7 +133,7 @@ export const txop: Lesson = {
       '回答到手后，持有者看同一类队列的队头，把下一次交互整个量一遍——停顿、帧、停顿、它的回答——拿去和期限前剩下的时间比较。',
       '若它整个能在期限之内结束，持有者就只等那一段停顿，接着再发。而 16 µs 比任何竞争者必须听到的最短静默（34 µs）还短，所以其他站点根本无法在这个间隔里开始发送。',
       '以下四件事哪一件先发生，本轮就在哪里结束：下一次交互已经装不进剩下的时间了、这一类的队列空了、回答没有回来，或者停顿结束时信道上已经有别人在发送。',
-      '持有者把信道交还，然后和所有站点一样，重新听一段静默、重新抽一次倒数：竞争一次的代价再付一遍，也只付这一遍，换来下一整串突发。',
+      '持有者交还信道，并立刻为下一次竞争听一段静默、抽一次倒数：标准把“本轮最后一帧发完”本身列为退避（backoff）过程的触发条件之一（§10.23.2.2 b）。代价因此在上一串突发结束时就付掉，下一帧到达时它往往不必再等、也不必再数。',
     ] },
     { kind: 'table', heading: '第一串突发，照着步骤走一遍', head: [
       '步骤', '数值',
@@ -137,6 +160,7 @@ export const txop: Lesson = {
   ],
   sources: [
     '传输机会、“一个 PPDU 连同它的响应必须装进上限之内”的规定，以及反向传输与多帧突发的规则，见 IEEE Std 802.11-2024 的 §10.23.2.8；各接入类别的 TXOP 上限见 Table 9-194。',
+    '突发结束之后那一次退避：IEEE Std 802.11-2024 的 §10.23.2.2 列举了启动退避过程的几种情形，其中一种是——对作为 TXOP 持有者的那个 EDCAF 而言——本轮最后一个 PPDU 已经发完、该 PPDU 不征询 HE TB PPDU、且 TXNAV 定时器已到期。这一条不以“队列里还有帧”为前提。',
     '随机种子、两台电视，以及它们的码流所要求的速率，都是本仿真器的模型取值；本轮最终采用的编码同样如此，而正是它把这里一帧视频的时长定在 188 µs。',
   ],
   scenario: () => sc(oneRoom(), [
@@ -146,14 +170,20 @@ export const txop: Lesson = {
   ]),
   jumps: [
     J('第一次 TXOP 开始', firstTxop),
-    J('接入点的第一次退避抽取', (r) => r.type === 'BACKOFF_DRAW' && r.node === 'ap'),
+    J('突发结束后的那次退避抽取', (r) => r.type === 'BACKOFF_DRAW' && r.node === 'ap'),
+    // The burst after that one, which starts with no silence and no countdown because the
+    // post-TXOP backoff has already been spent. A record predicate sees one record at a time,
+    // so the second burst is named by a threshold between the two: the first burst starts at
+    // 0.883 ms and this one at 1.652 ms. Both, and the 1.5 ms itself, are pinned in
+    // tests/course/txop.test.ts.
+    J('下一串突发：没有倒数就开始', (r) => r.type === 'TXOP_START' && r.node === 'ap' && r.t > 1_500_000),
   ],
   observe: [
     '突发进行时，检视器会显示它属于哪一类，以及这段占用还剩多少时间。这里显示的是 AC_VI，因为两路流都是视频。',
-    '整轮下来接入点竞争成功 463 次、发出 463 串突发：其中 219 串只带一帧，243 串带两帧。决定是哪一种的是队列，不是上限。',
+    '整轮下来接入点竞争成功 463 次、发出 463 串突发：其中 219 串只带一帧，243 串带两帧。决定是哪一种的是队列，不是上限。它抽取倒数 462 次，每一次都紧跟在一串突发之后，没有一次在突发之前。',
   ],
   tryThis: [
-    '在接入点上关掉这个功能再载入。它发出的帧数一模一样，但抽取倒数的次数从 462 变成了 706——462 比它发出的 463 串突发少一次，因为整轮的第一串根本不需要倒数。每一次交互都要把竞争的代价重新付一遍。',
+    '在接入点上关掉这个功能再载入。它发出的帧数一模一样，但抽取倒数的次数从 462 变成了 706。那 462 次与 462 串已经结束的突发一一对应：第 463 串在 300 ms 的窗口里还没结束，它那一次还没抽。关掉之后欠的是每一帧——一帧发完一次，于是同样的帧数要付 706 次代价。',
     '把其中一台电视的业务从视频流改成饱和下载。现在只要接入点竞争成功，发往这台站点的帧总是攒着，于是突发长到 1.9 ms、一次三帧。',
   ],
   quiz: [

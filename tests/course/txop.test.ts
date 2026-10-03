@@ -217,7 +217,7 @@ describe('txop · the first burst, run through the steps', () => {
     expect(Math.min(...EDCA_PARAMS.map((p) => aifsNs(p.aifsn, OFDM_5G))) / US).toBe(34)
   })
 
-  it('step 6: the holder contends again from scratch, silence and countdown', () => {
+  it('step 6: the burst ending is itself what invokes the next backoff', () => {
     const t0 = ofType(rs, 'TXOP_START').filter((r) => r.node === 'ap')[0]
     const end = ofType(rs, 'TXOP_END').find((r) => r.node === 'ap' && r.t > t0.t)!
     const ifs = ofType(rs, 'IFS_START').find((r) => r.node === 'ap' && r.t >= end.t)!
@@ -241,6 +241,12 @@ describe('txop · the experiments', () => {
     expect(draws(off)).toBe(706)
     expect(ofType(off, 'TXOP_START')).toHaveLength(0)
     expect(txs(off, 'data').length).toBe(txs(rs, 'data').length)
+    // "switched off, what it owes is one per frame": 706 against 707 frames, and the odd one
+    // out is the same window edge as the base run's — a millisecond more and the two agree.
+    expect(txs(off, 'data').length).toBe(707)
+    const longer = [...new Simulation(sc).runUntil(301 * MS).records] as TLRecord[]
+    expect(draws(longer)).toBe(txs(longer, 'data').length)
+    expect(draws(longer)).toBe(709)
   })
 
   it('a saturated television grows the bursts to 1.9 ms and three frames', () => {
@@ -251,5 +257,116 @@ describe('txop · the experiments', () => {
     const bs = bursts(runSc(sc))
     expect(Math.max(...bs.map((b) => b.frames))).toBe(3)
     expect((Math.max(...bs.map((b) => b.lenNs)) / MS).toFixed(1)).toBe('1.9')
+  })
+})
+
+/**
+ * The post-TXOP backoff: the mechanism a reader asked about after watching the
+ * access point count down six slots with an empty queue.
+ *
+ * The lesson used to frame a backoff as the price paid in order to transmit,
+ * and under that frame this countdown reads as a bug. It is item b) of
+ * §10.23.2.2: the holder's EDCAF invokes a backoff when the TXOP's last PPDU
+ * has been transmitted, with no condition on anything being left to send. What
+ * these tests pin is both halves of what the lesson now says — that every one
+ * of this run's 462 draws follows a burst rather than preceding one, and the
+ * payoff, which is the next burst going out in the nanosecond the frame
+ * arrived because the countdown was already spent.
+ */
+describe('txop · the backoff that follows the burst', () => {
+  const rs = recs()
+  const ms = (ns: number) => Number((ns / MS).toFixed(3))
+
+  it('one draw per burst that ENDED: 462 here, 464 when the window is 1 ms longer', () => {
+    // the first experiment's arithmetic. The lesson used to explain 462 against 463 bursts
+    // with "the first burst of the run needs no countdown" — the pre-backoff reading, and
+    // wrong: the draws pair with the TXOP_ENDs, and this window holds 462 of those because
+    // the 463rd burst starts at 299.526 ms and has not finished at 300. One millisecond more
+    // and starts, ends and draws agree at 464. The first burst IS spared a draw (the
+    // assertion below), but being spared it never moved the count.
+    const ends = ofType(rs, 'TXOP_END').filter((r) => r.node === 'ap')
+    const draws = ofType(rs, 'BACKOFF_DRAW').filter((r) => r.node === 'ap')
+    expect([ends.length, draws.length]).toEqual([462, 462])
+    const longer = runOf(txop, undefined, 301 * MS)
+    const n = (t: string) => ofType(longer, t as 'TXOP_START').filter((r) => r.node === 'ap').length
+    expect([n('TXOP_START'), n('TXOP_END'), n('BACKOFF_DRAW')]).toEqual([464, 464, 464])
+  })
+
+  it('every countdown the access point draws follows a burst, and none precedes one', () => {
+    // the second observation ("462 draws, every one right after a burst, never before one")
+    // and the first experiment ("those 462 are the one after each burst")
+    const starts = ofType(rs, 'TXOP_START').filter((r) => r.node === 'ap')
+    const ends = ofType(rs, 'TXOP_END').filter((r) => r.node === 'ap')
+    const draws = ofType(rs, 'BACKOFF_DRAW').filter((r) => r.node === 'ap')
+    expect(starts.length).toBe(463)
+    expect(draws.length).toBe(462)
+    for (const d of draws) {
+      const end = ends.filter((e) => e.t <= d.t).slice(-1)[0]
+      expect(end, `the draw at ${d.t} follows no burst`).toBeDefined()
+      // and the holder has not transmitted again in between: the draw belongs to that burst
+      expect(starts.some((s) => s.t > end.t && s.t <= d.t), `draw at ${d.t}`).toBe(false)
+    }
+    // 463 − 462 is the first burst of the run, which follows no burst and so owes no draw
+    expect(draws.some((d) => d.t <= starts[0].t)).toBe(false)
+  })
+
+  it('the first one is drawn with the queue already empty: 34 µs, then six slots', () => {
+    // the watch call-out: "the turn ends at 1.363 ms with an empty queue, and 34 µs later it
+    // still draws 6 slots and counts them down"
+    const end = ofType(rs, 'TXOP_END').filter((r) => r.node === 'ap')[0]
+    expect(ms(end.t)).toBe(1.363)
+    expect(ofType(rs, 'DEQUEUE').filter((r) => r.node === 'ap' && r.t === end.t).map((r) => r.depth))
+      .toEqual([0])
+    const ifs = ofType(rs, 'IFS_START').find((r) => r.node === 'ap' && r.t >= end.t)!
+    expect(ifs.t).toBe(end.t)
+    expect((ifs.untilNs - ifs.t) / US).toBe(34)
+    expect(aifsNs(2, OFDM_5G) / US).toBe(34)
+    const draw = ofType(rs, 'BACKOFF_DRAW').find((r) => r.node === 'ap')!
+    expect(draw.t).toBe(ifs.untilNs)
+    expect(draw.value).toBe(6)
+    // all six counted down, and not one frame sent while it counted
+    const decs = ofType(rs, 'BACKOFF_DEC')
+      .filter((r) => r.node === 'ap' && r.t >= draw.t && r.t <= draw.t + 6 * 9 * US)
+    expect(decs.map((r) => r.value)).toEqual([5, 4, 3, 2, 1, 0])
+    expect(txs(rs).some((r) => r.node === 'ap' && r.t > end.t && r.t <= decs[5].t)).toBe(false)
+  })
+
+  it('so the next burst goes out in the arrival’s own nanosecond, with no countdown', () => {
+    // the watch call-out's payoff: "the next frame arrives at 1.652 ms and goes out there and
+    // then — no silence, no countdown", and "412 of the 463 bursts go out in the nanosecond
+    // the frame arrived". The call-out states that 412 as a fact and not as a consequence:
+    // 411 of them are a spent post-backoff; the 412th is the run's first burst at 0.883 ms,
+    // which is just as instant for the other reason — it had never contended, so it owed
+    // no draw at all.
+    const starts = ofType(rs, 'TXOP_START').filter((r) => r.node === 'ap')
+    const end = ofType(rs, 'TXOP_END').filter((r) => r.node === 'ap')[0]
+    const second = starts[1]
+    expect(ms(second.t)).toBe(1.652)
+    const arrival = ofType(rs, 'ARRIVAL').find((r) => r.node === 'ap' && r.t > end.t)!
+    expect(arrival.t).toBe(second.t)
+    const first = txs(rs, 'data').find((r) => r.node === 'ap' && r.t >= second.t)!
+    expect(first.t).toBe(second.t)
+    // the AIFS it serves is zero long, and nothing was drawn or counted since the post-backoff
+    const ifs = ofType(rs, 'IFS_START').find((r) => r.node === 'ap' && r.t === second.t)!
+    expect(ifs.untilNs).toBe(ifs.t)
+    const lastDec = ofType(rs, 'BACKOFF_DEC').filter((r) => r.node === 'ap' && r.t < second.t).slice(-1)[0]
+    expect(lastDec.value).toBe(0)
+    expect(rs.some((r) => (r.type === 'BACKOFF_DRAW' || r.type === 'BACKOFF_DEC')
+      && r.node === 'ap' && r.t > lastDec.t && r.t <= second.t)).toBe(false)
+    const arrivals = new Set(ofType(rs, 'ARRIVAL').filter((r) => r.node === 'ap').map((r) => r.t))
+    expect(starts.filter((s) => arrivals.has(s.t)).length).toBe(412)
+  })
+
+  it('the two jumps land on that draw and on the burst that pays nothing', () => {
+    const starts = ofType(rs, 'TXOP_START').filter((r) => r.node === 'ap')
+    const draw = rs.find(txop.jumps[1].find)!
+    expect(draw.type).toBe('BACKOFF_DRAW')
+    expect(ms(draw.t)).toBe(1.397)
+    const burst = rs.find(txop.jumps[2].find)!
+    expect(burst.t).toBe(starts[1].t)
+    // the 1.5 ms in the predicate sits between the two burst starts, so the jump can neither
+    // drift onto the first burst nor past the second
+    expect(starts[0].t).toBeLessThan(1_500_000)
+    expect(starts[1].t).toBeGreaterThan(1_500_000)
   })
 })
