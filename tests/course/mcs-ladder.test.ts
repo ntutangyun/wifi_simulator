@@ -30,6 +30,7 @@ import { Simulation } from '../../src/engine/simulation'
 import type { TLRecord } from '../../src/model/records'
 import { ScenarioSchema } from '../../src/model/scenario'
 import { lessonShapeSuite, ofType, runOf } from './kit'
+import { selBinWidthMhz } from '../../src/engine/selectivity'
 
 const MS = 1_000_000
 /** The same run length the other three M1 lessons use, so they share one memo. */
@@ -254,5 +255,34 @@ describe('mcs-ladder · try this', () => {
     expect(txTimeModeNs('eht', 1530, 0)).toBe(1_476_000)
     expect(ofType(rs, 'RX_FAIL')).toHaveLength(0)
     expect(TABLE[3].airtime * 2).toBeGreaterThan(1_476_000)
+  })
+})
+
+/**
+ * Slice 4a built frequency selectivity, so "the engine has no partially broken sub-carriers" is
+ * no longer true — but the half this lesson is about still is: rate selection reads the link
+ * table's mean (`mcsForPeer`), and nothing frequency-selective reaches it. The limit therefore
+ * changes from "the situation does not exist" to "the situation exists and selection still cannot
+ * see it", and names the standard's own two feedbacks that a real device uses instead.
+ */
+describe('mcs-ladder · rate selection after frequency selectivity', () => {
+  const text = mcsLadderLesson.limits.map((l) => l.text).join('\n')
+
+  it('says the per-bin ripple exists now and that selection still reads the mean', () => {
+    expect(text).toContain(`${selBinWidthMhz()} MHz 一格`)
+    expect(text).toContain('mcsForPeer')
+    expect(text).toContain('频率选择性一个字都不进去')
+  })
+
+  it('names the two feedbacks the standard defines for exactly this', () => {
+    expect(text).toContain('§9.4.1.65')
+    expect(text).toContain('§9.4.1.75')
+    expect(text).toContain('§9.4.1.49')
+    expect(text).toContain('−8…+7 dB')
+  })
+
+  it('no longer claims the engine models no frequency selectivity', () => {
+    expect(text).not.toContain('不建模时延扩展与频率选择性')
+    expect(mcsLadderLesson.scenario().selectivity).toBeUndefined()
   })
 })

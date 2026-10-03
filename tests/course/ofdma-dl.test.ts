@@ -22,6 +22,7 @@ import type { TLRecord } from '../../src/model/records'
 import { PHY_MODES, toneRatio } from '../../src/engine/phy'
 import { lessonShapeSuite, runOf } from './kit'
 import { MODULES } from '../../src/course/curriculum'
+import { RU26_PER_20MHZ, selBinWidthMhz, selBins } from '../../src/engine/selectivity'
 
 const MS = 1_000_000
 const US = 1_000
@@ -279,5 +280,38 @@ describe('ofdma-dl · the two experiments', () => {
     expect(muPpdus(off).length).toBe(0)
     expect(txs(off, (r) => r.node === 'ap' && r.frame.kind === 'data').length).toBe(1061)
     expect(airNs(txs(off)) - airNs(txs(runOf(ofdmaDl, undefined, RUN_NS)))).toBe(1.44 * MS)
+  })
+})
+
+/**
+ * Slice 4a's known overestimate, declared in the lesson that creates it: with frequency
+ * selectivity on, `selCombine` (channel.ts) keys the bin count off the PPDU's WIDTH, so a
+ * multi-user member is credited with the whole channel's bins while it physically occupies only
+ * its own resource unit — this engine's equal split, one over the member count. The standard's
+ * smallest resource unit, 26 tones, is exactly one bin, so the member's frequency diversity is
+ * overestimated by the member count itself and the selectivity loss it is charged is too small.
+ *
+ * The engine side of this is asserted as it stands in tests/engine/selectivity-inert.test.ts (§6
+ * item 4), which slice 4b is meant to change. This is the course side of the same statement.
+ */
+describe('ofdma-dl · a member gets the whole channel’s bins (slice 4b)', () => {
+  const lim = ofdmaDl.limits[ofdmaDl.limits.length - 1]
+
+  it('is an out-of-scope limit naming the mechanism, the size of the overestimate and the next slice', () => {
+    expect(lim.kind).toBe('out-of-scope')
+    expect(lim.text).toContain('selCombine')
+    expect(lim.text).toContain('高估')
+    expect(lim.text).toContain('切片 4b')
+    expect(lim.text).toContain(`${selBinWidthMhz()} MHz 一格`)
+  })
+
+  it('the smallest resource unit really is one bin, which is what makes that claim true', () => {
+    // 9 bins per 20 MHz, and 9 26-tone RUs per 20 MHz: one bin IS one 26-tone resource unit.
+    expect(selBins(20)).toBe(RU26_PER_20MHZ)
+    expect(lim.text).toContain('26 音调资源单元恰好就是一格')
+  })
+
+  it('and this lesson’s own scene does not turn the feature on', () => {
+    expect(ofdmaDl.scenario().selectivity).toBeUndefined()
   })
 })

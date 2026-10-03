@@ -33,6 +33,7 @@ import { Simulation } from '../../src/engine/simulation'
 import type { TLRecord } from '../../src/model/records'
 import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
 import { lessonShapeSuite, ofType, runOf } from './kit'
+import { selBinWidthMhz } from '../../src/engine/selectivity'
 
 const MS = 1_000_000
 /** The same run length radio-primer uses, so the four M1 lessons share the memo. */
@@ -250,5 +251,44 @@ describe('decode-thresholds · deeper', () => {
       const ok = ofType(rs, 'RX_OK').filter((r) => r.node === 'ap').length
       expect(ok, `variant ${i}`).toBeGreaterThanOrEqual(data - 1)
     }
+  })
+})
+
+/**
+ * Slice 4a built frequency selectivity, and this lesson's hard threshold is where it lands: the
+ * decision is taken against the COMBINED effective SINR, so "one part of the channel is gone" is
+ * not "this frame is gone". The old sentence — that the engine cannot produce that situation at
+ * all — is pinned as absent. The two decibel figures are the slice's own measurements
+ * (tests/engine/selectivity.test.ts), and 捕获效应 carries its English name because
+ * tests/course/wording.test.ts requires the sense of 捕获 to be named.
+ */
+describe('decode-thresholds · the hard threshold after frequency selectivity', () => {
+  const text = decodeThresholds.limits.map((l) => l.text).join('\n')
+
+  it('says the threshold is compared against the combined effective SINR', () => {
+    expect(text).toContain(`${selBinWidthMhz()} MHz 一格`)
+    expect(text).toContain('按容量折成一个有效信噪比')
+    expect(text).toContain('24.09 dB')
+    expect(text).toContain('2.36 dB')
+  })
+
+  it('says only the demodulation reads the combined number, and names the other sense of 捕获', () => {
+    expect(text).toContain('前导检测与捕获效应（capture effect）判的仍然是那一次平坦抽样')
+    expect(text).toContain('两个不同的数')
+  })
+
+  it('no longer says the engine cannot produce a partly dead channel', () => {
+    expect(text).not.toContain('不建模时延扩展，因此没有频率选择性衰落')
+    expect(text).not.toContain('不会出现“信道的一部分废了、另一部分还好”')
+  })
+
+  it('and its own scene still runs the flat channel the rest of the limit describes', () => {
+    expect(decodeThresholds.scenario().selectivity).toBeUndefined()
+  })
+
+  it('「少了衰落这一节，schema 会拒绝」, on this lesson’s own scene', () => {
+    // The parenthesis is a claim about the engine, so it is read back out of the engine: the
+    // section without a fading section is refused (src/model/scenario.ts's superRefine).
+    expect(() => ScenarioSchema.parse({ ...decodeThresholds.scenario(), selectivity: {} })).toThrow()
   })
 })

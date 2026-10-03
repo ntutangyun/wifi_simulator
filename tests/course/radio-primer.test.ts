@@ -32,6 +32,7 @@ import { Simulation } from '../../src/engine/simulation'
 import type { TLRecord } from '../../src/model/records'
 import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
 import { lessonShapeSuite, runOf } from './kit'
+import { selBinWidthMhz } from '../../src/engine/selectivity'
 
 const MS = 1_000_000
 /** Long enough for the "first 100 ms" observation; every run of this file shares it. */
@@ -330,5 +331,44 @@ describe('radio-primer · deeper: decibels', () => {
     expect(BAND_EXTRA_LOSS_DB['6g']).toBe(1.2)
     const s = primerScenario(9)
     expect(s.nodes.map((n) => n.pos.z)).toEqual([1, 1])
+  })
+})
+
+/**
+ * Slice 4a (2026-10-03) built frequency selectivity, so the limit that said this engine has none
+ * is no longer true, and the sentence it used to carry is pinned as ABSENT so it cannot come back
+ * with the next edit — the precedent is tests/course/uwb-rcm-validity.test.ts, where a limit
+ * narrowed by a later slice is asserted in both directions.
+ *
+ * The bin width is read off `selectivity.ts` rather than typed a second time. The figures the
+ * slice measured (the deepest bin, the combining loss, the five drop rates) are pinned where they
+ * were measured — tests/engine/selectivity.test.ts and selectivity-inert.test.ts — and the
+ * `width` lesson is the one that prints them.
+ */
+describe('radio-primer · the fading limit after frequency selectivity', () => {
+  const text = radioPrimer.limits.map((l) => l.text).join('\n')
+
+  it('names the per-bin draw at the engine’s own bin width', () => {
+    expect(selBinWidthMhz()).toBe(2.03125)
+    expect(text).toContain(`${selBinWidthMhz()} MHz 一格`)
+    expect(text).toContain('26 音调资源单元')
+    expect(text).toContain('selectivity')
+  })
+
+  it('no longer claims the simulator has no frequency selectivity at all', () => {
+    expect(text).not.toContain('即便打开了衰落，也没有时延扩展与频率选择性')
+  })
+
+  it('still names what is missing, and the independence that overstates the diversity', () => {
+    expect(text).toContain('时延扩展')
+    expect(text).toContain('多普勒')
+    expect(text).toContain('独立正是分集偏多的那一边')
+  })
+
+  it('「本课的场景两节都没有写」: neither section is in any scene this lesson runs', () => {
+    for (const sc of [radioPrimer.scenario(), ...(radioPrimer.variants ?? []).map((v) => v.scenario())]) {
+      expect(sc.selectivity).toBeUndefined()
+      expect(sc.fading).toBeUndefined()
+    }
   })
 })

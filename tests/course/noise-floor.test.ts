@@ -29,6 +29,7 @@ import { WALL_LOSS_DB, buildLinkTable, pathLossDb } from '../../src/engine/propa
 import type { TLRecord } from '../../src/model/records'
 import { ScenarioSchema } from '../../src/model/scenario'
 import { lessonShapeSuite, ofType, runOf } from './kit'
+import { selBinWidthMhz } from '../../src/engine/selectivity'
 
 const MS = 1_000_000
 /** The same run length radio-primer uses, so the four M1 lessons share one memo. */
@@ -258,5 +259,32 @@ describe('noise-floor · try this', () => {
     expect((wide.noiseDbm - narrow.noiseDbm).toFixed(2)).toBe('9.03')
     expect((narrow.snrDb - wide.snrDb).toFixed(2)).toBe('9.03')
     expect(wide.noiseDbm.toFixed(2)).toBe('-84.96')
+  })
+})
+
+/**
+ * Slice 4a built frequency selectivity, and this lesson's subject is the ratio: the denominator
+ * (the floor) still only follows the width and is the same in every bin, while the numerator is
+ * what became per-bin. The limit says so, and it says the one simplification the slice left in the
+ * denominator — the interference term enters every bin as the same number, which is exact for
+ * thermal noise and a simplification for an interferer (`selCombine` in channel.ts).
+ */
+describe('noise-floor · the ratio after frequency selectivity', () => {
+  const text = noiseFloor.limits.map((l) => l.text).join('\n')
+
+  it('says the floor stays flat per bin and the numerator goes per bin', () => {
+    expect(text).toContain(`${selBinWidthMhz()} MHz 一格`)
+    expect(text).toContain('分母一格一格都一样')
+    expect(text).toContain('按容量合成的那一个')
+  })
+
+  it('names the flat interference term as the simplification it is, and keeps Doppler absent', () => {
+    expect(text).toContain('对热噪声是精确的，对一个干扰者是一处简化')
+    expect(text).toContain('多普勒仍然没有')
+  })
+
+  it('no longer says the fading is one value across the whole channel width', () => {
+    expect(text).not.toContain('而且那份衰落对整个信道带宽是同一个值')
+    expect(text).not.toContain('不建模时延扩展、频率选择性与多普勒')
   })
 })

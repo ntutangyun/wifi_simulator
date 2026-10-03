@@ -32,6 +32,7 @@ import {
 import { lessonShapeSuite, ofType, runOf } from './kit'
 import { MODULES } from '../../src/course/curriculum'
 import { W, layoutDiagram, textBox, type Shape } from '../../src/course/diagram'
+import { selBinWidthMhz } from '../../src/engine/selectivity'
 
 const MS = 1_000_000
 const US = 1_000
@@ -420,5 +421,62 @@ describe('width · the subcarrier table adds up', () => {
       .filter((b): b is Extract<Block, { kind: 'table' }> => b.kind === 'table')
       .find((b) => b.heading?.includes('1500 字节的帧'))!.rows
     expect(rows.map((r) => n(r[1]))).toEqual(air.map((r) => n(r[1])))
+  })
+})
+
+/**
+ * The limit this slice is about, and the one that had to change DIRECTION.
+ *
+ * It used to predict that a wider channel meets a dead patch more often. With frequency
+ * selectivity built, the rounds say the opposite: the deepest bin does deepen with width
+ * (12.05 → 24.09 dB, ~3 dB per doubling), but the drop RATE at comparable margin falls across all
+ * five widths (14.39 → 0.52 %), because the code spans the whole channel.
+ *
+ * Three things the text may therefore not do, and each is pinned here:
+ *  - call it a drop COUNT: by count it is 14, 44, 47, 23, 4 — not monotone, because a 320 MHz
+ *    channel puts far more PPDUs on the air in the same time;
+ *  - compare the five widths without saying the margin was held comparable (20 MHz has already
+ *    paid by stepping a rate down, so its margin is wider and its rate flatters it);
+ *  - quote §4.1's open-loop 34.43 % → 7.14 %, which no lesson run produces (spec fix 124be31).
+ *
+ * All five rates are measured in tests/engine/selectivity-inert.test.ts, pooled by the margin the
+ * closed rate loop settled at; the deepest bin and the 2.36 dB median loss in
+ * tests/engine/selectivity.test.ts.
+ */
+describe('width · the flat-channel limit, and the direction it had to change', () => {
+  const text = width.limits.map((l) => l.text).join('\n')
+
+  it('prints the drop rates as rates, at a margin it says is comparable', () => {
+    expect(text).toContain('14.39 %')
+    expect(text).toContain('0.52 %')
+    expect(text).toContain('余量可比')
+    expect(text).toContain('3.62 dB')
+    expect(text).toContain('掉帧率而不是掉帧数')
+    expect(text).toContain('按个数看并不单调')
+  })
+
+  it('keeps the deepening bin, and the noise floor as the real cost of a wide channel', () => {
+    expect(text).toContain('12.05 dB')
+    expect(text).toContain('24.09 dB')
+    expect(text).toContain('每翻一倍深约 3 dB')
+    expect(text).toContain('12.04 dB')
+    expect(text).toContain('格间相关')
+  })
+
+  it('no longer predicts that the wider channel is the one that drops more', () => {
+    expect(text).not.toContain('而信道越宽，踩到这种坑的机会越多')
+    expect(text).not.toContain('即便在编辑器里打开衰落也补不上这一条')
+  })
+
+  it('quotes neither open-loop figure: no lesson run produces them', () => {
+    expect(text).not.toContain('34.43')
+    expect(text).not.toContain('7.14')
+  })
+
+  it('and the four width variants are still the flat channel the limit opens with', () => {
+    expect(text).toContain(`${selBinWidthMhz()} MHz 一格`)
+    for (const sc of [width.scenario(), ...(width.variants ?? []).map((v) => v.scenario())]) {
+      expect(sc.selectivity).toBeUndefined()
+    }
   })
 })

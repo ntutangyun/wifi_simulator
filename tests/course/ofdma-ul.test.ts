@@ -26,6 +26,7 @@ import { maxPsduBytesFor } from '../../src/engine/mac'
 import { ampduPsduBytes } from '../../src/model/frames'
 import { lessonShapeSuite, ofType, runOf } from './kit'
 import { MODULES } from '../../src/course/curriculum'
+import { RU26_PER_20MHZ, selBinWidthMhz, selBins } from '../../src/engine/selectivity'
 
 const MS = 1_000_000
 const US = 1_000
@@ -325,5 +326,35 @@ describe('ofdma-ul · the experiments', () => {
     expect(tbPpdus(rs).length).toBe(0)
     // the uplink still runs, the ordinary way
     expect(contended(rs).length).toBeGreaterThan(50)
+  })
+})
+
+/**
+ * The uplink half of slice 4a's known overestimate: each triggered answer is credited with the
+ * whole channel's bins (`selCombine` in channel.ts keys them off the PPDU's width) while every
+ * station occupies only its own resource unit, and the standard's smallest resource unit — 26
+ * tones — is exactly one bin. It is a separate statement from the power correction this lesson's
+ * other limits cover: that field is sized and not executed, this one is a bin count that is too
+ * large. The engine side is asserted in tests/engine/selectivity-inert.test.ts (§6 item 4).
+ */
+describe('ofdma-ul · every answer gets the whole channel’s bins (slice 4b)', () => {
+  const lim = ofdmaUl.limits[ofdmaUl.limits.length - 1]
+
+  it('is an out-of-scope limit naming the mechanism, the overestimate and the next slice', () => {
+    expect(lim.kind).toBe('out-of-scope')
+    expect(lim.text).toContain('selCombine')
+    expect(lim.text).toContain('高估')
+    expect(lim.text).toContain('切片 4b')
+    expect(lim.text).toContain(`${selBinWidthMhz()} MHz 一格`)
+  })
+
+  it('keeps it apart from the power correction, and rests on one bin being one 26-tone RU', () => {
+    expect(lim.text).toContain('与上面那条功率修正没有被执行是两回事')
+    expect(selBins(20)).toBe(RU26_PER_20MHZ)
+    expect(lim.text).toContain('26 音调资源单元恰好就是一格')
+  })
+
+  it('and this lesson’s own scene does not turn the feature on', () => {
+    expect(ofdmaUl.scenario().selectivity).toBeUndefined()
   })
 })
