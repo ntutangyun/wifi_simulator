@@ -275,3 +275,32 @@ describe('streams · the 9360 bits in one symbol are the engine’s own', () => 
     expect(Math.round(mbps * 10) / 10).toBe(172.1)
   })
 })
+
+/**
+ * The reader's own framing, and it is the engine's: a station emits one symbol at a time, and
+ * every kind of parallelism multiplies what fits inside that one. `symNs` is a per-mode constant
+ * — width, streams, MCS and RU share all leave it alone — while they all multiply `ndbps`. This
+ * pins both halves, because a lesson claiming it is only worth the claim if the engine agrees.
+ */
+describe('streams · the symbol is the quantum of time, not of bits', () => {
+  it('keeps one symbol duration whatever the width, the streams or the rate', () => {
+    const sym = PHY_MODES.eht.symNs
+    for (const widthMhz of [20, 40, 80, 160]) {
+      for (const nss of [1, 2, 4]) {
+        // airtime minus preamble must be a whole number of that one constant
+        const t = txTimeModeNs('eht', 1530, PHY_MODES.eht.ndbps.length - 1, { widthMhz, nss })
+        const body = t - PHY_MODES.eht.preambleNs
+        expect(body % sym, `${widthMhz} MHz / ${nss} ss`).toBe(0)
+        expect(body / sym).toBeGreaterThanOrEqual(1)
+      }
+    }
+  })
+
+  it('puts width and streams on the same side of the multiplication', () => {
+    const mcs = PHY_MODES.eht.ndbps.length - 1
+    // doubling the width and doubling the streams buy the same symbol count
+    const wide = txTimeModeNs('eht', 1530, mcs, { widthMhz: 40, nss: 1 })
+    const deep = txTimeModeNs('eht', 1530, mcs, { widthMhz: 20, nss: 2 })
+    expect(wide).toBe(deep)
+  })
+})
