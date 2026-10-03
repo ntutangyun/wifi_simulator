@@ -62,13 +62,18 @@ export interface ShellLayout {
    */
   timelineH: number
   /**
-   * The player is three stacked rows: the 3-D view, then the controls, then the
-   * timeline. The controls are one row that scrolls sideways instead of a block
-   * that wraps, and they sit above the timeline rather than under it, so the
-   * thing tapped most often is not against the bottom edge of the screen.
+   * The player is three stacked rows: the 3-D view, then the timeline, then the
+   * controls — the same top-to-bottom order every other viewport has. What is
+   * different here is the control row itself: it is one row that scrolls sideways
+   * instead of a block that wraps, and it leads with the time, play and the speed,
+   * because the rest of it is off screen until the reader scrolls.
    *
-   * It also means the 3-D view drops its on-screen camera buttons: at this width
-   * the pad covers an eighth of the view and a finger already orbits it.
+   * This used to put the controls *above* the timeline, on the argument that the
+   * row tapped most often should not sit against the bottom edge of the screen.
+   * The reader has since used it on the device and asked for the controls at the
+   * bottom at every size — which is where every other size already had them — so
+   * the shell no longer has two orders to pick between. The stack itself did not
+   * change; only that one claim did, and it is gone.
    */
   rowStack: boolean
   /**
@@ -81,6 +86,37 @@ export interface ShellLayout {
    * make reordering worth the cost of moving what the reader is used to.
    */
   transportScroll: boolean
+  /**
+   * The 3-D view shows its on-screen camera pad: pan, zoom, and `⌂` for the
+   * starting view. This is `!compact`, deliberately not a breakpoint of its own,
+   * so the pad is off on both halves of the foldable and on any window too narrow
+   * or too short for the desktop arrangement.
+   *
+   * The pointer is not part of it, and that is the difference from
+   * `transportScroll`. The pad is a 3 x 3 grid of buttons carrying inline
+   * `width: 32` and `padding: 0`, which `index.css`'s `pointer: coarse` rule
+   * cannot reach: measured in the browser it is 104 x 104 px at a fine pointer and
+   * 104 x 104 px at a coarse one. Nothing about it changes with the pointer, so
+   * reading the pointer here would be decoration — where `transportScroll` must,
+   * because its row's width really does differ by 36 px between the two and the
+   * gap straddles the unfolded foldable.
+   *
+   * What is left is what 104 x 104 px costs the view it covers (measured, same
+   * session): 1.7 % of a 1040 x 632 desktop view, 3.9 % of the unfolded
+   * 939 x 297 one, 7.6 % of the folded 470 x 301 one — and the two phone views are
+   * less than half as tall to begin with. `compact` is the name this module
+   * already gives that boundary; a second constant a hair away from it would be
+   * two names for one decision and would drift.
+   *
+   * Eight of the nine buttons are redundant at either pointer: a drag orbits, a
+   * wheel or a pinch zooms, a right-drag or two fingers pan, all directly on the
+   * canvas, which opts out of the browser's own gestures for exactly that. `⌂` is
+   * the one that is not — there is no gesture and no key for it — so where the pad
+   * is off, the only way back to the starting view is to leave the mode and come
+   * back, which rebuilds the scene. That was already true folded; it is now true
+   * unfolded too. A real loss, taken knowingly.
+   */
+  cameraPad: boolean
 }
 
 /**
@@ -108,8 +144,9 @@ export function layoutFor(w: number, h: number, coarsePointer = false): ShellLay
   // i.e. already a phone, which is the same decision about the same device; a
   // second constant a hundred px away would be two names for it and would drift.
   const rowStack = singleColumn
+  const compact = narrow || short
   return {
-    compact: narrow || short,
+    compact,
     // The drawer is a width decision: a short-but-wide window still has room for
     // the inspector beside the content, and hiding it there would cost a column
     // the reader can afford.
@@ -130,6 +167,9 @@ export function layoutFor(w: number, h: number, coarsePointer = false): ShellLay
     // swap one awkwardness for a worse one; a touchscreen already has the
     // gesture, verified in `.superpowers/sdd/folded-layout/report.md` section 5.
     transportScroll: rowStack || (coarsePointer && w < COARSE_TRANSPORT_MIN_W),
+    // Size alone, for the reasons in `cameraPad`'s own comment: the pad measures
+    // the same at either pointer, so there is nothing for the pointer to decide.
+    cameraPad: !compact,
   }
 }
 

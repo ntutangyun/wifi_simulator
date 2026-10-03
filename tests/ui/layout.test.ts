@@ -24,7 +24,7 @@ describe('layoutFor', () => {
     const l = layoutFor(DESKTOP.w, DESKTOP.h)
     expect(l).toEqual({
       compact: false, sideAsDrawer: false, singleColumn: false, timelineH: TIMELINE_H,
-      rowStack: false, transportScroll: false,
+      rowStack: false, transportScroll: false, cameraPad: true,
     })
   })
 
@@ -112,6 +112,56 @@ describe('transportScroll', () => {
 
   it('leaves a wide touchscreen alone: the row already fits', () => {
     expect(layoutFor(1440, 900, true).transportScroll).toBe(false)
+  })
+})
+
+describe('cameraPad', () => {
+  it('keeps the pad on a desktop window', () => {
+    expect(layoutFor(DESKTOP.w, DESKTOP.h).cameraPad).toBe(true)
+    // The window the reader must see unchanged, stated by its own numbers.
+    expect(layoutFor(1440, 900).cameraPad).toBe(true)
+    expect(layoutFor(1440, 900, true).cameraPad).toBe(true)
+  })
+
+  it('drops the pad on both halves of the foldable', () => {
+    expect(layoutFor(FOLDABLE.w, FOLDABLE.h).cameraPad).toBe(false)
+    expect(layoutFor(FOLDED.w, FOLDED.h).cameraPad).toBe(false)
+  })
+
+  it('does not read the pointer, because the pad is the same size either way', () => {
+    // Measured: the pad is 104 x 104 px at a fine pointer and 104 x 104 px at
+    // `pointer: coarse`, because its buttons carry inline width and padding that
+    // `index.css`'s coarse-pointer rule cannot reach. Nothing about the decision
+    // changes with the pointer, so neither does this field — unlike
+    // `transportScroll`, where the two pointer sizes straddle 939.
+    for (const coarse of [false, true]) {
+      expect(layoutFor(FOLDABLE.w, FOLDABLE.h, coarse).cameraPad).toBe(false)
+      expect(layoutFor(FOLDED.w, FOLDED.h, coarse).cameraPad).toBe(false)
+      expect(layoutFor(DESKTOP.w, DESKTOP.h, coarse).cameraPad).toBe(true)
+    }
+  })
+
+  it('is the `compact` boundary and not a second one beside it', () => {
+    // Either dimension alone takes the pad away: a short wide window has the
+    // same shallow 3-D view the unfolded foldable has.
+    expect(layoutFor(COMPACT_W, COMPACT_H).cameraPad).toBe(true)
+    expect(layoutFor(COMPACT_W - 1, COMPACT_H).cameraPad).toBe(false)
+    expect(layoutFor(COMPACT_W, COMPACT_H - 1).cameraPad).toBe(false)
+    // and it is exactly the complement of `compact`, at every size tested here
+    for (const [w, h] of [[1440, 900], [1920, 1080], [939, 511], [470, 511], [1600, 500], [900, 1200]]) {
+      const l = layoutFor(w, h)
+      expect(l.cameraPad).toBe(!l.compact)
+    }
+  })
+
+  it('never leaves the pad on where the player is stacked', () => {
+    // `rowStack` hid the pad before this field existed; nothing may bring it back
+    // on the viewport that drove the stack.
+    for (const [w, h] of [[470, 511], [412, 800], [699, 511]]) {
+      const l = layoutFor(w, h, true)
+      expect(l.rowStack).toBe(true)
+      expect(l.cameraPad).toBe(false)
+    }
   })
 })
 

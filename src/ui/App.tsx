@@ -93,26 +93,20 @@ export function App() {
   const showCourseCol = mode === 'course' && (!layout.singleColumn || pane === 'course')
   const showViewCol = !(mode === 'course' && layout.singleColumn && pane === 'course')
   /**
-   * The player's two strips, under the 3-D view, as two grid rows.
+   * The player's two strips, under the 3-D view, as two grid rows: the timeline,
+   * then the controls, at every size. The stacked arrangement used to swap them so
+   * the most-tapped row was off the bottom edge; the reader asked for the controls
+   * at the bottom everywhere, and there is no longer an order to choose. Both call
+   * sites — course mode's view pane and simulate mode — render this one value, so
+   * they cannot drift into two arrangements of the same screen.
    *
-   * `rowStack` swaps them: the controls go above the timeline so the row tapped
-   * most often is not against the bottom edge of the screen, and the transport
-   * becomes one sideways-scrolling row. Both orders are rendered from here rather
-   * than at the two call sites so course mode's view pane and simulate mode
-   * cannot drift into showing the same screen two different ways.
-   *
-   * The transport itself takes its scrolling and its order as two separate
-   * props: `transportScroll` can be true (unfolded, touch) without `rowStack`
-   * being true, and when that happens the row scrolls but keeps the wide order —
-   * see `layout.ts`.
+   * What still varies is the row itself, and it takes its scrolling and its
+   * left-to-right order as two separate props: `transportScroll` can be true
+   * (unfolded, touch) without `rowStack` being true, and then the row scrolls but
+   * keeps the wide order — see `layout.ts`.
    */
   const transport = <Transport scroll={layout.transportScroll} stacked={layout.rowStack} />
-  const playerRows = layout.rowStack ? (
-    <>
-      {transport}
-      <TimelineStrip height={timelineH} open={timelineOpen} onToggle={() => setTimelineOpen((v) => !v)} />
-    </>
-  ) : (
+  const playerRows = (
     <>
       <TimelineStrip height={timelineH} open={timelineOpen} onToggle={() => setTimelineOpen((v) => !v)} />
       {transport}
@@ -194,7 +188,7 @@ export function App() {
               {mode === 'edit' ? (
                 <FloorPlanEditor />
               ) : simActive ? (
-                <Viewport key={`vp-${mode}-${simSession}`} cameraButtons={!layout.rowStack} />
+                <Viewport key={`vp-${mode}-${simSession}`} cameraButtons={layout.cameraPad} />
               ) : (
                 <div style={{ display: 'grid', gridTemplateColumns: ONE_COLUMN, placeItems: 'center', height: '100%', color: 'var(--dim)', padding: 24, textAlign: 'center' }}>
                   {L.course.selectPrompt}

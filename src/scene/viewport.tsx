@@ -11,11 +11,14 @@ import { primaryLaneOf } from '../model/view'
 
 export interface ViewportProps {
   /**
-   * The pan / zoom / home pad in the corner. The shell turns it off in its
-   * stacked arrangement (`layout.rowStack`): the pad is a 3 x 3 grid of 32 px
-   * buttons, ~110 px square, which is an eighth of a 470 x 313 view, and a
-   * finger orbits and pinches the canvas directly. It stays on where there is a
-   * mouse, which has no gesture for `home` at all.
+   * The pan / zoom / home pad in the corner. The shell passes `layout.cameraPad`,
+   * which is off wherever the viewport is compact — both halves of the foldable,
+   * and any window too narrow or too short for the desktop arrangement. The pad
+   * measures 104 x 104 px at either pointer, which is 1.7 % of a desktop view and
+   * 3.9 % to 7.6 % of the two phone views; eight of its nine buttons are what a
+   * drag, a wheel or a pinch already does on the canvas. `home` is the ninth and
+   * has no gesture at all, so where the pad is off, nothing replaces it. See
+   * `cameraPad` in `layout.ts` for why size decides this and the pointer does not.
    */
   cameraButtons?: boolean
 }
