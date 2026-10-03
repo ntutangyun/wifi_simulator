@@ -7,8 +7,17 @@
  * together take nearly half the height. Measured on an unfolded foldable at
  * 939 x 511 CSS px, course mode gave the lesson 279 px of 939, and simulate mode
  * spent 230 px of 511 on the timeline and the transport while the 3-D view got
- * 243 px. Those numbers are the state this module was written against; with the
- * compact timeline in place the same viewport now gives the 3-D view 313 px.
+ * 243 px. Those numbers are the state this module was written against.
+ *
+ * **Every row height here is a pointer type as well as a viewport**, and this
+ * comment has been wrong twice for leaving that out. `index.css` gives controls
+ * a larger floor under `(pointer: coarse)`, so the same 939 x 511 gives the 3-D
+ * view **313 px with a mouse and 297 px on a finger** — the header and the
+ * control row each grow from 38/40 to 47, and the view pays the 16 px. The
+ * phone only ever reports coarse, so **297 is the number that describes the
+ * device** and 313 is a measurement of a screen nobody touches that way. A
+ * figure quoted from this header without its pointer type has already misled a
+ * brief once; measure, and say which pointer you measured under.
  *
  * The same phone shut is 470 x 511: half the width, every bit of the height. See
  * `rowStack` for what changes there.
