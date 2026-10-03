@@ -146,12 +146,20 @@ export function shadowDb(cfg: FadingCfg, seed: number, txId: string, rxId: strin
  * line-of-sight component alongside the scatter, with `K` the ratio of the
  * line-of-sight power to the scattered power: `h = √(k/(k+1)) + √(1/(k+1))·(x + jy)/√2`,
  * so a large K leaves almost nothing to fade and a K of zero is Rayleigh again.
+ *
+ * `bin` is the optional frequency-selectivity hook (model, see `selectivity.ts`):
+ * omitted, the draw is keyed by `frameKey` alone, exactly as before — this is
+ * what keeps every scenario without that feature turned on byte-identical.
+ * Given, it folds the bin index into the key so each 26-tone-RU bin of the same
+ * frame draws independently, reusing this same distribution and K factor rather
+ * than adding a new one.
  */
 export function smallScaleDb(
-  cfg: FadingCfg, seed: number, txId: string, rxId: string, frameKey: string,
+  cfg: FadingCfg, seed: number, txId: string, rxId: string, frameKey: string, bin?: number,
 ): number {
   if (cfg.smallScale === 'none') return 0
-  const [x, y] = normalPair(seed, txId, rxId, `fast|${frameKey}`)
+  const key = bin === undefined ? `fast|${frameKey}` : `fast|${frameKey}|b${bin}`
+  const [x, y] = normalPair(seed, txId, rxId, key)
   let re = x / Math.SQRT2
   let im = y / Math.SQRT2
   if (cfg.smallScale === 'rician') {
