@@ -586,8 +586,19 @@ function bracketCarriesEnglish(text: string, start: number, end: number, t: ZhTe
  * every region the regex found is still found, with the same open index and at
  * least as much content. So no lesson that passed can start failing — which is
  * why this lands without a sweep behind it.
+ *
+ * That claim was not quite absolute when first written, and the branch review
+ * found the hole: on a mixed-width unbalanced pair like `(A（B)`, the regex
+ * matched a region at index 0, while the scanner popped the inner `（` for the
+ * `)` and dropped the never-closed `(` entirely — losing a region the regex
+ * had. No lesson in the corpus reaches it, so nothing was failing; the claim
+ * above was what was wrong. Emitting each unclosed open bracket with the rest
+ * of the string as its content makes the claim true rather than nearly true,
+ * which is worth more than an exception noted in a comment: the claim is the
+ * reason this function could replace the regex without a sweep behind it, and
+ * a load-bearing claim should hold.
  */
-function brackets(text: string): [number, string][] {
+export function brackets(text: string): [number, string][] {
   const out: [number, string][] = []
   const open: number[] = []
   for (let i = 0; i < text.length; i++) {
@@ -600,6 +611,10 @@ function brackets(text: string): [number, string][] {
       if (at !== undefined) out.push([at, text.slice(at + 1, i)])
     }
   }
+  // Whatever is still open never closed. The regex would have run such a
+  // bracket to the next closer of either width, so to stay a superset of it
+  // this runs each one to the end of the string.
+  for (const at of open) out.push([at, text.slice(at + 1)])
   // Depth order comes out innermost-first because a region closes before its
   // parent. The caller takes the first region that satisfies it and the open
   // index is what decides eligibility, so order does not change the verdict —

@@ -27,7 +27,7 @@ import { COURSE_ORDER, MAX_MINUTES, lessonMinutes, trackOf } from '../../src/cou
 import { isMigrated, type Block, type Lesson } from '../../src/course/lessonKit'
 import {
   cellTexts, lessonStrings, paragraphTexts,
-  ZH_TERMS, ZH_TERMS_EXCLUDED, bracketedAtFirstZhUse, zhAkaViolations, zhTermFailure, type ZhTerm,
+  ZH_TERMS, ZH_TERMS_EXCLUDED, bracketedAtFirstZhUse, brackets, zhAkaViolations, zhTermFailure, type ZhTerm,
 } from '../../src/course/readability'
 import { effectiveMigrating } from './kit'
 
@@ -341,6 +341,44 @@ describe('readability · the term rule can fail', () => {
     // reader must not turn into one that accepts anything.
     const neither = '这一小会儿叫短帧间间隔（见上文（第三节）那一段）。'
     expect(zhTermFailure(neither, SIFS)).toBe('短帧间间隔 first used without （short interframe space, SIFS）')
+  })
+
+  /**
+   * The superset claim itself, which is the whole reason `brackets()` could replace the regex
+   * without re-checking the corpus behind it. Asserted against the regex it replaced, over every
+   * bracket string of length six or less that the two widths can spell — well nested, badly
+   * nested, unbalanced either way, mixed widths. The branch review found the claim false on
+   * `(A（B)` by hand; this is the exhaustive version, so the next person to widen the scanner
+   * learns immediately whether they narrowed it instead.
+   */
+  it('finds every region the regex it replaced found, with at least as much content', () => {
+    const OLD = /[（(]([^）)]{0,200})[）)]/g
+    const alphabet = ['(', ')', '（', '）', 'A', 'B']
+    let words: string[] = ['']
+    const all: string[] = []
+    for (let n = 0; n < 6; n++) {
+      const next: string[] = []
+      for (const w of words) for (const c of alphabet) next.push(w + c)
+      all.push(...next)
+      words = next
+    }
+    let checked = 0
+    for (const w of all) {
+      if (!/[（(]/.test(w)) continue
+      const got = brackets(w)
+      for (const m of w.matchAll(OLD)) {
+        const at = m.index ?? -1
+        const inside = m[1] ?? ''
+        const mine = got.find((r) => r[0] === at)
+        expect(mine, `${JSON.stringify(w)}: regex found a region at ${at} and the scanner did not`)
+          .toBeDefined()
+        expect(mine![1].length, `${JSON.stringify(w)}: region at ${at} lost content`)
+          .toBeGreaterThanOrEqual(inside.length)
+        checked++
+      }
+    }
+    // The walk is only worth its runtime if it actually exercised the shapes in question.
+    expect(checked).toBeGreaterThan(1000)
   })
 
   /** P3 — the `aka` arm: section 3's inconsistent renderings. */
