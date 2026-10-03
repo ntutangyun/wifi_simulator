@@ -4,7 +4,7 @@ import {
   activationReachM, monoReachM,
 } from '../engine/ampBs'
 import { FADING_DEFAULTS, RICIAN_K_DEFAULT_DB } from '../engine/fading'
-import { DEFAULT_SIX_GHZ_CENTER_MHZ, DEFAULT_UWB_SESSION, sixGhzChannelNo } from '../model/scenario'
+import { DEFAULT_SIX_GHZ_CENTER_MHZ, DEFAULT_UWB_SESSION, UwbSsbdSchema, sixGhzChannelNo } from '../model/scenario'
 import { AOA_SIGMA_CLAMP_DEG, AOA_SIGMA_PHI_RAD, aoaSigmaDeg, antennaSpacingM } from '../uwb/aoa'
 import {
   MMS_COMBINE_MAX_DB, MMS_FIXED_REPLY_RSTU_MAX, MMS_FIXED_REPLY_RSTU_MIN, MMS_SETS,
@@ -22,7 +22,7 @@ import {
   uwbM2mBytes, uwbMaxAnchors, uwbMaxMmrcmInitiators, uwbMaxParticipants, uwbMmrcmBytes, uwbPollBytes,
   UWB_MAX_PSDU_BYTES,
   uwbPpduNs, uwbRespBytes, uwbRmnrBytes, uwbSp3InitReportBytes, uwbSp3Ns, uwbSp3PollBytes,
-  uwbSp3ReportBytes,
+  uwbSp3ReportBytes, nbSlotSlackNs, ssbdBoundNs,
 } from '../uwb/phy'
 import { roundPlan } from '../uwb/session'
 import { ELLIPSE_DRAW_SCALE } from '../uwb/view'
@@ -196,6 +196,25 @@ const ANCILLARY_SLOT_NS = rstuNs(DEFAULT_UWB_SESSION.slotRstu)
  * since discovery happens the instant it is decoded, not when its slot opens. */
 const ANCILLARY_LEAD_MS = ((2 * ANCILLARY_SLOT_NS - ANCILLARY_FRAME_NS) / 1e6).toFixed(2)
 const ANCILLARY_SLOT_MS = (ANCILLARY_SLOT_NS / 1e6).toFixed(1)
+
+// --- Section 21: spectrum sensing based deferral, standard §10.45 (a P802.15.4ab draft clause) -
+// The two bounds and the two slacks below are all closed-form — `ssbdBoundNs`/`nbSlotSlackNs`, the
+// same functions the schema and the engine read — so they move the moment either function does.
+// The four range counts (off/per-block/defaults/max-fit) have no closed form at all: they are the
+// outcome of an actual 1.3 s run of the `uwb-nba-coexist` lesson scene, and `tests/ui/uwb-guide.test.ts`
+// recomputes every one of them from a fresh `Simulation`, never comparing this file's prose to itself.
+const SSBD_DEFAULTS = UwbSsbdSchema.parse({})
+const SSBD_BOUND_US = ssbdBoundNs(SSBD_DEFAULTS) / 1000 // 74
+/** The TFD appendix's own stale example: reproduces only under the two premises CID 489/493 and
+ * CID 490/495 later overturned (`2 × BF`, a 1 µs CCA) — the same function, a different `cfg`. */
+const SSBD_BOUND_STALE_US = ssbdBoundNs({ ...SSBD_DEFAULTS, backoffMultiplier: 2, ccaUs: 1 }) / 1000 // 46
+/** What the engine actually waits at the defaults: the bound minus the sensing time it also
+ * charges (`maxBackoffs + 1` CCAs) — the wording trap §5.5 of the design doc points at. */
+const SSBD_ACTUAL_MAX_US = SSBD_BOUND_US - (SSBD_DEFAULTS.maxBackoffs + 1) * NB_LBT_CCA_US // 20
+const SSBD_SLOT_RSTU = 600 // the draft's own MMS slot — see Section 12 below
+const SSBD_SLOT_NS = rstuNs(SSBD_SLOT_RSTU)
+const SSBD_POLL_SLACK_US = nbSlotSlackNs(SSBD_SLOT_NS, NB_POLL_BYTES) / 1000 // 424
+const SSBD_REPORT_SLACK_US = nbSlotSlackNs(SSBD_SLOT_NS, NB_REPORT_BYTES) / 1000 // 392
 
 // --- Section 12: the P802.15.4ab draft ------------------------------------------------------
 // Every figure below is computed from `src/uwb/mms.ts` and `src/uwb/nb.ts`, so the prose cannot
@@ -1370,6 +1389,105 @@ export function Guide() {
         都不发。
       </p>
 
+      <h4 style={h}>21 · 给信道接入的延迟定上界，就是提前决定不再等（标准 §10.45，一条草案条款）</h4>
+      <p style={p}>
+        <b>频谱感知延后（spectrum sensing based deferral, SSBD）</b>不在已发布的 IEEE Std
+        802.15.4-2024 里——它是 P802.15.4ab <b>草案</b>的一条可选条款，MMS 的窄带发射每一次要先
+        听后发时，可以走的两条信道接入方法之一。算法本身很朴素：每次 CCA 之前先按一个线性增长的
+        <b>退避因子（backoff factor, BF）</b>随机等一段，CCA 判忙就把 BF 和忙次数各加一再退避一次，
+        判空闲则照常发送；忙次数到了上限，由一个收尾动作决定是照发还是算一次信道接入失败。
+      </p>
+      <p style={p}>
+        <b>标准草案自己的附录给的例子已经过期。</b>那份附录给了两个延迟上界：缺省参数下
+        <b> {SSBD_BOUND_STALE_US} µs</b>，调参之后 2.088 ms。这两个数只在两个后来被评审意见推翻的
+        前提下才算得出来——退避抽的是 <code>2 × BF</code> 而不是 <code>random(BF)</code>（CID 489/
+        493），CCA 只记 1 µs 而不是 9 µs（CID 490/495，这个 9 µs 正是本引擎既有的
+        <code> phyCcaDuration</code> 读数）。按草案现在的文字重新算，同一个函数在缺省参数下读出
+        <b> {SSBD_BOUND_US} µs</b>，不是 46 µs。<b>上界要算出来，不能抄标准自己的例子</b>——这是本
+        引擎最硬的一条举证限度：标准自己的附录就是一个过期值。而算出来的这个数还要再澄清一句：
+        {SSBD_BOUND_US} µs 是算法的<b>上界</b>——每一次退避都判忙、每一次都抽到能抽到的最大值时
+        的和——引擎在缺省参数下实际等掉的只有 <b>{SSBD_ACTUAL_MAX_US} µs</b>，因为 CCA
+        本身是一次瞬时读数，不占用时间。这个数要当成<b>算法的上界</b>来读——每一次都判忙、每一次
+        都抽到最大值时的和——而不是当成引擎每次实际要等的那个数：一个是最坏情形的和，
+        一个是每次都要付的数，不是一回事。
+      </p>
+      <p style={p}>
+        <b>判忙的门限是一个管制数，不是标准数——而这个管制本身也在变。</b>P802.15.4ab 的草案正文
+        里根本没有定义能量检测门限：评审中至少三条要求加上门限的意见（分段公式、
+        −75 dBm/MHz 配 16 µs 最短 CCA、`max(−85, min(−65, −72 − Ptx))`）与三条要求定最短 CCA 时长
+        的意见，<b>全部被否决</b>。本引擎用的 −75 dBm/MHz（摊到 2.5 MHz 信道即
+        <b> {NB_LBT_DBM} dBm</b>）来自 <b>ETSI EN 303 687</b>（6 GHz WAS/RLAN 协调标准，欧盟）；
+        而这份标准自己也不稳定——欧盟 2025/893 号决定已经撤销了它对这一类设备的符合性推定，
+        其先听后发流程要等一个后续版本来替换。所以这个门限既不是标准给的，也不是定好不会再动的，
+        课程与指南都要这样说。
+      </p>
+      <p style={p}>
+        <b>SSBD 与既有的竞争式排程（标准 §10.32.2 schedule mode 0）长得像，机理却不同——</b>两者
+        都是「在一个窗口里随机抽 + 有界次数 + 抽空了就不再等」，但抽的是不同的东西：
+      </p>
+      <table style={table}>
+        <thead>
+          <tr>
+            <th style={cellHead} />
+            <th style={cellHead}>竞争式排程（标准 §10.32.2）</th>
+            <th style={cellHead}>SSBD（标准 §10.45）</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td style={cell}>先感知信道吗</td>
+            <td style={cell}>不——锚点听不见别的锚点</td>
+            <td style={cell}><b>是——每次都先做一次 CCA</b></td>
+          </tr>
+          <tr>
+            <td style={cell}>窗口</td>
+            <td style={cell}>固定宽（<code>contentionSlots</code>）</td>
+            <td style={cell}><b>线性增长</b>（BF 每判一次忙就加一）</td>
+          </tr>
+          <tr>
+            <td style={cell}>哪部电台</td>
+            <td style={cell}>UWB PHY</td>
+            <td style={cell}>窄带 O-QPSK</td>
+          </tr>
+          <tr>
+            <td style={cell}>退避的时间从哪儿来</td>
+            <td style={cell}>跨轮——一轮只尝试一次</td>
+            <td style={cell}><b>一个时隙之内全部付清</b></td>
+          </tr>
+        </tbody>
+      </table>
+      <p style={p}>
+        <b>最后一行是这一节真正的结论所在。</b>竞争式排程的等待发生在轮与轮之间，不挤占任何一帧
+        自己的空间；SSBD 的等待发生在<b>消息自己还要用的那个窗口里面</b>——一个窄带 POLL/RESP
+        窗口留给退避的余量是 <b>{SSBD_POLL_SLACK_US} µs</b>、REPORT 窗口是
+        <b> {SSBD_REPORT_SLACK_US} µs</b>（都从 <code>NB_WINDOW_SLOTS</code> 个测距时隙减去消息本身
+        的收发时间算出，窄带发射用的是 600 RSTU 的 MMS 时隙）。{SSBD_BOUND_US} µs 的上界等不过
+        仿真场景里任何一帧 Wi-Fi 数据帧；而要是把退避单位调到能塞进这格余量的最大值，付出的
+        {SSBD_POLL_SLACK_US} µs 仍然短于场景里最长的那一帧 Wi-Fi 数据帧（469.6 µs）——调大这个
+        旋钮并不能换来更多，因为这段等待是从消息自己的窗口里扣出来的，窗口本身并没有变大。
+      </p>
+      <p style={p}>
+        量出来是这样（<code>uwb-nba-coexist</code> 课程场景，1.3 s，读 <b>UWB_RANGE</b> 条数）：
+      </p>
+      <table style={table}>
+        <thead>
+          <tr><th style={cellHead}>设置</th><th style={cellHead}>测距成功次数</th></tr>
+        </thead>
+        <tbody>
+          <tr><td style={cell}>先听后发整个关闭</td><td style={cell}>47</td></tr>
+          <tr><td style={cell}>今天这条规则（一次忙检测封住整个测距块）</td><td style={cell}><b>1</b></td></tr>
+          <tr><td style={cell}>SSBD，缺省参数</td><td style={cell}>50</td></tr>
+          <tr><td style={cell}>SSBD，退避单位调到能塞进窗口的最大值</td><td style={cell}><b>3</b></td></tr>
+        </tbody>
+      </table>
+      <p style={p}>
+        第二行是这一刀要换掉的那条规则：一次忙检测就封住整个测距块剩余时间的窄带发射，
+        47 次周期里丢了 46 次。SSBD 的缺省参数把它们基本都要了回来——不是因为它等得过任何干扰，
+        而是因为 {SSBD_BOUND_US} µs 等不过任何一帧，退避总会用尽，收尾动作缺省又是照发，于是
+        它和完全不先听后发几乎没有分别。而把退避单位调到最大反而更差：那段更长的等待仍然要从
+        消息自己的窗口里扣，窗口之外的那一帧仍然挤得进来，于是发送的时机被推到窗口末尾，
+        反而更容易撞上邻道一帧更长的 Wi-Fi 帧。
+      </p>
       <h4 style={h}>动手试试</h4>
       <p style={p}>
         · 放两个饱和上传的终端，再用砖墙让它们互为隐藏节点——看碰撞暴增，

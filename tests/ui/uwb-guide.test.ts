@@ -11,9 +11,11 @@ import { describe, it, expect } from 'vitest'
 import { CCA_ED_DBM } from '../../src/engine/phy'
 import { Simulation } from '../../src/engine/simulation'
 import {
-  DEFAULT_UWB_SESSION, ScenarioSchema, type NodeCfg, type Scenario, type UwbSessionCfg,
+  DEFAULT_UWB_SESSION, ScenarioSchema, UwbSsbdSchema,
+  type NodeCfg, type Scenario, type UwbSessionCfg,
 } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
+import { uwbNbaScenario } from '../../src/course/uwb/uwb-nba'
 import { EditorGuide } from '../../src/editor/EditorGuide'
 import { Guide } from '../../src/ui/Guide'
 import { STRINGS } from '../../src/ui/i18n'
@@ -33,6 +35,7 @@ import {
   fomDecode, fomText, rstuNs, uwbAncillaryBytes, uwbFinalBytes, uwbInBandDbm, uwbInitBytes, uwbM2mBytes,
   uwbMaxAnchors, uwbMaxMmrcmInitiators, uwbMaxParticipants, uwbMmrcmBytes, uwbPl0Db, uwbPollBytes, uwbPpduNs,
   uwbRespBytes, uwbRmnrBytes, uwbSlotsPerTag, uwbSp3InitReportBytes, uwbSp3Ns, uwbSp3PollBytes, uwbSp3ReportBytes,
+  nbSlotSlackNs, ssbdBoundNs,
   type UwbReplyTime,
 } from '../../src/uwb/phy'
 import { rangeSigmaM } from '../../src/uwb/position'
@@ -1655,5 +1658,240 @@ describe('the ranging ancillary information glossary terms, each with a provenan
         expect(`${item.alt} ${item.def}`, `${t}: ${w}`).not.toContain(w)
       }
     }
+  })
+})
+
+/**
+ * Task 5's guide section: spectrum sensing based deferral (standard §10.45 — a P802.15.4ab
+ * **draft** clause, not in the published IEEE Std 802.15.4-2024). Three things, per the brief:
+ * the appendix's stale latency bound and why it expired, the regulatory (not standard) threshold
+ * and the regime's own instability, and SSBD against contention scheduling. Every number the
+ * section prints is recomputed here from the engine's own exports or an actual run — never
+ * compared against the prose as a string.
+ */
+describe('Guide section 21: spectrum sensing based deferral (standard §10.45, a P802.15.4ab draft clause)', () => {
+  const zh = renderGuide()
+  const section = zh.slice(zh.indexOf('21 ·'), zh.indexOf('动手试试'))
+  const BANNED = ['更贵', '账', '买到', '省钱', '白费', '值钱', '定死', '说了算', '惩罚']
+
+  it('renders the heading and cites the clause as a draft one', () => {
+    expect(zh).toContain('21 ·')
+    expect(section).toContain('§10.45')
+    expect(section).toMatch(/P802\.15\.4ab/)
+    expect(section).toMatch(/草案/)
+    expect(section).not.toMatch(/已发布标准 §10\.45/)
+  })
+
+  /**
+   * The appendix's own stale example, recomputed independently of `Guide.tsx`'s own constants:
+   * this test imports nothing from that file, so a drift between the two can only mean the prose
+   * itself is wrong, not that both share one mistaken number.
+   */
+  it('computes the default bound and the appendix’s stale one from the same function, under the two overturned premises', () => {
+    const defaults = UwbSsbdSchema.parse({})
+    const boundUs = ssbdBoundNs(defaults) / 1000
+    const staleUs = ssbdBoundNs({ ...defaults, backoffMultiplier: 2, ccaUs: 1 }) / 1000
+    expect(boundUs).toBe(74)
+    expect(staleUs).toBe(46)
+    expect(section).toContain(`${boundUs} µs`)
+    expect(section).toContain(`${staleUs} µs`)
+    // The reason it expired is named, not just the number.
+    expect(section).toMatch(/CID 489/)
+    expect(section).toMatch(/CID 490/)
+    expect(section).toMatch(/random\(BF\)/)
+  })
+
+  /**
+   * §5.5 of the design doc's wording trap: the engine waits less than the bound, because the CCA
+   * itself costs no simulated time. The section must say "the algorithm's bound", never "the
+   * engine delays this much" — a bound is a worst-case sum, not a per-attempt cost.
+   */
+  it('states the actual wait is less than the bound, and calls the bound the algorithm’s, not the engine’s cost', () => {
+    const defaults = UwbSsbdSchema.parse({})
+    const boundUs = ssbdBoundNs(defaults) / 1000
+    const actualUs = boundUs - (defaults.maxBackoffs + 1) * NB_LBT_CCA_US
+    expect(actualUs).toBe(20)
+    expect(section).toContain(`${actualUs} µs`)
+    expect(section).toMatch(/算法的.{0,4}上界/)
+    // The wording trap itself: a bound is a worst-case sum, never phrased as a per-attempt cost
+    // the engine always pays.
+    expect(section).not.toMatch(/引擎(在缺省参数下)?(会|要|总)(这样)?延迟/)
+    expect(section).not.toMatch(/引擎每次(都)?(要|会)等/)
+  })
+
+  it('names the threshold as a regulatory number and the regime as unsettled', () => {
+    expect(section).toMatch(/管制数/)
+    expect(section).toContain('ETSI EN 303 687')
+    expect(section).toMatch(/标准数/)
+    // The draft itself has no ED threshold — every review comment asking for one was rejected.
+    expect(section).toMatch(/没有定义能量检测门限/)
+    expect(section).toMatch(/被否决/)
+    // The regime itself is moving: the EU decision that voided the presumption of conformity.
+    expect(section).toMatch(/2025\/893/)
+    expect(section).toMatch(/撤销/)
+  })
+
+  it('lays out SSBD against contention scheduling on the four axes design doc §3.3 names', () => {
+    for (const marker of [
+      '竞争式排程（标准 §10.32.2）', 'SSBD（标准 §10.45）',
+      '先感知信道吗', '窗口', '哪部电台', 'contentionSlots',
+    ]) {
+      expect(section, marker).toContain(marker)
+    }
+    expect(section).toMatch(/线性增长/)
+    expect(section).toMatch(/窄带 O-QPSK/)
+    expect(section).toMatch(/跨轮/)
+    expect(section).toMatch(/一个时隙之内/)
+  })
+
+  /**
+   * **The section's real content**, run fresh here rather than imported from any other test file:
+   * the same `uwb-nba-coexist` scenario, the same four settings, over 1.3 s. If the engine ever
+   * moves these counts, this test goes red before the prose does.
+   */
+  it('reruns the lesson scene’s four settings and gets the same range counts the prose prints', () => {
+    const LESSON_RUN_NS = 1300 * 1_000_000
+    const lesson = (variant: 'pairwise' | 'noLbt', ssbd: Parameters<typeof UwbSsbdSchema.parse>[0] | null): TLRecord[] => {
+      const base = uwbNbaScenario(variant)
+      if (!base.uwb) throw new Error(`uwb-nba's ${variant} scene has no ranging session`)
+      const sc = ScenarioSchema.parse({
+        ...base, uwb: { ...base.uwb, mms: { ...base.uwb.mms, ...(ssbd ? { ssbd } : {}) } },
+      })
+      return [...new Simulation(sc).runUntil(LESSON_RUN_NS).records]
+    }
+    const ranges = (rs: TLRecord[]): number => rs.filter((r) => r.type === 'UWB_RANGE').length
+    const off = ranges(lesson('noLbt', null))
+    const perBlock = ranges(lesson('pairwise', null))
+    const defaults = ranges(lesson('pairwise', {}))
+    // The largest backoff unit that still fits the POLL's own slack, BF = 7 — the same free choice
+    // the design doc's own measurement makes, searched rather than assumed.
+    const pollSlackUs = nbSlotSlackNs(rstuNs(600), NB_POLL_BYTES) / 1000
+    const BF = 7
+    const biggest = Math.floor(pollSlackUs / BF)
+    const maxFit = ranges(lesson('pairwise', { minBf: BF, maxBf: BF, unitBackoffUs: biggest }))
+    expect({ off, perBlock, defaults, maxFit }).toEqual({ off: 47, perBlock: 1, defaults: 50, maxFit: 3 })
+    for (const n of [off, perBlock, defaults, maxFit]) expect(section).toContain(String(n))
+    // The sharper reading the design doc's §5.4 insists on: the per-block rule costs nearly every
+    // cycle, the defaults recover them, and turning the knob up makes it worse, not better.
+    expect(perBlock).toBeLessThan(off / 10)
+    expect(defaults).toBeGreaterThan(perBlock * 10)
+    expect(maxFit).toBeLessThan(defaults)
+    expect(maxFit).toBeLessThanOrEqual(off)
+  })
+
+  /**
+   * The longest Wi-Fi data frame the conclusion is measured against — the lesson's own main scene
+   * (`uwb-nba-coexist`'s `'base'` variant), not the `'pairwise'`/`'noLbt'` variants the four-setting
+   * measurement above uses, which carry a different Wi-Fi contention history and a different
+   * longest frame. Read fresh, the way "suspect the ruler" asks.
+   */
+  it('the longest Wi-Fi data frame in the lesson’s main scene is longer than the biggest slack SSBD can fit', () => {
+    const sc = uwbNbaScenario('base')
+    const rs = [...new Simulation(sc).runUntil(1300 * 1_000_000).records]
+    const longestNs = Math.max(...rs
+      .filter((r): r is Extract<TLRecord, { type: 'TX_START' }> => r.type === 'TX_START' && r.frame.kind === 'data')
+      .map((r) => r.frame.txTimeNs))
+    expect(longestNs).toBe(469_600)
+    const pollSlackUs = nbSlotSlackNs(rstuNs(600), NB_POLL_BYTES) / 1000
+    expect(pollSlackUs).toBe(424)
+    expect(longestNs / 1000).toBeGreaterThan(pollSlackUs)
+    expect(section).toContain('469.6')
+    expect(section).toContain(`${pollSlackUs} µs`)
+  })
+
+  it('prints the POLL and REPORT window slacks, computed from the engine’s own NB_WINDOW_SLOTS arithmetic', () => {
+    const pollUs = nbSlotSlackNs(rstuNs(600), NB_POLL_BYTES) / 1000
+    const reportUs = nbSlotSlackNs(rstuNs(600), NB_REPORT_BYTES) / 1000
+    expect(pollUs).toBe(424)
+    expect(reportUs).toBe(392)
+    expect(section).toContain(`${pollUs} µs`)
+    expect(section).toContain(`${reportUs} µs`)
+  })
+
+  it('does not use any of the wording contract’s banned cost-framing words, even though no test polices this file by default', () => {
+    for (const w of BANNED) expect(section, w).not.toContain(w)
+  })
+})
+
+describe('the EditorGuide SSBD section', () => {
+  const zh = renderToStaticMarkup(createElement(EditorGuide))
+  const section = (html: string, from: string, to: string): string => {
+    const start = html.indexOf(from)
+    expect(start, `heading not rendered: ${from}`).toBeGreaterThan(-1)
+    const end = html.indexOf(to, start)
+    expect(end, `next heading not rendered: ${to}`).toBeGreaterThan(start)
+    return html.slice(start, end)
+  }
+  const zhSsbd = section(zh, '频谱感知延后（SSBD）', '报告方式')
+
+  it('describes the mechanism, cites the draft clause, and names the mutual exclusion with LBT', () => {
+    for (const marker of ['§10.45', 'CCA', '退避因子', 'backoff factor', 'LBT']) {
+      expect(zhSsbd, marker).toContain(marker)
+    }
+    expect(zhSsbd).toMatch(/草案/)
+    // Says explicitly it is not in the published standard — the correct claim, not an absent one.
+    expect(zhSsbd).toMatch(/不在已发布标准里/)
+  })
+
+  it('the LBT entry right before it says the per-slot alternative exists', () => {
+    const zhLbt = section(zh, '先听后说（LBT）', '频谱感知延后（SSBD）')
+    expect(zhLbt).toMatch(/SSBD/)
+  })
+
+  it('does not use any of the wording contract’s banned cost-framing words', () => {
+    for (const w of ['更贵', '账', '买到', '省钱', '白费', '值钱', '定死', '说了算', '惩罚']) {
+      expect(zhSsbd, w).not.toContain(w)
+    }
+  })
+})
+
+describe('the SSBD and backoff factor glossary terms, each with a provenance naming the clause as a draft one (task 5)', () => {
+  const group = GLOSSARY.find((g) => g.id === 'uwb-mms')
+  const find = (term: string) => (group?.items ?? []).find((i) => i.term === term)
+
+  it('carries both terms task 5 adds', () => {
+    for (const t of ['SSBD', '退避因子']) expect(find(t), t).toBeDefined()
+  })
+
+  it('names a provenance that says §10.45 is a draft clause, not a published one', () => {
+    for (const t of ['SSBD', '退避因子']) {
+      const item = find(t)!
+      expect(`${item.alt} ${item.def}`, t).toMatch(/§10\.45/)
+      expect(`${item.alt} ${item.def}`, t).toMatch(/草案/)
+    }
+    // SSBD's own entry says explicitly it is not in the published standard.
+    expect(find('SSBD')!.alt).toMatch(/不在已发布的 IEEE Std 802\.15\.4-2024/)
+  })
+
+  it('names the regulation and the engine’s own omission of the draft’s sixth attribute', () => {
+    const ssbd = find('SSBD')!
+    expect(ssbd.def).toContain('ETSI EN 303 687')
+    const bf = find('退避因子')!
+    expect(bf.def).toMatch(/持久化/)
+    expect(bf.def).toMatch(/没有建/)
+  })
+
+  it('does not use any of the wording contract’s banned cost-framing words', () => {
+    for (const t of ['SSBD', '退避因子']) {
+      const item = find(t)!
+      for (const w of ['更贵', '账', '买到', '省钱', '白费', '值钱', '定死', '说了算', '惩罚']) {
+        expect(`${item.alt} ${item.def}`, `${t}: ${w}`).not.toContain(w)
+      }
+    }
+  })
+})
+
+describe('the LBT glossary entry, qualified rather than rewritten (task 5)', () => {
+  const group = GLOSSARY.find((g) => g.id === 'uwb-mms')
+  const lbt = group?.items.find((i) => i.term === 'LBT / frame-based equipment')
+
+  it('still says a busy verdict costs the whole block — true of every session with ssbd off', () => {
+    expect(lbt).toBeDefined()
+    expect(lbt!.def).toMatch(/整整一个测距块/)
+  })
+
+  it('now says which path that is, and that the per-slot alternative exists', () => {
+    expect(lbt!.def).toMatch(/SSBD/)
+    expect(lbt!.def).toMatch(/没有打开 SSBD/)
   })
 })
