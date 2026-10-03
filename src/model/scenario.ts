@@ -613,6 +613,13 @@ export function serverFor(sc: Pick<Scenario, 'servers'>, n: NodeCfg, profile: Pr
   return sc.servers.find((s) => s.kind === kind) ?? null
 }
 
+/**
+ * `Scenario.selectivity`'s payload — empty on purpose. Every figure the feature needs is either
+ * computed from the standard (`src/engine/selectivity.ts`) or already lives in `fading`; a field
+ * here would be a number this slice invented. The section's own presence is the whole switch.
+ */
+export type SelectivityCfg = Record<string, never>
+
 export interface Scenario {
   rooms: Room[]
   walls: Wall[]
@@ -639,6 +646,27 @@ export interface Scenario {
    * plan has written the section, even as `{}`.
    */
   fading?: FadingCfg
+  /**
+   * Frequency-selectivity switch (design doc 2026-10-03-selectivity, §3.4): splits the channel
+   * into 26-tone-RU bins (`src/engine/selectivity.ts`) and lets `resolveLock` synthesize one
+   * effective SINR by capacity instead of reading one link-wide value. **Absent means off**, and
+   * absent is what every scenario written before this section says: the link level is then
+   * `fading`'s single value (or the static table's, if `fading` is absent too), bit for bit as
+   * before — the same rule `fading`'s own doc comment states just above (the default sits on the
+   * field, never on the section), copied here rather than restated differently.
+   *
+   * The section carries nothing of its own to configure. The bin count is computed from the
+   * standard (`RU26_PER_20MHZ` x width / 20), not written as a field here, because a configurable
+   * bin count would be a number this slice invented rather than one the standard gives. The
+   * per-bin deviation's distribution and K factor are `fading.smallScale` / `fading.ricianKdB` —
+   * this section only switches the existing ones on at per-bin granularity instead of inventing a
+   * second set. So the section's presence is the entire configuration, and `superRefine` below
+   * requires `fading` to be present with `smallScale !== 'none'` (otherwise every bin draws the
+   * same deviation and turning this on is byte-identical to leaving it off) and requires the
+   * scene to hold at least one eht/he/vht link (the 26-tone RU is an OFDM subdivision; refusing
+   * beats silently computing a bin width at the wrong subcarrier spacing).
+   */
+  selectivity?: SelectivityCfg
   /**
    * Objects in the room that reflect, giving every transmission a second arrival at every
    * receiver (`src/engine/scatter.ts`). **Absent means no echoes at all**, and absent is what
@@ -1050,6 +1078,19 @@ const FadingSchema = z.object({
 }))
 
 /**
+ * The selectivity section (design doc 2026-10-03-selectivity §3.4). `z.object({})` rather than
+ * anything richer, on purpose: the bin count is computed from the standard
+ * (`RU26_PER_20MHZ` x width / 20 in `src/engine/selectivity.ts`), not a field a plan could set,
+ * and the per-bin deviation's distribution and K factor are `fading`'s own `smallScale` /
+ * `ricianKdB` — nothing here needs a second copy of either. So this schema accepts only `{}`
+ * (plus whatever unknown keys zod's default `.object()` mode strips), and the cross-field rules
+ * that make the section's presence mean something live in the scenario's own `superRefine` below,
+ * not here, because they need `sc.fading` and `sc.nodes` rather than anything local to this
+ * section.
+ */
+const SelectivitySchema = z.object({})
+
+/**
  * A coordinate of a reflecting object, metres. `.finite()` rather than the plain `z.number()`
  * that `Vec3Schema` uses for nodes, because these three numbers are the input to a subtraction
  * and two square roots (`echoPathM`): an infinity anywhere in a position makes the echo's delay
@@ -1183,6 +1224,10 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
     // The same deliberate shape, for the same reason: see ScatterersSchema. Absent means no
     // echoes, and `.default([])` here would put every existing scenario into the echo branch.
     scatterers: ScatterersSchema.optional(),
+    // The same deliberate shape again, for the same reason: see SelectivitySchema. Absent means
+    // the link level is `fading`'s (or the static table's) alone, and `.default({})` here would
+    // put every existing scenario into the per-bin branch the moment `fading` is also on.
+    selectivity: SelectivitySchema.optional(),
   })
   .superRefine((sc, ctx) => {
     // Wi-Fi needs its one AP; a scenario that is nothing but UWB nodes has no
@@ -1191,6 +1236,38 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
     const wifi = sc.nodes.filter((n) => n.kind === 'sta' || n.kind === 'amp')
     if ((wifi.length > 0 || aps.length > 1) && aps.length !== 1) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: `场景必须正好有一个 AP（现在有 ${aps.length} 个）：Wi-Fi 节点都归在同一个 BSS 下` })
+    }
+    // Frequency selectivity (design doc 2026-10-03-selectivity §3.4/§6). `selectivity` adds
+    // nothing of its own to configure — its presence is the whole switch — so every rule here is
+    // about whether the *other* sections it borrows from are even there to borrow. Three
+    // independent refusals, each with its own remedy, and none of the three remedies is
+    // forbidden by either of the others (the trap this file's `rmnr` rules were once broken by):
+    // "add fading", "turn smallScale away from none" and "add an eht/he/vht link" never ask the
+    // reader to undo one another.
+    if (sc.selectivity !== undefined) {
+      if (!sc.fading) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['selectivity'],
+          message: '频率选择性（selectivity）需要场景里先写出 fading 小节：逐格的信噪比偏差就是靠 fading.smallScale 抽出来的那个值，没有 fading，每一格都会抽到完全相同的数，打开 selectivity 和关着它就逐字节相同，等于什么也没做。请加上 fading 小节，或者把 selectivity 去掉',
+        })
+      } else if (sc.fading.smallScale === 'none') {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['selectivity'],
+          message: '频率选择性（selectivity）需要 fading.smallScale 不是 none：逐格偏差靠这个分布抽出来，而 smallScale 为 none 时 smallScaleDb 直接返回 0，于是每一格仍然是同一个数，这是最容易无意中写出来的空配置。请把 smallScale 改成 rayleigh 或 rician，或者把 selectivity 去掉',
+        })
+      }
+      const hasOfdmLink = sc.nodes.some((n) => (
+        n.caps.generation === 'eht' || n.caps.generation === 'he' || n.caps.generation === 'vht'
+      ))
+      if (!hasOfdmLink) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['selectivity'],
+          message: '频率选择性（selectivity）需要场景里至少有一条 eht、he 或 vht 链路：26 音调资源单元是 OFDM 信道的分格单位，纯 nonht 链路上不存在这样的分格，拒绝好过悄悄按一个错误的子载波间隔算出格宽。请加一条 eht/he/vht 链路，或者把 selectivity 去掉',
+        })
+      }
     }
     // Every ranging rule is tagged `path: ['uwb']` so the editor can tell a
     // session issue from any other by its path rather than by reading its
