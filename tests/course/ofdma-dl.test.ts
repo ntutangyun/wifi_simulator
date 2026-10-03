@@ -337,14 +337,51 @@ describe('ofdma-dl · a member gets the whole channel’s bins (slice 4b)', () =
   const found = ofdmaDl.limits.filter((l) => l.text.includes('selCombine'))
   const lim = found[0]
 
-  it('is the one limit about the bin count, and the lesson declares six', () => {
+  it('is the one limit about the bin count, and the lesson declares seven', () => {
     expect(found).toHaveLength(1)
     // Six since the solicitation warning moved out of `sources` and into `limits`, where a
-    // reader reads a warning as one (course-fix-queue, 2026-10-03). The whole column is
-    // asserted so an insertion is visible here rather than absorbed.
-    expect(ofdmaDl.limits).toHaveLength(6)
-    expect(ofdmaDl.limits.map((l) => l.kind))
-      .toEqual(['model-value', 'model-value', 'unmodelled', 'unmodelled', 'unmodelled', 'out-of-scope'])
+    // reader reads a warning as one; seven since the `deeper` counts got a limit saying they
+    // are one run's (course-fix-queue, 2026-10-03/04). The whole column is asserted so an
+    // insertion is visible here rather than absorbed.
+    expect(ofdmaDl.limits).toHaveLength(7)
+    expect(ofdmaDl.limits.map((l) => l.kind)).toEqual([
+      'model-value', 'model-value', 'model-value',
+      'unmodelled', 'unmodelled', 'unmodelled', 'out-of-scope',
+    ])
+  })
+
+  /**
+   * **Where the `deeper` counts come from, declared as a model value rather than left reading
+   * like a general result.**
+   *
+   * 30 pairs misclassified one way and 34 the other are this run's integers: three identical
+   * televisions, one arrival period, one seed. 41 and 45 are too. What is NOT a property of the
+   * run is the identity — the per-frame criterion's count equals the number of multi-user sends
+   * — because that is the same event counted twice, and the test above pins it in that form
+   * (`toBe(apData.filter(mu).length)`) rather than as the literal 45.
+   *
+   * The direction the entry gives is the grouping condition's own monotonicity (two queues
+   * non-empty at one instant), and it says in so many words that the lesson measured no figure
+   * for it. A `limits` entry is the right place for a direction without a number; the prose is
+   * not.
+   */
+  it('declares that the `deeper` counts are one run of one scene, and what survives a reseed', () => {
+    const one_run = ofdmaDl.limits.filter((l) => l.text.includes('同一个种子'))
+    expect(one_run, 'the counts are printed with no provenance limit').toHaveLength(1)
+    expect(one_run[0].kind).toBe('model-value')
+    const t = one_run[0].text
+    // the figures it covers, named rather than gestured at
+    for (const n of ['30 对', '34 对', '41 对', '45 对', '747 µs']) {
+      expect(t, `the limit never names ${n}`).toContain(n)
+    }
+    // the thing a reseed does not move, and why
+    expect(t).toContain('永远等于装着两台的发送次数')
+    expect(t).toContain('同一件事数两遍')
+    // the direction, and the admission that no figure was measured for it
+    expect(t).toContain('更容易变大')
+    expect(t).toContain('本课一个数也没有量过')
+    // …and it must not promise the ratio holds elsewhere
+    expect(t).toContain('不是「任何房子里都是 4.4 %」')
   })
 
   /**
@@ -560,13 +597,27 @@ describe('ofdma-dl · why the chance to group is rare', () => {
     expect(ofdmaDl.deeper!.map((b) => JSON.stringify(b)).join('\n')).toContain('169.6 µs')
   })
 
-  it('says all of that in `deeper`, beside the sentence it completes', () => {
+  it('says all of that in `deeper`, beside the sentence it completes, in two blocks', () => {
     const d = ofdmaDl.deeper!.map((b) => (b as { heading?: string; text?: string }))
     const i = d.findIndex((b) => b.heading === '那个机会为什么稀罕')
     expect(i, 'the explanation is missing').toBeGreaterThanOrEqual(0)
     // right after the sentence it completes, not in a section of its own somewhere else
     expect(d[i - 1].text).toContain('分组是见机行事的，而机会在队列里，不在电台里')
-    const t = d[i].text!
+    /*
+     * The split, pinned as a split: one block answers the question (the window, then the
+     * per-frame count against the threshold), the next one holds the two misreadings. It was
+     * one 560-character block, which is four subjects in one paragraph; `deeper` does not count
+     * towards `lessonMinutes`, so there was never a reason to compress it instead of splitting.
+     */
+    const next = d[i + 1]
+    expect(next.heading).toBe('这个窗口有两处容易读反')
+    // each half holds its own half: the measurement in the first, the two traps in the second
+    expect(d[i].text).toContain('逐帧那一遍才是准的')
+    expect(d[i].text).not.toContain('169.6 µs')
+    expect(next.text).toContain('169.6 µs')
+    expect(next.text).toContain('145.3 µs')
+    expect(next.text).not.toContain('45 对')
+    const t = [d[i].text!, next.text!].join('\n')
     // Every figure of that paragraph, this time including the one the first version of this
     // list skipped: 145.3 µs was the only number in it with no assertion anywhere in the repo.
     for (const n of [
