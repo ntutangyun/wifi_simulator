@@ -19,6 +19,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { width, widthAirtimeTiming } from '../../src/course/tier2/width'
+import type { Block } from '../../src/course/lessonKit'
 import { widthScenario } from '../../src/course/wifiScenes'
 import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
@@ -384,5 +385,40 @@ describe('width · the figure is the run’s own four airtimes', () => {
         expect(hit, `${ts[i].text} / ${ts[j].text}`).toBe(false)
       }
     }
+  })
+})
+
+/**
+ * The subcarrier table a reader asked about. Its numbers come from 802.11be-2024's
+ * Table 36-19 and cannot be derived, so what this pins is the relation the lesson
+ * claims about them: data plus pilot is the total, and the data count grows by more
+ * than the bandwidth ratio because the guard at each edge is paid once per channel
+ * rather than once per 20 MHz. A table that drifts into self-contradiction fails here
+ * even though nothing in the engine produces these figures.
+ */
+describe('width · the subcarrier table adds up', () => {
+  const rows = width.numbers!
+    .filter((b): b is Extract<Block, { kind: 'table' }> => b.kind === 'table')
+    .find((b) => b.heading?.includes('子载波数是怎么来的'))!.rows
+  const n = (s: string): number => Number(s.replace(/[^0-9]/g, ''))
+
+  it('has data + pilot === total on every row', () => {
+    expect(rows.length).toBe(4)
+    for (const r of rows) expect(n(r[1]) + n(r[2]), r[0]).toBe(n(r[3]))
+  })
+
+  it('grows faster than the bandwidth ratio, which is the row the lesson explains', () => {
+    const data = rows.map((r) => n(r[1]))
+    // 20 -> 40 is exactly double; every wider step beats its own ratio.
+    expect(data[1]).toBe(data[0] * 2)
+    expect(data[2]).toBeGreaterThan(data[0] * 4)
+    expect(data[3]).toBeGreaterThan(data[0] * 8)
+  })
+
+  it('matches the data column of the airtime table it explains', () => {
+    const air = width.numbers!
+      .filter((b): b is Extract<Block, { kind: 'table' }> => b.kind === 'table')
+      .find((b) => b.heading?.includes('1500 字节的帧'))!.rows
+    expect(rows.map((r) => n(r[1]))).toEqual(air.map((r) => n(r[1])))
   })
 })
