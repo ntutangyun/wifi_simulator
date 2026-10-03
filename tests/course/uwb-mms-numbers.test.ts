@@ -25,9 +25,10 @@ import type { TLRecord } from '../../src/model/records'
 import type { Block } from '../../src/course/lessonKit'
 import { fmtRecord } from '../../src/ui/format'
 import {
-  C_M_PER_NS, RCTU_NS, UWB_NLOS_NS, UWB_PL_EXP, UWB_PPM_MAX, UWB_RX_SENS_DBM, UWB_TX_POWER_DBM,
-  uwbPl0Db, uwbPollBytes, uwbPpduNs,
+  C_M_PER_NS, RCTU_NS, STS_ACTIVE_CHIPS, STS_GAP_CHIPS, UWB_NLOS_NS, UWB_PL_EXP, UWB_PPM_MAX,
+  UWB_RX_SENS_DBM, UWB_TX_POWER_DBM, uwbPl0Db, uwbPollBytes, uwbPpduNs,
 } from '../../src/uwb/phy'
+import { chipsToNs } from '../../src/uwb/units'
 import { WALL_LOSS_DB } from '../../src/engine/propagation'
 import {
   MMS_DRAFT_DEFAULTS, MMS_SETS, UWB_MS_BUDGET_NJ, combineGainDb, mmsFragmentDbm, mmsSet, ratioSigma, rsfChips, rsfNs,
@@ -300,6 +301,26 @@ describe('uwb-mms-numbers · the ruler fourteen milliseconds long', () => {
     const overOneFragment = ratioSigma(DEFAULT_UWB_SESSION.tsNoisePs, rsfNs(40, 64) / MS) * 1e6
     expect(overOneFragment.toFixed(1)).toBe('1.7')
     expect(overOneFragment).toBeGreaterThan(Math.abs(trueRatio('anchor-3')) / 10)
+  })
+
+  it('the same curve runs inside one packet: 66.667 µs of STS gives 2.1 ppm', () => {
+    // The cross-reference added on 2026-10-03 (leftovers design §1): §10.29.1.1 puts the same
+    // arithmetic on the two additional STS markers of one packet. SRMARKER0 is the RMARKER and
+    // SRMARKER1 sits a gap plus a segment later, so the span comes out of the engine's own STS
+    // constants — another point on this curve, not another method, and the reason the engine
+    // does not read those markers at all.
+    const span = chipsToNs(STS_GAP_CHIPS + STS_ACTIVE_CHIPS)
+    expect(span).toBe(66_667)
+    const inPacket = ratioSigma(DEFAULT_UWB_SESSION.tsNoisePs, span / MS) * 1e6
+    expect(inPacket.toFixed(1)).toBe('2.1')
+    // It is the SHORTEST lever of the three and therefore the worst σ: 66.667 µs is shorter than
+    // the 82 µs fragment the lesson already compares against, and 210 times shorter than the train.
+    const overOneFragment = ratioSigma(DEFAULT_UWB_SESSION.tsNoisePs, rsfNs(40, 64) / MS) * 1e6
+    expect(inPacket).toBeGreaterThan(overOneFragment)
+    expect(inPacket).toBeGreaterThan(sigmaPpm())
+    const deeper = uwbMmsNumbers.deeper!.find((d) => d.text.includes('§10.29.1.1'))!
+    expect(deeper.text).toContain(`${inPacket.toFixed(1)} ppm`)
+    expect(deeper.text).toContain('66.667 µs')
   })
 
   it('"round 0 measures 39.985, 19.996, 9.984 ppm" against a true 40, 20 and 10', () => {

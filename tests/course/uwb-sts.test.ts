@@ -13,10 +13,12 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { uwbSts, uwbStsScenario, uwbStsSequence, HONEST_20_M, SPOOFED_M, RELAY_ADVANCE_NS } from '../../src/course/uwb/uwb-sts'
 import { uwbIntro, uwbIntroScenario } from '../../src/course/uwb/uwb-intro'
-import { ScenarioSchema } from '../../src/model/scenario'
+import { DEFAULT_UWB_SESSION, ScenarioSchema } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 import { C_M_PER_NS, PSYM_CHIPS, RCTU_NS, STS_ACTIVE_CHIPS, STS_GAP_CHIPS, SYNC_SYMBOLS } from '../../src/uwb/phy'
 import { uwbPpduLayout } from '../../src/uwb/frameFields'
+import { chipsToNs } from '../../src/uwb/units'
+import { ratioSigma } from '../../src/uwb/mms'
 import { counterDiff } from '../../src/uwb/clock'
 import { rctuToMetres, ssTwrRaw } from '../../src/uwb/ranging'
 import { fmtRecord } from '../../src/ui/format'
@@ -295,6 +297,43 @@ describe('uwb-sts · what the receiver does with the sequence', () => {
     expect(ssTwrRaw(hRound, hReply) - ssTwrRaw(sRound, sReply)).toBe(3195)
     expect(rctuToMetres(3195).toFixed(2)).toBe('14.99')
     expect((RELAY_ADVANCE_NS * C_M_PER_NS).toFixed(2)).toBe('14.99')
+  })
+})
+
+/**
+ * The two additional STS markers this engine declines to read
+ * (`docs/superpowers/specs/2026-10-03-leftovers-design.md` §1, which reclassified them from
+ * 未偿的债 to 范围决定). Both numbers the `limits` entry prints are computed here from the
+ * constants the engine already holds — there is no SRMARKER constant, and the ruling is that
+ * there should not be one.
+ */
+describe('uwb-sts · the SRMARKERs the engine does not read', () => {
+  /** 66 667 → '66 667', the way the lesson spaces a five-digit nanosecond figure. */
+  const spaced = (n: number): string => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ' ')
+
+  it('puts SRMARKER1 one gap plus one segment after the RMARKER', () => {
+    // SRMARKER0 is the RMARKER itself in both packet configurations this engine builds (§16.2.9.4),
+    // and the only other marker that exists in a one-segment BPRF parameter set sits on the
+    // 512-chip gap at the end of that segment.
+    const span = chipsToNs(STS_GAP_CHIPS + STS_ACTIVE_CHIPS)
+    expect(STS_GAP_CHIPS + STS_ACTIVE_CHIPS).toBe(33_280)
+    expect(span).toBe(66_667)
+    const entry = uwbSts.limits.find((l) => l.text.includes('SRMARKER'))!
+    expect(entry.kind).toBe('out-of-scope')
+    expect(entry.text).toContain(`${spaced(span)} ns`)
+  })
+
+  it('measures the clock ratio that span would buy, and it is ten times worse than the session’s', () => {
+    // §10.29.1.1's use for the markers is the engine's own `ratioSigma`, over a span 15 times
+    // shorter than the fragment train the course already teaches it on.
+    const span = chipsToNs(STS_GAP_CHIPS + STS_ACTIVE_CHIPS)
+    const ppm = ratioSigma(DEFAULT_UWB_SESSION.tsNoisePs, span / 1e6) * 1e6
+    expect(DEFAULT_UWB_SESSION.tsNoisePs).toBe(100)
+    expect(ppm.toFixed(1)).toBe('2.1')
+    expect(ppm / DEFAULT_UWB_SESSION.cfoNoisePpm).toBeGreaterThan(10)
+    const entry = uwbSts.limits.find((l) => l.text.includes('SRMARKER'))!
+    expect(entry.text).toContain(`${ppm.toFixed(1)} ppm`)
+    expect(entry.text).toContain(`${DEFAULT_UWB_SESSION.cfoNoisePpm} ppm`)
   })
 })
 
