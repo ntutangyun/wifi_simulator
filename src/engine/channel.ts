@@ -17,10 +17,11 @@ import type { EmitFn } from '../model/records'
 import type { Wall } from '../model/scenario'
 import type { Ns, Vec3 } from '../model/types'
 import { EventQueue } from './events'
-import { fadingDb, type FadingCfg } from './fading'
+import { fadingDb, smallScaleDb, type FadingCfg } from './fading'
 import { byCodeUnit } from './hash'
 import { CCA_ED_DBM, CCA_PD_DBM, PHY_MODES, noiseDbm, reqSinrDb, sinrThreshDb } from './phy'
 import { wallLossDb } from './propagation'
+import { selBins, selEffSinrDb } from './selectivity'
 import { wifiToUwbPathLossDb, type Emission, type Spectrum } from './spectrum'
 import {
   AMP_DL_REQ_SINR_DB,
@@ -101,6 +102,19 @@ export interface ChannelFading {
    * 2.4 and 5 GHz — two bands that far apart scatter independently. model
    */
   seed: number
+  /**
+   * Frequency selectivity: draw the fast layer **once per 26-tone-RU bin** and let the decode
+   * decision read the capacity-combined result instead of one link-wide value
+   * (`selectivity.ts`, design doc 2026-10-03-selectivity §3).
+   *
+   * It rides on this object rather than on one of its own because it has nothing of its own to
+   * carry: the per-bin deviation's distribution and K factor are `cfg`'s, and the scenario
+   * schema refuses `selectivity` without a `fading` section whose `smallScale` is not `none`
+   * precisely because this feature is that sampler at a finer granularity, not a second one.
+   * Absent is off, which is every scenario that predates it — and off is reached without
+   * computing a single bin (see `selCombine`), not by combining deviations that are all zero.
+   */
+  selective?: boolean
 }
 
 /**
@@ -185,6 +199,15 @@ interface Lock {
   from: string
   frame: FrameDesc
   rxDbm: number
+  /**
+   * The transmission's `fadeKey`, carried over from the `ActiveTx` that was locked onto.
+   *
+   * `rxDbm` is the level with this PPDU's *flat* fade already in it, and the per-bin decode
+   * decision needs to re-take that same draw to replace it with per-bin ones — which it can
+   * only do from the key the level was drawn with. The transmission itself is gone by then:
+   * `endTx` removes it from `active` before resolving the receptions locked onto it.
+   */
+  fadeKey: string
   /** When the preamble was acquired — bounds the capture window. */
   startNs: Ns
   /** Worst-case (max) interference+noise in mW seen during the lock. */
@@ -318,6 +341,38 @@ function ampNoiseBwMhz(frame: FrameDesc): number {
  */
 const detectThreshDb = (frame: FrameDesc): number =>
   frame.kind === 'ampBsReply' ? AMP_BS_REQ_SNR_DB[bsUlKbps(frame)] : PREAMBLE_DETECT_SINR_DB
+
+/**
+ * Does the frequency-selective decode path apply to this PPDU at all? — the carve-out of the
+ * design doc §6 item 1, and it is not optional.
+ *
+ * `resolveLock` serves three kinds of reception, and only one of them is OFDM. A backscattered
+ * reply and an `amp.dir === 'ul'` AMP PPDU are OOK, chip by chip, so a 26-tone resource unit is
+ * not a subdivision of anything they occupy; a downlink AMP PPDU carries its AMP-Data as OOK
+ * too, behind a legacy preamble. And a reply's floor is not thermal noise but the reader's own
+ * leakage (`readerFloorDbm`), which no per-bin signal-to-noise ratio of an OFDM channel
+ * describes. All three therefore keep the scalar path, which is also what keeps the two AMP
+ * tiers' recorded timelines still — the way this feature would otherwise move them is silently.
+ *
+ * The test is the `amp` field rather than the five AMP frame kinds, because that field is what
+ * every AMP-side decision in this file already branches on (`decodeThreshDb`, `detectThreshDb`,
+ * `ampNoiseBwMhz`), and a kind list here would be a second copy of `FRAME_KINDS` to keep in
+ * step. Everything else on this medium is an 802.11 OFDM PPDU: non-HT is clause 17 OFDM, and
+ * this engine has no DSSS mode at all (`PhyMode` in phy.ts).
+ */
+const isOfdmWifiPpdu = (frame: FrameDesc): boolean => frame.amp === undefined
+
+/** The width a PPDU that does not name one occupies — a 20 MHz non-HT PPDU. */
+const DEFAULT_WIDTH_MHZ = 20
+
+/** What the per-bin decode decision produced, and what `WIFI_SEL` reports of it. */
+interface SelCombined {
+  meanSinrDb: number
+  effSinrDb: number
+  lossDb: number
+  bins: number
+  worstBinDb: number
+}
 
 /** Decode SINR threshold for a frame as seen by receiver rid. */
 function decodeThreshDb(frame: FrameDesc, rid: string, r: RadioState): number {
@@ -698,7 +753,7 @@ export class Channel {
 
   private acquireLock(t: Ns, rid: string, r: RadioState, tx: ActiveTx, p: number): void {
     const lock: Lock = {
-      from: tx.txId, frame: tx.frame, rxDbm: p, startNs: t,
+      from: tx.txId, frame: tx.frame, rxDbm: p, fadeKey: tx.fadeKey, startNs: t,
       maxInterfMw: 0, overlapped: false, contributors: new Set(),
     }
     r.locks.push(lock)
@@ -749,14 +804,88 @@ export class Channel {
     }
   }
 
+  /**
+   * The frequency-selective decode decision for this lock, or null when it does not apply —
+   * the only place in this engine where a reception is judged on more than one level.
+   *
+   * Null is returned **before any bin is computed**, which is the point of the two guards'
+   * order: a scenario with no `selectivity` section reaches the scalar arithmetic below
+   * untouched, rather than combining a channel whose deviations all happen to be zero. That
+   * second route would be a different floating-point expression for the same physics, and the
+   * recorded timeline hashes would move under every existing lesson (design doc §8.1, and the
+   * same rule `linkDbm` states for fading a few hundred lines up).
+   *
+   * What it computes (design doc §3.1 to §3.3):
+   *
+   * - **the bins** from the PPDU's own width, by the standard's own arithmetic
+   *   (`selBins` = 9 per 20 MHz, §9.4.1.75) — 9 for a 20 MHz ACK, 72 for a 160 MHz data PPDU.
+   *   A multi-user member gets the bins of the *whole* channel rather than of its own resource
+   *   unit, which overestimates its frequency diversity; that is this slice's known limit
+   *   (design §6 item 4, slice 4b), asserted as it stands rather than quietly corrected.
+   * - **the mean** by taking this frame's flat fast fade back *out* of the level the lock was
+   *   acquired at. `rxDbm` carries it (via `linkDbm`), and the per-bin draws replace it rather
+   *   than stack on it: a frequency-selective channel's per-bin deviations are the fast layer,
+   *   so adding both would fade this frame twice and would make `lossDb` a mix of the two.
+   *   What remains — path loss, walls, and the slow shadow, which stays flat across the
+   *   channel because a shadow is the whole channel together (§3.2) — is the mean the standard's
+   *   own field is defined relative to, and it is what `WIFI_SEL.meanSinrDb` reports.
+   * - **the per-bin deviations** from the *existing* sampler at the *existing* distribution and
+   *   K factor, keyed by bin (`smallScaleDb`'s bin argument, Task 1). No new `model` number.
+   * - **one effective SINR** by capacity, not by the worst bin and not by EESM — see
+   *   `selEffSinrDb`, which carries that argument and its honest cost.
+   *
+   * Not handled here, deliberately: the interference term stays flat. `maxInterfMw` is the
+   * worst *instant* of noise plus every overlapping transmitter, summed over the PPDU's whole
+   * width, and it enters each bin's SINR as the same number. Thermal noise genuinely is flat
+   * across the channel, so this is exact for the common case of a lone reception; an
+   * *interferer* is as frequency-selective as the signal, and that part is a simplification
+   * this slice does not model, in the direction of making a collision slightly more uniform
+   * than it is. The other four Wi-Fi decisions — carrier sense, preamble detection, capture
+   * and rate selection — keep reading one scalar level too (design §2.3's table).
+   */
+  private selCombine(rid: string, lock: Lock): SelCombined | null {
+    const f = this.fading
+    if (f === undefined || f.selective !== true) return null
+    if (!isOfdmWifiPpdu(lock.frame)) return null
+    const bins = selBins(lock.frame.widthMhz ?? DEFAULT_WIDTH_MHZ)
+    if (!Number.isInteger(bins) || bins < 1) {
+      // A loud floor under a programming error, not a runtime case: `widthMhz` comes from
+      // `ChannelWidth` (20/40/80/160/320), every one of which divides into whole 26-tone RUs.
+      // Left alone, a fractional count would silently truncate the bin loop and record a
+      // non-integer `bins`.
+      throw new Error(`channel: ${lock.frame.widthMhz} MHz is not a whole number of 26-tone RUs`)
+    }
+    const flatFadeDb = smallScaleDb(f.cfg, f.seed, lock.from, rid, lock.fadeKey)
+    const devsDb: number[] = []
+    for (let bin = 0; bin < bins; bin++) {
+      devsDb.push(smallScaleDb(f.cfg, f.seed, lock.from, rid, lock.fadeKey, bin))
+    }
+    const meanSinrDb = lock.rxDbm - flatFadeDb - dbm(lock.maxInterfMw)
+    const effSinrDb = selEffSinrDb(meanSinrDb, devsDb)
+    return {
+      meanSinrDb, effSinrDb, lossDb: meanSinrDb - effSinrDb, bins,
+      worstBinDb: Math.min(...devsDb),
+    }
+  }
+
   /** Decode a reception against the worst SINR it saw, or fail it. */
   private resolveLock(t: Ns, rid: string, r: RadioState, from: string): void {
     const lockIdx = r.locks.findIndex((l) => l.from === from)
     if (lockIdx < 0) return
     const lock = r.locks[lockIdx]
     r.locks.splice(lockIdx, 1)
-    const sinrDb = lock.rxDbm - dbm(lock.maxInterfMw)
-    if (sinrDb >= decodeThreshDb(lock.frame, rid, r)) {
+    const threshDb = decodeThreshDb(lock.frame, rid, r)
+    const sel = this.selCombine(rid, lock)
+    // Frequency selectivity on, and on an OFDM PPDU: the decision is the combined effective
+    // SINR. Otherwise the scalar expression this engine has always used, character for
+    // character, so no existing timeline can move.
+    const sinrDb = sel === null ? lock.rxDbm - dbm(lock.maxInterfMw) : sel.effSinrDb
+    if (sel !== null) {
+      // Before the outcome, so a reader sees what the decision was made on and then what it
+      // was: this is the only record in the Wi-Fi stream that carries a level at all.
+      this.emit({ t, type: 'WIFI_SEL', node: rid, from, threshDb, ...sel })
+    }
+    if (sinrDb >= threshDb) {
       this.emit({ t, type: 'RX_OK', node: rid, from, frame: lock.frame })
       r.listener.onRxOk(t, lock.frame, from)
     } else {

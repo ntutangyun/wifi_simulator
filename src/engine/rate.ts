@@ -39,7 +39,7 @@
  * so a rate used only inside multi-user PPDUs adapts too. Uplink MU (Trigger
  * + TB PPDUs) reports neither; that path is unchanged.
  */
-const FAILURES_TO_STEP_DOWN = 2
+export const FAILURES_TO_STEP_DOWN = 2
 const SUCCESSES_TO_STEP_UP = 10
 
 interface PeerState {

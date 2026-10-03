@@ -96,6 +96,10 @@ export class Simulation {
     // still gets `undefined` here, which is what keeps its levels bit-for-bit what they were.
     const parsed = ScenarioSchema.parse(sc)
     const fading = parsed.fading
+    // The frequency-selectivity switch, read the same way and for the same reason: the section
+    // carries nothing, so its *presence* is the entire configuration (design doc §3.4) and a
+    // `?? false` here would read a scenario that says nothing as a scenario that says no.
+    const selectivity = parsed.selectivity
     // The reflecting objects, read the same way and for the same reason — by whether the section
     // is **there**, never as `sc.scatterers ?? []`. An empty list may legally arrive and says
     // "the section is here, with nothing to reflect off"; a scenario written before the section
@@ -208,7 +212,15 @@ export class Simulation {
         // both would make link steering look useless. model
         const ch = new Channel(
           this.q, () => this.nowNs, table, linkEmit, hook, bsGeometry,
-          fading === undefined ? undefined : { cfg: fading, seed: hashStr(`${sc.seed}|${link}`) },
+          fading === undefined ? undefined : {
+            cfg: fading,
+            seed: hashStr(`${sc.seed}|${link}`),
+            // Frequency selectivity rides on the fading object because it is that sampler at a
+            // finer granularity (design doc 2026-10-03-selectivity §3.2): no section, no field,
+            // and the schema refuses `selectivity` without `fading` for exactly this reason.
+            // Read by presence, never as `?? false`, the same way `fading` itself is read above.
+            ...(selectivity === undefined ? {} : { selective: true }),
+          },
         )
 
         for (const n of members) {
