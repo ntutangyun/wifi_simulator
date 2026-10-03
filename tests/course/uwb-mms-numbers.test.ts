@@ -23,6 +23,7 @@ import { MMS_ANCHORS, TAG_POS, ANCHOR_Z, TAG_Z, uwbMms, uwbMmsScenario, type Uwb
 import { DEFAULT_UWB_SESSION } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 import type { Block } from '../../src/course/lessonKit'
+import { paragraphTexts } from '../../src/course/readability'
 import { fmtRecord } from '../../src/ui/format'
 import {
   C_M_PER_NS, RCTU_NS, STS_ACTIVE_CHIPS, STS_GAP_CHIPS, UWB_NLOS_NS, UWB_PL_EXP, UWB_PPM_MAX,
@@ -318,9 +319,9 @@ describe('uwb-mms-numbers · the ruler fourteen milliseconds long', () => {
     const overOneFragment = ratioSigma(DEFAULT_UWB_SESSION.tsNoisePs, rsfNs(40, 64) / MS) * 1e6
     expect(inPacket).toBeGreaterThan(overOneFragment)
     expect(inPacket).toBeGreaterThan(sigmaPpm())
-    const deeper = uwbMmsNumbers.deeper!.find((d) => d.text.includes('§10.29.1.1'))!
-    expect(deeper.text).toContain(`${inPacket.toFixed(1)} ppm`)
-    expect(deeper.text).toContain('66.667 µs')
+    const deeper = paragraphTexts(uwbMmsNumbers.deeper!).find((t) => t.includes('§10.29.1.1'))!
+    expect(deeper).toContain(`${inPacket.toFixed(1)} ppm`)
+    expect(deeper).toContain('66.667 µs')
   })
 
   it('"round 0 measures 39.985, 19.996, 9.984 ppm" against a true 40, 20 and 10', () => {

@@ -84,6 +84,16 @@ export const N_MSR_SET = [32, 40, 48, 64, 128, 256] as const
  * The two RSF fragment lengths an SFD may follow (`MmsPhy.rsfSfd`): the draft specifies the
  * SFD-carrying RSF at these and no others, so the schema refuses the pair elsewhere and the
  * editor greys the checkbox out there. One list, read by both. 4ab draft 15-25/0066r1
+ *
+ * The draft states a second condition beside this one — a sequence code index of 9 to 32 — and
+ * that one needs no check here, because **it holds by construction**: index 9 upwards is the
+ * length-127 ternary set (Table 16-8) and up to 32 the length-91 set (Table 16-9), so "9 to 32"
+ * names those two code families and excludes only the old length-31 codes. This engine's MMS
+ * packet is cut from the length-91 family (its symbol is `MMRS_LEN` spread by `MMS_SPREAD`) and
+ * its 4z side from the length-127 one (`uwb/phy.ts#PSYM_CHIPS` = 127 × 4), so every packet it
+ * builds is already inside the range. `MmsPhy` carries no code index at all and is not getting
+ * one (design 2026-09-26 §9, restated 2026-10-03 §3.2): lengthening the RSF does not conjure one
+ * either, which is why these are two unrelated gaps and not cause and effect.
  */
 export const MMS_RSF_SFD_N_MSR: readonly NMsr[] = [32, 64]
 /** X, the RSFs in a train. */
@@ -472,11 +482,39 @@ export function mmsSet(id: MmsSetId): MmsPhy {
   return { ...MMS_SETS[id] }
 }
 
+/**
+ * One RSF **on the air**: the sequence itself, plus the SFD the draft appends to every RSF when
+ * `rsfSfd` is set.
+ *
+ * That SFD is 8 preamble symbols — the one every BPRF parameter set of Table 16-31 carries
+ * (Table 16-11's SFD #2), and at Table 16-10's 364-chip symbol for the length-91 code it is
+ * 5 833 ns. The draft's own acquisition table gives the same cell as 5.8 µs, and that cell is
+ * already in this file as `MMS_SP0_SEGMENT_NS.sfd`: the two derivations agree to 0.57%, so this
+ * takes the one the engine holds rather than adding a second constant for one duration. It is
+ * the same SFD the packet's own head carries, which is why the draft allows the attribute only
+ * where the fragment length equals a SYNC preamble repetition the code family must support
+ * (`MMS_RSF_SFD_N_MSR`).
+ *
+ * `rsfNs` stays what it was — how long the sequence itself is — because that is what the
+ * mandatory parameter sets, the editor's own fragment arithmetic and `mmsPacketFragments` are
+ * asking for. This is what the *frame* occupies: `uwb/frames.ts#makeRsf` sizes the fragment off
+ * it, so `mmsFragmentDbm` drops with it, and `mmsLongestFragmentNs` sizes the ranging slot off
+ * it. It moves no timestamp: the packet's RMARKER is still fragment 0's first pulse and the
+ * fragments are still spaced start to start, so `rmarkerFromFragment`'s walk-back is untouched
+ * (reading the stamp after a trailing SFD instead would bias every range by 5 800 ns, which is
+ * 1 739 m). 4ab draft 15-25/0066r1 (the attribute), 15-25/0194r0 (the SFD's duration)
+ */
+export function rsfAirNs(phy: MmsPhy): Ns {
+  return rsfNs(phy.nMsr, phy.gap) + (phy.rsfSfd ? MMS_SP0_SEGMENT_NS.sfd : 0)
+}
+
 /** The longest fragment the train actually carries — what a ranging slot has to hold. An empty
- * train (the schema refuses one) carries no fragment at all, and so needs no room. */
+ * train (the schema refuses one) carries no fragment at all, and so needs no room. The RSF is
+ * taken at its length on the air (`rsfAirNs`): a slot sized off the bare sequence would clip the
+ * SFD of every fragment it is meant to hold. */
 export function mmsLongestFragmentNs(phy: MmsPhy): Ns {
   return Math.max(
-    phy.rsfs > 0 ? rsfNs(phy.nMsr, phy.gap) : 0,
+    phy.rsfs > 0 ? rsfAirNs(phy) : 0,
     phy.rifs > 0 ? rifNs(phy.stsLen) : 0,
   )
 }

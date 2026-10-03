@@ -7,7 +7,7 @@
 import type { FrameDesc, FrameKind } from '../model/frames'
 import type { Ns } from '../model/types'
 import {
-  mmsFragmentDbm, MMS_SP0_MBPS, MMS_SP0_NS, MMS_SP0_PSDU_BYTES, rifNs, rsfNs, type MmsPhy,
+  mmsFragmentDbm, MMS_SP0_MBPS, MMS_SP0_NS, MMS_SP0_PSDU_BYTES, rifNs, rsfAirNs, type MmsPhy,
 } from './mms'
 import {
   NB_MSG_ID, NB_POLL_BYTES, NB_REPORT_BYTES, NB_RESP_BYTES, nbCenterMhz, nbOtmPollBytes, nbPpduNs,
@@ -713,7 +713,10 @@ function mmsFrame(
 export function makeRsf(
   src: string, dst: string, index: number, phy: MmsPhy, block: number, round: number, slot: number,
 ): FrameDesc {
-  return mmsFrame('uwbRsf', src, dst, rsfNs(phy.nMsr, phy.gap), block, round, slot, {
+  // `rsfAirNs`, not `rsfNs`: with `rsfSfd` set the draft puts an SFD after every RSF, and the
+  // fragment that goes out is that much longer — which `mmsFrame` then charges the millisecond
+  // energy budget for. The RMARKER is unaffected; it is this fragment's first pulse either way.
+  return mmsFrame('uwbRsf', src, dst, rsfAirNs(phy), block, round, slot, {
     kind: 'rsf', index, of: phy.rsfs, nMsr: phy.nMsr, gap: phy.gap,
   })
 }
