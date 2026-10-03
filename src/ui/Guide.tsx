@@ -272,7 +272,7 @@ export function Guide() {
       <p style={p}>
         <b>SIFS</b>（16 µs）：帧交换内部的最短间隔——ACK 恰好在数据帧结束后一个 SIFS 发出，
         因此没人能插队。<b>DIFS/AIFS</b>（34 µs / 按接入类别）：参与竞争前必须观察到的较长静默。
-        <b>EIFS</b>(94 µs)：听到损坏帧之后的“惩罚性”等待。
+        <b>EIFS</b>(94 µs)：听到损坏帧之后那段更长的等待。
       </p>
 
       <h4 style={h}>3 · 随机退避 {chip('#f59e0b')}</h4>

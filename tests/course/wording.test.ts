@@ -154,6 +154,17 @@ const REGISTER: readonly Ban[] = [
   { bad: '命中', allow: ['查表命中'], why: 'a table/cache hit is the ordinary term' },
   { bad: '回执' },
   {
+    bad: '惩罚',
+    // The one legitimate use in the course: a quiz DISTRACTOR that names the misconception
+    // ("the window doubles to punish stations that collided"), which the right answer then
+    // corrects. Banning it there would delete the teaching, not the figure of speech.
+    allow: ['为了惩罚发生过碰撞的站点'],
+    why: '§2 of the contract replaces 惩罚（指 EIFS）with 这段更长的等待: EIFS is not a penalty, '
+      + 'it is the time a station that locked onto something it could not decode has to wait '
+      + 'before it may contend. The rule was written into the contract and never into this '
+      + 'test, so four sentences carried it for weeks — three in tier 1 and one in Guide.tsx',
+  },
+  {
     bad: '底噪',
     allow: ['本底噪声'],
     why: '本底噪声 is the ordinary term for an instrument\'s or a band\'s background noise '
