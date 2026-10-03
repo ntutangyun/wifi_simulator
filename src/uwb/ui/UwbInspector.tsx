@@ -13,7 +13,8 @@
 import type { NodeView } from '../../model/view'
 import { useStrings } from '../../ui/i18n'
 import {
-  uwbAoaRows, uwbContendText, uwbFixRow, uwbLbtText, uwbNbChannelText, uwbRangeRows, uwbTdoaRows,
+  uwbAoaRows, uwbContendText, uwbFixRow, uwbLbtText, uwbNbChannelText, uwbRangeRows, uwbSsbdText,
+  uwbTdoaRows,
   uwbRespondersText,
   uwbTrainRows,
 } from './rows'
@@ -42,6 +43,7 @@ export function UwbInspector({ nv, nameOf }: { nv: NodeView; nameOf: (id: string
   const responders = uwbRespondersText(u, U, nameOf)
   const nbChannel = uwbNbChannelText(u, U)
   const lbt = uwbLbtText(u, U)
+  const ssbd = uwbSsbdText(u, U)
 
   return (
     <div>
@@ -100,6 +102,9 @@ export function UwbInspector({ nv, nameOf }: { nv: NodeView; nameOf: (id: string
       )}
       {lbt !== null && (
         <div style={row} title={U.lbtBusyHint}><span style={dim}>{U.lbtBusy}</span><span>{lbt}</span></div>
+      )}
+      {ssbd !== null && (
+        <div style={row} title={U.ssbdHint}><span style={dim}>{U.ssbd}</span><span>{ssbd}</span></div>
       )}
       {u.contendCollisions > 0 && (
         <div style={row} title={U.contendCollisionsHint}>

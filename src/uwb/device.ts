@@ -340,6 +340,10 @@ function fixedReplyRctu(plan: RoundPlan, slot: number, pollNs: Ns): number {
   return Math.round((pollNs + plan.fixedReplyNs + (slot - 1) * plan.slotNs) / RCTU_NS)
 }
 
+/** The stream id §10.45's backoff draws from, kept apart from every other draw of the device
+ * (the ranging timestamp noise, the clock-offset noise, a contention slot). model */
+const SSBD_STREAM = 0x1045
+
 export class UwbDevice implements UwbRadio {
   state: UwbDeviceState = 'idle'
   round: RoundState | null = null
@@ -362,6 +366,17 @@ export class UwbDevice implements UwbRadio {
    * every narrowband transmission until the next block — and that is what this remembers.
    */
   nbSkipBlock: number | null = null
+  /**
+   * standard §10.45's own random stream (a P802.15.4ab **draft** clause — see `phy.ts`'s
+   * `ssbdBoundNs`), forked from this device's stream on the first backoff it draws.
+   *
+   * A stream of its own, for the reason `ampBsSta.ts`'s `RN16_STREAM` has one: `Rng.fork` reads
+   * the parent's state without advancing it, so a session with `ssbd` off — every scene that
+   * shipped before this slice — takes exactly the stream it always took, and one with `ssbd` on
+   * does not move the timestamp noise of every range it measures by drawing beside it. Lazy,
+   * so the fork itself costs a session that never senses nothing at all.
+   */
+  private ssbdStream: Rng | null = null
   /**
    * **The one piece of device state in this engine that outlives a ranging round, and it is a
    * deliberate exception.** Two-way ranging, responder: the block whose control message (today's
@@ -1396,6 +1411,13 @@ export class UwbDevice implements UwbRadio {
    */
   at(ns: Ns, fn: () => void): void {
     this.q.schedule(ns, fn, 0)
+  }
+
+  /** standard §10.45's backoff stream (see `ssbdStream`): forked on first use, so a session with
+   * `ssbd` off never touches it and the draws of one that has it on come from nowhere else. */
+  ssbdRng(): Rng {
+    this.ssbdStream ??= this.rng.fork(SSBD_STREAM)
+    return this.ssbdStream
   }
 
   listenFor(slot: number, from: string, kind: UwbFrameKind, until = slot + 1, silent = false): void {

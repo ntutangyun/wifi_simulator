@@ -3,7 +3,7 @@ import { STRINGS } from '../../src/ui/i18n'
 import { FOM_LOS, FOM_NLOS, fomText } from '../../src/uwb/phy'
 import {
   uwbAoaRows, uwbContendText, uwbFixRow, uwbFomText, uwbLbtText, uwbNbChannelText, uwbRangeRows,
-  uwbTdoaRows, uwbTrainRows,
+  uwbSsbdText, uwbTdoaRows, uwbTrainRows,
 } from '../../src/uwb/ui/rows'
 import { NOTHING_HEARD_DBM } from '../../src/uwb/records'
 import { uwbTrainKey, type UwbNodeView } from '../../src/uwb/view'
@@ -19,7 +19,10 @@ const tag: UwbNodeView = {
     'anc-2': { distM: 4.38, trueDistM: 4.5, method: 'ds', fom: FOM_NLOS, block: 3, n: 6 },
   },
   tdoa: {}, tdoaRef: null, aoa: {},
-  mms: { trains: {}, nbChannel: null, lbtBusy: 0, skippedBlocks: 0, lastLbtBlock: null },
+  mms: {
+    trains: {}, nbChannel: null, lbtBusy: 0, skippedBlocks: 0, lastLbtBlock: null,
+    ssbd: 0, ssbdWaitNs: 0, ssbdFailed: 0,
+  },
   position: {
     x: 0.03, y: -0.04, trueX: 0, trueY: 0, gdop: 1.41,
     ellipse: { a: 0.062, b: 0.041, thetaRad: 0.5 }, method: 'twr',
@@ -172,6 +175,9 @@ const mmsTag: UwbNodeView = {
     lbtBusy: 2,
     skippedBlocks: 2,
     lastLbtBlock: 1,
+    ssbd: 0,
+    ssbdWaitNs: 0,
+    ssbdFailed: 0,
   },
 }
 
@@ -218,11 +224,24 @@ describe('the narrowband control rows', () => {
     expect(uwbLbtText(mmsTag, S)).toBe('2 次忙 · 跳过 2 个块')
   })
 
+  it('counts the per-slot sensing separately, with what it waited', () => {
+    // standard §10.45 (draft): the other of the two channel-access paths, and the row only a
+    // session that turned it on ever shows. 2 500 ns of backoff reads as 2.5 µs.
+    const ssbd = { ...mmsTag, mms: { ...mmsTag.mms, lbtBusy: 0, skippedBlocks: 0, lastLbtBlock: null, ssbd: 6, ssbdWaitNs: 2_500 } }
+    expect(uwbSsbdText(ssbd, S)).toBe('6 次感知 · 共等 2.5 µs')
+    // A refusal is named only when there was one — FailOnEnd is the only way to get one.
+    expect(uwbSsbdText({ ...ssbd, mms: { ...ssbd.mms, ssbdFailed: 2 } }, S))
+      .toBe('6 次感知 · 共等 2.5 µs · 2 次接入失败')
+  })
+
   it('shows neither row outside an MMS session', () => {
     expect(uwbNbChannelText(tag, S)).toBeNull()
     expect(uwbLbtText(tag, S)).toBeNull()
-    // …nor the listen-before-talk row when every check this run was clear.
+    expect(uwbSsbdText(tag, S)).toBeNull()
+    // …nor the listen-before-talk row when every check this run was clear, nor the sensing row
+    // in a session that never turned §10.45 on.
     expect(uwbLbtText({ ...mmsTag, mms: { ...mmsTag.mms, lbtBusy: 0 } }, S)).toBeNull()
+    expect(uwbSsbdText(mmsTag, S)).toBeNull()
   })
 })
 

@@ -447,6 +447,10 @@ export interface Strings {
     nbChannelAt: (channel: number, centerMhz: number) => string
     lbtBusy: string; lbtBusyHint: string
     lbtBusyCount: (checks: number, blocks: number) => string
+    /** Standard §10.45 (a P802.15.4ab draft clause): the per-slot channel access, which replaces
+     * the per-block rule above when the session turns it on. Never both in one session. */
+    ssbd: string; ssbdHint: string
+    ssbdCount: (checks: number, waitNs: number, failed: number) => string
     /** Shown on a range measured with an integrity train beside it. */
     integrityOk: string; integrityBad: string
   }
@@ -1112,6 +1116,13 @@ export const STRINGS: Strings = {
     lbtBusy: '先听后发',
     lbtBusyHint: '检测到窄带信道忙的次数，以及因此损失的测距块：一次忙检测会让该设备在本块内不再发出任何窄带消息，而没有轮询就没有整个测距周期',
     lbtBusyCount: (checks, blocks) => `${checks} 次忙 · 跳过 ${blocks} 个块`,
+    ssbd: '频谱感知延后',
+    ssbdHint: '按标准 §10.45（一条草案条款）做的信道接入：每一个窄带发射时隙上各感知一次，'
+      + '判忙则按线性增长的随机退避再等一次，退避次数用尽后由收尾动作决定是照发还是算一次信道接入失败。'
+      + '这一行数的是感知次数、实际等掉的总时长，以及其中有多少次没能发出去。'
+      + '它与上一行的「先听后发」是两条路，不会同时走：那一条的单位是整个测距块，这一条的单位是一个时隙。',
+    ssbdCount: (checks, waitNs, failed) => `${checks} 次感知 · 共等 ${(waitNs / 1000).toFixed(1)} µs`
+      + (failed === 0 ? '' : ` · ${failed} 次接入失败`),
     integrityOk: '完整性序列已验证本次测距',
     integrityBad: '未检出完整性序列——本次测距未经验证',
     ellipseHintAoa: '单锚点定位的椭圆，其两条轴来自两种互不相干的测量：沿视线方向是测距本身的 σ（100 ps 时为 2.1 cm），垂直视线方向则是 r·σ_θ——4 米正前方约 19 cm，偏向两侧还会更大。因此在任何有意义的距离上，椭圆都是一条横跨视线的细长条。此外方位角是水平的、而测距是斜距，因此定位时沿视线走的是这个直角三角形的水平边 √(r² − Δz²)（Δz 按标签配置的高度计算）——这也是为什么装在天花板上的锚点，其定位十字会落在自己的测距圆环内侧一点。',

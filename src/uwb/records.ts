@@ -279,9 +279,15 @@ export type UwbRecord =
    * draw itself had to be cut down to fit the window before any CCA ran at all (the window's own
    * slack was already too small, independent of how the CCA came back).
    *
-   * Emitted at the device running the algorithm, one record per CCA — every narrowband transmit
-   * slot, not once a block (contrast `UWB_NB_LBT`, which this record does **not** replace: a
-   * session with `ssbd` off keeps emitting `UWB_NB_LBT` exactly as it always has, byte for byte).
+   * Emitted at the device running the algorithm, in **every narrowband transmit slot, not once a
+   * block** (contrast `UWB_NB_LBT`, which this record does **not** replace: a session with `ssbd`
+   * off keeps emitting `UWB_NB_LBT` exactly as it always has, byte for byte).
+   *
+   * One record per CCA that *decided* something, which is the CCA that ends the attempt plus any
+   * whose draw had to be clamped — and not the busy ones the loop simply continues past, because
+   * the four outcomes above are the four endings and a continuing busy check has none of them. It
+   * is not lost either: the ending record's own `nb` is how many busy checks preceded it.
+   * (`device.mms.ts#ssbdAttempt` is the one place this rule is implemented.)
    */
   | {
     type: 'UWB_SSBD'; node: string; block: number; round: number; slot: number; channel: number

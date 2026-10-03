@@ -62,7 +62,10 @@ describe('the UWB view reducer', () => {
       role: 'tag', block: 0, round: 0, slot: null, rounds: 0, timeouts: 0, rmnr: 0, mmrcm: 0,
       sp3: 0, sp3Reports: 0, ancillary: 0, ancillaryMissing: 0, interfered: 0,
       contend: null, contendCollisions: 0, ranges: {}, tdoa: {}, tdoaRef: null, aoa: {},
-      mms: { trains: {}, nbChannel: null, lbtBusy: 0, skippedBlocks: 0, lastLbtBlock: null },
+      mms: {
+        trains: {}, nbChannel: null, lbtBusy: 0, skippedBlocks: 0, lastLbtBlock: null,
+        ssbd: 0, ssbdWaitNs: 0, ssbdFailed: 0,
+      },
       position: null,
     })
     expect(vs.nodes['anc-1'].uwb?.role).toBe('anchor')
@@ -153,7 +156,10 @@ describe('the UWB view reducer', () => {
       role: 'anchor', block: 0, round: 0, slot: null, rounds: 0, timeouts: 0, rmnr: 0, mmrcm: 0,
       sp3: 0, sp3Reports: 0, ancillary: 0, ancillaryMissing: 0, interfered: 0,
       contend: null, contendCollisions: 0, ranges: {}, tdoa: {}, tdoaRef: null, aoa: {},
-      mms: { trains: {}, nbChannel: null, lbtBusy: 0, skippedBlocks: 0, lastLbtBlock: null },
+      mms: {
+        trains: {}, nbChannel: null, lbtBusy: 0, skippedBlocks: 0, lastLbtBlock: null,
+        ssbd: 0, ssbdWaitNs: 0, ssbdFailed: 0,
+      },
       position: null,
     })
   })
@@ -371,6 +377,27 @@ describe('the MMS half of a node view', () => {
     expect(u.mms.lbtBusy).toBe(4)
     expect(u.mms.skippedBlocks).toBe(2)
     expect(u.mms.lastLbtBlock).toBe(3)
+  })
+
+  it('counts the per-slot sensing, what it waited, and only the attempts it refused', () => {
+    // standard §10.45 (draft): the other channel-access path, whose unit is the transmission
+    // slot and not the block — so two attempts in one block are two of everything here, which is
+    // exactly what the pair of counters above would collapse.
+    const ssbd = (slot: number, outcome: 'idle' | 'txOnEnd' | 'failOnEnd' | 'clamped', backoffNs: number) => ({
+      type: 'UWB_SSBD' as const, node: 'tag-1', block: 0, round: 0, slot, channel: 3,
+      nb: 0, bf: 1, drawnUnits: 1, backoffNs, foreignDbm: -41.9, thresholdDbm: -71.02, outcome,
+    })
+    const vs = fresh()
+    apply(vs, [ssbd(0, 'idle', 1_000), ssbd(2, 'txOnEnd', 3_000), ssbd(26, 'failOnEnd', 2_000), ssbd(28, 'clamped', 0)])
+    const u = vs.nodes['tag-1'].uwb!
+    expect(u.mms.ssbd).toBe(4)
+    expect(u.mms.ssbdWaitNs).toBe(6_000)
+    expect(u.mms.ssbdFailed).toBe(1)
+    // The per-block counters stay untouched: the two rules are alternatives, never layers.
+    expect(u.mms.lbtBusy).toBe(0)
+    expect(u.mms.skippedBlocks).toBe(0)
+    // …and it is the sensing device's own record, like the busy check above.
+    expect(vs.nodes['anc-1'].uwb!.mms.ssbd).toBe(0)
   })
 
   it('takes the narrowband channel from the frames themselves, at both ends', () => {

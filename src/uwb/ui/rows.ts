@@ -143,10 +143,11 @@ export function uwbRespondersText(u: UwbNodeView, S: UwbRespondersStrings, name:
   return null
 }
 
-/** The two phrases the narrowband control rows need. */
+/** The three phrases the narrowband control rows need. */
 export interface UwbNbStrings {
   nbChannelAt: (channel: number, centerMhz: number) => string
   lbtBusyCount: (checks: number, blocks: number) => string
+  ssbdCount: (checks: number, waitNs: number, failed: number) => string
 }
 
 /** The narrowband control radio, as two lines: the channel this node's last control message
@@ -159,6 +160,18 @@ export function uwbNbChannelText(u: UwbNodeView, S: UwbNbStrings): string | null
 
 export function uwbLbtText(u: UwbNodeView, S: UwbNbStrings): string | null {
   return u.mms.lbtBusy === 0 ? null : S.lbtBusyCount(u.mms.lbtBusy, u.mms.skippedBlocks)
+}
+
+/**
+ * What standard §10.45's channel access has done at this node: how many times it sensed, what
+ * those attempts waited in total, and how many of them refused the transmission (see
+ * `UwbMmsView.ssbd`). Null until one has run, so a session with `ssbd` off shows no row at all —
+ * and a **separate** row from `uwbLbtText` above, never a second reading of the same line: the two
+ * are alternatives (one is per block, one per transmission slot), and only one of them can ever
+ * have a non-zero count in one session.
+ */
+export function uwbSsbdText(u: UwbNodeView, S: UwbNbStrings): string | null {
+  return u.mms.ssbd === 0 ? null : S.ssbdCount(u.mms.ssbd, u.mms.ssbdWaitNs, u.mms.ssbdFailed)
 }
 
 /** One measured time difference: how much later this peer's message arrived than the reference

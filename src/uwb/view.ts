@@ -4,6 +4,7 @@
  * snapshot/replay equivalence holds for ranging state.
  */
 import type { TLRecord } from '../model/records'
+import type { Ns } from '../model/types'
 import type { UwbNodeCfg } from '../model/scenario'
 import type { ViewState } from '../model/view'
 import type { UwbFixMethod } from './records'
@@ -102,6 +103,26 @@ export interface UwbMmsView {
    * same block from the first check of the next one. Blocks only ever move forwards in the
    * record stream, so one number is enough — no set is needed. Null until one lands. */
   lastLbtBlock: number | null
+  /**
+   * Spectrum-sensing-based-deferral attempts this node ran (standard §10.45 — a P802.15.4ab
+   * **draft** clause; see `phy.ts`'s `ssbdBoundNs`). Zero in every session with `ssbd` off, which
+   * is every session that shipped before the feature.
+   *
+   * Counted per **record**, and a record is one CCA that decided something: the one that ended an
+   * attempt, plus any whose drawn backoff had to be cut to fit its window. Not per *block*, which
+   * is the whole difference between this counter and `lbtBusy`/`skippedBlocks` above — those two
+   * measure a rule whose unit is the block, and this one a rule whose unit is the transmission
+   * slot (§10.39.8.3).
+   */
+  ssbd: number
+  /** What those attempts actually waited, in nanoseconds, after each draw was clamped to the room
+   * its own narrowband window had left (`nbSlotSlackNs`). The drawn-but-unaffordable part is not
+   * in here: a wait that did not happen is not a wait. */
+  ssbdWaitNs: Ns
+  /** Attempts that ended in a channel-access failure — NB past its cap with the end action set to
+   * FailOnEnd, so no narrowband message followed. Separate from the count above because the
+   * interesting question about the algorithm is not how often it ran but how often it refused. */
+  ssbdFailed: number
 }
 
 export interface UwbNodeView {
@@ -196,7 +217,10 @@ export function initUwbNodeView(cfg: UwbNodeCfg): UwbNodeView {
     ancillary: 0, ancillaryMissing: 0,
     interfered: 0,
     contend: null, contendCollisions: 0, ranges: {}, tdoa: {}, tdoaRef: null, aoa: {},
-    mms: { trains: {}, nbChannel: null, lbtBusy: 0, skippedBlocks: 0, lastLbtBlock: null },
+    mms: {
+      trains: {}, nbChannel: null, lbtBusy: 0, skippedBlocks: 0, lastLbtBlock: null,
+      ssbd: 0, ssbdWaitNs: 0, ssbdFailed: 0,
+    },
     position: null,
   }
 }
@@ -403,15 +427,27 @@ export function applyUwbRecord(vs: ViewState, r: TLRecord): boolean {
       if (u) u.contendCollisions += 1
       return true
     }
-    // standard §10.45 (draft — see records.ts's own comment on this type): claimed so it never
-    // falls through to the Wi-Fi reducer looking like an unhandled type, but no lane state moves
-    // for it yet. It is event-log detail the way `UWB_TS` and `UWB_ECHO` are: Task 1 of the SSBD
-    // slice (docs/superpowers/sdd/2026-10-03-ssbd) adds the record and this case, but no device
-    // emits one yet — that lands with the session switch a later task wires through
-    // `device.mms.ts#nbClear`. When it does, a live-view counter (paired the way `rmnr`/`mmrcm`
-    // are) is that task's to add, not this one's to guess the shape of.
-    case 'UWB_SSBD':
+    // standard §10.45 (draft — see records.ts's own comment on this type). Task 1 of the SSBD
+    // slice (docs/superpowers/sdd/2026-10-03-ssbd) claimed the record here and deliberately moved
+    // no state, there being no device emitting one yet and so no shape to read a counter's off;
+    // this task is the one that wires the emission (`device.mms.ts#nbAccess`), so the counters it
+    // left to be decided are below.
+    //
+    // Counted at the device that ran the algorithm, which is every device that had a narrowband
+    // message to get out — initiator and responder each run their own (standard §10.39.8.3). Three
+    // numbers rather than one, for the reason the `rmnr`/`mmrcm` pair above gives: how often the
+    // rule ran, what it waited, and how often it actually refused — and a rule that never refuses
+    // cannot be told from a single count. The wait is summed in nanoseconds and divided only where
+    // it is shown, so no rounding accumulates in the counter.
+    case 'UWB_SSBD': {
+      const u = vs.nodes[r.node]?.uwb
+      if (u) {
+        u.mms.ssbd += 1
+        u.mms.ssbdWaitNs += r.backoffNs
+        if (r.outcome === 'failOnEnd') u.mms.ssbdFailed += 1
+      }
       return true
+    }
     case 'UWB_ROUND_END': {
       const u = vs.nodes[r.node]?.uwb
       if (u) {

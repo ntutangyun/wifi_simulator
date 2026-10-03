@@ -23,6 +23,7 @@
  * of waiting for a round of its own — not that N trains are transmitted at once.
  */
 import type { FrameDesc } from '../model/frames'
+import type { UwbSsbdCfg } from '../model/scenario'
 import type { UwbRxInfo } from './channel'
 import { counterDiff, gaussian } from './clock'
 import {
@@ -35,8 +36,12 @@ import {
   MS_RCTU, rmarkerFromFragment, trainDetected,
 } from './mms'
 
-import { NB_LBT_THRESHOLD_DBM, nbLbtRequired } from './nb'
-import { RCTU_NS, rstuNs, tsSigmaNs, UWB_PPM_MAX, UWB_RX_SENS_DBM, uwbSinrDb } from './phy'
+import {
+  NB_LBT_THRESHOLD_DBM, NB_POLL_BYTES, NB_REPORT_BYTES, NB_RESP_BYTES, nbLbtRequired, nbOtmPollBytes,
+} from './nb'
+import {
+  nbSlotSlackNs, RCTU_NS, rstuNs, tsSigmaNs, UWB_PPM_MAX, UWB_RX_SENS_DBM, uwbSinrDb,
+} from './phy'
 import { rangeSigmaM, solvePosition } from './position'
 import { fomFor, ssTwrCorrected, ssTwrRaw } from './ranging'
 import { NOTHING_HEARD_DBM } from './records'
@@ -605,6 +610,10 @@ export function onMmsSlot(
  *
  * A clear check emits nothing and draws nothing — it is the ordinary case, and a record per
  * clear check would be one per narrowband slot of every round.
+ *
+ * This is the `ssbd: null` path, and the session switch is read in `nbAccess` below rather than
+ * here, so that everything in this function stays what it was byte for byte: a session with
+ * §10.45 on takes the per-slot algorithm *instead* of this one and never sets `nbSkipBlock`.
  */
 function nbClear(dev: UwbDevice, r: RoundState, m: MmsRoundState, mp: MmsRoundPlan): boolean {
   // Config 1 has no narrowband radio, so there is no channel to sense and no rule to obey: its
@@ -623,27 +632,155 @@ function nbClear(dev: UwbDevice, r: RoundState, m: MmsRoundState, mp: MmsRoundPl
   return false
 }
 
+/**
+ * The channel access one narrowband transmission runs through, and the **one** place the session's
+ * `ssbd` switch is read.
+ *
+ * `ssbd` off — every scene that shipped before this slice — is `nbClear` above, unchanged: one
+ * question, and a busy answer silences this device's narrowband radio for the rest of the block.
+ *
+ * `ssbd` on is standard §10.45's own algorithm instead (a P802.15.4ab **draft** clause; see
+ * `phy.ts`'s `ssbdBoundNs`), and §10.39.8.3 says where it runs: one of CSMA-CA or SSBD, applied by
+ * initiator and responder **independently and in every transmission slot, even when two
+ * consecutive slots use the same channel**. "Independently" this engine already had — all three
+ * transmit points come through here and each device holds state of its own. "Every slot" is what
+ * the per-block latch above got wrong, and the reason that path is not taken at all here: the two
+ * are alternatives, not layers, and a device running §10.45 never sets `nbSkipBlock`.
+ *
+ * `tx` is the transmission itself, deferred rather than returned as a verdict, because a backoff
+ * is a wait and not an answer: the message goes out `backoffNs` into its own window, or — the end
+ * action being FailOnEnd — not at all. Everything the transmission does, including the state it
+ * moves (`polled`, `primed`), is inside that callback, so an attempt that ends in a channel-access
+ * failure leaves exactly as much behind as a busy block does: nothing.
+ */
+function nbAccess(
+  dev: UwbDevice, r: RoundState, m: MmsRoundState, mp: MmsRoundPlan, bytes: number, slot: number,
+  tx: () => void,
+): void {
+  const ssbd = mp.ssbd
+  if (ssbd === null) {
+    if (nbClear(dev, r, m, mp)) tx()
+    return
+  }
+  // Config 1 again, asked of the round rather than of the schema that refused it: no narrowband
+  // radio, nothing to sense. 4ab draft 15-25/0194r0
+  if (m.nbChannel === null) {
+    tx()
+    return
+  }
+  // `nbLbtRequired` is deliberately **not** asked here. It answers "does the regulation oblige
+  // this channel to listen first", and §10.39.8.3's closing sentence says the same two methods
+  // may be used to improve coexistence where no such obligation exists. Gating on it would make
+  // `ssbd` inert on the session's own default allow list — UNII-3, where listening is optional —
+  // which is precisely the "permitted but provably does nothing" configuration this slice's
+  // design doc §5 was written against. `nbLbt: 'off'`, where the scenario has said it does not
+  // want to listen at all, is refused by the schema instead.
+  ssbdAttempt(dev, r, mp, ssbd, m.nbChannel, bytes, slot, 0, ssbd.minBf, 0, tx)
+}
+
+/**
+ * One CCA of standard §10.45, and the wait drawn before it.
+ *
+ * `nb` is NB — how many times this attempt has already found the channel busy — and `bf` is BF,
+ * the backoff factor that wait was drawn against. Both are arguments rather than device state
+ * because the draft resets them at the start of every fresh attempt, and an attempt here is one
+ * transmission slot: there is no retransmission in this engine's narrowband control plane for
+ * them to carry over to (which is also why the draft's persistence bit is not built — see
+ * `UwbSsbdCfg`'s own doc comment).
+ *
+ * `random(BF)` is `Rng.int(bf)`, uniform over 0…BF inclusive (CID 489/493 replaced the original
+ * `2 × BF` with `BF`). The draw reaches BF, which is what makes `ssbdBoundNs` a **tight** bound on
+ * this loop rather than a loose one, and 0 is a legal draw — the CRG's own answer to I-169, which
+ * asked for a zero backoff to be forbidden and was Rejected because 0 is a legal backoff value.
+ *
+ * **The wait is `min(draw, the room left in this window)`, and the clamp emits a record of its
+ * own.** A one-to-many POLL at enough responders already overruns its own two slots before any
+ * backoff is drawn (`nbSlotSlackNs` returns 0 there, from a negative), and a configuration that is
+ * allowed while provably doing nothing is how three features on this branch came to look finished.
+ * So a slot with no room reports a sensing that happened and a wait that did not.
+ *
+ * The CCA itself is a point reading of the mediator, exactly as `nbClear`'s is, and costs no time —
+ * the same limit `uwb-nba-coexist` already records for one instantaneous read standing in for the
+ * draft's 9 µs energy integration (`NB_LBT_CCA_US`, which `ssbdBoundNs` still charges, so the bound
+ * stays above what this loop actually waits rather than below it).
+ */
+function ssbdAttempt(
+  dev: UwbDevice, r: RoundState, mp: MmsRoundPlan, s: UwbSsbdCfg, channel: number,
+  bytes: number, slot: number, nb: number, bf: number, waitedNs: number, tx: () => void,
+): void {
+  const drawnUnits = dev.ssbdRng().int(bf)
+  // `unitBackoffUs` is microseconds, as §10.45's own attribute is (`phy.ts#ssbdBoundNs` converts
+  // the same way).
+  const wantNs = drawnUnits * s.unitBackoffUs * 1000
+  const roomNs = Math.max(0, nbSlotSlackNs(r.plan.slotNs, bytes) - waitedNs)
+  const backoffNs = Math.min(wantNs, roomNs)
+  const clamped = backoffNs < wantNs
+  const cca = (): void => {
+    // The queue outlives a round, and a backoff armed in one must not sense in the next.
+    if (dev.round !== r) return
+    const { busy, foreignDbm } = dev.ch.lbtBusy(dev.id, channel)
+    const say = (outcome: 'idle' | 'txOnEnd' | 'failOnEnd' | 'clamped'): void => {
+      dev.emit({
+        t: dev.now(), type: 'UWB_SSBD', node: dev.id, block: r.block, round: r.round, slot, channel,
+        nb, bf, drawnUnits, backoffNs, foreignDbm, thresholdDbm: NB_LBT_THRESHOLD_DBM, outcome,
+      })
+    }
+    // Idle: the algorithm ends in Success and the MAC transmits. Reported as `clamped` when the
+    // draw had to be cut, because that is the fact a reader cannot recover otherwise — the end
+    // actions below are the two that cannot be hidden, and they keep `drawnUnits` beside
+    // `backoffNs` so a clamped one of those is still legible from the two numbers.
+    if (!busy) {
+      say(clamped ? 'clamped' : 'idle')
+      tx()
+      return
+    }
+    // NB past its cap: TxOnEnd ends in Success and transmits anyway, FailOnEnd ends in Failure —
+    // a channel-access failure, which in the standard is an MCPS confirm's status code and here
+    // can only be a record (design doc §3.1 point 2).
+    if (nb >= s.maxBackoffs) {
+      say(s.txOnEnd ? 'txOnEnd' : 'failOnEnd')
+      if (s.txOnEnd) tx()
+      return
+    }
+    if (clamped) say('clamped')
+    // Busy: NB and BF each rise — BF no further than its own upper bound — and the attempt backs
+    // off again.
+    ssbdAttempt(
+      dev, r, mp, s, channel, bytes, slot, nb + 1, Math.min(bf + 1, s.maxBf), waitedNs + backoffNs, tx,
+    )
+  }
+  // A zero wait runs here and now rather than through the queue, so a draw of 0 leaves the order
+  // of one slot's events exactly as it is with the feature off.
+  if (backoffNs === 0) cca()
+  else dev.at(dev.now() + backoffNs, cca)
+}
+
 /** Initiator, its POLL window: open the cycle. A pair round polls its one responder by name; a
  * one-to-many round broadcasts one POLL — the narrowband one lists every responder it is for,
  * the SP0 one cannot (`makeSp0Poll`) and does not need to. */
 function txControlPoll(
   dev: UwbDevice, r: RoundState, m: MmsRoundState, mp: MmsRoundPlan, responders: string[],
 ): void {
-  if (!nbClear(dev, r, m, mp)) return
-  m.polled = true
-  if (sp0Control(mp)) {
-    const dst = mp.oneToMany ? UWB_BROADCAST : responders[0]
-    if (dst === undefined) return
-    dev.send(makeSp0Poll(dev.id, dst, r.block, r.round, mp.layout.pollSlot()), null)
-    return
-  }
-  const nbChannel = m.nbChannel as number
-  dev.send(
-    mp.oneToMany
-      ? makeNbPollOtm(dev.id, responders, nbChannel, r.block, r.round)
-      : makeNbPoll(dev.id, responders[0], nbChannel, r.block, r.round),
-    null,
-  )
+  // A one-to-many POLL names every responder, so it is the longer message and leaves its window
+  // less room — the one narrowband message whose length depends on the round rather than only on
+  // its kind (`nbOtmPollBytes`).
+  const bytes = mp.oneToMany ? nbOtmPollBytes(responders.length) : NB_POLL_BYTES
+  nbAccess(dev, r, m, mp, bytes, mp.layout.pollSlot(), () => {
+    m.polled = true
+    if (sp0Control(mp)) {
+      const dst = mp.oneToMany ? UWB_BROADCAST : responders[0]
+      if (dst === undefined) return
+      dev.send(makeSp0Poll(dev.id, dst, r.block, r.round, mp.layout.pollSlot()), null)
+      return
+    }
+    const nbChannel = m.nbChannel as number
+    dev.send(
+      mp.oneToMany
+        ? makeNbPollOtm(dev.id, responders, nbChannel, r.block, r.round)
+        : makeNbPoll(dev.id, responders[0], nbChannel, r.block, r.round),
+      null,
+    )
+  })
 }
 
 /** Responder, its own RESP window: answer a POLL it heard. Interleaved, this is also the moment
@@ -662,19 +799,20 @@ function txControlResp(
   dev: UwbDevice, r: RoundState, m: MmsRoundState, mp: MmsRoundPlan, peer: string, slot: number, mine: number,
 ): void {
   if (!m.polled && !txFirst(dev, mp)) return
-  if (!nbClear(dev, r, m, mp)) return
-  peerState(m, mp, peer, mine).primed = true
-  if (sp0Control(mp)) {
-    dev.send(makeSp0Resp(dev.id, peer, r.block, r.round, slot), null)
-    return
-  }
-  const nbChannel = m.nbChannel as number
-  dev.send(
-    mp.oneToMany
-      ? makeNbResp(dev.id, peer, nbChannel, r.block, r.round, slot, true)
-      : makeNbResp(dev.id, peer, nbChannel, r.block, r.round),
-    null,
-  )
+  nbAccess(dev, r, m, mp, NB_RESP_BYTES, slot, () => {
+    peerState(m, mp, peer, mine).primed = true
+    if (sp0Control(mp)) {
+      dev.send(makeSp0Resp(dev.id, peer, r.block, r.round, slot), null)
+      return
+    }
+    const nbChannel = m.nbChannel as number
+    dev.send(
+      mp.oneToMany
+        ? makeNbResp(dev.id, peer, nbChannel, r.block, r.round, slot, true)
+        : makeNbResp(dev.id, peer, nbChannel, r.block, r.round),
+      null,
+    )
+  })
 }
 
 /**
@@ -774,7 +912,6 @@ function txControlReport(
   if (dev.cfg.role !== 'tag' && fixedReplyNs(mp) !== null) return
   const p = m.peers.get(peer)
   if (m.txRmarker === null || !p || !p.primed || p.rxRmarker === null) return
-  if (!nbClear(dev, r, m, mp)) return
   // Which of the exchange's two times this device holds is **one decision, taken here**: whoever
   // transmitted first measured a round trip — out to the far end and back in its packet — and
   // whoever answered measured the reply it turned the round around in. Forward that is the
@@ -790,20 +927,26 @@ function txControlReport(
   const times = first
     ? { roundTripRctu: counterDiff(p.rxRmarker, m.txRmarker) }
     : { replyRctu: counterDiff(m.txRmarker, p.rxRmarker) }
-  if (sp0Control(mp)) {
-    dev.send(makeSp0Report(dev.id, peer, r.block, r.round, slot, times), null)
-    return
-  }
-  // …and the message id is the *sender's*, not the time's: 0x12 is the responder's REPORT and 0x13
-  // the initiator's, which coincides with the time carried only while the order is forward.
-  // 4ab draft 15-22/0381r5 Table 1.6.3.1
-  dev.send(
-    makeNbReport(
-      dev.id, peer, m.nbChannel as number, r.block, r.round, slot, times, mp.oneToMany,
-      dev.cfg.role === 'tag' ? 'initiator' : 'responder',
-    ),
-    null,
-  )
+  // The two times above are differences of counters this device already holds, so taking them
+  // here rather than inside the access below is the same two numbers either way — and this is
+  // the window with the least room of the three, the REPORT being the round's longest narrowband
+  // message (`nbSlotSlackNs(slotNs, NB_REPORT_BYTES)` = 392 µs against the POLL's 424 µs).
+  nbAccess(dev, r, m, mp, NB_REPORT_BYTES, slot, () => {
+    if (sp0Control(mp)) {
+      dev.send(makeSp0Report(dev.id, peer, r.block, r.round, slot, times), null)
+      return
+    }
+    // …and the message id is the *sender's*, not the time's: 0x12 is the responder's REPORT and
+    // 0x13 the initiator's, which coincides with the time carried only while the order is forward.
+    // 4ab draft 15-22/0381r5 Table 1.6.3.1
+    dev.send(
+      makeNbReport(
+        dev.id, peer, m.nbChannel as number, r.block, r.round, slot, times, mp.oneToMany,
+        dev.cfg.role === 'tag' ? 'initiator' : 'responder',
+      ),
+      null,
+    )
+  })
 }
 
 /**
