@@ -257,6 +257,31 @@ describe('selectivity · the figures the lesson reads off its own five rounds', 
   })
 
   /**
+   * **The wrinkle 2.36 makes, and the sentence that resolves it.**
+   *
+   * 2.36 dB is the 320 MHz figure of BOTH instruments: the 40 000-draw block's and this
+   * lesson's own 150 ms round's. So a reader meets 2.3 against 2.03 at 20 MHz and one single
+   * 2.36 at 320 MHz, with nothing to say that the table column and the observe line are two
+   * different rulers — the 320 MHz agreement is a coincidence and reads like identity. The
+   * table's heading now names its ruler and the paragraph under it gives this round's pair, so
+   * the coincidence is stated as one; both halves are asserted here, and so is the 0.27 dB the
+   * two rulers differ by at the narrow end.
+   */
+  it('says which ruler the two-ended table came off, and that 2.36 twice is a coincidence', () => {
+    const ends = lesson.numbers!
+      .filter((b): b is Extract<Block, { kind: 'table' }> => b.kind === 'table')
+      .find((b) => b.heading?.includes('两端的两个量'))!
+    expect(ends.heading).toContain('四万次抽样')
+    expect(mainText).toContain('最窄一档 2.03 dB，最宽一档 2.36 dB')
+    expect(mainText).toContain('宽的那一头两把尺碰巧给出同一个数')
+    // the gap the sentence names, measured: this round's 20 MHz median against the block's 2.30
+    const rs = sweep()
+    expect(2.3 - rs[0].medLossDb).toBeCloseTo(0.27, 2)
+    // …and at the wide end the two rulers really do land on the same two decimals
+    expect(rs[4].medLossDb.toFixed(2)).toBe('2.36')
+  })
+
+  /**
    * The 9-bin median loss the two-ended table prints beside 2.36 dB. It is the 40 000-draw
    * instrument's figure, not this scene's, so it is measured the way that file measures it —
    * at 4000 trials rather than 40 000, which is enough for a median and keeps this file's

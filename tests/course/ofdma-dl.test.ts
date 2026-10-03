@@ -452,6 +452,32 @@ describe('ofdma-dl · why the chance to group is rare', () => {
     expect(w.filter((x) => x <= 10 * US).length / w.length).toBeCloseTo(0.5, 2)
   })
 
+  /**
+   * **The 145.3 µs the text names, which is the window's ninth decile and nothing else.**
+   *
+   * It had no assertion anywhere in the repo until now — `145` matched exactly one site in
+   * `src/` and none in `tests/`, and the enumeration below listed the other eight figures of
+   * that paragraph and skipped this one. It also read as "the tail is 145 µs long", two
+   * sentences after the same paragraph says the longest wait is 185.2 µs; it is a quantile, so
+   * the text now says which one and this test pins it as one.
+   *
+   * Measured here rather than copied: p90 = 145 340 ns, with 106 of the 1061 windows above it.
+   */
+  it('names the 145.3 µs as the window-s ninth decile, and it is one', () => {
+    const w = windows()
+    const p90 = w[Math.floor(w.length * 0.9)]
+    expect(p90).toBe(145_340)
+    // a decile, not a length: a tenth of the frames are past it, and the maximum is elsewhere
+    expect(w.filter((x) => x > p90).length).toBe(106)
+    expect(w.filter((x) => x > p90).length / w.length).toBeLessThan(0.105)
+    expect(p90).toBeLessThan(w[w.length - 1])
+    const t = ofdmaDl.deeper!.map((b) => JSON.stringify(b)).join('\n')
+    expect(t).toContain(`${(p90 / US).toFixed(1)} µs`)
+    expect(t).toContain('上十分位')
+    // the old wording, which read as a duration rather than a quantile
+    expect(t).not.toContain('145 µs 的那条尾巴')
+  })
+
   it('and the two counts that explain 45: 4.4 % of sends against 3.9 % of close arrivals', () => {
     const arrivals = enqs.map((e) => ({ t: e.t, dst: e.dst })).sort((a, b) => a.t - b.t)
     let close = 0, cross = 0, within184 = 0
@@ -468,6 +494,59 @@ describe('ofdma-dl · why the chance to group is rare', () => {
     expect((mu.length / apData.length * 100).toFixed(1)).toBe('4.4')
     // the wrong ruler's answer, pinned so the lesson's "ten times too big" is a measurement
     expect((within184 / cross * 100).toFixed(1)).toBe('37.1')
+    // both denominators are printed, so a reader can check either percentage and not just one
+    const t = ofdmaDl.deeper!.map((b) => JSON.stringify(b)).join('\n')
+    expect(t).toContain('1058')
+    expect(t).toContain('1016')
+  })
+
+  /**
+   * **The exact criterion the fixed 14 µs threshold was only a proxy for.**
+   *
+   * Judge each arrival against *its own* window — did the next cross-television frame land
+   * before this one was transmitted? — and the count is **45**, the engine's own number of
+   * multi-user sends, pair for pair. So the explanation does not rest on a proxy at all, and
+   * the proxy's standing is stated rather than assumed: it nets four pairs low (41 against 45)
+   * while misclassifying sixty-odd — 30 pairs it counts whose first frame was already gone
+   * (half of all frames leave inside a microsecond), and 34 it drops whose first frame was
+   * waiting out an exchange and whose window therefore ran into the 145 µs decile above. Its
+   * agreement is partly cancellation, which is why the lesson leads with the per-frame count
+   * and calls the threshold a check on the order of magnitude.
+   *
+   * The 14 µs stays a measurement parameter and gets no constant in `src/`: the engine reads no
+   * such number, and giving it one would put a figure in the model that no model uses. What the
+   * text owed was where it came from, and it now says so — the order of magnitude of the
+   * window's own median.
+   */
+  it('reproduces the engine-s 45 exactly when each frame is judged by its own window', () => {
+    const arrivals = enqs.map((e) => ({ t: e.t, dst: e.dst, id: e.msduId })).sort((a, b) => a.t - b.t)
+    const txAt = new Map<number, number>()
+    for (const t of apData) {
+      const ids = t.frame.muParts ? t.frame.muParts.flatMap((q) => q.msduIds ?? []) : [t.frame.msduId!]
+      for (const id of ids) txAt.set(id, t.t)
+    }
+    let perFrame = 0, falsePos = 0, falseNeg = 0
+    for (let i = 1; i < arrivals.length; i++) {
+      const a = arrivals[i - 1], b = arrivals[i]
+      if (a.dst === b.dst) continue
+      const out = txAt.get(a.id)
+      const groupable = out !== undefined && b.t < out
+      const underThreshold = b.t - a.t < 14 * US
+      if (groupable) perFrame++
+      if (underThreshold && !groupable) falsePos++
+      if (!underThreshold && groupable) falseNeg++
+    }
+    // pair for pair with the engine's own grouping decision
+    expect(perFrame).toBe(apData.filter((r) => r.frame.muParts !== undefined).length)
+    expect(perFrame).toBe(45)
+    expect([falsePos, falseNeg]).toEqual([30, 34])
+    const t = ofdmaDl.deeper!.map((b) => JSON.stringify(b)).join('\n')
+    for (const n of ['45 对', '41 对', '30 对', '34 对', '一对不差']) {
+      expect(t, `the explanation never names ${n}`).toContain(n)
+    }
+    // and the threshold's provenance, which is the one thing the text owed
+    expect(t).toContain('按窗口中位数 9.6 µs 的量级取 14 µs')
+    expect(t).toContain('引擎里没有这个数')
   })
 
   it('pins the floor that makes the queue-residence time the wrong ruler', () => {
@@ -488,8 +567,18 @@ describe('ofdma-dl · why the chance to group is rare', () => {
     // right after the sentence it completes, not in a section of its own somewhere else
     expect(d[i - 1].text).toContain('分组是见机行事的，而机会在队列里，不在电台里')
     const t = d[i].text!
-    for (const n of ['9.6 µs', '185.2 µs', '506', '747 到 947 µs', '4.4 %', '3.9 %', '169.6 µs', '37 %']) {
+    // Every figure of that paragraph, this time including the one the first version of this
+    // list skipped: 145.3 µs was the only number in it with no assertion anywhere in the repo.
+    for (const n of [
+      '9.6 µs', '145.3 µs', '185.2 µs', '506', '747 到 947 µs',
+      '1016', '1058', '4.4 %', '3.9 %', '169.6 µs', '37 %',
+    ]) {
       expect(t, `the explanation never names ${n}`).toContain(n)
+    }
+    // …and nothing else: any other "N.N µs" in the paragraph is a figure no test here measured
+    for (const m of t.matchAll(/(\d+\.\d+) µs/g)) {
+      expect(['9.6', '145.3', '185.2', '169.6', '125.6'], `unpinned figure ${m[1]} µs`)
+        .toContain(m[1])
     }
   })
 })
