@@ -453,3 +453,40 @@ describe('uwb-intro · the procedure, step by step', () => {
     expect(ofType(rs, 'UWB_TIMEOUT')).toHaveLength(0)
   })
 })
+
+/**
+ * The echo limit, pinned both ways.
+ *
+ * The entry used to say the medium delivers one direct path and no echo at all. That stopped
+ * being true when `scheduleEchoes` landed in src/uwb/channel.ts, so the sentence now says what
+ * the engine does: an echo exists only when the scenario carries a `scatterers` section, and
+ * even then `deliver` routes it to `deliverEcho`, which opens no reception. The false phrasing
+ * is asserted absent so it cannot come back, and the run is checked so the sentence's claim
+ * about *this* scene is measured rather than asserted.
+ */
+describe('uwb-intro · echoes exist in the medium; this hall has nothing to reflect off', () => {
+  const text = uwbIntro.limits.map((l) => l.text).join('\n')
+
+  it('says echoes are gated on the scenario and that they open no reception', () => {
+    expect(text).toContain('scheduleEchoes')
+    expect(text).toContain('只在场景写了 scatterers 一节时才排回波')
+    expect(text).toContain('deliverEcho')
+    expect(text).toContain('不开启任何一次接收')
+    // the half of the old sentence that is still true, and the reason the limit exists at all
+    expect(text).toContain('真实接收端要在一串先后到达的回波里判断哪一条是首径')
+  })
+
+  it('no longer claims the medium has no echoes', () => {
+    expect(text).not.toContain('没有反射、没有回波、也没有第二条到达路径')
+    expect(text).not.toContain('介质只投递一条直射路径')
+  })
+
+  it('and both of its scenes carry no scatterers section, so neither produces an echo', () => {
+    const scenes = [uwbIntro.scenario, ...(uwbIntro.variants ?? []).map((v) => v.scenario)]
+    expect(scenes).toHaveLength(2)
+    for (const build of scenes) expect(build().scatterers).toBeUndefined()
+    for (const variant of [undefined, 0]) {
+      expect(ofType(recs(variant), 'UWB_ECHO')).toHaveLength(0)
+    }
+  })
+})

@@ -561,3 +561,39 @@ describe('uwb-geometry · the procedure, against the solver', () => {
     expect((lied.residualM * 100).toFixed(0)).toBe('21')
   })
 })
+
+/**
+ * The multipath limit, pinned both ways.
+ *
+ * The entry used to open 「介质里没有多径」 and justify it with `transmit` queueing one delivery
+ * per receiver. `scheduleEchoes` falsified that: the medium does queue echoes, one per
+ * (receiver, object), whenever the scenario carries a `scatterers` section. What survives is the
+ * lesson's real point — an echo never reaches the solver, so no range, fix or quality byte in
+ * this lesson can move because of one — and that is what the sentence now says.
+ */
+describe('uwb-geometry · the medium queues echoes; none of these three scenes has an object', () => {
+  const text = uwbGeometry.limits.map((l) => l.text).join('\n')
+
+  it('says where echoes come from and why they cannot reach the solver', () => {
+    expect(text).toContain('scheduleEchoes')
+    expect(text).toContain('只在场景写了 scatterers 一节时才排回波')
+    expect(text).toContain('deliverEcho')
+    expect(text).toContain('距离、定位与品质因数字节一个都不会变')
+    // the half that was always true, and is why the lesson's wall is the gentlest kind of NLOS
+    expect(text).toContain('真实房间里最常见的非视距是直射路径干脆没了')
+  })
+
+  it('no longer claims the medium has no multipath', () => {
+    expect(text).not.toContain('介质里没有多径')
+    expect(text).not.toContain('transmit 对每个接收机只排一次投递')
+  })
+
+  it('and all three of its scenes carry no scatterers section, so none produces an echo', () => {
+    const scenes = [uwbGeometry.scenario, ...(uwbGeometry.variants ?? []).map((v) => v.scenario)]
+    expect(scenes).toHaveLength(3)
+    for (const build of scenes) expect(build().scatterers).toBeUndefined()
+    for (const variant of [undefined, 0, 1]) {
+      expect(ofType(recs(variant), 'UWB_ECHO')).toHaveLength(0)
+    }
+  })
+})

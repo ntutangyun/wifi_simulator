@@ -387,3 +387,39 @@ describe('uwb-capstone · the rubric and the sources', () => {
     expect(src).toContain('P802.15.4ab')
   })
 })
+
+/**
+ * The echo limit, pinned both ways.
+ *
+ * The entry used to assert, of the whole ranging track, that the medium delivers one direct path
+ * and 「没有反射、没有回波、也没有第二条到达路径」. `scheduleEchoes` falsified the second half.
+ * The structural claim the brief actually rests on is narrower and still exact: ranging reads the
+ * direct arrival only, because `deliver` hands an echo to `deliverEcho`, which opens no
+ * reception — so the +0.60 m the learner has to find stays a constant.
+ */
+describe('uwb-capstone · echoes exist, and none of the four scenes has an object to make one', () => {
+  const text = uwbCapstone.limits.map((l) => l.text).join('\n')
+
+  it('says echoes are gated on the scenario and never enter ranging', () => {
+    expect(text).toContain('scheduleEchoes')
+    expect(text).toContain('只在场景写了 scatterers 一节时才排回波')
+    expect(text).toContain('deliverEcho')
+    expect(text).toContain('测距读到的永远只是直射的那一次到达')
+    // the half that is still true, and the one the brief's hardest claim rests on
+    expect(text).toContain('在一串先后到达的回波里认出首径')
+  })
+
+  it('no longer claims the track has no reflections', () => {
+    expect(text).not.toContain('没有反射、没有回波、也没有第二条到达路径')
+    expect(text).not.toContain('整条测距轨道上，介质只投递一条直射路径')
+  })
+
+  it('and all four of its scenes carry no scatterers section, so none produces an echo', () => {
+    const scenes = [uwbCapstone.scenario, ...(uwbCapstone.variants ?? []).map((v) => v.scenario)]
+    expect(scenes).toHaveLength(4)
+    for (const build of scenes) expect(build().scatterers).toBeUndefined()
+    for (const variant of [undefined, V_FAR, V_FAST, V_OTM]) {
+      expect(ofType(recs(variant), 'UWB_ECHO')).toHaveLength(0)
+    }
+  })
+})

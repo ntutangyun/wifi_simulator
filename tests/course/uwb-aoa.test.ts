@@ -683,3 +683,38 @@ describe('uwb-aoa · the procedure, step by step', () => {
   })
 
 })
+
+/**
+ * The multipath limit, pinned both ways.
+ *
+ * This entry's headline — multipath cannot move a bearing — survived `scheduleEchoes`; its
+ * justification did not. It read 「channel.ts 只投递一条直射路径」, which is now false: the
+ * medium queues an echo per (receiver, object) whenever the scenario carries a `scatterers`
+ * section. The headline holds for a better reason, and the sentence now gives it — an echo goes
+ * to `deliverEcho`, which opens no reception, so `measureAoa` is never called for one.
+ */
+describe('uwb-aoa · multipath cannot move a bearing, and the reason is structural', () => {
+  const text = uwbAoa.limits.map((l) => l.text).join('\n')
+
+  it('says why an echo can never reach measureAoa', () => {
+    expect(text).toContain('多径在这里对方位角毫无影响')
+    expect(text).toContain('scheduleEchoes')
+    expect(text).toContain('deliverEcho')
+    expect(text).toContain('measureAoa 根本不会为一条回波被调用一次')
+    // the half that was always true: the dominant real-world AoA error this engine cannot show
+    expect(text).toContain('室内到达角最大的误差来源正是从墙上反射过来的那一路')
+  })
+
+  it('no longer justifies it with a medium that has no echoes', () => {
+    expect(text).not.toContain('channel.ts 只投递一条直射路径')
+  })
+
+  it('and all four of its scenes carry no scatterers section, so none produces an echo', () => {
+    const scenes = [uwbAoa.scenario, ...(uwbAoa.variants ?? []).map((v) => v.scenario)]
+    expect(scenes).toHaveLength(4)
+    for (const build of scenes) expect(build().scatterers).toBeUndefined()
+    for (const v of ['base', 'off45', 'off60', 'behind'] as const) {
+      expect(ofType(recs(v), 'UWB_ECHO')).toHaveLength(0)
+    }
+  })
+})
