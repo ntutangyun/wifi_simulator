@@ -19,9 +19,9 @@ import type { Ns, Vec3 } from '../model/types'
 import { EventQueue } from './events'
 import { fadingDb, smallScaleDb, type FadingCfg } from './fading'
 import { byCodeUnit } from './hash'
-import { CCA_ED_DBM, CCA_PD_DBM, PHY_MODES, noiseDbm, reqSinrDb, sinrThreshDb, type PhyMode } from './phy'
+import { CCA_ED_DBM, CCA_PD_DBM, PHY_MODES, noiseDbm, reqSinrDb, sinrThreshDb } from './phy'
 import { wallLossDb } from './propagation'
-import { selBins, selEffSinrDb } from './selectivity'
+import { selBinnableGen, selBins, selEffSinrDb } from './selectivity'
 import { wifiToUwbPathLossDb, type Emission, type Spectrum } from './spectrum'
 import {
   AMP_DL_REQ_SINR_DB,
@@ -362,42 +362,31 @@ const detectThreshDb = (frame: FrameDesc): number =>
  * **Being OFDM is not the same as being divisible into 26-tone RUs**, and this guard used to
  * stop at the first test with "non-HT is clause 17 OFDM" as its reason. That sentence is true
  * and beside the point: the 26-tone resource unit is a clause 27 / 36 construct, defined at the
- * 78.125 kHz subcarrier spacing HE and EHT use (standard be Table 36-18), while clause 17 and
- * clause 21 are spaced 312.5 kHz — four times coarser. The neighbouring file states the same
- * split from the other side: `TONES_VHT[20] = 52` against `TONES_HE[20] = 234` for the very
- * same 20 MHz of spectrum (phy.ts). So `selBinWidthMhz()` is not a coarse ruler on a VHT or a
- * non-HT PPDU, it is the wrong one — and the provenance the whole of `selectivity.ts` rests on
- * (every constant one of two standard numbers) does not reach that far.
+ * 78.125 kHz subcarrier spacing HE and EHT use, while clause 17 and clause 21 are spaced
+ * 312.5 kHz — four times coarser. `selBinnableGen` in selectivity.ts holds that two-entry list
+ * and the evidence for it, and it is the same predicate `ScenarioSchema`'s third selectivity
+ * refusal reads; the difference is only what each asks it about.
  *
- * **Why the schema cannot be the only gate.** `ScenarioSchema` refuses a plan whose links are
- * *all* non-HT or VHT, and `Simulation`'s constructor parses before it builds anything
- * (simulation.ts), so even the worker's unvalidated-looking `new Simulation(m.scenario)` goes
- * through it and surfaces a banner (sim.worker.ts). But that rule is "at least one HE/EHT
- * link", so a **mixed** scene passes it with a VHT link still in — `defaultScenario()` is
- * exactly such a scene (eht, he, vht). Nothing refuses that plan and nothing should: the HE
- * links in it are fine. Only the PPDU can be gated, so it is gated here.
+ * **`frame.mode === undefined` counts as non-HT and is refused with it**, because that is what
+ * it means: `FrameDesc.mode`'s own default is non-HT, so every control response this engine
+ * sends — ACK, BlockAck, RTS, CTS — is a 312.5 kHz PPDU however modern the two radios
+ * exchanging it are. There is no version of this rule that holds for a VHT data PPDU and not
+ * for a non-HT ACK: the spacing is the same in both, and the 26-tone RU is absent from both.
+ * Excluding the control frames moved the `selectivity` lesson's recorded timelines and the drop
+ * rates measured off them; those were re-measured against this rule rather than the rule bent
+ * to preserve them, because the lesson's figures are measurements *of* this engine.
+ *
+ * **Why the schema cannot be the only gate, even now that it asks about links.** The refusal
+ * requires *a* binnable link — AP and at least one station both HE or better — and `Simulation`'s
+ * constructor parses before it builds anything (simulation.ts), so even the worker's
+ * unvalidated-looking `new Simulation(m.scenario)` surfaces that refusal as a banner
+ * (sim.worker.ts). What it cannot require is that *every* link be binnable, and it must not:
+ * `defaultScenario()` is an EHT AP with an HE station and a VHT one, and the HE link in it is
+ * perfectly binnable while the VHT station's PPDUs are not. Per-PPDU is the only level at which
+ * that distinction exists, so it is made here.
  */
 const isOfdmWifiPpdu = (frame: FrameDesc): boolean =>
-  frame.amp === undefined && selBinnableMode(frame.mode)
-
-/**
- * Does this PPDU format have a 26-tone RU to split into? Only HE and EHT do.
- *
- * **`undefined` counts as non-HT and is refused with it**, because that is what it means:
- * `FrameDesc.mode`'s own default is non-HT, so every control response this engine sends — ACK,
- * BlockAck, RTS, CTS — is a 312.5 kHz PPDU however modern the two radios exchanging it are.
- * There is no version of this rule that holds for a VHT data PPDU and not for a non-HT ACK: the
- * subcarrier spacing is the same in both, and the 26-tone RU is absent from both.
- *
- * Excluding the control frames moved the `selectivity` lesson's six recorded timelines and the
- * drop rates measured off them, which was briefly a reason to leave them binned. It is not one.
- * The lesson's figures are measurements *of* this engine, so they follow the engine when it is
- * corrected; a gate that knows itself to be wrong, and says so in its own comment, would be the
- * expensive thing to keep. The engine-side pins were re-measured against this rule and the
- * lesson's own quotations follow in a course pass.
- */
-const selBinnableMode = (mode: PhyMode | undefined): boolean =>
-  mode === 'he' || mode === 'eht'
+  frame.amp === undefined && selBinnableGen(frame.mode)
 
 /** The width a PPDU that does not name one occupies — a 20 MHz non-HT PPDU. */
 const DEFAULT_WIDTH_MHZ = 20

@@ -454,27 +454,34 @@ export function fadingCausedRefusals(sc: Scenario): string[] {
  * renders these three and judges nothing further.
  *
  * `live` is not simply "no refusals". A plan can be carrying the section *and* have grown a
- * refusal since — the last he/eht link downgraded to `vht` or `nonht`, say, which is a node edit
- * this section never sees — and a checkbox greyed in that state would be a trap: the plan is
- * already invalid and the one control that could rescue it is the one that stopped responding.
- * So the box stays operable while it is on, and the refusals show in red beside it either way.
- * Grey is only ever about **turning it on**, which is the case the brief's precedent
- * (`fadingOffHint`) covers: a schema refusal the user has to run into is a refusal the panel
- * failed to say first.
+ * refusal since — either end of its last he/eht link downgraded, which is a node edit this
+ * section never sees — and a checkbox greyed in that state would be a trap: the plan is already
+ * invalid and the one control that could rescue it is the one that stopped responding. So the
+ * box stays operable while it is on, and the refusals show in red beside it either way. Grey is
+ * only ever about **turning it on**, which is the case the brief's precedent (`fadingOffHint`)
+ * covers: a schema refusal the user has to run into is a refusal the panel failed to say first.
  *
  * **Why that downgrade is not auto-repaired** — neither by deleting `selectivity` nor by putting
  * the generation back. Not because other cross-section hints in this file do it that way: the
  * one hint of the same shape, `ampTagIssue`/`ampBsNeedsReader`, is itself a second Chinese
  * wording of a schema rule, which is the very defect `selectivityRefusals` was lifted into
- * scenario.ts to remove, so it endorses nothing. The reason is that **the wrong number cannot
- * come out either way**: with no he/eht link left the schema refuses the plan, and
- * `Simulation`'s constructor parses before it builds anything (`src/engine/simulation.ts`), so
- * even the worker's `new Simulation(m.scenario)` surfaces the refusal as a banner rather than a
- * run (`src/worker/sim.worker.ts`); and in a *mixed* scene, which the schema does accept, the
- * downgraded node's own PPDUs stop being binned at the PPDU gate (`isOfdmWifiPpdu`,
- * src/engine/channel.ts). What is left of the mistake is an inert section plus a red line —
- * and an inert section the user can see is a fair thing to leave them holding, where a
- * mis-binned run would not have been.
+ * scenario.ts to remove, so it endorses nothing. The reason is that **the mistake cannot stay
+ * silent**: the refusal appears, in red, beside a checkbox that still works.
+ *
+ * **That promise was false when it was first written, and `hasBinnableLink` is what made it
+ * true.** The refusal used to count *devices*, so on the commonest plan there is — one AP, one
+ * station, both `eht`, the box ticked — downgrading the **access point** to `nonht` left
+ * `selectivityRefusals` empty, because the station was still `eht`. No red line, box still
+ * ticked, schema still accepting, and the feature byte-for-byte off. Now that the rule asks
+ * about the link (`minGen` of both ends), downgrading *either* end raises exactly one refusal,
+ * and `Simulation`'s constructor parses before it builds anything
+ * (`src/engine/simulation.ts`), so even the worker's `new Simulation(m.scenario)` surfaces it as
+ * a banner rather than a run (`src/worker/sim.worker.ts`). In a *mixed* scene, which the schema
+ * still accepts on purpose, the downgraded station's own PPDUs stop being binned at the PPDU
+ * gate instead (`isOfdmWifiPpdu`, src/engine/channel.ts).
+ *
+ * So what is left of the mistake is an inert section the user can **see**, which is a fair
+ * thing to leave them holding; an inert section with nothing on screen was not.
  */
 export function selectivitySwitch(sc: Scenario): { on: boolean; live: boolean; refusals: string[] } {
   const refusals = selectivityRefusals(sc)

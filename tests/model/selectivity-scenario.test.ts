@@ -10,7 +10,11 @@
  * `ricianKdB`, so `selectivity: {}` is the *only* legal non-empty shape this section ever takes.
  */
 import { describe, it, expect } from 'vitest'
-import { ScenarioSchema, defaultScenario, type Scenario } from '../../src/model/scenario'
+import { minGen } from '../../src/model/caps'
+import {
+  DEFAULT_UWB_SESSION, ScenarioSchema, defaultScenario, type NodeCfg, type Scenario,
+} from '../../src/model/scenario'
+import type { Generation } from '../../src/model/types'
 
 /** The repo's one stock scenario: an eht AP, an he STA and a vht STA, no fading, no selectivity. */
 const base = (): Scenario => defaultScenario()
@@ -24,6 +28,54 @@ const nonOfdmWithFading = (): Scenario => ({
   nodes: base().nodes.map((n) => ({ ...n, caps: { ...n.caps, generation: 'nonht' as const } })),
   fading: { smallScale: 'rayleigh' },
 } as Scenario)
+
+/** Every generation, so a matrix over them is a matrix and not a sample. */
+const GENERATIONS: Generation[] = ['nonht', 'vht', 'he', 'eht']
+
+/**
+ * A two-node scene: one AP at `apGen`, one station at `staGen`, fading on, selectivity on.
+ *
+ * Features and `linkId` are stripped so that the only thing varying across the matrix is the
+ * pair of generations — `linkId: '2g'` with `vht`, and `'6g'` with `nonht`/`vht`, are refused by
+ * rules of their own (`src/model/scenario.ts`), and a matrix that tripped those would be
+ * measuring them instead of this.
+ */
+const pair = (apGen: Generation, staGen: Generation): Scenario => {
+  const base = defaultScenario()
+  const plain = (n: NodeCfg, generation: Generation): NodeCfg => {
+    const { linkId: _drop, ...rest } = n
+    return { ...rest, caps: { generation, features: {} } }
+  }
+  return {
+    ...base,
+    nodes: [
+      plain(base.nodes.find((n) => n.kind === 'ap')!, apGen),
+      plain(base.nodes.find((n) => n.kind === 'sta')!, staGen),
+    ],
+    fading: { smallScale: 'rayleigh' },
+    selectivity: {},
+  } as Scenario
+}
+
+/**
+ * The refusals this plan raises on the `selectivity` path alone, so other rules cannot colour
+ * the result.
+ *
+ * **It fails loudly on a node-level error rather than returning nothing.** A failure inside
+ * `NodesSchema` aborts the scenario-level `superRefine` before the selectivity rules run at all,
+ * so an empty list would mean "never measured" while reading exactly like "accepted" — the
+ * instrument quietly reporting the answer the test wanted. Two of the cases below were written
+ * with an invalid node at first and passed for that reason; this guard is what caught it.
+ */
+const selIssues = (sc: Scenario): string[] => {
+  const r = ScenarioSchema.safeParse(sc)
+  if (r.success) return []
+  const broken = r.error.issues
+    .filter((i) => i.path[0] === 'nodes')
+    .map((i) => `${i.path.join('.')}: ${i.message}`)
+  expect(broken, 'the scene itself is invalid, so the selectivity rules never ran').toEqual([])
+  return r.error.issues.filter((i) => i.path[0] === 'selectivity').map((i) => i.message)
+}
 
 describe('Scenario.selectivity is absent by default, not defaulted', () => {
   it('a scenario with no selectivity section parses to an object with no selectivity property', () => {
@@ -131,6 +183,93 @@ describe('Scenario.selectivity refusals (design doc §6 upper table)', () => {
     const r = ScenarioSchema.safeParse(sc)
     expect(r.success).toBe(false)
     if (!r.success) expect(r.error.issues.length).toBeGreaterThanOrEqual(2)
+  })
+})
+
+/**
+ * **The axis the four generation tests above do not cover**, and the hole the whole-branch
+ * review stopped the merge on: each of them forces *every* node to one generation, so none of
+ * them can tell "there is an HE device" from "there is an HE link".
+ *
+ * A link's PPDU format is `minGen` of its two ends (`src/engine/simulation.ts` · `modeFor`), so
+ * an `eht` laptop behind a `nonht` access point is a non-HT link with no 26-tone RU in it. The
+ * predicate used to ask `nodes.some(...)`, which accepted all eight mixed pairs: checkbox lit,
+ * no red line, and a record stream field-for-field identical to the feature switched off.
+ *
+ * This matrix is the whole 4 × 4, and its expectation is computed from `minGen` rather than
+ * listed — a table of sixteen hand-written verdicts is a second model of the rule, and the one
+ * that drifts is the test.
+ */
+describe('the third refusal asks about a link, not about a device', () => {
+  for (const apGen of GENERATIONS) {
+    for (const staGen of GENERATIONS) {
+      const linkGen = minGen(apGen, staGen)
+      const binnable = linkGen === 'he' || linkGen === 'eht'
+      it(`${apGen} AP + ${staGen} STA is a ${linkGen} link, so selectivity is ${binnable ? 'accepted' : 'refused'}`, () => {
+        const issues = selIssues(pair(apGen, staGen))
+        expect(issues.length, issues.join(' | ')).toBe(binnable ? 0 : 1)
+        if (!binnable) expect(issues[0]).toContain('至少有一条 eht 或 he 链路')
+      })
+    }
+  }
+
+  it('refuses all eight mixed pairs, and accepts all four that are he/eht at both ends', () => {
+    // The same claim counted rather than per-case, so the matrix above cannot pass by being
+    // empty: eight mixed, four low-low, four binnable.
+    const verdicts = GENERATIONS.flatMap((a) => GENERATIONS.map((b) => selIssues(pair(a, b)).length === 0))
+    expect(verdicts.filter((ok) => ok).length).toBe(4)
+    expect(verdicts.filter((ok) => !ok).length).toBe(12)
+  })
+
+  it('counts only the station end, not any station: one binnable peer is enough', () => {
+    // "At least one link", deliberately. An eht AP with a vht phone AND an he laptop keeps the
+    // section, because the he link really does split into bins; the vht phone's own PPDUs are
+    // excluded by the engine instead (isOfdmWifiPpdu, src/engine/channel.ts).
+    const sc = pair('eht', 'vht')
+    const he = { ...sc.nodes[1], id: 'sta-he', name: 'HE laptop', caps: { generation: 'he' as const, features: {} } }
+    expect(selIssues(sc)).toHaveLength(1)
+    expect(selIssues({ ...sc, nodes: [...sc.nodes, he] })).toHaveLength(0)
+  })
+})
+
+describe('the third refusal counts only nodes that can carry a binned PPDU', () => {
+  it('an eht UWB anchor does not authorise the switch for an all-nonht Wi-Fi scene', () => {
+    // A `kind: 'uwb'` node has no Wi-Fi radio at all — `nodeLinks` returns [] and `linkPlanFor`
+    // skips it (src/model/caps.ts), and simulation.ts says so in as many words. Under the old
+    // device-counting predicate its `caps.generation` voted anyway, so one anchor could switch
+    // the feature on for a scene whose every link was non-HT; the run then recorded no
+    // `WIFI_SEL` at all.
+    const sc = pair('nonht', 'nonht')
+    expect(selIssues(sc)).toHaveLength(1)
+    const anchor: NodeCfg = {
+      ...sc.nodes[1],
+      id: 'anchor-1', kind: 'uwb', name: 'Anchor', caps: { generation: 'eht', features: {} },
+      uwb: { role: 'anchor', clockPpm: 0 },
+    } as NodeCfg
+    const tag: NodeCfg = { ...anchor, id: 'tag-1', name: 'Tag', uwb: { role: 'tag', clockPpm: 0 } } as NodeCfg
+    const withUwb = { ...sc, nodes: [...sc.nodes, anchor, tag], uwb: DEFAULT_UWB_SESSION }
+    expect(selIssues(withUwb), 'a UWB anchor voted').toHaveLength(1)
+  })
+
+  it('an eht AMP tag does not authorise it either', () => {
+    // An AMP tag *is* a link member (on 2.4 GHz), so excluding it is not about the link plan:
+    // its PPDUs are OOK and carry `frame.amp`, which `isOfdmWifiPpdu` rejects at its first
+    // test, so it can never contribute a binned reception whatever its caps claim.
+    const sc = pair('nonht', 'nonht')
+    const tag: NodeCfg = {
+      ...sc.nodes[1],
+      id: 'tag-1', kind: 'amp', name: 'Tag', linkId: '2g', caps: { generation: 'eht', features: {} },
+    } as NodeCfg
+    expect(selIssues({ ...sc, nodes: [...sc.nodes, tag] }), 'an AMP tag voted').toHaveLength(1)
+  })
+
+  it('a scene with no AP has no link to bin, whatever its stations are', () => {
+    // Without a `kind: 'ap'` node there is no link plan, no channel and no MAC at all
+    // (src/engine/simulation.ts), so there is nothing for a bin to subdivide.
+    const sc = pair('eht', 'eht')
+    expect(selIssues(sc)).toHaveLength(0)
+    const apless = { ...sc, nodes: sc.nodes.filter((n) => n.kind !== 'ap') }
+    expect(selIssues(apless), 'an AP-less scene was accepted').toHaveLength(1)
   })
 })
 

@@ -48,6 +48,9 @@ import { widthScenario } from '../../src/course/wifiScenes'
 import { selBins } from '../../src/engine/selectivity'
 import { FAILURES_TO_STEP_DOWN } from '../../src/engine/rate'
 import { noiseDbm } from '../../src/engine/phy'
+import { minGen } from '../../src/model/caps'
+import { ScenarioSchema } from '../../src/model/scenario'
+import type { Generation } from '../../src/model/types'
 import type { FadingCfg } from '../../src/engine/fading'
 import type { ChannelWidth } from '../../src/model/caps'
 import type { NodeCfg, Scenario } from '../../src/model/scenario'
@@ -363,9 +366,35 @@ describe('selectivity leaves AMP’s two non-OFDM paths alone', () => {
     profiles: ['idle'], caps: { generation: 'nonht', features: {} },
   })
 
-  /** A reader with both AMP tiers on: two Active Tx tags and one backscatter tag in range. */
+  /**
+   * An idle EHT station, present for one reason: to give the scene a link the section is
+   * *allowed* on.
+   *
+   * Since the link-level refusal (Task 6c fix 1) a reader-plus-tags scene carries no binnable
+   * link at all — `kind: 'amp'` nodes do not count, their PPDUs being OOK — so the schema now
+   * refuses `selectivity` on it outright, and this test could no longer build its own subject.
+   * That refusal is right: without a station there is nothing for a bin to subdivide.
+   *
+   * The station is **idle** because the comparison below is whole-stream equality, and a
+   * station with traffic would break it legitimately — selectivity would flip some of its own
+   * receptions, the retries would move the channel, and the reader's polls would shift with
+   * them. Idle, it contributes no PPDU of its own, so what the two runs may differ by is
+   * exactly what this test is about. The scene is therefore a *deliberately* inert
+   * configuration, pinned here rather than hunted: unlike the defect this fix closed, it is not
+   * one a user builds by accident, and this file is the thing that states it.
+   */
+  const idleStation = (): NodeCfg => ({
+    id: 'sta-1', kind: 'sta', name: 'Laptop', pos: { x: 5, y: 4, z: 1 }, txPowerDbm: 15,
+    profiles: ['idle'], caps: { generation: 'eht', features: { edca: true } },
+  })
+
+  /** A reader with both AMP tiers on: two Active Tx tags, one backscatter tag, one idle station. */
   const ampScene = (sel: boolean): Scenario => {
-    const sc = bsScenario({}, [bsTag('bs-1', 0.2)], [activeTag('tag-1', 4), activeTag('tag-2', 6)])
+    const sc = bsScenario(
+      {},
+      [bsTag('bs-1', 0.2)],
+      [activeTag('tag-1', 4), activeTag('tag-2', 6), idleStation()],
+    )
     return { ...sc, fading: RAYLEIGH, ...(sel ? { selectivity: {} } : {}) }
   }
 
@@ -382,6 +411,9 @@ describe('selectivity leaves AMP’s two non-OFDM paths alone', () => {
     expect(selective).toEqual(without)
     // and nothing in the selective run claims a per-bin decision on any of it
     expect(ofType(selective, 'WIFI_SEL')).toEqual([])
+    // The section really is on in that run — the schema accepted it, which it would not have
+    // done before the idle station was added, so this test is measuring a live switch.
+    expect(ScenarioSchema.safeParse(ampScene(true)).success).toBe(true)
   }, 300_000)
 })
 
@@ -459,6 +491,80 @@ describe('selectivity only bins a PPDU format that has a 26-tone RU', () => {
     const acks = ofType(rs, 'RX_OK').filter((r) => r.frame.mode === undefined)
     expect(acks.length, 'the run contained no control reception to exclude').toBeGreaterThan(0)
   }, 300_000)
+})
+
+/**
+ * **Every (AP × station) generation pair, judged on the records rather than on the schema.**
+ *
+ * The whole-branch review stopped the merge here. The schema's third refusal used to ask
+ * `nodes.some(generation is he or eht)` while a link's PPDU format is `minGen` of its two ends,
+ * so all eight mixed pairs — `nonht` AP with an `eht` station and the rest — parsed clean, lit
+ * the checkbox, showed no red line, and ran a timeline field-for-field identical to the feature
+ * being off. Schema-level tests could not see it: a scene that parses is not a scene where
+ * anything happens.
+ *
+ * So the claim asserted here is the biconditional, and it is the only statement of this feature
+ * that cannot be satisfied by doing nothing:
+ *
+ *   **the plan is refused, or the run bins something.** Never neither.
+ *
+ * The expectation comes from `minGen`, not from a written-out table of sixteen verdicts: a
+ * second model of the rule is the thing that drifts.
+ */
+describe('selectivity is never legal-and-inert, over all sixteen generation pairs', () => {
+  const GENERATIONS: Generation[] = ['nonht', 'vht', 'he', 'eht']
+
+  /** One AP, one station, fading on, selectivity on; features and `linkId` stripped (see below). */
+  const pairScene = (apGen: Generation, staGen: Generation): Scenario => {
+    const base = widthScenario(20, 1)
+    // `linkId: '2g'` with vht, and '6g' with nonht/vht, are refused by rules of their own, and
+    // the features are dropped so the only thing moving across the matrix is the generations.
+    const plain = (n: NodeCfg, generation: Generation): NodeCfg => {
+      const { linkId: _drop, ...rest } = n
+      return { ...rest, caps: { generation, features: {} } }
+    }
+    return {
+      ...base,
+      nodes: [
+        plain(base.nodes.find((n) => n.kind === 'ap')!, apGen),
+        plain(base.nodes.find((n) => n.kind === 'sta')!, staGen),
+      ],
+      fading: RAYLEIGH,
+      selectivity: {},
+    } as Scenario
+  }
+
+  for (const apGen of GENERATIONS) {
+    for (const staGen of GENERATIONS) {
+      const linkGen = minGen(apGen, staGen)
+      const binnable = linkGen === 'he' || linkGen === 'eht'
+      it(`${apGen} AP + ${staGen} STA (a ${linkGen} link) is ${binnable ? 'binned' : 'refused outright'}`, () => {
+        const sc = pairScene(apGen, staGen)
+        const accepted = ScenarioSchema.safeParse(sc).success
+        expect(accepted, `schema ${accepted ? 'accepted' : 'refused'} a ${linkGen} link`).toBe(binnable)
+        if (!accepted) {
+          // `Simulation`'s constructor parses before it builds anything, so a refused plan
+          // cannot be run at all — which is what makes the schema a real gate here.
+          expect(() => new Simulation(sc)).toThrow()
+          return
+        }
+        const rs = run(sc, 40 * MS)
+        // Non-vacuous on both sides: the scene really exchanges frames, and the feature really
+        // decided some of them per bin.
+        expect(ofType(rs, 'RX_OK').length, 'the scene exchanged nothing').toBeGreaterThan(0)
+        expect(ofType(rs, 'WIFI_SEL').length, 'accepted but inert').toBeGreaterThan(0)
+      }, 120_000)
+    }
+  }
+
+  it('and the accepted pairs differ from the same scene with the section off', () => {
+    // The strongest form of "not inert": the two record streams are not equal. One pair is
+    // enough — this is the property the sixteen cases above cover by proxy, stated once
+    // directly, the way the AMP carve-out states its own.
+    const sc = pairScene('eht', 'he')
+    const { selectivity: _off, ...flat } = sc
+    expect(run(sc, 40 * MS)).not.toEqual(run(flat as Scenario, 40 * MS))
+  }, 120_000)
 })
 
 describe('selectivity: the section absent takes no per-bin draw at all', () => {

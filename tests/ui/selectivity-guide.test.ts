@@ -173,10 +173,44 @@ describe('the figures that come from a measurement run agree across the surfaces
   })
 
   it('never claims a strong link drops more frames because of selectivity', () => {
+    // The third of this slice's three wording constraints, and the only one these surfaces had
+    // no guard for: where there is margin to spare, frequency diversity *saves* frames, so no
+    // surface may assert the opposite. The two sentences `width`'s own limits entry carried
+    // before it was turned round, plus the plainest way of saying it.
     for (const [name, text] of SURFACES) {
-      expect(text, `${name} predicts more drops on a strong link`)
-        .not.toContain('信道越宽，踩到这种坑的机会越多')
+      for (const claim of [
+        '信道越宽，踩到这种坑的机会越多',
+        '即便在编辑器里打开衰落也补不上这一条',
+        '频率选择性会让你多掉帧',
+        '掉帧反而越多',
+      ]) {
+        expect(text, `${name} predicts more drops on a strong link: ${claim}`).not.toContain(claim)
+      }
     }
+  })
+
+  it('may state the naive prediction only in order to correct it', () => {
+    // `Guide.tsx` quotes "wider channel, more deep bins, so worse" and then says the
+    // measurements run the other way, which is the right way to handle a wrong intuition — and
+    // which a flat ban on the phrase would have forbidden. So the rule is conditional: a
+    // surface that raises it has to put the correction beside it.
+    for (const [name, text] of SURFACES) {
+      for (const naive of ['越宽越糟', '所以越糟']) {
+        if (!text.includes(naive)) continue
+        expect(text, `${name} raises “${naive}” and leaves it standing`)
+          .toMatch(/与它相反|结论是反过来的|跑出来的结果相反/)
+      }
+    }
+  })
+
+  it('and says the counter-intuitive direction outright somewhere', () => {
+    // The mirror of the test above: forbidding the wrong claim is only half of it, since a
+    // surface that says nothing at all would pass. At least one of these three has to state the
+    // direction that the measurements actually show.
+    const stated = SURFACES.filter(([, text]) => (
+      text.includes('掉帧反而越少') || text.includes('结论是反过来的') || text.includes('反直觉')
+    ))
+    expect(stated.map(([n]) => n).length, SURFACES.map(([n]) => n).join(' ')).toBeGreaterThan(0)
   })
 
   it('quotes neither open-loop figure, which belong to a different data set', () => {
@@ -196,6 +230,30 @@ describe('the figures that come from a measurement run agree across the surfaces
         expect(text, `${name} still quotes the pre-correction ${n}`).not.toContain(n)
       }
     }
+  })
+})
+
+describe('the exclusions are enumerated in full, not only the rare half', () => {
+  it('names the generation limit wherever it names the AMP carve-out', () => {
+    // The enumeration was already there and said only "the AMP side's OOK PPDUs do not take
+    // this path" — the rare case. The one that holds in *every* scene went unsaid: only an
+    // he/eht PPDU is binned, so every ACK (non-HT by default) and every frame of a vht or
+    // legacy station keeps the scalar path. A reader who ticked the box on `defaultScenario()`
+    // and went looking for the vht phone's `WIFI_SEL` row found nothing, having just been told
+    // the only exclusion was AMP.
+    const surfaces: [string, string][] = [...SURFACES, ['selectivityOnHint', HINT]]
+    for (const [name, text] of surfaces) {
+      if (!text.includes('OOK')) continue
+      expect(text, `${name} lists the AMP exclusion without the generation one`)
+        .toMatch(/he／eht|he\/eht/)
+      expect(text, `${name} does not say the acknowledgements are excluded`).toContain('确认帧')
+    }
+  })
+
+  it('every surface that names the AMP carve-out names both', () => {
+    // Counted, so the loop above cannot pass by matching nothing.
+    const surfaces: [string, string][] = [...SURFACES, ['selectivityOnHint', HINT]]
+    expect(surfaces.filter(([, t]) => t.includes('OOK')).length).toBeGreaterThanOrEqual(3)
   })
 })
 

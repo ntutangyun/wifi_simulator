@@ -9,6 +9,7 @@ import { hasFeature, physicalId, virtualId, LINK_ORDER } from './caps'
 import type { FrameDesc } from './frames'
 import { laneIds } from './lanes'
 import type { MacStateName, TLRecord } from './records'
+import type { UwbRecord } from '../uwb/records'
 import type { Scenario } from './scenario'
 import type { Ns } from './types'
 
@@ -189,7 +190,7 @@ export interface NodeView {
    * The last `WIFI_SEL` this lane received: the frequency-selective combining result for the
    * most recent frame it took in. Outlives the frame itself, the way `ampInventoryLast` outlives
    * its round — a diagnostic row the inspector can show between receptions, not just during one.
-   * Present only once `selectivity` is on (Task 3); `undefined` before any `WIFI_SEL` has arrived.
+   * Present only once `selectivity` is on; `undefined` before any `WIFI_SEL` has arrived.
    */
   lastSel?: SelView
 }
@@ -374,6 +375,21 @@ export function applyRecord(vs: ViewState, r: TLRecord): void {
   if (applyUwbRecord(vs, r)) return
   switch (r.type) {
     case 'ARRIVAL':
+      break
+    /*
+     * A preamble this radio could not detect: nothing in the view to undo.
+     *
+     * `RX_MISS` is the *alternative* to acquiring a lock, not a sequel to it — `detectOrMiss`
+     * emits it exactly where `acquireLock` would otherwise have emitted `RX_START`
+     * (src/engine/channel.ts) — so there is no reception state on this lane to clear. The
+     * timeline draws it from the record stream directly; the reducer holds nothing for it.
+     *
+     * Written out rather than left to fall through, because the `default` at the bottom of this
+     * switch is now an exhaustiveness floor, and this was the one record type it found with no
+     * case at all. "Deliberately nothing" and "forgotten" look identical from outside; the
+     * `ARRIVAL` case above sets the same precedent.
+     */
+    case 'RX_MISS':
       break
     case 'WAN_TX': {
       vs.wan.push({ server: r.server, dir: 'down', peer: r.to, startNs: r.t, endNs: r.arriveNs })
@@ -699,6 +715,26 @@ export function applyRecord(vs: ViewState, r: TLRecord): void {
     case 'WIFI_SEL': {
       const { from, meanSinrDb, effSinrDb, lossDb, bins, worstBinDb, threshDb } = r
       vs.nodes[r.node].lastSel = { from, meanSinrDb, effSinrDb, lossDb, bins, worstBinDb, threshDb }
+      break
+    }
+    default: {
+      /*
+       * Exhaustiveness floor. The ranging stream left through `applyUwbRecord` at the top, so
+       * what may legally reach here is a `UwbRecord` and nothing else — and this assignment is
+       * what says so to the compiler. Add a Wi-Fi or AMP record type with no `case` above and
+       * the assignment stops compiling, naming the type it could not place.
+       *
+       * It is not `never` because `applyUwbRecord` returns a plain boolean rather than a type
+       * predicate (it also handles `TX_START` / `RX_OK` partially and hands them back), so the
+       * ranging types are still in `r`'s type at this point. `UwbRecord` is the honest bound.
+       *
+       * Worth one line because `WIFI_SEL` is what first gave it a cost: it is the only record in
+       * the Wi-Fi stream carrying a level, and `lossDb` / `worstBinDb` appear nowhere else in
+       * the repo, so a missing `case` here means a reader never sees that row and **nothing
+       * reports it**. `fmtRecord`'s TS2366 covers formatting only, not this reducer.
+       */
+      const handledByRangingReducer: UwbRecord = r
+      void handledByRangingReducer
       break
     }
   }

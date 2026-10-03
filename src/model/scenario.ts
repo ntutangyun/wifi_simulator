@@ -10,6 +10,10 @@ import {
 // so the schema can hold the fading defaults the sampling functions were written against
 // without a cycle — one figure for each knob, in one place.
 import { FADING_DEFAULTS, RICIAN_K_DEFAULT_DB, type FadingCfg } from '../engine/fading'
+// `src/engine/selectivity.ts` imports one type and nothing else, so the schema can ask the very
+// predicate the decode path asks (`selBinnableGen`) instead of keeping a second copy of which
+// generations a 26-tone RU exists in.
+import { selBinnableGen } from '../engine/selectivity'
 // Type only, and deliberately so: `src/engine/scatter.ts` takes nothing at run time but this
 // folder's `types` (for `Vec3`), so the shape of a reflecting object is declared once, beside
 // the geometry that consumes it, and the schema below validates that same shape.
@@ -22,7 +26,7 @@ import {
   uwbMaxAnchors, uwbMaxParticipants, uwbMmrcmSlots, uwbNbSlotFitNs, uwbPollBytes, uwbPpduNs, uwbRespBytes,
   uwbSlotFitNs, uwbSlotsPerTag, type UwbReplyTime,
 } from '../uwb/phy'
-import type { LinkId } from './caps'
+import { minGen, type LinkId } from './caps'
 import type { CapabilityProfile, NodeKind, Vec3 } from './types'
 
 export type Material = 'drywall' | 'brick' | 'glass'
@@ -663,9 +667,10 @@ export interface Scenario {
    * second set. So the section's presence is the entire configuration, and `superRefine` below
    * requires `fading` to be present with `smallScale !== 'none'` (otherwise every bin draws the
    * same deviation and turning this on is byte-identical to leaving it off) and requires the
-   * scene to hold at least one eht/he link (the 26-tone RU is a clause 27 / 36 unit, defined at
-   * HE/EHT's subcarrier spacing and not at clause 17's or clause 21's; refusing beats silently
-   * computing a bin width at the wrong subcarrier spacing).
+   * scene to hold at least one eht/he **link** — both ends, since a link's PPDU format is
+   * `minGen` of the two (the 26-tone RU is a clause 27 / 36 unit, defined at HE/EHT's
+   * subcarrier spacing and not at clause 17's or clause 21's; refusing beats silently computing
+   * a bin width at the wrong subcarrier spacing, and beats silently doing nothing at all).
    */
   selectivity?: SelectivityCfg
   /**
@@ -1111,19 +1116,61 @@ const SelectivitySchema = z.object({})
  * deviation from) reached two ways. The link-generation refusal is independent of both, and
  * none of the three remedies is forbidden by either of the others (the trap this file's `rmnr`
  * rules were once broken by): "add fading", "turn smallScale away from none" and "add an
- * eht/he link" never ask the reader to undo one another.
+ * eht/he link (at both ends)" never ask the reader to undo one another.
  *
  * **The third rule reads `he`/`eht` and not "OFDM".** It once accepted `vht` as well, on the
  * reasoning that a 26-tone RU is a subdivision of an OFDM channel and VHT is OFDM. Both halves
- * of that are true and the conclusion is not: the 26-tone RU is a clause 27 / 36 unit, defined
- * at HE/EHT's 78.125 kHz subcarrier spacing, while clause 21's spacing is 312.5 kHz. This
- * repo's own table is the evidence — `TONES_VHT[20] = 52` against `TONES_HE[20] = 234` for the
- * same 20 MHz (`src/engine/phy.ts`). So VHT was itself the "wrong subcarrier spacing" the
- * refusal's own sentence warns about, and this rule used to wave it through. Note that the rule
- * is still "at least one", so a mixed scene legally keeps a VHT link; what that link's own
- * PPDUs must not get is a bin, and only the engine can decide that (`isOfdmWifiPpdu`,
- * src/engine/channel.ts).
+ * of that are true and the conclusion is not — `selBinnableGen` in src/engine/selectivity.ts
+ * carries the evidence, and both this rule and the decode path's own gate read it, so the
+ * two-entry list exists once.
+ *
+ * **And it reads a *link*, which is what its own sentence always said** — see
+ * `hasBinnableLink` below for why asking the node was a hole and not a shorthand. The rule is
+ * still "at least one" link rather than "every" link, deliberately: a mixed scene may keep a
+ * VHT station beside an HE one, and what that station's own PPDUs must not get is a bin, which
+ * only the engine can decide (`isOfdmWifiPpdu`, src/engine/channel.ts).
  */
+/**
+ * Does this scene hold **one link** whose PPDUs can be split into 26-tone RUs?
+ *
+ * **It used to ask about devices, and that was a hole rather than a shorthand.** The predicate
+ * was `nodes.some(n => n.caps.generation is he or eht)`, while a link's actual PPDU format is
+ * `minGen` of its two ends (`src/engine/simulation.ts` · `modeFor`). "There is an HE device in
+ * the scene" therefore does not imply "there is an HE link": of the sixteen
+ * (AP generation × station generation) pairs, **eight** — every mixed pair such as
+ * `nonht` AP with an `eht` station — were accepted by the schema, left the checkbox lit with no
+ * red line, and produced a record stream field-for-field identical to the feature being off.
+ * A legal configuration that provably changes nothing is the shape this repo hunts; this one
+ * was reachable from the editor in two clicks ("old router, new laptop").
+ *
+ * **Why asking the two ends is the same as walking the link plan.** Every Wi-Fi link in this
+ * simulator is AP-centric — `linkPlanFor` (src/model/caps.ts) makes the one `kind: 'ap'` node a
+ * member of every link that has any other member, and there is no peer-to-peer link — and a
+ * generation is a property of the *node*, not of the link it is on. So MLO changes nothing
+ * here: a station on both 5 and 6 GHz meets the same AP on both, and `minGen` returns the same
+ * answer for each. Checked against `nodeLinks` too: every `kind: 'sta'` node lands on at least
+ * one link (the `['5g']` fallback), so no station can be generation-eligible and yet unreachable.
+ *
+ * **The two kinds that may not vote, each for its own reason.**
+ *   - `uwb` — it has no Wi-Fi radio at all. `nodeLinks` returns `[]` for it and `linkPlanFor`
+ *     skips it, so a `kind: 'uwb'` anchor carrying `caps.generation: 'eht'` used to authorise
+ *     this switch for a scene whose every Wi-Fi link was non-HT.
+ *   - `amp` — it is a link member (on 2.4 GHz), but its PPDUs are OOK and carry `frame.amp`, so
+ *     `isOfdmWifiPpdu` excludes them at its *first* test. An AMP tag can therefore never
+ *     contribute a binned reception, whatever generation its caps claim.
+ * `NodeKind` is exactly `'ap' | 'sta' | 'amp' | 'uwb'` (src/model/types.ts) — there is no relay
+ * kind — so "a station" is spelled as the positive `kind === 'sta'` rather than as a list of
+ * exclusions that a fifth kind would silently join.
+ *
+ * With no AP there is no link plan, no channel and no MAC at all (`simulation.ts`), so a scene
+ * without one has no link to bin and is refused.
+ */
+function hasBinnableLink(nodes: Scenario['nodes']): boolean {
+  const apGen = nodes.find((n) => n.kind === 'ap')?.caps.generation
+  if (apGen === undefined) return false
+  return nodes.some((n) => n.kind === 'sta' && selBinnableGen(minGen(apGen, n.caps.generation)))
+}
+
 export function selectivityRefusals(sc: Pick<Scenario, 'fading' | 'nodes'>): string[] {
   const out: string[] = []
   if (!sc.fading) {
@@ -1131,11 +1178,8 @@ export function selectivityRefusals(sc: Pick<Scenario, 'fading' | 'nodes'>): str
   } else if (sc.fading.smallScale === 'none') {
     out.push('频率选择性（selectivity）需要 fading.smallScale 不是 none：逐格偏差靠这个分布抽出来，而 smallScale 为 none 时 smallScaleDb 直接返回 0，于是每一格仍然是同一个数，这是最容易无意中写出来的空配置。请把 smallScale 改成 rayleigh 或 rician，或者把 selectivity 去掉')
   }
-  const hasBinnableLink = sc.nodes.some((n) => (
-    n.caps.generation === 'eht' || n.caps.generation === 'he'
-  ))
-  if (!hasBinnableLink) {
-    out.push('频率选择性（selectivity）需要场景里至少有一条 eht 或 he 链路：26 音调资源单元是第 27／36 章的分格单位，只在 HE／EHT 的 78.125 kHz 子载波间隔下成立，而 nonht 与 vht 的间隔是 312.5 kHz——同样 20 MHz，HE／EHT 有 234 根数据子载波，vht 只有 52 根，所以纯 nonht／vht 的场景里不存在这样的分格，拒绝好过悄悄按一个错误的子载波间隔算出格宽。请加一条 eht/he 链路，或者把 selectivity 去掉')
+  if (!hasBinnableLink(sc.nodes)) {
+    out.push('频率选择性（selectivity）需要场景里至少有一条 eht 或 he 链路——注意是链路，不是设备：一条链路实际用的 PPDU 格式是两端世代里较低的那一个（minGen），所以「旧路由器 + 新笔记本」这样的配对跑出来是 nonht 链路，一格也分不出来。26 音调资源单元是第 27／36 章的分格单位，只在 HE／EHT 的 78.125 kHz 子载波间隔下成立，而 nonht 与 vht 的间隔是 312.5 kHz——同样 20 MHz，HE／EHT 有 234 根数据子载波，vht 只有 52 根。拒绝好过悄悄按一个错误的子载波间隔算出格宽，更好过一声不响地什么也不做。请让接入点和至少一台终端都到 he 或 eht，或者把 selectivity 去掉')
   }
   return out
 }

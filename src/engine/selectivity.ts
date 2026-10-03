@@ -1,3 +1,8 @@
+import type { Generation } from '../model/types'
+// Type only, and the only import this file has: `selBinnableGen` is read by both
+// `src/model/scenario.ts` (a link's generation) and `src/engine/channel.ts` (a PPDU's
+// format), and neither may hold a second copy of the two-entry list.
+
 /**
  * Frequency-selectivity bin geometry: how many per-26-tone-RU bins a channel
  * bandwidth splits into, and how wide one bin is.
@@ -33,6 +38,28 @@ export const RU26_PER_20MHZ = 9
 /** EHT subcarrier spacing, kHz — the same table entry the GI and DFT period come from. standard be Table 36-18 */
 export const DF_EHT_KHZ = 78.125
 
+/**
+ * The two generations a 26-tone RU exists in, and the single answer both of this feature's
+ * gates read.
+ *
+ * `DF_EHT_KHZ` above is why this list has two entries rather than four: the 26-tone RU is a
+ * clause 27 / 36 unit, defined at 78.125 kHz, while clause 17 (non-HT) and clause 21 (VHT) are
+ * spaced 312.5 kHz — four times coarser. `src/engine/phy.ts`'s own tables say the same from the
+ * other side: `TONES_VHT[20] = 52` against `TONES_HE[20] = 234` for the same 20 MHz. So on a
+ * VHT or non-HT PPDU `selBinWidthMhz()` is not a coarse ruler, it is the wrong one.
+ *
+ * Both gates ask this one function, because they are the same question asked of two things:
+ *   - `ScenarioSchema`'s third selectivity refusal asks it of a **link** — `minGen` of the two
+ *     ends, which is the format that link's PPDUs actually take (src/model/scenario.ts);
+ *   - `Channel`'s `isOfdmWifiPpdu` asks it of **one PPDU** — `FrameDesc.mode`, so that a
+ *     non-HT ACK between two EHT radios is not binned either (src/engine/channel.ts).
+ * `Generation` and `PhyMode` are the same four-member union, which is what lets one predicate
+ * serve both; a second copy of the list is how the two would drift apart.
+ */
+export function selBinnableGen(gen: Generation | undefined): boolean {
+  return gen === 'he' || gen === 'eht'
+}
+
 /** Width of one 26-tone RU bin, MHz. Computed, not written as 2.03125. standard §9.4.1.75 / standard be Table 36-18 */
 export function selBinWidthMhz(): number {
   return (RU26_TONES * DF_EHT_KHZ) / 1000
@@ -56,9 +83,9 @@ export function selBins(widthMhz: number): number {
  * the mean, against ~12 dB for the 9 bins of a 20 MHz channel. Taking the worst bin as the link's
  * SINR would declare the 320 MHz link 12 dB *worse* than the 20 MHz one — deleting the fact that
  * OFDM codes across the whole channel, so more bins give a code more places to recover a symbol,
- * not fewer. This is exactly the direction `width`'s own `limits` entry predicts today (a wider
- * channel "has more chances to hit a notch" with no counterweight); a later slice has to say the
- * consequence runs the other way.
+ * not fewer. That was the direction `width`'s own `limits` entry used to predict (a wider channel
+ * "has more chances to hit a notch" with no counterweight); `src/course/tier2/width.ts` now says
+ * the consequence runs the other way, and the `selectivity` lesson measures it.
  *
  * **Why not EESM.** The industry's link-to-SINR mapping is EESM, and it needs a per-MCS β factor
  * tuned against a target BLER curve. That β is in none of the standard clauses this design's
@@ -71,8 +98,8 @@ export function selBins(widthMhz: number): number {
  * coding scheme loses a gap to it that depends on the constellation, code rate and interleaver,
  * none of which this model enumerates. So this function returns the *smallest* frequency-
  * selectivity loss there is: a lower bound. The gap between this bound and a real receiver is
- * precisely the number EESM's β would have supplied and that this slice declined to invent; it
- * belongs in this feature's `limits` once Task 3 adds the switch.
+ * precisely the number EESM's β would have supplied and that this slice declined to invent, and
+ * it is stated as this feature's own `threshold` limit in the `selectivity` lesson.
  */
 export function selEffSinrDb(meanSinrDb: number, devsDb: number[]): number {
   const meanCapacityBps = devsDb.reduce(

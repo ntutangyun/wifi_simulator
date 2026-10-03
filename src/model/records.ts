@@ -115,8 +115,13 @@ export type TLRecord = { t: Ns; seq: number } & (
    * `CCA_BUSY` / `TX_START` / `TX_END` carry no level at all, so without this row the only visible
    * evidence of the feature is "the frame flipped", never *by how much*. `lossDb` and
    * `worstBinDb` side by side are the model's central result (capacity loss is an order of
-   * magnitude below the deepest bin) in one line. Emitted only when `Scenario.selectivity` is on
-   * (the switch is Task 3; nothing constructs this record yet).
+   * magnitude below the deepest bin) in one line. Emitted only when `Scenario.selectivity` is on,
+   * and only for a PPDU that has a 26-tone RU to split into — `Channel#resolveLock` constructs
+   * it (src/engine/channel.ts), behind `isOfdmWifiPpdu`, so an AMP PPDU and a non-HT ACK carry
+   * no such row. **It is live, not a placeholder**: this line used to say nothing constructed it
+   * yet, and a reader clearing dead types out could have deleted the `view.ts` case on that
+   * word. `fmtRecord`'s exhaustive switch would have caught the formatter half; `applyRecord`
+   * now has a `default` guard so the reducer half is caught too.
    */
   | { type: 'WIFI_SEL'; node: string; from: string; meanSinrDb: number; effSinrDb: number; lossDb: number; bins: number; worstBinDb: number; threshDb: number }
   /** UWB ranging (src/uwb/records.ts): rounds, slots, timestamps, ranges, fixes, timeouts. */
