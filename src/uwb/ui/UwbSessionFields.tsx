@@ -6,11 +6,14 @@
  * the schema's own complaint when the numbers do not add up.
  */
 import { useState } from 'react'
-import { DEFAULT_UWB_MMS } from '../../model/scenario'
-import type { NbLbt, NbReportMode, UwbMmsCfg, UwbMode, UwbSessionCfg, UwbSrrrCfg } from '../../model/scenario'
+import { DEFAULT_UWB_MMS, UwbSsbdSchema } from '../../model/scenario'
+import type {
+  NbLbt, NbReportMode, UwbMmsCfg, UwbMode, UwbSessionCfg, UwbSrrrCfg, UwbSsbdCfg,
+} from '../../model/scenario'
 import { roundPlan } from '../session'
 import {
-  mmsResponders, rstuNs, uwbFixedReplyWindowRstu, uwbMmrcmSlots, uwbSlotsPerTag,
+  mmsResponders, rstuNs, SSBD_BF_UNIT_MAX, SSBD_MAX_BACKOFFS_MAX, uwbFixedReplyWindowRstu,
+  uwbMmrcmSlots, uwbSlotsPerTag,
 } from '../phy'
 import {
   MMS_FIXED_REPLY_RSTU_DEFAULT, MMS_FIXED_REPLY_RSTU_MAX, MMS_FIXED_REPLY_RSTU_MIN,
@@ -231,11 +234,28 @@ const ms = (rstu: number): string => (rstuNs(rstu) / 1e6).toFixed(rstu < 3000 ? 
  * **And `srrr` goes down with `sp3` in all three of those branches** (`srrrDownWithSp3`): lowering
  * `sp3` without lowering the IE's own request bits left them stranded, and this was one of the
  * four paths that did it.
+ *
+ * **`mms.ssbd` (task 5, standard §10.45 — a P802.15.4ab draft clause) takes a trip of its own, and
+ * it is the first time this function has had to reach into `mms` itself** — every other field it
+ * resets lives directly on `UwbSessionCfg`. The schema refuses `ssbd` outright once `mode` leaves
+ * `'mms'` (§10.39.8.3 scopes SSBD to clause 10.39/10.44, the same reasoning `UwbSsbdCfg`'s own doc
+ * comment gives), so every branch below but `'mms'` itself nulls it — unconditionally in direction,
+ * written only when there is something to write, the same "empty patch when nothing is owed"
+ * discipline `srrrDownWithSp3` already keeps. Re-entering `'mms'` leaves `ssbd` alone: whatever
+ * survived to be nulled on the way out is the only value that could still be sitting there.
  */
 export function uwbModePatch(
   mode: UwbMode, rcmValidityRounds = 1, mmrcr = false, srrr: UwbSrrrCfg = { raoa: false, rrtt: false },
+  mms: UwbMmsCfg = DEFAULT_UWB_MMS,
 ): Partial<UwbSessionCfg> {
-  if (mode === 'twr') return rcmValidityRounds === 1 && mmrcr ? { mode, mmrcr: false } : { mode }
+  const ssbdReset: Partial<UwbSessionCfg> = mode !== 'mms' && mms.ssbd !== null
+    ? { mms: { ...mms, ssbd: null } }
+    : {}
+  if (mode === 'twr') {
+    return rcmValidityRounds === 1 && mmrcr
+      ? { mode, mmrcr: false, ...ssbdReset }
+      : { mode, ...ssbdReset }
+  }
   if (mode === 'mms') {
     return {
       mode, schedule: 'time', aoa: false, method: 'ss', slotRstu: 600,
@@ -248,12 +268,12 @@ export function uwbModePatch(
     // comment above.
     return {
       mode, schedule: 'time', aoa: false, replyTime: 'embedded', rcmValidityRounds: 1, rmnr: false,
-      sp3: false, ...srrrDownWithSp3(srrr),
+      sp3: false, ...srrrDownWithSp3(srrr), ...ssbdReset,
     }
   }
   return {
     mode, schedule: 'time', aoa: false, rcmValidityRounds: 1, rmnr: false, mmrcr: false,
-    sp3: false, ...srrrDownWithSp3(srrr),
+    sp3: false, ...srrrDownWithSp3(srrr), ...ssbdReset,
   }
 }
 
@@ -522,12 +542,13 @@ export function parseFixedReplyRstu(raw: string): number | null {
  * Every MMS edit goes through here, and comes out carrying whatever the schema's cross-field
  * rules make of it.
  *
- * The draft's five features are legal only beside certain values of the fields around them — a
+ * The draft's features are legal only beside certain values of the fields around them — a
  * fixed reply time needs the non-interleaved shape, an SFD-carrying RSF needs Config 1 and a
- * fragment length of `MMS_RSF_SFD_N_MSR` — so *taking that value away* is what would leave a plan
- * the schema rejects. Greying out the dependent control stops the user reaching the illegal pair
- * from one side; this stops it from the other, where the control being edited is a legal one and
- * the casualty is somewhere else on the panel. Between them there is no sequence of clicks that
+ * fragment length of `MMS_RSF_SFD_N_MSR`, SSBD (task 5) needs a narrowband radio to sense and
+ * listen-before-talk running — so *taking that value away* is what would leave a plan the schema
+ * rejects. Greying out the dependent control stops the user reaching the illegal pair from one
+ * side; this stops it from the other, where the control being edited is a legal one and the
+ * casualty is somewhere else on the panel. Between them there is no sequence of clicks that
  * builds a session `UwbMmsSchema` refuses, which is what `uwbModePatch` does for the mode.
  *
  * It is written as "what the merged session would be, then what has to give", rather than as one
@@ -558,6 +579,12 @@ export function mmsFieldPatch(mms: UwbMmsCfg, edit: Partial<UwbMmsCfg>): Partial
     if (next.uwbdControl !== 'sp0') out.uwbdControl = 'sp0'
     if (next.rsfSfd) out.rsfSfd = false
   }
+  // SSBD (task 5, standard §10.45) needs a narrowband radio to sense and listen-before-talk to run
+  // a CCA on: Config 1 has neither radio (handled above) nor anything for an allow list and LBT to
+  // act on, and `nbLbt: 'off'` leaves no CCA for the algorithm to run even on Config 2 — the same
+  // two refusals `UwbMmsSchema`'s own `superRefine` gives. `next` already carries whichever of the
+  // two edits is the one in play, so one check covers both without asking which control moved.
+  if (next.ssbd !== null && (next.control === 'uwbd' || next.nbLbt === 'off')) out.ssbd = null
   // The fragment-length select and the parameter-set select both write N_MSR, and only two of its
   // values may carry an SFD.
   if (next.rsfSfd && !MMS_RSF_SFD_N_MSR.includes(next.nMsr)) out.rsfSfd = false
@@ -612,6 +639,19 @@ export function mmsReversedHintKey(
 }
 
 /**
+ * Why the SSBD checkbox is live or not (task 5, standard §10.45 — a P802.15.4ab draft clause): the
+ * same two refusals `UwbMmsSchema`'s own `superRefine` gives for `control`/`nbLbt`, in the order a
+ * user would meet them fixing one at a time — Config 1 has no narrowband radio to sense at all
+ * (the same reason `mmsUwbdControlHintKey` greys the control-phase select), and listen-before-talk
+ * off leaves no CCA for the algorithm to run.
+ */
+export function mmsSsbdHintKey(mms: UwbMmsCfg): 'uwbSsbdHint' | 'uwbSsbdUwbdOnly' | 'uwbSsbdNeedsLbt' {
+  if (mms.control === 'uwbd') return 'uwbSsbdUwbdOnly'
+  if (mms.nbLbt === 'off') return 'uwbSsbdNeedsLbt'
+  return 'uwbSsbdHint'
+}
+
+/**
  * Which of the settings-dependent controls the current session leaves live. Each answer is read
  * off the hint key above it — `disabled` and `title` are then two views of one decision, not two
  * copies of one rule — and `narrowband` covers the allow list and the listen-before-talk select
@@ -619,12 +659,14 @@ export function mmsReversedHintKey(
  */
 export function mmsDraftLive(mms: UwbMmsCfg): {
   uwbdControl: boolean; rsfSfd: boolean; fixedReply: boolean; reversedOrder: boolean; narrowband: boolean
+  ssbd: boolean
 } {
   return {
     uwbdControl: mmsUwbdControlHintKey(mms) === 'uwbUwbdControlHint',
     rsfSfd: mmsRsfSfdHintKey(mms) === 'uwbRsfSfdHint',
     fixedReply: mmsFixedReplyHintKey(mms) === 'uwbFixedReplyHint',
     reversedOrder: mmsReversedHintKey(mms) === 'uwbReversedHint',
+    ssbd: mmsSsbdHintKey(mms) === 'uwbSsbdHint',
     narrowband: mms.control === 'nba',
   }
 }
@@ -894,7 +936,7 @@ export function UwbSessionFields(
       <label style={label} title={E.uwbModeHint}>
         {E.uwbMode}{' '}
         <select value={session.mode} onChange={(e) => onChange(
-          uwbModePatch(e.target.value as UwbMode, session.rcmValidityRounds, session.mmrcr, session.srrr),
+          uwbModePatch(e.target.value as UwbMode, session.rcmValidityRounds, session.mmrcr, session.srrr, session.mms),
         )}>
           <option value="twr">{E.uwbModes.twr}</option>
           <option value="dl-tdoa">{E.uwbModes['dl-tdoa']}</option>
@@ -1180,6 +1222,8 @@ function MmsFields(
           <option value="off">{E.uwbNbLbts.off}</option>
         </select>
       </label>
+      <SsbdFields ssbd={mms.ssbd} live={live.ssbd} hint={E[mmsSsbdHintKey(mms)]}
+        onChange={(ssbd) => onChange({ ssbd })} />
       <label style={label} title={E.uwbReportHint}>
         {E.uwbReport}{' '}
         <select value={mms.report} onChange={(e) => onChange({ report: e.target.value as NbReportMode })}>
@@ -1321,6 +1365,76 @@ function FixedReplyInput(
         <span style={suffix}>RSTU · {ms(shown)} ms</span>
       </label>
       {bad && <div style={issueStyle}>{E.uwbFixedReplyBad}</div>}
+    </div>
+  )
+}
+
+/**
+ * Spectrum sensing based deferral (task 5, standard §10.45 — a P802.15.4ab **draft** clause; see
+ * `UwbSsbdCfg`'s own doc comment for why it carries five fields rather than the draft's six). The
+ * checkbox is the feature's own on/off switch — `null` is the default, today's behaviour byte for
+ * byte, exactly the shape `FixedReplyInput` above uses for its own nullable field; the four numeric
+ * fields and the end-action checkbox are `UwbSsbdCfg`'s five.
+ *
+ * Turning it on writes `UwbSsbdSchema.parse({})` rather than a literal object: the five numbers are
+ * the schema's own defaults, so this panel cannot drift from the bounds `scenario.ts` actually
+ * enforces by keeping a second, hand-typed copy of them.
+ *
+ * `minBf` and `maxBf` each read the other as their own live bound — the same discipline
+ * `uwbReplyTimeRstu`'s field uses for `uwbFixedReplyWindowRstu` — so a value this panel can ever
+ * commit is one the sibling field already accepts, and the schema's own `minBf > maxBf` refusal is
+ * never reachable by moving either number alone.
+ */
+function SsbdFields(
+  { ssbd, live, hint, onChange: commit }:
+  { ssbd: UwbSsbdCfg | null; live: boolean; hint: string; onChange: (v: UwbSsbdCfg | null) => void },
+) {
+  const E = useStrings().editor
+  const on = ssbd !== null
+  const shown = ssbd ?? UwbSsbdSchema.parse({})
+  return (
+    <div style={{ marginTop: 6, paddingTop: 5, borderTop: '1px solid var(--border)' }}>
+      <label title={hint}>
+        <input type="checkbox" checked={on} disabled={!live}
+          onChange={(e) => commit(e.target.checked ? UwbSsbdSchema.parse({}) : null)} />
+        {' '}{E.uwbSsbd}
+      </label>
+      <label style={label} title={E.uwbSsbdMinBfHint}>
+        {E.uwbSsbdMinBf}{' '}
+        <input type="number" min={1} max={shown.maxBf} step={1} style={{ width: 62 }}
+          value={shown.minBf} disabled={!live || !on}
+          onChange={(e) => commit({ ...shown, minBf: clampField(e.target.value, 1, shown.maxBf, true) })} />
+      </label>
+      <label style={label} title={E.uwbSsbdMaxBfHint}>
+        {E.uwbSsbdMaxBf}{' '}
+        <input type="number" min={shown.minBf} max={SSBD_BF_UNIT_MAX} step={1} style={{ width: 62 }}
+          value={shown.maxBf} disabled={!live || !on}
+          onChange={(e) => commit({
+            ...shown, maxBf: clampField(e.target.value, shown.minBf, SSBD_BF_UNIT_MAX, true),
+          })} />
+      </label>
+      <label style={label} title={E.uwbSsbdMaxBackoffsHint}>
+        {E.uwbSsbdMaxBackoffs}{' '}
+        <input type="number" min={0} max={SSBD_MAX_BACKOFFS_MAX} step={1} style={{ width: 62 }}
+          value={shown.maxBackoffs} disabled={!live || !on}
+          onChange={(e) => commit({
+            ...shown, maxBackoffs: clampField(e.target.value, 0, SSBD_MAX_BACKOFFS_MAX, true),
+          })} />
+      </label>
+      <label style={label} title={E.uwbSsbdUnitHint}>
+        {E.uwbSsbdUnit}{' '}
+        <input type="number" min={1} max={SSBD_BF_UNIT_MAX} step={1} style={{ width: 62 }}
+          value={shown.unitBackoffUs} disabled={!live || !on}
+          onChange={(e) => commit({
+            ...shown, unitBackoffUs: clampField(e.target.value, 1, SSBD_BF_UNIT_MAX, true),
+          })} />
+        {' '}µs
+      </label>
+      <label style={label} title={E.uwbSsbdTxOnEndHint}>
+        <input type="checkbox" checked={shown.txOnEnd} disabled={!live || !on}
+          onChange={(e) => commit({ ...shown, txOnEnd: e.target.checked })} />
+        {' '}{E.uwbSsbdTxOnEnd}
+      </label>
     </div>
   )
 }

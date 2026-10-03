@@ -4,7 +4,7 @@ import { describe, it, expect } from 'vitest'
 import { canDeleteNode, hasAp, newAnchor, newAp, newUwbTag, removeNode, uwbSessionIssue } from '../../src/editor/planOps'
 import { GEN_FEATURES } from '../../src/model/caps'
 import {
-  DEFAULT_UWB_MMS, DEFAULT_UWB_SESSION, ScenarioSchema, defaultScenario,
+  DEFAULT_UWB_MMS, DEFAULT_UWB_SESSION, ScenarioSchema, UwbSsbdSchema, defaultScenario,
   type NodeCfg, type Scenario, type UwbMmsCfg, type UwbMode, type UwbSessionCfg,
 } from '../../src/model/scenario'
 import { Simulation } from '../../src/engine/simulation'
@@ -18,7 +18,7 @@ import { UWB_TX_POWER_DBM, rstuNs, uwbFixedReplyWindowRstu, uwbSlotsPerTag } fro
 import { roundPlan } from '../../src/uwb/session'
 import {
   UwbSessionFields, mmsDraftLive, mmsFieldPatch, mmsFixedReplyHintKey, mmsReversedHintKey,
-  mmsRsfSfdHintKey, mmsSetIdOf, mmsSetPatch, mmsUwbdControlHintKey, parseFixedReplyRstu,
+  mmsRsfSfdHintKey, mmsSetIdOf, mmsSetPatch, mmsSsbdHintKey, mmsUwbdControlHintKey, parseFixedReplyRstu,
   parseNbChannels, uwbAncillaryFramesCapFor, uwbAncillaryHintKey, uwbAoaHintKey, uwbAoaPatch,
   uwbMethodPatch, uwbMmrcrHintKey, uwbModePatch,
   uwbRcmValidityHintKey, uwbRcmValidityRoundsPatch, uwbReplyTimePatch, uwbReplyTimeRstuLive,
@@ -241,6 +241,30 @@ describe('uwbSessionIssue', () => {
       expect(patch.slotRstu, mode).toBeUndefined()
       expect(patch.method, mode).toBeUndefined()
     }
+  })
+
+  /**
+   * SSBD (task 5, standard §10.45): the mode select is the only place a session-level control ever
+   * has to reach into `mms` itself — §10.39.8.3 scopes the algorithm to clause 10.39/10.44, so the
+   * schema refuses `ssbd` outright the moment `mode` is anything but `'mms'`. Mirrors the shape
+   * `uwbModePatch`'s other resets already use: the empty patch when nothing is owed.
+   */
+  it('nulls a live ssbd the moment the mode select leaves MMS, and leaves it alone coming back', () => {
+    const on: UwbMmsCfg = { ...DEFAULT_UWB_SESSION.mms, ssbd: UwbSsbdSchema.parse({}) }
+    for (const mode of ['twr', 'dl-tdoa', 'ul-tdoa', 'm2m'] as const) {
+      const patch = uwbModePatch(mode, 1, false, { raoa: false, rrtt: false }, on)
+      expect(patch.mms, mode).toEqual({ ...on, ssbd: null })
+      expect(uwbSessionIssue(withUwb(4, { mode, mms: { ...on, ssbd: null } }))).toBeNull()
+    }
+    // Already off, nothing is owed — the same "no field it does not change" discipline every other
+    // reset in this function keeps.
+    const off: UwbMmsCfg = DEFAULT_UWB_SESSION.mms
+    for (const mode of ['twr', 'dl-tdoa', 'ul-tdoa', 'm2m'] as const) {
+      expect(uwbModePatch(mode, 1, false, { raoa: false, rrtt: false }, off).mms, mode).toBeUndefined()
+    }
+    // Re-entering MMS never touches mms.ssbd at all — there is nothing left to null by the time
+    // the mode select could move back.
+    expect(uwbModePatch('mms', 1, false, { raoa: false, rrtt: false }, on).mms).toBeUndefined()
   })
 
   it('the method select patches the schedule with it, both ways', () => {
@@ -599,11 +623,12 @@ describe('parseNbChannels', () => {
 })
 
 /**
- * The six P802.15.4ab draft-feature controls. Every one of them is legal only beside certain
- * values of the others, and the schema is the authority on which — so these tests ask the schema
- * rather than a written-out expectation: what the editor greys out is exactly what the schema
- * refuses, and every state the controls can reach is a state the schema takes. Wording is not
- * tested anywhere here; the strings only have to exist.
+ * The seven P802.15.4ab draft-feature controls (task 5 adds `ssbd`, standard §10.45, as the
+ * seventh). Every one of them is legal only beside certain values of the others, and the schema is
+ * the authority on which — so these tests ask the schema rather than a written-out expectation:
+ * what the editor greys out is exactly what the schema refuses, and every state the controls can
+ * reach is a state the schema takes. Wording is not tested anywhere here; the strings only have to
+ * exist.
  */
 describe('the MMS draft-feature controls', () => {
   const cfg = (patch: Partial<UwbMmsCfg> = {}): UwbMmsCfg => ({ ...DEFAULT_UWB_SESSION.mms, ...patch })
@@ -626,6 +651,7 @@ describe('the MMS draft-feature controls', () => {
       ['fixedReply', { fixedReplyRstu: MMS_FIXED_REPLY_RSTU_DEFAULT }],
       ['reversedOrder', { reversedOrder: true }],
       ['uwbdControl', { uwbdControl: 'none' }],
+      ['ssbd', { ssbd: UwbSsbdSchema.parse({}) }],
     ]
     let checked = 0
     for (const control of ['nba', 'uwbd'] as const) {
@@ -673,6 +699,30 @@ describe('the MMS draft-feature controls', () => {
     for (const nMsr of [40, 48, 128, 256] as const) expect(mmsDraftLive(cfg({ ...UWBD, nMsr })).rsfSfd).toBe(false)
   })
 
+  /**
+   * SSBD's own two refusals (task 5, standard §10.45): the base matrix above ties `nbLbt` to
+   * `control` (Config 1 always carries `nbLbt: 'off'`), so it never exercises the half of the
+   * refusal that fires with `control: 'nba'` — the one `UwbMmsSchema`'s own `superRefine` gives a
+   * different reason for. This is that half, confirmed both ways: live under Config 2 with
+   * listen-before-talk on, dead with it off, and `mmsFieldPatch` nulls a live `ssbd` the instant
+   * either edit lands, not just when the panel happens to be looking.
+   */
+  it('greys out SSBD when listen-before-talk is off, even under Config 2 (the half the base matrix above never turns)', () => {
+    expect(mmsDraftLive(cfg({ nbLbt: 'auto' })).ssbd).toBe(true)
+    expect(mmsDraftLive(cfg({ nbLbt: 'on' })).ssbd).toBe(true)
+    expect(mmsDraftLive(cfg({ nbLbt: 'off' })).ssbd).toBe(false)
+    expect(mmsDraftLive(cfg(UWBD)).ssbd).toBe(false)
+    const on = cfg({ ssbd: UwbSsbdSchema.parse({}) })
+    expect(uwbSessionIssue(plan(on))).toBeNull()
+    expect({ ...on, ...mmsFieldPatch(on, { nbLbt: 'off' }) }.ssbd).toBeNull()
+    expect({ ...on, ...mmsFieldPatch(on, { control: 'uwbd' }) }.ssbd).toBeNull()
+    // Leaving the refused state is not the same as never entering it: once ssbd is already off,
+    // the same two edits must not reach for a field that is not there.
+    const off = cfg()
+    expect(mmsFieldPatch(off, { nbLbt: 'off' })).not.toHaveProperty('ssbd')
+    expect(mmsFieldPatch(off, { control: 'uwbd' })).not.toHaveProperty('ssbd')
+  })
+
   it('gives every greyed-out control the reason it is greyed out, and every reason a string', () => {
     const keys = [
       mmsRsfSfdHintKey(cfg({ nMsr: 32 })),
@@ -687,6 +737,9 @@ describe('the MMS draft-feature controls', () => {
       mmsReversedHintKey(cfg({ nonInterleaved: true })),
       mmsUwbdControlHintKey(cfg()),
       mmsUwbdControlHintKey(cfg(UWBD)),
+      mmsSsbdHintKey(cfg({ nbLbt: 'auto' })),
+      mmsSsbdHintKey(cfg(UWBD)),
+      mmsSsbdHintKey(cfg({ nbLbt: 'off' })),
     ]
     // Each control distinguishes its reasons: a wrong reason is worse than none, which is what
     // `uwbAoaHintKey` above pins for the modes.
@@ -707,12 +760,13 @@ describe('the MMS draft-feature controls', () => {
       { nMsr: 32 }, { nMsr: 40 },
       { nbLbt: 'auto' }, { nbLbt: 'off' },
       { nbChannels: [3] }, { nbChannels: [3, 4] },
+      { ssbd: UwbSsbdSchema.parse({}) }, { ssbd: null },
     ]
     /** Which greying gate each edit sits behind, or null for a control that is always live. */
     const GATE: Record<string, keyof ReturnType<typeof mmsDraftLive> | null> = {
       uwbdControl: 'uwbdControl', reversedOrder: 'reversedOrder', rsfSfd: 'rsfSfd',
       fixedReplyRstu: 'fixedReply', nbLbt: 'narrowband', nbChannels: 'narrowband',
-      control: null, nonInterleaved: null, oneToMany: null, nMsr: null,
+      control: null, nonInterleaved: null, oneToMany: null, nMsr: null, ssbd: 'ssbd',
     }
     const start = cfg()
     const seen = new Set([JSON.stringify(start)])
@@ -731,7 +785,7 @@ describe('the MMS draft-feature controls', () => {
         queue.push(next)
       }
     }
-    // …and the walk is only worth something if it does reach all six features switched on.
+    // …and the walk is only worth something if it does reach all seven features switched on.
     expect(seen.size).toBeGreaterThan(50)
     const states = [...seen].map((s) => JSON.parse(s) as UwbMmsCfg)
     expect(states.some((s) => s.control === 'uwbd')).toBe(true)
@@ -740,6 +794,7 @@ describe('the MMS draft-feature controls', () => {
     expect(states.some((s) => s.reversedOrder)).toBe(true)
     expect(states.some((s) => s.rsfSfd)).toBe(true)
     expect(states.some((s) => s.fixedReplyRstu !== null)).toBe(true)
+    expect(states.some((s) => s.ssbd !== null)).toBe(true)
   })
 
   it('takes the narrowband fields out of a plan whose control plane has no narrowband radio', () => {
@@ -789,6 +844,59 @@ describe('the MMS draft-feature controls', () => {
     // Reversed order goes the same way, and takes the fixed reply time with it.
     const reversed = cfg({ nonInterleaved: true, reversedOrder: true })
     expect({ ...reversed, ...mmsFieldPatch(reversed, { nonInterleaved: false }) }.reversedOrder).toBe(false)
+  })
+
+  /**
+   * The panel itself, not just the pure helpers above: SSBD's five fields actually render, commit
+   * through `mmsFieldPatch` (so a control flipping `control`/`nbLbt` still nulls a live `ssbd`),
+   * and grey out together under the same `mmsDraftLive(mms).ssbd` flag the checkbox itself reads.
+   */
+  it('renders the five SSBD inputs, live when the panel says live and disabled when it does not', () => {
+    const render = (mms: Partial<UwbMmsCfg>): string => {
+      const session: UwbSessionCfg = {
+        ...DEFAULT_UWB_SESSION, ...uwbModePatch('mms'), mms: { ...DEFAULT_UWB_MMS, ...mms },
+      }
+      const html = renderToStaticMarkup(createElement(UwbSessionFields, {
+        session, anchors: 1, tags: 1, issue: null, onChange: () => {}, onRemove: () => {},
+      }))
+      // The section's own slice: from its checkbox's own title attribute — which precedes the
+      // checkbox element itself in the rendered markup, unlike the label text after it — to the
+      // next control after it (the report select), so a disabled attribute elsewhere on the panel
+      // (the MMS-wide selects the mode itself greys out) cannot be mistaken for this section's own
+      // gate.
+      const hint = STRINGS.editor[mmsSsbdHintKey({ ...DEFAULT_UWB_MMS, ...mms })]
+      const from = html.indexOf(hint)
+      const to = html.indexOf(STRINGS.editor.uwbReport, from)
+      expect(from, 'SSBD checkbox not rendered').toBeGreaterThan(-1)
+      expect(to, 'report select not rendered after it').toBeGreaterThan(from)
+      return html.slice(from, to)
+    }
+    const live = render({})
+    for (const label of [
+      STRINGS.editor.uwbSsbdMinBf, STRINGS.editor.uwbSsbdMaxBf, STRINGS.editor.uwbSsbdMaxBackoffs,
+      STRINGS.editor.uwbSsbdUnit, STRINGS.editor.uwbSsbdTxOnEnd,
+    ]) expect(live, label).toContain(label)
+    // The checkbox itself is live under the session default MMS (Config 2, listen-before-talk
+    // auto); its own five fields are disabled because the switch is unticked, not because the
+    // section itself is dead — `on` reads the checkbox alone.
+    const liveOn = render({ ssbd: UwbSsbdSchema.parse({}) })
+    expect((liveOn.match(/disabled=""/g) ?? []).length).toBe(0)
+    const greyed = render({ control: 'uwbd', nbChannels: [], nbLbt: 'off' })
+    // Checkbox + four numeric fields + the end-action checkbox: six disabled controls once the
+    // gate goes down, none of them live again just because the switch itself cannot be ticked.
+    expect((greyed.match(/disabled=""/g) ?? []).length).toBe(6)
+  })
+
+  /**
+   * What ticking the checkbox writes: `UwbSsbdSchema.parse({})`, never a second, hand-typed copy
+   * of the same five numbers. Checked against the schema itself rather than the literals, so a
+   * future change to §4.1's defaults moves this test with it instead of leaving it stale.
+   */
+  it('turning the checkbox on would write the schema’s own five defaults, not a literal object', () => {
+    const on: Partial<UwbMmsCfg> = { ssbd: UwbSsbdSchema.parse({}) }
+    expect(on.ssbd).toEqual({ minBf: 1, maxBf: 5, maxBackoffs: 5, unitBackoffUs: 1, txOnEnd: true })
+    const session: Scenario = withUwb(1, { ...uwbModePatch('mms'), mms: { ...DEFAULT_UWB_MMS, ...on } })
+    expect(uwbSessionIssue(session)).toBeNull()
   })
 })
 
@@ -1447,7 +1555,7 @@ describe('UwbSessionFields as a closed system: no reachable sequence of its own 
     ...WALK_MODES.map((mode): Op => ({
       label: `mode=${mode}`,
       live: () => true,
-      patch: (s) => uwbModePatch(mode, s.rcmValidityRounds, s.mmrcr, s.srrr),
+      patch: (s) => uwbModePatch(mode, s.rcmValidityRounds, s.mmrcr, s.srrr, s.mms),
     })),
     ...(['ss', 'ds'] as const).map((method): Op => ({
       label: `method=${method}`,
@@ -1532,6 +1640,20 @@ describe('UwbSessionFields as a closed system: no reachable sequence of its own 
       live: (s) => s.ancillary,
       patch: () => ({ ancillaryFrames }),
     })),
+    // SSBD (task 5, standard §10.45): the panel's own MMS-local checkbox, exercised here only to
+    // drive `uwbModePatch`'s new `mms.ssbd` reset — the three local refusals (`control`, `nbLbt`,
+    // the internal `minBf`/`maxBf`/etc. bounds) are `mmsFieldPatch`'s own job and are walked
+    // exhaustively by the MMS-local closure above instead; this walk never turns `mms.control` or
+    // `mms.nbLbt` away from their defaults, so `mmsSsbdHintKey` is always live whenever `mode`
+    // is `'mms'`. Turning it off is always legal, whatever `live` says, the same way unticking a
+    // checkbox the model has already greyed out commits nothing new.
+    ...[true, false].map((on): Op => ({
+      label: `ssbd=${on}`,
+      live: (s) => s.mode === 'mms',
+      patch: (s) => ({
+        mms: { ...s.mms, ...mmsFieldPatch(s.mms, { ssbd: on ? UwbSsbdSchema.parse({}) : null }) },
+      }),
+    })),
   ]
 
   /**
@@ -1543,10 +1665,13 @@ describe('UwbSessionFields as a closed system: no reachable sequence of its own 
    * `slotRstu` is here because `uwbModePatch`'s MMS branch and the slot control both write it;
    * `fixedReplyRstu` because `uwbSessionRepair` chooses it. `ancillary`/`ancillaryFrames` (task 4)
    * for the same reason as `fixedReplyRstu`: `uwbSessionRepair` writes both, not any patch.
+   * `mms` (task 5) is here because `uwbModePatch` now writes it too — `mms.ssbd` nulled the moment
+   * `mode` leaves `'mms'` — and because the `ssbd=…` op above writes it directly; a key tracking
+   * only `mms.ssbd` is not an option, since `WALK_KEYS` names whole fields of `UwbSessionCfg`.
    */
   const WALK_KEYS = [
     'mode', 'method', 'schedule', 'replyTime', 'rcmValidityRounds', 'aoa', 'sp3', 'srrr',
-    'rmnr', 'mmrcr', 'slotRstu', 'fixedReplyRstu', 'ancillary', 'ancillaryFrames',
+    'rmnr', 'mmrcr', 'slotRstu', 'fixedReplyRstu', 'ancillary', 'ancillaryFrames', 'mms',
   ] as const satisfies readonly (keyof UwbSessionCfg)[]
   const walkKey = (s: UwbSessionCfg): string => JSON.stringify(WALK_KEYS.map((k) => s[k]))
 
@@ -1635,6 +1760,23 @@ describe('UwbSessionFields as a closed system: no reachable sequence of its own 
     expect(reachable.some((r) => r.s.ancillary)).toBe(true)
     expect(reachable.some((r) => r.s.ancillary && r.s.ancillaryFrames > 1 && r.s.ancillaryFrames < 20))
       .toBe(true)
+    // SSBD (task 5): the walk does turn the checkbox on while in MMS mode.
+    expect(reachable.some((r) => r.s.mms.ssbd !== null)).toBe(true)
+  })
+
+  /**
+   * SSBD's own invariant (task 5, standard §10.45), stated over the whole reachable graph rather
+   * than per patch — the same shape `srrrDownWithSp3`'s own test below uses: `mms.ssbd` can only
+   * ever be non-null while `mode` is `'mms'`, because §10.39.8.3 scopes the algorithm to clause
+   * 10.39/10.44 and `UwbMmsSchema`'s own `superRefine` refuses the pair everywhere else. This is
+   * what makes `uwbModePatch`'s unconditional reset sound: a session the walk can reach is never
+   * the pair the schema would refuse, whichever sequence of controls got it there.
+   */
+  it('never strands ssbd outside MMS mode: every reachable state has it null whenever mode is not mms', () => {
+    const stranded = reachable
+      .filter((r) => r.s.mode !== 'mms' && r.s.mms.ssbd !== null)
+      .map((r) => r.trail.join(' -> '))
+    expect(stranded).toEqual([])
   })
 
   it('never strands an SRRR request bit: every reachable state has both bits down whenever sp3 is', () => {

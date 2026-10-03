@@ -319,6 +319,18 @@ export interface Strings {
     uwbFixedReplyInterleaved: string; uwbFixedReplyOneToMany: string; uwbFixedReplyReversed: string
     uwbReversed: string; uwbReversedHint: string
     uwbReversedInterleaved: string; uwbReversedFixedReply: string
+    /**
+     * Spectrum sensing based deferral (task 5, standard §10.45 — a P802.15.4ab **draft** clause):
+     * the on/off switch and its five fields (`UwbSsbdCfg`), each described on its own since the
+     * checkbox is the only one of them that is ever greyed out — the four numbers and the end
+     * action are only live beside it.
+     */
+    uwbSsbd: string; uwbSsbdHint: string; uwbSsbdUwbdOnly: string; uwbSsbdNeedsLbt: string
+    uwbSsbdMinBf: string; uwbSsbdMinBfHint: string
+    uwbSsbdMaxBf: string; uwbSsbdMaxBfHint: string
+    uwbSsbdMaxBackoffs: string; uwbSsbdMaxBackoffsHint: string
+    uwbSsbdUnit: string; uwbSsbdUnitHint: string
+    uwbSsbdTxOnEnd: string; uwbSsbdTxOnEndHint: string
     /** Why the allow list and the LBT select are dead: Config 1 has no narrowband radio at all. */
     uwbNbNoRadio: string
     /** Why the SS/DS select is greyed out in MMS mode. */
@@ -1011,6 +1023,20 @@ export const STRINGS: Strings = {
     uwbReversedHint: '让应答方先发自己的 MMS 包，发起方随后（4ab 草案 15-25/0556r2）——发起方自进入测距阶段起偏移 600 RSTU 再发，本引擎把这个偏移放在它自己的子轮内。它换的是角色：先发的那一方量到的是往返时间，后发的量到的是回复时间，于是「谁算得出距离」也跟着换到另一边。',
     uwbReversedInterleaved: '反序只属于非交织模式：交织时两端在同一毫秒里各发一个片段，没有「谁先发」可以调换（4ab 草案 15-25/0556r2）',
     uwbReversedFixedReply: '固定回复时间已经打开：它要的起点是「收完对方的包」，而反序会让应答方成为开场先发的那一方，两者在同一台设备上互相排斥。要用反序，先关掉固定回复时间',
+    uwbSsbd: 'SSBD',
+    uwbSsbdHint: '频谱感知延后（spectrum sensing based deferral, SSBD）：标准 §10.45（一条草案条款）给窄带发射定的信道接入方法之一——每一个窄带发射时隙上各自感知一次信道，判忙则按线性增长的随机退避再等一次，退避次数用尽后由下面的收尾动作决定这次尝试怎么结束。默认关闭：关闭时维持既有的先听后发规则——一次忙检测让本设备在整个测距块剩余时间内不再发送窄带帧。',
+    uwbSsbdUwbdOnly: 'UWB 驱动配置（配置 1）没有窄带电台：没有信道可以感知，与窄带信道、先听后说被置灰的理由相同',
+    uwbSsbdNeedsLbt: '先听后说关闭时没有 CCA 可以跑：SSBD 是「需要先听时」使用的信道接入方法之一。请先把先听后说改成自动或始终开启',
+    uwbSsbdMinBf: '退避因子下界',
+    uwbSsbdMinBfHint: '退避因子（backoff factor, BF）的初值下界：还没有发生忙检测之前，一次新尝试的 BF 就取这个值。标准 §10.45 给的取值范围是 1…63（CID 489 把原来的 1…31 改宽）。',
+    uwbSsbdMaxBf: '退避因子上界',
+    uwbSsbdMaxBfHint: '退避因子每判一次忙就加一，到这个值封顶。标准 §10.45 给的取值范围同样是 1…63。',
+    uwbSsbdMaxBackoffs: '最大退避次数',
+    uwbSsbdMaxBackoffsHint: '算法自己给这次尝试计的忙检测次数——每次新尝试置 0——允许达到的上限，超过之后由收尾动作决定这次尝试怎么结束。标准 §10.45 给的取值范围是 0…255。',
+    uwbSsbdUnit: '退避单位',
+    uwbSsbdUnitHint: '一个退避单位的时长：每次忙检测之后延迟的是这个数乘以一次 0…退避因子的均匀抽样。标准 §10.45 给的取值范围是 1…63 µs（同一条 CID 489 改宽的范围）。',
+    uwbSsbdTxOnEnd: '退避次数用尽后照发',
+    uwbSsbdTxOnEndHint: '退避次数用尽时的收尾动作：勾选即标准说的 TxOnEnd——算法仍以 Success 结束，窄带帧照常发出；取消则是 FailOnEnd——算法以 Failure 结束，这次尝试没有窄带帧发出，相当于一次信道接入失败。',
     uwbNbNoRadio: 'UWB 驱动配置（配置 1）没有窄带电台：三条控制消息都改成了 UWB 物理层上的 SP0 包，窄带信道列表与先听后发在这里没有任何东西可以作用（4ab 草案 15-25/0194r0）',
     uwbMmsSsOnly: 'MMS 采用单边测距，再用片段序列自己量出的时钟比率加以修正——有了这把长达毫秒的“尺子”，双边测距已无可抵消之物，因此没有 MMS 版的 DS-TWR 可选',
     uwbMmsDerived: (rsfUs, longestUs, fragDbm, slots, roundMs) =>
