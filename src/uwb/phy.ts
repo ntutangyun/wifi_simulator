@@ -1022,6 +1022,15 @@ export function uwbNbSlotFitNs(mms?: MmsRoundShape, responders = 1): Ns {
 // --- Spectrum sensing based deferral (standard §10.45 — a P802.15.4ab **draft** clause; it does
 // not exist in the published IEEE Std 802.15.4-2024, see the design doc's §0.1) -----------------
 
+/** standard §10.45: the backoff factor's own upper bound (`minBf`, `maxBf`) **and** the backoff
+ * unit's own upper bound (`unitBackoffUs`) — CID 489 widened both from 1…31 to 1…63 in the same
+ * edit, so the scenario schema reuses one constant for both rather than naming the same CID's
+ * number twice under two different field names. */
+export const SSBD_BF_UNIT_MAX = 63
+/** standard §10.45: NB's own range — how many busy CCAs the algorithm counts, within one attempt,
+ * before `maxBackoffs` can end it. */
+export const SSBD_MAX_BACKOFFS_MAX = 255
+
 /**
  * `ssbdBoundNs`'s own inputs: the four PIB-style quantities §10.45 names (`docs/superpowers/specs/
  * 2026-10-03-ssbd-design.md` §4.1's five fields, minus `txOnEnd`, which this bound does not read —

@@ -16,7 +16,8 @@ import { FADING_DEFAULTS, RICIAN_K_DEFAULT_DB, type FadingCfg } from '../engine/
 import type { ScattererCfg } from '../engine/scatter'
 import { NB_CHANNELS } from '../uwb/nb'
 import {
-  C_M_PER_NS, mmsResponders, rstuNs, srrrIeBytes, UWB_MAX_PSDU_BYTES, UWB_SLOT_GUARD_NS,
+  C_M_PER_NS, mmsResponders, rstuNs, srrrIeBytes, SSBD_BF_UNIT_MAX, SSBD_MAX_BACKOFFS_MAX,
+  UWB_MAX_PSDU_BYTES, UWB_SLOT_GUARD_NS,
   uwbAncillarySlots, uwbM2mSlotFitNs,
   uwbMaxAnchors, uwbMaxParticipants, uwbMmrcmSlots, uwbNbSlotFitNs, uwbPollBytes, uwbPpduNs, uwbRespBytes,
   uwbSlotFitNs, uwbSlotsPerTag, type UwbReplyTime,
@@ -253,6 +254,39 @@ export type NbLbt = 'auto' | 'on' | 'off'
 export type NbReportMode = 'responder' | 'initiator' | 'bi'
 
 /**
+ * §10.45's own channel-access algorithm (standard §10.45 — a P802.15.4ab **draft** clause, see
+ * `phy.ts`'s `ssbdBoundNs` doc comment and design doc `2026-10-03-ssbd-design.md` §0.1 for why it
+ * is tagged "draft" rather than "standard" the way other 15.4ab clauses in this file are): a
+ * CCA-and-linearly-growing-backoff loop a narrowband transmission runs through before it sends.
+ *
+ * **Five fields, not the draft's six.** The draft's sixth PIB attribute is persistence: whether a
+ * fresh attempt's backoff factor starts at the lower bound (`minBf`) or resumes one past where the
+ * previous attempt's SSBD run left off, and the draft defines "previous attempt" as *this attempt
+ * being a retransmission*. This engine's narrowband control plane has no retransmission at all —
+ * a lost POLL (or RESP, or REPORT) is a lost cycle, there is no second try at it (design doc §3.1
+ * point 3) — so "is this a retransmission" could never read true here, and a switch that can only
+ * ever hold one value is a switch that does nothing. Building it anyway would be exactly the
+ * "allowed but provably inert configuration" this branch has already paid for twice (design doc
+ * §5's own opening line); leaving it out is the honest answer, not a shortcut.
+ */
+export interface UwbSsbdCfg {
+  /** standard §10.45: backoff factor lower bound, 1…`maxBf` (the schema refuses `minBf > maxBf`). */
+  minBf: number
+  /** standard §10.45: backoff factor upper bound, 1…63 — CID 489 widened this from 1…31. */
+  maxBf: number
+  /** standard §10.45: how many busy CCAs (NB's own tally, reset at the start of every fresh
+   * attempt) the algorithm tolerates before its end action (`txOnEnd`) fires, 0…255. */
+  maxBackoffs: number
+  /** standard §10.45: one backoff unit, in microseconds, 1…63 — the same CID (489) widened this
+   * range alongside the backoff factor's. */
+  unitBackoffUs: number
+  /** standard §10.45: the end action once `maxBackoffs` is exceeded — `true` is TxOnEnd (transmit
+   * anyway, the algorithm still ends in Success) and `false` is FailOnEnd (the algorithm ends in
+   * Failure, so no narrowband transmission follows for this attempt). */
+  txOnEnd: boolean
+}
+
+/**
  * The MMS half of a session: the shape of each device's fragment train, and the narrowband
  * radio its control plane runs on. Only `mode: 'mms'` reads any of it.
  */
@@ -273,6 +307,14 @@ export interface UwbMmsCfg extends MmsPhy {
    * exactly what shipped before, byte for byte.
    */
   oneToMany: boolean
+  /**
+   * Spectrum sensing based deferral (standard §10.45 — see `UwbSsbdCfg`'s own doc comment for why
+   * it is tagged "draft"): `null` — the default — is today's behaviour, byte for byte; an object
+   * turns it on with the five fields `UwbSsbdCfg` names. Read only on a narrowband transmission
+   * (Config 2's POLL/RESP/REPORT), so the schema refuses it under `control: 'uwbd'` (no narrowband
+   * radio to sense) and under `nbLbt: 'off'` (no CCA to run) — see the schema's own `superRefine`.
+   */
+  ssbd: UwbSsbdCfg | null
 }
 
 /**
@@ -479,6 +521,8 @@ export interface UwbSessionCfg {
 export const DEFAULT_UWB_MMS: UwbMmsCfg = {
   rsfs: 8, rifs: 0, nMsr: 40, gap: 64, stsLen: 64, gapMs: 1,
   nbChannels: [3], nbLbt: 'auto', report: 'bi', oneToMany: false,
+  // SSBD off — today's behaviour, byte for byte (design doc §4.1).
+  ssbd: null,
   // Every draft feature off, which is the session that shipped before any of them existed.
   ...MMS_DRAFT_DEFAULTS,
 }
@@ -734,6 +778,66 @@ const NodeCfgSchema = z.preprocess(
 )
 
 /**
+ * `UwbSsbdCfg`'s own schema (standard §10.45 — see that interface's doc comment for why it is
+ * tagged "draft", and for why it has five fields rather than the draft's six). Every bound below
+ * is a cross-field or range rule the object can check against nothing but its own fields, so it
+ * lives here rather than in `UwbMmsSchema`'s or the scenario's own `superRefine` — the same
+ * reasoning `UwbMmsSchema`'s own doc comment gives for its six draft-feature fields.
+ *
+ * Every field carries a default so `ssbd: {}` is a legal, minimal way to turn the feature on at
+ * the draft's own numbers (design doc §4.1's table) — the same shape `fading: {}` already uses
+ * (`FadingSchema`'s own doc comment).
+ */
+export const UwbSsbdSchema = z.object({
+  minBf: z.number().int().default(1),
+  maxBf: z.number().int().default(5),
+  maxBackoffs: z.number().int().default(5),
+  unitBackoffUs: z.number().int().default(1),
+  txOnEnd: z.boolean().default(true),
+}).superRefine((s, ctx) => {
+  const bfInRange = s.minBf >= 1 && s.minBf <= SSBD_BF_UNIT_MAX
+  const maxBfInRange = s.maxBf >= 1 && s.maxBf <= SSBD_BF_UNIT_MAX
+  if (!bfInRange) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['minBf'],
+      message: `minBf 要落在 1…${SSBD_BF_UNIT_MAX}：标准 §10.45 给退避因子定的范围（CID 489 把上界从 31 改成了 ${SSBD_BF_UNIT_MAX}）`,
+    })
+  }
+  if (!maxBfInRange) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['maxBf'],
+      message: `maxBf 要落在 1…${SSBD_BF_UNIT_MAX}：标准 §10.45 给退避因子定的范围（CID 489 把上界从 31 改成了 ${SSBD_BF_UNIT_MAX}）`,
+    })
+  }
+  // Only raised once both bounds are themselves in range: an out-of-range maxBf already has its
+  // own issue above, and comparing minBf against an illegal maxBf would be a second, confusing
+  // issue about the same bad number.
+  if (bfInRange && maxBfInRange && s.minBf > s.maxBf) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['minBf'],
+      message: `minBf（${s.minBf}）不能大于 maxBf（${s.maxBf}）：算法把每次新尝试的退避因子初值取在下界，下界比上界还大，算法还没开始就已经越界`,
+    })
+  }
+  if (s.maxBackoffs < 0 || s.maxBackoffs > SSBD_MAX_BACKOFFS_MAX) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['maxBackoffs'],
+      message: `maxBackoffs 要落在 0…${SSBD_MAX_BACKOFFS_MAX}：标准 §10.45 给 NB 这个忙退避计数定的范围`,
+    })
+  }
+  if (s.unitBackoffUs < 1 || s.unitBackoffUs > SSBD_BF_UNIT_MAX) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['unitBackoffUs'],
+      message: `unitBackoffUs 要落在 1…${SSBD_BF_UNIT_MAX} µs：标准 §10.45 给退避单位定的范围（CID 489 把上界从 31 改成了 ${SSBD_BF_UNIT_MAX}）`,
+    })
+  }
+})
+
+/**
  * The MMS half of a session. The four enumerated fields are checked here, where a bad value has
  * nowhere sensible to go; each union is `mms.ts`'s own set written out as literals, because zod
  * cannot build one from an array without a cast, and `tests/model/uwb-scenario.test.ts` walks
@@ -746,7 +850,10 @@ const NodeCfgSchema = z.preprocess(
  *
  * The six draft-feature fields go the other way: each rule below reads nothing but this object's own
  * fields, so a setting that contradicts another setting of the same object is wrong whatever the
- * session does with it, and it is refused here rather than only in MMS mode.
+ * session does with it, and it is refused here rather than only in MMS mode. `ssbd`'s own two
+ * local rules (`control`/`nbLbt`) join them for the same reason — only the third rule the design
+ * doc's §5 asks for (`mode !== 'mms'`) needs the scenario as a whole and lives in its `superRefine`
+ * instead.
  *
  * Exported because `tests/model/uwb-scenario.test.ts` parses it directly.
  */
@@ -771,6 +878,9 @@ export const UwbMmsSchema = z.object({
   reversedOrder: z.boolean().default(false),
   rsfSfd: z.boolean().default(false),
   uwbdControl: z.enum(['sp0', 'none']).default('sp0'),
+  // `null` — the default — is today's behaviour, byte for byte; a scenario saved before this
+  // slice existed reads back unchanged. See `UwbSsbdCfg`'s own doc comment for the five fields.
+  ssbd: UwbSsbdSchema.nullable().default(null),
 }).superRefine((mms, ctx) => {
   // 控制相位的长度只有 UWB 驱动配置才自己决定；窄带辅助配置的 POLL/RESP 窗口由窄带一侧排定，
   // 'none' 在那里是一个什么都不做的设置，所以宁可拒绝，也不要让它静静地留在计划里。
@@ -843,6 +953,28 @@ export const UwbMmsSchema = z.object({
       code: z.ZodIssueCode.custom,
       path: ['nbChannels'],
       message: 'UWB 驱动配置没有窄带电台：窄带信道列表要留空、先听后发要设为 off，这两项在这里没有任何东西可以作用（15-25/0194r0）',
+    })
+  }
+  // SSBD 要感知的是窄带信道——配置 1（UWB 驱动）没有第二部电台，控制面的三条消息已经改在
+  // UWB PHY 的 SP0 包上，没有信道可以感知。与上面 nbChannels/nbLbt 那条拒绝同一个理由，
+  // 只是落在 ssbd 这个字段上。两条消息的补救都是“关掉当前这个开关”，互不冲突。
+  if (mms.control === 'uwbd' && mms.ssbd !== null) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['ssbd'],
+      message: 'UWB 驱动配置（配置 1）没有窄带电台：控制面的三条消息已经改在 UWB PHY 的 SP0 包上，没有窄带信道可以感知，与 nbChannels/nbLbt 被拒的理由相同。请把 ssbd 关掉（15-25/0194r0）',
+    })
+  }
+  // SSBD（标准 §10.45）是§10.39.8.3说的“需要先听时”可选的两种信道接入方法之一：先听后发关着
+  // 就没有 CCA 可以跑，ssbd 开着也不会有任何一次检测——这正是本分支已经付过代价的
+  // “被允许却可证明什么也不做”的配置（design doc §5 开头）。只在 control 不是 'uwbd' 时才判这一
+  // 条：control 为 'uwbd' 时上面那条已经说清楚了理由（没有电台，而不是没有听），两条消息各管一边，
+  // 不会同时出现把读者绕进一个圈子。
+  if (mms.control !== 'uwbd' && mms.nbLbt === 'off' && mms.ssbd !== null) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['ssbd'],
+      message: 'SSBD 是“需要先听时”使用的信道接入方法之一（标准 §10.45，一条草案条款）：先听后发关着就没有 CCA 可以跑，开着 ssbd 会是一个什么都不检测的配置。请把 ssbd 关掉，或者把 nbLbt 改成 auto 或 on',
     })
   }
   // 反序的意义是“响应方先发”，而交织模式里两端本来就在同一毫秒里各发一片，没有先后可换。
@@ -1670,6 +1802,18 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
                 + `${(nbNs / 1000).toFixed(1)} µs 再加上飞行时间`,
             })
           }
+        } else if (sc.uwb.mms.ssbd !== null) {
+          // §10.39.8.3 (the entry point that names SSBD as one of its two channel-access choices)
+          // scopes itself to clause 10.39 (NBA MMS) and clause 10.44 (UWB offload to narrowband) —
+          // design doc §1.1. Every other mode never sends a narrowband transmission at all, so
+          // there is nothing for SSBD to run in front of.
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['uwb'],
+            message: 'SSBD（标准 §10.45，一条草案条款）只在 §10.39.8.3 划给的两段范围里起作用：'
+              + 'clause 10.39（NBA MMS）与 clause 10.44（UWB 卸载到窄带）。这个 mode 下的会话一次'
+              + '窄带发射都没有，没有什么可以先听后发，请把 ssbd 关掉',
+          })
         }
         const anchors = uwbNodes.filter((n) => n.uwb?.role === 'anchor').length
         const tags = uwbNodes.filter((n) => n.uwb?.role === 'tag').length

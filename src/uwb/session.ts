@@ -30,7 +30,9 @@
  * deferred Final just carries less (design §4), on the same A+2+A slots.
  */
 import { byCodeUnit } from '../engine/hash'
-import type { NbLbt, NbReportMode, NodeCfg, UwbMode, UwbSessionCfg, UwbSrrrCfg } from '../model/scenario'
+import type {
+  NbLbt, NbReportMode, NodeCfg, UwbMode, UwbSessionCfg, UwbSrrrCfg, UwbSsbdCfg,
+} from '../model/scenario'
 import type { Ns } from '../model/types'
 import { mmsLayout, mmsSlotsPerMs, type MmsLayout, type MmsPhy } from './mms'
 import {
@@ -189,6 +191,19 @@ export interface MmsRoundPlan {
    * `nbLbt` has nothing to sense. 4ab draft 15-25/0194r0 */
   nbChannels: number[]
   nbLbt: NbLbt
+  /**
+   * Spectrum sensing based deferral (standard §10.45 — a P802.15.4ab **draft** clause; see
+   * `UwbSsbdCfg`'s own doc comment in `model/scenario.ts`). `null` when the session's own `ssbd`
+   * is off, which the schema's `superRefine` already guarantees cannot coexist with
+   * `control: 'uwbd'` or `nbLbt: 'off'` — so a device reading a non-null value here always has a
+   * narrowband radio and listen-before-talk to run it against.
+   *
+   * Copied, not referenced — the same reason `srrr` above is: a plan outlives the scenario object
+   * it was built from. No device reads this field yet; `nbClear`'s per-block discontinuation
+   * (`src/uwb/device.mms.ts`) is still the only narrowband listen-before-talk path, and replacing
+   * it with SSBD's own per-slot algorithm is a later task's own work.
+   */
+  ssbd: UwbSsbdCfg | null
 }
 
 /**
@@ -241,6 +256,7 @@ export function roundPlan(cfg: UwbSessionCfg, anchors: number): RoundPlan {
           report: cfg.mms.report,
           nbChannels: [...cfg.mms.nbChannels],
           nbLbt: cfg.mms.nbLbt,
+          ssbd: cfg.mms.ssbd ? { ...cfg.mms.ssbd } : null,
         },
       }
       : {}),

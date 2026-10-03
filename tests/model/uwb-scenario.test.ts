@@ -338,6 +338,9 @@ describe('the P802.15.4ab MMS session in the schema', () => {
       // a new default cannot quietly change what a stored plan replays as.
       control: 'nba', nonInterleaved: false, fixedReplyRstu: null, reversedOrder: false,
       rsfSfd: false, uwbdControl: 'sp0',
+      // …and one saved before SSBD existed reads back with it off too (design doc
+      // 2026-10-03-ssbd-design.md §4.1): `null`, not an object of the draft's own defaults.
+      ssbd: null,
     })
     // Two such scenarios must not share the one allow-list array the default is written from.
     const again = ScenarioSchema.parse(sc)
