@@ -44,13 +44,13 @@ UWB、ranging、HRP、LRP、STS 的条款都在内。工作从那份清单出发
 
 ## 总数（写作时，`tests/course/uwb-coverage.test.ts` 钉住）
 
-全表 **108 行**。
+全表 **109 行**。
 
 | 标准状态 | 行数 |
 | --- | --- |
 | 已发布 | 64 |
 | 已进草案且未见争议 | 26 |
-| 仍在争论 | 7 |
+| 仍在争论 | 8 |
 | 仅为提案，未进草案 | 0 |
 | 无法判定 | 11 |
 
@@ -58,7 +58,7 @@ UWB、ranging、HRP、LRP、STS 的条款都在内。工作从那份清单出发
 | --- | --- |
 | 已建模 | 28 |
 | 部分建模 | 39 |
-| 未建模 | 41 |
+| 未建模 | 42 |
 
 这三个数字被测试钉住，所以加一行必须同时改这里——这正是要的：一张说不出自己有多大的表，
 读者无从判断某一处空白是刻意的还是漏的。
@@ -249,7 +249,8 @@ UWB、ranging、HRP、LRP、STS 的条款都在内。工作从那份清单出发
 | 窄带先听后说（listen-before-talk, LBT）§10.39.8.3 | 仍在争论 | 部分建模 | 证据：**这是 15-26/0391r4 第 36 页列出的三个未决技术议题之一**（"Various narrow band technical topics"）。表决记录：LBT 意见的成批决议（15-26/0244r1）2026 年 7 月 **25/14/1（64.1%）被否**；CID I-28（CCA 判空后是否「立即发送」，§10.39.8.3）两次被否——**20/15/2（57.1%）** 与 **18/19/0（48.6%）**；把 LBT 从 "may" 改成 "shall" 的那批意见 15-26/0061r0 判为 **Rejected，理由是「Group failed to reach consensus」**。均见 15-26/0348r1。引擎：`uwb/nb.ts#nbLbtRequired`、`uwb/nb.ts#NB_LBT_THRESHOLD_DBM`；**草案要求至少评估 9 µs，这里以一次瞬时功率读数代之**。`@uwb-nba-coexist` |
 | 窄带发射功率控制（transmit power control, TPC）与复合帧 | 仍在争论 | 未建模 | 证据：**15-26/0391r4 第 36 页三个未决议题的第二个**（"Support for transmit power control with compact frames"）。CID I-23 的决议提案至少三度被否：15-26/0281r02 在 7 月全会 **13/10/10**、15-26/0285r1 同场 **14/16/2（46.6%）**，见 15-26/0348r1；该文稿本身已改到 r11，另有 15-26/0253r1、15-26/0362r1、15-26/0364r1 三份竞争方案，以及第 63 页与第 71 页两次非正式投票。**范围决定**：引擎里 UWB 与窄带的发射功率都是常数（`uwb/phy.ts#UWB_TX_POWER_DBM`、`uwb/nb.ts#NB_TX_DBM`），没有任何功率自适应。 |
 | 窄带在 UNII-3/UNII-5 与 802.11 的共存 | 仍在争论 | 部分建模 | 证据：15-26/0341r0「Multiple no-LBT narrowband 802.15.4ab effect on 802.11」专门研究不做 LBT 的后果；窄带信道接入的成批决议（15-26/0241r2 配 15-26/0298r0 的仿真）2026 年 7 月 **17/22/3（43.5%）被否**，见 15-26/0348r1；并见上面 LBT 那一行。引擎：两种电台同场，共存只经由**一份带内功率**——`engine/spectrum.ts#Spectrum`、`engine/spectrum.ts#bandOverlapMhz`、`uwb/phy.ts#uwbBandOverlapMhz`、`uwb/phy.ts#uwbInBandDbm`、`uwb/nb.ts#nbListOverlapsSixGhz`。每一路发射在自己频带里是一个平铺的矩形（`engine/spectrum.ts#Emission` 只带一对频带边沿），没有频谱模板。`@uwb-coexist`、`@uwb-nba-coexist` |
-| 基于频谱感知的延后（spectrum sensing based deferral, SSBD）§10.45 | 已进草案且未见争议 | 未建模 | 证据：15-26/0179r1 的 PICS 插入项 MLF9.45 引 §10.45；15-26/0365r0 给出 `DeferralActive` 的规范文字（CCA 忙时在时隙内 200 µs 处改用跳频序列的下一个信道）。**未偿的债**：引擎里 LBT 一次拒绝之后什么也不发生，那个时隙按普通超时收场，不改信道也不延后。已写进 `@uwb-nba-coexist` 的 `limits`。 |
+| 基于频谱感知的延后（spectrum sensing based deferral, SSBD）4ab 草案 §10.45 | 已进草案且未见争议 | 未建模 | 证据：15-26/0179r1 的 PICS 插入项 MLF9.45 引 §10.45；规范文字来自 15-22/0486r5 与 15-24/0010r36，评审意见见 15-24/0121r2 的 CID 489/493 与 490/495。**条号属于草案，不属于已发布标准**：`802154-2024` 全文里 `10.45`、`SSBD`、`spectrum sensing` 各 0 次命中，第 10 章止于 §10.37。真正的入口是 §10.39.8.3——CSMA-CA 与 SSBD 二选一，由两端**在每个发送时隙里各自独立**执行。**未偿的债，但不是本行原先写的那一笔**：本行此前写着「LBT 一次拒绝之后什么也不发生」，那是错的——`uwb/device.ts#UwbDevice` 的 `nbSkipBlock` 被置为当前块（`uwb/device.mms.ts` 里判忙的那条路），那台设备的窄带电台整整一个 200 ms 的块都不出声，而 `@uwb-nba-coexist` 的测试标题就写着这件事。缺的是**按时隙的退避**，不是后果本身。 |
+| 频域延后（proposed §10.47 Deferral） | 仍在争论 | 未建模 | 15-26/0365r0 给出 `DeferralActive` 的规范文字（CCA 判忙时在时隙内 200 µs 处改用跳频序列的下一个信道），能力位 11。**它不是 §10.45**，本表此前把它的文字记在了 §10.45 那一行。评审组在 D04 上否决了它所答复的那条意见，理由是频域延后会抬高失步概率。另外它自己的前提是测距块不超过 100 ms，而本仓库每一个 MMS 场景的缺省块长都是 200 ms。 |
 
 ## 十三、P802.15.4ab 草案：感知
 
