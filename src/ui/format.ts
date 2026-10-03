@@ -76,6 +76,7 @@ export function fmtRecord(r: TLRecord): string {
     case 'AMP_BS_BOOT': return r.powered
       ? `${r.node} boots on ${r.incidentDbm.toFixed(1)} dBm of excitation`
       : `${r.node} heard a command with no wake-up preamble: no power to answer it`
+    case 'WIFI_SEL': return `${r.node} ⇠ ${r.from} selectivity: mean ${r.meanSinrDb.toFixed(1)} dB, worst bin ${r.worstBinDb.toFixed(1)} dB, effective ${r.effSinrDb.toFixed(1)} dB (loss ${r.lossDb.toFixed(1)} dB over ${r.bins} bins)`
     // The UWB types keep their vocabulary beside the ranging engine. No count in this
     // comment: it was wrong twice as the union grew, and TS2366 on the switch below is
     // what actually holds the list complete.

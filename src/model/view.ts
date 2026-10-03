@@ -185,6 +185,24 @@ export interface NodeView {
   ampInventoryLast?: AmpInventoryView
   /** UWB lanes only: this anchor's or tag's live ranging state. */
   uwb?: UwbNodeView
+  /**
+   * The last `WIFI_SEL` this lane received: the frequency-selective combining result for the
+   * most recent frame it took in. Outlives the frame itself, the way `ampInventoryLast` outlives
+   * its round — a diagnostic row the inspector can show between receptions, not just during one.
+   * Present only once `selectivity` is on (Task 3); `undefined` before any `WIFI_SEL` has arrived.
+   */
+  lastSel?: SelView
+}
+
+/** The `WIFI_SEL` record's payload, minus the envelope (`node`/`t`/`seq`) and the redundant `node`. */
+export interface SelView {
+  from: string
+  meanSinrDb: number
+  effSinrDb: number
+  lossDb: number
+  bins: number
+  worstBinDb: number
+  threshDb: number
 }
 
 export interface FlightView {
@@ -676,6 +694,11 @@ export function applyRecord(vs: ViewState, r: TLRecord): void {
       const bs = vs.nodes[r.node].amp?.bs
       // An unpowered tag is out of the round: it holds no counter it can act on.
       if (bs && !r.powered) bs.counter = null
+      break
+    }
+    case 'WIFI_SEL': {
+      const { from, meanSinrDb, effSinrDb, lossDb, bins, worstBinDb, threshDb } = r
+      vs.nodes[r.node].lastSel = { from, meanSinrDb, effSinrDb, lossDb, bins, worstBinDb, threshDb }
       break
     }
   }

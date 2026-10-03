@@ -478,3 +478,42 @@ describe('AMP records in the view', () => {
     expect(lv.nodes['tag-1#2g'].amp!.bs!.replies).toBeGreaterThan(0)
   })
 })
+
+/**
+ * `WIFI_SEL` is the first dBm-bearing record in the Wi-Fi stream proper (design doc §3.5) —
+ * `RX_OK` / `RX_FAIL` / `RX_MISS` / `CCA_BUSY` / `TX_START` / `TX_END` carry no level at all.
+ * Before this type existed, writing `{ type: 'WIFI_SEL', ... }` here was a compile error naming
+ * the unknown type (TLRecord has no such member); once `records.ts` adds it, `vs.nodes[...].lastSel`
+ * became a *second* compile error (`NodeView` had no such field) until `view.ts` added it; with
+ * both in place the assertion below still failed at runtime until `applyRecord` grew the
+ * `case 'WIFI_SEL'` arm — compile error, then test failure, in that order, the same two walls
+ * `applyUwbRecord`'s exhaustive `it.each` (tests/uwb/view.test.ts) uses for the UWB sub-union.
+ *
+ * This record is not folded into `NOT_VIEW_STATE`-style "no case" treatment the way
+ * `UWB_STS_REJECT` is: that one is turned away because a `UWB_TIMEOUT` already counts the same
+ * event, so a second counter would double it. `WIFI_SEL` counts nothing else does — `lossDb` and
+ * `worstBinDb` exist nowhere outside this record — so it gets a real case, mirroring
+ * `AMP_BS_REPLY` → `bs.lastSnrDb`, the existing precedent for "a level-bearing record leaves its
+ * last reading behind on the node".
+ */
+describe('WIFI_SEL: the first dBm-bearing record in the Wi-Fi stream', () => {
+  const sel: Extract<TLRecord, { type: 'WIFI_SEL' }> = {
+    t: 0, seq: 0, type: 'WIFI_SEL', node: 'sta-1', from: 'ap',
+    meanSinrDb: 20, effSinrDb: 17.64, lossDb: 2.36, bins: 144, worstBinDb: -4.09, threshDb: 7,
+  }
+
+  it('leaves its reading on the receiving lane, keyed by the sender', () => {
+    const vs = initViewState(defaultScenario())
+    applyRecord(vs, sel)
+    expect(vs.nodes['sta-1'].lastSel).toEqual({
+      from: 'ap', meanSinrDb: 20, effSinrDb: 17.64, lossDb: 2.36, bins: 144, worstBinDb: -4.09, threshDb: 7,
+    })
+  })
+
+  it('a second reading replaces the first — it is the lane\'s latest, not a log', () => {
+    const vs = initViewState(defaultScenario())
+    applyRecord(vs, sel)
+    applyRecord(vs, { ...sel, seq: 1, from: 'ap2', meanSinrDb: 18, effSinrDb: 15.9, lossDb: 2.1, worstBinDb: -6 })
+    expect(vs.nodes['sta-1'].lastSel).toMatchObject({ from: 'ap2', meanSinrDb: 18 })
+  })
+})

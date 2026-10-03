@@ -108,6 +108,17 @@ export type TLRecord = { t: Ns; seq: number } & (
    * cannot have.
    */
   | { type: 'AMP_BS_BOOT'; node: string; powered: boolean; incidentDbm: number }
+  /**
+   * Frequency-selective combining for one received frame (src/engine/selectivity.ts): the link's
+   * mean SINR, the per-bin deviations it was combined from, and the capacity-combined result.
+   * The first dBm-bearing record in the Wi-Fi stream proper — `RX_OK` / `RX_FAIL` / `RX_MISS` /
+   * `CCA_BUSY` / `TX_START` / `TX_END` carry no level at all, so without this row the only visible
+   * evidence of the feature is "the frame flipped", never *by how much*. `lossDb` and
+   * `worstBinDb` side by side are the model's central result (capacity loss is an order of
+   * magnitude below the deepest bin) in one line. Emitted only when `Scenario.selectivity` is on
+   * (the switch is Task 3; nothing constructs this record yet).
+   */
+  | { type: 'WIFI_SEL'; node: string; from: string; meanSinrDb: number; effSinrDb: number; lossDb: number; bins: number; worstBinDb: number; threshDb: number }
   /** UWB ranging (src/uwb/records.ts): rounds, slots, timestamps, ranges, fixes, timeouts. */
   | UwbRecord
 )

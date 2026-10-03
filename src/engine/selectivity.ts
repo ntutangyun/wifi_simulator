@@ -42,3 +42,42 @@ export function selBinWidthMhz(): number {
 export function selBins(widthMhz: number): number {
   return (RU26_PER_20MHZ * widthMhz) / 20
 }
+
+/**
+ * Combine per-bin SINR into one effective SINR by capacity — not by taking the worst bin,
+ * and not by EESM. physics
+ *
+ *   selEffSinrDb = 10·log10( 2^( mean_b log2(1 + 10^((meanSinrDb + devsDb[b]) / 10)) ) − 1 )
+ *
+ * **Why not the worst bin.** `resolveLock` already takes the worst *instant* across a frame
+ * (channel.ts), so taking the worst *bin* across the channel looks like the obvious next step —
+ * and it is catastrophically wrong. Measured over the same draws this engine's own fading
+ * produces (Rayleigh, meanSinrDb = 20): the deepest of 144 bins at 320 MHz averages ~24 dB below
+ * the mean, against ~12 dB for the 9 bins of a 20 MHz channel. Taking the worst bin as the link's
+ * SINR would declare the 320 MHz link 12 dB *worse* than the 20 MHz one — deleting the fact that
+ * OFDM codes across the whole channel, so more bins give a code more places to recover a symbol,
+ * not fewer. This is exactly the direction `width`'s own `limits` entry predicts today (a wider
+ * channel "has more chances to hit a notch" with no counterweight); a later slice has to say the
+ * consequence runs the other way.
+ *
+ * **Why not EESM.** The industry's link-to-SINR mapping is EESM, and it needs a per-MCS β factor
+ * tuned against a target BLER curve. That β is in none of the standard clauses this design's
+ * search covered — it is the one number this slice would have to invent, so EESM is out-of-scope
+ * on evidence grounds. Capacity needs no constant: it is a tightening of Jensen's inequality on
+ * the concave function log2(1+x), so averaging capacity and inverting is never worse than the
+ * mean-SINR estimate and carries nothing an author chose.
+ *
+ * **The honest cost.** A real receiver does not reach capacity — a real link-adaptation and
+ * coding scheme loses a gap to it that depends on the constellation, code rate and interleaver,
+ * none of which this model enumerates. So this function returns the *smallest* frequency-
+ * selectivity loss there is: a lower bound. The gap between this bound and a real receiver is
+ * precisely the number EESM's β would have supplied and that this slice declined to invent; it
+ * belongs in this feature's `limits` once Task 3 adds the switch.
+ */
+export function selEffSinrDb(meanSinrDb: number, devsDb: number[]): number {
+  const meanCapacityBps = devsDb.reduce(
+    (sum, devDb) => sum + Math.log2(1 + 10 ** ((meanSinrDb + devDb) / 10)),
+    0,
+  ) / devsDb.length
+  return 10 * Math.log10(2 ** meanCapacityBps - 1)
+}
