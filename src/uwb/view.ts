@@ -403,6 +403,15 @@ export function applyUwbRecord(vs: ViewState, r: TLRecord): boolean {
       if (u) u.contendCollisions += 1
       return true
     }
+    // standard §10.45 (draft — see records.ts's own comment on this type): claimed so it never
+    // falls through to the Wi-Fi reducer looking like an unhandled type, but no lane state moves
+    // for it yet. It is event-log detail the way `UWB_TS` and `UWB_ECHO` are: Task 1 of the SSBD
+    // slice (docs/superpowers/sdd/2026-10-03-ssbd) adds the record and this case, but no device
+    // emits one yet — that lands with the session switch a later task wires through
+    // `device.mms.ts#nbClear`. When it does, a live-view counter (paired the way `rmnr`/`mmrcm`
+    // are) is that task's to add, not this one's to guess the shape of.
+    case 'UWB_SSBD':
+      return true
     case 'UWB_ROUND_END': {
       const u = vs.nodes[r.node]?.uwb
       if (u) {

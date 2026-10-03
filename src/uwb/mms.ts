@@ -609,8 +609,11 @@ export interface MmsLayout {
 }
 
 /** The two slots one narrowband window is: the draft's RcpPollSlot, RcpResponseSlot,
- * MrpFirstSlot and MrpSecondSlot are all 2. 4ab draft 15-22/0381r5 §1.1 */
-const NB_WINDOW_SLOTS = 2
+ * MrpFirstSlot and MrpSecondSlot are all 2. Exported for `phy.ts#nbSlotSlackNs` (standard
+ * §10.45's SSBD slice), which needs the same number rather than a copy of it — it does not
+ * scale with the message a window carries, which is the whole reason that function's slack can
+ * go negative. 4ab draft 15-22/0381r5 §1.1 */
+export const NB_WINDOW_SLOTS = 2
 
 /**
  * The one slot an SP0 window is.

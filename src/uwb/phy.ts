@@ -1,7 +1,7 @@
 import type { Material, UwbMode } from '../model/scenario'
 import type { Ns } from '../model/types'
-import { mmsLayout, mmsLongestFragmentNs, MMS_SLOTS_PER_MS, type MmsPhy } from './mms'
-import { NB_REPORT_BYTES, nbOtmPollBytes, nbPpduNs } from './nb'
+import { mmsLayout, mmsLongestFragmentNs, MMS_SLOTS_PER_MS, NB_WINDOW_SLOTS, type MmsPhy } from './mms'
+import { NB_LBT_CCA_US, NB_REPORT_BYTES, nbOtmPollBytes, nbPpduNs } from './nb'
 import { chipsToNs, freeSpacePl0Db, UWB_CHIP_HZ, UWB_CHIP_NS, UWB_RX_SENS_DBM } from './units'
 
 // --- Chip, RCTU, RSTU units -------------------------------------------------
@@ -1017,6 +1017,77 @@ export function uwbNbSlotFitNs(mms?: MmsRoundShape, responders = 1): Ns {
   // against the REPORT would let a 17-octet message outlive the window this guard defends.
   const octets = Math.max(NB_REPORT_BYTES, mms?.oneToMany ? nbOtmPollBytes(responders) : 0)
   return nbPpduNs(octets) + UWB_SLOT_GUARD_NS
+}
+
+// --- Spectrum sensing based deferral (standard §10.45 — a P802.15.4ab **draft** clause; it does
+// not exist in the published IEEE Std 802.15.4-2024, see the design doc's §0.1) -----------------
+
+/**
+ * `ssbdBoundNs`'s own inputs: the four PIB-style quantities §10.45 names (`docs/superpowers/specs/
+ * 2026-10-03-ssbd-design.md` §4.1's five fields, minus `txOnEnd`, which this bound does not read —
+ * it answers "how long can the algorithm run before it ends", and the ending it reaches at that
+ * length is the same whichever way `txOnEnd` resolves it).
+ *
+ * `backoffMultiplier` and `ccaUs` are not configuration a session can set: they exist only so this
+ * one function can also reproduce the TFD appendix's two stale examples under the premises CID 489/
+ * 493 and CID 490/495 later overturned (`2 × BF` and a 1 µs CCA), as the contrast that shows why
+ * they expired. A live `UwbMmsCfg.ssbd` never sets either.
+ */
+export interface SsbdBoundCfg {
+  /** standard §10.45: backoff factor lower bound. */
+  minBf: number
+  /** standard §10.45: backoff factor upper bound (1…63, CID 489 widened it from 1…31). */
+  maxBf: number
+  /** standard §10.45: NB's own upper bound — how many busy CCAs the algorithm tolerates before
+   * its end action fires. */
+  maxBackoffs: number
+  /** standard §10.45: one backoff unit, in microseconds (1…63). */
+  unitBackoffUs: number
+  /** The overturned `2 × BF` draw (CID 489/493 replaced it with `random(BF)`, i.e. a multiplier
+   * of 1). Defaults to 1 — the current text — never 2. */
+  backoffMultiplier?: 1 | 2
+  /** The CCA duration, in microseconds. Defaults to the engine's own `NB_LBT_CCA_US` (CID 490/495
+   * deleted the SSBD-specific `macSsbdCcaDuration` in favour of the PHY's `phyCcaDuration`, which
+   * this engine already reads as `NB_LBT_CCA_US` for every other narrowband LBT check). */
+  ccaUs?: number
+}
+
+/**
+ * The algorithm's own worst-case latency (§1.2 of the design doc): every one of `maxBackoffs + 1`
+ * CCA attempts goes busy, each one preceded by the longest backoff that attempt could possibly
+ * draw. BF only ever grows (by 1 a busy check, clamped at `maxBf`), so attempt *i*'s longest
+ * possible wait is `min(minBf + i, maxBf) × unitBackoffUs`, plus that attempt's own CCA.
+ *
+ * **Why this has to be computed rather than read off the standard's own appendix**: the TFD's two
+ * published examples (46 µs at the defaults, 2.088 ms tuned) are stale. They reproduce only under
+ * `backoffMultiplier: 2` and `ccaUs: 1` — the two premises CID 489/493 and CID 490/495
+ * subsequently overturned — and under the text this engine actually implements (`random(BF)`, CCA
+ * = `NB_LBT_CCA_US`) the default bound is 74 µs, not 46. Both numbers are this same function
+ * called with different `cfg`, never two formulas.
+ */
+export function ssbdBoundNs(cfg: SsbdBoundCfg): Ns {
+  const mult = cfg.backoffMultiplier ?? 1
+  const ccaUs = cfg.ccaUs ?? NB_LBT_CCA_US
+  let totalUs = 0
+  for (let i = 0; i <= cfg.maxBackoffs; i++) {
+    totalUs += mult * Math.min(cfg.minBf + i, cfg.maxBf) * cfg.unitBackoffUs + ccaUs
+  }
+  return totalUs * 1000
+}
+
+/**
+ * The room one narrowband window (§10.45's CCA-and-backoff has to run inside, between two
+ * narrowband messages) leaves once the message itself is paid for: `NB_WINDOW_SLOTS` slots of
+ * `slotNs` each, less the PPDU the window actually carries.
+ *
+ * **The `max(0, …)` is a real configuration's answer, not a defensive floor.** `NB_WINDOW_SLOTS`
+ * is a fixed 2 (`mms.ts`) and does not grow with the message a window carries, so a one-to-many
+ * POLL at enough responders already overruns its own 1 ms window before any backoff is drawn at
+ * all — the unclamped value is negative, and `ssbd`'s own caller has to know that rather than see
+ * a silent 0 that looks the same as "no room left after a very long backoff".
+ */
+export function nbSlotSlackNs(slotNs: Ns, bytes: number): Ns {
+  return Math.max(0, NB_WINDOW_SLOTS * slotNs - nbPpduNs(bytes))
 }
 
 // --- Figure of Merit -----------------------------------------------------------

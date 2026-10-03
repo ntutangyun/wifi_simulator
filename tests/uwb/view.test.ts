@@ -431,6 +431,7 @@ describe('applyUwbRecord claims every UWB record type', () => {
     UWB_INTERFERED: { type: 'UWB_INTERFERED', node: 'tag-1', from: 'anc-1', foreignDbm: -60, sirDb: -3 },
     UWB_STS_REJECT: { type: 'UWB_STS_REJECT', node: 'anc-1', peer: 'tag-1', frameKind: 'uwbPoll', advanceNs: 20 },
     UWB_ECHO: { type: 'UWB_ECHO', node: 'anc-1', from: 'tag-1', scattererId: 's-1', pathM: 9, propNs: 30, excessM: 1, resolutionM: 0.3, rssiDbm: -90, resolvable: true },
+    UWB_SSBD: { type: 'UWB_SSBD', node: 'tag-1', block: 1, round: 0, slot: 2, channel: 3, nb: 1, bf: 2, drawnUnits: 1, backoffNs: 1000, foreignDbm: -41.9, thresholdDbm: -71.02, outcome: 'idle' },
   }
 
   /**

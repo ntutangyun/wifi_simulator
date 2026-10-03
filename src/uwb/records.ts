@@ -260,3 +260,31 @@ export type UwbRecord =
    * silence, not a record saying it was faint.
    */
   | { type: 'UWB_ECHO'; node: string; from: string; scattererId: string; pathM: number; propNs: number; excessM: number; resolutionM: number; rssiDbm: number; resolvable: boolean }
+  /**
+   * Standard §10.45 (a P802.15.4ab **draft** clause — see `phy.ts`'s `ssbdBoundNs` comment and
+   * `docs/superpowers/specs/2026-10-03-ssbd-design.md` §0.1, since §10.45 does not exist in the
+   * published IEEE Std 802.15.4-2024): one spectrum-sensing-based-deferral attempt, at the slot it
+   * ran in.
+   *
+   * `nb` and `bf` are the algorithm's own two counters at the moment of this CCA (NB counts this
+   * attempt's busy checks so far, BF is the backoff factor that CCA's wait was drawn against —
+   * both reset to their initial values at the start of a fresh attempt). `drawnUnits` is the
+   * number of backoff units `random(BF)` actually drew (CID 489/493); `backoffNs` is that draw
+   * converted to nanoseconds and clamped against the narrowband window's own room
+   * (`nbSlotSlackNs`) — the two can differ, and when they do `outcome` says `'clamped'`.
+   *
+   * `outcome`: `'idle'` — the CCA came back clear and the MAC transmits; `'txOnEnd'` — NB passed
+   * `maxBackoffs` and the configured end action is to transmit anyway (§1.2); `'failOnEnd'` — the
+   * same, but the end action is Failure, so no narrowband transmission follows; `'clamped'` — the
+   * draw itself had to be cut down to fit the window before any CCA ran at all (the window's own
+   * slack was already too small, independent of how the CCA came back).
+   *
+   * Emitted at the device running the algorithm, one record per CCA — every narrowband transmit
+   * slot, not once a block (contrast `UWB_NB_LBT`, which this record does **not** replace: a
+   * session with `ssbd` off keeps emitting `UWB_NB_LBT` exactly as it always has, byte for byte).
+   */
+  | {
+    type: 'UWB_SSBD'; node: string; block: number; round: number; slot: number; channel: number
+    nb: number; bf: number; drawnUnits: number; backoffNs: Ns; foreignDbm: number; thresholdDbm: number
+    outcome: 'idle' | 'txOnEnd' | 'failOnEnd' | 'clamped'
+  }
