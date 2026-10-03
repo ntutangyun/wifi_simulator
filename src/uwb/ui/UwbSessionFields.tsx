@@ -10,7 +10,7 @@ import { DEFAULT_UWB_MMS } from '../../model/scenario'
 import type { NbLbt, NbReportMode, UwbMmsCfg, UwbMode, UwbSessionCfg, UwbSrrrCfg } from '../../model/scenario'
 import { roundPlan } from '../session'
 import {
-  RSTU_NS, UWB_SLOT_GUARD_NS, mmsResponders, rstuNs, uwbPollBytes, uwbPpduNs, uwbRespBytes,
+  mmsResponders, rstuNs, uwbFixedReplyWindowRstu, uwbMmrcmSlots, uwbSlotsPerTag,
 } from '../phy'
 import {
   MMS_FIXED_REPLY_RSTU_DEFAULT, MMS_FIXED_REPLY_RSTU_MAX, MMS_FIXED_REPLY_RSTU_MIN,
@@ -53,52 +53,6 @@ function srrrDownWithSp3(srrr: UwbSrrrCfg): Partial<UwbSessionCfg> {
 }
 
 /**
- * The window a fixed reply time has to land in, in whole RSTU, for a time-scheduled two-way
- * round — **the only reply-time shape whose Response is not slot-aligned** (standard §10.29.6.3,
- * design §6/§6.1 of `docs/superpowers/specs/2026-09-29-reply-time-design.md`). Anchor k transmits
- * at `rxPollEnd + F + k·S` and has to land inside its own slot k+1: not before it opens, and not
- * so late that it is still transmitting when it shuts. `k·S` cancels, which is what "one Final
- * serves every responder" buys, leaving a two-sided bound on `F` alone:
- *
- *     S − Ap   ≤   F   ≤   2S − Ap − Ar − guard
- *
- * with S the slot, Ap the Poll's airtime and Ar the Response's. `scenario.ts`'s `superRefine`
- * checks the same two bounds **tightened by flight time** — the lower by the nearest anchor's
- * ToF, the upper by the furthest — and only it can, because only it can see where the nodes are.
- * This function is deliberately **geometry-free**, and that makes it the conservative reading of
- * the same rule in both directions: flight only ever *loosens* the lower bound and only ever
- * *tightens* the upper, so a value inside this window and near its floor is legal at any
- * geometry whose Response fits its own slot at all.
- *
- * It exists so that an editor can offer a legal value rather than let the schema refuse one it
- * had no way to avoid. Two sources for one rule is a thing this branch has a commit about, so
- * `tests/editor/uwb-planOps.test.ts` referees this window against the schema's own refusals at
- * every slot size it accepts, rather than against a second copy of the arithmetic.
- *
- * **It belongs in `uwb/phy.ts`**, beside `UWB_SLOT_GUARD_NS` and the two airtime functions it is
- * built from, and it is here only because another session held that file when this landed. Moving
- * it is a rename and nothing else; the referee test does not care where it lives, and only from
- * `phy.ts` could `scenario.ts` ever adopt it and retire the second copy for good.
- *
- * `loRstu > hiRstu` means no fixed reply time is legal at all: the slot cannot hold the Poll, the
- * Response and the guard together, which the slot-fit rule refuses for its own reasons first.
- */
-export function uwbFixedReplyWindowRstu(
-  slotRstu: number, anchors: number, schedule: 'time' | 'contention', method: 'ss' | 'ds',
-): { loRstu: number; hiRstu: number } {
-  const slotNs = rstuNs(slotRstu)
-  const pollNs = uwbPpduNs(uwbPollBytes(anchors, schedule))
-  const respNs = uwbPpduNs(uwbRespBytes(method, 'fixed'))
-  // Rounded inwards on both sides: the window is in nanoseconds and the field is in whole RSTU,
-  // so ceil the floor and floor the ceiling, or the rounding itself would leave the window.
-  return {
-    loRstu: Math.ceil((slotNs - pollNs) / RSTU_NS),
-    hiRstu: Math.floor((2 * slotNs - pollNs - respNs - UWB_SLOT_GUARD_NS) / RSTU_NS),
-  }
-}
-
-
-/**
  * The fixed reply time this session should carry: the one it already has when that is legal for
  * the slot actually set, and otherwise the **floor** of the window
  * (`uwbFixedReplyWindowRstu`). `null` means the window is empty — no fixed reply time is legal at
@@ -127,6 +81,37 @@ export function uwbFixedReplyRstuFor(session: UwbSessionCfg, anchors: number): n
 }
 
 /**
+ * The largest `ancillaryFrames` a session can legally carry right now, scoped to `'twr'` the way
+ * the schema's own rule is (standard §10.35.1; design §4.2 of
+ * `docs/superpowers/specs/2026-10-02-ancillary-design.md`) — `null` outside two-way ranging, where
+ * the exchange has no end to run between at all, so the question does not apply.
+ *
+ * Two independent ceilings, read off the exact calls `scenario.ts`'s own `superRefine` makes
+ * (never retyped): the message cannot ask for more frames than the round has slots
+ * (`uwbSlotsPerTag`), and the appended window cannot push the block past what it holds
+ * (`uwbMmrcmSlots`'s own appended slots counted first, since a window-closing block spends both
+ * batches at once). A contention schedule's own window (`contentionSlots`) is a **floor** on the
+ * second ceiling rather than a third term: `uwb/phy.ts#uwbAncillarySlots` prices the appended
+ * window at `max(ancillaryFrames, contentionSlots)` there, so no `ancillaryFrames` value at all is
+ * legal once `contentionSlots` alone already overruns the block — the floor check below catches
+ * that case before the cap is computed, rather than returning a cap no value can actually reach.
+ */
+export function uwbAncillaryFramesCapFor(session: UwbSessionCfg, anchors: number): number | null {
+  if (session.mode !== 'twr') return null
+  const slots = uwbSlotsPerTag(
+    session.method, anchors, session.schedule, session.contentionSlots, session.mode,
+    undefined, mmsSlotsPerMs(session.slotRstu), session.replyTime,
+    session.sp3 ? { rrtt: session.srrr.rrtt } : undefined,
+  )
+  const mmrcrSlots = uwbMmrcmSlots(session.mode, anchors, session.mmrcr)
+  const blockBudget = Math.floor(session.blockRstu / session.slotRstu) - slots - mmrcrSlots
+  const floor = session.schedule === 'contention' ? session.contentionSlots : 0
+  if (blockBudget < floor) return null
+  const cap = Math.min(slots, blockBudget)
+  return cap >= 1 ? cap : null
+}
+
+/**
  * What a session still owes after a patch has been merged into it — the panel's one
  * reconciliation step, applied to **every** commit rather than written into each patch.
  *
@@ -147,14 +132,38 @@ export function uwbFixedReplyRstuFor(session: UwbSessionCfg, anchors: number): n
  * `tests/editor/uwb-planOps.test.ts` drives the panel's **commit**, not its patches, which is what
  * the panel actually does.
  *
+ * **`ancillary`/`ancillaryFrames` (task 4) ride the same mechanism, for the same reason it was
+ * built.** The first attempt at this task threaded the legality check into every patch that could
+ * move it — `uwbModePatch`'s three non-`'twr'` branches, `uwbMethodPatch`, `uwbSchedulePatch`,
+ * `uwbReplyTimePatch`, the `sp3` checkbox's own handler — and it still failed, because three more
+ * sites move the same terms without going through any patch function at all: the raw
+ * `contentionSlots` number input and the `blockRstu`/`slotRstu` `RstuInput`s, which all feed
+ * `uwbAncillaryFramesCapFor`'s block-fit term directly. A patch that has never heard of
+ * `ancillary` cannot break it here either, so the two fields are reconciled only here:
+ * `ancillary` comes back down the moment the session leaves the one mode it is legal in or turns
+ * `sp3` on beside it (the schema's own `ancillary && sp3 && mode === 'twr'` refusal — task 2's own
+ * judgment call, since the standard does not order the two independently-sized appended batches),
+ * and `ancillaryFrames` is retargeted to the current cap rather than deleted, the same "move the
+ * value, do not drop the feature" shape `fixedReplyRstu` already uses.
+ *
  * It returns the empty patch when nothing is owed, so a commit carries no field it does not
  * change — the same discipline every patch above keeps.
  */
 export function uwbSessionRepair(session: UwbSessionCfg, anchors: number): Partial<UwbSessionCfg> {
-  if (session.replyTime !== 'fixed') return {}
-  const fixedReplyRstu = uwbFixedReplyRstuFor(session, anchors)
-  if (fixedReplyRstu === null || fixedReplyRstu === session.fixedReplyRstu) return {}
-  return { fixedReplyRstu }
+  const patch: Partial<UwbSessionCfg> = {}
+  if (session.replyTime === 'fixed') {
+    const fixedReplyRstu = uwbFixedReplyRstuFor(session, anchors)
+    if (fixedReplyRstu !== null && fixedReplyRstu !== session.fixedReplyRstu) patch.fixedReplyRstu = fixedReplyRstu
+  }
+  if (session.ancillary) {
+    if (session.mode !== 'twr' || session.sp3) {
+      patch.ancillary = false
+    } else {
+      const cap = uwbAncillaryFramesCapFor(session, anchors)
+      if (cap !== null && session.ancillaryFrames > cap) patch.ancillaryFrames = cap
+    }
+  }
+  return patch
 }
 
 const ms = (rstu: number): string => (rstuNs(rstu) / 1e6).toFixed(rstu < 3000 ? 3 : 1)
@@ -704,6 +713,23 @@ export function uwbSrrrRrttHintKey(
 }
 
 /**
+ * Why the ranging ancillary information checkbox is live or not (standard §10.35.1). Two
+ * refusals, the same order a user would meet them: two-way ranging only, the same `'twr'` gate
+ * `uwbRmnrHintKey` uses a single generic reason for rather than one key per mode — the four other
+ * modes' own refusal messages (schema's own `superRefine`) already say why in the issue line, and
+ * this checkbox does not repeat them; and not beside `sp3`, task 2's own judgment call (two
+ * independently-sized appended batches with no defined order between them — sp3-design and
+ * ancillary-design §4.2 both leave the ordering unresolved, so this task does not lift the
+ * refusal, only names it here beside the mode gate).
+ */
+export function uwbAncillaryHintKey(
+  mode: UwbMode, sp3: boolean,
+): 'uwbAncillaryHint' | 'uwbAncillaryTwrOnly' | 'uwbAncillarySp3' {
+  if (mode !== 'twr') return 'uwbAncillaryTwrOnly'
+  return sp3 ? 'uwbAncillarySp3' : 'uwbAncillaryHint'
+}
+
+/**
  * What turning angle-of-arrival off commits, beyond the field itself.
  *
  * This is a fourth reset in the same family task 3's concern 2 named for `uwbModePatch` /
@@ -813,6 +839,12 @@ export function UwbSessionFields(
   // and `onChange`'s reconciliation read the same one, so the control cannot offer a value the
   // commit would then quietly correct.
   const fixedReplyWindow = uwbFixedReplyWindowRstu(session.slotRstu, anchors, session.schedule, session.method)
+  // Ranging ancillary information (standard §10.35.1) — same discipline again: the checkbox's
+  // title and the frame-count field's own bound are read off the same two calls `onChange`'s
+  // reconciliation uses, so neither control can offer what the commit would then correct.
+  const ancillaryHintKey = uwbAncillaryHintKey(session.mode, session.sp3)
+  const ancillaryLive = ancillaryHintKey === 'uwbAncillaryHint'
+  const ancillaryFramesCap = uwbAncillaryFramesCapFor(session, anchors)
   return (
     <div>
       <div style={{ color: 'var(--dim)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -971,6 +1003,28 @@ export function UwbSessionFields(
         <input type="checkbox" checked={session.srrr.rrtt} disabled={!srrrRrttLive}
           onChange={(e) => onChange({ srrr: { ...session.srrr, rrtt: e.target.checked } })} />
         {E.uwbSrrrRrtt}
+      </label>
+      {/* Ranging ancillary information (standard §10.35.1): legal in two-way ranging only, and not
+          beside SP3 (task 2's own judgment call — see `uwbAncillaryHintKey`). Turning it on or off
+          is the field alone; everything cross-field is `uwbSessionRepair`'s job, not a patch here. */}
+      <label style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 4, cursor: ancillaryLive ? 'pointer' : 'default' }}
+        title={E[ancillaryHintKey]}>
+        <input type="checkbox" checked={session.ancillary} disabled={!ancillaryLive}
+          onChange={(e) => onChange({ ancillary: e.target.checked })} />
+        {E.uwbAncillary}
+      </label>
+      <label style={label} title={session.ancillary ? E.uwbAncillaryFramesHint : E.uwbAncillaryFramesOff}>
+        {E.uwbAncillaryFrames}{' '}
+        {/* Clamped to the cap the round and the block actually leave (`uwbAncillaryFramesCapFor`),
+            the same discipline the fixed reply-time field uses for its own window: a number field
+            whose bounds are wider than the rule is a control that invites the refusal. The cap is
+            computed even while the checkbox is off, so a value set first and switched on second is
+            already inside it. */}
+        <input type="number" min={1} max={ancillaryFramesCap ?? 1} step={1} value={session.ancillaryFrames}
+          style={{ width: 62 }} disabled={!session.ancillary}
+          onChange={(e) => onChange({
+            ancillaryFrames: clampField(e.target.value, 1, ancillaryFramesCap ?? 1, true),
+          })} />
       </label>
       <label style={label} title={E.uwbBlockHint}>
         {E.uwbBlock}{' '}

@@ -30,9 +30,9 @@ import {
   COUNTER_MOD, FOM_LOS, FOM_NLOS, RCTU_NS, SRRR_IE_BYTES, UWB_BAND_MHZ, UWB_BLINK_BYTES, UWB_CAPTURE_DB,
   UWB_MAX_PSDU_BYTES,
   UWB_MAX_INPUT_DBM_PER_MHZ, UWB_PL_EXP, UWB_RX_SENS_DBM, UWB_SIR_MIN_DB, UWB_SS_DEFER_BYTES, UWB_TX_POWER_DBM,
-  fomDecode, fomText, rstuNs, uwbFinalBytes, uwbInBandDbm, uwbInitBytes, uwbM2mBytes, uwbMaxAnchors,
-  uwbMaxMmrcmInitiators, uwbMaxParticipants, uwbMmrcmBytes, uwbPl0Db, uwbPollBytes, uwbPpduNs, uwbRespBytes,
-  uwbRmnrBytes, uwbSlotsPerTag, uwbSp3InitReportBytes, uwbSp3Ns, uwbSp3PollBytes, uwbSp3ReportBytes,
+  fomDecode, fomText, rstuNs, uwbAncillaryBytes, uwbFinalBytes, uwbInBandDbm, uwbInitBytes, uwbM2mBytes,
+  uwbMaxAnchors, uwbMaxMmrcmInitiators, uwbMaxParticipants, uwbMmrcmBytes, uwbPl0Db, uwbPollBytes, uwbPpduNs,
+  uwbRespBytes, uwbRmnrBytes, uwbSlotsPerTag, uwbSp3InitReportBytes, uwbSp3Ns, uwbSp3PollBytes, uwbSp3ReportBytes,
   type UwbReplyTime,
 } from '../../src/uwb/phy'
 import { rangeSigmaM } from '../../src/uwb/position'
@@ -1485,6 +1485,173 @@ describe('the SP3 / SRRR glossary terms, each with a provenance (sp3-design, tas
     for (const t of ['SP3 包', 'SRRR IE']) {
       const item = find(t)!
       for (const w of ['更贵', '账', '买到', '省钱', '白费', '值钱']) {
+        expect(`${item.alt} ${item.def}`, `${t}: ${w}`).not.toContain(w)
+      }
+    }
+  })
+})
+
+/**
+ * Task 4 of docs/superpowers/specs/2026-10-02-ancillary-design.md: the Guide's §20, the
+ * EditorGuide's own section and the two glossary terms. §4.3 of the design doc is the point of
+ * this section — three granularities of "something was lost" that a reader will otherwise merge
+ * into one — and §2 is the role inversion a reader will otherwise mistake for a bug.
+ */
+describe('Guide section 20: ranging ancillary information (standard §10.35; design 2026-10-02-ancillary-design.md)', () => {
+  const zh = renderGuide()
+  const section = zh.slice(zh.indexOf('20 ·'), zh.indexOf('动手试试'))
+
+  it('renders the heading and the clause it cites', () => {
+    expect(zh).toContain('20 ·')
+    expect(section).toContain('§10.35')
+  })
+
+  it('states the role inversion (standard §10.35.1): the sender is the initiator, the receiver the responder', () => {
+    expect(section).toMatch(/发辅助信息的那一端叫发起方/)
+    expect(section).toMatch(/收的那一端叫响应方/)
+  })
+
+  it('lays out the three granularities of "lost" in one table, and names Frames Remaining as the different kind rather than the finer one', () => {
+    for (const marker of [
+      'RMNR（标准 §10.34）', '收妥位图（标准 §10.36）', 'Frames Remaining（标准 §10.35）',
+      '逐轮', '整个有效轮次窗口', '一条消息之内',
+    ]) {
+      expect(section, marker).toContain(marker)
+    }
+    // The point of the row, stated in words: not a report at all.
+    expect(section).toMatch(/不是回报/)
+  })
+
+  it('computes the worked lead-time figure from the engine\'s own airtime and slot functions, never a literal', () => {
+    const frameNs = uwbPpduNs(uwbAncillaryBytes(true, true))
+    const slotNs = rstuNs(DEFAULT_UWB_SESSION.slotRstu)
+    const leadMs = ((2 * slotNs - frameNs) / 1e6).toFixed(2)
+    const slotMs = (slotNs / 1e6).toFixed(1)
+    expect(section).toContain(`${leadMs} ms`)
+    expect(section).toContain(`${slotMs} ms`)
+  })
+
+  /**
+   * **The number the Guide prints is checked against an actual run, not against itself.** This
+   * scene — four anchors, one tag, SS-TWR embedded, a four-fragment message with the second
+   * fragment lost — is `tests/uwb/ancillary-round.test.ts`'s own acceptance scene, run here again,
+   * independently, rather than imported: the Guide's own figure is closed-form and geometry-free
+   * (it leaves out flight time, the same choice `uwbFixedReplyWindowRstu` makes for its window), so
+   * this is what proves the two agree to within the propagation term the closed form omits, rather
+   * than merely agreeing with itself.
+   */
+  it('the closed-form lead time the Guide prints matches an actual run of the scene it describes', () => {
+    const A = 4
+    const FRAMES = 4
+    const uwbNode = (id: string, x: number, y: number, role: 'anchor' | 'tag'): NodeCfg => ({
+      id, kind: 'uwb', name: id, pos: { x, y, z: 1 }, txPowerDbm: UWB_TX_POWER_DBM,
+      profiles: ['idle'], caps: { generation: 'nonht', features: {} }, uwb: { role, ppm: 0 },
+    })
+    const nodes: NodeCfg[] = [
+      uwbNode('anc-1', 0, 0, 'anchor'), uwbNode('anc-2', 8, 0, 'anchor'),
+      uwbNode('anc-3', 0, 6, 'anchor'), uwbNode('anc-4', 8, 6, 'anchor'),
+      uwbNode('tag-1', 4, 3, 'tag'),
+    ]
+    const session: UwbSessionCfg = {
+      ...DEFAULT_UWB_SESSION, method: 'ss', replyTime: 'embedded', nlos: false, tsNoisePs: 0,
+      cfoNoisePpm: 0, ancillary: true, ancillaryFrames: FRAMES,
+    }
+    const sc: Scenario = {
+      rooms: [{ x: 0, y: 0, w: 40, h: 30, name: 'hall' }], walls: [], nodes, servers: [],
+      seed: 7, rtsThresholdBytes: 3000, snapshotIntervalMs: 10, uwb: session,
+    }
+    const plan = roundPlan(session, A)
+    const sim = new Simulation(sc)
+    const sender = nodes.find((n) => n.id === 'anc-1')!
+    // Half a slot before the lost fragment's own slot opens, and half a slot before the next one
+    // does — the same trick the acceptance test uses, so exactly fragment index 1 (Frames
+    // Remaining 2) is lost.
+    const at = (slot: number): number => (plan.slots + slot) * plan.slotNs - plan.slotNs / 2
+    const before = sim.runUntil(at(1)).records
+    sender.pos.y = 400
+    const during = sim.runUntil(at(2)).records
+    sender.pos.y = 0
+    const rs = [...before, ...during, ...sim.runUntil(plan.blockNs - 1_000_000).records]
+
+    const named = rs.find((r): r is Extract<TLRecord, { type: 'UWB_ANCILLARY' }> =>
+      r.type === 'UWB_ANCILLARY' && r.missing.length > 0)
+    const end = rs.find((r): r is Extract<TLRecord, { type: 'UWB_ROUND_END' }> =>
+      r.type === 'UWB_ROUND_END' && r.node === 'tag-1')
+    expect(named, 'the run actually names a gap').toBeDefined()
+    expect(end, 'the run actually reaches a round end').toBeDefined()
+    const measuredLeadNs = end!.t - named!.t
+
+    const frameNs = uwbPpduNs(uwbAncillaryBytes(true, true))
+    const slotNs = rstuNs(DEFAULT_UWB_SESSION.slotRstu)
+    const closedFormLeadNs = 2 * slotNs - frameNs
+    // The only thing the closed form leaves out is the flight time between anc-1 and tag-1 (5 m,
+    // well under a slot guard's worth of nanoseconds) — the two must agree to within that, and to
+    // the same two decimal places once rounded to milliseconds, which is what the prose prints.
+    expect(Math.abs(measuredLeadNs - closedFormLeadNs)).toBeLessThan(200)
+    expect((closedFormLeadNs / 1e6).toFixed(2)).toBe((measuredLeadNs / 1e6).toFixed(2))
+  })
+
+  it('states the boundary of what the field can do: nothing before the first reading, only the deadline for the last fragment', () => {
+    expect(section).toMatch(/开头丢的那一帧/)
+    expect(section).toMatch(/最后期限/)
+  })
+
+  it('states the window reuse and that opening the exchange leaves every UWB_RANGE record unchanged', () => {
+    expect(section).toContain('UWB_RANGE')
+    expect(section).toMatch(/RCM 有效轮次/)
+    expect(section).toMatch(/第三次被用到/)
+  })
+
+  it('does not use any of the wording contract’s banned cost-framing words, even though no test polices this file by default', () => {
+    for (const w of ['更贵', '账', '买到', '省钱', '白费', '值钱', '定死', '说了算']) {
+      expect(section, w).not.toContain(w)
+    }
+  })
+})
+
+describe('the EditorGuide ranging ancillary information section', () => {
+  const zh = renderToStaticMarkup(createElement(EditorGuide))
+  const section = (html: string, from: string, to: string): string => {
+    const start = html.indexOf(from)
+    expect(start, `heading not rendered: ${from}`).toBeGreaterThan(-1)
+    const end = html.indexOf(to, start)
+    expect(end, `next heading not rendered: ${to}`).toBeGreaterThan(start)
+    return html.slice(start, end)
+  }
+  const zhAncillary = section(zh, '测距辅助信息交换', '到达角（AoA）')
+
+  it('describes the role inversion, the segmentation, Frames Remaining, and the sp3 restriction', () => {
+    for (const marker of ['§10.35.1', 'RAICT', 'Frames Remaining', 'SP3', '双向测距']) {
+      expect(zhAncillary, marker).toContain(marker)
+    }
+  })
+
+  it('does not use any of the wording contract’s banned cost-framing words', () => {
+    for (const w of ['更贵', '账', '买到', '省钱', '白费', '值钱', '定死', '说了算']) {
+      expect(zhAncillary, w).not.toContain(w)
+    }
+  })
+})
+
+describe('the ranging ancillary information glossary terms, each with a provenance (task 4)', () => {
+  const group = GLOSSARY.find((g) => g.id === 'uwb')
+  const find = (term: string) => (group?.items ?? []).find((i) => i.term === term)
+
+  it('carries both terms task 4 adds', () => {
+    for (const t of ['测距辅助信息', '剩余帧数']) expect(find(t), t).toBeDefined()
+  })
+
+  it('names a provenance on every one of them', () => {
+    for (const t of ['测距辅助信息', '剩余帧数']) {
+      const item = find(t)!
+      expect(`${item.alt} ${item.def}`, t).toMatch(/§10\.35/)
+    }
+  })
+
+  it('does not use any of the wording contract’s banned cost-framing words', () => {
+    for (const t of ['测距辅助信息', '剩余帧数']) {
+      const item = find(t)!
+      for (const w of ['更贵', '账', '买到', '省钱', '白费', '值钱', '定死', '说了算']) {
         expect(`${item.alt} ${item.def}`, `${t}: ${w}`).not.toContain(w)
       }
     }

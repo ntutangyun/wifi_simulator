@@ -14,15 +14,16 @@ import {
   mmsLayout, mmsSet, mmsSlotsPerMs, type MmsSetId,
 } from '../../src/uwb/mms'
 import { NB_CHANNELS } from '../../src/uwb/nb'
-import { UWB_TX_POWER_DBM, rstuNs } from '../../src/uwb/phy'
+import { UWB_TX_POWER_DBM, rstuNs, uwbFixedReplyWindowRstu, uwbSlotsPerTag } from '../../src/uwb/phy'
 import { roundPlan } from '../../src/uwb/session'
 import {
   UwbSessionFields, mmsDraftLive, mmsFieldPatch, mmsFixedReplyHintKey, mmsReversedHintKey,
   mmsRsfSfdHintKey, mmsSetIdOf, mmsSetPatch, mmsUwbdControlHintKey, parseFixedReplyRstu,
-  parseNbChannels, uwbAoaHintKey, uwbAoaPatch, uwbMethodPatch, uwbMmrcrHintKey, uwbModePatch,
+  parseNbChannels, uwbAncillaryFramesCapFor, uwbAncillaryHintKey, uwbAoaHintKey, uwbAoaPatch,
+  uwbMethodPatch, uwbMmrcrHintKey, uwbModePatch,
   uwbRcmValidityHintKey, uwbRcmValidityRoundsPatch, uwbReplyTimePatch, uwbReplyTimeRstuLive,
   uwbRmnrHintKey, uwbSchedulePatch, uwbScheduleHintKey, uwbSessionRepair, uwbSp3HintKey,
-  uwbSrrrRaoaHintKey, uwbFixedReplyRstuFor, uwbFixedReplyWindowRstu, uwbSp3Patch,
+  uwbSrrrRaoaHintKey, uwbFixedReplyRstuFor, uwbSp3Patch,
   uwbSrrrRrttHintKey,
 } from '../../src/uwb/ui/UwbSessionFields'
 import { UwbNodeFields } from '../../src/uwb/ui/UwbNodeFields'
@@ -1514,6 +1515,23 @@ describe('UwbSessionFields as a closed system: no reachable sequence of its own 
       live: (s) => uwbMmrcrHintKey(s.mode, s.rcmValidityRounds, s.schedule) === 'uwbMmrcrHint',
       patch: () => ({ mmrcr }),
     })),
+    // Ranging ancillary information (task 4, standard §10.35.1): the checkbox alone, exactly the
+    // `rmnr`/`mmrcr` shape above — everything cross-field (the mode/sp3 gate, the frame-count cap)
+    // is `uwbSessionRepair`'s job, not a patch here.
+    ...[true, false].map((ancillary): Op => ({
+      label: `ancillary=${ancillary}`,
+      live: (s) => uwbAncillaryHintKey(s.mode, s.sp3) === 'uwbAncillaryHint',
+      patch: () => ({ ancillary }),
+    })),
+    // 1 is the floor every schema rule leaves standing; 20 is well past every cap this walk's four
+    // anchors can reach (the largest is DS-TWR deferred's `2·4+3 = 11`), so every value in between
+    // is exercised by `uwbSessionRepair` retargeting it down as `mode`/`method`/`schedule`/
+    // `replyTime` move around it. `disabled={!session.ancillary}` is the panel's own gate.
+    ...[1, 20].map((ancillaryFrames): Op => ({
+      label: `ancillaryFrames=${ancillaryFrames}`,
+      live: (s) => s.ancillary,
+      patch: () => ({ ancillaryFrames }),
+    })),
   ]
 
   /**
@@ -1523,11 +1541,12 @@ describe('UwbSessionFields as a closed system: no reachable sequence of its own 
    * the key function so that the test below can check both of those mechanically.
    *
    * `slotRstu` is here because `uwbModePatch`'s MMS branch and the slot control both write it;
-   * `fixedReplyRstu` because `uwbSessionRepair` chooses it.
+   * `fixedReplyRstu` because `uwbSessionRepair` chooses it. `ancillary`/`ancillaryFrames` (task 4)
+   * for the same reason as `fixedReplyRstu`: `uwbSessionRepair` writes both, not any patch.
    */
   const WALK_KEYS = [
     'mode', 'method', 'schedule', 'replyTime', 'rcmValidityRounds', 'aoa', 'sp3', 'srrr',
-    'rmnr', 'mmrcr', 'slotRstu', 'fixedReplyRstu',
+    'rmnr', 'mmrcr', 'slotRstu', 'fixedReplyRstu', 'ancillary', 'ancillaryFrames',
   ] as const satisfies readonly (keyof UwbSessionCfg)[]
   const walkKey = (s: UwbSessionCfg): string => JSON.stringify(WALK_KEYS.map((k) => s[k]))
 
@@ -1610,6 +1629,12 @@ describe('UwbSessionFields as a closed system: no reachable sequence of its own 
     expect(reachable.some((r) => r.s.sp3 && r.s.srrr.raoa)).toBe(true)
     expect(reachable.some((r) => r.s.sp3 && r.s.srrr.rrtt)).toBe(true)
     expect(reachable.some((r) => r.s.mode === 'mms')).toBe(true)
+    // The walk actually turns the two new dimensions, and retargets rather than drops the frame
+    // count: some reachable state carries `ancillary: true` with `ancillaryFrames` clamped down
+    // from the 20 the op asked for (every cap at WALK_ANCHORS is well under that).
+    expect(reachable.some((r) => r.s.ancillary)).toBe(true)
+    expect(reachable.some((r) => r.s.ancillary && r.s.ancillaryFrames > 1 && r.s.ancillaryFrames < 20))
+      .toBe(true)
   })
 
   it('never strands an SRRR request bit: every reachable state has both bits down whenever sp3 is', () => {
@@ -1719,6 +1744,134 @@ describe('UwbSessionFields as a closed system: no reachable sequence of its own 
     // is actually set — so this assertion has no exceptions left and must not grow one.
     const refused = reachable.filter((r) => uwbSessionIssue(scene(r.s)) !== null)
     expect(refused.map((r) => `${r.trail.join(' -> ')}  =>  ${uwbSessionIssue(scene(r.s))}`)).toEqual([])
+  })
+
+  /**
+   * **The clamp sites task 3's concern 1 named, exercised directly rather than only through the
+   * walk.** `OPS` turns `method`/`schedule`/`replyTime` and `ancillaryFrames` itself, but the walk
+   * holds `contentionSlots`/`blockRstu`/`slotRstu` at one fixed value throughout (`WALK_BLOCK_RSTU`
+   * is sized so the block-fit term never binds there) — exactly the three raw inputs task 3's own
+   * report flagged as a *new kind* of clamp site, because they feed `uwbAncillaryFramesCapFor`'s
+   * block-fit term without ever going through a patch function. These tests drive them directly.
+   */
+  describe('uwbAncillaryFramesCapFor / uwbSessionRepair: the seven clamp sites', () => {
+    const base: UwbSessionCfg = {
+      ...DEFAULT_UWB_SESSION, mode: 'twr', method: 'ss', schedule: 'time', replyTime: 'embedded',
+      ancillary: true, ancillaryFrames: 1,
+    }
+
+    it('the cap outside two-way ranging, and beside sp3, is null — the exchange has no end to run between', () => {
+      for (const mode of ['dl-tdoa', 'ul-tdoa', 'mms', 'm2m'] as const) {
+        expect(uwbAncillaryFramesCapFor({ ...base, mode }, WALK_ANCHORS), mode).toBeNull()
+      }
+      expect(uwbAncillaryFramesCapFor({ ...base, sp3: true, replyTime: 'deferred' }, WALK_ANCHORS)).not.toBeNull()
+      // sp3 itself does not zero the cap — `uwbSessionRepair` turns `ancillary` off instead (below),
+      // which is a different field than the one this function answers about.
+    })
+
+    it('the cap referees against the schema at its own boundary, across every (method, schedule, replyTime)', () => {
+      // Every combination the schema allows at all (ds+contention and ds+fixed are refused for
+      // reasons that have nothing to do with ancillary, so they are excluded the way the method
+      // select already keeps them apart in the UI).
+      const combos: [UwbSessionCfg['method'], UwbSessionCfg['schedule'], UwbSessionCfg['replyTime']][] = [
+        ['ss', 'time', 'embedded'], ['ss', 'time', 'deferred'], ['ss', 'time', 'fixed'],
+        ['ds', 'time', 'embedded'], ['ds', 'time', 'deferred'],
+        ['ss', 'contention', 'embedded'], ['ss', 'contention', 'fixed'],
+      ]
+      for (const [method, schedule, replyTime] of combos) {
+        const session: UwbSessionCfg = {
+          ...base, method, schedule, replyTime, blockRstu: WALK_BLOCK_RSTU,
+        }
+        const cap = uwbAncillaryFramesCapFor(session, WALK_ANCHORS)
+        const where = `${method}/${schedule}/${replyTime}`
+        expect(cap, where).not.toBeNull()
+        expect(uwbSessionIssue(scene({ ...session, ancillaryFrames: cap! })), `${where} at cap`).toBeNull()
+        expect(uwbSessionIssue(scene({ ...session, ancillaryFrames: cap! + 1 })), `${where} one past cap`)
+          .not.toBeNull()
+      }
+    })
+
+    it('the block-fit term binds the cap below the round\'s own slot count when the block is tight', () => {
+      // 5 ranging slots (SS-TWR, 4 anchors) at the session default slot; a block that holds the
+      // round plus exactly two more slots, not five.
+      const slots = uwbSlotsPerTag('ss', WALK_ANCHORS, 'time', 8, 'twr')
+      expect(slots).toBe(5)
+      const tight: UwbSessionCfg = { ...base, blockRstu: (slots + 2) * DEFAULT_UWB_SESSION.slotRstu }
+      const cap = uwbAncillaryFramesCapFor(tight, WALK_ANCHORS)
+      expect(cap).toBe(2) // the block-fit term, not `slots` (5) — the smaller of the two ceilings
+      expect(uwbSessionIssue(scene({ ...tight, ancillaryFrames: 2 }))).toBeNull()
+      expect(uwbSessionIssue(scene({ ...tight, ancillaryFrames: 3 }))).not.toBeNull()
+    })
+
+    it('a contention window already too wide for the block makes every ancillaryFrames value illegal — the cap says so by being null, not by lying about a value that would still be refused', () => {
+      const slots = uwbSlotsPerTag('ss', WALK_ANCHORS, 'contention', 32, 'twr')
+      const wide: UwbSessionCfg = {
+        ...base, schedule: 'contention', contentionSlots: 32,
+        blockRstu: (slots + 1) * DEFAULT_UWB_SESSION.slotRstu, // room for one extra slot, not 32
+      }
+      expect(uwbAncillaryFramesCapFor(wide, WALK_ANCHORS)).toBeNull()
+      // …and the schema agrees: ancillaryFrames = 1 is still refused, because the appended window
+      // is `max(ancillaryFrames, contentionSlots)` and contentionSlots alone already overruns it.
+      expect(uwbSessionIssue(scene({ ...wide, ancillaryFrames: 1 }))).not.toBeNull()
+      // `uwbSessionRepair` does not silently turn `ancillary` off over this: a null cap is left
+      // alone, the same "no window, no rewrite" shape `uwbFixedReplyRstuFor` already uses — the red
+      // line under the panel is what surfaces it, not a rewrite of a field the user did not touch.
+      expect(uwbSessionRepair(wide, WALK_ANCHORS)).toEqual({})
+    })
+
+    it('uwbSessionRepair retargets ancillaryFrames, never deletes it, when method/schedule/replyTime shrink the cap it was legal under', () => {
+      // Legal at method 'ds' (cap = uwbSlotsPerTag('ds', 4, 'time', …, 'embedded') = 10): committed
+      // at the cap, then the method moves to 'ss' (cap drops to 5) with nothing re-checking
+      // ancillaryFrames on the way — the exact shape of the five sites task 2's report named.
+      const dsCap = uwbAncillaryFramesCapFor({ ...base, method: 'ds' }, WALK_ANCHORS)!
+      const afterMode: UwbSessionCfg = { ...base, method: 'ss', ancillaryFrames: dsCap }
+      expect(uwbSessionIssue(scene(afterMode))).not.toBeNull() // the merge alone is illegal…
+      const repaired = uwbSessionRepair(afterMode, WALK_ANCHORS)
+      expect(repaired).toEqual({ ancillaryFrames: uwbAncillaryFramesCapFor(afterMode, WALK_ANCHORS) })
+      expect(uwbSessionIssue(scene({ ...afterMode, ...repaired }))).toBeNull() // …the repair fixes it
+    })
+
+    it('blockRstu and slotRstu — two of the three raw inputs with no patch function of their own — each retarget ancillaryFrames through the same repair, without zeroing out the feature', () => {
+      // `contentionSlots` is the third: its own destructive case is the previous test, where it
+      // pushes the cap all the way to null rather than to a smaller finite value (it feeds the
+      // appended window's own floor, `max(ancillaryFrames, contentionSlots)`, so a wide enough draw
+      // window leaves no legal frame count at all, not merely a smaller one).
+      const contentionBase: UwbSessionCfg = { ...base, schedule: 'contention' }
+      const atCap: UwbSessionCfg = { ...contentionBase, ancillaryFrames: uwbAncillaryFramesCapFor(contentionBase, WALK_ANCHORS)! }
+      expect(atCap.ancillaryFrames).toBe(9) // the round's own slot count at the session defaults
+      expect(uwbSessionIssue(scene(atCap))).toBeNull()
+
+      // blockRstu shrunk: the block-fit budget drops with it, and the repair — not the raw input's
+      // own onChange — is what pulls the committed frame count back under the new, smaller cap.
+      const shrunkBlock: UwbSessionCfg = { ...atCap, blockRstu: 40_800 }
+      expect(uwbSessionIssue(scene(shrunkBlock))).not.toBeNull()
+      const blockRepair = uwbSessionRepair(shrunkBlock, WALK_ANCHORS)
+      expect(blockRepair).toEqual({ ancillaryFrames: uwbAncillaryFramesCapFor(shrunkBlock, WALK_ANCHORS) })
+      expect(blockRepair.ancillaryFrames).toBeLessThan(atCap.ancillaryFrames)
+      expect(uwbSessionIssue(scene({ ...shrunkBlock, ...blockRepair }))).toBeNull()
+
+      // slotRstu raised: the same block (in RSTU) now holds far fewer of the wider slots — the
+      // identical block-fit effect, through a different field.
+      const widerSlot: UwbSessionCfg = { ...atCap, slotRstu: 14_001 } // a multiple of 3, like blockRstu
+      expect(uwbSessionIssue(scene(widerSlot))).not.toBeNull()
+      const slotRepair = uwbSessionRepair(widerSlot, WALK_ANCHORS)
+      expect(slotRepair).toEqual({ ancillaryFrames: uwbAncillaryFramesCapFor(widerSlot, WALK_ANCHORS) })
+      expect(slotRepair.ancillaryFrames).toBeLessThan(atCap.ancillaryFrames)
+      expect(uwbSessionIssue(scene({ ...widerSlot, ...slotRepair }))).toBeNull()
+    })
+
+    it('uwbSessionRepair turns ancillary off the moment sp3 goes up beside it, and the moment the mode leaves twr', () => {
+      expect(uwbSessionRepair({ ...base, sp3: true, replyTime: 'deferred' }, WALK_ANCHORS))
+        .toEqual({ ancillary: false })
+      for (const mode of ['dl-tdoa', 'ul-tdoa', 'mms', 'm2m'] as const) {
+        expect(uwbSessionRepair({ ...base, mode }, WALK_ANCHORS), mode).toEqual({ ancillary: false })
+      }
+      // …and says nothing at all once ancillary is already off, or once the session is already
+      // legal — the same "nothing owed, empty patch" discipline every other field above keeps.
+      expect(uwbSessionRepair({ ...base, ancillary: false, sp3: true, replyTime: 'deferred' }, WALK_ANCHORS))
+        .toEqual({})
+      expect(uwbSessionRepair(base, WALK_ANCHORS)).toEqual({})
+    })
   })
 
   it('the two sequences branch-review C1 reported, and the two shorter ones this walk found, all land legal', () => {

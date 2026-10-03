@@ -270,6 +270,16 @@ export interface Strings {
     uwbSrrrRaoa: string; uwbSrrrRrtt: string
     uwbSrrrRaoaHint: string; uwbSrrrRrttHint: string
     uwbSrrrNeedsSp3: string; uwbSrrrNeedsSs: string; uwbSrrrRaoaNeedsAoa: string
+    /**
+     * Ranging ancillary information exchange, Request = 0 half (standard §10.35.1; RAICT IE
+     * §10.35.2.1; design doc 2026-10-02-ancillary-design.md): two-way ranging only, and not beside
+     * `sp3` (task 2's own judgment call — two independently-sized appended batches with no defined
+     * order between them). `uwbAncillaryFrames` is `model`: a real device would size a message
+     * from an upper-layer payload this engine has no primitive for, so the scenario states the
+     * frame count directly instead, the same standing `rcmValidityRounds` already has.
+     */
+    uwbAncillary: string; uwbAncillaryHint: string; uwbAncillaryTwrOnly: string; uwbAncillarySp3: string
+    uwbAncillaryFrames: string; uwbAncillaryFramesHint: string; uwbAncillaryFramesOff: string
     /** "slots per round N · rounds per block M" under the session fields. */
     uwbPlan: (slots: number, rounds: number) => string
     /** `mode: 'm2m'` only: how many participants the round actually holds — every UWB node, not
@@ -933,6 +943,13 @@ export const STRINGS: Strings = {
     uwbSrrrNeedsSp3: '只有 SP3 分组测距的 RCM 里才有 SRRR 这个控制字可以置位',
     uwbSrrrNeedsSs: '这两个请求位由延后回复时间那条路上的帧来回答——方位角装在响应方的延后报文里，往返时间装在发起方自己的测量报告里；双边双向的报告相位是两端交换自己的，不会因为这两个请求而变化，请求放在这里没有一帧能回答它：请先把测距方式改成单边双向',
     uwbSrrrRaoaNeedsAoa: '锚点没有打开到达角测量，测量报告阶段里没有方位角可以报：请先打开到达角',
+    uwbAncillary: '测距辅助信息交换',
+    uwbAncillaryHint: '打开后，发起方——这一节里角色名与测距本身相反，发消息的一端叫发起方，收的一端叫响应方（标准 §10.35.1）——把一条消息连续分装进本轮的若干个测距时隙发出，每一帧带一枚 RAICT 信息元（标准 §10.35.2.1），其中 Frames Remaining 字段报这条消息还剩几帧。窗口复用 RCM 有效轮次已经定出的那个边界（标准 §10.32.9.1）。',
+    uwbAncillaryTwrOnly: '只有双向测距的轮次里才有能带 RAICT 信息元的帧：其余几种模式要么没有一个锚点对标签发送的时隙，要么控制面走的不是这种帧，辅助信息交换没有地方可以发',
+    uwbAncillarySp3: 'SP3 分组测距的报告阶段已经是按 SRRR 两位独立追加的一批帧，辅助信息消息（ancillaryFrames）是另一批独立追加的帧，这一刀没有规定两者怎样排在一起：请先把 SP3 关掉，或者把测距辅助信息关掉',
+    uwbAncillaryFrames: '辅助信息帧数',
+    uwbAncillaryFramesHint: '这条辅助信息消息分成几帧发出（model）：本仿真没有上层应用来定这个数，场景直接给出帧数，RAICT 信息元的 Frames Remaining 字段从这个数减一开始倒数到 0（标准 §10.35.2.1）',
+    uwbAncillaryFramesOff: '测距辅助信息交换关闭时这个数没有作用——打开上面的开关才会按它分帧发送',
     uwbPlan: (slots, rounds) => `每轮 ${slots} 个时隙 · 每块 ${rounds} 轮`,
     uwbM2mParticipants: (participants) => `多对多测距：全部 ${participants} 台 UWB 设备都是参与者，按 id 排序决定发送顺序——上方的锚点/标签计数只影响画法，不影响这个数`,
     uwbMms: 'MMS 片段序列',

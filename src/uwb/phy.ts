@@ -854,6 +854,56 @@ export function uwbLongestFrameBytes(
 }
 
 /**
+ * The window a fixed reply time has to land in, in whole RSTU, for a time-scheduled two-way
+ * round — **the only reply-time shape whose Response is not slot-aligned** (standard §10.29.6.3,
+ * design §6/§6.1 of `docs/superpowers/specs/2026-09-29-reply-time-design.md`). Anchor k transmits
+ * at `rxPollEnd + F + k·S` and has to land inside its own slot k+1: not before it opens, and not
+ * so late that it is still transmitting when it shuts. `k·S` cancels, which is what "one Final
+ * serves every responder" buys, leaving a two-sided bound on `F` alone:
+ *
+ *     S − Ap   ≤   F   ≤   2S − Ap − Ar − guard
+ *
+ * with S the slot, Ap the Poll's airtime and Ar the Response's. `scenario.ts`'s `superRefine`
+ * checks the same two bounds **tightened by flight time** — the lower by the nearest anchor's
+ * ToF, the upper by the furthest — and only it can, because only it can see where the nodes are.
+ * This function is deliberately **geometry-free**, and that makes it the conservative reading of
+ * the same rule in both directions: flight only ever *loosens* the lower bound and only ever
+ * *tightens* the upper, so a value inside this window and near its floor is legal at any
+ * geometry whose Response fits its own slot at all.
+ *
+ * It exists so that an editor can offer a legal value rather than let the schema refuse one it
+ * had no way to avoid. Two sources for one rule is a thing this branch has a commit about, so
+ * `tests/editor/uwb-planOps.test.ts` referees this window against the schema's own refusals at
+ * every slot size it accepts, rather than against a second copy of the arithmetic.
+ *
+ * **Moved here from `uwb/ui/UwbSessionFields.tsx` (task 4 of
+ * `docs/superpowers/specs/2026-10-02-ancillary-design.md`)**, where it had lived only because
+ * another session held this file when it first landed — a rename, nothing else. `scenario.ts`
+ * still computes its own, flight-tightened version of the same two bounds rather than importing
+ * this one (its `pollNs`/`respNs`/`lowerNeededNs`/`upperAllowedNs` locals mirror this function's
+ * `pollNs`/`respNs`/`loRstu`/`hiRstu` before the flight-time term is applied); retiring that
+ * second copy would mean rounding its nanosecond bounds to whole RSTU *before* the flight-time
+ * tightening instead of after, which can move the exact boundary a value is refused at — a
+ * behaviour change this task did not make.
+ *
+ * `loRstu > hiRstu` means no fixed reply time is legal at all: the slot cannot hold the Poll, the
+ * Response and the guard together, which the slot-fit rule refuses for its own reasons first.
+ */
+export function uwbFixedReplyWindowRstu(
+  slotRstu: number, anchors: number, schedule: 'time' | 'contention', method: 'ss' | 'ds',
+): { loRstu: number; hiRstu: number } {
+  const slotNs = rstuNs(slotRstu)
+  const pollNs = uwbPpduNs(uwbPollBytes(anchors, schedule))
+  const respNs = uwbPpduNs(uwbRespBytes(method, 'fixed'))
+  // Rounded inwards on both sides: the window is in nanoseconds and the field is in whole RSTU,
+  // so ceil the floor and floor the ceiling, or the rounding itself would leave the window.
+  return {
+    loRstu: Math.ceil((slotNs - pollNs) / RSTU_NS),
+    hiRstu: Math.floor((2 * slotNs - pollNs - respNs - UWB_SLOT_GUARD_NS) / RSTU_NS),
+  }
+}
+
+/**
  * Anchors one ranging round can carry: the largest count whose longest frame (above) still fits
  * the 127-octet PSDU (standard §16.2.7). Searched, not written down — a round's longest frame
  * depends on the mode, the method and the reply-time shape, so no single number is "the" cap

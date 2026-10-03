@@ -18,8 +18,8 @@ import {
 import {
   RMMRC_ADDR_BYTES, SRRR_IE_BYTES, UWB_BAND_MHZ, UWB_BLINK_BYTES, UWB_CAPTURE_DB, UWB_CHIP_NS,
   UWB_IE_HDR_BYTES, UWB_MAX_INPUT_DBM_PER_MHZ, UWB_RX_SENS_DBM, UWB_SIR_MIN_DB, UWB_SS_DEFER_BYTES,
-  UWB_TX_POWER_DBM, rmmrcBitmapBytes, rstuNs, uwbFinalBytes, uwbInitBytes, uwbM2mBytes,
-  uwbMaxAnchors, uwbMaxMmrcmInitiators, uwbMaxParticipants, uwbMmrcmBytes, uwbPollBytes,
+  UWB_TX_POWER_DBM, rmmrcBitmapBytes, rstuNs, uwbAncillaryBytes, uwbFinalBytes, uwbInitBytes,
+  uwbM2mBytes, uwbMaxAnchors, uwbMaxMmrcmInitiators, uwbMaxParticipants, uwbMmrcmBytes, uwbPollBytes,
   UWB_MAX_PSDU_BYTES,
   uwbPpduNs, uwbRespBytes, uwbRmnrBytes, uwbSp3InitReportBytes, uwbSp3Ns, uwbSp3PollBytes,
   uwbSp3ReportBytes,
@@ -179,6 +179,23 @@ const SP3_CROSSOVER_RRTT_A = sp3CrossoverAnchors(true) // 11
  * sees the gap close and then turn negative rather than being told about a single point. */
 const SP3_TABLE_AS = Array.from({ length: SP3_CROSSOVER_A + 1 }, (_, i) => i + 1)
 const us3 = (ns: number): string => (ns / 1000).toFixed(3)
+
+// --- Section 20: ranging ancillary information, standard §10.35 -------------------------------
+// Geometry-free, the same discipline `uwb/ui/UwbSessionFields.tsx#uwbFixedReplyWindowRstu` uses
+// for its own window: the lost fragment's reception offset is almost entirely the frame's own
+// airtime (`uwbPpduNs`), and the few tens of nanoseconds a real scene's flight time adds on top
+// are well under the rounding this prose uses. `tests/ui/uwb-guide.test.ts` runs the actual scene
+// this number describes — four anchors, one tag, a four-fragment message, the second fragment
+// lost — and checks the two land within a slot guard's width of each other, so the figure below is
+// not typed in: it is this file's own account of a run that was actually made.
+const ANCILLARY_FRAME_NS = uwbPpduNs(uwbAncillaryBytes(true, true))
+const ANCILLARY_SLOT_NS = rstuNs(DEFAULT_UWB_SESSION.slotRstu)
+/** Losing the second of a four-fragment message: the next fragment (reporting "1 left") reveals
+ * the gap, and from its own reception two whole slots remain before the round itself ends — the
+ * lost fragment's own slot and the last fragment's — minus the revealing fragment's own airtime,
+ * since discovery happens the instant it is decoded, not when its slot opens. */
+const ANCILLARY_LEAD_MS = ((2 * ANCILLARY_SLOT_NS - ANCILLARY_FRAME_NS) / 1e6).toFixed(2)
+const ANCILLARY_SLOT_MS = (ANCILLARY_SLOT_NS / 1e6).toFixed(1)
 
 // --- Section 12: the P802.15.4ab draft ------------------------------------------------------
 // Every figure below is computed from `src/uwb/mms.ts` and `src/uwb/nb.ts`, so the prose cannot
@@ -1275,6 +1292,82 @@ export function Guide() {
       <p style={p}>
         两者都要对端发一整帧作答，代价都落在那一帧上；不同的是促成这帧回答的请求本身——SRRR
         每个应答方都要在 RCM 里新增一个信息单元，MMRCR 一个字节都不新增。
+      </p>
+
+      <h4 style={h}>20 · 一条消息装不进一帧：Frames Remaining 的粒度（标准 §10.35）</h4>
+      <p style={p}>
+        这一节单独给辅助信息交换定义了两个角色名，而它们与测距本身用的那一对词不是一回事
+        （标准 §10.35.1）：测距里的发起方是开启一次测距的那一端，响应方是作答的那一端；辅助
+        信息交换里反过来——<b>发辅助信息的那一端叫发起方，收的那一端叫响应方</b>。于是一台在
+        测距里作答的设备（锚点），在这里可以是发起方：本引擎排时隙用的仍是测距角色
+        （§10.32.2 的时隙表），辅助信息交换只是搭在同一张时隙表上，跑一个角色相反的交换。
+        读者第一次看到「响应方」在发消息，容易当成实现错了——其实是这一节把名字换了。
+      </p>
+      <p style={p}>
+        一条辅助信息消息往往比一帧装得下的多，于是连续分装进本轮的若干个测距时隙：每一帧带
+        一枚 RAICT 信息元（Ranging Or Ancillary Information Counter and Type IE，标准
+        §10.35.2.1），其中 Frames Remaining 字段从消息的帧数减一开始，逐帧倒数到 0。分几帧由
+        场景直接给出（<code>ancillaryFrames</code>，model）——本仿真没有上层应用来把这个数
+        算出来，标准把这件事留给了一个本引擎没有的层，所以场景直接写明这个数，照
+        <code>rcmValidityRounds</code> 已有的那条理由办。
+      </p>
+      <p style={p}>
+        第 17 节建过 RMNR，第 18 节建过收妥位图——这两个加上 Frames Remaining，都在回答
+        「丢了」这件事，但粒度不同，很容易被读成一回事，而这正是本节要拆开的：
+      </p>
+      <table style={table}>
+        <thead>
+          <tr>
+            <th style={cellHead} />
+            <th style={cellHead}>RMNR（标准 §10.34）</th>
+            <th style={cellHead}>收妥位图（标准 §10.36）</th>
+            <th style={cellHead}>Frames Remaining（标准 §10.35）</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td style={cell}>谁发</td>
+            <td style={cell}>响应方自己主动</td>
+            <td style={cell}>控制器请求</td>
+            <td style={cell}><b>发送端自己，每一帧都带着</b></td>
+          </tr>
+          <tr>
+            <td style={cell}>粒度</td>
+            <td style={cell}>逐轮</td>
+            <td style={cell}>整个有效轮次窗口</td>
+            <td style={cell}><b>一条消息之内</b></td>
+          </tr>
+          <tr>
+            <td style={cell}>回答的问题</td>
+            <td style={cell}>本轮的测距启动消息我没收到</td>
+            <td style={cell}>你那几块的开场消息，我收到了哪几条</td>
+            <td style={cell}><b>这条消息还有几帧没来</b></td>
+          </tr>
+        </tbody>
+      </table>
+      <p style={p}>
+        <b>第三行是新的一行，而它与前两行的差别不是粒度更细，是种类不同。</b>前两者都是一次
+        回报——响应方发现没收到才主动说，或者控制器问了才答；Frames Remaining
+        不是回报，是发送端在每一帧里都带着这个数，接收端不必等任何东西，就能在下一帧到达的
+        那一刻知道缺了哪一帧。
+      </p>
+      <p style={p}>
+        量出来是什么样子：一条分 4 帧发出的消息，若丢的是第二帧（本该报「还剩 2 帧」的那
+        一帧），接收端在紧接着到达的下一帧（报「还剩 1 帧」）那一刻——与那一帧的接收同一
+        纳秒——就确定缺的是哪一帧，比这条消息自己的最后期限（第 4 帧收完的那一刻）早了约
+        <b> {ANCILLARY_LEAD_MS} ms</b>（默认测距时隙 {ANCILLARY_SLOT_MS} ms，两个时隙减去这
+        一帧自己的收发时间）；若丢的是最后一帧，没有再下一帧来揭穿它，这件事就只能等到消息
+        自己的最后期限才被发现——晚了整整一个时隙。读到的第一帧如果就缺了前面的编号，这个
+        字段也无能为力：它只报还剩几帧，不报总共几帧，所以认不出一条消息开头丢的那一帧，
+        只认得出两次读数之间丢的那一帧。
+      </p>
+      <p style={p}>
+        这个交换发生在当前这一轮，以及 RCM 仍然有效的那几轮里——用的是第 17 节已经建好的
+        那个窗口（ARC IE 的 RCM 有效轮次，标准 §10.32.9.1），与收妥位图共用同一个边界，这是
+        它第三次被用到，没有再发明一个新的窗口。调度方式两种都能跑：竞争调度下，这条消息
+        改成在本轮的竞争窗口内抽时隙，不是预先指定的那几个。打开这项交换不改变任何一条
+        <b> UWB_RANGE</b> 记录：它是一条独立于测距之外的消息，默认关闭，关闭时一帧 RAICT
+        都不发。
       </p>
 
       <h4 style={h}>动手试试</h4>
