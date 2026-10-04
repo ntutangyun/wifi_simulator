@@ -1000,19 +1000,53 @@ describe('readability · the limits debt is pinned, and the 297th entry is refus
  * next person would have checked against it, failed, and suspected the code.
  * Measured here instead, after the fixes.
  *
- * ### What to do when the character total goes red
+ * ### The character total is a BAND, and the minutes total is the equality
  *
- * Update it, and while you are there read the assertion under it. The character
- * total is a tripwire, not a budget: it is SUPPOSED to move whenever anybody
- * edits a lesson. The one that matters is the minutes total — if that moved too,
- * a lesson crossed a bucket and a figure the reader has already seen changed,
- * and that belongs in the commit message.
+ * It was an equality on 179 872 for exactly one commit, and that was a mistake
+ * worth writing down rather than quietly fixing. A check that is designed to go
+ * red on every edit teaches one habit, and it is not reading it: it teaches
+ * updating the number without looking at what moved. The most expensive defect
+ * in this repository is a green check that cannot prove the thing its name
+ * claims, and a check that is red every week is the same coin's other face.
+ *
+ * Its job was already being done, in two places that do it better:
+ *  - **"a lesson crossed a bucket"** is the minutes total below. A bucket
+ *    crossing moves that sum by ±5, and it is the reader-visible quantity.
+ *  - **"`rate` is one character from being re-timed"** is the margin assertion
+ *    below that, which points straight at the lesson instead of at a corpus sum.
+ * What was left for the equality was "somebody edited a lesson" — a signal with
+ * no reader behind it.
+ *
+ * So the band. It is wide enough that ordinary prose editing never touches it
+ * and narrow enough to notice a structural change nobody mentioned: roughly
+ * five lessons' worth of main path appearing or disappearing (the mean lesson
+ * is about 2 165 characters). It is not a budget — nothing here says the course
+ * should be this long.
+ *
+ * Re-measure with:
+ *
+ * ```ts
+ * import { LESSONS } from '../../src/course/lessons'
+ * import { COURSE_ORDER } from '../../src/course/curriculum'
+ * import { mainPathChars } from '../../src/course/readability'
+ * const byId = new Map(LESSONS.map((l) => [l.id, l]))
+ * COURSE_ORDER.flatMap((id) => byId.get(id) ?? []).reduce((n, l) => n + mainPathChars(l), 0)
+ * ```
  */
 describe('readability · the stated minutes, and the characters behind them', () => {
-  it('counts 179 872 Chinese characters on the main paths of the whole course', () => {
+  it('keeps the course within a band of main-path length, 179 872 characters on 2026-10-05', () => {
     const chars = ordered.reduce((n, l) => n + mainPathChars(l), 0)
-    expect(chars, 'main-path Chinese characters across the course — a tripwire, not a budget:'
-      + ' update it, and check that the minutes total below did not move with it').toBe(179_872)
+    // A band, not an equality, and not a budget: see the note above for why it was demoted.
+    // 170 000–190 000 is about five lessons' worth of main path either side of where the
+    // course stood when this landed, so ordinary prose editing never reaches it and a
+    // module arriving or leaving does.
+    expect(chars, `${chars} main-path Chinese characters across the course (179 872 on`
+      + ' 2026-10-05). This band does not move for prose edits, so something structural'
+      + ' changed — most likely a module added or removed. A walk that stopped seeing ONE'
+      + ' section is too small to reach this band; the per-section census in'
+      + ' tests/course/readability-rules.test.ts is what catches that, and it is exact.')
+      .toBeGreaterThan(170_000)
+    expect(chars).toBeLessThan(190_000)
   })
 
   it('states 1 745 minutes across the whole course, and no lesson moved in this slice', () => {
