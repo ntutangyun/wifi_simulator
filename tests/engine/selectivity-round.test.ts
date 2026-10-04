@@ -44,9 +44,10 @@
  */
 import { describe, it, expect, vi } from 'vitest'
 import { Simulation } from '../../src/engine/simulation'
-// `sc` is aliased: this file already uses `sc` as a local name for a scenario value.
-import { mumimoScenario, oneRoom, sc as sceneIn, widthScenario } from '../../src/course/wifiScenes'
+import { mumimoScenario, widthScenario } from '../../src/course/wifiScenes'
+import { LESSONS } from '../../src/course/lessons'
 import { node } from '../../src/course/lessonKit'
+import { selRows, type SelRow } from './selectivity-pairing'
 import { selBinStart, selBins, selMemberBins } from '../../src/engine/selectivity'
 import { FAILURES_TO_STEP_DOWN } from '../../src/engine/rate'
 import { noiseDbm } from '../../src/engine/phy'
@@ -57,7 +58,7 @@ import type { FadingCfg } from '../../src/engine/fading'
 import type { ChannelWidth } from '../../src/model/caps'
 import type { NodeCfg, Scenario } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
-import type { FrameDesc, MuPart } from '../../src/model/frames'
+import type { FrameDesc } from '../../src/model/frames'
 import { bsScenario, bsTag } from './amp-bs-helpers'
 
 /**
@@ -609,73 +610,56 @@ describe('selectivity: the section absent takes no per-bin draw at all', () => {
  * ===========================================================================
  */
 
-/** One `WIFI_SEL` row with the PPDU it judged, and this receiver's own part of it. */
-interface SelRow {
-  sel: Extract<TLRecord, { type: 'WIFI_SEL' }>
-  frame: FrameDesc
-  /** This receiver's member entry, absent when it is not addressed in the PPDU. */
-  part: MuPart | undefined
-}
-
 /**
- * Every `WIFI_SEL` of a run, paired with the PPDU it was the decision on.
+ * A published lesson's own scene, by id — the scene object itself, never a second copy of its
+ * node list.
  *
- * `WIFI_SEL` carries `node` and `from` but not the frame, so the pairing comes from the
- * `RX_START` that opened the same lock: `acquireLock` emits it with the frame, `resolveLock`
- * finds the lock back by `from`, and a receiver holds at most one lock per sender at a time —
- * so the last `RX_START` for a (node, from) pair is the frame this row judged. The `expect`
- * inside is what makes that an assertion rather than an assumption.
+ * The two scenes below used to inline the lesson's four `node(...)` calls, with a comment
+ * claiming the lesson's scene could not be used because it has neither section and must not get
+ * one (no recorded hash may move, §5.1). **That reason does not hold**: spreading a copy and
+ * adding two sections changes nothing in the lesson — `mumimoSelScene` three functions down does
+ * exactly that — and `LESSONS.find(...)!.scenario()` is already how `dl-mu-resolve.test.ts` and
+ * `dl-mu-standard.test.ts` reach this same lesson. Inlining left the node list identical *today*
+ * and silently free to diverge: move TV 2 and the lesson's own tests follow it while the counts
+ * pinned below stay green and stop describing any lesson at all.
  */
-function selRows(rs: TLRecord[]): SelRow[] {
-  const open = new Map<string, FrameDesc>()
-  const out: SelRow[] = []
-  for (const r of rs) {
-    if (r.type === 'RX_START') open.set(`${r.node}|${r.from}`, r.frame)
-    if (r.type !== 'WIFI_SEL') continue
-    const frame = open.get(`${r.node}|${r.from}`)
-    expect(frame, `WIFI_SEL with no RX_START before it: ${r.node} <- ${r.from}`).toBeDefined()
-    out.push({ sel: r, frame: frame!, part: frame!.muParts?.find((p) => p.dst === r.node) })
-  }
-  return out
+function lessonScene(id: string): Scenario {
+  const lesson = LESSONS.find((x) => x.id === id)
+  expect(lesson, `no published lesson with id ${id}`).toBeDefined()
+  return lesson!.scenario()
 }
 
 /**
- * The `ofdma-dl` lesson's own scene with the two sections that turn this feature on — three
- * Wi-Fi 6 TVs on one 20 MHz channel, so a two-member PPDU asks for 4.5 bins and gets 4 of 9.
- *
- * Built here rather than imported from the lesson because the lesson's published scene has
- * neither section, and must not get them: no recorded hash may move in this slice (§5.1). The
- * node list is the lesson's, character for character.
+ * The `ofdma-dl` lesson's scene with the two sections that turn this feature on — three Wi-Fi 6
+ * TVs on one 20 MHz channel, so a two-member PPDU asks for 4.5 bins and gets 4 of 9.
  */
 function ofdmaDlScene(shadowSigmaDb = 0): Scenario {
-  return sceneIn(oneRoom(), [
-    node('ap', 'AP', 'ap', 5, 4, 'eht', 'idle'),
-    node('sta-1', 'TV 1', 'sta', 3, 5.5, 'he', 'video'),
-    node('sta-2', 'TV 2', 'sta', 5, 6.5, 'he', 'video'),
-    node('sta-3', 'TV 3', 'sta', 7, 5.5, 'he', 'video'),
-  ], { fading: { ...RAYLEIGH, shadowSigmaDb }, selectivity: {} })
+  return {
+    ...lessonScene('ofdma-dl'),
+    fading: { ...RAYLEIGH, shadowSigmaDb },
+    selectivity: {},
+  }
 }
 
 /**
- * The `ofdma-ul` lesson's own scene with the two sections that turn this feature on — an access
- * point and two saturated uploaders on one 20 MHz channel, so every triggered round invites two
- * stations and each answer occupies half the solicited width.
+ * The `ofdma-ul` lesson's scene with the same two sections — an access point and two saturated
+ * uploaders on one 20 MHz channel, so every triggered round invites two stations and each answer
+ * occupies half the solicited width.
  *
- * `bystander` adds an idle third station that is never invited, which is the only way this engine
- * produces a receiver of a trigger-based PPDU that is not its addressee: the two invited stations
- * answer in the same instant, so neither of them can hear the other.
- *
- * Built here rather than imported from the lesson, for the same reason as `ofdmaDlScene`: the
- * published scene has neither section and must not get one (§5.1). The three-node list is the
- * lesson's, character for character.
+ * `bystander` adds an idle third station the lesson does not have, and it is the only way this
+ * engine produces a receiver of a trigger-based PPDU that is not its addressee: the two invited
+ * stations answer in the same instant, so neither of them can hear the other.
  */
 function ofdmaUlScene(bystander = false): Scenario {
-  return sceneIn(oneRoom(), [
-    node('ap', 'AP', 'ap', 5, 4, 'eht', 'idle'),
-    node('sta-1', 'Uploader A', 'sta', 3.5, 5.5, 'he', 'saturated'),
-    node('sta-2', 'Uploader B', 'sta', 6.5, 5.5, 'he', 'saturated'),
-    ...(bystander ? [node('sta-3', 'Bystander', 'sta', 5, 6.5, 'he', 'idle')] : []),
-  ], { fading: RAYLEIGH, selectivity: {} })
+  const base = lessonScene('ofdma-ul')
+  return {
+    ...base,
+    nodes: bystander
+      ? [...base.nodes, node('sta-3', 'Bystander', 'sta', 5, 6.5, 'he', 'idle')]
+      : base.nodes,
+    fading: RAYLEIGH,
+    selectivity: {},
+  }
 }
 
 /** One `WIFI_SEL` taken on a trigger-based PPDU, with that PPDU and the Trigger behind it. */
@@ -744,9 +728,37 @@ describe('selectivity, slice 4b: a member reads its own resource unit', () => {
      */
     expect(mumimo.length).toBe(2022)
     expect(selRows(run(mumimoSelScene(), 150 * MS)).length).toBe(1824)
+
+    /*
+     * **Half of those rows are not members, and the members are the population under test.**
+     * `expect(x.part?.ruFraction).toBeUndefined()` passes on an overhearer for a reason that
+     * has nothing to do with MU-MIMO: that station has no `part` at all. So the two are split
+     * and both anchored, the way the OFDMA test next door anchors 341 against 169 — otherwise
+     * a change like `MUMIMO_MIN_BYTES` that stopped this scene grouping would leave the loop
+     * below "proving" that MU-MIMO members carry no share over a population with no members
+     * in it.
+     *
+     * Instrument: `mumimoScenario(true)` + Rayleigh + `selectivity` over `MU_ROUND_NS`
+     * (1000 ms), `muKind: 'mumimo'` subset — 1017 addressed members, 1005 overhearers.
+     */
+    const members = mumimo.filter((x) => x.part !== undefined)
+    const overhearers = mumimo.filter((x) => x.part === undefined)
+    expect(members.length).toBe(1017)
+    expect(overhearers.length).toBe(1005)
+    expect(members.length + overhearers.length).toBe(mumimo.length)
+
     expect(new Set(mumimo.map((x) => x.sel.bins))).toEqual(new Set([selBins(160)]))
-    for (const x of mumimo) {
-      expect(x.part?.ruFraction).toBeUndefined() // the reason it is untouched
+    for (const x of members) {
+      // The reason this slice leaves them alone: a MU-MIMO member is addressed and still has
+      // no share, because `mac.ts` gives it the full width at its own stream count instead.
+      expect(x.part!.ruFraction).toBeUndefined()
+      expect(x.part!.nss).toBeGreaterThanOrEqual(1)
+      expect(x.sel.bins).toBe(72)
+      expect(x.sel.binStart).toBe(0)
+      expect('ruFraction' in x.sel).toBe(false)
+    }
+    for (const x of overhearers) {
+      // Whole channel too, but for the other reason — the preamble spans the bandwidth.
       expect(x.sel.bins).toBe(72)
       expect(x.sel.binStart).toBe(0)
       expect('ruFraction' in x.sel).toBe(false)
@@ -759,6 +771,22 @@ describe('selectivity, slice 4b: a member reads its own resource unit', () => {
    * decode outcome at all. Both pinned counts were measured on the pre-change engine, where
    * these same members read nine bins — they are the "same as the nine-bin round" half of the
    * claim, and the reason this test is not merely "the feature now does something".
+   *
+   * **Instrument for every count and every decibel below**: the `ofdma-dl` lesson's own scene
+   * plus Rayleigh fading with no shadow and `selectivity: {}`, seed 7, over `MU_ROUND_NS`
+   * (1000 ms), split into the OFDMA member subset, the OFDMA overhearer subset and the
+   * single-user subset of `WIFI_SEL`. A count of rows means nothing without that sentence.
+   *
+   * **On the loss: the assertion is on the median, and the reason is physical.** §8 item 2 as
+   * first written asked for `lossDb > 0` on every member row, and that is false — of these 341
+   * member rows **66 have `lossDb <= 0`, the lowest −4.05 dB**, and the untouched single-user
+   * rows of the same run are no different (**737 of 9595 negative**, lowest −2.97 dB). Capacity
+   * combining is not a penalty: averaging `log2(1 + SNR)` over independent bins and inverting
+   * can land *above* the mean SINR, so a run of bins that happened to fade favourably shows a
+   * negative loss. **This slice did not create that** — it is 4a's combiner, visible in rows it
+   * never touched — and the spec was corrected rather than the assertion weakened (design
+   * 2026-10-04 §8.0). The median is the claim that holds and says something: the loss is real
+   * and positive in the typical row.
    */
   it('gives a two-member OFDMA PPDU four of the nine bins, and moves no outcome', () => {
     const rs = run(ofdmaDlScene(), MU_ROUND_NS)
@@ -800,6 +828,24 @@ describe('selectivity, slice 4b: a member reads its own resource unit', () => {
     expect(su.length).toBe(9595)
     expect(new Set(su.map((x) => x.sel.bins))).toEqual(new Set([full]))
     for (const x of su) expect('ruFraction' in x.sel).toBe(false)
+
+    // There is a loss, and it is positive where it counts. Medians, not minima: see the doc
+    // comment for why 66 of these 341 rows are negative and why that is 4a's combiner rather
+    // than this slice.
+    const memberLoss = members.map((x) => x.sel.lossDb).sort((a, b) => a - b)
+    const suLoss = su.map((x) => x.sel.lossDb).sort((a, b) => a - b)
+    expect(quantile(memberLoss, 0.5)).toBeGreaterThan(0)
+    expect(quantile(memberLoss, 0.5)).toBeCloseTo(2.516, 3)
+    expect(memberLoss.filter((v) => v <= 0).length).toBe(66)
+    expect(memberLoss[0]).toBeCloseTo(-4.054, 3)
+    // The same combiner on the rows this slice never touched: negatives are not a member thing.
+    expect(suLoss.filter((v) => v <= 0).length).toBe(737)
+    expect(suLoss[0]).toBeCloseTo(-2.972, 3)
+    // And what the whole correction is worth here, which is the "no consequence" in numbers:
+    // the mean member loss goes from 2.530 dB on nine bins to 2.628 dB on four (design §8.0).
+    const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length
+    expect(mean(memberLoss)).toBeCloseTo(2.628, 3)
+    expect(mean(suLoss)).toBeCloseTo(2.530, 3)
 
     // The outcome half: identical to the nine-bin round, to the frame.
     expect(lowSinrFails(rs)).toBe(10)

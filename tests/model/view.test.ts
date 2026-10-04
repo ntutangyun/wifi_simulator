@@ -516,8 +516,16 @@ describe('WIFI_SEL: the first dBm-bearing record in the Wi-Fi stream', () => {
    * A member's row carries three more fields (slice 4b), and `lastSel` has to keep the record's
    * own distinction: `ruFraction` present means `bins` is that member's resource unit, absent
    * means it is the whole channel, while `widthMhz` is there either way because it is the
-   * denominator the other two are counted against. `toEqual` is what says `ruFraction` is
-   * really absent above, rather than present and undefined.
+   * denominator the other two are counted against.
+   *
+   * **`'ruFraction' in ...` is the assertion that pins the absence, and nothing else here
+   * does.** An earlier version of this comment credited the `toEqual` above, which is wrong:
+   * `toEqual` ignores keys whose value is `undefined` — measured, `equals({a:1,b:undefined},
+   * {a:1})` is `true` and only the strict comparison returns `false`. So a `toEqual` would go
+   * on passing if `applyRecord`'s conditional spread were flattened to an unconditional
+   * `ruFraction` assignment, turning "absent" into "present and undefined" — and the whole
+   * record-level claim that *absent means the whole channel* rests on that distinction. The
+   * behaviour that comment described belongs to `toStrictEqual`.
    *
    * The override is a coherent row rather than four loose numbers: 20 MHz is nine bins, so a
    * second member of two holds bins 4 to 7 and bin 8 is held by nobody.

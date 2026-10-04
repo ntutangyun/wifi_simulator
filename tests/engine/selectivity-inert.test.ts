@@ -38,7 +38,7 @@
  * | `shadowDb`: key the slow layer by `tNs` rather than by the interval index | **S only** | — |
  * | `selCombine`: `worstBinDb` from `Math.max` instead of `Math.min` | M ×2 | Task 4 ×2 |
  * | delete the AMP carve-out (`isOfdmWifiPpdu` → `true`) | **none** | Task 4's AMP stream — which is why that item is not re-proved here |
- * | `selCombine`: give a member the whole PPDU's bins again, as before slice 4b | **U only** | slice 4b's round tests ×3 |
+ * | `selCombine`: give a member the whole PPDU's bins again, as before slice 4b | **U only** | slice 4b's round tests ×5 of 8 |
  *
  * Every test here is killed by at least one mutation and no mutation killed nothing, so there is
  * no tautology to delete this time. Two are the only thing on the branch that holds its line:
@@ -49,16 +49,24 @@
  * mutation the engine's rule, so the row is now its inverse: what kills U today is putting the
  * member back on the whole channel. That row **was** re-measured the same way (one line of
  * `selCombine` forced to the whole-channel share, the three selectivity files plus
- * `tests/model/view.test.ts` run, then the file restored from a byte copy and `git diff`
- * confirmed to carry only this slice's own change and not the mutation):
- * U dies here, three of slice 4b's four round tests die there, and the fourth — the
- * MU-MIMO one — survives, which is what makes it an assertion that nothing moved rather than a
- * second copy of the others.
+ * `tests/model/view.test.ts` and `tests/ui/format.test.ts` run, then the file restored from a
+ * byte copy and `git diff` confirmed to carry only this slice's own change and not the
+ * mutation). U dies here, and **five of slice 4b's eight round tests** die in
+ * `selectivity-round.test.ts`. The three survivors are the interesting part, and all three
+ * survive on purpose:
+ *
+ *   - the **MU-MIMO** one, because MU-MIMO already read the whole channel — which is what makes
+ *     it an assertion that nothing moved rather than a second copy of the others;
+ *   - **"never mixes members that hold a share with members that hold none"**, which is about
+ *     what `mac.ts` builds, not about what `selCombine` reads of it;
+ *   - **"says on every row what its bins were counted against"**, which asserts that
+ *     `WIFI_SEL.widthMhz` is there and consistent, and that stays true whichever bins were read.
  */
 import { describe, it, expect } from 'vitest'
 import { Simulation } from '../../src/engine/simulation'
 import { mumimoScenario, widthScenario } from '../../src/course/wifiScenes'
 import { selBins, selMemberBins } from '../../src/engine/selectivity'
+import { selRowDecoded, selRows } from './selectivity-pairing'
 import { noiseDbm } from '../../src/engine/phy'
 import { RICIAN_K_DEFAULT_DB, type FadingCfg } from '../../src/engine/fading'
 import type { ChannelWidth } from '../../src/model/caps'
@@ -412,43 +420,39 @@ describe('selectivity, slice 4b: a multi-user member gets its own resource unit�
    * leaving this note: "this is the one test in this file that slice 4b must change rather than
    * keep", with `selBins(widthMhz × ruFraction)` named as the value that would replace it.
    *
-   * **On this scene that prediction is exactly right, and it is still not the engine's rule.**
-   * 160 MHz over three members is 24 whole bins, so nothing is truncated here. The engine's
-   * value is `selMemberBins(widthMhz, ruFraction)` — the same product, floored — and the two
-   * part company on the three (bandwidth, member count) combinations where a share is not a
-   * whole number of bins: 20 MHz over two or four members, and 40 MHz over four (design
-   * 2026-10-04 §2.1, §2.3, measured against Table 27-8 / Table 27-9). This scene is not one of
-   * them, and the test says both things: the engine's value, and that 4a's prediction coincides
-   * with it here *because* the division came out whole.
+   * **4a's predicted value is off by a bin on this very scene**, because the order of the two
+   * multiplications is not free in floating point: the engine computes
+   * `selBins(widthMhz) × ruFraction`, floored, and scaling the *width* first loses a bin at
+   * n = 3 on all five widths. That is pure arithmetic and so it is pinned at the pure-function
+   * layer, in `tests/engine/selectivity.test.ts` ("loses a bin at n = 3 on every width…"), not
+   * here behind an 80 ms round. What this test does is the part that needs a round: that the
+   * record the engine emits agrees, row by row, with the PPDU it judged.
+   *
+   * **Measuring instrument**: `mumimoScenario(false)` (so OFDMA, not MU-MIMO) with Rayleigh
+   * fading and `selectivity`, over **80 ms**, counting the **OFDMA member subset** of
+   * `WIFI_SEL` — members only, failures included (see `selectivity-pairing.ts` for why that
+   * last word is load-bearing).
    */
   it('reports the member’s own bins, from its own share, with nothing truncated on this scene', () => {
     const base = mumimoScenario(false)
     const rs = run({ ...base, fading: RAYLEIGH, selectivity: {} }, 80 * MS)
 
-    // `WIFI_SEL` now carries `ruFraction` and `binStart` of its own, but the frame is still
-    // read off the outcome that follows: what is under test is that the record agrees with the
-    // PPDU it judged. `resolveLock` emits the combining record immediately before the
-    // RX_OK/RX_FAIL for the same (node, from) at the same instant.
-    const members: {
-      bins: number; binStart: number; widthMhz: number; frac: number; recorded: number | undefined
-    }[] = []
-    for (let i = 0; i < rs.length; i++) {
-      const sel = rs[i]
-      if (sel.type !== 'WIFI_SEL') continue
-      const outcome = rs.slice(i + 1, i + 4).find((r) => (
-        (r.type === 'RX_OK' || r.type === 'RX_FAIL') && r.node === sel.node && r.from === sel.from
-      ))
-      if (outcome?.type !== 'RX_OK' || outcome.frame.muKind !== 'ofdma') continue
-      const part = outcome.frame.muParts?.find((p) => p.dst === sel.node)
-      if (part?.ruFraction === undefined) continue // an overhearer, not a member of this PPDU
-      members.push({
-        bins: sel.bins, binStart: sel.binStart, widthMhz: outcome.frame.widthMhz ?? 20,
-        frac: part.ruFraction, recorded: sel.ruFraction,
-      })
-    }
+    // One pairing measure for every selectivity test (`selectivity-pairing.ts`). This file used
+    // to look forward to the `RX_OK` instead, which silently dropped every member reception
+    // that failed — and slice 4b is the change that makes a member fail. On this scene that was
+    // 95 members audited out of 98.
+    const rows = selRows(rs)
+      .filter((x) => x.frame.muKind === 'ofdma' && x.part?.ruFraction !== undefined)
+    const members = rows.map((x) => ({
+      bins: x.sel.bins, binStart: x.sel.binStart, widthMhz: x.sel.widthMhz,
+      frac: x.part!.ruFraction!, recorded: x.sel.ruFraction,
+      decoded: selRowDecoded(rs, x),
+    }))
 
-    // Non-vacuous: the scene really does group, and often enough to measure.
-    expect(members.length).toBeGreaterThan(20)
+    // Non-vacuous: the scene really does group, and often enough to measure. 98 member rows at
+    // 80 ms, of which 3 failed to decode — the three the old forward pairing could not see.
+    expect(members.length).toBe(98)
+    expect(members.filter((m) => !m.decoded).length).toBe(3)
     for (const m of members) {
       expect(m.frac).toBeLessThan(1)
       // The record states the share it used, which is what makes `bins` readable at all: 24 on
@@ -459,33 +463,17 @@ describe('selectivity, slice 4b: a multi-user member gets its own resource unit�
       expect(m.bins).toBeLessThan(selBins(m.widthMhz))
       // The overestimate 4a asserted, stated as the factor that is now gone.
       expect(selBins(m.widthMhz) / m.bins).toBeCloseTo(1 / m.frac, 9)
-      // Nothing is truncated on this scene: the share divides the bin count whole, so the
-      // engine's floor does nothing here and 4a's arithmetic agrees with it — but only in the
-      // order `selMemberBins` uses. See the two lines after this loop.
+      // Nothing is truncated on this scene: 160 MHz over two or three members divides the bin
+      // count whole, so the engine's floor does nothing here. The truncation itself is covered
+      // where it bites, at the pure-function layer.
       expect(selBins(m.widthMhz) * m.frac).toBe(m.bins)
       expect(Number.isInteger(selBins(m.widthMhz) * m.frac)).toBe(true)
       // The run stays inside the channel — the gate `selCombine` throws on.
       expect(m.binStart).toBeGreaterThanOrEqual(0)
       expect(m.binStart + m.bins).toBeLessThanOrEqual(selBins(m.widthMhz))
     }
-
-    /*
-     * **4a's predicted replacement value is off by a bin, and the difference is the order of
-     * two multiplications.** 4a named `selBins(widthMhz × ruFraction)`; `selMemberBins`
-     * computes `selBins(widthMhz) × ruFraction`, floored. In exact arithmetic those are the
-     * same product. In doubles they are not: scaling the *width* by 1/3 first gives
-     * 53.333… MHz, and 9 × that / 20 lands just under 24, so flooring it yields **23** — one
-     * bin fewer than the member actually holds, on the very scene 4a was looking at. Scaling
-     * the *bin count* instead keeps the division exact, which is what Task 1 measured across
-     * all five widths for the n = 3 column.
-     *
-     * This is pinned rather than described because it is the one way this slice could have
-     * shipped an off-by-one that no round-level assertion would have noticed: 23 bins is a
-     * perfectly plausible number.
-     */
-    expect(selBins(160 * (1 / 3))).toBeLessThan(24)
-    expect(Math.floor(selBins(160 * (1 / 3)))).toBe(23)
-    expect(selMemberBins(160, 1 / 3)).toBe(24)
+    // Both shares the scene builds are present, so no row above is one group size's accident.
+    expect(new Set(members.map((m) => m.frac))).toEqual(new Set([1 / 2, 1 / 3]))
   }, 120_000)
 })
 

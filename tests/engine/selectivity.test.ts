@@ -335,6 +335,86 @@ describe('selBinStart: members take consecutive runs, and the dropped bin stays 
     }
   })
 
+  /*
+   * What actually keeps `selCombine`'s overflow gate unreachable, written as arithmetic
+   * rather than as a sentence in a comment.
+   *
+   * The loop above stops at four members because that is all `mac.ts` builds, and that
+   * stopping point looks like a test-coverage choice. It is not: it is the whole reason the
+   * gate cannot fire. `selMemberBins` floors at one bin, so n members claim **at least** n
+   * bins however thin their shares are, and an exactly equal split therefore overflows the
+   * channel the moment n passes that channel's bin count. The narrowest channel has nine
+   * bins, `mac.ts` caps a group at four (`muDsts.slice(0, 4)` downlink and
+   * `users.slice(0, 4)` for a Trigger's users), and four is less than nine — that gap, and
+   * not the evenness of the division, is what makes the gate dead code today.
+   *
+   * So this is a test about a cap in another file, deliberately: raise it past nine and the
+   * engine throws on an allocation with nothing wrong with it, and the message `selCombine`
+   * prints has to say so rather than blame the shares.
+   */
+  it('overflows the narrowest channel only past its bin count, which is why the cap of four is safe', () => {
+    const NARROWEST = 20
+    const full = selBins(NARROWEST)
+    expect(full).toBe(9)
+
+    const claimed = (n: number): number => {
+      const fractions = new Array<number>(n).fill(1 / n)
+      return selBinStart(NARROWEST, fractions, n - 1) + selMemberBins(NARROWEST, 1 / n)
+    }
+    // Every group size the engine can build fits, and the largest one is not close to the edge.
+    expect([2, 3, 4].map(claimed)).toEqual([8, 9, 8])
+    for (const n of [2, 3, 4]) expect(claimed(n)).toBeLessThanOrEqual(full)
+    // So do all the sizes between the cap and the bin count: the floor is not yet binding.
+    for (let n = 5; n <= full; n++) expect(claimed(n)).toBeLessThanOrEqual(full)
+    // One past the bin count, and the floor alone overflows it — n members, one bin each.
+    expect(claimed(full + 1)).toBe(full + 1)
+    expect(claimed(full + 1)).toBeGreaterThan(full)
+    // And the shares that did it sum to exactly one, which is what `selCombine`'s message
+    // prints to keep this case from being reported as an overlay that was never built.
+    const overflowing = new Array<number>(full + 1).fill(1 / (full + 1))
+    expect(overflowing.reduce((s, v) => s + v, 0)).toBeCloseTo(1, 12)
+  })
+
+  /*
+   * **The order of the two multiplications is worth one bin, and only at n = 3.**
+   *
+   * 4a predicted that the per-member count would be `selBins(widthMhz × ruFraction)`.
+   * `selMemberBins` computes `selBins(widthMhz) × ruFraction`, floored. In exact arithmetic
+   * those are the same product; in doubles they are not, because scaling the *width* by 1/3
+   * first produces a non-terminating binary fraction that lands just under the integer, so
+   * flooring it loses a bin. Scaling the *bin count* keeps the division exact.
+   *
+   * This lives here, at the pure-function layer, because it is pure arithmetic — it used to
+   * sit at the end of a round-level test in `selectivity-inert.test.ts`, where it only ran
+   * after an 80 ms simulation and would have disappeared with that test.
+   *
+   * It is pinned rather than described because it is the one way this slice could have shipped
+   * an off-by-one that no round-level assertion would notice: 23 bins out of 72 is a perfectly
+   * plausible number. And it is pinned on **all five widths**, not just the one 4a's note
+   * happened to mention, together with the two member counts where the trap does not exist —
+   * n = 2 and n = 4 are exact in binary, so the two orders agree there and the hazard would
+   * look narrower than it is if only one column were shown.
+   */
+  it('loses a bin at n = 3 on every width if the width is scaled before the bin count', () => {
+    const WIDTHS = [20, 40, 80, 160, 320]
+    const scaleWidthFirst = WIDTHS.map((w) => Math.floor(selBins(w * (1 / 3))))
+    const scaleBinsFirst = WIDTHS.map((w) => selMemberBins(w, 1 / 3))
+    expect(scaleWidthFirst).toEqual([2, 5, 11, 23, 47])
+    expect(scaleBinsFirst).toEqual([3, 6, 12, 24, 48])
+    for (let i = 0; i < WIDTHS.length; i++) {
+      expect(scaleWidthFirst[i]).toBe(scaleBinsFirst[i]! - 1) // exactly one bin, every width
+      // The engine's order is exact; 4a's lands strictly below the integer it should have hit.
+      expect(selBins(WIDTHS[i]!) * (1 / 3)).toBe(scaleBinsFirst[i])
+      expect(selBins(WIDTHS[i]! * (1 / 3))).toBeLessThan(scaleBinsFirst[i]!)
+    }
+    // n = 2 and n = 4 are exact in binary, so there the two orders agree and there is no trap:
+    // the hazard is the share, not the truncation.
+    for (const n of [2, 4]) {
+      expect(WIDTHS.map((w) => Math.floor(selBins(w * (1 / n)))))
+        .toEqual(WIDTHS.map((w) => selMemberBins(w, 1 / n)))
+    }
+  })
+
   it('is a pure function of its arguments - same inputs, same bins', () => {
     const fractions = [1 / 3, 1 / 3, 1 / 3]
     expect(selBinStart(160, fractions, 2)).toBe(selBinStart(160, fractions, 2))

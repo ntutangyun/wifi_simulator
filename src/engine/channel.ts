@@ -984,30 +984,53 @@ export class Channel {
       )
     }
     if (start + bins > full) {
-      // This is slice 4b's real new gate, and the reason the shares are read off the members
-      // rather than counted: members take consecutive runs, so the last run passing the
-      // channel edge *is* the shares of this one transmission summing past the whole channel.
+      // This is slice 4b's real new gate: resource units are laid down as consecutive runs, so
+      // the last run passing the channel edge is the only way a PPDU can claim more of the
+      // channel than the channel has.
       //
-      // **Deliberately not "these shares are wrong".** Shares summing past 1 has a second and
-      // perfectly legitimate cause: under MU-MIMO within OFDMA several members share one
-      // resource unit and every one of their shares is correct (design §4.5.2, §4.5.6). That
-      // overlay is the thing this engine does not build — `buildMuParts` takes a boolean, so
-      // `muKind` is one or the other — and that exclusivity is the premise this gate holds
-      // under. The day it fires is the day the overlay was built, and then what needs changing
-      // is this slice, not this check.
+      // **Two different causes reach it, and the message must not diagnose one as the other.**
+      //
+      //   1. *The shares really do sum past 1.* Under MU-MIMO within OFDMA several members
+      //      share one resource unit and every one of their shares is correct (design §4.5.2,
+      //      §4.5.6) — so even then this is not "these shares are wrong". It is an overlay this
+      //      engine does not build: `buildMuParts` takes a boolean, so `muKind` is one or the
+      //      other, and that exclusivity is the premise the gate holds under.
+      //   2. *The shares fit and the one-bin floor does not.* `selMemberBins` floors at one bin
+      //      (a 26-tone RU is the smallest thing anyone can hold), so n members claim at least
+      //      n bins however thin their shares are, and an **exactly equal, entirely legal**
+      //      split overflows the channel as soon as n passes the channel's bin count. Reporting
+      //      that as an overlay would send the next reader hunting for something that was never
+      //      built.
+      //
+      // The sum printed below is what tells them apart: at or below 1, the floor overflowed and
+      // the shares did not.
+      //
+      // **And what keeps this gate unreachable today is the group-size cap, not the even
+      // division.** `mac.ts` caps a group at four — `muDsts.slice(0, 4)` downlink and
+      // `users.slice(0, 4)` for a Trigger's users — while the narrowest channel has nine bins,
+      // so four floors of one can never reach ten. Raise that cap past `selBins(20) = 9` and
+      // cause 2 fires on an allocation with nothing wrong with it.
+      // `tests/engine/selectivity.test.ts` pins that arithmetic, so the cap and this gate
+      // cannot drift apart without a test saying so.
       //
       // A trigger-based PPDU reaches this gate too, and there the shares to print are not a
-      // member list: the frame carries its own one share and its own index, so that is what
-      // the message says instead of an empty list of members it never had.
-      const where = lock.frame.muParts === undefined
-        ? `trigger-based PPDU, ruFraction ${lock.frame.ruFraction}, ruIndex ${lock.frame.ruIndex}`
-        : `muKind ${lock.frame.muKind}, ruFraction `
-          + `[${lock.frame.muParts.map((p) => p.ruFraction ?? 'whole channel').join(', ')}], `
-          + `${lock.frame.muParts.length} members`
+      // member list: the frame carries its own one share and its own index, and not the round's
+      // user count, so no sum can be formed from one answer.
+      const shares = lock.frame.muParts?.map((p) => p.ruFraction ?? 1)
+      const where = shares === undefined
+        ? `trigger-based PPDU, ruFraction ${lock.frame.ruFraction}, ruIndex `
+          + `${lock.frame.ruIndex}; one answer per PPDU, so this frame carries no user count `
+          + `and no sum`
+        : `muKind ${lock.frame.muKind}, ${shares.length} members, ruFraction `
+          + `[${lock.frame.muParts!.map((p) => p.ruFraction ?? 'absent, read as 1').join(', ')}]`
+          + `, summing to ${shares.reduce((s, v) => s + v, 0)}`
       throw new Error(
         `channel: ${rid} <- ${lock.from}: bins ${start}..${start + bins - 1} leave the ${full} `
-        + `bins of this ${widthMhz} MHz PPDU — the shares of this transmission sum past the `
-        + `whole channel, and this engine does not model MU-MIMO within OFDMA (${where})`,
+        + `bins of this ${widthMhz} MHz PPDU. Either the shares of this transmission sum past `
+        + `the whole channel — MU-MIMO within OFDMA, which this engine does not model — or they `
+        + `fit and the one-bin floor does not, which is a legal equal split among more members `
+        + `than the channel has bins. The sum says which: at or below 1 it is the floor, not `
+        + `the shares (${where})`,
       )
     }
     const flatFadeDb = smallScaleDb(f.cfg, f.seed, lock.from, rid, lock.fadeKey)
