@@ -340,7 +340,8 @@ describe('ofdma-ul · the experiments', () => {
 /**
  * **Slice 4b landed on the uplink too, so this entry states what the engine now does.** Each
  * answer of a triggered round reads the bins of its OWN share: the share and the index are on
- * the triggered frame itself (`FrameDesc.ruFraction` / `ruIndex`, written by `respondToTrigger`
+ * the triggered frame itself (`FrameDesc.ru`, one object carrying `fraction` and `partIdx`
+ * rather than two optional fields, written by `respondToTrigger`
  * out of the Trigger's per-user RU Allocation), and `selCombine` turns them into a bin count and
  * a start. 4a's overestimate — the whole channel's bins for every answer — is gone, and so is
  * the sentence that promised a later slice would remove it.

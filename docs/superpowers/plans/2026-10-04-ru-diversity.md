@@ -118,9 +118,11 @@ Test `tests/engine/selectivity.test.ts`、`tests/engine/selectivity-round.test.t
   `WIFI_SEL.bins` 等于 `selMemberBins(width, 1/n)` 而**不是** `selBins(width)`。
   再加一条：`ofdma-ul` 的场景上 fixture 哈希**逐字节不变**（证明新字段不进时序）。
 - [ ] **Step 2:** 跑它，确认失败。
-- [ ] **Step 3:** 在 `FrameDesc` 上加两个**可选**字段 `ruFraction` / `ruIndex`，
-  `respondToTrigger` 填上。**出处 `standard §9.3.1.22.1`**（触发帧 Common Info 里的
-  RU 分配与 UL BW，`ofdma-ul.ts` 的 `sources` 已经引了它）：
+- [ ] **Step 3:** 在 `FrameDesc` 上加一个**可选**字段
+  `ru?: { fraction: number; partIdx: number }`（落地时从两个独立可选字段换成了一个对象，
+  理由在规格 §4），`respondToTrigger` 填上。**出处 `standard §9.3.1.22.1`**（触发帧的
+  RU 分配与 UL BW——RU Allocation 是 **User Info** 的子字段，Common Info 里只有 UL BW；
+  `ofdma-ul.ts` 的 `sources` 已经引了它）：
   **一台被触发的站点占哪一片是触发帧指定的，所以它该写在被触发那一帧上。**
 - [ ] **Step 4:** 加那条反向断言（§8 第 1b 条）：任意一发多用户 PPDU 的 `muParts` 里
   `ruFraction` **要么人人有、要么人人没有**。混了就是 MU-MIMO-within-OFDMA 被偷偷建了出来。

@@ -1,5 +1,5 @@
 /**
- * Wi-Fi Tier 2 · M7 · Scheduled Wi-Fi 6/7 · what a member's own resource unit costs it
+ * Wi-Fi Tier 2 · M10 · Scheduled Wi-Fi 6/7 · what a member's own resource unit costs it
  * in frequency diversity.
  *
  * The lesson of slice 4b (docs/superpowers/specs/2026-10-04-ru-diversity-design.md §7.2,
@@ -178,11 +178,11 @@ export const ruDiversity: Lesson = {
     J('第一次没解出来的接收', (r) => r.type === 'RX_FAIL' && r.reason === 'lowSinr'),
   ],
   observe: [
-    `跳到第一条带着份额的合成记录：末尾写的是 over bins 0–${selMemberBins(20, 1 / 2) - 1} of ${selBins(20)}, its 1/2 of the channel，而另一台电视那一行是 bins ${selMemberBins(20, 1 / 2)}–${2 * selMemberBins(20, 1 / 2) - 1} of ${selBins(20)}——哪台拿前一段并不固定，成员次序跟着队列（queue）里的先后走。同一行前面那三个读数是 mean、worst bin 与 effective，而这一整轮 292 条下行接收里只有 1 条写着 over ${selBins(20)} bins：那是整轮唯一一次没有编成组的发送。`,
+    `跳到第一条带着份额的合成记录：末尾写的是 over bins 0–${selMemberBins(20, 1 / 2) - 1} of ${selBins(20)}, its 1/2 of the channel，而另一台电视那一行是 bins ${selMemberBins(20, 1 / 2)}–${2 * selMemberBins(20, 1 / 2) - 1} of ${selBins(20)}——哪台拿前一段并不固定，成员次序跟着队列（queue）里的先后走。同一行前面那三个读数是 mean、worst bin 与 effective，而整条信道那一行——写着 over ${selBins(20)} bins 的那一条——整轮只有 1 条：那是唯一一次没有编成组的发送。这两个数要带时长读：本课默认载入的 150 ms 里，接入点发出的合成记录一共 45 条，其中 1 条是整条信道；把这一轮跳到后面几张表用的 1000 ms，是 292 条里的 1 条。两个时长上那一条都只有一条。`,
     '再盯住同一行的 loss 和紧跟它的那条接收结果。loss 多半在 2 dB 上下，偶尔是负的（合成之后比均值还好），偶尔深到十个分贝以上；深的那几次后面跟的就是解不出来的接收。切到「分片关掉」那个变体再看一遍：loss 的中位数反而更高一点，而很深的那几次少了。',
   ],
   tryThis: [
-    '在本课的两个变体之间来回切。「分片关掉」是同一个户型、同一组位置、同一个种子、同一条链路，唯一变的是每次接收读 4 格还是读 9 格，而两腿的余量是同一个浮点数——这正是前一课的「把 OFDMA 关掉」那个实验，换个问题问一遍：这一次要看的不是省了多少空口，而是同一个余量下掉帧的比例从 18.12 % 涨到 26.24 %。',
+    '在本课的两个变体之间来回切。「分片关掉」是同一个户型、同一组位置、同一个种子、同一条链路，唯一变的是每次接收读 4 格还是读 9 格，而两腿读到的余量是同一个浮点数（关掉分片那一腿 140 条里有 138 条是，剩下 2 条不是；`numbers` 里那句话给了准确的计数）——这正是前一课的「把 OFDMA 关掉」那个实验，换个问题问一遍：这一次要看的不是省了多少空口，而是同一个余量下掉帧的比例从 18.12 % 涨到 26.24 %。',
     '点「在编辑器中打开」，在卧室里再放一台同样的电视，重新载入。编组会整个散掉：1000 ms 里 349 次下行发送一次也没装两个成员，三个成员的那一组一次也编不出来。原因在空口时间上——份额越小、资源单元越窄，同样的字节要占越长的空口，而在最低一级速率上一包视频装在三分之一片里就超过了一次发送的时长上限。所以「切得更薄会更糟」这条链条，在这个场景上只能算到二分之一为止。',
   ],
   quiz: [

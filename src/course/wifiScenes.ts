@@ -188,23 +188,31 @@ function twoWallFlat(): { rooms: Room[]; walls: Wall[] } {
  *    **6.240 / 4.826 / 3.547 / 2.381 dB** — so the shipped point has about 1 dB, or one metre,
  *    before the band's lower edge. The three nearer positions all pass the gate (6.76 % against
  *    1.49 % at x = 11.5, 18.44 % against 6.56 % at x = 12.5); x = 14.5 is already inside the
- *    non-monotone region. **Further from the router is where this scene breaks, and it breaks
- *    quietly.**
+ *    non-monotone region. **Instrument for every figure in this paragraph and the two below**,
+ *    unless one says otherwise: this builder with both televisions' x moved together, seed 7,
+ *    1000 ms, addressed downlink receptions only, grouped by raw float margin, largest group —
+ *    the gate's own rule (`tests/course/ru-diversity.test.ts` pins all of them).
+ *    **Further from the router is where this scene breaks, and it breaks quietly.**
  *
  *    **The two alternatives, and what is actually wrong with each.**
  *    *One wall instead of two* does not give one number, and this is where the comment was
  *    wrong twice over: leaving the televisions where they are and deleting the x = 11 partition
- *    gives a median margin of **15.547 dB** (628 of 666 receptions on that rung) — the useless
- *    margin `ofdma-dl` already has; whereas one wall *with the televisions moved into the
- *    living room at x = 8.5* gives **5.672 dB over four rungs at MCS 4 to 7** (1000 ms, seed 7,
- *    both measured on this builder). Both are real and they are two different scenes, so the
- *    one-variable control is the first. The second is not a control at all: its margin is
- *    multi-valued, which is the confound again.
+ *    gives a median margin of **15.547 dB** (628 of 666 addressed downlink receptions sit on
+ *    that one rung — grouped by the MCS decode threshold, which is what "rung" means here; the
+ *    same rows grouped by exact float margin give 588, so the grouping has to be stated) — the
+ *    useless margin `ofdma-dl` already has; whereas one wall *with the televisions moved into
+ *    the living room at x = 8.5* gives **5.672 dB at the median over four rungs, MCS 4 to 7**
+ *    (1000 ms, seed 7, both measured on this builder). Both are real and they are two
+ *    different scenes, so the one-variable control is the first. The second is not a control
+ *    at all: its margin is multi-valued, which is the confound again.
  *    *Turning the router down* reaches the same rung at **12 dB**, not 13 — the brick's own
  *    loss, since −11 / −12 / −13 dB on the one-wall plan give 4.547 / 3.547 / 2.547 dB. It is
  *    still not the same scene, and not merely a worse story: the power knob only moves the
  *    downlink, so the televisions' own frames keep the 12 dB the wall would have taken, and the
- *    round differs (291 member receptions at 26.12 % here against 284 at 29.93 % there).
+ *    round differs — **291 member receptions at 26.12 % here against 283 at 30.04 % there**,
+ *    both counted the same way. (This pair used to read 「284 at 29.93 %」, which was that
+ *    round's 283 members *plus* its one whole-channel reception, divided into the members' own
+ *    85 failures: true of neither population, and not the instrument the figure beside it uses.)
  *    **And 13 dB — the figure this comment used to print — lands on 2.547 dB, inside the
  *    non-monotone region, where the gate is not even stably signed**: that configuration passes
  *    at 1000 ms (41.94 % against 39.45 %) and **fails at 2000 ms (38.58 % against 39.91 %)**.

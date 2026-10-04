@@ -534,6 +534,40 @@ describe('selectivity · the four limits are each about this engine', () => {
    * legacy link in the same scene is not binned, and a multi-user member is handed the whole
    * channel's bins.
    */
+  /**
+   * **Rate selection is not the fourth reader of the flat draw, and this lesson said it twice.**
+   * `picture`'s 「只有解调这一步读合成值」 and this entry both enumerated 「载波侦听、前导检测、
+   * 捕获效应与选级读的仍然是那一次平坦抽样」, and `picture` went on to call them 「那四步」.
+   * The first three go through `Channel.linkDbm` — the table level plus both fading layers — and
+   * rate selection does not: `buildLinkTable` runs once per link while `Simulation` builds it
+   * and is never written again, so `mcsForPeer` reads a static level with neither the per-frame
+   * fade nor the slow shadow in it. `src/course/tier2/ru-diversity.ts` and
+   * `src/course/tier1/mcs-ladder.ts` already said exactly that, so a reader going through
+   * `COURSE_ORDER` met the two readings one lesson apart.
+   */
+  it('splits rate selection out of the flat-draw list, in both places it is enumerated', () => {
+    for (const where of [mainText, byKind.get('out-of-scope')!]) {
+      for (const claim of [
+        '捕获效应与选级读的仍然是那一次平坦抽样',
+        '以及发送端选哪一级速率，读的仍然是整条信道那一次平坦抽样',
+        '以及发送端选哪一级速率，读的全都还是整条信道那一次平坦抽样',
+        '那四步读平坦抽样',
+      ]) {
+        expect(where, `the lesson still counts rate selection as a flat-draw reader: ${claim}`)
+          .not.toContain(claim)
+      }
+      // Not just removed — replaced by what it does read, in the words `ru-diversity` uses.
+      expect(where, 'the lesson drops 选级 without saying what it reads instead')
+        .toContain('mcsForPeer')
+      expect(where, 'the lesson does not say the rate ceiling is a static link-table level')
+        .toContain('静态的均值电平')
+      expect(where, 'the lesson does not say the shadow is absent from that level too')
+        .toContain('连慢的那层阴影都不含')
+    }
+    // `picture` counted the readers; after the split there are three of them.
+    expect(mainText).toContain('前三步读平坦抽样之后的电平')
+  })
+
   it('out-of-scope: the other four decisions, the vht links, and the split this engine cannot build', () => {
     const t = byKind.get('out-of-scope')!
     for (const s of ['resolveLock', '载波侦听', '前导检测', '捕获效应', '资源单元']) expect(t).toContain(s)

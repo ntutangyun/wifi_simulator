@@ -376,12 +376,30 @@ mode, mcs, widthMhz, ac, retryFlag, msduBytes, ampdu, orthogonalGroup
 
 **要建的：给 `FrameDesc` 加一个可选字段，`respondToTrigger` 把它填上。**
 
-| 字段 | 值 | 为什么在帧上而不在别处 |
-| --- | --- | --- |
-| `ruFraction?: number` | `1 / n`，与 `maxPsduBytesFor` 用的是同一个局部变量 | 记录即真相：空口上那一帧占多宽，必须由那一帧自己说。`MuPart.ruFraction` 已经是这个名字（`frames.ts:137`），同名同义 |
-| `ruIndex?: number` | 这一台在 `trigger.muParts` 里的下标 | 位置（§3.3）；下行从 `muParts` 的顺序取，上行取不到，所以要写下来 |
+**发布的形状是一个对象，不是两个独立字段**（2026-10-04 实现时改的，修正于合并前）：
 
-**这两个字段只在基于触发的 PPDU 上出现**，而且**只在 `selectivity` 在场时被读**，
+```ts
+ru?: { fraction: number; partIdx: number }
+```
+
+| 子字段 | 值 | 为什么在帧上而不在别处 |
+| --- | --- | --- |
+| `fraction: number` | `1 / n`，与 `maxPsduBytesFor` 用的是同一个局部变量 | 记录即真相：空口上那一帧占多宽，必须由那一帧自己说。`MuPart.ruFraction` 已经是这个名字（`frames.ts:137`），同义 |
+| `partIdx: number` | 这一台在 `trigger.muParts` 里的下标 | 位置（§3.3）；下行从 `muParts` 的顺序取，上行取不到，所以要写下来 |
+
+**为什么是一个对象而不是两个可选字段，而这条理由必须留在这里。**
+写成 `ruFraction?` 加 `ruIndex?`，类型就允许「有份额、没位置」这个半填状态被构造出来，
+而读它的人只能自己编一个位置：默认第 0 格会把两台站点放到同一片格上，
+**而 `selCombine` 的越界闸门看不见这件事**——两段都还在信道之内，`start + bins <= selBins(width)`
+两边都成立。配成一个对象，这个状态在类型上就不可构造。
+`partIdx` **也不是标准的 RU index**：它是 `muParts` 的 **0 基**下标，而标准的 RU index 是 **1 基**
+且以被分配的资源单元大小为单位（Table 9-53 对 Table 27-8），20 MHz 两用户时两者数值上恰好相同。
+
+**这条理由一度只活在 `src/model/frames.ts` 的注释和一条测试注释里**，
+而 §6.4 自己点名批评过同一个形状（「理由一度只活在一句代码注释和一份任务报告里——而报告不是契约」）。
+这一次补回规格，是因为规格才是契约。
+
+**这个字段只在基于触发的 PPDU 上出现**，而且**只在 `selectivity` 在场时被读**，
 所以它们不改任何时序、不进 `txTimeModeNs`。**fixture 不动**（§5 量过）。
 
 ---
@@ -630,10 +648,16 @@ MU-MIMO 成员的 `ruFraction` 是 `undefined`，于是它天然走 `full` 那�
 
 ### 6.3 `src/model/frames.ts` 与 `src/engine/mac.ts`：上行那一片的载体 · `standard §9.3.1.22.1`
 
-§4 已经写全。两个可选字段 `ruFraction` / `ruIndex` 加在 `FrameDesc` 上，
-`respondToTrigger`（`mac.ts:1466`）填上它们。
-出处是触发帧 Common Info 里的 RU 分配与 UL BW（§9.3.1.22.1，`ofdma-ul.ts` 的 `sources` 已经引了它）：
+§4 已经写全。**一个可选字段 `ru?: { fraction: number; partIdx: number }`** 加在 `FrameDesc` 上
+（不是两个独立的可选字段——理由见 §4），`respondToTrigger`（`mac.ts:1466`）填上它。
+出处是触发帧的 RU 分配与 UL BW（§9.3.1.22.1，`ofdma-ul.ts` 的 `sources` 已经引了它）：
 **一台被触发的站点占哪一片是触发帧指定的，所以它该写在被触发那一帧上。**
+
+**而这两个子字段不在同一个字段里，这一点要写准。**
+语料里 **RU Allocation 是 User Info 字段的子字段**（Table 9-53、Figure 9-99），
+**Common Info 里只有 UL BW**——它给出 RU Allocation 这个子字段的大小与位置。
+§9.3.1.22.1 的标题是 *General* 而不是「Common Info field」，所以顺手一读就会把 RU Allocation
+放进 Common Info，而那是错的。`src/engine/mac.ts` 里 `respondToTrigger` 的注释专门写出来预防这个误读。
 
 ### 6.4 `WIFI_SEL` 记录多两个字段 · `model`
 
@@ -907,7 +931,7 @@ MU-MIMO 成员的 `ruFraction` 是 `undefined`，于是它天然走 `full` 那�
 | **2. 余量充足的多用户场景** | `ofdma-dl` 的余量中位数是 15.39 dB（量过），4 格的损失 p90 只有 5.85 dB，**一帧都翻不动**（反事实 0 → 1/1524） | 在 `ofdma-dl` 的场景加上两小节之后断言：`WIFI_SEL` **有记录**、`bins` **等于 4**（而不是 9）、`lossDb > 0`，**而 `RX_FAIL` 的条数与 9 格那一轮相同**。「有量、无后果」要被明示地钉住，而不是让它看起来生效了。**这一条同时是 §7.1 第 2 条的那份证据** |
 | **3. 整数格的那十二个组合** | 十五个 (带宽, 成员数) 里只有三个非整数（§2.1），其余十二个取整那一步什么也不做 | 一个纯函数测试，把十五个组合**全部**列出来，断言 `selMemberBins` 的结果与那张表逐格相同，并**单独标出三个非整数的那一行**。十二行取整无效果要在测试里看得见，否则下一个人会以为取整是普遍的 |
 | **4. 「不同成员落在不同格上」这条断言本身** | **各格独立 + 成员之间本来就独立**（§0.2、§3.1），所以这条断言会通过，而它证明的只是两个整数不相等。**这是这一刀最容易写出来的空测试** | 把它写成两条，并在测试文件里写明哪一条是物理、哪一条不是：(i) **确定性**——同一种子重跑，`binStart` 逐字段相同；(ii) **区间不相交且都在信道内**——`start + bins ≤ full` 对每个成员成立。**并且明确写上：位置在本模型里对分布无影响（位置完全不起作用（各格独立 + 无序平均 ⇒ 真实差距精确为零；量出来那一点是抽样自己的误差，见 §3.2.1）），所以没有第三条断言可写**。那一句注释就是这条空转的证词 |
-| **5. 上行那两个新字段**（`ruFraction` / `ruIndex`） | 它们只在 `selectivity` 在场时被读，而九个已发布的多用户场景一个都没开（§5.1）。**于是它们在整个已发布课程里是两个被写进去、从不被读的字段** | 两条：(i) 在 `ofdma-ul` 的场景上断言 fixture 哈希**逐字节不变**（证明它们不进时序）；(ii) 在新课的场景上断言每一个基于触发的 PPDU 的 `WIFI_SEL.bins` 等于 `selMemberBins(width, 1/n)` 而**不是** `selBins(width)`。**第二条不写，这两个字段就是摆设** |
+| **5. 上行那个新字段**（发布为 `ru?: { fraction, partIdx }`，不是两个独立字段——见 §4） | 它只在 `selectivity` 在场时被读，而九个已发布的多用户场景一个都没开（§5.1）。**于是它在整个已发布课程里是一个被写进去、从不被读的字段** | 两条：(i) 在 `ofdma-ul` 的场景上断言 fixture 哈希**逐字节不变**（证明它们不进时序）；(ii) 在新课的场景上断言每一个基于触发的 PPDU 的 `WIFI_SEL.bins` 等于 `selMemberBins(width, 1/n)` 而**不是** `selBins(width)`。**第二条不写，这两个字段就是摆设** |
 
 **另外一个要证明两边都还在动的**（照 4a §6 末尾那条的写法）：
 `selectivity` + 多用户 + `shadowSigmaDb > 0`。阴影按时间、成员那一份按频率，不该互相吃掉。

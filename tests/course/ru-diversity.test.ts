@@ -1153,3 +1153,141 @@ describe('ru-diversity · the numbers this lesson may not print', () => {
     expect(deeperText).toContain('比的是比例，不是条数')
   })
 })
+
+describe('ru-diversity · the scene comment’s own nine figures', () => {
+  /*
+   * **Why this block exists.** `src/course/wifiScenes.ts`'s `ruDiversityScenario` comment
+   * justifies the scene's ONE tuned quantity — where the televisions stand — with a position
+   * sweep and three rejected alternatives, and prints nine figures doing it. The sweep above
+   * pinned x = 12.5 / 13.5 / 14.5. Nothing pinned the x = 11.5 leg or a single figure from any
+   * of the three alternatives, and those are exactly the ones the next person to re-tune this
+   * scene will copy. This branch has already had to correct one of them: the comment used to
+   * say the power knob reaches this rung at 13 dB, which lands at 2.547 dB — inside the
+   * non-monotone region, where the gate is not even stably signed.
+   *
+   * **The builders are the comment's own words, so a reader can check the mapping:**
+   *   - "moving the pair inside this room" → `movedX`;
+   *   - "deleting the x = 11 partition" → `oneWall` (the plan's second interior brick);
+   *   - "the televisions moved into the living room at x = 8.5" → `movedX(8.5)`, which crosses
+   *     only the x = 6 partition and so is a one-wall plan without deleting anything;
+   *   - "turning the router down" → `quieter`, the AP's own `txPowerDbm`.
+   *
+   * **Instrument, stated once:** 1000 ms unless a case says otherwise, seed 7, addressed
+   * downlink receptions, grouped by raw float margin, largest group — `dlRows` and
+   * `largestMarginGroup`, the same two the gate uses.
+   */
+  const movedX = (sc: Scenario, x: number): Scenario =>
+    ({ ...sc, nodes: sc.nodes.map((n) => (n.id.startsWith('sta') ? { ...n, pos: { ...n.pos, x } } : n)) })
+  /** Delete the x = 11 partition, the only brick between the living room and the bedroom. */
+  const oneWall = (sc: Scenario): Scenario =>
+    ({ ...sc, walls: sc.walls.filter((w) => !(w.x1 === 11 && w.x2 === 11)) })
+  const quieter = (sc: Scenario, db: number): Scenario =>
+    ({ ...sc, nodes: sc.nodes.map((n) => (n.id === 'ap' ? { ...n, txPowerDbm: n.txPowerDbm - db } : n)) })
+
+  /** The comment's own two-leg reading: the largest margin group's members against the control. */
+  const twoLegs = (key: string, build: (on: boolean) => Scenario, ns = GATE_NS) => {
+    const on = dlRows(runScene(`${key}|on`, build(true), ns))
+    const off = dlRows(runScene(`${key}|off`, build(false), ns))
+    const group = largestMarginGroup(on)
+    const margin = group[0]!.margin
+    return {
+      margin,
+      half: group.filter((r) => r.ruFraction !== undefined),
+      whole: off.filter((r) => r.margin === margin),
+    }
+  }
+
+  const SCENE = readFileSync(new URL('../../src/course/wifiScenes.ts', import.meta.url), 'utf8')
+
+  it('pins the x = 11.5 leg of the sweep, the one the sweep above left out', () => {
+    const l = twoLegs('x11.5', (on) => movedX(ruDiversityScenario(on), 11.5))
+    expect(Number(l.margin.toFixed(3))).toBe(6.24)
+    expect(l.half.length).toBe(429)
+    expect(l.whole.length).toBe(201)
+    expect(dropRate(l.half)).toBeCloseTo(0.0676, 4)
+    expect(dropRate(l.whole)).toBeCloseTo(0.0149, 4)
+    // Still the right direction, two metres in from the shipped point.
+    expect(dropRate(l.half)).toBeGreaterThan(dropRate(l.whole))
+    for (const t of ['6.240', '6.76 % against', '1.49 % at x = 11.5']) expect(SCENE).toContain(t)
+  }, 600_000)
+
+  it('pins the first rejected alternative, and which grouping its 628 is a count under', () => {
+    // One wall, televisions where they are: the margin goes useless, which is `ofdma-dl`'s own
+    // problem and the reason this lesson is not taught there.
+    //
+    // **"On that rung" is the MCS decode threshold, not the float margin and not `mcs`.**
+    // Grouped by `threshDb` the rung holds 628 of the 666 addressed receptions; grouped by
+    // exact float margin the same rows give 588, because the two televisions' mean levels
+    // differ in their last bits. A third reading — by the member's own `mcs` — gives 621, so
+    // the figure means nothing without the grouping printed beside it.
+    const rows = dlRows(runScene('oneWall|on', oneWall(ruDiversityScenario(true))))
+    expect(rows.length).toBe(666)
+    expect(q(rows.map((r) => r.margin), 0.5)).toBeCloseTo(15.547, 3)
+    const byThresh = new Map<number, number>()
+    for (const r of rows) byThresh.set(r.threshDb, (byThresh.get(r.threshDb) ?? 0) + 1)
+    expect(Math.max(...byThresh.values())).toBe(628)
+    expect(largestMarginGroup(rows).length).toBe(588)
+    for (const t of ['15.547', '628 of 666', 'give 588']) expect(SCENE).toContain(t)
+  }, 600_000)
+
+  it('pins the second rejected alternative as multi-valued, which is the disqualifier', () => {
+    // Televisions in the living room at x = 8.5: one wall crossed, and the margin is no longer
+    // one number — four MCS rungs at once, which is the confound the scene exists to avoid.
+    const rows = dlRows(runScene('x8.5|on', movedX(ruDiversityScenario(true), 8.5)))
+    expect(q(rows.map((r) => r.margin), 0.5)).toBeCloseTo(5.672, 3)
+    expect([...new Set(rows.map((r) => r.threshDb))].length).toBe(4)
+    for (const t of ['5.672 dB at the median over four rungs, MCS 4 to 7']) expect(SCENE).toContain(t)
+  }, 600_000)
+
+  it('pins the power knob at 12 dB, not 13 — and 13 dB inside the non-monotone region', () => {
+    // The brick's own 12 dB, reached by measurement rather than inferred from `WALL_LOSS_DB`.
+    const margins = [11, 12, 13].map((db) => {
+      const rows = dlRows(runScene(`pwr-${db}|on`, quieter(oneWall(ruDiversityScenario(true)), db)))
+      return Number(largestMarginGroup(rows)[0]!.margin.toFixed(3))
+    })
+    expect(margins).toEqual([4.547, 3.547, 2.547])
+    // 12 dB is the one that reproduces the shipped scene's rung; 13 dB lands in the region
+    // design §7.3.1 (b) says is not monotone.
+    expect(margins[1]).toBe(Number(legs().key.toFixed(3)))
+    for (const t of ['4.547 / 3.547 / 2.547 dB', 'lands on 2.547 dB']) expect(SCENE).toContain(t)
+  }, 900_000)
+
+  it('pins the two rounds the power knob and the wall give, counted the same way', () => {
+    // **The correction this test exists for.** The comment read 「291 member receptions at
+    // 26.12 % here against 284 at 29.93 % there」, and the two halves were not the same
+    // population: 291 is the shipped round's MEMBER receptions, while 284 was the power-knob
+    // round's 283 members PLUS its one whole-channel reception — divided into the members' own
+    // 85 failures, so 29.93 % described neither population. Members only, on both sides.
+    const members = (rows: Row[]): Row[] => rows.filter((r) => r.ruFraction !== undefined)
+    const ship = members(legs().on)
+    const knob = members(dlRows(runScene('pwr-12|on', quieter(oneWall(ruDiversityScenario(true)), 12))))
+    expect(ship.length).toBe(291)
+    expect(knob.length).toBe(283)
+    expect(dropRate(ship)).toBeCloseTo(0.2612, 4)
+    expect(dropRate(knob)).toBeCloseTo(0.3004, 4)
+    // The point of the sentence: the power knob only moves the downlink, so at the same rung it
+    // is a harder round than the wall.
+    expect(dropRate(knob)).toBeGreaterThan(dropRate(ship))
+    expect(SCENE).toContain('291 member receptions at 26.12 % here against 283 at 30.04 % there')
+    expect(SCENE, 'the mixed-instrument pair is back').not.toContain('284 at 29.93 % there')
+  }, 600_000)
+
+  it('pins the 13 dB configuration flipping sign between 1000 and 2000 ms', () => {
+    // Why 13 dB is disqualified rather than merely worse: at 2.547 dB the gate is not stably
+    // signed, so a reader who followed the comment's old sentence would have built the one
+    // configuration that disproves it.
+    const build = (on: boolean): Scenario => quieter(oneWall(ruDiversityScenario(on)), 13)
+    const one = twoLegs('pwr-13', build, GATE_NS)
+    expect(Number(one.margin.toFixed(3))).toBe(2.547)
+    expect(dropRate(one.half)).toBeCloseTo(0.4194, 4)
+    expect(dropRate(one.whole)).toBeCloseTo(0.3945, 4)
+    expect(dropRate(one.half)).toBeGreaterThan(dropRate(one.whole))
+    const two = twoLegs('pwr-13|2s', build, 2000 * MS)
+    expect(Number(two.margin.toFixed(3))).toBe(2.547)
+    expect(dropRate(two.half)).toBeCloseTo(0.3858, 4)
+    expect(dropRate(two.whole)).toBeCloseTo(0.3991, 4)
+    // Same configuration, same rung, opposite sign: twice the run length is enough to turn it.
+    expect(dropRate(two.half)).toBeLessThan(dropRate(two.whole))
+    for (const t of ['41.94 % against 39.45 %', '38.58 % against 39.91 %']) expect(SCENE).toContain(t)
+  }, 1_200_000)
+})

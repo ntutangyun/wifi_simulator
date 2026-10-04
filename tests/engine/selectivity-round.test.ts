@@ -982,7 +982,7 @@ describe('selectivity, slice 4b: a member reads its own resource unit', () => {
       expect(x.sel.ruFraction).toBe(x.frame.ru!.fraction)
       expect(x.sel.bins).toBe(selMemberBins(width, 1 / n))
       expect(x.sel.bins).toBeLessThan(selBins(width))
-      // `ruIndex` is this station's own place in the Trigger's user list, and with every user
+      // `ru.partIdx` is this station's own place in the Trigger's user list, and with every user
       // holding the same share that index *is* where its run starts.
       expect(x.frame.ru!.partIdx)
         .toBe(x.trigger.muParts!.findIndex((p) => p.dst === x.frame.src))

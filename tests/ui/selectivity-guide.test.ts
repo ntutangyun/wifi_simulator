@@ -48,6 +48,15 @@ const ENTRY = GLOSSARY.flatMap((g) => g.items).find((i) => i.term === 'Frequency
 /** The editor checkbox's own hint, which is the fourth surface and the shortest. */
 const HINT = STRINGS.editor.selectivityOnHint
 
+/**
+ * **The fifth surface, and the one no assertion in this file could reach.** `README.md`
+ * enumerates the same bin geometry in English, so none of the Chinese assertions above can be
+ * pointed at it — and it therefore sat outside the range of every guard here while quoting the
+ * bare clause pair this file bans, the pre-4b whole-channel overestimate, and the rate-selection
+ * claim the engine contradicts. It gets its own block at the bottom, in English.
+ */
+const README = flat(readFileSync(new URL('../../README.md', import.meta.url), 'utf8'))
+
 /** Every surface that prints these figures, so one loop covers all of them. */
 const SURFACES: [string, string][] = [
   ['Guide', GUIDE],
@@ -366,5 +375,105 @@ describe('the CQI clause numbers are attributed to the right document', () => {
 
   it('and the one surface that cites them at all is counted', () => {
     expect(SURFACES.filter(([, t]) => t.includes('9.4.1.75')).length).toBeGreaterThan(0)
+  })
+})
+
+describe('README.md is the fifth surface, and English, so it gets its own guards', () => {
+  /*
+   * **Why this block exists.** The four surfaces above are Chinese prose and share one loop.
+   * `README.md` prints the same facts in English a few hundred lines into its RF-model
+   * paragraph, which meant every rule this file enforces stopped at the repo's front page: it
+   * still carried `§9.4.1.65 / §9.4.1.75` (banned above, and the base standard has no
+   * §9.4.1.75), still said a member's decode reads the whole channel's bins (the overestimate
+   * slice 4b removed from the engine), and still named rate selection among the readers of the
+   * one flat draw (it reads the static link table instead — `mcsForPeer` in simulation.ts
+   * never sees either fading layer).
+   */
+  it('enumerates the bin width, spacing and counts the engine computes', () => {
+    const mhz = String(selBinWidthMhz())
+    expect(README, `README is missing the bin width ${mhz} MHz`).toContain(`${mhz} MHz`)
+    expect(README, 'README is missing the subcarrier spacing').toContain(`${DF_EHT_KHZ} kHz`)
+    const counts = WIDTHS.map((w) => String(selBins(w))).join(' / ')
+    expect(README, `README is missing the bin counts ${counts}`).toContain(counts)
+    expect(README, 'README is missing the width list').toContain(WIDTHS.join(' / '))
+  })
+
+  it('never hangs the two CQI clause numbers on one document', () => {
+    // The exact string the block above bans in the other four. `README.md` was out of its
+    // range, which is how it kept the pair for two slices.
+    expect(README).not.toContain('§9.4.1.65 / §9.4.1.75')
+    expect(README, 'README cites §9.4.1.75 with no document')
+      .toContain('802.11be-2024 §9.4.1.75')
+    expect(README, 'README cites §9.4.1.65 with no document')
+      .toContain('802.11-2024 §9.4.1.65')
+  })
+
+  it('says a member reads only its own share’s bins, like the other four', () => {
+    // Held to the engine's arithmetic, not to a literal `4 of the 9`.
+    expect(README, 'README gives the channel count with no member clause')
+      .toContain(`${selMemberBins(20, 1 / 2)} of the ${selBins(20)} bins`)
+    expect(README, 'README does not say whose bins the five counts are')
+      .toMatch(/whole channel's\*\* bins|whole channel's bins/)
+  })
+
+  it('does not name rate selection among the readers of the flat draw', () => {
+    // `buildLinkTable` runs once per link in `Simulation`'s constructor and is never written
+    // again; `mcsForPeer` reads that table, so rate selection sees neither the shadow nor the
+    // per-frame fade — let alone the bins. The first three of the four do read the flat draw
+    // (`Channel.linkDbm`), so the fix is to split the list, not to drop it.
+    expect(README).not.toContain('capture and rate selection keep reading the one flat draw')
+    expect(README, 'README still lists rate selection with the flat-draw readers')
+      .not.toMatch(/rate selection keep(s)? reading the one flat draw/)
+    expect(README, 'README does not say what rate selection reads instead')
+      .toContain('mcsForPeer')
+  })
+})
+
+describe('rate selection is not one of the readers of the flat draw', () => {
+  /*
+   * **The sentence all five surfaces carried, whose fourth step was false.** Each said
+   * 「载波侦听、前导检测、捕获效应与选级读的仍然是那一次平坦抽样」. The first three are right:
+   * they go through `Channel.linkDbm`, which is this frame's table level plus both fading
+   * layers. Rate selection does not. `buildLinkTable` runs once per link while `Simulation`
+   * builds the link (simulation.ts) and is never written again, and `mcsForPeer` reads that
+   * table — so rate selection sees neither the per-frame fade nor the slow shadow, let alone a
+   * bin. The lesson `src/course/tier2/ru-diversity.ts` and `src/course/tier1/mcs-ladder.ts`
+   * both already said so, which is the real reason this had to move: a reader going through
+   * `COURSE_ORDER` met the two statements one lesson apart.
+   *
+   * Two assertions per surface, because either alone passes a surface that says nothing: the
+   * old four-step list must be gone, AND the surface must name what rate selection reads
+   * instead. `mcsForPeer` is the name the course already points readers at.
+   */
+  const surfaces: [string, string][] = [...SURFACES, ['selectivityOnHint', HINT]]
+
+  it('no surface puts 选级 inside the flat-draw list', () => {
+    for (const [name, text] of surfaces) {
+      for (const claim of [
+        '捕获效应（capture effect）与选级读的仍然是那一次平坦抽样',
+        '捕获效应与选级读的仍然是那一次平坦抽样',
+        '以及发送端选哪一级速率，读的仍然是整条信道那一次平坦抽样',
+      ]) {
+        expect(text, `${name} still lists rate selection among the flat-draw readers: ${claim}`)
+          .not.toContain(claim)
+      }
+    }
+  })
+
+  it('every surface that names the first three names what the fourth reads instead', () => {
+    const stating = surfaces.filter(([, t]) => t.includes('捕获效应'))
+    // Counted, so the loop cannot pass by matching nothing. Three carry the enumeration; the
+    // rendered Guide does not mention 捕获效应 at all.
+    expect(stating.map(([n]) => n).length).toBeGreaterThanOrEqual(3)
+    for (const [name, text] of stating) {
+      expect(text, `${name} enumerates the flat-draw readers without saying what 选级 reads`)
+        .toContain('mcsForPeer')
+      expect(text, `${name} does not say the rate ceiling is the static link-table mean`)
+        .toMatch(/静态的均值电平|链路表里那一个静态/)
+      // And the part that makes it more than a pedantic distinction: the table carries
+      // neither fading layer, so turning fading on in the editor moves nothing here.
+      expect(text, `${name} does not say the shadow is absent from it too`)
+        .toContain('连慢的那层阴影都不含')
+    }
   })
 })
