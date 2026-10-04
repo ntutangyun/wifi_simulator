@@ -82,6 +82,33 @@ function exactFix(px: number, py: number, drop?: string): Fix {
 }
 
 /**
+ * The residual of each round AS THE RUN LEAVES IT, in centimetres to two places.
+ *
+ * `UWB_POSITION` carries no residual (step 8), so the only way to see the number the
+ * lesson quotes is to re-solve the block from the tag's own measured ranges — same
+ * anchors, same held height, same σ_r, so `solvePosition` lands on the point the engine
+ * emitted and hands back its own `residualM`. This is the lesson's ruler: a round of this
+ * scene at the session's 100 ps timestamp noise, NOT `exactFix`'s noise-free geometry.
+ */
+function roundResidualsCm(variant?: number): string[] {
+  // variant 1 is "three anchors": the far corner is not in the scene, so not in the solve
+  const anchors: AnchorPos[] = CORNERS.filter(([id]) => variant !== 1 || id !== 'anchor-4')
+    .map(([id, x, y]) => ({ id, x, y, z: ANCHOR_Z }))
+  const rs = tagRanges(variant)
+  const blocks = [...new Set(rs.map((r) => r.block))].sort((a, b) => a - b)
+  expect(blocks, `variant ${variant ?? 'base'}`).toHaveLength(BLOCKS)
+  return blocks.map((b) => {
+    const fix = solvePosition(
+      anchors,
+      rs.filter((r) => r.block === b).map((r) => ({ id: r.peer, distM: r.distM })),
+      TAG.z, SIGMA_R,
+    )
+    expect(fix, `block ${b} of variant ${variant ?? 'base'}`).not.toBeNull()
+    return (fix!.residualM * 100).toFixed(2)
+  })
+}
+
+/**
  * The tag's inspector state after `blocks` ranging blocks, replayed through the
  * player's own reducer — `initViewState` then `applyRecord` per record — so the
  * pinned rows are the panel's by construction and not a hand-built lookalike.
@@ -287,15 +314,57 @@ describe('uwb-position · the base run', () => {
     expect(row.truth).toBe('(4.00, 3.50) m')
   })
 
-  it('a clean round leaves a residual too small to print', () => {
-    // "A clean round leaves a residual too small to print. A range that lies leaves
-    //  centimetres" — the clean half is this lesson's; the lying half is uwb-geometry's.
+  it('a clean round leaves the noise, and that is the criterion the lesson states', () => {
+    // 「干净的一轮，这个数就落在噪声本身的量级上：本次运行的七个块是 0.78 到 1.98 cm，
+    //  比单条距离那 2.12 cm 的噪声还小一点」 — the run's own seven blocks, with the gauge
+    //  named: base scene, blocks 0–6, the session's default 100 ps timestamp noise.
+    expect(DEFAULT_UWB_SESSION.tsNoisePs).toBe(100)
+    expect((SIGMA_R * 100).toFixed(2)).toBe('2.12')
+    const clean = roundResidualsCm()
+    expect(clean).toEqual(['1.44', '1.15', '1.61', '0.83', '0.78', '1.98', '1.06'])
+    const cm = clean.map(Number)
+    expect(Math.min(...cm).toFixed(2)).toBe('0.78')
+    expect(Math.max(...cm).toFixed(2)).toBe('1.98')
+    expect(prose()).toContain('0.78 到 1.98 cm')
+    // the half of the criterion that makes it a criterion: every clean round is inside σ_r
+    for (const c of cm) expect(c / 100, `${c} cm`).toBeLessThan(SIGMA_R)
+
+    // 「而只要有一条距离真的偏了，它会跳到二十厘米上下——下一课那堵砖墙的七个块是
+    //  19.85 到 22.25 cm」 — variant 0 of this lesson's own scene, same seven blocks,
+    //  same noise, so the two sides of the sentence are one ruler.
+    const wall = roundResidualsCm(0).map(Number)
+    expect(Math.min(...wall).toFixed(2)).toBe('19.85')
+    expect(Math.max(...wall).toFixed(2)).toBe('22.25')
+    expect(prose()).toContain('19.85 到 22.25 cm')
+    for (const c of wall) expect(c / 100, `${c} cm`).toBeGreaterThan(4 * SIGMA_R)
+
+    // What used to stand here was `exactFix`'s residual — noise-free geometry, ~1e-14 m —
+    // under the name "a clean round". The arithmetic is still true and still worth pinning;
+    // it is simply not a round of this scene, and the lesson no longer says it is. (Review
+    // I5 moved that claim's disclaimer and left its number, which is how 「不到一微米」
+    // survived every green run until the read-through solved the blocks by hand.)
     expect(exactFix(TAG.x, TAG.y).residualM).toBeLessThan(1e-6)
-    expect((exactFix(TAG.x, TAG.y).residualM * 100).toFixed(1)).toBe('0.0')
-    // Review I5: the picture promised a tool the scene cannot give, three sections before
-    // the disclaimer. `Fix.residualM` exists; UWB_POSITION has no such field, so the caveat
-    // now travels with the claim — uwb-geometry's own half-sentence.
+    expect(prose()).not.toContain('不到一微米')
+    expect(prose()).not.toContain('残差就是几厘米')
+    // `Fix.residualM` exists; UWB_POSITION has no such field, which is why the reader
+    // never sees any of these numbers on screen.
     expect(Object.keys(fixes()[0])).not.toContain('residualM')
+  })
+
+  it('the fourth ring makes the clean residual bigger, not smaller', () => {
+    // 「四个锚点比两个未知数多出两个测量，三个锚点只多出一个，所以同样干净的一轮，
+    //  四锚点的残差反而更大——第 0 块是 1.44 cm，而「三个锚点」那个变体的同一个块只有
+    //  0.24 cm」 — block 0 of the base run against block 0 of variant 1, same noise.
+    const four = roundResidualsCm()[0]
+    const three = roundResidualsCm(1)[0]
+    expect([four, three]).toEqual(['1.44', '0.24'])
+    expect(Number(three)).toBeLessThan(Number(four))
+    expect(prose()).toContain('第 0 块是 1.44 cm')
+    expect(prose()).toContain('只有 0.24 cm')
+    // and it is the count of measurements that differs, not the geometry's own quality:
+    // the three-anchor round fits one spare measurement, the four-anchor round two
+    expect(tagRanges().filter((r) => r.block === 0)).toHaveLength(4)
+    expect(tagRanges(1).filter((r) => r.block === 0)).toHaveLength(3)
   })
 })
 

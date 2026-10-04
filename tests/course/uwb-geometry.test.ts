@@ -78,6 +78,32 @@ function exactFix(px: number, py: number, drop?: string): Fix {
   return fix!
 }
 
+/**
+ * The residual of each round AS THE RUN LEAVES IT, in centimetres to two places.
+ *
+ * The lesson's 「19.85 到 22.25 cm」 and 「0.78 到 1.98 cm」 are these, not `exactFix`'s:
+ * `UWB_POSITION` carries no residual, so each block is re-solved from the tag's own
+ * measured ranges — same anchors, same held height, same σ_r — and the solver's own
+ * `residualM` at the point the engine emitted is what comes back.
+ */
+function roundResidualsCm(variant?: number): string[] {
+  // variant 1 is "three anchors": the far corner is not in the scene, so not in the solve
+  const anchors: AnchorPos[] = CORNERS.filter(([id]) => variant !== 1 || id !== 'anchor-4')
+    .map(([id, x, y]) => ({ id, x, y, z: ANCHOR_Z }))
+  const rs = tagRanges(variant)
+  const blocks = [...new Set(rs.map((r) => r.block))].sort((a, b) => a - b)
+  expect(blocks, `variant ${variant ?? 'base'}`).toHaveLength(BLOCKS)
+  return blocks.map((b) => {
+    const fix = solvePosition(
+      anchors,
+      rs.filter((r) => r.block === b).map((r) => ({ id: r.peer, distM: r.distM })),
+      TAG.z, SIGMA_R,
+    )
+    expect(fix, `block ${b} of variant ${variant ?? 'base'}`).not.toBeNull()
+    return (fix!.residualM * 100).toFixed(2)
+  })
+}
+
 /** A Jacobian row at (px, py): the horizontal part of the 3-D unit vector to an anchor. */
 function jRow(px: number, py: number, ax: number, ay: number): [number, number] {
   const dx = px - ax, dy = py - ay, dz = TAG.z - ANCHOR_Z
@@ -354,8 +380,13 @@ describe('uwb-geometry · a brick wall in one path', () => {
     // away from anchor-1 at (0.5, 0.5): the shift has a positive component along anchor → tag
     const away = [(TAG.x - 0.5), (TAG.y - 0.5)]
     expect((biased.x - TAG.x) * away[0] + (biased.y - TAG.y) * away[1]).toBeGreaterThan(0)
-    // "It leaves a 21 cm residual where a clean round leaves a micrometre"
+    // 「同样扣掉噪声，它在身后留下 21 cm 的残差」: 21 cm is the NOISE-FREE residual of this
+    // same biased solve, which is the only ruler the sentence around it uses. The run's own
+    // residuals are pinned in "the residual the lesson quotes is the run's own" below — the
+    // lesson used to put the noise-free figure and 「干净的一轮只留下一微米」 where a reader
+    // would read them as the thing on screen.
     expect((biased.residualM * 100).toFixed(0)).toBe('21')
+    expect(uwbGeometry.quiz[0].explain).toContain('同样扣掉噪声')
     expect(exactFix(TAG.x, TAG.y).residualM).toBeLessThan(1e-6)
     // one number for the shift, everywhere it is quoted
     expect(uwbGeometry.quiz[0].q).toContain('0.316 m')
@@ -556,9 +587,36 @@ describe('uwb-geometry · the procedure, against the solver', () => {
     expect(lied.gdop.toFixed(2)).toBe(clean.gdop.toFixed(2))
     expect((lied.ellipse.a * 100).toFixed(1)).toBe((clean.ellipse.a * 100).toFixed(1))
     expect((lied.ellipse.b * 100).toFixed(1)).toBe((clean.ellipse.b * 100).toFixed(1))
-    // what does move is the residual, the one figure that is built from the ranges
+    // what does move is the residual, the one figure that is built from the ranges. Both
+    // figures here are noise-free, which is this step's point — the lesson's own centimetres
+    // are the next test's.
     expect(clean.residualM).toBeLessThan(1e-6)
     expect((lied.residualM * 100).toFixed(0)).toBe('21')
+  })
+
+  it('the residual the lesson quotes is the run’s own, on both sides of the criterion', () => {
+    // 「这次运行的七个块留下 19.85 到 22.25 cm 的残差，而上一课那干净的七个块留下的是
+    //  0.78 到 1.98 cm——同一套锚点、同一个种子、同样 100 ps 的时间戳噪声」
+    expect(DEFAULT_UWB_SESSION.tsNoisePs).toBe(100)
+    // 「同一套锚点、同一个种子」: the two scenes differ by the brick stub and nothing else
+    expect(uwbPositionScenario('wall').seed).toBe(uwbPositionScenario('base').seed)
+    expect(uwbPositionScenario('wall').uwb).toEqual(uwbPositionScenario('base').uwb)
+    const wall = roundResidualsCm(0).map(Number)
+    const clean = roundResidualsCm().map(Number)
+    expect([Math.min(...wall).toFixed(2), Math.max(...wall).toFixed(2)]).toEqual(['19.85', '22.25'])
+    expect([Math.min(...clean).toFixed(2), Math.max(...clean).toFixed(2)]).toEqual(['0.78', '1.98'])
+    expect(prose()).toContain('19.85 到 22.25 cm')
+    expect(prose()).toContain('0.78 到 1.98 cm')
+    // 「残差也从一厘米上下跳到了二十厘米上下」, to the words the picture uses
+    expect(prose()).toContain('从一厘米上下跳到了二十厘米上下')
+    for (const c of clean) expect(c, `clean ${c} cm`).toBeLessThan(2)
+    for (const c of wall) { expect(c).toBeGreaterThan(19); expect(c).toBeLessThan(23) }
+    // the criterion itself: the clean rounds are inside one σ_r, the walled ones four outside
+    for (const c of clean) expect(c / 100, `clean ${c} cm`).toBeLessThan(SIGMA_R)
+    for (const c of wall) expect(c / 100, `wall ${c} cm`).toBeGreaterThan(4 * SIGMA_R)
+    // and the two retired claims, which no run of this scene ever produced
+    expect(prose()).not.toContain('干净的一轮只留下一微米')
+    expect(prose()).not.toContain('几乎没有')
   })
 })
 

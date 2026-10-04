@@ -25,9 +25,11 @@ import {
   PAIR_SPAN_M, PAIR_X, PAIR_Y, PAIR_Z, sensingObject, uwbSensing, uwbSensingScenario,
   type UwbSensingVariant,
 } from '../../src/course/uwb/uwb-sensing'
-import { COURSE_ORDER, MODULES, TIERS } from '../../src/course/curriculum'
+import { COURSE_ORDER, MODULES, TIERS, trackOf } from '../../src/course/curriculum'
 import { LESSONS } from '../../src/course/lessons'
-import type { Block } from '../../src/course/lessonKit'
+import { lessonStrings } from '../../src/course/readability'
+import type { Block, Lesson } from '../../src/course/lessonKit'
+import { PHY_MODES } from '../../src/engine/phy'
 import { EventQueue } from '../../src/engine/events'
 import { directDelayNs } from '../../src/engine/scatter'
 import { makeEmitter } from '../../src/model/records'
@@ -309,5 +311,60 @@ describe('uwb-sensing · the experiments hold', () => {
     // inside the floor, and by less than a decibel: "刚好卡在门限上"
     expect(w[0].rssiDbm).toBeGreaterThanOrEqual(UWB_RX_SENS_DBM)
     expect(w[0].rssiDbm - UWB_RX_SENS_DBM).toBeLessThan(1)
+  })
+})
+
+/**
+ * The cross-track quote, pinned both ways — the one bad reference the UWB read-through
+ * found (docs/superpowers/specs/2026-10-03-multipath-design.md §2.2 and §9).
+ *
+ * This entry used to end 「所以 Wi-Fi 那边的课里写着「没有建模多径」，现在仍然是真的」.
+ * **No Wi-Fi lesson has ever written that.** `selectivity` teaches multipath as the
+ * mechanism it is, and `radio-primer`'s own `limits` say what is actually still missing —
+ * so a reader who had just finished the Wi-Fi half was sent looking for a sentence that
+ * does not exist. The entry now quotes the sentence that does, and gives §2.2's reason
+ * instead of 「只接了一侧」, which named the cause as workload.
+ *
+ * The third test is the one with teeth: it reads the Wi-Fi lesson OBJECTS, so the quote
+ * cannot drift on either side of the track boundary, and nothing in this repo was
+ * watching that before.
+ */
+describe('uwb-sensing · the multipath entry quotes a Wi-Fi sentence that exists', () => {
+  /** The sentence the entry hands the reader to go and find. */
+  const WIFI_QUOTE = '仍然没有的是时延扩展本身与多普勒'
+  const entry = (): string => uwbSensing.limits.map((l) => l.text).join(' ')
+  /** Everything a reader meets in one lesson, `limits` and title included. */
+  const readerText = (l: Lesson): string[] => [...lessonStrings(l), l.title, ...l.limits.map((x) => x.text)]
+  const wifi = (): Lesson[] => LESSONS.filter((l) => trackOf(l) === 'wifi')
+
+  it('no longer attributes 「没有建模多径」 to the Wi-Fi track', () => {
+    expect(entry()).not.toContain('没有建模多径」，现在仍然是真的')
+    expect(entry()).not.toContain('现在仍然是真的')
+  })
+
+  it('gives the reason instead: the verdict is a sensing threshold, not a demodulation one', () => {
+    expect(entry()).toContain('感知原语')
+    expect(entry()).toContain('不是一个多径原语')
+    expect(entry()).toContain('保护间隔')
+    // the engine fact the sentence rests on: there is no guard-interval number to compare
+    // against, because `symNs` is one constant per generation
+    expect(entry()).toContain('symNs 是每代一个常数')
+    for (const m of Object.values(PHY_MODES)) expect(typeof m.symNs).toBe('number')
+    expect(new Set(Object.values(PHY_MODES).map((m) => m.symNs)).size).toBeLessThanOrEqual(2)
+    expect(entry()).toContain(WIFI_QUOTE)
+  })
+
+  it('and the sentence it quotes really is in a Wi-Fi lesson, not in a string constant', () => {
+    const holders = wifi().filter((l) => readerText(l).some((t) => t.includes(WIFI_QUOTE)))
+    expect(holders.map((l) => l.id), 'the quoted Wi-Fi sentence has moved or been reworded')
+      .toContain('radio-primer')
+    // the other claim the entry makes about that track: frequency selectivity is a lesson
+    expect(wifi().some((l) => l.title.includes('频率选择性'))).toBe(true)
+    // …and the sentence it used to claim is there is in fact nowhere in the Wi-Fi track
+    for (const l of wifi()) {
+      for (const t of readerText(l)) expect(t, l.id).not.toContain('没有建模多径')
+    }
+    // a floor, so this cannot pass by grading an empty track
+    expect(wifi().length).toBeGreaterThanOrEqual(40)
   })
 })
