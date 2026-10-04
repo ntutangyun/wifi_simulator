@@ -30,7 +30,7 @@ import { Channel, type BsGeometry, type ChannelSpectrum } from './channel'
 import { EventQueue } from './events'
 import { hashStr } from './hash'
 import { WifiMac } from './mac'
-import { ERP_2G, mcsForRssi, OFDM_5G, type PhyTiming } from './phy'
+import { ERP_2G, mcsForRssi, OFDM_5G, TGI_NS, type PhyTiming } from './phy'
 import { buildLinkTable } from './propagation'
 import { AcQueues } from './queues'
 import { RateControl } from './rate'
@@ -269,6 +269,9 @@ export class Simulation {
               ampAp: polls ? n.ampAp : undefined,
               ampTiers: polls ? { active: activeTags, backscatter: bsTags && !!n.ampAp!.backscatter } : undefined,
               ampBsTagIds: polls ? members.filter(isBsTag).map((m) => m.id) : undefined,
+              // A scenario constant, not a per-link or per-peer quantity: the plan's author
+              // picks the tier and the engine never picks for them (see `WifiMacCfg.giNs`).
+              giNs: () => (sc.guardInterval ? TGI_NS[sc.guardInterval.gi] : undefined),
               modeForPeer: (peer) => modeFor(n, peer),
               mcsForPeer: (peer) => {
                 // The *mean* level, deliberately, even with fading on: this is the sender

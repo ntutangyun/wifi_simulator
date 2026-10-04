@@ -175,6 +175,50 @@ describe('Channel', () => {
     expect(calls.c.some((x) => x.startsWith('corrupt'))).toBe(true)
   })
 
+  /**
+   * The capture window is **the frame's own preamble**, and at the quadruple guard interval that
+   * is 52.8 µs rather than 44 (design 2026-10-05-guard-interval §1.4).
+   *
+   * `captureWindowNs` was the SEVENTH reader of "how long is the preamble" and it is on neither
+   * task's file list in that slice's plan — the other six are `txTimeModeNs`, `maxPsduBytesFor`,
+   * `ppduLayout`, two lesson builders and `FrameDetail`. Reading `PHY_MODES[mode].preambleNs`
+   * here would declare the last 8.8 µs of a 4x-LTF preamble to be committed payload, so a
+   * stronger signal arriving in that stretch could not be re-synced to although the radio is
+   * still acquiring.
+   *
+   * The pair below is the discriminating one: 48 µs into the weak reception is INSIDE a 52.8 µs
+   * preamble and OUTSIDE a 44 µs one, so the two cases must come out differently. Verified as a
+   * catcher by dropping the `frame.giNs` argument in `captureWindowNs` — the first case then
+   * fails.
+   */
+  const heFrame = (src: string, dst: string, giNs?: number): FrameDesc => ({
+    kind: 'data', src, dst, bytes: 1430, mbps: giNs === 3_200 ? 121.9 : 143.4,
+    durationFieldNs: 0, txTimeNs: giNs === 3_200 ? 148_800 : 125_600,
+    mode: 'he', mcs: 11, widthMhz: 20, ...(giNs === undefined ? {} : { giNs }),
+  })
+
+  it('captures 48 µs into a quadruple-GI reception, because its preamble runs to 52.8 µs', () => {
+    const { ch, records, runUntil, at } = setup({
+      'a>c': -40, 'b>c': -75, 'a>b': -95, 'b>a': -95, 'c>a': -40, 'c>b': -75,
+    })
+    at(1000, () => ch.startTx('b', heFrame('b', 'c', 3_200)))
+    at(1000 + 48_000, () => ch.startTx('a', heFrame('a', 'c')))
+    runUntil(1_000_000)
+    const dropped = records.find((r) => r.type === 'RX_FAIL' && r.reason === 'capture')
+    expect(dropped).toBeDefined()
+    expect((dropped as Extract<TLRecord, { type: 'RX_FAIL' }>).from).toBe('b')
+  })
+
+  it('does not capture 48 µs into a BASE-GI reception, whose preamble ended at 44 µs', () => {
+    const { ch, records, runUntil, at } = setup({
+      'a>c': -40, 'b>c': -75, 'a>b': -95, 'b>a': -95, 'c>a': -40, 'c>b': -75,
+    })
+    at(1000, () => ch.startTx('b', heFrame('b', 'c')))
+    at(1000 + 48_000, () => ch.startTx('a', heFrame('a', 'c')))
+    runUntil(1_000_000)
+    expect(records.some((r) => r.type === 'RX_FAIL' && r.reason === 'capture')).toBe(false)
+  })
+
   it('does not capture once the receiver is past the preamble', () => {
     const { ch, calls, records, runUntil, at } = setup({
       'a>c': -40, 'b>c': -75, 'a>b': -95, 'b>a': -95, 'c>a': -40, 'c>b': -75,

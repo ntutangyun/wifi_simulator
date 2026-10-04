@@ -26,7 +26,9 @@ import {
   ACK_BYTES, BA_BYTES, CF_END_BYTES, CTS_BYTES, DCF_PARAMS,
   EDCA_PARAMS, MAX_AMPDU_MPDUS, MAX_PPDU_NS, OFDM_5G, PHY_MODES,
   QOS_HDR_BYTES, FCS_BYTES, RTS_BYTES, SHORT_RETRY_LIMIT,
-  aifsNs, ctrlRespRateFor, ctrlRespRateForMode, mcsRateMbps, multiStaBaBytes, triggerBytes, toneRatio, txTimeModeNs, txTimeNs,
+  GI_MODES, TGI_NS,
+  aifsNs, ctrlRespRateFor, ctrlRespRateForMode, mcsRateMbps, multiStaBaBytes, preambleNsFor,
+  symNsFor, triggerBytes, toneRatio, txTimeModeNs, txTimeNs,
   type AcParams, type PhyMode, type PhyTiming, type TxTimeOpts,
 } from './phy'
 import { Rng } from './rng'
@@ -78,6 +80,19 @@ export interface WifiMacCfg {
   queueLimit?: number
   /** MSDU lifetime in the transmit queue (default 500 ms). */
   msduLifetimeNs?: Ns
+  /**
+   * The data field's guard interval this scenario selects, ns; absent (or a method returning
+   * `undefined`) means the base 0.8 µs, which is what `PHY_MODES[*].symNs` already is.
+   *
+   * **It is a SCENARIO constant, not a quantity derived per link or per peer** — hence no `peer`
+   * parameter, unlike every other method here. The standard says which three intervals exist,
+   * how long a symbol is at each, and that TXVECTOR's GI_TYPE names the one in use; it does not
+   * say how a transmitter should choose, and the quantity a choosing rule would read (the delay
+   * spread) has no value anywhere in either document. So the plan's author picks and the engine
+   * never picks for them, which is why the lessons record this as a `model-value` (design
+   * 2026-10-05-guard-interval §6.1).
+   */
+  giNs?(): Ns | undefined
   /** Interframe timing of the link this MAC serves (default: 5 GHz OFDM). */
   timing?: PhyTiming
   /** AP only: ambient-power (AMP) polling of P802.11bp tags on this link. */
@@ -167,12 +182,25 @@ interface StaMuAwait {
   timeoutHandle: number
 }
 
-/** Max PSDU bytes that fit a target duration at mode/mcs/RU fraction. */
+/**
+ * Max PSDU bytes that fit a target duration at mode/mcs/RU fraction.
+ *
+ * **`giNs` is correctness here, not decoration** — it is the one place in the guard-interval
+ * slice where leaving the code alone would be wrong. This turns a DURATION budget into bytes, so
+ * at a longer guard interval against the old divisor the symbol count comes out too high and the
+ * trigger-based PPDU that is then built runs past the duration it was allowed (design
+ * 2026-10-05-guard-interval §3.5).
+ *
+ * **Both halves of the fraction move.** The 4x LTF that the quadruple GI is paired with adds
+ * 8.8 µs to the preamble, which is in the numerator — 8 800 / 16 000 is 0.55 of a symbol, so
+ * swapping only the divisor still overruns for some budgets.
+ */
 export function maxPsduBytesFor(
   mode: PhyMode, mcs: number, ruFraction: number, durNs: Ns, widthMhz = 20, nss = 1,
+  giNs: Ns = TGI_NS.base,
 ): number {
   const m = PHY_MODES[mode]
-  const nsym = Math.floor((durNs - m.preambleNs) / m.symNs)
+  const nsym = Math.floor((durNs - preambleNsFor(mode, giNs)) / symNsFor(mode, giNs))
   const bits = nsym * m.ndbps[mcs] * toneRatio(mode, widthMhz) * nss * ruFraction
   return Math.max(0, Math.floor((bits - 22) / 8))
 }
@@ -620,7 +648,12 @@ export class WifiMac implements PhyListener {
     const mcs = this.cfg.mcsForPeer(peer)
     const width = this.cfg.widthForPeer(peer)
     const nss = this.cfg.nssForPeer(peer)
-    const mbps = mcsRateMbps(mode, mcs)
+    // The rate column this PPDU's guard interval selects (design 2026-10-05-guard-interval
+    // §3.6). It travels on to `buildDataFrame` as `FrameDesc.mbps`, so a record cannot say
+    // 143.4 Mb/s while its own timeline says 148.8 µs for 1430 octets. `ctrlRespRateForMode`
+    // ignores it for every mode but `nonht`, and `nonht` never has a guard interval, so the
+    // control-response path below stays on §10.6's non-HT reference rate either way.
+    const mbps = mcsRateMbps(mode, mcs, this.frameGiNs(mode) ?? TGI_NS.base)
     const useAmpdu = this.cfg.ampduWith(peer) && mode !== 'nonht'
     // The whole exchange — RTS/CTS if the first PPDU needs it, the PPDU, SIFS
     // and its ACK/BlockAck — must end inside the TXOP (§10.23.2.9). The head
@@ -722,9 +755,34 @@ export class WifiMac implements PhyListener {
     return txTimeNs(bytes, mbps) + this.T.signalExtNs
   }
 
-  /** TXTIME of a VHT/HE/EHT (or non-HT) PPDU on this link, including the signal extension. */
+  /**
+   * TXTIME of a VHT/HE/EHT (or non-HT) PPDU on this link, including the signal extension.
+   *
+   * **This is the ONE place the scenario's guard interval enters the airtime arithmetic**, and
+   * that is the whole design rather than a convenience. There are five call sites of this method
+   * and every one of them feeds either a PPDU's own `txTimeNs` or a Duration field that has to
+   * cover it; miss any single one and the Duration comes out shorter than the stretch of medium
+   * it is reserving. "Scan an interface's callers, not the task's file list" has a better form
+   * here than diligence — give the callers no chance to be missed.
+   *
+   * `opts` spreads LAST, so a caller that passes an explicit `giNs` still wins.
+   */
   private airModeNs(mode: PhyMode, bytes: number, mcs: number, opts: TxTimeOpts = {}): Ns {
-    return txTimeModeNs(mode, bytes, mcs, opts) + this.T.signalExtNs
+    return txTimeModeNs(mode, bytes, mcs, { giNs: this.cfg.giNs?.(), ...opts }) + this.T.signalExtNs
+  }
+
+  /**
+   * The guard interval this PPDU records — absent at the base GI and on every pre-HE format.
+   *
+   * Absent rather than 800 for the reason `FrameDesc.giNs` gives: the absence has to be readable
+   * as "take the old path", and it keeps every published lesson's records character-for-character
+   * unchanged. Pre-HE formats never carry it because clause 19's and clause 21's GI_TYPE is a
+   * different enumeration altogether (LONG_GI / SHORT_GI), not a narrower version of these three.
+   */
+  private frameGiNs(mode: PhyMode): Ns | undefined {
+    const gi = this.cfg.giNs?.()
+    if (gi === undefined || gi === TGI_NS.base || !GI_MODES.includes(mode)) return undefined
+    return gi
   }
 
   /**
@@ -736,6 +794,10 @@ export class WifiMac implements PhyListener {
   private exchangeNs(peer: string, msduBytes: number[], firstInTxop: boolean, burstProtection = false): { dataNs: Ns; totalNs: Ns } {
     const mode = this.cfg.modeForPeer(peer)
     const mcs = this.cfg.mcsForPeer(peer)
+    // Deliberately the base column, and deliberately NOT `frameGiNs`: this local never reaches a
+    // record. Its only use is `ctrlRespRateForMode` three lines down, which for he/eht reads
+    // `NONHT_REF_MBPS` and ignores this argument, and for `nonht` there is no guard interval to
+    // read. Passing a repriced rate here would be a change that provably does nothing.
     const mbps = mcsRateMbps(mode, mcs)
     const aggregate = this.cfg.ampduWith(peer) && mode !== 'nonht' && msduBytes.length > 1
     const psdu = aggregate
@@ -775,6 +837,7 @@ export class WifiMac implements PhyListener {
       seqNo, retryFlag, msduId: msdus[0].id,
       qos: aggregate || this.qosWith(peer),
       mode, mcs, widthMhz, ac: this.acTag(e),
+      giNs: this.frameGiNs(mode),
       msduBytes: msdus.map((m) => m.bytes),
       ampdu: aggregate ? { mpduCount: msdus.length, msduIds: msdus.map((m) => m.id) } : undefined,
     }
@@ -839,6 +902,7 @@ export class WifiMac implements PhyListener {
       kind: 'data', src: this.nodeId, dst: '*mu', bytes: parts.reduce((s, p) => s + p.bytes, 0),
       mbps: parts[0].mbps, durationFieldNs: this.T.sifsNs + baTime,
       txTimeNs: ppduDur, mode: modeAll, mcs: parts[0].mcs, widthMhz: width, ac: this.acTag(e),
+      giNs: this.frameGiNs(modeAll),
       muParts: parts, orthogonalGroup: gid, muKind: useMumimo ? 'mumimo' : 'ofdma',
     }
     if (!inTxopBurst) this.beginTxop(e, t)
@@ -889,7 +953,7 @@ export class WifiMac implements PhyListener {
       if (!msdus.length) continue
       const bytes = ampduPsduBytes(msdus.map((m) => m.bytes))
       parts.push({
-        dst: peer, src: this.nodeId, bytes, mcs, mbps: mcsRateMbps(modeAll, mcs),
+        dst: peer, src: this.nodeId, bytes, mcs, mbps: mcsRateMbps(modeAll, mcs, this.frameGiNs(modeAll) ?? TGI_NS.base),
         msduIds: msdus.map((m) => m.id), msduBytes: msdus.map((m) => m.bytes), mpduCount: msdus.length, ac,
         retryFlag: msdus.some((m) => m.sent),
         ...(mumimo ? { nss } : { ruFraction: frac }),
@@ -961,13 +1025,13 @@ export class WifiMac implements PhyListener {
       const nss = this.cfg.nssForPeer(u.peer)
       const need = this.airModeNs(
         mode,
-        Math.max(64, Math.min(u.bytes + 64, maxPsduBytesFor(mode, mcs, frac, 2_000_000 - this.T.signalExtNs, ulWidth, nss))),
+        Math.max(64, Math.min(u.bytes + 64, maxPsduBytesFor(mode, mcs, frac, 2_000_000 - this.T.signalExtNs, ulWidth, nss, this.cfg.giNs?.()))),
         mcs,
         { ruFraction: frac, widthMhz: ulWidth, nss },
       )
       ulDur = Math.max(ulDur, Math.min(need, 2_000_000))
       return {
-        dst: u.peer, src: this.nodeId, bytes: 0, mcs, mbps: mcsRateMbps(mode, mcs),
+        dst: u.peer, src: this.nodeId, bytes: 0, mcs, mbps: mcsRateMbps(mode, mcs, this.frameGiNs(mode) ?? TGI_NS.base),
         msduIds: [], mpduCount: 0, ac: u.ac,
       }
     })
@@ -1450,7 +1514,8 @@ export class WifiMac implements PhyListener {
             const mcs = this.cfg.mcsForPeer(aw.peer)
             const width = this.cfg.widthForPeer(aw.peer)
             const nss = this.cfg.nssForPeer(aw.peer)
-            const mbps = mcsRateMbps(mode, mcs)
+            // Same reasoning as in `transmitFor`: this one reaches `FrameDesc.mbps`.
+            const mbps = mcsRateMbps(mode, mcs, this.frameGiNs(mode) ?? TGI_NS.base)
             const aggregate = aw.msdus.length > 1
             const respTime = this.airNs(aggregate ? BA_BYTES : ACK_BYTES, ctrlRespRateForMode(mode, mcs, mbps))
             const frame2 = this.buildDataFrame(e, aw.peer, aw.msdus, aw.aggBytes, mode, mcs, mbps, aggregate, respTime, width, nss)
@@ -1491,7 +1556,7 @@ export class WifiMac implements PhyListener {
       // UL BW comes from the Trigger's Common Info, not from this station's own link.
       const width = trigger.ulWidthMhz ?? this.cfg.widthForPeer(trigger.src)
       const nss = this.cfg.nssForPeer(trigger.src)
-      const budget = maxPsduBytesFor(mode, mcs, frac, dur - this.T.signalExtNs, width, nss)
+      const budget = maxPsduBytesFor(mode, mcs, frac, dur - this.T.signalExtNs, width, nss, this.cfg.giNs?.())
       const msdus = this.queues.claim(ac, null, MAX_AMPDU_MPDUS, (m, claimed) =>
         ampduPsduBytes([...claimed.map((x) => x.bytes), m.bytes]) <= budget)
       if (!msdus.length) {
@@ -1500,9 +1565,10 @@ export class WifiMac implements PhyListener {
       }
       const bytes = ampduPsduBytes(msdus.map((m) => m.bytes))
       const frame: FrameDesc = {
-        kind: 'data', src: this.nodeId, dst: trigger.src, bytes, mbps: mcsRateMbps(mode, mcs),
+        kind: 'data', src: this.nodeId, dst: trigger.src, bytes, mbps: mcsRateMbps(mode, mcs, this.frameGiNs(mode) ?? TGI_NS.base),
         durationFieldNs: 0, txTimeNs: dur, // padded to the trigger's target duration
         seqNo: (this.assignSeq(trigger.src, ac, msdus), msdus[0].seqNo), mode, mcs, widthMhz: width, ac: this.acTag(e),
+        giNs: this.frameGiNs(mode),
         retryFlag: msdus.some((m) => m.sent),
         msduBytes: msdus.map((m) => m.bytes),
         ampdu: { mpduCount: msdus.length, msduIds: msdus.map((m) => m.id) },

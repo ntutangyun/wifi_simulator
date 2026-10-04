@@ -19,7 +19,7 @@ import type { Ns, Vec3 } from '../model/types'
 import { EventQueue } from './events'
 import { fadingDb, shadowDb, smallScaleDb, type FadingCfg } from './fading'
 import { byCodeUnit } from './hash'
-import { CCA_ED_DBM, CCA_PD_DBM, PHY_MODES, noiseDbm, reqSinrDb, sinrThreshDb } from './phy'
+import { CCA_ED_DBM, CCA_PD_DBM, noiseDbm, preambleNsFor, reqSinrDb, sinrThreshDb } from './phy'
 import { wallLossDb } from './propagation'
 import { selBinStart, selBinnableGen, selBins, selEffSinrDb, selMemberBins } from './selectivity'
 import { wifiToUwbPathLossDb, type Emission, type Spectrum } from './spectrum'
@@ -281,6 +281,13 @@ const CAPTURE_MARGIN_DB = 5
  * How long a reception stays re-syncable: its preamble, during which the radio
  * is still doing AGC and timing acquisition. Once into the payload it is
  * committed, and a stronger signal can only corrupt it.
+ *
+ * **The Wi-Fi exit reads the frame's own guard interval**, not `PHY_MODES[mode].preambleNs`.
+ * This was the seventh caller of "how long is the preamble" and it is not on either task's file
+ * list: at the quadruple guard interval the 4x LTF makes the real preamble 52.8 µs rather than
+ * 44, and reading the stored constant would have declared the last 8.8 µs of a preamble to be
+ * committed payload. `preambleNsFor(mode, undefined)` is `PHY_MODES[mode].preambleNs` by
+ * construction, so every scene without the section is unaffected to the nanosecond.
  */
 const captureWindowNs = (frame: FrameDesc): Ns => {
   // A backscatter DL PPDU syncs on 8 chips after its WUP-Excitation, not on the Active Tx tier's
@@ -291,7 +298,7 @@ const captureWindowNs = (frame: FrameDesc): Ns => {
   }
   if (frame.amp?.dir === 'dl') return AMP_LEGACY_PREAMBLE_NS + AMP_DL_SYNC_NS
   if (frame.amp?.dir === 'ul') return AMP_UL_SYNC_CHIPS * AMP_UL_CHIP_NS[frame.amp.kbps as AmpUlKbps]
-  return PHY_MODES[frame.mode ?? 'nonht'].preambleNs
+  return preambleNsFor(frame.mode ?? 'nonht', frame.giNs)
 }
 
 /**
