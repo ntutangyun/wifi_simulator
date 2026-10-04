@@ -1,9 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import {
-  addOpening, ampTagIssue, clampField, generationPatch, hitTestNode, hitTestWall, newTag, roomsToWalls,
-  scenarioFromJson, scenarioToJson, spawnRandomStas,
+  addOpening, ampTagIssue, clampField, generationPatch, guardIntervalSwitch, guardIntervalToggle,
+  hitTestNode, hitTestWall, newTag, roomsToWalls,
+  scenarioFromJson, scenarioToJson, spawnRandomStas, withGuardInterval,
 } from '../../src/editor/planOps'
-import { DEFAULT_AMP_AP, DEFAULT_AMP_BS, defaultScenario, ScenarioSchema, type Room, type Wall } from '../../src/model/scenario'
+import { DEFAULT_AMP_AP, DEFAULT_AMP_BS, defaultScenario, guardIntervalRefusals, ScenarioSchema, type Room, type Scenario, type Wall } from '../../src/model/scenario'
 import { Rng } from '../../src/engine/rng'
 
 const rooms: Room[] = [
@@ -240,5 +241,62 @@ describe('scenario json', () => {
   })
   it('throws on invalid json', () => {
     expect(() => scenarioFromJson('{"rooms": []}')).toThrow()
+  })
+})
+
+/**
+ * The guard-interval control's three plan operations (design doc
+ * docs/superpowers/specs/2026-10-05-guard-interval-design.md §3.3, §3.8).
+ */
+describe('guardIntervalSwitch / guardIntervalToggle / withGuardInterval', () => {
+  /** An eht AP, an he station and a vht station, so the scene holds an eht–he link. */
+  const ok = (): Scenario => defaultScenario()
+  /** The same floor with every generation pushed down to vht: no link has a GI_TYPE. */
+  const noGiLink = (): Scenario => ({
+    ...ok(),
+    nodes: ok().nodes.map((n) => {
+      const { linkId: _drop, ...rest } = n
+      return { ...rest, caps: { generation: 'vht' as const, features: {} } }
+    }),
+  })
+
+  it('reports the base tier and no refusals on a scene that can take one', () => {
+    const sw = guardIntervalSwitch(ok())
+    expect(sw).toEqual({ gi: 'base', live: true, refusals: [] })
+  })
+
+  it('reports exactly one refusal, in the schema\'s own words, when no link has a GI_TYPE', () => {
+    const sw = guardIntervalSwitch(noGiLink())
+    expect(sw.gi).toBe('base')
+    expect(sw.live).toBe(false)
+    expect(sw.refusals).toEqual(guardIntervalRefusals(noGiLink()))
+    expect(sw.refusals).toHaveLength(1)
+  })
+
+  it('stays live on a tier already chosen, so an invalid plan can still be switched back off', () => {
+    // The reason `selectivitySwitch` gives, and the trap it was written for: a plan edited into
+    // an invalid state must not leave the reader holding it with the only control that could
+    // undo it gone dead.
+    const stuck = { ...noGiLink(), guardInterval: { gi: 'quad' as const } }
+    const sw = guardIntervalSwitch(stuck)
+    expect(sw.gi).toBe('quad')
+    expect(sw.live).toBe(true)
+    expect(sw.refusals).toHaveLength(1)
+  })
+
+  it('maps base to no section at all, and the other two to their own', () => {
+    expect(guardIntervalToggle('base')).toBeUndefined()
+    expect(guardIntervalToggle('double')).toEqual({ gi: 'double' })
+    expect(guardIntervalToggle('quad')).toEqual({ gi: 'quad' })
+  })
+
+  it('removes the KEY rather than setting it undefined, so the plan reads back as it was written', () => {
+    const on = withGuardInterval(ok(), { gi: 'quad' })
+    expect(on.guardInterval).toEqual({ gi: 'quad' })
+    const off = withGuardInterval(on, undefined)
+    expect('guardInterval' in off).toBe(false)
+    // And a round trip through the schema keeps it that way.
+    expect('guardInterval' in ScenarioSchema.parse(off)).toBe(false)
+    expect(ScenarioSchema.parse(on).guardInterval).toEqual({ gi: 'quad' })
   })
 })

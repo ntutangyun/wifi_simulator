@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { FADING_DEFAULTS, RICIAN_K_DEFAULT_DB, type FadingCfg } from '../engine/fading'
 import { Rng } from '../engine/rng'
 import { GEN_FEATURES, physicalId, type LinkId } from '../model/caps'
-import { DEFAULT_AMP_AP, DEFAULT_AMP_BS, DEFAULT_SIX_GHZ_CENTER_MHZ, normalizeProfiles, PROFILE_IDS, SERVER_KINDS, sixGhzChannelNo, TAMPER_KINDS, TAMPER_PRESETS, TXOP_PROTECTIONS, serverFor, serverKindFor, tamperKindOf, type AmpApCfg, type AmpBackscatterCfg, type AmpTagMode, type Material, type NodeCfg, type ProfileId, type Scenario, type SelectivityCfg, type ServerCfg, type ServerKind, type TamperKind, type TxopProtection, type UwbSessionCfg } from '../model/scenario'
+import { DEFAULT_AMP_AP, DEFAULT_AMP_BS, DEFAULT_SIX_GHZ_CENTER_MHZ, normalizeProfiles, PROFILE_IDS, SERVER_KINDS, sixGhzChannelNo, TAMPER_KINDS, TAMPER_PRESETS, TXOP_PROTECTIONS, serverFor, serverKindFor, tamperKindOf, type AmpApCfg, type AmpBackscatterCfg, type AmpTagMode, type GuardIntervalCfg, type Material, type NodeCfg, type ProfileId, type Scenario, type SelectivityCfg, type ServerCfg, type ServerKind, type TamperKind, type TxopProtection, type UwbSessionCfg } from '../model/scenario'
 import { HOUSEHOLDS } from '../model/households'
 import { nonht } from '../model/scenario'
 import { BRANDS, STATION_PRESETS, applyPreset } from '../model/presets'
@@ -17,12 +17,12 @@ import { UwbNodeFields } from '../uwb/ui/UwbNodeFields'
 import { UwbSessionFields } from '../uwb/ui/UwbSessionFields'
 import {
   addOpening, alongWall, ampTagIssue, canDeleteNode, clampField, clampSixGhzCenterMhz, fadingFieldsLive,
-  fadingSmallScalePatch, fadingToggle, generationPatch, hasAp,
+  fadingSmallScalePatch, fadingToggle, generationPatch, guardIntervalSwitch, guardIntervalToggle, hasAp,
   hitTestNode, hitTestScatterer, hitTestWall, moveScatterer, newAnchor, newAp, newScatterer, newTag,
   newUwbTag, parseCoherenceMs, parseRicianKdB, parseScattererNumber,
   parseShadowSigmaDb, removeNode, removeScatterer, roomsToWalls, scenarioFromJson, updateScatterer, withFading,
   scenarioToJson, selectivitySwitch, selectivityToggle, sixGhzNbOverlaps, sixGhzOverlapPct, snap,
-  spawnRandomStas, uwbSessionIssue, withSelectivity,
+  spawnRandomStas, uwbSessionIssue, withGuardInterval, withSelectivity,
 } from './planOps'
 
 type Tool = 'select' | 'room' | 'door' | 'window' | 'ap' | 'sta' | 'tag' | 'anchor' | 'uwbTag' | 'scatterer'
@@ -607,6 +607,12 @@ export function FloorPlanEditor() {
                   sections away the grey would be unexplainable. Unconditional for the same
                   reason the fading switch is — it is what opts a plan in. */}
               <SelectivityField scenario={scenario} onChange={(sel) => commit(withSelectivity(scenario, sel))} />
+              {/* Under the selectivity switch and unconditional for the same reason: the
+                  control is what opts a plan in. It is a radio group rather than a checkbox
+                  because there are three tiers and the base one is the absence of the section
+                  (`guardIntervalToggle`), so "off" is a choice among the three and not a
+                  separate gesture. */}
+              <GuardIntervalField scenario={scenario} onChange={(g) => commit(withGuardInterval(scenario, g))} />
               {/* The reflecting objects. Unlike fading there is no switch: the objects *are* the
                   section, so this list is only here to name what the 🪞 tool placed and to take
                   them away again — with the last of them the section itself goes. */}
@@ -1200,6 +1206,37 @@ function FadingFields({ fading, onChange }: { fading?: FadingCfg; onChange: (f: 
  * eht/he link. `selectivitySwitch` answers all three in `planOps.ts` and hands back the
  * schema's own sentences for the ones that failed, so this draws them and decides nothing.
  */
+/**
+ * The data field's guard interval: three tiers, one of which is "no section at all".
+ *
+ * Shows the refusal in the schema's own words, visible rather than as a tooltip, for the reason
+ * `SelectivityField` gives: on a touch screen there is nothing to hover, and a greyed control
+ * with no reason beside it is the shape of the bug this pattern exists to prevent.
+ */
+function GuardIntervalField(
+  { scenario, onChange }: { scenario: Scenario; onChange: (g: GuardIntervalCfg | undefined) => void },
+) {
+  const E = useStrings().editor
+  const sw = guardIntervalSwitch(scenario)
+  const TIERS = ['base', 'double', 'quad'] as const
+  return (
+    <div>
+      <div style={{ color: 'var(--dim)', marginBottom: 4 }} title={E.guardIntervalHint}>{E.guardInterval}</div>
+      {TIERS.map((tier) => (
+        <label key={tier} style={{ display: 'block', marginBottom: 4 }} title={E.guardIntervalHint}>
+          <input
+            type="radio" name="guardInterval" checked={sw.gi === tier}
+            disabled={!sw.live && tier !== 'base'}
+            onChange={() => onChange(guardIntervalToggle(tier))}
+          />
+          {' '}{E.guardIntervalTiers[tier]}
+        </label>
+      ))}
+      {sw.refusals.map((why) => <div key={why} style={issueStyle}>{why}</div>)}
+    </div>
+  )
+}
+
 function SelectivityField(
   { scenario, onChange }: { scenario: Scenario; onChange: (s: SelectivityCfg | undefined) => void },
 ) {

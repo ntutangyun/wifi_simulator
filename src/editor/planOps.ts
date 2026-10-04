@@ -2,7 +2,7 @@
  * Pure floor-plan operations: rooms → deduplicated walls, hit testing,
  * openings, random STA spawning, scenario (de)serialization.
  */
-import { DEFAULT_UWB_SESSION, ScenarioSchema, SIX_GHZ_GATE_MIN_WIDTH_MHZ, selectivityRefusals, type NodeCfg, type Opening, type Room, type Scenario, type SelectivityCfg, type UwbNodeCfg, type Wall } from '../model/scenario'
+import { DEFAULT_UWB_SESSION, ScenarioSchema, SIX_GHZ_GATE_MIN_WIDTH_MHZ, guardIntervalRefusals, selectivityRefusals, type GuardIntervalCfg, type NodeCfg, type Opening, type Room, type Scenario, type SelectivityCfg, type UwbNodeCfg, type Wall } from '../model/scenario'
 import { FADING_DEFAULTS, RICIAN_K_DEFAULT_DB, type FadingCfg } from '../engine/fading'
 import type { ScattererCfg } from '../engine/scatter'
 import { GEN_FEATURES, defaultFeatures, type FeatureFlag } from '../model/caps'
@@ -510,6 +510,52 @@ export function selectivityToggle(on: boolean): SelectivityCfg | undefined {
 export function withSelectivity(sc: Scenario, s: SelectivityCfg | undefined): Scenario {
   if (s !== undefined) return { ...sc, selectivity: s }
   const { selectivity: _off, ...rest } = sc
+  return rest
+}
+
+// ---- the data field's guard interval -------------------------------------------------------
+
+/**
+ * What the guard-interval control shows: which tier the plan is on, whether the control may be
+ * touched at all, and the refusals to print under it when it may not.
+ *
+ * **`live` is not "there are no refusals".** It is "the plan is already on a non-base tier, OR
+ * there are no refusals" — the same shape and the same reason as `selectivitySwitch` above: a
+ * plan can be edited into an invalid state (downgrade the station and the eht/he link is gone),
+ * and if the one control that could undo it went dead the reader would be stuck holding a plan
+ * the schema refuses with nothing on screen able to fix it. So the tier that is already on stays
+ * switchable off.
+ *
+ * `refusals` comes from `guardIntervalRefusals` (src/model/scenario.ts) rather than from a
+ * paraphrase, so the greyed control and the schema's refusal cannot explain one rule two ways.
+ */
+export function guardIntervalSwitch(sc: Scenario): { gi: 'base' | 'double' | 'quad'; live: boolean; refusals: string[] } {
+  const refusals = guardIntervalRefusals(sc)
+  const gi = sc.guardInterval?.gi ?? 'base'
+  return { gi, live: gi !== 'base' || refusals.length === 0, refusals }
+}
+
+/**
+ * The section the control writes: `undefined` for the base tier, `{ gi }` for the other two.
+ *
+ * `'base'` maps to `undefined` rather than to `{ gi: 'base' }` because the schema has no such
+ * value (`GuardIntervalCfg`) — the absence of the section IS the base guard interval.
+ */
+export function guardIntervalToggle(gi: 'base' | 'double' | 'quad'): GuardIntervalCfg | undefined {
+  return gi === 'base' ? undefined : { gi }
+}
+
+/**
+ * The plan carrying this guard-interval section — and, for `undefined`, carrying **no
+ * `guardInterval` key at all**, for the reason `withFading` gives: the byte-identical guarantee
+ * is stated as "a plan that was never here", and an explicitly-undefined key survives the
+ * schema's output while `'guardInterval' in sc` does not.
+ *
+ * No `withFading`-style interlock: the guard interval depends on no other section.
+ */
+export function withGuardInterval(sc: Scenario, g: GuardIntervalCfg | undefined): Scenario {
+  if (g !== undefined) return { ...sc, guardInterval: g }
+  const { guardInterval: _off, ...rest } = sc
   return rest
 }
 

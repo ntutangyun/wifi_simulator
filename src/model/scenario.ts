@@ -14,6 +14,10 @@ import { FADING_DEFAULTS, RICIAN_K_DEFAULT_DB, type FadingCfg } from '../engine/
 // predicate the decode path asks (`selBinnableGen`) instead of keeping a second copy of which
 // generations a 26-tone RU exists in.
 import { selBinnableGen } from '../engine/selectivity'
+// `src/engine/phy.ts` takes only this folder's `types` (for `Ns`), so there is no cycle, and the
+// schema can ask the same two-entry list the PHY itself keeps (`GI_MODES`) rather than writing a
+// third copy of "which generations have a GI_TYPE".
+import { GI_MODES } from '../engine/phy'
 // Type only, and deliberately so: `src/engine/scatter.ts` takes nothing at run time but this
 // folder's `types` (for `Vec3`), so the shape of a reflecting object is declared once, beside
 // the geometry that consumes it, and the schema below validates that same shape.
@@ -624,6 +628,28 @@ export function serverFor(sc: Pick<Scenario, 'servers'>, n: NodeCfg, profile: Pr
  */
 export type SelectivityCfg = Record<string, never>
 
+/**
+ * `Scenario.guardInterval`'s payload: which of the data field's guard intervals this plan sends
+ * at (design doc 2026-10-05-guard-interval §3.3).
+ *
+ * **Two legal values, and `'base'` is deliberately not one of them.** Each reason stands alone:
+ *
+ *  - A plan that wrote `'base'` would be byte-for-byte a plan that omitted the whole section,
+ *    because `symNsFor(mode, TGI_NS.base)` IS `PHY_MODES[mode].symNs`. A legal setting that
+ *    provably changes nothing is the shape this repo hunts, and the schema can refuse this one.
+ *  - 0.8 µs is the one of the three that is not mandatory for every PPDU format: the
+ *    trigger-based combinations are (2x, 1.6) and (4x, 3.2) for HE TB, and (1x, 1.6), (2x, 1.6)
+ *    and (4x, 3.2) for EHT TB (§27.1.1 / §36.1.1). The two values offered here are exactly that
+ *    mandatory set.
+ *
+ * **The field is `gi`, and the words are `double` / `quad`, on purpose.** No name here may hint
+ * at what the longer interval gets you — in this engine it gets you nothing (§2.1), and `long`
+ * or `robust` would be a claim. `double` and `quad` are Table 27-13's own description column.
+ */
+export interface GuardIntervalCfg {
+  gi: 'double' | 'quad'
+}
+
 export interface Scenario {
   rooms: Room[]
   walls: Wall[]
@@ -673,6 +699,32 @@ export interface Scenario {
    * a bin width at the wrong subcarrier spacing, and beats silently doing nothing at all).
    */
   selectivity?: SelectivityCfg
+  /**
+   * The data field's guard interval for every HE/EHT PPDU this plan sends (design doc
+   * 2026-10-05-guard-interval §3.3). **Absent means the base 0.8 µs**, and absent is what every
+   * scenario written before this section says: the symbol stays 13.6 µs and the preamble 44 /
+   * 48 µs, bit for bit as before — the same rule `fading`'s doc comment states above (the
+   * default sits on the field, never on the section).
+   *
+   * **It is a scenario constant, not a quantity the engine derives.** The standard says which
+   * three intervals exist, how long a symbol is at each, and that TXVECTOR's GI_TYPE names the
+   * one in use; it does not say how a transmitter should choose. And the quantity a choosing
+   * rule would have to read — the delay spread — has no value anywhere in either document
+   * (§1.3). So the plan's author picks, and the engine never picks for them. `limits` records
+   * that as a `model-value`.
+   *
+   * **In this engine the longer interval has a cost and no benefit, and that is structural
+   * rather than unfinished.** `reqSinrDb(mode, mcs)` has no time parameter at all, so the
+   * demodulation threshold cannot see the guard interval (§2.1). Any frame-loss difference
+   * between the tiers is resampling: a changed timeline changes `txSeq` and the instants, which
+   * changes the fading draw's hash key.
+   *
+   * `superRefine` below requires at least one eht/he **link** — both ends, since a link's PPDU
+   * format is `minGen` of the two. It deliberately does NOT require `fading`, unlike
+   * `selectivity`: the guard interval acts on the time axis and never goes through the fading
+   * draw, so asking for `fading` would be a dependency the mechanism does not have.
+   */
+  guardInterval?: GuardIntervalCfg
   /**
    * Objects in the room that reflect, giving every transmission a second arrival at every
    * receiver (`src/engine/scatter.ts`). **Absent means no echoes at all**, and absent is what
@@ -1097,6 +1149,23 @@ const FadingSchema = z.object({
 const SelectivitySchema = z.object({})
 
 /**
+ * The guard-interval section (design doc 2026-10-05-guard-interval §3.3). `.optional()` with no
+ * `.default()`, like every other section in this file — the default belongs on a field, never on
+ * the section, which is the rule `FadingSchema`'s comment states at length.
+ *
+ * The enumeration refuses `'base'` and explains both halves of why in the message, because the
+ * reader who wrote it needs to know that the value exists in the standard and that writing it
+ * here changes nothing. See `GuardIntervalCfg`.
+ */
+const GuardIntervalSchema = z.object({
+  gi: z.enum(['double', 'quad'], {
+    errorMap: () => ({
+      message: '保护间隔只接受 double（1.6 µs）与 quad（3.2 µs）两个值。基本保护间隔 0.8 µs 不是这里的一个取值：它就是 PHY_MODES[*].symNs 里那个 13.6 µs（12.8 µs 的离散傅里叶变换周期加 0.8 µs），写出来与整节不写逐字节相同。另外它是三档里唯一一个对某种 PPDU 格式不强制的——基于触发的 TB PPDU 的强制组合里没有 0.8 µs（§27.1.1 / §36.1.1）',
+    }),
+  }),
+})
+
+/**
  * Why this plan would refuse a `selectivity` section — one string per reason, empty when the
  * section is welcome. The **single copy** of both the three predicates and their wording.
  *
@@ -1182,6 +1251,41 @@ export function selectivityRefusals(sc: Pick<Scenario, 'fading' | 'nodes'>): str
     out.push('频率选择性（selectivity）需要场景里至少有一条 eht 或 he 链路——注意是链路，不是设备：一条链路实际用的 PPDU 格式是两端世代里较低的那一个（minGen），所以「旧路由器 + 新笔记本」这样的配对跑出来是 nonht 链路，一格也分不出来。26 音调资源单元是第 27／36 章的分格单位，只在 HE／EHT 的 78.125 kHz 子载波间隔下成立，而 nonht 与 vht 的间隔是 312.5 kHz——同样 20 MHz，HE／EHT 有 234 根数据子载波，vht 只有 52 根。拒绝好过悄悄按一个错误的子载波间隔算出格宽，更好过一声不响地什么也不做。请让接入点和至少一台终端都到 he 或 eht，或者把 selectivity 去掉')
   }
   return out
+}
+
+/**
+ * Does this scene hold **one link** whose TXVECTOR even carries a `GI_TYPE` parameter?
+ *
+ * Written the same way as `hasBinnableLink` above, and for the same reason it was rewritten:
+ * ask per DEVICE and every mixed pair — an `eht` station behind a `vht` access point — is
+ * accepted while the link it actually runs on is `vht`, with no red line anywhere.
+ *
+ * **It reads `GI_MODES` and not `selBinnableGen`, and the two lists are separate on purpose.**
+ * `selBinnableGen` asks about the subcarrier spacing (only 78.125 kHz resolves a 26-tone RU);
+ * this asks whether the PPDU format has a `GI_TYPE` in its TXVECTOR at all (Table 27-1 /
+ * Table 36-1). The two happen to hold the same two entries today on different evidence, and
+ * `GI_MODES`'s own comment in src/engine/phy.ts says why folding them into one would mislead.
+ */
+function hasGiLink(nodes: Scenario['nodes']): boolean {
+  const apGen = nodes.find((n) => n.kind === 'ap')?.caps.generation
+  if (apGen === undefined) return false
+  return nodes.some((n) => n.kind === 'sta' && GI_MODES.includes(minGen(apGen, n.caps.generation)))
+}
+
+/**
+ * Why this plan would refuse a `guardInterval` section — one string per reason, empty when the
+ * section is welcome. The **single copy** of the predicate and its wording, read by
+ * `superRefine` below and by the editor's control (`src/editor/planOps.ts` ·
+ * `guardIntervalSwitch`), exactly as `selectivityRefusals` is.
+ *
+ * **One rule, not three.** Unlike `selectivity` this section borrows nothing from `fading`: the
+ * guard interval acts on the time axis and never reaches the fading draw, so a `fading`
+ * precondition would be a dependency the mechanism does not have. And `gi: 'base'` needs no
+ * rule here because the `z.enum` has no such value (§3.3).
+ */
+export function guardIntervalRefusals(sc: Pick<Scenario, 'nodes'>): string[] {
+  if (hasGiLink(sc.nodes)) return []
+  return ['保护间隔（guard interval）需要场景里至少有一条 eht 或 he 链路——注意是链路，不是设备：一条链路实际用的 PPDU 格式是两端世代里较低的那一个（minGen），所以「旧路由器 + 新笔记本」这样的配对跑出来是 vht 链路。TXVECTOR 的 GI_TYPE 只在 FORMAT 为 HE／EHT 的那几种格式下才在场（Table 27-1 / Table 36-1），而 nonht 与 vht 的符号固定 4 µs（Table 19-6 / Table 21-5），它们那 400 ns 的短保护间隔是另一组枚举、而且标准写明收发都是可选的，本仿真器不建。请让接入点和至少一台终端都到 he 或 eht，或者把 guardInterval 去掉']
 }
 
 /**
@@ -1322,6 +1426,10 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
     // the link level is `fading`'s (or the static table's) alone, and `.default({})` here would
     // put every existing scenario into the per-bin branch the moment `fading` is also on.
     selectivity: SelectivitySchema.optional(),
+    // The same deliberate shape once more: absent means the base 0.8 µs guard interval, which is
+    // what `PHY_MODES[*].symNs` already is, so `.default()` here would be a no-op section on
+    // every existing plan rather than a kindness. See GuardIntervalSchema.
+    guardInterval: GuardIntervalSchema.optional(),
   })
   .superRefine((sc, ctx) => {
     // Wi-Fi needs its one AP; a scenario that is nothing but UWB nodes has no
@@ -1339,6 +1447,14 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
     if (sc.selectivity !== undefined) {
       for (const message of selectivityRefusals(sc)) {
         ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['selectivity'], message })
+      }
+    }
+    // The guard interval (design doc 2026-10-05-guard-interval §3.8). One rule, and it is about
+    // the LINK generation rather than any device's: `guardIntervalRefusals` above holds the
+    // single copy of both the predicate and its wording, which the editor's control reads too.
+    if (sc.guardInterval !== undefined) {
+      for (const message of guardIntervalRefusals(sc)) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['guardInterval'], message })
       }
     }
     // Every ranging rule is tagged `path: ['uwb']` so the editor can tell a

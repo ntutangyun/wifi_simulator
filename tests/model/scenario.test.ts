@@ -1,9 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import { ZodError } from 'zod'
 import {
-  DEFAULT_AMP_AP, DEFAULT_AMP_BS, ScenarioSchema, defaultScenario, nonht, scenarioErrorText,
-  type AmpBackscatterCfg,
+  DEFAULT_AMP_AP, DEFAULT_AMP_BS, ScenarioSchema, defaultScenario, guardIntervalRefusals, nonht,
+  scenarioErrorText, type AmpBackscatterCfg, type NodeCfg, type Scenario,
 } from '../../src/model/scenario'
+import type { Generation } from '../../src/model/types'
 
 describe('scenario schema', () => {
   it('accepts the default scenario', () => {
@@ -195,5 +196,98 @@ describe('scenarioErrorText', () => {
   it('passes an ordinary Error through unchanged', () => {
     expect(scenarioErrorText(new Error('boom'))).toBe('boom')
     expect(scenarioErrorText('boom')).toBe('boom')
+  })
+})
+
+/**
+ * `Scenario.guardInterval`: the optional section that picks the data field's guard interval
+ * (design doc docs/superpowers/specs/2026-10-05-guard-interval-design.md §3.3, §3.8, §1.5).
+ *
+ * Same discipline as `fading` and `selectivity`: the section is switched by its own PRESENCE,
+ * the default sits on a field and never on the section, and a scenario that never mentions it
+ * parses to an object with no `guardInterval` key at all.
+ */
+describe('scenario schema · the guard-interval section', () => {
+  /** An eht AP, an he station and a vht station — so the scene holds an eht–he link. */
+  const base = (): Scenario => defaultScenario()
+
+  /** An AP at `apGen` and one station at `staGen`, so the LINK generation is `minGen` of both. */
+  const pair = (apGen: Generation, staGen: Generation): Scenario => {
+    const b = defaultScenario()
+    const plain = (n: NodeCfg, generation: Generation): NodeCfg => {
+      const { linkId: _drop, ...rest } = n
+      return { ...rest, caps: { generation, features: {} } }
+    }
+    return {
+      ...b,
+      nodes: [
+        plain(b.nodes.find((n) => n.kind === 'ap')!, apGen),
+        plain(b.nodes.find((n) => n.kind === 'sta')!, staGen),
+      ],
+    } as Scenario
+  }
+
+  it('(a) a scenario that says nothing has no guardInterval PROPERTY, not a base-filled one', () => {
+    // `fading`'s own comment states this rule in so many words: the default sits on the field,
+    // never on the section. A `.default({ gi: 'base' })` here would put every existing plan
+    // into the guard-interval branch.
+    const parsed = ScenarioSchema.parse(base())
+    expect('guardInterval' in parsed).toBe(false)
+    expect(parsed.guardInterval).toBeUndefined()
+  })
+
+  it('(b) accepts double and quad on a scene that holds an eht–he link', () => {
+    for (const gi of ['double', 'quad'] as const) {
+      const parsed = ScenarioSchema.parse({ ...base(), guardInterval: { gi } })
+      expect(parsed.guardInterval).toEqual({ gi })
+    }
+  })
+
+  it('(c) refuses gi: "base", and says both why it is empty and why it is the odd one out', () => {
+    // Without this assertion there is no red line the day someone adds `'base'` back. 13.6 is
+    // the "writing it down changes nothing" half; TB is the standard's half (§1.5: the base GI
+    // is the only one of the three that is not mandatory for some PPDU format).
+    let msg = ''
+    try {
+      ScenarioSchema.parse({ ...base(), guardInterval: { gi: 'base' } })
+    } catch (e) {
+      msg = scenarioErrorText(e)
+    }
+    expect(msg).not.toBe('')
+    expect(msg).toContain('13.6')
+    expect(msg).toContain('TB')
+  })
+
+  it('(d) refuses the section with no gi at all', () => {
+    expect(() => ScenarioSchema.parse({ ...base(), guardInterval: {} })).toThrow()
+  })
+
+  it('(e) asks about the LINK and not the device: an eht AP with a vht station is refused', () => {
+    // The hole `hasBinnableLink` was built for. Asking per device would let downgrading the
+    // access point make the refusal disappear while the link stayed vht.
+    let msg = ''
+    try {
+      ScenarioSchema.parse({ ...pair('eht', 'vht'), guardInterval: { gi: 'quad' } })
+    } catch (e) {
+      msg = scenarioErrorText(e)
+    }
+    expect(msg).toContain('链路')
+    expect(msg).toContain('minGen')
+    expect(msg).not.toContain('不是链路，是设备')
+    // And the same scene one generation up is accepted, so the refusal is about the link.
+    expect(() => ScenarioSchema.parse({ ...pair('eht', 'he'), guardInterval: { gi: 'quad' } })).not.toThrow()
+    expect(() => ScenarioSchema.parse({ ...pair('vht', 'eht'), guardInterval: { gi: 'quad' } })).toThrow()
+    expect(() => ScenarioSchema.parse({ ...pair('nonht', 'eht'), guardInterval: { gi: 'quad' } })).toThrow()
+  })
+
+  it('(f) does not read sc.fading — unlike selectivity, that would be a false dependency', () => {
+    // The guard interval acts on the time axis and never goes through the fading draw, so
+    // requiring `fading` would be a dependency the mechanism does not have.
+    const scene = pair('eht', 'eht')
+    expect(scene.fading).toBeUndefined()
+    expect(guardIntervalRefusals(scene)).toEqual([])
+    expect(guardIntervalRefusals({ ...scene, fading: { shadowSigmaDb: 0, coherenceMs: 100, smallScale: 'none' } } as Scenario)).toEqual([])
+    // And it is not empty for everything: the vht link still raises exactly one.
+    expect(guardIntervalRefusals(pair('eht', 'vht'))).toHaveLength(1)
   })
 })

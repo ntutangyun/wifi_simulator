@@ -126,6 +126,11 @@ export interface Strings {
      * (`selectivityRefusals`, src/model/scenario.ts), read straight out of it so the grey box and
      * the refusal cannot word the same rule two ways. */
     selectivity: string; selectivityOn: string; selectivityOnHint: string
+    /** The guard-interval control, under the selectivity switch: one radio group, three tiers.
+     * Why it may be grey is not here either — that sentence is `guardIntervalRefusals`'s
+     * (src/model/scenario.ts), read straight out of it. */
+    guardInterval: string; guardIntervalHint: string
+    guardIntervalTiers: { base: string; double: string; quad: string }
     /** The reflecting objects (scatterers) section: the list, and the one figure each object has.
      * `scattererLoss` has to say which way is bigger — it is a *loss*, so the more negative the
      * number the stronger the reflector, and 0 dB is one square metre rather than "neutral". */
@@ -826,6 +831,9 @@ export const STRINGS: Strings = {
     selectivity: '频率选择性（frequency selectivity）',
     selectivityOn: '按 26 音调资源单元分格',
     selectivityOnHint: '打开后，快的那一层不再对整条信道同一个值：信道按 2.03125 MHz 一格（一个 26 音调资源单元，26-tone RU）各抽一次，各格的信噪比再按容量折成一个有效信噪比，解调的判决就落在这个合成值上。格数由带宽算出，不可配：20/40/80/160/320 MHz 对应 9/18/36/72/144 格。这是整条信道自己的格数——一次 OFDMA 发送里的成员只读它自己那一片资源单元上的格，等于整条的格数乘上它占的那一份、再截到整数格，20 MHz 上两个成员各读 9 格里的 4 格。场景默认不写这一节，整条信道因此只有一个值，既有场景的运行结果一个数都不变。它只改解调这一步：载波侦听、前导检测与捕获效应（capture effect）读的仍然是那一次平坦抽样，而选级连那一次抽样都不读——它读链路表里那一个静态的均值电平（simulation.ts 的 mcsForPeer），连慢的那层阴影都不含。分格的只有 he／eht 格式的 PPDU：26 音调资源单元只存在于它们的 78.125 kHz 子载波间隔下，所以所有确认帧（它们都是非 HT 格式）、以及 vht 与传统终端的每一帧，都一格不分，照旧按整条信道一个值判决；AMP 侧那几种 OOK 的 PPDU 同样不走这条路。',
+    guardInterval: '保护间隔（guard interval）',
+    guardIntervalHint: '数据字段里每个 OFDM 符号前面插的那一段，由 TXVECTOR 的 GI_TYPE 选（Table 27-1 / Table 36-1）。三档的符号时长是 12.8 µs 的离散傅里叶变换周期加上它：13.6 / 14.4 / 16 µs（Table 27-13 / Table 36-18）。四倍那一档还绑着 4× LTF，于是前导码从 44 变 52.8 µs（HE）——这是标准自己的配对，不是本仿真器加的。场景默认不写这一节，那就是基本档 0.8 µs，既有场景的运行结果一个数都不变。注意它在本引擎里只有代价：解调门限 reqSinrDb(mode, mcs) 的签名里没有时间这个参数，所以长保护间隔不会改变任何一帧解不解得出——标准说它对抗的是时延扩展，而时延扩展在本引擎里没有建模。只有 he／eht 格式的 PPDU 读它，vht 与传统终端的符号仍然固定 4 µs。',
+    guardIntervalTiers: { base: '基本 0.8 µs（13.6 µs 符号）', double: '双倍 1.6 µs（14.4 µs 符号）', quad: '四倍 3.2 µs（16 µs 符号，连 4× LTF）' },
     scatterers: '散射体（回波）',
     scatterersHint: '房间里会反射的物体：它给每一次发送在每个接收端添上第二个到达——比直达路径晚，因为多走了路；弱不弱则要看物体：一个很强的反射体立在连线附近时，两段短路加起来可以比一条长的直达路径还响（−10 dB 的衣柜在 2 m 连线旁 0.87 m 以内就是如此）；一平方米的物体则在同样的几何里始终更弱。场景默认没有这一节，也就没有任何回波。只有 UWB 侧读回波，Wi-Fi 链路完全不受影响；而且回波对测距是隐形的：4z 接收机锁的是第一条路径。',
     noScatterers: '暂无 — 用 🪞 在画布上放一个',
