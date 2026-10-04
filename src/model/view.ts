@@ -189,8 +189,18 @@ export interface NodeView {
   /**
    * The last `WIFI_SEL` this lane received: the frequency-selective combining result for the
    * most recent frame it took in. Outlives the frame itself, the way `ampInventoryLast` outlives
-   * its round — a diagnostic row the inspector can show between receptions, not just during one.
-   * Present only once `selectivity` is on; `undefined` before any `WIFI_SEL` has arrived.
+   * its round. Present only once `selectivity` is on; `undefined` before any `WIFI_SEL` has
+   * arrived.
+   *
+   * **Written here, read nowhere.** This field used to claim it was "a diagnostic row the
+   * inspector can show between receptions"; there is no such row — `grep -rn lastSel src/`
+   * finds this file and nothing else. It arrived inert with 4a and slice 4b made it worse by
+   * changing what `bins` means underneath it, so the claim had to go even though the field
+   * stays: the inspector row is this slice's own UI step (design §9 item 7), which is where
+   * `lastSel` either acquires a reader or is deleted. Deleting it now would mean deleting it
+   * and putting it back one task later, and `SelView` is also what documents the record's
+   * payload shape. The honest state is "staged for a reader that does not exist yet", and it
+   * is written down rather than implied by a comment about a row nobody wrote.
    */
   lastSel?: SelView
 }
@@ -206,6 +216,8 @@ export interface SelView {
   binStart: number
   /** The member's share of the PPDU; absent when the whole channel was read (slice 4b). */
   ruFraction?: number
+  /** The PPDU's width, MHz: the denominator `bins` and `binStart` are counted against. */
+  widthMhz: number
   worstBinDb: number
   threshDb: number
 }
@@ -717,11 +729,13 @@ export function applyRecord(vs: ViewState, r: TLRecord): void {
       break
     }
     case 'WIFI_SEL': {
-      const { from, meanSinrDb, effSinrDb, lossDb, bins, binStart, ruFraction, worstBinDb, threshDb } = r
+      const { from, meanSinrDb, effSinrDb, lossDb, bins, binStart, ruFraction, widthMhz, worstBinDb, threshDb } = r
       // `ruFraction` is spread conditionally, so `lastSel` keeps the record's own distinction:
-      // the field is absent, not zero, when the receiver read the whole channel.
+      // the field is absent, not zero, when the receiver read the whole channel. `widthMhz` is
+      // unconditional for the same reason it is on the record: it is the denominator, and a row
+      // that has lost it cannot be read on its own.
       vs.nodes[r.node].lastSel = {
-        from, meanSinrDb, effSinrDb, lossDb, bins, binStart, worstBinDb, threshDb,
+        from, meanSinrDb, effSinrDb, lossDb, bins, binStart, widthMhz, worstBinDb, threshDb,
         ...(ruFraction === undefined ? {} : { ruFraction }),
       }
       break

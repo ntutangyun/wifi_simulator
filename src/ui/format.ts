@@ -1,4 +1,5 @@
 import { GEN2_CMD_NAME, GEN2_REPLY_NAME } from '../engine/ampBs'
+import { selBins } from '../engine/selectivity'
 import type { FrameDesc } from '../model/frames'
 import type { TLRecord } from '../model/records'
 import type { Ns } from '../model/types'
@@ -30,13 +31,23 @@ const acSuffix = (ac?: number) => (ac === undefined ? '' : ` [AC_${AC_NAME[ac]}]
  *
  * `mac.ts` divides evenly, so every share this engine produces is `1 / n` — and `1/3` printed
  * as `0.33` or `33 %` reads like a measurement of something rather than one of three equal
- * parts. The reciprocal is only used when it is whole to within floating point, so an uneven
- * allocation (which this engine cannot build today, but the record can carry) prints as the
- * number it is instead of being rounded into a tidy fraction.
+ * parts. The reciprocal is only used when it is a whole number, so an uneven allocation (which
+ * this engine cannot build today, but the record can carry) prints as the number it is instead
+ * of being rounded into a tidy fraction.
+ *
+ * **`Number.isInteger` rather than a tolerance, and that is a correction.** This line used to
+ * read `Math.abs(n - Math.round(n)) < 1e-9`, which was the only numeric literal slice 4b added
+ * to `src/` and carried no provenance tag — and measuring it is what retired it rather than
+ * labelled it: `1 / (1 / n)` is **exactly** `n` for every member count this engine can build
+ * (n = 2, 3, 4 — `transmitDlMu` and `transmitTrigger` both gate at two and cap at four, mac.ts),
+ * and in fact for every n from 2 to 9. The tolerance's slack was never once used. The exact
+ * predicate also handles the degenerate inputs the record's type allows but the engine never
+ * emits: a share of 0 gives `Infinity`, which is not an integer and so falls to the decimal
+ * branch, where the old expression reached the same branch only via `NaN`.
  */
 function fmtShare(ruFraction: number): string {
   const n = 1 / ruFraction
-  return Math.abs(n - Math.round(n)) < 1e-9 ? `1/${Math.round(n)}` : ruFraction.toFixed(3)
+  return Number.isInteger(n) ? `1/${n}` : ruFraction.toFixed(3)
 }
 
 export function fmtRecord(r: TLRecord): string {
@@ -95,9 +106,14 @@ export function fmtRecord(r: TLRecord): string {
       // a member's row has to say which bins and what share: "4 bins" on a 9-bin channel is
       // otherwise indistinguishable from a defect. A whole-channel row keeps its old wording
       // character for character — it is still the common case and still means the same thing.
+      // The denominator comes from the row's own `widthMhz` (Task 3), never from whatever
+      // other rows happen to be in the same log: a two-member scene can produce no
+      // whole-channel row at all, and `bins / ruFraction` recovers 8 rather than 9 because the
+      // truncation dropped the bin nobody holds.
       const span = r.ruFraction === undefined
         ? `${r.bins} bins`
-        : `bins ${r.binStart}–${r.binStart + r.bins - 1}, its ${fmtShare(r.ruFraction)} of the channel`
+        : `bins ${r.binStart}–${r.binStart + r.bins - 1} of ${selBins(r.widthMhz)}, `
+          + `its ${fmtShare(r.ruFraction)} of the channel`
       return `${r.node} ⇠ ${r.from} selectivity: mean ${r.meanSinrDb.toFixed(1)} dB, worst bin ${r.worstBinDb.toFixed(1)} dB, effective ${r.effSinrDb.toFixed(1)} dB (loss ${r.lossDb.toFixed(1)} dB over ${span})`
     }
     // The UWB types keep their vocabulary beside the ranging engine. No count in this

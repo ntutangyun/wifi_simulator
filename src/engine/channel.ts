@@ -402,14 +402,24 @@ interface SelCombined {
   binStart: number
   /** The share of the PPDU this receiver holds; absent when it read the whole channel. */
   ruFraction?: number
+  /**
+   * The PPDU's own width, MHz — the denominator of the three fields above.
+   *
+   * Always present, including on a whole-channel row, because without it a row cannot be read
+   * on its own: `bins / ruFraction` recovers 8 rather than 9 for a two-member 20 MHz PPDU, the
+   * truncation having thrown away exactly the bin nobody holds. A reader needs the channel's
+   * own count (`selBins(widthMhz)`) to see that a four-bin run is four of nine and that bin 8
+   * is held by no one, and the two-member scene this slice's lesson is built on (design §7.3)
+   * can legitimately contain no whole-channel row to read it off instead.
+   */
+  widthMhz: number
   worstBinDb: number
 }
 
 /**
- * This receiver's own share of a multi-user PPDU: the fraction it holds, its index among the
- * members, and every member's fraction in `muParts` order — or `undefined` when it is reading
- * the whole channel. `standard §27.3.2.2` for the resource unit; the share itself is `model`
- * (`mac.ts` divides evenly).
+ * This receiver's own share of the PPDU it is decoding, and the bin that share starts at — or
+ * `undefined` when it is reading the whole channel. `standard §27.3.2.2` for the resource unit;
+ * the share itself is `model` (`mac.ts` divides evenly).
  *
  * Three receivers legitimately read the whole channel, and none of them is an omission:
  *
@@ -426,23 +436,46 @@ interface SelCombined {
  * member count and the share are two different facts the moment anything allocates unevenly,
  * and only one of them is on the member.
  *
- * **Uplink is not here yet, and this is where it lands.** A trigger-based PPDU is the station's
- * own single-user frame with no `muParts` at all — `respondToTrigger` computes `frac = 1 / n`
- * from the Trigger and keeps it local (mac.ts) — so today it takes the whole-channel branch.
- * Task 3 of this slice puts `ruFraction` on `FrameDesc` itself, read from the Trigger's Common
- * Info (standard §9.3.1.22.1), and it is read *here*: a second branch in this function, not a
- * second caller. Three different fields are spelled `ruFraction` and they are not
- * interchangeable — `MuPart.ruFraction` (a downlink member's share, the one read below),
- * `FrameDesc.ruFraction` (an uplink station's own share, Task 3) and `WIFI_SEL.ruFraction`
- * (what this function returned, written to the record).
+ * **Uplink comes in through the other branch, and it is not a fourth whole-channel case.** A
+ * trigger-based PPDU is the station's own single-user frame with no `muParts` at all, so its
+ * share is on the frame itself (`FrameDesc.ruFraction` / `ruIndex`, written by
+ * `respondToTrigger` out of the Trigger's per-user RU Allocation and Common Info UL BW,
+ * standard §9.3.1.22.1). Three different fields are spelled `ruFraction` and they are not
+ * interchangeable — `MuPart.ruFraction` (a downlink member's share inside one wide PPDU),
+ * `FrameDesc.ruFraction` (a TB PPDU's own share of the solicited width) and
+ * `WIFI_SEL.ruFraction` (what this function returned, written to the record).
+ *
+ * **`rid` is deliberately not consulted on the uplink branch**, so a station overhearing
+ * someone else's TB PPDU reads that PPDU's resource unit rather than the whole channel — the
+ * opposite of the downlink overhearer above, and for a reason that is in the standard rather
+ * than in this engine. An HE MU PPDU's pre-HE fields span the whole bandwidth, which is what
+ * the overhearer carve-out above rests on; of a TB PPDU, standard §27.3.4 says the pre-HE
+ * modulated fields "are sent only on the 20 MHz channels where the STA's HE modulated fields
+ * are located". A TB PPDU is narrow for everybody, addressee or not. It also keeps this
+ * function consistent with `decodeThreshDb`, which already holds an overhearer of a
+ * single-user frame to that frame's own MCS rather than to a preamble threshold. (The engine
+ * can build this: an idle third station overhears every answer of a two-uploader round.)
  */
-interface MemberShare { ruFraction: number; fractions: number[]; idx: number }
+interface MemberShare { ruFraction: number; binStart: number }
 
-function muMemberShare(frame: FrameDesc, rid: string): MemberShare | undefined {
-  // Only a multi-user *data* PPDU is split per user — the same rule `decodeThreshDb` applies
-  // just below: a Trigger or an M-BA carries per-user scheduling information but is itself one
+function muMemberShare(frame: FrameDesc, rid: string, widthMhz: number): MemberShare | undefined {
+  // Only a *data* PPDU is split per resource unit — the same rule `decodeThreshDb` applies just
+  // below: a Trigger or an M-BA carries per-user scheduling information but is itself one
   // non-HT frame, and `isOfdmWifiPpdu` has already refused those.
-  if (frame.kind !== 'data' || frame.muParts === undefined) return undefined
+  if (frame.kind !== 'data') return undefined
+  if (frame.muParts === undefined) {
+    const ruFraction = frame.ruFraction
+    if (ruFraction === undefined) return undefined
+    // Every answer of one triggered round holds the same share, because `transmitTrigger`
+    // computes a single `frac = 1 / users.length` for the whole round and gives every user the
+    // same target duration (mac.ts) — so the runs ahead of this one are each the size of this
+    // one, which is what this uniform list says. That is a fact about this engine's scheduler,
+    // not about the standard, and it is the one line to change if an uneven uplink allocation
+    // is ever built: `selCombine`'s overflow gate catches a start that runs *off* the channel,
+    // but it would not catch one that is merely in the wrong place.
+    const idx = frame.ruIndex ?? 0
+    return { ruFraction, binStart: selBinStart(widthMhz, new Array<number>(idx).fill(ruFraction), idx) }
+  }
   const idx = frame.muParts.findIndex((p) => p.dst === rid)
   if (idx < 0) return undefined
   const ruFraction = frame.muParts[idx].ruFraction
@@ -453,7 +486,7 @@ function muMemberShare(frame: FrameDesc, rid: string): MemberShare | undefined {
   // boolean, so `muKind` is one or the other). Reading the shareless ones as the whole width is
   // what makes such a PPDU overflow the channel and trip the gate in `selCombine`, instead of
   // silently overlapping two members' runs.
-  return { ruFraction, idx, fractions: frame.muParts.map((p) => p.ruFraction ?? 1) }
+  return { ruFraction, binStart: selBinStart(widthMhz, frame.muParts.map((p) => p.ruFraction ?? 1), idx) }
 }
 
 /** Decode SINR threshold for a frame as seen by receiver rid. */
@@ -935,9 +968,9 @@ export class Channel {
     if (!isOfdmWifiPpdu(lock.frame)) return null
     const widthMhz = lock.frame.widthMhz ?? DEFAULT_WIDTH_MHZ
     const full = selBins(widthMhz)
-    const share = muMemberShare(lock.frame, rid)
+    const share = muMemberShare(lock.frame, rid, widthMhz)
     const bins = share === undefined ? full : selMemberBins(widthMhz, share.ruFraction)
-    const start = share === undefined ? 0 : selBinStart(widthMhz, share.fractions, share.idx)
+    const start = share === undefined ? 0 : share.binStart
     if (!Number.isInteger(bins) || bins < 1) {
       // A loud floor under a programming error, not a runtime case: `widthMhz` comes from
       // `ChannelWidth` (20/40/80/160/320), every one of which divides into a whole number of
@@ -962,14 +995,19 @@ export class Channel {
       // `muKind` is one or the other — and that exclusivity is the premise this gate holds
       // under. The day it fires is the day the overlay was built, and then what needs changing
       // is this slice, not this check.
-      const shares = (lock.frame.muParts ?? [])
-        .map((p) => p.ruFraction ?? 'whole channel').join(', ')
+      //
+      // A trigger-based PPDU reaches this gate too, and there the shares to print are not a
+      // member list: the frame carries its own one share and its own index, so that is what
+      // the message says instead of an empty list of members it never had.
+      const where = lock.frame.muParts === undefined
+        ? `trigger-based PPDU, ruFraction ${lock.frame.ruFraction}, ruIndex ${lock.frame.ruIndex}`
+        : `muKind ${lock.frame.muKind}, ruFraction `
+          + `[${lock.frame.muParts.map((p) => p.ruFraction ?? 'whole channel').join(', ')}], `
+          + `${lock.frame.muParts.length} members`
       throw new Error(
         `channel: ${rid} <- ${lock.from}: bins ${start}..${start + bins - 1} leave the ${full} `
         + `bins of this ${widthMhz} MHz PPDU — the shares of this transmission sum past the `
-        + `whole channel, and this engine does not model MU-MIMO within OFDMA `
-        + `(muKind ${lock.frame.muKind}, ruFraction [${shares}], `
-        + `${lock.frame.muParts?.length} members)`,
+        + `whole channel, and this engine does not model MU-MIMO within OFDMA (${where})`,
       )
     }
     const flatFadeDb = smallScaleDb(f.cfg, f.seed, lock.from, rid, lock.fadeKey)
@@ -980,7 +1018,7 @@ export class Channel {
     const meanSinrDb = lock.rxDbm - flatFadeDb - dbm(lock.maxInterfMw)
     const effSinrDb = selEffSinrDb(meanSinrDb, devsDb)
     return {
-      meanSinrDb, effSinrDb, lossDb: meanSinrDb - effSinrDb, bins, binStart: start,
+      meanSinrDb, effSinrDb, lossDb: meanSinrDb - effSinrDb, bins, binStart: start, widthMhz,
       worstBinDb: Math.min(...devsDb),
       // Absent, not zero or one, when the whole channel was read: the record's own way of
       // saying "this `bins` is the channel's count", which is what `bins` alone used to mean.

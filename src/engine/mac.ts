@@ -1474,6 +1474,11 @@ export class WifiMac implements PhyListener {
       this.purgeExpired(e, ac)
       const n = trigger.muParts!.length
       const frac = 1 / n
+      // Which of the solicited resource units this station answers in. The Trigger assigns it
+      // per user (§9.3.1.22.1's RU Allocation subfield of the User Info field, sized and placed
+      // against that clause's Common Info UL BW subfield), and `myPart` is the very entry this
+      // station was found in, so `indexOf` is identity rather than a second search.
+      const ruIndex = trigger.muParts!.indexOf(part)
       // The Trigger dictates the TB PPDU's format, not the station's own capability.
       const mode = trigger.ulMode ?? this.cfg.modeForPeer(trigger.src)
       const mcs = part.mcs
@@ -1496,6 +1501,13 @@ export class WifiMac implements PhyListener {
         msduBytes: msdus.map((m) => m.bytes),
         ampdu: { mpduCount: msdus.length, msduIds: msdus.map((m) => m.id) },
         orthogonalGroup: trigger.orthogonalGroup,
+        // The resource unit this answer occupies, carried on the answer itself: `widthMhz`
+        // above is the *solicited* width (Common Info UL BW), which is wider than the slice
+        // this station actually transmits in whenever the round has more than one user. Until
+        // this slice, `frac` was spent on the byte budget just above and then dropped, so a
+        // triggered reception was credited with the frequency diversity of the whole channel
+        // (design 2026-10-04 §4). `frac` is deliberately the same local the budget used.
+        ruFraction: frac, ruIndex,
       }
       for (const m of msdus) m.sent = true
       const mbaTime = this.airNs(multiStaBaBytes(n), 24)

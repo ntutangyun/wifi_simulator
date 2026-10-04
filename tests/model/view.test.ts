@@ -499,27 +499,34 @@ describe('AMP records in the view', () => {
 describe('WIFI_SEL: the first dBm-bearing record in the Wi-Fi stream', () => {
   const sel: Extract<TLRecord, { type: 'WIFI_SEL' }> = {
     t: 0, seq: 0, type: 'WIFI_SEL', node: 'sta-1', from: 'ap',
-    meanSinrDb: 20, effSinrDb: 17.64, lossDb: 2.36, bins: 144, binStart: 0, worstBinDb: -4.09, threshDb: 7,
+    meanSinrDb: 20, effSinrDb: 17.64, lossDb: 2.36, bins: 144, binStart: 0, widthMhz: 320,
+    worstBinDb: -4.09, threshDb: 7,
   }
 
   it('leaves its reading on the receiving lane, keyed by the sender', () => {
     const vs = initViewState(defaultScenario())
     applyRecord(vs, sel)
     expect(vs.nodes['sta-1'].lastSel).toEqual({
-      from: 'ap', meanSinrDb: 20, effSinrDb: 17.64, lossDb: 2.36, bins: 144, binStart: 0, worstBinDb: -4.09, threshDb: 7,
+      from: 'ap', meanSinrDb: 20, effSinrDb: 17.64, lossDb: 2.36, bins: 144, binStart: 0,
+      widthMhz: 320, worstBinDb: -4.09, threshDb: 7,
     })
   })
 
   /**
-   * A member's row carries two more fields (slice 4b), and `lastSel` has to keep the record's
+   * A member's row carries three more fields (slice 4b), and `lastSel` has to keep the record's
    * own distinction: `ruFraction` present means `bins` is that member's resource unit, absent
-   * means it is the whole channel. `toEqual` is what says the field is really absent above,
-   * rather than present and undefined.
+   * means it is the whole channel, while `widthMhz` is there either way because it is the
+   * denominator the other two are counted against. `toEqual` is what says `ruFraction` is
+   * really absent above, rather than present and undefined.
+   *
+   * The override is a coherent row rather than four loose numbers: 20 MHz is nine bins, so a
+   * second member of two holds bins 4 to 7 and bin 8 is held by nobody.
    */
-  it('carries a member’s run and share through, and only when there is one', () => {
+  it('carries a member’s run, share and denominator through, the share only when there is one', () => {
     const vs = initViewState(defaultScenario())
-    applyRecord(vs, { ...sel, bins: 4, binStart: 4, ruFraction: 0.5 })
-    expect(vs.nodes['sta-1'].lastSel).toMatchObject({ bins: 4, binStart: 4, ruFraction: 0.5 })
+    applyRecord(vs, { ...sel, bins: 4, binStart: 4, ruFraction: 0.5, widthMhz: 20 })
+    expect(vs.nodes['sta-1'].lastSel)
+      .toMatchObject({ bins: 4, binStart: 4, ruFraction: 0.5, widthMhz: 20 })
     applyRecord(vs, { ...sel, seq: 1 })
     expect('ruFraction' in vs.nodes['sta-1'].lastSel!).toBe(false)
   })

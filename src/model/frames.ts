@@ -174,6 +174,32 @@ export interface FrameDesc {
   ulMode?: PhyMode
   /** Trigger frames only: the channel width the solicited TB PPDUs must use (Common Info UL BW, §9.3.1.22.1). */
   ulWidthMhz?: number
+  /**
+   * Trigger-based PPDUs only: the share of the solicited bandwidth this one station's resource
+   * unit occupies, and that unit's place in the Trigger's user list. standard §9.3.1.22.1
+   *
+   * **Why on the frame and not in `muParts`.** A TB PPDU is one station's own single-user frame
+   * — it carries no `muParts`, because the other invited stations' answers are separate PPDUs
+   * sent at the same instant (`orthogonalGroup`). The Trigger is what assigns the unit, in the
+   * per-user **User Info** field's RU Allocation subfield together with the **Common Info**
+   * field's UL BW subfield — both defined in §9.3.1.22.1, whose title is *General*, not
+   * "Common Info field": "The RU Allocation subfield along with the UL BW subfield in the
+   * Common Info field identifies the size and the location of the RU." So the allocation is
+   * per-user on the Trigger, and what the air carries afterwards is one narrow PPDU per
+   * station. `respondToTrigger` (mac.ts) is the only writer.
+   *
+   * `ruFraction` here is a **third** field of that name and it is not interchangeable with the
+   * other two: `MuPart.ruFraction` is a downlink member's share inside one wide PPDU, and
+   * `WIFI_SEL.ruFraction` is what the receiver's decode decision was taken over. Only this one
+   * describes the whole PPDU it sits on.
+   *
+   * `ruIndex` is this station's index in the Trigger's `muParts`. Downlink takes a member's
+   * position from the order of `muParts`; a TB PPDU has no such list to be positioned in, so
+   * the position has to be written down (design 2026-10-04 §4). Both are read only by
+   * `selCombine` (channel.ts) and neither enters any airtime, so no recorded timeline moves.
+   */
+  ruFraction?: number
+  ruIndex?: number
   /** How a multi-user PPDU is split: by frequency (OFDMA) or by space (MU-MIMO). */
   muKind?: 'ofdma' | 'mumimo'
   /** P802.11bp Ambient Power fields; present on the five AMP frame kinds only. */

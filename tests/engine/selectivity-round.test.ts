@@ -656,6 +656,57 @@ function ofdmaDlScene(shadowSigmaDb = 0): Scenario {
   ], { fading: { ...RAYLEIGH, shadowSigmaDb }, selectivity: {} })
 }
 
+/**
+ * The `ofdma-ul` lesson's own scene with the two sections that turn this feature on — an access
+ * point and two saturated uploaders on one 20 MHz channel, so every triggered round invites two
+ * stations and each answer occupies half the solicited width.
+ *
+ * `bystander` adds an idle third station that is never invited, which is the only way this engine
+ * produces a receiver of a trigger-based PPDU that is not its addressee: the two invited stations
+ * answer in the same instant, so neither of them can hear the other.
+ *
+ * Built here rather than imported from the lesson, for the same reason as `ofdmaDlScene`: the
+ * published scene has neither section and must not get one (§5.1). The three-node list is the
+ * lesson's, character for character.
+ */
+function ofdmaUlScene(bystander = false): Scenario {
+  return sceneIn(oneRoom(), [
+    node('ap', 'AP', 'ap', 5, 4, 'eht', 'idle'),
+    node('sta-1', 'Uploader A', 'sta', 3.5, 5.5, 'he', 'saturated'),
+    node('sta-2', 'Uploader B', 'sta', 6.5, 5.5, 'he', 'saturated'),
+    ...(bystander ? [node('sta-3', 'Bystander', 'sta', 5, 6.5, 'he', 'idle')] : []),
+  ], { fading: RAYLEIGH, selectivity: {} })
+}
+
+/** One `WIFI_SEL` taken on a trigger-based PPDU, with that PPDU and the Trigger behind it. */
+interface TbRow { sel: SelRow['sel']; frame: FrameDesc; trigger: FrameDesc }
+
+/**
+ * Every `WIFI_SEL` taken on a trigger-based PPDU, paired with the Trigger that scheduled it.
+ *
+ * The pairing is `orthogonalGroup`: `transmitTrigger` mints one group id per round and
+ * `respondToTrigger` copies it onto the answer (mac.ts), so the member count can be read off the
+ * frame that *assigned* the resource units rather than off the answer's own `ruFraction`, which is
+ * the number under test. A triggered answer is identified the way the engine builds it — a data
+ * PPDU with no `muParts` of its own but a group to be orthogonal in.
+ */
+function tbRows(rs: TLRecord[]): TbRow[] {
+  const triggers = new Map<string, FrameDesc>()
+  for (const r of ofType(rs, 'TX_START')) {
+    if (r.frame.kind === 'trigger') triggers.set(r.frame.orthogonalGroup!, r.frame)
+  }
+  expect(triggers.size, 'no Trigger went out: this scene schedules no uplink round')
+    .toBeGreaterThan(0)
+  return selRows(rs)
+    .filter((x) => x.frame.kind === 'data' && x.frame.muParts === undefined
+      && x.frame.orthogonalGroup !== undefined)
+    .map((x) => {
+      const trigger = triggers.get(x.frame.orthogonalGroup!)
+      expect(trigger, `an answer in group ${x.frame.orthogonalGroup} with no Trigger`).toBeDefined()
+      return { sel: x.sel, frame: x.frame, trigger: trigger! }
+    })
+}
+
 /** The MU-MIMO lesson's scene with the same two sections: 160 MHz, two-stream phones. */
 const mumimoSelScene = (): Scenario =>
   ({ ...mumimoScenario(true), fading: RAYLEIGH, selectivity: {} })
@@ -676,9 +727,23 @@ describe('selectivity, slice 4b: a member reads its own resource unit', () => {
   it('leaves a MU-MIMO member on the whole channel, with no share recorded', () => {
     const rows = selRows(run(mumimoSelScene(), MU_ROUND_NS))
     const mumimo = rows.filter((x) => x.frame.muKind === 'mumimo')
-    // Measured on the engine as it stood before this slice (931c915): every one of these rows
-    // read all 72 bins of the 160 MHz channel, and this slice must leave every one there.
+    /*
+     * Every one of these rows read all 72 bins of the 160 MHz channel before this slice, and
+     * this slice must leave every one of them there.
+     *
+     * **Both counts below are real and they are not the same measurement**, which is worth the
+     * four lines because getting that wrong once already cost a round of this slice. A count of
+     * `WIFI_SEL` rows means nothing without its instrument — how long the run was, and which
+     * subset of the rows was counted:
+     *
+     *   - **2022** is this scene's `muKind: 'mumimo'` rows over `MU_ROUND_NS` (1000 ms);
+     *   - **1824** is design §8 item 1's own number, and it is *all* of this scene's `WIFI_SEL`
+     *     rows at **150 ms**, the window §5.1 measures in. It was reported as wrong when it was
+     *     checked against the first instrument; it is right under its own, and it is asserted
+     *     here next to the other one so that neither can be read as a correction of the other.
+     */
     expect(mumimo.length).toBe(2022)
+    expect(selRows(run(mumimoSelScene(), 150 * MS)).length).toBe(1824)
     expect(new Set(mumimo.map((x) => x.sel.bins))).toEqual(new Set([selBins(160)]))
     for (const x of mumimo) {
       expect(x.part?.ruFraction).toBeUndefined() // the reason it is untouched
@@ -799,6 +864,183 @@ describe('selectivity, slice 4b: a member reads its own resource unit', () => {
         `${id}: the shadow never moved`).toBeGreaterThan(1)
       expect(new Set(xs.map((x) => x.sel.bins)), `${id}: the share moved`).toEqual(new Set([4]))
       expect(new Set(xs.map((x) => x.sel.ruFraction))).toEqual(new Set([1 / 2]))
+    }
+  })
+
+  /**
+   * §8 item 5, second half — and the whole reason this file now has an uplink half. Until this
+   * task a triggered answer took the whole-channel branch: `respondToTrigger` computed
+   * `frac = 1 / n` for its byte budget and dropped it, so the frame reached `selCombine` carrying
+   * nothing but the *solicited* width and every answer was credited with nine bins it does not
+   * transmit in (design 2026-10-04 §4). The share is now on the answer itself, and the member
+   * count it is checked against is read off the Trigger rather than off the answer, so this test
+   * cannot pass by comparing a number with itself.
+   *
+   * The first half of §8 item 5 — the recorded `ofdma-ul` hash staying byte-identical — is not
+   * repeated here: `tests/course` already hashes every published lesson's timeline against
+   * `tests/fixtures/lesson-hashes.json`, so a field that had entered an airtime would turn that
+   * suite red on its own. `dataTxCount` below is the same claim read locally.
+   */
+  it('gives each answer of a triggered round the half of the channel it transmits in', () => {
+    const rs = run(ofdmaUlScene(), MU_ROUND_NS)
+    const tb = tbRows(rs)
+    const full = selBins(20)
+    expect(full).toBe(9)
+    // Every count in this test carries its instrument, because a bare count of records is not
+    // a fact: these are the **trigger-based answers only**, out of the two-uploader scene with
+    // no bystander, over `MU_ROUND_NS` (1000 ms), measured on the engine as it stood before
+    // this task (20846fa) — where every one of the 80 read all nine bins of the channel.
+    expect(tb.length).toBe(80)
+
+    for (const x of tb) {
+      const n = x.trigger.muParts!.length
+      const width = x.frame.widthMhz ?? 20
+      // The answer goes out at the width the Trigger dictated (Common Info UL BW), which is the
+      // whole channel — the resource unit is a share *of* it, not a narrower `widthMhz`.
+      expect(width).toBe(x.trigger.ulWidthMhz)
+      expect(x.frame.ruFraction).toBeCloseTo(1 / n, 12)
+      expect(x.sel.ruFraction).toBe(x.frame.ruFraction)
+      expect(x.sel.bins).toBe(selMemberBins(width, 1 / n))
+      expect(x.sel.bins).toBeLessThan(selBins(width))
+      // `ruIndex` is this station's own place in the Trigger's user list, and with every user
+      // holding the same share that index *is* where its run starts.
+      expect(x.frame.ruIndex).toBe(x.trigger.muParts!.findIndex((p) => p.dst === x.frame.src))
+      expect(x.sel.binStart).toBe(x.frame.ruIndex! * x.sel.bins)
+    }
+    expect(new Set(tb.map((x) => x.trigger.muParts!.length))).toEqual(new Set([2]))
+    expect(new Set(tb.map((x) => x.sel.bins))).toEqual(new Set([4]))
+    // Two answers of four bins each on a nine-bin channel: bin 8 is transmitted in by neither,
+    // the same bin Table 27-8's two 106-tone RUs leave out.
+    expect(new Set(tb.map((x) => x.sel.binStart))).toEqual(new Set([0, 4]))
+
+    // Everything that is not a triggered answer still reads the whole channel, and in this scene
+    // that is most of the traffic — the acknowledgements and the AP's own downlink data.
+    // Same instrument, the complementary subset: every `WIFI_SEL` of that same 1000 ms run
+    // that was *not* taken on a frame in an orthogonal group.
+    const rest = selRows(rs).filter((x) => x.frame.orthogonalGroup === undefined)
+    expect(rest.length).toBe(1435)
+    expect(tb.length + rest.length).toBe(selRows(rs).length)
+    for (const x of rest) {
+      expect(x.sel.bins).toBe(full)
+      expect('ruFraction' in x.sel).toBe(false)
+    }
+
+    // The two new fields are read by `selCombine` and by nothing else, so the timeline is the one
+    // the pre-change engine produced, to the frame. The failure count is zero on both sides
+    // rather than merely equal — this scene has margin to spare, like `ofdma-dl` — so it is the
+    // transmission count beside it that makes the pair say anything.
+    // Both are whole-run counts of the same 1000 ms, all nodes, no subset.
+    expect(lowSinrFails(rs)).toBe(0)
+    expect(dataTxCount(rs)).toBe(798)
+  })
+
+  /**
+   * The one place this slice treats an overhearer the *opposite* way on the two directions, and
+   * the reason is in the standard rather than in this engine.
+   *
+   * A station overhearing a downlink MU PPDU reads the whole channel (asserted three tests up),
+   * because an HE MU PPDU's pre-HE fields span the whole bandwidth and the preamble is all such a
+   * station decodes. A trigger-based PPDU has no such wide part: standard §27.3.4 says its pre-HE
+   * modulated fields are sent only on the 20 MHz channels where that station's own HE modulated
+   * fields are located. It is a narrow PPDU for everybody, so `muMemberShare` does not consult
+   * the receiver id on the uplink branch — which also keeps it consistent with `decodeThreshDb`,
+   * where an overhearer of a single-user frame is already held to that frame's own MCS rather
+   * than to a preamble threshold.
+   *
+   * This is not a hypothetical branch: an uninvited third station hears every answer of a
+   * two-uploader round, and the two invited ones cannot hear each other because they transmit in
+   * the same instant.
+   */
+  it('reads an answer it merely overheard as the narrow PPDU that it is', () => {
+    const tb = tbRows(run(ofdmaUlScene(true), MU_ROUND_NS))
+    const addressed = tb.filter((x) => x.sel.node === x.frame.dst)
+    const overheard = tb.filter((x) => x.sel.node !== x.frame.dst)
+    // Instrument: the two-uploader scene **with** the bystander, 1000 ms, trigger-based answers
+    // only. The 80 answers are the same 80 as in the test above — adding a silent listener
+    // changes nothing about the round — and each is now received twice.
+    expect(addressed.length).toBe(80)
+    expect(overheard.length).toBe(80)
+    expect(new Set(overheard.map((x) => x.sel.node))).toEqual(new Set(['sta-3']))
+    for (const x of overheard) {
+      expect(x.sel.bins).toBe(4)
+      expect(x.sel.ruFraction).toBe(1 / 2)
+      expect(x.sel.binStart).toBe(x.frame.ruIndex! * 4)
+    }
+    // Both receivers of one answer judge the same bins: the run is a property of the
+    // transmission, not of whoever happens to be listening to it.
+    for (const x of addressed) {
+      const mirror = overheard.filter((y) => y.sel.from === x.sel.from && y.sel.t === x.sel.t)
+      expect(mirror.length).toBe(1)
+      expect([mirror[0]!.sel.bins, mirror[0]!.sel.binStart]).toEqual([x.sel.bins, x.sel.binStart])
+    }
+  })
+
+  /**
+   * §8 item 1b, written as the one assertion that item leaves available. The configuration it is
+   * about — several stations sharing one resource unit by space, the standard's named MU-MIMO
+   * within OFDMA — cannot be built here at all: `buildMuParts` takes a boolean, so `muKind` is
+   * one or the other (mac.ts). So there is nothing to exercise, and what is left is the reverse:
+   * within any one transmission's user list a share is held by everybody or by nobody. A mixture
+   * would mean the overlay had been built without this slice noticing, and `muMemberShare`'s
+   * `?? 1` is what then walks it into the overflow gate rather than quietly overlapping two runs.
+   *
+   * Trigger and Multi-STA BlockAck frames are counted rather than filtered out. They carry a
+   * per-user list too, and the point of this check is that nothing anywhere mixes the two states;
+   * the per-kind tally is what says all four shapes were actually seen.
+   */
+  it('never mixes members that hold a share with members that hold none', () => {
+    const tally = new Map<string, number>()
+    let mixed = 0
+    for (const scene of [ofdmaDlScene(), ofdmaUlScene(), mumimoSelScene()]) {
+      for (const r of ofType(run(scene, 200 * MS), 'TX_START')) {
+        const parts = r.frame.muParts
+        if (parts === undefined) continue
+        const key = `${r.frame.kind}:${r.frame.muKind ?? 'per-user context'}`
+        tally.set(key, (tally.get(key) ?? 0) + 1)
+        const held = parts.map((p) => p.ruFraction !== undefined)
+        if (held.some((b) => b) && held.some((b) => !b)) mixed++
+      }
+    }
+    expect(mixed).toBe(0)
+    // Instrument: transmitted frames carrying a `muParts` list, counted over 200 ms of each of
+    // the three scenes separately and summed per frame kind. The two data rows are the ones item
+    // 1b is about — OFDMA members all hold a share, MU-MIMO members all hold none — while the
+    // Trigger and the M-BA are per-user lists that are not a split of one PPDU at all.
+    expect(Object.fromEntries([...tally].sort())).toEqual({
+      'data:mumimo': 106,
+      'data:ofdma': 27,
+      'mba:per-user context': 24,
+      'trigger:per-user context': 26,
+    })
+  })
+
+  /**
+   * Why `widthMhz` is on the record (Task 3). `bins` and `binStart` are counts against the
+   * channel's own bin count, and that count is **not** recoverable from the rest of the row:
+   * `bins / ruFraction` gives 8 for a two-member 20 MHz PPDU rather than 9, because the
+   * truncation threw away precisely the bin nobody holds. Until this task the denominator was
+   * legible only because these scenes also emit thousands of whole-channel rows with the 9
+   * sitting in them — and the two-member scene this slice's lesson is built on (design §7.3)
+   * need not contain a single one. So it is asserted here on every row of three scenes, not only
+   * on members' rows.
+   */
+  it('says on every row what its bins were counted against', () => {
+    for (const scene of [ofdmaDlScene(), ofdmaUlScene(true), mumimoSelScene()]) {
+      const rows = selRows(run(scene, 200 * MS))
+      expect(rows.length).toBeGreaterThan(100)
+      for (const x of rows) {
+        expect(x.sel.widthMhz).toBe(x.frame.widthMhz ?? 20)
+        expect(x.sel.binStart + x.sel.bins).toBeLessThanOrEqual(selBins(x.sel.widthMhz))
+        expect(x.sel.bins).toBe(x.sel.ruFraction === undefined
+          ? selBins(x.sel.widthMhz)
+          : selMemberBins(x.sel.widthMhz, x.sel.ruFraction))
+      }
+      // The reconstruction that would have made the field unnecessary, shown failing.
+      const halves = rows.filter((x) => x.sel.ruFraction === 1 / 2 && x.sel.widthMhz === 20)
+      for (const x of halves) {
+        expect(x.sel.bins / x.sel.ruFraction!).toBe(8)
+        expect(selBins(x.sel.widthMhz)).toBe(9)
+      }
     }
   })
 })
