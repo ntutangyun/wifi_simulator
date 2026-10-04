@@ -6,6 +6,7 @@
  * It appears below by name, because a breakpoint with no real device behind it
  * is a guess, and the next person to move one should see what moved with it.
  */
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import {
   COARSE_TRANSPORT_MIN_W, COMPACT_H, COMPACT_W, SINGLE_W, TIMELINE_H, TIMELINE_H_COMPACT,
@@ -259,5 +260,45 @@ describe('mainColumns', () => {
         expect(cols, cols).not.toMatch(/(^|\s)1fr(\s|$)/)
       }
     }
+  })
+})
+
+/**
+ * **The event log's record text wraps, and the timestamp beside it does not.**
+ *
+ * This is an arrangement decision like the ones above, but it lives in `EventLog.tsx` as two
+ * inline styles rather than in `layout.ts`, so it is read as source text — the shape
+ * `tests/ui/selectivity-guide.test.ts` uses for `EditorGuide.tsx`.
+ *
+ * Why it is pinned at all: `ru-diversity` sends the reader to one `WIFI_SEL` row and quotes the
+ * last third of it (`over bins 0–3 of 9, its 1/2 of the channel`). That row is 131 characters,
+ * ~832 px in Consolas at 11.5 px, and this panel is **never** wide — measured in the browser at
+ * Task 6c, 344 px as a desktop column, 404 px as the drawer at 939 x 511, 398 px at 470 x 511.
+ * With `nowrap` on the record text the quoted fragment was off screen at all three. Restoring
+ * `nowrap` there would put it back off screen and the lesson would be quoting something the
+ * reader cannot see, with nothing else to catch it.
+ */
+describe('the event log’s row shape', () => {
+  const SRC = readFileSync(new URL('../../src/ui/EventLog.tsx', import.meta.url), 'utf8')
+  /** The two `<span>`s of a record row, in order: the timestamp, then the record text. */
+  const SPANS = [...SRC.matchAll(/<span style=\{\{([^}]*)\}\}>\{fmt(Ns|Record)/g)].map((m) => m[1]!)
+
+  it('finds both spans, so the assertions below cannot pass by matching nothing', () => {
+    expect(SPANS).toHaveLength(2)
+  })
+
+  it('keeps the timestamp a fixed, unbreakable column', () => {
+    expect(SPANS[0]).toContain("whiteSpace: 'nowrap'")
+    // Without this a bare span in a flex row collapses to a two-character strip — the defect
+    // `.superpowers/sdd/folded-layout/report.md` found in the transport's own readouts.
+    expect(SPANS[0]).toContain('flexShrink: 0')
+  })
+
+  it('lets the record text wrap, at every width', () => {
+    expect(SPANS[1], 'the record text is back to nowrap').not.toContain('nowrap')
+    // A flex item's `min-width: auto` is its min-content width, so without this it cannot
+    // narrow below the longest record and the wrap never happens.
+    expect(SPANS[1]).toContain('minWidth: 0')
+    expect(SPANS[1]).toContain('overflowWrap')
   })
 })

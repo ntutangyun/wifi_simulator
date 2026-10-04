@@ -22,7 +22,7 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, it, expect } from 'vitest'
 import { noiseDbm } from '../../src/engine/phy'
-import { RU26_TONES, DF_EHT_KHZ, selBinWidthMhz, selBins } from '../../src/engine/selectivity'
+import { RU26_TONES, DF_EHT_KHZ, selBinWidthMhz, selBins, selMemberBins } from '../../src/engine/selectivity'
 import { selectivityRefusals } from '../../src/model/scenario'
 import { Guide } from '../../src/ui/Guide'
 import { GLOSSARY } from '../../src/ui/glossary'
@@ -297,5 +297,74 @@ describe('the 26-tone RU carries its English name wherever it is introduced', ()
       if (!text.includes('捕获效应')) continue
       expect(text, `${name} says 捕获效应 with no English name`).toContain('capture effect')
     }
+  })
+})
+
+describe('a member’s own bin count is named wherever the channel’s is', () => {
+  /*
+   * **The failure mode these four surfaces had, and which nothing here could have caught.**
+   * Every one of them says the bin count 「由带宽算出 … 都不可配」, which is true of the CHANNEL
+   * and was the whole story until slice 4b. It is not the story a reader arrives with: they
+   * come from `ofdma-dl`, which now teaches that a member on 20 MHz reads 4 of the 9 bins, open
+   * the glossary, read 「9 格，都不可配」 and conclude that every decision reads 9 — exactly the
+   * overestimate slice 4b retired from the engine. Nothing about the sentence is false; it is
+   * the half of the enumeration that fails, the same shape as 「the exclusions are enumerated in
+   * full」 above.
+   *
+   * The clause is held to the engine's own arithmetic rather than to a literal, like every other
+   * figure in this file: `selBins(20)` and `selMemberBins(20, 1/2)`, in `ofdma-dl`'s own words
+   * (「各读 9 格里的 4 格」), so a surface and the lesson cannot word the same fact two ways.
+   */
+  const surfaces: [string, string][] = [...SURFACES, ['selectivityOnHint', HINT]]
+
+  it('is a fourth surface, not three — EditorGuide prints the counts too', () => {
+    // The brief for this task named glossary, i18n and Guide. `EditorGuide.tsx` enumerates the
+    // same five counts and was the one that would have been missed.
+    const counts = WIDTHS.map((w) => String(selBins(w))).join('/')
+    expect(surfaces.filter(([, t]) => t.includes(counts)).length).toBe(4)
+  })
+
+  it('says the member reads only its own share’s bins', () => {
+    for (const [name, text] of surfaces) {
+      expect(text, `${name} gives the channel's bin count with no member clause`)
+        .toContain(`${selBins(20)} 格里的 ${selMemberBins(20, 1 / 2)} 格`)
+      expect(text, `${name} does not say whose bins those are`).toContain('整条信道')
+    }
+  })
+
+  it('never says the bin count is the whole channel’s without saying so', () => {
+    // The sentence that would re-teach the retired overestimate: a flat 「每一次判决都读整条
+    // 信道的格」. None of the four may assert it.
+    for (const [name, text] of surfaces) {
+      for (const claim of ['每一次判决都是 9 格', '成员拿到的是整条信道的格数', '成员读的也是这个数']) {
+        expect(text, `${name} re-teaches the pre-4b overestimate: ${claim}`).not.toContain(claim)
+      }
+    }
+  })
+})
+
+describe('the CQI clause numbers are attributed to the right document', () => {
+  /*
+   * **Verified against the corpus at
+   * `D:/ai_patent_experiments/.claude/skills/wifi_patent_skill/references/ieee_standards/text/`:**
+   * `9.4.1.75` occurs 0 times in `80211-2024.json` and 6 in `80211be-2024.json`; `9.4.1.65`
+   * occurs 6 times in the base standard and 0 in 11be; and the base standard's 9.4.1 runs out at
+   * `.71`. So §9.4.1.75 (EHT CQI Report field) is an 802.11be-2024 clause and §9.4.1.65 (HE CQI
+   * Report field) is a base-standard one, and the glossary used to hang the pair on one document
+   * with a bare 「§9.4.1.65 / §9.4.1.75」. `src/course/tier2/selectivity.ts`'s own source entry
+   * already said this; the glossary was the copy that did not move with it.
+   */
+  it('gives each of the two a document, never a bare pair', () => {
+    for (const [name, text] of SURFACES) {
+      if (!text.includes('9.4.1.75')) continue
+      expect(text, `${name} cites §9.4.1.75 with no document`).toContain('802.11be-2024 §9.4.1.75')
+      expect(text, `${name} cites §9.4.1.65 with no document`).toContain('802.11-2024 §9.4.1.65')
+      expect(text, `${name} still hangs both clause numbers on one document`)
+        .not.toContain('§9.4.1.65 / §9.4.1.75')
+    }
+  })
+
+  it('and the one surface that cites them at all is counted', () => {
+    expect(SURFACES.filter(([, t]) => t.includes('9.4.1.75')).length).toBeGreaterThan(0)
   })
 })

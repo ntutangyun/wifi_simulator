@@ -58,8 +58,39 @@ export function EventLog() {
                 borderLeft: r.seq === markerSeq ? '2px solid #f8fafc' : '2px solid transparent',
               }}
             >
-              <span style={{ color: 'var(--dim)', whiteSpace: 'nowrap' }}>{fmtNs(r.t)}</span>
-              <span style={{ whiteSpace: 'nowrap' }}>{fmtRecord(r)}{f ? ' ▸' : ''}</span>
+              {/*
+                * The timestamp is a column and stays one: `nowrap` so it is never broken, and
+                * `flexShrink: 0` so it cannot be squeezed into a two-character strip the way
+                * the transport's two readout spans were (`.superpowers/sdd/folded-layout/
+                * report.md` §"A real defect found and fixed while measuring" — `index.css`
+                * gives `button`/`select` a shrink guard and a bare `span` never had one).
+                */}
+              <span style={{ color: 'var(--dim)', whiteSpace: 'nowrap', flexShrink: 0 }}>{fmtNs(r.t)}</span>
+              {/*
+                * **The record text wraps, and at every size.** It carried `whiteSpace: 'nowrap'`
+                * from the log's first commit, with no comment, no test and no report defending
+                * it; what it bought was one record per row, and what it cost was measured here:
+                * this panel is NEVER wide. Its own client width is 344 px as a desktop column
+                * (`mainColumns`'s `minmax(320px, 400px)` at 1440 x 900), 404 px as the drawer on
+                * an unfolded foldable and 398 px folded — so the narrowest of the three is the
+                * desktop. A `WIFI_SEL` member row is 131 characters, 832 px in Consolas at
+                * 11.5 px, and with `nowrap` the last two thirds of it sat behind a horizontal
+                * scroll **at all three sizes**: `scrollWidth` 932 against those client widths.
+                * This was taken for a folded-screen defect and is not one; it is every reader's,
+                * and worst for the one with the biggest screen.
+                *
+                * So the tail of a long record is now on screen, and the continuation lines
+                * indent to the text column because the timestamp beside them does not shrink.
+                * The cost, taken knowingly: a long record is two or three rows tall, so the
+                * same panel holds fewer records at once. The old shape held all 160 at one row
+                * each and showed ~46 characters of each one.
+                *
+                * `minWidth: 0` is what lets it shrink below its content at all (a flex item's
+                * `min-width: auto` is its min-content width), and `overflowWrap: 'break-word'`
+                * is the fallback for a token with no space in it — a long node id or a UWB
+                * record's coordinate list — which would otherwise push the row wide again.
+                */}
+              <span style={{ minWidth: 0, overflowWrap: 'break-word' }}>{fmtRecord(r)}{f ? ' ▸' : ''}</span>
             </div>
             {rows && (
               <table style={{ margin: '2px 24px 6px', fontSize: 11, borderCollapse: 'collapse' }}>

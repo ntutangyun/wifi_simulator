@@ -366,20 +366,32 @@ describe('ru-diversity · the scene, before any of it is read as evidence', () =
     expect(mainText).not.toContain('selectivity 开头那一行')
     expect(mainText).toContain('行首是时间戳，这个词在两个节点名之后')
     /*
-     * **C9 (review finding 9): the narrow-screen warning belongs where the reader is standing.**
-     * Measured off the row itself: 131 characters of record text, `(loss` opening at index 75
-     * and `over bins` at index 88. In Consolas at the log's own 11.5 px (0.55 em advance, so
-     * ~6.33 px per character) that puts them ~474 px and ~557 px into the record text, and the
-     * row is preceded by a 13-character timestamp plus padding - about 100 px. Both quoted
-     * fragments therefore sit past 570 px on a 470 px-wide front screen. `picture[1]` carried
-     * the warning (correctly - it is a `watch` call-out, the reader is at the simulator there
-     * too), but both `observe` lines quote off-screen text and neither warned.
+     * **C9, and the correction Task 6c made to it: there is no narrow-screen warning any more,
+     * because the row no longer runs off any screen.**
+     *
+     * The geometry below is still the row's and is still pinned: 131 characters of record text,
+     * `(loss` opening at index 75 and `over bins` at index 88, which in Consolas at the log's
+     * own 11.5 px is ~832 px of text behind a 13-character timestamp column.
+     *
+     * What C9 got wrong was whose problem that is. It read as a folded-phone defect and the
+     * lesson grew three 「窄屏上要把这一行往右拉」 sentences to cover it. Measured in the browser
+     * at Task 6c, the event log's own client width is **344 px as a desktop column** (1440 x 900,
+     * `mainColumns`'s `minmax(320px, 400px)`), **404 px** as the drawer on an unfolded foldable
+     * and **398 px** folded - so the row was clipped at every size and worst on the biggest
+     * screen. `EventLog.tsx` now lets the record text wrap instead (the timestamp keeps its
+     * `nowrap` and a shrink guard), both fragments are on screen at 470 x 511 and 939 x 511 with
+     * no horizontal drag, and the three sentences are gone: an instruction that no longer
+     * describes the screen is worse than no instruction.
      */
     expect(fmtRecord(member).length).toBe(131)
     expect(fmtRecord(member).indexOf('(loss')).toBe(75)
     expect(fmtRecord(member).indexOf('over bins')).toBe(88)
-    expect(lesson.observe[0]).toContain('窄屏上要把这一行往右拉才看得到')
-    expect(lesson.observe[1]).toContain('要往右拉的那后半截')
+    for (const gone of ['窄屏', '往右拉', '后半截']) {
+      expect(mainText, `the lesson still tells the reader to drag the row: ${gone}`).not.toContain(gone)
+    }
+    // The two observe lines still quote the fragments themselves - only the drag instruction left.
+    expect(lesson.observe[0]).toContain('over bins 0–3 of 9, its 1/2 of the channel')
+    expect(lesson.observe[1]).toContain('loss')
     // …and the field names the lesson no longer claims the log prints.
     expect(mainText).not.toContain('start 是')
     expect(mainText).not.toContain('门限 8.99')
