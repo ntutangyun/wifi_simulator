@@ -205,7 +205,7 @@ export const COURSE_ORDER: string[] = [
   // M7 · tier 1 · QoS 与效率
   'edca', 'edca-cost', 'ampdu', 'txop', 'txop-protect', 'protect-policies',
   // M8 · tier 1 · 容量旋钮与速率控制
-  'width', 'selectivity', 'streams', 'rate', 'rate-fallback', 'rate-cost',
+  'width', 'selectivity', 'streams', 'rate', 'rate-fallback', 'rate-cost', 'fading',
   // M9 · tier 1 · 被调度的 Wi-Fi 6/7
   'ofdma-dl', 'ru-diversity', 'ofdma-ul', 'mumimo', 'mumimo-choose', 'mlo', 'mlo-gain',
   // M10 · tier 1 · 环境能量物联网（802.11bp）

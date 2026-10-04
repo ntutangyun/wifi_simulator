@@ -102,16 +102,35 @@ const failsByReason = (rs: TLRecord[]): Partial<Record<RxFailReason, number>> =>
 }
 
 /**
- * The whole record stream with the new record type and the sequence numbers taken out.
+ * The whole record stream with the new record type, the sequence numbers and the two reported
+ * fade layers taken out.
  *
  * `seq` has to go because `WIFI_SEL` is inserted *into* the stream: one extra record renumbers
  * every record after it, so a run that emits them can never match one that does not on `seq`,
- * however identical everything else is. Nothing else is dropped — this is a field-for-field
- * comparison of every other record, which is what makes "nothing followed" mean the timeline
- * and not a chosen summary of it.
+ * however identical everything else is.
+ *
+ * **`RX_START`'s `shadowDb` / `fastDb` go for a different reason, and it is a reason rather than
+ * a convenience.** Those two fields are the fade this reception was HANDED, not an outcome of
+ * it: `fadeOf` fills them exactly when the scene carries a `fading` section, so a faded run and
+ * an unfaded run differ in them **by construction** and the comparison below would be
+ * tautologically false for every pair this file forms. Leaving them in would turn "nothing
+ * followed" into "the input was reported", which is not the claim. They are hash-neutral
+ * (`simulation.ts`'s `updateHash` folds only `t:seq:type`, so neither fixture moves) but they
+ * are not field-neutral, and this is the one place in the suite where that distinction shows.
+ * The test below asserts separately that they really were present, so dropping them here cannot
+ * hide a run in which the fade was never computed.
+ *
+ * Nothing else is dropped — everything that could be a CONSEQUENCE is still compared field for
+ * field, which is what makes "nothing followed" mean the timeline and not a chosen summary of it.
  */
 const strippedStream = (rs: TLRecord[]): string =>
-  JSON.stringify(rs.filter((r) => r.type !== 'WIFI_SEL').map(({ seq: _seq, ...rest }) => rest))
+  JSON.stringify(rs.filter((r) => r.type !== 'WIFI_SEL')
+    .map(({ seq: _seq, ...rest }) => rest)
+    .map((r) => {
+      if (r.type !== 'RX_START') return r
+      const { shadowDb: _s, fastDb: _f, ...bare } = r
+      return bare
+    }))
 
 const quantile = (xs: number[], f: number): number => {
   const s = [...xs].sort((a, b) => a - b)
@@ -200,6 +219,13 @@ describe('selectivity §6 item 2: a link with margin to spare measures a loss an
     expect(strippedStream(on)).toBe(strippedStream(shipped))
     // Non-vacuity of that last comparison: there were records to compare.
     expect(on.length).toBeGreaterThan(1000)
+    // …and the two fields `strippedStream` drops really were there, on every reception of the
+    // faded run and on none of the shipped one. Without this the comparison above would also
+    // pass for a run in which the fade was never drawn at all.
+    const rxOn = on.filter((r) => r.type === 'RX_START')
+    expect(rxOn.length).toBeGreaterThan(100)
+    expect(rxOn.filter((r) => r.type === 'RX_START' && r.fastDb !== undefined).length).toBe(rxOn.length)
+    expect(shipped.filter((r) => r.type === 'RX_START' && r.shadowDb !== undefined)).toEqual([])
   }, 120_000)
 
   /**

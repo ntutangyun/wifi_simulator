@@ -8,7 +8,8 @@
  */
 import { describe, expect, it } from 'vitest'
 import {
-  Channel, bsDataEndNs, txDbmAt, type BsGeometry, type PhyListener, type RadioOpts,
+  Channel, bsDataEndNs, txDbmAt,
+  type BsGeometry, type ChannelFading, type PhyListener, type RadioOpts,
 } from '../../src/engine/channel'
 import { EventQueue } from '../../src/engine/events'
 import { ampRespFrame, ampTriggerFrame, AMP_BROADCAST } from '../../src/engine/amp'
@@ -30,7 +31,7 @@ interface NodeSpec { id: string; pos: Vec3; opts?: RadioOpts }
  * own law, as today), backscatter links are the geometry the channel measures for itself. */
 function world(
   nodes: NodeSpec[], links: Record<string, number> = {}, walls: Wall[] = [],
-  txPowerDbm: Record<string, number> = {},
+  txPowerDbm: Record<string, number> = {}, fading?: ChannelFading,
 ) {
   const q = new EventQueue()
   let now = 0
@@ -46,7 +47,7 @@ function world(
     // measured against. 20 dBm is the AP of every scene in this file unless stated.
     txPowerOf: (id) => txPowerDbm[id] ?? 20,
   }
-  const ch = new Channel(q, () => now, table, makeEmitter((r) => records.push(r)), undefined, geo)
+  const ch = new Channel(q, () => now, table, makeEmitter((r) => records.push(r)), undefined, geo, fading)
   const heard: Record<string, { what: string; t: Ns }[]> = {}
   for (const n of nodes) {
     heard[n.id] = []
@@ -404,5 +405,90 @@ describe('the Active Tx tier is untouched', () => {
     w.run(3_000_000)
     expect(w.heard.tag).toEqual([])
     expect(w.recs('RX_START', 'tag')).toEqual([])
+  })
+})
+
+/**
+ * **Fading reaches one of these two paths and not the other, and the asymmetry is in `rxDbmOf`.**
+ *
+ * `linkDbm` is the only place a fade is added. `rxDbmOf` sends two things somewhere else: a
+ * backscattered reply (no transmitter of its own — the excitation that reached the tag,
+ * `AMP_BS_LOSS_DB` down, back along the same Friis path) and a downlink RFID PPDU arriving at a
+ * backscatter tag. Neither enters the fading branch at all, so **a backscatter round is immune to
+ * fading while the Active Tx uplink that shares the room is not.**
+ *
+ * That is not a defect to fix here — the AMP track is paused and its lessons' 「propagation is
+ * fully deterministic」 limits are named by `tests/course/limits.test.ts` — but it is a fact
+ * nobody had written down, and it means those limits are only half true in a faded scene. Pinned
+ * so that resuming AMP has to read this, and so that `RX_START`'s two new fields cannot start
+ * appearing beside a level they played no part in.
+ * See docs/superpowers/specs/2026-10-05-fading-lesson-design.md §0.3(a) and §7, case 5.
+ */
+describe('fading is added by `linkDbm`, so backscatter is immune to it and Active Tx is not', () => {
+  const FADE: ChannelFading = {
+    cfg: { shadowSigmaDb: 4, coherenceMs: 100, smallScale: 'rayleigh' },
+    seed: 7,
+  }
+
+  /** One mono-static inventory exchange, with fading on or off. */
+  const bsRound = (fading?: ChannelFading) => {
+    const w = world([
+      { id: 'ap', pos: at(0), opts: reader },
+      { id: 'tag', pos: at(0.3), opts: bsTag },
+    ], { 'ap>tag': -40, 'tag>ap': -40 }, [], { ap: 20 }, fading)
+    w.at(0, () => w.ch.startTx('ap', query()))
+    w.at(DATA_END_NS + 1_000, () => {
+      const r = reply('tag')
+      r.amp!.bs!.incidentDbm = -29.738
+      w.ch.startTx('tag', r)
+    })
+    w.run(3_000_000)
+    return w
+  }
+
+  it('a backscatter reply is heard identically with fading on and off', () => {
+    const off = bsRound()
+    const on = bsRound(FADE)
+    // The reply really is being heard, or this test would pass on two empty lists.
+    expect(off.heard.ap.map((h) => h.what)).toEqual(['ampBsReply:tag'])
+    expect(on.heard.ap).toEqual(off.heard.ap)
+    // And the tag's own reception of the command, the other bypassed path.
+    expect(on.heard.tag).toEqual(off.heard.tag)
+  })
+
+  it('and neither bypassed reception carries the two fading fields, rather than carrying a zero', () => {
+    // A draw printed beside a level nothing drew it for would read as 「the fade was small」
+    // instead of 「this path has no fade」, which is the stronger and the true statement.
+    const on = bsRound(FADE)
+    for (const node of ['ap', 'tag']) {
+      const rows = on.recs('RX_START', node)
+      expect(rows.length, `${node} acquired nothing`).toBeGreaterThan(0)
+      for (const r of rows) {
+        expect(r.shadowDb, `${node} <- ${r.from} (${r.frame.kind})`).toBeUndefined()
+        expect(r.fastDb, `${node} <- ${r.from} (${r.frame.kind})`).toBeUndefined()
+      }
+    }
+  })
+
+  it('while an Active Tx uplink on the same link does fade, and says so on the record', () => {
+    const uplink = (fading?: ChannelFading) => {
+      const w = world([
+        { id: 'ap', pos: at(0), opts: reader },
+        { id: 'tag', pos: at(3), opts: { kind: 'tag', cca: false } },
+      ], { 'ap>tag': -70, 'tag>ap': -70 }, [], {}, fading)
+      w.at(0, () => w.ch.startTx('tag', ampRespFrame('tag', 'ap', 250, 1, 0, false)))
+      w.run(4_000_000)
+      return w
+    }
+    const rows = uplink(FADE).recs('RX_START', 'ap')
+    expect(rows.length).toBe(1)
+    expect(rows[0].frame.amp!.dir).toBe('ul')
+    expect(rows[0].shadowDb).not.toBe(0)
+    expect(rows[0].fastDb).not.toBe(0)
+    // and with fading off the same reception carries neither field
+    const bare = uplink().recs('RX_START', 'ap')
+    expect(bare.length).toBe(1)
+    expect(bare[0].shadowDb).toBeUndefined()
+    expect(bare[0].fastDb).toBeUndefined()
   })
 })

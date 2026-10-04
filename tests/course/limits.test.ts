@@ -212,16 +212,17 @@ describe('a limit that points at a deeper treatment says so as a deeper treatmen
  *    it is about there being one station). On the two UWB sites it is blind.
  *
  * So B does not judge the truth of a promise. **It judges whether anyone judged it.** The
- * table is the whole promise ledger; an eleventh `until` turns this red and its author has
+ * table is the whole promise ledger; a fourteenth `until` turns this red and its author has
  * to write the fourth column down and leave a ruler in their own lesson's test file
  * (precedents: `width.test.ts`, `uwb-blocks.test.ts`, and as of 2026-10-05 also
- * `anomaly.test.ts`, `backoff.test.ts`, `streams.test.ts`, `mcs-ladder.test.ts`).
+ * `anomaly.test.ts`, `backoff.test.ts`, `streams.test.ts`, `mcs-ladder.test.ts`, and as of
+ * the `fading` lesson also `fading.test.ts`, whose own header states its gate before measuring it).
  *
  * The census is taken off `LESSONS`, never off the file text. A `kind: 'formula'` block in
  * a lesson's `numbers` is character-for-character the shape of a `Limit`, so a regex sweep
  * of `src/course` counts one entry that is not a limit at all.
  */
-describe('criterion B · the eight `until` promises are a frozen ledger', () => {
+describe('criterion B · the thirteen `until` promises are a frozen ledger', () => {
   /** `[source, target, a substring of the limit's own text, the axis that opens it]`. */
   const UNTIL_SITES: readonly [string, string, string, string][] = [
     ['mcs-ladder', 'rate-vs-model', '本课四个变体一次失败也没有',
@@ -240,11 +241,31 @@ describe('criterion B · the eight `until` promises are a frozen ledger', () => 
       '逐节点的 ppm 实参 0 → ±10，于是单边测距的偏差以米计（那一课真的给出 6.01 m）'],
     ['uwb-blocks', 'uwb-contention', '「点名要先有名单」',
       '会话旋钮：竞争窗口与名单。那一课讲的正是手里根本没有名单的标签'],
+    // The five `fading` sites, added 2026-10-05 with that lesson. One axis for all five, and it
+    // is a top-level scenario section rather than anything on a node: `fadingScenario` is
+    // `widthScenario(20, 1)` with the station in the far living room and a `fading` section, and
+    // the five sources are the five lessons whose text says in so many words that their own
+    // scene did not write that section. Two of them (`radio-primer`, `bianchi`) had to have
+    // their `kind` corrected from `unmodelled` to `out-of-scope` first — the engine has built
+    // both fading layers since the selectivity slice, so what those two limits really named was
+    // their own scene, which is criterion A's second precedent (`width`'s flat channel), not its
+    // first. The five lessons are measured to sit earlier in `COURSE_ORDER` than `fading`
+    // (radio-primer 0, mcs-ladder 3, bianchi 21, rate-vs-model 23, rate-fallback 36 → fading 38).
+    ['radio-primer', 'fading', '本课的场景没有打开',
+      '顶层一节：fadingScenario 的瑞利与莱斯两个变体写了 fading 一节，于是 RX_START 这一行真的印出 shadow 与 fast 两个数，而本课的四个变体里这两个字段根本不出现'],
+    ['mcs-ladder', 'fading', '让同一条链路自己在几级之间来回',
+      '顶层一节：同一条链路在那一课的瑞利变体里用到 MCS 0 到 3 四个级别、降档 22 次升档 19 次（种子 7），而本课四个变体里级别恒定'],
+    ['bianchi', 'fading', '那时同一条链路会在几级之间来回，本课那两张表立刻不再适用',
+      '顶层一节：固定速率这个前提在那一课的场景里逐帧不成立——1000 ms 里 848 帧分布在四个级别上（瑞利，种子 7），而本课的圆弧是把它布置成真的'],
+    ['rate-vs-model', 'fading', '那时这张速率直方图就不再是单一成因的了',
+      '顶层一节，而解除的方式是给出互补的那一半：本课的直方图单一成因是碰撞，那一课的单一成因是链路变差（单链路场景，COLLISION 恒为 0，失败全部 lowSinr），两课合起来才是两个成因'],
+    ['rate-fallback', 'fading', '所以这里 337 次失败没有一次来自链路变差',
+      '顶层一节，加上站点数 2 → 1：在本课自己的两站点场景上打开衰落会凭空多出 514 个碰撞，所以那一课换成单链路场景，于是它的失败 100% 来自链路变差，而本课是 0%'],
   ]
 
   const actual = LESSONS.flatMap((l) => l.limits.filter((x) => x.until).map((x) => `${l.id}→${x.until!}`))
 
-  it('is exactly these eight sites, no more and no fewer', () => {
+  it('is exactly these thirteen sites, no more and no fewer', () => {
     expect([...actual].sort()).toEqual(UNTIL_SITES.map(([s, t]) => `${s}→${t}`).sort())
   })
 
@@ -263,12 +284,13 @@ describe('criterion B · the eight `until` promises are a frozen ledger', () => 
   /**
    * **Criterion C — the target comes after the source.**
    *
-   * **This check is vacuous today and the next reader should know it.** All eight targets
+   * **This check is vacuous today and the next reader should know it.** All thirteen targets
    * already sit later in `COURSE_ORDER` than their source (mcs-ladder 3 → rate-vs-model 23,
    * ifs 11 → edca 26, backoff 13 → txop 29, anomaly 18 → txop 29, width 32 → selectivity 33,
-   * streams 34 → mumimo 41, uwb-intro 50 → uwb-sstwr 53, uwb-blocks 57 → uwb-contention 62),
-   * so it discriminates nothing and will not catch a single thing wrong with the course as
-   * it stands.
+   * streams 34 → mumimo 42, uwb-intro 51 → uwb-sstwr 54, uwb-blocks 58 → uwb-contention 63,
+   * and the five `fading` sites — radio-primer 0, mcs-ladder 3, bianchi 21, rate-vs-model 23,
+   * rate-fallback 36 → fading 38), so it discriminates nothing and will not catch a single
+   * thing wrong with the course as it stands.
    *
    * It is here anyway, because 「这一条在《…》里**会被**解除」is future tense: an `until`
    * aimed at an EARLIER lesson makes that sentence a lie, and nothing else would stop it.

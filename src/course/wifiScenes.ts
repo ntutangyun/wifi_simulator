@@ -5,6 +5,7 @@
  * share. `sc`, `oneRoom`, `hallwayHouse` and `longApartment` are re-exported
  * from `./lessonKit` so existing imports of them keep working unchanged.
  */
+import type { FadingCfg } from '../engine/fading'
 import { noiseDbm } from '../engine/phy'
 import type { ChannelWidth, Nss } from '../model/caps'
 import type { NodeCfg, Room, Scenario, Wall } from '../model/scenario'
@@ -127,6 +128,47 @@ export function selectivityScenario(widthMhz: ChannelWidth): Scenario {
     })),
     fading: { shadowSigmaDb: 0, coherenceMs: 100, smallScale: 'rayleigh' },
     selectivity: {},
+  }
+}
+
+/**
+ * The `width` scene's geometry with the laptop in the far living room and **one link in the
+ * whole flat**: the `fading` lesson's own scene. `f` is the `fading` section, and **omitting it
+ * writes no `fading` key at all** rather than writing a section that fades by zero — the engine
+ * reads an absent section as "do not enter the fading branch", which is what keeps the
+ * unfaded run bit-identical to every other lesson on this geometry.
+ *
+ * Three departures from `widthScenario(20, 1)`, and each one is a measurement rather than taste:
+ *
+ *  - **one link, and no second device.** This is the only shape the lesson's claim survives in.
+ *    Measured on `rateScenario`, the two-station scene the rate lessons use (3000 ms, seed 7):
+ *    turning `FADING_DEFAULTS` on there takes `COLLISION` from **0 to 514** and the near
+ *    station's `ACK_TIMEOUT` from **0 to 623**, because the fade pushes the near-to-far link
+ *    below the carrier-sense threshold and conjures a whole class of hidden-node collisions out
+ *    of nothing. That is real physics and it is **a different lesson** (design §5.3); here it is
+ *    a confound that would drown the half this lesson is about. In this scene `COLLISION` is
+ *    **0 under every configuration** (measured, 5 seeds x 6 configurations), so every failure
+ *    it shows can only have come from the link itself.
+ *  - **the station stands at x = 12.5, y = 6**, which is where `selectivityScenario` puts it and
+ *    where `width`'s own `tryThis` sends it. On the study desk the margin swallows anything
+ *    either layer produces (design §7, case 4).
+ *  - **20 MHz and no power lift.** `selectivityScenario` raises both radios by
+ *    `noiseDbm(w) − noiseDbm(20)` to hold the mean SINR across its five widths; with one width
+ *    that lift is exactly 0 dB, so it is not written.
+ *
+ * **The geometry is identical to `selectivityScenario(20)` without its `selectivity` section,
+ * and that is verified rather than inferred**: at 1000 ms and seed 7 the two agree hash for hash
+ * in all four configurations — `310a660` unfaded, `bb43aa57` shadowed, `eddfc731` Rayleigh,
+ * `63a71c47` Rician — so the margin already measured on this link by the `selectivity` and
+ * `ru-diversity` slices can be quoted here instead of a second ruler being built
+ * (`tests/course/fading.test.ts` pins the identity).
+ */
+export function fadingScenario(f?: FadingCfg): Scenario {
+  const base = widthScenario(20, 1)
+  return {
+    ...base,
+    nodes: base.nodes.map((n) => (n.id === 'sta-1' ? { ...n, pos: { ...n.pos, x: 12.5, y: 6 } } : n)),
+    ...(f === undefined ? {} : { fading: f }),
   }
 }
 

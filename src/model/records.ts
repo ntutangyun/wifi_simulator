@@ -34,7 +34,30 @@ export type TLRecord = { t: Ns; seq: number } & (
   | { type: 'TXOP_END'; node: string }
   | { type: 'TX_START'; node: string; frame: FrameDesc }
   | { type: 'TX_END'; node: string; frame: FrameDesc }
-  | { type: 'RX_START'; node: string; from: string; frame: FrameDesc }
+  /**
+   * A preamble acquired. `shadowDb` and `fastDb` are the two fading layers this
+   * reception's level was drawn through, **separately and not summed**: the slow
+   * log-normal shadow (`fading.ts`'s `shadowDb`, one value per coherence interval)
+   * and the per-frame small-scale fade (`smallScaleDb`). Summed they would be one
+   * number with no rhythm in it, and the rhythm is the whole of what distinguishes
+   * the two layers — within one coherence interval `shadowDb` repeats frame after
+   * frame while `fastDb` never does.
+   *
+   * **Present only when the scenario carried a `fading` section and this level
+   * actually went through `linkDbm`.** A backscatter reply and a downlink RFID PPDU
+   * at a tag obey the Friis law in `rxDbmOf` instead and never enter the fading
+   * branch at all, so they carry neither field rather than carrying a draw nothing
+   * used.
+   *
+   * These two are the reason this slice is not engine-free: no other Wi-Fi record
+   * carries the level of one reception (`WIFI_SEL` does, and only when
+   * `selectivity` is in the scene), so a lesson about a level that moves with time
+   * had nothing to put on the screen. Adding fields to a record that was already
+   * being emitted is hash-neutral — `simulation.ts`'s `updateHash` folds only
+   * `t:seq:type` — whereas a new record type would move every fixture row of the
+   * two scenes that already turn fading on.
+   */
+  | { type: 'RX_START'; node: string; from: string; frame: FrameDesc; shadowDb?: number; fastDb?: number }
   | { type: 'RX_OK'; node: string; from: string; frame: FrameDesc }
   | { type: 'RX_FAIL'; node: string; from: string | null; reason: RxFailReason }
   /** A preamble at or above −82 dBm that could not be detected (SINR below 4 dB): no reception, no EIFS. */

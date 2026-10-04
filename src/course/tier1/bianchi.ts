@@ -175,7 +175,13 @@ export const bianchi: Lesson = {
     { kind: 'model-value', text: '让论文的假设成立的那套布置，是引擎的取值而不是标准：等距圆弧、−20 dBm 的发射功率、种子 7，以及十分钟的 MSDU 生存期（bianchiScenario）。最后这一条尤其人工——它把老化规则事实上关掉了，因为方程里没有「帧会因为等太久被扔掉」这件事。真实网络里没有任何一项是这样摆出来的。' },
     { kind: 'unmodelled', text: '等距圆弧让每台站点到达接入点的电平分毫不差，于是引擎的捕获（channel.ts 的 CAPTURE_MARGIN_DB = 5 dB）永远不触发，一次重叠毁掉里面每一帧。真实房间里各站点相差十几个分贝，较强的那一帧常常照样被解出来。本课之所以能把重传记录当碰撞来数，靠的正是这个被布置出来的巧合。' },
     { kind: 'unmodelled', text: '全场共用一个时钟：时隙边界对每台设备是同一瞬间（mac.ts 按精确的 9 µs 排下一次递减），而且一路发射到达各处不花时间。真实设备各有几十 ppm 的晶振误差与传播时延，时隙边界会互相错开几十纳秒到几微秒。于是这里的「同一个时隙里同时发送」是一个绝对事件，在真实空口上它是一段很短的窗口。' },
-    { kind: 'unmodelled', text: '固定速率这个前提不是引擎里的一个开关，而是布置出来的：引擎默认没有衰落，链路电平是几何位置与墙算出的定数，所以最慢那一级之下再无可降。编辑器的「时变链路（衰落）」一节可以把起伏打开，那时同一条链路会在几级之间来回，本课那两张表立刻不再适用。' },
+    // `out-of-scope` rather than `unmodelled`, which is what it said until the `fading`
+    // lesson landed: this limit's own first clause is 「不是引擎里的一个开关，而是布置出来的」,
+    // so by its own words it describes this SCENE's arrangement and not a gap in the engine —
+    // the engine has built both fading layers all along, behind a scenario section. That is the
+    // same correction `width`'s flat-channel entry took, and criterion A in
+    // `tests/course/limits.test.ts` is the rule it is being corrected against.
+    { kind: 'out-of-scope', text: '固定速率这个前提不是引擎里的一个开关，而是布置出来的：引擎默认没有衰落，链路电平是几何位置与墙算出的定数，所以最慢那一级之下再无可降。编辑器的「时变链路（衰落）」一节可以把起伏打开，那时同一条链路会在几级之间来回，本课那两张表立刻不再适用。', until: 'fading' },
   ],
   sources: [
     '模型出自 G. Bianchi，《Performance Analysis of the IEEE 802.11 Distributed Coordination Function》，IEEE JSAC 18(3):535–547，2000。它形式化的退避过程见 IEEE Std 802.11-2024 §10.3.4.3；aCWmin 15 与 aCWmax 1023 见 §17.4.4，于是 W = 16、m = 6。',

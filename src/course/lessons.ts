@@ -95,6 +95,7 @@ import { mumimoChoose } from './tier2/mumimo-choose'
 import { rate } from './tier2/rate'
 import { rateFallback } from './tier2/rate-fallback'
 import { rateCost } from './tier2/rate-cost'
+import { fading } from './tier2/fading'
 export type { Block, JumpTarget, Lesson, LessonVariant, Quiz, Term } from './lessonKit'
 export { isMigrated } from './lessonKit'
 
@@ -194,6 +195,7 @@ const AUTHORED: Lesson[] = [
   rate,
   rateFallback,
   rateCost,
+  fading,
 ]
 
 /** Every course lesson, in reading order (see curriculum.ts). */

@@ -362,7 +362,20 @@ describe('mcs-ladder · the lookup-table limit promises only the half that is ke
     // what it does NOT lift, restated in its own words — the other end of "never lifted"
     expect(rvmLimits).toContain('既不看是否收到了坏帧，也不发探测帧')
     expect(rvmLimits).toContain('引擎一个也没有实现')
-    expect(rvm.limits.filter((l) => l.until || l.seeAlso), 'the target makes no onward promise')
-      .toHaveLength(0)
+    // **The target forwards nothing about THIS limit**, which is what matters here and is the
+    // claim this assertion used to make of the whole lesson. It cannot any more: when the
+    // `fading` lesson landed, `rate-vs-model`'s own time-invariance limit (the 57.8 dB link whose
+    // level never moves, so every step down must be a collision) gained an `until: 'fading'` —
+    // a different limit about a different axis, and `out-of-scope`, so exactly the kind that can
+    // be lifted. Narrowed rather than deleted: the three limits that restate what `mcs-ladder`
+    // hands over still carry no onward promise, and that is the property being pinned.
+    const forwarding = rvm.limits.filter((l) => l.until || l.seeAlso)
+    expect(forwarding.map((l) => l.until ?? l.seeAlso)).toEqual(['fading'])
+    expect(forwarding[0].kind).toBe('out-of-scope')
+    expect(forwarding[0].text).toContain('这张速率直方图就不再是单一成因的了')
+    for (const needle of ['重传数才等于重叠数', '既不看是否收到了坏帧', '引擎一个也没有实现']) {
+      const lim = rvm.limits.find((l) => l.text.includes(needle))!
+      expect([lim.until, lim.seeAlso], needle).toEqual([undefined, undefined])
+    }
   })
 })

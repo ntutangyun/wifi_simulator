@@ -17,7 +17,7 @@ import type { EmitFn } from '../model/records'
 import type { Wall } from '../model/scenario'
 import type { Ns, Vec3 } from '../model/types'
 import { EventQueue } from './events'
-import { fadingDb, smallScaleDb, type FadingCfg } from './fading'
+import { fadingDb, shadowDb, smallScaleDb, type FadingCfg } from './fading'
 import { byCodeUnit } from './hash'
 import { CCA_ED_DBM, CCA_PD_DBM, PHY_MODES, noiseDbm, reqSinrDb, sinrThreshDb } from './phy'
 import { wallLossDb } from './propagation'
@@ -636,6 +636,39 @@ export class Channel {
     return v + fadingDb(f.cfg, f.seed, tx.txId, rxId, tx.startNs, tx.fadeKey)
   }
 
+  /**
+   * The two fading layers this reception's level was drawn through, for `RX_START` to carry —
+   * or nothing at all, which is the common case.
+   *
+   * **Reported separately, never summed** (`records.ts` says why): the rhythms differ, and the
+   * sum has no rhythm in it.
+   *
+   * **It answers `undefined` for exactly the receptions whose level did not come from
+   * `linkDbm`**, mirroring `rxDbmOf`'s own dispatch rather than restating a guess about it: a
+   * backscatter reply and a downlink RFID PPDU at a tag travel the Friis path in `bsLossDb` and
+   * are immune to fading altogether, so a draw printed beside them would be a number nothing
+   * read. An RFID PPDU heard by a *Wi-Fi* radio does go through `linkDbm` (shifted by the
+   * charge-power difference) and so does carry both. The sentinel case carries neither either:
+   * two nodes that cannot hear each other at all have no level to fade.
+   *
+   * The draws repeat `linkDbm`'s, deliberately — both layers are pure functions of
+   * `(seed, txId, rxId, key)`, so asking twice is the same number by construction, and that is
+   * the property the file header exists to protect. `tests/course/fading.test.ts` pins the
+   * equality against `WIFI_SEL`'s own flat draw so the two paths cannot drift into two draws.
+   */
+  private fadeOf(tx: ActiveTx, rxId: string): { shadowDb: number; fastDb: number } | undefined {
+    const f = this.fading
+    if (f === undefined) return undefined
+    const frame = tx.frame
+    if (frame.kind === 'ampBsReply') return undefined
+    if (frame.kind === 'ampRfid' && this.radios.get(rxId)?.kind === 'bsTag') return undefined
+    if (this.linkTable.get(tx.txId)?.get(rxId) === undefined) return undefined
+    return {
+      shadowDb: shadowDb(f.cfg, f.seed, tx.txId, rxId, tx.startNs),
+      fastDb: smallScaleDb(f.cfg, f.seed, tx.txId, rxId, tx.fadeKey),
+    }
+  }
+
   /** Free space at 2.44 GHz between two nodes of this link, plus the walls in the way. */
   private bsLossDb(txId: string, rxId: string): number {
     const key = `${txId}>${rxId}`
@@ -883,7 +916,7 @@ export class Channel {
     lock.maxInterfMw = this.interferenceMw(rid, lock)
     for (const id of this.overlappersOf(rid, lock)) lock.contributors.add(id)
     lock.overlapped = lock.contributors.size > 0
-    this.emit({ t, type: 'RX_START', node: rid, from: tx.txId, frame: tx.frame })
+    this.emit({ t, type: 'RX_START', node: rid, from: tx.txId, frame: tx.frame, ...this.fadeOf(tx, rid) })
     r.listener.onRxStart(t, tx.frame, tx.txId)
   }
 

@@ -130,7 +130,11 @@ export const radioPrimer: Lesson = {
     { text: '距离按三维算，两端的天线都在地面以上 1 m；穿墙则按平面图上的二维射线判断。6 GHz 链路还要再多 1.2 dB，那是更高频率多出来的自由空间损耗。' },
   ],
   limits: [
-    { kind: 'unmodelled', text: '默认没有衰落：到达电平只由几何距离和穿过的墙决定，同一个位置永远得到同一个值。真实室内链路即使两端不动，电平也会随环境变化起伏若干分贝。编辑器的「时变链路（衰落）」一节可以把阴影衰落与小尺度衰落打开，本课的场景没有打开。' },
+    // `out-of-scope` rather than `unmodelled`: the engine models both fading layers
+    // (`engine/fading.ts`) and has since the selectivity slice — what this limit really names is
+    // 「本课的场景没有打开」, a property of this scene. Corrected when the `fading` lesson landed
+    // the scene that does open it; criterion A in `tests/course/limits.test.ts` is the rule.
+    { kind: 'out-of-scope', text: '默认没有衰落：到达电平只由几何距离和穿过的墙决定，同一个位置永远得到同一个值。真实室内链路即使两端不动，电平也会随环境变化起伏若干分贝。编辑器的「时变链路（衰落）」一节可以把阴影衰落与小尺度衰落打开，本课的场景没有打开。', until: 'fading' },
     { kind: 'unmodelled', text: '场景再加上 selectivity 这一节，衰落就不再是整条信道一个值：信道按 2.03125 MHz 一格——标准自己给信道质量指示（channel quality indicator, CQI）用的那个 26 音调资源单元——各抽一次，于是同一瞬间一部分格深衰、一部分完好。仍然没有的是时延扩展本身与多普勒：格与格之间在这里是独立的，没有一条时延参数把它们系起来，而独立正是分集偏多的那一边。本课的场景两节都没有写，所以整个信道带宽共用同一个衰落值，所有子载波同起同落。' },
     { kind: 'model-value', text: '第一米的 46.7 dB 与其后 3.0 的路径损耗指数都是模型取值：前者是 5.2 GHz 的自由空间损耗，后者是室内典型值，标准并不规定任何一个。' },
     { kind: 'model-value', text: '墙的损耗按类型取固定值（石膏板 5 dB、砖墙 12 dB、玻璃 3 dB），与入射角度、厚度和材料含水量都无关。真实墙体这三样都影响损耗。' },

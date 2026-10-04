@@ -145,11 +145,28 @@ export function shadowDb(cfg: FadingCfg, seed: number, txId: string, rxId: strin
  * in dB relative to the mean power.
  *
  * Both distributions come from the magnitude of a complex Gaussian channel
- * coefficient `h`, scaled so that `E[|h|²] = 1` and the layer therefore averages
- * 0 dB. Rayleigh is pure scatter, `h = (x + jy)/√2`. Rician adds a deterministic
+ * coefficient `h`, scaled so that `E[|h|²] = 1` — so the layer averages 0 dB **in
+ * power**, and **not in dB**. In dB it averages **−2.51 dB** for Rayleigh and
+ * **−0.96 dB** at K = 6 dB, because `10·log10` is concave and Jensen's inequality
+ * puts `E[log X]` below `log E[X]`; Rayleigh's figure is exactly `−10γ/ln10 =
+ * −2.5068 dB` (γ is the Euler–Mascheroni constant), the measured 200 000-draw mean
+ * landing at −2.514 because of the clamp below. **So turning Rayleigh on does not
+ * merely add variance to a link — it lowers its mean level by 2.51 dB.** The slow
+ * layer is the asymmetric half of this: a log-normal shadow genuinely is zero-mean
+ * in dB (measured +0.001 dB at sigma 4), because that is the domain it is drawn in.
+ * Instrument for all four figures: `tests/engine/fading-stats.test.ts`, and the
+ * design note is docs/superpowers/specs/2026-10-05-fading-lesson-design.md §0.3(c).
+ *
+ * Rayleigh is pure scatter, `h = (x + jy)/√2`. Rician adds a deterministic
  * line-of-sight component alongside the scatter, with `K` the ratio of the
  * line-of-sight power to the scattered power: `h = √(k/(k+1)) + √(1/(k+1))·(x + jy)/√2`,
  * so a large K leaves almost nothing to fade and a K of zero is Rayleigh again.
+ * **`K` there is the linear ratio, not the configured dB figure**, and the two are
+ * easy to confuse where it matters most: `ricianKdB: 0` is `K = 1`, equal
+ * line-of-sight and scattered power, which is nothing like Rayleigh — measured
+ * dB-domain mean −2.050 against Rayleigh's −2.514, `P(< −10 dB)` 7.26 % against
+ * 9.51 %. Rayleigh is the `ricianKdB → −∞` limit, so no finite setting reaches it;
+ * `tests/engine/fading-stats.test.ts` pins both ends of that range.
  *
  * `bin` is the optional frequency-selectivity hook (model, see `selectivity.ts`):
  * omitted, the draw is keyed by `frameKey` alone, exactly as before — this is

@@ -27,6 +27,18 @@ const AC_NAME = ['BK', 'BE', 'VI', 'VO']
 const acSuffix = (ac?: number) => (ac === undefined ? '' : ` [AC_${AC_NAME[ac]}]`)
 
 /**
+ * One decimal, always with a sign: what a deviation about a mean has to be printed as.
+ *
+ * Used for the two fading layers on `RX_START`, each of which is as often a gain as a loss
+ * (`engine/fading.ts`: both are expressed in dB about the link's mean level). `toFixed(1)`
+ * alone hides the sign on a gain, so `+0.4` and a 0.4 dB loss would read identically. The
+ * explicit `+` is on the positive branch rather than from a locale formatter because `-0.04`
+ * rounds to the string `-0.0` either way, and that is the honest rendering of a draw that
+ * really was a hair below the mean.
+ */
+const fmtSigned = (v: number): string => (v >= 0 ? `+${v.toFixed(1)}` : v.toFixed(1))
+
+/**
  * An OFDMA member's share of the channel, as a fraction when it is one.
  *
  * `mac.ts` divides evenly, so every share this engine produces is `1 / n` — and `1/3` printed
@@ -89,7 +101,15 @@ export function fmtRecord(r: TLRecord): string {
       return `${r.node} → ${f.dst} ${f.kind.toUpperCase()}${agg}${mu} ${f.bytes} B @${f.mbps} Mbps${mcs} (${fmtUs(f.txTimeNs)})${f.retryFlag ? ' RETRY' : ''}${acSuffix(f.ac)}`
     }
     case 'TX_END': return `${r.node} ${r.frame.kind.toUpperCase()} tx end`
-    case 'RX_START': return `${r.node} ⇠ preamble from ${r.from} (${r.frame.kind.toUpperCase()})`
+    case 'RX_START': {
+      // The two fading layers, separately and signed, when the scene turned fading on. Both or
+      // neither: `fadeOf` fills them together, so testing one field is testing both. A signed
+      // figure because either layer is as often a gain as a loss about the link's mean — an
+      // unsigned 2.4 would read as a loss and be wrong half the time.
+      const fade = r.shadowDb === undefined ? ''
+        : ` shadow ${fmtSigned(r.shadowDb)} dB, fast ${fmtSigned(r.fastDb!)} dB`
+      return `${r.node} ⇠ preamble from ${r.from} (${r.frame.kind.toUpperCase()})${fade}`
+    }
     case 'RX_OK': return `${r.node} ⇠ ${r.frame.kind.toUpperCase()} from ${r.from} OK`
     case 'RX_MISS': return `${r.node} missed preamble from ${r.from} (SINR < 4 dB)`
     case 'RX_FAIL': return `${r.node} rx FAILED (${r.reason})${r.from ? ` from ${r.from}` : ''}`
