@@ -96,7 +96,11 @@ Test `tests/engine/selectivity.test.ts`、`tests/engine/selectivity-round.test.t
   `src/ui/format.ts` 的 `fmtRecord` 是唯一由编译器强制穷尽的开关（TS2366），跟着改。
 - [ ] **Step 5:** `npx tsc -b --force` + `npx vitest run`。**fixture 零 diff**
   （九个有多用户帧的场景全部 `selectivity` 缺席，`selCombine` 第一个闸门就返回 `null`）。
-- [ ] **Step 6:** 提交（显式路径）。
+- [ ] **Step 6:** 顺手带走同一处出处错在这个文件里的那一份：`src/engine/channel.ts`
+  的 `(selBins = 9 per 20 MHz, §9.4.1.75)` —— 标签要分文档（`standard be`），
+  理由与证据见 Task 1 的报告与规格 §0.3。规格 §0.3 要求的 `selCombine` 注释改动
+  （「整数个**可回报的** 26 音调资源单元」）也在这个文件里，一起做。
+- [ ] **Step 7:** 提交（显式路径）。
 
 ---
 
@@ -171,6 +175,10 @@ Create `tests/course/ru-diversity.test.ts`；Modify `tests/fixtures/lesson-hashe
 
 - [ ] **Step 1:** 写课。四条 `limits` 照 §7.5 逐条（含那个关于格号区间属于资源单元、
   以及 MU-MIMO 下限 HE 106 音调 / EHT 242 音调的分句）。
+  **⚠ 「被截掉的那一格」这句话要按带宽分开说**（规格 §2.3 的 2026-10-04 更正）：
+  20 MHz 两成员丢**一格**（中间那个 RU 5），而 **40 MHz 四成员丢两格**（RU 5 与 RU 14），
+  **而 40 MHz 没有「中间那一格」**（18 是偶数，直流落在 RU 9 与 RU 10 之间）。
+  笼统说「那一格」会在 40 MHz 的例子上被抓。
 - [ ] **Step 2:** `wording.test.ts` 与 `readability.test.ts` 全过。
   **不要用字符串存在比对去探首次出现规则**，让测试自己打印失败数组。
 - [ ] **Step 3:** 课文印的**每一个数**都要有断言。
@@ -202,5 +210,16 @@ Create `tests/course/ru-diversity.test.ts`；Modify `tests/fixtures/lesson-hashe
   （它说的是空口时间，是路 2 / 4d 的题目，**不许在这一刀里顺手改口**）。
 - [ ] **Step 6:** 每条改动在那一课自己的测试里两头钉住（新说法 `toContain`、旧说法 `not.toContain`）。
   **`limits` 在 `mainPathChars` 之外，所以各课时长不该动 —— 核一遍。**
-- [ ] **Step 7:** `npx tsc -b --force` + `npx vitest run` 全量。**fixture 零 diff。**
-- [ ] **Step 8:** 提交（显式路径）。
+- [ ] **Step 7:** **同一处出处错还活在三处课文／词条里，一起修**（Task 1 核出来的，
+  它一个字都没动，留给这一步）：
+  - **`src/course/tier2/selectivity.ts` 的 `sources`**：「出自 **IEEE Std 802.11** 的
+    信道质量指示字段（§9.4.1.65 与 §9.4.1.75）」——**这是课文里的一句事实错误**。
+    `9.4.1.65`（HE CQI Report field）在基础标准里 6 次、在 11be 里 0 次；
+    `9.4.1.75`（EHT CQI Report field）**反过来**。**两个条号分住两份文档，
+    所以改的时候不能把 `.65` 一起挪走。**
+  - `src/course/tier1/mcs-ladder.ts` 同样把两个条号并列、不分文档。
+    **而 `tests/course/mcs-ladder.test.ts:278-279` 正在断言课文里出现这两个条号**，
+    改课文要连带改它。
+  - `src/ui/glossary.ts` 同样。
+- [ ] **Step 8:** `npx tsc -b --force` + `npx vitest run` 全量。**fixture 零 diff。**
+- [ ] **Step 9:** 提交（显式路径）。
