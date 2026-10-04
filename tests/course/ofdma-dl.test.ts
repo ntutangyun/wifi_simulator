@@ -23,7 +23,7 @@ import type { TLRecord } from '../../src/model/records'
 import { PHY_MODES, SIFS_NS, toneRatio } from '../../src/engine/phy'
 import { lessonShapeSuite, ofType, runOf } from './kit'
 import { MODULES } from '../../src/course/curriculum'
-import { RU26_PER_20MHZ, selBinWidthMhz, selBins } from '../../src/engine/selectivity'
+import { RU26_PER_20MHZ, selBinWidthMhz, selBins, selMemberBins } from '../../src/engine/selectivity'
 
 const MS = 1_000_000
 const US = 1_000
@@ -316,17 +316,24 @@ describe('ofdma-dl · the two experiments', () => {
 })
 
 /**
- * Slice 4a's known overestimate, declared in the lesson that creates it: with frequency
- * selectivity on, `selCombine` (channel.ts) keys the bin count off the PPDU's WIDTH, so a
- * multi-user member is credited with the whole channel's bins while it physically occupies only
- * its own resource unit — this engine's equal split, one over the member count. The standard's
- * smallest resource unit, 26 tones, is exactly one bin, so the member's frequency diversity is
- * overestimated by the member count itself and the selectivity loss it is charged is too small.
+ * **Slice 4b landed, so this lesson's `limits` entry states what the engine now does.** A
+ * multi-user member reads the bins of its OWN share: the channel's bin count times its
+ * `ruFraction`, truncated to whole bins (`selMemberBins`), starting where the members ahead of
+ * it ended (`selBinStart`). 4a's overestimate — the whole channel's bins for every member — is
+ * gone, and so is the sentence that promised a later slice would remove it.
  *
- * The engine side of this is asserted as it stands in tests/engine/selectivity-inert.test.ts (§6
- * item 4), which slice 4b is meant to change. This is the course side of the same statement.
+ * What is still out of scope is the UNEVEN allocation: `mac.ts` only ever divides evenly, so
+ * the bin the truncation drops belongs to nobody, where a real scheduler would hand it to
+ * another member or absorb it in a multi-RU allocation such as 52+26.
+ *
+ * **The instruments, because the limit prints two figures.** 9 bins at 20 MHz and 4 of them per
+ * member are `selBins`/`selMemberBins`, asserted below against the same functions the prose
+ * interpolates — so neither can drift from the other. And the engine really does hand THIS
+ * lesson's members those 4 bins: measured over every multi-user reception of one 150 ms round of
+ * this lesson's own scene with `fading` + `selectivity` added, which is the condition the limit
+ * opens with (the shipped scene has neither section, which the last test here still pins).
  */
-describe('ofdma-dl · a member gets the whole channel’s bins (slice 4b)', () => {
+describe('ofdma-dl · a member reads its own share’s bins (slice 4b landed)', () => {
   /*
    * Selected by what it says, not by where it sits (review of 2026-10-03, finding 5): Task 7 and
    * slice 4b both still add to this array, and a last-index lookup would silently start grading a
@@ -336,6 +343,13 @@ describe('ofdma-dl · a member gets the whole channel’s bins (slice 4b)', () =
    */
   const found = ofdmaDl.limits.filter((l) => l.text.includes('selCombine'))
   const lim = found[0]
+
+  /** This lesson's own scene with the two sections the limit names, and nothing else changed. */
+  const binned = (): TLRecord[] => [...new Simulation({
+    ...ofdmaDl.scenario(),
+    fading: { shadowSigmaDb: 0, coherenceMs: 100, smallScale: 'rayleigh' },
+    selectivity: {},
+  }).runUntil(150 * MS).records]
 
   it('is the one limit about the bin count, and the lesson declares seven', () => {
     expect(found).toHaveLength(1)
@@ -415,18 +429,54 @@ describe('ofdma-dl · a member gets the whole channel’s bins (slice 4b)', () =
     expect(src).not.toContain('按同样的空口时间计费')
   })
 
-  it('is an out-of-scope limit naming the mechanism, the size of the overestimate and the next slice', () => {
+  it('is an out-of-scope limit, and no longer promises a later slice will fix the bin count', () => {
     expect(lim.kind).toBe('out-of-scope')
     expect(lim.text).toContain('selCombine')
-    expect(lim.text).toContain('高估')
-    expect(lim.text).toContain('切片 4b')
     expect(lim.text).toContain(`${selBinWidthMhz()} MHz 一格`)
+    // what the engine does now: the member's own share, truncated, placed after the members ahead
+    expect(lim.text).toContain('读到的是它自己那一片的格数')
+    expect(lim.text).toContain('截到整数格')
+    expect(lim.text).toContain('起始格由排在它前面各成员的格数之和给出')
+    // 4a's three retired claims, each one a sentence this file used to require
+    expect(lim.text).not.toContain('拿到的是整条信道的格数')
+    expect(lim.text).not.toContain('并不问')
+    expect(lim.text).not.toContain('高估')
+    expect(lim.text).not.toContain('切片 4b')
+    // `until: 'ru-diversity'` is Task 6's to add, once the lesson it would name exists
+    expect(lim.until).toBeUndefined()
   })
 
-  it('the smallest resource unit really is one bin, which is what makes that claim true', () => {
+  it('prints both bin figures off the engine’s own functions rather than typing them', () => {
     // 9 bins per 20 MHz, and 9 26-tone RUs per 20 MHz: one bin IS one 26-tone resource unit.
     expect(selBins(20)).toBe(RU26_PER_20MHZ)
+    expect(selMemberBins(20, 1 / 2)).toBe(4)
+    expect(lim.text).toContain(`${selBins(20)} 格里的 ${selMemberBins(20, 1 / 2)} 格`)
     expect(lim.text).toContain('26 音调资源单元恰好就是一格')
+    // the truncation is the standard's tone table, and the bin it drops is nobody's
+    expect(lim.text).toContain('截到整数不是凑整')
+    expect(lim.text).toContain('不属于任何成员')
+    // what is still out of scope: the even split, named by the constant that makes it even
+    expect(lim.text).toContain('frac = 1 / 成员数')
+    // and position buys no physics while the bins are independent draws
+    expect(lim.text).toContain('彼此独立的抽样')
+  })
+
+  it('and the engine hands this scene’s members 4 of 9, with one bin left to nobody', () => {
+    const sels = ofType(binned(), 'WIFI_SEL')
+    const members = sels.filter((s) => s.ruFraction !== undefined)
+    expect(members.length, 'no multi-user reception to read').toBeGreaterThan(20)
+    for (const m of members) {
+      expect(m.widthMhz).toBe(20)
+      expect(m.ruFraction).toBe(1 / 2)
+      expect(m.bins).toBe(selMemberBins(20, 1 / 2))
+    }
+    // two consecutive runs, bins 0-3 and 4-7, so bin 8 is claimed by no one
+    expect(new Set(members.map((m) => m.binStart))).toEqual(new Set([0, 4]))
+    expect(selBins(20) - Math.max(...members.map((m) => m.binStart + m.bins))).toBe(1)
+    // while a single-user PPDU is still read across the whole channel
+    const whole = sels.filter((s) => s.ruFraction === undefined)
+    expect(whole.length).toBeGreaterThan(members.length)
+    for (const w of whole) expect(w.bins).toBe(selBins(20))
   })
 
   it('and this lesson’s own scene does not turn the feature on', () => {

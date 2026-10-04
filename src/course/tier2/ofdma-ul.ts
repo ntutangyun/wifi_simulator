@@ -32,6 +32,7 @@
  */
 import { type Lesson, oneRoom, node, sc, firstTrigger, firstMba, J } from '../lessonKit'
 import type { SequenceSpec } from '../diagram'
+import { selBinWidthMhz, selBins, selMemberBins } from '../../engine/selectivity'
 
 /** The round the figure draws, in µs from the trigger frame's own start. */
 export const ROUND = { trigger: 36, gap: 16, answers: 1988.8, mba: 36 }
@@ -140,7 +141,7 @@ export const ofdmaUl: Lesson = {
     { kind: 'unmodelled', text: '触发帧里那条逐台的功率修正只被记了字节数、没有被执行，而被省掉的后果比这句话本身更值得说：引擎没有接收机增益模型，几个同时上来的分片强弱差多少都不影响任何一个能不能被解出。真实接收机只有一套自动增益，某一片过强就把所有片的噪声地板一起抬起来——这正是那个字段存在的全部理由。所以本课这个回合是最好办的那一种，而真实网络里的功率对齐是要一直维持的。' },
     { kind: 'unmodelled', text: '几个回答的对齐在这里是绝对的：同一瞬间开始、同一瞬间结束，而且同组互不干扰（channel.ts 的 orthogonalGroup）。真实的基于触发发送要求各站点把自己的定时对到不到一微秒的窗口里、并按触发帧预校正载波频偏，做不到的那一台会把邻居那一片的子载波搅乱。本仿真器里「同时」是一被指定就必然成立的事实，而不是一项需要持续维持的工程指标。' },
     { kind: 'model-value', text: '一个回答的长度被引擎封在 2 ms（mac.ts 的 transmitTrigger 里那个 2_000_000），而「触发帧结束后 45 µs 还没有任何回答开始就作废」用的是引擎自己的确认超时。标准的 PPDU 上限是 5.484 ms，引擎在下行那条路上用的就是这个数（phy.ts 的 MAX_PPDU_NS），所以上行回合被人为切短了一半多。本课「一个 2 ms 的回答最多装得下 17 425 B」量的正是这个模型取值。' },
-    { kind: 'out-of-scope', text: '场景打开衰落并加上 selectivity 一节之后，频率选择性按 2.03125 MHz 一格抽衰落，而这几个同时上来的回答各自拿到的是整条信道的格数：channel.ts 的 selCombine 按这个 PPDU 的带宽去算格数，并不问这一台实际占的是哪一片。每台实际只占自己那一片资源单元——标准最小的那种 26 音调资源单元恰好就是一格——所以每一片的频率分集都被高估，被记下的选择性损失比它自己那一片会给出的小，而这与上面那条功率修正没有被执行是两回事。逐资源单元的那一版是后续切片 4b 的事。' },
+    { kind: 'out-of-scope', text: `场景打开衰落并加上 selectivity 一节之后，频率选择性按 ${selBinWidthMhz()} MHz 一格抽衰落，而这几个同时上来的回答各自读到的是自己那一片的格数：份额与下标写在被触发的那一帧自己身上，channel.ts 的 selCombine 按这一份算格数——整条信道的格数乘上这一份、截到整数格，起始格由排在前面那几片的格数之和给出。按这个算法，20 MHz 上两台一起上来，每台读 ${selBins(20)} 格里的 ${selMemberBins(20, 1 / 2)} 格；标准最小的那种 26 音调资源单元恰好就是一格。仍然超出范围的是不等分：一个回合里每台拿到的份额都是一除以台数（mac.ts 的 transmitTrigger 整个回合只算一个），而真实接入点可以按各台的积压给出大小不同的分片，于是被截掉的那一格在这里不属于任何一台。这与上面那条功率修正没有被执行是两回事：那一条说的是各片的强弱，这一条说的是各片有多宽。` },
   ],
   sources: [
     '触发帧及其公共信息字段与每用户字段（RU 分配、目标 RSSI、上行长度、MCS）见 IEEE Std 802.11-2024 §9.3.1.22；它所征询的 HE TB PPDU 见第 27 章；“只能用于应答触发帧”这条规则见 §26.5.2。',

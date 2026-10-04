@@ -26,7 +26,7 @@ import { maxPsduBytesFor } from '../../src/engine/mac'
 import { ampduPsduBytes } from '../../src/model/frames'
 import { lessonShapeSuite, ofType, runOf } from './kit'
 import { MODULES } from '../../src/course/curriculum'
-import { RU26_PER_20MHZ, selBinWidthMhz, selBins } from '../../src/engine/selectivity'
+import { RU26_PER_20MHZ, selBinWidthMhz, selBins, selMemberBins } from '../../src/engine/selectivity'
 
 const MS = 1_000_000
 const US = 1_000
@@ -337,7 +337,24 @@ describe('ofdma-ul · the experiments', () => {
  * other limits cover: that field is sized and not executed, this one is a bin count that is too
  * large. The engine side is asserted in tests/engine/selectivity-inert.test.ts (§6 item 4).
  */
-describe('ofdma-ul · every answer gets the whole channel’s bins (slice 4b)', () => {
+/**
+ * **Slice 4b landed on the uplink too, so this entry states what the engine now does.** Each
+ * answer of a triggered round reads the bins of its OWN share: the share and the index are on
+ * the triggered frame itself (`FrameDesc.ruFraction` / `ruIndex`, written by `respondToTrigger`
+ * out of the Trigger's per-user RU Allocation), and `selCombine` turns them into a bin count and
+ * a start. 4a's overestimate — the whole channel's bins for every answer — is gone, and so is
+ * the sentence that promised a later slice would remove it.
+ *
+ * Still out of scope: the uneven allocation. `transmitTrigger` computes one `frac = 1 / users`
+ * for the whole round, so every answer is the same width and the bin the truncation drops
+ * belongs to nobody.
+ *
+ * **The instruments.** 9 bins at 20 MHz and 4 per answer are `selBins`/`selMemberBins`, asserted
+ * against the same functions the prose interpolates; and the engine is measured handing those 4
+ * bins to both answers over one 100 ms round of this lesson's own scene with `fading` +
+ * `selectivity` added — the condition the limit opens with, and not what the shipped scene has.
+ */
+describe('ofdma-ul · every answer reads its own share’s bins (slice 4b landed)', () => {
   /*
    * Selected by what it says, not by where it sits (review of 2026-10-03, finding 5): slice 4b
    * will add to this array, and a last-index lookup would then grade the wrong entry. The whole
@@ -346,6 +363,13 @@ describe('ofdma-ul · every answer gets the whole channel’s bins (slice 4b)', 
   const found = ofdmaUl.limits.filter((l) => l.text.includes('selCombine'))
   const lim = found[0]
 
+  /** This lesson's own scene with the two sections the limit names, and nothing else changed. */
+  const binned = (): TLRecord[] => [...new Simulation({
+    ...ofdmaUl.scenario(),
+    fading: { shadowSigmaDb: 0, coherenceMs: 100, smallScale: 'rayleigh' },
+    selectivity: {},
+  }).runUntil(RUN_NS).records]
+
   it('is the one limit about the bin count, and the lesson still declares five', () => {
     expect(found).toHaveLength(1)
     expect(ofdmaUl.limits).toHaveLength(5)
@@ -353,18 +377,50 @@ describe('ofdma-ul · every answer gets the whole channel’s bins (slice 4b)', 
       .toEqual(['unmodelled', 'unmodelled', 'unmodelled', 'model-value', 'out-of-scope'])
   })
 
-  it('is an out-of-scope limit naming the mechanism, the overestimate and the next slice', () => {
+  it('is an out-of-scope limit, and no longer promises a later slice will fix the bin count', () => {
     expect(lim.kind).toBe('out-of-scope')
     expect(lim.text).toContain('selCombine')
-    expect(lim.text).toContain('高估')
-    expect(lim.text).toContain('切片 4b')
     expect(lim.text).toContain(`${selBinWidthMhz()} MHz 一格`)
+    // what the engine does now, and where the share is carried
+    expect(lim.text).toContain('各自读到的是自己那一片的格数')
+    expect(lim.text).toContain('份额与下标写在被触发的那一帧自己身上')
+    expect(lim.text).toContain('截到整数格')
+    // 4a's three retired claims
+    expect(lim.text).not.toContain('拿到的是整条信道的格数')
+    expect(lim.text).not.toContain('并不问')
+    expect(lim.text).not.toContain('高估')
+    expect(lim.text).not.toContain('切片 4b')
+    // `until: 'ru-diversity'` is Task 6's to add, once the lesson it would name exists
+    expect(lim.until).toBeUndefined()
   })
 
-  it('keeps it apart from the power correction, and rests on one bin being one 26-tone RU', () => {
+  it('keeps it apart from the power correction, and prints its bins off the engine', () => {
     expect(lim.text).toContain('与上面那条功率修正没有被执行是两回事')
     expect(selBins(20)).toBe(RU26_PER_20MHZ)
+    expect(selMemberBins(20, 1 / 2)).toBe(4)
+    expect(lim.text).toContain(`${selBins(20)} 格里的 ${selMemberBins(20, 1 / 2)} 格`)
     expect(lim.text).toContain('26 音调资源单元恰好就是一格')
+    // what is still out of scope: one share for the whole round, named by the function that sets it
+    expect(lim.text).toContain('transmitTrigger')
+    expect(lim.text).toContain('不属于任何一台')
+  })
+
+  it('and both answers really read 4 of 9, share and index off their own frame', () => {
+    const rs = binned()
+    const answers = ofType(rs, 'TX_START')
+      .filter((r) => r.frame.kind === 'data' && r.frame.ruFraction !== undefined)
+    expect(answers.length, 'no triggered answer to read').toBeGreaterThan(10)
+    for (const a of answers) expect(a.frame.ruFraction).toBe(1 / 2)
+    expect(new Set(answers.map((a) => a.frame.ruIndex))).toEqual(new Set([0, 1]))
+    const sels = ofType(rs, 'WIFI_SEL').filter((s) => s.ruFraction !== undefined)
+    expect(sels.length, 'no per-share reception to read').toBeGreaterThan(10)
+    for (const s of sels) {
+      expect(s.widthMhz).toBe(20)
+      expect(s.bins).toBe(selMemberBins(20, 1 / 2))
+    }
+    // consecutive runs again, so one of the nine bins is claimed by neither uploader
+    expect(new Set(sels.map((s) => s.binStart))).toEqual(new Set([0, 4]))
+    expect(selBins(20) - Math.max(...sels.map((s) => s.binStart + s.bins))).toBe(1)
   })
 
   it('and this lesson’s own scene does not turn the feature on', () => {

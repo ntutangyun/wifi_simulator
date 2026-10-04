@@ -37,7 +37,7 @@ import { readFileSync } from 'node:fs'
 import { LESSONS } from '../../src/course/lessons'
 import { COURSE_ORDER } from '../../src/course/curriculum'
 import { lessonStrings } from '../../src/course/readability'
-import { RU26_PER_20MHZ, selBinWidthMhz, selBins, selEffSinrDb } from '../../src/engine/selectivity'
+import { RU26_PER_20MHZ, selBinWidthMhz, selBins, selMemberBins, selEffSinrDb } from '../../src/engine/selectivity'
 import { smallScaleDb, type FadingCfg } from '../../src/engine/fading'
 import { noiseDbm } from '../../src/engine/phy'
 import { Simulation } from '../../src/engine/simulation'
@@ -169,6 +169,33 @@ describe('selectivity · where it sits and what it ships', () => {
     expect(RU26_PER_20MHZ).toBe(9)
     expect(selBins(20)).toBe(9)
     expect(selBins(320)).toBe(144)
+  })
+
+  /**
+   * **The one main-path paragraph about a multi-user member, re-written when slice 4b gave a
+   * member its own bins.** Before 4b it said the simulator keys the bin count off the whole
+   * frame's width, so a member holding a third of the channel was credited with three times the
+   * bins it should have, and it owed the fix to a later step. All three of those clauses are now
+   * false and are pinned as absent — over `text`, which includes `limits`, because the lesson
+   * said it twice: once here and once in the last sentence of `out-of-scope`.
+   *
+   * **Instrument for the two figures it prints:** `selBins(20)` and `selMemberBins(20, 1/2)`,
+   * the engine's own functions, interpolated into the prose and asserted here against the same
+   * calls — arithmetic, not a measurement, so there is no run length to quote. That the engine
+   * really serves a member those bins is measured in the two OFDMA lessons' files, on their own
+   * scenes; all five variants of this lesson are single-user.
+   */
+  it('says a member reads its own share’s bins, with both figures off the engine', () => {
+    expect(selMemberBins(20, 1 / 2)).toBe(4)
+    expect(mainText).toContain(`20 MHz 上两个成员各读 ${selBins(20)} 格里的 ${selMemberBins(20, 1 / 2)} 格`)
+    expect(mainText).toContain('格数乘以份额、截到整数格')
+    expect(mainText).toContain('与标准那张音调表吻合')
+    expect(mainText).toContain('位置不起作用：各格彼此独立')
+    // 4a's claims, retired in both places the lesson made them
+    expect(text).not.toContain('三倍于应得')
+    expect(text).not.toContain('按整帧的带宽给格数')
+    expect(text).not.toContain('整帧带宽的格数')
+    expect(text).not.toContain('高估')
   })
 })
 
@@ -467,11 +494,15 @@ describe('selectivity · the four limits are each about this engine', () => {
    * legacy link in the same scene is not binned, and a multi-user member is handed the whole
    * channel's bins.
    */
-  it('out-of-scope: the other four decisions, the vht links, and the bin count slice 4b owes', () => {
+  it('out-of-scope: the other four decisions, the vht links, and the split this engine cannot build', () => {
     const t = byKind.get('out-of-scope')!
     for (const s of ['resolveLock', '载波侦听', '前导检测', '捕获效应', '资源单元']) expect(t).toContain(s)
     expect(t).toContain('vht')
     expect(t).toContain('312.5 kHz')
     expect(t).toContain('至少有一条')
+    // The last sentence after slice 4b: a member DOES read its own truncated share, and what
+    // remains out of scope is the uneven allocation this engine cannot build.
+    expect(t).toContain('多用户成员读的是它自己那一份截到整数格之后的格数')
+    expect(t).toContain('不等分的分配')
   })
 })
