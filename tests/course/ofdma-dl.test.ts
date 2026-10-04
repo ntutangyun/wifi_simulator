@@ -454,9 +454,22 @@ describe('ofdma-dl · a member reads its own share’s bins (slice 4b landed)', 
      * simplification — which is what the field's own doc comment says too. `ru-diversity` lifts
      * neither of the two this entry is now made of: its own `limits` re-declare the equal split
      * (「成员数的倒数，再截到整数格」) and the leftover bin (「在引擎里就是不存在」) verbatim.
-     * It measures what the thin share COSTS; it does not remove it. Every other `until` in the
-     * course points at a lesson that genuinely removes the thing (`width` → `selectivity`,
-     * `backoff` → `txop`, `streams` → `mumimo`), and the navigation it would buy is nil anyway:
+     * It measures what the thin share COSTS; it does not remove it.
+     *
+     * **2026-10-04 correction (Task 6c measured the census this comment asserted).** This used to
+     * read "every other `until` in the course points at a lesson that genuinely removes the
+     * thing". That is false. There are TEN `until` uses pointing at seven lessons, and THREE of
+     * them do not lift anything: `anomaly`'s two and `mcs-ladder`'s all point at `rate-vs-model`,
+     * whose own `limits[0]`/`limits[1]` re-declare the two-counter rate control and the
+     * collision-vs-fade conflation verbatim — the same reason this entry declines `until`. So the
+     * honest statement is: the uses that DO lift are `width` → `selectivity`, `backoff`/`anomaly`
+     * → `txop`, `ifs` → `edca`, `streams` → `mumimo`, and the two UWB ones; the three pointing at
+     * `rate-vs-model` are a promise that goes unmet, and whether `until` should keep meaning
+     * "lifted" is filed as its own slice rather than decided here.
+     * `tests/course/limits.test.ts` only checks that an `until` target exists and is not
+     * self-referential; **whether it actually lifts the limit has never been tested.**
+     *
+     * The navigation `until` would buy here is nil anyway:
      * `ru-diversity` is the very next id in `COURSE_ORDER` and lists `ofdma-dl` in `needs`.
      */
     expect(lim.until).toBeUndefined()
