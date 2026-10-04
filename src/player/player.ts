@@ -189,29 +189,31 @@ export class Player {
   }
 
   /**
-   * Stops the worker and the playback loop. **`store` is deliberately left
-   * alone** — `load` is what replaces it — and nothing structural keeps the
-   * previous recording off the screen: one measurement does.
+   * Stops the worker and the playback loop, **and drops the recording**: a
+   * disposed player holds nothing, so nothing on screen can still be showing
+   * the run that just ended.
    *
-   * The store's callers null `view` as they dispose, so everything drawn from
-   * `ViewState` goes blank. `EventLog` is the exception: it reads
-   * `player.store` directly, and every path that disposes also parks the
-   * playhead at 0, so what the log can still show is whatever the previous run
-   * recorded in its first 500 µs — its window is
-   * `[playhead − 3 ms, playhead + 0.5 ms]`.
+   * It did not always clear `store`, and the gap had one reader. Everything
+   * drawn from `ViewState` goes blank because the store's callers null `view`
+   * as they dispose, and `TimelineStrip` is unmounted whenever nothing is
+   * loaded — but `EventLog` reads `player.store` directly and is in the side
+   * panel at every mode but the editor. Every path that disposes also parks
+   * the playhead at 0 and the log's window is
+   * `[playhead − 3 ms, playhead + 0.5 ms]`, so what it showed was whatever the
+   * previous run had recorded in its first 500 µs.
    *
-   * The editor's default document has nothing there: its first non-`MAC_STATE`
-   * record is the `WAN_TX` at 894 045 ns, **394 µs past the end of that
-   * window**, which is the only reason running it and then entering course
-   * mode shows an empty log instead of that run's 630 336 records. **Lesson
-   * scenes are not so lucky — 77 of the 83 have records at t = 0** — so
-   * walking from one lesson to another leaves the log holding the lesson the
-   * reader left, beside a panel that says `▶ 载入并观察`.
+   * That was invisible for exactly one reason, and it was arithmetic, not
+   * design: the editor's default document has no non-`MAC_STATE` record until
+   * the `WAN_TX` at 894 045 ns, **394 µs past the end of that window**, so
+   * running it and then entering course mode happened to show an empty log
+   * instead of that run's 630 336 records. **77 of the 83 lesson scenes have
+   * records at t = 0**, so once walking between lessons started clearing the
+   * screen, the log was the one surface still holding the lesson the reader
+   * had left, beside a panel offering `▶ 载入并观察`.
    *
-   * The fix is `this.store = new TimelineStore()` here, and it is a separate
-   * change from the one that wrote this comment. Until it lands: anything that
-   * gives the editor's document an event inside its first 500 µs, or widens
-   * that window, puts a recording nobody loaded next to that panel.
+   * `load` assigns a fresh store of its own as well. That line is redundant
+   * now and kept on purpose: a load starting from an empty recording is its
+   * own requirement, not one borrowed from whatever this method happens to do.
    */
   dispose(): void {
     this.pause()
@@ -220,6 +222,10 @@ export class Player {
       this.worker.terminate()
       this.worker = null
     }
+    // After `pause`, so the last `publish` still describes the run that is
+    // ending rather than an empty store — the callers replace what it publishes
+    // in the same breath, and this way disposing changes nothing they see.
+    this.store = new TimelineStore()
   }
 }
 

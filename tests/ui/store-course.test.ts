@@ -128,6 +128,32 @@ describe('course mode · which lesson the loaded scene belongs to', () => {
     expect(loadedFor('amp-intro')).toBe(true)
   })
 
+  it('stepping out to the catalogue and back keeps the recording', () => {
+    const base = useUi.getState().scenario
+    useUi.getState().setMode('course')
+    useUi.getState().selectLesson('uwb-intro')
+    useUi.getState().loadCourseScenario({ ...base, seed: 88 }, 'uwb-intro')
+
+    // `☰ 课程目录` is `selectLesson(null)`, and it is how a reader reaches the
+    // next lesson. The catalogue claims nothing about any scene, so walking
+    // out to it and back in must not cost the reader their recording.
+    const disposesBefore = seen.disposes
+    useUi.getState().selectLesson(null)
+    expect(loadedFor('uwb-intro')).toBe(true)
+    expect(onScreen()).toEqual({ ...base, seed: 88 })
+
+    useUi.getState().selectLesson('uwb-intro')
+    expect(seen.disposes).toBe(disposesBefore)
+    expect(loadedFor('uwb-intro')).toBe(true)
+    expect(onScreen()).toEqual({ ...base, seed: 88 })
+
+    // Picking a different lesson out of the catalogue still clears it.
+    useUi.getState().selectLesson(null)
+    useUi.getState().selectLesson('uwb-frame')
+    expect(useUi.getState().courseLoaded).toBe(false)
+    expect(onScreen()).toBeNull()
+  })
+
   it('leaving course mode, and taking a lesson into the editor, forget the lesson', () => {
     const base = useUi.getState().scenario
     useUi.getState().setMode('course')

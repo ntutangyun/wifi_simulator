@@ -168,10 +168,13 @@ export const useUi = create<UiState>((set, get) => ({
     // reader counting what `observe` told them to count was counting another
     // lesson's recording. The clearing is the one `setMode('course')` already
     // does, and the principle is the one `CoursePanel`'s `loaded` already
-    // states: a scene belongs to the lesson it was loaded for. The cost is
-    // that walking back to a lesson reloads it. The event log is the one
-    // surface this does not reach — see `Player.dispose`, which says why.
-    if (id !== get().courseLoadedFor) {
+    // states: a scene belongs to the lesson it was loaded for.
+    //
+    // `null` is the catalogue, and it is excluded on purpose: the catalogue
+    // makes no claim about any scene, and stepping out to it to find the next
+    // lesson is not a reason to lose the recording of the one being read —
+    // a reader who walks out and back in gets their scene, not a reload.
+    if (id !== null && id !== get().courseLoadedFor) {
       player.dispose()
       set({ courseLessonId: id, courseLoaded: false, courseLoadedFor: null, playing: false, view: null, playheadNs: 0, simError: null, selectedFrame: null })
     } else set({ courseLessonId: id })
