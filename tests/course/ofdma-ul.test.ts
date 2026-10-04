@@ -408,10 +408,10 @@ describe('ofdma-ul · every answer reads its own share’s bins (slice 4b landed
   it('and both answers really read 4 of 9, share and index off their own frame', () => {
     const rs = binned()
     const answers = ofType(rs, 'TX_START')
-      .filter((r) => r.frame.kind === 'data' && r.frame.ruFraction !== undefined)
+      .filter((r) => r.frame.kind === 'data' && r.frame.ru !== undefined)
     expect(answers.length, 'no triggered answer to read').toBeGreaterThan(10)
-    for (const a of answers) expect(a.frame.ruFraction).toBe(1 / 2)
-    expect(new Set(answers.map((a) => a.frame.ruIndex))).toEqual(new Set([0, 1]))
+    for (const a of answers) expect(a.frame.ru!.fraction).toBe(1 / 2)
+    expect(new Set(answers.map((a) => a.frame.ru!.partIdx))).toEqual(new Set([0, 1]))
     const sels = ofType(rs, 'WIFI_SEL').filter((s) => s.ruFraction !== undefined)
     expect(sels.length, 'no per-share reception to read').toBeGreaterThan(10)
     for (const s of sels) {

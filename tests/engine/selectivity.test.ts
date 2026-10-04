@@ -310,13 +310,93 @@ describe('selBinStart: members take consecutive runs, and the dropped bin stays 
    * are drawn independently of one another, and two members are already
    * independent draws (the fading key carries the receiver id), so an assertion
    * that member A's bins differ from member B's would pass while proving only
-   * that two integers are unequal. Measured over six four-bin windows of a
-   * 9-bin channel, the effective SINR agrees to within 0.02 dB: in this model
-   * *where* a member sits has no effect on the distribution at all. Position
+   * that two integers are unequal. *Where* a member sits has no effect on the
+   * distribution at all - exactly none, and the test just above measures it
+   * with its instrument rather than quoting a round number. Position
    * exists for a readable record and for the slice that gives inter-bin
    * correlation a value - not for this slice's numbers. That is why there is no
    * third assertion.
    */
+  /**
+   * The "0.02 dB" that four places quote, measured with its instrument written down — and the
+   * finding is that **0.02 dB is not a property of this model, it is the sampling error of an
+   * unrecorded run.**
+   *
+   * The claim it stands for ("where a member sits has no effect on its effective SINR") is
+   * exactly true here, not approximately: `smallScaleDb` keys each draw on the bin index, the
+   * draws are independent, and `selEffSinrDb` reduces them through an unordered mean. So the
+   * true spread between the six four-bin windows of a nine-bin channel is **zero**, and any
+   * number a run reports is Monte-Carlo noise that shrinks as 1/√N. Measured on this test's own
+   * sampler and keys at seed 1, mean SINR 20 dB, Rayleigh with no shadow:
+   *
+   * | draws | spread of the six window means | standard error | ratio |
+   * | --- | --- | --- | --- |
+   * | 20 000 | 0.0207 dB | 0.0187 | 1.11 |
+   * | 50 000 | 0.0296 dB | 0.0117 | 2.52 |
+   * | 100 000 | 0.0070 dB | 0.0083 | 0.85 |
+   *
+   * The spread does not even fall monotonically, because it is noise, not a quantity.
+   * **So 0.02 dB is a figure from somewhere on that ladder** — and pinning it as a tolerance
+   * would pin an artifact. This test pins the claim instead: the spread must be small
+   * **relative to the standard error of the means it is a spread of**. That ratio is what
+   * "indistinguishable from zero" means quantitatively, and a bound on it is scale-free — it
+   * holds at any N, whereas a real position effect blows through it at any N. Measured
+   * sensitivity, by tilting each bin's deviation by a constant times its index: **0.05 dB per
+   * bin → 12.9 standard errors**, 0.1 → 26.0, 0.25 → 64.9. So the bound of four catches a
+   * systematic effect far smaller than any loss this feature reports.
+   *
+   * **Instrument**: seed 1, transmitter `ap`, receiver `sta-1`, Rayleigh (`shadowSigmaDb: 0`,
+   * so the slow layer is out), mean SINR 20 dB, 20 000 independent frames, nine bins each, the
+   * six consecutive four-bin windows. Deterministic — the sampler takes the seed, so these
+   * numbers reproduce exactly.
+   *
+   * It is pinned at all because a comment was not enough: the figure is quoted in the design
+   * doc, in `selectivity.ts`'s own docblock and in two test comments, and a lesson that wanted
+   * to print it had to decline for want of an assertion.
+   */
+  it('shows position buying nothing: six windows apart by noise and not by physics', () => {
+    const cfg: FadingCfg = { shadowSigmaDb: 0, coherenceMs: 100, smallScale: 'rayleigh' }
+    const meanSinrDb = 20
+    const draws = 20_000
+    const full = selBins(20)
+    const span = selMemberBins(20, 1 / 2)
+    expect([full, span]).toEqual([9, 4])
+    // Every four-bin window a nine-bin channel has: starts 0 through 5, so six of them.
+    const starts = [...Array(full - span + 1).keys()]
+    expect(starts).toEqual([0, 1, 2, 3, 4, 5])
+
+    const sum = starts.map(() => 0)
+    const sumSq = starts.map(() => 0)
+    for (let i = 0; i < draws; i++) {
+      // One frame's nine bins, from the engine's own sampler on the engine's own key scheme.
+      const devsDb: number[] = []
+      for (let bin = 0; bin < full; bin++) {
+        devsDb.push(smallScaleDb(cfg, 1, 'ap', 'sta-1', `frame${i}`, bin))
+      }
+      starts.forEach((start, k) => {
+        const eff = selEffSinrDb(meanSinrDb, devsDb.slice(start, start + span))
+        sum[k]! += eff
+        sumSq[k]! += eff * eff
+      })
+    }
+    const means = sum.map((t) => t / draws)
+    const stdErrs = sumSq.map((q, k) => Math.sqrt(q / draws - means[k]! ** 2) / Math.sqrt(draws))
+    const spread = Math.max(...means) - Math.min(...means)
+    const worstStdErr = Math.max(...stdErrs)
+
+    // The claim: the windows differ by no more than sampling noise. Four standard errors is the
+    // bound; this run comes in at 1.11, and a 0.05 dB-per-bin tilt would come in at 12.9.
+    expect(spread).toBeLessThan(4 * worstStdErr)
+    // And the measured figures, so the next reader need not re-run anything to know what this
+    // run said. These are the numbers the prose above quotes, and they are exact: the sampler
+    // takes the seed, so nothing here is a sample of a sample.
+    expect(spread).toBeCloseTo(0.0207, 3)
+    expect(worstStdErr).toBeCloseTo(0.0187, 3)
+    // Non-vacuity: the windows are genuinely fading, so the smallness above is about position
+    // and not about a sampler that returned a constant.
+    for (const m of means) expect(m).toBeLessThan(meanSinrDb - 2)
+  })
+
   it('keeps every member inside the channel, with runs that do not overlap', () => {
     for (const n of [2, 3, 4]) {
       const fractions = new Array<number>(n).fill(1 / n)

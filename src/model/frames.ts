@@ -175,31 +175,41 @@ export interface FrameDesc {
   /** Trigger frames only: the channel width the solicited TB PPDUs must use (Common Info UL BW, §9.3.1.22.1). */
   ulWidthMhz?: number
   /**
-   * Trigger-based PPDUs only: the share of the solicited bandwidth this one station's resource
-   * unit occupies, and that unit's place in the Trigger's user list. standard §9.3.1.22.1
+   * Trigger-based PPDUs only: the resource unit this one station answers in — the share of the
+   * solicited bandwidth it occupies, and its place in the Trigger's user list.
+   * standard §9.3.1.22.1
    *
    * **Why on the frame and not in `muParts`.** A TB PPDU is one station's own single-user frame
    * — it carries no `muParts`, because the other invited stations' answers are separate PPDUs
-   * sent at the same instant (`orthogonalGroup`). The Trigger is what assigns the unit, in the
-   * per-user **User Info** field's RU Allocation subfield together with the **Common Info**
-   * field's UL BW subfield — both defined in §9.3.1.22.1, whose title is *General*, not
-   * "Common Info field": "The RU Allocation subfield along with the UL BW subfield in the
-   * Common Info field identifies the size and the location of the RU." So the allocation is
-   * per-user on the Trigger, and what the air carries afterwards is one narrow PPDU per
-   * station. `respondToTrigger` (mac.ts) is the only writer.
+   * sent at the same instant (`orthogonalGroup`). The Trigger is what assigns the unit, and it
+   * does so **per user**: the allocation lives in the User Info field's RU Allocation subfield,
+   * whose size and location are read against the Common Info field's UL BW subfield. Both
+   * subfields are defined in §9.3.1.22.1, whose title is *General* rather than "Common Info
+   * field" — worth saying because the obvious reading puts RU Allocation in Common Info, and
+   * only UL BW is there. What the air carries afterwards is one narrow PPDU per station, so
+   * that is what the share sits on. `respondToTrigger` (mac.ts) is the only writer.
    *
-   * `ruFraction` here is a **third** field of that name and it is not interchangeable with the
-   * other two: `MuPart.ruFraction` is a downlink member's share inside one wide PPDU, and
-   * `WIFI_SEL.ruFraction` is what the receiver's decode decision was taken over. Only this one
-   * describes the whole PPDU it sits on.
+   * **Why one object rather than two optional fields.** As `ruFraction?` plus `ruIndex?` the
+   * type admitted a share without a position, and the reader of it had to invent one; a default
+   * of bin 0 put two stations on the same bins, and `selCombine`'s overflow gate cannot see
+   * that — both runs stay inside the channel. Paired here, that state cannot be constructed.
    *
-   * `ruIndex` is this station's index in the Trigger's `muParts`. Downlink takes a member's
-   * position from the order of `muParts`; a TB PPDU has no such list to be positioned in, so
-   * the position has to be written down (design 2026-10-04 §4). Both are read only by
-   * `selCombine` (channel.ts) and neither enters any airtime, so no recorded timeline moves.
+   * **`partIdx` is not the standard's RU index**, and the two are easy to confuse because at
+   * 20 MHz with two users they agree numerically: it is the **0-based** index into the
+   * Trigger's `muParts`, whereas the standard's RU index is **1-based** and counted in units of
+   * the allocated RU size (Table 9-53 against Table 27-8, so RU 1 of two 106-tone RUs is four
+   * 26-tone RUs wide). `selectivity.ts` already uses the standard's convention in prose, which
+   * is why this one does not borrow the word. Downlink takes a member's position from the order
+   * of `muParts`; a TB PPDU has no such list to be positioned in, which is the only reason the
+   * index is written down at all (design 2026-10-04 §4).
+   *
+   * `fraction` is a **third** field meaning a share, and the three are not interchangeable:
+   * `MuPart.ruFraction` is a downlink member's share inside one wide PPDU, `WIFI_SEL.ruFraction`
+   * is what a receiver's decode decision was taken over, and this one describes the whole PPDU
+   * it sits on. The pair is read only by `selCombine` (channel.ts) and enters no airtime, so no
+   * recorded timeline moves.
    */
-  ruFraction?: number
-  ruIndex?: number
+  ru?: { fraction: number; partIdx: number }
   /** How a multi-user PPDU is split: by frequency (OFDMA) or by space (MU-MIMO). */
   muKind?: 'ofdma' | 'mumimo'
   /** P802.11bp Ambient Power fields; present on the five AMP frame kinds only. */

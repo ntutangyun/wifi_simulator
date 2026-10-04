@@ -35,15 +35,28 @@ const acSuffix = (ac?: number) => (ac === undefined ? '' : ` [AC_${AC_NAME[ac]}]
  * this engine cannot build today, but the record can carry) prints as the number it is instead
  * of being rounded into a tidy fraction.
  *
- * **`Number.isInteger` rather than a tolerance, and that is a correction.** This line used to
- * read `Math.abs(n - Math.round(n)) < 1e-9`, which was the only numeric literal slice 4b added
- * to `src/` and carried no provenance tag — and measuring it is what retired it rather than
- * labelled it: `1 / (1 / n)` is **exactly** `n` for every member count this engine can build
- * (n = 2, 3, 4 — `transmitDlMu` and `transmitTrigger` both gate at two and cap at four, mac.ts),
- * and in fact for every n from 2 to 9. The tolerance's slack was never once used. The exact
- * predicate also handles the degenerate inputs the record's type allows but the engine never
- * emits: a share of 0 gives `Infinity`, which is not an integer and so falls to the decimal
- * branch, where the old expression reached the same branch only via `NaN`.
+ * **`Number.isInteger` rather than a tolerance, and it is not the same predicate.** This line
+ * used to read `Math.abs(n - Math.round(n)) < 1e-9`, the only numeric literal slice 4b added to
+ * `src/` and the only one with no provenance tag. The exact test is **strictly stricter** — it
+ * accepts a subset — and the two disagree on 33 of the reciprocals from 1/2 to 1/400, the first
+ * being **1/49**: `1 / (1 / 49)` is `49.00000000000001`, which the tolerance called a 49th and
+ * this predicate prints as `0.020` instead. So this is a deliberate narrowing, not a
+ * simplification of an equivalent.
+ *
+ * **Why the narrowing is right here.** Every share this engine can build is 1/2, 1/3 or 1/4
+ * (`transmitDlMu` and `transmitTrigger` both gate at two users and cap at four, mac.ts), and
+ * `1 / (1 / n)` is exactly `n` for all of those — for every n from 2 to 9, in fact — so no
+ * reachable input moves. Nor does any bin count this feature names (9, 18, 36, 37, 72, 74, 144,
+ * 148) have a reciprocal among the 33. The exact predicate also handles the degenerate inputs
+ * the record's type allows but the engine never emits: a share of 0 gives `Infinity`, not an
+ * integer, so it falls to the decimal branch — where the old expression arrived only via `NaN`.
+ *
+ * **What would make the narrowing wrong**, so that it is noticed rather than rediscovered: a
+ * share whose reciprocal is one of those 33. That needs an allocation finer than even division
+ * among at most four — the real tone table `selectivity.ts` promises the next slice. A 1/49
+ * share would then read as `0.020 of the channel`, which looks like a measurement rather than
+ * one of forty-nine equal parts, and the fix is a rational share on the record, not a tolerance
+ * back here. `tests/ui/format.test.ts` pins 1/49 so that the day it matters is a red test.
  */
 function fmtShare(ruFraction: number): string {
   const n = 1 / ruFraction

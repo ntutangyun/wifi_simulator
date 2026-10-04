@@ -140,16 +140,36 @@ describe('fmtRecord: the frequency-selectivity row', () => {
 
   /**
    * `fmtShare` used to test its reciprocal with a tolerance of `1e-9` — the one unlabelled
-   * numeric literal this slice put in `src/`. It is `Number.isInteger` now, and this is the
-   * measurement that made the tolerance redundant rather than merely annotated: `1 / (1 / n)`
-   * comes back as exactly `n`, with zero error, for every member count a reciprocal share could
-   * ever name here.
+   * numeric literal this slice put in `src/`. It is `Number.isInteger` now, and the first half
+   * of this test is why that costs nothing today: `1 / (1 / n)` comes back as exactly `n`, with
+   * zero error, for every n a share in this engine could name.
    */
-  it('needs no tolerance to recognise a reciprocal share', () => {
+  it('needs no tolerance to recognise a reachable reciprocal share', () => {
     for (let n = 2; n <= 9; n++) {
       expect(1 / (1 / n)).toBe(n)
       expect(row({ ruFraction: 1 / n })).toContain(`its 1/${n} of the channel`)
     }
+  })
+
+  /**
+   * ...and the second half is the boundary that range cannot see, which is exactly why it is
+   * written out separately. The exact predicate is **strictly stricter** than the tolerance it
+   * replaced, and the two disagree on 33 of the reciprocals from 1/2 to 1/400 — the first being
+   * **1/49**, where the round trip lands on `49.00000000000001`. A loop over 2 to 9 can never
+   * find that, so this pins it as a known output rather than a surprise.
+   *
+   * Unreachable today (shares are 1/2, 1/3 or 1/4) and harmless: no bin count this feature
+   * names has a reciprocal in the 33. It stops being harmless the day an allocation finer than
+   * even-division-among-four exists — the real tone table the next slice promises — and then a
+   * reader sees `0.020 of the channel`, which reads as a measurement rather than as one of
+   * forty-nine equal parts. This test is what makes that day a red test instead of a surprise
+   * in an event log.
+   */
+  it('prints the one-in-forty-nine share as a decimal, which the tolerance did not', () => {
+    expect(1 / (1 / 49)).toBe(49.00000000000001)
+    expect(Number.isInteger(1 / (1 / 49))).toBe(false)
+    expect(Math.abs(1 / (1 / 49) - 49) < 1e-9).toBe(true) // what the retired tolerance said
+    expect(row({ bins: 1, ruFraction: 1 / 49 })).toContain('its 0.020 of the channel')
   })
 })
 

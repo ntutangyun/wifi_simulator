@@ -666,6 +666,24 @@ function ofdmaUlScene(bystander = false): Scenario {
 interface TbRow { sel: SelRow['sel']; frame: FrameDesc; trigger: FrameDesc }
 
 /**
+ * The bad state the `ru` pairing removed, asserted by the compiler instead of described.
+ *
+ * `FrameDesc` first carried `ruFraction?: number` and `ruIndex?: number`, two independent
+ * optional fields — so "a share with no position" type-checked, and the reader of it had to
+ * invent a position. A default of bin 0 put every such answer on the same bins, and
+ * `selCombine`'s overflow gate cannot see that: both runs stay inside the channel. Only one
+ * assertion in this file happened to catch it, and by accident (`undefined * 4` is `NaN`).
+ *
+ * There is no runtime test to write for this now, which is the point — the state is not
+ * constructible. So the guard is a type error, and `npx tsc -b` is part of this repo's
+ * verification command. If `partIdx` is ever made optional, `@ts-expect-error` goes unused and
+ * `tsc` fails on the directive itself, naming this line.
+ */
+// @ts-expect-error a TB PPDU's share cannot arrive without its position: `partIdx` is required
+const halfFilledRuDoesNotTypeCheck: FrameDesc['ru'] = { fraction: 1 / 2 }
+void halfFilledRuDoesNotTypeCheck
+
+/**
  * Every `WIFI_SEL` taken on a trigger-based PPDU, paired with the Trigger that scheduled it.
  *
  * The pairing is `orthogonalGroup`: `transmitTrigger` mints one group id per round and
@@ -725,9 +743,21 @@ describe('selectivity, slice 4b: a member reads its own resource unit', () => {
      *     rows at **150 ms**, the window §5.1 measures in. It was reported as wrong when it was
      *     checked against the first instrument; it is right under its own, and it is asserted
      *     here next to the other one so that neither can be read as a correction of the other.
+     *
+     * Both run `mumimoScenario(true)` + Rayleigh with no shadow + `selectivity: {}` on the
+     * scene builder's own **seed 7**, which no scene in this file overrides.
+     *
+     * §8 item 1's claim has two halves — "1824 rows, **all of them `bins = 72`**" — so the
+     * 150 ms line below pins the predicate as well as the count. Without it the sentence would
+     * be half-asserted, which is how the count came to be re-measured against the wrong
+     * population in the first place.
      */
     expect(mumimo.length).toBe(2022)
-    expect(selRows(run(mumimoSelScene(), 150 * MS)).length).toBe(1824)
+    const at150 = selRows(run(mumimoSelScene(), 150 * MS))
+    expect(at150.length).toBe(1824)
+    expect(new Set(at150.map((x) => x.sel.bins))).toEqual(new Set([selBins(160)]))
+    expect(new Set(at150.map((x) => x.sel.widthMhz))).toEqual(new Set([160]))
+    expect(at150.filter((x) => 'ruFraction' in x.sel).length).toBe(0)
 
     /*
      * **Half of those rows are not members, and the members are the population under test.**
@@ -858,7 +888,9 @@ describe('selectivity, slice 4b: a member reads its own resource unit', () => {
    * unequal: bins are drawn independently of one another and two members are independent
    * draws regardless (the fading key carries the receiver id), so *where* a member sits has no
    * effect on its distribution. Measured over all six four-bin windows of a nine-bin channel
-   * the effective SINR agrees to within 0.02 dB. So there are exactly two assertions here and
+   * the effective SINR has the same distribution — exactly the same, and `selectivity.test.ts`
+   * measures the apparent difference against its own sampling error rather than quoting the
+   * 0.02 dB that used to stand here. So there are exactly two assertions here and
    * there is no third one to write: determinism, and runs that tile the channel without
    * leaving it. Position becomes physical in the slice that gives adjacent bins a correlation;
    * until then this comment is the record of what the obvious third test would have been
@@ -934,8 +966,9 @@ describe('selectivity, slice 4b: a member reads its own resource unit', () => {
     expect(full).toBe(9)
     // Every count in this test carries its instrument, because a bare count of records is not
     // a fact: these are the **trigger-based answers only**, out of the two-uploader scene with
-    // no bystander, over `MU_ROUND_NS` (1000 ms), measured on the engine as it stood before
-    // this task (20846fa) — where every one of the 80 read all nine bins of the channel.
+    // no bystander, on the scene builder's own seed 7 (never overridden here), over
+    // `MU_ROUND_NS` (1000 ms), measured on the engine as it stood before this task (20846fa)
+    // — where every one of the 80 read all nine bins of the channel.
     expect(tb.length).toBe(80)
 
     for (const x of tb) {
@@ -944,14 +977,15 @@ describe('selectivity, slice 4b: a member reads its own resource unit', () => {
       // The answer goes out at the width the Trigger dictated (Common Info UL BW), which is the
       // whole channel — the resource unit is a share *of* it, not a narrower `widthMhz`.
       expect(width).toBe(x.trigger.ulWidthMhz)
-      expect(x.frame.ruFraction).toBeCloseTo(1 / n, 12)
-      expect(x.sel.ruFraction).toBe(x.frame.ruFraction)
+      expect(x.frame.ru!.fraction).toBeCloseTo(1 / n, 12)
+      expect(x.sel.ruFraction).toBe(x.frame.ru!.fraction)
       expect(x.sel.bins).toBe(selMemberBins(width, 1 / n))
       expect(x.sel.bins).toBeLessThan(selBins(width))
       // `ruIndex` is this station's own place in the Trigger's user list, and with every user
       // holding the same share that index *is* where its run starts.
-      expect(x.frame.ruIndex).toBe(x.trigger.muParts!.findIndex((p) => p.dst === x.frame.src))
-      expect(x.sel.binStart).toBe(x.frame.ruIndex! * x.sel.bins)
+      expect(x.frame.ru!.partIdx)
+        .toBe(x.trigger.muParts!.findIndex((p) => p.dst === x.frame.src))
+      expect(x.sel.binStart).toBe(x.frame.ru!.partIdx * x.sel.bins)
     }
     expect(new Set(tb.map((x) => x.trigger.muParts!.length))).toEqual(new Set([2]))
     expect(new Set(tb.map((x) => x.sel.bins))).toEqual(new Set([4]))
@@ -1001,16 +1035,16 @@ describe('selectivity, slice 4b: a member reads its own resource unit', () => {
     const tb = tbRows(run(ofdmaUlScene(true), MU_ROUND_NS))
     const addressed = tb.filter((x) => x.sel.node === x.frame.dst)
     const overheard = tb.filter((x) => x.sel.node !== x.frame.dst)
-    // Instrument: the two-uploader scene **with** the bystander, 1000 ms, trigger-based answers
-    // only. The 80 answers are the same 80 as in the test above — adding a silent listener
-    // changes nothing about the round — and each is now received twice.
+    // Instrument: the two-uploader scene **with** the bystander, seed 7, 1000 ms,
+    // trigger-based answers only. The 80 answers are the same 80 as in the test above —
+    // adding a silent listener changes nothing about the round — and each is received twice.
     expect(addressed.length).toBe(80)
     expect(overheard.length).toBe(80)
     expect(new Set(overheard.map((x) => x.sel.node))).toEqual(new Set(['sta-3']))
     for (const x of overheard) {
       expect(x.sel.bins).toBe(4)
       expect(x.sel.ruFraction).toBe(1 / 2)
-      expect(x.sel.binStart).toBe(x.frame.ruIndex! * 4)
+      expect(x.sel.binStart).toBe(x.frame.ru!.partIdx * 4)
     }
     // Both receivers of one answer judge the same bins: the run is a property of the
     // transmission, not of whoever happens to be listening to it.
@@ -1049,7 +1083,7 @@ describe('selectivity, slice 4b: a member reads its own resource unit', () => {
     }
     expect(mixed).toBe(0)
     // Instrument: transmitted frames carrying a `muParts` list, counted over 200 ms of each of
-    // the three scenes separately and summed per frame kind. The two data rows are the ones item
+    // the three scenes separately (all on the builders' own seed 7) and summed per frame kind. The two data rows are the ones item
     // 1b is about — OFDMA members all hold a share, MU-MIMO members all hold none — while the
     // Trigger and the M-BA are per-user lists that are not a split of one PPDU at all.
     expect(Object.fromEntries([...tally].sort())).toEqual({
@@ -1071,6 +1105,8 @@ describe('selectivity, slice 4b: a member reads its own resource unit', () => {
    * on members' rows.
    */
   it('says on every row what its bins were counted against', () => {
+    // Instrument: all three scenes, seed 7 (the builders' own, never overridden), 200 ms each,
+    // every `WIFI_SEL` row rather than any subset.
     for (const scene of [ofdmaDlScene(), ofdmaUlScene(true), mumimoSelScene()]) {
       const rows = selRows(run(scene, 200 * MS))
       expect(rows.length).toBeGreaterThan(100)

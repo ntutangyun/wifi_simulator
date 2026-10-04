@@ -158,12 +158,18 @@ export function selMemberBins(widthMhz: number, ruFraction: number): number {
  * order. That order is deterministic for a given seed but is **not** stable across transmissions
  * downlink, since `Queues.dsts` yields queue-arrival order — so a given station's index moves.
  *
- * **Position buys no physics in this model.** Bins are drawn independently of each other, and two
- * members are independent draws regardless (the fading key carries the receiver id), so the
- * effective SINR of a four-bin run is the same wherever it sits: measured across all six four-bin
- * windows of a 9-bin channel it agrees to within 0.02 dB. Position is here for a readable record
- * and for the slice that gives inter-bin correlation a value, at which point it becomes physical.
- * In a real channel adjacent bins are correlated and an edge run is not an interior run.
+ * **Position buys no physics in this model**, and it buys none *exactly* rather than nearly.
+ * Bins are drawn independently of one another, two members are independent draws regardless (the
+ * fading key carries the receiver id), and `selEffSinrDb` reduces a run through an unordered
+ * mean — so the effective SINR of a four-bin run has the same distribution wherever it sits, and
+ * the true spread across the six four-bin windows of a 9-bin channel is **zero**. The "0.02 dB"
+ * this used to quote was the sampling error of one unrecorded run, not a property: the same
+ * measurement gives 0.021 dB at 20 000 draws, 0.030 at 50 000 and 0.007 at 100 000, which does
+ * not even fall monotonically. `tests/engine/selectivity.test.ts` pins the claim in the form
+ * that means something — the spread against the standard error of the means it is a spread of —
+ * with the whole instrument written beside it. Position is here for a readable record and for
+ * the slice that gives inter-bin correlation a value, at which point it becomes physical: in a
+ * real channel adjacent bins are correlated and an edge run is not an interior run.
  */
 export function selBinStart(widthMhz: number, fractions: readonly number[], idx: number): number {
   let start = 0

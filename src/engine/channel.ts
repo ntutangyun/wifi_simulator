@@ -405,12 +405,17 @@ interface SelCombined {
   /**
    * The PPDU's own width, MHz — the denominator of the three fields above.
    *
-   * Always present, including on a whole-channel row, because without it a row cannot be read
-   * on its own: `bins / ruFraction` recovers 8 rather than 9 for a two-member 20 MHz PPDU, the
-   * truncation having thrown away exactly the bin nobody holds. A reader needs the channel's
-   * own count (`selBins(widthMhz)`) to see that a four-bin run is four of nine and that bin 8
-   * is held by no one, and the two-member scene this slice's lesson is built on (design §7.3)
-   * can legitimately contain no whole-channel row to read it off instead.
+   * Always present, including on a whole-channel row. **Not because the width would otherwise
+   * be unrecoverable**, which is what this comment used to claim and is false: within any one
+   * reachable share the five legal widths give five distinct bin counts (at 1/2 they are
+   * 4/9/18/36/72, at 1/3 3/6/12/24/48, at 1/4 2/4/9/18/36), so `bins` and `ruFraction` do pin
+   * the width down. They pin it down by **inverting a truncation**, and that is the real reason
+   * this field is here: `bins / ruFraction` gives 8 rather than 9 for a two-member 20 MHz PPDU,
+   * because the truncation dropped the bin nobody holds, so recovering the channel's own count
+   * means knowing that and working backwards. Nobody reading an event log should be asked to
+   * undo a floor, and a width carries the physical scale with it rather than only a count. It
+   * is required rather than member-only because the scene this slice's lesson is built on has
+   * two members and may contain no whole-channel row to read a denominator off (design §7.3).
    */
   widthMhz: number
   worstBinDb: number
@@ -438,11 +443,14 @@ interface SelCombined {
  *
  * **Uplink comes in through the other branch, and it is not a fourth whole-channel case.** A
  * trigger-based PPDU is the station's own single-user frame with no `muParts` at all, so its
- * share is on the frame itself (`FrameDesc.ruFraction` / `ruIndex`, written by
- * `respondToTrigger` out of the Trigger's per-user RU Allocation and Common Info UL BW,
- * standard §9.3.1.22.1). Three different fields are spelled `ruFraction` and they are not
- * interchangeable — `MuPart.ruFraction` (a downlink member's share inside one wide PPDU),
- * `FrameDesc.ruFraction` (a TB PPDU's own share of the solicited width) and
+ * resource unit is on the frame itself (`FrameDesc.ru`, written by `respondToTrigger` out of
+ * the Trigger's per-user RU Allocation and Common Info UL BW, standard §9.3.1.22.1). The share
+ * and its position arrive as **one object**, so this branch has no default to apply. As two
+ * independent optional fields they allowed a share with no position, and reading that as
+ * "starts at bin 0" put every such station on the same bins — which the gate in `selCombine`
+ * cannot catch, because both runs stay inside the channel. Three different fields mean a share
+ * and they are not interchangeable — `MuPart.ruFraction` (a downlink member's share inside one
+ * wide PPDU), `FrameDesc.ru.fraction` (a TB PPDU's own share of the solicited width) and
  * `WIFI_SEL.ruFraction` (what this function returned, written to the record).
  *
  * **`rid` is deliberately not consulted on the uplink branch**, so a station overhearing
@@ -464,8 +472,8 @@ function muMemberShare(frame: FrameDesc, rid: string, widthMhz: number): MemberS
   // non-HT frame, and `isOfdmWifiPpdu` has already refused those.
   if (frame.kind !== 'data') return undefined
   if (frame.muParts === undefined) {
-    const ruFraction = frame.ruFraction
-    if (ruFraction === undefined) return undefined
+    const ru = frame.ru
+    if (ru === undefined) return undefined
     // Every answer of one triggered round holds the same share, because `transmitTrigger`
     // computes a single `frac = 1 / users.length` for the whole round and gives every user the
     // same target duration (mac.ts) — so the runs ahead of this one are each the size of this
@@ -473,8 +481,8 @@ function muMemberShare(frame: FrameDesc, rid: string, widthMhz: number): MemberS
     // not about the standard, and it is the one line to change if an uneven uplink allocation
     // is ever built: `selCombine`'s overflow gate catches a start that runs *off* the channel,
     // but it would not catch one that is merely in the wrong place.
-    const idx = frame.ruIndex ?? 0
-    return { ruFraction, binStart: selBinStart(widthMhz, new Array<number>(idx).fill(ruFraction), idx) }
+    const fractions = new Array<number>(ru.partIdx).fill(ru.fraction)
+    return { ruFraction: ru.fraction, binStart: selBinStart(widthMhz, fractions, ru.partIdx) }
   }
   const idx = frame.muParts.findIndex((p) => p.dst === rid)
   if (idx < 0) return undefined
@@ -1018,9 +1026,9 @@ export class Channel {
       // user count, so no sum can be formed from one answer.
       const shares = lock.frame.muParts?.map((p) => p.ruFraction ?? 1)
       const where = shares === undefined
-        ? `trigger-based PPDU, ruFraction ${lock.frame.ruFraction}, ruIndex `
-          + `${lock.frame.ruIndex}; one answer per PPDU, so this frame carries no user count `
-          + `and no sum`
+        ? `trigger-based PPDU, own share ${lock.frame.ru?.fraction} at user slot `
+          + `${lock.frame.ru?.partIdx}; one answer per PPDU, so this frame carries no user `
+          + `count and no sum`
         : `muKind ${lock.frame.muKind}, ${shares.length} members, ruFraction `
           + `[${lock.frame.muParts!.map((p) => p.ruFraction ?? 'absent, read as 1').join(', ')}]`
           + `, summing to ${shares.reduce((s, v) => s + v, 0)}`

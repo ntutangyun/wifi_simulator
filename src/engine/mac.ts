@@ -1476,9 +1476,15 @@ export class WifiMac implements PhyListener {
       const frac = 1 / n
       // Which of the solicited resource units this station answers in. The Trigger assigns it
       // per user (§9.3.1.22.1's RU Allocation subfield of the User Info field, sized and placed
-      // against that clause's Common Info UL BW subfield), and `myPart` is the very entry this
-      // station was found in, so `indexOf` is identity rather than a second search.
-      const ruIndex = trigger.muParts!.indexOf(part)
+      // against that clause's Common Info UL BW subfield).
+      //
+      // Found by address rather than by `indexOf(part)`: `part` is the entry the dispatcher
+      // picked out of this very array, so reference equality holds today, but it holds only as
+      // long as nothing ever copies a `FrameDesc` on its way in. A copy would make `indexOf`
+      // return −1, and the −1 would not surface here — it would surface inside the fading path,
+      // as a `RangeError` from building a run of −1 bins, and only in scenarios that have
+      // `selectivity` on. Matching on `dst` is what the tests already do, and it costs nothing.
+      const partIdx = trigger.muParts!.findIndex((p) => p.dst === this.nodeId)
       // The Trigger dictates the TB PPDU's format, not the station's own capability.
       const mode = trigger.ulMode ?? this.cfg.modeForPeer(trigger.src)
       const mcs = part.mcs
@@ -1506,8 +1512,9 @@ export class WifiMac implements PhyListener {
         // this station actually transmits in whenever the round has more than one user. Until
         // this slice, `frac` was spent on the byte budget just above and then dropped, so a
         // triggered reception was credited with the frequency diversity of the whole channel
-        // (design 2026-10-04 §4). `frac` is deliberately the same local the budget used.
-        ruFraction: frac, ruIndex,
+        // (design 2026-10-04 §4). `frac` is deliberately the same local the budget used, and
+        // the two travel as one object so that a share can never arrive without its position.
+        ru: { fraction: frac, partIdx },
       }
       for (const m of msdus) m.sent = true
       const mbaTime = this.airNs(multiStaBaBytes(n), 24)

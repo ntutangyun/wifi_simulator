@@ -135,14 +135,15 @@ export type TLRecord = { t: Ns; seq: number } & (
    * overhearer of one does carry a share (standard §27.3.4: its pre-HE fields are sent only
    * where its own resource unit is).
    *
-   * **`widthMhz` is the denominator, and it is why the row can be read alone** (slice 4b,
-   * Task 3). `bins / ruFraction` does not recover the channel's count — for two members of a
-   * 20 MHz PPDU it gives 8, the truncation having dropped the one bin nobody holds — so
-   * without the width a four-bin row is only legible next to some whole-channel row in the
-   * same log. The lesson scene this slice is built for has two members and may contain no
-   * such row at all (design §7.3), which is what moved this field from "nice" to "required".
-   * It is the PPDU's own width, present on every row including whole-channel ones, and
-   * `selBins(widthMhz)` turns it into the count a reader needs.
+   * **`widthMhz` is the denominator, and it is why the row reads without arithmetic** (slice
+   * 4b, Task 3). The width is not strictly unrecoverable without it — `bins` and `ruFraction`
+   * together single the width out among the five legal ones — but only by inverting the
+   * truncation: `bins / ruFraction` gives 8 for two members of a 20 MHz PPDU rather than 9,
+   * the dropped bin being the one nobody holds. A reader of an event log should not have to
+   * undo a floor to learn what a count is counted against, and the width also states the
+   * physical scale. Required rather than member-only because the lesson scene this slice is
+   * built for has two members and may contain no whole-channel row to read a denominator off
+   * (design §7.3). `selBins(widthMhz)` turns it into the count a reader needs.
    */
   | { type: 'WIFI_SEL'; node: string; from: string; meanSinrDb: number; effSinrDb: number; lossDb: number; bins: number; binStart: number; ruFraction?: number; widthMhz: number; worstBinDb: number; threshDb: number }
   /** UWB ranging (src/uwb/records.ts): rounds, slots, timestamps, ranges, fixes, timeouts. */
