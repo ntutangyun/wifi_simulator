@@ -37,7 +37,7 @@ import { LESSONS } from '../../src/course/lessons'
 import {
   CHARS_PER_MINUTE, MAX_MINUTES, OBSERVE_MINUTES, TRY_MINUTES, lessonBlocks, lessonChars, lessonMinutes,
 } from '../../src/course/curriculum'
-import { lessonStrings } from '../../src/course/readability'
+import { readerTexts } from '../../src/course/readability'
 
 const MS = 1_000_000
 /** Long enough for a UWB ranging block and a Wi-Fi round; an AMP lesson asks for 1000 ms. */
@@ -159,14 +159,12 @@ export function lessonShapeSuite(l: Lesson, o: LessonShapeOptions = {}): void {
     })
 
     it('every string a learner reads is there', () => {
-      // One walk for every lesson test: src/course/readability.ts. `title`, the variant
-      // labels and the jump labels are the chrome around a lesson, so they are added here.
-      const seen: string[] = [
-        ...lessonStrings(l), l.title,
-        ...(l.variants ?? []).map((v) => v.label), ...l.jumps.map((j) => j.label),
-      ]
+      // One walk for every lesson test: src/course/readability.ts. `readerTexts` is that
+      // walk since 2026-10-05 — it reaches `title`, the variant labels, the jump labels and
+      // `limits[].text`, which this suite used to append by hand (and `limits` it missed).
+      const seen: string[] = readerTexts(l)
       // The structural floor that used to stand here was deleted after it was measured:
-      // `lessonStrings` returns 47 to 139 more strings than the floor demanded on every
+      // `readerTexts` returns 47 to 139 more strings than the floor demanded on every
       // lesson in the course — a table contributes one string per cell — so nothing a
       // reader would notice could ever reach it. The section checks above are what catch
       // a missing section; a rule that cannot fail reports success while grading nothing.

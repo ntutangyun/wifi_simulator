@@ -36,7 +36,7 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { LESSONS } from '../../src/course/lessons'
 import { COURSE_ORDER } from '../../src/course/curriculum'
-import { lessonStrings } from '../../src/course/readability'
+import { lessonStrings, readerTexts } from '../../src/course/readability'
 import { RU26_PER_20MHZ, selBinWidthMhz, selBins, selMemberBins, selEffSinrDb } from '../../src/engine/selectivity'
 import { smallScaleDb, type FadingCfg } from '../../src/engine/fading'
 import { noiseDbm } from '../../src/engine/phy'
@@ -110,8 +110,13 @@ const rowOf = (i: number): Row => {
   }
 }
 
-/** Every string a reader sees, `limits` included. */
-const text = [...lessonStrings(lesson), lesson.title, ...lesson.limits.map((l) => l.text)].join('\n')
+/**
+ * Every string a reader sees. `readerTexts` is the one walk since 2026-10-05, so this now
+ * also reaches the variant labels and the jump labels, which the hand-rolled list did not.
+ * The ten `not.toContain` needles below were checked against the eight labels that widening
+ * adds (`20 MHz` … `第一次没解出来的接收`): not one of them occurs there.
+ */
+const text = readerTexts(lesson).join('\n')
 /** The main path only: what the figures are printed in. */
 const mainText = lessonStrings(lesson).join('\n')
 

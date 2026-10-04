@@ -26,7 +26,7 @@ import { LESSONS } from '../../src/course/lessons'
 import { COURSE_ORDER, MAX_MINUTES, lessonMinutes, trackOf } from '../../src/course/curriculum'
 import { isMigrated, type Block, type Lesson } from '../../src/course/lessonKit'
 import {
-  cellTexts, lessonStrings, paragraphTexts,
+  cellTexts, gradedProseTexts, lessonStrings, paragraphTexts, readerTexts,
   ZH_TERMS, ZH_TERMS_EXCLUDED, bracketedAtFirstZhUse, brackets, zhAkaViolations, zhTermFailure, type ZhTerm,
 } from '../../src/course/readability'
 import { effectiveMigrating } from './kit'
@@ -173,23 +173,58 @@ describe('readability · a rule is carried as a procedure', () => {
  * the English names already live.
  */
 /**
- * `l.why` is `undefined` for a lesson still in the old flat `body` shape.
- * `[l.why!, ...]` used to paper over that with a non-null assertion, which does
- * not check anything at runtime: TypeScript trusts the `!` and the gap becomes
- * the literal four-character string `"undefined"` in the joined text instead of
- * a missing `why` failing anything. `body` is walked here too, in the slot
- * `picture` and `numbers` occupy in the new shape, so an old-shape lesson's
- * prose is graded rather than silently replaced by that string.
+ * The prose this rule grades, in the reader's order: `gradedProseTexts`, which is
+ * one of the four selectors over the single lesson walk (2026-10-05).
+ *
+ * It replaced a hand-rolled chain here, and the two were asserted equal element
+ * for element over all 83 lessons in the commit that made the swap — the point of
+ * the swap is that the walk cannot MISS a field, not that this rule should grade
+ * more of them. What the old chain was careful about is carried over in the
+ * selector, including the one defect this file had to fix once: `l.why` is
+ * `undefined` for a lesson still in the old flat `body` shape, and `[l.why!, ...]`
+ * papered over that with a non-null assertion, which checks nothing at run time —
+ * TypeScript trusts the `!` and the gap becomes the literal four-character string
+ * `"undefined"` in the joined text instead of a missing `why` failing anything.
+ * `body` is walked too, in the slot `picture` and `numbers` occupy in the new
+ * shape, so an old-shape lesson's prose is graded rather than silently replaced.
  */
-const zhMainTexts = (l: Lesson): string[] => (l.why ? [l.why] : [])
-  .concat(l.outcomes ?? [])
-  .concat(paragraphTexts(l.body ?? []), cellTexts(l.body ?? []))
-  .concat(paragraphTexts(l.picture ?? []), cellTexts(l.picture ?? []))
-  .concat(paragraphTexts(l.numbers ?? []), cellTexts(l.numbers ?? []))
-  .concat(l.observe, l.tryThis, l.quiz.flatMap((q) => [q.q, ...q.options, q.explain]))
+const zhMainTexts = (l: Lesson): string[] => gradedProseTexts(l)
 
 /** One joined Chinese string per lesson, in reading order: what "first use" is first in. */
 const zhMainText = (l: Lesson): string => zhMainTexts(l).join(' ')
+
+/**
+ * The swap of 2026-10-05, pinned from the side that matters: `gradedProseTexts`
+ * is a RESTATEMENT of the chain it replaced, not a widening of it.
+ *
+ * The chain is written out again here, verbatim as it stood at `b06c8e7`, and
+ * the two are compared element for element over all 83 lessons. The design note
+ * said this assertion could be deleted once it had run once; it is kept, because
+ * it is the only thing in the repository that can tell "the selector is the old
+ * walk" from "the selector is close enough to the old walk". Those are the two
+ * claims the whole no-behaviour-change step rests on, and one of them is cheap
+ * to assert and expensive to re-derive.
+ *
+ * It is an equality on the SEQUENCE, not on a set: this rule is about first use,
+ * so the order the reader meets the text in is part of the ruler.
+ */
+describe('readability · the graded-prose selector is the walk it replaced', () => {
+  const retired = (l: Lesson): string[] => (l.why ? [l.why] : [])
+    .concat(l.outcomes ?? [])
+    .concat(paragraphTexts(l.body ?? []), cellTexts(l.body ?? []))
+    .concat(paragraphTexts(l.picture ?? []), cellTexts(l.picture ?? []))
+    .concat(paragraphTexts(l.numbers ?? []), cellTexts(l.numbers ?? []))
+    .concat(l.observe, l.tryThis, l.quiz.flatMap((q) => [q.q, ...q.options, q.explain]))
+
+  it.each(ordered.map((l) => [l.id, l] as const))('%s is graded on exactly the same strings, in the same order', (_id, l) => {
+    expect(gradedProseTexts(l)).toEqual(retired(l))
+  })
+
+  it('grades every lesson of the course, so the equality above is not over an empty list', () => {
+    expect(ordered.length).toBe(LESSONS.length)
+    expect(ordered.reduce((n, l) => n + gradedProseTexts(l).length, 0)).toBeGreaterThan(5000)
+  })
+})
 
 /**
  * The glossary rows graded in one lesson: all of them, minus the three whose
@@ -445,16 +480,13 @@ describe('readability · the term rule can fail', () => {
  */
 describe('readability · no lesson dates itself', () => {
   /**
-   * Every string the reader can read, INCLUDING the four `lessonStrings`
-   * leaves out. `until` is a lesson id rather than prose, so it is skipped the
-   * way `lessonStrings` skips `term`.
+   * Every string the reader can read, INCLUDING the four `lessonStrings` leaves
+   * out. This was a hand-rolled list of those four; `readerTexts` is the one walk
+   * since 2026-10-05, so a fifth field is in this net the moment it is added
+   * rather than when somebody remembers. `until` and `seeAlso` are lesson ids
+   * rather than prose and are excluded there, the way `term` always has been.
    */
-  const readerText = (l: Lesson): string[] => [
-    ...lessonStrings(l), l.title,
-    ...l.limits.map((x) => x.text),
-    ...(l.variants ?? []).map((v) => v.label),
-    ...l.jumps.map((j) => j.label),
-  ]
+  const readerText = (l: Lesson): string[] => readerTexts(l)
 
   const ROTS: readonly { why: string; re: RegExp }[] = [
     { why: 'an ISO date', re: /\d{4}-\d{2}-\d{2}/ },
@@ -483,10 +515,14 @@ describe('readability · no lesson dates itself', () => {
    * by accident.
    */
   it('grades the field the three real sites were in, and can fail', () => {
+    // 2026-10-05: this is the line the comment above promised would go red one day,
+    // and it did not — `lessonStrings` still leaves `limits` out on purpose, because
+    // around thirty per-lesson tests pin their claims through it. What moved is the
+    // second half: `readerText` is `readerTexts` now, the walk rather than a list.
     const dstwr = LESSONS.find((l) => l.id === 'uwb-dstwr')!
     expect(lessonStrings(dstwr), '`lessonStrings` still leaves `limits` out')
       .not.toContain(dstwr.limits[dstwr.limits.length - 1].text)
-    expect(readerText(dstwr), 'but `readerText` reaches it')
+    expect(readerText(dstwr), 'but `readerTexts` reaches it')
       .toContain(dstwr.limits[dstwr.limits.length - 1].text)
     for (const { re } of ROTS) expect(re.test('Wi-Fi 侧本周刚加上的两层衰落，2026-10-03 新增的')).toBe(true)
   })
@@ -523,11 +559,8 @@ describe('readability · a name that arrives early says where it is taught', () 
     expect(l, `${id} is in the course`).toBeDefined()
     return l!
   }
-  /** Everything in a lesson a reader can read, `limits` included. */
-  const everything = (l: Lesson): string => [
-    ...lessonStrings(l), ...l.limits.map((x) => x.text),
-    ...(l.variants ?? []).map((v) => v.label),
-  ].join(' / ')
+  /** Everything in a lesson a reader can read, `limits` and the chrome included. */
+  const everything = (l: Lesson): string => readerTexts(l).join(' / ')
   const earlier = (a: string, b: string): void =>
     expect(COURSE_ORDER.indexOf(a), `${a} precedes ${b}`).toBeLessThan(COURSE_ORDER.indexOf(b))
 

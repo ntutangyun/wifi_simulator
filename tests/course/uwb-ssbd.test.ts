@@ -23,7 +23,7 @@ import {
 } from '../../src/course/uwb/uwb-ssbd'
 import { uwbNbaScenario } from '../../src/course/uwb/uwb-nba'
 import { COURSE_ORDER, MODULES, citedDocs } from '../../src/course/curriculum'
-import { cellTexts, lessonStrings, paragraphTexts } from '../../src/course/readability'
+import { cellTexts, lessonStrings, paragraphTexts, readerTexts } from '../../src/course/readability'
 import type { Block } from '../../src/course/lessonKit'
 import { Simulation } from '../../src/engine/simulation'
 import { ScenarioSchema } from '../../src/model/scenario'
@@ -399,7 +399,7 @@ describe('uwb-ssbd · the two rules this slice paid for', () => {
     // Design doc §4.1: the same quantity is `macMinBf`/`macSsbdMinBf`,
     // `macMaxSSBDBackoffs`/`macSsbdMaxBackoffs`, `macSSBDBOEndAction`/`macSsbdTxOnEnd`. The lesson
     // names the quantity and cites the clause instead, in the prose AND in `limits`/`sources`.
-    const everything = [...lessonStrings(uwbSsbd), ...uwbSsbd.limits.map((l) => l.text), uwbSsbd.title]
+    const everything = readerTexts(uwbSsbd)
     for (const spelling of ['macMinBf', 'macMaxBf', 'macSsbd', 'macSSBD', 'macMaxSSBD', 'phyCcaEdThreshold', 'phyCcaDuration']) {
       expect(everything.filter((t) => t.includes(spelling)), spelling).toEqual([])
     }

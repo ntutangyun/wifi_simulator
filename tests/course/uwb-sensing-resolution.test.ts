@@ -23,7 +23,7 @@ import {
 import { PAIR_SPAN_M, sensingObject, uwbSensing } from '../../src/course/uwb/uwb-sensing'
 import { COURSE_ORDER, MODULES, trackOf } from '../../src/course/curriculum'
 import { LESSONS } from '../../src/course/lessons'
-import { lessonStrings } from '../../src/course/readability'
+import { readerTexts } from '../../src/course/readability'
 import type { Block, Lesson } from '../../src/course/lessonKit'
 import { PHY_MODES } from '../../src/engine/phy'
 import type { TimingSpec } from '../../src/course/diagram'
@@ -296,7 +296,9 @@ describe('uwb-sensing-resolution · the multipath entry quotes a Wi-Fi sentence 
   const WIFI_QUOTE = '仍然没有的是时延扩展本身与多普勒'
   const entry = (): string => uwbSensingResolution.limits.map((l) => l.text).join(' ')
   /** Everything a reader meets in one lesson, `limits` and title included. */
-  const readerText = (l: Lesson): string[] => [...lessonStrings(l), l.title, ...l.limits.map((x) => x.text)]
+  // `readerTexts` is the one walk since 2026-10-05; it adds the labels this list left out,
+  // and no Wi-Fi lesson's labels carry the needle below (measured before the widening).
+  const readerText = (l: Lesson): string[] => readerTexts(l)
   const wifi = (): Lesson[] => LESSONS.filter((l) => trackOf(l) === 'wifi')
 
   it('no longer attributes 「没有建模多径」 to the Wi-Fi track', () => {

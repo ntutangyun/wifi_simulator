@@ -37,7 +37,7 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { LESSONS } from '../../src/course/lessons'
 import { COURSE_ORDER, MODULES } from '../../src/course/curriculum'
-import { lessonStrings } from '../../src/course/readability'
+import { lessonStrings, readerTexts } from '../../src/course/readability'
 import {
   DF_EHT_KHZ, RU26_PER_20MHZ, RU26_TONES,
   selBinWidthMhz, selBins, selEffSinrDb, selMemberBins,
@@ -142,11 +142,7 @@ const legs = (): Legs => {
 }
 
 /** Every string a reader sees, `limits`, title and labels included. */
-const text = [
-  ...lessonStrings(lesson), lesson.title,
-  ...lesson.limits.map((l) => l.text),
-  ...(lesson.variants ?? []).map((v) => v.label), ...lesson.jumps.map((j) => j.label),
-].join('\n')
+const text = readerTexts(lesson).join('\n')
 /** The main path only: what the figures are printed in. */
 const mainText = lessonStrings({
   why: lesson.why, outcomes: lesson.outcomes, terms: lesson.terms,

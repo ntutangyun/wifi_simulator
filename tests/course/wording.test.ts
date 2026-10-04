@@ -26,30 +26,33 @@
  */
 import { describe, it, expect } from 'vitest'
 import { LESSONS } from '../../src/course/lessons'
-import { lessonStrings } from '../../src/course/readability'
+import { readerTexts } from '../../src/course/readability'
 import type { Lesson } from '../../src/course/lessonKit'
 
 /**
- * Everything in a lesson a reader can see.
+ * Everything in a lesson a reader can see: `readerTexts`, the one walk
+ * (src/course/readability.ts).
  *
- * `lessonStrings` walks `why`/`outcomes`/`terms`/`body`/`picture`/`numbers`/
- * `deeper`/`sources`/`observe`/`tryThis`/`quiz` — `body` for a lesson still in
- * the old flat shape, now that `lessonStrings` sees it directly instead of
- * needing a second, hand-rolled call to reach it (2026-10-02; it used to be
- * `...lessonStrings({ numbers: l.body })` appended here). It does **not** walk
- * `limits`, the lesson's title, the jump labels or the variant labels — and the
- * sweep found real offenders in three of those four: 底噪 hid in a `limits`
- * entry, 「两个标签挤进同一时隙」 in a jump label, and three titles named no
- * mechanism at all. A reader meets all of them.
+ * This used to be a hand-rolled list — `lessonStrings`, plus `title`, plus
+ * `limits[].text`, plus the jump labels, plus the variant labels, appended here
+ * because `lessonStrings` reaches none of those four. WHY the four were added by
+ * hand is worth keeping, because it is this rule's own evidence that it catches
+ * things: the sweep found real offenders in three of them — 底噪 hid in a
+ * `limits` entry, 「两个标签挤进同一时隙」 in a jump label, and three titles named
+ * no mechanism at all. A reader meets all of them.
+ *
+ * What changed on 2026-10-05 is that the four are no longer a list anybody has to
+ * remember. `readerTexts` walks the lesson OBJECT and excludes by key, so the
+ * twentieth field of the contract is in this net the moment it is added, and a
+ * field nobody has classified throws rather than passing unseen. Feeding this
+ * rule everything is safe, and that was measured rather than assumed: the 86
+ * banned words below, run over an unconditional walk of the whole object — ids,
+ * `needs`, discriminants, figure coordinates, 11 735 strings — hit nothing. A
+ * substring ban is unordered and context-free, so more text can only make it
+ * louder, never wrong.
  */
 function readerText(l: Lesson): string[] {
-  return [
-    ...lessonStrings(l),
-    l.title,
-    ...l.limits.map((x) => x.text),
-    ...(l.jumps ?? []).map((j) => j.label),
-    ...(l.variants ?? []).map((v) => v.label),
-  ]
+  return readerTexts(l)
 }
 
 /**

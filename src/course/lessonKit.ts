@@ -117,12 +117,21 @@ export interface Limit {
    * `until` on the same limit; any `kind` may carry it.
    *
    * **Stores a lesson id, never a sentence.** The sentence lives in
-   * `ui/i18n.ts`. This is not only tidiness: `tests/course/wording.test.ts` and
-   * `tests/course/readability.test.ts` reach a lesson's limits by naming the
-   * field (`...l.limits.map((x) => x.text)`) rather than by walking the object,
-   * so prose in a NEW field would pass under both banned-word lists unseen. If
-   * anyone ever makes this hold prose, those two walks must be extended in the
-   * same commit.
+   * `ui/i18n.ts`.
+   *
+   * This docblock used to carry a piece of oral discipline instead: the two
+   * banned-word walks reached a lesson's limits by naming the field
+   * (`...l.limits.map((x) => x.text)`) rather than by walking the object, so prose
+   * in a NEW field here would have passed under both of them unseen, and whoever
+   * added such a field was asked to remember to extend two walks in the same
+   * commit. Discipline is not a net. Since 2026-10-05 the net is
+   * `lessonTexts` (src/course/readability.ts): it walks the object and excludes
+   * by key, so a new field is read by every wording rule the moment it exists,
+   * and a field nobody classified throws rather than passing. `until` and
+   * `seeAlso` are named in its exclusion table, with this reason — they are ids
+   * — so making either hold prose means taking it out of that table, in one
+   * place, where the census in `tests/course/readability-rules.test.ts` will
+   * count it.
    */
   seeAlso?: string
 }
