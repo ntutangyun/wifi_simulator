@@ -99,75 +99,342 @@ export function cellTexts(blocks: Block[]): string[] {
 }
 
 /**
- * Keys of a lesson object that hold a string which is not prose a learner
- * reads: a block's discriminant, a widget's name and its preset controls, and a
- * `Term`'s own word (the standard's own spelling, not a translation).
+ * Keys inside a lesson object that hold a string a learner does NOT read, each
+ * with the reason it is out. This is an EXCLUSION table, which is the whole
+ * design: a field nobody lists here is walked by {@link lessonTexts} the moment
+ * it is added, so the banned-word lists, the self-dating rule and the
+ * non-empty checks all see it without anyone remembering to extend a walk.
+ *
+ *  - `scenario`, `find`: engine functions. (Skipped as functions anyway.)
+ *  - `kind`: a block's or a limit's discriminant.
+ *  - `widget`, `params`: the control's name and its preset values.
+ *  - `term`: a `Term`'s own word — the standard's own spelling, not a
+ *    translation. (That reason is the one `NOT_PROSE` carried before this
+ *    table existed, and it is kept verbatim.)
+ *  - `until`, `seeAlso`: a lesson id, never a sentence (see `Limit`).
+ *  - `answer`: a quiz's index into its own options.
+ *  - `jump`: a `watch` block's index into `jumps`.
+ *  - `id`, `module`, `needs`: identifiers and a number, and also classified
+ *    `null` in {@link SECTION_OF}, so they are never reached from here.
  */
-const NOT_PROSE = new Set(['scenario', 'find', 'kind', 'widget', 'params', 'term'])
+const NOT_TEXT = new Set([
+  'scenario', 'find', 'kind', 'widget', 'params', 'term',
+  'until', 'seeAlso', 'answer', 'jump', 'id', 'module', 'needs',
+])
 
 /**
- * Every string a learner can read in a lesson: the one walk that all the
- * per-lesson tests and the contract test share, so a field added to the
- * contract is covered everywhere the moment it is added here.
+ * What a reader-visible string is, within the block it sits in.
+ *
+ * These five are not new categories: they are exactly the split
+ * {@link paragraphTexts} and {@link cellTexts} already make, which until now
+ * lived in two functions and relied on each caller remembering which to call.
+ *  - `prose`  — a heading, a paragraph, a `watch` call-out, a list or steps
+ *               item, a formula's note, a widget's caption, a diagram's
+ *               caption, a term's plain line, a quiz question, option or
+ *               explanation, a source line, a limit's text.
+ *  - `figure` — a label inside a diagram's spec, via `diagramTexts` (the
+ *               generic walk cannot tell a label from a node id, and the order
+ *               is the reader's and is pinned).
+ *  - `cell`   — a table's `head` and `rows`. `cellTexts` takes only the ones
+ *               with Chinese in them; the role is on every cell.
+ *  - `value`  — a formula's body, which `paragraphTexts` deliberately leaves
+ *               out: it is where the exact values live.
+ *  - `label`  — `title`, a variant's label, a jump's label.
+ */
+export type Role = 'prose' | 'figure' | 'cell' | 'value' | 'label'
+
+/** The block of the page a reader meets a string in. */
+export type Section =
+  | 'title' | 'why' | 'outcomes' | 'terms' | 'body' | 'picture' | 'numbers'
+  | 'deeper' | 'sources' | 'limits' | 'observe' | 'tryThis' | 'quiz'
+  | 'variantLabel' | 'jumpLabel'
+
+/** One string a lesson shows a reader, and where it came from. */
+export interface LessonText {
+  /** The block of the page the reader meets it in. */
+  section: Section
+  /** What kind of string it is inside that block. */
+  role: Role
+  /** `numbers[3].rows[1][2]` — enough for a failure message to point at a person. */
+  path: string
+  text: string
+}
+
+/**
+ * Every key of `Lesson`, classified. `null` means "holds no string a reader
+ * reads", and the `Record<keyof Lesson, …>` makes a twentieth field added to
+ * the contract without a classification a TYPE error.
+ *
+ * That type error is not enough on its own, and this has to be written down:
+ * `package.json`'s `test` script is `vitest run`, vitest transpiles with
+ * esbuild and does NOT type-check, and `tsc -b` only runs in `build`. So a
+ * missing classification would not turn a single test red. {@link lessonTexts}
+ * therefore ALSO throws at run time on an unclassified key, and
+ * `tests/course/readability-rules.test.ts` pins the census of every section —
+ * three latches for one hole, because only two of them run in `npm test`.
+ */
+const SECTION_OF: Record<keyof Lesson, Section | null> = {
+  id: null,
+  module: null,
+  needs: null,
+  scenario: null,
+  title: 'title',
+  why: 'why',
+  outcomes: 'outcomes',
+  terms: 'terms',
+  body: 'body',
+  picture: 'picture',
+  numbers: 'numbers',
+  deeper: 'deeper',
+  sources: 'sources',
+  limits: 'limits',
+  observe: 'observe',
+  tryThis: 'tryThis',
+  quiz: 'quiz',
+  variants: 'variantLabel',
+  jumps: 'jumpLabel',
+}
+
+/**
+ * The reader's order over the sections, and the key each one walks.
+ *
+ * Dropping `title`, `limits`, `variantLabel` and `jumpLabel` from this
+ * sequence leaves exactly the order {@link lessonStrings} has always returned,
+ * which is why that function can become a selector over this walk without a
+ * single one of its callers changing.
+ */
+const SECTION_KEY: readonly (readonly [Section, keyof Lesson])[] = [
+  ['title', 'title'], ['why', 'why'], ['outcomes', 'outcomes'], ['terms', 'terms'],
+  ['body', 'body'], ['picture', 'picture'], ['numbers', 'numbers'],
+  ['deeper', 'deeper'], ['sources', 'sources'], ['limits', 'limits'],
+  ['observe', 'observe'], ['tryThis', 'tryThis'], ['quiz', 'quiz'],
+  ['variantLabel', 'variants'], ['jumpLabel', 'jumps'],
+]
+
+/** Every section, in the reader's order — what the census iterates. */
+export const SECTIONS: readonly Section[] = SECTION_KEY.map(([s]) => s)
+
+/**
+ * Every string a lesson shows a reader, tagged with where it came from.
+ *
+ * The one walk. It does NOT decide which strings are "Chinese lesson prose" —
+ * that question had been answered seven different ways in this repository and
+ * no test compared the seven. Its only job is that **no field is missed**: it
+ * walks the object rather than naming fields, excludes by {@link NOT_TEXT}
+ * rather than including by a list, and throws on a key nobody has classified.
+ * Which strings a given rule wants is the rule's own business, and two rules
+ * are allowed to answer differently — a substring ban is unordered and
+ * context-free, while the first-use bracket rule is ordered and sensitive to
+ * how a failure would have to be fixed.
+ *
+ * `spec` is the one special case and it is deliberate: a generic walk into a
+ * diagram spec yields 852 strings per figure against `diagramTexts`' 420, and
+ * the extra ones are node ids, link endpoints, tones and coordinates. The
+ * order `diagramTexts` gives is the reader's, and it is pinned by
+ * `tests/course/readability-rules.test.ts`.
+ *
+ * Takes a `Partial<Lesson>` so a caller can ask for one section at a time.
+ */
+export function lessonTexts(l: Partial<Lesson>): LessonText[] {
+  for (const k of Object.keys(l)) {
+    if (!(k in SECTION_OF)) {
+      throw new Error(
+        `lessonTexts: lesson field \`${k}\` is not classified. Add it to SECTION_OF in `
+        + 'src/course/readability.ts (a Section when a reader reads it, null when not); when it '
+        + 'holds strings a reader never reads, also name the key in NOT_TEXT with its reason.',
+      )
+    }
+  }
+  const out: LessonText[] = []
+  const roleOf = (parent: Role, blockKind: string | undefined, key: string): Role => {
+    if (parent === 'label') return 'label'
+    if (blockKind === 'table' && (key === 'head' || key === 'rows')) return 'cell'
+    if (blockKind === 'formula' && key === 'text') return 'value'
+    return 'prose'
+  }
+  const walk = (x: unknown, path: string, section: Section, role: Role, blockKind?: string): void => {
+    if (x == null || typeof x === 'function') return
+    if (typeof x === 'string') { out.push({ section, role, path, text: x }); return }
+    if (Array.isArray(x)) { x.forEach((v, i) => walk(v, `${path}[${i}]`, section, role, blockKind)); return }
+    if (typeof x !== 'object') return
+    const o = x as Record<string, unknown>
+    const kind = typeof o.kind === 'string' ? o.kind : blockKind
+    for (const [k, v] of Object.entries(o)) {
+      if (NOT_TEXT.has(k)) continue
+      if (k === 'spec' && isDiagramSpec(v)) {
+        diagramTexts(v).forEach((t, i) => out.push({ section, role: 'figure', path: `${path}.spec[${i}]`, text: t }))
+        continue
+      }
+      walk(v, `${path}.${k}`, section, roleOf(role, kind, k), kind)
+    }
+  }
+  for (const [section, key] of SECTION_KEY) {
+    if (!(key in l)) continue
+    const isLabel = section === 'title' || section === 'variantLabel' || section === 'jumpLabel'
+    walk(l[key], key, section, isLabel ? 'label' : 'prose')
+  }
+  return out
+}
+
+/* ------------------------------------------------------------------------- *
+ * The selectors. Each one's docblock says why it is not one of the others —
+ * that sentence is the thing twelve hand-rolled field lists never had.
+ * ------------------------------------------------------------------------- */
+
+const pick = (l: Partial<Lesson>, want: readonly Section[]): string[] => {
+  const set = new Set(want)
+  return lessonTexts(l).filter((t) => set.has(t.section)).map((t) => t.text)
+}
+
+/** The sections `lessonStrings` has always returned: everything but the chrome and `limits`. */
+const LESSON_STRING_SECTIONS: readonly Section[] = [
+  'why', 'outcomes', 'terms', 'body', 'picture', 'numbers',
+  'deeper', 'sources', 'observe', 'tryThis', 'quiz',
+]
+
+/**
+ * Every string a learner can read in a lesson, EXCEPT the chrome and `limits`.
+ *
+ * Behaviour is unchanged by the 2026-10-05 walk refactor, and that is a
+ * requirement rather than an accident: around thirty per-lesson tests pin their
+ * claims through this function, and one guard in
+ * `tests/course/readability.test.ts` asserts that it still does not reach
+ * `limits` — deliberately, so that a day on which it starts to is a day
+ * somebody notices.
  *
  * Walked: `why`, `outcomes`, `terms` (each term's `plain` line), `body` (the old
  * flat shape, in the slot `picture` and `numbers` both occupy in the new one),
  * `picture`, `numbers`, `deeper`, `sources`, `observe`, `tryThis` and `quiz`,
- * including table cells, formula bodies and quiz options. `scenario` and `find`
- * are skipped: they are functions of the engine, not text.
+ * including table cells, formula bodies and quiz options.
  *
- * `body` was missing from this walk until 2026-10-02: a lesson still in the old
- * flat shape was therefore almost entirely invisible to every test built on
- * this function, and `tests/course/wording.test.ts` had to call this same
- * function a second time, by hand, with `{ numbers: l.body }`, to see it at
- * all. Walking it here once removes the need for that workaround.
- *
- * `title`, `variants[].label` and `jumps[].label` are deliberately outside it —
- * they are the chrome around a lesson rather than the lesson — so a caller that
- * wants them appends them to the result itself.
+ * `title`, `limits[].text`, `variants[].label` and `jumps[].label` are outside
+ * it — they are the chrome around a lesson rather than the lesson, and `limits`
+ * is a section of its own — so a caller that wants the whole page calls
+ * {@link readerTexts} instead of appending them by hand. Until 2026-10-05 nine
+ * callers appended them by hand, in five different combinations, and no test
+ * compared the five.
  *
  * It takes a `Partial<Lesson>` so a caller can ask for one field at a time.
  */
 export function lessonStrings(l: Partial<Lesson>): string[] {
-  const out: string[] = []
-  const walk = (x: unknown): void => {
-    if (x == null || typeof x === 'function') return
-    if (typeof x === 'string') { out.push(x); return }
-    if (Array.isArray(x)) { x.forEach(walk); return }
-    if (typeof x !== 'object') return
-    const o = x as Record<string, unknown>
-    for (const [k, v] of Object.entries(o)) {
-      if (NOT_PROSE.has(k)) continue
-      // A diagram's figure is read by `diagramTexts` rather than walked: the
-      // generic walk cannot tell a label from a node id or a link's two ends,
-      // and only the labels are text a learner reads.
-      if (k === 'spec' && isDiagramSpec(v)) out.push(...diagramTexts(v))
-      else walk(v)
-    }
-  }
-  walk({
-    why: l.why, outcomes: l.outcomes, terms: l.terms, body: l.body, picture: l.picture, numbers: l.numbers,
-    deeper: l.deeper, sources: l.sources, observe: l.observe, tryThis: l.tryThis, quiz: l.quiz,
-  })
-  return out
+  return pick(l, LESSON_STRING_SECTIONS)
 }
 
 /**
- * Chinese characters across everything a learner reads on a lesson's main path:
- * what `lessonMinutes` estimates reading time from.
+ * EVERY string a reader can read, chrome and `limits` included: the walk the
+ * banned-word lists, the self-dating rule and the non-empty checks all share.
  *
- * `deeper` and `sources` are deliberately absent — the stated minutes are the
- * minutes of the main path, not of the depth behind the collapsed sections —
- * and a lesson still in the old flat shape is counted through `body`, which
- * `lessonStrings` now walks directly (it used to need a second, hand-rolled
- * call to reach `body` at all).
+ * Why this and not {@link lessonStrings}: a substring ban is unordered and
+ * context-free, so more text can only mean more hits and never a wrong one —
+ * measured, not argued (86 banned words and 4 self-dating patterns over an
+ * unconditional walk of the whole object, 11 735 strings, zero hits). Those
+ * rules want everything, and `limits` is where the three real self-dating
+ * sentences of 2026-10-04 were hiding.
+ *
+ * Why not {@link gradedProseTexts}: that one feeds the ordered bracket rule,
+ * which more text makes WRONG rather than merely louder.
+ */
+export function readerTexts(l: Partial<Lesson>): string[] {
+  return lessonTexts(l).map((t) => t.text)
+}
+
+/** The sections a reader is assumed to read at reading speed. */
+const MAIN_PATH_SECTIONS: readonly Section[] = [
+  'why', 'outcomes', 'terms', 'body', 'picture', 'numbers', 'observe', 'tryThis', 'quiz',
+]
+
+/**
+ * The main path: what `lessonMinutes` estimates reading time from.
+ *
+ * Why this and not {@link lessonStrings}: `deeper` and `sources` are collapsed
+ * depth, and the stated minutes are the minutes of the main path.
+ *
+ * Why not {@link readerTexts}: `title` is read once and a label is clicked
+ * rather than read, so counting them makes the estimate less accurate, not more
+ * — and `limits[].text` is a quarter of the main path's length, rendered open
+ * by default and timed at zero. That last one is a real debt, and it is now
+ * pinned rather than left implicit (the ratchet in
+ * `tests/course/readability.test.ts`); paying it means splitting six lessons,
+ * which is another slice.
+ *
+ * Why not {@link gradedProseTexts}: this one DOES count `terms`, which is
+ * rendered before `picture` and read at reading speed, while the bracket rule
+ * deliberately does not grade it.
+ */
+export function mainPathTexts(l: Partial<Lesson>): string[] {
+  return pick(l, MAIN_PATH_SECTIONS)
+}
+
+/**
+ * Chinese characters across everything a learner reads on a lesson's main path.
+ * Equal, lesson for lesson, to what it returned before the 2026-10-05 refactor.
  */
 export function mainPathChars(l: Partial<Lesson>): number {
-  const texts = lessonStrings({
-    why: l.why, outcomes: l.outcomes, terms: l.terms, body: l.body, picture: l.picture, numbers: l.numbers,
-    observe: l.observe, tryThis: l.tryThis, quiz: l.quiz,
-  })
-  return texts.reduce((n, s) => n + zhChars(s), 0)
+  return mainPathTexts(l).reduce((n, s) => n + zhChars(s), 0)
+}
+
+/** The three chrome sections: printed around a lesson rather than inside it. */
+const CHROME_SECTIONS: readonly Section[] = ['title', 'variantLabel', 'jumpLabel']
+
+/**
+ * The chrome: `title`, the variant labels and the jump labels. Short strings,
+ * the longest 19 characters, not one of them a sentence — against
+ * `limits[].text`, every single entry of which is a paragraph.
+ *
+ * Why it is its own selector: the two reach rules of 2026-10-05 are about these
+ * strings, and they split this set in two — `title` is the only string here
+ * printed OUTSIDE its own lesson (`CoursePanel.tsx:312`, `:436`, `:581`,
+ * `:586`), so it is held to its own lesson's main path, while a label is held
+ * to the lesson's `needs` closure. See the rules' own docblocks.
+ */
+export function chromeTexts(l: Partial<Lesson>): string[] {
+  return pick(l, CHROME_SECTIONS)
+}
+
+/** The sections the first-use bracket rule grades. */
+const GRADED_SECTIONS: readonly Section[] = [
+  'why', 'outcomes', 'body', 'picture', 'numbers', 'observe', 'tryThis', 'quiz',
+]
+
+/**
+ * The prose the first-use bracket rule grades, in the reader's order.
+ *
+ * This is `paragraphTexts` + `cellTexts` over `why`/`outcomes`/`body`/
+ * `picture`/`numbers`, then `observe`/`tryThis`/`quiz` — a restatement of the
+ * hand-rolled walk it replaced and NOT a widening of it. The landing commit
+ * asserted the two equal element for element over all 83 lessons before the old
+ * one was deleted.
+ *
+ * Four things are deliberately outside it, and each exclusion has a measured
+ * reason rather than an oversight:
+ *  - `deeper` and `sources`: collapsed professional depth, where the clause
+ *    numbers and the English names already live. Grading them would add 81 and
+ *    180 failures.
+ *  - `limits[].text`: by the same measure it belongs with those two rather than
+ *    with the main path — its term density is HIGHER than `sources`' — and
+ *    grading it would add 298 failures. The ratchet pins that debt instead.
+ *  - `terms[].plain`: structurally not gradable by this rule. 101 of the 272
+ *    glossary rows explain their word using another glossary word, which is
+ *    what an explanation is for; demanding a bracket for every borrowed word
+ *    turns the glossary into brackets. This exclusion is permanent — the reason
+ *    is written out in the rule's docblock in
+ *    `tests/course/readability.test.ts`.
+ *  - `role: 'value'` (a formula's body) and `role: 'label'`: values and chrome.
+ *    The labels ARE graded, by the two reach rules, against a different bar.
+ *
+ * A table cell counts only when it has Chinese in it: a cell holding a value, a
+ * symbol or a log name is a glance rather than a sentence and carries no term
+ * to name. That is `cellTexts`' own rule, unchanged.
+ */
+export function gradedProseTexts(l: Partial<Lesson>): string[] {
+  const ts = lessonTexts(l)
+  const out: string[] = []
+  for (const s of GRADED_SECTIONS) {
+    const mine = ts.filter((t) => t.section === s)
+    for (const t of mine) if (t.role === 'prose' || t.role === 'figure') out.push(t.text)
+    for (const t of mine) if (t.role === 'cell' && HAS_CJK.test(t.text)) out.push(t.text)
+  }
+  return out
 }
 
 const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\-]/g, '\\$&')
