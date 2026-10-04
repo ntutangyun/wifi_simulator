@@ -23,10 +23,10 @@
  */
 import { describe, it, expect } from 'vitest'
 import { LESSONS } from '../../src/course/lessons'
-import { COURSE_ORDER, MAX_MINUTES, lessonMinutes, trackOf } from '../../src/course/curriculum'
+import { COURSE_ORDER, MAX_MINUTES, lessonMinutes, needsClosure, trackOf } from '../../src/course/curriculum'
 import { isMigrated, type Block, type Lesson } from '../../src/course/lessonKit'
 import {
-  cellTexts, gradedProseTexts, lessonStrings, paragraphTexts, readerTexts,
+  cellTexts, gradedProseTexts, lessonStrings, lessonTexts, paragraphTexts, readerTexts,
   ZH_TERMS, ZH_TERMS_EXCLUDED, bracketedAtFirstZhUse, brackets, zhAkaViolations, zhTermFailure, type ZhTerm,
 } from '../../src/course/readability'
 import { effectiveMigrating } from './kit'
@@ -612,5 +612,255 @@ describe('readability · a name that arrives early says where it is taught', () 
     // sentence was in `limits`, which no walk reaches anyway.
     const text = lessonStrings(lesson('uwb-sensing')).join(' / ')
     expect(text).toContain('超宽带（ultra-wideband, UWB）')
+  })
+})
+
+/**
+ * Amendment 2026-10-05, the reach of the terminology rule
+ * (docs/superpowers/specs/2026-10-05-wording-reach-design.md §3.6).
+ *
+ * The bracket rule above grades `gradedProseTexts`. Four reader-visible places
+ * are outside that walk — `title`, `variants[].label`, `jumps[].label` and
+ * `terms[].plain` — and a term may be NAMED in one of them while the lesson's
+ * own prose never writes it. A reader then meets a word in a heading or on a
+ * button with no English name behind it, anywhere.
+ *
+ * Running the bracket rule itself over those four is the wrong fix and that was
+ * measured: it reddens 317 sites, of which 292 are in `limits[].text` alone —
+ * more than `sources` (180) and `deeper` (81) together, the two fields the rule
+ * EXCLUDES on purpose. The honest question is not "is this string graded" but
+ * "may this string lean on a lesson the reader has already been told to read",
+ * and the answer depends on WHERE THE STRING IS RENDERED. Hence two rules, not
+ * one, and not three.
+ *
+ * ### Arm one — `title` — holds a lesson to its OWN main path
+ *
+ * Not because a title matters more. Because a title is the only one of the four
+ * printed outside the lesson that owns it, and that is four line numbers in
+ * `src/course/CoursePanel.tsx`:
+ *  - `:312` — the contents list, all 83 of them, where the reader has read nothing;
+ *  - `:436` — another lesson's `needs` button (66 distinct titles appear here);
+ *  - `:581` / `:586` — beside another lesson's `limits`, as `limitUntil` /
+ *    `limitSeeAlso` (8 distinct titles).
+ * `:413` is the only one inside its own lesson.
+ *
+ * `:581`/`:586` is the sharpest of the four, because those edges all point
+ * FORWARD: of the 16 `until`/`seeAlso` edges in the course, 16 of 16 name a
+ * later lesson — delta +1 at the least, +13 median, **+38 at the most**
+ * (`radio-primer` #1 → `fading` #39, and 21 of `fading`'s own prerequisites are
+ * lessons the reader has not reached). So a title is printed in places where
+ * that lesson's own prerequisites are not met. A `needs` closure cannot defend
+ * a string rendered there, and a title therefore gets no closure.
+ *
+ * The other three have no cross-lesson render point at all, checked one by one:
+ * `variants[].label` only at `:490`, `jumps[].label` only at `:364` and
+ * `:503-504`, `terms[].plain` only at `:449-453` — each of them inside the
+ * lesson being displayed.
+ *
+ * ### Arm two — the labels and the glosses — allow the `needs` closure
+ *
+ * To read one of those strings at all the reader must have opened the lesson,
+ * and opening it puts its prerequisite chain on the screen. So a term there may
+ * be bracketed in this lesson or in any lesson of its `needs` transitive
+ * closure (`needsClosure`, src/course/curriculum.ts).
+ *
+ * ### Why `ofdma-dl | 下行` and `mumimo | 正交频分多址` are not the same site
+ *
+ * This sentence has to be written down, because the next reader will want to
+ * merge the two arms, and merging them turns one of these into a wrong verdict
+ * either way:
+ *  - `mumimo`'s variant label reads `OFDMA（按频率划分）`. What occurs there is
+ *    the ABBREVIATION, a mode name on a switch; the Chinese 正交频分多址 is
+ *    nowhere in that lesson. Demanding it means making a lesson about
+ *    multi-user MIMO open on behalf of the lesson about OFDMA — and that lesson,
+ *    `ofdma-dl`, is `mumimo`'s DIRECT `needs`. Arm two passes it, correctly.
+ *  - `ofdma-dl`'s TITLE reads `OFDMA 下行——一次发送，好几台设备`. What occurs there
+ *    is the Chinese word 下行, and the lesson is the one that owns it. Demanding
+ *    it means making a lesson write its own subject. Arm one failed it, and it
+ *    was the arm's one real failure on landing: 下行 and `DL` were both absent
+ *    from its graded main path and present only in `sources`.
+ * One is "lesson A opens for lesson B", the other is "lesson A names its own
+ * subject". The axis that tells them apart is the render position, not the field
+ * name.
+ *
+ * ### The version that was thrown out, so nobody restores it
+ *
+ * An earlier cut of this rule split by FIELD: `title` **and** `variantLabel`
+ * both held to the lesson's own main path. It is not vacuous — it reddens 5
+ * sites today — and that is what makes it worse than vacuous: 4 of the 5 are
+ * wrong catches, each bracketed in the lesson's own `needs` closure already
+ * (`hidden`'s two RTS/CTS labels, `mumimo`'s OFDMA label, and `ofdma-dl | 下行`
+ * itself, which is a real failure only under arm one's reasoning). Keeping it
+ * would have meant a four-entry exemption ledger beside a five-site rule.
+ * **What was thrown out is splitting by field, NOT the strict arm itself**:
+ * arm one survives on the render-position evidence above, with 1 real failure
+ * and 0 exemptions. Do not delete it as a leftover of that version.
+ *
+ * ### The lemma behind "no cheap fixes exist"
+ *
+ * The bracket rule is at 0 failures across the whole course. That is equivalent
+ * to: every term NAMED on a graded main path already carries its bracket there.
+ * So the bucket "the word is on the main path, it just lacks brackets" is empty
+ * course-wide — measured at 1 058 (lesson, term) pairs, 0 of them unbracketed,
+ * and 0 for each of `title`, `variantLabel`, `jumpLabel`, `terms[].plain` and
+ * `limits[].text` separately. Every failure either arm can find therefore costs
+ * new prose, which is why the arms have to be right about WHOSE prose it is.
+ *
+ * ### Why `terms[].plain` is in arm two and never in the bracket rule
+ *
+ * Permanently, and not because nobody noticed. 101 of the 272 glossary rows
+ * explain their word using another glossary word, which is what an explanation
+ * is: a gloss necessarily borrows words defined elsewhere, or it is not a gloss
+ * but a recursion. Demanding a bracket for each borrowed word turns 272 rows
+ * into brackets. Arm two is the right bar for it, because a gloss makes the same
+ * claim a label does — that the reader already has this word.
+ */
+describe('readability · a term in the chrome has somewhere to have been learned', () => {
+  const lessonsById = new Map(LESSONS.map((l) => [l.id, l]))
+
+  /** One ruler for both sides of every comparison below. */
+  const names = (text: string, t: ZhTerm): boolean => bracketedAtFirstZhUse(text, t) !== null
+  const taught = (text: string, t: ZhTerm): boolean => bracketedAtFirstZhUse(text, t) === true
+  const wanted = (t: ZhTerm): string => (t.zh
+    ? `${t.zh}${t.abbr ? `（${t.en}, ${t.abbr}）` : `（${t.en}）`}`
+    : `${t.abbr}（${t.en}）`)
+  const named = (t: ZhTerm): string => t.zh ?? t.abbr!
+
+  /** Arm one: a term the title names must be bracketed on this lesson's own main path. */
+  function titleArmFailures(l: Lesson): string[] {
+    const own = zhMainText(l)
+    const out: string[] = []
+    for (const t of zhTermsFor(l)) {
+      if (!names(l.title, t) || taught(own, t)) continue
+      out.push(`${l.id}: the title 「${l.title}」 names ${named(t)}, and this lesson's own`
+        + ` main path never writes ${wanted(t)}`)
+    }
+    return out
+  }
+
+  /**
+   * Arm two: a term a variant label, a jump label or a glossary line names must
+   * be bracketed on this lesson's main path, or on the main path of some lesson
+   * in its `needs` transitive closure.
+   *
+   * The three sections come from `lessonTexts`, not from a hand-rolled list of
+   * fields — that is the whole point of the walk this rule is built on.
+   */
+  function closureArmFailures(l: Lesson, lessons: Lesson[] = LESSONS): string[] {
+    const by = new Map(lessons.map((x) => [x.id, x]))
+    const labels = lessonTexts(l)
+      .filter((t) => t.section === 'variantLabel' || t.section === 'jumpLabel' || t.section === 'terms')
+    const own = zhMainText(l)
+    const closure = [...needsClosure(l.id, lessons)].flatMap((id) => by.get(id) ?? [])
+    const out: string[] = []
+    for (const t of zhTermsFor(l)) {
+      const at = labels.find((x) => names(x.text, t))
+      if (!at || taught(own, t)) continue
+      if (closure.some((c) => taught(zhMainText(c), t))) continue
+      out.push(`${l.id}: ${at.path} 「${at.text}」 names ${named(t)}, and neither this lesson`
+        + ` nor any of its ${closure.length} prerequisites ever writes ${wanted(t)}`)
+    }
+    return out
+  }
+
+  it.each(migrated.map((l) => [l.id, l] as const))('%s names in its own prose every term its title uses', (_id, l) => {
+    expect(titleArmFailures(l), `${l.id}: a title is printed in the contents list and beside`
+      + ' other lessons’ limits, where this lesson’s own prerequisites are not met').toEqual([])
+  })
+
+  it.each(migrated.map((l) => [l.id, l] as const))('%s has a lesson behind every term on its labels and in its glossary', (_id, l) => {
+    expect(closureArmFailures(l), `${l.id}: a label or a gloss claims the reader already has`
+      + ' this word; the lesson or one of its prerequisites has to have given it').toEqual([])
+  })
+
+  /**
+   * Anti-vacuity, arm one. Three rules in this suite have reported success while
+   * grading nothing, so what is asserted is not "the ids I listed pass" but "the
+   * rule looked at something". 40 (lesson, term) pairs across 29 lessons on
+   * 2026-10-05.
+   */
+  it('actually grades titles, across tens of lessons', () => {
+    let pairs = 0
+    const lessons = new Set<string>()
+    for (const l of migrated) for (const t of zhTermsFor(l)) if (names(l.title, t)) { pairs++; lessons.add(l.id) }
+    expect(pairs, 'glossary terms the titles of this course name').toBeGreaterThanOrEqual(30)
+    expect(lessons.size, 'lessons whose title names a glossary term').toBeGreaterThanOrEqual(20)
+  })
+
+  /**
+   * Anti-vacuity, arm two — and the sharper half of it. The floor on pairs
+   * examined is the usual guard; the floor on pairs that ONLY the closure
+   * satisfies is what makes the closure load-bearing rather than decorative. If
+   * the closure were deleted and the arm held every label to its own lesson,
+   * 35 sites would go red on 2026-10-05, and the design measured 26 of the 28
+   * jump-label sites as bracketed in a prerequisite — which is why the strict
+   * version of this arm was thrown out.
+   */
+  it('actually grades labels and glosses, and the closure is what passes a quarter of them', () => {
+    let pairs = 0
+    let onlyClosure = 0
+    for (const l of migrated) {
+      const labels = lessonTexts(l)
+        .filter((t) => t.section === 'variantLabel' || t.section === 'jumpLabel' || t.section === 'terms')
+      const own = zhMainText(l)
+      const closure = [...needsClosure(l.id, LESSONS)].flatMap((id) => lessonsById.get(id) ?? [])
+      for (const t of zhTermsFor(l)) {
+        if (!labels.some((x) => names(x.text, t))) continue
+        pairs++
+        if (!taught(own, t) && closure.some((c) => taught(zhMainText(c), t))) onlyClosure++
+      }
+    }
+    expect(pairs, 'glossary terms the labels and glosses of this course name').toBeGreaterThanOrEqual(250)
+    expect(onlyClosure, 'sites only the needs closure passes — delete it and these go red')
+      .toBeGreaterThanOrEqual(25)
+  })
+
+  /**
+   * Both arms, able to fail, on a two-lesson course written out in full — the
+   * same shape the term rule's own P1–P4 probes use. Pinned here as well as by
+   * the mutations run against the real corpus on landing, because a mutation is
+   * a thing somebody did once and this is a thing that runs every time.
+   *
+   * The discriminating quantity is chosen where the two arms DISAGREE, not where
+   * they happen to agree: the second lesson's title and its label both name 下行,
+   * its own prose never does, and its prerequisite's prose does. Arm one must
+   * fail on it and arm two must pass on it, from the same fixture. A fixture on
+   * which both arms answered the same would have proved nothing about the axis.
+   */
+  it('fails a title that leans on a prerequisite, and passes a label that does', () => {
+    const base: Omit<Lesson, 'id' | 'title' | 'why' | 'needs' | 'jumps'> = {
+      module: 0, outcomes: ['甲', '乙'], terms: [{ term: 'DL', plain: '方向那个词' }],
+      picture: [{ kind: 'watch', text: '去看一眼' }], numbers: [{ text: '一个数' }],
+      sources: ['出处'], limits: [], scenario: () => ({}) as never,
+      observe: ['看'], tryThis: ['试'], quiz: [{ q: '问', options: ['甲', '乙'], answer: 0, explain: '解释' }],
+    }
+    const teacher: Lesson = {
+      ...base, id: 'teacher', title: '一课', needs: [],
+      why: '这个方向叫下行（downlink, DL），本课把它讲完。', jumps: [{ label: '第一帧', find: () => true }],
+    }
+    const borrower: Lesson = {
+      ...base, id: 'borrower', title: '下行是怎么排的', needs: ['teacher'],
+      why: '本课只把它排进一张表，不解释任何方向。', jumps: [{ label: '第一个下行帧', find: () => true }],
+    }
+    const course = [teacher, borrower]
+    // the teacher passes both arms: it writes the term itself
+    expect(titleArmFailures(teacher)).toEqual([])
+    expect(closureArmFailures(teacher, course)).toEqual([])
+    // the borrower's TITLE fails, because a title is printed where `teacher` has not been read
+    expect(titleArmFailures(borrower)).toEqual([
+      "borrower: the title 「下行是怎么排的」 names 下行, and this lesson's own main path"
+      + ' never writes 下行（downlink, DL）',
+    ])
+    // its LABEL and its gloss pass, because `teacher` is in its closure
+    expect(closureArmFailures(borrower, course)).toEqual([])
+    // and the label arm does fail once the prerequisite is taken away. The replacement
+    // goes into the course list too: `needsClosure` resolves `needs` through the list it
+    // is handed, so handing it a lesson object the list does not contain would read the
+    // old prerequisites back and quietly prove nothing.
+    const alone: Lesson = { ...borrower, needs: [] }
+    expect(closureArmFailures(alone, [teacher, alone])).toEqual([
+      'borrower: jumps[0].label 「第一个下行帧」 names 下行, and neither this lesson nor any'
+      + ' of its 0 prerequisites ever writes 下行（downlink, DL）',
+    ])
   })
 })

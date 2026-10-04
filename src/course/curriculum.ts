@@ -271,6 +271,43 @@ export function orderLessons(authored: Lesson[]): Lesson[] {
 }
 
 /**
+ * Every lesson a reader has been told to read before this one: `needs`, closed
+ * transitively, and never the lesson itself.
+ *
+ * This is the "destination" the reach rule of 2026-10-05 needs. A jump label or
+ * a variant label is only ever rendered inside the lesson that owns it
+ * (`CoursePanel.tsx:364`, `:490`, `:503`), so a term on one of them may lean on
+ * any lesson in this set: to see the string at all the reader has to have
+ * opened the lesson, and opening it puts its prerequisite chain on the screen.
+ * `title` may not lean on it — a title is printed in the contents list, on
+ * another lesson's `needs` button and beside another lesson's `limits`, where
+ * none of that holds.
+ *
+ * Two sizes are worth knowing, because they are the rule's edges and both are
+ * pinned in `tests/course/lessons.test.ts`: `radio-primer` closes to the
+ * EMPTY set — it is the first lesson of the course and the only one with no
+ * prerequisites at all, so a term on one of its labels has nothing behind it
+ * anywhere — and the largest closure in the course is `capstone` at 38.
+ *
+ * It takes the lesson list rather than importing it, because `src/course/lessons`
+ * imports this module. Cycles are impossible by the contract (every `needs`
+ * entry precedes its lesson in `COURSE_ORDER`, asserted in the contract suite),
+ * and the `seen` set makes this terminate even if one appeared.
+ */
+export function needsClosure(id: string, lessons: Lesson[]): Set<string> {
+  const byId = new Map(lessons.map((l) => [l.id, l]))
+  const seen = new Set<string>()
+  const stack = [...(byId.get(id)?.needs ?? [])]
+  while (stack.length) {
+    const next = stack.pop()!
+    if (seen.has(next)) continue
+    seen.add(next)
+    stack.push(...(byId.get(next)?.needs ?? []))
+  }
+  return seen
+}
+
+/**
  * The pseudo-track a lesson belongs to for the prerequisite and acronym rules.
  * The AMP lessons are a module of the Wi-Fi tiers, but they teach their own
  * radio and are read as their own climb, so they get a track of their own.

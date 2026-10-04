@@ -1,13 +1,14 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { LESSONS, MODULES } from '../../src/course/lessons'
-import { CHARS_PER_MINUTE, COURSE_ORDER, OBSERVE_MINUTES, TIERS, TRY_MINUTES, lessonBlocks, lessonChars, lessonMinutes, trackHeadings, trackOf, type LessonTrack } from '../../src/course/curriculum'
+import { CHARS_PER_MINUTE, COURSE_ORDER, OBSERVE_MINUTES, TIERS, TRY_MINUTES, lessonBlocks, lessonChars, lessonMinutes, needsClosure, trackHeadings, trackOf, type LessonTrack } from '../../src/course/curriculum'
 import { diagramTexts, layoutDiagram, type DiagramSpec } from '../../src/course/diagram'
 import { ScenarioSchema } from '../../src/model/scenario'
 import { Simulation } from '../../src/engine/simulation'
 import { buildLinkTable } from '../../src/engine/propagation'
 import { widthOf } from '../../src/model/caps'
 import { CCA_PD_DBM, sinrThreshDb } from '../../src/engine/phy'
+import type { Lesson } from '../../src/course/lessonKit'
 import type { TLRecord } from '../../src/model/records'
 import { recordsToSpans } from '../../src/ui/laneLayout'
 
@@ -629,5 +630,74 @@ describe('COURSE_ORDER’s grouping comments are measured, not narrated', () => 
       }
     }
     expect(wrong).toEqual([])
+  })
+})
+
+/**
+ * `needsClosure`: every lesson a reader has been told to read before this one.
+ *
+ * It exists for the chrome reach rule of 2026-10-05
+ * (tests/course/readability.test.ts): a term on a variant label, a jump label or
+ * a glossary line may lean on any lesson in this set, because those strings are
+ * only ever rendered inside the lesson that owns them, so seeing one means the
+ * reader has opened that lesson and its prerequisite chain is on the screen.
+ *
+ * Its two edges are the interesting cases and both are asserted: the empty
+ * closure, which the rule's hardest real site sits on, and the largest one.
+ */
+describe('needsClosure', () => {
+  const byId = new Map(LESSONS.map((l) => [l.id, l]))
+
+  it('closes `needs` transitively, and never includes the lesson itself', () => {
+    for (const l of LESSONS) {
+      const c = needsClosure(l.id, LESSONS)
+      expect(c.has(l.id), `${l.id} is its own prerequisite`).toBe(false)
+      // direct prerequisites are in it
+      for (const id of l.needs ?? []) expect(c.has(id), `${l.id} -> ${id}`).toBe(true)
+      // and so is every prerequisite of every member — the transitive step itself
+      for (const id of c) for (const up of byId.get(id)!.needs ?? []) {
+        expect(c.has(up), `${l.id} -> ${id} -> ${up}`).toBe(true)
+      }
+      // everything in it precedes the lesson, which is what makes it a closure a
+      // reader has actually walked rather than a set of related lessons
+      for (const id of c) {
+        expect(COURSE_ORDER.indexOf(id), `${id} precedes ${l.id}`).toBeLessThan(COURSE_ORDER.indexOf(l.id))
+      }
+    }
+  })
+
+  it('is EMPTY for radio-primer, the one lesson of the course with no prerequisites', () => {
+    // The boundary case, and not a hypothetical one: this is why
+    // `radio-primer | 确认帧` was the hardest site in the 2026-10-05 inventory. A
+    // term on one of this lesson's labels has nothing behind it anywhere in the
+    // course, so the only honest fix was prose in the lesson itself.
+    expect(needsClosure('radio-primer', LESSONS).size).toBe(0)
+    expect(LESSONS.filter((l) => (l.needs ?? []).length === 0).map((l) => l.id)).toEqual(['radio-primer'])
+  })
+
+  it('is largest at capstone, 38 lessons, which is the whole climb behind it', () => {
+    const sizes = LESSONS.map((l) => [l.id, needsClosure(l.id, LESSONS).size] as const)
+    const max = Math.max(...sizes.map(([, n]) => n))
+    expect(max).toBe(38)
+    expect(sizes.filter(([, n]) => n === max).map(([id]) => id)).toEqual(['capstone'])
+  })
+
+  it('resolves `needs` through the list it is handed, not through LESSONS', () => {
+    // The contract that matters to a caller writing a fixture: hand it a two-lesson
+    // course and it answers about that course. Getting this wrong makes a test that
+    // looks like it proves something read the real course's prerequisites back.
+    const mk = (id: string, needs: string[]): Lesson =>
+      ({ ...LESSONS[0], id, needs })
+    const course = [mk('a', []), mk('b', ['a']), mk('c', ['b'])]
+    expect([...needsClosure('c', course)].sort()).toEqual(['a', 'b'])
+    expect(needsClosure('a', course).size).toBe(0)
+    // an id the list does not hold has an empty closure rather than throwing
+    expect(needsClosure('nope', course).size).toBe(0)
+  })
+
+  it('terminates on a cycle, which the contract forbids but the function does not assume', () => {
+    const mk = (id: string, needs: string[]): Lesson => ({ ...LESSONS[0], id, needs })
+    const cyclic = [mk('x', ['y']), mk('y', ['x'])]
+    expect([...needsClosure('x', cyclic)].sort()).toEqual(['x', 'y'])
   })
 })

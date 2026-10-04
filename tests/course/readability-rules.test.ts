@@ -305,7 +305,7 @@ describe('lessonTexts · the census over the whole course', () => {
       expect(chars(s), `${s}: ${chars(s)} Chinese characters`).toBeGreaterThanOrEqual(lo)
       expect(chars(s), `${s}: ${chars(s)} Chinese characters`).toBeLessThanOrEqual(hi)
     }
-    // and the whole page: 9 907 strings / 274 711 Chinese characters on 2026-10-05
+    // and the whole page: 9 898 strings / 274 723 Chinese characters on 2026-10-05
     expect(all.length).toBeGreaterThan(9000)
     expect(all.length).toBeLessThan(11000)
   })

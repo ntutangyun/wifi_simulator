@@ -789,7 +789,11 @@ describe('ofdma-dl · the guard interval only changes how long the MU PPDU is', 
   })
 
   it('does not move the stated minutes: limits are outside mainPathChars', () => {
-    expect(lessonChars(ofdmaDl)).toBe(2079)
+    // 2 107 since 2026-10-05: `why` gained the sentence that names 下行（downlink, DL）,
+    // which the reach rule's title arm asks of this lesson — its own title says 下行 and
+    // its graded main path never did. The stated minutes did not move and there were 203
+    // characters of room before they would have.
+    expect(lessonChars(ofdmaDl)).toBe(2107)
     expect(lessonMinutes(ofdmaDl)).toBe(20)
   })
 })

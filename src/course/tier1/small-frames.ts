@@ -78,7 +78,7 @@ export const smallFrames: Lesson = {
       kind: 'diagram', heading: '一次受保护的突发', spec: burstSequence(),
       caption: '笔记本先用一个 20 B 的小帧预约信道，路由器用一个 14 B 的小帧回答允许；随后是 21 502 B 的突发，最后是一个 32 B 的回复。四样东西里，只有第三样在搬运载荷。',
     },
-    { heading: '很多帧，共用一个前导码', text: '一次只发一个小帧，就意味着每次都要付一遍前导码、排一遍队、等一个各自的回复。于是站点（STA）把许多造好的帧排成一队——每一帧仍有自己的帧头（MAC header）和校验——跟在同一个前导码后面作为一个 PPDU（PHY protocol data unit）发出；回来的也只有一个覆盖全部的回复。' },
+    { heading: '很多帧，共用一个前导码', text: '一次只发一个小帧，就意味着每次都要付一遍前导码、排一遍队、等一个各自的回复。于是站点（STA）把许多造好的帧排成一队——每一帧仍有自己的帧头（MAC header）和校验——跟在同一个前导码后面作为一个 PPDU（PHY protocol data unit）发出；回来的也只有一个覆盖全部的回复。这样一队帧合成的那一个 PPDU，标准里叫聚合 MPDU（aggregate MPDU, A-MPDU）。' },
   ],
   numbers: [
     { kind: 'table', heading: '小帧只带非带不可的东西', head: [
