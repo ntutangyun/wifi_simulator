@@ -121,6 +121,16 @@ describe('a limit that promises the truth later names a lesson that delivers it'
    * It cannot catch an `out-of-scope` limit pointing at a lesson that does not in fact
    * open that class of scenario. Criterion B below is for exactly that gap, and what B
    * checks is whether a HUMAN has judged it — not whether they judged it right.
+   *
+   * **And A has one known edge, so that a future red here is read correctly.** The
+   * derivation says a `model-value` cannot be lifted because the value lives in the
+   * engine — but *some* model values are **scenario fields** (`fading`'s Rician K, a
+   * node's own ppm figure), and a limit about one of those genuinely *could* be lifted
+   * by a lesson that sets it differently. Zero such sites exist today (2026-10-05: the
+   * only `model-value` that ever carried an `until` was the two-counter rate control,
+   * which is hard-coded in `rate.ts`). **So if this test ever goes red on a
+   * `model-value` whose value is a scenario field, the criterion is what needs
+   * widening — not necessarily the limit.** Say which in the commit message either way.
    */
   it('`until` only ever sits on an out-of-scope limit', () => {
     const bad: string[] = []
