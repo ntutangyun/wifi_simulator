@@ -144,6 +144,10 @@ Test `tests/engine/selectivity.test.ts`、`tests/engine/selectivity-round.test.t
   `noiseDbm(w) − noiseDbm(20)`、设备放到远处客厅、`shadowSigmaDb: 0` 的瑞利、`selectivity: {}`）
   新建一个**两成员**版本，把余量落在 **3 到 4 dB**。
 - [ ] **Step 2:** 写**发布闸门**测试：**在同一个实测余量组里，掉帧率随成员那一份变薄严格上升。**
+  **⚠ 分组必须在看掉帧率之前定死**（组宽、最小组内样本数），并把那个选择与理由写进测试注释。
+  规格 §9 第 3 条只说「按实测余量分组」，**没给组宽也没给最小样本数**——
+  那等于允许看完结果再选分组，而那不是判据，是挑数据。
+  **先定、后量、再报。如果按先定的分组闸门不过，报回来，不要换分组。**
   **调不出来就不许发这一课** —— 报回控制者，不要调判据去凑。
 - [ ] **Step 3:** 规格已经点名两个会混进来的量，**先排除它们再调**：
   **余量的双峰**，与**上下行不对称**（它试过三个候选：`from=sta-1` 在 20 MHz 上中位余量 55.94 dB，
@@ -193,16 +197,26 @@ Create `tests/course/ru-diversity.test.ts`；Modify `tests/fixtures/lesson-hashe
 
 **Files:** Modify `src/course/tier2/ofdma-dl.ts`、`ofdma-ul.ts` 及它们的测试
 
-**为什么单独提前**：Task 2 落地之后，`ofdma-dl` 与 `ofdma-ul` 那两条
-`out-of-scope`（「一个多用户成员在这里拿到的是**整条信道**的格数……分集被整整高估了
-成员数那么多倍」）**从那个提交起就是假话**。等到 Task 6 再退役，中间每一次提交上
+**为什么单独提前**：这些句子**现在就是假的**，等到 Task 6 再退役，中间每一次提交上
 课程都在说假话。**这一步只做「把假话换成真话」，不加 `until`**
 （`until: 'ru-diversity'` 要等 Task 5 把那一课建出来）。
 
-- [ ] **Step 1:** 两条 `out-of-scope` 的内容改成现在成立的说法：成员拿到的是
+**范围是三处，不是两处**（Task 2 的复查核出来的，比我原先写的准）：
+
+| 位置 | 从哪一刀起为假 | 注意 |
+| --- | --- | --- |
+| `src/course/tier2/ofdma-dl.ts` 的 `out-of-scope` | **Task 2**（`f683ef7`） | 在 `limits` 里，不计字数 |
+| **`src/course/tier2/selectivity.ts` 的 `numbers` 段**（「切成格之后还欠一项没算过的」：「本仿真器按整帧的带宽给格数，于是一个只占三分之一信道的成员拿到了三倍于应得的格数」） | **Task 2** | **⚠ 在主路径上，计入 `mainPathChars`，而这一课已经是 30 分钟 = 上限。改完必须核字数，净增会跳档。** |
+| `src/course/tier2/ofdma-ul.ts` 的 `out-of-scope` | **Task 3**（`29d91af`，上行接线之后才为假） | 在 `limits` 里，不计字数 |
+
+**Files 相应是** `src/course/tier2/ofdma-dl.ts`、`ofdma-ul.ts`、`selectivity.ts` 及它们的测试。
+
+- [ ] **Step 1:** 三处的内容改成现在成立的说法：成员拿到的是
   **它那一份截到整数格之后的格数**；而**位置在这里不起作用**，因为各格独立。
+  **`selectivity.ts` 的 `numbers` 段要净减字或至少不增字**——核过再说。
 - [ ] **Step 2:** 两头钉住（新说法 `toContain`、旧说法 `not.toContain`）。
-- [ ] **Step 3:** **`limits` 在 `mainPathChars` 之外，所以两课时长不该动——核一遍。**
+- [ ] **Step 3:** 两条 `limits` 在 `mainPathChars` 之外，**而 `selectivity.ts` 的 `numbers` 段不是**。
+  **三课的 `lessonChars` 与 `lessonMinutes` 都量一遍，`selectivity` 必须仍是 30。**
 - [ ] **Step 4:** `npx tsc -b --force` + `npx vitest run`。**fixture 零 diff。**
 - [ ] **Step 5:** 提交（显式路径）。
 
