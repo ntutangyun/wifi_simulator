@@ -456,23 +456,31 @@ describe('ofdma-dl · a member reads its own share’s bins (slice 4b landed)', 
      * (「成员数的倒数，再截到整数格」) and the leftover bin (「在引擎里就是不存在」) verbatim.
      * It measures what the thin share COSTS; it does not remove it.
      *
-     * **2026-10-04 correction (Task 6c measured the census this comment asserted).** This used to
-     * read "every other `until` in the course points at a lesson that genuinely removes the
-     * thing". That is false. There are TEN `until` uses pointing at seven lessons, and THREE of
-     * them do not lift anything: `anomaly`'s two and `mcs-ladder`'s all point at `rate-vs-model`,
-     * whose own `limits[0]`/`limits[1]` re-declare the two-counter rate control and the
-     * collision-vs-fade conflation verbatim — the same reason this entry declines `until`. So the
-     * honest statement is: the uses that DO lift are `width` → `selectivity`, `backoff`/`anomaly`
-     * → `txop`, `ifs` → `edca`, `streams` → `mumimo`, and the two UWB ones; the three pointing at
-     * `rate-vs-model` are a promise that goes unmet, and whether `until` should keep meaning
-     * "lifted" is filed as its own slice rather than decided here.
-     * `tests/course/limits.test.ts` only checks that an `until` target exists and is not
-     * self-referential; **whether it actually lifts the limit has never been tested.**
+     * **2026-10-05 (slice 4e landed; this paragraph used to describe the world before it).**
+     * The census Task 6c measured — ten `until` uses pointing at seven lessons, three of them
+     * lifting nothing — has been acted on, and the count is now EIGHT. `until` was narrowed to
+     * `kind: 'out-of-scope'` and a `seeAlso` field added for "that lesson goes deeper but does
+     * not lift it". The derivation needs no new field: of `LimitKind`'s four values only
+     * `out-of-scope` names a class of SCENARIO, the other three describe the ENGINE, and every
+     * lesson runs the same engine — so an `until` on one of those three cannot be met at all.
+     * `anomaly`'s two and `mcs-ladder`'s engine half became `seeAlso`; `anomaly`'s TXOP limit
+     * and `width`'s flat-channel limit turned out to be kept promises whose `kind` was wrong,
+     * and were re-kinded. `mcs-ladder`'s and `width`'s were compound and were split rather than
+     * deleted, so neither lost a promise that was in fact kept.
      *
-     * The navigation `until` would buy here is nil anyway:
-     * `ru-diversity` is the very next id in `COURSE_ORDER` and lists `ofdma-dl` in `needs`.
+     * Three things in `tests/course/limits.test.ts` now hold what this comment used to assert on
+     * its own: criterion A (an `until` only ever on `out-of-scope`), criterion B (the eight sites
+     * frozen in a table whose fourth column is the axis that opens each one, so an eleventh
+     * promise cannot be added quietly), and the `seeAlso` rules including mutual exclusion with
+     * `until`. **What is still NOT tested is whether a given promise is true** — B pins that
+     * someone judged it, not that they judged it right.
+     *
+     * The navigation either pointer would buy here is nil anyway, which is why this entry takes
+     * neither: `ru-diversity` is the very next id in `COURSE_ORDER` and lists `ofdma-dl` in
+     * `needs`, so a reader is already being sent there.
      */
     expect(lim.until).toBeUndefined()
+    expect(lim.seeAlso, 'the next lesson by id, already in `needs`: no pointer earns its keep').toBeUndefined()
   })
 
   it('prints both bin figures off the engine’s own functions rather than typing them', () => {

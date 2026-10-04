@@ -19,6 +19,7 @@ import { mcsLadder as mcsLadderLesson } from '../../src/course/tier1/mcs-ladder'
 import { decodeThresholds } from '../../src/course/tier1/decode-thresholds'
 import { primerScenario, PRIMER_DISTANCES } from '../../src/course/tier1/radioLink'
 import { MODULES } from '../../src/course/curriculum'
+import { LESSONS } from '../../src/course/lessons'
 import type { Block } from '../../src/course/lessonKit'
 import {
   ZH_TERMS, cellTexts, paragraphTexts, zhAkaViolations, zhTermFailure,
@@ -307,5 +308,61 @@ describe('mcs-ladder · rate selection after frequency selectivity', () => {
       expect(sc.selectivity, `scene ${i}`).toBeUndefined()
       expect(sc.fading, `scene ${i}`).toBeUndefined()
     }
+  })
+})
+
+/**
+ * **The lookup-table limit, split 2026-10-05 (slice 4e).**
+ *
+ * It was one `unmodelled` entry with one `until: 'rate-vs-model'`, and it was compound —
+ * the same shape `7ab9eb6` had just split on `uwb-blocks`, so deleting the whole `until`
+ * would have thrown away a promise that is actually kept:
+ *
+ *  - **The scenario half IS lifted.** 「本课四个变体一次失败也没有，所以这一层看不见」 is a
+ *    fact about THIS scene, and `rate-vs-model` opens it: that lesson's scene really does
+ *    lose frames, so the loss feedback under the lookup table becomes visible. Same shape
+ *    as `streams` 「只有一台站点」 → `mumimo`. It is therefore `out-of-scope`, which is the
+ *    only kind an `until` may sit on (criterion A, `tests/course/limits.test.ts`).
+ *  - **The engine half is lifted by nothing.** 「最近的成功率、信道忙闲，以及主动探测」 are
+ *    three things `rate.ts` does not have, and every lesson runs the same `rate.ts`.
+ *    `rate-vs-model`'s own `limits[0]`/`limits[1]` say so in its own words — no probe
+ *    frames, no loss-rate window, CARA and RRAA mentioned and not implemented. So this
+ *    half gets `seeAlso` (that lesson goes deeper, it does not lift) and says out loud
+ *    that no lesson lifts it, the way `uwb-blocks` does.
+ */
+describe('mcs-ladder · the lookup-table limit promises only the half that is kept', () => {
+  const scene = mcsLadderLesson.limits.find((l) => l.until === 'rate-vs-model')
+  const engine = mcsLadderLesson.limits.find((l) => l.seeAlso === 'rate-vs-model')
+
+  it('promises the lift only for the half this scene hides', () => {
+    expect(scene, 'the lookup-table limit no longer points at `rate-vs-model`').toBeDefined()
+    expect(scene!.kind).toBe('out-of-scope')
+    expect(scene!.text).toContain('本课四个变体一次失败也没有')
+    expect(scene!.text).toContain('所以这一层看不见')
+    // and it does NOT also promise the three inputs the engine simply does not have
+    for (const notPromised of ['最近的成功率', '信道忙闲', '主动探测']) {
+      expect(scene!.text, notPromised).not.toContain(notPromised)
+    }
+    expect(scene!.seeAlso).toBeUndefined()
+  })
+
+  it('keeps the engine half as a deeper read rather than a lift, and says nothing lifts it', () => {
+    expect(engine, 'the engine half lost its pointer entirely').toBeDefined()
+    expect(engine!.kind).toBe('unmodelled')
+    expect(engine!.until, 'no lesson can lift a limit about the engine').toBeUndefined()
+    expect(engine!.text).toContain('真实速率控制的输入还要更多')
+    expect(engine!.text).toContain('一课也不解除')
+  })
+
+  it('`rate-vs-model` really does lose frames, and really does lack those three inputs', () => {
+    const rvm = LESSONS.find((l) => l.id === 'rate-vs-model')!
+    const rvmLimits = rvm.limits.map((l) => l.text).join(' / ')
+    // what it lifts: the lookup table's floor becomes visible because this scene fails
+    expect(rvmLimits).toContain('重传数才等于重叠数')
+    // what it does NOT lift, restated in its own words — the other end of "never lifted"
+    expect(rvmLimits).toContain('既不看是否收到了坏帧，也不发探测帧')
+    expect(rvmLimits).toContain('引擎一个也没有实现')
+    expect(rvm.limits.filter((l) => l.until || l.seeAlso), 'the target makes no onward promise')
+      .toHaveLength(0)
   })
 })

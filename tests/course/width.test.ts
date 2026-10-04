@@ -461,6 +461,44 @@ describe('width · the flat-channel limit, the direction it changed, and the les
     expect(COURSE_ORDER.indexOf('selectivity')).toBe(COURSE_ORDER.indexOf('width') + 1)
   })
 
+  /**
+   * **Split 2026-10-05, and the `kind` corrected with it (slice 4e, criterion A).**
+   *
+   * This used to be ONE `unmodelled` entry carrying the `until`, and it was compound. The
+   * trunk — a flat channel, one level for the whole band — is a class of SCENARIO, and
+   * `selectivity` really does open it: `selectivityScenario` is `widthScenario` plus the
+   * top-level `fading` and `selectivity` sections, and this lesson's four scenes have
+   * neither (pinned at the bottom of this file). That is the cleanest lift in the course.
+   * The tail — no inter-bin correlation — is genuinely `unmodelled`, and NOTHING lifts it:
+   * every lesson runs the same `fading.ts`, and `selectivity`'s own `limits[1]` declares it
+   * again (「格间相关长度没有取值」), which is what "never lifted" looks like from the other
+   * end. So the tail carries no pointer at all — not even `seeAlso`, because the lesson it
+   * would point at restates it rather than deepening it.
+   *
+   * The trunk's opening sentence was rewritten in that commit and it is the only lesson
+   * SENTENCE slice 4e changed. The reason is mechanical: the panel prefixes an
+   * `out-of-scope` limit with 「这个模型答不了：」, and 「这个模型答不了：带宽在这里只是一个
+   * 倍数」is not a sentence. It now opens on the scene instead and borrows `selectivity`'s
+   * own `out-of-scope` idiom (「所以不要拿本课的场景去问……」). No figure moved.
+   */
+  it('splits the scenario-class trunk from the unmodelled tail, and only the trunk promises', () => {
+    expect(entry!.kind, 'a promise to lift is only coherent about a scenario class').toBe('out-of-scope')
+    // the rewritten opening: the scene first, so the 「这个模型答不了：」 prefix reads
+    expect(entry!.text).toContain('本课这四档的信道是平的')
+    expect(entry!.text).toContain('不要拿本课的场景去问')
+    // and the trunk no longer opens on the multiplier, which is what made the prefix a non-sentence
+    expect(entry!.text.startsWith('带宽在这里只是一个倍数')).toBe(false)
+
+    const tail = width.limits.find((l) => l.text.includes('格间相关'))!
+    expect(tail, 'the inter-bin-correlation tail is its own entry now').toBeDefined()
+    expect(tail).not.toBe(entry)
+    expect(tail.kind).toBe('unmodelled')
+    // no pointer of either sort: `selectivity` re-declares this one, it does not remove it
+    expect(tail.until, 'no lesson lifts inter-bin correlation').toBeUndefined()
+    expect(tail.seeAlso, '`selectivity` restates it rather than deepening it').toBeUndefined()
+    expect(selText + sel.limits.map((l) => l.text).join('\n')).toContain('格间相关长度没有取值')
+  })
+
   it('keeps the mechanism, and the prediction the next sentence contradicts', () => {
     // the bin width is the mechanism, not a measurement, and it is computed rather than typed
     expect(text).toContain(`${selBinWidthMhz()} MHz 一格`)

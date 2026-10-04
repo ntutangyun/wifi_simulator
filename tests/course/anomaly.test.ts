@@ -34,6 +34,8 @@
 import { describe, it, expect } from 'vitest'
 import { anomaly, anomalyTiming } from '../../src/course/tier1/anomaly'
 import { ScenarioSchema } from '../../src/model/scenario'
+import { LESSONS } from '../../src/course/lessons'
+import { hasFeature } from '../../src/model/caps'
 import type { TLRecord } from '../../src/model/records'
 import { Simulation } from '../../src/engine/simulation'
 import { buildLinkTable } from '../../src/engine/propagation'
@@ -342,5 +344,85 @@ describe('anomaly · why the timeline records no collision', () => {
     const retry = txs(rs, (r) => r.node === 'sta-2' && r.frame.kind === 'data' && r.t > 749_000)[0]
     expect(retry.frame.retryFlag).toBe(true)
     expect(ofType(rs, 'CW_CHANGE').find((r) => r.node === 'sta-2' && r.t === 749_000)!.cw).toBeGreaterThan(15)
+  })
+})
+
+/**
+ * **What this lesson's three pointers promise, and which of them is a lift (slice 4e,
+ * 2026-10-05).**
+ *
+ * `until` renders as 「（这一条在《…》里会被解除）」, so it is a promise in the future
+ * tense that the named lesson REMOVES the simplification. `tests/course/limits.test.ts`
+ * used to check only that the target exists and is not this lesson, and this file —
+ * measured over the whole course — never mentioned either target at all. Two of the three
+ * promises here were false:
+ *
+ *  - **The rate-control pointers were not lifts, and are now `seeAlso`.** `rate-vs-model`
+ *    does not remove the two-counter controller; its own `limits[0]` RESTATES it (连续两次
+ *    失败降一档，连续十次成功涨一档，永不越过查表上限) and its `limits[1]` restates the
+ *    collision-vs-fade conflation (没有任何机制去区分两者). It is a lesson ABOUT that
+ *    controller, which is real navigation value and exactly what `seeAlso` is for.
+ *    Mechanically it could not have been a lift either: `model-value` and `unmodelled`
+ *    describe the engine, and every lesson runs the same engine (criterion A).
+ *  - **The TXOP pointer IS a lift, and its `kind` was the thing that was wrong.** It was
+ *    `unmodelled`, meaning *an effect the engine does not model at all* — but the engine
+ *    models TXOP and aggregation, and `txop` spends a whole lesson running them. What this
+ *    scene lacks is the capability on its STATIONS, which is a scenario class, so the kind
+ *    is `out-of-scope`. `backoff`'s limit says nearly the same sentence and was already
+ *    `out-of-scope`; reading the two side by side is how the mislabel showed.
+ *
+ * The axis is per-node generation, and it is the ruler for this site.
+ */
+describe('anomaly · which of its limits another lesson actually lifts', () => {
+  const byNeedle = (n: string) => anomaly.limits.find((l) => l.text.includes(n))!
+
+  it('points the two rate-control limits at a deeper read, not at a lift', () => {
+    for (const needle of ['这里的速率控制只有两个计数', '它分不清碰撞与衰落']) {
+      const lim = byNeedle(needle)
+      expect(lim.seeAlso, `${needle} should be a deeper read`).toBe('rate-vs-model')
+      expect(lim.until, `${needle} is not lifted by any lesson`).toBeUndefined()
+    }
+  })
+
+  it('and `rate-vs-model` restates both rather than removing them', () => {
+    const rvm = LESSONS.find((l) => l.id === 'rate-vs-model')!
+    const text = rvm.limits.map((l) => l.text).join(' / ')
+    expect(text).toContain('连续两次失败降一档，连续十次成功涨一档')
+    expect(text).toContain('没有任何机制去区分两者')
+  })
+
+  it('promises the TXOP limit as a lift, on the kind that can be lifted', () => {
+    const lim = byNeedle('没有发送机会（TXOP），也不聚合')
+    expect(lim.until).toBe('txop')
+    // not `unmodelled`: the engine builds both, this scene's stations just cannot use them
+    expect(lim.kind).toBe('out-of-scope')
+    expect(lim.seeAlso).toBeUndefined()
+  })
+
+  it('and the axis really is the station generation: nonht here, vht there', () => {
+    const stations = (id: string) => LESSONS.find((l) => l.id === id)!.scenario()
+      .nodes.filter((n) => n.id !== 'ap')
+    for (const n of stations('anomaly')) {
+      expect(n.caps.generation, `${n.id} in anomaly`).toBe('nonht')
+      // GEN_FEATURES.nonht is the empty set, so nothing negotiates
+      for (const flag of ['edca', 'ampdu', 'txop'] as const) {
+        expect(hasFeature(n, flag), `${n.id} negotiates ${flag}`).toBe(false)
+      }
+    }
+    for (const n of stations('txop')) {
+      expect(n.caps.generation, `${n.id} in txop`).toBe('vht')
+      for (const flag of ['edca', 'ampdu', 'txop'] as const) {
+        expect(hasFeature(n, flag), `${n.id} is missing ${flag}`).toBe(true)
+      }
+    }
+  })
+
+  it('and `backoff` says nearly the same thing on the same kind, which is how the mislabel showed', () => {
+    const bo = LESSONS.find((l) => l.id === 'backoff')!.limits.find((l) => l.until === 'txop')!
+    expect(bo.kind).toBe('out-of-scope')
+    for (const shared of ['不打业务标记', '没有发送机会（TXOP）', '连发一串']) {
+      expect(bo.text, `backoff: ${shared}`).toContain(shared)
+      expect(byNeedle('没有发送机会（TXOP），也不聚合').text, `anomaly: ${shared}`).toContain(shared)
+    }
   })
 })

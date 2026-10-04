@@ -26,6 +26,7 @@ import { PHY_MODES, mcsForRssi, noiseDbm, reqSinrDb, toneRatio, txTimeModeNs } f
 import { buildLinkTable } from '../../src/engine/propagation'
 import { lessonShapeSuite, runOf } from './kit'
 import { MODULES } from '../../src/course/curriculum'
+import { LESSONS } from '../../src/course/lessons'
 import { W, layoutDiagram, textBox, type Shape } from '../../src/course/diagram'
 
 const MS = 1_000_000
@@ -302,5 +303,53 @@ describe('streams · the symbol is the quantum of time, not of bits', () => {
     const wide = txTimeModeNs('eht', 1530, mcs, { widthMhz: 40, nss: 1 })
     const deep = txTimeModeNs('eht', 1530, mcs, { widthMhz: 20, nss: 2 })
     expect(wide).toBe(deep)
+  })
+})
+
+/**
+ * **The ruler for this lesson's one `until` (slice 4e, 2026-10-05).**
+ *
+ * `until` renders as 「（这一条在《…》里会被解除）」 — the named lesson REMOVES the
+ * simplification — and until this commit nothing behind it was checked anywhere:
+ * `tests/course/limits.test.ts` asked only that `mumimo` exists and is not `streams`, and
+ * this file never mentioned `mumimo` once.
+ *
+ * The promise is kept, and the axis is worth writing down because it is NOT a capability
+ * flag. The limit's own subject is 「这张桌子上只有一台站点」 — a station COUNT — and that
+ * is what `mumimo` changes: one station here, four there. Measuring the difference in
+ * negotiated feature flags instead would pass for the wrong reason (what differs is
+ * `ampdu`/`txop`/`ofdma`, none of which this limit mentions), which is why criterion B in
+ * `limits.test.ts` records the axis as prose a human wrote rather than as something a test
+ * computes.
+ */
+describe('streams · the one-station limit, and the lesson that changes the room', () => {
+  const lim = streams.limits.find((l) => l.until === 'mumimo')
+  const stations = (id: string) => LESSONS.find((l) => l.id === id)!.scenario()
+    .nodes.filter((n) => n.id !== 'ap')
+
+  it('promises a lift, on the only kind a lift is coherent about', () => {
+    expect(lim, 'the one-station limit no longer points at `mumimo`').toBeDefined()
+    expect(lim!.kind).toBe('out-of-scope')
+    expect(lim!.seeAlso).toBeUndefined()
+    expect(lim!.text).toContain('只有一台站点')
+    // it already says what the lift requires, which is what makes the axis checkable
+    expect(lim!.text).toContain('至少有两台设备同时排着队的房间')
+  })
+
+  it('and the axis is the station count, not a capability flag: one here, four there', () => {
+    expect(stations('streams')).toHaveLength(1)
+    expect(stations('mumimo')).toHaveLength(4)
+  })
+
+  it('and the flag difference would have passed for the wrong reason', () => {
+    // Recorded, not asserted as a rule: the flags that differ between the two scenes are
+    // `ampdu`/`txop`/`ofdma`, and this limit's sentence mentions none of them. A check that
+    // went green off evidence it never asked for is worse than no check.
+    const flags = (id: string) => new Set(
+      stations(id).flatMap((n) => Object.entries(n.caps.features).filter(([, v]) => v).map(([k]) => k)),
+    )
+    const extra = [...flags('mumimo')].filter((f) => !flags('streams').has(f)).sort()
+    expect(extra).toEqual(['ampdu', 'ofdma', 'txop'])
+    for (const f of extra) expect(lim!.text, `the limit never mentions ${f}`).not.toContain(f)
   })
 })

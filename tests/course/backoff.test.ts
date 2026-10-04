@@ -26,7 +26,10 @@ import { ScenarioSchema } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 import { lessonShapeSuite, ofType, runOf } from './kit'
 import { CW_MIN, DIFS_NS, SLOT_NS } from '../../src/engine/phy'
-import { MODULES } from '../../src/course/curriculum'
+import { COURSE_ORDER, MODULES } from '../../src/course/curriculum'
+import { LESSONS } from '../../src/course/lessons'
+import { lessonStrings } from '../../src/course/readability'
+import { hasFeature } from '../../src/model/caps'
 import { W, layoutDiagram, textBox, type Shape, type TimingLane } from '../../src/course/diagram'
 
 const MS = 1_000_000
@@ -241,5 +244,60 @@ describe('backoff · the timing figure is the run', () => {
         expect(hit, `${ts[i].text} / ${ts[j].text}`).toBe(false)
       }
     }
+  })
+})
+
+/**
+ * **The ruler for this lesson's one `until` (slice 4e, 2026-10-05).**
+ *
+ * `until` promises the named lesson REMOVES the simplification, and until this commit
+ * nothing checked that: `tests/course/limits.test.ts` asked only that `txop` exists and is
+ * not `backoff`, and this file never mentioned `txop` once. Half the course's eight
+ * promises had no evidence of any kind behind them, and this was one of them.
+ *
+ * This one is kept, and it was already on the right kind. The claim is that 「一次成功只换
+ * 来一帧」 is a property of THIS scene rather than of the engine — true, and the axis is the
+ * station generation: both stations here are `nonht`, whose `GEN_FEATURES` entry is the
+ * empty set, so `txop` never negotiates; in `txop` both are `vht` and all three of
+ * `edca`/`ampdu`/`txop` come up. The engine has had TXOP and aggregation all along, which
+ * is also why `anomaly`'s near-identical limit was mislabelled `unmodelled` until this
+ * commit while this one was already `out-of-scope`.
+ */
+describe('backoff · the one-frame-per-win limit, and the lesson that lifts it', () => {
+  const lim = backoff.limits.find((l) => l.until === 'txop')
+
+  it('promises a lift, on the only kind a lift is coherent about', () => {
+    expect(lim, 'the one-frame limit no longer points at `txop`').toBeDefined()
+    expect(lim!.kind).toBe('out-of-scope')
+    expect(lim!.seeAlso, 'a lift and a deeper read are different promises').toBeUndefined()
+    expect(lim!.text).toContain('一次成功只换来一帧')
+    // the figure the limit qualifies stays with it, so the reader knows what the lift costs
+    expect(lim!.text).toContain('平均等待约 64 µs')
+  })
+
+  it('and the axis is the station generation, measured on both scenes', () => {
+    const stations = (id: string) => LESSONS.find((l) => l.id === id)!.scenario()
+      .nodes.filter((n) => n.id !== 'ap')
+    for (const n of stations('backoff')) {
+      expect(n.caps.generation, `${n.id} in backoff`).toBe('nonht')
+      expect(hasFeature(n, 'txop'), `${n.id} negotiates txop`).toBe(false)
+    }
+    const there = stations('txop')
+    expect(there.length).toBeGreaterThan(1)
+    for (const n of there) {
+      expect(n.caps.generation, `${n.id} in txop`).toBe('vht')
+      expect(hasFeature(n, 'txop'), `${n.id} is missing txop`).toBe(true)
+    }
+  })
+
+  it('and `txop` really is about the thing this limit says is absent', () => {
+    const t = LESSONS.find((l) => l.id === 'txop')!
+    const text = lessonStrings(t).join(' / ')
+    // this limit's sentence is 「一次成功只换来一帧 …… 可以连发一串」; that lesson's own title
+    // and `why` are the other half of it
+    expect(t.title).toContain('一次竞争成功，换来一段信道占用时间')
+    expect(text).toContain('一次竞争成功不再只换来一次交互')
+    expect(text).toContain('一串')
+    expect(COURSE_ORDER.indexOf('txop')).toBeGreaterThan(COURSE_ORDER.indexOf('backoff'))
   })
 })

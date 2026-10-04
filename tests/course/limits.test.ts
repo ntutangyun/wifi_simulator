@@ -24,6 +24,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { LESSONS } from '../../src/course/lessons'
+import { COURSE_ORDER } from '../../src/course/curriculum'
 import type { Lesson, LimitKind } from '../../src/course/lessonKit'
 
 const KINDS: LimitKind[] = ['threshold', 'unmodelled', 'model-value', 'out-of-scope']
@@ -87,5 +88,222 @@ describe('a limit that promises the truth later names a lesson that delivers it'
   it('never points at itself', () => {
     const bad = LESSONS.filter((l) => l.limits.some((x) => x.until === l.id)).map((l) => l.id)
     expect(bad).toEqual([])
+  })
+
+  /**
+   * **Criterion A — `until` is only ever legal on an `out-of-scope` limit.**
+   *
+   * `until` renders as 「（这一条在《…》里会被解除）」(`ui/i18n.ts`'s `limitUntil`) and
+   * its own doc comment says *the lesson that lifts this simplification*. Both are a
+   * promise in the future tense, and until 2026-10-05 nothing checked it: the two tests
+   * above ask only that the named lesson EXISTS and is not this one.
+   *
+   * The check does not need a new field, because the discriminator was already on the
+   * limit. `LimitKind` has four values and they are not the same kind of thing:
+   * `threshold`, `unmodelled` and `model-value` describe the ENGINE (a hard line instead
+   * of a curve, an effect not modelled, a constant this simulator picked), while
+   * `out-of-scope` describes a class of SCENARIO. **Every lesson runs the same engine.**
+   * A lesson owns its `scenario()` and its `variants`; it does not own whether `rate.ts`
+   * sends probe frames or whether `fading.ts` correlates neighbouring bins. So an `until`
+   * on one of the other three kinds is not "a promise that might go unmet" — it is one
+   * that CANNOT be met. Either the promise is false or the `kind` is, and both are bugs.
+   *
+   * Measured before it was written: on the course as of 2026-10-05 this picked out 5 of
+   * the 10 sites with no false positives. Three were promises that genuinely went unmet
+   * (`anomaly`'s two pointing at `rate-vs-model`, whose own `limits[0]`/`limits[1]`
+   * restate them, and the engine-level half of `mcs-ladder`'s); two were promises that
+   * were KEPT while the `kind` was wrong (`anomaly`'s TXOP entry and `width`'s flat
+   * channel — the engine does build TXOP, aggregation and per-bin fading, all of them
+   * behind a scenario switch). The first three became `seeAlso`; the other two had their
+   * `kind` corrected.
+   *
+   * **A is necessary, not sufficient, and the next author must not read more into it.**
+   * It cannot catch an `out-of-scope` limit pointing at a lesson that does not in fact
+   * open that class of scenario. Criterion B below is for exactly that gap, and what B
+   * checks is whether a HUMAN has judged it — not whether they judged it right.
+   */
+  it('`until` only ever sits on an out-of-scope limit', () => {
+    const bad: string[] = []
+    for (const l of LESSONS) {
+      for (const lim of l.limits) {
+        if (lim.until && lim.kind !== 'out-of-scope') bad.push(`${l.id} / ${lim.kind} → ${lim.until}`)
+      }
+    }
+    expect(
+      bad,
+      `an \`until\` on an engine-level kind can never be lifted, because every lesson runs the `
+      + `same engine; use \`seeAlso\`, or fix the \`kind\`: ${bad.join('; ')}`,
+    ).toEqual([])
+  })
+})
+
+/**
+ * `seeAlso`: the other promise, and the weaker one — that lesson goes DEEPER into this
+ * limit without lifting it. Added 2026-10-05 together with criterion A, because the
+ * three sites A disqualified had real navigation value that deleting the `until` would
+ * have thrown away (`rate-vs-model` is a whole lesson of the two-counter controller
+ * cutting a paper prediction to a fifth), and the honest field for that is not a softer
+ * wording of `until`.
+ *
+ * It holds an id and never a sentence. That is load-bearing: `tests/course/wording.test.ts`
+ * and `tests/course/readability.test.ts` reach limit prose by NAMING the field
+ * (`...l.limits.map((x) => x.text)`) rather than by walking the object, so prose in a new
+ * field would pass under both banned-word lists unseen.
+ */
+describe('a limit that points at a deeper treatment says so as a deeper treatment', () => {
+  const ids = new Set(LESSONS.map((l) => l.id))
+
+  it('every `seeAlso` points at a real lesson', () => {
+    const bad: string[] = []
+    for (const l of LESSONS) {
+      for (const lim of l.limits) {
+        if (lim.seeAlso && !ids.has(lim.seeAlso)) bad.push(`${l.id} → ${lim.seeAlso}`)
+      }
+    }
+    expect(bad, `dangling seeAlso: ${bad.join(', ')}`).toEqual([])
+  })
+
+  it('never points at itself', () => {
+    const bad = LESSONS.filter((l) => l.limits.some((x) => x.seeAlso === l.id)).map((l) => l.id)
+    expect(bad).toEqual([])
+  })
+
+  it('is never on the same limit as an `until`', () => {
+    // The two sentences contradict each other — 「会被解除」and 「但不解除它」— and the panel
+    // renders both branches rather than preferring one, deliberately: the rule lives here.
+    const bad: string[] = []
+    for (const l of LESSONS) {
+      for (const lim of l.limits) if (lim.until && lim.seeAlso) bad.push(`${l.id} / ${lim.kind}`)
+    }
+    expect(bad, `one limit claiming both lifted and not lifted: ${bad.join(', ')}`).toEqual([])
+  })
+})
+
+/**
+ * **Criterion B — the site list is frozen, because "is it really lifted" is not
+ * mechanically decidable and that is a reason to pin the human judgement, not to drop it.**
+ *
+ * Three mechanical criteria were measured on the 2026-10-05 course before this one was
+ * written, and two of them died:
+ *
+ *  - "the target's own `limits` must not restate the source's in other words" — proxied by
+ *    longest common substring. Both ends wrong: the WORST site (`anomaly`'s
+ *    collision-vs-fade, a verbatim restatement in meaning) scored 5 characters, while the
+ *    most honest lift in the course (`width` → `selectivity`) scored 24 — and those 24 are
+ *    a code identifier (`channel.ts 的 resolveLock`) that both lessons are RIGHT to cite.
+ *    Restatement is a semantic event, not a string event.
+ *  - "the target must have a scenario that turns on what the source says is missing" —
+ *    the one that sounded hardest measured softest. Seven promises, six different axes
+ *    (see the fourth column below), and `Scenario` has no field saying which knob a given
+ *    limit is about. The one axis expressible in a line, the difference in negotiated
+ *    feature flags, is a FALSE POSITIVE on `width` → `selectivity` (identical `feats`,
+ *    the difference is two top-level sections) and FALSELY GREEN on `streams` → `mumimo`
+ *    (the flags that differ are `ampdu`/`txop`/`ofdma`, which that limit never mentions —
+ *    it is about there being one station). On the two UWB sites it is blind.
+ *
+ * So B does not judge the truth of a promise. **It judges whether anyone judged it.** The
+ * table is the whole promise ledger; an eleventh `until` turns this red and its author has
+ * to write the fourth column down and leave a ruler in their own lesson's test file
+ * (precedents: `width.test.ts`, `uwb-blocks.test.ts`, and as of 2026-10-05 also
+ * `anomaly.test.ts`, `backoff.test.ts`, `streams.test.ts`, `mcs-ladder.test.ts`).
+ *
+ * The census is taken off `LESSONS`, never off the file text. A `kind: 'formula'` block in
+ * a lesson's `numbers` is character-for-character the shape of a `Limit`, so a regex sweep
+ * of `src/course` counts one entry that is not a limit at all.
+ */
+describe('criterion B · the eight `until` promises are a frozen ledger', () => {
+  /** `[source, target, a substring of the limit's own text, the axis that opens it]`. */
+  const UNTIL_SITES: readonly [string, string, string, string][] = [
+    ['mcs-ladder', 'rate-vs-model', '本课四个变体一次失败也没有',
+      '失败数 0 → 那一课的场景真的丢帧（五台站点在一米圆上，重传数等于重叠数），于是查表之下那一层损失反馈看得见了'],
+    ['ifs', 'edca', 'AIFS[AC]',
+      '业务档位：本课两台都跑 saturated 的单一 DIFS → edca 的四台各带一类业务，四条队列各等一份不同长度的 AIFS'],
+    ['backoff', 'txop', '一次成功只换来一帧',
+      '节点世代：两台站点 nonht（GEN_FEATURES.nonht 是空集）→ txop 的两台 vht，于是 edca/ampdu/txop 三个标志都协商上'],
+    ['anomaly', 'txop', '没有发送机会（TXOP），也不聚合',
+      '同一个轴：两台站点 nonht → txop 的两台 vht。引擎一直建着 TXOP 与聚合，缺的是本场景的站点用不上它们'],
+    ['width', 'selectivity', '本课这四档的信道是平的',
+      '顶层两节：selectivityScenario 就是 widthScenario 外加 fading 与 selectivity（节点的 feats 两课完全相同，所以这个轴不在节点上）'],
+    ['streams', 'mumimo', '只有一台站点',
+      '站点数 1 → 4。源课那条限制的主语就是「只有一台站点」，而换掉的正是它，不是任何一个特性标志'],
+    ['uwb-intro', 'uwb-sstwr', '两端的晶振都钉在 0 ppm',
+      '逐节点的 ppm 实参 0 → ±10，于是单边测距的偏差以米计（那一课真的给出 6.01 m）'],
+    ['uwb-blocks', 'uwb-contention', '「点名要先有名单」',
+      '会话旋钮：竞争窗口与名单。那一课讲的正是手里根本没有名单的标签'],
+  ]
+
+  const actual = LESSONS.flatMap((l) => l.limits.filter((x) => x.until).map((x) => `${l.id}→${x.until!}`))
+
+  it('is exactly these eight sites, no more and no fewer', () => {
+    expect([...actual].sort()).toEqual(UNTIL_SITES.map(([s, t]) => `${s}→${t}`).sort())
+  })
+
+  it.each(UNTIL_SITES)('%s → %s names its own words and the axis that opens it', (src, dst, needle, axis) => {
+    const lesson = LESSONS.find((l) => l.id === src)
+    expect(lesson, `${src} is in the course`).toBeDefined()
+    const lim = lesson!.limits.find((x) => x.until === dst)
+    expect(lim, `${src} no longer points at ${dst}`).toBeDefined()
+    expect(lim!.text, `${src} → ${dst}: the ledger's substring moved`).toContain(needle)
+    // criterion A again, per site: a promise to lift is only coherent about a scenario class
+    expect(lim!.kind, `${src} → ${dst}`).toBe('out-of-scope')
+    // the fourth column is the part no test can compute; an empty one means nobody judged
+    expect(axis.trim(), `${src} → ${dst} has no axis written down`).not.toBe('')
+  })
+
+  /**
+   * **Criterion C — the target comes after the source.**
+   *
+   * **This check is vacuous today and the next reader should know it.** All eight targets
+   * already sit later in `COURSE_ORDER` than their source (mcs-ladder 3 → rate-vs-model 23,
+   * ifs 11 → edca 26, backoff 13 → txop 29, anomaly 18 → txop 29, width 32 → selectivity 33,
+   * streams 34 → mumimo 41, uwb-intro 50 → uwb-sstwr 53, uwb-blocks 57 → uwb-contention 62),
+   * so it discriminates nothing and will not catch a single thing wrong with the course as
+   * it stands.
+   *
+   * It is here anyway, because 「这一条在《…》里**会被**解除」is future tense: an `until`
+   * aimed at an EARLIER lesson makes that sentence a lie, and nothing else would stop it.
+   * Three lines against the mistake this repository makes most often — a mistyped id.
+   */
+  it('points forward, which today it cannot help doing', () => {
+    const backward: string[] = []
+    for (const l of LESSONS) {
+      for (const lim of l.limits) {
+        if (!lim.until) continue
+        const from = COURSE_ORDER.indexOf(l.id)
+        const to = COURSE_ORDER.indexOf(lim.until)
+        if (!(to > from)) backward.push(`${l.id}(${from}) → ${lim.until}(${to})`)
+      }
+    }
+    expect(backward, `an \`until\` aimed backwards: ${backward.join(', ')}`).toEqual([])
+  })
+})
+
+/**
+ * The `seeAlso` ledger, frozen for the same reason as B: adding or removing a promise to
+ * the reader should be an explicit edit. Three rows as of 2026-10-05, all pointing at
+ * `rate-vs-model` — the lesson whose own `limits[0]`/`limits[1]` restate what these three
+ * limits say, which is what "never lifted" looks like from the other end.
+ *
+ * `width`'s inter-bin-correlation limit deliberately carries NO pointer at all, even
+ * though `selectivity` restates it; `tests/course/width.test.ts` pins that it carries
+ * neither field. `ru-diversity` gets none either, and `tests/course/ofdma-dl.test.ts`
+ * says why.
+ */
+describe('the three `seeAlso` sites are a frozen ledger too', () => {
+  const SEE_ALSO_SITES: readonly [string, string, string][] = [
+    ['anomaly', 'rate-vs-model', '这里的速率控制只有两个计数'],
+    ['anomaly', 'rate-vs-model', '它分不清碰撞与衰落'],
+    ['mcs-ladder', 'rate-vs-model', '真实速率控制的输入还要更多'],
+  ]
+
+  it('is exactly these three, no more and no fewer', () => {
+    const actual = LESSONS.flatMap((l) => l.limits.filter((x) => x.seeAlso).map((x) => `${l.id}→${x.seeAlso!}`))
+    expect([...actual].sort()).toEqual(SEE_ALSO_SITES.map(([s, t]) => `${s}→${t}`).sort())
+  })
+
+  it.each(SEE_ALSO_SITES)('%s → %s still says the words it was entered for', (src, dst, needle) => {
+    const lesson = LESSONS.find((l) => l.id === src)!
+    const lim = lesson.limits.find((x) => x.seeAlso === dst && x.text.includes(needle))
+    expect(lim, `${src}: no \`seeAlso: '${dst}'\` limit containing ${needle}`).toBeDefined()
   })
 })

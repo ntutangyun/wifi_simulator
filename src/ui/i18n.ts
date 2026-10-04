@@ -86,7 +86,10 @@ export interface Strings {
     /** The section naming where a lesson's model is not the radio. */
     limits: string
     limitKind: Record<'threshold' | 'unmodelled' | 'model-value' | 'out-of-scope', string>
+    /** 「this one IS LIFTED in that lesson」. Only ever on an `out-of-scope` limit. */
     limitUntil: (lessonTitle: string) => string
+    /** 「that lesson goes deeper into this one, but does NOT lift it」. Any kind. */
+    limitSeeAlso: (lessonTitle: string) => string
     /** The documents a section's lessons are checked against, and how firm they are. */
     basis: (docs: string) => string
     /** Appended to a draft document's name wherever it is printed. */
@@ -734,6 +737,12 @@ export const STRINGS: Strings = {
       'out-of-scope': '这个模型答不了：',
     },
     limitUntil: (t) => `（这一条在《${t}》里会被解除）`,
+    // Both halves are words this course already uses, compared by hand because UI strings do
+    // not go through the banned-word lists: 「再深一层」 is `deeper` above, the panel's own label
+    // for the section that treats something further, and 「解除」 is the course's word for the
+    // other promise (`uwb-blocks` writes 「一课也不解除」 in a limit of its own). The written
+    // register of 「相关阅读」/「延伸阅读」 appears nowhere in 82 lessons, so it is not used.
+    limitSeeAlso: (t) => `（《${t}》在这一条上再深一层，但不解除它）`,
     basis: (docs) => `依据：${docs}`,
     draftMark: '草案，内容可能变动',
     contributions: '本课依据的提案文稿：',

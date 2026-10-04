@@ -571,9 +571,19 @@ export function CoursePanel() {
               <li key={i}>
                 <span style={{ color: 'var(--dim)' }}>{L.limitKind[lim.kind]}　</span>
                 {lim.text}
+                {/* Two different promises, and the reader is meant to tell them apart:
+                    `until` says the simplification is GONE in that lesson, `seeAlso` says
+                    that lesson goes deeper into it while the simplification stays. They are
+                    mutually exclusive on one limit, enforced in tests/course/limits.test.ts
+                    rather than by a fallback here. */}
                 {lim.until && (
                   <span style={{ color: 'var(--dim)' }}>
                     {' '}{L.limitUntil(LESSONS.find((x) => x.id === lim.until)?.title ?? lim.until)}
+                  </span>
+                )}
+                {lim.seeAlso && (
+                  <span style={{ color: 'var(--dim)' }}>
+                    {' '}{L.limitSeeAlso(LESSONS.find((x) => x.id === lim.seeAlso)?.title ?? lim.seeAlso)}
                   </span>
                 )}
               </li>

@@ -92,11 +92,39 @@ export interface Limit {
   /** What the simulator does, and what a real radio does instead. One or two sentences. */
   text: string
   /**
-   * The lesson that lifts this simplification, when one does. Checked against
-   * the course: a promise that the truth arrives later is worth nothing if the
-   * lesson it names does not exist.
+   * The lesson that LIFTS this simplification, when one does. It renders as
+   * 「（这一条在《…》里会被解除）」, so it is a promise in the future tense, and
+   * the reader is entitled to find the thing gone when they arrive.
+   *
+   * **Only legal on `kind: 'out-of-scope'`.** The other three kinds describe the
+   * ENGINE — a hard threshold standing in for a curve, an effect not modelled,
+   * a constant this simulator chose — and every lesson runs the same engine. A
+   * lesson can change its `scenario()` and its `variants`; it cannot change
+   * whether `rate.ts` sends probe frames or whether `fading.ts` correlates its
+   * bins. So an `until` on one of those three is not "possibly unmet", it is
+   * NECESSARILY unmet: either the promise is false or the `kind` is, and both
+   * should fail. `out-of-scope` is the one kind that names a class of SCENARIO,
+   * which is exactly what another lesson can hand the engine instead.
+   *
+   * Use `seeAlso` for "that lesson goes deeper into this". Guarded by
+   * `tests/course/limits.test.ts`, which also freezes the site list so that
+   * adding an eleventh promise is an explicit edit rather than a quiet one.
    */
   until?: string
+  /**
+   * The lesson that goes DEEPER into this limit without lifting it. Renders as
+   * 「（《…》在这一条上再深一层，但不解除它）」, and is mutually exclusive with
+   * `until` on the same limit; any `kind` may carry it.
+   *
+   * **Stores a lesson id, never a sentence.** The sentence lives in
+   * `ui/i18n.ts`. This is not only tidiness: `tests/course/wording.test.ts` and
+   * `tests/course/readability.test.ts` reach a lesson's limits by naming the
+   * field (`...l.limits.map((x) => x.text)`) rather than by walking the object,
+   * so prose in a NEW field would pass under both banned-word lists unseen. If
+   * anyone ever makes this hold prose, those two walks must be extended in the
+   * same commit.
+   */
+  seeAlso?: string
 }
 
 export interface Lesson {
