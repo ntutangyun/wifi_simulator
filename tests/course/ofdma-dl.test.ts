@@ -16,6 +16,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { ofdmaDl, muPpduFields, MU_SYMBOLS } from '../../src/course/tier2/ofdma-dl'
+import { lessonChars, lessonMinutes } from '../../src/course/curriculum'
 import type { Block } from '../../src/course/lessonKit'
 import { Simulation } from '../../src/engine/simulation'
 import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
@@ -351,14 +352,16 @@ describe('ofdma-dl · a member reads its own share’s bins (slice 4b landed)', 
     selectivity: {},
   }).runUntil(150 * MS).records]
 
-  it('is the one limit about the bin count, and the lesson declares seven', () => {
+  it('is the one limit about the bin count, and the lesson declares eight', () => {
     expect(found).toHaveLength(1)
     // Six since the solicitation warning moved out of `sources` and into `limits`, where a
     // reader reads a warning as one; seven since the `deeper` counts got a limit saying they
     // are one run's (course-fix-queue, 2026-10-03/04). The whole column is asserted so an
     // insertion is visible here rather than absorbed.
-    expect(ofdmaDl.limits).toHaveLength(7)
+    // Eight since the guard-interval slice added the one about the fixed 12-symbol MU PPDU.
+    expect(ofdmaDl.limits).toHaveLength(8)
     expect(ofdmaDl.limits.map((l) => l.kind)).toEqual([
+      'out-of-scope',
       'model-value', 'model-value', 'model-value',
       'unmodelled', 'unmodelled', 'unmodelled', 'model-value',
     ])
@@ -718,5 +721,64 @@ describe('ofdma-dl · why the chance to group is rare', () => {
       expect(['9.6', '145.3', '185.2', '169.6', '125.6'], `unpinned figure ${m[1]} µs`)
         .toContain(m[1])
     }
+  })
+})
+
+/**
+ * The guard interval against this lesson's fixed-length MU PPDU (design doc
+ * docs/superpowers/specs/2026-10-05-guard-interval-design.md §7.3, §6.1 item 6).
+ *
+ * **The figures here are re-measured against the built feature, and two of them differ from the
+ * design's.** The design's instrument B set `PHY_MODES.he.symNs` and `preambleNs` by hand; it
+ * did not change `maxPsduBytesFor`, `captureWindowNs` or `FrameDesc.mbps`, which the
+ * implementation does. Its base figures reproduce exactly (80.55 ms, 2 269 938 octets); its
+ * quadruple tier does not (it reported 88.10 ms and +0.002 %, the built feature gives 92.43 ms
+ * and +0.005 %). The instrument is the ruler, and the lesson quotes the one that matches the
+ * code a reader will run.
+ */
+describe('ofdma-dl · the guard interval only changes how long the MU PPDU is', () => {
+  const MS_NS = 1_000_000
+  const tier = (gi?: 'double' | 'quad') => {
+    const base = ofdmaDl.scenario()
+    const s = gi ? ({ ...base, guardInterval: { gi } } as Scenario) : base
+    const rs = [...new Simulation(s).runUntil(150 * MS_NS).records]
+    const ppdus = rs.filter((r): r is Extract<TLRecord, { type: 'TX_START' }> => r.type === 'TX_START')
+      .map((r) => r.frame).filter((f) => !f.amp && !f.uwb)
+    const octets = rs.filter((r): r is Extract<TLRecord, { type: 'RX_OK' }> => r.type === 'RX_OK')
+      .reduce((a, r) => a + (r.frame.kind === 'data' ? r.frame.bytes : 0), 0)
+    return {
+      octets,
+      airMs: +(ppdus.reduce((a, f) => a + f.txTimeNs, 0) / 1e6).toFixed(2),
+      rxFail: rs.filter((r) => r.type === 'RX_FAIL').length,
+    }
+  }
+
+  it('carries an out-of-scope limit with its own instrument beside its own figures', () => {
+    const lim = ofdmaDl.limits.find((x) => x.text.includes('保护间隔'))
+    expect(lim, 'no limit mentions the guard interval').toBeDefined()
+    expect(lim!.kind).toBe('out-of-scope')
+    expect(lim!.until).toBeUndefined()
+    expect(lim!.text).toContain(String(MU_SYMBOLS))
+    expect(lim!.text).toContain('150 ms')
+  })
+
+  it('and the three figures it quotes are what the scene really does', () => {
+    const base = tier()
+    const quad = tier('quad')
+    expect(base.airMs).toBe(80.55)
+    expect(quad.airMs).toBe(92.43)
+    expect(base.octets).toBe(2_269_938)
+    expect(quad.octets).toBe(2_270_058)
+    expect(base.rxFail).toBe(0)
+    expect(quad.rxFail).toBe(0)
+    const lim = ofdmaDl.limits.find((x) => x.text.includes('保护间隔'))!
+    expect(lim.text).toContain('80.55')
+    expect(lim.text).toContain('92.43')
+    expect(lim.text).toContain((((quad.airMs / base.airMs) - 1) * 100).toFixed(1))
+  })
+
+  it('does not move the stated minutes: limits are outside mainPathChars', () => {
+    expect(lessonChars(ofdmaDl)).toBe(2079)
+    expect(lessonMinutes(ofdmaDl)).toBe(20)
   })
 })

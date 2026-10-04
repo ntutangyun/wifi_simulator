@@ -19,6 +19,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { width, widthAirtimeTiming } from '../../src/course/tier2/width'
+import { lessonChars, lessonMinutes } from '../../src/course/curriculum'
 import type { Block } from '../../src/course/lessonKit'
 import { widthScenario } from '../../src/course/wifiScenes'
 import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
@@ -557,5 +558,58 @@ describe('width · the flat-channel limit, the direction it changed, and the les
     for (const sc of [width.scenario(), ...(width.variants ?? []).map((v) => v.scenario())]) {
       expect(sc.selectivity).toBeUndefined()
     }
+  })
+})
+
+/**
+ * The guard interval on a wide channel (design doc
+ * docs/superpowers/specs/2026-10-05-guard-interval-design.md §7.3).
+ *
+ * **The -5.14 % below and the design's pooled +5.14 % are a coincidence of digits and nothing
+ * else**, which is why the noise gate (tests/course/guard-interval-noise.test.ts) judges that
+ * figure by FILE and never by number: the pooled one is instrument A's airtime RISE over 36
+ * lessons and 9463 PPDUs, this one is instrument B's delivered-byte FALL on this lesson's own
+ * 160 MHz scene. The limit states its own instrument beside the number, which is the only thing
+ * that tells the two apart for a reader.
+ */
+describe('width · the guard interval costs a wide channel almost entirely in the preamble', () => {
+  const MS_NS = 1_000_000
+  const tier = (gi?: 'double' | 'quad') => {
+    const base = width.scenario()
+    const s = gi ? ({ ...base, guardInterval: { gi } } as Scenario) : base
+    const rs = [...new Simulation(s).runUntil(150 * MS_NS).records]
+    const octets = rs.filter((r): r is Extract<TLRecord, { type: 'RX_OK' }> => r.type === 'RX_OK')
+      .reduce((a, r) => a + (r.frame.kind === 'data' ? r.frame.bytes : 0), 0)
+    return { octets, rxFail: rs.filter((r) => r.type === 'RX_FAIL').length }
+  }
+
+  it('carries an out-of-scope limit that states its instrument beside its figures', () => {
+    const lim = width.limits.find((x) => x.text.includes('保护间隔'))
+    expect(lim, 'no limit mentions the guard interval').toBeDefined()
+    expect(lim!.kind).toBe('out-of-scope')
+    expect(lim!.until).toBeUndefined()
+    // The instrument, in the limit's own words rather than only in this test.
+    expect(lim!.text).toContain('160 MHz')
+    expect(lim!.text).toContain('150 ms')
+    expect(lim!.text).toContain('送达字节')
+  })
+
+  it('and the two percentages it quotes are what this scene really does', () => {
+    const base = tier()
+    const dbl = tier('double')
+    const quad = tier('quad')
+    expect(base.rxFail).toBe(0)
+    expect(quad.rxFail).toBe(0)
+    const pct = (x: { octets: number }) => (((x.octets / base.octets) - 1) * 100).toFixed(2)
+    expect(pct(dbl)).toBe('-0.43')
+    expect(pct(quad)).toBe('-5.14')
+    const lim = width.limits.find((x) => x.text.includes('保护间隔'))!
+    expect(lim.text).toContain('0.43')
+    expect(lim.text).toContain('5.14')
+  })
+
+  it('does not move the stated minutes: limits are outside mainPathChars', () => {
+    expect(lessonChars(width)).toBe(2447)
+    expect(lessonMinutes(width)).toBe(25)
   })
 })

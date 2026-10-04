@@ -18,6 +18,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { ofdmaUl, triggeredRound, ROUND, ROUND_AT } from '../../src/course/tier2/ofdma-ul'
+import { lessonChars, lessonMinutes } from '../../src/course/curriculum'
 import { Simulation } from '../../src/engine/simulation'
 import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
@@ -371,11 +372,16 @@ describe('ofdma-ul · every answer reads its own share’s bins (slice 4b landed
     selectivity: {},
   }).runUntil(RUN_NS).records]
 
-  it('is the one limit about the bin count, and the lesson still declares five', () => {
+  it('is the one limit about the bin count, and the lesson now declares six', () => {
     expect(found).toHaveLength(1)
-    expect(ofdmaUl.limits).toHaveLength(5)
+    // Six since the guard-interval slice added the one about (2x, 0.8) not being a mandatory
+    // combination for a TB PPDU. The whole column is counted so an insertion is visible here
+    // rather than absorbed, which is the point of the pin — so it is re-stated, not deleted.
+    expect(ofdmaUl.limits).toHaveLength(6)
+    // The guard-interval entry goes FIRST, so the order moves by one rather than the column
+    // being rewritten: that is what makes an insertion visible here.
     expect(ofdmaUl.limits.map((l) => l.kind))
-      .toEqual(['unmodelled', 'unmodelled', 'unmodelled', 'model-value', 'model-value'])
+      .toEqual(['model-value', 'unmodelled', 'unmodelled', 'unmodelled', 'model-value', 'model-value'])
   })
 
   it('is a model-value limit, and no longer promises a later slice will fix the bin count', () => {
@@ -436,5 +442,33 @@ describe('ofdma-ul · every answer reads its own share’s bins (slice 4b landed
 
   it('and this lesson’s own scene does not turn the feature on', () => {
     expect(ofdmaUl.scenario().selectivity).toBeUndefined()
+  })
+})
+
+/**
+ * The guard interval, as a fact about this lesson's own triggered round (design doc
+ * docs/superpowers/specs/2026-10-05-guard-interval-design.md §7.3, §1.5).
+ *
+ * `limits` is outside `mainPathChars`, so the stated minutes must not move — measured, not
+ * assumed, because `selectivity` nearly changed bucket on exactly this.
+ */
+describe('ofdma-ul · the guard interval the TB PPDUs actually run at', () => {
+  it('names (2x, 0.8) as a combination that is not mandatory for a TB PPDU', () => {
+    const lim = ofdmaUl.limits.find((x) => x.text.includes('保护间隔'))
+    expect(lim, 'no limit mentions the guard interval').toBeDefined()
+    expect(lim!.kind).toBe('model-value')
+    expect(lim!.until).toBeUndefined()
+    // The three mandatory sets §27.1.1 / §36.1.1 give, and the capability bit that makes the
+    // engine's own choice legal rather than a violation.
+    expect(lim!.text).toContain('0.8')
+    expect(lim!.text).toContain('TB PPDU')
+    expect(lim!.text).toContain('§27.1.1')
+    expect(lim!.text).toContain('§36.1.1')
+    expect(lim!.text).toContain('能力位')
+  })
+
+  it('does not move the stated minutes: limits are outside mainPathChars', () => {
+    expect(lessonChars(ofdmaUl)).toBe(2301)
+    expect(lessonMinutes(ofdmaUl)).toBe(20)
   })
 })
