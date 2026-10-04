@@ -19,7 +19,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import {
-  airtime, exchangeTiming, ACK_US, DATA_US, EXCHANGE_US, PREAMBLE_US, SIFS_US,
+  airtime, exchangeTiming, giNumbers, ACK_US, DATA_US, EXCHANGE_US, PREAMBLE_US, SIFS_US,
 } from '../../src/course/tier1/airtime'
 import type { Block } from '../../src/course/lessonKit'
 import type { TimingSpec } from '../../src/course/diagram'
@@ -28,8 +28,9 @@ import type { Scenario } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 import { Simulation } from '../../src/engine/simulation'
 import { lessonShapeSuite, ofType, runOf } from './kit'
-import { MANDATORY_MBPS, PHY_MODES, RATES, SIFS_NS, ctrlRespRateFor, ctrlRespRateForMode, txTimeModeNs, txTimeNs } from '../../src/engine/phy'
-import { MODULES } from '../../src/course/curriculum'
+import { MANDATORY_MBPS, PHY_MODES, RATES, SIFS_NS, TGI_NS, ctrlRespRateFor, ctrlRespRateForMode, mcsRateMbps, preambleNsFor, symNsFor, txTimeModeNs, txTimeNs } from '../../src/engine/phy'
+import { MODULES, lessonChars, lessonMinutes } from '../../src/course/curriculum'
+import { lessonStrings } from '../../src/course/readability'
 
 const MS = 1_000_000
 const US = 1_000
@@ -63,7 +64,12 @@ describe('airtime · the lesson’s own scene', () => {
   it('the scenario passes the schema and is unchanged', () => {
     expect(() => ScenarioSchema.parse(airtime.scenario())).not.toThrow()
     expect(airtime.scenario().nodes.map((n) => n.id)).toEqual(['ap', 'sta-1'])
-    expect(airtime.variants).toBeUndefined()
+    // The main scene writes no `guardInterval`, so it is byte-for-byte the scene whose hash
+    // the fixture has always held. This used to read `variants` is undefined; the guard-interval
+    // slice gave the lesson exactly one, which is pinned here and in detail below — a pin that
+    // says "nothing yet" has to be re-stated rather than deleted when something arrives.
+    expect('guardInterval' in airtime.scenario()).toBe(false)
+    expect(airtime.variants).toHaveLength(1)
   })
 })
 
@@ -270,5 +276,155 @@ describe('airtime · the two experiments and the quiz', () => {
     expect(125_600 - half).toBe(40_800)
     expect(half + SIFS_NS + 28_000).toBe(128_800)
     expect(128_800).toBeGreaterThan(169_600 / 2)
+  })
+})
+
+/**
+ * The guard interval as this lesson's third dimension (design doc
+ * docs/superpowers/specs/2026-10-05-guard-interval-design.md §7.1, §7.2, §7.3, §8 items 8/9/10).
+ *
+ * It is hung on `airtime` rather than given a lesson of its own, for the reason §7.1 gives: the
+ * only honest `why` a lesson of its own could have is a statement about this simulator, and a
+ * 20-minute lesson titled "this knob gets you nothing" is the shape that would make a reader
+ * feel played. `airtime`'s `why` is already "how long does one frame hold the air", and airtime
+ * is the ONLY thing the guard interval is modelled to change — and this lesson's `tryThis[0]`
+ * already says in so many words "take the 125.6 µs block, subtract the 44.0 µs preamble, and
+ * divide what is left by 13.6 µs". That 13.6 is T_SYM1; what this slice adds is that it can also
+ * be 14.4 or 16.
+ */
+describe('airtime · the guard interval, its cost and the side that is not here', () => {
+  const giScene = (): Scenario => airtime.variants![0].scenario()
+  /** Every non-AMP non-UWB PPDU of a run — the instrument §5 item 4 is measured on. */
+  const ppdusOf = (rs: TLRecord[]) =>
+    ofType(rs, 'TX_START').map((r) => r.frame).filter((f) => !f.amp && !f.uwb)
+  const octetsOf = (rs: TLRecord[]) =>
+    ofType(rs, 'RX_OK').reduce((s, r) => s + (r.frame.kind === 'data' ? r.frame.bytes : 0), 0)
+  const mainText = (): string => lessonStrings({
+    why: airtime.why, outcomes: airtime.outcomes, terms: airtime.terms,
+    picture: airtime.picture, numbers: airtime.numbers,
+    observe: airtime.observe, tryThis: airtime.tryThis, quiz: airtime.quiz,
+  }).join(' | ')
+
+  // (a) §8 item 8. The budget is a hard constraint and it belongs in a test, not in someone's
+  // memory. Before this slice: 1569 chars, 3 observe, 2 tryThis -> 21.13 raw -> 20 minutes.
+  // With one more observe the window for 25 minutes is 1430 <= chars <= 2529.
+  it('(a) lands on 25 minutes, with one observe added and no tryThis', () => {
+    expect(airtime.observe.length).toBe(4)
+    expect(airtime.tryThis.length).toBe(2)
+    expect(lessonChars(airtime)).toBeLessThanOrEqual(2529)
+    expect(lessonChars(airtime)).toBeGreaterThanOrEqual(1430)
+    expect(lessonMinutes(airtime)).toBe(25)
+  })
+
+  // (b) The variant differs from the main scene by one section and nothing else.
+  it('(b) has one variant whose scene differs only by the guardInterval section', () => {
+    expect(airtime.variants).toHaveLength(1)
+    expect(airtime.variants![0].label).toContain('3.2')
+    const main = airtime.scenario()
+    const { guardInterval, ...restOfVariant } = giScene()
+    expect(guardInterval).toEqual({ gi: 'quad' })
+    expect(main.guardInterval).toBeUndefined()
+    expect('guardInterval' in main).toBe(false)
+    // Field for field: nodes, rooms, walls, servers, seed, thresholds, everything.
+    expect(restOfVariant).toEqual(main)
+    // And both parse, so the variant is a scene the engine will actually accept.
+    expect(() => ScenarioSchema.parse(giScene())).not.toThrow()
+  })
+
+  // (c) §4's `echoFacts` rule: every figure the lesson prints is computed.
+  it('(c) giNumbers() is three rows and not one literal, and the symbol count does not move', () => {
+    expect(giNumbers()).toEqual([
+      { giUs: 0.8, name: '基本', symUs: 13.6, frameUs: 125.6, mbps: 143.4 },
+      { giUs: 1.6, name: '双倍', symUs: 14.4, frameUs: 130.4, mbps: 135.4 },
+      { giUs: 3.2, name: '四倍', symUs: 16, frameUs: 148.8, mbps: 121.9 },
+    ])
+    // Each cell recomputed independently from the PHY's own functions.
+    const tiers = [TGI_NS.base, TGI_NS.double, TGI_NS.quad]
+    giNumbers().forEach((row, i) => {
+      const gi = tiers[i]
+      expect(row.giUs).toBe(gi / 1000)
+      expect(row.symUs).toBe(symNsFor('he', gi) / 1000)
+      expect(row.frameUs).toBe(txTimeModeNs('he', 1430, 11, { widthMhz: 20, giNs: gi }) / 1000)
+      expect(row.mbps).toBe(mcsRateMbps('he', 11, gi))
+      // §7.2: six symbols in all three tiers. Only each symbol's length moves.
+      expect((row.frameUs * 1000 - preambleNsFor('he', gi)) / symNsFor('he', gi)).toBe(6)
+    })
+    // The lesson's long-standing 125.6 now has an instrument welded to it.
+    expect(DATA_US).toBe(giNumbers()[0].frameUs)
+    // And the three rows really are what the lesson prints.
+    for (const s of ['13.6', '14.4', '16', '125.6', '130.4', '148.8', '143.4', '135.4', '121.9']) {
+      expect(mainText(), `the table no longer prints ${s}`).toContain(s)
+    }
+  })
+
+  // (d) The three figures in the new observe come out of two real rounds, not out of prose.
+  it('(d) the fourth observe reads a real round: 350 PPDUs, 250 250 octets, 26.88 -> 30.94 ms', () => {
+    const base = [...new Simulation(airtime.scenario()).runUntil(150 * MS).records]
+    const quad = [...new Simulation(giScene()).runUntil(150 * MS).records]
+    expect(ppdusOf(base).length).toBe(350)
+    expect(ppdusOf(quad).length).toBe(350)
+    expect(octetsOf(base)).toBe(250_250)
+    expect(octetsOf(quad)).toBe(250_250)
+    const ms = (rs: TLRecord[]) => +(ppdusOf(rs).reduce((s, f) => s + f.txTimeNs, 0) / 1e6).toFixed(2)
+    expect(ms(base)).toBe(26.88)
+    expect(ms(quad)).toBe(30.94)
+    // The lesson prints those three and no others of that kind.
+    const obs = airtime.observe[3]
+    expect(obs).toContain('350')
+    expect(obs).toContain('250 250')
+    expect(obs).toContain(String(ms(base)))
+    expect(obs).toContain(String(ms(quad)))
+    // Every HE PPDU of the variant really is on the quadruple tier.
+    const he = ppdusOf(quad).filter((f) => f.mode === 'he' || f.mode === 'eht')
+    expect(he.length).toBeGreaterThan(0)
+    expect(he.every((f) => f.giNs === 3_200)).toBe(true)
+    expect(he.every((f) => f.txTimeNs === 148_800)).toBe(true)
+  })
+
+  /**
+   * (e) The four clause numbers, written to the clause and not to the section.
+   *
+   * **The negative half cannot be a substring test, and that is a trap worth naming.** The
+   * plan asked for `not.toContain('§19.3.2')` and `not.toContain('§32.3')` — but `§19.3.2` is a
+   * prefix of the correct `§19.3.20` and `§32.3` is a prefix of the correct `§32.3.13`, so those
+   * two assertions are unsatisfiable as written: they would fail on the right answer. Anchored
+   * on a digit boundary they say what was meant, which is that the lesson must not use 4a's
+   * imprecise forms.
+   */
+  it('(e) names §19.3.20 / §27.3.23 / §32.3.13 / §36.3.22, and none of the loose forms', () => {
+    const t = mainText()
+    for (const c of ['§19.3.20', '§27.3.23', '§32.3.13', '§36.3.22']) {
+      expect(t, `the lesson no longer cites ${c}`).toContain(c)
+    }
+    expect(t).toContain('时延扩展')
+    expect(t).toContain('5956')
+    // The loose or wrong forms 4a used, each anchored so that the correct form does not trip it.
+    expect(t).not.toMatch(/§19\.3\.2(?![0-9])/)
+    expect(t).not.toContain('§19.3.3')
+    expect(t).not.toMatch(/§32\.3(?![0-9.])/)
+    expect(t).not.toContain('§36.3.x')
+  })
+
+  // (f) §7.3. Both halves: 44.0 µs is a tier, and the 4x LTF's 8.8 µs bought something that is
+  // not built. Without the second one the 8.8 µs looks like a cost paid for nothing at all.
+  it('(f) the limits say 44.0 µs is a tier, and that the 4x LTF buys an unbuilt thing', () => {
+    const l0 = airtime.limits[0]
+    expect(l0.kind).toBe('model-value')
+    expect(l0.text).toContain('2× LTF')
+    expect(l0.text).toContain('52.8')
+    expect(l0.text).toContain('T_SYM1')
+    const ltf = airtime.limits.find((x) => x.text.includes('4× LTF') && x.text.includes('信道估计'))
+    expect(ltf, 'no limit says what the 4x LTF was spent on').toBeDefined()
+    expect(ltf!.kind).toBe('unmodelled')
+    expect(ltf!.text).toContain('8.8')
+    expect(ltf!.until).toBeUndefined()
+    // `sources` carries the four tables and the four transmit procedures.
+    const src = airtime.sources!.join(' | ')
+    expect(src).toContain('Table 27-13')
+    expect(src).toContain('Table 36-18')
+    expect(src).toContain('Table 27-86')
+    expect(src).toContain('Table 36-76')
+    expect(src).toContain('Table 27-1')
+    expect(src).toContain('§19.3.20')
   })
 })
