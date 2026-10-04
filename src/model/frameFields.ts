@@ -21,7 +21,7 @@ import {
 } from '../engine/ampBs'
 import {
   ACK_BYTES, AMPDU_DELIMITER_BYTES, BA_BYTES, CF_END_BYTES, CTS_BYTES, FCS_BYTES, MAC_HDR_BYTES,
-  PHY_MODES, QOS_HDR_BYTES, RTS_BYTES, multiStaBaBytes, triggerBytes,
+  PHY_MODES, QOS_HDR_BYTES, RTS_BYTES, TGI_NS, multiStaBaBytes, preambleNsFor, symNsFor, triggerBytes,
 } from '../engine/phy'
 import { uwbFrameFields, uwbPpduLayout } from '../uwb/frameFields'
 import type { UwbFrameKind } from '../uwb/frames'
@@ -475,24 +475,34 @@ export function ppduLayout(f: FrameDesc): PpduSegment[] {
   if (f.uwb) return uwbPpduLayout(f)
   const mode = f.mode ?? 'nonht'
   const m = PHY_MODES[mode]
+  const giNs = f.giNs ?? TGI_NS.base
   const segs: PpduSegment[] = []
   let head: Ns
   if (mode === 'nonht') {
+    // Not one character of this branch moves. GI_TYPE in clause 19 is the LONG_GI / SHORT_GI
+    // enumeration — a different set of values from HE/EHT's three, not a narrower one (design
+    // §5 item 2b) — so a `giNs` on a non-HT PPDU would be meaningless rather than smaller.
     segs.push({ key: 'legacyPreamble', durNs: 16_000 }, { key: 'signal', durNs: m.preambleNs - 16_000 })
     head = m.preambleNs
   } else {
-    segs.push({ key: 'preamble', durNs: m.preambleNs })
-    head = m.preambleNs
-    // A DL MU PPDU carries HE-SIG-B / EHT-SIG; a TB PPDU (orthogonal, uplink) does not.
+    // Both halves of the guard interval's cost land here: the 4x LTF's 8.8 µs on the preamble
+    // and the longer symbol on the data field. Changing only the data field would leave an
+    // 8.8 µs `padding` segment behind, and the segments would still sum to `txTimeNs`.
+    const head0 = preambleNsFor(mode, giNs)
+    segs.push({ key: 'preamble', durNs: head0 })
+    head = head0
+    // A DL MU PPDU carries HE-SIG-B / EHT-SIG; a TB PPDU (orthogonal, uplink) does not. Its
+    // duration does not follow `giNs`: the pre-HE/pre-EHT fields' GI is fixed at 0.8 µs.
     if (f.kind === 'data' && f.muParts && m.muExtraPreambleNs > 0) {
       segs.push({ key: 'muSig', durNs: m.muExtraPreambleNs })
       head += m.muExtraPreambleNs
     }
   }
   const rest = Math.max(0, f.txTimeNs - head)
-  const symbols = Math.floor(rest / m.symNs)
-  segs.push({ key: 'data', durNs: symbols * m.symNs, symbols, symNs: m.symNs })
-  const pad = rest - symbols * m.symNs
+  const symNs = symNsFor(mode, giNs)
+  const symbols = Math.floor(rest / symNs)
+  segs.push({ key: 'data', durNs: symbols * symNs, symbols, symNs })
+  const pad = rest - symbols * symNs
   if (pad > 0) segs.push({ key: 'padding', durNs: pad })
   return segs
 }

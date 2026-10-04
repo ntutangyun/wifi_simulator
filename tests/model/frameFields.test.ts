@@ -302,3 +302,66 @@ describe('backscatter frames decode to their EPC Gen2 fields and excitation layo
 function d1(f: FrameDesc): boolean {
   return (f.amp?.rfid?.wupNs ?? 0) > 0
 }
+
+/**
+ * `ppduLayout` against a chosen guard interval (design doc
+ * docs/superpowers/specs/2026-10-05-guard-interval-design.md §3.4, §3.7, §5 item 5).
+ *
+ * These frames are built by hand rather than recorded, because at this point in the slice
+ * **no code writes `giNs`** — the field is the carrier and nothing is wired to it yet. Hand
+ * construction is also what makes the one trap below reachable at all.
+ */
+describe('ppduLayout reads the frame\'s own guard interval', () => {
+  const ctx: DecodeCtx = { apId: 'ap', isEdca: true }
+  const heFrame = (over: Partial<FrameDesc>): FrameDesc => ({
+    kind: 'data', src: 'ap', dst: 'sta-1', bytes: 1430, mbps: 143.4,
+    durationFieldNs: 44_000, txTimeNs: 125_600, mode: 'he', mcs: 11, widthMhz: 20,
+    seqNo: 1, qos: true, msduBytes: [1430], ...over,
+  })
+  const seg = (d: DecodedFrame, key: string) => d.ppdu.find((p) => p.key === key)
+
+  it('(a) with giNs absent the layout is byte-for-byte what it is today', () => {
+    const d = decodeFrame(heFrame({}), ctx)
+    expect(seg(d, 'preamble')!.durNs).toBe(44_000)
+    expect(seg(d, 'data')!.symNs).toBe(13_600)
+    expect(seg(d, 'data')!.symbols).toBe(6)
+    expect(seg(d, 'padding')).toBeUndefined()
+    expect(d.ppdu.reduce((s, p) => s + p.durNs, 0)).toBe(125_600)
+  })
+
+  it('(b) at the quadruple GI the PREAMBLE grows too, so no padding segment appears', () => {
+    // **This is the assertion that catches the half-sentence §3.7 left out.** Changing only
+    // the data segment leaves rest = 148 800 − 44 000 = 104 800, symbols = 6, and an 8.8 µs
+    // `padding` segment appears to absorb the remainder — at which point the segment
+    // durations STILL sum to txTimeNs, so the sum assertion above cannot see the bug. The
+    // preamble figure and the absence of padding each have to be asserted on their own.
+    const d = decodeFrame(heFrame({ giNs: 3_200, txTimeNs: 148_800 }), ctx)
+    expect(seg(d, 'preamble')!.durNs).toBe(52_800)
+    expect(seg(d, 'data')!.symNs).toBe(16_000)
+    expect(seg(d, 'data')!.symbols).toBe(6)
+    expect(seg(d, 'padding')).toBeUndefined()
+    expect(d.ppdu.reduce((s, p) => s + p.durNs, 0)).toBe(148_800)
+  })
+
+  it('(c) a vht frame carrying giNs pays neither the longer symbol nor the 8.8 µs', () => {
+    // `symNsFor` returns 4 µs unconditionally for the pre-HE generations and `preambleNsFor`
+    // never adds the 4x LTF difference to them, so the field is inert here by construction.
+    const d = decodeFrame(heFrame({ mode: 'vht', mcs: 8, mbps: 78, giNs: 3_200, txTimeNs: 40_000 + 4_000 * 37, bytes: 1428 }), ctx)
+    expect(seg(d, 'preamble')!.durNs).toBe(40_000)
+    expect(seg(d, 'data')!.symNs).toBe(4_000)
+  })
+
+  it('(d) the MU signalling segment keeps its own 0.8 µs GI', () => {
+    // HE-SIG-B / EHT-SIG sit in the preamble, whose T_GI,Pre-HE is fixed at 0.8 µs and has
+    // nothing to do with the data field's (§1.1's closing paragraph).
+    const parts = [
+      { dst: 'sta-1', src: 'ap', bytes: 715, mbps: 121.9, mcs: 11, mpduCount: 1, msduIds: [1] },
+      { dst: 'sta-2', src: 'ap', bytes: 715, mbps: 121.9, mcs: 11, mpduCount: 1, msduIds: [2] },
+    ]
+    const d = decodeFrame(heFrame({ dst: '*mu', muParts: parts, giNs: 3_200, txTimeNs: 52_800 + 4_000 + 16_000 * 6 }), ctx)
+    expect(seg(d, 'preamble')!.durNs).toBe(52_800)
+    expect(seg(d, 'muSig')!.durNs).toBe(4_000)
+    expect(seg(d, 'data')!.symNs).toBe(16_000)
+    expect(seg(d, 'padding')).toBeUndefined()
+  })
+})

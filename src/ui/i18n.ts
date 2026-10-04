@@ -521,6 +521,9 @@ export interface Strings {
       ppdu: string; ppduHint: string
       segment: Record<PpduSegmentKey, string>
       symbols: (n: number, symUs: number) => string
+      /** The data field's guard interval, shown only when the PPDU carries a non-base one. */
+      guardInterval: (giUs: number, name: string) => string
+      giName: { double: string; quad: string }
       /** UWB: where inside the PPDU the ranging timestamp is taken. */
       rmarker: (us: string) => string
       /**
@@ -1379,6 +1382,8 @@ export const STRINGS: Strings = {
         nbShr: 'SHR（8 个前导符号 + 2 个 SFD 符号）',
       },
       symbols: (n, u) => `${n} 个符号 × ${u} µs`,
+      guardInterval: (giUs, name) => `保护间隔 ${giUs} µs（${name}）`,
+      giName: { double: '双倍', quad: '四倍' },
       rmarker: (us) => `RMARKER 位于 ${us} µs——所有测距时间戳都在这一点读取，而不是帧的起点`,
       row: {
         type: '类型',

@@ -4,6 +4,8 @@
  * view in the inspector column while a frame is selected.
  */
 import { useState } from 'react'
+import { TGI_NS } from '../engine/phy'
+import type { Ns } from '../model/types'
 import { hasFeature } from '../model/caps'
 import { decodeFrame, type DecodedFrame, type FrameField, type PpduSegmentKey } from '../model/frameFields'
 import { nodeDisplayName } from './names'
@@ -145,13 +147,15 @@ function FieldsSection({ sel, nameOf }: { sel: FrameSelection; nameOf: (id: stri
         {open ? '▾' : '▸'} {S.title}
       </div>
       {!open && <div style={hintStyle}>{S.hint}</div>}
-      {decoded && <DecodedView d={decoded} S={S} nameOf={nameOf} />}
+      {decoded && <DecodedView d={decoded} giNs={f.giNs} S={S} nameOf={nameOf} />}
     </>
   )
 }
 
-function DecodedView({ d, S, nameOf }: {
+function DecodedView({ d, giNs, S, nameOf }: {
   d: DecodedFrame
+  /** The frame's own `giNs`, which the segments alone cannot name: absent is the base GI. */
+  giNs?: Ns
   S: Strings['frameDetail']['fields']
   nameOf: (id: string) => string
 }) {
@@ -229,6 +233,14 @@ function DecodedView({ d, S, nameOf }: {
           {p.rmarkerNs !== undefined && <div style={hintStyle}>{S.rmarker((p.rmarkerNs / 1000).toFixed(3))}</div>}
         </div>
       ))}
+      {/* Only when this PPDU carries a non-base guard interval. The 「n 个符号 × x µs」 line
+          above needs no change of its own: it reads the segment, which `ppduLayout` has
+          already repriced, so it becomes 「6 个符号 × 16 µs」 by itself. */}
+      {giNs !== undefined && (
+        <div style={hintStyle}>
+          {S.guardInterval(giNs / 1000, S.giName[giNs === TGI_NS.quad ? 'quad' : 'double'])}
+        </div>
+      )}
     </div>
   )
 }

@@ -163,6 +163,25 @@ export interface FrameDesc {
   mcs?: number
   /** Operating channel width in MHz this PPDU was sent at (default 20). */
   widthMhz?: number
+  /**
+   * TXVECTOR's GI_TYPE for the data field, ns — **absent when the base guard interval is in
+   * use**, rather than written as 800. standard §27.2 Table 27-1 / standard be §36.2 Table 36-1
+   *
+   * Two reasons the absence is the encoding rather than a default value:
+   *
+   *  - `ppduLayout` (src/model/frameFields.ts) has nothing but a `FrameDesc` in hand — no
+   *    scenario and no MAC — so the absence has to be readable as "take the old path and hand
+   *    the same segments back". `linkDbm` (`private linkDbm` in src/engine/channel.ts) and
+   *    `resolveLock` already establish that spelling. (No line number here on purpose: a
+   *    citation that drifts with every slice is a direction that will be false sooner or later.)
+   *  - It keeps the record stream and the UI character-for-character unchanged across every
+   *    published lesson, because the timeline hash eats only `t`, `seq` and `type`, and none of
+   *    the 233 shipped scenes writes a guard interval.
+   *
+   * Never set on a pre-HE PPDU: clause 19's and clause 21's GI_TYPE is the LONG_GI / SHORT_GI
+   * enumeration, which is not these values at all.
+   */
+  giNs?: Ns
   ac?: number // 0..3 EDCA access category of the exchange
   /** A-MPDU aggregation info (single-user). */
   ampdu?: { mpduCount: number; msduIds: number[] }
