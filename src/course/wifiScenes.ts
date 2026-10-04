@@ -174,13 +174,41 @@ function twoWallFlat(): { rooms: Room[]; walls: Wall[] } {
  *    shadow is what made `mumimo(on)`'s margin bimodal, and the acceptance gate for this
  *    lesson is stated *inside one measured margin group*.
  *  - **the televisions sit two brick walls away, not one.** This is the scene's only tuned
- *    quantity and it is tuned to the margin, which is what the lesson is read at. Measured
- *    on this plan, seed 7, 1000 ms: the member's `meanSinrDb − threshDb` is **3.547 dB** on
- *    291 of the 291 member receptions — one single-valued group, no bimodality to handle.
- *    One wall instead of two leaves 15.5 dB, which is `ofdma-dl`'s useless margin again;
- *    turning the router's power down 13 dB instead reaches the same 3.5 dB, and a crippled
- *    router is a worse story than a far room. The 12 dB of the second wall is the engine's
- *    own material constant (`propagation.ts`), never a number chosen here.
+ *    quantity and it is tuned to the margin, which is what the lesson is read at. Measured on
+ *    this plan, seed 7, 1000 ms: the member's `meanSinrDb − threshDb` is **3.547 dB** on all
+ *    292 downlink data receptions the two televisions were addressed in — **one group, so the
+ *    bimodality design §7.3 warned about is absent here rather than handled**. The 12 dB of
+ *    the second wall is the engine's own material constant (`propagation.ts`), never a number
+ *    chosen here.
+ *
+ *    **How little room that leaves, which the comment used to omit.** The passing window is
+ *    roughly a margin of 3 to 15 dB (design §7.3.1 (b): below about 2.5 dB the chain is no
+ *    longer monotone, and above about 15 dB every leg is zero). Moving the pair inside this
+ *    room walks the margin one MCS rung at a time — x = 11.5 / 12.5 / **13.5** / 14.5 gives
+ *    **6.240 / 4.826 / 3.547 / 2.381 dB** — so the shipped point has about 1 dB, or one metre,
+ *    before the band's lower edge. The three nearer positions all pass the gate (6.76 % against
+ *    1.49 % at x = 11.5, 18.44 % against 6.56 % at x = 12.5); x = 14.5 is already inside the
+ *    non-monotone region. **Further from the router is where this scene breaks, and it breaks
+ *    quietly.**
+ *
+ *    **The two alternatives, and what is actually wrong with each.**
+ *    *One wall instead of two* does not give one number, and this is where the comment was
+ *    wrong twice over: leaving the televisions where they are and deleting the x = 11 partition
+ *    gives a median margin of **15.547 dB** (628 of 666 receptions on that rung) — the useless
+ *    margin `ofdma-dl` already has; whereas one wall *with the televisions moved into the
+ *    living room at x = 8.5* gives **5.672 dB over four rungs at MCS 4 to 7** (1000 ms, seed 7,
+ *    both measured on this builder). Both are real and they are two different scenes, so the
+ *    one-variable control is the first. The second is not a control at all: its margin is
+ *    multi-valued, which is the confound again.
+ *    *Turning the router down* reaches the same rung at **12 dB**, not 13 — the brick's own
+ *    loss, since −11 / −12 / −13 dB on the one-wall plan give 4.547 / 3.547 / 2.547 dB. It is
+ *    still not the same scene, and not merely a worse story: the power knob only moves the
+ *    downlink, so the televisions' own frames keep the 12 dB the wall would have taken, and the
+ *    round differs (291 member receptions at 26.12 % here against 284 at 29.93 % there).
+ *    **And 13 dB — the figure this comment used to print — lands on 2.547 dB, inside the
+ *    non-monotone region, where the gate is not even stably signed**: that configuration passes
+ *    at 1000 ms (41.94 % against 39.45 %) and **fails at 2000 ms (38.58 % against 39.91 %)**.
+ *    A reader who followed the old sentence would have built the one scene that disproves it.
  *  - **no saturating load, and that is a correction.** `mumimoScenario`'s comment above
  *    explains that two video streams in one room never group, because the router drains
  *    each packet before the next one lands — true there, and **false here**: at this range

@@ -1135,13 +1135,13 @@ describe('selectivity, slice 4b: a member reads its own resource unit', () => {
  *
  * Every published multi-user scene was measured and none of them can carry
  * the lesson (design 2026-10-04 §7.3), so the scene is new. The acceptance
- * criterion is §9 item 3's, stated before anything here was measured and not
+ * criterion is §9 item 3's, stated before anything was measured and not
  * softened afterwards: **inside one measured margin group, the drop rate
  * rises strictly as the member's share thins.**
  * ===========================================================================
  */
 
-/** Long enough for the scene to put a few hundred member receptions on the record. */
+/** Long enough for one seed to put a few hundred member receptions on the record. */
 const RU_ROUND_NS = 1000 * MS
 
 /** One downlink reception of this scene, with everything the gate reads off it. */
@@ -1179,6 +1179,29 @@ function dlRows(rs: TLRecord[]): MarginRow[] {
 }
 
 /**
+ * Width of a margin group, dB — and the one number in this file whose value provably does not
+ * matter, which is a stronger thing to be able to say than "there is no such number".
+ *
+ * **This started as a raw-float key, with a reason that was false.** The claim was that an
+ * exact key has no group width to tune and that the receptions it left outside the largest
+ * group were ones "a stray collision moved". Measured: the shipped round's margins fall into
+ * three exact-float groups of 283 / 6 / 3 whose `meanSinrDb` values are
+ * 12.536904798229770 / …784 / …756 — a total spread of **2.8e-14 dB**, which is floating-point
+ * summation order and nothing else. There is no collision in this scene to move anything; a
+ * reception whose SINR really was disturbed would move by of the order of 1 dB, fourteen
+ * decades away. So an exact key is not the absence of a group width. **It is a group width of
+ * zero bits** — the most brittle setting there is — and it was silently dropping 9 of 291
+ * member receptions (3.1 %) that are physically one population.
+ *
+ * What makes the choice immaterial is the gap between the two scales: the noise is 1e-14 dB
+ * and the nearest real structure is one MCS rung, about 2 dB. `measures one margin` below
+ * asserts that **every width from 1e-13 dB to 2 dB gives the identical partition**, so the
+ * 1e-6 here could be any of thirteen decades. Only the exact-float end behaves differently,
+ * and that end is the bug this constant replaced.
+ */
+const MARGIN_GROUP_DB = 1e-6
+
+/**
  * **The grouping rule, fixed here before any drop rate below is read**, and copied from the
  * width sweep's own precedent earlier in this file: group the receptions by the margin they
  * were measured at, take the largest group, and **name nothing** — no station, no bin count, no
@@ -1186,17 +1209,65 @@ function dlRows(rs: TLRecord[]): MarginRow[] {
  * to compare. The design doc named two confounds for this gate (§7.3) and this rule is what
  * answers both: a bimodal margin would split into two groups and only the larger would be
  * read, and a direction whose receptions settle elsewhere falls out of the group by itself.
- *
- * The key is the **raw float**, not a rounded one, which closes the one knob the plan's wording
- * left open (§9 item 3 gives no group width). With the shadow off a link's mean SINR is
- * constant and the thresholds are a discrete ladder, so the margins of one link at one MCS
- * agree to the last bit; the handful that do not are receptions a stray collision moved, and
- * they leave the group on their own.
  */
-function largestMarginGroup(rows: MarginRow[]): MarginRow[] {
+function marginGroups(rows: MarginRow[], quantumDb = MARGIN_GROUP_DB): MarginRow[][] {
   const groups = new Map<number, MarginRow[]>()
-  for (const r of rows) groups.set(r.margin, [...(groups.get(r.margin) ?? []), r])
-  return [...groups.values()].sort((a, b) => b.length - a.length)[0] ?? []
+  for (const r of rows) {
+    const key = Math.round(r.margin / quantumDb)
+    groups.set(key, [...(groups.get(key) ?? []), r])
+  }
+  return [...groups.values()].sort((a, b) => b.length - a.length)
+}
+
+const largestMarginGroup = (rows: MarginRow[]): MarginRow[] => marginGroups(rows)[0] ?? []
+const marginKey = (r: MarginRow): number => Math.round(r.margin / MARGIN_GROUP_DB)
+const dropRate = (xs: MarginRow[]): number => xs.filter((x) => x.failed).length / xs.length
+
+/** This scene on a chosen seed; 7 is the builder's own, so `seeded(true, 7)` is the ship. */
+const seeded = (ofdmaOn: boolean, seed: number): Scenario =>
+  ({ ...ruDiversityScenario(ofdmaOn), seed })
+
+/**
+ * **Ten seeds, because one run of this gate is 1.8 σ and that is not evidence.**
+ *
+ * Seed 7 alone gives 76/291 against 26/140 — a difference of 7.55 percentage points with a
+ * standard error of 4.18, i.e. **1.81 σ, two-sided not significant**. The direction is real;
+ * that single point is not what shows it. The failure mode of pinning only the one point is
+ * specific: any unrelated change that shifts the RNG stream moves both legs a few points, the
+ * assertion goes red, and the next person reads it as "I broke frequency selectivity".
+ *
+ * So the gate is asserted on the ten seeds pooled (6.80 σ) and on the median of the ten
+ * per-seed differences, and the whole table is printed in the failure message. The criterion
+ * itself is unchanged — one measured margin group, the thinner share drops strictly more.
+ */
+const GATE_SEEDS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+
+interface SeedLegs {
+  seed: number
+  /** The margin both legs were read at, which must be the same rung on both sides. */
+  marginDb: number
+  /** The largest margin group's member receptions: 4 of the 9 bins. */
+  half: MarginRow[]
+  /** The same scene with OFDMA off, at that same margin: all 9 bins. */
+  whole: MarginRow[]
+}
+
+let gateLegs: SeedLegs[] = []
+/** Twenty rounds, computed once for the whole describe — the expensive part of this block. */
+function gateSweep(): SeedLegs[] {
+  if (gateLegs.length === 0) {
+    gateLegs = GATE_SEEDS.map((seed) => {
+      const group = largestMarginGroup(dlRows(run(seeded(true, seed), RU_ROUND_NS)))
+      const key = marginKey(group[0]!)
+      return {
+        seed,
+        marginDb: group[0]!.margin,
+        half: group.filter((r) => r.ruFraction !== undefined),
+        whole: dlRows(run(seeded(false, seed), RU_ROUND_NS)).filter((r) => marginKey(r) === key),
+      }
+    })
+  }
+  return gateLegs
 }
 
 /** Draws per reception in the counterfactual below — its instrument, stated once. */
@@ -1266,61 +1337,106 @@ describe('selectivity, slice 4b: the ru-diversity scene and its publication gate
   }, 300_000)
 
   /**
-   * **The publication gate** (design §9 item 3), and it passes on the measurement rather than
-   * on a model: inside one measured margin group, a member reading 4 of the 9 bins drops
-   * strictly more of its receptions than the same television reading all 9.
+   * **This scene has exactly one margin, and the width used to measure that is immaterial.**
+   *
+   * Two separate claims, and the second is what `MARGIN_GROUP_DB`'s comment is about. The
+   * first is the scene's own property: all 292 downlink receptions a television was addressed
+   * in sit at 3.547 dB, so the bimodality design §7.3 named as a confound is **absent here**
+   * rather than handled by the grouping — and if the scene ever stops being single-valued,
+   * this is the line that says so instead of the gate failing for an unreadable reason.
+   *
+   * The second is the insensitivity: every group width from 1e-13 dB to 2 dB partitions these
+   * receptions identically, because the floating-point noise (2.8e-14 dB) and the nearest real
+   * structure (one MCS rung, 2 dB) are fourteen decades apart. The one width that does
+   * something different is the exact float, and what it does is the defect this replaced:
+   * it splits one physical population into 283 / 6 / 3.
+   */
+  it('measures one margin, by a group width that could be any of thirteen decades', () => {
+    const rows = dlRows(run(ruDiversityScenario(), RU_ROUND_NS))
+    expect(rows.length).toBe(292)
+    // One group, at one rung, holding everything.
+    const groups = marginGroups(rows)
+    expect(groups.length).toBe(1)
+    expect(groups[0]!.length).toBe(292)
+    expect(groups[0]![0]!.margin).toBeCloseTo(3.547, 3)
+    // Widths spanning thirteen decades agree on that partition, so the constant is not a knob.
+    const sizes = (q: number): number[] => marginGroups(rows, q).map((g) => g.length)
+    for (const q of [1e-13, 1e-9, MARGIN_GROUP_DB, 1e-3, 1e-1, 0.5, 1, 2]) {
+      expect(sizes(q), `group width ${q} dB`).toEqual([292])
+    }
+    // And the one setting that disagrees is the exact float the first version of this used:
+    // 2.8e-14 dB of summation order, cutting one population into three.
+    const exact = new Map<number, number>()
+    for (const r of rows) exact.set(r.margin, (exact.get(r.margin) ?? 0) + 1)
+    expect([...exact.values()].sort((a, b) => b - a)).toEqual([283, 6, 3])
+    const means = [...new Set(rows.map((r) => r.meanSinrDb))]
+    expect(Math.max(...means) - Math.min(...means)).toBeLessThan(1e-13)
+    expect(Math.max(...means) - Math.min(...means)).toBeGreaterThan(0)
+    // Every threshold in the round is the same rung, which is what makes the margin one value.
+    expect(new Set(rows.map((r) => r.threshDb)).size).toBe(1)
+  }, 300_000)
+
+  /**
+   * **The publication gate** (design §9 item 3), and it passes on measurement rather than on a
+   * model: inside one measured margin group, a member reading 4 of the 9 bins drops strictly
+   * more of its receptions than the same television reading all 9.
    *
    * The 9-bin leg is the same scene with the OFDMA capability off — `ofdma-dl`'s own `tryThis`
    * asks a reader to flip exactly that — so the two runs differ by the share and by nothing
-   * else: same floor plan, same positions, same seed, same link, and the two runs' margin
-   * groups are keyed by **the same float**, which is what "compared at equal margin" has to
-   * mean to be worth anything.
+   * else: same floor plan, same positions, same seed, same link, and both legs are read at the
+   * same margin rung, which is what "compared at equal margin" has to mean to be worth
+   * anything.
    *
-   * **Measured** (both runs 1000 ms, seed 7, downlink data receptions a television was
-   * addressed in; the group is the largest one the rule above picks, not a chosen one):
-   *
-   *   - the group sits at **3.547 dB** of margin and holds **283 of the 292** receptions — one
-   *     group, so the bimodality §7.3 warned about is absent here rather than handled;
-   *   - **4 bins: 74 of 282 member receptions fail, 26.24 %**;
-   *   - **9 bins: 25 of 138 receptions fail, 18.12 %**.
-   *
-   * The single whole-channel reception that falls inside the OFDMA-on group is kept out of the
-   * 4-bin leg by the `ruFraction` the engine wrote on it, not by hand.
+   * **Ten seeds, 1000 ms each** (`GATE_SEEDS`; seed 7 is the builder's own). Pooled:
+   * **735/2852 = 25.77 % on 4 bins against 247/1449 = 17.05 % on 9**, a difference of
+   * **8.73 pp with a standard error of 1.28, i.e. 6.80 σ**. Per seed the difference runs from
+   * 4.30 pp (seed 2) to 12.21 pp (seed 3), median 9.24 pp, and **all ten are positive** — as
+   * are all ten at 3000 ms, which is where the review found 20 of 20. The pooled figure and
+   * the median are what is asserted; ten separate single-point assertions would each be the
+   * 1.8 σ coin-flip this test exists to stop relying on.
    */
   it('drops strictly more frames on half the channel than on all of it, at equal margin', () => {
-    const on = dlRows(run(ruDiversityScenario(), RU_ROUND_NS))
-    const off = dlRows(run(ruDiversityScenario(false), RU_ROUND_NS))
-    expect(on.length).toBe(292)
-    const group = largestMarginGroup(on)
-    // The group was picked by the margins; these two lines are what it turned out to be.
-    expect(group.length).toBe(283)
-    expect(group[0]!.margin).toBeCloseTo(3.547, 3)
-    // Non-vacuous as a group: it has to be the population, not a corner of it.
-    expect(group.length / on.length).toBeGreaterThan(0.9)
+    const legs = gateSweep()
+    const table = legs.map((l) => `${l.seed}:${(100 * dropRate(l.half)).toFixed(2)}/${(100 * dropRate(l.whole)).toFixed(2)}`).join(' ')
 
-    const key = group[0]!.margin
-    const half = group.filter((r) => r.ruFraction !== undefined)
-    const whole = off.filter((r) => r.margin === key)
-    expect(half.length).toBe(282)
-    expect(new Set(half.map((r) => r.bins))).toEqual(new Set([4]))
-    expect(whole.length).toBe(138)
-    expect(new Set(whole.map((r) => r.bins))).toEqual(new Set([selBins(20)]))
-    // Both legs have to be large enough to say anything, and that floor is fixed with the rule
-    // rather than after the rates are read.
-    expect(half.length).toBeGreaterThan(100)
-    expect(whole.length).toBeGreaterThan(100)
+    for (const l of legs) {
+      // Both legs of a seed must be the same rung and big enough to say anything. These floors
+      // are part of the rule, fixed with it rather than after the rates are read.
+      expect(l.marginDb, `seed ${l.seed}`).toBeCloseTo(3.547, 3)
+      expect(new Set(l.half.map((r) => r.bins)), `seed ${l.seed}`).toEqual(new Set([4]))
+      expect(new Set(l.whole.map((r) => r.bins)), `seed ${l.seed}`).toEqual(new Set([selBins(20)]))
+      expect(l.half.length, `seed ${l.seed} half`).toBeGreaterThan(100)
+      expect(l.whole.length, `seed ${l.seed} whole`).toBeGreaterThan(100)
+      // Non-vacuous the other way: a chain of zeros would pass while measuring nothing, which
+      // is exactly how the two `ofdma` scenes failed this gate (§7.3).
+      expect(dropRate(l.whole), `seed ${l.seed} whole is zero`).toBeGreaterThan(0)
+    }
 
-    const rate = (xs: MarginRow[]): number => xs.filter((x) => x.failed).length / xs.length
-    // Non-vacuous the other way: a chain of zeros would pass while measuring nothing, which is
-    // exactly how the two `ofdma` scenes failed this gate (§7.3).
-    expect(rate(whole)).toBeGreaterThan(0)
-    // The gate.
-    expect(rate(half)).toBeGreaterThan(rate(whole))
-    // And what it is worth, to the frame.
-    expect(half.filter((x) => x.failed).length).toBe(74)
-    expect(whole.filter((x) => x.failed).length).toBe(25)
-    expect(rate(half)).toBeCloseTo(0.2624, 4)
-    expect(rate(whole)).toBeCloseTo(0.1812, 4)
+    // **The gate**, on the ten seeds pooled — one margin, one population, 6.80 σ.
+    const pool = (pick: (l: SeedLegs) => MarginRow[]): MarginRow[] => legs.flatMap(pick)
+    const half = pool((l) => l.half)
+    const whole = pool((l) => l.whole)
+    expect(half.length).toBe(2852)
+    expect(whole.length).toBe(1449)
+    expect(dropRate(half), table).toBeGreaterThan(dropRate(whole))
+    expect(dropRate(half)).toBeCloseTo(0.2577, 3)
+    expect(dropRate(whole)).toBeCloseTo(0.1705, 3)
+
+    // And on the median of the ten per-seed differences, which survives any one seed flipping.
+    const diffs = legs.map((l) => dropRate(l.half) - dropRate(l.whole)).sort((a, b) => a - b)
+    const median = diffs[Math.floor(diffs.length / 2)]!
+    expect(median, table).toBeGreaterThan(0)
+    expect(100 * median).toBeCloseTo(9.24, 1)
+
+    // Seed 7 on its own, kept as the recorded instrument the lesson's own figures came from —
+    // **not as the evidence**: this one point is 7.55 pp on a standard error of 4.18 (1.81 σ).
+    const seven = legs.find((l) => l.seed === 7)!
+    expect(seven.half.length).toBe(291)
+    expect(seven.whole.length).toBe(140)
+    expect(seven.half.filter((x) => x.failed).length).toBe(76)
+    expect(seven.whole.filter((x) => x.failed).length).toBe(26)
+    expect(dropRate(seven.half)).toBeCloseTo(0.2612, 4)
+    expect(dropRate(seven.whole)).toBeCloseTo(0.1857, 4)
   }, 300_000)
 
   /**
@@ -1329,21 +1445,21 @@ describe('selectivity, slice 4b: the ru-diversity scene and its publication gate
    * A share of 1/3 or 1/4 is unreachable here, and not for want of a third television:
    * `buildMuParts` skips a member whose head MSDU does not fit the PPDU duration cap, and at
    * MCS 0 a narrower resource unit makes that airtime longer, so a three-member group falls
-   * apart and the AP drops back to serving one station. The test above is therefore the whole
-   * real chain available on this scene — two points — and the two further shares are a
-   * counterfactual, labelled as one.
+   * apart and the AP drops back to serving one station (design §7.3.1 (d)). The test above is
+   * therefore the whole real chain available on this scene — two points — and the two further
+   * shares are a counterfactual, labelled as one.
    *
    * **What makes it worth printing is that its half-share leg is checkable**: the model runs on
-   * the same 282 receptions whose real outcome the gate above measured, so the 1/2 column has a
+   * the same 291 receptions whose real outcome the gate above measured, so the 1/2 column has a
    * measured counterpart and the model's agreement with it is asserted rather than assumed.
-   * Measured (`CF_REPS` = 200 draws per reception, seed 1):
+   * Measured (`CF_REPS` = 200 draws per reception, seed 1, seed 7's round):
    *
    * | share | bins | counterfactual | round |
    * | --- | --- | --- | --- |
-   * | whole | 9 | 17.57 % | 18.12 % (the OFDMA-off leg above) |
-   * | 1/2 | 4 | 26.82 % | 26.24 % |
-   * | 1/3 | 3 | 29.39 % | not buildable |
-   * | 1/4 | 2 | 32.89 % | not buildable |
+   * | whole | 9 | 17.93 % | 18.57 % (the OFDMA-off leg above) |
+   * | 1/2 | 4 | 26.69 % | 26.12 % |
+   * | 1/3 | 3 | 29.26 % | not buildable |
+   * | 1/4 | 2 | 32.48 % | not buildable |
    *
    * The four values are **not** pinned to three decimals, and that is deliberate: they are
    * sampling means, and this branch has already published one number that was nothing but the
@@ -1351,9 +1467,8 @@ describe('selectivity, slice 4b: the ru-diversity scene and its publication gate
    * the chain rises strictly — and the model's calibration against the round.
    */
   it('extends that chain to the shares the engine cannot build, by a model the round checks', () => {
-    const group = largestMarginGroup(dlRows(run(ruDiversityScenario(), RU_ROUND_NS)))
-    const half = group.filter((r) => r.ruFraction !== undefined)
-    expect(half.length).toBe(282)
+    const half = gateSweep().find((l) => l.seed === 7)!.half
+    expect(half.length).toBe(291)
 
     // The shares, and the bins each one reads — from the engine's own function, never a table.
     const shares = [1, 1 / 2, 1 / 3, 1 / 4]
@@ -1371,7 +1486,6 @@ describe('selectivity, slice 4b: the ru-diversity scene and its publication gate
     }
     // The calibration, and the only reason the two modelled columns are readable at all: on the
     // share this scene does build, the model and the round agree inside 2 percentage points.
-    const measured = half.filter((x) => x.failed).length / half.length
-    expect(Math.abs(rates[1]! - measured)).toBeLessThan(0.02)
+    expect(Math.abs(rates[1]! - dropRate(half))).toBeLessThan(0.02)
   }, 300_000)
 })
