@@ -129,6 +129,100 @@ export function selectivityScenario(widthMhz: ChannelWidth): Scenario {
     selectivity: {},
   }
 }
+
+/**
+ * A three-room flat whose far room is **two** brick walls from the router: the
+ * `ru-diversity` lesson's own floor plan.
+ *
+ * `longApartment` puts its far living room behind one brick wall; this plan adds a
+ * second at x = 11 and puts the two televisions beyond it. The extra wall is the
+ * whole reason the plan exists, and it is 12 dB of it (`propagation.ts`'s material
+ * table): see `ruDiversityScenario` for what those 12 dB are for.
+ */
+function twoWallFlat(): { rooms: Room[]; walls: Wall[] } {
+  return {
+    rooms: [
+      { x: 0, y: 0, w: 6, h: 8, name: 'Study' },
+      { x: 6, y: 0, w: 5, h: 8, name: 'Living room' },
+      { x: 11, y: 0, w: 5, h: 8, name: 'Bedroom' },
+    ],
+    walls: [
+      brick(0, 0, 16, 0), brick(16, 0, 16, 8), brick(16, 8, 0, 8), brick(0, 8, 0, 0),
+      brick(6, 0, 6, 8), brick(11, 0, 11, 8),
+    ],
+  }
+}
+
+/**
+ * A router and **two** televisions on one 20 MHz channel, with the fast fade on and the
+ * channel split into 26-tone-RU bins: the `ru-diversity` lesson's own scene, where a
+ * downlink multi-user PPDU carries two members and each one reads **4 of the 9 bins** it
+ * used to be credited with.
+ *
+ * Every published multi-user scene was measured and none of them can carry this lesson
+ * (design doc 2026-10-04 §7.3): the two `ofdma` scenes have 12 to 15 dB of margin, where a
+ * four-bin loss changes no outcome at all, and `mumimo(on)`'s margin is bimodal, where most
+ * of the drops have nothing to do with the bin count. The one scene the effect was clean on
+ * — `selectivity(20)` — has a single station, so the engine never splits anything in it.
+ *
+ * So this scene is `selectivityScenario`'s construction with a second member added, and
+ * four of its five departures from that construction are measurements rather than taste:
+ *
+ *  - **the two sections the schema requires together**, unchanged: Rayleigh with
+ *    `shadowSigmaDb: 0` and `selectivity: {}`. The shadow is left out for the same reason
+ *    as there — it is one offset on the whole channel — and here it does a second job: the
+ *    shadow is what made `mumimo(on)`'s margin bimodal, and the acceptance gate for this
+ *    lesson is stated *inside one measured margin group*.
+ *  - **the televisions sit two brick walls away, not one.** This is the scene's only tuned
+ *    quantity and it is tuned to the margin, which is what the lesson is read at. Measured
+ *    on this plan, seed 7, 1000 ms: the member's `meanSinrDb − threshDb` is **3.547 dB** on
+ *    291 of the 291 member receptions — one single-valued group, no bimodality to handle.
+ *    One wall instead of two leaves 15.5 dB, which is `ofdma-dl`'s useless margin again;
+ *    turning the router's power down 13 dB instead reaches the same 3.5 dB, and a crippled
+ *    router is a worse story than a far room. The 12 dB of the second wall is the engine's
+ *    own material constant (`propagation.ts`), never a number chosen here.
+ *  - **no saturating load, and that is a correction.** `mumimoScenario`'s comment above
+ *    explains that two video streams in one room never group, because the router drains
+ *    each packet before the next one lands — true there, and **false here**: at this range
+ *    the link settles at MCS 0, one video packet takes long enough that the next one is
+ *    already queued for the other television, and **346 of this scene's 347 downlink data
+ *    PPDUs carry both members** (1000 ms, seed 7). The far link is its own saturating load,
+ *    so the fourth device that scene needs is not here — which also removes the question of
+ *    whether the load would join the group and make the share 1/3 instead of 1/2.
+ *  - **MU-MIMO capability is absent, not merely unused.** This slice only changes the OFDMA
+ *    path: a MU-MIMO member spans the whole channel and carries no share at all
+ *    (`mac.ts`'s `frac = mumimo ? 1 : 1 / dsts.length`), so a scene that could choose it
+ *    would sometimes measure nothing. Absent from `features`, it cannot be negotiated.
+ *  - **20 MHz, and no power lift.** `selectivityScenario` lifts both radios by
+ *    `noiseDbm(w) − noiseDbm(20)` to hold the mean SINR across its five widths; this scene
+ *    has one width, so that lift is exactly 0 dB and is not written. 20 MHz is also the only
+ *    width where the standard's own tone table makes the truncation visible — two 106-tone
+ *    resource units cover 4 bins each and leave the middle one to nobody (design §2.3).
+ *
+ * `ofdmaOn` is the lesson's counterfactual and the acceptance gate's own control: with the
+ * capability off the two televisions are served one at a time and each reception reads all
+ * 9 bins, on the same link, at the same measured margin, so the two runs differ by the share
+ * and by nothing else. `ofdma-dl`'s `tryThis` already asks a reader to flip exactly this.
+ */
+export function ruDiversityScenario(ofdmaOn = true): Scenario {
+  const feats = { edca: true, ampdu: true, txop: true, ofdma: ofdmaOn }
+  const ap = node('ap', 'Router', 'ap', 3, 4, 'eht', 'idle', feats)
+  // Both televisions are the same distance from the router (10.5475 m, and the same two
+  // walls), so they share one mean SINR and therefore one margin — which is what lets the
+  // gate compare member receptions against whole-channel ones without a second group.
+  const tv1 = node('sta-1', 'TV 1', 'sta', 13.5, 5, 'eht', 'video', feats)
+  const tv2 = node('sta-2', 'TV 2', 'sta', 13.5, 3, 'eht', 'video', feats)
+  for (const n of [ap, tv1, tv2]) {
+    n.caps.widthMhz = 20
+    n.caps.nss = 1
+  }
+  return {
+    ...sc(twoWallFlat(), [ap, tv1, tv2]),
+    fading: { shadowSigmaDb: 0, coherenceMs: 100, smallScale: 'rayleigh' },
+    selectivity: {},
+  }
+}
+
 /**
  * A four-stream router and three two-stream phones, each pulling its own
  * video stream, in one room. A fourth device — a laptop backing up files flat

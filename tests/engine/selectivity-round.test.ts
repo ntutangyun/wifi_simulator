@@ -44,16 +44,17 @@
  */
 import { describe, it, expect, vi } from 'vitest'
 import { Simulation } from '../../src/engine/simulation'
-import { mumimoScenario, widthScenario } from '../../src/course/wifiScenes'
+import { mumimoScenario, ruDiversityScenario, widthScenario } from '../../src/course/wifiScenes'
 import { LESSONS } from '../../src/course/lessons'
 import { node } from '../../src/course/lessonKit'
-import { selRows, type SelRow } from './selectivity-pairing'
-import { selBinStart, selBins, selMemberBins } from '../../src/engine/selectivity'
+import { selRowDecoded, selRows, type SelRow } from './selectivity-pairing'
+import { selBinStart, selBins, selEffSinrDb, selMemberBins } from '../../src/engine/selectivity'
 import { FAILURES_TO_STEP_DOWN } from '../../src/engine/rate'
 import { noiseDbm } from '../../src/engine/phy'
 import { minGen } from '../../src/model/caps'
 import { ScenarioSchema } from '../../src/model/scenario'
 import type { Generation } from '../../src/model/types'
+import { smallScaleDb } from '../../src/engine/fading'
 import type { FadingCfg } from '../../src/engine/fading'
 import type { ChannelWidth } from '../../src/model/caps'
 import type { NodeCfg, Scenario } from '../../src/model/scenario'
@@ -1125,4 +1126,252 @@ describe('selectivity, slice 4b: a member reads its own resource unit', () => {
       }
     }
   })
+})
+
+/*
+ * ===========================================================================
+ * Slice 4b, Task 4: this lesson's own scene, and the gate the design doc
+ * predicted would fail.
+ *
+ * Every published multi-user scene was measured and none of them can carry
+ * the lesson (design 2026-10-04 §7.3), so the scene is new. The acceptance
+ * criterion is §9 item 3's, stated before anything here was measured and not
+ * softened afterwards: **inside one measured margin group, the drop rate
+ * rises strictly as the member's share thins.**
+ * ===========================================================================
+ */
+
+/** Long enough for the scene to put a few hundred member receptions on the record. */
+const RU_ROUND_NS = 1000 * MS
+
+/** One downlink reception of this scene, with everything the gate reads off it. */
+interface MarginRow {
+  /** `meanSinrDb − threshDb`: how much room this reception had, the way §7.3 measures it. */
+  margin: number
+  meanSinrDb: number
+  threshDb: number
+  bins: number
+  /** The share this reception read, absent when it read the whole channel. */
+  ruFraction: number | undefined
+  failed: boolean
+}
+
+/**
+ * Every downlink **data** reception a television was addressed in, with its outcome.
+ *
+ * Addressed only: an overhearer reads the whole channel off the preamble (asserted further up
+ * this file), so pooling it with the members would put two different populations under one bin
+ * count. The outcome comes from `selRowDecoded` rather than from a nearby `RX_FAIL` — the
+ * pairing file records what inferring it cost the first time.
+ */
+function dlRows(rs: TLRecord[]): MarginRow[] {
+  return selRows(rs)
+    .filter((x) => x.frame.kind === 'data' && x.sel.from === 'ap'
+      && (x.part !== undefined || x.frame.dst === x.sel.node))
+    .map((x) => ({
+      margin: x.sel.meanSinrDb - x.sel.threshDb,
+      meanSinrDb: x.sel.meanSinrDb,
+      threshDb: x.sel.threshDb,
+      bins: x.sel.bins,
+      ruFraction: x.sel.ruFraction,
+      failed: !selRowDecoded(rs, x),
+    }))
+}
+
+/**
+ * **The grouping rule, fixed here before any drop rate below is read**, and copied from the
+ * width sweep's own precedent earlier in this file: group the receptions by the margin they
+ * were measured at, take the largest group, and **name nothing** — no station, no bin count, no
+ * MCS and no bandwidth enters the selector, so the comparison cannot be tuned by choosing what
+ * to compare. The design doc named two confounds for this gate (§7.3) and this rule is what
+ * answers both: a bimodal margin would split into two groups and only the larger would be
+ * read, and a direction whose receptions settle elsewhere falls out of the group by itself.
+ *
+ * The key is the **raw float**, not a rounded one, which closes the one knob the plan's wording
+ * left open (§9 item 3 gives no group width). With the shadow off a link's mean SINR is
+ * constant and the thresholds are a discrete ladder, so the margins of one link at one MCS
+ * agree to the last bit; the handful that do not are receptions a stray collision moved, and
+ * they leave the group on their own.
+ */
+function largestMarginGroup(rows: MarginRow[]): MarginRow[] {
+  const groups = new Map<number, MarginRow[]>()
+  for (const r of rows) groups.set(r.margin, [...(groups.get(r.margin) ?? []), r])
+  return [...groups.values()].sort((a, b) => b.length - a.length)[0] ?? []
+}
+
+/** Draws per reception in the counterfactual below — its instrument, stated once. */
+const CF_REPS = 200
+
+/**
+ * **A model, not a round**, and the only way to reach the shares this scene cannot build.
+ *
+ * Each reception keeps its own measured `meanSinrDb` and `threshDb` and is decided again on
+ * `bins` freshly drawn deviations: legitimate because the bins are drawn independently of one
+ * another and of the mean (design §7.1, §3.2), and a model all the same. The draws come from
+ * the engine's own `smallScaleDb` on the same Rayleigh config rather than from a second sampler
+ * — a reimplemented distribution is the thing that drifts — keyed `(seed 1, 'cf', row|rep, bin)`,
+ * so the figure is reproducible. (This file's `vi.mock` wrapper counts these draws into
+ * `probe.binned`; the one test that reads that counter zeroes it first.)
+ */
+function cfDropRate(rows: MarginRow[], bins: number): number {
+  let below = 0
+  for (let i = 0; i < rows.length; i++) {
+    for (let rep = 0; rep < CF_REPS; rep++) {
+      const devs: number[] = []
+      for (let b = 0; b < bins; b++) {
+        devs.push(smallScaleDb(RAYLEIGH, 1, 'cf', `row${i}|rep${rep}`, 'draw', b))
+      }
+      if (selEffSinrDb(rows[i]!.meanSinrDb, devs) < rows[i]!.threshDb) below++
+    }
+  }
+  return below / (rows.length * CF_REPS)
+}
+
+describe('selectivity, slice 4b: the ru-diversity scene and its publication gate', () => {
+  /**
+   * What the scene is, before any of it is read as evidence of anything — and the half of
+   * §7.3's recipe that was a guess rather than a measurement.
+   *
+   * **Instrument for every number here**: `ruDiversityScenario()` on the builder's own seed 7,
+   * over `RU_ROUND_NS` (1000 ms), whole-run counts.
+   *
+   * `mumimoScenario`'s comment says two video streams never group, because the router drains
+   * each packet before the next one lands, and that a fourth saturating device is what gives
+   * the AP a second destination at all. **That is true there and false here**, which is why
+   * this scene has three nodes and not four: at this range the link settles at MCS 0, one video
+   * packet occupies the air long enough that the other television's is already queued, and
+   * **346 of the 347 downlink data PPDUs carry both members**. It also disposes of the question
+   * a saturating load would have raised — whether the load joins the group and makes the share
+   * 1/3 rather than 1/2 — because there is no load.
+   */
+  it('splits all but one of its downlink PPDUs in two, with no MU-MIMO anywhere', () => {
+    const rs = run(ruDiversityScenario(), RU_ROUND_NS)
+    const dlData = ofType(rs, 'TX_START').filter((r) => r.frame.kind === 'data' && r.frame.src === 'ap')
+    const mu = dlData.filter((r) => r.frame.muParts !== undefined)
+    expect(dlData.length).toBe(347)
+    expect(mu.length).toBe(346)
+    // Two members, every time: half of nine bins is 4.5, so each reads 4 and bin 8 is held by
+    // nobody — the bin Table 27-8's two 106-tone RUs leave out.
+    expect(new Set(mu.map((r) => r.frame.muParts!.length))).toEqual(new Set([2]))
+    // This slice only touches the OFDMA path, and this scene cannot wander onto the other one:
+    // MU-MIMO is absent from `features`, so it is not negotiable rather than merely unchosen.
+    expect(new Set(mu.map((r) => r.frame.muKind))).toEqual(new Set(['ofdma']))
+    const members = selRows(rs).filter((x) => x.part?.ruFraction !== undefined)
+    expect(members.length).toBeGreaterThan(200)
+    expect(new Set(members.map((x) => x.sel.ruFraction))).toEqual(new Set([1 / 2]))
+    expect(new Set(members.map((x) => x.sel.bins))).toEqual(new Set([selMemberBins(20, 1 / 2)]))
+    expect(new Set(members.map((x) => x.sel.bins))).toEqual(new Set([4]))
+    expect(new Set(members.map((x) => x.sel.binStart))).toEqual(new Set([0, 4]))
+    expect(selBins(20)).toBe(9)
+  }, 300_000)
+
+  /**
+   * **The publication gate** (design §9 item 3), and it passes on the measurement rather than
+   * on a model: inside one measured margin group, a member reading 4 of the 9 bins drops
+   * strictly more of its receptions than the same television reading all 9.
+   *
+   * The 9-bin leg is the same scene with the OFDMA capability off — `ofdma-dl`'s own `tryThis`
+   * asks a reader to flip exactly that — so the two runs differ by the share and by nothing
+   * else: same floor plan, same positions, same seed, same link, and the two runs' margin
+   * groups are keyed by **the same float**, which is what "compared at equal margin" has to
+   * mean to be worth anything.
+   *
+   * **Measured** (both runs 1000 ms, seed 7, downlink data receptions a television was
+   * addressed in; the group is the largest one the rule above picks, not a chosen one):
+   *
+   *   - the group sits at **3.547 dB** of margin and holds **283 of the 292** receptions — one
+   *     group, so the bimodality §7.3 warned about is absent here rather than handled;
+   *   - **4 bins: 74 of 282 member receptions fail, 26.24 %**;
+   *   - **9 bins: 25 of 138 receptions fail, 18.12 %**.
+   *
+   * The single whole-channel reception that falls inside the OFDMA-on group is kept out of the
+   * 4-bin leg by the `ruFraction` the engine wrote on it, not by hand.
+   */
+  it('drops strictly more frames on half the channel than on all of it, at equal margin', () => {
+    const on = dlRows(run(ruDiversityScenario(), RU_ROUND_NS))
+    const off = dlRows(run(ruDiversityScenario(false), RU_ROUND_NS))
+    expect(on.length).toBe(292)
+    const group = largestMarginGroup(on)
+    // The group was picked by the margins; these two lines are what it turned out to be.
+    expect(group.length).toBe(283)
+    expect(group[0]!.margin).toBeCloseTo(3.547, 3)
+    // Non-vacuous as a group: it has to be the population, not a corner of it.
+    expect(group.length / on.length).toBeGreaterThan(0.9)
+
+    const key = group[0]!.margin
+    const half = group.filter((r) => r.ruFraction !== undefined)
+    const whole = off.filter((r) => r.margin === key)
+    expect(half.length).toBe(282)
+    expect(new Set(half.map((r) => r.bins))).toEqual(new Set([4]))
+    expect(whole.length).toBe(138)
+    expect(new Set(whole.map((r) => r.bins))).toEqual(new Set([selBins(20)]))
+    // Both legs have to be large enough to say anything, and that floor is fixed with the rule
+    // rather than after the rates are read.
+    expect(half.length).toBeGreaterThan(100)
+    expect(whole.length).toBeGreaterThan(100)
+
+    const rate = (xs: MarginRow[]): number => xs.filter((x) => x.failed).length / xs.length
+    // Non-vacuous the other way: a chain of zeros would pass while measuring nothing, which is
+    // exactly how the two `ofdma` scenes failed this gate (§7.3).
+    expect(rate(whole)).toBeGreaterThan(0)
+    // The gate.
+    expect(rate(half)).toBeGreaterThan(rate(whole))
+    // And what it is worth, to the frame.
+    expect(half.filter((x) => x.failed).length).toBe(74)
+    expect(whole.filter((x) => x.failed).length).toBe(25)
+    expect(rate(half)).toBeCloseTo(0.2624, 4)
+    expect(rate(whole)).toBeCloseTo(0.1812, 4)
+  }, 300_000)
+
+  /**
+   * The same chain over the two shares this scene **cannot** build, and it is a model.
+   *
+   * A share of 1/3 or 1/4 is unreachable here, and not for want of a third television:
+   * `buildMuParts` skips a member whose head MSDU does not fit the PPDU duration cap, and at
+   * MCS 0 a narrower resource unit makes that airtime longer, so a three-member group falls
+   * apart and the AP drops back to serving one station. The test above is therefore the whole
+   * real chain available on this scene — two points — and the two further shares are a
+   * counterfactual, labelled as one.
+   *
+   * **What makes it worth printing is that its half-share leg is checkable**: the model runs on
+   * the same 282 receptions whose real outcome the gate above measured, so the 1/2 column has a
+   * measured counterpart and the model's agreement with it is asserted rather than assumed.
+   * Measured (`CF_REPS` = 200 draws per reception, seed 1):
+   *
+   * | share | bins | counterfactual | round |
+   * | --- | --- | --- | --- |
+   * | whole | 9 | 17.57 % | 18.12 % (the OFDMA-off leg above) |
+   * | 1/2 | 4 | 26.82 % | 26.24 % |
+   * | 1/3 | 3 | 29.39 % | not buildable |
+   * | 1/4 | 2 | 32.89 % | not buildable |
+   *
+   * The four values are **not** pinned to three decimals, and that is deliberate: they are
+   * sampling means, and this branch has already published one number that was nothing but the
+   * sampling error of a single unrecorded run (design §3.2.1). What is pinned is the claim —
+   * the chain rises strictly — and the model's calibration against the round.
+   */
+  it('extends that chain to the shares the engine cannot build, by a model the round checks', () => {
+    const group = largestMarginGroup(dlRows(run(ruDiversityScenario(), RU_ROUND_NS)))
+    const half = group.filter((r) => r.ruFraction !== undefined)
+    expect(half.length).toBe(282)
+
+    // The shares, and the bins each one reads — from the engine's own function, never a table.
+    const shares = [1, 1 / 2, 1 / 3, 1 / 4]
+    const bins = shares.map((s) => (s === 1 ? selBins(20) : selMemberBins(20, s)))
+    expect(bins).toEqual([9, 4, 3, 2])
+
+    const rates = bins.map((b) => cfDropRate(half, b))
+    // Non-vacuous: the widest share has to lose frames too, or the chain says nothing. This is
+    // the leg that is zero on `ofdma-dl`'s own scene, where the whole gate goes vacuous.
+    expect(rates[0]!).toBeGreaterThan(0.05)
+    // The chain.
+    for (let i = 1; i < rates.length; i++) {
+      expect(rates[i]!, `${bins[i]} bins against ${bins[i - 1]} bins`)
+        .toBeGreaterThan(rates[i - 1]!)
+    }
+    // The calibration, and the only reason the two modelled columns are readable at all: on the
+    // share this scene does build, the model and the round agree inside 2 percentage points.
+    const measured = half.filter((x) => x.failed).length / half.length
+    expect(Math.abs(rates[1]! - measured)).toBeLessThan(0.02)
+  }, 300_000)
 })
