@@ -545,24 +545,37 @@ export function guardIntervalToggle(gi: 'base' | 'double' | 'quad'): GuardInterv
   return gi === 'base' ? undefined : { gi }
 }
 
+/** The three radio buttons the guard-interval control draws, as the panel needs them. */
+export type GuardIntervalTier = 'base' | 'double' | 'quad'
+
 /**
- * Which of the three tiers the panel leaves live, given the plan.
+ * What each of the three tiers looks like for this plan: selectable, and selected.
  *
  * **It is not `fadingFieldsLive`'s shape, and the difference is the control's shape.** The
  * fading panel is a switch over fields and the selectivity panel is one checkbox, so for both
- * "live" is a single boolean. This is a choice among three, and the base tier is the ABSENCE of
- * the section — so "off" is one of the three options rather than a separate gesture, and it has
- * to stay reachable even from a plan the schema would refuse. Hence a flag per tier, with
- * `base` pinned live.
+ * "live" is a single boolean and nothing has to say which option is showing. This is a choice
+ * among three in which the base tier is the ABSENCE of the section — so "off" is one of the
+ * three options rather than a separate gesture, and two questions have to be answered per tier
+ * rather than one. Both live here so the panel reads them instead of re-deriving either: a
+ * greyed radio nothing holds down is half a control, and so is a radio group that could show
+ * two selections or none.
  *
- * The asymmetry is the same promise `selectivitySwitch` makes in prose: a reader who edits a
- * station down to `vht` must not be left holding an invalid plan with the only control that
- * could undo it greyed out. Here that promise is carried by `base` rather than by "the tier
- * already on", because unlike a checkbox this control can always name the way back.
+ * `base` is always live, and that asymmetry is the promise `selectivitySwitch` makes in prose:
+ * a reader who edits a station down to `vht` must not be left holding an invalid plan with the
+ * only control that could undo it greyed out. A checkbox keeps that promise by staying live on
+ * the state already chosen; this control keeps it by always being able to name the way back.
+ *
+ * **Exactly one tier is `checked`, for every plan**, including one the schema would refuse —
+ * `guardIntervalSwitch` reads an absent section as `base`, so there is no fourth state for the
+ * group to fall into.
  */
-export function guardIntervalTiersLive(sc: Scenario): { base: boolean; double: boolean; quad: boolean } {
-  const live = guardIntervalSwitch(sc).live
-  return { base: true, double: live, quad: live }
+export function guardIntervalTiers(sc: Scenario): Record<GuardIntervalTier, { live: boolean; checked: boolean }> {
+  const { gi, live } = guardIntervalSwitch(sc)
+  return {
+    base: { live: true, checked: gi === 'base' },
+    double: { live, checked: gi === 'double' },
+    quad: { live, checked: gi === 'quad' },
+  }
 }
 
 /**

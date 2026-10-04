@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   addOpening, ampTagIssue, clampField, generationPatch, guardIntervalSwitch, guardIntervalToggle,
-  guardIntervalTiersLive, hitTestNode, hitTestWall, newTag, roomsToWalls,
+  guardIntervalTiers, hitTestNode, hitTestWall, newTag, roomsToWalls,
   scenarioFromJson, scenarioToJson, spawnRandomStas, withGuardInterval,
 } from '../../src/editor/planOps'
 import { DEFAULT_AMP_AP, DEFAULT_AMP_BS, defaultScenario, guardIntervalRefusals, ScenarioSchema, type Room, type Scenario, type Wall } from '../../src/model/scenario'
@@ -313,7 +313,7 @@ describe('guardIntervalSwitch / guardIntervalToggle / withGuardInterval', () => 
  * promise `selectivitySwitch` keeps by staying live on the tier already chosen, this control
  * keeps by always being able to name the way back.
  */
-describe('guardIntervalTiersLive', () => {
+describe('guardIntervalTiers', () => {
   const ok = (): Scenario => defaultScenario()
   const noGiLink = (): Scenario => ({
     ...ok(),
@@ -323,19 +323,28 @@ describe('guardIntervalTiersLive', () => {
     }),
   })
 
+  const liveOf = (sc: Scenario) => {
+    const t = guardIntervalTiers(sc)
+    return { base: t.base.live, double: t.double.live, quad: t.quad.live }
+  }
+  const checkedOf = (sc: Scenario) => {
+    const t = guardIntervalTiers(sc)
+    return (['base', 'double', 'quad'] as const).filter((k) => t[k].checked)
+  }
+
   it('leaves all three live on a scene that can take a guard interval', () => {
-    expect(guardIntervalTiersLive(ok())).toEqual({ base: true, double: true, quad: true })
+    expect(liveOf(ok())).toEqual({ base: true, double: true, quad: true })
   })
 
   it('greys the two real tiers when no link has a GI_TYPE, and never greys the way back', () => {
-    expect(guardIntervalTiersLive(noGiLink())).toEqual({ base: true, double: false, quad: false })
+    expect(liveOf(noGiLink())).toEqual({ base: true, double: false, quad: false })
   })
 
   it('keeps every tier live on an already-invalid plan, so it can be switched back off', () => {
     // The trap `selectivitySwitch` was written for: a plan edited into a state the schema
     // refuses must not leave the reader holding it with the control gone dead.
     const stuck = { ...noGiLink(), guardInterval: { gi: 'quad' as const } }
-    expect(guardIntervalTiersLive(stuck)).toEqual({ base: true, double: true, quad: true })
+    expect(liveOf(stuck)).toEqual({ base: true, double: true, quad: true })
     // And the way back really is a plan the schema accepts.
     expect(() => ScenarioSchema.parse(withGuardInterval(stuck, guardIntervalToggle('base')))).not.toThrow()
   })
@@ -343,7 +352,30 @@ describe('guardIntervalTiersLive', () => {
   it('agrees with the switch it reads, rather than restating the rule', () => {
     for (const sc of [ok(), noGiLink(), { ...noGiLink(), guardInterval: { gi: 'double' as const } }]) {
       const live = guardIntervalSwitch(sc).live
-      expect(guardIntervalTiersLive(sc)).toEqual({ base: true, double: live, quad: live })
+      expect(liveOf(sc)).toEqual({ base: true, double: live, quad: live })
+    }
+  })
+
+  /**
+   * The other half of a radio group, and it was missing while the greying was pinned: which tier
+   * shows as selected. A group that can show two selections, or none, is as broken as one that
+   * greys the wrong row — and neither failure is visible from `live` alone.
+   */
+  it('shows exactly one tier selected, and it is the one the plan is on', () => {
+    expect(checkedOf(ok())).toEqual(['base'])
+    expect(checkedOf({ ...ok(), guardInterval: { gi: 'double' } } as Scenario)).toEqual(['double'])
+    expect(checkedOf({ ...ok(), guardInterval: { gi: 'quad' } } as Scenario)).toEqual(['quad'])
+    // Including on a plan the schema refuses — an absent section reads as `base`, so the group
+    // has no fourth state to fall into.
+    expect(checkedOf(noGiLink())).toEqual(['base'])
+    expect(checkedOf({ ...noGiLink(), guardInterval: { gi: 'quad' } } as Scenario)).toEqual(['quad'])
+  })
+
+  it('selects the tier a round trip through the toggle puts the plan on', () => {
+    for (const tier of ['base', 'double', 'quad'] as const) {
+      const sc = withGuardInterval(ok(), guardIntervalToggle(tier))
+      expect(checkedOf(sc), tier).toEqual([tier])
+      expect(guardIntervalTiers(sc)[tier].checked).toBe(true)
     }
   })
 })

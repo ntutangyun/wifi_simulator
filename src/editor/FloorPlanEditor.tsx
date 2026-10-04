@@ -17,7 +17,7 @@ import { UwbNodeFields } from '../uwb/ui/UwbNodeFields'
 import { UwbSessionFields } from '../uwb/ui/UwbSessionFields'
 import {
   addOpening, alongWall, ampTagIssue, canDeleteNode, clampField, clampSixGhzCenterMhz, fadingFieldsLive,
-  fadingSmallScalePatch, fadingToggle, generationPatch, guardIntervalSwitch, guardIntervalTiersLive,
+  fadingSmallScalePatch, fadingToggle, generationPatch, guardIntervalSwitch, guardIntervalTiers,
   guardIntervalToggle, hasAp,
   hitTestNode, hitTestScatterer, hitTestWall, moveScatterer, newAnchor, newAp, newScatterer, newTag,
   newUwbTag, parseCoherenceMs, parseRicianKdB, parseScattererNumber,
@@ -1219,9 +1219,10 @@ function GuardIntervalField(
 ) {
   const E = useStrings().editor
   const sw = guardIntervalSwitch(scenario)
-  // Which tiers are live lives in planOps, so a test can reach it: the condition is the
-  // control's whole behaviour and it was the one part of this panel nothing held down.
-  const live = guardIntervalTiersLive(scenario)
+  // Both halves of each radio's state live in planOps, so a test can reach them: which tier is
+  // selectable and which is selected are this control's whole behaviour, and a greyed radio
+  // nothing holds down is as much half a control as a group that could show two selections.
+  const tiers = guardIntervalTiers(scenario)
   const TIERS = ['base', 'double', 'quad'] as const
   return (
     <div>
@@ -1229,8 +1230,8 @@ function GuardIntervalField(
       {TIERS.map((tier) => (
         <label key={tier} style={{ display: 'block', marginBottom: 4 }} title={E.guardIntervalHint}>
           <input
-            type="radio" name="guardInterval" checked={sw.gi === tier}
-            disabled={!live[tier]}
+            type="radio" name="guardInterval" checked={tiers[tier].checked}
+            disabled={!tiers[tier].live}
             onChange={() => onChange(guardIntervalToggle(tier))}
           />
           {' '}{E.guardIntervalTiers[tier]}

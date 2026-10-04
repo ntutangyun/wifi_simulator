@@ -144,6 +144,13 @@ describe('guard interval · the standard publishes three rate columns', () => {
    * The discriminator cannot be a value, so it is the dependency: move the stored array and the
    * lookup follows it, while the formula cannot see it. The other two columns must NOT follow,
    * because those genuinely are computed.
+   *
+   * **It mutates a module-level array and restores it in `finally`** — the same technique, and the
+   * same risk surface, as the `reqSinrDb` test at the foot of this file, which moves
+   * `PHY_MODES[*].symNs`. Both are safe only because vitest gives each test FILE its own worker,
+   * so nothing else is reading `PHY_MODES` while the sentinel is in place. If this suite is ever
+   * run with tests inside a file sharing a worker concurrently, these two are what break — and
+   * they would break as flakes elsewhere, not as failures here.
    */
   it('reads the stored array for the base GI, so replacing the lookup with the formula fails here', () => {
     const saved = PHY_MODES.he.mbps.slice()
