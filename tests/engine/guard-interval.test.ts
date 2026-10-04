@@ -131,6 +131,36 @@ describe('guard interval · the standard publishes three rate columns', () => {
     expect(bad).toEqual([])
   })
 
+  /**
+   * **The base column is served by the LOOKUP, and that is a behavioural fact rather than a
+   * comment.** `mcsRateMbps`'s own doc comment says not to simplify the base branch into the
+   * one-line expression, because the lookup *guarantees* a published lesson's rate column
+   * cannot move while the expression only happens to agree. But the two agree item for item on
+   * all four modes — so swapping one for the other changes no value, passes every other
+   * assertion in this file, and leaves the comment as the only thing standing in the way.
+   * **A protection that provably changes nothing is the shape §5 of the design hunts, and this
+   * one guards the implementation rather than a configuration.**
+   *
+   * The discriminator cannot be a value, so it is the dependency: move the stored array and the
+   * lookup follows it, while the formula cannot see it. The other two columns must NOT follow,
+   * because those genuinely are computed.
+   */
+  it('reads the stored array for the base GI, so replacing the lookup with the formula fails here', () => {
+    const saved = PHY_MODES.he.mbps.slice()
+    try {
+      // A sentinel no formula could produce from N_DBPS 1950 over any of the three symbols.
+      PHY_MODES.he.mbps[11] = -1
+      expect(mcsRateMbps('he', 11), 'the base GI no longer goes through PHY_MODES[*].mbps').toBe(-1)
+      expect(mcsRateMbps('he', 11, TGI_NS.base)).toBe(-1)
+      // …and the computed columns are untouched by it.
+      expect(mcsRateMbps('he', 11, TGI_NS.double)).toBe(135.4)
+      expect(mcsRateMbps('he', 11, TGI_NS.quad)).toBe(121.9)
+    } finally {
+      PHY_MODES.he.mbps.splice(0, PHY_MODES.he.mbps.length, ...saved)
+    }
+    expect(mcsRateMbps('he', 11)).toBe(143.4)
+  })
+
   it('pins the six rates this slice prints', () => {
     expect(GI_KEYS.map((k) => mcsRateMbps('he', 11, TGI_NS[k]))).toEqual([143.4, 135.4, 121.9])
     expect(GI_KEYS.map((k) => mcsRateMbps('eht', 13, TGI_NS[k]))).toEqual([172.1, 162.5, 146.3])

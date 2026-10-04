@@ -17,7 +17,8 @@ import { UwbNodeFields } from '../uwb/ui/UwbNodeFields'
 import { UwbSessionFields } from '../uwb/ui/UwbSessionFields'
 import {
   addOpening, alongWall, ampTagIssue, canDeleteNode, clampField, clampSixGhzCenterMhz, fadingFieldsLive,
-  fadingSmallScalePatch, fadingToggle, generationPatch, guardIntervalSwitch, guardIntervalToggle, hasAp,
+  fadingSmallScalePatch, fadingToggle, generationPatch, guardIntervalSwitch, guardIntervalTiersLive,
+  guardIntervalToggle, hasAp,
   hitTestNode, hitTestScatterer, hitTestWall, moveScatterer, newAnchor, newAp, newScatterer, newTag,
   newUwbTag, parseCoherenceMs, parseRicianKdB, parseScattererNumber,
   parseShadowSigmaDb, removeNode, removeScatterer, roomsToWalls, scenarioFromJson, updateScatterer, withFading,
@@ -1218,6 +1219,9 @@ function GuardIntervalField(
 ) {
   const E = useStrings().editor
   const sw = guardIntervalSwitch(scenario)
+  // Which tiers are live lives in planOps, so a test can reach it: the condition is the
+  // control's whole behaviour and it was the one part of this panel nothing held down.
+  const live = guardIntervalTiersLive(scenario)
   const TIERS = ['base', 'double', 'quad'] as const
   return (
     <div>
@@ -1226,7 +1230,7 @@ function GuardIntervalField(
         <label key={tier} style={{ display: 'block', marginBottom: 4 }} title={E.guardIntervalHint}>
           <input
             type="radio" name="guardInterval" checked={sw.gi === tier}
-            disabled={!sw.live && tier !== 'base'}
+            disabled={!live[tier]}
             onChange={() => onChange(guardIntervalToggle(tier))}
           />
           {' '}{E.guardIntervalTiers[tier]}

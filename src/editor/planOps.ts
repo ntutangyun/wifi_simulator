@@ -546,6 +546,26 @@ export function guardIntervalToggle(gi: 'base' | 'double' | 'quad'): GuardInterv
 }
 
 /**
+ * Which of the three tiers the panel leaves live, given the plan.
+ *
+ * **It is not `fadingFieldsLive`'s shape, and the difference is the control's shape.** The
+ * fading panel is a switch over fields and the selectivity panel is one checkbox, so for both
+ * "live" is a single boolean. This is a choice among three, and the base tier is the ABSENCE of
+ * the section — so "off" is one of the three options rather than a separate gesture, and it has
+ * to stay reachable even from a plan the schema would refuse. Hence a flag per tier, with
+ * `base` pinned live.
+ *
+ * The asymmetry is the same promise `selectivitySwitch` makes in prose: a reader who edits a
+ * station down to `vht` must not be left holding an invalid plan with the only control that
+ * could undo it greyed out. Here that promise is carried by `base` rather than by "the tier
+ * already on", because unlike a checkbox this control can always name the way back.
+ */
+export function guardIntervalTiersLive(sc: Scenario): { base: boolean; double: boolean; quad: boolean } {
+  const live = guardIntervalSwitch(sc).live
+  return { base: true, double: live, quad: live }
+}
+
+/**
  * The plan carrying this guard-interval section — and, for `undefined`, carrying **no
  * `guardInterval` key at all**, for the reason `withFading` gives: the byte-identical guarantee
  * is stated as "a plan that was never here", and an explicitly-undefined key survives the

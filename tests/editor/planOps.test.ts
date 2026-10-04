@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   addOpening, ampTagIssue, clampField, generationPatch, guardIntervalSwitch, guardIntervalToggle,
-  hitTestNode, hitTestWall, newTag, roomsToWalls,
+  guardIntervalTiersLive, hitTestNode, hitTestWall, newTag, roomsToWalls,
   scenarioFromJson, scenarioToJson, spawnRandomStas, withGuardInterval,
 } from '../../src/editor/planOps'
 import { DEFAULT_AMP_AP, DEFAULT_AMP_BS, defaultScenario, guardIntervalRefusals, ScenarioSchema, type Room, type Scenario, type Wall } from '../../src/model/scenario'
@@ -298,5 +298,52 @@ describe('guardIntervalSwitch / guardIntervalToggle / withGuardInterval', () => 
     // And a round trip through the schema keeps it that way.
     expect('guardInterval' in ScenarioSchema.parse(off)).toBe(false)
     expect(ScenarioSchema.parse(on).guardInterval).toEqual({ gi: 'quad' })
+  })
+})
+
+/**
+ * Which tiers the guard-interval control leaves live — the one part of that panel nothing held
+ * down until the controller asked for it.
+ *
+ * **It is deliberately not parallel to `fadingFieldsLive` / `selectivitySwitch`, and the reason
+ * is the control's shape rather than taste.** Those two drive a switch and a checkbox, where
+ * "live" is one boolean. This drives a choice among three tiers in which the base tier IS the
+ * absence of the section, so "off" is one of the three options rather than a separate gesture.
+ * That is why `base` is pinned live here while the other two follow `guardIntervalSwitch`: the
+ * promise `selectivitySwitch` keeps by staying live on the tier already chosen, this control
+ * keeps by always being able to name the way back.
+ */
+describe('guardIntervalTiersLive', () => {
+  const ok = (): Scenario => defaultScenario()
+  const noGiLink = (): Scenario => ({
+    ...ok(),
+    nodes: ok().nodes.map((n) => {
+      const { linkId: _drop, ...rest } = n
+      return { ...rest, caps: { generation: 'vht' as const, features: {} } }
+    }),
+  })
+
+  it('leaves all three live on a scene that can take a guard interval', () => {
+    expect(guardIntervalTiersLive(ok())).toEqual({ base: true, double: true, quad: true })
+  })
+
+  it('greys the two real tiers when no link has a GI_TYPE, and never greys the way back', () => {
+    expect(guardIntervalTiersLive(noGiLink())).toEqual({ base: true, double: false, quad: false })
+  })
+
+  it('keeps every tier live on an already-invalid plan, so it can be switched back off', () => {
+    // The trap `selectivitySwitch` was written for: a plan edited into a state the schema
+    // refuses must not leave the reader holding it with the control gone dead.
+    const stuck = { ...noGiLink(), guardInterval: { gi: 'quad' as const } }
+    expect(guardIntervalTiersLive(stuck)).toEqual({ base: true, double: true, quad: true })
+    // And the way back really is a plan the schema accepts.
+    expect(() => ScenarioSchema.parse(withGuardInterval(stuck, guardIntervalToggle('base')))).not.toThrow()
+  })
+
+  it('agrees with the switch it reads, rather than restating the rule', () => {
+    for (const sc of [ok(), noGiLink(), { ...noGiLink(), guardInterval: { gi: 'double' as const } }]) {
+      const live = guardIntervalSwitch(sc).live
+      expect(guardIntervalTiersLive(sc)).toEqual({ base: true, double: live, quad: live })
+    }
   })
 })
