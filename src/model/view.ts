@@ -201,7 +201,11 @@ export interface SelView {
   meanSinrDb: number
   effSinrDb: number
   lossDb: number
+  /** Bins **this** decision read; with `ruFraction` present, the member's resource unit only. */
   bins: number
+  binStart: number
+  /** The member's share of the PPDU; absent when the whole channel was read (slice 4b). */
+  ruFraction?: number
   worstBinDb: number
   threshDb: number
 }
@@ -713,8 +717,13 @@ export function applyRecord(vs: ViewState, r: TLRecord): void {
       break
     }
     case 'WIFI_SEL': {
-      const { from, meanSinrDb, effSinrDb, lossDb, bins, worstBinDb, threshDb } = r
-      vs.nodes[r.node].lastSel = { from, meanSinrDb, effSinrDb, lossDb, bins, worstBinDb, threshDb }
+      const { from, meanSinrDb, effSinrDb, lossDb, bins, binStart, ruFraction, worstBinDb, threshDb } = r
+      // `ruFraction` is spread conditionally, so `lastSel` keeps the record's own distinction:
+      // the field is absent, not zero, when the receiver read the whole channel.
+      vs.nodes[r.node].lastSel = {
+        from, meanSinrDb, effSinrDb, lossDb, bins, binStart, worstBinDb, threshDb,
+        ...(ruFraction === undefined ? {} : { ruFraction }),
+      }
       break
     }
     default: {

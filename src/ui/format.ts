@@ -25,6 +25,20 @@ export function fmtLatency(l: LatencyStats): string {
 const AC_NAME = ['BK', 'BE', 'VI', 'VO']
 const acSuffix = (ac?: number) => (ac === undefined ? '' : ` [AC_${AC_NAME[ac]}]`)
 
+/**
+ * An OFDMA member's share of the channel, as a fraction when it is one.
+ *
+ * `mac.ts` divides evenly, so every share this engine produces is `1 / n` — and `1/3` printed
+ * as `0.33` or `33 %` reads like a measurement of something rather than one of three equal
+ * parts. The reciprocal is only used when it is whole to within floating point, so an uneven
+ * allocation (which this engine cannot build today, but the record can carry) prints as the
+ * number it is instead of being rounded into a tidy fraction.
+ */
+function fmtShare(ruFraction: number): string {
+  const n = 1 / ruFraction
+  return Math.abs(n - Math.round(n)) < 1e-9 ? `1/${Math.round(n)}` : ruFraction.toFixed(3)
+}
+
 export function fmtRecord(r: TLRecord): string {
   switch (r.type) {
     case 'INTERNAL_COLLISION': return `${r.node} internal collision: AC_${AC_NAME[r.winnerAc]} beats AC_${AC_NAME[r.loserAc]}`
@@ -76,7 +90,16 @@ export function fmtRecord(r: TLRecord): string {
     case 'AMP_BS_BOOT': return r.powered
       ? `${r.node} boots on ${r.incidentDbm.toFixed(1)} dBm of excitation`
       : `${r.node} heard a command with no wake-up preamble: no power to answer it`
-    case 'WIFI_SEL': return `${r.node} ⇠ ${r.from} selectivity: mean ${r.meanSinrDb.toFixed(1)} dB, worst bin ${r.worstBinDb.toFixed(1)} dB, effective ${r.effSinrDb.toFixed(1)} dB (loss ${r.lossDb.toFixed(1)} dB over ${r.bins} bins)`
+    case 'WIFI_SEL': {
+      // `bins` is how many bins this decision read, not how many the channel has (slice 4b), so
+      // a member's row has to say which bins and what share: "4 bins" on a 9-bin channel is
+      // otherwise indistinguishable from a defect. A whole-channel row keeps its old wording
+      // character for character — it is still the common case and still means the same thing.
+      const span = r.ruFraction === undefined
+        ? `${r.bins} bins`
+        : `bins ${r.binStart}–${r.binStart + r.bins - 1}, its ${fmtShare(r.ruFraction)} of the channel`
+      return `${r.node} ⇠ ${r.from} selectivity: mean ${r.meanSinrDb.toFixed(1)} dB, worst bin ${r.worstBinDb.toFixed(1)} dB, effective ${r.effSinrDb.toFixed(1)} dB (loss ${r.lossDb.toFixed(1)} dB over ${span})`
+    }
     // The UWB types keep their vocabulary beside the ranging engine. No count in this
     // comment: it was wrong twice as the union grew, and TS2366 on the switch below is
     // what actually holds the list complete.

@@ -122,8 +122,17 @@ export type TLRecord = { t: Ns; seq: number } & (
    * yet, and a reader clearing dead types out could have deleted the `view.ts` case on that
    * word. `fmtRecord`'s exhaustive switch would have caught the formatter half; `applyRecord`
    * now has a `default` guard so the reducer half is caught too.
+   *
+   * **`bins` is how many bins *this decision* read, not how many the channel has** (slice 4b,
+   * design 2026-10-04 §6.4). An OFDMA member is carried in one resource unit, so it reads only
+   * the bins of that unit: `binStart` says where its run begins and `ruFraction` says what
+   * share of the PPDU it holds. `ruFraction` is **absent exactly when the receiver read the
+   * whole channel** — a single-user PPDU, a MU-MIMO member (which holds the full width by
+   * construction) or a station overhearing a PPDU it is not addressed in — and that absence is
+   * the only thing that distinguishes "this member has 4 of the 9 bins" from "this 9-bin
+   * channel somehow reported 4", which is why it is in the record and not only in the engine.
    */
-  | { type: 'WIFI_SEL'; node: string; from: string; meanSinrDb: number; effSinrDb: number; lossDb: number; bins: number; worstBinDb: number; threshDb: number }
+  | { type: 'WIFI_SEL'; node: string; from: string; meanSinrDb: number; effSinrDb: number; lossDb: number; bins: number; binStart: number; ruFraction?: number; worstBinDb: number; threshDb: number }
   /** UWB ranging (src/uwb/records.ts): rounds, slots, timestamps, ranges, fixes, timeouts. */
   | UwbRecord
 )

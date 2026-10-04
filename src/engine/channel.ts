@@ -21,7 +21,7 @@ import { fadingDb, smallScaleDb, type FadingCfg } from './fading'
 import { byCodeUnit } from './hash'
 import { CCA_ED_DBM, CCA_PD_DBM, PHY_MODES, noiseDbm, reqSinrDb, sinrThreshDb } from './phy'
 import { wallLossDb } from './propagation'
-import { selBinnableGen, selBins, selEffSinrDb } from './selectivity'
+import { selBinStart, selBinnableGen, selBins, selEffSinrDb, selMemberBins } from './selectivity'
 import { wifiToUwbPathLossDb, type Emission, type Spectrum } from './spectrum'
 import {
   AMP_DL_REQ_SINR_DB,
@@ -396,8 +396,64 @@ interface SelCombined {
   meanSinrDb: number
   effSinrDb: number
   lossDb: number
+  /** How many bins **this** decision read — the member's resource unit, not the channel. */
   bins: number
+  /** Which bin that run started at; 0 whenever the whole channel was read. */
+  binStart: number
+  /** The share of the PPDU this receiver holds; absent when it read the whole channel. */
+  ruFraction?: number
   worstBinDb: number
+}
+
+/**
+ * This receiver's own share of a multi-user PPDU: the fraction it holds, its index among the
+ * members, and every member's fraction in `muParts` order — or `undefined` when it is reading
+ * the whole channel. `standard §27.3.2.2` for the resource unit; the share itself is `model`
+ * (`mac.ts` divides evenly).
+ *
+ * Three receivers legitimately read the whole channel, and none of them is an omission:
+ *
+ *   - a **single-user** PPDU has no `muParts` at all;
+ *   - a **MU-MIMO** member has no `ruFraction` — `mac.ts`'s `frac = mumimo ? 1 : 1 / n` gives
+ *     it the full width at its own stream count, which is also what the standard says of a
+ *     PPDU whose RU spans the whole bandwidth. This is why slice 4b needs no `muKind` branch
+ *     anywhere and changes no MU-MIMO number (design 2026-10-04 §4.5.4, §8 item 1);
+ *   - a station **overhearing** a PPDU it is not addressed in is decoding the preamble, which
+ *     spans the whole bandwidth — the same thing `decodeThreshDb` says of it by holding it to
+ *     the robust header's threshold rather than to any member's MCS.
+ *
+ * The share is read from `ruFraction`, never counted off `muParts.length` (design §4.5.4): the
+ * member count and the share are two different facts the moment anything allocates unevenly,
+ * and only one of them is on the member.
+ *
+ * **Uplink is not here yet, and this is where it lands.** A trigger-based PPDU is the station's
+ * own single-user frame with no `muParts` at all — `respondToTrigger` computes `frac = 1 / n`
+ * from the Trigger and keeps it local (mac.ts) — so today it takes the whole-channel branch.
+ * Task 3 of this slice puts `ruFraction` on `FrameDesc` itself, read from the Trigger's Common
+ * Info (standard §9.3.1.22.1), and it is read *here*: a second branch in this function, not a
+ * second caller. Three different fields are spelled `ruFraction` and they are not
+ * interchangeable — `MuPart.ruFraction` (a downlink member's share, the one read below),
+ * `FrameDesc.ruFraction` (an uplink station's own share, Task 3) and `WIFI_SEL.ruFraction`
+ * (what this function returned, written to the record).
+ */
+interface MemberShare { ruFraction: number; fractions: number[]; idx: number }
+
+function muMemberShare(frame: FrameDesc, rid: string): MemberShare | undefined {
+  // Only a multi-user *data* PPDU is split per user — the same rule `decodeThreshDb` applies
+  // just below: a Trigger or an M-BA carries per-user scheduling information but is itself one
+  // non-HT frame, and `isOfdmWifiPpdu` has already refused those.
+  if (frame.kind !== 'data' || frame.muParts === undefined) return undefined
+  const idx = frame.muParts.findIndex((p) => p.dst === rid)
+  if (idx < 0) return undefined
+  const ruFraction = frame.muParts[idx].ruFraction
+  if (ruFraction === undefined) return undefined
+  // `?? 1` is `MuPart.ruFraction`'s own documented meaning ("absent means the whole width"),
+  // not a fallback: a PPDU mixing members that hold a share with members that hold the whole
+  // width is MU-MIMO within OFDMA, which this engine cannot build (`buildMuParts` takes a
+  // boolean, so `muKind` is one or the other). Reading the shareless ones as the whole width is
+  // what makes such a PPDU overflow the channel and trip the gate in `selCombine`, instead of
+  // silently overlapping two members' runs.
+  return { ruFraction, idx, fractions: frame.muParts.map((p) => p.ruFraction ?? 1) }
 }
 
 /** Decode SINR threshold for a frame as seen by receiver rid. */
@@ -843,11 +899,15 @@ export class Channel {
    *
    * What it computes (design doc §3.1 to §3.3):
    *
-   * - **the bins** from the PPDU's own width, by the standard's own arithmetic
-   *   (`selBins` = 9 per 20 MHz, §9.4.1.75) — 9 for a 20 MHz ACK, 72 for a 160 MHz data PPDU.
-   *   A multi-user member gets the bins of the *whole* channel rather than of its own resource
-   *   unit, which overestimates its frequency diversity; that is this slice's known limit
-   *   (design §6 item 4, slice 4b), asserted as it stands rather than quietly corrected.
+   * - **the bins** — how many this decision reads, and *which* ones. The channel's own count
+   *   comes from the PPDU's width by the standard's own arithmetic (`selBins` = 9 per 20 MHz,
+   *   standard be §9.4.1.75): 9 for a 20 MHz PPDU, 72 for a 160 MHz one. An **OFDMA member
+   *   reads only its own resource unit** — `selMemberBins` of its own `ruFraction`, beginning
+   *   at `selBinStart` — because that is the only part of the channel its data is carried in.
+   *   Until slice 4b every member was credited with the whole channel's diversity, i.e.
+   *   over-counted by exactly the member count (design 2026-10-04 §6.2). `WIFI_SEL.ruFraction`
+   *   is what tells a reader which of the two a given `bins` is, and `muMemberShare` above
+   *   lists the three receivers that still read the whole channel on purpose.
    * - **the mean** by taking this frame's flat fast fade back *out* of the level the lock was
    *   acquired at. `rxDbm` carries it (via `linkDbm`), and the per-bin draws replace it rather
    *   than stack on it: a frequency-selective channel's per-bin deviations are the fast layer,
@@ -873,24 +933,58 @@ export class Channel {
     const f = this.fading
     if (f === undefined || f.selective !== true) return null
     if (!isOfdmWifiPpdu(lock.frame)) return null
-    const bins = selBins(lock.frame.widthMhz ?? DEFAULT_WIDTH_MHZ)
+    const widthMhz = lock.frame.widthMhz ?? DEFAULT_WIDTH_MHZ
+    const full = selBins(widthMhz)
+    const share = muMemberShare(lock.frame, rid)
+    const bins = share === undefined ? full : selMemberBins(widthMhz, share.ruFraction)
+    const start = share === undefined ? 0 : selBinStart(widthMhz, share.fractions, share.idx)
     if (!Number.isInteger(bins) || bins < 1) {
       // A loud floor under a programming error, not a runtime case: `widthMhz` comes from
-      // `ChannelWidth` (20/40/80/160/320), every one of which divides into whole 26-tone RUs.
-      // Left alone, a fractional count would silently truncate the bin loop and record a
-      // non-integer `bins`.
-      throw new Error(`channel: ${lock.frame.widthMhz} MHz is not a whole number of 26-tone RUs`)
+      // `ChannelWidth` (20/40/80/160/320), every one of which divides into a whole number of
+      // *reportable* 26-tone RUs (design 2026-10-04 §0.3 — reportable, not HE's physical
+      // count, which is 37 rather than 36 at 80 MHz), and `selMemberBins` returns a whole
+      // number of them by construction. Left alone, a fractional count would silently truncate
+      // the bin loop and record a non-integer `bins`.
+      throw new Error(
+        `channel: ${bins} is not a whole number of reportable 26-tone RUs `
+        + `(${widthMhz} MHz, share ${share === undefined ? 'whole channel' : share.ruFraction})`,
+      )
+    }
+    if (start + bins > full) {
+      // This is slice 4b's real new gate, and the reason the shares are read off the members
+      // rather than counted: members take consecutive runs, so the last run passing the
+      // channel edge *is* the shares of this one transmission summing past the whole channel.
+      //
+      // **Deliberately not "these shares are wrong".** Shares summing past 1 has a second and
+      // perfectly legitimate cause: under MU-MIMO within OFDMA several members share one
+      // resource unit and every one of their shares is correct (design §4.5.2, §4.5.6). That
+      // overlay is the thing this engine does not build — `buildMuParts` takes a boolean, so
+      // `muKind` is one or the other — and that exclusivity is the premise this gate holds
+      // under. The day it fires is the day the overlay was built, and then what needs changing
+      // is this slice, not this check.
+      const shares = (lock.frame.muParts ?? [])
+        .map((p) => p.ruFraction ?? 'whole channel').join(', ')
+      throw new Error(
+        `channel: ${rid} <- ${lock.from}: bins ${start}..${start + bins - 1} leave the ${full} `
+        + `bins of this ${widthMhz} MHz PPDU — the shares of this transmission sum past the `
+        + `whole channel, and this engine does not model MU-MIMO within OFDMA `
+        + `(muKind ${lock.frame.muKind}, ruFraction [${shares}], `
+        + `${lock.frame.muParts?.length} members)`,
+      )
     }
     const flatFadeDb = smallScaleDb(f.cfg, f.seed, lock.from, rid, lock.fadeKey)
     const devsDb: number[] = []
-    for (let bin = 0; bin < bins; bin++) {
+    for (let bin = start; bin < start + bins; bin++) {
       devsDb.push(smallScaleDb(f.cfg, f.seed, lock.from, rid, lock.fadeKey, bin))
     }
     const meanSinrDb = lock.rxDbm - flatFadeDb - dbm(lock.maxInterfMw)
     const effSinrDb = selEffSinrDb(meanSinrDb, devsDb)
     return {
-      meanSinrDb, effSinrDb, lossDb: meanSinrDb - effSinrDb, bins,
+      meanSinrDb, effSinrDb, lossDb: meanSinrDb - effSinrDb, bins, binStart: start,
       worstBinDb: Math.min(...devsDb),
+      // Absent, not zero or one, when the whole channel was read: the record's own way of
+      // saying "this `bins` is the channel's count", which is what `bins` alone used to mean.
+      ...(share === undefined ? {} : { ruFraction: share.ruFraction }),
     }
   }
 

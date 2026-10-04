@@ -38,18 +38,27 @@
  * | `shadowDb`: key the slow layer by `tNs` rather than by the interval index | **S only** | — |
  * | `selCombine`: `worstBinDb` from `Math.max` instead of `Math.min` | M ×2 | Task 4 ×2 |
  * | delete the AMP carve-out (`isOfdmWifiPpdu` → `true`) | **none** | Task 4's AMP stream — which is why that item is not re-proved here |
- * | `selCombine`: take the bins from the member's own `ruFraction` | **U only** | — |
+ * | `selCombine`: give a member the whole PPDU's bins again, as before slice 4b | **U only** | slice 4b's round tests ×3 |
  *
  * Every test here is killed by at least one mutation and no mutation killed nothing, so there is
  * no tautology to delete this time. Two are the only thing on the branch that holds its line:
  * the shadow test for the slow layer's interval keying, and the MU test for the bin count —
- * which is also the test slice 4b will have to *change* rather than keep, since the mutation that
- * kills it is exactly 4b's intended fix.
+ * and that MU test is the one slice 4b **changed** rather than kept. 4a wrote this table's last
+ * row as "take the bins from the member's own `ruFraction`", because that mutation was 4b's
+ * intended fix and killing the test was how 4a knew the test was load-bearing. 4b made that
+ * mutation the engine's rule, so the row is now its inverse: what kills U today is putting the
+ * member back on the whole channel. That row **was** re-measured the same way (one line of
+ * `selCombine` forced to the whole-channel share, the three selectivity files plus
+ * `tests/model/view.test.ts` run, then the file restored from a byte copy and `git diff`
+ * confirmed to carry only this slice's own change and not the mutation):
+ * U dies here, three of slice 4b's four round tests die there, and the fourth — the
+ * MU-MIMO one — survives, which is what makes it an assertion that nothing moved rather than a
+ * second copy of the others.
  */
 import { describe, it, expect } from 'vitest'
 import { Simulation } from '../../src/engine/simulation'
 import { mumimoScenario, widthScenario } from '../../src/course/wifiScenes'
-import { selBins } from '../../src/engine/selectivity'
+import { selBins, selMemberBins } from '../../src/engine/selectivity'
 import { noiseDbm } from '../../src/engine/phy'
 import { RICIAN_K_DEFAULT_DB, type FadingCfg } from '../../src/engine/fading'
 import type { ChannelWidth } from '../../src/model/caps'
@@ -390,35 +399,39 @@ describe('selectivity §6 item 3: twenty megahertz is the most affected width, n
   }, 600_000)
 })
 
-describe('selectivity §6 item 4: a multi-user member gets the whole channel’s bins', () => {
+describe('selectivity, slice 4b: a multi-user member gets its own resource unit’s bins', () => {
   /**
-   * **An overestimated quantity asserted as it stands, rather than taken for correct.**
+   * **4a asserted an overestimate; this is what 4b replaced that assertion with.**
    *
    * An OFDMA member physically occupies its own resource unit, not the channel: this engine's
    * scheduler gives each of three members `ruFraction = 1/3` (`buildMuParts` in mac.ts), and the
-   * standard's smallest resource unit — 26 tones — **is one bin** (`selectivity.ts`). So a
-   * member's own frequency diversity is a third of the channel's at best and a single bin at
-   * worst, while `selCombine` keys the bin count off the PPDU's width and hands it all 72. Its
-   * diversity is therefore overestimated by exactly `1 / ruFraction`, and the loss it is charged
-   * is smaller than the loss its own resource unit would produce.
+   * standard's smallest resource unit — 26 tones — **is one bin** (`selectivity.ts`). Until
+   * slice 4b `selCombine` keyed the bin count off the PPDU's width and handed a member all 72,
+   * overestimating its frequency diversity by exactly `1 / ruFraction` and charging it a smaller
+   * loss than its own resource unit produces. 4a could not fix that and so asserted it instead,
+   * leaving this note: "this is the one test in this file that slice 4b must change rather than
+   * keep", with `selBins(widthMhz × ruFraction)` named as the value that would replace it.
    *
-   * Building the per-RU version is slice 4b (§7.1), not this one. What this test does is make the
-   * present number **impossible to mistake for the right one**: it asserts the overestimate, its
-   * size, and the figure the per-RU model would have to produce instead.
-   *
-   * So this is the one test in this file that slice 4b must **change** rather than keep: taking
-   * the bin count from the member's own `ruFraction` is the mutation that kills it, and that
-   * mutation is 4b's intended fix. When it lands, `selBins(widthMhz × ruFraction)` becomes the
-   * expected value and this comment is the record of what the number used to be.
+   * **On this scene that prediction is exactly right, and it is still not the engine's rule.**
+   * 160 MHz over three members is 24 whole bins, so nothing is truncated here. The engine's
+   * value is `selMemberBins(widthMhz, ruFraction)` — the same product, floored — and the two
+   * part company on the three (bandwidth, member count) combinations where a share is not a
+   * whole number of bins: 20 MHz over two or four members, and 40 MHz over four (design
+   * 2026-10-04 §2.1, §2.3, measured against Table 27-8 / Table 27-9). This scene is not one of
+   * them, and the test says both things: the engine's value, and that 4a's prediction coincides
+   * with it here *because* the division came out whole.
    */
-  it('reports selBins(whole width) for a member whose resource unit is a fraction of it', () => {
+  it('reports the member’s own bins, from its own share, with nothing truncated on this scene', () => {
     const base = mumimoScenario(false)
     const rs = run({ ...base, fading: RAYLEIGH, selectivity: {} }, 80 * MS)
 
-    // `WIFI_SEL` carries no `ruFraction`, so the member's share is read off the frame of the
-    // outcome that follows it: `resolveLock` emits the combining record immediately before the
+    // `WIFI_SEL` now carries `ruFraction` and `binStart` of its own, but the frame is still
+    // read off the outcome that follows: what is under test is that the record agrees with the
+    // PPDU it judged. `resolveLock` emits the combining record immediately before the
     // RX_OK/RX_FAIL for the same (node, from) at the same instant.
-    const members: { bins: number; widthMhz: number; frac: number }[] = []
+    const members: {
+      bins: number; binStart: number; widthMhz: number; frac: number; recorded: number | undefined
+    }[] = []
     for (let i = 0; i < rs.length; i++) {
       const sel = rs[i]
       if (sel.type !== 'WIFI_SEL') continue
@@ -428,23 +441,51 @@ describe('selectivity §6 item 4: a multi-user member gets the whole channel’s
       if (outcome?.type !== 'RX_OK' || outcome.frame.muKind !== 'ofdma') continue
       const part = outcome.frame.muParts?.find((p) => p.dst === sel.node)
       if (part?.ruFraction === undefined) continue // an overhearer, not a member of this PPDU
-      members.push({ bins: sel.bins, widthMhz: outcome.frame.widthMhz ?? 20, frac: part.ruFraction })
+      members.push({
+        bins: sel.bins, binStart: sel.binStart, widthMhz: outcome.frame.widthMhz ?? 20,
+        frac: part.ruFraction, recorded: sel.ruFraction,
+      })
     }
 
     // Non-vacuous: the scene really does group, and often enough to measure.
     expect(members.length).toBeGreaterThan(20)
     for (const m of members) {
       expect(m.frac).toBeLessThan(1)
-      // What it reports: the whole channel's bins, by the standard's own arithmetic.
-      expect(m.bins).toBe(selBins(m.widthMhz))
-      // What its own resource unit would give, and the factor between them — which is the size
-      // of the overestimate, computed from the member's own share rather than written down.
-      expect(m.bins).toBeGreaterThan(selBins(m.widthMhz * m.frac))
-      expect(m.bins * m.frac).toBeCloseTo(selBins(m.widthMhz * m.frac), 9)
-      // And the floor of the per-RU model: the standard's smallest RU is one bin, so a member
-      // could be entitled to as little as one.
-      expect(selBins(m.widthMhz * m.frac)).toBeGreaterThanOrEqual(1)
+      // The record states the share it used, which is what makes `bins` readable at all: 24 on
+      // a 72-bin channel is a member's resource unit, not a 72-bin channel reporting 24.
+      expect(m.recorded).toBe(m.frac)
+      // What it reports now: the member's own bins, computed from the member's own share.
+      expect(m.bins).toBe(selMemberBins(m.widthMhz, m.frac))
+      expect(m.bins).toBeLessThan(selBins(m.widthMhz))
+      // The overestimate 4a asserted, stated as the factor that is now gone.
+      expect(selBins(m.widthMhz) / m.bins).toBeCloseTo(1 / m.frac, 9)
+      // Nothing is truncated on this scene: the share divides the bin count whole, so the
+      // engine's floor does nothing here and 4a's arithmetic agrees with it — but only in the
+      // order `selMemberBins` uses. See the two lines after this loop.
+      expect(selBins(m.widthMhz) * m.frac).toBe(m.bins)
+      expect(Number.isInteger(selBins(m.widthMhz) * m.frac)).toBe(true)
+      // The run stays inside the channel — the gate `selCombine` throws on.
+      expect(m.binStart).toBeGreaterThanOrEqual(0)
+      expect(m.binStart + m.bins).toBeLessThanOrEqual(selBins(m.widthMhz))
     }
+
+    /*
+     * **4a's predicted replacement value is off by a bin, and the difference is the order of
+     * two multiplications.** 4a named `selBins(widthMhz × ruFraction)`; `selMemberBins`
+     * computes `selBins(widthMhz) × ruFraction`, floored. In exact arithmetic those are the
+     * same product. In doubles they are not: scaling the *width* by 1/3 first gives
+     * 53.333… MHz, and 9 × that / 20 lands just under 24, so flooring it yields **23** — one
+     * bin fewer than the member actually holds, on the very scene 4a was looking at. Scaling
+     * the *bin count* instead keeps the division exact, which is what Task 1 measured across
+     * all five widths for the n = 3 column.
+     *
+     * This is pinned rather than described because it is the one way this slice could have
+     * shipped an off-by-one that no round-level assertion would have noticed: 23 bins is a
+     * perfectly plausible number.
+     */
+    expect(selBins(160 * (1 / 3))).toBeLessThan(24)
+    expect(Math.floor(selBins(160 * (1 / 3)))).toBe(23)
+    expect(selMemberBins(160, 1 / 3)).toBe(24)
   }, 120_000)
 })
 

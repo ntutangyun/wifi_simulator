@@ -44,8 +44,10 @@
  */
 import { describe, it, expect, vi } from 'vitest'
 import { Simulation } from '../../src/engine/simulation'
-import { widthScenario } from '../../src/course/wifiScenes'
-import { selBins } from '../../src/engine/selectivity'
+// `sc` is aliased: this file already uses `sc` as a local name for a scenario value.
+import { mumimoScenario, oneRoom, sc as sceneIn, widthScenario } from '../../src/course/wifiScenes'
+import { node } from '../../src/course/lessonKit'
+import { selBinStart, selBins, selMemberBins } from '../../src/engine/selectivity'
 import { FAILURES_TO_STEP_DOWN } from '../../src/engine/rate'
 import { noiseDbm } from '../../src/engine/phy'
 import { minGen } from '../../src/model/caps'
@@ -55,6 +57,7 @@ import type { FadingCfg } from '../../src/engine/fading'
 import type { ChannelWidth } from '../../src/model/caps'
 import type { NodeCfg, Scenario } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
+import type { FrameDesc, MuPart } from '../../src/model/frames'
 import { bsScenario, bsTag } from './amp-bs-helpers'
 
 /**
@@ -590,5 +593,212 @@ describe('selectivity: the section absent takes no per-bin draw at all', () => {
     expect(probe.binned).toBeGreaterThan(0)
     probe.link = 0
     probe.binned = 0
+  })
+})
+
+/*
+ * ===========================================================================
+ * Slice 4b: an OFDMA member reads its own resource unit, not the whole PPDU.
+ *
+ * 4a binned the channel and gave every receiver all of its bins. An OFDMA
+ * member's data is carried in one resource unit, so its frequency diversity
+ * was over-counted by exactly the member count. The four tests below are the
+ * whole observable content of the correction, and three of the four exist
+ * because the obvious assertion in their place would have been empty
+ * (design doc 2026-10-04 §8).
+ * ===========================================================================
+ */
+
+/** One `WIFI_SEL` row with the PPDU it judged, and this receiver's own part of it. */
+interface SelRow {
+  sel: Extract<TLRecord, { type: 'WIFI_SEL' }>
+  frame: FrameDesc
+  /** This receiver's member entry, absent when it is not addressed in the PPDU. */
+  part: MuPart | undefined
+}
+
+/**
+ * Every `WIFI_SEL` of a run, paired with the PPDU it was the decision on.
+ *
+ * `WIFI_SEL` carries `node` and `from` but not the frame, so the pairing comes from the
+ * `RX_START` that opened the same lock: `acquireLock` emits it with the frame, `resolveLock`
+ * finds the lock back by `from`, and a receiver holds at most one lock per sender at a time —
+ * so the last `RX_START` for a (node, from) pair is the frame this row judged. The `expect`
+ * inside is what makes that an assertion rather than an assumption.
+ */
+function selRows(rs: TLRecord[]): SelRow[] {
+  const open = new Map<string, FrameDesc>()
+  const out: SelRow[] = []
+  for (const r of rs) {
+    if (r.type === 'RX_START') open.set(`${r.node}|${r.from}`, r.frame)
+    if (r.type !== 'WIFI_SEL') continue
+    const frame = open.get(`${r.node}|${r.from}`)
+    expect(frame, `WIFI_SEL with no RX_START before it: ${r.node} <- ${r.from}`).toBeDefined()
+    out.push({ sel: r, frame: frame!, part: frame!.muParts?.find((p) => p.dst === r.node) })
+  }
+  return out
+}
+
+/**
+ * The `ofdma-dl` lesson's own scene with the two sections that turn this feature on — three
+ * Wi-Fi 6 TVs on one 20 MHz channel, so a two-member PPDU asks for 4.5 bins and gets 4 of 9.
+ *
+ * Built here rather than imported from the lesson because the lesson's published scene has
+ * neither section, and must not get them: no recorded hash may move in this slice (§5.1). The
+ * node list is the lesson's, character for character.
+ */
+function ofdmaDlScene(shadowSigmaDb = 0): Scenario {
+  return sceneIn(oneRoom(), [
+    node('ap', 'AP', 'ap', 5, 4, 'eht', 'idle'),
+    node('sta-1', 'TV 1', 'sta', 3, 5.5, 'he', 'video'),
+    node('sta-2', 'TV 2', 'sta', 5, 6.5, 'he', 'video'),
+    node('sta-3', 'TV 3', 'sta', 7, 5.5, 'he', 'video'),
+  ], { fading: { ...RAYLEIGH, shadowSigmaDb }, selectivity: {} })
+}
+
+/** The MU-MIMO lesson's scene with the same two sections: 160 MHz, two-stream phones. */
+const mumimoSelScene = (): Scenario =>
+  ({ ...mumimoScenario(true), fading: RAYLEIGH, selectivity: {} })
+
+/** Long enough for both scenes to group hundreds of multi-user PPDUs. */
+const MU_ROUND_NS = 1000 * MS
+
+describe('selectivity, slice 4b: a member reads its own resource unit', () => {
+  /**
+   * §8 item 1. MU-MIMO is where this slice's wording ("multi-user") promises more than it
+   * delivers, and the promise is kept by the *engine*, not by this slice: a MU-MIMO member
+   * carries no `ruFraction` at all (`mac.ts`'s `frac = mumimo ? 1 : 1 / dsts.length`), so it
+   * takes the whole-channel branch and `channel.ts` needs no `muKind` test anywhere. That is
+   * a match with the standard rather than a shortcut — this engine's MU-MIMO PPDU does span
+   * the whole bandwidth — but it has to be *asserted*, not left alone, or "multi-user" looks
+   * covered when half of it was never touched.
+   */
+  it('leaves a MU-MIMO member on the whole channel, with no share recorded', () => {
+    const rows = selRows(run(mumimoSelScene(), MU_ROUND_NS))
+    const mumimo = rows.filter((x) => x.frame.muKind === 'mumimo')
+    // Measured on the engine as it stood before this slice (931c915): every one of these rows
+    // read all 72 bins of the 160 MHz channel, and this slice must leave every one there.
+    expect(mumimo.length).toBe(2022)
+    expect(new Set(mumimo.map((x) => x.sel.bins))).toEqual(new Set([selBins(160)]))
+    for (const x of mumimo) {
+      expect(x.part?.ruFraction).toBeUndefined() // the reason it is untouched
+      expect(x.sel.bins).toBe(72)
+      expect(x.sel.binStart).toBe(0)
+      expect('ruFraction' in x.sel).toBe(false)
+    }
+  })
+
+  /**
+   * §8 item 2: measured, and nothing follows. `ofdma-dl`'s own scene has far more margin than
+   * a four-bin loss can spend, so the correction is visible in every member's record and in no
+   * decode outcome at all. Both pinned counts were measured on the pre-change engine, where
+   * these same members read nine bins — they are the "same as the nine-bin round" half of the
+   * claim, and the reason this test is not merely "the feature now does something".
+   */
+  it('gives a two-member OFDMA PPDU four of the nine bins, and moves no outcome', () => {
+    const rs = run(ofdmaDlScene(), MU_ROUND_NS)
+    const rows = selRows(rs)
+    const full = selBins(20)
+    expect(full).toBe(9)
+
+    const ofdma = rows.filter((x) => x.frame.muKind === 'ofdma')
+    const members = ofdma.filter((x) => x.part !== undefined)
+    const overhearers = ofdma.filter((x) => x.part === undefined)
+    expect(members.length).toBe(341)
+    expect(overhearers.length).toBe(169)
+
+    for (const x of members) {
+      const n = x.frame.muParts!.length
+      expect(x.sel.ruFraction).toBeCloseTo(1 / n, 12)
+      expect(x.sel.bins).toBe(selMemberBins(20, 1 / n))
+      expect(x.sel.bins).toBeLessThan(full)
+    }
+    // Both member counts this scene builds, and what each one reads: 1/2 -> 4.5 -> 4 bins,
+    // 1/3 -> 3 bins exactly. The three-member PPDU is rare here (a second queue has to be
+    // non-empty at the same instant) but it does occur, so both rows are measured.
+    expect(new Set(members.map((x) => x.frame.muParts!.length))).toEqual(new Set([2, 3]))
+    expect(new Set(members.filter((x) => x.frame.muParts!.length === 2).map((x) => x.sel.bins)))
+      .toEqual(new Set([4]))
+    expect(new Set(members.filter((x) => x.frame.muParts!.length === 3).map((x) => x.sel.bins)))
+      .toEqual(new Set([3]))
+
+    // A station overhearing a PPDU it is not addressed in reads the whole channel, and that is
+    // not an omission: it is decoding the preamble, which spans the whole bandwidth — the same
+    // thing `decodeThreshDb` says of it by holding it to the robust header's threshold.
+    for (const x of overhearers) {
+      expect(x.sel.bins).toBe(full)
+      expect(x.sel.binStart).toBe(0)
+      expect('ruFraction' in x.sel).toBe(false)
+    }
+    // Single-user receptions are untouched, and they are most of this scene's traffic.
+    const su = rows.filter((x) => x.frame.muParts === undefined)
+    expect(su.length).toBe(9595)
+    expect(new Set(su.map((x) => x.sel.bins))).toEqual(new Set([full]))
+    for (const x of su) expect('ruFraction' in x.sel).toBe(false)
+
+    // The outcome half: identical to the nine-bin round, to the frame.
+    expect(lowSinrFails(rs)).toBe(10)
+    expect(dataTxCount(rs)).toBe(3369)
+  })
+
+  /*
+   * §8 item 4, at the level the records are read. The assertion this slice invites — "two
+   * members land on different bins" — would pass and prove only that two integers are
+   * unequal: bins are drawn independently of one another and two members are independent
+   * draws regardless (the fading key carries the receiver id), so *where* a member sits has no
+   * effect on its distribution. Measured over all six four-bin windows of a nine-bin channel
+   * the effective SINR agrees to within 0.02 dB. So there are exactly two assertions here and
+   * there is no third one to write: determinism, and runs that tile the channel without
+   * leaving it. Position becomes physical in the slice that gives adjacent bins a correlation;
+   * until then this comment is the record of what the obvious third test would have been
+   * worth.
+   */
+  it('places every member inside the channel, and places it there again on a rerun', () => {
+    const a = selRows(run(ofdmaDlScene(), MU_ROUND_NS))
+    const b = selRows(run(ofdmaDlScene(), MU_ROUND_NS))
+    expect(a.length).toBe(b.length)
+    expect(a.length).toBeGreaterThan(1000)
+    for (let i = 0; i < a.length; i++) {
+      expect([a[i]!.sel.binStart, a[i]!.sel.bins, a[i]!.sel.ruFraction])
+        .toEqual([b[i]!.sel.binStart, b[i]!.sel.bins, b[i]!.sel.ruFraction])
+    }
+    for (const x of a) {
+      const width = x.frame.widthMhz ?? 20
+      expect(Number.isInteger(x.sel.binStart)).toBe(true)
+      expect(x.sel.binStart).toBeGreaterThanOrEqual(0)
+      expect(x.sel.binStart + x.sel.bins).toBeLessThanOrEqual(selBins(width))
+      if (x.part?.ruFraction === undefined) continue
+      // The runs are consecutive in `muParts` order, which is what makes them disjoint: this
+      // member's start is the bins of every member before it, and nothing else.
+      const parts = x.frame.muParts!
+      expect(x.sel.binStart)
+        .toBe(selBinStart(width, parts.map((p) => p.ruFraction ?? 1), parts.indexOf(x.part)))
+    }
+    // Two members of a 20 MHz PPDU take bins 0-3 and 4-7, so bin 8 is held by nobody — the
+    // very bin Table 27-8's two 106-tone RUs leave out.
+    const twos = a.filter((x) => x.part?.ruFraction !== undefined && x.frame.muParts!.length === 2)
+    expect(new Set(twos.map((x) => x.sel.binStart))).toEqual(new Set([0, 4]))
+  })
+
+  /**
+   * Both layers still move, and neither eats the other: the shadow is slow and flat across the
+   * channel, the member's share is a frequency fact with no time in it. So in one run the same
+   * member's `meanSinrDb` steps between coherence intervals while its `bins` never moves.
+   * No count is pinned here: with shadowing on, the deeper per-member loss does change decode
+   * outcomes, so this timeline legitimately differs from the pre-change one.
+   */
+  it('moves the mean with the shadow while the member’s bin count holds all round', () => {
+    const rows = selRows(run(ofdmaDlScene(6), MU_ROUND_NS))
+      .filter((x) => x.part?.ruFraction !== undefined && x.frame.muParts!.length === 2)
+    const byNode = new Map<string, SelRow[]>()
+    for (const x of rows) byNode.set(x.sel.node, [...(byNode.get(x.sel.node) ?? []), x])
+    expect(byNode.size).toBe(3)
+    for (const [id, xs] of byNode) {
+      expect(xs.length, `${id}: too few member receptions to read`).toBeGreaterThan(20)
+      expect(new Set(xs.map((x) => x.sel.meanSinrDb.toFixed(6))).size,
+        `${id}: the shadow never moved`).toBeGreaterThan(1)
+      expect(new Set(xs.map((x) => x.sel.bins)), `${id}: the share moved`).toEqual(new Set([4]))
+      expect(new Set(xs.map((x) => x.sel.ruFraction))).toEqual(new Set([1 / 2]))
+    }
   })
 })
