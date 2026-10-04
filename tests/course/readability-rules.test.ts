@@ -12,7 +12,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   SECTIONS, cellTexts, lessonStrings, lessonTexts, mainPathChars, paragraphTexts, zhChars,
-  type Role, type Section,
+  type LessonText, type Role, type Section,
 } from '../../src/course/readability'
 import { type Block, type Lesson } from '../../src/course/lessonKit'
 import { LESSONS } from '../../src/course/lessons'
@@ -211,6 +211,46 @@ describe('lessonTexts · the one walk', () => {
     expect(() => lessonTexts({ ...lesson })).not.toThrow()
     // and a field classified `null` is silently out rather than a throw
     expect(() => lessonTexts({ id: 'probe', module: 0 })).not.toThrow()
+  })
+
+  /**
+   * The memo must not weaken the latch — 2026-10-05.
+   *
+   * `lessonTexts` caches its answer in a `WeakMap` keyed by the lesson OBJECT,
+   * because the walk sits on a render path (`CoursePanel.tsx:313` reaches it
+   * once per lesson for all 83 rows of the contents list). A cache is exactly
+   * the kind of change that turns a latch into a decoration, so the two ways it
+   * could are pinned here rather than argued:
+   *  - keyed by `l.id`, a lesson with a NEW field would read the cached answer
+   *    for the old one and never be checked. Asserted below by walking the real
+   *    lesson FIRST, so it is definitely cached, and then handing over a spread
+   *    of it with an unclassified field;
+   *  - the array is shared, so a caller that mutated it would corrupt what every
+   *    later caller reads. It is frozen, and the type says `readonly`.
+   */
+  it('still throws on an unclassified field after the same lesson has been walked once', () => {
+    const real = LESSONS[0]
+    const warm = lessonTexts(real)
+    expect(lessonTexts(real), 'the memo returns the same array, not a copy').toBe(warm)
+    expect(() => lessonTexts({ ...real, newField: '一句中文' } as never))
+      .toThrow(/newField` is not classified/)
+    // and the cached answer for the real lesson is untouched by that call
+    expect(lessonTexts(real)).toBe(warm)
+  })
+
+  it('hands out a frozen array, because every caller gets the same one', () => {
+    const got = lessonTexts(LESSONS[0]) as LessonText[]
+    expect(Object.isFrozen(got)).toBe(true)
+    expect(() => got.push({ section: 'why', role: 'prose', path: 'x', text: 'y' })).toThrow()
+  })
+
+  it('answers a fresh object by walking it, so a Partial literal is never served a stale cache', () => {
+    const real = LESSONS[0]
+    lessonTexts(real)
+    // a different object with the same content is a different key: walked, not served
+    const copy = { ...real }
+    expect(lessonTexts(copy)).not.toBe(lessonTexts(real))
+    expect(lessonTexts(copy).map((t) => t.text)).toEqual(lessonTexts(real).map((t) => t.text))
   })
 })
 

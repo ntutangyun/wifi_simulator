@@ -235,7 +235,33 @@ export const SECTIONS: readonly Section[] = SECTION_KEY.map(([s]) => s)
  *
  * Takes a `Partial<Lesson>` so a caller can ask for one section at a time.
  */
-export function lessonTexts(l: Partial<Lesson>): LessonText[] {
+/**
+ * `lessonTexts` keyed by the lesson OBJECT, so the walk runs once per lesson.
+ *
+ * This exists because the walk is on a render path: `CoursePanel.tsx:313` calls
+ * `lessonMinutes` once per lesson for all 83 rows of the contents list, which
+ * reaches `mainPathChars` and so this walk. A lesson is a module-level literal
+ * that nothing mutates, so the first call computes and every later one reads.
+ *
+ * Why a `WeakMap` on the object and not a cache keyed by `l.id`: the key has to
+ * be the thing that was actually walked. A key of `id` would hand a cached
+ * answer to `{ ...lesson, newField: '…' }` — a DIFFERENT object with the same id
+ * — and the run-time latch below would never see the new field. Keyed by
+ * identity, any object the walk has not seen is walked, latch and all; and a
+ * one-off `Partial<Lesson>` literal, which every caller builds fresh, simply
+ * never hits. `tests/course/readability-rules.test.ts` pins exactly that.
+ *
+ * What the memo does NOT survive, stated rather than assumed: a lesson object
+ * MUTATED after its first walk. Nothing in this repository mutates one — they
+ * are `const` literals in `src/course/*` — but if that ever changes, this cache
+ * is the thing that goes stale, and the fix is to drop the entry, not to key it
+ * differently.
+ */
+const WALKED = new WeakMap<object, readonly LessonText[]>()
+
+export function lessonTexts(l: Partial<Lesson>): readonly LessonText[] {
+  const hit = WALKED.get(l)
+  if (hit) return hit
   for (const k of Object.keys(l)) {
     if (!(k in SECTION_OF)) {
       throw new Error(
@@ -273,7 +299,13 @@ export function lessonTexts(l: Partial<Lesson>): LessonText[] {
     const isLabel = section === 'title' || section === 'variantLabel' || section === 'jumpLabel'
     walk(l[key], key, section, isLabel ? 'label' : 'prose')
   }
-  return out
+  // Frozen because it is SHARED: the memo hands the same array to every caller, so a
+  // caller that pushed to it would corrupt what the next one reads. `readonly` says so in
+  // the type and the freeze says so at run time, which is the pair this file wants rather
+  // than a cast that hides one of them.
+  const shared = Object.freeze(out)
+  WALKED.set(l, shared)
+  return shared
 }
 
 /* ------------------------------------------------------------------------- *
@@ -365,12 +397,22 @@ export function mainPathTexts(l: Partial<Lesson>): string[] {
   return pick(l, MAIN_PATH_SECTIONS)
 }
 
+/** `mainPathChars` keyed by the lesson object; see {@link WALKED}. */
+const MAIN_PATH_CHARS = new WeakMap<object, number>()
+
 /**
  * Chinese characters across everything a learner reads on a lesson's main path.
  * Equal, lesson for lesson, to what it returned before the 2026-10-05 refactor.
+ *
+ * Memoised on the lesson object for the same reason the walk is: this is what
+ * `lessonMinutes` calls, and the contents list calls that 83 times per render.
  */
 export function mainPathChars(l: Partial<Lesson>): number {
-  return mainPathTexts(l).reduce((n, s) => n + zhChars(s), 0)
+  const hit = MAIN_PATH_CHARS.get(l)
+  if (hit !== undefined) return hit
+  const n = mainPathTexts(l).reduce((m, s) => m + zhChars(s), 0)
+  MAIN_PATH_CHARS.set(l, n)
+  return n
 }
 
 /** The three chrome sections: printed around a lesson rather than inside it. */
