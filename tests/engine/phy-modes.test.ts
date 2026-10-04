@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { PHY_MODES, MAX_PPDU_NS, ctrlRespRateForMode, mcsForRssi, mcsRateMbps, txTimeModeNs, reqSinrDb, EDCA_PARAMS, aifsNs } from '../../src/engine/phy'
+import { PHY_MODES, MAX_PPDU_NS, NONHT_REF_MBPS, TGI_NS, ctrlRespRateForMode, mcsForRssi, mcsRateMbps, txTimeModeNs, reqSinrDb, EDCA_PARAMS, aifsNs } from '../../src/engine/phy'
 import { ampduPsduBytes, ampduSubframeBytes } from '../../src/model/frames'
 import { defaultFeatures, hasFeature, linkPlanFor, minGen, negotiated, virtualId } from '../../src/model/caps'
 import { defaultScenario } from '../../src/model/scenario'
@@ -107,6 +107,35 @@ describe('standard alignment A — PHY', () => {
     expect(ctrlRespRateForMode('he', 0, mcsRateMbps('he', 0))).toBe(6)
     expect(ctrlRespRateForMode('nonht', 7, 54)).toBe(24)
   })
+  it('the guard interval does not reach the control-response rate — that is a clause, not a compromise', () => {
+    // §10.6 sends a control response at the NON-HT REFERENCE RATE of the eliciting PPDU, and a
+    // reference rate is fixed by the constellation and the code rate (`NONHT_REF_MBPS`). The
+    // guard interval changes neither. So feeding `ctrlRespRateForMode` a quadruple-GI rate must
+    // land on the same answer as the base-GI rate — which it does because the function ignores
+    // its third argument for every mode but `nonht`. Letting `mbps` follow the GI (design §3.6)
+    // is exactly the change that would otherwise break this by hand.
+    //
+    // **MCS 2 is the case that can actually fail, and MCS 11 is not.** Both of MCS 11's outer
+    // columns (143.4 and 121.9 Mb/s) sit above every mandatory rate, so even a broken
+    // implementation that passed `mbps` straight to `ctrlRespRateFor` would answer 24 twice and
+    // this test would stay green on a bug. MCS 2's columns straddle one: 25.8 Mb/s at the base
+    // GI, 21.9 at the quadruple — either side of the 24 Mb/s mandatory rate. Verified as a real
+    // catcher by replacing the body of `ctrlRespRateForMode` with `ctrlRespRateFor(mbps)`: the
+    // MCS 2 pair then reads 24 against 12 and this fails. The correct answer for MCS 2 is 12
+    // at every GI, because NONHT_REF_MBPS[2] is 18 and the highest mandatory rate at or below
+    // 18 is 12.
+    for (const gi of [TGI_NS.base, TGI_NS.double, TGI_NS.quad]) {
+      expect(ctrlRespRateForMode('he', 2, mcsRateMbps('he', 2, gi))).toBe(12)
+      expect(ctrlRespRateForMode('eht', 2, mcsRateMbps('eht', 2, gi))).toBe(12)
+      expect(ctrlRespRateForMode('he', 11, mcsRateMbps('he', 11, gi))).toBe(24)
+      expect(ctrlRespRateForMode('eht', 13, mcsRateMbps('eht', 13, gi))).toBe(24)
+    }
+    // And the base GI's rates are what they always were, so none of the above moved.
+    expect([mcsRateMbps('he', 2), mcsRateMbps('he', 2, TGI_NS.quad)]).toEqual([25.8, 21.9])
+    // And the reference-rate table itself gained no dimension: one entry per MCS, not three.
+    expect(NONHT_REF_MBPS).toHaveLength(14)
+  })
+
   it('an MCS the mode does not define throws instead of yielding NaN', () => {
     expect(() => reqSinrDb('he', 12)).toThrow(/invalid MCS 12 for he/)
     expect(() => mcsRateMbps('vht', 9)).toThrow(/invalid MCS 9 for vht/)

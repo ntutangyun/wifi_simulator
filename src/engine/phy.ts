@@ -158,13 +158,26 @@ export function sinrThreshDb(mbps: number): number {
 // nonht: clause 17 · vht: clause 21 (Wi-Fi 5) · he: clause 27 (Wi-Fi 6) ·
 // eht: clause 36 via 802.11be-2024 (Wi-Fi 7, adds 4096-QAM MCS 12/13).
 // Preambles are representative SU values; HE/EHT packet extension ignored.
+// `symNs` is NOT a representative value — see its own comment on each entry.
 // ---------------------------------------------------------------------------
 
 export type PhyMode = 'nonht' | 'vht' | 'he' | 'eht'
 
 export interface PhyModeInfo {
+  /**
+   * The whole preamble ahead of the data field, ns, at the 2x-LTF-and-base-GI tier.
+   *
+   * **For HE and EHT that tier is part of the value**, which nothing said until the guard
+   * interval went in: adding Table 27-13's fields up gives 8 (L-STF) + 8 (L-LTF) + 4 (L-SIG)
+   * + 4 (RL-SIG) + 8 (HE-SIG-A) + 4 (HE-STF) + 7.2 (one 2x HE-LTF) = 43.2 µs, and EHT trades
+   * HE-SIG-A for U-SIG 8 + EHT-SIG 4 to reach 47.2 µs. The stored 44 / 48 are those sums
+   * rounded up, so the relation is "≈" and not "="; `preambleNsFor(mode, TGI_NS.quad)` is
+   * therefore the stored 44 plus `ltfExtraNs`'s 8.8 µs difference, not a figure Table 27-13
+   * hands over directly.
+   */
   preambleNs: Ns
   muExtraPreambleNs: Ns // HE-SIG-B / EHT-SIG extra for MU PPDUs
+  /** One data OFDM symbol at the base guard interval; see each mode's entry for its table. */
   symNs: Ns
   /** data bits per symbol per MCS index */
   ndbps: number[]
@@ -182,26 +195,127 @@ const EHT_SENS = [...HE_SENS, -49, -46]
 
 export const PHY_MODES: Record<PhyMode, PhyModeInfo> = {
   nonht: {
+    // symNs: T_DFT,Pre (3.2 µs) + the 800 ns long GI. standard §19.5 Table 19-6.
+    // The 400 ns short GI is deliberately NOT built: §19.3.5 and Table 19-27's NOTE each say
+    // in so many words that support for it is optional on transmit AND on receive, while all
+    // three HE/EHT guard intervals are mandatory (§27.1.1 / §36.1.1). This slice builds only
+    // the mandatory set — writing the clause down is not the same as building the feature.
     preambleNs: 20_000, muExtraPreambleNs: 0, symNs: 4_000,
     ndbps: RATES.map((r) => r.ndbps),
     sensDbm: RATES.map((r) => r.sensDbm),
     mbps: RATES.map((r) => r.mbps),
   },
   vht: {
+    // symNs: T_DFT,Pre (3.2 µs) + the 800 ns long GI. standard §21.3.6 Table 21-5. Same note
+    // about the optional 400 ns short GI as `nonht` above.
     preambleNs: 40_000, muExtraPreambleNs: 0, symNs: 4_000,
     ndbps: VHT_NDBPS, sensDbm: VHT_SENS,
     mbps: VHT_NDBPS.map((n) => n / 4), // 6.5 … 78
   },
   he: {
+    // symNs: T_SYM1 of Table 27-13 — T_DFT,HE + T_GI1,Data = 12.8 + 0.8 µs, which is a sum the
+    // table publishes and not a representative value this simulator picked. `symNsFor` makes
+    // that explicit; this literal stays because six call sites read it (two of them inside
+    // lesson builders that have no scenario in hand) and 47 test assertions name it.
     preambleNs: 44_000, muExtraPreambleNs: 4_000, symNs: 13_600,
     ndbps: HE_NDBPS, sensDbm: HE_SENS,
+    // This is Table 27-86's FIRST rate column (0.8 µs GI); the table has three. See
+    // `mcsRateMbps`, which serves the other two.
     mbps: HE_NDBPS.map((n) => Math.round((n / 13.6) * 10) / 10), // 8.6 … 143.4
   },
   eht: {
+    // symNs: T_SYM1 of Table 36-18, the same sum as `he` above (12.8 + 0.8 µs).
     preambleNs: 48_000, muExtraPreambleNs: 4_000, symNs: 13_600,
     ndbps: EHT_NDBPS, sensDbm: EHT_SENS,
+    // Table 36-76's first rate column (0.8 µs GI), as above.
     mbps: EHT_NDBPS.map((n) => Math.round((n / 13.6) * 10) / 10), // … 172.1
   },
+}
+
+// ---------------------------------------------------------------------------
+// The data field's guard interval (design doc 2026-10-05-guard-interval §1, §3.1, §3.2)
+//
+// Six constants, every one of them with a table number and not one of them a `model` value.
+// They exist because `PHY_MODES[*].symNs` stores only the SUM 13.6 µs, and turning the guard
+// interval into a choice means having both addends.
+// ---------------------------------------------------------------------------
+
+/**
+ * Data-field IDFT/DFT period of the HE and EHT PHYs (T_DFT,HE / T_DFT,EHT).
+ * standard §27.3.9 Table 27-13 / standard be §36.3.10 Table 36-18
+ */
+export const TDFT_EHT_NS: Ns = 12_800
+
+/**
+ * The three data-field guard intervals TXVECTOR's GI_TYPE selects — T_GI1,Data, T_GI2,Data and
+ * T_GI4,Data. Same tables. The enumeration itself (`0u8s_GI` / `1u6s_GI` / `3u2s_GI`) is in
+ * standard §27.2 Table 27-1 / standard be §36.2 Table 36-1, and all three are mandatory to
+ * support (§27.1.1 / §36.1.1), which is why this slice builds these and not clause 19's
+ * optional 400 ns short GI.
+ */
+export const TGI_NS = { base: 800, double: 1_600, quad: 3_200 } as const
+
+/** One 2x HE-LTF / EHT-LTF symbol, GI excluded. Same tables. */
+export const TLTF_2X_NS: Ns = 6_400
+/** One 4x HE-LTF / EHT-LTF symbol, GI excluded. Same tables. */
+export const TLTF_4X_NS: Ns = 12_800
+
+/**
+ * The PPDU formats GI_TYPE is a TXVECTOR parameter of: FORMAT in
+ * `HE_SU` / `HE_MU` / `HE_ER_SU` / `HE_TB` / `EHT_MU` / `EHT_TB`.
+ * standard §27.2 Table 27-1 / standard be §36.2 Table 36-1
+ *
+ * **Why this is a second list rather than a reuse of `selBinnableGen`.** The two read the same
+ * two entries today and answer different questions. `selBinnableGen`
+ * (src/engine/selectivity.ts) asks about the SUBCARRIER SPACING — only 78.125 kHz resolves a
+ * 26-tone RU. This asks whether the TXVECTOR even carries a `GI_TYPE` parameter. Folding them
+ * into one list would tell the next person that changing one place is enough, and it is not:
+ * either question could move without the other.
+ */
+export const GI_MODES: readonly PhyMode[] = ['he', 'eht']
+
+/**
+ * One data OFDM symbol at this mode and guard interval, ns: T_DFT + T_GI.
+ *
+ * **At the base GI this is exactly `PHY_MODES[mode].symNs`**, which is the point — that
+ * literal becomes an ALIAS of this function rather than an independent fact, and
+ * tests/engine/guard-interval.test.ts welds the two for all four modes. `symNs` stays a
+ * literal because six places in `src/` read it, two of them lesson builders with no scenario
+ * in hand (design §3.1).
+ *
+ * `nonht` and `vht` return their 4 µs unconditionally: clause 19's and clause 21's `GI_TYPE`
+ * is the `LONG_GI` / `SHORT_GI` enumeration, not these three values at all.
+ */
+export function symNsFor(mode: PhyMode, giNs: Ns = TGI_NS.base): Ns {
+  if (!GI_MODES.includes(mode)) return PHY_MODES[mode].symNs
+  return TDFT_EHT_NS + giNs
+}
+
+/**
+ * Extra preamble the 4x LTF costs, ns — 8 800, and **computed rather than measured**.
+ *
+ * §1.4 of the design: the mandatory-support lists of §27.1.1 / §36.1.1 and the sounding-NDP
+ * rules of §26.7.5 / §35.7.5 pair the 2x LTF with the 0.8 and 1.6 µs guard intervals and the
+ * 4x LTF with the 3.2 µs one. So choosing the quadruple GI also changes the LTF, and the one
+ * training symbol grows from 6.4 + 0.8 to 12.8 + 3.2 µs. The engine therefore never emits
+ * "3.2 µs GI with a 2x LTF" — that row exists only as arithmetic.
+ */
+export function ltfExtraNs(giNs: Ns = TGI_NS.base): Ns {
+  if (giNs !== TGI_NS.quad) return 0
+  return (TLTF_4X_NS + TGI_NS.quad) - (TLTF_2X_NS + TGI_NS.base)
+}
+
+/**
+ * The preamble ahead of the data field at this mode and guard interval, ns.
+ *
+ * Only HE and EHT ever pay `ltfExtraNs`: the older two generations have no 4x LTF to switch
+ * to. Note what this does NOT touch — `muExtraPreambleNs`. HE-SIG-B / EHT-SIG sit in the
+ * legacy part of the preamble, whose GI is T_GI,Pre-HE / T_GI,Pre-EHT = 0.8 µs, fixed and
+ * unrelated to the data field's (§1.1's closing paragraph).
+ */
+export function preambleNsFor(mode: PhyMode, giNs: Ns = TGI_NS.base): Ns {
+  const extra = GI_MODES.includes(mode) ? ltfExtraNs(giNs) : 0
+  return PHY_MODES[mode].preambleNs + extra
 }
 
 /**
@@ -230,6 +344,8 @@ export interface TxTimeOpts {
   widthMhz?: number
   /** Spatial streams (default 1). */
   nss?: number
+  /** Data-field guard interval, ns (default `TGI_NS.base`, which reproduces today's figure). */
+  giNs?: Ns
 }
 
 /** PPDU airtime for any PHY mode/MCS; symbol count uses width-, stream- and RU-scaled N_DBPS. */
@@ -238,8 +354,10 @@ export function txTimeModeNs(mode: PhyMode, lengthBytes: number, mcs: number, op
   const base = m.ndbps[mcs]
   if (!base) throw new Error(`invalid MCS ${mcs} for ${mode}`)
   const ndbps = base * toneRatio(mode, opts.widthMhz ?? 20) * (opts.nss ?? 1) * (opts.ruFraction ?? 1)
+  const giNs = opts.giNs ?? TGI_NS.base
   const nsym = Math.ceil((16 + 8 * lengthBytes + 6) / ndbps)
-  return m.preambleNs + (opts.mu ? m.muExtraPreambleNs : 0) + m.symNs * nsym
+  // The MU extra is neither scaled nor re-paid at a longer GI: see `preambleNsFor`.
+  return preambleNsFor(mode, giNs) + (opts.mu ? m.muExtraPreambleNs : 0) + symNsFor(mode, giNs) * nsym
 }
 
 /** Link margin a rate ceiling keeps above the required SINR. */
@@ -263,8 +381,29 @@ function modeEntry(arr: number[], mode: PhyMode, mcs: number): number {
   return v
 }
 
-export function mcsRateMbps(mode: PhyMode, mcs: number): number {
-  return modeEntry(PHY_MODES[mode].mbps, mode, mcs)
+/**
+ * Data rate of this mode/MCS at this guard interval, Mb/s.
+ *
+ * **The standard publishes three rate columns, not one** — Table 27-86 (HE-MCSs for a 242-tone
+ * RU, N_SS = 1) and Table 36-76 (the EHT equivalent) each carry `0.8 µs GI | 1.6 µs GI |
+ * 3.2 µs GI`, and a 242-tone RU is 20 MHz at one stream, which is exactly what `PHY_MODES`
+ * stores. So this is a lookup into a three-column table, not a question of whether to compute
+ * the rate from `symNs`.
+ * standard §27.5 Table 27-86 / standard be §36.5.6 Table 36-76
+ *
+ * **The base GI goes through the stored array rather than the formula, on purpose.** The two
+ * have been measured to agree item for item for all four modes — including `nonht`'s literal
+ * rate table and `vht`'s `n / 4` — but the lookup *guarantees* that a published lesson's rate
+ * column does not move, instead of leaning on one float comparison holding. Do not simplify
+ * this to the one-line expression.
+ *
+ * `Math.round(x * 10) / 10` is not this repo's convention either: §19.5 states in so many
+ * words that Table 19-27's data rates are rounded to one decimal place.
+ */
+export function mcsRateMbps(mode: PhyMode, mcs: number, giNs: Ns = TGI_NS.base): number {
+  if (giNs === TGI_NS.base) return modeEntry(PHY_MODES[mode].mbps, mode, mcs)
+  const ndbps = modeEntry(PHY_MODES[mode].ndbps, mode, mcs)
+  return Math.round((ndbps / (symNsFor(mode, giNs) / 1000)) * 10) / 10
 }
 
 /**
