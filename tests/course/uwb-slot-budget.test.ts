@@ -116,8 +116,17 @@ describe('uwb-slot-budget · the lesson itself', () => {
     expect(uwbSlotBudget.id).toBe('uwb-slot-budget')
     expect(uwbSlotBudget.needs).toEqual(['uwb-blocks'])
     // `margin` arrives from the parent with the slot-length material; `airtime` is what the
-    // radio bill is denominated in; RSTU is re-introduced because a reader may open this cold.
-    expect(uwbSlotBudget.terms!.map((t) => t.term)).toEqual(['margin', 'airtime', 'RSTU'])
+    // radio bill is denominated in. RSTU used to be re-introduced here "because a reader may
+    // open this cold" — but this lesson's `needs` is exactly ['uwb-blocks'], and uwb-blocks
+    // declares RSTU, so a reader cannot open this one cold without ignoring its own
+    // prerequisite. Dropped 2026-10-04: RSTU was being announced as a new word for the third
+    // time in the track (uwb-reply-time, uwb-blocks, here), and a word announced three times
+    // teaches the reader that they missed a lesson. Two declarations remain and they are in
+    // independent prerequisite branches — uwb-reply-time needs uwb-sstwr, uwb-blocks needs
+    // uwb-frame — so neither can lean on the other.
+    expect(uwbSlotBudget.terms!.map((t) => t.term)).toEqual(['margin', 'airtime'])
+    expect(uwbBlocks.terms!.map((t) => t.term), 'the lesson this one requires still declares it')
+      .toContain('RSTU')
     expect(trackOf(uwbSlotBudget)).toBe('uwb')
   })
 

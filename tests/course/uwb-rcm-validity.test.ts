@@ -67,7 +67,13 @@ describe('uwb-rcm-validity · where it sits in the course', () => {
     // declares nothing of its own, so the two can never drift apart.
     expect(MODULES[uwbRcmValidity.module].basis).toBeUndefined()
     expect(basisOf(uwbRcmValidity.module)).toEqual(['ieee-802-15-4-2024'])
-    expect(uwbRcmValidity.needs).toEqual(['uwb-frame', 'uwb-blocks'])
+    // `uwb-dstwr` added 2026-10-04: this lesson's main path runs a DS-TWR round — the diagram
+    // caption names 「四个应答」「四个报告」 and 「标签自己发的 Final」 — and its numbers quote the
+    // FoM byte. `uwb-dstwr` is where Final and Report are taught, and it reaches `uwb-sstwr`,
+    // which is where the FoM byte is first named, so the one id closes both gaps. `uwb-geometry`
+    // is deliberately NOT asked for: this lesson only lists the byte among the fields that did
+    // not change, and never asks the reader to read one.
+    expect(uwbRcmValidity.needs).toEqual(['uwb-frame', 'uwb-blocks', 'uwb-dstwr'])
     const src = uwbRcmValidity.sources!.join('\n')
     expect(src).toContain('IEEE Std 802.15.4-2024')
     expect(src).not.toMatch(/802\.15\.4ab|1[15]-2\d\/\d{4}r\d+|802\.11/)

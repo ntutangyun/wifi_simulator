@@ -414,6 +414,47 @@ describe('uwb-geometry · a brick wall in one path', () => {
     expect((fixErr(fixes(0)[0]) / envelope).toFixed(1)).toBe('3.5')
     expect(prose()).not.toContain('nearly four times')
   })
+
+  /**
+   * The envelope is DEFINED where it is used, added 2026-10-04.
+   *
+   * This lesson's whole discipline is that the reader re-derives every number
+   * it prints, and the 「三倍半」 verdict rests entirely on 8.9 cm. The prose
+   * used to name 「8.9 cm 包络」 with no definition anywhere: the reader had
+   * GDOP 1.05, the 1σ ellipse 1.7 × 1.4 cm and σ_r 2.12 cm, and no combination
+   * of those gives 8.9 — the factor of 4 lived only in this file. Both the
+   * sentence and the quiz explanation now carry the recipe, and each factor is
+   * checked against the solver rather than against itself.
+   */
+  it('the prose states the recipe for the 8.9 cm envelope, not just the answer', () => {
+    const scale = 4
+    const exact = exactFix(TAG.x, TAG.y)
+    expect((SIGMA_R * 100).toFixed(2)).toBe('2.12')
+    expect(exact.gdop.toFixed(4)).toBe('1.0488')
+    // the 1σ scale of the fix, which is what the four multiplies: σ_r · GDOP, and the same
+    // thing as the quadrature sum of the two ellipse semi-axes the table already prints
+    expect((SIGMA_R * exact.gdop * 100).toFixed(2)).toBe('2.22')
+    expect((Math.hypot(exact.ellipse.a, exact.ellipse.b) * 100).toFixed(2)).toBe('2.22')
+    expect((scale * SIGMA_R * exact.gdop * 100).toFixed(1)).toBe('8.9')
+    const text = prose()
+    for (const owed of ['2.12', '1.0488', '2.22 cm', '8.9 cm', '四倍']) {
+      expect(text, `the reader is given ${owed}`).toContain(owed)
+    }
+    // the quiz explanation is read on its own, so it carries the recipe too
+    const explain = uwbGeometry.quiz[1].explain!
+    expect(explain).toContain('4σ')
+    expect(explain).toContain('4 × 2.12 × 1.0488 = 8.9 cm')
+    // and the claim it is three and a half OF is the one this file computes
+    expect(explain).toContain('三倍半')
+    // 「上一课干净的七个块全在它以内」: the envelope is only worth quoting if the clean run
+    // really sits under it, and this scene IS the previous lesson's base scene (pinned above
+    // as `uwbGeometry.scenario()` === `uwbPositionScenario('base')`).
+    const envelope = scale * SIGMA_R * exact.gdop
+    const clean = fixes()
+    expect(clean).toHaveLength(BLOCKS)
+    for (const f of clean) expect(fixErr(f), `block ${f.block}`).toBeLessThan(envelope)
+    expect(text).toContain('上一课干净的七个块全在它以内')
+  })
 })
 
 describe('uwb-geometry · three anchors', () => {

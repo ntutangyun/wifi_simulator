@@ -79,7 +79,6 @@ export const uwbSlotBudget: Lesson = {
   terms: [
     { term: 'margin', plain: '余量：时隙在必须装下的那一帧之外多留的余地' },
     { term: 'airtime', plain: '空口时间：一帧真正占住信道的那一段' },
-    { term: 'RSTU', plain: '写这张时间表所用的单位：测距时隙时间单元，一个 833.333 ns' },
   ],
   picture: [
     { heading: '为什么时隙比帧长这么多', text: '一个时隙必须装得下本轮最长的那一帧和它的飞行时间，再留一点余地；这点余地就是余量（margin）。除此之外时隙多长是一个选择，而这里选得很宽裕：时隙里大半是静默。这份余量是留给本模型略去的那些东西的——搜索首径（first path）、收发转换、两端时钟相互漂移。' },

@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { readFileSync } from 'node:fs'
 import { LESSONS, MODULES } from '../../src/course/lessons'
 import { CHARS_PER_MINUTE, COURSE_ORDER, OBSERVE_MINUTES, TIERS, TRY_MINUTES, lessonBlocks, lessonChars, lessonMinutes, trackHeadings, trackOf, type LessonTrack } from '../../src/course/curriculum'
 import { diagramTexts, layoutDiagram, type DiagramSpec } from '../../src/course/diagram'
@@ -566,5 +567,66 @@ describe("a lesson's track", () => {
     const ampLessons = LESSONS.filter((l) => l.module === amp[0].i)
     expect(ampLessons.length).toBeGreaterThan(0)
     for (const l of ampLessons) expect(trackOf(l), l.id).toBe('amp')
+  })
+})
+
+/**
+ * The grouping comments inside COURSE_ORDER, graded against the lessons they
+ * sit above — because until 2026-10-04 they were wrong and nothing could say
+ * so. They described an older, coarser module scheme: the Wi-Fi groups counted
+ * from 1 where `module` counts from 0 and merged modules that had since split,
+ * the UWB track was headed «M11» where it opens at M12, and «M20» appeared
+ * TWICE — once on `uwb-receipt`, which really is M20, and once on
+ * `uwb-sensing`, which is M25. Every one of those numbers reads as fact to the
+ * next person looking for a module in this file.
+ *
+ * So the comment is now the measured thing and this is its ruler: parse the
+ * `// M<n> · tier <t> · <title>` lines out of the source, take the ids that
+ * follow each one, and check `n`, `t` and `title` against `l.module` and
+ * `MODULES[n]`. A continuation line (`//    …`) carries the editorial note some
+ * groups had and is not a header.
+ */
+describe('COURSE_ORDER’s grouping comments are measured, not narrated', () => {
+  const SRC = readFileSync(new URL('../../src/course/curriculum.ts', import.meta.url), 'utf8')
+  const BODY = SRC.slice(SRC.indexOf('export const COURSE_ORDER'))
+    .slice(0, SRC.slice(SRC.indexOf('export const COURSE_ORDER')).indexOf('\n]'))
+
+  /** Each header line with the ids listed under it, before the next header. */
+  const groups: { m: number; tier: number; title: string; ids: string[] }[] = []
+  for (const line of BODY.split('\n').map((x) => x.trim())) {
+    const head = /^\/\/ M(\d+) · tier (\d+) · (.+)$/.exec(line)
+    if (head) { groups.push({ m: Number(head[1]), tier: Number(head[2]), title: head[3], ids: [] }); continue }
+    if (line.startsWith('//')) continue
+    const ids = [...line.matchAll(/'([a-z0-9-]+)'/g)].map((x) => x[1])
+    if (ids.length && groups.length) groups[groups.length - 1].ids.push(...ids)
+  }
+
+  it('parsed a header for every module, and every id landed under one', () => {
+    // Anti-vacuity: a regex that stops matching must turn this file red rather
+    // than silently grade nothing. Both numbers are the course as it stands.
+    expect(groups).toHaveLength(MODULES.length)
+    expect(groups.flatMap((g) => g.ids)).toEqual(COURSE_ORDER)
+  })
+
+  it('numbers the groups in order, once each, with no gaps', () => {
+    expect(groups.map((g) => g.m)).toEqual(MODULES.map((_, i) => i))
+  })
+
+  it('names each group’s own module title and tier', () => {
+    const wrong = groups.filter((g) => g.title !== MODULES[g.m].title || g.tier !== MODULES[g.m].tier)
+      .map((g) => `M${g.m}: comment says tier ${g.tier} «${g.title}», MODULES says tier ${MODULES[g.m].tier} «${MODULES[g.m].title}»`)
+    expect(wrong).toEqual([])
+  })
+
+  it('lists under each header exactly the lessons whose `module` is that number', () => {
+    const byId = new Map(LESSONS.map((l) => [l.id, l]))
+    const wrong: string[] = []
+    for (const g of groups) {
+      for (const id of g.ids) {
+        const l = byId.get(id)
+        if (l && l.module !== g.m) wrong.push(`${id} is M${l.module}, listed under M${g.m}`)
+      }
+    }
+    expect(wrong).toEqual([])
   })
 })

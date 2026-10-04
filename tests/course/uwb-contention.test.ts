@@ -270,6 +270,35 @@ describe('uwb-contention · the analytic model', () => {
     expect(longer).toBe(16 * MS)
   })
 
+  /**
+   * Which column the gain came from, pinned 2026-10-04.
+   *
+   * 1.27 is the difference of the FORMULA column (4.35 - 3.08). The table the
+   * reader has just finished reading has a measured column beside it, and the
+   * lesson spends a whole table teaching why the two differ -- so by the time
+   * the verdict arrives the reader has been trained to read the measured one,
+   * where the difference is 1.50 (4.13 - 2.63, and 124 - 79 = 45 over thirty
+   * rounds). The sentence used to print 1.27 and name no column, which is an
+   * 18 % understatement of the thing it is the sole evidence for: whether 16
+   * slots are worth 16 ms. It now gives both and says which is which.
+   */
+  it('the gain sentence names its column, and both numbers are the simulation’s own', () => {
+    expect(tagRanges(recs('base')).length).toBe(79)
+    expect(tagRanges(recs('slots16')).length).toBe(124)
+    expect(((124 - 79) / ROUNDS).toFixed(2)).toBe('1.50')
+    // the same 1.50 read off the two cells the reader actually sees
+    expect((Number(cell(0, ROW.slots16, 3)) - Number(cell(0, ROW.base, 3))).toFixed(2)).toBe('1.50')
+    const formula = expectedResponses(CONTENTION_ANCHORS, 16) - expectedResponses(CONTENTION_ANCHORS, 8)
+    expect(formula.toFixed(2)).toBe('1.27')
+    const text = (uwbContention.deeper ?? []).map((b) => ('text' in b ? b.text : '')).join(' / ')
+    for (const owed of [
+      '实测那一列每轮只多换来 1.50 个应答',
+      '2.63 → 4.13', '三十轮 79 → 124 条',
+      '公式那一列给的是 1.27', '3.08 → 4.35',
+      '每轮多用 16 ms',
+    ]) expect(text, owed).toContain(owed)
+  })
+
   it('the table’s measured column, collided slots, sit-outs and fixes are what thirty rounds produce', () => {
     const rows: [UwbContentionVariant, number, number, number][] = [
       // variant, responses, collided slots, sit-outs

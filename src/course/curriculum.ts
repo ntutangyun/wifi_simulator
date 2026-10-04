@@ -174,52 +174,92 @@ export const MODULES: CourseModule[] = [
  * Reading order by lesson id. LESSONS is the authored lessons sorted by this
  * list; an id listed here with no authored lesson is simply skipped, and an
  * authored lesson missing from the list is an error (see orderLessons).
+ *
+ * The `// M<n> · tier <t> · <title>` line before each group is MEASURED, not
+ * narrated: `n` is the `module` index every lesson under it carries, `t` and
+ * `title` are `MODULES[n]`, and `tests/course/curriculum.test.ts` parses these
+ * very lines out of this file and checks all three against the lessons. Until
+ * 2026-10-04 they were a stale, coarser scheme nobody had re-measured: the
+ * Wi-Fi groups were numbered from 1 where `module` counts from 0 and merged
+ * modules that had since split, the UWB track opened at «M11» where it really
+ * opens at M12, `uwb-m2m` was labelled «M18» by accident of being right, and
+ * «M20» appeared twice — on `uwb-receipt`, which is M20, and on `uwb-sensing`,
+ * which is M25. A grouping comment nobody can check is a grouping comment that
+ * misleads the next reader, so this one is checkable.
  */
 export const COURSE_ORDER: string[] = [
-  // Tier 1 — M1 the network and the frame
-  'radio-primer', 'noise-floor', 'decode-thresholds', 'mcs-ladder', 'roles-stack', 'relay-hops', 'frame-anatomy', 'frame-qos-fcs', 'frame-anatomy-bytes', 'small-frames', 'airtime',
-  // Tier 1 — M2 channel access
-  'ifs', 'cca', 'backoff', 'collisions-cw', 'nav', 'hidden', 'rts-cts', 'anomaly', 'retries-queues', 'queues', 'bianchi', 'bianchi-vs-sim', 'rate-vs-model', 'tier1-project', 'tier1-project-review',
-  // Tier 2 — M3 QoS and efficiency
+  // M0 · tier 0 · 信号与链路
+  'radio-primer', 'noise-floor', 'decode-thresholds', 'mcs-ladder',
+  // M1 · tier 0 · 一张网里的角色
+  'roles-stack', 'relay-hops',
+  // M2 · tier 0 · 帧与空口时间
+  'frame-anatomy', 'frame-qos-fcs', 'frame-anatomy-bytes', 'small-frames', 'airtime',
+  // M3 · tier 0 · 等待与退避
+  'ifs', 'cca', 'backoff', 'collisions-cw', 'nav',
+  // M4 · tier 0 · 听不见的邻居与损失
+  'hidden', 'rts-cts', 'anomaly', 'retries-queues', 'queues',
+  // M5 · tier 0 · 在纸上预测 DCF
+  'bianchi', 'bianchi-vs-sim', 'rate-vs-model',
+  // M6 · tier 0 · 第一阶段项目
+  'tier1-project', 'tier1-project-review',
+  // M7 · tier 1 · QoS 与效率
   'edca', 'edca-cost', 'ampdu', 'txop', 'txop-protect', 'protect-policies',
-  // Tier 2 — M4 capacity knobs and rate control
+  // M8 · tier 1 · 容量旋钮与速率控制
   'width', 'selectivity', 'streams', 'rate', 'rate-fallback', 'rate-cost',
-  // Tier 2 — M7 scheduled Wi-Fi 6/7
+  // M9 · tier 1 · 被调度的 Wi-Fi 6/7
   'ofdma-dl', 'ru-diversity', 'ofdma-ul', 'mumimo', 'mumimo-choose', 'mlo', 'mlo-gain',
-  // Tier 2 — M8 ambient power IoT
+  // M10 · tier 1 · 环境能量物联网（802.11bp）
   'amp-intro', 'amp-ppdu', 'amp-slots', 'amp-coexist',
-  // Tier 2 — M9 real applications
+  // M11 · tier 1 · 真实应用
   'capstone',
-  // UWB Tier 1 — M11 time of flight
-  'uwb-intro', 'uwb-frame', 'uwb-sts', 'uwb-sstwr', 'uwb-dstwr', 'uwb-reply-time', 'uwb-deferred-ds',
-  // UWB Tier 1 — M12 sessions and positioning
-  'uwb-blocks', 'uwb-slot-budget', 'uwb-position', 'uwb-geometry',
-  // UWB Tier 2 — M13 coexistence
-  'uwb-coexist', 'uwb-contention',
-  // UWB Tier 2 — M18 many-to-many ranging: one transmission that is both halves of an exchange
+  // M12 · tier 4 · 飞行时间
+  'uwb-intro', 'uwb-frame', 'uwb-sts',
+  // M13 · tier 4 · 两只钟
+  'uwb-sstwr', 'uwb-dstwr', 'uwb-reply-time', 'uwb-deferred-ds',
+  // M14 · tier 4 · 会话网格
+  'uwb-blocks', 'uwb-slot-budget',
+  // M15 · tier 4 · 定位
+  'uwb-position', 'uwb-geometry',
+  // M16 · tier 5 · 共存
+  'uwb-coexist',
+  // M17 · tier 5 · 竞争式测距
+  'uwb-contention',
+  // M18 · tier 5 · 多对多测距
+  //    one transmission that is both halves of an exchange
   'uwb-m2m',
-  // UWB Tier 2 — M19 one control message for several rounds, and the frame that takes the place
-  // of silence when this round's initiation message never arrived
+  // M19 · tier 5 · 控制消息的有效期
+  //    one control message for several rounds, and the frame that takes the place of
+  //    silence when this round’s initiation message never arrived
   'uwb-rcm-validity',
-  // UWB Tier 2 — M20 the one frame that tells a device who heard it, and the request bit that
-  // costs nothing to ask with
+  // M20 · tier 5 · 多消息收妥确认
+  //    the one frame that tells a device who heard it, and the request bit that costs
+  //    nothing to ask with
   'uwb-receipt',
-  // UWB Tier 2 — M21 the shortest ranging frame the standard has, and the round it does not make
-  // the shortest: something has to announce the slot table, and an SP3 packet announces nothing
+  // M21 · tier 5 · SP3 分组测距
+  //    the shortest ranging frame the standard has, and the round it does not make the
+  //    shortest: something has to announce the slot table, and an SP3 packet announces nothing
   'uwb-sp3',
-  // UWB Tier 2 — M22 one message that does not fit in one frame: the count every frame carries, so
-  // the receiver learns of a gap at the next arrival instead of at a deadline
+  // M22 · tier 5 · 测距辅助信息
+  //    one message that does not fit in one frame: the count every frame carries, so the
+  //    receiver learns of a gap at the next arrival instead of at a deadline
   'uwb-ancillary',
-  // UWB Tier 2 — M14 other ranging modes
-  'uwb-dl-tdoa', 'uwb-ul-tdoa', 'uwb-aoa',
-  // UWB Tier 2 — M20 sensing: the things in the room that never answer
+  // M23 · tier 5 · 单向测距
+  'uwb-dl-tdoa', 'uwb-ul-tdoa',
+  // M24 · tier 5 · 角度
+  'uwb-aoa',
+  // M25 · tier 5 · 感知
+  //    the things in the room that never answer
   'uwb-sensing', 'uwb-sensing-resolution',
-  // UWB Tier 3 — M15 narrowband-assisted multi-millisecond UWB
-  'uwb-mms', 'uwb-mms-numbers', 'uwb-nba', 'uwb-nba-coexist', 'uwb-ssbd',
+  // M26 · tier 6 · 多毫秒片段
+  'uwb-mms', 'uwb-mms-numbers',
+  // M27 · tier 6 · 窄带控制面
+  'uwb-nba', 'uwb-nba-coexist', 'uwb-ssbd',
+  // M28 · tier 6 · 另一种控制面与子轮
   'uwb-uwbd', 'uwb-acquisition', 'uwb-subrounds',
-  // UWB Tier 3 — M16 the capstone of the ranging track
+  // M29 · tier 6 · 测距综合实践
   'uwb-capstone',
 ]
+
 
 /** Lessons in reading order; ids in COURSE_ORDER without an authored lesson are skipped. */
 export function orderLessons(authored: Lesson[]): Lesson[] {

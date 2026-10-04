@@ -27,6 +27,9 @@ import {
 } from '../../src/uwb/phy'
 import { lessonShapeSuite, ofType, runOf } from './kit'
 import { MODULES } from '../../src/course/curriculum'
+import { LESSONS } from '../../src/course/lessons'
+import { uwbDstwr } from '../../src/course/uwb/uwb-dstwr'
+import { lessonStrings } from '../../src/course/readability'
 
 const MS = 1_000_000
 /** Two blocks and a little more, so the repeat is visible and the second block's rounds all close. */
@@ -88,11 +91,79 @@ function schemaIssues(slotRstu: number, extraTags = 0): string[] {
   return parsed.success ? [] : parsed.error.issues.map((i) => i.message)
 }
 
+/**
+ * The `until` on this lesson's membership limit, split 2026-10-04.
+ *
+ * `until` renders as "this simplification IS LIFTED in that lesson", so it is a
+ * promise, and one limit was making three of them on one `until`: (1) nobody
+ * joins, (2) nobody leaves and there is no session setup or parameter
+ * negotiation, (3) where the roll call's list comes from. `uwb-contention`
+ * delivers only (3) — it is the lesson about a tag with no list at all. (1) and
+ * (2) are never lifted anywhere on the track; `uwb-m2m`'s own `limits` restate
+ * them five lessons later in its own words. A reader who followed that `until`
+ * went looking for two things that are not there and concluded they had missed
+ * something.
+ *
+ * `tests/course/limits.test.ts` checks only that an `until` names a real,
+ * non-self lesson, never that the simplification is actually lifted — the Wi-Fi
+ * side has three of the same shape and they are a separate slice (4e). This is
+ * the ruler for this one site: the promise keeps only the half that is kept,
+ * and the half that is not keeps no `until`.
+ */
+describe('uwb-blocks · what its `until` promises', () => {
+  const withUntil = uwbBlocks.limits.filter((l) => l.until)
+  const membership = uwbBlocks.limits.find((l) => l.text.includes('没有加入、没有离开'))!
+
+  it('promises exactly one thing, and it is the provenance of the list', () => {
+    expect(withUntil).toHaveLength(1)
+    expect(withUntil[0].until).toBe('uwb-contention')
+    const promised = withUntil[0].text
+    expect(promised).toContain('「点名要先有名单」')
+    // the three things it must NOT also promise
+    for (const notPromised of ['没有加入', '没有离开', '参数协商']) {
+      expect(promised, notPromised).not.toContain(notPromised)
+    }
+  })
+
+  it('leaves the membership half with no `until`, because nothing lifts it', () => {
+    expect(membership.until, 'no lesson lifts "nobody joins, nobody leaves"').toBeUndefined()
+    expect(membership.text).toContain('参数协商')
+    // and it says so, naming the lesson that restates it rather than resolves it
+    expect(membership.text).toContain('一课也不解除')
+  })
+
+  it('uwb-contention really does answer the provenance question, and only that', () => {
+    const contention = LESSONS.find((l) => l.id === 'uwb-contention')!
+    const text = lessonStrings(contention).join(' / ')
+    expect(text).toContain('点名要先有名单')
+    // the restatement five lessons on: uwb-m2m says the same thing in its own words, which is
+    // what "never lifted" looks like from the other end
+    const m2m = LESSONS.find((l) => l.id === 'uwb-m2m')!
+    expect(m2m.limits.map((l) => l.text).join(' / '))
+      .toContain('此后没有任何设备能中途加入或退出')
+    expect(m2m.limits.filter((l) => l.until)).toHaveLength(0)
+  })
+})
+
 describe('uwb-blocks · the lesson’s own place in the track', () => {
-  it('opens the sessions module and asks only for the frame lesson', () => {
+  it('opens the sessions module and asks for the frame and the double-sided lessons', () => {
     expect(MODULES[uwbBlocks.module].title).toBe('会话网格')
     expect(uwbBlocks.id).toBe('uwb-blocks')
-    expect(uwbBlocks.needs).toEqual(['uwb-frame'])
+    // `uwb-dstwr` added 2026-10-04. `needs` renders as "read these before this one", and a
+    // reader who opens this lesson from the table of contents gets DS-TWR by name in the
+    // second `picture` paragraph, Poll/Response/Final/Report along the timing diagram, and
+    // 「一轮是 2N + 2 个时隙」 in `tryThis` — all three taught in `uwb-dstwr`. `uwb-frame`
+    // alone sent that reader into the first figure with two of its labels unexplained.
+    // Below: the frames the lesson shows, and the lesson that teaches each of them.
+    expect(uwbBlocks.needs).toEqual(['uwb-frame', 'uwb-dstwr'])
+    const main = lessonStrings({
+      why: uwbBlocks.why, outcomes: uwbBlocks.outcomes, picture: uwbBlocks.picture,
+      numbers: uwbBlocks.numbers, observe: uwbBlocks.observe, tryThis: uwbBlocks.tryThis,
+    }).join(' / ')
+    for (const owed of ['DS-TWR', 'Final', 'Report', '2N + 2']) expect(main).toContain(owed)
+    for (const owed of ['Final', 'Report']) {
+      expect(lessonStrings(uwbDstwr).join(' / '), `${owed} is taught in uwb-dstwr`).toContain(owed)
+    }
     // the four words the grid is made of; RSTU is the unit every duration here is counted in.
     // `margin` left with the slot-length material: it is uwb-slot-budget's own word now.
     expect(uwbBlocks.terms!.map((t) => t.term)).toEqual(['block', 'round', 'slot', 'RSTU'])

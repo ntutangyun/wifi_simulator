@@ -413,3 +413,171 @@ describe('readability · the term rule can fail', () => {
     expect(new RegExp('\b前导码').test(text), 'and \\b in a template literal is a backspace').toBe(false)
   })
 })
+
+/**
+ * Amendment 2026-10-04, "a lesson is not dated by the day it was written".
+ *
+ * The UWB read-through found four sentences that had been true the week they
+ * were written and were quietly wrong afterwards: 「Wi-Fi 侧本周刚加上的阴影与
+ * 小尺度衰落」 in `uwb-dstwr`, 「Wi-Fi 侧本周新增的两层衰落」 in `uwb-coexist`,
+ * and 「这一条 2026-10-03 已经建进去了」 in `uwb-acquisition`. Two sibling copies
+ * of the same sentence in `uwb-dl-tdoa` and `uwb-subrounds` had already been
+ * reworded to 「那两层衰落」, which is the shape this rule asks for: a lesson may
+ * say WHAT the engine does, never WHEN somebody built it.
+ *
+ * Why nothing caught them: all three live in `limits`, and `lessonStrings`
+ * deliberately leaves `limits`, `title`, variant labels and jump labels out
+ * (they are each walked by hand where a test wants them). So the three sites
+ * the reader can read were in no walk at all. `readerText` below is that walk,
+ * and the rule is run over it rather than over `lessonStrings`.
+ *
+ * The patterns are deliberately narrow, and they were MEASURED against the
+ * whole 82-lesson course before being written down, because the obvious wide
+ * ones are all wrong here:
+ *  - bare 「刚」 has 36 honest sites (刚好, 一台刚开机的站点, 刚离开);
+ *  - bare 「目前」 is 「到目前为止」, the reader's position in the course, 9 times;
+ *  - bare 「今天」 is 「今天这条按块的规则」, the engine as it stands, 5 times;
+ *  - any four-digit year bans 「IEEE Std 802.11-2024」 and the draft dates the
+ *    `sources` of eight lessons depend on (「D0.5 于 2026 年 5 月发布」).
+ * What is left after that measurement is an ISO date and the wall-clock words
+ * that can only mean the author's own week — and those matched exactly the
+ * three known sites and nothing else.
+ */
+describe('readability · no lesson dates itself', () => {
+  /**
+   * Every string the reader can read, INCLUDING the four `lessonStrings`
+   * leaves out. `until` is a lesson id rather than prose, so it is skipped the
+   * way `lessonStrings` skips `term`.
+   */
+  const readerText = (l: Lesson): string[] => [
+    ...lessonStrings(l), l.title,
+    ...l.limits.map((x) => x.text),
+    ...(l.variants ?? []).map((v) => v.label),
+    ...l.jumps.map((j) => j.label),
+  ]
+
+  const ROTS: readonly { why: string; re: RegExp }[] = [
+    { why: 'an ISO date', re: /\d{4}-\d{2}-\d{2}/ },
+    { why: "a week, month or day relative to the author's own", re: /本周|本月|上周|下周|这周|上个月|下个月|本季|昨天|前天|明天|去年|今年|明年/ },
+    { why: '「刚」 plus a shipping verb', re: /刚(刚)?(加上|新增|加进|建|接上|改成|做完|落地|上线)/ },
+    { why: 'something described as newly added', re: /新增的|新加的|新近/ },
+  ]
+
+  it.each(ROTS.map((r) => [r.why, r] as const))('no lesson says %s', (_why, rot) => {
+    const hits: string[] = []
+    for (const l of LESSONS) {
+      for (const s of readerText(l)) {
+        const m = s?.match(rot.re)
+        if (m) hits.push(`${l.id}: …${s.slice(Math.max(0, s.indexOf(m[0]) - 24), s.indexOf(m[0]) + 28)}…`)
+      }
+    }
+    expect(hits, `${rot.why}: say what the engine does, not when it was built`).toEqual([])
+  })
+
+  /**
+   * The anti-vacuity guard: this rule has to be able to fail, and it has to
+   * still see the field the three real sites were hiding in. `lessonStrings`
+   * not walking `limits` is exactly why they survived, so that gap is pinned
+   * here rather than assumed — if `lessonStrings` ever starts walking `limits`,
+   * this line goes red and `readerText` can be simplified on purpose instead of
+   * by accident.
+   */
+  it('grades the field the three real sites were in, and can fail', () => {
+    const dstwr = LESSONS.find((l) => l.id === 'uwb-dstwr')!
+    expect(lessonStrings(dstwr), '`lessonStrings` still leaves `limits` out')
+      .not.toContain(dstwr.limits[dstwr.limits.length - 1].text)
+    expect(readerText(dstwr), 'but `readerText` reaches it')
+      .toContain(dstwr.limits[dstwr.limits.length - 1].text)
+    for (const { re } of ROTS) expect(re.test('Wi-Fi 侧本周刚加上的两层衰落，2026-10-03 新增的')).toBe(true)
+  })
+})
+
+/**
+ * Amendment 2026-10-04, the four sites the UWB read-through found where a name
+ * arrives before the lesson that owns it.
+ *
+ * The term rule above grades `why`, `outcomes`, `picture`, `numbers`,
+ * `observe`, `tryThis` and `quiz`, and deliberately not `deeper` or `sources`
+ * — collapsed professional depth, where `sources` already keeps the clause
+ * numbers and the English names. That exclusion is why none of these turned it
+ * red, and it is NOT a bug: three of the four sites below are in `deeper`, and
+ * the read-through's claim that they are "rule violations" is wrong. They are
+ * stumbles, which is a different and smaller thing: the reader meets GDOP six
+ * lessons before `uwb-geometry` and DL-TDoA five before `uwb-dl-tdoa`, with no
+ * bracket and no forward pointer, in a track whose own habit is to supply both
+ * (`uwb-sstwr` on FoM and `uwb-position` on GDOP each say 「后面有专门一课」).
+ *
+ * A general rule was MEASURED before this narrow one was written, and it does
+ * not exist: taking every acronym some lesson declares in `terms` and flagging
+ * every earlier reader-visible use gives 81 sites, and the great majority are
+ * honest — bracketed in place (DIFS, EIFS, CTS), inside a quoted log line
+ * (`GDOP 1.05, 4 anchors`), or an ordinary English word that collides with an
+ * acronym (`CQI Report`, `Block Ack Request`). A rule with that false-positive
+ * rate would be edited away, so what is pinned here is the four sites
+ * themselves, each with the shape the fix gave it.
+ */
+describe('readability · a name that arrives early says where it is taught', () => {
+  const byId = new Map(LESSONS.map((l) => [l.id, l]))
+  const lesson = (id: string): Lesson => {
+    const l = byId.get(id)
+    expect(l, `${id} is in the course`).toBeDefined()
+    return l!
+  }
+  /** Everything in a lesson a reader can read, `limits` included. */
+  const everything = (l: Lesson): string => [
+    ...lessonStrings(l), ...l.limits.map((x) => x.text),
+    ...(l.variants ?? []).map((v) => v.label),
+  ].join(' / ')
+  const earlier = (a: string, b: string): void =>
+    expect(COURSE_ORDER.indexOf(a), `${a} precedes ${b}`).toBeLessThan(COURSE_ORDER.indexOf(b))
+
+  it('uwb-dstwr names GDOP in full and points at uwb-geometry', () => {
+    earlier('uwb-dstwr', 'uwb-geometry')
+    const text = everything(lesson('uwb-dstwr'))
+    expect(text).toContain('几何精度因子（geometric dilution of precision, GDOP）')
+    expect(text).toContain('后面有专门一课讲它')
+    // the lesson that owns it still owns it
+    expect(lesson('uwb-geometry').terms!.map((t) => t.term)).toContain('GDOP')
+  })
+
+  it('uwb-m2m names DL-TDoA in full and points at uwb-dl-tdoa', () => {
+    earlier('uwb-m2m', 'uwb-dl-tdoa')
+    const text = everything(lesson('uwb-m2m'))
+    expect(text).toContain('到达时间差（time difference of arrival, TDoA）')
+    expect(text).toContain('下行形态（downlink TDoA, DL-TDoA）')
+    expect(text).toContain('后面有专门一课讲它')
+    // and the `sources` line that used to carry it bare now leans on the main one
+    expect(lesson('uwb-m2m').sources!.join(' / ')).toContain('下行形态（DL-TDoA）')
+    expect(lesson('uwb-dl-tdoa').terms!.map((t) => t.term)).toContain('DL-TDoA')
+  })
+
+  it('uwb-nba says the three variants it does not explain belong to the next lesson', () => {
+    const nba = lesson('uwb-nba')
+    const coexist = lesson('uwb-nba-coexist')
+    earlier('uwb-nba', 'uwb-nba-coexist')
+    // the two lessons share one menu on purpose (uwb-nba-coexist.test.ts pins that), so the
+    // fix is disclosure in the prose rather than a shorter menu: three of the four labels are
+    // the NEXT lesson's subject, and this lesson's own scene is the broken one, so a reader
+    // looking for why reaches for them first.
+    expect(nba.variants!.map((v) => v.label)).toEqual(coexist.variants!.map((v) => v.label))
+    const text = lessonStrings(nba).join(' / ')
+    expect(text).toContain('共用同一份变体菜单')
+    expect(text).toContain('菜单里有三项是那一课的题目')
+    for (const owed of ['跳变（channel hopping）', '先听后发（listen before talk, LBT）']) {
+      expect(text, owed).toContain(owed)
+    }
+    // the one it does use, and the count the claim depends on
+    expect(nba.variants).toHaveLength(4)
+    expect(nba.variants![3].label).toBe('一次只问一个锚点')
+    expect(text).toContain('本课自己只用第四项「一次只问一个锚点」')
+  })
+
+  it('uwb-sensing names UWB on its main path again', () => {
+    // `0bb62e3` rewrote this lesson's last `limits` entry and deleted its only occurrence of
+    // 超宽带（ultra-wideband, UWB）along with the half-sentence that held it. Nothing went red:
+    // the term rule only asks that a term USED be bracketed, never that it be used, and the
+    // sentence was in `limits`, which no walk reaches anyway.
+    const text = lessonStrings(lesson('uwb-sensing')).join(' / ')
+    expect(text).toContain('超宽带（ultra-wideband, UWB）')
+  })
+})

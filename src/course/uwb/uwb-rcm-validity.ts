@@ -233,7 +233,7 @@ export const uwbRcmValidity: Lesson = {
     '说出一个没有内容字段的信息单元凭什么还能携带三条信息',
     '指出一个从未收到过控制消息的响应方为什么必须保持沉默',
   ],
-  needs: ['uwb-frame', 'uwb-blocks'],
+  needs: ['uwb-frame', 'uwb-blocks', 'uwb-dstwr'],
   terms: [
     { term: 'ranging control message (RCM)', plain: '把一轮的配置发给各响应方的那一帧：谁在哪个时隙作答，这一轮要求什么' },
     { term: 'RCM Validity Rounds', plain: 'ARC 信息单元里的一个 6 位字段：这一条控制消息除本轮之外还管其后几轮' },
