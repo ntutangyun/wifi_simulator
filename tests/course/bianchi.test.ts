@@ -16,6 +16,7 @@ import type { TimingLane } from '../../src/course/diagram'
 import type { Block } from '../../src/course/lessonKit'
 import { dcfTimes, saturationThroughput, solveBianchi, tauOf } from '../../src/course/tier1/bianchiModel'
 import { COURSE_ORDER } from '../../src/course/curriculum'
+import { LESSONS } from '../../src/course/lessons'
 import { Simulation } from '../../src/engine/simulation'
 import type { Scenario } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
@@ -493,5 +494,47 @@ describe('the three kinds of slot, as a figure', () => {
     // 「空的那一条几乎看不见，而碰撞的那一条几乎和成功的一样长」
     expect(SLOT_NS / t.tsNs).toBeLessThan(0.01)
     expect(t.tcNs / t.tsNs).toBeGreaterThan(0.99)
+  })
+})
+
+/**
+ * **The ruler for this lesson's `until: 'fading'` (added 2026-10-05 by slice 4e's fix 2).**
+ *
+ * `until` renders as 「（这一条在《…》里会被解除）」 — a promise that the named lesson REMOVES
+ * the simplification — and `tests/course/limits.test.ts` now requires that the source lesson's
+ * own test file say something about its target, because the half of criterion B that asked for
+ * a ruler in prose had already been missed three times on the day it was written. This file was
+ * one of the three: it mentioned `fading` nowhere, in any spelling.
+ *
+ * The promise itself is sound, and its `kind` was corrected to `out-of-scope` when the `fading`
+ * lesson landed. That correction is the point worth keeping: 「固定速率」 is not a thing the
+ * engine lacks — both fading layers have existed since the selectivity slice — it is a thing
+ * THIS scene declines to switch on, which the limit's own words already say
+ * (「不是引擎里的一个开关，而是布置出来的」). An `unmodelled` version of this limit could not
+ * have been lifted by any lesson, since every lesson runs the same engine.
+ */
+describe('bianchi · the fixed-rate premise, and the lesson that takes it away', () => {
+  const lim = bianchi.limits.find((l) => l.until === 'fading')
+
+  it('promises a lift, on the kind that a lift is coherent about', () => {
+    expect(lim, 'the fixed-rate limit no longer points at `fading`').toBeDefined()
+    expect(lim!.kind).toBe('out-of-scope')
+    expect(lim!.seeAlso, 'a lift and a deeper read are different promises').toBeUndefined()
+    // the limit says the premise is arranged rather than absent, which is why it is a scenario class
+    expect(lim!.text).toContain('不是引擎里的一个开关，而是布置出来的')
+    expect(lim!.text).toContain('本课那两张表立刻不再适用')
+  })
+
+  it('and the axis is a top-level scenario section, absent here and written there', () => {
+    const own = [bianchi.scenario(), ...(bianchi.variants ?? []).map((v) => v.scenario())]
+    expect(own.length).toBeGreaterThan(1)
+    for (const [i, sc] of own.entries()) {
+      expect(sc.fading, `bianchi scene ${i} writes a fading section`).toBeUndefined()
+    }
+    const target = LESSONS.find((l) => l.id === 'fading')!
+    const theirs = [target.scenario(), ...(target.variants ?? []).map((v) => v.scenario())]
+    // not every variant: that lesson keeps one deliberate control with no section at all
+    expect(theirs.filter((sc) => sc.fading !== undefined).length).toBeGreaterThan(1)
+    expect(COURSE_ORDER.indexOf('fading')).toBeGreaterThan(COURSE_ORDER.indexOf('bianchi'))
   })
 })

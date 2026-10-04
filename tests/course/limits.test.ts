@@ -23,6 +23,8 @@
  * widening the rule.
  */
 import { describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { STRINGS } from '../../src/ui/i18n'
 import { LESSONS } from '../../src/course/lessons'
 import { COURSE_ORDER } from '../../src/course/curriculum'
 import type { Lesson, LimitKind } from '../../src/course/lessonKit'
@@ -215,8 +217,18 @@ describe('a limit that points at a deeper treatment says so as a deeper treatmen
  * table is the whole promise ledger; a fourteenth `until` turns this red and its author has
  * to write the fourth column down and leave a ruler in their own lesson's test file
  * (precedents: `width.test.ts`, `uwb-blocks.test.ts`, and as of 2026-10-05 also
- * `anomaly.test.ts`, `backoff.test.ts`, `streams.test.ts`, `mcs-ladder.test.ts`, and as of
+ * `anomaly.test.ts`, `backoff.test.ts`, `streams.test.ts`, `mcs-ladder.test.ts`,
+ * `bianchi.test.ts`, `rate-vs-model.test.ts`, `rate-fallback.test.ts`, and as of
  * the `fading` lesson also `fading.test.ts`, whose own header states its gate before measuring it).
+ *
+ * **Where the teeth actually are, so nobody mistakes which line is holding what.** The force
+ * is in the TUPLE TYPE plus the array equality just below: a new row cannot be added without
+ * four elements, and a new `until` cannot be added without a row. The `not.toBe('')` on the
+ * fourth column is close to vacuous on its own — the value it reads is a literal two lines
+ * above it in this same file — and it is kept only as a statement of the field's contract.
+ * The "leave a ruler" half used to be carried by this sentence alone, which made it no
+ * stronger than the comment the design's §1.4 condemned; since 2026-10-05 it is the
+ * `readFileSync` check further down, which went red on three rows the moment it was written.
  *
  * The census is taken off `LESSONS`, never off the file text. A `kind: 'formula'` block in
  * a lesson's `numbers` is character-for-character the shape of a `Limit`, so a regex sweep
@@ -282,6 +294,42 @@ describe('criterion B · the thirteen `until` promises are a frozen ledger', () 
   })
 
   /**
+   * **The ruler requirement, made mechanical (2026-10-05 fix 2).**
+   *
+   * The comment above this `describe` says the author of a new `until` must write the fourth
+   * column AND leave a ruler in their own lesson's test file. **The first half is forced by
+   * the tuple type and the set equality; the second half was forced by nothing but that
+   * sentence** — and a promise guarded only by a sentence is precisely the defect this slice
+   * was opened to fix (the design's §1.4 measured that four of the eight sites then in the
+   * course had no evidence of any kind behind them, and its own words were "a comment is not
+   * a mechanism"). Hand-filling those four and leaving the rule as prose would have rebuilt
+   * the same hole one slice later.
+   *
+   * So: a source lesson's own test file has to name its target somewhere. That is a weak
+   * check on purpose — it cannot tell a real ruler from the word appearing in a comment —
+   * but it is the difference between "someone was reminded" and "nothing happens". The
+   * author who adds the fourteenth promise now has to open their own test file.
+   *
+   * **It was not green when it was written.** The review measured 8/8 on the eight-site
+   * ledger and called the check free; by the time it landed the `fading` lesson had added
+   * five rows, and three of those — `bianchi`, `rate-vs-model`, `rate-fallback` → `fading` —
+   * mentioned `fading` nowhere in their test files, in any spelling. The rulers were added
+   * with this check rather than the check being narrowed to fit. That is the whole argument
+   * for having it: the prose requirement had already been missed three times in one day.
+   */
+  it.each(UNTIL_SITES)('%s → %s leaves a ruler in the source lesson’s own test file', (src, dst) => {
+    const file = new URL(`./${src}.test.ts`, import.meta.url)
+    const text = readFileSync(file, 'utf8')
+    // non-vacuity: we are reading that lesson's own test file, not an empty or wrong one
+    expect(text, `${src}.test.ts does not look like ${src}'s test file`).toContain(src)
+    expect(
+      text.includes(dst),
+      `${src}.test.ts never mentions \`${dst}\`, so nothing here judges whether that `
+      + `promise is kept — write the ruler, do not widen this check`,
+    ).toBe(true)
+  })
+
+  /**
    * **Criterion C — the target comes after the source.**
    *
    * **This check is vacuous today and the next reader should know it.** All thirteen targets
@@ -321,6 +369,36 @@ describe('criterion B · the thirteen `until` promises are a frozen ledger', () 
  * neither field. `ru-diversity` gets none either, and `tests/course/ofdma-dl.test.ts`
  * says why.
  */
+/**
+ * **The one UI string this slice added, pinned against the document that quotes it
+ * (2026-10-05 fix 3).**
+ *
+ * `docs/uwb-modellable-backlog.md` is where the next author reads what slice 4e decided, and
+ * when it was written it quoted the `seeAlso` wording from the DESIGN rather than from the
+ * code — the design's 「讲得更深」, which was deliberately not shipped (「更深」 is the word
+ * the course uses for a deeper FADE; the shipped string borrows `deeper`'s own 「再深一层」).
+ * Nothing tested the document, so a reader could have grepped the retired sentence and
+ * "restored" it in `i18n.ts`.
+ *
+ * Four lines, and they would have caught it: the backlog has to quote whatever
+ * `limitSeeAlso` actually produces. The same argument as fix 2 — the requirement was prose,
+ * and prose had already drifted once in the commit that wrote it.
+ */
+describe('the backlog quotes the UI string that actually shipped', () => {
+  it('records `limitSeeAlso`’s real wording, not the design’s retired one', () => {
+    const doc = readFileSync(new URL('../../docs/uwb-modellable-backlog.md', import.meta.url), 'utf8')
+    // non-vacuity: we are reading the file that documents this slice
+    expect(doc, 'the backlog no longer has a 4e section').toContain('切片 4e')
+    // the live string, with the lesson title taken out, is what the document must contain
+    const live = STRINGS.course.limitSeeAlso('X')
+    const after = live.split('《X》')[1]
+    expect(after, 'limitSeeAlso no longer embeds the title as 《…》').toBeDefined()
+    expect(doc, `the backlog does not quote ${live}`).toContain(after!.replace(/[）)]$/, ''))
+    // and it must NOT still carry the wording that was rejected
+    expect(doc.includes('把这一条讲得更深'), 'the backlog quotes the retired wording').toBe(false)
+  })
+})
+
 describe('the three `seeAlso` sites are a frozen ledger too', () => {
   const SEE_ALSO_SITES: readonly [string, string, string][] = [
     ['anomaly', 'rate-vs-model', '这里的速率控制只有两个计数'],
@@ -333,7 +411,9 @@ describe('the three `seeAlso` sites are a frozen ledger too', () => {
     expect([...actual].sort()).toEqual(SEE_ALSO_SITES.map(([s, t]) => `${s}→${t}`).sort())
   })
 
-  it.each(SEE_ALSO_SITES)('%s → %s still says the words it was entered for', (src, dst, needle) => {
+  // The needle is in the title because `anomaly` has TWO rows pointing at `rate-vs-model`;
+  // without it both cases print the same name and a failure does not say which one broke.
+  it.each(SEE_ALSO_SITES)('%s → %s still says %s', (src, dst, needle) => {
     const lesson = LESSONS.find((l) => l.id === src)!
     const lim = lesson.limits.find((x) => x.seeAlso === dst && x.text.includes(needle))
     expect(lim, `${src}: no \`seeAlso: '${dst}'\` limit containing ${needle}`).toBeDefined()

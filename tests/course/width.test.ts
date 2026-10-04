@@ -492,6 +492,18 @@ describe('width · the flat-channel limit, the direction it changed, and the les
     const tail = width.limits.find((l) => l.text.includes('格间相关'))!
     expect(tail, 'the inter-bin-correlation tail is its own entry now').toBeDefined()
     expect(tail).not.toBe(entry)
+    /*
+     * **And the tail sits immediately after the trunk (2026-10-05 fix 4).** It opens
+     * 「仍然没有的是格间相关」, and 「仍然」 has no antecedent of its own — it borrows the
+     * trunk's, which works only because the panel renders `limits` in array order and these
+     * two are adjacent. Keeping the cross-entry reference was a deliberate call (breaking it
+     * costs a sentence), and the house rule is that something you chose to depend on gets
+     * pinned. Without this line, inserting a limit between them — or sorting `width.limits`
+     * by `kind` — would leave 「仍然」 pointing at the 3 dB rate-margin entry with every test
+     * still green. `ru-diversity.test.ts` and `ofdma-dl.test.ts` freeze their whole kind
+     * arrays for the same class of reason.
+     */
+    expect(width.limits.indexOf(tail)).toBe(width.limits.indexOf(entry!) + 1)
     expect(tail.kind).toBe('unmodelled')
     // no pointer of either sort: `selectivity` re-declares this one, it does not remove it
     expect(tail.until, 'no lesson lifts inter-bin correlation').toBeUndefined()

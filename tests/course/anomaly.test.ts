@@ -397,6 +397,14 @@ describe('anomaly · which of its limits another lesson actually lifts', () => {
     // not `unmodelled`: the engine builds both, this scene's stations just cannot use them
     expect(lim.kind).toBe('out-of-scope')
     expect(lim.seeAlso).toBeUndefined()
+    // **And it opens on the scene (2026-10-05 fix 1).** Re-kinding changed the rendered
+    // prefix to 「这个模型答不了：」, and the sentence used to start 「每一轮的长短只由速率
+    // 决定」 — a reader meets 「这个模型答不了：每一轮的长短只由速率决定」 and can conclude
+    // the engine does not model frame length, which is the opposite of true. The scope goes
+    // first, the way `backoff`'s limit already did (「这个场景里一次成功只换来一帧」); the
+    // `width` trunk was fixed for the same reason, and that lesson's test pins it too.
+    expect(lim.text.startsWith('本场景的站点不打业务标记')).toBe(true)
+    expect(lim.text).toContain('每一轮的长短只由速率决定')
   })
 
   it('and the axis really is the station generation: nonht here, vht there', () => {

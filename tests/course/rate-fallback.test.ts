@@ -32,7 +32,8 @@ import { rateScenario } from '../../src/course/wifiScenes'
 import type { TLRecord } from '../../src/model/records'
 import { ACK_TIMEOUT_NS } from '../../src/engine/phy'
 import { lessonShapeSuite, ofType, runOf } from './kit'
-import { MODULES } from '../../src/course/curriculum'
+import { COURSE_ORDER, MODULES } from '../../src/course/curriculum'
+import { LESSONS } from '../../src/course/lessons'
 import { W, layoutDiagram, textBox, type Shape } from '../../src/course/diagram'
 
 const MS = 1_000_000
@@ -366,5 +367,53 @@ describe('rate-fallback · the third uploader', () => {
       expect(p, `third uploader: ${p}% at the bottom rung`).toBeGreaterThanOrEqual(36)
       expect(p, `third uploader: ${p}% at the bottom rung`).toBeLessThanOrEqual(43)
     }
+  })
+})
+
+/**
+ * **The ruler for this lesson's `until: 'fading'` (added 2026-10-05 by slice 4e's fix 2).**
+ *
+ * The third of the three sites whose source test file mentioned its target nowhere when
+ * `tests/course/limits.test.ts` began requiring one.
+ *
+ * This is the sharpest of the five `fading` promises, because the limit concedes that the
+ * lesson's own scene lacks the trigger the mechanism exists for: every failure here comes from
+ * collision and capture, none from the link getting worse. The axis is therefore two things at
+ * once — the top-level `fading` section this scene does not write, and the station count, since
+ * turning fading on in THIS scene would add collisions rather than isolate the cause, which is
+ * why the target lesson uses a single link instead. The ledger's fourth column in
+ * `limits.test.ts` records both; what is pinned here is the structural half, since the figures
+ * belong to whichever lesson measured them and printing them twice is two places to drift.
+ */
+describe('rate-fallback · the missing trigger, and the lesson that supplies it', () => {
+  const lim = rateFallback.limits.find((l) => l.until === 'fading')
+
+  it('promises a lift, on the kind that a lift is coherent about', () => {
+    expect(lim, 'the missing-trigger limit no longer points at `fading`').toBeDefined()
+    expect(lim!.kind).toBe('out-of-scope')
+    expect(lim!.seeAlso).toBeUndefined()
+    // it concedes the mechanism's own trigger is absent from its own scene
+    expect(lim!.text).toContain('没有本来该有的那个触发源')
+    expect(lim!.text).toContain('没有一次来自链路变差')
+    // and it names where to turn it on, which is what makes this a scenario class
+    expect(lim!.text).toContain('时变链路（衰落）')
+  })
+
+  it('and the axis is a top-level scenario section, absent here and written there', () => {
+    const own = [rateFallback.scenario(), ...(rateFallback.variants ?? []).map((v) => v.scenario())]
+    for (const [i, sc] of own.entries()) {
+      expect(sc.fading, `rate-fallback scene ${i} writes a fading section`).toBeUndefined()
+    }
+    const target = LESSONS.find((l) => l.id === 'fading')!
+    const theirs = [target.scenario(), ...(target.variants ?? []).map((v) => v.scenario())]
+    expect(theirs.filter((sc) => sc.fading !== undefined).length).toBeGreaterThan(1)
+    // the second half of the axis, exactly: two stations here, one there. Turning fading on in
+    // THIS scene would add collisions instead of isolating the cause, so the target swapped the
+    // room rather than just writing the section.
+    const stations = (sc: { nodes: readonly { kind: string }[] }) =>
+      sc.nodes.filter((n) => n.kind === 'sta').length
+    expect(stations(own[0])).toBe(2)
+    expect(stations(theirs[0])).toBe(1)
+    expect(COURSE_ORDER.indexOf('fading')).toBeGreaterThan(COURSE_ORDER.indexOf('rate-fallback'))
   })
 })

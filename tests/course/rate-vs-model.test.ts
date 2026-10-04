@@ -23,7 +23,8 @@ import { describe, it, expect } from 'vitest'
 import { rateVsModel } from '../../src/course/tier1/rate-vs-model'
 import { bianchiVsSim, bianchiVsSimJumps, bianchiVsSimVariants } from '../../src/course/tier1/bianchi-vs-sim'
 import { dcfTimes, saturationThroughput, solveBianchi } from '../../src/course/tier1/bianchiModel'
-import { MODULES, trackOf } from '../../src/course/curriculum'
+import { COURSE_ORDER, MODULES, trackOf } from '../../src/course/curriculum'
+import { LESSONS } from '../../src/course/lessons'
 import { ScenarioSchema } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 import { Simulation } from '../../src/engine/simulation'
@@ -295,5 +296,54 @@ describe('rate-vs-model · every official term carries its English name', () => 
 
   it('had its terminology actually graded', () => {
     expect(rows.filter((t) => bracketedAtFirstZhUse(zh, t) !== null).length).toBeGreaterThanOrEqual(2)
+  })
+})
+
+/**
+ * **The ruler for this lesson's `until: 'fading'` (added 2026-10-05 by slice 4e's fix 2).**
+ *
+ * One of the three sites whose source test file mentioned its target nowhere when
+ * `tests/course/limits.test.ts` started requiring it. The check is weak by design — it cannot
+ * tell a ruler from a passing mention — but the requirement had been prose until then, and
+ * prose had already been missed three times in a day.
+ *
+ * This lesson is on BOTH sides of the field, which is worth stating in one place: two other
+ * limits here point at it with `seeAlso` (`anomaly`'s two, `mcs-ladder`'s engine half), because
+ * this lesson goes deeper into the two-counter controller without removing it; and its own
+ * single-cause limit points at `fading` with `until`, because that one really is lifted. The
+ * difference is exactly criterion A's: what another lesson can change is the scene, never the
+ * engine.
+ */
+describe('rate-vs-model · the single-cause limit, and the lesson that adds the other cause', () => {
+  const lim = rateVsModel.limits.find((l) => l.until === 'fading')
+
+  it('promises a lift, on the kind that a lift is coherent about', () => {
+    expect(lim, 'the single-cause limit no longer points at `fading`').toBeDefined()
+    expect(lim!.kind).toBe('out-of-scope')
+    expect(lim!.seeAlso).toBeUndefined()
+    // the claim being qualified: every downshift here is caused by collision, by construction
+    expect(lim!.text).toContain('这正是本课要的干净实验')
+    expect(lim!.text).toContain('那时这张速率直方图就不再是单一成因的了')
+  })
+
+  it('and the axis is a top-level scenario section, absent here and written there', () => {
+    const own = [rateVsModel.scenario(), ...(rateVsModel.variants ?? []).map((v) => v.scenario())]
+    expect(own.length).toBeGreaterThan(1)
+    for (const [i, sc] of own.entries()) {
+      expect(sc.fading, `rate-vs-model scene ${i} writes a fading section`).toBeUndefined()
+    }
+    const target = LESSONS.find((l) => l.id === 'fading')!
+    const theirs = [target.scenario(), ...(target.variants ?? []).map((v) => v.scenario())]
+    expect(theirs.filter((sc) => sc.fading !== undefined).length).toBeGreaterThan(1)
+    expect(COURSE_ORDER.indexOf('fading')).toBeGreaterThan(COURSE_ORDER.indexOf('rate-vs-model'))
+  })
+
+  it('and this lesson is also the target of three `seeAlso`s, which it restates rather than lifts', () => {
+    const pointers = LESSONS.flatMap((l) => l.limits
+      .filter((x) => x.seeAlso === 'rate-vs-model').map(() => l.id))
+    expect(pointers.sort()).toEqual(['anomaly', 'anomaly', 'mcs-ladder'])
+    // and it makes no onward promise of its own beyond the `fading` one
+    expect(rateVsModel.limits.filter((l) => l.seeAlso)).toHaveLength(0)
+    expect(rateVsModel.limits.filter((l) => l.until)).toHaveLength(1)
   })
 })

@@ -318,7 +318,7 @@ describe('mcs-ladder · rate selection after frequency selectivity', () => {
  * the same shape `7ab9eb6` had just split on `uwb-blocks`, so deleting the whole `until`
  * would have thrown away a promise that is actually kept:
  *
- *  - **The scenario half IS lifted.** 「本课四个变体一次失败也没有，所以这一层看不见」 is a
+ *  - **The scenario half IS lifted.** 「本课四个变体一次失败也没有 …… 而本课这一层看不见」 is a
  *    fact about THIS scene, and `rate-vs-model` opens it: that lesson's scene really does
  *    lose frames, so the loss feedback under the lookup table becomes visible. Same shape
  *    as `streams` 「只有一台站点」 → `mumimo`. It is therefore `out-of-scope`, which is the
@@ -337,8 +337,12 @@ describe('mcs-ladder · the lookup-table limit promises only the half that is ke
   it('promises the lift only for the half this scene hides', () => {
     expect(scene, 'the lookup-table limit no longer points at `rate-vs-model`').toBeDefined()
     expect(scene!.kind).toBe('out-of-scope')
-    expect(scene!.text).toContain('本课四个变体一次失败也没有')
-    expect(scene!.text).toContain('所以这一层看不见')
+    // The scene clause leads, 2026-10-05 fix 1: an `out-of-scope` limit renders behind
+    // 「这个模型答不了：」, and a sentence that opens on what the MODEL does reads as a denial
+    // that the engine models it at all. `backoff`'s limit is the real precedent — it opens
+    // 「这个场景里一次成功只换来一帧」, anchoring the scope first — so this one now does too.
+    expect(scene!.text.startsWith('本课四个变体一次失败也没有')).toBe(true)
+    expect(scene!.text).toContain('这一层看不见')
     // and it does NOT also promise the three inputs the engine simply does not have
     for (const notPromised of ['最近的成功率', '信道忙闲', '主动探测']) {
       expect(scene!.text, notPromised).not.toContain(notPromised)
