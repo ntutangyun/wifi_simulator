@@ -189,6 +189,25 @@ Create `tests/course/ru-diversity.test.ts`；Modify `tests/fixtures/lesson-hashe
 
 ---
 
+### Task 6a: 先退役那两句现在为假的话（Task 3 之后立刻做）
+
+**Files:** Modify `src/course/tier2/ofdma-dl.ts`、`ofdma-ul.ts` 及它们的测试
+
+**为什么单独提前**：Task 2 落地之后，`ofdma-dl` 与 `ofdma-ul` 那两条
+`out-of-scope`（「一个多用户成员在这里拿到的是**整条信道**的格数……分集被整整高估了
+成员数那么多倍」）**从那个提交起就是假话**。等到 Task 6 再退役，中间每一次提交上
+课程都在说假话。**这一步只做「把假话换成真话」，不加 `until`**
+（`until: 'ru-diversity'` 要等 Task 5 把那一课建出来）。
+
+- [ ] **Step 1:** 两条 `out-of-scope` 的内容改成现在成立的说法：成员拿到的是
+  **它那一份截到整数格之后的格数**；而**位置在这里不起作用**，因为各格独立。
+- [ ] **Step 2:** 两头钉住（新说法 `toContain`、旧说法 `not.toContain`）。
+- [ ] **Step 3:** **`limits` 在 `mainPathChars` 之外，所以两课时长不该动——核一遍。**
+- [ ] **Step 4:** `npx tsc -b --force` + `npx vitest run`。**fixture 零 diff。**
+- [ ] **Step 5:** 提交（显式路径）。
+
+---
+
 ### Task 6: 四课的 `limits`，逐条按 §7.4
 
 **Files:** Modify `src/course/tier2/ofdma-dl.ts`、`ofdma-ul.ts`、`selectivity.ts`、
@@ -196,8 +215,8 @@ Create `tests/course/ru-diversity.test.ts`；Modify `tests/fixtures/lesson-hashe
 
 **规格：§7.4 那张表，逐行照做。**
 
-- [ ] **Step 1:** `ofdma-dl` 与 `ofdma-ul` 那两条指向 4b 的 `out-of-scope` **整条退役**，
-  换成 `model-value` 并加 `until: 'ru-diversity'`。
+- [ ] **Step 1:** `ofdma-dl` 与 `ofdma-ul` 那两条 **Task 6a 已经换过内容**，
+  这一步只把 `kind` 调成 `model-value` 并**加上 `until: 'ru-diversity'`**。
 - [ ] **Step 2:** `ofdma-dl` 等分那条 `model-value` **只加 `until`**，内容不动。
 - [ ] **Step 3:** `selectivity.ts` 的 `out-of-scope` 末句退役，换成「成员拿到的是它那一份
   截到整数格之后的格数；而**位置**在这里不起作用，因为各格独立 —— 六个四格窗口在 0.02 dB 以内一致」。
