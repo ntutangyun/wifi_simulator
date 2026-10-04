@@ -744,10 +744,13 @@ describe('ofdma-dl · the guard interval only changes how long the MU PPDU is', 
     const rs = [...new Simulation(s).runUntil(150 * MS_NS).records]
     const ppdus = rs.filter((r): r is Extract<TLRecord, { type: 'TX_START' }> => r.type === 'TX_START')
       .map((r) => r.frame).filter((f) => !f.amp && !f.uwb)
-    const octets = rs.filter((r): r is Extract<TLRecord, { type: 'RX_OK' }> => r.type === 'RX_OK')
-      .reduce((a, r) => a + (r.frame.kind === 'data' ? r.frame.bytes : 0), 0)
+    // **Dequeued MSDUs, not the sum of received octets.** A DL MU PPDU is received once per
+    // member, so summing `frame.bytes` over RX_OK counts the same payload several times and
+    // moves when the member count does — which is a property of the grouping, not of the guard
+    // interval. `DEQUEUE` is one record per MSDU that actually got through.
     return {
-      octets,
+      dequeued: rs.filter((r) => r.type === 'DEQUEUE').length,
+      muPpduNs: [...new Set(ppdus.filter((f) => f.kind === 'data' && f.muParts).map((f) => f.txTimeNs))],
       airMs: +(ppdus.reduce((a, f) => a + f.txTimeNs, 0) / 1e6).toFixed(2),
       rxFail: rs.filter((r) => r.type === 'RX_FAIL').length,
     }
@@ -767,14 +770,22 @@ describe('ofdma-dl · the guard interval only changes how long the MU PPDU is', 
     const quad = tier('quad')
     expect(base.airMs).toBe(80.55)
     expect(quad.airMs).toBe(92.43)
-    expect(base.octets).toBe(2_269_938)
-    expect(quad.octets).toBe(2_270_058)
+    // The MU PPDU is a fixed 12 symbols, so its own length follows the symbol exactly…
+    expect(base.muPpduNs).toEqual([211_200])
+    expect(quad.muPpduNs).toEqual([248_800])
+    // …and what got through does not move at all.
+    expect(quad.dequeued).toBe(base.dequeued)
+    expect(base.dequeued).toBe(529)
     expect(base.rxFail).toBe(0)
     expect(quad.rxFail).toBe(0)
     const lim = ofdmaDl.limits.find((x) => x.text.includes('保护间隔'))!
     expect(lim.text).toContain('80.55')
     expect(lim.text).toContain('92.43')
+    expect(lim.text).toContain('211.2')
+    expect(lim.text).toContain('248.8')
+    expect(lim.text).toContain('529')
     expect(lim.text).toContain((((quad.airMs / base.airMs) - 1) * 100).toFixed(1))
+    expect(lim.text).toContain((((quad.muPpduNs[0] / base.muPpduNs[0]) - 1) * 100).toFixed(1))
   })
 
   it('does not move the stated minutes: limits are outside mainPathChars', () => {
