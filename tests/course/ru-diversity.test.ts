@@ -45,7 +45,7 @@ import {
 import { WALL_LOSS_DB, buildLinkTable } from '../../src/engine/propagation'
 import { smallScaleDb, type FadingCfg } from '../../src/engine/fading'
 import { Simulation } from '../../src/engine/simulation'
-import { fmtRecord } from '../../src/ui/format'
+import { fmtNs, fmtRecord } from '../../src/ui/format'
 import { node } from '../../src/course/lessonKit'
 import { ruDiversityScenario } from '../../src/course/wifiScenes'
 import { selRowDecoded, selRows } from '../engine/selectivity-pairing'
@@ -350,6 +350,36 @@ describe('ru-diversity · the scene, before any of it is read as evidence', () =
       `over ${selBins(20)} bins`, 'mean、worst bin 与 effective']) {
       expect(mainText, q).toContain(q)
     }
+    /*
+     * **And the row does not BEGIN with `selectivity`** (Task 6, review finding 6). The watch
+     * call-out said 「看 selectivity 开头那一行」; `EventLog.tsx` renders a timestamp span of its
+     * own before `fmtRecord`, and `fmtRecord` itself opens with the two node ids - so the word
+     * sits a long way in. This was the one claim about the log's wording that no `fmtRecord`
+     * guard held, which is exactly the misplacement class this lesson had just fixed
+     * elsewhere.
+     */
+    expect(fmtRecord(member).startsWith('selectivity')).toBe(false)
+    // 「sta-1 ⇠ ap 」 first, and `EventLog.tsx` puts a 13-character timestamp span and two
+    // paddings in front of all of it — so the word is nowhere near the start of the row.
+    expect(fmtRecord(member).indexOf('selectivity')).toBe('sta-1 ⇠ ap '.length)
+    expect(fmtNs(member.t)).toHaveLength(13)
+    expect(mainText).not.toContain('selectivity 开头那一行')
+    expect(mainText).toContain('行首是时间戳，这个词在两个节点名之后')
+    /*
+     * **C9 (review finding 9): the narrow-screen warning belongs where the reader is standing.**
+     * Measured off the row itself: 131 characters of record text, `(loss` opening at index 75
+     * and `over bins` at index 88. In Consolas at the log's own 11.5 px (0.55 em advance, so
+     * ~6.33 px per character) that puts them ~474 px and ~557 px into the record text, and the
+     * row is preceded by a 13-character timestamp plus padding - about 100 px. Both quoted
+     * fragments therefore sit past 570 px on a 470 px-wide front screen. `picture[1]` carried
+     * the warning (correctly - it is a `watch` call-out, the reader is at the simulator there
+     * too), but both `observe` lines quote off-screen text and neither warned.
+     */
+    expect(fmtRecord(member).length).toBe(131)
+    expect(fmtRecord(member).indexOf('(loss')).toBe(75)
+    expect(fmtRecord(member).indexOf('over bins')).toBe(88)
+    expect(lesson.observe[0]).toContain('窄屏上要把这一行往右拉才看得到')
+    expect(lesson.observe[1]).toContain('要往右拉的那后半截')
     // …and the field names the lesson no longer claims the log prints.
     expect(mainText).not.toContain('start 是')
     expect(mainText).not.toContain('门限 8.99')
@@ -399,6 +429,16 @@ describe('ru-diversity · the two legs, at one measured margin', () => {
       ['138 条里 25 条', '18.12 %'],
     ])
     expect(table.heading).toContain('1000 ms')
+    /*
+     * **Both legs' denominators are a whole round, and the prose now says so for both** (Task
+     * 6, review finding 7). The grouping paragraph gave the member leg's 283-of-292 and left
+     * the whole-channel leg with only the group size 138, so a reader could not tell whether
+     * 138 was the round or a selection from it. It is 138 of 140.
+     */
+    const offAll = dlRows(runOf(lesson, WHOLE, GATE_NS))
+    expect(offAll.length).toBe(140)
+    expect(whole.length).toBe(138)
+    expect(mainText).toContain('140 条里的 138 条')
   })
 
   /**
@@ -612,7 +652,30 @@ describe('ru-diversity · the window this claim lives in', () => {
     // And wide open, both legs are a tie at zero — the 「并列的零」 the table's last row names.
     const wide = [selBins(20), selMemberBins(20, 1 / 2)].map((b) => rate(meanDb, 15, b))
     for (const r of wide) expect(r).toBeLessThan(0.01)
-    expect(mainText).toContain('余量 3 到 15 dB')
+    /*
+     * **The prose states the window as what was measured, which is a bracket and not an edge**
+     * (Task 6, review finding 3). It used to say 「通过这道窗口的大致范围是余量 3 到 15 dB，而本课
+     * 这个工作点离它的下边缘只有约一个分贝」 - and those two clauses point at two different
+     * distances: 3.547 - 3 is 0.55 dB, while 「约一个分贝」 is the distance to the measured
+     * reversal at 2.381 (1.166 dB). Neither 「3」 nor 「约一个分贝」 had an instrument; the
+     * bracket [2.381, 3.547] is what the sweep above actually establishes. The failure mode is
+     * concrete: someone reads 「3」 as a measured edge, builds a 3.1 dB scene expecting the
+     * forward direction, and the engine flips somewhere inside the bracket.
+     *
+     * The wide end keeps its own instruments, which are the two this test and the one above it
+     * provide: 15 dB as a pure-function tie (the table's last row says so in those words), and
+     * `ofdma-dl`'s measured 15.4 dB median.
+     */
+    expect(mainText).toContain('这道窗口的下边缘没有量到一个数，量到的是一个区间')
+    expect(mainText).toContain('3.547 dB 上方向是正的，2.381 dB 上已经反了')
+    // The bracket's own width, as the prose rounds it: 3.547 - 2.381 = 1.166 dB.
+    expect(legs().key - 2.381).toBeLessThan(1.2)
+    expect(mainText).toContain('离它不到 1.2 dB')
+    // The two unanchored figures are gone, and the pure-function tie keeps its label.
+    expect(mainText).not.toContain('余量 3 到 15 dB')
+    expect(mainText).not.toContain('约一个分贝')
+    expect(mainText).toContain('十五个分贝以上')
+    expect(mainText).toContain('纯函数抽样，不是一轮仿真')
   }, 300_000)
 
   /**
@@ -650,6 +713,93 @@ describe('ru-diversity · the window this claim lives in', () => {
     expect(limitsText).toContain('真实差距精确为零')
     expect(limitsText).toContain('落在它自己的抽样标准误的量级里')
   })
+})
+
+/**
+ * **What a finite coherence bandwidth would do to this lesson's two figures - the instrument
+ * behind the split `unmodelled` entry, and the measurement that refuted the account the fix was
+ * queued with.**
+ *
+ * The entry used to end 「格间独立是频率分集偏多的那一边，所以本课量到的代价比真实信道里的更小」,
+ * unconditionally, and the review that queued the fix described the condition as "true for a
+ * coherence length L of about 7 bins or less, reversed from L >= 9, where both legs collapse to
+ * one effective sample and the gap goes to zero". The first half of that is right - the gap does
+ * go to zero - and everything it concludes from it is not:
+ *
+ *  - **the gap between the two legs is largest at independence and shrinks monotonically**, so
+ *    it is over-stated at EVERY correlation, from L = 2 upward, not under-stated up to 7;
+ *  - **each leg's own absolute cost rises monotonically with L**, so the member's own cost is
+ *    under-stated at every correlation, with no reversal anywhere;
+ *  - there is therefore **no threshold at all**, and the sentence was not missing a condition.
+ *    It was carrying two readings of 「代价」 that run opposite ways, which is why the lesson now
+ *    states both halves and prints no number for either.
+ *
+ * **Instrument.** A counterfactual over the engine's OWN sampler, exactly as the reversal test
+ * above is: bins inside one coherence length share a draw (`Math.floor(b / L)` as the sampler's
+ * bin key), the scene's own Rayleigh config, its measured mean SINR and its measured margin.
+ * L = 1 is then literally this engine, which is what makes the sweep non-vacuous. It is a model
+ * and not a round - the engine has no coherence length, slice 4a having recorded that as having
+ * no value to give it - so only the DIRECTIONS are asserted, and the lesson prints none of these
+ * numbers.
+ */
+describe('ru-diversity · the direction a finite coherence bandwidth would move both figures', () => {
+  const DRAWS = 6000
+  const LS = [1, 2, 4, 6, 9] as const
+
+  /** Drop rate of a `bins`-bin leg when every `L` adjacent bins share one draw. */
+  const rate = (bins: number, L: number, meanDb: number, marginDb: number): number => {
+    let below = 0
+    for (let i = 0; i < DRAWS; i++) {
+      const devs: number[] = []
+      for (let b = 0; b < bins; b++) {
+        devs.push(smallScaleDb(RAYLEIGH, 1, 'edge', `c${i}`, 'd', Math.floor(b / L)))
+      }
+      if (selEffSinrDb(meanDb, devs) < meanDb - marginDb) below++
+    }
+    return below / DRAWS
+  }
+
+  it('shrinks the gap monotonically to zero, and raises both legs — with no threshold', () => {
+    const meanDb = legs().on[0]!.meanSinrDb
+    const marginDb = legs().key
+    const full = selBins(20)
+    const part = selMemberBins(20, 1 / 2)
+    const sweep = LS.map((L) => {
+      const nine = rate(full, L, meanDb, marginDb)
+      const four = rate(part, L, meanDb, marginDb)
+      return { L, nine, four, gap: four - nine }
+    })
+
+    // Non-vacuity: L = 1 is this engine, so it has to reproduce the gate's own direction.
+    expect(sweep[0]!.gap).toBeGreaterThan(0.05)
+    expect(sweep[0]!.four).toBeGreaterThan(sweep[0]!.nine)
+
+    // (1) The gap is largest at independence and never exceeds it anywhere in the sweep —
+    // which is the claim that replaces "reversed from L >= 9".
+    for (const row of sweep.slice(1)) {
+      expect(row.gap, `gap at L=${row.L}`).toBeLessThan(sweep[0]!.gap)
+    }
+    // …and it shrinks all the way down, rather than turning round at some length.
+    const gaps = sweep.map((r) => r.gap)
+    for (let i = 1; i < gaps.length; i++) {
+      expect(gaps[i]!, `gap at L=${LS[i]} against L=${LS[i - 1]}`).toBeLessThan(gaps[i - 1]! + 0.01)
+    }
+    // One coherence length over the channel collapses both legs onto one effective sample.
+    expect(sweep.at(-1)!.L).toBe(full)
+    expect(sweep.at(-1)!.gap).toBeLessThan(0.01)
+    expect(sweep.at(-1)!.four).toBeCloseTo(sweep.at(-1)!.nine, 10)
+
+    // (2) Each leg's own cost rises with L, so the member's absolute cost is under-stated —
+    // the other half of the entry, and the half with no reversal in it either.
+    for (const key of ['nine', 'four'] as const) {
+      expect(sweep.at(-1)![key], `${key} at L=${full}`).toBeGreaterThan(sweep[0]![key])
+    }
+
+    // What the lesson says about all of this, and the one number it is allowed: none.
+    expect(limitsText).toContain('两腿都塌成一个有效样本、差距归零')
+    expect(limitsText).toContain('真实住宅信道落在差距还明显存在的那一端')
+    for (const n of ['7 格', '9 格', 'L ≥']) expect(limitsText, n).not.toContain(n)
+  }, 300_000)
 })
 
 describe('ru-diversity · what `deeper` and `tryThis` promise the reader', () => {
@@ -762,19 +912,45 @@ describe('ru-diversity · what `deeper` and `tryThis` promise the reader', () =>
   })
 })
 
-describe('ru-diversity · the six limits are each about this engine', () => {
+/**
+ * **Selected by what each entry SAYS, not by where it sits** - the practice
+ * `tests/course/ofdma-dl.test.ts` adopted after the 2026-10-03 review's finding 5. Task 6 added
+ * two entries in the middle of this array (the capacity bound, and the rate-selection
+ * asymmetry), and index lookups would have started grading the wrong entries silently.
+ */
+describe('ru-diversity · the eight limits are each about this engine', () => {
+  /** The one entry whose text contains `needle`, or a failure naming what it found instead. */
+  const only = (needle: string): string => {
+    const hits = lesson.limits.filter((l) => l.text.includes(needle))
+    expect(hits.map((h) => h.kind), `limits matching ${needle}`).toHaveLength(1)
+    return hits[0]!.text
+  }
+  const kindOf = (needle: string): string =>
+    lesson.limits.find((l) => l.text.includes(needle))!.kind
+
   it('names the kinds it uses, with no two entries repeating themselves', () => {
-    expect(lesson.limits.length).toBe(6)
+    // Six when the lesson shipped; eight after Task 6 added design §10.1's rate-selection
+    // asymmetry (which §10.1 names as owed to this lesson, and the lesson had missed) and
+    // §10.2's capacity direction. The whole column is asserted in reading order, so an
+    // insertion shows up here rather than being absorbed.
+    expect(lesson.limits.length).toBe(8)
     expect(lesson.limits.map((l) => l.kind)).toEqual([
-      'model-value', 'unmodelled', 'unmodelled', 'model-value', 'out-of-scope', 'out-of-scope',
+      'model-value', 'unmodelled', 'unmodelled', 'threshold',
+      'model-value', 'out-of-scope', 'out-of-scope', 'out-of-scope',
     ])
-    expect(new Set(lesson.limits.map((l) => `${l.kind}:${l.text}`)).size).toBe(6)
-    // `until` is Task 6's business, not this lesson's: nothing here promises a later lesson.
+    expect(new Set(lesson.limits.map((l) => `${l.kind}:${l.text}`)).size).toBe(8)
+    /*
+     * **Still no `until`, and Task 6 decided it stays that way.** Design §7.4 asked for
+     * `until: 'ru-diversity'` on two entries of the two neighbouring lessons rather than here,
+     * and both were declined with the reason recorded in those files' tests; nothing in THIS
+     * lesson promises a later one either, because nothing here is lifted later in the course.
+     */
     expect(lesson.limits.filter((l) => l.until !== undefined)).toEqual([])
   })
 
   it('model-value: the truncation, with the lost bins split by bandwidth', () => {
-    const t = lesson.limits[0]!.text
+    const t = only('selMemberBins')
+    expect(kindOf('selMemberBins')).toBe('model-value')
     expect(t).toContain('selMemberBins')
     for (const s of ['两个 106 音调资源单元', '四个 52 音调资源单元', '四个 106 音调资源单元']) {
       expect(t, s).toContain(s)
@@ -786,16 +962,41 @@ describe('ru-diversity · the six limits are each about this engine', () => {
     expect(t).toContain('52+26')
   })
 
-  it('unmodelled: position is exactly inert, and independence is the generous side', () => {
-    const t = lesson.limits[1]!.text
-    expect(t).toContain('位置完全不起作用')
+  /**
+   * **Position is exactly inert - and what bin independence does to the figures is two
+   * statements that run OPPOSITE ways**, which is the Task 6 correction of this entry.
+   *
+   * The sentence used to end 「格间独立是频率分集偏多的那一边，所以本课量到的代价比真实信道里的
+   * 更小」, and the review that queued the fix read that as true below a coherence length of
+   * about 7 bins and reversed from 9. Measured (the sweep further down this file): **there is
+   * no such threshold, and neither half of that account is what happens.** The gap between the
+   * two legs is LARGEST at independence and shrinks monotonically as the coherence length
+   * grows, reaching zero once one coherence length covers the channel - so the table's gap is
+   * over-stated at every correlation, not under-stated up to 7 bins. The member's own absolute
+   * cost runs the other way and is under-stated at every correlation. One reading of 「代价」
+   * made the old sentence true and the other made it backwards, which is why the fix is to
+   * split it rather than to add a condition to it.
+   */
+  it('unmodelled: position is exactly inert, and independence cuts both ways by name', () => {
+    const t = only('位置完全不起作用')
+    expect(kindOf('位置完全不起作用')).toBe('unmodelled')
     expect(t).toContain('真实差距精确为零')
     expect(t).toContain('不是一个效应')
     expect(t).toContain('格间独立是频率分集偏多的那一边')
+    // The two halves, each with its own direction, and the admission that neither has a figure.
+    expect(t).toContain('两半相反')
+    expect(t).toContain('成员自己那一份付的代价被低估了')
+    expect(t).toContain('这个差被高估了')
+    expect(t).toContain('差距归零')
+    expect(t).toContain('这张表的方向站得住；它的大小站不住')
+    expect(t).toContain('只有方向，没有数')
+    // ...and the unconditional sentence it replaces is gone.
+    expect(t).not.toContain('所以本课量到的代价比真实信道里的更小')
   })
 
   it('unmodelled: the decode threshold has no length term, and that flatters this table', () => {
-    const t = lesson.limits[2]!.text
+    const t = only('decodeThreshDb 只读速率，不读字节数')
+    expect(kindOf('decodeThreshDb 只读速率，不读字节数')).toBe('unmodelled')
     expect(t).toContain('decodeThreshDb 只读速率，不读字节数')
     expect(t).toContain('8 个百分点')
     expect(t).toContain('真实接收机的长帧误包率更高')
@@ -805,15 +1006,74 @@ describe('ru-diversity · the six limits are each about this engine', () => {
     expect(gap).toBeLessThan(8.2)
   })
 
+  /**
+   * **The capacity bound, with the direction design §10.2 asks for and `sources` never gave.**
+   *
+   * §10.2 requires this kept apart from the inter-bin entry above - one is a number this model
+   * does not need (position really is inert here), the other is a number it has a mechanism for
+   * and refuses to invent (EESM's β, which the standard never gives). The direction is the part
+   * that matters to this lesson, and it is the one that STRENGTHENS it: a real code sits
+   * further below capacity the fewer independent fades it spans, so the thinner the share the
+   * looser the bound, so the real tail cost exceeds the measured one. No figure is printed for
+   * it and the entry says in so many words that none was measured - the discipline
+   * `ofdma-dl`'s reseed entry already uses for a direction without a number.
+   */
+  it('threshold: the loss is a lower bound, and a thinner share makes it a looser one', () => {
+    const t = only('EESM')
+    expect(kindOf('EESM')).toBe('threshold')
+    expect(t).toContain('下界')
+    expect(t).toContain('容量')
+    expect(t).toContain('β')
+    expect(t).toContain('标准从未给过 β')
+    // The direction, and which way it pushes the table against the other two mechanisms.
+    expect(t).toContain('成员那一份越薄')
+    expect(t).toContain('这个下界离真实越远')
+    expect(t).toContain('真实的尾部代价比本课量到的更大')
+    expect(t).toContain('往大处推')
+    expect(t).toContain('都只能是方向，不是数')
+    // Kept apart from the inter-bin entry, by §10.2's own requirement.
+    expect(t).toContain('两件事要分开记')
+  })
+
+  /**
+   * **The asymmetry design §10.1 names as owed to this lesson, and the lesson had missed.**
+   *
+   * §10.1: 「这一刀让它再多一层：成员的解调读 4 格，而它的选级读整条信道的那一个平坦值。这一句要进
+   * 新课的 `limits`。」 It was absent - 选级 / 载波侦听 / 前导 / 捕获 / 平坦 all scored zero hits
+   * in the lesson file. The failure mode is specific: a reader finishes the table and asks why
+   * the rate loop does not drop a rung to recover the member, and the only answer the lesson
+   * gave was scene-local (「速率已经钉在最低一级」), which is the wrong intuition anywhere the
+   * link is not pinned at MCS 0.
+   *
+   * §10.1's own wording is loose in one place, and the entry is written to the engine instead:
+   * rate selection does not read "the whole channel's flat draw", it reads the link table's
+   * STATIC mean level (`mcsForPeer`, whose own comment gives the reason), so not even this
+   * frame's flat draw reaches it. What does respond is `RateControl`'s loss feedback - two
+   * consecutive failures, one rung, floored at 0 - which is reactive and per-link, and that is
+   * the half the entry has to state or the reader keeps the wrong answer.
+   */
+  it('out-of-scope: the decode reads the share, the rate selection reads the link table mean', () => {
+    const t = only('mcsForPeer，')
+    expect(kindOf('mcsForPeer，')).toBe('out-of-scope')
+    for (const str of ['resolveLock', '载波侦听', '前导检测', '捕获效应（capture effect）',
+      '成员的解调读它那一片的格，而它的选级读整条信道的那一个值',
+      '速率环为什么不降一档把它补回来', '那只在这个场景上成立',
+      '连续两次失败', '先掉两帧再降一档', '分不出「这一片薄」与「这条链路差」']) {
+      expect(t, str).toContain(str)
+    }
+  })
+
   it('model-value: one resource-unit size, and why a scheduler is out of scope', () => {
-    const t = lesson.limits[3]!.text
+    const t = only('成员数的倒数')
+    expect(kindOf('成员数的倒数')).toBe('model-value')
     expect(t).toContain('成员数的倒数')
     expect(t).toContain('26、52、106、242、484、996')
     expect(t).toContain('标准不规定调度器')
   })
 
   it('out-of-scope: the orthogonal group, and bins belonging to a resource unit', () => {
-    const t = lesson.limits[4]!.text
+    const t = only('orthogonalGroup')
+    expect(kindOf('orthogonalGroup')).toBe('out-of-scope')
     expect(t).toContain('orthogonalGroup')
     expect(t).toContain('干扰与噪声在每一格里是同一个数')
     expect(t).toContain('格号区间属于那一片资源单元，不属于某一台设备')
@@ -821,7 +1081,8 @@ describe('ru-diversity · the six limits are each about this engine', () => {
   })
 
   it('out-of-scope: the uplink loop that never closed, named as not this slice’s doing', () => {
-    const t = lesson.limits[5]!.text
+    const t = only('cfg.mcsForPeer')
+    expect(kindOf('cfg.mcsForPeer')).toBe('out-of-scope')
     expect(t).toContain('cfg.mcsForPeer')
     expect(t).toContain('closeTbPpdu 一次也不调 onTxOutcome')
     expect(t).toContain('从来没有闭合过')

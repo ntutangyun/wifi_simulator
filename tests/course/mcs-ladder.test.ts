@@ -274,11 +274,23 @@ describe('mcs-ladder · rate selection after frequency selectivity', () => {
     expect(text).toContain('频率选择性一个字都不进去')
   })
 
-  it('names the two feedbacks the standard defines for exactly this', () => {
-    expect(text).toContain('§9.4.1.65')
-    expect(text).toContain('§9.4.1.75')
+  /**
+   * **And each clause number with the document it is actually in** (Task 6 of slice 4b). The
+   * limit used to print 「§9.4.1.65 / §9.4.1.75」 under one 「标准」, and that is a factual
+   * error about the corpus: searched over both documents, `9.4.1.65` occurs 6 times in IEEE Std
+   * 802.11-2024 and 0 times in 802.11be-2024, and `9.4.1.75` the other way round (6 / 0). The
+   * base standard's 9.4.1 runs to §9.4.1.71, so §9.4.1.75 is not a clause of it at all — it is
+   * 802.11be-2024's EHT CQI Report field, the HE one being §9.4.1.65. `engine/selectivity.ts`
+   * records the same correction for the constants keyed to it.
+   */
+  it('names the two feedbacks the standard defines for exactly this, each in its own document', () => {
+    expect(text).toContain('IEEE Std 802.11-2024 §9.4.1.65')
+    expect(text).toContain('IEEE Std 802.11be-2024 §9.4.1.75')
     expect(text).toContain('§9.4.1.49')
     expect(text).toContain('−8…+7 dB')
+    // The pairing that was the error: never again under one document, nor as a bare pair.
+    expect(text).not.toContain('§9.4.1.65 / §9.4.1.75')
+    expect(text).not.toContain('§9.4.1.65 与 §9.4.1.75')
   })
 
   it('no longer claims the engine models no frequency selectivity', () => {

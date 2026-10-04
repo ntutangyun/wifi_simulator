@@ -374,11 +374,14 @@ describe('ofdma-ul · every answer reads its own share’s bins (slice 4b landed
     expect(found).toHaveLength(1)
     expect(ofdmaUl.limits).toHaveLength(5)
     expect(ofdmaUl.limits.map((l) => l.kind))
-      .toEqual(['unmodelled', 'unmodelled', 'unmodelled', 'model-value', 'out-of-scope'])
+      .toEqual(['unmodelled', 'unmodelled', 'unmodelled', 'model-value', 'model-value'])
   })
 
-  it('is an out-of-scope limit, and no longer promises a later slice will fix the bin count', () => {
-    expect(lim.kind).toBe('out-of-scope')
+  it('is a model-value limit, and no longer promises a later slice will fix the bin count', () => {
+    // `model-value` since Task 6 (design §7.4), for the same reason as `ofdma-dl`'s twin: the
+    // scenario class it used to rule out is gone, and what is left is one chosen value — one
+    // share per round, `1 / 台数`, in `transmitTrigger` — and the bin it truncates away.
+    expect(lim.kind).toBe('model-value')
     expect(lim.text).toContain('selCombine')
     expect(lim.text).toContain(`${selBinWidthMhz()} MHz 一格`)
     // what the engine does now, and where the share is carried
@@ -390,7 +393,14 @@ describe('ofdma-ul · every answer reads its own share’s bins (slice 4b landed
     expect(lim.text).not.toContain('并不问')
     expect(lim.text).not.toContain('高估')
     expect(lim.text).not.toContain('切片 4b')
-    // `until: 'ru-diversity'` is Task 6's to add, once the lesson it would name exists
+    /*
+     * **No `until`, and here the design's request (§7.4) was not merely loose but backwards.**
+     * `until` means "the truth arrives LATER" and renders as 「（这一条在《…》里会被解除）」;
+     * `ru-diversity` sits at `COURSE_ORDER` index between `ofdma-dl` and THIS lesson, so a
+     * reader meets it BEFORE reading this entry. Pointing forward at a lesson already read is
+     * wrong whichever way the promise is taken — and `ru-diversity` does not lift the equal
+     * share anyway, it re-declares it. See `ofdma-dl.test.ts` for the full record.
+     */
     expect(lim.until).toBeUndefined()
   })
 

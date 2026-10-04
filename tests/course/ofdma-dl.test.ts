@@ -360,7 +360,7 @@ describe('ofdma-dl · a member reads its own share’s bins (slice 4b landed)', 
     expect(ofdmaDl.limits).toHaveLength(7)
     expect(ofdmaDl.limits.map((l) => l.kind)).toEqual([
       'model-value', 'model-value', 'model-value',
-      'unmodelled', 'unmodelled', 'unmodelled', 'out-of-scope',
+      'unmodelled', 'unmodelled', 'unmodelled', 'model-value',
     ])
   })
 
@@ -429,8 +429,13 @@ describe('ofdma-dl · a member reads its own share’s bins (slice 4b landed)', 
     expect(src).not.toContain('按同样的空口时间计费')
   })
 
-  it('is an out-of-scope limit, and no longer promises a later slice will fix the bin count', () => {
-    expect(lim.kind).toBe('out-of-scope')
+  it('is a model-value limit, and no longer promises a later slice will fix the bin count', () => {
+    // `model-value` since Task 6 (design §7.4): nothing in the entry is out of the model's
+    // validity any more — what is left is two CHOSEN values, the equal split (`frac = 1/n`) and
+    // the truncation to whole bins, plus the leftover bin they imply. The scenario class this
+    // used to declare out of scope (a member credited with the whole channel's bins) stopped
+    // existing when slice 4b landed, and 6a took the sentence out.
+    expect(lim.kind).toBe('model-value')
     expect(lim.text).toContain('selCombine')
     expect(lim.text).toContain(`${selBinWidthMhz()} MHz 一格`)
     // what the engine does now: the member's own share, truncated, placed after the members ahead
@@ -442,7 +447,18 @@ describe('ofdma-dl · a member reads its own share’s bins (slice 4b landed)', 
     expect(lim.text).not.toContain('并不问')
     expect(lim.text).not.toContain('高估')
     expect(lim.text).not.toContain('切片 4b')
-    // `until: 'ru-diversity'` is Task 6's to add, once the lesson it would name exists
+    /*
+     * **And it still carries no `until` — Task 6 declined the one design §7.4 asked for, and
+     * this is the record of why.** `until` renders as 「（这一条在《…》里会被解除）」
+     * (`ui/i18n.ts`'s `limitUntil`), so it is a promise that the named lesson LIFTS the
+     * simplification — which is what the field's own doc comment says too. `ru-diversity` lifts
+     * neither of the two this entry is now made of: its own `limits` re-declare the equal split
+     * (「成员数的倒数，再截到整数格」) and the leftover bin (「在引擎里就是不存在」) verbatim.
+     * It measures what the thin share COSTS; it does not remove it. Every other `until` in the
+     * course points at a lesson that genuinely removes the thing (`width` → `selectivity`,
+     * `backoff` → `txop`, `streams` → `mumimo`), and the navigation it would buy is nil anyway:
+     * `ru-diversity` is the very next id in `COURSE_ORDER` and lists `ofdma-dl` in `needs`.
+     */
     expect(lim.until).toBeUndefined()
   })
 

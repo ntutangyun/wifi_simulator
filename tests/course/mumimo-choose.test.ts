@@ -172,3 +172,67 @@ describe('mumimo-choose · the rule the engine picks by', () => {
     expect(OPENING_NS + 1 * PHY_MODES.eht.symNs).toBe(65.6 * US)
   })
 })
+
+/**
+ * **"Mixing the two divisions inside one PPDU" is a named feature of the standard, not a
+ * scheduler being clever — and this engine makes the two mutually exclusive** (slice 4b, design
+ * §4.5 and §7.4; the `out-of-scope` entry used to end at 「甚至可以…混着用」, which reads as the
+ * former).
+ *
+ * The three standard facts the entry now states, each verified against the corpus rather than
+ * taken from the design doc (which had itself been "corrected" in the wrong direction once):
+ *
+ *  - **It has a name and capability bits.** `DL MU-MIMO within OFDMA` / `UL MU-MIMO within
+ *    OFDMA` occur 11 times in IEEE Std 802.11-2024 and 9 in 802.11be-2024, including the PICS
+ *    rows HEP2.3.5/.6 and HEP2.4.5/.6, the `Partial Bandwidth DL/UL MU-MIMO` subfields of the HE
+ *    PHY Capabilities Information field, and MIB variables of their own
+ *    (`dot11HEPartialBW…MUMIMOImplemented`, `dot11EHTPartialBW{DL,UL}MUMIMOImplemented`).
+ *  - **HE's floor is 106 tones**, in four places that say it in so many words: §27.1's overview
+ *    ("on resource units greater than or equal to 106 tones"), §27.3.3.1.1 (DL) and §27.3.3.2.2
+ *    (UL, twice — AP receive and non-AP transmit), and the DL MU-MIMO beamforming clause.
+ *  - **EHT's floor is 242 tones**: §36.1.1's overview sentence and the three Partial BW DL/UL
+ *    MU-MIMO capability clauses. Folded into 26-tone bins that is 4 bins and 9 bins, which is
+ *    why this configuration can never land on the one, two or three bins where `ru-diversity`'s
+ *    effect is largest.
+ *
+ * The engine half is the part that is measurable here, and it is measured: `muKind` is one value
+ * per PPDU, and on the MU-MIMO variant every member holds the whole channel.
+ */
+describe('mumimo-choose · the two divisions are exclusive here, and the standard names the mix', () => {
+  const t = mumimoChoose.limits.find((l) => l.text.includes('within OFDMA'))
+
+  it('declares the feature, its capability bits and both RU floors', () => {
+    expect(t, 'no limit mentions MU-MIMO within OFDMA').toBeDefined()
+    expect(t!.kind).toBe('out-of-scope')
+    for (const s of ['DL MU-MIMO within OFDMA', 'UL MU-MIMO within OFDMA', '能力位', 'MIB 变量',
+      'HE 不小于 106 音调', 'EHT 不小于 242 音调', '最少四格与九格', 'useMumimo', '建成了互斥']) {
+      expect(t!.text, s).toContain(s)
+    }
+    // …and it no longer reads as "a real scheduler could be cleverer".
+    expect(t!.text).not.toContain('甚至可以在同一个 PPDU 里把两种划分混着用')
+  })
+
+  it('keeps the clause numbers in `sources`, each under its own document', () => {
+    const src = mumimoChoose.sources!.join('\n')
+    expect(src).toContain('IEEE Std 802.11-2024 §27.1')
+    expect(src).toContain('§27.3.3.1.1')
+    expect(src).toContain('§27.3.3.2.2')
+    expect(src).toContain('IEEE Std 802.11be-2024 §36.1.1')
+  })
+
+  it('and the engine really never mixes them: one `muKind` per send, whole channel on space', () => {
+    for (const [v, want] of [[0, 'ofdma'], [1, 'mumimo']] as const) {
+      const sends = muSends(runOf(mumimo, v, RUN_NS))
+      expect(sends.length, `variant ${v} built no multi-user send`).toBeGreaterThan(0)
+      expect(new Set(sends.map((r) => r.frame.muKind))).toEqual(new Set([want]))
+      // A space-divided member's share is the whole channel — `frac = 1` — so no member of
+      // either variant ever holds a share AND shares its bins with another station.
+      for (const r of sends) {
+        const fracs = new Set(r.frame.muParts!.map((p) => p.ruFraction ?? 1))
+        expect(fracs.size, 'a send with two different shares').toBe(1)
+        if (want === 'mumimo') expect([...fracs]).toEqual([1])
+        else expect([...fracs][0]).toBeLessThan(1)
+      }
+    }
+  })
+})

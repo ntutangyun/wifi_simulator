@@ -461,6 +461,37 @@ describe('selectivity · the three sentences this slice may not write', () => {
   })
 })
 
+/**
+ * **The CQI clause numbers, each with the document it is in** (Task 6 of slice 4b).
+ *
+ * `sources` used to say 「出自 IEEE Std 802.11 的信道质量指示字段（§9.4.1.65 与 §9.4.1.75）」,
+ * putting both clause numbers under one document. Measured over the corpus: `9.4.1.65` occurs
+ * 6 times in IEEE Std 802.11-2024 and 0 times in 802.11be-2024; `9.4.1.75` occurs 0 times in
+ * the base standard and 6 in 802.11be-2024, where it is the **EHT CQI Report field**. The base
+ * standard's 9.4.1 runs to §9.4.1.71, so §9.4.1.75 is not one of its subclauses at all — the
+ * same correction `engine/selectivity.ts`'s header records for the constants keyed to it. The
+ * two clause numbers must not be moved together: §9.4.1.65 (HE CQI Report field) really is the
+ * base standard's.
+ */
+describe('selectivity · the two CQI clauses live in two documents', () => {
+  const src = lesson.sources!.join(' | ')
+
+  it('attributes each clause to its own document and says the base standard lacks the other', () => {
+    expect(src).toContain('IEEE Std 802.11-2024 的 §9.4.1.65')
+    expect(src).toContain('IEEE Std 802.11be-2024 的 §9.4.1.75')
+    expect(src).toContain('§9.4.1.71')
+    // The pairing that was the error.
+    expect(src).not.toContain('§9.4.1.65 与 §9.4.1.75')
+    expect(src).not.toContain('IEEE Std 802.11 的信道质量指示字段')
+  })
+
+  it('credits the nine-per-20-MHz count to the clause that states it', () => {
+    // `RU26_PER_20MHZ`'s own comment reads it off 802.11be §9.4.1.75 (Ncqi = 9 x bits set).
+    expect(selBins(20)).toBe(9)
+    expect(src).toContain('每 20 MHz 九块是后面那一条给的')
+  })
+})
+
 describe('selectivity · the four limits are each about this engine', () => {
   const byKind = new Map(lesson.limits.map((l) => [l.kind, l.text]))
 
@@ -488,6 +519,15 @@ describe('selectivity · the four limits are each about this engine', () => {
   })
 
   /**
+   * **It stays `out-of-scope` after slice 4b** (Task 6's judgement call, design §7.4 left the
+   * `kind` open). Its subject is still three scenario classes this model is not valid for — the
+   * four steps that read the flat draw, a `vht` or legacy link in a mixed scene, and an uneven
+   * resource-unit allocation — and only the last sentence changed in 6a, from a claim about
+   * over-counted diversity to "a member reads its own truncated share; what is still out of
+   * scope is the uneven split". That last clause is a scenario the model should not be asked
+   * about, not a chosen constant, so `model-value` would be wrong; and this lesson keeps one
+   * entry of each of the four kinds, so flipping it would collapse `byKind` below.
+   *
    * `out-of-scope` carries the two things a reader of a MIXED scene is never told anywhere else.
    * The editor deliberately shows no hint for either (a prompt that is not a schema refusal is
    * where a second wording comes from), so the lesson is the only place it is said: a `vht` or
