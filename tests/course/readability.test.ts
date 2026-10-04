@@ -864,3 +864,103 @@ describe('readability · a term in the chrome has somewhere to have been learned
     ])
   })
 })
+
+/**
+ * The `limits` debt, ratcheted — 2026-10-05, design §3.4 and §8 step 4.
+ *
+ * `limits[].text` is the one field of a lesson that is rendered on the main path
+ * (`CoursePanel.tsx:563`, a yellow-edged block open by DEFAULT, above the
+ * collapsed `sources`), written at the density of collapsed professional depth,
+ * and timed at zero. Those three things cannot all be right, and until this
+ * assertion nothing in the repository could tell.
+ *
+ * The measurement that says so: run the bracket rule's own ruler over the terms
+ * `limits` names, and compare field by field against the two fields that rule
+ * EXCLUDES on purpose. `limits` is not an oversight in the same league as them —
+ * it is worse than both put together:
+ *
+ * ```
+ *                 criterion Q            criterion P
+ *   limits        296 pairs / 76 lessons  296 = 291 bracket + 5 aka
+ *   sources       182 pairs / 68 lessons  176 = 172 bracket + 4 aka
+ *   deeper         86 pairs / 39 lessons   76 =  75 bracket + 1 aka
+ * ```
+ *
+ * ### The two criteria, and why this assertion has to name which one it uses
+ *
+ * They are easy to confuse and the design document was written wrong once by
+ * confusing them, so both are defined here:
+ *  - **criterion P** — how many FAILURE MESSAGES the bracket rule would newly
+ *    emit if the field were appended to its walk. A message per lesson per term,
+ *    in two arms (the bracket arm and the `aka` arm).
+ *  - **criterion Q** — how many (lesson, term) PAIRS exist where the term is
+ *    named in the field and never named on that lesson's graded main path.
+ *
+ * **This ratchet is criterion Q, and the number is 296.** It is NOT the same
+ * criterion as P, even though P is also 296 (291 + 5) on 2026-10-05 — and the
+ * fact that they coincide here is precisely why the distinction is spelled out
+ * rather than assumed. They are measurably different criteria: on `sources` Q is
+ * 182 and P is 176, on `deeper` Q is 86 and P is 76. If a later reader finds
+ * these two numbers equal again, that is a coincidence of this corpus, not a
+ * definition.
+ *
+ * ### What this assertion does and does not ask for
+ *
+ * It does not ask anyone to fix 296 sites. It makes the debt visible and forbids
+ * the 297th: a new `limits` entry that names an official term the lesson's own
+ * main path never names turns this red, and the fix is one sentence on the main
+ * path. Paying the debt itself means splitting six lessons — adding `limits` to
+ * `mainPathChars` moves 50 lessons' stated minutes and puts six of them over the
+ * 30-minute ceiling — which is another slice, and the design document has the
+ * figures so that slice need not re-measure them.
+ *
+ * One ruler on both sides of the comparison, deliberately: an earlier count of
+ * this same debt came out as 279 because the "appears in `limits`" side matched
+ * abbreviations on a whole-token boundary while the "appears on the main path"
+ * side used a bare `includes`, which excused ten pairs. `bracketedAtFirstZhUse`
+ * is the ruler here, and it is the same call on both sides.
+ */
+describe('readability · the limits debt is pinned, and the 297th entry is refused', () => {
+  /** The one ruler: did this text name the term at all (bracketed or not)? */
+  const names = (text: string, t: ZhTerm): boolean => bracketedAtFirstZhUse(text, t) !== null
+
+  /** Criterion Q, for one field of one lesson. */
+  const owed = (l: Lesson, field: string): string[] => {
+    const own = zhMainText(l)
+    return zhTermsFor(l)
+      .filter((t) => names(field, t) && !names(own, t))
+      .map((t) => `${l.id}|${t.zh ?? t.abbr}`)
+  }
+  const limitsOf = (l: Lesson): string => l.limits.map((x) => x.text).join(' ')
+
+  it('owes no more than 296 (lesson, term) pairs in `limits` — criterion Q, not P', () => {
+    const pairs = migrated.flatMap((l) => owed(l, limitsOf(l)))
+    expect(pairs.length, `${pairs.length} official terms are named in a lesson's \`limits\` and`
+      + " never on that lesson's own main path. This is a ratchet: it does not ask for the"
+      + ' existing ones to be fixed, it refuses the next one. If you added a `limits` entry,'
+      + ' name the term on the main path too.').toBeLessThanOrEqual(296)
+    // and it is not allowed to quietly become vacuous either: the debt is real today
+    expect(pairs.length, 'the debt this ratchet exists to make visible').toBeGreaterThanOrEqual(200)
+    expect(new Set(pairs.map((p) => p.split('|')[0])).size, 'lessons carrying the debt')
+      .toBeGreaterThanOrEqual(60)
+  })
+
+  /**
+   * The comparison that makes the number mean something: `limits` is held to a
+   * ratchet rather than graded, and the reason is that by this ruler it behaves
+   * like the two fields the rule deliberately does not grade — only more so.
+   * Asserted as an ordering rather than as three literals, so ordinary prose
+   * edits do not touch it while the claim itself stays pinned.
+   */
+  it('carries more of this debt than `sources` and `deeper` put together', () => {
+    const inSources = migrated.flatMap((l) => owed(l, (l.sources ?? []).join(' ')))
+    const inDeeper = migrated.flatMap((l) => owed(l, gradedProseTexts({ picture: l.deeper }).join(' ')))
+    const inLimits = migrated.flatMap((l) => owed(l, limitsOf(l)))
+    // 182 and 86 on 2026-10-05, against `limits`' 296
+    expect(inSources.length).toBeGreaterThan(100)
+    expect(inDeeper.length).toBeGreaterThan(50)
+    expect(inLimits.length, '`limits` is rendered open by default, written at the density of'
+      + ' collapsed depth, and timed at zero — this is the number that says so')
+      .toBeGreaterThan(inSources.length + inDeeper.length)
+  })
+})
