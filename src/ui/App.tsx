@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { CoursePanel } from '../course/CoursePanel'
 import { ColumnResizeHandle, useColumnWidth } from './columnResize'
 import { FloorPlanEditor } from '../editor/FloorPlanEditor'
@@ -82,6 +82,22 @@ export function App() {
   const layout = layoutFor(vp.w, vp.h, vp.coarsePointer)
   /** Which of the lesson and the viewport the single-column shell shows. */
   const [pane, setPane] = useState<MainPane>('course')
+  /**
+   * One column: a load has to bring the viewport on screen. `pane` is local
+   * state and the store cannot reach it, so loading a lesson left the reader on
+   * the prose with no canvas rendered at all — the only thing that changed was
+   * the button's own label, from "载入并观察" to "跳到那里". `simSession` is the
+   * store's existing "a new simulation just started" signal (both `setMode`
+   * and `loadCourseScenario` bump it), which is why `pane` does not have to
+   * move into the store to be told. Simulate mode bumps it too and is not in
+   * one column's two panes, so the mode is part of the condition.
+   */
+  useEffect(() => {
+    if (simSession > 0 && mode === 'course' && layout.singleColumn) setPane('view')
+    // The session alone is the dependency: this has to fire when a run starts
+    // and not when the reader folds the screen or taps the lesson tab back, so
+    // `mode` and `layout` are read, deliberately, without being watched.
+  }, [simSession])
   /** The side panel, when it is a drawer rather than a column. Closed by default:
    *  on a small screen the content is what the reader came for. */
   const [sideOpen, setSideOpen] = useState(false)

@@ -160,7 +160,21 @@ export const useUi = create<UiState>((set, get) => ({
   simSession: 0,
   selectLesson(id) {
     remember('wifi-sim.lesson', id)
-    set({ courseLessonId: id })
+    // Walking to another lesson has to take the previous lesson's scene with
+    // it. This used to write `courseLessonId` alone, and `courseLoadedFor`
+    // then caught only what it was added for: the panel offered "load and
+    // watch" while the 3-D view, the timeline, the transport, the inspector
+    // and the event log all still held the lesson the reader had left — so a
+    // reader counting what `observe` told them to count was counting another
+    // lesson's recording. The clearing is the one `setMode('course')` already
+    // does, and the principle is the one `CoursePanel`'s `loaded` already
+    // states: a scene belongs to the lesson it was loaded for. The cost is
+    // that walking back to a lesson reloads it. The event log is the one
+    // surface this does not reach — see `Player.dispose`, which says why.
+    if (id !== get().courseLoadedFor) {
+      player.dispose()
+      set({ courseLessonId: id, courseLoaded: false, courseLoadedFor: null, playing: false, view: null, playheadNs: 0, simError: null, selectedFrame: null })
+    } else set({ courseLessonId: id })
   },
   loadCourseScenario(sc, lessonId) {
     player.dispose()

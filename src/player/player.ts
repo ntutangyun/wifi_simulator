@@ -188,6 +188,31 @@ export class Player {
     this.onUpdate(this.playheadNs, this.store.viewAt(this.playheadNs), buffering)
   }
 
+  /**
+   * Stops the worker and the playback loop. **`store` is deliberately left
+   * alone** — `load` is what replaces it — and nothing structural keeps the
+   * previous recording off the screen: one measurement does.
+   *
+   * The store's callers null `view` as they dispose, so everything drawn from
+   * `ViewState` goes blank. `EventLog` is the exception: it reads
+   * `player.store` directly, and every path that disposes also parks the
+   * playhead at 0, so what the log can still show is whatever the previous run
+   * recorded in its first 500 µs — its window is
+   * `[playhead − 3 ms, playhead + 0.5 ms]`.
+   *
+   * The editor's default document has nothing there: its first non-`MAC_STATE`
+   * record is the `WAN_TX` at 894 045 ns, **394 µs past the end of that
+   * window**, which is the only reason running it and then entering course
+   * mode shows an empty log instead of that run's 630 336 records. **Lesson
+   * scenes are not so lucky — 77 of the 83 have records at t = 0** — so
+   * walking from one lesson to another leaves the log holding the lesson the
+   * reader left, beside a panel that says `▶ 载入并观察`.
+   *
+   * The fix is `this.store = new TimelineStore()` here, and it is a separate
+   * change from the one that wrote this comment. Until it lands: anything that
+   * gives the editor's document an event inside its first 500 µs, or widens
+   * that window, puts a recording nobody loaded next to that panel.
+   */
   dispose(): void {
     this.pause()
     if (this.worker) {
