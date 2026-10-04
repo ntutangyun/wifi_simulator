@@ -22,7 +22,8 @@
  *
  * Every number quoted below is pinned in tests/course/frame-anatomy-bytes.test.ts.
  */
-import { PHY_MODES } from '../../engine/phy'
+import { PHY_MODES, TGI_NS, txTimeModeNs } from '../../engine/phy'
+import type { Ns } from '../../model/types'
 import type { TimingSpec } from '../diagram'
 import { J, type Lesson } from '../lessonKit'
 import { frameAnatomyScenario, firstLegacyData, firstQosSingle } from './frame-anatomy'
@@ -30,6 +31,19 @@ import { frameAnatomyScenario, firstLegacyData, firstQosSingle } from './frame-a
 /** The two frames the figure draws, in microseconds: both are measured in the run. */
 export const LEGACY_FRAME_US = 248
 export const HE_FRAME_US = 57.6
+
+/**
+ * The phone's own 230-byte Wi-Fi 6 frame, repriced at a guard interval (µs).
+ *
+ * Pure arithmetic on the frame this lesson already prints — no run and no randomness — so the
+ * two percentages in `limits` below are computed rather than typed (the `echoFacts` rule). The
+ * quadruple tier carries the 4x LTF with it, so its preamble is 52.8 µs rather than 44.
+ */
+const giFrameUs = (giNs: Ns): number => txTimeModeNs('he', 230, 11, { widthMhz: 20, giNs }) / 1000
+
+/** How much more that frame costs at `giNs` than at the base guard interval, as a percentage. */
+const giCostPct = (giNs: Ns): string =>
+  ((giFrameUs(giNs) / giFrameUs(TGI_NS.base) - 1) * 100).toFixed(2)
 
 /**
  * The same two blocks the timeline shows, drawn to scale against each other:
@@ -118,8 +132,9 @@ export const frameAnatomyBytes: Lesson = {
     { kind: 'model-value', text: '1530 里只有两个数是标准的：26 字节的 QoS 数据帧头（24 加两字节 QoS Control）与 4 字节的 FCS。中间那 1500 是本仿真器自己定的——它是以太网的 MTU，也就是业务发生器发出来的载荷大小，标准对它没有任何规定。换一个业务模型，这个数就变了。' },
     { kind: 'out-of-scope', text: '1530 不是一个 MPDU 的上限，相差很远。IEEE Std 802.11-2024 的 Table 9-34 给出 MSDU 最大 2304 字节，A-MSDU 最大 3839、4065 或 7935 字节；而 dot11MaxMPDULength 给 VHT 的三个档位是 3895、7991、11454 字节。本课每一帧都是 1530，只是因为载荷被定成了 1500，不是因为再大就装不下了。' },
     { kind: 'unmodelled', text: '载荷前面没有 LLC/SNAP：真实的 802.11 承载 IP 时要先放 8 个八位组（第五课《一张网里，谁是谁》的深度部分就提到过它），所以 1500 字节的 IP 包其实是 1508 字节的 MSDU，整帧应该是 26 + 1508 + 4 = 1538 字节。本引擎直接把载荷当成 MSDU，这 8 字节从头到尾不存在。' },
-    { kind: 'model-value', text: '40、44、48 µs 的前导码与 13.6 µs 的符号是写在 PHY_MODES 里的常数（src/engine/phy.ts），一代一个值。它们不随空间流数增长，不随多用户帧的用户数增长，HE 与 EHT 的包扩展（packet extension）整个不算。真实的 VHT/HE/EHT 前导码每多一条流就多一个训练字段，所以本课那两个尺寸只在 20 MHz、单流、单用户时才对得上。' },
-    { kind: 'model-value', text: '保护间隔（guard interval）这个选择在引擎里不存在：symNs 是每一代一个常数，13.6 µs 对应的是 12.8 µs 的符号加 0.8 µs 的保护间隔。真实设备会按信道的时延扩展在 0.8、1.6、3.2 µs 之间切换，长保护间隔会让同样的字节多花一两成的空口时间——这一课的算术里没有这一项。' },
+    { kind: 'model-value', text: '40、44、48 µs 的前导码是写在 PHY_MODES 里的常数（src/engine/phy.ts），一代一个代表值：它们不随空间流数增长，不随多用户帧的用户数增长，HE 与 EHT 的包扩展（packet extension）整个不算，真实的 VHT/HE/EHT 前导码每多一条流就多一个训练字段，所以本课那两个尺寸只在 20 MHz、单流、单用户时才对得上。而 13.6 µs 的符号不是一个代表值——它是 §27.3.9 Table 27-13 的 T_SYM1，也就是 12.8 µs 的离散傅里叶变换周期加上 0.8 µs 的基本保护间隔，有表、有和式（engine/phy.ts 的 symNsFor 把这个和拆开写了出来）。' },
+    { kind: 'model-value', text: '保护间隔（guard interval）在引擎里是一个场景常量：哪一档由写场景的人定（scenario.ts 的 guardInterval 一节），引擎不替它选（engine/mac.ts 的 WifiMacCfg.giNs 没有按链路或按对端的入参）。而标准也不规定选择规则——它只规定存在哪三档（0.8、1.6、3.2 µs）、各档的符号时长，以及这一档由 TXVECTOR 的 GI_TYPE 指定（§27.2 Table 27-1 / §27.3.9 Table 27-13）。本课六步算术走的是基本那一档。' },
+    { kind: 'unmodelled', text: `标准在四处发送过程里各说一句，保护间隔用来对抗时延扩展（delay spread，§19.3.20 / §27.3.23 / §32.3.13 / 802.11be-2024 §36.3.22），而那四处一个数也没给，这个引擎也不建时延扩展：解调门限 reqSinrDb(mode, mcs) 的入参里根本没有时间这一项。所以在这里长保护间隔只有代价：手机这一帧 230 字节，三档下分别是 ${giFrameUs(TGI_NS.base)}、${giFrameUs(TGI_NS.double)} 与 ${giFrameUs(TGI_NS.quad)} µs，也就是多花 ${giCostPct(TGI_NS.double)} % 与 ${giCostPct(TGI_NS.quad)} %（四倍档连着 4× LTF，前导码从 44 变 52.8 µs）。真实设备付这笔时间换的是多径下的稳健，而那一侧在这里一个数都没有。`, },
     { kind: 'unmodelled', text: '空口时间里没有传播时延：一帧在所有接收端同一纳秒开始、同一纳秒结束（channel.ts 的 applyPendingStarts 与 endTx 都落在发送端的那个时刻）。真实的 10 m 距离要走 33 ns，而时隙之所以必须有 9 µs 那么长，一半的理由正是盖住这段时延与察觉它所需的时间。' },
     { kind: 'out-of-scope', text: '这六步只覆盖单用户、占满整条信道的 PPDU。多设备共享的帧在引擎里是按 ruFraction 缩放每符号比特数、空间流按倍数相乘（txTimeModeNs），一次理想的线性折算。真实的资源单元有自己的音调数与导频开销，切得越细，每份能装的比特就比按比例算出来的更少。' },
   ],

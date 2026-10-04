@@ -21,6 +21,7 @@ import {
 } from '../../src/course/tier1/frame-anatomy-bytes'
 import { frameAnatomyScenario, firstLegacyData, firstQosSingle } from '../../src/course/tier1/frame-anatomy'
 import { Simulation } from '../../src/engine/simulation'
+import { lessonChars, lessonMinutes } from '../../src/course/curriculum'
 import type { Block } from '../../src/course/lessonKit'
 import type { TimingSpec } from '../../src/course/diagram'
 import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
@@ -272,5 +273,74 @@ describe('frame-anatomy-bytes · the experiments', () => {
     // and the old laptop's own frame before the edit really was a 20 µs front
     expect(ppduLayout(legacy.frame)[0].durNs).toBe(16_000)
     expect(ppduLayout(legacy.frame)[1].durNs).toBe(4_000)
+  })
+})
+
+/**
+ * The guard-interval `limits` entries, retired and replaced (design doc
+ * docs/superpowers/specs/2026-10-05-guard-interval-design.md §0.3, §7.3).
+ *
+ * **This is "delete one, add two", not "lift one".** The old entry's first sentence —
+ * "this choice does not exist in the engine" — became false the moment the guard interval was
+ * wired, and its second sentence was wrong from the day it shipped: "one or two tenths" is the
+ * figure for the quadruple tier alone, and this lesson's own frame pays 1.39 % at the double
+ * tier. Neither new entry carries an `until`: both record something that stays true now that
+ * the slice is built, not a thing still to do.
+ *
+ * Instrument: `txTimeModeNs('he', 230, 11, { widthMhz: 20, giNs })` — pure arithmetic on the
+ * very frame this lesson prints, no randomness, no run.
+ */
+describe("frame-anatomy-bytes · what the guard interval costs this lesson's own frame", () => {
+  const text = (): string => frameAnatomyBytes.limits.map((x) => x.text).join(' | ')
+  const us = (giNs: number): number => txTimeModeNs('he', 230, 11, { widthMhz: 20, giNs }) / 1000
+
+  it('(a) no longer says the choice is absent, nor that it costs one or two tenths', () => {
+    expect(text()).not.toContain('这个选择在引擎里不存在')
+    expect(text()).not.toContain('多花一两成的空口时间')
+    expect(text()).not.toContain('一两成')
+  })
+
+  it("(b) carries a model-value saying the tier is the scenario author's choice", () => {
+    const lim = frameAnatomyBytes.limits.find((x) => x.text.includes('场景常量'))
+    expect(lim, 'no limit calls the guard interval a scenario constant').toBeDefined()
+    expect(lim!.kind).toBe('model-value')
+    expect(lim!.until).toBeUndefined()
+    // The three halves of the claim: the author picks, the engine does not, the standard does
+    // not specify a rule either — it specifies only which tiers exist, each tier's symbol
+    // duration, and that GI_TYPE names the one in use.
+    expect(lim!.text).toContain('引擎不替它选')
+    expect(lim!.text).toContain('标准也不规定')
+    expect(lim!.text).toContain('GI_TYPE')
+  })
+
+  it('(c) carries an unmodelled saying the thing it is spent on is not built here', () => {
+    const lim = frameAnatomyBytes.limits.find((x) => x.text.includes('时延扩展'))
+    expect(lim, 'no limit names the delay spread').toBeDefined()
+    expect(lim!.kind).toBe('unmodelled')
+    expect(lim!.until).toBeUndefined()
+    expect(lim!.text).toContain('只有代价')
+    // And the two figures are this frame's own, computed rather than typed.
+    expect(us(800)).toBe(57.6)
+    expect(lim!.text).toContain(((us(1_600) / us(800) - 1) * 100).toFixed(2))
+    expect(lim!.text).toContain(((us(3_200) / us(800) - 1) * 100).toFixed(2))
+    expect(lim!.text).toContain('1.39')
+    expect(lim!.text).toContain('19.44')
+  })
+
+  it('(d) the preamble limit now says 13.6 µs is T_SYM1, and leaves the preamble half alone', () => {
+    const lim = frameAnatomyBytes.limits.find((x) => x.text.includes('40、44、48 µs 的前导码'))
+    expect(lim, 'the preamble limit moved').toBeDefined()
+    expect(lim!.kind).toBe('model-value')
+    // The correction: the preamble figures ARE representative values; 13.6 is not.
+    expect(lim!.text).toContain('T_SYM1')
+    expect(lim!.text).toContain('12.8')
+    expect(lim!.text).not.toContain('13.6 µs 的符号是写在 PHY_MODES 里的常数')
+  })
+
+  it('(e) the stated minutes do not move: limits are outside mainPathChars', () => {
+    // Measured rather than assumed. 2016 characters, 2 observe, 2 tryThis -> 2016/220 + 4 + 8
+    // = 21.16 -> 20 minutes, and `limits` contributes to none of it.
+    expect(lessonChars(frameAnatomyBytes)).toBe(2016)
+    expect(lessonMinutes(frameAnatomyBytes)).toBe(20)
   })
 })
