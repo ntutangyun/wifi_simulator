@@ -82,6 +82,7 @@ import { txop } from './tier2/txop'
 import { txopProtect } from './tier2/txop-protect'
 import { protectPolicies } from './tier2/protect-policies'
 import { ofdmaDl } from './tier2/ofdma-dl'
+import { ruDiversity } from './tier2/ru-diversity'
 import { ofdmaUl } from './tier2/ofdma-ul'
 import { mlo } from './tier2/mlo'
 import { mloGain } from './tier2/mlo-gain'
@@ -178,6 +179,7 @@ const AUTHORED: Lesson[] = [
 
   // ======================= MODULE 3 =======================
   ofdmaDl,
+  ruDiversity,
   ofdmaUl,
   mlo,
   mloGain,
