@@ -23,10 +23,13 @@
  */
 import { describe, it, expect } from 'vitest'
 import { LESSONS } from '../../src/course/lessons'
-import { COURSE_ORDER, MAX_MINUTES, lessonMinutes, needsClosure, trackOf } from '../../src/course/curriculum'
+import {
+  CHARS_PER_MINUTE, COURSE_ORDER, MAX_MINUTES, OBSERVE_MINUTES, TRY_MINUTES,
+  lessonChars, lessonMinutes, needsClosure, trackOf,
+} from '../../src/course/curriculum'
 import { isMigrated, type Block, type Lesson } from '../../src/course/lessonKit'
 import {
-  cellTexts, gradedProseTexts, lessonStrings, lessonTexts, paragraphTexts, readerTexts,
+  cellTexts, gradedProseTexts, lessonStrings, lessonTexts, mainPathChars, paragraphTexts, readerTexts,
   ZH_TERMS, ZH_TERMS_EXCLUDED, bracketedAtFirstZhUse, brackets, zhAkaViolations, zhTermFailure, type ZhTerm,
 } from '../../src/course/readability'
 import { effectiveMigrating } from './kit'
@@ -962,5 +965,90 @@ describe('readability · the limits debt is pinned, and the 297th entry is refus
     expect(inLimits.length, '`limits` is rendered open by default, written at the density of'
       + ' collapsed depth, and timed at zero — this is the number that says so')
       .toBeGreaterThan(inSources.length + inDeeper.length)
+  })
+})
+
+/**
+ * The stated minutes, pinned — 2026-10-05, design §6 and §8 step 5.
+ *
+ * The walk refactor of this slice replaced `mainPathChars`' hand-rolled field
+ * list with a selector over `lessonTexts`, and the claim it rests on is that the
+ * selector returns the same characters. A claim like that cannot be checked by
+ * looking afterwards, because the course has a lesson one character from the
+ * next five-minute bucket: `rate` needs **+1 Chinese character** to go from 20
+ * minutes to 25. Behind it: `uwb-reply-time` +4, `uwb-m2m` +5, `ofdma-ul` +9,
+ * `rts-cts` +11. A reading-order change that moved one string from `numbers` to
+ * `sources` would move a number the reader has already seen, in a lesson nobody
+ * was editing, with nothing going red.
+ *
+ * The stated minutes are reader-visible (`CoursePanel.tsx:389`), which is why
+ * this slice declines to "improve" them: `title` is read once and a label is
+ * clicked, so counting the chrome's 3 896 characters (2.17 % of the main path)
+ * makes the estimate less accurate rather than more. The real omission is
+ * `limits` — 48 115 characters, a quarter of the main path, open by default,
+ * timed at zero — and paying it moves 50 lessons' minutes and puts six over the
+ * 30-minute ceiling. That is a slice of its own; the ratchet above is what keeps
+ * the debt visible until then.
+ *
+ * ### Both numbers were measured AFTER this slice's prose fixes, not before
+ *
+ * The design document quotes 179 215 and 1 740. Both were already stale before
+ * this slice began — the corpus stood at 179 719 / 1 745 at `b06c8e7` — and the
+ * first would have gone stale AGAIN inside the slice, because step 3 adds prose
+ * to four lessons' main paths. Copying either figure from the design document
+ * would have pinned a number that was false on the day it was pinned, and the
+ * next person would have checked against it, failed, and suspected the code.
+ * Measured here instead, after the fixes.
+ *
+ * ### What to do when the character total goes red
+ *
+ * Update it, and while you are there read the assertion under it. The character
+ * total is a tripwire, not a budget: it is SUPPOSED to move whenever anybody
+ * edits a lesson. The one that matters is the minutes total — if that moved too,
+ * a lesson crossed a bucket and a figure the reader has already seen changed,
+ * and that belongs in the commit message.
+ */
+describe('readability · the stated minutes, and the characters behind them', () => {
+  it('counts 179 872 Chinese characters on the main paths of the whole course', () => {
+    const chars = ordered.reduce((n, l) => n + mainPathChars(l), 0)
+    expect(chars, 'main-path Chinese characters across the course — a tripwire, not a budget:'
+      + ' update it, and check that the minutes total below did not move with it').toBe(179_872)
+  })
+
+  it('states 1 745 minutes across the whole course, and no lesson moved in this slice', () => {
+    expect(ordered.reduce((n, l) => n + lessonMinutes(l), 0),
+      'the sum of every stated minute figure a reader can see').toBe(1_745)
+    // the four lessons this slice added prose to, and the one it did not have to
+    expect(lessonMinutes(byId.get('ofdma-dl')!)).toBe(20)
+    expect(lessonMinutes(byId.get('radio-primer')!)).toBe(15)
+    expect(lessonMinutes(byId.get('small-frames')!)).toBe(20)
+    expect(lessonMinutes(byId.get('uwb-mms')!)).toBe(25)
+    expect(lessonMinutes(byId.get('uwb-uwbd')!)).toBe(20)
+  })
+
+  /**
+   * The margin itself, as an assertion rather than as a remark. Without it the
+   * two totals above look like arbitrary constants and the first person they get
+   * in the way of deletes them. This says why they are there: the course has a
+   * lesson that one more character would re-time.
+   */
+  it('has a lesson one character from the next bucket, which is why the totals are pinned', () => {
+    const toNextBucket = (l: Lesson): number => {
+      const raw = lessonChars(l) / CHARS_PER_MINUTE
+        + OBSERVE_MINUTES * l.observe.length + TRY_MINUTES * l.tryThis.length
+      return (Math.round(raw / 5) * 5 + 2.5 - raw) * CHARS_PER_MINUTE
+    }
+    const tightest = ordered.map((l) => [l.id, toNextBucket(l)] as const)
+      .sort((a, b) => a[1] - b[1])[0]
+    expect(tightest[0]).toBe('rate')
+    expect(tightest[1], `${tightest[0]} is ${tightest[1].toFixed(2)} characters from being`
+      + ' re-timed; prose edits in this course are not free').toBeLessThan(5)
+    // and the lessons this slice did edit had room to spare, which is why it could choose
+    // the fix that serves the reader instead of the one that protects a number
+    for (const [id, least] of [['ofdma-dl', 100], ['radio-primer', 100], ['small-frames', 500],
+      ['uwb-mms', 300], ['uwb-uwbd', 200]] as const) {
+      const room = toNextBucket(byId.get(id)!)
+      expect(room, `${id} has ${room.toFixed(0)} characters of room left`).toBeGreaterThan(least)
+    }
   })
 })
