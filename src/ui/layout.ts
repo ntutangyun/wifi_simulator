@@ -58,6 +58,24 @@ export const TIMELINE_H_COLLAPSED = 26
 /** Which panel the single-column shell is showing. */
 export type MainPane = 'course' | 'view'
 
+/**
+ * The column every row-only grid in this app has to state.
+ *
+ * Without it the implicit column is `auto`, which is as wide as its widest child
+ * wants to be — and a child wide enough to set its own width (the 3-D viewport's
+ * canvas keeps the pixel width it was last given; the editor's panel row is a
+ * fixed `280px + 300px`) then makes the column wider than the grid item. Two
+ * separate defects came out of that: a viewport painting over the column beside
+ * it, and a full-width row inside the editor resolving its width against 580 px
+ * on a 470 px screen.
+ *
+ * `minmax(0, 1fr)` rather than a bare `1fr`, because `1fr` *is*
+ * `minmax(auto, 1fr)` and `auto` is the half that does the damage. It lives here
+ * rather than in one of the two components so the string has one definition —
+ * `tests/ui/appGrid.test.ts` walks every grid in the shell and asks for it.
+ */
+export const ONE_COLUMN = 'minmax(0, 1fr)'
+
 export interface ShellLayout {
   /** The viewport is small enough that the desktop arrangement does not fit. */
   compact: boolean
@@ -196,7 +214,7 @@ export function mainColumns(
   courseW: number,
   pane: MainPane,
 ): string {
-  const one = 'minmax(0, 1fr)'
+  const one = ONE_COLUMN
   if (mode === 'edit') return one
   if (layout.singleColumn) return one
   if (mode === 'simulate') {

@@ -10,7 +10,7 @@ import { Inspector } from './Inspector'
 import { useUi } from './store'
 import { TimelineStrip } from './TimelineStrip'
 import { Transport } from './Transport'
-import { layoutFor, mainColumns, TIMELINE_H_COLLAPSED, type MainPane } from './layout'
+import { layoutFor, mainColumns, ONE_COLUMN, TIMELINE_H_COLLAPSED, type MainPane } from './layout'
 import { useViewport } from './useViewport'
 
 const tabBar: React.CSSProperties = {
@@ -27,14 +27,6 @@ const tabBtn = (active: boolean): React.CSSProperties => ({
 /** Course column: default 340 px; it may not squeeze the viewport and side panel below ~660 px together. */
 const COURSE_COL_DEFAULT = 340
 const COURSE_COL_LIMITS = { min: 240, max: 900, reserve: 660 }
-
-/**
- * Every row-only grid in the layout states this single column. Without it the
- * implicit column is `auto`, so a child wide enough to set its own width (the
- * 3-D viewport's canvas keeps the pixel width it was last given) makes the
- * column wider than the grid item and paints over the column beside it.
- */
-const ONE_COLUMN = 'minmax(0, 1fr)'
 
 type SideTab = 'inspector' | 'log'
 

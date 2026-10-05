@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
+import { ONE_COLUMN } from '../../src/ui/layout'
 
 /**
  * A row-only CSS grid gets an implicit `auto` column, which is as wide as its
@@ -35,7 +36,13 @@ describe('App layout grids', () => {
   })
 
   it('keeps the single-column value bounded below by zero', () => {
-    expect(src).toMatch(/const ONE_COLUMN = 'minmax\(0, 1fr\)'/)
+    // The string itself moved to `layout.ts`, so that the editor — whose own
+    // row-only grid had the same defect, with its own symptom — states the same
+    // column rather than a second copy of it. What this file can still check is
+    // that the shell takes it from there and does not re-declare it.
+    expect(src).toMatch(/import \{[^}]*\bONE_COLUMN\b[^}]*\} from '\.\/layout'/s)
+    expect(src).not.toMatch(/const ONE_COLUMN =/)
+    expect(ONE_COLUMN).toBe('minmax(0, 1fr)')
   })
 })
 

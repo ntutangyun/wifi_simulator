@@ -10,7 +10,9 @@ import type { Generation } from '../model/types'
 import type { ScattererCfg } from '../engine/scatter'
 import { useStrings } from '../ui/i18n'
 import { parseEpc } from '../ui/inputs'
+import { layoutFor, ONE_COLUMN } from '../ui/layout'
 import { useUi } from '../ui/store'
+import { useViewport } from '../ui/useViewport'
 import { EditorGuide } from './EditorGuide'
 import { canRedo, canUndo } from './history'
 import { UwbNodeFields } from '../uwb/ui/UwbNodeFields'
@@ -59,6 +61,19 @@ interface ViewT {
   scale: number // px per meter
 }
 
+/**
+ * Which of the editor's three columns is on screen where there is only room for
+ * one. The desktop editor is `1fr 280px 300px`: the plan, the objects and
+ * properties, and the editor's own notes. On a 470 px screen those two fixed
+ * columns are 580 px between them, so the grid overflowed `main`'s
+ * `overflow: hidden` — measured there, the plan column resolved to **0 px wide
+ * and drew no SVG at all**, the notes column lost its right 110 px, and nothing
+ * could scroll to reach either. One at a time is the same answer the shell
+ * already gives the lesson and the 3-D view at this width.
+ */
+type EditorPane = 'plan' | 'objects' | 'guide'
+const EDITOR_PANES: EditorPane[] = ['plan', 'objects', 'guide']
+
 function fitView(sc: Scenario, wPx: number, hPx: number): ViewT {
   const xs = sc.rooms.length ? sc.rooms : [{ x: 0, y: 0, w: 10, h: 8 }]
   const minX = Math.min(...xs.map((r) => r.x)) - 1
@@ -100,17 +115,52 @@ export function FloorPlanEditor() {
   const fileRef = useRef<HTMLInputElement>(null)
   /** Bumped per node drag: its number keys every commit of that drag into one undo step. */
   const dragSeq = useRef(0)
+  /**
+   * Which column is on screen when only one fits, and whether that is the case.
+   * The breakpoint is the shell's own `singleColumn` and not a new one: it is the
+   * same decision about the same device, and `layout.ts` says at length why a
+   * second constant near an existing one becomes two names for one thing.
+   */
+  const vp = useViewport()
+  const onePane = layoutFor(vp.w, vp.h, vp.coarsePointer).singleColumn
+  const [pane, setPane] = useState<EditorPane>('plan')
+
+  /**
+   * The plan canvas's own size, as state.
+   *
+   * It used to be read live out of `getBoundingClientRect()` during render,
+   * which cannot survive either of the two things this slice introduced: a
+   * hidden tab measures 0 x 0, and the first render that shows it again still
+   * reads the old, hidden geometry because the rect is read before the DOM is
+   * updated. It also never answered the fold at all — the viewBox kept the
+   * aspect ratio of the screen the page was opened on.
+   *
+   * A zero measurement is dropped rather than stored, so switching away from the
+   * plan tab and back does not repaint one frame of a degenerate 1 x 1 viewBox.
+   */
+  const [hostPx, setHostPx] = useState<{ w: number; h: number }>({ w: 0, h: 0 })
+  useEffect(() => {
+    const el = hostRef.current
+    if (el === null || typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(() => {
+      const r = el.getBoundingClientRect()
+      if (r.width < 1 || r.height < 1) return
+      setHostPx((p) => (p.w === r.width && p.h === r.height ? p : { w: r.width, h: r.height }))
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
 
   useEffect(() => {
-    if (!view && hostRef.current) {
-      const r = hostRef.current.getBoundingClientRect()
-      if (r.width > 50) setView(fitView(scenario, r.width, r.height))
-    }
-  }, [view, scenario])
+    // `hostPx` rather than the live rect: at 470 px the plan column was 0 px
+    // wide, this never cleared its own guard, and the editor showed no floor
+    // plan whatsoever. The size now arrives as a change, so the fit happens
+    // whenever the column first really has one.
+    if (!view && hostPx.w > 50) setView(fitView(scenario, hostPx.w, hostPx.h))
+  }, [view, scenario, hostPx])
 
   const resetView = () => {
-    const r = hostRef.current!.getBoundingClientRect()
-    setView(fitView(scenario, r.width, r.height))
+    setView(fitView(scenario, hostPx.w, hostPx.h))
   }
 
   const commit = (sc: Scenario, key?: string | null) => setScenario(sc, key)
@@ -138,9 +188,12 @@ export function FloorPlanEditor() {
   }, [undo, redo])
 
   // ------- canvas interactions -------
+  // `rect()` stays live, because a pointer event needs this frame's `left`/`top`
+  // to turn a screen coordinate into a plan one. The viewBox's extent does not:
+  // see `hostPx`.
   const rect = () => hostRef.current!.getBoundingClientRect()
-  const vw = () => (view ? rect().width / view.scale : 1)
-  const vh = () => (view ? rect().height / view.scale : 1)
+  const vw = () => (view && hostPx.w > 0 ? hostPx.w / view.scale : 1)
+  const vh = () => (view && hostPx.h > 0 ? hostPx.h / view.scale : 1)
   const px = (n: number) => (view ? n / view.scale : n)
 
   const toWorld = (e: { clientX: number; clientY: number }) => {
@@ -383,9 +436,24 @@ export function FloorPlanEditor() {
   const scaleBarM = view && view.scale > 40 ? 1 : 5
 
   return (
-    <div style={{ display: 'grid', gridTemplateRows: 'auto auto 1fr', height: '100%', minWidth: 0 }}>
+    <div style={{
+      display: 'grid', gridTemplateRows: 'auto auto auto minmax(0, 1fr)',
+      // The column this grid used not to state. Its implicit `auto` was as wide
+      // as its widest child, which here is the fixed `280px + 300px` panel row:
+      // 580 px whatever the window is. Every full-width row inside this grid
+      // therefore measured itself against 580 instead of the viewport, which is
+      // how the load-failure lines came to need a `100vw` of their own (see
+      // below, where that patch is now gone) — the same defect `ONE_COLUMN` was
+      // written for in the shell, in a second component nobody had applied it to.
+      gridTemplateColumns: ONE_COLUMN,
+      height: '100%', minWidth: 0,
+    }}>
       {/* ===== menu bar (tools + scenario controls) ===== */}
+      {/* Every child names its row. The two middle rows are conditional, and with
+          auto-placement an absent one slid the panels up into an `auto` row whose
+          height came from whatever the object list happened to want. */}
       <div style={{
+        gridRow: 1,
         display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', padding: '5px 10px',
         background: 'var(--panel)', borderBottom: '1px solid var(--border)', fontSize: 12,
       }}>
@@ -464,10 +532,16 @@ export function FloorPlanEditor() {
 
       {/* ===== the last load / save / import outcome, one line per reason =====
           **Its own grid row, not a flex item of the menu bar above.** The menu bar wraps, but at
-          a narrow width its own content still overflows it (580 px against a 470 px viewport on
-          the folded phone this is checked on), and a `flexBasis: 100%` child resolves against
-          that overflowed content width — so the sentences ran off the right edge and could only
-          be read by scrolling the toolbar sideways. Here the width is the viewport's.
+          a narrow width its own content still overflows it, and a `flexBasis: 100%` child
+          resolves against that overflowed content width — so the sentences ran off the right
+          edge and could only be read by scrolling the toolbar sideways.
+
+          It then needed a `100vw` of its own, and that patch is **gone**: it was treating the
+          symptom of this grid's missing column (see the root `div` above) with a length that
+          happens to mean the same thing — and `100vw` is the viewport *including* a vertical
+          scrollbar, so on a platform that reserves one it is a dozen pixels too wide. With the
+          column stated, the row's width is this grid's width, which is the editor's, which is
+          the viewport's. Measured at 470 px: the row is 450 px wide and every line inside it.
 
           One row per reason rather than one wrapped paragraph: a schema refusal is a whole
           sentence now — the tampered-driver rules run past 150 characters — and three of them
@@ -475,14 +549,10 @@ export function FloorPlanEditor() {
           (src/editor/planOps.ts) decides what each line says; this decides nothing. */}
       {ioMsg.lines.length > 0 && (
         <div style={{
+          gridRow: 2,
           display: 'flex', flexDirection: 'column', gap: 2, fontSize: 11, lineHeight: 1.45,
           padding: '4px 10px', background: 'var(--panel)', borderBottom: '1px solid var(--border)',
-          // Clamped to the VIEWPORT and pinned to its left edge, not sized by this grid. The
-          // editor's own second row is `1fr 280px 300px`, so the grid is 580 px wide whatever
-          // the window is, and a row that simply filled it put these sentences off the right of
-          // a 470 px screen — readable only by scrolling the whole editor sideways. `100vw`
-          // plus `sticky` keeps them where a reader is already looking, at either width.
-          position: 'sticky', left: 0, width: '100vw', maxWidth: '100vw', boxSizing: 'border-box',
+          minWidth: 0,
         }}>
           {ioMsg.lines.map((line) => (
             <span key={line} style={{ color: ioMsg.ok ? 'var(--dim)' : '#f87171', wordBreak: 'break-word' }}>{line}</span>
@@ -490,9 +560,35 @@ export function FloorPlanEditor() {
         </div>
       )}
 
+      {/* ===== which column is on screen, where only one fits =====
+          The same choice the shell gives the lesson and the 3-D view at this width, and the
+          reason it is needed is in `EditorPane`: at 470 px the three columns are 580 px of
+          content inside a `main` that clips, so the plan was 0 px wide with no SVG drawn and
+          the notes lost their right 110 px, with nothing to scroll to reach either. */}
+      {onePane && (
+        <div style={{
+          gridRow: 3,
+          display: 'flex', alignItems: 'center', gap: 4, padding: '4px 8px', minWidth: 0,
+          background: 'var(--panel)', borderBottom: '1px solid var(--border)', overflowX: 'auto',
+        }}>
+          {EDITOR_PANES.map((p) => (
+            <button key={p} className={pane === p ? 'active' : ''} onClick={() => setPane(p)}>
+              {E.panes[p]}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* ===== canvas + panels ===== */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 280px 300px', minHeight: 0 }}>
-        <div ref={hostRef} style={{ position: 'relative', overflow: 'hidden' }}>
+      <div style={{
+        gridRow: 4,
+        display: 'grid', gridTemplateColumns: onePane ? ONE_COLUMN : '1fr 280px 300px',
+        minHeight: 0, minWidth: 0,
+      }}>
+        <div ref={hostRef} style={{
+          position: 'relative', overflow: 'hidden',
+          display: onePane && pane !== 'plan' ? 'none' : 'block',
+        }}>
           {view && (
             <>
               <div style={{ position: 'absolute', left: 10, bottom: 8, zIndex: 2, color: 'var(--dim)', fontSize: 10 }}>
@@ -596,7 +692,11 @@ export function FloorPlanEditor() {
         </div>
 
         {/* objects above, properties below */}
-        <div style={{ borderLeft: '1px solid var(--border)', background: 'var(--panel)', display: 'grid', gridTemplateRows: 'minmax(120px, 42%) 1fr', minHeight: 0 }}>
+        <div style={{
+          borderLeft: onePane ? 'none' : '1px solid var(--border)', background: 'var(--panel)',
+          display: onePane && pane !== 'objects' ? 'none' : 'grid',
+          gridTemplateRows: 'minmax(120px, 42%) 1fr', gridTemplateColumns: ONE_COLUMN, minHeight: 0, minWidth: 0,
+        }}>
           <div style={{ overflowY: 'auto', minHeight: 0, borderBottom: '1px solid var(--border)' }}>
             <div style={{ padding: '6px 10px 2px', fontSize: 11, color: 'var(--dim)', letterSpacing: 0.5 }}>{E.objects}</div>
             <div style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 10, fontSize: 12 }}>
@@ -1166,7 +1266,11 @@ export function FloorPlanEditor() {
         </div>
 
         {/* guide column */}
-        <div style={{ borderLeft: '1px solid var(--border)', background: 'var(--panel)', overflowY: 'auto', minHeight: 0 }}>
+        <div style={{
+          borderLeft: onePane ? 'none' : '1px solid var(--border)', background: 'var(--panel)',
+          display: onePane && pane !== 'guide' ? 'none' : 'block',
+          overflowY: 'auto', minHeight: 0, minWidth: 0,
+        }}>
           <div style={{ padding: '6px 12px 0', fontSize: 11, color: 'var(--dim)', letterSpacing: 0.5 }}>{E.guide}</div>
           <EditorGuide />
         </div>

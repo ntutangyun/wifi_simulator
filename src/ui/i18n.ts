@@ -163,6 +163,14 @@ export interface Strings {
     scattererHeight: string; scattererHeightHint: string; scattererHeightBad: string
     scattererNeedsUwb: string; deleteScatterer: string
     objects: string; properties: string; guide: string
+    /**
+     * The editor's three columns as tabs, for the width where only one fits.
+     * `objects` names a column that holds two sections (`objects` above,
+     * `properties` below), so its tab says both — the reader is choosing a
+     * column, not a section. `plan` has no column heading of its own on the
+     * desktop, because there it is simply what the editor is.
+     */
+    panes: Record<'plan' | 'objects' | 'guide', string>
     nodesHeader: string; rooms: string; walls: string; noRooms: string
     node: string; name: string; wifi: string; link: string; linkHint: string; bands: Record<LinkId, string>
     preset: string; presetPick: string; presetHint: string; brands: Record<'huawei' | 'xiaomi' | 'honor' | 'apple', string>; mloCapableNote: string
@@ -878,6 +886,7 @@ export const STRINGS: Strings = {
     scattererNeedsUwb: '场景里还没有 UWB 设备：散射体只在 UWB 收发之间产生回波，放好之后请再放一个锚点与一个标签',
     deleteScatterer: '🗑 删除散射体',
     objects: '🗂 对象列表', properties: '⚙ 属性', guide: '📖 编辑器说明',
+    panes: { plan: '🏠 平面图', objects: '🗂 对象 / 属性', guide: '📖 说明' },
     nodesHeader: '节点（顺序 = 时间轴泳道）', rooms: '房间', walls: '墙体', noRooms: '暂无 — 用 ▭ 绘制一个',
     node: '节点', name: '名称', wifi: 'Wi-Fi', link: '频段',
     linkHint: '工作频段；802.11g 与 Wi-Fi 6/7 可用 2.4 GHz，Wi-Fi 6E/7 可用 6 GHz（MLO 设备使用 5 + 6 GHz）',
