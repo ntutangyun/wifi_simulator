@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { FADING_DEFAULTS, RICIAN_K_DEFAULT_DB, type FadingCfg } from '../engine/fading'
 import { Rng } from '../engine/rng'
 import { GEN_FEATURES, physicalId, type LinkId } from '../model/caps'
-import { DEFAULT_AMP_AP, DEFAULT_AMP_BS, DEFAULT_SIX_GHZ_CENTER_MHZ, normalizeProfiles, PROFILE_IDS, SERVER_KINDS, sixGhzChannelNo, TAMPER_KINDS, TAMPER_PRESETS, TXOP_PROTECTIONS, serverFor, serverKindFor, tamperKindOf, type AmpApCfg, type AmpBackscatterCfg, type AmpTagMode, type GuardIntervalCfg, type Material, type NodeCfg, type ProfileId, type Scenario, type SelectivityCfg, type ServerCfg, type ServerKind, type TamperKind, type TxopProtection, type UwbSessionCfg } from '../model/scenario'
+import { DEFAULT_AMP_AP, DEFAULT_AMP_BS, DEFAULT_SIX_GHZ_CENTER_MHZ, driverRefusalsFor, normalizeProfiles, PROFILE_IDS, SERVER_KINDS, sixGhzChannelNo, TAMPER_KINDS, TAMPER_PRESETS, TXOP_PROTECTIONS, serverFor, serverKindFor, tamperKindOf, type AmpApCfg, type AmpBackscatterCfg, type AmpTagMode, type GuardIntervalCfg, type Material, type NodeCfg, type ProfileId, type Scenario, type SelectivityCfg, type ServerCfg, type ServerKind, type TamperKind, type TxopProtection, type UwbSessionCfg } from '../model/scenario'
 import { HOUSEHOLDS } from '../model/households'
 import { nonht } from '../model/scenario'
 import { BRANDS, STATION_PRESETS, applyPreset } from '../model/presets'
@@ -819,6 +819,18 @@ export function FloorPlanEditor() {
                           </select>
                         </label>
                       )}
+                      {/* The schema's own wording, not a paraphrase of it, and on the screen
+                          rather than in a tooltip: a touch screen has nothing to hover, and a
+                          preset that is refused with no reason beside it is the shape of the
+                          bug these rules exist to remove. `driverRefusalsFor`
+                          (src/model/scenario.ts) holds the single copy, so this line and
+                          `ScenarioSchema`'s refusal can never explain the same rule
+                          differently. Rendered for EVERY node kind, not just `sta`: two of the
+                          three rules are about a field sitting on the wrong kind, and a plan
+                          imported from JSON can put either field anywhere. */}
+                      {driverRefusalsFor(scenario, selNode).map((why) => (
+                        <div key={why} style={issueStyle}>{why}</div>
+                      ))}
                       {selNode.kind === 'sta' && (
                         <div style={{ marginBottom: 4 }}>
                           {E.traffic}

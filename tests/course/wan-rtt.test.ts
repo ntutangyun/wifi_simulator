@@ -20,7 +20,7 @@ import { Simulation } from '../../src/engine/simulation'
 import { DEFAULT_SERVERS, ScenarioSchema, type Scenario } from '../../src/model/scenario'
 import { applyRecord, initViewState, type LatencyStats } from '../../src/model/view'
 import { MODULES } from '../../src/course/curriculum'
-import { lessonShapeSuite, ofType, runOf } from './kit'
+import { DEFAULT_RUN_NS, lessonShapeSuite, ofType, runOf } from './kit'
 import type { TLRecord } from '../../src/model/records'
 
 const MS = 1_000_000
@@ -48,6 +48,33 @@ const maxMs = (l: LatencyStats): number => l.maxNs / 1e6
 const acsOf = (rs: TLRecord[]): number[] =>
   [...new Set(ofType(rs, 'ENQUEUE').filter((r) => r.node === 'sta-1').map((r) => r.ac))]
     .filter((a): a is number => a !== undefined).sort()
+
+/**
+ * **Why `lessonShapeSuite` is given a `runNs`, said out loud so a future red lands on the right
+ * sentence.**
+ *
+ * The base scene is one gaming phone and one access point. A game's uplink tick is scheduled
+ * from `scheduleGaming`'s own interval histogram, and on seed 7 the first one falls at
+ * 37.259 ms — after `kit.ts`'s `DEFAULT_RUN_NS` of 30 ms. So in the default window this scene
+ * emits NOTHING AT ALL, and the shape suite's jump-target check would fail with 「第一条广域网
+ * 发送」, which reads as "the predicate is wrong" and is not.
+ *
+ * This asserts the real cause instead: the scene is silent for the first 30 ms, its first record
+ * is at 37.259 ms, and it is awake well inside the window the suite is actually given. Delete
+ * the `runNs` above and this is the test that says why.
+ */
+describe('wan-rtt · the run length the shape suite is given is not a default', () => {
+  it('is silent for the whole default window, and awake long before the one it gets', () => {
+    const sc = wanRtt.scenario()
+    expect([...new Simulation(sc).runUntil(DEFAULT_RUN_NS).records],
+      'nothing happens in the first 30 ms, which is why `runNs` is passed').toEqual([])
+    const first = [...new Simulation(sc).runUntil(100 * MS).records][0]
+    expect(first, 'the scene does wake up').toBeDefined()
+    expect(first.t / 1e6).toBeCloseTo(37.259, 3)
+    expect(first.t).toBeGreaterThan(DEFAULT_RUN_NS)
+    expect(first.t).toBeLessThan(RUN_NS)
+  })
+})
 
 describe('wan-rtt · the lesson as data', () => {
   it('sits in the real-applications module, before the capstone', () => {

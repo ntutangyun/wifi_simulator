@@ -30,7 +30,7 @@ import {
   uwbMaxAnchors, uwbMaxParticipants, uwbMmrcmSlots, uwbNbSlotFitNs, uwbPollBytes, uwbPpduNs, uwbRespBytes,
   uwbSlotFitNs, uwbSlotsPerTag, type UwbReplyTime,
 } from '../uwb/phy'
-import { minGen, type LinkId } from './caps'
+import { minGen, negotiated, type LinkId } from './caps'
 import type { CapabilityProfile, NodeKind, Vec3 } from './types'
 
 export type Material = 'drywall' | 'brick' | 'glass'
@@ -1289,6 +1289,108 @@ export function guardIntervalRefusals(sc: Pick<Scenario, 'nodes'>): string[] {
 }
 
 /**
+ * Which fields of a tampered driver this link's MAC can actually read.
+ *
+ * Three gates in `src/engine/mac.ts`, and they are what make a legal plan inert rather than
+ * wrong:
+ *  - **`allAsAc`** - `efIndex(ac)` folds every category to 0 when `!edca`, and `ENQUEUE.ac` is
+ *    written `undefined` there, so there is no category left to re-mark into.
+ *  - **`aifsn`** - `const aifs = this.cfg.edca ? aifsNs(e.params.aifsn, this.T) : this.T.difsNs`.
+ *    Without EDCA the tampered number is never read; the station waits a DIFS like any other.
+ *  - **`txopLimitUs`** - a burst needs `this.cfg.txop && this.cfg.edca && params.txopLimitNs > 0`
+ *    before any limit is consulted, so this one needs BOTH flags, which is why it is listed
+ *    apart from the two above rather than with them.
+ * The remaining four - `cwMin`, `cwMax`, `noDoubling`, `navInflateUs` - are read under every
+ * access method this simulator has: a backoff is drawn and a Duration is written under DCF too.
+ *
+ * **It asks the LINK and not the device**, the way `hasBinnableLink` above does and for the
+ * reason written out there: `simulation.ts` computes a station's `cfg.edca` as
+ * `hasFeature(sta, 'edca') && hasFeature(ap, 'edca')`, so an `eht` station behind a `nonht`
+ * access point runs DCF however its own flags read. Asking the node would leave exactly the
+ * mixed pairs - the "old router, new laptop" plan - accepted and inert.
+ */
+export function tamperReadableFields(t: TamperCfg, sta: NodeCfg, ap: NodeCfg): (keyof TamperCfg)[] {
+  const edca = negotiated(sta, ap, 'edca')
+  const txop = edca && negotiated(sta, ap, 'txop')
+  const always: (keyof TamperCfg)[] = ['cwMin', 'cwMax', 'noDoubling', 'navInflateUs']
+  const out = always.filter((k) => t[k] !== undefined)
+  if (edca) for (const k of ['allAsAc', 'aifsn'] as const) if (t[k] !== undefined) out.push(k)
+  if (txop && t.txopLimitUs !== undefined) out.push('txopLimitUs')
+  return out
+}
+
+/** Every field a tamper config sets, readable here or not - the other half of the comparison. */
+export function tamperSetFields(t: TamperCfg): (keyof TamperCfg)[] {
+  return (['allAsAc', 'aifsn', 'cwMin', 'cwMax', 'noDoubling', 'txopLimitUs', 'navInflateUs'] as const)
+    .filter((k) => t[k] !== undefined)
+}
+
+/**
+ * Why this plan would refuse the tampered driver or the game-mode switch on **this one node** -
+ * one string per reason, empty when both are welcome. The single copy of all three rules and
+ * their wording, read by `superRefine` below and by the editor's own panel
+ * (`src/editor/planOps.ts` and `src/editor/FloorPlanEditor.tsx`), exactly as
+ * `selectivityRefusals` is.
+ *
+ * **Three rules, and each refuses a configuration that is byte-for-byte the configuration
+ * without the field** - measured in `tests/engine/tamper-inert.test.ts`, which is where the
+ * evidence for every sentence below lives:
+ *
+ *  1. `gameAccel` anywhere but on the access point. `simulation.ts` reads `ap.gameAccel === true`
+ *     and nothing else, so the flag on a station is dropped on the way in.
+ *  2. `tamper` anywhere but on a station. `simulation.ts` passes
+ *     `tamper: n.kind === 'sta' ? n.tamper : undefined` - an AP-side preset is dropped
+ *     explicitly, and until this rule, silently.
+ *  3. `tamper` on a link that can read **none** of the fields it sets (see
+ *     {@link tamperReadableFields}). This is the one rule that is about the LINK rather than the
+ *     node the field sits on, and the one that must not be written as "refuse every tamper on a
+ *     non-EDCA link": `cw`, `noDouble` and `navInflate` are all perfectly effective under DCF,
+ *     and refusing them would delete real behaviour instead of an empty configuration. The
+ *     combined `greedy` preset stays legal on a DCF link for exactly that reason - four of its
+ *     five fields are unreadable there and the fifth pair is not, so it runs, and what it runs
+ *     is byte-for-byte `cw`.
+ *
+ * **What this rule costs, stated rather than discovered later.** `Simulation`'s constructor
+ * parses before it builds anything, so a refused plan cannot be simulated at all - and three
+ * cells of the design document's inert matrix (escalate / aifs / txopHog in a legacy DCF room)
+ * are now unreachable rather than merely inert. The evidence for them did not disappear with
+ * them: `greedy` on that same link reduces, byte for byte, to `cw`, which is the same
+ * measurement from the side the schema still accepts, and `tests/engine/tamper-inert.test.ts`
+ * holds both that identity and this refusal.
+ *
+ * **What is deliberately NOT refused**, each with its reason:
+ *  - `gameAccel: true` in a room with no `gaming` stream. Ticking the router's box before adding
+ *    the phone's traffic is a reasonable intermediate state in the editor, and a schema that
+ *    refuses it makes the editor hostile. Pinned by test instead.
+ *  - `noDouble` on a station that will never collide, and `txopHog` on a queue that never holds
+ *    a second frame. Whether a scene collides is not a property a schema can see.
+ *  - `tamper: {}`. It sets no field at all, so rule 3's "sets something unreadable" does not
+ *    apply; the editor cannot produce it (the dropdown writes a preset or `undefined`).
+ */
+export function driverRefusalsFor(sc: Pick<Scenario, 'nodes'>, n: NodeCfg): string[] {
+  const out: string[] = []
+  if (n.gameAccel === true && n.kind !== 'ap') {
+    out.push(`游戏模式（gameAccel）只能贴在接入点上，而「${n.name}」是一个 ${n.kind} 节点：引擎读的是接入点自己的这个布尔（simulation.ts 里的 ap.gameAccel === true），贴在别的节点上会被原样丢掉，仿真跑出来与没有它逐字节相同。请把它移到接入点上，或者去掉`)
+  }
+  if (n.tamper !== undefined && n.kind !== 'sta') {
+    out.push(`篡改驱动（tamper）只能贴在站点上，而「${n.name}」是一个 ${n.kind} 节点：引擎建 MAC 的时候写的是 tamper: n.kind === 'sta' ? n.tamper : undefined，所以贴在接入点或别的节点上会被一声不响地丢掉，仿真跑出来与没有它逐字节相同。请把它移到一台站点上，或者去掉`)
+  }
+  const ap = sc.nodes.find((x) => x.kind === 'ap')
+  if (n.tamper !== undefined && n.kind === 'sta' && ap !== undefined) {
+    const set = tamperSetFields(n.tamper)
+    if (set.length > 0 && tamperReadableFields(n.tamper, n, ap).length === 0) {
+      out.push(`「${n.name}」这套篡改驱动（tamper）在这条链路上一个字段也读不到，所以它跑出来与不作弊逐字节相同：它改的是 ${set.join('、')}，而 allAsAc 与 aifsn 要这条链路协商上 EDCA（接入点与这台站点都得开），txopLimitUs 还要再加上 TXOP。注意要看链路而不是看设备——一条链路有没有 EDCA 是两端取与（simulation.ts），「旧路由器 + 新笔记本」这样的配对跑出来是没有 EDCA 的。请让两端都开上 EDCA（txopLimitUs 还要 TXOP），或者换一个在这条链路上读得到的预设：cwMin/cwMax、noDoubling 与 navInflateUs 在传统 DCF 上同样有效`)
+    }
+  }
+  return out
+}
+
+/** The same three rules over every node of a plan, flattened - what `superRefine` walks. */
+export function driverRefusals(sc: Pick<Scenario, 'nodes'>): string[] {
+  return sc.nodes.flatMap((n) => driverRefusalsFor(sc, n))
+}
+
+/**
  * A coordinate of a reflecting object, metres. `.finite()` rather than the plain `z.number()`
  * that `Vec3Schema` uses for nodes, because these three numbers are the input to a subtraction
  * and two square roots (`echoPathM`): an infinity anywhere in a position makes the echo's delay
@@ -1456,6 +1558,16 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
       for (const message of guardIntervalRefusals(sc)) {
         ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['guardInterval'], message })
       }
+    }
+    // The tampered driver and the router's game mode (design doc 2026-10-05-built-but-untaught,
+    // section 7.5). Three rules, every one of them refusing a plan whose record stream is
+    // byte-for-byte the plan without the field; `driverRefusalsFor` above holds the single copy
+    // of both the predicates and their wording, which the editor's own panel reads too, so the
+    // red line beside the control and the schema's refusal can never explain the same rule
+    // differently. Tagged `path: ['nodes']` the way the ranging rules are tagged `['uwb']`, so
+    // the editor can tell a node issue from any other by its path rather than by its wording.
+    for (const message of driverRefusals(sc)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['nodes'], message })
     }
     // Every ranging rule is tagged `path: ['uwb']` so the editor can tell a
     // session issue from any other by its path rather than by reading its

@@ -936,6 +936,29 @@ describe('readability · the limits debt is pinned, and the 297th entry is refus
   }
   const limitsOf = (l: Lesson): string => l.limits.map((x) => x.text).join(' ')
 
+  /**
+   * **This number is the ceiling AND the current value: the debt stands at exactly 296.** There
+   * is no slack in it, and that is deliberate rather than an accident of when it was measured —
+   * a ratchet with room left in it is not a ratchet. What it means in practice, for whoever next
+   * adds a `limits` entry:
+   *
+   *  - naming an official term that this lesson's own main path never names turns this red, with
+   *    no warning shot;
+   *  - the fix is one sentence on the main path, bracketing the term at its first use — not a
+   *    bigger number here;
+   *  - if that sentence will not fit, the other legal move is to pay one of the existing 296
+   *    back, which is the same work on a different lesson;
+   *  - **raising the ceiling needs a human to agree to it.** It is not a thing to do because the
+   *    build is red.
+   *
+   * The precedent, so the instruction is not merely an instruction: the slice that added
+   * `wan-rtt` and `edca-tamper` (2026-10-05) ran this up to 302 — six terms in the new lessons'
+   * `limits` and five more from rewriting four existing ones — and brought every one of the
+   * twelve back. Nine went onto a main path where they belonged anyway (`管理帧`, `信标`,
+   * `参数集`, `帧头` are what 「作弊者偏离的是一套从未被广播过的参数」 is made of); three were
+   * reworded, including one that was a term COLLISION rather than a missing bracket (`探测` is
+   * the glossary's channel sounding, and the sentence meant a ping). The number did not move.
+   */
   it('owes no more than 296 (lesson, term) pairs in `limits` — criterion Q, not P', () => {
     const pairs = migrated.flatMap((l) => owed(l, limitsOf(l)))
     expect(pairs.length, `${pairs.length} official terms are named in a lesson's \`limits\` and`

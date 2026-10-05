@@ -22,6 +22,15 @@
  * which record types and which FIELDS moved — the distinction that turns 「记录流变了」 into a
  * statement somebody can act on.
  *
+ * **Five of these assertions changed shape on 2026-10-05, and the reason is worth reading.**
+ * The schema now REFUSES the three configurations that used to be merely inert — a tamper preset
+ * on a non-station, a game-mode boolean on a non-AP, and a preset no field of which this link can
+ * read (`driverRefusalsFor`, src/model/scenario.ts). `Simulation`'s constructor parses before it
+ * builds anything, so those plans cannot be run at all any more and a byte-identity assertion
+ * over them is not merely stale, it is unreachable. Each one became an assertion that the plan is
+ * refused and that the sentence names the field — paired, every time, with a live control on the
+ * SAME room showing the rule discriminates rather than bans.
+ *
  * **One assertion in here contradicts the design document, and the document was the one that
  * was wrong.** §7.1 lists `navInflate` as effective in all four scenes. It is, in the sense
  * that the stream differs; but on a station with no audible neighbour the only thing that
@@ -33,7 +42,8 @@ import { Simulation } from '../../src/engine/simulation'
 import { cloudGameScenario, oneRoom, sc, tamperScenario } from '../../src/course/wifiScenes'
 import { node } from '../../src/course/lessonKit'
 import {
-  DEFAULT_SERVERS, TAMPER_PRESETS, type ProfileId, type Scenario, type ServerCfg, type TamperKind,
+  DEFAULT_SERVERS, TAMPER_PRESETS, driverRefusals,
+  type ProfileId, type Scenario, type ServerCfg, type TamperKind,
 } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 
@@ -129,13 +139,29 @@ describe('a tamper preset that is legal and provably inert', () => {
   })
 
   /**
-   * Item 2. Three structural gates, all in `mac.ts`: `efIndex(ac)` folds every category to 0
+   * Item 2, **and the one cell of the design document's matrix this slice took away rather than
+   * pinned.** Three structural gates, all in `mac.ts`: `efIndex(ac)` folds every category to 0
    * when `!edca`, the AIFS comes from `T.difsNs` instead of `aifsNs(params.aifsn)`, and a TXOP
-   * needs `cfg.txop && cfg.edca` before `txopLimitNs` is ever read. So three of the seven
-   * presets cannot be read at all in a legacy room.
+   * needs `cfg.txop && cfg.edca` before `txopLimitNs` is ever read. So three of the seven presets
+   * cannot be read at all in a legacy room — and since 2026-10-05 the schema REFUSES them there
+   * (`driverRefusalsFor`, src/model/scenario.ts), which `Simulation`'s constructor enforces
+   * because it parses before it builds anything. The byte-identity that used to be asserted here
+   * is therefore no longer reachable through the engine at all.
+   *
+   * **The evidence did not go with it, and that is the only reason the refusal is defensible.**
+   * Item 3 just below measures the very same physics from the side the schema still accepts:
+   * `greedy` sets those three fields AND a window pair, so it is accepted on a legacy link, and
+   * what it produces there is byte-for-byte `cw`. Three unreadable fields, measured, on a plan
+   * that still runs. What is asserted here is the refusal itself and its sentence.
    */
-  it.each(['escalate', 'aifs', 'txopHog'] as const)('2 · %s on a legacy DCF station, where the field is never read', (cheat) => {
-    expect(same(legacyDcf(), legacyDcf(cheat))).toBe(true)
+  it.each(['escalate', 'aifs', 'txopHog'] as const)('2 · %s on a legacy DCF station is refused, not merely inert', (cheat) => {
+    const refusals = driverRefusals(legacyDcf(cheat))
+    expect(refusals.length, `${cheat} on a legacy link`).toBe(1)
+    expect(refusals[0]).toContain('EDCA')
+    expect(() => new Simulation(legacyDcf(cheat)), 'the constructor parses before it builds').toThrow()
+    // the same preset on an EDCA link is accepted and is not inert, so this is a rule and not a ban
+    expect(() => new Simulation(tamperScenario(cheat))).not.toThrow()
+    expect(same(tamperScenario(), tamperScenario(cheat))).toBe(false)
   })
 
   /**
@@ -246,19 +272,34 @@ describe('a field the schema accepts on a node that never reads it', () => {
     expect(same(noGameFlow(false), noGameFlow(true))).toBe(true)
   })
 
-  it('7 · game acceleration on a station instead of the access point', () => {
-    expect(same(accelOnSta(false), accelOnSta(true))).toBe(true)
-    // the live control: the same boolean on the access point of the same room is not inert
+  it('7 · game acceleration on a station instead of the access point is refused', () => {
+    const refusals = driverRefusals(accelOnSta(true))
+    expect(refusals.length).toBe(1)
+    expect(refusals[0]).toContain('gameAccel')
+    expect(() => new Simulation(accelOnSta(true))).toThrow()
+    // the live control, and it is what makes this a rule about WHERE rather than a ban: the same
+    // boolean on the access point of the same room is accepted, and it is not inert
     const apOn: Scenario = {
       ...accelOnSta(false),
       nodes: accelOnSta(false).nodes.map((n) => (n.kind === 'ap' ? { ...n, gameAccel: true } : n)),
     }
+    expect(driverRefusals(apOn)).toEqual([])
     expect(same(accelOnSta(false), apOn)).toBe(false)
   })
 
-  /** Item 8. `simulation.ts:290` drops an AP-side `tamper` explicitly: `n.kind === 'sta' ? …`. */
-  it('8 · a tamper preset on the access point, which the engine drops on the way in', () => {
-    expect(same(tamperOnAp(false), tamperOnAp(true))).toBe(true)
+  /**
+   * Item 8. `simulation.ts` drops an AP-side `tamper` explicitly — `tamper: n.kind === 'sta' ?
+   * n.tamper : undefined` — and until this slice it did so silently. Now the plan does not get
+   * that far.
+   */
+  it('8 · a tamper preset on the access point is refused, not dropped in silence', () => {
+    const refusals = driverRefusals(tamperOnAp(true))
+    expect(refusals.length).toBe(1)
+    expect(refusals[0]).toContain('tamper')
+    expect(() => new Simulation(tamperOnAp(true))).toThrow()
+    // the live control: the same preset on a station of the same room runs, and takes the channel
+    expect(driverRefusals(tamperScenario('greedy'))).toEqual([])
+    expect(same(tamperScenario(), tamperScenario('greedy'))).toBe(false)
   })
 })
 
