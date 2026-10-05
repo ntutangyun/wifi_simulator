@@ -4,6 +4,16 @@ Date: 2026-09-17
 Programme: make the simulator a feature superset of ns-3's wifi module (master 62a7c4c), with every behaviour matching IEEE 802.11-2024 / 802.11be.
 This spec covers sub-project **A** only.
 
+> **Status note, 2026-10-05.** A is delivered, and **the sub-project letters B–G were absorbed into
+> the zero-to-hero programme's own tier/slice numbering rather than run under these names**: no spec
+> was ever written for B–G and no commit ever landed under one of those letters, while four of B's
+> five items were in fact delivered as part of slice S1. A–G and the tiers are two coordinate systems
+> over the same ground, and they merged in practice without anyone saying so. The row-by-row state of
+> each letter, and the mapping between the two systems, is §16 of `docs/wifi-feature-coverage.md`.
+> **This note records that; it does not revive the A–G numbering, and it retires nothing** — the three
+> "Out of scope for B / C / F" lists at the end of this file are still the only place several of those
+> gaps are written down as items at all, and six rows of that coverage table's 未偿的债 come from them.
+
 ## Programme rules
 
 1. **Standard over ns-3.** Where ns-3 and the standard disagree (BE/BK TXOP limit 0, VHT SU preamble without SIG-B, obsolete SSRC/SLRC attributes), we follow the standard.
@@ -28,7 +38,8 @@ Fix in place, test first, one commit per item or tightly related group. For each
 ## Changes
 
 ### A1. Mixed HE/EHT DL MU PPDU
-- **Defect.** `buildOfdmaParts` and `buildMumimoParts` label the PPDU `he` once any member is HE, but EHT members keep MCS 12/13. The receiver looks up `PHY_MODES.he.sensDbm[12|13]`, gets `undefined`, and every such part fails.
+- **Defect.** The DL MU part builders label the PPDU `he` once any member is HE, but EHT members keep MCS 12/13. The receiver looks up `PHY_MODES.he.sensDbm[12|13]`, gets `undefined`, and every such part fails.
+  - **Name, as of 2026-10-05:** the two builders this spec was written against, `buildOfdmaParts` and `buildMumimoParts`, were later merged into one private method of `Mac` — `buildMuParts(ei, dsts, mumimo, durCap, ac)` in `src/engine/mac.ts`, where the `mumimo` boolean picks the branch. The behaviour A1 specifies is in there unchanged; only the names moved, and they moved without this spec being updated, which is why `docs/wifi-feature-coverage.md`'s citations are now pinned by `tests/course/wifi-coverage.test.ts`. That test cannot reach a private method, so this line is the pointer instead.
 - **Standard.** An HE MU PPDU carries HE-MCS 0–11 only. An EHT STA is HE-capable and can be served in one.
 - **Fix.**
   - The PPDU format is `eht` only if every member is EHT; otherwise `he`.
