@@ -70,4 +70,28 @@ export default defineConfig({
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
   },
+  // ===== a known gap in what has been verified about this config, on Windows =====
+  //
+  // Every test here has been run and passed many times. What has *not* been
+  // shown to work on a Windows dev machine is the teardown: when this config
+  // owns the dev server, the run completes all its tests — `[24/24]` prints —
+  // and then the process hangs with the summary line never reaching stdout, the
+  // server still listening. Every clean `24 passed` recorded for this file came
+  // from a run that reused a server an earlier run had left behind, which means
+  // the teardown path had never actually been exercised when it was first
+  // reported green.
+  //
+  // It is left as `npx vite` rather than fixed, because the obvious fix did not
+  // work and the diagnosis it rested on does not hold. Spawning node directly
+  // (`node node_modules/vite/bin/vite.js`) to remove the wrapper process leaked
+  // the server just the same. The likelier explanation is the machine: on that
+  // same box `taskkill /T /F` and `Stop-Process` from a shell were themselves
+  // taking minutes or timing out, so there is no evidence the wrapper was ever
+  // the cause. A config change justified by a diagnosis that was not checked is
+  // the thing this whole slice has been about.
+  //
+  // CI is unaffected in the one way that matters: it is `ubuntu-latest`, where
+  // Playwright kills the server's process group, and `reuseExistingServer` is
+  // false there, so a leak would show up as a hung job rather than hide. If that
+  // ever happens, this is the note to start from.
 })

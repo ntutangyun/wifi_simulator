@@ -36,6 +36,12 @@
  * declares `overflow: hidden` on its host and clipping its edge labels is its
  * design. Question 2 excuses an element that declares a sideways scroll, and
  * question 3 excuses anything inside one, which is why question 4 exists at all.
+ * Question 2 also excuses `text-overflow: ellipsis` — **and that one is an
+ * exemption rather than a verdict: it walks past a real defect, the timeline's
+ * hint row, which at 470 px shows a third of its sentence and puts the rest in a
+ * `title` that a touchscreen cannot hover.** The clause sits at `truncates`
+ * below with the symptom, the measurement and what narrowing it would take; it
+ * is a debt this sweep is carrying, not a thing it has cleared.
  * Question 4 is scoped to the top bar and not to every control on the page,
  * because the player's transport row really is one row that scrolls sideways on
  * this device — a decision taken knowingly, with the gesture verified on the
@@ -111,17 +117,47 @@ async function survey(page: Page): Promise<Survey> {
     const vw = window.innerWidth
 
     for (const el of Array.from(document.querySelectorAll('*'))) {
-      // Out of scope: the floor plan's own coordinate space. See `SKIP`.
+      // Out of scope: the floor plan's own coordinate space. The reason is in
+      // this file's header, under the list of every exclusion.
       if (el.namespaceURI === SVG_NS || el.closest('svg') !== null) continue
       const cs = getComputedStyle(el)
       if (cs.display === 'none' || cs.visibility === 'hidden') continue
       const scrollsX = cs.overflowX === 'auto' || cs.overflowX === 'scroll'
-      // `text-overflow: ellipsis` is a declared truncation: the element is
-      // saying it means to cut its own text and to show that it did. It is not
-      // inherited, so this excuses the element that asked for it and nothing
-      // under it. The timeline's hint row is the case that found this clause —
-      // `scrollWidth 356` against `clientWidth 127` at 470 px, by design, with
-      // the full sentence in its `title`.
+      /*
+       * `text-overflow: ellipsis` is a declared truncation: the element is
+       * saying it means to cut its own text and to show that it did. It is not
+       * inherited, so this excuses the element that asked for it and nothing
+       * under it.
+       *
+       * ===== THIS IS AN EXEMPTION, NOT A VERDICT =====
+       *
+       * The case that found this clause is a defect, and this clause is the
+       * reason the sweep walks past it. Writing it down so the next reader
+       * inherits a debt rather than a conclusion:
+       *
+       * The timeline's hint row (`src/ui/TimelineStrip.tsx`, the absolutely
+       * positioned `div` ending `{fmtNs(spanNs)} s · {L.strip.windowHint}`)
+       * measures `scrollWidth 356` against `clientWidth 127` at 470 px. **Two
+       * thirds of the sentence is not on the screen.** What is left is the time
+       * reading and an ellipsis; the rest — "滚轮或拖动移时间 · Ctrl+滚轮或双指
+       * 捏合缩放 · 点击帧看详情", i.e. every gesture the timeline has — is
+       * reachable only through the element's `title`, **and a touchscreen has no
+       * hover**. So on the one device this app is read on, the folded foldable,
+       * that text does not exist. It is the same shape as the four defects this
+       * file was written for: only at 470 px, and only discoverable by someone
+       * walking into it.
+       *
+       * It is exempted because the truncation is deliberate and marked — the
+       * element asked for the ellipsis, and a sweep that failed on every
+       * `text-overflow: ellipsis` in the app would fail on the editor's node
+       * list too, where cutting a long device name is exactly right. The
+       * discriminating question is not "was it truncated" but "is what was cut
+       * reachable without a pointer that hovers", and this sweep cannot measure
+       * that. Whoever fixes the hint row should narrow this clause rather than
+       * widen it: the honest rule is probably "an element may truncate its text
+       * only if the full text is reachable without hover", which needs somewhere
+       * for the full text to go first.
+       */
       const truncates = cs.textOverflow === 'ellipsis'
 
       // Question 2. An element that declares a sideways scroll is excused:

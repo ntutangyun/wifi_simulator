@@ -30,9 +30,73 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+
+      # ===== the browser, cached =====
+      #
+      # The download is the whole cost of this workflow — a minute or two on
+      # every push, against a sweep that runs in under thirty seconds. Cached, a
+      # hit costs a few seconds.
+      #
+      # **The key carries the Playwright version, and it is read out of
+      # `package-lock.json` rather than written here.** A hardcoded version, or a
+      # key without one, survives a dependency bump: the cache hits,
+      # `cache-hit` is `true`, the install below is skipped, and the job then has
+      # the new Playwright and the old browser directory.
+      #
+      # What that actually does — checked in `playwright-core`'s registry rather
+      # than assumed, because the first draft of this comment claimed something
+      # better-sounding and wrong. It does **not** quietly run green against the
+      # wrong browser: each build has its own directory (`chromium-1194`), so a
+      # new Playwright looking for a new build finds nothing and throws
+      # `Executable doesn't exist at …`. The cost of a version-less key is
+      # therefore a confusing hard failure on every bump, needing the cache
+      # cleared by hand — except where the bump keeps the same chromium build, as
+      # patch releases usually do, and then nothing happens at all. That is worth
+      # avoiding on its own, and the version in the key avoids it by making a bump
+      # an honest miss that heals itself. It is not the "green but measuring the
+      # wrong thing" failure this slice was otherwise about, and saying so would
+      # be the same mistake as `.hscroll`'s own stated reason: a justification
+      # that reads well and does not hold.
+      #
+      # `playwright-core` and not `@playwright/test`, because `playwright-core`
+      # is the package that actually owns `browsers.json`, i.e. the chromium
+      # build number the cache holds (1194 at the time of writing). The three
+      # packages are released in lockstep, so today they agree; keying on the one
+      # that owns the pin means they do not have to.
+      - name: The Playwright version the lockfile pins
+        id: pw
+        run: |
+          echo "version=$(node -p "require('./package-lock.json').packages['node_modules/playwright-core'].version")" >> "$GITHUB_OUTPUT"
+      - name: Cache the browser
+        id: pw-cache
+        uses: actions/cache@v4
+        with:
+          # The Linux runner's download location. Playwright reads
+          # `PLAYWRIGHT_BROWSERS_PATH`, and `~/.cache/ms-playwright` is its default.
+          path: ~/.cache/ms-playwright
+          key: ms-playwright-${{ runner.os }}-${{ steps.pw.outputs.version }}-chromium
+          # **No `restore-keys`, and the reason is that they would buy nothing.**
+          # A prefix fallback is safe here — it leaves `cache-hit` false, so the
+          # install below still runs and still fetches the right build — but what
+          # it restores is the *previous* build, which the new Playwright never
+          # looks at. The download happens anyway, and the save then stores both
+          # builds, growing the entry on every bump. Exact key only, so the two
+          # states are the two the conditionals below are written against.
       # Chromium only. The defects are layout, not engine behaviour, and one
       # browser is what the device runs.
-      - run: npx playwright install --with-deps chromium
+      #
+      # Two steps rather than one, because `--with-deps` does two jobs and only
+      # one of them is cacheable: the browser lands in `~/.cache/ms-playwright`,
+      # while the system libraries it needs go into the runner's apt packages,
+      # which the cache above does not hold. So a hit still installs the
+      # libraries and skips the download; a miss does both.
+      - name: Install the browser (cache miss)
+        if: steps.pw-cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium
+      - name: Install the browser's system libraries (cache hit)
+        if: steps.pw-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
+
       - run: npm run test:ui
       - uses: actions/upload-artifact@v4
         if: failure()
