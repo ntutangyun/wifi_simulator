@@ -67,7 +67,7 @@ function SidePanel() {
 }
 
 export function App() {
-  const { mode, setMode, simError, courseLoaded, simSession } = useUi()
+  const { mode, setMode, simError, courseLoaded, simSession, viewRequest } = useUi()
   const L = useStrings()
   const [guideOpen, setGuideOpen] = useState(false)
   const [courseW, setCourseW] = useColumnWidth('wifi-sim.courseWidth', COURSE_COL_DEFAULT, COURSE_COL_LIMITS)
@@ -83,21 +83,31 @@ export function App() {
   /** Which of the lesson and the viewport the single-column shell shows. */
   const [pane, setPane] = useState<MainPane>('course')
   /**
-   * One column: a load has to bring the viewport on screen. `pane` is local
-   * state and the store cannot reach it, so loading a lesson left the reader on
-   * the prose with no canvas rendered at all — the only thing that changed was
-   * the button's own label, from "载入并观察" to "跳到那里". `simSession` is the
-   * store's existing "a new simulation just started" signal (both `setMode`
-   * and `loadCourseScenario` bump it), which is why `pane` does not have to
-   * move into the store to be told. Simulate mode bumps it too and is not in
-   * one column's two panes, so the mode is part of the condition.
+   * One column: anything that sends the reader to the simulator has to bring the
+   * viewport on screen. `pane` is local state and the store cannot reach it, so
+   * loading a lesson left the reader on the prose with no canvas rendered at all
+   * — the only thing that changed was the button's own label, from "载入并观察"
+   * to "跳到那里".
+   *
+   * This watches `viewRequest`, not `simSession`. The two look interchangeable
+   * and are not: `simSession` is also the `key` of `<Viewport>` a few lines
+   * below, so every bump of it rebuilds the scene and puts the camera back at
+   * its starting position. A load does restart the run and may; a jump — which
+   * is `player.seekFirst`, a playhead move inside the recording already on
+   * screen — must not, or "⚡ 跳到那里" would answer a missing pane with a reset
+   * camera. `loadCourseScenario` therefore bumps both and the jump bumps only
+   * `viewRequest`; see `store.ts` for which writer bumps which.
+   *
+   * `pane` still does not move into the store: what the store gained is the
+   * event, not the arrangement. Simulate mode has no second pane, so the mode is
+   * part of the condition.
    */
   useEffect(() => {
-    if (simSession > 0 && mode === 'course' && layout.singleColumn) setPane('view')
-    // The session alone is the dependency: this has to fire when a run starts
-    // and not when the reader folds the screen or taps the lesson tab back, so
-    // `mode` and `layout` are read, deliberately, without being watched.
-  }, [simSession])
+    if (viewRequest > 0 && mode === 'course' && layout.singleColumn) setPane('view')
+    // The request alone is the dependency: this has to fire when the reader is
+    // sent to the view and not when they fold the screen or tap the lesson tab
+    // back, so `mode` and `layout` are read, deliberately, without being watched.
+  }, [viewRequest])
   /** The side panel, when it is a drawer rather than a column. Closed by default:
    *  on a small screen the content is what the reader came for. */
   const [sideOpen, setSideOpen] = useState(false)

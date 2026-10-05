@@ -217,3 +217,85 @@ describe('course mode · the scene on screen is this lesson’s', () => {
     }
   })
 })
+
+/**
+ * The two counters a one-column shell reads, and why they cannot be one.
+ *
+ * `simSession` is the `key` of `<Viewport>` (`src/ui/App.tsx`), so a bump of it
+ * throws the three-dimensional scene away and the camera goes back to its
+ * starting position. `viewRequest` is "put the view on screen" and nothing
+ * more. A jump — `player.seekFirst`, a playhead move inside the recording
+ * already loaded — must send the second without the first, which is the whole
+ * reason there are two: reusing `simSession` as the jump's signal would have
+ * answered a missing pane with a reset camera, a worse defect and a quieter one.
+ *
+ * What this pins is that the two are *distinguishable*: a load bumps both, and
+ * `requestView` bumps one and leaves the other alone. A test that only read
+ * `viewRequest` would pass under the one-counter implementation too — that
+ * implementation bumps `viewRequest` and `simSession` in lockstep, so the
+ * discriminating quantity is `simSession` holding still.
+ */
+describe('course mode · "bring the view on screen" is not "the run restarted"', () => {
+  const counters = () => {
+    const s = useUi.getState()
+    return { simSession: s.simSession, viewRequest: s.viewRequest }
+  }
+
+  it('starts both at zero', () => {
+    expect(counters()).toEqual({ simSession: 0, viewRequest: 0 })
+  })
+
+  it('bumps both when a lesson’s scenario is loaded: a new run the reader must be taken to', () => {
+    const base = useUi.getState().scenario
+    useUi.getState().setMode('course')
+    const before = counters()
+    useUi.getState().loadCourseScenario({ ...base, seed: 101 }, 'uwb-intro')
+    const after = counters()
+    expect(after.simSession).toBe(before.simSession + 1)
+    expect(after.viewRequest).toBe(before.viewRequest + 1)
+  })
+
+  it('bumps the request alone for a jump, leaving the scene standing', () => {
+    const base = useUi.getState().scenario
+    useUi.getState().setMode('course')
+    useUi.getState().loadCourseScenario({ ...base, seed: 102 }, 'uwb-intro')
+    const before = counters()
+    useUi.getState().requestView()
+    const after = counters()
+    expect(after.viewRequest).toBe(before.viewRequest + 1)
+    // The discriminating quantity: the scene key must not have moved.
+    expect(after.simSession).toBe(before.simSession)
+    // And it keeps holding still over a run of jumps.
+    for (let i = 0; i < 4; i++) useUi.getState().requestView()
+    expect(useUi.getState().viewRequest).toBe(before.viewRequest + 5)
+    expect(useUi.getState().simSession).toBe(before.simSession)
+  })
+
+  it('leaves the request alone when only the mode changes', () => {
+    useUi.getState().setMode('course')
+    const before = counters()
+    // `setMode('simulate')` restarts a run — it bumps `simSession` — but no mode
+    // except `course` has two panes to choose between, so there is nothing to
+    // request. Reading this field in simulate mode would be reading a signal
+    // nobody sends.
+    useUi.getState().setMode('simulate')
+    const after = counters()
+    expect(after.simSession).toBe(before.simSession + 1)
+    expect(after.viewRequest).toBe(before.viewRequest)
+  })
+
+  it('leaves the request alone when the reader walks to another lesson', () => {
+    const base = useUi.getState().scenario
+    useUi.getState().setMode('course')
+    useUi.getState().selectLesson('uwb-intro')
+    useUi.getState().loadCourseScenario({ ...base, seed: 103 }, 'uwb-intro')
+    const before = counters()
+    // Walking to another lesson takes the recording away; what the reader came
+    // for is that lesson's prose, so nothing asks for the view.
+    useUi.getState().selectLesson('uwb-frame')
+    expect(counters().viewRequest).toBe(before.viewRequest)
+    // …and so does taking a lesson's plan into the editor.
+    useUi.getState().adoptCourseScenario({ ...base, seed: 103 })
+    expect(counters().viewRequest).toBe(before.viewRequest)
+  })
+})

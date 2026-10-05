@@ -43,6 +43,26 @@ export interface UiState {
   courseLoadedFor: string | null
   /** Increments whenever a new simulation is (re)started — keys scene rebuilds. */
   simSession: number
+  /**
+   * Increments whenever something asks for the 3-D view to be *on screen*.
+   *
+   * Deliberately not `simSession`, and the two are not interchangeable:
+   * `simSession` keys the scene rebuild (`<Viewport key={…simSession}>` in
+   * `App.tsx`), so every bump of it throws the scene away and puts the camera
+   * back at its starting position. "Bring the view on screen" must not do that —
+   * a jump that reset the camera would be a worse defect than the one it fixed,
+   * and harder to notice. So loading a lesson's scenario bumps both (it really
+   * does start a new run) while a jump bumps only this one.
+   */
+  viewRequest: number
+  /**
+   * Ask the single-column shell to show the 3-D view instead of the prose.
+   *
+   * The store says *what happened*, not which pane is up: `pane` is local state
+   * in `App.tsx` and stays there. This is the signal a jump had no way to send —
+   * `player.seekFirst` moves the playhead and touches no store field at all.
+   */
+  requestView(): void
   selectLesson(id: string | null): void
   /** `lessonId` names the lesson the scene belongs to — a variant's scene is still that lesson's. */
   loadCourseScenario(sc: Scenario, lessonId?: string): void
@@ -158,6 +178,10 @@ export const useUi = create<UiState>((set, get) => ({
   courseLoaded: false,
   courseLoadedFor: null,
   simSession: 0,
+  viewRequest: 0,
+  requestView() {
+    set({ viewRequest: get().viewRequest + 1 })
+  },
   selectLesson(id) {
     remember('wifi-sim.lesson', id)
     // Walking to another lesson has to take the previous lesson's scene with
@@ -183,7 +207,11 @@ export const useUi = create<UiState>((set, get) => ({
     player.dispose()
     // A lesson scenario is transient course state, not an edit: the editor is
     // unmounted and its history stays parked in courseStash until it returns.
-    set({ scenario: sc, simError: null, playheadNs: 0, view: null, courseLoaded: true, courseLoadedFor: lessonId ?? null, selectedNodeId: null, selectedFrame: null, simSession: get().simSession + 1 })
+    // Both counters: this really is a new run (`simSession`, which rebuilds the
+    // scene) and the reader has to be taken to it (`viewRequest`). The two other
+    // writers of `simSession` bump it alone on purpose — `setMode` leaves the
+    // reader where the mode puts them, and no mode but `course` has two panes.
+    set({ scenario: sc, simError: null, playheadNs: 0, view: null, courseLoaded: true, courseLoadedFor: lessonId ?? null, selectedNodeId: null, selectedFrame: null, simSession: get().simSession + 1, viewRequest: get().viewRequest + 1 })
     player.speedUsPerSec = get().speedUsPerSec
     player.load(sc)
   },

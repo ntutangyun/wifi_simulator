@@ -212,7 +212,7 @@ function BlockView({ b }: { b: Block }) {
 }
 
 export function CoursePanel() {
-  const { courseLessonId, selectLesson, loadCourseScenario, adoptCourseScenario, courseLoaded, courseLoadedFor } = useUi()
+  const { courseLessonId, selectLesson, loadCourseScenario, adoptCourseScenario, courseLoaded, courseLoadedFor, requestView } = useUi()
   const L = useStrings().course
 
   /**
@@ -331,9 +331,22 @@ export function CoursePanel() {
     save({ ...progress, [lesson.id]: { ...progress[lesson.id], obs: [...next] } })
   }
 
+  /**
+   * Both jump buttons go through here — the one inside a `watch` call-out and
+   * every entry of the "跳转" list at the foot of the lesson — so the signal
+   * below is sent from one place rather than two.
+   *
+   * `requestView` is what tells a one-column shell to put the 3-D view on
+   * screen; `player.seekFirst` moves the playhead and writes no store field, so
+   * without it the jump landed on a moment the reader could not see (the prose
+   * stayed up). It is sent only when the seek found the moment: a miss prints
+   * `jumpMsg` into the prose, and switching away would hide the one sentence
+   * that explains why nothing happened.
+   */
   const jump = (find: Lesson['jumps'][0]['find'], label: string) => {
     const ok = player.seekFirst(find)
     setJumpMsg(ok ? '' : `${label}: ${L.notFound}`)
+    if (ok) requestView()
   }
 
   /**
