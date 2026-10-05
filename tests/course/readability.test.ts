@@ -24,7 +24,7 @@
 import { describe, it, expect } from 'vitest'
 import { LESSONS } from '../../src/course/lessons'
 import {
-  CHARS_PER_MINUTE, COURSE_ORDER, MAX_MINUTES, OBSERVE_MINUTES, TRY_MINUTES,
+  CHARS_PER_MINUTE, COURSE_ORDER, MAX_MINUTES, MODULES, OBSERVE_MINUTES, TRY_MINUTES,
   lessonChars, lessonMinutes, needsClosure, trackOf,
 } from '../../src/course/curriculum'
 import { isMigrated, type Block, type Lesson } from '../../src/course/lessonKit'
@@ -1034,59 +1034,155 @@ describe('readability · the limits debt is pinned, and the 297th entry is refus
  * next person would have checked against it, failed, and suspected the code.
  * Measured here instead, after the fixes.
  *
- * ### The character total is a BAND, and the minutes total is the equality
+ * ### The structure is asserted directly; the corpus total is only a sanity check
  *
- * It was an equality on 179 872 for exactly one commit, and that was a mistake
- * worth writing down rather than quietly fixing. A check that is designed to go
- * red on every edit teaches one habit, and it is not reading it: it teaches
- * updating the number without looking at what moved. The most expensive defect
- * in this repository is a green check that cannot prove the thing its name
- * claims, and a check that is red every week is the same coin's other face.
+ * The total was an equality on 179 872 for exactly one commit, and that was a
+ * mistake worth writing down rather than quietly fixing. A check that is
+ * designed to go red on every edit teaches one habit, and it is not reading it:
+ * it teaches updating the number without looking at what moved. The most
+ * expensive defect in this repository is a green check that cannot prove the
+ * thing its name claims, and a check that is red every week is the same coin's
+ * other face.
  *
- * Its job was already being done, in two places that do it better:
- *  - **"a lesson crossed a bucket"** is the minutes total below. A bucket
- *    crossing moves that sum by ±5, and it is the reader-visible quantity.
- *  - **"`rate` is one character from being re-timed"** is the margin assertion
- *    below that, which points straight at the lesson instead of at a corpus sum.
- * What was left for the equality was "somebody edited a lesson" — a signal with
- * no reader behind it.
+ * **Then it was a band of 170 000–190 000, and the band had the same defect one
+ * level up.** It was written to catch a structural change — its own message said
+ * 「most likely a module added or removed」 — but it was a sum, so ordinary prose
+ * editing moved it, and it carried a hand-written figure in this comment which
+ * **went stale twice on 2026-10-05 alone**: the comment said 188 317 while the
+ * corpus measured 188 798, pushed there by one lesson's edit (`b22dec2`,
+ * `@selectivity`, +481), and the band stayed green because a band does not
+ * notice. By then the ceiling left **1 202 characters of room** and the mean
+ * lesson is 2 195, so the next lesson of any kind would have reddened a check
+ * whose stated purpose was modules. A ceiling that no longer fits one of the
+ * things it was sized in is not measuring that thing.
  *
- * So the band. It is wide enough that ordinary prose editing never touches it
- * and narrow enough to notice a structural change nobody mentioned: roughly
- * five lessons' worth of main path appearing or disappearing (the mean lesson
- * is about 2 165 characters). It is not a budget — nothing here says the course
- * should be this long.
+ * So the structure is asserted as structure, in three pieces that each name what
+ * moved, and none of which is a sum:
+ *
+ *  1. **the lesson count, exact.** A lesson arriving or leaving is a decision
+ *     somebody makes on purpose, so it owes one line of diff here.
+ *  2. **the module count, exact.** 「a module added or removed」 now has its own
+ *     assertion instead of being inferred from a corpus total. This is the one
+ *     the band claimed to be doing and could not do.
+ *  3. **the per-lesson main path, inside a band** — and this one is per lesson,
+ *     so its failure says which lesson. That is the whole gain over a sum: a red
+ *     corpus total tells you something moved somewhere in 86 lessons.
+ *
+ * The per-lesson band is [700, 4 400], and both ends are a stated multiple of
+ * the course mean rather than a fitted number:
+ *
+ *  - **4 400 is twice the mean lesson** (2 × 2 195 = 4 390, rounded out).
+ *    `curriculum.ts`'s own rule for minutes says a lesson past 30 minutes is a
+ *    lesson teaching two topics; this is that rule in characters.
+ *  - **700 is about a third of the mean**, and it is a gut check rather than a
+ *    detector. Measured: dropping `terms` out of `MAIN_PATH_SECTIONS`
+ *    altogether — a whole section of the walk gone — moves the shortest lesson
+ *    from 1 081 to 1 041, nowhere near 700. So the floor catches a lesson being
+ *    gutted, not a lesson losing a section; the per-section census in
+ *    `tests/course/readability-rules.test.ts` catches that one and is exact, and
+ *    the failure message says so rather than implying otherwise.
+ *
+ * Measured margins on 2026-10-05, from the census at the bottom of this comment:
+ * the longest lesson is `@ru-diversity` at 4 030 (370 below the ceiling) and the
+ * shortest is `@relay-hops` at 1 081 (381 above the floor). Those two are both
+ * about a sixth of a mean lesson, so the band is not loose — **but it does not
+ * bind a new lesson at all**, which is the point: a new lesson lands at
+ * 2 000–3 000 characters, in the middle third of the band, where the old ceiling
+ * had 1 202 characters of room for a 2 195-character lesson. `@ru-diversity`
+ * being 370 from its ceiling is deliberate and is written up as backlog slice W2:
+ * it is already past raw 30 minutes, and the answer there is to split it.
+ *
+ * **No figure in the assertions below is hand-written except 86, 30 and the two
+ * band edges.** The stale 188 317 is deleted rather than updated, because a
+ * number that will expire should not live in a comment — it should be printed by
+ * the census, which is what the failure messages now do.
  *
  * Re-measure with:
  *
  * ```ts
  * import { LESSONS } from '../../src/course/lessons'
- * import { COURSE_ORDER } from '../../src/course/curriculum'
+ * import { COURSE_ORDER, MODULES } from '../../src/course/curriculum'
  * import { mainPathChars } from '../../src/course/readability'
  * const byId = new Map(LESSONS.map((l) => [l.id, l]))
- * COURSE_ORDER.flatMap((id) => byId.get(id) ?? []).reduce((n, l) => n + mainPathChars(l), 0)
+ * const ordered = COURSE_ORDER.flatMap((id) => byId.get(id) ?? [])
+ * ordered.length                                              // lessons
+ * MODULES.length                                              // modules
+ * ordered.map((l) => [l.id, mainPathChars(l)])                // the per-lesson band
+ * ordered.reduce((n, l) => n + mainPathChars(l), 0)           // the sanity total
  * ```
  */
 describe('readability · the stated minutes, and the characters behind them', () => {
-  it('keeps the course within a band of main-path length, 188 317 characters on 2026-10-05', () => {
+  /**
+   * One lesson's unrounded minutes, and how many Chinese characters of editing it would take to
+   * push it into the next five-minute bucket. Shared by the three assertions below, because the
+   * equality on 1 825 cannot say anything useful about its own failure without it.
+   */
+  const rawMinutes = (l: Lesson): number => lessonChars(l) / CHARS_PER_MINUTE
+    + OBSERVE_MINUTES * l.observe.length + TRY_MINUTES * l.tryThis.length
+  const toNextBucket = (l: Lesson): number =>
+    (Math.round(rawMinutes(l) / 5) * 5 + 2.5 - rawMinutes(l)) * CHARS_PER_MINUTE
+
+  /**
+   * How many characters a lesson is PAST the bucket boundary it most recently crossed. Printed
+   * next to the forward margin because the lesson that crossed is the one a red 1 825 is about,
+   * and after crossing its forward margin is a comfortable 550 — it leaves the tight list rather
+   * than topping it. This is the number that is small on exactly the culprit.
+   */
+  const sinceLastBucket = (l: Lesson): number =>
+    (rawMinutes(l) - (Math.round(rawMinutes(l) / 5) * 5 - 2.5)) * CHARS_PER_MINUTE
+
+  /**
+   * Every lesson's two bucket margins, closest boundary first — the thing a red 1 825 needs to
+   * say. The sum moving by ±5 means one lesson crossed; this census is where it is.
+   */
+  const margins = (): string => ordered
+    .map((l) => [l.id, rawMinutes(l), toNextBucket(l), sinceLastBucket(l)] as const)
+    .sort((a, b) => Math.min(a[2], a[3]) - Math.min(b[2], b[3]))
+    .map(([id, raw, next, prev]) => `  @${id} raw ${raw.toFixed(2)} → ${lessonMinutes(byId.get(id)!)}`
+      + ` min, ${next.toFixed(0)} characters to the next bucket, ${prev.toFixed(0)} past the last`)
+    .join('\n')
+
+  it('has the lessons and the modules it says it has', () => {
+    // The two structural counts, exact, each naming what moved. A lesson or a module arriving or
+    // leaving is a deliberate act and owes one line of diff here; neither can be inferred from a
+    // corpus total, which is what the retired band tried to do.
+    expect(ordered.length, 'lessons in COURSE_ORDER with authored prose behind them').toBe(86)
+    expect(MODULES.length, 'modules — THIS is 「a module added or removed」, asserted directly')
+      .toBe(30)
+  })
+
+  it('keeps every lesson\'s main path between a third of a lesson and two lessons', () => {
+    // Per lesson, so the failure names the lesson. [700, 4 400] = about a third of the mean
+    // lesson, and twice it; see the note above for why those two multiples and not a fitted
+    // number. A new lesson lands at 2 000–3 000, in the middle third, so this does not bind one.
+    const sorted = ordered.map((l) => [l.id, mainPathChars(l)] as const)
+      .sort((a, b) => a[1] - b[1])
+    const census = (): string => sorted.map(([id, n]) => `  ${id} ${n}`).join('\n')
+    for (const [id, n] of sorted) {
+      expect(n, `@${id} has ${n} main-path characters, under a third of the mean lesson — most`
+        + ' likely it lost prose it is still assumed to have. This floor is a gut check and it'
+        + ' is NOT what catches a lost section: the per-section census in'
+        + ' tests/course/readability-rules.test.ts is, and it is exact.'
+        + ` The course, shortest first:\n${census()}`)
+        .toBeGreaterThan(700)
+      expect(n, `@${id} has ${n} main-path characters, past twice the mean lesson. A lesson that`
+        + ' long is a lesson teaching two topics, and the answer is to split it, never to'
+        + ' compress it (curriculum.ts, lessonMinutes).'
+        + ` The course, longest first:\n${sorted.slice().reverse().map(([i, c]) => `  ${i} ${c}`).join('\n')}`)
+        .toBeLessThan(4_400)
+    }
+  })
+
+  it('is a course and not a fragment, which is all the corpus total is asked for now', () => {
+    // Demoted to an order-of-magnitude guard. It no longer carries a figure, because the figure
+    // went stale twice on the day it was written; it catches `mainPathChars` returning 0 or the
+    // walk collapsing, and nothing else. The structural signals are the three above.
     const chars = ordered.reduce((n, l) => n + mainPathChars(l), 0)
-    // A band, not an equality, and not a budget: see the note above for why it was demoted.
-    // 170 000–190 000 is about five lessons' worth of main path either side of where the
-    // course stood when this landed, so ordinary prose editing never reaches it and a
-    // module arriving or leaving does.
-    // **The stated figure was stale and is now measured: 185 327 before slice 3d, 188 317 after.**
-    // The 179 872 this test was written with had not been re-measured since, and with the ceiling at
-    // 190 000 that left 1 683 characters of room rather than the 「five lessons' worth」 the note
-    // below claims. The band is NOT widened here — raising it is a human's call — but the next
-    // module to land will reach it, and whoever reads this red first should know it was already
-    // nearly red.
-    expect(chars, `${chars} main-path Chinese characters across the course (188 317 on`
-      + ' 2026-10-05). This band does not move for prose edits, so something structural'
-      + ' changed — most likely a module added or removed. A walk that stopped seeing ONE'
-      + ' section is too small to reach this band; the per-section census in'
-      + ' tests/course/readability-rules.test.ts is what catches that, and it is exact.')
-      .toBeGreaterThan(170_000)
-    expect(chars).toBeLessThan(190_000)
+    expect(chars, `${chars} main-path Chinese characters across ${ordered.length} lessons`
+      + ` (mean ${Math.round(chars / ordered.length)}). This is a sanity band, not a budget and`
+      + ' not a structural signal — if it is red, the walk itself is broken.')
+      .toBeGreaterThan(100_000)
+    expect(chars).toBeLessThan(300_000)
   })
 
   it('states 1 825 minutes across the whole course, and no earlier lesson moved', () => {
@@ -1094,8 +1190,16 @@ describe('readability · the stated minutes, and the characters behind them', ()
     // observe and two experiments — raw 25.59, which the formula rounds to 25. **Measured after the
     // prose was final, not budgeted**, and `uwb-ancillary` itself did not move: that lesson's only
     // edit was to its `limits`, which `MAIN_PATH_SECTIONS` does not count.
+    // **The equality is NOT relaxed** — it is deliberate that somebody looks at a new lesson's
+    // minutes — but a bare `expected 1830 to be 1825` reads like "you broke something else".
+    // What actually happened is that one lesson crossed a five-minute bucket, and the course has
+    // six lessons within 25 characters of doing that (`@rate` within ONE), so the failure prints
+    // every margin, tightest first. The reader of the red then sees the lesson, not the sum.
+    // This replaces the hand-written margin table in docs/wifi-course-backlog.md, whose figures
+    // for `@uwb-m2m` and `@rts-cts` were each one character out on the day it was written.
     expect(ordered.reduce((n, l) => n + lessonMinutes(l), 0),
-      'the sum of every stated minute figure a reader can see').toBe(1_825)
+      'the sum of every stated minute figure a reader can see. ±5 means one lesson crossed a'
+      + ` bucket; every lesson's margin, tightest first:\n${margins()}`).toBe(1_825)
     // the two lessons of the built-but-untaught slice, measured after their prose was
     // final rather than copied from its design document (which budgeted 25 and 30 and
     // happened to be right, while its character budgets were not)
@@ -1116,11 +1220,6 @@ describe('readability · the stated minutes, and the characters behind them', ()
    * lesson that one more character would re-time.
    */
   it('has a lesson one character from the next bucket, which is why the totals are pinned', () => {
-    const toNextBucket = (l: Lesson): number => {
-      const raw = lessonChars(l) / CHARS_PER_MINUTE
-        + OBSERVE_MINUTES * l.observe.length + TRY_MINUTES * l.tryThis.length
-      return (Math.round(raw / 5) * 5 + 2.5 - raw) * CHARS_PER_MINUTE
-    }
     const tightest = ordered.map((l) => [l.id, toNextBucket(l)] as const)
       .sort((a, b) => a[1] - b[1])[0]
     expect(tightest[0]).toBe('rate')
@@ -1133,5 +1232,26 @@ describe('readability · the stated minutes, and the characters behind them', ()
       const room = toNextBucket(byId.get(id)!)
       expect(room, `${id} has ${room.toFixed(0)} characters of room left`).toBeGreaterThan(least)
     }
+  })
+
+  /**
+   * The other end of the same ruler, and it fires EARLIER than `fits one sitting` does.
+   *
+   * `lessonMinutes` rounds to five and clamps nothing, so a lesson at raw 31 still states 30 and
+   * `fits one sitting` stays green until raw reaches 32.5. Two lessons are already past the
+   * ceiling in raw terms, which means the next edit to either is the one that re-times it, and
+   * the red it produces would arrive as a 1 825 failure rather than as "this lesson is too long".
+   *
+   * So the set is pinned, not the margin. A third lesson crossing raw 30 is a content decision —
+   * `curriculum.ts` says the answer to a lesson past 30 minutes is to split it, never to compress
+   * it — and it should be made on purpose rather than discovered at 32.5. Backlog slice W2 holds
+   * the case for splitting these two; this assertion is what it asked for instead of the split.
+   */
+  it('names the lessons already past the 30-minute ceiling in raw terms', () => {
+    const over = ordered.filter((l) => rawMinutes(l) > MAX_MINUTES).map((l) => l.id).sort()
+    expect(over, 'lessons whose unrounded minutes exceed MAX_MINUTES. A new entrant here is a'
+      + ' lesson teaching two topics (curriculum.ts, lessonMinutes) and the answer is to split'
+      + ` it. Every lesson's margin, tightest first:\n${margins()}`)
+      .toEqual(['ru-diversity', 'uwb-ancillary'])
   })
 })
