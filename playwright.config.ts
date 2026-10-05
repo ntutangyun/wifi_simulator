@@ -70,66 +70,113 @@ export default defineConfig({
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
   },
-  // ===== teardown on a Windows dev machine: intermittent, not broken =====
+  // ===== teardown on a Windows dev machine: one clean completion, one long silence, and a confounder =====
   //
-  // This note replaces one that said the teardown path had never been shown to
-  // work, which a later run falsified — so the paragraph became a false
-  // statement sitting in the repository. What follows is only what has been
-  // measured, on both sides.
+  // **Read this warning before trusting any version of this paragraph.** It has
+  // been written wrong three times, and the three failures have three different
+  // shapes worth keeping:
   //
-  // **It has been seen working.** One run with 5317 confirmed empty beforehand
-  // (checked for that port specifically, not inferred from a count): the port is
-  // `--strictPort`, so there was nothing to reuse and this config had to start
-  // its own server. It printed `24 passed (3.0m)`, exited 0, and afterwards 5317
-  // was absent again, with the number of unrelated dev servers on the box
-  // unchanged across the run (eleven before, eleven after). That is the whole
-  // path — own the server, run, print, exit, reap it — and it completed.
+  //   1. "The teardown has never been shown to work" — falsified by a run that
+  //      owned its server and completed. Written from an absence of evidence and
+  //      stated as a property.
+  //   2. "The teardown hangs" — falsified by the very run being called hung,
+  //      which printed `24 passed (41.7m)`, exit 0, nine minutes after that claim
+  //      was committed. Written from a run that had been killed, about a run
+  //      still in flight.
+  //   3. "It completes, and it can take 41 minutes" — withdrawn, because that
+  //      41-minute run had **someone else's `Stop-Process` land on its server**
+  //      partway through. Written from a measurement whose subject had been
+  //      altered from outside while it was being measured.
   //
-  // That the port was empty first is the part that makes the run mean anything.
-  // A run that finds a server already on 5317 reuses it, never owns it and never
-  // tears it down, so its green says nothing about this paragraph — which is how
-  // a batch of green runs came to be reported as evidence for a path they had
-  // not touched.
+  // This fourth version is written from a run that was left strictly alone for an
+  // hour, on a box the other session agreed not to touch. That is the only reason
+  // to trust it further than the three above — not because it sounds more careful.
   //
-  // **It has also been seen hanging, three times out of three, in a different
-  // shell on the same machine.** All 24 tests ran (`[24/24]` printed), then the
-  // summary line never reached stdout, the process stayed alive and the server
-  // stayed listening. The third of them was left deliberately alone to find out
-  // whether it was merely slow: **it was still sitting there forty minutes after
-  // its last test**, against the two and a half minutes the one clean run spent
-  // after its last test. So "slow" does not cover it, and the honest word is
-  // flaky — one shell reaps the server reliably, another has not managed it
-  // once. Do not read this note as a reason to avoid the local run, and do not
-  // read it as a promise either.
+  // What is actually known, and nothing beyond it:
   //
-  // What the two outcomes do **not** differ by, so that nobody spends the time
-  // again: concurrency. The temptation is to pin it on running `vitest` at the
-  // same time, and one of the three hangs did have that (vitest lost a worker of
-  // its own in the same window — `7200 passed (7218)`,
-  // `Error: Worker exited unexpectedly`; run alone afterwards it was
-  // 7218/7218). **The other two hangs had no concurrent suite at all.** Running
-  // the two suites one at a time is still the sane thing to do, on that lost
-  // worker's evidence alone — but it does not make this teardown behave, and a
-  // sentence here saying it does was written, falsified by the next run, and
-  // removed.
+  // **One uncontaminated completion.** A run with 5317 confirmed empty beforehand
+  // (that port specifically, not inferred from a count; the port is
+  // `--strictPort`, so there was nothing to reuse and this config had to own its
+  // server) printed `24 passed (3.0m)`, exit 0, 5317 absent afterwards, unrelated
+  // dev-server count unchanged. About two and a half of those three minutes were
+  // after the last test. That run is the only evidence that this path completes on
+  // its own, and it is good evidence.
   //
-  // What they may differ by, offered as the open question and not as an answer:
-  // how long the kill takes, and whether it ever returns. The one clean run took
-  // 3.0m for a suite whose tests take about 29s, so two and a half minutes of it
-  // were teardown; the hang that was timed sat for forty. Those two numbers are
-  // the whole of what is known about the difference.
+  // **One long silence that cannot be scored either way.** Another run, also with
+  // 5317 empty beforehand, ran its tests in about 30 seconds (`[24/24]` on stdout
+  // at 12:18:17) and then emitted nothing until its summary at 12:59:29 — forty-one
+  // minutes, with its server listening throughout. It is tempting to read that as
+  // "slow but fine". It cannot be read as anything, because a second person
+  // tidying stale ports on the same machine ran `Stop-Process -Id 34068 -Force`
+  // inside that window, and **34068 was this run's own server** — the PID seen on
+  // 5317 by `netstat` at 12:28:31, 12:30:39 and 12:33:00, with a start time of
+  // 12:17:47 matching the run's own start. So the summary at 12:59:29 is equally
+  // consistent with the teardown finishing by itself and with its being released
+  // when the process it was waiting on was killed from outside. The records on
+  // both sides cannot separate those. Two further runs showed the same silence and
+  // were killed early (at roughly fifteen and two minutes), so they say nothing
+  // either.
   //
-  // Why that is still a question rather than an answer: the kill could not be
-  // measured, because the tools for measuring it are the thing that is slow. On
-  // this box, in the same window, `taskkill /T /F` and `Stop-Process` issued
-  // from a shell took minutes or returned a timeout error, and
+  // **And one silence with the confounder deliberately removed, which is the
+  // measurement this paragraph is finally built on.** The other session agreed to
+  // touch nothing for the duration — no kills, no suites, and no process queries
+  // at all, since listing processes is itself slow here and competes with the
+  // teardown. On that quiet box, with 5317 confirmed empty beforehand: started
+  // 13:09:53, `[24/24]` on stdout at 13:10:26 (the 24 tests take 33 seconds), and
+  // then **nothing written for 60 minutes and 20 seconds**, server listening
+  // throughout, at which point it was stopped — the figure to beat was the 41
+  // minutes above, and it was passed by half again.
+  //
+  // So, stated as narrowly as the evidence allows: **in this shell, an unaided
+  // completion has never been observed.** The one completion seen here had an
+  // external kill of its own server inside its window; the one attempt protected
+  // from that was still silent at an hour. That is one observation each way, not a
+  // proof, but it is the wrong direction for "slow but fine" and the right one for
+  // "the 41-minute summary was released by that kill". The only unaided completion
+  // anywhere is the 3.0m run in the other shell, and nobody knows what differs.
+  //
+  // Why the silence is not diagnosed: the tools for diagnosing it are themselves
+  // the slow thing on this box. In the same window, `taskkill /T /F` and
+  // `Stop-Process` from a shell took minutes or returned a timeout error, and
   // `Get-CimInstance Win32_Process` — merely *listing* processes, to look for a
-  // `taskkill` child still running under the hung test process — did not return
-  // within four minutes either. Playwright's Windows teardown kills a process
-  // tree, so a machine whose process layer answers that slowly is a plausible
-  // cause and an unusable instrument at the same time. Whoever picks this up
-  // should do it on a box where `taskkill` returns promptly; nobody has measured
-  // it, so nobody should write which it is.
+  // `taskkill` child still working under the quiet test process — did not return
+  // within four minutes. Playwright's Windows teardown kills a process tree, so a
+  // process layer answering that slowly is a plausible cause and an unusable
+  // instrument at once. The real answer wants a box where `taskkill` returns
+  // promptly.
+  //
+  // Three practical rules, each one paid for:
+  //
+  //   * **Read the verdict off `[24/24]` and the per-test lines, and do not wait
+  //     for the summary.** On this box the summary may not come: one attempt was
+  //     left alone for an hour and never printed it. The test result is complete
+  //     long before — 33 seconds in — and is not improved by waiting. If you need
+  //     an exit code, you need a box where the teardown returns.
+  //   * **Do not start another sweep while one is still finishing.** Doing that
+  //     produced the only red this file has shown — a 30-second timeout waiting
+  //     for the app's first button to paint, in a run that took 59s against a
+  //     normal 28.8s, while a previous run's teardown ground through the same
+  //     process table. Nothing was ever refused a connection (the tests after the
+  //     failing one passed), so the server was alive; it was contention. Re-run
+  //     alone: 24 passed, 28.8s.
+  //   * **Somebody else reaped a port out from under a measurement on this
+  //     machine, and it was probably you.** Not a risk to bear in mind — a thing
+  //     that happened, and the most likely next person to do it is whoever is
+  //     reading this, because the eleven stale dev servers sitting on this box
+  //     from previous weeks are exactly what invites a tidy-up. It is what
+  //     invalidated the 41-minute figure above. Two consequences: before timing
+  //     anything about a process here, say so to whoever else is working on the
+  //     box; and before killing a stray dev server, check whether a run owns it
+  //     (its start time against a running suite's start time is enough — that is
+  //     how the contamination above was established after the fact). Even
+  //     *looking* is not free: `Get-CimInstance Win32_Process` takes minutes
+  //     here, and Playwright's teardown is walking the same process table.
+  //
+  // Concurrency with `vitest` was suspected and is not an explanation: two of the
+  // three silences had no concurrent suite. It is still worth avoiding on its own
+  // evidence — vitest lost a worker in the one window where they overlapped
+  // (`7200 passed (7218)`, `Error: Worker exited unexpectedly`; run alone
+  // afterwards, 7218/7218).
   //
   // One experiment, recorded so it is not repeated: `npx vite` was swapped for
   // `node node_modules/vite/bin/vite.js`, on the theory that Playwright's kill
