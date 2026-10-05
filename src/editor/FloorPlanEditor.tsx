@@ -21,7 +21,7 @@ import {
   guardIntervalToggle, hasAp,
   hitTestNode, hitTestScatterer, hitTestWall, moveScatterer, newAnchor, newAp, newScatterer, newTag,
   newUwbTag, parseCoherenceMs, parseRicianKdB, parseScattererNumber,
-  parseShadowSigmaDb, removeNode, removeScatterer, roomsToWalls, scenarioFromJson, updateScatterer, withFading,
+  parseShadowSigmaDb, removeNode, removeScatterer, roomsToWalls, scenarioFromJson, scenarioLoadIssues, updateScatterer, withFading,
   scenarioToJson, selectivitySwitch, selectivityToggle, sixGhzNbOverlaps, sixGhzOverlapPct, snap,
   spawnRandomStas, uwbSessionIssue, withGuardInterval, withSelectivity,
 } from './planOps'
@@ -89,7 +89,11 @@ export function FloorPlanEditor() {
    * live in different lists and a scatterer is not a node — the same id could name both. */
   const [dragScatterer, setDragScatterer] = useState<string | null>(null)
   const [spawnN, setSpawnN] = useState(3)
-  const [ioMsg, setIoMsg] = useState('')
+  /** The last load/save/import outcome: `ok` decides the colour, `lines` are the reasons.
+   *  A boolean rather than sniffing the text — a refusal and a confirmation are different
+   *  events, and telling them apart by the shape of the string is the kind of guess that
+   *  breaks the first time somebody writes a short refusal. */
+  const [ioMsg, setIoMsg] = useState<{ ok: boolean; lines: string[] }>({ ok: true, lines: [] })
   const [view, setView] = useState<ViewT | null>(null)
   const panRef = useRef<{ x: number; y: number; cx: number; cy: number } | null>(null)
   const hostRef = useRef<HTMLDivElement>(null)
@@ -379,7 +383,7 @@ export function FloorPlanEditor() {
   const scaleBarM = view && view.scale > 40 ? 1 : 5
 
   return (
-    <div style={{ display: 'grid', gridTemplateRows: 'auto 1fr', height: '100%' }}>
+    <div style={{ display: 'grid', gridTemplateRows: 'auto auto 1fr', height: '100%', minWidth: 0 }}>
       {/* ===== menu bar (tools + scenario controls) ===== */}
       <div style={{
         display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', padding: '5px 10px',
@@ -399,11 +403,11 @@ export function FloorPlanEditor() {
         <button onClick={redoHere} disabled={!canRedo(history)} title={E.redoHint}>{E.tools.redo}</button>
         <span style={menuDivider} />
         <span style={{ color: 'var(--dim)' }}>{E.scenario}</span>
-        <button onClick={() => { localStorage.setItem(LS_KEY, scenarioToJson(scenario)); setIoMsg(E.saved) }}>{E.save}</button>
+        <button onClick={() => { localStorage.setItem(LS_KEY, scenarioToJson(scenario)); setIoMsg({ ok: true, lines: [E.saved] }) }}>{E.save}</button>
         <button onClick={() => {
           const sv = localStorage.getItem(LS_KEY)
-          if (!sv) return setIoMsg(E.nothingSaved)
-          try { commit(scenarioFromJson(sv)); setIoMsg(E.loaded) } catch (err) { setIoMsg(String(err)) }
+          if (!sv) return setIoMsg({ ok: false, lines: [E.nothingSaved] })
+          try { commit(scenarioFromJson(sv)); setIoMsg({ ok: true, lines: [E.loaded] }) } catch (err) { setIoMsg({ ok: false, lines: scenarioLoadIssues(err) }) }
         }}>{E.load}</button>
         <button onClick={() => {
           const blob = new Blob([scenarioToJson(scenario)], { type: 'application/json' })
@@ -416,7 +420,7 @@ export function FloorPlanEditor() {
         <input ref={fileRef} type="file" accept=".json" hidden onChange={async (e) => {
           const f = e.target.files?.[0]
           if (!f) return
-          try { commit(scenarioFromJson(await f.text())); setIoMsg(E.imported) } catch (err) { setIoMsg(String(err)) }
+          try { commit(scenarioFromJson(await f.text())); setIoMsg({ ok: true, lines: [E.imported] }) } catch (err) { setIoMsg({ ok: false, lines: scenarioLoadIssues(err) }) }
           e.target.value = ''
         }} />
         <span style={menuDivider} />
@@ -432,7 +436,7 @@ export function FloorPlanEditor() {
           if (!h) return
           commit(h.scenario())
           setSel(null)
-          setIoMsg(E.loaded)
+          setIoMsg({ ok: true, lines: [E.loaded] })
         }}>
           <option value="">{E.households}</option>
           {HOUSEHOLDS.map((h) => <option key={h.id} value={h.id}>{h.title}</option>)}
@@ -456,8 +460,35 @@ export function FloorPlanEditor() {
         </label>
         {sixGhzOverlapPctVal !== null && <span style={{ color: 'var(--dim)', fontSize: 11 }}>{E.sixGhzOverlap(sixGhzOverlapPctVal)}</span>}
         {sixGhzNbOverlapVal && <span style={{ color: 'var(--dim)', fontSize: 11 }}>{E.sixGhzNbOverlap}</span>}
-        {ioMsg && <span style={{ color: 'var(--dim)', fontSize: 11 }}>{ioMsg}</span>}
       </div>
+
+      {/* ===== the last load / save / import outcome, one line per reason =====
+          **Its own grid row, not a flex item of the menu bar above.** The menu bar wraps, but at
+          a narrow width its own content still overflows it (580 px against a 470 px viewport on
+          the folded phone this is checked on), and a `flexBasis: 100%` child resolves against
+          that overflowed content width — so the sentences ran off the right edge and could only
+          be read by scrolling the toolbar sideways. Here the width is the viewport's.
+
+          One row per reason rather than one wrapped paragraph: a schema refusal is a whole
+          sentence now — the tampered-driver rules run past 150 characters — and three of them
+          run together are three sentences nobody can tell apart. `scenarioLoadIssues`
+          (src/editor/planOps.ts) decides what each line says; this decides nothing. */}
+      {ioMsg.lines.length > 0 && (
+        <div style={{
+          display: 'flex', flexDirection: 'column', gap: 2, fontSize: 11, lineHeight: 1.45,
+          padding: '4px 10px', background: 'var(--panel)', borderBottom: '1px solid var(--border)',
+          // Clamped to the VIEWPORT and pinned to its left edge, not sized by this grid. The
+          // editor's own second row is `1fr 280px 300px`, so the grid is 580 px wide whatever
+          // the window is, and a row that simply filled it put these sentences off the right of
+          // a 470 px screen — readable only by scrolling the whole editor sideways. `100vw`
+          // plus `sticky` keeps them where a reader is already looking, at either width.
+          position: 'sticky', left: 0, width: '100vw', maxWidth: '100vw', boxSizing: 'border-box',
+        }}>
+          {ioMsg.lines.map((line) => (
+            <span key={line} style={{ color: ioMsg.ok ? 'var(--dim)' : '#f87171', wordBreak: 'break-word' }}>{line}</span>
+          ))}
+        </div>
+      )}
 
       {/* ===== canvas + panels ===== */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 280px 300px', minHeight: 0 }}>

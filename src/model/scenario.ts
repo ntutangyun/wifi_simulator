@@ -1299,7 +1299,12 @@ export function guardIntervalRefusals(sc: Pick<Scenario, 'nodes'>): string[] {
  *    Without EDCA the tampered number is never read; the station waits a DIFS like any other.
  *  - **`txopLimitUs`** - a burst needs `this.cfg.txop && this.cfg.edca && params.txopLimitNs > 0`
  *    before any limit is consulted, so this one needs BOTH flags, which is why it is listed
- *    apart from the two above rather than with them.
+ *    apart from the two above rather than with them. **This half is wider than the design
+ *    document asked for** (its §7.5 named only the EDCA gate) and it was added here on the
+ *    reading that "unreadable is unreadable": on a link with EDCA but no TXOP the field is as
+ *    dead as it is on a legacy one. Measured as zero-impact on everything this repository ships
+ *    (`tests/model/driver-scenario.test.ts`), and said out loud because it is a judgement, not a
+ *    transcription.
  * The remaining four - `cwMin`, `cwMax`, `noDoubling`, `navInflateUs` - are read under every
  * access method this simulator has: a backoff is drawn and a Duration is written under DCF too.
  *

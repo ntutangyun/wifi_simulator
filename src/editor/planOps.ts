@@ -11,6 +11,7 @@ import { STATION_PRESETS, presetNode } from '../model/presets'
 import { nbListOverlapsSixGhz } from '../uwb/nb'
 import { UWB_TX_POWER_DBM, uwbBandOverlap } from '../uwb/phy'
 import { clampField } from '../ui/inputs'
+import { ZodError } from 'zod'
 
 const SNAP = 0.1
 export const snap = (v: number): number => Math.round(v / SNAP) * SNAP
@@ -800,4 +801,40 @@ export function scenarioToJson(sc: Scenario): string {
 
 export function scenarioFromJson(s: string): Scenario {
   return ScenarioSchema.parse(JSON.parse(s))
+}
+
+/**
+ * A failed load or import, as lines a person can read — one line per reason.
+ *
+ * **Why this exists.** The two handlers used to render `String(err)`, and `String(ZodError)` is
+ * the issue array serialised as JSON: every sentence arrives wrapped in
+ * `[{"code":"custom","path":["nodes"],"message":"…"}]`. That was survivable while the schema's
+ * messages were short. The tampered-driver rules of 2026-10-05 made them long — the longest is
+ * over 200 characters and names three fields and two remedies — so the same renderer now emits
+ * something nobody reads, on a phone least of all.
+ *
+ * **The split, and what each half protects.**
+ *  - A `custom` issue is one this repository wrote, in Chinese, as a whole sentence that already
+ *    says which node and which field it is about (`driverRefusalsFor`, `selectivityRefusals`,
+ *    `guardIntervalRefusals`, every ranging rule). Its `path` is a tag for the editor to route
+ *    by — `['nodes']`, `['uwb']` — and printing it would add noise to a sentence that is already
+ *    complete. So: the message alone.
+ *  - Every other issue is zod's own, generated from a type or a bound, and its text
+ *    ("Expected number, received string") is useless without knowing WHERE. So: `path: message`,
+ *    with array indices written `nodes[0].caps.generation` the way a person would say it.
+ * A path-less non-custom issue (a refinement on the root object) keeps the message alone rather
+ * than growing an empty prefix.
+ *
+ * Anything that is not a `ZodError` — a malformed file, most often — comes back as one line too,
+ * so the caller renders one list in one way.
+ */
+export function scenarioLoadIssues(err: unknown): string[] {
+  if (err instanceof ZodError) {
+    return err.issues.map((i) => {
+      const where = i.path.reduce<string>((acc, k) => (typeof k === 'number' ? `${acc}[${k}]` : acc ? `${acc}.${k}` : String(k)), '')
+      return i.code === 'custom' || where === '' ? i.message : `${where}：${i.message}`
+    })
+  }
+  if (err instanceof SyntaxError) return [`这个文件不是合法的 JSON，没有解析出一个场景来：${err.message}`]
+  return [String(err)]
 }
