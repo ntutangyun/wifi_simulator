@@ -1,16 +1,23 @@
 /**
  * Editor fields of the scenario's ranging session (standard §10.32.2): the block and slot
  * structure every tag shares, the TWR method, the channel and the two noise
- * knobs. The shape of a session is fixed before it starts, so the numbers here
- * decide the whole schedule — the section prints the resulting round plan, and
+ * knobs. The numbers here decide the schedule — the section prints the resulting round plan, and
  * the schema's own complaint when the numbers do not add up.
+ *
+ * **The plan line prints the round as configured, which is not always the round that runs.** Two
+ * features append slots to the rounds of particular blocks (§10.36's receipt confirmation,
+ * §10.35's ancillary message) and since slice 3d a device can ask for more of them at run time
+ * (§10.35.2.1's Request field). None of that is visible to a `roundPlan` built here from the
+ * session alone, so the line says 「不计追加时隙」 rather than implying a figure it cannot know
+ * — the alternative, printing the largest grantable width, would be this panel inventing the
+ * controller's answer.
  */
 import { useState } from 'react'
-import { DEFAULT_UWB_MMS, UwbSsbdSchema } from '../../model/scenario'
+import { DEFAULT_UWB_MMS, UwbSsbdSchema, ancillaryRequestRefusals } from '../../model/scenario'
 import type {
   NbLbt, NbReportMode, UwbMmsCfg, UwbMode, UwbSessionCfg, UwbSrrrCfg, UwbSsbdCfg,
 } from '../../model/scenario'
-import { roundPlan } from '../session'
+import { ancillarySlots, mmrcmResponders, roundPlan } from '../session'
 import {
   mmsResponders, rstuNs, SSBD_BF_UNIT_MAX, SSBD_MAX_BACKOFFS_MAX, uwbFixedReplyWindowRstu,
   uwbMmrcmSlots, uwbSlotsPerTag,
@@ -125,8 +132,15 @@ export function uwbAncillaryFramesCapFor(
   const rounds = Math.max(1, tags)
   const blockBudget = Math.floor(session.blockRstu / (rounds * session.slotRstu)) - slots - mmrcrSlots
   const floor = session.schedule === 'contention' ? session.contentionSlots : 0
+  // The floor is checked against the whole appended budget, not against the message's share of it:
+  // a draw window that fits the block is legal at every frame count below its own width, because
+  // `uwbAncillarySlots` prices the window at the larger of the two.
   if (blockBudget < floor) return null
-  return blockBudget >= 1 ? blockBudget : null
+  // …and then the message's share is the budget less the request's own slot when the session asks
+  // for slots (standard §10.35.2.1): the two halves of the RAICT IE are different uses of one
+  // field, so the request cannot ride a fragment and costs a slot of its own.
+  const cap = blockBudget - (session.ancillaryRequest ? 1 : 0)
+  return cap >= 1 ? cap : null
 }
 
 /**
@@ -178,10 +192,19 @@ export function uwbSessionRepair(
   if (session.ancillary) {
     if (session.mode !== 'twr' || session.sp3) {
       patch.ancillary = false
+      // The request rides on the exchange, so it comes down with it — a request left standing on a
+      // session whose exchange has just been turned off is the one combination the schema refuses
+      // outright (`ancillaryRequestRefusals`), and this is the merge that would otherwise produce
+      // it. Same reason `srrrDownWithSp3` takes the two request bits down with `sp3`.
+      if (session.ancillaryRequest) patch.ancillaryRequest = false
     } else {
       const cap = uwbAncillaryFramesCapFor(session, anchors, tags)
       if (cap !== null && session.ancillaryFrames > cap) patch.ancillaryFrames = cap
     }
+  } else if (session.ancillaryRequest) {
+    // …and the other way round, which is the shorter path to the same illegal session: the
+    // exchange's own checkbox goes down by itself, and the request has nothing left to ride on.
+    patch.ancillaryRequest = false
   }
   return patch
 }
@@ -904,6 +927,14 @@ export function UwbSessionFields(
   const ancillaryHintKey = uwbAncillaryHintKey(session.mode, session.sp3)
   const ancillaryLive = ancillaryHintKey === 'uwbAncillaryHint'
   const ancillaryFramesCap = uwbAncillaryFramesCapFor(session, anchors, tags)
+  // The request's own refusals, from the one exported function the schema's `superRefine` reads —
+  // never a second wording of the same rule (`docs/inert-config-contract.md`, fifth step).
+  const requestRefusal = ancillaryRequestRefusals(session, tags)[0]
+  // How many slots a block that spends both appended batches adds to its round — §10.36's receipt
+  // confirmation and §10.35's ancillary message — from the two functions the scenario schema
+  // budgets with, so the note and the refusal cannot disagree about the number.
+  const appendedSlots = plan === null ? 0
+    : mmrcmResponders(plan) + ancillarySlots(plan)
   return (
     <div>
       <div style={{ color: 'var(--dim)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -1085,6 +1116,34 @@ export function UwbSessionFields(
             ancillaryFrames: clampField(e.target.value, 1, ancillaryFramesCap ?? 1, true),
           })} />
       </label>
+      {/* Request = 1 (standard §10.35.2.1; slice 3d). Greyed out, never hidden, while the exchange
+          is off — the request rides on the exchange and the title says so, the same shape the frame
+          count beside it uses. `uwbSessionRepair` is what takes it down when the exchange goes. */}
+      <label style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 4, cursor: session.ancillary ? 'pointer' : 'default' }}
+        title={session.ancillary ? E.uwbAncillaryRequestHint : E.uwbAncillaryRequestOff}>
+        <input type="checkbox" checked={session.ancillaryRequest} disabled={!session.ancillary}
+          onChange={(e) => onChange({ ancillaryRequest: e.target.checked })} />
+        {E.uwbAncillaryRequest}
+      </label>
+      <label style={label} title={E.uwbAncillaryRequestSlotsHint}>
+        {E.uwbAncillaryRequestSlots}{' '}
+        {/* **No `max`, and that is the rule rather than an omission.** Every other number on this
+            panel is clamped to what the schema accepts; this one is not clamped at all, because
+            what a block holds is the controller's answer at run time
+            (`uwb/session.ts#ancillaryGrantFits`) and a request it refuses is a legal, teachable
+            configuration. A `max` here would be this panel deciding something the standard leaves
+            to the model and the model leaves to the controller. */}
+        <input type="number" min={1} step={1} value={session.ancillaryRequestSlots}
+          style={{ width: 62 }} disabled={!session.ancillaryRequest}
+          onChange={(e) => onChange({
+            ancillaryRequestSlots: Math.max(1, Math.round(Number(e.target.value) || 1)),
+          })} />
+      </label>
+      {/* The refusal, in red, beside the controls it is about — `docs/inert-config-contract.md`'s
+          fifth and sixth steps: one exported function holds the rule and its wording, the schema's
+          `superRefine` and this line read the same sentence, and it is on the screen rather than in
+          a `title` because a foldable has no hover. */}
+      {requestRefusal !== undefined && <div style={issueStyle}>{requestRefusal}</div>}
       <label style={label} title={E.uwbBlockHint}>
         {E.uwbBlock}{' '}
         <RstuInput value={session.blockRstu} lo={3} hi={6_000_000} onCommit={(blockRstu) => onChange({ blockRstu })} />
@@ -1121,6 +1180,11 @@ export function UwbSessionFields(
       </label>
       {mms && <MmsFields mms={mms} slotRstu={session.slotRstu} anchors={anchors} onChange={patchMms} />}
       {plan && <div style={note}>{E.uwbPlan(plan.slots, plan.roundsPerBlock)}</div>}
+      {/* …and the caveat, only when there is one: see `Strings.editor.uwbPlanAppended`. The count
+          is the appended batch of a block that spends both, which is every block when
+          `rcmValidityRounds` is 1 — read from the two functions the schema budgets with, never
+          added up here. */}
+      {plan && appendedSlots > 0 && <div style={note}>{E.uwbPlanAppended(appendedSlots)}</div>}
       {m2m && <div style={note}>{E.uwbM2mParticipants(participants)}</div>}
       {orphan && <div style={note}>{E.uwbNoNodes}</div>}
       {issue && <div style={issueStyle}>{issue}</div>}

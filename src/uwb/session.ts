@@ -2,8 +2,19 @@
  * The ranging session schedule (standard §10.32.2): a session is a train of ranging blocks, each
  * block is split into ranging rounds, and each round into ranging slots.
  *
- * The block, round and slot lengths are fixed before the session starts, in every mode. What the
- * schedule decides is who owns a slot. In a **time-scheduled** session (§10.32.3) every slot
+ * The block and slot lengths are fixed before the session starts, in every mode. **The round's
+ * length is not, and since slice 3d it is not even fixed by the session's own configuration.** Two
+ * features append slots to the round of particular blocks — §10.36's receipt confirmation on the
+ * block that closes a validity window, §10.35's ancillary message on the block that opens one — so
+ * `blockSlots` is the length that is actually run, and it moves with the block index. And with
+ * §10.35.2.1's Request field a *device* can ask for more of them: the sender of an ancillary
+ * message asks the controller to schedule a number of slots for the next exchange, the controller
+ * answers by what a block holds (`ancillaryGrantFits`), and the width that comes back is handed to
+ * `ancillarySlots`/`blockSlots`/`blockSlotStartNs`/`blockSlotAction` as their optional last
+ * argument. That argument defaults to the session's own figure, so every session without a request
+ * is laid out exactly as it was; where one exists, the round's length is settled a block at a time.
+ *
+ * What the schedule decides is who owns a slot. In a **time-scheduled** session (§10.32.3) every slot
  * belongs to exactly one device: no device ever contends for the medium, so a ranging exchange
  * has no backoff, no NAV and no retry, and its reply times are known to the nanosecond in
  * advance. In a **contention** round (§10.32.2 schedule mode 0) the response phase belongs to
@@ -144,6 +155,25 @@ export interface RoundPlan {
    * removed the tighter `≤ plan.slots` one, which stated the wrong mechanism). Meaningful only when
    * `ancillary` is true. */
   ancillaryFrames: number
+  /**
+   * Ranging ancillary information, **Request = 1** (standard §10.35.1's last sentence and
+   * §10.35.2.1's Request field; design doc
+   * `docs/superpowers/specs/2026-10-05-ancillary-request-design.md`): whether the exchange's own
+   * sender asks the controller to schedule the next exchange's slots.
+   *
+   * **This is the one field of this plan that something downstream is allowed to override.** The
+   * plan itself is still settled once, in `UwbNetwork`'s constructor, for the whole session — what
+   * varies by block is the *granted* width, which `UwbNetwork` holds beside the plan and passes
+   * into `ancillarySlots`/`blockSlots`/`blockSlotStartNs`/`blockSlotAction` as their optional last
+   * argument. So the plan stays immutable and the block-varying quantity has one owner, rather than
+   * the plan becoming mutable and every reader having to know when it last changed.
+   */
+  ancillaryRequest: boolean
+  /** How many slots the request asks for (standard §10.35.2.1: Frames Remaining's second meaning).
+   * Meaningful only when `ancillaryRequest` is true. Unbounded by the scenario schema on purpose —
+   * `ancillaryGrantFits` below is what answers whether a block holds it, at run time, because that
+   * answer is the controller's to give. */
+  ancillaryRequestSlots: number
   /** Set exactly when `mode` is 'mms': everything an MMS pair round is laid out from, resolved
    * once here so that no device re-derives it — the two ends of a round must agree on the slot
    * every fragment sits in, and a second copy of `mmsLayout` at the device would be a second
@@ -244,6 +274,7 @@ export function roundPlan(cfg: UwbSessionCfg, anchors: number): RoundPlan {
     rcmValidityRounds: cfg.rcmValidityRounds, mmrcr: cfg.mmrcr,
     sp3: cfg.sp3, srrr: { ...cfg.srrr },
     ancillary: cfg.ancillary, ancillaryFrames: cfg.ancillaryFrames,
+    ancillaryRequest: cfg.ancillaryRequest, ancillaryRequestSlots: cfg.ancillaryRequestSlots,
     // Copied, not referenced: a plan outlives the scenario object it was built from, and a
     // device reading the train's shape must not be able to see it edited underneath.
     ...(layout
@@ -466,10 +497,42 @@ export function blockCarriesAncillary(plan: RoundPlan, block: number): boolean {
  * given block spends it is `blockCarriesAncillary`'s question. `0` with the feature off is a
  * documented, inert answer rather than a thrown error, exactly as `mmrcmResponders` above.
  */
-export function ancillarySlots(plan: RoundPlan): number {
+export function ancillarySlots(plan: RoundPlan, frames: number | null = null): number {
   return uwbAncillarySlots(
-    plan.mode, plan.schedule, plan.contentionSlots, plan.ancillary, plan.ancillaryFrames,
+    plan.mode, plan.schedule, plan.contentionSlots, plan.ancillary, frames ?? plan.ancillaryFrames,
+    plan.ancillaryRequest,
   )
+}
+
+/**
+ * How many slots a block holds in total: its own length divided by a slot's. The one expression for
+ * it in this file, read by `ancillaryGrantFits` below and nowhere else — the scenario schema
+ * computes the identical thing in RSTU, before `rstuNs` rounds.
+ */
+function slotsPerBlock(plan: RoundPlan): number {
+  return Math.floor(plan.blockNs / plan.slotNs)
+}
+
+/**
+ * **Whether the controller can grant a request of `frames` message frames** (standard §10.35.2.1's
+ * Request field; design §3.5) — and the whole of why no new constant was invented for it.
+ *
+ * §10.35 defines the request and nothing else: no grant, no refusal, no response. So *whether* to
+ * grant is this engine's decision (model), and the only honest place to anchor it is the arithmetic
+ * the engine and the schema already each do once — does the block hold a round of `plan.slots`, plus
+ * the receipt confirmation's own appended batch, plus the window the granted message needs. Every
+ * term is already on the plan; nothing here is a threshold somebody chose.
+ *
+ * One round per block, because `ancillaryRequestRefusals` refuses the request outright for a session
+ * with more than one tag — one tag, one controller, one grant.
+ *
+ * So in the shipped lesson hall (a 200 ms block of 2 ms slots, a 5-slot SS round, no `mmrcr`) a
+ * request is granted up to 94 and refused at 95 and above: 100 − 5 − 1 for the next request's own
+ * slot. That number is `blockNs`, `slotNs` and `plan.slots` talking, not a figure in a lesson.
+ */
+export function ancillaryGrantFits(plan: RoundPlan, frames: number): boolean {
+  const round = plan.slots + mmrcmResponders(plan) + ancillarySlots(plan, frames)
+  return round <= slotsPerBlock(plan)
 }
 
 /**
@@ -490,10 +553,10 @@ export function ancillarySlots(plan: RoundPlan): number {
  * never even meet: `mmrcr` spends its slots on the window's **closing** block and `ancillary` on its
  * **opening** one.
  */
-export function blockSlots(plan: RoundPlan, block: number): number {
+export function blockSlots(plan: RoundPlan, block: number, frames: number | null = null): number {
   return plan.slots
     + (blockCarriesMmrcm(plan, block) ? mmrcmResponders(plan) : 0)
-    + (blockCarriesAncillary(plan, block) ? ancillarySlots(plan) : 0)
+    + (blockCarriesAncillary(plan, block) ? ancillarySlots(plan, frames) : 0)
 }
 
 /**
@@ -514,8 +577,10 @@ export function blockSlots(plan: RoundPlan, block: number): number {
  * reason: it is the right question wherever a round's length cannot vary, and the lesson text quotes
  * it by name.
  */
-export function blockSlotStartNs(p: RoundPlan, block: number, round: number, slot: number): Ns {
-  return block * p.blockNs + round * blockSlots(p, block) * p.slotNs + slot * p.slotNs
+export function blockSlotStartNs(
+  p: RoundPlan, block: number, round: number, slot: number, frames: number | null = null,
+): Ns {
+  return block * p.blockNs + round * blockSlots(p, block, frames) * p.slotNs + slot * p.slotNs
 }
 
 /** One MMRCM slot (design §3.2/§3.3): `index` is **which responder** this slot belongs to, in
@@ -547,6 +612,20 @@ export interface MmrcmSlotAction {
 export interface AncillarySlotAction {
   kind: 'uwbAncillary'
   index: number
+  /**
+   * **The slot the Request = 1 frame was appended for** (standard §10.35.2.1; slice 3d), and it is
+   * named here only where the schedule is entitled to name it.
+   *
+   * Under a **time** schedule the window is exactly the message plus the request, so the request's
+   * index is the last one and the slot table knows it. Under a **contention** schedule it is not:
+   * the run starts wherever the sender drew, so the request sits after *that* run and the schedule
+   * cannot say where any more than it can say who transmits (see this interface's own note above).
+   * `false` everywhere in that case, and `device.ancillary.ts` places the frame from its own draw.
+   *
+   * `false` for every slot of every session with the request off — the default — so a session
+   * written before this slice reads back action for action as it was.
+   */
+  request: boolean
 }
 
 /**
@@ -558,7 +637,7 @@ export interface AncillarySlotAction {
  * `mmrcr: false`" test actually exercises.
  */
 export function blockSlotAction(
-  plan: RoundPlan, block: number, slot: number,
+  plan: RoundPlan, block: number, slot: number, frames: number | null = null,
 ): SlotAction | MmrcmSlotAction | AncillarySlotAction {
   if (slot < plan.slots) return slotAction(plan, slot)
   // The appended slots, in the one order `blockSlots` above budgets them in: the receipt
@@ -569,9 +648,16 @@ export function blockSlotAction(
   const mmrcm = blockCarriesMmrcm(plan, block) ? mmrcmResponders(plan) : 0
   if (index < mmrcm) return { kind: 'uwbMmrcm', index }
   index -= mmrcm
-  const ancillary = blockCarriesAncillary(plan, block) ? ancillarySlots(plan) : 0
-  if (index < ancillary) return { kind: 'uwbAncillary', index }
-  throw new Error(`blockSlotAction: block ${block} has ${blockSlots(plan, block)} slots, asked for ${slot}`)
+  const ancillary = blockCarriesAncillary(plan, block) ? ancillarySlots(plan, frames) : 0
+  if (index < ancillary) {
+    // The request's own slot, named only where a time-scheduled table is entitled to name it —
+    // see `AncillarySlotAction.request`. `frames ?? plan.ancillaryFrames` is the message's length
+    // in this block, so the index after it is the request's.
+    const request = plan.ancillaryRequest && plan.schedule === 'time'
+      && index === (frames ?? plan.ancillaryFrames)
+    return { kind: 'uwbAncillary', index, request }
+  }
+  throw new Error(`blockSlotAction: block ${block} has ${blockSlots(plan, block, frames)} slots, asked for ${slot}`)
 }
 
 /**

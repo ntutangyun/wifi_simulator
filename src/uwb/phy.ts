@@ -639,14 +639,31 @@ export function uwbAncillaryBytes(numberPresent: boolean, framesRemainingPresent
 export function uwbAncillarySlots(
   mode: UwbMode, schedule: 'time' | 'contention', contentionSlots: number,
   ancillary: boolean, ancillaryFrames: number,
+  /**
+   * Request = 1 (standard §10.35.2.1; slice 3d): one more frame, in one more slot, carrying a
+   * RAICT IE that asks the controller for the next exchange's slots rather than reporting this
+   * message's own progress. The clause lists the two uses as *different* uses of one IE — the
+   * Frames Remaining field means a different quantity in each — so one frame cannot do both, and
+   * the request needs a slot of its own.
+   *
+   * **Default `false`, so every expression above is restored word for word** when nobody asks: an
+   * existing session is laid out slot for slot as it was, which is what makes the identity
+   * structural rather than measured (design §5.1).
+   */
+  requestSlot: boolean = false,
 ): number {
   if (!ancillary) return 0
   // Refused outright for dl-tdoa, ul-tdoa, mms and m2m in the schema, so none of them reaches here
   // with `ancillary` on; answering 0 rather than throwing keeps this usable from a caller that has
   // not checked the mode yet, exactly as `uwbMmrcmSlots` does.
   if (mode !== 'twr') return 0
-  if (schedule === 'time') return ancillaryFrames
-  return Math.max(ancillaryFrames, contentionSlots)
+  const frames = ancillaryFrames + (requestSlot ? 1 : 0)
+  if (schedule === 'time') return frames
+  // `frames`, not `ancillaryFrames`, inside the `Math.max`: the sender's run has to hold the
+  // request frame too, so a draw window narrower than run-plus-request would leave the request
+  // nowhere to sit. Below `contentionSlots` the window does not move at all, which is the interval
+  // the inert census pins rather than refuses (design §6.3.1).
+  return Math.max(frames, contentionSlots)
 }
 
 // --- Ranging schedule units ----------------------------------------------------

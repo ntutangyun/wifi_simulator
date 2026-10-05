@@ -123,7 +123,11 @@
 
 - `src/model/scenario.ts` · `ScenarioSchema` 的 `superRefine`；
 - `src/model/scenario.ts` · `selectivityRefusals` 的 docblock；
-- `src/model/scenario.ts` · `driverRefusalsFor` 的 docblock。
+- `src/model/scenario.ts` · `driverRefusalsFor` 的 docblock；
+- `src/model/scenario.ts` · `ancillaryRequestRefusals` 的 docblock（2026-10-05 切片 3d 加的第三个导出函数）。
+
+入口数跟着**导出函数**长，不跟着规则条数长：`superRefine` 里每读一条规则就再写一次这个路径，
+会把那个计数变成一个没有意义的数（`tests/model/driver-scenario.test.ts` 把这一条钉住了）。
 
 `.superpowers/sdd/LESSONS.md` 里只留一行指过来，**不留第二份正文**：
 两份正文会分叉，而分叉的那一天没人知道哪份是真的。

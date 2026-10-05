@@ -132,6 +132,16 @@ export function fmtUwbRecord(r: UwbTLRecord): string {
       // of what §10.35's Frames Remaining buys over a timeout — and the deadline record, which has
       // no slot because it is not a reception, says so in words instead of printing a null.
       const lost = r.missing.length > 0 ? ` — ${r.missing.join(', ')} never arrived` : ''
+      // …and the third shape (standard §10.35.2.1's Request field): a slot request this controller
+      // read, and what it will schedule. Printed as the pair, because the grant alone cannot say
+      // whether it is an answer or a coincidence, and `null` is the refusal — which this engine has
+      // no frame for, because the clause defines none.
+      if (r.requestedSlots !== undefined) {
+        const answer = r.grantedSlots === null
+          ? `refused — the block does not hold it, so the next exchange stays at its default width`
+          : `granted ${r.grantedSlots} — the next exchange's message is that many frames`
+        return `${r.node} slot ${r.slot}: ${r.peer} requested ${r.requestedSlots} slots, ${answer}`
+      }
       if (r.slot === null) {
         return `${r.node}: ${r.peer}'s ancillary message ${r.messageNumber} never completed`
           + `${lost || ' — nothing left to wait for'}`

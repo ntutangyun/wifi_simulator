@@ -200,7 +200,11 @@ describe('uwb-ancillary · the scene is the one the lesson describes', () => {
       expect(blockSlotAction(PLAN, 0, 1 + i)).toEqual({ kind: 'uwbResp', tx: 'anchor', anchor: i })
     }
     for (let i = 0; i < FRAMES; i++) {
-      expect(blockSlotAction(PLAN, 0, SLOTS.ranging + i)).toEqual({ kind: 'uwbAncillary', index: i })
+      // `request: false` on every one of them: this lesson's four scenes never ask the controller
+      // for slots (that is `uwb-ancillary-request`'s subject), so the Request = 1 slot slice 3d
+      // added to this action is absent from every window of this lesson.
+      expect(blockSlotAction(PLAN, 0, SLOTS.ranging + i))
+        .toEqual({ kind: 'uwbAncillary', index: i, request: false })
     }
     // and the exchange off appends nothing at all, at any frame count
     expect(SLOTS.off).toBe(0)

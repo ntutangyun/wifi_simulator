@@ -37,7 +37,7 @@ import { physicalId } from '../model/caps'
 import type { Scenario } from '../model/scenario'
 import type { Ns } from '../model/types'
 import type { ViewState } from '../model/view'
-import { roundPlan } from './session'
+import { blockSlots, roundPlan, type RoundPlan } from './session'
 
 export const UWB_RING_COLOR = 0xfbbf24
 export const UWB_FIX_COLOR = 0xf59e0b
@@ -89,7 +89,19 @@ export class UwbOverlay {
   /** Scene-axis (x, z) of every UWB device, by physical id. */
   private positions = new Map<string, { x: number; z: number }>()
   private blockNs: Ns
-  private roundNs: Ns
+  /**
+   * The round plan this overlay ages its drawings by. **It is kept whole rather than reduced to
+   * `plan.roundNs`, and that is a fix rather than a refactor** (slice 3d, design §4.2 site 10).
+   *
+   * `roundNs` is `plan.slots` slots long and has no block index in it, while the round a block
+   * actually runs is `blockSlots(plan, block)` slots — §10.36's receipt confirmation and §10.35's
+   * ancillary message each append slots to particular blocks. Measured on the shipped
+   * `uwb-ancillary` hall: `roundNs` is 10 ms and the round that runs is 18 ms, so every ring faded
+   * from 8 ms too early — 4 % of a block, on every block, since the ancillary slice landed. Slice
+   * 3d did not cause that and would have made it worse: with a granted request the round's length
+   * moves from block to block, so one wrong constant would have become several.
+   */
+  private plan: RoundPlan
   /** `mode: 'm2m'` (design §5): every UWB node ranges, and `uwb.role` decides only how it is
    * drawn elsewhere (the node icon) — not whether this overlay draws its rings. Read once here,
    * from the same scenario the constructor already takes, rather than threaded through `update`. */
@@ -119,12 +131,24 @@ export class UwbOverlay {
     const anchors = this.m2m ? uwbNodes.length : uwbNodes.filter((n) => n.uwb?.role === 'anchor').length
     const plan = roundPlan(sc.uwb, anchors)
     this.blockNs = plan.blockNs
-    this.roundNs = plan.roundNs
+    this.plan = plan
   }
 
-  /** The instant the tag's round of this block was over: when a drawing is freshest. */
-  private roundEndNs(block: number, round: number): Ns {
-    return block * this.blockNs + (round + 1) * this.roundNs
+  /**
+   * The instant the tag's round of this block was over: when a drawing is freshest.
+   *
+   * `granted` is the ancillary width the controller has handed out (standard §10.35.2.1; slice 3d),
+   * read off the tag's own view state — `null` in every session that never asks, which restores
+   * `blockSlots`' own default. It is 「the width in force now」 rather than 「the width in force in
+   * block `block`」, and the difference is at most one block, the block a grant first changes the
+   * round's length in; a drawing never outlives one block, so the residual is one ring's opacity on
+   * one block per change of grant. The alternative — a per-block history in the view state — would
+   * cost more than a ring's opacity is worth, and this comment is here so the next reader does not
+   * mistake the residual for exactness.
+   */
+  private roundEndNs(block: number, round: number, granted: number | null): Ns {
+    return block * this.blockNs
+      + (round + 1) * blockSlots(this.plan, block, granted) * this.plan.slotNs
   }
 
   /**
@@ -133,8 +157,8 @@ export class UwbOverlay {
    * a range lands in its report slot, before the round is over, so the age is
    * briefly negative and would otherwise draw the ring stronger than intended.
    */
-  private fade(vs: ViewState, block: number, round: number): number {
-    const age = (vs.t - this.roundEndNs(block, round)) / this.blockNs
+  private fade(vs: ViewState, block: number, round: number, granted: number | null): number {
+    const age = (vs.t - this.roundEndNs(block, round, granted)) / this.blockNs
     return Math.max(0, Math.min(1, 1 - age))
   }
 
@@ -183,7 +207,7 @@ export class UwbOverlay {
         ))
         ring.position.set(anchor.x, FLOOR_Y, anchor.z)
         ring.scale.set(r.distM, 1, r.distM)
-        ;(ring.material as THREE.LineBasicMaterial).opacity = RING_MAX_OPACITY * this.fade(vs, r.block, u.round)
+        ;(ring.material as THREE.LineBasicMaterial).opacity = RING_MAX_OPACITY * this.fade(vs, r.block, u.round, u.ancillaryGranted)
       }
 
       // The fix ages on the ring rule: a position is never cleared by the
@@ -193,7 +217,7 @@ export class UwbOverlay {
       // engine no longer has.
       const fix = u.position
       if (!fix || fix.block < u.block - 1) continue
-      const fade = this.fade(vs, fix.block, u.round)
+      const fade = this.fade(vs, fix.block, u.round, u.ancillaryGranted)
 
       const cross = this.ensure(`fix:${tag}`, () => new THREE.LineSegments(
         crossGeometry(), new THREE.LineBasicMaterial({ color: UWB_FIX_COLOR, transparent: true, opacity: FIX_MAX_OPACITY }),

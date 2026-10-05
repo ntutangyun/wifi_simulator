@@ -500,6 +500,41 @@ export interface UwbSessionCfg {
    * it left 95 free slots unreachable.
    */
   ancillaryFrames: number
+  /**
+   * Ranging ancillary information, **Request = 1** (standard §10.35.1's last sentence and
+   * §10.35.2.1's Request field; design doc
+   * `docs/superpowers/specs/2026-10-05-ancillary-request-design.md`): the ancillary exchange's own
+   * initiator — which is a ranging *responder*, and therefore not the controller — asks the
+   * controller to schedule a number of slots for the **next** exchange. Default false, so an
+   * existing scenario reads back unchanged.
+   *
+   * The clause makes the two halves of the RAICT IE mutually exclusive — Frames Remaining holds
+   * this message's remaining frames when Request is zero and the requested slot count when it is
+   * one — so the request rides a frame of its own, in a slot of its own, appended after the
+   * message (`uwb/phy.ts#uwbAncillarySlots`'s `requestSlot`).
+   *
+   * **Meaningless without `ancillary`, and refused there** (`ancillaryRequestRefusals`): with no
+   * ancillary exchange there is no frame in the session that carries a RAICT IE at all, so this
+   * field would not be read once. §10.35.1's own condition — that the initiator is not the
+   * controller — needs no rule: in this engine the sender is a responder by construction
+   * (`uwb/device.ancillary.ts#ANCILLARY_SENDER_INDEX`).
+   */
+  ancillaryRequest: boolean
+  /**
+   * How many slots the request asks for (standard §10.35.2.1: the Frames Remaining field's second
+   * meaning). Default 1. Only read when `ancillaryRequest` is on.
+   *
+   * model, for the reason `ancillaryFrames` is: this simulator has no MAC primitive and no upper
+   * layer to have decided how long its next message will be.
+   *
+   * **Deliberately unbounded by this schema.** Whether the block holds the slots asked for is what
+   * the controller decides at run time, and that decision is the teaching content of the slice
+   * that built it — a schema that refused the over-large request would take the refusal away from
+   * the controller and leave 「the controller may say no」 unobservable. What the schema does budget
+   * for is the window actually laid out when nobody has been granted anything yet: the default
+   * message plus the request's own slot.
+   */
+  ancillaryRequestSlots: number
   /** `mode: 'mms'` only: the fragment train and the narrowband control radio of P802.15.4ab.
    * It is carried in every session, at its default, so that switching the mode needs no second
    * decision — and so that a scenario saved before this slice reads back unchanged. */
@@ -555,6 +590,7 @@ export const DEFAULT_UWB_SESSION: UwbSessionCfg = {
   mode: 'twr', tdoaClockCorrection: true, syncErrorNs: 0, aoa: false,
   sp3: false, srrr: { ...DEFAULT_UWB_SRRR },
   ancillary: false, ancillaryFrames: 1,
+  ancillaryRequest: false, ancillaryRequestSlots: 1,
   mms: { ...DEFAULT_UWB_MMS, nbChannels: [...DEFAULT_UWB_MMS.nbChannels] },
 }
 
@@ -1245,6 +1281,47 @@ function hasBinnableLink(nodes: Scenario['nodes']): boolean {
 }
 
 /**
+ * The ranging-ancillary **request** (standard §10.35.2.1's Request field; slice 3d), refused where
+ * the field cannot be read at all — `docs/inert-config-contract.md`'s third step, which is a wiring
+ * test and not an effect-size test.
+ *
+ * Two rules, and only two. Everything else the request can be configured into is **pinned** rather
+ * than refused (`tests/engine/ancillary-request-inert.test.ts`, the census in design §6):
+ *
+ *  - **No ancillary exchange.** `uwb/session.ts#blockCarriesAncillary`'s very first condition is
+ *    `plan.ancillary`, so with the exchange off not one frame of the session carries a RAICT IE and
+ *    the request has nothing to ride on. Not one read, anywhere — the definition of a wiring fault.
+ *  - **More than one tag.** The granted width is one number per block, because
+ *    `blockSlotStartNs` strides every round of a block by one round length; so a session with two
+ *    tags has two controllers and only the first one's grant could be laid out. The second tag's
+ *    own responder would ask for slots that are provably never scheduled, which is the same wiring
+ *    fault wearing a headcount. One tag, one controller, one grant.
+ *
+ * The condition §10.35.1 itself attaches to the Request bit — that the initiator of the ancillary
+ * exchange is **not** the controller — needs no rule here: the sender is a ranging responder by
+ * construction (`uwb/device.ancillary.ts#ANCILLARY_SENDER_INDEX`) and the controller is the ranging
+ * initiator, so the condition holds for every session this engine can build. Refusing on something
+ * structurally true would be a rule that never fires.
+ *
+ * The other four modes need no rule either: each already refuses `ancillary` outright, and the
+ * request is reached only through it, so the existing sentence already tells the reader which field
+ * to turn off. A second sentence saying the same thing is how two wordings come to disagree.
+ */
+export function ancillaryRequestRefusals(
+  uwb: Pick<UwbSessionCfg, 'ancillary' | 'ancillaryRequest'>, tags: number,
+): string[] {
+  const out: string[] = []
+  if (!uwb.ancillaryRequest) return out
+  if (!uwb.ancillary) {
+    out.push('排程请求（ancillaryRequest）需要先打开测距辅助信息交换（ancillary）：请求位坐在RAICT信息单元里，而这个信息单元只出现在辅助信息那几帧上（uwb/session.ts 的 blockCarriesAncillary 第一个条件就是 plan.ancillary），交换关着时整场会话一帧也不带它，这个字段一次都读不到。请把 ancillary 打开，或者把 ancillaryRequest 关掉')
+  }
+  if (tags > 1) {
+    out.push(`排程请求（ancillaryRequest）只支持一个标签，现在有 ${tags} 个：批到的宽度是每块一个数，因为一块里每一轮的步幅都是同一个轮长（uwb/session.ts 的 blockSlotStartNs），所以两个标签就是两个控制器，而只有第一个的批复排得出来——第二个标签那边的响应方会请求一批永远不会被排进去的时隙。请把标签减到一个，或者把 ancillaryRequest 关掉`)
+  }
+  return out
+}
+
+/**
  * **Adding a refusal of your own? The criterion for refusing versus pinning is
  * `docs/inert-config-contract.md`** — when a legal-but-inert configuration may be refused at all,
  * what has to be checked across the course before you refuse it, and where the evidence goes
@@ -1533,6 +1610,17 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
       // own `superRefine` rather than with a literal `.max()` here.
       ancillary: z.boolean().default(false),
       ancillaryFrames: z.number().int().min(1).default(1),
+      // Request = 1 (standard §10.35.1's last sentence / §10.35.2.1's Request field; model for
+      // `ancillaryRequestSlots` itself, the same reason `ancillaryFrames` is). Both default, so an
+      // existing scenario carries neither key and reads back byte for byte.
+      //
+      // **`ancillaryRequestSlots` deliberately has no `.max()` and no `superRefine` ceiling of its
+      // own.** Whether a block holds the slots a device asks for is the controller's decision at run
+      // time (`uwb/device.ancillary.ts`), and refusing the over-large request here would take that
+      // decision away from the controller — the one thing §10.35 leaves entirely to the model,
+      // because the clause defines no grant, no refusal and no response at all.
+      ancillaryRequest: z.boolean().default(false),
+      ancillaryRequestSlots: z.number().int().min(1).default(1),
       // A session saved before P802.15.4ab existed here carries no MMS settings at all, and
       // reads back with the draft's defaults — so every such scenario replays unchanged.
       mms: UwbMmsSchema.default(() => ({ ...DEFAULT_UWB_MMS, nbChannels: [...DEFAULT_UWB_MMS.nbChannels] })),
@@ -2221,6 +2309,14 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
         }
         const anchors = uwbNodes.filter((n) => n.uwb?.role === 'anchor').length
         const tags = uwbNodes.filter((n) => n.uwb?.role === 'tag').length
+        // The ranging-ancillary request (standard §10.35.2.1's Request field; slice 3d), from the
+        // one exported function the editor's panel reads the identical wording out of — the fifth
+        // step of the criterion this `superRefine` names above, and the shape `selectivityRefusals`
+        // and `driverRefusalsFor` already set. It needs the tag count, so it sits here rather than
+        // with the other `ancillary` rules above.
+        for (const message of ancillaryRequestRefusals(sc.uwb, tags)) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['uwb'], message })
+        }
         // Many-to-many has neither a tag nor an anchor (design §5): every UWB node in the
         // scenario is a participant, and `uwb.role` only decides how it is drawn — it may be
         // anything, including all-tag, all-anchor or a mix, and none of that changes how the
@@ -2364,8 +2460,20 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
           // `uwb/phy.ts#uwbAncillarySlots`, the one definition `session.ts#blockSlots` lays the slots
           // out from and `UwbNetwork` guards in nanoseconds — this file cannot import `session.ts`
           // (import cycle), which is exactly why the count lives in `phy.ts`.
+          // …and `requestSlot`, the one slot Request = 1 appends on top of the message (standard
+          // §10.35.2.1; slice 3d): the two halves of the RAICT IE are different uses of one field,
+          // so the request cannot ride a fragment and needs a frame of its own.
+          //
+          // **The budget is the window actually laid out, not the width that might be granted.**
+          // What a block can hold is exactly what the controller tests before granting
+          // (`uwb/session.ts#ancillaryGrantFits`, the same arithmetic in the same units), so a
+          // granted width never overruns this; what the schema has to cover is the width before any
+          // grant exists — the default message plus the request. Budgeting for
+          // `ancillaryRequestSlots` instead would refuse here the very configuration whose refusal
+          // *by the controller* is what the slice teaches.
           const ancillarySlotCount = uwbAncillarySlots(
             mode, sc.uwb.schedule, sc.uwb.contentionSlots, ancillary, ancillaryFrames,
+            ancillary && sc.uwb.ancillaryRequest,
           )
           // The round a block actually has to hold, extras and all — one expression, so that the
           // divisor below and every message that quotes it cannot drift apart. A message that

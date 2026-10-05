@@ -185,6 +185,18 @@ export interface UwbNodeView {
    * whole — the same reason `rmnr` sits beside `timeouts`.
    */
   ancillaryMissing: number
+  /**
+   * Controller: the ancillary width it has granted (standard §10.35.2.1's Request field; slice 3d),
+   * or `null` while it has granted nothing — which is every session that never asks, and also one
+   * whose every request the block could not hold.
+   *
+   * It is a width, not a count, and it is here because something outside the engine needs it: the
+   * 3-D overlay ages a drawing by the round that actually ran, and since a granted request makes the
+   * round longer, 「how long is a round」 stopped being answerable from the scenario alone
+   * (`uwb/scene.ts#roundEndNs`). A refused request leaves this untouched, exactly as the controller's
+   * own state does — so this field never shows a width nothing was laid out at.
+   */
+  ancillaryGranted: number | null
   /** Receptions lost to in-band Wi-Fi power (UWB_INTERFERED), counted at the receiver. */
   interfered: number
   /** Contention round, anchor: its latest draw — `slot` null while it sits a round out. It is
@@ -214,7 +226,7 @@ export function initUwbNodeView(cfg: UwbNodeCfg): UwbNodeView {
   return {
     role: cfg.role, block: 0, round: 0, slot: null, rounds: 0, timeouts: 0, rmnr: 0, mmrcm: 0,
     sp3: 0, sp3Reports: 0,
-    ancillary: 0, ancillaryMissing: 0,
+    ancillary: 0, ancillaryMissing: 0, ancillaryGranted: null,
     interfered: 0,
     contend: null, contendCollisions: 0, ranges: {}, tdoa: {}, tdoaRef: null, aoa: {},
     mms: {
@@ -380,12 +392,21 @@ export function applyUwbRecord(vs: ViewState, r: TLRecord): boolean {
     // reception carries a slot and counts as a fragment that arrived, while the record a deadline
     // produces carries none and must not — it is the *absence* of a fragment. `missing` adds up on
     // both, which is what makes the pair add to the fragments the sender actually sent.
+    // **…and a third shape since slice 3d, which must not be counted as either** (standard
+    // §10.35.2.1's Request field): a slot request carries a slot, like a reception, but it is not a
+    // fragment of any message — counting it would make 「fragments that arrived」 exceed the
+    // fragments the sender sent by one per block, which is precisely the drift this counter's own
+    // note above was written about. `requestedSlots` is what tells the shapes apart.
     case 'UWB_ANCILLARY': {
       const u = vs.nodes[r.node]?.uwb
-      if (u) {
+      if (u && r.requestedSlots === undefined) {
         if (r.slot !== null) u.ancillary += 1
         u.ancillaryMissing += r.missing.length
       }
+      // …and a granted width is the one thing the third shape leaves behind. `!== null` rather
+      // than truthy: `null` is the refusal, and a refusal must not overwrite a grant that still
+      // stands — the controller's own state does not, so neither does this.
+      if (u && r.grantedSlots !== undefined && r.grantedSlots !== null) u.ancillaryGranted = r.grantedSlots
       return true
     }
     case 'UWB_NB_LBT': {

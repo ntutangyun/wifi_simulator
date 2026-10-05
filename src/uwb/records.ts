@@ -141,8 +141,28 @@ export type UwbRecord =
    * `messageKind` is the §10.35.2.1 message type the Request = 0 half also reports. This engine
    * builds one kind of ancillary message, so it is a constant rather than a value table
    * (`ANCILLARY_MESSAGE_KIND`, design §6). model
+   *
+   * **A third shape, and the two fields that are its whole difference** (Request = 1,
+   * §10.35.2.1; slice 3d): a controller that has just read a slot request emits this record with
+   * `requestedSlots` — what the Frames Remaining field asked for — and `grantedSlots` — what it is
+   * going to schedule, or `null` when it is scheduling nothing because the block does not hold it
+   * (`uwb/session.ts#ancillaryGrantFits`). That `null` is the **refusal**, and it is the only place
+   * in this engine where §10.35 is answered by something the clause does not define: the clause
+   * gives a request and nothing else, no grant, no refusal and no response at all, so a controller
+   * that drops a request is conformant and what this one does instead is model.
+   *
+   * **Both are absent, not `undefined`, on every other record** — and that is a hash invariant,
+   * not a style preference. `tests/engine/uwb-record-hashes.test.ts#serialiseRecord` takes fields
+   * with `Object.keys`, so a key explicitly assigned `undefined` is folded into the hash (as the
+   * text `undefined`) while a key never assigned is not. Written as
+   * `...(request ? { requestedSlots } : {})`, the shape `roundPlan` uses for `mms` and `UwbDevice`'s
+   * constructor for `attacker`/`stsOff`.
+   *
+   * No measurement here either. A request is not timed, it is a frame in an appended slot, and the
+   * grant it earns changes how many slots the *next* exchange gets — which the reader sees as the
+   * first number of the next block's Frames Remaining countdown, not as anything in this record.
    */
-  | { type: 'UWB_ANCILLARY'; node: string; peer: string; slot: number | null; block: number; round: number; messageNumber: number; messageKind: number; framesRemaining: number | null; missing: number[]; complete: boolean }
+  | { type: 'UWB_ANCILLARY'; node: string; peer: string; slot: number | null; block: number; round: number; messageNumber: number; messageKind: number; framesRemaining: number | null; missing: number[]; complete: boolean; requestedSlots?: number; grantedSlots?: number | null }
   | { type: 'UWB_SP3'; node: string; peer: string; slot: number; block: number; round: number }
   /**
    * Standard §10.32.8.1's third phase, arriving: **one frame of the data report phase, as the

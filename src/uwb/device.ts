@@ -266,6 +266,18 @@ export interface RoundState {
    */
   ancillary: AncillaryRoundState | null
   /**
+   * **How many frames this round's ancillary message is, which is not always the session's figure**
+   * (standard §10.35.2.1's Request field; slice 3d). `plan.ancillaryFrames` until a request has
+   * been granted; the granted width from then on, handed down by `UwbNetwork` when it lays the block
+   * out — the same number the slot table was built from, so the sender's run and the window it runs
+   * in cannot disagree.
+   *
+   * It is on the round rather than read from the plan at each use because the plan is settled once
+   * for the session and this is settled once per block. Every ancillary path reads it; nothing reads
+   * `plan.ancillaryFrames` any more except as this field's own default.
+   */
+  ancillaryFrames: number
+  /**
    * UL-TDoA, anchor: when this round's blink arrived, on the **infrastructure's common
    * timebase** rather than on this anchor's own crystal — that crystal is what the calibration
    * removes, and what it leaves behind is the receiver's timestamp noise plus this anchor's
@@ -283,7 +295,7 @@ export interface RoundState {
 
 function freshRound(
   block: number, round: number, plan: RoundPlan, tagId: string, anchors: string[],
-  mms: MmsRoundState | null, m2m: M2mRoundState | null,
+  mms: MmsRoundState | null, m2m: M2mRoundState | null, ancillaryFrames: number,
 ): RoundState {
   return {
     block, round, plan, tagId, anchors: [...anchors],
@@ -303,6 +315,7 @@ function freshRound(
     // everywhere else, including every round of every session with the feature off — so nothing of
     // this clause is allocated, read or drawn in a session that never asked for it.
     ancillary: blockCarriesAncillary(plan, block) ? freshAncillary() : null,
+    ancillaryFrames,
     ulArrivalNs: null,
     aoaThetaDeg: null,
   }
@@ -412,6 +425,43 @@ export class UwbDevice implements UwbRadio {
    * IE's and the RDM IE belongs to one tag's Poll, so the validity it buys belongs to that tag too.
    */
   private rcmBlock = new Map<string, number>()
+
+  /**
+   * **Controller: the ancillary width it has decided to schedule from now on** (standard §10.35.2.1's
+   * Request field; slice 3d) — `null` until a request has been granted, and the one piece of
+   * ancillary state that is deliberately *not* per round.
+   *
+   * Everything else in `AncillaryRoundState` is per round, and its own doc comment says why: the
+   * whole message rides in one round's appended slots. A grant is the opposite kind of thing. Its
+   * entire content is 「the **next** exchange gets this many slots」, so a grant that did not survive
+   * the round it was asked in would be a grant that could never be kept — and the record of it
+   * being kept is the next block's countdown starting from a different number.
+   *
+   * **Pulled, not pushed.** `UwbNetwork` reads it in `startBlock` (`ancillaryGrant` below) while
+   * laying the next block out, which is 183 ms after the last frame of the block the request arrived
+   * in. The alternative — returning it from `endRound` — would put two unrelated things on one return
+   * value, which already carries a contention round's 「who did I hear」.
+   */
+  private ancillaryGranted: number | null = null
+
+  /**
+   * The ancillary width this controller has granted, or `null` if it has granted nothing — read by
+   * `UwbNetwork` once per block, as it lays the block out.
+   *
+   * `null` means 「lay the window out at the session's own `ancillaryFrames`」, which is both the
+   * never-asked case and the **refused** case: a request the block cannot hold leaves this
+   * untouched, so the next exchange is the default width and the asker reads the refusal off the
+   * width of the window it gets. There is no refusal frame, because §10.35 defines none.
+   */
+  ancillaryGrant(): number | null {
+    return this.ancillaryGranted
+  }
+
+  /** Controller: record what it will schedule from the next exchange on. Called only from
+   * `device.ancillary.ts`'s request path, which is also where the fits test lives. */
+  setAncillaryGrant(frames: number): void {
+    this.ancillaryGranted = frames
+  }
   /**
    * **The second piece of cross-round device state on this branch, and it copies the first one's
    * lesson verbatim: it is keyed by initiator.** Standard §10.36: for each initiator, which of that
@@ -476,7 +526,19 @@ export class UwbDevice implements UwbRadio {
      * block to block or from round to round: the narrowband channel of an MMS block, and the
      * participant list of a many-to-many round. An options object rather than more positionals,
      * so the next such thing costs no caller a change. */
-    opts: { nbChannel?: number | null; participants?: string[] } = {},
+    opts: {
+      nbChannel?: number | null
+      participants?: string[]
+      /**
+       * Standard §10.35.2.1 (slice 3d): how many frames this block's ancillary message is, when a
+       * request has been granted. Absent — the default, and what every caller that has never heard
+       * of the request passes — means `plan.ancillaryFrames`, which is the session's own figure and
+       * what every round ran on before this slice. Third entry in this object, after the two the
+       * MMS and many-to-many slices added, and for the identical reason: it changes from block to
+       * block and the plan cannot hold it.
+       */
+      ancillaryFrames?: number
+    } = {},
   ): void {
     const mp = plan.mms
     const nbChannel = opts.nbChannel ?? null
@@ -506,7 +568,9 @@ export class UwbDevice implements UwbRadio {
     const m2m = plan.mode === 'm2m' && opts.participants !== undefined
       ? freshM2m(plan, opts.participants, this.id)
       : null
-    this.round = freshRound(block, round, plan, tagId, anchors, mms, m2m)
+    this.round = freshRound(
+      block, round, plan, tagId, anchors, mms, m2m, opts.ancillaryFrames ?? plan.ancillaryFrames,
+    )
     // Many-to-many has no listener and no server: every participant measures the round it is in,
     // so every participant opens a lane for it. `uwb.role` decides only how a node is drawn
     // (design §5), and gating this on it would silence a whole round of all-anchor nodes.

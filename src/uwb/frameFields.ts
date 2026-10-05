@@ -238,16 +238,21 @@ function ies(u: UwbInfo): Ie[] {
           value: V.raoa(u.aoaThetaDeg === undefined ? '—' : `${u.aoaThetaDeg.toFixed(1)}°`),
         })
         break
-      // §10.35.2.1's RAICT IE (Request = 0 half, design §4.1): the one engine-wide IE whose byte
-      // count is decided by presence bits rather than a count, so the width read back here comes
-      // from which of the two optional fields `u.raict` actually carries — not from any slot or
-      // schedule parameter, the way every other row above reads its width.
+      // §10.35.2.1's RAICT IE (design §4.1): the one engine-wide IE whose byte count is decided by
+      // presence bits rather than a count, so the width read back here comes from which of the two
+      // optional fields `u.raict` actually carries — not from any slot or schedule parameter, the
+      // way every other row above reads its width.
+      //
+      // The Request bit is read too, and it is not decoration: the Frames Remaining field means two
+      // different quantities depending on it, so a row that printed the number without the bit
+      // would print the same text for a fragment and for a slot request. The bit costs no octet —
+      // it is one bit of the control octet `RAICT_IE_MIN_BYTES` already prices.
       case 'RAICT': {
-        const r = u.raict ?? {}
+        const r = u.raict
         out.push({
           key: 'ieRaict',
-          bytes: raictIeBytes(r.messageNumber !== undefined, r.framesRemaining !== undefined),
-          value: V.raict(r.messageNumber, r.framesRemaining),
+          bytes: raictIeBytes(r?.messageNumber !== undefined, r?.framesRemaining !== undefined),
+          value: V.raict(r?.request === true, r?.messageNumber, r?.framesRemaining),
         })
         break
       }

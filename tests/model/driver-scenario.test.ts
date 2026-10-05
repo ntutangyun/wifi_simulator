@@ -205,6 +205,13 @@ describe('the three rules refuse nothing this repository ships', () => {
  * pointer from a stale one — but a dangling pointer is exactly the failure it was moved to
  * avoid, and nothing else in the repository would notice the file being renamed or deleted.
  * Same shape as `tests/course/limits.test.ts`'s "leave a ruler in your own test file" check.
+ *
+ * **Four places since slice 3d, not three**, and the number is the count of exported rule functions
+ * plus one: `ancillaryRequestRefusals` is the third such function (standard §10.35.2.1's Request
+ * field), and it carries its own pointer for the same reason the other two do. The `superRefine`
+ * site that reads it does **not** carry a second one — the `superRefine` already has its line, and
+ * a path repeated once per rule inside it would make this count grow with the rules rather than
+ * with the entry points.
  */
 describe('the refuse-or-pin criterion is in the repository and the code points at it', () => {
   const DOC = 'docs/inert-config-contract.md'
@@ -218,15 +225,17 @@ describe('the refuse-or-pin criterion is in the repository and the code points a
     expect(doc).toContain('钉住现状')
   })
 
-  it('is pointed at from all three places a new refusal passes through', () => {
+  it('is pointed at from all four places a new refusal passes through', () => {
     const scenario = read('src/model/scenario.ts')
-    // one line in each of the two exported rule functions, and one in the superRefine itself
+    // one line in each of the three exported rule functions, and one in the superRefine itself
     const hits = scenario.split(DOC).length - 1
-    expect(hits, `${DOC} is named ${hits} times in scenario.ts; the contract says three`).toBe(3)
+    expect(hits, `${DOC} is named ${hits} times in scenario.ts; the contract says four — one per`
+      + ' exported rule function, plus the superRefine itself').toBe(4)
     // and each one is actually inside the thing it is meant to introduce
     const at = (needle: string): number => scenario.indexOf(needle)
     expect(at('export function selectivityRefusals')).toBeGreaterThan(-1)
     expect(at('export function driverRefusalsFor')).toBeGreaterThan(-1)
+    expect(at('export function ancillaryRequestRefusals')).toBeGreaterThan(-1)
     expect(at('.superRefine((sc, ctx)')).toBeGreaterThan(-1)
   })
 

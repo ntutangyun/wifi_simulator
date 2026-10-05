@@ -247,10 +247,22 @@ export interface UwbInfo {
   /** Receipt confirmation (`uwbMmrcm`, standard §10.36): one entry per initiator this frame
    * answers, each with the receipt bitmap of that initiator's window-openers. */
   mmrc?: UwbMmrcEntry[]
-  /** Ancillary information (`uwbAncillary`, standard §10.35, Request = 0 half): the RAICT IE's two
+  /** Ancillary information (`uwbAncillary`, standard §10.35): the RAICT IE's Request bit and its two
    * optional fields, each present exactly when the IE's own presence bit says so — `makeAncillary`
-   * is the one place that invariant is kept, the same way `makeMmrcm` keeps its bitmap width. */
-  raict?: { messageNumber?: number; framesRemaining?: number }
+   * is the one place that invariant is kept, the same way `makeMmrcm` keeps its bitmap width.
+   * `request` is what says which of §10.35.2.1's **two different uses** this IE is: with it clear,
+   * `framesRemaining` is how many frames of this message are still to come; with it set, the same
+   * field is how many slots the sender is asking the controller to schedule for the next exchange.
+   * One field, two quantities, and nothing but this bit tells them apart.
+   *
+   * **Present only when the bit is set, never as `request: false`**, and that is measured rather
+   * than stylistic: a frame descriptor is embedded in the `TX_START`/`RX_OK` records, so a key
+   * added unconditionally here changes `JSON.stringify` over the whole record stream of every
+   * session that has an ancillary exchange at all. Instrument A of slice 3d caught exactly that
+   * — 112 of 903 records on the shipped `uwb-ancillary` scene — while both hash fixtures stayed
+   * green, because one folds only `t:seq:type` and the other filters to `UWB_*`. Readers test
+   * `raict?.request === true`. */
+  raict?: { request?: boolean; messageNumber?: number; framesRemaining?: number }
 }
 
 /**
@@ -517,11 +529,18 @@ export interface UwbAncillaryContent {
 }
 
 /**
- * One fragment of a ranging ancillary information message (Request = 0 half of standard §10.35;
- * design §4.1): a RAICT IE whose two optional octets — the message number and the Frames
- * Remaining count — are present exactly as `numberPresent`/`framesRemainingPresent` say.
- * Segmenting a message across several of these, one per slot, with Frames Remaining counting
- * down, is a later task's job (design §4.2); this builder prices and fills in one fragment.
+ * One frame of a ranging ancillary information exchange (standard §10.35; design §4.1): a RAICT IE
+ * whose two optional octets — the message number and the Frames Remaining count — are present
+ * exactly as `numberPresent`/`framesRemainingPresent` say.
+ *
+ * **`request` is which of §10.35.2.1's two uses this frame is making of the IE**, and it changes no
+ * byte count: the Request field is one bit of the control octet `RAICT_IE_MIN_BYTES` already prices,
+ * which is why a request frame and a fragment carrying only Frames Remaining are the same 15 octets.
+ * What it changes is what the one Frames Remaining field *means* — this message's remaining frames
+ * when clear, the slot count being asked for when set — and the clause lists the two as different
+ * uses, so no frame sets the bit and reports a message number at the same time. That pairing is not
+ * checked here: the clause does not forbid it, and this builder refuses only what it can price
+ * wrongly.
  *
  * The two presence bits and the two content values are **checked against each other**, not
  * silently reconciled — the same discipline `makeMmrcm` above applies to its bitmap width against
@@ -534,6 +553,7 @@ export interface UwbAncillaryContent {
 export function makeAncillary(
   src: string, dst: string, block: number, round: number, slot: number,
   numberPresent: boolean, framesRemainingPresent: boolean, content: UwbAncillaryContent = {},
+  request: boolean = false,
 ): FrameDesc {
   if ((content.messageNumber !== undefined) !== numberPresent) {
     throw new Error(
@@ -549,7 +569,14 @@ export function makeAncillary(
   }
   return uwbFrame('uwbAncillary', src, dst, uwbAncillaryBytes(numberPresent, framesRemainingPresent), {
     sp: 1, method: 'ss', block, round, slot, ies: ['RAICT'],
-    raict: { messageNumber: content.messageNumber, framesRemaining: content.framesRemaining },
+    // `...(request ? ...)` rather than `request`: see `UwbInfo.raict`. The two optional content
+    // fields are written unconditionally because they always have been, and a descriptor's shape
+    // is what the record stream carries.
+    raict: {
+      ...(request ? { request: true } : {}),
+      messageNumber: content.messageNumber,
+      framesRemaining: content.framesRemaining,
+    },
   })
 }
 

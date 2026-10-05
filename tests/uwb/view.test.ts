@@ -60,7 +60,7 @@ describe('the UWB view reducer', () => {
     expect(tag.acs).toBeNull()
     expect(tag.uwb).toEqual({
       role: 'tag', block: 0, round: 0, slot: null, rounds: 0, timeouts: 0, rmnr: 0, mmrcm: 0,
-      sp3: 0, sp3Reports: 0, ancillary: 0, ancillaryMissing: 0, interfered: 0,
+      sp3: 0, sp3Reports: 0, ancillary: 0, ancillaryMissing: 0, ancillaryGranted: null, interfered: 0,
       contend: null, contendCollisions: 0, ranges: {}, tdoa: {}, tdoaRef: null, aoa: {},
       mms: {
         trains: {}, nbChannel: null, lbtBusy: 0, skippedBlocks: 0, lastLbtBlock: null,
@@ -154,7 +154,7 @@ describe('the UWB view reducer', () => {
     // anc-2 took part in nothing of its own: untouched by the tag's records
     expect(vs.nodes['anc-2'].uwb).toEqual({
       role: 'anchor', block: 0, round: 0, slot: null, rounds: 0, timeouts: 0, rmnr: 0, mmrcm: 0,
-      sp3: 0, sp3Reports: 0, ancillary: 0, ancillaryMissing: 0, interfered: 0,
+      sp3: 0, sp3Reports: 0, ancillary: 0, ancillaryMissing: 0, ancillaryGranted: null, interfered: 0,
       contend: null, contendCollisions: 0, ranges: {}, tdoa: {}, tdoaRef: null, aoa: {},
       mms: {
         trains: {}, nbChannel: null, lbtBusy: 0, skippedBlocks: 0, lastLbtBlock: null,

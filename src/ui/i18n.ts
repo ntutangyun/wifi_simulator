@@ -325,8 +325,31 @@ export interface Strings {
      */
     uwbAncillary: string; uwbAncillaryHint: string; uwbAncillaryTwrOnly: string; uwbAncillarySp3: string
     uwbAncillaryFrames: string; uwbAncillaryFramesHint: string; uwbAncillaryFramesOff: string
+    /**
+     * Ranging ancillary information, **Request = 1** (standard §10.35.1's last sentence and
+     * §10.35.2.1's Request field; design doc 2026-10-05-ancillary-request-design.md): the exchange's
+     * own sender asks the controller for the next exchange's slots. `…Slots` is `model` for the
+     * reason `uwbAncillaryFrames` is, and it is deliberately **not** capped at what a block holds:
+     * the controller answers that at run time, and a request it cannot grant is the configuration
+     * the lesson is about.
+     */
+    uwbAncillaryRequest: string; uwbAncillaryRequestHint: string; uwbAncillaryRequestOff: string
+    uwbAncillaryRequestSlots: string; uwbAncillaryRequestSlotsHint: string
     /** "slots per round N · rounds per block M" under the session fields. */
     uwbPlan: (slots: number, rounds: number) => string
+    /**
+     * The caveat beside it, rendered **only** when this session actually appends slots: `uwbPlan`'s
+     * two numbers come from a `roundPlan` built here from the session alone, and §10.36's receipt
+     * confirmation and §10.35's ancillary message each append slots to the rounds of particular
+     * blocks — so the round the editor prints is not the round that runs on those blocks. Since
+     * slice 3d a device can ask for more of them at run time too (§10.35.2.1's Request field), which
+     * this panel cannot know at all and says so rather than guessing.
+     *
+     * A second line rather than words inside `uwbPlan`: that string is quoted verbatim by a lesson
+     * (`uwb-blocks`, which has a reader delete an anchor and read the line back), so widening it
+     * would have cost a lesson's prose for a caveat that is irrelevant to the scene the lesson uses.
+     */
+    uwbPlanAppended: (slots: number) => string
     /** `mode: 'm2m'` only: how many participants the round actually holds — every UWB node, not
      * just the ones drawn as anchors, which is what `uwbCounts` above the panel would suggest on
      * its own (design §5). */
@@ -623,10 +646,11 @@ export interface Strings {
          * literal bits (window-round order, index 0 first) rather than a byte count — the whole
          * point of the row is which rounds were received, not how many. */
         rmmrcEntry: (id: string, bits: string) => string
-        /** §10.35.2.1's RAICT IE (Request = 0 half): whichever of the message number and the
-         * frames-remaining count the content's presence bits made room for. Neither is a required
-         * argument — the row names whichever the frame actually carries. */
-        raict: (messageNumber?: number, framesRemaining?: number) => string
+        /** §10.35.2.1's RAICT IE: the Request bit, then whichever of the message number and the
+         * frames-remaining count the content's presence bits made room for. Neither number is a
+         * required argument — the row names whichever the frame actually carries — and the bit is
+         * what says which of the two quantities the frames-remaining field is holding. */
+        raict: (request: boolean, messageNumber?: number, framesRemaining?: number) => string
         fragment: (kind: string, index: number, of: number, msIn: number) => string
         fragmentRsf: (nMsr: number, gap: number) => string
         fragmentRif: (segments: number) => string
@@ -1031,10 +1055,16 @@ export const STRINGS: Strings = {
     uwbAncillaryHint: '打开后，发起方——这一节里角色名与测距本身相反，发消息的一端叫发起方，收的一端叫响应方（标准 §10.35.1）——把一条消息连续分装进本轮的若干个测距时隙发出，每一帧带一枚 RAICT 信息元（标准 §10.35.2.1），其中 Frames Remaining 字段报这条消息还剩几帧。窗口复用 RCM 有效轮次已经定出的那个边界（标准 §10.32.9.1）。',
     uwbAncillaryTwrOnly: '只有双向测距的轮次里才有能带 RAICT 信息元的帧：其余几种模式要么没有一个锚点对标签发送的时隙，要么控制面走的不是这种帧，辅助信息交换没有地方可以发',
     uwbAncillarySp3: 'SP3 分组测距的报告阶段已经是按 SRRR 两位独立追加的一批帧，辅助信息消息（ancillaryFrames）是另一批独立追加的帧，这一刀没有规定两者怎样排在一起：请先把 SP3 关掉，或者把测距辅助信息关掉',
+    uwbAncillaryRequest: '向控制器请求时隙（Request 位）',
+    uwbAncillaryRequestHint: '打开后，辅助信息的发送端在窗口最后再发一帧：同一枚 RAICT 信息元把 Request 位置 1，于是 Frames Remaining 那个字段装的不再是剩余帧数，而是它请求控制器为下一次交换排几个时隙（标准 §10.35.2.1 把两种用法并列成互斥的两种，所以请求坐自己一帧）。标准正文只定义请求，没有批复、没有拒绝也没有应答，所以批不批是本仿真器定的（model）：按这一块装不装得下判。',
+    uwbAncillaryRequestOff: '要先打开测距辅助信息交换：请求位坐在 RAICT 信息元里，而这枚信息元只出现在辅助信息那几帧上',
+    uwbAncillaryRequestSlots: '请求的时隙数',
+    uwbAncillaryRequestSlotsHint: '请求为下一次交换排几个时隙（model：本仿真没有上层来定下一条消息有多长）。这个数没有上限：批得到的时隙数就是下一次交换的消息帧数，而这一块装不下的请求会被控制器拒，下一次交换仍用缺省宽度——请求方从自己拿到的窗口宽度上就看得见，不靠任何一条标准没定义的应答。',
     uwbAncillaryFrames: '辅助信息帧数',
     uwbAncillaryFramesHint: '这条辅助信息消息分成几帧发出（model）：本仿真没有上层应用来定这个数，场景直接给出帧数，RAICT 信息元的 Frames Remaining 字段从这个数减一开始倒数到 0（标准 §10.35.2.1）',
     uwbAncillaryFramesOff: '测距辅助信息交换关闭时这个数没有作用——打开上面的开关才会按它分帧发送',
     uwbPlan: (slots, rounds) => `每轮 ${slots} 个时隙 · 每块 ${rounds} 轮`,
+    uwbPlanAppended: (slots: number) => `…而追加时隙不在这两个数里：本会话的某些块还要在测距相位之后多排 ${slots} 个时隙（收妥确认与辅助信息消息），打开排程请求之后还能再多——那由控制器在运行时批`,
     uwbM2mParticipants: (participants) => `多对多测距：全部 ${participants} 台 UWB 设备都是参与者，按 id 排序决定发送顺序——上方的锚点/标签计数只影响画法，不影响这个数`,
     uwbMms: 'MMS 片段序列',
     uwbMmsHint: '802.15.4ab 草案中的多毫秒数据包：测距信号不再是一次突发，而是一列短片段（成对轮次里相隔一毫秒，一对多时间隔更长）。每个片段都可以把整整一毫秒的 37 nJ 能量额度（法规）花在自己那段短得多的长度里，而 X 个片段相干合并又能再换来 10·log10(X) dB。本节所有内容都是对 TG4ab 提案文稿的转述——已进入投票的 D05 在编号与细节上可能有所不同。',
@@ -1476,11 +1506,15 @@ export const STRINGS: Strings = {
         srrr: (id, raoa, rrtt) => `${id} 请求：方位角 ${raoa ? '要' : '不要'}，往返时间 ${rrtt ? '要' : '不要'}`,
         raoa: (deg) => `${deg}——响应方自己测到的方位角，由它的报告帧带回`,
         rmmrcEntry: (id, bits) => `${id} 收妥位图 ${bits}（从左到右：窗口第一轮…最后一轮）`,
-        raict: (messageNumber, framesRemaining) => {
+        raict: (request, messageNumber, framesRemaining) => {
           const parts: string[] = []
           if (messageNumber !== undefined) parts.push(`消息号 ${messageNumber}`)
-          if (framesRemaining !== undefined) parts.push(`剩余帧数 ${framesRemaining}`)
-          return parts.length > 0 ? parts.join(' · ') : '控制字节：两个可选字段均不在'
+          // The same field, two quantities, told apart by the Request bit alone (§10.35.2.1).
+          if (framesRemaining !== undefined) {
+            parts.push(request ? `请求时隙数 ${framesRemaining}` : `剩余帧数 ${framesRemaining}`)
+          }
+          parts.unshift(request ? '请求位 1' : '请求位 0')
+          return parts.join(' · ')
         },
         fragment: (kind, index, of, msIn) => `${kind} 第 ${index} / ${of} 个 · 序列中的第 ${msIn} ms`,
         fragmentRsf: (nMsr, gap) => `N_MSR ${nMsr} × MMRS 符号 · 间隔 ${gap}`,

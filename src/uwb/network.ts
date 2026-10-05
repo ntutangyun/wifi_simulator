@@ -5,10 +5,21 @@
  * It is the UWB counterpart of the Wi-Fi link wiring in engine/simulation.ts,
  * and deliberately much smaller, because a ranging session has no medium to
  * arbitrate: the block/round/slot grid (src/uwb/session.ts) says who transmits
- * when, for the whole session, before it starts. All this class does is turn
- * that grid into events and hand each slot to its participants. A contention
+ * when. All this class does is turn that grid into events and hand each slot to
+ * its participants. A contention
  * session changes nothing here — the grid reserves a response window, and the
  * anchors, not the network, decide which slot of it each of them answers in.
+ *
+ * **The grid is not settled for the whole session before it starts, and since slice 3d it is not
+ * settled by the session's configuration either.** It never quite was: `startBlock` queues its own
+ * successor from its own tail, so block b + 1's slot table is built at `(b+1)·blockNs`, after every
+ * event of block b has run — and §10.36's receipt confirmation and §10.35's ancillary message each
+ * append slots to the rounds of particular blocks, so `blockSlots` already moved with the block
+ * index. What slice 3d adds is a *device* moving it: with §10.35.2.1's Request field the sender of
+ * an ancillary message asks the controller for the next exchange's slots, `startBlock` pulls the
+ * controller's answer as it lays the block out, and that one width sizes every ancillary window of
+ * the block. The plan itself stays immutable; the width travels as `runRound`'s last parameter.
+ * Null — no request, or none granted — restores the session's own figure everywhere.
  *
  * Tag k owns round k of every block. Anchors serve every round. An MMS round is pairwise by
  * default — tag t and anchor k own round t·A + k, and no other device is in it — so a block
@@ -131,6 +142,12 @@ export class UwbNetwork {
     // own one-block window and really does spend both at once. The scenario schema checks the
     // identical thing in RSTU, from the identical two functions.
     const mmrcrSlots = mmrcmResponders(this.plan)
+    // …and `ancillarySlots` prices the request's own slot too when the session asks for slots
+    // (standard §10.35.2.1; it reads `plan.ancillaryRequest` itself). The *granted* width is not
+    // budgeted for here and must not be: what a block holds is exactly the test the controller
+    // applies before granting anything (`uwb/session.ts#ancillaryGrantFits`, the same expression in
+    // the same units), so a grant can never make this guard wrong — and budgeting for the requested
+    // width would refuse at construction the very session whose run-time refusal is the point.
     const ancillarySlotCount = ancillarySlots(this.plan)
     const extraSlots = mmrcrSlots + ancillarySlotCount
     const closingRoundNs = (this.plan.slots + extraSlots) * this.plan.slotNs
@@ -310,6 +327,18 @@ export class UwbNetwork {
       /** The block's narrowband channel, drawn once per block by `startBlock`; null outside
        * an MMS session, where there is no narrowband radio to put on one. */
       nbChannel: number | null = null,
+      /**
+       * Standard §10.35.2.1 (slice 3d): how many frames this block's ancillary message runs at,
+       * after the controller granted a request for that many slots — `null` until one has been,
+       * which is every block of every session that never asks. It is `startBlock`'s to read and
+       * every slot of the round has to be laid out from the one value, so it travels as a parameter
+       * rather than being read again here.
+       *
+       * **Last in the list, after the two parameters the MMS and many-to-many slices added**, so
+       * that the five existing call sites below are untouched — a new positional in the middle of
+       * this list would have silently handed `roundAnchors` to the wrong name.
+       */
+      granted: number | null = null,
     ): void => {
       const crowd = crowdIds.map((id) => this.devices.get(id)!)
       const peers = { tag: tagId, anchors: roundAnchors }
@@ -318,12 +347,12 @@ export class UwbNetwork {
       // block that closes an `mmrcr` validity window (standard §10.36, design §3.3). Identical to
       // `plan.slots` whenever `mmrcr` is off, so an existing session is laid out instant for instant
       // as before.
-      const slots = blockSlots(this.plan, block)
+      const slots = blockSlots(this.plan, block, granted)
       // …and the round's own stride has to be that same length, not `plan.roundNs`:
       // `blockSlotStartNs` is the one definition of it, and its own comment says what a
       // `plan.roundNs` stride would collide with on a window-closing block.
       for (let s = 0; s < slots; s++) {
-        const at = blockSlotStartNs(this.plan, block, round, s)
+        const at = blockSlotStartNs(this.plan, block, round, s, granted)
         q.schedule(at, () => {
           if (s === 0) {
             for (const d of crowd) {
@@ -332,6 +361,11 @@ export class UwbNetwork {
               // role filter, which would not be the same list (design §5, Ruling 8).
               d.beginRound(block, round, this.plan, tagId, anchors, {
                 nbChannel, ...(m2m ? { participants } : {}),
+                // Standard §10.35.2.1 (slice 3d): the width this block's ancillary message runs at,
+                // which is the session's own figure until a request has been granted. Passed only
+                // when there is one, so a round of a session that never asked carries no such key
+                // and `beginRound` falls back to `plan.ancillaryFrames` — the identical number.
+                ...(granted === null ? {} : { ancillaryFrames: granted }),
               })
             }
           }
@@ -339,11 +373,11 @@ export class UwbNetwork {
           // `plan.slots` — in every block, `mmrcr` on or off — and names a responder for the extra
           // ones the window-closing block adds. It is the one function in the schedule that varies
           // with the block index at all.
-          const action = blockSlotAction(this.plan, block, s)
+          const action = blockSlotAction(this.plan, block, s, granted)
           for (const d of crowd) d.onSlot(s, action, at + this.plan.slotNs, peers)
         }, 0)
       }
-      const endNs = blockSlotStartNs(this.plan, block, round, slots - 1) + this.plan.slotNs
+      const endNs = blockSlotStartNs(this.plan, block, round, slots - 1, granted) + this.plan.slotNs
       q.schedule(endNs, () => {
         // A listen-only round belongs to nobody: every tag closes its own measurement and no
         // feedback travels back to the anchors, because no anchor asked anything of a tag.
@@ -432,7 +466,29 @@ export class UwbNetwork {
           }))
         }
       } else {
-        tags.forEach((tagId, k) => runRound(block, k, tagId, [tagId, ...anchors]))
+        // **The one place a device's own request reaches the schedule** (standard §10.35.2.1's
+        // Request field; slice 3d): the controller is asked, here, what width it has granted, and
+        // the answer sizes every ancillary window of this block.
+        //
+        // *Pulled, not pushed*, and `endRound`'s return value is why: it already carries a
+        // contention round's 「which responders did I hear」, and hanging the grant on it would make
+        // one return value answer two unrelated questions.
+        //
+        // *Here, and not earlier*, because this is the first instant at which it can be right. A
+        // block is laid out at `block × blockNs`, by which point every event of the block before it
+        // has run — measured on the shipped scene, the last frame of block 0's ancillary window
+        // lands at 16.18 ms and block 1 is laid out at 200 ms, so the grant has 183.8 ms of margin.
+        // Nothing about that timing was invented for this slice; `startBlock` has queued its
+        // successor from its own tail since the scheduler was written.
+        //
+        // `tags[0]`, not a loop: a session with more than one tag has more than one controller, and
+        // one block's rounds all stride by one round length (`blockSlotStartNs`), so only the first
+        // controller's grant could ever be laid out. The scenario schema refuses that session
+        // outright (`ancillaryRequestRefusals`) rather than letting the others ask into the void.
+        const granted = this.plan.ancillaryRequest && tags[0] !== undefined
+          ? this.devices.get(tags[0])!.ancillaryGrant()
+          : null
+        tags.forEach((tagId, k) => runRound(block, k, tagId, [tagId, ...anchors], anchors, null, granted))
       }
       q.schedule((block + 1) * this.plan.blockNs, () => startBlock(block + 1), 0)
     }
