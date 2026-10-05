@@ -1,0 +1,42 @@
+# The narrow-width sweep, in CI.
+#
+# A separate workflow from `deploy.yml` on purpose, and for two reasons. It runs
+# on every branch and every pull request, where `deploy.yml` runs only on a push
+# to `main` — which meant that until now a branch got no CI at all, and the four
+# defects this check was written for all lived on branches. And it needs a 130 MB
+# browser download that the unit suite must not be made to wait for: `npm test`
+# stays installable with `npm ci` alone.
+#
+# See `tests/e2e/narrow-width.spec.ts` for what it measures and `playwright.config.ts`
+# for the three viewports it measures at.
+name: Narrow-width UI check
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ui-narrow-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  narrow-width:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # Chromium only. The defects are layout, not engine behaviour, and one
+      # browser is what the device runs.
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:ui
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7

@@ -124,10 +124,10 @@ export function App() {
    *
    * So the fix is to stop overflowing rather than to decorate the overflow:
    * with the short labels the same measurement is 253 of 283, 30 px of room to
-   * spare. What guards it is a browser check that measures each of these buttons
-   * against the viewport, deliberately *not* excusing them for sitting inside a
-   * declared scroller — an overflow test that skipped `.hscroll` could never
-   * catch this defect coming back.
+   * spare. What guards it is `tests/e2e/narrow-width.spec.ts`, which measures
+   * each of these buttons against the viewport, deliberately *not* excusing them
+   * for sitting inside a declared scroller — an overflow test that skipped
+   * `.hscroll` could never catch this defect coming back.
    */
   const short = layout.singleColumn
   const S = L.compact.short

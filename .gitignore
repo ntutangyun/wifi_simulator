@@ -5,3 +5,5 @@ dist
 .playwright-mcp
 tsconfig.tsbuildinfo
 .claude/worktrees/
+playwright-report
+test-results

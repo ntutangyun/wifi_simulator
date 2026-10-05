@@ -12,7 +12,8 @@ import { useViewport } from './useViewport'
 /** The width this window wants. It gets it only where the viewport has it to give. */
 const W = 620
 const H_MAX = 680
-/** The gutter left either side when the viewport is narrower than `W`. */
+/** The gutter left either side when the viewport is narrower than `W`.
+ *  The browser side of this geometry is `tests/e2e/narrow-width.spec.ts`. */
 const MARGIN = 12
 /**
  * How much of the window a drag may push off the left edge of the screen — or
