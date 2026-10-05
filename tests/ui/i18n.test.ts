@@ -52,3 +52,60 @@ describe('UWB editor hints', () => {
     expect(hint).toContain(`${ps} ps`)
   })
 })
+
+/**
+ * The header's short labels, pinned to the full ones they stand in for.
+ *
+ * They exist because 470 px cannot hold seven labelled controls: measured at
+ * `index.css`'s coarse-pointer sizes the row wanted 441 px and had 283, and it
+ * is a `.hscroll`, so two of the three mode buttons simply scrolled out of
+ * sight behind a hidden scrollbar. Two strings for one control is two places
+ * for a rename to land in, so the relationship is asserted rather than trusted:
+ * the mode's short form is its full label minus the leading mark, and the two
+ * utilities' short form IS that leading mark.
+ */
+describe('the one-column header labels', () => {
+  const S = STRINGS.compact.short
+
+  /** A label's leading mark and the word after it — `'✎ 编辑'` → `['✎', '编辑']`. */
+  const split = (label: string): [string, string] => {
+    const i = label.indexOf(' ')
+    expect(i, label).toBeGreaterThan(0)
+    return [label.slice(0, i), label.slice(i + 1)]
+  }
+
+  it('gives each mode button the word out of its own full label', () => {
+    for (const [full, shortForm] of [
+      [STRINGS.header.edit, S.edit],
+      [STRINGS.header.simulate, S.simulate],
+      [STRINGS.header.course, S.course],
+    ] as const) {
+      const [mark, word] = split(full)
+      expect(shortForm, full).toBe(word)
+      expect(shortForm, full).not.toContain(mark)
+      expect(full, 'the long form is still the one with the mark').toBe(`${mark} ${shortForm}`)
+    }
+  })
+
+  it('gives each utility button the mark out of its own full label', () => {
+    for (const [full, shortForm] of [
+      [STRINGS.compact.openSide, S.openSide],
+      [STRINGS.panel.guide, S.guide],
+    ] as const) {
+      const [mark] = split(full)
+      expect(shortForm, full).toBe(mark)
+      expect(full.startsWith(`${shortForm} `), full).toBe(true)
+    }
+  })
+
+  it('is shorter than what it replaces — that is the entire reason it exists', () => {
+    const fulls = [STRINGS.compact.openSide, STRINGS.panel.guide,
+      STRINGS.header.edit, STRINGS.header.simulate, STRINGS.header.course]
+    const shorts = [S.openSide, S.guide, S.edit, S.simulate, S.course]
+    for (let i = 0; i < fulls.length; i++) {
+      expect(shorts[i].length, fulls[i]).toBeLessThan(fulls[i].length)
+    }
+    // Together they are what has to fit, so the sum is the figure that matters.
+    expect(shorts.join('').length).toBeLessThan(fulls.join('').length / 2)
+  })
+})

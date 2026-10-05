@@ -115,6 +115,30 @@ export function App() {
    *  lot to spend on it, and a reader following a lesson often wants the room. */
   const [timelineOpen, setTimelineOpen] = useState(true)
   const timelineH = timelineOpen ? layout.timelineH : TIMELINE_H_COLLAPSED
+  /**
+   * The header's controls wear their short labels.
+   *
+   * 470 px cannot hold the wordmark, the pane switch and five fully labelled
+   * controls. Measured in the browser at `index.css`'s coarse-pointer sizes —
+   * the pointer type the device actually reports — the control row wanted
+   * 441 px and had 283. The row is a `.hscroll`, and the 158 px that did not fit
+   * scrolled out of sight: `▶ 仿真` sat at x 464-522 and `📚 课程` at 526-592
+   * against a box ending at 462, i.e. **two of the three mode buttons were
+   * entirely off screen**, with the scrollbar hidden by the class and the cut
+   * falling in the 2 px gap between controls rather than through one. `.hscroll`
+   * argues in `index.css` that "what the row scrolls is still visible: it cuts
+   * off mid-control at the right edge" — at this width and in this mode that
+   * claim is simply false, and it was the only affordance there was.
+   *
+   * So the fix is to stop overflowing rather than to decorate the overflow:
+   * with the short labels the same measurement is 253 of 283, 30 px of room to
+   * spare. What guards it is a browser check that measures each of these buttons
+   * against the viewport, deliberately *not* excusing them for sitting inside a
+   * declared scroller — an overflow test that skipped `.hscroll` could never
+   * catch this defect coming back.
+   */
+  const short = layout.singleColumn
+  const S = L.compact.short
   /** In one column, course mode shows the lesson or the viewport, never both. */
   const showCourseCol = mode === 'course' && (!layout.singleColumn || pane === 'course')
   const showViewCol = !(mode === 'course' && layout.singleColumn && pane === 'course')
@@ -166,22 +190,24 @@ export function App() {
           // The controls scroll among themselves rather than widening the page.
           // `hscroll` hides the scrollbar: at 470px wide the bar added 15px to the
           // header, which comes straight off the 3-D view below it. At any width
-          // where this row does not overflow the class does nothing.
+          // where this row does not overflow the class does nothing — and at one
+          // column it is now `short` (above) that keeps it from overflowing, so
+          // this scroll is the net under the labels and not the plan for them.
           minWidth: 0, overflowX: 'auto',
         }}>
           {/* The side panel has no column of its own at this width, so it needs a way in. */}
           {layout.sideAsDrawer && mode !== 'edit' && (
-            <button className={sideOpen ? 'active' : ''} onClick={() => setSideOpen((v) => !v)}>
-              {sideOpen ? L.compact.closeSide : L.compact.openSide}
+            <button className={sideOpen ? 'active' : ''} title={L.compact.openSide} onClick={() => setSideOpen((v) => !v)}>
+              {sideOpen ? L.compact.closeSide : short ? S.openSide : L.compact.openSide}
             </button>
           )}
           <button className={guideOpen ? 'active' : ''} title={L.guideWindow.title} onClick={() => setGuideOpen((v) => !v)}>
-            {L.panel.guide}
+            {short ? S.guide : L.panel.guide}
           </button>
           <span style={{ width: 1, height: 18, background: 'var(--border)', margin: '0 4px' }} />
-          <button className={mode === 'edit' ? 'active' : ''} onClick={() => setMode('edit')}>{L.header.edit}</button>
-          <button className={mode === 'simulate' ? 'active' : ''} onClick={() => setMode('simulate')}>{L.header.simulate}</button>
-          <button className={mode === 'course' ? 'active' : ''} onClick={() => setMode('course')}>{L.header.course}</button>
+          <button className={mode === 'edit' ? 'active' : ''} title={L.header.edit} onClick={() => setMode('edit')}>{short ? S.edit : L.header.edit}</button>
+          <button className={mode === 'simulate' ? 'active' : ''} title={L.header.simulate} onClick={() => setMode('simulate')}>{short ? S.simulate : L.header.simulate}</button>
+          <button className={mode === 'course' ? 'active' : ''} title={L.header.course} onClick={() => setMode('course')}>{short ? S.course : L.header.course}</button>
         </div>
       </header>
 

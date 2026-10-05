@@ -44,6 +44,30 @@ export interface Strings {
     showView: string
     collapseTimeline: string
     expandTimeline: string
+    /**
+     * The header's own controls, shortened for the one-column shell.
+     *
+     * 470 px cannot hold the wordmark, the pane switch and five labelled
+     * controls: measured in the browser at `index.css`'s coarse-pointer sizes
+     * the row wanted 441 px and had 283. It is a `.hscroll`, so the 158 px that
+     * did not fit scrolled out of sight behind a hidden scrollbar — and what
+     * was out of sight was ▶ 仿真 and 📚 课程, two of the three mode buttons.
+     *
+     * Each control keeps the half of itself that identifies it. The two
+     * utilities keep their mark, because their label is a description of a
+     * panel and the mark is what the reader recognises; the three modes keep
+     * their word, because they are the app's navigation and ✎ ▶ 📚 beside
+     * 课文 / 视图 is four marks and no sentence. Both halves are pinned to the
+     * full strings in `tests/ui/i18n.test.ts`, and the full label rides along
+     * as every button's `title`.
+     */
+    short: {
+      openSide: string
+      guide: string
+      edit: string
+      simulate: string
+      course: string
+    }
   }
   guideWindow: {
     title: string; terms: string; overview: string; search: string
@@ -699,6 +723,13 @@ export const STRINGS: Strings = {
     showView: '视图',
     collapseTimeline: '收起时间轴',
     expandTimeline: '展开时间轴',
+    short: {
+      openSide: '🔍',
+      guide: '📖',
+      edit: '编辑',
+      simulate: '仿真',
+      course: '课程',
+    },
   },
   guideWindow: {
     title: '📖 Wi-Fi 速查手册', terms: '术语', overview: '概览',
