@@ -827,6 +827,14 @@ export function scenarioFromJson(s: string): Scenario {
  *
  * Anything that is not a `ZodError` — a malformed file, most often — comes back as one line too,
  * so the caller renders one list in one way.
+ *
+ * **One thing this cannot fix, written down so nobody tries to: zod short-circuits.**
+ * `superRefine` runs only after the base parse succeeds, so a plan that has BOTH a node-level
+ * type error (a misspelled `generation`, say) AND three custom refusals prints only the first —
+ * and the reader will think they have one problem, fix it, reload, and meet three more. That is
+ * zod's layering, not a defect here. **Do not take the schema apart to print them together**:
+ * that trades a type guarantee for a nicer error list, which is the worse half of the deal.
+ * `docs/inert-config-contract.md` §3 says the same thing for the next reader.
  */
 export function scenarioLoadIssues(err: unknown): string[] {
   if (err instanceof ZodError) {

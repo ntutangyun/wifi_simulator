@@ -1240,6 +1240,13 @@ function hasBinnableLink(nodes: Scenario['nodes']): boolean {
   return nodes.some((n) => n.kind === 'sta' && selBinnableGen(minGen(apGen, n.caps.generation)))
 }
 
+/**
+ * **Adding a refusal of your own? The criterion for refusing versus pinning is
+ * `docs/inert-config-contract.md`** — when a legal-but-inert configuration may be refused at all,
+ * what has to be checked across the course before you refuse it, and where the evidence goes
+ * afterwards. This function is the shape that document names: the rule and its wording in one
+ * exported place, read by `superRefine` and by the editor alike.
+ */
 export function selectivityRefusals(sc: Pick<Scenario, 'fading' | 'nodes'>): string[] {
   const out: string[] = []
   if (!sc.fading) {
@@ -1362,6 +1369,12 @@ export function tamperSetFields(t: TamperCfg): (keyof TamperCfg)[] {
  * them: `greedy` on that same link reduces, byte for byte, to `cw`, which is the same
  * measurement from the side the schema still accepts, and `tests/engine/tamper-inert.test.ts`
  * holds both that identity and this refusal.
+ *
+ * **The general criterion these three were judged against is
+ * `docs/inert-config-contract.md`** — six steps, of which this slice learned the first one the
+ * hard way (check the whole course before refusing: `Simulation` parses before it builds, so a
+ * refused plan is unreachable rather than merely inert) and the fourth one is why rule 3 is
+ * defensible at all (the physics stays measurable from the side the schema still accepts).
  *
  * **What is deliberately NOT refused**, each with its reason:
  *  - `gameAccel: true` in a room with no `gaming` stream. Ticking the router's box before adding
@@ -1564,6 +1577,10 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
         ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['guardInterval'], message })
       }
     }
+    // Adding a refusal here? `docs/inert-config-contract.md` is the criterion for whether a
+    // legal-but-inert configuration should be refused at all or pinned by a test instead, and
+    // what has to be measured across the whole course before either.
+    //
     // The tampered driver and the router's game mode (design doc 2026-10-05-built-but-untaught,
     // section 7.5). Three rules, every one of them refusing a plan whose record stream is
     // byte-for-byte the plan without the field; `driverRefusalsFor` above holds the single copy

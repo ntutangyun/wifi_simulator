@@ -21,6 +21,7 @@
  * exactly that reason.
  */
 import { describe, it, expect } from 'vitest'
+import { readFileSync } from 'node:fs'
 import { LESSONS } from '../../src/course/lessons'
 import { HOUSEHOLDS } from '../../src/model/households'
 import {
@@ -188,5 +189,51 @@ describe('the three rules refuse nothing this repository ships', () => {
         : { ...n, gameAccel: true })),
     }
     expect(driverRefusals(planted).length).toBeGreaterThanOrEqual(2)
+  })
+})
+
+/**
+ * **The criterion these rules were judged against is in the repository, and the pointers to it
+ * resolve.**
+ *
+ * It used to live in `.superpowers/sdd/LESSONS.md`, which is `.gitignore`d — so a docblock
+ * pointing at it was a reference to a file the reader does not have, which is worse than no
+ * reference. It moved to `docs/inert-config-contract.md` on 2026-10-05, and the three places a
+ * person writing the NEXT refusal must pass through each carry one line pointing at it.
+ *
+ * This test is the thing that keeps that true. It is weak on purpose — it cannot tell a good
+ * pointer from a stale one — but a dangling pointer is exactly the failure it was moved to
+ * avoid, and nothing else in the repository would notice the file being renamed or deleted.
+ * Same shape as `tests/course/limits.test.ts`'s "leave a ruler in your own test file" check.
+ */
+describe('the refuse-or-pin criterion is in the repository and the code points at it', () => {
+  const DOC = 'docs/inert-config-contract.md'
+  const read = (rel: string): string => readFileSync(new URL(`../../${rel}`, import.meta.url), 'utf8')
+
+  it('exists, and says which of the two outcomes it is about', () => {
+    const doc = read(DOC)
+    expect(doc.length, 'the criterion is not an empty file').toBeGreaterThan(2000)
+    expect(doc).toContain('允许但空转')
+    expect(doc).toContain('拒绝')
+    expect(doc).toContain('钉住现状')
+  })
+
+  it('is pointed at from all three places a new refusal passes through', () => {
+    const scenario = read('src/model/scenario.ts')
+    // one line in each of the two exported rule functions, and one in the superRefine itself
+    const hits = scenario.split(DOC).length - 1
+    expect(hits, `${DOC} is named ${hits} times in scenario.ts; the contract says three`).toBe(3)
+    // and each one is actually inside the thing it is meant to introduce
+    const at = (needle: string): number => scenario.indexOf(needle)
+    expect(at('export function selectivityRefusals')).toBeGreaterThan(-1)
+    expect(at('export function driverRefusalsFor')).toBeGreaterThan(-1)
+    expect(at('.superRefine((sc, ctx)')).toBeGreaterThan(-1)
+  })
+
+  /** The renderer owns the one caveat the criterion could not fix, so it says so too. */
+  it('is pointed at from the renderer, which carries the zod short-circuit caveat', () => {
+    const planOps = read('src/editor/planOps.ts')
+    expect(planOps).toContain(DOC)
+    expect(planOps, 'the caveat itself, not only the pointer').toContain('short-circuit')
   })
 })
