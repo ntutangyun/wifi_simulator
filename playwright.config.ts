@@ -93,7 +93,9 @@ export default defineConfig({
   // sounds more careful. Its own limit is stated with it below: "nobody killed
   // anything" is what was arranged and what the records show, but the machine was
   // not idle, and a claim that it was would be the fourth mistake of the same
-  // family.
+  // family. Four tries to describe one teardown honestly; the paragraph is longer
+  // than the config it documents, and that is the correct ratio for something
+  // this easy to state wrongly.
   //
   // What is actually known, and nothing beyond it:
   //
@@ -131,13 +133,20 @@ export default defineConfig({
   // minutes above; it was passed by half again.
   //
   // What that window was *not* is idle, and the difference matters enough to
-  // write down. Twenty-four minutes into the silence, at 13:34:43, a third party
-  // edited a lesson source file in this worktree — so the dev server was
-  // recompiling, and nobody can say the box was quiet. What the window was free
-  // of is the specific thing that could have *ended* a silence: a kill of the
-  // process the teardown was waiting on. Editing a file does not release a
-  // pending kill. So the hour stands as evidence about this teardown, and the
-  // word "quiet" does not get used about it.
+  // write down. Twenty-four minutes into the silence, at 13:34:43, a lesson
+  // source file in this worktree was edited — so the dev server recompiled, and
+  // nobody can call the box quiet.
+  //
+  // The edit came from the same session that had agreed to stand down. Not a
+  // broken promise: the three things it promised not to do were kills, suites and
+  // process queries, and it did none of them. The promise simply did not cover
+  // writing a file, and neither of us noticed that it had to — the thing being
+  // timed was a process serving *this tree*, so a source edit is an input to the
+  // experiment as surely as a kill is. **When you arrange a window to measure
+  // something here, enumerate every input to it, not the obvious one.** That is
+  // the generalisable half; the specific half is that a file write does not
+  // release a pending kill, so the hour still stands as evidence about this
+  // teardown. What does not stand is the word "quiet", and it is not used.
   //
   // So, stated as narrowly as the evidence allows: **in this shell, an unaided
   // completion has never been observed.** The one completion seen here had an
