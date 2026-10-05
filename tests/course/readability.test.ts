@@ -1189,8 +1189,8 @@ describe('readability · the stated minutes, and the characters behind them', ()
   })
 
   it('states 1 850 minutes across the whole course, and no earlier lesson moved', () => {
-    // 1 850 since slice W5: `amp-backscatter` is 2 495 main-path characters, three things to
-    // observe and two experiments — raw 25.34, which the formula rounds to 25. **Measured after
+    // 1 850 since slice W5: `amp-backscatter` is 2 491 main-path characters, three things to
+    // observe and two experiments — raw 25.32, which the formula rounds to 25. **Measured after
     // the prose was final, not budgeted**, and it sits 283 characters clear of either bucket
     // boundary, so it does not appear near the top of the census below. No earlier lesson moved:
     // that slice added one lesson and two scene helpers and edited no other lesson's prose.
