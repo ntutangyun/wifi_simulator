@@ -156,15 +156,23 @@ export default defineConfig({
   // "the 41-minute summary was released by that kill". The only unaided completion
   // anywhere is the 3.0m run in the other shell, and nobody knows what differs.
   //
-  // Why the silence is not diagnosed: the tools for diagnosing it are themselves
-  // the slow thing on this box. In the same window, `taskkill /T /F` and
-  // `Stop-Process` from a shell took minutes or returned a timeout error, and
-  // `Get-CimInstance Win32_Process` — merely *listing* processes, to look for a
-  // `taskkill` child still working under the quiet test process — did not return
-  // within four minutes. Playwright's Windows teardown kills a process tree, so a
-  // process layer answering that slowly is a plausible cause and an unusable
-  // instrument at once. The real answer wants a box where `taskkill` returns
-  // promptly.
+  // Why the silence is not diagnosed: the instruments were unusable, in two
+  // different ways worth telling apart rather than lumping together as "slow".
+  // In the same window, `taskkill /T /F` and `Stop-Process` from a shell **were**
+  // merely slow — they took minutes, exceeding the tool timeout that was waiting
+  // on them, but they did eventually do the job. The one query that would have
+  // answered the question did not run at all: `Get-CimInstance Win32_Process`,
+  // merely *listing* processes to look for a `taskkill` child still working under
+  // the quiet test process, came back as a WMI failure —
+  // `Get-CimInstance : Shutting down`, `HRESULT 0x80041033`
+  // (`WBEM_E_SHUTTING_DOWN`). So the taskkill-child question is open because the
+  // query never executed, not because it was too slow to wait for.
+  //
+  // Playwright's Windows teardown kills a process tree, and this box's process
+  // layer was both minutes-slow at killing and unable to serve a process listing
+  // at all. That is a plausible cause and an absent instrument at the same time.
+  // The real answer wants a box where `taskkill` returns promptly and WMI
+  // answers.
   //
   // Three practical rules, each one paid for:
   //
@@ -180,6 +188,10 @@ export default defineConfig({
   //     process table. Nothing was ever refused a connection (the tests after the
   //     failing one passed), so the server was alive; it was contention. Re-run
   //     alone: 24 passed, 28.8s.
+  //   * **Expect the box's process tooling to misbehave while a teardown is
+  //     pending, and do not read its failures as facts about Playwright.** Shell
+  //     kills took minutes; a WMI process listing failed outright. Both recovered
+  //     once nothing was tearing down.
   //   * **Somebody else reaped a port out from under a measurement on this
   //     machine, and it was probably you.** Not a risk to bear in mind — a thing
   //     that happened, and the most likely next person to do it is whoever is
