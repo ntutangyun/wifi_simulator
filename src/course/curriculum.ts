@@ -79,7 +79,19 @@ export function trackHeadings(tiers: Tier[]): boolean[] {
 export const TIERS: Tier[] = [
   { track: 'wifi', label: '第一阶段 · MAC 基础', basis: ['ieee-802-11'] },
   { track: 'wifi', label: '第二阶段 · MAC 实战', basis: ['ieee-802-11'] },
-  { track: 'wifi', label: '第三阶段 · 底层 PHY', basis: ['ieee-802-11'] },
+  // Renamed from 「第三阶段 · 底层 PHY」 on 2026-10-05, by the user's ruling, on the finding in
+  // §15 of docs/wifi-feature-coverage.md: four of the seven lessons that tier was planned to hold
+  // are already taught, and they are taught in tier 2 as capacity knobs — width, streams, fading
+  // and the guard interval, under M8/M9. **That is the original design's own arrangement and not
+  // a tier being raided**: item 7 of its Tier 3 list reads 「➕ Why width and streams work
+  // (revisiting M4)」 (docs/superpowers/specs/2026-09-18-zero-to-hero-curriculum-design.md:111),
+  // so revisiting was always the plan and the first pass was always meant to live earlier. What is
+  // genuinely left under this heading is bands and frame-interval fidelity — 2.4 GHz ERP timing,
+  // 6 GHz channel numbering, SNR→PER — which is what the label now says. The old label would have
+  // become false the moment the first lesson landed here, and a tier heading is printed to a
+  // reader (CoursePanel.tsx renders `TIERS[...].label`), though not yet this one: a tier with no
+  // module is filtered out of the panel, and this tier still has none.
+  { track: 'wifi', label: '第三阶段 · 频段与物理层保真度', basis: ['ieee-802-11'] },
   { track: 'wifi', label: '第四阶段 · 研究', basis: ['ieee-802-11'] },
   { track: 'uwb', label: 'UWB 第一阶段 · 测距基础', basis: ['ieee-802-15-4-2024'] },
   { track: 'uwb', label: 'UWB 第二阶段 · 真实环境中的会话', basis: ['ieee-802-15-4-2024'] },
@@ -177,8 +189,9 @@ export const MODULES: CourseModule[] = [
  *
  * The `// M<n> · tier <t> · <title>` line before each group is MEASURED, not
  * narrated: `n` is the `module` index every lesson under it carries, `t` and
- * `title` are `MODULES[n]`, and `tests/course/curriculum.test.ts` parses these
- * very lines out of this file and checks all three against the lessons. Until
+ * `title` are `MODULES[n]`, and `tests/course/lessons.test.ts` parses these very
+ * lines out of this file and checks all three against the lessons — the suite
+ * named 「COURSE_ORDER’s grouping comments are measured, not narrated」. Until
  * 2026-10-04 they were a stale, coarser scheme nobody had re-measured: the
  * Wi-Fi groups were numbered from 1 where `module` counts from 0 and merged
  * modules that had since split, the UWB track opened at «M11» where it really
