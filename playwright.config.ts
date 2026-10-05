@@ -88,9 +88,12 @@ export default defineConfig({
   //      partway through. Written from a measurement whose subject had been
   //      altered from outside while it was being measured.
   //
-  // This fourth version is written from a run that was left strictly alone for an
-  // hour, on a box the other session agreed not to touch. That is the only reason
-  // to trust it further than the three above — not because it sounds more careful.
+  // This fourth version is written from a run nobody killed, over an hour, which
+  // is the only reason to trust it further than the three above — not because it
+  // sounds more careful. Its own limit is stated with it below: "nobody killed
+  // anything" is what was arranged and what the records show, but the machine was
+  // not idle, and a claim that it was would be the fourth mistake of the same
+  // family.
   //
   // What is actually known, and nothing beyond it:
   //
@@ -117,15 +120,24 @@ export default defineConfig({
   // were killed early (at roughly fifteen and two minutes), so they say nothing
   // either.
   //
-  // **And one silence with the confounder deliberately removed, which is the
-  // measurement this paragraph is finally built on.** The other session agreed to
-  // touch nothing for the duration — no kills, no suites, and no process queries
-  // at all, since listing processes is itself slow here and competes with the
-  // teardown. On that quiet box, with 5317 confirmed empty beforehand: started
-  // 13:09:53, `[24/24]` on stdout at 13:10:26 (the 24 tests take 33 seconds), and
-  // then **nothing written for 60 minutes and 20 seconds**, server listening
-  // throughout, at which point it was stopped — the figure to beat was the 41
-  // minutes above, and it was passed by half again.
+  // **And one silence with the one confounder that matters deliberately removed,
+  // which is the measurement this paragraph is finally built on.** The other
+  // session agreed, for the duration, to kill nothing, run no suite, and not even
+  // query the process table — listing processes is itself slow here and competes
+  // with the teardown. With 5317 confirmed empty beforehand: started 13:09:53,
+  // `[24/24]` on stdout at 13:10:26 (the 24 tests take 33 seconds), then
+  // **nothing written for 60 minutes and 20 seconds**, server listening
+  // throughout, at which point it was stopped. The figure to beat was the 41
+  // minutes above; it was passed by half again.
+  //
+  // What that window was *not* is idle, and the difference matters enough to
+  // write down. Twenty-four minutes into the silence, at 13:34:43, a third party
+  // edited a lesson source file in this worktree — so the dev server was
+  // recompiling, and nobody can say the box was quiet. What the window was free
+  // of is the specific thing that could have *ended* a silence: a kill of the
+  // process the teardown was waiting on. Editing a file does not release a
+  // pending kill. So the hour stands as evidence about this teardown, and the
+  // word "quiet" does not get used about it.
   //
   // So, stated as narrowly as the evidence allows: **in this shell, an unaided
   // completion has never been observed.** The one completion seen here had an
