@@ -203,7 +203,7 @@ export const COURSE_ORDER: string[] = [
   // M6 · tier 0 · 第一阶段项目
   'tier1-project', 'tier1-project-review',
   // M7 · tier 1 · QoS 与效率
-  'edca', 'edca-cost', 'ampdu', 'txop', 'txop-protect', 'protect-policies',
+  'edca', 'edca-cost', 'ampdu', 'txop', 'txop-protect', 'protect-policies', 'edca-tamper',
   // M8 · tier 1 · 容量旋钮与速率控制
   'width', 'selectivity', 'streams', 'rate', 'rate-fallback', 'rate-cost', 'fading',
   // M9 · tier 1 · 被调度的 Wi-Fi 6/7
@@ -211,7 +211,7 @@ export const COURSE_ORDER: string[] = [
   // M10 · tier 1 · 环境能量物联网（802.11bp）
   'amp-intro', 'amp-ppdu', 'amp-slots', 'amp-coexist',
   // M11 · tier 1 · 真实应用
-  'capstone',
+  'wan-rtt', 'capstone',
   // M12 · tier 4 · 飞行时间
   'uwb-intro', 'uwb-frame', 'uwb-sts',
   // M13 · tier 4 · 两只钟

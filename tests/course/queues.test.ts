@@ -24,6 +24,7 @@
  * is re-run here over this one lesson with readability.test.ts's own helpers.
  */
 import { describe, it, expect } from 'vitest'
+import { wanRtt } from '../../src/course/tier2/wan-rtt'
 import { queues } from '../../src/course/tier1/queues'
 import { retriesQueues } from '../../src/course/tier1/retries-queues'
 import { Simulation } from '../../src/engine/simulation'
@@ -372,5 +373,42 @@ describe('queues · every official term carries its English name', () => {
 
   it('had its terminology actually graded', () => {
     expect(rows.filter((t) => bracketedAtFirstZhUse(zh, t) !== null).length).toBeGreaterThanOrEqual(2)
+  })
+})
+
+/**
+ * **The ruler for this lesson's `until: 'wan-rtt'` (criterion B, tests/course/limits.test.ts).**
+ *
+ * The limit used to claim 「引擎之上什么都没有」, an absolute statement about the ENGINE, and it
+ * was false from the day the cloud-server layer landed. It was narrowed to a statement about
+ * THIS lesson's scenes, which is what makes `out-of-scope` the honest kind, and the promise
+ * then needs an axis: the top-level `servers` section.
+ *
+ * So this measures both ends of that axis rather than asserting that somebody thought about it.
+ * Here: every scene this lesson ships has an empty `servers`, so no WAN record can exist.
+ * There: `wan-rtt`'s own scene carries exactly one server and emits both WAN record types
+ * inside 200 ms. The promise is 「那一课把这一层打开」, and these are the two numbers that say
+ * it is kept.
+ */
+describe('queues · the axis behind its `until: wan-rtt`', () => {
+  const scenesOf = (l: { scenario: () => Scenario; variants?: { scenario: () => Scenario }[] }): Scenario[] =>
+    [l.scenario(), ...(l.variants ?? []).map((v) => v.scenario())]
+
+  it('promises a lift it does not itself make: every scene here has no server at all', () => {
+    const mine = scenesOf(queues)
+    expect(mine.length).toBeGreaterThan(0)
+    for (const s of mine) expect(s.servers, 'a scene of this lesson carries a server').toEqual([])
+    const lim = queues.limits.find((x) => x.until === 'wan-rtt')
+    expect(lim, 'the limit that carries the promise').toBeDefined()
+    expect(lim!.kind, 'criterion A: only an out-of-scope limit may be lifted').toBe('out-of-scope')
+  })
+
+  it('and the lesson it points at really opens that section, measured on both sides', () => {
+    expect(wanRtt.scenario().servers.length, 'wan-rtt ships exactly one cloud endpoint').toBe(1)
+    const kinds = (s: Scenario): Set<string> => new Set([...new Simulation(s).runUntil(200 * 1_000_000).records]
+      .filter((r) => r.type === 'WAN_TX' || r.type === 'WAN_RX').map((r) => r.type))
+    expect([...kinds(wanRtt.scenario())].sort(), 'both WAN record types inside 200 ms')
+      .toEqual(['WAN_RX', 'WAN_TX'])
+    for (const s of scenesOf(queues)) expect(kinds(s).size, 'a WAN record in a scene with no server').toBe(0)
   })
 })

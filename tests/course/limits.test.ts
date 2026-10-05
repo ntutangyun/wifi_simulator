@@ -234,7 +234,7 @@ describe('a limit that points at a deeper treatment says so as a deeper treatmen
  * a lesson's `numbers` is character-for-character the shape of a `Limit`, so a regex sweep
  * of `src/course` counts one entry that is not a limit at all.
  */
-describe('criterion B · the thirteen `until` promises are a frozen ledger', () => {
+describe('criterion B · the sixteen `until` promises are a frozen ledger', () => {
   /** `[source, target, a substring of the limit's own text, the axis that opens it]`. */
   const UNTIL_SITES: readonly [string, string, string, string][] = [
     ['mcs-ladder', 'rate-vs-model', '本课四个变体一次失败也没有',
@@ -273,11 +273,28 @@ describe('criterion B · the thirteen `until` promises are a frozen ledger', () 
       '顶层一节，而解除的方式是给出互补的那一半：本课的直方图单一成因是碰撞，那一课的单一成因是链路变差（单链路场景，COLLISION 恒为 0，失败全部 lowSinr），两课合起来才是两个成因'],
     ['rate-fallback', 'fading', '所以这里 337 次失败没有一次来自链路变差',
       '顶层一节，加上站点数 2 → 1：在本课自己的两站点场景上打开衰落会凭空多出 514 个碰撞，所以那一课换成单链路场景，于是它的失败 100% 来自链路变差，而本课是 0%'],
+    // The three `wan-rtt` sites, added 2026-10-05 with that lesson. One axis for all three and
+    // it is a top-level scenario section again — `servers` — but unlike the five `fading` rows
+    // the axis here is the one line that closed it course-wide: `sc()` writes `servers: []`,
+    // `cloudGameScenario` is the first scene in the course to write its own list, and with it
+    // `stats.appRtt.n` goes from 0 to 20 in 5000 ms. The three sources are the three lessons
+    // whose limits said 「引擎之上什么都没有」/「没有任何反馈回路」 — an absolute claim about the
+    // ENGINE, which was false the day the cloud-server layer landed. Each was narrowed to a
+    // claim about its own scene first, which is what makes `out-of-scope` the right kind and
+    // the promise a coherent one. The fourth site the design document asked for
+    // (`rate-cost`) is NOT here: its limit is `unmodelled`, criterion A forbids an `until`
+    // there, and the honest field for it is `seeAlso` — see the ledger below.
+    ['retries-queues', 'wan-rtt', '它们的 servers 是空的',
+      '顶层一节 servers：[] → 一台游戏服务器，于是 stats.appRtt 从 0 个样本变成 5000 ms 里 20 个，28.688 ms 的往返里只有 0.106 ms 是空口的——而本课三个场景连一次应用往返都量不出来'],
+    ['queues', 'wan-rtt', '场景里放一台服务器之后会出现另一种反馈',
+      '顶层一节 servers：本课的业务源节奏自成一条开环时钟；那一课的场景里答复要等请求被确认才来（traffic.ts 的 onUplinkDelivered → sendPage / emitDl），这是一条真的反馈路径，只不过不是降速那一种'],
+    ['edca-cost', 'wan-rtt', '它的 servers 是空的',
+      '顶层一节 servers：本课语音来回两个方向都是 20 ms 的本机时钟；放一台通话服务器之后回程变成对每一个已被确认的语音帧的回声（traffic.ts 的 scheduleVoice 的 `if (!this.server)` 分支），于是排队时延第一次有了一个应用层的分母'],
   ]
 
   const actual = LESSONS.flatMap((l) => l.limits.filter((x) => x.until).map((x) => `${l.id}→${x.until!}`))
 
-  it('is exactly these thirteen sites, no more and no fewer', () => {
+  it('is exactly these sixteen sites, no more and no fewer', () => {
     expect([...actual].sort()).toEqual(UNTIL_SITES.map(([s, t]) => `${s}→${t}`).sort())
   })
 
@@ -332,7 +349,7 @@ describe('criterion B · the thirteen `until` promises are a frozen ledger', () 
   /**
    * **Criterion C — the target comes after the source.**
    *
-   * **This check is vacuous today and the next reader should know it.** All thirteen targets
+   * **This check is vacuous today and the next reader should know it.** All sixteen targets
    * already sit later in `COURSE_ORDER` than their source (mcs-ladder 3 → rate-vs-model 23,
    * ifs 11 → edca 26, backoff 13 → txop 29, anomaly 18 → txop 29, width 32 → selectivity 33,
    * streams 34 → mumimo 42, uwb-intro 51 → uwb-sstwr 54, uwb-blocks 58 → uwb-contention 63,
@@ -360,9 +377,11 @@ describe('criterion B · the thirteen `until` promises are a frozen ledger', () 
 
 /**
  * The `seeAlso` ledger, frozen for the same reason as B: adding or removing a promise to
- * the reader should be an explicit edit. Three rows as of 2026-10-05, all pointing at
- * `rate-vs-model` — the lesson whose own `limits[0]`/`limits[1]` restate what these three
- * limits say, which is what "never lifted" looks like from the other end.
+ * the reader should be an explicit edit. Six rows as of 2026-10-05. The first three point at
+ * `rate-vs-model` — the lesson whose own `limits[0]`/`limits[1]` restate what those three
+ * limits say, which is what "never lifted" looks like from the other end. The last three are
+ * the built-but-untaught slice's, and each of them is a limit whose `kind` refuses an `until`;
+ * the row itself says why.
  *
  * `width`'s inter-bin-correlation limit deliberately carries NO pointer at all, even
  * though `selectivity` restates it; `tests/course/width.test.ts` pins that it carries
@@ -399,14 +418,31 @@ describe('the backlog quotes the UI string that actually shipped', () => {
   })
 })
 
-describe('the three `seeAlso` sites are a frozen ledger too', () => {
+describe('the six `seeAlso` sites are a frozen ledger too', () => {
   const SEE_ALSO_SITES: readonly [string, string, string][] = [
     ['anomaly', 'rate-vs-model', '这里的速率控制只有两个计数'],
     ['anomaly', 'rate-vs-model', '它分不清碰撞与衰落'],
     ['mcs-ladder', 'rate-vs-model', '真实速率控制的输入还要更多'],
+    // The three sites of the built-but-untaught slice (2026-10-05). Each one is a limit the
+    // design document asked to carry an `until`, and each one is `unmodelled` rather than
+    // `out-of-scope`, so criterion A refuses the promise — correctly, and the derivation is
+    // worth restating here because all three ARE about the engine:
+    //  - `rate-cost`: the engine has no flow that slows down when the round trip grows, and
+    //    `wan-rtt` does not give it one. What that lesson adds is a flow that waits for an
+    //    ANSWER, which is a different thing, so this is a deeper treatment and not a lift.
+    //  - `edca` (acForProfile): which access category a frame takes is engine code either
+    //    way; `wan-rtt` is where the reader sees the one profile that does not read it.
+    //  - `edca` (the parameter set nobody broadcasts): `edca-tamper` demonstrates the one
+    //    configuration that stands in for AP-side tuning, and the engine still sends no
+    //    management frame — that limit is not lifted anywhere in this course.
+    // The kinds were NOT changed to admit an `until`: a promise has to be false or the kind
+    // has to be, and here it is the promise.
+    ['rate-cost', 'wan-rtt', '引擎里确实有一种会等的流'],
+    ['edca', 'wan-rtt', '游戏档不走 acForProfile'],
+    ['edca', 'edca-tamper', '这里只能靠篡改驱动那一项配置来模拟'],
   ]
 
-  it('is exactly these three, no more and no fewer', () => {
+  it('is exactly these six, no more and no fewer', () => {
     const actual = LESSONS.flatMap((l) => l.limits.filter((x) => x.seeAlso).map((x) => `${l.id}→${x.seeAlso!}`))
     expect([...actual].sort()).toEqual(SEE_ALSO_SITES.map(([s, t]) => `${s}→${t}`).sort())
   })

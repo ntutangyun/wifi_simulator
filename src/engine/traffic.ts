@@ -70,7 +70,19 @@ export function resetMsduIds(): void {
   nextMsduId = 1
 }
 
-/** EDCA access category for a traffic profile (§10.2.4.2 UP→AC mapping spirit). */
+/**
+ * EDCA access category for a traffic profile, in the spirit of the UP-to-AC mapping of
+ * Table 10-1 (§10.2.3.2 HCF contention based channel access). **Not §10.2.4.2**, which this
+ * comment said until 2026-10-05: §10.2.4 is the mesh coordination function and has no such
+ * subclause.
+ *
+ * `'gaming'` never reaches this function — `TrafficSource.ac` answers that profile from the
+ * AP's `gameAccel` boolean and returns before calling here — so the `case 'gaming'` below is
+ * unreachable in today's engine. It is left in place because deleting it is an engine change
+ * and the `wan-rtt`/`edca-tamper` slice was a course-only one. The REACHABLE answer is pinned
+ * instead, in `tests/course/wan-rtt.test.ts`: every `ENQUEUE.ac` of a gaming station is 1
+ * without the access point's boolean and 2 with it, and never anything else.
+ */
 export function acForProfile(profile: ProfileId): number {
   switch (profile) {
     case 'voice': return 3 // AC_VO

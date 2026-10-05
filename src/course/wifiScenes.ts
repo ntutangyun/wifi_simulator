@@ -4,11 +4,18 @@
  * `sc`, and the width / MU-MIMO / rate scenario builders several lessons
  * share. `sc`, `oneRoom`, `hallwayHouse` and `longApartment` are re-exported
  * from `./lessonKit` so existing imports of them keep working unchanged.
+ *
+ * Since 2026-10-05 it also holds the two builders of the built-but-untaught slice —
+ * `cloudGameScenario` (the first scene in this course with an application layer above the MAC)
+ * and `tamperScenario` (the first with a station that does not obey the EDCA parameters). Both
+ * write their own `servers` list in their own `extra`; `sc()`'s empty default is never touched,
+ * and the comment on it says why that is a prohibition rather than a fact.
  */
 import type { FadingCfg } from '../engine/fading'
 import { noiseDbm } from '../engine/phy'
 import type { ChannelWidth, Nss } from '../model/caps'
-import type { NodeCfg, Room, Scenario, Wall } from '../model/scenario'
+import type { NodeCfg, Room, Scenario, ServerCfg, TamperKind, Wall } from '../model/scenario'
+import { DEFAULT_SERVERS, TAMPER_PRESETS } from '../model/scenario'
 import { brick, node } from './lessonKit'
 
 /** Single 10×8 room with a brick shell. */
@@ -61,8 +68,13 @@ export function longApartment(): { rooms: Room[]; walls: Wall[] } {
 export function sc(house: { rooms: Room[]; walls: Wall[] }, nodes: NodeCfg[], extra: Partial<Scenario> = {}): Scenario {
   return {
     ...house, nodes,
-    // Lessons are about the Wi-Fi MAC: no cloud servers, so no WAN delay and
-    // every quoted timestamp stays where it is.
+    // `sc()`'s default is NO cloud server, and every lesson written before 2026-10-05 relies on
+    // it: `tests/course/quoted-timestamps.test.ts` pins timestamps to the nanosecond, and a
+    // `servers` entry delays every downlink frame by one WAN crossing, which moves the whole
+    // timeline. Measured, by retrofitting DEFAULT_SERVERS onto scenes this course already
+    // ships (300 ms, seed 7): `edca` goes from 29 579 records / 2 176 RX_OK to 29 495 / 2 161,
+    // and `nav` from 51 920 / 4 620 to 52 063 / 4 626. A scene that wants servers states them
+    // in its own `extra` and is a NEW scene — never retrofit `servers` onto a shipped one.
     servers: [],
     seed: 7, rtsThresholdBytes: 3000, snapshotIntervalMs: 10,
     ...extra,
@@ -341,4 +353,125 @@ export function rateScenario(): Scenario {
   const near = node('sta-1', 'Near uploader', 'sta', 4.8, 4.3, 'eht', 'saturated', feats)
   const far = node('sta-2', 'Far uploader', 'sta', 15, 7, 'eht', 'saturated', feats)
   return sc(longApartment(), [ap, near, far])
+}
+
+/**
+ * The overseas game server of `cloudGameScenario`'s third variant: the same endpoint with a
+ * round trip of 80 ms and 20 ms of jitter instead of 25 and 3.
+ *
+ * Both figures are `model` and this slice did not pick them — they are the pair
+ * `docs/superpowers/specs/2026-09-08-cloud-servers-households-design.md` chose for a server on
+ * another continent, and `engine/traffic.ts`'s own note records the one measurement that bears
+ * on them (a Tencent server at a median 49 ms, which sits between the two presets, so neither
+ * moved). `processMs` is the domestic preset's, unchanged: a server does not compute faster for
+ * being nearer.
+ */
+const OVERSEAS_GAME_SERVER: ServerCfg = { ...gameServer(), rttMs: 80, jitterMs: 20 }
+
+/** The default game endpoint, read off `DEFAULT_SERVERS` rather than re-typed. */
+function gameServer(): ServerCfg {
+  const s = DEFAULT_SERVERS.find((x) => x.kind === 'game')
+  if (!s) throw new Error('DEFAULT_SERVERS has no game server')
+  return { ...s }
+}
+
+/**
+ * A phone playing against a cloud game server, in the room the Wi-Fi lessons have used all
+ * along: the `wan-rtt` lesson's own scene, and the first scene in this course with an
+ * application layer above the MAC.
+ *
+ * **The base scene is QUIET — one phone, one server, nobody else — and that is the lesson's
+ * first number rather than a thin start.** Measured at 5000 ms, seed 7: the phone's
+ * application round trip averages 28.688 ms while its MAC queue-to-ack latency averages
+ * 0.106 ms, the same 0.106 on all 210 frames. The air is four thousandths of what the player
+ * waits. A scene with competition in it cannot make that point, because there the two numbers
+ * are the same order of magnitude.
+ *
+ * **One game server and not `DEFAULT_SERVERS`, deliberately.** The other three default
+ * endpoints — video, web, call — are reached through `serverKindFor`, and no profile in this
+ * scene asks for any of them, so adding them is byte-identical to leaving them out (measured:
+ * same hash at 2000 ms, quiet and busy alike). Shipping three entries that provably do nothing
+ * is how a scene comes to look richer than it is; `tests/engine/tamper-inert.test.ts` asserts
+ * the inertness instead.
+ *
+ * The four options are the four variants, and each one is a single axis off the base:
+ *
+ *  - `busy` — two saturated laptops at the other end of the room. This is where the air first
+ *    appears: 0.106 ms of queueing becomes 10.717 ms and the round trip 44.483 ms.
+ *  - `accel` — the router's game mode, which is one boolean on the AP (`NodeCfg.gameAccel`) and
+ *    moves the game flow from AC_BE to AC_VI. It is only ever set WITH `busy`, because in the
+ *    quiet room it changes no outcome at all: `RX_OK` is 254 either way and only the backoff
+ *    draws differ (`tests/engine/tamper-inert.test.ts`).
+ *  - `overseas` — the 80/20/2 endpoint, quiet, so the difference is the WAN and nothing else.
+ *  - `noServers` — the same room with `sc()`'s own default, where `stats.appRtt.n` is 0 and the
+ *    engine has no way to answer "how long did the player wait".
+ *
+ * `cheat` is the one option that is not about the WAN: it hangs a tamper preset on the phone, so
+ * that `edca-tamper` can load this exact scene for the one cheat that does nothing in it
+ * (§7.2 of the design doc — `txopHog` rewrites 87 `TXOP_START.untilNs` fields and not one
+ * consequence).
+ */
+export function cloudGameScenario(opts: {
+  /** Two saturated laptops beside the phone: the only configuration where the air shows. */
+  busy?: boolean
+  /** The router's game mode, which marks game traffic into AC_VI. Needs `busy` to show. */
+  accel?: boolean
+  /** The 80 ms / 20 ms endpoint instead of the 25 ms / 3 ms one. */
+  overseas?: boolean
+  /** No cloud server at all: the same room, `sc()`'s default, and no application number. */
+  noServers?: boolean
+  /** A tamper preset on the phone, for `edca-tamper`'s inert-cheat variant. */
+  cheat?: TamperKind
+} = {}): Scenario {
+  const feats = { edca: true, txop: true, ampdu: true }
+  const ap = node('ap', 'Router', 'ap', 5, 1, 'eht', 'idle', feats)
+  if (opts.accel) ap.gameAccel = true
+  const phone = node('sta-1', 'Phone (gaming)', 'sta', 3, 5, 'eht', 'gaming', feats)
+  if (opts.cheat) phone.tamper = TAMPER_PRESETS[opts.cheat]
+  const nodes = [ap, phone]
+  if (opts.busy) {
+    nodes.push(node('sta-2', 'Laptop A (upload)', 'sta', 8, 6, 'eht', 'saturated', feats))
+    nodes.push(node('sta-3', 'Laptop B (upload)', 'sta', 9, 3, 'eht', 'saturated', feats))
+  }
+  const servers = opts.noServers ? [] : [opts.overseas ? OVERSEAS_GAME_SERVER : gameServer()]
+  return sc(oneRoom(), nodes, { servers })
+}
+
+/**
+ * Three saturated stations in one room, the first of them optionally running a tampered driver:
+ * the `edca-tamper` lesson's own scene.
+ *
+ * **Saturated and not gaming, and that is a measurement rather than a mood.** A cheat needs a
+ * queue to cheat with: in a room where the only station plays a game, `txopHog` changes nothing
+ * but the number it announces, because a game's uplink is 89–131 bytes about every 30 ms and
+ * there is never a second frame to hold the medium for. Three saturated stations always have a
+ * second frame, so all seven presets have something to take.
+ *
+ * **No `servers`, and that one is measured too.** `serverKindFor('saturated')` is `null`, so a
+ * server list here is reached by nobody: the same scene with `DEFAULT_SERVERS` replays to the
+ * same 185 113 records and the same hash at 2000 ms. The design document asked for
+ * `servers = DEFAULT_SERVERS` on this scene; it would have been a legal setting that provably
+ * does nothing, which is the shape this repository keeps shipping by accident, so it is left
+ * out and the inertness is asserted instead (`tests/engine/tamper-inert.test.ts`).
+ *
+ * `hidden` swaps the one room for `hallwayHouse` and two stations that cannot hear each other —
+ * the geometry in which `navInflate` works through the access point's CTS rather than through
+ * its own frames, which is the one claim of this lesson that the one-room scene cannot show.
+ * `seed` is for the tests: the four-rung ladder is a cross-seed claim and has to be checked
+ * across seeds, while the lesson's own scene stays on seed 7 like every other lesson's.
+ */
+export function tamperScenario(cheat?: TamperKind, opts: { seed?: number; hidden?: boolean } = {}): Scenario {
+  const feats = { edca: true, txop: true, ampdu: true }
+  const extra = opts.seed === undefined ? {} : { seed: opts.seed }
+  if (opts.hidden) {
+    const ap = node('ap', 'Router', 'ap', 5, 4, 'eht', 'idle', feats)
+    const a = node('sta-1', 'Station A', 'sta', 2, 4, 'eht', 'saturated', feats)
+    const b = node('sta-2', 'Station B', 'sta', 8, 4, 'eht', 'saturated', feats)
+    if (cheat) a.tamper = TAMPER_PRESETS[cheat]
+    return sc(hallwayHouse(), [ap, a, b], extra)
+  }
+  const ap = node('ap', 'Router', 'ap', 5, 1, 'eht', 'idle', feats)
+  const stas = [3, 5, 7].map((x, i) => node(`sta-${i + 1}`, `Station ${i + 1}`, 'sta', x, 5, 'eht', 'saturated', feats))
+  if (cheat) stas[0].tamper = TAMPER_PRESETS[cheat]
+  return sc(oneRoom(), [ap, ...stas], extra)
 }

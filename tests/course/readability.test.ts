@@ -1049,9 +1049,14 @@ describe('readability · the stated minutes, and the characters behind them', ()
     expect(chars).toBeLessThan(190_000)
   })
 
-  it('states 1 745 minutes across the whole course, and no lesson moved in this slice', () => {
+  it('states 1 800 minutes across the whole course, and no earlier lesson moved', () => {
     expect(ordered.reduce((n, l) => n + lessonMinutes(l), 0),
-      'the sum of every stated minute figure a reader can see').toBe(1_745)
+      'the sum of every stated minute figure a reader can see').toBe(1_800)
+    // the two lessons of the built-but-untaught slice, measured after their prose was
+    // final rather than copied from its design document (which budgeted 25 and 30 and
+    // happened to be right, while its character budgets were not)
+    expect(lessonMinutes(byId.get('wan-rtt')!)).toBe(25)
+    expect(lessonMinutes(byId.get('edca-tamper')!)).toBe(30)
     // the four lessons this slice added prose to, and the one it did not have to
     expect(lessonMinutes(byId.get('ofdma-dl')!)).toBe(20)
     expect(lessonMinutes(byId.get('radio-primer')!)).toBe(15)

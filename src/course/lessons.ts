@@ -77,6 +77,7 @@ import { rtsCts } from './tier1/rts-cts'
 import { anomaly } from './tier1/anomaly'
 import { edca } from './tier2/edca'
 import { edcaCost } from './tier2/edca-cost'
+import { edcaTamper } from './tier2/edca-tamper'
 import { ampdu } from './tier2/ampdu'
 import { txop } from './tier2/txop'
 import { txopProtect } from './tier2/txop-protect'
@@ -87,6 +88,7 @@ import { ofdmaUl } from './tier2/ofdma-ul'
 import { mlo } from './tier2/mlo'
 import { mloGain } from './tier2/mlo-gain'
 import { capstone } from './tier2/capstone'
+import { wanRtt } from './tier2/wan-rtt'
 import { width } from './tier2/width'
 import { selectivity } from './tier2/selectivity'
 import { streams } from './tier2/streams'
@@ -173,6 +175,7 @@ const AUTHORED: Lesson[] = [
   // ======================= MODULE 2 =======================
   edca,
   edcaCost,
+  edcaTamper,
   ampdu,
   txop,
   txopProtect,
@@ -184,6 +187,7 @@ const AUTHORED: Lesson[] = [
   ofdmaUl,
   mlo,
   mloGain,
+  wanRtt,
   capstone,
 
   // ======================= MODULE 4 =======================
