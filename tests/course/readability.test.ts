@@ -884,7 +884,7 @@ describe('readability · a term in the chrome has somewhere to have been learned
  *
  * ```
  *                 criterion Q            criterion P
- *   limits        296 pairs / 76 lessons  296 = 291 bracket + 5 aka
+ *   limits        292 pairs / 76 lessons  (296 before slice 3d paid four back)
  *   sources       182 pairs / 68 lessons  176 = 172 bracket + 4 aka
  *   deeper         86 pairs / 39 lessons   76 =  75 bracket + 1 aka
  * ```
@@ -899,8 +899,8 @@ describe('readability · a term in the chrome has somewhere to have been learned
  *  - **criterion Q** — how many (lesson, term) PAIRS exist where the term is
  *    named in the field and never named on that lesson's graded main path.
  *
- * **This ratchet is criterion Q, and the number is 296.** It is NOT the same
- * criterion as P, even though P is also 296 (291 + 5) on 2026-10-05 — and the
+ * **This ratchet is criterion Q, and the number is 292.** It is NOT the same
+ * criterion as P, even though the two coincided at 296 before slice 3d — and the
  * fact that they coincide here is precisely why the distinction is spelled out
  * rather than assumed. They are measurably different criteria: on `sources` Q is
  * 182 and P is 176, on `deeper` Q is 86 and P is 76. If a later reader finds
@@ -909,7 +909,7 @@ describe('readability · a term in the chrome has somewhere to have been learned
  *
  * ### What this assertion does and does not ask for
  *
- * It does not ask anyone to fix 296 sites. It makes the debt visible and forbids
+ * It does not ask anyone to fix 292 sites. It makes the debt visible and forbids
  * the 297th: a new `limits` entry that names an official term the lesson's own
  * main path never names turns this red, and the fix is one sentence on the main
  * path. Paying the debt itself means splitting six lessons — adding `limits` to
@@ -937,7 +937,7 @@ describe('readability · the limits debt is pinned, and the 297th entry is refus
   const limitsOf = (l: Lesson): string => l.limits.map((x) => x.text).join(' ')
 
   /**
-   * **This number is the ceiling AND the current value: the debt stands at exactly 296.** There
+   * **This number is the ceiling AND the current value: the debt stands at exactly 292.** There
    * is no slack in it, and that is deliberate rather than an accident of when it was measured —
    * a ratchet with room left in it is not a ratchet. What it means in practice, for whoever next
    * adds a `limits` entry:
@@ -946,12 +946,21 @@ describe('readability · the limits debt is pinned, and the 297th entry is refus
    *    no warning shot;
    *  - the fix is one sentence on the main path, bracketing the term at its first use — not a
    *    bigger number here;
-   *  - if that sentence will not fit, the other legal move is to pay one of the existing 296
+   *  - if that sentence will not fit, the other legal move is to pay one of the existing 292
    *    back, which is the same work on a different lesson;
    *  - **raising the ceiling needs a human to agree to it.** It is not a thing to do because the
    *    build is red.
    *
-   * The precedent, so the instruction is not merely an instruction: the slice that added
+   * **296 → 292 on 2026-10-05, and the ratchet came down with it.** Slice 3d rewrote
+   * `uwb-ancillary`'s `out-of-scope` limit — it stated the wrong mechanism, and its wrong sentence
+   * was where four of this debt's entries came from (下行, 到达时间差, 多毫秒, 片段, all four named in
+   * 「多对多、下行到达时间差、多毫秒片段全都共用的结构」, a clause that was false). Paying debt down is
+   * never a human's call — only raising the ceiling is — and leaving the number at 296 would have
+   * left four characters of slack in a ratchet whose whole argument is that it has none. The new
+   * lesson of that slice added **zero**: its three `limits` name one official term
+   * (媒体访问控制) and that term is bracketed on its own main path.
+   *
+   * The earlier precedent, so the instruction is not merely an instruction: the slice that added
    * `wan-rtt` and `edca-tamper` (2026-10-05) ran this up to 302 — six terms in the new lessons'
    * `limits` and five more from rewriting four existing ones — and brought every one of the
    * twelve back. Nine went onto a main path where they belonged anyway (`管理帧`, `信标`,
@@ -959,12 +968,12 @@ describe('readability · the limits debt is pinned, and the 297th entry is refus
    * reworded, including one that was a term COLLISION rather than a missing bracket (`探测` is
    * the glossary's channel sounding, and the sentence meant a ping). The number did not move.
    */
-  it('owes no more than 296 (lesson, term) pairs in `limits` — criterion Q, not P', () => {
+  it('owes no more than 292 (lesson, term) pairs in `limits` — criterion Q, not P', () => {
     const pairs = migrated.flatMap((l) => owed(l, limitsOf(l)))
     expect(pairs.length, `${pairs.length} official terms are named in a lesson's \`limits\` and`
       + " never on that lesson's own main path. This is a ratchet: it does not ask for the"
       + ' existing ones to be fixed, it refuses the next one. If you added a `limits` entry,'
-      + ' name the term on the main path too.').toBeLessThanOrEqual(296)
+      + ' name the term on the main path too.').toBeLessThanOrEqual(292)
     // and it is not allowed to quietly become vacuous either: the debt is real today
     expect(pairs.length, 'the debt this ratchet exists to make visible').toBeGreaterThanOrEqual(200)
     expect(new Set(pairs.map((p) => p.split('|')[0])).size, 'lessons carrying the debt')
@@ -982,7 +991,9 @@ describe('readability · the limits debt is pinned, and the 297th entry is refus
     const inSources = migrated.flatMap((l) => owed(l, (l.sources ?? []).join(' ')))
     const inDeeper = migrated.flatMap((l) => owed(l, gradedProseTexts({ picture: l.deeper }).join(' ')))
     const inLimits = migrated.flatMap((l) => owed(l, limitsOf(l)))
-    // 182 and 86 on 2026-10-05, against `limits`' 296
+    // 186 and 87 on 2026-10-05, against `limits`' 292 — the docblock above this describe once
+    // recorded `sources` as 182, which was already stale when it was written (measured 185 before
+    // slice 3d). The assertions are floors and an ordering, so none of the three moved.
     expect(inSources.length).toBeGreaterThan(100)
     expect(inDeeper.length).toBeGreaterThan(50)
     expect(inLimits.length, '`limits` is rendered open by default, written at the density of'
@@ -1057,13 +1068,19 @@ describe('readability · the limits debt is pinned, and the 297th entry is refus
  * ```
  */
 describe('readability · the stated minutes, and the characters behind them', () => {
-  it('keeps the course within a band of main-path length, 179 872 characters on 2026-10-05', () => {
+  it('keeps the course within a band of main-path length, 188 317 characters on 2026-10-05', () => {
     const chars = ordered.reduce((n, l) => n + mainPathChars(l), 0)
     // A band, not an equality, and not a budget: see the note above for why it was demoted.
     // 170 000–190 000 is about five lessons' worth of main path either side of where the
     // course stood when this landed, so ordinary prose editing never reaches it and a
     // module arriving or leaving does.
-    expect(chars, `${chars} main-path Chinese characters across the course (179 872 on`
+    // **The stated figure was stale and is now measured: 185 327 before slice 3d, 188 317 after.**
+    // The 179 872 this test was written with had not been re-measured since, and with the ceiling at
+    // 190 000 that left 1 683 characters of room rather than the 「five lessons' worth」 the note
+    // below claims. The band is NOT widened here — raising it is a human's call — but the next
+    // module to land will reach it, and whoever reads this red first should know it was already
+    // nearly red.
+    expect(chars, `${chars} main-path Chinese characters across the course (188 317 on`
       + ' 2026-10-05). This band does not move for prose edits, so something structural'
       + ' changed — most likely a module added or removed. A walk that stopped seeing ONE'
       + ' section is too small to reach this band; the per-section census in'
@@ -1072,9 +1089,13 @@ describe('readability · the stated minutes, and the characters behind them', ()
     expect(chars).toBeLessThan(190_000)
   })
 
-  it('states 1 800 minutes across the whole course, and no earlier lesson moved', () => {
+  it('states 1 825 minutes across the whole course, and no earlier lesson moved', () => {
+    // 1 825 since slice 3d: `uwb-ancillary-request` is 2 990 main-path characters, two things to
+    // observe and two experiments — raw 25.59, which the formula rounds to 25. **Measured after the
+    // prose was final, not budgeted**, and `uwb-ancillary` itself did not move: that lesson's only
+    // edit was to its `limits`, which `MAIN_PATH_SECTIONS` does not count.
     expect(ordered.reduce((n, l) => n + lessonMinutes(l), 0),
-      'the sum of every stated minute figure a reader can see').toBe(1_800)
+      'the sum of every stated minute figure a reader can see').toBe(1_825)
     // the two lessons of the built-but-untaught slice, measured after their prose was
     // final rather than copied from its design document (which budgeted 25 and 30 and
     // happened to be right, while its character budgets were not)

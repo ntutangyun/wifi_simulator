@@ -214,7 +214,7 @@ describe('a limit that points at a deeper treatment says so as a deeper treatmen
  *    it is about there being one station). On the two UWB sites it is blind.
  *
  * So B does not judge the truth of a promise. **It judges whether anyone judged it.** The
- * table is the whole promise ledger; a fourteenth `until` turns this red and its author has
+ * table is the whole promise ledger; a seventeenth `until` turns this red and its author has
  * to write the fourth column down and leave a ruler in their own lesson's test file
  * (precedents: `width.test.ts`, `uwb-blocks.test.ts`, and as of 2026-10-05 also
  * `anomaly.test.ts`, `backoff.test.ts`, `streams.test.ts`, `mcs-ladder.test.ts`,
@@ -234,7 +234,7 @@ describe('a limit that points at a deeper treatment says so as a deeper treatmen
  * a lesson's `numbers` is character-for-character the shape of a `Limit`, so a regex sweep
  * of `src/course` counts one entry that is not a limit at all.
  */
-describe('criterion B · the sixteen `until` promises are a frozen ledger', () => {
+describe('criterion B · the seventeen `until` promises are a frozen ledger', () => {
   /** `[source, target, a substring of the limit's own text, the axis that opens it]`. */
   const UNTIL_SITES: readonly [string, string, string, string][] = [
     ['mcs-ladder', 'rate-vs-model', '本课四个变体一次失败也没有',
@@ -290,11 +290,18 @@ describe('criterion B · the sixteen `until` promises are a frozen ledger', () =
       '顶层一节 servers：本课的业务源节奏自成一条开环时钟；那一课的场景里答复要等请求被确认才来（traffic.ts 的 onUplinkDelivered → sendPage / emitDl），这是一条真的反馈路径，只不过不是降速那一种'],
     ['edca-cost', 'wan-rtt', '它的 servers 是空的',
       '顶层一节 servers：本课语音来回两个方向都是 20 ms 的本机时钟；放一台通话服务器之后回程变成对每一个已被确认的语音帧的回声（traffic.ts 的 scheduleVoice 的 `if (!this.server)` 分支），于是排队时延第一次有了一个应用层的分母'],
+    // Slice 3d's one site, and the first `until` in this ledger whose target was written **to
+    // redeem it** rather than found to redeem it afterwards — which is what slice 4e asked for when
+    // it narrowed `until` to `out-of-scope` alone. The axis is two session fields, and what makes it
+    // an axis rather than a feature flag is that it moves a quantity the source lesson's own text
+    // calls settled: the round's length.
+    ['uwb-ancillary', 'uwb-ancillary-request', '排程能不能被请求改变',
+      '会话两个字段 ancillaryRequest / ancillaryRequestSlots：本课四个场景一个也没打开它们（请求这一半当时还不存在），那一课的基础场景把两者都开着，于是块 0 的剩余帧数从 1 倒数、块 1 起从 5 倒数——轮的长度第一次不再是会话配置单独决定的'],
   ]
 
   const actual = LESSONS.flatMap((l) => l.limits.filter((x) => x.until).map((x) => `${l.id}→${x.until!}`))
 
-  it('is exactly these sixteen sites, no more and no fewer', () => {
+  it('is exactly these seventeen sites, no more and no fewer', () => {
     expect([...actual].sort()).toEqual(UNTIL_SITES.map(([s, t]) => `${s}→${t}`).sort())
   })
 

@@ -535,6 +535,7 @@ describe("a lesson's track", () => {
     "uwb-receipt":              "uwb",
     "uwb-sp3":                  "uwb",
     "uwb-ancillary":            "uwb",
+    "uwb-ancillary-request":    "uwb",
     "uwb-dl-tdoa":              "uwb",
     "uwb-ul-tdoa":              "uwb",
     "uwb-aoa":                  "uwb",

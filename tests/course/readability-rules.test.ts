@@ -277,9 +277,12 @@ describe('lessonTexts · the census over the whole course', () => {
     .reduce((n, t) => n + zhChars(t.text), 0)
   const sum = (f: (l: Lesson) => number): number => ordered.reduce((n, l) => n + f(l), 0)
 
-  it('walks all 85 lessons and nothing else', () => {
+  it('walks all 86 lessons and nothing else', () => {
     expect(ordered.length).toBe(LESSONS.length)
-    expect(ordered.length).toBe(85)
+    // 86 since slice 3d added `uwb-ancillary-request`, the other half of §10.35 — split out
+    // rather than folded into `uwb-ancillary` because that lesson's raw figure is already past the
+    // 30-minute ceiling (31.12, rounded down to 30) and had 303 main-path characters of room.
+    expect(ordered.length).toBe(86)
   })
 
   it('sees every section, which a walk that stopped seeing a block kind would not', () => {

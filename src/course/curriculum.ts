@@ -243,6 +243,11 @@ export const COURSE_ORDER: string[] = [
   //    one message that does not fit in one frame: the count every frame carries, so the
   //    receiver learns of a gap at the next arrival instead of at a deadline
   'uwb-ancillary',
+  //    …and the other half of the same clause, in the same module: the Request bit, where a
+  //    ranging RESPONDER asks the controller for the next exchange's slots and the granted count
+  //    is the next message's frame count. The first lesson of the course in which the slot grid is
+  //    not settled before the session starts.
+  'uwb-ancillary-request',
   // M23 · tier 5 · 单向测距
   'uwb-dl-tdoa', 'uwb-ul-tdoa',
   // M24 · tier 5 · 角度

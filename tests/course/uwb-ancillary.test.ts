@@ -45,6 +45,7 @@ import {
   ancillarySlots, blockCarriesAncillary, blockSlotAction, blockSlots, roundPlan,
 } from '../../src/uwb/session'
 import { lessonShapeSuite, ofType, runOf } from './kit'
+import { uwbAncillaryRequest } from '../../src/course/uwb/uwb-ancillary-request'
 
 const MS_NS = 1_000_000
 /** Seven 200 ms blocks, closed with margin before an eighth: every UWB lesson's own window. */
@@ -556,5 +557,77 @@ describe('uwb-ancillary · the three granularities, and no number typed twice', 
       'ancillarySlots', 'blockSlots', 'blockCarriesAncillary']) {
       expect(code, fn).toContain(fn)
     }
+  })
+})
+
+/**
+ * **The ruler for the one `until` this lesson carries** (criterion B site 17,
+ * `tests/course/limits.test.ts`): its `out-of-scope` limit says the Request = 1 half is another
+ * lesson's, and names `uwb-ancillary-request` as the lesson that lifts it. This is what measures
+ * that the promise is kept rather than merely made.
+ *
+ * Three things, in the order that makes the promise coherent:
+ *
+ *  1. **This lesson's four scenes do not set the two fields the promise is about**, so the limit is
+ *     true of the scenes it is printed beside — which is what `out-of-scope` means and what
+ *     criterion A demands of an `until`.
+ *  2. **The target's own scene sets both**, so the axis is a scenario difference rather than a
+ *     promise about the engine (every lesson runs the same engine, which is why `until` on an
+ *     engine-level kind can never be kept).
+ *  3. **The axis moves the quantity the limit names.** The limit's subject is 「排程能不能被请求改
+ *     变」, so what has to differ is the round's length under a device's own request: here it is the
+ *     session's figure in every block, there it is the granted width from block 1 on.
+ *
+ * And the sentence this limit used to carry was **false**, which is the other half of why it was
+ * rewritten rather than only pointed at: it said the round layout would have to become a per-block
+ * computation, and `blockSlots` had already been one since the receipt-confirmation slice.
+ */
+describe('uwb-ancillary · the `until` it carries is measured, not merely written', () => {
+  const sites = [uwbAncillary.scenario(), ...(uwbAncillary.variants ?? []).map((v) => v.scenario())]
+
+  it('points at uwb-ancillary-request from its out-of-scope limit, and from nowhere else', () => {
+    const withUntil = uwbAncillary.limits.filter((l) => l.until !== undefined)
+    expect(withUntil).toHaveLength(1)
+    expect(withUntil[0].until).toBe('uwb-ancillary-request')
+    expect(withUntil[0].kind).toBe('out-of-scope')
+    expect(withUntil[0].seeAlso).toBeUndefined()
+    expect(withUntil[0].text).toContain('排程能不能被请求改变')
+  })
+
+  it('sets neither request field in any of its four scenes, while the target sets both', () => {
+    for (const sc of sites) {
+      expect(sc.uwb!.ancillaryRequest, 'this lesson never asks for slots').toBe(false)
+      expect(sc.uwb!.ancillaryRequestSlots, 'and leaves the count at its default').toBe(1)
+    }
+    const target = uwbAncillaryRequest.scenario()
+    expect(target.uwb!.ancillaryRequest).toBe(true)
+    expect(target.uwb!.ancillaryRequestSlots).toBeGreaterThan(1)
+  })
+
+  it('has one round length per block where the target has two, which is the axis', () => {
+    // Here: every block's appended window is the session's own frame count, block after block.
+    for (const block of [0, 1, 2, 3]) {
+      expect(blockSlots(PLAN, block), `block ${block}`).toBe(PLAN.slots + FRAMES)
+    }
+    // There: block 0 runs at the session's figure and every block after it at the granted width,
+    // read off the countdown's first number rather than off the plan.
+    const rs = runOf(uwbAncillaryRequest, undefined, RUN_NS)
+    const firsts = new Map<number, number>()
+    for (const r of anc(rs)) {
+      if (r.requestedSlots !== undefined || r.framesRemaining === null) continue
+      if (!firsts.has(r.block)) firsts.set(r.block, r.framesRemaining)
+    }
+    expect(firsts.get(0)).not.toBe(firsts.get(1))
+    expect(new Set([...firsts.values()]).size, 'two widths, not one').toBe(2)
+  })
+
+  it('no longer claims the round layout would have to become a per-block computation', () => {
+    // The false sentence, gone. `blockSlots` takes a block index and has since §10.36's slice, so
+    // 「就得把轮的排布变成每块重算一次」 described work that was already done.
+    const text = uwbAncillary.limits.map((l) => l.text).join('\n')
+    expect(text).not.toContain('就得把轮的排布变成每块重算一次')
+    expect(text).toContain('blockSlots')
+    // …and the half of that sentence that IS true is still said: one `roundPlan` call per session.
+    expect(text).toContain('roundPlan')
   })
 })
