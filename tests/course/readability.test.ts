@@ -1146,7 +1146,10 @@ describe('readability · the stated minutes, and the characters behind them', ()
     // The two structural counts, exact, each naming what moved. A lesson or a module arriving or
     // leaving is a deliberate act and owes one line of diff here; neither can be inferred from a
     // corpus total, which is what the retired band tried to do.
-    expect(ordered.length, 'lessons in COURSE_ORDER with authored prose behind them').toBe(86)
+    // 86 → 87 on slice W5, and the module count did NOT move with it: `amp-backscatter` is the
+    // fifth lesson of the existing M10, so `MODULES.length` is still 30 and no UWB lesson's
+    // `module` index shifted. Separating the two counts is what this `it` is for.
+    expect(ordered.length, 'lessons in COURSE_ORDER with authored prose behind them').toBe(87)
     expect(MODULES.length, 'modules — THIS is 「a module added or removed」, asserted directly')
       .toBe(30)
   })
@@ -1185,8 +1188,13 @@ describe('readability · the stated minutes, and the characters behind them', ()
     expect(chars).toBeLessThan(300_000)
   })
 
-  it('states 1 825 minutes across the whole course, and no earlier lesson moved', () => {
-    // 1 825 since slice 3d: `uwb-ancillary-request` is 2 990 main-path characters, two things to
+  it('states 1 850 minutes across the whole course, and no earlier lesson moved', () => {
+    // 1 850 since slice W5: `amp-backscatter` is 2 495 main-path characters, three things to
+    // observe and two experiments — raw 25.34, which the formula rounds to 25. **Measured after
+    // the prose was final, not budgeted**, and it sits 283 characters clear of either bucket
+    // boundary, so it does not appear near the top of the census below. No earlier lesson moved:
+    // that slice added one lesson and two scene helpers and edited no other lesson's prose.
+    // 1 825 before it, since slice 3d: `uwb-ancillary-request` is 2 990 main-path characters, two things to
     // observe and two experiments — raw 25.59, which the formula rounds to 25. **Measured after the
     // prose was final, not budgeted**, and `uwb-ancillary` itself did not move: that lesson's only
     // edit was to its `limits`, which `MAIN_PATH_SECTIONS` does not count.
@@ -1199,7 +1207,7 @@ describe('readability · the stated minutes, and the characters behind them', ()
     // for `@uwb-m2m` and `@rts-cts` were each one character out on the day it was written.
     expect(ordered.reduce((n, l) => n + lessonMinutes(l), 0),
       'the sum of every stated minute figure a reader can see. ±5 means one lesson crossed a'
-      + ` bucket; every lesson's margin, tightest first:\n${margins()}`).toBe(1_825)
+      + ` bucket; every lesson's margin, tightest first:\n${margins()}`).toBe(1_850)
     // the two lessons of the built-but-untaught slice, measured after their prose was
     // final rather than copied from its design document (which budgeted 25 and 30 and
     // happened to be right, while its character budgets were not)

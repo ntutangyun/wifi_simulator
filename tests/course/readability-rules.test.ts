@@ -277,17 +277,32 @@ describe('lessonTexts · the census over the whole course', () => {
     .reduce((n, t) => n + zhChars(t.text), 0)
   const sum = (f: (l: Lesson) => number): number => ordered.reduce((n, l) => n + f(l), 0)
 
-  it('walks all 86 lessons and nothing else', () => {
+  it('walks all 87 lessons and nothing else', () => {
     expect(ordered.length).toBe(LESSONS.length)
-    // 86 since slice 3d added `uwb-ancillary-request`, the other half of §10.35 — split out
-    // rather than folded into `uwb-ancillary` because that lesson's raw figure is already past the
-    // 30-minute ceiling (31.12, rounded down to 30) and had 303 main-path characters of room.
-    expect(ordered.length).toBe(86)
+    // 87 since slice W5 added `amp-backscatter`, the backscatter tier of M10 — 878 lines of
+    // engine that produced none of its five record types in any of the 251 course scenarios
+    // before it. 86 before that, when slice 3d added `uwb-ancillary-request`.
+    expect(ordered.length).toBe(87)
   })
 
   it('sees every section, which a walk that stopped seeing a block kind would not', () => {
     // `body` is the exception and it is bookkeeping, not a hole: the old flat shape
     // finished migrating on 2026-10-02, so no lesson has one left.
+    //
+    // **This is also the record of that migration, and the reason `'body'` is still a member of
+    // five section lists** (`LESSON_STRING_SECTIONS`, `MAIN_PATH_SECTIONS`, the graded-prose
+    // list, `SECTION_OF`, `SECTION_KEY`) while contributing nothing: those memberships are
+    // provably inert — `mainPathChars` is identical with `'body'` struck out of
+    // `MAIN_PATH_SECTIONS`, lesson for lesson, all 87 — and `docs/inert-config-contract.md`'s
+    // two outcomes for that shape are refuse or pin. Deleting the field is the other slice (it
+    // moves `lessonKit.ts`, `readability.ts` in five places, `curriculum.ts`'s `lessonBlocks`
+    // fallback and `blocksOf` below); keeping it costs the two lines here, and they are what
+    // makes the memberships safe rather than merely harmless. The second assertion is the
+    // stronger of the two and the one that is literally the sentence: `count` is zero for a
+    // lesson carrying `body: []` as well, and the field itself is what the lists react to.
+    const withBody = ordered.filter((l) => l.body !== undefined).map((l) => l.id)
+    expect(withBody, 'the flat `body` shape finished migrating; these lessons went back to it')
+      .toEqual([])
     for (const s of SECTIONS) {
       if (s === 'body') { expect(count(s), 'body').toBe(0); continue }
       expect(count(s), `${s} is in no lesson's walk`).toBeGreaterThan(0)

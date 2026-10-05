@@ -515,6 +515,7 @@ describe("a lesson's track", () => {
     "amp-ppdu":                 "amp",
     "amp-slots":                "amp",
     "amp-coexist":              "amp",
+    "amp-backscatter":          "amp",
     "wan-rtt":                  "wifi",
     "capstone":                 "wifi",
     "uwb-intro":                "uwb",

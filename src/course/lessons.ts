@@ -34,6 +34,7 @@ import { ampIntro } from './amp/amp-intro'
 import { ampPpdu } from './amp/amp-ppdu'
 import { ampSlots } from './amp/amp-slots'
 import { ampCoexist } from './amp/amp-coexist'
+import { ampBackscatter } from './amp/amp-backscatter'
 import { uwbIntro } from './uwb/uwb-intro'
 import { uwbFrame } from './uwb/uwb-frame'
 import { uwbSts } from './uwb/uwb-sts'
@@ -130,6 +131,7 @@ const AUTHORED: Lesson[] = [
   ampPpdu,
   ampSlots,
   ampCoexist,
+  ampBackscatter,
   uwbIntro,
   uwbFrame,
   uwbSts,

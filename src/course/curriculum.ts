@@ -222,7 +222,7 @@ export const COURSE_ORDER: string[] = [
   // M9 · tier 1 · 被调度的 Wi-Fi 6/7
   'ofdma-dl', 'ru-diversity', 'ofdma-ul', 'mumimo', 'mumimo-choose', 'mlo', 'mlo-gain',
   // M10 · tier 1 · 环境能量物联网（802.11bp）
-  'amp-intro', 'amp-ppdu', 'amp-slots', 'amp-coexist',
+  'amp-intro', 'amp-ppdu', 'amp-slots', 'amp-coexist', 'amp-backscatter',
   // M11 · tier 1 · 真实应用
   'wan-rtt', 'capstone',
   // M12 · tier 4 · 飞行时间
@@ -409,6 +409,14 @@ export const CONTRIBUTIONS: Record<string, string> = {
   '11-24/1613r20': 'TGbp 规范框架',
   '11-26/1519r5': '触发过程与 AMP PPDU 格式',
   '11-26/1889r4': '上行信道接入与时隙规则',
+  // P802.11bp, the backscatter tier: five contributions the group discussed without the
+  // framework adopting their values, so every number off them is tagged as such in the prose
+  '11-23/2038r1': '反向散射回程的 6 dB 反射损耗',
+  '11-24/0537r0': '标签的 −20 dBm 上电门限，以及反射损耗的另一处取值',
+  '11-25/0058r1': '单站读写器的 20 dB 天线隔离与 50 dB 接收动态范围',
+  '11-25/0061r0': '反向散射清点轮：单一下行速率、一轮跨多次传输机会的「延续」',
+  '11-25/0307r0': '两档激励功率 PEX_C（充电）与 PEX_B（回应）',
+  '11-26/0120r0': 'T2 转向时间，以及 Write 的 T3 ≥ 2 ms',
 }
 
 /**

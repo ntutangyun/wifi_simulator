@@ -4,8 +4,8 @@
  * here, never from lessons.ts, so modules that define lessons do not form a cycle.
  */
 import { defaultFeatures, linkOfVirtual, type ChannelWidth } from '../model/caps'
-import type { AmpApCfg, NodeCfg, ProfileId, Room, Scenario, UwbSessionCfg, Wall } from '../model/scenario'
-import { DEFAULT_AMP_AP, DEFAULT_UWB_SESSION } from '../model/scenario'
+import type { AmpApCfg, AmpBackscatterCfg, NodeCfg, ProfileId, Room, Scenario, UwbSessionCfg, Wall } from '../model/scenario'
+import { DEFAULT_AMP_AP, DEFAULT_AMP_BS, DEFAULT_UWB_SESSION } from '../model/scenario'
 import type { TLRecord } from '../model/records'
 import type { DiagramSpec } from './diagram'
 import type { Generation } from '../model/types'
@@ -217,6 +217,40 @@ export function ampAp(id: string, name: string, x: number, y: number, amp: Parti
   return { ...n, ampAp: { ...DEFAULT_AMP_AP, ...amp } }
 }
 
+/**
+ * A backscatter tag: `kind: 'amp'` with `mode: 'backscatter'`, so it has no transmitter of its
+ * own and exists on the air only while a reader's excitation is up.
+ *
+ * Separate from `tag()` rather than a flag on it, for two reasons that are both about the
+ * geometry. A backscatter link is a tens-of-centimetres affair (`ampBs.ts`'s `monoReachM` is
+ * 0.33 m at the defaults), so `z` is a parameter here and is NOT the 1.0 m `tag()` hard-codes:
+ * the reader has to sit at the tags' own height or the ceiling ends the link before the floor
+ * plan says anything. And the mode is stated rather than left to the schema's default, as in
+ * `tag()` and `editor/planOps.newTag`, so a lesson scenario and the same scenario reloaded from
+ * JSON are the same object.
+ */
+export function bsTag(id: string, name: string, x: number, y: number, z = 1.0): NodeCfg {
+  return {
+    id, kind: 'amp', name, pos: { x, y, z }, txPowerDbm: 0, profiles: ['idle'],
+    caps: { generation: 'nonht', features: {} }, linkId: '2g', ampTag: { mode: 'backscatter' },
+  }
+}
+
+/**
+ * An AP running EPC Gen2 inventory rounds: `ampAp` plus the `backscatter` section that makes it
+ * a mono-static reader (`engine/ampReader.ts`). `z` is explicit for the reason `bsTag`'s is.
+ */
+export function bsReader(
+  id: string, name: string, x: number, y: number, z: number,
+  bs: Partial<AmpBackscatterCfg> = {}, amp: Partial<AmpApCfg> = {},
+): NodeCfg {
+  const n = ampAp(id, name, x, y, amp)
+  return {
+    ...n, pos: { x, y, z },
+    ampAp: { ...n.ampAp!, backscatter: { ...DEFAULT_AMP_BS, ...bs } },
+  }
+}
+
 /** The width every 6 GHz node this kit builds asks for: the 80 MHz block a Wi-Fi 6E/7
  * client takes by default, and the width `Scenario.sixGhzCenterMhz` names the centre of. */
 export const LESSON_6G_WIDTH_MHZ: ChannelWidth = 80
@@ -334,6 +368,21 @@ export const firstAmpAckToTag = txOf((r) => r.frame.kind === 'ampAck' && r.frame
 export const firstAmpSatOut = (r: TLRecord): boolean => r.type === 'AMP_ABOC' && r.slot === null
 export const firstAmpLost = (r: TLRecord): boolean => r.type === 'AMP_RESULT' && r.sent && !r.acked
 export const firstScheduledTrigger = txOf((r) => r.frame.kind === 'ampTrigger' && r.frame.amp?.phase === 'scheduled')
+
+/** Backscatter: the first tag that harvested enough of a WUP-Excitation to start thinking at
+ * all. The one record in this engine that reports a device coming into existence. */
+export const firstBsBoot = (r: TLRecord): boolean => r.type === 'AMP_BS_BOOT' && r.powered
+/** Backscatter: the Query that opens an EPC Gen2 inventory and announces its 2^Q slots. */
+export const firstBsQuery = txOf((r) => r.frame.kind === 'ampRfid' && r.frame.amp?.rfid?.cmd === 'query')
+/** Backscatter: the first EPC a tag reflected back — the only reply in the round that identifies
+ * anything, and the only one the reader records as a reading. */
+export const firstBsEpc = txOf((r) => r.frame.kind === 'ampBsReply' && r.frame.amp?.bs?.reply === 'epc')
+/** Backscatter: the first TXOP that ran out of air with slots of the session still unoffered, so
+ * the tags hold their slot counters and the next TXOP resumes the same session. */
+export const firstBsPartialRound = (r: TLRecord): boolean => r.type === 'AMP_INVENTORY' && !r.complete
+/** Backscatter: the first slot in which something reflected and the reader could read none of
+ * it — which is what `collisions` counts, and not "two tags answered". */
+export const firstBsCollidedSlot = (r: TLRecord): boolean => r.type === 'AMP_INVENTORY' && r.collisions > 0
 
 export const firstUwbPoll = txOf((r) => r.frame.kind === 'uwbPoll')
 export const firstUwbResp = txOf((r) => r.frame.kind === 'uwbResp')

@@ -57,7 +57,7 @@ Wi-Fi 这一侧没有这个难题——IEEE Std 802.11-2024 与 IEEE Std 802.11b
   因为 W0 那个测试只检查得到导出名——写成 `#` 形会让它看起来被检查过而其实没有。
 - 课程编号写作 `` `@airtime` ``，就是 `COURSE_ORDER` 里的那个 id。
 
-**全表 106 处 `#` 形引用（去重 93 个符号）与 54 个课号由 `tests/course/wifi-coverage.test.ts`
+**全表 107 处 `#` 形引用（去重 95 个符号）与 55 个课号由 `tests/course/wifi-coverage.test.ts`
 逐个核对**，而且上面这三个数本身也由它核对——它不自带数字，它把这一行写出来的数和它量到的数比。
 下面这段脚本是它的前身，留着当重跑的配方（2026-10-05 跑过，零失败），**但它只是配方，判据在那个测试里**：
 
@@ -127,14 +127,16 @@ CDMG、CMMG、EDMG、WUR、NGV、LC、增强广播）。**把它们逐节列出�
 
 | 第四列的裁定 | 行数 |
 | --- | --- |
-| 带 `@课号` | 89 |
-| **整行写着「引擎建了，无课」** | **8** |
+| 带 `@课号` | 94 |
+| **整行写着「引擎建了，无课」** | **4** |
 | 范围决定 | 18 |
 | 未偿的债 | 16 |
 
 两张表对不上的地方都是故意的，各有一句话解释：
-89 + 8 = 97 大于「已建模 + 部分建模」的 87，因为有几行**未建模**的也带着课号
-（那门课教了这件事不存在，`@frame-anatomy` 对分片就是这样）；
+94 + 4 = 98 大于「已建模 + 部分建模」的 87，有两个原因：有几行**未建模**的也带着课号
+（那门课教了这件事不存在，`@frame-anatomy` 对分片就是这样）；而 2.4 GHz 站点那一行
+**同时**带课号与「引擎建了，无课」——`@amp-coexist` 的摄像头真的载过这条链路，
+而那一课不教它，所以两样都是真的（见「十四」第 1 条）；
 18 + 16 = 34 大于「未建模」的 33，因为信标那一行**同时**写了两个裁定——
 按今天的实情是范围决定，按原计划是未偿的债，而把它压成一个会丢掉一半。
 
@@ -224,7 +226,7 @@ UWB 那份文档漏掉的那一行（§10.47），在这里是一条会打印出
 | 四个接入类别与 AIFS[AC]（§10.23.2.3、Table 9-194 的缺省值） | 已发布 · 802.11-2024 | 已建模 | `engine/phy.ts#EDCA_PARAMS`：AIFSN 7/3/2/2、CWmin 15/15/7/3、CWmax 1023/1023/15/7；`engine/phy.ts#aifsNs`。`@edca` |
 | TXOP 限额（Table 9-194） | 已发布 · 802.11-2024 | 已建模 | `txopLimitNs` 2 528 000 / 2 528 000 / 4 096 000 / 2 080 000；BK 与 BE 照标准取 2.528 ms，**不取 ns-3 的 0**。记录 `TXOP_START.untilNs` / `TXOP_END`。`@txop` |
 | 传统 DCF 作为单伪类别（§10.3） | 已发布 · 802.11-2024 | 已建模 | `engine/phy.ts#DCF_PARAMS`：AIFSN 2 ⇒ DIFS，TXOP 限额 0。`@ifs`、`@edca` |
-| 内部碰撞（§10.23.2.12.1） | 已发布 · 802.11-2024 | 已建模 | 落败的 EDCAF 记一次重传并翻倍 CW（标准对齐 A7）；记录 `INTERNAL_COLLISION`。**251 个课程场景里只有 9 个真的跑出过它**，而 `@edca` 对它的解释有一句是错的——见「十三」第 1 条。`@edca`、`@mumimo` |
+| 内部碰撞（§10.23.2.12.1） | 已发布 · 802.11-2024 | 已建模 | 落败的 EDCAF 记一次重传并翻倍 CW（标准对齐 A7）；记录 `INTERNAL_COLLISION`。**256 个课程场景里只有 9 个真的跑出过它**，而 `@edca` 对它的解释有一句是错的——见「十三」第 1 条。`@edca`、`@mumimo` |
 | QSRC 驱动 CW（§10.23.2.2） | 已发布 · 802.11-2024 | 已建模 | 记录 `CW_CHANGE.qsrc`、`RETRY.qsrc`。`@collisions-cw`、`@retries-queues` |
 | 发送之后的退避（§10.23.2.2） | 已发布 · 802.11-2024 | 已建模 | `@backoff` |
 | 把业务映射到接入类别（§10.2.3.2、Table 10-1） | 已发布 · 802.11-2024 | 已建模 | `engine/traffic.ts#acForProfile`，九个业务档各自落到一个 AC。`@edca` |
@@ -275,16 +277,20 @@ UWB 那份文档漏掉的那一行（§10.47），在这里是一条会打印出
 频段损耗差。这个区分是这一节每一行第四列的依据，不要在引用时压扁它。
 
 核法：`npx vite-node --root <worktree>` 跑一个脚本，遍历 `LESSONS` 的 `scenario()` 与
-`variants[*].scenario()`（共 **251** 个场景），对每个场景算 `linkPlanFor(sc.nodes).links`。
-**结果：`'2g'` 只出现在 1 个场景里，就是 `@amp-coexist`，而那里的 2.4 GHz 节点是两个 AMP 标签
-加一台当干扰源的摄像头。**
+`variants[*].scenario()`（共 **256** 个场景），对每个场景算 `linkPlanFor(sc.nodes).links`。
+**结果（2026-10-05 重测，切片 W5）：`'2g'` 出现在 17 个场景里，分属全部五门 AMP 课；
+而其中带一台 Wi-Fi 站点（`kind: 'sta'`）的只有 4 个，全是 `@amp-coexist` 的那四个场景，
+那台站点就是它当干扰源用的摄像头（Wi-Fi 6）。**
+**写作当天这两句写成了「`'2g'` 只出现在 1 个场景里」，两个数都不对**：它把「带 Wi-Fi 站点的
+场景数」当成了「出现 `'2g'` 的场景数」，而前者也是 4 不是 1（基础场景加三个变体）。
+下面那一行第四列原样继承了这个错，一并改了。
 
 | 特性 | 标准依据 | 本仿真器 | 位置与证据 |
 | --- | --- | --- | --- |
 | 第 17 章 OFDM 的 PPDU 时长公式（式 17-29、§17.4.3） | 已发布 · 802.11-2024 | 已建模 | `engine/phy.ts#txTimeNs`：20 µs 前导 + 4 µs SIGNAL + 4 µs/符号，符号数 `ceil((16+8L+6)/N_DBPS)`。`@airtime`、`@frame-anatomy-bytes` |
 | 第 18 章 ERP-OFDM 的帧间时序（§18.4.4、§10.3.8） | 已发布 · 802.11-2024 | 部分建模 | `engine/phy.ts#ERP_2G`：SIFS 10 µs、短时隙 9 µs、DIFS 28 µs、AckTimeout 39 µs、EIFS 88 µs、信号扩展 6 µs。**教到的只有 SIFS 10 µs 与时隙 9 µs**（`@amp-coexist` 的 AIFS 公式块）**与那 6 µs 信号扩展**（`@amp-ppdu` 的字段表与公式）。**DIFS 28 µs、AckTimeout 39 µs、EIFS 88 µs 一门课也没有**（`grep -rn '39 µs' src/course/` 零命中）。`@amp-coexist`、`@amp-ppdu` |
 | 2.4 GHz 的信号扩展进入 PPDU 时长（§18.3.2.4） | 已发布 · 802.11-2024 | 已建模 | `engine/simulation.ts#timingFor` 给 `'2g'` 发 `ERP_2G`，`signalExtNs` 计入每一帧。`@amp-ppdu` |
-| 一台 Wi-Fi 站点运行在 2.4 GHz 上（`linkId: '2g'`） | 已发布 · 802.11-2024 | 已建模 | `model/caps.ts#nodeLinks`、`model/caps.ts#linkPlanFor`，编辑器 `FloorPlanEditor.tsx` 有下拉框。**引擎建了，无课**——251 个课程场景里没有一个把 `sta` 放到 `'2g'` 上。 |
+| 一台 Wi-Fi 站点运行在 2.4 GHz 上（`linkId: '2g'`） | 已发布 · 802.11-2024 | 已建模 | `model/caps.ts#nodeLinks`、`model/caps.ts#linkPlanFor`，编辑器 `FloorPlanEditor.tsx` 有下拉框。**引擎建了，无课**——256 个课程场景里有 4 个把 `sta` 放到 `'2g'` 上，全是 `@amp-coexist` 的那台摄像头，**而那一课把它当干扰源教，从不当一条 2.4 GHz Wi-Fi 链路教**（DIFS、AckTimeout、EIFS、带宽上限、频段损耗差那几个数一个也没讲）。这是「有课提过 ≠ 有课教」的一格，所以这一行**同时**带课号与那六个字；计数表下面有一句说明。`@amp-coexist` |
 | 2.4 GHz 的带宽上限 40 MHz | 已发布 · 802.11-2024 | 已建模 | `model/caps.ts#widthOf` 里 `link === '2g' ? 40 : 320`。**引擎建了，无课**。 |
 | 频段之间的路径损耗差 | 标准不规定 | 已建模 | `engine/simulation.ts#LINK_EXTRA_LOSS_DB`：2.4 GHz **−6.5 dB**、5 GHz 0、6 GHz **+1.2 dB**，**三个数都是本仿真器选的**。**三个数都被课程点到过名，而没有一个在主路径上**：6 GHz 的 +1.2 dB 在 `@radio-primer` 的 `deeper` 与 `sources` 里，2.4 GHz 的 −6.5 dB 在 `@mlo-gain` 的 `limits` 里（那条 `unmodelled` 还说明了它为什么是个常数而真实频段差随距离与墙变）。`@radio-primer`、`@mlo-gain` |
 | 第 15 章 DSSS 与第 16 章 HR/DSSS | 已发布 · 802.11-2024 | 未建模 | **范围决定。** 1/2/5.5/11 Mb/s 与它们的扩频波形不在这个引擎的粒度上；它带来的真正后果（混合 BSS 的保护机制）另记一行。 |
@@ -298,14 +304,14 @@ UWB 那份文档漏掉的那一行（§10.47），在这里是一条会打印出
 | 四个世代与它们的前导码（§21.3.8、§27.3.9、be §36.3.10） | 已发布 · be-2024 | 部分建模 | `engine/phy.ts#PHY_MODES` 的 `preambleNs`：20 / 40 / 44 / 48 µs。**44 与 48 是 Table 27-13 / 36-18 逐项相加后向上取整**（43.2 与 47.2），所以是「≈」不是「=」，代码注释自己说明了；**包扩展（packet extension）没建**。`@frame-anatomy-bytes`、`@airtime` |
 | MU PPDU 多出来的 SIG-B / EHT-SIG（§27.3.9、be §36.3.10） | 已发布 · be-2024 | 已建模 | `engine/phy.ts#PHY_MODES.he/eht` 的 `muExtraPreambleNs` = 4 000。`@ofdma-dl` |
 | 数据字段的 DFT 周期与一个符号的长度（Table 27-13 / Table 36-18） | 已发布 · be-2024 | 已建模 | `engine/phy.ts#TDFT_EHT_NS` = 12 800、`engine/phy.ts#symNsFor`；基础档下恰等于 `PHY_MODES[*].symNs` = 13 600。`@airtime` |
-| 数据字段的三个保护间隔（§27.1.1 / be §36.1.1，TXVECTOR 的 GI_TYPE） | 已发布 · be-2024 | 部分建模 | `engine/phy.ts#TGI_NS` = { base: 800, double: 1 600, quad: 3 200 }，而 `model/scenario.ts#GuardIntervalCfg` **只收 `double` 与 `quad`**：`base` 被 schema 明确拒掉，因为它逐字节等于不写这一节。**`'quad'` 有课（`@airtime` 的一个变体）；`'double'` 一个课程场景也没有**——`grep` 全部 251 个场景，`guardInterval.gi === 'double'` 零命中。所以这一行是「半个合法取值没课」。`@airtime` |
+| 数据字段的三个保护间隔（§27.1.1 / be §36.1.1，TXVECTOR 的 GI_TYPE） | 已发布 · be-2024 | 部分建模 | `engine/phy.ts#TGI_NS` = { base: 800, double: 1 600, quad: 3 200 }，而 `model/scenario.ts#GuardIntervalCfg` **只收 `double` 与 `quad`**：`base` 被 schema 明确拒掉，因为它逐字节等于不写这一节。**`'quad'` 有课（`@airtime` 的一个变体）；`'double'` 一个课程场景也没有**——`grep` 全部 256 个场景，`guardInterval.gi === 'double'` 零命中。所以这一行是「半个合法取值没课」。`@airtime` |
 | 4x LTF 跟着四倍保护间隔一起变长（§26.7.5 / be §35.7.5） | 已发布 · be-2024 | 已建模 | `engine/phy.ts#TLTF_2X_NS` = 6 400、`engine/phy.ts#TLTF_4X_NS` = 12 800、`engine/phy.ts#ltfExtraNs` = 8 800 ns；**引擎永不发出「3.2 µs 保护间隔配 2x LTF」这一组**。`@airtime` |
 | 空间流越多 LTF 越长（§19.3.9.4.6 HT-LTF definition、be §36.3.12.10 EHT-LTF，Table 36-43 给 1/2/4/4） | 已发布 · be-2024 | 未建模 | **未偿的债**，标准对齐程序的 F 项（「per-stream LTFs」）。`engine/phy.ts#preambleNsFor` 根本没有流数这个参数，于是四流的前导码和一流一样长。**但这个 departure 已经在课上了**：`@streams` 的主路径两处说它（「流数越多它就越长」与「无论跑几条流，前导码都按同样的方式发出去，所以它从不变短」），`sources` 还引了 Table 36-43 的 1、2、4、4。**所以这一行是债，不是洞**——课文诚实，引擎欠着。`@streams` |
 | 每个带宽的数据子载波数（Table 27-? / Table 36-?） | 已发布 · be-2024 | 已建模 | `engine/phy.ts#toneRatio` 背后两张表：HE/EHT 20→234、40→468、80→980、160→1960、320→3920；VHT 20→52…160→468。**所以 80 MHz 比四个 20 MHz 多**，保护带不重复。`@width` |
 | 每一级 MCS 的每符号比特数与灵敏度（Table 27-86 / Table 36-76） | 已发布 · be-2024 | 已建模 | `engine/phy.ts#PHY_MODES` 的 `ndbps` / `sensDbm`：HE 12 级、EHT 14 级（4096-QAM 的 MCS 12/13 灵敏度 −49 / −46 dBm）。`@mcs-ladder`、`@rate` |
 | 4096-QAM 作为一项能力开关（be §36） | 已发布 · be-2024 | 已建模 | `model/caps.ts` 的 `qam4k` 特性位，`GEN_FEATURES.eht` 独有；`model/presets.ts` 给苹果那几台**关掉**它，理由写在预设注释里（苹果公布的 2400 Mb/s 对应 MCS 11）。`@mcs-ladder`、`@streams` |
 | 带宽 20/40/80/160/320 与世代上限（§21、§27、be §36） | 已发布 · be-2024 | 已建模 | `model/caps.ts#MAX_WIDTH`：nonht 20、vht 160、he 160、eht 320；`model/caps.ts#negotiatedWidth` 取两端较窄。**40 MHz 与 320 MHz 各只有一两门课碰到**（40：`@width`、`@selectivity`；320：只有 `@selectivity`）。`@width` |
-| 空间流 1…4（§19.3.? 的 N_SS） | 已发布 · 802.11-2024 | 已建模 | `model/caps.ts#Nss`、`model/caps.ts#negotiatedNss` 取两端较小。**3 流在 251 个课程场景里一次也没出现过**（只有 1、2、4）——这一条小，但它就是「合法而没人演示」。`@streams` |
+| 空间流 1…4（§19.3.? 的 N_SS） | 已发布 · 802.11-2024 | 已建模 | `model/caps.ts#Nss`、`model/caps.ts#negotiatedNss` 取两端较小。**3 流在 256 个课程场景里一次也没出现过**（只有 1、2、4）——这一条小，但它就是「合法而没人演示」。`@streams` |
 | 混合 HE/EHT 的下行 MU PPDU 里 EHT 成员降到 MCS ≤ 11（§26.5） | 已发布 · 802.11-2024 | 已建模 | 标准对齐 A1：全员都是 EHT 才发 `eht` 格式，否则发 `he` 并把 EHT 成员的 MCS 夹到 11。`@ofdma-dl` |
 | LDPC（§10.15）与 STBC（§10.16） | 已发布 · 802.11-2024 | 未建模 | **范围决定。** 这个引擎的解调判决是一个门限，没有编码增益这一维；`grep -ri 'ldpc\|stbc' src/engine src/model` 零命中。 |
 | 信噪比到误包率的曲线（标准只给灵敏度，不给曲线） | 标准里查不到 | 未建模 | **未偿的债**，而且是标准对齐程序 B 项与第三阶段（今天叫「频段与物理层保真度」）共有的那一条：`engine/phy.ts#reqSinrDb` 是一个**硬门限**，不是 PER 曲线。零到一百的课程设计（`2026-09-18-zero-to-hero-curriculum-design.md` 的 Tier 3）写明这条要「from our own generated link-level tables」——也就是我们自己生成，标准里没有。**查了什么**：802.11-2024 全文检索 `channel model` 只 4 页，唯一写成模型的是 §19.3.12.1 的波束成形信道式 (19-62)，逐子载波给出；`delay spread` 只 3 页，全是保护间隔那同一句话（这一条的查证在 `docs/superpowers/specs/2026-10-03-multipath-design.md` §1.2）。 |
@@ -324,14 +330,14 @@ UWB 那份文档漏掉的那一行（§10.47），在这里是一条会打印出
 | 发射波束成形（§10.33）、天线选择（§10.34） | 已发布 · 802.11-2024 | 未建模 | **范围决定。** 引擎里一对节点之间只有一个电平数（`engine/propagation.ts#buildLinkTable`），没有信道矩阵，也就没有可成形的东西。已写进 `@streams` 的 `limits`。 |
 | 多链路操作（be §35.3） | 已发布 · be-2024 | 部分建模 | 建的是同时收发的那一种：5 GHz + 6 GHz 两台电台，一条队列（`model/caps.ts#nodeLinks` 对有 `mlo` 的设备返回 `['5g','6g']`，`model/caps.ts#virtualId` 给每条链路一个 MAC 实例）。**没建的是 EMLSR / NSTR 与 TID-到-链路映射**。`@mlo`、`@mlo-gain` |
 | EMLSR（单电台在两条链路上侦听，be §35.3.17） | 已发布 · be-2024 | 未建模 | **未偿的债**，标准对齐程序的 F 项。手机真正在做的就是这一种，而引擎建的是同时收发那一种——已写进 `@mlo` 的 `limits`（标准对齐 A18）。 |
-| 6 GHz 的信道编号与中心频率（§27 的 6 GHz 信道化） | 已发布 · 802.11-2024 | 已建模 | `model/scenario.ts#sixGhzChannelNo`（(中心 − 5950)/5）、`model/scenario.ts#DEFAULT_SIX_GHZ_CENTER_MHZ` = 5985（信道 7，80 MHz）、`model/scenario.ts#SIX_GHZ_GATE_MIN_WIDTH_MHZ` = 160。**引擎建了，无课**——`Scenario.sixGhzCenterMhz` 在 Wi-Fi 侧 251 个场景里零命中，只有五门 UWB 课设它（当共存干扰源用）。 |
+| 6 GHz 的信道编号与中心频率（§27 的 6 GHz 信道化） | 已发布 · 802.11-2024 | 已建模 | `model/scenario.ts#sixGhzChannelNo`（(中心 − 5950)/5）、`model/scenario.ts#DEFAULT_SIX_GHZ_CENTER_MHZ` = 5985（信道 7，80 MHz）、`model/scenario.ts#SIX_GHZ_GATE_MIN_WIDTH_MHZ` = 160。**引擎建了，无课**——`Scenario.sixGhzCenterMhz` 在 Wi-Fi 侧 256 个场景里零命中，只有五门 UWB 课设它（当共存干扰源用）。 |
 
 ## 八、传播、衰落与频率选择性（标准不规定的那一半）
 
 | 特性 | 标准依据 | 本仿真器 | 位置与证据 |
 | --- | --- | --- | --- |
 | 室内对数距离路径损耗 | 标准不规定 | 已建模 | `engine/propagation.ts#PL0_DB` = 46.7（5.2 GHz 一米自由空间）、`engine/propagation.ts#PL_EXP` = 3.0，**两个数都是本仿真器选的**。`@radio-primer` |
-| 逐墙衰减与门窗开口 | 标准不规定 | 已建模 | `engine/propagation.ts#WALL_LOSS_DB`：石膏板 5、砖 12、玻璃 3 dB，**三个数都是本仿真器选的**；`engine/propagation.ts#wallsCrossed` 让开口豁免整堵墙。三个数在 `@radio-primer` 的一条 `model-value` 与 `sources` 里都点了名，**而玻璃墙在 251 个课程场景里一次也没出现过**（53 门 Wi-Fi/AMP 课全部用砖墙，石膏板只有 `@capstone` 一门）；读者唯一能动它的地方是 `@noise-floor` 的链路预算挂件里那个缺省为 0 的滑块。`@radio-primer`、`@noise-floor` |
+| 逐墙衰减与门窗开口 | 标准不规定 | 已建模 | `engine/propagation.ts#WALL_LOSS_DB`：石膏板 5、砖 12、玻璃 3 dB，**三个数都是本仿真器选的**；`engine/propagation.ts#wallsCrossed` 让开口豁免整堵墙。三个数在 `@radio-primer` 的一条 `model-value` 与 `sources` 里都点了名，**而玻璃墙在 256 个课程场景里一次也没出现过**（54 门 Wi-Fi/AMP 课全部用砖墙，石膏板只有 `@capstone` 一门）；读者唯一能动它的地方是 `@noise-floor` 的链路预算挂件里那个缺省为 0 的滑块。`@radio-primer`、`@noise-floor` |
 | 对数正态阴影与它的相干时间 | 标准不规定 | 已建模 | `engine/fading.ts#FADING_DEFAULTS`：σ 4 dB、相干时间 100 ms，**都是本仿真器选的**（注释说明室内测量常见 3–8 dB，这里取中间一个数而不是声称某次测量）。`@fading` |
 | 小尺度衰落：Rayleigh 与 Rician | 标准不规定 | 已建模 | `engine/fading.ts#smallScaleDb`、`engine/fading.ts#RICIAN_K_DEFAULT_DB` = 6（`model`）。**缺省是 Rayleigh**，因为它是悲观那一侧。`@fading`、`@rate-fallback` |
 | 频率选择性：按 26 音调资源单元分格 | 已发布 · 802.11-2024（分格单位） + 标准不规定（每格的起伏） | 已建模 | `engine/selectivity.ts#RU26_TONES` = 26、`engine/selectivity.ts#RU26_PER_20MHZ` = 9、`engine/selectivity.ts#DF_EHT_KHZ` = 78.125；`engine/selectivity.ts#selEffSinrDb` 按容量合成一个等效信噪比。记录 `WIFI_SEL`。`@selectivity`、`@ru-diversity` |
@@ -348,7 +354,7 @@ UWB 那份文档漏掉的那一行（§10.47），在这里是一条会打印出
 | 九个业务档 | 标准不规定 | 已建模 | `model/scenario.ts#PROFILE_IDS`：video / voice / gaming / p2pvideo / backup / browsing / iot / saturated / idle。**九个档现在全部至少被一门课加载过**——`gaming` 那一个 2026-10-05 才补上（`@wan-rtt`、`@edca-tamper`）。`@edca`、`@roles-stack` |
 | 站点到站点经接入点转发 | 已发布 · 802.11-2024（§10.2 的 DS） | 已建模 | `model/scenario.ts` 的 `NodeCfg.p2pTarget` 配 `p2pvideo` 档。`@relay-hops`、`@roles-stack` |
 | 云端服务器：单向时延、抖动、处理时间 | 标准不规定（完全在 802.11 之外） | 已建模 | `model/scenario.ts#DEFAULT_SERVERS` 四个端点（RTT 20 / 12 / 40 / 25 ms，**都是本仿真器选的**）；记录 `WAN_TX` / `WAN_RX`，视图里是 `stats.appRtt`。`@wan-rtt` |
-| 四种服务器端点各自的取值 | 标准不规定 | 部分建模 | 机理只有一套（固定单向时延 + 均匀抖动 + 处理时间），四个 kind 只是四组数。**只有 `game` 被课程加载过**：`video` / `web` / `call` 在 251 个场景里零命中（七个编辑器家庭预设里有）。`@wan-rtt` |
+| 四种服务器端点各自的取值 | 标准不规定 | 部分建模 | 机理只有一套（固定单向时延 + 均匀抖动 + 处理时间），四个 kind 只是四组数。**只有 `game` 被课程加载过**：`video` / `web` / `call` 在 256 个场景里零命中（七个编辑器家庭预设里有）。`@wan-rtt` |
 | 每 250 ms 一次的 ping 回声，用来量应用往返 | 标准不规定 | 已建模 | `engine/traffic.ts` 的 `schedulePing` / `PING_PERIOD_NS`——**这就是一款游戏的 ping 计数器量的那个数**。`@wan-rtt` |
 
 ## 十、作弊目录（§9.4.2.27 的 EDCA 参数集与相关条款）
@@ -362,21 +368,27 @@ UWB 那份文档漏掉的那一行（§10.47），在这里是一条会打印出
 
 ## 十一、AMP（P802.11bp）那一块里建了而没课的
 
-AMP 的四门课挂在 Wi-Fi 第二阶段的 M10 下，所以它在这张表里。
-**这一节是本次普查里最大的一处空洞，而它此前没有被任何文档记下过。**
+AMP 的五门课挂在 Wi-Fi 第二阶段的 M10 下，所以它在这张表里。
+**这一节曾是本次普查里最大的一处空洞，而它此前没有被任何文档记下过。**
+**2026-10-05（切片 W5）补上了第五门课 `@amp-backscatter`**，于是这一节七行里的四行换了裁定。
 
-核法：遍历 251 个课程场景，查 `nodes[*].ampTag?.mode === 'backscatter'` 与
+核法：遍历全部课程场景，查 `nodes[*].ampTag?.mode === 'backscatter'` 与
 `nodes[*].ampAp?.backscatter`；再把每个场景跑 5 000 ms，统计记录类型。
-**两个计数都是 0，五种反向散射记录类型在 251 个场景上一条也没有出现过。**
+**写作当天两个计数都是 0，五种反向散射记录类型在 251 个场景上一条也没有出现过。**
+**重跑（256 个场景，W5 之后）：两个计数都是 5，就是那一课的基础场景与它的四个变体；
+五种记录类型在这 5 个场景上一共 7 943 条（`AMP_BS_BOOT` 2 710、`AMP_BS_REPLY` 1 933、
+`AMP_RFID` 1 483、`AMP_BS_COUNTER` 1 300、`AMP_INVENTORY` 517），别的 251 个场景仍然是 0。**
+这五种记录现在也都走过 `model/view.ts#applyRecord` 与 `ui/format.ts#fmtRecord`，
+由 `tests/course/amp-backscatter.test.ts` 逐种钉住——那是 W5 的前置检查，而它过了。
 
 | 特性 | 标准依据 | 本仿真器 | 位置与证据 |
 | --- | --- | --- | --- |
 | 主动发射（Active Tx）标签的轮询轮：触发、随机接入相位、调度相位 | 已发布 · 其他修正案（P802.11bp 草案，11-26/1519r5、11-26/1889r4） | 已建模 | `engine/ampAp.ts`、`engine/ampSta.ts`；记录 `AMP_ROUND` / `AMP_SLOT` / `AMP_ABOC` / `AMP_RESULT`。`@amp-intro`、`@amp-ppdu`、`@amp-slots` |
 | AMP 的轮固定在 AC_BK 上与 Wi-Fi 竞争 | 已发布 · 其他修正案（PAR） | 已建模 | `@amp-coexist` |
-| **反向散射标签（没有发射机，靠反射读写器的激励）** | 标准不规定（EPC Gen2 不是 IEEE 文档） | 已建模 | `model/scenario.ts#AmpTagMode` 的 `'backscatter'`、`model/scenario.ts#DEFAULT_AMP_BS`、`engine/ampBs.ts`（282 行）、`engine/ampBsSta.ts`（248 行）、`engine/ampReader.ts`（348 行）。**引擎建了，无课。** |
-| EPC Gen2 的清点轮：Q 个时隙取 2^Q、Select/Query/QueryRep、碰撞与空槽 | 标准不规定（EPC Gen2） | 已建模 | 记录 `AMP_RFID`（带 `Gen2Cmd`）、`AMP_BS_COUNTER`、`AMP_BS_REPLY`、`AMP_INVENTORY`（`slotsOffered` / `read` / `collisions` / `empties` / `complete`）。**引擎建了，无课。** |
-| 标签的上电门限与唤醒前导 | 标准不规定（11-25/0307r0 的 PEX_C/PEX_B） | 已建模 | `DEFAULT_AMP_BS`：`chargeDbm` 10、`bsDbm` 0、`wupMs` 1；记录 `AMP_BS_BOOT`（`powered` / `incidentDbm`）。**引擎建了，无课。** |
-| 清点成功之后跟一次 Read / 一次 Write | 标准不规定（EPC Gen2） | 已建模 | `DEFAULT_AMP_BS` 的 `read: true` / `write: false`（注释：一次 Write 要 3 ms 空口）。**引擎建了，无课。** |
+| **反向散射标签（没有发射机，靠反射读写器的激励）** | 标准不规定（EPC Gen2 不是 IEEE 文档） | 已建模 | `model/scenario.ts#AmpTagMode` 的 `'backscatter'`、`model/scenario.ts#DEFAULT_AMP_BS`、`engine/ampBs.ts`（282 行）、`engine/ampBsSta.ts`（248 行）、`engine/ampReader.ts`（348 行）。`@amp-backscatter` |
+| EPC Gen2 的清点轮：Q 个时隙取 2^Q、Select/Query/QueryRep、碰撞与空槽 | 标准不规定（EPC Gen2） | 已建模 | 记录 `AMP_RFID`（带 `Gen2Cmd`）、`AMP_BS_COUNTER`、`AMP_BS_REPLY`、`AMP_INVENTORY`（`slotsOffered` / `read` / `collisions` / `empties` / `complete`）。`@amp-backscatter`（那一课的一秒钟：40 个槽、23 读到、9 读不出、8 空） |
+| 标签的上电门限与唤醒前导 | 标准不规定（11-25/0307r0 的 PEX_C/PEX_B） | 已建模 | `DEFAULT_AMP_BS`：`chargeDbm` 10、`bsDbm` 0、`wupMs` 1；记录 `AMP_BS_BOOT`（`powered` / `incidentDbm`）。`@amp-backscatter`（上电距离 0.309 m 对读得到的 0.328 m，两条线差不到 2 cm） |
+| 清点成功之后跟一次 Read / 一次 Write | 标准不规定（EPC Gen2） | 已建模 | `DEFAULT_AMP_BS` 的 `read: true` / `write: false`（注释：一次 Write 要 3 ms 空口）。`@amp-backscatter`，**而它同时钉住了一条「允许但空转」**：`write: true` 在缺省的 `txopMs: 4` 下逐条记录与 `write: false` 完全相同（一帧 Write 的 PPDU 2 964 µs，排不进 4 ms），改到 `txopMs: 10` 就排进去了，所以按 `docs/inert-config-contract.md` 第二、三步**钉住而不是拒掉** |
 | 两层标签共用一个读写器时轮流 | 标准不规定 | 已建模 | `engine/mac.ts` 的 `AmpTiers` 与 `pollsTaken`。**引擎建了，无课。** |
 | 读写器的两种读法 `readMode: 'inline' \| 'twoPhase'` | 已发布 · 其他修正案（P802.11bp 草案） | 已建模 | `model/scenario.ts#AmpApCfg` 的 `readMode`。`@amp-slots`（用到了这个字段） |
 
@@ -512,35 +524,38 @@ brief 说「`docs/` 下只有四份文档，Wi-Fi 侧一份覆盖表都没有」
 `b22dec2` 是它的父提交。两者的差异是 `docs/` 下一个文件，不动 `src/` 也不动 `tests/`，
 **所以这张表里每一个数都不受影响**；记在这里只是因为「基线是哪一笔」这件事以后会被引用。
 
-## 十四、「引擎建了，无课」的十三条，汇总
+## 十四、「引擎建了，无课」的九条，汇总
 
 这是这张表真正的产出。按「建出来有多大一块」排，不按条号。
 
-**十三条，而不是上面计数表里那 8 行**，差别要说清：
-**整行写着「引擎建了，无课」的有 8 行**（第 1–6 与第 8、10 条）；
+**从十三条降到九条：切片 W5（2026-10-05）那一门 `@amp-backscatter` 一次收掉了四条**
+（原第 1–4 条，反向散射标签本身、EPC Gen2 清点轮、上电门限、清点之后的 Read/Write），
+**而第 5 条没收掉**——那一课只放反向散射标签，`ampTiers` 的两层轮流一个场景也没演示。
+下面的编号重排过，所以引用这一节时要连日期一起引。
+
+**九条，而不是上面计数表里那 4 行**，差别要说清：
+**整行写着「引擎建了，无课」的有 4 行**（第 1、2、4、6 条）；
 另外五条**藏在一个「部分建模」或「已建模」的行里**——
-第 7 条在那一行 ERP 时序里（SIFS 教了、DIFS 没教，所以整行是「部分建模」）、
-第 9 条只在 `@mlo-gain` 的 `limits` 里被点名（不是主路径）、
-第 11–13 条是三个**合法取值**，它们所在的那一行有课，而那个取值没有。
+第 3 条在那一行 ERP 时序里（SIFS 教了、DIFS 没教，所以整行是「部分建模」）、
+第 5 条只在 `@mlo-gain` 的 `limits` 里被点名（不是主路径）、
+第 7–9 条是三个**合法取值**，它们所在的那一行有课，而那个取值没有。
 **把它们并进去是对的，但要知道它们在表格里找不到那六个字。**
+第 1 条是第三种情形，也要说清：那一行**既带课号又带那六个字**，因为
+`@amp-coexist` 的摄像头真的把一台站点放在了 `'2g'` 上，而那一课不教这条链路。
 
 | # | 它是什么 | 引擎 | 这张表的哪一节 |
 | --- | --- | --- | --- |
-| 1 | 反向散射标签本身 | `engine/ampBs.ts`、`engine/ampBsSta.ts`、`model/scenario.ts#DEFAULT_AMP_BS` | 十一 |
-| 2 | EPC Gen2 清点轮（Q 时隙、碰撞、空槽、完成与否） | `engine/ampReader.ts`，记录 `AMP_RFID` / `AMP_INVENTORY` | 十一 |
-| 3 | 标签的上电门限与唤醒前导 | 记录 `AMP_BS_BOOT` | 十一 |
-| 4 | 清点之后的 Read / Write | `DEFAULT_AMP_BS` 的 `read` / `write` | 十一 |
-| 5 | 两层标签共用一个读写器时轮流 | `engine/mac.ts#AmpTiers` | 十一 |
-| 6 | 一台 Wi-Fi 站点运行在 2.4 GHz 上 | `model/caps.ts#nodeLinks`，编辑器下拉框 | 五 |
-| 7 | 2.4 GHz 的 DIFS 28 µs / AckTimeout 39 µs / EIFS 88 µs | `engine/phy.ts#ERP_2G` | 五 |
-| 8 | 2.4 GHz 的 40 MHz 带宽上限 | `model/caps.ts#widthOf` | 五 |
-| 9 | 频段之间的 −6.5 / 0 / +1.2 dB 之差（只在 `@mlo-gain` 的 `limits` 里被点名） | `engine/simulation.ts#LINK_EXTRA_LOSS_DB` | 五 |
-| 10 | 6 GHz 的信道编号与中心频率 | `model/scenario.ts#sixGhzChannelNo` | 七 |
-| 11 | 保护间隔的 `'double'` 档（合法取值，零个课程场景） | `engine/phy.ts#TGI_NS.double` | 六 |
-| 12 | 3 条空间流（合法取值，零个课程场景） | `model/caps.ts#Nss` | 六 |
-| 13 | 玻璃墙（合法材质，零个课程场景） | `engine/propagation.ts#WALL_LOSS_DB.glass` | 八 |
+| 1 | 一台 Wi-Fi 站点运行在 2.4 GHz 上（只有 `@amp-coexist` 的摄像头载过，而那一课不教它） | `model/caps.ts#nodeLinks`，编辑器下拉框 | 五 |
+| 2 | 两层标签共用一个读写器时轮流 | `engine/mac.ts#AmpTiers` | 十一 |
+| 3 | 2.4 GHz 的 DIFS 28 µs / AckTimeout 39 µs / EIFS 88 µs | `engine/phy.ts#ERP_2G` | 五 |
+| 4 | 2.4 GHz 的 40 MHz 带宽上限 | `model/caps.ts#widthOf` | 五 |
+| 5 | 频段之间的 −6.5 / 0 / +1.2 dB 之差（只在 `@mlo-gain` 的 `limits` 里被点名） | `engine/simulation.ts#LINK_EXTRA_LOSS_DB` | 五 |
+| 6 | 6 GHz 的信道编号与中心频率 | `model/scenario.ts#sixGhzChannelNo` | 七 |
+| 7 | 保护间隔的 `'double'` 档（合法取值，零个课程场景） | `engine/phy.ts#TGI_NS.double` | 六 |
+| 8 | 3 条空间流（合法取值，零个课程场景） | `model/caps.ts#Nss` | 六 |
+| 9 | 玻璃墙（合法材质，零个课程场景） | `engine/propagation.ts#WALL_LOSS_DB.glass` | 八 |
 
-**第 11、12、13 条是三条「允许但空转」的变体**，形状和 `docs/inert-config-contract.md`
+**第 7、8、9 条是三条「允许但空转」的变体**，形状和 `docs/inert-config-contract.md`
 讲的那一类很像但**不是同一件事**：它们在引擎里**不空转**（打开它们记录流会变），
 只是**课程从不打开它们**。那份契约管的是 schema 收得下而引擎读不到的配置；
 这三条要么该有一门课点它，要么该在某门课的 `limits` 里被点名说「本课不动它」。
@@ -667,27 +682,34 @@ brief 说「`docs/` 下只有四份文档，Wi-Fi 侧一份覆盖表都没有」
 
 ## 十七、汉字上限那一件事（结论在 backlog，证据在这里）
 
-| 量 | 实测（2026-10-05，`67dabf8`） | 断言在哪 | 余量 |
-| --- | --- | --- | --- |
-| 全课程主路径汉字 | **188 798** | `tests/course/readability.test.ts`：> 170 000 且 < 190 000 | **1 202 字** |
-| 分钟数合计 | **1 825** | 同文件，**等式** | 0 |
-| `limits` 债务棘轮 | 292 | 同文件，≤ 292 | **0** |
-| 课数 | 86（Wi-Fi 49、AMP 4、UWB 33） | — | — |
-| 场景数（含 variants） | **251** | `tests/fixtures/lesson-hashes.json` 共 **258** 条 = 251 + 7 个编辑器家庭 | — |
+**这一节原来的标题前提已经没有了。** 写作当天全课程主路径汉字有一条
+`> 170 000 且 < 190 000` 的上限，余量 1 202 字，而「装不下一门新课」是那条上限说的。
+**切片 W0（2026-10-05）把它换掉了**：逐课主路径改成区间 (700, 4 400)，总和那条降为
+`> 100 000 且 < 300 000` 的健全区间，而**那个手写的总字数被删掉了**。
+所以这一节现在记的不是上限，是四个会随每一门新课变的数，连同它们各自的断言。
 
-**一门新课的典型主路径是 2 000–3 000 字**（全课程 86 门的均值 2 195 = 188 798 / 86；
-最近五门新课：`uwb-ancillary-request` 2 990、`wan-rtt` 2 053、`edca-tamper` 3 246、
-`ru-diversity` 4 030、`uwb-ancillary` 3 766）。**所以 1 202 字装不下任何一门新课。**
+| 量 | 实测（2026-10-05，切片 W5 之后） | 断言在哪 | 余量 |
+| --- | --- | --- | --- |
+| 全课程主路径汉字 | **191 293** | `tests/course/readability.test.ts`：逐课 (700, 4 400)，总和 > 100 000 且 < 300 000 | 逐课最紧的是 `@ru-diversity` 4 030（距上沿 370） |
+| 分钟数合计 | **1 850** | 同文件，**等式** | 0 |
+| `limits` 债务棘轮 | 292 | 同文件，≤ 292 | **0** |
+| 课数 | 87（Wi-Fi 49、AMP 5、UWB 33） | 同文件，`toBe(87)`，**精确** | — |
+| 模块数 | 30 | 同文件，`toBe(30)`，**精确**（W5 属已存在的 M10，所以这个数没动） | — |
+| 场景数（含 variants） | **256** | `tests/fixtures/lesson-hashes.json` 共 **263** 条 = 256 + 7 个编辑器家庭 | — |
+
+**一门新课的典型主路径是 2 000–3 000 字**（全课程 87 门的均值 2 199 = 191 293 / 87；
+最近五门新课：`amp-backscatter` 2 495、`uwb-ancillary-request` 2 990、`wan-rtt` 2 053、
+`edca-tamper` 3 246、`ru-diversity` 4 030）。**所以逐课那个区间的中间三分之一正好是一门新课。**
 
 另有两条紧在眼前，和上限无关但和分钟数那条等式有关——**它们是 `lessonMinutes` 的五分钟档位**：
 
 | 课 | raw 分钟 | 到下一档还剩 | 后果 |
 | --- | --- | --- | --- |
-| `@rate` | 22.50 | **1 字** | 加一个字它就从 20 跳到 25，1 825 那条等式变红 |
+| `@rate` | 22.50 | **1 字** | 加一个字它就从 20 跳到 25，分钟数合计那条等式（今天是 1 850）变红 |
 | `@uwb-reply-time` | 27.48 | 4 字 | 同上 |
-| `@uwb-m2m` | 27.48 | 6 字 | 同上 |
+| `@uwb-m2m` | 27.48 | 5 字 | 同上 |
 | `@ofdma-ul` | 22.46 | 9 字 | 同上 |
-| `@rts-cts` | 12.45 | 12 字 | 同上 |
+| `@rts-cts` | 12.45 | 11 字 | 同上 |
 | `@streams` | 27.39 | **25 字** | 同上（brief 说的是 46 字，实测 25——算法是 `(5·(k+0.5) − raw) × 220`，`k = round(raw/5)`） |
 
 **而「超过 30 分钟」这件事要分清**：`lessonMinutes` 四舍五入到 5，没有任何夹紧；
