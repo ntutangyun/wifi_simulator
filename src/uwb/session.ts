@@ -140,7 +140,9 @@ export interface RoundPlan {
   ancillary: boolean
   /** How many consecutive slots one ancillary message is segmented across; see
    * `UwbSessionCfg.ancillaryFrames`'s own doc comment for the bound the scenario schema already
-   * checks this against (the round's own slot count). Meaningful only when `ancillary` is true. */
+   * checks this against (whether the **block** holds the round the appended window makes — slice 3d
+   * removed the tighter `≤ plan.slots` one, which stated the wrong mechanism). Meaningful only when
+   * `ancillary` is true. */
   ancillaryFrames: number
   /** Set exactly when `mode` is 'mms': everything an MMS pair round is laid out from, resolved
    * once here so that no device re-derives it — the two ends of a round must agree on the slot

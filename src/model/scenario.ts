@@ -491,9 +491,13 @@ export interface UwbSessionCfg {
    * gives for why its count is a scenario setting rather than something derived). Default 1 — one
    * frame, not segmented — so an existing scenario reads back unchanged.
    *
-   * The schema's `superRefine` caps this at the round's own slot count (`uwbSlotsPerTag`), never a
-   * literal: a message cannot be segmented across more slots than the round it rides in actually
-   * has.
+   * **What bounds it is the block, not the round.** The window these frames ride in is *appended*
+   * after the ranging phase (`uwb/session.ts#blockSlots`), so it takes nothing from the round's own
+   * `slots`; what it can overrun is the block, and the schema's `superRefine` checks exactly that —
+   * `slots + mmrcrSlots + uwbAncillarySlots(...)` per round, times the tag count, against
+   * `blockRstu / slotRstu`. A tighter `ancillaryFrames ≤ slots` ceiling used to sit beside it and
+   * was removed in slice 3d: its message stated the wrong mechanism, and in the shipped lesson hall
+   * it left 95 free slots unreachable.
    */
   ancillaryFrames: number
   /** `mode: 'mms'` only: the fragment train and the narrowband control radio of P802.15.4ab.
@@ -1523,9 +1527,10 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
       // same discipline as every other switch in this block. standard §10.35.1 (ancillary) /
       // §10.35.2.1 (ancillaryFrames' own RAICT IE, Frames Remaining) / model (ancillaryFrames
       // itself: a scenario setting, not something derived — see `UwbSessionCfg`'s own doc
-      // comment). `ancillaryFrames`'s upper bound depends on the round's own slot count, which
-      // this object alone cannot compute, so it is checked in the scenario's own `superRefine`
-      // rather than with a literal `.max()` here.
+      // comment). `ancillaryFrames`'s upper bound is whether the **block** holds the round the
+      // appended window makes, which depends on `blockRstu`, `slotRstu`, the anchor count and the
+      // tag count — none of which this object alone can see — so it is checked in the scenario's
+      // own `superRefine` rather than with a literal `.max()` here.
       ancillary: z.boolean().default(false),
       ancillaryFrames: z.number().int().min(1).default(1),
       // A session saved before P802.15.4ab existed here carries no MMS settings at all, and
@@ -2321,23 +2326,23 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
             mmsSlotsPerMs(sc.uwb.slotRstu), sc.uwb.replyTime,
             sc.uwb.sp3 && mode === 'twr' ? { rrtt: sc.uwb.srrr.rrtt } : undefined,
           )
-          // Ranging ancillary information's own upper bound (task-2-brief.md's own requirement):
-          // the message is segmented across consecutive slots *within* this round (design §4.2),
-          // so `ancillaryFrames` cannot ask for more of them than the round actually has — read
-          // off `slots` just computed above, never a literal, and the same reading both schedules
-          // give it (`slots` already reads `sc.uwb.schedule`, so a contention round's own, smaller
-          // or larger, slot count is what bounds it there, not the time-scheduled round's).
-          // Scoped to 'twr', the only mode `ancillary` is not already refused in outright (the
-          // four mode rules above) — every other mode's own refusal already tells the reader to
-          // turn `ancillary` off, so this is the one further issue a 'twr' scenario can still get.
-          if (ancillary && mode === 'twr' && ancillaryFrames > slots) {
-            ctx.addIssue({
-              code: z.ZodIssueCode.custom,
-              path: ['uwb'],
-              message: `一轮测距只有 ${slots} 个时隙，装不下 ${ancillaryFrames} 帧的辅助信息消息——`
-                + `它要连续占住本轮的 ${ancillaryFrames} 个时隙：请把 ancillaryFrames 调到 ${slots} 以内`,
-            })
-          }
+          // **The `ancillaryFrames ≤ slots` rule that used to sit here is gone, and the reason is
+          // that its own message stated the wrong mechanism** (slice 3d, design §7.4 precondition
+          // one). It read 「它要连续占住本轮的 N 个时隙」 — that the message takes N of the ranging
+          // phase's own slots. It does not: the ancillary window is **appended** after the ranging
+          // phase, which `uwb/session.ts#blockSlots` says in so many words (`plan.slots`, *plus*
+          // the window-closing MMRCM slots, *plus* the ancillary message's own slots). Nothing is
+          // taken from `slots` at all.
+          //
+          // So the real bound is 「does the block hold the round」, and that is already the budget
+          // rule below — `roundSlots = slots + mmrcrSlots + ancillarySlotCount` against
+          // `blockRstu / slotRstu`, times the tag count. Keeping a second, tighter ceiling meant
+          // that in the shipped lesson hall (4 anchors, `slots` 5, a block that holds 100 slots)
+          // only 1…5 frames were legal while 95 slots stood free — so a feature whose whole
+          // subject is 「how many slots does this message get」 had ±1 slot of reachable range.
+          // Removing it is a **relaxation**: every scenario that parsed before still parses, and
+          // the editor's own cap (`uwb/ui/UwbSessionFields.tsx#uwbAncillaryFramesCapFor`) reads
+          // the block budget alone for the same reason.
           // mmrcr's own slot (design §3.3, `uwb/session.ts#blockCarriesMmrcm`/`mmrcmInitiators`):
           // one, the tag this round belongs to, on the block that closes its validity window. Every
           // block shares one fixed length (`blockRstu`), so the capacity check below has to budget

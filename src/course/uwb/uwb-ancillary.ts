@@ -65,8 +65,9 @@ import {
 } from '../../uwb/phy'
 import { ancillarySlots, blockCarriesAncillary, blockSlots, roundPlan } from '../../uwb/session'
 
-/** Anchors of every scene here. Four, so the round's own slot count leaves room for a message of
- * `FRAMES` frames — the scenario schema caps `ancillaryFrames` at the round's slots. */
+/** Anchors of every scene here. Four: three time differences for the position fix, and the one
+ * headcount every other UWB lesson of this hall uses. (The ancillary window is appended after the
+ * ranging phase, so the anchor count is not what bounds `FRAMES` — the block is.) */
 export const ANCHORS = 4
 /** Frames one ancillary message is segmented across. Four, so Frames Remaining runs 3, 2, 1, 0 —
  * the shortest countdown in which a MIDDLE frame can go missing, which is the lesson's own case. */
@@ -363,7 +364,7 @@ export const uwbAncillary: Lesson = {
   limits: [
     {
       kind: 'unmodelled',
-      text: '一条消息分几帧是场景配置，不是上层算出来的。本仿真器没有一条 MAC 原语——MCPS 的也好、别的也好，一条都没有建，所以也没有一个上层来持有一条「比一帧长」的消息并算出它该分几帧；帧数直接是会话上的一个整数（model/scenario.ts 的 ancillaryFrames，上限是这一轮自己的时隙数，由 uwb/phy.ts 的 uwbSlotsPerTag 算出）。这和有效轮次那个字段是同一种情形：真实设备里这个数来自上层交给 MAC 的那份内容有多长，而这里它是配置，所以也看不到「上层给了一条装不下的消息」这类错配。',
+      text: '一条消息分几帧是场景配置，不是上层算出来的。本仿真器没有一条 MAC 原语——MCPS 的也好、别的也好，一条都没有建，所以也没有一个上层来持有一条「比一帧长」的消息并算出它该分几帧；帧数直接是会话上的一个整数（model/scenario.ts 的 ancillaryFrames，上限是这一块装不装得下这一轮，由 uwb/phy.ts 的 uwbSlotsPerTag 与 uwbAncillarySlots 一起算出）。这和有效轮次那个字段是同一种情形：真实设备里这个数来自上层交给 MAC 的那份内容有多长，而这里它是配置，所以也看不到「上层给了一条装不下的消息」这类错配。',
     },
     {
       kind: 'model-value',

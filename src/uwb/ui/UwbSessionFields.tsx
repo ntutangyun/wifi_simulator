@@ -89,17 +89,29 @@ export function uwbFixedReplyRstuFor(session: UwbSessionCfg, anchors: number): n
  * `docs/superpowers/specs/2026-10-02-ancillary-design.md`) — `null` outside two-way ranging, where
  * the exchange has no end to run between at all, so the question does not apply.
  *
- * Two independent ceilings, read off the exact calls `scenario.ts`'s own `superRefine` makes
- * (never retyped): the message cannot ask for more frames than the round has slots
- * (`uwbSlotsPerTag`), and the appended window cannot push the block past what it holds
+ * **One ceiling, and it is the block's** — read off the exact calls `scenario.ts`'s own
+ * `superRefine` makes, never retyped: the appended window cannot push the block past what it holds
  * (`uwbMmrcmSlots`'s own appended slots counted first, since a window-closing block spends both
- * batches at once). A contention schedule's own window (`contentionSlots`) is a **floor** on the
- * second ceiling rather than a third term: `uwb/phy.ts#uwbAncillarySlots` prices the appended
- * window at `max(ancillaryFrames, contentionSlots)` there, so no `ancillaryFrames` value at all is
- * legal once `contentionSlots` alone already overruns the block — the floor check below catches
- * that case before the cap is computed, rather than returning a cap no value can actually reach.
+ * batches at once), and a block has to hold one such round **per tag**, which is the schema's
+ * `tags > fits` rule written the other way round.
+ *
+ * **There used to be a second, tighter ceiling — `ancillaryFrames ≤ uwbSlotsPerTag(...)` — and
+ * slice 3d removed it from the schema, so it is gone from here too.** It stated the wrong
+ * mechanism (the window is appended after the ranging phase, not taken out of it) and it was the
+ * binding one in every shipped scene, which is why the tag count had never mattered here: 5 was
+ * below the block budget whatever the headcount. With it gone the headcount is load-bearing, so it
+ * is a parameter rather than an assumption — a cap of 95 printed beside a two-tag session the
+ * schema refuses at 45 would be this panel's own drift, the class slice 3d was asked to close.
+ *
+ * A contention schedule's own window (`contentionSlots`) is a **floor** on the ceiling rather than
+ * a second term: `uwb/phy.ts#uwbAncillarySlots` prices the appended window at
+ * `max(ancillaryFrames, contentionSlots)` there, so no `ancillaryFrames` value at all is legal once
+ * `contentionSlots` alone already overruns the block — the floor check below catches that case
+ * before the cap is computed, rather than returning a cap no value can actually reach.
  */
-export function uwbAncillaryFramesCapFor(session: UwbSessionCfg, anchors: number): number | null {
+export function uwbAncillaryFramesCapFor(
+  session: UwbSessionCfg, anchors: number, tags: number = 1,
+): number | null {
   if (session.mode !== 'twr') return null
   const slots = uwbSlotsPerTag(
     session.method, anchors, session.schedule, session.contentionSlots, session.mode,
@@ -107,11 +119,14 @@ export function uwbAncillaryFramesCapFor(session: UwbSessionCfg, anchors: number
     session.sp3 ? { rrtt: session.srrr.rrtt } : undefined,
   )
   const mmrcrSlots = uwbMmrcmSlots(session.mode, anchors, session.mmrcr)
-  const blockBudget = Math.floor(session.blockRstu / session.slotRstu) - slots - mmrcrSlots
+  // One round per tag, the same way the schema's `tags > fits` rule reads it. `Math.max(1, tags)`
+  // because a scene can hold anchors and no tag at all while the panel is being filled in, and a
+  // division by zero there would print `Infinity` as a cap.
+  const rounds = Math.max(1, tags)
+  const blockBudget = Math.floor(session.blockRstu / (rounds * session.slotRstu)) - slots - mmrcrSlots
   const floor = session.schedule === 'contention' ? session.contentionSlots : 0
   if (blockBudget < floor) return null
-  const cap = Math.min(slots, blockBudget)
-  return cap >= 1 ? cap : null
+  return blockBudget >= 1 ? blockBudget : null
 }
 
 /**
@@ -152,7 +167,9 @@ export function uwbAncillaryFramesCapFor(session: UwbSessionCfg, anchors: number
  * It returns the empty patch when nothing is owed, so a commit carries no field it does not
  * change — the same discipline every patch above keeps.
  */
-export function uwbSessionRepair(session: UwbSessionCfg, anchors: number): Partial<UwbSessionCfg> {
+export function uwbSessionRepair(
+  session: UwbSessionCfg, anchors: number, tags: number = 1,
+): Partial<UwbSessionCfg> {
   const patch: Partial<UwbSessionCfg> = {}
   if (session.replyTime === 'fixed') {
     const fixedReplyRstu = uwbFixedReplyRstuFor(session, anchors)
@@ -162,7 +179,7 @@ export function uwbSessionRepair(session: UwbSessionCfg, anchors: number): Parti
     if (session.mode !== 'twr' || session.sp3) {
       patch.ancillary = false
     } else {
-      const cap = uwbAncillaryFramesCapFor(session, anchors)
+      const cap = uwbAncillaryFramesCapFor(session, anchors, tags)
       if (cap !== null && session.ancillaryFrames > cap) patch.ancillaryFrames = cap
     }
   }
@@ -836,7 +853,7 @@ export function UwbSessionFields(
    */
   const onChange = (patch: Partial<UwbSessionCfg>): void => {
     const next: UwbSessionCfg = { ...session, ...patch }
-    emit({ ...patch, ...uwbSessionRepair(next, anchors) })
+    emit({ ...patch, ...uwbSessionRepair(next, anchors, tags) })
   }
   // Many-to-many counts every UWB node as a participant (design §5) — the anchor/tag split is a
   // drawing choice in this mode, not a headcount for its own round, so the plan line below must
@@ -886,7 +903,7 @@ export function UwbSessionFields(
   // reconciliation uses, so neither control can offer what the commit would then correct.
   const ancillaryHintKey = uwbAncillaryHintKey(session.mode, session.sp3)
   const ancillaryLive = ancillaryHintKey === 'uwbAncillaryHint'
-  const ancillaryFramesCap = uwbAncillaryFramesCapFor(session, anchors)
+  const ancillaryFramesCap = uwbAncillaryFramesCapFor(session, anchors, tags)
   return (
     <div>
       <div style={{ color: 'var(--dim)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>

@@ -626,10 +626,12 @@ export function uwbAncillaryBytes(numberPresent: boolean, framesRemainingPresent
  *   session's own `contentionSlots` — the one number this session already states for "how wide is
  *   a window devices draw from" — never a literal of its own.
  *
- * `Math.max` rather than `contentionSlots` alone: the scenario schema caps `ancillaryFrames` at the
- * round's own slot count, which in a contention round is `1 + contentionSlots`, so a message *one*
- * fragment longer than the draw window is a legal configuration. There the window is the message
- * and the draw has a single position — degenerate, documented, and not broken.
+ * `Math.max` rather than `contentionSlots` alone: a message longer than the draw window is a legal
+ * configuration — the only ceiling on `ancillaryFrames` is whether the block holds the round
+ * (slice 3d removed the `ancillaryFrames ≤ slots` one; see `UwbSessionCfg.ancillaryFrames`) — and
+ * there the window is the message and the draw has a single position: degenerate, documented, and
+ * not broken. Below that, every frame count from 1 to `contentionSlots` gets the same window, which
+ * is an interval this engine pins rather than refuses (`tests/engine/ancillary-request-inert.test.ts`).
  *
  * 0 whenever the exchange is off, and 0 in every mode the schema refuses it for, so that a session
  * written before this slice is laid out slot for slot as it was.

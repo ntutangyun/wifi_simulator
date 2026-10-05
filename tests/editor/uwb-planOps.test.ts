@@ -1523,6 +1523,13 @@ describe('UwbSessionFields as a closed system: no reachable sequence of its own 
     return WALK_TAGS * WALK_ANCHORS * roundPlan(mms, WALK_ANCHORS).slots * maxSlot
   })()
 
+  /** More ancillary frames than the block holds slots at the walk's **narrowest** slot, so no
+   * (method, schedule, replyTime, slotRstu) the walk can stand in leaves it legal and
+   * `uwbSessionRepair` always has something to retarget. Derived from the two fixtures above for
+   * the reason slice 3d had to touch this row at all: a literal here stopped clamping the day the
+   * cap stopped being the round's own slot count. */
+  const ANC_FRAMES_PAST_EVERY_CAP = Math.floor(WALK_BLOCK_RSTU / Math.min(...WALK_SLOTS)) + 1
+
   /** One control of the panel: its label for a failure trail, the panel's own live/greyed
    * predicate, and the patch its `onChange` issues. A patch of `null` is a value the control
    * refuses to commit at all (`uwbReplyTimePatch`), i.e. no transition. */
@@ -1631,11 +1638,18 @@ describe('UwbSessionFields as a closed system: no reachable sequence of its own 
       live: (s) => uwbAncillaryHintKey(s.mode, s.sp3) === 'uwbAncillaryHint',
       patch: () => ({ ancillary }),
     })),
-    // 1 is the floor every schema rule leaves standing; 20 is well past every cap this walk's four
-    // anchors can reach (the largest is DS-TWR deferred's `2·4+3 = 11`), so every value in between
-    // is exercised by `uwbSessionRepair` retargeting it down as `mode`/`method`/`schedule`/
-    // `replyTime` move around it. `disabled={!session.ancillary}` is the panel's own gate.
-    ...[1, 20].map((ancillaryFrames): Op => ({
+    // 1 is the floor every schema rule leaves standing; `ANC_FRAMES_PAST_EVERY_CAP` is past every
+    // cap this walk can reach, so every value in between is exercised by `uwbSessionRepair`
+    // retargeting it down as `mode`/`method`/`schedule`/`replyTime`/`slotRstu` move around it.
+    // `disabled={!session.ancillary}` is the panel's own gate.
+    //
+    // **It used to be the literal 20, and slice 3d made that a value nothing clamps.** The schema's
+    // `ancillaryFrames ≤ slots` ceiling is gone (it stated the wrong mechanism — the ancillary
+    // window is appended after the ranging phase, not taken out of it), so the only ceiling left is
+    // the block's, and at this walk's narrowest slot that is 891 rather than 11. Computed from the
+    // walk's own two fixtures rather than written down again, so a change to either cannot leave
+    // this op quietly unclamped a second time.
+    ...[1, ANC_FRAMES_PAST_EVERY_CAP].map((ancillaryFrames): Op => ({
       label: `ancillaryFrames=${ancillaryFrames}`,
       live: (s) => s.ancillary,
       patch: () => ({ ancillaryFrames }),
@@ -1756,10 +1770,10 @@ describe('UwbSessionFields as a closed system: no reachable sequence of its own 
     expect(reachable.some((r) => r.s.mode === 'mms')).toBe(true)
     // The walk actually turns the two new dimensions, and retargets rather than drops the frame
     // count: some reachable state carries `ancillary: true` with `ancillaryFrames` clamped down
-    // from the 20 the op asked for (every cap at WALK_ANCHORS is well under that).
+    // from the `ANC_FRAMES_PAST_EVERY_CAP` the op asked for (no cap this walk reaches is that big).
     expect(reachable.some((r) => r.s.ancillary)).toBe(true)
-    expect(reachable.some((r) => r.s.ancillary && r.s.ancillaryFrames > 1 && r.s.ancillaryFrames < 20))
-      .toBe(true)
+    expect(reachable.some((r) => r.s.ancillary && r.s.ancillaryFrames > 1
+      && r.s.ancillaryFrames < ANC_FRAMES_PAST_EVERY_CAP)).toBe(true)
     // SSBD (task 5): the walk does turn the checkbox on while in MMS mode.
     expect(reachable.some((r) => r.s.mms.ssbd !== null)).toBe(true)
   })
@@ -1962,15 +1976,36 @@ describe('UwbSessionFields as a closed system: no reachable sequence of its own 
     })
 
     it('uwbSessionRepair retargets ancillaryFrames, never deletes it, when method/schedule/replyTime shrink the cap it was legal under', () => {
-      // Legal at method 'ds' (cap = uwbSlotsPerTag('ds', 4, 'time', …, 'embedded') = 10): committed
-      // at the cap, then the method moves to 'ss' (cap drops to 5) with nothing re-checking
-      // ancillaryFrames on the way — the exact shape of the five sites task 2's report named.
-      const dsCap = uwbAncillaryFramesCapFor({ ...base, method: 'ds' }, WALK_ANCHORS)!
-      const afterMode: UwbSessionCfg = { ...base, method: 'ss', ancillaryFrames: dsCap }
+      // **The direction reversed in slice 3d, and that is the whole content of this edit.** The cap
+      // is now the block's budget less the round, so a LONGER round leaves FEWER appended slots:
+      // ss → ds used to raise the cap (5 → 10) and now lowers it (95 → 90). So the shrinking move
+      // is committed at method 'ss' and then turning the method up, not down — same five sites,
+      // same mechanism, opposite sign.
+      const ssCap = uwbAncillaryFramesCapFor({ ...base, method: 'ss' }, WALK_ANCHORS)!
+      const afterMode: UwbSessionCfg = { ...base, method: 'ds', ancillaryFrames: ssCap }
+      expect(uwbAncillaryFramesCapFor(afterMode, WALK_ANCHORS)!, 'a ds round is longer, so it leaves'
+        + ' fewer appended slots — if this ever stops being true the test above it is vacuous')
+        .toBeLessThan(ssCap)
       expect(uwbSessionIssue(scene(afterMode))).not.toBeNull() // the merge alone is illegal…
       const repaired = uwbSessionRepair(afterMode, WALK_ANCHORS)
       expect(repaired).toEqual({ ancillaryFrames: uwbAncillaryFramesCapFor(afterMode, WALK_ANCHORS) })
       expect(uwbSessionIssue(scene({ ...afterMode, ...repaired }))).toBeNull() // …the repair fixes it
+    })
+
+    it('the cap is the block budget per tag, so a second tag halves it — the term slice 3d made load-bearing', () => {
+      // Before slice 3d the round's own slot count was the binding ceiling in every shipped scene,
+      // so this function never needed the headcount: 5 was under the block budget whatever it was.
+      // With that ceiling gone the headcount decides, and a cap printed without it would be this
+      // panel lying by a factor of the tag count.
+      const one = uwbAncillaryFramesCapFor(base, WALK_ANCHORS, 1)!
+      const two = uwbAncillaryFramesCapFor(base, WALK_ANCHORS, 2)!
+      expect(one).toBe(95)
+      expect(two).toBe(45) // floor(100 / 2) - 5, not floor(100) - 5
+      // and the schema is the referee, at the boundary, in a two-tag scene
+      const twoTags = newUwbTag(walkBase, { x: 2, y: 2 }).sc
+      expect(twoTags.nodes.filter((n) => n.uwb?.role === 'tag')).toHaveLength(2)
+      expect(uwbSessionIssue({ ...twoTags, uwb: { ...base, ancillaryFrames: two } })).toBeNull()
+      expect(uwbSessionIssue({ ...twoTags, uwb: { ...base, ancillaryFrames: two + 1 } })).not.toBeNull()
     })
 
     it('blockRstu and slotRstu — two of the three raw inputs with no patch function of their own — each retarget ancillaryFrames through the same repair, without zeroing out the feature', () => {
@@ -1980,7 +2015,9 @@ describe('UwbSessionFields as a closed system: no reachable sequence of its own 
       // window leaves no legal frame count at all, not merely a smaller one).
       const contentionBase: UwbSessionCfg = { ...base, schedule: 'contention' }
       const atCap: UwbSessionCfg = { ...contentionBase, ancillaryFrames: uwbAncillaryFramesCapFor(contentionBase, WALK_ANCHORS)! }
-      expect(atCap.ancillaryFrames).toBe(9) // the round's own slot count at the session defaults
+      // 91 = the block's 100 slots less the contention round's own 9, where before slice 3d this
+      // was 9 — the round's own slot count, which was then the smaller of the two ceilings.
+      expect(atCap.ancillaryFrames).toBe(91)
       expect(uwbSessionIssue(scene(atCap))).toBeNull()
 
       // blockRstu shrunk: the block-fit budget drops with it, and the repair — not the raw input's
