@@ -25,7 +25,21 @@ import { W, layoutDiagram, textBox, type Shape, type TimingLane } from '../../sr
 
 const MS = 1_000_000
 const US = 1_000
-const RUN_NS = 300 * MS
+/**
+ * 400 ms, raised from 300 on slice W1.
+ *
+ * Why it moved: this scene fires exactly one `INTERNAL_COLLISION`, at 362.6426 ms, and step
+ * 6 of the procedure is the step that teaches internal collisions. At 300 ms the test could
+ * not see it, so the step's closing half-sentence ("every station here runs a single class,
+ * so this step never fired in this scene") was pinned by an assertion that the count is
+ * ZERO — a captor holding a false sentence in place.
+ *
+ * It was false for the READER the whole time, which is the part worth keeping: the browser's
+ * recording is not this constant. `Player.load` asks the worker for `LOOKAHEAD_NS` = 2 s of
+ * sim time up front, so the reader's timeline has always held 362.6426 ms. The 300 ms hid
+ * the record from the test alone.
+ */
+const RUN_NS = 400 * MS
 
 const recs = (): TLRecord[] => runOf(edca, undefined, RUN_NS)
 const draws = (rs: TLRecord[], node: string) => ofType(rs, 'BACKOFF_DRAW').filter((r) => r.node === node)
@@ -38,7 +52,10 @@ const lane = (label: string): TimingLane => edcaAifsTiming().lanes.find((l) => l
 const runSc = (sc: ReturnType<typeof edca.scenario>): TLRecord[] => [...new Simulation(sc).runUntil(RUN_NS).records]
 
 // The contract every migrated lesson owes, written once in tests/course/kit.ts.
-// The run is 300 ms: the backup's first frame, which jump 1 finds, is 55 ms in.
+// It re-checks every jump predicate against this window; jump 1 is the 362.6426 ms internal
+// collision, so the window has to reach it. (The old comment here described a jump 1 that
+// finds "the backup's first frame at 55 ms" — that jump left for `edca-cost` on 2026-09-25
+// and the comment stayed behind pointing at an index that had nothing in it.)
 lessonShapeSuite(edca, { runNs: RUN_NS })
 
 describe('edca · the lesson’s own scene', () => {
@@ -56,10 +73,63 @@ describe('edca · the lesson’s own scene', () => {
     expect(sc.nodes.map((n) => [n.id, n.profiles[0]])).toEqual([
       ['ap', 'idle'], ['sta-1', 'voice'], ['sta-2', 'saturated'], ['sta-3', 'backup'],
     ])
-    // step 6's closing sentence, "every station here runs a single class, so this step never
-    // fired in this scene"
+    // step 6's opening clause, "the three stations here each run a single class": still true,
+    // and still the reason the step cannot fire on any of THEM. What it is no longer allowed
+    // to be is the reason the step never fires at all — see the next test.
     for (const n of sc.nodes) expect(n.profiles).toHaveLength(1)
-    expect(ofType(recs(), 'INTERNAL_COLLISION')).toHaveLength(0)
+  })
+
+  /**
+   * Step 6's closing sentences, and the whole of slice W1.
+   *
+   * The access point is the one device in this room holding more than one EDCAF, because it
+   * queues a return leg for the caller and one for the uploader while running `['idle']`
+   * itself — so it is the only device on which two of its own queues can reach zero in the
+   * same slot. The lesson used to say the step "never fired in this scene" and gave "every
+   * station runs a single class" as the reason; the clause was true and the inference was
+   * not, because the access point is not one of the stations.
+   */
+  it('fires exactly one internal collision, on the access point, at 362.6426 ms', () => {
+    const rs = recs()
+    const ics = ofType(rs, 'INTERNAL_COLLISION')
+    expect(ics).toHaveLength(1)
+    // "一次，在 362.6426 ms：语音赢，尽力而为那条记一次重传"
+    expect(ics[0].t / MS).toBe(362.6426)
+    expect(ics[0].node).toBe('ap')
+    const ac = (name: string) => EDCA_PARAMS.findIndex((p) => p.name === name)
+    expect(ics[0].winnerAc).toBe(ac('VO'))
+    expect(ics[0].loserAc).toBe(ac('BE'))
+
+    // "手里同时握着语音和尽力而为两条队列，而两条就够了": the access point's own EDCAFs, and
+    // the fact that it is the ONLY device here with more than one. Two is the whole condition.
+    const acsOf = (node: string) =>
+      new Set(ofType(rs, 'BACKOFF_DRAW').filter((r) => r.node === node).map((r) => r.ac))
+    expect([...acsOf('ap')].sort()).toEqual([ac('BE'), ac('VO')].sort())
+    for (const n of ['sta-1', 'sta-2', 'sta-3']) expect(acsOf(n).size, n).toBe(1)
+
+    // "窗口从 127 翻到 255" — the losing queue takes the external-collision treatment: its
+    // window doubles and it draws again, both inside the same nanosecond.
+    const cws = ofType(rs, 'CW_CHANGE').filter((r) => r.node === 'ap' && r.ac === ac('BE'))
+    expect(cws.filter((r) => r.t < ics[0].t).at(-1)!.cw).toBe(127)
+    expect(cws.find((r) => r.t === ics[0].t)!.cw).toBe(255)
+    // `node` matters here and the first draft of this line left it out: the uploader is AC_BE
+    // too and happens to draw in the same nanosecond, with a window of 15. The assertion read
+    // 15 and the mistake was the test's, not the engine's.
+    expect(ofType(rs, 'BACKOFF_DRAW')
+      .find((r) => r.t === ics[0].t && r.node === 'ap' && r.ac === ac('BE'))!.cw).toBe(255)
+    // and 255 is on the way to BE's CWmax, not at it, so "doubling towards CWmax" is honest
+    expect(EDCA_PARAMS[ac('BE')].cwMax).toBe(1023)
+
+    // "它一微秒空口时间（airtime）也不花": the loser emits nothing. The only transmission
+    // starting at that instant is the winner's.
+    const txs = ofType(rs, 'TX_START').filter((r) => r.t === ics[0].t)
+    expect(txs.map((r) => [r.node, r.frame.kind])).toEqual([['ap', 'data']])
+    expect(ofType(rs, 'TXOP_START').find((r) => r.t === ics[0].t)!.ac).toBe(ac('VO'))
+
+    // the jump the prose sends the reader to lands on exactly this record
+    const j = edca.jumps[1]
+    expect(j.label).toBe('接入点上的内部碰撞')
+    expect(rs.filter(j.find)).toEqual(ics)
   })
 })
 
