@@ -12,7 +12,7 @@
  * Legacy nodes run a single pseudo-EDCAF with DIFS parameters (exact v1 DCF).
  */
 import type { FrameDesc, MuPart } from '../model/frames'
-import { ampduPsduBytes, dataPsduBytes } from '../model/frames'
+import { psduPlan } from '../model/frames'
 import type { EmitFn, MacStateName } from '../model/records'
 import type { AmpApCfg, TamperCfg } from '../model/scenario'
 import type { Ns } from '../model/types'
@@ -25,7 +25,7 @@ import { EventQueue } from './events'
 import {
   ACK_BYTES, BA_BYTES, CF_END_BYTES, CTS_BYTES, DCF_PARAMS,
   EDCA_PARAMS, MAX_AMPDU_MPDUS, MAX_PPDU_NS, OFDM_5G, PHY_MODES,
-  QOS_HDR_BYTES, FCS_BYTES, RTS_BYTES, SHORT_RETRY_LIMIT,
+  RTS_BYTES, SHORT_RETRY_LIMIT,
   GI_MODES, TGI_NS,
   aifsNs, ctrlRespRateFor, ctrlRespRateForMode, mcsRateMbps, multiStaBaBytes, preambleNsFor,
   symNsFor, triggerBytes, toneRatio, txTimeModeNs, txTimeNs,
@@ -154,6 +154,13 @@ interface Awaiting {
   msdus: Msdu[]
   wasRts: boolean
   aggBytes: number
+  /**
+   * Whether the PPDU this is waiting on is an A-MPDU, decided once by `psduPlan` and carried
+   * rather than re-derived. The CTS path used to re-derive it as `aw.msdus.length > 1` — a
+   * fourth spelling of the predicate, correct only because `claim` is capped at one MSDU when
+   * the link cannot aggregate. Carrying it costs nothing and removes the invariant.
+   */
+  aggregate: boolean
 }
 
 interface MuDlState {
@@ -372,6 +379,19 @@ export class WifiMac implements PhyListener {
   /** A QoS Control field needs a QoS station at both ends (§9.2.4.5). */
   private qosWith(peer: string): boolean {
     return this.cfg.qosWith?.(peer) ?? this.cfg.edca
+  }
+
+  /**
+   * Whether this link can carry an A-MPDU at all: the peer's negotiated capability and a PHY
+   * format that has one.
+   *
+   * Three sites spelled this out, and the three spellings had drifted — `transmitFor` tested a
+   * `mode` local, `planBurstNs` re-read `modeForPeer`, `exchangeNs` folded the MSDU count into
+   * the same expression (design 2026-10-07-amsdu §2.2). The count is not part of "can"; it
+   * belongs to `psduPlan`, which is why it is not here.
+   */
+  private canAggregate(peer: string): boolean {
+    return this.cfg.ampduWith(peer) && this.cfg.modeForPeer(peer) !== 'nonht'
   }
 
   /** AC → EDCAF index (legacy has one EDCAF for everything). */
@@ -654,7 +674,7 @@ export class WifiMac implements PhyListener {
     // ignores it for every mode but `nonht`, and `nonht` never has a guard interval, so the
     // control-response path below stays on §10.6's non-HT reference rate either way.
     const mbps = mcsRateMbps(mode, mcs, this.frameGiNs(mode) ?? TGI_NS.base)
-    const useAmpdu = this.cfg.ampduWith(peer) && mode !== 'nonht'
+    const useAmpdu = this.canAggregate(peer)
     // The whole exchange — RTS/CTS if the first PPDU needs it, the PPDU, SIFS
     // and its ACK/BlockAck — must end inside the TXOP (§10.23.2.9). The head
     // MSDU alone may always start a TXOP (AcQueues.claim).
@@ -673,14 +693,10 @@ export class WifiMac implements PhyListener {
       return
     }
 
-    const aggregate = useAmpdu && msdus.length > 1
-    const qos = this.qosWith(peer)
-    const psdu = aggregate
-      ? ampduPsduBytes(msdus.map((m) => m.bytes))
-      : qos
-        ? QOS_HDR_BYTES + msdus[0].bytes + FCS_BYTES
-        : dataPsduBytes(msdus[0].bytes)
-    const respTime = this.airNs(aggregate ? BA_BYTES : ACK_BYTES, ctrlRespRateForMode(mode, mcs, mbps))
+    const plan = psduPlan(msdus.map((m) => m.bytes), { qos: this.qosWith(peer), ampdu: useAmpdu, mode })
+    const aggregate = plan.aggregate
+    const psdu = plan.psduBytes
+    const respTime = this.airNs(plan.respBytes, ctrlRespRateForMode(mode, mcs, mbps))
 
     const prot = this.cfg.txopProtection ?? 'single'
     const txopCapable = this.cfg.txop && this.cfg.edca && e.params.txopLimitNs > 0
@@ -708,7 +724,7 @@ export class WifiMac implements PhyListener {
         durationFieldNs: this.inflate(protectBurst ? announcedEnd - (t + rtsTime) : 3 * this.T.sifsNs + ctsTime + dataTime + respTime),
         txTimeNs: rtsTime, ac: this.acTag(e),
       }
-      this.awaiting = { kind: 'cts', ac: ei, peer, msdus, wasRts: true, aggBytes: psdu }
+      this.awaiting = { kind: 'cts', ac: ei, peer, msdus, wasRts: true, aggBytes: psdu, aggregate }
       this.beginTxop(e, t)
       this.announcedEndNs = announcedEnd
       this.transmitFrame(rts, true)
@@ -716,7 +732,7 @@ export class WifiMac implements PhyListener {
     }
 
     const frame = this.buildDataFrame(e, peer, msdus, psdu, mode, mcs, mbps, aggregate, respTime, width, nss)
-    this.awaiting = { kind: aggregate ? 'ba' : 'ack', ac: ei, peer, msdus, wasRts: false, aggBytes: psdu }
+    this.awaiting = { kind: aggregate ? 'ba' : 'ack', ac: ei, peer, msdus, wasRts: false, aggBytes: psdu, aggregate }
     if (!inTxopBurst) this.beginTxop(e, t)
     this.transmitFrame(frame, true)
   }
@@ -735,7 +751,7 @@ export class WifiMac implements PhyListener {
       const peer = queue[i].dst
       // continueOrRelease's fit check: the next exchange must end inside the TXOP
       if (t + this.T.sifsNs + this.exchangeNs(peer, [queue[i].bytes], false).totalNs > txopEndNs) break
-      const useAmpdu = this.cfg.ampduWith(peer) && this.cfg.modeForPeer(peer) !== 'nonht'
+      const useAmpdu = this.canAggregate(peer)
       const bytes: number[] = [queue[i].bytes]
       let j = i + 1
       while (useAmpdu && j < queue.length && queue[j].dst === peer && bytes.length < MAX_AMPDU_MPDUS) {
@@ -799,13 +815,11 @@ export class WifiMac implements PhyListener {
     // `NONHT_REF_MBPS` and ignores this argument, and for `nonht` there is no guard interval to
     // read. Passing a repriced rate here would be a change that provably does nothing.
     const mbps = mcsRateMbps(mode, mcs)
-    const aggregate = this.cfg.ampduWith(peer) && mode !== 'nonht' && msduBytes.length > 1
-    const psdu = aggregate
-      ? ampduPsduBytes(msduBytes)
-      : this.qosWith(peer) ? QOS_HDR_BYTES + msduBytes[0] + FCS_BYTES : dataPsduBytes(msduBytes[0])
+    const plan = psduPlan(msduBytes, { qos: this.qosWith(peer), ampdu: this.canAggregate(peer), mode })
+    const psdu = plan.psduBytes
     const dataNs = this.airModeNs(mode, psdu, mcs, { widthMhz: this.cfg.widthForPeer(peer), nss: this.cfg.nssForPeer(peer) })
     const respRate = ctrlRespRateForMode(mode, mcs, mbps)
-    let totalNs = dataNs + this.T.sifsNs + this.airNs(aggregate ? BA_BYTES : ACK_BYTES, respRate)
+    let totalNs = dataNs + this.T.sifsNs + this.airNs(plan.respBytes, respRate)
     if (firstInTxop && (burstProtection || psdu > this.cfg.rtsThresholdBytes)) {
       totalNs += this.airNs(RTS_BYTES, respRate) + this.T.sifsNs + this.airNs(CTS_BYTES, ctrlRespRateFor(respRate)) + this.T.sifsNs
     }
@@ -946,12 +960,12 @@ export class WifiMac implements PhyListener {
       const mcs = modeAll === 'he' ? Math.min(11, this.cfg.mcsForPeer(peer)) : this.cfg.mcsForPeer(peer)
       const nss = this.cfg.nssForPeer(peer)
       const opts = mumimo ? { mu: true, widthMhz: muWidth, nss } : { mu: true, ruFraction: frac, widthMhz: muWidth, nss }
-      const airtime = (bytes: number[]) => this.airModeNs(modeAll, ampduPsduBytes(bytes), mcs, opts)
+      const airtime = (bytes: number[]) => this.airModeNs(modeAll, psduPlan(bytes, { mu: true }).psduBytes, mcs, opts)
       if (airtime([this.queues.headBytes(ei, peer) ?? 0]) > durCap) continue
       const msdus = this.queues.claim(ei, peer, MAX_AMPDU_MPDUS, (m, claimed) =>
         airtime([...claimed.map((x) => x.bytes), m.bytes]) <= durCap)
       if (!msdus.length) continue
-      const bytes = ampduPsduBytes(msdus.map((m) => m.bytes))
+      const bytes = psduPlan(msdus.map((m) => m.bytes), { mu: true }).psduBytes
       parts.push({
         dst: peer, src: this.nodeId, bytes, mcs, mbps: mcsRateMbps(modeAll, mcs, this.frameGiNs(modeAll) ?? TGI_NS.base),
         msduIds: msdus.map((m) => m.id), msduBytes: msdus.map((m) => m.bytes), mpduCount: msdus.length, ac,
@@ -1516,7 +1530,7 @@ export class WifiMac implements PhyListener {
             const nss = this.cfg.nssForPeer(aw.peer)
             // Same reasoning as in `transmitFor`: this one reaches `FrameDesc.mbps`.
             const mbps = mcsRateMbps(mode, mcs, this.frameGiNs(mode) ?? TGI_NS.base)
-            const aggregate = aw.msdus.length > 1
+            const aggregate = aw.aggregate
             const respTime = this.airNs(aggregate ? BA_BYTES : ACK_BYTES, ctrlRespRateForMode(mode, mcs, mbps))
             const frame2 = this.buildDataFrame(e, aw.peer, aw.msdus, aw.aggBytes, mode, mcs, mbps, aggregate, respTime, width, nss)
             this.awaiting = { ...aw, kind: aggregate ? 'ba' : 'ack', wasRts: false }
@@ -1558,12 +1572,12 @@ export class WifiMac implements PhyListener {
       const nss = this.cfg.nssForPeer(trigger.src)
       const budget = maxPsduBytesFor(mode, mcs, frac, dur - this.T.signalExtNs, width, nss, this.cfg.giNs?.())
       const msdus = this.queues.claim(ac, null, MAX_AMPDU_MPDUS, (m, claimed) =>
-        ampduPsduBytes([...claimed.map((x) => x.bytes), m.bytes]) <= budget)
+        psduPlan([...claimed.map((x) => x.bytes), m.bytes], { mu: true }).psduBytes <= budget)
       if (!msdus.length) {
         this.resumeAll()
         return
       }
-      const bytes = ampduPsduBytes(msdus.map((m) => m.bytes))
+      const bytes = psduPlan(msdus.map((m) => m.bytes), { mu: true }).psduBytes
       const frame: FrameDesc = {
         kind: 'data', src: this.nodeId, dst: trigger.src, bytes, mbps: mcsRateMbps(mode, mcs, this.frameGiNs(mode) ?? TGI_NS.base),
         durationFieldNs: 0, txTimeNs: dur, // padded to the trigger's target duration

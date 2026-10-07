@@ -1,4 +1,7 @@
-import { AMPDU_DELIMITER_BYTES, FCS_BYTES, MAC_HDR_BYTES, QOS_HDR_BYTES, type PhyMode } from '../engine/phy'
+import {
+  ACK_BYTES, AMPDU_DELIMITER_BYTES, BA_BYTES, FCS_BYTES, MAC_HDR_BYTES, QOS_HDR_BYTES,
+  type PhyMode,
+} from '../engine/phy'
 import type { AmpBsUlKbps, Gen2Cmd, Gen2Reply } from '../engine/ampBs'
 import type { UwbInfo } from '../uwb/frames'
 import type { Ns } from './types'
@@ -252,4 +255,59 @@ export function ampduPsduBytes(msduBytesList: number[]): number {
   return msduBytesList.reduce((s, b, i) => i === msduBytesList.length - 1
     ? s + AMPDU_DELIMITER_BYTES + QOS_HDR_BYTES + b + FCS_BYTES
     : s + ampduSubframeBytes(b), 0)
+}
+
+/** What a run of claimed MSDUs costs as one PSDU, and what frame answers it. */
+export interface PsduPlan {
+  /** Octets the PHY has to carry. */
+  psduBytes: number
+  /** True when this PSDU is an A-MPDU — the same bit that picks the response frame. */
+  aggregate: boolean
+  /** The response this PPDU solicits: a compressed BlockAck, or an ACK. */
+  respBytes: number
+}
+
+/**
+ * The two shapes a transmit path can be in when it asks for a plan.
+ *
+ * The union exists so the MU/TB path cannot pass arguments that are then ignored: a legal
+ * argument that provably changes nothing is how a refactor hides a second decision inside the
+ * first one. `{ mu: true }` takes no `qos`, no `ampdu` and no `mode` because it reads none.
+ */
+export type PsduOpts =
+  /** Single-user path: an A-MPDU only if the link can carry one AND there is more than one MSDU. */
+  | { mu?: undefined; qos: boolean; ampdu: boolean; mode: PhyMode }
+  /**
+   * DL MU and trigger-based UL: this engine builds an A-MPDU unconditionally here, even for a
+   * single MSDU (`buildMuParts` and `respondToTrigger` have always called `ampduPsduBytes`
+   * straight, with no length or mode test), so the MSDU count must NOT be consulted — doing so
+   * would reprice every one-MSDU RU from b+34 to b+30.
+   */
+  | { mu: true }
+
+/**
+ * How claimed MSDUs become one PSDU: aggregate or not, how many octets, and which response.
+ *
+ * **This is one decision that used to be written out five times** — `transmitFor`,
+ * `exchangeNs`, `planBurstNs`, `buildMuParts` and `respondToTrigger` in `engine/mac.ts`, each
+ * with its own copy of the three-way byte arithmetic, and `ampduPsduBytes` reached ten times
+ * because every one of them also tried the sum inside a `fits` closure. The "is this an
+ * aggregate" predicate had drifted into three spellings across those five
+ * (design 2026-10-07-amsdu §2.2), which is the real reason a second aggregation layer is
+ * expensive here: the decision had no name, so every new value for it cost five edits.
+ *
+ * It is a pure extraction. No branch, no constant and no order of evaluation is new; the
+ * evidence is the 263 timeline hashes plus a record-by-record diff of 6 686 785 records over
+ * every shipped scenario, which came back byte-identical.
+ */
+export function psduPlan(msduBytes: number[], opts: PsduOpts): PsduPlan {
+  const asAmpdu = (): PsduPlan =>
+    ({ psduBytes: ampduPsduBytes(msduBytes), aggregate: true, respBytes: BA_BYTES })
+  if (opts.mu) return asAmpdu()
+  if (opts.ampdu && opts.mode !== 'nonht' && msduBytes.length > 1) return asAmpdu()
+  return {
+    psduBytes: opts.qos ? QOS_HDR_BYTES + msduBytes[0] + FCS_BYTES : dataPsduBytes(msduBytes[0]),
+    aggregate: false,
+    respBytes: ACK_BYTES,
+  }
 }
