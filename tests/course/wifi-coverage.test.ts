@@ -28,11 +28,15 @@
  * test behind it.
  *
  * **Every number this file compares is read out of the document, not written here.** The document
- * states its own totals — 120 rows, 106 citations over 93 symbols, 54 lesson ids, and twelve
- * per-verdict counts — so the assertion is stated-against-measured, and adding a row means
- * updating the figure the document already shows a reader. That is the opposite of the defect this
- * slice was opened for: a hand-written number in a comment that goes stale before the thing it
- * describes. No figure in this file can go stale, because there is no figure in this file.
+ * states its own totals — a row total, a citation total over a distinct-symbol total, a lesson-id
+ * total, and twelve per-verdict counts — so every assertion is stated-against-measured, and adding
+ * a row means updating the figure the document already shows a reader. That is the opposite of the
+ * defect this slice was opened for: a hand-written number in a comment that goes stale before the
+ * thing it describes. No figure in this file can go stale, because there is no figure in this file.
+ *
+ * It said that about itself on 2026-10-05 **while naming four of those totals right here, in this
+ * paragraph** — and by 2026-10-08 all four were wrong. They are gone now rather than corrected,
+ * because a corrected one would only be waiting to rot again.
  *
  * **What it still cannot catch,** the same blind spot the UWB file writes down: a feature being
  * changed out from under a row. `ERP_2G` can stop carrying a 10 µs SIFS tomorrow, the export still
@@ -208,5 +212,44 @@ describe(`${DOC}'s checks can fail`, () => {
     const planted = tableRows('| 分片与重组 | 已发布 · 802.11-2024 | 大部分建模 | **范围决定。** |')
     expect(planted).toHaveLength(1)
     expect(planted.filter((cells) => COVERAGE.includes(prefixOf(cells[2])))).toEqual([])
+  })
+
+  /**
+   * The hole the splitter itself was. An evidence cell may hold a `grep` command, a `grep`
+   * alternation is a pipe, and inside a Markdown cell that pipe is written `\|`. Splitting on bare
+   * pipes gave such a row five cells, the four-column filter then dropped it, and **a row that was
+   * never checked printed exactly like a row that passed** — out of the row total and out of both
+   * disciplines above. Three rows of this document sat in that hole until 2026-10-08.
+   *
+   * So the row planted here is one that SHOULD fail: 未建模 with no verdict, and an escaped pipe in
+   * the cell. If the splitter ever regresses, this test does not go red on a count — it goes red on
+   * the catcher being gone, which is the failure worth naming.
+   */
+  it('a row with an escaped pipe in its evidence cell is a row, and goes through the disciplines',
+    () => {
+      const line = '| 种的假行（§99） | 已发布 · 802.11-2024 | 未建模 | '
+        + `证据格里一个裁定也没有；\`grep -ri 'planted\\|probe' src\` 零命中。 |`
+      const [cells, ...rest] = tableRows(line)
+      expect(rest, 'one line is one row').toEqual([])
+      expect(cells, 'four cells, and the escape resolved to the pipe a reader sees').toEqual([
+        '种的假行（§99）', '已发布 · 802.11-2024', '未建模',
+        `证据格里一个裁定也没有；\`grep -ri 'planted|probe' src\` 零命中。`,
+      ])
+      // it reaches the discipline rather than vanishing before it
+      expect(COVERAGE).toContain(prefixOf(cells[2]))
+      expect(disciplineViolations([cells])).toEqual([
+        '种的假行（§99）: 未建模 but the evidence cell says neither 范围决定 nor 未偿的债',
+      ])
+    })
+
+  it('escaping a pipe does not let a separator or a three-column row in', () => {
+    // The other half: letting the escaped pipe through must not widen the net. A separator row is
+    // still a separator, and the §16 A–G table is still three columns — that one USED to be
+    // mis-split into four and was only kept out of the data rows by the vocabulary filter.
+    expect(tableRows('| --- | --- | --- | --- |')).toEqual([])
+    expect(tableRows(`| **B** PHY 保真 | 没有 | \`grep -rn 'own TX\\|ownTx'\` 零命中 |`))
+      .toEqual([])
+    // and the real document's A–G table is out of the data rows for that reason, not by vocabulary
+    expect(rows.filter((r) => r[0].includes('PHY 保真'))).toEqual([])
   })
 })
