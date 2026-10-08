@@ -273,8 +273,9 @@ describe('lessonTexts · the census over the whole course', () => {
   const ordered = COURSE_ORDER.flatMap((id) => LESSONS.filter((l) => l.id === id))
   const all = ordered.flatMap((l) => lessonTexts(l))
   const count = (s: Section): number => all.filter((t) => t.section === s).length
-  const chars = (s: Section): number => all.filter((t) => t.section === s)
-    .reduce((n, t) => n + zhChars(t.text), 0)
+  // There was a `chars(section)` helper here — the section TOTAL — and it went with the band
+  // it served on 2026-10-08. Both layers below are per lesson, so neither has a corpus sum to
+  // ask for; keeping the helper would leave the next author the one tool this change removed.
   const sum = (f: (l: Lesson) => number): number => ordered.reduce((n, l) => n + f(l), 0)
 
   it('walks all 88 lessons and nothing else', () => {
@@ -351,32 +352,167 @@ describe('lessonTexts · the census over the whole course', () => {
     expect(role('prose') + role('label') + role('figure') + role('value') + role('cell')).toBe(all.length)
   })
 
-  it('holds the course inside the character ranges it was measured at', () => {
-    // Re-measured 2026-10-05 after the built-but-untaught slice, which added `wan-rtt`
-    // and `edca-tamper`: two whole lessons is exactly the structural change these ranges
-    // are supposed to notice, and five of the fourteen went out or within fifty characters
-    // of going out (`variantLabel` 959 against a ceiling of 950 was the one that turned
-    // red; `numbers` landed at 61 680 against 62 000 and `tryThis` at 9 451 against 9 500).
-    // Re-centred rather than nudged, because a ceiling a prose edit can reach teaches the
-    // next author to edit the number instead of reading it. The measurement behind each
-    // pair is the current total, and the band is about ±6 % of it — wide enough for
-    // ordinary prose editing, narrow enough that a module arriving or leaving moves one
-    // out. Current: title 946, why 11 120, outcomes 6 593, terms 7 368, picture 53 252,
-    // numbers 61 671, deeper 26 076, sources 17 099, limits 49 499, observe 10 372,
-    // tryThis 9 451, quiz 25 186, variantLabel 959, jumpLabel 2 188.
-    const RANGES: readonly (readonly [Section, number, number])[] = [
-      ['title', 850, 1100], ['why', 10000, 12000], ['outcomes', 6000, 7200],
-      ['terms', 6800, 7900], ['picture', 50000, 56500], ['numbers', 57000, 65500],
-      ['deeper', 24000, 28000], ['sources', 15500, 18500], ['limits', 45000, 52500],
-      ['observe', 9500, 11000], ['tryThis', 8500, 10000], ['quiz', 23000, 27000],
-      ['variantLabel', 750, 1050], ['jumpLabel', 2000, 2400],
-    ]
-    for (const [s, lo, hi] of RANGES) {
-      expect(chars(s), `${s}: ${chars(s)} Chinese characters`).toBeGreaterThanOrEqual(lo)
-      expect(chars(s), `${s}: ${chars(s)} Chinese characters`).toBeLessThanOrEqual(hi)
+  /**
+   * **Why these are not one more re-centred band.** Until 2026-10-08 this was a single `it`
+   * holding fourteen `[lo, hi]` pairs over the SECTION TOTALS, re-centred by hand each time a
+   * lesson arrived. Slice W3 found it with **2 characters of headroom on `tryThis` and 6 on
+   * `variantLabel`** — a ceiling the next wording tweak would have reached. The tempting fix is
+   * the one the previous slice used: re-centre all fourteen at ±6 % again. That is the wrong
+   * answer, and the argument against it is W0's own, in `readability.test.ts` where it retired
+   * the corpus total:
+   *
+   * > A check that is designed to go red on every edit teaches one habit, and it is not reading
+   * > it: it teaches updating the number without looking at what moved. The most expensive
+   * > defect in this repository is a green check that cannot prove the thing its name claims,
+   * > and a check that is red every week is the same coin's other face.
+   *
+   * > A ceiling that no longer fits one of the things it was sized in is not measuring that
+   * > thing.
+   *
+   * **The defect is the same one W0 diagnosed, one level down.** A section total is a sum over
+   * a corpus that grows, so a fixed band around it is a budget the course spends — and once it
+   * is spent, the band reports on the budget rather than on the prose. W0 replaced the
+   * main-path total with a shape that does not move when the course grows (exact structural
+   * counts plus a PER-LESSON band). **These fourteen never got that treatment; this is the
+   * other half of W0.**
+   *
+   * So the sums are gone, and three layers stand where one did, each answering a different
+   * question. They were each verified against a defect only that layer can see
+   * (`.superpowers/sdd/w3-ranges-report.md` records the three red outputs):
+   *
+   *  1. **per lesson — WHICH lesson.** Self-calibrating: the band is a multiple of the
+   *     section's own mean, computed from the corpus every run, so there is no number here to
+   *     go stale. Catches a lesson whose section collapsed or ballooned, and names it.
+   *  2. **the mean per lesson — DID EVERYTHING DRIFT.** The layer above cannot see this: its
+   *     band has to be wide enough to hold `@rts-cts` and `@ru-diversity` at once, so eighty-
+   *     eight lessons each losing a sentence stays inside it while the corpus quietly shrinks.
+   *     A mean divides the corpus size out, so it does not move when the course grows — which
+   *     is exactly what the totals could not do.
+   *  3. **the counts — IS ANYTHING MISSING.** Already asserted exactly, one `it` above
+   *     (`counts one string per thing the lesson data says there is`). Not duplicated here.
+   *
+   * **What each layer cannot do, stated rather than implied.** Layer 1 has the same reach as
+   * W0's per-lesson main-path band and no more: halving a MID-SIZED lesson's section stays
+   * inside a band that must already span 0.21× to 3.9× of the mean. Layer 2 sees that case
+   * only when it happens course-wide. Deleting one `observe` or `tryThis` ITEM from every
+   * lesson is caught by neither as characters — it is caught by the minutes equality in
+   * `readability.test.ts`, which is exact and counts items (`OBSERVE_MINUTES`, `TRY_MINUTES`).
+   * That division is deliberate: three cheap layers plus two exact ones, not one band asked to
+   * do everything.
+   */
+  it('keeps every lesson inside a band of its section’s own mean, and says which lesson', () => {
+    // LAYER 1. No written number: `lo` and `hi` are the section's own mean over the lessons
+    // that HAVE the section, divided and multiplied by six. Today's widest real spreads are
+    // `@rate`'s `deeper` at 0.21× and `@ru-diversity`'s `limits` at 3.87×, so a sixth and six
+    // times clear both ends while still catching a section that collapsed to a stub.
+    //
+    // **Optional sections are graded only where they exist.** `deeper` is in 73 of 88 lessons,
+    // `limits` in 86 (the two paused AMP lessons carry an empty array by the contract's own
+    // exemption) and `variantLabel` in 65. Grading a lesson that does not have the section
+    // would be a floor failing on a legitimate absence, which is a false red, not a rule.
+    const FACTOR = 6
+    // **The three LABEL sections get the ceiling only**, and the line is the one this file
+    // already draws: `title`, `variantLabel` and `jumpLabel` are exactly the sections whose
+    // strings carry `role: 'label'` (the `it` above asserts that identity). A label is a name,
+    // not prose, and its length is chosen by what the thing is called — so a floor on it is
+    // false or vacuous rather than merely weak. All three measured, not assumed:
+    //  - `variantLabel`: `@width`'s four labels are 20 MHz … 160 MHz — **zero Han characters**,
+    //    and that is the right way to label them. `zhChars` counts Han and nothing else, so any
+    //    positive floor here is red on correct data.
+    //  - `jumpLabel`: `@nav` has ONE jump, 「第一次设置 NAV」, five Han characters against a
+    //    floor of 4.34. **0.66 characters of margin** — a one-character rename would have gone
+    //    red, which is precisely the disease this slice was sent to cure, reintroduced one
+    //    level down. Caught by running the band against the corpus before trusting it.
+    //  - `title`: a title is a name too. `@uwb-coexist`'s is two Han characters. The
+    //    chrome-reach rule in `readability.test.ts` is what grades titles.
+    //
+    // The eleven PROSE sections keep both bounds. Their thinnest floor is `@rate`'s `deeper`
+    // at 76 against 60.9 — 15 characters, or 20 %, which is a margin rather than a coincidence,
+    // and a `deeper` that fell under it really would be a stub.
+    const CEILING_ONLY: readonly Section[] = ['title', 'variantLabel', 'jumpLabel']
+
+    const offenders: string[] = []
+    let graded = 0
+    for (const s of SECTIONS) {
+      if (s === 'body') continue // the migrated-away shape; the `it` above pins it at zero
+      const per = ordered
+        .map((l) => ({ id: l.id, texts: lessonTexts(l).filter((t) => t.section === s) }))
+        .filter((x) => x.texts.length > 0)
+        .map((x) => ({ id: x.id, c: x.texts.reduce((n, t) => n + zhChars(t.text), 0) }))
+      expect(per.length, `${s}: no lesson has this section at all`).toBeGreaterThan(0)
+      const mean = per.reduce((n, p) => n + p.c, 0) / per.length
+      const lo = CEILING_ONLY.includes(s) ? -1 : mean / FACTOR
+      const hi = mean * FACTOR
+      for (const p of per) {
+        graded += 1
+        if (p.c < lo) offenders.push(`${s}: @${p.id} has ${p.c} Han characters, under a sixth of`
+          + ` the section mean (${mean.toFixed(0)}); the floor is ${lo.toFixed(0)}`)
+        if (p.c > hi) offenders.push(`${s}: @${p.id} has ${p.c} Han characters, over six times`
+          + ` the section mean (${mean.toFixed(0)}); the ceiling is ${hi.toFixed(0)}`)
+      }
     }
-    // and the whole page: 10 139 strings / 281 780 Chinese characters after this slice
-    // (9 898 / 274 723 before it)
+    // The message carries the offenders as well as the diff: a one-line summary reading
+    // 「expected [ Array(1) ] to deeply equal []」 is the whole gain of a per-lesson rule thrown
+    // away at the last step, and that is what this printed before it was checked against a
+    // real failure.
+    expect(offenders, `${offenders.length} lesson/section pairs sit outside a band of a sixth`
+      + ` to six times their section's own mean:\n${offenders.join('\n')}`).toEqual([])
+    // Anti-vacuity: this loop has graded every section of every lesson, not an empty list.
+    // 1 141 pairs on 2026-10-08 — a floor rather than the figure, because the figure is a
+    // product of two counts that both move, which is the shape this `describe` just retired.
+    expect(graded, 'the per-lesson walk graded almost nothing').toBeGreaterThan(900)
+  })
+
+  it('holds each section’s mean per lesson, which is the layer that sees a course-wide shrink', () => {
+    // LAYER 2. **These fourteen are the only written numbers left in this `describe`, and they
+    // are written because they are the ones that do NOT move when the course grows.** Each is
+    // Han characters per lesson that HAS the section, measured 2026-10-08 at 88 lessons. A new
+    // lesson moves one of them by under 2 % even when it is an outlier: `@link-2g` arrived with
+    // 302-character `limits` against a 592 mean and moved that mean by 0.5 %. The band is
+    // ±10 %, and that figure was MEASURED against the defect rather than chosen: at ±20 % a
+    // course-wide shrink of `sources` (the last sentence off 125 of 287 entries, −19.1 %)
+    // slipped through by 1.7 characters per lesson and this layer reported green. The three
+    // things that must fit inside ±10 %, each measured: a new lesson moves a mean by under
+    // 2 % even when it is an outlier (`@link-2g` arrived with 302-character `limits` against
+    // a 592 mean and moved it 0.5 %); editing ONE lesson's section by half moves it under
+    // 1 % (one lesson is 1/88th of the mean); and the per-lesson band above already owns the
+    // single-lesson case. What must NOT fit is the corpus-wide edit, and −19 % now does not.
+    //
+    // **If one of these is red, do not widen it.** Red here means the corpus moved as a whole:
+    // either one edit reached across many lessons, or several new lessons in a row sit far
+    // from the norm (three lessons at twice a section's mean would do it). Both are worth a
+    // human looking; neither is worth a bigger number. Widening the band is exactly how the
+    // fourteen sums this layer replaced stopped working.
+    const MEANS: readonly (readonly [Section, number])[] = [
+      ['title', 11], ['why', 132], ['outcomes', 79], ['terms', 89],
+      ['picture', 640], ['numbers', 726], ['deeper', 366], ['sources', 204],
+      ['limits', 592], ['observe', 124], ['tryThis', 114], ['quiz', 300],
+      ['variantLabel', 16], ['jumpLabel', 26],
+    ]
+    const TOLERANCE = 0.1
+    for (const [s, recorded] of MEANS) {
+      const per = ordered
+        .map((l) => lessonTexts(l).filter((t) => t.section === s))
+        .filter((ts) => ts.length > 0)
+        .map((ts) => ts.reduce((n, t) => n + zhChars(t.text), 0))
+      // Before the mean, the thing a mean cannot say: if the walk stopped emitting this
+      // section the average is NaN, and `expect(NaN).toBeGreaterThan(x)` does fail — but it
+      // fails reading 「NaN ... over 0 lessons」, which sends the reader after an edit that
+      // never happened. Measured: removing `tryThis` from `SECTION_KEY` produced exactly that.
+      expect(per.length, `${s}: no lesson has this section — the walk stopped emitting it, which`
+        + ' is a broken walk and not a prose edit. Start at `SECTION_KEY` in readability.ts.')
+        .toBeGreaterThan(0)
+      const mean = per.reduce((n, c) => n + c, 0) / per.length
+      expect(mean, `${s}: ${mean.toFixed(1)} Han characters per lesson that has it, against`
+        + ` ${recorded} recorded on 2026-10-08 over ${per.length} lessons. This is a mean, so`
+        + ' the course GROWING does not move it: either one edit reached across many lessons,'
+        + ' or several new lessons sit far from the norm. Find which before touching this.')
+        .toBeGreaterThan(recorded * (1 - TOLERANCE))
+      expect(mean, `${s}: ${mean.toFixed(1)} against ${recorded} recorded`)
+        .toBeLessThan(recorded * (1 + TOLERANCE))
+    }
+    // The whole page, kept as the order-of-magnitude guard it always was. It carries no
+    // per-section figure now, so ordinary growth never reaches it.
     expect(all.length).toBeGreaterThan(9000)
     expect(all.length).toBeLessThan(11500)
   })
