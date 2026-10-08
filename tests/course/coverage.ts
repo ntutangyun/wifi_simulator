@@ -108,6 +108,38 @@ export function unresolved({ file, symbol, token }: SymbolCitation): string | nu
 }
 
 /**
+ * One Markdown table line's cells, untrimmed, outer pipes removed.
+ *
+ * The cell boundary is a pipe that is NOT escaped as `\|`, and that distinction is not pedantry
+ * here: both documents put `grep` commands inside evidence cells, a `grep` alternation is a pipe
+ * (`` `grep -ri 'ldpc\|stbc' src/engine` ``), and a splitter that cut on every bare pipe gave such
+ * a row one cell too many. The four-column filter below then dropped the row — **out of the row
+ * total AND out of every fourth-column discipline**, which is the failure mode this whole pair of
+ * files exists to prevent: a row that is not checked looks exactly like a row that passes. Three
+ * rows were in that hole, and the Wi-Fi document had written the defect down as a known one.
+ *
+ * `\|` comes back as a plain `|`, so a cell reads the way the document renders it, and the escape
+ * cannot leak into a count or into an error message.
+ *
+ * Dropping an empty first and last element is how the outer pipes come off. Doing it this way
+ * rather than by stripping `^\|` and `\|$` off the line matters for the trailing one: a line whose
+ * last cell genuinely ended in an escaped pipe would have had its own content eaten by `\|$`.
+ */
+const splitCells = (line: string): string[] => {
+  const cells: string[] = []
+  let cur = ''
+  for (let i = 0; i < line.length; i += 1) {
+    if (line[i] === '\\' && line[i + 1] === '|') { cur += '|'; i += 1; continue }
+    if (line[i] === '|') { cells.push(cur); cur = ''; continue }
+    cur += line[i]
+  }
+  cells.push(cur)
+  if (cells.length > 1 && cells[0] === '') cells.shift()
+  if (cells.length > 1 && cells[cells.length - 1] === '') cells.pop()
+  return cells
+}
+
+/**
  * Every four-column table row of a document, separator rows dropped, cells trimmed. Header rows
  * are NOT dropped — the two documents head their tables differently and each test knows its own
  * header — and neither are the four-column tables that are summaries rather than data, for the
@@ -116,7 +148,7 @@ export function unresolved({ file, symbol, token }: SymbolCitation): string | nu
 export const tableRows = (doc: string): string[][] => doc
   .split('\n')
   .filter((l) => l.trimStart().startsWith('|'))
-  .map((l) => l.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map((c) => c.trim()))
+  .map((l) => splitCells(l.trim()).map((c) => c.trim()))
   .filter((cells) => cells.length === 4)
   .filter((cells) => !/^-{3,}$/.test(cells[0]))
 
@@ -133,8 +165,7 @@ export function statedCounts(doc: string): Map<string, number> {
   const out = new Map<string, number>()
   for (const line of doc.split('\n')) {
     if (!line.trimStart().startsWith('|')) continue
-    const cells = line.trim().replace(/^\|/, '').replace(/\|$/, '')
-      .split('|').map((c) => c.replaceAll('*', '').trim())
+    const cells = splitCells(line.trim()).map((c) => c.replaceAll('*', '').trim())
     if (cells.length !== 2 || !/^\d+$/.test(cells[1])) continue
     if (!out.has(cells[0])) out.set(cells[0], Number(cells[1]))
   }
