@@ -153,6 +153,63 @@ export const tableRows = (doc: string): string[][] => doc
   .filter((cells) => !/^-{3,}$/.test(cells[0]))
 
 /**
+ * Every Markdown table of a document, as its header row plus its data rows.
+ *
+ * A table is a run of consecutive lines that start with a pipe; the run's first row is the header,
+ * an all-dashes row is dropped, and everything else is a data row. Nothing here looks at how many
+ * cells a row has, which is the whole point — see {@link dataRows}.
+ */
+const tables = (doc: string): { head: string[]; rows: string[][] }[] => {
+  const out: { head: string[]; rows: string[][] }[] = []
+  let open: { head: string[]; rows: string[][] } | null = null
+  for (const line of doc.split('\n')) {
+    const l = line.trim()
+    if (!l.startsWith('|')) { open = null; continue }
+    const cells = splitCells(l).map((c) => c.trim())
+    if (!open) { open = { head: cells, rows: [] }; out.push(open); continue }
+    if (cells.every((c) => /^:?-{3,}:?$/.test(c))) continue
+    open.rows.push(cells)
+  }
+  return out
+}
+
+/**
+ * The data rows of every table of `doc` whose header row is exactly `head`.
+ *
+ * **Why this and not {@link tableRows}.** 「Is this line a data row of the coverage table?」 used
+ * to be answered by two coincidences in series: four cells, and a third cell inside the 本仿真器
+ * vocabulary. Both were measured to be wrong, in both directions, on 2026-10-08:
+ *
+ *  - **It let the wrong rows in.** `tableRows` reads the WHOLE document, and the Wi-Fi document
+ *    has 23 four-column rows that are not data at all — §14's 「引擎建了，无课」 summary and §17's
+ *    three tables about the character budget. They stayed out only because none of their third
+ *    cells happened to spell a verdict. One summary cell reading 已建模 would have walked straight
+ *    into the row total, the twelve per-verdict counts and both fourth-column disciplines. Worse,
+ *    the §16 A–G table is THREE columns, and before the escaped-pipe fix of the same day its
+ *    `**B** PHY 保真` row mis-split into four and really was in `tableRows`; the vocabulary filter
+ *    is the only reason the counts were not already wrong.
+ *  - **It dropped the right rows.** A data row whose 本仿真器 cell is mistyped (「大部分建模」)
+ *    left the vocabulary and therefore stopped being a row — out of the total and out of both
+ *    disciplines, which is the failure mode this pair of files exists to prevent. It was caught
+ *    only indirectly, by the stated row total, and only for as long as nobody updated that total
+ *    in the same edit — which is exactly what the old failure message invited.
+ *
+ * The header is the structural fact that separates a data table from a summary table, and it is
+ * the rule the Wi-Fi document already states in its own words where it gives its row total
+ * (「第一到第十二节的四列数据行；第十四到十七节的表是汇总，不计入」). So the header is what this
+ * selects on, the vocabulary stops being a filter, and each test asserts the vocabulary over every
+ * row it is given — which turns a mistyped verdict from a vanished row into a named failure.
+ *
+ * Measured: the identical row SET to the old pair of filters on both documents the day it landed —
+ * 123 for Wi-Fi and 109 for UWB, each still equal to the total the document states about itself,
+ * with zero rows on either side of the difference.
+ */
+export const dataRows = (doc: string, head: readonly string[]): string[][] =>
+  tables(doc)
+    .filter((t) => t.head.length === head.length && t.head.every((c, i) => c === head[i]))
+    .flatMap((t) => t.rows)
+
+/**
  * The two-column `| label | count |` rows of a document, as a map. First occurrence wins, and a
  * row whose second cell is not a bare integer is not a count row at all — which is what keeps a
  * legend table (`| 已发布 · 802.11-2024 | 在 2024 版正文里。 |`) out of the map even though it

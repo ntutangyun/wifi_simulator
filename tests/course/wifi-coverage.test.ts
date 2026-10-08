@@ -45,8 +45,8 @@
 import { describe, expect, it } from 'vitest'
 import { COURSE_ORDER } from '../../src/course/curriculum'
 import {
-  lessonCitations, readDoc, statedCounts, symbolCitationOccurrences, symbolCitations, tableRows,
-  unresolved, type SymbolCitation,
+  dataRows, lessonCitations, readDoc, statedCounts, symbolCitationOccurrences, symbolCitations,
+  tableRows, unresolved, type SymbolCitation,
 } from './coverage'
 
 const DOC = 'docs/wifi-feature-coverage.md'
@@ -69,15 +69,22 @@ const COVERAGE = ['已建模', '部分建模', '未建模']
 /** `已发布 · 802.11-2024（§10.2 的 DS）` → `已发布 · 802.11-2024`; `已建模（而且是一处简化）` → `已建模`. */
 const prefixOf = (cell: string): string => cell.split('（')[0].split(' +')[0].trim()
 
+/** The header every data table of this document carries, and nothing else in it does. */
+const HEAD = ['特性', '标准依据', '本仿真器', '位置与证据']
+
 /**
- * The document's four-column data rows: [特性, 标准依据, 本仿真器, 位置与证据].
+ * The document's data rows: [特性, 标准依据, 本仿真器, 位置与证据].
  *
- * Selected by the third column's vocabulary, which is what separates them from the four-column
- * tables of §14–§17 — those are summaries, and the document says so where it states its row total.
- * A row whose 本仿真器 cell says 「大部分建模」 therefore drops out of this list rather than
- * failing the vocabulary check directly; what catches it is the row total, which is exact.
+ * **Selected by the table's header**, which is a structural fact about the document, and which is
+ * the rule the document states about itself where it gives its row total (「第一到第十二节的四列
+ * 数据行；第十四到十七节的表是汇总，不计入」). Until 2026-10-08 the selection was 「four cells」
+ * plus 「the third cell is in the 本仿真器 vocabulary」 — two coincidences in series, wrong in both
+ * directions, and `dataRows`' docblock in `coverage.ts` records what each of them let through.
+ *
+ * The vocabulary is therefore no longer a filter. It is asserted over every row below, so a
+ * mistyped verdict is now a named failure instead of a row that quietly stops existing.
  */
-const rows = tableRows(doc).filter((cells) => COVERAGE.includes(prefixOf(cells[2])))
+const rows = dataRows(doc, HEAD)
 
 /**
  * The fourth column's two disciplines, as a function over rows rather than as a read-through.
@@ -103,15 +110,31 @@ describe(`${DOC} states its own size, and the size is right`, () => {
     expect(doc.match(/全表 \*\*(\d+) 行\*\*/), 'no stated row total').not.toBeNull()
     expect(doc.match(/全表 (\d+) 处 `#` 形引用（去重 (\d+) 个符号）与 (\d+) 个课号/),
       'no stated citation totals').not.toBeNull()
-    expect(rows.length, 'the vocabulary filter matched almost nothing').toBeGreaterThan(80)
+    expect(rows.length, 'the header selector matched almost nothing').toBeGreaterThan(80)
     expect(symbols.length, 'the citation parser matched almost nothing').toBeGreaterThan(50)
   })
 
   it('has the number of data rows it says it has', () => {
     const total = Number(doc.match(/全表 \*\*(\d+) 行\*\*/)![1])
     expect(rows.length, `the document says 全表 ${total} 行 and ${rows.length} rows parse;`
-      + ' a row whose 本仿真器 cell left the vocabulary does not parse at all')
+      + ' a row is a row because its table carries the data header, so a count that moved means a'
+      + ' row was added or removed — not that a verdict was mistyped, which is its own failure now')
       .toBe(total)
+  })
+
+  it('gives every data row four cells and both verdicts from the closed vocabularies', () => {
+    // This is what the header selector buys. While the vocabulary WAS the selector this check
+    // could not exist: a row with a mistyped 本仿真器 cell was not a row, so there was nothing to
+    // assert about it, and the only trace it left was the row total being one short.
+    const bad = rows.flatMap((cells) => {
+      if (cells.length !== HEAD.length) return [`${cells[0]}: ${cells.length} cells, not 4`]
+      const out: string[] = []
+      if (!STANDARD.includes(prefixOf(cells[1]))) out.push(`${cells[0]}: 标准依据 = 「${cells[1]}」`)
+      if (!COVERAGE.includes(prefixOf(cells[2]))) out.push(`${cells[0]}: 本仿真器 = 「${cells[2]}」`)
+      return out
+    })
+    expect(bad, `${bad.length} data rows carry a cell that belongs to no column:\n${bad.join('\n')}`)
+      .toEqual([])
   })
 
   it('makes the number of citations it says it makes', () => {
@@ -206,12 +229,50 @@ describe(`${DOC}'s checks can fail`, () => {
       expect(disciplineViolations([[...planted.slice(0, 3), fixed]])).toEqual([])
   })
 
-  it('a row whose 本仿真器 cell leaves the vocabulary stops being a row at all', () => {
-    // which is why the row total above is an equality: this is the drift it exists to catch, and
-    // the vocabulary check alone cannot see it.
-    const planted = tableRows('| 分片与重组 | 已发布 · 802.11-2024 | 大部分建模 | **范围决定。** |')
-    expect(planted).toHaveLength(1)
-    expect(planted.filter((cells) => COVERAGE.includes(prefixOf(cells[2])))).toEqual([])
+  /**
+   * **This test said the opposite until 2026-10-08, and the opposite was the defect.** It read
+   * 「a row whose 本仿真器 cell leaves the vocabulary stops being a row at all」 and asserted that
+   * such a row vanished, leaving only the stated row total to notice — a total the same edit would
+   * naturally update. A row that is not checked printed exactly like a row that passed.
+   *
+   * Now the table's header decides what a row is, so a mistyped verdict stays a row and the
+   * vocabulary assertion names it. Both halves are planted here, in a document rather than as a
+   * bare line, because 「it is in a data table」 is the thing being tested.
+   */
+  it('a row whose 本仿真器 cell leaves the vocabulary is still a row, and is named', () => {
+    const table = (sim: string): string => ['## 一、种的一节',
+      `| ${HEAD.join(' | ')} |`, '| --- | --- | --- | --- |',
+      `| 分片与重组 | 已发布 · 802.11-2024 | ${sim} | **范围决定。** |`].join('\n')
+
+    const planted = dataRows(table('大部分建模'), HEAD)
+    expect(planted, 'the row is a row, which is what changed').toHaveLength(1)
+    expect(COVERAGE, '…and its verdict is not in the vocabulary').not.toContain(prefixOf(planted[0][2]))
+    // and the real row, whose verdict IS in the vocabulary, is not named by the same walk
+    expect(dataRows(table('未建模'), HEAD)
+      .filter((cells) => !COVERAGE.includes(prefixOf(cells[2])))).toEqual([])
+  })
+
+  /**
+   * The other half of the header selector, and the one the old pair of filters could not do: a
+   * four-column SUMMARY table is kept out by structure rather than by luck.
+   *
+   * Measured, not argued: this document has 23 four-column rows that are not data — §14's
+   * 「引擎建了，无课」 summary and §17's three tables about the character budget — and every one of
+   * them was outside the data rows only because none of their third cells happened to spell a
+   * verdict. The row planted here is one that does spell one. Under the old selector it would have
+   * walked into the row total, the twelve per-verdict counts and both fourth-column disciplines.
+   */
+  it('a four-column summary table does not become data by saying 已建模', () => {
+    const doc2 = ['## 十四、汇总',
+      '| # | 它是什么 | 引擎 | 这张表的哪一节 |', '| --- | --- | --- | --- |',
+      '| 1 | 种的汇总行 | 已建模 | 七 |'].join('\n')
+    // the old selector: four cells, third cell in the vocabulary — and in it goes
+    expect(tableRows(doc2).filter((cells) => COVERAGE.includes(prefixOf(cells[2]))))
+      .toHaveLength(1)
+    // the header selector: this table is not the data table, so it has no data rows
+    expect(dataRows(doc2, HEAD)).toEqual([])
+    // and the real document's own summary tables are out for that reason, not by vocabulary
+    expect(rows.filter((r) => r[0] === '#' || /^\d+$/.test(r[0]))).toEqual([])
   })
 
   /**
@@ -242,14 +303,54 @@ describe(`${DOC}'s checks can fail`, () => {
       ])
     })
 
+  /**
+   * **The half of the escaped-pipe fix that shipped inert.** `splitCells` is shared by `tableRows`
+   * and `statedCounts`, and the fix of 2026-10-08 taught both of them the escape — but every
+   * planted test that day aimed at the four-column path, and the slice's own report wrote the gap
+   * down: 「there is no two-column count row with an escaped pipe, so I planted no row for it;
+   * this is the hole I am leaving.」 By `docs/inert-config-contract.md` that is a fix with two
+   * permitted endings, pinned or refused out loud. This is the pin.
+   *
+   * It matters because of what a dropped count row does. `statedCounts` keys the totals table by
+   * its label, and the twelve per-verdict assertions above read it by `stated.get(label)`. A row
+   * the splitter mis-cut is not in the map, the lookup yields `undefined`, and the failure reads
+   * 「expected undefined to be 37」 — which sends the reader after a deleted table row rather than
+   * after the parser. So the escape is checked here rather than discovered there.
+   *
+   * Both of `statedCounts`' own rules are planted together, because the bolded rows are exactly
+   * the ones a `grep` label would plausibly land in: the label keeps the pipe a reader sees, and
+   * the emphasis around the figure does not stop it being a figure.
+   */
+  it('a two-column count row survives an escaped pipe in its label', () => {
+    const totals = ['## 总数（种的）', '| 本仿真器 | 行数 |', '| --- | --- |',
+      `| \`grep -ri 'ldpc\\|stbc' src/engine\` 零命中的 | 3 |`,
+      `| **\`grep -rn 'own TX\\|ownTx'\` 零命中的** | **7** |`].join('\n')
+    const counts = statedCounts(totals)
+    expect([...counts.entries()],
+      'a count row whose label holds an escaped pipe, with and without emphasis').toEqual([
+      [`\`grep -ri 'ldpc|stbc' src/engine\` 零命中的`, 3],
+      [`\`grep -rn 'own TX|ownTx'\` 零命中的`, 7],
+    ])
+    // and the net is not widened by it: a four-column row is not a count row, and a label whose
+    // figure is not a bare integer is not a count at all — which is what keeps the legend table
+    // out of the map even though it shares its labels with the totals table
+    expect(statedCounts(`| 分片与重组 | 已发布 | 未建模 | **范围决定。** |`).size).toBe(0)
+    expect(statedCounts('| 已发布 · 802.11-2024 | 在 2024 版正文里。 |').size).toBe(0)
+  })
+
   it('escaping a pipe does not let a separator or a three-column row in', () => {
     // The other half: letting the escaped pipe through must not widen the net. A separator row is
     // still a separator, and the §16 A–G table is still three columns — that one USED to be
-    // mis-split into four and was only kept out of the data rows by the vocabulary filter.
+    // mis-split into four, and on the day this test was written the only thing keeping it out of
+    // the data rows was the vocabulary filter. Since 2026-10-08 it is out for a third, structural
+    // reason as well: its table's header is not the data header. Both latches are checked.
     expect(tableRows('| --- | --- | --- | --- |')).toEqual([])
     expect(tableRows(`| **B** PHY 保真 | 没有 | \`grep -rn 'own TX\\|ownTx'\` 零命中 |`))
       .toEqual([])
-    // and the real document's A–G table is out of the data rows for that reason, not by vocabulary
+    // and the real document's A–G table is out of the data rows for BOTH reasons now
     expect(rows.filter((r) => r[0].includes('PHY 保真'))).toEqual([])
+    expect(dataRows(doc, ['A–G', '零到一百的阶段/刀', '谁实际交的']).length,
+      'the A–G table is still found as a table of its own, so the line above is not vacuous')
+      .toBeGreaterThan(0)
   })
 })
