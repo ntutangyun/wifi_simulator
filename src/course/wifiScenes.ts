@@ -475,3 +475,95 @@ export function tamperScenario(cheat?: TamperKind, opts: { seed?: number; hidden
   if (cheat) stas[0].tamper = TAMPER_PRESETS[cheat]
   return sc(oneRoom(), [ap, ...stas], extra)
 }
+
+/**
+ * Two bedrooms either side of a brick stairwell that holds the router: the
+ * `link-2g` lesson's own floor plan, and it exists for one measured reason.
+ *
+ * **The geometry was chosen to put ONE ray on one side of ONE threshold.** The
+ * stations stand 8.5 m apart with two brick walls between them, and
+ * `buildLinkTable` gives that path −83.58 dBm — 1.58 dB under the −82 dBm
+ * preamble-detection threshold of `engine/phy.ts`'s `CCA_PD_DBM`. Move the same
+ * pair onto 2.4 GHz and `LINK_EXTRA_LOSS_DB` adds 6.5 dB of signal: −77.08 dBm,
+ * 4.92 dB over. Each station reaches the router through one wall at −64.14 dBm
+ * either way, so the only link the band change moves across a threshold is the
+ * station-to-station one.
+ *
+ * It is NOT `hallwayHouse()`, and the difference is deliberate rather than
+ * decorative: that plan's 2 m hallway lands the same path at −82.79 dBm, 0.79 dB
+ * under the threshold, and a lesson whose whole subject is a knife edge should
+ * own the knife rather than borrow one that happens to be sharp. The 2.5 m
+ * stairwell is the width at which the margin is reportable to two figures
+ * without being a coincidence of rounding.
+ *
+ * The router sits in the middle of the stairwell (y = 4) rather than against a
+ * wall, so neither station is nearer to it than the other: the two
+ * station-to-router figures are equal to the last digit, and every difference
+ * the lesson prints is therefore the band and not the floor plan.
+ */
+export function stairHouse(): { rooms: Room[]; walls: Wall[] } {
+  return {
+    rooms: [
+      { x: 0, y: 0, w: 4, h: 8, name: '卧室 A' },
+      { x: 4, y: 0, w: 2.5, h: 8, name: '楼梯间' },
+      { x: 6.5, y: 0, w: 4, h: 8, name: '卧室 B' },
+    ],
+    walls: [
+      brick(0, 0, 10.5, 0), brick(10.5, 0, 10.5, 8), brick(10.5, 8, 0, 8), brick(0, 8, 0, 0),
+      brick(4, 0, 4, 8), brick(6.5, 0, 6.5, 8),
+    ],
+  }
+}
+
+/**
+ * The `link-2g` scenes: the same room and the same radios on one band or the
+ * other, in three shapes.
+ *
+ * `band` is written onto the access point AND onto every station, which is the
+ * one thing a caller must not get wrong here: `linkPlanFor` gives the access
+ * point every link one of its stations uses, so pinning only the stations
+ * builds a two-link cell and the comparison stops being a comparison.
+ *
+ * EDCA is off in every shape, and that is what makes the timing readable rather
+ * than a preference: with EDCA on, an `IFS_START` record carries `kind: 'AIFS'`
+ * and the AC's own AIFSN, so the DIFS the lesson is about never appears in the
+ * timeline at all (`aifsNs`, `engine/phy.ts`). The 2.4 GHz AIFS figures a
+ * reader may want are already printed by `@amp-coexist`.
+ *
+ *  - `shape: 'pair'` — the stairwell plan, two saturated stations that can or
+ *    cannot hear each other depending on the band. Aggregation off, so one
+ *    exchange is one frame and one acknowledgement.
+ *  - `shape: 'single'` — one room, one saturated station on the desk at
+ *    −46.7 dBm, where both bands reach the top of the Wi-Fi 6 ladder and the
+ *    only thing left that can differ is the interframe timing.
+ *  - `shape: 'burst'` — the same desk with aggregation on, so one exchange is
+ *    one A-MPDU and one BlockAck. It exists because the signal extension is
+ *    charged per PPDU and not per MPDU: twenty MSDUs in one PPDU pay it once,
+ *    which is what makes the four-figure net sum zero for a second reason
+ *    rather than by luck (`tests/course/link-2g.test.ts`).
+ *  - `shape: 'wide'` — the same desk, both radios Wi-Fi 7 asking for 160 MHz.
+ *    `widthOf` grants it on 5 GHz and caps it at 40 MHz on 2.4 GHz, which is
+ *    the one place in this lesson where 2.4 GHz is simply worse.
+ */
+export function link2gScenario(
+  shape: 'pair' | 'single' | 'burst' | 'wide', band: '2g' | '5g', opts: { seed?: number } = {},
+): Scenario {
+  const extra = opts.seed === undefined ? {} : { seed: opts.seed }
+  const pin = (n: NodeCfg): NodeCfg => (band === '2g' ? { ...n, linkId: '2g' } : n)
+  if (shape === 'pair') {
+    const feats = { edca: false }
+    const ap = node('ap', 'Router', 'ap', 5.25, 4, 'he', 'idle', feats)
+    const a = node('sta-1', 'Laptop A', 'sta', 1, 2, 'he', 'saturated', feats)
+    const b = node('sta-2', 'Laptop B', 'sta', 9.5, 2, 'he', 'saturated', feats)
+    return sc(stairHouse(), [ap, a, b].map(pin), extra)
+  }
+  const wide = shape === 'wide'
+  const feats: Record<string, boolean> = wide
+    ? { edca: false, qam4k: true }
+    : { edca: false, ampdu: shape === 'burst' }
+  const gen = wide ? 'eht' : 'he'
+  const ap = node('ap', 'Router', 'ap', 3, 4, gen, 'idle', feats)
+  const sta = node('sta-1', 'Laptop', 'sta', 6, 4, gen, 'saturated', feats)
+  if (wide) { ap.caps.widthMhz = 160; sta.caps.widthMhz = 160 }
+  return sc(oneRoom(), [ap, sta].map(pin), extra)
+}

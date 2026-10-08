@@ -277,12 +277,15 @@ describe('lessonTexts · the census over the whole course', () => {
     .reduce((n, t) => n + zhChars(t.text), 0)
   const sum = (f: (l: Lesson) => number): number => ordered.reduce((n, l) => n + f(l), 0)
 
-  it('walks all 87 lessons and nothing else', () => {
+  it('walks all 88 lessons and nothing else', () => {
     expect(ordered.length).toBe(LESSONS.length)
-    // 87 since slice W5 added `amp-backscatter`, the backscatter tier of M10 — 878 lines of
-    // engine that produced none of its five record types in any of the 251 course scenarios
-    // before it. 86 before that, when slice 3d added `uwb-ancillary-request`.
-    expect(ordered.length).toBe(87)
+    // 88 since slice W3 added `link-2g`, the first lesson of tier 3 and the first to put a Wi-Fi
+    // station on the 2.4 GHz link — a link the engine has had since the per-link PHY slice, and
+    // which until then only the AMP tag scenes reached.
+    // 87 before that, when slice W5 added `amp-backscatter`, the backscatter tier of M10 — 878
+    // lines of engine that produced none of its five record types in any of the 251 course
+    // scenarios before it. 86 before that, when slice 3d added `uwb-ancillary-request`.
+    expect(ordered.length).toBe(88)
   })
 
   it('sees every section, which a walk that stopped seeing a block kind would not', () => {

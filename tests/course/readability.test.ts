@@ -1146,12 +1146,16 @@ describe('readability · the stated minutes, and the characters behind them', ()
     // The two structural counts, exact, each naming what moved. A lesson or a module arriving or
     // leaving is a deliberate act and owes one line of diff here; neither can be inferred from a
     // corpus total, which is what the retired band tried to do.
+    // 87 → 88 on slice W3, and the module count DID move with it: `link-2g` is the first lesson
+    // of a new M12 under tier 2, inserted at index 12 rather than appended, so 33 UWB lessons'
+    // `module` index shifted up by one in the same commit. The contrast with W5 below is what
+    // this `it` is for — there the lesson joined an existing module and 30 did not move.
     // 86 → 87 on slice W5, and the module count did NOT move with it: `amp-backscatter` is the
-    // fifth lesson of the existing M10, so `MODULES.length` is still 30 and no UWB lesson's
+    // fifth lesson of the existing M10, so `MODULES.length` was still 30 and no UWB lesson's
     // `module` index shifted. Separating the two counts is what this `it` is for.
-    expect(ordered.length, 'lessons in COURSE_ORDER with authored prose behind them').toBe(87)
+    expect(ordered.length, 'lessons in COURSE_ORDER with authored prose behind them').toBe(88)
     expect(MODULES.length, 'modules — THIS is 「a module added or removed」, asserted directly')
-      .toBe(30)
+      .toBe(31)
   })
 
   it('keeps every lesson\'s main path between a third of a lesson and two lessons', () => {
@@ -1188,8 +1192,15 @@ describe('readability · the stated minutes, and the characters behind them', ()
     expect(chars).toBeLessThan(300_000)
   })
 
-  it('states 1 850 minutes across the whole course, and no earlier lesson moved', () => {
-    // 1 850 since slice W5: `amp-backscatter` is 2 487 main-path characters, three things to
+  it('states 1 875 minutes across the whole course, and no earlier lesson moved', () => {
+    // 1 875 since slice W3: `link-2g` is 2 494 main-path characters, three things to observe and
+    // two experiments — raw 25.34, which the formula rounds to 25. **Measured after the prose was
+    // final, not budgeted**, and it sits 476 characters clear of the 22.5 boundary below and 475
+    // clear of the 27.5 one above, so it does not appear near the top of the census. No earlier
+    // lesson moved: that slice added one lesson, two scene builders and one `MODULES` entry, and
+    // edited no other lesson's prose — the 33 UWB edits in the same commit are `module` indices,
+    // which `MAIN_PATH_SECTIONS` does not count.
+    // 1 850 before it, since slice W5: `amp-backscatter` is 2 487 main-path characters, three things to
     // observe and two experiments — raw 25.30, which the formula rounds to 25. **Measured after
     // the prose was final, not budgeted**, and it sits 283 characters clear of either bucket
     // boundary, so it does not appear near the top of the census below. No earlier lesson moved:
@@ -1207,7 +1218,7 @@ describe('readability · the stated minutes, and the characters behind them', ()
     // for `@uwb-m2m` and `@rts-cts` were each one character out on the day it was written.
     expect(ordered.reduce((n, l) => n + lessonMinutes(l), 0),
       'the sum of every stated minute figure a reader can see. ±5 means one lesson crossed a'
-      + ` bucket; every lesson's margin, tightest first:\n${margins()}`).toBe(1_850)
+      + ` bucket; every lesson's margin, tightest first:\n${margins()}`).toBe(1_875)
     // the two lessons of the built-but-untaught slice, measured after their prose was
     // final rather than copied from its design document (which budgeted 25 and 30 and
     // happened to be right, while its character budgets were not)

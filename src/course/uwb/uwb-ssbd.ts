@@ -97,7 +97,7 @@ export function uwbSsbdScenario(variant: UwbSsbdVariant = 'defaults'): Scenario 
 
 export const uwbSsbd: Lesson = {
   id: 'uwb-ssbd',
-  module: 27,
+  module: 28,
   title: '有界的延后，和它界不住的那个帧',
   why: '上一课那条规矩有一个过宽的后果：窄带（narrowband, NB）信道上量到一次忙，这台设备在整整一个测距块（ranging block）里不再发出任何控制消息，而一个块是 200 ms。而先听后发（listen before talk, LBT）这件事，在这份草案里本来是可选的——有十三条评审意见要把它改成强制，十三条全部被否决——真正要求「必须先听」的是管制，不是标准。草案另给了一条路：每一个窄带发射时隙上各感知一次，判忙就退避（backoff）一次再问，问到次数用尽，再由一个收尾动作决定照发还是算一次信道接入失败；整套动作的延迟带着一个上界。这一课把这个上界算出来，再看它在一间摆着忙碌路由器的屋子里能不能等过去。',
   outcomes: [

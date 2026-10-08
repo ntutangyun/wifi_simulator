@@ -308,7 +308,7 @@ export function uwbSp3Fields(): FieldsSpec {
 
 export const uwbSp3: Lesson = {
   id: 'uwb-sp3',
-  module: 21,
+  module: 22,
   title: '最短的测距帧，不构成最短的轮',
   why: 'SP3 是标准给测距留的最短的一种包：帧里没有物理头（PHY header, PHR），也没有载荷（payload），所以它既带不了自己量到的时间，也带不了发送者是谁。时间只能在后面另发一帧补上，而这一帧归谁，由它所在的测距时隙（ranging slot）回答。于是一轮 SP3 测距必须配一个报告相位——而那正是单边双向测距（single-sided two-way ranging, SS-TWR）把回复时延（reply time）延后那条路已经建好的东西。这一课要算的是另一件事：最短的测距帧并不构成最短的轮。总得有人先把时隙的分配说出去，而一个 SP3 包说不出任何东西，所以一轮里的第一帧一定不是它。',
   outcomes: [

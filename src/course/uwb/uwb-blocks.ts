@@ -103,7 +103,7 @@ export function uwbBlocksTiming(): TimingSpec {
 
 export const uwbBlocks: Lesson = {
   id: 'uwb-blocks',
-  module: 14,
+  module: 15,
   title: '块、轮与时隙',
   why: '一个房间里有好几部手机，想同时各自测出距离。换成一条 Wi-Fi 链路（link），它们会为空口争起来：先听、再等、退避（backoff）、重来。测距会话反其道而行：在任何人发送之前先把时间表写好，每台射频只管读自己那一行。这一课讲的就是这张表由什么拼成、每一块归谁。',
   outcomes: [

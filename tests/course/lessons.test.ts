@@ -294,13 +294,17 @@ describe('module 4 lessons', () => {
     // four Wi-Fi tiers, then the UWB track's three
     expect(TIERS).toHaveLength(7)
     expect(TIERS.map((t) => t.track)).toEqual(['wifi', 'wifi', 'wifi', 'wifi', 'uwb', 'uwb', 'uwb'])
-    // The whole module list, in order: seven modules of Tier 1, five of Tier 2, then the
-    // UWB tiers. Tiers 3 and 4 (PHY, research) have no module yet — a module arrives with
-    // its first lesson, so an index is never a promise about a lesson that is not written.
+    // The whole module list, in order: seven modules of Tier 1, five of Tier 2, ONE of Tier 3,
+    // then the UWB tiers. Tier 3 got its first and only module on slice W3 (`link-2g`), and the
+    // backlog's assessment of the other two slices sketched for that tier recommended against
+    // both, so one module there is the design and not a gap. Tier 4 (research) still has none —
+    // a module arrives with its first lesson, so an index is never a promise about a lesson that
+    // is not written.
     // This is the pin a batch trips over when it adds a module under the wrong tier.
     expect(MODULES.map((m) => m.tier)).toEqual([
       0, 0, 0, 0, 0, 0, 0,
       1, 1, 1, 1, 1,
+      2,
       4, 4, 4, 4,
       5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
       6, 6, 6, 6,
@@ -310,6 +314,7 @@ describe('module 4 lessons', () => {
       '听不见的邻居与损失', '在纸上预测 DCF', '第一阶段项目',
       'QoS 与效率', '容量旋钮与速率控制', '被调度的 Wi-Fi 6/7',
       '环境能量物联网（802.11bp）', '真实应用',
+      '2.4 GHz 这条链路',
       '飞行时间', '两只钟', '会话网格', '定位',
       '共存', '竞争式测距', '多对多测距', '控制消息的有效期', '多消息收妥确认', 'SP3 分组测距',
       '测距辅助信息', '单向测距', '角度', '感知',
@@ -551,6 +556,7 @@ describe("a lesson's track", () => {
     "uwb-acquisition":          "uwb",
     "uwb-subrounds":            "uwb",
     "uwb-capstone":             "uwb",
+    "link-2g":                  "wifi",
   }
 
   it('every lesson reads the track pinned for it', () => {

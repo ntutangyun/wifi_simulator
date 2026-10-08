@@ -235,7 +235,7 @@ export function uwbM2mTiming(): TimingSpec {
 
 export const uwbM2m: Lesson = {
   id: 'uwb-m2m',
-  module: 18,
+  module: 19,
   title: '一次发送，同时是问也是答',
   why: '六台设备想知道两两之间的距离，一共十五条。用前面几课的办法，只能让每台设备轮流当一次标签（tag）、另外五台当锚点（anchor）答它：六轮，每轮六个测距时隙（ranging slot），三十六个。更糟的是这三十六个时隙量出三十条距离——每一对都量了两遍。标准另有一种排法：六个时隙，十五条距离，一条不重。差别只在一句话上——一次发送可以同时做两件事。',
   outcomes: [

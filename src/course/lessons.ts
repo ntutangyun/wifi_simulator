@@ -100,6 +100,7 @@ import { rate } from './tier2/rate'
 import { rateFallback } from './tier2/rate-fallback'
 import { rateCost } from './tier2/rate-cost'
 import { fading } from './tier2/fading'
+import { link2g } from './tier3/link-2g'
 export type { Block, JumpTarget, Lesson, LessonVariant, Quiz, Term } from './lessonKit'
 export { isMigrated } from './lessonKit'
 
@@ -204,6 +205,9 @@ const AUTHORED: Lesson[] = [
   rateFallback,
   rateCost,
   fading,
+
+  // ======================= MODULE 12 · tier 2 =======================
+  link2g,
 ]
 
 /** Every course lesson, in reading order (see curriculum.ts). */

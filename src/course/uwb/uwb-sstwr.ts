@@ -101,7 +101,7 @@ export function uwbSstwrTiming(): TimingSpec {
 
 export const uwbSstwr: Lesson = {
   id: 'uwb-sstwr',
-  module: 13,
+  module: 14,
   title: '应答时间是用对方的时钟量的',
   why: '前面几课让两台射频都守着完美的时间，现实里没有哪一对是这样：石英晶振（crystal）总会走得偏快或偏慢，用走得慢的时钟量出来的一段时间就偏短。偏偏交互里最长的那一段是锚点（anchor）量的，手机却把它当成自己量的直接减掉。这一课里，这件事会错出好几米。',
   outcomes: [

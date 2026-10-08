@@ -89,8 +89,18 @@ export const TIERS: Tier[] = [
   // genuinely left under this heading is bands and frame-interval fidelity — 2.4 GHz ERP timing,
   // 6 GHz channel numbering, SNR→PER — which is what the label now says. The old label would have
   // become false the moment the first lesson landed here, and a tier heading is printed to a
-  // reader (CoursePanel.tsx renders `TIERS[...].label`), though not yet this one: a tier with no
-  // module is filtered out of the panel, and this tier still has none.
+  // reader (CoursePanel.tsx renders `TIERS[...].label`).
+  //
+  // **2026-10-08 (slice W3): this tier is on the panel for the first time**, carrying M12 and its
+  // one lesson `@link-2g` — 2.4 GHz ERP timing, the band's path-loss offset and the 40 MHz cap,
+  // which is three of the four things the paragraph above says are left under this heading.
+  // **It is not waiting for six more lessons, and that is a decision rather than a backlog.** The
+  // other two slices sketched for this tier were each assessed and recommended against: the mixed
+  // -BSS protection rules are engine work the engine does not have (docs/wifi-feature-coverage.md
+  // §5 still files that row as 未建模 · 未偿的债, and item D of the standard-alignment programme
+  // is still open), and SNR→PER would re-baseline every lesson in the course that quotes a
+  // figure. So a reader who opens this tier and finds one lesson is seeing it as designed. The
+  // fourth tier below still has no module and is still invisible for that reason.
   { track: 'wifi', label: '第三阶段 · 频段与物理层保真度', basis: ['ieee-802-11'] },
   { track: 'wifi', label: '第四阶段 · 研究', basis: ['ieee-802-11'] },
   { track: 'uwb', label: 'UWB 第一阶段 · 测距基础', basis: ['ieee-802-15-4-2024'] },
@@ -129,6 +139,15 @@ export const MODULES: CourseModule[] = [
   { tier: 1, title: '被调度的 Wi-Fi 6/7' },
   { tier: 1, title: '环境能量物联网（802.11bp）', track: 'amp', basis: ['p802-11bp'] },
   { tier: 1, title: '真实应用' },
+  // Tier 2's only module, and it is designed to be its only module rather than waiting for six
+  // more. Slices W6 and W7 — the other two this tier was sketched with — were each assessed and
+  // recommended against (docs/wifi-course-backlog.md), so a reader who opens
+  // 「第三阶段 · 频段与物理层保真度」 and finds one lesson is seeing the tier as intended and not a
+  // gap. Inserted at index 12 rather than appended, for the reason the two tier-5 modules below
+  // give: COURSE_ORDER's own order IS the 「next lesson」 button (CoursePanel.tsx), so a Wi-Fi
+  // module parked after the UWB track would make 「next」 jump out of the UWB track at its last
+  // lesson. Every lesson of the modules below moved up by one index with it.
+  { tier: 2, title: '2.4 GHz 这条链路' },
   { tier: 4, title: '飞行时间' },
   { tier: 4, title: '两只钟' },
   { tier: 4, title: '会话网格' },
@@ -225,34 +244,36 @@ export const COURSE_ORDER: string[] = [
   'amp-intro', 'amp-ppdu', 'amp-slots', 'amp-coexist', 'amp-backscatter',
   // M11 · tier 1 · 真实应用
   'wan-rtt', 'capstone',
-  // M12 · tier 4 · 飞行时间
+  // M12 · tier 2 · 2.4 GHz 这条链路
+  'link-2g',
+  // M13 · tier 4 · 飞行时间
   'uwb-intro', 'uwb-frame', 'uwb-sts',
-  // M13 · tier 4 · 两只钟
+  // M14 · tier 4 · 两只钟
   'uwb-sstwr', 'uwb-dstwr', 'uwb-reply-time', 'uwb-deferred-ds',
-  // M14 · tier 4 · 会话网格
+  // M15 · tier 4 · 会话网格
   'uwb-blocks', 'uwb-slot-budget',
-  // M15 · tier 4 · 定位
+  // M16 · tier 4 · 定位
   'uwb-position', 'uwb-geometry',
-  // M16 · tier 5 · 共存
+  // M17 · tier 5 · 共存
   'uwb-coexist',
-  // M17 · tier 5 · 竞争式测距
+  // M18 · tier 5 · 竞争式测距
   'uwb-contention',
-  // M18 · tier 5 · 多对多测距
+  // M19 · tier 5 · 多对多测距
   //    one transmission that is both halves of an exchange
   'uwb-m2m',
-  // M19 · tier 5 · 控制消息的有效期
+  // M20 · tier 5 · 控制消息的有效期
   //    one control message for several rounds, and the frame that takes the place of
   //    silence when this round’s initiation message never arrived
   'uwb-rcm-validity',
-  // M20 · tier 5 · 多消息收妥确认
+  // M21 · tier 5 · 多消息收妥确认
   //    the one frame that tells a device who heard it, and the request bit that costs
   //    nothing to ask with
   'uwb-receipt',
-  // M21 · tier 5 · SP3 分组测距
+  // M22 · tier 5 · SP3 分组测距
   //    the shortest ranging frame the standard has, and the round it does not make the
   //    shortest: something has to announce the slot table, and an SP3 packet announces nothing
   'uwb-sp3',
-  // M22 · tier 5 · 测距辅助信息
+  // M23 · tier 5 · 测距辅助信息
   //    one message that does not fit in one frame: the count every frame carries, so the
   //    receiver learns of a gap at the next arrival instead of at a deadline
   'uwb-ancillary',
@@ -261,20 +282,20 @@ export const COURSE_ORDER: string[] = [
   //    is the next message's frame count. The first lesson of the course in which the slot grid is
   //    not settled before the session starts.
   'uwb-ancillary-request',
-  // M23 · tier 5 · 单向测距
+  // M24 · tier 5 · 单向测距
   'uwb-dl-tdoa', 'uwb-ul-tdoa',
-  // M24 · tier 5 · 角度
+  // M25 · tier 5 · 角度
   'uwb-aoa',
-  // M25 · tier 5 · 感知
+  // M26 · tier 5 · 感知
   //    the things in the room that never answer
   'uwb-sensing', 'uwb-sensing-resolution',
-  // M26 · tier 6 · 多毫秒片段
+  // M27 · tier 6 · 多毫秒片段
   'uwb-mms', 'uwb-mms-numbers',
-  // M27 · tier 6 · 窄带控制面
+  // M28 · tier 6 · 窄带控制面
   'uwb-nba', 'uwb-nba-coexist', 'uwb-ssbd',
-  // M28 · tier 6 · 另一种控制面与子轮
+  // M29 · tier 6 · 另一种控制面与子轮
   'uwb-uwbd', 'uwb-acquisition', 'uwb-subrounds',
-  // M29 · tier 6 · 测距综合实践
+  // M30 · tier 6 · 测距综合实践
   'uwb-capstone',
 ]
 

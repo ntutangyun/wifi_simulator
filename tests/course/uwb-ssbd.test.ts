@@ -88,7 +88,7 @@ describe('uwb-ssbd · where it sits', () => {
   })
 
   it('is in the narrowband control-plane module, which is checked against the draft', () => {
-    expect(uwbSsbd.module).toBe(27)
+    expect(uwbSsbd.module).toBe(28)
     expect(MODULES[uwbSsbd.module].title).toBe('窄带控制面')
     // The clause is a draft one, so the module must be one that declares a draft basis. `basisOf`
     // is exercised by tests/course/basis.test.ts; here it is enough that the lesson names

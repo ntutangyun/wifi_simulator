@@ -196,7 +196,7 @@ const grantedFirstFrame = txOf((r) => r.frame.kind === 'uwbAncillary'
 
 export const uwbAncillaryRequest: Lesson = {
   id: 'uwb-ancillary-request',
-  module: 22,
+  module: 23,
   title: '一台设备要求，控制器答不答应',
   why: '上一课的时隙表是在会话开场前一次算定的：一轮几个时隙、一块几轮，算一次，整场不动。这一课是同一节标准的另一半，而它要讲的事只有一件——这张表可以被一台设备要求改掉。办法就在上一课那枚信息单元里：把它的第一位置 1，同一个「还剩几帧」的字段装的就不再是剩余帧数，而是「请为下一次交换排这么多个测距时隙（ranging slot）」。提出要求的是在测距（ranging）里只负责作答的那一端，而答复它的是开场的那一端。标准到这里就停了：它定义了这个要求，没有定义批复、没有定义拒绝，也没有定义任何一条回话。所以「批不批」是本仿真器自己定的，而「怎么知道批没批」在本引擎里反倒是现成的。',
   outcomes: [
