@@ -388,17 +388,34 @@ describe('lessonTexts · the census over the whole course', () => {
    *     eight lessons each losing a sentence stays inside it while the corpus quietly shrinks.
    *     A mean divides the corpus size out, so it does not move when the course grows — which
    *     is exactly what the totals could not do.
-   *  3. **the counts — IS ANYTHING MISSING.** Already asserted exactly, one `it` above
-   *     (`counts one string per thing the lesson data says there is`). Not duplicated here.
+   *  3. **the counts — IS THE WALK STILL SEEING EVERYTHING.** Already asserted exactly, one `it`
+   *     above (`counts one string per thing the lesson data says there is`). Not duplicated here.
+   *  4. **the items — WHICH LESSON LOST ONE.** Added 2026-10-08, in its own `describe` at the
+   *     foot of this file, with the census that justifies it. See the correction below for why it
+   *     had to exist.
    *
    * **What each layer cannot do, stated rather than implied.** Layer 1 has the same reach as
    * W0's per-lesson main-path band and no more: halving a MID-SIZED lesson's section stays
    * inside a band that must already span 0.21× to 3.9× of the mean. Layer 2 sees that case
-   * only when it happens course-wide. Deleting one `observe` or `tryThis` ITEM from every
-   * lesson is caught by neither as characters — it is caught by the minutes equality in
-   * `readability.test.ts`, which is exact and counts items (`OBSERVE_MINUTES`, `TRY_MINUTES`).
-   * That division is deliberate: three cheap layers plus two exact ones, not one band asked to
-   * do everything.
+   * only when it happens course-wide.
+   *
+   * **A CORRECTION, 2026-10-08.** This paragraph used to end: 「Deleting one `observe` or
+   * `tryThis` ITEM from every lesson is caught by neither as characters — it is caught by the
+   * minutes equality in `readability.test.ts`, which is exact and counts items.」 The second half
+   * was measured and is **wrong**, and layer 3's name in the list above was wrong with it.
+   *
+   *  - The minutes equality is exact in its SUM, not in what reaches it. `lessonMinutes` rounds
+   *    to the nearest five, so an item worth 2 or 4 minutes changes the stated figure only when
+   *    the lesson is within 2.5 of a bucket edge. Over the real corpus 136 of the 328 `observe`
+   *    and `tryThis` entries that can be deleted without emptying their array move no stated
+   *    minute at all.
+   *  - Layer 3 was never a check on the counts. It asserts `count(s) === sum(l => l[field].length)`
+   *    with both sides reading the same arrays, so a deleted entry decrements both and it is green
+   *    by construction. What it really pins is that the WALK still emits one string per entry,
+   *    which is worth having and is not this.
+   *
+   * Layer 4 is what the sentence claimed to already have. The division is still deliberate: four
+   * cheap layers plus the exact ones, not one band asked to do everything.
    */
   it('keeps every lesson inside a band of its section’s own mean, and says which lesson', () => {
     // LAYER 1. No written number: `lo` and `hi` are the section's own mean over the lessons
@@ -521,5 +538,220 @@ describe('lessonTexts · the census over the whole course', () => {
     // The non-empty check the contract suite and `kit.ts` each run per lesson, summed
     // here over the sections neither of them used to reach.
     expect(all.filter((t) => t.text.trim() === '').map((t) => t.path)).toEqual([])
+  })
+})
+
+/**
+ * **LAYER 4 — WHICH LESSON LOST AN ITEM.** The three layers above are about how much a lesson
+ * SAYS; this one is about how many separate things it says. No layer above it can see one item go.
+ *
+ * **The defect, measured before this was written.** Delete one `tryThis` entry from one lesson and
+ * the whole suite stays green. Layer 3 cannot see it by construction — it asserts
+ * `count('tryThis') === sum(l => l.tryThis.length)`, and both sides read the same array, so a
+ * deletion decrements both. Layers 1 and 2 are character bands: one entry is about a third of one
+ * lesson's section, nowhere near a sixth-to-six-times band, and 1/88th of a mean. The
+ * `lessonMinutes` equality is the only thing that ever caught such a deletion, and it catches it
+ * by ACCIDENT: `tryThis` is worth 4 minutes and `Math.round(raw / 5) * 5` absorbs anything under
+ * 2.5, so whether the sum of 1 875 moves depends on where in its five-minute bucket the lesson
+ * happened to sit. `@anomaly` sits at raw 21.96; dropping either of its two experiments lands on
+ * 17.80 or 17.84, and 20 is still the nearest multiple of five. Green.
+ *
+ * **It is not two sections, it is nine.** A census over the whole corpus, one deletion at a time,
+ * against every check in the suite that reads the course
+ * (`.superpowers/sdd/pinning-holes-report.md` records the run):
+ *
+ *     observe   114 / 211 invisible      outcomes  277 / 281      limits    392 / 392
+ *     tryThis    22 / 148                terms     286 / 291      jumps     293 / 293
+ *     quiz      187 / 215                sources   286 / 287      variants  176 / 176
+ *
+ * 1 833 of 2 294 items could be deleted in silence. `tryThis` scores BEST of the nine, and only
+ * because 29 lessons have exactly one of them, where `lessons.test.ts`' floor (「every lesson still
+ * has a quiz, observations and things to try」) catches the deletion as an emptied array. That
+ * floor is also why a per-lesson 「at least one」 rule is not the answer here: it is already in the
+ * repository, and a second copy of it would grade nothing new.
+ *
+ * **`variants` is the one exclusion, and it is excluded because it is already pinned.** A variant
+ * carries a scenario, every scenario's timeline hash is a key of
+ * `tests/fixtures/lesson-hashes.json`, and `tests/engine/lesson-hashes.test.ts` compares the whole
+ * map with `toEqual` — so a deleted variant loses a key and that file goes red naming it. Verified
+ * by deleting one, not assumed. Pinning it here as well would be a second latch on a shut hole.
+ *
+ * **Why an exact table per lesson and not one total per section.** A total (「`observe` holds 211
+ * items」) catches the same deletions in nine written numbers instead of 704, and it was the first
+ * candidate. Three measured reasons against it:
+ *
+ *  - **It does not name the lesson,** and naming the lesson is the whole design of the layers
+ *    above: layer 1 exists precisely because layer 2 cannot say which lesson moved.
+ *  - **It cancels.** Re-pacing slices move items between lessons — `6a1be04` took one `observe`
+ *    and one `tryThis` off each of `@backoff`, `@ifs` and `@nav` while adding two lessons. A sum
+ *    is green whenever an addition and a deletion meet in the same commit.
+ *  - **A sum is a number nobody can check.** 211 cannot be verified by looking at anything; the
+ *    only way to repair it is to paste what the failure printed, which is the habit the layer-2
+ *    docblock above quotes W0 as condemning. A row saying `@anomaly` has 3 observations and 2
+ *    experiments is a statement about one lesson, and a reviewer can open that lesson and read it.
+ *
+ * **Why this friction is the right friction, measured over the whole history.** 336 commits have
+ * touched `src/course`. 62 of them changed the lesson set or an item count; only **12** ever
+ * changed the item count of a lesson that already existed, and eleven of those twelve are the
+ * re-pacing slices that say so in their subject lines (`M4 re-paced`, `M5 re-paced`, …). A prose
+ * edit does not move a row here, because polishing a sentence does not change how many sentences
+ * there are — which is exactly what the character bands above cannot promise about themselves.
+ * This is the bargain `lessons.test.ts`' `TRACK` table already makes, one line a lesson: a new
+ * lesson owes one row, on purpose.
+ */
+describe('lessonTexts · how many items each lesson holds', () => {
+  const ordered = COURSE_ORDER.flatMap((id) => LESSONS.filter((l) => l.id === id))
+
+  /**
+   * The counted collections, in the order the pinned rows list them. Named reader functions rather
+   * than `Section` strings because this counts the DATA, not the walk: `quiz` here is 「how many
+   * questions」 where layer 3's `count('quiz')` is 「how many strings the questions hold」. One is
+   * the structure and the other is a function of it, which is why layer 3 cannot stand in for this.
+   */
+  const COUNTED: readonly (readonly [string, (l: Lesson) => number])[] = [
+    ['observe', (l) => l.observe.length],
+    ['tryThis', (l) => l.tryThis.length],
+    ['quiz', (l) => l.quiz.length],
+    ['outcomes', (l) => l.outcomes!.length],
+    ['terms', (l) => l.terms!.length],
+    ['sources', (l) => l.sources!.length],
+    ['limits', (l) => l.limits.length],
+    ['jumps', (l) => l.jumps.length],
+  ]
+
+  /**
+   * One line a lesson: [observe, tryThis, quiz, outcomes, terms, sources, limits, jumps].
+   *
+   * `limits` is 0 on `@amp-intro` and `@amp-ppdu`, and that is the contract's own exemption for
+   * the two paused AMP lessons — recorded here rather than left to be rediscovered. Layer 1 above
+   * grades `limits` only where it exists, and this is the list of where that is.
+   */
+  const ITEMS: Record<string, readonly number[]> = {
+    'radio-primer':            [2, 2, 2, 3, 2, 2, 5, 2],
+    'noise-floor':             [2, 2, 2, 3, 2, 2, 4, 2],
+    'decode-thresholds':       [2, 2, 2, 3, 3, 3, 5, 2],
+    'mcs-ladder':              [2, 2, 2, 3, 2, 2, 6, 2],
+    'roles-stack':             [2, 1, 2, 3, 4, 3, 4, 2],
+    'relay-hops':              [2, 2, 2, 3, 1, 2, 4, 4],
+    'frame-anatomy':           [2, 1, 2, 4, 5, 3, 5, 2],
+    'frame-qos-fcs':           [2, 2, 2, 3, 2, 3, 4, 2],
+    'frame-anatomy-bytes':     [2, 2, 3, 4, 5, 3, 8, 2],
+    'small-frames':            [2, 2, 2, 4, 2, 3, 5, 3],
+    'airtime':                 [4, 2, 3, 3, 2, 4, 5, 2],
+    'ifs':                     [2, 1, 2, 3, 3, 3, 4, 3],
+    'cca':                     [2, 1, 2, 3, 3, 3, 5, 3],
+    'backoff':                 [2, 1, 2, 3, 2, 3, 4, 1],
+    'collisions-cw':           [2, 1, 2, 3, 3, 3, 4, 3],
+    'nav':                     [2, 1, 2, 3, 3, 3, 5, 1],
+    'hidden':                  [2, 1, 2, 3, 1, 3, 5, 1],
+    'rts-cts':                 [1, 1, 2, 3, 3, 3, 5, 1],
+    'anomaly':                 [3, 2, 2, 3, 3, 3, 5, 1],
+    'retries-queues':          [2, 1, 2, 3, 2, 3, 4, 3],
+    'queues':                  [2, 1, 2, 3, 2, 3, 4, 3],
+    'bianchi':                 [3, 2, 3, 3, 3, 3, 4, 4],
+    'bianchi-vs-sim':          [2, 2, 3, 3, 2, 3, 4, 4],
+    'rate-vs-model':           [2, 2, 2, 3, 2, 3, 4, 4],
+    'tier1-project':           [3, 2, 2, 4, 4, 3, 4, 4],
+    'tier1-project-review':    [3, 2, 2, 4, 1, 4, 4, 4],
+    'edca':                    [2, 1, 2, 2, 3, 3, 4, 2],
+    'edca-cost':               [2, 1, 3, 3, 1, 3, 4, 2],
+    'ampdu':                   [2, 2, 2, 3, 3, 2, 5, 2],
+    'txop':                    [2, 2, 3, 3, 2, 3, 4, 3],
+    'txop-protect':            [2, 1, 2, 3, 1, 3, 4, 2],
+    'protect-policies':        [2, 1, 2, 3, 2, 4, 4, 2],
+    'edca-tamper':             [3, 2, 3, 3, 3, 4, 4, 3],
+    'width':                   [2, 2, 2, 3, 4, 3, 6, 2],
+    'selectivity':             [2, 2, 2, 4, 4, 4, 4, 3],
+    'streams':                 [3, 2, 2, 3, 2, 4, 4, 2],
+    'rate':                    [3, 2, 2, 4, 2, 3, 4, 3],
+    'rate-fallback':           [3, 2, 2, 3, 2, 3, 4, 3],
+    'rate-cost':               [2, 2, 2, 3, 2, 3, 3, 3],
+    'fading':                  [2, 2, 2, 3, 4, 4, 4, 3],
+    'ofdma-dl':                [2, 2, 2, 3, 4, 4, 8, 2],
+    'ru-diversity':            [2, 2, 2, 3, 5, 5, 8, 3],
+    'ofdma-ul':                [2, 2, 2, 3, 3, 5, 6, 2],
+    'mumimo':                  [2, 1, 2, 3, 3, 4, 4, 3],
+    'mumimo-choose':           [2, 1, 2, 3, 3, 3, 3, 3],
+    'mlo':                     [2, 1, 2, 3, 3, 3, 4, 2],
+    'mlo-gain':                [2, 2, 2, 3, 2, 3, 4, 2],
+    'amp-intro':               [2, 1, 3, 3, 4, 4, 0, 5],
+    'amp-ppdu':                [2, 1, 3, 3, 6, 4, 0, 3],
+    'amp-slots':               [3, 2, 3, 4, 4, 4, 4, 5],
+    'amp-coexist':             [3, 2, 3, 4, 4, 2, 4, 5],
+    'amp-backscatter':         [3, 2, 3, 4, 6, 4, 4, 5],
+    'wan-rtt':                 [3, 2, 2, 3, 3, 4, 4, 3],
+    'capstone':                [2, 3, 2, 4, 2, 3, 5, 4],
+    'link-2g':                 [3, 2, 2, 3, 3, 4, 4, 4],
+    'uwb-intro':               [3, 1, 2, 3, 4, 4, 4, 4],
+    'uwb-frame':               [2, 1, 3, 3, 6, 3, 4, 2],
+    'uwb-sts':                 [3, 2, 3, 3, 3, 4, 5, 4],
+    'uwb-sstwr':               [3, 2, 3, 3, 5, 3, 4, 4],
+    'uwb-dstwr':               [3, 2, 3, 3, 4, 2, 4, 5],
+    'uwb-reply-time':          [3, 2, 4, 3, 6, 3, 4, 4],
+    'uwb-deferred-ds':         [3, 2, 3, 3, 4, 3, 4, 4],
+    'uwb-blocks':              [2, 1, 2, 3, 4, 3, 5, 5],
+    'uwb-slot-budget':         [1, 2, 2, 3, 2, 3, 4, 3],
+    'uwb-position':            [3, 1, 3, 3, 2, 3, 5, 5],
+    'uwb-geometry':            [3, 2, 3, 3, 3, 3, 4, 4],
+    'uwb-coexist':             [2, 2, 2, 3, 5, 5, 5, 5],
+    'uwb-contention':          [2, 2, 2, 3, 4, 4, 4, 5],
+    'uwb-m2m':                 [3, 2, 4, 4, 4, 3, 5, 4],
+    'uwb-rcm-validity':        [3, 2, 4, 4, 4, 3, 5, 4],
+    'uwb-receipt':             [3, 2, 4, 4, 4, 3, 5, 5],
+    'uwb-sp3':                 [3, 2, 4, 4, 5, 3, 5, 6],
+    'uwb-ancillary':           [3, 2, 4, 4, 5, 3, 4, 4],
+    'uwb-ancillary-request':   [2, 2, 3, 4, 4, 3, 3, 4],
+    'uwb-dl-tdoa':             [3, 2, 3, 3, 4, 3, 4, 6],
+    'uwb-ul-tdoa':             [3, 2, 3, 3, 4, 3, 4, 5],
+    'uwb-aoa':                 [2, 2, 3, 3, 4, 3, 4, 5],
+    'uwb-sensing':             [2, 2, 3, 3, 4, 4, 7, 4],
+    'uwb-sensing-resolution':  [2, 2, 3, 3, 3, 4, 8, 4],
+    'uwb-mms':                 [3, 2, 2, 3, 6, 3, 4, 5],
+    'uwb-mms-numbers':         [2, 2, 3, 3, 3, 3, 3, 4],
+    'uwb-nba':                 [3, 2, 2, 3, 5, 3, 3, 4],
+    'uwb-nba-coexist':         [3, 1, 2, 3, 4, 4, 4, 3],
+    'uwb-ssbd':                [3, 1, 2, 3, 5, 5, 4, 4],
+    'uwb-uwbd':                [3, 1, 2, 3, 4, 3, 4, 5],
+    'uwb-acquisition':         [3, 1, 2, 3, 4, 3, 7, 4],
+    'uwb-subrounds':           [3, 1, 2, 3, 4, 3, 8, 4],
+    'uwb-capstone':            [2, 2, 3, 4, 2, 4, 5, 4],
+  }
+
+  it('has one pinned row per lesson, and one lesson per pinned row', () => {
+    // Both directions, like `TRACK` in lessons.test.ts. A lesson with no row would be graded by
+    // nothing at all, and a row with no lesson is a row left behind by a rename — and the second
+    // half is what a `for (const l of LESSONS)` loop cannot see on its own.
+    expect(ordered.map((l) => l.id).sort(), 'a lesson with no pinned row, or a row with no lesson')
+      .toEqual(Object.keys(ITEMS).sort())
+    for (const [id, row] of Object.entries(ITEMS)) {
+      expect(row.length, `@${id} pins ${row.length} figures; COUNTED lists ${COUNTED.length}`
+        + ` sections (${COUNTED.map(([n]) => n).join(', ')})`).toBe(COUNTED.length)
+    }
+  })
+
+  it('holds exactly the items pinned for it, and says which lesson and which section', () => {
+    const offenders: string[] = []
+    let graded = 0
+    for (const l of ordered) {
+      const row = ITEMS[l.id]
+      if (row === undefined) continue // named by the `it` above rather than graded twice here
+      COUNTED.forEach(([name, count], i) => {
+        graded += 1
+        const actual = count(l)
+        if (actual !== row[i]) {
+          offenders.push(`@${l.id}: ${name} holds ${actual} ${actual === 1 ? 'entry' : 'entries'},`
+            + ` pinned at ${row[i]}`)
+        }
+      })
+    }
+    expect(offenders, `${offenders.length} (lesson, section) pairs hold a different number of`
+      + ' entries than the row pinned for them. A prose edit does not reach this check — it counts'
+      + ' entries, not characters — so a red here is an entry added or removed. If that was on'
+      + ` purpose, edit that lesson's row and say which entry in the commit message; a reader's`
+      + ` experiment is not free.\n${offenders.join('\n')}`).toEqual([])
+    // Anti-vacuity: 88 lessons × 8 sections = 704 pairs. A floor rather than the figure, because
+    // the figure is a product of two counts that both move — layer 1 states one for the same
+    // reason.
+    expect(graded, 'the item census graded almost nothing').toBeGreaterThan(600)
   })
 })
