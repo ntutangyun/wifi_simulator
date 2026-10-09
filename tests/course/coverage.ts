@@ -228,3 +228,77 @@ export function statedCounts(doc: string): Map<string, number> {
   }
   return out
 }
+
+/**
+ * The header row of every Markdown table of a document, in document order.
+ *
+ * Exported so each test can assert its document's table CENSUS rather than only its tables'
+ * contents. 「Who checks this number?」 has an answer per table, and a table nobody listed is a
+ * table whose numbers nobody checks — the shape of defect this pair of files keeps finding. With
+ * the census pinned, a new summary table cannot appear without somebody saying which it is.
+ */
+export const tableHeads = (doc: string): string[][] => tables(doc).map((t) => t.head)
+
+/**
+ * `| 量 | 实测 | … |` rows of every table of `doc` whose header row is exactly `head`, as a map
+ * from the first cell to the **leading** integer of the second.
+ *
+ * **Why this exists, and why it is not {@link statedCounts}.** `statedCounts` reads exactly two
+ * columns, which is the shape of the three totals tables of the Wi-Fi document and the two of the
+ * UWB one. The Wi-Fi document's §17 summary is FOUR columns — 量 / 实测 / 断言在哪 / 余量 — so
+ * every figure in it fell outside the only reader there was, and on 2026-10-09 five of its six
+ * rows were measured stale: 课数 87 (真 88), 模块数 30 (真 31), 分钟数合计 1 850 (真 1 875),
+ * 全课程主路径汉字 191 386 (真 193 882), 场景数 256 (真 264). **All five went stale because of
+ * our own slices** — W3 moved the lesson count, the module count and the minute sum in one commit
+ * — in the most prominent table of a document that says of itself that none of its figures can
+ * rot. A stated figure is worth exactly as much as its check, and this one had none.
+ *
+ * **The leading integer, deliberately, and not every integer in the cell.** The 实测 cells carry
+ * dates and asides (「**191 386**（2026-10-07 重量…）」), and a reader of 「all the integers」
+ * would have had 2026 and 10 and 07 handed to it as figures. Leading-integer-only is the rule that
+ * makes the figure the thing a reader's eye lands on first, and it is why the document now opens
+ * each 实测 cell with its figure. A cell that does NOT open with one yields nothing — which is a
+ * hole, so the test that uses this asserts that every row of the matched table yields a figure.
+ *
+ * Thousands are grouped with an ASCII space throughout both documents (`191 386`), so a group of
+ * exactly three digits after a space continues the number; anything else ends it.
+ *
+ * `**` is stripped the same way {@link statedCounts} strips it, and for the same reason: the table
+ * bolds the figures it wants a reader to stop on, and emphasis must not stop a figure being one.
+ */
+export function statedFigures(doc: string, head: readonly string[]): Map<string, number> {
+  const out = new Map<string, number>()
+  for (const t of tables(doc)) {
+    if (t.head.length !== head.length || !t.head.every((c, i) => c === head[i])) continue
+    for (const row of t.rows) {
+      if (row.length < 2) continue
+      const label = row[0].replaceAll('*', '').trim()
+      const m = /^\d+(?: \d{3})*/.exec(row[1].replaceAll('*', '').trim())
+      if (!m) continue
+      if (!out.has(label)) out.set(label, Number(m[0].replaceAll(' ', '')))
+    }
+  }
+  return out
+}
+
+/**
+ * A Chinese numeral from 〇 to 九十九 as a number, or `null`.
+ *
+ * Both documents count things about themselves in prose with Chinese numerals — 「十四、『引擎建
+ * 了，无课』的**五**条」 heads a table with five rows, and §17 says how many figures its summary
+ * table holds. Those are stated numbers like any other, and they rot the same way: that heading
+ * read 「九条」 and then 「十三条」 within four days of slices. Reading them is what lets a test
+ * compare them instead of a reader.
+ */
+export function zhNumeral(s: string): number | null {
+  const digits = '〇一二三四五六七八九'
+  const unit = s.indexOf('十')
+  if (unit < 0) {
+    const i = digits.indexOf(s)
+    return s.length === 1 && i >= 0 ? i : null
+  }
+  const tens = unit === 0 ? 1 : digits.indexOf(s.slice(0, unit))
+  const ones = unit === s.length - 1 ? 0 : digits.indexOf(s.slice(unit + 1))
+  if (tens < 1 || ones < 0 || s.slice(unit + 1).length > 1) return null
+  return tens * 10 + ones
+}

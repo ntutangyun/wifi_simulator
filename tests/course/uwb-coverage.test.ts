@@ -20,7 +20,8 @@
 import { describe, expect, it } from 'vitest'
 import { LESSONS } from '../../src/course/lessons'
 import {
-  dataRows, lessonCitations, readDoc, statedCounts, symbolCitations, tableRows, unresolved,
+  dataRows, lessonCitations, readDoc, statedCounts, statedFigures, symbolCitations, tableHeads,
+  tableRows, unresolved,
 } from './coverage'
 
 const DOC = 'docs/uwb-feature-coverage.md'
@@ -155,5 +156,86 @@ describe(`${DOC}'s parser can fail`, () => {
     expect(dataRows(real, HEAD)).toEqual([
       ['种的特性', '已发布', '已建模', '`uwb/ranging.ts#rstuNs`。`@uwb-sstwr`'],
     ])
+  })
+})
+
+/**
+ * **The other half of the shared parser's blind spot, and here it is a pin rather than a fix.**
+ *
+ * `statedCounts` reads two-column `| label | count |` rows, and that is the shape of both of this
+ * document's totals tables, so every figure it states about itself is read out and compared. The
+ * Wi-Fi half of this pair was not so lucky: its §17 summary is FOUR columns, nothing read it, and
+ * on 2026-10-09 five of that table's six figures were measured stale — three of them stale because
+ * of one of our own slices.
+ *
+ * **Measured the same day: this document has no such table.** 18 tables under 4 distinct headers —
+ * 15 data tables, two two-column totals tables and one two-column legend — and not one non-data
+ * table that states a figure. **That is luck, not design**, in exactly the way the header selector
+ * of 2026-10-08 was: the parser is shared, the discipline was not. So the census is pinned here,
+ * and the rule the Wi-Fi document needed is asserted here before this document needs it.
+ *
+ * The figures that are in prose rather than in a table are deliberately out of scope and said out
+ * loud instead: 「145 行」 of `.superpowers/sdd/uwb-clause-list.txt` (re-measured 2026-10-09:
+ * exactly 145 lines), 「十一个格子写了「无法判定」」 (the 无法判定 count, which IS pinned by the
+ * totals table above), and 「1138 份抽出的文稿」, which names a corpus outside this repository and
+ * cannot be measured from inside it.
+ */
+const UWB_CENSUS: readonly (readonly [readonly string[], string])[] = [
+  [['值', '含义'], '§「怎么读这张表」 legend — prose cells, deliberately no figures'],
+  [['标准状态', '行数'], 'statedCounts, against the data rows (the 5 STATUS labels)'],
+  [['本仿真器', '行数'], 'statedCounts, against the data rows (the 3 COVERAGE labels)'],
+  [HEAD, 'the data tables — row total, both verdict vocabularies, the three evidence disciplines'],
+]
+
+describe(`${DOC} has no table whose figures nothing reads`, () => {
+  it('has exactly the tables this file says who checks', () => {
+    const heads = [...new Set(tableHeads(doc).map((h) => h.join(' | ')))]
+    expect(heads.sort(), 'a table appeared or disappeared in this document. Every table owes a line'
+      + ' in UWB_CENSUS naming what checks its figures — being unlisted is how the Wi-Fi'
+      + ' document\'s §17 went five-sixths stale.\n'
+      + UWB_CENSUS.map(([h, who]) => `  ${h.join(' | ')}  <-  ${who}`).join('\n'))
+      .toEqual(UWB_CENSUS.map(([h]) => h.join(' | ')).sort())
+  })
+
+  it('states no figure outside a table that something compares', () => {
+    // The rule, rather than the census: in any table that is NOT the data table, a cell that OPENS
+    // with a digit is a stated figure, and it is only allowed where this file already compares it
+    // — a two-column count row whose label is one of the eight asserted above. A four-column
+    // summary like the Wi-Fi document's §17 fails here on its first row, which is the point: the
+    // next person to add one is told to go and compare it, not left with a green run.
+    const asserted = new Set([...STATUS, ...COVERAGE])
+    const loose: string[] = []
+    for (const key of new Set(tableHeads(doc).map((h) => h.join('\u0000')))) {
+      const head = key.split('\u0000')
+      if (head.length === HEAD.length && head.every((c, i) => c === HEAD[i])) continue
+      for (const row of dataRows(doc, head)) {
+        const label = row[0].replaceAll('*', '').trim()
+        row.slice(1).forEach((cell, i) => {
+          if (!/^\d/.test(cell.replaceAll('*', '').trim())) return
+          if (head.length === 2 && asserted.has(label)) return
+          loose.push(`${head.join(' | ')} → 「${label}」 column ${i + 2} states ${cell}`)
+        })
+      }
+    }
+    expect(loose, `${loose.length} stated figures sit in a non-data table that nothing in this file`
+      + ` compares:\n${loose.join('\n')}`).toEqual([])
+  })
+
+  it('that rule can fail: a four-column summary table here would be caught', () => {
+    // Planted, because a check that has only run against a document that passes has not been shown
+    // to be able to fail. This is the Wi-Fi document's §17 in miniature, dropped into this one.
+    const planted = ['## 十八、种的汇总', '| 量 | 实测 | 断言在哪 | 余量 |',
+      '| --- | --- | --- | --- |', '| 课数 | 87 | 同文件 | — |'].join('\n')
+    const heads = tableHeads(planted)
+    expect(heads, 'the planted table is found as a table of its own').toHaveLength(1)
+    expect(heads[0], 'and its header is not the data header').not.toEqual([...HEAD])
+    const row = dataRows(planted, heads[0])[0]
+    expect(/^\d/.test(row[1]), 'its 实测 cell opens with a digit, so the rule above sees a figure')
+      .toBe(true)
+    expect(statedFigures(planted, heads[0]).get('课数'), 'and statedFigures reads it, so the fix'
+      + ' available to whoever adds such a table is the one the Wi-Fi file already uses').toBe(87)
+    // and this document's own two-column count rows are NOT caught by the same rule
+    expect(statedCounts(doc).get('已发布'), 'the totals table is still read as counts')
+      .toBe(dataRows(doc, HEAD).filter((r) => r[1] === '已发布').length)
   })
 })

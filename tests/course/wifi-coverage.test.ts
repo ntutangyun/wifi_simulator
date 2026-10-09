@@ -43,10 +43,16 @@
  * exists, this file still passes, and the cell that says 已建模 is now false.
  */
 import { describe, expect, it } from 'vitest'
-import { COURSE_ORDER } from '../../src/course/curriculum'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+import { COURSE_ORDER, MODULES, lessonMinutes } from '../../src/course/curriculum'
+import { LESSONS } from '../../src/course/lessons'
+import { mainPathChars } from '../../src/course/readability'
+import { HOUSEHOLDS } from '../../src/model/households'
 import {
-  dataRows, lessonCitations, readDoc, statedCounts, symbolCitationOccurrences, symbolCitations,
-  tableRows, unresolved, type SymbolCitation,
+  ROOT, dataRows, lessonCitations, readDoc, statedCounts, statedFigures,
+  symbolCitationOccurrences, symbolCitations, tableHeads, tableRows, unresolved, zhNumeral,
+  type SymbolCitation,
 } from './coverage'
 
 const DOC = 'docs/wifi-feature-coverage.md'
@@ -352,5 +358,281 @@ describe(`${DOC}'s checks can fail`, () => {
     expect(dataRows(doc, ['A–G', '零到一百的阶段/刀', '谁实际交的']).length,
       'the A–G table is still found as a table of its own, so the line above is not vacuous')
       .toBeGreaterThan(0)
+  })
+})
+
+/* ────────────────────────────────────────────────────────────────────────────────────────────
+ * Layer 5: the figures in the tables that are NOT data rows.
+ * ──────────────────────────────────────────────────────────────────────────────────────────── */
+
+/** The header of §17's summary table — the one that carries six figures about the course. */
+const FIG_HEAD = ['量', '实测', '断言在哪', '余量']
+
+/** The header of §14's 「引擎建了，无课」 summary table. */
+const BUILT_HEAD = ['#', '它是什么', '引擎', '这张表的哪一节']
+
+const byId = new Map(LESSONS.map((l) => [l.id, l]))
+const ordered = COURSE_ORDER.flatMap((id) => byId.get(id) ?? [])
+
+/**
+ * The `limits` ratchet is the one figure in §17 that is a CEILING rather than a measurement, so
+ * 「read it out and compare」 means comparing the document to the assertion instead of to the
+ * course. Both say 292; neither of them says it twice.
+ */
+const ratchetCeiling = (): number => {
+  const src = readFileSync(resolve(ROOT, 'tests/course/readability.test.ts'), 'utf8')
+  const m = /owes no more than (\d+) \(lesson, term\) pairs/.exec(src)
+  expect(m, 'readability.test.ts no longer names the `limits` ratchet in its own `it` title, so'
+    + ' §17 has nothing to be compared against — fix this reader, do not drop the comparison')
+    .not.toBeNull()
+  return Number(m![1])
+}
+
+/**
+ * Every figure of §17's summary table, next to the thing that measures it. A `Map` rather than six
+ * assertions so that the set of labels can be compared against the table as a whole: a seventh row
+ * added to that table has to be answered here, and a row that stops opening with its figure makes
+ * the two sizes disagree. **There is no literal figure in this file** — the same rule as the rest
+ * of it.
+ */
+const FIGURES: ReadonlyMap<string, () => number> = new Map([
+  ['全课程主路径汉字', () => ordered.reduce((n, l) => n + mainPathChars(l), 0)],
+  ['分钟数合计', () => ordered.reduce((n, l) => n + lessonMinutes(l), 0)],
+  ['`limits` 债务棘轮', ratchetCeiling],
+  ['课数', () => ordered.length],
+  ['模块数', () => MODULES.length],
+  ['场景数（含 variants）',
+    () => LESSONS.length + LESSONS.reduce((n, l) => n + (l.variants?.length ?? 0), 0)],
+])
+
+const figures = statedFigures(doc, FIG_HEAD)
+
+/**
+ * **This is the hole the whole slice was opened for, and the irony is the reason.**
+ *
+ * `statedCounts` reads two-column `| label | count |` rows, which is the shape of §「总数」's
+ * three totals tables. §17's summary is FOUR columns, so nothing read it — and on 2026-10-09
+ * five of its six figures were stale: 课数 87 (真 88), 模块数 30 (真 31), 分钟数合计 1 850
+ * (真 1 875), 全课程主路径汉字 191 386 (真 193 882), 场景数 256 (真 264). The three the brief
+ * named are **exactly the three that slice W3 moved in one commit**, and the other two drifted
+ * the same way. The most prominent table of a document whose own §「总数」 says every figure in it
+ * is read out and compared held five hand-written ones, stale because of us.
+ *
+ * So they are read out and compared now, which is this repository's standing answer to a
+ * hand-written number — the answer slice W0 gave the 188 317 it deleted rather than updated.
+ * Correcting 87 to 88 would only have been a number waiting to rot again.
+ */
+describe(`${DOC}'s §17 summary table states figures, and every one is measured`, () => {
+  it('still has the table, and every row of it opens with its figure', () => {
+    // The guard against a reader that silently matches nothing: if the header is re-dated or a row
+    // stops leading with its number, this is the failure, not a vacuous green below.
+    const rowCount = dataRows(doc, FIG_HEAD).length
+    expect(rowCount, 'the §17 summary table is gone, or its header changed — statedFigures selects'
+      + ` on the exact header ${FIG_HEAD.join(' | ')}`).toBeGreaterThan(0)
+    expect(figures.size, `${rowCount} rows in the §17 summary table but ${figures.size} figures`
+      + ' parsed; a 实测 cell that does not OPEN with its figure yields nothing, and a figure that'
+      + ' yields nothing is a figure nobody checks — which is the defect this layer exists for')
+      .toBe(rowCount)
+  })
+
+  it('states exactly the six figures this file measures, and no seventh', () => {
+    expect([...figures.keys()], 'a row added to or removed from §17 owes a line in FIGURES saying'
+      + ' what measures it; an unanswered row is an unchecked number')
+      .toEqual([...FIGURES.keys()])
+  })
+
+  it.each([...FIGURES.keys()])('%s is the measured value', (label) => {
+    expect(figures.get(label), `§17 states ${label} = ${figures.get(label)}`)
+      .toBe(FIGURES.get(label)!())
+  })
+
+  it('breaks 课数 down into the three lesson families it actually has', () => {
+    // The breakdown inside the 课数 cell is a second stated figure, and on 2026-10-09 it was stale
+    // in the same edit and for the same reason: 87（Wi-Fi 49、AMP 5、UWB 33）while W3's `@link-2g`
+    // had already made it 88（Wi-Fi 50…）. The leading-integer rule cannot see a figure inside a
+    // parenthesis, so this one is read by name.
+    const m = /\| 课数 \| (\d+)（Wi-Fi (\d+)、AMP (\d+)、UWB (\d+)）/.exec(doc)
+    expect(m, 'the 课数 row no longer spells its family breakdown in the shape this reads')
+      .not.toBeNull()
+    const [total, wifi, amp, uwb] = m!.slice(1).map(Number)
+    const uwbActual = ordered.filter((l) => l.id.startsWith('uwb-')).length
+    const ampActual = ordered.filter((l) => l.id.startsWith('amp-')).length
+    expect([wifi, amp, uwb], 'the three families, by lesson-id prefix')
+      .toEqual([ordered.length - uwbActual - ampActual, ampActual, uwbActual])
+    expect(wifi + amp + uwb, 'the breakdown has to add up to the total beside it').toBe(total)
+  })
+
+  it('states the fixture total the scenario count sits inside', () => {
+    // `| 场景数（含 variants） | **264** | …共 **271** 条 = 264 + 7 个编辑器家庭 |` — three figures
+    // in one row, of which the leading-integer rule sees one. The other two were stale too (263 =
+    // 256 + 7), so the equation is read and both sides are compared against the fixture itself.
+    const m = /共 \*\*(\d+)\*\* 条 = (\d+) \+ (\d+) 个编辑器家庭/.exec(doc)
+    expect(m, 'the 场景数 row no longer spells the fixture equation').not.toBeNull()
+    const [total, scenes, households] = m!.slice(1).map(Number)
+    const fixture = JSON.parse(
+      readFileSync(resolve(ROOT, 'tests/fixtures/lesson-hashes.json'), 'utf8'),
+    ) as Record<string, string>
+    expect(total, 'keys in tests/fixtures/lesson-hashes.json').toBe(Object.keys(fixture).length)
+    expect(households, 'HOUSEHOLDS, which the fixture records as `household:<id>`')
+      .toBe(HOUSEHOLDS.length)
+    expect(scenes + households, 'the equation has to add up to the total beside it').toBe(total)
+    expect(scenes, 'and the left-hand side is the figure in the 实测 column')
+      .toBe(figures.get('场景数（含 variants）'))
+  })
+
+  it('states how many figures that table holds, in the prose above it', () => {
+    const m = /是下面那张表里的\*\*(.+?)\*\*个数/.exec(doc)
+    expect(m, '§17 no longer says how many figures its table holds').not.toBeNull()
+    expect(zhNumeral(m![1]), `§17 says 「${m![1]}个数」`).toBe(figures.size)
+  })
+
+  it('states the mean lesson as an equation, and both sides of it are measured', () => {
+    // 「全课程 87 门的均值 2 200 = 191 386 / 87」 — prose, and three of its four figures were the
+    // stale ones from the table above. Read by name for the same reason the breakdown is.
+    const m = /全课程 (\d+) 门的均值 (\d[\d ]*) = (\d[\d ]*) \/ (\d+)/.exec(doc)
+    expect(m, '§17 no longer spells the mean-lesson equation in the shape this reads')
+      .not.toBeNull()
+    const [count, mean, chars, divisor] = m!.slice(1).map((s) => Number(s.replaceAll(' ', '')))
+    const actual = ordered.reduce((n, l) => n + mainPathChars(l), 0)
+    expect([count, divisor], 'both appearances of the lesson count')
+      .toEqual([ordered.length, ordered.length])
+    expect(chars, 'the corpus total, again').toBe(actual)
+    expect(mean, 'and the quotient the sentence states').toBe(Math.round(actual / ordered.length))
+  })
+
+  it('states the minute sum again inside the bucket table, and that copy is measured too', () => {
+    // The second table of §17 names the sum in prose inside a cell — 「分钟数合计那条等式（今天是
+    // 1 850）变红」 — and that copy was stale while the table above it was stale. Two statements of
+    // one number are two things to check, not one.
+    const m = /分钟数合计那条等式（今天是 (\d[\d ]*)）变红/.exec(doc)
+    expect(m, 'the `@rate` row no longer names the minute sum').not.toBeNull()
+    expect(Number(m![1].replaceAll(' ', '')), 'the sum named in the 后果 cell')
+      .toBe(ordered.reduce((n, l) => n + lessonMinutes(l), 0))
+  })
+})
+
+/**
+ * §14's summary table counts itself twice — once in the section heading (「的五条」) and once in its
+ * own `#` column — and neither copy was checked. That heading has read 十三条, 九条 and 五条 within
+ * four days of slices, which is the rate at which a hand-written count goes wrong here.
+ */
+describe(`${DOC}'s §14 summary table counts itself correctly`, () => {
+  const built = dataRows(doc, BUILT_HEAD)
+
+  it('has the table, numbered 1..n with nothing skipped', () => {
+    expect(built.length, 'the §14 summary table is gone, or its header changed').toBeGreaterThan(0)
+    expect(built.map((r) => r[0]), 'the `#` column — a renumbering that skips one is a row that'
+      + ' vanished from the count while still being on the page')
+      .toEqual(built.map((_, i) => String(i + 1)))
+  })
+
+  it('states its own length in its heading', () => {
+    const m = /^## 十四、「引擎建了，无课」的(.+?)条，汇总$/m.exec(doc)
+    expect(m, '§14 no longer heads itself with a count').not.toBeNull()
+    expect(zhNumeral(m![1]), `§14 heads itself 「的${m![1]}条」`).toBe(built.length)
+  })
+})
+
+/**
+ * **Who checks each table's numbers, as an assertion.** Every table of this document is listed here
+ * with the answer; a table that is not listed is a table whose figures nobody reads, and that is
+ * the shape of every defect this pair of files has found. So the census is pinned: a new summary
+ * table cannot appear without somebody writing down which it is.
+ *
+ * Measured 2026-10-09 — and the count relayed from the previous slice (「20 张表：12 数据 + 4 四列
+ * 汇总 + 3 二列 + 2 三列」) was wrong on both totals: there are **24** tables under **13** distinct
+ * headers, 12 data + 4 four-column non-data + 5 two-column + 3 three-column.
+ */
+const CENSUS: readonly (readonly [readonly string[], string])[] = [
+  [['值', '含义'], '§「怎么读这张表」 legend — prose cells, deliberately no figures'],
+  [['标准依据（按前缀归并）', '行数'], 'statedCounts, against the data rows (5 labels)'],
+  [['本仿真器', '行数'], 'statedCounts, against the data rows (3 labels)'],
+  [['第四列的裁定', '行数'], 'statedCounts, against the data rows (4 labels)'],
+  [HEAD, 'the data tables — row total, both vocabularies, both fourth-column disciplines'],
+  [BUILT_HEAD, '§14 — the `#` column, against the count in its own heading'],
+  [['Tier 3 原定的条目', '今天在哪', '还剩什么'], '§15 — prose cells, no figures'],
+  [['Tier 4 原定的条目', '状态'], '§15 — prose cells, no figures'],
+  [['子项目', '规格', '实际状态'], '§16 — prose cells, no figures'],
+  [['A–G', '零到一百的阶段/刀', '谁实际交的'], '§16 — prose cells, no figures'],
+  [FIG_HEAD, '§17 — statedFigures, all six against the course'],
+  [['课', 'raw 分钟', '到下一档还剩', '后果'],
+    '§17 bucket margins — NOT pinned row by row (re-measured 2026-10-09: all six exact); its one'
+    + ' prose figure, the minute sum, IS pinned above'],
+  [['课', 'raw', '取整', '到 35 还剩'],
+    '§17 raw > 30 — NOT pinned row by row (re-measured 2026-10-09: 31.12/30 and 30.32/30 exact;'
+    + ' the 到 35 margins 303 and 479 are a floor of the 303.6 and 479.6 the formula gives, so'
+    + ' pinning them would pin a rounding convention rather than a fact)'],
+]
+
+describe(`${DOC}'s table census is pinned, so a new summary table cannot go unchecked`, () => {
+  it('has exactly the tables this file says who checks', () => {
+    const heads = [...new Set(tableHeads(doc).map((h) => h.join(' | ')))]
+    expect(heads.sort(), 'a table appeared or disappeared. Every table of this document owes a line'
+      + ' in CENSUS naming what checks its figures — an unlisted table is the hole that let the six'
+      + ' figures of §17 go five-sixths stale.\n'
+      + CENSUS.map(([h, who]) => `  ${h.join(' | ')}  <-  ${who}`).join('\n'))
+      .toEqual(CENSUS.map(([h]) => h.join(' | ')).sort())
+  })
+
+  it('lists one answer per distinct header and no answer twice', () => {
+    // So the set equality above cannot pass by CENSUS repeating a header, and so the counts in
+    // its docblock are the only place a figure about this document is written down by hand —
+    // deliberately prose, because **there is no literal figure anywhere in this file**. The
+    // 「twelve data tables」 claim is checked where it belongs: against the row total the
+    // document states about itself, by the first describe of this file.
+    expect(CENSUS.length, 'two lines of CENSUS carry the same header')
+      .toBe(new Set(CENSUS.map(([h]) => h.join(' | '))).size)
+    expect(tableHeads(doc).length, 'tables in the whole document, which is more than the number of'
+      + ' distinct headers because the twelve data tables share one')
+      .toBeGreaterThan(CENSUS.length)
+  })
+})
+
+/**
+ * **The reverse check: the new reader must not widen the net.** A figure parser that also swallowed
+ * headers, separator rows or the numbers inside a sentence would redden on ordinary editing, which
+ * is worse than not existing — it teaches people to stop reading the red.
+ */
+describe(`${DOC}'s figure reader ignores what it should ignore`, () => {
+  it('reads the figure a row opens with, and nothing else in the cell', () => {
+    const table = [`| ${FIG_HEAD.join(' | ')} |`, '| --- | --- | --- | --- |',
+      '| 种的量 | **191 386**（2026-10-07 重量；上一次记的是 191 285，少了 101 字） | 同文件 | — |',
+      '| 分钟数合计 | **1 875** | 同文件，**等式** | 0 |',
+      '| 课数 | 88（Wi-Fi 50、AMP 5、UWB 33） | `toBe(88)` | — |'].join('\n')
+    expect([...statedFigures(table, FIG_HEAD).entries()],
+      'the leading figure of each cell — not the dates, not the asides, not the parenthesis')
+      .toEqual([['种的量', 191_386], ['分钟数合计', 1_875], ['课数', 88]])
+  })
+
+  it('does not read the header row, a separator row, or another table', () => {
+    // A header whose second cell is a figure would be a figure if the header were a row; it is not.
+    expect(statedFigures([`| ${FIG_HEAD.join(' | ')} |`, '| --- | --- | --- | --- |'].join('\n'),
+      FIG_HEAD).size, 'a table with no data rows states no figures').toBe(0)
+    expect(statedFigures(['| 量 | 2 | 断言在哪 | 余量 |', '| --- | --- | --- | --- |',
+      '| 种的量 | 7 | 同文件 | — |'].join('\n'), FIG_HEAD).size,
+    'and the header is the header even when it could be read as a row').toBe(0)
+    // the data tables are four columns too, and their 标准依据 cells are not figures
+    expect(statedFigures(doc, HEAD).size, 'no data row opens its second cell with an integer')
+      .toBe(0)
+  })
+
+  it('does not read a figure out of prose, or out of a cell that does not open with one', () => {
+    const table = [`| ${FIG_HEAD.join(' | ')} |`, '| --- | --- | --- | --- |',
+      '| 种的量 | 大约 1 875 | 同文件 | — |',
+      '| 另一个 | — | 同文件 | — |'].join('\n')
+    expect(statedFigures(table, FIG_HEAD).size,
+      'a cell that opens with a word states no figure — which is why the test above asserts that'
+      + ' every row of the real table yields one').toBe(0)
+    expect(statedFigures('全课程 88 门的均值 2 203 = 193 882 / 88。', FIG_HEAD).size,
+      'a sentence is not a table').toBe(0)
+  })
+
+  it('reads a Chinese numeral only where there is one', () => {
+    expect([zhNumeral('五'), zhNumeral('六'), zhNumeral('十'), zhNumeral('十四'),
+      zhNumeral('二十四')], 'the counts these two documents actually spell')
+      .toEqual([5, 6, 10, 14, 24])
+    expect([zhNumeral('5'), zhNumeral('五条'), zhNumeral(''), zhNumeral('十四五'), zhNumeral('百')],
+      'and nothing else — a reader that guessed here would compare against a wrong number')
+      .toEqual([null, null, null, null, null])
   })
 })
