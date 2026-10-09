@@ -23,6 +23,7 @@ function fieldRowsOf(f: FrameDesc, S: Strings['frameDetail']['fields']): FieldRo
 export function EventLog() {
   const playheadNs = useUi((s) => s.playheadNs)
   const jumpSeq = useUi((s) => s.jumpSeq)
+  const playing = useUi((s) => s.playing)
   const [expanded, setExpanded] = useState<number | null>(null)
   const L = useStrings()
 
@@ -35,12 +36,43 @@ export function EventLog() {
   )
 
   /*
-   * Putting the anchored row IN the batch is not the same as putting it on the
-   * screen, and only one of the two is what the reader asked for. This panel is
-   * `overflow: auto` inside a fixed grid cell — ~30 rows of a batch of 160 are
-   * in view — and it has never managed its own scroll, so after a jump the row
-   * could be a thousand pixels below the fold with the scrollbar wherever the
-   * last render left it.
+   * Putting a row IN the batch is not the same as putting it on the screen, and
+   * only one of the two is what the reader asked for. This panel is
+   * `overflow: auto` inside a fixed grid cell — ~28 rows of a batch of 160 are
+   * in view — and it did not manage its own scroll, so the row could be a
+   * thousand pixels below the fold with the scrollbar wherever the last render
+   * left it.
+   *
+   * ## Which row, and when
+   *
+   * `showSeq`: the jump's row while a jump is live, otherwise the playhead's
+   * row, and **nothing at all while playback is running**. That last clause is
+   * the whole rule and it is deliberate on both sides:
+   *
+   *  - Following the playhead frame by frame during playback would fight the
+   *    reader's own scrolling, costs a layout read every frame, and nobody has
+   *    asked for it. `playing` is checked rather than inferred, so playback
+   *    changes `showSeq` to null and the effect below does not even re-run
+   *    (null to null is not a change) — the per-frame cost of this block while
+   *    playing is zero.
+   *  - A reader who **deliberately moves the playhead** is a different event:
+   *    one explicit action, discontinuous, and every path that does it pauses
+   *    first (`Player.stepNs`, `stepEvent`, `stepExchange`, `seekFirst` all
+   *    call `pause`) or was already paused. Pressing ❚❚ is such an action too:
+   *    the reader stopped in order to look at where they are.
+   *
+   * That half was measured before it was written, in this browser, at all three
+   * viewports (`.superpowers/sdd/log-followup-report.md`): of 60 measurements
+   * of the marker row's position after a deliberate move — the first frame
+   * after a lesson loads, 事件 → ×1 and ×21, 帧交换 ⏭ ×10, and a 30-notch wheel
+   * seek on the strip, across `edca`, `mumimo`, `radio-primer` and `airtime` —
+   * **54 had the marker outside the box**, by up to 2 206 px, with `scrollTop`
+   * still 0 in every single one. The row that says "you are here" was on the
+   * screen in 1 of them. It is the same defect as the jump's, from the other
+   * end: the batch is now centred on the marker, which puts it ~80 rows down a
+   * ~160-row batch, and the box was never told.
+   *
+   * ## How
    *
    * `scrollTop` by hand rather than `scrollIntoView`: that walks every
    * scrollable ancestor, and this app's narrow layouts are measured on the
@@ -49,25 +81,37 @@ export function EventLog() {
    * else. Geometry comes from `getBoundingClientRect` and not `offsetTop`,
    * which is measured from whichever ancestor happens to be positioned.
    *
+   * Only when the row is out of view, so a reader who has scrolled the panel by
+   * hand keeps their position until the playhead actually moves off the screen.
    * A third of the way down, not the top: the records that LED to this one are
    * most of why the reader came, and a row pinned to the top edge hides them.
    * `useLayoutEffect` so it happens before the browser paints — a visible jerk
-   * from the old offset to the new one is its own small defect. Keyed on
-   * `anchorSeq` alone, so it fires once per jump and never during playback:
-   * following the playhead every frame is a different feature with a cost of its
-   * own, and nobody has asked for it.
+   * from the old offset to the new one is its own small defect.
+   *
+   * The second dependency is the batch's own first row, and it is there because
+   * the browser test found the case the first one misses: **the same row can
+   * move without changing its seq**. While the worker is still filling the
+   * lookahead, `win` keeps growing, so `pickLogRows`'s clamp
+   * (`min(win.length − 160, …)`) stops biting and the slice's start index walks
+   * forward — the marker's seq is unchanged and its position in the batch is
+   * not. Caught as a flake in the e2e case below, at `foldable-open` and
+   * `desktop` but not `foldable-shut`, which is what an undeclared dependency
+   * looks like. It costs one comparison per frame during playback, before the
+   * `showSeq === null` return and before any DOM read.
    */
+  const showSeq = anchorSeq ?? (playing ? null : markerSeq)
+  const firstSeq = records.length ? records[0].seq : null
   const boxRef = useRef<HTMLDivElement>(null)
-  const anchorRef = useRef<HTMLDivElement>(null)
+  const showRef = useRef<HTMLDivElement>(null)
   useLayoutEffect(() => {
     const box = boxRef.current
-    const row = anchorRef.current
-    if (!box || !row || anchorSeq === null) return
+    const row = showRef.current
+    if (!box || !row || showSeq === null) return
     const top = row.getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop
     if (top < box.scrollTop || top + row.offsetHeight > box.scrollTop + box.clientHeight) {
       box.scrollTop = Math.max(0, top - box.clientHeight / 3)
     }
-  }, [anchorSeq])
+  }, [showSeq, firstSeq])
 
   return (
     <div ref={boxRef} style={{ overflow: 'auto', fontSize: 11.5, fontFamily: 'Consolas, monospace', padding: '4px 0' }}>
@@ -78,8 +122,19 @@ export function EventLog() {
         const key = r.seq
         const rows = f && expanded === key ? fieldRowsOf(f, L.frameDetail.fields) : null
         const anchored = r.seq === anchorSeq
+        const marked = r.seq === markerSeq
         return (
-          <div key={key} ref={anchored ? anchorRef : undefined} data-log-anchor={anchored || undefined}>
+          <div
+            key={key}
+            ref={r.seq === showSeq ? showRef : undefined}
+            data-log-anchor={anchored || undefined}
+            /* The marker's own handle, so a browser can measure where the
+             * playhead's row ended up without having to recognise it by the
+             * colour of a border. `data-log-anchor` is a separate fact and
+             * stays separate: after a jump the two are different rows in 230 of
+             * the course's 293 jumps. */
+            data-log-marker={marked || undefined}
+          >
             <div
               onClick={() => {
                 player.pause()
@@ -100,7 +155,7 @@ export function EventLog() {
                  * the 470 px column is unaffected.
                  */
                 borderLeft: anchored ? '2px solid #38bdf8'
-                  : r.seq === markerSeq ? '2px solid #f8fafc' : '2px solid transparent',
+                  : marked ? '2px solid #f8fafc' : '2px solid transparent',
               }}
             >
               {/*

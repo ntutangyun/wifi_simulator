@@ -335,33 +335,37 @@ test.describe('nothing falls off the side of the screen', () => {
  * the thing that was wrong is which pane is on screen — `pane` is local state in
  * `App.tsx`, reachable from no store and no pure function.
  */
+/** The clock in the transport row — the independent witness that a seek happened. */
+const CLOCK = 'span:text-matches("^t = ")'
+
+/** The sentence a jump prints when the moment it wants never happens at all. */
+const JUMP_FAILED = '往后 3 秒的仿真里没有出现这一刻'
+
 /**
- * Press "⚡ 跳到那里" until the moment it looks for is in the recording.
+ * Press "⚡ 跳到那里" **once**, and insist the jump landed.
  *
- * It has to be this and not one click, and the reason is a lesson about this
- * very test: a jump into a moment the player has not simulated yet does nothing
- * but print "当前仿真窗口内尚未出现" into the prose — `seekFirst` returns false
- * and no signal is sent. The first version of the two-column case clicked once,
- * raced the worker, missed, and then **passed** under the implementation it was
- * written to reject, because an unsent signal rebuilds nothing either. It was
- * caught by reverting the fix and watching the test stay green.
+ * One click is the claim. It used to be a loop of up to forty, 250 ms apart,
+ * and the reason was a lesson about this very test: a jump into a moment the
+ * player had not simulated yet did nothing but print 「尚未出现」 into the prose
+ * — `seekFirst` returned null and no signal was sent. The first version of the
+ * two-column case clicked once, raced the worker, missed, and then **passed**
+ * under the implementation it was written to reject, because an unsent signal
+ * rebuilds nothing either. It was caught by reverting the fix and watching the
+ * test stay green.
  *
- * So the helper insists the jump landed, and the caller then has something to
- * assert about. The playhead moving off zero is the independent witness: the
- * recording starts there and nothing in this test plays it.
+ * The loop is gone because the race is: `Player.seekFirstAhead` holds the jump
+ * and asks the worker to record further, so one click either lands at once or
+ * lands when the recording reaches the moment. The loop would now hide the
+ * difference — it would pass against a player that still needed to be asked
+ * forty times.
+ *
+ * The playhead moving off zero is the witness: the recording starts there and
+ * nothing in this test plays it.
  */
 async function jumpUntilFound(page: Page): Promise<void> {
-  const button = page.locator('main button', { hasText: '⚡ 跳到那里' }).first()
-  const missed = page.getByText('当前仿真窗口内尚未出现')
-  for (let attempt = 0; attempt < 40; attempt++) {
-    await button.click()
-    if ((await missed.count()) === 0) {
-      await expect(page.locator('span', { hasText: /^t = / }).first()).not.toHaveText(/t = 0\.000 000 000 s/)
-      return
-    }
-    await page.waitForTimeout(250)
-  }
-  throw new Error('the jump never found its moment: the recording never reached it')
+  await page.locator('main button', { hasText: '⚡ 跳到那里' }).first().click()
+  await expect(page.getByText(JUMP_FAILED), 'the jump reported the moment never happens').toHaveCount(0)
+  await expect(page.locator(CLOCK).first()).not.toHaveText(/t = 0\.000 000 000 s/)
 }
 
 test.describe('a jump brings the view on screen without rebuilding it', () => {
@@ -441,21 +445,14 @@ test.describe('a jump puts its own row in front of the reader', () => {
       await page.locator('header button', { hasText: '课文' }).click()
     }
 
-    // The same insistence as `jumpUntilFound`, and for the same reason: a jump
-    // into a moment the worker has not reached yet prints a note and sends no
-    // signal, and a test that accepted that would pass against the defect.
-    const button = page.locator('main button', { hasText: DENSE_JUMP_LABEL }).first()
-    const missed = page.getByText('当前仿真窗口内尚未出现')
-    let landed = false
-    for (let attempt = 0; attempt < 40 && !landed; attempt++) {
-      await button.click()
-      if ((await missed.count()) === 0) landed = true
-      else await page.waitForTimeout(250)
-    }
-    expect(landed, 'the jump never found its moment').toBe(true)
+    // One click, same as `jumpUntilFound`: the player holds a jump whose moment
+    // is not recorded yet and lands it when the worker catches up, so a retry
+    // loop here would pass against a player that could not.
+    await page.locator('main button', { hasText: DENSE_JUMP_LABEL }).first().click()
+    await expect(page.getByText(JUMP_FAILED)).toHaveCount(0)
     // The playhead is the independent witness that the seek happened, and this
     // jump's instant is a known constant of the recording.
-    await expect(page.locator('span', { hasText: /^t = / }).first()).toHaveText('t = 0.362 642 600 s')
+    await expect(page.locator(CLOCK).first()).toHaveText('t = 0.362 642 600 s')
 
     // Now go and look at the log, the way a reader would: the drawer if this
     // viewport has one, then the log's own tab.
@@ -504,4 +501,205 @@ test.describe('a jump puts its own row in front of the reader', () => {
 
     expectNothingOffScreen(await survey(page), 'course · the log after a jump')
   })
+})
+
+/**
+ * **The playhead's own row, on the screen, after the reader moved the playhead.**
+ *
+ * The block above covers a jump. This one covers the other half of the same
+ * defect, and it was found by measuring rather than by reasoning: with the
+ * batch now centred on the marker, the marker sits about eighty rows down a
+ * 160-row batch, and nothing had ever told the box to scroll there. Measured in
+ * this browser at all three viewports before the fix — the first frame after a
+ * lesson loads, 事件 → ×1 and ×21, 帧交换 ⏭ ×10, and a 30-notch wheel seek on
+ * the strip, across `edca`, `mumimo`, `radio-primer` and `airtime` — **54 of 60
+ * measurements had the marker outside the box**, off by up to 2 206 px, with
+ * `scrollTop` 0 in every one of the sixty.
+ *
+ * What is NOT claimed, and is deliberately not implemented: following the
+ * playhead during playback. `EventLog` scrolls for the marker only while
+ * `playing` is false, so this block never presses ▶. The three moves it does
+ * make are the reader's own explicit ones.
+ *
+ * `mumimo` because it is dense at every one of those moves: its window holds
+ * the full 160-row budget throughout, so the box always overflows and "the row
+ * is in view" is always a claim about scrolling rather than about a short list
+ * that happened to fit. The test asserts that overflow each time, for exactly
+ * that reason.
+ *
+ * At 470 and 939 the log is a drawer whose scrim covers the transport, so the
+ * reader cannot move the playhead and watch the log at the same time: the test
+ * closes the drawer to move and reopens it to look, which remounts the panel at
+ * `scrollTop` 0. At 1440 the log is a column and nothing remounts, so there the
+ * old offset is still on the box when the playhead moves — the two cases fail
+ * for different reasons and both are covered by running this in all three
+ * projects.
+ */
+const LESSON_DENSE_LOG = 'mumimo'
+
+/** The side panel's drawer button, at the viewports that have one. */
+const sideButton = (page: Page) => page.locator('header button', { hasText: /^(🔍|🔍 检视器 \/ 日志)$/ })
+
+/** Put the event log on screen. Returns whether it is a drawer at this size. */
+async function openLog(page: Page): Promise<boolean> {
+  const b = sideButton(page)
+  const isDrawer = (await b.count()) > 0
+  if (isDrawer) await b.click()
+  await page.locator('[role="tab"]', { hasText: '事件日志' }).click()
+  return isDrawer
+}
+
+/** …and out of the way again, so the transport underneath can be reached. */
+async function closeLog(page: Page, isDrawer: boolean): Promise<void> {
+  if (isDrawer) await page.locator('header button', { hasText: '关闭' }).first().click()
+}
+
+/** Where the marker row ended up, measured against its own scrolling ancestor. */
+async function markerGeometry(page: Page) {
+  return page.evaluate(() => {
+    const row = document.querySelector('[data-log-marker]') as HTMLElement | null
+    if (!row) return null
+    let box: HTMLElement | null = row.parentElement
+    while (box) {
+      const o = getComputedStyle(box).overflowY
+      if (o === 'auto' || o === 'scroll') break
+      box = box.parentElement
+    }
+    if (!box) return null
+    const r = row.getBoundingClientRect()
+    const b = box.getBoundingClientRect()
+    return {
+      rowHeight: r.height, rowTop: r.top, rowBottom: r.bottom,
+      boxTop: b.top, boxBottom: b.bottom,
+      viewportH: window.innerHeight, scrollTop: box.scrollTop, scrollHeight: box.scrollHeight,
+    }
+  })
+}
+
+async function expectMarkerInView(page: Page, what: string): Promise<void> {
+  // The log can legitimately hold no marker: the window is
+  // `[playhead − 3 ms, playhead + 0.5 ms]` and the first batch has not
+  // necessarily arrived, so right after a load there is a moment with nothing
+  // at or before the playhead to mark. Wait for the row rather than sleeping —
+  // a fixed sleep here is what hid the missing `firstSeq` dependency in
+  // `EventLog` at two of the three viewports.
+  await page.locator('[data-log-marker]').first().waitFor({ timeout: 20_000 })
+  const g = await markerGeometry(page)
+  expect(g, `${what}: no marker row, or no scrolling ancestor for it`).not.toBeNull()
+  const m = g!
+  expect(m.rowHeight, `${what}: the marker row has no height`).toBeGreaterThan(0)
+  expect(m.rowTop, `${what}: the marker is above the top of the log`).toBeGreaterThanOrEqual(m.boxTop - EPS)
+  expect(m.rowBottom, `${what}: the marker is below the bottom of the log`).toBeLessThanOrEqual(m.boxBottom + EPS)
+  // …and the log itself is on the screen, so "inside the log" means something.
+  expect(m.rowTop, `${what}: off the top of the window`).toBeGreaterThanOrEqual(-EPS)
+  expect(m.rowBottom, `${what}: off the bottom of the window`).toBeLessThanOrEqual(m.viewportH + EPS)
+  // The box really did have to scroll. Without this the test could pass on a
+  // batch short enough to fit, which proves nothing about the fix.
+  expect(m.scrollHeight, `${what}: the log did not overflow, so nothing was proved`)
+    .toBeGreaterThan(m.boxBottom - m.boxTop)
+}
+
+test.describe('the reader can see where the playhead is after moving it', () => {
+  test(`${LESSON_DENSE_LOG} · load, step, seek`, async ({ page }) => {
+    await open(page, 'course', LESSON_DENSE_LOG)
+    await page.locator('main button', { hasText: '▶ 载入并观察' }).first().click()
+    await page.locator(SCENE_CANVAS).waitFor()
+    // The window has to be filled before the first measurement means anything:
+    // this lesson records ~322 000 records per second of sim time, and the log
+    // is reading the first 500 µs of it.
+    await expect(page.locator(CLOCK).first()).toHaveText('t = 0.000 000 000 s')
+
+    // 1. The first frame after a lesson loads. The reader asked for this scene
+    //    and the playhead is at its start; the marker is the newest record at
+    //    or before it, which in this lesson is ~80 rows down the batch.
+    let isDrawer = await openLog(page)
+    await expectMarkerInView(page, 'after loading the lesson')
+    await closeLog(page, isDrawer)
+
+    // 2. The transport's own steps. 21 of them, so the window has moved on to
+    //    records that were not in it at load.
+    const nextEv = page.locator('button[title="next event"]')
+    for (let i = 0; i < 21; i++) await nextEv.click()
+    isDrawer = await openLog(page)
+    await expectMarkerInView(page, 'after 事件 → x21')
+    await closeLog(page, isDrawer)
+
+    const nextExch = page.locator('button[title="next frame exchange"]')
+    for (let i = 0; i < 10; i++) await nextExch.click()
+    isDrawer = await openLog(page)
+    await expectMarkerInView(page, 'after 帧交换 ⏭ x10')
+    await closeLog(page, isDrawer)
+
+    // 3. A seek on the timeline strip, which is `player.seek` and not a step:
+    //    it lands between records rather than on one, which is the case the
+    //    marker's "last record at or before the playhead" rule exists for.
+    const strip = page.locator('canvas').last()
+    const bb = await strip.boundingBox()
+    expect(bb, 'the timeline strip is not on the page').not.toBeNull()
+    await page.mouse.move(bb!.x + bb!.width / 2, bb!.y + bb!.height / 2)
+    for (let i = 0; i < 30; i++) await page.mouse.wheel(0, 120)
+    await expect(page.locator(CLOCK).first()).not.toHaveText('t = 0.000 000 000 s')
+    isDrawer = await openLog(page)
+    await expectMarkerInView(page, 'after a 30-notch wheel seek on the strip')
+
+    expectNothingOffScreen(await survey(page), 'course · the log after the reader moved the playhead')
+  })
+})
+
+/**
+ * **A jump to a moment the recording has not got to yet.**
+ *
+ * `Player.load` asks the worker for `LOOKAHEAD_NS` = 2 s of sim time, and a
+ * lesson's playhead starts at 0, so for as long as the reader has not moved it
+ * the recording ends at 2 s. Two of the course's 293 jumps point past that:
+ *
+ *  - `queues` 「AP 第一次因生存期丢帧」 at 2.182 806 360 s
+ *  - `capstone` 「第一个触发帧」 at 2.453 384 778 s
+ *
+ * Clicking either on a freshly loaded lesson printed a sentence and did
+ * nothing, and the sentence's advice — let the simulation run a while longer —
+ * was three minutes of real time for the first and seven and a half for the
+ * second at the default 1 000x slowdown, because the playhead has to reach
+ * 183 ms and 453 ms for the lookahead to cover the moment. The player now holds
+ * the jump and asks the worker to record as far as `JUMP_SEARCH_NS`
+ * (`src/player/player.ts`).
+ *
+ * The test presses ▶ nowhere and touches the speed nowhere: it loads, checks
+ * the clock is still at zero, clicks once, and waits for the clock to read the
+ * instant. `tests/ui/eventLogWindow.test.ts` holds the arithmetic half — that
+ * every jump target in the course is inside that horizon, and which two are
+ * outside the lookahead — and it cannot hold this half, because "the reader
+ * clicked once and arrived" is not a property of a pure function.
+ */
+const BEYOND_LOOKAHEAD: { lesson: string; label: string; clock: string }[] = [
+  { lesson: 'queues', label: 'AP 第一次因生存期丢帧', clock: 't = 2.182 806 360 s' },
+  { lesson: 'capstone', label: '第一个触发帧', clock: 't = 2.453 384 778 s' },
+]
+
+test.describe('a jump reaches past the recording, without the reader playing it', () => {
+  for (const c of BEYOND_LOOKAHEAD) {
+    test(`${c.lesson} · ${c.label}`, async ({ page }, info) => {
+      await open(page, 'course', c.lesson)
+      await page.locator('main button', { hasText: '▶ 载入并观察' }).first().click()
+      await page.locator(SCENE_CANVAS).waitFor()
+      // Nothing has moved the playhead: this is the state a reader is in when
+      // they read the call-out and press the button. Checked here, before the
+      // tap below, because at one column the transport is inside the view pane
+      // (`showViewCol` in `App.tsx`) and there is no clock on the prose.
+      const clock = page.locator(CLOCK).first()
+      await expect(clock).toHaveText('t = 0.000 000 000 s')
+      if ((info.project.use.viewport?.width ?? 0) < 700) {
+        await page.locator('header button', { hasText: '课文' }).click()
+      }
+
+      await page.locator('main button', { hasText: c.label }).first().click()
+      await expect(page.getByText(JUMP_FAILED), 'the jump gave up instead of waiting').toHaveCount(0)
+      // 25 s: the worker has to simulate past the instant from scratch, which is
+      // ~0.7 s for `queues` and ~1.4 s for `capstone` on a developer machine.
+      await expect(clock, 'the jump never arrived').toHaveText(c.clock, { timeout: 25_000 })
+      // Nothing is playing — the arrival was the jump's doing and not a clock
+      // that happened to run there.
+      await expect(page.locator('button', { hasText: '▶ 播放' }).first()).toBeVisible()
+    })
+  }
 })
