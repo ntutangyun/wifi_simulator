@@ -20,9 +20,30 @@ export class TimelineStore {
     return this.records.length
   }
 
+  /**
+   * Append a batch.
+   *
+   * The two appends are loops rather than `push(...b.records)`, and the
+   * difference is a size limit. Spread passes every element as a separate
+   * argument, and the argument count a call can carry is bounded by the stack:
+   * measured on node 24.15 with the default stack, 100 000 elements go through
+   * and 125 000 throw `RangeError: Maximum call stack size exceeded`. The loop
+   * has no such bound.
+   *
+   * **The worker never reaches it, and that is exactly why this sat here.** It
+   * posts 50 ms sim-time chunks (`src/worker/sim.worker.ts`), and the largest
+   * single chunk any of the 88 lesson scenes produces in its first three
+   * seconds is 16 433 records (`mumimo`, measured) — six times under the limit.
+   * So on the screen `ingest` had no limit worth the name, while its signature
+   * said it took a `Batch` and any caller holding a whole run got a
+   * `RangeError`: `tests/ui/eventLogWindow.test.ts` hit it with one 6-second
+   * AMP batch and had to shred the batch itself to get past this line, which it
+   * no longer does. A store whose append silently caps at a number nobody
+   * states is a store whose cap every caller has to rediscover.
+   */
   ingest(b: Batch): void {
-    this.records.push(...b.records)
-    this.snapshots.push(...b.snapshots)
+    for (const r of b.records) this.records.push(r)
+    for (const s of b.snapshots) this.snapshots.push(s)
     this.frontierNs = Math.max(this.frontierNs, b.frontierNs)
   }
 
