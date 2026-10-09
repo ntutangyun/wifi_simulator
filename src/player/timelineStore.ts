@@ -67,10 +67,17 @@ export class TimelineStore {
     return out
   }
 
-  /** Time of the first buffered record matching pred (course jump-to targets). */
-  findFirstTime(pred: (r: TLRecord) => boolean): Ns | null {
+  /**
+   * The first buffered record matching pred (course jump-to targets).
+   *
+   * It hands back the record and not just its time, because the time is not
+   * enough to identify it: one instant can carry dozens of records, and the
+   * event log has to know WHICH of them the reader asked for in order to put
+   * that row on the screen (`src/ui/eventLogWindow.ts`).
+   */
+  findFirst(pred: (r: TLRecord) => boolean): TLRecord | null {
     for (const r of this.records) {
-      if (pred(r)) return r.t
+      if (pred(r)) return r
     }
     return null
   }

@@ -212,7 +212,7 @@ function BlockView({ b }: { b: Block }) {
 }
 
 export function CoursePanel() {
-  const { courseLessonId, selectLesson, loadCourseScenario, adoptCourseScenario, courseLoaded, courseLoadedFor, requestView } = useUi()
+  const { courseLessonId, selectLesson, loadCourseScenario, adoptCourseScenario, courseLoaded, courseLoadedFor, requestView, markJump } = useUi()
   const L = useStrings().course
 
   /**
@@ -342,11 +342,25 @@ export function CoursePanel() {
    * stayed up). It is sent only when the seek found the moment: a miss prints
    * `jumpMsg` into the prose, and switching away would hide the one sentence
    * that explains why nothing happened.
+   *
+   * `markJump` is the second half of the same thought, and it was missing for as
+   * long as `requestView` was: the view being on screen does not mean the ROW is.
+   * The playhead says when, and one nanosecond can hold dozens of records, so
+   * the log is told which `seq` to render and scroll to. Three of the course's
+   * 293 jumps used to land on a record the log then dropped — the reader got the
+   * clock and the inspector, and not the line they had clicked to read
+   * (`src/ui/eventLogWindow.ts`).
+   *
+   * `r !== null` and never `if (r)`: `seq` starts at 0, and the first record of
+   * a recording is a legitimate jump target.
    */
   const jump = (find: Lesson['jumps'][0]['find'], label: string) => {
-    const ok = player.seekFirst(find)
-    setJumpMsg(ok ? '' : `${label}: ${L.notFound}`)
-    if (ok) requestView()
+    const r = player.seekFirst(find)
+    setJumpMsg(r !== null ? '' : `${label}: ${L.notFound}`)
+    if (r !== null) {
+      markJump(r.seq)
+      requestView()
+    }
   }
 
   /**

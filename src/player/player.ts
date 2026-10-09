@@ -2,6 +2,7 @@
  * Playback controller: owns the worker, the TimelineStore and the playhead.
  * The playhead scrubs recorded history; the worker keeps simulating ahead.
  */
+import type { TLRecord } from '../model/records'
 import type { Scenario } from '../model/scenario'
 import type { Ns } from '../model/types'
 import type { ViewState } from '../model/view'
@@ -164,13 +165,21 @@ export class Player {
     if (t !== null) this.seek(t)
   }
 
-  /** Pause and seek to the first buffered record matching pred. False if none yet. */
-  seekFirst(pred: Parameters<TimelineStore['findFirstTime']>[0]): boolean {
-    const t = this.store.findFirstTime(pred)
-    if (t === null) return false
+  /**
+   * Pause and seek to the first buffered record matching pred, and hand that
+   * record back. Null when the recording has not reached it yet.
+   *
+   * The record, not a boolean: the caller's next move is to tell the event log
+   * which row to show, and `seq` is the only thing that names it (the playhead
+   * alone cannot — see `src/ui/eventLogWindow.ts`). Callers test it against
+   * `null` and never for truthiness: `seq` starts at 0.
+   */
+  seekFirst(pred: Parameters<TimelineStore['findFirst']>[0]): TLRecord | null {
+    const r = this.store.findFirst(pred)
+    if (r === null) return null
     this.pause()
-    this.seek(t)
-    return true
+    this.seek(r.t)
+    return r
   }
 
   stepExchange(dir: 1 | -1): void {

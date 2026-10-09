@@ -2,6 +2,12 @@
  * The narrow-width sweep: every mode, at every viewport, measured for things
  * that have fallen off the side of the screen.
  *
+ * Since 2026-10-09 it carries one block that is not about width: the last one,
+ * on whether the row a jump landed on is inside the event log's own scroll box.
+ * It is here because the reason this file exists covers it exactly — a real
+ * browser is the only thing that knows where a box ended up, and `vitest` runs
+ * with no layout at all. The four questions below are unchanged.
+ *
  * Four defects in this app were only ever visible at 470 CSS px, and all four
  * were found by a person walking into them. This is the instrument that was
  * missing. It asks four questions of a rendered page, and they are four
@@ -396,5 +402,106 @@ test.describe('a jump brings the view on screen without rebuilding it', () => {
       return c?.__probe ?? null
     }, SCENE_CANVAS)
     expect(probe, 'the 3-D view was rebuilt by the jump').toBe('before the jump')
+  })
+})
+
+/**
+ * **The row the reader clicked, on the screen.**
+ *
+ * This is the half of the event-log fix that cannot be checked anywhere else.
+ * `tests/ui/eventLogWindow.test.ts` proves the row is among the 160 the log
+ * draws, for all 293 jumps of all 88 lessons, and that is a real claim — but a
+ * batch of 160 rows is some 2 000 px tall inside a panel 511 px high, and the
+ * log manages its own `scrollTop`. "In the DOM" and "in front of the reader"
+ * are two different facts and only a browser holds the second one.
+ *
+ * `edca` 「接入点上的内部碰撞」 is the jump chosen because it is one of the three
+ * the old `.slice(-160)` cut: its window holds 478 records and 178 of them come
+ * after the target, so the newest 160 were all records that had not happened
+ * yet. On the reader's screen the clock read `t = 0.362 642 600 s` and the
+ * inspector showed the AP's TXOP, and the one line the lesson had just told them
+ * to go and read was not rendered at all.
+ */
+const LESSON_DENSE_JUMP = 'edca'
+const DENSE_JUMP_LABEL = '接入点上的内部碰撞'
+/** What `src/ui/format.ts` renders that record as — the text the reader came for. */
+const DENSE_JUMP_ROW = 'ap internal collision: AC_VO beats AC_BE'
+
+test.describe('a jump puts its own row in front of the reader', () => {
+  test(`${LESSON_DENSE_JUMP} · ${DENSE_JUMP_LABEL}`, async ({ page }, info) => {
+    await open(page, 'course', LESSON_DENSE_JUMP)
+    await page.locator('main button', { hasText: '▶ 载入并观察' }).first().click()
+    await page.locator(SCENE_CANVAS).waitFor()
+
+    // At one column, loading puts the 3-D view up and the prose — with the jump
+    // buttons on it — is no longer mounted. The reader taps back to it, and so
+    // does this: the sibling test above does the same, and without it this case
+    // sat for 30 s waiting to click a button that was not on the page.
+    if ((info.project.use.viewport?.width ?? 0) < 700) {
+      await page.locator('header button', { hasText: '课文' }).click()
+    }
+
+    // The same insistence as `jumpUntilFound`, and for the same reason: a jump
+    // into a moment the worker has not reached yet prints a note and sends no
+    // signal, and a test that accepted that would pass against the defect.
+    const button = page.locator('main button', { hasText: DENSE_JUMP_LABEL }).first()
+    const missed = page.getByText('当前仿真窗口内尚未出现')
+    let landed = false
+    for (let attempt = 0; attempt < 40 && !landed; attempt++) {
+      await button.click()
+      if ((await missed.count()) === 0) landed = true
+      else await page.waitForTimeout(250)
+    }
+    expect(landed, 'the jump never found its moment').toBe(true)
+    // The playhead is the independent witness that the seek happened, and this
+    // jump's instant is a known constant of the recording.
+    await expect(page.locator('span', { hasText: /^t = / }).first()).toHaveText('t = 0.362 642 600 s')
+
+    // Now go and look at the log, the way a reader would: the drawer if this
+    // viewport has one, then the log's own tab.
+    const drawer = page.locator('header button', { hasText: /^(🔍|🔍 检视器 \/ 日志)$/ })
+    if (await drawer.count()) await drawer.click()
+    await page.locator('[role="tab"]', { hasText: '事件日志' }).click()
+
+    const anchor = page.locator('[data-log-anchor]')
+    await expect(anchor, 'the log drew no anchored row').toHaveCount(1)
+    await expect(anchor).toContainText(DENSE_JUMP_ROW)
+
+    // And it is inside its own scroll box rather than a screenful below the
+    // fold. Measured against the nearest scrolling ancestor, which is the log.
+    const geom = await page.evaluate(() => {
+      const row = document.querySelector('[data-log-anchor]') as HTMLElement | null
+      if (!row) return null
+      let box: HTMLElement | null = row.parentElement
+      while (box) {
+        const o = getComputedStyle(box).overflowY
+        if (o === 'auto' || o === 'scroll') break
+        box = box.parentElement
+      }
+      if (!box) return null
+      const r = row.getBoundingClientRect()
+      const b = box.getBoundingClientRect()
+      return {
+        rowTop: r.top, rowBottom: r.bottom, rowHeight: r.height,
+        boxTop: b.top, boxBottom: b.bottom,
+        viewportH: window.innerHeight, scrollTop: box.scrollTop, scrollHeight: box.scrollHeight,
+      }
+    })
+    expect(geom, 'no scrolling ancestor found for the log row').not.toBeNull()
+    const g = geom!
+    // A row with no height is in the DOM and invisible, which is the exact
+    // confusion this test exists to refuse.
+    expect(g.rowHeight, 'the anchored row has no height').toBeGreaterThan(0)
+    expect(g.rowTop, 'the anchored row is above the top of the log').toBeGreaterThanOrEqual(g.boxTop - EPS)
+    expect(g.rowBottom, 'the anchored row is below the bottom of the log').toBeLessThanOrEqual(g.boxBottom + EPS)
+    // …and the log itself is on the screen, so "inside the log" means something.
+    expect(g.rowTop).toBeGreaterThanOrEqual(-EPS)
+    expect(g.rowBottom).toBeLessThanOrEqual(g.viewportH + EPS)
+    // The log really did have to scroll to manage it: if the batch fitted, this
+    // test would be passing for a reason that has nothing to do with the fix.
+    expect(g.scrollHeight, 'the log did not overflow, so nothing was proved about scrolling')
+      .toBeGreaterThan(g.boxBottom - g.boxTop)
+
+    expectNothingOffScreen(await survey(page), 'course · the log after a jump')
   })
 })

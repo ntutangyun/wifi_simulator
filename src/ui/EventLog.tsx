@@ -1,12 +1,10 @@
-import { useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import { player, useUi } from './store'
+import { pickLogRows, windowedRecords } from './eventLogWindow'
 import { decodeFrame, fmtNs, fmtRecord, type FieldRow } from './format'
 import { useStrings, type Strings } from './i18n'
 import type { FrameDesc } from '../model/frames'
 import type { TLRecord } from '../model/records'
-
-const WINDOW_BEFORE = 3_000_000 // 3 ms back
-const WINDOW_AFTER = 500_000 // 0.5 ms ahead
 
 function frameOf(r: TLRecord) {
   return 'frame' in r ? r.frame : null
@@ -24,27 +22,64 @@ function fieldRowsOf(f: FrameDesc, S: Strings['frameDetail']['fields']): FieldRo
 
 export function EventLog() {
   const playheadNs = useUi((s) => s.playheadNs)
+  const jumpSeq = useUi((s) => s.jumpSeq)
   const [expanded, setExpanded] = useState<number | null>(null)
   const L = useStrings()
 
-  const records = player.store
-    .recordsIn(Math.max(player.store.windowStartNs, playheadNs - WINDOW_BEFORE), playheadNs + WINDOW_AFTER)
-    .filter((r) => r.type !== 'MAC_STATE')
-    .slice(-160)
-  // Mark the most recent record at or before the playhead — exact equality
-  // almost never holds after an analog (wheel) seek.
-  const markerSeq = records.reduce<number | null>((m, r) => (r.t <= playheadNs ? r.seq : m), null)
+  // Which rows, and which one is the reader's: `./eventLogWindow`, so that the
+  // choice is a pure function a node test can call on the same code path the
+  // screen uses. `markerSeq` still marks the most recent record at or before the
+  // playhead — exact equality almost never holds after an analog (wheel) seek.
+  const { rows: records, markerSeq, anchorSeq } = pickLogRows(
+    windowedRecords(player.store, playheadNs), playheadNs, jumpSeq,
+  )
+
+  /*
+   * Putting the anchored row IN the batch is not the same as putting it on the
+   * screen, and only one of the two is what the reader asked for. This panel is
+   * `overflow: auto` inside a fixed grid cell — ~30 rows of a batch of 160 are
+   * in view — and it has never managed its own scroll, so after a jump the row
+   * could be a thousand pixels below the fold with the scrollbar wherever the
+   * last render left it.
+   *
+   * `scrollTop` by hand rather than `scrollIntoView`: that walks every
+   * scrollable ancestor, and this app's narrow layouts are measured on the
+   * promise that nothing scrolls the page (`tests/e2e/narrow-width.spec.ts`
+   * question 1). Setting `scrollTop` on this box moves this box and nothing
+   * else. Geometry comes from `getBoundingClientRect` and not `offsetTop`,
+   * which is measured from whichever ancestor happens to be positioned.
+   *
+   * A third of the way down, not the top: the records that LED to this one are
+   * most of why the reader came, and a row pinned to the top edge hides them.
+   * `useLayoutEffect` so it happens before the browser paints — a visible jerk
+   * from the old offset to the new one is its own small defect. Keyed on
+   * `anchorSeq` alone, so it fires once per jump and never during playback:
+   * following the playhead every frame is a different feature with a cost of its
+   * own, and nobody has asked for it.
+   */
+  const boxRef = useRef<HTMLDivElement>(null)
+  const anchorRef = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    const box = boxRef.current
+    const row = anchorRef.current
+    if (!box || !row || anchorSeq === null) return
+    const top = row.getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop
+    if (top < box.scrollTop || top + row.offsetHeight > box.scrollTop + box.clientHeight) {
+      box.scrollTop = Math.max(0, top - box.clientHeight / 3)
+    }
+  }, [anchorSeq])
 
   return (
-    <div style={{ overflow: 'auto', fontSize: 11.5, fontFamily: 'Consolas, monospace', padding: '4px 0' }}>
+    <div ref={boxRef} style={{ overflow: 'auto', fontSize: 11.5, fontFamily: 'Consolas, monospace', padding: '4px 0' }}>
       {records.length === 0 && <div style={{ color: 'var(--dim)', padding: 8 }}>{L.log.empty}</div>}
       {records.map((r) => {
         const past = r.t <= playheadNs
         const f = frameOf(r)
         const key = r.seq
         const rows = f && expanded === key ? fieldRowsOf(f, L.frameDetail.fields) : null
+        const anchored = r.seq === anchorSeq
         return (
-          <div key={key}>
+          <div key={key} ref={anchored ? anchorRef : undefined} data-log-anchor={anchored || undefined}>
             <div
               onClick={() => {
                 player.pause()
@@ -55,7 +90,17 @@ export function EventLog() {
                 display: 'flex', gap: 8, padding: '1px 8px', cursor: 'pointer',
                 opacity: past ? 1 : 0.45,
                 background: r.type === 'COLLISION' ? 'rgba(239,68,68,0.15)' : undefined,
-                borderLeft: r.seq === markerSeq ? '2px solid #f8fafc' : '2px solid transparent',
+                /*
+                 * The anchored row gets its own colour, and it needs one: the
+                 * white border is the PLAYHEAD, and after a jump the playhead's
+                 * row is a different row from the clicked one in 230 of the
+                 * course's 293 jumps (up to 88 rows away). A reader told "read
+                 * that line" has to be able to tell which line. Both are 2 px
+                 * borders that were already being drawn, so no layout moves and
+                 * the 470 px column is unaffected.
+                 */
+                borderLeft: anchored ? '2px solid #38bdf8'
+                  : r.seq === markerSeq ? '2px solid #f8fafc' : '2px solid transparent',
               }}
             >
               {/*

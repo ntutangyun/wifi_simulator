@@ -63,6 +63,31 @@ export interface UiState {
    * `player.seekFirst` moves the playhead and touches no store field at all.
    */
   requestView(): void
+  /**
+   * The `seq` of the record a course jump landed on, or null.
+   *
+   * The second signal a jump had no way to send, and for the same reason as
+   * `viewRequest`: moving the playhead says *when*, and the event log needs to
+   * know *which row*. One instant can carry dozens of records — the first data
+   * frame of `radio-primer` shares its nanosecond with 45 others and is the
+   * 43rd of them — so the time the playhead holds cannot pick the row the
+   * reader clicked, and before this field the log sometimes did not render that
+   * row at all (`src/ui/eventLogWindow.ts` has the census).
+   *
+   * Navigation does not have to clear it: `pickLogRows` honours it only while
+   * the playhead is still on that record's own instant, so a step, a seek or a
+   * second of playback releases it without a write.
+   *
+   * A **new run** is the one case that does, and it is not optional: `seq`
+   * restarts at 0 for every simulation, so a seq left over from the last
+   * recording would name a real, different record in this one. Every site that
+   * replaces the run already resets `playheadNs` to 0, so the reset rides along
+   * with that one — seven of them, and a new one that forgets this is a new one
+   * that forgets the playhead too, which is far louder.
+   */
+  jumpSeq: number | null
+  /** Record which row a jump landed on; null when the jump found nothing. */
+  markJump(seq: number | null): void
   selectLesson(id: string | null): void
   /** `lessonId` names the lesson the scene belongs to — a variant's scene is still that lesson's. */
   loadCourseScenario(sc: Scenario, lessonId?: string): void
@@ -139,7 +164,7 @@ export const useUi = create<UiState>((set, get) => ({
   mode: 'edit',
   scenario: startScenario,
   history: historyInit(startScenario),
-  playheadNs: 0,
+  playheadNs: 0, jumpSeq: null,
   playing: false,
   buffering: false,
   speedUsPerSec: 1000,
@@ -158,20 +183,20 @@ export const useUi = create<UiState>((set, get) => ({
     }
     if (m === 'simulate') {
       player.dispose()
-      set({ simError: null, playheadNs: 0, view: null, selectedFrame: null })
+      set({ simError: null, playheadNs: 0, jumpSeq: null, view: null, selectedFrame: null })
       player.speedUsPerSec = get().speedUsPerSec
       player.load(get().scenario)
       set({ mode: m, simSession: get().simSession + 1 })
     } else if (m === 'course') {
       courseStash = { scenario: get().scenario, history: get().history }
       player.dispose()
-      set({ mode: m, playing: false, view: null, playheadNs: 0, courseLoaded: false, courseLoadedFor: null, simError: null, selectedFrame: null })
+      set({ mode: m, playing: false, view: null, playheadNs: 0, jumpSeq: null, courseLoaded: false, courseLoadedFor: null, simError: null, selectedFrame: null })
     } else {
       // The banner belongs to the run that raised it: leaving it up over the
       // editor would show the learner a complaint about a plan they are in the
       // middle of fixing, beside the live one the session section already draws.
       player.dispose()
-      set({ mode: m, playing: false, view: null, playheadNs: 0, courseLoaded: false, courseLoadedFor: null, simError: null, selectedFrame: null })
+      set({ mode: m, playing: false, view: null, playheadNs: 0, jumpSeq: null, courseLoaded: false, courseLoadedFor: null, simError: null, selectedFrame: null })
     }
   },
   courseLessonId: initialLesson(),
@@ -181,6 +206,9 @@ export const useUi = create<UiState>((set, get) => ({
   viewRequest: 0,
   requestView() {
     set({ viewRequest: get().viewRequest + 1 })
+  },
+  markJump(seq) {
+    set({ jumpSeq: seq })
   },
   selectLesson(id) {
     remember('wifi-sim.lesson', id)
@@ -200,7 +228,7 @@ export const useUi = create<UiState>((set, get) => ({
     // a reader who walks out and back in gets their scene, not a reload.
     if (id !== null && id !== get().courseLoadedFor) {
       player.dispose()
-      set({ courseLessonId: id, courseLoaded: false, courseLoadedFor: null, playing: false, view: null, playheadNs: 0, simError: null, selectedFrame: null })
+      set({ courseLessonId: id, courseLoaded: false, courseLoadedFor: null, playing: false, view: null, playheadNs: 0, jumpSeq: null, simError: null, selectedFrame: null })
     } else set({ courseLessonId: id })
   },
   loadCourseScenario(sc, lessonId) {
@@ -211,7 +239,7 @@ export const useUi = create<UiState>((set, get) => ({
     // scene) and the reader has to be taken to it (`viewRequest`). The two other
     // writers of `simSession` bump it alone on purpose — `setMode` leaves the
     // reader where the mode puts them, and no mode but `course` has two panes.
-    set({ scenario: sc, simError: null, playheadNs: 0, view: null, courseLoaded: true, courseLoadedFor: lessonId ?? null, selectedNodeId: null, selectedFrame: null, simSession: get().simSession + 1, viewRequest: get().viewRequest + 1 })
+    set({ scenario: sc, simError: null, playheadNs: 0, jumpSeq: null, view: null, courseLoaded: true, courseLoadedFor: lessonId ?? null, selectedNodeId: null, selectedFrame: null, simSession: get().simSession + 1, viewRequest: get().viewRequest + 1 })
     player.speedUsPerSec = get().speedUsPerSec
     player.load(sc)
   },
@@ -220,7 +248,7 @@ export const useUi = create<UiState>((set, get) => ({
     courseStash = null
     remember('wifi-sim.mode', 'edit')
     player.dispose()
-    set({ mode: 'edit', scenario: sc, history: historyInit(sc), playing: false, view: null, playheadNs: 0, courseLoaded: false, courseLoadedFor: null, selectedFrame: null })
+    set({ mode: 'edit', scenario: sc, history: historyInit(sc), playing: false, view: null, playheadNs: 0, jumpSeq: null, courseLoaded: false, courseLoadedFor: null, selectedFrame: null })
   },
   setScenario(sc, coalesceKey = null) {
     const h = historyPush(get().history, sc, coalesceKey)
