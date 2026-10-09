@@ -54,6 +54,7 @@ import {
   symbolCitationOccurrences, symbolCitations, tableHeads, tableRows, unresolved, zhNumeral,
   type SymbolCitation,
 } from './coverage'
+import { LIMITS_DEBT_CEILING, limitsRatchet, orderedLessons } from './limitsDebt'
 
 const DOC = 'docs/wifi-feature-coverage.md'
 const doc = readDoc(DOC)
@@ -371,22 +372,28 @@ const FIG_HEAD = ['量', '实测', '断言在哪', '余量']
 /** The header of §14's 「引擎建了，无课」 summary table. */
 const BUILT_HEAD = ['#', '它是什么', '引擎', '这张表的哪一节']
 
-const byId = new Map(LESSONS.map((l) => [l.id, l]))
-const ordered = COURSE_ORDER.flatMap((id) => byId.get(id) ?? [])
+const ordered = orderedLessons()
 
 /**
- * The `limits` ratchet is the one figure in §17 that is a CEILING rather than a measurement, so
- * 「read it out and compare」 means comparing the document to the assertion instead of to the
- * course. Both say 292; neither of them says it twice.
+ * **The `limits` ratchet row, which until 2026-10-09 was the one row of §17 that was not measured
+ * at all.** It used to be read like this:
+ *
+ * ```
+ * const src = readFileSync(resolve(ROOT, 'tests/course/readability.test.ts'), 'utf8')
+ * const m = /owes no more than (\d+) \(lesson, term\) pairs/.exec(src)
+ * ```
+ *
+ * — the ceiling, lifted out of the ratchet's own `it` TITLE with a regex. That compared two pieces
+ * of text, and the row states two numbers: the debt (实测) and the slack under the ceiling (余量,
+ * printed as **0**, i.e. 「the debt has filled the ratchet exactly」). Neither was measured. Pay
+ * four pairs back without lowering the ceiling — which slice 3d did, 296 → 292 — and that 0 is
+ * silently false while both pieces of text still match each other.
+ *
+ * So the debt is measured now, by {@link limitsRatchet} in `tests/course/limitsDebt.ts`, which is
+ * the same call the ratchet assertion itself makes; the ceiling is `LIMITS_DEBT_CEILING` in that
+ * module, cited by both the assertion's title and this document's 断言在哪 cell; and the 余量 is
+ * `ceiling − debt`. The regex over a test file's source is gone.
  */
-const ratchetCeiling = (): number => {
-  const src = readFileSync(resolve(ROOT, 'tests/course/readability.test.ts'), 'utf8')
-  const m = /owes no more than (\d+) \(lesson, term\) pairs/.exec(src)
-  expect(m, 'readability.test.ts no longer names the `limits` ratchet in its own `it` title, so'
-    + ' §17 has nothing to be compared against — fix this reader, do not drop the comparison')
-    .not.toBeNull()
-  return Number(m![1])
-}
 
 /**
  * Every figure of §17's summary table, next to the thing that measures it. A `Map` rather than six
@@ -398,7 +405,7 @@ const ratchetCeiling = (): number => {
 const FIGURES: ReadonlyMap<string, () => number> = new Map([
   ['全课程主路径汉字', () => ordered.reduce((n, l) => n + mainPathChars(l), 0)],
   ['分钟数合计', () => ordered.reduce((n, l) => n + lessonMinutes(l), 0)],
-  ['`limits` 债务棘轮', ratchetCeiling],
+  ['`limits` 债务棘轮', () => limitsRatchet().debt],
   ['课数', () => ordered.length],
   ['模块数', () => MODULES.length],
   ['场景数（含 variants）',
@@ -444,6 +451,33 @@ describe(`${DOC}'s §17 summary table states figures, and every one is measured`
   it.each([...FIGURES.keys()])('%s is the measured value', (label) => {
     expect(figures.get(label), `§17 states ${label} = ${figures.get(label)}`)
       .toBe(FIGURES.get(label)!())
+  })
+
+  it('states the ratchet ceiling and the slack left under it, and both are measured', () => {
+    // The 实测 column of this row is covered by the `it.each` above (it is now the measured debt,
+    // not a regex over a test file's title). The other two numbers in the row are this one's: the
+    // ceiling the 断言在哪 cell cites, and the 余量 the row promises a reader.
+    const row = dataRows(doc, FIG_HEAD)
+      .find((r) => r[0].replaceAll('*', '').trim() === '`limits` 债务棘轮')
+    expect(row, 'the `limits` ratchet row is gone from §17').toBeDefined()
+
+    const cited = /≤ (\d+)/.exec(row![2])
+    expect(cited, 'the 断言在哪 cell no longer cites the ceiling as 「≤ N」').not.toBeNull()
+    expect(Number(cited![1]), 'the ceiling §17 cites, against LIMITS_DEBT_CEILING in'
+      + ' tests/course/limitsDebt.ts. Raising the ceiling needs a human to agree to it, and'
+      + ' nothing may raise it to make a build green — so the two statements of it are compared')
+      .toBe(LIMITS_DEBT_CEILING)
+
+    const stated = /^-?\d+$/.exec(row![3].replaceAll('*', '').trim())
+    expect(stated, 'the 余量 cell of the ratchet row is no longer a bare integer; it is the one'
+      + ' cell of this column that carries a figure rather than prose').not.toBeNull()
+    const { debt } = limitsRatchet()
+    expect(Number(stated![0]), `§17 says the ratchet has ${stated![0]} left. The measured debt is`
+      + ` ${debt} against a ceiling of ${LIMITS_DEBT_CEILING}, so the slack is`
+      + ` ${LIMITS_DEBT_CEILING - debt}. Pay debt down without lowering the ceiling and this`
+      + ' figure goes quietly false, which is exactly what it was free to do while the row was'
+      + " checked by reading the ratchet's own `it` title.")
+      .toBe(LIMITS_DEBT_CEILING - debt)
   })
 
   it('breaks 课数 down into the three lesson families it actually has', () => {
@@ -498,6 +532,29 @@ describe(`${DOC}'s §17 summary table states figures, and every one is measured`
       .toEqual([ordered.length, ordered.length])
     expect(chars, 'the corpus total, again').toBe(actual)
     expect(mean, 'and the quotient the sentence states').toBe(Math.round(actual / ordered.length))
+  })
+
+  it('lists the most recent lessons, and every character count in that list is measured', () => {
+    // 「最近五门新课：`amp-backscatter` 2 487、…」 — five ids with five figures, and on 2026-10-09
+    // every one of the five figures was exact while the SENTENCE was false: the list omitted
+    // `@link-2g`, which slice W3 added on 2026-10-08, later than all five. 「不陈，只是不全」 is
+    // its own defect class and this is the only shape of it the leading-integer reader cannot see,
+    // because these figures are in prose rather than in a 实测 cell. So the ids, the figures and
+    // the count word are all read out. The ORDER (「最新的在前」) stays prose: a test here has no
+    // access to when a lesson was committed.
+    const m = /最近(.+?)门新课[^：]*：([^）]+)）/.exec(doc)
+    expect(m, '§17 no longer lists the recent lessons in the shape this reads').not.toBeNull()
+    const listed = [...m![2].matchAll(/`([a-z0-9-]+)` (\d[\d ]*)/g)]
+      .map((x) => [x[1], Number(x[2].replaceAll(' ', ''))] as const)
+    expect(listed.length, `§17 says 「最近${m![1]}门新课」 and then lists ${listed.length}`)
+      .toBe(zhNumeral(m![1]))
+    const lessons = new Map(ordered.map((l) => [l.id, l]))
+    for (const [id, stated] of listed) {
+      const l = lessons.get(id)
+      expect(l, `§17 lists \`${id}\`, which is not a lesson of this course`).toBeDefined()
+      expect(stated, `§17 states \`${id}\` = ${stated} main-path characters`)
+        .toBe(mainPathChars(l!))
+    }
   })
 
   it('states the minute sum again inside the bucket table, and that copy is measured too', () => {

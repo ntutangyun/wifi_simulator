@@ -86,21 +86,13 @@ export const ofType = <K extends TLRecord['type']>(rs: TLRecord[], type: K): Ext
 // READABILITY_INCLUDE
 // ---------------------------------------------------------------------------
 
-/** The ids of `READABILITY_INCLUDE`, trimmed; an unset or blank variable names none. */
-export function includedIds(env: string | undefined): string[] {
-  return (env ?? '').split(',').map((s) => s.trim()).filter(Boolean)
-}
-
 /**
- * MIGRATING as this run sees it: the recorded list minus the ids of
- * `READABILITY_INCLUDE`. It only ever shrinks the list — an id the variable
- * names but MIGRATING does not hold changes nothing — so the switch can admit
- * a lesson to the contract test but never excuse one from it.
+ * The switch itself moved to `./limitsDebt` on 2026-10-09, next to the MIGRATING list it filters,
+ * so that module is a leaf (no `vitest` import) and can be measured by a plain `vite-node` probe.
+ * Re-exported here because this is where the docblock above sends a reader, and because
+ * `tests/course/kit.test.ts` tests it through this name.
  */
-export function effectiveMigrating(migrating: readonly string[], env: string | undefined): string[] {
-  const included = includedIds(env)
-  return migrating.filter((id) => !included.includes(id))
-}
+export { effectiveMigrating, includedIds } from './limitsDebt'
 
 // ---------------------------------------------------------------------------
 // the shape suite

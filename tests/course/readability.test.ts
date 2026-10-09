@@ -32,29 +32,20 @@ import {
   cellTexts, gradedProseTexts, lessonStrings, lessonTexts, mainPathChars, paragraphTexts, readerTexts,
   ZH_TERMS, ZH_TERMS_EXCLUDED, bracketedAtFirstZhUse, brackets, zhAkaViolations, zhTermFailure, type ZhTerm,
 } from '../../src/course/readability'
-import { effectiveMigrating } from './kit'
+import {
+  LIMITS_DEBT_CEILING, MIGRATING, MIGRATING_NOW, limitsRatchet, migratedLessons,
+  names, orderedLessons, owed, zhMainText, zhTermsFor,
+} from './limitsDebt'
 
 /**
- * Lessons still in the old shape. Each migration task removes its ids; the list
- * only shrinks. Empty since 2026-10-02: `amp-slots` and `amp-coexist` were the
- * last two, and the AMP track's last coverage hole besides them was the term
- * rule's own `graded` exclusion below, removed in the same pass.
+ * MIGRATING, the lesson lists and the one ruler now live in `tests/course/limitsDebt.ts`
+ * (imported above), because `tests/course/wifi-coverage.test.ts` measures the same `limits` debt
+ * over the same migrated set and used to do it by reading this file's text with a regex. The
+ * definitions are unchanged; see that module for why they moved.
  */
-export const MIGRATING: string[] = []
-
-/**
- * MIGRATING as this run grades it. `READABILITY_INCLUDE=uwb-sstwr,uwb-dstwr`
- * removes those ids for one run, so an implementer can hold a rewritten lesson
- * to the contract before the controller has registered it — without editing
- * this file, which is the controller's. The switch only ever shrinks the list
- * (tests/course/kit.ts), and the bookkeeping below reads the recorded
- * MIGRATING, so it can admit a lesson to the contract but never excuse one.
- */
-const MIGRATING_NOW = effectiveMigrating(MIGRATING, process.env.READABILITY_INCLUDE)
-
 const byId = new Map(LESSONS.map((l) => [l.id, l]))
-const ordered = COURSE_ORDER.flatMap((id) => byId.get(id) ?? [])
-const migrated = ordered.filter((l) => !MIGRATING_NOW.includes(l.id))
+const ordered = orderedLessons()
+const migrated = migratedLessons()
 
 describe('readability · migration bookkeeping', () => {
   it('every MIGRATING id is a real lesson still in the old shape', () => {
@@ -175,7 +166,7 @@ describe('readability · a rule is carried as a procedure', () => {
  * are collapsed professional depth — `sources` is where the clause numbers and
  * the English names already live.
  */
-/**
+/*
  * The prose this rule grades, in the reader's order: `gradedProseTexts`, which is
  * one of the four selectors over the single lesson walk (2026-10-05).
  *
@@ -190,11 +181,10 @@ describe('readability · a rule is carried as a procedure', () => {
  * `"undefined"` in the joined text instead of a missing `why` failing anything.
  * `body` is walked too, in the slot `picture` and `numbers` occupy in the new
  * shape, so an old-shape lesson's prose is graded rather than silently replaced.
+ *
+ * `zhMainText` (imported from `./limitsDebt`) is `gradedProseTexts(l).join(' ')`; the assertion
+ * below is the one place that needs the strings unjoined, and it calls the selector directly.
  */
-const zhMainTexts = (l: Lesson): string[] => gradedProseTexts(l)
-
-/** One joined Chinese string per lesson, in reading order: what "first use" is first in. */
-const zhMainText = (l: Lesson): string => zhMainTexts(l).join(' ')
 
 /**
  * The swap of 2026-10-05, pinned from the side that matters: `gradedProseTexts`
@@ -229,12 +219,13 @@ describe('readability · the graded-prose selector is the walk it replaced', () 
   })
 })
 
-/**
- * The glossary rows graded in one lesson: all of them, minus the three whose
- * Chinese word means something else in the other track (`ZhTerm.track` says
- * which, and why each one is there).
+/*
+ * `zhTermsFor` — the glossary rows graded in one lesson: all of them, minus the three whose
+ * Chinese word means something else in the other track (`ZhTerm.track` says which, and why each
+ * one is there) — is imported from `./limitsDebt`, together with `zhMainText` and `names`. One
+ * definition of the ruler, used by this file's bracket rule and by the `limits` debt the coverage
+ * table states.
  */
-const zhTermsFor = (l: Lesson): ZhTerm[] => ZH_TERMS.filter((t) => !t.track || t.track === trackOf(l))
 
 /**
  * Every failure of one lesson: the bracket arm, then the `aka` arm. Collected
@@ -721,8 +712,7 @@ describe('readability · a name that arrives early says where it is taught', () 
 describe('readability · a term in the chrome has somewhere to have been learned', () => {
   const lessonsById = new Map(LESSONS.map((l) => [l.id, l]))
 
-  /** One ruler for both sides of every comparison below. */
-  const names = (text: string, t: ZhTerm): boolean => bracketedAtFirstZhUse(text, t) !== null
+  /** One ruler for both sides of every comparison below — `names` comes from `./limitsDebt`. */
   const taught = (text: string, t: ZhTerm): boolean => bracketedAtFirstZhUse(text, t) === true
   const wanted = (t: ZhTerm): string => (t.zh
     ? `${t.zh}${t.abbr ? `（${t.en}, ${t.abbr}）` : `（${t.en}）`}`
@@ -924,19 +914,15 @@ describe('readability · a term in the chrome has somewhere to have been learned
  * is the ruler here, and it is the same call on both sides.
  */
 describe('readability · the limits debt is pinned, and the 297th entry is refused', () => {
-  /** The one ruler: did this text name the term at all (bracketed or not)? */
-  const names = (text: string, t: ZhTerm): boolean => bracketedAtFirstZhUse(text, t) !== null
-
-  /** Criterion Q, for one field of one lesson. */
-  const owed = (l: Lesson, field: string): string[] => {
-    const own = zhMainText(l)
-    return zhTermsFor(l)
-      .filter((t) => names(field, t) && !names(own, t))
-      .map((t) => `${l.id}|${t.zh ?? t.abbr}`)
-  }
-  const limitsOf = (l: Lesson): string => l.limits.map((x) => x.text).join(' ')
+  // `names`, `owed` (criterion Q for one field of one lesson), `limitsOf`, the ceiling and the
+  // measured ratchet all come from `./limitsDebt`, unchanged. They moved there on 2026-10-09 so
+  // that §17 of docs/wifi-feature-coverage.md — which states this debt AND its 余量 to a reader —
+  // compares against the MEASURED debt instead of against this `it`'s title text.
 
   /**
+   * **The number itself is `LIMITS_DEBT_CEILING` in `./limitsDebt`**, so this `it`'s title, the
+   * comparison below and §17 of docs/wifi-feature-coverage.md all read one definition.
+   *
    * **This number is the ceiling AND the current value: the debt stands at exactly 292.** There
    * is no slack in it, and that is deliberate rather than an accident of when it was measured —
    * a ratchet with room left in it is not a ratchet. What it means in practice, for whoever next
@@ -968,16 +954,25 @@ describe('readability · the limits debt is pinned, and the 297th entry is refus
    * reworded, including one that was a term COLLISION rather than a missing bracket (`探测` is
    * the glossary's channel sounding, and the sentence meant a ping). The number did not move.
    */
-  it('owes no more than 292 (lesson, term) pairs in `limits` — criterion Q, not P', () => {
-    const pairs = migrated.flatMap((l) => owed(l, limitsOf(l)))
-    expect(pairs.length, `${pairs.length} official terms are named in a lesson's \`limits\` and`
+  it(`owes no more than ${LIMITS_DEBT_CEILING} (lesson, term) pairs in \`limits\` — criterion Q, not P`, () => {
+    const { pairs, debt } = limitsRatchet()
+    expect(debt, `${debt} official terms are named in a lesson's \`limits\` and`
       + " never on that lesson's own main path. This is a ratchet: it does not ask for the"
       + ' existing ones to be fixed, it refuses the next one. If you added a `limits` entry,'
-      + ' name the term on the main path too.').toBeLessThanOrEqual(292)
+      + ' name the term on the main path too.').toBeLessThanOrEqual(LIMITS_DEBT_CEILING)
     // and it is not allowed to quietly become vacuous either: the debt is real today
-    expect(pairs.length, 'the debt this ratchet exists to make visible').toBeGreaterThanOrEqual(200)
+    expect(debt, 'the debt this ratchet exists to make visible').toBeGreaterThanOrEqual(200)
     expect(new Set(pairs.map((p) => p.split('|')[0])).size, 'lessons carrying the debt')
       .toBeGreaterThanOrEqual(60)
+    // and the number this ratchet asserts on is the number §17 of docs/wifi-feature-coverage.md
+    // is compared against. Measured 2026-10-09 that this is not decoration: re-measuring the debt
+    // privately HERE with a looser ruler (a bare `includes` on the main-path side, the historical
+    // 279-vs-292 bug) gave 285 and left both this assertion and §17's row green — the ceiling had
+    // quietly loosened by seven with nothing red. A fork on the document's side is caught by the
+    // document; this is the same catch for a fork on this side.
+    expect(debt, 'the ratchet is asserting on a privately re-measured debt, not on the shared'
+      + ' `limitsRatchet()` that §17 of docs/wifi-feature-coverage.md is compared against')
+      .toBe(limitsRatchet().debt)
   })
 
   /**
@@ -990,10 +985,11 @@ describe('readability · the limits debt is pinned, and the 297th entry is refus
   it('carries more of this debt than `sources` and `deeper` put together', () => {
     const inSources = migrated.flatMap((l) => owed(l, (l.sources ?? []).join(' ')))
     const inDeeper = migrated.flatMap((l) => owed(l, gradedProseTexts({ picture: l.deeper }).join(' ')))
-    const inLimits = migrated.flatMap((l) => owed(l, limitsOf(l)))
-    // 186 and 87 on 2026-10-05, against `limits`' 292 — the docblock above this describe once
+    const inLimits = limitsRatchet().pairs
+    // 188 and 92 on 2026-10-09, against `limits`' 292 — the docblock above this describe once
     // recorded `sources` as 182, which was already stale when it was written (measured 185 before
-    // slice 3d). The assertions are floors and an ordering, so none of the three moved.
+    // slice 3d, 186 after it, 188 today). The assertions are floors and an ordering, so none of
+    // the three moved.
     expect(inSources.length).toBeGreaterThan(100)
     expect(inDeeper.length).toBeGreaterThan(50)
     expect(inLimits.length, '`limits` is rendered open by default, written at the density of'
@@ -1193,10 +1189,15 @@ describe('readability · the stated minutes, and the characters behind them', ()
   })
 
   it('states 1 875 minutes across the whole course, and no earlier lesson moved', () => {
-    // 1 875 since slice W3: `link-2g` is 2 494 main-path characters, three things to observe and
-    // two experiments — raw 25.34, which the formula rounds to 25. **Measured after the prose was
-    // final, not budgeted**, and it sits 476 characters clear of the 22.5 boundary below and 475
-    // clear of the 27.5 one above, so it does not appear near the top of the census. No earlier
+    // 1 875 since slice W3: `link-2g` is 2 496 main-path characters, three things to observe and
+    // two experiments — raw 25.3455, which the formula rounds to 25. **Measured after the prose
+    // was final, not budgeted**, and it sits 626 characters clear of the 22.5 boundary below and
+    // 474 clear of the 27.5 one above, so it does not appear near the top of the census.
+    // (Re-measured 2026-10-09: this comment read 2 494 / raw 25.34 / 476 and 475. The character
+    // count was wrong by two, the raw minute followed it, and 476 was the margin to the boundary
+    // ABOVE, printed as the one below; 475 was never either of them. The lesson itself did not
+    // move — `git log -p src/course/tier3/link-2g.ts` is one commit — so the figure was wrong when
+    // it was written. Same defect class as the six §17 figures: hand-written, unchecked.) No earlier
     // lesson moved: that slice added one lesson, two scene builders and one `MODULES` entry, and
     // edited no other lesson's prose — the 33 UWB edits in the same commit are `module` indices,
     // which `MAIN_PATH_SECTIONS` does not count.
