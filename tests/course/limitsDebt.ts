@@ -126,11 +126,33 @@ export const limitsOf = (l: Lesson): string => l.limits.map((x) => x.text).join(
 export const LIMITS_DEBT_CEILING = 292
 
 /**
+ * The per-lesson main-path band the lesson contract enforces: about a third of the mean lesson,
+ * and twice it. `readability.test.ts` asserts it lesson by lesson with **strict** comparisons
+ * (`> floor`, `< ceiling`), so a lesson sitting exactly on either end FAILS — which is why the
+ * 「distance to the edge」 a reader is shown and the 「characters you may still add」 differ by one.
+ *
+ * It lives here for the same reason the ceiling does: §17 of `docs/wifi-feature-coverage.md`
+ * states this band to a reader AND states the tightest lesson's distance from its upper end, and
+ * a number stated in two places with nothing comparing them is this document's standing defect.
+ */
+export const MAIN_PATH_BAND = { floor: 700, ceiling: 4_400 } as const
+
+/**
  * The ratchet, measured: the debt as a list of `lesson|term` pairs, its size, and the slack left
  * under the ceiling.
  *
  * Both sides call THIS, which is the whole point of the module: §17's row and the assertion it
  * cites cannot drift apart by one side being re-measured and the other re-typed.
+ */
+/**
+ * **Memoised, and that is a loaded gun if anybody points it at a mutated corpus.** The lessons are
+ * module-level constants, so one process sees one debt and the memo is free; but a caller that
+ * MUTATES a lesson's `limits` and then asks again — which is exactly what a planted-violation
+ * probe does — gets the number from before the mutation, silently and with no way to tell. This
+ * repository has already been bitten three times by a measurement taken with a broken instrument,
+ * and a memo that answers for a corpus that no longer exists is the next one. If you need the debt
+ * of a changed corpus, call {@link owed} / {@link limitsOf} over your own lesson list; do not
+ * reach for this.
  */
 let memo: { pairs: string[]; debt: number; slack: number } | null = null
 

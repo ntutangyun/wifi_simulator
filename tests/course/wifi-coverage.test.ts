@@ -54,7 +54,7 @@ import {
   symbolCitationOccurrences, symbolCitations, tableHeads, tableRows, unresolved, zhNumeral,
   type SymbolCitation,
 } from './coverage'
-import { LIMITS_DEBT_CEILING, limitsRatchet, orderedLessons } from './limitsDebt'
+import { LIMITS_DEBT_CEILING, MAIN_PATH_BAND, limitsRatchet, orderedLessons } from './limitsDebt'
 
 const DOC = 'docs/wifi-feature-coverage.md'
 const doc = readDoc(DOC)
@@ -480,6 +480,87 @@ describe(`${DOC}'s §17 summary table states figures, and every one is measured`
       .toBe(LIMITS_DEBT_CEILING - debt)
   })
 
+  it('holds two zeros in 余量 that are not the same kind of zero, and neither is decoration', () => {
+    // **The last block of this family, and the one that looked finished.** Two rows of §17 print a
+    // bare `0` in 余量 and they mean different things:
+    //
+    //  - the ratchet's 0 is `上限 − 实测债务`. It CAN be non-zero, and the `it` above measures it.
+    //  - the minute sum's 0 is structural: the figure is held by an EQUALITY (`.toBe(1 875)` in
+    //    readability.test.ts, and the `it.each` above compares §17's copy with `.toBe` as well),
+    //    so the set of passing values is a single point and the slack is identically zero. There
+    //    is nothing to measure; what there is to assert is that it is 0 and that the cell beside
+    //    it still says 等式, because the day that assertion is relaxed to a band this 0 becomes a
+    //    figure nobody computes — the ratchet's old shape exactly.
+    //
+    // So the two are answered by kind, and the KIND SET is pinned: a third row printing a bare
+    // integer in 余量 owes a line here, which is how 「a 0 that looks checked」 stops being free.
+    const KINDS: ReadonlyMap<string, 'equality' | 'ceiling'> = new Map([
+      ['分钟数合计', 'equality'],
+      ['`limits` 债务棘轮', 'ceiling'],
+    ])
+    const bare = dataRows(doc, FIG_HEAD)
+      .filter((r) => /^-?\d+$/.test(r[3].replaceAll('*', '').trim()))
+    expect(bare.map((r) => r[0].replaceAll('*', '').trim()),
+      'a row of §17 prints a bare number in 余量 and nothing here says which kind of 余量 it is;'
+      + ' an unanswered one is the defect this layer exists for')
+      .toEqual([...KINDS.keys()])
+
+    const { debt } = limitsRatchet()
+    for (const row of bare) {
+      const label = row[0].replaceAll('*', '').trim()
+      const stated = Number(row[3].replaceAll('*', '').trim())
+      if (KINDS.get(label) === 'equality') {
+        expect(row[2], `§17 says ${label} has 余量 ${stated}, which is only true because the`
+          + ' assertion behind it is an equality — and its 断言在哪 cell no longer says 等式')
+          .toContain('等式')
+        expect(stated, `§17 says ${label} has 余量 ${stated}. An equality has a single passing`
+          + ' value, so its slack is identically 0 — not 0 as a coincidence of today, and not a'
+          + ' number anybody computes. If this is ever non-zero the assertion stopped being an'
+          + ' equality, and then the figure needs a measured 余量 like the ratchet row has.')
+          .toBe(0)
+      } else {
+        expect(row[2], `§17 says ${label} has 余量 ${stated}; a measured slack needs a ceiling`
+          + ' and its 断言在哪 cell no longer cites one as 「≤ N」').toMatch(/≤ \d/)
+        expect(stated, 'the measured slack, which is the one of these two zeros that can move')
+          .toBe(LIMITS_DEBT_CEILING - debt)
+      }
+    }
+  })
+
+  it('names the tightest lesson against the per-lesson ceiling, and its distance from it', () => {
+    // The 余量 cell of the 全课程主路径汉字 row is three stated figures in prose — the lesson, its
+    // characters and its distance from the upper end of the band — and none of them was read.
+    // 「距上沿 370」 is arithmetic nobody did: 4 400 − 4 030.
+    const row = dataRows(doc, FIG_HEAD)
+      .find((r) => r[0].replaceAll('*', '').trim() === '全课程主路径汉字')
+    expect(row, 'the 全课程主路径汉字 row is gone from §17').toBeDefined()
+
+    const band = /逐课 \((\d[\d ]*), (\d[\d ]*)\)/.exec(row![2])
+    expect(band, 'the 断言在哪 cell no longer states the per-lesson band as 「逐课 (floor, ceiling)」')
+      .not.toBeNull()
+    const [floor, ceiling] = band!.slice(1).map((x) => Number(x.replaceAll(' ', '')))
+    expect([floor, ceiling], 'the band §17 states, against MAIN_PATH_BAND in'
+      + ' tests/course/limitsDebt.ts — the constant readability.test.ts asserts lesson by lesson')
+      .toEqual([MAIN_PATH_BAND.floor, MAIN_PATH_BAND.ceiling])
+
+    const m = /逐课最紧的是 `@([a-z0-9-]+)` (\d[\d ]*)（距上沿 (\d[\d ]*)）/.exec(row![3])
+    expect(m, 'the 余量 cell no longer names the tightest lesson in the shape this reads')
+      .not.toBeNull()
+    const id = m![1]
+    const [chars, margin] = m!.slice(2).map((x) => Number(x.replaceAll(' ', '')))
+    const tightest = ordered.reduce((a, b) => (mainPathChars(b) > mainPathChars(a) ? b : a))
+    expect(id, `§17 calls @${id} the tightest lesson against the ceiling; the longest main path`
+      + ` in the course is @${tightest.id}'s, at ${mainPathChars(tightest)} characters`)
+      .toBe(tightest.id)
+    expect(chars, `§17 states @${id} = ${chars} main-path characters`).toBe(mainPathChars(tightest))
+    // The DISTANCE to the edge, which is what 「距上沿」 says. The room is one character less: the
+    // contract asserts `toBeLessThan(ceiling)`, strictly, so a lesson landing exactly on 4 400
+    // fails. Worth knowing before somebody reads this cell as a budget and spends all of it.
+    expect(margin, `§17 says @${id} sits ${margin} characters below the per-lesson ceiling;`
+      + ` ${ceiling} − ${mainPathChars(tightest)} = ${ceiling - mainPathChars(tightest)}`)
+      .toBe(ceiling - mainPathChars(tightest))
+  })
+
   it('breaks 课数 down into the three lesson families it actually has', () => {
     // The breakdown inside the 课数 cell is a second stated figure, and on 2026-10-09 it was stale
     // in the same edit and for the same reason: 87（Wi-Fi 49、AMP 5、UWB 33）while W3's `@link-2g`
@@ -611,7 +692,8 @@ const CENSUS: readonly (readonly [readonly string[], string])[] = [
   [['Tier 4 原定的条目', '状态'], '§15 — prose cells, no figures'],
   [['子项目', '规格', '实际状态'], '§16 — prose cells, no figures'],
   [['A–G', '零到一百的阶段/刀', '谁实际交的'], '§16 — prose cells, no figures'],
-  [FIG_HEAD, '§17 — statedFigures, all six against the course'],
+  [FIG_HEAD, '§17 — statedFigures, all six against the course; plus the 余量 column: the two'
+    + ' bare zeros by kind (structural vs measured) and the tightest-lesson distance'],
   [['课', 'raw 分钟', '到下一档还剩', '后果'],
     '§17 bucket margins — NOT pinned row by row (re-measured 2026-10-09: all six exact); its one'
     + ' prose figure, the minute sum, IS pinned above'],

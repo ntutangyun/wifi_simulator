@@ -33,7 +33,7 @@ import {
   ZH_TERMS, ZH_TERMS_EXCLUDED, bracketedAtFirstZhUse, brackets, zhAkaViolations, zhTermFailure, type ZhTerm,
 } from '../../src/course/readability'
 import {
-  LIMITS_DEBT_CEILING, MIGRATING, MIGRATING_NOW, limitsRatchet, migratedLessons,
+  LIMITS_DEBT_CEILING, MAIN_PATH_BAND, MIGRATING, MIGRATING_NOW, limitsRatchet, migratedLessons,
   names, orderedLessons, owed, zhMainText, zhTermsFor,
 } from './limitsDebt'
 
@@ -1167,12 +1167,12 @@ describe('readability · the stated minutes, and the characters behind them', ()
         + ' is NOT what catches a lost section: the per-section census in'
         + ' tests/course/readability-rules.test.ts is, and it is exact.'
         + ` The course, shortest first:\n${census()}`)
-        .toBeGreaterThan(700)
+        .toBeGreaterThan(MAIN_PATH_BAND.floor)
       expect(n, `@${id} has ${n} main-path characters, past twice the mean lesson. A lesson that`
         + ' long is a lesson teaching two topics, and the answer is to split it, never to'
         + ' compress it (curriculum.ts, lessonMinutes).'
         + ` The course, longest first:\n${sorted.slice().reverse().map(([i, c]) => `  ${i} ${c}`).join('\n')}`)
-        .toBeLessThan(4_400)
+        .toBeLessThan(MAIN_PATH_BAND.ceiling)
     }
   })
 
